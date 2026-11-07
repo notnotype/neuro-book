@@ -342,10 +342,6 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
         if (seq !== openSeq || result.ok) return;
         notice.value = result.code === "unknown-command" ? {kind: "editor-missing", address} : {kind: "open-failed", address, reason: result.reason};
     };
-    /** 拖到编辑组：依次以常驻方式在那一组打开（第一项让它成为活动组，其余落在同一组）。 */
-    const openDropped = (group: string, addresses: ReadonlyArray<string>): void => {
-        for (const address of addresses) void open(address, "permanent", group);
-    };
     const find = (id: string): Row | undefined => rows.value.find((row) => row.id === id);
     const toggle = (row: Row): void => {
         if (row.kind === "edit" || (row.kind === "root" && row.status.kind === "unbound") || (row.kind === "entry" && !row.expandable)) return;
@@ -696,7 +692,7 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
     const dropAction = (sources: ReadonlyArray<string>, over: DropOver | null): DropAction => {
         if (over === null) return NO_DROP;
         if (over.kind === "blank") return resolveBlankDrop(sources, find);
-        if (over.kind === "editor") return resolveEditorDrop(sources, over.group, find);
+        if (over.kind === "editor") return resolveEditorDrop(sources, over, find);
         return resolveDrop(sources, rows.value, over, manifestOrder);
     };
 
@@ -983,9 +979,9 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
             if (current === null || items === null) return;
             const action = dropAction(current.sources, over);
             if (action.kind === "none" || !sameDrop(action, current.action)) return;
-            // 在编辑组打开不是文件操作：不等拿起时冻结的令牌（docs/specs/workbench/files-explorer.md 的“拖动”）。
+            // 打开不是文件操作：不等拿起时冻结的令牌（docs/specs/workbench/files-explorer.md 的“拖动”）。
             if (action.kind === "open") {
-                openDropped(action.group, action.addresses);
+                if (over?.kind === "editor") over.host.commit(action.drop, action.addresses);
                 return;
             }
             const token = {sources: current.sources};

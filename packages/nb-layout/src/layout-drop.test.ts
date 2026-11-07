@@ -2,7 +2,7 @@ import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
 import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropPanelAt, layoutDropSectors, previewEdgeDrop, previewRevealRects, resolveLayoutDrop} from "./layout-drop";
-import type {LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId} from "./layout-drop";
+import type {LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId, LayoutDropSource} from "./layout-drop";
 import {edgeTargetOf} from "./layout-doc";
 import type {LayoutDoc, LayoutPolicy, LayoutSource} from "./layout-doc";
 import type {LayoutProjectionOptions} from "./layout-project";
@@ -19,7 +19,7 @@ const GEOMETRY: ReadonlyArray<LayoutDropPanelGeometry> = [
     {id: "ec", strip: rect(601, 0, 900, 30), body: rect(601, 30, 900, 600), insertionAt: () => 0},
 ];
 
-function drop(doc: LayoutDoc, source: LayoutSource, x: number, y: number, overrides: Partial<LayoutDropInput> = {}) {
+function drop(doc: LayoutDoc, source: LayoutDropSource, x: number, y: number, overrides: Partial<LayoutDropInput> = {}) {
     return resolveLayoutDrop({doc, source, point: {x, y}, panels: GEOMETRY, policy: testPolicy(), ...overrides});
 }
 
@@ -390,3 +390,35 @@ describe("浮动窗的落点", () => {
         expect(candidates.at(-1)?.region).toBe("f");
     });
 });
+
+describe("文档里还没有的标签（资源树拖来的文件）", () => {
+    const FILE: LayoutDropSource = {kind: "new", tab: tab("file")};
+    const PROJECTION_FOR_FILE: LayoutProjectionOptions = {
+        constraints: () => ({minimumSize: {width: 10, height: 10}, maximumSize: {width: Number.POSITIVE_INFINITY, height: Number.POSITIVE_INFINITY}}),
+        barThickness: () => 0,
+        headHeight: 32,
+        collapseThreshold: 24,
+        sashSize: 1,
+    };
+
+    it("接受矩阵照问：编辑组接收，工具面板不接收；空来源的提前返回不拦它", () => {
+        expect(drop(THREE(), FILE, 750, 300)).toEqual({kind: "center", panel: "ec"});
+        expect(drop(THREE(), FILE, 450, 300)).toBeNull();
+    });
+
+    it("预览：放回原处恒为假，外缘的矩形是真实结果，提交不走这里", () => {
+        const doc = THREE();
+        const center = applyLayoutDrop(doc, FILE, {kind: "center", panel: "ec"}, testPolicy());
+        expect(center.ok && center.doc !== doc).toBe(true);
+        const strip = applyLayoutDrop(doc, FILE, {kind: "strip", panel: "ec", index: 0}, testPolicy());
+        expect(strip.ok && strip.doc.panels.ec?.tabs[0]).toEqual(tab("file"));
+        const action = {kind: "edge", target: {kind: "split", panel: "ec", edge: "right"}} as const;
+        const edge = applyLayoutDrop(doc, FILE, action, testPolicy());
+        expect(edge.ok && Object.keys(edge.doc.panels).length).toBe(Object.keys(doc.panels).length + 1);
+        expect(previewEdgeDrop(doc, FILE, action, testPolicy(), PROJECTION_FOR_FILE, {width: 900, height: 600}, 1)).not.toBeNull();
+        const floated = applyLayoutDrop(doc, FILE, {kind: "float", rect: {x: 0, y: 0, width: 300, height: 200}}, testPolicy());
+        expect(floated.ok && floated.doc.floats).toHaveLength(1);
+        expect(applyLayoutDrop(doc, FILE, {kind: "reveal", panel: "a"}, testPolicy()).ok).toBe(false);
+    });
+});
+

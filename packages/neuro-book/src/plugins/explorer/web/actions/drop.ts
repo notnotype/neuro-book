@@ -6,19 +6,21 @@
  * - 其余位置是两行之间的缝。缝可能同时属于几层（子树末尾），按指针的横向位置选层；层定了，接收目录与位置也就定了。
  *   接收目录在内容树里时调整顺序（源都在这一层）或移动并放到这个位置；接收目录是普通文件夹时移入它（没有位置）。
  * - 树里行以外的空白：移入源所在方案的根。
- * - 编辑组：在那一组打开源里能打开的项（不是文件操作）。
+ * - 树外工作台给的落点：在那里打开源里能打开的项（不是文件操作）。
  * - 落在自己或自己的后代上、移入源都已在的目录、落在缺失条目上、跨方案：没有落点。
  */
+
+import type {WorkbenchFileDrop, WorkbenchFileDropHost} from "nbook/plugins/workbench/shared/contracts";
 
 import {isWithin, nameOf, parentAddress, resourceOf, rootAddress} from "../tree/address";
 import type {EntryRow, RootRow, Row} from "../tree/rows";
 import {placeNames} from "./reorder-plan";
 
-/** 指针下的落点：一行（指针在行里的纵向比例与相对行左边的横向像素）、树里行以外的空白，或树外的一个编辑组。 */
+/** 指针下的落点：一行（指针在行里的纵向比例与相对行左边的横向像素）、树里行以外的空白，或树外工作台给的落点。 */
 export type DropOver =
     | {readonly kind: "row"; readonly id: string; readonly offset: number; readonly x: number}
     | {readonly kind: "blank"}
-    | {readonly kind: "editor"; readonly group: string};
+    | {readonly kind: "editor"; readonly host: WorkbenchFileDropHost; readonly drop: WorkbenchFileDrop};
 
 /** 插入线：画在 `row` 那一行的下沿，起点缩进到第 `depth` 层。 */
 export interface DropLine {
@@ -32,7 +34,7 @@ export interface DropAnchor {
     readonly side: "before" | "after";
 }
 
-/** 拖到编辑组时一次最多打开这么多项，多出的不打开（标签上说明）。 */
+/** 拖出树时一次最多打开这么多项，多出的不打开（标签上说明）。 */
 export const OPEN_LIMIT = 10;
 
 export type DropAction =
@@ -43,7 +45,7 @@ export type DropAction =
     | {readonly kind: "reorder"; readonly parent: string; readonly names: ReadonlyArray<string>; readonly before: string | null; readonly line: DropLine; readonly anchor: DropAnchor}
     /** 移动到内容树里 `target` 这一层的指定位置：`before` 之前，`null` 为末尾。 */
     | {readonly kind: "place"; readonly target: string; readonly before: string | null; readonly line: DropLine; readonly anchor: DropAnchor}
-    | {readonly kind: "open"; readonly group: string; readonly addresses: ReadonlyArray<string>; readonly skipped: number};
+    | {readonly kind: "open"; readonly drop: WorkbenchFileDrop; readonly addresses: ReadonlyArray<string>; readonly skipped: number};
 
 const NONE: DropAction = {kind: "none"};
 
@@ -62,7 +64,7 @@ export function dropKey(action: DropAction): string | null {
         case "place":
             return JSON.stringify(["place", action.target, action.before]);
         case "open":
-            return JSON.stringify(["open", action.group, action.addresses]);
+            return JSON.stringify(["open", action.drop.key, action.addresses]);
     }
 }
 
@@ -155,11 +157,11 @@ export function resolveBlankDrop(sources: ReadonlyArray<string>, rootOf: (addres
 }
 
 /** 编辑组：源里能打开的项（文件与有正文的节点）依次在那一组打开，目录跳过；超过上限的不打开。 */
-export function resolveEditorDrop(sources: ReadonlyArray<string>, group: string, rowOf: (address: string) => Row | undefined): DropAction {
+export function resolveEditorDrop(sources: ReadonlyArray<string>, over: Extract<DropOver, {readonly kind: "editor"}>, rowOf: (address: string) => Row | undefined): DropAction {
     const opens = sources.flatMap((source) => {
         const row = rowOf(source);
         return row?.kind === "entry" && row.opens !== null ? [row.opens] : [];
     });
     if (opens.length === 0) return NONE;
-    return {kind: "open", group, addresses: opens.slice(0, OPEN_LIMIT), skipped: Math.max(0, opens.length - OPEN_LIMIT)};
+    return {kind: "open", drop: over.drop, addresses: opens.slice(0, OPEN_LIMIT), skipped: Math.max(0, opens.length - OPEN_LIMIT)};
 }

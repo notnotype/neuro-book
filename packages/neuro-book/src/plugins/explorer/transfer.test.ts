@@ -589,15 +589,17 @@ describe("Spec workbench.files-explorer 拖动：判定与提交", () => {
         await controller.dropDrag({kind: "blank"});
         expect(await text(at(w.scene, "zz.md"))).toBe("ZZ");
 
-        // 编辑组：执行 nbook.editor.open（这个场地没有编辑器，给出“编辑器尚未接入”），不发写请求。
+        // 树外：交给工作台在落点打开，不是文件操作，不发写请求。
         await until(w, "zz.md 出现在根", () => row(controller, "project://zz.md") !== undefined);
         const before = writes(w).length;
         controller.startDrag("project://zz.md");
-        controller.hoverDrag({kind: "editor", group: "g1"});
-        expect(controller.drag.value?.action).toEqual({kind: "open", group: "g1", addresses: ["project://zz.md"], skipped: 0});
-        await controller.dropDrag({kind: "editor", group: "g1"});
-        await waitUntil("提示出现", () => controller.notice.value);
-        expect(controller.notice.value).toEqual({kind: "editor-missing", address: "project://zz.md"});
+        const committed: Array<ReadonlyArray<string>> = [];
+        const drop = {action: {kind: "center", panel: "g1"}, key: "center", label: "放这里"} as const;
+        const over = {kind: "editor", drop, host: {resolve: () => drop, show: () => undefined, commit: (_drop: unknown, addresses: ReadonlyArray<string>) => committed.push(addresses)}} as const;
+        controller.hoverDrag(over);
+        expect(controller.drag.value?.action).toEqual({kind: "open", drop, addresses: ["project://zz.md"], skipped: 0});
+        await controller.dropDrag(over);
+        expect(committed).toEqual([["project://zz.md"]]);
         await barrier(w);
         expect(writes(w)).toHaveLength(before);
     });

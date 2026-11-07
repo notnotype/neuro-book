@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /** 资源管理器的虚拟树（同名 .md）。 */
 import {OverlayScrollbar} from "@notnotype/nb-ui/components";
-import {DropFeedbackOverlay, createDragSession, useLayoutExtent} from "@notnotype/nb-layout/vue";
+import {createDragSession, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import type {DragSession, DropFeedbackPreview} from "@notnotype/nb-layout/vue";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
 
 import {dropKey} from "../actions/drop";
+import type {WorkbenchFileDropHost} from "nbook/plugins/workbench/shared/contracts";
+
 import type {DropAction, DropOver} from "../actions/drop";
 import type {KeyOutcome} from "../controller";
 import {useExplorerText} from "../text";
@@ -235,10 +237,11 @@ const hovered = computed(() => gesture.value?.state.value?.drop ?? null);
 const pointer = computed(() => gesture.value?.state.value?.point ?? null);
 const overOf = (target: TreeDragTarget | null): Hovered | null => {
     if (target === null || root.value === null) return null;
-    const geometry = {rect: target.rect, tree: root.value.getBoundingClientRect(), scrollTop: root.value.scrollTop};
+    const tree = root.value.getBoundingClientRect();
+    const geometry = {rect: target.kind === "editor" ? tree : target.rect, tree, scrollTop: root.value.scrollTop};
     const withAction = (over: DropOver): Hovered => ({over, action: props.previewDrop?.(over) ?? {kind: "none"}, ...geometry});
     if (target.kind === "blank") return withAction({kind: "blank"});
-    if (target.kind === "editor") return withAction({kind: "editor", group: target.group});
+    if (target.kind === "editor") return withAction({kind: "editor", host: target.host, drop: target.drop});
     const row = props.rows.find((candidate) => candidate.id === target.id);
     return row === undefined ? null : withAction({kind: "row", id: target.id, offset: target.offset, x: target.x});
 };
@@ -494,13 +497,17 @@ watch(() => props.drag == null, (ended) => {
 watch(() => props.rows, () => gesture.value?.invalidate());
 
 /** 在编辑组打开：画整个编辑组（树外，用编辑区共用的反馈层）。 */
-const dropPreview = computed((): DropFeedbackPreview | null => {
-    const action = props.drag?.action;
-    const at = hovered.value;
-    if (action?.kind !== "open" || at === null) return null;
-    const {left, right, top, bottom} = at.rect;
-    return {areaRect: {left, right, top, bottom}, entryRect: null, indicator: null, orientation: "vertical"};
-});
+/** 树外的落点：反馈归工作台画（矩形、插入线、分区与读屏），这里只报它。放下、取消、离开都是下面这个 `null`。 */
+let shownHost: WorkbenchFileDropHost | null = null;
+watch(() => {
+    const over = hovered.value?.over;
+    return props.drag?.action.kind === "open" && over?.kind === "editor" ? over : null;
+}, (next) => {
+    if (shownHost !== null && shownHost !== next?.host) shownHost.show(null);
+    shownHost = next?.host ?? null;
+    shownHost?.show(next?.drop ?? null);
+}, {flush: "sync"});
+onBeforeUnmount(() => shownHost?.show(null));
 
 /** 缩进：与 `ExplorerRow` 的行内边距一致，第 d 层展开箭头的中线在行左边 16 + 12d 处。 */
 const LEVEL_X = (depth: number): number => 16 + depth * 12;
@@ -546,7 +553,7 @@ const nameOfRow = (id: string): string => {
 const dropLabel = computed(() => {
     const action = props.drag?.action;
     if (action === undefined || action.kind === "none") return "";
-    if (action.kind === "open") return text(action.skipped > 0 ? "tree.drop.openSome" : "tree.drop.open", {count: action.addresses.length, skipped: action.skipped});
+    if (action.kind === "open") return action.skipped > 0 ? text("tree.drop.openSome", {count: action.addresses.length, skipped: action.skipped}) : action.drop.label;
     if (action.kind === "move") return text(action.ordered ? "tree.drop.intoLast" : "tree.drop.into", {name: nameOfRow(action.target)});
     const name = nameOfRow(action.anchor.id);
     // 换了接收目录（有源不在这一层）才说移入哪里。
@@ -634,7 +641,6 @@ defineExpose({focus: focusTree});
                 <div v-if="dropMarks.header" class="explorer-drop__header" :style="{top: `${dropMarks.header.top}px`, height: `${dropMarks.header.height}px`}"></div>
                 <div v-if="dropMarks.line" class="explorer-drop__line" :style="{top: `${dropMarks.line.top - 1}px`, left: `${dropMarks.line.left}px`}" data-explorer-drop-line></div>
             </div>
-            <DropFeedbackOverlay :preview="dropPreview" label="" :data-explorer-drop="dropPreview ? 'open' : undefined" />
             <Teleport to="body">
                 <div v-if="ghost" class="explorer-drag-ghost" :style="{left: `${ghost.x}px`, top: `${ghost.y}px`}" aria-hidden="true" data-explorer-drag-ghost>
                     <div class="truncate font-medium">{{ ghost.what }}</div>

@@ -220,8 +220,7 @@
             "before": "放到 {{name}} 之前",
             "afterInto": "放到 {{name}} 之后（移入 {{target}}）",
             "beforeInto": "放到 {{name}} 之前（移入 {{target}}）",
-            "open_other": "在这一组打开 {{count}} 项",
-            "openSome_other": "在这一组打开 {{count}} 项（另 {{skipped}} 项不打开）"
+            "openSome_other": "打开 {{count}} 项（另 {{skipped}} 项不打开）"
         },
         "dragItems_other": "{{count}} 项"
     },

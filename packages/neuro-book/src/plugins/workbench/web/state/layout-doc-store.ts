@@ -266,6 +266,10 @@ function defineLayoutDocStore(bound: boolean) {
                     }
                     apply((current) => applyLayoutDrop(current, source, action, policy), {flush: true});
                 },
+                /** 在落点打开文件（资源树拖来的）：标签的属性归编辑器。 */
+                commitFiles: (addresses: ReadonlyArray<string>, action: LayoutDropAction, part: string | undefined): void => {
+                    void editorDrag.value?.openFiles(addresses, action, part);
+                },
                 /** 把这个标签浮出来（`nbook.view.float`）：矩形按树区域居中，按窗数错开。 */
                 floatTab: (key: string): LayoutResult | Promise<LayoutResult> => {
                     const found = findTab(doc.value, key);

@@ -160,6 +160,9 @@ export interface EditorGroups {
      * 否则拆出新组。放下去和现在一样时不变，返回 null。
      */
     moveToNewGroup(tabId: string, target: LayoutEdgeTarget): {readonly tab: EditorTab; readonly group: string} | null;
+    /** 建一个空组（文件拖到外缘、没有落点的地方）：窗或组先有，文件再打开进去。不改活动组。 */
+    openGroupAt(target: LayoutEdgeTarget): string | null;
+    openFloatGroup(rect: LayoutFloatRect): string | null;
     /** 浮出来：和新组一样，preview 转正、固定取消，新的浮动组成为活动组。放不下时是 null。 */
     moveToFloat(tabId: string, rect: LayoutFloatRect): {readonly tab: EditorTab; readonly group: string} | null;
     /**
@@ -386,6 +389,8 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
             tree.setCurrent(group);
             return {tab, group};
         },
+        openGroupAt: (target) => tree.openAt(target),
+        openFloatGroup: (rect) => tree.openFloat(rect),
         moveToFloat: (tabId, rect) => {
             const found = locate(tabId);
             if (found === null) return null;

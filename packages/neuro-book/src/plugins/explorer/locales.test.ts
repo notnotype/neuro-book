@@ -107,8 +107,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "tree.drop.before": {"zh-CN": "放到 {name} 之前", "en-US": "Place before {name}"},
     "tree.drop.afterInto": {"zh-CN": "放到 {name} 之后（移入 {target}）", "en-US": "Place after {name} (into {target})"},
     "tree.drop.beforeInto": {"zh-CN": "放到 {name} 之前（移入 {target}）", "en-US": "Place before {name} (into {target})"},
-    "tree.drop.open": {"zh-CN": "在这一组打开 {count} 项", "en-US": "Open {count} in this group"},
-    "tree.drop.openSome": {"zh-CN": "在这一组打开 {count} 项（另 {skipped} 项不打开）", "en-US": "Open {count} in this group ({skipped} more not opened)"},
+    "tree.drop.openSome": {"zh-CN": "打开 {count} 项（另 {skipped} 项不打开）", "en-US": "Open {count} ({skipped} more not opened)"},
     "tree.dragItems": {"zh-CN": "{count} 项", "en-US": "{count} items"},
     "view.openProject": {"zh-CN": "打开项目", "en-US": "Open Project"},
     "view.ended": {"zh-CN": "已停止同步：{reason}", "en-US": "Stopped syncing: {reason}"},
@@ -211,7 +210,7 @@ const ENGLISH_ONE: Readonly<Record<string, string>> = {
 };
 
 /** 英文单复数写法相同的数量键：英文只写不带后缀的键，中文照常写 `_other`。 */
-const ENGLISH_SAME: ReadonlySet<string> = new Set(["tree.drop.open", "tree.drop.openSome"]);
+const ENGLISH_SAME: ReadonlySet<string> = new Set(["tree.drop.openSome"]);
 
 const CATALOGS = {"zh-CN": zhCN, "en-US": enUS} as const;
 
@@ -234,7 +233,7 @@ describe("nbook.explorer 的目录", () => {
     it("数量键：中文有 _other，英文有 _one 与 _other；英文单复数相同的只写不带后缀的键", () => {
         const flatZh = Object.keys(flattenCatalog(zhCN));
         const flatEn = Object.keys(flattenCatalog(enUS));
-        for (const key of ["feedback.running", "feedback.unknown.title", "dialog.delete.title", "tree.drop.open", "tree.drop.openSome", "tree.dragItems"]) {
+        for (const key of ["feedback.running", "feedback.unknown.title", "dialog.delete.title", "tree.drop.openSome", "tree.dragItems"]) {
             expect(flatZh.filter((candidate) => baseKey(candidate) === key)).toEqual([`${key}_other`]);
             expect(flatEn.filter((candidate) => baseKey(candidate) === key)).toEqual(ENGLISH_SAME.has(key) ? [key] : [`${key}_one`, `${key}_other`]);
         }

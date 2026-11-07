@@ -575,7 +575,7 @@ test("拖动（验收 25、26）：拖到别的文件夹里的文件上移入它
     await page.mouse.down();
     await page.mouse.move(from.x, from.y + 8, {steps: 2});
     await page.mouse.move(groupBox.x + groupBox.width / 2, groupBox.y + groupBox.height / 2, {steps: 8});
-    await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
+    await expect(page.locator("[data-drop-kind=\"center\"]")).toBeVisible();
     await page.mouse.up();
     await expect(page.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("d1.md");
     await expect(page.locator("[data-editor-tab][aria-selected=\"true\"]")).not.toHaveAttribute("data-editor-tab-preview", "");
@@ -686,7 +686,7 @@ test("右键菜单（验收 24、26）：在侧边打开拆出右边的组；复
     await page.mouse.down();
     await page.mouse.move(from.x, from.y + 8, {steps: 2});
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 8});
-    await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
+    await expect(page.locator("[data-drop-kind=\"center\"]")).toBeVisible();
     await page.mouse.up();
     await expect(right).toHaveAttribute("data-editor-group-active", "");
     await expect((await headOf(right)).locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
@@ -808,7 +808,7 @@ test("拖动（验收 28）：放下后滑到新位置、落进收起的目录�
     await item(page, "project://r4").click();
 });
 
-test("拖到编辑组经落点登记查到，不读 data-editor-group（docs/specs/ui/layout-drag.md 验收 2）", async ({page}) => {
+test("拖到编辑组经外壳的落点登记查到，不读 data-editor-group（docs/specs/ui/layout-drag.md 验收 2）", async ({page}) => {
     await open(page);
     await item(page, "project://plain").click();
     await expect(item(page, "project://plain/a.md")).toBeVisible();
@@ -826,32 +826,98 @@ test("拖到编辑组经落点登记查到，不读 data-editor-group（docs/spe
     await page.mouse.down();
     await page.mouse.move(from.x, from.y + 8, {steps: 2});
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, {steps: 8});
-    await expect(page.locator("[data-explorer-drop=\"open\"]")).toBeVisible();
+    await expect(page.locator("[data-drop-kind=\"center\"]")).toBeVisible();
     await page.mouse.up();
     await expect(head.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 
-test("文件拖到编辑组的标签条上也在那一组打开；高亮是整块编辑组，头和内容一起算（docs/specs/ui/workbench-layout.md 输出 21）", async ({page}) => {
-    await open(page);
-    await item(page, "project://plain").click();
-    await expect(item(page, "project://plain/a.md")).toBeVisible();
-    await barrier(page, "plain");
-    const head = await headOf(page.locator("[data-editor-group]").first());
-    const headBox = (await head.boundingBox())!;
-    const from = await center(page, "project://plain/a.md");
+async function centerOfBox(locator: Locator): Promise<{x: number; y: number}> {
+    const box = await locator.boundingBox();
+    if (box === null) throw new Error("元素不在页面上");
+    return {x: box.x + box.width / 2, y: box.y + box.height / 2};
+}
+
+/** 按下资源树的一行、拖到 `to`：拖动在这一步之后进行中。 */
+async function dragRow(page: Page, address: string, to: {x: number; y: number}): Promise<void> {
+    const from = await center(page, address);
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(from.x, from.y + 8, {steps: 2});
-    await page.mouse.move(headBox.x + headBox.width / 2, headBox.y + headBox.height / 2, {steps: 8});
-    const shown = page.locator("[data-explorer-drop=\"open\"].nb-ui-drop-feedback .nb-ui-drop-feedback__area, [data-explorer-drop=\"open\"] .nb-ui-drop-feedback__area");
-    await expect(shown).toBeVisible();
-    const highlight = (await shown.boundingBox())!;
-    expect(Math.abs(highlight.y - headBox.y)).toBeLessThan(8);
-    const body = (await page.locator("[data-editor-group]").first().boundingBox())!;
-    expect(Math.abs(highlight.y + highlight.height - (body.y + body.height))).toBeLessThan(8);
+    await page.mouse.move(to.x, to.y, {steps: 8});
+}
+
+test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md 输出 39）：标签条插入、四边拆分；没有落点浮动打开；拖影写落点的字；树所在的面板里取消", async ({page}) => {
+    await open(page);
+    // 前面的用例可能留着展开的目录，点一下会收起。
+    await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
+    // 这个文件的用例共用项目，别的用例会把文件搬走：用自己的。
+    for (const name of ["drop-one.md", "drop-two.md"]) await writeFile(join(projectDir, "plain", name), name);
+    await item(page, "project://plain").click();
+    await expect(item(page, "project://plain/drop-two.md")).toBeVisible();
+    await barrier(page, "plain");
+    const ghost = page.locator("[data-explorer-drag-ghost]");
+    const windows = page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf][data-float]");
+    const groups = page.locator("[data-editor-group]");
+    const openedLabel = (scope: Locator) => scope.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]");
+
+    // 中央：正文高亮，拖影写落点的字。
+    const firstBody = (await groups.first().boundingBox())!;
+    await dragRow(page, "project://plain/a.md", {x: firstBody.x + firstBody.width / 2, y: firstBody.y + firstBody.height / 2});
+    await expect(page.locator("[data-drop-kind=\"center\"]")).toBeVisible();
+    await expect(ghost).toContainText("添加为标签");
     await page.mouse.up();
-    await expect(head.locator("[data-editor-tab][aria-selected=\"true\"] [data-editor-tab-label]")).toHaveText("a.md");
+    const head = await headOf(groups.first());
+    await expect(openedLabel(head)).toHaveText("a.md");
+
+    // 标签条：一条插入线，放下插在那个位置。
+    // 最后一个标签后面的空白：标题动作在更右边，那是按钮区。
+    const lastTab = (await head.locator("[data-editor-tab]").last().boundingBox())!;
+    await dragRow(page, "project://plain/index.md", {x: lastTab.x + lastTab.width + 12, y: lastTab.y + lastTab.height / 2});
+    await expect(page.locator("[data-drop-kind=\"strip\"]")).toBeVisible();
+    await expect(page.locator("[data-drop-feedback-line]")).toBeVisible();
+    await page.mouse.up();
+    await expect(openedLabel(head)).toHaveText("index.md");
+
+    // 右缘：拆出新组。
+    await dragRow(page, "project://plain/drop-one.md", {x: firstBody.x + firstBody.width - 6, y: firstBody.y + firstBody.height / 2});
+    await expect(page.locator("[data-drop-kind=\"edge\"]")).toBeVisible();
+    await page.mouse.up();
+    await expect(groups).toHaveCount(2);
+    await expect(windows).toHaveCount(0);
+
+    // 没有落点（这个场地只有资源管理器一个工具面板，用状态栏）：浮动打开。
+    const statusBar = (await page.locator("[data-leaf=\"statusbar\"]").boundingBox())!;
+    const nowhere = {x: statusBar.x + statusBar.width / 2, y: statusBar.y + statusBar.height / 2};
+    await dragRow(page, "project://plain/drop-two.md", nowhere);
+    await expect(page.locator("[data-drop-kind=\"float\"]")).toBeVisible();
+    await expect(ghost).toContainText("浮动打开");
+    await page.mouse.up();
+    await expect(windows).toHaveCount(1);
+    await expect(openedLabel(page.locator(`[data-editor-group-head="${await windows.getAttribute("data-leaf")}"]`))).toHaveText("drop-two.md");
+
+    // 树所在的面板里（面板头）：取消，不开窗。
+    const sidebarHead = (await page.locator("[data-panel-head=\"sidebar\"]").boundingBox())!;
+    await dragRow(page, "project://plain/a.md", {x: sidebarHead.x + 20, y: sidebarHead.y + sidebarHead.height / 2});
+    await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(windows).toHaveCount(1);
+
+    // 活动栏：放不进，不开窗。
+    await dragRow(page, "project://plain/a.md", await centerOfBox(page.locator("[data-tool-band]")));
+    await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(windows).toHaveCount(1);
+
+    // 目录：没有落点，也不开窗。
+    await dragRow(page, "project://plain", nowhere);
+    await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(windows).toHaveCount(1);
+
+    // 收拾：窗与新组不留给后面的用例。
+    for (let guard = 0; guard < 8 && await page.locator("[data-editor-tab-close]").count() > 0; guard += 1) await page.locator("[data-editor-tab-close]").first().click();
+    await expect(windows).toHaveCount(0);
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
 });
 

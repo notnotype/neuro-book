@@ -8,7 +8,7 @@
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import {placeGrid} from "./grid-rects";
 import {createGrid} from "./grid";
-import {edgeTargetOf, findTab, findTreeNode, floatTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, setFloatRect, setPanelHidden, showPanelAndInsert, treeLeaves} from "./layout-doc";
+import {edgeTargetOf, findTab, findTreeNode, floatTab, insertTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, setFloatRect, setPanelHidden, showPanelAndInsert, tabKey, treeLeaves} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
@@ -31,6 +31,11 @@ export type LayoutDropAction =
     /** 浮动：标签浮出来，整个浮动窗是移动。矩形每帧变，比较落点时只看种类（`layoutDropKey`）。 */
     | {readonly kind: "float"; readonly rect: LayoutFloatRect};
 
+/**
+ * 判定的来源：文档里的东西（`LayoutSource`），或文档里还没有的一个标签（资源树拖来的文件）。后者只判定、只预览，提交归持有它的人。
+ */
+export type LayoutDropSource = LayoutSource | {readonly kind: "new"; readonly tab: TabRef};
+
 export interface LayoutDropPanelGeometry {
     readonly id: string;
     readonly body: GridDropRect;
@@ -42,7 +47,7 @@ export interface LayoutDropPanelGeometry {
 
 export interface LayoutDropInput {
     readonly doc: LayoutDoc;
-    readonly source: LayoutSource;
+    readonly source: LayoutDropSource;
     readonly point: GridDropPoint;
     readonly panels: ReadonlyArray<LayoutDropPanelGeometry>;
     /** 浮动窗，已按叠放从上到下排好。比条、面板、预备区都先判：它盖在它们上面，命中了就只看这一块，不穿透。 */
@@ -71,7 +76,8 @@ function distanceTo(rect: GridDropRect, point: GridDropPoint): number {
 }
 
 /** 被拖的全部标签。 */
-export function sourceTabs(doc: LayoutDoc, source: LayoutSource): ReadonlyArray<TabRef> {
+export function sourceTabs(doc: LayoutDoc, source: LayoutDropSource): ReadonlyArray<TabRef> {
+    if (source.kind === "new") return [source.tab];
     if (source.kind === "panel") return doc.panels[source.panel]?.tabs ?? [];
     const found = findTab(doc, source.tab);
     return found === null ? [] : [found.tab];
@@ -200,8 +206,26 @@ export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPa
     return sectors.length === 0 ? null : sectors;
 }
 
+/** 文档里还没有的标签放下去的样子：只给预览（放回原处恒为假、外缘的真实矩形）。 */
+function applyNewTab(doc: LayoutDoc, tab: TabRef, action: LayoutDropAction, policy: LayoutPolicy): LayoutResult {
+    const panel: PanelRecord = {role: tab.kind === "view" ? "tool" : "editor", tabs: [tab], active: tabKey(tab)};
+    switch (action.kind) {
+        case "strip":
+            return insertTab(doc, {panel: action.panel, tab, index: action.index});
+        case "center":
+            return insertTab(doc, {panel: action.panel, tab});
+        case "edge":
+            return openPanelAtEdge(doc, {id: policy.newId("panel"), panel, target: action.target}, policy);
+        case "float":
+            return openFloatPanel(doc, {id: policy.newId("panel"), panel, rect: action.rect});
+        case "reveal":
+            return {ok: false, code: "rejected", detail: "新标签不进预备区"};
+    }
+}
+
 /** 提交落点。结果和现状一样时返回原文档对象（放回原处），宿主据此不提交。 */
-export function applyLayoutDrop(doc: LayoutDoc, source: LayoutSource, action: LayoutDropAction, policy: LayoutPolicy): LayoutResult {
+export function applyLayoutDrop(doc: LayoutDoc, source: LayoutDropSource, action: LayoutDropAction, policy: LayoutPolicy): LayoutResult {
+    if (source.kind === "new") return applyNewTab(doc, source.tab, action, policy);
     switch (action.kind) {
         case "strip":
             if (source.kind === "tab") return moveTabToStrip(doc, {tab: source.tab, panel: action.panel, index: action.index, ...(action.activate === undefined ? {} : {activate: action.activate})}, policy);
@@ -228,13 +252,11 @@ export function applyLayoutDrop(doc: LayoutDoc, source: LayoutSource, action: La
  * 外缘落点放下去的真实矩形（相对树的根）：指示画真实结果，用提交时的同一个函数算。没有变化时是 `null`。标签条与中央的预览由宿主画（插入线、整块）。
  * `newId` 用占位 id 也行：只取被拖内容落到的那块的矩形。
  */
-export function previewEdgeDrop(doc: LayoutDoc, source: LayoutSource, action: Extract<LayoutDropAction, {kind: "edge"}>, policy: LayoutPolicy, projection: LayoutProjectionOptions, extent: GridExtent, dpr: number): GridDropRect | null {
+export function previewEdgeDrop(doc: LayoutDoc, source: LayoutDropSource, action: Extract<LayoutDropAction, {kind: "edge"}>, policy: LayoutPolicy, projection: LayoutProjectionOptions, extent: GridExtent, dpr: number): GridDropRect | null {
     const result = applyLayoutDrop(doc, source, action, policy);
     if (!result.ok || result.doc === doc) return null;
-    const placed = source.kind === "panel" ? source.panel : (() => {
-        const found = findTab(result.doc, source.tab);
-        return found === null ? null : found.panel;
-    })();
+    const key = source.kind === "panel" ? null : (source.kind === "new" ? tabKey(source.tab) : source.tab);
+    const placed = source.kind === "panel" ? source.panel : (findTab(result.doc, key as string)?.panel ?? null);
     if (placed === null) return null;
     const {input, sashSize} = projectLayoutDoc(result.doc, projection);
     const grid = createGrid<string>(input, {sashSize});

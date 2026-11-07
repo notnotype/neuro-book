@@ -2,7 +2,8 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {Ref} from "@vue/reactivity";
-import type {LayoutEdge, LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
+import {defineDropKind} from "@notnotype/nb-layout";
+import type {GridDropPoint, LayoutDropAction, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
 
 import {Type} from "typebox";
 
@@ -238,6 +239,10 @@ export interface PanelTree {
     setCurrent(panel: string): boolean;
     /** 拆这一块，在它的一边开一块空面板（新块取它的一半），返回新面板的 id。不改活动面板：打开时才切过去。 */
     openAtEdge(panel: string, edge: LayoutEdge): string | null;
+    /** 在外缘目标开一块空面板（两块之间、拆一块），同样不改活动面板。 */
+    openAt(target: LayoutEdgeTarget): string | null;
+    /** 开一个空的浮动窗，同样不改活动面板。窗数到上限时是 null。 */
+    openFloat(rect: LayoutFloatRect): string | null;
     /** 右侧相邻的编辑组：只在编辑组里找，工具面板跳过；右边是一列时取最上面的。没有为 null；只查不建。 */
     rightOf(panel: string): string | null;
 }
@@ -269,3 +274,28 @@ export interface EditorPanelsService extends EditorPanels {
 }
 
 export const editorPanelsKey: ServiceKey<EditorPanelsService> = defineServiceKey<EditorPanelsService>("nbook.workbench/editor-panels");
+
+/**
+ * 文件能落到的地方（docs/specs/ui/workbench-layout.md 输出 39、docs/specs/workbench/files-explorer.md“拖到编辑区”）：资源树的拖动会话在树外问工作台。`shared/` 要过服务端类型检查，这里不写 DOM 类型。
+ */
+export interface WorkbenchFileDrop {
+    readonly action: LayoutDropAction;
+    /** 编辑组标签条的分区。 */
+    readonly part?: string;
+    /** 比较键：`float` 的矩形每帧变，不算。 */
+    readonly key: string;
+    /** 拖影上的字（放在这里、拆到这一边、浮动打开……）。 */
+    readonly label: string;
+}
+
+export interface WorkbenchFileDropHost {
+    /** 指针下文件能落到哪；`top` 是指针处最上层的元素，窗口外是 null。 */
+    resolve(point: GridDropPoint, top: unknown): WorkbenchFileDrop | null;
+    /** 反馈归外壳画（矩形、插入线、分区与读屏）：拖动方只报这一刻的落点，它要的是 `resolve` 给的那个对象。 */
+    show(drop: WorkbenchFileDrop | null): void;
+    /** 在落点打开这些地址。 */
+    commit(drop: WorkbenchFileDrop, addresses: ReadonlyArray<string>): void;
+}
+
+/** 外壳根登记的落点：被传送出去的菜单、对话框不在外壳根里，往上找不到它。 */
+export const WORKBENCH_FILE_DROP = defineDropKind<WorkbenchFileDropHost>("nbook.workbench.file");

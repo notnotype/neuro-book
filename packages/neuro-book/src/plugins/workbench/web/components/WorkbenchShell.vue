@@ -5,9 +5,9 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, layoutDropKey, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc, LayoutSource} from "@notnotype/nb-layout";
-import {DropSectorsOverlay, FloatWindowHandles} from "@notnotype/nb-layout/vue";
+import {DropSectorsOverlay, FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
@@ -19,6 +19,8 @@ import TitleActions from "nbook/ui/menus/TitleActions.vue";
 import {buttonBudget, NO_TITLE_ACTIONS} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
+import {WORKBENCH_FILE_DROP} from "../../shared/contracts";
+import type {WorkbenchFileDrop} from "../../shared/contracts";
 import {editorTabIdOf} from "../../shared/editor-panels";
 import {DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
 import {MOVE_VIEW_COMMAND} from "../commands/view-commands";
@@ -419,6 +421,23 @@ onBeforeUnmount(() => drag.value?.dispose());
 
 const dragState = computed(() => drag.value?.session.state.value ?? null);
 
+// 资源树的文件拖出树（输出 39）：那一场是资源树自己的会话，判定与反馈还在这里，同一份。
+const fileDrops = new WeakMap<WorkbenchFileDrop, LayoutDragDrop>();
+const shownFileDrop = shallowRef<LayoutDragDrop | null>(null);
+useDropTarget(hostEl, [WORKBENCH_FILE_DROP], () => ({
+    resolve: (point, top) => {
+        const drop = drag.value?.fileDrop(point, top instanceof Element ? top : null) ?? null;
+        if (drop === null) return null;
+        const file: WorkbenchFileDrop = {action: drop.action, ...(drop.part === undefined ? {} : {part: drop.part}), key: JSON.stringify([layoutDropKey(drop.action), drop.part ?? null]), label: dropLabel(drop)};
+        fileDrops.set(file, drop);
+        return file;
+    },
+    show: (drop) => {
+        shownFileDrop.value = drop === null ? null : (fileDrops.get(drop) ?? null);
+    },
+    commit: (drop, addresses) => props.layout.actions.commitFiles(addresses, drop.action, drop.part),
+}));
+
 function ghostOf(source: LayoutSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
     // 整窗本身就在跟手，没有拖影。
     if (source.kind === "panel") return null;
@@ -487,7 +506,7 @@ function dropLabel(drop: LayoutDragDrop): string {
 }
 
 const dropFeedback = computed(() => {
-    const drop = dragState.value?.drop ?? null;
+    const drop = dragState.value?.drop ?? shownFileDrop.value;
     if (drop === null) return {preview: null, label: "", liveLabel: "", kind: ""};
     // 整窗在移动：窗本身就是反馈。
     if (dragState.value?.source.kind === "panel" && drop.action.kind === "float") return {preview: null, label: "", liveLabel: "", kind: "float"};
@@ -659,7 +678,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
         </div>
         <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="attachEditorDrag" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="drag?.live.active.value === true ? null : dragState?.drop?.sectors ?? null" :sector-labels="sectorLabels" :live-status="dropFeedback.liveLabel" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="drag?.live.active.value === true ? null : dragState?.drop?.sectors ?? shownFileDrop?.sectors ?? null" :sector-labels="sectorLabels" :live-status="dropFeedback.liveLabel" />
     </div>
 </template>
 

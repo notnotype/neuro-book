@@ -1217,6 +1217,74 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         expect(at.area.groups.groups.value.find((group) => group.id === floating)?.tabs).toHaveLength(2);
     });
 
+    describe("资源树拖来的文件", () => {
+        const dragOf = (at: World) => createEditorTabDrag({area: () => at.area, pages: () => null, wrapTabs: () => true, text: {t: String} as never});
+
+        it("中央：正式标签，目标组成为活动组", async () => {
+            const at = await world();
+            at.area.open("project://a.md", {mode: "permanent"});
+            const left = groupAt(at, 0);
+            at.area.open("project://c.json", {mode: "permanent", group: "side"});
+            expect(await dragOf(at).openFiles(["project://b.md"], {kind: "center", panel: left}, undefined)).toBe(true);
+            expect(names(at, 0)).toEqual(["a.md", "b.md"]);
+            expect(groupId(at)).toBe(left);
+        });
+
+        it("标签条：多个文件按拖动顺序排在落点前面；落点上就是被放下的文件时不算失败", async () => {
+            const at = await world();
+            at.area.open("project://a.md", {mode: "permanent"});
+            at.area.open("project://b.md", {mode: "permanent"});
+            const left = groupAt(at, 0);
+            const drag = dragOf(at);
+            expect(await drag.openFiles(["project://c.json", "project://a.html"], {kind: "strip", panel: left, index: 1}, undefined)).toBe(true);
+            expect(names(at, 0)).toEqual(["a.md", "c.json", "a.html", "b.md"]);
+            // b.md 已经在这一组、落点就在它前面：复用它，不重复。
+            expect(await drag.openFiles(["project://b.md"], {kind: "strip", panel: left, index: 3}, undefined)).toBe(true);
+            expect(names(at, 0)).toEqual(["a.md", "c.json", "a.html", "b.md"]);
+            // 已在落点上的：不算失败，也不动。
+            expect(await drag.openFiles(["project://a.md"], {kind: "strip", panel: left, index: 0}, undefined)).toBe(true);
+            expect(names(at, 0)).toEqual(["a.md", "c.json", "a.html", "b.md"]);
+        });
+
+        it("外缘：新组里开新标签，别的组已有同一文件不抢它的标签", async () => {
+            const at = await world();
+            at.area.open("project://a.md", {mode: "permanent"});
+            const left = groupAt(at, 0);
+            expect(await dragOf(at).openFiles(["project://a.md"], {kind: "edge", target: {kind: "split", panel: left, edge: "right"}}, undefined)).toBe(true);
+            expect(at.area.groups.groups.value).toHaveLength(2);
+            expect(names(at, 0)).toEqual(["a.md"]);
+            expect(names(at, 1)).toEqual(["a.md"]);
+            expect(groupId(at)).toBe(groupAt(at, 1));
+        });
+
+        it("没有落点：一个窗里多个标签，窗成为活动组", async () => {
+            const at = await world();
+            at.area.open("project://a.md", {mode: "permanent"});
+            const rect = {x: 10, y: 10, width: 400, height: 300};
+            expect(await dragOf(at).openFiles(["project://b.md", "project://c.json"], {kind: "float", rect}, undefined)).toBe(true);
+            const floats = at.panels.document().floats;
+            expect(floats).toHaveLength(1);
+            expect(at.area.groups.groups.value.find((group) => group.id === floats[0]?.panel)?.tabs).toHaveLength(2);
+            expect(groupId(at)).toBe(floats[0]?.panel ?? "");
+        });
+
+        it("目标组有未裁决输入：停，后面的不开，提示照旧", async () => {
+            const at = await world();
+            at.area.open("project://b.md", {mode: "permanent"});
+            const left = groupAt(at, 0);
+            at.area.open("project://b.md", {mode: "permanent", group: "side"});
+            const right = groupAt(at, 1);
+            const leftB = await boundIn(at, left);
+            const rightB = await boundIn(at, right);
+            const base = rightB.revision.value;
+            rightB.commit(base, "右");
+            expect(leftB.commit(base, "左")).toMatchObject({status: "conflict"});
+            expect(await dragOf(at).openFiles(["project://a.md", "project://c.json"], {kind: "center", panel: left}, undefined)).toBe(false);
+            expect(names(at, 0)).toEqual(["b.md"]);
+            expect(at.area.notice.value).not.toBeNull();
+        });
+    });
+
     it("实时布局的预览判据与真正移动同条件：同组换位、跨组、新组、目标已有同一文件", async () => {
         const at = await world();
         at.area.open("project://a.md", {mode: "permanent"});

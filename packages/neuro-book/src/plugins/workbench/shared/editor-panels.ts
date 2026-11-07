@@ -7,7 +7,7 @@
 
 import {computed, shallowRef} from "@vue/reactivity";
 
-import {activateTab, findTab, findTreeNode, floatTab, GRID_SNAPSHOT_VERSION, insertTab, isFloating, LAYOUT_DOC_VERSION, moveTabToEdge, moveTabToStrip, openPanelAtEdge, panelRef, removeTab, replaceTab, setCurrentEditor, treeEditorAnchor, treeLeaves} from "@notnotype/nb-layout";
+import {activateTab, findTab, findTreeNode, floatTab, GRID_SNAPSHOT_VERSION, insertTab, isFloating, LAYOUT_DOC_VERSION, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, panelRef, removeTab, replaceTab, setCurrentEditor, treeEditorAnchor, treeLeaves} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdgeTarget, LayoutPolicy, LayoutResult, TabRef} from "@notnotype/nb-layout";
 
 import {editorTabKey} from "./contracts";
@@ -115,6 +115,14 @@ export function createEditorPanels(host: EditorLayoutHost): EditorPanels {
                 const target: LayoutEdgeTarget = {kind: "split", panel: at, edge};
                 return openPanelAtEdge(doc, {id, panel: {role: "editor", tabs: [], active: null}, target, activate: false}, host.policy);
             }) ? id : null;
+        },
+        openAt: (target) => {
+            const id = host.policy.newId("panel");
+            return ok((doc) => openPanelAtEdge(doc, {id, panel: {role: "editor", tabs: [], active: null}, target, activate: false}, host.policy)) ? id : null;
+        },
+        openFloat: (rect) => {
+            const id = host.policy.newId("panel");
+            return ok((doc) => openFloatPanel(doc, {id, panel: {role: "editor", tabs: [], active: null}, rect, activate: false})) ? id : null;
         },
         // 浮动窗没有相邻：“在侧边打开”进树里的组。
         rightOf: (panel) => (isFloating(host.document(), panel) ? treeEditorAnchor(host.document()) : rightEditor(host.document(), panel)),

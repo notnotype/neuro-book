@@ -652,6 +652,17 @@ export function raiseFloat(doc: LayoutDoc, panel: string): LayoutResult {
     return finish(doc, next);
 }
 
+/** 开一个空的浮动窗（文件拖到没有落点的地方：窗先有，文件再打开进去）。`activate: false` 同 `openPanelAtEdge`。 */
+export function openFloatPanel(doc: LayoutDoc, input: {readonly id: string; readonly panel: PanelRecord; readonly rect: LayoutFloatRect; readonly activate?: boolean}): LayoutResult {
+    if (doc.panels[input.id] !== undefined) return failure("rejected", `面板已存在 ${input.id}`);
+    if (doc.floats.length >= LAYOUT_MAX_FLOATS) return failure("limit-exceeded", `浮动窗 ${String(doc.floats.length)} 个`);
+    const next = editable(doc);
+    next.panels[input.id] = input.panel;
+    next.floats.push({panel: input.id, rect: roundFloatRect(input.rect)});
+    if (input.panel.role === "editor" && input.activate !== false) next.currentEditor = input.id;
+    return finish(doc, next);
+}
+
 /** 窗留在树区域里的部分：标签条总能抓到。窗口变小时呈现用夹取之后的矩形，记录不改。比区域还大时缩到区域。 */
 export function clampFloatRect(rect: LayoutFloatRect, extent: GridExtent, keep: {readonly width: number; readonly height: number}): LayoutFloatRect {
     const width = Math.min(rect.width, extent.width);

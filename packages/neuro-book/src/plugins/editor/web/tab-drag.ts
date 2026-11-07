@@ -39,7 +39,37 @@ export function createEditorTabDrag(deps: EditorTabDragDeps): EditorTabDrag {
         },
         drop: (tabId, action, part, keyboard) => dropTab(deps.area(), tabId, action, part, keyboard),
         dropPanel: (panelId, action, _part, keyboard) => dockGroup(deps.area(), panelId, action, keyboard),
+        openFiles: (addresses, action, part) => openFiles(deps.area(), addresses, action, part),
     };
+}
+
+/**
+ * 资源树拖来的文件（docs/specs/ui/workbench-layout.md 输出 39）：外缘、浮动先建空组再打开（同“在侧边打开”），所以别的组已有同一文件时不抢它的标签，新组里开一个新标签。
+ * 标签条要先把下标换成标签 id：打开会往组里插标签，下标每开一个错一格；被放下的文件已经在这一组时会被复用，不能当锚点。遇到拒绝就停（目标组有未裁决输入），`leave` 已经写了提示。
+ */
+async function openFiles(area: EditorArea, addresses: ReadonlyArray<string>, action: LayoutDropAction, part: string | undefined): Promise<boolean> {
+    const group = action.kind === "edge" ? area.groups.openGroupAt(action.target)
+        : action.kind === "float" ? area.groups.openFloatGroup(action.rect)
+            : action.kind === "strip" || action.kind === "center" ? action.panel : null;
+    if (group === null) return false;
+    const tabsOf = () => area.groups.groups.value.find((candidate) => candidate.id === group)?.tabs ?? [];
+    const partition = part === "pinned" ? "pinned" : "normal";
+    const dropped = new Set(addresses);
+    const anchor = action.kind === "strip" ? tabsOf().slice(action.index).find((tab) => !dropped.has(tab.address)) : undefined;
+    const before = anchor !== undefined && (anchor.kind === "file" && anchor.pinned === true) === (partition === "pinned") ? anchor.id : null;
+    for (const address of addresses) {
+        const opened = area.open(address, {mode: "permanent", group});
+        if (!opened.ok) return false;
+        if (action.kind !== "strip") continue;
+        // 已经在落点上（`moveTab` 会说同一位置）不算失败。
+        const tabs = tabsOf();
+        const at = tabs.findIndex((tab) => tab.id === opened.tabId);
+        const tab = tabs[at];
+        const samePartition = tab?.kind === "file" && (tab.pinned === true) === (partition === "pinned");
+        if (samePartition && (tabs[at + 1]?.id ?? null) === before) continue;
+        if (!(await area.moveTab(opened.tabId, {group, partition, before})).ok) return false;
+    }
+    return true;
 }
 
 /**

@@ -77,6 +77,8 @@ export interface EditorTabDrag {
     drop(tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): Promise<boolean>;
     /** 整个浮动的编辑组停靠：逐个标签走同样的结算、合并与分区，中途被拒绝就停，剩下的留在窗里。 */
     dropPanel(panelId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): Promise<boolean>;
+    /** 在落点打开这些文件（资源树拖来的）：外缘、浮动是新组里的新标签，别的组已有同一文件不抢；遇到拒绝就停。 */
+    openFiles(addresses: ReadonlyArray<string>, action: LayoutDropAction, part: string | undefined): Promise<boolean>;
 }
 
 /** 外壳交给编辑组的头的框架按钮。 */

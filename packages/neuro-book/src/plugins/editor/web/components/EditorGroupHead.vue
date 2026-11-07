@@ -69,7 +69,7 @@ const emit = defineEmits<{
 const port = useText();
 const t = useEditorText();
 
-const root = useEditorGroupRoot({area: () => props.area, groupId: () => props.groupId, intent: (intent) => emit("intent", intent), root: "head"});
+const root = useEditorGroupRoot({area: () => props.area, groupId: () => props.groupId, intent: (intent) => emit("intent", intent)});
 
 const group = computed(() => props.area.groups.shown.value.find((candidate) => candidate.id === props.groupId) ?? null);
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);

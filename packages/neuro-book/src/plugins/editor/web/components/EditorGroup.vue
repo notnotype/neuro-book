@@ -56,7 +56,7 @@ const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event:
  */
 const ownGroup = computed(() => (props.tabId === null ? props.groupId : props.area.groups.find(props.tabId)?.group.id ?? props.groupId));
 
-const root = useEditorGroupRoot({area: () => props.area, groupId: () => ownGroup.value, intent: (intent) => emit("intent", intent), root: "section"});
+const root = useEditorGroupRoot({area: () => props.area, groupId: () => ownGroup.value, intent: (intent) => emit("intent", intent)});
 
 // 这几个值都比引用或布尔：别的标签变了（切换、记光标）时这块内容不重画。开着几十个标签时这一点要紧。
 const tab = computed(() => (props.tabId === null ? null : props.area.groups.find(props.tabId)?.tab ?? null));

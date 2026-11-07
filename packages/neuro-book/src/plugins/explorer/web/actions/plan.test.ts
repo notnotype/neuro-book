@@ -95,12 +95,14 @@ describe("Spec workbench.files-explorer 拖动：落点", () => {
         expect(drop(["project://a.md"], "project://lore.content/x.md", 0.9)).toMatchObject({kind: "place", target: "project://lore.content", before: null});
     });
 
-    it("树里行以外的空白移入源所在方案的根；编辑组打开源里能打开的项、目录跳过、超过上限的计数", () => {
+    it("树里行以外的空白移入源所在方案的根；树外打开源里能打开的项、目录跳过、超过上限的计数", () => {
+        const drop = {action: {kind: "center", panel: "g1"}, key: "center", label: "放这里"} as const;
+        const OVER = {kind: "editor", drop, host: {resolve: () => drop, show: () => undefined, commit: () => undefined}} as const;
         const find = (id: string) => row(id);
         expect(resolveBlankDrop(["project://plain/b.md"], find)).toEqual({kind: "move", target: "project://", ordered: false});
         expect(resolveBlankDrop(["project://a.md"], find)).toEqual({kind: "none"});
-        expect(resolveEditorDrop(["project://a.md", "project://plain/sub", "project://plain/b.md"], "g1", find)).toEqual({kind: "open", group: "g1", addresses: ["project://a.md", "project://plain/b.md"], skipped: 0});
-        expect(resolveEditorDrop(["project://plain/sub"], "g1", find)).toEqual({kind: "none"});
+        expect(resolveEditorDrop(["project://a.md", "project://plain/sub", "project://plain/b.md"], OVER, find)).toEqual({kind: "open", drop: OVER.drop, addresses: ["project://a.md", "project://plain/b.md"], skipped: 0});
+        expect(resolveEditorDrop(["project://plain/sub"], OVER, find)).toEqual({kind: "none"});
         const many = projectRows({
             roots: ROOTS,
             slots: new Map([["project://", loaded({folder: "plain", contentRoot: null, entries: Array.from({length: 12}, (_, at) => ({name: `${String(at)}.md`, kind: "file" as const}))})]]),
@@ -108,7 +110,7 @@ describe("Spec workbench.files-explorer 拖动：落点", () => {
             showManifests: false,
         });
         const sources = Array.from({length: 12}, (_, at) => `project://${String(at)}.md`);
-        expect(resolveEditorDrop(sources, "g1", (id) => many.find((candidate) => candidate.id === id))).toMatchObject({kind: "open", skipped: 2, addresses: sources.slice(0, 10)});
+        expect(resolveEditorDrop(sources, OVER, (id) => many.find((candidate) => candidate.id === id))).toMatchObject({kind: "open", skipped: 2, addresses: sources.slice(0, 10)});
     });
 
 });
