@@ -1,0 +1,183 @@
+w00026 t20 设计审查（片 2 到 4）
+审查对象：.agents/works/w00026-layout-package/tasks/t20-drop-rules/plan.md
+说明：除第 1 条有一个小实验外，其余都是读代码与读 Trellis 副本得出，标了“从代码推断”的需要 e2e 或合同测试核实。
+
+========================================================================
+1. between 的两端为 null，加上 branch/别名：计划给的数据形状在摘掉来源后找不到位置
+严重程度：重要　类别：正确性
+位置：packages/nb-layout/src/layout-doc.ts:187-209（detachNode、resolveAlias）、483-499（placeLeaf）、537-547（edgeAnchorOf、touches）；packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:109-113（onlyEditors）
+现象：
+- 计划的 `between` 是 `{branch, before: string|null, after: string|null}`，并说“可以在两端”。`placeLeaf` 现在只靠 before、after 两个 id 定位（`target.branch` 在 layout-doc.ts 里一处都没读），null 端没有锚点。
+- `detachNode` 摘掉来源后，只剩一个子节点的分支会塌陷，`aliases` 只记“塌陷分支 -> 幸存者”。例：编辑区 `H[b, src]`，在 even 模式把 src 放到 b 的左边（b 在 H 里是第一个、同方向，按计划就是 `between{branch:H, before:null, after:b}`）。摘掉 src 后 H 塌成 b，`branch` 的别名指向的是叶 b，不是分支，没有“第 0 个位置”可插。b 与 src 互换位置这个最常见的动作，在 even 模式下会失败。
+- 另有三处硬写了“两端都是 string”：`edgeAnchorOf` 用 `target.before` 查接受矩阵的锚点；`touches` 比较 before/after；`layoutEdgeTarget` 里 `onlyEditors(doc, target.before === panelId ? target.after : target.before)`。
+如何核实（已做）：/tmp/review-w00026-t20-design/exp1.ts 用现有代码给 `openPanelAtEdge` 传 `{kind:"between", branch:"center", before:null, after:"g0"}`，结果 `{ok:false, code:"not-found", detail:"目标已不存在"}`。`onlyEditors` 对 null 的 `findTreeNode` 返回 null，整个函数为 false，所以编辑组在端点的 `between` 会被 `layoutEdgeTarget` 静默改成 `split`。这些是计划没列的改动点。
+为什么是问题：Trellis 的 `insertAtSeam`（.local/trellis/packages/core/src/model/spatial.ts:334 起，注释写明“resolving the group by its surviving leaves (removing the source may have promoted it)”）正是因为这个原因不用分支 id，而用“这个缝涉及的叶集合 + 缝前面的叶集合”，在摘掉来源后的树里重新找容器。计划里的 `branch` 字段就是它避开的那条路。
+建议改法：去掉 `branch`，位置只用“锚点 + 方向”表达，例如 `{kind:"between", before: string|null, after: string|null}` 要求至少一端非 null，提交时用非 null 那端（经别名）找到它此刻的父分支，在它前面或后面插入；`edgeAnchorOf`、`touches`、`onlyEditors` 改成取非 null 的一端；`pointOfCandidate`（layout-drag.ts:373-380）现在用 `branchOrientation(doc, branch)`，也一起改。合同测试要加：`H[b, src]` 里 src 放 b 左边、`V[e1, e2]` 里最后一个放最前，两端 null 与别名塌陷各一例。
+
+========================================================================
+2. even 的“可分配总量”和“n”没有定义：隐藏、收起、摘除前后、判定与提交取的不是同一个值
+严重程度：重要　类别：正确性
+位置：plan.md 第 42 行；layout-doc.ts:153-156（countsInShare）、483-499；layout-project.ts:60-77（assignByParent 的 sizing）
+现象：计划只说“新块占可分配总量的 1/(n+1)，其余按原比例缩；固定的子节点不算进 n”。没有回答：
+- 总量与 n 是在摘掉来源之前还是之后算。`V[e1, e2, e3(src)]` 把 e3 放到 e1 上方，摘掉前 n=3，摘掉后 n=2；按摘掉前算会得到 1/4 而不是 1/3，并且“放回同一分支内”的结果依赖分支原来有几个兄弟。
+- 隐藏的兄弟（`isNodeShown` 为假）、收起的工具面板（`countsInShare` 为假：只占面板头）算不算 n。只有工具面板的列（侧栏 `V[s1, s2]`，`assignByParent` 里全是 weight）里，s1 收起时它的意图尺寸还留着；如果算进 n，新块会拿到一个按“s1 展开”算出来的份额，可见的两块却是别的比例。已有的 `normalizeTree(root, counts)` 就是用 `countsInShare` 做同样的事，应复用，而不是另写一套。
+- 条（`isBarLeaf`）永远 fixed，不会出现在 between 里，但 even 的“可分配总量”要明确不含它们。
+- `isFixedChild` 抽成共用函数时：`assignByParent` 在呈现树（`GridNodeInput`，隐藏的已被投影掉、单子分支已塌陷）上算，`placeLeaf` 在文档树（`GridSnapshotNode`，含隐藏与单子分支）上算。`layout-project.ts` 已经 import `layout-doc.ts`，所以共用函数只能放进 layout-doc.ts（或第三个模块），且必须说明在文档树上“含编辑组”的判定和呈现树一致：`removed`（放不下被收走的面板）只会是工具面板，不改变“含编辑组”，这点可以成立，但计划没写。
+- 计划自己引用 Trellis 的“按原比例缩”，文档却叫“均分/even”：原来不相等时，缩完仍不相等。设置名和 Spec 用词要改成“同方向一起分”，否则验收写出“均分”会按字面等分。
+为什么是问题：这是新增逻辑里最容易写出边界错的一块，且 `layout-doc.test.ts` 只列了 `V[e1, e2, panel]`、`H[e1, e2]` 两个形状。
+建议改法：写成一条函数规则放进计划：先摘掉来源，再取该分支里 `countsInShare` 为真且非 fixed 的子节点（n 个，总量 S），新块 S/(n+1)，这些子节点乘 n/(n+1)，其余一律不动；n 为 0 时退回 neighbours。测试加：侧栏列里一块收起、一块隐藏的 even，来源在同一分支内的 even。
+
+========================================================================
+3. even 在“编辑组末尾紧挨着面板那一排”的行为没定义：顶端与底端不对称
+严重程度：重要　类别：正确性 / 与已定设计一致
+位置：plan.md 第 41、47-48、102 行；layout-constraints.ts:103-113
+现象：计划说 even 时“与父分支同方向”才是 between，“可以在两端，before 或 after 为 null”，验收例子是 `V[e1, e2, panel]` 只在两个编辑组里分、panel 不动。这个分支真正的两端是 e1 的上面和 panel 的下面。e1 上缘能写成 `{before:null, after:e1}`；但 e2 的下缘后面是 panel，不是分支的端点，按现在 `layoutEdgeTarget`（编辑组的对面不是只含编辑组就拆这一组），e2 下缘会是 `split{e2, bottom}`，只拆 e2。结果同一种“同方向一起分”：往上放是 e1、e2 一起分，往下放只分 e2。
+计划里 `seamTarget` 又明确“编辑区与面板之间没有缝落点”，所以也不能用 `between{e2, panel}` 表达。验收映射写的是“V[e1, e2, panel] 只在两个编辑组里分”，但没写是哪条边。
+为什么是问题：开发者的原话是“不能有 侧边栏 | 编辑器 A | 编辑器 B | 右侧栏”“中间编辑器区的分屏也分走侧边栏的控件”，要的是固定面板不参与、同方向一起分；顶底不对称会在试用时被当作 bug。
+建议改法：二选一并写进计划。(a) even 时编辑组下缘（后面是固定的面板行）也用 `{before:e2, after:panel行, share:"even"}`，由 `edgeTarget` 返回，`seamTarget` 仍不承认这条缝；这样要在 `isFixedChild` 的前提下让 `placeLeaf` 把新块插在 e2 之后、panel 之前。(b) 明确写成“编辑区下缘永远是拆这一组”，Spec 里这一句要写出来。同时把 `layoutDropKey` 的不变量改写：现在 layout-drop.ts 文件头写着“同一个落点无论从这条边、缝还是对面那块的边进来，得到的是同一个 between”，计划里同一个位置在边上是 `share:"even"`、在缝上是 `share:"neighbours"`，键不同、结果不同，实时布局里指针从缝带移进 28% 的边带时候选会换（150ms 稳定窗口里会重新计时）。
+
+========================================================================
+4. 缝的几何“由文档树加 panels 算，不增加输入”不够：叶没有几何、分支没有矩形
+严重程度：重要　类别：正确性
+位置：plan.md 第 39 行；layout-drag.ts:187-198（geometryOf）、200-208（panelGeometry）；layout-drop.ts:39-46（LayoutDropPanelGeometry）
+现象：
+- `LayoutDropPanelGeometry` 只有 `body`（正文）与 `strip`（标签条），没有卡片外框也没有分支矩形。缝要的是“相邻可见子节点之间”，子节点可能是分支（`V[H[e1,e2], e3, panel]` 里 H），它的矩形要从后代叶的 body 与 strip 求并集；收成标题行的面板正文是零高（`top = strip.bottom`），要用 strip 并进去。这些要在计划里写成函数，而不是“增加输入”这一句带过。
+- `geometryOf` 在 `[data-leaf]` 的矩形为 null（隐藏、拖到零宽）时返回 null，叶就不在 `panels` 里。但 `edgeTargetOf` 与计划里“可见”用的是文档判定 `isNodeShown`：拖到零宽的面板在文档里是“显示的”，在几何里“不存在”。于是 `H[A, Z(拖到零), B]` 里文档相邻对是 (A,Z)、(Z,B)，两条缝都因 Z 没有矩形而算不出，用户实际看到的 A|B 那条缝没有落点。判定相邻必须用几何，不能用文档。
+- 最大化时 `panelGeometry` 只剩最大化的那块，缝自然没有，可以；但浮动窗盖住的缝、预备区盖住的缝要明确谁先：计划的顺序写了“浮动窗 → 挡住的区域 → 缝”，没写预备区。`resolveLayoutDrop` 现在的语义是“指针在真实落点上时预备区不算”，缝成为真实落点后，预备区下面 13px 宽的缝带会抢走预备区的落点，指针经过时在 reveal 与 between 间来回换。
+- “来源自己相邻的缝”能判出原位的前提是 `touches`/`isInPlace` 用叶 id；缝两边是分支时（before 是 H）来源在分支里面，不算原位，这是对的；但 `isInPlace` 当前对 `between` 写的是 `before === whole || after === whole`，在 before、after 可能为 null 后要保持成立。这一条不是问题，但合同测试要覆盖。
+建议改法：缝的矩形由 `panels` 的几何自己算，相邻性按“几何上有矩形的叶”判；把“缝带命中”单独做成纯函数 `layoutSeamsOf(doc, panels)`，输入文档与几何、输出缝（带两端的叶集合与矩形），方便在 layout-drop.test.ts 里用手写矩形测零宽、收起、嵌套分支。预备区与缝的先后写进判定表。
+
+========================================================================
+5. LAYOUT_SEAM_HIT_PX = 6 的依据读错了（建议）
+严重程度：建议　类别：文档 / 正确性
+位置：plan.md 第 18、39 行
+现象：第 18 行写 Trellis 的命中半径是 `max(缝宽, 4px)`，第 39 行又写“Trellis 默认 6px”。实际读 .local/trellis/packages/core/src/runtime/drag.ts：`MIN_SEAM_HIT_WIDTH = 8`，半径 `Math.max(host.inset(), MIN_SEAM_HIT_WIDTH / 2)` 即 4px（总宽 8）；`THRESHOLD = 6` 是起拖的位移门槛，不是缝。
+为什么是问题：我们的缝是 1px，6px 半径总宽 13px，比 Trellis 宽 60%，而这 13px 同时压在两边面板的标签条与 28% 外缘窄带上。计划自己在“风险”里也承认带只有 13px、手感要试，但出发点是一个读错的数。
+建议改法：先用 4px（与 `layout-drop.ts` 的 `SEAM_PX = 4` 同值，也不用再有两个缝常量：一个归并 4px、一个缝命中 6px，在 4 到 6px 之间含义不同），手试后再放宽。
+
+========================================================================
+6. 键盘到不了缝：enumerateDropCandidates 只从“面板的边”列落点，默认 half 下根本没有 between
+严重程度：重要　类别：不变量 / 遗漏
+位置：layout-drop.ts:320-362（enumerateDropCandidates）；layout-drag.ts:373-380（pointOfCandidate）；docs/specs/ui/workbench-layout.md 输出 31（键盘“与指针同一套规则”）
+现象：键盘候选来自 `edgeTargetFor(policy, doc, tabs, leaf.id, edge)`，没有任何地方列缝。计划把默认 `half` 定成“永远 split”，于是缺省设置下 `between` 这个落点对键盘整个不存在：开发者定的第一条决定（落在两个窗口之间插入）键盘做不到。计划的验收只写了指针。
+另外 `pointOfCandidate` 为 between 算指针位置时，用 `candidate.region` 面板的边加 `branchOrientation(doc, target.branch)`；改成“缝带”之后，键盘停靠点应在缝上而不是某块面板的边内 2px，否则 `dropAt` 里 `resolveLayoutDrop` 先落到边或标签条，得到的不是候选里那个动作。
+建议改法：`enumerateDropCandidates` 在每个分支的相邻对上列缝（用第 4 条的 `layoutSeamsOf`），`region` 给相邻两块中树序靠前的那块，`pointOfCandidate` 对缝返回缝中点；Tab 顺序、`stopsOf` 的“区域至少有一个点”都要覆盖；验收加一条键盘放到缝上的场景。
+
+========================================================================
+7. 并入时别人的标签条也用 removeTab 预览：没有卡片时来源内容会被卸载
+严重程度：重要　类别：不变量 / 正确性（从代码推断，要 e2e 核实）
+位置：plan.md 第 61 行；live-drag.ts:64-80（wantsCard）、candidateOf；layout-drag.ts:150-163（candidateDoc）；WorkbenchSurface.vue:146-155（contents、liftedKey）；nb-layout/src/vue/NestedGrid.vue 内容按 `contents` 渲染；Spec 输出 38“拿起的内容是同一个实例，输入与滚动都在”
+现象：计划把“center、别人的 strip”的预览都改成 `removeTab`。但 `wantsCard()` 对 `strip` 动作返回 false（“标签条里不拿起卡片”），此时 `lifted` 为 null，`WorkbenchSurface.contents` 里只有预览文档里的标签。`removeTab` 之后来源标签不在任何面板里，它的内容项就不在 `contents` 里，NestedGrid 不渲染它，实例卸载。现有代码里这一条专门有注释：“预览把来源摘掉了：内容项还得在，不然实例就卸了”，靠的是 `lifted` 补一项，而 `lifted` 只在卡片存在时有。现在的 strip 预览是 `moveTabToStrip`，标签还在文档里，所以没有这个问题。
+连带的三件事：
+- 目标标签条里没有给来源让位的盒子，只剩一条插入线；Spec 输出 38 写的“标签条里：只有标签跟手（拖影），它留着位置、看不见”，计划只改了并入，没改这一段，也没写“别人的 strip”要不要卡片。
+- 插入线要画在拖动中的位置上，但标签条测量是拿起时冻结的（layout-drag.ts:276-283 `frozen.strips`），而 `removeTab` 会让来源面板塌掉、邻居滑动，目标面板自己的矩形会变（例如 `V[a, src, b]` 把 src 并进 b，b 长高）。现在实时布局里标签条预览根本不画线（`dropFeedback` 里 live 时 preview 为 null，只有 `noPreview` 才画），所以“冻结坐标是对的”这个前提没有被检验过。
+- `liftedCard.home` 与 `homeOf(source, shown)` 在预览文档里找不到来源时返回 null，卡片会从 380x260 的紧凑尺寸、顶部居中开始，而不是从来源面板缩出来（`updateCard` 里 `cardSize === null` 才取 home 矩形；用户先经过别人的标签条再进正文时，此时预览已是 removeTab）。
+建议改法：并入别人的 strip 时也要有卡片（`wantsCard` 对“别人面板的 strip”返回 true，home 取拿起时记下的矩形，不要从预览文档里找）；插入线用相对目标面板的偏移，每帧跟着目标面板此刻的矩形画；或者别人的标签条仍用 `moveTabToStrip` 预览（标签在盒子里滑开），只把 center 改成 removeTab 加盖层。后一种改动小，与 Spec 38 一致。e2e 要断言：悬在别人的标签条上 150ms 后，来源内容的 DOM 节点仍是同一个（现有 workbench-live-drag 里已有同一实例的断言可以扩）。
+
+========================================================================
+8. 并入盖层的矩形用 previewRevealRects：收起的目标会被算成展开的；previewable 为假时没有矩形
+严重程度：重要　类别：正确性
+位置：plan.md 第 61 行；layout-drop.ts:275-289（previewRevealRects）；layout-doc.ts:698-706（setPanelHidden 会清掉 collapsed）、730-745（showPanelAndInsert 并入收起的面板时展开）；layout-drag.ts:157-160（previewable）
+现象：
+- `previewRevealRects(doc, panels, ...)` 对每个面板先调 `setPanelHidden(shown, panel, false)`，这个函数同时丢掉 `collapsed`。目标是收成标题行的工具面板（可以放进去：`center` 经标题行，提交时 `moveTabToStrip` 会把它展开，Spec 输出 27），盖层矩形会是“展开后”的大矩形，而 removeTab 预览里这块面板仍是一行。盖层盖到了邻居上，提交后才真的展开。这是把“预备区的矩形”这个函数借来算“某块可见面板的矩形”，语义不对。
+- 编辑器的 `previewable` 为假（目标组已有同一文件、有未裁决输入，Spec 38 写“不摆预览”）时，`candidateDoc` 返回 null，没有预览文档，盖层的矩形算不出来；计划没写这时盖层画不画。盖层是“作为标签加入”的承诺，而这条落点会被编辑器合并或拒绝。
+建议改法：新写一个按文档算某块面板外框的函数（`placeGrid` 的叶项，与 `previewEdgeDrop` 末尾同一段），不经 `setPanelHidden`；并入收起面板时盖层就是那一行，或者把“并入收起面板会展开”画成展开后的矩形并让预览也展开，二者选一并写进 Spec 38。`previewable` 为假时不画盖层，动作文字写原因。
+
+========================================================================
+9. “空位不画头”对 reveal 不成立：被显示的具名面板本来有自己的标签与内容
+严重程度：重要　类别：正确性
+位置：plan.md 第 60 行；WorkbenchShell.vue:603-632（head 插槽）；WorkbenchSurface.vue:290-294；state/layout-present.ts:21-30（layoutContents 的 insetTop）
+现象：计划把 `edge` 与 `reveal` 都归为“长出新面板”，一律不画头。`edge` 的新面板里只有被拖的标签，卡片已经替它画了；`reveal` 是把隐藏的具名面板（例如隐藏着的“面板”，里面有终端、问题两个视图）显示出来，面板自己的标签带、当前视图的内容都是真的，隐藏头后用户看到的是一块没有标题的面板，内容还是留着 32px 的上内边距（`layoutContents` 的 `insetTop = PANEL_HEAD_HEIGHT` 没变），头的位置是一条空带。Spec 38“预览里露出来的、没打开过的视图不加载”，所以内容多半是空白，但已打开过的视图会露出来。
+另一个没写的点：外壳怎么知道哪块是空位。`edge` 预览里新面板的 id 是 `policy.newId("panel")` 每次调用都不同（`previewEdgeDrop` 与 `candidateDoc` 各自调一次 `applyLayoutDrop`），`slotPanel` 只能取“预览文档里来源标签所在的面板”；整块面板移动（单标签的无名面板，`movePanelToEdge`）时 id 沿用，来源的旧头在已提交文档里是真的头，也会被隐藏。计划要写清这个取法。
+编辑组：`WorkbenchSurface` 的编辑组头外层 `.workbench-surface__editor-head` 的高度观察器会把 `editorHeadHeights[panel]` 量成 0，内容的 insetTop 随之成 0（正好），但新组一出现 `EDITOR_HEAD_ONE_ROW = 34` 的默认值会先让内容滑一下，注释里写过“从 0 开始会先盖住头再滑下去”，不画头时这条处理反过来：要确认空位里不会有一帧 34px 的偏移。
+建议改法：只对“来源自己会落进去的新面板”（edge）不画头；reveal 保持原样，改“不提前显示被拖的标题”即可（头里只有面板自己的标签）。`slotPanel` 取预览文档里来源标签所在的面板，并写进 `live-drag` 的合同；内容的 insetTop 在空位里取 0。
+
+========================================================================
+10. “被拒绝”的判定与 layoutDropPanelAt 的“在面板上”不是一个意思：缝里会开浮动窗
+严重程度：重要　类别：正确性
+位置：plan.md 第 56 行；layout-drop.ts:125-141（layoutDropPanelAt）、143-162；layout-drag.ts:416-427（dropAt 的 null 分支）、446-454（fileDrop）
+现象：计划用“`layoutDropPanelAt` 不为 null”表示“指针在面板上”。这个函数里，指针在某块面板正文或标签条内就返回它（不管接不接收）；但指针在缝里（面板之外 4px 内）时，只在“接收的”面板里找（`filter(accepted)`）。于是编辑器标签拖到两块工具面板之间的缝上：指针在缝里，两块都不接收，返回 null，计划判成“不在面板上”，在 1px 缝里开浮动窗；指针往旁边挪 2px 进了工具面板，就是“被拒绝，松手取消”。同一个地方两种结果，缝宽 1px 时用户几乎一定会碰到。主题把卡片间隙加大时（`cardGap`）更明显。
+另外：
+- 缝带加到 6px 后，缝里不接收时的归属（4px 的“归最近的能接收的块”与 6px 的缝命中）是两套距离，4 到 6px 之间若缝落点被 `seamTarget` 否决，指针又不在任何面板里（只有间隙大于 12px 才会）。
+- 已隐藏、拖到零宽的面板没有几何（`geometryOf` 为 null），那一小块位置按“不在面板上”开窗；这和“预备区”是同一个位置，预备区只对接收的标签浮出，所以编辑器标签拖到隐藏的侧栏位置会开浮动窗，而不是取消。是否要这样要明确写。
+- 浮动窗：`layoutDropPanelAt` 对浮动窗命中直接返回，`resolveInPanel` 不接收时为 null，计划是取消；原来是开窗（`resolved === null` 就 `floatDrop`），这是行为变化，且浮动窗盖在别的窗上方时“取消”会让用户无法把一个标签放到浮动窗正下方的位置，只能挪开，计划的 Spec 与 e2e 没覆盖。
+- 实时布局：拿起时来源面板在预览里被收起（`source-removed`），冻结的几何还在，所以指针回到来源自己的位置仍是“原位”，不是被拒绝，这是对的；但被拒绝的位置 150ms 后候选为 null，预览变 `source-removed`，来源标签在原处消失、卡片还在跟手，用户看到的是“标签没了”，只有光标说明不能放（第 11 条）。
+建议改法：定义一个 `isOverPanel(input)`：浮动窗命中、任一面板（不论是否接收）的正文、标签条或其缝带 `SEAM_PX` 内。被拒绝 = 在这个集合里且 `resolveLayoutDrop` 为 null。`layoutDropPanelAt` 的“只找接收的”只用于归属，不用于被拒绝。合同测试：编辑器标签在两块工具面板之间的缝上返回“被拒绝”，不是 null。
+
+========================================================================
+11. “被拒绝”没有类型化的通道；光标规则按计划写不生效；文件拖动是另一场会话
+严重程度：重要　类别：接口与合同 / 正确性
+位置：plan.md 第 56 行；layout-drag.ts:422-427、446-454、570-590（session.resolve）；WorkbenchDragFeedback.vue:144-149；contracts 里 WorkbenchFileDropHost 的 resolve
+现象：
+- 计划写“返回 null，并标 `rejected`；外壳根写 `data-drop-rejected`，光标 `not-allowed`”。`resolve` 返回 `LayoutDragDrop | null`，null 现在代表“被挡住、算不出、按钮区、窗口外”等许多情形；没有地方放 `rejected`，要么加闭包变量（读它的外壳要响应式），要么改返回类型。没写。
+- 拖动中全局规则是 `:root[data-workbench-dragging] * { cursor: grabbing !important }`（WorkbenchDragFeedback.vue:145-149）。在外壳根元素上写 `cursor: not-allowed` 既没有 `!important`，也影响不到后代，不会生效。标记应写在同一个 `documentElement` 上，规则写成 `:root[data-workbench-dragging][data-drop-rejected] *`。
+- 文件拖动（资源树）是资源树自己的会话，外壳只有 `fileDropHost.resolve`；它返回 null 就是“没有落点”，没有渠道告诉资源树“被拒绝”，光标不归外壳管。计划把 `fileDrop` 的拒绝与“没有编辑器、有 `data-no-drag`、浮动窗数到上限”都归成 null，文件在工具面板上松手由“开浮动编辑窗”改成“什么都不发生”，没有任何反馈。files-explorer 的 Spec 要同时写“看起来是什么”。
+- `data-no-drag` 的按钮区、被菜单挡住的、窗口外都已是 null 且不开窗，和计划的“被拒绝”结果相同但没有标记，光标不一致。
+建议改法：`LayoutDragDrop` 之外给 `dropAt` 一个判别结果 `{kind:"drop"|"rejected"|"none"}`（或在 drag 对象上暴露 `rejected: Ref<boolean>`），标记写在 `documentElement`；资源树一侧由 `WorkbenchFileDropHost` 加一个“被拒绝”返回值，或者明确“文件拖动不给光标反馈，只取消”。
+
+========================================================================
+12. dropSplit 设置的传入路径与对 moveView 的连带影响没写
+严重程度：建议　类别：接口与合同
+位置：plan.md 第 52 行；WorkbenchShell.vue:386（`const POLICY = createLayoutPolicy()`）；state/layout-doc-store.ts:63（store 里另一份 `createLayoutPolicy()`）、418-419（moveView 直接调 `layoutEdgeTarget`）；shared/editor-panels.ts:93-121
+现象：
+- 拖动用的是外壳里的 `POLICY`（setup 时建一次），设置是 props（`dragFeel` 同样经 props 传入，读时是函数）。“经 createLayoutPolicy 传入”如果传的是值，改设置后要重新挂载才生效；要传 getter。store 里的 policy 只用于 accepts 与 newId，不受影响，但两份 policy 的并存本身就容易让后来人以为设置对提交也有效。
+- `moveView({newPanelNextTo})`（“移动到”里的“新面板”）直接调 `layoutEdgeTarget(current, [], beside, "bottom"|"right")` 取目标，不经策略。如果 half/even 的分流写进 `layoutEdgeTarget`，“移动到新面板”会随设置变化；默认 half 又会把它从“从相邻两块各取三分之一”改成“拆这一块一半”，计划没提；Spec 输出 23 要同步。建议 `moveView` 固定用旧语义（直接取 `edgeTargetOf`）或固定 split，不跟设置走。
+- `LayoutEdgeTarget` 是插件可见的类型（workbench/shared/contracts.ts:231、243 的 `moveToEdge`、`openAt`，editor/web/groups/groups.ts:162-164，area.ts:152）。给 between 加必填的 `share`、让 before/after 可空，是对这些接口的破坏性变更，要么 `share` 可选（缺省 neighbours），要么在计划里列出受影响的调用方。`LayoutPolicy` 新增 `seamTarget` 时，缺省（Lab 夹具、nb-layout 自己的测试没有这个钩子）是“所有缝都是落点”还是“没有缝落点”也没写。
+建议改法：上述三处各补一句；`seamTarget` 缺省定成“没有缝落点”，保持库的旧行为不变。
+
+========================================================================
+13. 新令牌、文案与登记位置漏了
+严重程度：建议　类别：文档 / 代码质量
+位置：plan.md 第 61、77-86 行；packages/nb-ui/src/tokens.css:243-244；packages/nb-ui/src/theme/tokens.ts:136-137（nbThemeFeedbackTokens）；docs/specs/theme/system.md:46；packages/nb-ui/src/theme/tokens.test.ts:24-28
+现象：计划新增 `--layout-slot-fill`、`--layout-merge-fill`、`--layout-merge-border`、`--layout-merge-border-width`。现有同类令牌（`--layout-slot-border`）登记在 nb-ui 的 tokens.css、`nbThemeFeedbackTokens` 名单和主题 Spec 里，`tokens.test.ts` 会检查名单里的每个令牌在 css 里有声明。计划的“Spec 与文档改动”表没有这三处。另外：
+- 指示模式的中央现在用 `--drop-area-fill`、`--drop-area-border`（同一个“并入某块”的高亮）；计划说“落点指示模式的并入用同一组令牌”，会有两组语义相同的令牌，要么指示模式沿用 `--drop-area-*` 并让 `--layout-merge-*` 缺省取它们，要么写明替换。
+- “作为标签加入”是新文案，现有 `shell.drop.addTab`（“添加为标签”）已经是同一件事；两条 locale 文件加 `dropSplit` 设置的标题与选项也没列，`workbench/locales.test.ts` 会检查。
+- 新组件或盖层要不要登记 Component Lab 场景，计划没提（`data-live-merge` 在外壳里，不是独立组件，但 `lab-grid-panels` 里要有一个能看到它的场景，才有亮色截图可给开发者看）。
+建议改法：补进改动表。
+
+========================================================================
+14. panelHeadMode：与现状的取值来源不一致，表里有一格没定义
+严重程度：建议　类别：不变量 / 文档
+位置：plan.md 第 65-75 行；WorkbenchShell.vue:173、202-203、404、574、624；WorkbenchSurface.vue:303；layout-present.ts:104-108
+现象：
+- 现在 `titleOnlyPanels`（外壳渲染、`headReserved`、Surface 的 `role` 都用它）按 `renderedDoc`（预览文档）算，拖动判定的 `titleOnly` 选项按已提交的 `doc.value` 算（WorkbenchShell.vue:404）。计划要求“按已提交的文档算”，那么 `titleOnlyPanels` 的来源也要从 `renderedDoc` 改成 `doc`，否则标签是预览里的、头的样式是预览里的，拖动判定是已提交的，三处各一个答案。预览里新面板的 id 在已提交文档里不存在，`panelHeadMode` 对不存在的 id 要有定义（空位不画头，所以不会被问到，但 e2e 里别的状态会问）。
+- 表第一行“侧栏这一列（活动栏显示着）”；活动栏隐藏时这一列落到哪一行没写。现状是活动栏隐藏时画标签带（切不了视图）；若这一列只有一个视图则按第二行写标题就行，多视图是标签带。写出来。
+- Spec 输出 20 现在写“右栏、面板总有标签带”，改成一个视图只写标题后，`role` 会在“tabpanel/region”间随标签数变，`aria-labelledby` 指向的元素也在“标签”与“标题按钮”间切换（两者的 DOM id 都用 `panelTabDomId`，所以引用还成立，但第 2 个视图拖进来的那一刻 role 会变，读屏会重新播报）。是可以接受的变化，要写进 Spec，别让 e2e 的 `role=tabpanel` 断言偶然失败。
+- 单视图面板从“标签带”变成“只写标题”后，标签条不再有插入位：拖别的视图到它头上是“添加为标签”（追加到末尾），不能选位置。这与侧栏一致，但对右栏/面板是新限制，Spec 要写出来。
+- 浮动窗整窗拖动的判定（layout-drag.ts:339-345：只有一个标签时拖标签是整窗）与新表一致，不矛盾；“浮动窗刚开”按已提交文档算，新窗已在已提交文档里，所以是只写标题，没问题。
+建议改法：上面四点补进计划。
+
+========================================================================
+15. 缝上的落点分区没有设计
+严重程度：建议　类别：遗漏
+位置：plan.md 第 81 行（只写“37 分区遇到缝”）；layout-drag.ts:471-479（withSectors）；layout-drop.ts:178-207（layoutDropSectors）
+现象：`withSectors` 用 `layoutDropPanelAt` 取指针所在的面板，再用 `items.find(action 的 JSON 与当前动作相同)` 找高亮的块。缝的动作是 `between{neighbours}`，任何一块面板的五块分区里都没有它（half 下边块都是 split；even 下边块是 `between{even}`，`share` 不同，JSON 不等），所以 `active` 恒为 null；指针在缝带里，`layoutDropPanelAt` 对 1px 缝几乎总是返回邻居之一，于是一边画着邻居的五块分区，一边是没有任何块高亮的缝落点。计划的判定顺序里缝先于边，所以这是常态。
+建议改法：缝命中时分区层画一条缝的高亮（或不画分区），在 Spec 37 里写“指针在缝上时没有分区，反馈只有空位”，并在 `withSectors` 里按动作种类跳过。
+
+========================================================================
+16. 验收映射缺口
+严重程度：建议　类别：测试
+位置：plan.md 第 96-105 行
+现象：已有映射不覆盖：
+- 缝的几何（零宽、收起、嵌套分支、最大化）：合同测试里只写了 `layout-drop.test.ts` 的“判定表”，没写缝的矩形；
+- 键盘到缝（第 6 条）；
+- 第 1、2、3 条里的各个形状（两端 null、别名塌陷、侧栏列收起或隐藏的 even、来源同分支）；
+- 被拒绝：缝上、浮动窗上、已隐藏位置、`data-no-drag`、光标标记；e2e 只写了“放在编辑组上不开窗；放在状态栏开窗”；
+- 并入别人的标签条时来源内容是同一个实例（第 7 条）、并入收起面板（第 8 条）、reveal 的头（第 9 条）；
+- dropSplit 设置变化后不重载就生效（第 12 条）与 `moveView` 不随设置变；
+- 令牌登记（`tokens.test.ts`）。
+`default-tree.test.ts` 的随机性质测试里要加上“缝与 even 之后 `fitsSkeleton` 仍成立、总尺寸守恒（新块 + 其余 = 摘掉来源后的总量）”两条不变量，计划只写了“加上缝与均分”。
+建议改法：把以上补进映射。
+
+========================================================================
+未发现问题的方面：
+- 已存的布局记录：落点目标是瞬时的，不进 `LayoutDoc`，文档版本与校验不变，没有迁移问题。
+- 提交时的接受矩阵与骨架：`applyLayoutDrop` 出口与 `layout-doc-store.ts:203` 的 `fitsSkeleton` 照旧；预览文档不合骨架时 `livePreview` 为 null（:222），不会渲染出不合骨架的树。
+- 浮动窗整窗拖动与新头样式：一个标签的窗拖标签是整窗，与“只写标题”不矛盾。
+- 开发者已定的第 1、3、4、5 条与计划的方向一致；第 2 条（两种语义都支持、固定的不参与）见第 2、3 条的补充。
+
+有效发现：16 条（阻断 0，重要 10，建议 6）。
+重要：1、2、3、4、6、7、8、9、10、11
+建议：5、12、13、14、15、16
+最严重的几条：1（between 两端 null 加别名，数据形状无法定位，已用现有代码复现 not-found）、7（并入别人的标签条用 removeTab 且没有卡片，来源内容卸载）、10（缝里的“被拒绝”会开浮动窗）、4（缝的几何把“拖到零”的面板当成可见）、6（键盘到不了缝）。
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
