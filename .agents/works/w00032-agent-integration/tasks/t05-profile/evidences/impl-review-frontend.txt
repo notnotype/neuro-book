@@ -1,0 +1,108 @@
+# w00032/t05 前端实现审查（范围 9a93c233..d4674120）
+
+按影响排序。未跑任何测试或服务，凡需要运行才能确认的已标明。
+
+## 重要
+
+### 1. [重要 / 竞态] 新建后选中新 Profile 依赖“交回时目录里已有它”，目录事件接连来时不成立，选中会被打回第一项
+- 位置：`packages/neuro-book/src/plugins/agent/web/profile-page.ts:93-109`（`load` 的序号丢弃）、`:179-193`（`createProfile` 先 `await load()`）；`components/ProfileSettingsPage.vue:55-65`（`create` 直接写 `selected`）、`:41-43`（`watch(current)` 把找不到的 `selected` 重置为第一项）。
+- 现象：`load()` 只认最后一次请求（`mine !== sequence` 则直接 return）。`createProfile` 里的 `await load()` 若在途中被一次事件触发的 `load()` 顶掉，它会在没有写入 `entries` 的情况下 resolve，随后返回 `{key}`；页面 `selected = key` 时 `ordered` 里还没有这个 key，`current` 退回第一项，`watch(current)` 又把 `selected` 改成第一项。用户新建后看到的是别的 Profile，编辑器却已打开新文件。
+- 为什么是问题：Spec 输出 21 要求“它出现在目录里时选中它”；`profile-page.ts` 注释与 `ProfileSettingsPage.md` 数据节都把“交回时目录里已有它”当作保证，但 `load` 的丢弃规则让这个保证只在没有并发重取时成立。服务端建好文件后会发 `profileCatalogChanged`（本包 e2e 的单窗口场景恰好是事件先到，所以不暴露）。
+- 如何核实：从代码推断，未在真实时序下复现。可在 DOM 测试里让 `createUserProfile` 返回后、`load` 的 `profiles` 挂起期间 `fire()` 一次事件，再放行，断言选中项。现有“新建”用例（`profile-page.dom.test.ts:366`）没有并发事件。
+- 建议改法：`createProfile` 不依赖 `load()` 的返回时机；页面记一个“待选中 key”，等 `ordered` 里出现再选并清掉（有错误状态也算出现）；或让 `load` 在被顶掉时返回最新那次请求的 promise，保证 `await load()` 返回时 `entries` 是最新的。
+
+### 2. [重要 / 英文界面溢出] 工具行右侧定宽 40px 只容得下“必需”，英文“Required”会压到说明文字上；等级列 28px 同理
+- 位置：`components/ProfileToolsSection.vue:149`（`grid-template-columns: 136px 28px minmax(0, 1fr) 40px`）、`:188-191`（`.profile-tools__action` 为 `justify-content: flex-end`）、窄屏 `:196`（`28px 40px`）。
+- 现象：英文目录里 `profiles.tools.required` 是 “Required”，`profiles.tools.effect.*` 是 “Read/Write/Run”。Badge 的最小宽度大于 40px，flex 容器里 `justify-content: flex-end` 让它向左溢出到说明列上。实现截图 `ProfileSettingsPage__english__800x700__light.png` 里 Required 已明显比 “×” 那一格宽出一截向左伸出，只是样本里说明文字短、没有被盖到；说明较长（截断出现省略号）的行会被盖住末尾。
+- 为什么是问题：`ProfileToolsSection.md` 写“最右一格定宽……文字宽度不随它变”，这是中文下成立的宽度；w00028 要求中英两份一致可用。Lab 的 `english` 场景只有一个，选的是 `user.lore-check`，且样本的 `effect`、`summary` 在 `profile-samples.ts` 里写死中文，只有页面自带的“Required”是英文，因此场景没有能暴露更长说明或 “Write” 的情形。
+- 如何核实：Lab 里 `ProfileSettingsPage / english`，初始项改 `nbook.agent.main`（有长说明的必需项 read、write），看 Required 与说明末尾是否重叠；Playwright 可对 `[data-profile-tool] .profile-tools__action > *` 与 `.profile-tools__summary` 取 boundingBox 求相交。
+- 建议改法：最右一格与等级列用 `max-content`（或按最长的一类定 `min-content` 加固定上限），或给“必需”换成图标加可访问名称；Lab 的 `english` 场景换成带必需项与长说明的 Profile，并补一个英文窄屏场景。
+
+## 建议
+
+### 3. [建议 / 可访问性] 模型与审批两行的说明与问题只在旁边的 `<small>` 里，没有和控件关联；字段级问题读屏用户听不到
+- 位置：`components/ProfileDetail.vue:57-74`（label 块）、`:66-73`（`SearchSelect` 只有 `aria-label`）、`:75-90`（审批）。
+- 现象：问题的文字（“这个模型不支持看图”“角色没有绑定模型”）在 `<small>` 里，警告图标是 `aria-hidden`，控件没有 `aria-describedby` 指向 `<small>`，也没有可见 `<label for>`；`<small>` 本身截断后只能靠鼠标悬停看全文（不可聚焦）。
+- 为什么是问题：输出 4、6、7、9 把“字段级问题”做成这页的主要信息，但只有看得见的人才获得它。参照的 `SettingsRow` 把说明与状态原因的 id 合进 `describedby`（`ui/settings/SettingsRow.vue` 的 `describedby` 插槽参数）。
+- 如何核实：读代码即可；运行时用读屏或 `getByRole("combobox", {name: "模型"})` 检查 `accessibleDescription`。
+- 建议改法：给 `<small>` 一个 `useId()`，传给 `SearchSelect`、`Select` 的 `aria-describedby`（若组件支持透传），否则把说明合进 `aria-label`。
+
+### 4. [建议 / 组件规范] `ProfileSettingsPage.md` 的能力标签缺 `env:portal`
+- 位置：`components/ProfileSettingsPage.md:2`（`标签: [state:local, state:inject]`）、`ProfileSettingsPage.vue:137-146`（直接渲染 `AlertDialog`）、`:113`（`Select`）。
+- 现象：页面自己就直接挂了 `AlertDialog` 与下拉，两者都传送到 body；同类的 `ProvidersPage.md`、`ProviderDetail.md` 都写了 `env:portal`，本任务里另外四个会弹层的组件（ProfileDetail、ProfileToolsSection、AddToolsDialog、NewProfileDialog）的文档也写了。
+- 为什么是问题：`docs/standards/code/components.md` 的“声明是对实现的如实描述……整份声明不予采信”；隐藏通道理由一节也就没有这一条。页面里还用 `querySelector` 与 `offsetParent` 直接读 DOM 来移焦点（`:87-91`），与“只管选中与布局”的描述不符，文档没提。
+- 建议改法：补 `env:portal` 与理由一行；在 `.md` 的交互里写一句删除后的焦点回退逻辑（含窄屏回退到下拉）。
+
+### 5. [建议 / 重复提交与文档不符] 新建对话框回车不看 `busy`；`.md` 写的“字段标红并得到焦点”没有代码
+- 位置：`components/NewProfileDialog.vue:254`（`@keydown.enter.prevent="submit"`）、`:234-237`（`submit` 不检查 `props.busy`）；`NewProfileDialog.md` 布局与交互两节。
+- 现象：一、`busy` 时按钮停用，但输入框里再按回车仍会 `emit("create")`，页面 `create()` 没有防重入，会发出第二次 `createUserProfile`，第二次得 `exists`，把状态改成“已经有同名的 Profile 了”，而第一次其实已成功（对话框已关，下次打开会被清掉，但 `createBusy` 会被第一个返回提前置回 false）。二、`.md` 说提交之后才知道的错“字段标红并得到焦点”，实现只标红（`Field :error`），没有任何把焦点放回输入框的代码；点“新建并打开”按钮提交后焦点留在按钮上（未在运行时验证）。
+- 建议改法：`submit` 里 `if (props.busy) return`；失败后在 `status` 变化时 `nextTick` 聚焦输入框，或改 `.md`。
+
+### 6. [建议 / 窄屏] 窄屏下头部的问题块最多占 62% 宽，名称被压到几个字；Lab 没有“窄屏加问题块”的场景
+- 位置：`components/ProfileDetail.vue:145-148`（`.profile-detail__notice {max-width: 62%}`）、`:105-112`（头部）；`plugins/lab/web/fixtures/index.ts` 的 `ProfileSettingsPage` 场景（`narrow` 只用默认第一项，没有 `initial`）。
+- 现象：480px 宽页面里主区约 440px，问题块可占 270px，两个图标按钮约 60px，间隙 16px，名称加说明只剩约 94px；`draft-review` 这类名称就被截断（按估算，未量过）。头部是单行定高，所以“位置不动”成立，但名称是用户给的、也是识别当前项的主要依据；说明先让位之后紧接着让的是名称。
+- 为什么是问题：输出 1、4 与评审板第 1、2 轮的决定是“窄屏也一行”；这个组合（窄屏加有问题的 Profile）是最可能出问题的，现有场景看不到。`ProfileDetail` 与 `ProfileToolsSection` 单独挂在 Lab 里也没有容器（`container-type` 在 `.profile-page`），它们的窄屏版式只能在页面场景里看。
+- 建议改法：加一个 `narrow-broken` 场景（`initial: "user.draft-review"`、480px 宽）；若名称被压得太短，窄屏下让问题块 `max-width` 降到约 45% 或换成只有图标、全文放提示。
+
+### 7. [建议 / 结构] `profile-view.ts` 同时装了类型、写回设置的纯函数、模型一行、问题文案、工具行与凭据判断，被 `plugin.ts` 当工具库用
+- 位置：`web/profile-view.ts`（396 行）、`web/plugin.ts:50`（`import {hasCredentials} from "./profile-view"`）、`profile-view.ts:118-122`、`:125-148`（`modelChoiceOf`、`withModelChoice`、`withApprovalChoice`）。
+- 现象：文件头写的职责是“视图模型”，但 `withModelChoice`、`withApprovalChoice`、`withSetting` 是写回设置的计算，`hasCredentials`（原在 `plugin.ts`）是模型服务快照的判断，`modelNeedsText` 还要被对话输入框复用。入口 `plugin.ts` 为了一个判断函数依赖整个页面视图模型。
+- 为什么是问题：后面再加 Profile 的字段（压缩、Skill 白名单已列为非目标，但会来），这个文件会按“再加一个 field 函数”继续长；`hasCredentials` 与对话输入框的模型列表、设置页的“用得了”是同一条规则，放在页面文件里会让下一个用它的人去 import 页面。
+- 建议改法：拆出 `profile-settings-edits.ts`（写回设置的三个函数与哨兵常量）、把 `hasCredentials`、`modelNeedsText` 放进 `shared/model-needs.ts` 或模型插件的共享合同；`profile-view.ts` 只留算视图。
+
+### 8. [建议 / 类型安全] 绑定设置的类型被 `as unknown as` 改写了两处，且手写了一份 `ToolBinding`
+- 位置：`web/profile-page.ts:37`（`createSettingWriter(...) as unknown as SettingWriter<Record<string, ToolBinding>>`）、`:91`（`agentSettings.settings.toolBindings as unknown as SettingDefinition<...>`）；`shared/profile-tools.ts:16-19`（`ToolBinding`）对照 `shared/settings.ts:75-82` 的 `ToolBindingsSchema`。
+- 现象：设置项的 TypeBox 推出的类型与手写的 `ToolBinding`（readonly 数组）不兼容，所以在包装里两处双重断言绕过。写入队列的类型因此不再受设置项约束，改 schema 时这里不会报错。
+- 为什么是问题：`AGENTS.md` 核心规则“不用 hack 绕过类型系统”。同一设置项被断言两次，应当在源头解决。
+- 建议改法：`ToolBinding` 改成 `Static<typeof ToolBindingSchema>`（或 schema 用 `Type.Readonly`），去掉两处断言；或 `createProfileWriters` 里只断言一次并导出带类型的定义。
+
+### 9. [建议 / 重复推导] 用户级 Profile 的文件地址在前端重算了一遍
+- 位置：`web/profile-page.ts:79`（`userProfileAddress`）对照 `backend/profile-bundles.ts:156、168`（`${name}${SUFFIX}`、`user://profiles/${file}`）。
+- 现象：“新建”用服务端交回的 `address`，“打开文件”用客户端从 key 拼出来的地址；后缀与前缀两边各写一份，`ProfileEntry` 里没有地址。
+- 为什么是问题：服务端对路径格式（后缀、手写文件名的 key 换算）做任何调整，打开文件会静默打不开，只留一条 `open-address-failed` 诊断。同一件事两处各写一份，是 AGENTS.md 里“质疑上游选择”提到的信号。
+- 建议改法：`ProfileEntry` 对用户级项带一个 `address`（或 `shared/profile-tools.ts` 导出 `userProfileAddress(key)` 两边共用）。
+
+### 10. [建议 / 文字目录] `profiles.tools.add.cancel` 两个语言都登记了，没有任何地方用
+- 位置：`locales/zh-CN.json`、`locales/en-US.json` 的 `profiles.tools.add.cancel`；`AddToolsDialog.vue` 的取消按钮用的是 `Dialog` 默认的 `dialog.cancel`。
+- 如何核实：`grep -rn "tools.add.cancel" packages/neuro-book/src --include=*.vue --include=*.ts` 只命中目录。
+- 建议改法：删掉这个键；两份目录的键集合与占位符核对过一致（脚本比对 `profiles.*`，无差异）。
+
+### 11. [建议 / 分组身份] 工具分组的 `provider` 同时是显示名、v-for key、折叠状态的键与 `data-` 属性
+- 位置：`web/profile-view.ts:70-73`、`byProvider`（`provider: sourceName(...)`）；`ProfileToolsSection.vue:23-28、56-61`（`folded` 按 `group.provider`）；`AddToolsDialog.vue:81`（`:key="group.provider"`）。
+- 现象：两个插件显示名相同、或某个插件名恰为“已卸载”“内置”时，key 重复（Vue 警告并复用节点）、折叠状态一起变；`data-profile-tool-group` 随界面语言变，测试与 e2e 无法稳定选择。
+- 为什么是问题：显示名不是身份。`byProvider` 里本来就按插件 id 分组，只是丢掉了 id。
+- 建议改法：`ProfileToolGroup`、`ProfileToolCandidateGroup` 加 `id`（插件 id，已卸载一组用固定值），用它作 key、折叠键与 data 属性；`provider` 只负责显示。
+
+### 12. [建议 / 左栏] 左栏每项的第二行没有截断，来源或状态文字长时项高不一
+- 位置：`components/ProfileRail.vue:136-139`（`.profile-rail__status` 无 `white-space`/`overflow`）、`:127-134`（名称有省略号但无全文提示）。
+- 现象：来源是第三方插件的显示名（英文下尤其长，例如 “Story Graph Tools”），在约 100px 的文字宽度里会换行，那一项变高；名称被省略后没有任何办法看到全文。`ProfileRail.md` 说“每项两行”。
+- 建议改法：`.profile-rail__status` 加 `overflow:hidden; white-space:nowrap; text-overflow:ellipsis`；整项加 `title` 或用 `Tooltip` 显示全名与来源（右边头部已有全文提示，左栏没有）。
+
+补充（针对第 8 条，已核实）：`shared/settings.ts:32` 本来就导出了 `ToolBinding = Static<typeof ToolBindingSchema>`，`shared/profile-tools.ts:16` 又定义了同名的 readonly 接口，`profile-page.ts:23` 引的是后者，所以才要两处双重断言。直接复用 `settings.ts` 的类型（或让 `profile-tools.ts` 的函数接受其 readonly 形式）即可去掉断言与重名类型。
+
+### 13. [建议 / 测试写法] DOM 测试多处用 `vm.$emit` 与读 props 代替用户操作，焦点与窄屏分支只靠 e2e
+- 位置：`web/profile-page.dom.test.ts:229-236、249-251、263-264`（`findComponent(ProfileDetail).vm.$emit("model", …)`、`.props("profile").model.value`）。
+- 现象：写入用例没有真的在 `SearchSelect`/`Select` 里选项，而是直接从子组件发事件、从 props 读结果；只要 `ProfileDetail` 的事件名或 `profile` 的形状变了就一起失败，而下拉没接上 `emit` 这类真实缺陷反而测不到。删除用例没有断言焦点（`onRemoveClosed` 的窄屏回退到下拉那一支，因为 jsdom 的 `offsetParent` 恒为 null，在 DOM 测试里根本走不到，只在桌面 e2e 里覆盖了左栏那一支）；“`createProfile` 与目录事件并发”“添加对话框开着时目录变化不刷新候选”（Spec 状态节明确写了）没有用例。
+- 为什么是问题：`docs/testing/README.md` 的“测行为，不测实现”；模型一行的 `SearchSelect` 与审批的 `Select` 才是这页写入的入口，e2e 里点了（`agent-profiles.e2e.ts:92、152`），DOM 测试里没有。
+- 建议改法：写入用例改成点选项（选项在 body 里，同删除用例的做法），读 `[data-profile-model]` 里的文字而不是 props；补第 1 条的并发用例与“打开期间目录变了”的用例。窄屏焦点回退只能真实浏览器里验，在 e2e 里加一个 480px 视口的删除用例，或在报告里写明未覆盖。
+
+### 14. [建议 / 小] 同一个 `data-profile-create` 出现在左栏按钮与窄屏下拉旁两处
+- 位置：`ProfileRail.vue:81`、`ProfileSettingsPage.vue:114`。
+- 现象：两个元素同名，e2e 与 DOM 测试都得写 `.profile-rail [data-profile-create]` 限定（`e2e/agent-profiles.e2e.ts:78、121`，`profile-page.dom.test.ts:374`），写 `[data-profile-create]` 会匹配两个，Playwright 严格模式报错；窄屏下点到的是另一个。
+- 建议改法：窄屏那个改名 `data-profile-create-short`，或在 `.md` 里写明。
+
+## 已核实、无问题的方面
+- `SettingsSectionHeading` 重构：内边距（button 右 `space-3`、静态右 `space-5`）、高度、字号、`role="status"`、`data-settings-layer-notice` 与 `data-settings-open-file`、`click` 转发与 `Tooltip` 触发都与原来一致；`.settings-section-heading__warning {flex-shrink: 0}` 作用于子组件根（scoped 允许），“不缩”与原行为相同。
+- `Tooltip` 触发器在 `SettingsNotice` 上：`TooltipTrigger as-child` 经 Slot 合并 attrs 到组件根，`onClick` 虽在 `emits` 里声明，但 `$emit('click')` 会调用合并后的监听，Reka 的指针与焦点监听落到根上；`focusable` 的 `<p tabindex=0>` 可用键盘打开提示。
+- 头部与问题块高度：头部定高 `--control-h-sm`，`SettingsNotice` 同高，有无问题、说明为空、名称过长都不改高度；模型与审批行的文字块固定 20、2、18。
+- 容器查询：`.profile-page` 是 `container-type: inline-size`，`ProfileDetail` 与 `ProfileToolsSection` 是它的后代，在页面里生效；单独在 Lab 里挂这两个时没有容器（见第 6 条，只影响验证，不影响产品）。
+- `AddToolsDialog`：候选在打开时定下；同名互斥按 `providerName` 在未过滤的全集里做；`done` 算出的 `add` 与 `remove`、`blocked` 的停用与 `.md` 一致；`:key` 重挂会关掉对话框与折叠状态，符合 Spec 输出 14“选中的 Profile 变了对话框关闭”。
+- `pendingEdits`：`editing` 是 `shallowRef` 且在 `computed` 里被读，会触发重算；配置服务的 `get` 在 computed 里是响应式的（`shared/settings.ts:428` 注释）。
+- 函数属性（`addTools`、`createProfile`、`deleteProfile`）与事件的分工有注释交代；事件名 `onRemoveTool`、`onRestoreTools`、`onOpenFile` 与 `defineEmits` 的短横线写法对得上。
+- 文字目录：中英键集合、占位符一致；`agentText` 的模板字符串键（`profiles.tools.effect.${effect}`、`profiles.needs.${kind}`、`conversation.approval.${key}.label`）的变量都是字面量联合，受目录类型检查。
+- 上一轮设计审查 16 条：数据来源（#1）、值编码（#2）、写入队列（#4）、对话框失败与同名（#5）、loading/error/只读（#6）、插件显示名（#7）、可访问名称（#9）、窄屏阈值（#10）、复用与登记（#11、#12）在前端都有对应实现；未重复。
+
+## 数量
+- 阻断：0
+- 重要：2（第 1、2 条）
+- 建议：12（第 3 至 14 条）

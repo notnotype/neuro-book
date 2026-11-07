@@ -114,3 +114,6 @@ owners:
 ## 证据
 
 - 批准依据：开发者 2026-11-07 确认的计划（`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md`）与评审板三轮决定。
+- 实现入口：[`profile-page.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.ts)、[`ProfileSettingsPage.vue`](../../../packages/neuro-book/src/plugins/agent/web/components/ProfileSettingsPage.vue)、[`profile-bundles.ts`](../../../packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts)
+- 合同测试：[`profile-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts)、[`profile-view.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-view.test.ts)、[`profiles.test.ts`](../../../packages/neuro-book/src/plugins/agent/profiles.test.ts)
+- Smoke：[`agent-profiles.e2e.ts`](../../../packages/neuro-book/e2e/agent-profiles.e2e.ts)

@@ -1,0 +1,47 @@
+### 1. 新建 Profile 用跨文件系统硬链接，`EXDEV` 未转换为合同结果
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：`packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:154-168`
+- 现象：`create()` 先把骨架写到 `#cache`，再用 `link(temporary, join(#directory, file))` 建入口；只把 `EEXIST` 转成 `exists`，`EXDEV` 直接抛出。
+- 为什么是问题：状态根下的 `agent/cache` 与 `user/profiles` 通常同盘，但状态根可以把两个子目录放在不同挂载点。此时新建请求得到通道 `provider-error`，而合同只允许 `invalid-name`、`exists` 两种业务失败；用户看不到可恢复的失败原因，且入口不会创建。
+- 如何核实：已在实验目录执行 `node` 的 `fs.linkSync('/tmp/review-t05-impl/lab/source.tmp', '/dev/shm/review-t05-link.tmp')`，结果为 `EXDEV`。把 `stateRoot/user` 或 `stateRoot/agent` 放到不同文件系统后调用 `createUserProfile` 可复现同一路径。
+- 建议改法：临时骨架写到目标目录内的唯一临时文件，再在同一目录 `link` 到最终文件并删除临时文件；这样保留“监听只看到完整入口”和“不覆盖”的语义，不依赖跨文件系统硬链接。
+### 2. 停止期间已受理的新建或删除会假成功
+- 严重程度：重要；类别：不变量 / 正确性
+- 位置：`packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:154-181,191-207`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:250-264,280-285`
+- 现象：`profileAdmin.createUser`、`deleteUser` 只调用 `table.gate()`，没有用 `table.accept()` 登记异步操作。若调用已通过 gate 后 `stop()` 开始，`ProfileBundles.stop()` 把 `#stopping` 设为真；随后 `#schedule()` 直接返回已完成的 Promise，不再建包或处理删除状态，但 `create()`/`delete()` 仍返回成功。
+- 为什么是问题：远程合同要求新建成功时目录已有可用条目，删除成功时入口已处理且会话状态可收口。这个交错顺序会返回 `ok`，却可能没有打包成功，甚至删除后状态仍留在目录；停止随后又不再发布任何结果。调用方无法区分“已受理但未完成”。
+- 如何核实：在 `createUserProfile` 进入 `#schedule` 前暂停，再并发调用 runtime `stop()`，释放暂停后观察返回值、入口文件与 `profiles()`/会话状态；静态路径已确认 `stop()` 先置 `#stopping`，而 `#schedule()` 第 192 行直接 `Promise.resolve()`。
+- 建议改法：把 Profile 管理写入也纳入停止门的在途登记，停止等待已登记的 create/delete 完成；或让 `#schedule()` 在停止时返回明确失败并由远程合同增加对应通道码，不能把未完成操作报告为成功。
+### 3. 并发同名新建共享临时文件，成功请求可能被另一请求改写
+- 严重程度：重要；类别：正确性 / 并发
+- 位置：`packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts:154-166`
+- 现象：临时路径只由文件名和 `process.pid` 组成：`${file}.${pid}.tmp`。两个同名 `create()` 会同时 `writeFile` 同一个临时文件；其中一次 `link` 成功后，另一条仍在进行的 `writeFile` 继续写同一个 inode，最终入口也会看到后写请求的内容。另一条请求随后只得到 `EEXIST`。
+- 为什么是问题：`exists` 合同要求同名请求不覆盖已有 Profile。这里即使只有一个请求返回成功，返回的骨架文字也可能不是它提交的 `description/system`，第二个请求在不应成功的情况下影响了第一个结果；两个设置窗口或重复点击即可触发，不需要恶意竞争。
+- 如何核实：在 `link` 前给两个并发请求的 `writeFile` 注入不同长度或不同文本的延迟，观察成功入口文件内容；静态上 `writeFile`、`link`、`rm` 三步共享同一个临时路径已足以构成该交错。用真实文件系统的两个并发 `createUserProfile` 场景补测“返回 ok 的请求文本必须保留”。
+- 建议改法：每次调用生成不可复用的临时文件名，并用排他创建（`open(..., "wx")`）写入；目标入口仍用同目录 `link` 的 `EEXIST` 作为唯一获胜者。临时文件名不能只含 pid 和目标名。
+### 4. Profile Record 的冲突与交错写入没有被测试覆盖
+- 严重程度：重要；类别：测试
+- 位置：`packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts:223-265,283-319`；`packages/neuro-book/src/plugins/agent/web/setting-writes.ts:15-32`
+- 现象：现有 DOM 测试只验证同一设置服务中的顺序写入和单次失败；`permission-page.dom.test.ts` 对通用 writer 的冲突重试只使用 `permissionRules`。没有 Profile 的 `toolBindings`/`profileSettings` 在别处抢先写入时的冲突实验，也没有两个窗口改不同 Profile、同一 Profile 的不同字段、同一字段的场景。
+- 为什么是问题：Profile 合同依赖“按 Record 的单个 key 重算、最多重试一次”，而 `settings.update` 比较的是整个设置项。通用 writer 接错设置定义、Profile writer 绕过 `edit`、或 `pendingEdits` 在失败后继续用乐观值，都能让一个 Profile 或另一个字段被覆盖；现有权限用例不会暴露这些变异。计划与 Spec 的验收明确要求这些交错写入不丢。
+- 如何核实：给 `toolBindings` 和 `profileSettings` 的 `update` 加一次外部写入，分别验证冲突重算后的完整 Record；再并发发起两个 Profile 的模型/审批与工具绑定写入，断言最终 JSON 同时保留全部 key。当前测试树中没有这些场景。
+- 建议改法：在 Profile 页面合同测试中使用真实配置实例或同样的冲突注入器，至少覆盖两个设置项各一次冲突成功、重试后冲突失败、不同 key 不互相覆盖，以及一个 `pendingEdits` 失败后仍有排队写入的场景。
+### 5. 手写的空绑定仍被显示为“已修改”
+- 严重程度：建议；类别：正确性 / 合同
+- 位置：`packages/neuro-book/src/plugins/agent/web/profile-view.ts:312-340`
+- 现象：`toolsField()` 用 `binding !== undefined` 直接计算 `modified`。设置文件允许 `{added: [], removed: []}`，此时没有任何绑定效果，但页面仍显示“恢复默认”入口。
+- 为什么是问题：Profile 设置合同规定两个数组都空时不留绑定项；页面对手写设置应按同一规则显示。当前页面把“有 key”误当成“有改动”，用户会看到无效的恢复操作。`withToolBinding()` 只保证本页新写入会删除空 key，不能修正已存在的空 key。
+- 如何核实：在 `toolBindings` 用户层写入 `{ "nbook.agent.main": { "added": [], "removed": [] } }`，打开 Profile 页，观察 `modified`/“恢复默认”是否出现；现有 `profile-view.test.ts:214-217` 只覆盖非空 `removed`。
+- 建议改法：把 `modified` 定义为 `binding !== undefined && (binding.added.length > 0 || binding.removed.length > 0)`，并补空绑定显示测试。
+## 未发现问题的方面
+- 仔细检查后，`profileToolIds` 与内核的 required、optional、`defaultForAll`、added、removed 顺序和精确 id 去重一致；同名工具由 `visibleToolIds` 按内核“先出现者胜出”投影，未发现本次改动造成的分叉。
+- 仔细检查后，`createSettingWriter` 的 `edit` 一次重试、`replace` 不重试，以及 `inspect().value` 与用户层 `expect` 的分工符合既有规则页语义；规则页的 `replace` 行为未见改变。
+- 仔细检查后，远程新增方法的 callers、输入字段、`table.gate()`、目录事件释放路径和 `ToolCatalogEntry.effect`（固定声明值）在本次范围内没有发现合同错误。
+- 仔细检查后，手写的大写、空格、中文 Profile 文件名会由 `ProfileBundles` 保留为同名 `user.<文件名>` key，`userProfileAddress` 也按同一规则重建地址；删除只删入口文件、保留设置项符合 Spec 的“只删入口文件”约定。
+- 仔细检查后，`modelNeedGaps` 对 vision、thinking/reasoning、contextWindow 为 null 的处理，以及 `agent.ts`、模型服务输出 8、设置页和 `session-host.ts` 的解析路径一致；未发现“找不到模型却报能力齐全”之外的新增分歧。
+## 统计
+- 阻断：0
+- 重要：4
+- 建议：1
+- 有效发现：1–5
+- 未运行测试、类型检查或开发服务；依赖未安装。实验仅使用 `/tmp/review-t05-impl/lab/`，已核实 Bun 构建错误对象的路径字段与跨文件系统 `link` 的 `EXDEV` 行为。

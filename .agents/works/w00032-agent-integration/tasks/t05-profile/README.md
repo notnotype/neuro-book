@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t05-profile
-status: active
+status: done
 updated: 2026-11-07
 ---
 
@@ -83,14 +83,18 @@ t20 定稿后的改写（2026-10-29，开发者认可 [Agent harness 的事件�
 
 讨论完成（2026-10-28）；上下文机制按 t20 定稿改写（2026-10-29）。后端随 t10、t18 实现。
 
-2026-11-07 改成实施 Task（开发者定，排在 t14 之前）：Profile 设置页、用户级 Profile 的新建打开删除、`modelNeeds` 的提示。第一轮决定“从模板新建即复制”改判为生成骨架文件。修订后的计划开发者已确认。
+2026-11-07 改成实施 Task（开发者定，排在 t14 之前）：Profile 设置页、用户级 Profile 的新建打开删除、`modelNeeds` 的提示。第一轮决定“从模板新建即复制”改判为生成骨架文件。
 
-代码在分支 `feat/w00032-t05-profile-settings`（worktree `.worktree/w00032-t05`），6 片都已提交。验证：受影响的 bun 测试 796 个、DOM 测试 171 个、类型检查、`docs:check`、`governance:check`；e2e `agent-profiles`（新）、`settings`、`lab-agent-ui`、`agent-conversation`（`按状态换场景`一例在连着跑时 `fetch failed`，单独重跑通过）。
+已合入 master（2026-11-07）。验证（变基之后）：受影响的 bun 测试 797 个、DOM 测试 177 个、类型检查、`docs:check`、`governance:check`；e2e `agent-profiles`（新）、`settings`、`agent-conversation`、`lab-agent-ui` 共 73 个。没用真实模型：请求用本机假端点。
 
-真实浏览器测出的问题：Agent 的 `openAddress` 调 `nbook.editor.open` 没带必需的 `mode`，命令被拒、结果被丢，对话里点文件也打不开；已修，打不开时留诊断。
-
-基线上就有的问题，顺手修了：`agent/web` 有三处跨插件运行时导入没走对方的 `shared/contracts.ts`（`src/architecture.test.ts` 失败）；`permission-page.dom.test.ts` 有类型错误。
+- **实现审查**：[前端](evidences/impl-review-frontend.txt)（Sonnet，14 条，2 重要）、[后端](evidences/impl-review-backend.txt)（omp，5 条，4 重要）。都已处理，除下面两条不改：
+  - 后端第 2 条“停止期间已受理的新建或删除会假成功”不改：只在关闭应用的同时点新建才碰上，连接随之断开，返回值几乎收不到，下次启动重新扫目录就对了；过度防御。
+  - 前端第 13 条的一半“写入用例改成点真实下拉”不改：happy-dom 里点不到选项，这条由 e2e 覆盖。
+- **真实浏览器测出的问题**：Agent 的 `openAddress` 调 `nbook.editor.open` 没带必需的 `mode`，命令被拒、结果被丢，对话里点文件也打不开；已修，打不开时留诊断。
+- **基线上就有的问题，顺手修了**：`agent/web` 三处跨插件运行时导入没走对方的 `shared/contracts.ts`（架构测试失败）；`permission-page.dom.test.ts` 的类型错误。
+- **未验证**：窄屏下删除后焦点落到下拉这一支没有测试；英文 Lab 场景的样本数据是中文。
+- **留着的行为**：删除用户级 Profile 不清它在 `toolBindings`、`profileSettings` 里的项，新建同名的会接着用。
 
 ## 下一步
 
-实现审查（前端 Sonnet、后端 omp）进行中。处理完合入 master；Spec 晋升报开发者批准。
+`agent/profile-settings.md` 晋升待开发者批准。之后是 t14。
