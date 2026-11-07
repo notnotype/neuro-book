@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t02-harness-baseline
-status: planned
-updated: 2026-10-29
+status: done
+updated: 2026-11-07
 ---
 
 # harness 底座：两条线对照与移植清单
