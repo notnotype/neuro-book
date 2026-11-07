@@ -1,0 +1,189 @@
+/**
+ * 拖动的每帧开销（docs/specs/ui/workbench-layout.md“实时布局”）：跟手的东西不走渲染。开着长章节，候选稳定、过渡结束之后，移动中每帧至多一次样式重算（帧自己那次）、不布局；指针不动一次也没有。
+ * 数次数，不计时：次数和机器快慢无关。Playwright 的轨迹快照本身要重算样式，这里关掉。
+ */
+
+import {randomUUID} from "node:crypto";
+import {mkdir, rm, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+
+import {expect, test} from "@playwright/test";
+import type {CDPSession, Locator, Page} from "@playwright/test";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {startProductServer} from "./fixtures";
+import type {ProductServer} from "./fixtures";
+
+test.use({trace: "off", video: "off", screenshot: "off"});
+
+const PARAGRAPH = "天色将晚，她推开了门，雨下了一整夜。街上没有人，只有远处的灯还亮着，风把门吹得吱吱作响。\n\n";
+/** 帧数的抖动：测量开始和结束那一帧可能多算一次。 */
+const PER_FRAME_LIMIT = 1.3;
+
+let tmp = "";
+let server: ProductServer;
+
+test.beforeAll(async () => {
+    tmp = await createTestTmpRoot("neuro-book-e2e", "drag-cost");
+    const project = join(tmp, "book");
+    await mkdir(join(project, "notes"), {recursive: true});
+    await mkdir(join(project, ".nbook"), {recursive: true});
+    const id = randomUUID();
+    await writeFile(join(project, ".nbook", "project.json"), JSON.stringify({schema: 1, id}));
+    await writeFile(join(project, "notes", "short.md"), `# 短章\n\n${PARAGRAPH.repeat(20)}`);
+    await writeFile(join(project, "notes", "long.md"), `# 长章\n\n${PARAGRAPH.repeat(2300)}`);
+    const state = join(tmp, "state");
+    await mkdir(join(state, "user"), {recursive: true});
+    await writeFile(join(state, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: project}]}));
+    server = await startProductServer(state);
+});
+
+test.afterAll(async () => {
+    expect(await server.stop()).toBe(0);
+    if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+});
+
+async function openBook(page: Page): Promise<CDPSession> {
+    await page.setViewportSize({width: 1440, height: 900});
+    await page.goto(new URL("/?project=book", server.url).href);
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    const folder = page.locator("[data-explorer-row=\"project://notes\"]");
+    if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
+    const tabs = page.locator("[data-editor-tab]");
+    for (const name of ["short", "long"]) {
+        await page.locator(`[data-explorer-row="project://notes/${name}.md"]`).dblclick();
+        await expect(tabs.filter({hasText: `${name}.md`})).toHaveCount(1);
+    }
+    await expect(page.locator("[data-editor-group-active] [data-editor-prose]")).toContainText("长章");
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
+    return cdp;
+}
+
+async function counts(cdp: CDPSession): Promise<{recalc: number; layout: number}> {
+    const {metrics} = await cdp.send("Performance.getMetrics") as {metrics: Array<{name: string; value: number}>};
+    const read = (name: string): number => metrics.find((item) => item.name === name)?.value ?? 0;
+    return {recalc: read("RecalcStyleCount"), layout: read("LayoutCount")};
+}
+
+/** 等 N 帧。不按时长等：帧才是这里的单位。 */
+const frames = (page: Page, count: number): Promise<void> => page.evaluate((target) => new Promise<void>((done) => {
+    let seen = 0;
+    const tick = (): void => {
+        seen += 1;
+        if (seen >= target) done();
+        else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+}), count);
+
+/** 跑一段，返回这段里每帧多少次样式重算与布局。 */
+async function perFrame(page: Page, cdp: CDPSession, run: () => Promise<void>): Promise<{recalc: number; layout: number; frames: number}> {
+    await page.evaluate(() => {
+        const host = window as unknown as {__frames: number; __counting: boolean};
+        host.__frames = 0;
+        host.__counting = true;
+        const tick = (): void => {
+            if (!host.__counting) return;
+            host.__frames += 1;
+            requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+    });
+    const before = await counts(cdp);
+    await run();
+    const after = await counts(cdp);
+    const seen = await page.evaluate(() => {
+        const host = window as unknown as {__frames: number; __counting: boolean};
+        host.__counting = false;
+        return host.__frames;
+    });
+    return {recalc: (after.recalc - before.recalc) / seen, layout: (after.layout - before.layout) / seen, frames: seen};
+}
+
+async function lift(page: Page, source: Locator): Promise<void> {
+    const box = await source.boundingBox();
+    if (box === null) throw new Error("没有来源");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 20, box.y + 80, {steps: 4});
+}
+
+/** 这一段里指针一直在动：在一块小范围里来回，候选不变。 */
+async function wiggle(page: Page, at: {x: number; y: number}, rounds: number): Promise<void> {
+    for (let round = 0; round < rounds; round += 1) {
+        await page.mouse.move(at.x + 40, at.y + 30, {steps: 20});
+        await page.mouse.move(at.x - 40, at.y - 30, {steps: 20});
+    }
+}
+
+/** 候选稳定、预览的过渡与卡片的缩放都结束。 */
+async function settle(page: Page): Promise<void> {
+    await expect(page.locator("[data-moving]")).toHaveCount(0);
+    const card = page.locator("[data-lifted]");
+    if (await card.count() === 0) return;
+    await expect.poll(async () => {
+        const first = await card.evaluate((element) => (element as HTMLElement).style.width);
+        await frames(page, 2);
+        return first === await card.evaluate((element) => (element as HTMLElement).style.width);
+    }).toBe(true);
+}
+
+test.describe("拖动的每帧开销", () => {
+    test("实时布局，拖视图：卡片跟手每帧至多一次样式重算、不布局；指针不动一次也没有", async ({page}) => {
+        test.setTimeout(120_000);
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        const cdp = await openBook(page);
+        await lift(page, page.locator("[data-panel-head='sidebar'] [data-panel-tab]").first());
+        const body = await page.locator("[data-editor-group-active]").boundingBox();
+        if (body === null) throw new Error("没有编辑组");
+        const at = {x: body.x + body.width * 0.5, y: body.y + body.height * 0.5};
+        await page.mouse.move(at.x, at.y, {steps: 8});
+        await settle(page);
+        await wiggle(page, at, 1);
+        await settle(page);
+        const moving = await perFrame(page, cdp, () => wiggle(page, at, 3));
+        expect(moving.recalc, JSON.stringify(moving)).toBeLessThanOrEqual(PER_FRAME_LIMIT);
+        expect(moving.layout, JSON.stringify(moving)).toBeLessThanOrEqual(0.1);
+        const still = await perFrame(page, cdp, () => frames(page, 60));
+        expect(still.recalc, JSON.stringify(still)).toBe(0);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+    });
+
+    test("实时布局，拖编辑器标签：每帧至多一次样式重算、不布局", async ({page}) => {
+        test.setTimeout(120_000);
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        const cdp = await openBook(page);
+        await lift(page, page.locator("[data-editor-tab]").filter({hasText: "short.md"}));
+        const body = await page.locator("[data-editor-group-active]").boundingBox();
+        if (body === null) throw new Error("没有编辑组");
+        const at = {x: body.x + body.width * 0.5, y: body.y + body.height * 0.5};
+        await page.mouse.move(at.x, at.y, {steps: 8});
+        await settle(page);
+        await wiggle(page, at, 1);
+        await settle(page);
+        const moving = await perFrame(page, cdp, () => wiggle(page, at, 3));
+        expect(moving.recalc, JSON.stringify(moving)).toBeLessThanOrEqual(PER_FRAME_LIMIT);
+        expect(moving.layout, JSON.stringify(moving)).toBeLessThanOrEqual(0.1);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+    });
+
+    test("落点指示：拖影跟手每帧至多一次样式重算、不布局", async ({page}) => {
+        test.setTimeout(120_000);
+        const cdp = await openBook(page);
+        await lift(page, page.locator("[data-editor-tab]").filter({hasText: "short.md"}));
+        const body = await page.locator("[data-editor-group-active]").boundingBox();
+        if (body === null) throw new Error("没有编辑组");
+        const at = {x: body.x + body.width * 0.5, y: body.y + body.height * 0.5};
+        await page.mouse.move(at.x, at.y, {steps: 8});
+        await settle(page);
+        await wiggle(page, at, 1);
+        const moving = await perFrame(page, cdp, () => wiggle(page, at, 3));
+        expect(moving.recalc, JSON.stringify(moving)).toBeLessThanOrEqual(PER_FRAME_LIMIT);
+        expect(moving.layout, JSON.stringify(moving)).toBeLessThanOrEqual(0.1);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+    });
+});

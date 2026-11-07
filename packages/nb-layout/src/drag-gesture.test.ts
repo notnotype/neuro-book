@@ -209,6 +209,16 @@ describe("输出 3：拿起", () => {
         expect(t.last()).toEqual({source: "row", point: {x: 150, y: 10}, drop: {name: "b", key: "b"}, keyboard: false});
     });
 
+    it("activate 拿到按下处与过门槛时的位置", () => {
+        const seen: unknown[] = [];
+        const t = setup({activate: (_source, keyboard, at) => {
+            seen.push({keyboard, at});
+            return true;
+        }});
+        t.grab({x: 150, y: 10});
+        expect(seen).toEqual([{keyboard: false, at: {pressed: {x: 140, y: 10}, point: {x: 150, y: 10}}}]);
+    });
+
     it("activate 拒绝：不起拖，也不取捕获", () => {
         const t = setup({activate: () => false});
         t.grab();
@@ -245,6 +255,27 @@ describe("输出 4：逐帧", () => {
         t.clock.frame();
         expect(t.resolveCount()).toBe(before + 1);
         expect(t.last()?.point).toEqual({x: 150, y: 0});
+    });
+});
+
+describe("flush：宿主这一帧要写 DOM，先做完判定", () => {
+    it("有排着的发布时马上发布，这一帧不再发布第二次", () => {
+        const t = setup();
+        t.grab({x: 50, y: 10});
+        t.gesture.move(1, {x: 150, y: 10}, 1);
+        t.gesture.flush();
+        expect(t.last()?.drop?.name).toBe("b");
+        const count = t.published.length;
+        t.clock.frame();
+        expect(t.published.length).toBe(count);
+    });
+
+    it("没有排着的发布时什么都不做", () => {
+        const t = setup();
+        t.grab();
+        const count = t.published.length;
+        t.gesture.flush();
+        expect(t.published.length).toBe(count);
     });
 });
 

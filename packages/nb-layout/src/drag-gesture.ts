@@ -43,6 +43,13 @@ export interface DragState<S, D> {
     readonly keyboard: boolean;
 }
 
+/** 过门槛那一刻的指针。 */
+export interface DragActivation {
+    /** 按下的地方：过门槛时指针已经离开它几个像素。 */
+    readonly pressed: GridDropPoint;
+    readonly point: GridDropPoint;
+}
+
 /** 判定的输入：键盘拖动时 `region` 是停在的区域，指针拖动为 null。 */
 export interface DragGestureQuery<S, R> {
     readonly source: S;
@@ -91,8 +98,8 @@ export interface DragGestureHost<S, D, R> {
     readonly scroll?: "reevaluate" | "withdraw" | undefined;
     readonly autoScroll?: DragGestureAutoScroll | undefined;
     readonly keyboard?: DragGestureKeyboard<S, R> | undefined;
-    /** `keyboard`：这一场是键盘拖动。 */
-    readonly activate?: ((source: S, keyboard: boolean) => boolean) | undefined;
+    /** `keyboard`：这一场是键盘拖动。`at`：按下处与过门槛时指针的位置，键盘拖动是 null。 */
+    readonly activate?: ((source: S, keyboard: boolean, at: DragActivation | null) => boolean) | undefined;
     /** 放下时提交此刻判定的动作，不要求与最后显示的相同（实时布局）。撤下期间仍不提交。缺省假。 */
     readonly commitsUnderPointer?: ((keyboard: boolean) => boolean) | undefined;
     readonly structure?: (() => string) | undefined;
@@ -140,6 +147,8 @@ export interface DragGesture<S> {
     resized(): void;
     /** 内容变了而指针没动：撤下落点，直到指针再动。 */
     invalidate(): void;
+    /** 有排着的发布就马上做。宿主这一帧要写 DOM 时先调它：判定读 DOM，读在写前面才不强制重算样式（rAF 按注册顺序跑，宿主的帧循环排得更早）。 */
+    flush(): void;
     /** 宿主那边已经结束了这场：收场，不调 `ended`。 */
     abort(): void;
     startKeyboard(source: S): boolean;
@@ -352,7 +361,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
     function begin(from: Armed<S>, point: GridDropPoint): void {
         if (from.timer !== null) clock.cancelDelay(from.timer);
         armed = null;
-        if (host.activate !== undefined && !host.activate(from.source, false)) {
+        if (host.activate !== undefined && !host.activate(from.source, false, {pressed: from.start, point})) {
             host.disarmed();
             return;
         }
@@ -472,6 +481,10 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         },
         resized: schedule,
         invalidate: withdraw,
+        flush() {
+            // 放下中的这一帧要按松手的坐标放下，发布由它自己做。
+            if (frame !== null && active !== null && !active.dropping) publish();
+        },
         abort() {
             disarm();
             finish(null, null);
@@ -479,7 +492,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         startKeyboard(source) {
             const keyboard = host.keyboard;
             if (keyboard === undefined || armed !== null || active !== null) return false;
-            if (host.activate !== undefined && !host.activate(source, true)) return false;
+            if (host.activate !== undefined && !host.activate(source, true, null)) return false;
             const regions = keyboard.regions(source);
             if (regions.length === 0) return false;
             const cursor: KeyboardCursor<R> = {regions, region: 0, stop: 0};

@@ -49,8 +49,8 @@ const props = withDefaults(defineProps<{
     contents?: ReadonlyArray<GridContentInput>;
     /** 最大化（docs/specs/ui/nested-grid.md 的“最大化”）：这块叶盖住除 `exclude` 以外的全部区域，别的面板不动。只在内存，宿主决定。 */
     maximized?: {readonly leaf: string; readonly exclude: ReadonlyArray<string>} | null;
-    /** 拿起的内容项（实时布局）：盖在别的面板与分隔线上跟手，不接指针。矩形相对网格根。变成 null 时飞回它的叶。 */
-    lifted?: {readonly key: string; readonly rect: GridRect} | null;
+    /** 拿起的内容项（实时布局）：盖在别的面板与分隔线上跟手，不接指针。矩形由 `placeLifted` 写。变成 null 时飞回它的叶。 */
+    lifted?: {readonly key: string} | null;
     /** 浮动窗（docs/specs/ui/nested-grid.md 的“浮动窗”）：不在树里的叶，后面的压在前面的上面。矩形相对网格根，只有矩形变了不过渡。 */
     floats?: ReadonlyArray<GridFloatInput>;
     /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
@@ -141,6 +141,9 @@ const {parked} = parking;
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()});
 const {moving, growing, following, flying} = motion;
 
+/** 拿起的内容项此刻的矩形。跟手的东西不走渲染：每帧走属性的话，这个组件和每块叶的插槽都要重跑。 */
+let liftedRect: GridRect = {x: 0, y: 0, width: 0, height: 0};
+
 const contentLayer = useContentLayer({
     contents: () => props.contents,
     items: () => placement.value?.items ?? [],
@@ -160,6 +163,7 @@ const contentLayer = useContentLayer({
     },
     onParked: (contentKey) => emit("content-parked", contentKey),
     lifted: () => props.lifted,
+    liftedRect: () => liftedRect,
 });
 /** 渲染层的全部项，树序：每块叶后面紧跟属于它的内容。 */
 const layers = computed<ReadonlyArray<GridLayerItem<unknown>>>(() => layerItems(placement.value?.items ?? [], contentLayer.placements.value));
@@ -378,9 +382,22 @@ watch(() => props.lifted?.key ?? null, (now, before) => {
     if (now === null && before !== null) motion.land(`content:${before}`);
 });
 
+/** 写拿起元素的矩形（相对网格根）。刚拿起时元素还没带标记，写不到，这次渲染从 `liftedRect` 取。只写变了的键：尺寸没变就不引起布局。 */
+function placeLifted(rect: GridRect): void {
+    const before = liftedRect;
+    liftedRect = rect;
+    const element = rootEl.value?.querySelector<HTMLElement>(":scope > [data-lifted]");
+    if (element == null) return;
+    const style = gridRectStyle(rect);
+    if (rect.x !== before.x || rect.y !== before.y) element.style.transform = style.transform as string;
+    if (rect.width !== before.width) element.style.width = style.width as string;
+    if (rect.height !== before.height) element.style.height = style.height as string;
+}
+
 defineExpose({
     /** 进行中的过渡直接到终点：宿主马上要量矩形（拖动拿起）。 */
     settleMotion: (): void => motion.stop(),
+    placeLifted,
 });
 </script>
 

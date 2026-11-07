@@ -31,8 +31,8 @@ const props = withDefaults(defineProps<{
     titleOnlyPanels?: ReadonlySet<string>;
     /** 实时布局预览里的空位：这块不画头（输出 38）。 */
     headlessPanel?: string | null;
-    /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不能卸载。 */
-    lifted?: {readonly key: string; readonly rect: GridRect; readonly home: string | null} | null;
+    /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不能卸载。矩形由 `placeLifted` 写。 */
+    lifted?: {readonly key: string; readonly home: string | null} | null;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
 }>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), headlessPanel: null, lifted: null, floats: () => []});
@@ -144,17 +144,13 @@ const vEditorHead: Directive<HTMLElement> = {
     },
 };
 
-// 卡片的矩形每帧变，内容项不该跟着重算：只取键与来源。
-const liftedKey = computed(() => props.lifted?.key ?? null);
-const liftedHome = computed(() => props.lifted?.home ?? null);
 const contents = computed(() => {
     const items = layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW);
-    const key = liftedKey.value;
-    if (key === null || items.some((item) => item.key === key)) return items;
-    // 预览把来源摘掉了：内容项还得在，不然实例就卸了。它的叶可能也不在了，矩形由 `lifted` 给。
-    return [...items, {key, leaf: liftedHome.value ?? "", insetTop: 0, active: false}];
+    const {lifted} = props;
+    if (lifted === null || items.some((item) => item.key === lifted.key)) return items;
+    // 预览把来源摘掉了：内容项还得在，不然实例就卸了。它的叶可能也不在了，矩形由 `placeLifted` 给。
+    return [...items, {key: lifted.key, leaf: lifted.home ?? "", insetTop: 0, active: false}];
 });
-const liftedItem = computed(() => (props.lifted === null ? null : {key: props.lifted.key, rect: props.lifted.rect}));
 const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: props.maximized, exclude: BARS}));
 
 const roleOf = (id: string): "tool" | "editor" | null => props.doc.panels[id]?.role ?? null;
@@ -240,6 +236,8 @@ const actionsShownOn = (panel: string): boolean => pointerPanel.value === panel 
 defineExpose({
     /** 进行中的过渡直接到终点（拖动拿起后要量矩形）。 */
     settleMotion: (): void => gridEl.value?.settleMotion(),
+    /** 写拿起的内容项的矩形：跟手，不走渲染。 */
+    placeLifted: (rect: GridRect): void => gridEl.value?.placeLifted(rect),
     /** F6、Shift+F6（输出 18）：命令由宿主绑。 */
     moveFocus: (direction: "next" | "previous"): boolean => moveGridFocus(rootEl.value, direction),
 });
@@ -266,7 +264,7 @@ defineExpose({
             :revision="host.revision.value"
             :on-gesture-commit="host.onGestureCommit"
             :contents="contents"
-            :lifted="liftedItem"
+            :lifted="lifted"
             :floats="floats"
             :maximized="maximizedLeaf"
             :sash-kind="sashKind"

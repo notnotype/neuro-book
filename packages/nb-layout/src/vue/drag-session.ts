@@ -9,7 +9,7 @@ import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
 import {createDragGesture} from "../drag-gesture";
-import type {DragCancelReason, DragEnd, DragGestureConfig, DragState, DragStops} from "../drag-gesture";
+import type {DragActivation, DragCancelReason, DragEnd, DragGestureConfig, DragState, DragStops} from "../drag-gesture";
 import type {GridDropPoint} from "../grid-drop";
 
 export interface DragQuery<S, R> {
@@ -39,8 +39,8 @@ export interface DragSessionOptions<S, D, R> {
     readonly root: HTMLElement;
     /** 按下处的来源；null 不起拖。 */
     sourceAt(target: Element): S | null;
-    /** 过了门槛：宿主冻结它要的东西；返回 false 不起拖。 */
-    activate?(source: S, keyboard: boolean): boolean;
+    /** 过了门槛：宿主冻结它要的东西；返回 false 不起拖。`at` 是指针的位置，键盘拖动是 null。 */
+    activate?(source: S, keyboard: boolean, at: DragActivation | null): boolean;
     /** 放下时提交此刻判定的动作，不要求与最后显示的相同（实时布局）。缺省假。 */
     commitsUnderPointer?(keyboard: boolean): boolean;
     /** 此刻的结构键；一场里它变了整场取消。缺省不比较。 */
@@ -69,6 +69,8 @@ export interface DragSession<S, D> {
     readonly state: Readonly<ShallowRef<DragState<S, D> | null>>;
     /** 内容变了而指针没动：撤下落点，直到指针再动。 */
     invalidate(): void;
+    /** 有排着的发布就马上做：宿主这一帧要写 DOM 时先调它，判定（读）才在写前面。 */
+    flush(): void;
     /** 宿主那边已经结束了这场：收场，不调 `onEnd`。 */
     abort(): void;
     dispose(): void;
@@ -304,6 +306,7 @@ export function createDragSession<S, D, R = never>(options: DragSessionOptions<S
     return {
         state,
         invalidate: () => gesture.invalidate(),
+        flush: () => gesture.flush(),
         abort: () => gesture.abort(),
         dispose: () => {
             gesture.dispose();

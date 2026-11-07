@@ -405,6 +405,8 @@ onMounted(() => {
         feel: () => props.dragFeel ?? "live",
         settleMotion: () => surface.value?.settleMotion(),
         showPreview: (next) => props.layout.actions.setLivePreview(next),
+        placeCard: (rect) => surface.value?.placeLifted(rect),
+        moveGhost: (point) => feedback.value?.moveGhost(point),
         floats: () => props.layout.actions.floats(),
         previewFloat: (panel, rect) => props.layout.actions.previewFloat(panel, rect ?? null, "move"),
         floatMinimum: (source) => {
@@ -418,7 +420,11 @@ onMounted(() => {
 });
 onBeforeUnmount(() => drag.value?.dispose());
 
-const dragState = computed(() => drag.value?.session.state.value ?? null);
+const feedback = useTemplateRef<InstanceType<typeof WorkbenchDragFeedback>>("feedback");
+
+/** 手势每帧发布；这里只取慢的两样，它们不变下游就不重算，整个外壳不跟着指针重渲染。 */
+const dragSource = computed(() => drag.value?.session.state.value?.source ?? null);
+const dragDrop = computed(() => drag.value?.session.state.value?.drop ?? null);
 
 // 资源树的文件拖出树（输出 39）：那一场是资源树自己的会话，判定与反馈还在这里，同一份。
 const fileDrops = new WeakMap<WorkbenchFileDrop, LayoutDragDrop>();
@@ -451,8 +457,8 @@ function ghostOf(source: LayoutSource): {readonly label: string; readonly icon?:
 
 /** 实时布局下还在标签条里的来源：只有标签跟手（拖影），它留着位置。 */
 const stripDragging = computed(() => {
-    const current = dragState.value;
-    return current !== null && current.source.kind === "tab" && drag.value?.live.active.value === true && drag.value.live.card.value === null ? current.source.tab : null;
+    const source = dragSource.value;
+    return source?.kind === "tab" && drag.value?.live.active.value === true && drag.value.live.card.value === null ? source.tab : null;
 });
 
 /** 跟手的卡片：内容项拿起来了，拖影就不画了。 */
@@ -460,26 +466,22 @@ const liftedCard = computed(() => {
     const card = drag.value?.live.card.value ?? null;
     return card === null ? null : {...card, home: findTab(doc.value, card.key)?.panel ?? null};
 });
-const cardTitle = computed(() => {
-    const current = dragState.value;
-    return current === null ? null : ghostOf(current.source);
-});
+const cardTitle = computed(() => (dragSource.value === null ? null : ghostOf(dragSource.value)));
 /** 实时布局的分区：相对网格根，画在卡片后面。 */
 const liveSectors = computed(() => {
-    const sectors = dragState.value?.drop?.sectors ?? null;
+    const sectors = dragDrop.value?.sectors ?? null;
     const live = drag.value?.live;
-    if (sectors === null || live === undefined) return null;
-    const origin = hostEl.value?.querySelector("[data-workbench-surface] > [data-grid-scope]")?.getBoundingClientRect();
-    if (origin === undefined) return null;
+    if (sectors == null || live === undefined || !live.active.value) return null;
+    const {x, y} = live.origin();
     const {rect} = sectors;
-    return {...sectors, rect: {left: rect.left - origin.left, right: rect.right - origin.left, top: rect.top - origin.top, bottom: rect.bottom - origin.top}};
+    return {...sectors, rect: {left: rect.left - x, right: rect.right - x, top: rect.top - y, bottom: rect.bottom - y}};
 });
 /**
  * 实时布局预览里的空位（输出 38）：来源落进去的新块。头放下才有。
  */
 const slotPanel = computed(() => {
     const action = drag.value?.live.shownAction.value;
-    const source = dragState.value?.source;
+    const source = dragSource.value;
     if (action == null || source?.kind !== "tab" || action.kind !== "edge") return null;
     const found = findTab(renderedDoc.value, source.tab);
     return found?.panel ?? null;
@@ -487,11 +489,11 @@ const slotPanel = computed(() => {
 /** 并入的目标（输出 38）。来源就在这块是自己的标签条，不是并入。 */
 const mergeTarget = computed(() => {
     const action = drag.value?.live.shownAction.value;
-    const source = dragState.value?.source;
+    const source = dragSource.value;
     if (action == null || source?.kind !== "tab" || (action.kind !== "center" && action.kind !== "strip")) return null;
     return findTab(renderedDoc.value, source.tab)?.panel === action.panel ? null : action.panel;
 });
-/** 并入的盖层：矩形按预览算，来源收起时目标会动，盖层跟着过渡。解一次网格不便宜，不跟着指针算：只看预览文档和目标。 */
+/** 并入的盖层：矩形按预览算，来源收起时目标会动，盖层跟着过渡。 */
 const mergeRect = computed(() => {
     const panel = mergeTarget.value;
     return panel === null ? null : (drag.value?.panelRectIn(renderedDoc.value, panel) ?? null);
@@ -502,7 +504,7 @@ const mergeStyle = computed(() => {
 });
 /** 别人的标签条上的插入线：相对量它时的外框，盖层动它跟着动。 */
 const mergeLine = computed(() => {
-    const {indicator, indicatorFrame} = dragState.value?.drop?.preview ?? {};
+    const {indicator, indicatorFrame} = dragDrop.value?.preview ?? {};
     if (mergeRect.value === null || drag.value?.live.shownAction.value?.kind !== "strip" || indicator == null || indicatorFrame === undefined) return null;
     return {
         transform: `translate(${String(indicator.left - indicatorFrame.left)}px, ${String(indicator.top - indicatorFrame.top)}px)`,
@@ -515,12 +517,8 @@ const slotStyle = computed(() => {
     return slot === null ? {} : {transform: `translate(${String(slot.x)}px, ${String(slot.y)}px)`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
 });
 
-const dragGhost = computed(() => {
-    const current = dragState.value;
-    if (current === null || drag.value?.live.card.value != null) return null;
-    const ghost = ghostOf(current.source);
-    return ghost === null ? null : {...ghost, x: current.point.x, y: current.point.y};
-});
+/** 拖影的身份；位置经 `moveGhost` 写。 */
+const dragGhost = computed(() => (dragSource.value === null || drag.value?.live.card.value != null ? null : ghostOf(dragSource.value)));
 
 function dropLabel(drop: LayoutDragDrop): string {
     if (drop.inPlace) return message("shell.drop.inPlace");
@@ -533,10 +531,10 @@ function dropLabel(drop: LayoutDragDrop): string {
 }
 
 const dropFeedback = computed(() => {
-    const drop = dragState.value?.drop ?? shownFileDrop.value;
+    const drop = dragDrop.value ?? shownFileDrop.value;
     if (drop === null) return {preview: null, label: "", liveLabel: drag.value?.rejected.value === true ? message("shell.drop.rejected") : "", kind: ""};
     // 整窗在移动：窗本身就是反馈。
-    if (dragState.value?.source.kind === "panel" && drop.action.kind === "float") return {preview: null, label: "", liveLabel: "", kind: "float"};
+    if (dragSource.value?.kind === "panel" && drop.action.kind === "float") return {preview: null, label: "", liveLabel: "", kind: "float"};
     if (drag.value?.live.active.value === true) {
         // 实时布局的反馈就是布局本身；活动栏的落点不预览，照旧一条插入线。字写在卡片头，读屏靠常驻的状态节点。
         const preview = drop.noPreview === true ? {areaRect: null, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation} : null;
@@ -711,7 +709,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
         </div>
         <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="attachEditorDrag" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="drag?.live.active.value === true ? null : dragState?.drop?.sectors ?? shownFileDrop?.sectors ?? null" :sector-labels="sectorLabels" :live-status="dropFeedback.liveLabel" />
+        <WorkbenchDragFeedback ref="feedback" :ghost="dragGhost" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="drag?.live.active.value === true ? null : dragDrop?.sectors ?? shownFileDrop?.sectors ?? null" :sector-labels="sectorLabels" :live-status="dropFeedback.liveLabel" />
     </div>
 </template>
 

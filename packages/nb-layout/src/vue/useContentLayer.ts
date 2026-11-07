@@ -35,8 +35,10 @@ export function useContentLayer(options: {
     /** 这个内容项此刻含焦点吗。 */
     readonly holdsFocus: (key: string) => boolean;
     readonly onParked: (contentKey: string) => void;
-    /** 拿起的内容项（实时布局）：不按叶摆放，矩形相对网格根。内容体保持拿起时的尺寸，不重排。 */
-    readonly lifted: () => {readonly key: string; readonly rect: GridRect} | null;
+    /** 拿起的内容项（实时布局）：不按叶摆放，内容体保持拿起时的尺寸，不重排。 */
+    readonly lifted: () => {readonly key: string} | null;
+    /** 拿起的内容项此刻的矩形（相对网格根）。跟手，每帧变：是普通值，不进响应式。 */
+    readonly liftedRect: () => GridRect;
 }) {
     const placements = computed(() => placeContents(options.items(), options.contents(), options.dpr.value));
     /** 最后的矩形与非零尺寸：停放时保持，重新有尺寸时不用重排；叶暂时找不到时外层也留在原处。 */
@@ -78,8 +80,8 @@ export function useContentLayer(options: {
     }
 
     function frameStyle(item: GridContentPlacement): Record<string, string> {
-        const lifted = options.lifted();
-        if (lifted?.key === item.contentKey) return gridRectStyle(lifted.rect);
+        // 矩形平时由 `placeLifted` 直接写在元素上；Vue 的样式补丁会写回这里的每个键，所以这里给的要是最新的。
+        if (isLifted(item)) return gridRectStyle(options.liftedRect());
         const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
         // 被盖住的内容马上不可交互，但过渡结束才隐藏：最大化的面板还没长过来时它们要还在。
         const showing = item.active && options.moving() && options.obscuredLeaves().has(item.leaf);

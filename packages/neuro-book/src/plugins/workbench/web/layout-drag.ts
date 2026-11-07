@@ -10,7 +10,7 @@
  */
 
 import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewPanelRects, removeTab, resolveLayoutDrop, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
+import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, GridRect, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
 import {createDragSession, layoutMotionMs, measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops} from "@notnotype/nb-layout/vue";
 import type {DragSession, TabStripSnapshot} from "@notnotype/nb-layout/vue";
 
@@ -85,6 +85,10 @@ export interface LayoutDragOptions {
     settleMotion(): void;
     /** 摆预览；null 回到已提交的布局。 */
     showPreview(doc: LayoutDoc | null): void;
+    /** 写拿起的内容项的矩形（相对网格根）。跟手的东西直接写元素，不走渲染。 */
+    placeCard(rect: GridRect): void;
+    /** 写拖影的位置（视口坐标）。这一帧的判定读完 DOM 才调。 */
+    moveGhost(point: GridDropPoint): void;
     /** 画出来的浮动窗（夹取之后）：整窗拖动从这个矩形开始。 */
     floats(): ReadonlyArray<GridFloatInput>;
     /** 整窗跟手的矩形；null 回到记录里的。只有矩形在变，不换文档。 */
@@ -186,11 +190,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const box = root.querySelector("[data-workbench-surface] > [data-grid-scope]")?.getBoundingClientRect();
             return {x: box?.left ?? 0, y: box?.top ?? 0};
         },
-        trackPointer: (listener) => {
-            const onMove = (event: PointerEvent): void => listener({x: event.clientX, y: event.clientY});
-            view?.addEventListener("pointermove", onMove, true);
-            return () => view?.removeEventListener("pointermove", onMove, true);
-        },
+        settleDrop: () => session.flush(),
+        pointer: () => session.state.value?.point ?? null,
+        placeCard: (rect) => options.placeCard(rect),
     });
     const stripOf = (panel: string): Element | null => root.querySelector(`[data-panel-strip="${escape(panel)}"] [data-tab-strip]`);
 
@@ -560,17 +562,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return viewId === null || options.catalog().get(viewId)?.movable !== false;
     }
 
-    /** 手势拿起时的指针：`activate` 不带坐标，卡片要一开始就在指针下。 */
-    let lastPointer: GridDropPoint | null = null;
-    /** 按下的地方：过门槛时指针已经离开它几个像素，整窗抓住的是按下的那一点。 */
-    let pressedAt: GridDropPoint | null = null;
-    const onPointerSeen = (event: PointerEvent): void => {
-        lastPointer = {x: event.clientX, y: event.clientY};
-        if (event.type === "pointerdown") pressedAt = lastPointer;
-    };
-    view?.addEventListener("pointermove", onPointerSeen, true);
-    view?.addEventListener("pointerdown", onPointerSeen, true);
-
     const sourceAt = (target: Element): LayoutSource | null => {
         if (!options.enabled() || target.closest("[data-no-drag], [data-no-drag-start]") !== null) return null;
         const source = fromElement(target);
@@ -592,26 +583,40 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return drop;
     }
 
+    /** 上一次的落点：画出来一样就还给它同一个对象。手势每帧发布，外壳靠落点的身份判断要不要重画。 */
+    let shownDrop: LayoutDragDrop | null = null;
+    let shownDropKey = "";
+    function stableDrop(next: LayoutDragDrop | null): LayoutDragDrop | null {
+        const key = next === null ? "" : JSON.stringify(next);
+        if (key === shownDropKey) return shownDrop;
+        shownDrop = next;
+        shownDropKey = key;
+        return next;
+    }
+
     const session = createDragSession<LayoutSource, LayoutDragDrop, KeyboardRegion>({
         root,
         sourceAt,
-        activate: (source, keyboard) => {
+        activate: (source, keyboard, at) => {
             previews.clear();
+            shownDrop = null;
+            shownDropKey = "";
             frozen = null;
             windowDrag = null;
             if (source.kind === "panel") {
                 // 窗本身就在跟手，不走实时布局：它没有卡片可缩，候选文档里它已经没了。
                 const rect = options.floats().find((float) => float.id === source.panel)?.rect;
                 const recorded = options.doc().floats.find((float) => float.panel === source.panel)?.rect;
-                if (rect === undefined || recorded === undefined || pressedAt === null) return false;
-                const at = toGrid(pressedAt);
-                windowDrag = {panel: source.panel, grab: {x: at.x - rect.x, y: at.y - rect.y}, shown: {width: rect.width, height: rect.height}, size: {width: recorded.width, height: recorded.height}};
+                if (rect === undefined || recorded === undefined || at === null) return false;
+                // 抓住的是按下的那一点：过门槛时指针已经离开它几个像素。
+                const pressed = toGrid(at.pressed);
+                windowDrag = {panel: source.panel, grab: {x: pressed.x - rect.x, y: pressed.y - rect.y}, shown: {width: rect.width, height: rect.height}, size: {width: recorded.width, height: recorded.height}};
                 return true;
             }
             // 键盘没有指针可跟；减少动效时邻居瞬移看不出去了哪；最大化时别的面板盖着，预览看不见。
             if (!keyboard && options.feel() === "live" && options.maximized() === null && options.extent() !== null && layoutMotionMs(root) > 0) {
                 options.settleMotion();
-                live.begin(source, lastPointer);
+                live.begin(source, at?.point ?? null);
                 // 送到终点要等渲染才落到 DOM（摘掉过渡标记、写终点矩形）。手势紧接着在同一个同步段里做第一次判定，那次量到的是过渡中间的矩形：渲染之后马上重量。
                 // 不能留给下一次判定去量：帧循环这时已经开始摆预览，再量就是预览里的矩形。
                 void nextTick(() => {
@@ -624,9 +629,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         structure: () => JSON.stringify([layoutStructureKey(options.doc()), options.editorTabs()?.structure() ?? null, live.active.value ? extentKey(options.extent()) : null]),
         resolve: (input) => {
             overRejected = false;
-            const drop = resolveDrop(input);
-            // 判定完再写：根元素上的标记一变整页都要重算样式（规则里有 `*`），每次移动写两下就是每帧一次全量重算。
+            const drop = stableDrop(resolveDrop(input));
+            // 判定读完 DOM 才写。根元素上的标记一变整页都要重算样式（规则里有 `*`），每次移动写两下就是每帧一次全量重算。
             setRejected(overRejected);
+            options.moveGhost(input.point);
             return drop;
         },
         commitsUnderPointer: (keyboard) => !keyboard && (live.active.value || windowDrag !== null),
@@ -694,9 +700,5 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         },
     });
 
-    return {session, live, rejected: readonly(rejected), panelRectIn, fileDrop, dispose: () => {
-        view?.removeEventListener("pointermove", onPointerSeen, true);
-        view?.removeEventListener("pointerdown", onPointerSeen, true);
-        session.dispose();
-    }};
+    return {session, live, rejected: readonly(rejected), panelRectIn, fileDrop, dispose: () => session.dispose()};
 }

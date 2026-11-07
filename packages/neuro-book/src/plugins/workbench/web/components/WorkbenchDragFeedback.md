@@ -19,9 +19,11 @@
 import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
 
 type Props = {
-    /** 跟着指针的拖影：拖动源的图标与标题，x、y 是指针的视口坐标；没有拖动为 null。 */
+    /** 跟着指针的拖影：拖动源的图标与标题；没有拖动为 null。位置经 `moveGhost` 写。 */
     /** `icon` 是视图的图标类，`fileIcon` 是编辑器标签的文件图标。 */
-    ghost: {label: string; icon?: string; fileIcon?: CatppuccinIcon | null; x: number; y: number} | null;
+    ghost: {label: string; icon?: string; fileIcon?: CatppuccinIcon | null} | null;
+    /** 拖影一开始的位置（视口坐标）：不跟手的场景（Lab）用。 */
+    ghostAt?: {x: number; y: number};
     /** 落点预览：插入线或接收区域；没有可显示的落点为 null。 */
     preview: DropFeedbackPreview | null;
     /** 落点提示与播报的文字；空字符串不显示提示。 */
@@ -37,7 +39,7 @@ type Props = {
 };
 ```
 
-没有事件、slot 与 expose。组件根是一个 `display: contents` 的空包装，attrs 落在它上面；拖影带 `data-workbench-drag-ghost`。
+没有事件与 slot。expose `moveGhost(point)`：写拖影的位置（视口坐标）。跟手的东西不走属性，否则宿主要跟着指针每帧重渲染；拖影刚出现时自己写上最新的位置，所以调用时机不用管它在不在。组件根是一个 `display: contents` 的空包装，attrs 落在它上面；拖影带 `data-workbench-drag-ghost`。
 
 ## 隐藏通道理由
 

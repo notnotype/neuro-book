@@ -9,7 +9,7 @@ import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {fixedNodesOf, projectLayoutDoc, rebaseIntents, setFloatRect} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutFloatRect} from "@notnotype/nb-layout";
-import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch} from "vue";
+import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, shallowRef, useTemplateRef, watch} from "vue";
 import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
@@ -204,6 +204,7 @@ const floatPreview = shallowRef<{readonly panel: string; readonly rect: LayoutFl
 const floats = computed(() => doc.value.floats.map(({panel, rect}) => ({id: panel, rect: floatPreview.value?.panel === panel ? floatPreview.value.rect : rect})));
 const tabDrag = shallowRef<EditorTabDrag | null>(null);
 const drag = shallowRef<LayoutDrag | null>(null);
+const feedback = useTemplateRef<InstanceType<typeof WorkbenchDragFeedback>>("feedback");
 onMounted(() => {
     drag.value = createLayoutDrag({
         root: host.value!,
@@ -220,6 +221,8 @@ onMounted(() => {
         feel: () => "indicator",
         settleMotion: () => undefined,
         showPreview: () => undefined,
+        placeCard: () => undefined,
+        moveGhost: (point) => feedback.value?.moveGhost(point),
         floats: () => floats.value,
         previewFloat: (panel, rect) => {
             floatPreview.value = panel === null || rect === undefined ? null : {panel, rect};
@@ -240,8 +243,7 @@ const dragState = computed(() => drag.value?.session.state.value ?? null);
 const dragGhost = computed(() => {
     const current = dragState.value;
     const tabId = current === null || current.source.kind !== "tab" ? null : editorTabIdOf(current.source.tab);
-    const ghost = tabId === null ? null : (tabDrag.value?.ghost(tabId) ?? null);
-    return ghost === null || current === null ? null : {...ghost, x: current.point.x, y: current.point.y};
+    return tabId === null ? null : (tabDrag.value?.ghost(tabId) ?? null);
 });
 const dropPreview = computed(() => {
     const drop = dragState.value?.drop ?? null;
@@ -276,7 +278,7 @@ onBeforeUnmount(() => {
             </template>
         </WorkbenchSurface>
         <EditorHost :area="area" :wrap-tabs="props.input?.props?.wrapTabs !== false" :attach-tab-drag="(next: EditorTabDrag | null) => (tabDrag = next)" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropPreview" label="" :kind="dragState?.drop?.action.kind ?? ''" :sectors="dragState?.drop?.sectors ?? null" />
+        <WorkbenchDragFeedback ref="feedback" :ghost="dragGhost" :preview="dropPreview" label="" :kind="dragState?.drop?.action.kind ?? ''" :sectors="dragState?.drop?.sectors ?? null" />
     </div>
     <LabFixtureControls>
         <div class="flex flex-wrap items-center gap-3 text-xs" data-lab-editor-controls>

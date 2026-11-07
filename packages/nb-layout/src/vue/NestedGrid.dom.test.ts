@@ -790,6 +790,26 @@ describe("NestedGrid 内容层", () => {
         expect(wrapper.emitted("content-parked")).toEqual([["x"]]);
     });
 
+    it("拿起的内容项：矩形直接写在元素上，无关的重渲染不跳回去；放下回到叶的矩形", async () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}]);
+        const element = wrapper.get("[data-content='x']").element as HTMLElement;
+        const grid = wrapper.vm as unknown as {placeLifted(rect: {x: number; y: number; width: number; height: number}): void};
+        // 挂上之后才量到容器，叶的矩形这时才定。
+        await wrapper.setProps({revision: 1});
+        const before = element.style.transform;
+        grid.placeLifted({x: 11, y: 22, width: 33, height: 44});
+        await wrapper.setProps({lifted: {key: "x"}});
+        expect(element.hasAttribute("data-lifted")).toBe(true);
+        expect(element.style.transform).toBe("translate(11px, 22px)");
+        grid.placeLifted({x: 15, y: 25, width: 33, height: 44});
+        expect(element.style.transform).toBe("translate(15px, 25px)");
+        expect(element.style.width).toBe("33px");
+        await wrapper.setProps({revision: 2});
+        expect(element.style.transform).toBe("translate(15px, 25px)");
+        await wrapper.setProps({lifted: null});
+        expect(element.style.transform).toBe(before);
+    });
+
     it("分隔线的 aria-controls 列外框与活动内容", () => {
         const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}]);
         const controls = wrapper.get("[data-sash]").attributes("aria-controls")?.split(" ") ?? [];
