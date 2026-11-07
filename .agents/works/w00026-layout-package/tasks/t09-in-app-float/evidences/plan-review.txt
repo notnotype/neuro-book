@@ -1,0 +1,186 @@
+t09 计划（应用内浮动）设计审查报告
+审查对象：.agents/works/w00026-layout-package/tasks/t09-in-app-float/plan.md（还没有实现）
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree（含 t08）
+方法：读实现与 Spec；两处用 bun 脚本在真实代码上复现（/tmp/review-t09-design/probe1.ts）。没有跑 e2e 与开发服务。
+下面按核实顺序追加，末尾有“按影响排序的索引”。
+
+------------------------------------------------------------
+F1  [重要] [模型] 改矩形、提到最前会被 finish 当成“没变化”吞掉
+位置：packages/nb-layout/src/layout-doc.ts:211-220（sameLayoutShape）、238-245（finish）、618-620（rebaseOriginal）；计划“模型”一节只列了 layoutStructureKey、stripDynamicTabs、carryDynamicTabs、rebaseIntents。
+现象：sameLayoutShape 比树形、面板记录、hiddenBars、currentEditor，不比 floats。所有走 finish 的操作在结果“结构相同”时返回原对象，store.apply 见 `result.doc === base` 就不写、不存。计划里的 setFloatRect、raiseFloat 只改 floats，天然会被判成“放回原处”。
+为什么是问题：验收“拖动放下写一次”“点击提到最前（没变时不写）”和刷新后矩形还在，会在片 2 就静默失败，而且不报错。反过来“没变时不写”这条也没有判据可依：现在的判据看不见矩形。
+如何核实：已跑 probe1.ts：
+  sameLayoutShape(矩形不同的两份文档) = true
+  sameLayoutShape(两个浮动窗顺序对调) = true
+建议改法：计划里写明 sameLayoutShape 要比 floats（面板 id 的顺序加矩形，矩形给容差，与 `nearlyEqual` 一样的 1px 以内算没变）；raise 在已是最前时走同一判据。同时把 sameTreeShape 的调用点（store.apply 里 `!sameTreeShape(base, result.doc)` 决定退出最大化）一起核对：floatTab 摘空来源面板时树形会变。
+
+------------------------------------------------------------
+F2  [建议] [编辑器/模型] 内存宿主的 newId 只查树，会覆盖浮动编辑组
+位置：packages/neuro-book/src/plugins/workbench/shared/editor-panels.ts:136-146（createMemoryEditorPanels 的 policy.newId）；计划“编辑器”一节与验收映射里 `area.test.ts` 用的就是它。
+现象：newId 用 `findTreeNode(doc.tree.root, id) === null` 判重。浮动面板在 `panels` 里、不在树里，所以 `g1` 这类 id 会被再分配；moveTabToEdge（layout-doc.ts:552-553）直接 `next.panels[id] = …` 覆盖，不查 `panels`。
+为什么是问题：浮动窗里的标签静默丢失（记录里不再有它），单元测试和 Lab 夹具里复现；计划验收“拆分命令在浮动的编辑组上”恰好会撞上。生产的 createLayoutPolicy.newId 用 uuid，不受影响，所以只在测试里暴露，容易被误判成测试写错。
+如何核实：已跑 probe1.ts：种子文档里 g0 在树里、g1 是浮动编辑组（含标签 f），再 `tabs.moveToEdge("a", split g0 right)`：返回的新组 id 是 `g1`，g1 的标签变成 [a]，标签 f 不见了。
+建议改法：newId 同时查 `doc.panels` 与树；moveTabToEdge、movePanelToEdge 这类用 newId 的操作在写入前断言 `next.panels[id] === undefined`，撞了就失败为 rejected，不覆盖。
+
+------------------------------------------------------------
+F3  [重要] [模型/呈现] 最大化、收起对浮动窗没有定义，现有命令会把整个工作台弄空白
+位置：
+  - packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:254-257（setCollapsed）、322-326（toggleMaximized：只要 id 在 doc.panels 里就接受）
+  - packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.ts（withPanel 缺省取 currentPanel，currentPanel 随焦点走，浮动窗会是它）
+  - packages/nb-layout/src/vue/NestedGrid.vue:103-117（placement、obscuredLeaves）
+  - packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:196-210（frameActionsOf 给每块面板收起、最大化按钮）
+  - packages/nb-layout/src/layout-doc.ts:584-592、697-755（setPanelCollapsed 与校验不禁止浮动窗 collapsed）
+现象：计划只说“框架按钮只有一个回到停靠”，没说命令与状态。焦点在浮动窗里执行 `nbook.view.toggle-panel-maximized`（命令面板、快捷键）时，effectiveMaximized 认它（面板存在、没隐藏、没收起）。NestedGrid 的 maximizePlacement 在叶摆放里找不到这个 id（浮动窗是追加的），而 obscuredLeaves 把“除它和条以外的全部叶”都标成被盖住：所有树里的面板 inert、内容停放隐藏，却没有任何东西盖在上面。`set-panel-collapsed` 同理：无名工具浮动窗被写上 collapsed:true，effectiveVisibleTabs 因此判它不可见，但窗口照常画着内容。
+为什么是问题：一个快捷键把界面弄成空白或“可见性与显示不一致”，且状态会写进记录（collapsed）。反向也没定义：树里的面板最大化时，浮动窗是否继续压在上面、是否算被盖住、maximizePlacement 的外接矩形含不含浮动窗（计划里浮动窗是“追加到叶的摆放后面”，取决于追加在 maximizePlacement 之前还是之后）。
+如何核实：代码推断（读 toggleMaximized 对任意 doc.panels id 的接受、obscuredLeaves 的定义）；实现前不能跑出来。
+建议改法：计划里定下：浮动窗不可最大化、不可收起。模型层 setPanelCollapsed 对浮动窗返回 rejected，校验拒绝浮动窗上的 collapsed；store.toggleMaximized 与命令对浮动窗返回 unavailable；浮动窗的框架按钮只有“回到停靠”。NestedGrid 的 floats 在 maximizePlacement 之后追加，且不进 obscuredLeaves（“被浮动窗盖住仍算可见”的另一面：浮动窗始终在最大化的面板上面）；把这一条写进 nested-grid.md 的“最大化”。
+
+------------------------------------------------------------
+F4  [重要] [编辑器] 整个浮动编辑窗停靠时绕过编辑器区的规则
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:385-390（commit：只有 `editorTabIdOf(source.tab)` 非空才走 `editorTabs.drop`，其余直接 `layout.actions.drop`）；layout-drag.ts:26（LayoutTabSource 只有标签）；计划“编辑器”一节只写了 `PanelTabs.float`、`area.moveToFloat`、`EditorTabDrag.drop` 的 float。docs/specs/workbench/editor.md 输出 49、55。
+现象：计划的整窗拖动（source.kind === "panel"）和框架按钮“回到停靠”，对编辑器标签会走 `movePanelToStrip`/`movePanelToEdge`，把窗里全部标签一次并入树里的编辑组，不经 area。而 Spec 要求移动前先结算活动标签会变的组、有未裁决输入就不移动、目标组已有同地址同编辑器的标签就合并（不重复）、固定与 preview 跟着分区变。生产的 createLayoutPolicy 没有 canInsert（全仓只有 layout-constraints.ts:88 定义），所以固定分区也不会由布局层守。
+为什么是问题：并入时目标组可能出现两个同文件标签；窗里的固定标签落在目标组普通标签之后（编辑器只在恢复时才把固定排前，editor/web/groups/groups.ts:456-461）；活动视图有未裁决输入时被直接搬走。这些都是 Spec 明确的不变量，计划只覆盖了“标签撕下来浮动”这一条路，没覆盖“窗停靠”。
+如何核实：代码推断（commit 的分支与 EditorTabDrag 接口只收单个 tabId，contracts.ts:69-78）。
+建议改法：EditorTabDrag 加 `dropPanel(panelId, action, keyboard)`（或让 area 提供 `moveGroupTabs`），由 area 逐个标签走 moveTab 的同一套结算与合并；`nbook.view.dock-panel` 对编辑组同样走 area。计划里把“窗停靠”单列一条，验收加“目标组已有同一文件”“窗里有固定标签”两个场景。
+
+------------------------------------------------------------
+F5  [重要] [与已定设计一致/可访问性] 键盘既不能浮动，也不能移动或带回浮动窗里的标签；提案里的“浮动”按钮与命令被去掉且没写理由
+位置：计划“操作：外壳”“Tab 与读屏”“待确认”；layout-drag.ts:461-495（keyboard.regions、start）；docs/specs/ui/workbench-layout.md 输出 31（“与指针同一套规则”）；提案 workbench-single-tree-layout.md 第 251 行（面板头按钮含“浮动”）、304-305 行（`nbook.view.float`、`nbook.view.dock`、move-view 的 target 可以是 `float`）。
+现象：
+  1) 键盘拖动的区域来自 enumerateDropCandidates，只列树里的面板，候选里没有“无落点”，所以键盘走不到“无落点就浮动”。计划不做“浮动”按钮、也没有 float 命令，键盘用户没有任何办法把东西浮出来。
+  2) 整窗移动只有指针（`data-float-move`）；键盘只有“方向键缩放”，不能移动窗。
+  3) 拿起浮动窗里的标签时，regions 只在树的叶里找（`treeLeaves(doc.tree.root)`），来源所在的面板（浮动窗）不是区域，start() 里 `regions.findIndex(home)` 是 -1，被 `Math.max(0, …)` 变成第 0 个区域（可能是活动栏）。Spec 31 要求“拿起时停在原位，直接 Enter 不移动”。这一点从代码推断，没有实际跑。
+为什么是问题：Spec 31 现行合同被违反；提案把“浮动”按钮与命令写进了设计，计划的“待确认”里没有给出去掉它的理由（只说了不做）。
+建议改法：（a）加命令 `nbook.view.float`（参数 panelId?、视图或当前活动标签，在当前面板旁给缺省矩形），面板头与标签右键菜单各放一个入口，键盘靠命令与菜单走通；（b）键盘拖动的区域里加一个“浮动”区域，放在预备区之后，Enter 就在该区域给出缺省矩形；（c）浮动窗的标签条或窗框上给键盘移动（例如拿起窗后方向键移动，沿用同一个 session），或至少 Alt 加方向键；（d）regions、stops、panelGeometry 把浮动窗纳入（见 F7）。若坚持不做按钮，要在待确认里写理由，并在 Spec 里把“键盘不能浮动”写进不承诺。
+
+------------------------------------------------------------
+F6  [重要] [拖动] “得到 null 就浮动”把性质不同的 null 混在一起；“菜单挡住不浮动”与“工作台外浮动”在现有判据里是同一个分支
+位置：layout-drag.ts:443（resolve 的守卫）、228（barDrop 里 applyLayoutDrop 失败）、278（stripDrop 量不到标签条）、290（stripDrop 里 applyLayoutDrop 失败）、341（dropAt 里 applyLayoutDrop 失败）、215（barDrop 最大化时返回 null）；计划“落点”一节：“被菜单、对话框挡住的（top 判定）不浮动：是 null；工作台之外（包括标题栏、状态栏）算无落点，也浮动”。
+现象：
+  1) resolve 里 `top === null || !root.contains(top) || top.closest("[data-no-drag]") !== null` 同时盖了：指针在视口外（elementsFromPoint 为空，top 为 null）、被传送到 body 的菜单与对话框挡着（!root.contains(top)）、按钮区（data-no-drag）。计划要求前者浮动、后者不浮动，现有表达式分不开；“工作台之外”如果指窗口外，正是 top === null。
+  2) 按计划字面实现“dropAt 返回 null 且来源允许就给 float”，下面这些 null 也会浮动：最大化时拖工具视图到活动栏（barDrop 返回 null）；标签条量不到（stripDrop 278 行）；applyLayoutDrop 因 limit-exceeded（256 节点）或 not-found 失败；编辑器标签拖到活动栏上段（barDrop 因 viewIdOf 为 null 返回 null）。它们多数是“出错”或“暂时算不出”，不是“指针在没有落点的地方”。
+  3) dropAt 里预览缓存的键是 `JSON.stringify([source, action, extent])`（337 行）。float 动作带每帧都变的矩形，缓存要么一直 miss、要么只增不减（Map 只在拿起时与文档变时清）。计划的“动作键只写 float”只覆盖了会话的 actionKey（448 行），没有覆盖这里的缓存键，也没有覆盖 live-drag.ts:57 的 keyOf（见 F8）。
+为什么是问题：用户很容易在这几处“拖错了多一个窗”；而 Spec 25 规则 1 与 e2e（workbench-dnd.e2e.ts:577、755 一带）已经把“按钮区没有落点、被菜单挡住没有落点”写成合同，计划的改法没说哪些 null 保持取消。
+如何核实：代码推断；resolve 与各处 return null 的位置已逐行读过。
+建议改法：让 dropAt 返回三态（落点 / 明确的无落点 / 不接收），float 只在“明确的无落点”里给：指针在工作台内、不在 data-no-drag 与浮层之下、resolveLayoutDrop 返回 null 且 applyLayoutDrop 没有因错误失败。视口外（top === null）单独一个分支，按“夹进树区域”给矩形。计划里把 data-no-drag（面板头按钮区、标签上的关闭按钮）、barDrop 的 null、最大化时的行为逐条写进“不浮动”的清单。float 动作不进预览缓存。
+
+------------------------------------------------------------
+F7  [重要] [拖动] 浮动窗先判的“叠放顺序”落在哪一层没写；判定与快照的输入全是树里的面板
+位置：计划“落点”一节（“resolveLayoutDrop 不变”与“先按叠放从上到下看浮动窗，再看树”写在同一列表里，互相矛盾）；packages/nb-layout/src/layout-drop.ts:104-134（layoutDropPanelAt、resolveLayoutDrop）、67-81（resolveInPanel）；layout-drag.ts:164-178（panelGeometry 用 treeLeaves）、306-326（frozen 快照）、180-183（excludedRects）、461-495（regions）、497-506（stopsOf）。
+现象：
+  1) resolveLayoutDrop 先判 excluded（条、标题栏）再判面板，最后才判预备区（zones）。浮动窗可以盖在状态栏或活动栏上（计划的夹取只要求标题栏高度与 80px 宽留在树区域里），按计划“浮动窗先判”，必须在 excluded 之前；预备区也不该在“浮动窗拒绝了”之后穿透：现在 resolveLayoutDrop 在面板判定得 null 时会去找 zones，落到预备区。计划却说 resolveLayoutDrop 不变。要么改它，要么在 layout-drag 里先行判断，二选一，写明。
+  2) LayoutDropInput.panels 的顺序是命中顺序（layoutDropPanelAt 用 `find`，取第一个命中的）；浮动窗要排在最前，并且按叠放从上到下、而 floats 数组是后面压前面，要反过来。缝的容差（SEAM_PX = 4，layout-drop.ts:20，“缝不是落点，归最近的能接收的那块”）也会把浮动窗外沿 4px 内的点吸进浮动窗，而浮动窗外沿不是缝。
+  3) “整窗拖动时策略不接受 center”：LayoutPolicy.accepts(tabs, target, region) 只收标签，不知道来源是窗还是标签；单标签窗的标签和整窗的 tabs 相同，同一个 accepts 无法对一个说“中央可以”（撕下的标签）、对另一个说“中央不可以”。需要在拖动时包一层只对窗拒绝 center 的策略，或者改接口。
+  4) 实时布局的基准矩形（frozen，306-326 行）与 panelGeometry、stopsOf、pointOfCandidate 都只遍历树；浮动窗的标签条（stripOf 用 DOM 现量，不在 frozen.strips 里）不会冻结，目标是浮动窗的标签条插入在实时布局里读的是预览之后的 DOM，而 t08 的合同是“基准是拿起时的矩形”（Spec 38）。
+为什么是问题：不先写清楚，片 3 的落点会出现穿透到预备区、状态栏上方的浮动窗接收不到标签、整窗拖动经过面板中央仍被当成并入。
+建议改法：把“浮动窗命中”做成 layout-drop 的一步，LayoutDropInput 加 `floats?: ReadonlyArray<{id; body; strip}>`（已按上到下排好），在 excluded 之前判；命中浮动窗后不再看 zones 与树。整窗拖动用显式参数 `source.kind === "panel"` 让 resolveInPanel 不给 center，不靠策略。panelGeometry 与 frozen 同时包含浮动窗。
+
+------------------------------------------------------------
+F8  [重要] [拖动/实时布局] float 候选永远“不稳定”；整窗移动与卡片机制不合；窗停靠时没有东西跟手
+位置：packages/neuro-book/src/plugins/workbench/web/live-drag.ts:57（keyOf）、79-86（candidateOf）、95-121（updateCard，按标签来源写死）、123-149（tick）；packages/nb-layout/src/live-drop.ts:41-51（stepLiveDrop）；计划“跟手”“实时布局”两节。
+现象：
+  1) 候选键是 `JSON.stringify([drop.action, drop.part])`，含 float 的矩形。指针每动一下键就变，stepLiveDrop 里 `changedAt` 每次重置，150ms 的“稳定”永远不满足，候选预览不会出现（只会停在 source-removed）。计划的“动作键只写 float”只提到会话的 actionKey，没提 keyOf。
+  2) createLiveDrag 的接口全是 LayoutTabSource（homeOf、sourceRemovedDoc、candidateDoc 都按标签算），整窗来源（panel）要么扩类型要么绕开。计划说“整窗移动不走卡片”，但没写绕开的位置：activate 里 `live.begin(source, lastPointer)` 对任何来源都开帧循环、拿起卡片。
+  3) “经过可停靠的位置时按当时的手感走”只有一句话，是最难的一段：整窗经过标签条或 14% 窄带，实时布局会把候选文档摆出来，浮动窗在候选文档里已经没了（并入树里），而整窗没有卡片，指针下什么也跟不上；落点指示下又要在“拖影”和“矩形反馈”之间选。需要明确：窗停靠候选时，是窗留在原处且半透明、还是缩成卡片跟手。
+如何核实：代码推断（stepLiveDrop 的逻辑与 keyOf 的内容）；片 3 一做就会在手感上暴露。
+建议改法：keyOf 对 float 用 `float:<panel 或 new>`，不含矩形；整窗移动不进 createLiveDrag，作为 layout-drag 里单独的分支（只改一份“浮动矩形预览”，见 F9）；窗停靠候选时复用卡片，把窗的活动标签内容抬成 lifted，其余标签随它走，先把这个手感在计划里定下来，再写进 Spec 38。
+
+------------------------------------------------------------
+F9  [建议] [上游选择/性能] 整窗移动每帧换整份文档，会让不依赖浮动的投影、网格、可见性一起重算；风险写在计划末尾，“量一下”留到实现之后
+位置：计划“跟手”与“不做与风险”最后一条；layout-doc-store.ts:122-126（renderedDoc、renderedProjection）、250-253（setLivePreview）；WorkbenchSurface.vue:89（`grid` 随 projection 重建 createGrid）；packages/nb-layout/src/layout-project.ts（projectLayoutDoc 不读 floats）。
+现象：projectLayoutDoc 只读树与面板，不读 floats；但 setLivePreview 是整份文档，每帧新对象、新 tree（structuredClone），renderedProjection 随之重算，WorkbenchSurface 的 `grid` 重建、useGridLayout 重新发布布局、NestedGrid 的 layers 与 motion 重算、`watch(props.node, scope.invalidate)` 触发。计划已经承认并留给“量一下”。
+为什么是问题：根因是把“只有矩形变”的状态塞进文档预览。每帧 O(树大小) 的工作白做，而且 acceptPresented 在 livePreview 非空时整个丢弃（layout-doc-store.ts:243-246），预览期间 presented 与可见性是旧的，和“每帧重建的布局”不一致，容易出现隐蔽的错位。
+建议改法：浮动窗的移动与缩放预览不走 setLivePreview：在 store 里单独放 `floatPreview: Map<panel, rect>`（或 NestedGrid 的 floats 属性直接接这个），只影响 `floats` 的呈现；放下时写一次文档。这样 NestedGrid 的 `motionless` 也不需要“判定当手势”，浮动层本来就不走过渡。若仍保留 motionless：decideMotion（packages/nb-layout/src/vue/useGridMotion.ts:59-73）靠 `frame.previewing || memory.previewing` 判手势，“上一次还在手势中”的那一帧也不过渡，所以窗放下并入树的那一次布局变化（邻居让位）会瞬移，不会滑；要滑得靠 land()（t08 给卡片用的），计划没写。若仍想用文档预览，则在计划里写明测量门槛（例如 50 个面板的树，每帧耗时多少算过），而不是“慢了再说”。
+
+------------------------------------------------------------
+F10  [重要] [呈现] 缩放手柄放在叶外框里会被内容层盖住；卡片投影被外框裁掉
+位置：packages/nb-layout/src/vue/NestedGrid.vue:420-434（.nb-grid-frame 无 z-index、overflow: clip；.nb-grid-content z-index: 1、overflow: clip）、467-469（分隔线 z-index: 3 是 grid 根的直接子元素）；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:259-279（#leaf 里是 slot、card；浮动窗没有 cardInset）；计划“缩放”“卡片外观”。
+现象：
+  1) 内容层是叶外框的兄弟，z-index 1，矩形是叶减去面板头，盖满窗口的左、右、下边与下两角。计划里 FloatResizeHandles 的挂载位置没写；如果放在 #leaf 里（和面板头同在外框里，原型 LayoutTreeDraft.vue 的 .lt-handle 就是这样，因为原型没有独立的内容层），四条边里只有上边与上两个角够得着，左、右、下与下两角被内容挡住。现有分隔线正是因为这个原因是独立元素、z-index 3。
+  2) 树里的卡片靠 insetOf 的内边距让出投影的位置（外框 overflow: clip，卡片画在内缩之后）。浮动窗没有邻接、没有内边距，`--layout-card-shadow` 的“一圈投影”会被 .nb-grid-frame 与 .nb-grid-content 的 clip 裁成一条线；圆角还在。
+如何核实：代码推断（CSS 与结构）。
+建议改法：手柄作为 NestedGrid 根的直接子元素，和浮动窗外框同一 z 档加一，不放在 #leaf 里；浮动窗外框比矩形大一圈（投影与手柄命中带的宽度），内容与外框按同一偏移内缩，计划写明“矩形”指卡片矩形还是外框矩形（落点判定、夹取、记录里存的是哪一个）。
+
+------------------------------------------------------------
+F11  [建议] [编辑器] 浮动编辑组的“相邻”“右侧”“关闭后焦点”没有定义；计划只写了 rightOf 为 null
+位置：packages/neuro-book/src/plugins/workbench/shared/editor-panels.ts:37-67（editorEntries、rightEditor）、103-109（openAtEdge）；packages/neuro-book/src/plugins/editor/web/groups/groups.ts:327-340（split、sideGroup）；packages/nb-layout/src/layout-doc.ts:311-326（settleEmptyPanel 换活动组）；docs/specs/workbench/editor.md 输出 3（“焦点到相邻组”）、35（`"side"`）。
+现象：
+  1) `tree.openAtEdge(浮动组, edge)` 计划写“落到树里相邻的编辑组上”，但浮动窗在树里没有相邻；落到哪一个（第一个、最后一个、最近活动的）没写。`split` 从浮动窗的标签拆出新组，新组出现在树里某处，来源标签还在浮动窗里，用户看不出关系。
+  2) `sideGroup()` = `rightOf(current) ?? openAtEdge(current, "right") ?? current`：current 是浮动组时 rightOf 恒为 null，所以“在侧边打开”不会复用树里已有的右侧编辑组，而是再拆一个新组（Spec 35 要求先找右侧相邻的组，没有才拆）。
+  3) 浮动编辑组最后一个标签关闭：settleEmptyPanel 里 `order.indexOf(id)` 对浮动组是 -1，`rest[Math.min(-1, …)]` 是 undefined，靠 `?? editorIds(next)[0]` 兜底，取的是 panels 记录里的第一个，不是“相邻”，也不是最近活动的树里编辑组。
+  4) panelTitle（layout-present.ts:113-117）用 `editors.indexOf(panelId) + 1` 给多编辑组写序号，浮动编辑组算出来是 0（“编辑区 0”）。这个文件计划里没有出现。
+建议改法：定一条：浮动编辑组“没有相邻”，split 与 side 对浮动当前组一律作用在“最近活动的树里编辑组”上（store 记 `lastTreeEditor`，或取 currentEditor 之前的那个），关闭后焦点回到它；panelTitle 对浮动编辑组写“浮动编辑区”之类的名字；把 layout-present.ts（panelTitle、effectiveVisibleTabs 的 hasRoom 用 presented 尺寸、moveTargetsOf）列入计划的改动文件。
+
+------------------------------------------------------------
+F12  [重要] [编辑器/外壳] 编辑组的头是编辑器插件的组件，没有框架按钮的位置；“回到停靠”按钮对编辑器窗放不进去
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:557-560（编辑组走 `editorArea.head`，只传 panelId、draggingTab）；196-210（frameActionsOf 只在工具面板的 WorkbenchPanelHead 里用）；contracts.ts:81-88（EditorAreaParts.head 的属性）；计划“回到停靠”一条。
+现象：计划写“编辑器标签回活动的树里编辑组（命令 nbook.view.dock-panel，图标 i-lucide-panel-top）”，但只有工具面板的头有 frameActions；编辑组的头由编辑器插件画，外壳传不进去按钮。计划“不做窗口标题”也没有说编辑器窗的移动把手（`data-float-move` 在编辑器标签条的空白处）由谁加。
+为什么是问题：计划列的 contracts 改动里没有这一条，片 3 与 4 做到编辑器窗时会临时加属性或插槽，等于改编辑器插件的公开合同。
+建议改法：EditorAreaParts.head 加 `frameActions` 属性（和 PanelFrameAction 同形）与浮动态标记，编辑器的头把它画在标题动作之后；或统一由外壳在浮动窗的外框上方画一条极窄的窗框（只有移动把手和“回到停靠”），两种角色同一处理，不依赖各头。后者也顺便解决“窗没有可拖的空白”（编辑器的标签条多行、无空白）。
+
+------------------------------------------------------------
+F13  [建议] [Spec/文档] 计划的 Spec 改动清单与实际要改的合同不对齐
+位置：计划“Spec 与文档改动”；docs/specs/ui/workbench-layout.md 输出 24（“面板头的空白处不起拖，整块面板不能拖”）、27（移动的单位）、31（键盘）、32（结构键）、35（命令表）、36（focusedPart）、38（实时布局）；docs/specs/workbench/commands.md:164 一带（命令的参数与条件在这里登记，Spec 35 明确“参数与条件见 workbench.commands”）；packages/neuro-book/src/plugins/workbench/shared/views.ts:65（`movable` 的 TypeBox 声明，floatable 要在同处加，并进 SDK 作者文档）；t09 README.md（“浮动层放在外壳之上、下拉菜单之下”与计划的网格内叠放相反）；提案 304-305、316、322 行（nbook.view.float、nbook.view.dock、focusedPart 的 float、ViewContext.location 的 float）。
+现象：计划只列了输出 25、26、28 与新增输出，漏了 24（整窗可拖）、31（键盘）、35（新命令 `nbook.view.dock-panel`）、36；命令登记（workbench/commands.md）、views 的 schema 与 SDK 文档、focusedPart 与 ViewContext.location 对浮动窗的取值也没列。命令名与提案不同（提案是 `nbook.view.dock`、带 `panelId?`），计划没说为什么改。
+建议改法：计划的清单补上面几项；命令名要么沿用提案，要么在“待确认”写改名理由；README 的目标段同步成计划的做法；`focusedPart` 对浮动窗取值（提案说 `float`，Spec 36 现行写“没有名字时取 editor 或 tool”）写一条定下来。
+
+------------------------------------------------------------
+F14  [建议] [模型/细节] 矩形、夹取与数量：几处计划没定、实现时会各写各的
+位置：计划“模型”“呈现”“落点”；packages/nb-layout/src/layout-doc.ts:674（isFiniteSize 只收非负）、754（`editors === 0` 数所有面板）；packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:29-41（panelConstraints 有 minimumSize 与 maximumSize）；packages/nb-layout/src/grid-rects.ts:1-10（取整在设备像素上做）。
+现象：
+  1) 新浮动窗的初始矩形（大小、相对指针的锚点、多个窗的错开）没写；“放下用此刻的矩形”里“此刻的矩形”从哪来：实时布局下是卡片矩形（缩到 380×260，live-drag.ts:15），落点指示下没有卡片。原型用固定 460×340 与抓取点比例（LayoutTreeDraft.vue 的 floatSize、floatRectAt）。
+  2) 校验写“矩形是有限正数”：x、y 允许为负（夹取只要求 80px 宽与标题栏高度留在树区域里，原型允许 x ≥ -w+80），照字面会拒绝合法记录。应是 x、y 有限，width、height 正且不小于下限。
+  3) “夹取不写回”：窗口变小后拖动窗时，抓取点应相对呈现出来的（夹取后的）矩形，移动再写进记录；没定的话，窗在一次移动开始时会跳一下。
+  4) 缩放“最小尺寸取角色的约束”，没提 maximumSize；视图声明的最大尺寸（panelConstraints 已经算了）在浮动窗里不生效。
+  5) 浮动窗的矩形是 CSS px 小数；树里的叶按设备像素取整（grid-rects.ts 文件头注释解释过发丝缝与模糊）。浮动窗每帧按指针位置落在小数 px，文字和边框会糊。
+  6) 校验里的 `editors === 0`（754 行）数所有面板；计划“树里至少一个编辑组”只写在 settleEmptyPanel 一处，validateLayoutDoc 也要只数树里的（目前 fitsSkeleton 会挡住，但校验是形状的唯一权威）。
+  7) 没有上限：每次“松手没有落点”开一个窗，记录与 DOM 里的窗数不封顶。计划已承认“拖错了多一个窗”，至少给一个窗数上限（例如 16），超了时给诊断并取消。
+  8) 面板头的动作按钮数按 `state.presented[panelId]?.width` 算（WorkbenchShell.vue:171，buttonBudget 在宽度为 null 时按“不限”）。浮动窗的尺寸不在 presented 里，工具视图的浮动窗会把全部标题动作摆在头里，窄窗会溢出。要给浮动窗提供自己的宽度（夹取后的矩形宽）。
+建议改法：逐条写进计划；1 与 5 影响片 1 的 `float` 动作的形状，先定。
+
+------------------------------------------------------------
+F15  [建议] [验收映射/兼容] 验收表缺几条会真出问题的场景；新项目模板会带上浮动窗
+位置：计划“验收映射”“切片”；layout-doc-store.ts:176-178（save 里 `template.commit(() => ({doc: stripDynamicTabs(current)}))`）、layout-doc.ts:623-634（stripDynamicTabs）、640-660（carryDynamicTabs）、705（校验 `floats.length !== 0`）。
+现象：
+  1) 验收表里没有：键盘浮动与移动（F5）；窗停靠时目标组已有同一文件、窗里有固定标签（F4）；焦点在浮动窗时 `toggle-panel-maximized`、`set-panel-collapsed`（F3）；浮动编辑组关到空后的焦点（F11）；窗口变小后拖动窗不跳（F14）；活动栏、最大化时拖动不浮动（F6）。这些都能用真实运行时写出来（命令走命令服务，拖动走 e2e），不是只能单测。
+  2) 模板：save 总是把 stripDynamicTabs(current) 写进新项目模板；stripDynamicTabs 只去动态标签，工具视图的浮动窗（含绝对像素矩形）会成为“新项目的初始布局”，换了窗口尺寸再开项目是夹取后的位置。计划只写了“stripDynamicTabs 核对”，没说模板里要不要带浮动。
+  3) 兼容：旧记录 `floats: []` 读新代码没有问题；新记录里 floats 非空时旧代码的校验返回 invalid、整份记录当损坏（guarded 不覆盖原件，不丢数据，只是旧构建读不出）。这一点可以接受，计划里写一句即可，不必升版本。
+  4) 验收“编辑器标签拖到工具面板上松手：浮动打开”：editor-area.e2e.ts:901、911-918 现有断言是 noDropShown（没有任何 `data-drop-kind`），改成新规则后反馈层会有 float 的 drop-kind；计划只写“改成新规则”，没写 `DROP_SHOWN` 的判据（editor-area.e2e.ts:163）怎么改，容易改成放宽断言。
+建议改法：补上面的场景；模板里去掉浮动窗（或明确保留）；DROP_SHOWN 增加 float 的 kind 并断言它的种类，不放宽。
+
+------------------------------------------------------------
+待确认三处的判断（审查要点 6）
+- “回到停靠”只做一个框架按钮：成立，但有 F12（编辑器窗放不进去）；“不做浮动按钮”不成立，理由见 F5（键盘无路可走，且偏离提案，计划没写理由）。
+- 把 `NB_Z_INDEX.workbenchFloat` 换成网格内层级：理由成立。内容层必须和叶外框同一父元素才能做到“换父不重建”（nested-grid.md“内容层”），浮动窗内容若放到全局浮动层就得搬 DOM。需要同步的是：提案第 7 节“浮动”那一条与 t09 README 的“外壳之上、下拉菜单之下”改掉，写一条决策记录；网格根是 isolation: isolate，仍在 NB_Z_INDEX.popover（60）之下，这一点成立。注意 F10 的两个后果（手柄层级、投影裁切）。
+- 不复用 useFloatingWindow 的整套（抄算法）：成立。它依赖全局 `document`、`useWindowSize`、传送目标，t01 决定 7 要求新包不读全局 window、document；`FLOATING_WINDOW_RESIZE_HANDLES` 的方向表是纯常量，可以直接用（class 是 Tailwind 串，需要换成本包的样式）。
+
+未发现问题的方面（仔细检查后）
+- 数据模型把 floats 放在树外、面板记录仍在 panels：与提案“浮动是树外的列表”一致，`fitsSkeleton` 只看树不受影响（它要求树里有 `middle.children.length >= 2`，所以最后一个树里编辑组被拿走的文档会被挡住，这一点计划“树里至少一个编辑组”的写法与它一致）。
+- reconcileViews 按 `doc.panels` 全部面板判断“视图是否已在文档里”，浮动窗里的视图不会被重复加回具名面板。
+- 旧记录 `floats: []` 的读取与旧构建读新记录的失败方式（只读不覆盖）可以接受（F15 第 3 条）。
+- 浮动窗的外缘窄带：layoutEdgeTarget 对不在树里的面板天然返回 null（findTreeNode 为 null），所以“浮动窗没有外缘”不需要额外代码。
+- 外壳的 panelOf、焦点接线（NestedGrid 的 useGridFocus 与 F6 顺序、useRenderOrder 的 stableOrder）：浮动窗是 grid 根的直接子元素，叠放变化只改 z-index、不搬 DOM，次序走 `outOfOrder` 与 aria-owns 那条现成的路。
+
+数量
+- 阻断：0
+- 重要：9（F1、F3、F4、F6、F5、F7、F8、F10、F12）
+- 建议：6（F2、F9、F11、F13、F14、F15）
+- 合计：15
+- 已复现（跑过代码）：F1、F2；其余为读代码推断，已在各条标明。
+
+按影响排序的索引
+ 1. F1  [重要] 改矩形与提到最前被 finish 当成没变化吞掉（sameLayoutShape 不比 floats）
+ 2. F3  [重要] 浮动窗上的最大化、收起命令没有定义，会让整个工作台空白或状态不一致
+ 3. F4  [重要] 整个浮动编辑窗停靠时绕过编辑器区的结算、合并与分区规则
+ 4. F6  [重要] “null 就浮动”混了出错、按钮区、浮层、视口外几种 null；菜单挡住与工作台外同一分支
+ 5. F5  [重要] 键盘不能浮动、不能移动窗、拿起浮动窗里的标签起点不对；提案的“浮动”按钮与命令被去掉
+ 6. F7  [重要] 浮动窗命中顺序落在哪一层没写；excluded、预备区穿透；accepts 区分不了整窗与标签；快照只含树
+ 7. F8  [重要] float 候选键含矩形永不稳定；整窗与卡片机制不合；窗停靠时没有跟手的东西
+ 8. F10 [重要] 缩放手柄会被内容层盖住；卡片投影被外框裁掉
+ 9. F12 [重要] 编辑组的头是编辑器插件的，“回到停靠”按钮与移动把手放不进去
+10. F9  [建议] 整窗移动每帧换整份文档预览，应把矩形预览与文档分开
+11. F11 [建议] 浮动编辑组的相邻、右侧、关闭后焦点与标题序号没有定义
+12. F13 [建议] Spec 与文档改动清单不全（24、31、35、36、commands.md、views schema、README）
+13. F14 [建议] 初始矩形、夹取、数量上限、取整等细节没定
+14. F15 [建议] 验收缺场景；模板会带上浮动窗；DROP_SHOWN 断言怎么改
+15. F2  [建议] 内存宿主 newId 只查树，会覆盖浮动编辑组（只在测试与 Lab 夹具里暴露）
