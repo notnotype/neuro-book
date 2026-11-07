@@ -4,6 +4,10 @@
             "title": "主题",
             "description": "界面的形状、字体与配色"
         },
+        "dropSectors": {
+            "title": "落点分区",
+            "description": "拖动视图或标签到面板上时，画出上下左右中能放的位置"
+        },
         "appearance": {
             "title": "明暗",
             "choices": {
@@ -190,6 +194,12 @@
             "hint": "按空格拿起并拖动"
         },
         "drop": {
+            "sector": {
+                "left": "左侧",
+                "right": "右侧",
+                "top": "上方",
+                "bottom": "下方"
+            },
             "reveal": "放到{{part}}",
             "addTab": "添加为标签",
             "insert": "放在这里",

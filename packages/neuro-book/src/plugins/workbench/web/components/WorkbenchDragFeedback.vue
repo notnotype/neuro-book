@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 拖放的拖影、预备区与落点反馈（同名 .md）：受控，只画宿主算好的东西。 */
-import {DropFeedbackOverlay, DropIndicatorLabel} from "@notnotype/nb-layout/vue";
+import type {LayoutDropSector, LayoutDropSectorId} from "@notnotype/nb-layout";
+import {DropFeedbackOverlay, DropIndicatorLabel, DropSectorsOverlay} from "@notnotype/nb-layout/vue";
 import type {DropFeedbackPreview} from "@notnotype/nb-layout/vue";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 
@@ -23,7 +24,11 @@ withDefaults(defineProps<{
     label: string;
     /** 动作种类，写到覆盖层根的 `data-drop-kind`，供探针读。 */
     kind: string;
-}>(), {zones: () => []});
+    /** 落点分区；没有为 null。 */
+    sectors?: {readonly rect: {readonly left: number; readonly top: number; readonly right: number; readonly bottom: number}; readonly items: ReadonlyArray<LayoutDropSector>; readonly active: LayoutDropSectorId | null} | null;
+    /** 落点分区每块写的字。 */
+    sectorLabels?: Partial<Record<LayoutDropSectorId, string>>;
+}>(), {zones: () => [], sectors: null, sectorLabels: () => ({})});
 
 </script>
 
@@ -52,6 +57,7 @@ withDefaults(defineProps<{
                 </DropIndicatorLabel>
             </div>
         </Teleport>
+        <DropSectorsOverlay class="workbench-drag-feedback__sectors" :rect="sectors?.rect ?? null" :sectors="sectors?.items ?? []" :active="sectors?.active ?? null" :labels="sectorLabels" />
         <DropFeedbackOverlay :preview="preview" :label="label" data-drag-feedback :data-drop-kind="kind" />
     </div>
 </template>
@@ -59,6 +65,11 @@ withDefaults(defineProps<{
 <style scoped>
 .workbench-drag-feedback {
     display: contents;
+}
+
+/* 正文在卡片的下半截：卡片主题下下面两个角是圆的，压暗不露到卡片外面。 */
+:global(.workbench-drag-feedback__sectors) {
+    --layout-sector-radius: 0 0 var(--shell-card-radius, 0) var(--shell-card-radius, 0);
 }
 
 /*

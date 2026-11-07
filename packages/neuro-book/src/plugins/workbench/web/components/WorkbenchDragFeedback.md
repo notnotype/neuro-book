@@ -30,6 +30,10 @@ type Props = {
     preview: DropFeedbackPreview | null;
     /** 落点提示与播报的文字；空字符串不显示提示。 */
     label: string;
+    /** 落点分区（[`DropSectorsOverlay`](../../../../../../nb-layout/src/vue/DropSectorsOverlay.md)）；没有为 null。 */
+    sectors?: {rect: {left: number; top: number; right: number; bottom: number}; items: ReadonlyArray<LayoutDropSector>; active: LayoutDropSectorId | null} | null;
+    /** 每块写的字。 */
+    sectorLabels?: Partial<Record<LayoutDropSectorId, string>>;
     /** 动作种类，写到覆盖层根的 data-drop-kind，供探针读。 */
     kind: string;
 };

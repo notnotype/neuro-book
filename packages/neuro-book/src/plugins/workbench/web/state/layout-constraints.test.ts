@@ -3,11 +3,11 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {barRef, GRID_SNAPSHOT_VERSION, panelRef, setPanelHidden} from "@notnotype/nb-layout";
+import {barRef, GRID_SNAPSHOT_VERSION, layoutDropSectors, panelRef, resolveLayoutDrop, setPanelHidden} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutEdge, PanelName, PanelRecord} from "@notnotype/nb-layout";
 
 import {defaultLayoutDoc} from "./default-tree";
-import {layoutAccepts, layoutEdgeTarget, panelConstraints, toolPanelAxis} from "./layout-constraints";
+import {createLayoutPolicy, layoutAccepts, layoutEdgeTarget, panelConstraints, toolPanelAxis} from "./layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 
 const VIEW = (over: object = {}) => ({title: {"zh-CN": "甲", "en-US": "A"}, icon: "i", location: "sidebar" as const, layout: "scroll" as const, ...over});
@@ -114,4 +114,54 @@ describe("哪条边是落点（输出 25、26）", () => {
         expect(toolPanelAxis(doc, "x")).toBe("vertical");
         expect(toolPanelAxis(doc, "y")).toBe("horizontal");
     });
+});
+
+describe("落点分区与判定一致（docs/specs/ui/workbench-layout.md“落点分区”）：工作台的策略、默认树", () => {
+    const inPolygon = (points: ReadonlyArray<readonly [number, number]>, x: number, y: number): boolean => {
+        let inside = false;
+        for (let at = 0, previous = points.length - 1; at < points.length; previous = at, at += 1) {
+            const [xi, yi] = points[at] as readonly [number, number];
+            const [xj, yj] = points[previous] as readonly [number, number];
+            if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+    };
+    const CATALOG: ViewCatalog = new Map([["a", VIEW()], ["b", VIEW({location: "auxiliarybar"})], ["c", VIEW({location: "panel"})]]);
+    const editorTab = {kind: "tab" as const, type: "nbook.editor", tabId: "t"};
+
+    /** 默认树，编辑组里有两个标签；每块面板一块 200×120 的正文，彼此隔开，指针扫到谁就是谁。 */
+    function scene(): {readonly doc: LayoutDoc; readonly panels: ReadonlyArray<{readonly id: string; readonly strip: null; readonly body: {readonly left: number; readonly top: number; readonly right: number; readonly bottom: number}}>} {
+        const base = defaultLayoutDoc(CATALOG);
+        const editor = Object.entries(base.panels).find(([, panel]) => panel.role === "editor")?.[0] ?? "";
+        const doc: LayoutDoc = {...base, panels: {...base.panels, [editor]: {...(base.panels[editor] as PanelRecord), tabs: [editorTab, {...editorTab, tabId: "u"}], active: "tab:t"}}};
+        return {doc, panels: Object.keys(doc.panels).map((id, index) => ({id, strip: null, body: {left: index * 1000, top: 0, right: index * 1000 + 200, bottom: 120}}))};
+    }
+
+    for (const [name, source, expected] of [
+        ["工具视图", {kind: "tab" as const, tab: "view:a"}, {sidebar: ["bottom", "center", "top"], auxiliarybar: ["bottom", "center", "top"], panel: ["center", "left", "right"]}],
+        ["编辑器标签", {kind: "tab" as const, tab: "tab:u"}, {g0: ["bottom", "center", "left", "right", "top"]}],
+    ] as const) {
+        it(`${name}：每块面板的分区符合骨架，整数网格上判定就是点所在那一块`, () => {
+            const {doc, panels} = scene();
+            const policy = createLayoutPolicy();
+            const base = {doc, source, panels, policy};
+            const seen: Record<string, ReadonlyArray<string>> = {};
+            for (const panel of panels) {
+                const sectors = layoutDropSectors({...base, point: {x: 0, y: 0}}, panel);
+                if (sectors === null) continue;
+                seen[panel.id] = sectors.map((sector) => sector.id).sort();
+                for (let y = 0; y < 120; y += 3) {
+                    for (let x = 0; x < 200; x += 3) {
+                        const [rx, ry] = [(x + 0.5) / 200, (y + 0.5) / 120];
+                        // 对角线上两块都对：避开。
+                        if (Math.abs(rx - ry) < 0.01 || Math.abs(rx + ry - 1) < 0.01) continue;
+                        const owners = sectors.filter((sector) => inPolygon(sector.points, rx, ry));
+                        expect(owners).toHaveLength(1);
+                        expect(resolveLayoutDrop({...base, point: {x: panel.body.left + x + 0.5, y: y + 0.5}})).toEqual(owners[0]?.action ?? null);
+                    }
+                }
+            }
+            expect(seen).toEqual(expected);
+        });
+    }
 });

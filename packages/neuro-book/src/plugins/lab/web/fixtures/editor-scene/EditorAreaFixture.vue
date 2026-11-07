@@ -214,6 +214,7 @@ onMounted(() => {
         enabled: () => true,
         editorTabs: () => tabDrag.value,
         titleOnly: () => false,
+        sectors: () => true,
         commit: (source, action, part, keyboard) => {
             const tabId = editorTabIdOf(source.tab);
             if (tabId !== null) tabDrag.value?.drop(tabId, action, part, keyboard);
@@ -259,7 +260,7 @@ onBeforeUnmount(() => {
             </template>
         </WorkbenchSurface>
         <EditorHost :area="area" :wrap-tabs="props.input?.props?.wrapTabs !== false" :attach-tab-drag="(next: EditorTabDrag | null) => (tabDrag = next)" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropPreview" label="" :kind="dragState?.drop?.action.kind ?? ''" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropPreview" label="" :kind="dragState?.drop?.action.kind ?? ''" :sectors="dragState?.drop?.sectors ?? null" />
     </div>
     <LabFixtureControls>
         <div class="flex flex-wrap items-center gap-3 text-xs" data-lab-editor-controls>

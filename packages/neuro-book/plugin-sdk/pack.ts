@@ -283,7 +283,7 @@ const DESIGN_GROUPS: ReadonlyArray<TokenGroup> = [
     {title: "面与线的角色：控件、面板、浮层取哪个颜色", pattern: /-(?:surface|outline)$|^--overlay-|^--divider$/u},
     {title: "动效", pattern: /^--(?:motion|ease)-/u},
     {title: "滚动条", pattern: /^--scrollbar-/u},
-    {title: "拖动与落点的反馈", pattern: /^--(?:sash-|drop-area-)/u},
+    {title: "拖动与落点的反馈", pattern: /^--(?:sash-|drop-area-|layout-)/u},
 ];
 
 /** 一份样式表里声明的自定义属性与它第一次出现时的值（`prefers-reduced-motion` 里的重声明不算）。 */

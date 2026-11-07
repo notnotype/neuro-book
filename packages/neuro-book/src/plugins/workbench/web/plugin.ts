@@ -35,7 +35,7 @@ import {PANE_FOCUS_COMMAND_DECLARATIONS, paneFocusCommands} from "./commands/pan
 import type {PaneFocusMover} from "./commands/pane-focus-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
-import {appearanceSetting, editorPanelsKey, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import {appearanceSetting, dropSectorsSetting, editorPanelsKey, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import type {EditorPanelsService, EditorSaveGate, NotificationInput} from "../shared/contracts";
 import {createEditorPanels} from "../shared/editor-panels";
 import {themeScenesPoint, themesPoint, WORKBENCH_THEME_SCENES_POINT, WORKBENCH_THEMES_POINT} from "../shared/themes";
@@ -262,7 +262,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 shell: {load: async () => {
                     layout.acquire();
                     return (await import("./components/WorkbenchShell.vue")).default;
-                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, attachPaneFocus: (move: PaneFocusMover) => {
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, dropSectors: settings.get(dropSectorsSetting), attachPaneFocus: (move: PaneFocusMover) => {
                     movePaneFocus = move;
                     return () => {
                         // 只清自己：外壳重挂的先后可能反过来，不把新外壳交的清掉。

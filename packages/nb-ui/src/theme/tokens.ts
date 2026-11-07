@@ -46,7 +46,7 @@ export const nbRadiusTokens = ["--radius-control", "--radius-panel", "--radius-m
 export const nbElevationTokens = ["--elevation-flat", "--elevation-popover", "--elevation-menu", "--elevation-dialog"] as const;
 
 /** 动效：prefers-reduced-motion 时时长全部降为 0 */
-export const nbMotionTokens = ["--motion-fast", "--motion-base", "--motion-enter", "--motion-reveal-in", "--motion-reveal-hold", "--motion-reveal-out", "--ease-standard"] as const;
+export const nbMotionTokens = ["--motion-fast", "--motion-base", "--motion-enter", "--motion-reveal-in", "--motion-reveal-hold", "--motion-reveal-out", "--ease-standard", "--motion-layout", "--ease-layout"] as const;
 
 /** 滚动条：自绘滑块与原生细滚动条共用的颜色（三档）与自绘滑块的粗细 */
 export const nbScrollbarTokens = ["--scrollbar-thumb-mix", "--scrollbar-thumb-hover-mix", "--scrollbar-thumb-active-mix", "--scrollbar-w"] as const;
@@ -128,6 +128,12 @@ export const nbThemeFeedbackTokens = [
     "--sash-line-glow",
     "--drop-area-fill",
     "--drop-area-border",
+    "--layout-scrim",
+    "--layout-sector-fill",
+    "--layout-sector-line",
+    "--layout-sector-active-fill",
+    "--layout-sector-active-line",
+    "--layout-sector-radius",
 ] as const;
 /** 主题层基线的合集 */
 export const nbThemeTokens = [...nbThemeMetricTokens, ...nbThemeDecorTokens, ...nbThemeRoleTokens, ...nbThemeFeedbackTokens] as const;

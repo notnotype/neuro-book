@@ -10,7 +10,7 @@
  * - 编辑器标签在编辑组之间的拖动（固定分区、多行、合并同一标签）：`editor-area.e2e.ts`，这个外壳的编辑器是样例，没有标签。
  */
 
-import {mkdir, rm} from "node:fs/promises";
+import {mkdir, rm, writeFile} from "node:fs/promises";
 import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
@@ -969,5 +969,103 @@ test.describe("产品页：拖放", () => {
         await page.keyboard.press("Escape");
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
+    });
+
+    test.describe("落点分区（docs/specs/ui/workbench-layout.md“落点分区”）", () => {
+        const sectors = (page: Page) => page.locator("[data-drop-sectors]");
+        const sectorIds = (page: Page): Promise<Array<string | null>> => page.locator("[data-drop-sector]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-drop-sector")).sort());
+        const activeSector = (page: Page) => page.locator("[data-drop-sector-active]");
+        const panelOfRole = (page: Page, viewId: string) => panelOfTab(page, viewId);
+
+        test("工具视图：列上只有上下中、排上只有左右中；当前块跟着指针，它自己不写字；松手不留", async ({page}) => {
+            await open(page);
+            const source = tab(page, E);
+            const from = await panelOfRole(page, E);
+            const column = from === "auxiliarybar" ? "sidebar" : "auxiliarybar";
+            await page.locator("[data-workbench-shell]").waitFor();
+            await dragTo(page, source, await inLeaf(page, column, {x: 0.5, y: 0.97}));
+            await expect(sectors(page)).toHaveCount(1);
+            expect(await sectorIds(page)).toEqual(["bottom", "center", "top"]);
+            await expect(activeSector(page)).toHaveAttribute("data-drop-sector", "bottom");
+            await expect(page.locator("[data-drop-sector-label=\"bottom\"]")).toHaveCount(0);
+            await expect(page.locator("[data-drop-sector-label=\"top\"]")).toHaveCount(1);
+            // 提示还在说这次落点：分区的字只有方向。
+            await expect(label(page)).not.toHaveCount(0);
+
+            const middle = await inLeaf(page, column, {x: 0.5, y: 0.5});
+            await page.mouse.move(middle.x, middle.y, {steps: 3});
+            await expect(activeSector(page)).toHaveAttribute("data-drop-sector", "center");
+            await page.keyboard.press("Escape");
+            await page.mouse.up();
+            await expect(ghost(page)).toHaveCount(0);
+            await expect(sectors(page)).toHaveCount(0);
+
+            await dragTo(page, source, await inLeaf(page, "panel", {x: 0.97, y: 0.6}));
+            await expect(sectors(page)).toHaveCount(1);
+            expect(await sectorIds(page)).toEqual(["center", "left", "right"]);
+            await expect(activeSector(page)).toHaveAttribute("data-drop-sector", "right");
+            await page.keyboard.press("Escape");
+            await page.mouse.up();
+            await expect(sectors(page)).toHaveCount(0);
+        });
+
+        test("编辑组不接收工具视图、标签条上：没有分区；只有标题的侧栏头算中央", async ({page}) => {
+            await open(page);
+            const source = tab(page, E);
+            await dragTo(page, source, await inLeaf(page, "g0", {x: 0.5, y: 0.5}));
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            await expect(sectors(page)).toHaveCount(0);
+            const strip = await endOfStrip(page, "panel");
+            await page.mouse.move(strip.x, strip.y, {steps: 3});
+            await expect(feedback(page)).toHaveAttribute("data-drop-kind", /strip|noop/u);
+            await expect(sectors(page)).toHaveCount(0);
+            const title = await centerOf(head(page, "sidebar"));
+            await page.mouse.move(title.x, title.y, {steps: 3});
+            await expect(feedback(page)).toHaveAttribute("data-drop-kind", /center|noop/u);
+            await expect(activeSector(page)).toHaveAttribute("data-drop-sector", "center");
+            await page.keyboard.press("Escape");
+            await page.mouse.up();
+            await expect(ghost(page)).toHaveCount(0);
+        });
+
+        test("键盘：停在正文的落点上有分区，标签条的停靠点上没有；Escape 后不留", async ({page}) => {
+            await open(page);
+            await tab(page, E).focus();
+            await page.keyboard.press("Space");
+            await expect(ghost(page)).toBeVisible();
+            let seen = false;
+            for (let step = 0; step < 12 && !seen; step += 1) {
+                await page.keyboard.press("ArrowDown");
+                const kind = await page.evaluate(async () => {
+                    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                    return document.querySelector("[data-drop-kind]")?.getAttribute("data-drop-kind") ?? "";
+                });
+                seen = kind === "edge" || kind === "center";
+                if (kind === "strip" || kind === "reveal") await expect(sectors(page)).toHaveCount(0);
+            }
+            expect(seen).toBe(true);
+            await expect(sectors(page)).toHaveCount(1);
+            await expect(activeSector(page)).toHaveCount(1);
+            await page.keyboard.press("Escape");
+            await expect(ghost(page)).toHaveCount(0);
+            await expect(sectors(page)).toHaveCount(0);
+        });
+
+        test("设置关掉：没有分区，落点照旧", async ({page}) => {
+            const settingsFile = join(tmp, "state", "settings.json");
+            await writeFile(settingsFile, JSON.stringify({"nbook.workbench/dropSectors": false}));
+            try {
+                await open(page);
+                await dragTo(page, tab(page, E), await inLeaf(page, "panel", {x: 0.5, y: 0.6}));
+                await expect(feedback(page)).not.toHaveAttribute("data-drop-kind", "");
+                await expect(area(page)).toHaveCount(1);
+                await expect(sectors(page)).toHaveCount(0);
+                await page.keyboard.press("Escape");
+                await page.mouse.up();
+                await expect(ghost(page)).toHaveCount(0);
+            } finally {
+                await rm(settingsFile, {force: true});
+            }
+        });
     });
 });

@@ -1,8 +1,8 @@
 import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
-import {applyLayoutDrop, enumerateDropCandidates, previewEdgeDrop, previewRevealRects, resolveLayoutDrop} from "./layout-drop";
-import type {LayoutDropInput, LayoutDropPanelGeometry} from "./layout-drop";
+import {applyLayoutDrop, enumerateDropCandidates, layoutDropPanelAt, layoutDropSectors, previewEdgeDrop, previewRevealRects, resolveLayoutDrop} from "./layout-drop";
+import type {LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId} from "./layout-drop";
 import {edgeTargetOf} from "./layout-doc";
 import type {LayoutDoc, LayoutPolicy, LayoutSource} from "./layout-doc";
 import type {LayoutProjectionOptions} from "./layout-project";
@@ -26,6 +26,7 @@ function drop(doc: LayoutDoc, source: LayoutSource, x: number, y: number, overri
 const THREE = () => docOf(H(["a", "b", "ec"], "root"), {a: {tabs: [view("a"), view("x")], active: "view:a"}});
 const VIEW: LayoutSource = {kind: "tab", tab: "view:x"};
 const EDITOR_TAB: LayoutSource = {kind: "tab", tab: "tab:ec"};
+const EDITOR_FROM_ELSEWHERE: LayoutSource = {kind: "tab", tab: "tab:e9"};
 
 describe("有序规则", () => {
     it("标签条是插入位，由标签条自己量", () => {
@@ -232,5 +233,91 @@ describe("键盘的落点（输出 31）", () => {
         const candidates = enumerateDropCandidates({doc, source: {kind: "tab", tab: "tab:q"}, policy: testPolicy(), stripIndexes: () => [0, 1]});
         expect(candidates.some((candidate) => candidate.action.kind === "strip" && candidate.action.panel === "a")).toBe(false);
         expect(candidates.some((candidate) => candidate.action.kind === "edge")).toBe(true);
+    });
+});
+
+describe("落点分区：形状与判定一致（输出“落点分区”）", () => {
+    const inPolygon = (points: ReadonlyArray<readonly [number, number]>, x: number, y: number): boolean => {
+        let inside = false;
+        for (let at = 0, previous = points.length - 1; at < points.length; previous = at, at += 1) {
+            const [xi, yi] = points[at] as readonly [number, number];
+            const [xj, yj] = points[previous] as readonly [number, number];
+            if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+    };
+    /** 固定种子的随机数：失败时能重现。 */
+    const seeded = (seed: number): (() => number) => {
+        let state = seed;
+        return () => {
+            state = (state * 1664525 + 1013904223) % 4294967296;
+            return state / 4294967296;
+        };
+    };
+    const onlyEdges = (allowed: ReadonlyArray<string>): Pick<LayoutPolicy, "edgeTarget"> => ({edgeTarget: (doc, _tabs, panel, edge) => (allowed.includes(edge) ? edgeTargetOf(doc, panel, edge) : null)});
+    const noCenter: Pick<LayoutPolicy, "accepts"> = {accepts: (_tabs, _target, region) => region === "edge"};
+
+    const CASES: ReadonlyArray<{readonly name: string; readonly policy: LayoutPolicy; readonly ids: ReadonlyArray<LayoutDropSectorId>}> = [
+        {name: "五块", policy: testPolicy(), ids: ["left", "right", "top", "bottom", "center"]},
+        {name: "只有上下", policy: testPolicy(onlyEdges(["top", "bottom"])), ids: ["top", "bottom", "center"]},
+        {name: "只有左右", policy: testPolicy(onlyEdges(["left", "right"])), ids: ["left", "right", "center"]},
+        {name: "相邻两条边", policy: testPolicy(onlyEdges(["left", "top"])), ids: ["left", "top", "center"]},
+        {name: "不接受中央", policy: testPolicy(noCenter), ids: ["left", "right", "top", "bottom"]},
+    ];
+
+    for (const {name, policy, ids} of CASES) {
+        it(`${name}：随机点上，判定给的动作就是点所在那一块的动作`, () => {
+            const doc = THREE();
+            const panel = GEOMETRY[1] as LayoutDropPanelGeometry;
+            const input = {doc, source: VIEW, point: {x: 0, y: 0}, panels: GEOMETRY, policy};
+            const sectors = layoutDropSectors(input, panel);
+            expect(sectors?.map((sector) => sector.id).sort()).toEqual([...ids].sort());
+            const random = seeded(17);
+            const {left, top, right, bottom} = panel.body;
+            for (let round = 0; round < 2000; round += 1) {
+                const [rx, ry] = [random(), random()];
+                // 对角线上两块都对，算哪块由排序定：避开。
+                if (Math.abs(rx - ry) < 1e-3 || Math.abs(rx + ry - 1) < 1e-3) continue;
+                const point = {x: left + rx * (right - left), y: top + ry * (bottom - top)};
+                const owners = (sectors ?? []).filter((sector) => inPolygon(sector.points, rx, ry));
+                expect(owners.length).toBeLessThanOrEqual(1);
+                expect(resolveLayoutDrop({...input, point})).toEqual(owners[0]?.action ?? null);
+            }
+        });
+    }
+
+    it("空面板整块是中央；进不了中央的按外缘", () => {
+        const doc = docOf(H(["a", "e1"], "root"), {e1: {tabs: []}});
+        const empty: LayoutDropPanelGeometry = {id: "e1", strip: null, body: rect(0, 0, 100, 100)};
+        const base = {doc, point: {x: 0, y: 0}, panels: [empty], policy: testPolicy()};
+        expect(layoutDropSectors({...base, source: EDITOR_FROM_ELSEWHERE}, empty)?.map((sector) => sector.id)).toEqual(["center"]);
+        expect(layoutDropSectors({...base, source: {kind: "tab", tab: "view:a"}}, empty)?.map((sector) => sector.id).sort()).toEqual(["bottom", "left", "right", "top"]);
+    });
+
+    it("正文零面积（收成标题行）：没有分区，指针也不算到外缘", () => {
+        const collapsed: LayoutDropPanelGeometry = {id: "b", strip: rect(301, 0, 600, 30), body: rect(301, 30, 600, 30)};
+        const input = {doc: THREE(), source: VIEW, point: {x: 450, y: 31}, panels: [collapsed], policy: testPolicy()};
+        expect(layoutDropSectors(input, collapsed)).toBeNull();
+        expect(resolveLayoutDrop(input)).not.toMatchObject({kind: "edge"});
+    });
+
+    it("什么都放不进去：没有分区", () => {
+        const none = testPolicy({accepts: () => false});
+        const input = {doc: THREE(), source: VIEW, point: {x: 0, y: 0}, panels: GEOMETRY, policy: none};
+        expect(layoutDropSectors(input, GEOMETRY[1] as LayoutDropPanelGeometry)).toBeNull();
+    });
+
+    it("指针算哪块面板：缝归最近能接收的，标题栏与面板外没有", () => {
+        const input = {doc: THREE(), source: VIEW, panels: GEOMETRY, policy: testPolicy()};
+        expect(layoutDropPanelAt({...input, point: {x: 450, y: 300}})?.id).toBe("b");
+        expect(layoutDropPanelAt({...input, point: {x: 450, y: 10}})?.id).toBe("b");
+        expect(layoutDropPanelAt({...input, point: {x: 2000, y: 300}})).toBeNull();
+        expect(layoutDropPanelAt({...input, point: {x: 450, y: 300}, excluded: [rect(400, 200, 500, 400)]})).toBeNull();
+    });
+
+    it("键盘：接受中央的空面板只有中央一个停靠点", () => {
+        const doc = docOf(H(["a", "e1", "e2"], "root"), {e1: {tabs: []}});
+        const candidates = enumerateDropCandidates({doc, source: {kind: "tab", tab: "tab:e2"}, policy: testPolicy(), stripIndexes: () => []});
+        expect(candidates.filter((candidate) => candidate.region === "e1").map((candidate) => candidate.action.kind)).toEqual(["center"]);
     });
 });

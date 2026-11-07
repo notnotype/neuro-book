@@ -148,6 +148,21 @@ export const themeSetting = defineSetting({
     choices: {from: THEME_CHOICES_PROVIDER},
 });
 
+/**
+ * 拖动时把落点分区画出来（docs/specs/ui/workbench-layout.md“落点分区”）。只有用户层：这是个人的操作习惯，项目文件不该替人改。
+ */
+export const dropSectorsSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "dropSectors",
+    schema: Type.Boolean(),
+    default: true,
+    description: workbenchText("settings.dropSectors.description"),
+    layers: ["user"],
+    section: "nbook.appearance",
+    group: "ui",
+    order: 30,
+});
+
 /** 明暗；`system` 跟随系统，配色取主题包的 `defaultColorway[明暗]`。 */
 export const appearanceSetting = defineSetting({
     plugin: "nbook.workbench",

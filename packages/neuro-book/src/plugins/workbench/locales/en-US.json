@@ -4,6 +4,10 @@
             "title": "Theme",
             "description": "Shape, typography and colors of the interface"
         },
+        "dropSectors": {
+            "title": "Drop sectors",
+            "description": "When dragging a view or tab over a panel, show the places it can go"
+        },
         "appearance": {
             "title": "Appearance",
             "choices": {
@@ -190,6 +194,12 @@
             "hint": "Press Space to pick up and drag"
         },
         "drop": {
+            "sector": {
+                "left": "Left",
+                "right": "Right",
+                "top": "Top",
+                "bottom": "Bottom"
+            },
             "reveal": "Show in {{part}}",
             "addTab": "Add as a tab",
             "insert": "Place here",

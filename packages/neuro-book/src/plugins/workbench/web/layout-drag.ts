@@ -9,8 +9,8 @@
  * 判定是纯读：预览用提交时的同一个函数（`applyLayoutDrop`）算，放回原处的落点只显示、不提交。结构键变了整场取消（输出 32），放下时提交再验一次接受矩阵（领域操作自己验）。
  */
 
-import {applyLayoutDrop, enumerateDropCandidates, findTab, previewEdgeDrop, previewRevealRects, resolveLayoutDrop, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridDropPoint, GridDropRect, GridExtent, GridOrientation, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropPanelGeometry, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
+import {applyLayoutDrop, enumerateDropCandidates, findTab, layoutDropPanelAt, layoutDropSectors, previewEdgeDrop, previewRevealRects, resolveLayoutDrop, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import type {GridDropPoint, GridDropRect, GridExtent, GridOrientation, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
 import {createDragSession, resolveTabStripInsertion, tabStripStops} from "@notnotype/nb-layout/vue";
 import type {DragSession} from "@notnotype/nb-layout/vue";
 
@@ -31,6 +31,15 @@ export interface LayoutDropPreview {
     readonly orientation: GridOrientation;
 }
 
+/** 这一刻要画的落点分区（docs/specs/ui/workbench-layout.md“落点分区”）。 */
+export interface LayoutDragSectors {
+    /** 这块面板正文的矩形（视口坐标）。 */
+    readonly rect: GridDropRect;
+    readonly items: ReadonlyArray<LayoutDropSector>;
+    /** 这次落点是哪块；落点不是这块面板的分区时为 null。 */
+    readonly active: LayoutDropSectorId | null;
+}
+
 export interface LayoutDragDrop {
     readonly action: LayoutDropAction;
     /** 编辑组标签条的分区（`EditorTabInsertion.part`）。 */
@@ -38,6 +47,8 @@ export interface LayoutDragDrop {
     /** 放下去和现在一样（输出 28）：只显示“原位”，不提交。 */
     readonly inPlace: boolean;
     readonly preview: LayoutDropPreview;
+    /** 没有分区（标签条、预备区、活动栏上，或设置关了）时不写。 */
+    readonly sectors?: LayoutDragSectors;
 }
 
 export interface LayoutRevealZone {
@@ -60,6 +71,8 @@ export interface LayoutDragOptions {
     editorTabs(): EditorTabDrag | null;
     /** 这块面板的头只写标题，没有插入位（输出 20）。 */
     titleOnly(panel: string): boolean;
+    /** 要不要算落点分区（设置 `nbook.workbench/dropSectors`）。 */
+    sectors(): boolean;
     commit(source: LayoutTabSource, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
 }
 
@@ -254,22 +267,33 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         // 键盘的区域是明确选的，不按坐标判预备区：编辑组的外缘候选就在预备区底下。
         const zones = region === null ? frozenZones.map((zone) => ({panel: zone.panel, rect: zone.rect})) : [];
         // 键盘停在预备区上就是它：预备区可能叠在真实落点上，按坐标会落到下面去。
+        const input: LayoutDropInput = {doc, source, point, panels, excluded: excludedRects(), zones, policy: options.policy()};
         const resolved = region?.id.startsWith("reveal:") === true
             ? ({kind: "reveal", panel: region.id.slice("reveal:".length)} as const)
-            : resolveLayoutDrop({doc, source, point, panels, excluded: excludedRects(), zones, policy: options.policy()});
+            : resolveLayoutDrop(input);
         if (resolved === null) return null;
         if (resolved.kind === "strip" && !options.titleOnly(resolved.panel)) return stripDrop(doc, source, resolved.panel, point);
         // 头只写标题的面板没有插入位：落在标题上就是添加为标签。
         const action = resolved.kind === "strip" ? ({kind: "center", panel: resolved.panel} as const) : resolved;
         const key = JSON.stringify([source, action, options.extent()]);
         const cached = previews.get(key);
-        if (cached !== undefined) return cached;
+        if (cached !== undefined) return withSectors(cached, input);
         const result = applyLayoutDrop(doc, source, action, options.policy());
         if (!result.ok) return null;
         const inPlace = result.doc === doc;
         const drop = {action, inPlace, preview: previewOf(doc, source, action, inPlace, panels)};
         previews.set(key, drop);
-        return drop;
+        return withSectors(drop, input);
+    }
+
+    /** 分区不进预览缓存：缓存按动作存，同一个“放到两块之间”可以从两块面板进来，画的是指针所在的那块。 */
+    function withSectors(drop: LayoutDragDrop, input: LayoutDropInput): LayoutDragDrop {
+        if (!options.sectors() || drop.action.kind === "reveal") return drop;
+        const panel = layoutDropPanelAt(input);
+        const items = panel === null ? null : layoutDropSectors(input, panel);
+        if (panel === null || items === null) return drop;
+        const wanted = JSON.stringify(drop.action);
+        return {...drop, sectors: {rect: panel.body, items, active: items.find((item) => JSON.stringify(item.action) === wanted)?.id ?? null}};
     }
 
     /** 这个落点放回 `dropAt` 能算出它的那个点（键盘用）。 */

@@ -1968,3 +1968,37 @@ test.describe("每个标签一个控件（docs/specs/workbench/editor.md 术语�
         await closeAll(page);
     });
 });
+
+test("落点分区（docs/specs/ui/workbench-layout.md“落点分区”）：编辑器标签经过编辑组正文画五块，靠右时右块是当前块；标签条上没有；工具面板不接收，也没有", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
+    const group = page.locator("[data-editor-group-active]");
+    const body = await group.locator("[data-editor-content]").boundingBox();
+    const strip = await page.locator("[data-editor-group-head-active] [data-editor-tabs]").boundingBox();
+    const sidebar = await page.locator("[data-leaf=\"sidebar\"]").boundingBox();
+    if (body === null || strip === null || sidebar === null) throw new Error("没有正文区、标签条或侧栏");
+    const sectors = page.locator("[data-drop-sectors]");
+    await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: body.x + body.width - 10, y: body.y + body.height / 2}, async () => {
+        await expect(sectors).toHaveCount(1);
+        await expect(sectors.locator("[data-drop-sector]")).toHaveCount(5);
+        await expect(sectors.locator("[data-drop-sector-active]")).toHaveAttribute("data-drop-sector", "right");
+        // 画在这一组的正文上：头在外框里，不算。
+        const [rect, content] = [await sectors.boundingBox(), await group.boundingBox()];
+        expect(rect?.x).toBeCloseTo(content?.x ?? 0, 0);
+        expect(rect?.y).toBeCloseTo(content?.y ?? 0, 0);
+        await page.keyboard.press("Escape");
+    });
+    await expect(sectors).toHaveCount(0);
+    await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: strip.x + strip.width - 40, y: strip.y + 17}, async () => {
+        await expect(page.locator("[data-drop-kind=\"strip\"], [data-drop-kind=\"noop\"]")).toHaveCount(1);
+        await expect(sectors).toHaveCount(0);
+    });
+    await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height / 2}, async () => {
+        await noDropShown(page);
+        await expect(sectors).toHaveCount(0);
+        await page.keyboard.press("Escape");
+    });
+    await closeAll(page);
+});

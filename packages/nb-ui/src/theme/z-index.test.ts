@@ -19,6 +19,10 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe("层级登记表", () => {
+    it("落点分区在落点提示之下", () => {
+        expect(NB_Z_INDEX.dropSectors).toBeLessThan(NB_Z_INDEX.dropFeedback);
+    });
+
     it("各档从低到高：页面浮层 < 拖影 < 浮动窗口各层（含自己的浮层） < 模态各层 < 模态里的浮层 < 通知 < 右键菜单 < 命令面板 < 检查框", () => {
         /** 最上面一条车道里第 5 层嵌套的窗口。 */
         const highestWindowLane = NB_Z_INDEX.dialogWindow + (NB_DIALOG_WINDOW_MAX_LANES - 1) * NB_DIALOG_WINDOW_LANE + 4 * NB_DIALOG_WINDOW_Z_STEP;

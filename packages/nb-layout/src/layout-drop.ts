@@ -82,9 +82,13 @@ function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometr
 
 const edgeTargetFor = (policy: LayoutPolicy, doc: LayoutDoc, tabs: ReadonlyArray<TabRef>, panel: string, edge: LayoutEdge): LayoutEdgeTarget | null => (policy.edgeTarget === undefined ? edgeTargetOf(doc, panel, edge) : policy.edgeTarget(doc, tabs, panel, edge));
 
-/** 指针落在哪条边的窄带里：四角归最近的边；策略不给的边没有窄带，那一块算中央。 */
+const hasArea = (rect: GridDropRect): boolean => rect.right > rect.left && rect.bottom > rect.top;
+
+/** 指针落在哪条边的窄带里：四角归最近的边；策略不给的边没有窄带，那一块算中央。形状画在 `layoutDropSectors` 里，两边要一起改。 */
 function nearestEdge(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, tabs: ReadonlyArray<TabRef>, point: GridDropPoint): LayoutEdgeTarget | null {
     const {body} = geometry;
+    // 收成标题行的面板正文是零面积：算比例会除零。
+    if (!hasArea(body)) return null;
     const ratio = input.edgeRatio ?? LAYOUT_EDGE_RATIO;
     const relativeX = (point.x - body.left) / (body.right - body.left);
     const relativeY = (point.y - body.top) / (body.bottom - body.top);
@@ -97,22 +101,29 @@ function nearestEdge(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, 
     return null;
 }
 
-/** 这一刻指针落在哪；`null` 是没有落点（工作台外、标题栏、条、被接受矩阵拒绝）。 */
-export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | null {
-    const tabs = sourceTabs(input.doc, input.source);
-    if (tabs.length === 0 && input.source.kind === "tab") return null;
+/** 这一刻指针算哪块面板，含标签条与缝；条、标题栏与面板之外是 null。 */
+export function layoutDropPanelAt(input: LayoutDropInput): LayoutDropPanelGeometry | null {
     if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
+    const tabs = sourceTabs(input.doc, input.source);
     const accepted = (geometry: LayoutDropPanelGeometry): boolean => {
         const panel = input.doc.panels[geometry.id];
         return panel !== undefined && (["strip", "center", "edge"] as const).some((region) => input.policy.accepts(tabs, panel, region));
     };
     const inside = input.panels.find((geometry) => contains(geometry.body, input.point) || (geometry.strip !== null && contains(geometry.strip, input.point)));
     // 缝不是落点：归最近的能接收的那块，按它继续判。不看接收的话，两块之间的缝有一半是死区。
-    const hit = inside ?? [...input.panels]
+    return inside ?? [...input.panels]
         .filter(accepted)
         .map((geometry) => ({geometry, distance: Math.min(distanceTo(geometry.body, input.point), geometry.strip === null ? Number.POSITIVE_INFINITY : distanceTo(geometry.strip, input.point))}))
         .filter(({distance}) => distance <= SEAM_PX)
-        .sort((left, right) => left.distance - right.distance)[0]?.geometry;
+        .sort((left, right) => left.distance - right.distance)[0]?.geometry ?? null;
+}
+
+/** 这一刻指针落在哪；`null` 是没有落点（工作台外、标题栏、条、被接受矩阵拒绝）。 */
+export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | null {
+    const tabs = sourceTabs(input.doc, input.source);
+    if (tabs.length === 0 && input.source.kind === "tab") return null;
+    if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
+    const hit = layoutDropPanelAt(input) ?? undefined;
     const panel = hit === undefined ? undefined : input.doc.panels[hit.id];
     const action = hit === undefined || panel === undefined ? null : resolveInPanel(input, hit, panel, tabs);
     if (action !== null) return action;
@@ -120,6 +131,51 @@ export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | nu
     const zone = input.zones?.find((candidate) => contains(candidate.rect, input.point));
     const target = zone === undefined ? undefined : input.doc.panels[zone.panel];
     return zone !== undefined && target !== undefined && input.policy.accepts(tabs, target, "center") ? {kind: "reveal", panel: zone.panel} : null;
+}
+
+export type LayoutDropSectorId = LayoutEdge | "center";
+
+/** 落点分区的一块（docs/specs/ui/workbench-layout.md“落点分区”）：指针落在这个多边形里，`resolveLayoutDrop` 给的就是 `action`。 */
+export interface LayoutDropSector {
+    readonly id: LayoutDropSectorId;
+    /** 多边形的顶点，相对这块正文的比例（0 到 1）。 */
+    readonly points: ReadonlyArray<readonly [number, number]>;
+    readonly action: LayoutDropAction;
+}
+
+/**
+ * 这块面板正文上的分区；正文零面积或什么都放不进去时为 null。形状由 `nearestEdge` 的规则推出来：一条边的窄带是“离这条边的相对距离小于比例，且不比别的可用边
+ * 更远”，所以相邻的边也可用时这个角按对角线切，不可用时窄带占满这个角。比例相对正文的宽高，所以对角线在像素上是斜的。
+ */
+export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPanelGeometry): ReadonlyArray<LayoutDropSector> | null {
+    const panel = input.doc.panels[geometry.id];
+    if (panel === undefined || !hasArea(geometry.body)) return null;
+    const tabs = sourceTabs(input.doc, input.source);
+    const centerAction: LayoutDropAction = {kind: "center", panel: geometry.id};
+    const takesCenter = input.policy.accepts(tabs, panel, "center");
+    if (panel.tabs.length === 0 && takesCenter) return [{id: "center", points: [[0, 0], [1, 0], [1, 1], [0, 1]], action: centerAction}];
+    const targets = new Map<LayoutEdge, LayoutEdgeTarget>();
+    if (input.policy.accepts(tabs, panel, "edge")) {
+        for (const edge of ["left", "right", "top", "bottom"] as const) {
+            const target = edgeTargetFor(input.policy, input.doc, tabs, geometry.id, edge);
+            if (target !== null) targets.set(edge, target);
+        }
+    }
+    const near = input.edgeRatio ?? LAYOUT_EDGE_RATIO;
+    const far = 1 - near;
+    const [left, right, top, bottom] = [targets.has("left"), targets.has("right"), targets.has("top"), targets.has("bottom")];
+    const shapes: Readonly<Record<LayoutEdge, ReadonlyArray<readonly [number, number]>>> = {
+        left: [[0, 0], top ? [near, near] : [near, 0], bottom ? [near, far] : [near, 1], [0, 1]],
+        right: [[1, 0], top ? [far, near] : [far, 0], bottom ? [far, far] : [far, 1], [1, 1]],
+        top: [[0, 0], [1, 0], right ? [far, near] : [1, near], left ? [near, near] : [0, near]],
+        bottom: [[0, 1], [1, 1], right ? [far, far] : [1, far], left ? [near, far] : [0, far]],
+    };
+    const sectors: LayoutDropSector[] = [...targets].map(([edge, target]) => ({id: edge, points: shapes[edge], action: {kind: "edge", target}}));
+    if (takesCenter) {
+        const [x0, x1, y0, y1] = [left ? near : 0, right ? far : 1, top ? near : 0, bottom ? far : 1];
+        sectors.push({id: "center", points: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], action: centerAction});
+    }
+    return sectors.length === 0 ? null : sectors;
 }
 
 /** 提交落点。结果和现状一样时返回原文档对象（放回原处），宿主据此不提交。 */
@@ -235,7 +291,8 @@ export function enumerateDropCandidates(input: {
         if (panel === undefined || !isNodeShown(doc, leaf)) continue;
         if (policy.accepts(tabs, panel, "strip")) for (const index of input.stripIndexes(leaf.id)) add(leaf.id, {kind: "strip", panel: leaf.id, index});
         if (policy.accepts(tabs, panel, "center")) add(leaf.id, {kind: "center", panel: leaf.id});
-        if (policy.accepts(tabs, panel, "edge")) {
+        // 接受中央的空面板整块都是中央（`resolveInPanel`）：边上没有另外的落点。
+        if (policy.accepts(tabs, panel, "edge") && !(panel.tabs.length === 0 && policy.accepts(tabs, panel, "center"))) {
             for (const edge of ["left", "right", "top", "bottom"] as const) {
                 const target = edgeTargetFor(policy, doc, tabs, leaf.id, edge);
                 if (target !== null) add(leaf.id, {kind: "edge", target});

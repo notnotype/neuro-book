@@ -61,6 +61,8 @@ const props = defineProps<{
     /** 标题栏的菜单与搜索、两侧的条目；没有时标题栏只有品牌与项目名。 */
     chrome?: ShellChrome;
     project: string | null;
+    /** 拖动时画不画落点分区（设置 `nbook.workbench/dropSectors`）；缺省画。 */
+    dropSectors?: boolean;
 }>();
 
 const resolver = useText();
@@ -366,6 +368,7 @@ onMounted(() => {
         enabled: () => state.value.ready,
         editorTabs: () => editorTabs.value,
         titleOnly: (panel) => titleOnlyPanels.value.has(panel),
+        sectors: () => props.dropSectors !== false,
         commit: (source, action, part, keyboard) => {
             // 编辑器标签走编辑器区的动作：要先结算视图的输入、合并同一标签（`EditorTabDrag`）。
             const editorTab = editorTabIdOf(source.tab);
@@ -414,6 +417,14 @@ const dropFeedback = computed(() => {
     if (drop === null) return {preview: null, label: "", kind: ""};
     return {preview: {areaRect: drop.preview.areaRect, entryRect: null, indicator: drop.preview.indicator, orientation: drop.preview.orientation}, label: dropLabel(drop), kind: drop.inPlace ? "noop" : drop.action.kind};
 });
+
+const sectorLabels = computed(() => ({
+    left: message("shell.drop.sector.left"),
+    right: message("shell.drop.sector.right"),
+    top: message("shell.drop.sector.top"),
+    bottom: message("shell.drop.sector.bottom"),
+    center: message("shell.drop.addTab"),
+}));
 
 /** 呈现降级写在外壳根上（“失败与恢复”）：被收走的面板，压到编辑组时再加一条；记录不合骨架回落了也写一条。 */
 const diagnostics = computed(() => {
@@ -533,7 +544,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
         </div>
         <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="(next: EditorTabDrag | null) => (editorTabs = next)" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="dragState?.drop?.sectors ?? null" :sector-labels="sectorLabels" />
     </div>
 </template>
 

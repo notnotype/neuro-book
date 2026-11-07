@@ -8,7 +8,7 @@
  * 目录里的每个键都要在前两张表里、表里的每个键都要在目录里，值换成 `{{name}}` 后逐字相同。以后有意改文字时，同一次改动里
  * 在 `REVISED` 里登记。
  *
- * `ADDED` 是 w00026 t07 片 7a（工作台外壳换成一棵树）新增的键，迁移前没有字面量，中英文都是新写的。
+ * `ADDED` 是 w00026 t07 片 7a（工作台外壳换成一棵树）以来新增的键，迁移前没有字面量，中英文都是新写的。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -351,6 +351,12 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "shell.drop.between": {"zh-CN": "放到两块之间", "en-US": "Place between the two"},
     "shell.drop.split": {"zh-CN": "拆到这一边", "en-US": "Split to this side"},
     "shell.drop.inPlace": {"zh-CN": "原位", "en-US": "In place"},
+    "shell.drop.sector.left": {"zh-CN": "左侧", "en-US": "Left"},
+    "shell.drop.sector.right": {"zh-CN": "右侧", "en-US": "Right"},
+    "shell.drop.sector.top": {"zh-CN": "上方", "en-US": "Top"},
+    "shell.drop.sector.bottom": {"zh-CN": "下方", "en-US": "Bottom"},
+    "settings.dropSectors.title": {"zh-CN": "落点分区", "en-US": "Drop sectors"},
+    "settings.dropSectors.description": {"zh-CN": "拖动视图或标签到面板上时，画出上下左右中能放的位置", "en-US": "When dragging a view or tab over a panel, show the places it can go"},
     "shell.frame.hide": {"zh-CN": "隐藏", "en-US": "Hide"},
     "shell.editorUnavailable": {"zh-CN": "编辑器现在不可用：提供它的插件不在，标签都还在，它回来后恢复。", "en-US": "The editor is unavailable: the plugin providing it is not here. Your tabs are kept and come back when it returns."},
     "shell.missing.view": {"zh-CN": "提供这个视图的插件现在不在：{viewId}", "en-US": "The plugin providing this view is not here: {viewId}"},

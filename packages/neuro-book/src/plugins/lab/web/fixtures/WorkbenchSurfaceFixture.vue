@@ -245,7 +245,7 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
 
 /* 卡片主题的几个变量写在这里：看缝、圆角、相连，不依赖某个具体主题。 */
 .workbench-surface-fixture--cards .workbench-surface-fixture__stage {
-    --shell-gap: 8px;
+    --shell-gap: 4px;
     --shell-card-radius: 10px;
     --shell-card-shadow: 0 1px 4px rgb(0 0 0 / 0.2);
     --shell-seam: transparent;
