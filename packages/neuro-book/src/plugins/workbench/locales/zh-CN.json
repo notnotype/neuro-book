@@ -15,6 +15,17 @@
                 }
             }
         },
+        "dragCardShrink": {
+            "title": "拖动的卡片什么时候缩小",
+            "choices": {
+                "strip": {
+                    "title": "离开标签条就缩小"
+                },
+                "panel": {
+                    "title": "离开面板才缩小"
+                }
+            }
+        },
         "dropSplit": {
             "title": "拖到四周时",
             "choices": {

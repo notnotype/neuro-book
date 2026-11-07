@@ -2,7 +2,7 @@
  * 实时布局（docs/specs/ui/workbench-layout.md“实时布局”）在真实浏览器里：邻居真实让位、预览不写记录、松手提交指针下的候选、取消回原样。应用的 Playwright 配置缺省减少动态效果，那时一律落点指示，所以这里每个用例开回来。
  */
 
-import {mkdir, rm} from "node:fs/promises";
+import {mkdir, rm, writeFile} from "node:fs/promises";
 import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
@@ -199,43 +199,66 @@ test.describe("实时布局", () => {
         expect(await writesOf(page)).toBe(writes);
     });
 
-    test("离开标签条撕下一张卡片：内容是同一个节点、盖在分隔线上跟手，抓住的点在指针下；离开来源面板后缩小；取消后回到原处", async ({page}) => {
+    test("离开标签条就缩小：指针还在来源面板里，卡片已经是紧凑的（设置缺省）", async ({page}) => {
         await open(page);
-        const source = tab(page, E);
         const from = await panelOfTab(page, E);
-        const content = page.locator(`[data-content="view:${E}"]`);
-        const node = await content.elementHandle();
-        await lift(page, source);
-        // 还在标签条里：不拿起。
-        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        await lift(page, tab(page, E));
         const inside = await inLeaf(page, from, {x: 0.5, y: 0.5});
         await page.mouse.move(inside.x, inside.y, {steps: 3});
         const card = page.locator("[data-lifted]");
         await expect(card).toHaveCount(1);
-        expect(await card.evaluate((element, other) => element === other, node)).toBe(true);
-        await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
-        await expect(page.locator("[data-drag-card-head]")).toHaveCount(1);
-        const look = await card.evaluate((element) => {
-            const style = getComputedStyle(element);
-            return {events: style.pointerEvents, z: style.zIndex};
-        });
-        expect(look.events).toBe("none");
-        expect(Number(look.z)).toBeGreaterThan(3);
-        // 离开来源面板：缩到小卡，抓住的点还在指针下。
-        const away = {x: inside.x + 500, y: inside.y};
-        await page.mouse.move(away.x, away.y, {steps: 4});
-        await expect.poll(async () => (await card.boundingBox())?.width ?? 0).toBeLessThanOrEqual(385);
-        const box = await card.boundingBox();
-        expect(away.x).toBeGreaterThanOrEqual(box?.x ?? 0);
-        expect(away.x).toBeLessThanOrEqual((box?.x ?? 0) + (box?.width ?? 0));
-        expect(away.y).toBeGreaterThanOrEqual(box?.y ?? 0);
-        expect(away.y).toBeLessThanOrEqual((box?.y ?? 0) + (box?.height ?? 0));
+        await expect.poll(async () => (await card.boundingBox())?.width ?? 0).toBeLessThanOrEqual(381);
         await page.keyboard.press("Escape");
         await page.mouse.up();
-        await expect(page.locator("[data-lifted]")).toHaveCount(0);
-        await expect(content).not.toHaveAttribute("data-lifted", "");
-        await settled(page);
-        expect(await content.evaluate((element, other) => element === other, node)).toBe(true);
+    });
+
+    test.describe("设置离开面板才缩小（dragCardShrink）", () => {
+        const settingsFile = (): string => join(tmp, "state", "settings.json");
+        test.beforeEach(async () => {
+            await writeFile(settingsFile(), JSON.stringify({"nbook.workbench/dragCardShrink": "panel"}));
+        });
+        test.afterEach(async () => {
+            await rm(settingsFile(), {force: true});
+        });
+
+        test("离开标签条撕下一张卡片：内容是同一个节点、盖在分隔线上跟手，抓住的点在指针下；离开来源面板后缩小；取消后回到原处", async ({page}) => {
+            await open(page);
+            const source = tab(page, E);
+            const from = await panelOfTab(page, E);
+            const content = page.locator(`[data-content="view:${E}"]`);
+            const node = await content.elementHandle();
+            await lift(page, source);
+            // 还在标签条里：不拿起。
+            await expect(page.locator("[data-lifted]")).toHaveCount(0);
+            const inside = await inLeaf(page, from, {x: 0.5, y: 0.5});
+            await page.mouse.move(inside.x, inside.y, {steps: 3});
+            const card = page.locator("[data-lifted]");
+            await expect(card).toHaveCount(1);
+            expect(await card.evaluate((element, other) => element === other, node)).toBe(true);
+            await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
+            await expect(page.locator("[data-drag-card-head]")).toHaveCount(1);
+            const look = await card.evaluate((element) => {
+                const style = getComputedStyle(element);
+                return {events: style.pointerEvents, z: style.zIndex};
+            });
+            expect(look.events).toBe("none");
+            expect(Number(look.z)).toBeGreaterThan(3);
+            // 离开来源面板：缩到小卡，抓住的点还在指针下。
+            const away = {x: inside.x + 500, y: inside.y};
+            await page.mouse.move(away.x, away.y, {steps: 4});
+            await expect.poll(async () => (await card.boundingBox())?.width ?? 0).toBeLessThanOrEqual(385);
+            const box = await card.boundingBox();
+            expect(away.x).toBeGreaterThanOrEqual(box?.x ?? 0);
+            expect(away.x).toBeLessThanOrEqual((box?.x ?? 0) + (box?.width ?? 0));
+            expect(away.y).toBeGreaterThanOrEqual(box?.y ?? 0);
+            expect(away.y).toBeLessThanOrEqual((box?.y ?? 0) + (box?.height ?? 0));
+            await page.keyboard.press("Escape");
+            await page.mouse.up();
+            await expect(page.locator("[data-lifted]")).toHaveCount(0);
+            await expect(content).not.toHaveAttribute("data-lifted", "");
+            await settled(page);
+            expect(await content.evaluate((element, other) => element === other, node)).toBe(true);
+        });
     });
 
     test("预览不改可见性，读屏文字按语义变；拖到面板边上有空位与淡线", async ({page}) => {
@@ -323,6 +346,15 @@ test.describe("实时布局", () => {
         // 新块的头、标题都还没有：头的数量不变，来源的标签哪儿都没有。
         await expect(page.locator("[data-panel-head]")).toHaveCount(heads);
         await expect(tab(page, E)).toHaveCount(0);
+        // 让出的位置什么都不画：卡片没有底、没有投影，缺省没有边框，露出窗体底。
+        const slotCard = page.locator("[data-shell-slot]");
+        await expect(slotCard).toHaveCount(1);
+        const paint = await slotCard.evaluate((element) => {
+            const computed = getComputedStyle(element);
+            const slot = getComputedStyle(document.querySelector("[data-live-slot]") as Element);
+            return {background: computed.backgroundColor, shadow: computed.boxShadow, border: slot.borderTopColor, fill: slot.backgroundColor};
+        });
+        expect(paint).toEqual({background: "rgba(0, 0, 0, 0)", shadow: "none", border: "rgba(0, 0, 0, 0)", fill: "rgba(0, 0, 0, 0)"});
         await page.mouse.up();
         await expect(tab(page, E)).toHaveCount(1);
         await expect(page.locator("[data-panel-head]")).toHaveCount(heads + 1);

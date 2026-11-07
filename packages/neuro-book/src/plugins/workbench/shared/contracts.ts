@@ -183,6 +183,24 @@ export const dragFeelSetting = defineSetting({
 });
 
 /**
+ * 实时布局下卡片什么时候缩小（docs/specs/ui/workbench-layout.md“实时布局”）：一离开标签条就缩，或离开来源面板才缩。只有用户层，理由同上。
+ */
+export const dragCardShrinkSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "dragCardShrink",
+    schema: Type.Union([Type.Literal("strip"), Type.Literal("panel")]),
+    default: "strip",
+    layers: ["user"],
+    section: "nbook.appearance",
+    group: "ui",
+    order: 42,
+    choices: [
+        {value: "strip", title: workbenchText("settings.dragCardShrink.choices.strip.title")},
+        {value: "panel", title: workbenchText("settings.dragCardShrink.choices.panel.title")},
+    ],
+});
+
+/**
  * 拖到四周时怎么分（docs/specs/ui/workbench-layout.md 输出 27）：只分本窗口，或同方向的窗口一起分。只有用户层，理由同上。
  */
 export const dropSplitSetting = defineSetting({

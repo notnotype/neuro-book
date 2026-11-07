@@ -13,7 +13,7 @@ import type {Ref} from "vue";
 
 import type {LayoutDragDrop, LayoutTabSource} from "./layout-drag";
 
-/** 离开来源面板后缩到这么大（和原大小取较小者）。 */
+/** 卡片缩到这么大（和原大小取较小者）。 */
 const CARD_COMPACT = {width: 380, height: 260};
 /** 缩放的时间常数：每帧按它指数逼近。 */
 const CARD_TAU_MS = 90;
@@ -33,6 +33,8 @@ export interface LiveDragHost {
     pointer(): GridDropPoint | null;
     /** 写卡片的矩形（相对网格根）。 */
     placeCard(rect: GridRect): void;
+    /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）：离开标签条，或离开来源面板。 */
+    cardShrink(): "strip" | "panel";
     /** 按这个落点摆的文档；null 是摆不出来（放回原处、不预览的落点），就用已提交的。 */
     candidateDoc(source: LayoutTabSource, drop: LayoutDragDrop): LayoutDoc | null;
     /** 摘掉来源后的文档。 */
@@ -124,7 +126,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             grab = rect === null ? {x: 0.5, y: 0} : {x: clampUnit((pointer.x - rect.left) / width), y: clampUnit((pointer.y - rect.top) / height)};
         }
         const home = homeRect;
-        const inHome = home !== null && pointer.x >= home.left && pointer.x < home.right && pointer.y >= home.top && pointer.y < home.bottom;
+        const inHome = host.cardShrink() === "panel" && home !== null && pointer.x >= home.left && pointer.x < home.right && pointer.y >= home.top && pointer.y < home.bottom;
         const target = inHome ? {width: home.right - home.left, height: home.bottom - home.top} : {
             width: Math.min(CARD_COMPACT.width, home === null ? CARD_COMPACT.width : home.right - home.left),
             height: Math.min(CARD_COMPACT.height, home === null ? CARD_COMPACT.height : home.bottom - home.top),

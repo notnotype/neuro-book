@@ -81,6 +81,8 @@ export interface LayoutDragOptions {
     sectors(): boolean;
     /** 手感（设置 `nbook.workbench/dragFeel`）；键盘、减少动效、最大化时一律落点指示。 */
     feel(): "live" | "indicator";
+    /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）。 */
+    cardShrink(): "strip" | "panel";
     /** 把进行中的过渡直接送到终点：拿起后要量矩形。 */
     settleMotion(): void;
     /** 摆预览；null 回到已提交的布局。 */
@@ -208,6 +210,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         settleDrop: () => session.flush(),
         pointer: () => session.state.value?.point ?? null,
         placeCard: (rect) => options.placeCard(rect),
+        cardShrink: () => options.cardShrink(),
     });
     const stripOf = (panel: string): Element | null => root.querySelector(`[data-panel-strip="${escape(panel)}"] [data-tab-strip]`);
 

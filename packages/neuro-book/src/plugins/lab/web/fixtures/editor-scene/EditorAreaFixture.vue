@@ -220,6 +220,7 @@ onMounted(() => {
         titleOnly: () => false,
         sectors: () => true,
         feel: () => "indicator",
+        cardShrink: () => "strip",
         settleMotion: () => undefined,
         showPreview: () => undefined,
         placeCard: () => undefined,

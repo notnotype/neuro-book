@@ -15,6 +15,17 @@
                 }
             }
         },
+        "dragCardShrink": {
+            "title": "When the drag card shrinks",
+            "choices": {
+                "strip": {
+                    "title": "When it leaves the tab strip"
+                },
+                "panel": {
+                    "title": "When it leaves the panel"
+                }
+            }
+        },
         "dropSplit": {
             "title": "When dropped on an edge",
             "choices": {

@@ -29,13 +29,13 @@ const props = withDefaults(defineProps<{
     disabled?: boolean;
     /** 头只写标题的面板：没有标签带，内容就不是 `tabpanel`。 */
     titleOnlyPanels?: ReadonlySet<string>;
-    /** 实时布局预览里的空位：这块不画头（输出 38）。 */
-    headlessPanel?: string | null;
+    /** 实时布局预览里的空位：这块什么都不画，露出窗体底（输出 38）。 */
+    slotPanel?: string | null;
     /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不能卸载。矩形由 `placeLifted` 写。 */
     lifted?: {readonly key: string; readonly home: string | null} | null;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), headlessPanel: null, lifted: null, floats: () => []});
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, floats: () => []});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -284,13 +284,14 @@ defineExpose({
                         class="workbench-surface__card"
                         :data-shell-card="node.id"
                         :data-shell-join="joinOf(node.id)"
+                        :data-shell-slot="node.id === slotPanel ? '' : undefined"
                         :data-panel-role="roleOf(node.id) ?? undefined"
                         :data-panel-name="doc.panels[node.id]?.name"
                         :data-hover-actions-scope="roleOf(node.id) === null ? undefined : ''"
                         :data-hover-actions-active="actionsShownOn(node.id) ? '' : undefined"
                     >
                         <slot v-if="node.id === ACTIVITY_BAR" name="activitybar"></slot>
-                        <template v-else-if="node.id !== headlessPanel">
+                        <template v-else-if="node.id !== slotPanel">
                             <div v-if="roleOf(node.id) === 'editor'" v-editor-head class="workbench-surface__editor-head" :data-surface-head="node.id">
                                 <slot name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
                             </div>
@@ -386,6 +387,12 @@ defineExpose({
 
 .workbench-surface__card[data-panel-role] {
     background: var(--panel-surface);
+}
+
+/* 空位：放下才有卡片（输出 38）。写在角色的底色后面，同样的特异性后写的赢。 */
+.workbench-surface__card[data-shell-slot] {
+    background: transparent;
+    box-shadow: none;
 }
 
 .workbench-surface__card[data-shell-join="start"] {

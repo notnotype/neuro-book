@@ -70,6 +70,8 @@ const props = defineProps<{
     dropSectors?: boolean;
     /** 拖动的手感（设置 `nbook.workbench/dragFeel`）；缺省实时布局。 */
     dragFeel?: "live" | "indicator";
+    /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）；缺省离开标签条就缩。 */
+    dragCardShrink?: "strip" | "panel";
     /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
     dropSplit?: DropSplit;
 }>();
@@ -403,6 +405,7 @@ onMounted(() => {
         titleOnly: (panel) => titleOnlyPanelIds.value.has(panel),
         sectors: () => props.dropSectors !== false,
         feel: () => props.dragFeel ?? "live",
+        cardShrink: () => props.dragCardShrink ?? "strip",
         settleMotion: () => surface.value?.settleMotion(),
         showPreview: (next) => props.layout.actions.setLivePreview(next),
         placeCard: (rect) => surface.value?.placeLifted(rect),
@@ -596,7 +599,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :maximized="state.maximized"
                 :disabled="!state.ready"
                 :title-only-panels="titleOnlyPanelIds"
-                :headless-panel="slotPanel"
+                :slot-panel="slotPanel"
                 context-key="workbench"
                 @extent="onExtent"
                 @card-gap="(gap) => layout.actions.acceptCardGap(gap)"
@@ -743,7 +746,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
     white-space: nowrap;
 }
 
-/* 空位：一块空面板加一圈边框，头放下才有（输出 38）。 */
+/* 空位：缺省什么都不画，放下才有卡片（输出 38）；边框和底是主题能给的令牌。 */
 .workbench-shell__slot {
     position: absolute;
     top: 0;
