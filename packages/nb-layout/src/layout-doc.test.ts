@@ -5,20 +5,26 @@ import {docOf, H, shapeOf, sizeOf, tab, testPolicy, V, view} from "./layout-doc-
 import {
     activateTab,
     carryDynamicTabs,
+    clampFloatRect,
     countsInShare,
     edgeTargetOf,
+    floatTab,
     insertTab,
+    LAYOUT_MAX_FLOATS,
     movePanelToEdge,
     movePanelToStrip,
     moveTabToEdge,
     moveTabToStrip,
     normalizeTree,
     openPanelAtEdge,
+    raiseFloat,
     rebaseIntents,
     removeTab,
     replaceTab,
+    resizeFloatRect,
     setBarHidden,
     setCurrentEditor,
+    setFloatRect,
     setPanelCollapsed,
     setPanelHidden,
     showPanelAndInsert,
@@ -481,5 +487,150 @@ describe("校验", () => {
         expect(validateLayoutDoc(doc).ok).toBe(true);
         const moved = okDoc(moveTabToEdge(doc, {tab: "view:sidebar", target: edge(doc, "ea", "top")}, testPolicy()));
         expect(shape(moved)).toBe("V[H[activitybar,sidebar,V[n1,ea,panel],auxiliarybar],statusbar]");
+    });
+});
+
+describe("浮动窗", () => {
+    const RECT = {x: 100, y: 80, width: 460, height: 340};
+    const base = () => docOf(V([H(["activitybar", "sidebar", "e0", "e1"], "body"), "statusbar"], "root"), {
+        sidebar: {tabs: [view("a"), view("b")], active: "view:a"},
+        e0: {tabs: [tab("t0"), tab("t1")], active: "tab:t0"},
+        e1: {tabs: [tab("t2")], active: "tab:t2"},
+    });
+    const floated = (doc: LayoutDoc, key: string): string => {
+        const panel = Object.entries(doc.panels).find(([, record]) => record.tabs.some((candidate) => tabKey(candidate) === key))?.[0];
+        if (panel === undefined) throw new Error(`没有 ${key}`);
+        return panel;
+    };
+
+    it("标签浮出来：新的无名面板，继承角色；来源还在；矩形写入时取整", () => {
+        const doc = okDoc(floatTab(base(), {tab: "view:b", rect: {...RECT, x: 100.4, width: 459.6}}, testPolicy()));
+        const panel = floated(doc, "view:b");
+        expect(doc.panels[panel]).toEqual({role: "tool", tabs: [view("b")], active: "view:b"});
+        expect(doc.floats).toEqual([{panel, rect: {...RECT, x: 100, width: 460}}]);
+        expect(doc.panels.sidebar?.tabs).toEqual([view("a")]);
+        expect(shape(doc)).toBe(shape(base()));
+        expect(validateLayoutDoc(doc).ok).toBe(true);
+    });
+
+    it("编辑器标签浮出来成为活动编辑组；只有一个标签的组不留空壳；树里最后一个编辑组留一个空组", () => {
+        const policy = testPolicy();
+        const first = okDoc(floatTab(base(), {tab: "tab:t2", rect: RECT}, policy));
+        expect(first.currentEditor).toBe(floated(first, "tab:t2"));
+        expect(first.panels.e1).toBeUndefined();
+        const all = okDoc(floatTab(okDoc(floatTab(first, {tab: "tab:t0", rect: RECT}, policy)), {tab: "tab:t1", rect: RECT}, policy));
+        expect(all.panels.e0).toEqual({role: "editor", tabs: [], active: null});
+        expect(all.floats).toHaveLength(3);
+        expect(validateLayoutDoc(all).ok).toBe(true);
+    });
+
+    it("只有这一个标签的窗再浮动只改矩形：同一块面板，不换 id；矩形没变返回原对象", () => {
+        const doc = okDoc(floatTab(base(), {tab: "view:b", rect: RECT}, testPolicy()));
+        const panel = floated(doc, "view:b");
+        const moved = okDoc(floatTab(doc, {tab: "view:b", rect: {...RECT, x: 200}}, testPolicy()));
+        expect(moved.floats).toEqual([{panel, rect: {...RECT, x: 200}}]);
+        expect(okDoc(setFloatRect(moved, {panel, rect: {...RECT, x: 200.2}}))).toBe(moved);
+    });
+
+    it("提到最前改次序；已在最前返回原对象；不存在的窗是 not-found", () => {
+        const policy = testPolicy();
+        const one = okDoc(floatTab(base(), {tab: "view:b", rect: RECT}, policy));
+        const two = okDoc(floatTab(one, {tab: "tab:t1", rect: RECT}, policy));
+        const [under, over] = two.floats.map((float) => float.panel) as [string, string];
+        expect(okDoc(raiseFloat(two, over))).toBe(two);
+        expect(okDoc(raiseFloat(two, under)).floats.map((float) => float.panel)).toEqual([over, under]);
+        expect(raiseFloat(two, "e0")).toMatchObject({ok: false, code: "not-found"});
+    });
+
+    it("到上限失败，文档不变", () => {
+        let doc = docOf(H(["e0"], "root"), {e0: {tabs: Array.from({length: LAYOUT_MAX_FLOATS + 2}, (_, index) => tab(`t${String(index)}`)), active: "tab:t0"}});
+        const policy = testPolicy();
+        for (let index = 0; index < LAYOUT_MAX_FLOATS; index += 1) doc = okDoc(floatTab(doc, {tab: `tab:t${String(index)}`, rect: RECT}, policy));
+        expect(floatTab(doc, {tab: `tab:t${String(LAYOUT_MAX_FLOATS)}`, rect: RECT}, policy)).toMatchObject({ok: false, code: "limit-exceeded"});
+    });
+
+    it("窗空了移除；活动编辑组换到树序最后一个编辑组", () => {
+        const doc = okDoc(floatTab(base(), {tab: "tab:t1", rect: RECT}, testPolicy()));
+        const panel = floated(doc, "tab:t1");
+        const closed = okDoc(removeTab(doc, "tab:t1"));
+        expect(closed.panels[panel]).toBeUndefined();
+        expect(closed.floats).toEqual([]);
+        expect(closed.currentEditor).toBe("e1");
+        expect(validateLayoutDoc(closed).ok).toBe(true);
+    });
+
+    it("回到树里：并入标签条、移到外缘；内容跟着键走，矩形从记录里消失", () => {
+        const policy = testPolicy();
+        const doc = okDoc(floatTab(base(), {tab: "view:b", rect: RECT}, policy));
+        const panel = floated(doc, "view:b");
+        const merged = okDoc(movePanelToStrip(doc, {panel, target: "sidebar"}, policy));
+        expect(merged.floats).toEqual([]);
+        expect(merged.panels[panel]).toBeUndefined();
+        expect(merged.panels.sidebar?.tabs).toEqual([view("a"), view("b")]);
+        const side = okDoc(movePanelToEdge(doc, {panel, target: edge(doc, "sidebar", "bottom")}, policy));
+        expect(side.floats).toEqual([]);
+        expect(side.panels[panel]?.tabs).toEqual([view("b")]);
+        expect(shape(side)).toBe(shapeOf(okDoc(moveTabToEdge(base(), {tab: "view:b", target: edge(base(), "sidebar", "bottom")}, policy)).tree.root).replace(/n\d+/u, panel));
+        expect(validateLayoutDoc(side).ok).toBe(true);
+    });
+
+    it("标签从多标签的窗回到树里，窗还在；最后一个标签走了窗没了", () => {
+        const policy = testPolicy();
+        const one = okDoc(floatTab(base(), {tab: "tab:t1", rect: RECT}, policy));
+        const panel = floated(one, "tab:t1");
+        const two = okDoc(moveTabToStrip(one, {tab: "tab:t0", panel, index: 1}, policy));
+        expect(two.panels[panel]?.tabs).toEqual([tab("t1"), tab("t0")]);
+        const back = okDoc(moveTabToStrip(two, {tab: "tab:t0", panel: "e1", index: 1}, policy));
+        expect(back.floats.map((float) => float.panel)).toEqual([panel]);
+        expect(okDoc(moveTabToStrip(back, {tab: "tab:t1", panel: "e1", index: 1}, policy)).floats).toEqual([]);
+    });
+
+    it("浮动窗不可收起；隐藏只有具名面板", () => {
+        const doc = okDoc(floatTab(base(), {tab: "view:b", rect: RECT}, testPolicy()));
+        const panel = floated(doc, "view:b");
+        expect(setPanelCollapsed(doc, panel, true)).toMatchObject({ok: false, code: "rejected"});
+        expect(setPanelHidden(doc, panel, true)).toMatchObject({ok: false, code: "rejected"});
+    });
+
+    it("校验：坏的 floats 拒绝", () => {
+        const doc = okDoc(floatTab(base(), {tab: "view:b", rect: RECT}, testPolicy()));
+        const panel = floated(doc, "view:b");
+        const invalid = (floats: unknown, panels: unknown = doc.panels): boolean => validateLayoutDoc({...doc, floats, panels}).ok === false;
+        expect(validateLayoutDoc(doc).ok).toBe(true);
+        // 负坐标合法：窗可以拖出去一部分。
+        expect(invalid([{panel, rect: {...RECT, x: -300, y: -10}}])).toBe(false);
+        expect(invalid([{panel, rect: {...RECT, width: 0}}])).toBe(true);
+        expect(invalid([{panel, rect: {...RECT, x: Number.NaN}}])).toBe(true);
+        expect(invalid([{panel: "nobody", rect: RECT}])).toBe(true);
+        expect(invalid([{panel: "e0", rect: RECT}])).toBe(true);
+        expect(invalid([{panel, rect: RECT}, {panel, rect: RECT}])).toBe(true);
+        expect(invalid([])).toBe(true);
+        expect(invalid(doc.floats, {...doc.panels, [panel]: {...doc.panels[panel], collapsed: true}})).toBe(true);
+        expect(invalid(doc.floats, {...doc.panels, [panel]: {...doc.panels[panel], name: "panel"}})).toBe(true);
+        expect(invalid(Array.from({length: LAYOUT_MAX_FLOATS + 1}, () => ({panel, rect: RECT})))).toBe(true);
+    });
+
+    it("校验：编辑组全浮动不行，树里至少要有一个", () => {
+        const doc = docOf(V([H(["activitybar", "sidebar", "e0"], "body"), "statusbar"], "root"), {sidebar: {tabs: [view("a")], active: "view:a"}, e0: {tabs: [], active: null}});
+        expect(validateLayoutDoc(doc).ok).toBe(true);
+        const floatOnly = {...doc, tree: docOf(V([H(["activitybar", "sidebar"], "body"), "statusbar"], "root")).tree, floats: [{panel: "e0", rect: RECT}]};
+        expect(validateLayoutDoc(floatOnly)).toMatchObject({ok: false, code: "invalid"});
+    });
+
+    it("夹取：头留在区域里，窗比区域大时缩到区域；不改记录", () => {
+        const extent = {width: 800, height: 600};
+        const keep = {width: 80, height: 32};
+        expect(clampFloatRect(RECT, extent, keep)).toEqual(RECT);
+        expect(clampFloatRect({...RECT, x: 790, y: 590}, extent, keep)).toEqual({...RECT, x: 720, y: 568});
+        expect(clampFloatRect({...RECT, x: -900, y: -40}, extent, keep)).toEqual({...RECT, x: 80 - 460, y: 0});
+        expect(clampFloatRect({...RECT, width: 2000, height: 900}, extent, keep)).toEqual({...RECT, width: 800, height: 600});
+    });
+
+    it("缩放：负方向同时改位置，到了上下限对边不动", () => {
+        const bounds = {min: {width: 200, height: 100}, max: {width: 600, height: 500}};
+        expect(resizeFloatRect(RECT, {width: 1, height: 1}, {x: 40, y: 10}, bounds)).toEqual({...RECT, width: 500, height: 350});
+        expect(resizeFloatRect(RECT, {width: -1, height: 0}, {x: -40, y: 10}, bounds)).toEqual({...RECT, x: 60, width: 500});
+        expect(resizeFloatRect(RECT, {width: -1, height: -1}, {x: 1000, y: 1000}, bounds)).toEqual({x: 100 + 460 - 200, y: 80 + 340 - 100, width: 200, height: 100});
+        expect(resizeFloatRect(RECT, {width: 1, height: 0}, {x: 1000, y: 0}, bounds)).toEqual({...RECT, width: 600});
     });
 });

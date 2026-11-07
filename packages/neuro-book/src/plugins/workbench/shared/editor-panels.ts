@@ -140,7 +140,7 @@ export function createMemoryEditorPanels(seed: LayoutDoc = firstDoc()): MemoryEd
             for (;;) {
                 counter += 1;
                 const id = `${kind === "panel" ? "g" : "b"}${String(counter)}`;
-                if (findTreeNode(doc.value.tree.root, id) === null) return id;
+                if (findTreeNode(doc.value.tree.root, id) === null && doc.value.panels[id] === undefined) return id;
             }
         },
     };

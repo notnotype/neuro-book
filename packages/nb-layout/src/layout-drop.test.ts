@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
-import {applyLayoutDrop, enumerateDropCandidates, layoutDropPanelAt, layoutDropSectors, previewEdgeDrop, previewRevealRects, resolveLayoutDrop} from "./layout-drop";
+import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropPanelAt, layoutDropSectors, previewEdgeDrop, previewRevealRects, resolveLayoutDrop} from "./layout-drop";
 import type {LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId} from "./layout-drop";
 import {edgeTargetOf} from "./layout-doc";
 import type {LayoutDoc, LayoutPolicy, LayoutSource} from "./layout-doc";
@@ -319,5 +319,74 @@ describe("落点分区：形状与判定一致（输出“落点分区”）", (
         const doc = docOf(H(["a", "e1", "e2"], "root"), {e1: {tabs: []}});
         const candidates = enumerateDropCandidates({doc, source: {kind: "tab", tab: "tab:e2"}, policy: testPolicy(), stripIndexes: () => []});
         expect(candidates.filter((candidate) => candidate.region === "e1").map((candidate) => candidate.action.kind)).toEqual(["center"]);
+    });
+});
+
+describe("浮动窗的落点", () => {
+    const POINT_IN_FLOAT = {x: 500, y: 300};
+    const FLOAT_GEOMETRY: LayoutDropPanelGeometry = {id: "f", strip: rect(400, 200, 700, 230), body: rect(400, 230, 700, 500), insertionAt: () => 1};
+    const withFloat = () => {
+        const doc = THREE();
+        return {...doc, panels: {...doc.panels, f: {role: "tool" as const, tabs: [view("w")], active: "view:w"}}, floats: [{panel: "f", rect: {x: 400, y: 200, width: 300, height: 300}}]};
+    };
+    const floatInput = {floats: [FLOAT_GEOMETRY]};
+
+    it("比面板、条、预备区都先判：标签条插入，正文添加为标签", () => {
+        expect(drop(withFloat(), VIEW, 500, 210, floatInput)).toEqual({kind: "strip", panel: "f", index: 1});
+        expect(drop(withFloat(), VIEW, POINT_IN_FLOAT.x, POINT_IN_FLOAT.y, floatInput)).toEqual({kind: "center", panel: "f"});
+        expect(drop(withFloat(), VIEW, POINT_IN_FLOAT.x, POINT_IN_FLOAT.y, {...floatInput, excluded: [rect(0, 0, 900, 600)]})).toEqual({kind: "center", panel: "f"});
+    });
+
+    it("不接收时没有落点，不穿透到底下的面板与预备区", () => {
+        const source = EDITOR_TAB;
+        // 底下是 b 的外缘窄带：没有浮动窗时是落点。
+        expect(drop(withFloat(), source, 590, 300)).not.toBeNull();
+        expect(drop(withFloat(), source, 590, 300, floatInput)).toBeNull();
+        expect(drop(withFloat(), source, 590, 300, {...floatInput, zones: [{panel: "ec", rect: rect(0, 0, 900, 600)}]})).toBeNull();
+    });
+
+    it("浮动窗没有外缘，外沿也不是缝：差 1px 就算底下的面板", () => {
+        expect(drop(withFloat(), VIEW, 401, 490, floatInput)).toEqual({kind: "center", panel: "f"});
+        expect(layoutDropPanelAt({doc: withFloat(), source: VIEW, point: {x: 399, y: 300}, panels: GEOMETRY, policy: testPolicy(), ...floatInput})?.id).toBe("b");
+    });
+
+    it("上面的窗先判", () => {
+        const over: LayoutDropPanelGeometry = {id: "a", strip: null, body: rect(450, 250, 600, 400)};
+        expect(drop(withFloat(), VIEW, 500, 300, {floats: [over, FLOAT_GEOMETRY]})).toEqual({kind: "center", panel: "a"});
+    });
+
+    it("整窗拖动：经过中央没有落点，标签条与窄带才停靠；空面板也不算整块中央", () => {
+        const whole: LayoutSource = {kind: "panel", panel: "f"};
+        const options = {noCenter: true, edgeRatio: 0.14};
+        expect(drop(withFloat(), whole, 450, 300, options)).toBeNull();
+        expect(drop(withFloat(), whole, 400, 10, options)).toEqual({kind: "strip", panel: "b", index: 0});
+        expect(drop(withFloat(), whole, 590, 300, options)).toEqual({kind: "edge", target: {kind: "between", branch: "root", before: "b", after: "ec"}});
+        expect(drop(withFloat(), whole, 520, 300, options)).toBeNull();
+        const empty = docOf(H(["a", "b"], "root"), {a: {tabs: [view("a")], active: "view:a"}, b: {tabs: [], active: null}});
+        expect(drop({...empty, panels: {...empty.panels, f: {role: "tool", tabs: [view("w")], active: "view:w"}}, floats: [{panel: "f", rect: {x: 0, y: 0, width: 10, height: 10}}]}, whole, 450, 300, options)).toBeNull();
+    });
+
+    it("分区：整窗拖动不画中央", () => {
+        const input: LayoutDropInput = {doc: withFloat(), source: {kind: "panel", panel: "f"}, point: {x: 590, y: 300}, panels: GEOMETRY, policy: testPolicy(), noCenter: true, edgeRatio: 0.14};
+        const sectors = layoutDropSectors(input, GEOMETRY[1] as LayoutDropPanelGeometry);
+        expect(sectors?.some((sector) => sector.id === "center")).toBe(false);
+        expect(sectors?.length).toBeGreaterThan(0);
+    });
+
+    it("提交：标签浮出来，整窗是移动；比较键只看种类", () => {
+        const rectA = {x: 1, y: 2, width: 300, height: 200};
+        const tear = applyLayoutDrop(THREE(), VIEW, {kind: "float", rect: rectA}, testPolicy());
+        expect(tear.ok && tear.doc.floats.at(0)?.rect).toEqual(rectA);
+        const moved = applyLayoutDrop(withFloat(), {kind: "panel", panel: "f"}, {kind: "float", rect: rectA}, testPolicy());
+        expect(moved.ok && moved.doc.floats).toEqual([{panel: "f", rect: rectA}]);
+        expect(layoutDropKey({kind: "float", rect: rectA})).toBe(layoutDropKey({kind: "float", rect: {...rectA, x: 9}}));
+        expect(layoutDropKey({kind: "center", panel: "a"})).not.toBe(layoutDropKey({kind: "center", panel: "b"}));
+    });
+
+    it("键盘的落点：浮动窗排在树后面，只有标签条和中央", () => {
+        const candidates = enumerateDropCandidates({doc: withFloat(), source: VIEW, policy: testPolicy(), stripIndexes: () => [0]});
+        const onFloat = candidates.filter((candidate) => candidate.region === "f");
+        expect(onFloat.map((candidate) => candidate.action.kind)).toEqual(["strip", "center"]);
+        expect(candidates.at(-1)?.region).toBe("f");
     });
 });

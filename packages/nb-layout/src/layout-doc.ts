@@ -37,12 +37,31 @@ export interface PanelRecord {
     readonly collapsed?: boolean;
 }
 
+/** 浮动窗的矩形：卡片本身，相对树区域的 CSS 像素。写入时取整，所以比较不用容差，也不落在半个像素上。 */
+export interface LayoutFloatRect {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+}
+
+/** 浮动窗：一块不在树里的面板。 */
+export interface LayoutFloat {
+    readonly panel: string;
+    /** 呈现时夹取（`clampFloatRect`），夹取不写回：窗口变小再变大，窗还在原处。 */
+    readonly rect: LayoutFloatRect;
+}
+
+/** 浮动窗的上限：每次松手没有落点都开一个窗，不封顶的话记录与 DOM 跟着涨。 */
+export const LAYOUT_MAX_FLOATS = 16;
+
 export interface LayoutDoc {
     readonly version: typeof LAYOUT_DOC_VERSION;
     readonly tree: GridSnapshot;
+    /** 树里的面板和浮动的面板都在这里。 */
     readonly panels: Readonly<Record<string, PanelRecord>>;
-    /** 浮动随后面的切片做，现在恒为空。 */
-    readonly floats: ReadonlyArray<never>;
+    /** 后面的压在前面的上面。 */
+    readonly floats: ReadonlyArray<LayoutFloat>;
     readonly hiddenBars: ReadonlyArray<LayoutBar>;
     readonly currentEditor: string | null;
 }
@@ -87,7 +106,7 @@ type MutableDoc = {
     version: typeof LAYOUT_DOC_VERSION;
     tree: {version: typeof GRID_SNAPSHOT_VERSION; root: GridSnapshotNode};
     panels: Record<string, PanelRecord>;
-    floats: never[];
+    floats: LayoutFloat[];
     hiddenBars: LayoutBar[];
     currentEditor: string | null;
 };
@@ -207,9 +226,9 @@ export function sameTreeShape(left: LayoutDoc, right: LayoutDoc): boolean {
     return JSON.stringify(shape(left.tree.root)) === JSON.stringify(shape(right.tree.root));
 }
 
-/** 结果和现状一样吗：结构、方向、叶序、标签、活动标签、显隐与收起。不比意图：摘出再放回，比例舍入后不会相等；也不比分支 id。 */
+/** 结果和现状一样吗：结构、方向、叶序、标签、活动标签、显隐与收起，浮动窗的次序与矩形。不比意图：摘出再放回，比例舍入后不会相等；也不比分支 id。 */
 export function sameLayoutShape(left: LayoutDoc, right: LayoutDoc): boolean {
-    if (!sameTreeShape(left, right)) return false;
+    if (!sameTreeShape(left, right) || JSON.stringify(left.floats) !== JSON.stringify(right.floats)) return false;
     const leftIds = Object.keys(left.panels).sort();
     const rightIds = Object.keys(right.panels).sort();
     if (JSON.stringify(leftIds) !== JSON.stringify(rightIds)) return false;
@@ -302,12 +321,26 @@ function removePanelNode(next: MutableDoc, id: string): void {
     const aliases = new Map<string, string>();
     const root = detachNode(next.tree.root, id, aliases);
     if (root !== null) next.tree.root = root;
+    next.floats = next.floats.filter((float) => float.panel !== id);
     delete next.panels[id];
 }
 
-const editorIds = (next: {readonly panels: Readonly<Record<string, PanelRecord>>}): string[] => Object.keys(next.panels).filter((id) => next.panels[id]?.role === "editor");
+/** 这块面板浮动着吗。 */
+export const isFloating = (doc: Pick<LayoutDoc, "floats">, panel: string): boolean => doc.floats.some((float) => float.panel === panel);
 
-/** 面板空了之后（不变量）：具名面板隐藏，无名工具面板移除，编辑组移除但最后一个留着。 */
+/** 树序的编辑组。浮动的不在里面：“树里至少一个编辑组”只数这些。 */
+function treeEditors(doc: Pick<LayoutDoc, "tree" | "panels">): string[] {
+    return treeLeaves(doc.tree.root).map((leaf) => leaf.id).filter((id) => doc.panels[id]?.role === "editor");
+}
+
+/**
+ * 浮动窗没有相邻：它要一块树里的编辑组时（在侧边打开、拆分、关到空后的焦点、回到停靠）落到这里，树序最后一个。校验保证有。
+ */
+export function treeEditorAnchor(doc: Pick<LayoutDoc, "tree" | "panels">): string | null {
+    return treeEditors(doc).at(-1) ?? null;
+}
+
+/** 面板空了之后（不变量）：具名面板隐藏，无名工具面板与浮动窗移除，编辑组移除但树里最后一个留着。 */
 function settleEmptyPanel(next: MutableDoc, id: string): void {
     const panel = next.panels[id];
     if (panel === undefined || panel.tabs.length > 0) return;
@@ -315,14 +348,14 @@ function settleEmptyPanel(next: MutableDoc, id: string): void {
         next.panels[id] = {...panel, hidden: true};
         return;
     }
-    if (panel.role === "editor" && editorIds(next).length <= 1) return;
-    // 活动编辑组没了换到相邻的（树序里它后面的，没有时前面的），不是第一个：焦点不该跳过半个窗口。
-    const order = treeLeaves(next.tree.root).map((leaf) => leaf.id).filter((candidate) => next.panels[candidate]?.role === "editor");
+    const order = treeEditors(next);
+    if (panel.role === "editor" && order.length <= 1 && order[0] === id) return;
+    // 活动编辑组没了换到相邻的（树序里它后面的，没有时前面的），不是第一个：焦点不该跳过半个窗口。浮动窗没有相邻。
     const at = order.indexOf(id);
     removePanelNode(next, id);
     if (next.currentEditor !== id) return;
     const rest = order.filter((candidate) => candidate !== id);
-    next.currentEditor = rest[Math.min(at, rest.length - 1)] ?? editorIds(next)[0] ?? null;
+    next.currentEditor = at === -1 ? (rest.at(-1) ?? null) : (rest[Math.min(at, rest.length - 1)] ?? null);
 }
 
 export function insertTab(doc: LayoutDoc, input: {readonly panel: string; readonly tab: TabRef; readonly index?: number; readonly activate?: boolean}): LayoutResult {
@@ -514,8 +547,11 @@ const touches = (target: LayoutEdgeTarget, panel: string): boolean => (target.ki
 /** 整块面板移到外缘：同一块叶，id 不变，内容不重建。这也让“放回原处”自然是原对象。 */
 export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; readonly target: LayoutEdgeTarget}, policy: LayoutPolicy): LayoutResult {
     const source = doc.panels[input.panel];
-    const leaf = findTreeNode(doc.tree.root, input.panel)?.node;
-    if (source === undefined || leaf === undefined || leaf.kind !== "leaf") return failure("not-found", `面板 ${input.panel}`);
+    if (source === undefined) return failure("not-found", `面板 ${input.panel}`);
+    // 浮动窗没有叶，现造一片：尺寸由落点分（`placeLeaf`）。
+    const floating = isFloating(doc, input.panel);
+    const leaf = floating ? {kind: "leaf" as const, id: input.panel, ref: panelRef(input.panel), size: {width: 0, height: 0}} : findTreeNode(doc.tree.root, input.panel)?.node;
+    if (leaf === undefined || leaf.kind !== "leaf") return failure("not-found", `面板 ${input.panel}`);
     if (touches(input.target, input.panel)) return {ok: true, doc};
     const anchor = edgeAnchorOf(doc, input.target);
     if (anchor === null) return failure("not-found", "目标已不存在");
@@ -525,10 +561,15 @@ export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; 
     const {collapsed: _collapsed, ...expanded} = source;
     next.panels[input.panel] = expanded;
     const aliases = new Map<string, string>();
-    const root = detachNode(next.tree.root, input.panel, aliases);
-    if (root === null) return failure("rejected", "不能摘掉整棵树");
-    next.tree.root = root;
+    if (floating) {
+        next.floats = next.floats.filter((float) => float.panel !== input.panel);
+    } else {
+        const root = detachNode(next.tree.root, input.panel, aliases);
+        if (root === null) return failure("rejected", "不能摘掉整棵树");
+        next.tree.root = root;
+    }
     if (!placeLeaf(next, input.target, {...leaf, size: {...leaf.size}}, aliases, () => policy.newId("branch"))) return failure("not-found", "目标已不存在");
+    if (floating && source.role === "editor") next.currentEditor = input.panel;
     return finish(doc, next);
 }
 
@@ -569,6 +610,77 @@ export function openPanelAtEdge(doc: LayoutDoc, input: {readonly id: string; rea
     return finish(doc, next);
 }
 
+// ── 浮动 ──
+
+const roundRect = (rect: LayoutFloatRect): LayoutFloatRect => ({x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height)});
+
+/**
+ * 标签浮出来：新的无名面板，继承来源的角色。来源是只有这一个标签的浮动窗时只改矩形：同一块面板，不换 id。具名面板不移动，标签拆出去、它拖空隐藏（同 `moveTabToEdge`）。
+ */
+export function floatTab(doc: LayoutDoc, input: {readonly tab: string; readonly rect: LayoutFloatRect}, policy: LayoutPolicy): LayoutResult {
+    const found = findTab(doc, input.tab);
+    if (found === null) return failure("not-found", `标签 ${input.tab}`);
+    const source = doc.panels[found.panel] as PanelRecord;
+    if (source.tabs.length === 1 && isFloating(doc, found.panel)) return setFloatRect(doc, {panel: found.panel, rect: input.rect});
+    if (doc.floats.length >= LAYOUT_MAX_FLOATS) return failure("limit-exceeded", `浮动窗 ${String(doc.floats.length)} 个`);
+    const next = editable(doc);
+    takeTab(next, found.panel, found.index);
+    const id = policy.newId("panel");
+    if (next.panels[id] !== undefined) return failure("rejected", `面板已存在 ${id}`);
+    next.panels[id] = {role: source.role, tabs: [found.tab], active: input.tab};
+    next.floats.push({panel: id, rect: roundRect(input.rect)});
+    if (source.role === "editor") next.currentEditor = id;
+    settleEmptyPanel(next, found.panel);
+    return finish(doc, next);
+}
+
+export function setFloatRect(doc: LayoutDoc, input: {readonly panel: string; readonly rect: LayoutFloatRect}): LayoutResult {
+    if (!isFloating(doc, input.panel)) return failure("not-found", `浮动窗 ${input.panel}`);
+    const next = editable(doc);
+    next.floats = next.floats.map((float) => (float.panel === input.panel ? {...float, rect: roundRect(input.rect)} : float));
+    return finish(doc, next);
+}
+
+/** 提到最前；已在最前时返回原对象。 */
+export function raiseFloat(doc: LayoutDoc, panel: string): LayoutResult {
+    const float = doc.floats.find((candidate) => candidate.panel === panel);
+    if (float === undefined) return failure("not-found", `浮动窗 ${panel}`);
+    const next = editable(doc);
+    next.floats = [...next.floats.filter((candidate) => candidate.panel !== panel), float];
+    return finish(doc, next);
+}
+
+/** 窗留在树区域里的部分：标签条总能抓到。窗口变小时呈现用夹取之后的矩形，记录不改。比区域还大时缩到区域。 */
+export function clampFloatRect(rect: LayoutFloatRect, extent: GridExtent, keep: {readonly width: number; readonly height: number}): LayoutFloatRect {
+    const width = Math.min(rect.width, extent.width);
+    const height = Math.min(rect.height, extent.height);
+    return {
+        x: Math.min(Math.max(rect.x, keep.width - width), extent.width - keep.width),
+        y: Math.min(Math.max(rect.y, 0), extent.height - keep.height),
+        width,
+        height,
+    };
+}
+
+/** 缩放的方向：正号是右、下边跟着指针，负号是左、上边跟着指针，同时改写 `x`、`y`。 */
+export interface LayoutFloatResize {
+    readonly width: -1 | 0 | 1;
+    readonly height: -1 | 0 | 1;
+}
+
+/** 缩放之后的矩形。到了尺寸的上下限时对边不动。 */
+export function resizeFloatRect(start: LayoutFloatRect, direction: LayoutFloatResize, delta: {readonly x: number; readonly y: number}, bounds: {readonly min: GridExtent; readonly max: GridExtent}): LayoutFloatRect {
+    const clamp = (value: number, low: number, high: number): number => Math.min(Math.max(value, low), Math.max(low, high));
+    const width = clamp(start.width + direction.width * delta.x, bounds.min.width, bounds.max.width);
+    const height = clamp(start.height + direction.height * delta.y, bounds.min.height, bounds.max.height);
+    return {
+        x: direction.width === -1 ? start.x + start.width - width : start.x,
+        y: direction.height === -1 ? start.y + start.height - height : start.y,
+        width,
+        height,
+    };
+}
+
 // ── 显隐与收起 ──
 
 export function setPanelHidden(doc: LayoutDoc, panelId: string, hidden: boolean): LayoutResult {
@@ -585,6 +697,7 @@ export function setPanelCollapsed(doc: LayoutDoc, panelId: string, collapsed: bo
     const panel = doc.panels[panelId];
     if (panel === undefined) return failure("not-found", `面板 ${panelId}`);
     if (collapsed && panel.role === "editor") return failure("rejected", "编辑组不可收起");
+    if (collapsed && isFloating(doc, panelId)) return failure("rejected", "浮动窗不可收起");
     const next = editable(doc);
     const {collapsed: _collapsed, ...rest} = panel;
     next.panels[panelId] = collapsed ? {...panel, collapsed: true} : rest;
@@ -649,7 +762,7 @@ export function carryDynamicTabs(target: LayoutDoc, from: LayoutDoc): LayoutDoc 
     }
     for (const {panel, tab} of open) {
         if (findTab(next, tabKey(tab)) !== null) continue;
-        const home = next.panels[panel]?.role === "editor" ? panel : (next.currentEditor ?? editorIds(next)[0]);
+        const home = next.panels[panel]?.role === "editor" ? panel : (next.currentEditor ?? treeEditors(next)[0]);
         if (home !== undefined) step(insertTab(next, {panel: home, tab, activate: false}));
     }
     for (const [panel, record] of Object.entries(from.panels)) {
@@ -690,6 +803,9 @@ function validateNode(value: unknown, seen: Set<string>, depth: number): string 
     return null;
 }
 
+const isFloatRect = (value: unknown): boolean => isObject(value) && typeof value.x === "number" && Number.isFinite(value.x) && typeof value.y === "number" && Number.isFinite(value.y)
+    && typeof value.width === "number" && Number.isFinite(value.width) && value.width > 0 && typeof value.height === "number" && Number.isFinite(value.height) && value.height > 0;
+
 const isTabRef = (value: unknown): value is TabRef => isObject(value)
     && ((value.kind === "view" && typeof value.viewId === "string") || (value.kind === "tab" && typeof value.type === "string" && typeof value.tabId === "string"));
 
@@ -702,7 +818,7 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
     const seen = new Set<string>();
     const nodeProblem = validateNode(value.tree.root, seen, 1);
     if (nodeProblem !== null) return invalid(nodeProblem);
-    if (!isObject(value.panels) || !Array.isArray(value.floats) || value.floats.length !== 0 || !Array.isArray(value.hiddenBars)) return invalid("缺字段");
+    if (!isObject(value.panels) || !Array.isArray(value.floats) || !Array.isArray(value.hiddenBars)) return invalid("缺字段");
     if (!value.hiddenBars.every((bar) => BAR_NAMES.has(bar as string))) return invalid("hiddenBars 不合法");
     if (value.currentEditor !== null) {
         const current = typeof value.currentEditor === "string" ? value.panels[value.currentEditor] : undefined;
@@ -725,16 +841,25 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
         inTree.add(panelId);
     }
 
+    const floating = new Set<string>();
+    if (value.floats.length > LAYOUT_MAX_FLOATS) return invalid("浮动窗太多");
+    for (const float of value.floats) {
+        if (!isObject(float) || typeof float.panel !== "string" || !isFloatRect(float.rect)) return invalid("浮动窗不合法");
+        if (inTree.has(float.panel) || floating.has(float.panel)) return invalid(`面板 ${float.panel} 又在树里又浮动，或浮动了两次`);
+        floating.add(float.panel);
+    }
+
     const panelIds = Object.keys(value.panels);
     const tabKeys = new Set<string>();
     const names = new Set<string>();
     let editors = 0;
+    for (const float of floating) if (!panelIds.includes(float)) return invalid(`浮动窗 ${float} 没有面板记录`);
     for (const id of panelIds) {
         if (FORBIDDEN_IDS.has(id)) return invalid(`非法面板 id：${id}`);
-        if (!inTree.has(id)) return invalid(`面板 ${id} 不在树里`);
         const panel = value.panels[id];
         if (!isObject(panel) || (panel.role !== "tool" && panel.role !== "editor") || !Array.isArray(panel.tabs) || !panel.tabs.every(isTabRef)) return invalid(`面板 ${id} 不合法`);
-        if (panel.role === "editor") editors += 1;
+        if (floating.has(id) && (panel.name !== undefined || panel.hidden !== undefined || panel.collapsed !== undefined)) return invalid(`浮动窗 ${id} 不能具名、隐藏或收起`);
+        if (panel.role === "editor" && inTree.has(id)) editors += 1;
         if (panel.role === "editor" && (panel.name !== undefined || panel.hidden !== undefined || panel.collapsed !== undefined)) return invalid(`编辑组 ${id} 不能具名、隐藏或收起`);
         if (panel.hidden !== undefined && (panel.hidden !== true || panel.name === undefined)) return invalid(`面板 ${id} 的隐藏不合法：只有具名面板会隐藏`);
         if (panel.collapsed !== undefined && typeof panel.collapsed !== "boolean") return invalid(`面板 ${id} 的收起不合法`);
@@ -750,7 +875,8 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
         }
         if (panel.active !== null && !keys.includes(panel.active as string)) return invalid(`面板 ${id} 的活动标签不在标签里`);
     }
-    if (inTree.size !== panelIds.length) return invalid("树里有未登记的面板");
-    if (editors === 0) return invalid("至少要有一个编辑组");
+    if (panelIds.some((id) => !inTree.has(id) && !floating.has(id))) return invalid("有不在树里也不浮动的面板");
+    if ([...inTree].some((id) => (value.panels as Record<string, unknown>)[id] === undefined)) return invalid("树里有未登记的面板");
+    if (editors === 0) return invalid("树里至少要有一个编辑组");
     return {ok: true, doc: value as unknown as LayoutDoc};
 }

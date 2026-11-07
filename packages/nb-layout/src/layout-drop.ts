@@ -8,14 +8,16 @@
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import {placeGrid} from "./grid-rects";
 import {createGrid} from "./grid";
-import {edgeTargetOf, findTab, findTreeNode, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, setPanelHidden, showPanelAndInsert, treeLeaves} from "./layout-doc";
-import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutPolicy, LayoutResult, LayoutSource, PanelRecord, TabRef} from "./layout-doc";
+import {edgeTargetOf, findTab, findTreeNode, floatTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, setFloatRect, setPanelHidden, showPanelAndInsert, treeLeaves} from "./layout-doc";
+import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridExtent} from "./grid-types";
 
 /** 外缘窄带占这一块的比例。 */
 export const LAYOUT_EDGE_RATIO = 0.28;
+/** 整个浮动窗拖动时的窄带：只有贴着边才停靠，经过中央继续浮着（提案第 3 节）。 */
+export const LAYOUT_FLOAT_EDGE_RATIO = 0.14;
 /** 指针离一块这么近时算这一块：卡片之间的缝与分隔线都不超过这么宽。条与标题栏经 `excluded` 排除，不靠这个数。 */
 const SEAM_PX = 4;
 
@@ -25,7 +27,9 @@ export type LayoutDropAction =
     | {readonly kind: "center"; readonly panel: string}
     | {readonly kind: "edge"; readonly target: LayoutEdgeTarget}
     /** `index` 缺省插到最后。 */
-    | {readonly kind: "reveal"; readonly panel: string; readonly index?: number};
+    | {readonly kind: "reveal"; readonly panel: string; readonly index?: number}
+    /** 浮动：标签浮出来，整个浮动窗是移动。矩形每帧变，比较落点时只看种类（`layoutDropKey`）。 */
+    | {readonly kind: "float"; readonly rect: LayoutFloatRect};
 
 export interface LayoutDropPanelGeometry {
     readonly id: string;
@@ -41,6 +45,10 @@ export interface LayoutDropInput {
     readonly source: LayoutSource;
     readonly point: GridDropPoint;
     readonly panels: ReadonlyArray<LayoutDropPanelGeometry>;
+    /** 浮动窗，已按叠放从上到下排好。比条、面板、预备区都先判：它盖在它们上面，命中了就只看这一块，不穿透。 */
+    readonly floats?: ReadonlyArray<LayoutDropPanelGeometry>;
+    /** 整个浮动窗拖动：经过中央继续浮着，只有标签条和窄带能停靠。 */
+    readonly noCenter?: boolean;
     /** 不是落点的区域：条、标题栏（规则 1）。先判。 */
     readonly excluded?: ReadonlyArray<GridDropRect>;
     /** 预备区：此刻没显示的具名面板浮出的矩形。指针在真实落点上时不算。 */
@@ -50,6 +58,11 @@ export interface LayoutDropInput {
 }
 
 const contains = (rect: GridDropRect, point: GridDropPoint): boolean => point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom;
+
+const inGeometry = (geometry: LayoutDropPanelGeometry, point: GridDropPoint): boolean => contains(geometry.body, point) || (geometry.strip !== null && contains(geometry.strip, point));
+
+/** 落点的比较键：会话判断“和上次显示的是不是同一个”、实时布局判断候选稳定不稳定都用它。`float` 的矩形每帧变，只看种类。 */
+export const layoutDropKey = (action: LayoutDropAction): string => (action.kind === "float" ? "float" : JSON.stringify(action));
 
 function distanceTo(rect: GridDropRect, point: GridDropPoint): number {
     const dx = Math.max(rect.left - point.x, 0, point.x - rect.right);
@@ -71,13 +84,14 @@ function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometr
         if (!input.policy.accepts(tabs, panel, "strip")) return null;
         return {kind: "strip", panel: geometry.id, index: geometry.insertionAt?.(input.point) ?? panel.tabs.length};
     }
-    if (!input.policy.accepts(tabs, panel, "center") && !input.policy.accepts(tabs, panel, "edge")) return null;
+    const takesCenter = input.noCenter !== true && input.policy.accepts(tabs, panel, "center");
+    if (!takesCenter && !input.policy.accepts(tabs, panel, "edge")) return null;
     // 指针可能在缝上（这块之外），夹回来再判。空面板整块都是中央；进不了中央的仍按外缘判。
     const point = {x: Math.min(Math.max(input.point.x, geometry.body.left), geometry.body.right - 1), y: Math.min(Math.max(input.point.y, geometry.body.top), geometry.body.bottom - 1)};
-    const centered = panel.tabs.length === 0 && input.policy.accepts(tabs, panel, "center");
+    const centered = panel.tabs.length === 0 && takesCenter;
     const edge = centered || !input.policy.accepts(tabs, panel, "edge") ? null : nearestEdge(input, geometry, tabs, point);
     if (edge !== null) return {kind: "edge", target: edge};
-    return input.policy.accepts(tabs, panel, "center") ? {kind: "center", panel: geometry.id} : null;
+    return takesCenter ? {kind: "center", panel: geometry.id} : null;
 }
 
 const edgeTargetFor = (policy: LayoutPolicy, doc: LayoutDoc, tabs: ReadonlyArray<TabRef>, panel: string, edge: LayoutEdge): LayoutEdgeTarget | null => (policy.edgeTarget === undefined ? edgeTargetOf(doc, panel, edge) : policy.edgeTarget(doc, tabs, panel, edge));
@@ -101,15 +115,17 @@ function nearestEdge(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, 
     return null;
 }
 
-/** 这一刻指针算哪块面板，含标签条与缝；条、标题栏与面板之外是 null。 */
+/** 这一刻指针算哪块面板，含标签条与缝；条、标题栏与面板之外是 null。浮动窗盖在最上面，外缘不是缝。 */
 export function layoutDropPanelAt(input: LayoutDropInput): LayoutDropPanelGeometry | null {
+    const floated = input.floats?.find((geometry) => inGeometry(geometry, input.point));
+    if (floated !== undefined) return floated;
     if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
     const tabs = sourceTabs(input.doc, input.source);
     const accepted = (geometry: LayoutDropPanelGeometry): boolean => {
         const panel = input.doc.panels[geometry.id];
         return panel !== undefined && (["strip", "center", "edge"] as const).some((region) => input.policy.accepts(tabs, panel, region));
     };
-    const inside = input.panels.find((geometry) => contains(geometry.body, input.point) || (geometry.strip !== null && contains(geometry.strip, input.point)));
+    const inside = input.panels.find((geometry) => inGeometry(geometry, input.point));
     // 缝不是落点：归最近的能接收的那块，按它继续判。不看接收的话，两块之间的缝有一半是死区。
     return inside ?? [...input.panels]
         .filter(accepted)
@@ -122,6 +138,12 @@ export function layoutDropPanelAt(input: LayoutDropInput): LayoutDropPanelGeomet
 export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | null {
     const tabs = sourceTabs(input.doc, input.source);
     if (tabs.length === 0 && input.source.kind === "tab") return null;
+    // 浮动窗盖住的地方：它不接收就是没有落点，不穿透到底下的面板、条与预备区。
+    const floated = input.floats?.find((geometry) => inGeometry(geometry, input.point));
+    if (floated !== undefined) {
+        const panel = input.doc.panels[floated.id];
+        return panel === undefined ? null : resolveInPanel(input, floated, panel, tabs);
+    }
     if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return null;
     const hit = layoutDropPanelAt(input) ?? undefined;
     const panel = hit === undefined ? undefined : input.doc.panels[hit.id];
@@ -152,7 +174,7 @@ export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPa
     if (panel === undefined || !hasArea(geometry.body)) return null;
     const tabs = sourceTabs(input.doc, input.source);
     const centerAction: LayoutDropAction = {kind: "center", panel: geometry.id};
-    const takesCenter = input.policy.accepts(tabs, panel, "center");
+    const takesCenter = input.noCenter !== true && input.policy.accepts(tabs, panel, "center");
     if (panel.tabs.length === 0 && takesCenter) return [{id: "center", points: [[0, 0], [1, 0], [1, 1], [0, 1]], action: centerAction}];
     const targets = new Map<LayoutEdge, LayoutEdgeTarget>();
     if (input.policy.accepts(tabs, panel, "edge")) {
@@ -197,6 +219,8 @@ export function applyLayoutDrop(doc: LayoutDoc, source: LayoutSource, action: La
             return movePanelToEdge(doc, {panel: source.panel, target: action.target}, policy);
         case "reveal":
             return showPanelAndInsert(doc, {panel: action.panel, source, ...(action.index === undefined ? {} : {index: action.index})}, policy);
+        case "float":
+            return source.kind === "tab" ? floatTab(doc, {tab: source.tab, rect: action.rect}, policy) : setFloatRect(doc, {panel: source.panel, rect: action.rect});
     }
 }
 
@@ -262,6 +286,8 @@ function isInPlace(doc: LayoutDoc, source: LayoutSource, action: LayoutDropActio
             return whole !== null && (action.target.kind === "split" ? action.target.panel === whole : action.target.before === whole || action.target.after === whole);
         case "reveal":
             return false;
+        case "float":
+            return false;
     }
 }
 
@@ -298,6 +324,13 @@ export function enumerateDropCandidates(input: {
                 if (target !== null) add(leaf.id, {kind: "edge", target});
             }
         }
+    }
+    // 浮动窗排在树后面（Tab 也是）：只有标签条和中央。
+    for (const {panel: id} of doc.floats) {
+        const panel = doc.panels[id];
+        if (panel === undefined) continue;
+        if (policy.accepts(tabs, panel, "strip")) for (const index of input.stripIndexes(id)) add(id, {kind: "strip", panel: id, index});
+        if (policy.accepts(tabs, panel, "center")) add(id, {kind: "center", panel: id});
     }
     for (const panel of input.reveal ?? []) {
         const record = doc.panels[panel];
