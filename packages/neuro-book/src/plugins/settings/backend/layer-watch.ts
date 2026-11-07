@@ -201,11 +201,14 @@ async function addChain(desired: Map<string, Desired>, path: string): Promise<vo
     }
 }
 
-/** 目录的设备与 inode；不存在或不是目录为 null。 */
+/**
+ * 目录的设备、inode 与创建时间；不存在或不是目录为 null。inode 会被回收再分配：删掉目录再建时 ext4 这类文件系统可能
+ * 给新目录同一个 inode，只有创建时间能分开，否则重建后的目录不会重挂监视器，后续修改收不到。
+ */
 async function directoryIdentity(path: string): Promise<string | null> {
     try {
         const info = await stat(path);
-        return info.isDirectory() ? `${String(info.dev)}:${String(info.ino)}` : null;
+        return info.isDirectory() ? `${String(info.dev)}:${String(info.ino)}:${String(info.birthtimeMs)}` : null;
     } catch (error) {
         if (errno(error) === "ENOENT" || errno(error) === "ENOTDIR") return null;
         throw error;
