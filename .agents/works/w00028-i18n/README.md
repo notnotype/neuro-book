@@ -3,14 +3,14 @@ schema: nbook.work/v1
 workId: w00028-i18n
 issueId: null
 status: active
-updated: 2026-10-27
+updated: 2026-11-07
 ---
 
 # 界面国际化（i18n）
 
 ## 目标
 
-把 i18n 做成前端底座能力，与主题系统同级：一处定义、按当前语言消费，插件与 nb-ui 共用同一套机制。先做需求与结构设计，**不在本 Work 立即实施**（开发者 2026-10-17）。
+把 i18n 做成前端底座能力，与主题系统同级：一处定义、按当前语言消费，插件与 nb-ui 共用同一套机制。2026-10-17 起先做需求与结构设计；2026-10-27 设计定稿、提案接受后开始实施，t03 已于 2026-10-29 交付并发布。
 
 ## 现状（2026-10-17 调查）
 
@@ -34,12 +34,13 @@ updated: 2026-10-27
 
 | Task | 当前范围 |
 |---|---|
-| [t01](tasks/t01-requirements/README.md) | 目录机制设计：目录位置与清单字段、键与声明、跨运行实例与语言切换、共享包端口、nb-ui 文案、检查（未开工） |
-| [t02](tasks/t02-library-prototype/README.md) | 选库原型：在插件热装卸、共享 Vue、语言切换下验证 i18next，并定格式细节（未开工） |
-| [t03](tasks/t03-shared-packages-migration/README.md) | 共享包与迁移：端口落地、已发布包的版本与发布窗口、内联文字抽进目录（暂不开工） |
-| [t04](tasks/t04-failure-details/README.md) | 失败详情组件与常驻通知（2026-10-27 从 t01 拆出，未开工） |
+| [t01](tasks/t01-requirements/README.md) | 目录机制设计，提案《界面文字的消息目录》已接受（完成） |
+| [t02](tasks/t02-library-prototype/README.md) | 选库原型：i18next 在热装卸、共享 Vue、语言切换下成立（完成） |
+| [t03](tasks/t03-shared-packages-migration/README.md) | 共享包与迁移：端口落地、各插件与共享包迁到目录、版本发布与 registry 冒烟（完成，2026-10-29，已合入 master） |
+| [t04](tasks/t04-failure-details/README.md) | 失败详情组件与常驻通知（未开工；开工前先出设计稿给开发者看）。这是本 Work 收口前唯一没做的实质内容 |
 
 ## 授权与限制
 
-- 设计（t01、t02）先于实施；t03 等设计定稿后开工。
+- 设计（t01、t02）先于实施，已完成。
+- t04 做完即可收口本 Work；w00031 的错误投影与迁移单独继续，不等它。
 - `issueId: null`；远端操作逐次授权。
