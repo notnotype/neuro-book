@@ -85,12 +85,27 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     const memory = EMPTY_GRID_MOTION_MEMORY();
     /** 正落地的内容项：内容体一次到终点尺寸，不跟着外框。它从小卡的矩形出发，跟着走就是先压成小卡再逐帧长回去。 */
     const landing = new Set<string>();
+    /** 这一轮是布局变化开始的：落地也会先把 `moving` 打开，那时还没有上一轮的名单可以继承。 */
+    let inRound = false;
+
+    /**
+     * 摘掉过渡标记停不下进行中的过渡：`transition-property` 缺省是 all，还算匹配，过渡按开始时的时长走完，这期间量到的矩形都是中间值。这里直接走到终点，同步生效。
+     * 只看网格根的直接子元素：内容里的动画不归这里管。
+     */
+    function finishTransitions(): void {
+        for (const child of options.root.value?.children ?? []) {
+            if (typeof child.getAnimations !== "function") continue;
+            for (const animation of child.getAnimations()) if ("transitionProperty" in animation) animation.finish();
+        }
+    }
 
     function stop(): void {
         if (timer !== null) clearTimeout(timer);
         timer = null;
         if (!moving.value) return;
+        finishTransitions();
         moving.value = false;
+        inRound = false;
         landing.clear();
         growing.value = new Map();
         following.value = new Set();
@@ -103,7 +118,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         if (timer !== null) clearTimeout(timer);
         // 过渡中又来一次变化：上一轮保持最终尺寸的叶（新叶、从零出来的）继续保持，否则内容会被压到外框此刻的宽度，再跟着长回去。
         const follow = [...nextFollowing].filter((key) => !landing.has(key));
-        following.value = new Set(moving.value ? follow.filter((key) => following.value.has(key)) : follow);
+        following.value = new Set(inRound ? follow.filter((key) => following.value.has(key)) : follow);
+        inRound = true;
         moving.value = true;
         flying.value = new Set([...(flying.value), ...nextFlying]);
         timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);

@@ -136,12 +136,15 @@ const vEditorHead: Directive<HTMLElement> = {
     },
 };
 
+// 卡片的矩形每帧变，内容项不该跟着重算：只取键与来源。
+const liftedKey = computed(() => props.lifted?.key ?? null);
+const liftedHome = computed(() => props.lifted?.home ?? null);
 const contents = computed(() => {
     const items = layoutContents(props.doc, (panel) => editorHeadHeights.value[panel] ?? EDITOR_HEAD_ONE_ROW);
-    const {lifted} = props;
-    if (lifted === null || items.some((item) => item.key === lifted.key)) return items;
+    const key = liftedKey.value;
+    if (key === null || items.some((item) => item.key === key)) return items;
     // 预览把来源摘掉了：内容项还得在，不然实例就卸了。它的叶可能也不在了，矩形由 `lifted` 给。
-    return [...items, {key: lifted.key, leaf: lifted.home ?? "", insetTop: 0, active: false}];
+    return [...items, {key, leaf: liftedHome.value ?? "", insetTop: 0, active: false}];
 });
 const liftedItem = computed(() => (props.lifted === null ? null : {key: props.lifted.key, rect: props.lifted.rect}));
 const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: props.maximized, exclude: BARS}));
@@ -291,10 +294,10 @@ defineExpose({
                     </div>
                 </div>
             </template>
-            <template v-if="$slots['lifted-head'] !== undefined" #lifted-head="{contentKey}">
+            <template #lifted-head="{contentKey}">
                 <slot name="lifted-head" :content-key="contentKey"></slot>
             </template>
-            <template v-if="$slots.overlay !== undefined" #overlay>
+            <template #overlay>
                 <slot name="overlay"></slot>
             </template>
         </NestedGrid>

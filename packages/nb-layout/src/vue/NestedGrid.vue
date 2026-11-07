@@ -350,7 +350,7 @@ onBeforeUnmount(() => {
     scope.dispose();
 });
 
-// 落地要在这一轮布局的过渡判定之前登记：这个内容项不跟着外框逐帧变化。
+// 落地：这个内容项不跟着外框逐帧变化。和这一轮布局的过渡判定谁先谁后都可以（`useGridMotion.land`）。
 watch(() => props.lifted?.key ?? null, (now, before) => {
     if (now === null && before !== null) motion.land(`content:${before}`);
 });
