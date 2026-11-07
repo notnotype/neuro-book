@@ -103,6 +103,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
                 :label="label"
                 :drag-hint="dragHint"
                 :placeholder="draggingTab"
+                :animate-moves="draggingTab !== null"
                 :tab-id-of="(id: string) => panelTabDomId(idPrefix, id)"
                 :panel-id-of="(id: string) => panelTabpanelDomId(idPrefix, id)"
                 @activate="(id: string) => emit('activate', id)"

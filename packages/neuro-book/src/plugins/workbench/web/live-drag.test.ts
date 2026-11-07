@@ -1,204 +1,174 @@
+/** 实时布局的状态机（docs/specs/ui/workbench-layout.md“实时布局”）：什么时候换预览、什么时候要卡片。帧由测试推进。 */
+
 import {describe, expect, it} from "bun:test";
 
-import type {GridDropPoint, GridDropRect, LayoutDoc, LayoutDropAction} from "@notnotype/nb-layout";
+import type {GridDropRect, GridRect, LayoutDoc, LayoutDropAction} from "@notnotype/nb-layout";
 
-import {createLiveDrag} from "./live-drag";
 import type {LayoutDragDrop, LayoutTabSource} from "./layout-drag";
+import {createLiveDrag} from "./live-drag";
+import type {LiveDragHost} from "./live-drag";
 
-/**
- * 实时布局的帧循环（docs/specs/ui/workbench-layout.md“实时布局”）。判定与 DOM 由宿主给，这里推进帧、移动指针，看预览、卡片与空位。真实浏览器里的邻居让位在 e2e/workbench-live-drag.e2e.ts。
- */
+const SOURCE: LayoutTabSource = {kind: "tab", tab: "view:a"};
+const DOC = {} as LayoutDoc;
+const REMOVED = {} as LayoutDoc;
+const preview = {areaRect: null, indicator: null, orientation: "horizontal" as const};
+const dropOf = (action: LayoutDropAction, inPlace = false): LayoutDragDrop => ({action, inPlace, preview});
+const strip = (panel: string, index = 0): LayoutDragDrop => dropOf({kind: "strip", panel, index});
+const CENTER = dropOf({kind: "center", panel: "other"});
+const RECTS: Readonly<Record<string, GridDropRect>> = {home: {left: 0, top: 0, right: 600, bottom: 800}, other: {left: 600, top: 0, right: 1400, bottom: 800}};
 
-const SOURCE: LayoutTabSource = {kind: "tab", tab: "view:v"};
-const rect = (left: number, top: number, right: number, bottom: number): GridDropRect => ({left, top, right, bottom});
-
-/** 文档在这里只是令牌：实时布局不看内容，只转交。 */
-const token = (name: string): LayoutDoc => ({name}) as unknown as LayoutDoc;
-const REMOVED = token("removed");
-const CANDIDATE = token("candidate");
-
-const drop = (action: LayoutDropAction, over: Partial<LayoutDragDrop> = {}): LayoutDragDrop => ({action, inPlace: false, preview: {areaRect: null, indicator: null, orientation: "horizontal"}, ...over});
-
-function harness(options: {readonly candidate?: LayoutDoc | null; readonly panels?: Readonly<Record<string, GridDropRect>>} = {}) {
-    const frames = new Map<number, (now: number) => void>();
-    let nextFrame = 1;
-    let listener: ((point: GridDropPoint) => void) | null = null;
+function setup(over: Partial<LiveDragHost> = {}) {
+    let scheduled: ((now: number) => void) | null = null;
+    let now = 1000;
     const shown: Array<LayoutDoc | null> = [];
-    const panels = options.panels ?? {a: rect(100, 100, 900, 700)};
+    const placed: GridRect[] = [];
     const live = createLiveDrag({
         requestFrame: (run) => {
-            frames.set(nextFrame, run);
-            return nextFrame++;
+            scheduled = run;
+            return 1;
         },
-        cancelFrame: (frame) => frames.delete(frame),
-        panelRect: (panel) => panels[panel] ?? null,
-        gridOrigin: () => ({x: 10, y: 20}),
-        trackPointer: (next) => {
-            listener = next;
-            return () => {
-                listener = null;
-            };
+        cancelFrame: () => {
+            scheduled = null;
         },
-        candidateDoc: () => (options.candidate === undefined ? CANDIDATE : options.candidate),
+        panelRect: (panel) => RECTS[panel] ?? null,
+        gridOrigin: () => ({x: 0, y: 0}),
+        settleDrop: () => undefined,
+        pointer: () => null,
+        placeCard: (rect) => placed.push(rect),
+        cardShrink: () => "strip",
+        candidateDoc: () => DOC,
         sourceRemovedDoc: () => REMOVED,
-        homeOf: () => "a",
+        homeOf: () => "home",
         show: (doc) => shown.push(doc),
+        ...over,
     });
-    let now = 1000;
-    const advance = (ms: number): void => {
-        now += ms;
-        const pending = [...frames.values()];
-        frames.clear();
-        for (const run of pending) run(now);
+    const frame = (advance = 16): void => {
+        now += advance;
+        const run = scheduled;
+        scheduled = null;
+        run?.(now);
     };
-    return {live, shown, advance, frameCount: () => frames.size, tracking: () => listener !== null, point: (x: number, y: number) => listener?.({x, y})};
+    return {live, frame, shown, placed};
 }
 
-describe("实时布局的帧循环", () => {
-    it("来源自己那条标签条里：不拿起卡片，预览马上换，不等稳定", () => {
-        const {live, shown, advance} = harness();
-        live.begin(SOURCE, {x: 200, y: 110});
-        live.offer(drop({kind: "strip", panel: "a", index: 2}));
-        advance(16);
-        expect(live.card.value).toBeNull();
-        expect(shown).toEqual([CANDIDATE]);
-        expect(live.previewKey.value).toContain("strip");
+describe("createLiveDrag", () => {
+    it("自己的标签条马上换预览，不要卡片", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 100, y: 10});
+        t.live.offer(strip("home", 1));
+        t.frame();
+        expect(t.shown).toEqual([DOC]);
+        expect(t.live.card.value).toBeNull();
     });
 
-    it("离开标签条：内容抬成卡片，抓住的点在指针下；离开来源面板后缩到小卡，抓住的点还在指针下", () => {
-        const {live, advance, point} = harness();
-        live.begin(SOURCE, {x: 500, y: 400});
-        live.offer(null);
-        advance(16);
-        const lifted = live.card.value;
-        expect(lifted?.key).toBe(SOURCE.tab);
-        // 抓住的点是面板中央，矩形相对网格根（10、20）：
-        expect(lifted?.rect.x).toBeCloseTo(500 - 10 - 400, 0);
-        expect(lifted?.rect.width).toBeGreaterThan(780);
-
-        point(1500, 900);
-        for (let index = 0; index < 60; index += 1) advance(16);
-        const card = live.card.value;
-        expect(card?.rect.width).toBeCloseTo(380, 0);
-        expect(card?.rect.height).toBeCloseTo(260, 0);
-        const grabX = (500 - 100) / 800;
-        expect((card?.rect.x ?? 0) + grabX * (card?.rect.width ?? 0)).toBeCloseTo(1500 - 10, 0);
+    it("放回自己标签条的原位：没有预览，也不要卡片", () => {
+        const t = setup({candidateDoc: () => null});
+        t.live.begin(SOURCE, {x: 100, y: 10});
+        t.live.offer(dropOf({kind: "strip", panel: "home", index: 0}, true));
+        t.frame();
+        expect(t.live.card.value).toBeNull();
     });
 
-    it("指针不动、缩放收敛之后不换卡片对象：渲染链不跟着每帧重跑", () => {
-        const {live, advance, point} = harness();
-        live.begin(SOURCE, {x: 500, y: 400});
-        live.offer(null);
-        advance(16);
-        point(1500, 900);
-        for (let index = 0; index < 200; index += 1) advance(16);
-        const settled = live.card.value;
-        advance(16);
-        advance(16);
-        expect(live.card.value).toBe(settled);
+    it("正文里放回原处要卡片：只有标签条才不要", () => {
+        const t = setup({candidateDoc: () => null});
+        t.live.begin(SOURCE, {x: 100, y: 400});
+        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.frame();
+        expect(t.live.card.value).toEqual({key: SOURCE.tab});
     });
 
-    it("别人的标签条也拿起卡片：预览把来源摘掉了，内容靠拿起留着；卡片从来源的面板开始缩", () => {
-        const panels = {a: rect(0, 0, 1000, 800), b: rect(1000, 0, 2000, 800)};
-        const {live, advance} = harness({panels});
-        live.begin(SOURCE, {x: 500, y: 20});
-        live.offer(drop({kind: "strip", panel: "b", index: 0}));
-        advance(16);
-        expect(live.card.value).not.toBeNull();
-        expect(live.card.value?.rect.width).toBeGreaterThan(900);
+    it("第一次进别的标签条等够稳定才吸收：这之前卡片留着，路过不换预览", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 700, y: 400});
+        t.live.offer(CENTER);
+        t.frame();
+        t.frame(200);
+        expect(t.shown).toEqual([DOC]);
+        t.live.offer(strip("other"));
+        t.frame();
+        expect(t.live.card.value).toEqual({key: SOURCE.tab});
+        expect(t.shown.length).toBe(1);
+        t.frame(200);
+        expect(t.shown.length).toBe(2);
+        expect(t.live.card.value).toBeNull();
     });
 
-    it("摆不出预览（编辑器要合并、原位）：没有已显示的动作，盖层不画", () => {
-        const {live, advance} = harness({candidate: null});
-        live.begin(SOURCE, {x: 500, y: 400});
-        live.offer(drop({kind: "center", panel: "b"}));
-        advance(16);
-        advance(200);
-        expect(live.previewKey.value).toContain("center");
-        expect(live.shownAction.value).toBeNull();
+    it("吸收之后在这条标签条里换位不等；离开就要卡片，不等预览换", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 700, y: 10});
+        t.live.offer(strip("other", 0));
+        t.frame();
+        t.frame(200);
+        expect(t.live.card.value).toBeNull();
+        const shownBefore = t.shown.length;
+        t.live.offer(strip("other", 1));
+        t.frame();
+        expect(t.shown.length).toBe(shownBefore + 1);
+        t.live.offer(CENTER);
+        t.frame();
+        expect(t.live.card.value).toEqual({key: SOURCE.tab});
+        expect(t.shown.length).toBe(shownBefore + 1);
     });
 
-    it("候选要稳定：一直换就不摆，留在来源收起；稳定之后才摆", () => {
-        const {live, shown, advance} = harness();
-        live.begin(SOURCE, {x: 500, y: 400});
-        live.offer(null);
-        advance(16);
-        advance(16);
-        for (const panel of ["b", "c", "d", "e"]) {
-            live.offer(drop({kind: "center", panel}));
-            advance(60);
-        }
-        expect(shown).not.toContain(CANDIDATE);
-        advance(200);
-        expect(shown.at(-1)).toBe(CANDIDATE);
-        expect(live.shownAction.value).toEqual({kind: "center", panel: "e"});
+    it("编辑器摆不出来（预览是 null）时不算吸收：卡片留着", () => {
+        const t = setup({candidateDoc: () => null});
+        t.live.begin(SOURCE, {x: 700, y: 10});
+        t.live.offer(strip("other"));
+        t.frame();
+        t.frame(200);
+        expect(t.live.card.value).toEqual({key: SOURCE.tab});
     });
 
-    it("浮动的矩形每帧变，候选还是稳定的：指针动着也摆", () => {
-        const {live, advance} = harness();
-        live.begin(SOURCE, {x: 500, y: 400});
-        const floating = (x: number): LayoutDragDrop => drop({kind: "float", rect: {x, y: 0, width: 460, height: 340}});
-        for (let at = 0; at < 12; at += 1) {
-            live.offer(floating(at * 10));
-            advance(16);
-        }
-        advance(50);
-        expect(live.previewKey.value).toContain("float");
-        expect(live.card.value).not.toBeNull();
+    it("卡片缩小的时机：缺省离开标签条就缩到紧凑，从面板的大小开始", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 300, y: 400});
+        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.frame();
+        expect(t.placed[0]?.width).toBe(600);
+        for (let index = 0; index < 60; index += 1) t.frame();
+        expect(t.placed.at(-1)?.width).toBe(380);
+        expect(t.placed.at(-1)?.height).toBe(260);
     });
 
-    it("摆不出提交后的样子（编辑器拒绝）：回到已提交的布局", () => {
-        const {live, shown, advance} = harness({candidate: null});
-        live.begin(SOURCE, {x: 500, y: 400});
-        live.offer(drop({kind: "center", panel: "b"}));
-        advance(16);
-        advance(200);
-        expect(shown.at(-1)).toBeNull();
+    it("设置离开面板才缩：来源面板里是原大小，离开才缩；吸收之后“来源面板”不变", () => {
+        let pointer = {x: 300, y: 400};
+        const t = setup({cardShrink: () => "panel", pointer: () => pointer});
+        t.live.begin(SOURCE, pointer);
+        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.frame();
+        for (let index = 0; index < 30; index += 1) t.frame();
+        expect(t.placed.at(-1)?.width).toBe(600);
+        pointer = {x: 900, y: 400};
+        t.live.offer(strip("other"));
+        t.frame();
+        t.frame(200);
+        expect(t.live.card.value).toBeNull();
+        // 从吸收它的那块面板拿起（800 宽），指针不在来源面板里：缩。
+        t.live.offer(CENTER);
+        t.frame();
+        expect(t.placed.at(-1)?.width).toBeGreaterThan(700);
+        for (let index = 0; index < 60; index += 1) t.frame();
+        expect(t.placed.at(-1)?.width).toBe(380);
     });
 
-    it("长出新面板的落点有空位；指针还在空位里时算这个落点（粘滞），出了空位不算", () => {
-        const {live, advance} = harness();
-        const edge = drop({kind: "edge", target: {kind: "split", panel: "b", edge: "right"}}, {preview: {areaRect: rect(300, 300, 500, 500), indicator: null, orientation: "horizontal"}});
-        live.begin(SOURCE, {x: 400, y: 400});
-        live.offer(edge);
-        advance(16);
-        advance(200);
-        expect(live.slot.value).toEqual({x: 290, y: 280, width: 200, height: 200});
-        expect(live.stickyDrop({x: 400, y: 400})).toBe(edge);
-        expect(live.stickyDrop({x: 700, y: 400})).toBeNull();
+    it("指针不动、缩放结束之后不再写", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 300, y: 400});
+        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        for (let index = 0; index < 120; index += 1) t.frame();
+        const writes = t.placed.length;
+        for (let index = 0; index < 30; index += 1) t.frame();
+        expect(t.placed.length).toBe(writes);
     });
 
-    it("活动栏的落点不改卡片的状态：已经拿起的继续跟手，没拿起的不拿起", () => {
-        const bar = drop({kind: "strip", panel: "sidebar", index: 0}, {noPreview: true});
-        const lifted = harness();
-        lifted.live.begin(SOURCE, {x: 500, y: 400});
-        lifted.live.offer(null);
-        lifted.advance(16);
-        lifted.live.offer(bar);
-        lifted.advance(16);
-        expect(lifted.live.card.value).not.toBeNull();
-
-        const inStrip = harness();
-        inStrip.live.begin(SOURCE, {x: 500, y: 110});
-        inStrip.live.offer(bar);
-        inStrip.advance(16);
-        expect(inStrip.live.card.value).toBeNull();
-    });
-
-    it("收场：撤预览、停帧循环、停跟踪指针，什么都不留", () => {
-        const {live, shown, advance, frameCount, tracking} = harness();
-        live.begin(SOURCE, {x: 500, y: 400});
-        live.offer(drop({kind: "center", panel: "b"}));
-        advance(16);
-        advance(200);
-        live.end();
-        expect(shown.at(-1)).toBeNull();
-        expect(frameCount()).toBe(0);
-        expect(tracking()).toBe(false);
-        expect(live.active.value).toBe(false);
-        expect(live.card.value).toBeNull();
-        expect(live.slot.value).toBeNull();
-        expect(live.previewKey.value).toBe("none");
-        expect(live.stickyDrop({x: 400, y: 400})).toBeNull();
+    it("判定时结构变了结束这一场：这一帧不再往下做", () => {
+        const holder: {end?: () => void} = {};
+        const t = setup({settleDrop: () => holder.end?.()});
+        holder.end = () => t.live.end();
+        t.live.begin(SOURCE, {x: 300, y: 400});
+        t.live.offer(strip("home"));
+        t.frame();
+        expect(t.live.active.value).toBe(false);
+        expect(t.shown).toEqual([null]);
     });
 });

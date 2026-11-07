@@ -36,7 +36,9 @@ const props = withDefaults(defineProps<{
     items?: ReadonlyArray<ToolStripItem>;
     /** 条目的可访问描述：怎么拿起拖动。 */
     dragHint?: string;
-}>(), {items: () => [], dragHint: ""});
+    /** 这个条目留着盒子、看不见：它正被拖着（实时布局），别的条目让出它的位置。 */
+    placeholder?: string | null;
+}>(), {items: () => [], dragHint: "", placeholder: null});
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
@@ -91,21 +93,26 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 <template>
     <nav class="workbench-tool-strip" :aria-label="label">
         <div ref="bandEl" class="workbench-tool-strip__entries" data-tool-band>
-            <Tooltip v-for="entry in shownEntries" :key="entry.id" :text="entry.label" side="right">
-                <IconButton
-                    size="lg"
-                    :icon-class="entry.icon"
-                    :aria-label="entry.label"
-                    :aria-pressed="entry.pressed"
-                    :aria-description="dragHint === '' ? undefined : dragHint"
-                    :data-tool-entry="entry.id"
-                    class="workbench-tool-strip__item"
-                    :class="{'workbench-tool-strip__item--active': entry.pressed}"
-                    @mousedown.prevent
-                    @click="emit('select', entry.id)"
-                    @contextmenu="onEntryContextMenu(entry.id, $event)"
-                />
-            </Tooltip>
+            <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
+            <TransitionGroup tag="div" class="workbench-tool-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-tool-strip__frame--moving' : 'workbench-tool-strip__frame--still'">
+                <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
+                    <Tooltip :text="entry.label" side="right">
+                        <IconButton
+                            size="lg"
+                            :icon-class="entry.icon"
+                            :aria-label="entry.label"
+                            :aria-pressed="entry.pressed"
+                            :aria-description="dragHint === '' ? undefined : dragHint"
+                            :data-tool-entry="entry.id"
+                            class="workbench-tool-strip__item"
+                            :class="{'workbench-tool-strip__item--active': entry.pressed}"
+                            @mousedown.prevent
+                            @click="emit('select', entry.id)"
+                            @contextmenu="onEntryContextMenu(entry.id, $event)"
+                        />
+                    </Tooltip>
+                </div>
+            </TransitionGroup>
             <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" @select="(id: string) => emit('select', id)">
                 <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-tool-strip__item" data-tool-more />
             </DropdownMenu>
@@ -173,6 +180,24 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
     padding-block: var(--space-2);
     overflow-y: auto;
     scrollbar-width: none;
+}
+
+/* 条目直接排在上段的列里：这一层只给 `TransitionGroup` 一个容器。 */
+.workbench-tool-strip__list {
+    display: contents;
+}
+
+.workbench-tool-strip__frame {
+    display: flex;
+    flex: 0 0 auto;
+}
+
+.workbench-tool-strip__frame--moving {
+    transition: transform var(--motion-move) var(--ease-layout);
+}
+
+.workbench-tool-strip__frame--placeholder {
+    visibility: hidden;
 }
 
 /* 底段贴着列底，不滚动：放不下时上段先滚动。上下留出与上段相同的余地，按钮的焦点光环不被列裁掉。 */

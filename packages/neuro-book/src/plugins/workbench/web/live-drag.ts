@@ -23,7 +23,7 @@ const CARD_STILL_PX = 0.1;
 export interface LiveDragHost {
     requestFrame(run: (now: number) => void): number;
     cancelFrame(frame: number): void;
-    /** 这块面板此刻的卡片矩形（视口坐标）；没有为 null。 */
+    /** 这块面板拿起时的卡片矩形（视口坐标）；那时隐藏着、量不到是 null。不读 DOM：预览的过渡中间读到的是中间值。 */
     panelRect(panel: string): GridDropRect | null;
     /** 网格根的左上角（视口坐标）：拿起的内容与盖层的坐标相对它。拿起时读一次：容器变了整场取消。 */
     gridOrigin(): {readonly x: number; readonly y: number};
@@ -39,7 +39,7 @@ export interface LiveDragHost {
     candidateDoc(source: LayoutTabSource, drop: LayoutDragDrop): LayoutDoc | null;
     /** 摘掉来源后的文档。 */
     sourceRemovedDoc(source: LayoutTabSource): LayoutDoc | null;
-    /** 来源在已提交的文档里所在的面板。预览可能把它摘掉，卡片还是从这块缩出来。 */
+    /** 来源在已提交的文档里所在的面板。 */
     homeOf(source: LayoutTabSource): string | null;
     show(doc: LayoutDoc | null): void;
 }
@@ -49,7 +49,7 @@ export interface LiveDrag {
     readonly active: Readonly<Ref<boolean>>;
     /** 此刻预览的是什么：`none`、`source-removed` 或候选的键。e2e 等它，不按时长等。 */
     readonly previewKey: Readonly<Ref<string>>;
-    /** 拿起的内容项；在标签条里、没拿起时为 null。只在拿起与放下时变，矩形经 `placeCard` 写。 */
+    /** 拿起的内容项；被标签条吸收、没拿起时为 null。只在拿起与放下时变，矩形经 `placeCard` 写。 */
     readonly card: Readonly<Ref<{readonly key: string} | null>>;
     /** 已显示的空位（相对网格根）；没有新面板时为 null。 */
     readonly slot: Readonly<Ref<GridRect | null>>;
@@ -67,6 +67,8 @@ export interface LiveDrag {
 
 const clampUnit = (value: number): number => Math.min(1, Math.max(0, value));
 const keyOf = (drop: LayoutDragDrop): string => (drop.inPlace ? "in-place" : JSON.stringify([layoutDropKey(drop.action), drop.part ?? null]));
+/** 落在哪块面板的标签条上（活动栏是侧栏的标签条）；不是标签条为 null。 */
+const stripOf = ({kind, ...action}: LayoutDropAction): string | null => (kind === "strip" || kind === "reveal" ? (action as {readonly panel: string}).panel : null);
 
 export function createLiveDrag(host: LiveDragHost): LiveDrag {
     const active = shallowRef(false);
@@ -82,7 +84,10 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     /** 卡片此刻的尺寸与抓住的那一点（占卡片的比例）：缩放时抓住的点一直在指针下。 */
     let cardSize: {width: number; height: number} | null = null;
     let grab = {x: 0.5, y: 0};
-    let homeRect: GridDropRect | null = null;
+    /** 来源面板的矩形：这一场第一次要卡片时量，之后不变（吸收之后“来源面板”还是它）。undefined 是还没量。 */
+    let homeRect: GridDropRect | null | undefined;
+    /** 已经吸收来源的标签条是哪块面板的：预览摆着它（或它本来就在那里）。 */
+    let absorbedIn: string | null = null;
     let lastFrame = 0;
     let state: LiveDropState = initialLiveDrop(0);
     let started = false;
@@ -91,21 +96,19 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     let frame: number | null = null;
     function candidateOf(drop: LayoutDragDrop, from: LayoutTabSource): LiveDropCandidate {
         const {action} = drop;
-        // 自己那条标签条要跟手。别人的标签条是并入：预览不动它，和中央一样等候选稳定。
-        const inStrip = action.kind === "strip" && host.homeOf(from) === action.panel;
+        // 自己的标签条、已经吸收它的那条要跟手。第一次进别的标签条和别的落点一样等稳定：路过不闪，也不会路过活动栏就把隐藏的侧栏弹出来。
+        const strip = stripOf(action);
+        const immediate = strip !== null && (strip === host.homeOf(from) || strip === absorbedIn);
         // 只有长出新面板的落点有空位：并进已有面板时空位就是它的整块正文，粘住了它自己的外缘就选不到了。
         const grows = !drop.inPlace && action.kind === "edge";
-        return {key: keyOf(drop), immediate: inStrip, slot: grows ? drop.preview.areaRect : null};
+        return {key: keyOf(drop), immediate, slot: grows ? drop.preview.areaRect : null};
     }
 
-    /**
-     * 自己的标签条里不拿起：只有标签跟手，内容留在面板里。别人的标签条要拿起：并入的预览把来源摘掉了，内容靠拿起留着（`WorkbenchSurface` 的 `contents`），不拿起实例就卸了。
-     * 活动栏的落点不改这个状态：已经拿起的继续跟手。
-     */
+    /** 指针落在标签条上并且已经被它吸收时不要卡片：只有标签跟手。还没等够稳定时卡片留着，内容靠拿起留着（`WorkbenchSurface` 的 `contents`）。 */
     function wantsCard(): boolean {
-        if (offered === null || source === null) return true;
-        if (offered.noPreview === true) return card.value !== null;
-        return offered.action.kind !== "strip" || host.homeOf(source) !== offered.action.panel;
+        if (offered === null) return true;
+        const strip = stripOf(offered.action);
+        return strip === null || !(offered.inPlace || strip === absorbedIn);
     }
 
     function updateCard(now: number): void {
@@ -115,17 +118,18 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             written = null;
             return;
         }
+        const homePanel = host.homeOf(source);
+        if (homeRect === undefined) homeRect = homePanel === null ? null : host.panelRect(homePanel);
+        const home = homeRect;
         if (cardSize === null) {
-            // 撕下来：从来源的面板开始缩。
-            const panel = host.homeOf(source);
-            const rect = panel === null ? null : host.panelRect(panel);
-            homeRect = rect;
-            const width = rect === null ? CARD_COMPACT.width : rect.right - rect.left;
-            const height = rect === null ? CARD_COMPACT.height : rect.bottom - rect.top;
+            // 撕下来：从此刻显示着它的那块面板开始缩。
+            const showing = absorbedIn ?? homePanel;
+            const rect = showing === null ? null : host.panelRect(showing);
+            const width = rect === null ? Math.min(CARD_COMPACT.width, home === null ? CARD_COMPACT.width : home.right - home.left) : rect.right - rect.left;
+            const height = rect === null ? Math.min(CARD_COMPACT.height, home === null ? CARD_COMPACT.height : home.bottom - home.top) : rect.bottom - rect.top;
             cardSize = {width, height};
             grab = rect === null ? {x: 0.5, y: 0} : {x: clampUnit((pointer.x - rect.left) / width), y: clampUnit((pointer.y - rect.top) / height)};
         }
-        const home = homeRect;
         const inHome = host.cardShrink() === "panel" && home !== null && pointer.x >= home.left && pointer.x < home.right && pointer.y >= home.top && pointer.y < home.bottom;
         const target = inHome ? {width: home.right - home.left, height: home.bottom - home.top} : {
             width: Math.min(CARD_COMPACT.width, home === null ? CARD_COMPACT.width : home.right - home.left),
@@ -156,13 +160,15 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             shown = offered;
             previewKey.value = preview.key;
             const doc = offered === null ? null : host.candidateDoc(from, offered);
-            // 摆不出来（原位、活动栏、编辑器会合并或拒绝）就没有预览，盖层看它。
+            // 摆不出来（原位、编辑器会合并或拒绝）就没有预览，盖层看它。
             shownAction.value = doc === null ? null : (offered?.action ?? null);
+            absorbedIn = offered !== null && (offered.inPlace || doc !== null) ? stripOf(offered.action) : null;
             host.show(doc);
         } else if (preview.kind === "source-removed") {
             shown = null;
             previewKey.value = "source-removed";
             shownAction.value = null;
+            absorbedIn = null;
             host.show(host.sourceRemovedDoc(from));
         }
         slot.value = state.slot === null ? null : {x: state.slot.left - origin.x, y: state.slot.top - origin.y, width: state.slot.right - state.slot.left, height: state.slot.bottom - state.slot.top};
@@ -192,6 +198,8 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             pointer = point;
             origin = host.gridOrigin();
             cardSize = null;
+            homeRect = undefined;
+            absorbedIn = null;
             written = null;
             lastFrame = 0;
             state = initialLiveDrop(0);

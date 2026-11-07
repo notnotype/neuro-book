@@ -13,7 +13,7 @@
 
 ## 交互
 
-- 点视图条目发 `select(id)`，收在“更多”里的也一样。鼠标点不抢焦点：隐藏面板时焦点留在原处。条目的 `aria-pressed` 是视图有效可见。条目是拖动源，组件只写 `data-tool-entry` 标记；条目区写 `data-tool-band`，它是工具视图的落点，判定与插入线由宿主的拖动做。
+- 点视图条目发 `select(id)`，收在“更多”里的也一样。鼠标点不抢焦点：隐藏面板时焦点留在原处。条目的 `aria-pressed` 是视图有效可见。条目是拖动源，组件只写 `data-tool-entry` 标记；条目区写 `data-tool-band`，它是工具视图的落点，判定与插入线由宿主的拖动做。实时布局下活动栏和别的标签条一样吸收来源：`placeholder` 这个条目留着盒子、看不见，别的条目滑开（`--motion-move`，只在拖动中开）。
 - 条目的右键或菜单键发 `context-menu`（“移动到”由宿主开）。菜单键时坐标是条目右上角。
 - 底段有命令的条目点了发 `run-item(id)`；不可用时停用，原因写在原生 `title`（停用的按钮不触发悬停提示组件）。声明了切换状态的带 `aria-pressed`。
 - 底段的占位不可聚焦、不可点，读屏读作一张带标题的图。
@@ -55,6 +55,8 @@ type Props = {
     items?: ReadonlyArray<ToolStripItem>;
     /** 条目的可访问描述；默认不写。 */
     dragHint?: string;
+    /** 这个条目留着盒子、看不见：它正被拖着（实时布局）。 */
+    placeholder?: string | null;
 };
 
 type Emits = {

@@ -395,20 +395,93 @@ test.describe("实时布局", () => {
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
-    test("别人的标签条上：卡片拿着，内容还是同一个节点，盖层里有插入线；放到线的位置（输出 38）", async ({page}) => {
+    test("别人的标签条上被吸收：卡片收回，预览是放下的样子，零写入；离开卡片回来，目标恢复；放下就是预览的样子（输出 38）", async ({page}) => {
         await open(page);
+        const writes = await writesOf(page);
         const node = await content(page, AUXILIARY_VIEW).elementHandle();
+        const head = page.locator("[data-panel-head=\"panel\"]");
+        const activeBefore = await head.locator("[data-panel-tab][aria-selected=\"true\"]").getAttribute("data-panel-tab");
         await lift(page, tab(page, AUXILIARY_VIEW));
-        const strip = await page.locator("[data-panel-head=\"panel\"]").locator("[data-panel-tab]").first().boundingBox();
+        const strip = await head.locator("[data-panel-tab]").first().boundingBox();
         if (strip === null) throw new Error("面板没有标签");
         await page.mouse.move(strip.x + 2, strip.y + strip.height / 2, {steps: 6});
-        await expect(page.locator("[data-live-merge]")).toHaveAttribute("data-live-merge-panel", "panel");
-        await expect(page.locator("[data-live-merge-line]")).toBeVisible();
-        await expect(page.locator("[data-drag-card-head]")).toBeVisible();
+        const card = page.locator("[data-lifted]");
+        const placed = head.locator(`[data-panel-tab="view:${AUXILIARY_VIEW}"]`);
+        await expect(placed).toHaveCount(1);
+        await expect(card).toHaveCount(0);
+        await expect(ghost(page)).toBeVisible();
+        await expect(page.locator("[data-live-merge]")).toHaveCount(0);
+        // 留着位置、看不见，是这块面板的活动标签；内容是同一个节点。
+        expect(await placed.evaluate((element) => getComputedStyle(element.parentElement as Element).visibility)).toBe("hidden");
+        await expect(placed).toHaveAttribute("aria-selected", "true");
         expect(await content(page, AUXILIARY_VIEW).evaluate((element, other) => element === other && element.isConnected, node)).toBe(true);
+        expect(await writesOf(page)).toBe(writes);
+        // 离开标签条：卡片回来；预览换走之后目标恢复。
+        const away = await inLeaf(page, "panel", {x: 0.5, y: 0.6});
+        await page.mouse.move(away.x, away.y, {steps: 3});
+        await expect(card).toHaveCount(1);
+        await expect(ghost(page)).toHaveCount(0);
+        await expect(head.locator("[data-panel-tab][aria-selected=\"true\"]")).toHaveAttribute("data-panel-tab", activeBefore ?? "");
+        // 回去，放下。
+        await page.mouse.move(strip.x + 2, strip.y + strip.height / 2, {steps: 3});
+        await expect(card).toHaveCount(0);
         await page.mouse.up();
         await expect.poll(() => panelOfTab(page, AUXILIARY_VIEW)).toBe("panel");
-        await expect(page.locator("[data-panel-head=\"panel\"]").locator("[data-panel-tab]").first()).toHaveAttribute("data-panel-tab", `view:${AUXILIARY_VIEW}`);
+        await expect(head.locator("[data-panel-tab]").first()).toHaveAttribute("data-panel-tab", `view:${AUXILIARY_VIEW}`);
+        expect(await content(page, AUXILIARY_VIEW).evaluate((element, other) => element === other, node)).toBe(true);
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+    });
+
+    test("活动栏也是标签条：别处的视图放上去被吸收，条目让位，零写入；Esc 回原样；放下进侧栏（输出 22、38）", async ({page}) => {
+        await open(page);
+        const writes = await writesOf(page);
+        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        const before = await entries.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry));
+        const first = await entries.first().boundingBox();
+        if (first === null || before.length === 0) throw new Error("活动栏没有条目");
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        await page.mouse.move(first.x + first.width / 2, first.y + 2, {steps: 6});
+        const placed = page.locator(`[data-tool-band] [data-tool-entry="${AUXILIARY_VIEW}"]`);
+        await expect(placed).toHaveCount(1);
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        await expect(ghost(page)).toBeVisible();
+        expect(await placed.evaluate((element) => getComputedStyle(element.closest(".workbench-tool-strip__frame") as Element).visibility)).toBe("hidden");
+        await expect.poll(() => entries.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry))).toEqual([AUXILIARY_VIEW, ...before]);
+        expect(await writesOf(page)).toBe(writes);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect.poll(() => entries.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry))).toEqual(before);
+        expect(await writesOf(page)).toBe(writes);
+        await settled(page);
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        await page.mouse.move(first.x + first.width / 2, first.y + 2, {steps: 6});
+        await expect(placed).toHaveCount(1);
+        await page.mouse.up();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        await expect.poll(() => entries.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry))).toEqual([AUXILIARY_VIEW, ...before]);
+    });
+
+    test("活动栏里换序：别的图标滑开（真的播了过渡），只有拖影跟手", async ({page}) => {
+        await open(page);
+        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        expect(await entries.count()).toBeGreaterThan(1);
+        const second = await entries.nth(1).boundingBox();
+        if (second === null) throw new Error("没有第二个条目");
+        await page.evaluate(() => {
+            const host = window as unknown as {__toolMoved: boolean};
+            host.__toolMoved = false;
+            new MutationObserver((records) => {
+                if (records.some((record) => (record.target as Element).classList.contains("workbench-tool-strip__frame--moving"))) host.__toolMoved = true;
+            }).observe(document.querySelector("[data-tool-band]") as Element, {subtree: true, attributes: true, attributeFilter: ["class"]});
+        });
+        await lift(page, entries.first());
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        await page.mouse.move(second.x + second.width / 2, second.y + second.height - 2, {steps: 6});
+        await expect.poll(() => page.evaluate(() => (window as unknown as {__toolMoved: boolean}).__toolMoved)).toBe(true);
+        await expect(ghost(page)).toBeVisible();
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
     });
 
     test("中途窗口变了：整场取消", async ({page}) => {
