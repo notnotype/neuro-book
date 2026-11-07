@@ -1,0 +1,176 @@
+# t04 失败详情载体与常驻通知设计审查
+
+按影响排序。以下问题均基于计划、现行合同和实现核实。
+
+## 1. 重要；接口与合同
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:75-78`。
+
+**现象**：计划要求 `update` 改 `detail` 时重算时长，但给出的工作台服务逻辑只把 `sticky`、`tone`、`action` 纳入 `merged` 和 `rescheduling`，没有把 `detail` 纳入；`queue.update` 也只有收到 `duration` 才会重新排计时。服务对每次 `notify` 都显式传入折算后的 `duration`，所以 nb-ui 那边“有 detail 缺省 0”不能补上这个遗漏。
+
+**为什么是问题**：限时 warning/info 通知执行 `handle.update({detail: "..."})` 时仍按原时长消失；常驻通知清空或改动 `detail` 时也不会按新语义重算。主设计决定“带详情一律常驻”与 Spec 输出 5 的更新重算因此无法按字面实现，诊断详情可能在用户打开前丢失。
+
+**如何核实**：静态对照 `packages/neuro-book/src/plugins/workbench/web/notifications.ts:29-31,65-78` 与计划 `:77-78`；当前队列 `packages/nb-ui/src/composables/useNotification.ts:126-139` 只在 `patch.duration !== undefined` 时重排。可用真实 DOM 队列发 `warning`，再执行 `handle.update({detail: "x"})`，观察 `queue.notifications.value[0].duration` 与最终移除。
+
+**建议改法**：把 `detail` 加入服务的合并、重算条件和透传；明确“新增、替换、清除 detail”各自的 sticky 判据，并为三条 update 路径各写真实队列合同测试。
+
+## 2. 重要；与已定设计一致性
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/README.md:32`；`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:56,78`；`docs/specs/workbench/notifications.md:53,55`。
+
+**现象**：设计决定写的是“带详情的通知一律常驻”，但计划同时写“明确给的 `duration` 仍优先”和服务的 `sticky ?? (tone === danger || action !== undefined || detail !== undefined)`；`sticky: false` 会覆盖 `detail`，而 nb-ui 直接队列调用中 `detail` 加显式正 `duration` 也会限时。Spec 又要求“明确给过的 `sticky` 一直算数”。
+
+**为什么是问题**：这里没有定义 `detail`、显式 `sticky: false`、显式 `duration` 三者的优先级。照决定 1 实现会破坏 Spec 的显式 sticky 语义；照计划实现又会产生“有详情但自动消失”的通知，不能让后续 t05 依赖一个稳定合同。
+
+**如何核实**：逐字对照上述四处；对 nb-ui 队列调用 `queue.notify({message: "x", detail: "诊断", duration: 20})`，对工作台服务调用 `notify({message: "x", detail: "诊断", sticky: false})`，两者都会与“一律常驻”的字面决定冲突。
+
+**建议改法**：在 Spec 和计划中先选定唯一优先级。若“诊断详情绝不自动消失”是硬规则，应让 detail 覆盖显式时长和 `sticky: false`，并说明如何改变它；若显式 sticky false 可覆盖 detail，则把决定 1 改成“默认常驻”，并把调用方可见的例外写进输出 3、5。不要在服务和 nb-ui 各自保留一套未定义的默认规则。
+
+## 3. 重要；边界与状态转换
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:55-56,72,78`。
+
+**现象**：计划没有定义空字符串、空白字符串和“清除 detail”的语义。服务用 `detail !== undefined` 判定常驻，但堆叠只在 `item.detail` 非空时传 `detailLabel`；因此 `detail: ""` 会生成没有“详情”入口却永久存在的通知。另一方面，`NotificationPatch = Partial<NotificationInput>` 下 `patch.detail === undefined` 同时表示“未提供”和“想清除”，而现有服务更新模式会跳过该字段，无法把已有详情清成 `undefined`。
+
+**为什么是问题**：通知可能变成不可查看、不可自动收口的永久条目；后续 t05 需要在状态消失时更新或移除通知，但无法依合同清除详情并恢复计时。空 detail 还会让“给了 detail 就常驻”与“有详情才显示详情动作”走两套判据。
+
+**如何核实**：对照计划 `:72` 的非空判断与 `:78` 的 `detail !== undefined`；用真实服务发 `{message: "x", detail: ""}`，观察队列时长为 0 且 DOM 没有“详情”按钮；随后调用 `handle.update({detail: undefined})`，观察队列字段仍保留旧值。
+
+**建议改法**：定义 `detail` 的有效值（至少区分 `undefined`、空串、空白）；明确清除操作是 `detail: null`、专门的 patch 标记还是其它合同，并让 queue/service/UI 共用同一判据。为“空、改有、清除”补行为测试，不能只断言 `detailLabel` 的渲染。
+
+## 4. 重要；容量与安全边界
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:15,34-51,55-57,88-92`。
+
+**现象**：`detail?: string` 没有字符数、行数、深度或敏感值合同；计划把原文完整放入内存队列、拆成 CodeBlock 行并允许一键复制，也没有截断、脱敏完成标记或超限提示。ADR 0034 允许诊断原文不翻译，但没有把它变成无限容量的 UI/剪贴板输入；w00031 t03 明确要求投影参数有上限、不含凭据与大正文，`runtime.diagnostics` 还规定已知 secret 脱敏、单条消息默认 4000 字符并在脱敏后截断。
+
+**为什么是问题**：第三方插件或失败对象把几 MB 堆栈、路径树或 `sk-...` 之类内容交给通知时，队列、DOM、行数组和剪贴板都会按原文增长；复制还会把未脱敏密钥主动交给系统剪贴板。只靠“原文由 w00031 产出”不能保护这个公共载体，因为 `NotificationInput` 是跨插件入口，且错误源可能是第三方库。
+
+**如何核实**：对照 `.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:23-27,46`、`docs/specs/runtime/diagnostics.md:47,54,122` 与 t04 计划全文；用真实队列发一个百万字符 detail，测 `notifications.value`、挂载后的行节点和复制输入的增长即可复现没有上限/截断路径。
+
+**建议改法**：在通知服务的 owner 边界规定安全且有界的 detail（包括最大 UTF-16 字符/行数、截断标记、已脱敏前提）；若载体不负责脱敏，就明确拒绝“不安全原文”而不是静默复制。把超限和密钥样本加入服务合同测试，并让对话框提示用户当前内容已截断。
+
+## 5. 重要；国际化与快照语义
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:34-51,68-72,105-117`。
+
+**现象**：`NotificationInput.title` 当前是 `DisplayText`，可以是 `TextRef` 或 `LocaleMap`；`DetailDialog.title` 却计划定义为 `string`，并要求堆叠在点击时把通知标题与“：详情”一起快照。计划没有规定标题如何先经当前 `TextPort` 解析，也没有规定对话框打开后切换语言是否更新标题。通知本身按 Spec 会原地换语言，详情原文不翻译。
+
+**为什么是问题**：照字面把 `TextRef` 拼进 string 会显示对象或键名；在点击时解析并快照又会让对话框标题停在旧语言，和“当前语言渲染、切换不重挂载”的合同不一致。通知无标题时还没有 fallback 规则，容易得到空的对话框可访问名称或 `undefined：详情`。
+
+**如何核实**：读取 `packages/neuro-book/src/plugins/workbench/shared/contracts.ts:107-116`、`packages/nb-ui/src/components/feedback/NotificationStack.vue:24-25,59-63` 和 `docs/specs/workbench/notifications.md:46,59`；用 `TextRef` 标题打开详情后切换 `engine.setLocale("en-US")`，检查对话框标题是否更新；再发不带 title 的 detail 通知检查 `aria-labelledby`/标题文字。
+
+**建议改法**：快照原始 `Text` 与 detail，而不是已翻译标题；`DetailDialog` 接收 `Text` 或由 Stack 用 `computed` 生成当前语言的标题，并明确无标题 fallback。为“打开后切语言”和“无标题”分别写 DOM 合同测试。
+
+## 6. 重要；浮层生命周期与焦点
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:68-72,105-114`。
+
+**现象**：计划要求详情对话框保存通知快照，通知在对话框打开期间可被移除；验收又要求“关闭后焦点回到详情按钮”。通知被移除后该按钮已经不存在，两个判据不能同时成立。计划没有指定触发器被卸载时 Dialog 的焦点 fallback，也没有把普通关闭与触发器移除拆成两个测试场景。
+
+**为什么是问题**：现有 `Dialog` 的焦点交接由 reka 与 `useCloseHandoff` 负责（`dialog-close.ts:36-40`），默认会交还打开前的元素；如果该元素已从 DOM 移除，浏览器可能丢焦点或把焦点留在 detached 节点，违反可访问性和“关闭完成后焦点可观察”的组件合同。照字面测试会逼实现伪造一个已经不存在的“详情”按钮。
+
+**如何核实**：读取 `packages/nb-ui/src/components/feedback/dialog-close.ts:36-40,58-64`、`close-handoff.ts:43-53` 与 `packages/nb-ui/docs/ui-development-spec.md:134-141`；真实 DOM 场景点击详情、`queue.remove(id)`、关闭对话框，检查 `document.activeElement` 是否仍连接且有可访问名称。
+
+**建议改法**：定义两条合同：触发通知仍在时关闭返回原“详情”按钮；触发通知已移除时关闭返回通知栈根/折叠条/一个稳定的栈容器，并用 `focus({preventScroll:true})`，或明确不抢焦点但保证焦点不落到 detached 节点。验收映射分开覆盖这两种顺序。
+
+## 7. 重要；验收映射与测试规则
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:23-30,105-124`。
+
+**现象**：复制 fallback 的合同是“选中全部文字，选区一变提示撤掉”，但验收只计划在单测里删除 `navigator.clipboard`；这不等价于真实浏览器的 `Selection`、焦点、选区变化和 `user-select` 行为。计划还规定“约 1.5 秒后复位”，没有时钟注入或可观察的测试时钟；按现有测试规则直接等 1.5 秒会违反快速测试预算/固定等待禁令，使用全局 fake timer 也被治理规则拦截。
+
+**为什么是问题**：实现可能在 happy-dom 中通过，却在真实浏览器里选中标题、复制按钮、行号或 `+`/`-` 前缀，或者因选区变化事件未清理而在卸载后更新状态。已接受的 fallback 行为没有可运行、真实且稳定的证据。
+
+**如何核实**：对照 `docs/testing/README.md:7-18,26,54-64` 与计划 `:26,114,124`；在真实浏览器打开 CodeBlock，移除/拒绝剪贴板后点击复制，检查 `window.getSelection().toString()` 是否只含各行 text，再改变选区观察提示是否撤掉；检查 1.5 秒复位测试是否使用了注入时钟而非 `setTimeout`/fake timer。
+
+**建议改法**：把可复制文本包装成可精确选取的专用容器，明确 fallback 选区范围；新增真实浏览器用例覆盖拒绝、无 API、选区变化和卸载清理。复制状态复位使用可注入时钟或把“复位”作为可观察事件驱动，不能在计划里留下不可测试的固定延迟。
+
+## 8. 重要；队列边界与可访问性
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:68-74,105-115`。
+
+**现象**：`maxVisible?: number` 没有正整数约束或运行时归一化；0、负数、NaN 和小数都会改变 `slice`/折叠计数结果。折叠小条也只描述了文字“还有 n 条”和“展开”，没有定义按钮/键盘语义、可访问名称、`aria-expanded` 或焦点去处。展开态新增通知、移除通知、滚动位置和折叠条是否固定也没有合同。
+
+**为什么是问题**：公共 nb-ui 组件接受来自 JS/第三方插件的运行时 props，非法 cap 可能把所有通知藏掉或产生负计数；即使默认值正常，屏幕阅读器和键盘用户也可能无法展开/收起。展开后通知不断到达时，最新条目还可能落在内部滚动区之外，用户看不到却以为通知没有发出。
+
+**如何核实**：读取现有 `NotificationStack` props 合同 `packages/nb-ui/src/components/feedback/NotificationStack.md:23-41` 与组件规范 `packages/nb-ui/docs/ui-development-spec.md:84-103,134-141`；对 `maxVisible` 传 0、-1、1.5 和 NaN，检查折叠数量与 DOM；用 Tab/Enter/Space 只经键盘操作展开、收起，并在展开后追加和移除通知观察可见性与焦点。
+
+**建议改法**：把 cap 定义为正整数并在边界处拒绝或 clamp；把折叠条定义为真实按钮，补 `aria-expanded`、`aria-controls` 和关闭/展开后的焦点规则；明确展开列表的滚动容器、最新通知定位与计时不受滚动影响，并把这些场景加入 DOM 测试。
+
+## 9. 重要；职责边界与共享状态
+
+**位置**：`docs/specs/workbench/notifications.md:104-110`；`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:53-57,75-78`。
+
+**现象**：现行实现合同明确“常驻与时长规则在工作台服务里定，nb-ui 队列只认折算后的时长”。计划却又把“detail 缺省 duration 为 0”放进 nb-ui 队列，同时在工作台 `durationOf` 再判断 detail；两边还各自处理 update 重算。
+
+**为什么是问题**：同一 `NotificationInput` 通过工作台服务、Lab 直接队列、模块级 `useNotification()` 时可能得到不同寿命；服务已显式传 duration 时 nb-ui 的 detail 默认根本不执行，今后任何一侧修复 detail/清除/显式时长都会造成漂移。模块级默认队列还是跨调用方共享的全局状态，计划没有说明直接使用者和工作台服务是否必须隔离，容易让单测或插件互相污染。
+
+**如何核实**：对照 Spec owner 约束与计划两处实现；同一输入分别经 `createNotifications(...).notify`、`createNotificationQueue().notify` 和 `useNotification().notify`，比较 `NotificationItem.duration`、update 后计时与 `clearAll` 的影响范围。
+
+**建议改法**：选一个 owner。推荐工作台服务负责从业务输入折算 duration，nb-ui 只接收最终 duration，并删除队列对 detail 的业务判据；若要让 nb-ui 自身也拥有 detail 语义，则把完整优先级、patch 清除和测试合同统一到队列，再让服务只透传，不要两边各算一次。所有工作台/测试/Lab 场景显式创建并收口独立队列，禁止依赖模块级共享队列验证隔离。
+
+## 10. 重要；切片依赖与跨插件合同
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:5-8,15,75-78,94-103`；`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:23-27,36,43`。
+
+**现象**：t04 把跨插件的 `NotificationInput.detail?: string` 写成已实施的公共字段，同时把“详情原文由谁产出”留给 w00031 t03；但 t03 的合同仍在重写各域的 `detail`/`reason` 字符串槽为码、参数和英文诊断，并要求参数有上限。t04 计划没有写兼容窗口、字段稳定性承诺、版本边界或“t03 必须保留给载体的安全字符串 detail”的依赖。
+
+**为什么是问题**：t03 若按自身计划把 detail 改成结构化值，t04 的 `CodeBlock`、复制和 `detail?: string` 直接失配；若为保持 t04 而继续传无限原文，又会跳过 t03 已定的上限、脱敏与域合同。t05 会在两者之间接入真实失败生产者，不能靠“原文由另一个 Task 负责”消除公共接口耦合。
+
+**如何核实**：逐项对照两个计划的 detail 定义和切片顺序；列出 `packages/neuro-book/src/plugins/workbench/shared/contracts.ts` 的所有生产者/消费者（当前通知服务、命令、设置、项目测试），检查没有一条版本/兼容测试或交接条件。
+
+**建议改法**：在 t04 Spec 中固定 carrier contract（例如载体永远接收已脱敏、有界的 `string`，码与参数由 t03 在进入通知前投影），在 t03 计划中明确不得改变该载体字段，或先由一个共同合同切片完成版本化。把 t05 开工前置条件写成可验证的类型/行为合同，而不是只写 Task 链接。
+
+## 11. 重要；验收覆盖
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:115,121-124`。
+
+**现象**：计划只写“Lab 夹具亮色桌面与 390 窄屏，暗色一张”。nb-ui 共享基础组件的验证门禁要求 `nbook/macos × light/dark` 四组合，并追加 390px；计划没有列出无主题注入/缺省端口状态，也没有把共享组件的计算样式、键盘焦点、控制台与页面错误纳入证据。
+
+**为什么是问题**：通知、对话框、复制按钮都依赖主题 token、端口和 Portal/层级；只拍一个暗色和一个亮色窄屏不能发现 macos 主题、暗色高对比、无宿主端口或模态焦点下的回归。计划把截图当作主要 UI 证据，却没有满足现行分档合同。
+
+**如何核实**：对照 `docs/testing/README.md:194-205`、`packages/nb-ui/docs/ui-development-spec.md:197-205` 与计划 `:121-124`；按现有 `lab:shot` 入口分别跑四组合、390px 和无主题/缺省端口场景，读取 `report.json` 的溢出、焦点环、pageerror 与控制台结果。
+
+**建议改法**：验收映射逐项列出四主题/配色组合、390px、无注入端口；对每项记录计算样式与 token、Portal 对话框几何、键盘打开/关闭及页面错误。若本 Task 不承担完整共享组件取证，应明确降低范围并把剩余项交给对应 UI 验收，而不是写成已覆盖。
+
+## 12. 重要；过程与记录真相源
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:17,103`；`.agents/works/README.md:29-35`。
+
+**现象**：计划开头正确写“Spec 与 Task 记录在主工作区 master 提交”，但每片又写“Spec 与计划随代码分支或在主工作区按仓库的现行写法提交”。这把 `plan.md` 的归属写成可选项，且没有给实施者明确主工作区路径与路径限定提交命令。
+
+**为什么是问题**：仓库规则已经明确 Work/Task 的 README、artifacts、walkthroughs、evidences 只放 master，Spec 与 proposals 也只在 master 更新；实现 worktree 中的副本可能过期，提交到代码分支会造成计划/Spec 旧副本覆盖主工作区的新记录。计划的模糊措辞会直接导致错误提交位置和真相源分叉。
+
+**如何核实**：对照 `docs/standards/repository-workflow.md` 的对应流程（由实现者按入口读取）及 `.agents/works/README.md:31-34`，再看计划两处互相矛盾的表述；检查当前 worktree 的 `.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md` 是否只是主工作区副本。
+
+**建议改法**：删除“随代码分支”的选项，明确实现者始终读取/更新主工作区的记录；代码分支只提交源码、测试和组件文档。每片的提交清单写成路径限定的 master 操作，并说明实现 worktree 不改 `.agents/works` 与 `docs/specs`。
+
+## 13. 重要；公开面与兼容性
+
+**位置**：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md:34-51,96-101,121-129`。
+
+**现象**：计划把 `DetailDialog` 加到 `components/index.ts` 和 `src/sdk/components.ts`，但验收只点名 `sdk.test.ts`、`surface.test.ts`；没有把生成 SDK tarball 的 `plugin-sdk/pack.test.ts`、组件声明/构建期文档生成、作者项目类型检查和版本兼容记录列入本片。`sdk.test.ts` 只读源码名单，`surface.test.ts` 只读源文件闭包，不能证明生成的 `components.d.ts`、`docs/components.md` 和仓库外作者导入能工作。
+
+**为什么是问题**：这是 SDK 的新增公开组件，不是 nb-ui 内部改名。源入口对上而打包声明或生成文档失败时，内置测试仍可能按计划通过，第三方插件会在安装或构建时才失败；同时 `NotificationInput` 的可选字段虽通常源兼容，但计划没有写明 SDK/服务合同版本窗口，t05 与第三方插件的混合版本行为也未被验收。
+
+**如何核实**：读取 `packages/neuro-book/src/sdk/sdk.test.ts:47-63`、`src/sdk/surface.test.ts:1-5` 与 `packages/neuro-book/plugin-sdk/pack.test.ts:306-324`；在真实生成 tarball 的作者项目中 `import {DetailDialog} from "@notnotype/nb-plugin-sdk/components"` 并跑严格 `vue-tsc`，同时检查生成 docs 与值/类型导出。对 `NotificationInput` 的旧插件输入在新服务上运行，确认新增可选字段不改变旧字段和未知字段的处理。
+
+**建议改法**：把 `pack.test.ts`、仓库外作者项目 smoke、组件文档生成和发布版本/兼容窗口写进验收映射；若版本不在本 Task 改，至少在“不做与风险”写明谁负责、必须在发布前完成，并记录 `NotificationInput` 的可选字段兼容策略。
+
+## 未发现问题的方面
+
+- `Dialog` 的受控 `open`、`update:open`、`initialFocus` 找不到目标时回退面板，以及 `footer` 插槽的机制真实存在：`Dialog.vue:30-46,250-255`、`dialog-close.ts:58-64`；计划没有误把这些 API 当成只凭名称推断的能力。
+- 现有通知的 `TransitionGroup`、悬停暂停/恢复和动作 `run` 抛错后仍移除的路径真实存在：`NotificationStack.vue:53-68`、`useNotification.ts:95-105`；计划复用这些机制的方向本身成立，问题在新增状态和验收边界未写全。
+- `useUiText()` 最终读取注入的 `TextPort`，与 `useText()` 共用当前语言；给 CodeBlock、关闭按钮和详情动作补 nb-ui 目录键的机制可行：`packages/nb-ui/src/text-port/index.ts:96-120`。
+- `NotificationInput.detail` 作为可选 TypeScript 字段，从结构类型角度不会破坏只使用旧字段的调用方；真正遗漏是跨插件版本、生成 SDK 与运行时验收没有在计划里闭环。
+- t05 的编辑器/资源管理器使用方迁移、失败页与 Agent 视图、详情原文生产者确实被计划明确列为非本 Task；未把这些本身当成遗漏。
+
+## 各级数量
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 13 |
+| 建议 | 0 |
+

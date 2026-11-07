@@ -1,0 +1,179 @@
+# w00028 t04 计划前端设计审查（Sonnet）
+
+审查对象：`.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md`（提交 1bc0ac30c），worktree `.worktree/review-w00028-t04`。只读；下面每条都按“读实现确认”核实，凡未在真实浏览器验证的写明“从代码推断”。
+
+## F1 [重要] 合同/架构：给 CodeBlock 加复制，使“纯零件”变成带三条隐藏通道的组件，计划只说“state:inject 理由已有”
+
+- 位置：plan.md“CodeBlock.vue”一节；`packages/nb-ui/src/components/display/CodeBlock.md:2`（现为 `标签: [state:inject]`）；`docs/standards/code/components.md:69-83,100-110`。
+- 现象：计划让 CodeBlock 自己写剪贴板、自己起 1.5 秒复位定时器、自己监听选区变化（`selectionchange` 在 `document` 上）。按规范这是 `env:clipboard`、`env:timer`、`env:global`、`state:local` 四个新标签，每个都计入耦合度（`state:local` 除外）；`env:global` 还要求销毁时解除监听（规范“禁止规则”）。计划“同名 `.md` 同步”一句只提“`state:inject` 理由已有”，没有把这三条通道和各自的理由列入。
+- 为什么是问题：规范写明“公共零件目录下只允许纯零件与受控零件，耦合度恒为 0”，nb-ui 的 CodeBlock 现在是“纯展示 + 翻译端口”，被 `nb-agent-ui` 的 `AgentCodeBlock`（工具详情、原始视图）、`AgentApprovalWizard` 和 Lab 夹具共用；它们都不要复制，却被迫背上剪贴板与定时器通道。声明与实现不符时“整份声明不予采信”。
+- 如何核实：`grep -n "env:" docs/standards/code/components.md`；`grep -rn CodeBlock packages/nb-agent-ui/src --include='*.vue'` 看现有使用方（均无复制需求）。
+- 建议改法：CodeBlock 保持纯展示，只开一个头行插槽（如 `#actions`）或 `label` 右侧插槽；复制做成独立的 nb-ui 小组件（暂名 `CopyButton`：`env:clipboard`、`env:timer`、`env:global`、各自理由写在它的 `.md`），`DetailDialog` 组合二者。这样 `copyable` prop、头行与 `select-text` 的行为变化都不波及现有使用方；复制三态的单测也只针对 CopyButton，不需要挂完整 CodeBlock。
+
+## F2 [重要] 失败路径：复制退路的“选区一变提示就撤掉”会被自己的选中动作触发，且退路本身不是退路
+
+- 位置：plan.md“复制三态”一条；验收映射“复制三态”行。
+- 现象与问题（四点，同属一个退路设计）：
+  1. 程序化 `selection.selectAllChildren(...)` 本身就会在随后的任务里向 `document` 派发一次 `selectionchange`。实现若在选中之后（或之前）挂监听，这一次事件会把刚出现的“已选中”提示立刻撤掉，用户看不到提示。实验（happy-dom，`/tmp/review-w00028-t04-design/lab-selection.mjs`）：`selectAllChildren` 后等 50ms，`selectionchange` 计数为 1，`removeAllRanges` 后为 2。真实浏览器按规范同样是异步排队，未在真实浏览器里点过。计划没有说怎么区分“我自己选的”与“用户改了选区”（比对当前选区是否仍等于整块、或忽略第一次事件）。
+  2. 提示文字写死“按 Ctrl+C”。macOS 是 Cmd+C，触屏（计划自己要验的 390 窄屏，非安全上下文最典型的就是手机用局域网 IP 访问）根本没有 Ctrl+C。文字经 `useUiText()` 取，但键名是平台相关的，目录里一个字符串答不了。
+  3. 计划“不用已弃用的 `execCommand`”。非安全上下文里 `navigator.clipboard` 不存在，`document.execCommand("copy")` 恰好是唯一还能在用户手势里真的写进剪贴板的办法（所有主流浏览器仍支持，规范里是“遗留”，没有移除计划）。Task README 把这个问题列为要定的事，计划却直接排除它而没有记录的理由；按 AGENTS 的做法，“已弃用”是推断的理由，不是约束。结果是非安全上下文的用户只能手动 Ctrl+C，而本来可以一键复制。
+  4. 选中路径与剪贴板路径的文字不一致：剪贴板路径写“各行 `text` 以换行连接”，空行是空串；选中路径复制到的是渲染文字，而 CodeBlock 把空行渲染成一个空格（`line.text || " "`，CodeBlock.vue 第 44 行），行号与 `+/-` 标记虽 `user-select:none` 但各浏览器对其在多行复制里的处理不同。同一个“复制”按钮，两条路径粘出的内容会差空格。
+- 建议改法：退路分三级：`navigator.clipboard.writeText` → 失败或不存在则选中全部并 `execCommand("copy")`（成功即显示“已复制”）→ 仍失败才停在“已选中”提示。提示文字写“已选中，请复制”之类不含键名的话，或用 `Kbd` 并按平台取键名。选区监听只比对“选区是否还覆盖整块”。验收映射补一条：选中后提示在下一个 `selectionchange` 之后仍在（真实 `selectAllChildren` + 等待可观察状态，不用固定时长）。
+
+## F3 [重要] 与既有机制不符：计划“风险”里说对话框打开期间通知里的“重试”点不到，从代码看它们仍可点，且“当前打开详情”只有一个槽
+
+- 位置：plan.md“不做与风险”末条、“NotificationStack”一节“持有‘当前打开详情’的通知 id”；`NotificationStack.vue:57`（`class="pointer-events-auto"`）、`theme/z-index.ts`（`notification: 9050` 高于 `dialog: 9000`+`NB_MODAL_Z_STEP`*层）、`Dialog.vue:182-195`。
+- 现象：reka 的模态是靠给 `body` 设 `pointer-events: none`、只让遮罩与面板恢复来挡住外面的点击。通知视口的每条通知显式声明了 `pointer-events-auto`（子元素显式 `auto` 会盖过继承的 `none`），层级又在所有模态之上（z-index 注释原话：“模态开着时出的通知也看得见”）。所以对话框打开时通知里的“重试”“详情”“展开”“×”仍然可以点（焦点陷阱会把焦点拉回面板，但 `click` 照常触发）。从代码推断，没有在真实浏览器里点过。
+- 为什么是问题：
+  1. 计划把“重试点不到”写成已接受的取舍（第 3 轮 `notice-detail-where` 选 A），评审板上开发者选 A 时看到的是“点不到”的前提；实际行为不同，这个前提不成立。
+  2. 真实行为下，用户在对话框开着时点“重试”：`runAction` 同步执行动作并移除通知，对话框还开着显示快照；点另一条通知的“详情”：单槽状态被覆盖，对话框正文和标题原地换内容，读屏没有任何提示（面板已打开，没有重新聚焦）；点同一条通知的“详情”：无变化。计划没有定义这三种情形。
+  3. 还有一个反方向的问题：通知条压在模态之上，4 条常驻通知加对话框时，通知会盖住对话框右下角的“关闭”按钮和复制按钮（右下角视口 + md 宽 560px 居中面板，窗口宽度小于约 1450px 且面板底边低于最上面那条通知的顶边时就重叠；用 `bottom-center` 的位置必然重叠）。通知在上、可点，所以被盖住的按钮点不到。
+- 如何核实：真实浏览器里（Lab 的 NotificationStack 夹具）发一条带详情的通知，点开对话框，再点通知上的“重试”或另一条的“详情”；`rg -n "pointer-events" packages/nb-ui/src/components/feedback/NotificationStack.vue`；窗口宽 800px 看重叠。
+- 建议改法：先在真实浏览器里确认；再二选一并写进 Spec：(a) 对话框打开时通知视口变成不可交互（`inert` 或 `pointer-events-none`，对话框的 `closed` 再恢复），与计划的取舍一致；(b) 承认可交互，则“当前打开详情”按“后点覆盖”写明，并给对话框一个 `aria-live` 的标题更新。无论哪种，把“对话框与通知视口的相对层级”写进 `NotificationStack.md`（对话框的 `Dialog.md` 已知限制只写了读屏不播报）。
+
+## F4 [重要] 焦点：点“详情”后焦点归还给谁，计划只验证了最理想的一种
+
+- 位置：plan.md 验收映射“Esc 关闭、焦点回到‘详情’按钮”；`Dialog.vue:220`、`dialog-close.ts` 的 `onCloseAutoFocus`（只排程发 `closed`，没有自己归还焦点）、`dialog-close.ts:onOpenAutoFocus`。
+- 现象：焦点归还完全交给 reka 的 FocusScope：打开时记下 `document.activeElement`，关闭时回到它。三种情形下不是“详情”按钮：
+  1. Safari 与 macOS 上的 Firefox 点击按钮不会让按钮获得焦点，打开时的 `activeElement` 是 `body`，关闭后焦点落在页面顶端，键盘用户从头开始 Tab。这是用鼠标点“详情”的用户，不是键盘用户，但之后立刻按键盘就迷路。
+  2. 对话框打开期间通知被移除（计划明确要处理的边界，快照继续显示）或被新通知挤出前 4 条折叠（`v-for` 只渲染最新 4 条，该元素被卸载）：`previouslyFocused` 已不在文档里，焦点落到 `body`。
+  3. 测试用 happy-dom：`button.click()` 不会聚焦（`NotificationStack.test.ts` 现有用例就是这样点按钮的），所以验收“焦点回到‘详情’按钮”必须测试里先手动 `focus()`，这恰好把上面 1 的情形遮住，测不出问题。
+- 为什么是问题：失败详情的使用场景正是出错后马上要继续操作。焦点丢到 `body` 对键盘与读屏用户是一次迷路。
+- 如何核实：`rg -n "onCloseAutoFocus|close-auto-focus" packages/nb-ui/src/components/feedback`；`Dialog.test.ts:235-244` 的 opener 用例先 `opener.focus()`。
+- 建议改法：在 `NotificationStack` 里自己处理 `closed`：优先回到原通知条的“详情”按钮（通知还在且可见）；否则回到视口里的第一个可聚焦元素（折叠小条的“展开”）；再否则不抢（让页面保持）。验收补两条：通知被移除后关闭、被挤出折叠后关闭，`document.activeElement` 不是 `body`。点击先聚焦可在测试里 `pointerdown` + `focus()` 模拟，但要在测试里写明这是模拟 Chrome 的行为。
+
+## F5 [重要] 常驻判据：`detail: ""`、更新、两处各写一份
+
+- 位置：plan.md“useNotification.ts”“工作台服务”两节；`useNotification.ts:116`（`notify` 的 `duration`）、`useNotification.ts:126-132`（`update` 只在 `patch.duration` 给了才重排计时）；`web/notifications.ts:29-32`、`70-77`。
+- 现象：
+  1. 判据不一致：服务层写 `detail !== undefined`，视口层写“`item.detail` 不为空才给 `detailLabel`”。`detail: ""`（或只有空白）会得到常驻通知却没有“详情”入口，用户只看到一条关不掉、没解释的通知。w00031 t03 的投影函数拿不到原文时很可能就传空串。
+  2. 同一条规则在两个包里各写一份：队列里“给了 `detail` 缺省常驻”（计划中 useNotification 一节），服务里 `durationOf` 又写一遍，服务总是显式传 `duration`，队列这一份对工作台是死代码，只服务 Lab 与直接用队列的人；两处规则以后分别改就会分叉。
+  3. `update` 路径：队列层 `update(id, {detail})` 不重算时长（只认 `patch.duration`），服务层 `update` 的 `rescheduling` 要加 `patch.detail !== undefined`，合同里却没有“清除 detail”的办法：`update({detail: undefined})` 按服务现有的 `patch.xxx === undefined ? {} : …` 模式被当作“不改”，`""` 则落入上一条的矛盾。常见场景是“重试成功后把 error 通知改成 success”，这时 detail 要消失，但 `tone` 改了会重算时长而旧 detail 仍在，成功通知上留着“详情”。
+- 如何核实：读上面两处；`notifications.dom.test.ts:90-98` 现有写法可直接扩出 `detail:""` 一例。
+- 建议改法：规范化在入口做一次：`detail` 去空白后为空等同不给，队列与服务共用同一个小函数（放在 nb-ui 的 `/notifications` 子路径，服务从那里取，不再各写）；合同写明清除办法（`update({detail: null})` 或 `""`）；`update` 改了 `detail` 同样重算常驻。Spec 输出 5 把 `detail` 加入“改了会重算”的集合。
+
+## F6 [重要] 原文展示：超长、多行、行内换行、字号与双层滚动都没定
+
+- 位置：plan.md“CodeBlock.vue”“DetailDialog.vue”两节；`CodeBlock.vue` 样式 `.nb-code-block__scroll{max-height:280px;overflow:auto}`、`.nb-code-block__text{white-space:pre}`、`.nb-code-block{font-size:var(--text-2xs)}`（11px，`theme.css:20`）；`DialogSurface.vue` 正文 `overflow-y-auto`。
+- 现象：
+  1. 诊断原文最常见的形状是一行很长的消息（`ENOENT: no such file or directory, open '/home/.../x'`）或一整段栈。CodeBlock 的取舍是“长行不折行，横向滚动”，对 diff 与代码合理，对错误消息就是 560px 对话框里一行文字要横向拖才读得完。计划没有换行选项，也没说 DetailDialog 要不要。
+  2. 11px 的字号用在“对话框里的主内容”上偏小；对话框是为这块内容开的，不是预览。
+  3. “`maxHeight` 取对话框可用高度”：对话框正文本身是滚动容器，CodeBlock 再带 `max-height`，会出现外层和内层两条纵向滚动条；而“可用高度”要自己用 `calc(85cqh - 标题 - 页脚 - 内边距)` 手算，是魔法数字，窗口高度小（390 宽横屏时 ≈ 390px 高）就退化成只剩一两行可视。
+  4. 没有长度上限：`detail` 可以是整段栈（数千行），`lines` 数组每次渲染重建，每行一个 `div`；复制时也一次性拼出整个字符串。CodeBlock 已有 `truncated` 机制但计划没提 DetailDialog 要不要截断，也没有说上限由谁定（发出方、服务、组件）。
+  5. 按行拆分没说怎么拆：`\r\n` 会把 `\r` 留在 `text` 里（`white-space: pre` 下浏览器行为不一）；末尾换行产生一个多余空行；制表符按 8 格显示。
+- 如何核实：读上面几处样式；把 `detail` 设成 300 字符一行与 5000 行两种情形放进 Lab 夹具截图（计划自己要出夹具，应把这两种当必有的场景）。
+- 建议改法：(a) CodeBlock 加 `wrap` 之类的布尔（`white-space: pre-wrap; overflow-wrap: anywhere`），DetailDialog 缺省打开；(b) DetailDialog 把对话框 `bodyClass` 设成不滚动、CodeBlock 用 `flex: 1; min-height: 0` 吃剩余高度，或者反过来取消 CodeBlock 的 `max-height`、让对话框正文滚动，两层只留一层，别手算高度；(c) 给 CodeBlock 一个 `size`/字号选项或在 DetailDialog 里覆盖字号到 `--text-xs`；(d) 写明拆行用 `/\r\n|\r|\n/`、去掉唯一的末尾换行；(e) 超过某个行数（如 2000）时走 CodeBlock 的 `truncated`，并把复制内容与显示内容的关系写进 `.md`（复制的是全文还是显示的部分，应当是全文）。验收映射补“超长单行”“五千行”两个夹具与单测。
+
+## F7 [重要] 折叠与展开：小条位置规则与实际排序矛盾；展开后的滚动容器、挤出规则与高度上限都没定
+
+- 位置：plan.md“NotificationStack.vue”一节（`maxVisible`、折叠小条、`position` 不同时小条的位置）；`NotificationStack.vue:51-71`（`TransitionGroup` 按队列顺序渲染，根节点 `pointer-events-none fixed`）。
+- 现象：
+  1. 小条位置：计划“视口远离屏幕边缘的一侧”，并写“bottom-* 在上方，top-right 在下方”。现有渲染是创建顺序、最旧在前（`NotificationStack.md`“按创建顺序纵向排列”，`v-for` 顺序即队列顺序，三种 position 都一样）。被折叠的恰好是最旧的那几条，它们本来在列表最前面。top-right 时列表最前面就是靠屏幕上缘，小条放到“下方”，等于把“较早的通知”画在最新一条的后面，顺序读反；展开时旧通知又出现在小条上方，小条先跳位置。bottom-* 的规则碰巧是对的。通知 Spec 输出 2 写的是“按加入顺序从下往上堆叠”，与实现的“最旧在上”也对不上，没有人核对过。
+  2. 展开后“视口内部纵向滚动”：根节点是 `pointer-events-none`，滚动容器必须自己 `pointer-events-auto`，否则滚轮穿透到下面的页面；容器 `overflow: auto` 会裁掉通知的 `shadow-lg` 与进出场 `translateY(8px)`，也会裁掉关闭键的焦点环（`ui-development-spec.md:227` 要求外扩光环在被裁切容器里留内边距，`lab:shot` 会机检）。底部锚定的视口展开后 `scrollTop` 默认在 0，看到的是最旧的几条，刚发出的最新一条在滚动区之下，用户展开后第一眼看不到新通知。计划没有说滚动到哪儿。
+  3. 高度上限：“不超过窗口高度减边距”。视口是 `fixed`，但 Lab 夹具里它被放在一个 360px 高、`contain: layout` 的框里（`NotificationStackFixture.vue`），按 `100vh` 算会超出框，被 `overflow-hidden` 裁掉；用百分比（`max-height: calc(100% - 2rem)`，相对 fixed 的包含块）才在产品与 Lab 里都对。另外限高只在“展开”态有；收起态 4 条也可能比窗口高（四条带标题、三行正文、进度条的通知约 480px，窗口高度 ≤ 480px 的手机横屏就会有一半在屏幕外，没有滚动可达），所以限高与滚动应是常态，不是展开专属。
+  4. 挤出规则按“最新 4 条”，不分常驻与限时、不分是否带进度。连发 4 条 3.2 秒的成功提示就会把一条尚未处理的常驻错误挤进折叠；一条进行中的进度通知（常驻，最旧）被挤走后，进度更新用户看不见。计划“总数回到上限以内时自动回到收起态”能让它回来，但它回来时又触发一次入场动画，抖动。建议至少让折叠优先折叠限时的、已读的，或在 Spec 里写明这就是预期。
+  5. 小条放进 `TransitionGroup` 要有 `key`，放在外面则没有进出场；计划没说放哪，二者表现不同（小条出现时 `TransitionGroup` 子项因 `v-for` 被切片而同时离场/入场，第 5 条通知离场期间仍在文档流里占位，视口先变高再变矮，约 `--motion-fast` 时长的跳动）。
+- 如何核实：读 `NotificationStack.vue:51-71` 与 `.md`；Lab 夹具发 6 条后 `position=top-right` 看小条与顺序；窗口高度调到 480px 发 4 条带进度通知。
+- 建议改法：小条规则改为“在被折叠通知原本所在处（列表开头）”，三种 position 一致，不再分情况；展开容器设 `pointer-events-auto`、四周留内边距给阴影与焦点环、展开后把滚动位置定到最新一条；限高用百分比并在常态生效；Spec 与 `.md` 写明“最新 4 条”不区分优先级，或者折叠时优先保留常驻的；小条放在 `TransitionGroup` 外，并说明无动画。
+
+## F8 [建议] 对话框标题与快照：通知没有标题时标题是什么，快照的是字符串还是文字值
+
+- 位置：plan.md“DetailDialog.vue”（`title: string`）、“NotificationStack.vue”（“把该通知的标题与原文快照下来”）、“标题由调用方给（通知标题加‘：详情’的目录文字）”。
+- 现象：
+  1. `NotificationInput.title` 是可选的，很多通知只有 `message`。计划没有说没标题时对话框叫什么：`Dialog` 缺省是“对话框”（`dialog.untitled`），读屏念“对话框”，视觉上标题栏是空的。
+  2. 标题和原文快照在“点详情”那一刻。若快照的是翻好的字符串，这个对话框开着时切换界面语言，页脚“关闭”、复制按钮会换语言而标题不会，违反 Spec 输出 9“已显示的文字原地换语言”。应快照 `Text`（文字值）并在渲染时翻。计划的“切换语言后动作与详情文字原地更新”测试只覆盖通知条，没有覆盖对话框。
+  3. “通知标题加‘：详情’”是拼接。拼接要走目录的带参数条目（如 `detail.title = "{{title}}：详情"`），不能在组件里写 `${title}：详情`；英文是 “{{title}} – Details” 而不是中文冒号。
+  4. 标题在 `DialogSurface` 里 `truncate`（单行），较长的通知标题加后缀会被截掉后缀，且没有悬停提示。
+  5. 对话框里没有通知的 `message`：同时有几条失败通知时，用户在对话框里看到的只有标题与原文，不知道是哪一次失败的原文（尤其没有标题的通知，只剩“详情”二字）。`CodeBlock` 的 `label` 正好可以放消息，计划没用。
+- 如何核实：读 `Dialog.vue:111`（`titleText`）与 `DialogSurface.vue:110` 的标题（标题为空时 `sr-only`）。
+- 建议改法：Stack 里快照 `{title: Text | undefined, message: Text, detail: string}`；对话框标题 = 有标题时用带参数的目录条目，没有时直接用 `detail.title`（“详情”）；`message` 放在 CodeBlock 的 `label` 或标题下一行；验收补“对话框开着切换语言，标题与按钮一起换”。
+
+## F9 [建议] 无障碍：折叠小条、复制反馈、焦点光环
+
+- 位置：plan.md“折叠小条”“复制三态”“复制按钮不带焦点光晕”。
+- 现象：
+  1. 小条“还有 n 条较早的通知 · 展开”：计划没有给 aria。“展开”按钮要 `aria-expanded`，名称要带数量（“展开另外 2 条通知”）；n 变化时（读屏用户看不到）不播报，不是问题但应写明；小条本身不是 `role="status"`。
+  2. “已复制”：按钮文字变化不会被读屏播报，需要一个 `aria-live="polite"` 的区域或把文字放在一个 `role="status"` 里。复制按钮的名称只是“复制”，页面上有多个 CodeBlock 时（以后）无法区分，建议带上 label。
+  3. “复制按钮不带焦点光晕”：字面读是去掉键盘焦点指示，违反 UI 规范“键盘走得通：焦点环可见”（`ui-development-spec.md:219`）。我推断作者的真实意思有二：一是对话框打开时不要把初始焦点放在复制键上（所以才用“找不到的选择器”落到面板），二是 `.nb-code-block { overflow: hidden }` 会把头行按钮外扩的焦点环裁掉。后者规范有现成答案（“填满所在条、四周没有余地的控件改用内嵌焦点线”，`ui-development-spec.md:227`），不是去掉环。
+- 建议改法：小条用 `aria-expanded` 与带数量的名称；复制反馈放进 `aria-live` 区域；复制键用内嵌焦点线；计划里把“光晕”改成它实际要说的意思。
+
+## F10 [重要] 后续切片会返工：对话框状态私藏在 NotificationStack 里，而决定 12 要求“状态栏条目点开同一个对话框”
+
+- 位置：plan.md“NotificationStack.vue”（“持有‘当前打开详情’的通知 id……交给 DetailDialog”）与“不在本 Task”（状态栏条目点开详情，待 w00031 给原文再接）；Task README 决定 12（“状态栏条目点开同一个对话框”）与决定 7（别的位置用对话框）。
+- 现象：计划里 `DetailDialog` 是个受控组件，打开态与快照由 `NotificationStack` 内部持有，只有通知条的“详情”能打开它。状态栏、编辑器标签上的图标、失败页（w00031 t03）若也要“同一个对话框”，要么各自再挂一个 `DetailDialog`（每处自己管 open、快照、焦点归还、与别的对话框的叠放），要么 t05 回头把 Stack 的内部状态抬出来做成服务。计划把组件和 SDK 导出都做了（“插件作者的详情入口也走它”），却没有说宿主怎么用它——是每个调用点自己放一个，还是经工作台服务 `openDetail({title, detail})` 统一打开。
+- 为什么是问题：t05、w00031 照字面实现，大概率各自复制一份“open 加快照加 closed 后清理”的样板，或者要求改 Stack；而“通知被移除后对话框继续显示快照”这种边界只在 Stack 里处理过。
+- 如何核实：读 Task README 决定 12；`rg -n "StatusBarProblem" packages/neuro-book/src` 看状态栏条目的数据形状（计划自己承认只有码、没有原文）。
+- 建议改法：现在就定所有权。推荐把“打开详情”做成宿主服务（工作台 `notifications` 或单独的 `details` 服务）+ 一个挂在页面根上的 `DetailHost`，`DetailDialog` 本身不暴露给 SDK（暂只给 `openDetail`）；NotificationStack 的“详情”事件只是它的一个调用方。不想现在做，就在计划里明写“t05 才抬升”并把 SDK 导出推迟到有第二个使用方时（SDK 的每一项都是兼容承诺，`components.ts` 头注释）。
+
+## F11 [建议] 决定之间的矛盾：“带详情一律常驻” 与 “明确给的 sticky/duration 仍优先”
+
+- 位置：Task README 决定 1；plan.md“useNotification.ts”（“明确给的 `duration` 仍优先”）、“工作台服务”（“明确给的 `sticky` 仍优先”）。
+- 现象：决定 1 写“一律常驻，只能手动关闭或由发出方移除”，计划却允许 `sticky:false` 或 `duration: 3000` 加 `detail`，通知到点消失，详情随之丢失（包括正在读的对话框，虽然会留快照）。这个口子与决定的措辞冲突；它同时是计划自己给的理由（“诊断原文是排查线索，丢了比占屏更糟”）的反例。
+- 建议改法：二选一并写进 Spec：(a) 有 `detail` 一律常驻，`sticky:false` 与 `duration` 对带详情的通知无效（诊断时给一条开发诊断）；(b) 保留覆盖权，Spec 输出 3 明写“发出方可以显式让带详情的通知消失，由发出方负责”。我倾向 (a)，规则最简单，也让 F5 里的判据只有一处。
+
+## F12 [建议] 常驻通知的累积：计划只限了显示条数，没限队列里保留多少
+
+- 位置：Task README 目标“常驻的数量上限”；plan.md“NotificationStack.vue”只定 `maxVisible`。
+- 现象：带详情的通知常驻、只能手动关；队列无上限，`detail` 还可能是整段栈。重复性失败（每次自动保存失败、每次切文件失败）会累积几十条常驻通知，每条都带原文字符串，展开列表越来越长，用户只能一条条点“×”。VS Code 的做法是同一条消息去重、通知中心可一键清空；Sonner 有 `id` 覆盖同一条。当前 `NotificationHandle.update` 能让调用方复用句柄，但调用方需自己保存句柄，t05 的使用方（编辑器、资源管理器）要为每类失败各记一个。
+- 建议改法：至少在计划“不做与风险”里写明这是已知取舍；更好的是 `NotificationInput` 加可选 `key`：同 key 再发时更新原条（并把它顶到最新），队列去重由队列负责，使用方不用管句柄。折叠小条旁加一个“全部关闭”也是 VS Code 与 Sonner 都有的做法，计划没有。
+
+## F13 [建议] `Notification` 的新 prop 与既有模式不一致；动作按钮缺焦点环
+
+- 位置：plan.md“Notification.vue”一节；`Notification.vue:61-63`（现有动作按钮 class 里没有 `nb-ui-focus-ring`）；`NotificationStack.vue:61`。
+- 现象：
+  1. 计划新增 `detailLabel?: string`，“有值才出详情”，文字由 Stack 经 `useUiText()` 传入。同一组件里 `closeLabel` 走的是“缺省经端口取、调用方可覆盖”（`Notification.md` 隐藏通道理由写了这个设计原因：“这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实”）；`detailLabel` 反过来要每个调用方（如 dev-panel 的 `WriteResult`）自己传文字。同一个组件两套规则。
+  2. 现有动作按钮没有 nb-ui 的焦点环类 `nb-ui-focus-ring`（关闭键有，`styles.css:56`），只靠浏览器默认轮廓；新的“动作/详情”两个文字按钮计划只写了按下态，没写键盘焦点环。
+- 建议改法：Notification 加布尔 `hasDetail`（或 `detailable`）与可选 `detailLabel` 覆盖，缺省文字经端口取（`notification.detail`）；两个动作按钮套 `nb-ui-focus-ring`；文字目录键由 Notification 持有，Stack 不再取。
+
+## F14 [建议] 验收映射：几条判据按计划写法测不出来，几个边界没有对应用例
+
+- 位置：plan.md“验收映射”。
+- 现象：
+  1. 输出 3 一行：“经假计时之外的真实队列等待，不被移除”。不用假计时又要证明“不被移除”，就只能固定等一段时间（违反项目测试规则“不按固定时长等待”）。`notifications.dom.test.ts:48,90,98` 现有写法是直接断言队列里的 `duration` 为 0；沿用它。
+  2. “复制已复制后约 1.5 秒复位”：真实计时器要等 1.5 秒以上；规则是“等可观察状态或注入时钟”。组件把复位时长做成可传的 prop（缺省 1500）或模块常量，测试传 20ms，用 `vi.waitFor` 等 DOM 状态；否则这条要么慢要么被写成假计时。
+  3. “动作与详情在同一行”“动作按钮不在关闭键同一行”“没有动作那一列”：happy-dom 没有布局引擎，`getBoundingClientRect` 全是 0，单测只能断言 DOM 结构（同一容器），断言不了“同一行”。真实几何要靠 `lab-nb-ui.e2e.ts` 里量盒子，或 `lab:shot`；计划的 e2e 只列了复制一例。
+  4. 缺用例的边界：`detail: ""`（F5）；5000 行与 300 字单行（F6）；对话框开着切换语言（F8）；对话框开着通知被挤出前 4 条折叠、被移除、被 `update` 改了 `detail`；Stack 在对话框开着时卸载（两个内置页面各挂一个视口，页面切换时会发生），要核对 reka 的 `body` 样式与滚动锁被恢复；焦点归还三种情形（F4）；两个动作按钮的点击区不重叠（几何，同 3）。
+  5. 真实剪贴板 e2e：Playwright 里 `navigator.clipboard.writeText` 与读回要 `context.grantPermissions(["clipboard-read","clipboard-write"])`；计划没写，e2e 会因权限弹窗/拒绝而挂在“被拒”分支，反而测成了退路。
+- 建议改法：按上面逐条改映射；几何断言放进 e2e，不放单测。
+
+## F15 [建议] 文档与登记漏项
+
+- 位置：plan.md“Spec 与文档改动”“切片 1”。
+- 现象：
+  1. 目录测试：计划写“由现有目录测试核对两种语言齐全”。`locales.test.ts` 的 `LEGACY` 表要求“目录里每个键都要在表里”，新加的键必须同一次改动里登记并写出处；`default-text.test.ts` 也要为“带端口缺省文字”的新组件加行（Notification 的“详情”、CodeBlock 的“复制/已复制”、Stack 的小条、DetailDialog 的“关闭”若不复用 `dialog.close`）。不登记测试直接红，计划没列这两个文件。
+  2. 目录键：计划只给了 `codeBlock` 下的键；小条的“还有 n 条较早的通知”“展开”“收起”“详情”“{{title}}：详情”没给命名空间与键名。带 `count` 的条目英文要写 `_one/_other`（`text/minimal.ts` 支持复数类别），中文裸键；计划没提。
+  3. 登记的文档：`Dialog.md`“已知限制”要补“通知视口层级高于模态，通知可见且（若 F3 的结论是可点）可点”；`NotificationStack.md` 的“布局”“交互”“状态与边界”需要改的不止“新增 maxVisible”：它写着“按创建顺序纵向排列”“视口强制每条通知 dismissible”，折叠后“空队列/有通知”的边界要重写；`Notification.md` 的“布局与状态”整节（现在写“动作按钮在 actionLabel 非空或提供 action 插槽时出现”，且“窄空间下……按钮保持自身宽度”都会变）；`nb-ui/README.md` 与 `docs/ui-development-spec.md` 的叠放层级节也要看。计划只说“若有通知相关条目（实施时 grep）”，不够。
+  4. Spec：输入合同的代码块要加 `detail`；“信任边界：文字按纯文本渲染”要把 `detail` 写进去（CodeBlock 用文本插值，安全，但 Spec 要显式）；“状态与转换”表加“展开/收起”“打开详情”两行；输出 8 可访问性要写对话框；“边界与兼容”要列 `DetailDialog`；输出 2 现有的“从下往上堆叠”与实现不符（F7），借此改正。
+  5. `PermissionRulesPage.vue` 并不使用 `Notification`（只导入 `Dialog` 等；`grep -n Notification` 无结果），计划（及派发说明）把它当作“既有使用方”去核对动作列是错的。真正的使用方是 `dev-panel/src/web/parts/WriteResult.vue`、`NotificationStack`、Lab 夹具 `NotificationStackFixture.vue`、nb-ui 自己的 playground；要看外观的也应是这几处，特别是 `WriteResult` 的默认槽里放了 `<p>`、`<ul>` 和一个展开附注的按钮，动作行落在这些内容之下之后，点“附注 n 条”展开/收起时“重试”会上下移动。
+  6. `CodeBlock` 文字区“自己 `select-text`”对所有现有使用方生效（不只是 `copyable`）：任何放在 `select-none` 祖先里的 CodeBlock 会变成可选。我在 `nb-agent-ui/src/vue` 里没搜到 `select-none`，所以现有使用方大概率不受影响，是行为变化而非回归；但 `.md` 要写明，且“强制可选”更适合放在 DetailDialog 那一层（它的祖先链是宿主决定的，teleport 到宿主给的目标里），不放进共用零件。
+- 建议改法：把上述并入计划的“Spec 与文档改动”清单与切片 1、3、4 的文件范围。
+
+## F16 [建议] 别扭之处：用不存在的选择器取“落到面板”；`DetailDialog` 的 `footer` 与页脚按钮可以更直
+
+- 位置：plan.md“DetailDialog.vue”（“初始焦点给面板（`initialFocus` 给一个找不到的选择器，Dialog 约定退到面板）”）。
+- 现象：`Dialog.md` 与 `dialog-close.ts:onOpenAutoFocus` 的确写了“给了但找不到时聚焦面板”，所以行为成立；但把“传一个故意找不到的选择器”当成“请聚焦面板”是在利用兜底分支，组件作者改了兜底（比如改成回到第一个可聚焦元素）就静默变样。聚焦面板（`outline-none`）也让键盘与读屏用户一打开看不到任何焦点指示，Esc 能关但 Tab 的第一站是不可见的状态。
+- 建议改法：给初始焦点一个真实的目标：页脚的“关闭”按钮（只读内容，Enter/空格即关，与 AlertDialog 的取消键同类），选择器写成 `[data-detail-close]`；鼠标打开时 `:focus-visible` 不会画环，键盘打开时才画，这就是复制键“不带光晕”想要的效果。若一定要落在面板，在 `Dialog` 加一个明确的 `initialFocus: "panel"` 约定（改 `Dialog.md`），不要靠假选择器。
+
+## F17 [建议] 对照 VS Code 与 Sonner：计划里没有、值得先定“要不要”的几项
+
+- 位置：plan.md 整体（“通知中心、历史”已明确不做，下面几项不在该范围内）。
+- 现象：
+  1. 键盘到达：常驻的失败通知带“重试”“详情”，要靠 Tab 穿过整页才能到视口（视口在页面根的末尾）。VS Code 有“聚焦到通知”命令与 Esc 收起；计划没有键盘入口，也没写 Esc 在通知上的含义。对 w00028 这类“键盘与读屏用户是一等公民”的项目，至少要写明“不做”。
+  2. 去重/覆盖（F12）、全部关闭（F12）：两者都是常驻通知的刚需。
+  3. 展开态下悬停：Sonner 展开时整条堆的计时一起暂停；这里按单条暂停，展开后用户在读第 2 条时第 1 条（限时）会消失，列表高度抖动。可接受，但 Spec 写“折叠计时照常”时顺带写明展开态的悬停单条暂停。
+  4. 页面不可见时计时：用户切到别的标签页后，限时通知照常消失，回来什么都没看到。这是现有行为，不属于本 Task；只因为带详情的是常驻所以不受影响，提一句以免被当作遗漏。
+- 建议改法：F17.1 在“不做与风险”里写明；其余按 F12 处理。
+
+---
+
+## 未发现问题的方面
+
+- `Dialog` 的 `footer` 插槽签名（`{confirm, cancel}`）、页脚在 `md` 尺寸右对齐并保留左侧状态行，与计划“页脚只一个次级按钮”相容；`initialFocus` 找不到时聚焦面板的语义在 `Dialog.md` 与 `dialog-close.ts` 里确实存在（F16 只说用法别扭，不说不成立）。
+- 通知层级 `NB_Z_INDEX.notification = 9050` 高于模态层：计划没有改它，与现有注释一致（F3 讲的是它带来的交互后果）。
+- `useUiText()` 取带参数的键（`count` 复数）机制存在；SDK 导出清单由 `sdk.test.ts` 与 nb-ui 组件入口逐个对照，计划列了 `components/index.ts` 与 `components.ts` 两处，与该测试的要求一致。
+- 通知根节点 `role="status"`、`select-none` 的保留、`text-wrap: pretty` 的退化（不支持的浏览器忽略）、点击区 24px 可见 / 32px 伪元素的做法，本身没有问题（F13 讲的是焦点环与 prop 一致性）。
+- 没有开发服务、没有 e2e；凡涉及真实浏览器行为（F3 的可点性、F2.1 的 `selectionchange` 时序、F4.1 的 Safari 焦点）都标了“从代码/规范推断”，建议实施前各用 Lab 夹具核实一次。
+
+## 条数
+
+共 17 条：阻断 0，重要 8（F1 到 F7、F10），建议 9（F8、F9、F11 到 F17）。
