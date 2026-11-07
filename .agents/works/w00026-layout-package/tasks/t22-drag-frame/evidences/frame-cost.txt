@@ -69,3 +69,25 @@ hover: wall=10210, frames=603, moves=600, recalc=346, layouts=18, recalcPerFrame
     42ms HitTest
     29ms Layerize
     22ms PrePaint
+
+== 切片 5 之后（2026-11-07，分支 feat/w00026-t22-drag-frame，开发服务未压缩，headless Chrome 60Hz，负载约 3）
+命令：DIAG_URL='http://127.0.0.1:<端口>/?project=sample' DIAG_OUT=<文件> node scripts/diag-drag-frame.mjs；窗口：同样的环境变量，node scripts/diag-drag-window.mjs
+
+空闲: frames=91 moves=0 recalc=0 layouts=0 recalcPerFrame=0 layoutPerFrame=0 styleMs=0 layoutMs=0 scriptMs=2 taskMs=18
+拖视图，指针扫过多个落点: frames=617 moves=600 recalc=823 layouts=104 recalcPerFrame=1.33 layoutPerFrame=0.17 styleMs=455 layoutMs=26 scriptMs=512 taskMs=2320
+拖视图，指针不动: frames=90 moves=0 recalc=0 layouts=0 recalcPerFrame=0 layoutPerFrame=0 styleMs=0 layoutMs=0 scriptMs=6 taskMs=26
+拖编辑器标签，扫过多个落点: frames=415 moves=400 recalc=516 layouts=56 recalcPerFrame=1.24 layoutPerFrame=0.13 styleMs=313 layoutMs=13 scriptMs=323 taskMs=1586
+不按键划过（t21）: frames=600 moves=600 recalc=351 layouts=18 recalcPerFrame=0.58 layoutPerFrame=0.03 styleMs=612 layoutMs=2 scriptMs=93 taskMs=1304
+拖浮动窗: frames=121 moves=120 recalc=120 layouts=0 recalcPerFrame=0.99 layoutPerFrame=0
+
+拖视图轨迹，谁强制的（前 6）：
+  384次   149ms 平均1元素  (帧循环，非强制)
+   36次     5ms 平均1元素  topElementAt@drag-session.ts:12 < resolve@drag-session.ts:168 < evaluate@drag-gesture.ts:111 < publish@drag-gesture.ts:121
+   18次     9ms 平均3元素  getStyleProperties@vue.js:5683 < getTransitionInfo@vue.js:5684 < hasCSSTransform@vue.js:6559 < (anon)@vue.js:6464
+   18次     6ms 平均2元素  getPosition@vue.js:6543 < recordPosition@vue.js:6518 < (anon)@vue.js:6469 < (anon)@vue.js:2113
+   14次    79ms 平均192元素  getPosition@vue.js:6543 < (anon)@vue.js:6499 < renderComponentRoot@vue.js:3030 < componentUpdateFn@vue.js:3929
+   10次     2ms 平均1元素  snap@SashHandle.vue:192 < (anon)@useSashSnap.ts:37
+
+和最初比：拖视图每帧样式重算 5.2 到 1.33、布局 0.69 到 0.17；拖编辑器标签 3.8 到 1.24；拖窗 0.99、布局 0；指针不动 0。
+1.33 里多出的 0.33 来自候选变化：扫描路线一直在换落点，每次换都要重排一次、量一次 TransitionGroup。候选不变的阶段由 e2e/workbench-drag-cost.e2e.ts 判定（每帧不超过 1.3，布局不超过 0.1，不动时 0）。
+未验证：真实 144Hz 下的数字，开发者要用 DevTools 复测。

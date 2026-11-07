@@ -15,7 +15,13 @@ updated: 2026-11-07
 
 ## 当前状态
 
-计划开发者看过要点（2026-11-07）：让出的位置、卡片时机按推荐；活动栏与别的面板的标签条走同一条逻辑，指针上去就被吸收，别的面板这条优先级最低，难实现可以禁用。下一步设计审查，产品代码没动。
+五个切片都已提交在分支 `feat/w00026-t22-drag-frame`，实现审查进行中，没合入。
+
+计划开发者看过要点（2026-11-07）：让出的位置、卡片时机按推荐；活动栏与别的面板的标签条走同一条逻辑，指针上去就被吸收，别的面板这条优先级最低，难实现可以禁用。吸收做出来了，没有禁用。
+
+每帧样式重算（[`evidences/frame-cost.txt`](evidences/frame-cost.txt) 最后一节，无头 Chrome 60Hz）：拖视图 5.2 到 1.33，布局 0.69 到 0.17；拖编辑器标签 3.8 到 1.24；拖窗 0.99，布局 0；指针不动 0。扫描路线一直在换落点，多出的 0.33 来自换落点时的重排；候选不变的阶段由 `workbench-drag-cost` 判定。真实 144Hz 的数字要开发者用 DevTools 复测。
+
+验证：`test:affected --since master --typecheck` 只有 nb-agent-ui、nb-story 的类型检查失败，这两包本分支没动，主工作区同样报错（nb-story 1 条，nb-agent-ui 2 条）。e2e：`workbench-live-drag`、`workbench-drag-cost`、`workbench-dnd`、`workbench-views`、`editor-area`、`workbench-float`、`files-explorer` 通过；`lab-scenes` 失败 1 项，是主题编辑器场景 `ThemeEditor/scene-full`、`icons` 的素材地址 404（fixture 用假哈希，w00041 t16 引入），开发服务 4217 的 master 上同样 404，不是本 Task 引入。`docs:check`、`governance:check` 无失败。
 
 诊断：拖视图时每帧 5.2 次样式重算、0.69 次布局，拖编辑器标签 3.8 次（[`evidences/frame-cost.txt`](evidences/frame-cost.txt)，脚本 [`scripts/diag-drag-frame.mjs`](scripts/diag-drag-frame.mjs)）。主因是卡片矩形每帧经属性穿过 NestedGrid，所有面板头跟着重渲染，`TransitionGroup` 每次都量。t20 的 `drag-cost.txt` 里 `RecalcStyleCount` 已经是每次移动 5.5 次，当时只看了耗时，漏了次数。
 
@@ -41,4 +47,4 @@ updated: 2026-11-07
 
 ## 下一步
 
-按切片实施。
+处理实现审查，合入 master。
