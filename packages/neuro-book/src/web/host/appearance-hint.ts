@@ -29,6 +29,11 @@ export interface HostAppearanceHint {
 const INDICATORS: ReadonlySet<string> = new Set(["dots", "pulse", "page"]);
 /** 路径里不能有引号、括号、反斜杠与空白：它会被放进 `url("…")`。内联脚本读时做同样的检查。 */
 const SAFE_PATH = /^\/[^"'()\\\s]+$/u;
+/** 解析会把原始值里的反斜杠换成斜杠、去掉制表符与换行，这两样要在解析前拒绝；编码的斜杠与反斜杠（%2f、%5c）解析后还在，也不认。 */
+const RAW_UNSAFE = /[\\\s]/u;
+const ENCODED_SEPARATOR = /%2f|%5c/iu;
+/** 记录里场景图地址的最大长度：素材地址是几十到一百多个字符，更长的是异常记录，不值得在第一帧前解析。 */
+const MAX_SCENE_LENGTH = 2048;
 
 /**
  * 文档根上 `--skin-loading-scene` 的值（`url("…")`）转成同源的路径；不是同源、带用户名密码、带查询或片段、路径含不安全字符的都不认。
@@ -37,7 +42,7 @@ const SAFE_PATH = /^\/[^"'()\\\s]+$/u;
  */
 export function hostScenePath(value: string, location: Pick<Location, "href" | "origin">): string | null {
     const raw = /^url\(\s*(["'])(.*)\1\s*\)$/u.exec(value.trim())?.[2];
-    if (raw === undefined) return null;
+    if (raw === undefined || raw.length > MAX_SCENE_LENGTH || RAW_UNSAFE.test(raw)) return null;
     let url: URL;
     try {
         url = new URL(raw, location.href);
@@ -45,7 +50,7 @@ export function hostScenePath(value: string, location: Pick<Location, "href" | "
         return null;
     }
     if (url.origin !== location.origin || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") return null;
-    return url.pathname.startsWith("//") || !SAFE_PATH.test(url.pathname) ? null : url.pathname;
+    return url.pathname.startsWith("//") || ENCODED_SEPARATOR.test(url.pathname) || !SAFE_PATH.test(url.pathname) ? null : url.pathname;
 }
 
 /** 加载页的四种颜色取自这些主题变量。 */

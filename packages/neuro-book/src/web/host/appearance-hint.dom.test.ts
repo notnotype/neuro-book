@@ -9,6 +9,12 @@ import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 
+import {pluginFilesPrefix, pluginFileUrl} from "nbook/plugin-platform/shared/plugin-files";
+import {rawUrlOf, THEME_ASSET_DIRECTORY_ADDRESS} from "nbook/plugins/files/shared/contracts";
+import type {ThemeDeclaration} from "nbook/plugins/workbench/shared/themes";
+import {USER_THEME_PLUGIN} from "nbook/plugins/workbench/shared/user-themes";
+import {themeVars} from "nbook/plugins/workbench/web/themes";
+
 import {HOST_APPEARANCE_KEY, hostScenePath, rememberDocumentAppearance} from "./appearance-hint";
 
 const WEB = join(import.meta.dirname, "..");
@@ -141,6 +147,16 @@ describe("加载页的场景图与进度样式（theme.skins 输出 19）", () =
         ["带查询", "/assets/a.webp?x=1"],
         ["带片段", "/assets/a.webp#x"],
         ["路径里有括号", "/assets/a(1).webp"],
+        // 解析会把反斜杠换成斜杠、去掉制表符与换行：这几样要在原始值上就拒绝，否则 `/a\\b` 会被当成 `/a/b`。
+        ["原始值里有反斜杠", "/assets/a\\b.webp"],
+        ["原始值里有空格", "/assets/a b.webp"],
+        ["原始值里有制表符", "/assets/a\tb.webp"],
+        ["原始值里有换行", "/assets/a\nb.webp"],
+        // 编码的斜杠与反斜杠解析后还在，下游（服务端、反向代理）怎么解释它们不一定一致。
+        ["编码的斜杠开头", "/%2f%2fevil.example/a.webp"],
+        ["编码的斜杠", "/assets/a%2Fb.webp"],
+        ["编码的反斜杠", "/assets/a%5cb.webp"],
+        ["超过 2048 个字符", `/assets/${"a".repeat(2048)}.webp`],
     ])("场景图地址不认：%s", (_name, raw) => {
         expect(hostScenePath(`url("${raw}")`, window.location)).toBeNull();
     });
@@ -164,6 +180,31 @@ describe("加载页的场景图与进度样式（theme.skins 输出 19）", () =
         stop();
     });
 
+    it("真实的地址转换器给出的用户素材与第三方插件素材地址，经 themeVars 写到文档根后，宿主能记下、内联脚本能读回", () => {
+        const declaration: ThemeDeclaration = {title: "x", base: "nbook", light: {scene: "0a1b2c.webp", loading: {scene: true, indicator: "dots"}}, dark: {}};
+        const pluginPrefix = pluginFilesPrefix("/api/runtime", "acme@skin+x", "abc123");
+        const urls = {
+            user: (_plugin: string, path: string) => rawUrlOf(`${THEME_ASSET_DIRECTORY_ADDRESS}/${path}`, null),
+            plugin: (_plugin: string, path: string) => pluginFileUrl(pluginPrefix, `assets/${path}`),
+        };
+        for (const [kind, assetUrl] of Object.entries(urls)) {
+            const vars = themeVars({id: `${kind}.theme`, plugin: kind === "user" ? USER_THEME_PLUGIN : "acme@skin+x", declaration}, "light", assetUrl).vars;
+            const loadingScene = vars["--skin-loading-scene"];
+            expect(loadingScene, kind).toMatch(/^url\("\/api\//u);
+            root.removeAttribute("style");
+            window.localStorage.clear();
+            applyTheme("light", {...THEME, "--skin-loading-scene": loadingScene ?? ""});
+            rememberDocumentAppearance({root, storage: () => window.localStorage, warn: () => undefined})();
+            const scene = stored().scene;
+            expect(typeof scene, kind).toBe("string");
+            root.removeAttribute("style");
+            runInlineScript();
+            expect(root.style.getPropertyValue("--host-loading-scene"), kind).toBe(`url("${String(scene)}")`);
+            expect(root.hasAttribute("data-host-scene"), kind).toBe(true);
+            root.removeAttribute("data-host-scene");
+        }
+    });
+
     it("内联脚本读回：场景图写成 --host-loading-scene 并标 data-host-scene，进度样式标 data-host-indicator", () => {
         window.localStorage.setItem(HOST_APPEARANCE_KEY, JSON.stringify({...COLORS, scene: "/assets/study-night-9z.webp", indicator: "dots"}));
         runInlineScript();
@@ -173,13 +214,14 @@ describe("加载页的场景图与进度样式（theme.skins 输出 19）", () =
     });
 
     it("两个字段各自独立判定：场景图不合格只丢场景图，进度样式不合格只丢进度样式，颜色都照常用", () => {
-        for (const scene of ["//evil.example/a.webp", "https://evil.example/a.webp", "/a(1).webp", "/a.webp?x=1", 3]) {
+        const rejected = ["//evil.example/a.webp", "https://evil.example/a.webp", "/a(1).webp", "/a.webp?x=1", "/%2f%2fevil.example/a.webp", "/a%5Cb.webp", "/a\\b.webp", "/a b.webp", "/a\tb.webp", `/${"a".repeat(3000)}.webp`, 3];
+        for (const scene of rejected) {
             root.removeAttribute("style");
             root.removeAttribute("data-host-scene");
             root.removeAttribute("data-host-indicator");
             window.localStorage.setItem(HOST_APPEARANCE_KEY, JSON.stringify({...COLORS, scene, indicator: "pulse"}));
             runInlineScript();
-            expect(root.hasAttribute("data-host-scene"), String(scene)).toBe(false);
+            expect(root.hasAttribute("data-host-scene"), String(scene).slice(0, 40)).toBe(false);
             expect(root.style.getPropertyValue("--host-loading-scene")).toBe("");
             expect(root.getAttribute("data-host-indicator")).toBe("pulse");
             expect(root.style.getPropertyValue("--host-loading-accent")).toBe("rgb(10, 132, 255)");

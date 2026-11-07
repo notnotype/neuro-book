@@ -24,11 +24,12 @@
                         root.style.setProperty("--host-loading-" + name, hint[name]);
                     });
                     // 场景图与进度样式各自独立：缺一个或不合格，只是这一项退回缺省（颜色是另一回事，混着用会让明暗不一致）。
-                    // 地址先按浏览器的 URL 规则解析再判同源（协议相对的 //host/… 解析后是别的主机），路径里不能有引号、括号、反斜杠与空白。
-                    if (typeof hint.scene === "string") {
+                    // 地址先按浏览器的 URL 规则解析再判同源（协议相对的 //host/… 解析后是别的主机）。解析会把反斜杠换成斜杠、去掉空白，
+                    // 所以这两样在原始值上就拒绝；解析后的路径里不能有引号、括号与编码的斜杠、反斜杠（%2f、%5c），原始值最长 2048。
+                    if (typeof hint.scene === "string" && hint.scene.length <= 2048 && !/[\\\s]/.test(hint.scene)) {
                         try {
                             var scene = new URL(hint.scene, location.href);
-                            if (scene.origin === location.origin && !scene.username && !scene.password && !scene.search && !scene.hash && scene.pathname.indexOf("//") !== 0 && /^\/[^"'()\\\s]+$/.test(scene.pathname)) {
+                            if (scene.origin === location.origin && !scene.username && !scene.password && !scene.search && !scene.hash && scene.pathname.indexOf("//") !== 0 && !/%2f|%5c/i.test(scene.pathname) && /^\/[^"'()\\\s]+$/.test(scene.pathname)) {
                                 root.style.setProperty("--host-loading-scene", 'url("' + scene.pathname + '")');
                                 root.setAttribute("data-host-scene", "");
                             }
