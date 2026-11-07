@@ -16,6 +16,7 @@ import {startProbeServer} from "./fixtures";
 import type {ProbeServer} from "./fixtures";
 
 const E = "test.sample-views.omega";
+const AUXILIARY_VIEW = "test.sample-views.delta";
 
 const ghost = (page: Page) => page.locator("[data-workbench-drag-ghost]");
 const surface = (page: Page) => page.locator("[data-workbench-surface]");
@@ -119,6 +120,39 @@ test.describe("实时布局", () => {
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
         await expect.poll(() => panelOfTab(page, E)).not.toBe(from);
+    });
+
+    test("移动与松手在同一个任务里到（候选一帧都没显示过）：还是提交指针下的候选", async ({page}) => {
+        await open(page);
+        const from = await panelOfTab(page, E);
+        await lift(page, tab(page, E));
+        const target = await inLeaf(page, from === "auxiliarybar" ? "sidebar" : "auxiliarybar", {x: 0.5, y: 0.5});
+        // 两次 Playwright 调用之间浏览器可能已经跑过一帧，分不出“与最后显示的相同才提交”：在页面里同一个任务派发。
+        await page.evaluate(({x, y}) => {
+            for (const type of ["pointermove", "pointerup"]) window.dispatchEvent(new PointerEvent(type, {bubbles: true, pointerId: 1, pointerType: "mouse", isPrimary: true, clientX: x, clientY: y, button: type === "pointerup" ? 0 : -1, buttons: type === "pointerup" ? 0 : 1}));
+        }, target);
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        await expect.poll(() => panelOfTab(page, E)).not.toBe(from);
+    });
+
+    test("拿起时上一次布局变化的过渡还在走：判定按终点的矩形", async ({page}) => {
+        await open(page);
+        const finalPanel = await inLeaf(page, "panel", {x: 0.5, y: 0.5});
+        const toggle = page.locator("[data-shell-focus-target=\"panel-toggle\"]");
+        await toggle.click();
+        await expect(leaf(page, "panel")).toHaveCount(0);
+        await settled(page);
+        // 放慢过渡：面板还在长的时候拿起。过渡中间的矩形里指针下是别的面板（或者没有面板）。
+        await page.addStyleTag({content: ":root { --motion-layout: 5000ms !important; }"});
+        await toggle.click();
+        await expect.poll(() => page.locator("[data-moving]").count()).toBeGreaterThan(0);
+        // 面板这一排在动，拖右栏的视图。
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        await page.mouse.move(finalPanel.x, finalPanel.y, {steps: 3});
+        await expect(surface(page)).toHaveAttribute("data-live-preview", /"panel":"panel"/);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
     });
 
     test("取消：布局回原样，不写记录", async ({page}) => {

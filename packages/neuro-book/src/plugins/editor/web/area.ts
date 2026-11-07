@@ -849,7 +849,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (target === null) return found.group.tabs.length > 1 && found.group.active === tabId && holding(found.group.id) !== null;
             const group = groups.groups.value.find((candidate) => candidate.id === target);
             if (group === undefined) return true;
-            if (target === found.group.id) return false;
+            if (target === found.group.id) return found.group.active !== tabId && holding(found.group.id) !== null;
             const moving = found.tab;
             if (moving.kind === "file" && group.tabs.some((tab) => tab.kind === "file" && tab.address === moving.address && tab.editor === moving.editor)) return true;
             return (found.group.active === tabId && holding(found.group.id) !== null) || holding(target) !== null;

@@ -15,6 +15,8 @@ import type {LayoutDragDrop, LayoutTabSource} from "./layout-drag";
 const CARD_COMPACT = {width: 380, height: 260};
 /** 缩放的时间常数：每帧按它指数逼近。 */
 const CARD_TAU_MS = 90;
+/** 卡片矩形变化小于这么多不算变：指数逼近永远到不了目标，不截断的话每帧都还在变。 */
+const CARD_STILL_PX = 0.1;
 
 export interface LiveDragHost {
     requestFrame(run: (now: number) => void): number;
@@ -29,8 +31,8 @@ export interface LiveDragHost {
     candidateDoc(source: LayoutTabSource, drop: LayoutDragDrop): LayoutDoc | null;
     /** 摘掉来源后的文档。 */
     sourceRemovedDoc(source: LayoutTabSource): LayoutDoc | null;
-    /** 来源在已提交文档里所在的面板。 */
-    homeOf(source: LayoutTabSource): string | null;
+    /** 来源在这份文档里所在的面板；`shown` 是此刻摆着的预览，没有预览时是 null，看已提交的。 */
+    homeOf(source: LayoutTabSource, shown: LayoutDoc | null): string | null;
     show(doc: LayoutDoc | null): void;
 }
 
@@ -75,11 +77,18 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     let offered: LayoutDragDrop | null = null;
     let shown: LayoutDragDrop | null = null;
     let frame: number | null = null;
+    /** 此刻摆着的预览：标签预览到别的标签条之后再撕下，卡片从那块面板开始缩。 */
+    let shownDoc: LayoutDoc | null = null;
+
+    function show(doc: LayoutDoc | null): void {
+        shownDoc = doc;
+        host.show(doc);
+    }
 
     function candidateOf(drop: LayoutDragDrop, from: LayoutTabSource): LiveDropCandidate {
         const {action} = drop;
         // 标签条内要跟手：已经在这条标签条里，或者就是来源自己那条。
-        const inStrip = action.kind === "strip" && (host.homeOf(from) === action.panel || (shown?.action.kind === "strip" && shown.action.panel === action.panel));
+        const inStrip = action.kind === "strip" && (host.homeOf(from, null) === action.panel || (shown?.action.kind === "strip" && shown.action.panel === action.panel));
         // 只有长出新面板的落点有空位：并进已有面板时空位就是它的整块正文，粘住了它自己的外缘就选不到了。
         const grows = !drop.inPlace && (action.kind === "edge" || action.kind === "reveal");
         return {key: keyOf(drop), immediate: inStrip, slot: grows ? drop.preview.areaRect : null};
@@ -100,7 +109,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         }
         if (cardSize === null) {
             // 撕下来：从这个标签此刻所在的面板开始缩。
-            const panel = host.homeOf(source);
+            const panel = host.homeOf(source, shownDoc);
             const rect = panel === null ? null : host.panelRect(panel);
             homeRect = rect;
             const width = rect === null ? CARD_COMPACT.width : rect.right - rect.left;
@@ -117,7 +126,11 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         const blend = 1 - Math.exp(-Math.max(0, now - lastFrame) / CARD_TAU_MS);
         cardSize = {width: cardSize.width + (target.width - cardSize.width) * blend, height: cardSize.height + (target.height - cardSize.height) * blend};
         const origin = host.gridOrigin();
-        card.value = {key: source.tab, rect: {x: pointer.x - origin.x - grab.x * cardSize.width, y: pointer.y - origin.y - grab.y * cardSize.height, width: cardSize.width, height: cardSize.height}};
+        const rect = {x: pointer.x - origin.x - grab.x * cardSize.width, y: pointer.y - origin.y - grab.y * cardSize.height, width: cardSize.width, height: cardSize.height};
+        // 帧循环一直在跑，指针不动、缩放收敛之后矩形不变：不换对象，渲染链才不跟着每帧重跑。
+        const before = card.value?.rect;
+        if (before !== undefined && Math.abs(before.x - rect.x) < CARD_STILL_PX && Math.abs(before.y - rect.y) < CARD_STILL_PX && Math.abs(before.width - rect.width) < CARD_STILL_PX && Math.abs(before.height - rect.height) < CARD_STILL_PX) return;
+        card.value = {key: source.tab, rect};
     }
 
     function tick(now: number): void {
@@ -137,12 +150,12 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             shown = offered;
             previewKey.value = preview.key;
             shownAction.value = offered?.action ?? null;
-            host.show(offered === null ? null : host.candidateDoc(source, offered));
+            show(offered === null ? null : host.candidateDoc(source, offered));
         } else if (preview.kind === "source-removed") {
             shown = null;
             previewKey.value = "source-removed";
             shownAction.value = null;
-            host.show(host.sourceRemovedDoc(source));
+            show(host.sourceRemovedDoc(source));
         }
         const origin = host.gridOrigin();
         slot.value = state.slot === null ? null : {x: state.slot.left - origin.x, y: state.slot.top - origin.y, width: state.slot.right - state.slot.left, height: state.slot.bottom - state.slot.top};
@@ -189,7 +202,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             slot.value = null;
             card.value = null;
             cardSize = null;
-            host.show(null);
+            show(null);
         },
     };
 }

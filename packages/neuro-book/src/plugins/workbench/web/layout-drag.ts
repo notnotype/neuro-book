@@ -14,6 +14,8 @@ import type {GridDropPoint, GridDropRect, GridExtent, GridOrientation, LayoutDoc
 import {createDragSession, layoutMotionMs, measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops} from "@notnotype/nb-layout/vue";
 import type {DragSession, TabStripSnapshot} from "@notnotype/nb-layout/vue";
 
+import {nextTick} from "vue";
+
 import {createLiveDrag} from "./live-drag";
 import type {LiveDrag} from "./live-drag";
 
@@ -146,7 +148,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const result = removeTab(options.doc(), source.tab);
             return result.ok ? result.doc : null;
         },
-        homeOf: (source) => findTab(options.doc(), source.tab)?.panel ?? null,
+        homeOf: (source, shown) => findTab(shown ?? options.doc(), source.tab)?.panel ?? null,
         show: (doc) => options.showPreview(doc),
         panelRect: (panel) => rectOf(root.querySelector(`[data-shell-card="${escape(panel)}"]`)),
         gridOrigin: () => {
@@ -303,6 +305,16 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         });
     }
 
+    function freeze(doc: LayoutDoc, source: LayoutTabSource): void {
+        frozen = {
+            panels: panelGeometry(doc),
+            strips: new Map(treeLeaves(doc.tree.root).flatMap((leaf) => {
+                const strip = stripOf(leaf.id);
+                return strip === null ? [] : [[leaf.id, measureTabStrip(strip, source.tab)] as const];
+            })),
+        };
+    }
+
     function dropAt(source: LayoutTabSource, point: GridDropPoint, region: KeyboardRegion | null): LayoutDragDrop | null {
         const doc = options.doc();
         const band = rectOf(toolBand());
@@ -311,15 +323,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             previewsOf = doc;
             previews.clear();
         }
-        if (live.active.value && frozen === null) {
-            frozen = {
-                panels: panelGeometry(doc),
-                strips: new Map(treeLeaves(doc.tree.root).flatMap((leaf) => {
-                    const strip = stripOf(leaf.id);
-                    return strip === null ? [] : [[leaf.id, measureTabStrip(strip, source.tab)] as const];
-                })),
-            };
-        }
+        if (live.active.value && frozen === null) freeze(doc, source);
         const panels = frozen?.panels ?? panelGeometry(doc);
         // 键盘的区域是明确选的，不按坐标判预备区：编辑组的外缘候选就在预备区底下。
         const zones = region === null ? frozenZones.map((zone) => ({panel: zone.panel, rect: zone.rect})) : [];
@@ -433,6 +437,11 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             if (!keyboard && options.feel() === "live" && options.maximized() === null && options.extent() !== null && layoutMotionMs(root) > 0) {
                 options.settleMotion();
                 live.begin(source, lastPointer);
+                // 送到终点要等渲染才落到 DOM（摘掉过渡标记、写终点矩形）。手势紧接着在同一个同步段里做第一次判定，那次量到的是过渡中间的矩形：渲染之后马上重量。
+                // 不能留给下一次判定去量：帧循环这时已经开始摆预览，再量就是预览里的矩形。
+                void nextTick(() => {
+                    if (live.active.value) freeze(options.doc(), source);
+                });
             }
             return true;
         },

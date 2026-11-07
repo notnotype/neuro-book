@@ -45,7 +45,7 @@ export interface DragSessionOptions<S, D, R> {
     commitsUnderPointer?(keyboard: boolean): boolean;
     /** 此刻的结构键；一场里它变了整场取消。缺省不比较。 */
     structure?(): string;
-    /** 同步判定这一刻的落点，不产生副作用；可以读宿主维护的状态（实时布局的粘滞）。 */
+    /** 同步判定这一刻的落点。不改布局；放下时、自动滚动时也会调，所以宿主可以读它维护的状态、记下最近的落点（实时布局的粘滞与候选），不能假定一次移动只调一次。 */
     resolve(query: DragQuery<S, R>): D | null;
     /** 落点要做的动作的比较键；只显示、不提交的落点为 null。 */
     actionKey(drop: D): string | null;

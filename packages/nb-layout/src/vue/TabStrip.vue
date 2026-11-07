@@ -213,7 +213,7 @@ defineExpose({focusTab: (id: string) => tabElement(id)?.focus()});
 <template>
     <div ref="rootEl" class="nb-tab-strip" data-tab-strip :data-tabs-level="adaptive ? adapt.level : undefined">
         <div ref="listEl" role="tablist" :aria-label="label" class="nb-tab-strip__list" @keydown="onKeydown">
-            <TransitionGroup v-for="row in rows" :key="row.id" tag="div" class="nb-tab-strip__row" :move-class="animateMoves ? 'nb-tab-frame--moving' : 'nb-tab-frame--still'" :data-tab-row="row.id" :data-tab-row-partition="row.partition" :data-layout="row.layout">
+            <TransitionGroup v-for="row in rows" :key="row.id" tag="div" class="nb-tab-strip__row" :css="false" :move-class="animateMoves ? 'nb-tab-frame--moving' : 'nb-tab-frame--still'" :data-tab-row="row.id" :data-tab-row-partition="row.partition" :data-layout="row.layout">
                 <div
                     v-for="item in row.items"
                     :key="item.id"

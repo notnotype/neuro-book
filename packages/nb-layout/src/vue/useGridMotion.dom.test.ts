@@ -162,6 +162,30 @@ describe("过渡中内容跟外框的叶", () => {
         expect(followingOf(motion)).toEqual(["leaf:l0", "leaf:l1", "leaf:l2"]);
     });
 
+    it("落地的内容项：不跟外框、压在上面；先后于这一轮布局都一样，结束后清空", () => {
+        const after = started();
+        after.motion.update(frame({items: items([200, 200, 150, 150]), previous: after.base}));
+        after.motion.land("leaf:l0");
+        expect(followingOf(after.motion)).toEqual(["leaf:l1", "leaf:l2"]);
+        expect(after.motion.flying.value.has("leaf:l0")).toBe(true);
+
+        const before = started();
+        before.motion.land("leaf:l0");
+        before.motion.update(frame({items: items([200, 200, 150, 150]), previous: before.base}));
+        expect(followingOf(before.motion)).toEqual(["leaf:l1", "leaf:l2"]);
+        expect(before.motion.flying.value.has("leaf:l0")).toBe(true);
+
+        before.motion.stop();
+        expect(before.motion.moving.value).toBe(false);
+        expect(before.motion.flying.value.size).toBe(0);
+    });
+
+    it("减少动态效果时落地不过渡：卡片直接到叶上", () => {
+        const {motion} = started("0ms");
+        motion.land("leaf:l0");
+        expect(motion.moving.value).toBe(false);
+    });
+
     it("减少动态效果（令牌为零）：没有过渡，内容直接是最终尺寸", () => {
         const {motion, base} = started("0ms");
         motion.update(frame({items: items([200, 200, 150, 150]), previous: base}));

@@ -1126,6 +1126,40 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         expect(names(at, 0)).toEqual(["a.md", "b.md"]);
     });
 
+    it("实时布局的预览判据与真正移动同条件：同组换位、跨组、新组、目标已有同一文件", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        at.area.open("project://b.md", {mode: "permanent"});
+        const left = groupAt(at, 0);
+        at.area.open("project://c.md", {mode: "permanent", group: "side"});
+        const right = groupAt(at, 1);
+        at.area.open("project://b.md", {mode: "permanent", group: right});
+        const b = tabId(at, 0, "b.md");
+        const a = tabId(at, 0, "a.md");
+        const c = tabId(at, 1, "c.md");
+        // 没有未裁决输入：只有目标已有同一文件时不摆预览。
+        expect(at.area.moveBlocked(a, left)).toBe(false);
+        expect(at.area.moveBlocked(c, left)).toBe(false);
+        expect(at.area.moveBlocked(b, right)).toBe(true);
+        expect(at.area.moveBlocked(a, null)).toBe(false);
+
+        // 让左组的 b.md 有未裁决输入：两边基于同一修订输入不同内容。
+        const leftB = await boundIn(at, left);
+        const rightB = await boundIn(at, right);
+        const base = rightB.revision.value;
+        rightB.commit(base, "右");
+        expect(leftB.commit(base, "左")).toMatchObject({status: "conflict"});
+        expect(leftB.unresolved()).toBe(true);
+        // 活动标签有未裁决输入：同组里挪别的标签、把它移走、往这组移，都和 `moveTab` 一样不行。
+        expect(at.area.moveBlocked(a, left)).toBe(true);
+        expect(await at.area.moveTab(a, {group: left, partition: "normal", before: b})).toMatchObject({ok: false});
+        expect(at.area.moveBlocked(c, left)).toBe(true);
+        expect(await at.area.moveTab(c, {group: left, partition: "normal", before: null})).toMatchObject({ok: false});
+        // 活动的就是被挪的标签：同组换位不用离开它。
+        expect(at.area.moveBlocked(b, left)).toBe(false);
+        expect(at.area.moveBlocked(b, null)).toBe(true);
+    });
+
     it("移到已有同一标签的组：共享的修改不问，源组空了随之关闭；被移动的视图有未裁决输入时问，取消则留在原处", async () => {
         const at = await world();
         at.area.open("project://a.md", {mode: "permanent"});

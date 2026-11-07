@@ -24,6 +24,8 @@ interface Line {
     readonly partition: string | null;
     readonly rect: GridDropRect;
     readonly members: ReadonlyArray<Member>;
+    /** 这一行原来的最后一个是被摘掉的来源：行尾的空白是它的位置，单行时它前面可能是别的分区。 */
+    readonly endedWithExcluded: boolean;
 }
 
 /** 一份量好的标签条：判定不再读 DOM。实时布局拿起时量一份，预览里标签在滑、来源也挪了，这时读 DOM 算不准。 */
@@ -42,7 +44,7 @@ function linesOf(strip: Element, exclude: string | null): Line[] {
     const lines: Line[] = [];
     const stripRect = rectOf(strip);
     for (const row of strip.querySelectorAll<HTMLElement>("[data-tab-row]")) {
-        const frames = [...row.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf).filter((member) => member.id !== exclude);
+        const frames = [...row.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf);
         const rowPartition = row.dataset.tabRowPartition ?? null;
         const byTop = new Map<number, Member[]>();
         for (const frame of frames) {
@@ -50,13 +52,15 @@ function linesOf(strip: Element, exclude: string | null): Line[] {
             byTop.set(key, [...(byTop.get(key) ?? []), frame]);
         }
         const rowRect = rectOf(row);
-        for (const [, members] of [...byTop].sort(([a], [b]) => a - b)) {
+        for (const [, line] of [...byTop].sort(([a], [b]) => a - b)) {
+            const members = line.filter((member) => member.id !== exclude);
+            if (members.length === 0) continue;
             const top = Math.min(...members.map((member) => member.rect.top));
             const bottom = Math.max(...members.map((member) => member.rect.bottom));
-            lines.push({partition: rowPartition, rect: {left: Math.max(stripRect.left, rowRect.left), right: Math.min(stripRect.right, rowRect.right), top, bottom}, members});
+            lines.push({partition: rowPartition, rect: {left: Math.max(stripRect.left, rowRect.left), right: Math.min(stripRect.right, rowRect.right), top, bottom}, members, endedWithExcluded: line.at(-1)?.id === exclude});
         }
-        // 空的行（多行时没有普通标签）：整行是一个插入位。
-        if (frames.length === 0) lines.push({partition: rowPartition, rect: rowRect, members: []});
+        // 空的行（多行时没有普通标签，或只有来源）：整行是一个插入位。
+        if (frames.every((frame) => frame.id === exclude)) lines.push({partition: rowPartition, rect: rowRect, members: [], endedWithExcluded: frames.length > 0});
     }
     return lines;
 }
@@ -106,7 +110,7 @@ export function tabStripInsertionIn(snapshot: TabStripSnapshot, point: GridDropP
     // 后继看得见时线画在它前面（换行处归一到下一行行首）；没有后继才是分区末尾。
     const visible = line.members.filter((member) => member.rect.right > containerRect.left && member.rect.left < containerRect.right);
     const last = visible.at(-1);
-    const partition = last?.partition ?? line.partition;
+    const partition = line.endedWithExcluded && snapshot.excludedPartition !== undefined ? snapshot.excludedPartition : (last?.partition ?? line.partition);
     const inPartition = samePartition(partition);
     const successor = last === undefined ? undefined : inPartition[inPartition.findIndex((member) => member.id === last.id) + 1];
     if (successor === undefined) return {before: null, after: last?.id ?? null, partition, indicator: insertion.indicator};

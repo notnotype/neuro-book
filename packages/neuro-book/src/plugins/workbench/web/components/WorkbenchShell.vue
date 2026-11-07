@@ -590,9 +590,12 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         <span class="workbench-shell__card-hint" data-drag-card-hint aria-hidden="true">{{ dropFeedback.liveLabel }}</span>
                     </div>
                 </template>
-                <template v-if="drag?.live.active.value === true" #overlay>
-                    <DropSectorsOverlay v-if="liveSectors !== null" inline variant="live" :rect="liveSectors.rect" :sectors="liveSectors.items" :active="liveSectors.active" />
-                    <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
+                <!-- 插槽始终传，条件写在里面：条件插槽编译成动态插槽，外壳每渲一次表面都要跟着更新。 -->
+                <template #overlay>
+                    <template v-if="drag?.live.active.value === true">
+                        <DropSectorsOverlay v-if="liveSectors !== null" inline variant="live" :rect="liveSectors.rect" :sectors="liveSectors.items" :active="liveSectors.active" />
+                        <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
+                    </template>
                 </template>
                 <template #content="{contentKey, panelId}">
                     <template v-if="viewIdOf(contentKey) === null">
