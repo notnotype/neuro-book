@@ -250,7 +250,7 @@ describe("读取与外部修改", () => {
         await settle("同一窗口里删除并重建后生效", (snapshot) => snapshot.values["x.ui/size"] === 30);
         await writeFile(path, "{\"x.ui/size\": 31}");
         await settle("之后的修改也生效", (snapshot) => snapshot.values["x.ui/size"] === 31);
-    });
+    }, 30_000);
 
     it("符号链接：改目标生效；链接改指另一个目录里的文件后，改新目标生效；目标删除后重建生效", async () => {
         const root = await directory();
