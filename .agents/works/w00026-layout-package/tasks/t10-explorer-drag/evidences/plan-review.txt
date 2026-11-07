@@ -1,0 +1,153 @@
+# w00026 t10 计划设计审查报告
+审查对象：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00026-layout-package/tasks/t10-explorer-drag/plan.md
+工作树：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t07-single-tree（只读，实验文件在 /tmp/review-t10-design/exp/）
+按影响排序。位置里的路径都相对 packages/neuro-book/src/plugins，除非写了包名。
+
+## 1 阻断：落点合同放在 workbench/shared/contracts.ts，签名里的 DOM 与 Vue 类型过不了服务端 tsc
+
+位置：计划“合同：workbench/shared/contracts.ts”里的 WorkbenchFileDrop、`resolve(point, top)`（top 是 Element）、`preview: DropFeedbackPreview`。
+现象：packages/neuro-book/tsconfig.json 把 `src/plugins/*/shared` 纳入服务端检查，该配置 `lib: ["ESNext"]`、没有 DOM；`DropFeedbackPreview` 只由 `@notnotype/nb-layout/vue`（SFC `DropFeedbackOverlay.vue`）导出。`defineDropKind` 的注释本身就写了“shared/ 里的合同要能定义它，又不把 Vue 层带进来”（packages/nb-layout/src/drag-gesture.ts 第 543 行）。
+为什么：计划把运行时的 `defineDropKind` 与整个负载类型放在同一个 shared 文件里，类型负载里有 `Element` 和 Vue 层类型，服务端 `tsc --noEmit` 直接报错；跨插件运行时导入又只能指向 shared/contracts.ts（architecture.test.ts 第 3 行规则），所以不能把常量挪到 web/contracts.ts。
+如何核实：我在 /tmp/review-t10-design/exp/ 用 `extends` 仓库 tsconfig.json 编译了两个探针。只写 `resolve(point, top: Element | null)` 报 `TS2304: Cannot find name 'Element'`；再加上 `import type {DropFeedbackPreview} from ".../nb-layout/src/vue/index"` 会拖进 nb-layout/src/vue/drag-session.ts 等一批文件，共 118 条 DOM 类型报错。
+改法：负载只用不带 DOM 与 Vue 的类型：`top` 写成 `unknown`（或不透明的 `object | null`），在 WorkbenchShell 里收窄；`preview` 用与 `LayoutDropPreview`（workbench/web/layout-drag.ts）同形状、只依赖 nb-layout 核心类型的结构（`areaRect`、`indicator`、`orientation`，类型来自 `@notnotype/nb-layout` 的 `GridDropRect`、`GridOrientation`）；`sectors` 用核心的 `LayoutDropSector`。`DropFeedbackPreview` 在 explorer 的 web 层自己补齐 `entryRect: null`（现在 ExplorerTree 就是这么做的）。
+
+## 2 重要：计划写“提案不用追加：和第 3 节一致”，但提案第 3 节“资源树”写的是另一套，计划的偏离没有交给开发者
+
+位置：计划“Spec 与文档改动”末句、“不做与风险”第一条；对照 docs/proposals/workbench-single-tree-layout.md 第 211、213 行。
+现象：提案写“一场拖动归工作台的会话，资源树提供两个钩子：树内解析……和自动滚动。指针出树后按上面的规则走，来源是文件”，并说“编辑器向工作台登记‘文件’这种来源的接受与提交”。计划保留资源树自己的会话（`createDragSession`、`scroll: "withdraw"`、`flyBack`），外壳只经落点登记给一个 `resolve/commit`，还明说“不走实时布局”。“上面的规则”包含实时布局与“两种手感都要”（提案决策记录 2026-11-05），文件拖动因此少了实时布局这一半，“拖出树后走同一套”只实现了落点规则，没有实现手感。
+为什么：开发者确认的只有 t01 决定 5、6 与 t11/t12/t14 暂缓；“两个会话 + 无实时布局”是计划自己做的范围与架构收窄，没有记录的理由。留着两个会话本身有现实原因（树内的文件操作要 `previewDrop`、冻结令牌、`flyBack`、边缘滚动），但这是需要让开发者看到的取舍，不能写成“和提案一致”。
+如何核实：读提案第 211、213 行与计划“不做与风险”；t10/README.md 第 9 行还写着“实在难就全程用 VS Code 模式”，说明降级路线本来就要问开发者。
+改法：计划里把这条作为待确认项列出：A) 两会话 + 落点指示（本计划），代价是文件拖到编辑区没有实时重排，需要在提案第 3 节资源树一段与 ui/workbench-layout.md 输出 38 写明“文件来源只有落点指示”；B) 按提案让外壳会话接管，树提供解析钩子，代价是 `controller` 的冻结令牌、`previewDrop` 与 `flyBack` 要改接外壳会话。提案里的这句“和第 3 节一致”要删或改成偏离说明。
+
+## 3 重要：“没有落点就是 floatDrop”“直接复用 dropAt”对 `new` 来源不成立，浮动路径整条要重写
+
+位置：计划“判定”一节“没有落点就是 `floatDrop`……走 `dropAt(FILE_SOURCE, point, null)`”；workbench/web/layout-drag.ts 第 345 行 `canFloat`、第 364 行 `floatDrop`、第 404 行 `dropAt` 里的 `source.kind === "tab"` 守卫；workbench/web/components/WorkbenchShell.vue 第 409 行 `floatMinimum`。
+现象：
+- `floatDrop(doc, source: LayoutTabSource, point)` 先调 `canFloat(doc, source)`，它用 `findTab(doc, source.tab)`；`new` 来源不在文档里，恒为 `null`，`canFloat` 恒为假，`floatDrop` 恒返回 null。
+- `dropAt` 在 `resolveLayoutDrop` 返回 null 之后只对 `source.kind === "tab"` 走 `floatDrop`，`new` 直接得到 null：计划要的“工具面板上、窗口外、状态栏、标题栏松手开窗”一个都不会发生。
+- 浮出窗的最小尺寸来自 WorkbenchShell 的 `floatMinimum(source)`，也是 `findTab(doc, source.tab)?.panel`，`new` 取到 `{0,0}`，窗尺寸退到 460×340 默认值，没有按编辑组的 `EDITOR_GROUP_MINIMUM` 约束。
+- 窗数到 16 个时 `canFloat` 为假，这时 `dropAt` 返回 null，反馈消失、松手无事发生，计划与 Spec 输出 39（“到 16 个窗之后不再开”）一致，但计划的验收映射没有这一条。
+为什么：计划把 `dropAt` 当成“来源无关”的函数，实际它里面至少有四处按 `source.kind === "tab"` 的假定（`barDrop`、`stripDrop` 编辑器分支、`previewOf`、浮动）。`barDrop` 对 `new` 碰巧返回 null（`doc.panels[undefined]`），所以“活动栏上段不开窗”碰巧成立，但靠的是越界取值，类型上过不了。
+如何核实：读 layout-drag.ts 第 345-376、404 行与 WorkbenchShell.vue 第 409-414 行；写 `new` 来源后 `tsc` 会在这些分支报错。
+改法：计划里列出 `layout-drag.ts` 的具体改动，而不是“复用”：`floatDrop`/`canFloat`/`floatMinimum` 改成接受“来源是否已在文档”的两种情形（`new` 用编辑组角色的最小尺寸、窗数上限照查、视图声明不适用），`dropAt` 的守卫改成对 `new` 也走 `floatDrop`；`stripDrop` 编辑器分支里 `source.tab` 的读取与 `previewOf` 的 `source.panel` 读取对 `new` 显式写成“不在原位”。
+
+## 4 重要：标签条插入“先打开再 moveTab”缺三处时序与失败语义，会出现假失败或放错位
+
+位置：计划“提交”一节 `area.openFiles` 的“标签条：先打开，再 `moveTab` 到落点（同文件已在这组时只是移动），分区按 `part`”；editor/web/area.ts 第 683-710 行 `moveTab`、editor/web/groups/groups.ts 第 230-236 行 `insert`、第 352-371 行 `moveTab`。
+现象：
+- `groups.open` 把新标签插在“活动标签之后”（`insert`），再 `moveTab` 到落点；落点本来就在那个位置（例如落在活动标签右边）时，`groups.moveTab` 判为原位返回 null，`area.moveTab` 返回 `{ok:false, reason: "refusal.samePlace"}`。计划没有说这是成功；按“失败就 closeEmpty / 报错”实现会得到假失败。
+- 落点锚点（`before`）如果就是被放下的文件在这一组里已有的标签（把 a.md 拖到它自己标签的前缝上），`open` 复用那个标签，`moveTab(tab, {before: 自己})` 里 `base` 已摘掉自己，`findIndex` 为 -1，返回 null。
+- 锚点按下标取（`dropTab` 的现成写法是 `tabs[action.index]`）。先 `open` 再取下标会因插入的标签错位一格；多文件时每开一个都错一格。必须在第一次 `open` 之前把锚点换成标签 id 并固定下来，再逐个 `moveTab(..., {before: 锚点 id})`，这样多个文件按拖动顺序排在锚点之前。
+- 比较键：计划写“`key` 比较键：float 的矩形每帧变，不算”，没说要带 `part`。外壳自己的 `actionKey` 是 `[layoutDropKey(action), part]`（workbench/web/layout-drag.ts 第 551 行）；固定行与普通行的同一个下标是两个落点，`key` 不带 `part` 会让放下时重判的结果在“固定还是不固定”上与最后显示的不一样却被当成同一个。`dropKey` 现在还带 `addresses`，计划改成“用 `drop.key`”后也要保留这一部分。
+为什么：这些都是计划自己选的“两步”结构带来的，既有的 `dropTab`/`dockGroup` 已经处理过前两类（`dockGroup` 把 `before` 在循环前固定，并按分区修正）。
+如何核实：读 groups.ts 第 352-371 行；在 area.test.ts 里把已有标签的文件落到自己前缝上即可复现第二条（Bun，不需要浏览器）。
+改法：在 `openFiles` 里先算 `before`（排除属于被放下文件的标签），`samePlace` 当成功，多文件逐个移动并在遇到真正的拒绝（未裁决输入）时停下，写进计划与 `area.test.ts` 的场景；`WorkbenchFileDrop.key` 写明是 `[layoutDropKey(action), part ?? null]`。
+
+## 5 重要：反馈与文字由谁画没有定下来，`label`、`tree.drop.*`、分区文字互相矛盾，外壳现成的反馈组件被绕开
+
+位置：计划“合同”里 `label: string // 反馈的文字`；“资源树”一节“拖影文字：`tree.drop.open` 不变，浮动写 `tree.drop.float`”“`DropFeedbackOverlay` 画 preview、`DropSectorsOverlay` 画 sectors”；workbench/web/components/WorkbenchShell.vue 第 440-512 行、WorkbenchDragFeedback.vue。
+现象：
+- 合同里有 `label`，资源树一节却说文字由资源树的 `tree.drop.*` 给。两个来源并存，没说谁赢。
+- 落点有五种（标签条插入、中央、拆一块、放到两块之间、浮动）。资源树现有的文字键只有“在这一组打开”，计划只补了“浮动”一个；拆分与插入时拖影还写“在这一组打开”是错的。外壳的这些文字都在 workbench 的 locale（`shell.drop.insert/addTab/split/between/float` 与四个方向的分区文字，WorkbenchShell.vue 第 479-509 行）。
+- 外壳画反馈用的是 `WorkbenchDragFeedback`：拖影、`data-drop-kind` 探针、读屏的 `data-drag-live-status`、分区文字。计划在资源树里直接用 `DropFeedbackOverlay`/`DropSectorsOverlay`，这些就都没有了：落点分区没有文字、读屏没有播报、`data-drop-kind` 缺失。
+为什么：反馈的内容是工作台的领域知识，让第二个插件重画一遍就会再出现提案问题第 3 条“同一件事写了几份”（docs/proposals/workbench-single-tree-layout.md 第 28 行）。
+如何核实：对照 WorkbenchShell.vue 的 `dropLabel`、`dropFeedback`、`sectorLabels` 与计划“资源树”一节。
+改法（选一）：A) 合同里去掉 `label`，改成 `kind`（`"strip" | "center" | "split" | "between" | "float"`）加外壳按现有 locale 给的已翻译 `label` 与 `sectorLabels`，资源树只做拖影与 `DropFeedbackOverlay`，拖影文字取 `drop.label`，`tree.drop.open` 只用在 `resolve` 得到中央时之外不用；B) 更干净：外壳登记的负载多一个 `feedback(drop | null)`，由外壳用 `WorkbenchDragFeedback` 画，资源树只负责自己的拖影。无论哪种，把“拖影五种文字从哪来”写进计划，并保持 e2e 里的 `data-explorer-drop` 探针有明确的新取值。
+
+## 6 重要：资源树自己的视图区域也成了“松手开窗”的地方，比现状多出一批误触，计划只提了“工具面板上”
+
+位置：计划“资源树”一节“树外 `dropTargetAt(top ?? root, WORKBENCH_FILE_DROP)`”与“不做与风险”第二条；explorer/web/tree-drag.ts 第 40-52 行；explorer/web/components/FilesExplorerView.vue 第 150-200 行；ExplorerTree.vue 第 656 行 `OverlayScrollbar`。
+现象：`resolveTreeTarget` 只有 `root.contains(top)`（树的滚动元素）才算树里。资源树视图里还有：树上方的“未绑定项目/连接已结束/偏好问题”横条（含按钮）、树下方的 `ExplorerFeedback`（高度最多 40%）、兄弟元素 `OverlayScrollbar`、侧栏面板的头。指针落在这些地方时 `top` 在外壳根里、却不在树里，工具面板不接收编辑器标签，`resolveLayoutDrop` 返回 null，计划的路径就是 `floatDrop`：松手开一个窗。现状这些位置都是“没有落点、取消、拖影飞回”。
+最常见的一条路径：往树的下边缘拖着触发边缘滚动（验收 25 就是这么写的；`edgeScrollStep` 在指针越过边缘后仍继续滚），过冲后松手，指针落在 `ExplorerFeedback`、侧栏底部或状态栏上，开出一个浮动窗而不是取消。
+为什么：决定 6 讲的是“这个东西允许浮动，松手时没有落点就浮动”，对标签与工具视图是开发者试过原型后认可的；资源树“拖出树外”的同一规则没有在原型里试过，计划把“拖错”的风险当成可接受（Esc 取消），但没有区分“拖到别的面板上的有意丢弃”和“在自己的面板里过冲”。
+如何核实：读 FilesExplorerView.vue 的 `grid-rows` 与三块子元素；e2e/files-explorer.e2e.ts 第 518-590 行的自动滚动用例就是过冲场景。
+改法：至少把“拖动源所在的视图自己”与“它所在面板的头”算作树自己：`resolveTreeTarget` 在 `top` 位于资源树视图根（`data-explorer-view`）或同一块面板里时返回 null（取消，保留 `flyBack`），只有指针到了别的面板、编辑区、窗口外才走工作台判定。这是对决定 6 的收窄，按“上游选择”要交给开发者拍板；把它列进计划的待确认项。
+
+## 7 重要（建议先问开发者）：编辑组中央的高亮范围与标签条的行为变了，Spec 与现有 e2e 的判据会失败，计划只写“验收 26 扩写”
+
+位置：计划“Spec 与文档改动”“验收映射”；docs/specs/workbench/files-explorer.md 验收 26（“右边的组整块画浅底”）与“拖到编辑区”一条；docs/specs/ui/workbench-layout.md 输出 21（编辑组的头和内容是一个落点，高亮整块）；e2e/files-explorer.e2e.ts 第 811-860 行；workbench/web/layout-drag.ts 第 266-297 行 `previewOf`、第 299 行 `stripDrop`。
+现象：新判定下
+- 中央落点的区域矩形是 `panels.find(id).body`，也就是不含标签条的正文；现在是“头和内容一起算”的整块（EDITOR_GROUP_FILE 的 `groupRect`）。
+- 指针在编辑组标签条上不再是“在这一组打开”的整块高亮，而是插入位，画一条插入线（`stripDrop` 的 `indicator`，`areaRect` 为 null）。
+- 落点分区开着（默认）时，正文还会被压暗并画五块（上下左右中）。
+- `data-explorer-drop="open"` 这个探针不再对应唯一一种落点。
+e2e 第 835 行的用例（标签条上也在那一组打开；高亮含头）与 files-explorer.md 验收 26 都会按新行为失败，不是“扩写”能覆盖的。
+为什么：这是已审过的两条 Spec 判据被替换，而计划只把它当扩写。
+如何核实：读 e2e 第 835-856 行的高亮断言；读 `previewOf` 的 `center` 分支。
+改法：计划里明确列出“被替换的判据”，在 Spec 里写新判据（正文高亮、标签条插入线、分区压暗），e2e 里改的是这几个断言与 `data-explorer-drop` 的取值，并说明为什么与输出 21 的“头和内容一起算”不矛盾（那一条是旧的整组落点，被工作台的落点规则取代）。
+
+## 8 建议（设计改进，避免连锁改动）：不要把 `new` 加进公开的 `LayoutSource`，单独给“落点判定的来源”一个类型
+
+位置：计划“判定”一节“`LayoutSource` 加 `{kind: "new"; tabs}`”；packages/nb-layout/src/layout-doc.ts 第 73-75 行；用到 `LayoutSource` 的位置见下。
+现象：`LayoutSource` 现在同时是拖动会话的来源类型（`createDragSession<LayoutSource, ...>`）、`commit` 回调的参数、`ghostOf`、实时布局、键盘候选的来源。`new` 永远不会出现在这些位置（文件拖动不走外壳会话），但加进联合类型后下列代码在 `tsc` 下都要改：workbench/web/state/layout-doc-store.ts 第 245-258 行 `commitDrop`（`source.panel`）、WorkbenchShell.vue 第 422、433 行 `ghostOf`/`stripDragging`、lab/web/fixtures/editor-scene/EditorAreaFixture.vue 第 228-236 行（第二个 `createLayoutDrag` 宿主，`commit` 里读 `source.tab`）、nb-layout 的 `showPanelAndInsert`、`isInPlace`、`previewEdgeDrop`、`applyLayoutDrop` 各 switch。计划只写了后三个。
+为什么：为只在“判定与预览”里出现的一种来源，放宽了所有消费者的类型，换来的是一批永远走不到的 `else` 分支和 `source.tab` 的越界读（见第 3 条）。
+如何核实：把 `{kind: "new"}` 加进联合后跑 `bun run typecheck`（`tsc` 与 `vue-tsc`），数报错的文件。
+改法：`LayoutSource` 不动；在 layout-drop.ts 里新增 `LayoutDropSource = LayoutSource | {kind: "new"; tabs}`，只有 `resolveLayoutDrop`、`layoutDropPanelAt`、`layoutDropSectors`、`applyLayoutDrop`、`previewEdgeDrop`、`sourceTabs` 接受它；会话、commit、实时布局、键盘候选继续用 `LayoutSource`。`tabs` 若永远只有一个占位标签（计划的 `FILE_SOURCE`），可以直接写成 `{kind: "new"; tab: TabRef}`，不要用数组。
+
+## 9 建议：失败与多文件的处理没写，现有的资源树提示（open-failed、editor-missing）去向不明
+
+位置：计划“控制器”一条“`options.commands` 那条逐个打开的路径去掉；焦点、错误提示由编辑器（`area.notice`）给”；explorer/web/controller.ts 第 338-345 行 `open`；editor/web/area.ts 第 732 行 `open`、第 534-542 行 `leave`。
+现象：
+- `area.open` 的失败只作为返回值（`OpenResult`）；`area.notice` 只在 `leave` 因为目标组有未裁决输入时才被写（`notice.unresolved`）。`groupClosed`、`pageAddress`、`disposed` 都不写 `notice`。计划说“错误提示由 area.notice 给”不完全对。
+- 多文件放在有未裁决输入的组里：每个 `open` 都 `leave` 失败、各写一次同样的提示。`dockGroup` 的做法是“中途被拒绝就停”，计划没有对应说明。
+- 先建空组再打开的路径里 `open` 对新建的空组做 `leave` 恒为真（没有活动视图），能失败的只有 `disposed`；计划的“一个都没打开成：`closeEmpty`”这一分支基本走不到，也没法在 `area.test.ts` 里写出触发它的场景，成了不可测的死代码。
+- 资源树的 `notice`（`editor-missing`、`open-failed`）只在 `commands.execute` 路径上；新路径下没有编辑器时没有落点，不会进到 `commit`，所以 `editor-missing` 在拖动上不再出现，需要在 Spec 的“打开”一条里把这种不同写清楚。
+如何核实：读 editor/web/area.ts 第 534-542 行（`leave`）、第 732-758 行（`open` 实现，失败只返回 `reason`）。
+改法：计划里写明三件事：`openFiles` 遇到拒绝就停；失败提示取 `area.notify`（已有）还是只靠 `leave` 的那条；空组路径要么取消 `closeEmpty` 回退（只防 `disposed`，这时整个区域已销毁，无需清理），要么把“开得出的”在建组之前用 `editorRefusal`/`resolveEditor` 先验掉。
+
+## 10 建议：缓存与会话状态——`fileDrop` 不经外壳会话，`previews` 与 `frozenZones` 没有“这一场开始”的清理点
+
+位置：workbench/web/layout-drag.ts 第 134-140 行（`frozenZones`、`previews`、`previewsOf`、`frozen`）、第 515-517 行 `activate` 里的 `frozenZones = revealZones(source); previews.clear(); frozen = null`。
+现象：这三份状态只在外壳会话的 `activate` 里重置。资源树的拖动调用 `dropAt` 不经 `activate`，所以：
+- `previews`（键是 `[source, action, extent]`）只在文档对象变了时清；预览里缓存的 `areaRect`（`center` 取 `panels.find(id).body`、`edge` 取 `previewEdgeDrop`）在没有文档变化的几何变化（主题的卡片间距、最大化切换，`maximized` 不在键里）之后会过期，而且上一场外壳拖动留下的缓存会被文件拖动读到；
+- `frozenZones` 是上一场外壳拖动冻结的预备区，没有在 `onActiveChange(false)` 里清。当前不会出错（工具面板不接受编辑器标签，`resolveLayoutDrop` 会拒绝），但这是靠接受矩阵碰巧挡住的。
+为什么：`dropAt` 内部有可变状态，计划把它当纯函数“直接复用”。
+如何核实：读 `dropAt` 开头 `previewsOf` 的比较与 `zones` 的取法。
+改法：`createLayoutDrag` 暴露 `fileDrop(point, top)` 的同时再暴露 `beginFileDrop()`/`endFileDrop()`（或 `fileDrop` 自己在第一次调用时清缓存、`resolve` 里用 `region === null` 以外的参数传 `zones: []`），资源树的会话开始与结束时调；`fileDrop` 内部传空的 `zones` 并忽略 `frozen`。
+
+## 11 建议：新增接口没有列全，几处接口细节与“不变”的说法对不上
+
+位置：计划“关键设计”各节；explorer/web/actions/drop.ts、explorer/web/controller.ts 第 696-700、984-993 行、explorer/transfer.test.ts 第 596-598 行、explorer/web/actions/plan.test.ts 第 102-111 行；workbench/shared/editor-panels.ts。
+现象：
+- `DropOver` 的 `editor` 分支计划只加 `drop`；`commit` 在目标 `{kind: "editor", drop, commit}` 里，而 `controller.dropDrag(over)` 只拿到 `over`，`commit` 要从 `over` 里取，所以 `DropOver.editor` 也要带 `commit`（或控制器在选项里拿）。计划没写。
+- “`resolveEditorDrop` 不变”：它的签名是 `(sources, group, rowOf)`，`group` 要换成 `drop`，测试里的 `{kind: "open", group: "g1", ...}` 与 `{kind: "editor", group: "g1"}`（transfer.test.ts 第 596-598 行、plan.test.ts 第 102-111 行）都要改；这是行为不变、形状变了，计划的切片 3 只写了 `transfer.test.ts`，没写 `plan.test.ts`。
+- `PanelTree`（workbench/shared/contracts.ts 的 `EditorPanels`/`PanelTree`，实现在 editor-panels.ts 的 `createEditorPanels` 与 `createMemoryEditorPanels`）要加 `openAt(target)`、`openFloat(rect)`、`closeEmpty(group)`，计划只列了 nb-layout 的 `openFloatPanel`、`closeEmptyPanel`，没有列这层接口，也没有列 Lab 夹具（EditorAreaFixture 用 `createMemoryEditorPanels`）需要的同步。现成的是 `openAtEdge(panel, edge)`，只能拆某一块的某条边；放到两块之间（`between`）要走新增的 `openAt(target: LayoutEdgeTarget)`，需要说明它与 `openAtEdge` 的关系（后者可以成为前者的特例）。
+- `openFloatPanel` 要自己查 `LAYOUT_MAX_FLOATS`（`floatTab` 是在操作里查的），`closeEmptyPanel` 要拒绝非空与具名面板（`settleEmptyPanel` 对具名面板是“隐藏”，不是移除）；计划只说“复用 `settleEmptyPanel`”。
+- 两步（建空组再打开）会各写一次布局记录；`sideGroup()`（`area.open(group: "side")`）已有同样的先建空组后打开的先例，所以不是新风险，但计划应该直接引用它，并把“新建的空组在这一帧内一定被填上或移除”写成不变量。
+改法：把上面几项补进计划的“关键设计”，并在切片 2 里列出文件：`workbench/shared/contracts.ts`、`editor-panels.ts`、`groups.ts`（`EditorGroups` 是否要多一个 `openAt` 包装）、Lab 夹具。
+
+## 12 建议：文档与退役清单不全
+
+位置：计划“编辑器退役”“Spec 与文档改动”。
+现象：计划列了 `files-explorer.md`、`editor.md` 输出 35、`workbench-layout.md` 输出 39，组件 `.md` 只写 `ExplorerTree`、`EditorGroup`。还要动的：
+- editor/web/components/EditorGroupHead.md 第 47 行“文件拖放落点和内容根一样接（`useEditorGroupRoot`）”；
+- workbench/web/components/WorkbenchShell.md（外壳多登记一种落点，拖放一段第 28 行）；
+- docs/specs/workbench/editor.md 第 20 行“资源管理器拖到编辑区边缘拆分（只打开到那一组，输出 35）”写在“非目标”里，现在变成目标；
+- `useEditorGroupRoot` 有两个调用方（EditorGroup.vue 第 59 行传 `root: "section"`、EditorGroupHead.vue 第 72 行传 `root: "head"`）。去掉登记后 `rootEl`、`root` 参数与 `groupRect` 全部成了死代码，计划只写了“不再登记落点”。
+- docs/specs/ui/layout-drag.md 验收 2（“资源树拖文件到编辑组，去掉 `data-editor-group` 仍能落到”）的判据仍成立，但 e2e 第 811 行用例的名字“经落点登记查到”要改成“经外壳的落点登记”。
+改法：把这些列进“Spec 与文档改动”与“编辑器退役”，并写明 `EDITOR_GROUP_FILE` 删除后 `git grep` 为零作为退役判据。
+
+## 13 建议：验收映射里有两条按所写的方式写不出来
+
+位置：计划“验收映射”第 3、5 行。
+现象：
+- “被对话框挡住、按钮区：不开窗 → `files-explorer.e2e`”：对话框是模态的，从资源树起拖时对话框不可能开着；真实路径里只有“拖动中途弹出”的情形，e2e 没法稳定制造。能写成 e2e 的只有“指针压在 `data-no-drag` 的按钮区松手不开窗”（例如编辑组头里的标题动作按钮）。
+- “窗口外：浮动”：e2e 要把鼠标移到视口之外，`topElementAt` 在视口外返回 null，路径是计划新增的 `top ?? root`；这条在 Playwright 里能否稳定产生带捕获的 pointerup 我没有验证（从代码推断可行，未验证）。
+改法：把“被挡住”拆成 `fileDrop` 的 DOM 测试（workbench 的 `layout-drag` 或 WorkbenchShell 的 dom 测试里，给 `top` 一个外壳根之外的元素、一个 `data-no-drag` 内的元素，断言返回 null 且不开窗），e2e 保留“按钮区”与“窗口外（先试一次，不稳定就改 DOM 测试）”；工具面板上松手开窗、窗数到 16 个不再开、只有目录取消这三条也各写一个断言，并配合第 6 条决定的“资源树自己的区域取消”加一条。
+
+## 未发现问题的方面
+
+- `useDropTarget`/`dropTargetAt` 的机制：登记按元素存在 WeakMap 里，不依赖会话与工作台在场；外壳根登记后，资源树的元素在 DOM 上位于外壳根内，`dropTargetAt(top ?? root, ...)` 向上能找到；Teleport 出去的菜单与对话框在根外，所以“被挡住就找不到”成立（packages/nb-layout/src/vue/drop-targets.ts）。资源树不在外壳里（Lab 的资源树场景）时返回 null，即没有落点，这与现状（没有编辑组也没有落点）一致。
+- `live.stickyDrop` 与实时布局：`stickyDrop` 在 `live.active` 为假时恒为 null，`live.offer` 只在外壳会话的 `resolve` 里调，`fileDrop` 不经它，没有影响；`frozen` 只在 `live.active` 时设置，`onActiveChange(false)` 清掉。
+- 窗口外 `top === null` 路径：`topElementAt` 在视口外返回 null；外壳自己的 `resolve` 对 null 也是“不挡、交给 `dropAt`”，落到 `floatDrop`，反馈矩形被 `keepVisible` 夹进树区域，与 Spec 输出 39“窗口外”一致（计划这一步本身没问题，问题在第 3 条的 `floatDrop` 前提）。
+- `drag-gesture`/`drag-session` 对来源没有假定：泛型 `S`，`resolve`、`actionKey`、`commit` 都由宿主给；放下时用释放点重判，`float` 的矩形用的是松手那一帧，不是最后显示的。
+- 滚动撤下落点、边缘滚动、放下比较：`scroll: "withdraw"` 与 `autoScroll` 是会话选项，与落点来源无关；`edgeScrollStep` 要求指针在树横向范围内，指针在编辑区上不会触发树滚动，所以编辑区的“上下边缘拆分”落点不会被树的边缘滚动干扰。
+- 拖动中的结构变化：判定每帧读当前文档与 DOM，放下时再判一次；`controller` 现有的“源或落点行不在了就取消”仍然只管树里的行，对 `editor` 落点不受影响。
+- 接受矩阵：`layoutAccepts` 只看 `tab.kind`，工具面板拒绝编辑器标签，所以 `new`（编辑器标签）落到工具面板、预备区、活动栏上段都走“没有落点”；`barDrop` 对 `new` 返回 null 不开窗（但靠的是越界取值，见第 3 条）。
+- `area.open` 的 `group` 语义：已打开同一文件时本组复用并转正；`groups.open` 先把目标组设为活动组；`leave` 只结算目标组，对新建的空组恒为通过；多个 `open` 之后最后一个是活动标签。与“拖到编辑组中央：正式标签打开在那一组，成为活动组”一致。
+- `createLayoutDrag` 的第二个宿主（Lab 的 EditorAreaFixture）不会因 `fileDrop` 新增而出错（它不登记 `WORKBENCH_FILE_DROP`），只受第 8 条的类型影响。
+
+## 数量
+
+阻断 1 条（第 1 条）；重要 6 条（第 2 到 7 条）；建议 6 条（第 8 到 13 条）。合计 13 条。
+最严重的几条：第 1 条（shared 合同的 DOM 与 Vue 类型，服务端 tsc 直接失败，已用探针复现）、第 3 条（`floatDrop` 对 `new` 恒为 null，“没有落点就浮动”这条主路径整条不通）、第 2 条（与提案第 3 节“一场拖动归工作台会话”不一致，且计划称一致）、第 6 条（资源树自己的区域与过冲会误开窗）。
