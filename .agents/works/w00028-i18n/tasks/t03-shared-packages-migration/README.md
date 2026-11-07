@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t03-shared-packages-migration
-status: active
-updated: 2026-10-27
+status: done
+updated: 2026-11-07
 ---
 
 # 共享包与迁移
