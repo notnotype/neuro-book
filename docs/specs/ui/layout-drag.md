@@ -16,7 +16,7 @@ owners:
 不承诺：
 
 - 落点的几何与规则：工作台布局的在 [ui.workbench-layout](workbench-layout.md)，标签的在 [workbench.editor](../workbench/editor.md)，树的在 [workbench.files-explorer](../workbench/files-explorer.md)。[布局提案](../../proposals/workbench-single-tree-layout.md#3-拖动) 第 3 节的有序规则随一棵树写进本 Spec。
-- 实时布局的让位、粘滞与稳定时长：随实时布局写进本 Spec。
+- 实时布局的让位、粘滞与稳定时长：见 [ui.workbench-layout](workbench-layout.md) 输出 38，这里只有放下规则的开关（`commitsUnderPointer`）。
 - 分隔线手势：见 [ui.nested-grid](nested-grid.md)。
 - 跨窗口拖动。
 
@@ -47,11 +47,13 @@ export interface DragSessionOptions<S, D, R> {
     readonly root: HTMLElement;
     /** 按下处的来源；`null` 不起拖。 */
     sourceAt(target: Element): S | null;
-    /** 过了门槛：宿主冻结它要的东西；返回 `false` 不起拖。 */
-    activate?(source: S): boolean;
+    /** 过了门槛：宿主冻结它要的东西；返回 `false` 不起拖。`keyboard`：这一场是键盘拖动。 */
+    activate?(source: S, keyboard: boolean): boolean;
+    /** 放下时提交此刻判定的动作，不要求与最后显示的相同（输出 6）。缺省假。 */
+    commitsUnderPointer?(keyboard: boolean): boolean;
     /** 此刻的结构键；一场里它变了整场取消。缺省不比较。 */
     structure?(): string;
-    /** 同步判定这一刻的落点，只读，不产生副作用。 */
+    /** 同步判定这一刻的落点，不产生副作用；可以读宿主维护的状态（实时布局的粘滞）。 */
     resolve(query: DragQuery<S, R>): D | null;
     /** 落点要做的动作的比较键；只显示、不提交的落点为 `null`。 */
     actionKey(drop: D): string | null;
@@ -122,7 +124,7 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 3. **拿起**：`activate` 返回 `false` 时不起拖。否则清掉已选中的文字、调 `onActiveChange(true)`，指针拖动时根取得指针捕获，并按当前坐标立即发布第一次判定。来源元素在拖动中被卸载不算取消。
 4. **逐帧**：指针移动每帧最多判定并发布一次。`state` 是一场进行中的唯一输出。
 5. **遮挡**：`top` 是指针处从上往下第一个不在 `data-drag-feedback` 元素里的元素。菜单、对话框挡着时它就是菜单或对话框里的元素；坐标在视口外时为 `null`。
-6. **放下**：用松手的坐标再判一次，这一次不发布。`actionKey` 不为 `null` 且与最后显示过的落点的键相同才提交，一场最多提交一次；否则结束为 `no-action`。
+6. **放下**：用松手的坐标再判一次，这一次不发布。`actionKey` 不为 `null` 且与最后显示过的落点的键相同才提交，一场最多提交一次；否则结束为 `no-action`。`commitsUnderPointer` 为真时只要 `actionKey` 不为 `null` 就提交，不要求相同；落点撤下期间（输出 12）仍不提交。
 7. **取消**：下列情况都结束一场、不提交、撤下反馈：Escape、`pointercancel`、失去指针捕获、窗口失焦、页面隐藏、焦点移到根之外、键盘拖动中有指针按下、结构键变化、会话销毁。其中：
    - 失去捕获只认根自己。触摸按下时浏览器把指针隐式捕获给被按的元素，捕获换到根时，旧元素上的 `lostpointercapture` 会冒泡到根，这一次不算。
    - 窗口失焦只认窗口自己，页面里的元素失焦不算。

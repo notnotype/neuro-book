@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t08-live-drag
-status: active
+status: done
 updated: 2026-11-05
 ---
 
@@ -11,13 +11,19 @@ updated: 2026-11-05
 
 加候选树预览与动画：卡片跟手、邻居实时让位、来源收起、取消飞回、落点稳定后才换预览（Trellis 文档是 150ms）、松手提交指针下的候选。VS Code 模式保留，各场景的默认模式按 t02 的结论定。遵守系统减少动效。
 
-t06 手感确认后过渡合同变了：前后都有尺寸的叶内容逐帧跟外框，不再“只排一次版”（[nested-grid 的“过渡”](../../../../../../docs/specs/ui/nested-grid.md)）。实时布局里每换一次候选邻居都要逐帧重排，长章节的代价要在这里重新量，数据见 [t06 的测量](../t06-flat-renderer/evidences/follow-content.txt)。
+t06 手感确认后过渡合同变了：前后都有尺寸的叶内容逐帧跟外框，不再“只排一次版”（[nested-grid 的“过渡”](../../../../../docs/specs/ui/nested-grid.md)）。实时布局里每换一次候选邻居都要逐帧重排，长章节的代价要在这里重新量，数据见 [t06 的测量](../t06-flat-renderer/evidences/follow-content.txt)。
 
 合同：[ui/layout-drag](../../../../../docs/specs/ui/layout-drag.md)、[workbench-layout](../../../../../docs/specs/ui/workbench-layout.md)。计划见 [`plan.md`](plan.md)。
 
 ## 当前状态
 
-计划第二稿已按设计审查修订，开始实现。
+2026-11-07 已合入，实现审查待处理。
+
+- 验证：`test:affected --since master --typecheck` 只有已知失败；e2e 用 `NB_E2E_WIDE` 跑了拖动与读编辑器 DOM 的 14 个文件，处理后重跑失败项全过；`lab-scenes` 只有 ThemeEditor 假素材的 404。两个看落点指示、又要真实过渡的 e2e 写明设置 `dragFeel: indicator`。
+- 测量：[`evidences/live-drag-frames.txt`](evidences/live-drag-frames.txt)，脚本 [`scripts/measure-live-drag.e2e.ts`](scripts/measure-live-drag.e2e.ts)。10.6 万字章节开着时中位 17ms，p95 50 到 67ms，最长 100ms（负载 4.5、软件渲染）；压线，手感由开发者试，退路进了待确认。
+- 和计划不同的地方：标签滑开仍是 `TransitionGroup`，但只按 `move-class` 开关，一直是它，免得切换组件类型把标签重建。
+- 没做的：卡片的头收起时内容体上移 32px 有一下跳（落地时头没了），手感由开发者定。
+
 
 设计审查（一个 Sonnet，[`evidences/plan-review.txt`](evidences/plan-review.txt)，17 条：阻断 2、重要 8、建议 7）全部成立，计划照改：
 
@@ -43,4 +49,4 @@ t06 手感确认后过渡合同变了：前后都有尺寸的叶内容逐帧跟�
 
 ## 下一步
 
-片 1。
+处理实现审查的报告。
