@@ -167,7 +167,7 @@ interface Lease {
 /** 这次更新重算的事件数：主线加这次更新过的子线（`ms` 只算计算，不含写盘）。 */
 function recomputedOn(world: World): number {
     const others = new Set(world.lines.updates.map((update) => update.line).filter((line) => line !== MAIN_LINE));
-    return [...others].reduce((sum, line) => sum + (world.line(line)?.engine.recomputed ?? 0), world.line().engine.recomputed);
+    return [...others].reduce((sum, line) => sum + (world.lines.peek(line)?.engine.recomputed ?? 0), world.line().engine.recomputed);
 }
 
 export class WorldService {

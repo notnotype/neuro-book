@@ -42,7 +42,7 @@ function perChapter(view: CanonReadView, at: ReadPosition, mode: Mode, source: I
 
 /** 这一章讲的各条线的视图（分段讲几条线的章取各段的线；线读不到的跳过）。 */
 function segmentViews(view: CanonReadView, chapter: string): CanonReadView[] {
-    const lines = [...new Set(view.chapterLines(chapter).map((segment) => segment.line))];
+    const lines = [...new Set(view.chapterLines(chapter).map((segment) => view.readingLine(segment.line, "planned")))];
     return lines.flatMap((line) => {
         const on = line === view.line ? view : view.onLine(line, "planned");
         return "code" in on ? [] : [on];

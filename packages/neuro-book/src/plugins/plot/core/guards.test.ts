@@ -148,3 +148,13 @@ describe("plot.decisions 输出 2、3：守卫只看到读取位置为止", () =
         expect(reader(w.view(), end("ch12"), "actual")).toHaveLength(1);
     });
 });
+
+describe("活页夹讲的线被还原掉了（审查补二）", () => {
+    test("写之前的检查按主线算这一章，不回 line-not-found", () => {
+        const w = new PlotWorld(["ch1", "ch2", "ch3"]);
+        w.change(chapter("ch3"), {kind: "plan", text: "一件事"});
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch3", [{line: "l404", from: 1}]]])});
+        const result = beforeWriting(w.view(), "ch3", digest);
+        expect(typeof result).not.toBe("string");
+    });
+});

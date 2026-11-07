@@ -159,9 +159,17 @@ function collectNodes(raw: RawTellings, answeredBy: ReadonlyMap<string, readonly
  * 读者读到的节点（输出 5）：每一章按活页夹分的段，取每段讲的那条线上、发生点落在这一段的节点。自己标的与继承的同样算：回溯段里写在子线上的节点，在主线视图上也算读过。
  * 书只讲这一条线时就是这张视图上的节点，不必再比。
  */
+const toldCache = perViewCache<{readonly segmentsOf: ReadonlyMap<string, readonly {readonly line: string; readonly from: number}[]>; readonly lines: ReadonlySet<string>}>();
+/** 各章各段实际读到的线：与位置无关，一张视图算一次（写完以后的检查每章各建一个索引，不能每次把全书的段再算一遍）。 */
+function told(view: CanonReadView) {
+    return toldCache(view, "", () => {
+        const segmentsOf = new Map(view.chapters.map((chapter) => [chapter, toldSegments(view, chapter)] as const));
+        return {segmentsOf, lines: new Set([...segmentsOf.values()].flatMap((segments) => segments.map((segment) => segment.line)))};
+    });
+}
+
 function readerNodes(view: CanonReadView, answeredBy: ReadonlyMap<string, readonly string[]>, own: CollectedNodes): Pick<CollectedNodes, "nodes" | "reveals"> {
-    const segmentsOf = new Map(view.chapters.map((chapter) => [chapter, toldSegments(view, chapter)] as const));
-    const lines = new Set([...segmentsOf.values()].flatMap((segments) => segments.map((segment) => segment.line)));
+    const {segmentsOf, lines} = told(view);
     if (lines.size === 1 && lines.has(view.line)) return own;
     const toldBy = (occurrence: Occurrence): string => {
         const segments = segmentsOf.get(occurrence.chapter) ?? [];
@@ -191,6 +199,7 @@ export class ForeshadowIndex {
     /** 每个答案知识点被哪些悬念指向。 */
     readonly answeredBy: ReadonlyMap<string, readonly string[]>;
     readonly #reveals: readonly {readonly point: string; readonly mode: "hint" | "explicit"; readonly item: TellingItem}[];
+    readonly #lineReveals: readonly {readonly point: string; readonly mode: "hint" | "explicit"; readonly item: TellingItem}[];
 
     constructor(
         readonly view: CanonReadView,
@@ -218,6 +227,7 @@ export class ForeshadowIndex {
         this.planned = raw.planned;
         this.homeless = own.homeless;
         this.#reveals = read.reveals;
+        this.#lineReveals = own.reveals;
         // 同一发生点按讲述 id 的数值部分排（model.md 输出 27），不按节点是先加进来的还是继承来的。
         const sorted = (nodes: readonly ForeshadowNode[]) => [...nodes].sort((a, b) => compareOccurrence(view, a.occurrence, b.occurrence) || compareTellingIds(a.telling, b.telling));
         this.lineNodes = sorted(own.nodes);
@@ -250,6 +260,11 @@ export class ForeshadowIndex {
 
     reveals(): readonly {readonly point: string; readonly mode: "hint" | "explicit"; readonly item: TellingItem}[] {
         return this.#reveals;
+    }
+
+    /** 这张线视图上的揭示：计划的回收按计划所在的线配它。 */
+    lineReveals(): readonly {readonly point: string; readonly mode: "hint" | "explicit"; readonly item: TellingItem}[] {
+        return this.#lineReveals;
     }
 }
 
@@ -469,16 +484,17 @@ const payoffWithoutReveal: DiagnosticCompute = (view, at, mode) => {
     const index = foreshadowIndex(view, at, mode);
     const until = tellingPositionOf(at);
     const findings: Finding[] = [];
-    const explicitIn = (point: string, chapter: string) => index.reveals().some((reveal) => reveal.point === point && reveal.mode === "explicit" && reveal.item.located.kind === "found" && reveal.item.located.occurrence.chapter === chapter);
+    // 已写的回收配读者读到的揭示；计划的回收说的是这张线视图上的计划，也配这张视图上的揭示（子线上写好的回收与揭示，活页夹还讲主线时不能误报）。
+    const explicitIn = (point: string, chapter: string, planned: boolean) => (planned ? [...index.reveals(), ...index.lineReveals()] : index.reveals()).some((reveal) => reveal.point === point && reveal.mode === "explicit" && reveal.item.located.kind === "found" && reveal.item.located.occurrence.chapter === chapter);
     for (const foreshadow of index.foreshadows) {
         if (foreshadow.kind !== "mystery" || foreshadow.answer === null) continue;
         const payoffs = [
             // 已写的回收按读到读取位置为止的算；计划的回收按计划本身查（它说了要在那一章回收）。
-            ...index.nodesRead(foreshadow.id, until).filter((node) => node.role === "payoff" && node.source !== "reveal").map((node) => ({chapter: node.occurrence.chapter, telling: node.telling})),
-            ...index.planned.filter((node) => node.foreshadow === foreshadow.id && node.role === "payoff").map((node) => ({chapter: node.chapter, telling: node.telling})),
+            ...index.nodesRead(foreshadow.id, until).filter((node) => node.role === "payoff" && node.source !== "reveal").map((node) => ({chapter: node.occurrence.chapter, telling: node.telling, planned: false})),
+            ...index.planned.filter((node) => node.foreshadow === foreshadow.id && node.role === "payoff").map((node) => ({chapter: node.chapter, telling: node.telling, planned: true})),
         ];
         for (const payoff of payoffs) {
-            if (explicitIn(foreshadow.answer, payoff.chapter)) continue;
+            if (explicitIn(foreshadow.answer, payoff.chapter, payoff.planned)) continue;
             findings.push({key: {objects: [ref("entry", foreshadow.id)], telling: payoff.telling}, objects: [ref("entry", foreshadow.id), ref("entry", foreshadow.answer)], params: {chapter: payoff.chapter}});
         }
     }

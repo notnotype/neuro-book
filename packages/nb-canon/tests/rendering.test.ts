@@ -682,3 +682,15 @@ describe("canon.rendering 输出 12、13（审查补）：请求 id、位置与�
         expect(edited.world.line().engine.entry("e1", at("ch5"), "actual")).toMatchObject({namespaces: {panel: {fields: {魔力: {value: 3000}}}}});
     });
 });
+
+describe("canon.rendering 输出 13（审查补二）：过期时注记对不上", () => {
+    test("世界前进过、交回的注记与现在这一块的表达式对不上（个数相同、地址不同）：version-conflict", () => {
+        const base = world(["{panel.魔力} 与 {panel.魔力上限}"]);
+        const rendered = renderEntryForAgent(base, "e1", at("ch5"), "actual");
+        if (rendered === null || typeof rendered === "string") throw new Error("no render");
+        const stale = rendered.blocks[0]!.text;
+        const now = ok(base.publish({requestId: id(), by: author, what: "edit", title: "换序", baseVersion: base.version, puts: [{ref: {kind: "entry", id: "e1"}, after: {...structuredClone(base.data.entries.get("e1")!), init: {...structuredClone(base.data.entries.get("e1")!.init), text: [{id: "b1", source: "{panel.魔力上限} 与 {panel.魔力}"}]}}}]}, "t")).world;
+        const result = writeBack(now, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text: stale}, "t");
+        expect(result).toMatchObject({ok: false, failure: {code: "version-conflict"}});
+    });
+});

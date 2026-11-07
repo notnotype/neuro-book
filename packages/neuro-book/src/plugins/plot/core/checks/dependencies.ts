@@ -44,7 +44,7 @@ import {perViewCache} from "../view-cache";
 import {flashbackOf} from "./segments";
 import {revealTable} from "./trial";
 
-const ALGORITHM = 3;
+const ALGORITHM = 4;
 
 const MAIN_LINE = "main";
 /** 一个条目被提到：规范 JSON 上取 id。路径、引用、标注都覆盖，以后加字段也不漏；误中（引文里恰好有 `e5`）只是多算。 */

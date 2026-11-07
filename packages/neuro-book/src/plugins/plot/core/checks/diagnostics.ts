@@ -156,7 +156,7 @@ function findingsAt(view: CanonReadView, at: ReadPosition, source: CheckSource, 
         for (const record of source.all()) {
             const index = view.chapters.indexOf(record.chapter);
             if (index === -1 || index > now) continue;
-            if (!view.chapterLines(record.chapter).some((segment) => segment.line === view.line)) continue;
+            if (!view.chapterLines(record.chapter).some((segment) => view.readingLine(segment.line, "planned") === view.line)) continue;
             if (source.valid(view, record)) validFindings(view, record, digest, out);
             else out.add(CHECK_DIAGNOSTIC_IDS.stale, {key: {range: range(record.chapter)}, objects: [], params: {chapter: record.chapter}});
         }

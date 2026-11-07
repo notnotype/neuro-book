@@ -7,7 +7,7 @@ import type {SecretsResult} from "./secrets";
 import type {BriefItem} from "./types";
 
 /** 带值写法里的条目引用带着名字：本章不能写名字的条目（保密以上的知识点、要遮的隐秘目标）换成同样的写法（输出 4）。 */
-const maskRefNames = (frame: Frame, secrets: SecretsResult, text: string) => text.replace(/<Ref id="([^"]+)" name="[^"]*" \/>/gu, (_whole, id: string) => `<Ref id="${id}" name="${shownName(frame, secrets, id)}" />`);
+const maskRefNames = (frame: Frame, secrets: SecretsResult, text: string) => text.replace(/<Ref id="([^"]+)" name="((?:[^"\\]|\\.)*)" \/>/gu, (whole, id: string, name: string) => (name === "已删除的条目" ? whole : `<Ref id="${id}" name="${shownName(frame, secrets, id)}" />`));
 
 export function appearanceItems(frame: Frame, chapter: string, secrets: SecretsResult): BriefItem[] {
     const view = frame.view;

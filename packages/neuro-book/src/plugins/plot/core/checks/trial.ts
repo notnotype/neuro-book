@@ -32,7 +32,7 @@ const JUDGE_SYSTEM = "下面是一件事的真相和一个读者的猜测。判�
 
 /** 活页夹用到的各条线的视图（读不到的跳过）。 */
 function binderLines(view: CanonReadView): CanonReadView[] {
-    const lines = new Set(view.chapters.flatMap((chapter) => view.chapterLines(chapter).map((segment) => segment.line)));
+    const lines = new Set(view.chapters.flatMap((chapter) => view.chapterLines(chapter).map((segment) => view.readingLine(segment.line, "planned"))));
     return [...lines].flatMap((line) => {
         const on = line === view.line ? view : view.onLine(line, "planned");
         return "code" in on ? [] : [on];
@@ -84,7 +84,8 @@ function suspenseParagraphs(view: CanonReadView, point: string, chapter: string)
                 const {chapter: at, paragraph} = node.occurrence;
                 const segments = view.chapterLines(at);
                 const told = segments[Math.max(segments.findLastIndex((segment) => segment.from <= paragraph), 0)]?.line;
-                if (told === on.line) found.set(`${at}\u0000${String(paragraph)}`, {chapter: at, paragraph});
+                const toldOn = told === undefined ? undefined : view.readingLine(told, "planned");
+                if (toldOn === on.line) found.set(`${at}\u0000${String(paragraph)}`, {chapter: at, paragraph});
             }
         }
     }

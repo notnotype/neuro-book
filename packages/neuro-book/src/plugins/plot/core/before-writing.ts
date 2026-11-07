@@ -29,7 +29,7 @@ export interface BeforeWriting {
 export function beforeWriting(view: CanonReadView, chapter: string, digest: Digest): BeforeWriting | "chapter-not-found" | "line-not-found" {
     const index = view.chapters.indexOf(chapter);
     if (index === -1) return "chapter-not-found";
-    const told = [...new Set(view.chapterLines(chapter).map((segment) => segment.line))];
+    const told = [...new Set(view.chapterLines(chapter).map((segment) => view.readingLine(segment.line, "planned")))];
     const lines: BeforeWritingLine[] = [];
     for (const line of told) {
         const on = line === view.line ? view : view.onLine(line, "planned");

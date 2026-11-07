@@ -237,6 +237,11 @@ export class LineSet {
         return built;
     }
 
+    /** 已建的线视图，不建、也不记用过（读统计用，不影响淘汰）。 */
+    peek(line: string): LineView | undefined {
+        return line === MAIN_LINE ? this.main : (this.#children.get(line) ?? undefined);
+    }
+
     /** 同 `get`，但要建的话记成“当场建”（发布为算 `brokenOn` 而建，project.md 输出 26 的 `built`）。 */
     ensure(line: string): LineView | undefined {
         const wasBuilt = line === MAIN_LINE || this.#children.get(line) != null;

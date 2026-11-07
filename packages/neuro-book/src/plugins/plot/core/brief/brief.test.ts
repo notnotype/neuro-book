@@ -715,3 +715,44 @@ describe("plot.brief 输出 4、8、13（审查补）：写给写手的文字不
         expect(plan).not.toContain("王爷");
     });
 });
+
+describe("plot.brief（审查补二）：线、冲突写名字、已删除的条目", () => {
+    test("活页夹讲的线不存在：简报按主线拼，不因线读不到而失败", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        w.change(chapter("ch4"), {kind: "plan", text: "出发", cast: [{who: hero, role: "present"}]});
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch4", [{line: "l404", from: 1}]]])});
+        const result = composeBrief({view: w.view(), chapter: "ch4", outline: "细纲", targetWords: 1000, pluginVersion: "test", digest});
+        expect(typeof result).not.toBe("string");
+        expect(section(result as BriefResult, "plan")).toContain("出发");
+    });
+
+    test("隐秘目标的冲突对象的知识点本章给内容：冲突写它的名字", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const a = w.person("甲");
+        const b = w.person("乙");
+        const pointA = w.point("甲在查账", a, {保密: "secret"});
+        const pointB = w.point("乙想继承爵位", b, {保密: "secret"});
+        const goalB = w.goal("夺得爵位", b, {隐秘: {ref: pointB}});
+        w.goal("暗中查账", a, {隐秘: {ref: pointA}, 冲突: [{id: goalB}]});
+        w.change(chapter("ch3"), {patches: [addRow(a, pointA, {程度: "knows"}), addRow(b, pointB, {程度: "knows"})]});
+        w.change(chapter("ch4"), {kind: "plan", text: "对峙", cast: [{who: a, role: "present"}, {who: b, role: "present"}]});
+        expect(section(brief(w, "ch4"), "secrets")).toContain("甲的隐秘目标：暗中查账；冲突：夺得爵位");
+    });
+
+    test("涉及条目的引用：条目已删除写“已删除的条目”，不回到它原来的名字；名字里带引号也照样判", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const gone = w.point("勇者是王子", hero, {保密: "topSecret"});
+        const quoted = w.point('男爵说"是我"', hero, {保密: "topSecret"});
+        const draft = drafts.thing("tmp:t", "怀表");
+        const thing = w.publish([{ref: {kind: "entry", id: "tmp:t"}, after: {...draft, init: {...draft.init, text: [{id: "b1", source: `它和<Ref id="${gone}" />、<Ref id="${quoted}" />有关。`}]}}}])["tmp:t"]!;
+        const stored = w.world.data.entries.get(gone)!;
+        w.publish([{ref: {kind: "entry", id: gone}, after: {...structuredClone(stored), deleted: true}}]);
+        w.change(chapter("ch4"), {kind: "plan", text: "拿起怀表", cast: [{who: hero, role: "present"}], patches: [{op: "set", at: {entry: thing, path: "character.状态"}, value: "停了"}]});
+        const result = brief(w, "ch4");
+        expect(result.text).not.toContain("勇者是王子");
+        expect(result.text).not.toContain("男爵说");
+        expect(section(result, "appearance")).toContain("已删除的条目");
+    });
+});

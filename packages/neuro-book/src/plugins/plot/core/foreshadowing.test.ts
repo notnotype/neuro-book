@@ -291,3 +291,77 @@ describe("输出 5（审查补）：按线的诊断与读者的阶段各算各�
         expect(stageAt(planned.w, planned.fs, end("ch10"))).toBe("planted");
     });
 });
+
+describe("输出 5（审查补二）：按段筛、活页夹讲不存在的线、回收与揭示在子线上", () => {
+    function branched(w: PlotWorld): string {
+        const cut = w.change(chapter("ch7"));
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch7", 60)), nature: "fork" as const, fork: {line: "tmp:r", name: "支线", parent: "main", cut, type: "branch" as const}}}]);
+        return ids["tmp:r"]!;
+    }
+    const lineView = (w: PlotWorld, line: string) => {
+        const view = w.view().onLine(line, "actual");
+        if ("code" in view) throw new Error(view.code);
+        return view;
+    };
+
+    test("同一章前段讲主线、后段讲子线：子线的节点写在主线那一段的段落里不算读过，写在子线那一段里才算", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const fs = w.foreshadow("钟");
+        w.texts.set("ch9", "第一段。\n第二段。\n第三段。");
+        const line = branched(w);
+        w.change({...chapter("ch9", 1), line}, {told: [{source: "chapter", chapter: "ch9", quote: "第一段", marks: [node(fs, "plant")]}]});
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line: "main", from: 1}, {line, from: 3}]]])});
+        expect(stageAt(w, fs, end("ch10"))).toBe("unplanted");
+        w.change({...chapter("ch9", 2), line}, {told: [{source: "chapter", chapter: "ch9", quote: "第三段", marks: [node(fs, "payoff")]}]});
+        expect(stageAt(w, fs, end("ch10"))).toBe("paidOff");
+    });
+
+    test("读者的揭示同样按段筛：子线的明说写在主线那一段里，不算读过", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const answer = w.point("管家是凶手", butler, {保密: "secret"});
+        const mystery = w.foreshadow("谁杀了男爵", {种类: "mystery", 答案: {ref: answer}});
+        w.texts.set("ch9", "第一段。\n第二段。");
+        const line = branched(w);
+        w.change({...chapter("ch9", 1), line}, {told: [{source: "chapter", chapter: "ch9", quote: "第一段", marks: [reveal(answer, "explicit")]}]});
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line: "main", from: 1}, {line, from: 2}]]])});
+        expect(new ForeshadowIndex(w.view(), end("ch10"), "actual").reveals()).toEqual([]);
+        expect(stageAt(w, mystery, end("ch10"))).toBe("unplanted");
+    });
+
+    test("子线上写好的回收与明说揭示，活页夹还讲主线：子线视图上不报“回收了却没揭示答案”", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const butler = w.person("管家");
+        const answer = w.point("管家是凶手", butler, {保密: "secret"});
+        const mystery = w.foreshadow("谁杀了男爵", {种类: "mystery", 答案: {ref: answer}});
+        w.texts.set("ch9", "原来如此。");
+        const line = branched(w);
+        w.change({...chapter("ch9", 1), line}, {kind: "plan", told: [{source: "outline", chapter: "ch9", anchor: "细纲", marks: [node(mystery, "payoff")]}]});
+        w.change({...chapter("ch9", 2), line}, {told: [{source: "chapter", chapter: "ch9", quote: "原来如此", marks: [reveal(answer, "explicit")]}]});
+        const found = (compute[FS_DIAGNOSTIC_IDS.payoffWithoutReveal] as DiagnosticCompute)(lineView(w, line), end("ch9"), "actual");
+        expect(found).toEqual([]);
+    });
+
+    test("埋下只在子线上、活页夹讲主线：子线视图上物件被动过的提示按线视图的节点报", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const clock = w.thing("那座钟");
+        const fs = w.foreshadow("钟慢了", {物件: [{id: clock}]});
+        w.texts.set("ch8", "钟慢了一刻。\n");
+        const line = branched(w);
+        w.change({...chapter("ch8", 1), line}, {told: [{source: "chapter", chapter: "ch8", quote: "钟慢了一刻", marks: [node(fs, "plant")]}]});
+        w.change({...chapter("ch10", 5), line}, {patches: [{op: "set", at: {entry: clock, path: "character.状态"}, value: "拨回正点"}]});
+        const found = (compute[FS_DIAGNOSTIC_IDS.objectTouched] as DiagnosticCompute)(lineView(w, line), end("ch12"), "actual");
+        expect(found).toHaveLength(1);
+        expect((compute[FS_DIAGNOSTIC_IDS.objectTouched] as DiagnosticCompute)(w.view(), end("ch12"), "actual")).toEqual([]);
+    });
+
+    test("活页夹讲的线被还原掉了：伏笔索引与读取照常，不因线不存在而丢节点", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const fs = w.foreshadow("钟");
+        w.texts.set("ch9", "原来如此。");
+        w.change(chapter("ch9", 5), {told: [{source: "chapter", chapter: "ch9", quote: "原来如此", marks: [node(fs, "plant")]}]});
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch9", [{line: "l404", from: 1}]]])});
+        expect(stageAt(w, fs, end("ch10"))).toBe("planted");
+        expect((compute[FS_DIAGNOSTIC_IDS.noPayoffPlanned] as DiagnosticCompute)(w.view(), end("ch10"), "actual")).toHaveLength(1);
+    });
+});
