@@ -555,6 +555,8 @@ test.describe("右键菜单", () => {
         await rightClick(page, "一段文字");
         await expect(page.getByRole("menuitem", {name: "复制"})).toBeDisabled();
         await page.keyboard.press("Escape");
+        // 菜单收起之后焦点才回到正文：这之前的 Ctrl+A 按在菜单上。
+        await expect(page.getByRole("menu")).toHaveCount(0);
         await page.keyboard.press("Control+a");
         await rightClick(page, "一段文字");
         await expect(page.getByRole("menuitem", {name: "复制"})).toBeEnabled();

@@ -297,6 +297,33 @@ describe("显示（方言 Spec 输出 23）", () => {
     });
 });
 
+describe("结算（同一文档的几个控件）", () => {
+    it("先挂的有缓冲输入、后挂的还没跟上：结算不把后挂的当输入，不产生假冲突，保存照常", async () => {
+        const first = await opened("甲\n");
+        expect(first.area.split("right")).toEqual({ok: true});
+        const second = await opened("甲\n", {area: first.area, memory: first.memory});
+        first.editor.commands.insertContentAt(endOfBlock(first.editor, 0), "乙");
+        const document = first.area.documentOf(first.groupId);
+        if (document === null) throw new Error("没有文档");
+        first.area.documents.settle(document);
+        expect(first.binding.text.value).toBe("甲乙\n");
+        expect(second.binding.unresolved()).toBe(false);
+        expect(await first.area.documents.save(document)).toEqual({ok: true});
+    });
+
+    it("真的两边都有输入：后挂的有缓冲输入、基于旧修订，照常是未裁决", async () => {
+        const first = await opened("甲\n");
+        expect(first.area.split("right")).toEqual({ok: true});
+        const second = await opened("甲\n", {area: first.area, memory: first.memory});
+        first.editor.commands.insertContentAt(endOfBlock(first.editor, 0), "左");
+        second.editor.commands.insertContentAt(endOfBlock(second.editor, 0), "右");
+        const document = first.area.documentOf(first.groupId);
+        if (document === null) throw new Error("没有文档");
+        first.area.documents.settle(document);
+        expect(first.binding.unresolved() !== second.binding.unresolved()).toBe(true);
+    });
+});
+
 describe("卸载", () => {
     it("编辑器区先释放了实例（组关闭、Lab 切走）再卸载控件：卸载前的结算照常写出，不报错", async () => {
         const errors: unknown[] = [];

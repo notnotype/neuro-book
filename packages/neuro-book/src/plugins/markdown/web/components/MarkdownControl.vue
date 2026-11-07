@@ -45,7 +45,7 @@ const COMMIT_DELAY_MS = 150;
 const CURSOR_REMEMBER_MS = 1000;
 
 /**
- * 每“文档 × 组”一份，存在绑定的槽里：编辑状态（含撤销历史与选区）、原文对照（编解码器写回用，随每次被接受的写出累积）、
+ * 每个标签一份，存在绑定的槽里：编辑状态（含撤销历史与选区）、原文对照（编解码器写回用，随每次被接受的写出累积）、
  * 确认过的修订、`held`（这个视图的输入没有进入正文：未裁决或写不出，别处的修改不重载它）与滚动位置。
  */
 interface MarkdownViewState {
@@ -134,6 +134,7 @@ const attributes = (): Record<string, string> => ({"aria-label": props.label, "c
  * 写不出时这次输入不交，文档记下这个视图写不出（editor 输出 61）；被接受时把写出的写法回填进编辑器。
  */
 const commitNow = (): void => {
+    const buffered = timer !== null;
     if (timer !== null) {
         clearTimeout(timer);
         timer = null;
@@ -144,6 +145,9 @@ const commitNow = (): void => {
     if (binding === null || current === null) return;
     const view = stateOf(binding);
     if (view === null) return;
+    // 没有待交的输入、又还没跟上别处的修订：重载要到下一轮才跑，这时编辑器与文档不同不是输入，交出去就是假冲突（同一文档的几个控件在
+    // 同一次结算里先后被调，隐藏的控件也在其中）。
+    if (!buffered && !view.held && view.confirmed !== binding.revision.value) return;
     const written = codec(current).write(current.state.doc, view.map);
     if (!written.ok) {
         view.held = true;

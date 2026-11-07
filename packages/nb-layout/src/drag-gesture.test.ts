@@ -72,6 +72,7 @@ function setup(overrides: Partial<DragGestureHost<string, Drop, Region>> = {}) {
     const log: string[] = [];
     const published: Array<DragState<string, Drop> | null> = [];
     const commits: Array<{readonly drop: Drop; readonly source: string}> = [];
+    const commitKeyboard: boolean[] = [];
     const ends: Array<{readonly end: DragEnd; readonly last: DragState<string, Drop>}> = [];
     let resolveCount = 0;
     const gesture: DragGesture<string> = createDragGesture<string, Drop, Region>({
@@ -81,9 +82,10 @@ function setup(overrides: Partial<DragGestureHost<string, Drop, Region>> = {}) {
             return zoneAt(point);
         },
         actionKey: (drop) => drop.key,
-        commit: (drop, source) => {
+        commit: (drop, source, keyboard) => {
             log.push("commit");
             commits.push({drop, source});
+            commitKeyboard.push(keyboard);
         },
         publish: (state) => {
             if (state === null) log.push("publish-null");
@@ -112,6 +114,7 @@ function setup(overrides: Partial<DragGestureHost<string, Drop, Region>> = {}) {
         log,
         published,
         commits,
+        commitKeyboard,
         ends,
         resolveCount: () => resolveCount,
         last: () => published.at(-1) ?? null,
@@ -251,6 +254,7 @@ describe("输出 6：放下", () => {
         t.grab({x: 50, y: 0});
         t.gesture.release(1, {x: 51, y: 0});
         expect(t.commits).toEqual([{drop: {name: "a", key: "a"}, source: "row"}]);
+        expect(t.commitKeyboard).toEqual([false]);
         expect(t.ends.map(({end}) => end)).toEqual([{kind: "committed"}]);
         expect(t.gesture.idle).toBe(true);
     });
@@ -726,6 +730,7 @@ describe("输出 15：键盘拖动", () => {
         t.gesture.startKeyboard("row");
         t.log.length = 0;
         t.press("Enter");
+        expect(t.commitKeyboard).toEqual([true]);
         expect(t.commits).toHaveLength(1);
         expect(t.log).not.toContain("focus");
         t.clock.frame();

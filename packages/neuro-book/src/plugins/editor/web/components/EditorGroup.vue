@@ -53,17 +53,19 @@ const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event:
 
 const root = useEditorGroupRoot({area: () => props.area, groupId: () => props.groupId, intent: (intent) => emit("intent", intent), root: "section"});
 
-const found = computed(() => (props.tabId === null ? null : props.area.groups.find(props.tabId)));
+// 这几个值都比引用或布尔：别的标签变了（切换、记光标）时这块内容不重画。开着几十个标签时这一点要紧。
+const tab = computed(() => (props.tabId === null ? null : props.area.groups.find(props.tabId)?.tab ?? null));
 /** 这块内容是组此刻显示的那块：它是组的活动标签，或者组是空的。 */
-const current = computed(() => props.tabId === null || found.value?.group.active === props.tabId);
+const current = computed(() => props.tabId === null || props.area.groups.find(props.tabId)?.group.active === props.tabId);
 /** 下面的面包屑、横幅、失败原因都只为组此刻显示的那块算：不活动的标签不读文档状态，也不画。 */
-const activeTab = computed(() => (current.value ? found.value?.tab ?? null : null));
+const activeTab = computed(() => (current.value ? tab.value : null));
 const document = computed(() => (current.value ? props.area.documentOf(props.groupId) : null));
 /** 活动文件标签的文件条目：字节标签也有（删除、订阅结束的提示用它）。 */
 const file = computed(() => (current.value ? props.area.fileOf(props.groupId) : null));
 /** 只为留着控件的标签取绑定：取绑定会打开文档，恢复出来、没活动过的标签不读。 */
 const mounted = computed(() => props.tabId !== null && props.area.mountedControls.value.has(props.tabId));
 const binding = computed(() => (props.tabId !== null && mounted.value ? props.area.tabBinding(props.tabId) : null));
+const writable = computed(() => props.tabId !== null && mounted.value && props.area.tabWritable(props.tabId));
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
 
 /** 面包屑的段（输出 60）：活动标签是文件时，根 › 目录 › 文件；页面标签与空组没有。 */
@@ -161,10 +163,10 @@ const lost = computed(() => activeTab.value?.address === LOST_TAB_ADDRESS);
  * 控件卸载时才发的 `ready(null)` 要记到它挂上时的标签与编辑器，这时这个计算值可能已经是空的或已经换了。
  */
 const controls = computed(() => {
-    const tab = found.value?.tab;
-    if (props.tabId === null || !mounted.value || tab === undefined || tab.kind === "page" || tab.editor === BINARY_TAB_EDITOR) return [];
-    const state = props.control(tab.editor);
-    return state.kind === "ready" ? [{tabId: props.tabId, editor: tab.editor, component: state.component, label: nameOf(tab.address)}] : [];
+    const shown = tab.value;
+    if (props.tabId === null || !mounted.value || shown === null || shown.kind === "page" || shown.editor === BINARY_TAB_EDITOR) return [];
+    const state = props.control(shown.editor);
+    return state.kind === "ready" ? [{tabId: props.tabId, editor: shown.editor, component: state.component, label: nameOf(shown.address)}] : [];
 });
 
 const toolbarSlot = useTemplateRef<HTMLElement>("toolbarSlot");
@@ -242,7 +244,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
                     :is="item.component"
                     :binding="binding"
                     :host="area.tabControlSlot(item.tabId, item.editor)"
-                    :readonly="!area.tabWritable(item.tabId)"
+                    :readonly="!writable"
                     :visible="current && binding !== null"
                     :label="item.label"
                     :locale="port.locale.value"

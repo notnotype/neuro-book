@@ -619,7 +619,7 @@ test("行的样子与设置（验收 21、23、29）：中文数字排序、内�
     const paint = () => item(page, "project://卷").evaluate((row) => ({background: getComputedStyle(row).backgroundColor, color: getComputedStyle(row).color}));
     await expect(tree(page)).toBeFocused();
     const focused = await paint();
-    await page.locator("[data-workbench-editor-area]").click();
+    await page.locator("[data-editor-group-active]").click();
     await expect(tree(page)).not.toBeFocused();
     // 底色与字色有过渡：等到字色与没选中的行相同，再比底色。
     const plain = await item(page, "project://卷/第三章.md").evaluate((row) => getComputedStyle(row).color);

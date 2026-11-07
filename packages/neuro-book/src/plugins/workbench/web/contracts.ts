@@ -71,8 +71,7 @@ export interface EditorTabDrag {
     structure(): string;
     /** 拖影。 */
     ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null} | null;
-    /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。 */
-    /** `keyboard`：键盘放下，手势会把焦点还给标签。 */
+    /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。`keyboard`：键盘放下，手势会把焦点还给标签。 */
     drop(tabId: string, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void;
 }
 
