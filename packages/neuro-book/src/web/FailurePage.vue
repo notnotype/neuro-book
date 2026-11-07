@@ -66,7 +66,7 @@ const copy = async (index: number, text: string): Promise<void> => {
     <!-- 启动中与 index.html 的静态加载页同一个样子（host-loading.css），失败后重试时不换版式。 -->
     <main v-if="state.status === 'idle' || state.status === 'starting'" class="nb-host-loading" :data-browser-host-status="state.status" role="status" :aria-label="t(hostText('loading.label'))">
         <p class="nb-host-loading__title">{{ loadingTitle }}</p>
-        <div class="nb-host-loading__bar"></div>
+        <div class="nb-host-loading__bar nb-host-indicator"></div>
         <p class="nb-host-loading__hint">{{ t(hostText(loadingTitle === '' ? 'loading.connecting' : 'loading.opening')) }}</p>
     </main>
     <main v-else class="nb-host-page" :data-browser-host-status="state.status" role="alert">

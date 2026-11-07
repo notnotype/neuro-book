@@ -9,7 +9,7 @@ import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 
-import {HOST_APPEARANCE_KEY, rememberDocumentAppearance} from "./appearance-hint";
+import {HOST_APPEARANCE_KEY, hostScenePath, rememberDocumentAppearance} from "./appearance-hint";
 
 const WEB = join(import.meta.dirname, "..");
 
@@ -37,6 +37,8 @@ beforeEach(() => {
     root.removeAttribute("style");
     root.removeAttribute("data-nb-appearance");
     root.removeAttribute("data-host-appearance");
+    root.removeAttribute("data-host-scene");
+    root.removeAttribute("data-host-indicator");
 });
 
 afterEach(() => {
@@ -101,5 +103,92 @@ describe("加载页的明暗提示", () => {
         runInlineScript();
         expect(root.hasAttribute("data-host-appearance")).toBe(false);
         expect(root.style.getPropertyValue("--host-loading-text")).toBe("");
+    });
+});
+
+describe("加载页的场景图与进度样式（theme.skins 输出 19）", () => {
+    const ORIGIN = window.location.origin;
+    const COLORS = {appearance: "dark", background: "rgb(45, 41, 37)", text: "rgb(239, 233, 223)", muted: "rgb(145, 138, 126)", accent: "rgb(10, 132, 255)"};
+    const stored = (): Record<string, unknown> => JSON.parse(window.localStorage.getItem(HOST_APPEARANCE_KEY) ?? "null") as Record<string, unknown>;
+
+    it.each([
+        ["内置素材在开发服务里是绝对地址", `${ORIGIN}/assets/study-day-3f2a.webp`, "/assets/study-day-3f2a.webp"],
+        ["内置素材在产物里是 /assets 路径", "/assets/study-day-3f2a.webp", "/assets/study-day-3f2a.webp"],
+        ["用户素材", "/api/nbook.files/raw/user/theme-assets/0a1b2c.webp", "/api/nbook.files/raw/user/theme-assets/0a1b2c.webp"],
+        ["第三方插件素材（插件 id 里的 @ 与 + 已被转成 %xx）", "/api/runtime/plugins/acme%40skin%2Bx/files/abc123/assets/day.webp", "/api/runtime/plugins/acme%40skin%2Bx/files/abc123/assets/day.webp"],
+        ["路径里的引号被 URL 解析转成 %22，不会闭合 url(\"…\")", '/assets/a"b.webp', "/assets/a%22b.webp"],
+    ])("场景图地址：%s", (_name, raw, expected) => {
+        expect(hostScenePath(`url("${raw}")`, window.location)).toBe(expected);
+    });
+
+    it.each([
+        ["别的主机", "https://evil.example/a.webp"],
+        ["协议相对地址", "//evil.example/a.webp"],
+        ["data:", "data:image/svg+xml,<svg/>"],
+        ["blob:", "blob:http://localhost:3000/1234"],
+        ["javascript:", "javascript:alert(1)"],
+        ["带用户名密码", `${ORIGIN.replace("//", "//user:pw@")}/a.webp`],
+        ["带查询", "/assets/a.webp?x=1"],
+        ["带片段", "/assets/a.webp#x"],
+        ["路径里有括号", "/assets/a(1).webp"],
+    ])("场景图地址不认：%s", (_name, raw) => {
+        expect(hostScenePath(`url("${raw}")`, window.location)).toBeNull();
+    });
+
+    it("不是 url(\"…\") 的值（没写、none、渐变）不认", () => {
+        for (const value of ["", "none", "linear-gradient(red, blue)", "url(/a.webp)x"]) expect(hostScenePath(value, window.location)).toBeNull();
+    });
+
+    it("宿主把文档根上的加载页变量记成同源路径与进度样式；缺省的 bar、不认识的样式、跨域的地址都不记", async () => {
+        applyTheme("dark", {...THEME, "--skin-loading-scene": `url("${ORIGIN}/assets/study-night-9z.webp")`, "--skin-loading-indicator": "page"});
+        const stop = rememberDocumentAppearance({root, storage: () => window.localStorage, warn: () => undefined});
+        expect(stored()).toMatchObject({appearance: "dark", scene: "/assets/study-night-9z.webp", indicator: "page"});
+
+        applyTheme("dark", {"--skin-loading-scene": 'url("https://evil.example/a.webp")', "--skin-loading-indicator": "bar"});
+        await Promise.resolve();
+        expect(stored()).not.toHaveProperty("scene");
+        expect(stored()).not.toHaveProperty("indicator");
+        applyTheme("dark", {"--skin-loading-indicator": "spinner"});
+        await Promise.resolve();
+        expect(stored()).not.toHaveProperty("indicator");
+        stop();
+    });
+
+    it("内联脚本读回：场景图写成 --host-loading-scene 并标 data-host-scene，进度样式标 data-host-indicator", () => {
+        window.localStorage.setItem(HOST_APPEARANCE_KEY, JSON.stringify({...COLORS, scene: "/assets/study-night-9z.webp", indicator: "dots"}));
+        runInlineScript();
+        expect(root.style.getPropertyValue("--host-loading-scene")).toBe('url("/assets/study-night-9z.webp")');
+        expect(root.hasAttribute("data-host-scene")).toBe(true);
+        expect(root.getAttribute("data-host-indicator")).toBe("dots");
+    });
+
+    it("两个字段各自独立判定：场景图不合格只丢场景图，进度样式不合格只丢进度样式，颜色都照常用", () => {
+        for (const scene of ["//evil.example/a.webp", "https://evil.example/a.webp", "/a(1).webp", "/a.webp?x=1", 3]) {
+            root.removeAttribute("style");
+            root.removeAttribute("data-host-scene");
+            root.removeAttribute("data-host-indicator");
+            window.localStorage.setItem(HOST_APPEARANCE_KEY, JSON.stringify({...COLORS, scene, indicator: "pulse"}));
+            runInlineScript();
+            expect(root.hasAttribute("data-host-scene"), String(scene)).toBe(false);
+            expect(root.style.getPropertyValue("--host-loading-scene")).toBe("");
+            expect(root.getAttribute("data-host-indicator")).toBe("pulse");
+            expect(root.style.getPropertyValue("--host-loading-accent")).toBe("rgb(10, 132, 255)");
+        }
+        for (const indicator of ["spinner", "bar", "", 3, null]) {
+            root.removeAttribute("style");
+            root.removeAttribute("data-host-scene");
+            root.removeAttribute("data-host-indicator");
+            window.localStorage.setItem(HOST_APPEARANCE_KEY, JSON.stringify({...COLORS, scene: "/assets/a.webp", indicator}));
+            runInlineScript();
+            expect(root.hasAttribute("data-host-indicator"), String(indicator)).toBe(false);
+            expect(root.hasAttribute("data-host-scene")).toBe(true);
+        }
+    });
+
+    it("颜色不合格整条不认时，场景图与进度样式也不用（只有一部分会让底色与文字明暗混在一起）", () => {
+        window.localStorage.setItem(HOST_APPEARANCE_KEY, JSON.stringify({...COLORS, background: "red; display: none", scene: "/assets/a.webp", indicator: "page"}));
+        runInlineScript();
+        expect(root.hasAttribute("data-host-scene")).toBe(false);
+        expect(root.hasAttribute("data-host-indicator")).toBe(false);
     });
 });

@@ -16,6 +16,7 @@ import {BUILTIN_THEME_CONTRIBUTIONS, SceneProviderDeclarationSchema, themesPoint
 import type {ThemeDeclaration} from "./shared/themes";
 import {SWITCH_THEME_COMMAND, themeCommands} from "./web/commands/theme-commands";
 import {ThemeCatalog, themeVars} from "./web/themes";
+import type {ThemeEntry} from "./web/themes";
 import {descriptor} from "../theme-study/plugin";
 import {builtinPluginAssets} from "nbook/web/plugins";
 
@@ -74,6 +75,9 @@ describe("workbench.themes", () => {
         ["图标是远程地址", plain({dark: {icons: {files: "https://example.com/a.svg"}}})],
         ["图标往上走", plain({dark: {icons: {files: "../a.svg"}}})],
         ["图标超过 64 个", plain({dark: {icons: Object.fromEntries(Array.from({length: 65}, (_, index) => [`icon-${String(index)}`, "a.svg"]))}})],
+        ["加载页的进度样式不认识", {...plain(), light: {loading: {indicator: "spinner"}}}],
+        ["加载页多余的字段", {...plain(), light: {loading: {scene: true, color: "red"}}}],
+        ["加载页的 scene 不是布尔", {...plain(), light: {loading: {scene: "assets/day.webp"}}}],
         ["base 不认识", {...plain(), base: "other"}],
         ["多余的字段", {...plain(), extra: 1}],
     ])("%s：这一条不接受，别的照常", async (_name, declaration) => {
@@ -119,6 +123,25 @@ describe("主题的取值", () => {
         expect(themeVars(entry, "light", (plugin, path) => (path.includes("working") ? null : url(plugin, path)), true).vars["--skin-scene"]).toBe('url("/files/acme.skin/assets/day.webp")');
         // 暗色没写工作态场景，也没有平常的场景图：工作中也没有场景。
         expect(themeVars(entry, "dark", url, true).scene).toBe(false);
+    });
+
+    it("加载页：写了 loading.scene 且静态场景图解析得出才写场景变量，提供者的图与工作态场景都不算；进度样式缺省（bar）时不写", () => {
+        const url = (plugin: string, path: string): string => `/files/${plugin}/${path}`;
+        const declared = (loading: NonNullable<ThemeDeclaration["light"]["loading"]>): ThemeEntry => ({id: "acme.skin.loading", plugin: "acme.skin", declaration: plain({light: {scene: "assets/day.webp", workingScene: "assets/day-working.webp", loading}})});
+        const vars = (entry: ThemeEntry, working = false, override?: string) => themeVars(entry, "light", url, working, override).vars;
+        expect(vars(declared({scene: true, indicator: "page"}))).toMatchObject({"--skin-loading-scene": 'url("/files/acme.skin/assets/day.webp")', "--skin-loading-indicator": "page"});
+        // 工作中、提供者画了图：加载页仍取静态的那一张，页面里的场景变量才是换了的。
+        const busy = vars(declared({scene: true}), true, "blob:http://x/1");
+        expect(busy["--skin-scene"]).toBe('url("blob:http://x/1")');
+        expect(busy["--skin-loading-scene"]).toBe('url("/files/acme.skin/assets/day.webp")');
+        expect(vars(declared({scene: false}))["--skin-loading-scene"]).toBeUndefined();
+        expect(vars(declared({indicator: "bar"}))["--skin-loading-indicator"]).toBeUndefined();
+        expect(vars(declared({indicator: "dots"}))["--skin-loading-indicator"]).toBe("dots");
+        expect(themeVars(declared({scene: true}), "light", () => null).vars["--skin-loading-scene"]).toBeUndefined();
+        // 暗色没有场景图：写了 loading.scene 也没有效果（不报错）。
+        const noScene: ThemeEntry = {id: "acme.skin.none", plugin: "acme.skin", declaration: plain({dark: {loading: {scene: true, indicator: "pulse"}}})};
+        expect(themeVars(noScene, "dark", url).vars).toMatchObject({"--skin-loading-indicator": "pulse"});
+        expect(themeVars(noScene, "dark", url).vars["--skin-loading-scene"]).toBeUndefined();
     });
 
     it("图标集按名解析成 URL，解析不出的那个不换，没写的明暗没有", () => {

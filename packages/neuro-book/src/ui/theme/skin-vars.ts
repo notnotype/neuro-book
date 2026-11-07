@@ -15,6 +15,12 @@ export const SKIN_VARS = {
     sidebarCornerPosition: "--skin-sidebar-corner-position",
     auxiliaryCornerSize: "--skin-auxiliary-corner-size",
     auxiliaryCornerPosition: "--skin-auxiliary-corner-position",
+    /**
+     * 加载页用的场景图（静态那张）与进度样式（docs/specs/theme/skins.md 输出 19）：由 `appearance-hint.ts` 读到、记进加载页的提示，
+     * 下一次整页加载时第一帧前就用上。进度样式缺省（`bar`）时不写。
+     */
+    loadingScene: "--skin-loading-scene",
+    loadingIndicator: "--skin-loading-indicator",
     /** 浮层画框那道细线的颜色；有它文档根才标 `data-nb-skin-frame`。 */
     frameLine: "--skin-frame-line",
     activityBarSurface: "--skin-activitybar-surface",

@@ -7,6 +7,8 @@
  * 谁写文档根就记谁：Lab 也写文档根，在 Lab 里切过明暗，下次加载页取的就是 Lab 最后的明暗。
  */
 
+import {SKIN_VARS} from "nbook/ui/theme/skin-vars";
+
 export const HOST_APPEARANCE_KEY = "nbook.host-appearance";
 
 export interface HostAppearanceHint {
@@ -16,6 +18,34 @@ export interface HostAppearanceHint {
     readonly text: string;
     readonly muted: string;
     readonly accent: string;
+    /**
+     * 主题的场景图（只有同源的 `pathname`）与进度样式（缺省的 `bar` 不记）：加载页用它们画背景与进度指示（docs/specs/theme/skins.md 输出 19）。
+     * 两个字段各自独立：缺一个或不合格只是这一项退回缺省，不影响颜色，也不影响彼此。
+     */
+    readonly scene?: string;
+    readonly indicator?: "dots" | "pulse" | "page";
+}
+
+const INDICATORS: ReadonlySet<string> = new Set(["dots", "pulse", "page"]);
+/** 路径里不能有引号、括号、反斜杠与空白：它会被放进 `url("…")`。内联脚本读时做同样的检查。 */
+const SAFE_PATH = /^\/[^"'()\\\s]+$/u;
+
+/**
+ * 文档根上 `--skin-loading-scene` 的值（`url("…")`）转成同源的路径；不是同源、带用户名密码、带查询或片段、路径含不安全字符的都不认。
+ * 地址一律先按浏览器的 URL 规则解析再判同源，不用正则当同源校验：内置主题素材在开发服务里是绝对地址（`new URL(…, import.meta.url)`），
+ * 在产物里是 `/assets/…`，插件素材与用户素材是 `/api/…` 的相对地址，`//host/…` 这类协议相对地址解析后是别的主机。
+ */
+export function hostScenePath(value: string, location: Pick<Location, "href" | "origin">): string | null {
+    const raw = /^url\(\s*(["'])(.*)\1\s*\)$/u.exec(value.trim())?.[2];
+    if (raw === undefined) return null;
+    let url: URL;
+    try {
+        url = new URL(raw, location.href);
+    } catch {
+        return null;
+    }
+    if (url.origin !== location.origin || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") return null;
+    return url.pathname.startsWith("//") || !SAFE_PATH.test(url.pathname) ? null : url.pathname;
 }
 
 /** 加载页的四种颜色取自这些主题变量。 */
@@ -40,8 +70,18 @@ export function readDocumentHint(root: HTMLElement): HostAppearanceHint | null {
         probe.style.color = `var(${name})`;
         return getComputedStyle(probe).color;
     };
+    const scene = hostScenePath(declared.getPropertyValue(SKIN_VARS.loadingScene), root.ownerDocument.location);
+    const indicator = declared.getPropertyValue(SKIN_VARS.loadingIndicator).trim();
     try {
-        return {appearance, background: resolve(SOURCES.background), text: resolve(SOURCES.text), muted: resolve(SOURCES.muted), accent: resolve(SOURCES.accent)};
+        return {
+            appearance,
+            background: resolve(SOURCES.background),
+            text: resolve(SOURCES.text),
+            muted: resolve(SOURCES.muted),
+            accent: resolve(SOURCES.accent),
+            ...(scene === null ? {} : {scene}),
+            ...(INDICATORS.has(indicator) ? {indicator: indicator as "dots" | "pulse" | "page"} : {}),
+        };
     } finally {
         probe.remove();
     }

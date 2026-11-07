@@ -4,10 +4,18 @@
  * （FailurePage）用同一套类名。
  *
  * 主题在应用起来之后才有：颜色先取上一次的记录（index.html 的内联脚本写到根上的 `--host-loading-*`），没有记录时取 nbook
- * 主题缺省配色的面板底色、正文色、淡色与强调色，明暗跟随系统。
- * 进度条固定在正中；书名（引导给出后才有）定位在它上方，提示在它下方，后到的文字不推动进度条。
+ * 主题缺省配色的面板底色、正文色、淡色与强调色，明暗跟随系统。记录里还可以有主题的场景图（`html[data-host-scene]`，图在
+ * `--host-loading-scene`）与进度样式（`html[data-host-indicator]`：dots、pulse、page；没有就是缺省的 bar），见
+ * docs/specs/theme/skins.md 输出 19。这两个属性都在 `<html>` 上（加载页的 `<main>` 在脚本之后才解析到），所以选择器都从 `html[…]` 起头。
+ * 进度指示固定在正中；书名（引导给出后才有）定位在它上方，提示在它下方，后到的文字不推动它。
+ *
+ * 进度指示的类名约定：`nb-host-loading__bar` 是它在加载页里的定位节点（居中，不裁剪），`nb-host-indicator` 是形状与动画。形状按
+ * 加载页上下文（祖先有 `.nb-host-loading` 且 `<html>` 带 `data-host-indicator`）或自己带的 `data-host-indicator`（主题编辑器里的预览）
+ * 选，两套上下文分开写，运行中的应用 `<html>` 上遗留的属性不会把预览带偏。
  */
 .nb-host-loading {
+    --host-loading-title-gap: 14px;
+    --host-loading-hint-gap: 12px;
     position: fixed;
     inset: 0;
     background: var(--host-loading-background, #fffcf5);
@@ -15,31 +23,44 @@
     font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
 }
 
+/* 场景图：压在底色上的一层，书名与提示的颜色不变，对比度由不透明度保证（theme.skins 输出 19）。 */
+html[data-host-scene] .nb-host-loading::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: var(--host-loading-scene) center / cover no-repeat;
+    opacity: var(--host-loading-scene-opacity, 0.4);
+    pointer-events: none;
+}
+
+/* 书名与提示离指示器边缘约 12px：每种形状的高度不同，间距跟着换；同一种形状里位置固定。 */
+html[data-host-indicator="dots"] .nb-host-loading {
+    --host-loading-title-gap: 16px;
+    --host-loading-hint-gap: 15px;
+}
+
+html[data-host-indicator="pulse"] .nb-host-loading {
+    --host-loading-title-gap: 20px;
+    --host-loading-hint-gap: 19px;
+}
+
+html[data-host-indicator="page"] .nb-host-loading {
+    --host-loading-title-gap: 31px;
+    --host-loading-hint-gap: 30px;
+}
+
+/* 进度指示在加载页里的位置：正中。用独立的 `translate` 属性居中，不占 `transform`（pulse 与 page 的动画要用它）。 */
 .nb-host-loading__bar {
     position: absolute;
     top: 50%;
     left: 50%;
-    width: 160px;
-    height: 2px;
-    margin: -1px 0 0 -80px;
-    overflow: hidden;
-    border-radius: 2px;
-    background: color-mix(in srgb, var(--host-loading-text, #1f1c17) 8%, transparent);
-}
-
-.nb-host-loading__bar::after {
-    content: "";
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 40%;
-    background: var(--host-loading-accent, #007aff);
-    animation: nb-host-loading 1.2s ease-in-out infinite;
+    translate: -50% -50%;
 }
 
 .nb-host-loading__title {
     position: absolute;
     right: 0;
-    bottom: calc(50% + 14px);
+    bottom: calc(50% + var(--host-loading-title-gap));
     left: 0;
     margin: 0;
     padding: 0 16px;
@@ -53,13 +74,132 @@
 
 .nb-host-loading__hint {
     position: absolute;
-    top: calc(50% + 12px);
+    top: calc(50% + var(--host-loading-hint-gap));
     right: 0;
     left: 0;
     margin: 0;
     color: var(--host-loading-muted, #8b857b);
     font-size: 12px;
     text-align: center;
+}
+
+/* 进度指示的形状与动画。颜色取这两个变量（主题编辑器里的预览自己设它们）。 */
+.nb-host-indicator {
+    --nb-indicator-accent: var(--host-loading-accent, #007aff);
+    --nb-indicator-track: color-mix(in srgb, var(--host-loading-text, #1f1c17) 8%, transparent);
+    position: relative;
+    display: block;
+    flex: none;
+    box-sizing: border-box;
+}
+
+/* bar：缺省的细条，一段强调色来回扫。没有记录、记录里是 bar、预览自己写 bar 都是它。 */
+:is(
+    html:not([data-host-indicator]) .nb-host-loading .nb-host-indicator,
+    html[data-host-indicator="bar"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="bar"]
+) {
+    width: 160px;
+    height: 2px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--nb-indicator-track);
+}
+
+:is(
+    html:not([data-host-indicator]) .nb-host-loading .nb-host-indicator,
+    html[data-host-indicator="bar"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="bar"]
+)::after {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 40%;
+    background: var(--nb-indicator-accent);
+    animation: nb-host-loading 1.2s ease-in-out infinite;
+}
+
+/* dots：三个点依次亮。元素自己是中间的点，前后伪元素是两边的点。 */
+:is(
+    html[data-host-indicator="dots"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="dots"]
+) {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--nb-indicator-accent);
+    animation: nb-host-dot 1.2s ease-in-out 0.2s infinite;
+}
+
+:is(
+    html[data-host-indicator="dots"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="dots"]
+)::before,
+:is(
+    html[data-host-indicator="dots"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="dots"]
+)::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--nb-indicator-accent);
+    animation: nb-host-dot 1.2s ease-in-out infinite;
+}
+
+:is(
+    html[data-host-indicator="dots"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="dots"]
+)::before {
+    left: -14px;
+}
+
+:is(
+    html[data-host-indicator="dots"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="dots"]
+)::after {
+    left: 14px;
+    animation-delay: 0.4s;
+}
+
+/* pulse：一个点缓慢呼吸。 */
+:is(
+    html[data-host-indicator="pulse"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="pulse"]
+) {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--nb-indicator-accent);
+    animation: nb-host-pulse 1.6s ease-in-out infinite;
+}
+
+/* page：一张书页翻动。元素是翻开的书页（左边一道书脊），伪元素是翻起的那一页。 */
+:is(
+    html[data-host-indicator="page"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="page"]
+) {
+    width: 28px;
+    height: 36px;
+    border-left: 3px solid var(--nb-indicator-accent);
+    border-radius: 2px 3px 3px 2px;
+    background: var(--nb-indicator-track);
+}
+
+:is(
+    html[data-host-indicator="page"] .nb-host-loading .nb-host-indicator,
+    .nb-host-indicator[data-host-indicator="page"]
+)::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 0 3px 3px 0;
+    background: color-mix(in srgb, var(--nb-indicator-accent) 35%, var(--host-loading-background, transparent));
+    box-shadow: inset -1px 0 0 var(--nb-indicator-accent);
+    transform-origin: left center;
+    animation: nb-host-page 1.4s ease-in-out infinite;
 }
 
 @keyframes nb-host-loading {
@@ -72,18 +212,52 @@
     }
 }
 
+@keyframes nb-host-dot {
+    0%,
+    80%,
+    100% {
+        opacity: 0.25;
+        transform: scale(0.8);
+    }
+
+    40% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes nb-host-pulse {
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: scale(0.6);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes nb-host-page {
+    from {
+        transform: perspective(120px) rotateY(0deg);
+    }
+
+    to {
+        transform: perspective(120px) rotateY(-160deg);
+    }
+}
+
 @media (prefers-color-scheme: dark) {
     .nb-host-loading {
         background: var(--host-loading-background, #2d2925);
         color: var(--host-loading-text, #efe9df);
     }
 
-    .nb-host-loading__bar {
-        background: color-mix(in srgb, var(--host-loading-text, #efe9df) 10%, transparent);
-    }
-
-    .nb-host-loading__bar::after {
-        background: var(--host-loading-accent, #0a84ff);
+    .nb-host-indicator {
+        --nb-indicator-accent: var(--host-loading-accent, #0a84ff);
+        --nb-indicator-track: color-mix(in srgb, var(--host-loading-text, #efe9df) 10%, transparent);
     }
 
     .nb-host-loading__hint {
@@ -91,9 +265,42 @@
     }
 }
 
+/* 高对比度与强制颜色：不画场景图（与主题的其它位置一致）。 */
+@media (prefers-contrast: more), (forced-colors: active) {
+    html[data-host-scene] .nb-host-loading::before {
+        display: none;
+    }
+}
+
+/* 减弱动效：全部静止，图形仍在（bar 停在偏右，dots 三点同亮，pulse 停在中等大小，page 停在半开）。 */
 @media (prefers-reduced-motion: reduce) {
-    .nb-host-loading__bar::after {
+    :is(
+        html:not([data-host-indicator]) .nb-host-loading .nb-host-indicator,
+        html[data-host-indicator="bar"] .nb-host-loading .nb-host-indicator,
+        .nb-host-indicator[data-host-indicator="bar"]
+    )::after {
         animation: none;
         transform: translateX(75%);
+    }
+
+    .nb-host-indicator,
+    .nb-host-indicator::before,
+    .nb-host-indicator::after {
+        animation: none !important;
+    }
+
+    :is(
+        html[data-host-indicator="pulse"] .nb-host-loading .nb-host-indicator,
+        .nb-host-indicator[data-host-indicator="pulse"]
+    ) {
+        opacity: 0.7;
+        transform: scale(0.8);
+    }
+
+    :is(
+        html[data-host-indicator="page"] .nb-host-loading .nb-host-indicator,
+        .nb-host-indicator[data-host-indicator="page"]
+    )::before {
+        transform: perspective(120px) rotateY(-70deg);
     }
 }

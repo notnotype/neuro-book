@@ -26,6 +26,20 @@
                     names.forEach(function (name) {
                         root.style.setProperty("--host-loading-" + name, hint[name]);
                     });
+                    // 场景图与进度样式各自独立：缺一个或不合格，只是这一项退回缺省（颜色是另一回事，混着用会让明暗不一致）。
+                    // 地址先按浏览器的 URL 规则解析再判同源（协议相对的 //host/… 解析后是别的主机），路径里不能有引号、括号、反斜杠与空白。
+                    if (typeof hint.scene === "string") {
+                        try {
+                            var scene = new URL(hint.scene, location.href);
+                            if (scene.origin === location.origin && !scene.username && !scene.password && !scene.search && !scene.hash && scene.pathname.indexOf("//") !== 0 && /^\/[^"'()\\\s]+$/.test(scene.pathname)) {
+                                root.style.setProperty("--host-loading-scene", 'url("' + scene.pathname + '")');
+                                root.setAttribute("data-host-scene", "");
+                            }
+                        } catch (error) {
+                            console.warn("[nbook] 读不出加载页的场景图提示", error);
+                        }
+                    }
+                    if (hint.indicator === "dots" || hint.indicator === "pulse" || hint.indicator === "page") root.setAttribute("data-host-indicator", hint.indicator);
                 } catch (error) {
                     console.warn("[nbook] 读不出加载页的明暗提示", error);
                 }
@@ -57,7 +71,7 @@
             <!-- 加载页：书名与提示由前端入口在引导给出书名后写进来（boot.ts），进度条一直在正中。 -->
             <main class="nb-host-loading" data-browser-host-status="loading" role="status" aria-label="正在启动 NeuroBook">
                 <p class="nb-host-loading__title" data-host-loading-title></p>
-                <div class="nb-host-loading__bar"></div>
+                <div class="nb-host-loading__bar nb-host-indicator"></div>
                 <p class="nb-host-loading__hint" data-host-loading-hint></p>
             </main>
         </div>

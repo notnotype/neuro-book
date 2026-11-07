@@ -24,6 +24,9 @@ export const THEME_ROLE_VARS: ReadonlyArray<string> = ["--control-surface", "--c
 
 const CropSchema = Type.Object({size: Type.String({minLength: 1}), position: Type.String({minLength: 1})}, {additionalProperties: false});
 const StringMap = Type.Record(Type.String(), Type.String());
+/** 加载页的进度样式（docs/specs/theme/skins.md 输出 19）：`bar` 是缺省的细条。 */
+export type LoadingIndicator = "bar" | "dots" | "pulse" | "page";
+
 const LookSchema = Type.Object({
     colors: Type.Optional(StringMap),
     vars: Type.Optional(StringMap),
@@ -33,6 +36,14 @@ const LookSchema = Type.Object({
     workingScene: Type.Optional(Type.String({minLength: 1})),
     /** 图标集（docs/specs/theme/skins.md 输出 16）：图标名（`i-lucide-<名>` 的 <名>）到插件目录内 .svg 的相对路径，按名覆盖，没写的保持原图标。 */
     icons: Type.Optional(StringMap),
+    /**
+     * 加载页（从书架打开作品时整页加载的那一页）怎么画：`scene` 为真时用这一套的静态场景图当背景，`indicator` 选进度样式（没写是 `bar`）。
+     * 纯数据，没有素材（docs/specs/theme/skins.md 输出 19）。
+     */
+    loading: Type.Optional(Type.Object({
+        scene: Type.Optional(Type.Boolean()),
+        indicator: Type.Optional(Type.Union([Type.Literal("bar"), Type.Literal("dots"), Type.Literal("pulse"), Type.Literal("page")])),
+    }, {additionalProperties: false})),
     /** 浮层的画框：描边里面再画一道细线（docs/specs/theme/skins.md 输出 13）。 */
     frame: Type.Optional(Type.Object({line: Type.String({minLength: 1})}, {additionalProperties: false})),
 }, {additionalProperties: false});

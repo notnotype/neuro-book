@@ -66,6 +66,10 @@ export function themeVars(entry: ThemeEntry, appearance: "light" | "dark", asset
         set(SKIN_VARS.auxiliaryCornerSize, crop?.auxiliaryCorner?.size);
         set(SKIN_VARS.auxiliaryCornerPosition, crop?.auxiliaryCorner?.position);
     }
+    // 加载页：只认静态的 `scene`。提供者画的图是对象 URL、工作态场景要 Agent 状态，整页重新加载后加载页都用不了它们。
+    const staticScene = look.scene === undefined ? null : assetUrl(plugin, look.scene);
+    if (look.loading?.scene === true && staticScene !== null) vars[SKIN_VARS.loadingScene] = `url("${staticScene}")`;
+    if (look.loading?.indicator !== undefined && look.loading.indicator !== "bar") vars[SKIN_VARS.loadingIndicator] = look.loading.indicator;
     // 图标文件解析不出（不在插件的素材表里）的那一个不换，别的照常。
     const icons: Record<string, string> = {};
     for (const [name, path] of Object.entries(look.icons ?? {})) {
