@@ -164,6 +164,10 @@ t05、t06、t07。
 - adhoc Profile 从 t18 挪到这里实现（形状见 [t18](../t18-builtin-profiles/README.md) 决定 1、6）。
 - 主创（`nbook.agent.main`）的提示词现在不提子代理；`agent_spawn` 接上时加进提示词并升 Profile 版本。
 
+## 来自 t05 的事项（2026-11-07）
+
+决定里“Profile 声明可派的白名单”。白名单的形状在 [t05 计划](../t05-profile/plan.md)的“给 t14、t15 留的”定了：Profile 声明缺省，用户在 `profileSettings` 里按 Profile 增删（`{added, removed}`，同工具绑定），设置页加一节。字段随本 Task 加。
+
 ## 当前状态
 
 讨论完成（开发者 2026-10-30 确认定稿）：六轮决定与确定的工具见上；两轮 omp 设计审查已处理（报告在 `evidences/`）。计划与实施切片在本 Work 的讨论全部完成后另定。

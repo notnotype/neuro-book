@@ -68,6 +68,10 @@ t05、t08、t10。
 
 先调研再定的：字段全表、Skill 参数与“带参数自动执行脚本”、依赖（Python、Node、Bun）、更新与 Skill 市场。调研：[各家的 Skill](../../research/2026-10-30-skill-survey.md)。
 
+## 来自 t05 的事项（2026-11-07）
+
+决定 12 的“当前 Profile 白名单”到现在没有字段（t05 第一轮否掉了 `skills.include`）。白名单的形状在 [t05 计划](../t05-profile/plan.md)的“给 t14、t15 留的”定了：Profile 声明缺省，用户在 `profileSettings` 里按 Profile 增删（`{added, removed}`，同工具绑定），设置页加一节。字段随本 Task 加。
+
 ## 当前状态
 
 讨论完成（开发者 2026-10-30 确认）：五轮决定见上；不做设计审查，实施时再审查。计划与实施切片在本 Work 的讨论全部完成后另定。
