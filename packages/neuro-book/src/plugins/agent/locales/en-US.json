@@ -424,6 +424,12 @@
             "description": "The file is deleted permanently, and sessions using it become read-only. Other files it imports stay.",
             "confirm": "Delete",
             "failed": "Delete \"{{name}}\""
+        },
+        "needs": {
+            "vision": "This model can't view images",
+            "thinking": "This model doesn't support thinking",
+            "context": "This model's context window is {{have}}; this profile needs {{need}}",
+            "separator": "; "
         }
     }
 }

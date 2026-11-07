@@ -1120,6 +1120,31 @@ describe("中断、设置与模型（输出 7–9）", () => {
         expect(h.ctx().composer.modelKey).toBe("");
     });
 
+    test("模型能力提示（输出 32）：模型缺 Profile 要的能力时输入框上方写明，发送照常可用；满足时不说，查不到时不说", async () => {
+        const w = await world();
+        const models = shallowRef<readonly ComposerModelView[]>([{key: "local/m", label: "M", supportsImages: false, contextWindow: 1000}]);
+        const entry = {key: PROFILE, name: "测试", description: "", source: "test", status: "ok" as const, modelNeeds: {vision: true, minContext: 2000}};
+        const h = await harness(w, {models: () => models.value, profiles: () => [entry]});
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        // 这个场地的翻译端口交回键。
+        await until("写明缺什么", () => h.ctx().availability.message.includes("profiles.needs.vision"));
+        expect(h.ctx().availability.status).toBe("ready");
+        expect(h.ctx().availability.message).toContain("profiles.needs.context");
+
+        models.value = [{key: "local/m", label: "M", supportsImages: true, contextWindow: null}];
+        await until("满足、窗口未知时不说", () => h.ctx().availability.message === "");
+        models.value = [{key: "local/m", label: "M", supportsImages: false}];
+        await until("又缺了", () => h.ctx().availability.message.includes("profiles.needs.vision"));
+        models.value = [];
+        await until("查不到时不说", () => h.ctx().availability.message === "");
+
+        models.value = [{key: "local/m", label: "M", supportsImages: false}];
+        await until("缺口又出现", () => h.ctx().availability.message !== "");
+        endpoint.script("照常回复");
+        h.host.act({type: "composer.submit", text: "有缺口也能发", delivery: "prompt"});
+        await until("回复", () => assistants(h.ctx().messages).at(-1)?.text === "照常回复");
+    });
+
     test("选了没绑定的角色：不用重开就说明原因、还能改；绑定之后不刷新页面就能发送", async () => {
         const w = await world();
         const models = shallowRef<readonly ComposerModelView[]>([{key: "local/m", label: "M", supportsImages: false}]);

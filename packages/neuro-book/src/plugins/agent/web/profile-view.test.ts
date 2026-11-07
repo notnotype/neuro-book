@@ -95,6 +95,35 @@ describe("模型一行的显示", () => {
     });
 });
 
+describe("模型能力提示", () => {
+    const seeing = entry({modelNeeds: {vision: true}, role: "main"});
+
+    test("跟随默认、角色、模型三条路径都解析到模型再比", () => {
+        const models = [model("a"), model("v", {vision: true})];
+        const roles = [
+            {id: "main", axis: "gradient", builtin: false, name: "主力", description: "", model: "p/a", status: "ok"},
+            {id: "see", axis: "gradient", builtin: false, name: "看图", description: "", model: "p/v", status: "ok"},
+        ];
+        const shot = snapshot({models, roles});
+        expect(view({entry: seeing, snapshot: shot}).model).toMatchObject({warning: true, hint: expect.stringContaining("看图")});
+        expect(view({entry: seeing, snapshot: shot, setting: {role: "see"}}).model.warning).toBe(false);
+        expect(view({entry: seeing, snapshot: shot, setting: {model: "p/a"}}).model.warning).toBe(true);
+        expect(view({entry: seeing, snapshot: shot, setting: {model: "p/v"}}).model.warning).toBe(false);
+    });
+
+    test("模型用不了时只说用不了，不说缺什么", () => {
+        const shot = snapshot({models: [model("off", {enabled: false})]});
+        const hint = view({entry: seeing, snapshot: shot, setting: {model: "p/off"}}).model.hint;
+        expect(hint).not.toContain("看图");
+    });
+
+    test("窗口未知不算小于", () => {
+        const needs = entry({modelNeeds: {minContext: 2000}});
+        expect(view({entry: needs, snapshot: snapshot({models: [model("a", {contextWindow: null})]})}).model.warning).toBe(false);
+        expect(view({entry: needs, snapshot: snapshot({models: [model("a", {contextWindow: 1000})]})}).model).toMatchObject({warning: true, hint: expect.stringContaining("2000")});
+    });
+});
+
 describe("问题与状态", () => {
     test("缺必需工具是警告，写明缺哪些", () => {
         const profile = view({entry: entry({status: "unavailable", problem: {code: "tools-missing", tools: ["a", "b"]}})});

@@ -424,6 +424,12 @@
             "description": "文件会被直接删除，不能恢复；用它的会话会变成只读。它导入的其它文件留着。",
             "confirm": "删除",
             "failed": "删除“{{name}}”"
+        },
+        "needs": {
+            "vision": "这个模型不支持看图",
+            "thinking": "这个模型不支持思考",
+            "context": "这个模型的上下文窗口只有 {{have}}，这个 Profile 要 {{need}}",
+            "separator": "；"
         }
     }
 }

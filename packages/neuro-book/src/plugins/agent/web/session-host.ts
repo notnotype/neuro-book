@@ -29,6 +29,7 @@ import type {AgentMode, ModeSwitchRequest, Rule} from "../shared/permissions";
 import {rulesToRemember} from "./permission-rules";
 import type {SettingWriteResult} from "nbook/shared/settings";
 import type {ProfileEntry} from "../shared/contracts";
+import {modelNeedsText} from "./profile-view";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
 import {agentText} from "../shared/text";
 
@@ -1318,6 +1319,16 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             ...(role.status === "ok" ? {} : {unavailable: deps.text.t(agentText(ROLE_STATUS_KEYS[role.status]))}),
         }));
         const settings = (meta?.settings ?? {}) as {model?: string | null; effort?: string | null; approvalMode?: string};
+        /**
+         * 模型能力提示（conversation.md 输出 32）：`ready` 时的 `message` 不拦发送。模型列表是懒取的、只有可用的模型，查不到时不说：
+         * 用不了的情况上面已经按 `profile-unavailable` 说了。
+         */
+        const modelGapMessage = (): string => {
+            if (profile?.modelNeeds === undefined || model === null || !model.ok) return "";
+            const found = models?.find((candidate) => candidate.key === model.id);
+            if (found === undefined) return "";
+            return modelNeedsText(profile.modelNeeds, {vision: found.supportsImages, reasoning: found.reasoning ?? false, contextWindow: found.contextWindow ?? null}, deps.text);
+        };
         const availability = target?.loading === true && target.failed === null
             ? {status: "loading" as const, message: "", actions: []}
             : target?.failed !== null && target?.failed !== undefined
@@ -1326,7 +1337,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 ? {status: "archived" as const, message: deps.text.t(agentText("conversation.archived")), actions: [{id: "restore", label: deps.text.t(agentText("conversation.restore"))}]}
                 : model !== null && !model.ok
                     ? {status: "profile-unavailable" as const, message: deps.text.t(agentText(MODEL_KEYS[model.code as keyof typeof MODEL_KEYS] ?? "conversation.model.none")), actions: [{id: "open-settings", label: deps.text.t(agentText("conversation.openSettings"))}]}
-                    : {status: "ready" as const, message: "", actions: []};
+                    : {status: "ready" as const, message: modelGapMessage(), actions: []};
         return createAgentContext({
             session: target === null || meta === undefined ? null : {
                 id: target.id,

@@ -8,6 +8,8 @@ import type {ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from
 import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {ProfileEntry, ProfileProblem, ToolCatalogEntry} from "../shared/contracts";
+import {modelNeedGaps} from "../shared/model-needs";
+import type {ModelCapabilities, ModelNeedGap} from "../shared/model-needs";
 import {profileToolIds, sameNameTool, visibleToolIds} from "../shared/profile-tools";
 import type {ToolBinding, ToolChange} from "../shared/profile-tools";
 import type {ProfileSetting} from "../shared/settings";
@@ -145,6 +147,12 @@ export function withApprovalChoice(settings: Readonly<Record<string, ProfileSett
     return withSetting(settings, profile, choice === FOLLOW_APPROVAL ? rest : {...rest, approvalMode: choice as NonNullable<ProfileSetting["approvalMode"]>});
 }
 
+/** 缺口的一句话；没有缺口时空串。设置页与对话的输入框上方共用。 */
+export function modelNeedsText(needs: ProfileEntry["modelNeeds"], model: ModelCapabilities, text: TextResolver): string {
+    const line = (gap: ModelNeedGap): string => (gap.kind === "context" ? text.t(agentText("profiles.needs.context", {need: gap.need, have: gap.have})) : text.t(agentText(`profiles.needs.${gap.kind}`)));
+    return modelNeedGaps(needs, model).map(line).join(text.t(agentText("profiles.needs.separator")));
+}
+
 function roleName(role: SnapshotRole, text: TextResolver): string {
     const key = builtinRoleNameKey(role);
     if (key !== null) return text.t(modelsText(key));
@@ -186,16 +194,18 @@ function modelField(entry: ProfileEntry, setting: ProfileSetting | undefined, sn
         .map((model): ProfileOption => ({value: `${provider.id}/${model.id}`, label: model.name, description: provider.name})));
     const options: ProfileOption[] = [{...follow, ...(followRole === undefined ? {} : {description: followName})}, ...roles, ...models];
 
+    // 解析顺序同服务端（agent.ts 的 `profileDefaults`）：模型，否则设置的角色、声明的角色。用不了的只说用不了，不说缺什么。
     const problem = ((): string | null => {
+        const gaps = (found: {readonly model: SnapshotModel} | null): string | null => (found === null ? null : modelNeedsText(entry.modelNeeds, found.model, text) || null);
         const direct = setting?.model;
         if (direct !== undefined) {
             const found = findModel(snapshot, direct);
-            return found !== null && usable(found.provider, found.model) ? null : text.t(agentText("profiles.model.modelGone"));
+            return found !== null && usable(found.provider, found.model) ? gaps(found) : text.t(agentText("profiles.model.modelGone"));
         }
         const id = setting?.role ?? entry.role ?? DEFAULT_ROLE;
         const role = snapshot.roles.find((candidate) => candidate.id === id);
         if (role === undefined) return text.t(agentText("profiles.model.roleGone"));
-        if (role.status === "ok") return null;
+        if (role.status === "ok") return gaps(role.model === null ? null : findModel(snapshot, role.model));
         return text.t(agentText(role.status === "unbound" ? "profiles.model.roleUnbound" : "profiles.model.roleBroken", {role: roleName(role, text)}));
     })();
     // 绑着的现在选不到时补一个停用的项：下拉里还看得到绑的是谁，同模型角色页。
