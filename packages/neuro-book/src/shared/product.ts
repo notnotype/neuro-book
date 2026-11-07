@@ -6,7 +6,7 @@
  * `version` 保持一致，由 `product.test.ts` 核对。
  */
 
-export const PRODUCT_VERSION = "0.12.0";
+export const PRODUCT_VERSION = "0.12.1";
 
 /** 支持的 Bun 版本范围，与包 `package.json` 的 `engines.bun` 相同。`npm` 与 `bun add` 都不拦低版本，`nbook` 入口自己核对。 */
 export const BUN_ENGINE = ">=1.3.14";

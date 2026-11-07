@@ -514,7 +514,7 @@
     },
     "packages/neuro-book": {
       "name": "@notnotype/neuro-book",
-      "version": "0.12.0",
+      "version": "0.12.1",
       "dependencies": {
         "@notnotype/nb-canon": "workspace:*",
         "@notnotype/nb-form": "workspace:*",

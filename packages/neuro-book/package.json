@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/neuro-book",
-    "version": "0.12.0",
+    "version": "0.12.1",
     "description": "NeuroBook：本地优先的长篇写作工作区（v2 预览版），带命令 nbook",
     "license": "AGPL-3.0-only",
     "type": "module",
