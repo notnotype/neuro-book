@@ -1,0 +1,71 @@
+t22 拖动的每帧开销（2026-11-07，开发服务 4217 的 master d9c110ec0，无头 Chrome，60Hz，负载约 0.5 到 1.5）。
+脚本 scripts/diag-drag-frame.mjs：node 直接跑，DIAG_URL 指开发服务（未压缩，函数名可读）。600 次移动拖侧栏的视图，Escape 取消，零写入。
+每帧 = RecalcStyleCount 增量 / rAF 次数。开发者实测（144Hz）NeuroBook 每秒 1000 多次，Trellis 144 次；这里 5.2 次每帧，换算到 144Hz 约 750 次每秒，同一量级。
+
+idle: wall=1503, frames=91, moves=0, recalc=0, layouts=0, recalcPerFrame=0, recalcPerMove=0, layoutPerFrame=0, recalcPerSecond=0, styleMs=0, layoutMs=0, scriptMs=3, taskMs=23
+dragMoving: wall=10377, frames=621, moves=600, recalc=3228, layouts=426, recalcPerFrame=5.2, recalcPerMove=5.38, layoutPerFrame=0.69, recalcPerSecond=311, styleMs=1153, layoutMs=67, scriptMs=350, taskMs=5632
+dragStill: wall=1502, frames=91, moves=0, recalc=0, layouts=0, recalcPerFrame=0, recalcPerMove=0, layoutPerFrame=0, recalcPerSecond=0, styleMs=0, layoutMs=0, scriptMs=7, taskMs=28
+editorDrag: wall=6890, frames=414, moves=400, recalc=1570, layouts=361, recalcPerFrame=3.79, recalcPerMove=3.92, layoutPerFrame=0.87, recalcPerSecond=228, styleMs=568, layoutMs=59, scriptMs=232, taskMs=3587
+hover: wall=10210, frames=603, moves=600, recalc=346, layouts=18, recalcPerFrame=0.57, recalcPerMove=0.58, layoutPerFrame=0.03, recalcPerSecond=34, styleMs=648, layoutMs=2, scriptMs=93, taskMs=1410
+
+== 拖视图 400 次移动 dragTrace：样式重算 2083 次，布局 268 次；谁强制的：
+  805次   353ms 平均3元素  getStyleProperties@vue.js:5683 < getTransitionInfo@vue.js:5684 < hasCSSTransform@vue.js:6559 < (anon)@vue.js:6464
+  415次   170ms 平均4元素  getPosition@vue.js:6543 < (anon)@vue.js:6499 < renderComponentRoot@vue.js:3030 < componentUpdateFn@vue.js:3929
+  405次   113ms 平均2元素  (帧循环，非强制)
+  396次   124ms 平均2元素  topElementAt@drag-session.ts:12 < resolve@drag-session.ts:168 < evaluate@drag-gesture.ts:111 < publish@drag-gesture.ts:121
+   36次     3ms 平均1元素  gridOrigin@layout-drag.ts:105 < updateCard@live-drag.ts:101 < tick@live-drag.ts:119
+   12次     2ms 平均1元素  snap@SashHandle.vue:192 < (anon)@useSashSnap.ts:37
+    8次     1ms 平均2元素  writeLineCore@SashHandle.vue:236 < snap@SashHandle.vue:221 < (anon)@useSashSnap.ts:37
+    6次    34ms 平均220元素  (anon)@WorkbenchShell.vue:533 < refreshComputed@reactivity.esm-bundler-BEoJ58Ue.js:567 < get value@reactivity.esm-bundler-BEoJ58Ue.js:1560 < unref@reactivity.esm-bundler-BEoJ58Ue.js:1405
+-- 主线程按事件：
+  3838ms RunTask
+  3074ms FireAnimationFrame
+   801ms UpdateLayoutTree
+   415ms FunctionCall
+   107ms EventDispatch
+    86ms Layerize
+    78ms Commit
+    65ms Paint
+    63ms HitTest
+    39ms Layout
+
+== 拖编辑器标签 200 次移动 editorTrace：样式重算 788 次，布局 219 次；谁强制的：
+  274次   114ms 平均3元素  getStyleProperties@vue.js:5683 < getTransitionInfo@vue.js:5684 < hasCSSTransform@vue.js:6559 < (anon)@vue.js:6464
+  196次    57ms 平均2元素  topElementAt@drag-session.ts:12 < resolve@drag-session.ts:168 < evaluate@drag-gesture.ts:111 < publish@drag-gesture.ts:121
+  143次    61ms 平均6元素  getPosition@vue.js:6543 < (anon)@vue.js:6499 < renderComponentRoot@vue.js:3030 < componentUpdateFn@vue.js:3929
+  141次    36ms 平均2元素  (帧循环，非强制)
+   12次     2ms 平均1元素  snap@SashHandle.vue:192 < (anon)@useSashSnap.ts:37
+   12次     1ms 平均1元素  gridOrigin@layout-drag.ts:105 < updateCard@live-drag.ts:101 < tick@live-drag.ts:119
+    8次     1ms 平均2元素  writeLineCore@SashHandle.vue:236 < snap@SashHandle.vue:221 < (anon)@useSashSnap.ts:37
+    2次    16ms 平均349元素  (anon)@WorkbenchShell.vue:533 < refreshComputed@reactivity.esm-bundler-BEoJ58Ue.js:567 < get value@reactivity.esm-bundler-BEoJ58Ue.js:1560 < unref@reactivity.esm-bundler-BEoJ58Ue.js:1405
+-- 主线程按事件：
+  1855ms RunTask
+  1467ms FireAnimationFrame
+   289ms UpdateLayoutTree
+   227ms FunctionCall
+    60ms EventDispatch
+    59ms Paint
+    42ms Layerize
+    40ms Commit
+    37ms Layout
+    26ms HitTest
+
+== 不按键划过 400 次移动 hoverTrace：样式重算 244 次，布局 76 次；谁强制的：
+   86次   124ms 平均24元素  (帧循环，非强制)
+   64次    29ms 平均3元素  hitTargets@useSashGesture.ts:107 < hitsAt@useSashGesture.ts:95 < winningScope@useSashGesture.ts:34 < onPointerMove@useSashGesture.ts:387
+   42次   223ms 平均78元素  snap@SashHandle.vue:192 < (anon)@useSashSnap.ts:37
+   32次     4ms 平均2元素  writeLineCore@SashHandle.vue:236 < snap@SashHandle.vue:221 < (anon)@useSashSnap.ts:37
+    8次    36ms 平均40元素  getPosition@vue.js:6543 < (anon)@vue.js:6499 < renderComponentRoot@vue.js:3030 < componentUpdateFn@vue.js:3929
+    8次     5ms 平均3元素  getStyleProperties@vue.js:5683 < getTransitionInfo@vue.js:5684 < hasCSSTransform@vue.js:6559 < (anon)@vue.js:6464
+    4次     2ms 平均2元素  measure@OverlayScrollbar.vue:34 < onEnter@OverlayScrollbar.vue:55
+-- 主线程按事件：
+   977ms RunTask
+   423ms UpdateLayoutTree
+   329ms FunctionCall
+   232ms FireAnimationFrame
+   226ms EventDispatch
+    75ms Paint
+    54ms Commit
+    42ms HitTest
+    29ms Layerize
+    22ms PrePaint

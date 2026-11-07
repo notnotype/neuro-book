@@ -20,5 +20,7 @@ updated: 2026-11-05
 
 2026-11-07：这条路径走完，都已合入。手感与待确认清单等开发者。
 
+2026-11-07 开发者试用后：[t22 拖动重整](tasks/t22-drag-frame/README.md)（跟手的东西不走渲染，标签条都能实时布局）→ [t21 划过界面 CPU 高](tasks/t21-hover-cpu/README.md)。两个 Task 改同几个文件，t21 排在 t22 切片 1 之后，不并行。
+
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
 - [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06）。
