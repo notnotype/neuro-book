@@ -65,10 +65,10 @@ owners:
 12. **打包失败。** 打包或求值失败时继续用上一次成功的包，状态 `error`、带原因与位置；从来没成功过的状态 `unavailable`，解析不到。源文件被删后 Profile 从目录消失，用它的会话进只读 `unknown-profile`。
 13. **Profile 设置。** 声明的 `role` 是这个 Profile 的缺省角色，设置里的 `role`、`model` 优先。`model`、`role` 作为这个 Profile 的模型缺省交给模型服务（[`models/service.md`](../models/service.md) 输出 10）；`approvalMode` 是新会话的初值。界面见 [`profile-settings.md`](profile-settings.md)。
 14. **目录的详情。** 每项带 `tools`、`defaultTools?`、`role?`、`modelNeeds?`，让界面不用激活提供方就能算工具集与能力缺口。插件 Profile 来自声明；用户级来自上一次成功的包，从未成功时不带这几项，用户级没有 `role`。（planned）
-15. **原因是结构化的。** 输出 7、8、12 的原因是判别式 `problem`：`{code: "tools-missing", tools}`、`{code: "key-taken"}`、`{code: "module-not-shared", module}`、`{code: "invalid-export"}`、`{code: "build-failed" | "load-failed", file, line?, message}`。`file` 是相对 `user/profiles/` 的名字，`message` 不带状态根与缓存的绝对路径，原文只进诊断。（planned）
+15. **原因是结构化的。** 输出 7、8、12 的原因是判别式 `problem`：`{code: "tools-missing", tools}`、`{code: "key-taken"}`、`{code: "module-not-shared", module?}`、`{code: "invalid-export", expectedId?}`、`{code: "build-failed" | "load-failed", file, line?, message}`。`file` 是相对 `user/profiles/` 的名字，`message` 不带状态根与缓存的绝对路径，原文只进诊断。（planned）
 16. **目录变化的通知。** 目录变了（新建、打包失败、成功后又失败、恢复，哈希没变也算；删除；工具或 Profile 的发布与撤回）发 `profileCatalogChanged`。它和输出 11 的重新解析是两回事：打包失败时会话继续用上一版，不重新解析。（planned）
-17. **工具目录。** `toolCatalog` 列出已接受的工具声明：`{id, description, providerName, effect, plugin}`，`providerName` 是换算后交给模型的名字，`effect` 是声明里的固定值。（planned）
-18. **用户级 Profile 的新建与删除。** `createUserProfile({name})` 把骨架一次写成 `user/profiles/<名>.profile.tsx`，名字只能用小写字母、数字、连字符（不合规则 `invalid-name`），已有同名 `exists`，不覆盖；交回 `{key, address}`。`deleteUserProfile({key})` 删入口文件，不是用户级或文件已不在的 `not-found`。（planned）
+17. **工具目录。** `toolCatalog` 列出已接受的工具声明：`{id, description, providerName, effect, plugin, defaultForAll?}`，`providerName` 是换算后交给模型的名字，`effect` 是声明里的固定值。（planned）
+18. **用户级 Profile 的新建与删除。** `createUserProfile({name, description, system})` 把骨架一次写成 `user/profiles/<名>.profile.tsx`（后两项是骨架里的文字，由窗口按界面语言给），名字只能用小写字母、数字、连字符（不合规则 `invalid-name`），已有同名 `exists`，不覆盖；交回 `{key, address}` 时目录里已经有它。`deleteUserProfile({key})` 删入口文件，不是用户级或文件已不在的 `not-found`。（planned）
 
 ## 状态与转换
 

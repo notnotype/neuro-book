@@ -45,7 +45,7 @@ owners:
 | `eventChunk({sessionId, seq, index})`、`previewChunk({token, index})` | 读 | 分段读回大的事件与预览 |
 | `profiles()` | 读 | Profile 目录（[`agent/contributions.md`](contributions.md) 输出 7） |
 | `toolCatalog()` | 读 | 工具目录（同上输出 17，planned） |
-| `createUserProfile({name})`、`deleteUserProfile({key})` | 写 | 新建、删除用户级 Profile（同上输出 18，planned） |
+| `createUserProfile({name, description, system})`、`deleteUserProfile({key})` | 写 | 新建、删除用户级 Profile（同上输出 18，planned） |
 | `startTask({taskId, profile, initial?, input, project?, background?})` | 写 | 发起任务 |
 
 - 事件 `frames`，过滤 `{sessionId}`：内核的帧（`log`、`delta`、`status`、`diagnostic`、`progress`）。
