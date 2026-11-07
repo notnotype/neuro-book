@@ -70,6 +70,8 @@ updated: 2026-11-07
 
 验证：`test:affected --since master --typecheck` 只有已知失败（`plugins/agent` 的跨插件导入、`permission-page`、`AgentModeSwitchWizard`、`qa-service`）；`actions.test.ts`、`asset-urls.test.ts` 负载高时各超时一次，单独跑通过。e2e：`workbench-dnd`、`workbench-float`、`workbench-live-drag` 修正后 69 过；`workbench-views`、`workbench-shell`、`editor-area`、`files-explorer`、`lab-grid-panels` 头的样式那片后过，`editor-area` 的实时布局部分修正后再跑过。亮色截图看过空位、并入、被拒绝。
 
+收尾时加的：状态栏成了开窗的主要入口，新开的窗整个夹回树区域（`workbench-float` 13 条加新用例过）。
+
 未验证：`LAYOUT_SEAM_HIT_PX = 6` 的手感；文件在工具面板上被拒绝时没有光标反馈（Spec 写明）。
 
 不做：一排全部拖到零时留下空白带（开发者没提）。
