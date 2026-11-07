@@ -1,0 +1,137 @@
+w00026 t09 应用内浮动：实现审查报告
+审查对象：提交 49719fbb3、dc3ff9258、cbed1d0a3（审查 worktree review-t09，HEAD cbed1d0a3）
+验证环境：在 .worktree/w00026-t07-single-tree（含同一批提交）里跑过合同测试与类型检查；没跑 e2e 与开发服务，涉及真实浏览器行为的条目都标了“从代码推断”。
+已跑：nb-layout bun 测试 layout-doc/layout-drop/grid-motion 149 通过；nb-layout vitest 三个 dom 测试 52 通过；neuro-book bun 测试 workbench + editor/area + tab-menu 465 通过；nb-layout typecheck 通过；neuro-book vue-tsc web 项目通过。
+基线问题（不是 t09 引入）：neuro-book `bun run typecheck` 与 `vue-tsc -p tsconfig.browser-test.json` 因 src/plugins/agent/web/permission-page.dom.test.ts(117,81)(121,80) 的 `exists` 类型错误失败，该文件不在 t09 提交里；`typecheck` 脚本用 && 串联，所以第一步失败会让后面的 web 项目根本没跑，要单独跑。
+
+========== 逐条发现（按影响排序，每核实一条追加） ==========
+
+### 1. 拖窗、键盘移动、单击缩放手柄都会把夹取后的大小写回记录，和“夹取不写回”矛盾
+严重程度：重要；类别：对照需求
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:521-524（activate 里的 size 取自 options.floats()，即夹取后的矩形）、:374-377（windowRect 用 drag.size）；packages/nb-layout/src/vue/FloatWindowHandles.vue:92（键盘移动用 props.rect，同样是夹取后的）
+现象：窗比树区域大（区域缩小后）时，呈现的矩形已被 clampFloatRect 缩到区域大小；此刻拖它一下或按一次方向键，提交的矩形带着缩小后的 width/height，记录里的原尺寸被覆盖。实验（bun，直接调 clampFloatRect/roundFloatRect，不经真实 DOM）：记录 {x:100,y:50,w:900,h:500}，区域缩到 600x400 呈现 600x400，挪 10px 后记录变成 {x:110,y:50,w:600,h:400}；区域恢复到 1200x800，窗停在 600x400，没动过的话是 900x500。
+还有一条更轻的路径：FloatWindowHandles 的 onPointerUp 总是 finish(true)，也就是只按下、抬起、一个像素没动，也会 emit commit，矩形是按下时的 props.rect（夹取后的）。窗被夹取时，单击任一缩放手柄就把夹取后的位置与大小写进记录。未夹取时 setFloatRect 结果和记录相同，返回原对象不写，所以平时看不出来。
+为什么是问题：Spec 输出 39“夹取不写回：窗口变小再变大，窗回到原处”，验收 23 同一句。位置按“从呈现的位置开始”写回是明确要求的（e2e 有覆盖），但大小没有理由跟着写。
+如何核实：见上实验；e2e “窗口变小”那条只拖了位置不比较大小，没有覆盖这个组合（它在窗口变小时按下后按 Esc 取消，也没有提交）。
+建议改法：缩放手柄没有移动过（active.current 仍是 start）时 finish 不 emit commit；整窗移动提交时只带 x、y，宽高取记录里的（options.doc() 里的 float.rect）；应用层 setFloatRect 的移动语义可以拆成 moveFloat(x, y)。键盘移动同理，缩放才写宽高。或者在 windowDrag 里存记录的 size 而不是呈现的 size。
+
+### 2. 窗刚开（或树正在过渡）的那 470ms 内，拖窗与缩放会带过渡拖尾
+严重程度：建议；类别：正确性（从代码推断，未在浏览器复现）
+位置：packages/nb-layout/src/vue/NestedGrid.vue:388、:406（data-moving 写在所有叶外框与活动内容上）、:520-525（[data-moving] 才有 transition）；src/vue/useGridMotion.ts:149-155（update）、:60-71（decideMotion）；src/grid-motion.ts:47-63（settleFloatMoves 只挡住“新的”决定）
+现象：浮动窗出现、消失或内容进出窗是照常过渡的（Spec 要求，松手内容从卡片飞到窗）。placementMoved 里叶的数量变了就判“要动”，motion.moving 为 true，持续 layoutMotionMs（e2e 里设成 470ms）加 MOTION_SLACK_MS=50ms。这期间 data-moving 在所有叶外框上（NestedGrid.vue:388，不分树里的叶与浮动窗），包括刚开的窗自己；.nb-grid-frame[data-moving] 的 transition 对 transform/width/height 生效。settleFloatMoves 只让之后的矩形变化不再触发新一轮，已经打开的 moving 与 data-moving 不会被它关掉。所以松手开窗后立刻（470ms 内）拖这个窗或拉缩放手柄，窗的矩形（transform 与 width/height）带 470ms 缓动，跟不上指针。同理，树里有过渡在进行时拖已有的窗也一样。data-float-moving 只关了 pointer-events，没有关 transition。
+为什么是问题：Spec 输出 39“整窗移动……窗一直跟手，没有过渡”、验收 23“窗跟手、没有过渡”。窗刚开的那一下是最容易马上再抓它的时刻（落点没对准）。
+如何核实：e2e：floatOut 之后不等，立刻 press 窗头并 move，读 boxOf；与 moved 的预期位置比较（现有用例在 poll 写入之后才拖，已经过了 470ms，所以覆盖不到）。
+建议改法：CSS 一条：.nb-grid-frame[data-float-moving], .nb-grid-content[data-float-moving] { transition: none; }；缩放手柄的预览也走 moving 标记（previewFloat 的第三个参数现在只有整窗拖动传 true，手柄传 false，需要区分“不接指针”与“不过渡”两个意思）；或者对浮动窗的外框与内容，data-moving 只在 flying 集合里的 key 上写。
+
+### 3. 整窗拖动：只有“没有落点”才退回移动，落点算不出时松手是取消，窗弹回原处
+严重程度：建议；类别：正确性/一致性（从代码推断，未在浏览器复现）
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:404-405、:412、:543-546
+现象：resolve 里整窗先无条件 previewFloat 跟手（:543）；之后 dropAt 里 moved() 只在 resolveLayoutDrop 返回 null（:404）或活动栏放不进（:385）时才给出 float 动作。resolved 非空但后续算不出时——stripDrop 量不出插入位返回 null（:405，例如目标标签条还没有任何标签行，tabStripInsertionIn 在 lines.length===0 时返回 null，tab-strip-geometry.ts:92）、applyLayoutDrop 失败（:412）——dropAt 返回 null，窗在拖动中一直跟手，松手却是 no-action，布局不变，窗弹回拿起前的位置。同一个位置对标签拖动返回 null 是对的（“别的 null 是被挡住、算不出或出错，不该开窗”，:403 的注释），但对整窗，“没有落点就是移动”是 Spec 的明文（输出 39：窗不接收时不穿透、继续浮着）。
+为什么是问题：用户看到窗一直跟着走，松手却回去了；与 :543 的注释“放不下也跟”不一致。
+如何核实：e2e 里把一个单标签的浮动窗拖到“空的树里编辑组”（把树里最后一个组的标签都浮出去后留下的空组）的标签条上松手，看窗是留在松手处还是回到拿起处；需要浏览器，未做。
+建议改法：整窗时 stripDrop 与 applyLayoutDrop 失败的分支都 `?? moved()`；最好把整窗的判定收成一个函数 windowDrop(source, point)，不和标签的判定交织在 dropAt 里（见第 14 条）。
+
+### 4. 编辑器标签的“浮动”与“回到停靠”命令不管实际结果都返回成功
+严重程度：建议；类别：正确性（合同）
+位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:259-274（floatTab 的编辑器分支）、:275-283（dockFloat 的编辑器分支）；web/commands/panel-commands.ts 的 FLOAT_COMMAND、DOCK_COMMAND
+现象：编辑器分支调 editorDrag.value?.drop / dropPanel（返回 void），然后无条件 `return {ok: true, doc: doc.value}`。editorDrag 还没交出来（编辑器区未挂载）时 `?.` 什么也不做仍返回 ok；区里拒绝（活动视图有未裁决输入，area.moveToFloat 返回 {ok:false}，dockGroup 中途停）时命令同样返回 ok，命令面板、键位与 agent 看到“成功”。Spec 输出 35：不能浮动时 unavailable。
+为什么是问题：命令返回值是公开合同；调用方无法区分成功与被拒绝。拒绝的原因只出现在 area.notice 里（有界面提示，所以是建议级）。
+如何核实：panel-commands.test.ts 的浮动用例只用了工具视图（view:v），没有编辑器分支；area.test.ts 测 moveToFloat 的拒绝但不经命令。
+建议改法：EditorTabDrag.drop 与 dropPanel 返回 Promise<ActionResult>/ActionResult（area.moveToFloat 本来就返回它），store 把它转成 LayoutResult；editorDrag 为 null 时返回 {ok:false, code:"not-found"}。
+
+### 5. validateLayoutDoc 不拒绝“浮动面板 id 与树里的分支 id 相同”，之后关掉这个窗最后一个标签会把整棵分支摘掉
+严重程度：建议（触发需要手改或损坏的记录，或 id 生成撞车；store 的 fitsSkeleton 兜底，领域层与校验本身漏了）；类别：不变量
+位置：packages/nb-layout/src/layout-doc.ts:844-850（新增的 floats 校验只比 inTree 与 floating，inTree 只含叶）；:321-327（removePanelNode 用 detachNode 按 id 摘节点，不区分叶与分支）
+现象：实验（bun，/tmp/review-t09-impl/exp/e2.ts）：树根 bR、内层分支 bX，浮动面板 id 也写 "bX"。validateLayoutDoc 返回 ok:true；对这个窗的唯一标签 removeTab 后，settleEmptyPanel → removePanelNode → detachNode(root, "bX") 把 bX 分支连同活动栏、侧栏、编辑组、右栏一起摘掉，树只剩 statusbar（输出 `after removeTab statusbar`）。store 的 apply 末尾的 fitsSkeleton 会拦住这个结果（不合骨架），所以真实路径上是操作失败而不是毁布局，但领域函数本身与 validate 都放行。
+为什么是问题：validate 的注释说它是“形状的唯一权威”；上一版里“面板 id 必须等于叶 id 且在树里”天然排除了和分支 id 相同；浮动窗不在树里之后这条保证没了，没有补。
+如何核实：运行 e2.ts；或读 validateLayoutDoc 的 seen 集合（validateNode 里记录所有节点 id，包括分支）。
+建议改法：validateLayoutDoc 里浮动面板 id 若在 seen（所有树节点 id）里就 invalid；一行。removePanelNode 对浮动窗可以直接走 floats 过滤，不调 detachNode（浮动窗不在树里，detach 没有意义）。
+
+### 6. 拖窗与缩放的每一帧都重新求解整棵树的摆放，并触发分隔线对齐与过渡判定
+严重程度：建议；类别：性能（热路径，从代码推断，未测时）
+位置：packages/nb-layout/src/vue/NestedGrid.vue:109-115（placement）、:205-216（watch(layers)）
+现象：placement 把 placeGrid(整棵树) 与 floatPlacements(props.floats) 放在同一个 computed 里。拖窗/缩放时 previewFloat 每次指针移动换一个 floats 数组（renderedFloats 重算），placement 因此每帧重跑 placeGrid（求解 + 设备像素取整），随后 layers 变化触发 watch：snapHost.schedule()（分隔线按 DOM 重新对齐）、parking.update、contentLayer.update、settleFloatMoves（按 key 建两个 Map）、motion.update。树没有任何变化，这些全是白做；settleFloatMoves 的存在本身就是为了把“只有浮动窗变了”从这条链里认出来。
+为什么是问题：指针移动是最热的路径；整窗跟手是 t09 的核心手感。树的摆放只依赖 renderTree、renderLayout、容器尺寸、dpr、maximized，与 floats 无关。
+如何核实：读代码即可看到依赖关系；用 Vue devtools 或在 placeGrid 入口计数可得每帧次数（未做）。
+建议改法：拆成 treePlacement = computed(placeGrid + maximizePlacement) 与 placement = computed(() => floats.length === 0 ? tree : [...tree, ...floatPlacements(floats)])，树的那份在拖窗时不失效；snapHost.schedule 只在树的摆放变了时调（把它挪进依赖 treePlacement 的 watch）。
+
+### 7. 外壳每帧重算所有面板头的动作模型，并给手柄每次渲染新建两个范围对象
+严重程度：建议；类别：性能（从代码推断）
+位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:176-180（viewActionsOf 读 layout.actions.floats()）、:243-248（headActions 对所有面板调它）、:635-636（floatBounds(id) 在模板里每个属性各调一次）；state/layout-doc-store.ts:226-233
+现象：viewActionsOf 对每一块面板（不只浮动窗）都先 props.layout.actions.floats().find(...)，这读的是 renderedFloats 这个 computed；拖窗或缩放时它每个指针事件都变，于是 headActions（Object.entries(doc.panels) 全部面板、每块调 chrome.viewActions 与 buttonBudget）每帧整个重算，返回新的 Map，模板里所有头的 TitleActions 跟着收到新对象。#float-chrome 里 floatBounds(id) 写了两次（.min、.max），每次调 panelConstraints 并新建对象，每帧每个窗各两次，FloatWindowHandles 的 min/max 属性每次都是新引用。
+为什么是问题：和上一条同一条热路径；浮动窗的头宽只在窗自己缩放时才会变，树里的面板不该依赖它。
+如何核实：读代码；dom 级别可在 viewActions 里计数（未做）。
+建议改法：viewActionsOf 先判 isFloating(doc.value, panelId)，不是浮动窗就不读 floats()；浮动窗的宽度用记录里的 float.rect.width（提交值）而不是预览值，缩放中头里的按钮数不必逐帧变；floatBounds 在 float-chrome 作用域里用 v-bind 一次取值（<template #float-chrome="{id, rect}"> 里 v-for 一个单元素数组或抽成小组件）。
+
+### 8. 工具窗“回到停靠”逐个标签搬，窗的活动标签丢了，目标面板的活动标签是最后一个搬进去的
+严重程度：建议；类别：正确性（行为细节）
+位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:284-296（dockFloat 工具分支）
+现象：循环里每个 moveTabToStrip 用缺省 activate:true，每次都把搬进去的那个设成目标面板的活动标签。窗有标签 A、B（声明位置都是 sidebar），窗的活动是 A：停靠后侧栏活动的是 B。整窗拖动停靠（movePanelToStrip）保留 source.active，两条路径的结果不一样。编辑器分支（dockGroup）最后会 area.activate(active)，工具分支没有。
+如何核实：读代码；domain 层 movePanelToStrip 的 active 取值在 layout-doc.ts:439-455。
+建议改法：循环后对窗原来的活动标签再 activateTab 一次；或者对每个标签传 activate:false，最后只激活窗的活动标签。多个标签的声明位置不同时各回各的，活动标签只对它自己所在的目标面板生效。
+
+### 9. nbook.view.open 对已浮动的视图：窗被别的窗盖住时没有任何可见效果，还会无故退出别的面板的最大化
+严重程度：建议；类别：对照需求（从代码推断，未跑浏览器）
+位置：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:372-385（revealView）；web/commands/view-commands.ts 的 openView（“不移动焦点”）
+现象：revealView 对在浮动窗里的视图只做 setPanelCollapsed(false) 与 activateTab，不提到最前；命令按约定也不移动焦点，所以不会经 focusin 间接提到最前。视图在一个被盖住的窗里时，执行 nbook.view.open 后窗还是盖着，“让视图看得见”（Spec 输出 22、35）没有达成。同一个函数开头 `if (found !== null && maximized.value !== found.panel) maximized.value = null`：浮动窗在最大化的面板之上（Spec 输出 39、17：树里的面板最大化时窗仍可见），打开浮动窗里的视图并不需要退出最大化，却照退（浮动窗的 id 永远不等于 maximized）。
+为什么是问题：t09 给浮动窗加了“不被最大化盖住”和“可以被别的窗盖住”两条可见性规则，revealView 没跟着改；它的注释写的是“盖着它的最大化退出；它就在最大化的面板里时不退出”，对窗应该是“盖着它的窗提到最前；最大化不盖窗，不退出”。
+如何核实：读代码；e2e：浮出视图 A、再浮出视图 B 盖住 A，执行 nbook.view.open {viewId: A}，看 A 的 z-index 是否变到最前。
+建议改法：revealView 里 isFloating(doc, found.panel) 时 maximized 不动，并在同一次 apply 里 raiseFloat（一次写入）。
+
+### 10. 浮动窗上“收起”命令的失败原因写成“没有可以操作的面板”
+严重程度：建议；类别：正确性（诊断文字）
+位置：packages/neuro-book/src/plugins/workbench/web/commands/panel-commands.ts（SET_PANEL_COLLAPSED_COMMAND 实现，`return result.ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.noPanel}`）；locales/zh-CN.json:153 noPanel = “没有可以操作的面板”
+现象：对浮动窗执行 nbook.view.set-panel-collapsed（collapsed:true 或缺省切换），store.setCollapsed → setPanelCollapsed 返回 rejected，命令把任何失败都报成 noPanel。窗明明存在，原因写“没有可以操作的面板”。同一批改动里最大化已经换成了专门的 floatMaximize（“浮动窗不能最大化”），收起漏了。panel-commands.test.ts 只断言 code 是 unavailable，不看原因。
+如何核实：读代码；测试里 SET_PANEL_COLLAPSED_COMMAND 在浮动窗上只比 code。
+建议改法：命令实现里先判 isFloating(doc, panel) 返回新的 floatCollapse 文案；或让 setCollapsed 返回的 code/detail 驱动原因（用错误码，不按文案）。顺带：frameActionsOf（WorkbenchShell.vue:216-230）里“浮动”按钮不看窗数上限，到 16 个窗时按钮仍可点，命令返回的是通用的“这个标签不能再浮动”（cannotFloat），不是“窗太多”；store.floatTab 里 limit 失败返回了 limit-exceeded，命令没有按码区分。
+
+### 11. 编辑器标签右键菜单的“浮动”对已独占一个窗的标签仍显示，点了没有任何可见反应；占位 run 别扭
+严重程度：建议；类别：一致性/代码质量
+位置：packages/neuro-book/src/plugins/editor/web/tab-menu.ts:73（`{key: FLOAT_KEY, ..., shown: always, run: () => ({ok: true})}`）、:157-160（run 之前特判 FLOAT_KEY）；对照 WorkbenchShell.vue 里工具视图菜单对 alone 的处理（“已经独占一个窗的再浮动没有意义”不列）和 panel-commands.ts 的 alone 判据
+现象：工具视图的“移动到”菜单在视图已独占一个窗时不列“浮动”，命令也对这种情况 unavailable；编辑器标签菜单对同样的情形仍列出，点了命令返回 unavailable，menu 的 execute 只把它记成诊断（options.report，tab-menu.ts:108-112），用户看不到任何反应。另外 OWN 表里这一项的 run 是永远不会被调用的占位（run 之前被 FLOAT_KEY 特判拦走），表的约定“每项自己 run”在这里被破坏（资源管理器的 REVEAL_KEY 也是特判，但它不在 OWN 表里，不留占位）。
+如何核实：读代码；OwnAction.shown 的签名是 (tab: EditorTab) => boolean（tab-menu.ts:35），只能看到标签，不知道所在窗，所以没法直接写判据；entries 里已有 options.commands.isEnabled 可问命令。
+建议改法：PanelEntry（workbench/shared/contracts.ts）增加 floating 标志，EditorGroup 带上，OwnAction.shown 改成接收 (tab, group)，浮动项写成“不是独占一个窗的标签”；FLOAT_COMMAND 的 when 目前只要求 layoutReady，所以不能靠 commands.isEnabled 判断。占位 run 删掉，或把 OwnAction 的 run 改成可选，命令项走 command 字段。
+
+### 12. dockGroup：reveal 分支是接不到的死代码且与 dropTab 的约定相反；异步停靠没有人接结果
+严重程度：建议；类别：代码质量/一致性
+位置：packages/neuro-book/src/plugins/editor/web/tab-drag.ts:41（dropPanel: ... void dockGroup(...)）、:60（action.kind === "reveal"）；对照 :93-95（dropTab 的 reveal：“接受矩阵：编辑器标签进不了工具面板，预备区不接收它”，直接 return）
+现象：dockGroup 把 reveal 和 strip、center 一样当成“目标是 action.panel”，用工具面板的 id 去调 area.moveTab，拿到 groupClosed 才停。编辑器来源不会产生 reveal（revealZones 按接受矩阵过滤了，layout-drag.ts:218），所以走不到；但两个函数对同一个动作的处理相反，将来接受矩阵放宽时先出错的会是这里。另外 dockGroup 在每个 await 之间用的是开头拷下来的 tabs 快照：期间有新标签进窗（命令、别的手势）会留在窗里，期间窗没了也只靠 moveTab 返回失败来停；这是“中途被拒绝就停”的合同允许的，但没有写进注释，void 丢弃的 Promise 也没有 catch（moveTab 内部抛错会成为未处理的拒绝；dropTab 里的 void area.moveTab 是同样写法，所以不单独算问题）。
+如何核实：读 tab-drag.ts:55-61 与 :93-95。
+建议改法：dockGroup 的 reveal 分支删掉（与 dropTab 同样 return）；注释里补一句“tabs 是开头的快照”。
+
+### 13. workbench-float.e2e.ts 里几处判别力弱的断言
+严重程度：建议；类别：测试
+位置：packages/neuro-book/e2e/workbench-float.e2e.ts:343 与 :351（“点击提到最前”）、:345-350、:291、:150、:157 的 `feedback(page)).toHaveCount(0)` 型断言
+现象与判别力：
+(a) :343、:351 点的是 (firstBox.x + 8, firstBox.y + firstBox.height - 8)。左下角手柄是 10x10（FloatWindowHandles.vue 的 .nb-float-handle--bottom-left，bottom:0;left:0），这个点落在它里面，所以“点击提到最前”实际测的是点缩放手柄提到最前；窗正文、窗头的点击提到最前（WorkbenchSurface 的 pointerdown.capture 对 [data-content-leaf] 与 [data-leaf] 的分支）没有被测到。第二次点击“已在最前不写”能通过，部分是因为手柄抬起时 commit 同一个矩形、setFloatRect 返回原对象（见第 1 条），不是因为 raise 判了“已在最前”。要区分，第二次点窗头空白处。
+(b) :345-350 用 waitForLoadState("networkidle") 加 poll 等“写入次数稳定”，是在等一个启发式的静止，不是等可观察的状态；Playwright 的 networkidle 官方也不建议。写入次数可以直接 poll 到“等于 baseline 之后的某个确定值”（本用例里提升次序前后各一次写入，数字是确定的）。
+(c) :291 `expect(narrow.width).toBeGreaterThan(100)` 要验证的是“不小于最小尺寸、右边不动”，100 与真实最小宽度（工具面板 SHELL_PANEL_MIN_WIDTH 与视图声明的并）没有关系，把最小宽度改成 101 也过；应该读 floatBounds 的最小值（或常量）做精确比较。
+(d) “不浮动的情形”里 :150、:157 两处 `feedback(page)).toHaveCount(0)` 是负向断言，它们在拖动根本没起来、或反馈晚一帧才出现时同样通过；对应写法在 editor-area.e2e.ts 里已经有 noDropShown（等两帧再断言），这里没有用。它们前面各有一个 ghost 可见的断言，所以“拖动起来了”是确定的，只剩“反馈晚一帧”的风险。
+(e) 整窗拖动按 Esc 取消，只有 :325 一处，且只是间接验证：之后恢复视口、位置回到 far.x 才能说明没提交；没有直接断言“写入次数不变”，也没有断言窗回到拿起前的矩形。
+(f) “拖窗：…没有过渡”用例里 `expect(page.locator("[data-moving]")).toHaveCount(0)`：toHaveCount 会自动重试到超时，所以它等的是“最终没有 data-moving”，不是“拖动当下没有”；它不能证明拖动中窗没有过渡（真正证明“没有过渡”的是紧随其后立刻读 boxOf 的位置比较，那条是对的）。第 2 条说的“松手开窗后的 470ms 内再拖”这个情形，这条断言恰好不会失败。
+未发现的缺口：验收 23 的六句话都有对应用例（见“未发现问题的方面”）。
+
+### 14. layout-drag.ts：整窗拖动的状态散在 dropAt、resolve、activate 里，一个闭包变量 + 八处判断
+严重程度：建议；类别：代码质量
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:142（windowDrag）、:199、:383-385、:397、:481、:518-526、:543、:550、:560-561
+现象：整窗拖动没有拖影、不走实时布局、不冻结矩形、不进预览缓存、不接收 data-no-drag 的挡、不走键盘，每一条都是在已有的标签拖动流程里加 `windowDrag === null ?` 或 `source.kind === "panel"` 的分支。dropAt 已经 55 行，混着活动栏、冻结、键盘区域、整窗、浮动、标签条、缓存、分区八件事；第 3 条的不一致就是这样产生的：两条路径共享出口，各自的“null 是什么意思”不同。
+为什么是问题：读者要同时推演标签与整窗两套语义才看得懂一个分支；以后加“窗拖到窗上并成标签”之类的规则会继续堆。
+建议改法：把整窗拖动做成一个小对象 createWindowDrag(options)（grab/size、windowRect、drop(point)→LayoutDragDrop、begin/end），session 的 resolve 里按 source.kind 分派：`source.kind === "panel" ? windowDrop(point) : dropAt(...)`；窗专用的判定（noCenter、edgeRatio、floats 过滤自己）收在 windowDrop 里。dropAt 里 `moved()` 与 `windowDrag` 就都可以删掉。
+
+========== 未发现问题的方面（仔细检查后没有发现） ==========
+- layout-doc.ts 的 settleEmptyPanel、movePanelToEdge（来源浮动、touches、aliases）、moveTabToEdge、showPanelAndInsert、stripDynamicTabs、carryDynamicTabs 在有浮动窗时：用 bun 直接调领域函数做了实验（/tmp/review-t09-impl/exp/e1.ts），窗空了移除、活动编辑组换到树序最后一个、树里最后一个编辑组留空、整窗并入 strip/center/edge、stripDynamicTabs 去掉空窗、carryDynamicTabs 把标签放回窗里，结果都和注释一致。这些实验直接调领域函数，没有经过 store 的 apply 与 fitsSkeleton；e1 的夹具没有两条条，所以 validateLayoutDoc 在那里不适用。
+- finish / expandWhereAxisChanged：浮动窗不能收起（rejected），树里收起的面板被整块摘出时 movePanelToEdge 去掉 collapsed，没有遗漏的路径。validateLayoutDoc：>16 窗、同一面板既在树里又浮动、浮动两次、浮动窗具名/隐藏/收起、浮动窗没有面板记录、树里没有编辑组都拒绝（layout-doc.test.ts 覆盖）；旧记录 floats: [] 仍通过；除第 5 条的 id 撞车外没有发现别的缺口。
+- windowDrag 的生命周期：drag-gesture.ts 的 finish 先调 activeChanged(false)（windowDrag = null、previewFloat(null)），再 commit；取消、结构键变了、capture-lost、abort/dispose 都走 finish，没有找到 previewFloat 残留的路径。activate 返回 false 时 begin 调 disarmed，会话回到未拿起，状态已在 activate 开头清过。键盘的来源总是标签，regions 对 panel 来源返回 []，走不到。
+- live-drag：layoutDropKey 让 float 动作的 key 恒为 "float"；slot 只给 edge/reveal，stickyDrop 返回的不会是带过期矩形的 float。
+- NestedGrid：浮动窗层级 10 + at*3 + part，最多 57，高于分隔线（3），低于盖层（900）与拿起的内容（1000）；DOM 序由 stableOrder 保持，提到最前只改 z-index，不搬节点（dom 测试覆盖）；obscuredLeaves 排除浮动窗；useGridMotion.stop 的 finishTransitions 只作用于根的直接子元素，对浮动窗与手柄层没有副作用。
+- FloatWindowHandles：lostpointercapture 在 pointerup 之后触发时 resizing 已空，不会二次提交；Esc、pointercancel 只撤预览；data-no-drag 把手柄从拖动源里排除；手柄的 pointer-events 与 .nb-float-move 的“只给键盘”都和注释一致。
+- 编辑器：moveToFloat 的 leave 判据与 moveToNewGroup 一致，也与 previewable/moveBlocked 一致；固定与 preview 在 placed() 里转正；dockGroup 的 before 被合并掉时 find 返回 undefined，退到分区末尾；同文件并掉、固定标签进固定区、中途被拒绝就停都有 area.test.ts 用例。
+- 命令判据：nbook.view.float 的 alone/floatable/movable 判据与 frameActionsOf 一致（只差窗数上限，见第 10 条）；“移动到”菜单不会为 movable:false 的视图打开，所以菜单与命令在这一点上也一致。
+- 验收 23 的六句话都有对应用例：开窗/写一次/刷新还在（workbench-float 第 1 条）、不许浮动/按钮区/Esc（第 2 条）、拖窗跟手/不写/放下写一次/经过中央继续浮着（第 3 条）、标签条与 14% 窄带才停靠且同一节点（第 4 条）、窗口变小夹回且变回来还在（“窗口变小”条，只覆盖位置，见第 1 条）、编辑器标签开窗/输入/撤销（editor-area.e2e.ts 新增条）、整窗停靠并掉同文件/固定区/未裁决输入不动（area.test.ts）。
+- 没有发现按错误文案做分支、静默 catch、放宽断言、跨包深导入、删改任务外代码的情况；新增的 CSS 与 locale 键都有对应的 .md 或 locales.test.ts 登记。
+
+========== 数量 ==========
+阻断 0；重要 1；建议 13；合计 14。
+重要：第 1 条（夹取后的大小写回记录）。
+其余建议里最值得先处理的：第 2 条（刚开窗 470ms 内拖窗有过渡拖尾，违反“没有过渡”）、第 3 条（整窗落点算不出时松手弹回）、第 4 条（编辑器分支的命令不管结果都报成功）、第 9 条（nbook.view.open 不提到最前、无故退出最大化）。
+需要浏览器才能确认的：第 2、3、9 条；没跑 e2e 与开发服务。

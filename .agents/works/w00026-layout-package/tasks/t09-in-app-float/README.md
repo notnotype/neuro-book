@@ -15,7 +15,7 @@ updated: 2026-11-05
 
 ## 当前状态
 
-2026-11-07 已合入（`2ae112479`、`22718bc8a`、`cbed1d0a3` 附近三个提交），实现审查待处理。
+2026-11-07 已合入，实现审查已处理（`4ccb63654`）。
 
 - 验证：`test:affected --since master --typecheck` 只有已知失败（`plugins/agent` 的跨插件导入、`permission-page` 的类型）；e2e：`workbench-float`（新，10 条）、`workbench-dnd`、`workbench-live-drag`、`editor-area`、`workbench-shell`、`workbench-views`、`lab-editor`、`lab-workbench-surface`、`lab-grid-panels`、`lab-grid-structure` 全过；`lab-scenes` 只有 ThemeEditor 假素材的 404，版面没有新问题（临时改 `expect.soft` 看过后面的检查）。
 - 变异：`sameLayoutShape` 不比 `floats`、忽略 `noCenter`、`settleFloatMoves` 恒不改，对应单测都失败。`NestedGrid.dom.test` 的“只有窗的矩形变了不过渡”没有抓到第三个（happy-dom 里过渡令牌读不到），由 `grid-motion.test` 与 e2e 的“拖窗没有过渡”守住。
@@ -44,6 +44,25 @@ updated: 2026-11-05
 
 待确认里有“不用 `NB_Z_INDEX.workbenchFloat`”：内容层要和外框同一父元素，追加决策记录。
 
+实现审查（一个 Sonnet，[`evidences/impl-review.txt`](evidences/impl-review.txt)，14 条：重要 1、建议 13）：
+
+| 条 | 判定 | 处理 |
+|---|---|---|
+| 1 夹过的大小写回 | 成立 | 整窗拖动的大小取记录里的，手柄没动不提交，键盘移动只发位置；e2e 窗口变小后移动、单击手柄再变回来 |
+| 2 手势中带过渡拖尾 | 成立 | `data-float-gesture` 上 `transition: none`；e2e 窗刚开就拖，变异去掉这条失败 |
+| 3 放不进时窗弹回 | 成立 | 整窗判定拆成 `windowDrop`，算不出都是移动 |
+| 4 命令不管结果报成功 | 成立 | `EditorTabDrag.drop`、`dropPanel` 返回结果，命令转成 `unavailable` |
+| 5 窗的 id 撞分支 | 成立 | 校验拒绝；`removePanelNode` 对窗不摘树 |
+| 6 拖窗每帧重算树 | 成立 | 树的摆放单独算，只有树变了才对齐分隔线 |
+| 7 每帧重算面板头 | 成立，后半不改 | 窗的宽度读记录里的；`floatBounds` 每帧新对象：手柄本来就随矩形重渲，不值得缓存 |
+| 8 工具窗停靠丢活动标签 | 成立 | 搬完激活原来的 |
+| 9 打开窗里的视图 | 成立 | 提到最前，不退出最大化 |
+| 10 失败原因 | 成立 | 加“不能收起”“太多了” |
+| 11 菜单对独占的窗 | 成立 | 不列；占位 `run` 去掉 |
+| 12 `dockGroup` 的 `reveal` | 成立 | 删 |
+| 13 e2e 判别力 | 成立 | 点窗正文与头，不点手柄；去掉 `networkidle`；最小尺寸比精确值；负向断言等两帧；Esc 断言零写入 |
+| 14 整窗状态散落 | 成立 | 判定收成 `windowDrop`，`dropAt` 只管标签 |
+
 ## 下一步
 
-处理实现审查的报告。
+无。手感由开发者试。
