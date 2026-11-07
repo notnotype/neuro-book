@@ -404,20 +404,26 @@ describe("用户级 Profile", () => {
     });
 
     it("新建：目录事件接连来、重取被顶掉时，照样选中新的", async () => {
-        let list: readonly ProfileEntry[] = [MAIN];
+        let list: readonly ProfileEntry[] = [MAIN, MINE];
         const remote = fakeRemote({listed: () => list});
         (remote.remote as {createUserProfile: unknown}).createUserProfile = async (input: {name: string}) => {
-            list = [MAIN, {...MINE, key: `user.${input.name}`, name: input.name}];
+            list = [MAIN, MINE, {...MINE, key: `user.${input.name}`, name: input.name}];
             // 建好之后、页面重取挂着时，服务端的目录事件也到了。
             remote.hold();
-            setTimeout(() => {
+            void (async () => {
+                await flushPromises();
                 remote.fire();
+                // 先放行被顶掉的那次，等页面处理完，才放行最新的：`await load()` 要等到最新的才算数。
+                remote.releaseOne();
+                await flushPromises();
                 remote.resume();
-            }, 0);
+            })();
             return {ok: true, value: {key: `user.${input.name}`, address: `user://profiles/${input.name}.profile.tsx`}};
         };
         const {wrapper} = open({remote});
         await ready(wrapper);
+        // 当前项不是第一项：选中的还不在目录里时页面会退回第一项，把选中改掉。
+        await wrapper.get("[data-profile-rail-item='user.mine']").trigger("click");
         await wrapper.get("[data-profile-create]").trigger("click");
         await waitUntil("对话框", () => dialog() !== null);
         await typeName("racing");
