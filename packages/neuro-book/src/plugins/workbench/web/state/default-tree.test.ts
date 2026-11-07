@@ -111,8 +111,7 @@ describe("从默认树出发，任何操作之后都合骨架", () => {
             if (tab === undefined) return doc;
             const source = {kind: "tab", tab: tabKey(tab)} as const;
             shared = random() < 0.5;
-            const reveal = Object.entries(doc.panels).filter(([, panel]) => panel.name !== undefined && (panel.hidden === true || panel.collapsed === true)).map(([id]) => id);
-            const candidates = enumerateDropCandidates({doc, source, policy, stripIndexes: (panel) => (doc.panels[panel]?.tabs ?? []).map((_tab, index) => index).concat(doc.panels[panel]?.tabs.length ?? 0), reveal, seams: seamsOf(doc)});
+            const candidates = enumerateDropCandidates({doc, source, policy, stripIndexes: (panel) => (doc.panels[panel]?.tabs ?? []).map((_tab, index) => index).concat(doc.panels[panel]?.tabs.length ?? 0), seams: seamsOf(doc)});
             const candidate = pick(random, candidates);
             if (candidate === undefined) return doc;
             result = applyLayoutDrop(doc, source, candidate.action, policy);

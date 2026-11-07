@@ -181,8 +181,7 @@ async function savedCursor(page: Page, address: string): Promise<unknown> {
 }
 
 /**
- * 按住 `source` 拖到 `to` 再松手；拖影出现之后才算拖动开始，`before` 在松手前做。`to` 可以是函数：目标在拖动开始后才出现
- * （预备区）时，等拖影出现再量。
+ * 按住 `source` 拖到 `to` 再松手；拖影出现之后才算拖动开始，`before` 在松手前做。`to` 可以是函数：目标在拖动开始后才出现时，等拖影出现再量。
  */
 async function dragFrom(page: Page, source: Locator, to: {x: number; y: number} | (() => Promise<{x: number; y: number}>), before?: () => Promise<void>): Promise<void> {
     const ghost = page.locator("[data-workbench-drag-ghost]");
@@ -1061,8 +1060,9 @@ test("编辑器标签的落点（docs/specs/ui/workbench-layout.md 输出 25、2
     });
     await expect(groups).toHaveCount(1);
 
-    // 把资源管理器放进面板（预备区）：编辑组的下面挨着面板。
-    await dragFrom(page, explorer, async () => await center(page.locator("[data-reveal-zone=\"panel\"]")));
+    // 把资源管理器移到面板：编辑组的下面挨着面板。
+    await page.locator("[data-tool-entry=\"nbook.explorer\"]").click({button: "right"});
+    await page.getByRole("menuitem", {name: "面板", exact: true}).click();
     await expect(page.locator("[data-leaf=\"panel\"]")).toBeVisible();
     const panel = page.locator("[data-leaf=\"panel\"]");
     // 面板刚出现，尺寸还在过渡：等它稳定再量。

@@ -306,7 +306,7 @@ function defineLayoutDocStore(bound: boolean) {
                         return next.ok && record.active !== null ? activateTab(next.doc, record.active) : next;
                     }, {flush: true});
                 },
-                /** 算出这棵呈现树用的选项：预览（落点、预备区）要和真实结果同一棵树。 */
+                /** 算出这棵呈现树用的选项：预览（落点）要和真实结果同一棵树。 */
                 projectionOptions: (): LayoutProjectionOptions => projectionOptions.value,
                 acceptViewCatalog: (next: ViewCatalog): void => {
                     catalog.value = next;

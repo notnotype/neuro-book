@@ -82,7 +82,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         // 自己那条标签条要跟手。别人的标签条是并入：预览不动它，和中央一样等候选稳定。
         const inStrip = action.kind === "strip" && host.homeOf(from) === action.panel;
         // 只有长出新面板的落点有空位：并进已有面板时空位就是它的整块正文，粘住了它自己的外缘就选不到了。
-        const grows = !drop.inPlace && (action.kind === "edge" || action.kind === "reveal");
+        const grows = !drop.inPlace && action.kind === "edge";
         return {key: keyOf(drop), immediate: inStrip, slot: grows ? drop.preview.areaRect : null};
     }
 
@@ -145,7 +145,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             shown = offered;
             previewKey.value = preview.key;
             const doc = offered === null ? null : host.candidateDoc(source, offered);
-            // 摆不出来（原位、活动栏、编辑器会合并或拒绝）就没有预览：盖层和预备区让开都看它。
+            // 摆不出来（原位、活动栏、编辑器会合并或拒绝）就没有预览，盖层看它。
             shownAction.value = doc === null ? null : (offered?.action ?? null);
             host.show(doc);
         } else if (preview.kind === "source-removed") {

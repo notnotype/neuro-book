@@ -8,7 +8,7 @@
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import {placeGrid} from "./grid-rects";
 import {createGrid} from "./grid";
-import {edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, setFloatRect, setPanelHidden, showPanelAndInsert, tabKey, treeLeaves} from "./layout-doc";
+import {edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, setFloatRect, showPanelAndInsert, tabKey, treeLeaves} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
@@ -28,7 +28,7 @@ export type LayoutDropAction =
     | {readonly kind: "strip"; readonly panel: string; readonly index: number; readonly activate?: boolean}
     | {readonly kind: "center"; readonly panel: string}
     | {readonly kind: "edge"; readonly target: LayoutEdgeTarget}
-    /** `index` 缺省插到最后。 */
+    /** 显示这块面板并接收（活动栏放进隐藏的侧栏，输出 22）。`index` 缺省插到最后。 */
     | {readonly kind: "reveal"; readonly panel: string; readonly index?: number}
     /** 浮动：标签浮出来，整个浮动窗是移动。矩形每帧变，比较落点时只看种类（`layoutDropKey`）。 */
     | {readonly kind: "float"; readonly rect: LayoutFloatRect};
@@ -54,14 +54,12 @@ export interface LayoutDropInput {
     readonly source: LayoutDropSource;
     readonly point: GridDropPoint;
     readonly panels: ReadonlyArray<LayoutDropPanelGeometry>;
-    /** 浮动窗，已按叠放从上到下排好。比条、面板、预备区都先判：它盖在它们上面，命中了就只看这一块，不穿透。 */
+    /** 浮动窗，已按叠放从上到下排好。比条、面板都先判：它盖在它们上面，命中了就只看这一块，不穿透。 */
     readonly floats?: ReadonlyArray<LayoutDropPanelGeometry>;
     /** 整个浮动窗拖动：经过中央继续浮着，只有标签条和窄带能停靠。 */
     readonly noCenter?: boolean;
     /** 不是落点的区域：条、标题栏（规则 1）。先判。 */
     readonly excluded?: ReadonlyArray<GridDropRect>;
-    /** 预备区：此刻没显示的具名面板浮出的矩形。指针在真实落点上时不算。 */
-    readonly zones?: ReadonlyArray<{readonly panel: string; readonly rect: GridDropRect}>;
     readonly policy: LayoutPolicy;
     readonly edgeRatio?: number;
 }
@@ -234,7 +232,7 @@ export function layoutDropOverPanel(input: LayoutDropInput): boolean {
 export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | null {
     const tabs = sourceTabs(input.doc, input.source);
     if (tabs.length === 0 && input.source.kind === "tab") return null;
-    // 浮动窗盖住的地方：它不接收就是没有落点，不穿透到底下的面板、条与预备区。
+    // 浮动窗盖住的地方：它不接收就是没有落点，不穿透到底下的面板与条。
     const floated = input.floats?.find((geometry) => inGeometry(geometry, input.point));
     if (floated !== undefined) {
         const panel = input.doc.panels[floated.id];
@@ -245,12 +243,7 @@ export function resolveLayoutDrop(input: LayoutDropInput): LayoutDropAction | nu
     if (seam !== null) return {kind: "edge", target: seamTarget(seam)};
     const hit = layoutDropPanelAt(input) ?? undefined;
     const panel = hit === undefined ? undefined : input.doc.panels[hit.id];
-    const action = hit === undefined || panel === undefined ? null : resolveInPanel(input, hit, panel, tabs);
-    if (action !== null) return action;
-    // 预备区只在没有真实落点时算：它叠在当前布局上，可能盖住别的面板。
-    const zone = input.zones?.find((candidate) => contains(candidate.rect, input.point));
-    const target = zone === undefined ? undefined : input.doc.panels[zone.panel];
-    return zone !== undefined && target !== undefined && input.policy.accepts(tabs, target, "center") ? {kind: "reveal", panel: zone.panel} : null;
+    return hit === undefined || panel === undefined ? null : resolveInPanel(input, hit, panel, tabs);
 }
 
 export type LayoutDropSectorId = LayoutEdge | "center";
@@ -311,7 +304,7 @@ function applyNewTab(doc: LayoutDoc, tab: TabRef, action: LayoutDropAction, poli
         case "float":
             return openFloatPanel(doc, {id: policy.newId("panel"), panel, rect: action.rect});
         case "reveal":
-            return {ok: false, code: "rejected", detail: "新标签不进预备区"};
+            return {ok: false, code: "rejected", detail: "新标签不显示隐藏的面板"};
     }
 }
 
@@ -361,19 +354,6 @@ export function previewEdgeDrop(doc: LayoutDoc, source: LayoutDropSource, action
 }
 
 /**
- * 这几块此刻没显示的面板显示出来会在的矩形（相对树的根）：预备区按它浮出（输出 29）。几块一起显示后再算，所以彼此不重叠：一块一块单独算的话，面板会占满侧栏和右栏的位置。
- * 放不进呈现树的不在结果里。
- */
-export function previewRevealRects(doc: LayoutDoc, panels: ReadonlyArray<string>, projection: LayoutProjectionOptions, extent: GridExtent, dpr: number): Readonly<Record<string, GridDropRect>> {
-    let shown = doc;
-    for (const panel of panels) {
-        const result = setPanelHidden(shown, panel, false);
-        if (result.ok) shown = result.doc;
-    }
-    return previewPanelRects(shown, panels, projection, extent, dpr);
-}
-
-/**
  * 这几块面板在这份文档里的矩形（相对树的根），显隐与收起都按文档：收成标题行的就是那一行。实时布局的并入盖层按它画（输出 38）。放不进呈现树的不在结果里；浮动窗不在树里，由宿主取它的矩形。
  */
 export function previewPanelRects(doc: LayoutDoc, panels: ReadonlyArray<string>, projection: LayoutProjectionOptions, extent: GridExtent, dpr: number): Readonly<Record<string, GridDropRect>> {
@@ -388,7 +368,7 @@ export function previewPanelRects(doc: LayoutDoc, panels: ReadonlyArray<string>,
 }
 
 export interface LayoutDropCandidate {
-    /** 落点所属的区域（键盘 Tab 在区域之间循环）：面板 id，预备区是 `reveal:<面板 id>`。 */
+    /** 落点所属的区域（键盘 Tab 在区域之间循环）：面板 id。 */
     readonly region: string;
     readonly action: LayoutDropAction;
 }
@@ -421,7 +401,6 @@ export function enumerateDropCandidates(input: {
     readonly source: LayoutSource;
     readonly policy: LayoutPolicy;
     readonly stripIndexes: (panel: string) => ReadonlyArray<number>;
-    readonly reveal?: ReadonlyArray<string>;
     /** 这一刻的缝（`layoutSeamsOf`）；不给就没有缝落点。 */
     readonly seams?: ReadonlyArray<LayoutSeam>;
 }): ReadonlyArray<LayoutDropCandidate> {
@@ -461,10 +440,6 @@ export function enumerateDropCandidates(input: {
         if (panel === undefined) continue;
         if (policy.accepts(tabs, panel, "strip")) for (const index of input.stripIndexes(id)) add(id, {kind: "strip", panel: id, index});
         if (policy.accepts(tabs, panel, "center")) add(id, {kind: "center", panel: id});
-    }
-    for (const panel of input.reveal ?? []) {
-        const record = doc.panels[panel];
-        if (record !== undefined && findTreeNode(doc.tree.root, panel) !== null && policy.accepts(tabs, record, "center")) add(`reveal:${panel}`, {kind: "reveal", panel});
     }
     return candidates;
 }

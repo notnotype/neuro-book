@@ -324,7 +324,7 @@ test.describe("产品页：拖放", () => {
             await source.focus();
             await page.keyboard.press("Space");
             await expect(ghost(page)).toBeVisible();
-            // 区域：活动栏、三块工具面板，再是预备区（此刻没有）；工具视图没有编辑组这一站。循环一圈回到起点。
+            // 区域：活动栏、三块工具面板；工具视图没有编辑组这一站。循环一圈回到起点。
             for (let step = 0; step < 4; step += 1) {
                 await page.keyboard.press("Tab");
                 await expect(ghost(page)).toBeVisible();
@@ -369,14 +369,13 @@ test.describe("产品页：拖放", () => {
         await page.keyboard.press("Escape");
     });
 
-    test("键盘：工具面板的外缘和预备区各是各的落点：外缘是拆分，预备区是显示（输出 29、31）", async ({page}) => {
+    test("键盘：工具面板的外缘是落点，隐藏的面板不是（输出 29、31）", async ({page}) => {
         await open(page);
         await frame(page, "auxiliarybar", "set-part-hidden").click();
         await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
         await tab(page, E).focus();
         await page.keyboard.press("Space");
-        await expect(page.locator('[data-reveal-zone="auxiliarybar"]')).toBeVisible();
-        // 走遍区域与位置：工具面板的位置里要有外缘（`edge`），预备区是 `reveal`，二者都到得了。
+        // 走遍区域与位置：工具面板的位置里要有外缘（`edge`），隐藏的右栏不在里面。
         const kinds = new Set<string>();
         for (let region = 0; region < 6; region += 1) {
             await page.keyboard.press("Tab");
@@ -386,7 +385,7 @@ test.describe("产品页：拖放", () => {
             }
         }
         expect(kinds.has("edge")).toBe(true);
-        expect(kinds.has("reveal")).toBe(true);
+        expect(kinds.has("reveal")).toBe(false);
         await page.keyboard.press("Escape");
         await expect(ghost(page)).toHaveCount(0);
     });
@@ -422,103 +421,6 @@ test.describe("产品页：拖放", () => {
         await dropAt(page, tab(page, C), {x: first.x - 10, y: first.y});
         await expect.poll(() => tabsOf(page, "panel")).toEqual([`view:${C}`, `view:${E}`, `view:${F}`]);
         expect((await panel.boundingBox())!.height).toBe(32);
-    });
-
-    test("右栏与面板都隐藏时拖动：浮出两块预备区，真实落点照常优先；放到右栏的预备区，右栏显示并装着拖进来的视图，只写一次；拖动结束预备区消失（输出 29；验收 8）", async ({page}) => {
-        await open(page);
-        for (const panel of ["auxiliarybar", "panel"]) await frame(page, panel, "set-part-hidden").click();
-        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
-        await expect(leaf(page, "panel")).toHaveCount(0);
-        await expect.poll(() => hiddenInRecord(page, "panel")).toBe(true);
-        await expect.poll(() => hiddenInRecord(page, "auxiliarybar")).toBe(true);
-        const zone = (part: string) => page.locator(`[data-reveal-zone="${part}"]`);
-        const writes = await writesOf(page);
-        await dragTo(page, entry(page, C), await inLeaf(page, "sidebar", {x: 0.5, y: 0.5}));
-        await expect(zone("auxiliarybar")).toBeVisible();
-        await expect(zone("panel")).toBeVisible();
-        await expect(zone("sidebar")).toHaveCount(0);
-        // 侧栏是显示着的面板，是真实落点（来源自己的面板，所以是“原位”）：预备区不抢它。
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "noop");
-        // 右栏的预备区盖在编辑组上：编辑组的中央不接收工具视图，不是落点，所以指针停在预备区中央时落点是预备区。
-        const to = await centerOf(zone("auxiliarybar"));
-        await page.mouse.move(to.x, to.y, {steps: 6});
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "reveal");
-        await expect(label(page)).toContainText("放到右栏");
-        await expect(zone("auxiliarybar")).toHaveAttribute("data-reveal-active", "true");
-        await page.mouse.up();
-        await expect(tab(page, C)).toHaveAttribute("aria-selected", "true");
-        expect(await panelOfTab(page, C)).toBe("auxiliarybar");
-        await expect(sample(page, C)).toBeVisible();
-        await expect(page.locator("[data-reveal-zone]")).toHaveCount(0);
-        await expect(leaf(page, "panel")).toHaveCount(0);
-        await expect.poll(() => writesOf(page)).toBe(writes + 1);
-    });
-
-    /** 把侧栏拖宽到上限，返回此刻的宽度：隐藏或拖到零之后预备区、按钮恢复都按这个记住的宽度。 */
-    async function widenSidebar(page: Page): Promise<number> {
-        const found = (await sidebarSash(page).boundingBox())!;
-        await page.mouse.move(found.x + found.width / 2, found.y + found.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(found.x + found.width / 2 + 260, found.y + found.height / 2, {steps: 6});
-        await page.mouse.up();
-        await expect.poll(async () => (await leaf(page, "sidebar").boundingBox())!.width).toBeGreaterThan(500);
-        return Math.round((await leaf(page, "sidebar").boundingBox())!.width);
-    }
-
-    test("侧栏拖到零：预备区按记住的宽度浮出，盖住的真实落点照常优先；放到预备区，侧栏按记忆宽度回来并激活它，只写一次（输出 25 末、29；验收 8）", async ({page}) => {
-        await open(page);
-        const wide = await widenSidebar(page);
-        const found = (await sidebarSash(page).boundingBox())!;
-        await page.mouse.move(found.x + found.width / 2, found.y + found.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(found.x - 1000, found.y + found.height / 2, {steps: 6});
-        await page.mouse.up();
-        await expect.poll(async () => (await leaf(page, "sidebar").boundingBox())!.width).toBe(0);
-        const writes = await writesOf(page);
-
-        await dragTo(page, tab(page, E), {x: 300, y: 400});
-        const zone = page.locator('[data-reveal-zone="sidebar"]');
-        await expect(zone).toBeVisible();
-        expect(Math.round((await zone.boundingBox())!.width)).toBe(wide);
-        // 预备区盖在编辑组上：编辑组让位，落点是预备区（输出 29）。
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "reveal");
-        await expect(label(page)).toContainText("放到侧栏");
-        // 预备区盖住了面板的左边一段：工具面板上的真实落点优先（这一点在面板的中央，来源就在这块面板里，所以是原位）。
-        const body = await inLeaf(page, "panel", {x: 0.4, y: 0.7});
-        await page.mouse.move(body.x, body.y, {steps: 6});
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "noop");
-        await page.mouse.move(300, 400, {steps: 6});
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "reveal");
-        await page.mouse.up();
-        await expect(ghost(page)).toHaveCount(0);
-        await expect.poll(async () => Math.round((await leaf(page, "sidebar").boundingBox())!.width)).toBe(wide);
-        await expect(entry(page, E)).toHaveAttribute("aria-pressed", "true");
-        await expect(sample(page, E)).toBeVisible();
-        await expect.poll(() => writesOf(page)).toBe(writes + 1);
-    });
-
-    test("侧栏隐藏后键盘拿起面板的标签：Tab 经过可见落点后到预备区，Enter 放进去，侧栏按记忆宽度回来并激活它（输出 29、31；验收 8、9）", async ({page}) => {
-        await open(page);
-        const wide = await widenSidebar(page);
-        await frame(page, "sidebar", "set-part-hidden").click();
-        await expect(leaf(page, "sidebar")).toHaveCount(0);
-        // 隐藏是合并着存的：等它落盘再数写入。
-        await expect.poll(() => hiddenInRecord(page, "sidebar")).toBe(true);
-        const writes = await writesOf(page);
-        await tab(page, E).focus();
-        await page.keyboard.press("Space");
-        await expect(page.locator('[data-reveal-zone="sidebar"]')).toBeVisible();
-        // Tab 的个数取决于此刻有几块区域，不写死：按到提示变成“放到侧栏”为止。
-        for (let step = 0; step < 8 && !(await labelText(page)).includes("放到侧栏"); step += 1) await page.keyboard.press("Tab");
-        await expect(label(page)).toContainText("放到侧栏");
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "reveal");
-        expect(await writesOf(page)).toBe(writes);
-        await page.keyboard.press("Enter");
-        await expect(ghost(page)).toHaveCount(0);
-        await expect.poll(async () => Math.round((await leaf(page, "sidebar").boundingBox())!.width)).toBe(wide);
-        await expect(entry(page, E)).toHaveAttribute("aria-pressed", "true");
-        await expect(sample(page, E)).toBeVisible();
-        await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
     test("标签并入已有面板：内容从旧面板滑到新面板，矩形严格在新旧之间，两块面板都不动，实例、输入保留（输出 15；验收 1）", async ({page}) => {
@@ -725,41 +627,6 @@ test.describe("产品页：拖放", () => {
         await expect(sample(page, F)).toBeVisible();
     });
 
-    test("预备区：三块都隐藏时同时浮出、彼此不重叠；放到哪块，哪块显示并接收，只写一次（输出 29；验收 8）", async ({page}) => {
-        await open(page);
-        for (const panel of ["sidebar", "auxiliarybar", "panel"]) await frame(page, panel, "set-part-hidden").click();
-        for (const panel of ["sidebar", "auxiliarybar", "panel"]) await expect.poll(() => hiddenInRecord(page, panel)).toBe(true);
-        await expect(leaf(page, "sidebar")).toHaveCount(0);
-        const writes = await writesOf(page);
-        const zone = (part: string) => page.locator(`[data-reveal-zone="${part}"]`);
-        // 此刻没有可见的工具面板，拖动源只有活动栏条目（活动栏列的是侧栏这一列的视图，侧栏隐藏了条目还在）。
-        await dragTo(page, entry(page, A), {x: 720, y: 450});
-        for (const part of ["sidebar", "auxiliarybar", "panel"]) await expect(zone(part)).toBeVisible();
-        const rects = await Promise.all(["sidebar", "auxiliarybar", "panel"].map(async (part) => (await zone(part).boundingBox())!));
-        for (let left = 0; left < rects.length; left += 1) {
-            for (let right = left + 1; right < rects.length; right += 1) {
-                const a = rects[left]!;
-                const b = rects[right]!;
-                const overlapX = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
-                const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
-                expect(overlapX > 1 && overlapY > 1, `预备区 ${String(left)} 与 ${String(right)} 重叠`).toBe(false);
-            }
-        }
-        // 面板的预备区只占中间一段，在侧栏与右栏的预备区之间。
-        expect(rects[2]!.x).toBeGreaterThanOrEqual(rects[0]!.x + rects[0]!.width - 1);
-        expect(rects[2]!.x + rects[2]!.width).toBeLessThanOrEqual(rects[1]!.x + 1);
-        const to = await centerOf(zone("panel"));
-        await page.mouse.move(to.x, to.y, {steps: 6});
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "reveal");
-        await expect(label(page)).toContainText("放到面板");
-        await page.mouse.up();
-        await expect(ghost(page)).toHaveCount(0);
-        await expect(leaf(page, "panel")).toBeVisible();
-        expect(await panelOfTab(page, A)).toBe("panel");
-        await expect(page.locator("[data-reveal-zone]")).toHaveCount(0);
-        await expect.poll(() => writesOf(page)).toBe(writes + 1);
-    });
-
     test("工具区不接收：拖到面板头的框架按钮上没有落点反馈，松手不移动、不写（输出 25 末）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
@@ -876,7 +743,26 @@ test.describe("产品页：拖放", () => {
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
-    test("侧栏隐藏时把视图放到活动栏：同一次写入把侧栏显示出来并装着它；这个位置是预备区的落点（输出 22、29；验收 14）", async ({page}) => {
+    test("隐藏的面板不是落点：它原来的位置现在是编辑组，工具视图放不进去；要放进隐藏的面板用“移动到”（输出 26、29）", async ({page}) => {
+        await open(page);
+        const right = await inLeaf(page, "auxiliarybar", {x: 0.5, y: 0.5});
+        await frame(page, "auxiliarybar", "set-part-hidden").click();
+        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
+        await settled(page);
+        await dragTo(page, tab(page, E), right);
+        await settled(page);
+        await expect(feedback(page)).toHaveCount(0);
+        await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        await tab(page, E).click({button: "right"});
+        await page.getByRole("menuitem", {name: "右栏", exact: true}).click();
+        await expect(leaf(page, "auxiliarybar")).toBeVisible();
+        expect(await panelOfTab(page, E)).toBe("auxiliarybar");
+    });
+
+    test("侧栏隐藏时把视图放到活动栏：同一次写入把侧栏显示出来并装着它（输出 22；验收 14）", async ({page}) => {
         await open(page);
         await frame(page, "sidebar", "set-part-hidden").click();
         await expect(leaf(page, "sidebar")).toHaveCount(0);
@@ -919,7 +805,7 @@ test.describe("产品页：拖放", () => {
         expect(await entriesOf(page)).toEqual([C, A, B]);
         expect(await writesOf(page)).toBe(next);
 
-        // 侧栏隐藏着换序：不显示它，落点是换序（strip）、不是预备区。
+        // 侧栏隐藏着换序：不显示它，落点是换序（strip）。
         await frame(page, "sidebar", "set-part-hidden").click();
         await expect.poll(() => hiddenInRecord(page, "sidebar")).toBe(true);
         const hiddenWrites = await writesOf(page);

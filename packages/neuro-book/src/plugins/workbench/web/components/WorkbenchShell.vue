@@ -382,8 +382,6 @@ onBeforeUnmount(() => detachPaneFocus?.());
 
 // ── 拖放 ──────────────────────────────────────────────────────────────────
 
-/** 预备区的图标：与标题栏的布局按钮同一套。 */
-const REVEAL_ICONS: Readonly<Record<string, string>> = {sidebar: "i-lucide-panel-left", auxiliarybar: "i-lucide-panel-right", panel: "i-lucide-panel-bottom"};
 const POLICY = createLayoutPolicy({dropSplit: () => props.dropSplit ?? "half"});
 
 function onExtent(next: GridExtent | null): void {
@@ -477,36 +475,39 @@ const liveSectors = computed(() => {
     return {...sectors, rect: {left: rect.left - origin.left, right: rect.right - origin.left, top: rect.top - origin.top, bottom: rect.bottom - origin.top}};
 });
 /**
- * 实时布局预览里的空位（输出 38）：来源落进去的新块，这块只有它一个标签。头放下才有。有自己标签的预备区、并入的目标里没有来源，不是空位。
+ * 实时布局预览里的空位（输出 38）：来源落进去的新块。头放下才有。
  */
 const slotPanel = computed(() => {
     const action = drag.value?.live.shownAction.value;
     const source = dragState.value?.source;
-    if (action == null || source?.kind !== "tab" || (action.kind !== "edge" && action.kind !== "reveal")) return null;
+    if (action == null || source?.kind !== "tab" || action.kind !== "edge") return null;
     const found = findTab(renderedDoc.value, source.tab);
-    return found !== null && renderedDoc.value.panels[found.panel]?.tabs.length === 1 ? found.panel : null;
+    return found?.panel ?? null;
 });
-/**
- * 并入的盖层（输出 38）：目标不动，盖一层变暗加边框。矩形按预览算，来源收起时目标会动，盖层跟着过渡。插入线相对量它时的外框，盖层动它跟着动。
- */
-const liveMerge = computed(() => {
+/** 并入的目标（输出 38）。来源就在这块是自己的标签条，不是并入。 */
+const mergeTarget = computed(() => {
     const action = drag.value?.live.shownAction.value;
-    const current = dragState.value;
-    if (action == null || current === null || current.source.kind !== "tab" || (action.kind !== "center" && action.kind !== "strip" && action.kind !== "reveal")) return null;
-    // 来源就在这块：自己的标签条、空面板的预备区。
-    if (findTab(renderedDoc.value, current.source.tab)?.panel === action.panel) return null;
-    const rect = drag.value?.panelRectIn(renderedDoc.value, action.panel) ?? null;
-    if (rect === null) return null;
-    const {indicator, indicatorFrame} = current.drop?.preview ?? {};
-    const line = action.kind !== "strip" || indicator == null || indicatorFrame === undefined ? null : {
+    const source = dragState.value?.source;
+    if (action == null || source?.kind !== "tab" || (action.kind !== "center" && action.kind !== "strip")) return null;
+    return findTab(renderedDoc.value, source.tab)?.panel === action.panel ? null : action.panel;
+});
+/** 并入的盖层：矩形按预览算，来源收起时目标会动，盖层跟着过渡。解一次网格不便宜，不跟着指针算：只看预览文档和目标。 */
+const mergeRect = computed(() => {
+    const panel = mergeTarget.value;
+    return panel === null ? null : (drag.value?.panelRectIn(renderedDoc.value, panel) ?? null);
+});
+const mergeStyle = computed(() => {
+    const rect = mergeRect.value;
+    return rect === null ? {} : {transform: `translate(${String(rect.left)}px, ${String(rect.top)}px)`, width: `${String(rect.right - rect.left)}px`, height: `${String(rect.bottom - rect.top)}px`};
+});
+/** 别人的标签条上的插入线：相对量它时的外框，盖层动它跟着动。 */
+const mergeLine = computed(() => {
+    const {indicator, indicatorFrame} = dragState.value?.drop?.preview ?? {};
+    if (mergeRect.value === null || drag.value?.live.shownAction.value?.kind !== "strip" || indicator == null || indicatorFrame === undefined) return null;
+    return {
         transform: `translate(${String(indicator.left - indicatorFrame.left)}px, ${String(indicator.top - indicatorFrame.top)}px)`,
         width: `${String(indicator.right - indicator.left)}px`,
         height: `${String(indicator.bottom - indicator.top)}px`,
-    };
-    return {
-        panel: action.panel,
-        line,
-        style: {transform: `translate(${String(rect.left)}px, ${String(rect.top)}px)`, width: `${String(rect.right - rect.left)}px`, height: `${String(rect.bottom - rect.top)}px`},
     };
 });
 const slotStyle = computed(() => {
@@ -519,16 +520,6 @@ const dragGhost = computed(() => {
     if (current === null || drag.value?.live.card.value != null) return null;
     const ghost = ghostOf(current.source);
     return ghost === null ? null : {...ghost, x: current.point.x, y: current.point.y};
-});
-
-const revealZones = computed(() => {
-    const current = dragState.value;
-    if (current === null) return [];
-    const active = current.drop?.action.kind === "reveal" ? current.drop.action.panel : null;
-    // 实时布局已经把这块面板摆出来了：预备区让开。
-    const shown = drag.value?.live.shownAction.value;
-    const revealed = shown?.kind === "reveal" ? shown.panel : null;
-    return (drag.value?.zones() ?? []).filter((zone) => zone.panel !== revealed).map((zone) => ({part: zone.panel, rect: zone.rect, label: text(panelTitle(doc.value, catalog.value, zone.panel)), icon: REVEAL_ICONS[zone.panel] ?? "i-lucide-panel-top", active: zone.panel === active}));
 });
 
 function dropLabel(drop: LayoutDragDrop): string {
@@ -682,11 +673,11 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 <template #overlay>
                     <template v-if="drag?.live.active.value === true">
                         <DropSectorsOverlay v-if="liveSectors !== null" inline variant="live" :rect="liveSectors.rect" :sectors="liveSectors.items" :active="liveSectors.active" />
-                        <div v-if="drag.live.slot.value !== null && liveMerge === null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
+                        <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
                         <!-- 按目标换元素：换目标时不从上一块滑过来，在新的这块淡入。 -->
-                        <div v-if="liveMerge !== null" :key="liveMerge.panel" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="liveMerge.panel" :style="liveMerge.style">
+                        <div v-if="mergeRect !== null" :key="mergeTarget ?? ''" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="mergeTarget" :style="mergeStyle">
                             <span class="workbench-shell__merge-label">{{ message("shell.drop.addTab") }}</span>
-                            <span v-if="liveMerge.line !== null" class="workbench-shell__merge-line" data-live-merge-line :style="liveMerge.line"></span>
+                            <span v-if="mergeLine !== null" class="workbench-shell__merge-line" data-live-merge-line :style="mergeLine"></span>
                         </div>
                     </template>
                 </template>
@@ -720,7 +711,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
         </div>
         <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="attachEditorDrag" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
-        <WorkbenchDragFeedback :ghost="dragGhost" :zones="revealZones" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="drag?.live.active.value === true ? null : dragState?.drop?.sectors ?? shownFileDrop?.sectors ?? null" :sector-labels="sectorLabels" :live-status="dropFeedback.liveLabel" />
+        <WorkbenchDragFeedback :ghost="dragGhost" :preview="dropFeedback.preview" :label="dropFeedback.label" :kind="dropFeedback.kind" :sectors="drag?.live.active.value === true ? null : dragState?.drop?.sectors ?? shownFileDrop?.sectors ?? null" :sector-labels="sectorLabels" :live-status="dropFeedback.liveLabel" />
     </div>
 </template>
 

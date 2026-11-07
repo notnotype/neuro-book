@@ -169,6 +169,18 @@ test.describe("应用内浮动", () => {
         await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
         expect(await leaf(page, "g0").evaluate((element) => getComputedStyle(element).cursor)).toBe("not-allowed");
         await expect(page.locator("[data-drag-live-status]")).toHaveText("不能放在这里");
+        // 还在被拒绝的面板上移动：标记不动。规则里有 `*`，写一下整页都要重算样式。
+        await page.evaluate(() => {
+            const probe = window as unknown as {__rejectedWrites: number};
+            probe.__rejectedWrites = 0;
+            new MutationObserver((records) => {
+                probe.__rejectedWrites += records.length;
+            }).observe(document.documentElement, {attributes: true, attributeFilter: ["data-drop-rejected"]});
+        });
+        const elsewhere = await inLeaf(page, "g0", {x: 0.6, y: 0.6});
+        await page.mouse.move(elsewhere.x, elsewhere.y, {steps: 8});
+        await noFeedback(page);
+        expect(await page.evaluate(() => (window as unknown as {__rejectedWrites: number}).__rejectedWrites)).toBe(0);
         // 离开面板就不再是拒绝：标题栏上是浮动。
         const off = await offPanels(page);
         await page.mouse.move(off.x, off.y, {steps: 4});

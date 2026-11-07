@@ -311,28 +311,6 @@ test.describe("实时布局", () => {
         await expect(page.locator("[data-lifted]")).toHaveCount(0);
     });
 
-    test("隐藏的右栏：拖到预备区时真的长出来，预备区让开，不写记录；松手一次写入", async ({page}) => {
-        await open(page);
-        const hide = page.locator("[data-panel-head=\"auxiliarybar\"] [data-panel-action=\"nbook.view.set-part-hidden\"]");
-        if (await leaf(page, "auxiliarybar").count() > 0 && await hide.count() > 0) await hide.click();
-        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
-        await settled(page);
-        const writes = await writesOf(page);
-        await lift(page, tab(page, E));
-        const zone = page.locator("[data-reveal-zone=\"auxiliarybar\"]");
-        await expect(zone).toHaveCount(1);
-        const at = await centerOf(zone);
-        await page.mouse.move(at.x, at.y, {steps: 5});
-        await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
-        await expect(leaf(page, "auxiliarybar")).toHaveCount(1);
-        await expect(zone).toHaveCount(0);
-        expect(await writesOf(page)).toBe(writes);
-        await page.mouse.up();
-        await expect.poll(() => writesOf(page)).toBeGreaterThan(writes);
-        await expect(leaf(page, "auxiliarybar")).toHaveCount(1);
-        expect(await panelOfTab(page, E)).toBe("auxiliarybar");
-    });
-
     test("长出新块时是空位：不画头，放下才有（输出 38）", async ({page}) => {
         await open(page);
         const heads = await page.locator("[data-panel-head]").count();

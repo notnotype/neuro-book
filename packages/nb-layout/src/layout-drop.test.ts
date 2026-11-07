@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
-import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewRevealRects, resolveLayoutDrop} from "./layout-drop";
+import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, resolveLayoutDrop} from "./layout-drop";
 import type {LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId, LayoutDropSource} from "./layout-drop";
 import {edgeTargetOf} from "./layout-doc";
 import type {LayoutDoc, LayoutPolicy, LayoutSource} from "./layout-doc";
@@ -216,51 +216,6 @@ describe("接受矩阵（输出 26）", () => {
     });
 });
 
-describe("预备区（输出 29）", () => {
-    const doc = () => docOf(H(["a", "b", "ec", "auxiliarybar"]), {a: {tabs: [view("a"), view("x")], active: "view:a"}, auxiliarybar: {tabs: [], active: null, hidden: true}});
-    const zones = [{panel: "auxiliarybar", rect: rect(800, 0, 1200, 600)}];
-
-    it("真实落点优先；只在预备区上时算预备区；放下一次写入显示并接收", () => {
-        expect(drop(doc(), EDITOR_TAB, 850, 300, {zones})).toMatchObject({kind: "edge"});
-        const action = drop(doc(), VIEW, 1000, 300, {zones});
-        expect(action).toEqual({kind: "reveal", panel: "auxiliarybar"});
-        if (action === null) throw new Error("没有落点");
-        const result = applyLayoutDrop(doc(), VIEW, action, testPolicy());
-        if (!result.ok) throw new Error(result.detail);
-        expect(result.doc.panels.auxiliarybar?.hidden).toBeUndefined();
-        expect(result.doc.panels.auxiliarybar?.tabs).toEqual([view("x")]);
-    });
-
-    it("接受矩阵拒绝时不算", () => {
-        expect(drop(doc(), EDITOR_TAB, 1000, 300, {zones})).toBeNull();
-    });
-
-    it("有真实落点就是它，预备区盖着也一样；这块接收不了时才算预备区", () => {
-        const wide = [{panel: "auxiliarybar", rect: rect(0, 0, 1200, 600)}];
-        const strict = testPolicy({accepts: (tabs, target) => tabs.every((candidate) => (candidate.kind === "view" ? target.role === "tool" : target.role === "editor"))});
-        expect(drop(doc(), VIEW, 450, 300, {zones: wide, policy: strict})).toEqual({kind: "center", panel: "b"});
-        expect(drop(doc(), VIEW, 750, 300, {zones: wide, policy: strict})).toEqual({kind: "reveal", panel: "auxiliarybar"});
-    });
-
-    it("几块一起显示后算矩形：彼此不重叠，面板只占中间（三块都隐藏时）", () => {
-        const hidden = {tabs: [], active: null, hidden: true};
-        const all = docOf(H(["sidebar", V(["ea", "panel"]), "auxiliarybar"]), {sidebar: hidden, panel: hidden, auxiliarybar: hidden});
-        const projection: LayoutProjectionOptions = {
-            constraints: () => ({minimumSize: {width: 10, height: 10}, maximumSize: {width: Number.POSITIVE_INFINITY, height: Number.POSITIVE_INFINITY}}),
-            barThickness: () => 0,
-            headHeight: 32,
-            collapseThreshold: 24,
-            sashSize: 1,
-        };
-        const rects = previewRevealRects(all, ["sidebar", "panel", "auxiliarybar"], projection, {width: 1000, height: 600}, 1);
-        const {sidebar, panel, auxiliarybar} = rects;
-        if (sidebar === undefined || panel === undefined || auxiliarybar === undefined) throw new Error("少了预备区");
-        expect(sidebar.right).toBeLessThanOrEqual(panel.left);
-        expect(panel.right).toBeLessThanOrEqual(auxiliarybar.left);
-        expect(panel.top).toBeGreaterThan(0);
-    });
-});
-
 describe("策略按边回答（edgeTarget）", () => {
     /** 工具面板只能上下拆。 */
     const vertical: Pick<LayoutPolicy, "edgeTarget"> = {edgeTarget: (doc, _tabs, panel, edge) => (edge === "left" || edge === "right" ? null : edgeTargetOf(doc, panel, edge))};
@@ -336,12 +291,6 @@ describe("键盘的落点（输出 31）", () => {
         expect(candidates.some((candidate) => candidate.action.kind === "edge" && candidate.region === "ec")).toBe(true);
         const keys = candidates.map((candidate) => JSON.stringify(candidate.action));
         expect(new Set(keys).size).toBe(keys.length);
-    });
-
-    it("预备区排在可见落点之后", () => {
-        const doc = docOf(H(["a", "ec", "auxiliarybar"]), {a: {tabs: [view("a"), view("x")], active: "view:a"}, auxiliarybar: {tabs: [], active: null, hidden: true}});
-        const candidates = enumerateDropCandidates({doc, source: VIEW, policy: testPolicy(), stripIndexes: () => [0], reveal: ["auxiliarybar"]});
-        expect(candidates.at(-1)).toEqual({region: "reveal:auxiliarybar", action: {kind: "reveal", panel: "auxiliarybar"}});
     });
 
     it("编辑器标签没有工具面板的插入位", () => {
@@ -447,18 +396,17 @@ describe("浮动窗的落点", () => {
     };
     const floatInput = {floats: [FLOAT_GEOMETRY]};
 
-    it("比面板、条、预备区都先判：标签条插入，正文添加为标签", () => {
+    it("比面板、条都先判：标签条插入，正文添加为标签", () => {
         expect(drop(withFloat(), VIEW, 500, 210, floatInput)).toEqual({kind: "strip", panel: "f", index: 1});
         expect(drop(withFloat(), VIEW, POINT_IN_FLOAT.x, POINT_IN_FLOAT.y, floatInput)).toEqual({kind: "center", panel: "f"});
         expect(drop(withFloat(), VIEW, POINT_IN_FLOAT.x, POINT_IN_FLOAT.y, {...floatInput, excluded: [rect(0, 0, 900, 600)]})).toEqual({kind: "center", panel: "f"});
     });
 
-    it("不接收时没有落点，不穿透到底下的面板与预备区", () => {
+    it("不接收时没有落点，不穿透到底下的面板", () => {
         const source = EDITOR_TAB;
         // 底下是 b 的外缘窄带：没有浮动窗时是落点。
         expect(drop(withFloat(), source, 590, 300)).not.toBeNull();
         expect(drop(withFloat(), source, 590, 300, floatInput)).toBeNull();
-        expect(drop(withFloat(), source, 590, 300, {...floatInput, zones: [{panel: "ec", rect: rect(0, 0, 900, 600)}]})).toBeNull();
     });
 
     it("浮动窗没有外缘，外沿也不是缝：差 1px 就算底下的面板", () => {

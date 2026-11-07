@@ -783,7 +783,7 @@ export function setBarHidden(doc: LayoutDoc, bar: LayoutBar, hidden: boolean): L
 }
 
 /**
- * 预备区：一次写入显示面板并接收，不经过“显示了但还是空的”的中间态。`index` 缺省插到最后；标签本来就在这块面板里时只显示并激活，不重排（侧栏拖到零时，活动栏条目拖到它的预备区）。
+ * 活动栏放进隐藏的侧栏：一次写入显示面板并接收，不经过“显示了但还是空的”的中间态。`index` 缺省插到最后；标签本来就在这块面板里时只显示并激活，不重排（侧栏拖到零时，活动栏条目拖回活动栏）。
  */
 export function showPanelAndInsert(doc: LayoutDoc, input: {readonly panel: string; readonly source: LayoutSource; readonly index?: number}, policy: LayoutPolicy): LayoutResult {
     const shown = setPanelHidden(doc, input.panel, false);

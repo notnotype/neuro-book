@@ -120,7 +120,7 @@ async function dropTab(area: EditorArea, tabId: string, action: LayoutDropAction
         case "edge":
             return area.moveToNewGroup(tabId, action.target, {focusView}).ok;
         case "reveal":
-            // 接受矩阵：编辑器标签进不了工具面板，预备区不接收它（docs/specs/ui/workbench-layout.md 输出 26）。
+            // 接受矩阵：编辑器标签进不了工具面板，这个动作只来自活动栏（docs/specs/ui/workbench-layout.md 输出 22、26）。
             return false;
         case "float":
             return area.moveToFloat(tabId, action.rect, {focusView}).ok;

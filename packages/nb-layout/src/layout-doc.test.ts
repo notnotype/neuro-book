@@ -514,7 +514,7 @@ describe("显隐与收起", () => {
         expect(okDoc(setBarHidden(doc, "statusbar", true)).hiddenBars).toEqual(["statusbar"]);
     });
 
-    it("预备区：一次写入显示面板并接收", () => {
+    it("显示面板并接收：一次写入", () => {
         const doc = docOf(H(["a", "auxiliarybar", "ec"]), {a: {tabs: [view("x"), view("y")], active: "view:x"}, auxiliarybar: {tabs: [], active: null, hidden: true}});
         const result = okDoc(showPanelAndInsert(doc, {panel: "auxiliarybar", source: {kind: "tab", tab: "view:x"}}, testPolicy()));
         expect(result.panels.auxiliarybar?.hidden).toBeUndefined();
@@ -523,7 +523,7 @@ describe("显隐与收起", () => {
         expect(result.panels.a?.tabs).toEqual([view("y")]);
     });
 
-    it("预备区按位置插；标签本来就在这块面板里时只显示并激活，不重排（活动栏条目放到拖到零的侧栏）", () => {
+    it("按位置插；标签本来就在这块面板里时只显示并激活，不重排（活动栏条目放到拖到零的侧栏）", () => {
         const doc = docOf(H(["a", "sidebar", "ec"]), {a: {tabs: [view("x"), view("y")], active: "view:x"}, sidebar: {tabs: [view("p"), view("q")], active: "view:p", collapsed: true}});
         const inserted = okDoc(showPanelAndInsert(doc, {panel: "sidebar", source: {kind: "tab", tab: "view:y"}, index: 1}, testPolicy()));
         expect(inserted.panels.sidebar?.tabs).toEqual([view("p"), view("y"), view("q")]);
