@@ -5,7 +5,7 @@
 import {createGrid} from "@notnotype/nb-layout";
 import type {Grid, GridBranchInput, GridExtent, GridGesturePreview, GridNodeInput, LayoutDoc, LayoutProjection} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
-import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
 
 import {cardInset, layoutCardEdges, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
@@ -57,6 +57,7 @@ defineSlots<{
 }>();
 
 const rootEl = ref<HTMLElement | null>(null);
+const gridEl = useTemplateRef<InstanceType<typeof NestedGrid>>("grid");
 const extent = useLayoutExtent(rootEl);
 const idPrefix = useId();
 const preview = shallowRef<Readonly<Record<string, GridExtent>> | null>(null);
@@ -206,6 +207,8 @@ function setFocusedPanel(panel: string | null): void {
 const actionsShownOn = (panel: string): boolean => pointerPanel.value === panel || focusedPanel.value === panel;
 
 defineExpose({
+    /** 进行中的过渡直接到终点（拖动拿起后要量矩形）。 */
+    settleMotion: (): void => gridEl.value?.settleMotion(),
     /** F6、Shift+F6（输出 18）：命令由宿主绑。 */
     moveFocus: (direction: "next" | "previous"): boolean => moveGridFocus(rootEl.value, direction),
 });
@@ -223,6 +226,7 @@ defineExpose({
         @focusout="onFocusOut"
     >
         <NestedGrid
+            ref="grid"
             :node="host.node.value"
             :layout="host.layout.value"
             :disabled="disabled || extent === null"

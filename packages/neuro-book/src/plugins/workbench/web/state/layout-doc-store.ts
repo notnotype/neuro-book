@@ -117,6 +117,13 @@ function defineLayoutDocStore(bound: boolean) {
         });
         const projectionOptions = computed(() => layoutProjectionOptions({catalog: catalog.value, viewportWidth: extent.value?.width ?? 0, removed: collapse.value.removed, squeezed: collapse.value.squeezed, cardGap: cardGap.value}));
         const projection = computed(() => projectLayoutDoc(doc.value, projectionOptions.value));
+        /**
+         * 实时布局的预览（docs/specs/ui/workbench-layout.md“实时布局”）：只给渲染用的一份文档。判定、提交、可见性、记录都还看已提交的 `doc` 与 `projection`：
+         * 预览不改可见性（输出 17），也不能让预览才有的节点混进下一次提交的意图。
+         */
+        const livePreview = shallowRef<LayoutDoc | null>(null);
+        const renderedDoc = computed(() => livePreview.value ?? doc.value);
+        const renderedProjection = computed(() => (livePreview.value === null ? projection.value : projectLayoutDoc(livePreview.value, projectionOptions.value)));
         /** 放不下把最大化的面板收走了：退出最大化，不写文档。 */
         const effectiveMaximized = computed(() => {
             const panel = maximized.value === null ? undefined : doc.value.panels[maximized.value];
@@ -187,6 +194,13 @@ function defineLayoutDocStore(bound: boolean) {
                 /** 文档与呈现树本身：读 `state` 拿到的是深只读代理，领域操作要原对象（`structuredClone` 不接受代理）。在响应式作用域里读同样会被跟踪。 */
                 document: (): LayoutDoc => doc.value,
                 presentation: (): LayoutProjection => projection.value,
+                /** 画出来的文档与呈现树：拖动中可能是预览。只给渲染用。 */
+                rendered: (): LayoutDoc => renderedDoc.value,
+                renderedPresentation: (): LayoutProjection => renderedProjection.value,
+                /** 摆预览；null 回到已提交的布局。不合骨架的不摆：领域操作的结果都过 `apply` 的这道关，预览同样。 */
+                setLivePreview: (next: LayoutDoc | null): void => {
+                    livePreview.value = next !== null && fitsSkeleton(next) ? next : null;
+                },
                 /** 算出这棵呈现树用的选项：预览（落点、预备区）要和真实结果同一棵树。 */
                 projectionOptions: (): LayoutProjectionOptions => projectionOptions.value,
                 acceptViewCatalog: (next: ViewCatalog): void => {
@@ -200,6 +214,8 @@ function defineLayoutDocStore(bound: boolean) {
                 },
                 /** 这一刻的呈现尺寸（布局发布时交进来）。 */
                 acceptPresented: (next: Readonly<Record<string, GridExtent>>): void => {
+                    // 预览的尺寸里有预览才有的节点。撤下之后表面会按已提交的再发布一次。
+                    if (livePreview.value !== null) return;
                     presented.value = next;
                 },
                 acceptSaveGate: (gate: LayoutSaveGate | null): void => {

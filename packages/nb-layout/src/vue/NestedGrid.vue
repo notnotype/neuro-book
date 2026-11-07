@@ -341,6 +341,11 @@ watch(() => scope.active.size > 0, (active) => {
 onBeforeUnmount(() => {
     scope.dispose();
 });
+
+defineExpose({
+    /** 进行中的过渡直接到终点：宿主马上要量矩形（拖动拿起）。 */
+    settleMotion: (): void => motion.stop(),
+});
 </script>
 
 <template>

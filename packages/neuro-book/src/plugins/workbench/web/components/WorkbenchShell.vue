@@ -6,7 +6,7 @@ import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {findTab, findTreeNode, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent} from "@notnotype/nb-layout";
+import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
 
@@ -63,6 +63,8 @@ const props = defineProps<{
     project: string | null;
     /** 拖动时画不画落点分区（设置 `nbook.workbench/dropSectors`）；缺省画。 */
     dropSectors?: boolean;
+    /** 拖动的手感（设置 `nbook.workbench/dragFeel`）；缺省实时布局。 */
+    dragFeel?: "live" | "indicator";
 }>();
 
 const resolver = useText();
@@ -73,6 +75,10 @@ const welcome = computed(() => (props.project === null ? message("shell.welcome.
 
 const state = computed(() => props.layout.state);
 const doc = computed(() => props.layout.actions.document());
+/**
+ * 画出来的文档：拖动中可能是实时布局的预览。表面、面板头读它：预览里新拆的面板不在 `doc` 里。命令、菜单、实例、活动栏、拖动判定读 `doc`：预览不改可见性，活动栏不跟预览，落点才稳。
+ */
+const renderedDoc = computed(() => props.layout.actions.rendered());
 const catalog = computed(() => state.value.catalog);
 
 function run(id: string, args: Record<string, unknown> = {}): void {
@@ -150,9 +156,9 @@ const TAB_ICON_PX = 28;
 const FRAME_BUTTON_PX = 26;
 const HEAD_PADDING_PX = 20;
 /** 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有收起按钮（输出 20）。 */
-const collapsibleHere = (panelId: string): boolean => findTreeNode(doc.value.tree.root, panelId)?.parent?.orientation === "vertical";
+const collapsibleHere = (panelId: string): boolean => findTreeNode(renderedDoc.value.tree.root, panelId)?.parent?.orientation === "vertical";
 function headReserved(panelId: string): number {
-    const panel = doc.value.panels[panelId];
+    const panel = renderedDoc.value.panels[panelId];
     const frames = 1 + (collapsibleHere(panelId) ? 1 : 0) + (panel?.name === undefined ? 0 : 1);
     const others = titleOnlyPanels.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
     return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
@@ -173,8 +179,8 @@ function runViewAction(viewId: string, key: string): void {
 
 // ── 面板头 ────────────────────────────────────────────────────────────────
 
-function headTabs(panelId: string): PanelHeadTab[] {
-    return (doc.value.panels[panelId]?.tabs ?? []).map((tab) => {
+function tabsIn(source: LayoutDoc, panelId: string): PanelHeadTab[] {
+    return (source.panels[panelId]?.tabs ?? []).map((tab) => {
         const declaration = tab.kind === "view" ? catalog.value.get(tab.viewId) : undefined;
         // 声明消失的视图没有标题：标签写它的 id，占位写原因（输出 4）。
         return {id: tabKey(tab), label: declaration === undefined ? (viewIdOf(tabKey(tab)) ?? tabKey(tab)) : text(declaration.title), icon: declaration?.icon ?? "i-lucide-circle-help"};
@@ -182,11 +188,13 @@ function headTabs(panelId: string): PanelHeadTab[] {
 }
 
 /** 头只写标题的面板（输出 20）：切视图靠活动栏，所以活动栏隐藏时它们也画标签带。 */
-const titleOnlyPanels = computed<ReadonlySet<string>>(() => new Set(doc.value.hiddenBars.includes("activitybar") ? [] : sidebarColumnPanels(doc.value)));
+const titleOnlyIn = (source: LayoutDoc): ReadonlySet<string> => new Set(source.hiddenBars.includes("activitybar") ? [] : sidebarColumnPanels(source));
+const titleOnlyPanels = computed(() => titleOnlyIn(renderedDoc.value));
+const headTabs = (panelId: string): PanelHeadTab[] => tabsIn(renderedDoc.value, panelId);
 
 /** 框架按钮（输出 20）：可用性问命令系统；先读布局状态，让按钮随它重新求值（命令系统的可用性变化不通知）。 */
 function frameActionsOf(panelId: string): PanelFrameAction[] {
-    const panel = doc.value.panels[panelId];
+    const panel = renderedDoc.value.panels[panelId];
     void [state.value.ready, state.value.maximized];
     const describe = (id: string, icon: string, title: WorkbenchTextKey, pressed?: boolean): PanelFrameAction => {
         const enabled = props.commands.isEnabled(id);
@@ -258,7 +266,7 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
 // ── 活动栏 ────────────────────────────────────────────────────────────────
 
 /** 侧栏这一列的视图，按文档的顺序（输出 22）。标题与图标同面板头的标签：声明消失的视图也有条目，点了能看到占位。 */
-const toolEntries = computed(() => sidebarColumnPanels(doc.value).flatMap(headTabs).flatMap((tab) => {
+const toolEntries = computed(() => sidebarColumnPanels(doc.value).flatMap((panelId) => tabsIn(doc.value, panelId)).flatMap((tab) => {
     const id = viewIdOf(tab.id);
     return id === null ? [] : [{id, label: tab.label, icon: tab.icon, pressed: visibleViews.value.has(id)}];
 }));
@@ -367,8 +375,11 @@ onMounted(() => {
         maximized: () => state.value.maximized,
         enabled: () => state.value.ready,
         editorTabs: () => editorTabs.value,
-        titleOnly: (panel) => titleOnlyPanels.value.has(panel),
+        titleOnly: (panel) => titleOnlyIn(doc.value).has(panel),
         sectors: () => props.dropSectors !== false,
+        feel: () => props.dragFeel ?? "live",
+        settleMotion: () => surface.value?.settleMotion(),
+        showPreview: (next) => props.layout.actions.setLivePreview(next),
         commit: (source, action, part, keyboard) => {
             // 编辑器标签走编辑器区的动作：要先结算视图的输入、合并同一标签（`EditorTabDrag`）。
             const editorTab = editorTabIdOf(source.tab);
@@ -461,8 +472,10 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
             <WorkbenchSurface
                 ref="surface"
                 class="workbench-shell__surface"
-                :doc="doc"
-                :projection="layout.actions.presentation()"
+                :doc="renderedDoc"
+                :projection="layout.actions.renderedPresentation()"
+                :data-drag-feel="drag?.live.active.value === true ? 'live' : 'indicator'"
+                :data-live-preview="drag?.live.previewKey.value ?? 'none'"
                 :maximized="state.maximized"
                 :disabled="!state.ready"
                 :title-only-panels="titleOnlyPanels"
@@ -501,15 +514,15 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     />
                 </template>
                 <template #head="{panelId, idPrefix}">
-                    <template v-if="doc.panels[panelId]?.role === 'editor'">
+                    <template v-if="renderedDoc.panels[panelId]?.role === 'editor'">
                         <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" />
                     </template>
                     <WorkbenchPanelHead
                         v-else
                         :panel-id="panelId"
-                        :label="text(panelTitle(doc, catalog, panelId))"
+                        :label="text(panelTitle(renderedDoc, catalog, panelId))"
                         :tabs="headTabs(panelId)"
-                        :active="doc.panels[panelId]?.active ?? null"
+                        :active="renderedDoc.panels[panelId]?.active ?? null"
                         :more-label="message('common.more')"
                         :id-prefix="idPrefix"
                         :drag-hint="message('shell.drag.hint')"
@@ -531,7 +544,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         <div v-else class="workbench-shell__welcome">
                             <h1>NeuroBook</h1>
                             <!-- 这块编辑组有标签时写的是原因（输出 34）：编辑器撤回了，标签还在，再次交付后恢复。 -->
-                            <p>{{ (doc.panels[panelId]?.tabs.length ?? 0) > 0 ? message("shell.editorUnavailable") : welcome }}</p>
+                            <p>{{ (renderedDoc.panels[panelId]?.tabs.length ?? 0) > 0 ? message("shell.editorUnavailable") : welcome }}</p>
                         </div>
                     </template>
                     <div v-else-if="!catalog.has(viewIdOf(contentKey)!)" class="workbench-shell__missing" role="status" data-view-missing>

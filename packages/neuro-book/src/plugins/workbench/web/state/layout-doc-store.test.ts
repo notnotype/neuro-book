@@ -436,6 +436,30 @@ describe("呈现事实", () => {
         expect(saved.panels.auxiliarybar?.collapsed).toBe(true);
     });
 
+    it("实时布局的预览只给渲染用：已提交的文档、投影与可见性不变，尺寸不收，不写记录；撤下回到已提交的", async () => {
+        const {store, storage} = await open();
+        store.actions.acceptExtent({width: 1440, height: 900});
+        store.actions.acceptPresented({g0: {width: 611, height: 600}});
+        const committed = store.actions.document();
+        const projection = store.actions.presentation();
+        const visible = [...store.state.visibleTabs];
+        const presented = store.state.presented;
+        const removed = removeTab(committed, committed.panels.sidebar?.active ?? "");
+        if (!removed.ok) throw new Error("摘不掉");
+        store.actions.setLivePreview(removed.doc);
+        expect(store.actions.rendered()).toBe(removed.doc);
+        expect(store.actions.renderedPresentation()).not.toBe(projection);
+        expect(store.actions.document()).toBe(committed);
+        expect(store.actions.presentation()).toBe(projection);
+        expect([...store.state.visibleTabs]).toEqual(visible);
+        store.actions.acceptPresented({g0: {width: 1, height: 1}});
+        expect(store.state.presented).toEqual(presented);
+        store.actions.setLivePreview(null);
+        expect(store.actions.rendered()).toBe(committed);
+        await settled(store);
+        expect(await savedDoc(storage, USER).catch(() => null)).toBeNull();
+    });
+
     it("手势把面板收成标题行：呈现的高度是标题行，不是意图，展开回到原来的高度（输出 8、12）", async () => {
         const {store, storage} = await open();
         const before = sizeIn(store.actions.document(), "panel").height;

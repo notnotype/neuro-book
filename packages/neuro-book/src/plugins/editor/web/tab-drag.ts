@@ -32,6 +32,11 @@ export function createEditorTabDrag(deps: EditorTabDragDeps): EditorTabDrag {
             if (tab === undefined) return null;
             return {label: tabLabel(deps.area(), tab, deps.text, deps.pages()), fileIcon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null};
         },
+        previewable: (tabId, action) => {
+            const area = deps.area();
+            const target = action.kind === "strip" || action.kind === "center" ? action.panel : null;
+            return !area.moveBlocked(tabId, target);
+        },
         drop: (tabId, action, part, keyboard) => dropTab(deps.area(), tabId, action, part, keyboard),
     };
 }

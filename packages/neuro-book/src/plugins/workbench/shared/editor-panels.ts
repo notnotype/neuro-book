@@ -24,6 +24,8 @@ export const editorTabIdOf = (key: string): string | null => (key.startsWith(TAB
 /** 布局文档的持有者：工作台的布局 store，或内存。 */
 export interface EditorLayoutHost {
     document(): LayoutDoc;
+    /** 画出来的文档：拖动中可能是预览；缺省就是 `document`。 */
+    rendered?(): LayoutDoc;
     /** `flush`：立刻存（手势）；缺省合并着存（打开、关闭、切标签）。 */
     apply(operation: (current: LayoutDoc) => LayoutResult, options?: {readonly flush?: boolean}): LayoutResult;
     readonly policy: LayoutPolicy;
@@ -68,6 +70,7 @@ const notFound = (detail: string): LayoutResult => ({ok: false, code: "not-found
 
 export function createEditorPanels(host: EditorLayoutHost): EditorPanels {
     const panels = computed(() => editorEntries(host.document()));
+    const shownPanels = computed(() => editorEntries(host.rendered?.() ?? host.document()));
     const current = computed(() => {
         const doc = host.document();
         // 文档校验保证有编辑组；活动编辑组没记下时（新文档）取树序第一个。
@@ -77,6 +80,7 @@ export function createEditorPanels(host: EditorLayoutHost): EditorPanels {
 
     const tabs: PanelTabs = {
         panels,
+        shownPanels,
         insert: (panel, tabId, index) => ok((doc) => (isEditor(doc, panel) ? insertTab(doc, {panel, tab: refOf(tabId), index}) : notFound(panel))),
         replace: (tabId, next) => ok((doc) => replaceTab(doc, {tab: editorTabKey(tabId), next: refOf(next)})),
         remove: (tabId) => ok((doc) => removeTab(doc, editorTabKey(tabId))),

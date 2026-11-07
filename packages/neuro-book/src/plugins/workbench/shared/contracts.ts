@@ -163,6 +163,24 @@ export const dropSectorsSetting = defineSetting({
     order: 30,
 });
 
+/**
+ * 拖动的手感（docs/specs/ui/workbench-layout.md“实时布局”）：实时布局是卡片跟手、邻居真实让位；落点指示是布局不动、只画结果。只有用户层，理由同上。
+ */
+export const dragFeelSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "dragFeel",
+    schema: Type.Union([Type.Literal("live"), Type.Literal("indicator")]),
+    default: "live",
+    layers: ["user"],
+    section: "nbook.appearance",
+    group: "ui",
+    order: 40,
+    choices: [
+        {value: "live", title: workbenchText("settings.dragFeel.choices.live.title")},
+        {value: "indicator", title: workbenchText("settings.dragFeel.choices.indicator.title")},
+    ],
+});
+
 /** 明暗；`system` 跟随系统，配色取主题包的 `defaultColorway[明暗]`。 */
 export const appearanceSetting = defineSetting({
     plugin: "nbook.workbench",
@@ -191,6 +209,8 @@ export interface PanelEntry {
 export interface PanelTabs {
     /** 编辑组，按树序。 */
     readonly panels: Readonly<Ref<ReadonlyArray<PanelEntry>>>;
+    /** 画出来的编辑组：拖动中可能是实时布局的预览。只有头读它，结构操作都按 `panels`。 */
+    readonly shownPanels: Readonly<Ref<ReadonlyArray<PanelEntry>>>;
     /** 插到 `index`，成为活动标签，面板成为活动面板。 */
     insert(panel: string, tabId: string, index: number): boolean;
     /** 就地换成另一个标签；原来的是活动标签时新的也是。 */

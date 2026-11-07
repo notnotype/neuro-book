@@ -215,6 +215,9 @@ onMounted(() => {
         editorTabs: () => tabDrag.value,
         titleOnly: () => false,
         sectors: () => true,
+        feel: () => "indicator",
+        settleMotion: () => undefined,
+        showPreview: () => undefined,
         commit: (source, action, part, keyboard) => {
             const tabId = editorTabIdOf(source.tab);
             if (tabId !== null) tabDrag.value?.drop(tabId, action, part, keyboard);

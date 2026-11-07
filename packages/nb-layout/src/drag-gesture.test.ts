@@ -249,6 +249,13 @@ describe("输出 4：逐帧", () => {
 });
 
 describe("输出 6：放下", () => {
+    it("`commitsUnderPointer`：放下这一刻的动作和最后显示的不同，也提交这一刻的；键盘照旧要相同", () => {
+        const t = setup({commitsUnderPointer: (keyboard) => !keyboard});
+        t.grab({x: 50, y: 0});
+        t.gesture.release(1, {x: 150, y: 0});
+        expect(t.commits).toEqual([{drop: {name: "b", key: "b"}, source: "row"}]);
+    });
+
     it("与最后显示过的动作相同：提交一次，结束为 committed", () => {
         const t = setup();
         t.grab({x: 50, y: 0});

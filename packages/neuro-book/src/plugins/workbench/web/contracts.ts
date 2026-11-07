@@ -69,6 +69,8 @@ export interface WorkbenchOverlayImplementation {
 export interface EditorTabDrag {
     /** 结构键里编辑器的部分（固定状态、多行设置）：起拖后它变了，整场取消。 */
     structure(): string;
+    /** 放下的结果能不能按布局层的算法摆出来：并到同一标签、会被拒绝时不能，实时布局就不摆预览。 */
+    previewable(tabId: string, action: LayoutDropAction): boolean;
     /** 拖影。 */
     ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null} | null;
     /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。`keyboard`：键盘放下，手势会把焦点还给标签。 */

@@ -4,6 +4,17 @@
             "title": "Theme",
             "description": "Shape, typography and colors of the interface"
         },
+        "dragFeel": {
+            "title": "Drag feel",
+            "choices": {
+                "live": {
+                    "title": "Live layout: the card follows and neighbours make room"
+                },
+                "indicator": {
+                    "title": "Drop indicator: the layout stays and the result is drawn"
+                }
+            }
+        },
         "dropSectors": {
             "title": "Drop sectors",
             "description": "When dragging a view or tab over a panel, show the places it can go"

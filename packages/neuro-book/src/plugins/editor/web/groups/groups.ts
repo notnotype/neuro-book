@@ -113,6 +113,8 @@ export type SplitDirection = "right" | "down";
 
 export interface EditorGroups {
     readonly groups: Readonly<Ref<ReadonlyArray<EditorGroup>>>;
+    /** 画出来的组：拖动中可能是实时布局的预览。只有头读它（标签条）：别的都按 `groups`，预览没有副作用。 */
+    readonly shown: Readonly<Ref<ReadonlyArray<EditorGroup>>>;
     readonly activeGroup: Readonly<Ref<string>>;
     /** 标签的属性，变了就要存（`snapshot`）。结构在布局文档里，由工作台存。 */
     readonly attributes: Readonly<ShallowRef<ReadonlyMap<string, EditorTab>>>;
@@ -203,6 +205,8 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
         return sameItems(previous, next) ? previous : next;
     });
 
+    const shown = computed<ReadonlyArray<EditorGroup>>(() => panelTabs.shownPanels.value.map((panel): EditorGroup => ({id: panel.id, tabs: panel.tabs.flatMap((id) => attributes.value.get(id) ?? []), active: panel.active})));
+
     const groupOf = (id: string): EditorGroup | undefined => groups.value.find((group) => group.id === id);
     const locate = (tabId: string): {group: EditorGroup; tab: EditorTab; index: number} | null => {
         for (const group of groups.value) {
@@ -263,6 +267,7 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
 
     return {
         groups,
+        shown,
         activeGroup: tree.current,
         attributes,
         activeTab: () => {

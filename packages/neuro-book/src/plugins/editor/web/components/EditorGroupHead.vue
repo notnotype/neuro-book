@@ -65,7 +65,7 @@ const t = useEditorText();
 
 const root = useEditorGroupRoot({area: () => props.area, groupId: () => props.groupId, intent: (intent) => emit("intent", intent), root: "head"});
 
-const group = computed(() => props.area.groups.groups.value.find((candidate) => candidate.id === props.groupId) ?? null);
+const group = computed(() => props.area.groups.shown.value.find((candidate) => candidate.id === props.groupId) ?? null);
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
 
 const tabs = computed((): TabItem[] => {

@@ -4,6 +4,17 @@
             "title": "主题",
             "description": "界面的形状、字体与配色"
         },
+        "dragFeel": {
+            "title": "拖动手感",
+            "choices": {
+                "live": {
+                    "title": "实时布局：卡片跟手，邻居让位"
+                },
+                "indicator": {
+                    "title": "落点指示：布局不动，只画结果"
+                }
+            }
+        },
         "dropSectors": {
             "title": "落点分区",
             "description": "拖动视图或标签到面板上时，画出上下左右中能放的位置"

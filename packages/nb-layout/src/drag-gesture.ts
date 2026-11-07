@@ -91,7 +91,10 @@ export interface DragGestureHost<S, D, R> {
     readonly scroll?: "reevaluate" | "withdraw" | undefined;
     readonly autoScroll?: DragGestureAutoScroll | undefined;
     readonly keyboard?: DragGestureKeyboard<S, R> | undefined;
-    readonly activate?: ((source: S) => boolean) | undefined;
+    /** `keyboard`：这一场是键盘拖动。 */
+    readonly activate?: ((source: S, keyboard: boolean) => boolean) | undefined;
+    /** 放下时提交此刻判定的动作，不要求与最后显示的相同（实时布局）。撤下期间仍不提交。缺省假。 */
+    readonly commitsUnderPointer?: ((keyboard: boolean) => boolean) | undefined;
     readonly structure?: (() => string) | undefined;
     resolve(query: DragGestureQuery<S, R>): D | null;
     actionKey(drop: D): string | null;
@@ -198,6 +201,8 @@ interface Active<S, D, R> {
     point: GridDropPoint;
     /** 最后发布过的落点；放下只认它的动作。撤下后为 null。 */
     shown: D | null;
+    /** 落点撤下了，指针再动才恢复：这期间放下不提交（输出 12）。 */
+    withdrawn: boolean;
     last: DragState<S, D>;
     /** 松手了，在等下一帧放下。 */
     dropping: boolean;
@@ -284,6 +289,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         const drop = evaluate(current);
         if (drop === undefined) return;
         current.shown = drop;
+        current.withdrawn = false;
         current.last = {source: current.source, point: current.point, drop, keyboard: current.cursor !== null};
         host.publish(current.last);
     }
@@ -298,11 +304,12 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         if (current === null || current.dropping) return;
         clearFrame();
         current.shown = null;
+        current.withdrawn = true;
         current.last = {...current.last, drop: null};
         host.publish(current.last);
     }
 
-    /** 放下：用此刻的坐标再判一次，不发布；与最后显示过的动作相同才提交。 */
+    /** 放下：用此刻的坐标再判一次，不发布；与最后显示过的动作相同才提交（`commitsUnderPointer` 时只要有动作）。 */
     function drop(): void {
         const current = active;
         if (current === null) return;
@@ -310,7 +317,8 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         if (final === undefined) return;
         const key = final === null ? null : host.actionKey(final);
         const same = key !== null && current.shown !== null && host.actionKey(current.shown) === key;
-        if (same) finish({kind: "committed"}, final);
+        const underPointer = key !== null && !current.withdrawn && host.commitsUnderPointer?.(current.cursor !== null) === true;
+        if (same || underPointer) finish({kind: "committed"}, final);
         else finish({kind: "no-action"}, null);
     }
 
@@ -344,7 +352,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
     function begin(from: Armed<S>, point: GridDropPoint): void {
         if (from.timer !== null) clock.cancelDelay(from.timer);
         armed = null;
-        if (host.activate !== undefined && !host.activate(from.source)) {
+        if (host.activate !== undefined && !host.activate(from.source, false)) {
             host.disarmed();
             return;
         }
@@ -357,6 +365,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
             ...init,
             structure: host.structure?.() ?? null,
             shown: null,
+            withdrawn: false,
             last: {source: init.source, point: init.point, drop: null, keyboard: init.cursor !== null},
             dropping: false,
         };
@@ -470,7 +479,7 @@ export function createDragGesture<S, D, R = never>(host: DragGestureHost<S, D, R
         startKeyboard(source) {
             const keyboard = host.keyboard;
             if (keyboard === undefined || armed !== null || active !== null) return false;
-            if (host.activate !== undefined && !host.activate(source)) return false;
+            if (host.activate !== undefined && !host.activate(source, true)) return false;
             const regions = keyboard.regions(source);
             if (regions.length === 0) return false;
             const cursor: KeyboardCursor<R> = {regions, region: 0, stop: 0};

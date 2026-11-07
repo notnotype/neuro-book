@@ -6,6 +6,7 @@ export * from "./grid";
 export * from "./layout-doc";
 export * from "./layout-project";
 export * from "./layout-drop";
+export * from "./live-drop";
 export type {GridContentInput} from "./grid-rects";
 export * from "./sash-drag";
 export {

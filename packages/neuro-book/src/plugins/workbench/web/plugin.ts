@@ -35,7 +35,7 @@ import {PANE_FOCUS_COMMAND_DECLARATIONS, paneFocusCommands} from "./commands/pan
 import type {PaneFocusMover} from "./commands/pane-focus-commands";
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
-import {appearanceSetting, dropSectorsSetting, editorPanelsKey, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import {appearanceSetting, dragFeelSetting, dropSectorsSetting, editorPanelsKey, notificationsKey, quickPickKey, THEME_CHOICES_PROVIDER, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import type {EditorPanelsService, EditorSaveGate, NotificationInput} from "../shared/contracts";
 import {createEditorPanels} from "../shared/editor-panels";
 import {themeScenesPoint, themesPoint, WORKBENCH_THEME_SCENES_POINT, WORKBENCH_THEMES_POINT} from "../shared/themes";
@@ -194,6 +194,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const editorPanels: EditorPanelsService = {
                 ...createEditorPanels({
                     document: () => (layout.current.value as LayoutDocStore).actions.document(),
+                    rendered: () => (layout.current.value as LayoutDocStore).actions.rendered(),
                     apply: (operation, options) => (layout.current.value as LayoutDocStore).actions.apply(operation, options),
                     policy: createLayoutPolicy(),
                 }),
@@ -262,7 +263,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 shell: {load: async () => {
                     layout.acquire();
                     return (await import("./components/WorkbenchShell.vue")).default;
-                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, dropSectors: settings.get(dropSectorsSetting), attachPaneFocus: (move: PaneFocusMover) => {
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, dropSectors: settings.get(dropSectorsSetting), dragFeel: settings.get(dragFeelSetting), attachPaneFocus: (move: PaneFocusMover) => {
                     movePaneFocus = move;
                     return () => {
                         // 只清自己：外壳重挂的先后可能反过来，不把新外壳交的清掉。

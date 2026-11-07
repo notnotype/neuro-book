@@ -26,16 +26,23 @@ interface Line {
     readonly members: ReadonlyArray<Member>;
 }
 
+/** 一份量好的标签条：判定不再读 DOM。实时布局拿起时量一份，预览里标签在滑、来源也挪了，这时读 DOM 算不准。 */
+export interface TabStripSnapshot {
+    readonly view: GridDropRect;
+    readonly lines: ReadonlyArray<Line>;
+    /** 这个标签条按呈现顺序的全部标签（含滚出视口的、折到别的行的）。 */
+    readonly members: ReadonlyArray<Member>;
+    /** 被摘掉的来源原来在哪个分区；不在这条上是 undefined。 */
+    readonly excludedPartition: string | null | undefined;
+}
+
 const memberOf = (tab: HTMLElement): Member => ({id: tab.dataset.panelTab as string, rect: rectOf(tab.parentElement as HTMLElement), partition: tab.dataset.tabPartition ?? null});
 
-/** 这个标签条按呈现顺序的全部标签（含滚出视口的、折到别的行的）。 */
-const allMembers = (strip: Element): Member[] => [...strip.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf);
-
-function linesOf(strip: Element): Line[] {
+function linesOf(strip: Element, exclude: string | null): Line[] {
     const lines: Line[] = [];
     const stripRect = rectOf(strip);
     for (const row of strip.querySelectorAll<HTMLElement>("[data-tab-row]")) {
-        const frames = [...row.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf);
+        const frames = [...row.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf).filter((member) => member.id !== exclude);
         const rowPartition = row.dataset.tabRowPartition ?? null;
         const byTop = new Map<number, Member[]>();
         for (const frame of frames) {
@@ -64,16 +71,28 @@ export interface TabStripInsertion {
     readonly indicator: GridDropRect;
 }
 
+/** 量一份标签条。`exclude`：摘掉这个标签（被拖的来源），算出的插入位就是“摘掉来源之后”的。 */
+export function measureTabStrip(strip: Element, exclude: string | null = null): TabStripSnapshot {
+    const all = [...strip.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf);
+    const excluded = all.find((member) => member.id === exclude);
+    return {view: rectOf(strip), lines: linesOf(strip, exclude), members: all.filter((member) => member.id !== exclude), excludedPartition: excluded?.partition};
+}
+
 /** 指针在标签条里的插入位：先按纵向距离选行（在行里的距离为 0），再在行里求。 */
 export function resolveTabStripInsertion(strip: Element, point: GridDropPoint): TabStripInsertion | null {
-    const lines = linesOf(strip);
+    return tabStripInsertionIn(measureTabStrip(strip), point);
+}
+
+/** 同上，用量好的那份。 */
+export function tabStripInsertionIn(snapshot: TabStripSnapshot, point: GridDropPoint): TabStripInsertion | null {
+    const {lines} = snapshot;
     if (lines.length === 0) return null;
     const distance = (line: Line): number => (point.y < line.rect.top ? line.rect.top - point.y : point.y > line.rect.bottom ? point.y - line.rect.bottom : 0);
     const line = lines.reduce((best, candidate) => (distance(candidate) < distance(best) ? candidate : best));
     const containerRect = {...line.rect, left: Math.min(line.rect.left, point.x), right: Math.max(line.rect.right, point.x)};
     const insertion = resolveListInsertion({orientation: "horizontal", point: {x: point.x, y: (line.rect.top + line.rect.bottom) / 2}, containerRect, members: line.members.map(({id, rect}) => ({id, rect}))});
     if (insertion === null) return null;
-    const all = allMembers(strip);
+    const all = snapshot.members;
     const samePartition = (partition: string | null): ReadonlyArray<Member> => all.filter((member) => member.partition === partition);
     if (insertion.beforeId !== null) {
         // 单行时几个分区同在一行：插在固定标签前面才算进固定区，所以分区看后面那个标签。
@@ -91,7 +110,7 @@ export function resolveTabStripInsertion(strip: Element, point: GridDropPoint): 
     const inPartition = samePartition(partition);
     const successor = last === undefined ? undefined : inPartition[inPartition.findIndex((member) => member.id === last.id) + 1];
     if (successor === undefined) return {before: null, after: last?.id ?? null, partition, indicator: insertion.indicator};
-    const view = rectOf(strip);
+    const {view} = snapshot;
     const seen = successor.rect.left >= view.left && successor.rect.right <= view.right && successor.rect.top >= view.top && successor.rect.bottom <= view.bottom;
     return {before: successor.id, after: last?.id ?? null, partition, indicator: seen ? {left: successor.rect.left - 1, right: successor.rect.left + 1, top: successor.rect.top, bottom: successor.rect.bottom} : insertion.indicator};
 }
@@ -103,7 +122,7 @@ export function resolveTabStripInsertion(strip: Element, point: GridDropPoint): 
 export function tabStripStops(strip: Element): ReadonlyArray<GridDropPoint> {
     const view = rectOf(strip.querySelector("[role='tablist']") ?? strip);
     const stops: GridDropPoint[] = [];
-    for (const line of linesOf(strip)) {
+    for (const line of linesOf(strip, null)) {
         const y = (line.rect.top + line.rect.bottom) / 2;
         if (y < view.top || y > view.bottom) continue;
         const seen = (x: number): boolean => x >= line.rect.left && x <= line.rect.right;

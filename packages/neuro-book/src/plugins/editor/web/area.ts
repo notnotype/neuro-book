@@ -144,6 +144,10 @@ export interface EditorArea {
     setPinned(tabId: string, pinned: boolean): ActionResult;
     /** 把标签移到组内另一位置或别的组（输出 49）；目标组已有同一标签时并掉，可能要问，问完之前 Promise 不结束。 */
     moveTab(tabId: string, place: TabPlace, options?: MoveOptions): Promise<ActionResult>;
+    /**
+     * 这次移动不会照字面发生：有未裁决输入会被拒绝，目标组已有同一标签会并掉。实时布局据此不摆预览，只读，不结算。`target` 是目标组；移到外缘（新组）是 null。
+     */
+    moveBlocked(tabId: string, target: string | null): boolean;
     /** 把标签移到外缘（输出 49；docs/specs/ui/workbench-layout.md 输出 25、27）：单个标签的组整块移动，视图不重建。 */
     moveToNewGroup(tabId: string, target: LayoutEdgeTarget, options?: MoveOptions): ActionResult;
     focusGroup(groupId: string): void;
@@ -839,6 +843,17 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             return {ok: true};
         },
         moveTab,
+        moveBlocked: (tabId, target) => {
+            const found = groups.find(tabId);
+            if (found === null) return true;
+            if (target === null) return found.group.tabs.length > 1 && found.group.active === tabId && holding(found.group.id) !== null;
+            const group = groups.groups.value.find((candidate) => candidate.id === target);
+            if (group === undefined) return true;
+            if (target === found.group.id) return false;
+            const moving = found.tab;
+            if (moving.kind === "file" && group.tabs.some((tab) => tab.kind === "file" && tab.address === moving.address && tab.editor === moving.editor)) return true;
+            return (found.group.active === tabId && holding(found.group.id) !== null) || holding(target) !== null;
+        },
         moveToNewGroup: (tabId, target, moveOptions = {}) => {
             if (disposed) return {ok: false, reason: editorText("refusal.disposed")};
             const found = groups.find(tabId);
