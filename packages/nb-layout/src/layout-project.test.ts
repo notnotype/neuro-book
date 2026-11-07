@@ -99,6 +99,23 @@ describe("收起", () => {
         expect(sizeOf(doc.tree.root, "panel").height).toBe(300);
     });
 
+    it("一列全部收成标题行：页面大小不变，标题行排在上面，下面留空，不算问题", () => {
+        const doc = docOf(V([H(["activitybar", V(["sidebar", "s2"]), V(["ea", "panel"]), "auxiliarybar"]), "statusbar"]), {sidebar: {collapsed: true}, s2: {collapsed: true}});
+        const {layout} = solve(doc, {width: 1440, height: 860});
+        expect(layout.sizes.sidebar?.height).toBe(32);
+        expect(layout.sizes.s2?.height).toBe(32);
+        expect(layout.sizes.auxiliarybar?.height).toBe(838);
+        expect(layout.sizes.statusbar?.height).toBe(22);
+        expect(layout.issues).toEqual([]);
+    });
+
+    it("一排全部拖到零：编辑区的宽度不被这一排压住", () => {
+        const doc = docOf(H(["sidebar", V(["ea", H(["panel", "p1"])])]), {panel: {collapsed: true}, p1: {collapsed: true}});
+        const {layout} = solve(doc, {width: 1440, height: 860});
+        expect((layout.sizes.sidebar?.width ?? 0) + (layout.sizes.ea?.width ?? 0)).toBeGreaterThan(1430);
+        expect(layout.issues).toEqual([]);
+    });
+
     it("塌陷之后按真实的父分支算：纵向里的面板塌陷到横向分支，收起就是拖到零", () => {
         const doc = docOf(H(["ea", V(["a", "panel"])]), {panel: {hidden: true}, a: {collapsed: true}});
         const {layout} = solve(doc);

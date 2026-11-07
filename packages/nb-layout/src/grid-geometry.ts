@@ -190,7 +190,8 @@ export function allocateSashPanels(
 
     const rest = Math.max(0, space - rigidTotal - fixedTotal);
     if (weighted.length === 0) {
-        if (rest > EPSILON) {
+        // 全部收起时留空是有意的（同一条理由见 `measure` 里的收起）。
+        if (rest > EPSILON && !panels.every((panel) => panel.collapse?.collapsed === true)) {
             issues?.push(`${context}：没有按比例分配的节点，剩余 ${round(rest)} 未被吸收`);
         }
         return assigned;
@@ -315,12 +316,13 @@ function constraintOnAxis<T>(
         derivedLow = 0;
         derivedHigh = GRID_UNBOUNDED;
     } else {
+        // 交叉轴的上限看最大的那个子节点：放不满的子节点自己留空，不该压住兄弟。取最小值时，一列全收成标题行，上限只剩几个标题行高，整行都被压扁。
         derivedLow = 0;
-        derivedHigh = GRID_UNBOUNDED;
+        derivedHigh = 0;
         for (const child of node.children) {
             const bounds = constraintOnAxis(child, axis, sashSize, issues, reported);
             derivedLow = Math.max(derivedLow, bounds.low);
-            derivedHigh = Math.min(derivedHigh, bounds.high);
+            derivedHigh = Math.max(derivedHigh, bounds.high);
         }
     }
     const low = Math.max(derivedLow, declaredLow);
@@ -506,7 +508,7 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
                 maximumSize: {...childConstraint.maximumSize, [main]: Math.max(0, high)},
             };
         }
-        if (total < target - EPSILON) {
+        if (total < target - EPSILON && !node.children.every((child) => child.collapse?.collapsed === true)) {
             issues.push(`分支 ${node.id} 的可用空间 ${round(target)} 有 ${round(target - total)} 未被任何子节点吸收`);
         }
         const extent = extentOf(main, total, crossSize);

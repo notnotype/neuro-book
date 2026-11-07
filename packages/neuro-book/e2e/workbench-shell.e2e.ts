@@ -349,6 +349,23 @@ test.describe("产品页", () => {
         await unparked(page, '[data-content="view:nbook.agent.sessions"]');
     });
 
+    test("侧栏这一列全部收成标题行：页面大小不变，标题行排在上面，再展开能回来（输出 11）", async ({page}) => {
+        await open(page);
+        await moveViaMenu(page, "nbook.agent.sessions", "新面板（挨着侧栏）");
+        const other = await content(page, "nbook.agent.sessions").getAttribute("data-content-leaf");
+        if (other === null) throw new Error("新面板没有叶");
+        const editor = await box(page, "g0");
+        await frame(page, "sidebar", "set-panel-collapsed").click();
+        await frame(page, other, "set-panel-collapsed").click();
+        await expect.poll(async () => (await box(page, other)).height).toBe(32);
+        expect((await box(page, "sidebar")).height).toBe(32);
+        // 编辑组不动：列收起不是整行变矮。
+        expect(await box(page, "g0")).toEqual(editor);
+        await frame(page, "sidebar", "set-panel-collapsed").click();
+        await expect.poll(async () => (await box(page, "sidebar")).height).toBeGreaterThan(400);
+        expect((await box(page, other)).height).toBe(32);
+    });
+
     test("从零拉回：按着拖的过程中内容就出现，按回零内容回到停放，再拉出又出现，松手后保持（输出 12）", async ({page}) => {
         await open(page);
         const sash = sidebarSash(page);
