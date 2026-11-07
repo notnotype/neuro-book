@@ -316,6 +316,17 @@ describe("往一个方向分（输出 27）", () => {
         expect(along(next, "height", "a", "b", "n1")).toEqual([100, 100, 100]);
     });
 
+    it("spread：具名来源拖空就不占份额，新块按看得见的块数分", () => {
+        const doc = docOf(V(["sidebar", "a", "b"], "column"));
+        const root = doc.tree.root as GridSnapshotBranch;
+        const heights: Readonly<Record<string, number>> = {sidebar: 400, a: 100, b: 100};
+        const sized: LayoutDoc = {...doc, tree: {...doc.tree, root: {...root, children: root.children.map((child) => ({...child, size: {...child.size, height: heights[child.id] as number}}))}}};
+        const next = moved(sized, "view:sidebar", {kind: "spread", panel: "b", edge: "bottom"});
+        expect(next.panels.sidebar?.hidden).toBe(true);
+        expect(along(next, "height", "a", "b", "n1")).toEqual([67, 67, 67]);
+        expect(along(next, "height", "sidebar")).toEqual([400]);
+    });
+
     it("两种分法放回紧挨着来源的那条边都是原处：什么都不变", () => {
         for (const kind of ["split", "spread"] as const) {
             const doc = docOf(H(["a", "src", "b"]));

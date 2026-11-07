@@ -180,6 +180,7 @@ test.describe("产品页：拖放", () => {
         const source = entry(page, C);
         const before = await source.boundingBox();
         const writes = await writesOf(page);
+        const panelTabs = await tabsOf(page, "panel");
         await dragTo(page, source, await endOfStrip(page, "panel"));
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "strip");
         await expect(line(page)).toBeVisible();
@@ -190,7 +191,7 @@ test.describe("产品页：拖放", () => {
         await expect(ghost(page)).toHaveCount(0);
         await expect(head(page, "panel").locator(`[data-panel-tab="view:${C}"]`)).toHaveAttribute("aria-selected", "true");
         await expect(head(page, "sidebar").locator(`[data-panel-tab="view:${C}"]`)).toHaveCount(0);
-        expect((await tabsOf(page, "panel")).at(-1)).toBe(`view:${C}`);
+        expect(await tabsOf(page, "panel")).toEqual([...panelTabs, `view:${C}`]);
         await expect(sample(page, C)).toBeVisible();
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
@@ -1054,6 +1055,14 @@ test.describe("产品页：拖放", () => {
                 const lowerBefore = await leaf(page, below).boundingBox();
                 await dropAt(page, entry(page, B), await inLeaf(page, "sidebar", {x: 0.5, y: 0.85}));
                 await expect.poll(async () => (await leaf(page, below).boundingBox())?.height ?? 0).toBeLessThan(lowerBefore?.height ?? 0);
+                // “移动到”的新面板从相邻两块取：挨着侧栏开，最下面那块不让。
+                await settled(page);
+                const lowest = await leaf(page, below).boundingBox();
+                await tab(page, E).click({button: "right"});
+                await page.getByRole("menuitem", {name: "新面板（挨着侧栏）", exact: true}).click();
+                await expect.poll(() => panelOfTab(page, E)).not.toBe("panel");
+                await settled(page);
+                expect((await leaf(page, below).boundingBox())?.height).toBe(lowest?.height);
             } finally {
                 await rm(settingsFile, {force: true});
             }

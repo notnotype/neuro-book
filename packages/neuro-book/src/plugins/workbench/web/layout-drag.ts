@@ -190,8 +190,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const result = removeTab(options.doc(), source.tab);
             return result.ok ? result.doc : null;
         },
-        // 预览把来源摘掉时看已提交的：卡片还是从来源的面板缩出来。
-        homeOf: (source, shown) => findTab(shown ?? options.doc(), source.tab)?.panel ?? findTab(options.doc(), source.tab)?.panel ?? null,
+        homeOf: (source) => findTab(options.doc(), source.tab)?.panel ?? null,
         show: (doc) => options.showPreview(doc),
         panelRect: (panel) => rectOf(root.querySelector(`[data-shell-card="${escape(panel)}"]`)),
         gridOrigin: () => {
@@ -502,7 +501,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return resolved.kind === "strip" && !options.titleOnly(resolved.panel) ? drop : withSectors(drop, input);
     }
 
-    /** 分区不进预览缓存：缓存按动作存，同一个“放到两块之间”可以从两块面板进来，画的是指针所在的那块。 */
+    /** 分区不进预览缓存：缓存按动作存，画的是指针所在的那块。 */
     function withSectors(drop: LayoutDragDrop, input: LayoutDropInput): LayoutDragDrop {
         // 缝上没有分区：缝不属于哪一块面板（输出 37）。
         if (!options.sectors() || drop.action.kind === "reveal" || (drop.action.kind === "edge" && drop.action.target.kind === "between")) return drop;
@@ -535,7 +534,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const across = (seam.from + seam.to) / 2;
             return seam.orientation === "horizontal" ? {x: seam.at, y: across} : {x: across, y: seam.at};
         }
-        const panelId = action.kind === "edge" ? (action.target as Exclude<typeof action.target, {readonly kind: "between"}>).panel : action.panel;
+        const panelId = action.kind !== "edge" ? action.panel : (action.target.kind === "between" ? null : action.target.panel);
+        if (panelId === null) return null;
         const geometry = panels.find((item) => item.id === panelId);
         if (geometry === undefined) return null;
         // 同一个下标可能有两个位置（固定行的行尾、普通行的行首）：取后一个，放下去是普通标签。
@@ -543,7 +543,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const {body} = geometry;
         const center = centerOf(body);
         if (action.kind === "center") return center;
-        const {edge} = action.target as Exclude<typeof action.target, {readonly kind: "between"}>;
+        const {target} = action;
+        if (target.kind === "between") return null;
+        const {edge} = target;
         const inset = 2;
         if (edge === "left") return {x: body.left + inset, y: center.y};
         if (edge === "right") return {x: body.right - inset, y: center.y};

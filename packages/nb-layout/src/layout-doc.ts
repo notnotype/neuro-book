@@ -114,6 +114,8 @@ type MutableDoc = {
 };
 
 const editable = (doc: LayoutDoc): MutableDoc => structuredClone(doc) as unknown as MutableDoc;
+/** 改到一半的文档当只读的看：`MutableDoc` 只是把 `LayoutDoc` 的只读去掉。 */
+const asDoc = (next: MutableDoc): LayoutDoc => next as unknown as LayoutDoc;
 
 const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
 const crossOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "height" : "width");
@@ -276,11 +278,11 @@ function expandWhereAxisChanged(original: LayoutDoc, next: MutableDoc): void {
 
 /** 出口：过规范形、查规模；结果和现状一样时返回原对象。 */
 function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
-    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(next as unknown as LayoutDoc, node));
+    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
     expandWhereAxisChanged(original, next);
     const scale = countScale(next.tree.root);
     if (scale.nodes > GRID_MAX_NODES || scale.depth > GRID_MAX_DEPTH) return failure("limit-exceeded", `节点 ${String(scale.nodes)} 个、深度 ${String(scale.depth)} 层`);
-    const doc = next as unknown as LayoutDoc;
+    const doc = asDoc(next);
     return {ok: true, doc: sameLayoutShape(original, doc) ? original : doc};
 }
 
@@ -534,7 +536,7 @@ function placeLeaf(next: MutableDoc, target: LayoutEdgeTarget, leaf: GridSnapsho
     if (target.kind === "spread" && hit.parent !== null && hit.parent.orientation === orientation) {
         // 占份额、不保留像素的 n 块一起分：新块占 1/(n+1)，它们按原比例缩，其余不动。摘掉来源之后才算：来源的份额已经还给了分支。
         const parent = hit.parent;
-        const view = next as unknown as LayoutDoc;
+        const view = asDoc(next);
         const sharing = new Set(parent.children.filter((child) => countsInShare(view, child) && !isFixedChild(view, parent.children, child)).map((child) => child.id));
         if (sharing.size > 0) {
             const total = parent.children.reduce((sum, child) => (sharing.has(child.id) ? sum + child.size[main] : sum), 0);
@@ -647,12 +649,13 @@ export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; read
     if (!policy.accepts([found.tab], anchor, "edge")) return failure("rejected", "接受矩阵拒绝");
     const next = editable(doc);
     takeTab(next, found.panel, found.index);
+    // 来源拖空的先隐藏，再放：`spread` 按占份额的块分，它不该算在里面。
+    settleEmptyPanel(next, found.panel);
     const id = policy.newId("panel");
     next.panels[id] = {role: source.role, tabs: [found.tab], active: input.tab};
     const leaf: GridSnapshotLeaf = {kind: "leaf", id, ref: panelRef(id), size: {width: 0, height: 0}};
     if (!placeLeaf(next, input.target, leaf, new Map(), () => policy.newId("branch"))) return failure("not-found", "目标已不存在");
     if (source.role === "editor") next.currentEditor = id;
-    settleEmptyPanel(next, found.panel);
     return finish(doc, next);
 }
 
@@ -810,7 +813,7 @@ export function stripDynamicTabs(doc: LayoutDoc): LayoutDoc {
         next.panels[id] = {...panel, tabs, active};
         settleEmptyPanel(next, id);
     }
-    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(next as unknown as LayoutDoc, node));
+    next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
     return next as unknown as LayoutDoc;
 }
 

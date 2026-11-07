@@ -31,8 +31,8 @@ export interface LiveDragHost {
     candidateDoc(source: LayoutTabSource, drop: LayoutDragDrop): LayoutDoc | null;
     /** 摘掉来源后的文档。 */
     sourceRemovedDoc(source: LayoutTabSource): LayoutDoc | null;
-    /** 来源在这份文档里所在的面板；`shown` 是此刻摆着的预览，没有预览时是 null，看已提交的。 */
-    homeOf(source: LayoutTabSource, shown: LayoutDoc | null): string | null;
+    /** 来源在已提交的文档里所在的面板。预览可能把它摘掉，卡片还是从这块缩出来。 */
+    homeOf(source: LayoutTabSource): string | null;
     show(doc: LayoutDoc | null): void;
 }
 
@@ -77,18 +77,10 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     let offered: LayoutDragDrop | null = null;
     let shown: LayoutDragDrop | null = null;
     let frame: number | null = null;
-    /** 此刻摆着的预览：标签预览到别的标签条之后再撕下，卡片从那块面板开始缩。 */
-    let shownDoc: LayoutDoc | null = null;
-
-    function show(doc: LayoutDoc | null): void {
-        shownDoc = doc;
-        host.show(doc);
-    }
-
     function candidateOf(drop: LayoutDragDrop, from: LayoutTabSource): LiveDropCandidate {
         const {action} = drop;
         // 自己那条标签条要跟手。别人的标签条是并入：预览不动它，和中央一样等候选稳定。
-        const inStrip = action.kind === "strip" && host.homeOf(from, null) === action.panel;
+        const inStrip = action.kind === "strip" && host.homeOf(from) === action.panel;
         // 只有长出新面板的落点有空位：并进已有面板时空位就是它的整块正文，粘住了它自己的外缘就选不到了。
         const grows = !drop.inPlace && (action.kind === "edge" || action.kind === "reveal");
         return {key: keyOf(drop), immediate: inStrip, slot: grows ? drop.preview.areaRect : null};
@@ -101,7 +93,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     function wantsCard(): boolean {
         if (offered === null || source === null) return true;
         if (offered.noPreview === true) return card.value !== null;
-        return offered.action.kind !== "strip" || host.homeOf(source, null) !== offered.action.panel;
+        return offered.action.kind !== "strip" || host.homeOf(source) !== offered.action.panel;
     }
 
     function updateCard(now: number): void {
@@ -111,8 +103,8 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             return;
         }
         if (cardSize === null) {
-            // 撕下来：从这个标签此刻所在的面板开始缩。
-            const panel = host.homeOf(source, shownDoc);
+            // 撕下来：从来源的面板开始缩。
+            const panel = host.homeOf(source);
             const rect = panel === null ? null : host.panelRect(panel);
             homeRect = rect;
             const width = rect === null ? CARD_COMPACT.width : rect.right - rect.left;
@@ -155,12 +147,12 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             const doc = offered === null ? null : host.candidateDoc(source, offered);
             // 摆不出来（原位、活动栏、编辑器会合并或拒绝）就没有预览：盖层和预备区让开都看它。
             shownAction.value = doc === null ? null : (offered?.action ?? null);
-            show(doc);
+            host.show(doc);
         } else if (preview.kind === "source-removed") {
             shown = null;
             previewKey.value = "source-removed";
             shownAction.value = null;
-            show(host.sourceRemovedDoc(source));
+            host.show(host.sourceRemovedDoc(source));
         }
         const origin = host.gridOrigin();
         slot.value = state.slot === null ? null : {x: state.slot.left - origin.x, y: state.slot.top - origin.y, width: state.slot.right - state.slot.left, height: state.slot.bottom - state.slot.top};
@@ -207,7 +199,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             slot.value = null;
             card.value = null;
             cardSize = null;
-            show(null);
+            host.show(null);
         },
     };
 }

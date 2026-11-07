@@ -19,7 +19,7 @@ const CANDIDATE = token("candidate");
 
 const drop = (action: LayoutDropAction, over: Partial<LayoutDragDrop> = {}): LayoutDragDrop => ({action, inPlace: false, preview: {areaRect: null, indicator: null, orientation: "horizontal"}, ...over});
 
-function harness(options: {readonly candidate?: LayoutDoc | null; readonly homeOf?: (shown: LayoutDoc | null) => string | null; readonly panels?: Readonly<Record<string, GridDropRect>>} = {}) {
+function harness(options: {readonly candidate?: LayoutDoc | null; readonly panels?: Readonly<Record<string, GridDropRect>>} = {}) {
     const frames = new Map<number, (now: number) => void>();
     let nextFrame = 1;
     let listener: ((point: GridDropPoint) => void) | null = null;
@@ -41,7 +41,7 @@ function harness(options: {readonly candidate?: LayoutDoc | null; readonly homeO
         },
         candidateDoc: () => (options.candidate === undefined ? CANDIDATE : options.candidate),
         sourceRemovedDoc: () => REMOVED,
-        homeOf: (_source, doc) => options.homeOf?.(doc) ?? "a",
+        homeOf: () => "a",
         show: (doc) => shown.push(doc),
     });
     let now = 1000;

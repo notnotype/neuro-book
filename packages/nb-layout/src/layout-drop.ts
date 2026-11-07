@@ -159,11 +159,13 @@ export interface LayoutSeam {
 
 const unionOf = (left: GridDropRect, right: GridDropRect): GridDropRect => ({left: Math.min(left.left, right.left), top: Math.min(left.top, right.top), right: Math.max(left.right, right.right), bottom: Math.max(left.bottom, right.bottom)});
 
+const frameOf = (geometry: LayoutDropPanelGeometry): GridDropRect => geometry.frame ?? (geometry.strip === null ? geometry.body : unionOf(geometry.strip, geometry.body));
+
 /**
  * 这一刻有哪些缝，缝的位置按几何算。没有几何的叶（隐藏的、拖到零的）不算：`H[A, 拖到零的 Z, B]` 看得见的只有 A|B 这一条缝。
  */
 export function layoutSeamsOf(doc: LayoutDoc, panels: ReadonlyArray<LayoutDropPanelGeometry>): ReadonlyArray<LayoutSeam> {
-    const frames = new Map(panels.map((geometry) => [geometry.id, geometry.frame ?? (geometry.strip === null ? geometry.body : unionOf(geometry.strip, geometry.body))]));
+    const frames = new Map(panels.map((geometry) => [geometry.id, frameOf(geometry)]));
     const seams: LayoutSeam[] = [];
     const visit = (node: GridSnapshotNode): GridDropRect | null => {
         if (node.kind === "leaf") return frames.get(node.id) ?? null;
@@ -219,13 +221,13 @@ function seamAt(input: LayoutDropInput, tabs: ReadonlyArray<TabRef>): LayoutSeam
 const seamTarget = (seam: LayoutSeam): LayoutEdgeTarget => ({kind: "between", branch: seam.branch, before: seam.before, after: seam.after});
 
 /**
- * 指针在面板上吗（不管接不接收）：浮动窗，或任一面板的正文、标签条，以及它们 `SEAM_PX` 内的缝。在面板上却没有落点就是被拒绝，松手取消；不在面板上才算无落点（输出 39）。
+ * 指针在面板上吗（不管接不接收）：浮动窗，或任一面板整块（头里的提示条也算），以及它 `SEAM_PX` 内的缝。在面板上却没有落点就是被拒绝，松手取消；不在面板上才算无落点（输出 39）。
  * 不用 `layoutDropPanelAt`：它在缝里只找能接收的那块，两块都不接收的缝会被当成不在面板上。
  */
 export function layoutDropOverPanel(input: LayoutDropInput): boolean {
     if (input.floats?.some((geometry) => inGeometry(geometry, input.point)) === true) return true;
     if (input.excluded?.some((rect) => contains(rect, input.point)) === true) return false;
-    return input.panels.some((geometry) => Math.min(distanceTo(geometry.body, input.point), geometry.strip === null ? Number.POSITIVE_INFINITY : distanceTo(geometry.strip, input.point)) <= SEAM_PX);
+    return input.panels.some((geometry) => distanceTo(frameOf(geometry), input.point) <= SEAM_PX);
 }
 
 /** 这一刻指针落在哪；`null` 是没有落点（工作台外、标题栏、条、被接受矩阵拒绝）。 */

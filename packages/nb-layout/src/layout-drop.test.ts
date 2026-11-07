@@ -128,6 +128,11 @@ describe("被拒绝（输出 39）", () => {
         expect(over(300.5, 300, {policy: refuses})).toBe(true);
     });
 
+    it("头里的提示条也算在面板上：它不在正文、标签条里", () => {
+        const panels: ReadonlyArray<LayoutDropPanelGeometry> = [{id: "ec", frame: rect(0, 0, 300, 600), strip: rect(0, 60, 300, 90), body: rect(0, 90, 300, 600)}];
+        expect(over(150, 30, {panels})).toBe(true);
+    });
+
     it("工作台外、挡住的区域不算", () => {
         expect(over(2000, 300)).toBe(false);
         expect(over(899, 300, {excluded: [rect(899, 0, 950, 600)]})).toBe(false);
