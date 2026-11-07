@@ -1,0 +1,93 @@
+# omp 设计审查（t17）：阻断 1，重要 7，建议 1，全部成立、已写进计划
+
+### 1. 场景属性放在 html，但 CSS 选择器要求它同时在加载页节点
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t17-loading-page-themes/plan.md:34-42`；`packages/neuro-book/src/web/index.html:58-61`
+- **现象**：计划要求内联脚本把 `data-host-scene`、`data-host-indicator` 写到“根”上（实际是 `<html>`），但场景 CSS 写成 `.nb-host-loading[data-host-scene]::before`。加载页节点是 `<main class="nb-host-loading">`，不会同时拥有 `<html>` 的属性；场景层因此永远不匹配，第一帧只剩纯色。指示器描述反而明确写了“祖先上的”属性，前后不一致。
+- **为什么是问题**：书房的核心验收“加载页用场景图”在真实运行时会失败；仅断言 `html[data-host-scene]` 存在会漏掉这个错误。
+- **如何核实**：静态查看两份 `index.html` 的节点关系；在浏览器控制台执行 `document.documentElement.dataset.hostScene = "x"; document.querySelector(".nb-host-loading").matches("[data-host-scene]")`，结果为 `false`。
+- **建议改法**：把选择器改为 `html[data-host-scene] .nb-host-loading::before`（或在加载页节点上同步属性，但这不能作为首帧唯一来源）；测试必须断言伪元素实际有 `background-image`，不能只断言根属性。
+### 2. 路径正则放行协议相对地址，不能证明加载资源同源
+- **严重程度**：重要；**类别**：安全
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t17-loading-page-themes/plan.md:34-37`
+- **现象**：白名单 `^/[A-Za-z0-9._~%/-]+$` 接受 `//evil.example/a.webp`。放入 `url("//evil.example/a.webp")` 后，浏览器按协议相对 URL 发起跨源图片请求；这不是引号闭合式 CSS 注入，但已经允许本地存储里的值把加载页背景指向任意外站。正则也没有表达“同源”，只表达“以斜杠开头”。
+- **为什么是问题**：`localStorage` 是可被同源脚本或用户工具改写的边界输入；加载页会在应用脚本前消费它。跨源请求会造成追踪/网络副作用，且违反计划声称的“同源路径”合同。
+- **如何核实**：用正则测试 `"//evil.example/a.webp"`，结果为匹配；用 `new URL("//evil.example/a.webp", "https://book.example/").origin`，结果为 `https://evil.example`。现有 `appearance-hint.dom.test.ts` 的坏记录用例没有这个边界。
+- **建议改法**：先按浏览器 URL 规则解析，再要求 `url.origin === location.origin`、协议为当前页面协议且无用户名/密码，最后把 `pathname`（以及明确允许的查询/片段）序列化成 CSS 安全值；至少增加 `//host`、`/%2f%2fhost`、绝对同源 URL、跨源 URL 的真浏览器测试。不要把正则当同源校验。
+### 3. 内置素材实际返回绝对 URL，按计划的路径格式在开发环境会被丢弃
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t17-loading-page-themes/plan.md:30-36`；`packages/neuro-book/src/web/plugins.ts:109-121`；`packages/neuro-book/src/plugin-platform/shared/plugin-files.ts:12-20`；`packages/neuro-book/src/plugins/files/shared/contracts.ts:449-456`
+- **现象**：内置主题素材由 `new URL(..., import.meta.url).href` 生成，开发服务运行时是 `http://host/...` 绝对地址，生产打包后的 `import.meta.url` 计算结果同样是当前站点的绝对地址。计划把提示字段限定为以 `/` 开头的路径；如果只按这个正则读 CSS 变量，书房的内置场景在开发服务和部分生产构建中都会被拒绝。第三方插件地址由 `pluginFilesPrefix` 生成相对 `/api/runtime/...` 路径，用户素材由 `rawUrlOf` 生成相对 `/api/nbook.files/...` 路径，三种来源形状并不统一。
+- **为什么是问题**：开发服务、Lab/e2e 外壳和生产产物是计划明确要求覆盖的三套页面；只测用户素材或构建后手写的 `/assets/...` 会把书房开发场景的回归漏掉。计划虽写“转成同源路径”，但没有定义转换时机、失败语义或测试。
+- **如何核实**：运行时打印 `builtinPluginAssets["nbook.theme-study"]["assets/study-day.webp"]`，它来自 `new URL(...).href`；对该值应用计划中的路径正则，绝对地址含 `:`，不匹配。第三方前缀的 `@`、`+` 等则在 `encodeURIComponent` 后变为 `%40`、`%2B`，不应凭原始字符臆测白名单。
+- **建议改法**：在 `readDocumentHint` 里统一用 `new URL(raw, location.href)` 验证同源，再存 `pathname`（按合同处理查询/片段）；明确开发、e2e、生产三种地址都走同一转换。用真实装配出的内置、第三方和用户 URL 分别覆盖，而不是只测一个正则样例。
+### 4. 挂起引导请求时没有书名和提示，无法执行计划中的对比度验收
+- **严重程度**：重要；**类别**：测试
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t17-loading-page-themes/plan.md:67-72`；`packages/neuro-book/src/web/host/window.ts:180-203`；`packages/neuro-book/src/web/boot.ts:77-84`；`packages/neuro-book/e2e/browser-host.e2e.ts:62-71`
+- **现象**：计划要求“让引导请求挂起”后，在加载页上用 `measure` 测书名和提示的对比度。实际启动先把状态设为 `starting/projectTitle: null`，再 `await connection.bootstrap()`；只有引导返回并解析出 `projectTitle` 后才写 `starting/projectTitle`，`boot.ts` 才把书名与提示填入 DOM。引导被挂起时，两个 `<p>` 仍为空，不能量到文字。
+- **为什么是问题**：这不是等待条件写错，而是测试场景与启动合同互斥。若测试直接给 DOM 填文字，就绕过真实启动时序；若只断言背景和指示器，又没有覆盖“文字压在场景图上”的验收。
+- **如何核实**：沿 `browserWindow.start()` 读 `window.ts` 的 `bootstrap` await；沿 `onChange` 读 `boot.ts` 的 `projectTitle` 条件；在已有 e2e 的 `page.route(BOOTSTRAP, ...)` 中保持请求未完成，查询 `[data-host-loading-title]` 与 `[data-host-loading-hint]`，均为空。
+- **建议改法**：拆成两个真实场景：一条只验证引导挂起时的第一帧、图层和指示器；另一条让引导正常返回、再拦住后续 RPC/握手或插件激活阶段，保留书名与提示后用 `measure` 量实际复合背景。计划应写明拦截点、释放条件和失败时资源收口。
+### 5. 书页预设会被现有 160×2 的隐藏溢出裁掉
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t17-loading-page-themes/plan.md:42`；`packages/neuro-book/src/web/host-loading.css:18-37`
+- **现象**：现有 `.nb-host-loading__bar` 同时是 160px × 2px 的居中槽位，并且 `overflow: hidden`。计划只说把形状放进新的 `.nb-host-indicator`，但 `page` 是“一张书页翻动”，需要明显大于 2px 的高度；若照“拆定位与形状”直接保留现有槽位，书页被裁成 2px，dots/pulse 也没有定义自己的槽位尺寸。
+- **为什么是问题**：四种样式的“长相已认可”不能靠未写出的 CSS 细节实现；其中一个预设会在真实加载页不可见或只剩细线，且编辑器预览会重复这个错误。
+- **如何核实**：在现有 DOM 中插入一个 24px × 32px 的 `.nb-host-indicator`，放进 `.nb-host-loading__bar`，读取其可见裁切区域；祖先 `overflow: hidden; height: 2px` 只保留 2px 高度。
+- **建议改法**：把 `__bar` 明确成不裁剪的定位槽，给每个预设定义宽高、对齐和 `overflow`；或让形状直接成为定位节点并按 `data-host-indicator` 改尺寸。四种预设和减弱动效都要有真实浏览器的可见性/几何断言。
+### 6. 类名拆分的既有合同没有纳入验收映射
+- **严重程度**：重要；**类别**：测试
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t17-loading-page-themes/plan.md:42-43,62-71`；`packages/neuro-book/src/web/FailurePage.dom.test.ts:101-109`；`packages/neuro-book/e2e/projects.e2e.ts:140-144`
+- **现象**：现有 DOM 测试直接断言 `.nb-host-loading__bar`、标题和提示；失败页与两份 `index.html` 都使用这套类名。计划说把形状拆成 `.nb-host-indicator`，但切片/验收只列 `appearance-hint.dom.test.ts`、`themes.e2e.ts`、`theme-editor.e2e.ts`，没有列 `FailurePage.dom.test.ts`，也没有写明旧的 `__bar` 是必须保留的定位槽还是要迁移的选择器。
+- **为什么是问题**：实现者若把 `__bar` 直接换成 `.nb-host-indicator`，会破坏现有宿主页合同；若保留它，又必须保证旧选择器指向定位槽而不是形状，否则旧测试虽然绿，消费者样式/几何语义已经变了。该回归不属于提示读取测试，也不由主题编辑器 e2e 覆盖。
+- **如何核实**：运行 `grep -R "nb-host-loading" packages/neuro-book/src packages/neuro-book/e2e` 可见现有断言；把静态占位或 `FailurePage` 的类名替换后，`FailurePage.dom.test.ts` 的 `.nb-host-loading__bar` 断言立即失败。
+- **建议改法**：计划明确类名迁移合同：保留 `nb-host-loading__bar` 作为定位槽、增加 `.nb-host-indicator` 作为形状，并更新/保留 `FailurePage.dom.test.ts`；新增四种预设与失败页启动态的 DOM/浏览器断言，不能只靠搜索结果证明没有破坏。
+### 7. `additionalProperties: false` 与 version 1 用户记录的降级行为未定义
+- **严重程度**：建议；**类别**：不变量
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t17-loading-page-themes/plan.md:13-26`；`packages/neuro-book/src/plugins/workbench/shared/themes.ts:27-55`；`packages/neuro-book/src/plugins/workbench/shared/user-themes.ts:25-47,50-63`
+- **现象**：新字段放进 `LookSchema` 后，新版本能读旧条目；但用户主题记录仍是 `version: 1`，旧版本的 `LookSchema` 由于 `additionalProperties: false` 会拒绝新版本写下的 `loading`，`userThemeProblem` 会把整套主题跳过。现有记录层没有迁移或最低读取版本字段，计划也没有说明降级/回滚时是隐藏、保留还是迁移。
+- **为什么是问题**：用户主题是跨启动、跨窗口的共享 Storage 数据；应用更新后再回退到旧版本时，带加载页设置的主题会从列表消失。计划同时要求导出/导入与“我的主题”保留字段，却没有把这个单向兼容边界写入合同或测试，容易把“旧声明照常合法”误解成双向兼容。
+- **如何核实**：用当前 `UserThemesSchema` 写入含 `loading` 的条目，再用旧版 `ThemeDeclarationSchema`/`userThemeProblem` 读取；`Value.Check` 返回 `false`，`validUserThemes` 不包含该条目，原始记录虽保留但用户看不到。
+- **建议改法**：在 Spec/计划明确只保证新读旧，还是要支持旧读新；若只保证单向，记录与发布说明写明不可降级，并补“旧读新不改写、不丢原条目”的合同测试。若要求双向，则需版本化记录/字段过滤迁移，不能仅靠把可选字段加进 `additionalProperties:false`。
+### 8. 编辑器预览没有独立的样式状态，复用宿主类名会跟随错误的全局预设
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t17-loading-page-themes/plan.md:42,47`；`packages/neuro-book/src/web/host-loading.css:18-37`；`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/ThemeEditorScene.vue:60-105`
+- **现象**：计划把 `data-host-indicator` 写到 `<html>`，同时要求编辑器每个选项旁只用 `.nb-host-indicator` 画四种预览。编辑器现有模板没有 `.nb-host-loading` 槽位，也没有每个选项自己的 `data-host-indicator`；若 CSS 按宿主根属性选择，四个预览会全跟随上一次记录的样式；若 CSS 按 `.nb-host-loading[data-host-indicator]` 选择，编辑器预览一个都不会切换。
+- **为什么是问题**：同一份 CSS 不等于同一份 DOM 上下文。编辑器要同时显示四个不同状态，不能依赖加载页唯一的全局属性；这会直接使“每个选项旁的样式预览”和可编辑值脱钩。
+- **如何核实**：在当前 `ThemeEditorScene` 的分段选项 DOM 中查找 `.nb-host-loading`、`data-host-indicator`，两者均不是现有结构；把计划中任一全局选择器套到四个裸 `.nb-host-indicator` 上，逐项计算样式即可看到它们无法分别得到 `bar/dots/pulse/page`。
+- **建议改法**：为每个选项建立带 `data-host-indicator` 的局部预览槽（必要时带 `.nb-host-loading` 的语义/布局类），把“形状”选择器设计成既支持 `html` 宿主上下文也支持局部预览；预览必须固定 `prefers-reduced-motion` 的测试场景，不能读取或修改当前文档根的全局选择。
+### 9. 验收只覆盖书房的 `page` 属性，不证明四种预设真的可见且动效正确
+- **严重程度**：重要；**类别**：测试
+- **位置**：`.agents/works/w00041-themes-and-backgrounds/tasks/t17-loading-page-themes/plan.md:42,69-72`
+- **现象**：验收映射只写在书房加载页断言 `data-host-indicator="page"`，没有 `bar`、`dots`、`pulse` 的真实加载页场景，也没有断言形状的可见几何、动画状态或 `prefers-reduced-motion` 下的静止结果。主题编辑器 e2e 只计划断言选择写进声明，不能证明预览画的是对应预设。`nbdev shot` 是人工截图，不是可重复的合同测试。
+- **为什么是问题**：`data-host-indicator` 可能正确而 CSS 选择器、尺寸或动画都错误；当前计划已出现属性上下文和 2px 裁切风险，单一 `page` 属性断言无法捕获这些回归。默认 Playwright 配置还使用 `reducedMotion: "reduce"`，若不显式切回 `no-preference`，动画路径根本未被测。
+- **如何核实**：逐项删掉/改坏 `.dots`、`.pulse`、`.page` 的 CSS，按计划中的测试仍可只看到属性断言通过；查看 `docs/testing/README.md:30-32` 可知 e2e 默认会把动效压成静止。
+- **建议改法**：为四种预设各设一个真实加载页场景（可通过书房/示例声明或测试主题选择），断言可见几何和关键 computed style；另设 `no-preference` 测动画存在、`reduce` 测动画为零且静态图形仍可见。编辑器 e2e 至少逐项选中并断言局部预览状态，而不是只测记录字段。
+## 未发现问题的方面
+- 两份 `index.html` 当前内联脚本确实逐字一致；现有 `appearance-hint.dom.test.ts` 会用 `toBe` 核对，并核对宿主写入的存储键。问题在于新增场景/指示器后的真实 URL 与 CSS 行为仍需补测试，不是重复脚本本身。
+- 用户素材 `rawUrlOf` 当前生成 `/api/nbook.files/raw/user/theme-assets/<摘要>.<扩展名>`，不带项目代次；第三方插件文件前缀当前是 `/api/runtime/plugins/<编码插件 id>/files/<摘要>/`，路径段经 `encodeURIComponent`，`@`、`+` 等会变成 `%xx`。这些现有地址形状本身没有发现问题，内置素材绝对 URL 的差异见第 3 条。
+- `document-theme.ts` 当前把主题变量写在文档根并在清理时按 `written` 删除，`MutationObserver` 也监听了 `style` 与明暗/主题属性；在现有机制中没有发现 `--skin-scene` 与新增变量必然不同步的独立问题。新增变量仍须进入同一 `vars` 集合并补根样式变更测试。
+- 纯数据 `loading` 若只包含布尔值与枚举值，现有 `structuredClone`、`renameAssets`、`keepUserAssets`、`assetRefs` 的路径不会主动丢掉它；导入导出/复制的风险主要落在 schema 兼容边界，第 7 条已列出。
+- 计划列出的 `appearance-hint.dom.test.ts`、`themes.e2e.ts`、`theme-editor.e2e.ts` 在当前仓库均存在；未发现文件名本身写错。现有加载页类名的断言遗漏另见第 6 条。
+
+## 不做与风险
+- 不做主题自带动画素材：这是安全且适合第一帧加载的取舍，避免执行/解析不可信动画资源；代价是主题只能使用四种内置形状。
+- 不让加载页使用场景提供者：这是正确的边界，提供者产出 `blob:` 地址且依赖运行时，整页重载前无法稳定复用；代价是只声明 `sceneProvider`、没有静态 `scene` 的主题加载页没有场景图。
+- 不做加载页书名字体按主题换：可避免首帧字体请求与 FOIT，符合加载页先显示的约束；代价是主题字体不会覆盖书名。
+- 场景图第一帧后才到：这是可接受的纯色到图片切换风险，但验收必须等待真实图片解码后再测，不能把未加载的纯色误判为通过。
+- 插件素材改名、升级或重装后旧地址可能 404：这是内容摘要地址的既有语义，加载页应保持文字和指示器、只退回纯色；计划需把该降级行为写入测试或明确列为未覆盖。
+
+## 验证
+- `bun test src/plugins/workbench/themes.test.ts`：40 pass，0 fail。
+- `bun run test:vitest src/web/host/appearance-hint.dom.test.ts`：1 个文件、4 tests pass。
+- 未运行 e2e 与开发服务，符合本次只读审查限制；上述通过结果是当前基线，不是对未实现计划的验收。
+
+有效发现：1–9。各级数量：阻断 1，重要 7，建议 1。
+
+## 别扭与反常之处的判断
+- 两份 `index.html` 各保留一份内联脚本：这是首帧不能依赖模块 import 的直接结果；当前逐字一致测试能防漂移。生成共享内联片段也可减少重复，但会把首屏合同绑到构建脚本，按现有约束不比复制更简单。
+- 用 `data-host-indicator` 表示四种预设：比继续增加 `bar/dots/pulse/page` 形状类更适合表达单一状态，且能让 CSS 与 `prefers-reduced-motion` 分支集中；问题不是选 data 属性，而是计划没有给编辑器预览建立局部属性上下文（第 8 条）。
+- 保留 `.nb-host-loading__bar` 做定位、增加 `.nb-host-indicator` 做形状：这是比直接改名更稳的迁移方式，但必须把槽位几何和现有测试合同写清（第 5、6 条）。
+- 用一次纯色到场景图切换而不做交叉淡化：与已确认的“无主题自带动画素材”边界一致，复杂度低；代价就是第“不做与风险”中的首帧渐变和失效地址降级。
+
+最终数量：阻断 1，重要 7，建议 1；有效发现 1–9。
