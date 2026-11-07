@@ -67,6 +67,11 @@ t20 定稿后的改写（2026-10-29，开发者认可 [Agent harness 的事件�
 - 第一轮“`defineProfile` 以分支实现为主体：manifest、initialSchema、tools、context，可注册的节点、数据源与字段”：改为 Profile 自己就是最里层的扩展，写扩展的字段（`state`、`on`、`mount`、`contribute`、`intercept` 等）加 Profile 级的 `name`、`description`、`initial`、`payload`、`modelNeeds`、`tools`、`system`、`prompt`、`turn`、`commit`、`render`、`compaction`；不再有可注册的节点与数据源，种子、`Appending`、`Reminder`、`ModelContext` 的去处见提案第 13 节。运行时这一层按语义参照分支（提案“影响”一节）。
 - 第三轮“压缩后的种子：每次压缩后重新渲染种子、与压缩条目一起追加、回放时排在压缩内容之前”：改为开场由 `opening()` 在会话创建与每次压缩之后读一次，交给历史前面的稳定槽 `opening`；摘要排在已提交的轮前面（提案第 10 节）。“给摘要的额外要求”不变，经 Profile 的 `compaction.require`。
 
+评审板第 1 轮（开发者 2026-11-07）：
+
+- 整页版式可以（左边列表，右边名称和说明、模型、审批模式、工具）。两处要改：缺必需工具的横幅不好，参照规范和别处的做法改，有提示和没提示时占的高度要一样；名称、说明、key 分三行太高。
+- 工具一节选 B：只列开着的，另外添加；并且按提供者分类。
+
 ## 当前状态
 
 讨论完成（2026-10-28）；上下文机制按 t20 定稿改写（2026-10-29）。后端随 t10、t18 实现，用户界面一直没做。
@@ -75,4 +80,4 @@ t20 定稿后的改写（2026-10-29，开发者认可 [Agent harness 的事件�
 
 ## 下一步
 
-出静态稿，经评审板定版式，再做设计审查（前端 Sonnet、后端 omp）与切片实施。
+评审板第 2 轮定提示、头部和按提供者分类的改法，再做设计审查（前端 Sonnet、后端 omp）与切片实施。
