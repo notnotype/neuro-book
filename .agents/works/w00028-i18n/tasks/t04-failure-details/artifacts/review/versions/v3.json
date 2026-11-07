@@ -1,0 +1,287 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00028-i18n",
+    "taskId": "t04-failure-details",
+    "artifactId": "review",
+    "version": 3,
+    "supersedes": 2,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00028 t04 失败详情组件与常驻通知：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "c10b523bb53f01a2c6cc58a329edde357b546efc7aab92f19bde143101cc370c",
+    "files": [
+        "index.html",
+        "r1/banner-collapsed.webp",
+        "r1/banner-expanded-dark.webp",
+        "r1/banner-expanded-mobile.webp",
+        "r1/banner-expanded.webp",
+        "r1/copy-done.webp",
+        "r1/copy-fallback.webp",
+        "r1/explorer-result-mobile.webp",
+        "r1/explorer-result.webp",
+        "r1/notice-collapsed.webp",
+        "r1/notice-expanded-dark.webp",
+        "r1/notice-expanded-mobile.webp",
+        "r1/notice-expanded.webp",
+        "r1/stack-six-cap-mobile.webp",
+        "r1/stack-six-cap.webp",
+        "r1/stack-six-nocap.webp",
+        "r1/statusbar-popover.webp",
+        "r2/banner-copy-done.webp",
+        "r2/banner-copy-only.webp",
+        "r2/banner-dialog-mobile.webp",
+        "r2/banner-dialog.webp",
+        "r2/banner-popover-mobile.webp",
+        "r2/banner-popover.webp",
+        "r2/explorer-copy-only.webp",
+        "r2/explorer-popover-mobile.webp",
+        "r2/explorer-popover.webp",
+        "r2/notice-popover.webp",
+        "r2/statusbar-copy-only.webp",
+        "r3/editor-failure-mobile.webp",
+        "r3/editor-failure.webp",
+        "r3/explorer-failure.webp",
+        "r3/notice-actions-left-dark.webp",
+        "r3/notice-actions-left-mobile.webp",
+        "r3/notice-actions-left.webp",
+        "r3/notice-actions-right.webp",
+        "r3/notice-detail-dialog-dark.webp",
+        "r3/notice-detail-dialog-mobile.webp",
+        "r3/notice-detail-dialog.webp",
+        "r3/notice-no-detail.webp",
+        "r3/stack-new-layout-mobile.webp",
+        "r3/stack-new-layout.webp",
+        "r3/statusbar-dialog.webp"
+    ],
+    "questions": [
+        {
+            "id": "sticky-rule",
+            "type": "single",
+            "label": "带详情的通知什么时候消失",
+            "options": [
+                {
+                    "value": "sticky-with-detail",
+                    "label": "A 带详情的通知一律常驻，手动关闭"
+                },
+                {
+                    "value": "pause-on-open",
+                    "label": "B 仍按色调限时，展开后才转常驻"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "sticky-with-detail"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "stack-cap",
+            "type": "single",
+            "label": "常驻通知多了怎么办",
+            "options": [
+                {
+                    "value": "cap-4",
+                    "label": "A 视口最多 4 条，其余折成“还有 n 条”"
+                },
+                {
+                    "value": "no-cap",
+                    "label": "B 不设上限，视口自己滚动"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "cap-4"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notice-width",
+            "type": "single",
+            "label": "详情块的宽度（涉及改 nb-ui 的 Notification）",
+            "options": [
+                {
+                    "value": "footer-slot",
+                    "label": "A Notification 加一个整行宽的 footer 插槽"
+                },
+                {
+                    "value": "column-width",
+                    "label": "B 沿用文字列宽度"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "footer-slot"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "placements",
+            "type": "confirm",
+            "label": "确认各类界面里详情放哪（含“不展示”的几处）",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "other-places",
+            "type": "single",
+            "label": "横幅、资源管理器结果区的详情用什么做法（第 2 轮）",
+            "options": [
+                {
+                    "value": "popover",
+                    "label": "A 弹层：点“详情”在旁边弹出原文，点别处收起"
+                },
+                {
+                    "value": "copy-only",
+                    "label": "B 只给“复制详情”按钮，不展示原文"
+                },
+                {
+                    "value": "dialog",
+                    "label": "C 居中对话框：点“详情”打开，带遮罩"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "popover"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "copy-only-code",
+            "type": "single",
+            "label": "（仅当上一题选 B）复制前要不要让用户看到错误码",
+            "options": [
+                {
+                    "value": "with-code",
+                    "label": "A 悬停提示与状态栏弹层里带一行错误码"
+                },
+                {
+                    "value": "without-code",
+                    "label": "B 不带，只写“复制详情”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "with-code"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "notice-detail",
+            "type": "single",
+            "label": "通知里的详情要不要也换成弹层",
+            "options": [
+                {
+                    "value": "inline",
+                    "label": "A 保持原位展开（第 1 轮的决定）"
+                },
+                {
+                    "value": "popover",
+                    "label": "B 也换成弹层"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "inline"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "superseded",
+                "in": 3,
+                "by": null
+            }
+        },
+        {
+            "id": "notice-actions-align",
+            "type": "single",
+            "label": "通知里的动作行放左还是放右",
+            "options": [
+                {
+                    "value": "left",
+                    "label": "A 左对齐，与标题、正文连成一条竖线"
+                },
+                {
+                    "value": "right",
+                    "label": "B 右对齐，与右上角关闭键呼应"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "left"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "notice-detail-where",
+            "type": "single",
+            "label": "通知里的“详情”点开后怎么显示（取代第 1 轮 footer 插槽那一题）",
+            "options": [
+                {
+                    "value": "dialog",
+                    "label": "A 对话框：与别处统一，通知保持两行加动作行"
+                },
+                {
+                    "value": "inline",
+                    "label": "B 通知里原位展开（第 1 轮的做法）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "dialog"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "no-banner",
+            "type": "confirm",
+            "label": "确认：编辑器与资源管理器的失败改发通知，状态栏条目点开对话框",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-07T08:40:51.944Z"
+}
