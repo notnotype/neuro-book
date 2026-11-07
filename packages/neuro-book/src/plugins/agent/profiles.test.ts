@@ -4,7 +4,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {mkdir, rename, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
@@ -250,6 +250,18 @@ describe("用户级 Profile", () => {
             expect(await client.createUserProfile({name, ...texts})).toMatchObject({ok: false, code: "invalid-name"});
         }
         subscription.value.release();
+    });
+
+    test("输出 18：同时新建同名只有一个成功，文件是成功的那个的内容，不留临时文件", async () => {
+        const {w, directory} = await world({});
+        const {client} = await w.window("race");
+        const attempts = ["甲", "乙", "丙", "丁"].map((who) => ({who, sent: client.createUserProfile({name: "same", description: who, system: `${who}的提示`})}));
+        const results = await Promise.all(attempts.map(async ({who, sent}) => ({who, result: await sent})));
+        const winners = results.filter(({result}) => result.ok);
+        expect(winners).toHaveLength(1);
+        expect(results.filter(({result}) => !result.ok).every(({result}) => !result.ok && result.code === "exists")).toBe(true);
+        expect(await Bun.file(join(directory, "same.profile.tsx")).text()).toContain(`${winners[0]!.who}的提示`);
+        expect((await readdir(directory)).sort()).toEqual(["same.profile.tsx"]);
     });
 
     test("输出 18：删除入口文件，用它的会话只读；不在的得 not-found", async () => {

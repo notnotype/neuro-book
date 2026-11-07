@@ -10,7 +10,7 @@
  * 打包期间又有变化就丢掉这次的结果再打一次，旧包不会盖过新包。打包或求值失败时继续用上一次成功的包。
  */
 
-import {createHash} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {existsSync, watch} from "node:fs";
 import type {FSWatcher} from "node:fs";
 import {link, mkdir, readdir, realpath, rename, rm, writeFile} from "node:fs/promises";
@@ -149,12 +149,13 @@ export class ProfileBundles implements UserProfiles {
 
     /**
      * 新建（contributions.md 输出 18）：先写好再链接成入口文件，目录监听看到的就是写完的文件，不会先打包一个空文件；链接是
-     * 排他的，已有同名不覆盖。交回时打包已经有结果，目录里有它。
+     * 排他的，已有同名不覆盖。临时文件放在同一目录（`link` 不能跨文件系统），每次一个名字（同时新建同名时互不改写）；它不以
+     * `.profile.tsx` 结尾，监听不把它当 Profile。交回时打包已经有结果，目录里有它。
      */
     async create(name: string, texts: {readonly description: string; readonly system: string}): Promise<CreateUserProfileResult> {
         if (!USER_PROFILE_NAME.test(name)) return {ok: false, code: "invalid-name"};
         const file = `${name}${SUFFIX}`;
-        const temporary = join(this.#cache, `${file}.${String(process.pid)}.tmp`);
+        const temporary = join(this.#directory, `.${file}.${randomUUID()}.tmp`);
         await writeFile(temporary, skeleton(name, texts));
         try {
             await link(temporary, join(this.#directory, file));

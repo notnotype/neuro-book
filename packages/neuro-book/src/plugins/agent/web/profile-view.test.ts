@@ -215,6 +215,8 @@ describe("工具一节", () => {
     test("有绑定时标 modified", () => {
         expect(tools()?.modified).toBe(false);
         expect(tools({binding: {added: [], removed: ["nbook.agent.ask"]}})?.modified).toBe(true);
+        // 手写的空绑定没有任何效果，不算改过。
+        expect(tools({binding: {added: [], removed: []}})?.modified).toBe(false);
     });
 
     test("候选：同名工具能换就写 replaces，必需的换不了就 blocked", () => {

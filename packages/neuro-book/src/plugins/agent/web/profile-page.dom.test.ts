@@ -492,6 +492,80 @@ describe("用户级 Profile", () => {
     });
 });
 
+describe("别处抢先写了（设置项是一整份 Record）", () => {
+    /** 这次写入发出之前，另一个窗口抢先写了别的 key：比较的值已经过时。只抢一次。 */
+    function racing(settings: ReturnType<typeof open>["settings"], other: () => Promise<unknown>): void {
+        const update = settings.update.bind(settings);
+        settings.update = (async (setting: never, value: never, options: never) => {
+            settings.update = update;
+            await other();
+            return update(setting, value, options);
+        }) as never;
+    }
+
+    it("模型与审批：重算后两边的 key 和同一 Profile 的别的字段都留着", async () => {
+        const {wrapper, settings} = open({values: {[agentSettings.settings.profileSettings.key]: {"nbook.agent.main": {approvalMode: "ask"}}}});
+        await ready(wrapper);
+        const setting = agentSettings.settings.profileSettings;
+        racing(settings, () => settings.update(setting, {"nbook.agent.main": {approvalMode: "auto"}, "user.mine": {role: "main"}}));
+        wrapper.findComponent(ProfileDetail).vm.$emit("model", "p/a");
+        await waitUntil("写下", () => settings.get(setting)["nbook.agent.main"]?.model === "p/a");
+        expect(settings.get(setting)).toEqual({"nbook.agent.main": {approvalMode: "auto", model: "p/a"}, "user.mine": {role: "main"}});
+    });
+
+    it("工具：重算后别的 Profile 的绑定留着，这个 Profile 也按新值算", async () => {
+        const {wrapper, settings} = open();
+        await ready(wrapper);
+        const setting = agentSettings.settings.toolBindings;
+        const other = {added: ["plot.search"], removed: []};
+        racing(settings, () => settings.update(setting, {"user.mine": other, "nbook.agent.main": {added: ["plot.search"], removed: []}}));
+        await wrapper.get("[data-profile-tool='nbook.agent.edit'] [data-profile-tool-remove]").trigger("click");
+        await waitUntil("写下", () => settings.get(setting)["nbook.agent.main"]?.removed.length === 1);
+        expect(settings.get(setting)).toEqual({"user.mine": other, "nbook.agent.main": {added: ["plot.search"], removed: ["nbook.agent.edit"]}});
+    });
+
+    it("重试后还冲突：走窗口通知，页面回到设置里的实际值", async () => {
+        const {wrapper, settings, failures} = open();
+        await ready(wrapper);
+        const setting = agentSettings.settings.profileSettings;
+        const update = settings.update.bind(settings);
+        let counter = 0;
+        settings.update = (async (definition: never, value: never, options: never) => {
+            counter += 1;
+            await update(setting, {"user.mine": {role: `r${String(counter)}`}});
+            return update(definition, value, options);
+        }) as never;
+        wrapper.findComponent(ProfileDetail).vm.$emit("model", "p/a");
+        await waitUntil("通知", () => failures.length === 1);
+        await flushPromises();
+        expect(counter).toBe(2);
+        expect(wrapper.findComponent(ProfileDetail).props("profile").model.value).toBe("");
+    });
+
+    it("前一次写失败、后一次还在队里：后一次照常生效，失败的不留在页面上", async () => {
+        const {wrapper, settings, failures} = open();
+        await ready(wrapper);
+        const setting = agentSettings.settings.profileSettings;
+        const update = settings.update.bind(settings);
+        let first = true;
+        settings.update = (async (definition: never, value: never, options: never) => {
+            if (first) {
+                first = false;
+                return {ok: false, code: "unavailable", detail: ""};
+            }
+            return update(definition, value, options);
+        }) as never;
+        const detail = wrapper.findComponent(ProfileDetail);
+        detail.vm.$emit("model", "p/a");
+        detail.vm.$emit("approval", "auto");
+        await waitUntil("通知", () => failures.length === 1);
+        await waitUntil("后一次写下", () => settings.get(setting)["nbook.agent.main"]?.approvalMode === "auto");
+        await flushPromises();
+        expect(settings.get(setting)["nbook.agent.main"]?.model).toBeUndefined();
+        expect(wrapper.findComponent(ProfileDetail).props("profile").model.value).toBe("");
+    });
+});
+
 describe("只读", () => {
     it("这一层不能写时写入控件停用，“打开文件”照常", async () => {
         const opened: string[] = [];

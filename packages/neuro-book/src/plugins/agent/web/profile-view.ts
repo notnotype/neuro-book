@@ -312,7 +312,7 @@ function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTools
             return {...toolRow(tool, false, text), providerName: tool.providerName, ...(same.replaces === undefined ? {} : {replaces: same.replaces}), blocked: same.blockedBy !== undefined};
         }),
     }));
-    return {groups, count: visible.length, modified: binding !== undefined, candidates};
+    return {groups, count: visible.length, modified: binding !== undefined && (binding.added.length > 0 || binding.removed.length > 0), candidates};
 }
 
 /** 改绑定用的：这个 Profile 本来就有哪些工具。 */
