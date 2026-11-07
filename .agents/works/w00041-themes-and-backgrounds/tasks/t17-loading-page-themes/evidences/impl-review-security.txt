@@ -1,0 +1,46 @@
+### 1. 重要｜安全与合同
+
+**位置**：`packages/neuro-book/src/web/host/appearance-hint.ts:38-48`；`packages/neuro-book/src/web/index.html:31-36`；`packages/neuro-book/src/web/testing/index.html:28-33`
+
+**现象**：禁止字符是在 `new URL()` 规范化之后检查的。`/%2f%2fhost` 解析后仍是同源 pathname `/%2f%2fhost`，通过 `SAFE_PATH`，模块返回该路径；内联脚本的同一条件也会接受它。原始 `/a\\b`、`/a b`、制表符或换行也会先被 URL 解析成 `/a/b`、`/a%20b` 或去掉控制字符后再通过。`/.//host` 和 `/\\host` 在实验中分别规范化为 `//host` 与跨源主机，当前会被拒绝；`/../host` 会被规范化为 `/host` 后接受。
+
+**为什么是问题**：`docs/specs/theme/skins.md` 输出 19 与 `runtime/browser-host.md` 启动序列第 1 步明确要求路径不能有反斜杠、空白，并把 `/%2f%2fhost` 一类列为不合格。当前实现违反了这个黑盒合同；对 `%2f` 的路径是否被同源服务器、反向代理或素材端点再次解码也交给了下游，扩大了路径解释差异。未观察到 `%2f` 本身直接造成跨源请求，但它不应被记入提示。
+
+**如何核实**：在 `packages/neuro-book` 下运行：
+`bun -e 'import {hostScenePath} from "./src/web/host/appearance-hint.ts"; const l={href:"https://app.example/book/index.html",origin:"https://app.example"}; for (const raw of ["/%2f%2fhost","/a\\\\b","/a b","/.//host","/../host"]) console.log(JSON.stringify(raw),"=>",hostScenePath(`url("${raw}")`,l));'`
+输出包含 `"/%2f%2fhost" => /%2f%2fhost`、`"/a\\\\b" => /a/b`、`"/a b" => /a%20b`。`new URL` 的原始结果也记录在 `/tmp/review-w00041-t17-impl/lab-security/url-cases.txt`；现有 `bun run test:vitest src/web/host/appearance-hint.dom.test.ts` 仍为 23 通过，因为这些向量没有用例。
+
+**建议改法**：在两份不能 import 的内联脚本与模块侧保持同一判定：保留 URL 解析用于同源判断，但在解析前拒绝原始控制空白与反斜杠，在解析后拒绝大小写不敏感的 `%2f`、`%5c`（以及项目决定不接受的其它编码分隔符），再执行 pathname 白名单；为这些规则补模块和内联的同一组回归用例。
+### 2. 建议｜测试
+
+**位置**：`packages/neuro-book/src/web/host/appearance-hint.dom.test.ts:114-121`；相关实现为 `packages/neuro-book/src/plugins/workbench/web/themes.ts:70-72`。
+
+**现象**：三种素材地址用例只是把手写字符串传给 `hostScenePath`：`/assets/...`、`/api/nbook.files/raw/user/...`、`/api/runtime/plugins/.../files/...`。测试没有调用实际的 `builtinPluginAssets`、`rawUrlOf`、`pluginFilesPrefix`/`pluginFileUrl`，也没有把真实 `themeVars` 的 `--skin-loading-scene` 产出接到记录链路。
+
+**为什么是问题**：用例只能证明这些示例字符串能过 URL 解析，不能证明开发服务的 `new URL(..., import.meta.url)`、用户素材的逐段编码、第三方插件 id 与文件路径的编码最终仍生成这些形状。任一真实地址转换器回归，当前 23 个提示 DOM 测试仍可全绿；这直接漏掉计划里要求用真实转换器核实的边界。
+
+**如何核实**：运行 `bun run test:vitest src/web/host/appearance-hint.dom.test.ts` 得到 1 个文件、23 个测试通过；阅读该文件 114-121 行可见没有上述三个转换器的 import 或调用。另有 `themes.test.ts` 的 `themeVars` 用例使用 `(plugin, path) => \`/files/${plugin}/${path}\`` 假地址，不能补上这个缺口。
+
+**建议改法**：在不跑 e2e 的合同测试中直接使用 `builtinPluginAssets`、`rawUrlOf` 和 `pluginFilesPrefix`/`pluginFileUrl` 生成地址，分别构造 `themeVars` 的静态场景变量，再经 `readDocumentHint` 写入提示；同时保留现有模块与两份内联脚本的一字不差检查。
+### 3. 建议｜安全与性能
+
+**位置**：`packages/neuro-book/src/web/host/appearance-hint.ts:25-31, 38-48`；`packages/neuro-book/src/web/index.html:31-36`；`packages/neuro-book/src/web/testing/index.html:28-33`
+
+**现象**：`HostAppearanceHint.scene`、`Look.scene`/生成的 URL、内联脚本的 `hint.scene` 都没有长度上限。内联脚本在首帧前先对整条 localStorage 记录 `JSON.parse`，再对任意长度的 scene 调 `new URL`、正则并写入根样式；模块侧也会把同样的无界值序列化回 localStorage。1,000,001 个字符的同源路径在实验中仍被 URL 解析为可接受 pathname，实验输出最长行为 1,000,065 字节。
+
+**为什么是问题**：localStorage 是可被本地脚本或用户开发工具改写的输入，主题贡献的路径也没有 `maxLength`。因此异常记录可以把加载页的阻塞工作放到任何脚本之前，造成不必要的解析、匹配、CSSOM 与存储压力；配额失败只在模块写入侧被捕获，首帧读取侧没有大小闸门。没有产品合同要求无限长度，当前代码也没有证明素材地址所需的实际上限。
+
+**如何核实**：实验文件 `/tmp/review-w00041-t17-impl/lab-security/url-cases.txt` 由 1,000,000 个 `a` 构造；`wc -c -L` 输出 `1000807 1000065`，且该长路径通过 URL/路径正则。源码中 `HostAppearanceHint`、`SAFE_PATH` 和两份内联脚本均未出现长度限制。未跑 e2e；该问题只需首帧脚本即可复现。
+
+**建议改法**：给提示记录和生成的素材 URL 定一个明确的最大长度（按实际端点与浏览器限制取值），在 `JSON.parse` 后、URL 解析前先拒绝超限 scene；主题声明的 `scene` 也应有同一上限，或在地址转换器处保证并核验上限。补一个超限值只丢 scene、不影响颜色和 indicator 的用例。
+## 未发现问题的方面
+
+- 颜色四项任一不合格时整条记录不认；场景与 indicator 各自独立判定；`bar`、空串和未知 indicator 不写，合格的另一字段仍保留。`appearance-hint.dom.test.ts` 的 23 个测试覆盖了这些行为。
+- `javascript:`、`data:`、`blob:`、跨源地址、协议相对 `//host`、用户名密码、查询与片段、括号路径均在现有模块测试中被拒绝；`/.//host` 也因解析后的 pathname 以 `//` 开头被拒绝。第 1 条只补充了未覆盖的编码分隔符和规范化前字符边界。
+- `themeVars` 只从静态 `look.scene` 写 `--skin-loading-scene`，不使用 provider 对象 URL 或 `workingScene`；没有静态场景、素材解析失败、`bar` 或未知值时不写新变量。变量名通过 `SKIN_VARS`，文档主题 writer 的既有清理路径会移除上一套写下的变量。
+- `LookSchema.loading` 是可选字段、`additionalProperties: false` 且 indicator 为字面量联合；旧声明不写 loading 时仍通过。`userThemeProblem`、`themeProblem` 共用新 schema；`structuredClone`、`keepUserAssets`、`renameAssets` 保留 loading，`assetRefs` 不把纯数据 loading 当素材。已运行 `bun test src/plugins/workbench/themes.test.ts src/plugins/workbench/user-themes.test.ts src/plugins/workbench/user-themes-data.test.ts`，70 个测试通过。
+- 两份 `index.html` 的提示内联脚本由测试按脚本体逐字比较；两份当前一致。现有用例的断言也足以使“内联脚本不判同源”“模块不判同源”“内联脚本不读 scene”这三个变异分别失败。
+- 未核实出“启动早期一定由默认主题覆盖上一次记录”的 t17 新回归。`boot.ts` 在 `browserWindow.start()` 前注册观察者，但设置插件激活要等待设置实例 ready（`src/plugins/settings/web/plugin.ts:48-67`），工作台文档在 `start()` 完成后才由 `mountWindowUi` 挂载，文档主题 writer 才执行（`src/web/boot.ts:85-92`、`src/plugins/workbench/web/document/WorkbenchDocument.vue:36-38`）。而 recorder 本身及其可能记录默认主题的机制在 t17 基线提交中已经存在；若某运行环境确实先发出默认主题，应另按该环境时序处理，不能归因给本次 loading 字段实现。
+- `root.ownerDocument.location` 与内联脚本的全局 `location` 在产品外壳、测试外壳和 Lab 的同一文档模型下没有发现分叉；模块侧与内联侧的同源、协议、凭据、查询、片段和 `//` 判定形状一致。
+
+阻断：0；重要：1；建议：2。

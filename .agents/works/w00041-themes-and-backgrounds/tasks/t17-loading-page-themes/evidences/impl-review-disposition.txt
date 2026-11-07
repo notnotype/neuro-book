@@ -1,0 +1,22 @@
+t17 实现审查处理（2026-11-07）
+审查：安全与合同 omp（重要 1、建议 2，[报告](impl-review-security.txt)）；前端 Sonnet（阻断 0、重要 1、建议 8，[报告](impl-review-frontend.txt)）。
+代码修正提交 89b9c9db3（前端）、8db95b6e6（安全）；Spec 修订 5b97dce52、db3041bb5。
+
+安全与合同（omp）
+1 重要 场景图地址在解析之后才查禁止字符，`/a\b`、`/a b` 被规范化放行，`/%2f%2fhost` 同源但下游解释可能不一致：成立，改。原始值上拒绝反斜杠与空白；解析后拒绝 `%2f`、`%5c`；两份内联脚本与模块同一判定；测试补 8 个模块用例与内联脚本的同一组向量；Spec 补写。变异检查五个（模块不判原始值、不判 %2f、不限长；两份脚本都不判原始值、都不判 %2f）都会失败。第三方插件 id 里不会出现 `%2f`（服务端 `decodeSegments` 本来就拒绝段内含 `/`），拒绝它不误伤。
+2 建议 地址只用手写字符串测，没接真实转换器：成立，改。用真实的 `rawUrlOf`、`pluginFilesPrefix`、`pluginFileUrl` 经 `themeVars` 写到文档根，再经宿主记录与内联脚本读回。内置素材的 `new URL(…, import.meta.url)` 在 vitest 里是 file 地址，不同源，测不了，由 themes.e2e 的书房用例覆盖（它读真实的记录并按图的地址正则核对）。
+3 建议 无长度上限：成立，改。原始值最长 2048（素材地址只有几十到一百多个字符），超过只丢场景图。
+未核实出“启动早期用默认主题覆盖上一次记录”：omp 查了 boot.ts 的时序，记录器在设置实例就绪之前不会拿到默认主题，也不是 t17 引入的。我调试时看到的“本地存储变成默认值”是 e2e 的引导请求没挂住（路由通配符少了结尾的 `*`、同页导航），与产品无关。
+
+前端（Sonnet）
+1 重要 去掉场景图后“用场景图当加载页背景”开关停用却仍是开着、关不掉：成立，改。去掉场景图时一并去掉 `loading.scene`（只剩它时整个 `loading` 去掉），之后再传图也不会自己生效；model 单测与 e2e（开着时移除、再传同图）补上；Spec 编辑器输出 23 与验收补写。
+2 建议 `.nb-host-loading__bar` 的 absolute 被后写的 `.nb-host-indicator { position: relative }` 盖掉，居中只是碰巧：成立，改。定位选择器带 `.nb-host-loading` 祖先；e2e 新增“流内多出 40px 内容时指示器位置不变”，变异（去掉祖先）八个用例失败。
+3 建议 dots 的两个伪元素继承元素的透明度与缩放，三点不对称、起始闪一下：成立，改。三个点只动背景色（淡到满，不动 opacity 与 transform），延迟加 backwards 填充；实测稳态三点亮度对称（最亮 R≈1、最暗 R≈191）。
+4 建议 forced-colors 下 dots、pulse、bar 完全看不见：成立，改。强制颜色下指示器退出强制、改用系统色（CanvasText 与它的淡色）；e2e 四种样式各一条断言图形色不等于画布色，去掉这块 CSS 后 dots、pulse 失败。
+5 建议 书名与提示的间距、水平居中、dots 两侧点的几何没有用例：成立，改。预设用例里种入书名与提示，四种样式各量间距（10 到 16px，实测 11 到 13px）与水平居中，dots 量伪元素 left；变异（pulse 间距 20→5、dots 右点 14→0）失败。
+6 建议 生产 index.html 与 FailurePage 的 `nb-host-indicator` 类名无测试守着：成立，改。FailurePage.dom.test 断言带两个类；appearance-hint.dom.test 核对两份 index.html 的加载页标记一致且带两个类。
+7 建议 `--host-loading-scene-opacity` 没人设置：成立，改。直接写 0.7。
+8 建议 “第一帧就有场景图”只验证了计算样式：成立，改措辞。Spec 与用例标题改成“第一帧起就按这张图画（图取回前是底色）”；不加 preload（弱网下先见底色再出图是可接受的，也没有证据说明需要，记入待确认清单）。
+9 建议 browser-host 验收 12 里“。；”笔误：成立，改。
+
+验证：browser-host、themes e2e 加载页相关 20 个、theme-editor e2e 加载页用例通过；workbench 与 files 单测 649 通过；vitest web 63 通过；治理检查无失败；类型检查只有 master 上既有的两条（agent/web/permission-page.dom.test.ts）。

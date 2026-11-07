@@ -1,0 +1,89 @@
+# w00041 t17 实现审查（前端部分）
+
+审查范围：host-loading.css、两份 index.html 与 FailurePage.vue 的标记、编辑器“加载页”小节、书房与示例声明、e2e 与单测。浏览器实验用 Chrome（/opt/google/chrome/chrome）加载真实的 host-loading.css 与书房场景图，脚本在 /tmp/review-w00041-t17-impl/lab-frontend/。已跑：locales/themes/theme-editor 三个 bun 测试 81 条全过，FailurePage.dom.test.ts 9 条全过，typecheck 只有说明里的两条既有错误。未跑 e2e。
+
+---
+
+## 1. [重要] 编辑器状态：移除场景图后，“用场景图当加载页背景”开关停用却仍是开着，用户关不掉
+位置：`packages/neuro-book/src/plugins/workbench/web/components/theme-editor/ThemeEditorScene.vue:115`（`:model-value="loadingScene" :disabled="sceneName === null"`），`theme-editor-model.ts:386`（移除场景图只删 `look.scene`）
+现象：先上传场景图、打开开关（声明里 `loading.scene: true`），再在同一分区“移除场景图”。`sceneName` 变 null，开关被 `disabled`，但 `loadingScene` 读的是声明里的 `loading.scene === true`，所以是“开着且不可点”；下面一行说明写“上面的开关没有效果”。`loading.scene: true` 留在声明里，导出、复制、保存都带着它。
+为什么是问题：用户没有办法在界面上把它关掉；之后再上传一张新场景图，加载页背景会在用户没动开关的情况下自己出现。Spec 输出 19 只说“没有 scene 时没有效果，不报错”，没说允许留下一个看得见却关不掉的开着状态。新增 e2e 只走了“没有场景图 -> 上传 -> 开 -> 关”这一条顺序，没有“开着时移除”。
+如何核实：从代码推断（未跑 e2e）：`model.setScene(undefined)`（386 行）不碰 `loading`；Switch 的 `disabled` 阻止切换。验证办法：在 theme-editor.e2e 里开着开关后点移除，断言开关状态。
+建议改法：二选一并写进 Spec：(a) 开关显示 `loadingScene && sceneName !== null`（没有图就显示为关），保留字段；(b) 移除场景图时同时 `delete look.loading.scene`（并走“`loading` 空了整个去掉”的规则）。(a) 改动最小，但字段会悄悄留着；(b) 语义更干净。补一条“开着时移除场景图”的用例。
+
+## 2. [建议] CSS 正确性：`.nb-host-loading__bar` 的 `position: absolute` 被后面的 `.nb-host-indicator { position: relative }` 盖掉，居中只是碰巧成立
+位置：`packages/neuro-book/src/web/host-loading.css:63-68`（定位节点）与 `:119-125`（`.nb-host-indicator`）
+现象：两条都是单类选择器，特异性相同，后写的赢。真实 CSS 实测四种样式的 `.nb-host-loading__bar` 计算样式 `position` 都是 `relative`（lab-frontend/run1.ts）。改动前这个类是 `absolute`（`git show f66baa504^:…/host-loading.css` 第 18-19 行）。
+为什么是问题：文件头注释与 CSS 注释都说它是“绝对定位、居中、不裁剪”的节点。现在它是普通流里的第一个块，`top/left: 50%` 变成相对偏移，再加 `translate: -50% -50%`：它恰好是 `main` 里唯一的流内元素（书名、提示都是 absolute），所以落在 (0,0)，偏移后中心仍在正中，四种样式实测中心都在 (640,360)。一旦 `main` 里多出任何流内内容，或有人给 `.nb-host-loading` 加内边距，指示器就会离开正中，而书名与提示按 50% 定位不跟着动，叠上指示器。e2e 的“居中”判据（±1px）会抓到这种回归，但只在改动之后才抓，注释已经说错了。
+如何核实：`bun /tmp/review-w00041-t17-impl/lab-frontend/run1.ts` 输出 `pos:"relative"`。
+建议改法：让定位类的特异性或顺序明确高于形状类，例如把定位规则写成 `.nb-host-loading > .nb-host-loading__bar`，或把 `position: relative` 只给预览用的上下文（`.nb-host-indicator` 在编辑器里本来就要 relative，伪元素才有定位父；在加载页里 absolute 同样是定位父，所以其实可以只写 `position: relative` 于编辑器预览的容器选择器，不放进 `.nb-host-indicator`）。
+
+## 3. [建议] CSS 正确性：dots 的三点用元素加两个伪元素做，伪元素继承元素自己的透明度与缩放，“依次亮”不成立，起始还有一次闪烁
+位置：`host-loading.css:154-203`（dots 三条规则）、`@keyframes nb-host-dot`
+现象：元素自己带 `animation: nb-host-dot … 0.2s`，两个伪元素是它的子孙，透明度与缩放逐层相乘。用 Web Animations 把时间钉在稳态某个时刻读像素（lab-frontend/run3.ts，第二圈起，accent R=0，值越小越亮，底色 255）：左点最亮时 R≈35（约 86% 亮度，达不到 100%），右点最亮时 R≈35；暗态时左右点 R≈240（约 6% 不透明度）而中间点 R≈192（25%）。也就是两边的点暗的时候比中间点暗得多、亮的时候又亮不满，三点不对称。另外正延迟没有 `animation-fill-mode: backwards`：第一圈开头 0 到 0.2 秒中间点是满亮（实测 R=0），0 到 0.4 秒右点满亮（R≈15），到点后跳到 25%，是一次可见的闪动。
+为什么是问题：`dots` 的 Spec 描述是“三个点依次亮”，开发者认可的长相是这个。实现的实际行为与描述不一致；e2e 只核对三个部分的 `animationName`，看不出透明度与相位。
+如何核实：`bun lab-frontend/run3.ts`（稳态亮度）；`run2.ts` 前两行（起始闪烁）。
+建议改法：三点各用独立元素或用 `box-shadow` 画两边的点，不让动画嵌套；或给三个动画都加 `animation-fill-mode: backwards`，并把伪元素的动画挪到不受父级透明度影响的结构里。
+
+## 4. [建议] 可访问性：`forced-colors: active` 下 dots、pulse、bar 完全看不见，page 只剩一道书脊
+位置：`host-loading.css` 的 `.nb-host-indicator` 各形状规则（形状全靠 `background`，forced-colors 把 `background-color` 强制成系统 Canvas）；`@media (prefers-contrast: more), (forced-colors: active)` 分支只处理了场景图（`:269-273` 附近）
+现象：Chrome 强制颜色模拟下截图（lab-frontend/run5.ts 产出 forced-*.png）：dots、pulse、bar 的指示器区域没有任何像素，只有书名与提示；page 只有 3px 的书脊（`border-left` 不受影响），书页本体看不见。
+为什么是问题：Spec 输出 19 在 forced-colors 下只承诺“不画图”，并要求四种样式“图形仍在”只针对减弱动效。强制颜色（Windows 高对比度）用户看到的加载页没有任何进度指示，且新增的 dots、pulse 是这次新引入的。bar 在改动前就有同样的问题，不是回归，但这次是顺手能修的时候。e2e 的强制颜色用例只断言场景层 `display`。
+如何核实：`bun lab-frontend/run5.ts`，读 forced-pulse.png、forced-dots.png。
+建议改法：在该媒体分支里给 `.nb-host-indicator` 及其伪元素用系统色画：例如 `forced-color-adjust: none` 加 `CanvasText`，或把形状改成用 `border`/`outline`（forced-colors 下保留）。顺手加一条断言指示器在强制颜色下有非底色像素。
+
+## 5. [建议] 测试质量：书名与提示“不压在指示器上”只在 page 一种样式下测，且只要求不重叠；其余三种的间距取值、dots 两侧点的几何、书名与提示的水平居中没有任何用例
+位置：`e2e/themes.e2e.ts` 的“书名与提示压在场景图上不低于 4.5，不压在进度指示上”；`e2e/browser-host.e2e.ts` 的预设用例（引导请求挂起，没有书名与提示）
+现象：两个用例集合起来：预设用例量四种样式的元素尺寸、居中与动画名，但页面上没有书名与提示；间距用例有书名与提示，但只用书房（page）。设想的变异：
+- 把 `html[data-host-indicator="pulse"] .nb-host-loading` 的 `--host-loading-title-gap` 从 20px 改成 5px：书名压到 pulse 上，没有任何用例失败。dots、bar 同理（bar 的缺省 14px 在 `.nb-host-loading` 上，也没人量）。
+- 把 dots 的 `::after { left: 14px }` 改成 `0`（两个点叠在中间）：预设用例只看元素 6×6 与动画名，通过。
+- 去掉书名的 `translate: -50% 0`：书名不再水平居中，对比度用例量的是书名自己的框，照样通过；Spec 说书名在指示器“上方”居中。
+- page 的间距用例判据是 `titleBottom <= bar.y`，即允许 0 间距；实际取值 13px、12px 的“约 12px”没有被量。
+我实测的间距（1280×720，真实 CSS）：书名底边到指示器上边缘 bar 13、dots 13、pulse 13（不含缩放）、page 13；指示器下边缘到提示顶边 bar 11、dots 12、pulse 12、page 12；page 翻到最大透视（约 1.26 倍）时半高约 22.7px，仍比 31px 的书名间距小，实际并不重叠，所以这些取值现在是对的，只是没有测试守着。
+如何核实：把上述变异之一写进 CSS 跑 e2e 即可，从代码推断为通过（未跑 e2e）。
+建议改法：预设用例里往加载页里种一个书名与提示（`data-host-loading-title` 与 `data-host-loading-hint` 直接 `evaluate` 填文字，不需要引导），对四种样式各断言一次“书名底边到指示器外接框顶边与提示顶边到指示器底边都在 8 到 20px 内，且书名、提示水平中心与页面中心相差不超过 1px”；dots 额外量 `::before`、`::after` 的 `left` 偏移（`getComputedStyle(el, "::before").left`）。
+
+## 6. [建议] 隐含耦合：进度指示的形状现在只来自 `nb-host-indicator` 这个类，三处标记各写一份，生产的 `index.html` 与 FailurePage 都没有任何测试守着
+位置：`src/web/index.html:74`、`src/web/testing/index.html:71`、`src/web/FailurePage.vue:69`；`src/web/FailurePage.dom.test.ts`（t17 没改它）
+现象：原先 `.nb-host-loading__bar` 自己有形状；现在它只管定位，形状全在 `.nb-host-indicator`，两者缺一，指示器就是一个 0×0 的空 div（细条消失）。e2e 的外壳构建用的是 `src/web/testing/index.html`（`vite.e2e.config.ts` 的 root），所以生产的 `index.html` 的标记从未被任何 e2e 渲染；`appearance-hint.dom.test.ts` 只核对两份的内联脚本一字不差，不核对标记；`FailurePage.dom.test.ts` 的“启动中”用例没有断言 `.nb-host-loading__bar` 带 `nb-host-indicator`，jsdom 里也没有 CSS。
+为什么是问题：删掉生产 `index.html` 或 FailurePage 里的 `nb-host-indicator`，所有测试仍然通过，而用户看到的是没有进度条的加载页。这是这次改动新增的耦合（改动前类名只有一个）。
+如何核实：从代码推断。
+建议改法：让 FailurePage.dom.test 的“启动中”用例断言 `.nb-host-loading__bar` 带 `nb-host-indicator`；在 `appearance-hint.dom.test.ts` 里再核对两份 index.html 的加载页 `<main>` 标记一致（与内联脚本同样的做法）。或者让形状类就是 `nb-host-loading__bar`，编辑器预览单独用 `.nb-host-indicator`，减少一个必须同步的类名。
+
+## 7. [建议] 一致性：`--host-loading-scene-opacity` 没有人设置，也没有文档
+位置：`host-loading.css:32`
+现象：`opacity: var(--host-loading-scene-opacity, 0.7)`。全仓（packages、docs，排除 node_modules 与 dist）只在这一行出现。
+为什么是问题：看着像一个可调的钩子，实际永远是 0.7；读者会去找它在哪里被设置。这与同文件里 `--host-loading-*` 其它变量都由内联脚本写入的约定也不一致。
+如何核实：`grep -rn "scene-opacity" packages docs`。
+建议改法：直接写 `opacity: 0.7`，或在注释里写明它是留给谁用的（没有的话就删掉变量）。
+
+## 8. [建议] Spec 与验收：“第一帧就有场景图”实际只验证了计算样式，图片是在第一帧之后才取回来的
+位置：`e2e/themes.e2e.ts` 的“书房 …：第一帧就是书房的场景图与翻动的书页”用例；`docs/specs/theme/skins.md` 验收 19 与输出 19
+现象：场景图是 CSS `background` 的 `url()`，浏览器在样式生效后才发起请求，没有 `<link rel="preload">`；用例用 `expect.poll` 读 `::before` 的 `backgroundImage` 计算值，只能说明“要画这张图”，不能说明第一帧已经画出来了。同文件的对比度用例自己先 `image.decode()` 再量，说明作者知道图是异步到的。
+为什么是问题：Spec 与用例标题都写“第一帧”，实际行为是“第一帧是底色，图到了再出现”；图是 webp（书房图 300KB 以内）、生产本地服务，通常几十毫秒内，但弱网下会先看到纯底色再出现图，这没有写进 Spec，也没有测试，“图加载失败退回纯色”那条验收保证了不会坏，但不保证不闪。
+如何核实：从代码推断。
+建议改法：把 Spec 与用例标题里的“第一帧”改成“第一帧起就按这张图画（图取回前是底色）”；要真正做到第一帧有图，需要 index.html 的内联脚本在设置变量时加一个 `<link rel="preload" as="image">`，但会多一次同样的请求判断，要不要做是产品取舍。
+
+## 9. [建议] Spec 笔误：browser-host 验收 12 里“。；”
+位置：`docs/specs/runtime/browser-host.md:130`
+现象：“……就绪后标题栏显示同一个名字，不显示短名。；书房等写了 `loading` 的主题，……”，句号后接分号。
+为什么是问题：只是读起来别扭，`governance:check` 不会报。
+建议改法：改成“……不显示短名；书房等写了 `loading` 的主题，……”。
+
+---
+
+## 未发现问题的方面
+- 书名与提示的间距：四种样式的取值按真实布局量过（见第 5 条的数字），书名底边到指示器上缘 13px、提示顶边到指示器下缘 11 到 12px，没有重叠；page 翻到最大透视也不压。
+- 场景层对比度：用书房真实图与真实配色在 1280×720、390×844、320×568、亮暗各两档，量书名与提示框内每个像素对书名色与提示色的最差对比度，书名最低 11.28（暗色 390 与 320 宽、长书名被截断时），提示最低 6.50（亮色，提示色对底色），都大于 4.5；长书名在 390 宽时 `max-width: calc(100% - 32px)` 生效（宽 358px、省略号），没有溢出。`width: max-content` 加 `translate` 居中的写法在这三个宽度下正确。lab-frontend/run6.ts 可重现。
+- 浏览器基线：`-webkit-mask-image` 与 `mask-image` 都写了（Chrome 119 只认前缀版）；`translate`、`color-mix`、`:is()`、`prefers-contrast` 在 Chrome 119、Safari 17.4、Firefox 124 都可用；`mask-image` 的 `rgb(0 0 0 / .22)` 新语法同样可用。
+- 选择器互不干扰：`:is()` 里三种情形（没记录、记录是 bar、预览自带属性）特异性都是 (0,3,1)，预览（不在 `.nb-host-loading` 里）只会命中自带属性的那一条，运行中的应用 `<html>` 上遗留的 `data-host-indicator` 不会带偏预览。
+- 减弱动效里的 `!important`：因为 `:is()` 的特异性是 (0,3,1)，没有 `!important` 压不过形状规则里的 `animation`，所以必要；副作用只限于这三个选择器，没有发现。四种样式在减弱动效下的静止形态（bar 偏右、dots 三点同亮、pulse 0.7/0.8、page 半开）按注释所写。
+- 暗色回退颜色：`.nb-host-indicator` 在暗色下的回退 accent 与 track 与 `.nb-host-loading` 的回退底色一致；在编辑器预览里这些变量都由预览框自己设，不受影响。
+- 编辑器：`setLoading` 对亮暗的写入、去字段、`loading` 空了整个去掉的规则与单测一致（`theme-editor.test.ts` 通过）；预览框用的 `.nb-host-indicator` 与 `host-loading.css` 在应用里确实加载（`index.html` 的 `<link>` 被 Vite 打进生产样式，Lab 与应用是同一个入口）；预览 `aria-hidden`、开关与分段选择都有 `aria-label`；Switch 是 `shrink-0`，长英文标签不会挤扁；预览背景 `--bg-panel` 与加载页读的 `--panel-surface` 在 nb-ui 里同值；文案两种语言与 `locales.test.ts` 的表一致；现有 390px 用例遍历 scene 分区，新增的小节在其中。
+- 测试里的 `console.log` 与同文件既有写法一致；`page.route(BOOTSTRAP, () => undefined)` 挂起请求、`routeWebSocket(() => true, () => undefined)` 扣住握手：随上下文关闭释放，没有发现泄露；带 `?project=` 的地址用了末尾带通配的模式，不带查询的 browser-host 用例沿用既有模式。
+- 变异推演：把场景层选择器写错上下文（`layer()` 读 `::before` 的 `backgroundImage` 会失败）、预设尺寸写错（`offsetWidth/Height` 判据）、高对比度下仍画图（`display: none` 判据）、编辑器小节不写字段（e2e 读文档根变量与单测）都会被现有用例抓到。`distinct > 1` 作为“有图”判据：图被遮罩压淡后仍与纯色不同，在对比度用例里足够，且前面已核对计算样式与解码。
+
+## 数量
+- 阻断 0
+- 重要 1（第 1 条）
+- 建议 8（第 2 到 9 条）
