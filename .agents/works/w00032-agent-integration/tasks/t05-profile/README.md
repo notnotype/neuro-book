@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t05-profile
-status: planned
-updated: 2026-10-28
+status: active
+updated: 2026-11-07
 ---
 
 # Profile：定义、存放层次、钩子与设置
