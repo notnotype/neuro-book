@@ -147,7 +147,7 @@ function statusLabel(status: TaskStatus): string {
     margin-top: 4px;
     color: var(--text-muted);
     font-size: var(--text-xs);
-    transition: color var(--motion-fast) var(--ease-standard);
+    transition: color var(--motion-fast) var(--ease-layout);
 }
 
 .agent-task-list__toggle:hover {

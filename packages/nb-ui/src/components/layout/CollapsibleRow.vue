@@ -78,7 +78,7 @@ const showRemoved = computed(() => props.stat !== null && props.stat.removed !==
     color: var(--text-secondary);
     font-size: var(--text-xs);
     text-align: left;
-    transition: background-color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout);
 }
 
 button.nb-collapsible-row__row:hover {

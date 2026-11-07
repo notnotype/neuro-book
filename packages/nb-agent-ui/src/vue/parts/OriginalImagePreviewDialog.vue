@@ -211,7 +211,7 @@ const retry = (): void => {
     justify-content: center;
     border-radius: var(--radius-control);
     color: var(--text-secondary);
-    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 .image-preview__download:hover {

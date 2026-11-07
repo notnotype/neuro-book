@@ -308,7 +308,7 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
     border-radius: var(--radius-control);
     color: var(--text-main);
     font-size: var(--text-sm);
-    transition: background-color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout);
 }
 
 .markdown-toolbar__block {

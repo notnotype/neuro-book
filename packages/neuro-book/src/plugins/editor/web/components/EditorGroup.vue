@@ -364,7 +364,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
 }
 
 .editor-group__progress {
-    animation: editor-group-progress 1.2s var(--ease-standard) infinite;
+    animation: editor-group-progress 1.2s var(--ease-loop) infinite;
 }
 
 @keyframes editor-group-progress {

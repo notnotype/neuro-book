@@ -97,7 +97,7 @@ function onCloseAutoFocus(event: Event): void {
                 @close-auto-focus="onCloseAutoFocus"
                 :style="{zIndex}"
                 :class="{'nb-ui-dialog-surface--nested': nested}"
-                class="nb-ui-popover-surface nb-ui-dialog-surface nb-ui-dialog-surface--compact fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] p-6 text-[var(--text-main)] outline-none select-none transition-[transform,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)]"
+                class="nb-ui-popover-surface nb-ui-dialog-surface nb-ui-dialog-surface--compact fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] p-6 text-[var(--text-main)] outline-none select-none transition-[transform,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-layout)]"
             >
                 <div class="flex flex-col gap-2">
                     <AlertDialogTitle class="nb-ui-dialog-title">

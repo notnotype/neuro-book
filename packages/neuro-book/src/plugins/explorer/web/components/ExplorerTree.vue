@@ -671,7 +671,7 @@ defineExpose({focus: focusTree});
 
 /* 被拖的行淡化图标与文字，看得出拖走的是哪几行；缩进参考线不淡，竖线上不留缺口。起拖与结束时渐变。 */
 .explorer-tree__row > :deep(:not(.explorer-guide)) {
-    transition: opacity var(--motion-fast) var(--ease-standard);
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
 .explorer-tree__row[data-explorer-drag-source] > :deep(:not(.explorer-guide)) {
@@ -764,7 +764,7 @@ defineExpose({focus: focusTree});
     font-size: var(--text-xs);
     line-height: 1.5;
     pointer-events: none;
-    animation: explorer-ghost-in var(--motion-fast) var(--ease-standard);
+    animation: explorer-ghost-in var(--motion-fast) var(--ease-layout);
 }
 
 /* 起拖：拖影从略小放大并淡入。 */
@@ -782,11 +782,11 @@ defineExpose({focus: focusTree});
 
 .explorer-drag-ghost--returning[data-flying] {
     opacity: 0;
-    transition: left var(--motion-base) var(--ease-standard), top var(--motion-base) var(--ease-standard), opacity var(--motion-fast) var(--ease-standard) var(--motion-base);
+    transition: left var(--motion-move) var(--ease-layout), top var(--motion-move) var(--ease-layout), opacity var(--motion-fast) var(--ease-layout) var(--motion-base);
 }
 
 .explorer-tree[data-motion] .explorer-tree__row {
-    transition: top var(--motion-base) var(--ease-standard), opacity var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: top var(--motion-move) var(--ease-layout), opacity var(--motion-base) var(--ease-layout), transform var(--motion-move) var(--ease-layout), background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 /* 从原位置滑过来的行不放进场动画：它的起点是原位置，不是上方一行。 */
@@ -805,7 +805,7 @@ defineExpose({focus: focusTree});
     background: color-mix(in srgb, var(--accent-main) 24%, transparent);
     pointer-events: none;
     opacity: 0;
-    animation: explorer-glow calc(var(--motion-base) * 3) var(--ease-standard);
+    animation: explorer-glow calc(var(--motion-base) * 3) var(--ease-layout);
 }
 
 @keyframes explorer-glow {

@@ -112,15 +112,15 @@ function setMenuRef(element: unknown): void {
 <style scoped>
 .nb-context-menu-enter-active {
     transition:
-        opacity var(--motion-fast) var(--ease-standard),
-        transform var(--motion-fast) var(--ease-standard);
+        opacity var(--motion-fast) var(--ease-layout),
+        transform var(--motion-fast) var(--ease-layout);
     transform-origin: var(--reka-context-menu-content-transform-origin, top left);
 }
 
 .nb-context-menu-leave-active {
     transition:
-        opacity var(--motion-fast) var(--ease-standard),
-        transform var(--motion-fast) var(--ease-standard);
+        opacity var(--motion-fast) var(--ease-dialog-leave),
+        transform var(--motion-fast) var(--ease-dialog-leave);
     transform-origin: var(--reka-context-menu-content-transform-origin, top left);
 }
 

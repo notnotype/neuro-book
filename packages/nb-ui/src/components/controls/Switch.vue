@@ -65,7 +65,7 @@ function handleUpdate(value: boolean): void {
         :aria-describedby="field?.ariaDescribedby.value"
         :aria-invalid="isInvalid ? 'true' : undefined"
         :aria-readonly="props.readonly || undefined"
-        class="nb-ui-focus-ring relative inline-flex shrink-0 items-center rounded-full border border-transparent focus-visible:border-[var(--focus-outline)] transition-colors [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 bg-[color-mix(in_srgb,var(--text-main)_16%,transparent)] data-[state=checked]:bg-[var(--accent-main)]"
+        class="nb-ui-focus-ring relative inline-flex shrink-0 items-center rounded-full border border-transparent focus-visible:border-[var(--focus-outline)] transition-colors [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-layout)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 bg-[color-mix(in_srgb,var(--text-main)_16%,transparent)] data-[state=checked]:bg-[var(--accent-main)]"
         :class="[
             // 内边距必须与那 1px 透明边框（焦点环靠它上色）一起算：内容高 = 轨道高 − 2×边框 − 2×内边距。
             // `p-0.5` 会让 md 的内容区只剩 14px，装不下 16px 的滑块——滑块会从轨道右上角溢出去。
@@ -80,7 +80,7 @@ function handleUpdate(value: boolean): void {
         @update:model-value="handleUpdate"
     >
         <SwitchThumb
-            class="pointer-events-none block rounded-full bg-[var(--text-inverse)] shadow-[0_1px_2px_color-mix(in_srgb,var(--shadow-color)_25%,transparent)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] will-change-transform translate-x-0"
+            class="pointer-events-none block rounded-full bg-[var(--text-inverse)] shadow-[0_1px_2px_color-mix(in_srgb,var(--shadow-color)_25%,transparent)] transition-transform [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)] will-change-transform translate-x-0"
             :class="[
                 props.size === 'sm' ? 'h-3 w-3 data-[state=checked]:translate-x-3' : '',
                 props.size === 'md' ? 'h-4 w-4 data-[state=checked]:translate-x-4' : '',

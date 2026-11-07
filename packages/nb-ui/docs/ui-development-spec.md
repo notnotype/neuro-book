@@ -79,7 +79,7 @@
    - 与弹性控件（`flex-1`）同行的动态读数或状态标签给固定宽度，不收缩，字符增减不牵动整行。
 5. 同一个列表里的行与卡片等高（会话、文件、搜索结果、卡片网格这类由同一模板重复出的条目；弹出列表的选项见“弹出列表的共同合同”）：每个条目的行数与每行的高度固定，不随内容变。可选内容（说明、状态标记、提醒、标签）放进已有的行里，没有时那一行照样留着，不另起一行；文字单行截断，卡片可以固定 `line-clamp` 的行数并给出对应高度，全文靠悬停或打开详情看。只有条目本身就是可变长正文的列表（消息流、日志、Markdown 预览）与树里展开的子节点不受此限。
 6. 390px 宽度必须无页面级横向溢出。窄屏可以重排工具面板，但不得隐藏完成核心操作所需的控件。
-7. 动效只消费时长令牌（`--motion-fast` / `--motion-base` / `--motion-enter` / `--motion-layout` / `--motion-dialog`）与缓动令牌；看得出在动的用 `--ease-layout`（已有的 `--ease-standard` 由 w00026 t18 迁移）；组件不得写死时长或缓动，不得使用 `transition-all`（属性列表写明）。浮层入退场编排与判据见 [设计语言](./design-language.md) 的动效节。
+7. 动效只消费时长令牌（`--motion-fast` / `--motion-base` / `--motion-enter` / `--motion-move` / `--motion-layout` / `--motion-dialog`）与缓动令牌：主曲线 `--ease-layout`，退场 `--ease-dialog-leave`，循环 `--ease-loop`；组件不得写死时长或缓动，不得使用 `transition-all`（属性列表写明）。浮层入退场编排与判据见 [设计语言](./design-language.md) 的动效节。
 
 ## 4. 组件合同
 

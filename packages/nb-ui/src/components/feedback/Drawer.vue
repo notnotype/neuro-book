@@ -97,7 +97,7 @@ function onCloseAutoFocus(): void {
             <DrawerContent
                 :style="{zIndex}"
                 @close-auto-focus="onCloseAutoFocus"
-                class="nb-ui-popover-surface nb-ui-dialog-surface nb-ui-drawer-surface fixed flex flex-col text-[var(--text-main)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none"
+                class="nb-ui-popover-surface nb-ui-dialog-surface nb-ui-drawer-surface fixed flex flex-col text-[var(--text-main)] transition-transform [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)] outline-none"
                 :class="[
                     props.direction === 'right' ? 'inset-y-0 right-0 h-full w-[380px] max-w-[90cqw]' : '',
                     props.direction === 'left' ? 'inset-y-0 left-0 h-full w-[380px] max-w-[90cqw]' : '',
@@ -126,7 +126,7 @@ function onCloseAutoFocus(): void {
                         </div>
                     </slot>
 
-                    <DrawerClose class="nb-ui-focus-ring -mr-1.5 flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer" :aria-label="closeText">
+                    <DrawerClose class="nb-ui-focus-ring -mr-1.5 flex h-7 w-7 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer" :aria-label="closeText">
                         <span class="i-lucide-x h-4 w-4" aria-hidden="true"></span>
                     </DrawerClose>
                 </div>

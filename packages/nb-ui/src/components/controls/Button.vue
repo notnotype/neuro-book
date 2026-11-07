@@ -64,7 +64,7 @@ function variantClass(): string {
     <button
         :type="props.type"
         :disabled="props.disabled || props.loading"
-        class="inline-flex items-center justify-center font-medium whitespace-nowrap outline-none select-none box-border border border-transparent cursor-pointer transition-[background-color,box-shadow,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.975] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:shadow-none disabled:active:transform-none"
+        class="inline-flex items-center justify-center font-medium whitespace-nowrap outline-none select-none box-border border border-transparent cursor-pointer transition-[background-color,box-shadow,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] not-disabled:active:scale-[0.975] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:shadow-none disabled:active:transform-none"
         :class="[
             focusRingClass(props.focusRing),
             sizeClass(),

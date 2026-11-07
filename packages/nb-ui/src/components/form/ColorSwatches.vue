@@ -189,7 +189,7 @@ const layout = computed(() => (props.columns > 0 ? {gridTemplateColumns: `repeat
     border-radius: 999px;
     cursor: pointer;
     outline: none;
-    transition: box-shadow var(--motion-fast) var(--ease-standard);
+    transition: box-shadow var(--motion-fast) var(--ease-layout);
 }
 
 .nb-swatches__fill {

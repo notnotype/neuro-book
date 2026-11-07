@@ -95,7 +95,7 @@ function handleUpdate(value: unknown): void {
                 <RadioGroupItem
                     :value="option.value"
                     :disabled="option.disabled"
-                    class="nb-ui-focus-ring relative flex shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--text-main)_20%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] transition-[background-color,border-color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] disabled:cursor-not-allowed disabled:active:transform-none focus-visible:border-[var(--focus-outline)] data-[state=checked]:border-[var(--accent-main)] data-[state=checked]:focus-visible:border-[var(--focus-outline)] data-[state=checked]:bg-[var(--accent-main)]"
+                    class="nb-ui-focus-ring relative flex shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--text-main)_20%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] transition-[background-color,border-color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] disabled:cursor-not-allowed disabled:active:transform-none focus-visible:border-[var(--focus-outline)] data-[state=checked]:border-[var(--accent-main)] data-[state=checked]:focus-visible:border-[var(--focus-outline)] data-[state=checked]:bg-[var(--accent-main)]"
                     :class="[
                         props.size === 'sm' ? 'h-4 w-4 mt-0.5' : 'h-5 w-5 mt-0.5',
                         isInvalid ? '!border-[color:var(--status-danger)]' : '',
@@ -104,7 +104,7 @@ function handleUpdate(value: unknown): void {
                     ]"
                 >
                     <RadioGroupIndicator
-                        class="flex items-center justify-center transition-transform [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
+                        class="flex items-center justify-center transition-transform [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
                     >
                         <span
                             class="block rounded-full bg-[var(--text-inverse)] shadow-sm"

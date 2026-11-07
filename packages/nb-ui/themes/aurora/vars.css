@@ -59,5 +59,4 @@
     --motion-fast: 100ms;
     --motion-base: 160ms;
     --motion-enter: 240ms;
-    --ease-standard: cubic-bezier(0.2, 0.6, 0.2, 1);
 }

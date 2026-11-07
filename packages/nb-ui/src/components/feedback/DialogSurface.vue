@@ -202,7 +202,7 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
 
 .nb-dialog__header,
 .nb-ui-dialog-footer {
-    transition: box-shadow var(--motion-fast) var(--ease-standard);
+    transition: box-shadow var(--motion-fast) var(--ease-layout);
 }
 
 /*
@@ -212,11 +212,11 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
  * 用关键帧而不是过渡：reka 关闭时等的是 animationend，过渡来不及播就被卸掉了。
  */
 .nb-dialog[data-state="open"] {
-    animation: nb-dialog-in var(--nb-dialog-enter-duration, var(--motion-base)) var(--nb-dialog-enter-ease, var(--ease-standard));
+    animation: nb-dialog-in var(--nb-dialog-enter-duration, var(--motion-base)) var(--nb-dialog-enter-ease, var(--ease-layout));
 }
 
 .nb-dialog[data-state="closed"] {
-    animation: nb-dialog-out var(--nb-dialog-leave-duration, var(--motion-fast)) var(--nb-dialog-leave-ease, var(--ease-standard)) forwards;
+    animation: nb-dialog-out var(--nb-dialog-leave-duration, var(--motion-fast)) var(--nb-dialog-leave-ease, var(--ease-dialog-leave)) forwards;
 }
 
 @keyframes nb-dialog-in {

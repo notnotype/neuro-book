@@ -100,6 +100,6 @@ const label = computed(() => {
     stroke: currentColor;
     stroke-linecap: round;
     stroke-width: 2.5;
-    transition: stroke-dasharray var(--motion-fast) var(--ease-standard);
+    transition: stroke-dasharray var(--motion-fast) var(--ease-layout);
 }
 </style>

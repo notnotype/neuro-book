@@ -650,7 +650,7 @@ defineExpose({
     border: var(--border-w) solid var(--border-color);
     border-radius: var(--radius-panel);
     background: var(--bg-input);
-    transition: border-color var(--motion-fast) var(--ease-standard);
+    transition: border-color var(--motion-fast) var(--ease-layout);
 }
 
 .acv-composer.is-expanded .acv-composer__frame {
@@ -743,7 +743,7 @@ defineExpose({
     border-radius: var(--radius-control);
     color: var(--text-secondary);
     font-size: var(--text-xs);
-    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 .acv-composer__chip:hover:not(:disabled) {

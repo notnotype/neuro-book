@@ -157,7 +157,7 @@ function decimalPlaces(value: string): number {
                 :aria-label="incrementText"
                 :title="incrementText"
                 tabindex="-1"
-                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
+                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
                 :disabled="props.disabled || props.readonly"
                 @click="stepValueBy('up')"
             >
@@ -168,7 +168,7 @@ function decimalPlaces(value: string): number {
                 :aria-label="decrementText"
                 :title="decrementText"
                 tabindex="-1"
-                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
+                class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
                 :disabled="props.disabled || props.readonly"
                 @click="stepValueBy('down')"
             >

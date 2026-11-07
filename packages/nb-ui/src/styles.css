@@ -57,8 +57,8 @@
     outline: none;
     border-color: var(--focus-outline);
     box-shadow: var(--focus-ring) !important;
-    transition: border-color var(--motion-base) var(--ease-standard),
-                box-shadow var(--motion-base) var(--ease-standard) !important;
+    transition: border-color var(--motion-base) var(--ease-layout),
+                box-shadow var(--motion-base) var(--ease-layout) !important;
 }
 
 /*
@@ -68,7 +68,7 @@
 .nb-ui-focus-ring-inset:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1.5px var(--focus-outline) !important;
-    transition: box-shadow var(--motion-base) var(--ease-standard) !important;
+    transition: box-shadow var(--motion-base) var(--ease-layout) !important;
 }
 
 /*
@@ -96,10 +96,10 @@
     border-color: var(--control-outline, var(--border-color));
     /* sc-input 常态就有内阴影（凹陷质感由主题装饰 token 决定，低装饰主题为 none） */
     box-shadow: var(--inset-shadow);
-    transition: border-color var(--motion-base) var(--ease-standard),
-                box-shadow var(--motion-base) var(--ease-standard),
-                background-color var(--motion-base) var(--ease-standard),
-                color var(--motion-base) var(--ease-standard);
+    transition: border-color var(--motion-base) var(--ease-layout),
+                box-shadow var(--motion-base) var(--ease-layout),
+                background-color var(--motion-base) var(--ease-layout),
+                color var(--motion-base) var(--ease-layout);
 }
 
 .nb-ui-control:focus,
@@ -435,11 +435,11 @@ input.nb-ui-native-input[type="number"] {
  * 用关键帧而不是过渡：reka 关闭时等的是 animationend，过渡来不及播就被卸掉了。
  */
 .nb-ui-overlay[data-state="open"] {
-    animation: nb-ui-overlay-in var(--motion-base) var(--ease-standard);
+    animation: nb-ui-overlay-in var(--motion-base) var(--ease-layout);
 }
 
 .nb-ui-overlay[data-state="closed"] {
-    animation: nb-ui-overlay-out var(--motion-fast) var(--ease-standard) forwards;
+    animation: nb-ui-overlay-out var(--motion-fast) var(--ease-dialog-leave) forwards;
 }
 
 @keyframes nb-ui-overlay-in {
@@ -459,18 +459,18 @@ input.nb-ui-native-input[type="number"] {
 }
 
 .nb-ui-popover-motion[data-state="open"] {
-    animation: nb-popover-in var(--motion-fast) var(--ease-standard);
+    animation: nb-popover-in var(--motion-fast) var(--ease-layout);
 }
 
 .nb-ui-popover-motion[data-state="closed"] {
-    animation: nb-popover-out var(--motion-fast) var(--ease-standard);
+    animation: nb-popover-out var(--motion-fast) var(--ease-dialog-leave);
 }
 
 .nb-menu-level {
     overflow: hidden;
     transition-property: top, left, width, height !important;
     transition-duration: var(--motion-fast) !important;
-    transition-timing-function: var(--ease-standard) !important;
+    transition-timing-function: var(--ease-layout) !important;
 }
 
 .nb-menu-level-content {
@@ -479,7 +479,7 @@ input.nb-ui-native-input[type="number"] {
 }
 
 .nb-menu-level[data-switching="true"] .nb-menu-level-content {
-    animation: nb-menu-content-in var(--motion-fast) var(--ease-standard);
+    animation: nb-menu-content-in var(--motion-fast) var(--ease-layout);
 }
 
 @keyframes nb-menu-content-in {
@@ -727,11 +727,11 @@ input.nb-ui-native-input[type="number"] {
 }
 
 .nb-collapsible-content[data-state="open"] {
-    animation: nb-collapsible-down var(--motion-base) var(--ease-standard);
+    animation: nb-collapsible-down var(--motion-move) var(--ease-layout);
 }
 
 .nb-collapsible-content[data-state="closed"] {
-    animation: nb-collapsible-up var(--motion-base) var(--ease-standard);
+    animation: nb-collapsible-up var(--motion-move) var(--ease-layout);
 }
 
 /* 骨架屏与占位高光流动 Shimmer 动画 */
@@ -760,7 +760,7 @@ input.nb-ui-native-input[type="number"] {
         color-mix(in srgb, var(--text-main) 9%, transparent) 50%,
         transparent 100%
     );
-    animation: nb-shimmer 2s var(--ease-standard) infinite;
+    animation: nb-shimmer 2s var(--ease-loop) infinite;
 }
 
 /*
@@ -778,7 +778,7 @@ input.nb-ui-native-input[type="number"] {
 
 .nb-ui-indeterminate-runner {
     width: calc(100% / 3);
-    animation: nb-ui-indeterminate 1.4s var(--ease-standard) infinite;
+    animation: nb-ui-indeterminate 1.4s var(--ease-loop) infinite;
 }
 
 /* 减少动画时停在轨道左端：“进行中”由旁边的文字与 aria 表达，短条不动也不丢信息。 */
@@ -807,7 +807,7 @@ input.nb-ui-native-input[type="number"] {
  */
 .nb-ui-switch-enter-active,
 .nb-ui-switch-leave-active {
-    transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+    transition: opacity var(--motion-fast) var(--ease-layout), transform var(--motion-fast) var(--ease-layout);
 }
 
 .nb-ui-switch-enter-from {

@@ -377,6 +377,6 @@ onBeforeUnmount(() => {
 
 /* 收起/展开是控件形变，走 --motion-base；拖动中关闭，避免跟手延迟。 */
 .nb-grid-panel[data-animating] {
-    transition: flex-basis var(--motion-base) var(--ease-standard), width var(--motion-base) var(--ease-standard), height var(--motion-base) var(--ease-standard);
+    transition: flex-basis var(--motion-move) var(--ease-layout), width var(--motion-move) var(--ease-layout), height var(--motion-move) var(--ease-layout);
 }
 </style>

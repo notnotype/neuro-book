@@ -184,7 +184,7 @@ function onPick(id: string): void {
     font: inherit;
     text-align: left;
     cursor: pointer;
-    transition: background var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+    transition: background var(--motion-fast) var(--ease-layout), box-shadow var(--motion-fast) var(--ease-layout);
 }
 
 .shelf-ghost:hover {

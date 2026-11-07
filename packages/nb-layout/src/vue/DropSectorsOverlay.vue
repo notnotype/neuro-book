@@ -83,7 +83,7 @@ const shapes = computed(() => {
     border-radius: var(--layout-sector-radius, 0);
     background: var(--layout-scrim);
     pointer-events: none;
-    animation: nb-drop-sectors-in var(--motion-fast) var(--ease-standard);
+    animation: nb-drop-sectors-in var(--motion-fast) var(--ease-layout);
 }
 
 .nb-drop-sectors--inline {
@@ -117,7 +117,7 @@ const shapes = computed(() => {
     stroke: var(--layout-sector-line);
     stroke-width: 1px;
     vector-effect: non-scaling-stroke;
-    transition: fill var(--motion-fast) var(--ease-standard), stroke var(--motion-fast) var(--ease-standard);
+    transition: fill var(--motion-fast) var(--ease-layout), stroke var(--motion-fast) var(--ease-layout);
 }
 
 .nb-drop-sectors__sector--active {

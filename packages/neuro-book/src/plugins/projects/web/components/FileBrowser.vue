@@ -167,6 +167,6 @@ watch(() => props.entries, (entries) => {
 .nb-file-browser:has(> [role="listbox"]:focus-visible) {
     border-color: var(--focus-outline);
     box-shadow: var(--focus-ring);
-    transition: border-color var(--motion-base) var(--ease-standard), box-shadow var(--motion-base) var(--ease-standard);
+    transition: border-color var(--motion-base) var(--ease-layout), box-shadow var(--motion-base) var(--ease-layout);
 }
 </style>

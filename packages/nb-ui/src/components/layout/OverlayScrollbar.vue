@@ -188,7 +188,7 @@ function onTrackDown(event: PointerEvent): void {
     width: var(--scrollbar-w);
     border-radius: calc(var(--scrollbar-w) / 2);
     background: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-mix), transparent);
-    transition: background-color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout);
 }
 
 .nb-ui-overlay-scrollbar__thumb:hover {

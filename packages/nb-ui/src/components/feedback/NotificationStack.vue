@@ -75,14 +75,14 @@ function runAction(item: NotificationItem): void {
 /* 通知不贴触发器，从边缘滑入（translateY）合法，见 design-language.md 动效节。 */
 .nb-notice-enter-active {
     transition:
-        opacity var(--motion-enter) var(--ease-standard),
-        transform var(--motion-enter) var(--ease-standard);
+        opacity var(--motion-enter) var(--ease-layout),
+        transform var(--motion-enter) var(--ease-layout);
 }
 
 .nb-notice-leave-active {
     transition:
-        opacity var(--motion-fast) var(--ease-standard),
-        transform var(--motion-fast) var(--ease-standard);
+        opacity var(--motion-fast) var(--ease-dialog-leave),
+        transform var(--motion-fast) var(--ease-dialog-leave);
 }
 
 .nb-notice-enter-from,

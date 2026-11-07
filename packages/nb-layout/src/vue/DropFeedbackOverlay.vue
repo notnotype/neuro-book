@@ -393,16 +393,16 @@ watch(
 
 .nb-ui-drop-feedback__area,
 .nb-ui-drop-feedback__label--area {
-    animation: nb-drop-feedback-fade-in var(--motion-fast) var(--ease-standard);
+    animation: nb-drop-feedback-fade-in var(--motion-fast) var(--ease-layout);
 }
 
 .nb-ui-drop-feedback__area {
     opacity: 1;
-    transition: left var(--motion-base) var(--ease-standard),
-        top var(--motion-base) var(--ease-standard),
-        width var(--motion-base) var(--ease-standard),
-        height var(--motion-base) var(--ease-standard),
-        opacity var(--motion-fast) var(--ease-standard);
+    transition: left var(--motion-base) var(--ease-layout),
+        top var(--motion-base) var(--ease-layout),
+        width var(--motion-base) var(--ease-layout),
+        height var(--motion-base) var(--ease-layout),
+        opacity var(--motion-fast) var(--ease-layout);
 }
 
 .nb-ui-drop-feedback__area--standby {
@@ -410,7 +410,7 @@ watch(
 }
 
 .nb-ui-drop-feedback__label--area {
-    transition: left var(--motion-base) var(--ease-standard), top var(--motion-base) var(--ease-standard);
+    transition: left var(--motion-base) var(--ease-layout), top var(--motion-base) var(--ease-layout);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -169,7 +169,7 @@ function selectHidden(value: string): void {
                 :aria-selected="isSelected(item)"
                 :tabindex="isSelected(item) ? 0 : -1"
                 :disabled="item.disabled"
-                class="nb-ui-focus-ring-inset transition-colors [transition-duration:var(--motion-fast)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
+                class="nb-ui-focus-ring-inset transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] after:[transition-timing-function:var(--ease-layout)] disabled:cursor-not-allowed disabled:opacity-45"
                 :class="[tabBoxClass, tabClass(item)]"
                 :style="truncating ? {maxWidth: `${props.maxItemWidth}px`, ...(adapt.level === 3 ? {flexShrink: 1, minWidth: '0'} : {})} : undefined"
                 @click="select(item)"
@@ -208,7 +208,7 @@ function selectHidden(value: string): void {
             :aria-selected="isSelected(item)"
             :tabindex="isSelected(item) ? 0 : -1"
             :disabled="item.disabled"
-            class="nb-ui-focus-ring-inset transition-colors [transition-duration:var(--motion-fast)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
+            class="nb-ui-focus-ring-inset transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] after:[transition-timing-function:var(--ease-layout)] disabled:cursor-not-allowed disabled:opacity-45"
             :class="[tabBoxClass, tabClass(item)]"
             @click="select(item)"
         >

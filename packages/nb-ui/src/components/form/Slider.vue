@@ -129,7 +129,7 @@ const thumbCount = computed(() => {
             v-for="index in thumbCount"
             :key="index"
             :aria-label="props.ariaLabel || text('slider.thumb', {index})"
-            class="nb-ui-focus-ring block rounded-[var(--radius-pill)] bg-[var(--bg-panel)] shadow-[0_1px_3px_color-mix(in_srgb,var(--shadow-color)_20%,transparent),0_0_0_1px_color-mix(in_srgb,var(--text-main)_14%,transparent)] transition-[transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:scale-110 not-disabled:active:scale-95 disabled:hover:scale-100 disabled:cursor-not-allowed"
+            class="nb-ui-focus-ring block rounded-[var(--radius-pill)] bg-[var(--bg-panel)] shadow-[0_1px_3px_color-mix(in_srgb,var(--shadow-color)_20%,transparent),0_0_0_1px_color-mix(in_srgb,var(--text-main)_14%,transparent)] transition-[transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] hover:scale-110 not-disabled:active:scale-95 disabled:hover:scale-100 disabled:cursor-not-allowed"
             :class="thumbSizeClass"
         />
     </SliderRoot>

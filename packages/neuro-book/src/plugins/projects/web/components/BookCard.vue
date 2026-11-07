@@ -106,7 +106,7 @@ function onMenu(value: string): void {
     background: var(--page-surface, var(--bg-panel));
     box-shadow: 0 1px 1.5px color-mix(in srgb, var(--shadow-color) 8%, transparent), 0 8px 22px color-mix(in srgb, var(--shadow-color) 8%, transparent);
     cursor: pointer;
-    transition: transform var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+    transition: transform var(--motion-fast) var(--ease-layout), box-shadow var(--motion-fast) var(--ease-layout);
 }
 
 .book-card:hover {
@@ -182,7 +182,7 @@ function onMenu(value: string): void {
     top: var(--space-3);
     right: var(--space-3);
     opacity: 0;
-    transition: opacity var(--motion-fast) var(--ease-standard);
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
 .book-card:hover .book-card__more,

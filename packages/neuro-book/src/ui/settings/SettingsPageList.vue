@@ -170,7 +170,7 @@ async function goBack(): Promise<void> {
     outline: none;
     transition-property: background-color;
     transition-duration: var(--motion-fast);
-    transition-timing-function: var(--ease-standard);
+    transition-timing-function: var(--ease-layout);
 }
 
 .settings-page-list__row:hover {

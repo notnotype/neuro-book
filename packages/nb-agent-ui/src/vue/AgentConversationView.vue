@@ -621,7 +621,7 @@ defineExpose({focusComposer, scrollToLatest});
     min-height: 28px;
     border-radius: var(--radius-control);
     color: inherit;
-    transition: color var(--motion-fast) var(--ease-standard);
+    transition: color var(--motion-fast) var(--ease-layout);
 }
 
 .acv-history__more::before,
@@ -646,7 +646,7 @@ defineExpose({focusComposer, scrollToLatest});
     align-items: center;
     gap: 6px;
     margin: 0;
-    animation: acv-appear var(--motion-fast) var(--ease-standard) var(--motion-base) both;
+    animation: acv-appear var(--motion-fast) var(--ease-layout) var(--motion-base) both;
 }
 
 .acv-history__error {
@@ -687,7 +687,7 @@ defineExpose({focusComposer, scrollToLatest});
 
 .acv-fade-enter-active,
 .acv-fade-leave-active {
-    transition: opacity var(--motion-fast) var(--ease-standard);
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
 .acv-fade-enter-from,

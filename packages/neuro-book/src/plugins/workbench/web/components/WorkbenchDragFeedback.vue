@@ -104,7 +104,7 @@ withDefaults(defineProps<{
     gap: 6px;
     color: var(--text-secondary);
     font-size: var(--text-xs);
-    transition: opacity var(--motion-fast) var(--ease-standard);
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
 .workbench-reveal-zone[data-reveal-active] .workbench-reveal-zone__hint {
@@ -118,7 +118,7 @@ withDefaults(defineProps<{
 
 .workbench-reveal-zone-enter-active,
 .workbench-reveal-zone-leave-active {
-    transition: opacity var(--motion-base) var(--ease-standard);
+    transition: opacity var(--motion-base) var(--ease-layout);
 }
 
 .workbench-reveal-zone-enter-from,

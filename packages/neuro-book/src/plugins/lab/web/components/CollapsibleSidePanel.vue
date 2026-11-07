@@ -142,7 +142,7 @@ watch(() => props.collapsed, (isCollapsed) => {
 }
 
 .nb-lab-panel {
-    transition: width var(--motion-base) var(--ease-standard), flex-basis var(--motion-base) var(--ease-standard);
+    transition: width var(--motion-move) var(--ease-layout), flex-basis var(--motion-move) var(--ease-layout);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -160,8 +160,8 @@ watch(() => props.collapsed, (isCollapsed) => {
     border-radius: var(--radius-control);
     color: var(--text-muted);
     transition:
-        background-color var(--motion-fast) var(--ease-standard),
-        color var(--motion-fast) var(--ease-standard);
+        background-color var(--motion-fast) var(--ease-layout),
+        color var(--motion-fast) var(--ease-layout);
 }
 
 .nb-lab-panel-toggle:hover {

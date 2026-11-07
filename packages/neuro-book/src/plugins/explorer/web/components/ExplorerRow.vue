@@ -191,7 +191,7 @@ const inputLabel = computed(() => {
         v-else
         :id="domId"
         role="treeitem"
-        class="explorer-row flex w-full min-w-0 cursor-default select-none items-center gap-1 rounded-[var(--radius-control)] pr-2 transition-colors [transition-duration:var(--motion-fast)]"
+        class="explorer-row flex w-full min-w-0 cursor-default select-none items-center gap-1 rounded-[var(--radius-control)] pr-2 transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
         :class="[
             row.kind === 'root' ? 'explorer-row--root' : 'text-sm',
             row.kind === 'entry' && (row.type === 'missing' || row.cut) ? 'opacity-60' : '',
@@ -221,7 +221,7 @@ const inputLabel = computed(() => {
             @click.stop="expandable ? emit('press', $event, 'twisty') : emit('press', $event, 'row')"
         >
             <span v-if="problem?.kind === 'loading'" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin text-[var(--text-muted)]" data-explorer-loading></span>
-            <span v-else-if="expandable" class="i-lucide-chevron-right h-3.5 w-3.5 transition-transform" :class="expanded ? 'rotate-90' : ''"></span>
+            <span v-else-if="expandable" class="i-lucide-chevron-right h-3.5 w-3.5 transition-transform [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)]" :class="expanded ? 'rotate-90' : ''"></span>
         </span>
         <FileIcon v-if="icon" :icon="icon" />
         <span
@@ -329,7 +329,7 @@ const inputLabel = computed(() => {
     pointer-events: none;
     background: color-mix(in srgb, var(--text-main) 18%, transparent);
     opacity: var(--explorer-guide-opacity, 0);
-    transition: opacity var(--motion-fast) var(--ease-standard);
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
 .explorer-guide[data-guide-active] {

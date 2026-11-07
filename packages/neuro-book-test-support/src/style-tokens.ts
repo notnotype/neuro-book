@@ -109,9 +109,9 @@ export function styleTokenRules(options: {readonly typographyTokens: ReadonlyArr
         },
         {
             id: "literal-easing",
-            name: "缓动只消费 --ease-standard",
+            name: "缓动只消费缓动令牌",
             pattern: /cubic-bezier\(/u,
-            reason: "写死的缓动不随主题；用 var(--ease-standard)",
+            reason: "写死的缓动看齐不了主曲线；用 var(--ease-layout)，退场 var(--ease-dialog-leave)，循环 var(--ease-loop)",
         },
         {
             id: "literal-color",

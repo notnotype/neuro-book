@@ -69,7 +69,7 @@ function variantClass(): string {
         :title="props.title"
         :aria-label="props.ariaLabel || props.title"
         :disabled="props.disabled"
-        class="inline-flex shrink-0 items-center justify-center rounded-[var(--radius-control)] border-[length:var(--border-w)] border-transparent box-border transition-[background-color,color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.93] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:active:transform-none cursor-pointer"
+        class="inline-flex shrink-0 items-center justify-center rounded-[var(--radius-control)] border-[length:var(--border-w)] border-transparent box-border transition-[background-color,color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] not-disabled:active:scale-[0.93] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:active:transform-none cursor-pointer"
         :class="[
             focusRingClass(props.focusRing),
             sizeClass(),

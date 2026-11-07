@@ -112,7 +112,7 @@ if (props.layout.type === "group") {
 }
 
 .nb-form-group__chevron {
-    transition: transform var(--motion-fast) var(--ease-standard);
+    transition: transform var(--motion-move) var(--ease-layout);
 }
 
 .nb-form-group__chevron--open {

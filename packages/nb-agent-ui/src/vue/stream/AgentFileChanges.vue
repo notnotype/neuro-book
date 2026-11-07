@@ -119,7 +119,7 @@ function showRemoved(file: FileChangeView): boolean {
     border: var(--border-w, 1px) solid var(--divider);
     border-radius: var(--radius-control);
     color: var(--text-secondary);
-    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 .agent-file-changes__chip:hover {

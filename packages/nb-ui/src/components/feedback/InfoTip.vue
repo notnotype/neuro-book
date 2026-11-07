@@ -28,7 +28,7 @@ const labelText = computed(() => props.label ?? text("infoTip.label"));
         <button
             v-bind="$attrs"
             type="button"
-            class="nb-info-tip nb-ui-focus-ring inline-flex h-[18px] w-[18px] shrink-0 cursor-default items-center justify-center rounded-full p-0 align-middle text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:text-[var(--text-main)]"
+            class="nb-info-tip nb-ui-focus-ring inline-flex h-[18px] w-[18px] shrink-0 cursor-default items-center justify-center rounded-full p-0 align-middle text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] hover:text-[var(--text-main)]"
             :aria-label="labelText"
         >
             <span class="i-lucide-circle-help h-3.5 w-3.5" aria-hidden="true" />

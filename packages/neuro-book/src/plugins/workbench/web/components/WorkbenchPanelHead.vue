@@ -178,7 +178,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
     white-space: nowrap;
-    transition: color var(--motion-fast);
+    transition: color var(--motion-fast) var(--ease-layout);
 }
 
 .workbench-panel-head__tabs :deep(.nb-tab:hover) {
@@ -192,7 +192,7 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     background: transparent;
     content: "";
     inset-inline: 0;
-    transition: background-color var(--motion-fast);
+    transition: background-color var(--motion-fast) var(--ease-layout);
 }
 
 .workbench-panel-head__tabs :deep(.is-active .nb-tab) {

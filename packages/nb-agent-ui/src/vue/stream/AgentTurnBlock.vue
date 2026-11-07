@@ -227,7 +227,7 @@ function nodeSubtitle(step: ToolStep): string {
     color: var(--text-muted);
     font-size: var(--text-2xs);
     text-align: left;
-    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 .acv-notice__row:hover {
@@ -240,7 +240,7 @@ function nodeSubtitle(step: ToolStep): string {
     width: 12px;
     height: 12px;
     opacity: 0.7;
-    transition: transform var(--motion-fast) var(--ease-standard);
+    transition: transform var(--motion-move) var(--ease-layout);
 }
 
 [aria-expanded="true"] > .acv-notice__chevron {
@@ -263,7 +263,7 @@ function nodeSubtitle(step: ToolStep): string {
     gap: 2px;
     padding: 0 4px;
     border-radius: var(--radius-control);
-    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 .acv-divider__toggle:hover {

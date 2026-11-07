@@ -311,7 +311,7 @@ function onRequestClose(reason: string): void {
     height: 24px;
     border-radius: 4px;
     color: color-mix(in srgb, var(--text-main) 35%, transparent);
-    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 .markdown-gutter__button:hover {

@@ -352,7 +352,6 @@
     --motion-fast: 90ms;
     --motion-base: 140ms;
     --motion-enter: 180ms;
-    --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
 
     /* ---- 稿面：这套主题相对 macOS 真正新增的一层 ------------------------- */
     /*

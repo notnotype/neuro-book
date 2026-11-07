@@ -132,7 +132,7 @@ function onSelect(value: string): void {
     border-radius: var(--radius-control);
     color: var(--text-secondary);
     font-size: var(--text-xs);
-    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 .acv-model-picker__trigger:hover:not(:disabled) {

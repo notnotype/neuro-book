@@ -270,7 +270,7 @@ defineExpose({focusTab: (id: string) => tabElement(id)?.focus()});
 
 <style scoped>
 .nb-tab-frame--moving {
-    transition: transform var(--motion-fast) var(--ease-standard);
+    transition: transform var(--motion-move) var(--ease-layout);
 }
 
 .nb-tab-frame--placeholder {

@@ -54,7 +54,7 @@ const {t} = useAgentText();
     font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     text-align: left;
-    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 .agent-chain-summary:hover,
@@ -90,7 +90,7 @@ const {t} = useAgentText();
     width: 12px;
     height: 12px;
     opacity: 0.7;
-    transition: transform var(--motion-fast) var(--ease-standard);
+    transition: transform var(--motion-move) var(--ease-layout);
 }
 
 .agent-chain-summary[aria-expanded="true"] .agent-chain-summary__chevron {

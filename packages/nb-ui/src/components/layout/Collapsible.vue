@@ -40,7 +40,7 @@ function onContentAnimation(event: AnimationEvent): void {
         </CollapsibleTrigger>
 
         <CollapsibleContent
-            class="transition-[height,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] nb-collapsible-content"
+            class="transition-[height,opacity] [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)] nb-collapsible-content"
             v-bind="{onAnimationstart: onContentAnimation, onAnimationend: onContentAnimation, onAnimationcancel: onContentAnimation}"
         >
             <slot />

@@ -28,7 +28,7 @@ defineSlots<{default(): unknown}>();
     border-radius: var(--radius-control);
     background: var(--drop-area-fill);
     box-shadow: var(--elevation-raised);
-    transition: opacity var(--motion-fast) var(--ease-standard);
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
 .nb-ui-drop-indicator[data-drop-indicator="line"] {

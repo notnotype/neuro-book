@@ -96,7 +96,7 @@ const statusIcon = computed(() => {
     color: var(--text-main);
     font-size: var(--text-xs);
     text-align: left;
-    transition: background-color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout);
 }
 
 button.nb-collapsible-card__trigger:hover {

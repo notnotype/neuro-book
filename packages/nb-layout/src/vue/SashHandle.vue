@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
     opacity: 0;
     transition-property: opacity;
     transition-duration: var(--motion-fast);
-    transition-timing-function: var(--ease-standard);
+    transition-timing-function: var(--ease-layout);
 }
 
 /* 悬停满 SASH_HOVER_DELAY_MS 后才由 scope 置 revealed：从 0 渐显到 1，离开立即淡出。 */

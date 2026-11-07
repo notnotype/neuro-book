@@ -49,7 +49,7 @@ const sizeClass = computed(() => {
         :class="sizeClass"
     >
         <ProgressIndicator
-            class="h-full w-full flex-1 rounded-[var(--radius-pill)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)]"
+            class="h-full w-full flex-1 rounded-[var(--radius-pill)] transition-transform [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)]"
             :class="toneClass"
             :style="{transform: `translateX(-${100 - progressPercent}%)`}"
         />

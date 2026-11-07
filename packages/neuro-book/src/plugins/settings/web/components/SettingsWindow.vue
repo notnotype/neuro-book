@@ -537,7 +537,7 @@ function onLeaveOpen(open: boolean): void {
     text-align: left;
     white-space: nowrap;
     cursor: pointer;
-    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout), color var(--motion-fast) var(--ease-layout);
 }
 
 .settings-window__nav-item:hover:not([aria-disabled="true"]) {

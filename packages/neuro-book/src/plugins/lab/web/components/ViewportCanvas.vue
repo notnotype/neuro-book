@@ -438,7 +438,7 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
     position: absolute;
     z-index: 10;
     background: transparent;
-    transition: background-color var(--motion-fast) var(--ease-standard);
+    transition: background-color var(--motion-fast) var(--ease-layout);
 }
 
 .nb-lab-stage-handle:hover {

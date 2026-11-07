@@ -127,7 +127,7 @@ function handleClear(): void {
         <button
             v-if="props.clearable && props.modelValue && !props.disabled && !props.readonly"
             type="button"
-            class="i-lucide-x h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer flex items-center justify-center self-center transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
+            class="i-lucide-x h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer flex items-center justify-center self-center transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)]"
             :aria-label="clearText"
             @click="handleClear"
         />

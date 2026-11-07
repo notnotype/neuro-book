@@ -11,7 +11,7 @@ import type {ControlSize} from "../shared-types";
  *
  * 视觉与动效规范：
  * 1. 底座：圆角消费 var(--radius-control)，10% 柔灰实底 + 1px 细微反光外框；
- * 2. 指示块：纯正 Apple 蓝（var(--accent-main)）+ 纯白反色文字 + 舒缓物理滑动动画（消费 var(--motion-base) 与 var(--ease-standard)）；
+ * 2. 指示块：纯正 Apple 蓝（var(--accent-main)）+ 纯白反色文字 + 舒缓物理滑动动画（消费 var(--motion-move) 与 var(--ease-layout)）；
  * 3. 分隔线：未选中项之间配备 1px 细微竖向分隔线，在选中项相邻两侧智能平滑消隐；
  * 4. 无障碍与键盘：支持标准 WAI-ARIA RadioGroup 模式与 ArrowLeft/ArrowRight/Home/End 键盘巡检。
  * 5. 在表单里（三项以内、没有说明的单选）照表单控件的统一合同：名字来自 `Field` 的组形态，停用、只读、出错同其它控件
@@ -161,7 +161,7 @@ function handleKeydown(event: KeyboardEvent): void {
         <!-- 舒缓平滑滑动背景指示块（单选且选项固定等分时连续 GPU 硬件滑动） -->
         <div
             v-if="selectedIndex >= 0 && !props.wrap"
-            class="absolute top-[2px] bottom-[2px] left-[2px] rounded-[max(2px,calc(var(--radius-control)-2px))] bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-[0_2px_8px_color-mix(in_srgb,var(--accent-main)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_30%,transparent)] pointer-events-none transition-[transform,width,background-color,color,box-shadow] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] will-change-transform"
+            class="absolute top-[2px] bottom-[2px] left-[2px] rounded-[max(2px,calc(var(--radius-control)-2px))] bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-[0_2px_8px_color-mix(in_srgb,var(--accent-main)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_30%,transparent)] pointer-events-none transition-[transform,width,background-color,color,box-shadow] [transition-duration:var(--motion-move)] [transition-timing-function:var(--ease-layout)] will-change-transform"
             :style="{
                 width: `calc((100% - 4px) / ${props.options.length})`,
                 transform: `translateX(calc(${selectedIndex} * 100%))`,
@@ -181,7 +181,7 @@ function handleKeydown(event: KeyboardEvent): void {
             :aria-label="option.title || option.label || undefined"
             :title="option.title || option.label"
             :data-testid="option.testId"
-            class="nb-ui-focus-ring relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            class="nb-ui-focus-ring relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] disabled:cursor-not-allowed disabled:hover:bg-transparent"
             :class="[
                 props.wrap ? 'flex-1' : '',
                 props.size === 'xs'

@@ -47,7 +47,7 @@ type ScrollAreaSlots = {
 
 ## 上游边界
 
-Reka UI 负责滚动条的出现与消失（含 `scrollHideDelay` 的计时）、拇指拖动、`type` 的四种语义、视口与滚动条之间的关联（含无障碍属性）、原生滚动条的隐藏，以及内容不足以撑满时的判断。本组件承诺的只有：按 `orientation` 渲染对应的滚动条、它们的尺寸与配色（轨道用 `w-2.5` / `h-2.5` 加 0.5 单位内边距、拇指按 `--scrollbar-thumb-mix`、悬停时按 `--scrollbar-thumb-hover-mix` 的比例混 `--text-main`、过渡用 `--motion-fast` 与 `--ease-standard`）、以及两轴都渲染时的右下角补角。上游的其他行为不在本组件的合同内，升级底层库时可能变化。
+Reka UI 负责滚动条的出现与消失（含 `scrollHideDelay` 的计时）、拇指拖动、`type` 的四种语义、视口与滚动条之间的关联（含无障碍属性）、原生滚动条的隐藏，以及内容不足以撑满时的判断。本组件承诺的只有：按 `orientation` 渲染对应的滚动条、它们的尺寸与配色（轨道用 `w-2.5` / `h-2.5` 加 0.5 单位内边距、拇指按 `--scrollbar-thumb-mix`、悬停时按 `--scrollbar-thumb-hover-mix` 的比例混 `--text-main`、过渡用 `--motion-fast` 与 `--ease-layout`）、以及两轴都渲染时的右下角补角。上游的其他行为不在本组件的合同内，升级底层库时可能变化。
 
 ## 注意事项
 

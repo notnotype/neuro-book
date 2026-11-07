@@ -54,7 +54,7 @@ const progressTone = computed(() => {
 </script>
 
 <template>
-    <div role="status" class="nb-notification flex w-full items-start gap-3 rounded-[var(--radius-panel)] border px-4 py-3 text-sm shadow-lg transition-[transform,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] select-none" :class="toneClass">
+    <div role="status" class="nb-notification flex w-full items-start gap-3 rounded-[var(--radius-panel)] border px-4 py-3 text-sm shadow-lg transition-[transform,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-layout)] select-none" :class="toneClass">
         <span class="mt-0.5 h-4 w-4 shrink-0" :class="iconClass"></span>
         <span class="min-w-0 flex-1">
             <span v-if="$slots.title || props.title" class="mb-1 block font-medium text-[var(--text-main)]">
@@ -74,7 +74,7 @@ const progressTone = computed(() => {
         <button v-if="$slots.action || props.actionLabel" type="button" class="shrink-0 text-sm font-medium text-[var(--nb-notification-tone)] hover:underline cursor-pointer" @click="emit('action')">
             <slot name="action">{{ props.actionLabel }}</slot>
         </button>
-        <button v-if="props.dismissible" type="button" class="nb-ui-focus-ring -mr-1 shrink-0 rounded-[calc(var(--radius-control)*0.75)] p-0.5 text-[var(--text-muted)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer" :aria-label="closeText" :title="closeText" @click="emit('dismiss')">
+        <button v-if="props.dismissible" type="button" class="nb-ui-focus-ring -mr-1 shrink-0 rounded-[calc(var(--radius-control)*0.75)] p-0.5 text-[var(--text-muted)] transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] hover:bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-[0.92] cursor-pointer" :aria-label="closeText" :title="closeText" @click="emit('dismiss')">
             <span class="i-lucide-x h-4 w-4"></span>
         </button>
     </div>

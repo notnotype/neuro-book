@@ -444,8 +444,8 @@
     color: var(--text-secondary);
     font-size: var(--text-xs);
     transition:
-        background-color var(--motion-fast) var(--ease-standard),
-        color var(--motion-fast) var(--ease-standard);
+        background-color var(--motion-fast) var(--ease-layout),
+        color var(--motion-fast) var(--ease-layout);
 }
 
 .lab-btn:hover {
