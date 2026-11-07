@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>w00028 t04 失败详情组件与常驻通知：评审板</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 980px; margin: 32px auto; padding: 0 16px; line-height: 1.65; color: #2b2723; }
+section { border: 1px solid #d8d0c6; border-radius: 10px; padding: 12px 18px; margin: 20px 0; }
+h1 { font-size: 22px; } h2 { font-size: 18px; margin: 6px 0; } h3 { font-size: 15px; margin: 14px 0 4px; }
+.badge { font-size: 12px; padding: 1px 7px; border-radius: 4px; margin-right: 8px; background: #fde68a; }
+.badge.done { background: #d1e7d3; }
+.cand { border-top: 1px dashed #d8d0c6; padding-top: 8px; margin-top: 10px; }
+img { max-width: 100%; border: 1px solid #d8d0c6; border-radius: 8px; display: block; margin: 6px 0; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+.row figure { margin: 0; } .row figcaption, figcaption { font-size: 12px; color: #6b635a; }
+.rec { background: #eef3e6; padding: 6px 10px; border-radius: 6px; }
+code { background: #f1ece5; padding: 0 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>失败详情组件与常驻通知</h1>
+<p>目标：给界面一个统一放“开发诊断原文”的载体（ADR 0034：诊断原文只进详情、不当主文案）。下面的图都是 Component Lab 里用真实 nb-ui 组件搭的静态稿，亮色；窄屏与暗色另附。详情文字是英文诊断原文，不翻译；“详情”“复制”“已复制”这些界面文字走 nb-ui 自带目录。</p>
+
+<section data-nbdev-question="sticky-rule" data-nbdev-type="single" data-nbdev-recommend="sticky-with-detail">
+  <h2><span class="badge" data-nbdev-skip>待定</span>带详情的通知什么时候消失</h2>
+  <p>现在的规则：警告级 4.2 秒后自动消失，而失败通知正是警告级。用户来不及展开，选中文字时鼠标一出通知计时还会恢复并把通知移走。</p>
+  <div class="row">
+    <figure><img src="r1/notice-collapsed.webp" alt="收起" width="470"><figcaption>收起：标题、正文、“重试”、关闭，正文下一行“详情”</figcaption></figure>
+    <figure><img src="r1/notice-expanded.webp" alt="展开" width="470"><figcaption>展开：等宽原文、可横向滚动，右上头行放“复制”</figcaption></figure>
+  </div>
+  <div class="cand" data-nbdev-option="sticky-with-detail" data-nbdev-label="A 带详情的通知一律常驻，手动关闭">
+    <h3>A 带详情的通知一律常驻，只能手动关闭或由发出方移除</h3>
+    <p>规则最简单，选中和复制不会被打断；代价是失败通知多了会占屏，由第二题的上限兜住。</p>
+  </div>
+  <div class="cand" data-nbdev-option="pause-on-open" data-nbdev-label="B 仍按色调限时，展开后才转常驻">
+    <h3>B 仍按色调限时，点开“详情”后转常驻</h3>
+    <p>不展开的通知照旧消失；但用户没来得及点开就丢了诊断，诊断只剩日志里能找。</p>
+  </div>
+  <p class="rec">推荐 A。失败的详情是排查线索，丢了比占屏更糟。</p>
+</section>
+
+<section data-nbdev-question="stack-cap" data-nbdev-type="single" data-nbdev-recommend="cap-4">
+  <h2><span class="badge" data-nbdev-skip>待定</span>常驻通知多了怎么办</h2>
+  <p>六条常驻的右下角视口，下一条会把更早的挤出屏幕上沿。对照两种做法：</p>
+  <div class="row">
+    <figure><img src="r1/stack-six-nocap.webp" alt="不设上限" width="470"><figcaption>不设上限：最早的两条被挤出屏幕，用户不知道它们存在</figcaption></figure>
+    <figure><img src="r1/stack-six-cap.webp" alt="上限 4" width="470"><figcaption>最多显示最新 4 条，上方一条“还有 2 条较早的通知 · 展开”</figcaption></figure>
+  </div>
+  <figure><img src="r1/stack-six-cap-mobile.webp" alt="手机" width="300"><figcaption>390 宽：同样的结构，没有溢出</figcaption></figure>
+  <div class="cand" data-nbdev-option="cap-4" data-nbdev-label="A 视口最多 4 条，其余折成“还有 n 条”">
+    <h3>A 最多显示最新 4 条，其余折成一条小条，点“展开”看全部</h3>
+    <p>折叠的通知计时照常（限时的仍会按时消失）；展开后列表在视口内滚动，不超过窗口高度。</p>
+  </div>
+  <div class="cand" data-nbdev-option="no-cap" data-nbdev-label="B 不设上限，视口自己滚动">
+    <h3>B 不设上限，视口超高时在内部滚动</h3>
+    <p>实现最省；但最早的失败藏在滚动区外，和被挤出屏幕效果相近。</p>
+  </div>
+  <p class="rec">推荐 A，上限取 4。</p>
+</section>
+
+<section data-nbdev-question="notice-width" data-nbdev-type="single" data-nbdev-recommend="footer-slot">
+  <h2><span class="badge" data-nbdev-skip>待定</span>详情块的宽度（涉及改 nb-ui 的 Notification）</h2>
+  <p>上面两张图里，详情块只和文字列一样宽，比通知窄约 70px（右边是动作和关闭两列），原文因此被裁得更多。</p>
+  <div class="cand" data-nbdev-option="footer-slot" data-nbdev-label="A Notification 加一个整行宽的 footer 插槽">
+    <h3>A <code>Notification</code> 新增横跨整行的 <code>footer</code> 插槽，详情块放那里，与通知同宽</h3>
+    <p>要改 nb-ui 组件与同名 .md；原文每行多出约 70px 可见宽度。</p>
+  </div>
+  <div class="cand" data-nbdev-option="column-width" data-nbdev-label="B 沿用文字列宽度">
+    <h3>B 不改组件，详情块放默认插槽，宽度等于文字列</h3>
+    <p>不动 nb-ui；原文靠横向滚动看，窄屏更挤。</p>
+  </div>
+  <p class="rec">推荐 A。</p>
+</section>
+
+<section data-nbdev-question="placements" data-nbdev-type="confirm" data-nbdev-label="确认各类界面里详情放哪（含“不展示”的几处）" data-nbdev-required>
+  <h2><span class="badge" data-nbdev-skip>待定</span>别的界面里详情放哪</h2>
+  <p>同一个详情组件（触发器加原文块加复制），按位置不同的摆法：</p>
+  <h3>编辑器组横幅：整宽展开，仍是横幅下的一节</h3>
+  <div class="row">
+    <figure><img src="r1/banner-collapsed.webp" alt="横幅收起" width="470"><figcaption>收起：“详情”跟在正文后，窄屏落到下一行，所以收起态不会变高</figcaption></figure>
+    <figure><img src="r1/banner-expanded.webp" alt="横幅展开" width="470"><figcaption>展开：整宽，在标签栏与内容区之间</figcaption></figure>
+  </div>
+  <h3>状态栏条目：点开弹层，里面是原因加同一个详情块</h3>
+  <figure><img src="r1/statusbar-popover.webp" alt="状态栏" width="470"><figcaption>状态栏只有一行，放不下展开态，所以用弹层</figcaption></figure>
+  <h3>资源管理器结果区：窄栏里原位展开</h3>
+  <div class="row">
+    <figure><img src="r1/explorer-result.webp" alt="资源管理器" width="470"><figcaption>260px 栏：“详情”被关闭按钮挤到第二行，原文横向滚动</figcaption></figure>
+    <figure><img src="r1/explorer-result-mobile.webp" alt="资源管理器窄屏" width="200"><figcaption>390 宽</figcaption></figure>
+  </div>
+  <h3>不展示详情的位置</h3>
+  <p>资源管理器行内改名的单行错误、表单字段的状态行：放不下，也不该放，原文只进诊断日志。失败页（<code>FailurePage</code>）和 Agent 对话视图已有自己的详情位（失败页的 reason 段、工具详情块），这次不动，等 w00031 t03 迁移时再接同一个组件。</p>
+  <p class="rec">推荐照此确认。</p>
+</section>
+
+<section>
+  <h2><span class="badge done">已定（主 Agent，待你过目）</span>搭稿时定的细节</h2>
+  <ul>
+    <li><b>复制三态</b>：待复制、已复制（对勾，约 1.7 秒后复位）、剪贴板不可用（非安全上下文）时全选原文并提示“已选中，按 Ctrl+C 复制”。三态在 Chrome 里用脚本验证过。
+      <div class="row"><figure><img src="r1/copy-done.webp" alt="已复制" width="400"><figcaption>已复制</figcaption></figure>
+      <figure><img src="r1/copy-fallback.webp" alt="退路" width="400"><figcaption>退路：已选中，按 Ctrl+C 复制</figcaption></figure></div></li>
+    <li><b>复制按钮放在原文上方的头行</b>，不压在原文右上角（会盖住最长的第一行）；代价是每个详情块多 28px，最高约 188px。</li>
+    <li><b>文字可选</b>：<code>Notification</code> 根节点的 <code>select-none</code> 不改，详情块自己 <code>select-text</code>，已验证三击能选中、标题仍选不中。</li>
+    <li><b>暗色</b>：块底用文字色 5% 的中性底加描边，不用 <code>--bg-subtle</code>（在有色调的通知底上突兀）；对比够用。
+      <div class="row"><figure><img src="r1/notice-expanded-dark.webp" alt="暗色通知" width="400"><figcaption>通知，暗色</figcaption></figure>
+      <figure><img src="r1/banner-expanded-dark.webp" alt="暗色横幅" width="400"><figcaption>横幅，暗色</figcaption></figure></div></li>
+    <li><b>窄屏</b>：手机 390 宽，通知与横幅展开后不溢出。
+      <div class="row"><figure><img src="r1/notice-expanded-mobile.webp" alt="手机通知" width="240"><figcaption>通知</figcaption></figure>
+      <figure><img src="r1/banner-expanded-mobile.webp" alt="手机横幅" width="240"><figcaption>横幅</figcaption></figure></div></li>
+    <li><b>详情文字是字符串</b>（开发诊断原文，不翻译）：<code>NotificationInput</code> 新增 <code>detail?: string</code>，不是 <code>Text</code>。标题与正文改成到渲染时才翻译这件事 t03 已做完，不再属于本 Task。</li>
+  </ul>
+  <h3>实现时要处理的组件缺口（搭稿时发现）</h3>
+  <ul>
+    <li><code>NotificationItem</code> 要加 <code>detail</code>，<code>NotificationStack</code> 要加上限与折叠小条；</li>
+    <li><code>Popover</code> 打开时自动聚焦第一个可聚焦元素（这里是“复制”），没有关闭自动聚焦的参数，要给它加或在内容里放一个接住焦点的容器；</li>
+    <li><code>Button</code> 最小是 28px 档，11px 的原文旁偏大，要么加 <code>xs</code> 档要么接受 28px；</li>
+    <li><code>CodeBlock</code>（最大高度固定 280px、没有复制）和 <code>Collapsible</code>（触发器与内容必须相邻）不能直接用，详情块是新组件；</li>
+    <li>全选原文的高亮是浏览器默认的深蓝，在暖色通知底上偏重；主题没有 <code>::selection</code> 样式，是否统一定一个，留到实现时顺手定。</li>
+  </ul>
+</section>
+</body>
+</html>

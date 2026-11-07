@@ -1,0 +1,121 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00028-i18n",
+    "taskId": "t04-failure-details",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00028 t04 失败详情组件与常驻通知：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "de0011bab497aac1b3442fd75b354d4e1e8581a67d5f8a1d9409fb9aa7cade6e",
+    "files": [
+        "index.html",
+        "r1/banner-collapsed.webp",
+        "r1/banner-expanded-dark.webp",
+        "r1/banner-expanded-mobile.webp",
+        "r1/banner-expanded.webp",
+        "r1/copy-done.webp",
+        "r1/copy-fallback.webp",
+        "r1/explorer-result-mobile.webp",
+        "r1/explorer-result.webp",
+        "r1/notice-collapsed.webp",
+        "r1/notice-expanded-dark.webp",
+        "r1/notice-expanded-mobile.webp",
+        "r1/notice-expanded.webp",
+        "r1/stack-six-cap-mobile.webp",
+        "r1/stack-six-cap.webp",
+        "r1/stack-six-nocap.webp",
+        "r1/statusbar-popover.webp"
+    ],
+    "questions": [
+        {
+            "id": "sticky-rule",
+            "type": "single",
+            "label": "带详情的通知什么时候消失",
+            "options": [
+                {
+                    "value": "sticky-with-detail",
+                    "label": "A 带详情的通知一律常驻，手动关闭"
+                },
+                {
+                    "value": "pause-on-open",
+                    "label": "B 仍按色调限时，展开后才转常驻"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "sticky-with-detail"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "stack-cap",
+            "type": "single",
+            "label": "常驻通知多了怎么办",
+            "options": [
+                {
+                    "value": "cap-4",
+                    "label": "A 视口最多 4 条，其余折成“还有 n 条”"
+                },
+                {
+                    "value": "no-cap",
+                    "label": "B 不设上限，视口自己滚动"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "cap-4"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notice-width",
+            "type": "single",
+            "label": "详情块的宽度（涉及改 nb-ui 的 Notification）",
+            "options": [
+                {
+                    "value": "footer-slot",
+                    "label": "A Notification 加一个整行宽的 footer 插槽"
+                },
+                {
+                    "value": "column-width",
+                    "label": "B 沿用文字列宽度"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "footer-slot"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "placements",
+            "type": "confirm",
+            "label": "确认各类界面里详情放哪（含“不展示”的几处）",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-07T07:54:30.605Z"
+}
