@@ -51,6 +51,16 @@ describe("加载页的明暗提示", () => {
         expect(inlineScript("index.html")).toContain(`"${HOST_APPEARANCE_KEY}"`);
     });
 
+    it("两份 index.html 的加载页标记一致：进度指示同时带定位类与形状类（少一个，指示器是 0×0 的空块）", () => {
+        const loadingMain = (file: string): string => {
+            const match = /<main class="nb-host-loading"[\s\S]*?<\/main>/u.exec(readFileSync(join(WEB, file), "utf8"));
+            if (match === null) throw new Error(`${file} 里没有加载页`);
+            return match[0];
+        };
+        expect(loadingMain("testing/index.html")).toBe(loadingMain("index.html"));
+        expect(loadingMain("index.html")).toContain(`class="nb-host-loading__bar nb-host-indicator"`);
+    });
+
     it("宿主记下文档根当前的明暗与颜色，主题变了跟着改；内联脚本读回后写到根上", async () => {
         const warnings: string[] = [];
         applyTheme("light", {...THEME, "--panel-surface": "rgb(255, 252, 245)"});

@@ -29,7 +29,7 @@ html[data-host-scene] .nb-host-loading::before {
     position: absolute;
     inset: 0;
     background: var(--host-loading-scene) center / cover no-repeat;
-    opacity: var(--host-loading-scene-opacity, 0.7);
+    opacity: 0.7;
     /* 书名与提示在正中：中间一块把图压到很淡（保证它们读得清），往边上渐渐显出完整的图。 */
     -webkit-mask-image: radial-gradient(ellipse 60% 42% at 50% 50%, rgb(0 0 0 / 0.22) 0%, rgb(0 0 0 / 0.22) 55%, #000 100%);
     mask-image: radial-gradient(ellipse 60% 42% at 50% 50%, rgb(0 0 0 / 0.22) 0%, rgb(0 0 0 / 0.22) 55%, #000 100%);
@@ -52,8 +52,12 @@ html[data-host-indicator="page"] .nb-host-loading {
     --host-loading-hint-gap: 30px;
 }
 
-/* 进度指示在加载页里的位置：正中。用独立的 `translate` 属性居中，不占 `transform`（pulse 与 page 的动画要用它）。 */
-.nb-host-loading__bar {
+/*
+ * 进度指示在加载页里的位置：正中。用独立的 `translate` 属性居中，不占 `transform`（pulse 与 page 的动画要用它）。
+ * 选择器带上 `.nb-host-loading` 祖先，特异性高于后面 `.nb-host-indicator` 的 `position: relative`，否则同特异性下后写的赢，
+ * 这里的 absolute 会被盖掉。
+ */
+.nb-host-loading .nb-host-loading__bar {
     position: absolute;
     top: 50%;
     left: 50%;
@@ -127,7 +131,10 @@ html[data-host-indicator="page"] .nb-host-loading {
     animation: nb-host-loading 1.2s ease-in-out infinite;
 }
 
-/* dots：三个点依次亮。元素自己是中间的点，前后伪元素是两边的点。 */
+/*
+ * dots：三个点依次亮。元素自己是中间的点，前后伪元素是两边的点。伪元素是元素的子孙，透明度与缩放会逐层相乘，
+ * 所以三个点只动背景色（淡到满），不动 opacity 与 transform；延迟用 backwards 填充，开头不先满亮一下。
+ */
 :is(
     html[data-host-indicator="dots"] .nb-host-loading .nb-host-indicator,
     .nb-host-indicator[data-host-indicator="dots"]
@@ -136,7 +143,7 @@ html[data-host-indicator="page"] .nb-host-loading {
     height: 6px;
     border-radius: 50%;
     background: var(--nb-indicator-accent);
-    animation: nb-host-dot 1.2s ease-in-out 0.2s infinite;
+    animation: nb-host-dot 1.2s ease-in-out 0.2s infinite backwards;
 }
 
 :is(
@@ -154,7 +161,7 @@ html[data-host-indicator="page"] .nb-host-loading {
     height: 6px;
     border-radius: 50%;
     background: var(--nb-indicator-accent);
-    animation: nb-host-dot 1.2s ease-in-out infinite;
+    animation: nb-host-dot 1.2s ease-in-out infinite backwards;
 }
 
 :is(
@@ -224,13 +231,11 @@ html[data-host-indicator="page"] .nb-host-loading {
     0%,
     80%,
     100% {
-        opacity: 0.25;
-        transform: scale(0.8);
+        background-color: color-mix(in srgb, var(--nb-indicator-accent) 25%, transparent);
     }
 
     40% {
-        opacity: 1;
-        transform: scale(1);
+        background-color: var(--nb-indicator-accent);
     }
 }
 
@@ -277,6 +282,15 @@ html[data-host-indicator="page"] .nb-host-loading {
 @media (prefers-contrast: more), (forced-colors: active) {
     html[data-host-scene] .nb-host-loading::before {
         display: none;
+    }
+}
+
+/* 强制颜色把 background-color 一律换成 Canvas，形状靠背景画的进度指示会整个消失：指示器退出强制，改用系统色。 */
+@media (forced-colors: active) {
+    .nb-host-indicator {
+        forced-color-adjust: none;
+        --nb-indicator-accent: CanvasText;
+        --nb-indicator-track: color-mix(in srgb, CanvasText 15%, Canvas);
     }
 }
 

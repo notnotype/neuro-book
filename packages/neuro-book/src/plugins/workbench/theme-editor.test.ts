@@ -362,6 +362,23 @@ describe("工作态场景、场景提供者与图标", () => {
         dispose();
     });
 
+    it("加载页：去掉场景图时一并去掉 loading.scene（进度样式保留，只剩 scene 时整个 loading 去掉）；再传图不会自己生效", async () => {
+        const {model, mine, dispose} = await session();
+        await model.create();
+        await model.setScene(`${HASH_A}.webp`);
+        await model.setLoading({scene: true, indicator: "dots"});
+        await model.setScene(undefined);
+        expect(mine()[0]?.declaration.light.loading).toEqual({indicator: "dots"});
+        await model.setLoading({indicator: "bar"});
+        await model.setScene(`${HASH_B}.webp`);
+        await model.setLoading({scene: true});
+        await model.setScene(undefined);
+        expect(mine()[0]?.declaration.light).not.toHaveProperty("loading");
+        await model.setScene(`${HASH_C}.webp`);
+        expect(mine()[0]?.declaration.light).not.toHaveProperty("loading");
+        dispose();
+    });
+
     it("图标：加、对已有的名字替换、移除；最后一个移除后 icons 字段消失；非法名与位图素材被拒绝", async () => {
         const {model, mine, dispose} = await session();
         await model.create();

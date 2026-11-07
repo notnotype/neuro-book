@@ -693,7 +693,7 @@ test.describe("加载页的主题（theme.skins 输出 19）", () => {
     });
 
     for (const appearance of ["light", "dark"] as const) {
-        test(`书房 ${appearance}：第一帧就是书房的场景图与翻动的书页；高对比度与强制颜色下不画图`, async ({page}) => {
+        test(`书房 ${appearance}：第一帧起就按书房的场景图画、书页翻动（图取回前是底色）；高对比度与强制颜色下不画图`, async ({page}) => {
             await writeSettings({[THEME]: STUDY, [APPEARANCE]: appearance});
             // 第一帧：引导请求一直挂着。
             const held = await loadingPage(page, "bootstrap");

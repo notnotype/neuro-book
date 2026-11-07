@@ -379,12 +379,22 @@ export class ThemeEditorModel {
 
     // ---- 场景 ----
 
-    /** 一个明暗的场景图：写素材文件名；`undefined` 去掉。`target` 是发起时定下的主题与明暗（上传要几秒，期间用户可能切走）。 */
+    /**
+     * 一个明暗的场景图：写素材文件名；`undefined` 去掉。`target` 是发起时定下的主题与明暗（上传要几秒，期间用户可能切走）。
+     * 去掉场景图时同时去掉 `loading.scene`：没有图时加载页的“用场景图当背景”开关是停用的，留着字段用户就关不掉，
+     * 下次再传图它还会自己生效。
+     */
     setScene(name: string | undefined, target: {readonly id: string; readonly appearance: Appearance} | null = null): Promise<boolean> {
         return this.#update((draft, appearance) => {
             const look = draft.declaration[appearance];
-            if (name === undefined) delete look.scene;
-            else look.scene = name;
+            if (name === undefined) {
+                delete look.scene;
+                if (look.loading?.scene !== undefined) {
+                    const {scene: _scene, ...rest} = look.loading;
+                    if (Object.keys(rest).length === 0) delete look.loading;
+                    else look.loading = rest;
+                }
+            } else look.scene = name;
         }, target?.id ?? this.selectedId.value, target?.appearance ?? this.appearance.value);
     }
 

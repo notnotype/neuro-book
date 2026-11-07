@@ -392,6 +392,19 @@ test("加载页：开关与进度样式写进声明，亮暗各一份；没有�
         expect(await preview.evaluate((element) => (element as HTMLElement).offsetWidth)).toBe(28);
         await page.emulateMedia({reducedMotion: "no-preference"});
 
+        // 开着时移除场景图：开关回到关（不是“开着又点不了”），样式保留，文档根上没有场景变量；再传同一张图它也不会自己生效。
+        await page.locator("[data-scene-remove]").click();
+        await expect(scene).toBeDisabled();
+        await expect(scene).not.toBeChecked();
+        await expect.poll(() => loadingVar("--skin-loading-scene")).toBe("");
+        expect(await loadingVar("--skin-loading-indicator")).toBe("page");
+        await page.locator("[data-scene-file]").setInputFiles(SCENE_IMAGE);
+        await expect(scene).toBeEnabled();
+        await expect(scene).not.toBeChecked();
+        expect(await loadingVar("--skin-loading-scene")).toBe("");
+        await scene.click();
+        await expect.poll(() => loadingVar("--skin-loading-scene")).toMatch(/^url\(".+"\)$/u);
+
         // 亮暗各一份：暗色没有设置，是缺省；暗色选圆点不影响亮色。
         await page.locator("[data-appearance]").getByText("暗色").click();
         await expect(scene).not.toBeChecked();

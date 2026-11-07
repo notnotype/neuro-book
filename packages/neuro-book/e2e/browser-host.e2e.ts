@@ -188,8 +188,62 @@ test.describe("加载页的进度样式预设（theme.skins 输出 19）", () =>
                 // 图形本身仍有尺寸与颜色（减弱动效不是不画）。
                 const painted = await bar.evaluate((element) => ({color: getComputedStyle(element).backgroundColor, border: getComputedStyle(element).borderLeftWidth}));
                 expect(preset.name === "page" ? painted.border : painted.color).not.toMatch(/^(0px|rgba\(0, 0, 0, 0\))$/u);
+
+                // 书名在上、提示在下，各自水平居中，离指示器的布局边缘 10 到 16px（每种形状的高度不同，间距跟着换）。
+                // 指示器的外接框随动画缩放与翻动，边缘取布局高度（居中用的是 translate，不进 offsetTop）。
+                await page.evaluate(() => {
+                    document.querySelector("[data-host-loading-title]")!.textContent = "雾港";
+                    document.querySelector("[data-host-loading-hint]")!.textContent = "正在打开";
+                });
+                const title = await page.locator("[data-host-loading-title]").boundingBox();
+                const hint = await page.locator("[data-host-loading-hint]").boundingBox();
+                const centerX = (page_?.x ?? 0) + (page_?.width ?? 0) / 2;
+                const centerY = (page_?.y ?? 0) + (page_?.height ?? 0) / 2;
+                const height = preset.size[1];
+                expect(Math.abs((title?.x ?? 0) + (title?.width ?? 0) / 2 - centerX), "书名水平居中").toBeLessThanOrEqual(1);
+                expect(Math.abs((hint?.x ?? 0) + (hint?.width ?? 0) / 2 - centerX), "提示水平居中").toBeLessThanOrEqual(1);
+                const titleGap = centerY - height / 2 - ((title?.y ?? 0) + (title?.height ?? 0));
+                const hintGap = (hint?.y ?? 0) - (centerY + height / 2);
+                expect(titleGap, `${preset.name} 书名到指示器`).toBeGreaterThanOrEqual(10);
+                expect(titleGap, `${preset.name} 书名到指示器`).toBeLessThanOrEqual(16);
+                expect(hintGap, `${preset.name} 指示器到提示`).toBeGreaterThanOrEqual(10);
+                expect(hintGap, `${preset.name} 指示器到提示`).toBeLessThanOrEqual(16);
+
+                // 后到的内容不推动指示器：流内多出一块高 40px 的东西，指示器的中心不动（它不在文档流里）。
+                const before = await bar.boundingBox();
+                await page.evaluate(() => {
+                    const block = document.createElement("div");
+                    block.style.height = "40px";
+                    document.querySelector(".nb-host-loading")!.prepend(block);
+                });
+                const after = await bar.boundingBox();
+                expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0)), `${preset.name} 流内多出内容时指示器的位置`).toBeLessThanOrEqual(1);
+
+                // dots 的三点：两边的点离中间的点 14px（伪元素的 left）。
+                if (preset.name === "dots") {
+                    const left = (part: string): Promise<string> => bar.evaluate((element, pseudo) => getComputedStyle(element, pseudo).left, part);
+                    expect([await left("::before"), await left("::after")]).toEqual(["-14px", "14px"]);
+                }
             });
         }
+    }
+
+    for (const preset of PRESETS) {
+        test(`${preset.name}，强制颜色：进度指示仍有可见的图形（不被强制成画布色），场景图不画`, async ({page}) => {
+            await page.emulateMedia({forcedColors: "active"});
+            await page.addInitScript((hint) => localStorage.setItem("nbook.host-appearance", JSON.stringify(hint)), {...HINT, ...preset.hint});
+            await page.route(BOOTSTRAP, () => undefined);
+            await page.goto(server.url, {waitUntil: "domcontentloaded"});
+            const bar = page.locator(".nb-host-loading__bar");
+            await expect(bar).toBeVisible();
+            // 强制颜色会把 background-color 换成画布色：指示器的底色（dots、pulse、bar 的轨道）与画布色相同就看不见。
+            // page 的形状靠书脊的 border-left，不受强制。
+            const colors = await bar.evaluate((element, spine) => ({
+                shape: spine ? getComputedStyle(element).borderLeftColor : getComputedStyle(element).backgroundColor,
+                canvas: getComputedStyle(document.querySelector(".nb-host-loading")!).backgroundColor,
+            }), preset.name === "page");
+            expect(colors.shape, `${preset.name} 在强制颜色下的图形色`).not.toBe(colors.canvas);
+        });
     }
 
     test("场景图地址跨源或写成协议相对地址：不画图，进度样式照常（两个字段各自独立）", async ({page}) => {

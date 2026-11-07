@@ -101,6 +101,8 @@ describe("宿主页", () => {
         expect(page.get("[data-browser-host-status]").attributes("role")).toBe("status");
         expect(page.get("[data-browser-host-status]").classes()).toContain("nb-host-loading");
         expect(page.findAll("button")).toEqual([]);
+        // 形状来自 nb-host-indicator，定位来自 nb-host-loading__bar：两个类缺一，加载页没有进度指示。
+        expect(page.get(".nb-host-loading__bar").classes()).toContain("nb-host-indicator");
         expect(page.get(".nb-host-loading__title").text()).toBe("");
         expect(page.get(".nb-host-loading__hint").text()).toBe("正在连接服务端");
 
