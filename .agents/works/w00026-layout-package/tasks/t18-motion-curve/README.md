@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t18-motion-curve
-status: planned
+status: done
 updated: 2026-11-06
 ---
 
@@ -19,20 +19,25 @@ updated: 2026-11-06
 
 ## 当前状态
 
-只记下了，尚未开工。等 [t07](../t07-single-tree/README.md) 的片 7a 合入再做：活动栏组件在那一片换成 `WorkbenchToolStrip`，面板头的标签带也是新的。
+2026-11-07 已合入（`5a5d01b3b`），实现审查待处理。
 
-现状（2026-11-06，master）：`--ease-standard` 有 134 处消费，nb-ui 36 个文件、neuro-book 15 个、nb-agent-ui 10 个、nb-layout 4 个、nb-form 与测试支持各 1 个。四个主题各自覆盖它，取值不同（nbook、macos 是 `0.25, 0.1, 0.25, 1`，editorial 是 `0.2, 0, 0, 1`，aurora 是 `0.2, 0.6, 0.2, 1`）。
+规则（`--ease-standard` 148 处，按种类分，直接照这张表迁移，改动机械，没有另写 plan.md）：
 
-## 迁移时要注意
+| 种类 | 做法 |
+|---|---|
+| 只变颜色、阴影、透明度的状态反馈 | 换 `--ease-layout`，时长不动 |
+| 控件里有位移或形变（开关滑球、分段控件指示块、chevron、展开收起的高度、程序开合的分栏、标签条滑开、抽屉、进度条） | 换 `--ease-layout`，时长换新令牌 `--motion-move`（280ms） |
+| 菜单入场、`out-in` 换页 | 换 `--ease-layout`，时长照旧 `--motion-fast`：设计语言写明这里的等待读作迟钝 |
+| 退场（遮罩、弹层、右键菜单、通知、对话框的缺省） | 换 `--ease-dialog-leave`：主曲线配淡出看着像直接关掉 |
+| 循环（骨架屏、不确定进度、编辑器读取进度） | 新令牌 `--ease-loop`：首尾对称，接缝才不跳 |
+| 主题的覆盖 | 四个主题的 `--ease-standard` 一起删 |
 
-- **时长要一起试，不能只换曲线。** 这条曲线四分之一时长走完 78%，一半时长走完 97%。标签指示线现在是 180ms 的 `--motion-base`，只换曲线的话 45ms 走完八成，看着是跳过去的，开发者觉得顺很可能有 470ms 这个时长的份。每一类取哪一档，在 Lab 里并排试，交开发者定。
-- **退场不换。** 这条曲线配淡出的退场看着像直接关掉（t15 的教训，对话框收回为此单独用 `--ease-dialog-leave`）。菜单、弹层的退场逐个看。
-- **只变颜色、透明度的状态反馈**（悬停变色）换不换看不出差别。优先把它们也换掉，好让 `--ease-standard` 整个退役，主题里的覆盖一起删；有说不通的再留。
-- `--motion-layout`、`--motion-dialog` 这些令牌在系统减少动态效果时都归零（`tokens.css`），新加令牌要跟着加进去。
-- 手势跟手的（拖分隔线、滚动条滑块）没有过渡，不在范围。
+开发者点名的几处原来没写曲线（缺省 `ease`）：`Tabs` 的下划线、`ExplorerRow` 的行与 chevron、`WorkbenchPanelHead` 的标签，都补上。`WorkbenchToolStrip` 自己没有过渡，按钮是 `IconButton`，变色走它的过渡，已换。
+
+验证：`test:affected --typecheck` 只有已知失败（`AgentModeSwitchWizard`、`qa-service`、`permission-page` 的类型，`plugins/agent` 的跨插件导入）；e2e `themes`、`files-explorer` 全过，`lab-scenes` 只有 ThemeEditor 假素材的 404。
+
+和原计划不同的地方：README 原来写“在 Lab 里并排试，开发者定时长”。开发者要求先推进，这里按推荐定了一个令牌，改时长只改 `tokens.css` 一处，进了待确认。没有做 Lab 对比场景。
 
 ## 下一步
 
-1. 按动效的种类给 134 处分类（位移与形变、内容换页、浮层入场、退场、只变颜色），每类一行写方案。
-2. 在 Lab 里做标签、活动栏、资源管理器三处的对比，开发者试完定时长。
-3. 派子代理（`coder`，Sonnet：改动机械，但界面观感要判断）按类迁移；主会话审 diff、跑受影响的 e2e。动效的 e2e 按“测动画的用例开回动画”的写法，读真实的计算样式。
+处理实现审查的报告。开发者试了手感之后定 `--motion-move`。
