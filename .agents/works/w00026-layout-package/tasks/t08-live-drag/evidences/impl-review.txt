@@ -1,0 +1,127 @@
+w00026 t08 实现审查报告（提交范围 13edfd2c9~1..b80289b4c，审查 worktree 固定在 b80289b4c）
+依据：plan.md、plan-review 的处理表、Spec workbench-layout 输出 25/32/37/38 与验收 22、原型 LayoutTreeDraft.vue。
+验证：在 w00026-t07-single-tree（HEAD 6cb0bf4f9，含 t08）跑了 nb-layout 的 live-drop 与 drag-gesture 单测（79 过）、EditorGroup.dom.test（5 过）、nb-layout 与 neuro-book 的 tsc --noEmit（无输出）。没跑 e2e、没跑 vue-tsc。
+实验文件在 /tmp/review-t08-impl/exp/（用 node_modules 软链借 t07 的依赖），凡绕过真实运行时的会在条目里写明。
+按影响排序；每条写“从代码推断”或“已用 X 核实”。
+
+========================================================================
+1. 重要｜正确性、不变量｜判定基准的矩形在“让过渡走完”之前就量了，settleMotion 没起作用
+位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:314-322（frozen 在 dropAt 里第一次判定时量）与 :429-436（activate 里 settleMotion 然后 live.begin）；packages/nb-layout/src/vue/useGridMotion.ts:stop；NestedGrid.vue:360 的 settleMotion 就是 motion.stop()。
+现象：activate 在手势 begin 里被调，紧接着同一个 pointermove 回调里 start() 立刻 publish()，publish 调 resolve，resolve 调 dropAt，dropAt 里 frozen === null 就量 panelGeometry 与每条标签条的 measureTabStrip。这一串全在同一个同步段里，Vue 的渲染在微任务里，要等回调返回才跑。motion.stop() 只是改了 moving、following、flying 这几个 ref：frame 上的 data-moving 还在，CSS transition 还在跑，getBoundingClientRect 读到的是过渡中间值。
+为什么是问题：plan“判定的基准”写的是“拿起时先让进行中的过渡到终点，第一次判定（下一帧）才量”，Spec 输出 38 写“进行中的过渡先到终点再量”。现在拿起时若上一次布局变化的过渡还在走（moving 约 470ms 加余量：刚放下一个标签就拿下一个、刚折叠侧栏、刚改窗口大小），整场拖动的落点矩形与标签条插入位都用中间值，直到放下。矩形偏几十到几百 px 时，外缘窄带、缝、标签条插入位都错位，而且错得稳定（冻结了），用户读不出原因。
+如何核实：从代码推断，未在真实浏览器复现。复现法：Lab 或产品页里折叠侧栏后 100ms 内按住标签拖出门槛，在拖动中 evaluate 读 root.querySelector('[data-shell-card="panel"]') 的矩形，与过渡走完后的矩形比；或在 live-drag 的 host.panelRect 里记日志。变异：把 layout-drag.ts:434 的 options.settleMotion() 整行删掉，现有的单测与 e2e 都不会失败（e2e 的 lift 前都调了 settled()，没有“拿起时过渡在途”的用例）。
+建议改法：让 DOM 在 settleMotion 返回时就已经在终点，而不是等渲染。NestedGrid 的 settleMotion 除了 motion.stop()，对网格根调 getAnimations({subtree: true}) 并逐个 finish()（CSS transition 在 Chrome 里是 CSSTransition 动画对象，finish() 同步跳到终点，之后读到的矩形就是终态；Vue 随后摘掉 data-moving，不冲突）。我没有在真实浏览器里试这个做法，交主 Agent 试。不推荐把第一次判定推迟到下一帧：推迟期间 resolve 没有 frozen，offered 为 null，wantsCard() 对 null 返回 true，卡片会在标签条里提前拿起。补一条单测或 e2e：把 --motion-layout 放慢，布局变化后立刻拿起，断言 frozen 矩形等于终态矩形。
+
+========================================================================
+2. 重要｜性能｜卡片每帧换一个新对象，整条渲染链与分隔线对齐每帧都重跑，指针不动也一样
+位置：live-drag.ts:120（updateCard 末尾无条件 card.value = {…}）；WorkbenchShell.vue:412（liftedCard computed）；WorkbenchSurface.vue:139-146（contents 读整个 props.lifted）；NestedGrid.vue:191（watch(layers)）；SashHandle.vue:147-153（snap 读 getBoundingClientRect）。
+现象：tick 每个 rAF 都调 updateCard，card.value 每次都是新对象，哪怕矩形没变（指针不动、缩放已收敛）。链路：card（shallowRef）变 → Shell 的 liftedCard 重算并重渲 → Surface 的 lifted 属性是新对象 → contents 这个 computed 因为读了 props.lifted 重算，layoutContents 返回新数组 → NestedGrid 的 contents 属性变 → placements、layers 重算 → watch(layers) 回调触发：snapHost.schedule()（下一帧对每条分隔线读 getBoundingClientRect 再写内联样式）、parking.update、contentLayer.update、motion.update。另外 tick 里每帧 host.gridOrigin() 读一次 getBoundingClientRect，liveSectors 每次 dragState 变也读一次。
+为什么是问题：拿起之后整场拖动（包括停着不动等候选稳定的时间）都在 60Hz 重复做“内容项没变、只有卡片矩形变”不需要做的事：layoutContents O(标签数)、layers 重算、N 条分隔线各一次读后写（N 为分隔线数，默认布局约 4 到 6，未数）。这些读写穿插在 Vue 渲染写样式之间，是强制同步布局。t08 的证据里 live 的 p95 是 50 到 67ms，落点指示是 17ms，这类每帧开销是其中一部分（不能确定占多少）。
+如何核实：从代码推断。核实法：拖动 1 秒，给 NestedGrid 的 watch(layers) 回调、SashHandle.snap 各加一个计数；预期现在约 60 次，修后应只随候选/预览变化。变异：updateCard 里矩形与上一次相同就不赋值，看 p95 是否下降。
+建议改法：1) updateCard 比较 x、y、width、height，没变不赋值。2) WorkbenchSurface 的 contents 不要读整个 lifted：只读 lifted.key 与 lifted.home（拆成两个 computed 或 computed 里取 primitive），矩形只进 liftedItem。3) gridOrigin 在 begin 时量一次缓存（容器尺寸变会整场取消，页面滚动才会变它，监听 scroll 时重量即可）。做完 1、2 再测一次 p95，再决定要不要动手感（加长稳定时长、邻居内容用最终尺寸），README 里的退路要等这个数。
+
+========================================================================
+3. 重要｜回归（base 没有）｜标签条换成 TransitionGroup 之后，所有标签条（不拖动时也是）关标签要晚两帧移除，每次更新多一次克隆加读样式与逐标签读矩形
+位置：packages/nb-layout/src/vue/TabStrip.vue:216（<TransitionGroup v-for="row in rows" … :move-class="animateMoves ? … : …">）。README 写明“一直是它，免得切换组件类型把标签重建”。
+现象与核实：
+- 离开延迟：Vue 3.5.39 的 Transition 钩子在 onLeave 里 nextFrame（两层 rAF）才进 whenTransitionEnds，即使没有 CSS 过渡也是这样。已用实验核实（绕过真实运行时：happy-dom 加 Vue 3.5.39，/tmp/review-t08-impl/exp/leave.ts）：TransitionGroup 里删一个子项，nextTick 后 DOM 里还在，第 1 次 rAF 后还在，第 2 次 rAF 后才没。结果：before 3、nextTick 后 3、rAF1 后 3、rAF2 后 2。真实浏览器的两帧要主 Agent 复现（关一个标签，在 MutationObserver 里看它的 [data-panel-tab] 何时从 DOM 消失）。
+- 每次更新的额外成本（读 runtime-dom.cjs.js 源码）：TransitionGroup 的渲染函数对每个旧子项 getBoundingClientRect（positionMap.set(child, getPosition(child.el))），onUpdated 里 hasCSSTransform 每次克隆一个节点、插进 DOM、getComputedStyle、再删掉，不管 animateMoves 是不是开着。标签数 N 的条每次重渲约 N 次读矩形加一次克隆读样式。多行时每个 row 一个 TransitionGroup，各做一遍。
+为什么是问题：1) 关标签、移走标签后，旧节点多留两帧（约 33ms@60Hz）：占着位置，这期间 data-panel-tab 还能被 querySelector 命中，measureTabStrip 与 linesOf 会把它算成成员（拖动开始前一刻关了标签、或测试里关标签后立刻断言数量，都会撞）；标签条的 adapt 分档按宽度判，多出来的节点也会被算进去。2) 这个代价只有实时拖动的“标签滑开”需要，却由所有标签条在所有时刻承担。
+建议改法（两档）：1) 最小：给 TransitionGroup 加 :css="false"。已用同一实验核实（exp/leave-nocss.ts）：加了之后删子项 nextTick 后就没了，没有两帧延迟；move-class 的位移照样靠 props.moveClass，不受影响。2) 彻底：不用 TransitionGroup，在 TabStrip 里自己做 FLIP：animateMoves 为真时，onBeforeUpdate 记各标签矩形，onUpdated 对位移了的标签写 transform、下一帧清掉（二十来行，没有进出场钩子，也没有每次更新的克隆与读样式）。不要用 v-if 在 TransitionGroup 与普通 div 之间切换：拖动中途 draggingTab 会在 null 与非 null 之间来回，组件类型切换会重建标签。选 1) 之后每次更新的 N 次读矩形与一次克隆读样式仍在，要量一次编辑组 30 个标签时每次更新的耗时再决定要不要做 2)。
+
+========================================================================
+4. 重要｜测试｜“候选还没预览就松手：提交指针下的候选”的用例不能区分这条行为；核心新逻辑没有单测
+位置：packages/neuro-book/e2e/workbench-live-drag.e2e.ts 第二个用例；live-drag.ts、layout-drag.ts 的 frozen 与 stickyDrop、useGridMotion.land、NestedGrid 的 lifted、tab-strip-geometry 的 measureTabStrip/tabStripInsertionIn、area.ts 的 moveBlocked、groups.ts 的 shown 都没有直接测试。
+现象与核实：
+a) 第二个用例是 mouse.move(target) 之后马上 mouse.up()，只断言标签最后换了面板。两次 Playwright 调用之间浏览器很可能已经跑过一帧 rAF，手势自己的 publish 把这个落点发布成 shown，这时“与最后显示的相同才提交”的旧语义也提交，这个用例照过。它没有断言“拖动中 data-live-preview 一直是 none”，也无法断言（Playwright 观察不到两次调用之间的状态）。变异（交主 Agent 跑）：layout-drag.ts 的 commitsUnderPointer 改成 () => false，跑这个用例；预期仍然通过，说明没测到。要测到它得让 move 与 up 在同一个任务里到：用 page.evaluate 里 dispatch 合成的 pointermove 紧接 pointerup（手势只认 pointer 事件，合成事件也走 window 监听），再断言提交了。drag-gesture 的单测只测了手势这一层（commitsUnderPointer 为真时提交），宿主这一侧（live.active 为真、resolve 经过 stickyDrop）没有测。
+b) plan“验收映射”与“切片”列了 tab-strip-geometry、groups.test.ts 的单测，diff 里没有：tab-strip-geometry 没有任何单测文件（只有 e2e 间接覆盖）；measureTabStrip 的“摘掉来源后下标、inPlace、分区”这类换算最容易错，见第 10 条。
+c) 没有用例覆盖：粘滞在真实流程里起作用（拿起后在空位内抖动，候选不变，松手提交 shown）；拿起时过渡在途（第 1 条）；拿起一个不活动的标签（第 11 条）；land（useGridMotion.dom.test 没加）；moveBlocked 与 moveTab 一致（第 7 条）；预备区以外的“活动栏落点不预览”。
+d) 变异想法（交主 Agent 跑，期望是“现有测试应该失败却没有”的项）：
+   - 删 layout-drag.ts:434 的 settleMotion()：预期无测试失败（第 1 条）。
+   - stickyDrop 恒返回 null（layout-drag.ts:326-327 的 kept 判断删掉）：预期只有 live-drop.test 的纯函数用例在、集成层无失败。
+   - live-drag.ts 的 candidateOf 里 immediate: inStrip 改成 false：看“标签条里不拿起、预览马上换”的 e2e 是否失败（应失败，这是做对的）。
+   - NestedGrid.vue:354-356 的 land watcher 删掉：看“松手时内容体一次到终点宽度”是否失败（应失败）。
+   - EditorGroup.vue 的 ownGroup 换回 props.groupId：EditorGroup.dom.test 的新用例应失败（我用读代码核对过它的断言有区分力，没有实际改文件）。
+建议改法：createLiveDrag 的 host 是注入的，tick 与 requestFrame 都能用假时钟驱动，写一个 live-drag.test.ts：begin 后推进帧，断言 card 的矩形（抓住的点在指针下、离开 home 后缩到 380x260）、slot、shownAction、粘滞、end 后全清；wantsCard 的几条（strip、noPreview 保持）；candidateDoc 返回 null 时 show(null)。tab-strip-geometry 补 measureTabStrip(exclude) 对照 resolveTabStripInsertion 的等价性（不摘来源时两者结果相同）与摘来源后的下标。
+
+========================================================================
+5. 建议（偏重要）｜性能｜Shell、Surface 的模板都新增了条件插槽，Shell 到 Surface 到 NestedGrid 变成动态插槽，父级每渲一次子级都被强制更新
+位置：WorkbenchSurface.vue:294-299（<template v-if="$slots['lifted-head'] !== undefined" #lifted-head>、<template v-if="$slots.overlay !== undefined" #overlay>）；WorkbenchShell.vue:593（<template v-if="drag?.live.active.value === true" #overlay>）。
+核实：已用真实编译器核实（@vue/compiler-sfc，/tmp/review-t08-impl/exp/slots.ts、slots-base.ts，只编译模板，不跑运行时）。base 的 WorkbenchSurface 模板里 DYNAMIC_SLOTS 标记 0 处，现在的 WorkbenchSurface 与 WorkbenchShell 里传给 NestedGrid、WorkbenchSurface 的那一处各有一个 /* PROPS, DYNAMIC_SLOTS */。Vue 对带 DYNAMIC_SLOTS 的组件节点，父级每次重渲都强制子级更新（shouldUpdateComponent 直接返回 true）。
+为什么是问题：base 里 Surface 因为悬停面板（pointerPanel）、焦点面板变化重渲时，NestedGrid 的属性与插槽都没变，不更新；现在每次都更新，NestedGrid 整棵重渲，所有叶与内容项的插槽函数重跑。Shell 重渲更频繁（dragState 每次发布都变）。对 10 万字章节的编辑组，子组件属性相同时会跳过，所以多出的是 vnode 比对而不是内容重排，量级要测；但它不依赖拖动，平时悬停也付。
+建议改法：插槽始终传，条件放进插槽内容：<template #overlay><template v-if="…"> … </template></template>；NestedGrid 里 v-if="$slots.overlay !== undefined" 改成由内容决定（例如 overlay 插槽始终渲染一个不接指针的 div，成本很小），或加一个 overlay 布尔属性。#lifted-head 同理，Shell 本来就总是传，Surface 去掉 v-if 即可（它是 defineSlots 里 optional 的，转发时直接 <slot name="lifted-head" …/>）。
+
+========================================================================
+6. 建议｜对照原型｜撕下时卡片从“已提交的来源面板”开始缩，原型取的是此刻画出来的面板；标签已经预览到别的条里再撕下时起点不对
+位置：live-drag.ts:101-109（updateCard 里 cardSize === null 分支用 host.homeOf(source)）；layout-drag.ts 的 homeOf: findTab(options.doc(), …)（已提交文档）。原型 LayoutTreeDraft.vue tick 里“离开标签条才撕下来”用的是 panelOfView(shown.value, active.active)（shown 是画出来的树），注释写“卡片从内容此刻所在的面板开始缩”。live-drag.ts 的注释抄了这句话，实现取的是已提交的。
+现象：标签先拖进别的面板 B 的标签条（立即预览，标签已在 B 里），再从 B 的标签条移到 B 的正文才撕下：homeOf 仍是原来的 A。A 的矩形：1) A 在预览里还在，但大小/位置可能已被让位改了：卡片起点用的是 A 的当前矩形，不是 B 的；grab 按指针相对 A 矩形的比例算并夹到 0 到 1，指针在 A 外所以 grab 落在边上，卡片贴着指针的一边出现；2) A 在预览里没了（单标签面板被拖走）：panelRect 取不到，退到 380x260 与 grab (0.5, 0)。两种都是撕下那一帧卡片突然出现在奇怪的位置，再用约 90ms 的时间常数缩到目标。同理 homeRect 在撕下时存下来之后，inHome（决定放大还是缩小）一直拿这个旧矩形，预览把面板挪走后“回到原面板就变大”指的是空地方。
+为什么是问题：偏离开发者试过手感的原型；注释与实现不符。影响撕下瞬间的手感。
+如何核实：从代码推断。复现：编辑组两个，拖 A 的标签进 B 的标签条，停 200ms，再向下移进 B 正文，录屏看卡片第一帧的位置与大小。
+建议改法：homeOf 增加“此刻画出来的面板”的版本（live-drag 的 host 加 shownHomeOf：在 candidateDoc 的结果里找标签所在的面板，live-drag 自己持有最后 show 的文档），撕下时用它；注释对齐。若有意取已提交的，把注释改成“已提交的来源面板”，并说明为什么这样更好（目前没有记录这个理由）。
+
+========================================================================
+7. 建议｜正确性｜moveBlocked 对“同组内换位”恒为 false，moveTab 在同样情形会拒绝，预览与结果不一致
+位置：packages/neuro-book/src/plugins/editor/web/area.ts:846-857（moveBlocked 里 if (target === found.group.id) return false）对照 :703-704（moveTab：target.active !== tabId && !leave(target.id) 同组也适用）。
+现象：同一个编辑组里拖一个不是活动标签的标签换位，而该组的活动标签有未裁决输入或写不出：moveTab 因为 leave(target.id) 失败返回拒绝，moveBlocked 却说不拦，标签条里预览已经把标签移过去，松手后 end() 撤预览、提交被拒，标签弹回原位，用户看到的是“明明预览了又不动”。moveBlocked 的注释与 Spec 输出 38（有未裁决输入时不摆预览）要求的就是不要出现这个差异。
+如何核实：从代码推断，没有跑。复现：组里 a、b 两个标签，让活动标签 a 进入未裁决状态（外部改了文件造成冲突，见 banner.unresolved），把 b 拖到 a 前面。单测可直接调 area.moveBlocked(b, 本组) 对照 area.moveTab 的返回。
+建议改法：同组分支改成 found.group.active !== tabId && holding(found.group.id) !== null。顺带在 area 的单测里写一组“moveBlocked 与 moveTab 同条件”的对照表，覆盖同组、跨组、孪生标签、新组四种。moveBlocked 不结算（leave 会 settle），所以对“settle 之后才变得可放”的情形会过严，Spec 要求只读，接受，但值得在注释里写。
+
+========================================================================
+8. 建议｜代码质量｜resolve 里调用 live.offer，resolve 不再是“不产生副作用”，与 drag-session.ts 的新注释、计划不符
+位置：layout-drag.ts:441-446（resolve 里 live.offer(drop)）；vue/drag-session.ts 的 resolve 注释（“同步判定这一刻的落点，不产生副作用；可以读宿主维护的状态”）；plan“resolve 不再是只读：…不产生副作用”。
+现象：offer 写了 live 的 offered。resolve 还会被 drop()、autoScrollTick、evaluate 的各条路径调用，包括放下那一次（那时 offer 没有读者，无害）。
+为什么是问题：读 drag-session 的注释会以为 resolve 可以随意多调；将来有人在键盘预览、重算里多调一次 resolve（例如“预览这个位置”）就会改 offered。落点的发布本来有 publish 回调，offered 就是“最近发布的落点”。
+建议改法：DragSessionOptions 没有发布回调，但 session.state 就是已发布的状态：给 DragSessionOptions 加一个 onPublish(state)（手势的 host.publish 已有），layout-drag 在那里 live.offer(state?.drop ?? null)，withdraw 与收场（null）也自然走到，resolve 回到只读。若想保留现状，把两处注释改成“resolve 会通知 live 当前候选”。
+
+========================================================================
+9. 建议｜正确性｜卡片与 lastPointer 跟的是任何指针的 pointermove，没有按 pointerId 过滤
+位置：layout-drag.ts:411-418（onPointerSeen 监听 window 捕获阶段的 pointermove 与 pointerdown）与 :148-151（trackPointer 的 onMove）。
+现象：手势自己只认拿起时那个 pointerId（drag-gesture.move 里 pointerId !== current.pointerId 就 return），卡片却跟窗口上所有指针。触屏拖动时第二根手指（或笔悬停、鼠标）的移动会让卡片跳到那个指针的位置，而落点判定还在第一根手指上。lastPointer 同理：长按拿起（触屏）时 begin 取的是最近一次任意指针的位置。
+如何核实：从代码推断。
+建议改法：onMove 与 onPointerSeen 取 event.pointerId，记下 activate 时手势的 pointerId（DragSession 目前不暴露，可在 sourceAt 时存下 pointerdown 的 pointerId），不是它的忽略。
+
+========================================================================
+10. 建议｜正确性｜单行标签条（wrapTabs 关）里来源是唯一的普通标签时，快照把“行尾空白”判进固定区，松手会把标签钉住
+位置：packages/nb-layout/src/vue/tab-strip-geometry.ts 的 tabStripInsertionIn 行尾分支（const last = visible.at(-1); const partition = last?.partition ?? line.partition）与 measureTabStrip 的 exclude。
+现象：非多行时固定与普通标签同一行，分区只写在标签的 data-tab-partition 上。来源 S 是唯一的普通标签、前面都是固定标签 [P1, P2, S] 时，base（含 S）指针在行尾空白处，last 是 S，partition 为 normal，index 等于 own + 1，inPlace。实时布局的快照摘掉了 S，last 变成 P2，partition 为 pinned，index 等于 own，ownPartition(normal) !== pinned，不是原位：落点 {strip, index: 2, part: pinned}，放下就是把 S 钉进固定区。多行（缺省）时固定与普通各一行，空的普通行有自己的 partition，没有这个问题。
+如何核实：从代码推断，没有跑。可以写成 tab-strip-geometry 的单测（造 DOM：一行三个标签，前两个 data-tab-partition=pinned，第三个 normal，measureTabStrip(strip, 第三个) 后在行尾空白处 tabStripInsertionIn，期望 partition 是 normal）。
+建议改法：snapshot 多记一个“来源摘掉前是不是这一行的最后一个成员”（excludedWasLast）；行尾分支在是的时候用来源原来的分区（excludedPartition），不用 last 的。优先级低，条件窄。
+
+========================================================================
+11. 建议｜手感｜拿起一个不活动的标签，或没有实例的视图时，卡片的内容体是空的
+位置：WorkbenchShell.vue:135-148（viewFrameOf 只在 instances 里有实例时才画；实例只为已提交的 visibleTabs 建）与 WorkbenchSurface.vue:139-146 / useContentLayer.ts bodyStyle。
+现象：不活动的工具视图标签从没显示过时没有实例，viewFrameOf 返回 null，内容项里什么也不画；卡片是 32px 的头加一块空的 380x260。编辑器的不活动标签同理，EditorGroup 渲染了但 mountedControls 里没有就是空组。活动标签、已经显示过的标签不受影响。内容项本身 active 为 false 时也不 inert、不 hidden（isParked 对拿起的恒 false），所以停放的标签拿起来后会把它“停放时保持的旧尺寸”当卡片的 body 尺寸。
+为什么是问题：Spec 输出 38 写“那个标签的内容离开它的面板跟手，是同一个实例”；对没有实例的情形写了“预览里露出来的…都是空白”，没有写被拿起的这个。用户拿起一个标签得到一张空卡片，和“拿起的是内容”的心智不符。README 与计划的“不做与风险”都没提。
+如何核实：从代码推断（没有实例这一半）；e2e 的 lift 用例拿的都是示例视图 E，没覆盖“E 不活动且没显示过”这一格。
+建议改法：开发者定：A）接受空卡片，在 Spec 与待确认里写明；B）拿起不活动标签时卡片的 body 画标题与图标的占位。我倾向 A 加一句说明，因为为它加载实例有副作用（Spec 输出 17）。
+
+========================================================================
+12. 建议｜度量与交付说明｜证据按计划自己的判据不达标，README 写成“压线”；该先做的便宜修法没做
+位置：.agents/works/w00026-layout-package/tasks/t08-live-drag/evidences/live-drag-frames.txt、README.md“当前状态”。
+现象：plan“不做与风险”写“卡片的帧间隔 p95 超过 50ms 算不达标”。第一次运行 live 的 p95 是 67ms，第二次是 50ms（不超过才算达标，恰好在线上）。README 写“压线，手感由开发者试，退路进了待确认”，没有写“第一次运行不达标”。退路列的是“加长稳定时长、邻居内容用最终尺寸”（改手感），没有列第 2、5 条这类不改手感的每帧开销（卡片每帧新对象带动整条渲染链、动态插槽）。
+为什么是问题：交给开发者判断时少了一个选项，且这些开销在量之前就能去掉；测量脚本也该在修之后重跑才有可比的数。
+建议改法：证据里把第一次运行标为“按判据不达标”；待确认里先写“先去掉每帧多余的渲染（第 2、5 条）再量，仍超线再谈改手感”。
+
+========================================================================
+13. 建议｜代码质量｜几处小的
+a) NestedGrid.vue:353-356 的注释写“落地要在这一轮布局的过渡判定之前登记”，但这个 watcher 声明在 watch(layers…) 之后，实际先后取决于父级传属性的顺序（node、layout 在 lifted 前，所以通常 layers 的回调先跑，motion.update 先决定 following，land 随后改正：把它从 following 里去掉、加进 flying、重设计时器）。两种先后我核对过 useGridMotion.start/land 都能收敛，结果一样，所以不是缺陷，但注释说的与实际不符，下一个人会以为顺序有保证。useGridMotion.dom.test 没有 land 的用例，补两条（land 先于 update、后于 update）把这一点钉住。
+b) data-drag-feel 在没拖动时也是 indicator（设置为 live 时也是），读起来像设置值，实际是“这一场是不是实时布局”；data-live-preview 在候选不预览（candidateDoc 返回 null：不预览的编辑器落点、活动栏落点）时也不是 none。e2e 靠这两个断言，命名容易误导；建议 data-live-drag="active|idle" 与注释里写清 data-live-preview 的取值。
+c) WorkbenchShell.vue:421-428 的 liveSectors 在 computed 里读 DOM（getBoundingClientRect），依赖不跟踪滚动与布局，只在 dragState 变时重算；目前因为每次发布都换对象所以碰巧对。注释写一句，或和 slot 一样挪进 live-drag（它已经有 gridOrigin）。
+
+========================================================================
+未发现问题的方面（逐项核对过，仔细检查后没有发现）
+- 帧循环与 pointermove 的收口：放下、取消（Escape、capture-lost、pointer-cancel、hidden、focus-left）、abort、dispose 都经过 drag-gesture.finish 的 host.activeChanged(false)，onActiveChange 里 live.end() 与 frozen = null 都在；live.begin 在 activate 里先于 start 的 grabbed，捕获失败走 cancel("capture-lost") 也经过 activeChanged(false)，不会留下帧循环、pointermove 监听与预览。end() 先于 commit（finish 的顺序是 publish(null)、activeChanged(false)、ended、commit），撤预览与提交在同一个同步段。layout-drag 的 dispose 删了 onPointerSeen 的两个监听，session.dispose 经 cancel("disposed") 收口。
+- tick 里 stepLiveDrop 与 shown、offered 的先后：同一个 tick 内候选 key、shown = offered、show 的文档来自同一个 offered，一致；candidateOf 读的 shown 是上一次的，符合“已经在这条标签条里”的定义。
+- begin 取的指针坐标：onPointerSeen 先于手势自己的 window 捕获监听注册（layout-drag 创建时就挂，session 在按下时才挂），所以 begin 时 lastPointer 就是触发拿起的那个事件的坐标；触屏长按拿起取的是按下或最后一次移动，与手势的 latest 一致。
+- 卡片坐标系：gridOrigin 与 panelRect 都在视口坐标，卡片矩形相对网格根，与 NestedGrid 里 translate 的坐标一致；Lab 的 CSS zoom 只在 Lab 画布里，产品里没有 CSS zoom；Lab 里只有 EditorAreaFixture 创建 layout-drag，它写死 feel: () => "indicator"，实时布局的路径在 Lab 里不会跑，所以现在不受 zoom 影响（以后在 Lab 里加实时布局场景时，gridOrigin、panelRect 与卡片矩形要按 currentCSSZoom 换算，nb-ui 的 popup-geometry 已有 zoom 与 getBoundingClientRect 比例的工具）。
+- 标签条快照的下标与原位：摘掉来源后 stripIndex 的换算对（来源在同一条时，between A-B 与 between S-B 都落到 own+1，inPlace；行尾、行首、唯一标签都核对了；单标签用空行的整行插入位兜住了）；仅第 10 条那一种分区情形不对。
+- 编辑器 previewable/moveBlocked 对跨组、孪生标签、新组三种与 moveTab、moveToNewGroup 一致；同组换位见第 7 条。
+- store：acceptPresented 在预览期间不收、撤下后表面的 watch(host.layout) 会因 projection 换了而重新发布；renderedDoc 与 doc 的分配逐项对过，没有发现把 doc 用在了该读 renderedDoc 的渲染处（headActions 取已提交的，是计划写明的取舍）；setLivePreview 经 fitsSkeleton。
+- EditorGroup 的 ownGroup、EditorGroupHead 的 groups.shown、TabStrip 的 placeholder（item id 与标签键同为 editorTabKey）、data-tab-row 与 measureTabStrip 的读取（属性经 TransitionGroup 落到根 div）都没有被破坏；键盘与样式（scoped 的 move/placeholder 类会带上作用域属性）核对过。
+- useContentLayer：拿起项不停放（isParked 恒 false）、不写 memory、bodyStyle 用拿起前的尺寸；parkedBefore 在拿起项上被删，落地后若变成停放且含焦点才发 content-parked，与既有规则一致。拿起项的 DOM 顺序靠 stableOrder 保持，不会因为 WorkbenchSurface 补的内容项（active: false、insetTop: 0、leaf 可能不在树里）被搬动。
+- 单测：live-drop.test、drag-gesture.test 79 过；EditorGroup.dom.test 5 过；两个包的 tsc --noEmit 通过。
+
+base 上就有的问题：审查中没有发现（没有逐项审 base，只对照了本次 diff 触及的路径）。
+
+数量：阻断 0；重要 4（第 1、2、3、4 条）；建议 9（第 5 到 13 条，其中第 5 条偏重要，第 13 条含 3 个小点）。
+最严重的三条：第 1 条（判定矩形在过渡未走完时就冻结，settleMotion 实际没生效）、第 2 条（卡片每帧新对象带动整条渲染链与分隔线对齐，指针不动也在 60Hz 重复）、第 3 条（TransitionGroup 让所有标签条关标签晚两帧移除并多出每次更新的克隆与读矩形）。第 4 条是测试盖不住第 1 条与 commitsUnderPointer 的宿主侧。
