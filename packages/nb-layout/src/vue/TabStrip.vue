@@ -275,6 +275,8 @@ defineExpose({focusTab: (id: string) => tabElement(id)?.focus()});
 
 .nb-tab-frame--placeholder {
     visibility: hidden;
+    /* 宿主拖着它在条里排序时它自己跟手（写 `translate`），不参与换位过渡：过渡的 `transform` 会让它先滑回空位再跳到指针下。 */
+    transform: none !important;
 }
 
 .nb-tab-strip {

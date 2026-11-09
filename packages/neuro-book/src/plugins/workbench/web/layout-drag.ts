@@ -209,6 +209,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             frozen = collapsed(frozen, options.doc(), result.doc, source);
             // 预览缓存里并入的矩形是按旧几何算的。
             previews.clear();
+            // 照 Trellis：指针再动才按收起后的布局重判。收起时指针下的落点留着，松手（按指针下重判）还是屏幕上这个。
+            held = {point: session.state.value?.point ?? null, drop: lastLiveDrop};
         },
         homeOf: (source) => findTab(options.doc(), source.tab)?.panel ?? null,
         show: (doc) => options.showPreview(doc),
@@ -223,8 +225,65 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         settleDrop: () => session.flush(),
         pointer: () => session.state.value?.point ?? null,
         placeCard: (rect) => options.placeCard(rect),
+        placeSorted: (at) => placeSorted(at),
         cardShrink: () => options.cardShrink(),
     });
+
+    /**
+     * 标签条里排序（输出 38“标签条上”）：被拖的那个标签就是它留着的位置，邻居按预览滑开；它自己显示出来，沿条跟着指针，夹在条的两端之间，不另画拖影。
+     * 位置直接写元素的 `translate`（跟手的东西不走渲染）；标签条的换位过渡用 `transform`，两者不打架，占位的那个标签不参与换位过渡（样式里压掉）。
+     */
+    let sorting: {readonly frame: HTMLElement; readonly offset: number} | null = null;
+    /** 抓住的点占标签的比例：第一次排序时定，这一场不变，换到别的标签条里也一样。 */
+    let sortGrab: number | null = null;
+    function sortTargetOf(at: {readonly point: GridDropPoint; readonly panel: string}, tab: string): {readonly frame: HTMLElement; readonly bounds: GridDropRect; readonly vertical: boolean} | null {
+        const band = toolBand();
+        const bandRect = rectOf(band);
+        const viewId = viewIdOf(tab);
+        if (band !== null && bandRect !== null && contains(bandRect, at.point)) {
+            if (viewId === null) return null;
+            const frame = band.querySelector<HTMLElement>(`[data-tool-entry="${escape(viewId)}"]`)?.closest<HTMLElement>(".workbench-tool-strip__frame") ?? null;
+            return frame === null ? null : {frame, bounds: bandRect, vertical: true};
+        }
+        if (options.titleOnly(at.panel)) return null;
+        const editor = options.doc().panels[at.panel]?.role === "editor";
+        const container = root.querySelector(editor ? `[data-panel-strip="${escape(at.panel)}"]` : `[data-panel-head="${escape(at.panel)}"]`);
+        const element = container?.querySelector<HTMLElement>(`[data-panel-tab="${escape(tab)}"]`) ?? null;
+        const frame = element?.parentElement ?? null;
+        const bounds = rectOf(element?.closest("[data-tab-row]"));
+        return frame === null || bounds === null ? null : {frame, bounds, vertical: false};
+    }
+    function releaseSorted(frame: HTMLElement): void {
+        frame.style.removeProperty("translate");
+        frame.style.removeProperty("visibility");
+        frame.style.removeProperty("z-index");
+    }
+    function placeSorted(at: {readonly point: GridDropPoint; readonly panel: string} | null): void {
+        const source = session.state.value?.source;
+        const target = at === null || source?.kind !== "tab" ? null : sortTargetOf(at, source.tab);
+        // 先读完再写。
+        const rect = target === null ? null : target.frame.getBoundingClientRect();
+        if (sorting !== null && sorting.frame !== target?.frame) releaseSorted(sorting.frame);
+        if (target === null || rect === null || at === null) {
+            sorting = null;
+            return;
+        }
+        const {frame, bounds, vertical} = target;
+        const offset = sorting?.frame === frame ? sorting.offset : 0;
+        const size = vertical ? rect.height : rect.width;
+        const resting = (vertical ? rect.top : rect.left) - offset;
+        const along = vertical ? at.point.y : at.point.x;
+        sortGrab ??= size > 0 ? Math.min(1, Math.max(0, (along - resting) / size)) : 0.5;
+        const [start, end] = vertical ? [bounds.top, bounds.bottom] : [bounds.left, bounds.right];
+        const wanted = Math.min(Math.max(along - sortGrab * size, start), Math.max(start, end - size));
+        const next = Math.round((wanted - resting) * 100) / 100;
+        // Vue 重渲染这个标签时可能整个换掉 style：值对不上就重写，不只看上一次写了什么。
+        const value = vertical ? `0px ${String(next)}px` : `${String(next)}px 0px`;
+        if (frame.style.translate !== value) frame.style.translate = value;
+        if (frame.style.visibility !== "visible") frame.style.visibility = "visible";
+        if (frame.style.zIndex !== "1") frame.style.zIndex = "1";
+        sorting = {frame, offset: next};
+    }
     const stripOf = (panel: string): Element | null => root.querySelector(`[data-panel-strip="${escape(panel)}"] [data-tab-strip]`);
 
     function geometryOf(doc: LayoutDoc, id: string): LayoutDropPanelGeometry | null {
@@ -502,6 +561,20 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     }
 
     function dropAt(source: LayoutTabSource, point: GridDropPoint, region: KeyboardRegion | null): LayoutDragDrop | null {
+        const drop = judgeAt(source, point, region);
+        if (live.active.value) lastLiveDrop = drop;
+        return drop;
+    }
+
+    /** 来源收起那一刻指针下的落点：指针没动之前一直是它（`collapseSource`）。 */
+    let held: {readonly point: GridDropPoint | null; readonly drop: LayoutDragDrop | null} | null = null;
+    let lastLiveDrop: LayoutDragDrop | null = null;
+
+    function judgeAt(source: LayoutTabSource, point: GridDropPoint, region: KeyboardRegion | null): LayoutDragDrop | null {
+        if (held !== null) {
+            if (region === null && held.point !== null && held.point.x === point.x && held.point.y === point.y) return held.drop;
+            held = null;
+        }
         const doc = options.doc();
         if (region?.id === FLOAT_REGION) return canFloat(doc, source) ? floatDrop(doc, options.floatMinimum(source), null) : null;
         if (live.active.value && frozen === null) freeze(doc, source);
@@ -673,6 +746,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         sourceAt,
         activate: (source, keyboard, at) => {
             previews.clear();
+            sortGrab = null;
+            held = null;
+            lastLiveDrop = null;
             shownDrop = null;
             shownDropKey = "";
             frozen = null;

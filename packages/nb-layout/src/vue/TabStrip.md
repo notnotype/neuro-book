@@ -56,7 +56,7 @@ type Props = {
     partitions?: ReadonlyArray<{id: string; layout: "scroll" | "wrap"}>;
     /** 缺省 "scroll"。 */
     overflow?: "scroll" | "wrap" | "adapt";
-    /** 这个标签留着盒子、看不见（`aria-hidden`）：它正被拖着，跟手的是拖影。 */
+    /** 这个标签留着盒子、看不见（`aria-hidden`）：它正被拖着，跟手的是拖影。宿主在条里排序时会把它显示出来、写 `translate` 让它自己跟手，所以它不参与换位过渡。 */
     placeholder?: string | null;
     /** 同一行里换位时滑过去（`--motion-move`）；只在拖动中开，平时换序直接到位。跨行不动画。 */
     animateMoves?: boolean;

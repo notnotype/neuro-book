@@ -23,6 +23,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
     const shown: Array<LayoutDoc | null> = [];
     const placed: GridRect[] = [];
     const collapses: string[] = [];
+    const sorted: Array<string | null> = [];
     const live = createLiveDrag({
         requestFrame: (run) => {
             scheduled = run;
@@ -36,6 +37,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
         settleDrop: () => undefined,
         pointer: () => null,
         placeCard: (rect) => placed.push(rect),
+        placeSorted: (at) => sorted.push(at === null ? null : at.panel),
         cardShrink: () => "strip",
         candidateDoc: () => DOC,
         sourceRemovedDoc: () => REMOVED,
@@ -50,7 +52,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
         scheduled = null;
         run?.(now);
     };
-    return {live, frame, shown, placed, collapses};
+    return {live, frame, shown, placed, collapses, sorted};
 }
 
 describe("createLiveDrag", () => {
@@ -89,6 +91,21 @@ describe("createLiveDrag", () => {
         t.frame();
         expect(t.shown).toEqual([DOC]);
         expect(t.live.card.value).toBeNull();
+    });
+
+    it("卡片收回、指针在标签条上时，被拖的标签在吸收它的那条里排序；离开要卡片时放回", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 100, y: 10});
+        t.live.offer(strip("home", 1));
+        t.frame();
+        t.frame();
+        expect(t.sorted.at(-1)).toBe("home");
+        t.live.offer(CENTER);
+        t.frame();
+        t.frame();
+        expect(t.sorted.at(-1)).toBeNull();
+        t.live.end();
+        expect(t.sorted.at(-1)).toBeNull();
     });
 
     it("放回自己标签条的原位：没有预览，也不要卡片", () => {

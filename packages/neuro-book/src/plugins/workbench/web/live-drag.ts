@@ -35,6 +35,11 @@ export interface LiveDragHost {
     pointer(): GridDropPoint | null;
     /** 写卡片的矩形（相对网格根）。 */
     placeCard(rect: GridRect): void;
+    /**
+     * 标签条里排序：被拖的标签自己沿标签条跟手，夹在条里（`point` 是指针，`panel` 是吸收它的那块面板的标签条）；null 是不在排序，放回原位。
+     * 在帧开头调：这时样式是干净的，读它的位置不强制重算。
+     */
+    placeSorted(at: {readonly point: GridDropPoint; readonly panel: string} | null): void;
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）：离开标签条，或离开来源面板。 */
     cardShrink(): "strip" | "panel";
     /** 按这个落点摆的文档；null 是摆不出来（放回原处、编辑器会合并或拒绝），就用已提交的。 */
@@ -186,9 +191,18 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         slot.value = state.slot === null ? null : {x: state.slot.left - origin.x, y: state.slot.top - origin.y, width: state.slot.right - state.slot.left, height: state.slot.bottom - state.slot.top};
     }
 
+    /** 上一帧的状态下，被拖的标签在不在标签条里排序：卡片收回了就是。 */
+    function sortingAt(): {readonly point: GridDropPoint; readonly panel: string} | null {
+        if (pointer === null || offered === null || wantsCard()) return null;
+        const panel = stripOf(offered.action);
+        return panel === null ? null : {point: pointer, panel};
+    }
+
     function tick(now: number): void {
         frame = host.requestFrame(tick);
         if (source === null) return;
+        // 先于判定：判定里的 `elementsFromPoint` 在写之后读就要强制重算。用上一帧的指针，晚一帧看不出来。
+        host.placeSorted(sortingAt());
         host.settleDrop();
         // 判定时结构变了会结束这一场。
         if (source === null) return;
@@ -241,6 +255,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             slot.value = null;
             card.value = null;
             cardSize = null;
+            host.placeSorted(null);
             host.show(null);
         },
     };

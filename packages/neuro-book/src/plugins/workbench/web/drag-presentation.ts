@@ -39,7 +39,7 @@ export interface DragFeedback {
 export interface DragPresentation {
     /** 留着位置、看不见的标签：它正被拖着。 */
     readonly placeholder: string | null;
-    /** 要不要跟手的拖影：拿着卡片时卡片就是。 */
+    /** 要不要跟手的拖影：拿着卡片时卡片就是；在标签条里排序时标签自己就是。 */
     readonly ghost: boolean;
     /** 预览里来源落进去的新块：空位，什么都不画。 */
     readonly slotPanel: string | null;
@@ -67,9 +67,11 @@ export function presentDrag(input: DragPresentationInput): DragPresentation {
     const liveTab = live ? tab : null;
     const landing = liveTab === null ? null : (findTab(rendered, liveTab)?.panel ?? null);
     const sectors = drop?.sectors ?? null;
+    // 卡片收回、指针在标签条上：被拖的标签自己在条里跟手（`placeSorted`），不要拖影。
+    const sorting = liveTab !== null && !lifted && (drop?.action.kind === "strip" || drop?.action.kind === "reveal");
     return {
         placeholder: liveTab,
-        ghost: source !== null && !lifted,
+        ghost: source !== null && !lifted && !sorting,
         slotPanel: shownAction?.kind === "edge" ? landing : null,
         // 中央的预览把来源摘掉了，目标里没有它；来源本来就在这块是放回原处，不是并入。
         mergeTarget: liveTab !== null && shownAction?.kind === "center" && landing !== shownAction.panel ? shownAction.panel : null,

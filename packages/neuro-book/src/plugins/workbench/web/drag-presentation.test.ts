@@ -29,6 +29,15 @@ describe("presentDrag", () => {
         expect(presentDrag(input({source: null})).ghost).toBe(false);
     });
 
+    it("实时布局里卡片收回、指针在标签条上：标签自己在条里跟手，不要拖影；落点指示照样要拖影", () => {
+        const onStrip = dropOf({kind: "strip", panel: "sidebar", index: 1});
+        expect(presentDrag(input({drop: onStrip})).ghost).toBe(false);
+        expect(presentDrag(input({drop: dropOf({kind: "reveal", panel: "sidebar"})})).ghost).toBe(false);
+        expect(presentDrag(input({drop: onStrip, lifted: true})).ghost).toBe(false);
+        expect(presentDrag(input({drop: onStrip, live: false})).ghost).toBe(true);
+        expect(presentDrag(input({drop: dropOf({kind: "center", panel: "auxiliarybar"})})).ghost).toBe(true);
+    });
+
     it("长出新块时，来源落进去的那块是空位", () => {
         const action: LayoutDropAction = {kind: "edge", target: {kind: "split", panel: "panel", edge: "right"}};
         expect(presentDrag(input({shownAction: action})).slotPanel).toBe("sidebar");

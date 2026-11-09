@@ -55,7 +55,7 @@ type Props = {
     items?: ReadonlyArray<ToolStripItem>;
     /** 条目的可访问描述；默认不写。 */
     dragHint?: string;
-    /** 这个条目留着盒子、看不见：它正被拖着（实时布局）。 */
+    /** 这个条目留着盒子、看不见：它正被拖着（实时布局）。宿主在这里排序时会把它显示出来、写 `translate` 让它竖着跟手，所以它不参与换位过渡。 */
     placeholder?: string | null;
 };
 
