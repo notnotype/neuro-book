@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t14-multi-agent",
+    "artifactId": "review",
+    "ackId": "20261109T235056524Z-ca0f5611",
+    "answers": [
+        "20261109T235035557Z-b3c16cb0"
+    ],
+    "through": "20261109T235035557Z-b3c16cb0",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t14-multi-agent/README.md"
+    ],
+    "ackedAt": "2026-11-09T23:50:56.524Z"
+}
