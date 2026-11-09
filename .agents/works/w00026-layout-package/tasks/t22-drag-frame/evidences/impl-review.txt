@@ -1,0 +1,82 @@
+# w00026 t22 实现审查报告（Claude Opus 子代理）
+审查范围：worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t22-drag-frame，master...HEAD（merge-base e9e5de814，5 个提交）。
+注意：master 在变基后又前进了 10 个提交，两点 diff `git diff master..HEAD` 会把那 10 个提交的内容显示为反向删除；本报告按三点 diff `git diff master...HEAD` 审查。
+
+## 1. 隐藏的侧栏被活动栏的预览展开后，指针一进展开的侧栏，判定按拿起时的几何落到别的面板，侧栏又收回去
+- 严重程度：重要；类别：正确性
+- 位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:232-240（measureGeometry 只量拿起时可见的叶）、:367-376（freeze）、:274-293（barDrop 对隐藏侧栏给 reveal）；live-drag.ts:165（reveal 也算吸收）
+- 现象：本次新加“侧栏隐藏时放到活动栏，预览同样展开它”（Spec 输出 38“标签条上”最后一句）。实时布局的几何在拿起时冻结（freeze → measureGeometry），隐藏的 sidebar 那时 geometryOf 返回 null，不在 frozen.geometry.panels 里，frozen.strips 里也没有它。等够 150ms 预览把侧栏展开之后，用户自然会把指针往右移进刚展开的侧栏（想放进去或看清位置）；这时 resolveLayoutDrop 用的是拿起时的矩形，那块区域属于原来紧挨活动栏的面板（缺省布局是编辑组的左缘或中央），候选变成那块面板的 edge/center（或被拒绝 → null），再过 150ms 预览换走，展开的侧栏收回、编辑组被分开或来源收起。画面上是“侧栏弹出来，一碰它就缩回去”。
+- 为什么是问题：base 上 barDrop 带 noPreview，侧栏在拖动中从不展开，这个不一致是本次引入的。预览是“放下的真实结果”，但它展开出来的那块面板却不能作为落点，指针在它上面得到的判定和画面完全对不上；plan 的“不做与风险”只写了“来源是唯一标签时邻居会动，差一点”，没覆盖这种整块面板从无到有的情况。
+- 如何核实：真实运行时复现（主 Agent 跑，我没跑 e2e）：1440×900，先隐藏 sidebar，把 auxiliarybar 的视图拖到活动栏上段，等 surface 的 data-live-preview 变成 reveal 的键、sidebar 叶宽度 > 0；再把指针移到 sidebar 叶的中心，等 300ms，读 data-live-preview 与 sidebar 叶宽度：预期会变成编辑组的 edge/center 或 source-removed，sidebar 宽度回到 0。代码层面：frozen 只在 dropAt 首次判定和 nextTick 各量一次，此后没有任何路径把预览展开的面板补进 geometry。
+- 建议改法：两条可选，优先第一条（部件少）：(a) reveal 的落点不预览展开，回到 base 的样子（只吸收进条目，侧栏保持隐藏，放下才展开），Spec 那句改成“侧栏隐藏时放到活动栏，条目让位，侧栏放下才展开”；(b) 保留展开，但吸收期间对 reveal 出来的面板区域判为“仍在活动栏的吸收”（sticky，类似 insideShownSlot），离开侧栏区域才换候选。无论哪条都补一条 e2e 盯住（plan 验收映射里本来就列了“隐藏的侧栏等够才展开”，现在 e2e 与单元测试都没有这条，见第 3 条）。
+
+## 2. `dragCardShrink: "panel"` 的 e2e 没有断言“来源面板里是原大小”，设置从插件到 LiveDrag 的接线等于没测
+- 严重程度：重要；类别：测试
+- 位置：packages/neuro-book/e2e/workbench-live-drag.e2e.ts:224-261（“设置离开面板才缩小”用例）、:202-213（缺省用例）
+- 现象：panel 用例写好 settings.json 后，指针进来源面板只断言 `[data-lifted]` 有 1 个，离开后断言宽 ≤385；缺省用例只断言来源面板里 ≤381。两个设置值唯一能区分的判据“panel 时来源面板里是面板原大小”在 e2e 里没有断言。
+- 为什么是问题：开发者第 3 条要求“用户可配置”，plan 验收映射写的是“两个设置值在来源面板内外各量卡片尺寸，含吸收后离开”。变异推演：把 WorkbenchShell.vue:409 的 `cardShrink: () => props.dragCardShrink ?? "strip"` 改成恒返回 "strip"（或 web/plugin.ts:266 漏传 dragCardShrink），panel 用例仍然全过：进面板有卡片（strip 也有），离开后 ≤385（strip 也是）。单元测试 live-drag.test.ts:133 用假宿主测了状态机，但设置值经 settings → Shell 属性 → createLayoutDrag → LiveDragHost 的整条接线没有任何测试会因断线而失败。“吸收后离开”也只在单元测试里。
+- 如何核实：在 panel 用例里把 cardShrink 接线改成恒 "strip" 后跑 `workbench-live-drag.e2e.ts -g dragCardShrink`（主 Agent 跑），预期仍通过。
+- 建议改法：panel 用例在来源面板里等缩放稳定后断言卡片宽高与来源叶（`leaf(page, from)` 的外框，或 data-shell-card）相差 ≤2px；缺省用例已有 ≤381，保持。“吸收后离开”可以在 panel 用例末尾加一段：进别人的标签条等吸收、离开到那块面板的正文，断言卡片缩到 ≤385（来源面板没变）。
+
+## 3. plan 验收映射第 4 条里有三项没有落成测试
+- 严重程度：建议；类别：测试
+- 位置：packages/neuro-book/e2e/workbench-live-drag.e2e.ts（全文件）、packages/neuro-book/src/plugins/workbench/web/live-drag.test.ts
+- 现象：plan“验收映射”第 4 条列了：路过不足 150ms 不变；隐藏的侧栏等够才展开；条目被预览移除时捕获不丢。`grep -n "150\|路过\|reveal\|隐藏的侧栏\|捕获\|capture" e2e/workbench-live-drag.e2e.ts` 无命中。150ms 只在 live-drag.test.ts:80 用假帧测了状态机（真实链路里活动栏、别的面板头经 barDrop/stripDrop 给出的 immediate 没测）；reveal 在单元测试与 e2e 里都没有（它恰好有第 1 条的问题）；实时布局下把活动栏条目拖进别的面板标签条（条目在预览里被移除、来源元素卸载）没有用例，workbench-dnd.e2e.ts:178 的同名场景是落点指示，条目不会被移除。
+- 为什么是问题：这三项都是本次新出现的行为（base 的活动栏不预览、toolEntries 读已提交的文档，条目从不在拖动中卸载）。捕获挂在根上（drag-session.ts:206），从代码推断不会丢，但“从代码推断”正是验收映射要用测试消除的。
+- 如何核实：上面的 grep；读 live-drag.test.ts 全部 10 个用例，没有 reveal 动作。
+- 建议改法：e2e 补两条：(1) 实时布局从活动栏拖一个条目到 panel 的标签条，等吸收（条目从活动栏消失），再移开、松手，断言写入一次、视图到了 panel；(2) 侧栏隐藏时拖视图到活动栏，不足 150ms 移走断言 sidebar 叶宽仍为 0，停够之后断言展开（并按第 1 条的处理结果断言进入侧栏后的行为）。“路过不足 150ms”可以并进 (2)。
+
+## 4. 删除清单里的 `barDrop` 没删，活动栏仍是第三套标签条判定；计划改动没有在 Task 记录里说明
+- 严重程度：建议；类别：代码质量 / 文档
+- 位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:274-293（barDrop）、:295-300（barStops）、:265-271（measureBar）
+- 现象：plan“规则三”写“判定走 `resolveListInsertion`（`orientation: "vertical"`），下标按 `sidebar.tabs` 换算，复用 `stripIndex`；`barDrop` 删掉”，删除清单也列了 `barDrop`、`barStops` 的现读。实现保留了 barDrop：自己按条目中线找 next、自己算下标（`tabs.indexOf(next.tab)`，不是 stripIndex）、自己拼插入线（`band.left + 6` 等魔数），只是把 DOM 来源换成了 barEntries（冻结或现量）。`resolveListInsertion` 在 nb-layout/src/grid-drop.ts:251 现成可用。README“当前状态”只写了“吸收做出来了，没有禁用”，没提这处偏离。
+- 为什么是问题：开发者第 6 条要“部件变少”，plan 的规则三说“标签条只有一种”。现在“工具面板/编辑组走 stripSnapshot + tabStripInsertionIn + stripIndex，活动栏走 barEntries + 中线比较 + indexOf”两套并存，冻结的口径也不同：measureTabStrip(strip, source.tab) 把来源排除在外量，measureBar 不排除来源（layout-drag.ts:265-271 与 :367-376 对照），同一条“拿起时量、预览里不重量”的规则在两种标签条上得到的插入位语义不一致，读者要分别记。
+- 如何核实：`git diff master...HEAD -- packages/neuro-book/src/plugins/workbench/web/layout-drag.ts | grep -n barDrop`，只有改名与去掉 noPreview。
+- 建议改法：按计划把活动栏改成 `resolveListInsertion({orientation: "vertical", containerRect: band, members: entries})` 加 stripIndex，冻结时像 measureTabStrip 一样排除来源；或者在 README 写明保留 barDrop 的理由与代价，交开发者确认。
+
+## 5. 落点指示下一次判定把整份几何量两遍；每次判定还整份 JSON 序列化落点
+- 严重程度：建议；类别：安全与性能
+- 位置：layout-drag.ts:401-406（floatDrop 里 `geometry(doc)`）、:320（previewOf 的 edge 分支为取 origin 调 `geometry(doc)`）、:354（stripDrop 原位分支 `geometry(doc).panels`）、:613-619（stableDrop 的 `JSON.stringify(next)`）
+- 现象：`geometry(doc)` 在没冻结时就是 measureGeometry：每块叶 3 次 querySelector 加至多 3 次 getBoundingClientRect，再加条、标题栏、活动栏、surface。dropAt 已经量过一份 `seen`，走到 floatDrop（指针在状态栏、窗外等无落点处，落点指示每帧都走）又整份重量一次，只为了 `origin`；previewOf(edge) 与 stripDrop(原位) 同样。base 在这几处只读 surface 一个矩形。stableDrop 每次 resolve（每帧）把整个落点（含 sectors 的每块矩形与动作）JSON.stringify 一次，candidateOf 的 keyOf、actionKey 又各序列化一次动作。
+- 为什么是问题：都是读，读在写前，不会多算样式，所以帧开销测量看不出来；但这是“几何一个入口”重构带来的回退（每帧多几十次 DOM 查询与分配），而且三处都只需要调用方手里已有的 `seen`。
+- 如何核实：读 layout-drag.ts:232-240 的 measureGeometry 与上面三处调用；在落点指示下把指针停在状态栏上移动，DevTools 的 JS 采样里 measureGeometry 每帧出现两次（主 Agent 可选做）。
+- 建议改法：floatDrop、previewOf、stripDrop 改为接收 `seen: DragGeometry`（dropAt、windowDrop、fileDrop 都已有），不再自己调 `geometry(doc)`；stableDrop 的键可以只序列化 `[actionKey, inPlace, part, sectors.active, preview.indicator, preview.areaRect]` 这几个会影响画面的字段，或者让 dropFor 的缓存命中时直接比身份。
+
+## 6. WorkbenchSurface.md 的 `lifted` 类型还带 `rect`，Expose 没有 `placeLifted`、`placeFloat`
+- 严重程度：建议；类别：文档
+- 位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.md:40-41、:83-86
+- 现象：组件已改成 `lifted?: {key, home} | null`（WorkbenchSurface.vue:35），矩形经 expose 的 `placeLifted` 写；同名 .md 仍写 `lifted?: {key: string; rect: GridRect; home: string | null}`、注释“矩形相对网格根”，Expose 只列 `moveFocus`（settleMotion 在 base 就漏了），没有本次新增的 `placeLifted(rect)`、`placeFloat(panel, offset)`。本次只改了 slotPanel 那一行。
+- 为什么是问题：仓库规则“查改组件必读并列同名 .md”，调用方照文档传 rect 会被类型拒绝，看不到矩形该怎么给。NestedGrid.md、WorkbenchDragFeedback.md 都同步了，只有这份漏了。
+- 如何核实：`grep -n "lifted\|Expose" -A3 packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.md`
+- 建议改法：`lifted` 改成 `{key: string; home: string | null}`，注释写“矩形由 `placeLifted` 写”；Expose 补 `settleMotion()`、`placeLifted(rect)`、`placeFloat(panel, offset | null)` 各一行说明（跟手、不走渲染）。
+
+## 7. 活动栏放满时吸收一个视图：占位可能被收进“更多”，或者把别的条目挤进“更多”，判定却还按拿起时的条目位置
+- 严重程度：建议；类别：正确性（从代码推断，未在运行时复现）
+- 位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:299-302（toolEntries 改读 renderedDoc，pressed 仍按已提交的 visibleViews）；WorkbenchToolStrip.vue:86-91（strip/layoutStrip）；items/item-strip.ts:33-48
+- 现象：toolEntries 现在跟着预览变。别处的视图被活动栏吸收时条目多一个，它的 pressed 按已提交的可见性算（为假，优先级 0）。活动栏刚好放满时，layoutStrip 进入溢出分支：要给“更多”按钮让出一格，按 rank 保留，排在后面的收起。结果是 (a) 占位插在靠后的位置时它自己进了“更多”，看不到留位，别的条目也不滑；或 (b) 占位插在前面时最后一两个条目被挤进新出现的“更多”。判定用的是拿起时冻结的条目（frozen.bar，只含当时在 DOM 里的条目），和此刻画面差一到两格。base 的活动栏读已提交的文档，拖动中不会出现这种变化。
+- 为什么是问题：plan 规则三写“工具面板的头放不下时活动标签总在外面，所以被吸收的标签不会进‘更多’”，这条理由对面板头成立（活动标签优先），对活动栏不成立：活动栏的优先级是“有效可见”，被吸收的条目不是。plan 的风险只登记了“这一列有多个面板时占位差几格”。
+- 如何核实：layoutStrip 的 byRank 先按 priority 再按 order；构造一个刚好放满的活动栏（矮窗口或多个侧栏视图），实时布局把 auxiliarybar 的视图拖到活动栏最下面，读 `[data-tool-band] [data-tool-entry]` 与 `[data-tool-more]`。
+- 建议改法：拖动中给占位条目 priority 1（和“有效可见”同级），与面板头“活动标签总在外面”的规则对齐；或者拖动中 strip 的 hidden 集合按拿起时冻结，不随预览重算。至少把这条写进 plan 的风险。
+
+## 8. 改完残留：注释还指着已删的 noPreview；整窗拖动借 `previewFloat` 当标记，传一个和记录相同的矩形
+- 严重程度：建议；类别：代码质量
+- 位置：packages/neuro-book/src/plugins/workbench/web/live-drag.ts:38；layout-drag.ts:639（activate 里 `options.markFloatMove(source.panel, recorded)`）；WorkbenchShell.vue:415（`markFloatMove: (panel, rect) => previewFloat(panel, rect ?? null, "move")`）；state/layout-doc-store.ts:136-143、:225-228
+- 现象：(a) LiveDragHost.candidateDoc 的注释“null 是摆不出来（放回原处、不预览的落点）”，“不预览的落点”就是本次删掉的 noPreview（活动栏），现在 null 只来自原位与编辑器 previewable 为假。(b) 整窗拖动现在只在拿起时调一次 previewFloat，矩形就是记录里的那份（`recorded`），作用只剩打 `gesture: "move"` 标记（不接指针、不过渡）。store 里 floatPreview 仍是“矩形 + 手势”的预览，注释改成了“缩放中的浮动窗矩形，或整窗拖动开始时的标记”，一个字段两种意思；renderedFloats 为此对这块窗做一次多余的 clamp。
+- 为什么是问题：读者看到 previewFloat 会以为整窗拖动还在每帧写预览矩形（这正是本次要消除的路径）；注释里的 noPreview 指向不存在的概念。
+- 如何核实：`grep -n "previewFloat\|markFloatMove" -r packages/neuro-book/src/plugins/workbench/web packages/neuro-book/src/plugins/lab/web/fixtures/editor-scene/EditorAreaFixture.vue`
+- 建议改法：(a) 注释改成“null 是摆不出来（放回原处、编辑器会合并或拒绝）”；(b) store 加一个只有 panel 的 `floatMoving` 标记（或 previewFloat 的 move 分支不收矩形），renderedFloats 按标记写 `gesture: "move"`，previewFloat 只留给缩放。
+
+## 未发现问题的方面
+- flush 与帧顺序：LiveDrag 的 tick 在上一帧注册，先于本帧 pointermove 排的手势 rAF；flush → publish 里 clearFrame 取消手势那一帧，判定（elementsFromPoint）先于 placeCard、moveGhost、placeFloat 的写；放下中（dropping）不抢发布。drag-gesture.test.ts 两条用例盯住了。
+- placeLifted / frameStyle 抢元素：Vue 3.5.39 的 patchStyle 对 next 的每个键无条件 setStyle（node_modules/@vue/runtime-dom/dist/runtime-dom.esm-bundler.js:510-548），frameStyle 在模板里直接调用、不进 computed，所以重渲染写回的就是 liftedRect 的最新值；刚拿起时元素还没 data-lifted，这次渲染从变量取；放下时 Vue 按叶的矩形写回三个键，land 的过渡照常启动。“只写变了的键”比的是上一次的 liftedRect，跨场次、吸收后再拿起都先经过一次渲染，不会漏写。
+- translate 残留：placeFloat(null) 在 onActiveChange(false) 里，放下、取消、结构变化、dispose 都经过它，且先于 commit；Vue 的 style 对象里从不含 translate，不会被清也不会被覆盖。编辑器窗停靠走异步 dropPanel 时窗先回原位再停靠，与 base 的 previewFloat(null) 时机相同，不是回归。
+- 反馈拆分：dragPlaceholder、dragSlotPanel、mergeTarget、feedback*、liveSectorsRaw 全部从同一个 dragView 派生；liftedCard 与 presentDrag 的 lifted 都只读 live.card；dragView 只在 computed 里读，模板与插槽里没有（grep 第 467-509 行之外无引用）。stableDrop 让 dragDrop 身份稳定，浮动落点每帧变的矩形只让 dragView 重算，下游的字符串与 null 值不变，不触发渲染。
+- 落点指示行为：stripSnapshot 未冻结时 `measureTabStrip(strip)` + `tabStripInsertionIn` 就是 base 的 `resolveTabStripInsertion`（tab-strip-geometry.ts:86-88），编辑组 ownPartition 从 snapshot.members 取，与 base 读 DOM 属性等价；geometry、barEntries 未冻结时每次现量，与 base 一致。
+- 吸收状态机（第 1 条之外）：自己的标签条、已吸收的那条 immediate；第一次进别的标签条等 150ms、卡片留着；离开标签条马上要卡片、预览等稳定再换；在两条标签条之间直接换时卡片出现约 150ms 再收回，符合 Spec“第一次进去也要等”；原位与“摆不出来”（candidateDoc 为 null）都不算吸收，卡片与预览不会对不上；homeRect 只在第一次要卡片时取拿起时的几何，吸收后不变。
+- 活动栏的点击、右键、键盘、data-tool-entry 拖动源判定：IconButton 与它的属性、事件没变，外层 div 只给 TransitionGroup；捕获挂在根上，条目在预览里卸载不丢捕获（从代码推断，见第 3 条）。
+- 跨包深导入、静默 catch、放宽断言、删除任务外代码：本次范围（master...HEAD 三点 diff）内没有发现。
+
+## 各级数量
+阻断 0；重要 2（第 1、2 条）；建议 6（第 3 至 8 条）。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8
