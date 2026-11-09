@@ -626,7 +626,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     /** 分区不进预览缓存：缓存按动作存，画的是指针所在的那块。 */
     function withSectors(drop: LayoutDragDrop, input: LayoutDropInput): LayoutDragDrop {
         // 缝上没有分区：缝不属于哪一块面板（输出 37）。
-        if (!options.sectors() || (drop.action.kind === "edge" && drop.action.target.kind === "between")) return drop;
+        // 实时布局不画分区：预览就是反馈（输出 38）。
+        if (!options.sectors() || live.active.value || (drop.action.kind === "edge" && drop.action.target.kind === "between")) return drop;
         const panel = layoutDropPanelAt(input);
         const items = panel === null ? null : layoutDropSectors(input, panel);
         if (panel === null || items === null) return drop;

@@ -133,6 +133,11 @@ test.describe("实时布局", () => {
         const writes = await writesOf(page);
         const home = await centerOf(leaf(page, "auxiliarybar"));
         await lift(page, tab(page, AUXILIARY_VIEW));
+        // 拿起的是它唯一的视图：还没落到别处、没收起之前，原位是空位，标题头不留在原地。
+        await page.mouse.move(home.x, home.y + 40, {steps: 4});
+        await expect(page.locator("[data-lifted]")).toHaveCount(1);
+        await expect(page.locator(`[data-panel-head="auxiliarybar"]`)).toHaveCount(0);
+        await expect(leaf(page, "auxiliarybar")).toHaveCount(1);
         const target = await inLeaf(page, "sidebar", {x: 0.5, y: 0.5});
         await page.mouse.move(target.x, target.y, {steps: 6});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
@@ -303,7 +308,7 @@ test.describe("实时布局", () => {
         });
     });
 
-    test("预览不改可见性，读屏文字按语义变；拖到面板边上有空位与淡线", async ({page}) => {
+    test("预览不改可见性，读屏文字按语义变；拖到面板边上有空位，不画分区", async ({page}) => {
         await open(page);
         const instanceCount = () => page.locator("[data-sample-view]").count();
         const instances = await instanceCount();
@@ -314,14 +319,10 @@ test.describe("实时布局", () => {
         expect(await instanceCount()).toBe(instances);
         await expect(page.locator("[data-drag-live-status]")).not.toHaveText("");
         await expect(page.locator("[data-live-slot]")).toHaveCount(1);
-        const sectors = page.locator("[data-drop-sectors]");
-        await expect(sectors).toHaveCount(1);
-        expect(await sectors.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
-        await expect(page.locator("[data-drop-sector-label]")).toHaveCount(0);
+        await expect(page.locator("[data-drop-sectors]")).toHaveCount(0);
         await page.keyboard.press("Escape");
         await page.mouse.up();
         await expect(page.locator("[data-live-slot]")).toHaveCount(0);
-        await expect(sectors).toHaveCount(0);
     });
 
     test("松手时内容体一次到终点宽度：不先压成小卡再长回去", async ({page}) => {

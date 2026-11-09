@@ -7,7 +7,7 @@ import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/com
 import {useText} from "@notnotype/nb-ui/text-port";
 import {findTab, findTreeNode, isFloating, layoutDropKey, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc, LayoutSource} from "@notnotype/nb-layout";
-import {DropSectorsOverlay, FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
+import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
@@ -504,16 +504,6 @@ const wantsGhost = computed(() => dragView.value.ghost);
 const dragGhost = computed(() => (dragSource.value === null || !wantsGhost.value ? null : ghostOf(dragSource.value)));
 /** 正被拖着、活动栏上留着位置的条目。 */
 const toolPlaceholder = computed(() => (dragPlaceholder.value === null ? null : viewIdOf(dragPlaceholder.value)));
-const liveSectorsRaw = computed(() => dragView.value.liveSectors);
-/** 实时布局的分区：相对网格根，画在卡片后面。 */
-const liveSectors = computed(() => {
-    const sectors = liveSectorsRaw.value;
-    const live = drag.value?.live;
-    if (sectors === null || live === undefined) return null;
-    const {x, y} = live.origin();
-    const {rect} = sectors;
-    return {...sectors, rect: {left: rect.left - x, right: rect.right - x, top: rect.top - y, bottom: rect.bottom - y}};
-});
 /** 并入的盖层：矩形按预览算，来源收起时目标会动，盖层跟着过渡。 */
 const mergeRect = computed(() => {
     const panel = mergeTarget.value;
@@ -666,7 +656,6 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 <!-- 插槽始终传，条件写在里面：条件插槽编译成动态插槽，外壳每渲一次表面都要跟着更新。 -->
                 <template #overlay>
                     <template v-if="drag?.live.active.value === true">
-                        <DropSectorsOverlay v-if="liveSectors !== null" inline variant="live" :rect="liveSectors.rect" :sectors="liveSectors.items" :active="liveSectors.active" />
                         <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
                         <!-- 按目标换元素：换目标时不从上一块滑过来，在新的这块淡入。 -->
                         <div v-if="mergeRect !== null" :key="mergeTarget ?? ''" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="mergeTarget" :style="mergeStyle">

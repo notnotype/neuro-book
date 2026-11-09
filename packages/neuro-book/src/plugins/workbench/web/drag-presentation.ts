@@ -41,12 +41,11 @@ export interface DragPresentation {
     readonly placeholder: string | null;
     /** 要不要跟手的拖影：拿着卡片时卡片就是；在标签条里排序时标签自己就是。 */
     readonly ghost: boolean;
-    /** 预览里来源落进去的新块：空位，什么都不画。 */
+    /** 空位，什么都不画：预览里来源落进去的新块，或拿起的标签是它唯一的标签的那块面板。 */
     readonly slotPanel: string | null;
     /** 并入的目标：盖一层。 */
     readonly mergeTarget: string | null;
-    /** 分区：实时布局画在卡片后面，落点指示画在反馈层。 */
-    readonly liveSectors: LayoutDragSectors | null;
+    /** 分区：只有落点指示画。实时布局的预览就是反馈；分区画在判定用的布局上，预览一摆目标就挪了，对不上。 */
     readonly feedbackSectors: LayoutDragSectors | null;
     readonly feedback: DragFeedback;
 }
@@ -72,10 +71,10 @@ export function presentDrag(input: DragPresentationInput): DragPresentation {
     return {
         placeholder: liveTab,
         ghost: source !== null && !lifted && !sorting,
-        slotPanel: shownAction?.kind === "edge" ? landing : null,
+        // 拿起的是这块面板唯一的标签：它的头（只写标题、或只剩这一个标签）也跟着走，原位是空位，直到来源收起。
+        slotPanel: shownAction?.kind === "edge" || (lifted && landing !== null && rendered.panels[landing]?.tabs.length === 1) ? landing : null,
         // 中央的预览把来源摘掉了，目标里没有它；来源本来就在这块是放回原处，不是并入。
         mergeTarget: liveTab !== null && shownAction?.kind === "center" && landing !== shownAction.panel ? shownAction.panel : null,
-        liveSectors: live ? sectors : null,
         feedbackSectors: live ? null : sectors,
         feedback: feedbackOf(input),
     };
