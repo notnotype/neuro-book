@@ -1153,7 +1153,6 @@ describe("悬停显现与光标所有权", () => {
             expect(sash.getAttribute("data-sash-hover")).toBeNull();
             expect(sash.getAttribute("data-sash-revealed")).toBeNull();
             expect(document.documentElement.getAttribute("data-nb-sash-cursor")).toBeNull();
-            expect(document.querySelector("[data-nb-sash-cursor-styles]")).toBeNull();
         } finally {
             vi.useRealTimers();
         }

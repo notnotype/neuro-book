@@ -84,7 +84,11 @@ let element: HTMLElement | null = null;
 let registered: {branchId: string; index: number; element: HTMLElement} | null = null;
 
 function setRef(value: unknown): void {
-    element = value instanceof HTMLElement ? value : null;
+    const next = value instanceof HTMLElement ? value : null;
+    if (next === element) {
+        return;
+    }
+    element = next;
     reRegister();
 }
 
@@ -109,14 +113,24 @@ watch(() => [props.branchId, props.index, props.axis], reRegister);
 let seamEl: HTMLElement | null = null;
 let lineEl: HTMLElement | null = null;
 
+/*
+ * Vue 每次更新都重新调用函数 ref，传的还是同一个元素。这里只认元素真的换了：不拦的话，指针划过分隔线每重渲染一次，
+ * 所有分隔线都要重量一遍。尺寸、方向变了由持有分隔线的父组件排对齐（`useSashSnap`）。
+ */
 function setSeamRef(value: unknown): void {
-    seamEl = value instanceof HTMLElement ? value : null;
-    snapHost.schedule();
+    const next = value instanceof HTMLElement ? value : null;
+    if (next !== seamEl) {
+        seamEl = next;
+        snapHost.schedule();
+    }
 }
 
 function setLineRef(value: unknown): void {
-    lineEl = value instanceof HTMLElement ? value : null;
-    snapHost.schedule();
+    const next = value instanceof HTMLElement ? value : null;
+    if (next !== lineEl) {
+        lineEl = next;
+        snapHost.schedule();
+    }
 }
 
 /**

@@ -4,8 +4,9 @@
  * 为什么不写进 `Splitter`：一次按下可能同时命中同一 scope 的两条线（T/十字），显现与光标必须由
  * 判定命中的那一层统一决定；落在单个组件上会各亮各的、各写各的 cursor。
  *
- * 光标只覆盖**显式 cursor**（`input`、`link` 等）声明，因此占用时注入一条属性作用域的临时样式，
- * 释放时连同样式一起移除：不做常驻全局 `!important`。
+ * 光标只覆盖**显式 cursor**（`input`、`link` 等）声明，因此第一次占用时注入一条属性作用域的样式，
+ * 只在根上有属性时生效；释放只拿掉属性，样式留着。不每次拿掉：插入或移除一张样式表会让整页重算样式，
+ * 指针每划过一条分隔线就是两次（w00026 t21 量到）。
  */
 import type {SashHitTarget, SashPoint, SashPointerKind} from "../sash-hit-area";
 
@@ -36,7 +37,7 @@ const styles = new WeakMap<Document, HTMLStyleElement>();
 export type SashCursorOwner = {
     /** 设置/更新自己的光标；被别的 scope 持有时是 no-op。 */
     set(cursor: SashCursor): void;
-    /** 释放所有权并移除临时样式；不是 owner 时是 no-op。 */
+    /** 释放所有权并拿掉根上的光标属性；不是 owner 时是 no-op。 */
     release(): void;
 };
 
@@ -62,8 +63,6 @@ export function acquireSashCursor(doc: Document): SashCursorOwner {
             owners.delete(doc);
             mine = false;
             doc.documentElement.removeAttribute(CURSOR_ATTRIBUTE);
-            styles.get(doc)?.remove();
-            styles.delete(doc);
         },
     };
 }
