@@ -15,7 +15,7 @@ updated: 2026-11-07
 
 ## 当前状态
 
-已修两处，提交在分支 `fix/w00026-t21-hover-cpu`（worktree `.worktree/w00026-t21-hover-cpu`），还没合入。证据 [`evidences/hover-cost.txt`](evidences/hover-cost.txt)。
+已修两处，合入 master。改动小、只在分隔线两个文件里，没另做实现审查。证据 [`evidences/hover-cost.txt`](evidences/hover-cost.txt)。
 
 - 每划过一条分隔线，光标所有权往 `head` 插一张样式表、离开时移除，每次整页重算。改成第一次插入后常驻，只切根上的属性。
 - Vue 每次更新都重新调用 `SashHandle` 的函数 ref，每次都排一遍对齐，所有分隔线重量。改成元素真的换了才排。
@@ -28,4 +28,4 @@ updated: 2026-11-07
 
 ## 下一步
 
-请开发者在真实 Chrome 里录一段划过界面的 Performance（勾上截图与 GPU），看剩下的开销在哪；合入 master。
+请开发者在真实 Chrome 里录一段划过界面的 Performance（勾上截图与 GPU），看剩下的开销在哪。
