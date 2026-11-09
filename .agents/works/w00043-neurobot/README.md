@@ -49,8 +49,9 @@ updated: 2026-11-09
 | 日期 | 决定 |
 |---|---|
 | 2026-11-09 | 开发者：bot 与电脑的对应可配置，缺省所有 bot 共享一台电脑 |
-| 2026-11-09 | 开发者：“bot 审 bot 这个机制，nb-harness 是提供了的。”（核对：nb-harness 有审批钩子 `ApproveHook` 与拦截链；`auto` 模式的判定实现 `auto-review.ts` 在 `nbook.agent` 里。指工具调用这一层还是组织层面的产出审核，待开发者确认） |
+| 2026-11-09 | 开发者：“bot 审 bot 这个机制，nb-harness 是提供了的。”追问后确认指工具调用这一层：例如运营 bot 发帖前由另一个 bot 判定放不放行（核对：nb-harness 有审批钩子 `ApproveHook` 与拦截链；`auto` 模式的判定实现 `auto-review.ts` 在 `nbook.agent` 里；w00032 t14 决定 8“审批一律交给用户”对 NeuroBot 要放开） |
 | 2026-11-09 | 底座选 A：monorepo 里新建应用包，在 nb-runtime 上自建，借 OpenClaw 的设计（[t01](tasks/t01-direction/README.md)） |
+| 2026-11-09 | Agent 能力：nb-harness 就是抽好的包，不新建包；按 w00032 t02 决定 3 把落在 `nbook.agent`、`nbook.models` 里的通用部分补回 nb-harness，作为 [w00032 t32](../w00032-agent-integration/tasks/t32-harness-backfill/README.md)，与 t14 的界面静态稿阶段并行 |
 | 2026-11-09 | QQ 用 LLOneBot（OneBot v11），第一版不做；先做 web |
 | 2026-11-09 | 记忆：第一版只做原始记录、Markdown 记忆文件与检索，bot 跑一段后用真实记录建评测，再定 nb-memory 重启还是另起 |
 | 2026-11-09 | 第一版范围：只有看板娘一个 bot；用户不管会话（私信一个主会话、每个群一个会话，自动压缩，补空闲压缩）；日程与周期任务做成插件；保留原始记录。多 bot、组织、设备、社媒运营往后放 |
