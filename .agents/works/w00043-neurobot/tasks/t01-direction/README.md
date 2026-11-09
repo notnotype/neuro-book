@@ -17,7 +17,7 @@ updated: 2026-11-09
 
 ## 当前状态
 
-2026-11-09：调研完成，方向要点与待拍板的分叉已在会话里交给开发者，等答复。
+2026-11-09：调研完成；开发者已定底座、QQ、记忆与第一版范围（见 [Work README 的决定](../../README.md#决定)）。Agent 能力怎么抽包在讨论：方案是按 w00032 t02 决定 3 把落在 `nbook.agent` 里的通用部分补回 nb-harness，等开发者定时机。
 
 - [仓库内的现状](../../research/2026-11-09-repo-survey.md)：Agent 能力哪些在包里、哪些在应用插件里，压缩触发点，多 Agent 已定设计，与多实例拓扑的对照，nb-memory 的现状。
 - [商业产品](../../research/2026-11-09-commercial-bots.md)：Grok Bot、Muse、ChatGPT Dots、DeepSeek super-agent（是技术文章加开源原型，不是论文）。
@@ -26,4 +26,4 @@ updated: 2026-11-09
 
 ## 下一步
 
-开发者答复待拍板的分叉后，把决定记进 Work README，再写提案。
+开发者定抽包的时机后写提案（`docs/proposals/`），先给开发者看要点再提交。

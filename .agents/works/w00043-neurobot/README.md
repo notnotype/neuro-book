@@ -44,6 +44,18 @@ updated: 2026-11-09
 
 架构（初步，开工前要调研同类项目的技术架构）：一个 gateway、多个 device（服务器、手机）、多个 channel（web、tui、qq、app 等），其中 web、tui、app 是用户界面。技术架构的问题：是否继续作为 monorepo 的子项目；是否像 NeuroBook 一样用 nb-runtime 这套插件系统（开发者倾向于用）。
 
+## 决定
+
+| 日期 | 决定 |
+|---|---|
+| 2026-11-09 | 开发者：bot 与电脑的对应可配置，缺省所有 bot 共享一台电脑 |
+| 2026-11-09 | 开发者：bot 审 bot 用 nb-harness 已有的审批机制（`ApproveHook` 与拦截链；NeuroBook 的 `auto` 模式已经由另一个模型判定工具调用） |
+| 2026-11-09 | 底座选 A：monorepo 里新建应用包，在 nb-runtime 上自建，借 OpenClaw 的设计（[t01](tasks/t01-direction/README.md)） |
+| 2026-11-09 | Agent 能力要复用：开发者问 nb-harness 不就是抽好的包吗，抽法在 t01 讨论 |
+| 2026-11-09 | QQ 用 LLOneBot（OneBot v11），第一版不做；先做 web |
+| 2026-11-09 | 记忆：第一版只做原始记录、Markdown 记忆文件与检索，bot 跑一段后用真实记录建评测，再定 nb-memory 重启还是另起 |
+| 2026-11-09 | 第一版范围：只有看板娘一个 bot；用户不管会话（私信一个主会话、每个群一个会话，自动压缩，补空闲压缩）；日程与周期任务做成插件；保留原始记录。多 bot、组织、设备、社媒运营往后放 |
+
 ## 调研
 
 - [仓库内的现状](research/2026-11-09-repo-survey.md)
