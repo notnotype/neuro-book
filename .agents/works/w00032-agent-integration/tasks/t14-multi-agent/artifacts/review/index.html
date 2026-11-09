@@ -15,46 +15,62 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 </head>
 <body>
 <h1>t14 多 Agent</h1>
-<p>都是静态稿：真实的对话视图和 nb-ui 组件，卡片本身是草稿，数据是写死的样本。第 1 轮只问父会话里子代理的卡片怎么画。</p>
-<p>每张图的状态是故意凑在一起的：一组五个子代理，分别是运行中（标了“后台”的是 <code>async</code> 派出的）、完成（结果展开）、等你批准、在问父 Agent、出错。下面一行是只派一个时的样子。</p>
+<p>都是静态稿：真实的对话视图和 nb-ui 组件，新加的部分是草稿，数据是写死的样本。第 2 轮问两件事：父会话的审批向导里怎样标出“这是子代理的审批”，子会话打开后顶部什么样。</p>
 
-<section data-nbdev-question="subagent-card" data-nbdev-type="single" data-nbdev-recommend="c">
-  <h2><span class="badge" data-nbdev-skip>待定</span>子代理卡片用哪种画法</h2>
-  <p>三种都是你定的“一行进度”：名字、正在做什么（完成后换成结果第一句）、工具次数与用时、状态，右边是打开子会话；完成的点开看结果全文。区别在框和组头。</p>
+<section data-nbdev-question="approval-source" data-nbdev-type="single" data-nbdev-recommend="a">
+  <h2><span class="badge" data-nbdev-skip>待定</span>父会话的审批向导里，子代理的审批怎样标来源</h2>
+  <p>已定：父会话的向导也列出子会话（含孙会话）在等的审批，和父会话自己的审批排在同一批里，一步一个。图里是“第 1 / 2 个”，这一步来自子代理“伏笔检查”，下一步是父会话自己的。外框、按钮和真实向导一样。</p>
   <div class="row">
-    <div data-nbdev-option="a" data-nbdev-label="A 每个子代理一张卡">
-      <figure><figcaption>A 每个一张卡</figcaption><img src="r1/group-a.webp" alt="组头一行小字，下面每个子代理一张带框的卡"></figure>
-      <figure><img src="r1/single-a.webp" alt="只派一个时是一张一行的卡"></figure>
-      <p>和命令、提问这些卡片一个样子，只派一个时最干净。派得多时五张卡叠起来，组头是框外的一行小字，不太像一组。</p>
+    <div data-nbdev-option="a" data-nbdev-label="A 标题写来源（推荐）">
+      <figure><figcaption>A 标题写来源</figcaption><img src="r2/approval-a.webp" alt="标题行换成子代理图标和“子代理「伏笔检查」要运行命令”"></figure>
+      <p>不多占一行，翻到父会话自己的那一步时高度不变。打开子会话的按钮放在标题行右边（图里没画）。</p>
     </div>
-    <div data-nbdev-option="b" data-nbdev-label="B 树形行，不画框">
-      <figure><figcaption>B 树形行</figcaption><img src="r1/group-b.webp" alt="组头下面用竖线挂着每个子代理一行，没有框"></figure>
-      <figure><img src="r1/single-b.webp" alt="只派一个时是一行"></figure>
-      <p>最轻，像 omp 的进度树。但和“过程”里的步骤行长得太像，等你批准这类要处理的事不够显眼；打开按钮要悬停才出来。</p>
+    <div data-nbdev-option="b" data-nbdev-label="B 内容区第一行写来源">
+      <figure><figcaption>B 第一行写来源</figcaption><img src="r2/approval-b.webp" alt="标题不变，内容区第一行写来自哪个子代理、路径和打开子会话"></figure>
+      <p>标题照旧，第一行写来源与路径（孙会话时路径更长）。多一行：和父会话自己的审批混在一批里时，翻步时高度会变。</p>
     </div>
-    <div data-nbdev-option="c" data-nbdev-label="C 整组一张卡（推荐）">
-      <figure><figcaption>C 整组一张卡</figcaption><img src="r1/group-c.webp" alt="一张卡，卡头写个数与状态，卡里每个子代理一行，行间分隔线"></figure>
-      <figure><img src="r1/single-c.webp" alt="只派一个时卡头加一行"></figure>
-      <p>一组就是一个框，卡头写个数和状态，行间分隔线，和你在 t05 选的“模型列表那样的分组”一致。只派一个时卡头加一行显得重复，推荐那时画成 A 的单卡（一行）。</p>
+    <div data-nbdev-option="c" data-nbdev-label="C 内容区一个标签">
+      <figure><figcaption>C 标签</figcaption><img src="r2/approval-c.webp" alt="标题不变，内容区第一行是一个“子代理 · 伏笔检查”的标签"></figure>
+      <p>同 B，但更醒目、没有路径。</p>
     </div>
   </div>
-  <p>搭稿时发现、会影响实现的三件事（不用你定，记下来进计划）：</p>
-  <ul>
-    <li>一组子代理是同一条回复里的几次 <code>agent_spawn</code> 调用，对话视图现在逐个画节点，要加“相邻的同类节点合成一组”的能力。</li>
-    <li>一轮结束自动收起时，子代理卡片跟着收进“过程”（图里第一轮“读大纲”那次就收起了），结果由父 Agent 的回复交代。我打算保持这样。</li>
-    <li>“正在做什么”、工具次数、用时都在子会话里，父会话的日志里没有：宿主要另外订阅正在跑的子会话。</li>
-  </ul>
+</section>
+
+<section data-nbdev-question="child-header" data-nbdev-type="single" data-nbdev-recommend="a">
+  <h2><span class="badge" data-nbdev-skip>待定</span>子会话的顶部</h2>
+  <p>已定：点卡片在当前位置切到子会话，顶部一行路径能点回父会话（A 就是照这条画的）。B、C 是另外两种写法，供你比较。三张图里，父 Agent 发来的话都标成父会话的 Profile 名“主创”，不是“YOU”；你自己在子会话里说的话仍是“YOU”。子会话自己的审批照常在它的向导里批。</p>
+  <div class="row">
+    <div data-nbdev-option="a" data-nbdev-label="A 顶栏是路径（推荐）">
+      <figure><figcaption>A 路径</figcaption><img src="r2/child-a.webp" alt="顶栏写“第三章全面检查 › 伏笔检查”，前一段能点"></figure>
+      <p>孙会话时是三段，太长时前面的段省略。和编辑区的路径条是一种读法。</p>
+    </div>
+    <div data-nbdev-option="b" data-nbdev-label="B 顶栏下面一条">
+      <figure><figcaption>B 下面一条</figcaption><img src="r2/child-b.webp" alt="顶栏是子会话自己的标题加“子代理”标签，下面一条写由谁派出"></figure>
+      <p>顶栏和普通会话一样，多一行写由谁派出、提问交给谁。占的高度最多。</p>
+    </div>
+    <div data-nbdev-option="c" data-nbdev-label="C 返回按钮">
+      <figure><figcaption>C 返回按钮</figcaption><img src="r2/child-c.webp" alt="顶栏左边一个返回箭头，标题后小字写由哪个会话派出"></figure>
+      <p>最省地方，但孙会话只能一层一层退回去。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>第 1 轮：子代理卡片</h2>
+  <p>选了 C 的样子，但不合成一组：每次派发一张卡，卡头是名字和状态，下面一行进度；几张卡上下排着。卡片高度不随文字变：进度和结果第一句都只占一行，不自动展开；点开看结果全文时，全文区限高、在区内滚动（图里“称谓检查”是点开的）。</p>
+  <figure><img src="r2/cards-decided.webp" alt="五张子代理卡片上下排着，各有卡头和一行进度"></figure>
+  <p>第 1 轮的三种候选：<a href="r1/group-a.webp">A</a>、<a href="r1/group-b.webp">B</a>、<a href="r1/group-c.webp">C</a>。</p>
 </section>
 
 <section>
   <h2><span class="badge" data-nbdev-skip>已定</span>注意力排序（会话里定的）</h2>
   <ul>
-    <li><b>卡片</b>：一行进度；完成后是状态加结果第一句，全文默认收起；同一条回复派几个时合成一组，组头写个数与状态。</li>
+    <li><b>卡片</b>：一行进度；完成后是状态加结果第一句，全文默认收起（“合成一组”已由第 1 轮改掉）。</li>
     <li><b>子会话的审批</b>：父会话的审批向导也列出子会话（含孙会话）在等的审批，标明来自哪个子代理；子会话里照常能批。</li>
     <li><b>会话面板</b>：子会话嵌在父会话下，默认收起，父会话行标子代理数与状态；搜索命中子会话时展开。</li>
     <li><b>打开子会话</b>：在当前位置切过去，顶部一行路径可以点回父会话。</li>
   </ul>
-  <p>后面几轮：父会话向导里怎样标来源、子会话顶部的路径、会话面板的嵌套；之后是 Profile 设置页的“可派的子代理”、异步提问、<code>shell</code> 转后台的卡片。</p>
+  <p>后面一轮：会话面板的嵌套、Profile 设置页的“可派的子代理”、异步提问、<code>shell</code> 转后台的卡片。</p>
 </section>
 </body>
 </html>

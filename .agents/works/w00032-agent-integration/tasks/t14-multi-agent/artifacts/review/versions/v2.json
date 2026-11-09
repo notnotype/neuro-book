@@ -1,0 +1,117 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t14-multi-agent",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "t14 多 Agent：界面评审",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "ea8a9c635a7eb47766f710add843b99fadef7e19ce06376173627087a4796803",
+    "files": [
+        "index.html",
+        "r1/group-a.webp",
+        "r1/group-b.webp",
+        "r1/group-c.webp",
+        "r1/single-a.webp",
+        "r1/single-b.webp",
+        "r1/single-c.webp",
+        "r2/approval-a.webp",
+        "r2/approval-b.webp",
+        "r2/approval-c.webp",
+        "r2/cards-decided.webp",
+        "r2/child-a.webp",
+        "r2/child-b.webp",
+        "r2/child-c.webp"
+    ],
+    "questions": [
+        {
+            "id": "subagent-card",
+            "type": "single",
+            "label": "子代理卡片用哪种画法",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 每个子代理一张卡"
+                },
+                {
+                    "value": "b",
+                    "label": "B 树形行，不画框"
+                },
+                {
+                    "value": "c",
+                    "label": "C 整组一张卡（推荐）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "c"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "approval-source",
+            "type": "single",
+            "label": "父会话的审批向导里，子代理的审批怎样标来源",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 标题写来源（推荐）"
+                },
+                {
+                    "value": "b",
+                    "label": "B 内容区第一行写来源"
+                },
+                {
+                    "value": "c",
+                    "label": "C 内容区一个标签"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "a"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "child-header",
+            "type": "single",
+            "label": "子会话的顶部",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 顶栏是路径（推荐）"
+                },
+                {
+                    "value": "b",
+                    "label": "B 顶栏下面一条"
+                },
+                {
+                    "value": "c",
+                    "label": "C 返回按钮"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "a"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-09T23:48:18.585Z"
+}
