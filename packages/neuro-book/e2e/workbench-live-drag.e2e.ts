@@ -41,6 +41,8 @@ const settled = (page: Page): Promise<void> => expect(page.locator("[data-moving
 const content = (page: Page, viewId: string) => page.locator(`[data-content="view:${viewId}"]`);
 /** 这块面板的头里看得见的标签：只写标题的头就是那一个。 */
 const headTabsOf = (page: Page, panel: string): Promise<Array<string | null>> => page.locator(`[data-panel-head="${panel}"] [data-panel-tab]`).evaluateAll((elements) => elements.map((element) => element.getAttribute("data-panel-tab")));
+/** 收起的面板整个叶都不在：算 0 宽。 */
+const shownWidth = async (page: Page, panel: string): Promise<number> => ((await leaf(page, panel).count()) === 0 ? 0 : ((await leaf(page, panel).boundingBox())?.width ?? 0));
 const widthOf = async (page: Page, panel: string): Promise<number> => {
     await settled(page);
     return (await leaf(page, panel).boundingBox())?.width ?? 0;
@@ -112,6 +114,28 @@ test.describe("实时布局", () => {
         await expect(surface(page)).toHaveAttribute("data-live-preview", "none");
         expect(await panelOfTab(page, E)).not.toBe("panel");
         expect(await widthOf(page, "panel")).toBeCloseTo(previewWidth, 0);
+    });
+
+    test("来源是那块面板最后一个视图：落到别处时它收起，指针回到原处也不再展开；Esc 回原样（输出 38）", async ({page}) => {
+        await open(page);
+        expect(await headTabsOf(page, "auxiliarybar")).toEqual([`view:${AUXILIARY_VIEW}`]);
+        const writes = await writesOf(page);
+        const home = await centerOf(leaf(page, "auxiliarybar"));
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        const target = await inLeaf(page, "sidebar", {x: 0.5, y: 0.5});
+        await page.mouse.move(target.x, target.y, {steps: 6});
+        await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
+        await expect.poll(async () => shownWidth(page, "auxiliarybar")).toBeLessThan(2);
+        // 回到它原来的位置：那里现在是编辑组，工具视图放不进去，是来源收起的样子，不是放回原处。
+        await page.mouse.move(home.x, home.y, {steps: 12});
+        await expect(surface(page)).toHaveAttribute("data-live-preview", "source-removed");
+        await settled(page);
+        expect(await shownWidth(page, "auxiliarybar")).toBeLessThan(2);
+        expect(await writesOf(page)).toBe(writes);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect.poll(async () => shownWidth(page, "auxiliarybar")).toBeGreaterThan(100);
+        expect(await writesOf(page)).toBe(writes);
     });
 
     test("候选还没预览就松手：提交指针下的候选", async ({page}) => {

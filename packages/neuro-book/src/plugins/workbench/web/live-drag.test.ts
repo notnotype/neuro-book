@@ -22,6 +22,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
     let now = 1000;
     const shown: Array<LayoutDoc | null> = [];
     const placed: GridRect[] = [];
+    const collapses: string[] = [];
     const live = createLiveDrag({
         requestFrame: (run) => {
             scheduled = run;
@@ -38,6 +39,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
         cardShrink: () => "strip",
         candidateDoc: () => DOC,
         sourceRemovedDoc: () => REMOVED,
+        collapseSource: (from) => collapses.push(from.tab),
         homeOf: () => "home",
         show: (doc) => shown.push(doc),
         ...over,
@@ -48,10 +50,38 @@ function setup(over: Partial<LiveDragHost> = {}) {
         scheduled = null;
         run?.(now);
     };
-    return {live, frame, shown, placed};
+    return {live, frame, shown, placed, collapses};
 }
 
 describe("createLiveDrag", () => {
+    it("来源只在第一次落到别处时收起一次：自己的标签条、放回原处不收；离开再回来也不再展开", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 100, y: 10});
+        t.live.offer(strip("home", 1));
+        t.frame();
+        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.frame();
+        t.frame(200);
+        expect(t.collapses).toEqual([]);
+        t.live.offer(CENTER);
+        t.frame();
+        t.frame(200);
+        expect(t.collapses).toEqual([SOURCE.tab]);
+        t.live.offer(null);
+        t.frame();
+        t.frame(200);
+        t.live.offer(CENTER);
+        t.frame();
+        t.frame(200);
+        expect(t.collapses).toEqual([SOURCE.tab]);
+        t.live.end();
+        t.live.begin(SOURCE, {x: 100, y: 10});
+        t.live.offer(CENTER);
+        t.frame();
+        t.frame(200);
+        expect(t.collapses).toEqual([SOURCE.tab, SOURCE.tab]);
+    });
+
     it("自己的标签条马上换预览，不要卡片", () => {
         const t = setup();
         t.live.begin(SOURCE, {x: 100, y: 10});

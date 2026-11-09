@@ -38,6 +38,21 @@ export interface TabStripSnapshot {
     readonly excludedPartition: string | null | undefined;
 }
 
+/**
+ * 把量好的标签条挪到它所在面板的新位置：标签不重排，整条跟着面板的左上角走，右端跟着面板的右边伸缩（行尾的插入位在那里）。
+ * 实时布局来源收起之后，判定按收起后的布局（docs/specs/ui/workbench-layout.md 输出 38），面板挪了位置，标签条也要跟着。
+ */
+export function translateTabStrip(snapshot: TabStripSnapshot, by: {readonly x: number; readonly y: number}, widen: number): TabStripSnapshot {
+    const move = (rect: GridDropRect, extra = 0): GridDropRect => ({left: rect.left + by.x, right: rect.right + by.x + extra, top: rect.top + by.y, bottom: rect.bottom + by.y});
+    const member = (item: Member): Member => ({...item, rect: move(item.rect)});
+    return {
+        ...snapshot,
+        view: move(snapshot.view, widen),
+        lines: snapshot.lines.map((line) => ({...line, rect: move(line.rect, widen), members: line.members.map(member)})),
+        members: snapshot.members.map(member),
+    };
+}
+
 const memberOf = (tab: HTMLElement): Member => ({id: tab.dataset.panelTab as string, rect: rectOf(tab.parentElement as HTMLElement), partition: tab.dataset.tabPartition ?? null});
 
 function linesOf(strip: Element, exclude: string | null): Line[] {
