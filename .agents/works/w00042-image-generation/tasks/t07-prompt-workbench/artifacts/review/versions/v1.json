@@ -1,0 +1,80 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00042-image-generation",
+    "taskId": "t07-prompt-workbench",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "提示词工作台：静态稿评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "fd7c9fbb35968d649848d3289d609ac3c07a61125e129430bff2792886ea95e4",
+    "files": [
+        "index.html",
+        "r1/current.webp",
+        "r1/overview-chips.webp",
+        "r1/q1-chips-crop.webp",
+        "r1/q1-raw-crop.webp",
+        "r1/q1-raw.webp",
+        "r1/q1-split-crop.webp",
+        "r1/q1-split.webp",
+        "r1/q2-inline.webp"
+    ],
+    "questions": [
+        {
+            "id": "q1-tag-view",
+            "type": "single",
+            "label": "问题 1：提示词里的标签怎么显示",
+            "options": [
+                {
+                    "value": "raw",
+                    "label": "A 原文着色"
+                },
+                {
+                    "value": "chips",
+                    "label": "B 标签块（推荐）"
+                },
+                {
+                    "value": "split",
+                    "label": "C 上原文、下对照"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "chips"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q2-library-place",
+            "type": "single",
+            "label": "问题 2：词库放在哪",
+            "options": [
+                {
+                    "value": "sidebar",
+                    "label": "A 外壳的侧栏（推荐）"
+                },
+                {
+                    "value": "inline",
+                    "label": "B 标签页里自带一栏"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "sidebar"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-09T23:48:05.816Z"
+}

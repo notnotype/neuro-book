@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>提示词工作台：静态稿评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 920px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q, section.s { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.badge.info { background: var(--accent-soft); color: var(--accent); }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+.notice { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--warn-soft); }
+.notice b { color: var(--warn); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1>提示词工作台：静态稿评审板</h1>
+<div class="lead">
+<p>w00042 t07。用样例作品《雾港》第一章配一张插图：林汐去邮局取那封没有邮戳的信，周砚坐在柜台后。主提示词、两个角色、负面提示词与参数都按 NovelAI V4.5 的写法搭。</p>
+<p>外框是真实组件：标题栏、活动栏、面板头、编辑器标签条、状态栏，以及按钮、分段开关、标签页、输入框这些 nb-ui 控件。工作台本身（提示词区、结果区、词库）是一次性的草稿，不是产品代码。结果图是占位图，静态稿不调用生成接口。标签的中文与使用次数是演示用的取值。画布 1600×900，亮色。</p>
+</div>
+
+<div class="round">第 1 轮 · 整体版式与两个问题</div>
+
+<section class="q" data-nbdev-question="q1-tag-view" data-nbdev-type="single" data-nbdev-recommend="chips">
+<h2>问题 1：提示词里的标签怎么显示 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>三张图的其它部分都一样，只换提示词区的画法。点图看整页。</p>
+<div class="opts">
+<div class="opt" data-nbdev-option="raw">
+<h3>A 原文着色</h3>
+<a href="r1/q1-raw.webp"><figure><img src="r1/q1-raw-crop.webp" alt="原文着色"></figure></a>
+<p>照写 NovelAI 原文，按语法上色：括号是强调色，加了权重的词带底色，没收录的词画波浪线，片段是小块。中文靠悬停看。最紧凑，一屏放得下主提示词和两个角色，最接近 NovelAI 自己的输入框。</p>
+</div>
+<div class="opt rec" data-nbdev-option="chips">
+<h3>B 标签块（推荐）</h3>
+<a href="r1/overview-chips.webp"><figure><img src="r1/q1-chips-crop.webp" alt="标签块"></figure></a>
+<p>一个标签一块，下面一行中文；权重写成倍率（↑1.10、↓0.91），同一层括号里的几个词合成一个组框；片段块下面露出内容开头；NovelAI 专用的词标 NAI；没收录的标“未收录”；自然语言的句子单独一行。右上角的“块 | 原文”可以切回 A。</p>
+</div>
+<div class="opt" data-nbdev-option="split">
+<h3>C 上原文、下对照</h3>
+<a href="r1/q1-split.webp"><figure><img src="r1/q1-split-crop.webp" alt="上原文下对照"></figure></a>
+<p>上面是不着色的原文框，下面一行行列出“标签 中文 倍率”的对照。nai-atelier 的做法：在原文里打字，对照区看意思、点选调权重。同一段内容出现两遍，高度最大。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐 B，并保留切回 A 的开关。</b>中文读者看英文标签要靠中文那一行，B 把它常驻在每个词下面；权重写成倍率，不用数括号（NovelAI 的 <code>{{ }}</code> 与 <code>1.1::</code> 是同一个意思，B 都显示 1.10，原文的写法不改）。代价是高度：同样 1600×900，B 只放得下主提示词和第一个角色，A 放得下全部。所以 B 的每个提示词框都能切回原文，懂语法的人在原文里改得最快。C 把同一份内容画两遍，又比 B 高，不推荐。</div>
+<div class="notice"><b>实现上的约束（与选哪个无关）：</b>文字是唯一真相，块只是显示方式，读进来的原文原样写回（与 <code>PromptEditor</code> 的规则相同）。所以 B 里改权重只换倍率、不改写法，粘贴进来的原文也不会被“整理”。</div>
+</section>
+
+<section class="q" data-nbdev-question="q2-library-place" data-nbdev-type="single" data-nbdev-recommend="sidebar">
+<h2>问题 2：词库放在哪 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="sidebar">
+<h3>A 外壳的侧栏（推荐）</h3>
+<a href="r1/overview-chips.webp"><figure><img src="r1/overview-chips.webp" alt="词库在侧栏"></figure></a>
+<p>活动栏多一个“词库”，和资源管理器换着用。宽度、显示隐藏、移到右边都用外壳现成的做法。</p>
+</div>
+<div class="opt" data-nbdev-option="inline">
+<h3>B 标签页里自带一栏</h3>
+<a href="r1/q2-inline.webp"><figure><img src="r1/q2-inline.webp" alt="词库在标签页里"></figure></a>
+<p>侧栏关掉，工作台标签页分三栏：词库、提示词、结果。词库跟着工作台走，开两个工作台就有两份。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐 A。</b>词库是全局的一份（标签、片段、收藏），不属于某一个工作台；放侧栏不用另做收起、拉宽，开几个工作台标签页也只有一份。B 在 1600 宽时提示词区只剩 600 出头，和 A 差不多，但侧栏关不掉词库，看资源管理器时就得关掉工作台里的这一栏，两处都要管。Agent 的对话在右栏，这两种放法都不影响它。</div>
+</section>
+
+<section class="s">
+<h2>已定：注意力排序 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>2026-11-09 在会话里定的，这一轮的版式照它搭：</p>
+<table>
+<tr><th>块</th><th>放在哪、默认怎样</th></tr>
+<tr><td>提示词</td><td>工作台左半边：主提示词、各角色、负面提示词。和结果各占一半</td></tr>
+<tr><td>结果</td><td>右半边，默认显示最近一批的大图；选中一张，下面一行是它的种子与动作（用作插图、固定种子、放大、局部重绘）</td></tr>
+<tr><td>词库</td><td>常驻的窄栏；打字时的标签联想在提示词框里弹出，不依赖它</td></tr>
+<tr><td>参数</td><td>只露一行摘要（模型、尺寸、步数、种子），和“生成”按钮一起固定在左半边底部，点开才展开</td></tr>
+<tr><td>负面提示词</td><td>收成一行：用了哪个预设、另加了哪几个词</td></tr>
+<tr><td>历史</td><td>结果区底部一条缩略图带，按批排；点一批把当时的配方恢复到左边</td></tr>
+<tr><td>整块收起</td><td>窄屏时词库变成抽屉；看大图时进灯箱</td></tr>
+</table>
+<p>同时定的前提：工作台是编辑区里的一个标签页，一个标签页一份配方；Agent 不嵌进工作台，经工具读写；静态稿按 NovelAI 的形态画。</p>
+</section>
+
+<section class="s">
+<h2>搭稿时发现的事 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>这些不用这一轮回答，记进 t03（合同）、t05（词库）的待办：</p>
+<ol>
+<li><b>Token 计数要按模型的分词器算。</b>标题旁的“112 / 512”是 V4.5 的上限；V4.5 用 T5 分词，V5 的上限不同。前端要能算，或者由后端算好送过来。</li>
+<li><b>片段在原文里怎么写还没定。</b>稿里暂写成 <code>&lt;画风·冷雾水彩&gt;</code>；NovelAI 自己在嵌套时写 <code>!macro:名字!</code>，发请求前要展开成内容。</li>
+<li><b>角色提示词只有 NovelAI 有。</b>SD 或 ComfyUI 的路线没有这一块，要么隐藏，要么映射到分区提示词的插件。首发后端等 t02 定了再看。</li>
+<li><b>角色里的 <code>girl</code>、<code>boy</code> 与 <code>source#</code>、<code>target#</code> 是 NovelAI 的写法。</b>词库要把它们和年份、美学这些专用词一起收进基础层（t01 的决定），否则会被标成“未收录”。</li>
+<li><b>结果区在 900 高时，2×2 的大图只用了右半边一半多的宽度。</b>竖图本来就这样；横图或一张时可以切“单张”。</li>
+</ol>
+</section>
+
+<section class="s">
+<h2>现状与参照 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<figure><img src="r1/current.webp" alt="现在的编辑区"><figcaption>现在的产品：编辑区打开第一章。工作台会是它旁边的另一个标签页（图里的“插图 · 雾港邮局”）</figcaption></figure>
+<ul>
+<li><b>NovelAI 官方界面</b>（离线文档）：左边提示词与参数、右边结果；角色提示词一框一个，可排序、可定位置；Prompt Chunks 在框里是小块，可拖入，可用 <code>@</code> 调出。</li>
+<li><b>nai-atelier</b>（MIT，开发者 11-09 推荐）：候选 C 的“原文加对照”与候选 B 的组框（“连续权重胶囊”）都来自它；它的节奏是“生成一张、观察、微调、再生成”，每次生成前显示费用，稿里“约 0 Anlas”照这个放。它的片段库按固定用途分 16 类、和文件夹分开，留给 t05 参考。</li>
+<li><b>法典图鉴</b>（t01 调研）：中转源占位、用过的条目自动存成素材、搜索条件做成小块、快照式收藏。</li>
+</ul>
+</section>
+</main>
+</body>
+</html>
