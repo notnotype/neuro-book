@@ -15,44 +15,60 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 </head>
 <body>
 <h1>t14 多 Agent</h1>
-<p>都是静态稿：真实的对话视图和 nb-ui 组件，新加的部分是草稿，数据是写死的样本。第 2 轮问两件事：父会话的审批向导里怎样标出“这是子代理的审批”，子会话打开后顶部什么样。</p>
+<p>都是静态稿：真实的对话视图和 nb-ui 组件，新加的部分是草稿，数据是写死的样本。第 3 轮是剩下的几样：异步提问放哪、会话面板怎样嵌套，再请你过一眼“可派的子代理”设置和后台命令卡片。这一轮定了，界面就齐了，接着写实施计划。</p>
 
-<section data-nbdev-question="approval-source" data-nbdev-type="single" data-nbdev-recommend="a">
-  <h2><span class="badge" data-nbdev-skip>待定</span>父会话的审批向导里，子代理的审批怎样标来源</h2>
-  <p>已定：父会话的向导也列出子会话（含孙会话）在等的审批，和父会话自己的审批排在同一批里，一步一个。图里是“第 1 / 2 个”，这一步来自子代理“伏笔检查”，下一步是父会话自己的。外框、按钮和真实向导一样。</p>
+<section data-nbdev-question="async-question" data-nbdev-type="single" data-nbdev-recommend="b">
+  <h2><span class="badge" data-nbdev-skip>待定</span>异步提问（<code>ask</code> 带 <code>async</code>）放在哪</h2>
+  <p>已定：异步提问不让运行停下，Agent 接着做别的；回答只经卡片，输入框里打的字一律是普通输入（插话或排队）。问题会留到你回答为止，跨过这一轮也还在。</p>
   <div class="row">
-    <div data-nbdev-option="a" data-nbdev-label="A 标题写来源（推荐）">
-      <figure><figcaption>A 标题写来源</figcaption><img src="r2/approval-a.webp" alt="标题行换成子代理图标和“子代理「伏笔检查」要运行命令”"></figure>
-      <p>不多占一行，翻到父会话自己的那一步时高度不变。打开子会话的按钮放在标题行右边（图里没画）。</p>
+    <div data-nbdev-option="a" data-nbdev-label="A 消息流里，在提问的位置">
+      <figure><figcaption>A 消息流里</figcaption><img src="r3/ask-stream.webp" alt="提问卡片在 Agent 的回复下面，和后台命令卡片挨着"></figure>
+      <p>在 Agent 提问的地方，前因后果看得清。但 Agent 接着往下写，卡片很快被顶上去；跨轮之后要往回翻才找得到。</p>
     </div>
-    <div data-nbdev-option="b" data-nbdev-label="B 内容区第一行写来源">
-      <figure><figcaption>B 第一行写来源</figcaption><img src="r2/approval-b.webp" alt="标题不变，内容区第一行写来自哪个子代理、路径和打开子会话"></figure>
-      <p>标题照旧，第一行写来源与路径（孙会话时路径更长）。多一行：和父会话自己的审批混在一批里时，翻步时高度会变。</p>
-    </div>
-    <div data-nbdev-option="c" data-nbdev-label="C 内容区一个标签">
-      <figure><figcaption>C 标签</figcaption><img src="r2/approval-c.webp" alt="标题不变，内容区第一行是一个“子代理 · 伏笔检查”的标签"></figure>
-      <p>同 B，但更醒目、没有路径。</p>
+    <div data-nbdev-option="b" data-nbdev-label="B 输入框上方（推荐）">
+      <figure><figcaption>B 输入框上方</figcaption><img src="r3/ask-dock.webp" alt="提问卡片浮在输入框上方，输入框照常能用"></figure>
+      <p>在审批向导的位置，但不替换输入框，输入框照常能用；一直看得到，几个问题时标“1 / 2”翻看。能像向导一样收成一条小条。消息流里那次调用只留一行。</p>
     </div>
   </div>
 </section>
 
-<section data-nbdev-question="child-header" data-nbdev-type="single" data-nbdev-recommend="a">
-  <h2><span class="badge" data-nbdev-skip>待定</span>子会话的顶部</h2>
-  <p>已定：点卡片在当前位置切到子会话，顶部一行路径能点回父会话（A 就是照这条画的）。B、C 是另外两种写法，供你比较。三张图里，父 Agent 发来的话都标成父会话的 Profile 名“主创”，不是“YOU”；你自己在子会话里说的话仍是“YOU”。子会话自己的审批照常在它的向导里批。</p>
+<section data-nbdev-question="session-nest" data-nbdev-type="single" data-nbdev-recommend="b">
+  <h2><span class="badge" data-nbdev-skip>待定</span>会话面板里子会话怎样嵌</h2>
+  <p>已定：子会话嵌在父会话下，默认收起；搜索命中子会话时展开它的父会话。图里“第三章全面检查”展开着，“大纲梳理”收着。子会话的行和普通会话一样两行、等高，状态照常显示。</p>
   <div class="row">
-    <div data-nbdev-option="a" data-nbdev-label="A 顶栏是路径（推荐）">
-      <figure><figcaption>A 路径</figcaption><img src="r2/child-a.webp" alt="顶栏写“第三章全面检查 › 伏笔检查”，前一段能点"></figure>
-      <p>孙会话时是三段，太长时前面的段省略。和编辑区的路径条是一种读法。</p>
+    <div data-nbdev-option="a" data-nbdev-label="A 父会话下面一行个数">
+      <figure><figcaption>A 下面一行</figcaption><img src="r3/sessions-a.webp" alt="父会话下面一行小字“3 个子代理 · 1 运行中 · 1 等你处理”，点开展开"></figure>
+      <p>个数与状态写得全；有子会话的父会话多占一行。</p>
     </div>
-    <div data-nbdev-option="b" data-nbdev-label="B 顶栏下面一条">
-      <figure><figcaption>B 下面一条</figcaption><img src="r2/child-b.webp" alt="顶栏是子会话自己的标题加“子代理”标签，下面一条写由谁派出"></figure>
-      <p>顶栏和普通会话一样，多一行写由谁派出、提问交给谁。占的高度最多。</p>
-    </div>
-    <div data-nbdev-option="c" data-nbdev-label="C 返回按钮">
-      <figure><figcaption>C 返回按钮</figcaption><img src="r2/child-c.webp" alt="顶栏左边一个返回箭头，标题后小字写由哪个会话派出"></figure>
-      <p>最省地方，但孙会话只能一层一层退回去。</p>
+    <div data-nbdev-option="b" data-nbdev-label="B 个数在父会话行里（推荐）">
+      <figure><figcaption>B 行里</figcaption><img src="r3/sessions-b.webp" alt="父会话行左边一个折叠箭头，第二行右边一个人形图标加个数"></figure>
+      <p>所有行一样高；左边折叠箭头，第二行右边写个数。子会话的状态在展开后看，父会话自己的状态照常显示。</p>
     </div>
   </div>
+</section>
+
+<section data-nbdev-question="rest" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>这两样照图做行不行</h2>
+  <div class="row">
+    <div>
+      <figure><figcaption>Profile 设置页：可派的子代理</figcaption><img src="r3/spawnable.webp" alt="和工具一节一样的列表：分组、名字、推荐、说明、删除"></figure>
+      <p>和工具一节同一个样子，放在工具一节下面：按来源分组，一行一个 Profile，标出 Profile 声明的“推荐”，你自己加的标“我加的”；“添加”打开和添加工具一样的对话框，“恢复默认”回到 Profile 声明的那份。推荐不能在这里改。</p>
+    </div>
+    <div>
+      <figure><figcaption>后台命令卡片（<code>shell</code> 带 <code>async</code>）</figcaption><img src="r3/ask-stream.webp" alt="上图里的后台命令卡片：命令、任务号与用时、停止，下面一行最后一行输出与输出文件"></figure>
+      <p>看上图的第一张卡：卡头是命令、任务号与用时、停止按钮；下面一行运行中是最后一行输出，结束后是退出码和行数，右边是输出文件。高度固定，和子代理卡片一个道理。“停止”是你在界面上停它，Agent 用 <code>kill</code>。</p>
+    </div>
+  </div>
+  <div data-nbdev-option="accept" data-nbdev-label="照图做"></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>第 2 轮</h2>
+  <ul>
+    <li><b>父会话向导里子代理的审批</b>：标题行写来源（<a href="r2/approval-a.webp">图</a>），翻步时高度不变。</li>
+    <li><b>子会话的顶部</b>：顶栏是路径（<a href="r2/child-a.webp">图</a>）；父 Agent 发来的话标父会话的 Profile 名。</li>
+  </ul>
 </section>
 
 <section>
@@ -70,7 +86,7 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
     <li><b>会话面板</b>：子会话嵌在父会话下，默认收起，父会话行标子代理数与状态；搜索命中子会话时展开。</li>
     <li><b>打开子会话</b>：在当前位置切过去，顶部一行路径可以点回父会话。</li>
   </ul>
-  <p>后面一轮：会话面板的嵌套、Profile 设置页的“可派的子代理”、异步提问、<code>shell</code> 转后台的卡片。</p>
+  
 </section>
 </body>
 </html>

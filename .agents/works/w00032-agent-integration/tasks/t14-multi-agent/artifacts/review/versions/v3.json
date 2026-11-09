@@ -1,0 +1,194 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t14-multi-agent",
+    "artifactId": "review",
+    "version": 3,
+    "supersedes": 2,
+    "action": "publish",
+    "kind": "design",
+    "title": "t14 多 Agent：界面评审",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "464f7856ee7d99c7ed86ab023b02aafbfc55a5c899484a5edc7986a5e7a62b70",
+    "files": [
+        "index.html",
+        "r1/group-a.webp",
+        "r1/group-b.webp",
+        "r1/group-c.webp",
+        "r1/single-a.webp",
+        "r1/single-b.webp",
+        "r1/single-c.webp",
+        "r2/approval-a.webp",
+        "r2/approval-b.webp",
+        "r2/approval-c.webp",
+        "r2/cards-decided.webp",
+        "r2/child-a.webp",
+        "r2/child-b.webp",
+        "r2/child-c.webp",
+        "r3/ask-dock.webp",
+        "r3/ask-stream.webp",
+        "r3/sessions-a.webp",
+        "r3/sessions-b.webp",
+        "r3/spawnable.webp"
+    ],
+    "questions": [
+        {
+            "id": "subagent-card",
+            "type": "single",
+            "label": "子代理卡片用哪种画法",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 每个子代理一张卡"
+                },
+                {
+                    "value": "b",
+                    "label": "B 树形行，不画框"
+                },
+                {
+                    "value": "c",
+                    "label": "C 整组一张卡（推荐）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "c"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "approval-source",
+            "type": "single",
+            "label": "父会话的审批向导里，子代理的审批怎样标来源",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 标题写来源（推荐）"
+                },
+                {
+                    "value": "b",
+                    "label": "B 内容区第一行写来源"
+                },
+                {
+                    "value": "c",
+                    "label": "C 内容区一个标签"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "a"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "child-header",
+            "type": "single",
+            "label": "子会话的顶部",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 顶栏是路径（推荐）"
+                },
+                {
+                    "value": "b",
+                    "label": "B 顶栏下面一条"
+                },
+                {
+                    "value": "c",
+                    "label": "C 返回按钮"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "a"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "async-question",
+            "type": "single",
+            "label": "异步提问（ask 带 async）放在哪",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 消息流里，在提问的位置"
+                },
+                {
+                    "value": "b",
+                    "label": "B 输入框上方（推荐）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "b"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "session-nest",
+            "type": "single",
+            "label": "会话面板里子会话怎样嵌",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 父会话下面一行个数"
+                },
+                {
+                    "value": "b",
+                    "label": "B 个数在父会话行里（推荐）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "b"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "rest",
+            "type": "single",
+            "label": "这两样照图做行不行",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "照图做"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-09T23:53:10.978Z"
+}
