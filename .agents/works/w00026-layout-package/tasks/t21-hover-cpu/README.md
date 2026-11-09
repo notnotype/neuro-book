@@ -15,17 +15,17 @@ updated: 2026-11-07
 
 ## 当前状态
 
-只有线索，还没定位，也没动代码。
+已修两处，提交在分支 `fix/w00026-t21-hover-cpu`（worktree `.worktree/w00026-t21-hover-cpu`），还没合入。证据 [`evidences/hover-cost.txt`](evidences/hover-cost.txt)。
 
-t20 的结论是“没有单一原因”，那次只看了耗时。按调用方分解（400 次移动，开发服务，无头 Chrome，同 [t22 的证据](../t22-drag-frame/evidences/frame-cost.txt)）后：
+- 每划过一条分隔线，光标所有权往 `head` 插一张样式表、离开时移除，每次整页重算。改成第一次插入后常驻，只切根上的属性。
+- Vue 每次更新都重新调用 `SashHandle` 的函数 ref，每次都排一遍对齐，所有分隔线重量。改成元素真的换了才排。
 
-- 样式重算一共约 423ms，其中分隔线的 `snap` 占 235ms（42 次强制重算，平均 78 个元素），超过一半。没按键划过时它不该跑。
-- 没验证的猜测：Vue 每次更新都重新调用 `SashHandle` 的函数 ref（`setSeamRef`、`setLineRef`），它们都调 `snapHost.schedule()`，于是所有分隔线都重新量一遍。
-- `useSashGesture` 的 `hitTargets` 64 次强制重算，共约 29ms，次数多但不贵。
-- 帧自己的重算约 140ms，每次平均 26 个元素。
+400 次移动的样式重算时间约 442ms 降到 214ms，主线程任务约 995ms 降到 754ms。nb-ui 里那份分隔线代码有同样的样式表问题，一并改了。
 
-无头环境量不到 GPU 进程与合成。开发者量到 50%、这里主线程约 13%，差额在哪还不知道。
+验证：nb-layout `splitter.dom.test`、`NestedGrid.dom.test`，nb-ui `splitter.test`，两包类型检查；e2e `lab-grid-structure`、`lab-nested-grid`、`lab-grid-panels`、`lab-workbench-surface`、`editor-area`、`workbench-views` 144 项通过。
+
+没解决的：开发者量到 CPU 50%，这里主线程约 11%，差额可能在 GPU 进程与合成，无头环境量不到。
 
 ## 下一步
 
-先验证 `snap` 的触发来源并修掉；再请开发者录一段 Chrome Performance 看 GPU 与合成。和 t22 改同几个文件（`NestedGrid.vue`、`SashHandle.vue`），排在 t22 切片 1 之后，不并行。
+请开发者在真实 Chrome 里录一段划过界面的 Performance（勾上截图与 GPU），看剩下的开销在哪；合入 master。

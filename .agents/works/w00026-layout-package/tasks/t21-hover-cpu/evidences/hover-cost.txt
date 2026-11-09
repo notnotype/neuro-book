@@ -1,0 +1,25 @@
+t21 不按键划过的开销（2026-11-09，无头 Chrome 60Hz，开发服务未压缩，负载约 1 到 2）。
+命令：DIAG_URL='http://127.0.0.1:<端口>/?project=sample' DIAG_OUT=<文件> node ../t22-drag-frame/scripts/diag-drag-frame.mjs，取 hover 与 hoverTrace；
+DOM 变化：DIAG_URL=... node scripts/diag-hover-mutations.mjs；谁排的 rAF：DIAG_URL=... node scripts/diag-hover-raf.mjs。
+
+原因一：每划过一条分隔线，光标所有权往 head 插一张样式表、离开时移除（400 次移动里 16 次），每次整页重算。
+原因二：Vue 每次更新都重新调用 SashHandle 的函数 ref，每次都排一遍对齐，所有分隔线重量（rAF 请求 16 次全来自 setSeamRef；修后 1 次）。
+
+修前 hoverTrace（400 次移动）：样式重算 238 次，UpdateLayoutTree 约 442ms，RunTask 约 995ms；分隔线 snap 强制 42 次共约 235ms。
+修后 hoverTrace：样式重算 172 次；前几项：
+   88次   168ms 平均60元素  (帧循环，非强制)
+   64次    16ms 平均3元素  hitTargets@useSashGesture.ts:107 < hitsAt@useSashGesture.ts:95 < winningScope@useSashGesture.ts:34 < onPointerMove@useSashGesture.ts:387
+    8次    22ms 平均40元素  getPosition@vue.js:6543 < (anon)@vue.js:6499 < renderComponentRoot@vue.js:3030 < componentUpdateFn@vue.js:3929
+    8次     5ms 平均3元素  getStyleProperties@vue.js:5683 < getTransitionInfo@vue.js:5684 < hasCSSTransform@vue.js:6559 < (anon)@vue.js:6464
+    4次     3ms 平均2元素  measure@OverlayScrollbar.vue:34 < onEnter@OverlayScrollbar.vue:55
+主线程：
+   754ms RunTask
+   214ms UpdateLayoutTree
+   198ms EventDispatch
+    85ms FunctionCall
+    77ms Paint
+
+修后 hover（600 次移动）：frames=600 moves=600 recalc=251 layouts=18 recalcPerFrame=0.42 styleMs=357 scriptMs=92 taskMs=1110
+修前同口径（t22 证据里的 hover）：recalc=351 styleMs=612 taskMs=1304。
+剩下的：根上的光标属性仍随进出分隔线切换（:root[...] * 规则让整页失效），每次约 60 个元素；EventDispatch 约 200ms 是各处 pointermove 处理。
+未验证：开发者量到 CPU 50%，这里主线程约 11%；差额可能在 GPU 进程与合成，无头环境量不到，要开发者录 Chrome Performance。
