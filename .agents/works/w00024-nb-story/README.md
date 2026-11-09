@@ -53,3 +53,4 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点，
 
 - 2026-10-31 处理 GitHub 新 issue 267、268、269：[t44](tasks/t44-fix-issue-269-qa-stale-continuable/README.md)（问答首轮结束后不再显示“第一轮还在运行”）、[t45](tasks/t45-fix-issue-267-stale-web-bundle/README.md)（从源码运行 serve 时网页包比源码旧就提示）、[t46](tasks/t46-fix-issue-268-graph-grows-with-bookmark/README.md)（往后挪阅读位置时关系图连续长出来，Sonnet 实现审查 10 条已处理）。
 - 2026-10-31 [t47](tasks/t47-graph-layout-by-real-size/README.md)：开发者提出“图太小、排版要考虑点的大小与线的粗细”。量出图只占画布 27% 到 30%、名字框互相重叠几百对；排版改按画布宽高比与点、名字的像素去重叠，镜头按外框铺满，占画布升到约 65%、重叠清零。点的大小与线的粗细没变，待开发者定。
+- 2026-11-09 [t48](tasks/t48-extraction-help/README.md)：开发者提出抽取遇到梗或书外知识时要能提问；按推荐定：书外知识先派联网 agent 查、查不到再问用户，按答案会改哪类记录决定停不停，书里的歧义不联网。先做 20 章实验定分级，未开工。
