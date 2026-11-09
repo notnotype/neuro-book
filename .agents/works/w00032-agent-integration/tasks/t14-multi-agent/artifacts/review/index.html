@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>w00032 t14 多 Agent：评审板</title>
+<style>
+body { max-width: 1100px; margin: 24px auto; padding: 0 16px; font: 15px/1.7 system-ui, sans-serif; }
+.row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.row > div { flex: 1 1 320px; min-width: 0; }
+figure { margin: 0 0 8px; }
+figcaption { margin-bottom: 6px; font-weight: 600; }
+img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px; }
+.badge { padding: 1px 6px; border-radius: 4px; background: #e8a33d33; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>t14 多 Agent</h1>
+<p>都是静态稿：真实的对话视图和 nb-ui 组件，卡片本身是草稿，数据是写死的样本。第 1 轮只问父会话里子代理的卡片怎么画。</p>
+<p>每张图的状态是故意凑在一起的：一组五个子代理，分别是运行中（标了“后台”的是 <code>async</code> 派出的）、完成（结果展开）、等你批准、在问父 Agent、出错。下面一行是只派一个时的样子。</p>
+
+<section data-nbdev-question="subagent-card" data-nbdev-type="single" data-nbdev-recommend="c">
+  <h2><span class="badge" data-nbdev-skip>待定</span>子代理卡片用哪种画法</h2>
+  <p>三种都是你定的“一行进度”：名字、正在做什么（完成后换成结果第一句）、工具次数与用时、状态，右边是打开子会话；完成的点开看结果全文。区别在框和组头。</p>
+  <div class="row">
+    <div data-nbdev-option="a" data-nbdev-label="A 每个子代理一张卡">
+      <figure><figcaption>A 每个一张卡</figcaption><img src="r1/group-a.webp" alt="组头一行小字，下面每个子代理一张带框的卡"></figure>
+      <figure><img src="r1/single-a.webp" alt="只派一个时是一张一行的卡"></figure>
+      <p>和命令、提问这些卡片一个样子，只派一个时最干净。派得多时五张卡叠起来，组头是框外的一行小字，不太像一组。</p>
+    </div>
+    <div data-nbdev-option="b" data-nbdev-label="B 树形行，不画框">
+      <figure><figcaption>B 树形行</figcaption><img src="r1/group-b.webp" alt="组头下面用竖线挂着每个子代理一行，没有框"></figure>
+      <figure><img src="r1/single-b.webp" alt="只派一个时是一行"></figure>
+      <p>最轻，像 omp 的进度树。但和“过程”里的步骤行长得太像，等你批准这类要处理的事不够显眼；打开按钮要悬停才出来。</p>
+    </div>
+    <div data-nbdev-option="c" data-nbdev-label="C 整组一张卡（推荐）">
+      <figure><figcaption>C 整组一张卡</figcaption><img src="r1/group-c.webp" alt="一张卡，卡头写个数与状态，卡里每个子代理一行，行间分隔线"></figure>
+      <figure><img src="r1/single-c.webp" alt="只派一个时卡头加一行"></figure>
+      <p>一组就是一个框，卡头写个数和状态，行间分隔线，和你在 t05 选的“模型列表那样的分组”一致。只派一个时卡头加一行显得重复，推荐那时画成 A 的单卡（一行）。</p>
+    </div>
+  </div>
+  <p>搭稿时发现、会影响实现的三件事（不用你定，记下来进计划）：</p>
+  <ul>
+    <li>一组子代理是同一条回复里的几次 <code>agent_spawn</code> 调用，对话视图现在逐个画节点，要加“相邻的同类节点合成一组”的能力。</li>
+    <li>一轮结束自动收起时，子代理卡片跟着收进“过程”（图里第一轮“读大纲”那次就收起了），结果由父 Agent 的回复交代。我打算保持这样。</li>
+    <li>“正在做什么”、工具次数、用时都在子会话里，父会话的日志里没有：宿主要另外订阅正在跑的子会话。</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>注意力排序（会话里定的）</h2>
+  <ul>
+    <li><b>卡片</b>：一行进度；完成后是状态加结果第一句，全文默认收起；同一条回复派几个时合成一组，组头写个数与状态。</li>
+    <li><b>子会话的审批</b>：父会话的审批向导也列出子会话（含孙会话）在等的审批，标明来自哪个子代理；子会话里照常能批。</li>
+    <li><b>会话面板</b>：子会话嵌在父会话下，默认收起，父会话行标子代理数与状态；搜索命中子会话时展开。</li>
+    <li><b>打开子会话</b>：在当前位置切过去，顶部一行路径可以点回父会话。</li>
+  </ul>
+  <p>后面几轮：父会话向导里怎样标来源、子会话顶部的路径、会话面板的嵌套；之后是 Profile 设置页的“可派的子代理”、异步提问、<code>shell</code> 转后台的卡片。</p>
+</section>
+</body>
+</html>

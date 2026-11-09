@@ -1,0 +1,54 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t14-multi-agent",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t14 多 Agent：界面评审",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "d9037165b0daa316abc345fd986cbe9accf0dc1af34a7f9fb7cfa450e0d76393",
+    "files": [
+        "index.html",
+        "r1/group-a.webp",
+        "r1/group-b.webp",
+        "r1/group-c.webp",
+        "r1/single-a.webp",
+        "r1/single-b.webp",
+        "r1/single-c.webp"
+    ],
+    "questions": [
+        {
+            "id": "subagent-card",
+            "type": "single",
+            "label": "子代理卡片用哪种画法",
+            "options": [
+                {
+                    "value": "a",
+                    "label": "A 每个子代理一张卡"
+                },
+                {
+                    "value": "b",
+                    "label": "B 树形行，不画框"
+                },
+                {
+                    "value": "c",
+                    "label": "C 整组一张卡（推荐）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "c"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-09T23:38:40.530Z"
+}
