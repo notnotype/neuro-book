@@ -263,13 +263,14 @@ test.describe("应用内浮动", () => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const panel = await floatOut(page, E);
-        // 不等过渡：`[data-moving]` 还在。
-        const start = await boxOf(page, panel);
+        // 不等过渡：`[data-moving]` 还在（拖出来的窗从卡片长到终点）。按下时过渡直接到终点，之后两次移动之间窗挪的就是指针挪的。
         const from = await press(page, tab(page, E));
+        await page.mouse.move(from.x + 100, from.y + 30);
+        const start = await boxOf(page, panel);
         await page.mouse.move(from.x + 200, from.y + 60);
         const moved = await boxOf(page, panel);
-        expect(moved.x).toBeCloseTo(start.x + 200, 0);
-        expect(moved.y).toBeCloseTo(start.y + 60, 0);
+        expect(moved.x).toBeCloseTo(start.x + 100, 0);
+        expect(moved.y).toBeCloseTo(start.y + 30, 0);
         await page.keyboard.press("Escape");
         await page.mouse.up();
     });

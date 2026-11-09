@@ -212,7 +212,10 @@ function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> 
 }
 
 let snappedTree: typeof treePlacement.value = null;
+/** 上一次布局更新之前有哪些叶：落地时判断内容落进的那块是不是这次才出现的（`lifted` 的监听在这个之后跑）。 */
+let leavesBefore: ReadonlySet<string> = new Set();
 watch(layers, (next, previous) => {
+    leavesBefore = new Set((previous ?? []).flatMap((item) => (item.kind === "leaf" ? [item.key] : [])));
     // 分隔线的矩形变了要重新对齐设备像素。只有浮动窗在动时树没变，不用读 DOM。
     if (treePlacement.value !== snappedTree) {
         snappedTree = treePlacement.value;
@@ -377,9 +380,17 @@ onBeforeUnmount(() => {
     scope.dispose();
 });
 
-// 落地：这个内容项不跟着外框逐帧变化。和这一轮布局的过渡判定谁先谁后都可以（`useGridMotion.land`）。
+/**
+ * 落地：这个内容项不跟着外框逐帧变化。落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框与窗的把手也从卡片的矩形长到终点，和内容一起；
+ * 不然它们直接画在终点（手势收尾的布局变化不过渡），内容再慢慢飞进去。
+ * 放下时提交与撤卡片在同一个同步段，`layers` 的监听先建、先跑，这里拿到的是放下后的布局；它要是还没更新，内容还在原来的叶里，只是不长外框。
+ */
 watch(() => props.lifted?.key ?? null, (now, before) => {
-    if (now === null && before !== null) motion.land(`content:${before}`);
+    if (now !== null || before === null) return;
+    const key = `content:${before}`;
+    const landed = layers.value.find((item) => item.kind === "content" && item.key === key);
+    const leaf = landed?.kind === "content" ? `leaf:${landed.leaf}` : null;
+    motion.land(key, leaf === null || leavesBefore.has(leaf) ? undefined : new Map([[leaf, liftedRect]]));
 });
 
 /** 写拿起元素的矩形（相对网格根）。刚拿起时元素还没带标记，写不到，这次渲染从 `liftedRect` 取。只写变了的键：尺寸没变就不引起布局。 */
@@ -456,7 +467,7 @@ defineExpose({
             </div>
         </template>
         <template v-if="$slots['float-chrome'] !== undefined">
-            <div v-for="float in floats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :style="{...gridRectStyle(float.rect), ...floatLayer(float.id, 2)}">
+            <div v-for="float in floats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving ? '' : undefined" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
                 <slot name="float-chrome" :id="float.id" :rect="float.rect"></slot>
             </div>
         </template>
@@ -551,6 +562,7 @@ defineExpose({
 
 /* 标记写在外框上，不写在根上：实时布局拖动中要一部分动、一部分跟手。 */
 .nb-grid-frame[data-moving],
+.nb-grid-float-chrome[data-moving],
 .nb-grid-content[data-moving],
 .nb-grid-sash[data-moving] {
     transition: transform var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout);

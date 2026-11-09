@@ -212,9 +212,29 @@ test.describe("实时布局", () => {
         await expect(page.locator("[data-lifted]")).toHaveCount(1);
         await expect(surface(page)).toHaveAttribute("data-live-preview", /float/);
         await expect(page.locator("[data-drag-card-hint]")).toHaveText("浮动打开");
+        const card = await page.locator("[data-lifted]").boundingBox();
+        if (card === null) throw new Error("没有卡片");
+        // 松手后逐帧量新窗的外框与把手：它们和内容一起从卡片长到终点，不先画在终点。
+        await page.evaluate(() => {
+            const host = window as unknown as {__floatSamples: Array<{frame: number; chrome: number}>};
+            host.__floatSamples = [];
+            const sample = (): void => {
+                const frame = document.querySelector("[data-workbench-surface] > [data-grid-scope] > [data-leaf][data-float]");
+                const chrome = document.querySelector("[data-float-chrome]");
+                if (frame !== null && chrome !== null) host.__floatSamples.push({frame: frame.getBoundingClientRect().width, chrome: chrome.getBoundingClientRect().width});
+                if (host.__floatSamples.length < 40) requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+        });
         await page.mouse.up();
         await expect(page.locator("[data-lifted]")).toHaveCount(0);
         await expect(page.locator("[data-workbench-surface] > [data-grid-scope] > [data-leaf][data-float]")).toHaveCount(1);
+        await expect.poll(() => page.evaluate(() => (window as unknown as {__floatSamples: unknown[]}).__floatSamples.length)).toBe(40);
+        const samples = await page.evaluate(() => (window as unknown as {__floatSamples: Array<{frame: number; chrome: number}>}).__floatSamples);
+        const [first, last] = [samples[0]!, samples.at(-1)!];
+        expect(Math.abs(first.frame - card.width)).toBeLessThan(40);
+        expect(Math.abs(first.chrome - first.frame)).toBeLessThan(2);
+        expect(last.frame - first.frame).toBeGreaterThan(40);
         expect(await content.evaluate((element, other) => element === other, node)).toBe(true);
         // 布局记录这个文件的用例共用：放回去。
         await page.locator(`[data-panel-head="${await panelOfTab(page, AUXILIARY_VIEW)}"] [data-panel-action="nbook.view.dock"]`).click();
