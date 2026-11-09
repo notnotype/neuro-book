@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t07-prompt-workbench
-status: planned
-updated: 2026-11-06
+status: active
+updated: 2026-11-09
 ---
 
 # 提示词工作台
