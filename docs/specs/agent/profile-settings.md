@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.profile-settings
 owners:
   - packages/neuro-book/src/plugins/agent
@@ -110,6 +110,16 @@ owners:
 - 新建 Profile、给它去掉一个工具、绑模型，新建会话用它发一条：请求里的工具集与模型都变了；再改坏文件，页面标“有错误”，会话继续用上一版；修好恢复；删除后会话只读。
 - 两个窗口同时改不同 Profile、同一 Profile 的不同字段，都不丢。
 - Smoke：开发服务里打开设置窗口的 Profile 分区走一遍上面的流程。
+
+## 实现合同
+
+- **公开入口**：设置窗口的 `profiles` 分区（`nbook.agent` 的 web 入口登记）；远程方法 `toolCatalog`、`createUserProfile`、`deleteUserProfile` 与事件 `profileCatalogChanged`（`nbook/plugins/agent/shared/remote`）；`nbook/plugins/agent/shared/profile-tools`（`profileToolIds`、`visibleToolIds`、`userProfileAddress`）与 `shared/model-needs`（`modelNeedGaps`）。
+- **owner 与依赖方向**：页面与两个设置项（`toolBindings`、`profileSettings`）的写入归 `nbook.agent` 的 web 端，写入经设置服务；Profile 目录与用户级 Profile 文件归服务端的 Profile 打包；模型列表与能力经模型服务插件的 `shared/contracts`，不深导入。
+- **关键不变量**：
+  - 页面与服务端用同一个 `profileToolIds` 合成工具集，同名按先出现者胜出（`profile-tools.test.ts`“工具集”“改绑定”）。
+  - 写入在写时按设置里的当前值重算，冲突重试一次，仍冲突就回到实际值；别的 Profile 与同一 Profile 的别的字段不被覆盖（`profile-page.dom.test.ts`“别处抢先写了”）。
+  - 目录先订阅后取，晚到的旧结果不盖新的（`profile-page.dom.test.ts`“目录”）。
+  - 新建经同目录的唯一临时文件再链接成入口：同名只有一个成功，不覆盖、不留临时文件（`profiles.test.ts`“输出 18”）。
 
 ## 证据
 

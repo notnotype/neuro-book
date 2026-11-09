@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t05-profile
 status: done
-updated: 2026-11-07
+updated: 2026-11-09
 ---
 
 # Profile：定义、存放层次、钩子与设置
@@ -97,4 +97,4 @@ t20 定稿后的改写（2026-10-29，开发者认可 [Agent harness 的事件�
 
 ## 下一步
 
-`agent/profile-settings.md` 晋升待开发者批准。之后是 t14。
+`agent/profile-settings.md` 已晋升 `implemented`（开发者 2026-11-09 批准）。之后是 t14。

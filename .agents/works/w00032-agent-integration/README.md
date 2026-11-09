@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00032-agent-integration
 issueId: null
 status: active
-updated: 2026-11-07
+updated: 2026-11-09
 ---
 
 # NeuroBook 接入 Agent
@@ -59,6 +59,8 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-06 | t06 重定：Agent 模式与审批是两个维度，`discuss`、`plan` 写入直接拒绝；黑白名单做成规则系统，第一条命中生效，作品目录的规则只能收紧；工作记在 t06，排在 t28 前五批之后（[t06 计划](tasks/t06-approval/plan.md)） |
 | 2026-11-07 | t06 完成并合入：规则三层与判定流水线、`bash` 方言与只读清单、本会话批准与“以后都允许”、规则设置页、Agent 模式（`normal`、`discuss`、`plan`）与 `switch_mode`、`auto`（审批模型强制调用判定工具，只看用户亲手打的字与工具调用）；前后端实现审查各一次；`agent/permissions.md`、`agent/modes.md`、`ui/agent-conversation-view.md` 晋升 `implemented`（[t06](tasks/t06-approval/README.md)） |
 | 2026-11-07 | 核对早期设计 Task：t02、t03、t04、t07 的实现已由后续 Task 完成，关闭，剩余项写明去向；t20 状态改为完成。开发者定后续顺序：t05（Profile 设置页，后端早已做完、没有界面）→ t14 → t15 → t29，t30 放最后；nb-story 迁新内核另建 [t31](tasks/t31-nb-story-new-kernel/README.md)，放最后 |
+| 2026-11-09 | t05 完成并合入：Profile 设置页（列表、模型与审批、按提供者分组的工具绑定、用户级 Profile 的新建打开删除、能力缺口提示）；前后端实现审查各一次；`agent/profile-settings.md` 晋升 `implemented`（[t05](tasks/t05-profile/README.md)） |
+| 2026-11-09 | t14 只做多 Agent，Workflow 在 t24；先出界面静态稿评审，定了再前后端一起实施、一次合入；shell 的 `async` 也在 t14 做（[t14](tasks/t14-multi-agent/README.md)） |
 
 ## 待确认
 
@@ -94,7 +96,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t11](tasks/t11-compaction/README.md) | 上下文压缩 | t03、t09 |
 | [t12](tasks/t12-builtin-tools/README.md) | 基础工具与外部命令行依赖 | t04、t06、t08、t26 |
 | [t26](tasks/t26-write-interface/README.md) | 写入接口：读、暂存与提交、文件操作、操作分组与记账槽（文件访问第 1 阶段，从 t12 拆出） | t08 |
-| [t14](tasks/t14-multi-agent/README.md) | 多 Agent 与 Workflow | t05、t06、t07 |
+| [t14](tasks/t14-multi-agent/README.md) | 多 Agent（Workflow 在 t24） | t05、t06、t07 |
 | [t15](tasks/t15-skills/README.md) | Skill 规范与目录 | t05、t08、t10 |
 | [t25](tasks/t25-plugin-marketplace/README.md) | 插件市场：索引、来源、版本与更新、信任；Skill 经插件分发 | t10、t15 |
 | [t16](tasks/t16-command-bridge/README.md) | Agent 操控 NeuroBook 与 `nbook project` 子命令 | t06、t10 |

@@ -2,14 +2,14 @@
 schema: nbook.task/v2
 taskId: t14-multi-agent
 status: planned
-updated: 2026-10-30
+updated: 2026-11-09
 ---
 
-# 多 Agent 与 Workflow
+# 多 Agent
 
 ## 目标与范围
 
-定子 Agent：派生与授权、前台与后台、结果回流、父子关系与审批冒泡，以及 Workflow 与 Agent 的关系。
+定子 Agent：派生与授权、前台与后台、结果回流、父子关系与审批冒泡。Workflow 与 Agent 的关系在 [t24](../t24-workflow-integration/README.md)（开发者 2026-11-09 重申：本 Task 只做多 Agent，Workflow 另开）。
 
 来源：需求 8；清单外第 7 项（[报告](../t01-survey/artifacts/report/index.html)）。
 
@@ -21,7 +21,7 @@ updated: 2026-10-30
 - 前台阻塞与后台运行，结果怎样回流；用收尾工具交回结果。
 - 父子关系与列表、分离；子代理用的模型。
 - 子代理遇到审批：直接失败还是冒泡到父会话的界面。
-- Workflow（nb-workflow）与 Agent 的关系。
+- Workflow（nb-workflow）与 Agent 的关系：移到 t24。
 
 ## 材料
 
@@ -116,6 +116,11 @@ t05、t06、t07。
 32. `wait` 超时时返回仍在跑的任务的状态（`running`），不改变任务；`kill` 返回“已杀死”“已经结束”或 `job-unknown`；任务记录还在时，结果可以重复取。
 33. 仍留到实施的：t20 的 `v5` 类型原型（交互事件、`RunStatus`、`SessionMirror`、`ToolInfo.concurrency`）与各工具完整的失败码表，在 t20 实施计划里一并定（t20 实施排在最前）。（2026-10-30：类型原型在 [t20 计划](../t20-hooks/plan.md) 3.1 定；子代理工具的失败码表属于 Agent 插件，移交 t14 自己的实施计划；`SessionMirror` 并入 t20 之后的迁移 Task。）
 
+第七轮（开发者 2026-11-09，实施前）：
+
+34. 先出界面静态稿评审（子会话入口、会话列表里的父子关系、父会话里显示子会话的审批与提问、白名单设置等），定了再前后端一起实施，一个分支、一次合入。
+35. `shell` 的 `async` 在本 Task 做，不留给 t22：输出落盘、寿命（会话删除、插件停用、重启时记为“已中断”）与 `kill` 随任务中心一起做。结束时怎样通知（空闲时要不要唤起 Agent）、跑久了自动转后台、活动面板仍在 [t22](../t22-background-work/README.md)；在那之前结果经 `wait`、`jobs` 取得（第 19 条）。
+
 调研：[各家 code agent 的子代理设计](../../research/2026-10-30-subagent-survey.md)（Claude Code、Codex CLI、omp、DeepSeek Harness、OpenCode、Gemini CLI、Kimi CLI、Roo Code、Cline、Amp）。
 
 ## 确定的工具
@@ -170,8 +175,8 @@ t05、t06、t07。
 
 ## 当前状态
 
-讨论完成（开发者 2026-10-30 确认定稿）：六轮决定与确定的工具见上；两轮 omp 设计审查已处理（报告在 `evidences/`）。计划与实施切片在本 Work 的讨论全部完成后另定。
+讨论完成（开发者 2026-10-30 确认定稿）：六轮决定与确定的工具见上；两轮 omp 设计审查已处理（报告在 `evidences/`）。2026-11-09 开工：先做界面设计评审（第 34 条）。
 
 ## 下一步
 
-实施时按 implementation-planning 写计划，改 Spec（会话、工具、资源、Profile）；t20 内核的三处修正与 `v5` 类型同步放进 t20 的实施计划。
+核对现状，出界面静态稿与评审板；版式定了按 implementation-planning 写计划，改 Spec（会话、工具、资源、Profile、对话界面）。t20 内核的三处修正已在 t20 实现（交互通道、`shared` 并发、`yield`）。
