@@ -235,6 +235,13 @@ test.describe("实时布局", () => {
             const card = page.locator("[data-lifted]");
             await expect(card).toHaveCount(1);
             expect(await card.evaluate((element, other) => element === other, node)).toBe(true);
+            // 还在来源面板里：卡片是面板原大小，不是缩成的 380×260。卡片按布局里的面板矩形摆，和叶元素的盒差几个像素（卡片外沿），所以差 6px 以内算同样大。
+            const home = await leaf(page, from).boundingBox();
+            if (home === null || (home.width <= 390 && home.height <= 270)) throw new Error(`来源面板 ${String(home?.width)}×${String(home?.height)} 不比小卡大，分不出原大小与缩小后的卡片`);
+            await expect.poll(async () => {
+                const box = await card.boundingBox();
+                return box === null ? Infinity : Math.max(Math.abs(box.width - home.width), Math.abs(box.height - home.height));
+            }).toBeLessThanOrEqual(6);
             await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
             await expect(page.locator("[data-drag-card-head]")).toHaveCount(1);
             const look = await card.evaluate((element) => {
@@ -459,6 +466,26 @@ test.describe("实时布局", () => {
         await page.mouse.up();
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
         await expect.poll(() => entries.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry))).toEqual([AUXILIARY_VIEW, ...before]);
+    });
+
+    test("侧栏隐藏时放到活动栏：预览里侧栏不展开，条目照样让位；放下才展开并装着它（输出 22、38）", async ({page}) => {
+        await open(page);
+        await page.locator(`[data-panel-head="sidebar"] [data-panel-action="nbook.view.set-part-hidden"]`).click();
+        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        await settled(page);
+        const writes = await writesOf(page);
+        const first = await page.locator("[data-tool-band] [data-tool-entry]").first().boundingBox();
+        if (first === null) throw new Error("活动栏没有条目");
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        await page.mouse.move(first.x + first.width / 2, first.y + 2, {steps: 6});
+        await expect(page.locator(`[data-tool-band] [data-tool-entry="${AUXILIARY_VIEW}"]`)).toHaveCount(1);
+        await settled(page);
+        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        expect(await writesOf(page)).toBe(writes);
+        await page.mouse.up();
+        await expect(leaf(page, "sidebar")).toBeVisible();
+        expect(await panelOfTab(page, AUXILIARY_VIEW)).toBe("sidebar");
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
     test("活动栏里换序：别的图标滑开（真的播了过渡），只有拖影跟手", async ({page}) => {

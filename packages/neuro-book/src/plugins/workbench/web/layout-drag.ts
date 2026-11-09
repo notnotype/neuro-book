@@ -194,7 +194,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 const result = removeTab(doc, source.tab);
                 return result.ok ? result.doc : null;
             }
-            const result = applyLayoutDrop(doc, source, action, options.policy());
+            // 隐藏的侧栏在预览里不展开，放下才展开：几何是拿起时量的，那时没有它，展开后指针进去会按旧矩形判到别处，预览又把它收回。
+            const previewed: LayoutDropAction = action.kind === "reveal" ? {kind: "strip", panel: action.panel, index: action.index ?? doc.panels[action.panel]?.tabs.length ?? 0} : action;
+            const result = applyLayoutDrop(doc, source, previewed, options.policy());
             return result.ok ? result.doc : null;
         },
         sourceRemovedDoc: (source) => {

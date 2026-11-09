@@ -37,8 +37,8 @@ type Props = {
     contextKey: string;
     /** 最大化的面板；默认 null。只在内存。 */
     maximized?: string | null;
-    /** 拿起的内容项（实时布局），矩形相对网格根，`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不卸载。 */
-    lifted?: {key: string; rect: GridRect; home: string | null} | null;
+    /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不卸载。矩形不走属性，由 `placeLifted` 写。 */
+    lifted?: {key: string; home: string | null} | null;
     /** 实时布局预览里的空位：这块什么都不画，露出窗体底。 */
     slotPanel?: string | null;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
@@ -81,6 +81,12 @@ type Slots = {
 };
 
 type Expose = {
+    /** 进行中的过渡直接到终点（拖动拿起后要量矩形）。 */
+    settleMotion(): void;
+    /** 写拿起的内容项的矩形（相对网格根）：跟手，不走渲染。 */
+    placeLifted(rect: GridRect): void;
+    /** 拖动中挪窗；`null` 回到原处。跟手，不走渲染。 */
+    placeFloat(panel: string, offset: {x: number; y: number} | null): void;
     /** 在面板之间移动焦点；没动时返回 false。 */
     moveFocus(direction: "next" | "previous"): boolean;
 };

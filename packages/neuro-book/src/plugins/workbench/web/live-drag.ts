@@ -35,7 +35,7 @@ export interface LiveDragHost {
     placeCard(rect: GridRect): void;
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）：离开标签条，或离开来源面板。 */
     cardShrink(): "strip" | "panel";
-    /** 按这个落点摆的文档；null 是摆不出来（放回原处、不预览的落点），就用已提交的。 */
+    /** 按这个落点摆的文档；null 是摆不出来（放回原处、编辑器会合并或拒绝），就用已提交的。 */
     candidateDoc(source: LayoutTabSource, drop: LayoutDragDrop): LayoutDoc | null;
     /** 摘掉来源后的文档。 */
     sourceRemovedDoc(source: LayoutTabSource): LayoutDoc | null;
