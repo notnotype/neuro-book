@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t14-multi-agent",
+    "artifactId": "review",
+    "answerId": "20261109T234207894Z-4970d24c",
+    "artifactVersion": 1,
+    "contentHash": "d9037165b0daa316abc345fd986cbe9accf0dc1af34a7f9fb7cfa450e0d76393",
+    "submittedAt": "2026-11-09T23:42:07.231Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "subagent-card": "c"
+    },
+    "comments": {
+        "subagent-card": "其实不用看起来像一组。还有我看你一个子代理卡片显示了文字。注意不要因为文字的多少而导致这个子代理卡片高度经常跳动。不仅仅是观感不好，性能也不好。"
+    },
+    "note": null
+}
