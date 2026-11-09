@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t14-multi-agent",
+    "artifactId": "review",
+    "answerId": "20261109T235035557Z-b3c16cb0",
+    "artifactVersion": 2,
+    "contentHash": "ea8a9c635a7eb47766f710add843b99fadef7e19ce06376173627087a4796803",
+    "submittedAt": "2026-11-09T23:50:34.949Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "approval-source": "a",
+        "child-header": "a"
+    },
+    "comments": {},
+    "note": null
+}
