@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t15-skills
-status: planned
-updated: 2026-10-30
+status: active
+updated: 2026-11-10
 ---
 
 # Skill 规范与目录
