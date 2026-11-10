@@ -16,9 +16,6 @@ import type {TestSession} from "../../kernel/testing/index.js";
 import {costGuard, type CostLimits} from "./cost-guard.js";
 import {loopGuard} from "./loop-guard.js";
 
-/** 测试用的扩展 id：事件名是 `<id>/<名字>`。 */
-const COST = "nbook.agent.cost-guard";
-const LOOP = "nbook.agent.loop-guard";
 
 let commands = 0;
 const id = () => `g-${(commands += 1)}`;
@@ -37,10 +34,10 @@ afterAll(async () => {
 });
 
 describe("费用", () => {
-    const COST = "nbook.agent.cost-guard";
+    const COST = "kit.cost-guard";
     async function withLimits(initial: Partial<CostLimits>) {
         const limits = {warnCost: 0, maxCost: 0, ...initial};
-        const session = await createTestSession({extensions: [{extension: costGuard({id: COST, limits: () => limits}), plugin: "nbook.agent"}]});
+        const session = await createTestSession({extensions: [{extension: costGuard({id: COST, limits: () => limits}), plugin: "kit"}]});
         return {session, limits};
     }
 
@@ -79,7 +76,7 @@ describe("费用", () => {
     });
 
     test("输出 4：预览不被拦：它里面的拦截层照样走到", async () => {
-        const session = await createTestSession({extensions: [{extension: costGuard({id: COST, limits: () => ({warnCost: 0, maxCost: 1})}), plugin: "nbook.agent"}, INNER_LAYER]});
+        const session = await createTestSession({extensions: [{extension: costGuard({id: COST, limits: () => ({warnCost: 0, maxCost: 1})}), plugin: "kit"}, INNER_LAYER]});
         await using _ = session;
         session.model.script({text: "一", usage: {cost: 1}});
         await session.say("一");
@@ -110,7 +107,7 @@ describe("费用", () => {
         const sessionId = before.id;
         await before.close();
 
-        await using after = await createTestSession({store: {root: dir}, open: sessionId, extensions: [{extension: costGuard({id: COST, limits: () => ({warnCost: 0, maxCost: 5})}), plugin: "nbook.agent"}]});
+        await using after = await createTestSession({store: {root: dir}, open: sessionId, extensions: [{extension: costGuard({id: COST, limits: () => ({warnCost: 0, maxCost: 5})}), plugin: "kit"}]});
         const sent = await after.raw.send({commandId: id(), input: {text: "二"}});
         if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
         const result = await after.raw.waitRun(sent.value.runId);
@@ -119,7 +116,7 @@ describe("费用", () => {
     });
 
     test("验收 1：一次失败之后，上限恰好被它的费用用完，不再重发", async () => {
-        const session = await createTestSession({retry: () => ({maxRetries: 10}), extensions: [{extension: costGuard({id: COST, limits: () => ({warnCost: 0, maxCost: 1})}), plugin: "nbook.agent"}]});
+        const session = await createTestSession({retry: () => ({maxRetries: 10}), extensions: [{extension: costGuard({id: COST, limits: () => ({warnCost: 0, maxCost: 1})}), plugin: "kit"}]});
         await using _ = session;
         session.model.script({fail: "network", retryable: true, usage: {cost: 1}}, "不该发到这里");
         const sent = await session.raw.send({commandId: id(), input: {text: "问"}});
@@ -135,11 +132,11 @@ describe("费用", () => {
 });
 
 describe("重复调用", () => {
-    const LOOP = "nbook.agent.loop-guard";
+    const LOOP = "kit.loop-guard";
     const read = (args: object = {path: "a"}) => ({tools: [{tool: "lab.read", args: args as Record<string, unknown>}]});
     const repeat = (times: number, args?: object) => Array.from({length: times}, () => read(args));
     function loopSession(threshold = 3, execute: (args: Readonly<Record<string, unknown>>) => string = () => "同样的结果") {
-        return createTestSession({tools: [{id: "lab.read", execute}], extensions: [{extension: loopGuard({id: LOOP, threshold: () => threshold}), plugin: "nbook.agent"}]});
+        return createTestSession({tools: [{id: "lab.read", execute}], extensions: [{extension: loopGuard({id: LOOP, threshold: () => threshold}), plugin: "kit"}]});
     }
     const texts = (events: readonly LogEvent[], type: string) => events.filter((event) => event.type === type);
 
@@ -216,7 +213,7 @@ describe("重复调用", () => {
 
     test("输出 10：运行中的 steer 也算新话：计数清零，不停", async () => {
         let calls = 0;
-        await using session = await createTestSession({extensions: [{extension: loopGuard({id: LOOP, threshold: () => 3}), plugin: "nbook.agent"}], tools: [{id: "lab.read", execute: async () => {
+        await using session = await createTestSession({extensions: [{extension: loopGuard({id: LOOP, threshold: () => 3}), plugin: "kit"}], tools: [{id: "lab.read", execute: async () => {
             calls += 1;
             if (calls === 5) await session.raw.enqueue({commandId: id(), input: {text: "换个文件读"}, mode: "steer"});
             return "同样的结果";
@@ -241,7 +238,7 @@ describe("重复调用", () => {
     });
 
     test("输出 12：预览不被拦：它里面的拦截层照样走到；阈值 0 不检测", async () => {
-        await using session = await createTestSession({tools: [{id: "lab.read", execute: () => "同样的结果"}], extensions: [{extension: loopGuard({id: LOOP, threshold: () => 3}), plugin: "nbook.agent"}, INNER_LAYER]});
+        await using session = await createTestSession({tools: [{id: "lab.read", execute: () => "同样的结果"}], extensions: [{extension: loopGuard({id: LOOP, threshold: () => 3}), plugin: "kit"}, INNER_LAYER]});
         session.model.script(...repeat(6));
         expect((await session.say("开始")).result.error).toMatchObject({code: "tool-call-loop"});
         expect((await session.raw.preview({})).request.params).toEqual({maxTokens: 7});
