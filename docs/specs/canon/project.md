@@ -53,10 +53,10 @@ owners:
 | 方法 | 种类 | 主要参数 | 结果 |
 |---|---|---|---|
 | `status` | 读 | — | 版本、可写或只读（带原因）、独占写入的持有者、诊断（含最近一次打开与发布的重算量与耗时） |
-| `entry` | 读 | 条目 id、读取位置、模式、是否要来历 | 条目在这个位置的样子（[`canon.model`](model.md) 输出 5、14、15） |
-| `tree` | 读 | 父条目、游标 | 条目树的一层（每项带它的分组） |
+| `entry` | 读 | 条目 id、读取位置、模式、是否要来历；另可要每个字段最近一次改动（planned） | 条目在这个位置的样子（[`canon.model`](model.md) 输出 5、14、15）；另带上级、本体与分组（输出 33），要了的话每个字段状态带最近一次改动（输出 32）（planned） |
+| `tree` | 读 | 父条目、游标 | 条目树的一层（每项带它的分组）；另可给读取位置与模式，每项与页多带的见输出 30（planned） |
 | `lookup` | 读 | 名字或别名的列表、读取位置 | 每个词：匹配到的条目（按这个位置上有效的名字），或没找到 |
-| `changes` | 读 | 筛选（章、涉及的条目、剧情线 `line`、已写或计划、生效状态、计划进展、性质、安放在哪条世界线 `placedOn`、只列某条线视图里的 `inView`、安放的范围 `{after?, through?}`：变更 id，按安放的全序，`after` 不含、`through` 含）、按哪条世界线算 `worldline`（缺省当前线）、游标、条数 | 剧情变更，每条带生效状态、安放的线 `placedOn` 与这次套没套上；套没套上与计划进展按 `worldline` 那条线算，不在它视图里的为 null（[`canon.worldlines`](worldlines.md)）。带视图令牌时 `worldline` 是令牌的线、只列它视图里的 |
+| `changes` | 读 | 筛选（章、涉及的条目、剧情线 `line`、已写或计划、生效状态、计划进展、性质、安放在哪条世界线 `placedOn`、只列某条线视图里的 `inView`、安放的范围 `{after?, through?}`：变更 id，按安放的全序，`after` 不含、`through` 含）、按哪条世界线算 `worldline`（缺省当前线）、游标、条数 | 剧情变更，每条带生效状态、安放的线 `placedOn` 与这次套没套上；套没套上与计划进展按 `worldline` 那条线算，不在它视图里的为 null（[`canon.worldlines`](worldlines.md)）。带视图令牌时 `worldline` 是令牌的线、只列它视图里的；筛选另有 `before`，另可从新到旧，页带总数（输出 31）（planned） |
 | `object` | 读 | 对象的种类与 id | 存下来的那个对象（条目、剧情变更、核对点、决策、正文建议），没有时为空；改它的写入请求从这里取原样 |
 | `pending` | 读 | 读取位置（缺省见 [`canon.model`](model.md) 输出 21）、模式（缺省实际模式）、哪一组（待处理、提示或已处理）、游标、条数 | 这一组的一页，按同一 Spec 输出 16 排序；每页都带“完整与否”、没算出与被截断的诊断、因插件停用而未计算的诊断（输出 34）、各组的总数，以及待定的决策与未处理的正文建议各有几条 |
 | `decisions`、`suggestions` | 读 | 状态筛选、游标；`decisions` 还能按挂的对象筛 | 决策、正文建议 |
@@ -67,21 +67,27 @@ owners:
 | `openView` | 读 | 看的人（条目 id，可以没有）、线、位置上限（读取位置）、用途（`writer`、`character`、其它文字） | 视图令牌（输出 24） |
 | `closeView` | 读 | 视图令牌 | — |
 | `viewAudit` | 读 | 游标 | 视图里被拒的读取（输出 24） |
-
-读取位置都可以带线（[`canon.worldlines`](worldlines.md) 输出 12）；读方法都可以带视图令牌（输出 24）。
 | `revisions` | 读 | 筛选（章、条目、写入者）、游标 | 改动记录（[`canon.revisions`](revisions.md) 输出 14） |
+| `revision`（planned） | 读 | 修订 id | 这一次修订的全部（输出 29），没有时为空 |
+| `chapters`（planned） | 读 | — | 章表（输出 28） |
+| `origins`（planned） | 读 | 地址（条目 id 加路径）、读取位置、模式、游标、条数 | 这个地址的来历的一页，从最近一步往前（[`canon.model`](model.md) 输出 37） |
+| `components`（planned） | 读 | — | 登记的 Component 类型与字段声明（[`canon.components`](components.md) 输出 21） |
 | `render` | 读 | 条目、读取位置、模式、给作者或 Agent | [`canon.rendering`](rendering.md) 输出 7、8；结果带版本、位置与模式，回写时照带 |
 | `preview` | 读 | 写入请求，或还原请求（修订 id、是否连同依赖） | [`canon.revisions`](revisions.md) 输出 5；还原请求的预览另给补偿与需要的作者授权（同一 Spec 输出 21） |
+| `previewEdit`（planned） | 读 | 与 `editInPlace`、`recordDelta` 或 `recordNote` 相同，不带独占令牌 | [`canon.revisions`](revisions.md) 输出 22 |
 | `outcome` | 读 | 请求 id | 这次写入有没有发布、发布成了哪次修订（[`canon.revisions`](revisions.md) 输出 16） |
 | `publish` | 写 | 写入请求，可选独占令牌 | 修订 id、版本、新对象的 id 对照，或失败 |
 | `editInPlace`、`recordDelta`、`writeBack` | 写 | 见 [`canon.revisions`](revisions.md) 输出 8、9 与 [`canon.rendering`](rendering.md) 输出 12；可选独占令牌 | 同 `publish` |
+| `recordNote`（planned） | 写 | 读取位置、语义档字段的地址、一句发生了什么、读到的值；可选独占令牌 | 同 `publish`（[`canon.revisions`](revisions.md) 输出 23） |
 | `revert` | 写 | 修订 id、是否连同依赖、请求 id、作者授权（[`canon.revisions`](revisions.md) 输出 21，补偿里有需要来源的决策修改时必带）；可选独占令牌 | 同 `publish` |
 | `acquireExclusive` | 写 | 一句说明（“第 5 章记账”） | 令牌与到期时间，或 `busy` |
 | `renewExclusive` | 写 | 令牌 | 新的到期时间，或 `exclusive-lost` |
 | `releaseExclusive` | 写 | 令牌 | — |
 | `breakExclusive` | 写 | — | 作者强行解除当前的独占写入 |
 
-**事件**：`changed`（每次世界版本前进后：`{version, revision, by, what, title}`；一次读进别的进程写的几行时，每行一个）、`exclusive`（独占写入开始或结束：持有者的说明）、`reduced`（补上了归纳，版本不变）、`textChanged`（宿主通知某一章的正文变了，版本不变：`{chapter}`，输出 25）。
+读取位置都可以带线（[`canon.worldlines`](worldlines.md) 输出 12）；读方法都可以带视图令牌（输出 24）。
+
+**事件**：`changed`（每次世界版本前进后：`{version, revision, by, what, title}`；一次读进别的进程写的几行时，每行一个）、`exclusive`（独占写入开始或结束：持有者的说明）、`reduced`（补上了归纳，版本不变）、`textChanged`（宿主通知某一章的正文变了，版本不变：`{chapter}`，输出 25）、`inputChanged`（章表或登记的类型变了而版本没动，输出 34）（planned）。
 
 ## 输出与可观察行为
 
@@ -119,6 +125,14 @@ owners:
 25. **正文变了。** 宿主通知某一章的正文变了以后，这一章的讲述的发生点与失联在下一次读取时按新正文算，世界版本不变，发 `textChanged`。因此同一版本上，讲述的发生点、失联、读过的讲述，以及依赖它们的诊断与提示，会随正文变化（[`canon.model`](model.md) 输出 24、26）；别的读取结果不受正文影响。
 26. **线与诊断的耗时。** `status` 另给出当前打开的视图数（看令牌有没有随调用方收口）；`status` 的诊断另给出：最近一次发布更新了哪些线、各带全部适用的原因（`records` 视图里的记录变了、`carry` 带过去的值变了、`entries` 条目的初值变了、`structural` 分叉的定义、章序或登记变了而从头建、`built` 为这次发布当场建的），各线是否已建与常驻（[`canon.worldlines`](worldlines.md) 输出 8、9、17）；最近几次插件诊断的计算耗时，一次超过 200 毫秒的标出来（[`canon.model`](model.md) 输出 34）。这些不进读取结果。
 27. **诊断的计算。** 插件诊断的计算在世界服务所在的项目实例里同步调用，读的是同一版本的世界；它们的发现与本能力自己的待处理一起受输出 18 的大小上限与游标约束。
+28. **章表。** `chapters` 返回按章序的每一章：章 id、序号（从 1 起）、标题（宿主给的：章节文件名里的标题，没有时为空）、这一章各段讲的线，带读取戳（输出 19）。章序是宿主此刻给的那一份（输出 9）：宿主给了新章序而章序调整的修订还没发布时，返回新的。带视图令牌时只返回位置上限及以前的章（输出 24）。（planned）
+29. **读一次修订。** `revision` 按 id 返回存下来的修订（[`canon.revisions`](revisions.md)“存下来的修订”：谁、种类、标题、时间、章、操作、带来的变化、还原的是哪一次），另带能不能还原与原因（同一 Spec 输出 14）；不存在时为空。带视图令牌时拒绝（`view-denied`），同改动记录。（planned）
+30. **条目树带位置。** `tree` 可以给读取位置（缺省见 [`canon.model`](model.md) 输出 21）与模式：每项另带这个位置上的名字 `nameAt`、是否已出场 `appeared`、它是谁的马甲 `sameAs`（不是马甲时为空）；现有的 `name`（初值里的名字）、`deleted` 不变。已删除的条目只在它还有没删除的子孙时列出（同一 Spec 输出 23 的墓碑），`hasChildren` 与页另带的 `remaining`（这一层在这一页之后还有几项）都只数会列出的。位置与模式属于游标的读取参数（输出 19）。位置的线读不到得 `line-not-found`，章不存在得 `chapter-not-found`。（planned）
+31. **剧情变更的筛选与顺序。** `changes` 的筛选另有 `before`（读取位置与模式）：只列在这个位置上已经算进去的变更，“之前”按 [`canon.model`](model.md) 输出 5，按计划模式时含计入的计划；按这个位置的线算（不写线时是那一章讲的线），只列那条线视图里的；与 `range` 同用时取交集。`order` 为 `desc` 时从新到旧，缺省从旧到新。页另带 `total`：符合筛选的总条数。`before` 与 `order` 属于游标的读取参数（输出 19）。（planned）
+32. **字段状态带最近一次改动。** `entry` 的调用方要了的时候，每个字段状态另带 `changedAt`：所选位置之前，最近一次定下这个地址（含它的元素与子字段）的值的那一步，`{by: "change" | "check", id, at}`。算的是来历里（[`canon.model`](model.md) 输出 15）最后一步不是初值、不是归纳的那一步：剧情变更的补丁（这个补丁本身套上了才算）给那条变更与它的安放，核对点给的起点给那个核对点与它的安放，子线上带过去而本线没再改过的给原线上的那一条，不给分叉；值只由初值给出时没有。按计划模式时计入的计划也算。带这一项的读取同样在输出 14 的预算之内。带视图令牌时不给。（planned）
+33. **条目读取带上级、本体与分组。** `entry` 另带 `ancestors`（从最上面一级到直接上级，每级是条目的 id 与它在这个位置上的名字；没有上级时为空）、`sameAs`（它是谁的马甲：本体的 id 与名字，不是马甲时为空）与 `folder`（分组）。带视图令牌时这三项都不给：上级与本体会说出马甲是谁。（planned）
+34. **版本不动的变化。** 章表（章序调整还没发布、只改了某一章各段讲的线、章的标题变了）或登记的 Component 类型变了，而世界版本没有前进时，发 `inputChanged`：`{what: "chapters" | "components"}`。调用方收到后重读章表或登记的类型，以及依赖它们的读取。（planned）
+35. **新方法与视图令牌。** 带视图令牌时：`components` 照常（登记不涉及位置）；`origins`、`revision` 拒绝（`view-denied`）；`chapters` 按输出 28；`previewEdit`、`recordNote` 同别的预览与写入，拒绝。（planned）
 
 ## 状态与转换
 
@@ -183,6 +197,7 @@ owners:
 7. **断线重试。** 发布时远程连接断了：调用方按请求 id 调 `outcome`，得到已发布的修订；重发同一个请求得到同一次修订，日志里只有一行。
 8. **视图。** 写第 10 章的写手拿到星瑾、主线、上限为第 10 章开头的视图：读第 9 章末尾的星瑕照常；读第 11 章、读 r1 上的第 10 章、发布一次写入，都得到 `view-denied`，`viewAudit` 里有这三条；写手的会话断开后，令牌失效。
 9. **正文与格式。** 作者在编辑器里删掉第 5 章的一句：宿主通知以后，`tellings` 里那处讲述标失联，世界版本不变，收到 `textChanged`。拿一份格式 1 的日志打开：只读，诊断指出第一行的格式。
+10. （planned）**界面要的几项读取。** 星瑕样本：`chapters` 给出各章的序号与标题；`tree` 在第 1 章开头读“星瑕”下面这一层，马甲“哥哥”的 `sameAs` 是星瑕；读根这一层，之后才出场的条目 `appeared` 为假，一页 2 项时 `remaining` 是其余会列出的条数；删掉一个没有子条目的条目后它不再列出，`remaining` 少一。`entry` 读星瑕、要最近一次改动：第 1 章末尾存款的 `changedAt` 是空的（只在初值设过），第 2 章末尾是“工资到账”那条变更与它的安放；读“哥哥”，`ancestors` 只有星瑕一级，`sameAs` 是星瑕；带视图令牌读，没有 `ancestors`、`sameAs` 与 `changedAt`。`changes` 筛“涉及星瑕、第 1 章末尾之前、从新到旧”，第一项是第 1 章最后一条、`total` 等于前史加第 1 章涉及她的条数。`revision` 读第 2 章记账那次修订：新建的对象有改后，改过的计划有改前与改后。宿主只改第 2 章各段讲的线：版本不变，收到 `inputChanged`，重读 `chapters` 得到新的线。
 
 Smoke：场景 1 跑 nb-canon 包目录的 `bun test tests/sample.test.ts`；场景 2、3 是同目录的 `tests/node-log.test.ts`（写一半由注入失败的文件操作造出，不杀进程）；场景 4 是应用包的 `src/plugins/canon/two-process.test.ts`；场景 6 在应用包目录跑 `bun scripts/perf/canon-scale.ts`。
 

@@ -60,8 +60,9 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 
 计划改成第四版；Spec 草稿相应改过，仍未提交，`bun run docs:check` 通过。同一对象已审两轮，这一轮没有推翻方向的发现，不开第三轮。
 
+开发者 2026-11-10 在 t16 评审板第 10 版批准了第一批的 Spec（`b1-spec-approve`），并定面包屑第一批就做（`r6-breadcrumb`）。Spec 已提交为 planned，连同补上的面包屑：`workbench/editor.md` 输出 33 的 `breadcrumbs(arg)`、`canon/project.md` 输出 33 的上级链 `ancestors`、`canon/author-ui.md` 输出 6、20、21 的面包屑。计划相应改了“一、编辑器”与 K4、E 两片。
+
 ## 下一步
 
-1. 请开发者批准 Spec（批准后提交为 `planned`），再建 worktree 从 K 三片与 E 开工。
-2. 面包屑等 t16 评审板第 6 轮的答复；要做的话在 `editor.md` 与 `canon/project.md` 另加条目。
-3. “底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。
+1. 建 worktree `.worktree/w00039-novel-writing-plugins`（分支 `feat/w00039-t31-author-ui`），从 K 三片与 E 开工；内核三片做完派 Opus 做实现审查。
+2. “底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。
