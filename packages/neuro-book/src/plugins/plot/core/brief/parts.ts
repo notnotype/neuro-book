@@ -259,7 +259,7 @@ export function foreshadowItems(frame: Frame, chapter: string, plans: readonly S
                 // 主文字给的是纯文字：不是回写用的带值写法（写手不回写，注记与条目 id 会被当成素材）。它引到本章不能写名字的条目时，同样不给。
                 const plain = frame.view.renderPlain(foreshadow.id, frame.position, "planned");
                 const blocks = plain === null || typeof plain === "string" ? [] : plain.blocks;
-                const sensitive = blocks.some((block) => block.references.some((id) => shownName(frame, secrets, id) !== nameOf(frame, id)));
+                const sensitive = blocks.some((block) => block.problems.length > 0 || [...block.reads, ...block.mentions].some((id) => shownName(frame, secrets, id) !== nameOf(frame, id)));
                 const withheld = sensitive || (foreshadow.answer !== null && isSecretPlus(secrecyAt(frame, foreshadow.answer)) && !reveals.has(foreshadow.answer));
                 if (withheld) {
                     lines.push(`${node.role === "payoff" ? "回收" : "部分回收"}：${fixed.PAYOFF_BY_OUTLINE}`);

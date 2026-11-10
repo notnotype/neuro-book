@@ -10,7 +10,7 @@ import {LOCAL_ID_PREFIX} from "../core/ids";
 import type {Block, ReadPosition} from "../core/schema";
 import type {Engine, Mode} from "../engine/types";
 import type {World} from "../world/world";
-import {renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type RenderContext, renderBlockPlain, type PlainBlock} from "./render";
+import {renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type RenderContext, renderBlockPlain, type PlainBlock, type PlainContext} from "./render";
 
 /** 渲染结果带着读取它的版本、位置与模式：回写时照带（rendering.md 输出 12）。 */
 export type EntryRender<T> = {readonly version: number; readonly position: ReadPosition; readonly mode: Mode; readonly blocks: readonly T[]} | "chapter-not-found" | "line-not-found" | null;
@@ -51,14 +51,27 @@ export function renderEntryForAgent(world: World, entry: string, position: ReadP
     return {version: world.version, position: {...position, line: world.positionLine(position, mode)}, mode, blocks: view.text.map((block) => renderBlockForAgent(block.id, block.source, shared))};
 }
 
-/** 纯文字的渲染（给写手的文字用，不回写）：值写显示文字，条目引用写当时的名字。 */
-export function renderEntryPlain(world: World, entry: string, position: ReadPosition, mode: Mode): "chapter-not-found" | "line-not-found" | {readonly blocks: readonly PlainBlock[]} | null {
+/** 纯文字渲染的选项：`entryName` 由调用方决定写给读者的名字（例如简报里用马甲的人写马甲）；返回 null 时写“已删除的条目”。 */
+export interface PlainOptions {
+    readonly entryName?: (id: string) => string | null;
+}
+
+/** 纯文字的渲染（rendering.md 输出 15：给不回写的读者，例如写手的简报）。 */
+export function renderEntryPlain(world: World, entry: string, position: ReadPosition, mode: Mode, options: PlainOptions = {}): "chapter-not-found" | "line-not-found" | {readonly blocks: readonly PlainBlock[]} | null {
     const engine = world.lineAt(position, mode)?.engine;
     if (engine === undefined) return "line-not-found";
     const view = engine.entry(entry, position, mode);
     if (view === "chapter-not-found" || view === null) return view;
     const shared = context(engine, world, entry, position, mode, {});
-    return {blocks: view.text.map((block) => renderBlockPlain(block.id, block.source, shared))};
+    const plain: PlainContext = {
+        ...shared,
+        ...(options.entryName === undefined ? {} : {entryName: options.entryName}),
+        isEntry: (id) => {
+            const found = engine.entry(id, position, mode);
+            return found !== null && found !== "chapter-not-found";
+        },
+    };
+    return {blocks: view.text.map((block) => renderBlockPlain(block.id, block.source, plain))};
 }
 
 /**

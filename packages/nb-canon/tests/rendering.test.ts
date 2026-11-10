@@ -4,8 +4,8 @@ import {describe, expect, test} from "bun:test";
 import type {Expression} from "estree";
 
 import {buildRegistry, ChapterOrder, type ComponentDeclaration, type Entry, type WriteRequest} from "../src/index";
-import {renderEntryForAgent, renderEntryForAuthor, splitBlocks} from "../src/render/entry";
-import {evaluate, type Resolve} from "../src/render/render";
+import {renderEntryForAgent, renderEntryForAuthor, renderEntryPlain, splitBlocks, type PlainOptions} from "../src/render/entry";
+import {evaluate, renderBlockPlain, type PlainBlock, type Resolve} from "../src/render/render";
 import {parseBlock} from "../src/render/syntax";
 import {scanAnnotations, writeBack} from "../src/render/writeback";
 import {World, type WriteResult} from "../src/world/world";
@@ -692,5 +692,84 @@ describe("canon.rendering 输出 13（审查补二）：过期时注记对不上
         const now = ok(base.publish({requestId: id(), by: author, what: "edit", title: "换序", baseVersion: base.version, puts: [{ref: {kind: "entry", id: "e1"}, after: {...structuredClone(base.data.entries.get("e1")!), init: {...structuredClone(base.data.entries.get("e1")!.init), text: [{id: "b1", source: "{panel.魔力上限} 与 {panel.魔力}"}]}}}]}, "t")).world;
         const result = writeBack(now, {requestId: id(), by: author, entry: "e1", block: "b1", position: at("ch5"), version: base.version, mode: "actual", text: stale}, "t");
         expect(result).toMatchObject({ok: false, failure: {code: "version-conflict"}});
+    });
+});
+
+/** 关系：一个引用字段、一张以引用为键的列表（行里还有一个引用）、一张作者写的列表。 */
+const REL: ComponentDeclaration = {
+    id: "test.rel",
+    label: "关系",
+    namespace: "rel",
+    version: 1,
+    fields: [
+        {id: "对象", label: "对象", kind: "ref"},
+        {id: "关系", label: "关系", kind: "list", keyedBy: "ref", item: [{id: "态度", label: "态度", kind: "text"}, {id: "起因", label: "起因", kind: "ref"}]},
+        {id: "清单", label: "清单", kind: "list", item: [{id: "数量", label: "数量", kind: "number"}]},
+    ],
+};
+
+/**
+ * 纯文字渲染的场地：e1 星瑕的主文字是 `blocks`，别名“小瑕”“阿瑕”，`rel.对象` 指 e2，`rel.关系` 有一行对 e2（崇敬，起因 e3），
+ * `rel.清单` 有一行作者写的“短剑”，`pic.图` 的说明是“原身”；e2 星瑾；e3 阿七第 3 章才出场；e4 旧人已删除。
+ */
+function plainWorld(blocks: string[]): World {
+    const base = {...options(), registry: buildRegistry([PANEL, PERSON, PIC, REL])};
+    const person = (tmp: string, name: string, extra: Partial<Entry> = {}, text: string[] = []): Entry => ({id: tmp, type: "人物", parent: null, folder: "", order: 0, ...extra, init: {name, aliases: [], summary: "", text: text.map((source, index) => ({id: `b${String(index + 1)}`, source})), data: {}}});
+    const first = ok(World.empty(base).publish({requestId: id(), by: author, what: "opening", title: "开局", baseVersion: 0, puts: [
+        {ref: {kind: "entry", id: "tmp:1"}, after: person("tmp:1", "星瑕", {}, blocks)},
+        {ref: {kind: "entry", id: "tmp:2"}, after: person("tmp:2", "星瑾")},
+        {ref: {kind: "entry", id: "tmp:3"}, after: person("tmp:3", "阿七", {appears: {kind: "chapter", chapter: "ch3", key: 0}})},
+        {ref: {kind: "entry", id: "tmp:4"}, after: person("tmp:4", "旧人")},
+    ]} as WriteRequest, "t"));
+    const xia = first.world.data.entries.get("e1")!;
+    const data = {
+        rel: {type: REL.id, version: 1, enabled: true, fields: {对象: {ref: "e2"}, 关系: [{id: "e2", 态度: "崇敬", 起因: {ref: "e3"}}], 清单: [{id: "x1", label: "短剑", 数量: 1}]}},
+        pic: {type: PIC.id, version: 1, enabled: true, fields: {图: {图片: "assets/a.png", 说明: "原身"}, 路径: "assets/b.png"}},
+    };
+    return ok(first.world.publish({requestId: id(), by: author, what: "bookkeeping", title: "补数据", baseVersion: 1, puts: [
+        {ref: {kind: "entry", id: "e1"}, after: {...structuredClone(xia), init: {...structuredClone(xia.init), aliases: ["小瑕", "阿瑕"], data}}},
+        {ref: {kind: "entry", id: "e4"}, after: {...structuredClone(first.world.data.entries.get("e4")!), deleted: true}},
+    ]} as WriteRequest, "t")).world;
+}
+
+function plainBlocks(base: World, options: PlainOptions = {}): PlainBlock[] {
+    const rendered = renderEntryPlain(base, "e1", at("ch1"), "actual", options);
+    if (rendered === null || typeof rendered === "string") throw new Error("no render");
+    return [...rendered.blocks];
+}
+
+const shape = (block: PlainBlock) => ({text: block.text, reads: [...block.reads].sort(), mentions: [...block.mentions].sort(), problems: [...block.problems].sort()});
+
+describe("canon.rendering 输出 15：纯文字的渲染", () => {
+    test.each([
+        ["引用字段的值写名字，<Ref> 写名字", "{rel.对象}与<Ref id=\"e2\" />", {text: "星瑾与星瑾", reads: [], mentions: ["e2"], problems: []}],
+        ["别的条目的字段：读了它", '{ref("e2").entry.name}', {text: "星瑾", reads: ["e2"], mentions: [], problems: []}],
+        ["按条目选出的一行的子字段：读了那个条目", '{rel.关系["e2"].态度}', {text: "崇敬", reads: ["e2"], mentions: [], problems: []}],
+        ["行里的引用：写名字", '{rel.关系["e2"].起因}', {text: "阿七", reads: ["e2"], mentions: ["e3"], problems: []}],
+        ["取出单个列表行：没有写法", '前{rel.关系["e2"]}后', {text: "前后", reads: ["e2"], mentions: [], problems: ["raw-value"]}],
+        ["引另一块原文", '{ref("e2").text[b1]}', {text: "", reads: ["e2"], mentions: [], problems: ["quoted-block", "unavailable"]}],
+        ["算出来的引用：写名字", '{rel.关系["e2"].态度 == "崇敬" ? rel.对象 : rel.清单}', {text: "星瑾", reads: ["e2"], mentions: ["e2"], problems: []}],
+        ["以引用为键的列表：行写名字，不用读取时补的 label", "{rel.关系}", {text: "星瑾", reads: [], mentions: ["e2"], problems: []}],
+        ["作者写的列表：行写 label", "{rel.清单}", {text: "短剑", reads: [], mentions: [], problems: []}],
+        ["字符串列表：顿号连起来", "又名{entry.aliases}", {text: "又名小瑕、阿瑕", reads: [], mentions: [], problems: []}],
+        ["图片字段：写说明", "{pic.图}", {text: "原身", reads: [], mentions: [], problems: []}],
+        ["图片标签：写说明，属性里的表达式不拼进文字", '<Image src="a.png" alt="脚印图" />后面<Image src={pic.路径} alt="x" />', {text: "脚印图后面x", reads: [], mentions: [], problems: []}],
+        ["图片的说明写成表达式：没有写法", '<Image src="a.png" alt={ref("e2").entry.name} />', {text: "", reads: ["e2"], mentions: [], problems: ["raw-value"]}],
+        ["还没出场：读不到值", '{ref("e3").entry.name}', {text: "", reads: ["e3"], mentions: [], problems: ["unavailable"]}],
+        ["已删除：名字写“已删除的条目”，读它的值读不到", '<Ref id="e4" />，{ref("e4").entry.name}', {text: "已删除的条目，", reads: ["e4"], mentions: ["e4"], problems: ["unavailable"]}],
+    ])("%s", (_name, block, expected) => {
+        expect(shape(plainBlocks(plainWorld([block]))[0]!)).toEqual(expected);
+    });
+
+    test("调用方给名字：<Ref>、引用的值、以引用为键的列表行都经它写", () => {
+        const base = plainWorld(["<Ref id=\"e2\" />、{rel.对象}、{rel.关系}"]);
+        const block = plainBlocks(base, {entryName: (target) => (target === "e2" ? "旅人" : null)})[0]!;
+        expect(block.text).toBe("旅人、旅人、旅人");
+        expect(block.mentions).toEqual(["e2"]);
+    });
+
+    test("块出错（存下来的旧数据不合白名单）：原样源文，标 syntax，不给读取与名字", () => {
+        const context = {resolve: () => ({value: null}), entryName: () => null, isEntry: () => true};
+        expect(renderBlockPlain("b1", "<Bad />", context)).toEqual({id: "b1", text: "<Bad />", reads: [], mentions: [], problems: ["syntax"]});
     });
 });
