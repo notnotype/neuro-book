@@ -38,7 +38,7 @@ updated: 2026-11-10
 |---|---|
 | [t01](tasks/t01-adr/README.md) | 语言政策 ADR 0034（完成） |
 | [t02](tasks/t02-error-audit/README.md) | 错误处理只读审查与通道矩阵（完成） |
-| [t03](tasks/t03-failure-projection/README.md) | 失败投影：总则、共用件与命令一域（进行中） |
+| [t03](tasks/t03-failure-projection/README.md) | 失败投影：总则、共用件与命令一域（完成） |
 | [t06](tasks/t06-editor-files-failures/README.md) | 编辑器、文件客户端与资源管理器（未开工） |
 | [t07](tasks/t07-window-failure-page/README.md) | 窗口失败页与握手（未开工） |
 | [t08](tasks/t08-platform-failures/README.md) | 设置、存储、项目与插件平台（未开工） |

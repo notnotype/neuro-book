@@ -1,0 +1,87 @@
+# w00031 t03 前端实现审查（Sonnet）
+
+被审提交 5c4e27213（范围 b7ac47ea3..HEAD 的前端部分）。说明：worktree 里没有 node_modules，按规则不安装，所以**没有运行测试与类型检查**，以下都是读代码与规格得出的结论，标“从代码推断”。
+
+### 1. 带详情的失败通知常驻且不去重，同一命令反复失败会堆成一列要手动关的警告
+- 严重程度：重要
+- 类别：行为 / 体验
+- 位置：packages/neuro-book/src/plugins/workbench/web/commands/failure-notice.ts:33（`detail` 展开）、WorkbenchCommandHost.vue:35-39（`notifyFailure` 每次失败都 `notify` 一条新通知）、packages/neuro-book/src/plugins/workbench/web/notifications.ts:56-62（`durationOf`：带详情即常驻）
+- 现象（从代码推断）：`execution-error` 在 registry 里总是带 `detail`（抛异常的命令必带），所以每次从面板或快捷键执行抛错的命令，都会新增一条不自动消失的 warning 通知。通知队列不去重（NotificationStack.md 第 62 行“不去重，没有‘全部关闭’”），键位分发器只忽略 `event.repeat`，用户每按一次组合键就是一次执行、一条新通知。例如一个坏命令绑了常用快捷键，按 6 次得到 6 条常驻通知，视口只显示最新 4 条加“还有 2 条较早的通知”折叠小条，每条都要单独点关闭，没有“全部关闭”。改动前这类通知 4.2 秒自行消失，不会累积。`invalid-args`、`unavailable`、`denied` 通常不带 detail，仍限时；`stale-target` 不弹，不受影响。
+- 为什么是问题：开发者确认的是“带详情的通知不自动消失”，没有确认“同一失败可以无限叠加”。计划总则和 commands.md 验收 21 都没覆盖重复失败。失败越频繁（快捷键反复触发）影响越大，而此时详情内容完全相同，叠加的几条是纯噪声。
+- 如何核实：在 `WorkbenchCommandHost.dom.test.ts` 那条抛错命令的用例里连续执行两次，`notices` 长度为 2，且两条都不会被 `durationOf` 当作限时（用真实的 `createNotifications` 队列可看 `duration: 0`）。
+- 建议改法：二选一或并用。(a) `notifyFailure` 按“命令 id + 码 + detail”记住上一条句柄，仍在队列里就 `update` 或先 `dismiss` 再发，而不是再加一条（需要把 `notify` 属性改成返回 `NotificationHandle`，目前签名是返回 void，所以要动 props 与 WorkbenchCommandHost.md）；(b) 在 failureNotice 里给 detail 通知加一个“同源通知只留最新”的标记，交由通知服务处理。至少应在 Task 记录里把这条列为已知限制，并说明理由。
+
+### 2. 插件页：路由码改走宿主文案后，“是否列服务端详情”的规则对已知的三个路由码变了，英文界面会出现中文诊断行
+- 严重程度：建议
+- 类别：行为变化 / 与 ADR 0034 决策 2 的一致性
+- 位置：packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.vue:216（`lines: isPluginFailure(code) && !DETAIL_CODES.has(code) ? [] : lines`）、:76-77（`DETAIL_CODES`）
+- 现象：改动前，`unavailable`、`timeout`、`unknown-outcome` 三个路由码有固定文字（known !== undefined）且不在 `DETAIL_CODES` 里，所以不列服务端详情；其余路由码（如 `denied`）因为没有固定文字才列详情。改动后只要不是插件自己的码，一律列详情。路由层的 `detail` 是中文诊断字符串（nb-runtime/src/remote/router.ts:390-436、peer.ts:243、288、331，如“服务端正在停止”“本端不接受请求”“调用方没有绑定项目”），所以界面语言是 en-US 时，主文案是英文“The server is temporarily unavailable”，下面却多出一行中文。
+- 为什么是问题：`DETAIL_CODES` 的原规则“固定文字已经说全，详情只会重复”对路由码依然成立，改动后没有按码判断，而是改成了“非插件码一律列”。同时 ADR 0034 决策 2 说的是诊断原文只进详情，这里还是把原文放在页面行内（该页面没有 DetailDialog，这是 t08 的范围，本片可以不修，但新增的三个码不应再变多）。`DETAIL_CODES` 的类型仍是 `Set<FailureCode>`（含路由码），读者会以为它也管路由码，实际条件里已用 `isPluginFailure` 绕开。
+- 如何核实：`PluginsPage.dom.test.ts` 里 `fake.answerNext({ok:false, code:"unavailable", detail:"服务端正在停止"})`，locale 用 en-US；对照 b7ac47ea3 与 HEAD 的 `problem.lines`（前者空，后者含该行）。
+- 建议改法：保持原规则，把“已知的路由码”加进不列详情的集合（`unavailable`、`timeout`、`unknown-outcome`、`cancelled` 等固定文字已说全的码），只对未知码和 `denied`、`provider-error`、`invalid-input` 这类详情能补充的码列出详情；把 `DETAIL_CODES` 的类型收窄为 `PluginFailureCode`，或者把规则改成显式的“列详情的码”集合。
+
+### 3. 插件页的失败原因存成字符串，切换语言后停在旧语言（改动前就是如此，本次新增的宿主文案同样）
+- 严重程度：建议
+- 类别：语言切换
+- 位置：PluginsPage.vue:113（`problem` ref）、:80 的 `Problem.reason: string`、:216 与 :236（`reasonOf` 在失败当刻求值）、模板 :395、:405
+- 现象：`reasonOf` 返回 `string`（`text(...)` 或 `port.t(...)` 在调用瞬间翻译），`problem.reason` 与 `loadFailure` 存的是翻好的字符串。页面已有 `locale` 属性并且端口随语言切换，但失败说明显示后切换界面语言，这一行仍是旧语言（`lines` 里服务端详情本来就不翻，不算）。通知那边相反：`message` 是 `Text`，视口渲染时翻，会随语言变。对照 b7ac47ea3：`text(known ?? "failures.unknown")` 也是即时求值，所以不是回归；但本次把一整类文字改走宿主目录时没有顺带让它可切换，而且新引入的未知码文案带码参数，更容易在切换后让人以为是别的错误。
+- 如何核实：在 `PluginsPage.dom.test.ts` 里触发 `denied` 失败后，切换测试引擎的语言（具体 API 我没有核对），断言 `[data-plugin-problem] p` 的文字变成英文；当前会失败。
+- 建议改法：`Problem` 与 `loadFailure` 存 `Text`（`TextRef` 或语言映射），模板里用 `port.t(...)`，这样随端口响应式更新。改动小：`reasonOf` 返回 `Text`，两处模板包一层 `port.t`。如果不改，在 PluginsPage.md 里写明“失败说明停在发生时的语言”。
+
+### 4. PluginsPage 的 DOM 测试：标题承诺的“不认识的码”没有用例，宿主文案的新分支基本没覆盖
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.dom.test.ts:346（用例标题“……不认识的码给通用文字与路由层的说明”）、:376-381、:383-390
+- 现象（读测试得出，未运行）：本次新增的分支是 (a) 不认识的码走 `unknownResult`、(b) `refresh()` 失败时 `loadFailure` 用路由码文案、(c) 英文界面。测试只有一个路由码用例（`denied`，zh-CN）和 `unknown-outcome`；全文件没有任何不认识的码的断言（grep `无法识别` 无命中），`loadFailure` 只测了 `registry-failed`（:444、:450，插件自己的码），没有英文用例，也没有断言“`unavailable` 等固定文字已说全的码不再重复详情”（见发现 2）。用例标题和实际断言不符。
+- 为什么是问题：计划里“未知码显示宿主的中性文案并附码”是开发者确认的行为，这条在页面上没有任何测试挡着；以后有人把 `reasonOf` 改回 `text("failures.unknown")` 也不会失败。
+- 建议改法：补三条行为用例，不加固定等待：不认识的码（如 `quota-reached`）→ 页面显示“收到了无法识别的结果（quota-reached）”并列出详情；列表读取失败带路由码 `unavailable` → 失败块里是宿主文案；en-US 下 `denied` 的主文案是英文。同时改正用例标题。
+
+### 5. 命令宿主的 DOM 测试没有验证用户能看到的东西，快捷键路径与“常驻”都没覆盖
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts:112-144（新增用例）、keymap.test.ts:212
+- 现象（读测试得出，未运行）：新用例把 `notify` 换成数组收集 `NotificationInput`，断言 `message` 等于 `commandsMessage("failures.executionError")`（用被测代码用的同一个函数造期望值，等于自己比自己），`detail` 含 `boom`、不含 `abc`，诊断含码与原文。没有一处是经真实通知队列、翻译后断言用户看到的正文是“命令执行出错”，也没有断言该通知不会自动消失（这条是本片的实际行为变化，计划把它交给 w00028 t04 的测试，但那边测的是 `notify` 收到 `detail` 之后的行为，不是“命令失败的通知确实带 detail 进了队列”这一段，见发现 1）。快捷键入口的 `failed → notifyFailure` 带 `detail` 的情形没有用例（keymap.test.ts 只改了诊断文字的期望），两个入口只有面板这个被验证。`failureNotice` 没有单元测试，`detail` 为空串或全空白时的行为没测（载体会当作没有，应当是对的，但是靠载体兜底）。
+- 为什么是问题：计划验收里写“通知带 detail、正文是目录引用”，测试只守到前半。`message` 的期望值与实现同源，换成任何语言映射都会通过，包括键写错后回退成键名的映射（`commandsMessage` 对缺键用键名兜底，见 plugins/commands/shared/text.ts:25）。
+- 建议改法：期望值用字面（如 `{"zh-CN":"命令执行出错"}` 的中文、英文）而不是 `commandsMessage` 自己；在同一用例里用 `createNotifications` 的真实队列接 `notify`，断言队列条目 `duration` 为 0、翻译后的正文；快捷键路径补一条抛错命令的用例。
+
+### 6. 组件契约与注释没跟上：PluginsPage.md 的 state:inject、WorkbenchCommandHost.md 的通知描述、failure-notice.ts 的头注释
+- 严重程度：建议
+- 类别：文档 / 注释
+- 位置：PluginsPage.md:67（`state:inject`）；WorkbenchCommandHost.md:35；failure-notice.ts:20-22
+- 现象：(a) PluginsPage.md 的 `state:inject` 仍写“页面的文字都在本插件的目录（命名空间 `nbook.plugins`）”，但页面现在还读宿主目录（`nbook.host` 的 `errors.*`、`unknownResult`），“没有宿主注入时……只显示键名”的测试提示也漏了宿主目录；(b) WorkbenchCommandHost.md:35 仍只说“弹一条警告级通知，标题是命令名、正文是原因”，没有写带 `detail` 时通知常驻并带“详情”，也没写诊断现在带码与原文（规则：产品代码里看不出来的约束要写）；(c) failure-notice.ts 的头注释同一句里先说“警告级，按色调自动消失，不在页面上留常驻的错误”，紧接着说“失败带诊断原文时……不自动消失”，前半句对 `execution-error`（抛异常必带 detail）已不成立，读者要自己推演哪种情形才限时。
+- 如何核实：读上述三处。
+- 建议改法：(a) `state:inject` 补一句宿主目录；(b) 在 WorkbenchCommandHost.md 的失败通知一段补“带 `detail` 的失败通知常驻，用户可在详情里复制原文；重复失败的处理见发现 1”；(c) 注释改成“按色调限时，但带 detail 的（目前是 execution-error）常驻”。
+
+### 7. 共用件 `codeText` 没人用：插件页自己手写了“本插件表、路由表、未知码”的三段判断
+- 严重程度：建议
+- 类别：可维护性
+- 位置：PluginsPage.vue:196-198（`isPluginFailure` 与 `reasonOf`）、packages/neuro-book/src/web/failure-text.ts:23-25（`codeText`）、keymap.ts:12（`import {failureDiagnostic} from "./failure-notice"`）
+- 现象：全仓库对 `codeText` 的调用只有 `failure-text.ts` 自己的 `remoteFailureText` 和它的测试（grep 结果）。插件页没有用 `codeText(pluginsText, FAILURE_KEYS, code)`，而是自己写 `Object.hasOwn(FAILURE_KEYS, …)` 再回落 `remoteFailureText`，等于第二套“查表，查不到则未知”。projects 一侧用 `isRemoteFailureCode`，也是各自拼。另外 `keymap.ts` 为了一个拼诊断字符串的函数依赖 `failure-notice.ts`（后者的职责是“通知”，还引入 `workbenchText`）；键位分发器本是不依赖通知的纯 TS。
+- 为什么是问题：总则 4 说“闭合域用表，查不到就未知码”由 `codeText` 一处实现；每个拥有者再手写一遍，将来改未知码规则（例如带码的写法）要改多处。`failureDiagnostic` 放在通知文件里，下次有人给通知文件加依赖，会被键位分发器连带。
+- 建议改法：插件页用 `codeText`，路由码在自己的表之后再交 `remoteFailureText`（可以让 `codeText` 接收一个回退函数）；把 `failureDiagnostic` 挪到 `commands/` 下单独一个小文件，keymap 与 WorkbenchCommandHost 都从那里取。
+
+## 未发现问题的方面
+- `unknown-outcome` 的文案与页面行为不矛盾：新文案只说“请先核对再重试”，没有承诺页面做了什么；`STALE_CODES` 仍包含 `unknown-outcome`，页面确实会重新读列表（DOM 测试 :383-390 核对了 `list` 调用 +1）。丢掉“已重新读取列表”后用户不知道列表已刷新，但这是文案取舍，不是矛盾。
+- 英文大小写：宿主 `errors.*` 与 `unknownResult` 都是独立整句，在页面上只出现在 `problem.reason`（单独一行）和 `loadFailure`（`reason · detail` 用点号连接），没有被嵌进 `{{reason}}` 之类的句内插值；所有嵌句的 `{{reason}}`（`problems.entryBlocked` 等）取的是插件自己的目录，所以大小写问题不存在。
+- 通知正文的语言切换：`message` 是 `failure.reason`（语言映射或文字引用），原样交给通知，视口渲染时翻，会随语言变；`detail` 是字符串不翻译，符合 notifications.md 输出 3。唯一停在发通知时语言的是标题里代入的命令名，代码注释已写明，是既有取舍。
+- `stale-target` 不弹、`NOTIFIED` 集合没变；没有 `detail` 的失败 `...(failure.detail === undefined ? {} : …)` 不加键，旧用例的 `toEqual` 仍有效。
+- `Object.hasOwn` 对原型名（`toString`）的处理正确（failure-text.test.ts 有用例）。
+- keymap 对 `event.repeat` 的过滤仍在，长按不会重复执行（但每次单独按键仍是一次执行，见发现 1）。
+
+## 各级数量
+- 阻断：0
+- 重要：1（发现 1）
+- 建议：6（发现 2 至 7）
+总结：前端实现的主路径正确，真正需要处理的是“带详情的失败通知常驻且不去重”会随重复触发堆积；插件页对路由码的详情规则和语言切换有两处与改动前相比的差异，其余是测试覆盖与文档同步。本次未运行任何测试（worktree 无 node_modules）。
+
+## 处理（主会话，2026-11-10）
+
+被审提交 5c4e27213；修正提交 d6774960f。
+
+1. 成立，但接受取舍：带详情的通知常驻且不去重。去重与按键更新随 w00028 t05 的“与状态绑定的通知”一起做；已写进 failure-notice.ts 头注释与 WorkbenchCommandHost.md。
+2. 成立，要改：插件页的路由码不再列服务端详情（文案已说全），不认识的码照旧列出原文。
+3. 不算本次回归：插件页原因存成翻好的字符串、切换语言不跟着变，改动前就是这样；记进 t08。
+4. 成立，要改：PluginsPage.dom.test 补“不认识的码”用例（宿主中性文案附码、列出原文）与路由码不列原文的断言。
+5. 成立，要改：命令宿主的通知正文按中英两种语言断言用户看到的那一句，不再自己比自己。
+6. 成立，要改：PluginsPage.md、WorkbenchCommandHost.md、failure-notice.ts 头注释已跟上。
+7. 部分改：插件页的原因改走 `codeText`，路由码走 `remoteFailureText`；`failureDiagnostic` 的位置不动（两个入口共用，放在失败通知旁边）。
