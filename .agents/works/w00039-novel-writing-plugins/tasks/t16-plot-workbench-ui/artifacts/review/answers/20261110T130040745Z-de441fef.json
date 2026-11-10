@@ -1,0 +1,26 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t16-plot-workbench-ui",
+    "artifactId": "review",
+    "answerId": "20261110T130040745Z-de441fef",
+    "artifactVersion": 11,
+    "contentHash": "0ad84ee709befdec70d43c96bd35d9a33f183dbab2795aad3b44c47f315b2d68",
+    "submittedAt": "2026-11-10T13:00:39.231Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r5-line-scope": "global",
+        "r6-ripple": "list",
+        "s-scheme": "merge",
+        "s-rolling": "reset",
+        "s-stable": "file"
+    },
+    "comments": {
+        "s-scheme": "S 摘要的提示词，怎么记需要后续不断在实际体验中调优。先按我直觉给出一个规则：摘要（S、L 都有）专注于情节，不注重于设定（因为已经有 lorebook 了）",
+        "s-stable": "这个值得来设计。这个还和前面的文风存在哪里有一点点关系。\n我在举个实际有需求的和这点有关的例子：\n\n用户想要在描写战斗场景的时候注入某个写作提示词\n\n我在补充一个上下文：大部分用户是不自己写 Writer 的 Profile 的，而是导入别人（社区）分享的 Profile。或者直接用 NeuroBook 自己的。\n\n我这里停下来想设计的是有没有一种用户不改 Profile 就能一定程度控制 Writer 上下文的方式。\n\n旧应用的 Profile 提供了一个机制：就是自定义配置和表单机制：Profile 作者可以通过低代码写一些表单，用户在设置界面能给 Profile 提供一些选项。现在我觉得这可能还不够"
+    },
+    "note": null
+}
