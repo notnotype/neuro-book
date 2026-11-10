@@ -99,21 +99,23 @@ function select(node: GenericTreeNode): void {
 </script>
 
 <template>
-    <Banner v-if="props.disconnected" tone="warning" role="status" class="m-2" :message="text('world.disconnected')">
-        <template #actions><Button size="sm" @click="emit('retry')">{{ text("world.retry") }}</Button></template>
-    </Banner>
-    <p v-if="rootState === 'loading'" class="px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
-    <p v-else-if="rootState === 'empty'" class="px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.empty") }}</p>
-    <Tree
-        v-else
-        :aria-label="text('entries.label')"
-        :items="items"
-        :expanded="[...props.expanded]"
-        :model-value="props.selected"
-        surface="plain"
-        @select="select"
-        @update:expanded="(value: string[]) => emit('update:expanded', value)"
-    >
-        <template #suffix="{node}">{{ notes.get(node.id) ?? "" }}</template>
-    </Tree>
+    <div class="min-w-0">
+        <Banner v-if="props.disconnected" tone="warning" role="status" class="m-2" :message="text('world.disconnected')">
+            <template #actions><Button size="sm" @click="emit('retry')">{{ text("world.retry") }}</Button></template>
+        </Banner>
+        <p v-if="rootState === 'loading'" class="px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
+        <p v-else-if="rootState === 'empty'" class="px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.empty") }}</p>
+        <Tree
+            v-else
+            :aria-label="text('entries.label')"
+            :items="items"
+            :expanded="[...props.expanded]"
+            :model-value="props.selected"
+            surface="plain"
+            @select="select"
+            @update:expanded="(value: string[]) => emit('update:expanded', value)"
+        >
+            <template #suffix="{node}">{{ notes.get(node.id) ?? "" }}</template>
+        </Tree>
+    </div>
 </template>

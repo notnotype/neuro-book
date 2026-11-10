@@ -65,7 +65,7 @@ type EntryTreeEmits = {
 };
 ```
 
-没有插槽与 expose；未声明的 attrs 落在 `Tree` 的根上。
+没有插槽与 expose；未声明的 attrs 落在组件的根 `div` 上（横幅与树都在它里面）。
 
 ## 状态
 

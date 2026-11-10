@@ -75,7 +75,7 @@ test.describe("实时布局", () => {
     test.beforeAll(async () => {
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-live-drag");
         await mkdir(join(tmp, "state"), {recursive: true});
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor,nbook.agent"}});
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor,nbook.agent,nbook.canon,nbook.plot"}});
     });
 
     test.afterAll(async () => {

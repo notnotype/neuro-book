@@ -95,7 +95,7 @@ test.describe("应用内浮动", () => {
     test.beforeEach(async () => {
         tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-float");
         await mkdir(join(tmp, "state"), {recursive: true});
-        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor,nbook.agent"}});
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor,nbook.agent,nbook.canon,nbook.plot"}});
     });
 
     test.afterEach(async () => {
