@@ -221,8 +221,10 @@ t05、t06、t07。
 
 ## 下一步
 
-实施中，worktree `.worktree/w00032-t14-multi-agent`（分支 `feat/w00032-t14-multi-agent`）。已完成：切片 1 内核五处（另加视图上下文带会话，`extensions.md` 输出 31 已改）、切片 2 假端点按会话分派、切片 3 白名单与提示词一节、临时帮手、三项设置、会话关系表；切片 4 任务中心与 `wait`、`kill`、`jobs`；切片 5 三个子代理工具（主创 Profile 升到 4，加子代理与任务工具和一句“什么时候派”）；切片 6 `shell`、`ask` 的 `async`，费用上限按会话树、`wait` 豁免重复检测，`sessions://`、`profiles://` 的根。下一步切片 7 远程合同。
+实施中，worktree `.worktree/w00032-t14-multi-agent`（分支 `feat/w00032-t14-multi-agent`）。已完成：切片 1 内核五处（另加视图上下文带会话，`extensions.md` 输出 31 已改）、切片 2 假端点按会话分派、切片 3 白名单与提示词一节、临时帮手、三项设置、会话关系表；切片 4 任务中心与 `wait`、`kill`、`jobs`；切片 5 三个子代理工具（主创 Profile 升到 4，加子代理与任务工具和一句“什么时候派”）；切片 6 `shell`、`ask` 的 `async`，费用上限按会话树、`wait` 豁免重复检测，`sessions://`、`profiles://` 的根。切片 7 远程合同；切片 8 前半（停靠区、父 Agent 的话标作者、`shell` 转后台画成节点、进行中的轮次不自动收起、子会话顶栏路径）。后端（切片 1–7）的实现审查已提前做完（Opus，19 条：重要 9、建议 10，全部成立、已改），报告与逐条处理见 [`evidences/impl-review-backend.txt`](evidences/impl-review-backend.txt)、[`evidences/impl-review-backend-handling.txt`](evidences/impl-review-backend-handling.txt)；`jobs.md` 输出 9、`sessions.md` 输出 19、`builtin-profiles.md` 输出 14 随之改。下一步切片 8 后半（会话面板嵌套），再切片 9 Agent 浏览器端。
 
 实现中的取舍（实现审查时一并看）：续用时子会话已在另一种非普通模式（例如父会话 `discuss`、子会话 `plan`）不改，只把 `normal` 的收紧到父会话的模式；子会话的标题用 `setGeneratedMeta` 写（不算用户改过）；子代理出错时工具结果的状态仍是 `ok`，出错写在文字与 `details.status` 里。
+
+测试未覆盖（审查第 8 条）：`child-stopping`（中止中的窗口太短）、后台命令 64 MiB 截断（要真写 64 MiB）。
 
 已知的旧问题：nb-harness 存储测试“别的进程持有时得 session-busy”偶发失败（文件句柄在垃圾回收时报未关闭），重跑通过，与本 Task 无关。

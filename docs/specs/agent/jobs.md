@@ -53,7 +53,7 @@ Agent 的工具启动的、要跑一阵的事——子代理运行（[`subagents
 6. 寿命：任何一个前台等它的调用以终态交回时，任务移出（视同取过）；后台任务结束后留到 `wait` 取过。结束了、没取过的后台任务每个会话至多留 32 个、全部至多 1,024 个，多了先丢最早结束的。会话闲置、句柄关闭不影响任务。移出后 id 不再可查，`agent` 任务的结果仍在子会话的日志里，后台命令的在输出文件与 `status.json` 里。
 7. 后台命令：`shell` 带 `async: true` 时登记任务就返回任务 id 与输出文件的地址 `sessions://<会话>/home/jobs/<任务 id>/output.log`；命令照常跑，输出边跑边追加到那个文件（Agent 只读，[`resources.md`](resources.md) 输出 12）。不写 `timeout` 就不设超时，写了照用。父会话的运行被中止不影响它。输出文件至多 64 MiB，到了不再追加，结果里注明截断。结束时同一目录写 `status.json`：退出码、行数、结束时刻、是否截断；任务的结果是这些加输出的开头和结尾（同前台 `shell` 的截断规则）。审批与前台相同。
 8. `nbook.agent` 停止时：先拒绝新的调用，再取消在跑的后台命令（记 `interrupted`，`status.json` 照写），再由会话的关闭把子代理运行按 `interrupted` 收口（这时不对子会话发中止），最后丢掉任务表。
-9. 远程 `jobs({sessionId})` 交回这个会话启动、还在任务中心里的后台任务，每项 `{id, kind, state, summary, startedAt, endedAt?, lastLine?, exitCode?, lines?}`，`lastLine` 是后台命令输出的最后一行。`jobsChanged` 在任一项变化时推送整份，合并后至多每秒 4 次；先订阅再取，`onResync` 重取。
+9. 远程 `jobs({sessionId})` 交回这个会话启动、还在任务中心里的全部任务（前台在等的也列，卡片与“停止”要用），每项 `{id, kind, state, summary, invocation, foreground, startedAt, endedAt?, lastLine?, exitCode?, lines?, sessionId?, runId?}`：`invocation` 是启动它的那次工具调用，`foreground` 是正被前台的调用等着，`sessionId`、`runId` 是子代理任务的子会话与这次运行，`lastLine` 是后台命令输出的最后一行（至多每 250 毫秒更新一次）。`jobsChanged` 在任一项变化时推送整份，合并后至多每秒 4 次；先订阅再取，`onResync` 重取。
 10. 远程 `jobTail({sessionId, jobId, lines?})` 读后台命令输出文件的最后 `lines` 行（缺省 50，0–200，每行截到 768 字节），有 `status.json` 时一并交回；按文件读，任务已移出或进程重启后照样读得到。没有这个文件得 `job-unknown`。远程 `jobStatuses({sessionId, jobIds})` 一次读多个后台命令的 `status.json`（至多 100 个），读不到的交回 null。
 11. 远程 `killJob({sessionId, jobId})` 以用户的身份停这个会话启动的任何任务（前台、后台），结果同输出 4。
 12. `wait` 交回的结果与上一次 `wait` 相同时照常计入重复调用检测（[`run-guards.md`](run-guards.md) 输出 14）。
