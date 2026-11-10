@@ -51,6 +51,7 @@ owners:
 - **Tab 顺序**：焦点在 grid 里时，叶里按 DOM 顺序走；走出一块时按树的先后跳到下一项（叶、分隔线交替，跳过没有可聚焦元素的），与 DOM 顺序无关。内容自己处理了 Tab（`preventDefault`）或输入法正在组字时不接管。走出最后一项时离开这个 grid。DOM 序等于树序时全是浏览器的原生行为。DOM 序与树序不一致时：从 grid 外面按 Tab 进来落在树序的首或尾，点击不可聚焦的地方之后按 Tab 从点的那一块按树序走；程序聚焦与点击不改落点。外框和内容都不接焦点，点空白不打断内部滚动区的键盘滚动。
 - **移动焦点**：`moveGridFocus(from, direction)` 在叶之间按树的先后移动，回到这块上次的焦点，没有就是第一个可聚焦的元素；没有可聚焦元素的叶跳过；嵌套时内层先走，走到头交给外层，最外层绕回。工作台把它登记成命令，缺省键位 F6、Shift+F6（[workbench.commands](../workbench/commands.md)）。
 - **读屏顺序**：DOM 序与树序不一致时，根元素的 `aria-owns` 按树的先后列出叶、分隔线与没停放的内容项，无障碍树的顺序与视觉一致。
+- **分支的收起**：收起策略可以配给叶，也可以配给分支。分支收起时，它在父分支主轴上的尺寸是 `collapsedSize`，里面的叶在这一轴上都取这个尺寸，为零时按“停放”处理；分支内部沿自己那一轴的分配不变，展开后各叶回到收起前的尺寸。收起的阈值、从零拉回、Enter 与显式恢复同叶。工作台用它表达整个区域拖到零（[工作台布局](workbench-layout.md) 输出 11、12）。
 
 ## 状态与转换
 
@@ -119,6 +120,7 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用/插件
 
 ## 证据
 
+- 批准依据：“分支的收起”为[视图容器提案](../../proposals/workbench-view-containers.md)第 1 节（开发者 2026-11-10 接受）。
 - 2026-09-16 开发者在计划审查后回复“可以，优化补充”，同意纳入最小嵌套验证及必要原语修复。
 - [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 - [审查记录](../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t21-storage-design-review/walkthroughs/002-plan-completion.md) 包含旧实现的内存探针结果，不是本目标已实现证据。
