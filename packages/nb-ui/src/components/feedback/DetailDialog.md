@@ -38,6 +38,8 @@ type DetailDialogProps = {
 type DetailDialogEmits = {
     /** Escape、点遮罩、点“关闭”时发 false。 */
     (event: "update:open", value: boolean): void;
+    /** 关闭完成：内容已卸载、`Dialog` 已把焦点交还打开前的元素。要把焦点放到别处的调用方在这之后放。 */
+    (event: "closed"): void;
 };
 ```
 

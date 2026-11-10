@@ -75,6 +75,10 @@ export default {
         close: "关闭通知",
         inProgress: "进行中",
         detail: "详情",
+        detailTitle: "{{title}}：详情",
+        region: "通知",
+        folded: "还有 {{count}} 条较早的通知",
+        collapse: "收起",
     },
     numberInput: {
         increase: "增加",

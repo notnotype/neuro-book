@@ -16,7 +16,7 @@ const props = withDefaults(defineProps<{
     truncated: false,
 });
 
-const emit = defineEmits<{(e: "update:open", value: boolean): void}>();
+const emit = defineEmits<{(e: "update:open", value: boolean): void; (e: "closed"): void}>();
 
 const text = useUiText();
 const lines = computed(() => props.detail.split(/\r\n|\r|\n/u).map((line) => ({text: line})));
@@ -37,6 +37,7 @@ const BLOCK_STYLE = {fontSize: "var(--text-xs)"};
         :title="props.title"
         initial-focus="[data-detail-dialog-body]"
         @update:open="emit('update:open', $event)"
+        @closed="emit('closed')"
     >
         <!-- 初始焦点的落点：一个真实、可聚焦但不在 Tab 顺序里的容器，免得一打开就在复制按钮上画焦点光晕。 -->
         <div data-detail-dialog-body tabindex="-1" class="outline-none">

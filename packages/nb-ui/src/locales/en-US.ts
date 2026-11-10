@@ -71,6 +71,10 @@ export default {
         close: "Dismiss notification",
         inProgress: "In progress",
         detail: "Details",
+        detailTitle: "{{title}}: details",
+        region: "Notifications",
+        folded: "Show {{count}} earlier",
+        collapse: "Show less",
     },
     numberInput: {
         increase: "Increase",
