@@ -30,7 +30,7 @@ const TONE_CLASS: Record<SessionTone, string> = {blocked: "nbdev-warn", working:
 </script>
 
 <template>
-    <nav class="flex min-h-full flex-col gap-0.5 py-2" aria-label="会话与 pane">
+    <nav class="flex min-h-full flex-col gap-0.5 py-2" aria-label="会话与窗格">
         <a :href="'/live/sessions?view=notify'" class="nbdev-session-notify mx-2 mb-1" :class="{'nbdev-session-sel': selected === 'notify', 'nbdev-session-notify-hot': attention > 0}" :aria-current="selected === 'notify' ? 'page' : undefined" @click="follow($event, () => emit('notify'))">
             <span class="i-lucide-bell size-4 shrink-0" aria-hidden="true" />
             <span class="min-w-0 flex-1 font-semibold">通知<template v-if="attention > 0"> · {{ attention }} 条要处理</template></span>
@@ -63,8 +63,8 @@ const TONE_CLASS: Record<SessionTone, string> = {blocked: "nbdev-warn", working:
                 </span>
             </div>
         </template>
-        <h2 class="nbdev-session-group mt-2">其它 pane（只读）· {{ panes.length }}</h2>
-        <p v-if="panes.length === 0" class="nbdev-empty px-4 py-1">本仓库里没有别的 pane</p>
+        <h2 class="nbdev-session-group mt-2">其它窗格（只读）· {{ panes.length }}</h2>
+        <p v-if="panes.length === 0" class="nbdev-empty px-4 py-1">本仓库里没有别的窗格</p>
         <a v-for="row in panes" :key="row.key" :href="hrefOf(row.paneId!)" class="nbdev-session-row" :class="{'nbdev-session-sel': selected === row.paneId}" :aria-current="selected === row.paneId ? 'page' : undefined" @click="follow($event, () => emit('select', row.paneId!))">
             <span class="nbdev-session-dot nbdev-dot-pane" aria-hidden="true" />
             <span class="nbdev-session-title" :title="row.title">{{ row.title }}</span>

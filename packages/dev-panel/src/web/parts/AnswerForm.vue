@@ -110,7 +110,6 @@ function submit(): void {
                     <span class="font-medium">{{ state.question.label }}</span>
                     <Badge v-if="isNewQuestion(state.question, latestVersion)" tone="accent" variant="soft" size="sm">新</Badge>
                     <Badge v-if="state.question.required" tone="warning" variant="soft" size="sm">必答</Badge>
-                    <span class="nbdev-note">#{{ state.question.id }}</span>
                 </legend>
                 <p v-if="state.question.about" class="nbdev-note">关于 {{ state.question.about }}</p>
                 <p v-if="state.stale" class="nbdev-hint nbdev-hint-warn">{{ staleText(state) }}</p>
@@ -132,7 +131,6 @@ function submit(): void {
                 <legend class="flex flex-wrap items-center gap-1.5 pb-1">
                     <span class="font-medium">{{ state.question.label }}</span>
                     <Badge v-if="isNewQuestion(state.question, latestVersion)" tone="accent" variant="soft" size="sm">新</Badge>
-                    <span class="nbdev-note">#{{ state.question.id }}</span>
                 </legend>
                 <template v-if="editing[state.question.id]">
                     <QuestionControl :question="state.question" :model-value="values[state.question.id]" @update:model-value="(value) => set(state.question.id, value)" />

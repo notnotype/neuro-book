@@ -183,7 +183,7 @@ function skipToAnswer(): void {
                                 <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="lastAnswer && submitAnswer(lastAnswer)" />
                                 <section v-if="lastAnswerId" class="nbdev-stack-tight" aria-label="这份答复的通知">
                                     <h2 class="nbdev-card-title">通知</h2>
-                                    <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（provenance 读不到）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
+                                    <NotifyStatus :jobs="answerJobs" :attempts="answerAttempts" :pending="notifyActions.pending.value" :dismissed="notifyActions.dismissed.value" empty-text="没有要通知的会话：提问者不明（读不到是哪个会话提的问）或已经确认过；会话下次读答复时会看到" @send="(job, target) => notifyActions.request(job, target)" @skip="(job) => notifyActions.skip(job)" @replaced="(job) => notifyActions.openReplaced(job)" @dismiss="notifyActions.dismiss" />
                                     <WriteResult v-if="notifyActions.notice.value" :notice="notifyActions.notice.value" @dismiss="notifyActions.notice.value = null" />
                                 </section>
                             </template>

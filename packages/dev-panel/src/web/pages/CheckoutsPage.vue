@@ -118,7 +118,7 @@ const STATUS_LABEL: Record<string, string> = {M: "改", A: "新增", D: "删", T
 
 <template>
     <PageShell :crumbs="[{label: '首页', href: '/'}, {label: 'checkout'}]" title="checkout" @navigate="navigate">
-        <template v-if="computedAgo" #meta><span>未提交与领先落后是 {{ computedAgo }}算的</span><span>点一行去它的 Task，没有 Task 的去它的文档</span></template>
+        <template v-if="computedAgo" #meta><span>未提交与领先落后是 {{ computedAgo }}算的</span></template>
         <LoadState v-bind="loadStateOf(checkouts)" label="正在读取 checkout" @retry="checkouts.reload()" />
         <!-- 列多：中等宽度时整张表横向滚动，不把每列挤成一字一行；路径截断（悬停看全文、点一下复制），宽屏不必横向滚动。手机上换成下面的卡片。 -->
         <div v-if="checkouts.data.value" class="relative hidden overflow-x-auto md:block" @click="onTableClick">

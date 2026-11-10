@@ -250,7 +250,7 @@ const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.v
                     </div>
                     <div v-if="phoneDetail" class="nbdev-divider flex shrink-0 items-center gap-2 border-b px-3 py-2">
                         <button type="button" class="nbdev-accent flex shrink-0 items-center gap-0.5" @click="backToList"><span class="i-lucide-chevron-left size-4" aria-hidden="true" />会话</button>
-                        <span class="min-w-0 truncate font-semibold">{{ showNotify ? "通知" : row?.title ?? `pane ${paneId}` }}</span>
+                        <span class="min-w-0 truncate font-semibold">{{ showNotify ? "通知" : row?.title ?? `窗格 ${paneId}` }}</span>
                     </div>
 
                     <!-- 通知（决定点 22：左列表最上面一行点进来） -->
@@ -269,8 +269,8 @@ const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.v
                     <!-- 选了但这格不在了，或不在本仓库 -->
                     <div v-else-if="!selected" class="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
                         <span class="i-lucide-square-dashed nbdev-secondary size-6" aria-hidden="true" />
-                        <p class="font-semibold">{{ pane ? `pane ${paneId} 不在本仓库里` : `pane ${paneId} 不在了` }}</p>
-                        <p class="nbdev-secondary">{{ pane ? "只开放本仓库里的 pane" : "会话结束了，或 pane 关了；在左边选别的会话" }}</p>
+                        <p class="font-semibold">{{ pane ? `窗格 ${paneId} 不在本仓库里` : `窗格 ${paneId} 不在了` }}</p>
+                        <p class="nbdev-secondary">{{ pane ? "只开放本仓库里的窗格" : "会话结束了，或窗格关了；在左边选别的会话" }}</p>
                     </div>
 
                     <template v-else>
