@@ -66,6 +66,8 @@ updated: 2026-11-09
 
 2026-11-10 开发者：待定项“按推荐走，不用再审了”，提案接受；长期决定写成 [ADR 0046](../../../../../docs/adr/0046-workbench-view-containers.md)（部分取代 ADR 0044 决策 3）。
 
+Spec 的条目级 planned 合同已提交（`workbench-layout`、`views`、`nested-grid`、`commands`；起草报告 [`evidences/spec-draft-report.txt`](evidences/spec-draft-report.txt)）。2026-11-10 开发者确认：计划；区域里的工具视图不再有标签条（多标签的工具组只剩浮动窗）；分节的头没有隐藏按钮，隐藏是区域的事；侧栏里单视图容器的入口在活动栏里拖动只换位置、容器不变。开发者：“可以，没问题，先直接开始做”。
+
 ## 下一步
 
-Spec 改动在起草（条目级 planned），审过后提交。实施计划 [`plan.md`](plan.md) 已写，先给开发者看要点，确认后按切片实施：切片 0 把隐藏判定收到 `isNodeShown`（行为不变），之后先做侧栏。
+在 worktree `.worktree/w00026-t24-view-containers`（分支 `feat/w00026-t24-view-containers`）按 `plan.md` 的切片实施，从切片 0 开始。
