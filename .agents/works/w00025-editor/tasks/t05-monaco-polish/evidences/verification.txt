@@ -1,0 +1,9 @@
+w00025 t05 源码编辑器的右键菜单与语法配色：收口验证（2026-11-10，分支 feat/w00025-editor，提交 c919a0082、4c611eaba、817dd6dfa）
+
+1. 编辑器 Bun 测试（含 code/context-menu.test.ts、code/monaco-theme.test.ts）与 shared/clipboard-read.test.ts：212 pass（t04 修正后 215）。
+2. nb-ui：npx vitest run src/theme src/colorway src/components/token-consumption.test.ts —— 7 个文件 100 例全过（新变量登记在 tokens.css 里有声明）。
+3. 组件测试：npx vitest run src/plugins/markdown src/plugins/editor src/plugins/lab/web/fixtures/index.dom.test.ts —— 91 例全过（Markdown 菜单改用共用的读剪贴板；Lab 场景登记门禁：CodeContextMenu 经 EditorGroup 验证）。
+4. typecheck 通过；docs:check 无失败。
+5. e2e：editor-code-menu.e2e.ts 11 例（菜单各项逐项点、贡献项按后缀、多选区、查找框、Shift+F10 与菜单键、滚动关闭、只读、语法色在四组配色下的计算颜色与对比度、选区色）全过；
+   合入前清单 7 个文件（editor-code-menu、editor-types、editor-code-settings、editor-area、themes、lab-scenes、markdown-editing）133 例：131 过、2 败。败的两例是开发模式的 Lab 页面在 15 秒内没起来（themes“Lab 不受主题影响”、lab-scenes 的整体巡检），负载 24–30（别的会话在跑）；单独重跑同样失败；在没有 t05 改动的提交（436ee1660）上对照同样两例也失败；另起开发服务打开 /lab 正常、没有页面错误与失败请求。判为环境，待负载降下来重跑。
+6. 语法色缺省的量色：palette.txt（八套配色都达标；近色只剩正则与标签、关键字在 macos 亮与护眼米黄上）。
