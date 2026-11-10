@@ -14,7 +14,7 @@ import type {CallView, RuleHit} from "./rules.js";
 /** 闸门的文字由宿主给；这里只看它们进了哪里。 */
 const GATE = {askReason: "gate-ask", blockedText: "gate-blocked"};
 
-const view = (patch: Partial<CallView> = {}): CallView => ({tool: "nbook.agent.shell", toolName: "shell", args: {}, paths: [], unresolvedPaths: false, others: [], subjectsAvailable: true, argv: null, opaqueText: null, readOnly: false, redirectWrites: false, ...patch});
+const view = (patch: Partial<CallView> = {}): CallView => ({tool: "kit.shell", toolName: "shell", args: {}, paths: [], unresolvedPaths: false, others: [], subjectsAvailable: true, argv: null, opaqueText: null, readOnly: false, redirectWrites: false, ...patch});
 const noExpand = (glob: string): string => glob;
 const hit = (action: RuleHit["action"]): RuleHit => ({action});
 
@@ -85,7 +85,7 @@ describe("一层的结果（输出 5、12、14）", () => {
 
     test("第一条命中；工具名与 id 都认", () => {
         expect(of([shell("rm *", "allow"), shell("rm *", "deny")], commands(["rm", "x"]))).toBe("allow");
-        expect(of([{tool: "nbook.agent.*", action: "ask"}], commands(["ls"]))).toBe("ask");
+        expect(of([{tool: "kit.*", action: "ask"}], commands(["ls"]))).toBe("ask");
         expect(of([{tool: "other", action: "deny"}], commands(["ls"]))).toBeUndefined();
     });
 
