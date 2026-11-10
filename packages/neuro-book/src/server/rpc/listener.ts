@@ -7,10 +7,9 @@
  * 网页无法省略，不带的只有本机的非浏览器客户端。监听与路由归宿主：插件全部关闭后才由装配方停止。
  */
 
+import {createSocketLink, RPC_MAX_MESSAGE_BYTES, RPC_PATH} from "@notnotype/nb-host/socket";
+import type {SocketLink} from "@notnotype/nb-host/socket";
 import type {RemoteRouter} from "@notnotype/nb-runtime/remote";
-
-import {createSocketLink, RPC_MAX_MESSAGE_BYTES, RPC_PATH} from "nbook/shared/rpc-socket";
-import type {SocketLink} from "nbook/shared/rpc-socket";
 
 /** 门的结果；拒绝时 `code` 进 503 响应的错误码（`startup-failed`、`stopping`）。 */
 export type RpcGateResult = {readonly ok: true} | {readonly ok: false; readonly code: string};

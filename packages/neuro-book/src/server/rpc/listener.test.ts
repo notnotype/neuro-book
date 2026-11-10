@@ -5,10 +5,9 @@
 
 import {afterEach, describe, expect, it} from "bun:test";
 
+import {RPC_MAX_MESSAGE_BYTES} from "@notnotype/nb-host/socket";
+import {helloFrame, openRawRpcSocket, upgradeStatus} from "@notnotype/nb-host/testing";
 import {createRemoteNode, createRemoteRouter, WIRE_PROTOCOL_VERSION} from "@notnotype/nb-runtime/remote";
-
-import {helloFrame, openRawRpcSocket, upgradeStatus} from "nbook/server/testing/rpc-client";
-import {RPC_MAX_MESSAGE_BYTES} from "nbook/shared/rpc-socket";
 
 import {loopbackOrigins} from "../config";
 import {startRpcListener} from "./listener";

@@ -38,6 +38,7 @@
         "@notnotype/nb-file-lock": "workspace:*",
         "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-harness": "workspace:*",
+        "@notnotype/nb-host": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@notnotype/nb-time": "workspace:*",

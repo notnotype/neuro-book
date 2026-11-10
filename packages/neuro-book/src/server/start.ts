@@ -14,6 +14,7 @@ import {writeSync} from "node:fs";
 import {homedir} from "node:os";
 import {join} from "node:path";
 
+import {RPC_PATH} from "@notnotype/nb-host/socket";
 import type {Application, StartupFailure, StartupResult, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
@@ -32,7 +33,6 @@ import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/p
 import type {DrainClock} from "nbook/plugins/http/backend/admission";
 import {clockKey, startupEnvKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
-import {RPC_PATH} from "nbook/shared/rpc-socket";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import {loopbackOrigins} from "./config";

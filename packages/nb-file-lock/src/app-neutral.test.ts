@@ -9,7 +9,8 @@ import {join, relative} from "node:path";
 const SRC = import.meta.dir;
 /** 现有的应用名：NeuroBook 与 NeuroBot。 */
 const APP_NAMES = /nbook|neurobook|nbot|neurobot/iu;
-const APP_PACKAGES = /from\s+["'](?:nbook\/|@notnotype\/neuro-book|@notnotype\/neuro-bot)/u;
+/** 应用包本身；`@notnotype/neuro-book-test-support` 不是应用包。 */
+const APP_PACKAGES = /from\s+["'](?:nbook\/|@notnotype\/neuro-book(?:\/|["'])|@notnotype\/neuro-bot(?:\/|["']))/u;
 
 function sources(directory: string): string[] {
     return readdirSync(directory, {withFileTypes: true}).flatMap((entry) => {
@@ -28,5 +29,6 @@ describe("与应用无关", () => {
         for (const name of ["NeuroBook", "nbook", "NeuroBot", "nbot"]) expect(APP_NAMES.test(`const id = "${name}";`)).toBe(true);
         expect(APP_PACKAGES.test('import {commitStaged} from "nbook/backend/staged-commit";')).toBe(true);
         expect(APP_PACKAGES.test('import {x} from "@notnotype/neuro-bot/server";')).toBe(true);
+        expect(APP_PACKAGES.test('import {x} from "@notnotype/neuro-book-test-support/tmp";')).toBe(false);
     });
 });

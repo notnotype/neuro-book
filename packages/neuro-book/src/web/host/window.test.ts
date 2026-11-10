@@ -12,6 +12,7 @@ import {EventEmitter} from "node:events";
 import {mkdir, rm} from "node:fs/promises";
 import {join} from "node:path";
 
+import {helloFrame, openRawRpcSocket, startTcpProxy} from "@notnotype/nb-host/testing";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -31,8 +32,6 @@ import {startClaimedServer} from "nbook/server/testing/claimed-server";
 import type {RunningServer} from "nbook/server/start";
 import {createProjectRegistry} from "nbook/server/projects/registry";
 import {killSpawnedProjects, observed, PROJECT_FIXTURE_ENTRY, trackedProjectOutput} from "nbook/server/testing/projects";
-import {helloFrame, openRawRpcSocket} from "nbook/server/testing/rpc-client";
-import {startTcpProxy} from "nbook/server/testing/tcp-proxy";
 import {createRemoteProbePlugin, newRemoteProbeState} from "nbook/server/testing/test-plugins";
 import type {RemoteProbeState} from "nbook/server/testing/test-plugins";
 import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";

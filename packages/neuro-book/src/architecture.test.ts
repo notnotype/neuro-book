@@ -88,6 +88,10 @@ const EXAMPLE_PACKAGES: ReadonlyArray<string> = [...SDK_ENTRIES.map((entry) => e
  */
 const PACKAGE_SIDES: ReadonlyArray<{readonly specifier: string; readonly side: "backend" | "web" | "neutral"}> = [
     {specifier: "@notnotype/nb-file-lock", side: "backend"},
+    {specifier: "@notnotype/nb-host/server", side: "backend"},
+    {specifier: "@notnotype/nb-host/web", side: "web"},
+    {specifier: "@notnotype/nb-host/socket", side: "neutral"},
+    {specifier: "@notnotype/nb-host/http/contracts", side: "neutral"},
 ];
 const packageSide = (specifier: string): "backend" | "web" | "neutral" | null => PACKAGE_SIDES.find((entry) => specifier === entry.specifier)?.side ?? null;
 
@@ -261,6 +265,9 @@ describe("包内依赖方向", () => {
             use("../plugin-sdk/examples/plugins/notes/web/plugin.ts", "@notnotype/nb-ui/composables"),
             use("web/host/window.ts", "@notnotype/nb-file-lock"),
             use("plugins/files/shared/contracts.ts", "@notnotype/nb-file-lock", true),
+            use("web/host/window.ts", "@notnotype/nb-host/server"),
+            use("server/start.ts", "@notnotype/nb-host/web"),
+            use("plugins/files/shared/contracts.ts", "@notnotype/nb-host/web"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
@@ -279,6 +286,9 @@ describe("包内依赖方向", () => {
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "../../clock/shared/contracts"),
             use("../plugin-sdk/examples/plugins/notes/web/plugin.ts", "../shared/contracts"),
             use("plugins/files/backend/rooted.ts", "@notnotype/nb-file-lock"),
+            use("plugins/files/shared/contracts.ts", "@notnotype/nb-host/socket"),
+            use("web/host/connection.ts", "@notnotype/nb-host/socket"),
+            use("server/start.ts", "@notnotype/nb-host/socket"),
         ])).toEqual([]);
 
         expect(importsOf(join(SRC, "web", "main.ts")).some((item) => item.specifier === "./development-plugins" && item.dynamic === true)).toBe(true);

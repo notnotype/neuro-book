@@ -9,6 +9,8 @@ import {EventEmitter} from "node:events";
 import {appendFile, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {helloFrame, openRawRpcSocket} from "@notnotype/nb-host/testing";
+import type {RawRpcSocket} from "@notnotype/nb-host/testing";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import type {Subprocess} from "bun";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -23,8 +25,6 @@ import {manifestServerPlugins} from "./plugins";
 import {createProjectRegistry} from "./projects/registry";
 import {startClaimedServer} from "./testing/claimed-server";
 import type {RunningServer} from "./start";
-import {helloFrame, openRawRpcSocket} from "./testing/rpc-client";
-import type {RawRpcSocket} from "./testing/rpc-client";
 import {alive, killSpawnedProjects, observed, PROJECT_FIXTURE_ENTRY, readyPid, trackedProjectOutput} from "./testing/projects";
 import {createRemoteProbePlugin, SERVER_PROBE_CLOSED_LINE} from "./testing/test-plugins";
 

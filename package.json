@@ -30,6 +30,7 @@
     "packages/nb-time",
     "packages/nb-canon",
     "packages/nb-file-lock",
+    "packages/nb-host",
     "packages/neuro-book",
     "packages/neuro-book-legacy"
   ],

@@ -4,11 +4,11 @@
  * 使浏览器发出的 Origin 与页面一致。
  */
 
+import {createSocketLink} from "@notnotype/nb-host/socket";
 import type {RemoteLink} from "@notnotype/nb-runtime/remote";
 
 import {BROWSER_BOOTSTRAP_PATH} from "nbook/shared/browser-bootstrap";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
-import {createSocketLink} from "nbook/shared/rpc-socket";
 
 /**
  * 没有连上服务端：引导请求网络失败、非 2xx 或正文不是 JSON，或 RPC 端口的 WebSocket 没能打开。窗口据此显示
