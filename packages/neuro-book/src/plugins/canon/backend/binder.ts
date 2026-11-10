@@ -124,6 +124,26 @@ export function chapterText(projectRoot: string, chapter: string): string | unde
     }
 }
 
+/**
+ * 各章的标题（canon.project 输出 28）：章节文件名 `00012-标题.md` 里编号后面的那一段。没有文件的章不在结果里；
+ * 活页夹目录不存在时结果是空的。
+ */
+export function chapterTitles(projectRoot: string): ReadonlyMap<string, string> {
+    const titles = new Map<string, string>();
+    let names: string[];
+    try {
+        names = readdirSync(join(projectRoot, BINDER_DIR));
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return titles;
+        throw error;
+    }
+    for (const name of names) {
+        const match = /^(\d+)-(.*)\.md$/u.exec(name);
+        if (match !== null && match[2] !== "") titles.set(String(Number(match[1])), match[2]!);
+    }
+    return titles;
+}
+
 /** 章节文件名（`00012-标题.md`）对应的章 id（`12`）；不是章节文件时为 null。 */
 export function chapterOfFile(name: string): string | null {
     const match = /^(\d+)-.*\.md$/u.exec(name);

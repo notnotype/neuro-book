@@ -28,7 +28,7 @@ import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {holdLock} from "nbook/backend/locked-replace";
 
 import {descriptor} from "../plugin";
-import {BINDER_DIR, chapterOfFile, chapterText, readBinder} from "./binder";
+import {BINDER_DIR, chapterOfFile, chapterText, chapterTitles, readBinder} from "./binder";
 
 const SETTLE_MS = 50;
 /** 世界日志的跨进程锁在 `.nbook/locks/` 下的名字。 */
@@ -167,7 +167,8 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
     const reloadBinder = settled(async (current) => {
         const read = await readBinder(root);
         if (!read.ok) record("warn", "canon.binder.invalid", `活页夹清单坏了，保持原来的章序：${read.detail}`);
-        await current.setChapters(read.ok ? read.chapters : "invalid", read.ok ? read.lines : undefined);
+        // 标题取自章节文件名：改名也走这里（活页夹目录里任何变化都会重读清单），标题变了由世界服务发 `inputChanged`。
+        await current.setChapters(read.ok ? read.chapters : "invalid", read.ok ? read.lines : undefined, chapterTitles(root));
     });
     const absorb = settled((current) => current.externalChanged());
 
@@ -241,7 +242,7 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
                     clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
                 },
             },
-            {chapters: binder.ok ? binder.chapters : "invalid", ...(binder.ok ? {chapterLines: binder.lines} : {}), registry: buildRegistry(components), marks: buildMarkRegistry(marks), diagnostics: buildDiagnosticRegistry(diagnostics)},
+            {chapters: binder.ok ? binder.chapters : "invalid", ...(binder.ok ? {chapterLines: binder.lines} : {}), chapterTitles: chapterTitles(root), registry: buildRegistry(components), marks: buildMarkRegistry(marks), diagnostics: buildDiagnosticRegistry(diagnostics)},
         );
         if ("code" in opened) {
             record("warn", "canon.open.locked", "打开世界时世界日志的锁一直被占着，下一次调用再试");

@@ -6,7 +6,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {existsSync} from "node:fs";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
@@ -83,6 +83,57 @@ describe("canon.project：世界服务在项目子进程里", () => {
 
         await first.close();
         await second.close();
+        keep.release();
+    }, 30_000);
+
+    it("输出 28、29、31、34、35 与 canon.components 输出 21：经链路读章表、一次修订、登记的类型；章节文件改名收到 inputChanged", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const author = await windowOf(h, "browser-1", "profile-1");
+        const seen: CanonEvent[] = [];
+        expect((await author.canon.subscribe((event) => seen.push(event))).ok).toBe(true);
+
+        const dir = join(h.project.path, "manuscripts.binder");
+        await mkdir(dir, {recursive: true});
+        await writeFile(join(dir, "00001-好哥哥真难当.md"), "第一章\n");
+        await writeFile(join(dir, "00002-用钱说话.md"), "第二章\n");
+        await binder(h, `<binder><chapter id="1"/><chapter id="2"/></binder>`);
+        const table = async () => {
+            const read = await author.canon.call("chapters", {});
+            if (!read.ok) throw new Error(read.failure.code);
+            return read.value.items;
+        };
+        await until(async () => (await table()).length === 2);
+        expect(await table()).toEqual([{id: "1", index: 1, title: "好哥哥真难当", lines: [{from: 1, line: "main"}]}, {id: "2", index: 2, title: "用钱说话", lines: [{from: 1, line: "main"}]}]);
+
+        // 只改章节文件的名字：章序没变，不发布修订，靠 inputChanged 知道要重读章表。
+        const before = await version(author.canon);
+        await rename(join(dir, "00002-用钱说话.md"), join(dir, "00002-卡里的两万.md"));
+        await until(() => seen.some((event) => event.kind === "inputChanged" && event.what === "chapters"));
+        expect((await table())[1]).toMatchObject({id: "2", title: "卡里的两万"});
+        expect(await version(author.canon)).toBe(before);
+
+        const written = await publish(author.canon, {...person("星瑕"), baseVersion: before});
+        if (!written.ok) throw new Error(written.failure.code);
+        const revision = await author.canon.call("revision", {id: written.value.revision});
+        expect(revision).toMatchObject({ok: true, value: {version: written.value.version, revision: {id: written.value.revision, title: "星瑕", ops: [{kind: "create", ref: {kind: "entry"}}]}, revertable: {ok: true}}});
+        expect(await author.canon.call("revision", {id: "r999999"})).toMatchObject({ok: true, value: {revision: null}});
+
+        const types = await author.canon.call("components", {});
+        if (!types.ok) throw new Error(types.failure.code);
+        expect(types.value.items.find((type) => type.id === "nbook.canon.person")).toMatchObject({namespace: "character", fields: expect.any(Array)});
+        expect(await author.canon.call("changes", {filter: {before: {position: {kind: "chapter", chapter: "2", edge: "end"}, mode: "actual"}, order: "desc"}})).toMatchObject({ok: true, value: {items: [], total: 0}});
+        expect(await author.canon.call("changes", {filter: {before: {position: {kind: "chapter", chapter: "9", edge: "end"}, mode: "actual"}}})).toMatchObject({ok: false, failure: {code: "chapter-not-found"}});
+
+        // 带视图令牌：章表只到上限所在的章，登记的类型照常，读一次修订被拒。
+        const view = await author.canon.call("openView", {viewer: null, line: "main", until: {kind: "chapter", chapter: "1", edge: "end"}, purpose: "writer"});
+        if (!view.ok) throw new Error(view.failure.code);
+        expect(await author.canon.call("chapters", {view: view.value.token})).toMatchObject({ok: true, value: {items: [{id: "1"}]}});
+        expect((await author.canon.call("components", {view: view.value.token})).ok).toBe(true);
+        expect(await author.canon.call("revision", {id: written.value.revision, view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+
+        await author.close();
         keep.release();
     }, 30_000);
 

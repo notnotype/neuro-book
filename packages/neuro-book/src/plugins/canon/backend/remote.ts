@@ -103,6 +103,9 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             decisions: (input) => withWorld((service) => denied(service, input.view, "decisions") ?? paged(input.limit, (limit) => service.decisions({...(input.status === undefined ? {} : {status: input.status}), ...(input.about === undefined ? {} : {about: input.about})}, input.cursor, limit))),
             suggestions: (input) => withWorld((service) => denied(service, input.view, "suggestions") ?? paged(input.limit, (limit) => service.suggestions(input.status, input.cursor, limit))),
             revisions: (input) => withWorld((service) => denied(service, input.view, "revisions") ?? paged(input.limit, (limit) => service.revisions(input.filter ?? {}, input.cursor, limit), 20)),
+            revision: (input) => withWorld((service) => denied(service, input.view, "revision") ?? within(service.revision(input.id))),
+            chapters: (input) => withWorld((service) => read(input.view === undefined ? service.chapters() : service.viewed(own(input.view)).chapters())),
+            components: () => withWorld((service) => within(service.components())),
             render: (input) => withWorld((service) => read(input.view === undefined ? service.render(input.entry, position(service, input.position), input.mode, input.audience) : service.viewed(own(input.view)).render(input.entry, input.position, input.mode, input.audience))),
             preview: (input) => withWorld((service) => {
                 const refused = denied(service, input.view, "preview");
@@ -161,6 +164,7 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             exclusive: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "exclusive" && sink.next({holder: event.holder})))},
             reduced: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "reduced" && sink.next({})))},
             textChanged: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "textChanged" && sink.next(event.chapter === null || event.chapter === undefined ? {} : {chapter: event.chapter})))},
+            inputChanged: {subscribe: (_filter, sink, {signal}) => void forward(host, signal, (service) => service.subscribe((event) => event.kind === "inputChanged" && sink.next({what: event.what})))},
             lease: {
                 subscribe: (filter, sink, {signal}) => void forward(host, signal, (service) => {
                     // 订阅开始算一次续期；令牌已经不是当前的独占（过期、被解除）时推 ended，之后不会再有推送。

@@ -16,7 +16,7 @@ export type {PlainBlock, PlainProblem} from "./render/render";
 export type {PlainOptions} from "./render/entry";
 export type {NeededAuthorization} from "./world/authorization";
 export type {TellingHint, TellingItem} from "./service/reads";
-export type {ViewDenial, ViewedPage, ViewedReads, ViewGrant} from "./service/views";
+export type {ChapterItem, ViewDenial, ViewedPage, ViewedReads, ViewGrant} from "./service/views";
 export type {DiagnosticDeclaration, DiagnosticKeyPart} from "./components/diagnostics-registry";
 export type {MarkDeclaration, MarkRefKind, MarkTarget} from "./components/marks";
 /** 规范的 JSON 与按它比较（键排序）：插件比较存下来的值时用，不按对象键的插入顺序。 */

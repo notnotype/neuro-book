@@ -12,7 +12,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {ActorSchema, AddressSchema, AuthorizationSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
-import type {CanonReadView, DecisionView, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, ChapterItem, ComponentType, DecisionView, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -82,6 +82,9 @@ const methods = {
                 inView: Type.Optional(Type.String()),
                 range: Type.Optional(Type.Object({after: Type.Optional(Type.String()), through: Type.Optional(Type.String())}, {additionalProperties: false})),
                 worldline: Type.Optional(Type.String()),
+                /** 只列安放在这个读取位置之前的；`desc` 从新到旧（project.md 输出 31）。 */
+                before: Type.Optional(Type.Object({position: ReadPositionSchema, mode: Mode}, {additionalProperties: false})),
+                order: Type.Optional(Type.Union([Type.Literal("asc"), Type.Literal("desc")])),
             }, {additionalProperties: false})),
             cursor: Cursor,
             limit: Limit,
@@ -147,6 +150,12 @@ const methods = {
         effect: "read",
         errors,
     },
+    /** 一次修订的全部（project.md 输出 29）；带视图令牌拒。 */
+    revision: {input: Type.Object({id: Type.String(), view: View}), output: Out, effect: "read", errors},
+    /** 章表（输出 28）；带视图令牌时只到位置上限所在的章。 */
+    chapters: {input: Type.Object({view: View}), output: Out, effect: "read", errors},
+    /** 登记的 Component 类型与字段声明（canon.components 输出 21）；带不带视图令牌一样。 */
+    components: {input: Type.Object({view: View}), output: Out, effect: "read", errors},
     render: {input: Type.Object({entry: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, audience: Type.Union([Type.Literal("author"), Type.Literal("agent")]), view: View}), output: Out, effect: "read", errors},
     /** 预览写入请求，或还原请求（另给补偿要的作者授权，revisions.md 输出 5、21）。 */
     preview: {input: Type.Object({request: Type.Union([WriteRequestSchema, Type.Object({revert: Type.String(), withDependents: Type.Boolean(), requestId: Type.String({minLength: 1}), by: ActorSchema, title: Type.Optional(Type.String())})]), view: View}), output: Out, effect: "read", errors},
@@ -212,6 +221,8 @@ const events = {
     reduced: {filter: Type.Object({}), payload: Type.Object({})},
     /** 宿主通知某一章（或全部）的正文变了，版本不变（输出 25）。 */
     textChanged: {filter: Type.Object({}), payload: Type.Object({chapter: Type.Optional(Type.String())})},
+    /** 章表或登记的类型变了，版本不变（输出 34）。 */
+    inputChanged: {filter: Type.Object({}), payload: Type.Object({what: Type.Union([Type.Literal("chapters"), Type.Literal("components")])})},
     /**
      * 独占的租约订阅（输出 10）：申请到令牌的调用方订阅它；订阅结束（连接断开、调用方实例失效、退订）即结束独占。
      * 推一次 `held`，独占结束时推 `ended`。
@@ -265,6 +276,9 @@ export interface CanonStatus {
     };
 }
 
+/** 一次修订能不能还原（revisions.md 输出 14）：章序调整不能；有后面的修订依赖它时列出它们。 */
+export type Revertable = {readonly ok: true} | {readonly ok: false; readonly reason: "not-revertable"} | {readonly ok: false; readonly reason: "has-dependents"; readonly dependents: readonly string[]};
+
 export interface Page<T> {
     readonly version: number;
     readonly items: readonly T[];
@@ -277,7 +291,8 @@ export interface CanonOutputs {
     readonly entry: {readonly version: number; readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>};
     readonly tree: Page<{readonly id: string; readonly name: string; readonly type: string; readonly folder: string; readonly deleted: boolean; readonly hasChildren: boolean}>;
     readonly lookup: {readonly version: number; readonly found: Readonly<Record<string, readonly string[]>>};
-    readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown; readonly placedOn: string}>;
+    /** `total` 是符合筛选的总条数（输出 31）。 */
+    readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown; readonly placedOn: string}> & {readonly total: number};
     readonly tellings: Page<TellingItem>;
     /** 时间的回答（形状见 nb-canon 的 time/queries.ts）；一段时间里的事分页时带游标。 */
     readonly time: {readonly version: number; readonly inputDigest: string; readonly answer: Readonly<Record<string, unknown>>; readonly cursor?: string};
@@ -285,7 +300,11 @@ export interface CanonOutputs {
     readonly pending: PendingPage;
     readonly decisions: Page<DecisionView>;
     readonly suggestions: Page<Suggestion>;
-    readonly revisions: Page<{readonly id: string; readonly version: number; readonly by: Revision["by"]; readonly what: string; readonly title: string; readonly time: string; readonly chapter?: string; readonly impact: Revision["impact"]; readonly revertable: {readonly ok: boolean; readonly reason?: string; readonly dependents?: readonly string[]}}>;
+    readonly revisions: Page<{readonly id: string; readonly version: number; readonly by: Revision["by"]; readonly what: string; readonly title: string; readonly time: string; readonly chapter?: string; readonly impact: Revision["impact"]; readonly revertable: Revertable}>;
+    /** 一次修订的全部；没有这次修订时 `revision` 是 null，也没有 `revertable`。 */
+    readonly revision: {readonly version: number; readonly revision: Revision | null; readonly revertable?: Revertable};
+    readonly chapters: ReadStamp & {readonly items: readonly ChapterItem[]};
+    readonly components: ReadStamp & {readonly items: readonly ComponentType[]};
     readonly render: {readonly version: number; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly blocks: readonly unknown[]} | null;
     /** 存下来的对象；不存在时 `object` 为 null。 */
     readonly object: {readonly version: number; readonly object: unknown};
@@ -323,6 +342,8 @@ export type CanonEvent =
     | {readonly kind: "exclusive"; readonly holder: string | null}
     | {readonly kind: "reduced"}
     | {readonly kind: "textChanged"; readonly chapter?: string}
+    /** 章表或登记的类型变了，世界版本没动：重读 `chapters` 或 `components` 以及依赖它们的读取（输出 34）。 */
+    | {readonly kind: "inputChanged"; readonly what: "chapters" | "components"}
     /** 同一项目代次内重连后订阅已重建：中间可能漏了事件，先读一次 `status` 拿当前版本再重读（Spec project“时序与寿命”）。 */
     | {readonly kind: "resync"}
     /** 订阅被提供方结束（项目实例停止、链路关闭）；之后不再有事件。调用方自己 `release` 时不发。 */
