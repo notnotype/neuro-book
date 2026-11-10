@@ -275,7 +275,7 @@ export function modelReviewer(options: {
 怎么接：内核只认 `ApproveHook`（`kernel/api/host.ts`），它是 `SessionEnv.approve`，宿主整体可换。kit 的 `createApprovalHook` 是一种实现：三层规则、闸门分类与 `decide`（`judge.ts`，纯函数，导出）先判；判出放行或拒绝的直接交回；判出“交给审批者”的调 `options.review`；判出要转问的，以及审批者转人工的，都经 `options.escalate`，带来源与原因。转问之后的结论若仍是 `ask` 且调用含命令，再附上 `remember`（“本会话都批准”要记的前缀，现在的 `rememberFor`），与现在一样。判定者与回答者由宿主给，钩子不写死“用户”或“审批模型”：
 
 - NeuroBook 给 `modelReviewer`（就是现在的 `autoReview`，“审批模型”），不传 `escalate`，行为不变。
-- NeuroBot 要“另一个 bot 判定”时写一个 `Reviewer`，把 `ReviewRequest` 发给判定 bot 的会话、等它的结论；要所有转问都先过判定 bot、或“任务运行不等审批，清单外直接拒绝”（提案第七节）时写一个 `Escalate`，按 `source` 处理。都不必改 kit，也不必改内核。要所有写都过审批者时把 `localWrites` 给空数组。
+- NeuroBot 要“另一个 bot 判定”时写一个 `Reviewer`，把 `ReviewRequest` 发给判定 bot 的会话、等它的结论；要所有转问都先过判定 bot 时写一个 `Escalate`，按 `source` 处理。都不必改 kit，也不必改内核。要所有写都过审批者时把 `localWrites` 给空数组。“任务运行不等审批，清单外直接拒绝”（提案第七节）不能只靠 `Escalate`：规则判为放行的调用到不了它。NeuroBot 要在 `createApprovalHook` 外面按会话种类再包一层 `ApproveHook`，清单外先拒绝，并按清单裁剪任务会话的工具集（w00043 t01 第二轮审查 B9）。
 - 内核的 `resolve` 只收用户应答审批（`kernel/run/interaction.ts` 的 `allowed`），所以“bot 回答已经弹出的审批请求”不在这条路上，那要改内核，留给 NeuroBot 的 Task。
 
 实现上要注意的两处现状：项目规则读坏与地址分类为 `ask` 都是在 `decide` 之前把规则结果改成 `{action: "ask"}`（`hook.ts`），来源在那一步就丢了，所以钩子另记一个“谁把它改成 ask”的变量（两者都成立时记后改的 `address`），`decide` 交回 `rule` 来源的询问时换成它；`decide` 的询问结果加 `source`（`rule`、`gate`、`mode`），不改它的判定顺序。缺省的 `escalate` 交回的原因与现在逐字相同：闸门为 `gate.askReason`，规则为规则自己的 `reason`，审批模型为它交回的原因，其余没有原因。
