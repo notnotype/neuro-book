@@ -224,6 +224,11 @@
     "views": {
         "resetLocation": "Reset Location"
     },
+    "viewContainers": {
+        "project": {
+            "title": "Project"
+        }
+    },
     "common": {
         "more": "More",
         "retry": "Retry"

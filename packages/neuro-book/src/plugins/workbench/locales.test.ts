@@ -392,6 +392,8 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "state.nonPhone.reason": {"zh-CN": "手机呈现下不可用", "en-US": "Not available in the phone layout"},
     "state.hasCurrentPanel.reason": {"zh-CN": "还没有面板获得过焦点", "en-US": "No panel has had focus yet"},
     "state.maximized.reason": {"zh-CN": "没有最大化的面板", "en-US": "No panel is maximized"},
+    // w00026 t24：工作台声明的视图容器（docs/specs/workbench/views.md 输出 15）。
+    "viewContainers.project.title": {"zh-CN": "项目", "en-US": "Project"},
 };
 
 /**

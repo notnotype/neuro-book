@@ -18,7 +18,7 @@ import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contract
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {PROJECT_VIEW_CONTAINER, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {windowProjectKey} from "nbook/shared/projects";
@@ -42,6 +42,7 @@ const VIEW: WrittenViewDeclaration = {
     location: "sidebar",
     order: 0,
     layout: "fill",
+    container: PROJECT_VIEW_CONTAINER,
     actions: [
         {command: NEW_FILE_COMMAND, icon: "i-lucide-file-plus"},
         {command: NEW_FOLDER_COMMAND, icon: "i-lucide-folder-plus"},

@@ -5,7 +5,7 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, layoutDropKey, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, layoutDropKey, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc, LayoutSource} from "@notnotype/nb-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
@@ -26,7 +26,6 @@ import {DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_M
 import {MOVE_VIEW_COMMAND} from "../commands/view-commands";
 import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
-import type {ViewLocation} from "../../shared/views";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetView, moveTargetsOf, panelTitle, sidebarColumnPanels, titleOnlyPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
@@ -133,7 +132,7 @@ const instances = useViewInstances({
     placed: () => placedViews.value,
     location: (viewId) => {
         const panel = panelOfView(viewId);
-        return panel === null ? null : ((doc.value.panels[panel]?.name as ViewLocation | undefined) ?? null);
+        return panel === null ? null : regionOf(doc.value, panel);
     },
 });
 
@@ -284,7 +283,7 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
     const targets = moveTargetsOf(doc.value, opened.viewId) ?? [];
     const into = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "panel" ? [] : [{label: text(panelTitle(doc.value, catalog.value, target.panel)), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, target: target.panel})}]));
     const beside = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "new-panel" ? [] : [{label: message("viewCommands.newPanelNextTo", {panel: text(panelTitle(doc.value, catalog.value, target.nextTo))}), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, newPanelNextTo: target.nextTo})}]));
-    const reset: ContextMenuItem[] = canResetView(doc.value, catalog.value, opened.viewId) ? [{label: message("views.resetLocation"), action: () => props.layout.actions.resetView(opened.viewId)}] : [];
+    const reset: ContextMenuItem[] = canResetView(doc.value, catalog.value, opened.viewId, state.value.containers) ? [{label: message("views.resetLocation"), action: () => props.layout.actions.resetView(opened.viewId)}] : [];
     // 已经独占一个窗的再浮动没有意义。
     const home = panelOfView(opened.viewId);
     const alone = home !== null && isFloating(doc.value, home) && doc.value.panels[home]?.tabs.length === 1;
@@ -325,7 +324,7 @@ function selectEntry(viewId: string): void {
             focusView(viewId);
             return;
         case "hide":
-            run(SET_PART_HIDDEN_COMMAND, {part: doc.value.panels[intent.panel]?.name, hidden: true});
+            run(SET_PART_HIDDEN_COMMAND, {part: regionOf(doc.value, intent.panel), hidden: true});
             return;
         case "collapse":
             props.layout.actions.setCollapsed(intent.panel, true);
@@ -418,7 +417,7 @@ onMounted(() => {
             const home = findTab(doc.value, source.tab)?.panel;
             const panel = home === undefined ? undefined : doc.value.panels[home];
             // 只有这个标签的约束：工具视图按它声明的，不按来源面板别的标签的并。
-            return panel === undefined ? {width: 0, height: 0} : panelConstraints({role: panel.role, tabs: panel.tabs.filter((tab) => tabKey(tab) === source.tab), active: source.tab}, catalog.value, state.value.extent?.width ?? 0).minimumSize;
+            return panel === undefined ? {width: 0, height: 0} : panelConstraints({role: panel.role, tabs: panel.tabs.filter((tab) => tabKey(tab) === source.tab), active: source.tab}, null, catalog.value, state.value.extent?.width ?? 0).minimumSize;
         },
         commit: (source, action, part, keyboard) => props.layout.actions.commitDrop(source, action, part, keyboard),
     });

@@ -2,8 +2,8 @@
  * 面板的约束（docs/specs/ui/workbench-layout.md 输出 5、6）：工作台给 nb-layout 的策略。库不知道角色与名字的含义。
  */
 
-import {edgeTargetOf, findTreeNode, GRID_UNBOUNDED, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, GridOrientation, LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, PanelRecord, TabRef} from "@notnotype/nb-layout";
+import {edgeTargetOf, findTreeNode, GRID_UNBOUNDED, REGION_ORIENTATION, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-layout";
+import type {GridExtent, GridOrientation, LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, PanelName, PanelRecord, TabRef} from "@notnotype/nb-layout";
 
 import {
     SASH_PX,
@@ -50,14 +50,30 @@ export function defaultFloatRect(extent: GridExtent | null, minimum: GridExtent,
     return {x: Math.max(0, ((extent?.width ?? size.width) - size.width) / 2) + offset, y: Math.max(0, ((extent?.height ?? size.height) - size.height) / 2) + offset, ...size};
 }
 
-/** 放不下时收走的先后（输出 10）。别的工具面板排在后面。 */
-export const COLLAPSE_ORDER: ReadonlyArray<string> = ["auxiliarybar", "panel", "sidebar"];
+/** 放不下时先收哪个区域（输出 10）。 */
+const COLLAPSE_REGIONS: ReadonlyArray<PanelName> = ["auxiliarybar", "panel", "sidebar"];
 
-export function panelConstraints(panel: PanelRecord, catalog: ViewCatalog, viewportWidth: number, squeezed = false): {readonly minimumSize: GridExtent; readonly maximumSize: GridExtent} {
+/**
+ * 放不下时收走的先后（输出 10）：按右栏、底部面板、侧栏，各区域里的分节按树序。不显示的分节在里面也无妨，收走的只从显示着的里面挑；
+ * 不在这张表里的工具面板排在后面。
+ */
+export function collapseOrder(doc: LayoutDoc): ReadonlyArray<string> {
+    return COLLAPSE_REGIONS.flatMap((region) => {
+        const hit = regionNodeOf(doc, region);
+        return hit === null ? [] : treeLeaves(hit.node).map((leaf) => leaf.id).filter((id) => id !== hit.anchor);
+    });
+}
+
+/**
+ * 一块面板的约束（输出 6）。`region` 是它所在的区域（`regionOf`），不在区域里（浮动窗）是 null，用“其它工具面板”那一行。
+ * 区域里的分节各取“区域那一行与自己视图声明的并”；同一列（排）的分节共用交叉轴，求解器把它们并起来，就是区域实际的约束：当前容器里各视图声明的并。
+ * 不显示的分节不进呈现树，所以别的容器的声明不参与。
+ */
+export function panelConstraints(panel: PanelRecord, region: PanelName | null, catalog: ViewCatalog, viewportWidth: number, squeezed = false): {readonly minimumSize: GridExtent; readonly maximumSize: GridExtent} {
     // 工具面板全收走了还放不下：只压编辑组（输出 10）。它们的最小值还在的话约束解不出来，求解器会连条一起按比例压。
     if (panel.role === "editor") return {minimumSize: squeezed ? {width: 0, height: 0} : EDITOR_GROUP_MINIMUM, maximumSize: {width: GRID_UNBOUNDED, height: GRID_UNBOUNDED}};
-    const minimumWidth = panel.name === "sidebar" ? SHELL_SIDEBAR_MIN_WIDTH : (panel.name === "auxiliarybar" ? SHELL_AUXILIARYBAR_MIN_WIDTH : SHELL_PANEL_MIN_WIDTH);
-    const maximumWidth = panel.name === "sidebar" ? SHELL_SIDEBAR_MAX_WIDTH : (panel.name === "auxiliarybar" ? Math.max(SHELL_AUXILIARYBAR_MAX_FLOOR_WIDTH, viewportWidth * SHELL_AUXILIARYBAR_MAX_VIEWPORT_RATIO) : GRID_UNBOUNDED);
+    const minimumWidth = region === "sidebar" ? SHELL_SIDEBAR_MIN_WIDTH : (region === "auxiliarybar" ? SHELL_AUXILIARYBAR_MIN_WIDTH : SHELL_PANEL_MIN_WIDTH);
+    const maximumWidth = region === "sidebar" ? SHELL_SIDEBAR_MAX_WIDTH : (region === "auxiliarybar" ? Math.max(SHELL_AUXILIARYBAR_MAX_FLOOR_WIDTH, viewportWidth * SHELL_AUXILIARYBAR_MAX_VIEWPORT_RATIO) : GRID_UNBOUNDED);
     // 取所有标签的并（最大的最小值、最小的最大值）：切标签不改布局。
     const declared = panel.tabs.flatMap((tab) => (tab.kind === "view" ? [catalog.get(tab.viewId)] : [])).filter((declaration) => declaration !== undefined);
     const minWidth = Math.max(minimumWidth, ...declared.map((view) => view.minimumSize?.width ?? 0));
@@ -67,9 +83,18 @@ export function panelConstraints(panel: PanelRecord, catalog: ViewCatalog, viewp
     return {minimumSize: {width: minWidth, height: minHeight}, maximumSize: {width: maxWidth, height: maxHeight}};
 }
 
-export function layoutProjectionOptions(input: {readonly catalog: ViewCatalog; readonly viewportWidth: number; readonly removed?: ReadonlySet<string>; readonly cardGap?: number; readonly squeezed?: boolean}): LayoutProjectionOptions {
+/**
+ * `doc` 是要投影的那份文档：约束按面板所在的区域取，区域要从树里问。拿它去投影别的文档（拖动的预览）时，在这份文档里没有的面板按“不在区域里”算。
+ */
+export function layoutProjectionOptions(input: {readonly doc: LayoutDoc; readonly catalog: ViewCatalog; readonly viewportWidth: number; readonly removed?: ReadonlySet<string>; readonly cardGap?: number; readonly squeezed?: boolean}): LayoutProjectionOptions {
+    // 一次投影里每块面板都问一遍，`regionOf` 要从根找祖先：同一份文档只算一次。
+    const regions = new Map<string, PanelName | null>();
+    const regionFor = (id: string): PanelName | null => {
+        if (!regions.has(id)) regions.set(id, regionOf(input.doc, id));
+        return regions.get(id) ?? null;
+    };
     return {
-        constraints: (_id, panel) => panelConstraints(panel, input.catalog, input.viewportWidth, input.squeezed),
+        constraints: (id, panel) => panelConstraints(panel, regionFor(id), input.catalog, input.viewportWidth, input.squeezed),
         // 主题的缝宽进几何：活动栏的卡片宽不变，叶宽要加上它和窗体、侧栏之间的缝。
         barThickness: (bar) => (bar === "activitybar" ? SHELL_ACTIVITYBAR_WIDTH + Math.max(0, input.cardGap ?? 0) : SHELL_STATUSBAR_HEIGHT),
         headHeight: PANEL_HEAD_HEIGHT,
@@ -84,11 +109,10 @@ export function layoutAccepts(tabs: ReadonlyArray<TabRef>, target: PanelRecord):
     return tabs.every((tab) => (tab.kind === "view" ? target.role === "tool" : target.role === "editor"));
 }
 
-/** 工具面板往哪个方向分（输出 1）：侧栏、右栏这一列上下分，面板这一排左右分。无名面板是从它们分出来的，看父分支的方向。 */
+/** 工具面板往哪个方向分（输出 1）：侧栏、右栏这一列上下分，面板这一排左右分，按面板所在的区域问。不在区域里的看父分支的方向。 */
 export function toolPanelAxis(doc: LayoutDoc, panelId: string): GridOrientation {
-    const name = doc.panels[panelId]?.name;
-    if (name === "panel") return "horizontal";
-    if (name !== undefined) return "vertical";
+    const region = regionOf(doc, panelId);
+    if (region !== null) return REGION_ORIENTATION[region];
     return findTreeNode(doc.tree.root, panelId)?.parent?.orientation ?? "vertical";
 }
 

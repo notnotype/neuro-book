@@ -92,7 +92,11 @@ export function panelCommands(layout: () => LayoutDocStore | null): PanelCommand
             const result = store.actions.setCollapsed(panel, (args.collapsed as boolean | undefined) ?? store.state.doc.panels[panel]?.collapsed !== true);
             return result.ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.noPanel};
         }),
-        [TOGGLE_PANEL_MAXIMIZED_COMMAND]: withPanel((store, panel) => (store.actions.toggleMaximized(panel) ? DONE : {ok: false, code: "unavailable", reason: TEXT.floatMaximize})),
+        [TOGGLE_PANEL_MAXIMIZED_COMMAND]: withPanel((store, panel) => {
+            if (store.actions.toggleMaximized(panel)) return DONE;
+            // 不是浮动窗时是区域的锚：它自己不显示，区域里最大化的是一个分节（输出 13）。
+            return {ok: false, code: "unavailable", reason: isFloating(store.actions.document(), panel) ? TEXT.floatMaximize : TEXT.noPanel};
+        }),
         [FLOAT_COMMAND]: {
             run: async (raw) => {
                 const store = layout();

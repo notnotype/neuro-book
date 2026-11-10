@@ -21,6 +21,7 @@ import {createWindowPlugins} from "nbook/web/host/window-plugins";
 import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../../shared/views";
 import type {ViewDeclaration} from "../../shared/views";
 import type {ViewImplementation} from "../contracts";
+import {regionContainers} from "../state/containers";
 import {defaultLayoutDoc} from "../state/default-tree";
 import {ViewRegistry} from "./registry";
 
@@ -133,8 +134,9 @@ describe("视图注册表", () => {
         const builtin = contributor("nbook.sample", ["nbook.sample.view"], control());
         const third = contributor("acme.sample", ["acme.sample.later", "acme.sample.first"], control(), {}, {"acme.sample.first": 0});
         const {registry} = await start([builtin, third]);
-        const sidebar = defaultLayoutDoc(registry.catalog).panels.sidebar;
-        expect(sidebar?.tabs).toEqual(["acme.sample.first", "nbook.sample.view", "acme.sample.later"].map((viewId) => ({kind: "view", viewId})));
+        // 没声明容器的视图各在自己的容器里：侧栏里容器的先后就是视图的先后。
+        const order = regionContainers(defaultLayoutDoc(registry.catalog), "sidebar").flatMap((container) => container.views);
+        expect(order).toEqual(["acme.sample.first", "nbook.sample.view", "acme.sample.later"]);
     });
 
     it("交付后可用，每次加载经句柄取实现", async () => {

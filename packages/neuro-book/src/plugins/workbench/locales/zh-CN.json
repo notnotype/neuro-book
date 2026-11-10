@@ -224,6 +224,11 @@
     "views": {
         "resetLocation": "重置位置"
     },
+    "viewContainers": {
+        "project": {
+            "title": "项目"
+        }
+    },
     "common": {
         "more": "更多",
         "retry": "重试"

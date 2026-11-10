@@ -54,8 +54,8 @@ import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items"
 import {titlebarMenuPoint, viewTitlePoint, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT} from "../shared/menus";
 import type {TitlebarMenuItemDeclaration, ViewTitleItemDeclaration} from "../shared/menus";
 import {overlaysPoint, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
-import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../shared/views";
-import type {ViewDeclaration} from "../shared/views";
+import {viewContainersPoint, viewsPoint, WORKBENCH_VIEW_CONTAINERS_POINT, WORKBENCH_VIEWS_POINT} from "../shared/views";
+import type {ViewContainerDeclaration, ViewDeclaration} from "../shared/views";
 import {workbenchRootKey} from "./contracts";
 import type {ActivityBarItemImplementation} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
@@ -73,7 +73,8 @@ import {createLayoutHost} from "./state/layout-host";
 import {layoutDocStoreFor} from "./state/layout-doc-store";
 import type {LayoutDocStore} from "./state/layout-doc-store";
 import {workbenchState, workbenchStateBindings} from "./state/public-state";
-import {ViewRegistry} from "./views/registry";
+import {unresolvedContainerRefs} from "./state/containers";
+import {viewContainerCatalog, ViewRegistry} from "./views/registry";
 
 const CommandHost = defineAsyncComponent(() => import("./commands/WorkbenchCommandHost.vue"));
 const Notifications = defineAsyncComponent(() => import("./components/WorkbenchNotifications.vue"));
@@ -100,6 +101,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
         themeScenesPoint,
         {id: WORKBENCH_PAGES_POINT, implementation: "required", validate: validatePageContribution},
         viewsPoint,
+        viewContainersPoint,
         {id: WORKBENCH_EDITOR_AREA_POINT, implementation: "required", validate: validateEditorAreaContribution},
         statusbarItemsPoint,
         titlebarItemsPoint,
@@ -164,9 +166,16 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const overlays = new OverlaySlot(context.signal);
             const OverlayHost = createOverlayHost(overlays, (message) => diagnostics.record({level: "warn", event: "workbench.overlays", message, source: {plugin: descriptor.id}}));
             const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal);
+            const viewContainers = viewContainerCatalog(context.declarations.list<ViewContainerDeclaration>(WORKBENCH_VIEW_CONTAINERS_POINT));
+            // 两份目录激活之后都不变，所以只在这里记一次（docs/specs/workbench/views.md 输出 16）；布局每次重算时不再记。
+            for (const {viewId, container} of unresolvedContainerRefs(views.catalog, viewContainers)) {
+                diagnostics.record({level: "warn", event: "workbench.views.container-missing", message: `视图 ${viewId} 声明的容器 ${container} 没有已接受的声明，落回它自己的隐式容器`, data: {viewId, container}, source: {plugin: descriptor.id}});
+            }
             let editorSaveGate: EditorSaveGate | null = null;
             const layout = createLayoutHost(() => {
                 const store = layoutDocStoreFor(project !== null).create(context, {storage, diagnostics});
+                // 先交容器再交视图：没有记录时默认布局跟着两份目录重算，中间不要有“视图到了、容器还没到”的一份。
+                store.actions.acceptViewContainers(viewContainers);
                 store.actions.acceptViewCatalog(views.catalog);
                 store.actions.acceptSaveGate({
                     pass: () => editorSaveGate?.pass() ?? Promise.resolve(true),

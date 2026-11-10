@@ -19,7 +19,7 @@ import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, E
 import {manifestFormat} from "nbook/plugin-platform-profile";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 
-import type {ViewDeclaration} from "../../shared/views";
+import type {ViewContainerDeclaration, ViewDeclaration} from "../../shared/views";
 import type {ViewImplementation} from "../contracts";
 
 /** 视图声明目录：视图 id 到声明。布局模型靠它决定视图的默认位置、尺寸约束与顺序。 */
@@ -62,6 +62,14 @@ export const THIRD_PARTY_VIEW_ORDER = 1000;
 function catalogDeclaration(descriptor: ContributionDescriptor<ViewDeclaration>): ViewDeclaration {
     if (descriptor.declaration.order !== undefined || manifestFormat.isBuiltinId(descriptor.plugin)) return descriptor.declaration;
     return {...descriptor.declaration, order: THIRD_PARTY_VIEW_ORDER};
+}
+
+/**
+ * 容器声明目录（docs/specs/workbench/views.md 输出 15）：容器 id 到声明，工作台入口激活时从已接受的声明取得，之后不变。第三方插件的容器没写 `order` 时
+ * 同视图一样补上 `THIRD_PARTY_VIEW_ORDER`（输出 13）。
+ */
+export function viewContainerCatalog(declarations: ReadonlyArray<ContributionDescriptor<ViewContainerDeclaration>>): ReadonlyMap<string, ViewContainerDeclaration> {
+    return new Map(declarations.map((descriptor) => [descriptor.id, descriptor.declaration.order !== undefined || manifestFormat.isBuiltinId(descriptor.plugin) ? descriptor.declaration : {...descriptor.declaration, order: THIRD_PARTY_VIEW_ORDER}]));
 }
 
 export class ViewRegistry implements ViewSource {

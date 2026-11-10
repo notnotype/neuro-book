@@ -2,13 +2,15 @@
  * 由文档算出这一刻怎么呈现（docs/specs/ui/workbench-layout.md“渲染”“面板头与活动栏”）：内容项、有效可见、活动栏条目点了做什么。纯模块，不碰 DOM 与记录。
  */
 
-import {findTab, findTreeNode, isFloating, isPanelShown, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, isContainerAnchor, isFloating, isPanelShown, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridContentInput, GridExtent, LayoutDoc, PanelRecord} from "@notnotype/nb-layout";
 
 import type {DisplayText} from "nbook/shared/localized-text";
 
 import {workbenchText} from "../../shared/text";
 import type {ViewCatalog} from "../views/registry";
+import {NO_CONTAINERS, viewHome, viewSection} from "./containers";
+import type {ContainerCatalog} from "./containers";
 import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
 
 const VIEW_KEY_PREFIX = "view:";
@@ -55,7 +57,10 @@ export function effectiveVisibleTabs(doc: LayoutDoc, facts: VisibilityFacts): Re
         }
         if (panel.active === null || !isPanelShown(doc, id) || facts.removed.has(id)) continue;
         if (facts.maximized !== null && facts.maximized !== id) continue;
-        const committed = panel.collapsed !== true && hasRoom(panel, facts.sizes[id]);
+        // 分节所在的区域拖到零记在锚上（输出 17）：命令写了它之后，呈现尺寸要到下一次布局才跟上，所以不只看尺寸。
+        const region = regionOf(doc, id);
+        const anchor = region === null ? undefined : doc.panels[regionNodeOf(doc, region)?.anchor ?? ""];
+        const committed = panel.collapsed !== true && anchor?.collapsed !== true && hasRoom(panel, facts.sizes[id]);
         const pulledOut = facts.preview !== null && hasRoom(panel, facts.preview[id]);
         // 最大化盖在上面，矩形不来自布局结果。
         if (committed || pulledOut || facts.maximized === id) visible.add(panel.active);
@@ -63,7 +68,7 @@ export function effectiveVisibleTabs(doc: LayoutDoc, facts: VisibilityFacts): Re
     return visible;
 }
 
-/** 活动栏条目点了做什么（输出 22）：不可见就显示，可见就隐藏；无名面板没有隐藏，是收起。 */
+/** 活动栏条目点了做什么（输出 22）：不可见就显示，可见就隐藏它所在的区域；不在区域里的面板没有隐藏，是收起。 */
 export type ToolEntryIntent =
     | {readonly kind: "reveal" | "hide" | "collapse"; readonly panel: string}
     | {readonly kind: "none"};
@@ -73,16 +78,21 @@ export function toolEntryIntent(doc: LayoutDoc, viewId: string, facts: {readonly
     for (const [id, panel] of Object.entries(doc.panels)) {
         if (!panel.tabs.some((tab) => tabKey(tab) === key)) continue;
         if (!facts.visible.has(key)) return {kind: "reveal", panel: id};
-        return {kind: panel.name === undefined ? "collapse" : "hide", panel: id};
+        return {kind: regionOf(doc, id) === null ? "collapse" : "hide", panel: id};
     }
     return {kind: "none"};
 }
 
-/** 侧栏这一列的面板，按树序（输出 22）：活动栏只列这里的视图，这些面板的头只写标题。 */
+/**
+ * 侧栏这个区域里装着视图的面板，按树序（输出 22）：活动栏只列这里的视图，这些面板的头只写标题。侧栏的锚不在里面：它没有标签、不进呈现树。
+ * 各个容器的分节都在里面，不只当前容器的。
+ */
 export function sidebarColumnPanels(doc: LayoutDoc): ReadonlyArray<string> {
-    const hit = findTreeNode(doc.tree.root, "sidebar");
+    const hit = regionNodeOf(doc, "sidebar");
     if (hit === null) return [];
-    return hit.parent?.orientation === "vertical" ? treeLeaves(hit.parent).map((leaf) => leaf.id) : ["sidebar"];
+    const anchor = doc.panels[hit.anchor];
+    const isAnchor = anchor !== undefined && isContainerAnchor(anchor);
+    return treeLeaves(hit.node).map((leaf) => leaf.id).filter((id) => !(isAnchor && id === hit.anchor));
 }
 
 /**
@@ -98,18 +108,22 @@ export function titleOnlyPanels(doc: LayoutDoc): ReadonlySet<string> {
 export const panelTabDomId = (prefix: string, key: string): string => `${prefix}-tab-${key}`;
 export const panelTabpanelDomId = (prefix: string, key: string): string => `${prefix}-tabpanel-${key}`;
 
-/** “移动到”的目标（输出 23）：别的工具面板，或挨着一块工具面板开新面板。 */
+/** “移动到”的目标（输出 23）：别的区域，或挨着一块工具面板开新面板。 */
 export type MoveTarget =
     | {readonly kind: "panel"; readonly panel: string}
     | {readonly kind: "new-panel"; readonly nextTo: string};
 
-/** 按树序列目标；视图不在树上时是 null。只有这一个标签的面板挨着自己开新面板等于原位，不列。 */
+/**
+ * 按树序列目标；视图不在树上时是 null。只有这一个标签的面板挨着自己开新面板等于原位，不列。
+ * 放进去的目标只列别的区域（目标是它的锚，放进那个区域的当前容器）：分节不收第二个标签（输出 40），所以分节自己不是“放进去”的目标。
+ */
 export function moveTargetsOf(doc: LayoutDoc, viewId: string): ReadonlyArray<MoveTarget> | null {
     const from = findTab(doc, tabKey({kind: "view", viewId}));
     if (from === null) return null;
     const alone = doc.panels[from.panel]?.tabs.length === 1;
     const leaves = treeLeaves(doc.tree.root).filter((leaf) => doc.panels[leaf.id] !== undefined);
-    const into = leaves.filter((leaf) => leaf.id !== from.panel && doc.panels[leaf.id]?.role === "tool").map((leaf): MoveTarget => ({kind: "panel", panel: leaf.id}));
+    const home = regionOf(doc, from.panel);
+    const into = leaves.filter((leaf) => doc.panels[leaf.id]?.name !== undefined && doc.panels[leaf.id]?.name !== home).map((leaf): MoveTarget => ({kind: "panel", panel: leaf.id}));
     const beside = leaves.filter((leaf) => doc.panels[leaf.id]?.role === "tool" && isPanelShown(doc, leaf.id) && !(alone && leaf.id === from.panel)).map((leaf): MoveTarget => ({kind: "new-panel", nextTo: leaf.id}));
     return [...into, ...beside];
 }
@@ -136,11 +150,11 @@ export function panelTitle(doc: LayoutDoc, catalog: ViewCatalog, panelId: string
     return (viewId === null ? undefined : catalog.get(viewId)?.title) ?? panelId;
 }
 
-/** 视图不在第一次放的具名面板时才能“重置位置”（输出 23）。 */
-export function canResetView(doc: LayoutDoc, catalog: ViewCatalog, viewId: string): boolean {
+/** 视图不在它声明的容器（没声明的是它的隐式容器）时才能“重置位置”（输出 23）；浮动着的不在任何容器里。 */
+export function canResetView(doc: LayoutDoc, catalog: ViewCatalog, viewId: string, containers: ContainerCatalog = NO_CONTAINERS): boolean {
     const found = findTab(doc, tabKey({kind: "view", viewId}));
-    const location = catalog.get(viewId)?.location;
-    return found !== null && location !== undefined && doc.panels[found.panel]?.name !== location;
+    const home = viewHome(viewId, catalog, containers);
+    return found !== null && home !== null && viewSection(doc, viewId)?.container !== home.container;
 }
 
 /** 视图的标签键。 */

@@ -193,7 +193,7 @@ const NO_VIEWS = new Map();
 const POLICY = createLayoutPolicy();
 const doc = computed(() => panels.document());
 const extent = shallowRef<GridExtent | null>(null);
-const projectionOptions = computed(() => layoutProjectionOptions({catalog: NO_VIEWS, viewportWidth: extent.value?.width ?? 0}));
+const projectionOptions = computed(() => layoutProjectionOptions({doc: doc.value, catalog: NO_VIEWS, viewportWidth: extent.value?.width ?? 0}));
 const projection = computed(() => projectLayoutDoc(doc.value, projectionOptions.value));
 const commitSizes = (sizes: Readonly<Record<string, GridExtent>>): void => {
     panels.apply((current) => ({ok: true, doc: rebaseIntents(current, sizes, projection.value.collapsedTo, fixedNodesOf(projection.value.input))}));

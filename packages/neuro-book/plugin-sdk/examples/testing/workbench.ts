@@ -1,5 +1,5 @@
 /**
- * 场地里的工作台替身：只拥有视图、状态栏条目、主题与场景提供者四个贡献点，把交来的实现收进表，场景直接读条目的 `text()`、视图的 `load()`、提供者的 `scene()`。
+ * 场地里的工作台替身：只拥有视图、视图容器、状态栏条目、主题与场景提供者五个贡献点，把交来的实现收进表，场景直接读条目的 `text()`、视图的 `load()`、提供者的 `scene()`。
  * 场地不装真正的工作台（`nbook.workbench`）：它要页面与布局，Bun 里起不来。
  *
  * 替身与真实工作台的合同对齐：这些贡献点直接用产品里同一份定义（`shared/views.ts`、`shared/items.ts`、`shared/themes.ts`），id、要求实现、
@@ -13,7 +13,7 @@ import {statusbarItemsPoint, WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugin
 import {themeScenesPoint, themesPoint} from "nbook/plugins/workbench/shared/themes";
 import {WORKBENCH_THEME_SCENES_POINT} from "nbook/plugins/workbench/shared/theme-points";
 import type {SceneProviderImplementation} from "nbook/plugins/workbench/shared/theme-points";
-import {viewsPoint, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
+import {viewContainersPoint, viewsPoint, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 
 export interface WorkbenchStandIn {
@@ -38,7 +38,7 @@ export function workbenchStandIn(): WorkbenchStandIn {
     return {
         definition: {
             id: "nbook.workbench",
-            contributionPoints: [viewsPoint, statusbarItemsPoint, themeScenesPoint, themesPoint],
+            contributionPoints: [viewsPoint, viewContainersPoint, statusbarItemsPoint, themeScenesPoint, themesPoint],
             entries: [defineEntry({
                 id: "browser",
                 location: "browser",

@@ -3,7 +3,7 @@
  * 一棵树的布局 store（Storage 场地），命令实现直接调用；选择服务由测试按请求作答（产品里是命令面板，经面板执行的路径由
  * `e2e/workbench-views.e2e.ts` 覆盖）。
  *
- * 移动的目标是 `target`（面板 id）或 `newPanelNextTo`（面板 id）；新的合同没有“来源面板”可核对，两步选择之间只会因为视图或目标面板不在了而过期。
+ * 移动的目标是 `target`（面板 id；区域的锚是放进那个区域的当前容器）或 `newPanelNextTo`（面板 id）；新的合同没有“来源面板”可核对，两步选择之间只会因为视图或目标面板不在了而过期。
  * 目录里声明着的视图总在布局里（`reconcileViews` 会补回），所以“视图不在布局里”只在声明消失之后才可能出现，那时先被“没有这个
  * 视图”拦下。
  */
@@ -23,6 +23,7 @@ import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 
 import type {QuickPick, QuickPickRequest, QuickPickResult} from "../../shared/contracts";
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
+import {regionContainers, viewSection} from "../state/containers";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {sidebarColumnPanels} from "../state/layout-present";
 import {workbenchStateBindings} from "../state/public-state";
@@ -52,7 +53,7 @@ afterAll(async () => {
 
 const view = (name: string, location: ViewLocation, extra: Partial<ViewDeclaration> = {}): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon: `i-${name}`, location, layout: "scroll", ...extra});
 
-/** 侧栏三个视图（D 不可移动），面板一个；右栏和第一个编辑组 `g0` 是空的。 */
+/** 侧栏三个视图（D 不可移动），面板一个，都没声明容器，各在自己的容器里；右栏和第一个编辑组 `g0` 是空的。 */
 const CATALOG: ViewCatalog = new Map([["test.a", view("A", "sidebar")], ["test.b", view("B", "sidebar")], ["test.c", view("C", "panel")], ["test.d", view("D", "sidebar", {movable: false})]]);
 
 async function layout(): Promise<LayoutDocStore> {
@@ -74,9 +75,15 @@ const labels = (request: QuickPickRequest | undefined): string[] => (request?.it
 
 const run = (store: LayoutDocStore, quickPick: QuickPick, args: Record<string, unknown>) => viewCommands(() => store, quickPick, workbenchTestText("zh-CN"))[MOVE_VIEW_COMMAND].run(args);
 
-const tabsOf = (store: LayoutDocStore, panel: string): string[] => (store.state.doc.panels[panel]?.tabs ?? []).map((tab) => (tab.kind === "view" ? tab.viewId : tab.tabId));
-const panelOf = (store: LayoutDocStore, viewId: string): string | undefined => Object.entries(store.state.doc.panels).find(([, record]) => record.tabs.some((tab) => tab.kind === "view" && tab.viewId === viewId))?.[0];
-const unnamedToolPanels = (store: LayoutDocStore): string[] => Object.entries(store.state.doc.panels).filter(([, record]) => record.role === "tool" && record.name === undefined).map(([id]) => id);
+/** 区域里出现的容器与各自的视图，按入口顺序。 */
+const containersIn = (store: LayoutDocStore, region: ViewLocation): ReadonlyArray<readonly [string, ReadonlyArray<string>]> => regionContainers(store.actions.document(), region).map((container) => [container.id, container.views] as const);
+/** 视图此刻在哪个区域的哪个容器、哪块分节里。 */
+function placeOf(store: LayoutDocStore, viewId: string): {readonly region: ViewLocation; readonly container: string; readonly panel: string} {
+    const section = viewSection(store.actions.document(), viewId);
+    if (section === null) throw new Error(`${viewId} 不在区域里`);
+    return {region: section.region, container: section.container, panel: section.panel};
+}
+const activeContainer = (store: LayoutDocStore, region: ViewLocation): string | null | undefined => store.state.doc.panels[region]?.activeContainer;
 
 describe("移动视图", () => {
     it("移动、打开视图经真实命令注册表登记：布局没打开时不可用，打开后可用；Agent 不能打开视图（not-exposed）", async () => {
@@ -98,33 +105,34 @@ describe("移动视图", () => {
         }
         current.value = store;
         for (const id of [MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND] as const) expect(registry.isEnabled(id)).toEqual({ok: true, value: true});
-        expect(store.state.doc.panels.sidebar?.active).not.toBe("view:test.b");
+        expect(activeContainer(store, "sidebar")).toBe("view:test.a");
         expect(await registry.execute(OPEN_VIEW_COMMAND, {viewId: "test.b"}, {source: "agent", callerId: "test.agent"})).toMatchObject({ok: false, code: "not-exposed"});
-        expect(store.state.doc.panels.sidebar?.active).not.toBe("view:test.b");
+        expect(activeContainer(store, "sidebar")).toBe("view:test.a");
         expect(await registry.execute(OPEN_VIEW_COMMAND, {viewId: "test.b"})).toEqual({ok: true, value: null});
-        expect(store.state.doc.panels.sidebar?.active).toBe("view:test.b");
+        expect(activeContainer(store, "sidebar")).toBe("view:test.b");
     });
 
-    it("target：放到那块面板的标签末尾；newPanelNextTo：挨着那块面板开一块只装这个视图的新面板；放进隐藏的具名面板时把它显示出来", async () => {
+    it("target 是区域：成为它当前容器最后一个分节，区域隐藏着就显示；newPanelNextTo：挨着那块分节，进它的容器（输出 23）", async () => {
         const store = await layout();
         const silent = picker(() => ({kind: "cancelled"}));
-        expect(tabsOf(store, "sidebar")).toEqual(["test.a", "test.b", "test.d"]);
+        expect(containersIn(store, "sidebar")).toEqual([["view:test.a", ["test.a"]], ["view:test.b", ["test.b"]], ["view:test.d", ["test.d"]]]);
         expect(await run(store, silent, {viewId: "test.b", target: "panel"})).toEqual({ok: true, value: null});
-        expect(tabsOf(store, "sidebar")).toEqual(["test.a", "test.d"]);
-        expect(tabsOf(store, "panel")).toEqual(["test.c", "test.b"]);
+        expect(containersIn(store, "sidebar")).toEqual([["view:test.a", ["test.a"]], ["view:test.d", ["test.d"]]]);
+        expect(containersIn(store, "panel")).toEqual([["view:test.c", ["test.c", "test.b"]]]);
 
+        // 右栏一个容器都没有：视图带着它自己的容器过去。
         expect(store.state.doc.panels.auxiliarybar?.hidden).toBe(true);
         expect(await run(store, silent, {viewId: "test.a", target: "auxiliarybar"})).toEqual({ok: true, value: null});
-        expect(tabsOf(store, "auxiliarybar")).toEqual(["test.a"]);
+        expect(containersIn(store, "auxiliarybar")).toEqual([["view:test.a", ["test.a"]]]);
+        expect(activeContainer(store, "auxiliarybar")).toBe("view:test.a");
         expect(store.state.doc.panels.auxiliarybar?.hidden).toBeFalsy();
+        // 侧栏的当前容器空了：换到相邻的（输出 43）。
+        expect(activeContainer(store, "sidebar")).toBe("view:test.d");
 
-        expect(unnamedToolPanels(store)).toEqual([]);
-        expect(await run(store, silent, {viewId: "test.c", newPanelNextTo: "panel"})).toEqual({ok: true, value: null});
-        const created = panelOf(store, "test.c")!;
-        expect(unnamedToolPanels(store)).toEqual([created]);
-        expect(tabsOf(store, created)).toEqual(["test.c"]);
-        expect(tabsOf(store, "panel")).toEqual(["test.b"]);
-        expect(store.state.doc.panels[created]).toMatchObject({role: "tool", active: "view:test.c"});
+        expect(await run(store, silent, {viewId: "test.c", newPanelNextTo: placeOf(store, "test.a").panel})).toEqual({ok: true, value: null});
+        expect(containersIn(store, "auxiliarybar")).toEqual([["view:test.a", ["test.a", "test.c"]]]);
+        expect(containersIn(store, "panel")).toEqual([["view:test.c", ["test.b"]]]);
+        expect(store.actions.document().panels[placeOf(store, "test.c").panel]).toEqual({role: "tool", tabs: [{kind: "view", viewId: "test.c"}], active: "view:test.c", container: "view:test.a"});
         expect(silent.requests).toEqual([]);
     });
 
@@ -156,7 +164,7 @@ describe("移动视图", () => {
         expect(JSON.stringify(store.state.doc)).toBe(before);
     });
 
-    it("无参：先选视图（不可移动的不在候选里）、再选目标（别的工具面板、挨着工具面板的新面板、重置位置）；取消任一步成功且不写", async () => {
+    it("无参：先选视图（不可移动的不在候选里）、再选目标（别的区域、挨着显示着的分节的新面板、重置位置）；取消任一步成功且不写", async () => {
         const store = await layout();
         const cancelFirst = picker(() => ({kind: "cancelled"}));
         expect(await run(store, cancelFirst, {})).toEqual({ok: true, value: null});
@@ -165,58 +173,59 @@ describe("移动视图", () => {
         const before = JSON.stringify(store.state.doc);
         const cancelSecond = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.a"} : {kind: "cancelled"}));
         expect(await run(store, cancelSecond, {})).toEqual({ok: true, value: null});
-        // A 在侧栏：别的工具面板是面板和（隐藏着的）右栏，具名面板写名字；新面板可以挨着每块显示着的工具面板，隐藏的不列；A 在第一次放的侧栏，没有“重置位置”。
-        expect(labels(cancelSecond.requests[1])).toEqual(["panel:面板", "auxiliarybar:右栏", "new:sidebar:新面板（挨着侧栏）", "new:panel:新面板（挨着面板）"]);
+        // A 在侧栏：能放进去的是别的区域（面板和隐藏着的右栏），写区域的名字；新面板可以挨着每块显示着的分节（只有自己这一个标签的那块不列），隐藏的区域不列；
+        // A 在它自己的容器里，没有“重置位置”。
+        const besideC = `new:${placeOf(store, "test.c").panel}`;
+        expect(labels(cancelSecond.requests[1])).toEqual(["panel:面板", "auxiliarybar:右栏", `${besideC}:新面板（挨着C）`]);
         expect(JSON.stringify(store.state.doc)).toBe(before);
 
         const move = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.a"} : {kind: "item", id: "panel"}));
         expect(await run(store, move, {})).toEqual({ok: true, value: null});
-        expect(panelOf(store, "test.a")).toBe("panel");
+        expect(placeOf(store, "test.a")).toMatchObject({region: "panel", container: "view:test.c"});
 
-        // A 现在不在声明的侧栏：目标里多一项“重置位置”，选它回到侧栏标签末尾。
+        // A 现在不在它自己的容器里：目标里多一项“重置位置”，选它回到那个容器，侧栏切到它。
         const reset = picker((request, index) => (index === 0 ? {kind: "item", id: "test.a"} : {kind: "item", id: request.items.at(-1)!.id}));
         expect(await run(store, reset, {})).toEqual({ok: true, value: null});
         expect(labels(reset.requests[1]).at(-1)).toBe("reset::重置位置");
-        expect(tabsOf(store, "sidebar").at(-1)).toBe("test.a");
+        expect(placeOf(store, "test.a")).toMatchObject({region: "sidebar", container: "view:test.a"});
+        expect(activeContainer(store, "sidebar")).toBe("view:test.a");
 
-        // 多标签面板里的 B 挨着面板开新面板：拆出一块只装 B 的无名面板。
-        const create = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.b"} : {kind: "item", id: "new:panel"}));
+        // B 挨着面板里的 C 开新面板：成为 C 那个容器的又一个分节。
+        const create = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.b"} : {kind: "item", id: besideC}));
         expect(await run(store, create, {})).toEqual({ok: true, value: null});
-        const created = panelOf(store, "test.b")!;
-        expect(unnamedToolPanels(store)).toEqual([created]);
-        expect(tabsOf(store, created)).toEqual(["test.b"]);
+        expect(containersIn(store, "panel")).toEqual([["view:test.c", ["test.c", "test.b"]]]);
+        const created = placeOf(store, "test.b").panel;
 
-        // 只有一个标签的无名面板挨着别的面板，是同一块面板移动（输出 27）：面板 id 不变，不多出新面板。
-        const alone = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.b"} : {kind: "item", id: "new:sidebar"}));
+        // 只有一个标签的面板挨着别的面板，是同一块面板移动（输出 27）：面板 id 不变，不多出新面板。
+        const alone = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.b"} : {kind: "item", id: `new:${placeOf(store, "test.a").panel}`}));
         expect(await run(store, alone, {})).toEqual({ok: true, value: null});
-        expect(panelOf(store, "test.b")).toBe(created);
+        expect(placeOf(store, "test.b")).toEqual({region: "sidebar", container: "view:test.a", panel: created});
         expect(sidebarColumnPanels(store.actions.document())).toContain(created);
-        expect(unnamedToolPanels(store)).toEqual([created]);
-        // 具名面板不移动：它的单标签拆出新面板，它拖空隐藏，留在骨架上。
-        const named = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.c"} : {kind: "item", id: "new:sidebar"}));
-        expect(await run(store, named, {})).toEqual({ok: true, value: null});
-        expect(panelOf(store, "test.c")).not.toBe("panel");
-        expect(store.state.doc.panels.panel?.hidden).toBe(true);
-        expect(unnamedToolPanels(store)).toHaveLength(2);
+        // 区域的最后一个分节搬走：区域隐藏，锚留在骨架上。
+        const last = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.c"} : {kind: "item", id: `new:${placeOf(store, "test.a").panel}`}));
+        expect(await run(store, last, {})).toEqual({ok: true, value: null});
+        expect(placeOf(store, "test.c")).toMatchObject({region: "sidebar", container: "view:test.a"});
+        expect(containersIn(store, "panel")).toEqual([]);
+        expect(store.state.doc.panels.panel).toMatchObject({hidden: true, activeContainer: null});
     });
 
-    it("两步选择之间目标面板没了（被搬空的无名面板随之移除）：按 stale-target 拒绝且不写", async () => {
+    it("两步选择之间目标面板没了（被搬空的分节随之移除）：按 stale-target 拒绝且不写", async () => {
         const store = await layout();
-        const silent = picker(() => ({kind: "cancelled"}));
-        expect(await run(store, silent, {viewId: "test.b", newPanelNextTo: "panel"})).toEqual({ok: true, value: null});
-        const created = panelOf(store, "test.b")!;
+        expect((await store.actions.floatTab("view:test.b")).ok).toBe(true);
+        const float = store.actions.document().floats[0]?.panel ?? "";
+        const beside = placeOf(store, "test.c").panel;
         const racing = picker((_request, index) => {
             if (index === 0) return {kind: "item", id: "test.a"};
-            // 选目标的过程中，唯一的标签被搬回面板，空了的无名面板按输出 3 移除。
-            expect(store.actions.moveView("test.b", "panel").ok).toBe(true);
-            return {kind: "item", id: created};
+            // 选目标的过程中，那块分节唯一的标签被搬进了浮动窗，空了的分节按输出 3 移除。
+            expect(store.actions.moveView("test.c", float).ok).toBe(true);
+            return {kind: "item", id: `new:${beside}`};
         });
-        const before = tabsOf(store, "sidebar");
+        const before = containersIn(store, "sidebar");
         const stale = await run(store, racing, {});
         expect(stale).toMatchObject({ok: false, code: "stale-target"});
         expect(failureText(stale, "zh-CN")).toBe("视图或目标面板已经不在了，没有移动");
-        expect(store.state.doc.panels[created]).toBeUndefined();
-        expect(tabsOf(store, "sidebar")).toEqual(before);
+        expect(store.state.doc.panels[beside]).toBeUndefined();
+        expect(containersIn(store, "sidebar")).toEqual(before);
     });
 
     it("选择服务不可用为 unavailable；外壳没打开为 unavailable", async () => {
@@ -230,11 +239,11 @@ describe("打开视图（docs/specs/ui/workbench-layout.md 输出 35，docs/spec
     const open = (store: LayoutDocStore | null, quickPick: QuickPick, args: Record<string, unknown>) => viewCommands(() => store, quickPick, workbenchTestText("zh-CN"))[OPEN_VIEW_COMMAND].run(args);
     const silent = picker(() => ({kind: "cancelled"}));
 
-    it("具名面板里的视图：激活它，所在面板被隐藏、拖到零或收起时一并显示", async () => {
+    it("区域里的视图：切到它的容器，所在区域被隐藏或拖到零时一并显示", async () => {
         const store = await layout();
         store.actions.setPartHidden("sidebar", true);
         expect(await open(store, silent, {viewId: "test.b"})).toEqual({ok: true, value: null});
-        expect(store.state.doc.panels.sidebar?.active).toBe("view:test.b");
+        expect(activeContainer(store, "sidebar")).toBe("view:test.b");
         expect(store.state.doc.panels.sidebar?.hidden).toBeFalsy();
 
         store.actions.setCollapsed("panel", true);
@@ -246,19 +255,19 @@ describe("打开视图（docs/specs/ui/workbench-layout.md 输出 35，docs/spec
         expect(store.actions.partVisible("panel")).toBe(true);
     });
 
-    it("无名面板里收起的视图：展开它；盖着它的最大化退出，它就在最大化的面板里时保持", async () => {
+    it("分节收成标题行的视图：展开它；盖着它的最大化退出，它就在最大化的分节里时保持", async () => {
         const store = await layout();
-        expect(await run(store, silent, {viewId: "test.b", newPanelNextTo: "panel"})).toEqual({ok: true, value: null});
-        const created = panelOf(store, "test.b")!;
-        expect(unnamedToolPanels(store)).toEqual([created]);
+        const first = placeOf(store, "test.a").panel;
+        expect(await run(store, silent, {viewId: "test.b", newPanelNextTo: first})).toEqual({ok: true, value: null});
+        const created = placeOf(store, "test.b").panel;
         store.actions.setCollapsed(created, true);
         expect(store.state.doc.panels[created]?.collapsed).toBe(true);
         expect(await open(store, silent, {viewId: "test.b"})).toEqual({ok: true, value: null});
         expect(store.state.doc.panels[created]?.collapsed).toBeFalsy();
 
-        store.actions.toggleMaximized("sidebar");
+        store.actions.toggleMaximized(first);
         expect(await open(store, silent, {viewId: "test.a"})).toEqual({ok: true, value: null});
-        expect(store.state.maximized).toBe("sidebar");
+        expect(store.state.maximized).toBe(first);
         expect(await open(store, silent, {viewId: "test.b"})).toEqual({ok: true, value: null});
         expect(store.state.maximized).toBeNull();
     });

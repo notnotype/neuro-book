@@ -26,7 +26,7 @@ import WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSu
 import WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
-import {COLLAPSE_ORDER, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
+import {collapseOrder, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
 import {effectiveVisibleTabs, sidebarColumnPanels, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
 import type {ViewCatalog} from "nbook/plugins/workbench/web/views/registry";
 
@@ -66,9 +66,9 @@ const focusedPanel = ref<string | null>(null);
 const lastMenu = ref("");
 const surface = ref<InstanceType<typeof WorkbenchSurface> | null>(null);
 
-const options = computed(() => layoutProjectionOptions({catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value}));
-const collapse = computed(() => (extent.value === null ? {removed: new Set<string>(), squeezed: false} : presentationCollapse(doc.value, extent.value, {...options.value, order: COLLAPSE_ORDER, focused: focusedPanel.value})));
-const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value, removed: collapse.value.removed, squeezed: collapse.value.squeezed})));
+const options = computed(() => layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value}));
+const collapse = computed(() => (extent.value === null ? {removed: new Set<string>(), squeezed: false} : presentationCollapse(doc.value, extent.value, {...options.value, order: collapseOrder(doc.value), focused: focusedPanel.value})));
+const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value, removed: collapse.value.removed, squeezed: collapse.value.squeezed})));
 const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value}));
 
 /** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8），和产品的 store 同一个次序。 */

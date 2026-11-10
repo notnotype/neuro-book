@@ -2,6 +2,7 @@
  * 工作台的公开状态（docs/specs/ui/workbench-layout.md 输出 36）：命令的 `when` 读其中的布尔键，字符串键只供读取。布局 store 还没创建或记录没读完时，依赖它们的布尔键为 false。
  */
 
+import {regionOf} from "@notnotype/nb-layout";
 import {computed} from "@vue/reactivity";
 import type {ShallowRef} from "@vue/reactivity";
 
@@ -31,6 +32,12 @@ export function workbenchStateBindings(layout: Readonly<ShallowRef<LayoutDocStor
         const id = store?.state.currentPanel ?? null;
         return id === null ? null : (store?.state.doc.panels[id] ?? null);
     });
+    /** 当前面板所在的区域；编辑组、浮动窗不在区域里。读原文档：`state.doc` 是深只读代理，`regionOf` 要原对象的类型。 */
+    const region = computed(() => {
+        const store = layout.value;
+        const id = store?.state.currentPanel ?? null;
+        return id === null || store === null || store === undefined ? null : regionOf(store.actions.document(), id);
+    });
     const panelIsFloating = computed(() => {
         const store = layout.value;
         const id = store?.state.currentPanel ?? null;
@@ -45,7 +52,7 @@ export function workbenchStateBindings(layout: Readonly<ShallowRef<LayoutDocStor
         sidebarVisible: computed(() => layout.value?.actions.partVisible("sidebar") ?? false),
         auxiliaryBarVisible: computed(() => layout.value?.actions.partVisible("auxiliarybar") ?? false),
         activityBarVisible: computed(() => layout.value?.actions.partVisible("activitybar") ?? false),
-        // 当前面板的名字；没有名字时是它的角色，浮动的是 `float`。
-        focusedPart: computed(() => (panelIsFloating.value ? "float" : (current.value?.name ?? (current.value?.role === "tool" ? "tool" : "editor")))),
+        // 当前面板所在区域的名字（输出 36）；浮动的是 `float`，编辑组是 `editor`。不在区域里又不浮动的工具面板骨架里放不下，留着 `tool` 只是不把它说成编辑组。
+        focusedPart: computed(() => (panelIsFloating.value ? "float" : (region.value ?? (current.value?.role === "tool" ? "tool" : "editor")))),
     };
 }
