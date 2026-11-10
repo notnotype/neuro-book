@@ -113,6 +113,16 @@ export const validateEditorSlashItem = menuItemValidator(editorSlashLocation);
 export const validateEditorBlockItem = menuItemValidator(editorBlockLocation);
 export const validateEditorBodyContextItem = menuItemValidator(editorBodyContextLocation);
 
+/**
+ * 源码编辑器正文右键的菜单位置（docs/specs/workbench/editor.md 输出 64）：贡献项排在内置项之后；当前文件是被右击的编辑器
+ * 的文件，`context: "resource"` 的项执行时收到 `{address}`。比 Markdown 正文的位置多 `extensions`：这里开的是各种后缀的文件。
+ */
+export const EDITOR_CODE_CONTEXT_POINT = "editor.code-context";
+
+export const editorCodeContextLocation = menuLocation(EDITOR_CODE_CONTEXT_POINT, {...MENU_ICON, ...MENU_EXTENSIONS}, {contexts: ["resource"]});
+
+export const validateEditorCodeContextItem = menuItemValidator(editorCodeContextLocation);
+
 /** 固定工具栏放在哪里：`full` 面包屑下面通栏，`merged` 并入面包屑那一行，`bottom` 编辑区底部的浮条。 */
 export type EditorToolbarPlacement = "full" | "merged" | "bottom";
 
@@ -321,8 +331,11 @@ export interface TextEditorBinding {
     readonly slot: ViewStateSlot;
     /** 输入回执：`baseRevision` 是视图看到的修订。 */
     commit(baseRevision: number, text: string): {readonly status: "accepted" | "conflict"; readonly revision: number} | {readonly status: "stale"};
-    /** 登记结算函数（交出还没交出的输入）；切换、保存与资源管理器的操作之前同步调用。 */
-    attach(flush: () => void): () => void;
+    /**
+     * 登记结算函数（交出还没交出的输入）；切换、保存与资源管理器的操作之前同步调用。`pending` 给有缓冲的控件用：手里有
+     * 还没交出的输入或正在组字时为真，“停手后”的自动保存据此顺延，不在组字途中结算（docs/specs/workbench/editor.md 输出 63）。
+     */
+    attach(flush: () => void, pending?: () => boolean): () => void;
     /** 这个绑定有没有未裁决输入。 */
     unresolved(): boolean;
     /**

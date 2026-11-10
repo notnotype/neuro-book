@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t16-plot-workbench-ui",
+    "artifactId": "review",
+    "answerId": "20261110T081136877Z-57ae1ba0",
+    "artifactVersion": 9,
+    "contentHash": "618316243ff0bb25420dea5ebb4deb4269b6a1b3cbfdcda3813465c08af86fa7",
+    "submittedAt": "2026-11-10T08:11:34.515Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r4-screens": "1. 我想要先知道的是左侧竖着排列的这四个图标分别是什么\n2. 工作单这个 UX 设计我觉得挺不错的。我要创作一章，分成了三个确定的步骤：开写前 -> 给写手的上下文 -> 写完之后。这个设计我觉得不错。UI 设计这里是弱项需要优化\n3. 关于这个工作单的设计，是不是写完一章后就基本不变了？例如写完第 40 章，然后改设定，这个设定牵连到 30 章。这种情况我们的写作插件怎么处理？\n4. 给写手的上下文，这个改成细纲比较好。还有上下文需要有一个文风（用于固定文风），还有剧情上下文（前几章的或者摘要这些）\n5. 要不要做模块化可拓展设计？例如用户可以在开写前写完后要求 AI 进行某一方面的专门检查。UI 方面要不要用模块化的思路来设计？（这个功能还处于草案阶段）\n6. 谁知道什么、伏笔账本等这些地方要不要做个面包屑？\n",
+        "b1-kernel-gaps": "fill",
+        "b1-panel-default-owner": "t24"
+    },
+    "comments": {},
+    "note": null
+}

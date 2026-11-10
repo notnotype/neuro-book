@@ -6,7 +6,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {createHash} from "node:crypto";
-import {lstat, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
+import {lstat, mkdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -16,6 +16,8 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 
 import {defineProfile} from "@notnotype/nb-harness/kernel";
 import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import {kernelResources} from "@notnotype/nb-harness/kit/files";
+import {sessionFilesContract} from "@notnotype/nb-harness/kit/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -23,10 +25,10 @@ import {userFilesContract} from "nbook/plugins/files/shared/contracts";
 import type {ChangesMessage, FileChange} from "nbook/plugins/files/shared/contracts";
 
 import {buildAgentDocs} from "../../../scripts/agent-docs";
-import {kernelResources} from "./backend/resources";
+import {sessionFiles} from "./backend/resources";
 import {agentProfile, agentTool} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";
-import type {SessionResources} from "./shared/resources";
+import type {SessionArtifacts, SessionResources} from "./shared/resources";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
@@ -61,8 +63,9 @@ const EDITOR = "test.res.editor";
 const GRAB = "test.res.grab";
 const cid = () => `c-${String((commands += 1))}`;
 
-/** 工具工厂最近一次拿到的资源视图：用例里的会话依次调用工具，取完就清。 */
+/** 工具工厂最近一次拿到的资源视图与写全文的服务：用例里的会话依次调用工具，取完就清。 */
 let grabbed: SessionResources | null = null;
+let grabbedArtifacts: SessionArtifacts | null = null;
 /** 服务端测试插件的远程入口：订阅 `user://` 的变更用。 */
 let remote: ActivationContext["remote"] | null = null;
 
@@ -78,6 +81,7 @@ function plugins(): PluginDefinition[] {
             const grab: AgentToolImplementation = {create: (context, services) => {
                 void context;
                 grabbed = services.resources;
+                grabbedArtifacts = services.artifacts;
                 return {execute: async () => "ok"};
             }};
             return {contributions: {
@@ -88,10 +92,11 @@ function plugins(): PluginDefinition[] {
     ];
 }
 
-async function world(at?: string): Promise<AgentWorld> {
+/** `keep`：不在每个用例之后关（合同测试的夹具跨用例用，由夹具自己关）。 */
+async function world(at?: string, keep = false): Promise<AgentWorld> {
     counter += 1;
     const created = await agentWorld(at ?? join(root, `w${String(counter)}`), {plugins: plugins(), userSettings: localModelSettings(endpoint.baseUrl)});
-    worlds.push(created);
+    if (!keep) worlds.push(created);
     const marker = createHash("sha256").update(await realpath(created.stateRoot)).digest("hex").slice(0, 16);
     partitions.push(join(tmpdir(), "nbook", marker));
     return created;
@@ -317,3 +322,23 @@ describe("内核的资源接口", () => {
     });
 });
 
+// harness.host-kit 全部输出：NeuroBook 的实现（资源视图加布局）经真实插件过 kit 的 `SessionFiles` 合同，与 kit 的本机参考实现是同一份。
+sessionFilesContract("NeuroBook 的实现", async () => {
+    const w = await world(undefined, true);
+    const {id, resources} = await open(w);
+    const artifacts = grabbedArtifacts as SessionArtifacts | null;
+    if (artifacts === null) throw new Error("工具没有拿到写全文的服务");
+    const writablePath = join(w.stateRoot, "agent", "sessions", id, "home", "contract");
+    await mkdir(writablePath, {recursive: true});
+    return {
+        files: sessionFiles(resources, {sessionId: id, profile: WRITER}),
+        artifacts,
+        writable: `sessions://${id}/home/contract`,
+        singular: "session://contract",
+        writablePath,
+        denied: "session://attachments/contract.md",
+        virtual: "sessions://",
+        protected: `sessions://${id}/index.json`,
+        close: () => w.close(),
+    };
+});

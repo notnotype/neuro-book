@@ -33,6 +33,9 @@ const FORBIDDEN = [/\.test\.tsx?$/u, /\.typecheck\.ts$/u, /\/corpus\//u, /(^|\/)
 
 type Source = "pack" | "registry";
 
+/** nb-form 只给 `./vue` 用的可选 peer：只用核心的消费者（nb-story）不该装上它们。 */
+const VUE_SIDE = ["@notnotype/nb-ui", "vue", "typescript"] as const;
+
 class SmokeFailure extends Error {}
 
 function step(message: string): void {
@@ -114,6 +117,12 @@ async function smokeStory(root: string, from: ReturnType<typeof sources>): Promi
     await writeJson(join(app, "package.json"), {name: "nbstory-smoke", private: true, type: "module", dependencies: {"@notnotype/nb-story": from.spec("@notnotype/nb-story")}, overrides: from.overrides});
     await mustRun("安装 nb-story", ["bun", "install"], {cwd: app});
     step(`从包装上 @notnotype/nb-story：${await installedVersions(app, from.expected)}`);
+    // nb-story 经 nb-harness 依赖 nb-form，只用它的核心入口；nb-form 的 nb-ui、vue、typescript 只给 `./vue` 用，是可选 peer。
+    // 它们被装上，说明可选 peer 失效了，nb-story 的用户会白装一套 Vue 组件库（w00032 t32）。
+    const pulled: string[] = [];
+    for (const name of VUE_SIDE) if (await Bun.file(join(app, "node_modules", name, "package.json")).exists()) pulled.push(name);
+    if (pulled.length > 0) fail(`装 nb-story 不该连带装上 ${pulled.join("、")}（nb-form 的可选 peer）`);
+    step(`nb-story 的安装里没有 ${VUE_SIDE.join("、")}`);
 
     const nbstory = join(app, "node_modules", ".bin", "nbstory");
     const library = join(root, "library");

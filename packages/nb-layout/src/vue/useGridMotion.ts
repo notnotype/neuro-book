@@ -145,8 +145,11 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         if (duration > 0) start(duration, decision.entering, decision.following, decision.flying);
     }
 
-    /** 拿起的内容项落地：外框从卡片的矩形飞到叶的矩形（下一次渲染写终点，过渡这时启动）。 */
-    function land(key: string): void {
+    /**
+     * 拿起的内容项落地：外框从卡片的矩形飞到叶的矩形（下一次渲染写终点，过渡这时启动）。`entering` 是同时出现的叶从哪里长出来（落进新浮动窗时是卡片的矩形），
+     * 和新项一样先写第一帧、再写终点。
+     */
+    function land(key: string, entering?: ReadonlyMap<string, GridRect>): void {
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
         if (duration <= 0) return;
@@ -156,6 +159,13 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         moving.value = true;
         if (timer !== null) clearTimeout(timer);
         timer = setTimeout(stop, duration + MOTION_SLACK_MS);
+        if (entering === undefined || entering.size === 0) return;
+        // 同一轮的布局变化可能刚写了别的新项的起点：并进去，不盖掉。
+        growing.value = new Map([...growing.value, ...entering]);
+        void nextTick(() => {
+            void options.root.value?.offsetWidth;
+            growing.value = new Map();
+        });
     }
 
     onBeforeUnmount(() => {

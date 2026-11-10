@@ -11,10 +11,10 @@ import {lstat, mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {RuntimeClock, Scope} from "@notnotype/nb-runtime/lifecycle";
+import {renderVirtual} from "@notnotype/nb-harness/kit/files";
 
 import type {Baseline, ChangeSource, FileText, Listing, OperationDone, SavedText} from "../shared/contracts";
 import {pathProblem} from "../shared/resource";
-import {renderVirtual} from "../shared/schemes";
 import type {MountDeclaration, MountedSchemeSpec, SchemeCaller, SchemeCapability, SchemeOperation, ServerFilesResult, VirtualListing} from "../shared/schemes";
 import {createChangeHub} from "./changes";
 import type {ChangeHub, Origin} from "./changes";

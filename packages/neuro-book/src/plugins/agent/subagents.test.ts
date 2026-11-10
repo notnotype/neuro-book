@@ -11,6 +11,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {subagentsSection} from "./backend/subagents/prompt";
 import {SessionRelations} from "./backend/subagents/relations";
+import {TreeSpend} from "./backend/subagents/tree-spend";
 import {ADHOC_PROFILE, MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";
 import type {ProfileEntry} from "./shared/contracts";
 import {AGENT_MODES_EXTENSION} from "./shared/permissions";
@@ -91,6 +92,19 @@ describe("会话关系", () => {
         expect(relations.childrenOf("p1")).toEqual([]);
         expect(relations.ancestorsOf("x")).toEqual(["y"]);
         expect(relations.depthOf("x")).toBe(1);
+    });
+
+    test("run-guards.md 输出 13：费用守卫的范围是整棵会话树（父、子、孙之和），别的树不算；扫描值不盖掉已经记过的", () => {
+        const relations = new SessionRelations();
+        relations.load([{id: "root"}, child("a", "root"), child("b", "a"), {id: "other"}]);
+        const tree = new TreeSpend(relations);
+        tree.load([{id: "root", spend: {cost: 1, unpriced: 0}}, {id: "b", spend: {cost: 9, unpriced: 1}}, {id: "other", spend: {cost: 5, unpriced: 0}}]);
+        tree.record("b", {cost: 2, unpriced: 0});
+        tree.load([{id: "b", spend: {cost: 9, unpriced: 1}}]);
+        tree.record("a", {cost: 0.5, unpriced: 1});
+        expect(tree.total("b")).toEqual({cost: 3.5, unpriced: 1});
+        expect(tree.total("root")).toEqual({cost: 3.5, unpriced: 1});
+        expect(tree.total("other")).toEqual({cost: 5, unpriced: 0});
     });
 });
 

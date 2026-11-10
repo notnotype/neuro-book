@@ -52,10 +52,21 @@ function toggleHistory(checkout: string): void {
     historyOpen.value = next;
 }
 const KIND_LABEL: Record<SearchRecordMatch["kind"], string> = {work: "Work", task: "Task", artifact: "产物", session: "会话"};
+/** 标题开头常常又写一遍编号（“w00032 t05 Profile 设置页”）：前面已经有“w00032/t05”，去掉重复的（t22）。 */
+function withoutLeadingIds(title: string, ids: readonly string[]): string {
+    let rest = title;
+    for (;;) {
+        const head = ids.find((id) => rest.toLowerCase().startsWith(`${id.toLowerCase()} `));
+        if (!head) return rest;
+        rest = rest.slice(head.length).trimStart();
+    }
+}
 function recordText(match: SearchRecordMatch): string {
     if (match.kind === "session") return match.label ?? match.key ?? "";
-    const where = match.workId ? `${workLabel(match.workId)}${match.taskId ? `/${taskLabel(match.taskId)}` : ""}` : "";
-    return `${where} ${match.title ?? match.artifactId ?? match.taskId ?? match.workId ?? ""}`.trim();
+    const ids = [match.workId ? workLabel(match.workId) : null, match.taskId ? taskLabel(match.taskId) : null].filter((id): id is string => id !== null);
+    const where = ids.join("/");
+    const name = match.title ? withoutLeadingIds(match.title, ids) : match.artifactId ?? match.taskId ?? match.workId ?? "";
+    return `${where} ${name}`.trim();
 }
 </script>
 
@@ -65,8 +76,9 @@ function recordText(match: SearchRecordMatch): string {
             <h2 class="nbdev-heading">Work、Task、产物与会话</h2>
             <ul class="flex flex-col">
                 <li v-for="(match, index) in records" :key="index">
-                    <a :href="searchRecordHref(match)" class="flex w-full items-center gap-2 px-1 py-1 hover:bg-[var(--bg-hover)]" @click="follow($event, searchRecordHref(match))">
-                        <Badge tone="neutral" variant="outline" size="sm">{{ KIND_LABEL[match.kind] }}</Badge><span class="truncate"><HighlightText :text="recordText(match)" :q="q" /></span>
+                    <!-- 手机上一行放不下：最多折成两行，命中的字不会被截在省略号后面（t22）。 -->
+                    <a :href="searchRecordHref(match)" class="flex w-full items-start gap-2 px-1 py-1 hover:bg-[var(--bg-hover)]" @click="follow($event, searchRecordHref(match))">
+                        <Badge class="mt-0.5 shrink-0" tone="neutral" variant="outline" size="sm">{{ KIND_LABEL[match.kind] }}</Badge><span class="line-clamp-2 min-w-0"><HighlightText :text="recordText(match)" :q="q" /></span>
                     </a>
                 </li>
             </ul>

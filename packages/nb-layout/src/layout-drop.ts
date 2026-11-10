@@ -98,6 +98,7 @@ function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometr
     const point = {x: Math.min(Math.max(input.point.x, geometry.body.left), geometry.body.right - 1), y: Math.min(Math.max(input.point.y, geometry.body.top), geometry.body.bottom - 1)};
     const centered = panel.tabs.length === 0 && takesCenter;
     const edge = centered || !input.policy.accepts(tabs, panel, "edge") ? null : nearestEdge(input, geometry, tabs, point);
+    if (edge === "none") return null;
     if (edge !== null) return {kind: "edge", target: edge};
     return takesCenter ? {kind: "center", panel: geometry.id} : null;
 }
@@ -106,8 +107,11 @@ const edgeTargetFor = (policy: LayoutPolicy, doc: LayoutDoc, tabs: ReadonlyArray
 
 const hasArea = (rect: GridDropRect): boolean => rect.right > rect.left && rect.bottom > rect.top;
 
-/** 指针落在哪条边的窄带里：四角归最近的边；策略不给的边没有窄带，那一块算中央。形状画在 `layoutDropSectors` 里，两边要一起改。 */
-function nearestEdge(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, tabs: ReadonlyArray<TabRef>, point: GridDropPoint): LayoutEdgeTarget | null {
+/**
+ * 指针落在哪条边的窄带里：四角归最近的可用边。有一条边能分时，策略不给的边也有窄带，那里没有落点（`"none"`），不算中央：工具面板只往一个方向分，
+ * 另一个方向的边上看着像要靠边，算并入会让人意外（开发者 2026-11-09 定）。可用边的窄带先占，不可用边只占剩下的。形状画在 `layoutDropSectors` 里，两边要一起改。
+ */
+function nearestEdge(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, tabs: ReadonlyArray<TabRef>, point: GridDropPoint): LayoutEdgeTarget | "none" | null {
     const {body} = geometry;
     // 收成标题行的面板正文是零面积：算比例会除零。
     if (!hasArea(body)) return null;
@@ -120,7 +124,9 @@ function nearestEdge(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, 
         const target = edgeTargetFor(input.policy, input.doc, tabs, geometry.id, edge);
         if (target !== null) return target;
     }
-    return null;
+    // 四条边都不分的（浮动窗）没有窄带，整块是中央。
+    if (within.length === 0 || !(["left", "right", "top", "bottom"] as const).some((edge) => edgeTargetFor(input.policy, input.doc, tabs, geometry.id, edge) !== null)) return null;
+    return "none";
 }
 
 /** 这一刻指针算哪块面板，含标签条与缝；条、标题栏与面板之外是 null。浮动窗盖在最上面，外缘不是缝。 */
@@ -259,6 +265,7 @@ export interface LayoutDropSector {
 /**
  * 这块面板正文上的分区；正文零面积或什么都放不进去时为 null。形状由 `nearestEdge` 的规则推出来：一条边的窄带是“离这条边的相对距离小于比例，且不比别的可用边
  * 更远”，所以相邻的边也可用时这个角按对角线切，不可用时窄带占满这个角。比例相对正文的宽高，所以对角线在像素上是斜的。
+ * 不可用的边的窄带没有分区（那里没有落点），中央不伸进去。
  */
 export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPanelGeometry): ReadonlyArray<LayoutDropSector> | null {
     const panel = input.doc.panels[geometry.id];
@@ -285,7 +292,9 @@ export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPa
     };
     const sectors: LayoutDropSector[] = [...targets].map(([edge, target]) => ({id: edge, points: shapes[edge], action: {kind: "edge", target}}));
     if (takesCenter) {
-        const [x0, x1, y0, y1] = [left ? near : 0, right ? far : 1, top ? near : 0, bottom ? far : 1];
+        // 有窄带就有边：可用的是分区，不可用的是没有落点的一条，中央都让开。
+        const banded = targets.size > 0;
+        const [x0, x1, y0, y1] = [left || banded ? near : 0, right || banded ? far : 1, top || banded ? near : 0, bottom || banded ? far : 1];
         sectors.push({id: "center", points: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], action: centerAction});
     }
     return sectors.length === 0 ? null : sectors;

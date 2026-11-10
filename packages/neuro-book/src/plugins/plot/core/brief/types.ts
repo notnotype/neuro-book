@@ -5,6 +5,8 @@ export interface BriefHint {
     readonly code: "nbook.plot.brief.noPresentation" | "nbook.plot.brief.noSceneConditions" | "nbook.plot.brief.payoffWithheld";
     readonly objects?: readonly ObjectRef[];
     readonly range?: {readonly from: string; readonly to: string};
+    /** `payoffWithheld` 的原因：答案不给内容，或主文字哪一类写不出去（brief.md 输出 8）。 */
+    readonly reason?: "answer" | "placeholder" | "rename" | "problem";
 }
 
 /** 简报里的一段：段标题、各项（裁剪按项从后往前），`protect` 的项不裁。 */

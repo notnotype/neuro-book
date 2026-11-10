@@ -86,12 +86,3 @@ export type ServerFilesFailureCode = FilesFailureCode | "unsupported-capability"
 export type ServerFilesResult<T> =
     | {readonly ok: true; readonly value: T}
     | {readonly ok: false; readonly code: ServerFilesFailureCode | RemoteFailureCode; readonly detail: string; readonly current?: Baseline; readonly cause?: RemoteCause};
-
-/** 虚拟根的文字呈现：读根本身得到它（docs/specs/agent/resources.md 输出 5）。 */
-export function renderVirtual(listing: VirtualListing): string {
-    const lines = listing.entries.map((entry) => {
-        const meta = Object.entries(entry.meta ?? {}).map(([key, value]) => `${key}: ${value}`).join("，");
-        return `- ${entry.address}${entry.title === undefined ? "" : ` ${entry.title}`}${meta === "" ? "" : `（${meta}）`}`;
-    });
-    return [listing.description, ...(lines.length === 0 ? [] : ["", ...lines])].join("\n");
-}

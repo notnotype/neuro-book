@@ -16,6 +16,7 @@ import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-pa
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import {createEditorArea} from "../area";
+import type {AutoSaveSettings} from "../auto-save";
 import {editorCatalogs} from "../text";
 import EditorGroup from "./EditorGroup.vue";
 
@@ -27,12 +28,14 @@ afterEach(() => {
 /** 记下收到的属性，把标签写在 DOM 上。 */
 const Control = defineComponent({
     props: {binding: {type: Object, default: null}, host: {type: Object, required: true}, readonly: {type: Boolean, required: true}, visible: {type: Boolean, required: true}, label: {type: String, required: true}},
-    setup: (props) => () => h("div", {"data-stub-control": props.label, "data-visible": String(props.visible), "data-readonly": String(props.readonly), "data-bound": String(props.binding !== null)}),
+    emits: ["leave"],
+    // 点一下替身就当作用户的焦点离开了这个视图。
+    setup: (props, {emit}) => () => h("div", {onClick: () => emit("leave"), "data-stub-control": props.label, "data-visible": String(props.visible), "data-readonly": String(props.readonly), "data-bound": String(props.binding !== null)}),
 });
 
-function scene() {
+function scene(autoSave?: AutoSaveSettings) {
     const memory = createMemoryFiles({project: [["a.md", "甲\n"], ["b.md", "乙\n"], ["c.md", "丙\n"]], user: []});
-    const area = createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
+    const area = createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, ...(autoSave === undefined ? {} : {autoSave: () => autoSave}), report: (error) => {
         throw error;
     }});
     const text = createHostTextEngine({locale: "zh-CN", strict: true});
@@ -120,5 +123,20 @@ describe("EditorGroup：一个标签的内容", () => {
         area.activate(pageTab);
         await nextTick();
         expect(wrapper.find("[data-editor-page]").exists()).toBe(true);
+    });
+
+    it("控件发 leave：开着“失焦时保存”就保存这份文档（输出 63）", async () => {
+        const {area, show} = scene({mode: "onFocusChange", delay: 1000});
+        const opened = area.open("project://a.md", {mode: "permanent"});
+        const wrapper = show(opened.ok ? opened.tabId : "");
+        await waitUntil("控件拿到绑定", () => wrapper.find("[data-bound=\"true\"]").exists());
+        const binding = area.binding(area.groups.activeGroup.value);
+        if (binding?.kind !== "text") throw new Error("没有文本绑定");
+        binding.commit(binding.revision.value, "甲（改）\n");
+        const document = area.documents.get("project://a.md");
+        expect(document?.dirty.value).toBe(true);
+        await wrapper.find("[data-stub-control]").trigger("click");
+        await waitUntil("已保存", () => document?.dirty.value === false);
+        expect(document?.text.value).toBe("甲（改）\n");
     });
 });

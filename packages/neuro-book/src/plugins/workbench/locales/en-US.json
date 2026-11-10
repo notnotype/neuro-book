@@ -39,7 +39,7 @@
         },
         "dropSectors": {
             "title": "Drop sectors",
-            "description": "When dragging a view or tab over a panel, show the places it can go"
+            "description": "With the drop indicator drag feel, show the places a view or tab can go when dragged over a panel; live layout doesn't draw them, the layout itself is the preview"
         },
         "appearance": {
             "title": "Appearance",

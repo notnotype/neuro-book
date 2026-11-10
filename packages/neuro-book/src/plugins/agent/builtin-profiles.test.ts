@@ -15,15 +15,14 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createJsonlStore, defineExtension} from "@notnotype/nb-harness/kernel";
 import type {CompactionJob, CompactionResult, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestSession} from "@notnotype/nb-harness/kernel/testing";
+import {ResourceReadError} from "@notnotype/nb-harness/kit/files";
+import {titleSessionId} from "@notnotype/nb-harness/kit/sessions";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
 
 import {loadRules} from "./backend/builtin/profiles/rules";
-import {ResourceReadError} from "./backend/resources";
-import {sessionMetaExtension, titleSessionId} from "./backend/session-meta";
-import type {MetaTrigger} from "./backend/session-meta";
 import {ADHOC_PROFILE, MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";
 import {agentExtension, agentTool} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
@@ -386,38 +385,6 @@ describe("标题和说明", () => {
         await turn(other, "第三轮");
         expect(await metaOf(other)).toEqual(["雨夜", "说明"]);
         expect(tiny.requests.length - before).toBe(2);
-    });
-
-    test("输出 6、8：触发器在真实内核上：一轮完成时通知、压缩带摘要时通知；压缩运行收口与失败的轮不通知", async () => {
-        const seen: MetaTrigger[] = [];
-        let summary: string | null = "前情摘要";
-        const method = async (job: CompactionJob): Promise<CompactionResult> => {
-            const cut = job.cuts.filter((item) => item.kind === "turn").at(-1);
-            return cut === undefined ? {failed: "no-cut"} : {method: job.method, firstKeptEntryId: cut.entryId, replacement: summary, omitted: [], tokensBefore: 100, tokensAfter: 10};
-        };
-        await using session = await createTestSession({extensions: [sessionMetaExtension((_id, trigger) => seen.push(trigger))], compaction: {methods: {shake: method, inplace: method}}});
-        session.model.script("一", "二");
-        await session.say("第一轮");
-        await session.say("第二轮");
-        expect(seen).toEqual([{kind: "turn"}, {kind: "turn"}]);
-
-        const compactNow = async () => {
-            const compacted = await session.raw.compact({commandId: cid()});
-            if (!compacted.ok || compacted.value.runId === undefined) throw new Error(`compact failed: ${JSON.stringify(compacted)}`);
-            await session.raw.waitRun(compacted.value.runId);
-        };
-        await compactNow();
-        expect(seen.slice(2)).toEqual([{kind: "compaction", summary: "前情摘要"}]);
-
-        session.model.script("三");
-        await session.say("第三轮");
-        summary = null;
-        await compactNow();
-        expect(seen.slice(3)).toEqual([{kind: "turn"}]);
-
-        session.model.script({fail: "provider"});
-        await session.say("这一轮失败");
-        expect(seen.slice(4)).toEqual([]);
     });
 
     test("输出 6、8：还没有说明时压缩，下一轮结束才生成，生成的还是第一轮的内容", async () => {

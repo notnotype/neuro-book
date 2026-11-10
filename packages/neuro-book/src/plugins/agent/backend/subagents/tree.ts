@@ -8,11 +8,11 @@
 
 import type {JsonValue, LogEvent, SessionIndexEntry, SessionSnapshot, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import {SessionUnavailable, type SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
 import type {ProfileEntry} from "../../shared/contracts";
 import type {TreeItem, TreeState} from "../../shared/subagents";
 import {PushThrottle} from "../push-throttle";
-import {AgentSessionUnavailable, type SessionTable} from "../sessions";
 import type {JobCenter} from "../jobs/center";
 import {isLive} from "../jobs/center";
 import type {SessionRelations} from "./relations";
@@ -158,7 +158,7 @@ export class SubagentTree {
             return item;
         } catch (error) {
             // 刚好在这期间关掉、又打不开了：按空闲给，下一次推送再看。
-            if (error instanceof AgentSessionUnavailable) return {...base, state: "idle"};
+            if (error instanceof SessionUnavailable) return {...base, state: "idle"};
             throw error;
         }
     }

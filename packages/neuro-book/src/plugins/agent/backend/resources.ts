@@ -8,9 +8,10 @@
 
 import {randomUUID} from "node:crypto";
 
-import type {Resources, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {SessionFiles, SessionFilesFactory, SessionLayout} from "@notnotype/nb-harness/kit/files";
 
-import {decodeText, parseAddress} from "nbook/plugins/files/shared/contracts";
+import {parseAddress} from "nbook/plugins/files/shared/contracts";
 import type {CallOptions, WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 
 import type {Expanded, ResourceClass, SessionArtifacts, SessionCalls, SessionResources} from "../shared/resources";
@@ -154,31 +155,32 @@ function bind(files: WorkspaceFiles, expand: (address: string) => Expanded, as: 
     return calls;
 }
 
-/** 内核的 `Resources.read` 接口只有文字或抛出：调用方要分辨失败时按 `code`（resources.md 输出 9）。 */
-export class ResourceReadError extends Error {
-    constructor(readonly code: string, uri: string, detail: string) {
-        super(`读不了 ${uri}：${code}（${detail}）`);
-        this.name = "ResourceReadError";
-    }
-}
-
-/** 内核的资源接口：`resolve` 交回全局地址（改写不了的原样交回）；`read` 只在不存在时为空，其它失败抛出（输出 9）。 */
-export function kernelResources(resources: SessionResources): Resources {
+/**
+ * 这个会话在套件看来的地址布局（docs/specs/harness/host-kit.md 输出 10）。`project://` 只在有主项目时出现：工作目录与 `auto`
+ * 不问审批者的写都跟着它。
+ */
+export function sessionLayout(context: ToolSessionContext): SessionLayout {
+    const project = context.project !== undefined;
     return {
-        resolve: (uri) => {
-            const expanded = resources.expand(uri);
-            return expanded.ok ? expanded.address : uri;
-        },
-        read: async (uri) => {
-            const read = await resources.read(uri);
-            if (!read.ok) {
-                if (read.code === "not-found") return undefined;
-                throw new ResourceReadError(read.code, uri, read.detail);
-            }
-            // 与文件服务读文本同一规则：严格 UTF-8、BOM 留在文本里、含 NUL 的不是文本。
-            const text = decodeText(read.value.bytes);
-            if (text === null) throw new ResourceReadError("not-text", uri, "不是 UTF-8 文本");
-            return text;
+        working: project ? "project://" : "session://",
+        scratch: ["session://", "tmp://"],
+        localWrites: project ? ["project://", "session://", "tmp://"] : ["session://", "tmp://"],
+        shellEnv: {...(project ? {NBOOK_PROJECT: "project://"} : {}), NBOOK_SESSION: "session://"},
+        // 项目根的 `.nbook/` 不露出，直接不扫，省下无谓的读（授权仍以 `readPath` 为准）。
+        searchExcludes: (root) => {
+            const parsed = parseAddress(root);
+            return parsed.ok && parsed.address.scheme === "projects" && !parsed.address.path.includes("/") ? ["/.nbook"] : [];
         },
     };
 }
+
+/**
+ * 资源视图加上布局，就是套件要的文件访问：返回类型的标注就是编译期检查，`SessionResources` 的方法与接口一失配就编译失败。
+ */
+export const sessionFiles = (resources: SessionResources, context: ToolSessionContext): SessionFiles => ({...resources, layout: sessionLayout(context)});
+
+/**
+ * 审批钩子、放回与内核资源接口用的工厂：在 `agent.ts` 建一次。只在 `nbook.agent` 内部传递，不进 `AgentService`：别的插件拿不到
+ * 能代表会话的读写（见文件头）。
+ */
+export const filesFor = (files: WorkspaceFiles): SessionFilesFactory => (context, owner) => sessionFiles(sessionResources(files, context, owner), context);

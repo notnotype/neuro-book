@@ -62,6 +62,7 @@
         "deletedClean": "文件已被删除。",
         "ended": "文件服务已结束（{{reason}}），不能保存。",
         "saveFailed": "保存失败：{{reason}}",
+        "retrySave": "重试保存",
         "saveUnknown": "保存的结果未知，正在核对磁盘。"
     },
     "closeDialog": {
@@ -82,6 +83,9 @@
                     "tabs": {
                         "title": "标签"
                     },
+                    "saving": {
+                        "title": "保存"
+                    },
                     "code": {
                         "title": "代码编辑器"
                     }
@@ -101,6 +105,29 @@
         "breadcrumbs": {
             "title": "面包屑",
             "description": "标签栏下面显示文件的路径与光标所在的标题"
+        },
+        "autoSave": {
+            "title": "自动保存",
+            "description": "什么时候自动保存未保存的修改",
+            "choices": {
+                "off": {
+                    "title": "关闭"
+                },
+                "afterDelay": {
+                    "title": "停手后"
+                },
+                "onFocusChange": {
+                    "title": "失焦时"
+                },
+                "onWindowChange": {
+                    "title": "窗口失焦时"
+                }
+            }
+        },
+        "autoSaveDelay": {
+            "title": "自动保存延迟",
+            "description": "停手多久之后保存；只在“停手后”时生效",
+            "unit": "毫秒"
         },
         "code": {
             "fontFamily": {
@@ -547,6 +574,11 @@
         "paste": "粘贴",
         "pastePlain": "粘贴为纯文本",
         "selectAll": "全选",
+        "find": "查找",
+        "replace": "替换",
+        "changeAll": "更改所有匹配项",
+        "formatDocument": "格式化文档",
+        "formatSelection": "格式化选定内容",
         "insertBlock": "插入块",
         "blockMenu": "块菜单",
         "pasteUnsupported": "浏览器不支持从菜单粘贴，请用 Ctrl+V",

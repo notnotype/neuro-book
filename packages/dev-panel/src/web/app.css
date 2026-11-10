@@ -85,6 +85,43 @@
 .nbdev-skip:focus {
     transform: none;
 }
+/*
+ * 小控件的点击区（t22）：外观不变，用透明的伪元素把能点的范围往外扩，桌面至少 24px（WCAG 2.2 的下限），触屏再大一点。
+ * 扩出去的部分会盖住相邻的控件，所以只往四周扩几像素；挨得很近的控件（左栏的展开箭头）在自己的样式里收窄横向的量。
+ */
+.nbdev-hit {
+    position: relative;
+}
+.nbdev-hit::after {
+    content: "";
+    position: absolute;
+    inset: var(--nbdev-hit-y, -4px) var(--nbdev-hit-x, -4px);
+}
+@media (pointer: coarse) {
+    .nbdev-hit::after {
+        inset: var(--nbdev-hit-y-coarse, -8px) var(--nbdev-hit-x-coarse, -8px);
+    }
+}
+/* 页面里的跳转（评审板“跳到答题”，t22）：同样平时不占位，聚焦时压在页面左上角，不推动版式。 */
+.nbdev-skip-local {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 20;
+    border-radius: var(--radius-control);
+    padding: 0.5rem 0.75rem;
+    background: var(--panel-surface);
+    color: var(--text-main);
+    box-shadow: var(--focus-ring);
+}
+.nbdev-skip-local:not(:focus) {
+    clip-path: inset(50%);
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    padding: 0;
+    white-space: nowrap;
+}
 /* 表头承载信息，用 --text-secondary：nb-ui Table 的表头是 --text-muted，亮色页面底色上对比度只有 2.88:1（2026-10-14 实测）。 */
 .nbdev-table th {
     color: var(--text-secondary);
@@ -125,21 +162,23 @@
     color: var(--text-secondary);
 }
 /* 空状态、占位与“未标”：不承载信息的灰字（承载信息的用 nbdev-note 或 nbdev-secondary）。 */
+/* 空状态（“没有”“未标”）也是要读的字：--text-muted 在页面底色上只有 3:1，用次级色（t22）。 */
 .nbdev-empty {
-    color: var(--text-muted);
+    color: var(--text-secondary);
 }
+/* 状态色当 12px 的字色差一点到 4.5:1（警告 4.43、成功 4.34，t22 axe 实测）：往正文色混两成，亮色里变深、暗色里变亮。 */
 .nbdev-warn {
-    color: var(--status-warning);
+    color: color-mix(in srgb, var(--status-warning) 80%, var(--text-main));
 }
 .nbdev-danger {
-    color: var(--status-danger);
+    color: color-mix(in srgb, var(--status-danger) 80%, var(--text-main));
 }
 .nbdev-ok {
-    color: var(--status-success);
+    color: color-mix(in srgb, var(--status-success) 80%, var(--text-main));
 }
 /* 强调色的文字与图标（进行中、排队中这类中性的提示）。 */
 .nbdev-accent {
-    color: var(--accent-main);
+    color: color-mix(in srgb, var(--accent-main) 80%, var(--text-main));
 }
 .nbdev-num {
     font-variant-numeric: tabular-nums;
@@ -161,6 +200,8 @@
 }
 /* 面层：持久内容的卡片与面板。 */
 .nbdev-surface {
+    /* 里面的东西要知道自己落在什么底色上（“谁在动”的标签要盖住虚线框的上边线，t22）。 */
+    --nbdev-surface-bg: var(--panel-surface);
     border: var(--border-w, 1px) solid var(--divider);
     border-radius: var(--radius-panel);
     background: var(--panel-surface);
@@ -266,5 +307,9 @@
 .nbdev-markdown table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; }
 .nbdev-markdown th, .nbdev-markdown td { border: var(--border-w, 1px) solid var(--divider); padding: 0.35em 0.6em; text-align: left; vertical-align: top; }
 .nbdev-markdown th { background: var(--bg-subtle); font-weight: 600; }
+/* 表格放不下时整张横向滚动，而不是把短的列挤成一字一行（t22）；表里的行内代码（地址、命令）不从中间折开。 */
+.nbdev-markdown th, .nbdev-markdown td { min-width: 5em; }
+.nbdev-markdown td code, .nbdev-markdown th code { white-space: nowrap; }
+.nbdev-markdown pre:focus-visible, .nbdev-markdown table:focus-visible { outline: 2px solid var(--focus-outline, var(--accent-main)); outline-offset: 2px; }
 .nbdev-markdown img { max-width: 100%; }
 .nbdev-markdown hr { border: 0; border-top: var(--border-w, 1px) solid var(--divider); margin: 1.5em 0; }

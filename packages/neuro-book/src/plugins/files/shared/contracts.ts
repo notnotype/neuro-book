@@ -26,11 +26,12 @@ export {basenameOf, formatResource, joinResource, MAX_PATH_BYTES, parentOf, pars
 export type {Address, Resource, Scheme} from "./resource";
 export {parseAddress} from "./resource";
 // 方案注册与写入接口：别的插件只能经本文件导入（跨插件的运行时导入只指向对方的 shared/contracts.ts）。
-export {renderVirtual, SCHEMES_POINT} from "./schemes";
+export {SCHEMES_POINT} from "./schemes";
+// 虚拟根的文字与文字的解码规则只有一份，在 Agent 的宿主套件里：文件服务与 Agent 对“是不是文字”“虚拟根读出来是什么”不会分叉。
+export {decodeText, renderVirtual} from "@notnotype/nb-harness/kit/files";
 export type {AgentOnBehalf, AuthorizeResult, MountDeclaration, MountedSchemeSpec, SchemeCaller, SchemeOperation, SchemeRoot, ServerFilesResult, VirtualEntry, VirtualListing} from "./schemes";
 // 写入接口（docs/specs/workspace/resources.md 的“写入接口”）。
 export {baselineOf, workspaceFilesKey} from "./workspace-files";
-export {decodeText} from "./text";
 export type {CallOptions, CommitOptions, ReadPath, StagedSink, WorkspaceFiles} from "./workspace-files";
 
 /**

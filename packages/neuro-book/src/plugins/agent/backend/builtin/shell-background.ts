@@ -11,9 +11,13 @@ import {join} from "node:path";
 
 import {executeShell} from "@oh-my-pi/pi-natives";
 
+import type {ToolResult} from "@notnotype/nb-harness/kernel/contracts";
+import {failed} from "@notnotype/nb-harness/kit/files";
+import {capLine, capLines, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "@notnotype/nb-harness/kit/tools";
+import type {ShellBackground} from "@notnotype/nb-harness/kit/tools";
+
 import type {CommandStatus} from "../../shared/subagents";
 import type {Job, JobCenter} from "../jobs/center";
-import {capLine, capLines, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window";
 
 export const OUTPUT_FILE = "output.log";
 export const STATUS_FILE = "status.json";
@@ -24,6 +28,32 @@ export interface BackgroundCommand {
     readonly cwd: string;
     readonly env: Readonly<Record<string, string>>;
     readonly timeoutMs?: number;
+}
+
+/**
+ * 套件 `shell` 的后台实现：登记任务、建好输出文件就交回（jobs.md 输出 7）；命令用任务自己的信号跑，不写 `timeout` 就不设超时。
+ * `clock` 给 `status.json` 的结束时刻。
+ */
+export function shellBackground(jobs: JobCenter, clock: {now(): number}): ShellBackground {
+    return async (prepared, {args, call, context, files}): Promise<ToolResult> => {
+        const home = await files.readPath("session://", {signal: call.signal});
+        if (!home.ok) return failed("unavailable", "unavailable: 会话工作区不可用，后台命令的输出没处写。");
+        const command = args.command as string;
+        const reserved = jobs.reserve(context.sessionId, "shell", call.invocation, command.length <= 80 ? command : `${command.slice(0, 80)}…`);
+        if (!reserved.ok) {
+            if (reserved.code === "unavailable") return failed("unavailable", "unavailable: nbook.agent 正在停止，不能再起后台命令。");
+            return {...failed("concurrency-limit", "concurrency-limit: 整个应用同时在跑的任务已经到上限；在前台跑，或稍后再试。"), details: {code: "concurrency-limit", scope: reserved.scope}};
+        }
+        const job = reserved.job;
+        const address = jobOutputAddress(context.sessionId, job.id);
+        try {
+            startBackgroundCommand(jobs, job, jobDirectory(home.value.path, job.id), address, {command: prepared.command, cwd: prepared.cwd, env: prepared.env, ...(typeof args.timeout === "number" ? {timeoutMs: args.timeout * 1000} : {})}, clock);
+        } catch (error) {
+            jobs.release(job);
+            return failed("job-start-failed", `job-start-failed: 后台命令的输出文件建不成（${error instanceof Error ? error.message : String(error)}），命令没有执行。`);
+        }
+        return {text: `已转到后台：任务 ${job.id}。输出边跑边写进 ${address}，结束后同一目录有 status.json。用 wait 等它，kill 停掉。`, details: {jobId: job.id, invocation: call.invocation, output: address}};
+    };
 }
 
 /** 后台命令的输出目录：`<会话工作区>/jobs/<任务 id>`。 */

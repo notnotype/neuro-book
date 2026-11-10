@@ -165,7 +165,7 @@ Markdown 的编辑命令（`nbook.edit.bold` 等）见 [`workbench.markdown-edit
 | `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{panelId?}`；缺省当前面板；浮动窗为 `unavailable` | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.float` | 浮动 / Float | `{panelId?, tab?}`；缺省当前面板的活动标签；不能浮动时 `unavailable` | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.dock` | 回到停靠 / Dock | `{panelId?}`；缺省当前面板；不是浮动窗时 `unavailable` | `nbook.workbench/layoutReady` | write | never |
-| `nbook.view.move-view` | 移动视图 / Move View | `{viewId, target}`（工具面板 id）或 `{viewId, newPanelNextTo}`（工具面板 id），或全部省略；省略时经选择先选视图、再选目标 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.move-view` | 移动视图 / Move View | `{viewId, container}`（容器 id）或 `{viewId, newContainerIn}`（区域名：`sidebar`\|`auxiliarybar`\|`panel`），或全部省略；省略时经选择先选视图、再选目标（planned，取代原来的 `target`、`newPanelNextTo`） | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.open` | 打开视图 / Open View | `{viewId?}`；省略时经选择列出树上的视图 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.refresh-files` | 刷新文件 / Refresh Files | `{viewId, generation}`（精确实例代际） | 该实例贡献了 refresh 动作 | read | never |
 | `nbook.view.set-part-hidden` | 切换区域显隐 / Toggle Area Visibility | `{part?, hidden?}`（`part`：`sidebar`\|`auxiliarybar`\|`panel`\|`activitybar`\|`statusbar`；`hidden` 布尔）；`part` 省略时经选择列出区域并标出可见与否，`hidden` 省略时按可见切换 | `nbook.workbench/layoutReady` | write | never |
@@ -175,7 +175,7 @@ Markdown 的编辑命令（`nbook.edit.bold` 等）见 [`workbench.markdown-edit
 - 参数一律严格校验（`additionalProperties: false`）：多余字段、未知取值都是 `invalid-args`，不静默补齐；选择被取消为成功且不写。
 - 当前面板执行时重验，已不存在时返回 `unavailable`。
 - `set-part-hidden` 的“可见”指未隐藏且未拖到零；“显示”同时清掉这两位，按意图尺寸回来（[ui.workbench-layout](../ui/workbench-layout.md) 输出 11）。
-- `move-view` 的目标是别的工具面板，或挨着一块工具面板开新面板（[ui.workbench-layout](../ui/workbench-layout.md) 输出 23）。`target` 与 `newPanelNextTo` 互斥，同时给或只给一部分参数为 `invalid-args`；视图不存在、不可移动，或目标是编辑组为失败且零写入；目标面板中途不在了为 `stale-target`。
+- `move-view` 的目标是别的容器，或某个区域里的新容器（[ui.workbench-layout](../ui/workbench-layout.md) 输出 23）（planned）。`container` 与 `newContainerIn` 互斥，同时给或只给一部分参数为 `invalid-args`；视图不存在、不可移动为失败且零写入；目标容器既没有成员也没有声明时为 `stale-target`。
 - `refresh-files` 是 View 贡献动作的样例：命令只携带 `{viewId, generation}`，命中句柄与代际校验归宿主；活动 View 或实例代际变化后的迟到点击按 `stale-target` 拒绝。它由资源管理器声明的视图标题动作触发（`args: "instance"`，[workbench.views](views.md) 输出 10）：外壳带上被点的视图实例的 id 与代际调用它。
 - 面板命令返回时布局已按新值显示；保存在后台进行，失败由状态栏的“布局未保存”给出（[ui.workbench-layout](../ui/workbench-layout.md) 的“失败与恢复”），命令不等保存完成、也不把“已接纳”说成“已保存”。
 

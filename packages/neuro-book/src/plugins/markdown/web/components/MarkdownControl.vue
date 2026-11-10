@@ -222,7 +222,8 @@ const enter = (binding: TextEditorBinding): void => {
     if (scroller.value !== null) scroller.value.scrollTop = view?.scroll ?? 0;
     // 按记下的光标新建的视图：滚到光标处。
     if (fresh && binding.cursor !== null) editor.commands.scrollIntoView();
-    detach = binding.attach(commitNow);
+    // 第二个参数：停手的计时还没到，或输入法在组字，手里就有没交出的输入（自动保存的“停手后”据此顺延）。
+    detach = binding.attach(commitNow, () => timer !== null || editor?.view.composing === true);
     refreshOutline(true);
     // 换编辑状态走 `updateState`，不产生事务。
     editingVersion.value += 1;
@@ -401,6 +402,8 @@ const onBlur = (): void => {
     commitNow();
     rememberCursor();
     emit("focus", false);
+    // 焦点进自己的菜单与输入框也走到这里，从事件上分不出来：一律算离开（Spec 输出 63 写明）。
+    emit("leave");
 };
 
 onMounted(() => {

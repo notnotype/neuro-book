@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>面板 UI 与可访问性走查 · 第 1 轮</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; margin: 0; padding: 24px; line-height: 1.6; color: #24211d; background: #f4f1ea; }
+  main { max-width: 64rem; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 8px; }
+  h2 { font-size: 17px; margin: 0 0 8px; }
+  section { background: #fffdf8; border-radius: 10px; padding: 16px 20px; margin: 16px 0; }
+  .badge { display: inline-block; font-size: 12px; padding: 0 8px; border-radius: 999px; margin-right: 8px; vertical-align: 2px; }
+  .open { background: #fbe7c6; color: #6b3d00; }
+  .done { background: #dcebdc; color: #1f5a2a; }
+  .shot { display: block; max-width: 100%; border: 1px solid #ddd6c8; border-radius: 6px; margin: 8px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+  .row img { max-width: min(100%, 390px); }
+  .rec { background: #eef4fb; border-left: 3px solid #0060df; padding: 6px 10px; margin: 8px 0; }
+  .muted { color: #57534b; font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  td, th { border-bottom: 1px solid #e6e0d4; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { color: #57534b; font-weight: 600; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>面板 UI 与可访问性走查 · 第 1 轮</h1>
+<p class="muted">w00022 t22。开发者 11-10：前端有些地方对用户不太友好，做一次大的 UI 与可访问性检查。</p>
+
+<section>
+  <h2>怎么查的</h2>
+  <ul>
+    <li>真实面板（4400）只读走了 15 页（首页、Work、Task、Task 速览、产物列表、评审板、文档、搜索、新建、编辑、会话、在跑、checkout、GitHub、404），每页 1440 与 390 两种宽度、亮暗两态，共 60 张截图；每张跑一遍 axe 自动检查，桌面亮色下按 Tab 45 次记下焦点。没有点任何会写入的按钮。</li>
+    <li>一个独立的前端审查者（Claude Sonnet）只看截图与代码，写了 28 条；我逐条对过截图与代码：<b>属实 25 条，部分属实 2 条，不采纳 1 条</b>（见最后一节）。</li>
+    <li>对话框的焦点在隔离的面板上试过：“关闭评审”打开时焦点在“取消”上，Esc 关掉后回到按钮，没问题。</li>
+  </ul>
+  <p>总的感觉：<b>灰色小字说明太多、内部编号与术语直接给人看、手机上要处理的信息被藏起来或排在最后</b>。下面先列我直接修的客观缺陷，再列要你定的改动。题都是选答，只答想定的就行。</p>
+</section>
+
+<section>
+  <h2><span class="badge done">直接修</span>客观缺陷，不用答</h2>
+  <table>
+    <tr><th>问题</th><th>修法</th></tr>
+    <tr><td>面板自己的样式对比度不够：空状态的“没有”、已结束的运行整行降透明度、“谁在动 · 临时”的标签（2.6 到 3.8，要 4.5）</td><td>空状态改用次级色；已结束的行不降透明度，靠“已结束”标记区分；标签换达标的颜色与字号</td></tr>
+    <tr><td>Work 卡片的目标、Work 页的目标、Task 页的“当前情况”把 Markdown 源码原样显示（反引号、<code>[链接](../../..)</code>）</td><td>与 Task 表一样按行内 Markdown 显示，链接只留文字</td></tr>
+    <tr><td>答题表单的“加说明”“清除选择”是 12px 灰字，点击区 36×18，看不出能点</td><td>换成与“改答”一样的小按钮，带图标</td></tr>
+    <tr><td>文档页的表格前几列被挤成一字一行，表里的地址被拆开</td><td>表格列给最小宽度，超宽时表格自己横向滚动；表里的行内代码不折行</td></tr>
+    <tr><td>手机上搜索结果把命中的字截掉，只剩一块高亮的“…”；标题里编号写两遍（“w00032/t05 w00032 t05 …”）</td><td>结果行允许两行、命中处移进可见范围；去掉重复的编号</td></tr>
+    <tr><td>评审板上键盘要先穿过 iframe 里的全部控件（实测 15 个停靠点）才到答题区</td><td>iframe 前面加一个“跳到答题”链接（聚焦时出现）</td></tr>
+    <tr><td>读屏的结构：答题区与会话列表的标题从 h1 跳到 h3；左栏与 Task 页右栏两个 <code>aside</code> 同名；每张卡片里的“谁在动”都是同名的地标；文档里能横向滚动的代码块用键盘滚不动；会话页按键按钮、checkout 页的按钮读出来的名字与看到的字不一致</td><td>标题改 h2；两个 <code>aside</code> 各起名字；卡片里的框不做地标；代码块可聚焦；按钮名字包含看到的字</td></tr>
+    <tr><td>小于 24×24 的点击目标：顶栏状态点（20×16）、Work 表的展开按钮、复制提交号等</td><td>用透明的内边距把点击区放大到至少 24px，触屏下更大，外观不变</td></tr>
+    <tr><td>首页的面包屑与标题都是“首页”；404 页同一件事三种说法</td><td>只有一项的面包屑不画；404 页只留一个说法</td></tr>
+  </table>
+  <div class="row">
+    <figure><img class="shot" src="r1/raw-markdown-card.webp" alt="首页 Work 卡片的目标里露出 Markdown 链接源码"><figcaption class="muted">Work 卡片露出链接源码</figcaption></figure>
+    <figure><img class="shot" src="r1/answer-form-buttons.webp" alt="答题表单里的加说明、清除选择是灰色小字"><figcaption class="muted">“加说明”“清除选择”是灰字</figcaption></figure>
+  </div>
+  <img class="shot" src="r1/raw-markdown-state.webp" alt="Task 页当前情况里的反引号原样显示">
+  <img class="shot" src="r1/docs-table.webp" alt="文档页表格的第一列一字一行">
+  <div class="row">
+    <figure><img class="shot" src="r1/search-mobile.webp" alt="手机上搜索结果的命中处被截断"><figcaption class="muted">手机搜索：命中处被截掉、编号写两遍</figcaption></figure>
+    <figure><img class="shot" src="r1/home-title.webp" alt="首页面包屑与标题都是首页"><figcaption class="muted">“首页”写两遍</figcaption></figure>
+  </div>
+</section>
+
+<section data-nbdev-question="upstream-contrast" data-nbdev-type="single" data-nbdev-options="upstream:改 nb-ui 与 nb-layout|panel:只在面板里覆盖|skip:不改" data-nbdev-recommend="upstream">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>状态徽标与字段说明的对比度在上游，改不改上游</h2>
+  <p>axe 报的对比度问题大头不在面板：nb-ui 的浅底徽标用 <code>--accent-main</code>、<code>--status-success</code> 当字色，11px 的字在浅底上只有 2.9 到 3.9（“进行中”“完成”“已采纳”“待答”都是）；表单字段下的说明用 <code>--text-muted</code>，3.0。主题里已经有给文字用的 <code>--accent-text</code>（亮色 #0060df），徽标没用它。另外左栏与正文之间的分隔线用键盘聚焦时只亮一条 1px 的线，在 nb-layout 里。</p>
+  <img class="shot" src="r1/badges-contrast.webp" alt="产物列表里的已采纳徽标对比度不足" style="max-width:390px">
+  <div class="rec">推荐改上游：徽标的浅底与描边两种写法改用 <code>--accent-text</code> 与各状态色往深混一档，字段说明改用次级色，分隔线聚焦时加粗加底色。代价：NeuroBook 应用里的徽标字色也会深一点，要在 Lab 里看一遍受影响的场景。只在面板里覆盖会出现两份规则，不推荐。</div>
+</section>
+
+<section data-nbdev-question="task-page-order" data-nbdev-type="single" data-nbdev-options="yes:做|no:不做" data-nbdev-recommend="yes">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>Task 页把“产物与文档”（含待答）提到前面</h2>
+  <p>现在右栏的顺序是执行 checkout、碰过的提交、产物与文档、Spec、证据、谁在动；手机上整个右栏排在几屏长的 README 后面，待答的评审要滚到底才看到。</p>
+  <img class="shot" src="r1/task-mobile.webp" alt="手机上的 Task 页先是很长的 README" style="max-width:390px">
+  <div class="rec">推荐：右栏最上面放“产物与文档”；手机上在 README 之前放一行“产物 N 个 · 待答 M”，点了跳到那一节。checkout 与提交挪到右栏下面。</div>
+</section>
+
+<section data-nbdev-question="artifact-mobile" data-nbdev-type="single" data-nbdev-options="tabs:页面与答题两个切换|jump:页头加“去答题（N）”|no:不改" data-nbdev-recommend="tabs">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>手机上的评审板</h2>
+  <p>手机上第一屏几乎全是 iframe（最小 32rem 高，自己能横竖滚），题在它下面；手指落在 iframe 上滑动滚的是页面里的内容，要找空隙才滑得到答题区。</p>
+  <img class="shot" src="r1/artifact-mobile.webp" alt="手机上评审板第一屏全是 iframe" style="max-width:390px">
+  <div class="rec">推荐“页面 | 答题（N）”两个切换：有待答的题时默认停在答题，看图时切到页面，iframe 占满剩下的高度。“去答题”按钮改动小，但 iframe 吃滑动的问题还在。草稿在两个切换之间来回不丢（t21 已经存在本机）。</div>
+</section>
+
+<section data-nbdev-question="work-table" data-nbdev-type="single" data-nbdev-options="yes:做|no:不做" data-nbdev-recommend="yes">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>Work 页的 Task 表：手机上保留待答与谁在动，桌面上少几列</h2>
+  <p>手机上表只剩“Task、状态”两列，待答与谁在动都被藏起来，要逐个展开才知道哪个 Task 等你答。桌面上 8 列，“记录”一列几乎每行都是 master，“产物”“待答”多数是 0；内容区窄于约 1070px 时整张表横向滚动。</p>
+  <img class="shot" src="r1/work-mobile.webp" alt="手机上 Work 页的 Task 表只有两列" style="max-width:390px">
+  <div class="rec">推荐：待答与谁在动改成状态旁的小标记（有才显示），手机上也保留；“记录”列去掉，记录不在 master 时在状态旁写分支名；产物数并进“当前情况”那一格的末尾。</div>
+</section>
+
+<section data-nbdev-question="lists" data-nbdev-type="multi" data-nbdev-options="artifacts:产物列表|runs:在跑页|checkouts:checkout 页手机版" data-nbdev-recommend="artifacts,runs,checkouts">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>三个列表页先放要处理的</h2>
+  <ul>
+    <li><b>产物列表</b>：35 条里几乎都是绿色“已采纳”，要处理的几条混在中间；手机上标题被右边的编号挤成几个字。推荐：完成态不画徽标、待答与等会话采纳的排在最前、手机上标题独占一行。</li>
+    <li><b>在跑页</b>：已结束的与在跑的按时间混排，每条下面一整条日志的绝对路径。推荐：在跑的置顶，已结束的收成“已结束 N 个”，日志路径换成“复制日志路径”按钮。</li>
+    <li><b>checkout 页</b>：手机上是 9 列宽表，横向拖着看。推荐：手机上改成一项一张卡片（名称、分支、是否干净、领先落后、跑着的服务）。</li>
+  </ul>
+  <div class="row">
+    <figure><img class="shot" src="r1/runs.webp" alt="在跑页已结束的和在跑的混在一起"><figcaption class="muted">在跑页（日志路径在右边，截图里裁掉了）</figcaption></figure>
+    <figure><img class="shot" src="r1/checkouts-mobile.webp" alt="手机上 checkout 页是宽表"><figcaption class="muted">checkout 页手机版</figcaption></figure>
+  </div>
+</section>
+
+<section data-nbdev-question="sessions-header" data-nbdev-type="single" data-nbdev-options="yes:做|no:不做" data-nbdev-recommend="yes">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>会话页的页头与详情头只留要紧的</h2>
+  <p>页头常驻 herdr 版本、“已订阅推送”“对账补上了 22 次漏掉的状态变化”“另有 8 个短命或无关的进程没有列出”；详情头一行塞了标题、状态、Agent、pane、会话键、Task、标题来源七八样。</p>
+  <img class="shot" src="r1/sessions-header.webp" alt="会话页页头与详情头">
+  <div class="rec">推荐：页头的这些只在不正常时显示（herdr 连不上、推送断了），正常时收进顶栏状态点的详情；详情头留标题、状态、Task，pane、会话键、标题来源收进“详情”。</div>
+</section>
+
+<section data-nbdev-question="terminal-font" data-nbdev-type="single" data-nbdev-options="min:观看时字号有下限，放不下就横向滚动|fit:保持现在放下整屏" data-nbdev-recommend="min">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>会话终端观看时的字号</h2>
+  <p>观看时为了放下整屏把字号压到最小 5px；桌面右栏约 760px 宽、会话 160 多列时实际 6 到 7px，读不出内容，只能接管才看得清（接管会改 pane 尺寸）。</p>
+  <img class="shot" src="r1/terminal-watch.webp" alt="终端观看时字小到读不出">
+  <div class="rec">推荐设下限（约 10px），放不下时框里横向滚动、贴着最右边的光标。代价是一眼看不到整屏的右半边。不改的话可以只靠手机的文字视图读。</div>
+</section>
+
+<section data-nbdev-question="code-banner" data-nbdev-type="single" data-nbdev-options="yes:做|no:不做" data-nbdev-recommend="yes">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>“代码已更新”横幅可以关、命令可以复制</h2>
+  <p>合入之后、重启之前每一页顶上都有这条，命令只能手抄，手机上占两行。</p>
+  <img class="shot" src="r1/banner.webp" alt="代码已更新横幅" style="max-width:390px">
+  <div class="rec">推荐：加“知道了”（按这次的代码版本记住，代码再变才重新出现，关掉后状态点的详情里还能看到）和“复制命令”。</div>
+</section>
+
+<section data-nbdev-question="wording" data-nbdev-type="multi" data-nbdev-options="ids:编号与路径默认收起|terms:英文术语换中文|notes:删掉不看也能操作的灰色说明" data-nbdev-recommend="ids,terms,notes">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>界面上的字</h2>
+  <ul>
+    <li><b>编号与路径</b>：每道题后面的 <code>#题号</code>、会话完整键、日志绝对路径、产物 id。推荐默认不显示，悬停或复制时才有；出错时题号照样写出来。</li>
+    <li><b>术语</b>：“provenance”“pane”这类英文直接出现在句子里。推荐换中文说法（提问者、窗格）。checkout、Work、Task 是 nbdev 自己的名字，保留。</li>
+    <li><b>灰色说明</b>：12px 与 11px 的灰字在页面里有一百多处，例如在跑页页头的命令用法、checkout 页的“点一行去它的 Task”。推荐照 nb-ui 的设计语言删掉不看也能操作的，留下的放标签旁的说明图标。</li>
+  </ul>
+</section>
+
+<section data-nbdev-question="ephemeral-frame" data-nbdev-type="single" data-nbdev-options="keep:保留虚线框，没人在动时不画|badge:去掉虚线框，标题旁一个“实时”小标|no:不改" data-nbdev-recommend="keep">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>“谁在动 · 临时”虚线框</h2>
+  <p>t15 定的：持久的页面里混着临时的片段（租约），用虚线框标出。现在每张卡片里都有，没人在动时 Task 页也画一个写着“没有”的空框；标签压在框的上沿，底色与卡片不一样，像贴歪了。</p>
+  <img class="shot" src="r1/ephemeral.webp" alt="首页卡片里的谁在动虚线框">
+  <div class="rec">推荐保留虚线框的含义，只修三处：没人在动时不画、标签底色跟着卡片、标签的颜色与字号达标。</div>
+</section>
+
+<section data-nbdev-question="lease-chip" data-nbdev-type="single" data-nbdev-options="link:点了去会话页|plain:不能聚焦，只悬停看|no:不改" data-nbdev-recommend="link">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>会话胶囊（“谁在动”里的那几个）能不能点</h2>
+  <p>现在胶囊能用 Tab 聚焦，聚焦了只弹提示，什么也做不了；首页按 Tab，卡片区一半的停靠点是它们。收件箱里的胶囊还嵌在整行的链接里。</p>
+  <div class="rec">推荐改成链接，点了去会话页的这个会话；提示里的“已失效”这类关键状态直接写成看得见的字。收件箱里那一行本身是链接，胶囊在那里只显示、不单独聚焦。</div>
+</section>
+
+<section data-nbdev-question="header-actions" data-nbdev-type="single" data-nbdev-options="yes:做|no:不做" data-nbdev-recommend="yes">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>页头的操作分主次</h2>
+  <p>Work 页右上角“改状态、编辑 README、新建 Task、看 README”四个一样淡的链接，手机上折成两行；看不出哪个是主要的。</p>
+  <div class="rec">推荐：每页一个主要操作用实心小按钮（Work 页“新建 Task”，Task 页“编辑 README”），其余照旧；“看 README”与“编辑 README”的图标区分开。</div>
+</section>
+
+<section data-nbdev-question="extra" data-nbdev-type="text">
+  <h2><span class="badge open" data-nbdev-skip>待定</span>你觉得不友好、上面没提到的地方</h2>
+  <p>你说“有些地方对用户不太友好”，如果指的是上面没覆盖的地方，写在这里。</p>
+</section>
+
+<section>
+  <h2><span class="badge done">已定</span>不采纳与暂缓</h2>
+  <ul>
+    <li><b>不采纳</b>：“条件不满足时提交按钮不要灰掉”。nb-ui 的表单规范要求能事先防住的不报错、提交按钮不可用，照规范不改。</li>
+    <li><b>部分属实</b>：“左栏 Work 的展开箭头只有鼠标能点”。键盘在树上用左右方向键展开收起，能用；但箭头在触屏上只有 20px，放进上面“小于 24px 的点击目标”一起修。</li>
+    <li><b>部分属实</b>：分隔线聚焦时不是完全没有提示（那条 1px 的线会变实），只是太弱，并进第一道题。</li>
+    <li><b>暂缓</b>：左栏上半部分固定占约 440px、Work 树只剩半屏。等这一轮改完再看，要不要把“资料”“现场”收成一行。</li>
+  </ul>
+</section>
+</main>
+</body>
+</html>

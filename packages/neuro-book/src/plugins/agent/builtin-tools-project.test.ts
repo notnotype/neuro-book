@@ -12,6 +12,9 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {ToolContext, ToolImplementation, ToolResult, ToolSessionContext, ToolCall, ToolEffect, ToolInfo} from "@notnotype/nb-harness/kernel/contracts";
+import {createTestClock} from "@notnotype/nb-harness/kernel/testing";
+import {createDialects} from "@notnotype/nb-harness/kit/commands";
+import {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {definitionAt} from "nbook/manifest";
@@ -23,13 +26,10 @@ import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import {killSpawnedProjects, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 
-import {createTestClock} from "@notnotype/nb-harness/kernel/testing";
-
 import {builtinTools} from "./backend/builtin";
+import {shellBackground} from "./backend/builtin/shell-background";
 import {JobCenter} from "./backend/jobs/center";
-import {SessionEditStores} from "./backend/builtin/common";
-import {createDialects} from "./backend/permissions/dialects";
-import {createPermissionHook} from "./backend/permissions/hook";
+import {createPermissionHook} from "./backend/permissions";
 import {sessionArtifacts, sessionResources} from "./backend/resources";
 
 let tmp = "";
@@ -72,7 +72,7 @@ async function scene(): Promise<{readonly files: WorkspaceFiles; readonly book: 
     if (files === null) throw new Error("测试插件没有激活");
     const context = {sessionId: "s1", profile: "p", project: "book"} as ToolSessionContext;
     const jobs = new JobCenter({clock: createTestClock(), limits: () => ({perSession: 8, global: 16}), newId: () => crypto.randomUUID()});
-    const tools = builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}), {jobs, clock: {now: () => 0}});
+    const tools = builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}), shellBackground(jobs, {now: () => 0}));
     const built = new Map<string, ToolImplementation>();
     return {
         files,

@@ -17,8 +17,9 @@ const GROUPS: Array<{key: ArtifactListItem["category"]; title: string}> = [
     {key: "design", title: "设计稿"}, {key: "report", title: "讲解与报告"}, {key: "review", title: "审查报告"},
     {key: "questions", title: "提问集"}, {key: "unpublished", title: "还没发布的"}, {key: "other", title: "其它"},
 ];
-const groups = computed(() => GROUPS.map((group) => ({...group, items: props.artifacts.filter((item) => item.category === group.key)})).filter((group) => group.items.length > 0));
-const ADOPTION: Record<string, string> = {waiting: "等会话采纳", adopted: "已采纳"};
+/** 每组里要处理的排前面：有题待答的，再是等会话采纳的；其余保持服务端给的顺序（t22）。 */
+const attention = (item: ArtifactListItem) => (item.waiting > 0 ? 0 : item.adoption === "waiting" ? 1 : 2);
+const groups = computed(() => GROUPS.map((group) => ({...group, items: props.artifacts.filter((item) => item.category === group.key).map((item, index) => ({item, index})).sort((left, right) => attention(left.item) - attention(right.item) || left.index - right.index).map(({item}) => item)})).filter((group) => group.items.length > 0));
 const where = (workId: string, taskId: string | null) => `${workLabel(workId)}${taskId ? ` / ${taskLabel(taskId)}` : ""}`;
 </script>
 
@@ -30,11 +31,13 @@ const where = (workId: string, taskId: string | null) => `${workLabel(workId)}${
             <ul class="flex flex-col">
                 <li v-for="item in group.items" :key="`${item.workId}/${item.taskId}/${item.artifactId}`" class="border-b last:border-b-0 nbdev-divider">
                     <a :href="artifactHref(item.workId, item.taskId, item.artifactId)" class="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 py-1.5 hover:bg-[var(--bg-hover)] focus-visible:bg-[var(--bg-hover)]" @click="follow($event, artifactHref(item.workId, item.taskId, item.artifactId))">
-                        <span class="min-w-0 flex-1 truncate font-medium">{{ item.title ?? item.artifactId }}</span>
-                        <span class="nbdev-note">{{ where(item.workId, item.taskId) }} · {{ item.artifactId }}<template v-if="item.version"> · v{{ item.version }}</template></span>
+                        <!-- 手机上标题独占一行，编号与标记换到下一行；宽时标题占满剩下的宽度（t22）。 -->
+                        <span class="min-w-0 grow basis-full truncate font-medium sm:basis-0">{{ item.title ?? item.artifactId }}</span>
+                        <span class="nbdev-note">{{ where(item.workId, item.taskId) }}<template v-if="item.version"> · v{{ item.version }}</template></span>
                         <Badge v-if="item.state === 'closed'" tone="neutral" variant="outline" size="sm">已关闭</Badge>
                         <Badge v-if="item.waiting > 0" tone="warning" variant="soft" size="sm">待答 {{ item.waiting }}</Badge>
-                        <Badge v-if="item.adoption && ADOPTION[item.adoption]" :tone="item.adoption === 'waiting' ? 'accent' : 'success'" variant="soft" size="sm">{{ ADOPTION[item.adoption] }}</Badge>
+                        <!-- 只标要处理的：“等会话采纳”。已采纳是完成态，不画（原来几乎每行一个绿色徽标，要处理的混在里面）。 -->
+                        <Badge v-if="item.adoption === 'waiting'" tone="accent" variant="soft" size="sm">等会话采纳</Badge>
                     </a>
                 </li>
             </ul>

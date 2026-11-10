@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-autosave
-status: active
+status: done
 updated: 2026-11-10
 ---
 
@@ -17,11 +17,16 @@ updated: 2026-11-10
 
 ## 当前状态
 
-2026-11-10 开工（开发者用 autonomous-delivery 指定先做 t04、t05）。执行位置：worktree `.worktree/w00025-editor`，分支 `feat/w00025-editor`（从 master `25451818c` 拉出）。
+2026-11-10 完成，已合入 master（快进到 `de519d6f9`）。执行位置：worktree `.worktree/w00025-editor`，分支 `feat/w00025-editor`（从 master `25451818c` 拉出）。
 
-- **计划审查**（2026-11-10）：独立审查，一个 fable 子代理（开发者指定本会话不用 omp）。12 条：阻断 0、重要 5、建议 7，全部成立；10 条改进计划（第二稿），第 6 条里的两项与第 9、12 条里的几项接受取舍、进待确认清单。报告 [`evidences/design-review-fable.txt`](evidences/design-review-fable.txt)，逐条处理 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)。主要改动：停手后的定时不在输入法组字途中强制结算；条件恢复后补存；失败闸不借用 `saveProblem`；换下活动标签算一次离开、源码编辑器的查找框不算；磁盘已变化时不自动保存；窗口失焦排除同页 iframe。
-- 照推荐先做、等开发者追认的决定记在 [待确认清单](../../pending-confirmations.md)（t04 八行）。
+- **计划审查**：fable 子代理（开发者指定本会话不用 omp），12 条：阻断 0、重要 5、建议 7，全部成立；10 条改进计划，其余进待确认清单。[报告](evidences/design-review-fable.txt)，[处理](evidences/design-review-disposition.txt)。
+- **实现审查**：fable 子代理，审 `25451818c..436ee1660`，13 条：阻断 0、重要 4、建议 9；12 条改，1 条（焦点在内嵌页面里时切到别的程序可能不保存）记为未验证边界。[报告](evidences/impl-review-fable.txt)，[处理](evidences/impl-review-disposition.txt)。
+- **提交**（分支上）：`8b52d05b2` 模型；`573762a56` 冲突用例；`7fcc3a83a` 设置与接线；`436ee1660` e2e；`5b60578e1` 实现审查的修正；`177c24e93` e2e 按审查改；`editor-area` 改在缺省模式下跑的一次提交。
+- **Spec**：[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md) 输出 63、场景 35–39 已实现（master 上）。
+- **验证**（[`evidences/verification.txt`](evidences/verification.txt)）：编辑器 Bun 测试 215 过；组件测试 135 过；typecheck、governance、docs 通过；合入前 e2e 10 个文件 166 例全过，审查修正后相关两个文件 19 例全过、`editor-area` 在缺省模式下全过；变异检查 13 处里 12 处被抓到，余下一处是等价变异。
+- **未验证**：真实的操作系统窗口切换（e2e 派发事件模拟）；焦点在 HTML 预览的内嵌页面里时直接切到别的程序（“窗口失焦时”模式可能不保存，按浏览器事件模型推断）；触摸设备；只读（订阅结束）与“手动保存慢于延迟”两种情形没有单独用例。
+- 待开发者追认的决定在 [待确认清单](../../pending-confirmations.md)（t04 八行；缺省值那一行补了 VS Code 网页版缺省是“停手后”的对照）。
 
 ## 下一步
 
-按计划第二稿的四个切片实施。
+完成。合入后在合并结果上补跑：nb-ui 组件与主题测试 523 例、typecheck、编辑器 Bun 测试 215 例、自动保存与源码右键的 e2e 22 例全过；`test:affected` 在负载 30 上下被 nb-story 命令行子进程用例的超时截停，同一文件在 master 上对照同样失败，分支没有改 nb-story。worktree `.worktree/w00025-editor` 与分支 `feat/w00025-editor` 已删。

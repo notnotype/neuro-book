@@ -123,8 +123,10 @@ function install(): WebEnv {
         visibilityState: "visible" as "visible" | "hidden",
         querySelector: (selector: string) => (selector.includes("nbdev-csrf") ? {content: "test-csrf"} : null),
     });
-    const win = new EventTarget();
     const storage = new Map<string, string>();
+    const localStorage = {getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => void storage.set(key, value), removeItem: (key: string) => void storage.delete(key)};
+    // `host/prefs.ts` 经 `window.localStorage` 读写，与全局的 `localStorage` 是同一份。
+    const win = Object.assign(new EventTarget(), {localStorage});
     const define = (name: string, value: unknown) => Object.defineProperty(globalThis, name, {value, configurable: true, writable: true});
     FakeSocket.instances = [];
     define("fetch", fakeFetch);
@@ -132,7 +134,7 @@ function install(): WebEnv {
     define("document", doc);
     define("window", win);
     define("location", {protocol: "http:", host: "127.0.0.1:4490", origin: "http://127.0.0.1:4490"});
-    define("localStorage", {getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => void storage.set(key, value), removeItem: (key: string) => void storage.delete(key)});
+    define("localStorage", localStorage);
     current = {saved};
     return {
         calls,

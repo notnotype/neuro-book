@@ -172,6 +172,39 @@ test.describe("拖动的每帧开销", () => {
         await page.mouse.up();
     });
 
+    test("实时布局，标签条里排序：被拖的标签跟手每帧至多一次样式重算、不布局", async ({page}) => {
+        test.setTimeout(120_000);
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        const cdp = await openBook(page);
+        const tab = page.locator("[data-editor-tab]").filter({hasText: "short.md"});
+        const box = await tab.boundingBox();
+        if (box === null) throw new Error("没有标签");
+        const at = {x: box.x + box.width / 2 + 12, y: box.y + box.height / 2};
+        await page.mouse.move(box.x + box.width / 2, at.y);
+        await page.mouse.down();
+        await page.mouse.move(at.x, at.y, {steps: 4});
+        await expect(page.locator("html")).toHaveAttribute("data-workbench-dragging", "");
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        // 量的是排序：标签自己显示出来跟手，没有拖影。
+        await expect.poll(() => tab.evaluate((element) => getComputedStyle(element.parentElement as Element).visibility)).toBe("visible");
+        await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
+        await settle(page);
+        // 在自己的位置附近横着来回：还在标签条里，插入位不变。
+        const sway = async (rounds: number): Promise<void> => {
+            for (let round = 0; round < rounds; round += 1) {
+                await page.mouse.move(at.x + 5, at.y, {steps: 20});
+                await page.mouse.move(at.x - 5, at.y, {steps: 20});
+            }
+        };
+        await sway(1);
+        await settle(page);
+        const moving = await perFrame(page, cdp, () => sway(3));
+        expect(moving.recalc, JSON.stringify(moving)).toBeLessThanOrEqual(PER_FRAME_LIMIT);
+        expect(moving.layout, JSON.stringify(moving)).toBeLessThanOrEqual(0.1);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+    });
+
     test("整窗拖动：窗跟手每帧至多一次样式重算、不布局；放下落在指针处", async ({page}) => {
         test.setTimeout(120_000);
         const cdp = await openBook(page);

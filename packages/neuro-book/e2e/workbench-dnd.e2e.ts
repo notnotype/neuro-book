@@ -511,15 +511,17 @@ test.describe("产品页：拖放", () => {
         await expect(entry(page, C)).toHaveCount(1);
     });
 
-    test("工具面板的窄带：侧栏左右是添加为标签、上下是拆；面板的上缘是添加为标签、左右是拆；不允许的边没有窄带（输出 25、26；验收 10）", async ({page}) => {
+    test("工具面板的窄带：侧栏左右没有落点、上下是拆、正中添加为标签；面板上缘没有落点、左右是拆（输出 25、26；验收 10）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
-        // 侧栏这一列只在上下分：左右两条窄带不是落点，指针在那里算中央。
+        // 侧栏这一列只在上下分：左右两条窄带上没有落点，不算中央。
         await dragTo(page, tab(page, F), await inLeaf(page, "sidebar", {x: 0.04, y: 0.5}));
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
-        await expect(label(page)).toContainText("添加为标签");
+        await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
         const right = await inLeaf(page, "sidebar", {x: 0.96, y: 0.5});
         await page.mouse.move(right.x, right.y, {steps: 6});
+        await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
+        const middle = await inLeaf(page, "sidebar", {x: 0.5, y: 0.5});
+        await page.mouse.move(middle.x, middle.y, {steps: 6});
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
         await expect(label(page)).toContainText("添加为标签");
         for (const y of [0.2, 0.92]) {
@@ -530,8 +532,13 @@ test.describe("产品页：拖放", () => {
         await page.keyboard.press("Escape");
         await expect(ghost(page)).toHaveCount(0);
 
-        // 面板这一排只在左右分：上缘算中央，左右两条窄带是拆。
+        // 面板这一排只在左右分：上缘没有落点，正中添加为标签，左右两条窄带是拆。
         await dragTo(page, entry(page, C), await inLeaf(page, "panel", {x: 0.5, y: 0.3}));
+        await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
+        // 正文的正中：头以下那一段的中点。
+        const panelBox = (await leaf(page, "panel").boundingBox())!;
+        const headBottom = (await page.locator(`[data-panel-head="panel"]`).boundingBox())!;
+        await page.mouse.move(panelBox.x + panelBox.width / 2, (headBottom.y + headBottom.height + panelBox.y + panelBox.height) / 2, {steps: 6});
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
         await expect(label(page)).toContainText("添加为标签");
         for (const x of [0.08, 0.92]) {
@@ -544,16 +551,16 @@ test.describe("产品页：拖放", () => {
         expect(await writesOf(page)).toBe(writes);
     });
 
-    test("缝上：工具视图归最近的能接收的工具面板，不会落到编辑组（输出 25；验收 10）", async ({page}) => {
+    test("缝上：工具视图归最近的能接收的工具面板，不会落到编辑组；侧栏右缘不分，那里没有落点（输出 25；验收 10）", async ({page}) => {
         await open(page);
         const sash = (await sidebarSash(page).boundingBox())!;
         const seam = {x: sash.x + sash.width / 2, y: sash.y + sash.height / 2};
-        // 来源是面板的己：缝两侧只有侧栏接收工具视图，所以缝上是侧栏的“添加为标签”。
+        // 来源是面板的己：缝两侧只有侧栏接收工具视图，缝归侧栏，落在它右缘的窄带上，是没有落点，不是编辑组的外缘。
         await dragTo(page, tab(page, F), {x: seam.x - 2, y: seam.y});
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
-        await expect(label(page)).toContainText("添加为标签");
+        await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
+        await expect(page.locator(`[data-drop-kind="edge"]`)).toHaveCount(0);
         await page.mouse.move(seam.x, seam.y, {steps: 4});
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
+        await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
         await page.keyboard.press("Escape");
         await expect(ghost(page)).toHaveCount(0);
     });
@@ -895,12 +902,12 @@ test.describe("产品页：拖放", () => {
             expect(placed.y).toBeLessThan(lower.y);
         });
 
-        test("骨架上的缝不是落点：侧栏与编辑区之间归侧栏，不是两块之间", async ({page}) => {
+        test("骨架上的缝不是落点：侧栏与编辑区之间归侧栏，不是两块之间；侧栏右缘不分，那里没有落点", async ({page}) => {
             await open(page);
             const sash = await sidebarSash(page).boundingBox();
             if (sash === null) throw new Error("没有侧栏的边界");
             await dragTo(page, tab(page, E), {x: sash.x + sash.width / 2, y: sash.y + sash.height / 2});
-            expect(await labelText(page)).toBe("添加为标签");
+            await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
             await page.keyboard.press("Escape");
             await page.mouse.up();
             await expect(ghost(page)).toHaveCount(0);

@@ -6,13 +6,12 @@ import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
-import type {ApprovalCtx, ModelResponse, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {autoReview} from "./backend/permissions/auto-review";
 import {MAIN_PROFILE} from "./shared/contracts";
-import {AUTO_ESCALATED_PREFIX, AUTO_FAILED_REASON} from "./shared/permissions";
+import {AUTO_FAILED_REASON} from "./shared/permissions";
 import type {Rule} from "./shared/permissions";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint, Scripted} from "./testing/endpoint";
@@ -84,17 +83,6 @@ describe("问审批模型（输出 19、21）", () => {
         expect(await approvalRequests(session)).toHaveLength(1);
     });
 
-    test("答转人工：停在审批上，带上模型的理由", async () => {
-        const session = await open();
-        endpoint.script({tool: "shell", args: {command: "git push"}}, escalate("用户没说要推送"), "好");
-        const run = await send(session, "看看状态");
-        expect(await askedReason(session)).toBe(`${AUTO_ESCALATED_PREFIX}用户没说要推送`);
-        const event = (await session.path()).find((item) => item.type === "interactionRequested")!;
-        await session.resolve({commandId: cid(), id: (event.data as {id: string}).id, decision: "deny"});
-        await session.waitRun(run);
-        expect((await results(session)).at(-1)).toMatchObject({status: "denied", code: "user-denied"});
-    });
-
     test.each<[string, Scripted]>([
         ["答了文字，没调工具", "可以放行"],
         ["判定不在枚举里", {tool: "submit_verdict", args: {decision: "yes", reason: "好"}}],
@@ -109,24 +97,6 @@ describe("问审批模型（输出 19、21）", () => {
         expect(await results(session)).toEqual([]);
     });
 
-    test("超时：询问用户，不放行", async () => {
-        const never = (_draft: unknown, options: {signal?: AbortSignal}): Promise<ModelResponse> => new Promise((resolve) => {
-            options.signal!.addEventListener("abort", () => resolve({content: [], toolCalls: [], stopReason: "aborted", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: "m"}));
-        });
-        const reports: string[] = [];
-        const ctx = {signal: new AbortController().signal, model: never, read: () => undefined} as unknown as ApprovalCtx;
-        const verdict = await autoReview({call: {id: "c", tool: "shell", args: {command: "touch a"}}, effect: "exec", paths: [], project: null}, ctx, (code, _message, params) => void reports.push(`${code}:${String(params?.kind)}`), 5);
-        expect(verdict).toEqual({verdict: "ask", reason: AUTO_FAILED_REASON});
-        expect(reports).toEqual(["permission-auto-failed:timeout"]);
-    });
-
-    test("这次调用太长：不问模型，询问用户", async () => {
-        const session = await open();
-        endpoint.script({tool: "shell", args: {command: `touch ${"a".repeat(20_000)}`}});
-        void send(session, "建个文件");
-        expect(await askedReason(session)).toBe(AUTO_FAILED_REASON);
-        expect(reviewPrompts()).toHaveLength(0);
-    });
 });
 
 describe("哪些调用到不了模型（输出 19）", () => {
@@ -135,19 +105,6 @@ describe("哪些调用到不了模型（输出 19）", () => {
         endpoint.script({tool: "shell", args: {command: "ls"}}, {tool: "write", args: {path: "session://a.md", content: "x"}}, {tool: "write", args: {path: "tmp://b.md", content: "x"}}, "好");
         await session.waitRun(await send(session, "看一下"));
         expect((await results(session)).map((item) => item.status)).toEqual(["ok", "ok", "ok"]);
-        expect(reviewPrompts()).toHaveLength(0);
-    });
-
-    test("规则先判：放行不问模型，询问问用户，拒绝直接拒", async () => {
-        const session = await open([
-            {tool: "shell", when: {type: "command", pattern: "touch *"}, action: "allow"},
-            {tool: "shell", when: {type: "command", pattern: "git push *"}, action: "deny"},
-            {tool: "shell", when: {type: "command", pattern: "mkdir *"}, action: "ask", reason: "先问我"},
-        ]);
-        endpoint.script({tool: "shell", args: {command: "touch a"}}, {tool: "shell", args: {command: "git push"}}, {tool: "shell", args: {command: "mkdir b"}});
-        void send(session, "做");
-        expect(await askedReason(session)).toBe("先问我");
-        expect((await results(session)).map((item) => item.status)).toEqual(["ok", "denied"]);
         expect(reviewPrompts()).toHaveLength(0);
     });
 

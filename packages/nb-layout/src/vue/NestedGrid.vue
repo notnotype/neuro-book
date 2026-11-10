@@ -212,7 +212,13 @@ function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> 
 }
 
 let snappedTree: typeof treePlacement.value = null;
-watch(layers, (next, previous) => {
+/**
+ * 布局与拿起的内容项一起看：放下时提交与撤卡片在同一个同步段，这一次回调里同时有放下前后的布局，落地时才判断得了内容落进的叶是不是这次才出现的。
+ * 落地：这个内容项不跟着外框逐帧变化。落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框与窗的把手也从卡片的矩形长到终点，和内容一起；
+ * 不然它们直接画在终点（手势收尾的布局变化不过渡），内容再慢慢飞进去。两样分在两次回调里到时，落地那次的布局还是放下前的，内容只是不带外框地飞。
+ */
+watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], old) => {
+    const previous = old?.[0];
     // 分隔线的矩形变了要重新对齐设备像素。只有浮动窗在动时树没变，不用读 DOM。
     if (treePlacement.value !== snappedTree) {
         snappedTree = treePlacement.value;
@@ -224,6 +230,13 @@ watch(layers, (next, previous) => {
     if (props.maximized != null) raisedLeaf.value = props.maximized.leaf;
     const root = renderTree.value;
     motion.update({items: previous === undefined ? next : settleFloatMoves(next, previous), previous: previous ?? null, rootSize: root === null ? null : (props.layout.sizes[root.id] ?? null), extent: placementExtent.value, dpr: dpr.value, previewing: preview.value !== null});
+    const before = old?.[1] ?? null;
+    if (liftedKey !== null || before === null) return;
+    const key = `content:${before}`;
+    const landed = next.find((item) => item.kind === "content" && item.key === key);
+    const leaf = landed?.kind === "content" ? `leaf:${landed.leaf}` : null;
+    const known = (previous ?? []).some((item) => item.key === leaf);
+    motion.land(key, leaf === null || known ? undefined : new Map([[leaf, liftedRect]]));
 }, {immediate: true});
 
 /**
@@ -377,10 +390,6 @@ onBeforeUnmount(() => {
     scope.dispose();
 });
 
-// 落地：这个内容项不跟着外框逐帧变化。和这一轮布局的过渡判定谁先谁后都可以（`useGridMotion.land`）。
-watch(() => props.lifted?.key ?? null, (now, before) => {
-    if (now === null && before !== null) motion.land(`content:${before}`);
-});
 
 /** 写拿起元素的矩形（相对网格根）。刚拿起时元素还没带标记，写不到，这次渲染从 `liftedRect` 取。只写变了的键：尺寸没变就不引起布局。 */
 function placeLifted(rect: GridRect): void {
@@ -456,7 +465,7 @@ defineExpose({
             </div>
         </template>
         <template v-if="$slots['float-chrome'] !== undefined">
-            <div v-for="float in floats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :style="{...gridRectStyle(float.rect), ...floatLayer(float.id, 2)}">
+            <div v-for="float in floats" :key="float.id" class="nb-grid-float-chrome" :data-float-chrome="float.id" :data-moving="moving ? '' : undefined" :data-float-gesture="floatGestures.get(float.id)" :style="{...gridRectStyle(growing.get(`leaf:${float.id}`) ?? float.rect), ...floatLayer(float.id, 2)}">
                 <slot name="float-chrome" :id="float.id" :rect="float.rect"></slot>
             </div>
         </template>
@@ -551,6 +560,7 @@ defineExpose({
 
 /* 标记写在外框上，不写在根上：实时布局拖动中要一部分动、一部分跟手。 */
 .nb-grid-frame[data-moving],
+.nb-grid-float-chrome[data-moving],
 .nb-grid-content[data-moving],
 .nb-grid-sash[data-moving] {
     transition: transform var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout);
@@ -559,7 +569,8 @@ defineExpose({
 
 /* 手势中的窗跟手：别的布局变化正在过渡时也不带拖尾。写在 [data-moving] 后面，同样的特异性后写的赢。 */
 .nb-grid-frame[data-float-gesture],
-.nb-grid-content[data-float-gesture] {
+.nb-grid-content[data-float-gesture],
+.nb-grid-float-chrome[data-float-gesture] {
     transition: none;
 }
 

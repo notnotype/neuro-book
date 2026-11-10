@@ -30,13 +30,13 @@ const TONE_CLASS: Record<SessionTone, string> = {blocked: "nbdev-warn", working:
 </script>
 
 <template>
-    <nav class="flex min-h-full flex-col gap-0.5 py-2" aria-label="会话与 pane">
+    <nav class="flex min-h-full flex-col gap-0.5 py-2" aria-label="会话与窗格">
         <a :href="'/live/sessions?view=notify'" class="nbdev-session-notify mx-2 mb-1" :class="{'nbdev-session-sel': selected === 'notify', 'nbdev-session-notify-hot': attention > 0}" :aria-current="selected === 'notify' ? 'page' : undefined" @click="follow($event, () => emit('notify'))">
             <span class="i-lucide-bell size-4 shrink-0" aria-hidden="true" />
             <span class="min-w-0 flex-1 font-semibold">通知<template v-if="attention > 0"> · {{ attention }} 条要处理</template></span>
             <span class="i-lucide-chevron-right size-4 shrink-0 opacity-60" aria-hidden="true" />
         </a>
-        <h3 class="nbdev-session-group">Agent 会话 · {{ agents.length }}<Badge tone="accent" variant="outline" size="sm">临时</Badge></h3>
+        <h2 class="nbdev-session-group">Agent 会话 · {{ agents.length }}<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
         <p v-if="agents.length === 0" class="nbdev-empty px-4 py-1">本仓库里没有 Agent 会话</p>
         <template v-for="row in agents" :key="row.key">
             <a v-if="row.selectable && row.paneId" :href="hrefOf(row.paneId)" class="nbdev-session-row" :class="{'nbdev-session-sel': selected === row.paneId}" :aria-current="selected === row.paneId ? 'page' : undefined" @click="follow($event, () => emit('select', row.paneId!))">
@@ -46,7 +46,7 @@ const TONE_CLASS: Record<SessionTone, string> = {blocked: "nbdev-warn", working:
                 <span class="nbdev-session-sub">
                     <span>{{ row.agent }}</span><span class="font-mono">{{ row.paneId }}</span>
                     <template v-if="!compact">
-                        <span v-for="task in row.tasks" :key="task.label" class="nbdev-session-chip" :class="{'opacity-55': task.stale}">{{ task.label }}</span>
+                        <span v-for="task in row.tasks" :key="task.label" class="nbdev-session-chip" :class="{'nbdev-session-chip-stale': task.stale}">{{ task.label }}<template v-if="task.stale"> · 过期</template></span>
                         <span v-if="row.runs > 0">{{ row.runs }} 个运行</span>
                         <span v-if="row.tasks.length === 0 && row.runs === 0" class="nbdev-empty">没有租约</span>
                     </template>
@@ -63,8 +63,8 @@ const TONE_CLASS: Record<SessionTone, string> = {blocked: "nbdev-warn", working:
                 </span>
             </div>
         </template>
-        <h3 class="nbdev-session-group mt-2">其它 pane（只读）· {{ panes.length }}</h3>
-        <p v-if="panes.length === 0" class="nbdev-empty px-4 py-1">本仓库里没有别的 pane</p>
+        <h2 class="nbdev-session-group mt-2">其它窗格（只读）· {{ panes.length }}</h2>
+        <p v-if="panes.length === 0" class="nbdev-empty px-4 py-1">本仓库里没有别的窗格</p>
         <a v-for="row in panes" :key="row.key" :href="hrefOf(row.paneId!)" class="nbdev-session-row" :class="{'nbdev-session-sel': selected === row.paneId}" :aria-current="selected === row.paneId ? 'page' : undefined" @click="follow($event, () => emit('select', row.paneId!))">
             <span class="nbdev-session-dot nbdev-dot-pane" aria-hidden="true" />
             <span class="nbdev-session-title" :title="row.title">{{ row.title }}</span>
@@ -152,6 +152,20 @@ a.nbdev-session-row:hover {
     border-radius: 9999px;
     padding: 0 0.4rem;
     font-size: var(--text-2xs);
+}
+/* 过期的租约：原来整体降到 55% 不透明，字只有 2.6:1（t22 真实面板 axe）。字色照旧，边框换成中性色，写出“过期”。 */
+.nbdev-session-chip-stale {
+    border-color: var(--text-muted);
+}
+/* 选中行的底是强调色的浅底：状态字再往正文色混一些，暗色下“工作中”才到 4.5:1（t22 真实面板 axe 实测 4.02）。 */
+.nbdev-session-sel .nbdev-session-state.nbdev-accent {
+    color: color-mix(in srgb, var(--accent-main) 60%, var(--text-main));
+}
+.nbdev-session-sel .nbdev-session-state.nbdev-warn {
+    color: color-mix(in srgb, var(--status-warning) 60%, var(--text-main));
+}
+.nbdev-session-sel .nbdev-session-state.nbdev-ok {
+    color: color-mix(in srgb, var(--status-success) 60%, var(--text-main));
 }
 .nbdev-session-notify {
     display: flex;

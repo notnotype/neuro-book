@@ -30,6 +30,12 @@ const LEGACY: readonly Legacy[] = [
     {key: "breadcrumb.label", zh: "面包屑导航"}, // navigation/Breadcrumb.vue 模板里的 aria-label
     {key: "codeBlock.empty", zh: "无内容"}, // display/CodeBlock.vue 的 emptyText 缺省
     {key: "codeBlock.truncated", zh: "只公开了部分内容"}, // 同上，truncatedText 缺省
+    {key: "copyButton.copy", zh: "复制"}, // controls/CopyButton.vue 的按钮文字（w00028 t04 新增）
+    {key: "copyButton.copied", zh: "已复制"}, // 同上，复制成功的回执（新增）
+    {key: "copyButton.failed", zh: "复制失败，请手动选择文字"}, // 同上，两条复制路径都失败（新增）
+    {key: "detailDialog.copy", zh: "复制原文"}, // feedback/DetailDialog.vue 页脚的复制按钮（w00028 t04 新增）
+    {key: "detailDialog.close", zh: "关闭"}, // 同上，页脚按钮（新增）
+    {key: "detailDialog.truncated", zh: "原文过长，已截断"}, // 同上，原文被截断时块底的说明（新增）
     {key: "diffView.mode", zh: "显示方式"}, // display/DiffView.vue，切换行内与两栏的读屏名称
     {key: "diffView.inline", zh: "行内"}, // 同上
     {key: "diffView.split", zh: "两栏"}, // 同上
@@ -53,6 +59,11 @@ const LEGACY: readonly Legacy[] = [
     {key: "input.clear", zh: "清空输入"}, // form/Input.vue 的 clearLabel 缺省
     {key: "notification.close", zh: "关闭通知"}, // feedback/Notification.vue 与 NotificationStack.vue 的 closeLabel 缺省
     {key: "notification.inProgress", zh: "进行中"}, // feedback/Notification.vue 不确定进度条的 aria-valuetext
+    {key: "notification.detail", zh: "详情"}, // feedback/Notification.vue 的 detailLabel 缺省（w00028 t04 新增）
+    {key: "notification.detailTitle", params: {title: "文件没有保存"}, zh: "文件没有保存：详情"}, // feedback/NotificationStack.vue 详情对话框的标题（新增；没有标题时用 notification.detail）
+    {key: "notification.region", zh: "通知"}, // 同上，视口区域的可访问名称（新增）
+    {key: "notification.folded", params: {count: 2}, zh: "还有 2 条较早的通知"}, // 同上，折叠小条（新增）
+    {key: "notification.collapse", zh: "收起"}, // 同上，展开后的折叠小条（新增）
     {key: "numberInput.increase", zh: "增加"}, // form/NumberInput.vue 的 incrementLabel 缺省
     {key: "numberInput.decrease", zh: "减少"}, // 同上，decrementLabel 缺省
     {key: "searchSelect.empty", zh: "没有匹配的选项"}, // form/SearchSelect.vue 的 emptyText 缺省

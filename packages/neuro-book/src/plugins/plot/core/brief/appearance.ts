@@ -1,34 +1,45 @@
-/** 涉及条目的样子（brief.md 输出 13）：本章计划涉及的条目按给 Agent 的带值写法渲染，去掉 `know` 命名空间，知识点与目标不在这里（保密以上的内容只在这一场的秘密里，目标在在场的人里）。 */
+/**
+ * 涉及条目的样子（docs/specs/plot/brief.md 输出 13）：本章计划涉及的条目按纯文字写给写手（写手不回写，带值写法的注记与条目 id
+ * 对他没有用）。名字、简介、别名、正文的每一块与字段值都经关卡（`gate.ts`，输出 16）。
+ *
+ * 跳过：知识点、目标（保密以上的内容只在这一场的秘密里，目标在在场的人里）、伏笔（只在伏笔段写）、名字不能照写的条目（用马甲而
+ * 身份是秘密的本体：马甲条目本来就在本章涉及的条目里，他这一场就是那个样子；已删除；之后才出场）。不写 `know`、`att` 两个命名
+ * 空间：态度在在场的人一段按“两人都在本章”与“认不认得”给出，这里再列一遍会绕过那两条。
+ */
 
 import {ENTRY_TYPES} from "../../shared/declarations";
-import {nameOf, type Frame} from "./context";
-import {shownName} from "./parts";
-import type {SecretsResult} from "./secrets";
+import * as fixed from "./fixed";
+import type {Gate} from "./gate";
 import type {BriefItem} from "./types";
 
-/** 带值写法里的条目引用带着名字：本章不能写名字的条目（保密以上的知识点、要遮的隐秘目标）换成同样的写法（输出 4）。 */
-const maskRefNames = (frame: Frame, secrets: SecretsResult, text: string) => text.replace(/<Ref id="([^"]+)" name="((?:[^"\\]|\\.)*)" \/>/gu, (whole, id: string, name: string) => (name === "已删除的条目" ? whole : `<Ref id="${id}" name="${shownName(frame, secrets, id)}" />`));
+const SKIPPED_TYPES: ReadonlySet<string> = new Set([ENTRY_TYPES.point, ENTRY_TYPES.goal, ENTRY_TYPES.foreshadow]);
+const SKIPPED_NAMESPACES: ReadonlySet<string> = new Set(["know", "att"]);
 
-export function appearanceItems(frame: Frame, chapter: string, secrets: SecretsResult): BriefItem[] {
-    const view = frame.view;
+export function appearanceItems(gate: Gate, chapter: string): BriefItem[] {
+    const view = gate.frame.view;
     const items: BriefItem[] = [];
     for (const id of view.chapterEntries(chapter, "planned")) {
         const stored = view.object({kind: "entry", id}) as {type?: string; deleted?: boolean} | undefined;
-        if (stored === undefined || stored.deleted === true || stored.type === ENTRY_TYPES.point || stored.type === ENTRY_TYPES.goal) continue;
-        const read = view.entry(id, frame.position, "planned");
-        if (read === null || read === "chapter-not-found" || read.deleted || !read.appeared) continue;
-        const lines = [nameOf(frame, id)];
-        if (read.summary !== "") lines.push(read.summary);
-        const rendered = view.render(id, frame.position, "planned");
-        if (rendered !== null && typeof rendered !== "string") for (const block of rendered.blocks) lines.push(maskRefNames(frame, secrets, block.text));
+        if (stored === undefined || stored.deleted === true || SKIPPED_TYPES.has(stored.type ?? "") || gate.kind(id) !== "plain") continue;
+        // 本章才出场的条目照写：章首读时它算没出场，字段值仍读得到（到章末还没出场的由关卡挡在上面）。
+        const read = view.entry(id, gate.frame.position, "planned");
+        if (read === null || read === "chapter-not-found" || read.deleted) continue;
+        const name = gate.name(id);
+        const lines = [name];
+        const summary = gate.summary(id);
+        if (summary !== "") lines.push(summary);
+        const aliases = gate.aliases(id);
+        if (aliases.length > 0) lines.push(`别名：${aliases.join("、")}`);
+        // 身份不给写手的马甲条目，正文与简介、别名同一条规则：不给。
+        if (gate.describable(id)) for (const block of gate.blocks(id)) lines.push(block.withheld === null ? block.text : fixed.WITHHELD_BLOCK);
         for (const [namespace, data] of Object.entries(read.namespaces)) {
-            if (namespace === "know") continue;
+            if (SKIPPED_NAMESPACES.has(namespace)) continue;
             for (const [field, value] of Object.entries(data.fields)) {
                 if (value.value === null || value.value === undefined || (Array.isArray(value.value) && value.value.length === 0)) continue;
-                lines.push(`${namespace}.${field}：${typeof value.value === "string" ? value.value : JSON.stringify(value.value)}`);
+                lines.push(`${value.label ?? field}：${gate.value(value.value)}`);
             }
         }
-        items.push({label: nameOf(frame, id), text: lines.join("\n")});
+        items.push({label: name, text: lines.join("\n")});
     }
     return items;
 }

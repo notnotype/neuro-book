@@ -1,0 +1,51 @@
+t18 决定 10 的后续复查：DeepSeek 用 hashline 时 edit 调用报 invalid-address，错在哪（2026-11-10）。
+
+起因：edit-modes.txt 记了“DeepSeek 的 hashline 有 7 次调用因 invalid-address 失败后重试”，原始记录 edit-modes-runs.json 只有错误码，没有调用原文。
+做法：把 ../experiments/edit-modes.ts 临时拷到主工作区的 packages/neuro-book/src/plugins/agent/edit-modes.experiment.ts（未提交，跑完已删），
+只跑 DeepSeek（deepseek-flash）的 hashline 模式，任务取 word、sentence、two-spots、rename 四种、各 4 遍共 16 遍，失败的 edit 调用把参数与结果打出来。
+master 0213a7c85，机器负载约 34（别的会话在跑），只影响耗时。
+
+结果：16 遍里 12 遍最终文件逐字等于期望；有 6 遍各出现 1 次被拒的 edit 调用，错误码都是 invalid-address，错法完全相同：
+- 模型写的补丁头是 [素材.md#AAA0]，正确写法是 [session://素材.md#AAA0]，漏了 session:// 前缀。
+- 文件标签 AAA0 与行号（PUT 3.=3: 等）都对。
+- 工具的报错：invalid-address: edit 的目标要是资源地址：素材.md（素材.md 不是“方案://路径”形式的资源地址），什么都没有改。
+- 6 次都是下一次调用补上前缀后通过。
+
+逐遍结果（脚本输出）：
+deepseek hashline word#2 ok out=389 10s
+deepseek hashline word#1 ok out=366 10s
+deepseek hashline word#0 ok out=399 10s
+deepseek hashline word#3 ok out=368 11s
+deepseek hashline sentence#0 ok out=404 6s
+deepseek hashline sentence#3 ok out=383 7s
+deepseek hashline sentence#1 FAIL(completed,edits=1,failed=0) out=424 9s
+deepseek hashline sentence#2 ok out=703 9s
+deepseek hashline two-spots#1 FAIL(completed,edits=1,failed=0) out=668 8s
+deepseek hashline two-spots#0 FAIL(completed,edits=1,failed=0) out=661 9s
+deepseek hashline two-spots#3 FAIL(completed,edits=1,failed=0) out=738 8s
+deepseek hashline two-spots#2 ok out=1157 11s
+deepseek hashline rename#1 ok out=3136 21s
+deepseek hashline rename#2 ok out=3144 19s
+deepseek hashline rename#0 ok out=3137 22s
+deepseek hashline rename#3 ok out=3131 22s
+
+被拒的调用（任务#遍、补丁头）与紧接着的重试：
+deepseek hashline sentence#2  error invalid-address  [素材.md#AAA0]
+deepseek hashline sentence#2  ok   [session://素材.md#AAA0]
+deepseek hashline two-spots#2  error invalid-address  [素材.md#AAA0]
+deepseek hashline two-spots#2  ok   [session://素材.md#AAA0]
+deepseek hashline rename#1  error invalid-address  [素材.md#AAA0]
+deepseek hashline rename#1  ok   [session://素材.md#AAA0]
+deepseek hashline rename#2  error invalid-address  [素材.md#AAA0]
+deepseek hashline rename#2  ok   [session://素材.md#AAA0]
+deepseek hashline rename#0  error invalid-address  [素材.md#AAA0]
+deepseek hashline rename#0  ok   [session://素材.md#AAA0]
+deepseek hashline rename#3  error invalid-address  [素材.md#AAA0]
+deepseek hashline rename#3  ok   [session://素材.md#AAA0]
+
+推断（没有做对照）：hashline 的工具说明来自 @oh-my-pi/pi-natives 的 editDescription("hashline")，其中的示例是 [greet.py#A1B2]、[PLAN.md#3C4D] 这种裸文件名；
+我们只在说明末尾补了一句“路径都是资源地址……不接受裸路径”（packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts 的 NOTE）。DeepSeek 很可能是照着示例写的。
+另一条相关事实：hashline 声明的 customFormat（lark 语法）在 @oh-my-pi/pi-ai 里只有 openai-responses 与 openai-codex-responses 两个接口使用，DeepSeek 走的接口不受它约束。
+
+没有做的：把示例换成资源地址后重测；gpt-6-luna 没有重跑（原实验里它的 hashline 没有被拒）。缺省已是 replace（决定 10），这条只影响以后有人把 hashline 打开的情况。
+费用没有单独记账：16 遍，输出 token 每遍 366 到 3144。

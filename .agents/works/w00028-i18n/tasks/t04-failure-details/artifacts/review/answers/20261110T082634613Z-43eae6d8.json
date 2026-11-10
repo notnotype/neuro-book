@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00028-i18n",
+    "taskId": "t04-failure-details",
+    "artifactId": "review",
+    "answerId": "20261110T082634613Z-43eae6d8",
+    "artifactVersion": 6,
+    "contentHash": "1eae19db7508b494eb195efd2d458f2466c225a30c5e67e357ac764a5951c92d",
+    "submittedAt": "2026-11-10T08:26:33.067Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "notice-right-edge": "tight",
+        "next-task": "w00031-t03"
+    },
+    "comments": {},
+    "note": null
+}

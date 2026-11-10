@@ -11,6 +11,11 @@ import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
 import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {Dialects} from "@notnotype/nb-harness/kit/commands";
+import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
+import {SessionMeta, SessionTable} from "@notnotype/nb-harness/kit/sessions";
+import {kernelResources} from "@notnotype/nb-harness/kit/files";
+import type {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
@@ -18,28 +23,26 @@ import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
-import {TASK_ID, taskSessionId} from "../shared/contracts";
+import {SESSION_TITLE_PROFILE, TASK_ID, taskSessionId} from "../shared/contracts";
 import type {AgentService, ProfileAdmin, StartTaskOptions, StartTaskResult} from "../shared/contracts";
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
+import {BUILTIN_TOOL_IDS} from "./builtin/ids";
 import {JobCenter} from "./jobs/center";
 import {ChildRuns} from "./subagents/children";
 import {SessionRelations} from "./subagents/relations";
+import {isModeSwitch, type PendingItem} from "./subagents/result";
 import {SubagentTree} from "./subagents/tree";
 import {TreeSpend} from "./subagents/tree-spend";
 import {ProfileBundles} from "./profile-bundles";
-import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
+import {filesFor, sessionArtifacts, sessionResources} from "./resources";
 import {createAttachmentPort} from "./attachments";
 import {ProfileCatalog} from "./profiles";
-import {SessionMeta} from "./session-meta";
-import {SessionTable} from "./sessions";
+import {SESSION_META_MATERIAL} from "./session-meta";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
-import {CompactionRestore} from "./compaction/restore";
-import type {SessionEditStores} from "./builtin/common";
-import {createPermissionHook} from "./permissions/hook";
+import {createPermissionHook} from "./permissions";
 import {modesContract} from "./permissions/modes";
-import type {Dialects} from "./permissions/dialects";
 import {AgentTools} from "./tools";
 
 export interface AgentRuntimeOptions {
@@ -128,6 +131,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         for (const listener of catalogListeners) listener();
     };
 
+    const sessionFilesFor = filesFor(options.files);
     // 宿主要先建好、再接收贡献；Profile 变了要通知它，它又要按 Profile 解析：用一个先占位的引用把这个环断开。
     let hostRef: AgentHost | null = null;
     const tools = new AgentTools({catalogChanged, declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
@@ -141,7 +145,14 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     });
 
     const compaction = new CompactionMethods({declarations: options.declarations, activate: options.trigger});
-    const restore = new CompactionRestore({files: options.files, editStores: options.editStores, report: options.report});
+    const restore = new CompactionRestore({
+        files: sessionFilesFor,
+        editStores: options.editStores,
+        tools: BUILTIN_TOOL_IDS,
+        planOf: () => "session://plan.md",
+        logOf: (context) => `sessions://${context.sessionId}/session.jsonl`,
+        report: options.report,
+    });
 
     const store = createJsonlStore({root: sessionsRoot});
     // 扫完才交出服务（深度与费用上限靠它）：之后的派发与 fork 增量登记。读不了的索引不在列表里，那些会话按没有父会话算。
@@ -175,7 +186,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             declarations: (context) => tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]),
             create: (id, context) => tools.create(id, context),
         },
-        resources: (context) => kernelResources(sessionResources(options.files, context, null)),
+        resources: (context) => kernelResources(sessionFilesFor(context, null)),
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock,
         approve: createPermissionHook({
@@ -219,7 +230,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         if (entry.ok) relations.register(entry.value);
         else options.report("relations-fork-failed", `could not read the index of forked session ${id}: ${entry.code}`, {session: id, code: entry.code});
     };
-    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => restore.forget(id), forked: (id) => void registerFork(id), report: options.report});
+    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => restore.forget(id), forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), report: options.report});
     const table = sessions;
 
     const createSession = async (createOptions: Parameters<AgentService["create"]>[0]): ReturnType<AgentService["create"]> => {
@@ -286,7 +297,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
-    const meta = new SessionMeta({table, create: createSession, models, report: options.report});
+    const meta = new SessionMeta({table, create: createSession, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
     const children = new ChildRuns({table, jobs, report: options.report});
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
 

@@ -4,13 +4,13 @@
 
 # Notification
 
-`Notification` 是一条内联状态通知，使用 `info`、`success`、`warning` 或 `error` 色调呈现图标与内容；它只展示信息并上报用户动作，不负责入队、自动消失或自身关闭。可以带一条进度条，给长任务用。
+`Notification` 是一条内联状态通知，使用 `info`、`success`、`warning` 或 `error` 色调呈现图标与内容；它只展示信息并上报用户动作，不负责入队、自动消失或自身关闭。可以带一条进度条，给长任务用；可以带“详情”入口，点开由父组件显示诊断原文（`NotificationStack` 用 `DetailDialog`）。
 
 ## 布局与状态
 
-通知从左到右显示色调图标、可伸缩的标题/正文、可选动作按钮和可选关闭按钮。标题仅在标题文字非空或提供 `title` 插槽时出现；正文容器始终存在，默认文字来自 `message`。给了 `progress` 时正文下多一条进度条：数值画确定进度（`Progress`，`sm` 档，色调随通知），`null` 画一条自己来回滑动的短条表示不确定进度（系统设了减少动画时停住）。动作按钮在 `actionLabel` 非空或提供 `action` 插槽时出现。`dismissible=true` 才显示关闭按钮。
+通知从左到右是色调图标、可伸缩的正文列和可选的关闭按钮（右上角）。正文列自上而下是标题、正文、进度条与动作行。标题仅在标题文字非空或提供 `title` 插槽时出现；正文容器始终存在，默认文字来自 `message`，按 `text-wrap: pretty` 折行。给了 `progress` 时正文下多一条进度条：数值画确定进度（`Progress`，`sm` 档，色调随通知），`null` 画一条自己来回滑动的短条表示不确定进度（系统设了减少动画时停住）。动作行在有动作或有详情时出现，在正文（与进度条）下面单独一行，左对齐，与标题、正文同一条竖线：先是动作按钮（`actionLabel` 非空或提供 `action` 插槽时；文字取通知色调、加粗），再是“详情”（`hasDetail` 为真时；次级文字、带下划线，按下时浅底）。两个按钮可见高度 24px，点击区上下撑到 32px、彼此不重叠，都带焦点环。动作不再占正文右侧那一列，所以正文宽度与有没有动作无关。`dismissible=true` 才显示关闭按钮。
 
-根节点为 `role="status"`。色调同时决定图标与状态颜色；通知没有禁用、加载或错误覆盖态，`error` 是通知色调而非组件错误状态。窄空间下正文列可收缩，按钮保持自身宽度。
+根节点为 `role="status"`。色调同时决定图标与状态颜色；通知没有禁用、加载或错误覆盖态，`error` 是通知色调而非组件错误状态。窄空间下正文列可收缩，动作行同一结构；关闭按钮保持自身宽度。根节点 `select-none`：通知里的文字不供选择，要复制原文去详情对话框。
 
 ## 数据
 
@@ -32,6 +32,10 @@ interface NotificationProps {
     closeLabel?: string;
     /** 进度（0 到 100）；null 为不确定进度；不给就没有进度条 */
     progress?: number | null;
+    /** 是否显示“详情”按钮；可选，默认 false。是否有详情由父组件判断（`hasNotificationDetail`） */
+    hasDetail?: boolean;
+    /** “详情”按钮的文字；可选，缺省按界面语言取（中文 "详情"） */
+    detailLabel?: string;
 }
 
 interface NotificationEmits {
@@ -39,6 +43,8 @@ interface NotificationEmits {
     (event: "action"): void;
     /** 点击关闭按钮时发出；不会自行隐藏 */
     (event: "dismiss"): void;
+    /** 点击“详情”时发出，携带被点的按钮（父组件关闭详情后把焦点还给它）；组件自己不显示详情 */
+    (event: "detail", trigger: HTMLButtonElement): void;
 }
 
 interface NotificationSlots {
@@ -51,8 +57,8 @@ interface NotificationSlots {
 }
 ```
 
-所有 props 均为显示配置而非受控通知状态。未提供插槽时分别回退到 `title`、`message`、`actionLabel`；插槽优先于对应文字。`dismiss` 与 `action` 只发事件，父组件负责移除通知或执行动作。组件没有 `expose` API；未声明的 attributes（包括 `class`、`style`）按 Vue 单根节点默认行为落到根 `div`。
+所有 props 均为显示配置而非受控通知状态。未提供插槽时分别回退到 `title`、`message`、`actionLabel`；插槽优先于对应文字。`dismiss`、`action` 与 `detail` 只发事件，父组件负责移除通知、执行动作或打开详情。组件没有 `expose` API；未声明的 attributes（包括 `class`、`style`）按 Vue 单根节点默认行为落到根 `div`。
 
 ## 隐藏通道理由
 
-`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取关闭按钮的缺省可访问名称，以及不确定进度条的取值文字，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `closeLabel` 时以属性为准，不读端口。进度条的取值文字没有对应的属性，固定走端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。
+`state:inject`（翻译端口）：读宿主注入的翻译端口（`useUiText()`，`TEXT_PORT_KEY`）取关闭按钮的缺省可访问名称、“详情”按钮的缺省文字，以及不确定进度条的取值文字，语言跟着端口走，换语言不重新挂载；没有宿主注入时用 nb-ui 的缺省端口（`zh-CN`，自带目录 `@notnotype/nb-ui/locales`）。调用方显式传 `closeLabel`、`detailLabel` 时以属性为准，不读端口。进度条的取值文字没有对应的属性，固定走端口。这类读屏名称与空态文案每个调用方都要有，逐处传属性不现实，所以由组件自己经端口取。

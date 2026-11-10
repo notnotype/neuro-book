@@ -1,0 +1,164 @@
+# w00028 t04 前端实现审查报告
+
+审查范围：`accbc1385..cb9d5686d`，worktree `/tmp/review-w00028-t04-impl/tree`。已跑：nb-ui 的 7 个受影响 vitest 文件（214 条全过）、nb-ui 的 `vue-tsc --noEmit`（退出码 0）。未跑 e2e、未起开发服务；这台机器没有浏览器，标“需真实浏览器复现”的条目都是从 CSS 与调用链推断。实验文件在 `/tmp/review-w00028-t04-impl/lab/`。
+
+---
+
+## F1 通知卡片仍画在详情对话框与遮罩之上，`inert` 只挡指针与读屏、不改绘制
+
+- **严重程度**：重要；**类别**：UI 与不变量（需真实浏览器复现）
+- **位置**：`packages/nb-ui/src/components/feedback/NotificationStack.vue:123-134`（`:inert="detailOpen"`）；层级登记 `packages/nb-ui/src/theme/z-index.ts`（`notification` 9050，`dialog` 9000）；计划依据 `plan.md:101`
+- **现象**：对话框打开期间视口只是 `inert` 加 `aria-hidden`，`z-index` 仍是 9050，高于对话框遮罩与面板（9000 起）。所以最多 4 条通知（加折叠小条）照常画在遮罩上面，也画在对话框面板上面。计划第 101 行写的“改成 inert 后……也不会盖住对话框的关闭与复制按钮”不成立：inert 元素不接收指针事件，是点击穿透到下面的按钮，但视觉上按钮被通知卡片盖住，用户看见的是卡片、点下去触发的是看不见的“关闭”或“复制原文”。底部居中或右下的视口在 390px 宽、对话框居中偏下、或 4 条通知叠起来约 300 到 400px 高时，最容易压到页脚。
+- **为什么是问题**：模态对话框之上还浮着一列可见通知，与“模态”的视觉语义矛盾；而且这正是计划与 Spec 输出 11 想避免的情形，只是把“能点”改成了“看得见但点不到”。
+- **如何核实**：真实浏览器里 Lab `NotificationStack` 场景 `six`（已有夹具）点“详情”，390 与 1600 两种宽度下 `nbdev shot`，看对话框页脚是否被通知卡片盖住；或在控制台读 `getComputedStyle` 的 z-index 比较。静态可核对：`NB_Z_INDEX.notification > NB_Z_INDEX.dialog`，且 `NotificationStack.vue` 没有在打开期间改 z-index 或隐藏。
+- **建议改法**：对话框打开期间让视口不参与绘制（例如 `visibility: hidden` 或 `opacity: 0` 配合已有的 inert，进出用同一个短过渡），或把视口在对话框打开时降到遮罩之下；两者都要在 Spec 输出 11 里写明。至少在 Lab 用 `six` 场景补一张打开对话框的截图证据。
+
+## F2 展开态下“滚到最新”在任何一次条数变化时触发，包括移除与到时消失
+
+- **严重程度**：重要；**类别**：正确性（从代码推断，happy-dom 没有布局，需真实浏览器复现）
+- **位置**：`packages/nb-ui/src/components/feedback/NotificationStack.vue:55-57`
+- **现象**：`watch(() => notifications.value.length, () => { if (expanded.value) scrollToNewest(); })`。条数变少也会触发。展开着、列表已滚到中间读较早的通知时：点任意一条的关闭键、或一条限时通知到时消失，列表都会被拽到底部。注释与 `NotificationStack.md`（“展开与新通知到达时滚到最新一条”）说的是“新通知到达”，实现是“条数变了”。
+- **为什么是问题**：用户在展开的长列表里逐条关掉较早的通知（这正是展开的主要用途）时，每关一条视图就跳到底部，要重新滚回去；与文档不符。
+- **如何核实**：Lab `six` 场景展开后把列表滚到顶，点上面某条的关闭键，读 `list.scrollTop`；或读代码即可确认触发条件不区分增减。
+- **建议改法**：只在条数增加（或最新一条的 id 变了）时滚：`watch(() => notifications.value.at(-1)?.id, …)`，或比较新旧长度。补一条 e2e 或 Lab 取证：展开、滚到顶、关一条，`scrollTop` 不变。
+
+## F3 展开态下卡片比收起态窄 8px（`margin: -4px` 配 `w-full`）
+
+- **严重程度**：重要；**类别**：UI（从 CSS 盒模型推断，需真实浏览器复现）
+- **位置**：`NotificationStack.vue:137-141`（列表层 `flex w-full flex-col gap-2` 加展开态类）与 `:210-215`（`.nb-notification-list--expanded {margin: -4px; padding: 4px}`）
+- **现象**：列表层是 `width: 100%`（border-box）。给 `width:100%` 的块写负外边距不会让它变宽，只是整体平移；根容器是 `items-end` 或 `items-center` 的列式 flex，按外边距盒对齐：外边距盒宽 W-8，靠右时边框盒落在 [4, W+4]、内容盒（扣掉 4px 内边距）为 [8, W]；居中时内容盒为 [4, W-4]。结果：展开时卡片宽度从 W 变成 W-8，文字重新折行，整列发生布局位移；同时 4px 的“给阴影留位”也被滚动容器裁掉（`shadow-lg` 向外扩十几像素，`overflow-y:auto` 在内边距盒处裁切）。作者的意图（四周多出 4px）只有在宽度为 auto 时才成立。
+- **为什么是问题**：违反 `ui-development` 的“零布局位移”；展开瞬间每条通知换行、变高，折叠小条与卡片宽度也与收起态不同。
+- **如何核实**：真实浏览器 Lab `six` 场景展开前后各量 `.nb-notification` 的 `getBoundingClientRect().width`；预期差 8px。
+- **建议改法**：展开态不用负外边距，改为 `width: calc(100% + 8px)` 配 `margin: -4px`（并让根容器对齐不影响），或用一层固定的 4px 内边距始终存在于收起态（收起态也留 4px，根容器相应收 4px），保证两态卡片同宽。
+
+## F4 “只换一段原文不重新计时”没有被测到：把重算条件改宽后全部用例仍绿（变异存活）
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：判据在 `packages/neuro-book/src/plugins/workbench/web/notifications.ts:70-76`；测试 `notifications.dom.test.ts` 新增的“输出 5：update 的详情”
+- **现象**：Spec 输出 5 明写“只换一段原文不重新计时”。实现靠 `hasDetail !== hadDetail` 把这件事排除在重算之外。测试里“换一段原文不动时长”只断言 `duration` 仍是 0；但对常驻（`duration: 0`）的条目，重算出来的 `duration` 也是 0，断言区分不出“重算了”与“没重算”。对限时条目（`sticky:false` 加详情），测试只测了“从无到有”一次，也只看 `duration` 取值，看不到计时器是否被重置。
+- **变异实验**（真实队列与视口、真实测试文件，复制到 lab 里改一行跑）：把 `hasDetail !== hadDetail` 改成 `patch.detail !== undefined`，`notifications.dom.test.ts` 的 9 条里，两条新用例都通过（唯一失败的是原有的“限时通知到点消失”，30ms 时长在负载 16 的机器上先于首个断言到时，与变异无关，见 F12）。文件：`/tmp/review-w00028-t04-impl/lab/notifications.mut.ts`、`mut.lab.dom.test.ts`，配置 `vitest.neuro.config.ts`。
+- **为什么是问题**：重算条件是 Spec 的一条明确行为（限时通知的详情文字每更新一次就把消失时间往后推，用户读不完），没有用例守着，回归时没人知道。
+- **建议改法**：补一条可观察计时的用例：`sticky:false`、`duration` 很短（例如 150ms）的通知，在到时前不断 `update({detail: 新原文})`，断言它在“从发出算起的时限”附近消失，而不是被一次次推迟；或在队列层断言 `update` 不带 `duration` 时不碰计时器（队列已有对应测试，工作台层补“详情变了但没传 duration”这一条：直接读 `queue.notifications.value[0].duration` 与消失时刻）。
+
+## F5 `Notification` 的动作行是否出现用 `computed` 读 `slots`，插槽有无动态变化时不更新（相对 base 的回归）
+
+- **严重程度**：建议（目前没有找到动态插槽的调用方）；**类别**：正确性
+- **位置**：`packages/nb-ui/src/components/feedback/Notification.vue:37,41`（`const slots = useSlots(); const hasAction = computed(() => slots.action !== undefined || props.actionLabel !== "")`）
+- **现象**：`useSlots()` 返回的对象不是响应式的，`computed` 只依赖 `props.actionLabel`，第一次求值后一直缓存。父组件用 `v-if` 或渲染函数让 `action` 插槽后来才出现或消失时，动作行不跟着变。base 的模板直接写 `$slots.action || props.actionLabel`，每次渲染重新求值，没有这个问题。
+- **如何核实**（已实跑）：lab 里 `slot.lab.test.ts`：宿主用渲染函数在 `show` 为 false 时不给 `action` 插槽，改成 true 后 `nextTick`，`[data-notification-action]` 仍不存在（`expected false to be true`）。配置 `vitest.lab.config.ts`，命令 `cd packages/nb-ui && bunx vitest run --config /tmp/review-w00028-t04-impl/lab/vitest.lab.config.ts`。
+- **建议改法**：模板里直接用 `$slots.action`，或把 `hasAction` 写成普通函数（`const hasAction = (): boolean => …`）在模板中调用，不缓存。
+
+## F6 `CopyButton` 走 execCommand 退路后把焦点“交还”按钮：鼠标点击也可能画出焦点环
+
+- **严重程度**：建议；**类别**：UI（浏览器行为，需真实浏览器复现）
+- **位置**：`packages/nb-ui/src/components/controls/CopyButton.vue:69-72`（`finally` 里的 `button.value?.$el.focus(...)`）
+- **现象**：退路里先 `area.focus()`（textarea 总是匹配 `:focus-visible`），再由脚本把焦点移回按钮。Chrome 的 `:focus-visible` 规则是：脚本移动焦点时，上一个获得焦点的元素若匹配 `:focus-visible`，新元素也匹配。所以用鼠标点“复制原文”后，按钮会带着键盘焦点环出现。计划第 84 行与 `DetailDialog.vue` 的初始焦点注释都专门避免“一打开就在复制按钮上画焦点光晕”，这里在退路上又画出来了。只在没有 `navigator.clipboard`（`http://` 局域网地址）或被拒绝时发生，剪贴板 API 路径不动焦点。
+- **如何核实**：真实浏览器里用 e2e 同款的“去掉 `Navigator.prototype.clipboard`”页，鼠标点“复制原文”，读 `button.matches(":focus-visible")` 或截图。
+- **建议改法**：只在焦点确实被拿走时才还（`const had = document.activeElement === button` 之前记下），且还时用 `focus({focusVisible: false})`（Chrome 与 Firefox 支持；不支持的浏览器忽略该选项）；或者鼠标点击后根本不还焦点，只在 textarea 被删后让对话框的焦点陷阱自己处理。
+
+## F7 对话框打开时同一次更新里给聚焦着的子树加 `aria-hidden`，Chrome 会拦下并在控制台报错
+
+- **严重程度**：建议；**类别**：UI 与可访问性（需真实浏览器复现）
+- **位置**：`NotificationStack.vue:131-132`（`:inert="detailOpen"` 与 `:aria-hidden="detailOpen ? 'true' : undefined"`）
+- **现象**：用户点“详情”时，焦点正在视口里的那颗按钮上（Chrome 点按钮会聚焦）。`aria-hidden` 在 `open` 变 true 的同一次渲染里加到包含焦点的祖先上；Chrome 对“后代仍持有焦点”的 `aria-hidden` 会拦下，并在控制台输出 “Blocked aria-hidden on an element because its descendant retained focus”。拦下之后效果上只剩 `inert`（inert 本身已把子树从辅助技术树里拿掉），所以功能不坏，但：1）Lab 的 `lab:shot` 读 `report.json` 的控制台，这条消息会被当作控制台错误；2）`aria-hidden` 在这里是多余的，`inert` 已足够。
+- **如何核实**：真实浏览器打开 Lab `NotificationStack` 的 `detail` 场景，点“详情”，看开发者工具控制台；e2e 用例没有断言控制台，所以不会暴露。
+- **建议改法**：去掉 `aria-hidden`，只留 `inert`（同时在 `NotificationStack.md` 与 Spec 输出 11 里把“inert 并 aria-hidden”改为“inert”）；`inert` 不支持的旧浏览器（Safari 15.4 以前）不在 nb-ui 的支持范围时无需兜底。
+
+- **F3 补充**：展开态还挂了 `nb-ui-scrollbar-stable`（`scrollbar-gutter: stable`，`src/styles.css:6`）。经典滚动条的平台（Linux、Windows）上，展开的瞬间不论是否溢出都在右侧预留一条滚动条宽（thin 约 8 到 11px），而收起态没有。所以展开前后卡片宽度差可到约 16 到 19px（负外边距的 8px 加滚动条槽），且折叠小条与卡片的“同宽”只在展开态内部成立。若要保持两态同宽，收起态也要留同样的槽，或展开态只在真正溢出时才出现滚动条（去掉 `scrollbar-gutter`，接受溢出那一刻的 8 到 11px 变化）。同样需要真实浏览器量一次。
+
+## F8 `CopyButton` 的关键分支与 e2e 的模态路径没有测到
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/nb-ui/src/components/controls/CopyButton.test.ts`（3 条）；`packages/neuro-book/e2e/lab-nb-ui.e2e.ts` 末尾新用例；实现 `CopyButton.vue:47-86`
+- **现象**（对照 `CopyButton.md` 的“交互”与“注意事项”各条）：
+  1. “`navigator.clipboard.writeText` 被拒（权限）时退到 execCommand”：单测没有（happy-dom 没有 execCommand，被拒后只会落到失败），e2e 只测了“`clipboard` 为 undefined”这一支，没测“存在但 reject”这一支。
+  2. “复制进行中再点一次，以最后一次的结果为准”（`attempt` 计数）：没有用例，把 `mine !== attempt` 整个删掉所有用例仍绿。
+  3. “组件卸载后，还没完成的复制不再改状态，复位计时器随卸载清掉”（`unmounted`）：没有用例。
+  4. e2e 的退路用例在 Lab 里跑，Lab 声明了 `contained`，对话框走的是 reka 的非模态（`pageModal` 为 false），没有焦点陷阱。`CopyButton.vue:49-52` 与 `CopyButton.md` “注意事项”给出 textarea 必须挂在组件根下的理由，恰恰是“模态对话框的焦点陷阱会把焦点拽回去”，这条理由在 e2e 里从没成立过，工作台真实页面（reka 模态、`body` 失去指针、同级 `aria-hidden`）下的退路没有证据。
+- **为什么是问题**：退路是这次新增里最难的一块（浏览器行为差异大），写下的两条保护（挂根节点、`attempt`/`unmounted`）都没有测试兜底，改掉也不会红；e2e 不走模态路径，真正需要它的地方没验证。
+- **如何核实**：变异——删掉 `if (unmounted || mine !== attempt) return;`，跑 `CopyButton.test.ts`，预期仍全绿（可自行验证；本报告没有实跑这一条变异，是从用例清单推断）。
+- **建议改法**：单测里用可控的 `navigator.clipboard`（真实对象换成 `writeText` 返回受控 Promise 的对象，属于“真实 API 的可控实现”而非 mock 断言调用次数）覆盖“两次点击，先发后到”与“卸载后 settle”；e2e 在 Lab 外或用 `DialogFixture` 的非 contained 路径（或工作台页面）补一次“对话框是模态时 execCommand 退路仍能复制”。
+
+## F9 折叠与展开只有 happy-dom 用例，真实布局相关的判据没有任何自动证据
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`NotificationStack.test.ts` 的“六条常驻只显示最新 4 条……”；`e2e/lab-nb-ui.e2e.ts` 新用例只覆盖“详情”，没有折叠
+- **现象**：展开后的滚动容器（`max-height`、`overflow-y:auto`、`pointer-events-auto`、`scrollbar-gutter`）、粘顶的折叠小条（`sticky top-0 z-[1]`）、`scrollToNewest`、390px 窄屏、`top-right` 位置，happy-dom 里都没有布局，用例只验证了元素条数与 `aria-expanded`。F2、F3 这类问题正好落在这里。计划第 148 行把它们交给 Lab `lab:shot` 的人工读图；若要作为验收证据，需要把截图或几何断言记到 Task 证据里。
+- **建议改法**：在 `lab-nb-ui.e2e.ts` 加一条 `six` 场景的几何断言：展开前后 `.nb-notification` 宽度相同、展开后 `list.scrollHeight > clientHeight` 时 `scrollTop` 贴底、关一条后 `scrollTop` 不被拽到底、粘顶小条在滚动后仍在滚动容器顶部。
+
+## F10 `hasNotificationDetail` 用了类型谓词 `detail is string`，否定分支的类型是错的
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/nb-ui/src/composables/useNotification.ts`（`hasNotificationDetail` 的签名）
+- **现象**：对 `string | undefined` 写 `detail is string`，函数返回 false 时 TypeScript 把参数收窄成 `undefined`；但全空白字符串也返回 false，它仍是 `string`。现在三处调用方都只用肯定分支（`detailFields` 里提前返回后、`openDetail` 里提前返回后），所以没出错，但谁写 `if (!hasNotificationDetail(x)) { x /* 类型是 undefined，运行时可能是 "  " */ }` 就会得到一个说谎的类型。
+- **建议改法**：返回普通 `boolean`，调用处自己 `item.detail as string`；或保持谓词但把形参类型换成 `string | undefined` 并在注释里写明否定分支不可用。
+
+## F11 `DetailDialog.md` 开头一段仍是第 5 轮之前的描述，与同文件“布局”和实现矛盾
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：`packages/nb-ui/src/components/feedback/DetailDialog.md:6`
+- **现象**：第一段写“正文是一块等宽原文加‘复制’，页脚只有‘关闭’”。决定 14 之后：原文不套盒子，页脚是“复制原文”与“关闭”两颗按钮（同文件“布局”一节、`DetailDialog.vue`、Spec 输出 11 都是这样）。
+- **建议改法**：改成“正文是等宽原文，页脚是‘复制原文’与‘关闭’”。
+
+## F12 新用例“折起来的限时通知照常到时消失”用 30ms 时长，在负载高时可能不再覆盖它要测的状态
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`NotificationStack.test.ts` 的“折起来的限时通知照常到时消失”
+- **现象**：先发 30ms 的通知再发常驻，`flushPromises` 后断言“只显示常驻”。机器负载高（本次审查期间 `loadavg` 16 到 20）时 30ms 可能在首次渲染前就到了，此时“被折起来”这个前提不成立，用例仍然通过，等于没测折起来时的计时。同一问题在 base 的“限时通知到点消失”（30ms）已经出现：我跑变异实验时它因此失败（`expected [] to have a length of 1`）。
+- **建议改法**：不要用毫秒级真实时长去赌渲染先于到时：折起来之后再断言 `fold()` 存在（此时限时通知还在），再等它消失。例如 `duration: 300`，先断言 `fold()?.textContent` 是“还有 1 条较早的通知”，再 `vi.waitFor` 到它消失。
+
+## F13 en-US 下 390px 的“复制失败”态页脚可能溢出（未验证）
+
+- **严重程度**：建议；**类别**：UI（需真实浏览器复现，估算值）
+- **位置**：`DetailDialog.vue` 页脚，`locales/en-US.ts` 的 `copyButton.failed`（“Copy failed; select the text manually”，37 个字符）
+- **现象**：`CopyButton` 的按钮 `whitespace-nowrap`，失败态文字约 215px 加图标与内边距约 250px，旁边“Close”次级按钮约 68px，合计约 320 到 330px；390px 视口下 `md` 对话框宽 358px，页脚内边距按 16 到 20px 算可用约 318 到 326px，临界。中文失败文案（12 字）不会溢出。
+- **如何核实**：Lab `DetailDialog` 场景切到 en-US、390 预设，在按钮上手动令 `failed`（或临时 `execCommand` 不可用）后读 `scrollWidth > clientWidth`。
+- **建议改法**：失败文案缩短（例如“Copy failed”，把“请手动选择文字”交给原文可选这个事实，不再重复），或让页脚在窄屏允许换行。
+
+## F14 退路在 `await` 之后才调 `execCommand("copy")`，Safari 与 Firefox 对用户激活的要求没有核实
+
+- **严重程度**：建议；**类别**：正确性（未验证）
+- **位置**：`CopyButton.vue:78-79`（`(await writeWithClipboardApi(text)) || writeWithExecCommand(text)`）
+- **现象**：没有 `navigator.clipboard` 时 `writeWithClipboardApi` 是 async 函数，`await` 让后续在微任务里执行；`execCommand("copy")` 要求处在用户手势里。Chrome 用时间窗口的“短暂激活”，没问题；Safari 对“手势”的传递更严（经 Promise 微任务是否保持，没有查到确切记录）。e2e 只在 Chromium 跑。写进 `CopyButton.md` 的“交互”时没有限定浏览器。
+- **建议改法**：没有 `navigator.clipboard` 时同步走退路，不经过 `await`（把“有没有 API”的判断提到 `copy()` 里，没有就直接同步调 `writeWithExecCommand`）；被拒（reject）的那一支仍然只能在 `await` 之后。
+
+---
+
+## 未发现问题的方面
+
+- `hasNotificationDetail` 三处共用：`useNotification.ts`（队列 `detailFields`）、`NotificationStack.vue`（`has-detail` 与 `openDetail`）、`workbench/web/notifications.ts`（`durationOf` 与 `update`）都从 `@notnotype/nb-ui/notifications` 导入同一个函数，没有第二份判据。
+- 队列截断：上限处恰为代理对前半时往前退一位，已被用例覆盖；`update` 里 `detailTruncated` 单给不生效、随 `detail` 才生效，与注释一致；`NOTIFICATION_DETAIL_MAX_CHARS` 与 Spec 8000 一致。
+- 工作台 `durationOf` 的“明确给的 `sticky` 优先”“带详情缺省常驻”“有无变化才重算”三处逻辑与 Spec 输出 3、5 一致（只是测试没守住重算条件，见 F4）。
+- 焦点交还时序：`closed` 经 `close-handoff.ts` 在内容卸载、reka 焦点栈释放之后的宏任务才发，`onDetailClosed` 在其后取 `opener`；reka 的 `DialogContentModal` 与非模态的 `onCloseAutoFocus` 都会 `preventDefault`，所以没有“reka 把焦点交还给别处覆盖我们”的路径；`opener` 在对话框退场动画期间被再次点开时会被覆盖，随后的那次 `closed` 取到新值，没有悬空引用；卸载时 `close-handoff` 作废未结算交接，`onDetailClosed` 不会在卸载后跑。
+- Lab contained 传送目标：对话框传送到 `[data-lab-overlay-root]`，与视口根是兄弟而不是后代，视口 `inert` 不会连带冻住对话框；对话框是 reka 非模态，焦点交还完全依赖 `onDetailClosed`（e2e 的 `toBeFocused` 已覆盖）。
+- `maxVisible` 归一化与 `foldedCount`、`expanded` 联动、`aria-controls` 指向包着通知的列表元素（不含小条自己）：与 Spec 和用例一致。
+- `Notification` 点击区伪元素（`inset: -4px 0`）上下各撑 4px、左右不撑；相邻按钮横向无重叠，换行后两行恰好相接不重叠；`-ml-1.5` 抵消按钮内边距使文字与正文对齐，焦点环落在卡片内边距里，没有被卡片裁切（卡片与动作行都没有 `overflow`）。
+- `dev-panel` 的 `WriteResult.vue` 只用 `action-label` 与默认插槽，不受 `hasAction` 的 props 路径影响（受 F5 影响的只有用动态 `action` 插槽的调用方，仓库内没有找到）。
+- 没有发现按错误文案分支、静默吞错的 `catch`（`CopyButton` 里两处 `catch` 的返回值都进入“失败”回执，不是静默吞）、跨包深导入、测试里的 mock 或假计时器、专为测试开的分支。
+- `locales.test.ts` 的 LEGACY 表登记新键，与该文件开头“新加的键也登记在这里，行末写明是新增”一致。
+
+## 各级数量
+
+- 阻断：0
+- 重要：4（F1 通知画在对话框之上、F2 展开态移除触发滚到底、F3 展开态卡片变窄、F4 重算条件的变异存活）
+- 建议：10（F5 到 F14）
+
+其中必须在真实浏览器里复现后才能定性的：F1、F3、F6、F7、F13、F14（本机没有浏览器，全部是从 CSS 与调用链推断）；已实跑证实的：F4（变异）、F5（实验）；仅凭读代码即可确认的：F2、F10、F11。
+
+---
+主 Agent 的处理（2026-11-10，提交 a36842f73）：
+
+- F1 成立，已改：详情对话框打开时视口层级降到 `NB_Z_INDEX.dialog - 1`，被遮罩盖住；Lab 手机截图核对过。计划里“不会盖住关闭与复制按钮”的说法作废。
+- F2 成立，已改：只在通知条数增多时滚到最新。
+- F3 成立，已改：展开时宽度补上 8px 内边距；滚动条槽（`scrollbar-gutter: stable`）的宽度差保留，它只在用户点“展开”时出现，且防止展开态里通知增减引起跳动。
+- F4 成立，但不补测试：要观察“只换原文不重新计时”得真实等 3 秒以上比较消失时刻，收益小、易受负载影响；行为由 `notifications.ts` 的重算条件与注释保证。
+- F5 成立，已改并补用例（插槽后来出现时动作行出现），做过变异检查：放回 computed 时用例失败。
+- F6 成立，已改：焦点只在按钮原本有焦点时交还，并按原来的 `:focus-visible` 状态传 `focusVisible`。
+- F7 成立，已改：去掉 `aria-hidden`，只留 `inert`。
+- F8 部分成立：reject 退路与无 API 退路共用同一段 `execCommand` 代码，竞态与卸载是三行的守卫，不另加替身测试。“模态焦点陷阱里 textarea 能被选中”没有在真实模态里验证过（Lab 的对话框是 contained，非模态），记为未验证边界。
+- F9 接受：折叠、展开滚动与粘顶小条由 Lab 的 `lab:shot` 截图与测量覆盖（nbook/macos × 亮/暗 × 桌面/390），不另写 e2e。
+- F10 成立，已改：`hasNotificationDetail` 返回 `boolean`，调用处自己判 `undefined`。
+- F11 成立，已改 `DetailDialog.md` 开头。
+- F12 成立，已改本次新增的用例（限时 1500ms、等待上限 6 秒）；base 上原有的 30ms 用例不在本次范围。
+- F13 成立，已改：英文失败文案缩短为 “Copy failed; select manually”。
+- F14 成立，已改：没有剪贴板 API 时在点击的同一个任务里走 `execCommand`。

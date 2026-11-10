@@ -5,11 +5,11 @@
 import type {Clock, JsonValue, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
+import {failed} from "@notnotype/nb-harness/kit/files";
+import type {SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
 import {TOOLS_POINT} from "../../shared/points";
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
-import {failed} from "../builtin/common";
-import type {SessionTable} from "../sessions";
 import {isLive, type Job, type JobCenter, type WaitOutcome} from "./center";
 import {watchSteer} from "./steer";
 

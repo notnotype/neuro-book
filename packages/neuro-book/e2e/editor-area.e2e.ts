@@ -124,12 +124,21 @@ test.beforeAll(async () => {
     await writeFile(join(projectDir, "data/bom.txt"), new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("甲\r\n乙\r\n")]));
     await mkdir(join(stateRoot, "user"), {recursive: true});
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
+    await writeSettings();
     server = await startProductServer(stateRoot);
 });
 
+/** 用户层的设置；每个用例结束时写回空的。 */
+const writeSettings = (values: Readonly<Record<string, unknown>> = {}): Promise<void> => writeFile(join(stateRoot, "settings.json"), JSON.stringify(values));
+/**
+ * 验手动保存合同（未保存圆点、关闭时询问、冲突、离开确认）的用例在输入后去点别处，文档要仍未保存：自动保存的缺省是失焦时
+ * 保存（输出 63，另由 `editor-autosave.e2e.ts` 验），这些用例开头关掉它；其余用例在缺省模式下跑。
+ */
+const MANUAL_SAVE = {"nbook.editor/autoSave": "off"} as const;
+
 test.afterEach(async () => {
     // 用例自己写的设置不带到下一个用例。
-    await rm(join(stateRoot, "settings.json"), {force: true});
+    await writeSettings();
 });
 
 test.afterAll(async () => {
@@ -181,7 +190,8 @@ async function savedCursor(page: Page, address: string): Promise<unknown> {
 }
 
 /**
- * 按住 `source` 拖到 `to` 再松手；拖影出现之后才算拖动开始，`before` 在松手前做。`to` 可以是函数：目标在拖动开始后才出现时，等拖影出现再量。
+ * 按住 `source` 拖到 `to` 再松手；根上有拖动标记之后才算拖动开始（实时布局在自己的标签条里没有拖影，标签自己跟手），`before` 在松手前做。
+ * `to` 可以是函数：目标在拖动开始后才出现时，等拖动开始再量。
  */
 async function dragFrom(page: Page, source: Locator, to: {x: number; y: number} | (() => Promise<{x: number; y: number}>), before?: () => Promise<void>): Promise<void> {
     const ghost = page.locator("[data-workbench-drag-ghost]");
@@ -190,7 +200,7 @@ async function dragFrom(page: Page, source: Locator, to: {x: number; y: number} 
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
     await page.mouse.down();
     await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
-    await expect(ghost).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("data-workbench-dragging", "");
     const target = typeof to === "function" ? await to() : to;
     await page.mouse.move(target.x, target.y, {steps: 8});
     await before?.();
@@ -299,6 +309,7 @@ test("外部修改：不 dirty 时换成磁盘内容；dirty 时提示，保存�
 });
 
 test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆分后两组共用正文；拖动两组间的分隔线调整宽度；刷新后组、标签与宽度恢复", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     // 右栏默认开着对话：要拖 120 像素，两组都得比最小宽度宽出这么多。
     await page.setViewportSize({width: 1600, height: 900});
     await open(page);
@@ -530,7 +541,7 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
 test("只有一个标签的组拖到紧贴它的那条边：放下去还是现在的样子，不重建组、没有过渡；拖到另一边才换位置（输出 55、验收 30）", async ({page}) => {
     await page.emulateMedia({reducedMotion: "no-preference"});
     // 看的是落点指示的提示与高亮：实时布局没有这些。
-    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/dragFeel": "indicator"}));
+    await writeSettings({"nbook.workbench/dragFeel": "indicator"});
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await closeAll(page);
@@ -906,6 +917,7 @@ test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看�
 });
 
 test("编辑器标签浮动（docs/specs/ui/workbench-layout.md 输出 39）：拖到标题栏上松手开窗，是同一个视图，接着输入、撤销都还在；回到停靠并回树里；关到空后焦点回树里的组", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     await page.setViewportSize({width: 1600, height: 900});
     await open(page);
     await closeAll(page);
@@ -1044,14 +1056,13 @@ test("编辑器标签的落点（docs/specs/ui/workbench-layout.md 输出 25、2
     await dragTab("b.md", await center(page.locator("[data-tool-entry=\"nbook.explorer\"]")), () => noDropShown(page));
     await expect(tabs(page)).toHaveCount(2);
 
-    // 侧栏和编辑组之间的缝：工具视图归侧栏（来源就是侧栏，所以是原位），编辑器标签归编辑组。
+    // 侧栏和编辑组之间的缝：工具视图归侧栏，编辑器标签归编辑组。
     const sash = await page.getByRole("separator", {name: /^调整 sidebar 与 .+ 的宽度$/u}).boundingBox();
     if (sash === null) throw new Error("没有侧栏与编辑区之间的分隔线");
     const seamX = sash.x + sash.width / 2;
     const seamY = sash.y + sash.height / 2;
-    await dragFrom(page, explorer, {x: seamX - 2, y: seamY}, async () => {
-        await expect(page.locator("[data-drop-kind=\"noop\"]")).toHaveCount(1);
-    });
+    // 缝左边归侧栏，落在它右缘的窄带上：侧栏不左右分，那里没有落点。
+    await dragFrom(page, explorer, {x: seamX - 2, y: seamY}, () => rejectedHere(page));
     await dragFrom(page, explorer, {x: seamX + 2, y: seamY}, () => rejectedHere(page));
     // 缝右边 2px 在编辑组的左缘窄带里，松手会拆出新组：看到落点就用 Escape 取消，后面接着用这一个组。
     await dragTab("b.md", {x: seamX + 2, y: seamY}, async () => {
@@ -1149,6 +1160,7 @@ test("标签的记录丢了（docs/specs/ui/workbench-layout.md 输出 34）：�
 });
 
 test("真实控件的缓冲：Markdown 刚输入就把标签拖到另一组，保存后字在磁盘上；刚输入就“关闭已保存”，这个标签留下", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     await page.setViewportSize({width: 1440, height: 900});
     // 用这一例自己的两个文件：保存会改磁盘，别的用例按 fixture 的原文断言。
     await writeFile(join(projectDir, "notes/buffer-a.md"), "甲\n");
@@ -1350,6 +1362,7 @@ test("Markdown：A 输入、切到 B 输入、回 A 撤销只作用于 A；重�
 });
 
 test("资源管理器的结算：未保存时剪切、保存、粘贴，标签跟到新路径、正文保留；复制先问；删除确认列出未保存的文档", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     await open(page);
     await closeAll(page);
     for (const folder of ["project://moving", "project://target"]) {
@@ -2122,6 +2135,13 @@ test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局�
         await page.mouse.down();
         await page.mouse.move(from.x + from.width / 2, from.y + 60, {steps: 3});
         await page.mouse.move(targetBody.x + targetBody.width / 2, targetBody.y + targetBody.height / 2, {steps: 8});
+        // a.md 是它那一组的最后一个标签：落到别处时那一组收起，目标铺满。指针没动时落点不变；之后按收起后的布局判，指针挪到目标此刻的正中。
+        await expect.poll(async () => (await page.locator(`[data-leaf="${target}"]`).boundingBox())?.width ?? 0).toBeGreaterThan(targetBody.width + 100);
+        await expect(page.locator("[data-live-merge]")).toHaveAttribute("data-live-merge-panel", target);
+        await expect(page.locator("[data-moving]")).toHaveCount(0);
+        const widened = await page.locator(`[data-leaf="${target}"]`).boundingBox();
+        if (widened === null) throw new Error("目标不见了");
+        await page.mouse.move(widened.x + widened.width / 2, widened.y + widened.height / 2, {steps: 4});
         const merge = page.locator("[data-live-merge]");
         await expect(merge).toHaveAttribute("data-live-merge-panel", target);
         // 目标还只有自己的标签：a.md 放下才进来。

@@ -15,6 +15,8 @@ import type {TSchema} from "typebox";
 import type {AnyProfile, Issuer, JsonValue, ModelPort, SessionApi, SessionSnapshot, ToolContext, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
+import {failed} from "@notnotype/nb-harness/kit/files";
+import {SessionUnavailable, type SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
 import type {AgentService, ProfileEntry} from "../../shared/contracts";
 import {AGENT_MODES_EXTENSION} from "../../shared/permissions";
@@ -24,12 +26,10 @@ import type {ToolBinding} from "../../shared/profile-tools";
 import {TOOLS_POINT} from "../../shared/points";
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 import type {AgentToolServices} from "../../shared/resources";
-import {failed} from "../builtin/common";
 import type {Job, JobCenter} from "../jobs/center";
 import {isLive} from "../jobs/center";
 import {watchSteer, type SteerWatch} from "../jobs/steer";
 import {modesContract} from "../permissions/modes";
-import {AgentSessionUnavailable, type SessionTable} from "../sessions";
 import type {ChildRuns, SaveFull} from "./children";
 import {asyncQuestionsOf} from "./children";
 import {SPAWN_TOOL} from "./prompt";
@@ -228,7 +228,7 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
             if (header.caller?.kind === "session" && header.caller.id === parent) return null;
             return failure("not-owner", `${child} 不是你派的子会话，只能对自己派的放话、应答。`);
         } catch (error) {
-            if (error instanceof AgentSessionUnavailable) return failure(error.code, `打不开子会话 ${child}。`);
+            if (error instanceof SessionUnavailable) return failure(error.code, `打不开子会话 ${child}。`);
             throw error;
         }
     };

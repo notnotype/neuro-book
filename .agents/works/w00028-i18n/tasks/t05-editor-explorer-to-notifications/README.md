@@ -24,7 +24,12 @@ t04 计划审查留给本 Task 的：通知去重与按键更新（状态消失�
 
 ## 当前状态
 
-2026-11-07 建，未开工；依赖 t04 先交付通知载体。
+2026-11-07 建，未开工。t04 已于 2026-11-10 交付通知载体（`detail`、`DetailDialog`、动作行、视口折叠）。
+
+t04 留下的小尾巴，开工时一并处理：
+
+- `CopyButton` 走 `execCommand` 退路后只在按钮原本有焦点时把焦点还给按钮；点按钮不聚焦的浏览器（Safari）里，textarea 删掉后焦点会落到 `body`。改成记下复制前的 `document.activeElement`，复制完还给它（t04 实现审查 F6 之后的复核）。
+- `useNotification.test.ts` 里还有 20ms、40ms 的真实短时长用例，机器忙时可能先到时（t04 合入后在 `notifications.dom.test.ts` 碰到过同类问题，已放宽那一条）。
 
 ## 下一步
 

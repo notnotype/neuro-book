@@ -5,6 +5,7 @@ import {h} from "vue";
 import {Button as NbButton, IconButton as NbIconButton} from "@notnotype/nb-ui/components";
 import type {
     Button,
+    CopyButton,
     DropdownMenu,
     IconButton,
     Menubar,
@@ -102,6 +103,14 @@ export const controlsFixtures: LabFixture[] = [
             {id: "block", label: "撑满宽度", input: {props: {variant: "secondary", size: "lg", block: true}, slots: {default: true}}},
         ],
         subject: nbUiSubject("Button"),
+    }),
+    defineSubjectFixture<typeof CopyButton>({
+        component: "CopyButton",
+        scenes: [
+            {id: "default", label: "复制一段原文（点一下看回执）", input: {props: {text: "EditorSaveError: EACCES: permission denied\n    trace: 4f2a9c1e"}}},
+            {id: "label", label: "自定义按钮文字", input: {props: {text: "4f2a9c1e", label: "复制追踪号"}}},
+        ],
+        subject: nbUiSubject("CopyButton"),
     }),
     defineSubjectFixture<typeof IconButton>({
         component: "IconButton",

@@ -1,0 +1,204 @@
+# w00032 t14 后端实现审查（ee1314411..8390c3f72）
+
+审查者：Claude Opus 子代理；只读，从代码推断，未跑测试。
+
+## 发现
+
+### 1. `wait` 超时的结果文字含已用秒数，“相同时照常计数”在真实工具上永远不成立；测试用固定文字掩盖了这一点
+
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/jobs/tools.ts:105-109,125-126`；`backend/guards/loop-guard.ts:60`；`guards.test.ts`（新增的“输出 14”用例）
+- **现象**：`wait` 超时交回 `等了 N 秒还没有结果，任务都还在：` 加每个任务一行 `jobLine`，而 `jobLine` 里有 `${seconds} 秒`（`clock.now() - startedAt`）。两次相邻的超时，即使任务状态完全没变，文字也必然不同；`loop-guard` 对 `wait` 的豁免条件是 `previousResults !== currentResults`（按 `toolResult` 的 `text` 取哈希），所以真实的 `wait` 超时永远走豁免分支、永远不计数。插话返回（`interrupted`）同理。唯一会被计数的是 `no-jobs`、`job-unknown` 这类失败。
+- **为什么是问题**：run-guards.md 输出 14 写“相同时照常计数”，意图是防模型对没变化的任务无限轮询（例如 `wait(timeout: 1)` 循环）。实现里这个分支对 `wait` 的主要用法（超时）不可达。新增用例 `same` 用的是 `() => "等了 1800 秒还没有结果"` 这个固定文字，真实工具不会产出这种结果，所以测试通过不说明行为成立。
+- **如何核实**：真实内核上建一个后台 `shell`（`sleep 60`，`async: true`），脚本让模型连续 8 次 `wait {timeout: 1}`，阈值 3：期望 `tool-call-loop`，实际不会停。或者思想实验：把测试里的 `same` 换成调用真实 `jobTools` 的 `wait`，用例失败。
+- **建议改法**：豁免判断不按全文哈希，而按“结果的实质”：`wait` 的 `details.jobs` 去掉随时间变化的字段（只取 `jobId`、`state`、`question`）后取哈希；或在 `toolResult` 里对 `WAIT_TOOL` 用 `details` 而不是 `text` 算 `currentResults`。测试改成用真实 `wait` 工具与注入时钟。
+
+### 2. 交给父 Agent 的提问看不到选项：`questionText` 读的是请求顶层的 `options`，而 `ask` 把选项放在 `data.questions[i].options`
+
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：`backend/subagents/result.ts:42-46`（`questionText`）；调用处 `children.ts:32,82`、`tree.ts:131`；请求的形状在 `backend/builtin/ask.ts` 的 `request = {question: …join("\n"), data: {questions}}`
+- **现象**：`questionText` 取 `request.options`，内置 `ask` 的请求顶层只有 `question` 与 `data`，选项在 `data.questions[i].options`（元素是 `{label, description?}` 对象，即使读到了，`options.map(String)` 也只会得到 `[object Object]`）。所以 `agent_spawn`/`wait` 交回 `question` 时、`tree` 的 `question.text` 里，父 Agent 只看到用换行拼起来的题干，看不到 `ask` 必填的 2–4 个选项与 `multiSelect`。
+- **为什么是问题**：`ask` 的选项是必填的，子代理常把关键信息放在选项里（“三章 / 五章”），父 Agent 用 `agent_answer` 回答时只能猜；作者显然想附上选项（写了 `options` 分支），但这个分支对内置工具不可达。场景 3 的测试脚本给了选项，却没断言父 Agent 收到的文字里有它们，所以没发现。
+- **如何核实**：在 `subagents.test.ts` 场景 3 里加断言：`agent_spawn` 的结果文字含“三章”“五章”；现在会失败。
+- **建议改法**：`questionText` 按 `ask` 的请求形状读：遍历 `data.questions`，每题写 `question` 与 `options[].label`（多选注明）；顶层只有 `question` 的（别的工具的提问）照旧。tree 的 `question.text` 按 Spec 输出 21 取“第一题的文字”，现在给的是全部题干拼接，也一并改。
+
+### 3. 后台命令的输出回调在没有换行时无界累积 `partial`，且每个块都是 O(n) 拼接与切分
+
+- **严重程度**：重要；**类别**：安全与性能 / 正确性
+- **位置**：`backend/builtin/shell-background.ts:52-72`（`take`）
+- **现象**：`take` 每来一块都做 `(partial + chunk).split("\n")`，`partial` 是“还没换行的最后一段”，没有任何上限；64 MiB 的上限只管写文件（`room`），不管内存里的 `partial`。输出不含换行（`\r` 刷新的进度条、`cat` 二进制、`yes | tr -d '\n'`、压缩/下载工具）时，`partial` 随输出线性增长并一直驻留到命令结束，超过 64 MiB 之后仍在长；同时每块的拼接、`split`、`partial.trim()` 都是 O(当前 partial 长度)，总量 O(n²)。另外每块只要 `partial` 变了就 `jobs.progress` → `#changed`，同步唤醒所有 `wait`/`follow` 监听与所有 `onChanged` 订阅（远程推送有限频，但监听回调本身没有）。
+- **为什么是问题**：后台命令缺省不设超时，跑一个长时间只输出 `\r` 进度的命令就能让服务端进程内存无界增长、CPU 被平方级拼接吃掉；前台 `shell` 的 `OutputCapture` 有窗口上限，后台这条路径没有。
+- **如何核实**：真实运行时 `shell {command: "yes | tr -d '\\n' | head -c 200000000", async: true}`，观察进程 RSS 与命令完成耗时；或在 `take` 里打印 `partial.length`。
+- **建议改法**：`partial` 只保留最后 `LINE_BYTES`（或几 KB）用于 `lastLine`：拼接后若最后一段超过上限就截成尾部；`lines` 计数改为对 `chunk` 数 `\n` 的个数，不必 `split` 整段；`progress` 加简单的节流（例如 lastLine 变化后至少隔 250 ms 再报）。
+
+### 4. 停止期间新起的后台命令不会被取消，成为插件停止之后仍在跑的孤儿进程
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`backend/agent.ts` 的 `stop`（`stopping = true; table.closeGate(); await …jobs.live().filter(shell).kill("interrupted"); await userProfiles.stop(); await table.stop(); …; jobs.clear()`）；`backend/builtin/shell.ts` 的 `startInBackground`；`backend/jobs/center.ts:111` `reserve`
+- **现象**：`closeGate` 只让 `SessionTable` 的入口抛 `AgentStopping`，不拦已经打开的会话里正在进行的工具调用；`shell` 的后台路径不经过句柄表。取消后台命令的那一步只取当时 `jobs.live()` 的快照；之后 `userProfiles.stop()` 与 `table.stop()`（要等 `#accepted`、逐个关会话）期间，仍在跑的会话可以再调一次 `shell {async: true}`，`reserve` 照常成功、命令照常启动。`table.stop()` 关会话只中止运行，不碰后台命令；最后 `jobs.clear()` 把这条任务从表里丢掉，驱动随之失联。
+- **为什么是问题**：jobs.md 输出 8 要求停止时在跑的后台命令都按 `interrupted` 收口、写 `status.json`。漏掉的那条命令在插件停止（热重载、停用插件）之后继续跑，后台命令缺省不设超时，可能一直跑下去，还会继续往会话目录写输出与 `status.json`（结束时 `jobs.end` 对已清空的表无效）。`agent_spawn` 有 `table.create` 的门挡着，后台命令没有。
+- **如何核实**：测试里让父会话的工具在 `runtime.stop()` 开始后、`table.stop()` 之前调用 `shell {command: "sleep 30", async: true}`（例如用一个在 `userProfiles.stop` 期间放行的闸门），`stop()` 返回后检查 `sleep` 进程仍在。
+- **建议改法**：让任务中心自己有“关门”：`JobCenter.close()` 在 `stop` 第一步调用，之后 `reserve` 一律失败（码 `unavailable`），再取消在跑的后台命令。部件不增加，`stopping` 这个旁路标志也可以改由 `jobs.closed` 提供给子代理工具，少一份状态。
+
+### 5. `tree` 每次推送对每个打开着的后代读整条路径并过一遍出站过滤，对每个后代读一次索引文件；全局任一活动变化都触发，结果没变也推
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`backend/subagents/tree.ts:75-140`（`tree`、`#item`）、`:146-166`（`watch`）；`nb-harness/src/kernel/session/session.ts` 的 `path()`（`visibleAll(core.pathTo(...))`）
+- **现象**：
+  - `#item` 对每个句柄打开着的后代调 `view.path()`。内核的 `path()` 对当前路径上的每个事件跑出站过滤（`visibleAll`），内核自己在 `treeNodes` 的注释里写明“工具结果可能很大，结构查询不该为它付过滤的代价”；这里只为了数 `toolStarted`、找 `runStarted` 与未答的 `interactionRequested`，却把含全部工具结果的整条路径过滤、复制一遍。
+  - 对每个后代（含早已空闲、关着的）都 `entry(id)` 读一次 `index.json`。一个派过 30 个子代理的会话，每次推送 30 次文件读。
+  - 触发：后代的每条日志（一个工具步骤就有 `toolStarted`、`toolResult`、`assistant` 等多条）、本会话与后代的任务变化，以及 `table.onActivityChanged`——这一项没有按树过滤，任何会话开始或结束运行都会让所有 `treeChanged` 订阅重算。合并到至多每秒 4 次，所以只要子树里有一个在跑，每个订阅者就稳定地每秒算 4 次。
+  - 推送不比较前后结果，没变也推整份。
+  - `step`、`tools` 的 16 个上限只裁输出，计算照样对所有打开着的后代做。
+- **为什么是问题**：Brief 重点 7 问的正是这里。典型负载（主创并发 8 个 adhoc，每个路径几百到几千事件，含大段 `read` 结果）下，每个打开的父会话视图每秒 4 次 × 8 条整路径的过滤与复制，外加 N 次索引读；嵌套时根与子会话各自订阅，同一批后代被算两遍。随会话变长线性变差，并且与是否有人在看哪一项无关。
+- **如何核实**：在 `#item` 里统计每秒 `path()` 调用次数与总事件数；跑场景 1（两个子代理各读几个大文件），打开父会话的 `treeChanged`，观察 CPU 与 `path()` 返回的事件总数。
+- **建议改法**：动态字段改为增量：`table.onLog` 已经把每条日志按会话送过来，`SubagentTree` 为每个打开着的后代维护一个小状态（当前 `runId` 与开始时刻、工具次数、最近一步、未答事项表），只在句柄刚打开时从 `path()` 补一次；`entry` 的静态字段（标题、Profile、`runs`）按会话缓存，收到 `titleChanged`、`runEnded` 时失效。`onActivityChanged` 只在变化的会话属于这棵树时触发（需要句柄表给出变化的 id，或在回调里对比 `activity()` 的树内子集）。推送前与上一次结果做浅比较，没变不推。
+
+### 6. `tree` 的 `pending` 带审批请求原文（含工具参数全文），`treeChanged` 推送不检查大小；`tree` 超过 512 KiB 整体失败
+
+- **严重程度**：重要；**类别**：正确性 / 安全与性能
+- **位置**：`backend/subagents/tree.ts:121`（`pending` 带 `request`）；`backend/remote.ts` 的 `tree`（`byteLength(items) <= PAGE_BYTES ? ok : fail("result-too-large")`）与 `treeChanged`（`sink.next(items)`，没有大小检查）；审批请求的形状在 `nb-harness/src/kernel/run/tools.ts:257`（`{tool, args, effect, …}`）
+- **现象**：审批事项的 `request` 是 `{tool, args: call.args, …}`，`write` 的 `args` 含整份要写的文本。后代里有几个在等写入审批时，`tree` 很容易超过 `PAGE_BYTES`（512 KiB）——这时远程 `tree` 直接 `result-too-large`，宿主拿不到任何一项（卡片、停靠区、会话面板的子代理数全没了）；而 `treeChanged` 的推送根本不量大小，frames.ts 注释写明“通道一条消息上限 1 MiB、没有发送背压”，超过时推送的命运取决于通道实现（从代码推断：报错或断开订阅）。日志帧那边对大事件有占位与分段读，这里没有。
+- **为什么是问题**：一项大请求就让整棵树不可见，影响的是 Spec 场景 2（子会话要审批时父会话停靠区要显示它）这条主路径；而且 `tree` 与 `treeChanged` 对同一份数据的上限处理不一致。
+- **如何核实**：子会话 `write` 一个 600 KB 的文件、审批模式 `ask`，父会话调用远程 `tree`：得 `result-too-large`；同时观察 `treeChanged` 的推送。
+- **建议改法**：`pending` 只带停靠区标题与按钮要的摘要（`tool`、`effect`、`reason`、目标地址），完整请求由宿主按需经已有的 `log`/分段读取（停靠区本来就要按事项会话取预览）；或对单个 `request` 套用 `EVENT_INLINE_BYTES` 的占位规则。推送与 `tree` 走同一个大小检查。
+
+### 7. 前台跟随抛错时 `waiters` 不归零；`watchSteer` 在读快照抛错时不放订阅
+
+- **严重程度**：建议；**类别**：不变量
+- **位置**：`backend/subagents/tools.ts:237-261`（`settle`）、`:306`、`:355-359`（`spawn` 的 `attach` 与 `catch`）、`:415`、`:456`；`backend/jobs/steer.ts:19-26`
+- **现象**：`attach` 之后，`detach` 只在 `follow` 与 `children.report` 都正常返回的那条直线路径上调用（`settle` 第 243 行），不在 `finally` 里。`watchSteer`（`subscribeOpened`、`snapshot`）、`children.report`（`clip` → `artifacts.save` → `files.stage`，以及 `report` 对非子代理任务直接 `throw`）任何一处抛错，任务的 `waiters` 永远停在 1：`spawn` 的 `catch` 只 `release`，对已 `running` 的任务不起作用。之后这个任务在 `wait` 里永远被当成前台（不点名时被过滤，点名得 `job-foreground`），结束后 `#trim` 也跳过它（`waiters === 0` 才裁），`jobs` 永远写“前台在等”。`watchSteer` 里订阅成功后 `table.view(sessionId).snapshot()` 抛错时，`subscribed.release` 没人调，父会话的引用漏掉，不会再被空闲关闭。
+- **为什么是问题**：Brief 重点 1 要求各抛错分支不漏 `detach`。这些抛错概率不高（父会话正在跑，读快照一般不失败），但一旦发生，结果是任务卡在不可取的状态、会话句柄常驻，都不会自愈。
+- **如何核实**：思想实验：让 `artifacts.save` 抛错且子代理结果超过 50 KB，`agent_spawn` 抛错后 `jobs` 仍列出该任务并标“前台在等”，`wait` 不点名时得 `no-jobs`。
+- **建议改法**：`settle` 改成 `let delivered = false; try { … delivered = result !== null … } finally { deps.jobs.detach(job, delivered); steer.release(); }`，并把 `watchSteer` 放进 `try` 内；`watchSteer` 里 `snapshot` 用 `try/catch` 包住，失败时先 `subscribed.release()` 再抛。顺带把 `attach` 也挪进 `settle`（三个工具都在调 `settle` 之前 `attach`，条件与 `settle` 的 `foreground` 相同），部件少一处重复。
+
+### 8. 子代理工具的几条判据没有测试：前台 `timeout`、`queue`、不带 `message` 的继续与 `nothing-to-continue`/`already-running`、`child-stopping`、`questions: "user"`、应答后 `idle`、`model-unavailable`、后台命令 64 MiB 截断
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/agent/subagents.test.ts`、`jobs.test.ts`
+- **现象**：在两份测试里搜关键词：`queue`、`child-stopping`、`nothing-to-continue`、`already-running`、`model-unavailable` 各 0 处；`subagents.test.ts` 里 `timeout` 0 处（`jobs.test.ts` 的 12 处都是直接调 `JobCenter.wait` 的 `timeoutMs`）；`questions: "user"` 0 处；64 MiB 截断与 `truncated` 只在 `status.json` 的形状里出现一次，没有触发截断的用例；`KEPT_TOTAL` 没有用例。对应的实现分支（`tools.ts:374-375,389-396,446-448`、`settle` 的超时分支、`children.ts` 对 `questions: "user"` 的过滤、`shell-background.ts:55-64`）做变异（例如把 `already-running` 的条件删掉、把 `follow` 超时改成返回 `ended`、把 `forCaller` 里的 `questions === "caller"` 去掉）不会让任何测试失败。
+- **为什么是问题**：这些都是 subagents.md 输出 6、10、11、15 与 jobs.md 输出 7 的明文判据，其中 Spec 验收 5 明写“子会话还在中止时 `agent_send` 得 `child-stopping`”。`questions: "user"` 一旦误判成交给调用方，父 Agent 会收到本该只给用户的提问并以 `not-allowed` 碰壁，前台等待也会提前返回。
+- **如何核实**：`grep -c -- 'queue\|child-stopping\|nothing-to-continue\|already-running\|model-unavailable' packages/neuro-book/src/plugins/agent/{subagents,jobs}.test.ts`。
+- **建议改法**：按 Spec 条目各补一条真实运行时的用例：前台 `timeout: 1` 加注入时钟推进，断言以 `running` 返回且 `wait` 之后取得到；`queue: true` 立即返回；空闲时不带 `message` 在正常完成后得 `nothing-to-continue`、在中断后能继续；中止进行中 `agent_send` 得 `child-stopping`；`questions: "user"` 的提问不结束前台等待、`tree` 里是 `waiting`；后台命令写超过上限（可把上限做成可注入，或用 `head -c` 产出 64 MiB 加一点）断言 `truncated` 与文件大小。
+
+### 9. `agent_send`、`agent_answer` 在任务已经可见之后才 `attach`，同一条回复里的 `wait` 可能与它重复交回同一个结果
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`backend/subagents/tools.ts:410-416`（`send`）、`:451-457`（`answer`）；文件头注释第 9 行
+- **现象**：文件头写“前台调用在任务开始之前就 `attach`：同一条回复里并发的 `wait` 不会把它当后台任务取走”，但只有 `spawn` 做到了。`send`/`answer` 在 lane 里 `adopt`（新任务此时已经 `running`、出现在 `list` 里；或者认的是一个已有的后台任务），lane 的 promise 完成之后才 `attach`，中间隔着至少一个 `await`。同一条回复里并发的 `wait`（不点名）若在这之前算好候选，候选里就有这个任务；任务结束时 `wait` 交回并移出，前台的 `follow` 也看到 `ended` 并交回，父 Agent 拿到两份相同的结果（结果过长时还各存一份全文）。点名的 `wait` 在 `attach` 之前开始时也拿不到 `job-foreground`。
+- **为什么是问题**：与注释声称的不变量不符；第 53 条放宽的是“按调用顺序生效”，没有放宽“前台的任务不被 `wait` 取走”。影响是重复的 token 与困惑，不会丢结果。
+- **如何核实**：同一条回复里 `async` 派一个、下一条回复里同时 `wait` 与对它的 `agent_send`（带 `message`），子代理完成后看两个工具结果是否都含结果全文。
+- **建议改法**：在 lane 的同步段里、`adopt` 返回之后立即 `attach`（把 `foreground` 作为参数传进 `adopt`），或者让 `JobCenter.wait` 在交回前再检查一次 `waiters > 0` 时跳过该任务。前者与 `spawn` 一致，更简单。
+
+### 10. 远程 `jobs` 列出前台任务，Spec 写的是“后台任务”；项的字段也比 Spec 多
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：`backend/remote.ts` 的 `jobsOf`（`jobs.list(sessionId).map(jobItem)`）；`shared/subagents.ts` 的 `JobItem`；`docs/specs/agent/jobs.md` 输出 9
+- **现象**：jobs.md 输出 9 写“交回这个会话启动、还在任务中心里的后台任务，每项 `{id, kind, state, summary, startedAt, endedAt?, lastLine?, exitCode?, lines?}`”，实现交回全部（前台的带 `foreground: true`），并多了 `invocation`、`foreground`、`sessionId`、`runId`（输出 1 提到 `invocation`，其余没写）。输出 11 的 `killJob` 能停前台任务，界面需要前台项，所以实现大概是对的、Spec 落后。
+- **为什么是问题**：Spec 是合同真相源，宿主按 Spec 实现会以为列表里只有后台任务。
+- **如何核实**：对照 jobs.md 输出 9 与 `jobItem`。
+- **建议改法**：改 Spec：列出全部任务、写明 `foreground`、`invocation`、`sessionId`、`runId` 字段。
+
+### 11. 内核 `start` 从缓冲区取输入开新运行时没有带上 `by`，父会话放进去的话在路径上记成用户说的
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/run/commands.ts:141`（`startCommand`：`takeInputDrafts(next.id, next.input, core.newId())`，第四个参数缺 `next.by`）；对照 `loop.ts:203,383` 都传了 `next.by`/`followup.by`
+- **现象**：runtime.md 输出 85 要求路径上的 `input` 记发出者。缓冲区项已经有 `by`（`kernel-state.ts` 的 `inputQueued` 归约），但 `start` 开新运行时取 `buffer[0]` 写 `input` 没有传它。会走到这里的真实路径：父会话中止 → 子会话 `abort{keepQueue: true}`，缓冲区里留着父 Agent 先前 `queue: true` 放进去的话（subagents.md 输出 16 明写“缓冲区里的话留着”）→ 父 Agent `agent_send` 不带 `message`（`view.start`）或用户在子会话点“继续”→ 这条话以没有 `by` 的 `input` 进路径，界面按第 43 条画成“YOU”。
+- **为什么是问题**：与输出 85 不符，且在本 Task 新增的“中止后续用”路径上可达；日志是长期数据，写错了不会自愈。
+- **如何核实**：nb-harness 测试里 `as(parent).enqueue({mode: "followup"})` 之后 `start`，断言最后一个 `input` 的 `by` 是 `parent`；现在是 `undefined`。
+- **建议改法**：`takeInputDrafts(next.id, next.input, core.newId(), next.by)`；在 `interaction.test.ts` 的“会话之间的输入”一组补这一条。
+
+### 12. `activity` 与 `sessions://` 根把“等父 Agent 回答”的子会话算成“等用户”
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`backend/sessions.ts:132-133,286`（`waiting = status.state === "waiting"`）；`backend/remote.ts` 的 `activity`（只加了 `root`）；`backend/schemes.ts` 的 `sessionEntries`（`STATE_TEXT.waiting = "等用户"`）
+- **现象**：句柄表的 `waiting` 只看运行状态是不是 `waiting`，不分事项交给谁。子会话停在 `questions: "caller"` 的同步提问上时（场景 3 的常态，父 Agent 用 `agent_answer` 答），运行状态同样是 `waiting`，于是：远程 `activity` 报它 `waiting`，状态栏按计划“等你处理 = 在等用户的会话数（含子会话）”会把它算进去；父 Agent 读 `sessions://` 根时子会话标“等用户”，与 `agent_spawn` 交回的“在问你”矛盾。`tree` 那边已经按事项区分出 `question` 与 `waiting`，两套口径不一致。
+- **为什么是问题**：这是本 Task 新引入的常见状态（子代理向父 Agent 提问），用户会在状态栏看到“等你处理”却没有需要自己处理的事项；父 Agent 读根目录会误以为子会话在等用户而去等，而不是回答。
+- **如何核实**：场景 3 停在 `question` 时调远程 `activity`：子会话项是 `waiting`；读 `sessions://` 根：子会话 `state` 是“等用户”。
+- **建议改法**：句柄表从 `status.pending` 判断有没有“交给用户”的事项（与 `tree.ts` 的 `toUser` 同一规则；`pending` 摘要里有 `kind`，模式切换与 `questions` 需要会话头，句柄表打开时就有），只有这种才算 `waiting`，全是交给调用方的提问算 `running`（或给 `activity` 加第三个状态 `question`）。把 `toUser` 抽成一处共用，`tree.ts` 与句柄表都用它。
+
+### 13. `agent_send`、`agent_answer` 先收紧子会话的设置、后查上限：得 `concurrency-limit` 时子会话已经被改过
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`backend/subagents/tools.ts:376-382`（`send`：`tighten` 在 `needsSlot`/`reserve` 之前）、`:437-443`（`answer` 同样）
+- **现象**：lane 里的顺序是：读快照 → `tighten`（`changeSettings` 写子会话的模式与只读）→ 判断要不要占名额 → `reserve`，占不到就返回 `concurrency-limit`。所以父会话在 `plan` 下对一个 `normal` 的空闲子会话放话、而名额已满时，子会话的模式已经被写成 `plan`（日志里多一条设置变更），话却没发出去。
+- **为什么是问题**：subagents.md 输出 12 写“超了得 `concurrency-limit`，子会话不动”。影响不大（收紧本来就要做，且不会放宽），但与合同不符，且让失败的调用留下了副作用。
+- **如何核实**：`subagentsPerSession: 1`，先 `async` 派一个在跑的，再在 `plan` 下对另一个空闲的 `normal` 子会话 `agent_send`：结果 `concurrency-limit`，子会话的 `extensionSettings` 已是 `plan`。
+- **建议改法**：先 `needsSlot`/`reserve`，再 `tighten`；`tighten` 失败时 `release`（`release` 已有）。顺序调一下即可，不加部件。
+
+### 14. 父会话中止时工具已经以 `aborted` 交回，任务却以“没取过”的后台任务留下，之后的 `wait` 会把它再交回一次
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`backend/subagents/tools.ts:242-253`（`settle` 的 `aborted` 分支：先 `detach(job, false)`，再返回 `status: "aborted"`）；`backend/jobs/center.ts:215,218`（`wait` 不点名时取 `!job.fetched` 的已结束任务）
+- **现象**：中止分支把任务当“没交回”处理（`delivered = false`），`waiters` 归零、`fetched` 仍为 false。子会话随后按 `aborted` 收口，`end` 之后它就是一个“结束了、没取过的后台任务”。父 Agent 下一轮调 `wait()`（不点名）时，`ready()` 先挑已结束没取过的，于是立即交回这个早已以 `aborted` 报过的任务，而不是它真正想等的 `async` 任务；`jobs` 里也一直列着它，直到被取或被裁。
+- **为什么是问题**：jobs.md 输出 6 写“任何一个前台等它的调用以终态交回时，任务移出（视同取过）”；对模型来说 `aborted` 就是这次调用的终态。重复交回会让模型误判（以为又停了一个），也会让场景 5 之后的第一次 `wait` 拿错对象。
+- **如何核实**：场景 5 的用例末尾加一次 `wait`（不点名）：现在交回的是前台那个已中止的任务，而不是 `async` 派出的那个。
+- **建议改法**：中止分支 `detach` 时标记“已交回、结束即移出”（例如 `job.fetched = true`，`end` 时 `fetched` 的直接删除，`#trim` 已按 `fetched` 过滤），名额照常在收口时释放。
+
+### 15. 临时帮手有 `shell`（含 `async`）却没有 `wait`、`kill`、`jobs`：它起的后台命令自己取不到结果、停不掉
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`backend/builtin/profiles/adhoc.ts`（`TOOLS.optional` 含 `nbook.agent.shell`，不含任务中心的三个工具）；`backend/builtin/shell.ts` 的声明（`async` 参数无条件出现，说明写“用 wait 取结果、kill 停掉”）；主创的 `DELEGATION` 也都是可选，用户去掉 `wait` 而留着 `shell` 时同样
+- **现象**：`shell` 的声明是静态的，`async` 参数与“用 wait 等它，kill 停掉”的说明对所有装了 `shell` 的 Profile 都出现；adhoc 缺省装 `shell`，却没有 `wait`/`kill`/`jobs`。adhoc 子代理照说明调 `shell {async: true}` 后，任务登记在子会话名下：子代理没有工具取结果，只能自己去 `read` 输出文件（说明里没提示）；它停不掉命令；它的运行结束后任务以“没取过的后台任务”留着，父 Agent 的 `wait`/`kill` 又只管自己启动的（jobs.md 输出 3、4），也碰不到。后台命令缺省不设超时，只能等用户在界面上停。
+- **为什么是问题**：子代理是本 Task 的主要使用者，adhoc 是唯一内置可派的 Profile；模型拿到一个“可以转后台”的工具却没有配套工具，容易起一个长命令然后交差，留下无人认领的进程。
+- **如何核实**：脚本让 adhoc 子代理调 `shell {command: "sleep 600", async: true}` 然后结束；父会话 `jobs`/`wait` 看不到它，子会话没有 `wait` 工具。
+- **建议改法**（二选一，倾向前者，部件不增加）：adhoc 的工具里加上 `wait`、`kill`、`jobs`（可选，随 `shell`）；或 `shell` 在会话没有 `nbook.agent.wait` 时拒绝 `async`（失败码写明“这个会话没有 wait，不能转后台”）。主创把三个任务工具与 `shell` 的绑定关系写进 Profile 设置页的警告行（计划里已有“警告行”）。
+
+### 16. `ProfileShapes`：`clear()` 挡不住清空之前发出的加载，旧形状会在清空后写回；解析不到的 Profile 每次请求都重新解析
+
+- **严重程度**：建议；**类别**：正确性 / 安全与性能
+- **位置**：`backend/subagents/prompt.ts:32-61`
+- **现象**：`#load` 发出后，Profile 重新打包触发 `clear()`，旧的 `resolve` 随后完成，`this.#shapes.set(key, 旧形状)` 把过时的初始输入与结果 schema 写回缓存，之后不会再被清（直到下一次目录变化）；提示词里推荐子代理的形状就停在旧版本，而派发时的校验用的是新实现，模型照提示词填的 `initial` 会得 `initial-invalid`。另外 `resolve` 交回 `undefined` 时不缓存，`get` 每次都再发一次解析（每次模型请求一次）。
+- **为什么是问题**：用户改了自定义 Profile 的初始输入后，提示词可能一直写着旧的形状；概率取决于打包与请求的时序，不高，但表现是“照提示词做却总失败”，难以排查。
+- **如何核实**：思想实验：`get("x")` 触发加载，加载未完成时 `clear()`，然后让旧加载完成：`get("x")` 交回旧形状。
+- **建议改法**：加一个代数计数，`clear()` 时加一，`#load` 完成时代数不符就丢弃结果；解析不到的记一个空形状（`{}`），由 `clear()` 一并清掉。
+
+### 17. 同一件事写了几份：按字节截一行（三处）、`send` 与 `answer` 的 lane 主体
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`backend/builtin/shell-window.ts:166-172`（`capLines`）、`backend/builtin/shell-background.ts:34`（`shortLine`）、`backend/remote.ts` 的 `tailOf` 末尾；`backend/subagents/tools.ts:372-411` 与 `:429-452`
+- **现象**：“按 `LINE_BYTES` 截一行、去掉被切开的替换字符”在三处各写一遍，后缀还不一样（`…[本行共 N 字节，已截断]`、`…`、`…`）。`send` 与 `answer` 的 lane 主体是同一个形状：读快照 → `aborting` 判断 → `tighten` → `needsSlot`/`reserve` → 发指令 → 失败时 `release` → `adopt`，只有中间那条指令与 `ownRun` 的算法不同；发现 13 的顺序问题两处都要改，就是重复的代价。
+- **为什么是问题**：重复的规则会各自漂移（三种截断后缀已经不同）；lane 主体的不变量（何时占名额、何时退回）分散在两处。
+- **建议改法**：`shell-window.ts` 导出 `capLine(line, suffix)`，三处共用；`tools.ts` 抽一个 `runOnChild(child, call, services, issue: (view) => Promise<{runId, ownRun} | Failure>)`，`send` 与 `answer` 只给各自的 `issue`。
+
+### 18. sessions.md 输出 19 说这些远程“会话打不开时得会话的失败码”，实现与合同对不存在的会话都交回空
+
+- **严重程度**：建议；**类别**：文档 / 正确性
+- **位置**：`backend/remote.ts` 的 `ancestors`、`tree`、`jobs`、`jobStatuses`；`shared/remote.ts` 的方法声明（`tree` 只声明 `result-too-large`，`jobs`、`ancestors` 没有错误码）；`docs/specs/agent/sessions.md` 输出 19
+- **现象**：输出 19 末句“都以用户的身份，会话打不开时得会话的失败码”。实现按设计不打开会话（关系表、索引、任务表），对拼错或已删除的 `sessionId` 一律交回 `[]`/全 `null`；合同里也没有声明会话的失败码。
+- **为什么是问题**：Spec 与实现不一致，宿主无法区分“没有后代”与“会话不存在”；按 Spec 写的宿主会等一个永远不来的失败。
+- **如何核实**：远程 `tree({sessionId: <随机 uuid>})` 交回 `[]`。
+- **建议改法**：改 Spec：这几项不打开会话，未知会话交回空；或在入口用 `entry(sessionId)` 判一次存在性、得 `session-not-found`（多一次文件读）。倾向改 Spec。
+
+### 19. `agent_send`、`agent_answer` 占了名额之后指令抛错，名额不退，任务停在 `starting`
+
+- **严重程度**：建议；**类别**：不变量
+- **位置**：`backend/subagents/tools.ts:378-405`（`send`）、`:439-448`（`answer`）；对照 `spawn` 的 `catch`（`:355-359`）
+- **现象**：`spawn` 用 `try/catch` 在抛错时 `release`；`send`/`answer` 的 lane 里 `reserve` 之后的 `view.start`/`view.send`/`view.resolve` 只处理“返回失败”，没有处理“抛错”。`SessionTable.#acquire` 在关门后直接 `throw AgentStopping`（`sessions.ts:206-207,226`），命令路径并不总是转成失败结果；这时 `reserved` 留在表里、状态 `starting`，占着会话与全局名额，且 `jobs`/`wait` 看不见它。
+- **为什么是问题**：Brief 重点 1 要求“有没有任务永远停在 `starting`”。目前能触发的主要是停止期间（之后 `jobs.clear()` 会清掉），影响有限；但它依赖“只有停止时才会抛”这个没写出来的假设，句柄表以后多一种抛错就会漏名额。
+- **如何核实**：思想实验：让 `view.send` 抛错（例如在 `closeGate()` 之后、`table.stop()` 之前调用 `agent_send`），之后 `reserve` 的计数里多一个永不释放的 `starting`。
+- **建议改法**：lane 主体里 `reserve` 之后用 `try { … } catch (error) { release(); throw error; }`；若按发现 17 抽成一个函数，只需写一处。
+
+## 未发现问题的方面
+
+仔细检查后没有发现问题的：
+
+- `JobCenter.wait`、`follow` 的监听、计时器与中止监听在 resolve、超时、中止、插话各条路径上都在 `finally` 里释放；`#trim` 不裁前台在等的任务。
+- `ChildRuns.#follow`：先订阅再读路径、按 id 合并、应答过的记进 `answered`，读路径期间到达的应答不会被路径里的旧请求盖回去；`waitRun` 抛错时按 `interrupted` 收口，订阅在 `finally` 里放掉。交给调用方的判定（`questions: "caller"`、非异步、非模式切换）与 Spec 输出 15 一致。
+- `agent_spawn` 的同步段：`reserve` 之前全是同步检查，并发派发不会一起越过上限；各个返回失败的分支都经 `refuse` 退回名额；`release` 只删 `starting` 的任务。
+- 中止只连带 `ownRun` 的运行、用 `keepQueue`、`stopping` 时不发中止；`agent.ts` 的停止顺序与 jobs.md 输出 8 一致（发现 4 的竞态除外）。
+- 内核：`send` 对在跑运行交回 `currentRunId`、`resolve` 交回 `runId`、`invocation` 与 `toolStarted` 同一个、拦截与视图上下文带会话；旧索引缺 `spend`/`runs` 时读作没有、打开时重建，`entry(id)` 校验会话 id；索引的花费口径与内核 `spend` 相同（三种事件）。
+- `jobTail`、`jobStatuses`、`killJob` 的路径与归属：会话 id 用 `safeSegment`，任务 id 在合同里有 `^job-[0-9a-f]{12}$`，拼不出会话目录之外的路径；`killJob` 只认这个会话启动的任务。
+- `jobs/` 的写保护在 `resources.ts` 与 `schemes.ts` 两处都加上了。
+- 费用树：没有会话的单次请求只看自己；告警按会话记；树的结构查关系表、成环有防护。
+- `loop-guard` 的 `toolCalls[].tool` 是工具 id（omp 适配器已换回），豁免集合用 `WAIT_TOOL` 能匹配上。
+- `PushThrottle`：关闭后不再推、计算期间的触发会在算完后补一次。
+
+未能从代码确定、需要运行验证的：`executeShell` 收到取消信号后是否一定让子进程退出（若不退出，`kill` 与插件停止会一直等 `done`）；超过 1 MiB 的 `treeChanged` 推送在通道上的实际表现（发现 6）。
+
+## 数量
+
+- 阻断：0
+- 重要：9（发现 1、2、3、4、5、6、8、12、15）
+- 建议：10（发现 7、9、10、11、13、14、16、17、18、19）
+- 合计：19

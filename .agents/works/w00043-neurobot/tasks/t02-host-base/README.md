@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-host-base
-status: planned
+status: active
 updated: 2026-11-10
 ---
 
@@ -28,13 +28,21 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 
 ## 与其它工作的关系
 
-- [w00032 t32](../../../w00032-agent-integration/tasks/t32-harness-backfill/README.md) 把模型角色与压缩触发点的规则搬进 nb-harness 的 `./models/rules`；本 Task 的模型服务部分建在它之上，排在 t32 合入之后。两端宿主与 HTTP 的部分不碰 t32 的文件，可以先做。
+- [w00032 t32](../../../w00032-agent-integration/tasks/t32-harness-backfill/README.md) 已于 2026-11-10 合入。它的第三稿不再搬模型规则：模型角色与压缩触发点的规则、选择顺序都由本 Task 搬进 `nb-models`；t32 只在 nb-harness 的 `kit/shapes.ts` 定了压缩角色 id `MODEL_ROLES.compaction`，本 Task 的模型几片要用它。
 - 抽到哪个包（nb-runtime 的新子路径，还是新包）在计划里定：nb-runtime 现在运行时依赖只有 TypeBox、前后端共用、与应用无关（[ADR 0030](../../../../../docs/adr/0030-plugin-platform-layering.md) 决策 1），服务端宿主要用 Bun 的服务与文件锁。
 - 代码在 Work 分支上做（`feat/w00043-neurobot`，worktree `.worktree/w00043-neurobot`），开工时建。
 
 ## 当前状态
 
 2026-11-10：[plan.md](plan.md) 初稿（Opus）做了计划审查（Opus 审服务端、HTTP 与模型服务 16 条，Sonnet 审浏览器宿主 12 条）与独立设计（Sonnet），报告在 `evidences/`。处理如下；三项交开发者（见“待开发者定”），定了再改第二稿。
+
+2026-11-10：按下表与“开发者定的”三项改出第二稿（Opus，424 行）：新包三个（`nb-file-lock`、`nb-host`、`nb-models`）；切片重排为 0 ADR（主 Agent 在主工作区写）、1 `nb-file-lock`、2 到 6 `nb-host`、7 与 8 `nb-models`（t32 合入、变基之后）、9 文档与合入前清单，第 1 到 6 片可在 t32 合入前先合。表外顺带改的：补丁校验脚本加“只有 `nb-file-lock` 声明 `proper-lockfile` 且版本 4.1.2”；第 4 片用过渡导出 `createHostPlugins`、第 5 片删去；`runtime/diagnostics.md` 进 Spec 改动表；B4 的“锁失效只报诊断、进程不崩”用例放在 `nb-file-lock`。主 Agent 核对：引用 `locked-replace` 的非测试文件 19 个、提到它的测试 9 份（`locked-replace.test.ts` 随包搬走、`architecture.test.ts` 另改，要改导入的正是计划写的 7 份）；直接导入 `proper-lockfile` 的应用文件 4 个（`locked-replace.ts`、`jsonl-exporter.ts`、`layer-file.ts`、`plugin-platform/backend/startup.ts`），计划都给了去处。剩三项交开发者（计划“需要开发者确认”）。
+
+### 实施进度
+
+代码在 `.worktree/w00043-neurobot`（分支 `feat/w00043-neurobot`），主会话写。
+
+- 第 1 片（`nb-file-lock`）已提交：包与两条真实子进程用例（并发替换 40 次不丢、暂停到过期后被接管只报诊断不崩）、应用 26 个文件改导入、`startup.ts` 改用 `lockHeld`、补丁校验加“只有 nb-file-lock 直接声明”、应用架构测试加运行位置表。验证：包的 `typecheck` 与 `bun test`（5 条）；应用 `bun run typecheck`（三份配置都过，证实入口的 `/// <reference>` 把 `proper-lockfile` 的声明带给使用方）；应用 `src/backend`、`files`、`settings`、`canon`、`plugin-platform`、`server/projects`、`server/instance.test.ts`、`explorer`、`diagnostics`、`projects` 与架构测试 761 条，1 条负载下超时、单独重跑通过；`validate-proper-lockfile-patch.ts` 通过，把 nb-time 临时改成直接声明时它报错；脚本的类型检查与 `scripts/ci` 测试；`governance:check`、`docs:check`；`test:affected` 选得到新包。
 
 ### 计划第一稿的处理
 
@@ -74,12 +82,22 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 | D `definitionAt` 交回新对象，按对象身份核对插件会误判 | 成立 | 按 id 加入口身份核对 |
 | D 范围外：nb-story 与开发者面板的本地服务可能没有 `Host`、`Origin` 核对 | 不成立（读代码判断） | nb-story 有一次性口令登录加会话 Cookie（`packages/nb-story/src/server/auth.ts`），重绑定的页面拿不到 Cookie；不处理 |
 
-### 待开发者定
+### 开发者定的（2026-11-10，答“可以”，三项都按推荐）
 
-1. 模型服务放哪：初稿放进 nb-harness 的 `./models`，远程合同留在应用；独立设计放进新包 `nb-models`（依赖 nb-runtime 与 nb-harness），合同的定义对象与失败码表随服务进包。
-2. 加锁替换（`packages/neuro-book/src/backend/locked-replace.ts`，241 行，应用里 19 个文件在用）要不要抽成与应用无关的小包。
-3. 诊断日志出口（`runtime.diagnostics` 插件，603 行）要不要进 nb-host。
+1. 模型服务放进新包 `nb-models`（依赖 nb-runtime 与 nb-harness），远程合同的定义对象与失败码表随服务进包，两个应用只填各自的 id。原来 w00032 t32 要搬进 nb-harness 的 `models/shared/rules.ts`、`compaction.ts` 改由本 Task 搬进 `nb-models`。
+2. 加锁替换（`packages/neuro-book/src/backend/locked-replace.ts`）抽成一个与应用无关的小包；nb-host 的数据目录认领、NeuroBook 的设置与 Files、以后 NeuroBot 的记忆与设置都用它，锁的参数只有一份。
+3. 诊断日志的输出插件（`runtime.diagnostics`）进 nb-host。
+
+### 第二稿的确认项（2026-11-10 按“待确认默认追认”算定）
+
+开发者同意 Work 的 Task 规划（答“可以”）时，计划“需要开发者确认”的三项还列着、没有单独作答，按推荐算定，有异议再改：
+
+1. 小包叫 `@notnotype/nb-file-lock`（`packages/nb-file-lock`）；`staged-commit.ts` 留在应用。
+2. 三个包的 exports 按计划所列，都设 `private: true`、不发 npm；写进第 0 片的 ADR。
+3. 五个内置角色与选择顺序归 `nb-models`，两个应用共用；名字与说明各应用自己写。
+
+代码由谁写没有答复，按开发者的全局规则由主会话写。
 
 ## 下一步
 
-开发者定上面三项后，派 Opus 按上表改第二稿。
+第 0 片已做（2026-11-10）：[ADR 0045](../../../../../docs/adr/0045-shared-host-packages-for-second-app.md) 记三个新包与 ADR 0030 决策 2 的修订，索引已补注。2026-11-10 开发者听过三个包与对 nb-harness、`nbook.agent` 的影响后答“可以”，开工：worktree `.worktree/w00043-neurobot`（分支 `feat/w00043-neurobot`），代码由主会话写，从第 1 片做起。

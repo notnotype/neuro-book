@@ -1,6 +1,6 @@
 /**
  * `@notnotype/nb-harness/models`：模型目录、按配置建出模型端口的解析结果、凭据库与 `env:` 引用。给宿主实现模型端口用
- * （NeuroBook 的 `nbook.models`），不随旧 harness 退役（docs/specs/models/service.md）。
+ * （应用的模型服务），不随旧 harness 退役（docs/specs/models/service.md）。
  */
 
 export type {CatalogModel, CatalogProvider, CatalogSuggestion, DiscoveredModel, DiscoverModelsOptions, DiscoveryResult, ModelPrice, ProviderAccess, ThinkingEffort} from "./catalog.js";

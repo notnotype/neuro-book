@@ -3,7 +3,7 @@
  * 等待开始之前就进了缓冲区的插话（模型还在生成这条回复时用户打的字）也算，内核要等这批工具结算才把它送达。
  */
 
-import type {SessionTable} from "../sessions";
+import type {SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
 export interface SteerWatch {
     /** 有插话时完成；永不失败。 */

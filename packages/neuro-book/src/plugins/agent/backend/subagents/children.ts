@@ -7,8 +7,8 @@
  */
 
 import type {Issuer, LogEvent, SessionApi, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
-import type {SessionTable} from "../sessions";
 import type {Job, JobCenter, JobQuestion} from "../jobs/center";
 import {isLive} from "../jobs/center";
 import {clip, isModeSwitch, lineOf, pendingOf, questionText, resultOf, STATUS_OF_REASON, type PendingItem} from "./result";

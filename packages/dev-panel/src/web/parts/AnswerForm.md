@@ -1,5 +1,5 @@
 ---
-标签: ["state:local"]
+标签: []
 ---
 
 # AnswerForm
@@ -10,7 +10,7 @@
 - **已答**：这一版里能答、已经答了的题，只读显示答案、针对哪一版、什么时候答的与说明；点“改答”才变成控件，“取消改答”回到已答的那份、这道题不再交；
 - **之前几版的题**（页面上已没有）不进表单：服务端不再收它们的答复（`question_earlier`），宿主经 `readonly` 插槽放只读的 `QuestionPanel`。
 
-每题可以加说明，整份答复可以写备注。只交改过或新填的题与写了说明的题。清空了的题回到“没答”、不交（多选全取消、文字只剩空白；待答的单选、确认题选了之后多一个“清除选择”），不会因为它校验不过而整份交不了（t19）。取值按核心的 `validateAnswerValue` 与控制字符规则当场校验（同一份规则，不复制）。零件不发请求，按“提交”只发 `submit`。
+每题可以加说明，整份答复可以写备注。填写都在受控的 `draft` 里：零件自己不留状态，宿主（产物页）把它存在这台浏览器里，离开页面、刷新、面板重启后回来还在（t21）。只交改过或新填的题与写了说明的题。清空了的题回到“没答”、不交（多选全取消、文字只剩空白；待答的单选、确认题选了之后多一个“清除选择”），不会因为它校验不过而整份交不了（t19）。取值按核心的 `validateAnswerValue` 与控制字符规则当场校验（同一份规则，不复制）。零件不发请求，按“提交”只发 `submit`。
 
 ## 布局
 
@@ -32,12 +32,23 @@ interface AnswerFormProps {
     disabledReason: string | null;
     /** 服务端按题号退回的错误；必填 */
     errors: Record<string, string>;
-    /** 变了就清空本地的填写与“改答”（提交成功之后由页面加一）；必填 */
-    resetKey: number;
+    /** 还没交的填写（`v-model:draft`，受控）；必填。宿主给空的就是没填过，提交成功后由宿主换回空的 */
+    draft: AnswerDraft;
+}
+/** `host/answers.ts`：取值、哪些题改过、各题的说明与说明框是否展开、哪些已答的题点了“改答”、整份的备注 */
+interface AnswerDraft {
+    values: Record<string, unknown>;
+    touched: Record<string, boolean>;
+    comments: Record<string, string>;
+    commenting: Record<string, boolean>;
+    editing: Record<string, boolean>;
+    note: string;
 }
 interface AnswerFormEmits {
     /** 按下提交；`values` 只含改过或新填的题 */
     (event: "submit", answer: {values: Record<string, unknown>; comments: Record<string, string>; note: string | null}): void;
+    /** 每改一处（选、打字、加说明、改答、取消改答、清除选择、备注）发一份新的整份草稿 */
+    (event: "update:draft", draft: AnswerDraft): void;
 }
 interface AnswerFormSlots {
     /** 已答之后、备注之前的只读内容（产物页放 QuestionPanel 的“之前几版的题”“已取代与撤回”）；可选 */
@@ -47,9 +58,11 @@ interface AnswerFormSlots {
 }
 ```
 
-没有 expose。没有任何题能交时提交按钮禁用；待答与“改答”都没有时不画提交栏（除非传了 `result`）。`state:local` 是本地的填写、说明、“改答”与备注，`resetKey` 变了就清空。
+没有 expose。没有任何题能交时提交按钮禁用；待答与“改答”都没有时不画提交栏（除非传了 `result`）。
 
 ## 注意事项
+
+- 草稿按题号存，不按版本：会话改了页面重新发布，同一题号的填写照样带过来。选项改了、原来选的那项没了，题下当场报校验错，改选或“清除选择”就好；已经不在“待答”“已答”里的题（撤回了、别处答了）留在草稿里也不会交，提交成功后一起清掉。
 
 - 点“改答”时控件里是现在的答案（`host/answers.ts` 的 `editingValue`），不在加载时预填：提交成功后表单先按提交前的题表清空、新数据随后才到，代录或另一个标签页答的题也是推送来的，加载时预填会漏掉它们（多选题点“改答”加一项，原来的选项就丢了）。
 - 只写了说明、没改取值的已答题，交的时候带上现在的答案（`submittedValue`）：答复文件里每道题都有取值，说明不会挂在一道没有取值的题上。
