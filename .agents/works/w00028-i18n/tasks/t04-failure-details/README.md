@@ -33,7 +33,7 @@ updated: 2026-11-10
   - `DetailDialog` 加 `closed` 事件：视口要在 `Dialog` 交还焦点之后再放焦点（`close-handoff.ts` 的时序）。
   - `Notification` 的 `detail` 事件带上被点的按钮，视口用它做焦点归还，不另记元素。
   - 对话框打开时视口不只 `inert`，还降到模态层级之下（实现审查 F1：`inert` 不改绘制，通知会画在遮罩与对话框上面），不加 `aria-hidden`。
-  - 靠右的视口位置改贴 `right-0`：原来 `w-full` 加 `right-4` 在窄屏上整列从左边溢出 16px（base 上就有，新加的折叠小条因此被裁）；桌面上卡片离右边从 32px 变成 16px。
+  - 靠右的视口位置改贴 `right-0`：原来 `w-full` 加 `right-4` 在窄屏上整列从左边溢出 16px（base 上就有，新加的折叠小条因此被裁）；桌面上卡片离右边从 32px 变成 16px（开发者第 6 轮确认保留，第 15 条）。
   - 计划的两个文字键 `notification.detailTitleBare` 没加，无标题时复用 `notification.detail`（“详情”）。
 - 验证：nb-ui 受影响的 7 个 vitest 文件 214 条、工作台 `notifications.dom.test.ts` 9 条、`sdk.test.ts` 与 `surface.test.ts`、Lab 夹具登记测试全过；nb-ui 与 neuro-book 类型检查通过；`docs:check`、`governance:check` 无新增问题；e2e `lab-nb-ui.e2e.ts` 的“通知的‘详情’”一例通过（真实浏览器复制原文，含去掉剪贴板 API 后走 `execCommand` 的退路）。`plugin-sdk/pack.test.ts`：12 条里 10 条过，“page 分区少了必填的 icon”“诊断写明是哪一项”两条在 60 秒超时（机器负载 16 到 26）；同两条在 master 上同样超时，不是本次回归。合入后在 master 上复跑时，`notifications.dom.test.ts` 原有的“限时通知到点消失”（30ms）在负载 22 下四次失败一次：视口多挂了一个关着的对话框，首次渲染变慢，30ms 先到；已把时长放宽到 1500ms（78ff58864），连跑三次通过。
 - Lab 取证：`CopyButton`、`DetailDialog`、`Notification`、`NotificationStack` 在 nbook/macos × 亮/暗 × 1200 宽与 390 宽下 `lab:shot`，测量没有溢出、焦点环被裁与页面错误（截图集在本地 `.local/agent/works/w00028-i18n/tasks/t04-failure-details/shots/`）。
@@ -71,10 +71,15 @@ updated: 2026-11-10
 
 14. 详情对话框选 A“不给面”（`detail-dialog-look` 选 `flat`）：对话框里没有内层盒子，原文直接铺在正文上，主文字色、12px 等宽、折行，续行比本行缩进多缩 2 个字符；不要“诊断原文”标签；页脚是“复制原文”与“关闭”两颗有名字的按钮。随之撤掉切片 1 给 `CodeBlock` 加的块头操作位与 `maxHeight`、`CopyButton` 的 `focusRing`（都没有使用方了）；`CodeBlock` 的文字可选与空行不写空格保留。
 
+第 6 轮（2026-11-10，合入之后）：
+
+15. 靠右的通知离窗口右边保持 16px（`notice-right-edge` 选 A，即已合入的样子），不改回 32px，也不做按宽度自适应。
+16. 下一步先重写 w00031 t03 的计划（`next-task` 选 `w00031-t03`），w00028 t05 在它之后。
+
 ### 计划审查（2026-11-07）
 
 计划 [plan.md](plan.md)（第二版）。设计审查两份：omp 13 条（全部重要）、Claude Sonnet 前端 17 条（重要 8、建议 9），阻断 0，报告在 `evidences/`，处理记录在 `plan.md` 末尾。决定 1 的措辞改为“带详情的通知缺省常驻”（明确给的 `sticky: false` 仍优先，保持 Spec 输出 5 的既有语义）；对话框打开期间通知视口 `inert`（原先以为通知点得到、会被模态挡住，核实通知层级高于对话框）。
 
 ## 下一步
 
-无。后续：t05 迁编辑器与资源管理器的失败到通知；w00031 t03 重写计划，把错误码与参数投影成 `detail`。
+无。后续按第 16 条：先重写 w00031 t03 的计划，把错误码与参数投影成 `detail`；再做 t05，迁编辑器与资源管理器的失败到通知。
