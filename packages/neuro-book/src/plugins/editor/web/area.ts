@@ -20,6 +20,8 @@ import type {DisplayText} from "nbook/shared/localized-text";
 import {CODE_EDITOR} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
+import {AUTO_SAVE_OFF, createAutoSave} from "./auto-save";
+import type {AutoSaveSettings} from "./auto-save";
 import {createDocumentStore} from "./documents/store";
 import type {DocumentReference, DocumentStore, TextDocument} from "./documents/store";
 import {BINARY_TAB_EDITOR, BUILTIN_CATALOG, editorRefusal, previewEditorFor, resolveEditor} from "./editors";
@@ -64,6 +66,11 @@ export interface EditorAreaOptions {
     readonly conflict?: (address: string, editors: ReadonlyArray<string>) => void;
     /** 设置“预览标签页”（输出 52）：为假时单击打开也是常驻标签，已有的 preview 标签转正。缺省为真。 */
     readonly enablePreview?: () => boolean;
+    /**
+     * 自动保存的设置（docs/specs/workbench/editor.md 输出 63），响应式读取。不给就是关：Lab 与合同测试不经插件建编辑器区，
+     * 不该被设置项的缺省（失焦时）改变行为；产品里由插件从配置读来。
+     */
+    readonly autoSave?: () => AutoSaveSettings;
     /** 每种编辑器留几个控件；缺省 `MOUNTED_CONTROLS_PER_EDITOR`。只有测试与 Lab 给：验证回收不用真开 21 个标签。 */
     readonly mountedControlsPerEditor?: number;
 }
@@ -180,6 +187,12 @@ export interface EditorArea {
     unblock(groupId: string): void;
     /** 焦点落到了编辑器区之外（用户去了资源管理器等）：撤销还在等控件就绪的焦点交接。 */
     focusLeft(): void;
+    /** 用户的焦点离开了这个标签的视图（控件的 `leave`）：自动保存的“失焦时”据此保存（输出 63）。 */
+    viewLeft(tabId: string): void;
+    /** 窗口失去焦点或页面被隐藏（输出 63）。 */
+    windowBlurred(): void;
+    /** 页面要离开了：开着自动保存时把能存的都发出去，不等结果（输出 21）。 */
+    leaving(): void;
     /** 控件交出（或撤回）句柄。 */
     registerTabHandle(tabId: string, editor: string, handle: EditorControlHandle | null): void;
     dismissNotice(): void;
@@ -331,7 +344,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
                 if (result.status === "accepted" && result.revision > baseRevision && groups.find(tabId)?.tab.preview === true) groups.keep(tabId);
                 return result;
             },
-            attach: (flush) => (current() ? documents.attachView(document, flush) : () => undefined),
+            attach: (flush, pending) => (current() ? documents.attachView(document, flush, pending) : () => undefined),
             unresolved: () => document.unresolved.value.includes(token),
             block: (input) => {
                 if (current()) documents.block(document, token, input);
@@ -455,6 +468,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         }
         return [...open];
     });
+    const autoSave = createAutoSave({documents, openDocuments, clock: options.clock, settings: options.autoSave ?? (() => AUTO_SAVE_OFF), report: options.report});
     const handleOf = (groupId: string): EditorControlHandle | null => {
         const group = groups.groups.value.find((candidate) => candidate.id === groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === group.active);
@@ -530,7 +544,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return editorText(unrepresentable ? "refusal.targetUnrepresentable" : "refusal.targetUnresolved");
     };
 
-    /** 换文档前结算活动视图的输入；它有未裁决输入或写不出时不换。 */
+    /**
+     * 换文档前结算活动视图的输入；它有未裁决输入或写不出时不换。放行就是用户要离开这个视图了，算一次失焦（输出 63）：
+     * 不等控件的 `leave`，聚焦的元素被隐藏时浏览器发不发 blur 并不一致。
+     */
     const leave = (groupId: string): boolean => {
         const current = activeBound(groupId);
         if (current === undefined) return true;
@@ -538,6 +555,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         const held = holding(groupId);
         if (held === "unresolved") notice.value = editorText("notice.unresolved");
         if (held === "unrepresentable") notice.value = editorText("notice.unrepresentable");
+        if (held === null) autoSave.viewLeft(current.document);
         return held === null;
     };
 
@@ -589,6 +607,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         const hadFocus = focused.value;
         /** 选了“不保存”、又没有别的能编辑的标签时要还原的文档。 */
         let discarded: TextDocument | null = null;
+        /** 这次关闭里自动保存已经失败过一次：之后交给用户，不再自己试。 */
+        let autoSaveFailed = false;
         for (;;) {
             const found = groups.find(tabId);
             if (found === null) return "gone";
@@ -601,6 +621,12 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             // 只剩预览视图或只读的编辑器时照常问：它们改不了正文（输出 4）。
             const shared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === found.tab.address && editable(tab)));
             if (shared ? !ownInput : !needsSettle(document)) break;
+            // 开着自动保存、文档又没有阻碍（输出 4、63）：不问，先保存，存完回到开头再看。保存期间又有输入就再存一次；
+            // 失败则落到下面的询问。
+            if (!shared && !autoSaveFailed && autoSave.savesOnClose(document)) {
+                autoSaveFailed = !(await autoSave.save(document)).ok;
+                continue;
+            }
             // 这个视图写不出时没有“保存”（输出 61）：它的输入交不出去，保存只会保存别的视图的正文。
             const choice = await ask(found.tab.address, own === null || !own.blocked());
             if (choice === "cancel") return "cancelled";
@@ -962,6 +988,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             documents.unblock(current.document, current.binding.token);
             if (notice.value !== null) notice.value = null;
         },
+        viewLeft: (tabId) => autoSave.viewLeft(references.get(tabId)?.document ?? null),
+        windowBlurred: () => autoSave.windowBlurred(),
+        leaving: () => autoSave.leaving(),
         focusLeft: () => {
             leaves += 1;
             focused.value = false;
@@ -995,6 +1024,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             answerDialog?.("cancel");
             for (const stop of stops.splice(0)) stop();
             for (const timer of timers.values()) timer.cancel();
+            autoSave.dispose();
             for (const slot of [...slots.values(), ...controlSlots.values()]) disposeSlot(slot);
             slots.clear();
             controlSlots.clear();

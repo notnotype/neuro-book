@@ -321,8 +321,11 @@ export interface TextEditorBinding {
     readonly slot: ViewStateSlot;
     /** 输入回执：`baseRevision` 是视图看到的修订。 */
     commit(baseRevision: number, text: string): {readonly status: "accepted" | "conflict"; readonly revision: number} | {readonly status: "stale"};
-    /** 登记结算函数（交出还没交出的输入）；切换、保存与资源管理器的操作之前同步调用。 */
-    attach(flush: () => void): () => void;
+    /**
+     * 登记结算函数（交出还没交出的输入）；切换、保存与资源管理器的操作之前同步调用。`pending` 给有缓冲的控件用：手里有
+     * 还没交出的输入或正在组字时为真，“停手后”的自动保存据此顺延，不在组字途中结算（docs/specs/workbench/editor.md 输出 63）。
+     */
+    attach(flush: () => void, pending?: () => boolean): () => void;
     /** 这个绑定有没有未裁决输入。 */
     unresolved(): boolean;
     /**
