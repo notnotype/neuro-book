@@ -285,6 +285,20 @@ owners:
     - **关闭标签**（第 4 条）：三种开启的模式下都不问，先保存。所以缺省模式下“不保存”与“还原文件”实际上用不到：去执行还原时焦点一离开正文就已保存；要回到之前的内容靠撤销。
     - 自动保存不改正文、不裁决、不覆盖磁盘版本；保存失败不另弹通知。
 
+64. **源码编辑器的右键菜单**（planned）：在源码编辑器的正文或行号区右击，出现应用的菜单（与 Markdown 正文右键同一种外观），不出现浏览器与编辑内核自己的菜单。
+    - **项**，分三节，都执行编辑内核自己的编辑动作，结果与对应的快捷键相同：剪切、复制、粘贴；全选；查找、替换、更改所有匹配项、格式化文档、格式化选定内容。之后是别的插件经贡献点 `editor.code-context` 贡献的项（共同规则见 [`workbench.menus`](menus.md)，可以写 `extensions` 按文件后缀出现，`context: "resource"` 的项收到 `{address}`）。菜单里只标出剪切、复制、粘贴、全选、查找五项的快捷键。
+    - 没有选中文字时，剪切、复制作用于光标所在的整行（与 Ctrl+X、Ctrl+C 相同；Markdown 正文菜单是置灰）；整行复制之后从菜单粘贴，插成完整的一行。格式化两项只在这门语言有格式化时出现（现在是 JSON），“格式化选定内容”还要有选区。粘贴读不到剪贴板时（浏览器不支持、被拒绝、为空）在组顶部说明，正文不变。
+    - **只读**（预览视图、只读文档）：只有复制、全选、查找，不显示贡献项。
+    - **光标与选区**：点在某个选区之内，全部选区保留；点在选区之外，光标移到点击处。右击滚动条与小地图不出菜单；右击编辑器自己的浮层（查找与替换的输入框）不出应用的菜单、焦点不动，留给浏览器。
+    - **键盘**：焦点在正文时按菜单键或 Shift+F10，在光标处打开（光标不在可见区时先滚到它）；几个编辑组各按各的。
+    - **关闭**：选了一项或按 Escape 后焦点回到正文；点外面关闭、不抢焦点；正文滚动、换文件、标签被切走时关闭。
+    - 菜单里没有撤销、重做与转到行。
+65. **语法配色**（planned）：源码编辑器的语法着色、选区、缩进线随产品主题与明暗变，用护眼主题或自己做的主题时同样跟着变，不用编辑内核自带的配色。
+    - 颜色来自主题的语法变量 `--syntax-*`（[theme.system](../theme/system.md) 的“变量体系”）：注释、关键字、字符串（与属性值）、数字（与常量）、类型（与命名空间、注解）、标签名、属性名（与 JSON 的键）、正则（与转义）、变量、分隔符（与运算符、括号）各一种；没有归到这十类的成分用正文字色；`invalid` 用危险色加下划线。
+    - 括号按分隔符着色，不按嵌套层数分色。
+    - 自带的主题与护眼主题下，这些颜色在源码编辑器的底色上读得清：注释的对比度不低于 3，其余不低于 4.5；JSON 的键、字符串值、数字与 `true`，CSS 的属性名与数值，HTML 的标签、属性名与属性值，颜色两两分得开。
+    - 查找框、建议框这些部件仍是编辑内核按明暗给的颜色。
+
 ### 约定键
 
 页面与编辑器声明里的 `title` 是界面文字值（[`ui.i18n`](../ui/i18n.md)），不写时登记时补成贡献方插件目录里的键：页面（`editor.pages`）取 `editorPages.<本地 id>.title`，编辑器（`editor.editors`）取 `editors.<本地 id>.title`（规则见 [`ui.i18n`](../ui/i18n.md) 的“约定键”）。本地 id 是贡献 id 去掉开头的 `<插件 id>.`。编辑区标题与编辑器标签右键两处菜单位置没有约定键，只按 [`workbench.menus`](menus.md) 输出 9 补命名空间。
@@ -385,6 +399,10 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 37. Given 自动保存设为“停手后”、延迟 500 毫秒，When 输入后不动，Then 到点后磁盘更新；When 用输入法组字、迟迟不上屏，Then 组字期间磁盘不变，上屏并停手后保存。
 38. Given 源码编辑器里输入后按 Ctrl+F 进查找框，Then 文档仍未保存；When 再点资源管理器，Then 已保存。Given 自动保存设为“窗口失焦时”，When 输入后点资源管理器，Then 未保存；When 窗口失去焦点，Then 已保存；焦点进入 HTML 预览的内嵌页面时不保存。
 39. Given dirty 的文档在磁盘上被别的程序改了，When 焦点离开，Then 不保存，提示“磁盘已变化”；Given 保存会失败（目录不可写），When 焦点离开，Then 组顶部提示保存失败并有“重试保存”，再输入、再离开不重复尝试；恢复可写后点“重试保存”，Then 磁盘更新，之后离开视图又会自动保存。
+40. Given 源码编辑器里打开的 `a.json`，When 右击正文，Then 出现应用的菜单，有剪切、复制、粘贴、全选、查找、替换、更改所有匹配项、格式化文档；When 选中一个词点“剪切”，Then 正文里没有它、剪贴板里是它；When 光标在一行里不选中、点“复制”再到另一行点“粘贴”，Then 多出完整的一行；When 点“格式化文档”，Then 正文被格式化；When 先点别的面板再右击正文选“更改所有匹配项”，Then 同名的词都被选中。
+41. Given 两个选区，When 右击其中一个选区之内，Then 两个选区都在；When 右击选区之外，Then 光标到点击处；When 右击查找输入框，Then 没有应用的菜单、焦点仍在输入框；When 两个编辑组各开一个源码文件、在其中一个按 Shift+F10 或菜单键，Then 菜单开在这一个的光标处；When 按 Escape，Then 焦点回到正文；When 菜单开着时滚动正文，Then 菜单关闭；Given 只读的文件，Then 菜单只有复制、全选、查找。
+42. Given 一个测试插件往 `editor.code-context` 贡献一个 `extensions: [".json"]`、`context: "resource"` 的项，When 右击 `a.json`，Then 这一项在内置项之后，点它命令收到 `{address}`；When 右击 `a.css`，Then 没有这一项。
+43. Given `.ts`、`.json`、`.css`、`.html`、`.md` 的样例，When 用源码编辑器打开，Then 关键字、字符串、注释、括号与选区的颜色等于主题的语法变量与选区变量的值；When 切到暗色、护眼绿，Then 这些颜色随之改变，对比度与相邻成分的区分仍满足输出 65。
 
 Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。场景 22–24、26 由 `e2e/editor-types.e2e.ts` 运行；场景 27–33 由 `editor-area.e2e.ts` 的标签栏样子、多行键盘与 120px 组、拖动、右键菜单、面包屑几例运行，场景 27、28、31、32 的模型部分另由 `area.test.ts`、`groups.test.ts`、`tab-menu.test.ts`、`tab-hints.test.ts` 覆盖；触摸拖动只按代码与 `tree-drag.ts` 的同一套门槛，没有在真机上验；场景 23 的改名与删除、场景 24 的关闭时询问另由 `area.test.ts` 覆盖；场景 25 由 `editor-registry.test.ts`（真实插件宿主，交付先后与停止）与 `area.test.ts`（用默认编辑器打开）覆盖。场景 34 与输出 62 由 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组（经编辑内核的输入入口逐种格式测）与 `e2e/markdown-input.e2e.ts`（本机 Chrome 的键盘、输入法事件与方向键，源码与富文本来回换；按快捷键打出的粗体、斜体、删除线看得出来）运行。
 
@@ -409,6 +427,7 @@ Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、
 
 ## 证据
 
+- 批准依据：输出 64、65 与场景 40–43 的方向（关掉编辑内核自己的菜单、换成应用的、项来自它的动作、给插件一个位置；语法配色进主题 token）由开发者 2026-10-15 同意（[w00025 t05](../../../.agents/works/w00025-editor/tasks/t05-monaco-polish/README.md)）；其余细节来自 [t05 实施计划第二稿](../../../.agents/works/w00025-editor/tasks/t05-monaco-polish/plan.md)，按 autonomous-delivery 先做，记在 [w00025 待确认清单](../../../.agents/works/w00025-editor/pending-confirmations.md)，待开发者追认。
 - 批准依据：输出 63 与场景 35–39 的四种模式与缺省“失焦时”由开发者 2026-10-15 同意（[w00025 t04](../../../.agents/works/w00025-editor/tasks/t04-autosave/README.md)）；其余细节来自 [t04 实施计划第二稿](../../../.agents/works/w00025-editor/tasks/t04-autosave/plan.md)，按 autonomous-delivery 先做，记在 [w00025 待确认清单](../../../.agents/works/w00025-editor/pending-confirmations.md)，待开发者追认。
 - 批准依据：输出 49–60 与场景 27–33 来自 w00025 t03 的“开发者的决定”1–11 与实施计划第二版，开发者 2026-10-15 确认（记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t03-tabs-and-split/README.md` 与 `plan.md`）。
 - 批准依据：输出 36–48 与场景 22–26 来自 [w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 1–6 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md)，开发者 2026-10-14 确认。
