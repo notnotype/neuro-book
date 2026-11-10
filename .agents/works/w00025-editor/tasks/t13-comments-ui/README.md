@@ -15,8 +15,12 @@ updated: 2026-11-10
 
 ## 当前状态
 
-2026-10-20 经 nbdev 新建，尚未开工。
+2026-11-10 开始设计评审（开发者用 autonomous-delivery 指定“先出设计稿”），停在等开发者答复第 1 轮，未写计划、未改产品代码。
+
+- 评审板：[`artifacts/review/`](artifacts/review/index.html) v1，三道题：注意力排序（`q1-attention`）、意见显示在哪里（`q2-where`：浮层、页边、侧栏，推荐浮层）、总览做到哪一步（`q3-overview`，推荐只做逐条跳转）。板上“不单独问、按下面做的”六条（入口、输入、浮层何时出现、块批注、重叠、只读）记在 [待确认清单](../../pending-confirmations.md)。
+- 草稿：worktree `.worktree/w00025-t13-drafts`，分支 `w00025-t13/drafts`（不合并、不提交）；静态稿是 `drafts/web/components/comments/CommentsDraft.vue`，Lab 组件 `CommentsDraft`，八个场景。
+- 参照：旧应用的批注界面由子代理调研（结论留在本地 `.local/agent/works/w00025-editor/tasks/t13-comments-ui/legacy-research.txt`，要点已写进评审板的“现状与参照”）：选区菜单与右键加批注、弹对话框输入；右侧 360px 评论栏默认关，按住 Ctrl 点批注打开；没有作者、时间、回复与“已解决”。
 
 ## 下一步
 
-开工时先走设计评审（批注放侧栏还是编辑框），再写计划。
+读开发者的答复（`nbdev answers w00025 t13 review --json`），把决定按编号写进本文件并 `answers ack`；定了之后写 Spec（`workbench/markdown-editing.md` 的批注一节）与 `plan.md`。
