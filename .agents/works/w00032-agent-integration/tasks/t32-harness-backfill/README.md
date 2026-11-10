@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t32-harness-backfill
-status: active
+status: done
 updated: 2026-11-10
 ---
 
@@ -71,6 +71,14 @@ updated: 2026-11-10
 - 第 2 片（kit 骨架与边界测试）、第 3 片（文件访问接口、本机参考实现、合同测试）已提交；第 3 片后 baseline 逐字相同。合同测试两个实现都过（本机 13 条，NeuroBook 经真实插件 21 条）。
 
 - 第 4 片（读、写、改、搜索、预览、命令方言）、第 5 片（shell、ask，nb-harness 依赖 nb-form 核心）已提交，两片后 baseline 都逐字相同；第 5 片后 `release:check` 通过（发布顺序 nb-form 在 nb-harness 前），`agent-conversation.e2e.ts` 19 条通过。
+- 第 6 片（压缩方法与放回）、第 7 片（审批判定、钩子、审批模型）、第 8 片（运行守卫、会话句柄表、标题生成）已提交，每片后 baseline 逐字相同；第 7 片后 `agent-conversation.e2e.ts` 19 条通过。
+- 第 9 片（2026-11-10）：nb-harness README 加宿主套件一节，`docs/omp-capabilities.md` 补 kit 用到的 `pi-natives` 能力；分支变基到 master 后跑合入前清单：
+  - baseline 最后一次对照逐字相同。
+  - `bun run test:affected --package nb-form --package nb-harness --package scripts --with-consumers --typecheck`：7 项的类型检查全过；测试失败 9 条都是负载 10 到 22 时的超时（内核日志存储 1 条、nb-story 命令行 7 条、SDK 打包的类型诊断 1 条），单独重跑全过（27、73、12 条）。不带 `--package` 时因为 `bun.lock` 有改动会选全量，按计划只选这几项。
+  - `release:check`、`governance:check` 通过。`release:smoke` 第一次失败：插件 SDK 的类型打包没有 `@notnotype/nb-harness/kit/files` 到源码的映射，生成不出 `decodeText`、`renderVirtual` 的声明（`files/shared/contracts.ts` 转出它们）；`plugin-sdk/pack.ts` 补上映射后在干净克隆里重跑 14 项全过，含“nb-story 的安装里没有 nb-ui、vue、typescript”。
+  - 真实模型：计划列的 5 个 `*.llm.test.ts` 共 7 条通过，没有跳过。
+  - 变异检查 9 项拦住 8 项：只读白名单、浏览器链、nb-form 子路径、应用名、合同测试（`localFiles` 把未登记的方案报成 `not-found`；它没有虚拟根，计划写的“虚拟根报别的码”只在 NeuroBook 那一遍有）、钩子调审批者的条件、调转问的条件、句柄表拿引用时的同步取消。没拦住的是空闲回调里对引用数的复查：拿引用只有一条路径并且同步取消计时，按 `SessionTableClock` 的合同（取消同步生效）这条复查走不到，是冗余保护，不补测试。smokeStory 的检查另在克隆里把 nb-form 的 `vue` 改回非可选 peer 跑冒烟。
+  - `docs:check` 报 24 条失效链接，都是 `docs/specs/agent/` 证据行指向已搬走的文件，按计划合入后在主工作区紧接着改。
 
 与计划的偏差：
 
@@ -84,6 +92,11 @@ updated: 2026-11-10
 - 改写用例时查出本机参考实现两处不合合同（上级是文件报 `io-failed`、认不出的错误把本机路径带进 `detail`），已修，并把“路上有一段是文件”补进合同测试。
 - `ask` 的 kit 测试按内核 `QuestionAnswer` 的类型直接给回答，没用 `createTestSession`；经真实提问通道的一条留在应用。
 - 第 3 片第二次提交漏跑应用名扫描，合同测试注释里的应用名由单独的修正提交去掉。
+- 第 7 片：kit 的 `decide` 交回询问的来源（`rule`、`gate`、`mode`），闸门文字由宿主经 `gateTexts` 给，`rules.test.ts` 里调 `decide` 的地方随之加参数；`MODE_BLOCKED_TEXT` 移到应用的 `backend/permissions/index.ts`；第一次提交里审批模型超时那条用例已改用 `modelReviewer`（宿主文字照旧）。`auto-review.test.ts` 留在应用的是“模型看到什么”（要真实会话日志）与“读、作品与草稿里的写”“用户设置的写”（NeuroBook 的地址分类）。
+- 第 8 片：守卫写成 `costGuard({id, limits})`、`loopGuard({id, threshold})`；标题生成的 Profile 与两种材料由宿主给（`titleProfile`、`material`），扩展用 `sessionMetaExtension({id, tag, notify})`；句柄表的计时口是 `SessionTableClock`（`schedule` 交回取消函数）。“触发器在真实内核上”那条用例搬进 kit 的 `sessions/meta.test.ts`。
+- 架构测试的浏览器链规则起初把 `import type {Static} from "typebox"` 也算越界，改为 `typebox` 的值导入与类型导入都放行。
+- baseline 的 dump 脚本随第 7、8 片改用 kit 的 `decide`（去掉新加的 `source` 再比）、带 NeuroBook 文字的 `modelReviewer` 与 `runGuards` 的替身，取的仍是真实导出。
+- 第 9 片多改了计划没列的 `packages/neuro-book/plugin-sdk/pack.ts`（见上：发布冒烟查出的 SDK 类型映射）。`plugin-sdk/pack.test.ts` 本来就会拦住它，各片只跑了 Agent 相关的测试，到合入前的清单才跑到。
 
 ### 计划第一稿的处理
 
@@ -109,4 +122,7 @@ updated: 2026-11-10
 
 ## 下一步
 
-建 worktree，先提交 draft Spec `docs/specs/harness/host-kit.md`，按切片实施（主会话写）；t14 的前后端实施在本 Task 合入之后。
+2026-11-10 合入 master（合并提交 `1b7d042c6`），按计划“Spec 与文档改动”改了 `docs/specs/agent/` 下八份 Spec 的 owner、实现合同与证据（行为合同不变）、`harness/host-kit.md` 的证据与注册表“待晋升”、`ui/forms.md` 的依赖、`docs/modules/monorepo-boundaries.md`；删旧 `src/tools/` 记进 [t31](../t31-nb-story-new-kernel/README.md)。
+
+- `harness/host-kit.md` 晋升 `implemented` 待开发者批准。
+- 接着做 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md)（nb-file-lock、nb-host、nb-models），t14 的前后端实施也可以开始。
