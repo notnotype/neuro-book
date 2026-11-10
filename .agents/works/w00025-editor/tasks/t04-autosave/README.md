@@ -13,10 +13,14 @@ updated: 2026-11-10
 
 合同：[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)（改“不承诺”里的自动保存）。
 
+实施计划：[plan.md](plan.md)。
+
 ## 当前状态
 
-未开工，排在 t03 之后。
+2026-11-10 开工（开发者用 autonomous-delivery 指定先做 t04、t05）。执行位置：worktree `.worktree/w00025-editor`，分支 `feat/w00025-editor`（从 master `25451818c` 拉出）。计划已写，正在做计划审查（fable 子代理，开发者指定本会话不用 omp）。
+
+照推荐先做、等开发者追认的决定记在 [待确认清单](../../pending-confirmations.md)。
 
 ## 下一步
 
-t03 完成后按当时的代码写计划。
+处理计划审查的结论，再按计划的切片实施。
