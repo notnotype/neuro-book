@@ -11,7 +11,7 @@ updated: 2026-11-10
 
 定提示词模型（文本加权重跨度、片段引用）、生成配方（展开后的快照，预留源图与遮罩）与后端能力声明（细到模型加档位），写成 Spec。
 
-提示词模型不能是括号树，见[调研的权重语法一节](../../research/2026-11-06-tag-sources-and-novelai.md#权重语法)。合同：新写 Spec。
+提示词模型不能是括号树，见[调研的权重语法一节](../../research/2026-11-06-tag-sources-and-novelai.md#权重语法)。合同：新写 [`images/prompt`](../../../../../docs/specs/images/prompt.md) 与 [`images/recipes`](../../../../../docs/specs/images/recipes.md)（planned）；后端能力声明归 t06 的 `images/generation`。
 
 ## 当前状态
 
@@ -122,9 +122,9 @@ Agent 工具（t08）、插图方言（t09）、生图管线（t10）、角色�
 
 提案 2026-11-10 标为接受，长期决定写成 [ADR 0047](../../../../../docs/adr/0047-image-prompt-items-with-numeric-weights.md)、[0048](../../../../../docs/adr/0048-image-recipe-sections-and-preset-diffs.md)、[0049](../../../../../docs/adr/0049-image-store-owns-generated-batches.md)。
 
-### 写 Spec 前的假设（2026-11-10 列出，待开发者确认）
+### 写 Spec 前的假设（2026-11-10 列出，同日确认）
 
-这些是提案没定、会改变行为的细节，每条后面是主会话的推荐。
+这些是提案没定、会改变行为的细节，每条后面是主会话的推荐。开发者 2026-11-10 答“可以”，全部按推荐写进 Spec。
 
 `images/prompt`：
 
@@ -148,4 +148,4 @@ Agent 工具（t08）、插图方言（t09）、生图管线（t10）、角色�
 
 ## 下一步
 
-提案 [图像生成第一版](../../../../../docs/proposals/image-generation-v1.md) 已接受（2026-11-10，三轮设计审查的处理见 `evidences/design-review-round1.md` 到 `round3.md`）。按 writing-specs 写 `images/prompt` 与 `images/recipes`，写完给开发者看过再交审查。`images/library` 归新开的 Task（提案待定项 4）。
+提案 [图像生成第一版](../../../../../docs/proposals/image-generation-v1.md) 已接受（2026-11-10，三轮设计审查的处理见 `evidences/design-review-round1.md` 到 `round3.md`）。`images/prompt` 与 `images/recipes` 初稿 2026-11-10 写完，给开发者看过后提交、交审查（本 session 审查用 Opus 子代理）。`images/library` 归 [t13](../t13-image-library/README.md)。
