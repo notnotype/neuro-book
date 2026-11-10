@@ -28,6 +28,8 @@ test.beforeAll(async () => {
         await writeFile(join(projectDir, path), text);
     }
     await mkdir(join(stateRoot, "user"), {recursive: true});
+    // “重新载入”一例的前提是点菜单时正文仍未保存：自动保存的缺省是失焦时保存，这里关掉（workbench/editor.md 输出 63）。
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.editor/autoSave": "off"}));
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
     server = await startProductServer(stateRoot);
 });
@@ -244,11 +246,14 @@ test("重新载入：有未保存正文时浏览器先问，取消则正文还�
         await titlebar(page).getByRole("menuitem", {name: "视图"}).click();
         await openMenu(page).getByRole("menuitem", {name: "重新载入"}).click();
     };
+    // 断言放在回调外：对话框没出现时回调不执行，写在里面的断言就空过了。
+    const asked: string[] = [];
     page.once("dialog", (dialog) => {
-        expect(dialog.type()).toBe("beforeunload");
+        asked.push(dialog.type());
         void dialog.dismiss();
     });
     await runReload();
+    await expect.poll(() => asked).toEqual(["beforeunload"]);
     await expect(prose(page)).toContainText("丙");
 
     const popup = page.waitForEvent("popup");

@@ -124,12 +124,19 @@ test.beforeAll(async () => {
     await writeFile(join(projectDir, "data/bom.txt"), new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("甲\r\n乙\r\n")]));
     await mkdir(join(stateRoot, "user"), {recursive: true});
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
+    await writeSettings();
     server = await startProductServer(stateRoot);
 });
 
+/**
+ * 这个文件验的是手动保存的合同（未保存圆点、关闭时询问、冲突、离开确认）：用例在输入后去点别处，文档要仍未保存。自动保存的
+ * 缺省是失焦时保存（输出 63，另由 `editor-autosave.e2e.ts` 验），所以整份文件关掉它；用例要别的设置时经这里写，不丢掉这一项。
+ */
+const writeSettings = (extra: Readonly<Record<string, unknown>> = {}): Promise<void> => writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.editor/autoSave": "off", ...extra}));
+
 test.afterEach(async () => {
     // 用例自己写的设置不带到下一个用例。
-    await rm(join(stateRoot, "settings.json"), {force: true});
+    await writeSettings();
 });
 
 test.afterAll(async () => {
@@ -530,7 +537,7 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
 test("只有一个标签的组拖到紧贴它的那条边：放下去还是现在的样子，不重建组、没有过渡；拖到另一边才换位置（输出 55、验收 30）", async ({page}) => {
     await page.emulateMedia({reducedMotion: "no-preference"});
     // 看的是落点指示的提示与高亮：实时布局没有这些。
-    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/dragFeel": "indicator"}));
+    await writeSettings({"nbook.workbench/dragFeel": "indicator"});
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await closeAll(page);
