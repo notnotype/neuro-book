@@ -39,6 +39,13 @@ export interface ChangeFilter {
     readonly range?: {readonly after?: string; readonly through?: string};
     /** 套没套上与计划进展按哪条世界线算；缺省当前线（project.md 方法表 `changes`）。 */
     readonly worldline?: string;
+    /**
+     * 只列安放在这个读取位置之前、这个位置的线视图里的（project.md 输出 31）。已写的不论生效状态；计划只在按计划模式时列，
+     * 生效的计划只列这个位置计入的（已兑现、被取代的不算，model.md 输出 5）。位置的章或线读不到时一条也不列，由调用方先查。
+     */
+    readonly before?: {readonly position: ReadPosition; readonly mode: Mode};
+    /** `desc` 从新到旧；缺省从旧到新。 */
+    readonly order?: "asc" | "desc";
 }
 
 export interface TellingFilter {
@@ -382,7 +389,9 @@ export function listChanges(world: World, filter: ChangeFilter, progressAt?: Rea
         return filter.range?.through === undefined || (bounds.through !== undefined && bounds.through !== null && compareOrder(point, bounds.through) <= 0);
     };
     const worldline = filter.worldline ?? world.positionLine(latest);
+    const before = filter.before === undefined ? undefined : beforeFilter(world, table, filter.before);
     const matching = [...world.data.changes.values()].filter((change) =>
+        (before === undefined || before(change)) &&
         (filter.placedOn === undefined || lineOf(change.at) === filter.placedOn) &&
         (filter.inView === undefined || table.visible(filter.inView, change.id)) &&
         within(change) &&
@@ -395,7 +404,27 @@ export function listChanges(world: World, filter: ChangeFilter, progressAt?: Rea
         (filter.progress === undefined || (change.kind === "plan" && table.visible(worldline, change.id) && world.line(worldline)?.engine.progress(change.id, latest) === filter.progress)),
     );
     sortByPlacement(order, matching);
+    if (filter.order === "desc") matching.reverse();
     return matching;
+}
+
+/** `before` 筛选（见 `ChangeFilter.before`）：返回“这条变更安放在这个位置之前、在这条线视图里”的判断。 */
+function beforeFilter(world: World, table: ReturnType<typeof lineTable>, before: NonNullable<ChangeFilter["before"]>): (change: StoryChange) => boolean {
+    const order = world.options.order;
+    const at = positionRank(order, before.position);
+    const line = world.positionLine(before.position, before.mode);
+    const included = before.mode === "planned" ? world.lineAt(before.position, "planned")?.engine.plannedAt(before.position) : [];
+    if (at === null || included === undefined || included === "chapter-not-found") return () => false;
+    const counted = new Set(included);
+    return (change) => {
+        if (!table.visible(line, change.id)) return false;
+        if (change.kind === "plan") {
+            if (before.mode !== "planned") return false;
+            if (change.status === "active") return counted.has(change.id);
+        }
+        const rank = placementRank(order, change.at);
+        return rank !== null && rankBefore(rank, at);
+    };
 }
 
 /**

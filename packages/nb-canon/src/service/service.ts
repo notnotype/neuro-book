@@ -14,9 +14,9 @@ import {GREGORIAN, resolveFuzzy, validateCalendar, type Calendar, type CalendarP
 
 import {EMPTY_DIAGNOSTIC_REGISTRY, type DiagnosticRegistry} from "../components/diagnostics-registry";
 import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry} from "../components/marks";
-import type {ComponentRegistry} from "../components/registry";
+import type {ComponentRegistry, ComponentType} from "../components/registry";
 import {compareIds} from "../core/ids";
-import {ChapterOrder, compareRanks, defaultPosition, placementRank} from "../core/position";
+import {ChapterOrder, compareRanks, defaultPosition, placementRank, positionRank} from "../core/position";
 import type {AuthorSource, Decision, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
 import type {Mode, PendingItem, PlanProgress, ReductionInput} from "../engine/types";
@@ -30,7 +30,7 @@ import {marksIn} from "../world/references";
 import {TellingLocator, type Occurrence} from "../world/tellings";
 import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
 import {canonHints, HINT_GROUP_ORDER, occurrencePosition, PENDING_GROUP_ORDER, placementPosition, sortableCanonItem, sortGroup, type GroupItem, type PendingPage, type Sortable, type SortPosition} from "./pending-groups";
-import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositionWithin, tellingWithin, ViewAudit, type ViewedReads, type ViewGrant} from "./views";
+import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositionWithin, tellingWithin, ViewAudit, type ChapterItem, type ViewedReads, type ViewGrant} from "./views";
 import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {timeState, type TimeState} from "../time/state";
@@ -70,7 +70,9 @@ export type ServiceEvent =
     | {readonly kind: "exclusive"; readonly holder: string | null}
     | {readonly kind: "reduced"}
     /** 宿主通知某一章（`null` 是全部）的正文变了，正文快照随之更新，版本不变（project.md 输出 25）。 */
-    | {readonly kind: "textChanged"; readonly chapter: string | null};
+    | {readonly kind: "textChanged"; readonly chapter: string | null}
+    /** 章表或登记的 Component 类型变了，而世界版本没有前进（project.md 输出 34）。 */
+    | {readonly kind: "inputChanged"; readonly what: "chapters" | "components"};
 
 export type {ReadStamp} from "./reads";
 export type {ViewedReads} from "./views";
@@ -170,6 +172,13 @@ function recomputedOn(world: World): number {
     return [...others].reduce((sum, line) => sum + (world.lines.peek(line)?.engine.recomputed ?? 0), world.line().engine.recomputed);
 }
 
+/** 一次修订能不能还原、不能的原因（revisions.md 输出 14）：章序调整不能还原；有后面的修订依赖它时要连同它们一起。 */
+function revertableOf(world: World, revision: string): {readonly ok: true} | {readonly ok: false; readonly reason: "not-revertable"} | {readonly ok: false; readonly reason: "has-dependents"; readonly dependents: readonly string[]} {
+    const set = world.dependents(revision);
+    if (set === "not-revertable") return {ok: false, reason: "not-revertable"};
+    return set.length > 1 ? {ok: false, reason: "has-dependents", dependents: set.slice(1)} : {ok: true};
+}
+
 export class WorldService {
     #world: World;
     #tail: Tail;
@@ -199,6 +208,8 @@ export class WorldService {
     readonly #groupsCache = new Map<string, PendingGroups>();
     /** 打开着的视图，按令牌（输出 24）；令牌的寿命由调用方那一层管，它在调用方断开或入口停止时调 `closeView`。 */
     readonly #views = new Map<string, ViewGrant>();
+    /** 宿主给的章标题（输出 28）；只用于章表，不进世界、不影响计算。 */
+    #chapterTitles: ReadonlyMap<string, string> = new Map();
     readonly #viewAudit = new ViewAudit();
     /** 最近几次诊断计算的耗时（project.md 输出 26）。 */
     readonly #timings: {readonly diagnostic: string; readonly ms: number}[] = [];
@@ -228,7 +239,7 @@ export class WorldService {
      * 打开世界（输出 4）；章序与登记的类型由宿主给。打开后章序与记下的不同就发布章序调整（输出 9）。宿主读不出活页夹清单
      * 时给 `invalid`：按日志里最近一次记下的章序计算，不发布章序调整，写诊断（输出 23）。
      */
-    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
+    static async open(ports: ServicePorts, initial: {readonly chapters: readonly string[] | "invalid"; readonly chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>; readonly chapterTitles?: ReadonlyMap<string, string>; readonly registry: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<WorldService | {readonly code: "world-locked"}> {
         const started = performance.now();
         const opened = await openLog(ports.files, ports.logDir, {lock: ports.lock, sideDir: ports.sideDir, now: ports.now});
         if ("code" in opened) return opened;
@@ -256,7 +267,7 @@ export class WorldService {
         service = new WorldService(ports, world, opened.tail, readOnly, diagnostics, reductions);
         service.#syncTexts(chapters);
         service.#noteDiagnostics(initial.diagnostics);
-        await service.setChapters(initial.chapters, initial.chapterLines);
+        await service.setChapters(initial.chapters, initial.chapterLines, initial.chapterTitles);
         service.#work.open = {recomputed: recomputedOn(service.#world), ms: performance.now() - started};
         return service;
     }
@@ -679,12 +690,21 @@ export class WorldService {
                 if (found === "view-denied") return found;
                 // 带令牌时 `worldline` 是令牌的线、只列它视图里的；要别的线的拒。
                 if ((filter.worldline !== undefined && filter.worldline !== found.line) || (filter.inView !== undefined && filter.inView !== found.line)) return this.#deny(found, "changes", filter);
+                // `before` 的位置同别的读取位置：晚于上限或指向别的线的拒，没写线的补上令牌的线。
+                const before = filter.before === undefined ? undefined : within("changes", filter.before.position);
+                if (before === "view-denied") return before;
                 const stamp = this.#stampOf(world);
-                const scoped = {...filter, worldline: found.line, inView: found.line};
+                const scoped = {...filter, worldline: found.line, inView: found.line, ...(before === undefined ? {} : {before: {position: before.position, mode: filter.before!.mode}})};
                 // 计划的进展按上限算，不按全书：上限之后才兑现的计划在视图里是未兑现。
-                const page = this.#page(stamp, listChanges(world, scoped, found.until).filter((change) => placementWithin(order(), found, change.at)), cursor, limit, {method: "changes", view: token, ...scoped});
+                const matching = listChanges(world, scoped, found.until).filter((change) => placementWithin(order(), found, change.at));
+                const page = this.#page(stamp, matching, cursor, limit, {method: "changes", view: token, ...scoped});
                 if (page === "cursor-stale") return page;
-                return {...stamp, items: page.items.map((change) => changeItem(world, change, found.line)), ...(page.next === undefined ? {} : {cursor: page.next})};
+                return {...stamp, items: page.items.map((change) => changeItem(world, change, found.line)), total: matching.length, ...(page.next === undefined ? {} : {cursor: page.next})};
+            },
+            chapters: () => {
+                const found = grant("chapters");
+                if (found === "view-denied") return found;
+                return {...this.#stampOf(world), items: this.#chapterItems(world).filter((item) => chapterWithin(order(), found, item.id))};
             },
             time: (query, mode = "actual", cursor, limit = 50) => {
                 const found = grant("time", query);
@@ -746,6 +766,33 @@ export class WorldService {
         this.#inputGeneration += 1;
     }
 
+    /** 章表（project.md 输出 28）：宿主此刻给的章序、标题与各段讲的线。 */
+    chapters(): ReadStamp & {readonly items: readonly ChapterItem[]} {
+        return {...this.#stamp(), items: this.#chapterItems(this.#world)};
+    }
+
+    #chapterItems(world: World): ChapterItem[] {
+        return world.options.order.ids.map((id, index) => ({
+            id,
+            index: index + 1,
+            title: this.#chapterTitles.get(id) ?? null,
+            // 没分段的章讲一条线：与读取位置的线同一个口径（`positionLine` 已经把读不到的线换成主线或祖先线）。
+            lines: world.options.chapterLines?.get(id) ?? [{from: 1, line: world.positionLine({kind: "chapter", chapter: id, edge: "start"})}],
+        }));
+    }
+
+    /** 登记的 Component 类型与字段声明（components.md 输出 21）。 */
+    components(): ReadStamp & {readonly items: readonly ComponentType[]} {
+        return {...this.#stamp(), items: this.#world.options.registry.types};
+    }
+
+    /** 一次修订的全部，带能不能还原（project.md 输出 29）；没有这次修订时 `revision` 是 null。 */
+    revision(id: string) {
+        const world = this.#world;
+        const found = world.revisions.find((revision) => revision.id === id);
+        return {...this.#stamp(), revision: found ?? null, ...(found === undefined ? {} : {revertable: revertableOf(world, found.id)})};
+    }
+
     /** 条目树的一层：父条目（null 是根）下按顺序的条目（输出：`tree`）。 */
     tree(parent: string | null, cursor?: string, limit = 50) {
         const world = this.#world;
@@ -787,10 +834,16 @@ export class WorldService {
         // 套没套上与计划进展按 `worldline` 算，缺省当前线（活页夹最新一章末尾讲的线）。线不存在得 `line-not-found`。
         const worldline = filter.worldline ?? world.positionLine(defaultPosition(world.options.order));
         for (const line of [worldline, filter.inView]) if (line !== undefined && world.line(line) === undefined) return "line-not-found" as const;
+        if (filter.before !== undefined) {
+            if (positionRank(world.options.order, filter.before.position) === null) return "chapter-not-found" as const;
+            if (world.lineAt(filter.before.position, filter.before.mode) === undefined) return "line-not-found" as const;
+        }
         const stamp = this.#stamp();
-        const page = this.#page(stamp, listChanges(world, {...filter, worldline}), cursor, limit, {method: "changes", ...filter, worldline});
+        const matching = listChanges(world, {...filter, worldline});
+        // `before` 与 `order` 在 filter 里，随它进游标的读取参数（输出 19、31）：换了位置或顺序，旧游标作废。
+        const page = this.#page(stamp, matching, cursor, limit, {method: "changes", ...filter, worldline});
         if (page === "cursor-stale") return page;
-        return {...stamp, items: page.items.map((change) => changeItem(world, change, worldline)), ...(page.next === undefined ? {} : {cursor: page.next})};
+        return {...stamp, items: page.items.map((change) => changeItem(world, change, worldline)), total: matching.length, ...(page.next === undefined ? {} : {cursor: page.next})};
     }
 
     /** 讲述（方法表 `tellings`，model.md 输出 24 到 27；筛选与先后见 reads.ts）。 */
@@ -848,11 +901,7 @@ export class WorldService {
         if (page === "cursor-stale") return page;
         return {
             ...stamp,
-            items: page.items.map((revision) => {
-                const set = world.dependents(revision.id);
-                const revertable = set === "not-revertable" ? {ok: false, reason: "not-revertable"} : set.length > 1 ? {ok: false, reason: "has-dependents", dependents: set.slice(1)} : {ok: true};
-                return {id: revision.id, version: revision.version, by: revision.by, what: revision.what, title: revision.title, time: revision.time, chapter: revision.chapter, impact: revision.impact, revertable};
-            }),
+            items: page.items.map((revision) => ({id: revision.id, version: revision.version, by: revision.by, what: revision.what, title: revision.title, time: revision.time, chapter: revision.chapter, impact: revision.impact, revertable: revertableOf(world, revision.id)})),
             ...(page.next === undefined ? {} : {cursor: page.next}),
         };
     }
@@ -993,13 +1042,16 @@ export class WorldService {
     }
 
     /** 宿主给出新章序（输出 9）：与记下的不同就发布章序调整；`invalid` 时保持原章序并写诊断（输出 23）。 */
-    async setChapters(chapters: readonly string[] | "invalid", chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>): Promise<void> {
+    async setChapters(chapters: readonly string[] | "invalid", chapterLines?: ReadonlyMap<string, readonly ChapterLine[]>, titles?: ReadonlyMap<string, string>): Promise<void> {
         if (chapters === "invalid") {
             this.diagnostics.push({code: "binder-invalid"});
             return;
         }
         this.#syncTexts(chapters);
         const order = new ChapterOrder(chapters);
+        const tableBefore = stableStringify(this.#chapterItems(this.#world));
+        const versionBefore = this.#world.version;
+        this.#chapterTitles = titles ?? new Map();
         await this.#write(undefined, (world) => {
             const moved = world.withOptions({...world.options, order, chapterLines: chapterLines ?? new Map()});
             const result = moved.reorder(order, this.#ports.now(), `reorder-${this.#ports.digest(stableStringify({chapters, version: world.version}))}`);
@@ -1010,6 +1062,9 @@ export class WorldService {
             if (!result.ok && "failure" in result && (result.failure.code === "world-read-only" || result.failure.code === "write-unknown")) {
                 this.diagnostics.push({code: "reorder-not-recorded", reason: result.failure.code});
             }
+            // 章表变了而没有发布章序调整（只改了段的线或标题，或世界只读）：版本不动，调用方靠这个事件知道要重读（输出 34）。
+            // 发布了章序调整时已经有 `changed`。
+            if (this.#world.version === versionBefore && stableStringify(this.#chapterItems(this.#world)) !== tableBefore) this.#emit({kind: "inputChanged", what: "chapters"});
         });
     }
 
@@ -1054,7 +1109,11 @@ export class WorldService {
     setRegistries(registries: {readonly registry?: ComponentRegistry; readonly marks?: MarkRegistry; readonly diagnostics?: DiagnosticRegistry}): Promise<void> {
         const run = () => {
             this.#noteDiagnostics(registries.diagnostics);
+            const before = this.#world.options.registry;
             this.#world = this.#world.withOptions({...this.#world.options, ...registries});
+            // 类型或字段声明变了（输出 34）。`digest` 不含显示名与给 Agent 的说明，所以另比整份类型。
+            const after = this.#world.options.registry;
+            if (after !== before && stableStringify(after.types) !== stableStringify(before.types)) this.#emit({kind: "inputChanged", what: "components"});
         };
         const next = this.#queue.then(run, run);
         this.#queue = next.catch(() => undefined);

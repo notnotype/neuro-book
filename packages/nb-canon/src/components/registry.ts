@@ -43,6 +43,8 @@ export type RegistryDiagnostic =
 export interface ComponentRegistry {
     /** 命名空间上可用的类型；撞名、没登记时为 undefined。 */
     readonly byNamespace: (namespace: string) => ComponentType | undefined;
+    /** 可用的带数据类型，按 id 排（components.md 输出 21）。撞名的不在里面。 */
+    readonly types: readonly ComponentType[];
     /** 只做查询的类型（没有命名空间），按 id。 */
     readonly queryOnly: ReadonlyMap<string, ComponentDeclaration>;
     /** 撞名的命名空间：数据保留、只读（输出 2、12）。 */
@@ -109,7 +111,8 @@ export function buildRegistry(declarations: readonly ComponentDeclaration[]): Co
         conflicted: [...conflicted].sort(),
     });
     const versions = [...[...available.values()].map((type) => [type.id, type.version] as const), ...[...queryOnly.values()].map((type) => [type.id, type.version ?? 0] as const)].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-    return {byNamespace: (namespace) => available.get(namespace), queryOnly, conflicted, diagnostics, digest, versions};
+    const types = [...available.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return {byNamespace: (namespace) => available.get(namespace), types, queryOnly, conflicted, diagnostics, digest, versions};
 }
 
 function declarationProblem(declaration: ComponentDeclaration): {path: string; message: string} | null {
