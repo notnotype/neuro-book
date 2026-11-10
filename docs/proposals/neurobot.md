@@ -6,7 +6,8 @@ decided: null
 supersedes: []
 superseded-by: null
 specs: []
-adrs: []
+adrs:
+  - docs/adr/0045-shared-host-packages-for-second-app.md
 ---
 
 # NeuroBot（暂名）：常驻、有记忆的 AI 员工，第一版

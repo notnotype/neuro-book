@@ -29,7 +29,7 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0027](0027-builtin-and-third-party-plugins-are-equal.md) | 内置插件与第三方插件能力相同，信任所有插件：删除代理允许清单，内部服务对所有插件开放 |
 | [0028](0028-tailwind-only-host-compiles-nb-ui.md) | 全仓只用 Tailwind v4 一套原子 CSS 引擎，nb-ui 不发预编译产物，宿主编译 nb-ui 源码并按 Tailwind 标准分层 |
 | [0029](0029-workspace-packages-publish-source-to-npm.md) | nb-story 与它依赖的 8 个工作区包以源码发布到 npm，只承诺 Bun，内部依赖 `workspace:^`，版本手工管理（nb-story 的平台限制已被 0031 取代） |
-| [0030](0030-plugin-platform-layering.md) | 内核与应用无关（应用名由平台档案传入），第三方插件的通用管理暂留应用的 `src/plugin-platform/` 并按目录机检，作者材料留在应用包的 `plugin-sdk/` |
+| [0030](0030-plugin-platform-layering.md) | 内核与应用无关（应用名由平台档案传入），第三方插件的通用管理暂留应用的 `src/plugin-platform/` 并按目录机检，作者材料留在应用包的 `plugin-sdk/`（其中 `plugin-platform` 的搬包条件已被 0045 取代） |
 | [0031](0031-nb-story-supports-windows.md) | nb-story 支持 Windows：书库锁用 `LockFileEx`，去掉 `os` 限制（Bun 对 `os` 不匹配的包静默跳过安装） |
 | [0032](0032-nb-story-keys-from-startup-env.md) | nb-story 的密钥只认进程启动时的环境（shell 导出与 Bun 加载的当前目录 `.env`），OMP 导入时读进来的家目录 `.env` 不算，各命令结论一致 |
 | [0033](0033-app-delivered-as-built-npm-package.md) | 新应用发构建产物的 npm 包 `@notnotype/neuro-book`，带前台的 `nbook` 命令；状态根缺省是平台数据目录；一个状态根一个实例，用本地套接字认领；不恢复 Manager，目录包、桌面壳、后台运行与服务器部署另行设计（其中的“包没有依赖”已被 0036 取代） |
@@ -44,3 +44,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0042](0042-world-engine-worldlines-as-per-line-views.md) | 世界线是每条线一份线性视图、复用现有引擎，日志加线与分叉；计划按写下的先后跨线，哪些线要更新在更新时按值比对（部分取代 0037 的“换掉位置模块”） |
 | [0043](0043-world-engine-placement-and-telling-orders.md) | 故事里的事实按安放折叠，读者看到的按当前正文里的讲述算；时间是约束网络算出的范围，不决定折叠 |
 | [0044](0044-workbench-single-layout-tree.md) | 工作台除标题栏外是一棵布局树，内容按矩形摆放，工作台拥有摆放、插件拥有内容，布局工具自写并全部收进 `nb-layout` |
+| [0045](0045-shared-host-packages-for-second-app.md) | 第二个应用要的宿主底座抽成三个不发布的包：`nb-host`（两端宿主、HTTP 的来源核对、诊断出口，应用名由应用传入）、`nb-models`（模型服务，内置角色与选择顺序共用）、`nb-file-lock`（跨进程锁与加锁替换）；`plugin-platform` 改为出现第二个需要第三方插件的应用时再搬（部分取代 0030 决策 2） |

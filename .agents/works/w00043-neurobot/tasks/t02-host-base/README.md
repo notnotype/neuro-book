@@ -94,4 +94,4 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 
 ## 下一步
 
-主 Agent 在主工作区写 ADR（第 0 片：新包 `nb-host`、`nb-models`、`nb-file-lock`，部分取代 ADR 0030 决策 2）；再建 worktree 开工，第 1 到 6 片可在 w00032 t32 合入前做完先合，第 7、8 片等 t32。
+第 0 片已做（2026-11-10）：[ADR 0045](../../../../../docs/adr/0045-shared-host-packages-for-second-app.md) 记三个新包与 ADR 0030 决策 2 的修订，索引已补注。接着建 worktree 开工，第 1 到 6 片可在 w00032 t32 合入前做完先合，第 7、8 片等 t32。
