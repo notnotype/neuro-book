@@ -294,6 +294,21 @@ describe("Spec workbench.editor 输出 63：不自动保存的文档", () => {
         expect(await disk(at, "a.md")).toBe("外部");
     });
 
+    it("有磁盘冲突：不再发保存，等用户选重新载入或覆盖", async () => {
+        const at = await world("onFocusChange");
+        const document = await open(at, "a.md");
+        type(at, "A1");
+        await writeFile(join(at.scene.project, "a.md"), "外部");
+        await until(at, "磁盘已变化", () => document.diskChanged.value);
+        expect(await at.area.save()).toMatchObject({ok: false});
+        expect(document.conflict.value).not.toBeNull();
+        const before = writes(at);
+        at.area.viewLeft(tabId(at));
+        at.area.windowBlurred();
+        expect(document.saving.value).toBe(false);
+        expect(writes(at)).toBe(before);
+    });
+
     it("被其它来源删除：不在原路径重建", async () => {
         const at = await world("onFocusChange");
         const document = await open(at, "a.md");
