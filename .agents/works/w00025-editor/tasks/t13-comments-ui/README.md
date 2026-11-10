@@ -21,12 +21,12 @@ updated: 2026-11-10
 
 ## 当前状态
 
-2026-11-10 开始设计评审（开发者用 autonomous-delivery 指定“先出设计稿”），停在等开发者答复第 1 轮，未写计划、未改产品代码。
+2026-11-10 第 2 轮评审板已发布（[`artifacts/review/`](artifacts/review/index.html) v2），等开发者答复，未写计划、未改产品代码。
 
-- 评审板：[`artifacts/review/`](artifacts/review/index.html) v1，三道题：注意力排序（`q1-attention`）、意见显示在哪里（`q2-where`：浮层、页边、侧栏，推荐浮层）、总览做到哪一步（`q3-overview`，推荐只做逐条跳转）。板上“不单独问、按下面做的”六条（入口、输入、浮层何时出现、块批注、重叠、只读）记在 [待确认清单](../../pending-confirmations.md)。
-- 草稿：worktree `.worktree/w00025-t13-drafts`，分支 `w00025-t13/drafts`（不合并、不提交）；静态稿是 `drafts/web/components/comments/CommentsDraft.vue`，Lab 组件 `CommentsDraft`，八个场景。
-- 参照：旧应用的批注界面由子代理调研（结论留在本地 `.local/agent/works/w00025-editor/tasks/t13-comments-ui/legacy-research.txt`，要点已写进评审板的“现状与参照”）：选区菜单与右键加批注、弹对话框输入；右侧 360px 评论栏默认关，按住 Ctrl 点批注打开；没有作者、时间、回复与“已解决”。
+- 第 2 轮两题：`q4-coexist`（浮层与页边怎样并存，推荐 A：标签条上一个“批注 N”的页边开关，缺省关，窄时退回浮层，开关按作品记住）；`q5-look`（写意见的样子，推荐 B 便签：批注色淡底上直接写，没有输入框的框与按钮）。第 1 轮的 `q3-overview` 被取代（页边打开时本身就是总览）。
+- 草稿：worktree `.worktree/w00025-t13-drafts`，分支 `w00025-t13/drafts`（不合并、不提交）；`CommentsDraft.vue` 加了 `look`、`marginToggle`，新零件 `CommentEditorDraft.vue`，Lab 场景 `r2-*` 七个。
+- 第 1 轮“不单独问、按下面做的”六条在 [待确认清单](../../pending-confirmations.md)。
 
 ## 下一步
 
-出第 2 轮静态稿：页边与浮层怎样并存（页边由用户打开、放不下时退回浮层，还是有位置就自动出现）；重画写意见的样子（去掉表单感：不要灰底的输入框与实心蓝按钮）；在这个前提下重新问总览。
+读第 2 轮的答复并记进上面的决定；定了之后写 Spec（`workbench/markdown-editing.md` 的批注一节）与 `plan.md`。
