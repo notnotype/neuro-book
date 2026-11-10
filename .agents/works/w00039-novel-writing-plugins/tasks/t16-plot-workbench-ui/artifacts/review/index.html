@@ -59,6 +59,46 @@ ol.week li { margin: 2px 0; }
 <p>界面上不出现记录 id、Component、字段路径（提案第 8 节“入口与用词”），所以草稿里把提案的几个词换成了作者的说法：初值 → 开局，讲述 → 讲到的地方，补丁 → 改了什么，生效位置 → 什么时候。</p>
 </div>
 
+<div class="round">第一批（设定侧）· 审查以后要定的 2 题</div>
+
+<section class="s">
+<h2>背景 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>第一批的计划与 Spec 草稿送了设计审查（Sonnet），35 条（阻断 4、重要 22、建议 9），核实后都成立。大部分是我改计划就行的（编辑器的页面标签要按标签各有实例与状态、读取的合并与规模、测试的搭法、新建条目的字段等）。有一条改变了第一批的范围，要你定；另一条是你上次定的“底部面板默认隐藏”落在别的工作上。逐条的处理在 Task t31 的 <code>evidences/design-review-resolution.txt</code>。</p>
+</section>
+
+<section class="q" data-nbdev-question="b1-kernel-gaps" data-nbdev-type="single" data-nbdev-recommend="fill">
+<h2>界面要用、内核现在给不出的东西，补还是砍 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>我的计划把内核的读写接口当成现成的。审查逐条对过以后，第一批界面要用而现在读不到、写不了的有这些：</p>
+<table>
+<tr><th>界面上的东西</th><th>现在缺什么</th></tr>
+<tr><td>就地改的确认条里“这次会写回哪里、带来什么变化”</td><td>预览不收就地改的请求</td></tr>
+<tr><td>回执页的“改了什么”</td><td>读修订时只有“带来的变化”，没有每个字段的改前改后</td></tr>
+<tr><td>位置选择里的“第 N 章 某某”</td><td>没有读章序与章标题的接口</td></tr>
+<tr><td>条目树的“未出场”、马甲挂在本体下、“再显示 N 项”</td><td>读树时不带位置，不给出场、马甲关系、总数</td></tr>
+<tr><td>值后面的“第 N 章改过”、点值看来历</td><td>来历里没有每一步在哪一章；只能整个条目的来历一起读，大书上一次将近 1 MB，贴着单次上限</td></tr>
+<tr><td>情节分页</td><td>不能只读“这个位置之前的”，不能从新往旧翻，没有总数</td></tr>
+<tr><td>就地改时按字段出数字框、选项框</td><td>读条目时拿不到字段的种类、单位、选项、范围</td></tr>
+<tr><td>语义档的“记一笔”（只写一句发生了什么）</td><td>记一笔的接口只收数</td></tr>
+</table>
+<p>补这些要改内核（<code>nb-canon</code>）、世界服务的接口，以及四份已经标成“已实现”的 Spec（加条目，不改已有行为）。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="fill"><h3>补上这八项，第一批前面加一片“内核补口”</h3><p>界面照原定的做全。补口的 Spec 与实现按后端的流程走（设计与实现各审一轮）。第一批整体会比原计划多出大约三分之一的工作。待处理里“按正文改设定”这类一键处理、删除确认里的数目先不做。</p></div>
+<div class="opt" data-nbdev-option="narrow"><h3>不动内核，第一批收窄到现在给得出的</h3><p>能做的：条目树（只有名字与层级）、条目页的值与来历（没有“第 N 章改过”，大书上可能读不动）、待处理的显示与“改这一笔”、改动记录与还原。没有：就地改的预览、回执的“改了什么”、按章选位置、情节分页、语义档记一笔。等于只能看、不大能改。</p></div>
+</div>
+<div class="rec-note"><b>推荐：补上。</b>作者界面是这些接口第一个真正的使用方，缺的都是“看到当时的样子、改它、知道改了什么”这条主路上的东西；收窄以后做出来的界面试不出这套设计好不好用。</div>
+</section>
+
+<section class="q" data-nbdev-question="b1-panel-default-owner" data-nbdev-type="single" data-nbdev-recommend="t24">
+<h2>“底部面板默认隐藏”由谁来加 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>你定了底部面板默认隐藏。工作台正在换成“视图容器”的新模型（另一个会话在做，w00026 t24，提案已接受），新规则是“有容器的区域默认显示”，里面没有“默认隐藏”的写法。那两份 Spec 正在被那边改，我没有动。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="t24"><h3>让 t24 顺手加</h3><p>在容器的声明里加一项“不让所在的区域默认显示”。它正在改这块合同，加在一起最省事；需要你转告那边。</p></div>
+<div class="opt" data-nbdev-option="t31"><h3>等 t24 合入以后，由我在第一批里加</h3><p>不打扰那边。在那之前底部面板默认显示，我先按“默认显示”做，之后改一次。</p></div>
+<div class="opt" data-nbdev-option="shown"><h3>不加了，底部面板默认显示</h3><p>改掉上次的决定。所有新窗口默认多一条底部面板。</p></div>
+</div>
+<div class="rec-note"><b>推荐：让 t24 顺手加。</b></div>
+</section>
+
 <div class="round">第 5 轮 · 剧情侧重画</div>
 
 <section class="s">
