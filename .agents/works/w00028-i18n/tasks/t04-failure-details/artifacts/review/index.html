@@ -19,11 +19,66 @@ code { background: #f1ece5; padding: 0 4px; border-radius: 3px; }
 </style>
 </head>
 <body>
-<h1>失败详情组件与常驻通知（第 4 轮）</h1>
-<p>第 3 轮你选了“详情开对话框”，并要求优化对话框里“文字展示 + 复制”的样式、考虑复用组件或直接用 Markdown 代码块。这一轮是<strong>真实实现</strong>的截图（不再是静态稿），亮色；第 3 轮的几题已定，挪到下面。</p>
+<h1>失败详情组件与常驻通知（第 5 轮）</h1>
+<p>（第 4 轮的说明）第 3 轮你选了“详情开对话框”，并要求优化对话框里“文字展示 + 复制”的样式、考虑复用组件或直接用 Markdown 代码块。这一轮是<strong>真实实现</strong>的截图（不再是静态稿），亮色；第 3 轮的几题已定，挪到下面。</p>
+
+<p>第 4 轮你说对话框“样式有点丑”。我对照设计语言找了原因，这一轮出三种外观上拉开差距的候选。图是 Lab 里用真实 nb-ui 组件搭的静态稿，亮色，另附暗色与 390 宽。</p>
+
+<section data-nbdev-question="detail-dialog-look" data-nbdev-type="single" data-nbdev-recommend="flat">
+  <h2><span class="badge" data-nbdev-skip>待定</span>详情对话框的外观（取代第 4 轮那一题）</h2>
+  <p>第 4 轮那一版的问题（对照 <code>nb-ui/docs/design-language.md</code>）：</p>
+  <ul>
+    <li><strong>盒中盒</strong>：对话框里套一个带描边的块，块里又有一条分隔线。设计语言写的是“面板里再放一个面，多数情况的正确答案是不给面”。</li>
+    <li><strong>层级方向反了</strong>：块的底色比对话框更暗，读起来像凹槽；往上叠的面应当更亮。</li>
+    <li><strong>标签重复</strong>：“诊断原文”与标题里的“详情”说的是同一件事。</li>
+    <li><strong>对比度低</strong>：次级灰字压在灰底上。</li>
+    <li><strong>长行被硬切</strong>：URL 编码的长行在右边截断，看起来像坏了。</li>
+  </ul>
+  <p>三个候选都改掉了后三条：去掉标签，文字用主文字色，长行折行，折出来的续行比本行多缩 2 个字符（堆栈帧折成两行时看得出是同一帧）。差别在前两条：</p>
+
+  <div class="cand" data-nbdev-option="flat" data-nbdev-label="A 不给面：原文直接铺在对话框里，“复制原文”在页脚">
+    <h3>A 不给面</h3>
+    <div class="row">
+      <figure><img src="r5/flat.webp" alt="A" width="600"><figcaption>亮色</figcaption></figure>
+    </div>
+    <div class="row">
+      <figure><img src="r5/flat-dark.webp" alt="A 暗色" width="470"><figcaption>暗色</figcaption></figure>
+      <figure><img src="r5/flat-long-mobile.webp" alt="A 手机" width="240"><figcaption>390 宽、长原文：对话框正文自己滚动</figcaption></figure>
+    </div>
+    <p>标题、原文、按钮三块，没有内层盒子。复制是有名字的按钮“复制原文”，与“关闭”并排在页脚。最符合设计语言；代价是原文与标题之间只靠字体区分。</p>
+    <p>实现上：<code>DetailDialog</code> 自己画原文（不再用 <code>CodeBlock</code>），切片 1 给 <code>CodeBlock</code> 加的块头操作位没有使用方，撤掉。</p>
+  </div>
+
+  <div class="cand" data-nbdev-option="lifted" data-nbdev-label="B 亮一层的面：原文在比对话框更亮的块里，块角上是复制图标">
+    <h3>B 亮一层的面</h3>
+    <div class="row">
+      <figure><img src="r5/lifted.webp" alt="B" width="600"><figcaption>亮色</figcaption></figure>
+    </div>
+    <div class="row">
+      <figure><img src="r5/lifted-dark.webp" alt="B 暗色" width="470"><figcaption>暗色</figcaption></figure>
+      <figure><img src="r5/lifted-long-mobile.webp" alt="B 手机" width="240"><figcaption>390 宽、长原文：块内滚动，复制图标留在块角</figcaption></figure>
+    </div>
+    <p>块用不透明的面板色（比对话框的半透明面亮一档），不画描边，只有一圈极淡的轮廓。复制是块右上角的图标按钮（悬停提示“复制原文”，点了换成对勾）。原文一眼能和其它内容分开。</p>
+    <p>实现上：<code>CopyButton</code> 加只有图标的样式；块由 <code>DetailDialog</code> 画，<code>CodeBlock</code> 的块头操作位同样撤掉。</p>
+  </div>
+
+  <div class="cand" data-nbdev-option="tinted" data-nbdev-label="C Markdown 代码块观感：浅灰底、无描边，块角上是复制图标">
+    <h3>C Markdown 代码块观感</h3>
+    <div class="row">
+      <figure><img src="r5/tinted.webp" alt="C" width="600"><figcaption>亮色</figcaption></figure>
+    </div>
+    <div class="row">
+      <figure><img src="r5/tinted-dark.webp" alt="C 暗色" width="470"><figcaption>暗色</figcaption></figure>
+      <figure><img src="r5/tinted-long-mobile.webp" alt="C 手机" width="240"><figcaption>390 宽、长原文</figcaption></figure>
+    </div>
+    <p>照 Markdown 渲染里代码块的样子：悬停色的浅底、圆角 6px、宽松内边距、无描边。你第 3 轮提过“直接用 Markdown 的代码块来展示”，这是那个观感（Markdown 包建在 nb-ui 之上，组件本身不能反过来复用）。与 B 的区别只在底色比对话框暗还是亮。</p>
+  </div>
+
+  <p class="rec">推荐 A：内容只有一段原文，不需要再框一层；“复制原文”是有名字的按钮，比块角的图标好找。喜欢原文被框起来的话选 B（亮一层符合层级规则），C 的暗底与设计语言的层级方向相反。</p>
+</section>
 
 <section data-nbdev-question="detail-dialog-style" data-nbdev-type="confirm" data-nbdev-label="确认：详情对话框按这一版的样式">
-  <h2><span class="badge" data-nbdev-skip>待定</span>详情对话框：原文展示加复制</h2>
+  <h2><span class="badge done" data-nbdev-skip>未通过（你说“样式有点丑”）</span>详情对话框：原文展示加复制（第 4 轮）</h2>
   <div class="row">
     <figure><img src="r4/detail-dialog.webp" alt="详情对话框" width="600"><figcaption>通知“文件没有保存”点“详情”打开的样子</figcaption></figure>
   </div>
