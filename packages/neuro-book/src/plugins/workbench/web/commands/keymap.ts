@@ -9,7 +9,8 @@
 
 import {parseKeybinding} from "nbook/plugins/commands/shared/contracts";
 import type {CommandFailure, CommandService, KeyModifiers, KeyPlatform, Release} from "nbook/plugins/commands/shared/contracts";
-import {diagnosticText} from "nbook/shared/localized-text";
+
+import {failureDiagnostic} from "./failure-notice";
 
 /** 分发器读取的按键事件字段；浏览器的 KeyboardEvent 满足它。 */
 export interface KeyInput {
@@ -100,7 +101,7 @@ export function createKeymapDispatcher(commands: CommandService, platform: KeyPl
             event.stopImmediatePropagation();
             void commands.execute(id, {}, {source: "user"}).then((result) => {
                 if (result.ok) return;
-                report(new Error(`Command ${id} failed: ${diagnosticText(result.reason)}`));
+                report(failureDiagnostic(id, result));
                 failed?.(id, result);
             });
         },

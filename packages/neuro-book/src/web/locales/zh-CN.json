@@ -54,5 +54,18 @@
     "notFound": {
         "title": "页面不存在",
         "home": "回到工作台"
-    }
+    },
+    "errors": {
+        "invalid-input": "请求的参数不对",
+        "denied": "没有权限执行这个操作",
+        "target-gone": "目标窗口或实例已经不在了",
+        "unavailable": "服务端暂时不可用",
+        "not-provided": "服务端没有提供这项功能",
+        "version-changed": "页面与服务端的版本不一致，请刷新页面",
+        "timeout": "服务端没有及时答复",
+        "cancelled": "操作已取消",
+        "unknown-outcome": "不知道操作有没有完成，请先核对再重试",
+        "provider-error": "服务端处理时出错"
+    },
+    "unknownResult": "收到了无法识别的结果（{{code}}）"
 }

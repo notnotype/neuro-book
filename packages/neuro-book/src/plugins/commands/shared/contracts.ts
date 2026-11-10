@@ -42,12 +42,16 @@ export type CommandFailureCode =
  * 显示的一方（命令面板、失败通知、菜单）按当前语言翻，切换语言后随之换文字；服务端没有翻译端口，那里产生的原因写字符串或
  * 语言映射。交给服务端的远程结果在窗口里先翻成字符串（`plugin.ts` 的 `remoteCommands`）。
  */
-export type CommandResult<T> = {ok: true; value: T} | {ok: false; code: CommandFailureCode; reason: Text};
+export type CommandResult<T> = {ok: true; value: T} | ({ok: false} & CommandFailure);
 
-/** 失败的结果里调用方要读的两项。 */
+/**
+ * 失败的结果里调用方要读的几项。`reason` 不放诊断原文；异常的 message、服务端原文放在 `detail`：已脱敏的开发诊断原文，
+ * 不翻译，只进通知的“详情”。跨实例的结果不带 `detail`（`remoteCommands` 只交 `code` 与 `reason`）。
+ */
 export interface CommandFailure {
     readonly code: CommandFailureCode;
     readonly reason: Text;
+    readonly detail?: string;
 }
 
 /**

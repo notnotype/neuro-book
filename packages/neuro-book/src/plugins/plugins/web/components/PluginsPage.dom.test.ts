@@ -373,11 +373,17 @@ describe("PluginsPage", () => {
         problem = document.querySelector("[data-plugin-problem]");
         expect(problem?.textContent?.match(/已经安装/gu)).toHaveLength(1);
 
+        // 路由层的码用宿主的文案，服务端详情是诊断原文，不列。
         fake.answerNext({ok: false, code: "denied", detail: "调用方没有权限"});
         await submitPath(wrapper, "/plugins/denied");
         problem = document.querySelector("[data-plugin-problem]");
-        expect(problem?.textContent).toContain("操作没有完成");
-        expect(problem?.textContent).toContain("调用方没有权限");
+        expect([...problem!.querySelectorAll("p")].map((line) => line.textContent)).toEqual(["没有权限执行这个操作"]);
+
+        // 不认识的码（服务端比页面新）：宿主的中性文案附上码，列出服务端详情。
+        fake.answerNext({ok: false, code: "quota-reached", detail: "too many plugins"} as unknown as Parameters<typeof fake.answerNext>[0]);
+        await submitPath(wrapper, "/plugins/quota");
+        problem = document.querySelector("[data-plugin-problem]");
+        expect([...problem!.querySelectorAll("p")].map((line) => line.textContent)).toEqual(["收到了无法识别的结果（quota-reached）", "too many plugins"]);
     });
 
     it("结果未知：写出原因并重新读列表", async () => {
@@ -387,7 +393,7 @@ describe("PluginsPage", () => {
         fake.answerNext({ok: false, code: "unknown-outcome"});
         await wrapper.find("[data-plugin-row=\"example.hello\"] [data-plugin-toggle]").trigger("click");
         await flushPromises();
-        expect(document.querySelector("[data-plugin-problem]")?.textContent).toContain("已重新读取列表");
+        expect(document.querySelector("[data-plugin-problem]")?.textContent).toContain("不知道操作有没有完成");
         expect(fake.calls.filter((call) => call === "list").length).toBe(before + 1);
     });
 
