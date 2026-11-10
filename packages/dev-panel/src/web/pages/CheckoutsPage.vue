@@ -109,7 +109,9 @@ watch(() => [focusKey.value, checkouts.data.value] as const, async ([key, data])
     if (!key || !data || key === scrolledFor) return;
     scrolledFor = key;
     await nextTick();
-    document.getElementById(`checkout-${key}`)?.scrollIntoView({block: "center"});
+    // 表格与手机上的卡片只显示一份：滚到看得见的那一份。
+    const target = [document.getElementById(`checkout-${key}`), document.getElementById(`checkout-card-${key}`)].find((element) => element !== null && element.getClientRects().length > 0);
+    target?.scrollIntoView({block: "center"});
 }, {immediate: true});
 const STATUS_LABEL: Record<string, string> = {M: "改", A: "新增", D: "删", T: "类型变", U: "冲突"};
 </script>
@@ -118,8 +120,8 @@ const STATUS_LABEL: Record<string, string> = {M: "改", A: "新增", D: "删", T
     <PageShell :crumbs="[{label: '首页', href: '/'}, {label: 'checkout'}]" title="checkout" @navigate="navigate">
         <template v-if="computedAgo" #meta><span>未提交与领先落后是 {{ computedAgo }}算的</span><span>点一行去它的 Task，没有 Task 的去它的文档</span></template>
         <LoadState v-bind="loadStateOf(checkouts)" label="正在读取 checkout" @retry="checkouts.reload()" />
-        <!-- 列多：窄屏上整张表横向滚动，不把每列挤成一字一行；路径截断（悬停看全文、点一下复制），宽屏不必横向滚动。 -->
-        <div v-if="checkouts.data.value" class="relative overflow-x-auto" @click="onTableClick">
+        <!-- 列多：中等宽度时整张表横向滚动，不把每列挤成一字一行；路径截断（悬停看全文、点一下复制），宽屏不必横向滚动。手机上换成下面的卡片。 -->
+        <div v-if="checkouts.data.value" class="relative hidden overflow-x-auto md:block" @click="onTableClick">
             <div class="min-w-[56rem]">
             <Table class="nbdev-table nbdev-checkout-table" :columns="columns" :rows="rows" row-key="key" density="compact" hoverable>
                 <template #cell-key="{row}">
@@ -160,6 +162,30 @@ const STATUS_LABEL: Record<string, string> = {M: "改", A: "新增", D: "删", T
             </Table>
             </div>
         </div>
+        <!-- 手机上一项一张卡片（t22，开发者定）：名称、分支、未提交、领先落后、跑着的服务、Task；路径不放（表格里有，这里点名称去 Task）。 -->
+        <ul v-if="checkouts.data.value" class="flex flex-col gap-2 md:hidden">
+            <li v-for="row in rows" :id="`checkout-card-${row.checkout.key}`" :key="row.checkout.key" class="nbdev-surface nbdev-stack-tight p-3" :class="{'nbdev-checkout-focus': focusKey === row.checkout.key}">
+                <div class="flex min-w-0 items-center gap-1.5">
+                    <span class="nbdev-attention-dot" :class="{'nbdev-attention-on': attention(row.checkout).length > 0}" aria-hidden="true" />
+                    <a :href="targetOf(row.checkout)" class="min-w-0 truncate font-medium hover:underline" @click="followLink($event, targetOf(row.checkout))">{{ row.checkout.key }}</a>
+                    <span v-if="attention(row.checkout).length > 0" class="sr-only">需要注意：{{ attention(row.checkout).join("、") }}</span>
+                    <Badge v-if="row.checkout.isMain" tone="accent" variant="soft" size="sm">主工作区</Badge>
+                </div>
+                <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 nbdev-small">
+                    <span class="block max-w-[12rem]"><TruncatedText :text="row.checkout.branch ?? '分离 HEAD'" mono :copyable="row.checkout.branch !== null" /></span>
+                    <span v-if="row.checkout.error" class="nbdev-warn">读不出</span>
+                    <span v-else-if="row.checkout.timedOut" class="nbdev-empty">没算完</span>
+                    <button v-else-if="hasChanges(row.checkout)" type="button" class="nbdev-warn nbdev-num nbdev-hit whitespace-nowrap underline underline-offset-2" :aria-expanded="filesKey === row.checkout.key" :aria-label="`改 ${row.checkout.tracked} · 新 ${row.checkout.untracked}：${row.checkout.key} 的未提交文件`" @click="toggleFiles(row.checkout.key)">改 {{ row.checkout.tracked }} · 新 {{ row.checkout.untracked }}</button>
+                    <span v-else class="nbdev-empty">干净</span>
+                    <span v-if="row.checkout.ahead !== null" class="nbdev-num whitespace-nowrap">领先 {{ row.checkout.ahead }} · <span :class="{'nbdev-warn': (row.checkout.behind ?? 0) > 0}">落后 {{ row.checkout.behind }}</span></span>
+                </div>
+                <span v-for="run in row.checkout.runs" :key="run.runId" class="nbdev-warn nbdev-small block min-w-0 break-all">{{ run.package.slice(run.package.lastIndexOf("/") + 1) }} · {{ run.script }}<template v-if="run.url"> · {{ run.url }}</template></span>
+                <span v-if="row.checkout.tasks.length > 0 || row.checkout.executionOf.length > 0" class="flex flex-wrap gap-x-2 nbdev-small">
+                    <a v-for="task in row.checkout.tasks" :key="`${task.workId}/${task.taskId}`" :href="taskHref(task.workId, task.taskId)" class="hover:underline" @click="followLink($event, taskHref(task.workId, task.taskId))">{{ workLabel(task.workId) }}/{{ taskLabel(task.taskId) }}</a>
+                    <span v-if="row.checkout.executionOf.length > 0" class="nbdev-secondary">{{ row.checkout.executionOf.map(workLabel).join("、") }} 的执行 worktree</span>
+                </span>
+            </li>
+        </ul>
         <section v-if="filesKey" ref="filesSection" class="nbdev-surface nbdev-stack relative p-4" :aria-label="`${filesKey} 的未提交文件`">
             <div class="flex items-center gap-2">
                 <h2 class="nbdev-card-title flex-1">{{ filesKey }} 的未提交文件</h2>
