@@ -25,8 +25,12 @@ description: 新界面或界面大改需要开发者拍板外观与交互时使�
 
 ## 评审板怎么写
 
-- 按问题分节，待定的放最上面，已定的依次往下，每节开头标“待定”或“已定”。
-- 每节写：要开发者定什么、各候选（图或 HTML）、主 Agent 的推荐与理由、开发者的决定。
+照模板 [`review-board.html`](../../../packages/dev-panel/docs/examples/review-board.html) 写（t23，规则来自开发者的 visualize 经验）：
+
+- **一节一问**：节标题就是要问的事，写成问句；标题下第一行加粗写推荐与一句理由；候选并排、等宽、用同一个例子画；这道题的材料都放在这一节里。在面板里打开时，nbdev 在每道题的元素末尾放答题控件，开发者看完材料就地作答；不要自己写答题控件。
+- **一轮只问要定的事**：“直接修、不用答”的列成一张表，不提问；已定的收到页面最后。题多时拆成几轮（t22 第 1 轮 13 题，开发者说找不到题对应的材料）。
+- **不写补丁文字**：引导句、图注、复述标题的说明行、页头小字都不要；想补一句解释，说明图没讲清，回去改图。
+- 每节写：要开发者定什么、各候选（图或 HTML）、主 Agent 的推荐与理由；开发者的决定写进 Task README，页面上已定的只留一行结论。
 - 结构、贡献关系、对照表、流程这类能用 HTML 直接表达的，写成 HTML，不截图；“长什么样”用真实组件的截图。
 - 标注稿（例如“哪里能贡献”）用界面里不会出现的固定标注色画虚线框加编号，旁边一栏逐条解释；能贡献与不能贡献用两种颜色区分。
 
@@ -34,7 +38,7 @@ description: 新界面或界面大改需要开发者拍板外观与交互时使�
 
 - **先分清问在哪里**：要看图、要把几个候选并排比较的问题，写进评审板；几乎是纯文字、几句话就讲得清的问题（例如确认提纲、确认写正文时自定的几条、二选一的范围），直接在会话里问，不发评审板。会话里得到的决定照样按编号写进 Task README（开发者 2026-10-15 定）。
 
-- **待定的问题写成提问**：在包住这一节的元素上加 `data-nbdev-question="<题号>"` 与 `data-nbdev-type`，候选上加 `data-nbdev-option="<值>"`，推荐写 `data-nbdev-recommend`；写法见 [提问标记](../../../packages/dev-panel/docs/file-formats.md#提问标记) 与 [例子页](../../../packages/dev-panel/docs/examples/questions.html)。标题里的“待定”“已定”徽标、候选里的“打开”按钮加 `data-nbdev-skip`，不进题目与选项名。标题后直接跟兄弟元素的扁平板，先给每道题包一层 `section`。题目缺省是选答（开发者 2026-11-05）：开发者可以只答一部分，也可以自己关掉评审；只有不定就做不下去的才加 `data-nbdev-required` 标成必答。
+- **待定的问题写成提问**：在包住这一节的元素上加 `data-nbdev-question="<题号>"` 与 `data-nbdev-type`，候选上加 `data-nbdev-option="<值>"`，推荐写 `data-nbdev-recommend`；写法见 [提问标记](../../../packages/dev-panel/docs/file-formats.md#提问标记)、[例子页](../../../packages/dev-panel/docs/examples/questions.html) 与上面的模板。标题里的“待定”“已定”徽标、候选里的“打开”按钮加 `data-nbdev-skip`，不进题目与选项名。标题后直接跟兄弟元素的扁平板，先给每道题包一层 `section`。题目缺省是选答（开发者 2026-11-05）：开发者可以只答一部分，也可以自己关掉评审；只有不定就做不下去的才加 `data-nbdev-required` 标成必答。
 - **发布**：每轮写好后运行 `nbdev artifact publish <workId> <taskId> review --kind design`（第一次要 `--kind`），它解析提问、检查图片体积、写发布记录并与页面文件一起提交。输出逐题列出解析到的题，核对一遍。题意变了就换题号；被后一轮取代的问题换题号或从页面删掉，输出会列出被取代的题（已答的题删掉不算取代）。
 - **读答复**：`nbdev answers <workId> <taskId> review --json`，记下输出里的 `cursor`；要挂着等，加 `--wait`，用会话自己的后台机制运行（Claude Code 用 Bash 的 `run_in_background`，不用 Monitor：Monitor 最长 30 分钟就结束它挂的命令；`--wait` 缺省等 6 小时）；`artifact publish` 与 `ask` 的输出末尾就给出这条命令（`--json` 时在 `data.waitCommand`），发完就挂上。退出码 4（超时、被打断，或被宿主结束）时按原参数重挂；退出码 0 是有了答复，先处理答复并 `answers ack --through <cursor>`，或带 `--since <cursor>` 重挂，否则按原参数重挂会立刻返回。开发者在会话里口头定的，用 `nbdev answers record … --set <题号>=<值>` 代录。
 - **确认**：决定写进 Task README 之后运行 `nbdev answers ack <workId> <taskId> review --through <cursor> --include <Task README 的路径>`，确认与 README 同一个提交。`cursor` 取读答复时输出里的那个：只确认读过的答复；读完之后开发者又交的会给 `newer_answers_unacked`，读了它们再确认一次。

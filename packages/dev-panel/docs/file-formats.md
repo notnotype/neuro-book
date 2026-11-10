@@ -246,7 +246,7 @@ artifacts/<artifactId>/
 
 ## 提问标记
 
-写在产物文件集（见“发布记录”）里任意一个 `.html` 页上，题号在整个产物内唯一；没被链接、也没被跟踪的页面要用 `--include` 列出。例子见 [`examples/questions.html`](examples/questions.html)（包的测试会解析它）。
+写在产物文件集（见“发布记录”）里任意一个 `.html` 页上，题号在整个产物内唯一；没被链接、也没被跟踪的页面要用 `--include` 列出。例子见 [`examples/questions.html`](examples/questions.html)（包的测试会解析它）；照着写一轮评审板用模板 [`examples/review-board.html`](examples/review-board.html)。在面板里打开时，每道题的元素末尾会出现答题控件（t23，见 [panel.md](panel.md#页面里作答t23) 的“页面里作答”）：不要在页面里自己写答题控件，会出现两套。
 
 | 属性 | 含义 |
 |---|---|
