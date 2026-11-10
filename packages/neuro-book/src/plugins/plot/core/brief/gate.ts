@@ -207,7 +207,8 @@ export function makeGate(input: GateInput): Gate {
         if (!hidingCache.has(goal)) {
             const found = stored(goal);
             let result: HidingGoal | null = null;
-            if (found !== undefined && found.type === ENTRY_TYPES.goal && typeof found.parent === "string") {
+            // 到章末还没出场的目标整个是占位（名字也不写），不算“藏着秘密的目标”，不进这一场的秘密。
+            if (found !== undefined && found.type === ENTRY_TYPES.goal && typeof found.parent === "string" && !late(goal)) {
                 const points = hidesOf(frame, chapter, goal).filter((point) => gone(point) || isSecretPlus(secrecy(point)) || withheldPoints.has(point)).sort(byRank);
                 if (points.length > 0) result = {goal, holder: found.parent, state: points.every((point) => shown.has(point)) ? "shown" : "withheld", first: points[0]!, points};
             }
