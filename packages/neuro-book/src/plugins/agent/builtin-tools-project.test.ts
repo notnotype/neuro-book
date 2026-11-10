@@ -23,7 +23,10 @@ import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import {killSpawnedProjects, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 
+import {createTestClock} from "@notnotype/nb-harness/kernel/testing";
+
 import {builtinTools} from "./backend/builtin";
+import {JobCenter} from "./backend/jobs/center";
 import {SessionEditStores} from "./backend/builtin/common";
 import {createDialects} from "./backend/permissions/dialects";
 import {createPermissionHook} from "./backend/permissions/hook";
@@ -68,7 +71,8 @@ async function scene(): Promise<{readonly files: WorkspaceFiles; readonly book: 
     const files = held.files as WorkspaceFiles | null;
     if (files === null) throw new Error("测试插件没有激活");
     const context = {sessionId: "s1", profile: "p", project: "book"} as ToolSessionContext;
-    const tools = builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}));
+    const jobs = new JobCenter({clock: createTestClock(), limits: () => ({perSession: 8, global: 16}), newId: () => crypto.randomUUID()});
+    const tools = builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}), {jobs, clock: {now: () => 0}});
     const built = new Map<string, ToolImplementation>();
     return {
         files,

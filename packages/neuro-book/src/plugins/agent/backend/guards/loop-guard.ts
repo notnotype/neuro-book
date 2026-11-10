@@ -39,8 +39,11 @@ function canonical(value: unknown): unknown {
 /** 调用的顺序、参数键的顺序都不算不同。 */
 const callsHash = (calls: readonly {readonly tool: string; readonly args: unknown}[]): string => sha256(JSON.stringify(calls.map((call) => JSON.stringify([call.tool, canonical(call.args)])).sort()));
 
-/** `threshold` 每次判断时现读。 */
-export function loopGuard(threshold: () => number): AgentExtensionImplementation {
+/**
+ * `threshold` 每次判断时现读。`waits` 是等后台任务的工具（`wait`）：反复等是正常用法，交回的结果与上一次不同时不算重复、也不清计数；
+ * 相同时照常计数（run-guards.md 输出 14）。
+ */
+export function loopGuard(threshold: () => number, waits: ReadonlySet<string> = new Set()): AgentExtensionImplementation {
     return defineExtension({
         id: "nbook.agent.loop-guard",
         state: {loop: slice.path<LoopState>(INITIAL)},
@@ -54,6 +57,7 @@ export function loopGuard(threshold: () => number): AgentExtensionImplementation
                 if (calls.length === 0) return {loop: {...INITIAL, stopped: loop.stopped}};
                 const hash = callsHash(calls);
                 if (hash !== loop.hash) return {loop: {...INITIAL, hash, count: 1, stopped: loop.stopped}};
+                if (calls.every((call) => waits.has(call.tool)) && loop.previousResults !== loop.currentResults) return {loop: {...loop, previousResults: loop.currentResults, currentResults: ""}};
                 const sameResults = loop.sameResults && (loop.previousResults === null || loop.previousResults === loop.currentResults);
                 return {loop: {...loop, count: loop.count + 1, sameResults, previousResults: loop.currentResults, currentResults: ""}};
             },

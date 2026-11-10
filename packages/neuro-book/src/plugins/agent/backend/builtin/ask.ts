@@ -45,10 +45,13 @@ const declarationOf = (description: string, properties: Readonly<Record<string, 
     description,
     parameters: {
         type: "object",
-        properties: {questions: {type: "array", minItems: 1, maxItems: 4, items: {type: "object", properties, required: ["question", "options"]}}},
+        properties: {
+            questions: {type: "array", minItems: 1, maxItems: 4, items: {type: "object", properties, required: ["question", "options"]}},
+            async: {type: "boolean", description: "为 true 时不等回答：问题留着，你接着做，用户回答后作为一条输入送来"},
+        },
         required: ["questions"],
     },
-    version: "1",
+    version: "2",
     concurrency: "exclusive",
     effect: "read",
 });
@@ -112,7 +115,13 @@ export const askTool: AgentToolImplementation = {
                 const problems = check.problems.filter((problem) => problem.severity === "error").map((problem) => `${problem.path === "" ? "/" : problem.path}: ${problem.code}`);
                 return {...failed("ask-form-invalid", `ask-form-invalid: 第 ${String(index + 1)} 题的 form 不合规，用户没有看到这个问题：${problems.join("；")}`), details: {code: "ask-form-invalid", problems}};
             }
-            const reply = await call.ask({question: questions.map((question) => question.question).join("\n"), data: {questions: questions as unknown as JsonValue}});
+            const request = {question: questions.map((question) => question.question).join("\n"), data: {questions: questions as unknown as JsonValue}};
+            // 异步提问只写下问题就返回（builtin-tools.md 输出 28）：回答以后作为一条输入进缓冲区，跨轮也在。
+            if (args.async === true) {
+                await call.ask(request, {async: true});
+                return {text: "问题已提出，回答会作为一条输入送来；先接着做别的。"};
+            }
+            const reply = await call.ask(request);
             if (reply.kind === "unavailable") return failed("ask-declined", "ask-declined: 用户没有回答，这一轮到此为止或换个做法，不要重复问同样的问题。");
             // 子会话的提问由父会话回答时只有文字（session 的 `questions: "caller"`）；用户从界面答总是结构化的，缺了和答错一样。
             if (reply.data === undefined && reply.by.kind === "session") return {text: reply.text};

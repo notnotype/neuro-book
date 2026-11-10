@@ -15,6 +15,8 @@ import type {LogEvent, RunResult} from "@notnotype/nb-harness/kernel/contracts";
 
 import {costGuard, type CostLimits} from "./backend/guards/cost-guard";
 import {loopGuard} from "./backend/guards/loop-guard";
+import {SessionRelations} from "./backend/subagents/relations";
+import {TreeSpend} from "./backend/subagents/tree-spend";
 
 let commands = 0;
 const id = () => `g-${(commands += 1)}`;
@@ -23,6 +25,9 @@ const eventsNamed = async (session: TestSession, name: string): Promise<readonly
 
 /** 装配序排在两个保护之后的拦截层（同一层依赖序按 id 排）：预览要走到它，才算没被拦。 */
 const INNER_LAYER = defineExtension({id: "zz.inner", intercept: {model: async (request, next) => next({...request, params: {maxTokens: 7}})}});
+
+/** 没有父子关系的会话：树就是它自己。 */
+const lone = () => new TreeSpend(new SessionRelations());
 
 let root = "";
 beforeAll(async () => {
@@ -36,7 +41,7 @@ describe("费用", () => {
     const COST = "nbook.agent.cost-guard";
     async function withLimits(initial: Partial<CostLimits>) {
         const limits = {warnCost: 0, maxCost: 0, ...initial};
-        const session = await createTestSession({extensions: [{extension: costGuard(() => limits), plugin: "nbook.agent"}]});
+        const session = await createTestSession({extensions: [{extension: costGuard(() => limits, lone()), plugin: "nbook.agent"}]});
         return {session, limits};
     }
 
@@ -75,7 +80,7 @@ describe("费用", () => {
     });
 
     test("输出 4：预览不被拦：它里面的拦截层照样走到", async () => {
-        const session = await createTestSession({extensions: [{extension: costGuard(() => ({warnCost: 0, maxCost: 1})), plugin: "nbook.agent"}, INNER_LAYER]});
+        const session = await createTestSession({extensions: [{extension: costGuard(() => ({warnCost: 0, maxCost: 1}), lone()), plugin: "nbook.agent"}, INNER_LAYER]});
         await using _ = session;
         session.model.script({text: "一", usage: {cost: 1}});
         await session.say("一");
@@ -106,7 +111,7 @@ describe("费用", () => {
         const sessionId = before.id;
         await before.close();
 
-        await using after = await createTestSession({store: {root: dir}, open: sessionId, extensions: [{extension: costGuard(() => ({warnCost: 0, maxCost: 5})), plugin: "nbook.agent"}]});
+        await using after = await createTestSession({store: {root: dir}, open: sessionId, extensions: [{extension: costGuard(() => ({warnCost: 0, maxCost: 5}), lone()), plugin: "nbook.agent"}]});
         const sent = await after.raw.send({commandId: id(), input: {text: "二"}});
         if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
         const result = await after.raw.waitRun(sent.value.runId);
@@ -114,8 +119,26 @@ describe("费用", () => {
         expect(after.model.requests).toHaveLength(0);
     });
 
+    test("输出 13：费用按会话树算：子会话花的算进父会话那棵树，到上限树里的会话都不再发；别的树不受影响", async () => {
+        const relations = new SessionRelations();
+        const guard = costGuard(() => ({warnCost: 0, maxCost: 2}), new TreeSpend(relations));
+        await using parent = await createTestSession({extensions: [{extension: guard, plugin: "nbook.agent"}]});
+        await using child = await createTestSession({extensions: [{extension: guard, plugin: "nbook.agent"}]});
+        await using other = await createTestSession({extensions: [{extension: guard, plugin: "nbook.agent"}]});
+        relations.register({id: child.id, caller: {kind: "session", id: parent.id, callId: "c"}});
+        parent.model.script({text: "一", usage: {cost: 1}});
+        await parent.say("一");
+        child.model.script({text: "二", usage: {cost: 1}});
+        await child.say("二");
+        expect((await parent.say("三")).result).toMatchObject({error: {code: "cost-limit"}});
+        expect((await child.say("四")).result).toMatchObject({error: {code: "cost-limit"}});
+        expect(parent.model.requests).toHaveLength(1);
+        other.model.script({text: "五", usage: {cost: 1}});
+        expect((await other.say("五")).result.text).toBe("五");
+    });
+
     test("验收 1：一次失败之后，上限恰好被它的费用用完，不再重发", async () => {
-        const session = await createTestSession({retry: () => ({maxRetries: 10}), extensions: [{extension: costGuard(() => ({warnCost: 0, maxCost: 1})), plugin: "nbook.agent"}]});
+        const session = await createTestSession({retry: () => ({maxRetries: 10}), extensions: [{extension: costGuard(() => ({warnCost: 0, maxCost: 1}), lone()), plugin: "nbook.agent"}]});
         await using _ = session;
         session.model.script({fail: "network", retryable: true, usage: {cost: 1}}, "不该发到这里");
         const sent = await session.raw.send({commandId: id(), input: {text: "问"}});
@@ -185,6 +208,22 @@ describe("重复调用", () => {
         expect(report.result.text).toBe("好了");
         expect(texts(report.events, `${LOOP}/redirected`)).toHaveLength(3);
         expect(texts(report.events, `${LOOP}/stopped`)).toHaveLength(0);
+    });
+
+    test("输出 14：wait 交回的结果在变时反复等不算重复；结果相同照常计数", async () => {
+        let polls = 0;
+        const waitSession = (execute: () => string) => createTestSession({tools: [{id: "lab.wait", execute}], extensions: [{extension: loopGuard(() => 3, new Set(["lab.wait"])), plugin: "nbook.agent"}]});
+        const waits = (times: number) => Array.from({length: times}, () => ({tools: [{tool: "lab.wait", args: {}}]}));
+        await using changing = await waitSession(() => `第 ${String((polls += 1))} 个任务结束了`);
+        changing.model.script(...waits(8), "好了");
+        const report = await changing.say("开始");
+        expect(report.result.text).toBe("好了");
+        expect(texts(report.events, `${LOOP}/redirected`)).toHaveLength(0);
+
+        await using same = await waitSession(() => "等了 1800 秒还没有结果");
+        // 第一次重复没有更早的结果可比，算不同、不计数；之后与普通调用一样，提醒后再到阈值才停。
+        same.model.script(...waits(7), "不该发到这里");
+        expect((await same.say("开始")).result).toMatchObject({error: {code: "tool-call-loop"}});
     });
 
     test("输出 9：中途换了调用，先提醒不停", async () => {

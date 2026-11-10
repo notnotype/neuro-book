@@ -11,16 +11,17 @@ import {join} from "node:path";
 
 import type {SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
 
-import type {AuthorizeResult, MountedSchemeSpec, SchemeCaller, SchemeOperation} from "nbook/plugins/files/shared/contracts";
+import type {AuthorizeResult, MountedSchemeSpec, SchemeCaller, SchemeOperation, VirtualEntry} from "nbook/plugins/files/shared/contracts";
 
 import type {ProfileEntry} from "../shared/contracts";
+import type {SessionRelations} from "./subagents/relations";
 
 /** `sessions://` 的根至多列出这么多个会话。 */
 export const SESSIONS_LISTED = 200;
 const LOG = "session.jsonl";
 const HOME = "home";
-/** 会话 `home/` 里由宿主写入、Agent 只读的两个子目录。 */
-const HOST_WRITTEN = ["attachments", "artifacts"];
+/** 会话 `home/` 里由宿主写入、Agent 只读的子目录：附件、全文、后台命令的输出（resources.md 输出 12）。 */
+const HOST_WRITTEN = ["attachments", "artifacts", "jobs"];
 
 const writes = (operation: SchemeOperation): boolean => operation === "write" || operation === "create";
 const under = (path: string, directory: string): boolean => path === directory || path.startsWith(`${directory}/`);
@@ -38,6 +39,56 @@ export interface AgentSchemesOptions {
     readonly docsRoot: string | null;
     readonly listSessions: () => Promise<readonly SessionIndexEntry[]>;
     readonly profiles: () => readonly ProfileEntry[];
+    /** 会话之间的父子关系：根先列读它的会话的父、子、兄弟（resources.md 输出 13）。 */
+    readonly relations: SessionRelations;
+    /** 在跑与等用户的会话（句柄表的 `activity()`）；不在里面的算空闲，不为取状态去打开会话。 */
+    readonly activity: () => ReadonlyArray<{readonly id: string; readonly state: "running" | "waiting"}>;
+    /** 这个 Profile 能派哪些 Profile（白名单合成之后，subagents.md）。 */
+    readonly allowedAgents: (profile: string) => readonly string[];
+}
+
+const STATE_TEXT = {running: "运行中", waiting: "等用户", idle: "空闲"} as const;
+
+/**
+ * `sessions://` 根的条目顺序（resources.md 输出 13）：读它的会话的父会话、子会话、兄弟会话在前，各带状态，子会话另带派它的调用 id；
+ * 之后按最近使用。合计至多 `SESSIONS_LISTED` 个、不重复。
+ */
+function sessionEntries(sessions: readonly SessionIndexEntry[], reader: string | null, relations: SessionRelations, activity: AgentSchemesOptions["activity"]): VirtualEntry[] {
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+    const states = new Map(activity().map((item) => [item.id, item.state]));
+    const recent = [...sessions].sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+    const related: {readonly id: string; readonly relation: string}[] = [];
+    if (reader !== null) {
+        const parent = relations.parentOf(reader);
+        if (parent !== null) related.push({id: parent, relation: "父会话"});
+        const byRecent = (ids: readonly string[]) => [...ids].sort((a, b) => (byId.get(b)?.lastActivityAt ?? 0) - (byId.get(a)?.lastActivityAt ?? 0));
+        for (const child of byRecent(relations.childrenOf(reader))) related.push({id: child, relation: "子会话"});
+        if (parent !== null) for (const sibling of byRecent(relations.childrenOf(parent).filter((id) => id !== reader))) related.push({id: sibling, relation: "兄弟会话"});
+    }
+    const entries: VirtualEntry[] = [];
+    const listed = new Set<string>();
+    const add = (session: SessionIndexEntry, relation?: string) => {
+        if (listed.has(session.id) || entries.length >= SESSIONS_LISTED) return;
+        listed.add(session.id);
+        const call = relation === "子会话" ? relations.callOf(session.id) : undefined;
+        entries.push({
+            name: session.id,
+            ...(session.title === null ? {} : {title: session.title}),
+            meta: {
+                profile: session.profile,
+                updated: new Date(session.lastActivityAt).toISOString(),
+                ...(relation === undefined ? {} : {relation, state: STATE_TEXT[states.get(session.id) ?? "idle"]}),
+                ...(call === undefined ? {} : {callId: call.callId}),
+            },
+        });
+    };
+    // 列表里没有的（归档的、后台的、索引读不了的）不补：根只列能用的会话。
+    for (const item of related) {
+        const session = byId.get(item.id);
+        if (session !== undefined) add(session, item.relation);
+    }
+    for (const session of recent) add(session);
+    return entries;
 }
 
 export const AGENT_SCHEMES = ["sessions", "profiles", "temps", "docs", "skills"] as const;
@@ -56,13 +107,10 @@ export function agentSchemes(options: AgentSchemesOptions): Record<(typeof AGENT
         sessions: {
             capabilities: ["read", "write", "list", "realPath"],
             container: options.sessionsRoot,
-            root: async () => {
-                const sessions = [...await options.listSessions()].sort((a, b) => b.lastActivityAt - a.lastActivityAt).slice(0, SESSIONS_LISTED);
-                return {
-                    description: `Agent 会话，按最近使用列出至多 ${String(SESSIONS_LISTED)} 个。每个会话有只读的对话日志 session.jsonl 与工作区 home/；本会话的工作区也可以写成 session://。`,
-                    entries: sessions.map((session) => ({name: session.id, ...(session.title === null ? {} : {title: session.title}), meta: {profile: session.profile, updated: new Date(session.lastActivityAt).toISOString()}})),
-                };
-            },
+            root: async (caller) => ({
+                description: `Agent 会话：先列本会话的父会话、子会话与兄弟会话（带状态，子会话带派它的调用 id），再按最近使用，合计至多 ${String(SESSIONS_LISTED)} 个。每个会话有只读的对话日志 session.jsonl 与工作区 home/；本会话的工作区也可以写成 session://。`,
+                entries: sessionEntries(await options.listSessions(), caller.agent?.session ?? null, options.relations, options.activity),
+            }),
             // 会话目录由内核建：不存在就是没有这个会话，不替它建。
             mount: async (name) => ((await exists(join(options.sessionsRoot, name))) ? {create: false, ensure: [HOME]} : null),
             authorize: (caller, mount, operation, path) => sessionRule(caller, mount, operation, path),
@@ -70,10 +118,14 @@ export function agentSchemes(options: AgentSchemesOptions): Record<(typeof AGENT
         profiles: {
             capabilities: ["read", "write", "list", "realPath"],
             container: options.profilesRoot,
-            root: () => ({
-                description: "Profile 的笔记目录，跨书保存。当前 Profile 的目录也可以写成 profile://，只有它可写。",
-                entries: options.profiles().map((profile) => ({name: profile.key, title: profile.name, meta: {source: profile.source, status: profile.status}})),
-            }),
+            root: (caller) => {
+                // 每项标出读它的会话能不能派（resources.md 输出 14）；不是 Agent 会话在读时不标。
+                const allowed = caller.agent === null ? null : new Set(options.allowedAgents(caller.agent.profile));
+                return {
+                    description: "Profile 的笔记目录，跨书保存。当前 Profile 的目录也可以写成 profile://，只有它可写。subagent 一栏说你能不能用 agent_spawn 派它。",
+                    entries: options.profiles().map((profile) => ({name: profile.key, title: profile.name, meta: {source: profile.source, status: profile.status, ...(allowed === null ? {} : {subagent: allowed.has(profile.key) ? "可派" : "不可派"})}})),
+                };
+            },
             mount: async (name) => {
                 if (options.profiles().some((profile) => profile.key === name)) return {create: true};
                 // Profile 已经不在，留下的笔记仍可读。

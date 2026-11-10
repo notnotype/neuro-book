@@ -17,6 +17,7 @@ import {hashlineDeclaration, hashlineTool, replaceDeclaration, replaceTool} from
 import {readDeclaration, readTool} from "./read";
 import {globDeclaration, globTool, grepDeclaration, grepTool} from "./search";
 import {shellDeclaration, shellTool} from "./shell";
+import type {ShellBackground} from "./shell";
 import {writeDeclaration, writeTool} from "./write";
 
 const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
@@ -36,7 +37,7 @@ const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
 export const BUILTIN_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentToolDeclaration>> = Object.entries(DECLARATIONS).map(([id, declaration]) => ({capability: TOOLS_POINT, id, declaration}));
 
 /** 每次激活一套：行锚快照跟着入口这一代。审批预览要读同一份快照，由入口建好传进来。 */
-export function builtinTools(stores: SessionEditStores, dialects: Dialects, changeModeSettings: ChangeModeSettings): Readonly<Record<string, AgentToolImplementation>> {
+export function builtinTools(stores: SessionEditStores, dialects: Dialects, changeModeSettings: ChangeModeSettings, background: ShellBackground): Readonly<Record<string, AgentToolImplementation>> {
     return {
         "nbook.agent.read": readTool(stores),
         "nbook.agent.write": writeTool(stores),
@@ -44,7 +45,7 @@ export function builtinTools(stores: SessionEditStores, dialects: Dialects, chan
         "nbook.agent.edit-replace": replaceTool(stores),
         "nbook.agent.grep": grepTool,
         "nbook.agent.glob": globTool,
-        "nbook.agent.shell": shellTool(dialects),
+        "nbook.agent.shell": shellTool(dialects, background),
         "nbook.agent.switch-mode": switchModeTool(changeModeSettings),
         "nbook.agent.ask": askTool,
         "nbook.agent.ask-form": askTool,

@@ -351,3 +351,29 @@ describe("上限与失败", () => {
         expect(listed.ok && listed.value.filter((entry) => entry.caller !== undefined)).toEqual([]);
     });
 });
+
+describe("资源地址的根", () => {
+    test("resources.md 输出 13、14：sessions:// 根先列父会话、兄弟会话（带状态）与子会话（带调用 id）；profiles:// 根标出能不能派", async () => {
+        const {w, parent} = await open();
+        endpoint.scriptFor("先做的活", "做完了");
+        endpoint.scriptFor("看看有哪些会话", {tool: "read", args: {path: "sessions://"}}, "看过了");
+        await turn(parent, "派", [adhoc("先做的活"), adhoc("看看有哪些会话"), {tool: "read", args: {path: "sessions://"}}, {tool: "read", args: {path: "profiles://"}}, "好"]);
+        const [first, second] = await toolResults(parent, "nbook.agent.spawn");
+        const entries = (text: string) => text.split("\n").filter((line) => line.startsWith("- "));
+        /** 这一行列的是不是这个地址：地址后面跟标题（空格）或说明（括号）。 */
+        const lists = (line: string | undefined, address: string) => line !== undefined && (line.startsWith(`- ${address} `) || line.startsWith(`- ${address}（`));
+
+        const seenByChild = entries((await toolResults(childOf(w, second!.details!.sessionId!), "nbook.agent.read"))[0]!.text);
+        expect(lists(seenByChild[0], `sessions://${parent.id}`)).toBe(true);
+        expect(seenByChild[0]).toContain("relation: 父会话，state: 运行中");
+        expect(lists(seenByChild[1], `sessions://${first!.details!.sessionId!}`)).toBe(true);
+        expect(seenByChild[1]).toContain("relation: 兄弟会话，state: 空闲");
+
+        const [sessionsRoot, profilesRoot] = await toolResults(parent, "nbook.agent.read");
+        const children = entries(sessionsRoot!.text).slice(0, 2);
+        expect(children.every((line) => line.includes("relation: 子会话") && line.includes("callId: "))).toBe(true);
+        for (const child of [first!, second!]) expect(children.some((line) => lists(line, `sessions://${child.details!.sessionId!}`))).toBe(true);
+        expect(entries(profilesRoot!.text).find((line) => lists(line, `profiles://${ADHOC_PROFILE}`))).toContain("subagent: 可派");
+        expect(entries(profilesRoot!.text).find((line) => lists(line, `profiles://${MAIN_PROFILE}`))).toContain("subagent: 不可派");
+    });
+});

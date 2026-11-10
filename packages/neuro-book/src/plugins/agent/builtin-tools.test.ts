@@ -20,7 +20,10 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {LEDGER_POINT} from "nbook/plugins/files/shared/ledger";
 import type {Ledger, LedgerEntry} from "nbook/plugins/files/shared/ledger";
 
+import {createTestClock} from "@notnotype/nb-harness/kernel/testing";
+
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./backend/builtin";
+import {JobCenter} from "./backend/jobs/center";
 import {SessionEditStores} from "./backend/builtin/common";
 import {createDialects} from "./backend/permissions/dialects";
 import {previewEdit} from "./backend/builtin/edit";
@@ -234,7 +237,7 @@ describe("read", () => {
             await rm(join(home, "a.md"));
             return located;
         }};
-        const tool = await builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}))["nbook.agent.read"]!.create({sessionId: session.id, profile: MAIN} as ToolSessionContext, {resources: racing, artifacts});
+        const tool = await builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}), {jobs: new JobCenter({clock: createTestClock(), limits: () => ({perSession: 8, global: 16}), newId: () => crypto.randomUUID()}), clock: {now: () => 0}})["nbook.agent.read"]!.create({sessionId: session.id, profile: MAIN} as ToolSessionContext, {resources: racing, artifacts});
         const live = new AbortController();
         expect(await tool.execute({path: "session://a.md"}, {signal: live.signal, callId: "c", sessionId: session.id, initial: undefined, read: () => undefined} as unknown as ToolContext)).toMatchObject({status: "error", code: "not-found"});
     });
@@ -838,6 +841,24 @@ describe("ask", () => {
         });
         return {id, finish};
     }
+
+    test("输出 28：async 时问题留着、工具立即返回、运行接着跑；用户的回答作为一条输入进来", async () => {
+        const w = await world();
+        const {session} = await open(w, ASK_FORM);
+        endpoint.script({tool: "ask", args: {questions: QUESTIONS.slice(0, 1), async: true}}, "先接着写");
+        const sent = await session.send({commandId: cid(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(`send failed: ${JSON.stringify(sent)}`);
+        expect((await session.waitRun(sent.value.runId)).text).toBe("先接着写");
+        const path = await session.path();
+        expect((path.filter((event) => event.type === "toolResult").at(-1)!.data as unknown as Result).text).toContain("问题已提出");
+        const requested = path.find((event) => event.type === "interactionRequested")!.data as unknown as {id: string; async: boolean};
+        expect(requested.async).toBe(true);
+        endpoint.script("知道了，主角叫林舟");
+        const answered = await session.resolve({commandId: cid(), id: requested.id, decision: "answer", answer: {text: "林舟"}});
+        if (!answered.ok || answered.value.runId === undefined) throw new Error(`resolve failed: ${JSON.stringify(answered)}`);
+        expect((await session.waitRun(answered.value.runId)).text).toBe("知道了，主角叫林舟");
+        expect((await session.path()).some((event) => event.type === "input" && (event.data as {text: string}).text.includes("林舟"))).toBe(true);
+    });
 
     test("输出 23：选项、其它、表单的回答回到模型；结构化的值在 details；请求带全部问题", async () => {
         const w = await world();

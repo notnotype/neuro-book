@@ -2,11 +2,20 @@
  * 任务中心（docs/specs/agent/jobs.md）。测试名里的编号是那份 Spec 的输出条目与验收场景。任务的驱动在这里是测试自己写的：任务中心
  * 不认识子会话与进程，驱动只是“怎样停、交回什么文字”的回调；子代理与后台命令的驱动在各自的测试里经真实运行时测。
  */
-import {describe, expect, test} from "bun:test";
+import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
+import {readFile, rm} from "node:fs/promises";
+import {join} from "node:path";
 
+import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestClock} from "@notnotype/nb-harness/kernel/testing";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {JobCenter, KEPT_PER_OWNER, type Job} from "./backend/jobs/center";
+import {MAIN_PROFILE} from "./shared/contracts";
+import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
+import type {FakeEndpoint, Scripted} from "./testing/endpoint";
+import {agentWorld} from "./testing/world";
+import type {AgentWorld} from "./testing/world";
 
 let ids = 0;
 
@@ -130,5 +139,102 @@ describe("kill 与寿命", () => {
         }
         expect(jobs.get(ended[0]!.id)).toBeUndefined();
         expect(jobs.list("p")).toHaveLength(KEPT_PER_OWNER);
+    });
+});
+
+// ====================================================================
+// 后台命令：真实运行时、真实命令，本机假端点指定模型的调用。
+// ====================================================================
+
+describe("后台命令", () => {
+    let root = "";
+    let endpoint: FakeEndpoint;
+    let counter = 0;
+    const worlds: AgentWorld[] = [];
+
+    beforeAll(async () => {
+        root = await createTestTmpRoot("neuro-book-agent", "jobs");
+        endpoint = fakeEndpoint();
+    });
+    afterEach(async () => {
+        endpoint.reset();
+        for (const world of worlds.splice(0)) await world.close();
+    });
+    afterAll(async () => {
+        endpoint.stop();
+        if (root !== "") await rm(root, {recursive: true, force: true});
+    });
+
+    interface Result {
+        readonly tool: string;
+        readonly text: string;
+        readonly status: string;
+        readonly code?: string;
+        readonly details?: {readonly jobId?: string; readonly output?: string};
+    }
+
+    async function open(): Promise<{readonly w: AgentWorld; readonly session: SessionApi; readonly home: string}> {
+        counter += 1;
+        const w = await agentWorld(join(root, `w${String(counter)}`), {userSettings: {...localModelSettings(endpoint.baseUrl), "nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}}});
+        worlds.push(w);
+        const created = await w.service.create({profile: MAIN_PROFILE});
+        if (!created.ok) throw new Error(created.code);
+        return {w, session: created.value, home: join(w.stateRoot, "agent", "sessions", created.value.id, "home")};
+    }
+
+    async function turn(session: SessionApi, replies: readonly Scripted[]): Promise<void> {
+        endpoint.script(...replies);
+        const sent = await session.send({commandId: crypto.randomUUID(), input: {text: "做"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await session.waitRun(sent.value.runId);
+    }
+
+    const results = async (session: SessionApi, tool: string): Promise<Result[]> => (await session.path()).filter((event) => event.type === "toolResult").map((event) => event.data as unknown as Result).filter((data) => data.tool === tool);
+
+    test("输出 7、场景 9：async 立即交回任务 id 与输出文件；wait 取到退出码与输出；status.json；Agent 写不了 jobs/", async () => {
+        const {session, home} = await open();
+        await turn(session, [{tool: "shell", args: {command: "echo 第一行; echo 完成", async: true}}, {tool: "wait"}, {tool: "write", args: {path: "session://jobs/x.txt", content: "x"}}, "好"]);
+        const [started] = await results(session, "nbook.agent.shell");
+        const jobId = started!.details!.jobId!;
+        expect(started!.details!.output).toBe(`sessions://${session.id}/home/jobs/${jobId}/output.log`);
+        expect(started!.text).toContain(jobId);
+        const [waited] = await results(session, "nbook.agent.wait");
+        expect(waited!.text).toContain("退出码 0");
+        expect(waited!.text).toContain("第一行\n完成");
+        expect(JSON.parse(await readFile(join(home, "jobs", jobId, "status.json"), "utf8"))).toMatchObject({state: "completed", exitCode: 0, lines: 2, truncated: false});
+        expect(await readFile(join(home, "jobs", jobId, "output.log"), "utf8")).toBe("第一行\n完成\n");
+        expect((await results(session, "nbook.agent.write"))[0]).toMatchObject({status: "error", code: "permission-denied"});
+    });
+
+    test("输出 4、7：父会话的运行被中止不影响后台命令；kill 停掉它，wait 交回已停止", async () => {
+        const {session, home} = await open();
+        endpoint.script({tool: "shell", args: {command: "sleep 30", async: true}});
+        // 第一个请求交回 `shell` 调用，挂住的是工具结算之后的第二个：这时命令已经转到后台，再中止父会话的运行。
+        const first = endpoint.hold();
+        const sent = await session.send({commandId: crypto.randomUUID(), input: {text: "跑"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await first.arrived;
+        const next = endpoint.hold();
+        first.release();
+        await next.arrived;
+        expect((await session.abort({commandId: crypto.randomUUID()})).ok).toBe(true);
+        next.release();
+        await session.waitRun(sent.value.runId);
+        const jobId = (await results(session, "nbook.agent.shell"))[0]!.details!.jobId!;
+
+        await turn(session, [{tool: "jobs"}, {tool: "kill", args: {job: jobId}}, {tool: "wait"}, "好"]);
+        expect((await results(session, "nbook.agent.jobs"))[0]!.text).toContain(`${jobId}（命令：sleep 30）运行中`);
+        expect((await results(session, "nbook.agent.kill"))[0]!.text).toBe(`已停止 ${jobId}。`);
+        expect((await results(session, "nbook.agent.wait"))[0]!.text).toContain("已停止");
+        expect(JSON.parse(await readFile(join(home, "jobs", jobId, "status.json"), "utf8"))).toMatchObject({state: "aborted"});
+    });
+
+    test("输出 8：插件停止时在跑的后台命令按 interrupted 收口，status.json 照写", async () => {
+        const {w, session, home} = await open();
+        await turn(session, [{tool: "shell", args: {command: "sleep 30", async: true}}, "好"]);
+        const jobId = (await results(session, "nbook.agent.shell"))[0]!.details!.jobId!;
+        worlds.splice(worlds.indexOf(w), 1);
+        await w.close();
+        expect(JSON.parse(await readFile(join(home, "jobs", jobId, "status.json"), "utf8"))).toMatchObject({state: "interrupted"});
     });
 });

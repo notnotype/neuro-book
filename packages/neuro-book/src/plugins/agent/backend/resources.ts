@@ -15,8 +15,8 @@ import type {CallOptions, WorkspaceFiles} from "nbook/plugins/files/shared/contr
 
 import type {Expanded, ResourceClass, SessionArtifacts, SessionCalls, SessionResources} from "../shared/resources";
 
-/** `session://attachments/`、`session://artifacts/` 由宿主写入，Agent 只读。 */
-const HOST_WRITTEN = ["attachments", "artifacts"];
+/** `session://attachments/`、`session://artifacts/` 与后台命令的输出 `session://jobs/` 由宿主写入，Agent 只读（resources.md 输出 12）。 */
+const HOST_WRITTEN = ["attachments", "artifacts", "jobs"];
 
 const join = (base: string, path: string): string => (path === "" ? base : `${base}/${path}`);
 

@@ -33,8 +33,8 @@ export interface JobOutcome {
 }
 
 export interface JobDriver {
-    /** 停掉它；状态由驱动之后照实报回（`aborted`）。 */
-    kill(): Promise<void>;
+    /** 停掉它；状态由驱动之后照实报回：缺省 `aborted`，插件停止时传 `interrupted`（jobs.md 输出 8）。 */
+    kill(reason?: "interrupted"): Promise<void>;
     /** 结束后交给模型的结果文字（子代理从日志读、后台命令从文件读）；`wait` 交回它时才读。 */
     result(): Promise<string>;
 }

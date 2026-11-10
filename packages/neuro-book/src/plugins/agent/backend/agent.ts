@@ -26,6 +26,7 @@ import {agentSettings} from "../shared/settings";
 import {JobCenter} from "./jobs/center";
 import {ChildRuns} from "./subagents/children";
 import {SessionRelations} from "./subagents/relations";
+import {TreeSpend} from "./subagents/tree-spend";
 import {ProfileBundles} from "./profile-bundles";
 import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
 import {createAttachmentPort} from "./attachments";
@@ -70,6 +71,8 @@ export interface AgentRuntime {
     readonly relations: SessionRelations;
     /** 任务中心（jobs.md）。 */
     readonly jobs: JobCenter;
+    /** 会话树的累计花费：费用守卫按树比（run-guards.md 输出 13）。 */
+    readonly treeSpend: TreeSpend;
     /** 子代理运行与任务中心之间的跟踪（subagents.md 输出 6、7）。 */
     readonly children: ChildRuns;
     /** 模型端口：派子代理时先解析指名的模型（subagents.md 输出 1 的 `model-unavailable`）。 */
@@ -138,8 +141,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     const store = createJsonlStore({root: sessionsRoot});
     // 扫完才交出服务（深度与费用上限靠它）：之后的派发与 fork 增量登记。读不了的索引不在列表里，那些会话按没有父会话算。
     const relations = new SessionRelations();
+    const treeSpend = new TreeSpend(relations);
     const scanned = await store.list();
-    if (scanned.ok) relations.load(scanned.value);
+    if (scanned.ok) {
+        relations.load(scanned.value);
+        treeSpend.load(scanned.value);
+    }
     else options.report("relations-scan-failed", `could not list sessions to load sub-agent relations: ${scanned.code}`, {code: scanned.code});
     let sessions: SessionTable | null = null;
     const clock = kernelClock(options.clock);
@@ -303,6 +310,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         relations,
         jobs,
         children,
+        treeSpend,
         models,
         stopping: () => stopping,
         kernelClock: clock,
@@ -317,6 +325,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         stop: async () => {
             stopping = true;
             table.closeGate();
+            // 后台命令按 interrupted 收口、写完 `status.json`；子代理运行不在这里停，由下面关会话收口。
+            await Promise.allSettled(jobs.live().filter((job) => job.kind === "shell").map((job) => job.driver?.kill("interrupted")));
             await userProfiles.stop();
             await table.stop();
             await meta.settled();

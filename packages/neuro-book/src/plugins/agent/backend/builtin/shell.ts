@@ -11,7 +11,7 @@ import {dirname, join} from "node:path";
 
 import {executeShell} from "@oh-my-pi/pi-natives";
 
-import type {ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {ToolContext, ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 import type {AgentToolServices, SessionResources} from "../../shared/resources";
@@ -19,48 +19,31 @@ import type {AgentToolServices, SessionResources} from "../../shared/resources";
 import {commandEffect} from "../permissions/dialects";
 import type {Dialects} from "../permissions/dialects";
 
-import {failure, workingAddress} from "./common";
+import type {JobCenter} from "../jobs/center";
+
+import {failed, failure, workingAddress} from "./common";
+import {jobDirectory, jobOutputAddress, startBackgroundCommand} from "./shell-background";
 import {findAddresses, substitute} from "./shell-address";
+import {capLines, headAndTail, lineCount, LINE_BYTES, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window";
 
 const DEFAULT_TIMEOUT_SECONDS = 300;
 const MAX_TIMEOUT_SECONDS = 3_600;
-const WINDOW_BYTES = 50 * 1024;
-const WINDOW_LINES = 2_000;
-const PART_BYTES = 20 * 1024;
-const PART_LINES = 500;
-const LINE_BYTES = 768;
-const ARTIFACT_LIMIT = 64 * 1024 * 1024;
 
 export const shellDeclaration: AgentToolDeclaration = {
-    description: `执行 shell 命令（内嵌的 bash 兼容 shell，只在前台）。工作目录有主项目时是项目，没有时是会话工作区。命令里直接写出的资源地址（project://a.md、session://x 等）会换成真实路径，虚拟地址在执行前报错；heredoc、变量拼接、命令替换里的地址不保证替换。环境变量 $NBOOK_PROJECT、$NBOOK_SESSION 是项目与会话工作区的真实路径。输出过长时只交回开头与结尾，全文存进 session://artifacts/，用 read 分页读。`,
+    description: `执行 shell 命令（内嵌的 bash 兼容 shell）。缺省在前台等它结束；async 为 true 时转后台，立即交回任务 id 与输出文件，用 wait 取结果、kill 停掉（跑得久的构建、长任务才用）。工作目录有主项目时是项目，没有时是会话工作区。命令里直接写出的资源地址（project://a.md、session://x 等）会换成真实路径，虚拟地址在执行前报错；heredoc、变量拼接、命令替换里的地址不保证替换。环境变量 $NBOOK_PROJECT、$NBOOK_SESSION 是项目与会话工作区的真实路径。输出过长时只交回开头与结尾，全文存进 session://artifacts/，用 read 分页读。`,
     parameters: {
         type: "object",
         properties: {
             command: {type: "string"},
-            timeout: {type: "integer", minimum: 1, maximum: MAX_TIMEOUT_SECONDS, description: `超时秒数，缺省 ${String(DEFAULT_TIMEOUT_SECONDS)}`},
+            timeout: {type: "integer", minimum: 1, maximum: MAX_TIMEOUT_SECONDS, description: `超时秒数，前台缺省 ${String(DEFAULT_TIMEOUT_SECONDS)}；后台不写就不设超时`},
+            async: {type: "boolean", description: "为 true 时转后台：命令照常跑，输出边跑边写进文件"},
         },
         required: ["command"],
     },
-    version: "1",
+    version: "2",
     concurrency: "exclusive",
     effect: "exec",
 };
-
-/** 没有尾部换行的最后一段也算一行。 */
-function lineCount(text: string): number {
-    if (text === "") return 0;
-    let lines = text.endsWith("\n") ? 0 : 1;
-    for (let at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) lines += 1;
-    return lines;
-}
-
-function capLines(text: string): string {
-    return text.split("\n").map((line) => {
-        const size = Buffer.byteLength(line, "utf8");
-        // 按字节切可能切开多字节字符，解码时多出来的替换字符去掉。
-        return size <= LINE_BYTES ? line : `${Buffer.from(line, "utf8").subarray(0, LINE_BYTES).toString("utf8").replace(/\uFFFD+$/u, "")} …[本行共 ${String(size)} 字节，已截断]`;
-    }).join("\n");
-}
 
 /**
  * 收集输出：放得进窗口就只在内存里；放不下（总量、行数或单行超限）之后内存只留开头与结尾，全文进本地临时文件。
@@ -116,7 +99,7 @@ class OutputCapture {
                 this.#spool = {fd: openSync(path, "wx", 0o600), path};
             }
             const bytes = Buffer.from(text, "utf8");
-            const room = ARTIFACT_LIMIT - this.#spoolBytes;
+            const room = OUTPUT_LIMIT - this.#spoolBytes;
             const taken = bytes.length > room ? bytes.subarray(0, room) : bytes;
             writeSync(this.#spool.fd, taken);
             this.#spoolBytes += taken.length;
@@ -131,12 +114,7 @@ class OutputCapture {
         if (!this.overflowed) return {text: this.#memory, clipped: false};
         // 总量与行数都在预算内，只是单行超限（内存这时一定是全部输出）：不用省略中间。
         if (this.totalBytes <= WINDOW_BYTES && lineCount(this.#memory) <= WINDOW_LINES) return {text: capLines(this.#memory), clipped: true};
-        const head = this.#head.split("\n");
-        if (head.length > 1) head.pop();
-        const tail = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8").split("\n");
-        if (tail.length > 1) tail.shift();
-        const notice = `…[中间省略，共 ${String(this.totalBytes)} 字节]…`;
-        return {text: capLines([...head.slice(0, PART_LINES), notice, ...tail.slice(-PART_LINES)].join("\n")), clipped: true};
+        return {text: headAndTail(this.#head, Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8"), this.totalBytes), clipped: true};
     }
 
     get spoolPath(): string | null {
@@ -215,7 +193,14 @@ async function realPathOf(resources: SessionResources, address: string, signal: 
     return located.ok ? located.value.path : null;
 }
 
-async function run(context: ToolSessionContext, {resources, artifacts}: AgentToolServices, args: Readonly<Record<string, unknown>>, signal: AbortSignal): Promise<ToolResult> {
+/** 后台命令要的：任务中心与时钟（`status.json` 的结束时刻）。 */
+export interface ShellBackground {
+    readonly jobs: JobCenter;
+    readonly clock: {now(): number};
+}
+
+async function run(context: ToolSessionContext, {resources, artifacts}: AgentToolServices, args: Readonly<Record<string, unknown>>, call: ToolContext, background: ShellBackground): Promise<ToolResult> {
+    const signal = call.signal;
     const cwd = await resources.readPath(workingAddress(context.project), {signal});
     if (!cwd.ok) return failure(cwd);
     const replaced = await replaceAddresses(resources, args.command as string, signal);
@@ -226,6 +211,8 @@ async function run(context: ToolSessionContext, {resources, artifacts}: AgentToo
         ...(projectPath === null ? {} : {NBOOK_PROJECT: projectPath}),
         ...(sessionPath === null ? {} : {NBOOK_SESSION: sessionPath}),
     };
+
+    if (args.async === true) return startInBackground(context, args, call, background, {command: replaced.command, cwd: cwd.value.path, env, sessionPath});
 
     const capture = new OutputCapture();
     try {
@@ -257,9 +244,26 @@ async function run(context: ToolSessionContext, {resources, artifacts}: AgentToo
     }
 }
 
+/** `async`：登记任务、建好输出文件就交回（jobs.md 输出 7）；命令用任务自己的信号跑，不写 `timeout` 就不设超时。 */
+function startInBackground(context: ToolSessionContext, args: Readonly<Record<string, unknown>>, call: ToolContext, background: ShellBackground, prepared: {readonly command: string; readonly cwd: string; readonly env: Readonly<Record<string, string>>; readonly sessionPath: string | null}): ToolResult {
+    if (prepared.sessionPath === null) return failed("unavailable", "unavailable: 会话工作区不可用，后台命令的输出没处写。");
+    const command = args.command as string;
+    const reserved = background.jobs.reserve(context.sessionId, "shell", call.invocation, command.length <= 80 ? command : `${command.slice(0, 80)}…`);
+    if (!reserved.ok) return {...failed("concurrency-limit", "concurrency-limit: 整个应用同时在跑的任务已经到上限；在前台跑，或稍后再试。"), details: {code: "concurrency-limit", scope: reserved.scope}};
+    const job = reserved.job;
+    const address = jobOutputAddress(context.sessionId, job.id);
+    try {
+        startBackgroundCommand(background.jobs, job, jobDirectory(prepared.sessionPath, job.id), address, {command: prepared.command, cwd: prepared.cwd, env: prepared.env, ...(typeof args.timeout === "number" ? {timeoutMs: args.timeout * 1000} : {})}, background.clock);
+    } catch (error) {
+        background.jobs.release(job);
+        return failed("job-start-failed", `job-start-failed: 后台命令的输出文件建不成（${error instanceof Error ? error.message : String(error)}），命令没有执行。`);
+    }
+    return {text: `已转到后台：任务 ${job.id}。输出边跑边写进 ${address}，结束后同一目录有 status.json。用 wait 等它，kill 停掉。`, details: {jobId: job.id, invocation: call.invocation, output: address}};
+}
+
 /** 判定对象是命令；只读清单在方言里，全部只读才算读（docs/specs/agent/permissions.md 输出 17）。 */
-export const shellTool = (dialects: Dialects): AgentToolImplementation => ({
-    create: (context, services) => ({execute: (args, call) => run(context, services, args, call.signal)}),
+export const shellTool = (dialects: Dialects, background: ShellBackground): AgentToolImplementation => ({
+    create: (context, services) => ({execute: (args, call) => run(context, services, args, call, background)}),
     effect: (args) => commandEffect(dialects("bash"), args.command as string),
     subjects: (args) => [{kind: "command", dialect: "bash", text: args.command as string}],
 });
