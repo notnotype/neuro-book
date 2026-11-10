@@ -24,6 +24,7 @@ export {default as Table} from "./display/Table.vue";
 export {default as AlertDialog} from "./feedback/AlertDialog.vue";
 export {default as ContextMenu} from "./popup/ContextMenu.vue";
 export {default as Dialog} from "./feedback/Dialog.vue";
+export {default as DetailDialog} from "./feedback/DetailDialog.vue";
 export {default as FloatingWindow} from "./feedback/FloatingWindow.vue";
 export {default as Drawer} from "./feedback/Drawer.vue";
 export {default as InfoTip} from "./feedback/InfoTip.vue";

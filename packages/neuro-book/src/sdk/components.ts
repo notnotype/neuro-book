@@ -11,7 +11,7 @@
 export {
     AlertDialog, AnchoredPopover, Badge, Banner, Breadcrumb, Button, Checkbox,
     CheckboxGroup, CodeBlock, Collapsible, CollapsibleCard, CollapsibleRow, ColorSwatches,
-    ContextMenu, CopyButton, Dialog, DiffView, Drawer, FloatingWindow, DropdownMenu,
+    ContextMenu, CopyButton, DetailDialog, Dialog, DiffView, Drawer, FloatingWindow, DropdownMenu,
     EmptyState, Field, IconButton, InfoTip, Input, Kbd,
     Menubar, Notification, NotificationStack, NumberInput, OverlayScrollbar,
     Popover, Progress, QuickPick, RadioGroup, ScrollArea, SearchSelect,

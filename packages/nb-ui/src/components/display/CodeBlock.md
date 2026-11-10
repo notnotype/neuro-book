@@ -34,7 +34,7 @@ type CodeBlockProps = {
 };
 
 type CodeBlockSlots = {
-    /** 标题行右侧的操作，例如 `CopyButton`；可选。有内容时即使没有 `label` 也画标题行。 */
+    /** 标题行右侧的操作，例如 `CopyButton`；可选。有内容时即使没有 `label` 也画标题行。块的圆角会裁掉外扩焦点光晕，按钮用内嵌焦点线（`focusRing="inset"`）。 */
     actions?: () => unknown;
 };
 ```

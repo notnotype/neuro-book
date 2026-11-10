@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, Dialog, Drawer, FloatingWindow, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, DetailDialog, Dialog, Drawer, FloatingWindow, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -52,6 +52,17 @@ const CHAPTER_ITEMS = Array.from({length: 60}, (_, index) => ({
     iconClass: "i-lucide-file-text",
 }));
 
+/** 诊断原文样例（w00028 t04）：一行很长，看横向滚动；长版本看块内纵向滚动与截断说明。 */
+const DIAGNOSTIC = [
+    "EditorSaveError: EACCES: permission denied, open '/books/长夜行/第三章.md'",
+    "    code: workspace.file-write-denied",
+    "    at saveFile (editor/shared/files.ts:88:13)",
+    "    at runCommand (commands/shared/registry.ts:353:9)",
+    "    request: PUT /api/nbook.files/raw/%E9%95%BF%E5%A4%9C%E8%A1%8C/%E7%AC%AC%E4%B8%89%E7%AB%A0.md?revision=4f2a9c1e0b7d -> 500 Internal Server Error",
+    "    trace: 4f2a9c1e",
+].join("\n");
+const LONG_DIAGNOSTIC = [DIAGNOSTIC, ...Array.from({length: 60}, (_, index) => `    at frame${String(index + 1)} (plugins/example/web/module-${String(index + 1)}.ts:${String(10 + index)}:5)`)].join("\n");
+
 export const feedbackFixtures: LabFixture[] = [
     defineLabFixture<typeof Dialog>({
         component: "Dialog",
@@ -66,6 +77,16 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "closed", label: "关闭（用控制区打开）", input: {props: {title: "从书架移除", size: "sm", showFooter: true}, model: {open: false}, slots: {default: true}}},
         ],
         load: async () => (await import("./DialogFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof DetailDialog>({
+        component: "DetailDialog",
+        writeBack: {"update:open": {layer: "model", key: "open"}},
+        scenes: [
+            {id: "default", label: "保存失败的诊断原文", input: {props: {title: "文件没有保存：详情", detail: DIAGNOSTIC}, model: {open: true}}},
+            {id: "long", label: "很长、被截断的原文（块内滚动）", input: {props: {title: "布局没有保存：详情", detail: LONG_DIAGNOSTIC, truncated: true}, model: {open: true}}},
+            {id: "untitled", label: "通知没有标题时", input: {props: {title: "详情", detail: "SyntaxError: Unexpected token '}' in settings.json at line 12"}, model: {open: true}}},
+        ],
+        subject: nbUiSubject("DetailDialog"),
     }),
     defineLabFixture<typeof FloatingWindow>({
         component: "FloatingWindow",

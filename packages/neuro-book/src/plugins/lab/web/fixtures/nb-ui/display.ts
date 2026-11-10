@@ -72,7 +72,7 @@ export const displayFixtures: LabFixture[] = [
     defineSubjectFixture<typeof CodeBlock>({
         component: "CodeBlock",
         class: "w-full",
-        slotPresets: {actions: () => h(NbCopyButton, {text: DIAGNOSTIC.join("\n")})},
+        slotPresets: {actions: () => h(NbCopyButton, {text: DIAGNOSTIC.join("\n"), focusRing: "inset"})},
         scenes: [
             {id: "copy", label: "标题行带复制（诊断原文）", input: {props: {label: "诊断原文", lines: DIAGNOSTIC.map((text) => ({text}))}, slots: {actions: true}}},
             {id: "copy-only", label: "只有操作、没有标题", input: {props: {lines: DIAGNOSTIC.slice(0, 3).map((text) => ({text}))}, slots: {actions: true}}},

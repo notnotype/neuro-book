@@ -3,6 +3,7 @@ import {computed, onBeforeUnmount, ref} from "vue";
 
 import {useUiText} from "../../text-port";
 import Button from "./Button.vue";
+import type {FocusRingStyle} from "./focus-ring";
 
 export type CopyButtonState = "idle" | "copied" | "failed";
 
@@ -10,9 +11,11 @@ const props = withDefaults(defineProps<{
     text: string;
     resetAfter?: number;
     label?: string;
+    focusRing?: FocusRingStyle;
 }>(), {
     resetAfter: 1500,
     label: undefined,
+    focusRing: "outer",
 });
 
 const uiText = useUiText();
@@ -96,6 +99,7 @@ onBeforeUnmount(() => {
             ref="button"
             variant="ghost"
             size="sm"
+            :focus-ring="props.focusRing"
             :icon-class="iconClass"
             :class="state === 'copied' ? '!text-[var(--status-success)]' : state === 'failed' ? '!text-[var(--status-danger)]' : ''"
             @click="copy"

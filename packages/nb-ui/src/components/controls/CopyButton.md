@@ -29,6 +29,8 @@ type CopyButtonProps = {
     resetAfter?: number;
     /** 按钮文字；默认取文字端口的“复制”。 */
     label?: string;
+    /** 焦点画法，透传给 Button；默认 "outer"。放在四周没有余地的条里（`CodeBlock` 的标题行）时传 "inset"，外扩光晕会被块的圆角裁掉。 */
+    focusRing?: "outer" | "inset";
 };
 ```
 

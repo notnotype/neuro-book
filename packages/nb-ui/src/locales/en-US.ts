@@ -23,6 +23,11 @@ export default {
         copied: "Copied",
         failed: "Copy failed; select the text manually",
     },
+    detailDialog: {
+        source: "Diagnostic output",
+        close: "Close",
+        truncated: "Output too long; truncated",
+    },
     diffView: {
         mode: "Display",
         inline: "Inline",
