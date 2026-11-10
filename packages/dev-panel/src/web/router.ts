@@ -7,6 +7,8 @@ declare module "vue-router" {
          * 一页只有一个竖向滚动者，见 docs/panel.md 的“前端”。
          */
         layout?: "flow" | "fill";
+        /** 专注页（t23，评审板）：进来时外壳把左栏收起、离开时恢复，不写进偏好，把宽度让给正文。 */
+        focus?: boolean;
         /** 页面名：标签页标题“页面名 · nbdev”用它（带参数的 Work、Task、产物、文档、编辑、搜索页另由 host/nav.ts 的 pageTitle 拼）。 */
         title?: string;
     }
@@ -20,7 +22,7 @@ export const router = createRouter({
         {path: "/work/:workId", name: "work", component: () => import("./pages/WorkPage.vue"), props: true, meta: {title: "Work"}},
         {path: "/work/:workId/task/:taskId", name: "task", component: () => import("./pages/TaskPage.vue"), props: true, meta: {title: "Task"}},
         {path: "/artifacts", name: "artifacts", component: () => import("./pages/ArtifactsPage.vue"), meta: {title: "产物"}},
-        {path: "/artifact/:workId/:taskId/:artifactId", name: "artifact", component: () => import("./pages/ArtifactPage.vue"), props: true, meta: {layout: "fill", title: "产物"}},
+        {path: "/artifact/:workId/:taskId/:artifactId", name: "artifact", component: () => import("./pages/ArtifactPage.vue"), props: true, meta: {layout: "fill", focus: true, title: "产物"}},
         {path: "/docs", name: "docs", component: () => import("./pages/DocsPage.vue"), meta: {layout: "fill", title: "文档"}},
         {path: "/live/sessions", name: "sessions", component: () => import("./pages/SessionsPage.vue"), meta: {layout: "fill", title: "会话"}},
         {path: "/live/checkouts", name: "checkouts", component: () => import("./pages/CheckoutsPage.vue"), meta: {title: "checkout"}},

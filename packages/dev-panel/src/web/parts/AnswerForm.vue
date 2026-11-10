@@ -3,7 +3,7 @@ import {Badge, Button, Field, IconButton, Textarea} from "@notnotype/nb-ui/compo
 import {computed} from "vue";
 import {controlCharProblem} from "../../core/text-rules.js";
 import {validateAnswerValue} from "../../core/questions.js";
-import {answerText, editingValue, groupQuestions, isNewQuestion, setDraftValue, staleText, submittedValue, type AnswerDraft} from "../host/answers.js";
+import {answerText, chosenQuestions, editingValue, groupQuestions, isNewQuestion, setDraftValue, staleText, submittedValue, type AnswerDraft} from "../host/answers.js";
 import {relativeTime} from "../host/format.js";
 import type {QuestionState} from "../host/types.js";
 import QuestionControl from "./QuestionControl.vue";
@@ -73,7 +73,7 @@ function cancelEdit(state: QuestionState): void {
 /** 能交的题：待答的，加上点了“改答”的已答题。 */
 const editable = computed(() => [...groups.value.pending, ...groups.value.answered.filter((state) => editing.value[state.question.id])]);
 /** 只交改过的题（含新填的）与写了说明的题。 */
-const chosen = computed(() => editable.value.filter((state) => touched.value[state.question.id] || (comments.value[state.question.id] ?? "").trim() !== ""));
+const chosen = computed(() => chosenQuestions(props.questions, draft.value));
 const problems = computed(() => {
     const found: Record<string, string> = {};
     for (const state of chosen.value) {

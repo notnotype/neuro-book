@@ -45,6 +45,16 @@ export function groupQuestions(questions: readonly QuestionState[]): QuestionGro
     return groups;
 }
 
+/**
+ * 这份草稿会交哪些题：待答的，加上点了“改答”的已答题，其中改过取值或写了说明的。
+ * 表单的“提交 N 题”与产物页收起答题栏后的提交栏共用（t23）。
+ */
+export function chosenQuestions(questions: readonly QuestionState[], draft: Pick<AnswerDraft, "touched" | "comments" | "editing">): QuestionState[] {
+    const {pending, answered} = groupQuestions(questions);
+    const editable = [...pending, ...answered.filter((state) => draft.editing[state.question.id])];
+    return editable.filter((state) => draft.touched[state.question.id] || (draft.comments[state.question.id] ?? "").trim() !== "");
+}
+
 /** 这一版新加的题：第一次出现在最新一版，而且不是第一版（第一版的题都是新的，不标）。 */
 export function isNewQuestion(question: Pick<VersionQuestion, "since">, latestVersion: number): boolean {
     return latestVersion > 1 && question.since === latestVersion;

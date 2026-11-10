@@ -114,6 +114,15 @@ const CONTENT_SLOT = `panel-${CONTENT}` as const;
 /** 用户要的宽度：渲染前同步读出（免得刷新时先 300 再跳），拖完写回。窗口窄时由上限夹住，变宽时恢复到它。 */
 const navWidth = ref(readNavWidth());
 const navCollapsed = ref(readNavCollapsed());
+/**
+ * 进专注页（路由元信息 `focus`，评审板）时自动收起的左栏（t23）：不写进偏好，离开专注页就恢复；
+ * 在专注页里点“展开左栏”就照开发者的，专注页之间来回切换不再收起。左栏本来就收着时不管它。
+ */
+const focusCollapsed = ref(false);
+watch(() => route.meta.focus === true, (focus) => {
+    focusCollapsed.value = focus && !navCollapsed.value;
+}, {immediate: true});
+const navFolded = computed(() => navCollapsed.value || focusCollapsed.value);
 type NavCollapse = NonNullable<SplitterPanelConfig["collapse"]>;
 /**
  * 用 computed 生成：Splitter 未受控时，`panels` 换了对象就按 defaultSizePx 重新分配；模板里写字面量数组的话，外壳每 15 秒的
@@ -128,12 +137,12 @@ const panels = computed<SplitterPanelConfig[]>(() => [
         sizing: "fixed",
         // 拖到最小宽度以内再过 80px 就收起（D4）。收起后分隔线禁用（不可拖、不进 Tab 顺序），由顶栏的“展开左栏”展开（决定点 8）：
         // 否则收起时键盘要先经过一条看不见的分隔线才到“展开左栏”。expandThreshold 只在拖动中途反悔时用到。
-        collapse: {collapsedSize: 0, restoreSize: navWidth.value, collapseThreshold: 80, expandThreshold: 80, collapsed: narrow.value || navCollapsed.value} satisfies NavCollapse,
+        collapse: {collapsedSize: 0, restoreSize: navWidth.value, collapseThreshold: 80, expandThreshold: 80, collapsed: narrow.value || navFolded.value} satisfies NavCollapse,
     },
     {id: CONTENT, minSizePx: 360, sizing: "weight"},
 ]);
 /** 左栏宽 0（收起、窄屏）时整块 inert：宽 0 与裁切不会把条目移出 Tab 顺序和读屏树。 */
-const navHidden = computed(() => narrow.value || navCollapsed.value);
+const navHidden = computed(() => narrow.value || navFolded.value);
 const shellButton = (name: "collapse-nav" | "expand-nav" | "open-nav") => document.querySelector<HTMLElement>(`[data-shell="${name}"]`);
 /**
  * 点“收起左栏”“展开左栏”之后（`fromButton`），按下去的那个按钮或者被 inert、或者被移除，焦点交给对面的那个按钮；
@@ -141,6 +150,7 @@ const shellButton = (name: "collapse-nav" | "expand-nav" | "open-nav") => docume
  */
 function setNavCollapsed(value: boolean, fromButton = false): void {
     navCollapsed.value = value;
+    if (!value) focusCollapsed.value = false;
     writeNavCollapsed(value);
     if (!fromButton) return;
     void nextTick(() => {
@@ -406,7 +416,7 @@ const banners = computed<ShellBanner[]>(() => {
             <div class="flex h-full min-h-0 min-w-0 flex-col">
                 <header class="shell-toolbar nbdev-divider flex min-w-0 flex-wrap items-center gap-2 border-b px-3 py-2">
                     <IconButton v-if="narrow" icon-class="i-lucide-menu" aria-label="打开导航" data-shell="open-nav" @click="drawerOpen = true" />
-                    <Tooltip v-else-if="navCollapsed" text="展开左栏"><IconButton icon-class="i-lucide-panel-left-open" aria-label="展开左栏" data-shell="expand-nav" @click="setNavCollapsed(false, true)" /></Tooltip>
+                    <Tooltip v-else-if="navFolded" text="展开左栏"><IconButton icon-class="i-lucide-panel-left-open" aria-label="展开左栏" data-shell="expand-nav" @click="setNavCollapsed(false, true)" /></Tooltip>
                     <form ref="searchForm" class="min-w-0 max-w-xl flex-1 basis-48" role="search" @submit.prevent="submitSearch">
                         <Input v-model="query" placeholder="搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）" aria-label="搜索" aria-keyshortcuts="/ Control+K" />
                     </form>
