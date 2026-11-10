@@ -142,6 +142,16 @@
 - 失败的呈现：各失败码有固定的写法（`author-ui.md` 的失败表与输出 29），不把码给作者看。
 - 三个视图的声明写 `order`（设定 10，排在文件资源管理器之后；不写会按 id 排到它前面）、图标与标题。
 
+#### S3 的细计划（2026-11-10，开工前补）
+
+- **nb-ui `Tree`**（`packages/nb-ui/src/components/navigation/Tree.{vue,md}`）：节点加 `muted?: boolean`（标题用次级色）；加插槽 `suffix`（`{node}`，标题后面的一小段说明，例如“未出场”）；每行带 `data-tree-id`，包一层右键菜单的调用方据此知道右键的是哪一行。都是通用的，不带条目语义。Lab 场景补一个带后缀与次级色的；`Tree` 的 `.dom.test.ts` 补三条。
+- **界面文字**：canon 插件加 `locales/{zh-CN,en-US}.json` 与 `web/text.ts`（照 `explorer/web/text.ts`），在 `web/plugins.ts` 的 `builtinPluginCatalogs` 登记。
+- **`EntryTree`**（`plugins/canon/web/components/EntryTree.{vue,md}`，领域视图、受控）：props 是按父条目分好的各层（`{items, remaining, loading}`）、展开的 id、选中的 id；根下按分组插一层分组节点（分组节点的 id 带前缀，不可打开）；未出场的 `muted` 加后缀“未出场”，已删除的加“已删除”；一层有剩余时末尾一行“再显示（还有 N 项）”。emits：`open(id)`、`update:expanded`、`more(parent)`、`menu(id | null, event)`。不发请求。Lab 场景用手写的各层数据（它不读世界，不需要录像）。
+- **视图宿主**（`plugins/canon/web/entries-view.ts`，渲染函数写，同 `explorer/web/view-host.ts`）：用读取层的 `list("tree", {parent, position: 缺省位置})` 读根与每个展开的父条目；展开时才读那一层；`more` 调列表的 `more()`；树跟着世界变由读取层保证，展开状态在宿主里（视图实例的寿命），选中项跟着活动的条目页（S4 之前没有条目页，选中项是最后点过的那个，不在了就清掉）。没有绑定项目时只显示一句“打开作品后可用”。打开条目经命令 `nbook.canon.open-entry`；宿主收一个 `execute(id, args)` 端口。
+- **缺省位置**：最新一章末尾；没有章时是初值（`author-ui.md` 输出 7 的“缺省位置”）。宿主读 `chapters` 得到。
+- **入口**：canon 的浏览器入口改成 `onStartup`，在激活时建本窗口的那份读取层（用入口自己的远程访问），交视图 `nbook.canon.entries`（侧栏、`order: 10`、图标 `i-lucide-book`）与命令 `nbook.canon.open-entry`（执行编辑器的 `nbook.editor.openPage`，页面 `nbook.canon.entry`，参数是条目 id）。条目页在 S4 才登记，S3 之间打开得到编辑器的“这个页面已经不在了”。
+- **测试**：`EntryTree.dom.test.ts`（纯组件）；`entries-view.dom.test.ts` 接进程内的真实世界：分组与次级色、展开时才读、“再显示”、别处发布后展开状态保留且内容更新、点了执行打开命令。
+
 ### 五、底部面板默认隐藏
 
 待处理、改动记录两个视图不写容器，各自是底部面板里的一个入口。“默认隐藏”的声明由 w00026 t24 加；它提供之前底部面板按现行规则默认显示，S7 的外壳 e2e 基线按“默认显示”写一遍，声明到位后改声明与基线各一处。
