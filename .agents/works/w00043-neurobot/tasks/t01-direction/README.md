@@ -17,7 +17,7 @@ updated: 2026-11-09
 
 ## 当前状态
 
-2026-11-09：调研完成；开发者已定底座、QQ、记忆与第一版范围（见 [Work README 的决定](../../README.md#决定)）。Agent 能力怎么抽包在讨论：方案是按 w00032 t02 决定 3 把落在 `nbook.agent` 里的通用部分补回 nb-harness，等开发者定时机。
+2026-11-09：调研完成；方向与第一版范围已定（见 [Work README 的决定](../../README.md#决定)）。提案 [NeuroBot 第一版](../../../../../docs/proposals/neurobot.md) 开发者看过要点并同意待定项，状态 `reviewing`，设计审查进行中（Opus 审整体、Sonnet 审 web 部分）。Agent 能力补回 nb-harness 是 [w00032 t32](../../../w00032-agent-integration/tasks/t32-harness-backfill/README.md)，计划在写。
 
 - [仓库内的现状](../../research/2026-11-09-repo-survey.md)：Agent 能力哪些在包里、哪些在应用插件里，压缩触发点，多 Agent 已定设计，与多实例拓扑的对照，nb-memory 的现状。
 - [商业产品](../../research/2026-11-09-commercial-bots.md)：Grok Bot、Muse、ChatGPT Dots、DeepSeek super-agent（是技术文章加开源原型，不是论文）。
@@ -26,4 +26,4 @@ updated: 2026-11-09
 
 ## 下一步
 
-开发者定抽包的时机后写提案（`docs/proposals/`），先给开发者看要点再提交。
+处理设计审查的结论，提案改成 `accepted`；再写 `planned` Spec（`docs/specs/bot/`）与第一版的实施 Task。NeuroBot 第一版的实现排在 t32 合入之后。
