@@ -1,0 +1,35 @@
+{
+    "commands": {
+        "category": "设定",
+        "nbook": {
+            "canon": {
+                "open-entry": {
+                    "title": "打开条目"
+                }
+            }
+        }
+    },
+    "views": {
+        "nbook": {
+            "canon": {
+                "entries": {
+                    "title": "设定"
+                }
+            }
+        }
+    },
+    "world": {
+        "unbound": "打开作品后可用",
+        "disconnected": "世界已断开",
+        "retry": "重试",
+        "failed": "没有读出来"
+    },
+    "entries": {
+        "label": "条目树",
+        "empty": "还没有条目",
+        "unappeared": "未出场",
+        "deleted": "已删除",
+        "more": "再显示（还有 {{count}} 项）",
+        "loading": "读取中…"
+    }
+}

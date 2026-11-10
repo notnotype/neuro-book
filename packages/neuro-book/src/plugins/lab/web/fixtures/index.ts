@@ -6,6 +6,7 @@ import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPrev
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
 import type EditorPageBreadcrumbs from "nbook/plugins/editor/web/components/EditorPageBreadcrumbs.vue";
+import type EntryTree from "nbook/plugins/canon/web/components/EntryTree.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
@@ -787,6 +788,32 @@ export const labFixtures: LabFixture[] = [
             {id: "plain", label: "没有可点的段", input: {props: {items: [{label: "设定"}, {label: "第 2 章"}, {label: "订了星瑾小时候最喜欢的蛋糕"}]}}},
         ],
         load: async () => (await import("./EditorPageBreadcrumbsFixture.vue")).default,
+    }),
+    defineLabFixture<typeof EntryTree>({
+        component: "EntryTree",
+        scenes: (() => {
+            const item = (id: string, name: string, extra: Record<string, unknown> = {}) => ({id, name, folder: "", hasChildren: false, appeared: true, deleted: false, ...extra});
+            const layer = (items: ReturnType<typeof item>[], remaining = 0, loading = false) => ({items, remaining, loading});
+            const root = layer([
+                item("xingxia", "星瑕", {folder: "人物", hasChildren: true}),
+                item("baling", "白灵", {folder: "人物"}),
+                item("hui", "彗", {folder: "人物", appeared: false}),
+                item("federation", "联邦"),
+                item("academy", "第三魔法学院", {folder: "地点"}),
+                item("old", "被删掉的旧设定", {folder: "地点", deleted: true, hasChildren: true}),
+            ], 12);
+            const xingxia = layer([item("gege", "哥哥", {appeared: false}), item("girl", "魔法少女星")], 0);
+            const sample = {props: {layers: {"": root, xingxia}, selected: "gege"}, model: {expanded: ["folder:人物", "folder:地点", "xingxia"]}};
+            return [
+                {id: "sample", label: "分组、未出场、已删除、还有 12 项", input: sample},
+                {id: "loading-layer", label: "展开了还没读到的一层", input: {props: {layers: {"": root}}, model: {expanded: ["folder:人物", "xingxia"]}}},
+                {id: "loading", label: "根这一层还没读到", input: {props: {layers: {} as Record<string, ReturnType<typeof layer>>}, model: {expanded: []}}},
+                {id: "empty", label: "还没有条目", input: {props: {layers: {"": layer([])}}, model: {expanded: []}}},
+                {id: "disconnected", label: "世界已断开", input: {props: {...sample.props, disconnected: true}, model: sample.model}},
+                {id: "sample-english", label: "英文界面", input: sample},
+            ];
+        })(),
+        load: async () => (await import("./EntryTreeFixture.vue")).default,
     }),
     defineSubjectFixture<typeof EditorTabBar>({
         component: "EditorTabBar",

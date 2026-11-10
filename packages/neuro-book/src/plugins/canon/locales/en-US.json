@@ -1,0 +1,35 @@
+{
+    "commands": {
+        "category": "Lore",
+        "nbook": {
+            "canon": {
+                "open-entry": {
+                    "title": "Open Entry"
+                }
+            }
+        }
+    },
+    "views": {
+        "nbook": {
+            "canon": {
+                "entries": {
+                    "title": "Lore"
+                }
+            }
+        }
+    },
+    "world": {
+        "unbound": "Available after opening a work",
+        "disconnected": "The world is disconnected",
+        "retry": "Retry",
+        "failed": "Could not read this"
+    },
+    "entries": {
+        "label": "Entry tree",
+        "empty": "No entries yet",
+        "unappeared": "not yet on stage",
+        "deleted": "deleted",
+        "more": "Show more ({{count}} left)",
+        "loading": "Reading…"
+    }
+}

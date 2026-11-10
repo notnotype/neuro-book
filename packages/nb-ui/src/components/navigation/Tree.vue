@@ -11,6 +11,8 @@ export interface GenericTreeNode {
     /** i-lucide-* 之类的图标类。不给就没有图标——树不替调用方决定节点「是什么」。 */
     iconClass?: string;
     disabled?: boolean;
+    /** 标题用次级色：这一项此刻不是正常状态（例如还没出场），但仍可选择。 */
+    muted?: boolean;
     children?: GenericTreeNode[];
 }
 
@@ -37,6 +39,11 @@ const props = withDefaults(defineProps<{
     disabled: false,
     surface: "card",
 });
+
+defineSlots<{
+    /** 标题后面的一小段说明（例如“未出场”）；行太窄时标题先截断，说明保留。 */
+    suffix?(props: {node: GenericTreeNode}): unknown;
+}>();
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: string | string[] | undefined): void;
@@ -136,6 +143,7 @@ function indentFor(level: number): string {
             :style="{ paddingInlineStart: indentFor(item.level) }"
             :value="item.value"
             :level="item.level"
+            :data-tree-id="item.value.id"
             class="nb-ui-focus-ring group flex min-h-[var(--control-h-sm)] cursor-pointer items-center gap-[var(--space-3)] rounded-[calc(var(--radius-control)*0.75)] py-0.5 pe-[var(--space-3)] text-[length:var(--text-sm)] text-[var(--text-secondary)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-layout)] hover:bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)] hover:text-[var(--text-main)] data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)] data-[selected]:[font-weight:var(--weight-medium)] data-[selected]:text-[var(--accent-main)] disabled:cursor-not-allowed disabled:opacity-40"
             @select="emit('select', item.value)"
         >
@@ -157,7 +165,8 @@ function indentFor(level: number): string {
                 aria-hidden="true"
             />
 
-            <span class="truncate">{{ item.value.title }}</span>
+            <span class="truncate" :class="item.value.muted ? 'text-[var(--text-muted)]' : ''">{{ item.value.title }}</span>
+            <span v-if="$slots.suffix" class="shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]"><slot name="suffix" :node="item.value" /></span>
         </TreeItem>
     </TreeRoot>
 </template>
