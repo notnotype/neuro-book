@@ -59,10 +59,67 @@ ol.week li { margin: 2px 0; }
 <p>界面上不出现记录 id、Component、字段路径（提案第 8 节“入口与用词”），所以草稿里把提案的几个词换成了作者的说法：初值 → 开局，讲述 → 讲到的地方，补丁 → 改了什么，生效位置 → 什么时候。</p>
 </div>
 
-<div class="round">要你定的事 · 一次答完</div>
+<div class="round">第 5 轮 · 剧情侧重画</div>
 
 <section class="s">
-<h2>共 14 题 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<h2>这一轮改了什么 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>按第 4 轮的审查（84 条）与你 2026-11-10 的答复重画，13 张图。外壳仍是画的示意；画布 1440×900，亮色。</p>
+<ul>
+<li><b>要你拍板的事只有三种样子</b>：对一句正文表态（图 4）、对一个决定表态（图 1 第 1 条）、两处对不上（图 1 第 2、3 条）。三种是同一张卡，最右总有同一个“不用管”类的出口。时间对不上不再是另一种横幅。</li>
+<li><b>一个数</b>：工作单最上面一句话回答“能不能动笔”；侧栏那一章后面、状态栏上是同一个数。上一章没处理完的检查在开写前也提一句。</li>
+<li><b>点下去有去处</b>：决定在底部面板里定、推迟、放弃、新建（图 2）；对写手的要求、打算写的每一条都有“改”；蓝色的名字都是链接，秘密、伏笔、目标本来就是条目，点了开它的条目页（图 7），不另画详情窗格。</li>
+<li><b>给写手的上下文是程序实际拼出来的</b>（图 3），不再手写。上面先用一张小表回答你最关心的：每条秘密给了写手什么、告诉了写手谁不知道。</li>
+<li><b>检查过期的样子</b>（图 5）：按你定的，规则不变，界面明说还有几条暂时看不到。</li>
+<li><b>真实规模</b>：伏笔账本改成一行一个伏笔加一条按章的小格带（图 8，章再多也只是格子变多）；谁知道什么默认只列主要角色，多一列“别的人”，按“关于谁”分组，上面有筛选（图 6）。</li>
+<li><b>多条线进了每一屏</b>：页头的“看哪一刻”旁边多一个“看哪条线”，状态栏右边写“在看：某条线”；回溯章的工作单按段分成两栏（图 12）；谁知道什么在回溯以后的线上标出“带过来的”（图 13）。时间线重做（图 11）。</li>
+<li><b>规范</b>：去掉了每屏的灰色说明文字；黄色只表示“要你处理”；同一个概念只用一个叫法（谁知道、信错了、决定、写手）；页头与位置选择沿用第一批条目页的画法。</li>
+</ul>
+<p>这一轮没画的：剧情表（沿用第 2 轮的）；时间线的“一行一个人”“按讲的先后”两种排法（只画了一行一条线）；平行视角与补叙的例子（星瑕没有，时间线的画法能放下：补叙的事排在它发生的那一格，标“在哪一章讲的”）；检查正在跑、失败、没跑过三种状态；人物页的“目标与态度”分页；390 像素窄屏。</p>
+</section>
+
+<section class="q" data-nbdev-question="r5-line-scope" data-nbdev-type="single" data-nbdev-recommend="global">
+<h2>“看哪条线”是整个窗口一个，还是每页各选各的 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>图上两种都画了：每页页头有一个选线的下拉，状态栏右边也写着“在看：主线”。实施时只留一种。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="global"><h3>整个窗口一个</h3><p>在状态栏切换，所有页面一起跟着变，页头只写一行“在看：回溯以后”。写回溯以后那几章时切过去，写完切回来。要对照两条线时开两个窗口。</p></div>
+<div class="opt" data-nbdev-option="per-page"><h3>每页各选各的</h3><p>页头的下拉留着，可以一页看主线、另一页看回溯以后。灵活，但每开一页都要想一下它在看哪条线，容易看错。</p></div>
+</div>
+<div class="rec-note"><b>推荐：整个窗口一个。</b>要记住的东西最少，也不会出现“两页的数对不上、其实是线不一样”。</div>
+</section>
+
+<section class="q" data-nbdev-question="r5-timeline" data-nbdev-type="single" data-nbdev-recommend="grid">
+<h2>时间线这样排行不行 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>图 11：列是故事里的时间段（“十年前”“周三”这种说法照原样），行可以换成一条线一行、一个人一行，或者按讲的先后排；每件事标着“在哪一章讲的”，所以回忆排在它发生的那一格。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="grid"><h3>就按这个格子做</h3><p>同一周的两条视角线是两行，回溯是另一行，回忆在它发生的那一列。时间段多了以后列可以按卷折起来。要在 nb-ui 里新做一个格子组件。</p></div>
+<div class="opt" data-nbdev-option="list"><h3>先做成简单的列表</h3><p>一条线一个列表，按故事时间从上到下，不对齐列。做起来快，但两条线“同一时刻各在发生什么”看不出来。</p></div>
+</div>
+<div class="rec-note"><b>推荐：格子。</b>时间线要回答的就是“同一时刻别处在发生什么”，列表答不了。</div>
+</section>
+
+<section class="q" data-nbdev-question="r5-screens" data-nbdev-type="text">
+<h2>13 张图里，哪一张还不对 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>可以只写图号加一句话。没有意见的话，我就按这一轮写第二批的 Spec 与计划。</p>
+</section>
+
+<section class="s" id="r01"><h2>1 第 3 章的工作单 · 开写前</h2><figure><img src="r5/r01-before.webp" alt="开写前"><figcaption>最上面一句话回答能不能动笔。三件要先看的事是同一种卡：一个该定的决定、两处对不上。下面是对写手的要求、细纲（文件，点了打开）、这一章打算写的。</figcaption></figure></section>
+<section class="s" id="r02"><h2>2 定一个到期的决定</h2><figure><img src="r5/r02-decide.webp" alt="定一个决定"><figcaption>点“现在定”，底部面板打开“决定”：左边是全部决定（还没定的在前），右边填怎么定、为什么、在哪一章之前谁不能知道。推迟、放弃、新记一件要定的事也在这里。</figcaption></figure></section>
+<section class="s" id="r03"><h2>3 给写手的上下文</h2><figure><img src="r5/r03-brief.webp" alt="给写手的上下文"><figcaption>全文是程序对着真实的星瑕数据拼出来的，一字未改。上面的小表先回答：每条秘密给了写手什么。注意真实的写法里，写手拿到了“哥哥就是星瑕”的真相，同时被告知星瑾不知道；别的段里他只叫“哥哥”。</figcaption></figure></section>
+<section class="s" id="r04"><h2>4 第 2 章的工作单 · 写完以后</h2><figure><img src="r5/r04-after.webp" alt="写完以后"><figcaption>两处要看的都是“对一句正文表态”的卡：原句、为什么可疑、你定过的相关决定、处理办法。同样两条也在底部的待处理里。“查了什么”换成了作者的说法。</figcaption></figure></section>
+<section class="s" id="r05"><h2>5 检查过期的样子</h2><figure><img src="r5/r05-stale.webp" alt="检查过期"><figcaption>处理了第一条（记了一笔）以后：这一章的检查过期，明说还有 1 条暂时看不到，给“重查”和上次的花费。</figcaption></figure></section>
+<section class="s" id="r06"><h2>6 谁知道什么</h2><figure><img src="r5/r06-who.webp" alt="谁知道什么"><figcaption>按“关于谁”分组。列是你选的主要角色（右上可以改），“别的人”一列防止把“只有配角知道”看成没人知道。上面的筛选直接回答“只有读者知道的”“读者还不知道的”“没打算怎么揭的”。</figcaption></figure></section>
+<section class="s" id="r07"><h2>7 一条秘密的条目页</h2><figure><img src="r5/r07-secret.webp" alt="秘密的条目页"><figcaption>从任何一屏点秘密的名字都到这里。和第一批的条目页是同一页，多一个“谁知道”分页：每个角色怎么知道的、读者从哪一句起知道、和它有关的决定、伏笔、态度。</figcaption></figure></section>
+<section class="s" id="r08"><h2>8 伏笔账本</h2><figure><img src="r5/r08-ledger.webp" alt="伏笔账本"><figcaption>一行一个伏笔：到哪一步、上次提到、接下来的打算；右边一格一章，黑底是写了的，虚线是打算写的。“没有打算”用黄色标出来。</figcaption></figure></section>
+<section class="s" id="r09"><h2>9 目标表</h2><figure><img src="r5/r09-goals.webp" alt="目标表"><figcaption>一个角色一组，可以只看一个人。互相打架的两边都写；两章没动过的目标用黄色标出来。</figcaption></figure></section>
+<section class="s" id="r10"><h2>10 人物条目页 · 知道什么</h2><figure><img src="r5/r10-person.webp" alt="人物条目页"><figcaption>页头和第一批的条目页一样。保密的事全部列出，包括她不知道的；别的事只列她知道的。</figcaption></figure></section>
+<section class="s" id="r11"><h2>11 时间线</h2><figure><img src="r5/r11-timeline.webp" alt="时间线"><figcaption>列是故事里的时间段，行是线。每件事标着在哪一章讲的；“还没讲”的是只在设定里、读者没读到的。回溯以后是第二行，从它回到的那一格开始。</figcaption></figure></section>
+<section class="s" id="r12"><h2>12 回溯章的工作单</h2><figure><img src="r5/r12-rewind.webp" alt="回溯章的工作单"><figcaption>第 8 章前半讲主线、后半讲回溯以后：开写前按段分两栏，各写这一段打算写的、这一段开头在场的人各自的状况；给写手的上下文也是每段一份。</figcaption></figure></section>
+<section class="s" id="r13"><h2>13 谁知道什么 · 回溯以后</h2><figure><img src="r5/r13-who-branch.webp" alt="回溯以后的谁知道什么"><figcaption>换到“回溯以后”这条线：星瑕知道的事标着“带过来的”，别人回到回溯前那一刻。</figcaption></figure></section>
+
+<div class="round">2026-11-10 已定的 13 题</div>
+
+<section class="s">
+<h2>14 题，答了 13 题 <span class="badge info" data-nbdev-skip>说明</span></h2>
 <p>三组：一、第一批（设定侧）计划的 5 题；二、第 4 轮审查以后要定的 6 题；三、第 4 轮原有的 3 题（在下面“第 4 轮”那一节，带图）。每题都写了推荐与不这样做的代价；同意推荐就点推荐的那一项，有别的想法写在备注里。</p>
 </section>
 
@@ -74,59 +131,64 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="b1-entry-crud" data-nbdev-type="single" data-nbdev-recommend="yes">
-<h2>第一批做不做条目的新建与删除 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>第一批做不做条目的新建与删除 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>现在记账与 Agent 工具都还没做，世界里的东西只能来自样本、手动新建和手动记一笔。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="yes"><h3>做最小的</h3><p>新建条目填名字、类型、放在谁下面、启用哪几种数据；条目页里能删除。都有回执、能还原。</p></div>
 <div class="opt" data-nbdev-option="no"><h3>不做</h3><p>界面只在星瑕样本上有内容，你自己的作品打开是空的。少两个表单。</p></div>
 </div>
 <div class="rec-note"><b>推荐：做最小的。</b>否则第一批做完，你只能看样本，不能在自己的书上试。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：做最小的。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="b1-restore" data-nbdev-type="single" data-nbdev-recommend="yes">
-<h2>条目页刷新以后恢不恢复 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>条目页刷新以后恢不恢复 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>条目页、回执页用的是编辑器的“页面标签”。现在这种标签刷新以后不恢复（欢迎页就是这样）。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="yes"><h3>恢复</h3><p>刷新或重开作品以后，开着的条目页还在。编辑器要多记一种标签，多一段恢复的逻辑与测试。</p></div>
 <div class="opt" data-nbdev-option="no"><h3>不恢复</h3><p>刷新以后开着的条目页全部消失，只剩文件标签。</p></div>
 </div>
 <div class="rec-note"><b>推荐：恢复。</b>条目页是设定侧的主要界面，一刷新全没了会很难受。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：恢复。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="b1-preview" data-nbdev-type="single" data-nbdev-recommend="no">
-<h2>点条目树是不是“预览标签” <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>点条目树是不是“预览标签” <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>文件树现在是这样：单击开一个斜体的预览标签，再点别的文件就替换它，双击才留下。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="no"><h3>第一批不做，单击就开正式标签</h3><p>同一个条目再点是切过去。连着点很多条目会开很多标签。</p></div>
 <div class="opt" data-nbdev-option="yes"><h3>做，和文件树一样</h3><p>要让页面标签也支持预览与“留下”，编辑器的改动多一截。</p></div>
 </div>
 <div class="rec-note"><b>推荐：第一批不做。</b>用过以后觉得标签太多再加，改动只在编辑器里，不影响别的。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：第一批不做。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="b1-component-tabs" data-nbdev-type="single" data-nbdev-recommend="generic">
-<h2>条目页里“人物”“面板”这些分页怎么画 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>条目页里“人物”“面板”这些分页怎么画 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>你 11-01 定过各种数据的界面放在自己的分页里、用 Vue 单独写。现在内置的只有两种够测试用的最小类型，完整的字段清单（t10）还没定。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="generic"><h3>第一批先用一张通用的字段表</h3><p>每种数据一个分页，里面按字段列出名字、值、改过的标记，点值看来历，数值能记一笔。各自单独的界面等 t10 定字段时再做。</p></div>
 <div class="opt" data-nbdev-option="custom"><h3>第一批就给人物、面板各写一个专门的界面</h3><p>好看一些，但字段清单一变就要重写。</p></div>
 </div>
 <div class="rec-note"><b>推荐：通用的字段表。</b></div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：第一批就给人物、面板各写专门的界面（没按推荐）。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="b1-panel-quiet" data-nbdev-type="single" data-nbdev-recommend="hidden">
-<h2>底部面板默认显不显示 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>底部面板默认显不显示 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>待处理与改动记录放在底部面板（你 11-02 定的）。按工作台现在的规则，面板里只要有视图，新窗口第一次打开时它就默认显示。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="hidden"><h3>默认隐藏</h3><p>状态栏有“待处理 N”，点了才打开。要给工作台加一个小的声明（这种视图不算进“默认显示”）。</p></div>
 <div class="opt" data-nbdev-option="shown"><h3>默认显示</h3><p>不用改工作台。所有新窗口默认多一条底部面板，写作区变矮；别的功能的界面测试基线也要跟着改。</p></div>
 </div>
 <div class="rec-note"><b>推荐：默认隐藏。</b></div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：默认隐藏。</b></div>
 </section>
 
 <div class="round">二、第 4 轮审查以后要定的</div>
 
 <section class="q" data-nbdev-question="r4-stale" data-nbdev-type="single" data-nbdev-recommend="whole">
-<h2>写完以后的检查：处理了一条，其余几条怎么办 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>写完以后的检查：处理了一条，其余几条怎么办 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>现在的规则：一章的检查结果是一整份，正文或记录一改，这一份就过期，过期以后整章的结果都不再显示，直到重查（重查要调模型）。所以第 2 章查出两条，你处理第一条时记了一笔，第二条会跟着消失，待处理从 2 变成 0。“不算问题”这种处理不改记录，不会触发。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="whole"><h3>规则不变，界面明说</h3><p>过期时工作单与待处理都写“第 2 章的检查过期了，还有 1 条没处理的暂时看不到”，给“重查”；会让检查过期的按钮，点之前说一句。规则与实现都不用动。</p></div>
@@ -134,40 +196,44 @@ ol.week li { margin: 2px 0; }
 <div class="opt" data-nbdev-option="narrow"><h3>只让受影响的那一条过期</h3><p>最顺手。但要逐条记住每个结果依赖了什么，规则和实现都复杂不少，重查也要能只查一部分。</p></div>
 </div>
 <div class="rec-note"><b>推荐：规则不变，界面明说。</b>最简单，也不会把可能已经不成立的结果当真；代价是处理完一条常常要重查一次。用起来真的嫌烦再改。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：规则不变，界面明说。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="r4-write-anyway" data-nbdev-type="single" data-nbdev-recommend="later">
-<h2>开写前的“先照写”按钮 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>开写前的“先照写”按钮 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>图 1 里到期没定的决定有一个“先照写”。它该记什么（下一章还提不提醒、算不算你同意了）现在没有规则：Spec 写的是“由写作任务定”，而写作任务还没设计。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="later"><h3>这一轮不画，等写作流程定了再加</h3><p>到期没定的决定只有“现在定”和“推迟到某一章”两个出口。</p></div>
 <div class="opt" data-nbdev-option="snooze"><h3>现在就定成“这一章不再提醒”</h3><p>点了以后这一章的工作单不再把它列在最上面，下一章照常提醒；不算你同意了什么。</p></div>
 </div>
 <div class="rec-note"><b>推荐：这一轮不画。</b>“推迟到某一章”已经能表达“先不管”，少一个含义不清的按钮。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：这一轮不画。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="r4-outline" data-nbdev-type="single" data-nbdev-recommend="file">
-<h2>细纲放在哪 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>细纲放在哪 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>给写手拼上下文时要用这一章的细纲，现在应用里没有地方写它。写作指示（视角、时间、结尾停在哪）我打算直接放在工作单里填，这一条不问。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="file"><h3>细纲是作品里的文件，每章一份</h3><p>在编辑器里写，和正文一样有历史；主 Agent 用文件工具就能读。工作单里显示它的开头并链接过去。写作流程的草稿（t19）也是按“细纲文件”写的。要定文件放在哪、怎么和章对上。</p></div>
 <div class="opt" data-nbdev-option="box"><h3>细纲是工作单里的一个文本框</h3><p>存在剧情插件的记录里，不是文件。做起来最快；但没有编辑器的排版与历史，Agent 要另给它读细纲的办法。</p></div>
 </div>
 <div class="rec-note"><b>推荐：文件。</b>我上一条回复里说的是文本框，查了写作流程的草稿以后改了：那边一直把细纲当文件，作品数据是文件也符合“本地优先、可审查”。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：细纲是作品里的文件。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="r4-term-writer" data-nbdev-type="single" data-nbdev-recommend="writer">
-<h2>界面上管写正文的那个 AI 叫什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>界面上管写正文的那个 AI 叫什么 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>审查里扮演新作者的那位说：“写手”会被理解成人类合作者或者作者自己。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="writer"><h3>写手</h3><p>和右栏跟你说话的“写作助手”、后台的“记账”是三个不同的角色，各有名字；第一次出现的地方写成“AI 写手”。</p></div>
 <div class="opt" data-nbdev-option="ai"><h3>AI</h3><p>最好懂，但分不清是哪一个 AI。</p></div>
 </div>
 <div class="rec-note"><b>推荐：写手</b>，第一次出现处写“AI 写手”。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：写手。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="r4-term-workorder" data-nbdev-type="single" data-nbdev-recommend="workorder">
-<h2>“章的工作单”叫什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>“章的工作单”叫什么 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>每章一页，放开写前要看的事、给写手的上下文、写完以后的检查。审查说“工作单”是个新词，能猜出意思，但标签上没有章名，和章节文件对不上。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="workorder"><h3>工作单，标签写成“第 3 章 卡里的两万 · 工作单”</h3></div>
@@ -175,16 +241,18 @@ ol.week li { margin: 2px 0; }
 <div class="opt" data-nbdev-option="chapter-panel"><h3>不起名字，做成章节文件旁边的一栏</h3><p>打开章节文件时在右侧显示。不占标签，但和正文抢宽度，右栏已经有 Agent 对话。</p></div>
 </div>
 <div class="rec-note"><b>推荐：工作单，带章名。</b>有别的叫法直接写在备注里。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：工作单，标签带章名。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="r4-timeline-split" data-nbdev-type="single" data-nbdev-recommend="split">
-<h2>时间线与多条线，要不要从第二批拆出去 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>时间线与多条线，要不要从第二批拆出去 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>审查指出图 7 的画法不成立：只按世界线分行，画不出“同一周的两条视角线”和“第 25 章回忆十年前”；回溯以后，工作单、秘密与知情、人物页读的是哪条线也没有入口。这一块牵涉每一屏，不是改一张图的事。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="split"><h3>拆出去，第二批先不做</h3><p>第二批的界面都读“当前这条线”（和第一批一样）。回溯、平行视角、补叙、时间线等第二批的主体定了以后，单独做一轮设计。</p></div>
 <div class="opt" data-nbdev-option="together"><h3>和第二批一起设计</h3><p>星瑕的回溯是核心能力，早点想清楚每一屏怎么表达“哪条线”。第二批的设计要多一到两轮才能定。</p></div>
 </div>
 <div class="rec-note"><b>推荐：拆出去。</b>先把不涉及多线的部分做出来用上；多线的界面等内核里真有一部带回溯的样本以后再画，更有把握。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：和第二批一起设计（没按推荐）。</b></div>
 </section>
 
 <div class="round">三、第 4 轮 · 剧情侧放在哪</div>
@@ -210,7 +278,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="r4-placement" data-nbdev-type="single" data-nbdev-recommend="by-chapter">
-<h2>剧情侧的东西按什么组织 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>剧情侧的东西按什么组织 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>作者用到这些东西有三个时候：平时翻看与规划；开写某一章之前；某一章写完以后。九张图是按下面这张表画的。</p>
 <table>
 <tr><th>东西</th><th>放在哪</th><th>图</th></tr>
@@ -229,10 +297,11 @@ ol.week li { margin: 2px 0; }
 <p>开写前的事与检查结果都只进底部面板的待处理与决定；给写手的上下文做成章节文件标题栏上的一个预览按钮。少一种页面，但同一章的三件事分在三个地方。</p></div>
 </div>
 <div class="rec-note"><b>推荐：按章组织。</b>作者是一章一章写的，这三件事问的都是“这一章”；分开放时，开写前要自己去三个地方看一遍才知道能不能动笔。工作单也是以后“写这一章”“检查这一章”两个按钮最自然的位置。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：按章组织。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="r4-order" data-nbdev-type="multi" data-nbdev-recommend="workorder,knowledge,person">
-<h2>第二批先做哪几块 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>第二批先做哪几块 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>七块东西不必一起做。选你想先用上的；没选的排在后面。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="workorder"><h3>章的工作单：开写前与给写手的上下文</h3><p>图 1、2。数据都是程序算的，不调模型。</p></div>
@@ -244,6 +313,7 @@ ol.week li { margin: 2px 0; }
 <div class="opt" data-nbdev-option="timeline"><h3>时间线</h3><p>图 7。要先在 nb-ui 里做时间线组件。</p></div>
 </div>
 <div class="rec-note"><b>推荐：工作单的前两个分页、秘密与知情、人物条目页的分页。</b>三块都不调模型，都直接回答作者动笔前最常问的问题；检查结果依赖记账，时间线依赖新组件，放在后面。</div>
+<div class="rec-note"><b>已定（开发者 2026-11-10）：七块都选了。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="r4-screens" data-nbdev-type="text">
