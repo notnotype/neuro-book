@@ -74,12 +74,12 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 | D `definitionAt` 交回新对象，按对象身份核对插件会误判 | 成立 | 按 id 加入口身份核对 |
 | D 范围外：nb-story 与开发者面板的本地服务可能没有 `Host`、`Origin` 核对 | 不成立（读代码判断） | nb-story 有一次性口令登录加会话 Cookie（`packages/nb-story/src/server/auth.ts`），重绑定的页面拿不到 Cookie；不处理 |
 
-### 待开发者定
+### 开发者定的（2026-11-10，答“可以”，三项都按推荐）
 
-1. 模型服务放哪：初稿放进 nb-harness 的 `./models`，远程合同留在应用；独立设计放进新包 `nb-models`（依赖 nb-runtime 与 nb-harness），合同的定义对象与失败码表随服务进包。
-2. 加锁替换（`packages/neuro-book/src/backend/locked-replace.ts`，241 行，应用里 19 个文件在用）要不要抽成与应用无关的小包。
-3. 诊断日志出口（`runtime.diagnostics` 插件，603 行）要不要进 nb-host。
+1. 模型服务放进新包 `nb-models`（依赖 nb-runtime 与 nb-harness），远程合同的定义对象与失败码表随服务进包，两个应用只填各自的 id。原来 w00032 t32 要搬进 nb-harness 的 `models/shared/rules.ts`、`compaction.ts` 改由本 Task 搬进 `nb-models`。
+2. 加锁替换（`packages/neuro-book/src/backend/locked-replace.ts`）抽成一个与应用无关的小包；nb-host 的数据目录认领、NeuroBook 的设置与 Files、以后 NeuroBot 的记忆与设置都用它，锁的参数只有一份。
+3. 诊断日志的输出插件（`runtime.diagnostics`）进 nb-host。
 
 ## 下一步
 
-开发者定上面三项后，派 Opus 按上表改第二稿。
+派 Opus 按上表与上面三项改第二稿；第二稿交开发者确认后，主 Agent 在主工作区写 ADR（新包 nb-host、nb-models、加锁替换的小包，ADR 0030 决策 2 的修订），再开工。

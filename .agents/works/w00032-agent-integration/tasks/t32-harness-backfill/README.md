@@ -53,6 +53,7 @@ updated: 2026-11-09
 | 2026-11-10 | 开发者：“我觉得可以依赖 nb-form”。推翻计划第二稿确认项第 1 条的推荐（表单校验由宿主注入）：nb-harness 直接依赖 nb-form，`ask` 照现在用它校验表单。代价（主 Agent 核实）：nb-form 的包级依赖有 nb-ui 与 Vue（非可选 peer），装 nb-story 时会连带装上；运行时只加载 nb-form 的核心入口（只依赖 TypeBox） |
 | 2026-11-10 | 开发者：“我想要 nb-harness 的数据结构支持表单，但是不用 nb-form 的 vue 组件实现。”做法：nb-harness 只导入 nb-form 的核心入口（表单描述、检查、解析、校验；运行时只依赖 TypeBox，对 nb-ui 只取文字值的类型，由 nb-form 的 `boundary.test.ts` 守着），不导入 `./vue`，nb-harness 加一条导入边界测试守住；表单怎么画由各宿主决定。为了装 nb-story 时不连带装上 Vue 一套，nb-form 的 `nb-ui` 与 `vue` 改为可选的 peer 依赖（只有 `./vue` 用到），并加进 nb-form 的开发依赖供它自己的测试用；这一步是主 Agent 的推荐，放进本 Task，开发者有异议再改 |
 | 2026-11-10 | 开发者：压缩摘要的小节“由应用决定”（确认项第 3 条按推荐） |
+| 2026-11-10 | 开发者同意 w00043 t02 的三项（答“可以”）：模型服务放进新包 `nb-models`，所以本 Task 不再搬 `models/shared/rules.ts`、`compaction.ts`（改由 w00043 t02 搬进 `nb-models`），`./models/rules` 子路径删去；kit 要用的压缩角色 id 留在 `kit/shapes.ts`。确认项第 4 条（新增公开子路径）按推荐，清单按第三稿实际的目录 |
 
 ## 当前状态
 
@@ -82,4 +83,4 @@ updated: 2026-11-09
 
 ## 下一步
 
-第二稿（2026-11-10，按上表改，另有几处落实时必须一起改的：浏览器要用的 `./kit/files` 不引 node、`localFiles` 拆到 `./kit/files/local`；模式闸门的文字由宿主给；`escalate` 的来源加 `mode`；`ReviewRequest` 去掉 `project`）已写，交开发者确认计划第七节的 4 项。确认后建 worktree 开工；t14 的前后端实施在本 Task 合入之后。
+派 Opus 按“决定”表改第三稿：`ask` 直接用 nb-form 的核心入口、nb-form 的 `nb-ui` 与 `vue` 改为可选 peer、nb-harness 加 nb-form 的导入边界测试、删去模型规则那一片。第三稿核对后开工（谁写代码待开发者定）；t14 的前后端实施在本 Task 合入之后。
