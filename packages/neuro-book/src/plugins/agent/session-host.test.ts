@@ -1417,3 +1417,43 @@ describe("手动压缩（输出 20）", () => {
         await until("说明收掉", () => h.ctx().composer.notice === undefined);
     }, 40_000);
 });
+
+describe("子代理（w00032 t14）", () => {
+    test("工具名：nbook.agent 的子代理与任务工具显式映射，别的插件的同名工具不认", () => {
+        expect(["nbook.agent.spawn", "nbook.agent.send", "nbook.agent.answer", "nbook.agent.wait", "nbook.agent.kill", "nbook.agent.jobs"].map(displayToolName)).toEqual(["agent_spawn", "agent_send", "agent_answer", "agent.wait", "agent.kill", "agent.jobs"]);
+        expect(displayToolName("other.plugin.wait")).toBe("wait");
+    });
+
+    test("后代的审批进停靠区、标来源、取预览，按事项所在的会话应答；进行中的调用在 activeCalls；子会话的顶栏有路径、父 Agent 的话标作者", async () => {
+        const w = await world();
+        const h = await harness(w);
+        const parent = await h.host.create(MAIN_PROFILE);
+        expect(parent).not.toBeNull();
+        endpoint.scriptFor("改人物卡", {tool: "write", args: {path: "user://a.md", content: "新的人物卡"}}, "改好了");
+        endpoint.script({tool: "agent_spawn", args: {profile: "nbook.agent.adhoc", prompt: "改人物卡", initial: {role: "设定核对员"}, async: true}}, "派出去了");
+        h.host.act({type: "composer.submit", text: "派一个", delivery: "prompt"});
+        const docked = () => {
+            w.settings.clock.advance(250);
+            return approvals(h.ctx()).find((item) => item.source !== undefined);
+        };
+        await until("子会话的审批进停靠区", () => docked() !== undefined);
+        expect(docked()!.source).toMatchObject({name: "改人物卡", icon: "i-lucide-bot"});
+        await until("取到预览", () => docked()?.preview.state === "ready");
+        expect(h.ctx().activeCalls).toHaveLength(1);
+        // 停靠的事项不替换输入框：阻塞的只有这个会话自己的同步事项。
+        expect(h.ctx().pendingInputs.filter((item) => item.source === undefined && item.async !== true)).toEqual([]);
+        const item = docked()!;
+        const child = item.source!.sessionId;
+        h.host.act({type: "input.submit", batchKey: item.id, resolutions: {kind: "approval", decision: "allow"}, sessionId: child});
+        await until("子会话跑完", () => {
+            w.settings.clock.advance(250);
+            return h.ctx().pendingInputs.length === 0 && (h.ctx().activeCalls ?? []).length === 0;
+        });
+        expect(await readFile(join(w.stateRoot, "user", "a.md"), "utf8")).toBe("新的人物卡");
+
+        await h.host.open(child);
+        await until("顶栏路径", () => h.ctx().session?.path?.[0]?.id === parent);
+        const first = h.ctx().messages.find((message) => message.kind === "user");
+        expect(first?.kind === "user" && first.author).toMatchObject({icon: "i-lucide-feather"});
+    });
+});

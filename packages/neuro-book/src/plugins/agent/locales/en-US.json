@@ -267,6 +267,9 @@
         "modeSwitch": {
             "approved": "Approved",
             "declined": "Declined"
+        },
+        "author": {
+            "otherSession": "Another conversation"
         }
     },
     "views": {

@@ -23,7 +23,8 @@ import type {AssistantMessageView, CompactionView, ContentBlockView, JsonValue, 
 export type KernelTranscriptProblem = {readonly source: string; readonly reason: string};
 
 /** 等用户的一个事项。`request` 是内核事件里的原文：审批是 `{tool, args, effect, reason?}`，提问是工具给的 `{question, data}`。 */
-export type KernelPending = {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: JsonValue};
+/** `async`：异步提问，不让运行停下，进停靠区（docs/specs/ui/agent-conversation-view.md“输入框与待处理区”）。 */
+export type KernelPending = {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: JsonValue; readonly async?: true};
 
 export type KernelQueued = {readonly id: string; readonly mode: "steer" | "followup"; readonly text: string};
 
@@ -473,8 +474,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                     problem(source, "事项缺 id、callId 或 kind");
                     return;
                 }
-                // 异步提问不让运行停下，第一版不进向导（conversation.md 的不承诺）。
-                if (data.async !== true) pending = [...pending, {id: interaction, callId, kind, request: toJsonValue(data.request)}];
+                pending = [...pending, {id: interaction, callId, kind, request: toJsonValue(data.request), ...(data.async === true ? {async: true as const} : {})}];
                 return;
             }
             case "interactionResolved":

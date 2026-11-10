@@ -31,6 +31,7 @@ import type {SettingWriteResult} from "nbook/shared/settings";
 import type {ProfileEntry} from "../shared/contracts";
 import {modelNeedsText} from "./profile-view";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
+import type {AncestorItem, JobItem, TreeItem} from "../shared/subagents";
 import {agentText} from "../shared/text";
 
 type SessionsRemote = RemoteClient<typeof agentSessionsContract>;
@@ -115,8 +116,23 @@ function changesResolvedModel(event: unknown): boolean {
     return type === "settingsChanged" && data?.extension === "core" && data.patch !== undefined && ("model" in data.patch || "effort" in data.patch);
 }
 
+/**
+ * 子代理与任务中心的工具显式映射到界面认的键：只认 `nbook.agent` 自己的这几个，别的插件的 `x.wait` 不会被画成任务中心的行
+ * （docs/specs/agent/conversation.md 输出 33）。
+ */
+const AGENT_TOOL_KEYS: Readonly<Record<string, string>> = {
+    "nbook.agent.spawn": "agent_spawn",
+    "nbook.agent.send": "agent_send",
+    "nbook.agent.answer": "agent_answer",
+    "nbook.agent.wait": "agent.wait",
+    "nbook.agent.kill": "agent.kill",
+    "nbook.agent.jobs": "agent.jobs",
+};
+
 /** 给视图看的工具名：`nbook.agent.edit-replace` 和 `edit` 给模型的名字相同，画法也相同。 */
 export function displayToolName(id: string): string {
+    const mapped = AGENT_TOOL_KEYS[id];
+    if (mapped !== undefined) return mapped;
     const name = id.slice(id.lastIndexOf(".") + 1);
     if (name === "edit-replace") return "edit";
     if (name === "ask-form") return "ask";
@@ -177,6 +193,8 @@ export interface RoleOption {
 export interface SessionHost {
     readonly ctx: ComputedRef<AgentConversationContext>;
     readonly sessionId: ShallowRef<string | null>;
+    /** 子代理与后台命令卡片的数据（见 `SubagentData`）。 */
+    readonly subagents: ShallowRef<SubagentData>;
     /** 回到这个位置最近用过的会话；不在了就显示未选择。 */
     restore(): Promise<void>;
     open(id: string): Promise<void>;
@@ -200,7 +218,22 @@ type Current = {
     loading: boolean;
     /** 树上的分叉；空闲时取，运行中不会变。 */
     branchPoints: readonly BranchPoint[];
+    /** 后代与它们的进度（`treeChanged` 推整份）：卡片、停靠区里后代的事项、`activeCalls` 都读它。 */
+    tree: readonly TreeItem[];
+    /** 这个会话启动的任务（`jobsChanged` 推整份）。 */
+    jobs: readonly JobItem[];
+    /** 祖先，从父会话起：顶栏路径与父 Agent 发来的话的作者。 */
+    ancestors: readonly AncestorItem[];
 };
+
+/** 子代理卡片与后台命令卡片读的数据：按会话一份，宿主经 `provide` 交给卡片，不进 ctx（推送只替换变了的项）。 */
+export interface SubagentData {
+    readonly sessionId: string | null;
+    /** 按子会话 id。 */
+    readonly tree: ReadonlyMap<string, TreeItem>;
+    /** 按任务 id。 */
+    readonly jobs: ReadonlyMap<string, JobItem>;
+}
 
 export function createSessionHost(deps: SessionHostDeps): SessionHost {
     const {remote} = deps;
@@ -227,8 +260,12 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     /** 结果未知的乐观消息，可以重发（同一个指令 id）或移除。 */
     const unknownSends = new Map<string, PendingSend>();
 
-    // 向导
+    // 向导与停靠区
     let wizardState: AgentConversationContext["wizardState"];
+    let dockState: AgentConversationContext["dockState"];
+    /** 进行中的调用；集合没变就不换引用，轮次不因此重算（ctx `activeCalls`）。 */
+    let activeCalls: readonly string[] = [];
+    const subagents = shallowRef<SubagentData>({sessionId: null, tree: new Map(), jobs: new Map()});
     let previews = new Map<string, ApprovalPreviewView>();
     let stopRequestedAt: number | null = null;
 
@@ -362,17 +399,20 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         if (status === "idle" && lastRunStatus !== "idle") void loadBranchPoints(target);
         lastRunStatus = status;
         const pending = target.transcript.pending();
-        for (const item of pending) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id);
-        // 这一批答完了：下一批从头来，不沿用“收起”和第几步。
-        if (pending.length === 0) wizardState = undefined;
+        for (const item of pending) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id, target.id);
+        for (const child of target.tree) for (const item of child.pending ?? []) if (item.kind === "approval" && !previews.has(item.id)) loadPreview(target, item.id, child.id);
+        // 这一批答完了：下一批从头来，不沿用“收起”和第几步。只看阻塞的：异步提问与后代的事项在停靠区，状态另存。
+        if (!pending.some((item) => item.async !== true)) wizardState = undefined;
+        if (!pending.some((item) => item.async === true) && !target.tree.some((child) => (child.pending?.length ?? 0) > 0)) dockState = undefined;
         syncTicker(target);
         bump();
     }
 
-    function loadPreview(target: Current, id: string): void {
+    /** 事项 id 全局唯一（内核随机生成），所以预览按 id 存；取的时候按事项所在的会话。 */
+    function loadPreview(target: Current, id: string, session: string): void {
         previews.set(id, {state: "loading"});
         void (async () => {
-            const view = await fetchPreview(target.id, id);
+            const view = await fetchPreview(session, id);
             if (current !== target) return;
             previews.set(id, view);
             bump();
@@ -707,12 +747,76 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         cancelTick = null;
         previews = new Map();
         wizardState = undefined;
+        dockState = undefined;
+        activeCalls = [];
+        subagents.value = {sessionId: null, tree: new Map(), jobs: new Map()};
         stopRequestedAt = null;
         unknownSends.clear();
         notice = null;
         closeInspection();
         closeTree();
         editing = null;
+    }
+
+    /** 父 Agent 发来的话的作者：父会话的 Profile 名字与图标；读不到祖先时写“另一个会话”。 */
+    function authorOf(target: Current, by: string): {label: string; icon: string} {
+        const ancestor = target.ancestors.find((item) => item.id === by);
+        const profile = ancestor?.profile === null || ancestor?.profile === undefined ? undefined : deps.profiles().find((entry) => entry.key === ancestor.profile);
+        return {label: profile?.name ?? deps.text.t(agentText("conversation.author.otherSession")), icon: ancestor?.icon ?? profile?.icon ?? "i-lucide-bot"};
+    }
+
+    /** 子树与任务换了：卡片的数据只替换变了的项，`activeCalls` 集合没变不换引用。 */
+    function publishSubtree(target: Current): void {
+        if (current !== target) return;
+        const previous = subagents.value;
+        const tree = new Map(target.tree.map((item) => [item.id, previous.tree.get(item.id) !== undefined && JSON.stringify(previous.tree.get(item.id)) === JSON.stringify(item) ? previous.tree.get(item.id)! : item]));
+        const jobs = new Map(target.jobs.map((item) => [item.id, previous.jobs.get(item.id) !== undefined && JSON.stringify(previous.jobs.get(item.id)) === JSON.stringify(item) ? previous.jobs.get(item.id)! : item]));
+        subagents.value = {sessionId: target.id, tree, jobs};
+        // 子代理的任务在两边都有（后代的 `runInvocation` 与任务的 `invocation` 是同一次调用），去重。
+        const active = [...new Set([
+            ...target.tree.flatMap((item) => (item.state !== "idle" && item.runInvocation !== undefined ? [item.runInvocation] : [])),
+            ...target.jobs.flatMap((item) => (item.state === "running" || item.state === "question" ? [item.invocation] : [])),
+        ])].sort();
+        if (active.join(" ") !== activeCalls.join(" ")) activeCalls = active;
+        // 路径还没到时事项表是空的：这时走 `afterChange` 会把重开前保留的向导状态当成“答完了”清掉。到齐之后 `open` 会走一次。
+        if (target.loading) bump();
+        else afterChange(target);
+    }
+
+    /**
+     * 跟着这个会话的后代与任务：先订阅再取（重连时重取）。后代等用户的事项进停靠区，所以它们的审批也要取预览（`afterChange`）。
+     * 交回取消订阅的函数。
+     */
+    async function followSubtree(target: Current): Promise<() => void> {
+        const reloadTree = async () => {
+            const tree = await remote.tree({sessionId: target.id});
+            if (tree.ok && current === target) {
+                target.tree = tree.value;
+                publishSubtree(target);
+            }
+        };
+        const reloadJobs = async () => {
+            const jobs = await remote.jobs({sessionId: target.id});
+            if (jobs.ok && current === target) {
+                target.jobs = jobs.value;
+                publishSubtree(target);
+            }
+        };
+        const [treeSubscription, jobsSubscription] = await Promise.all([
+            remote.events.treeChanged.subscribe({sessionId: target.id}, (items) => {
+                target.tree = items;
+                publishSubtree(target);
+            }, {onResync: () => void reloadTree()}),
+            remote.events.jobsChanged.subscribe({sessionId: target.id}, (items) => {
+                target.jobs = items;
+                publishSubtree(target);
+            }, {onResync: () => void reloadJobs()}),
+        ]);
+        await Promise.all([reloadTree(), reloadJobs()]);
+        return () => {
+            if (treeSubscription.ok) treeSubscription.value.release();
+            if (jobsSubscription.ok) jobsSubscription.value.release();
+        };
     }
 
     async function open(id: string, options: {readonly keepDraft?: boolean} = {}): Promise<void> {
@@ -731,7 +835,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             if (sessionId.value !== null) setDraftSilently("");
             uploads = new Map();
         }
-        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: []};
+        // 作者按祖先算：祖先与路径一起取，路径上的话应用之前就到了（`authorOf` 读的是 `target.ancestors`）。
+        const target: Current = {id, transcript: createKernelTranscript({toolName: displayToolName, authorOf: (by) => authorOf(target, by.id)}), release: null, chain: Promise.resolve(), failed: null, loading: true, branchPoints: [], tree: [], jobs: [], ancestors: []};
         current = target;
         sessionId.value = id;
         deps.recent.write(id);
@@ -769,11 +874,20 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             bump();
             return;
         }
-        target.release = () => subscription.value.release();
+        const releaseSubtree = await followSubtree(target);
+        target.release = () => {
+            subscription.value.release();
+            releaseSubtree();
+        };
+        if (token !== generation) {
+            target.release();
+            return;
+        }
 
         const epoch = modelEpoch;
-        const snapshot = await remote.snapshot({sessionId: id});
+        const [snapshot, ancestors] = await Promise.all([remote.snapshot({sessionId: id}), remote.ancestors({sessionId: id})]);
         if (token !== generation) return;
+        if (ancestors.ok) target.ancestors = ancestors.value;
         if (!snapshot.ok) {
             target.failed = {code: snapshot.code};
             bump();
@@ -985,15 +1099,19 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         bump();
     }
 
-    async function resolveInput(id: string, resolutions: {kind: "approval"; decision: "allow" | "allow-session" | "allow-always" | "deny"; note?: string} | {kind: "mode-switch"; answer: {approved: boolean; approvalMode?: string; note?: string}} | {kind: "question"; answer: {text: string; data: {answers: unknown}}}): Promise<void> {
+    /** `sessionId`：事项所在的会话（停靠区里后代的事项）；缺省是当前会话。 */
+    async function resolveInput(id: string, resolutions: {kind: "approval"; decision: "allow" | "allow-session" | "allow-always" | "deny"; note?: string} | {kind: "mode-switch"; answer: {approved: boolean; approvalMode?: string; note?: string}} | {kind: "question"; answer: {text: string; data: {answers: unknown}}}, sessionId?: string): Promise<void> {
         const target = current;
         if (target === null) return;
+        const session = sessionId ?? target.id;
         if (resolutions.kind === "approval" && resolutions.decision === "allow-always") {
-            const pending = target.transcript.pending().find((item) => item.id === id);
-            const rules = rulesToRemember((pending?.request ?? {}) as {tool?: string; remember?: unknown});
+            const request = session === target.id
+                ? target.transcript.pending().find((item) => item.id === id)?.request
+                : target.tree.find((child) => child.id === session)?.pending?.find((item) => item.id === id)?.request;
+            const rules = rulesToRemember((request ?? {}) as {tool?: string; remember?: unknown});
             // 存不下也批准：用户已经点了同意，这次与本会话不受影响，只是下次还会问（输出 23）。
             const saved = rules.length === 0 ? null : await deps.rememberRules(rules);
-            await resolveInput(id, {kind: "approval", decision: "allow-session"});
+            await resolveInput(id, {kind: "approval", decision: "allow-session"}, sessionId);
             if (saved?.ok === false && current === target) {
                 notice = agentText("conversation.reject.ruleNotSaved", {code: saved.code});
                 bump();
@@ -1005,8 +1123,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             ? {text: resolutions.answer.note ?? deps.text.t(agentText(resolutions.answer.approved ? "conversation.modeSwitch.approved" : "conversation.modeSwitch.declined")), data: resolutions.answer}
             : resolutions.kind === "question" ? resolutions.answer : null;
         const result = answer === null && resolutions.kind === "approval"
-            ? await remote.resolve({sessionId: target.id, commandId: commandId(), id, decision: resolutions.decision, ...(resolutions.note === undefined ? {} : {note: resolutions.note})})
-            : await remote.resolve({sessionId: target.id, commandId: commandId(), id, decision: "answer", answer: answer as never});
+            ? await remote.resolve({sessionId: session, commandId: commandId(), id, decision: resolutions.decision, ...(resolutions.note === undefined ? {} : {note: resolutions.note})})
+            : await remote.resolve({sessionId: session, commandId: commandId(), id, decision: "answer", answer: answer as never});
         // 别的窗口先答了：向导跟着服务端的状态走，不报错（输出 14）。
         if (!result.ok && result.code !== "already-answered" && result.code !== "unknown-interaction" && current === target) {
             notice = agentText("conversation.reject.other", {code: result.code});
@@ -1131,10 +1249,13 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 if (target !== null) await remote.start({sessionId: target.id, commandId: commandId()});
                 return;
             case "input.submit":
-                await resolveInput(action.batchKey, action.resolutions as never);
+                await resolveInput(action.batchKey, action.resolutions as never, action.sessionId);
                 return;
             case "wizard.state":
                 wizardState = action.state;
+                return;
+            case "dock.state":
+                dockState = action.state;
                 return;
             case "queued.remove":
                 if (target !== null) await remote.remove({sessionId: target.id, commandId: commandId(), inputId: action.id});
@@ -1277,27 +1398,35 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         return reason;
     }
 
+    /** 一个等用户的事项换成视图要的样子；`source` 是后代会话的（停靠区标来源），`async` 是异步提问。 */
+    function pendingView(item: {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: unknown}, extra: {readonly source?: {sessionId: string; name: string; icon: string}; readonly async?: true; readonly approvalMode?: string}): PendingInputView {
+        const common = {...(extra.source === undefined ? {} : {source: extra.source}), ...(extra.async === true ? {async: true as const} : {})};
+        const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]} | ModeSwitchRequest};
+        if (item.kind === "approval") {
+            return {...common, kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: approvalReason(request.reason)}), ...(request.remember === undefined ? {} : {remember: request.remember === false ? false : {label: request.remember.label}}), preview: previews.get(item.id) ?? {state: "loading"}};
+        }
+        const data = request.data;
+        if (data !== undefined && "kind" in data && data.kind === MODE_SWITCH_KIND) {
+            return {
+                ...common,
+                kind: "mode-switch",
+                id: item.id,
+                toolCallId: item.callId,
+                fromLabel: modeLabel(data.from),
+                toLabel: modeLabel(data.to),
+                ...(data.plan === undefined ? {} : {plan: data.plan}),
+                approval: {options: [...APPROVAL_OPTIONS], value: extra.approvalMode ?? "ask"},
+            };
+        }
+        return {...common, kind: "question", id: item.id, toolCallId: item.callId, questions: (data as {questions?: PendingQuestionView[]} | undefined)?.questions ?? []};
+    }
+
+    /** 这个会话自己的事项（同步的阻塞、异步的停靠），加上后代等用户的事项（停靠，标来源；conversation.md 输出 34）。 */
     function pendingViews(target: Current): PendingInputView[] {
-        return target.transcript.pending().map((item): PendingInputView => {
-            const request = (item.request ?? {}) as {tool?: string; args?: unknown; reason?: string; remember?: {label: string} | false; data?: {questions?: PendingQuestionView[]} | ModeSwitchRequest};
-            if (item.kind === "approval") {
-                return {kind: "approval", id: item.id, toolCallId: item.callId, tool: displayToolName(request.tool ?? ""), args: (request.args ?? {}) as never, ...(request.reason === undefined ? {} : {reason: approvalReason(request.reason)}), ...(request.remember === undefined ? {} : {remember: request.remember === false ? false : {label: request.remember.label}}), preview: previews.get(item.id) ?? {state: "loading"}};
-            }
-            const data = request.data;
-            if (data !== undefined && "kind" in data && data.kind === MODE_SWITCH_KIND) {
-                const settings = (target.transcript.meta()?.settings ?? {}) as {approvalMode?: string};
-                return {
-                    kind: "mode-switch",
-                    id: item.id,
-                    toolCallId: item.callId,
-                    fromLabel: modeLabel(data.from),
-                    toLabel: modeLabel(data.to),
-                    ...(data.plan === undefined ? {} : {plan: data.plan}),
-                    approval: {options: [...APPROVAL_OPTIONS], value: settings.approvalMode ?? "ask"},
-                };
-            }
-            return {kind: "question", id: item.id, toolCallId: item.callId, questions: (data as {questions?: PendingQuestionView[]} | undefined)?.questions ?? []};
-        });
+        const settings = (target.transcript.meta()?.settings ?? {}) as {approvalMode?: string};
+        const own = target.transcript.pending().map((item) => pendingView(item, {...(item.async === true ? {async: true as const} : {}), ...(settings.approvalMode === undefined ? {} : {approvalMode: settings.approvalMode})}));
+        const descendants = target.tree.flatMap((child) => (child.pending ?? []).map((item) => pendingView(item, {source: {sessionId: child.id, name: child.name ?? deps.profiles().find((entry) => entry.key === child.profile)?.name ?? child.id, icon: child.profileIcon ?? "i-lucide-bot"}})));
+        return [...own, ...descendants];
     }
 
     const ctx = computed<AgentConversationContext>(() => {
@@ -1347,6 +1476,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 profileIcon: profile?.icon ?? "i-lucide-bot",
                 archived: meta.archived,
                 summaryState: "idle",
+                // 祖先从父会话起交回，面包屑从根排起。
+                ...(target.ancestors.length === 0 ? {} : {path: [...target.ancestors].reverse().map((item) => ({id: item.id, title: item.title ?? "", ...(item.icon === undefined ? {} : {icon: item.icon})}))}),
             },
             availability,
             interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: HOST_TRIGGERS, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
@@ -1367,6 +1498,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             },
             pendingInputs: target === null || target === undefined ? [] : pendingViews(target),
             wizardState,
+            dockState,
+            activeCalls,
             ...(stopRequestedAt === null ? {} : {stopRequestedAt}),
             composer: {
                 models: models === null ? [] : [{key: "", label: deps.text.t(agentText("conversation.followDefault")), supportsImages: false}, ...models, ...(settings.model !== null && settings.model !== undefined && !models.some((item) => item.key === settings.model) && !roles.some((item) => item.key === settings.model) ? [{key: settings.model, label: settings.model, supportsImages: false, unavailable: deps.text.t(agentText("conversation.model.unavailable"))}] : [])],
@@ -1418,6 +1551,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     return {
         ctx,
         sessionId,
+        subagents,
         restore,
         open,
         create,
