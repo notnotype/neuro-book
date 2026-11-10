@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t05-monaco-polish
 status: planned
-updated: 2026-10-15
+updated: 2026-11-10
 ---
 
 # Monaco 打磨：右键菜单与语法配色
@@ -14,10 +14,12 @@ updated: 2026-10-15
 
 合同：[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)、[`theme/system.md`](../../../../../docs/specs/theme/system.md)、[`workbench/menus.md`](../../../../../docs/specs/workbench/menus.md)。
 
+实施计划：[plan.md](plan.md)。
+
 ## 当前状态
 
-未开工，排在 t04 之后。
+2026-11-10 计划已写（开发者用 autonomous-delivery 指定 t04 之后做），正在做计划审查（fable 子代理）。未开工；执行位置同 t04：worktree `.worktree/w00025-editor`，分支 `feat/w00025-editor`。
 
 ## 下一步
 
-t04 完成后按当时的代码写计划。
+t04 的切片提交后，处理计划审查的结论，再按计划实施。
