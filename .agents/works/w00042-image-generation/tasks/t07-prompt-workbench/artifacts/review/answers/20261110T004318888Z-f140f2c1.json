@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00042-image-generation",
+    "taskId": "t07-prompt-workbench",
+    "artifactId": "review",
+    "answerId": "20261110T004318888Z-f140f2c1",
+    "artifactVersion": 3,
+    "contentHash": "07ded83c2b5dc05d0be805e6543ba5f90adf93a610bcaa657bdf1515a1d75855",
+    "submittedAt": "2026-11-10T00:43:18.213Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "q5-narrow": "tabs",
+        "q6-style-compare": "later"
+    },
+    "comments": {
+        "q6-style-compare": "这个是个什么功能？我感觉绝大部分情况下不用对比抽卡啊"
+    },
+    "note": "我觉得最关键的是预设和标签系统。\n"
+}
