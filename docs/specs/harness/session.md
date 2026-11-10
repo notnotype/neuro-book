@@ -134,6 +134,8 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 20. fork 把来源会话里根到所选节点的路径复制成新会话：新会话头的 `origin` 记来源会话与节点，路径上引用的大块内容一并写进新会话目录。来源会话不受影响。
 21. 内存存储与 JSONL 存储的行为相同，且每次读写都做 JSON 往返：在 JSONL 里会出错的值（`Date`、`Map`、`undefined`）在内存存储里同样出错。
 
+22. 索引带调用方（planned）：会话头有 `caller` 时，`index.json` 与 `list` 的条目有 `caller: {kind, id}`（照抄会话头，不含 `callId`）；没有的读作没有调用方，不算读不懂、不重建。
+
 ## 状态与转换
 
 | 句柄状态 | 事件 | 下一状态 |

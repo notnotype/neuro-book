@@ -70,6 +70,8 @@ owners:
 17. **工具目录。** `toolCatalog` 列出已接受的工具声明：`{id, description, providerName, effect, plugin, defaultForAll?}`，`providerName` 是换算后交给模型的名字，`effect` 是声明里的固定值。
 18. **用户级 Profile 的新建与删除。** `createUserProfile({name, description, system})` 把骨架一次写成 `user/profiles/<名>.profile.tsx`（后两项是骨架里的文字，由窗口按界面语言给），名字只能用小写字母、数字、连字符（不合规则 `invalid-name`），已有同名 `exists`，不覆盖；交回 `{key, address}` 时目录里已经有它。`deleteUserProfile({key})` 删入口文件，不是用户级或文件已不在的 `not-found`。
 
+19. Profile 声明可派的子代理（planned）：`agent.profiles` 的声明加 `agents?: {allowed: string[]; recommended?: string[]}`，值是 Profile 的 key；`recommended` 里不在 `allowed` 的项忽略。不声明就是空白名单。Profile 目录的条目带上声明的 `agents`，白名单的合成与用途见 [`subagents.md`](subagents.md)。
+
 ## 状态与转换
 
 工具包装（每个会话每个工具）：

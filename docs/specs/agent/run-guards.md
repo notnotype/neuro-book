@@ -17,7 +17,6 @@ owners:
 
 - 费用上限是软上限：只在发请求前判断，最后一次可能超出。
 - 单价未知的模型不计入费用，上限对它不起作用，只给一次提示（输出 5）。
-- 子代理的费用不并入（还没有子代理）。
 - 换模型回退、等额度恢复；“说了要继续却停了”的检测；模型重复循环的纠偏提醒。
 - 对话界面怎样显示这些事件不在这里定。
 
@@ -38,6 +37,9 @@ owners:
 | `nbook.agent/maxCost` | 0 | 不小于 0，美元 | 费用上限 |
 | `nbook.models/streamFirstEventTimeoutSeconds` | 300 | 整数 0–3600 | 等第一个事件的时限 |
 | `nbook.models/streamIdleTimeoutSeconds` | 300 | 整数 0–3600 | 流中途没有事件的时限 |
+| `nbook.agent/subagentDepth` | 3 | 整数 1–5 | 子代理最深几层（planned，[`subagents.md`](subagents.md)） |
+| `nbook.agent/subagentsPerSession` | 8 | 整数 1–16 | 一个会话同时在跑的子代理（planned，同上） |
+| `nbook.agent/backgroundJobs` | 16 | 整数 1–32 | 任务中心同时在跑的任务（planned，[`jobs.md`](jobs.md)） |
 
 ## 输出与可观察行为
 
@@ -61,6 +63,9 @@ owners:
 10. 停下之后，`start` 仍以 `tool-call-loop` 收口；用户发新话（开新的一轮，或 steer）后解除。
 11. 回退与切分支后，计数与停止状态跟着新叶子走。
 12. 预览不被拦。
+
+13. 费用按会话树算（planned）：告警与上限比的是整棵会话树的累计——根会话（没有调用方的祖先）与它所有后代的累计之和（[`subagents.md`](subagents.md)）。树里任何一个会话到上限，它的下一次模型请求都不发，以 `cost-limit` 收口；告警写在发出请求的那个会话里。
+14. `wait` 不计重复调用（planned）：`wait`（[`jobs.md`](jobs.md)）与上一条回复相同时不算重复，也不清计数。
 
 ## 状态与转换
 

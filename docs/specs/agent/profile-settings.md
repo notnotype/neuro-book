@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 不做 `settingsSchema` 表单、按 Profile 的压缩设置、按 Profile 的 Skill 与子代理白名单、插件 Profile 的启用与停用。
+- 不做 `settingsSchema` 表单、按 Profile 的压缩设置、按 Profile 的 Skill、插件 Profile 的启用与停用。
 - 不做“复制内置 Profile”：内置的依赖插件内部模块，复制出去打包不过。
 - 改动不改变已打开会话的模型与审批模式：它们是新会话的初值（[`contributions.md`](contributions.md) 输出 13）。工具从下一次模型请求起生效（同上输出 4）。
 - MCP 工具按服务器分组不在这里定。
@@ -73,6 +73,8 @@ owners:
 22. 新建的文件一次写成：过程中目录里不出现空文件造成的错误项。骨架只依赖 SDK 的 `@notnotype/nb-plugin-sdk/agent`，不改就能打包成功。
 23. “删除”先确认，确认文字写明不能恢复、用它的会话会变成只读。删除后选中第一项，焦点落在它上面。
 24. 目录变了（新建、改坏、修好、删除、工具增减、连接恢复）页面都重取，选中的 Profile 消失时回到第一项。
+
+25. “可派的子代理”一节（planned）：工具一节下面，Profile 有 `agent_spawn` 时才有。样子与工具一节相同：按来源分组、一行一个 Profile（图标、名字、“推荐”、说明），Profile 声明里没有、用户加的标“我加的”；每行能去掉；“添加”打开同样的对话框，列出不在白名单里、可用的 Profile；有改动时“恢复默认”。写入 `profileSettings[key].agents: {added, removed}`，规则与时序同工具绑定（输出 14–18）；两个数组都空时不留这一项。推荐由 Profile 声明，这里不能改。
 
 ## 状态与转换
 

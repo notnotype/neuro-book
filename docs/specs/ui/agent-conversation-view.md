@@ -96,7 +96,7 @@ type AgentConversationViewEmits = {
 
 | 部分 | 内容 |
 |---|---|
-| `session` | 当前会话的标题、摘要、Profile 名称与图标、状态、后台摘要状态；未选择会话时为 `null` |
+| `session` | 当前会话的标题、摘要、Profile 名称与图标、状态、后台摘要状态；子会话另有祖先路径 `path`（planned，见“顶栏”）；未选择会话时为 `null` |
 | `availability` | `ready`、`loading`、`empty`、`unselected`、`archived`、`profile-unavailable`、`load-error` 之一，附用户可读说明和可执行的恢复动作 |
 | `interaction` | 当前允许的操作：发送、运行中补充说明（steer）、运行中排队（followup）、回答提问、修改历史、停止、登记附件、修改模型与模式、归档、恢复、宿主有没有管理模型的地方、宿主做了的输入框命令（`commands`）与触发字符（`triggers`，没列的不打开菜单）、能不能给上下文详情与分支树 |
 | `run` | 运行状态 `idle`、`running`、`waiting`、`stopping`，当前运行阶段文案，正在运行的轮次 |
@@ -104,7 +104,7 @@ type AgentConversationViewEmits = {
 | `history` | 是否还有更早的消息、是否正在加载、加载错误 |
 | `branches` | 按消息 id 索引的分支切换信息：当前第几个、共几个 |
 | `editing` | 正在编辑的历史消息：消息 id、完整原文、原文是否仍在加载 |
-| `pendingInputs` | 等待用户回答的提问与审批，含题目、选项、表单规格 |
+| `pendingInputs` | 等待用户回答的提问与审批，含题目、选项、表单规格；来自后代会话的带来源 `source: {sessionId, name, icon}`，异步提问带 `async: true`（planned，见“输入框与待处理区”） |
 | `workflows` | 按工具调用 id 索引的 Workflow 运行状态：阶段、当前动作、等待中的问题、结果 |
 | `workspaceChanges` | 待审阅的文件变更分组、每组的 diff 状态、加载与错误 |
 | `composer` | 可选模型（各带分组名与用不了的原因，可选）与当前模型、思考档位、Agent 模式、排队中的消息、已登记的会话附件、模型是否支持图片、输入框中附件（图片与文件）的上传状态（就绪的带附件目标）、已发送内容（供输入历史使用）、粘贴分档设置、草稿（文字加版本号；版本号变化时视图用它替换输入框内容） |
@@ -120,7 +120,8 @@ type AgentConversationViewEmits = {
 type MessageView =
     | {kind: "user"; id: string; timestamp: number; intent: "normal" | "steer";
        blocks: ContentBlockView[]; contentOmitted: boolean;
-       delivery?: "pending" | "unknown"}
+       delivery?: "pending" | "unknown";
+       author?: {label: Text; icon: string}}   // planned：别的会话发来的话（父 Agent），缺省是用户
     | {kind: "assistant"; id: string; timestamp: number;
        status: "streaming" | "done" | "stopped" | "interrupted" | "error";
        text: string; thinking: string; model: string; usage?: UsageView;
@@ -210,6 +211,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 - 常驻顶栏的动作不超过两个，其余动作收进溢出菜单。溢出菜单固定包含“原始视图”切换项。
 - 390 宽时标题区域不小于 160px。
 - `header` 为 false 时不显示顶栏；原始视图的切换入口随之没有，宿主要切换时用受控属性 `viewMode`。
+- 子会话的路径（planned）：`session.path` 不空时标题前依次是各段祖先（标题，可点，发出 `session.select`）与分隔符，最后是本会话的图标与标题；放不下时先省略前面的段。
 
 ### 分轮视图
 
@@ -293,6 +295,9 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 - `composer.resume` 为真时占位文字说明上次运行被中断、回车继续，发送按钮换成继续（图标 `>>>`，大小不变）；空着发送发出 `run.continue`，写了字照常发送。
 - `availability` 不是 `ready` 时，输入框上方显示对应的横幅和恢复动作，输入框只读。
 - 待处理区依次显示已登记条目；内置条目为 Workflow 待回答、工作区变更、排队消息。
+- 向导里带 `source` 的事项（planned）：标题写“子代理「名字」要……”，图标换成 `source.icon`，标题行有打开子会话的按钮（发出 `session.select {sessionId}`）；步骤高度与不带来源的相同。提交的 `input.submit` 带上 `sessionId`。
+- 异步提问（planned）：`async: true` 的提问用同一个提问向导，停在输入框上方，不替换输入框；几个时可翻看；可以收起成一条，写有几个问题和第一个的前半句（收起状态在 `wizardState`）；同时有同步事项时同步的照旧替换输入框，异步的收成一条停在它上面。阴影只留很轻的一层、圆角同输入框（nb-ui 设计语言“停靠的面不用浮层的阴影档”）。
+- `user` 消息带 `author` 时（planned），头像与名称用它，不用“用户”角色。
 
 ### 状态栏
 
@@ -308,8 +313,9 @@ type AgentSessionListItem = {
     title: string;                 // 空串时显示“未命名会话”
     description?: string;          // 第二行的补充说明，宿主写好，例如“3 轮 · 图当目录”
     updatedAt: number;             // 最近活动的时刻（毫秒）
-    status: "idle" | "running" | "interrupted" | "error";   // 宿主按自己的状态映射
+    status: "idle" | "running" | "waiting" | "interrupted" | "error";   // 宿主按自己的状态映射；waiting 是等用户批准或回答
     note?: {text: string; icon?: string};                   // 需要注意的一句，提醒色，在说明那一行的右侧
+    parentId?: string;             // planned：父会话；有的挂在父会话下面
 };
 // 属性：items、selectedId、state（"ready" | "loading" | "error"，缺省 ready）、errorMessage?、now、locale?（同视图）、
 // header?（是否显示标题行与新建按钮，缺省显示）、labels?（覆盖标题、新建、加载中、空、出错、重试、未命名的文字）
@@ -321,6 +327,7 @@ type AgentSessionListItem = {
 - 点一行（含已选中的）发出 `session.select`，点新建发出 `session.create`；出错时点“重试”发出 `sessions.refresh`。列表不持有展开状态：放在下拉里时，由宿主收到选中或新建后关下拉。
 - 加载中、空、出错三种状态都保留标题行与新建按钮。
 - 是导航式列表：每行一个按钮、Tab 逐行经过，不做方向键漫游。
+- 子会话（planned）：带 `parentId` 且父会话在列表里的条目挂在父会话下，缺省收起；父会话第二行右边“N 个子代理”是折叠开关，左边不留空槽；收起时有子会话 `waiting`，父会话行写“子代理等你处理”；子会话每个一行（图标、标题、说明、状态），图标对齐父会话的标题。展开状态由列表持有；属性 `expandFor?: string[]` 让列出的子会话的父会话展开（搜索命中时用）。父会话不在列表里的子会话按普通条目列出。
 
 ### 模型目录
 
