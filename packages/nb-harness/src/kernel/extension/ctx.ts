@@ -84,6 +84,7 @@ export function viewCtx(assembly: Assembly, item: Assembled, state: StateAt, env
         model: environment.model,
         now: environment.now,
         initial: environment.initial,
+        ...(environment.session === undefined ? {} : {session: environment.session}),
     } as ViewCtx<any, any, any, any>;
 }
 
@@ -258,6 +259,5 @@ export function interceptCtx(params: InterceptParams): InterceptCtx<any, any, an
         signal: params.signal,
         phase: params.phase,
         invocation: params.invocation,
-        ...(params.environment.session === undefined ? {} : {session: params.environment.session}),
     } as InterceptCtx<any, any, any, any>;
 }

@@ -207,7 +207,7 @@ describe("调用的身份", () => {
         session.model.script({tools: [{tool: "lab.who"}, {tool: "lab.who"}]}, {tools: [{tool: "lab.who"}]}, "完");
         await session.say("来");
         const started = dataOf<{invocation: string}>(await session.events(), "toolStarted").map((data) => data.invocation);
-        expect(seen.toSorted()).toEqual(started.toSorted());
+        expect([...seen].sort()).toEqual([...started].sort());
         expect(new Set(started).size).toBe(3);
     });
 });
