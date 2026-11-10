@@ -285,7 +285,7 @@ owners:
     - **关闭标签**（第 4 条）：三种开启的模式下都不问，先保存。所以缺省模式下“不保存”与“还原文件”实际上用不到：去执行还原时焦点一离开正文就已保存；要回到之前的内容靠撤销。
     - 自动保存不改正文、不裁决、不覆盖磁盘版本；保存失败不另弹通知。
 
-64. **源码编辑器的右键菜单**（planned）：在源码编辑器的正文或行号区右击，出现应用的菜单（与 Markdown 正文右键同一种外观），不出现浏览器与编辑内核自己的菜单。
+64. **源码编辑器的右键菜单**：在源码编辑器的正文或行号区右击，出现应用的菜单（与 Markdown 正文右键同一种外观），不出现浏览器与编辑内核自己的菜单。
     - **项**，分三节，都执行编辑内核自己的编辑动作，结果与对应的快捷键相同：剪切、复制、粘贴；全选；查找、替换、更改所有匹配项、格式化文档、格式化选定内容。之后是别的插件经贡献点 `editor.code-context` 贡献的项（共同规则见 [`workbench.menus`](menus.md)，可以写 `extensions` 按文件后缀出现，`context: "resource"` 的项收到 `{address}`）。菜单里只标出剪切、复制、粘贴、全选、查找五项的快捷键。
     - 没有选中文字时，剪切、复制作用于光标所在的整行（与 Ctrl+X、Ctrl+C 相同；Markdown 正文菜单是置灰）；整行复制之后从菜单粘贴，插成完整的一行。格式化两项只在这门语言有格式化时出现（现在是 JSON），“格式化选定内容”还要有选区。粘贴读不到剪贴板时（浏览器不支持、被拒绝、为空）在组顶部说明，正文不变。
     - **只读**（预览视图、只读文档）：只有复制、全选、查找，不显示贡献项。
@@ -293,7 +293,7 @@ owners:
     - **键盘**：焦点在正文时按菜单键或 Shift+F10，在光标处打开（光标不在可见区时先滚到它）；几个编辑组各按各的。
     - **关闭**：选了一项或按 Escape 后焦点回到正文；点外面关闭、不抢焦点；正文滚动、换文件、标签被切走时关闭。
     - 菜单里没有撤销、重做与转到行。
-65. **语法配色**（planned）：源码编辑器的语法着色、选区、缩进线随产品主题与明暗变，用护眼主题或自己做的主题时同样跟着变，不用编辑内核自带的配色。
+65. **语法配色**：源码编辑器的语法着色、选区、缩进线随产品主题与明暗变，用护眼主题或自己做的主题时同样跟着变，不用编辑内核自带的配色。
     - 颜色来自主题的语法变量 `--syntax-*`（[theme.system](../theme/system.md) 的“变量体系”）：注释、关键字、字符串（与属性值）、数字（与常量）、类型（与命名空间、注解）、标签名、属性名（与 JSON 的键）、正则（与转义）、变量、分隔符（与运算符、括号）各一种；没有归到这十类的成分用正文字色；`invalid` 用危险色加下划线。
     - 括号按分隔符着色，不按嵌套层数分色。
     - 自带的主题与护眼主题下，这些颜色在源码编辑器的底色上读得清：注释的对比度不低于 3，其余不低于 4.5；JSON 的键、字符串值、数字与 `true`，CSS 的属性名与数值，HTML 的标签、属性名与属性值，颜色两两分得开。
@@ -404,7 +404,7 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 42. Given 一个测试插件往 `editor.code-context` 贡献一个 `extensions: [".json"]`、`context: "resource"` 的项，When 右击 `a.json`，Then 这一项在内置项之后，点它命令收到 `{address}`；When 右击 `a.css`，Then 没有这一项。
 43. Given `.ts`、`.json`、`.css`、`.html`、`.md` 的样例，When 用源码编辑器打开，Then 关键字、字符串、注释、括号与选区的颜色等于主题的语法变量与选区变量的值；When 切到暗色、护眼绿，Then 这些颜色随之改变，对比度与相邻成分的区分仍满足输出 65。
 
-Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。场景 22–24、26 由 `e2e/editor-types.e2e.ts` 运行；场景 27–33 由 `editor-area.e2e.ts` 的标签栏样子、多行键盘与 120px 组、拖动、右键菜单、面包屑几例运行，场景 27、28、31、32 的模型部分另由 `area.test.ts`、`groups.test.ts`、`tab-menu.test.ts`、`tab-hints.test.ts` 覆盖；触摸拖动只按代码与 `tree-drag.ts` 的同一套门槛，没有在真机上验；场景 23 的改名与删除、场景 24 的关闭时询问另由 `area.test.ts` 覆盖；场景 25 由 `editor-registry.test.ts`（真实插件宿主，交付先后与停止）与 `area.test.ts`（用默认编辑器打开）覆盖。场景 35–39 与输出 63 由 `e2e/editor-autosave.e2e.ts` 运行（窗口失焦与页面隐藏在无头浏览器里是派发事件模拟的），模型部分另由 `auto-save.test.ts` 覆盖。场景 34 与输出 62 由 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组（经编辑内核的输入入口逐种格式测）与 `e2e/markdown-input.e2e.ts`（本机 Chrome 的键盘、输入法事件与方向键，源码与富文本来回换；按快捷键打出的粗体、斜体、删除线看得出来）运行。
+Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。场景 22–24、26 由 `e2e/editor-types.e2e.ts` 运行；场景 27–33 由 `editor-area.e2e.ts` 的标签栏样子、多行键盘与 120px 组、拖动、右键菜单、面包屑几例运行，场景 27、28、31、32 的模型部分另由 `area.test.ts`、`groups.test.ts`、`tab-menu.test.ts`、`tab-hints.test.ts` 覆盖；触摸拖动只按代码与 `tree-drag.ts` 的同一套门槛，没有在真机上验；场景 23 的改名与删除、场景 24 的关闭时询问另由 `area.test.ts` 覆盖；场景 25 由 `editor-registry.test.ts`（真实插件宿主，交付先后与停止）与 `area.test.ts`（用默认编辑器打开）覆盖。场景 40–43 与输出 64、65 由 `e2e/editor-code-menu.e2e.ts` 运行（带探针的生产构建与测试插件 `test.menus`；语法色在 nbook 亮暗、macos 亮、护眼绿亮下量计算颜色与对比度），内置项的表另由 `code/context-menu.test.ts`、规则表由 `code/monaco-theme.test.ts`、读剪贴板由 `shared/clipboard-read.test.ts` 覆盖。场景 35–39 与输出 63 由 `e2e/editor-autosave.e2e.ts` 运行（窗口失焦与页面隐藏在无头浏览器里是派发事件模拟的），模型部分另由 `auto-save.test.ts` 覆盖。场景 34 与输出 62 由 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组（经编辑内核的输入入口逐种格式测）与 `e2e/markdown-input.e2e.ts`（本机 Chrome 的键盘、输入法事件与方向键，源码与富文本来回换；按快捷键打出的粗体、斜体、删除线看得出来）运行。
 
 ## 实现合同
 
@@ -423,6 +423,8 @@ Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、
   - 拖动的落点按此刻的布局算，起拖后结构变了整场取消，松手与最后显示的落点相同才提交（`web/tab-drag.ts`，`editor-area.e2e.ts` 的拖动一例）；
   - 标签右键菜单里编辑器自己的项直接作用于被右击的标签，不经命令的 `when`（`tab-menu.test.ts`）；
   - 面包屑按组读本组控件句柄的大纲，大纲带绑定与版本、对不上不跳；目录读取按请求序号作废迟到的结果（`EditorBreadcrumbs.dom.test.ts`）；
+  - 源码编辑器的右键菜单不读 Monaco 的菜单登记：内置项是 `code/context-menu.ts` 的一张表，每项执行 Monaco 的命令或动作，打开时取一次状态；打开经控件容器上捕获阶段的右键与 `onKeyDown`，不用整页共用的 `addCommand`（`context-menu.test.ts`、`editor-code-menu.e2e.ts`）；
+  - Monaco 的主题不继承 `vs`、`vs-dark`，规则表把 token 前缀映射到 `--syntax-*`，颜色经计算样式与画布换算（`code/monaco-theme.ts`，`monaco-theme.test.ts`）；
   - 自动保存只结算与发起保存，不改正文、不裁决、不覆盖；有阻碍的文档不自动保存，一次自动保存失败后对这份文档停下，文档变干净或一次保存成功后恢复；“停手后”的计时按文档对象记，视图还有没交出的输入或正在组字时顺延（`web/auto-save.ts`，`auto-save.test.ts`）；
   - 语言声明在源码编辑器建模型之前一次登记进 Monaco，分词与编辑规则在第一次遇到这门语言时才经交付加载；Monaco 自带的语言表由 `scripts/gen-monaco-languages.ts` 生成，与已装的 Monaco 一致（`languages.test.ts`）；纯文本与 JSON 不经贡献点。
 
