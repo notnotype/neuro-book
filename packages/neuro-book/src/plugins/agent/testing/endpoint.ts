@@ -1,6 +1,9 @@
 /**
  * 测试用的本机 OpenAI 兼容端点：按脚本一次请求回一条（文字、工具调用或错误状态码），记下每次请求的工具名与消息。`hold()` 让下一次
  * 请求挂着、直到测试放行，看运行中的行为。只由测试使用。
+ *
+ * 几个会话同时发请求时（父会话与子代理），请求到达的先后由 I/O 决定，一条全局队列会被交错着取走。`scriptFor(text, …)` 给第一条
+ * 用户消息含 `text` 的会话单开一条队列：子代理的第一条用户消息就是派它时的 `prompt`，各子代理给不同的 `prompt` 就各取各的。
  */
 
 /** 一条回复：一段文字、分几块流出的文字、一次或几次工具调用（`chunked`：参数分块流出），或一个错误状态码。 */
@@ -19,6 +22,8 @@ export interface FakeEndpoint {
     readonly baseUrl: string;
     readonly requests: readonly SeenRequest[];
     script(...replies: Scripted[]): void;
+    /** 第一条用户消息含 `text` 的请求从这条队列取（先于全局队列）；用完之后落到全局队列。 */
+    scriptFor(text: string, ...replies: Scripted[]): void;
     /** 下一次请求到达后挂住，交回放行函数与“已到达”的 Promise。 */
     hold(): {readonly arrived: Promise<void>; release(): void};
     /** 丢掉没用完的脚本与挂起（每个测试之后调，免得上一个测试剩下的回复串到下一个）。 */
@@ -30,6 +35,7 @@ const chunk = (payload: object): string => `data: ${JSON.stringify({id: "c", obj
 
 export function fakeEndpoint(): FakeEndpoint {
     const queue: Scripted[] = [];
+    const routes: {readonly text: string; readonly replies: Scripted[]}[] = [];
     const requests: SeenRequest[] = [];
     const holds: {arrived: () => void; released: Promise<void>}[] = [];
     let calls = 0;
@@ -51,7 +57,10 @@ export function fakeEndpoint(): FakeEndpoint {
                 hold.arrived();
                 await hold.released;
             }
-            const reply = queue.shift() ?? "好";
+            const firstUser = messages.find((message) => message.role === "user");
+            const firstText = firstUser === undefined ? "" : typeof firstUser.content === "string" ? firstUser.content : JSON.stringify(firstUser.content);
+            const route = routes.find((item) => item.replies.length > 0 && firstText.includes(item.text));
+            const reply = route?.replies.shift() ?? queue.shift() ?? "好";
             calls += 1;
             if (typeof reply === "object" && "status" in reply) return Response.json({error: {message: "Service overloaded"}}, {status: reply.status});
             const texts = typeof reply === "string" ? [reply] : "chunks" in reply ? reply.chunks : null;
@@ -80,6 +89,11 @@ export function fakeEndpoint(): FakeEndpoint {
         script: (...replies) => {
             queue.push(...replies);
         },
+        scriptFor: (text, ...replies) => {
+            const existing = routes.find((item) => item.text === text);
+            if (existing === undefined) routes.push({text, replies: [...replies]});
+            else existing.replies.push(...replies);
+        },
         hold: () => {
             let arrived!: () => void;
             let release!: () => void;
@@ -94,6 +108,7 @@ export function fakeEndpoint(): FakeEndpoint {
         },
         reset: () => {
             queue.length = 0;
+            routes.length = 0;
             holds.length = 0;
         },
         stop: () => {
