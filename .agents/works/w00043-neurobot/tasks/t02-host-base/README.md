@@ -38,6 +38,12 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 
 2026-11-10：按下表与“开发者定的”三项改出第二稿（Opus，424 行）：新包三个（`nb-file-lock`、`nb-host`、`nb-models`）；切片重排为 0 ADR（主 Agent 在主工作区写）、1 `nb-file-lock`、2 到 6 `nb-host`、7 与 8 `nb-models`（t32 合入、变基之后）、9 文档与合入前清单，第 1 到 6 片可在 t32 合入前先合。表外顺带改的：补丁校验脚本加“只有 `nb-file-lock` 声明 `proper-lockfile` 且版本 4.1.2”；第 4 片用过渡导出 `createHostPlugins`、第 5 片删去；`runtime/diagnostics.md` 进 Spec 改动表；B4 的“锁失效只报诊断、进程不崩”用例放在 `nb-file-lock`。主 Agent 核对：引用 `locked-replace` 的非测试文件 19 个、提到它的测试 9 份（`locked-replace.test.ts` 随包搬走、`architecture.test.ts` 另改，要改导入的正是计划写的 7 份）；直接导入 `proper-lockfile` 的应用文件 4 个（`locked-replace.ts`、`jsonl-exporter.ts`、`layer-file.ts`、`plugin-platform/backend/startup.ts`），计划都给了去处。剩三项交开发者（计划“需要开发者确认”）。
 
+### 实施进度
+
+代码在 `.worktree/w00043-neurobot`（分支 `feat/w00043-neurobot`），主会话写。
+
+- 第 1 片（`nb-file-lock`）已提交：包与两条真实子进程用例（并发替换 40 次不丢、暂停到过期后被接管只报诊断不崩）、应用 26 个文件改导入、`startup.ts` 改用 `lockHeld`、补丁校验加“只有 nb-file-lock 直接声明”、应用架构测试加运行位置表。验证：包的 `typecheck` 与 `bun test`（5 条）；应用 `bun run typecheck`（三份配置都过，证实入口的 `/// <reference>` 把 `proper-lockfile` 的声明带给使用方）；应用 `src/backend`、`files`、`settings`、`canon`、`plugin-platform`、`server/projects`、`server/instance.test.ts`、`explorer`、`diagnostics`、`projects` 与架构测试 761 条，1 条负载下超时、单独重跑通过；`validate-proper-lockfile-patch.ts` 通过，把 nb-time 临时改成直接声明时它报错；脚本的类型检查与 `scripts/ci` 测试；`governance:check`、`docs:check`；`test:affected` 选得到新包。
+
 ### 计划第一稿的处理
 
 后端审查（B）、前端审查（F）、独立设计（D）：
