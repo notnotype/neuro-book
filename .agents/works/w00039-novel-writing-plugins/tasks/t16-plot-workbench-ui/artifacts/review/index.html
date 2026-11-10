@@ -59,6 +59,25 @@ ol.week li { margin: 2px 0; }
 <p>界面上不出现记录 id、Component、字段路径（提案第 8 节“入口与用词”），所以草稿里把提案的几个词换成了作者的说法：初值 → 开局，讲述 → 讲到的地方，补丁 → 改了什么，生效位置 → 什么时候。</p>
 </div>
 
+<div class="round">第一批（设定侧）实施中 · 星瑕样本项目用什么类型</div>
+
+<section class="s">
+<h2>样本的类型和应用内置的对不上 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>第一批要有一个脚本生成“星瑕样本项目”，开发和 e2e 都打开它。样本来自 t16 原型，用的是原型自己定的四种数据：人物（身体、现在的样子、原身外观、性格、现在的态度）、面板（魔力、魔力上限、存款、今天还能回溯、随身物品）、身份、剧情线。</p>
+<p>应用里的数据种类只能由插件登记。现在内置的只有两种，字段是临时的（完整清单留给 t10）：人物（外观、状态、现在的态度）和面板（字段由每个条目自己加）。条目页上人物、面板的专门界面（你在第 7 版定的）挂在这两个内置种类上。</p>
+<p>样本里真正被剧情改动的：存款 8 次、现在的样子 5 次、外观 3 次、态度 2 次、身体、魔力、随身物品各 1 次。身份、剧情线只有开局的值，没有改动。</p>
+</section>
+
+<section class="q" data-nbdev-question="b1-sample-types" data-nbdev-type="single" data-nbdev-recommend="map-builtin">
+<h2>样本项目里的数据用哪种类型 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="map-builtin"><h3>换成内置类型，内置人物补上样本要的字段</h3><p>面板的五个字段成为每个条目自己加的字段（内置面板本来就这样用）。内置人物加上“身体”“现在的样子”“性格”三个字段，都做成文字而不是选项（“原身、哥哥、魔法少女”这类选项是这本书专有的，不该进内置）。身份、剧情线不带进样本（剧情线是第二批剧情侧的事）。样本里人物、面板的专门界面都看得到；内置人物多三个临时字段，t10 定完整清单时再整理。</p></div>
+<div class="opt" data-nbdev-option="map-lossy"><h3>换成内置类型，内置人物不动</h3><p>样本里内置人物没有的字段丢掉，或者写进条目的文字里。“马甲换样子”这条故事线在界面上看不到随章变化。</p></div>
+<div class="opt" data-nbdev-option="sample-plugin"><h3>原样保留四种类型，另装一个只给样本用的插件登记它们</h3><p>样本最完整；但人物、面板的专门界面挂在内置类型上，样本里看不到它们，只显示通用的字段表；还要多维护一个开发用插件。</p></div>
+</div>
+<div class="rec-note"><b>推荐：换成内置类型，内置人物补上三个字段。</b></div>
+</section>
+
 <div class="round">不改 Profile 也能控制写手的上下文 · 方案</div>
 
 <section class="s">
