@@ -1,0 +1,125 @@
+# w00026 t23 实现审查报告（Claude Opus 子代理）
+审查范围：worktree /home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t23-drop-base，git diff 116e1b514..HEAD（6 个提交）。只读；未跑 e2e 与开发服务。
+
+## 1. 来源收起后，“摆不出预览”的候选（原位、编辑器会合并）回退到已提交的文档，来源在画面上又展开，判定却按收起后的几何
+- 严重程度：重要；类别：正确性（从代码推断，未在运行时复现）
+- 位置：packages/neuro-book/src/plugins/workbench/web/live-drag.ts:170-183（elsewhere 与 candidateDoc 为 null 时 host.show(null)）；layout-drag.ts:183-187（candidateDoc 对 inPlace 与 previewable=false 返回 null）；layout-drag.ts:533-536（dropFor 的 inPlace 按已提交文档判）
+- 现象：收起之后判定用的是收起后的几何，但文档仍是已提交的（judgeAt 里 `const doc = options.doc()`），原位与“编辑器会合并”仍按已提交文档算；这两种候选 candidateDoc 返回 null，stepPreview 就 host.show(null)，画面回到已提交布局，来源那块又出现（单标签来源还被 presentDrag 画成空位）。两条触发路径：
+  (a) 原位：两个编辑组左右并排 G1|G2，拖 G1 唯一的标签到 G2 中央，150ms 后预览“并入”，collapseSource 把 G1 收掉、G2 撑满。指针回到 G1 原来的中心（约编辑区宽度 25% 处），在收起后的几何里落在 G2 的左窄带（28%）上；在已提交文档里把 G1 唯一的标签放到 G2 左缘就是“同一块面板移动到原处”（输出 27、28，settleEmptyPanel 会删单标签的非末位编辑组，layout-doc.ts:376-380），dropFor 得 inPlace=true → candidateDoc null → show(null) → G1 以空位的样子重新展开、G2 缩回。指针再往右越过 28% 变成 G2 中央，G1 又收起。同一片屏幕区域来回开合，正是输出 38“这一场不再展开：收起后不在的面板不是落点，指针回到它原来的位置不会让它又出现”要消除的。工具面板里无名的单标签面板（从具名面板拆出来的）同理；具名面板不移动（输出 27），不触发。
+  (b) 摆不出预览：G1 只有文件 X，G2 也开着 X。拖 X 到 G2 的标签条或中央，previewable 为 false → candidateDoc null，但 elsewhere 不看 doc，照样 collapseSource。画面是已提交布局（G1 是空位），判定按 G1 已收掉、G2 撑满：指针在屏幕上的 G1 空位右半边时判成 G2 中央，松手并进 G2。base 上判定按拿起时的几何，这片区域是 G1 的原位，画面与判定一致，所以这是本次引入的。
+- 为什么是问题：违反输出 38“判定的布局”与开发者决定 1、3（“来源自己被拖空的收起后不再展开”）；(b) 还让松手结果和画面不一致。新加的 e2e“来源是那块面板最后一个视图”只覆盖了邻居拒绝（编辑组不收工具视图 → source-removed）这一种，原位和合并都没有走到。
+- 如何核实：主 Agent 在 e2e 里布两个编辑组 G1|G2（G1 单标签），实时布局把 G1 的标签拖到 G2 中央，等 data-live-preview 不是 none、G1 叶宽 < 2；再把指针移到 G1 原中心，等 300ms，读 G1 叶宽：Spec 期望 < 2，从代码推断会回到原宽，data-live-preview 为 in-place 的键。
+- 建议改法：根因是“摆不出来就用已提交的”这条回退在收起之后不成立。收起之后 candidateDoc 返回 null 时改为显示 sourceRemovedDoc（来源保持收起），一处改动覆盖 (a)(b)；或者更彻底地照 Trellis，收起后判定也换成收起后的文档（原位概念随之消失，放到 G2 左缘就是长出新块）。补 (a) 的 e2e，补在“最后一个视图”那条旁边。
+
+## 2. placeSorted 按上一帧的状态写，状态一变的那一帧画面错一帧：吸收时什么都不显示，离开时标签和卡片同时在，每次换位被拖的标签偏一格
+- 严重程度：重要；类别：正确性 / 交互（从代码推断，未在运行时逐帧复现）
+- 位置：live-drag.ts:194-213（sortingAt 在 tick 开头、按上一帧的 offered 与 wantsCard 调 placeSorted）；layout-drag.ts:259-286（placeSorted 的 resting = rect - offset）；drag-presentation.ts:69-73（sorting 按本帧的 drop 与 lifted 算）
+- 现象：Vue 的渲染在 tick 之后的微任务里、绘制之前，所以每一帧画出来的是“本帧 stepPreview/updateCard 的结果 + 上一帧状态下 placeSorted 写的样式”。三处对不上：
+  (a) 吸收那一帧（别人的标签条等够 150ms，或刚进自己的标签条）：updateCard 把 card 置 null，presentDrag 的 sorting 变真、ghost 为假；但占位标签的 inline visibility 要到下一帧 placeSorted 才写，类上是 visibility:hidden。绘制出来的这一帧没有卡片、没有拖影、也没有标签。吸收进别人的标签条时那个标签元素本帧才由渲染创建，下一帧才找得到。
+  (b) 离开标签条那一帧：card 重新出现，但占位上还带着 visibility:visible 与 translate（下一帧 placeSorted(null) 才清），标签和卡片同时画出来一帧。
+  (c) 每次换位：本帧 stepPreview 换了预览，渲染把被拖的 frame 挪到新的静止位置 R_new，但 inline translate 仍是相对旧位置算的 T，这一帧画在 R_new+T，离指针差一个邻居的宽度；下一帧 placeSorted 读到 rect=R_new+T、offset=T，才改正。拖着走过 n 个标签就闪 n 次。Trellis 的 sortTabAtPointer 在同一次里算顺序和所有标签的 transform，没有这一帧。
+  此外 TabStrip 的 frame 绑定 `:style="truncating ? {...} : undefined"`（TabStrip.vue:223）：truncating 由真变假时 Vue 的 patchStyle 走 removeAttribute("style")，translate、visibility、z-index 一起被清掉，而 sorting.offset 还记着旧值，下一帧 resting 算错 offset 那么多，又是一帧错位（注释“值对不上就重写”只修了值，没修 offset）。吸收一个标签让条从放得下变成放不下或反过来时就会发生。
+- 为什么是问题：开发者第 4 条要的是“限位排序的感觉”，审查重点 2 也点名“一帧的错位会不会出现既没有拖影也没有标签”。(a)(c) 发生在最常见的路径上（每次进入标签条、每次换位）。现有 e2e 都用 expect.poll 等到最终状态，看不到中间那一帧。
+- 如何核实：在“标签条里不拿起卡片”用例里挂一个 rAF 采样器（同本次 workbench-float 用例的写法），每帧记录被拖标签 frame 的 computed visibility、getBoundingClientRect().left 与 [data-lifted]、拖影的有无；指针从一个标签移到相邻标签的另一半。期望出现一帧 left 与指针相差约一个标签宽，以及吸收那一帧三者都不可见。
+- 建议改法：让 placeSorted 与渲染同步，而不是与上一帧同步：stepPreview 换了预览或 card 变化时，在 Vue 渲染之后（nextTick 或 onUpdated 的 post flush）用本帧的指针再调一次 placeSorted；换位的那一帧 TransitionGroup 本来就要读位置（强制布局），不多付一次重算。offset 不靠记忆，改为读元素当前的 style.translate 解析或每次先 removeProperty 再读（这样也消掉 Vue 清 style 的问题），或者 resting 直接从预览后的条目位置算。
+
+## 3. “不画拖影”的判断（presentDrag.sorting）和“标签自己显示出来”（placeSorted 找到元素）是两份真相；找不到元素时被拖的东西整个看不见
+- 严重程度：建议；类别：正确性 / 结构
+- 位置：drag-presentation.ts:69-73；layout-drag.ts:238-256（sortTargetOf 找不到 frame 时返回 null）；WorkbenchToolStrip.vue:86-89（活动栏放不下时按 pressed 排优先级）
+- 现象：presentDrag 只要“卡片收回且落点是 strip/reveal”就关掉拖影；placeSorted 要在 DOM 里找到被拖的那个 frame 才显示它。t22 审查第 7 条（已接受为风险）指出：活动栏放满时，被吸收的条目 pressed 为假、优先级 0，可能被收进“更多”。t22 时这种情况至少还有拖影；本次之后 sorting 为真、拖影关掉，sortTargetOf 找不到 `[data-tool-entry]` 返回 null，画面上没有卡片、没有拖影、也没有条目，指针下什么都没有。
+- 为什么是问题：把一个已接受的“差一两格”风险变成了“被拖的东西消失”。两个判断各写一份，以后任何一边再加条件（标题只写标题、分区不同）都会再错开。
+- 如何核实：矮窗口（或多放几个侧栏视图）让活动栏刚好放满，实时布局把右栏的视图拖到活动栏最下面，等吸收后读 `[data-tool-more]` 是否出现、`[data-workbench-drag-ghost]` 数量与该条目是否在 DOM 里。
+- 建议改法：二选一，部件少的优先：(a) 拖动中给占位条目 priority 1（t22 第 7 条的建议），保证它总在外面；(b) 让“要不要拖影”由 placeSorted 的结果决定（例如 LiveDrag 暴露一个 sorted 的 ref，只在 placeSorted 成功找到元素时为真，presentDrag 读它），一份真相。
+
+## 4. held.drop 取的是 lastLiveDrop，不是触发收起的那个候选；判定绕过 dropAt 时它是旧值，松手可能提交一个早已离开的落点
+- 严重程度：建议；类别：正确性（从代码推断）
+- 位置：layout-drag.ts:213（`held = {point, drop: lastLiveDrop}`）、:563-566（只有 dropAt 更新 lastLiveDrop）、:721-731（resolveDrop 在 covered、onButtons 时不调 dropAt，直接 offer(null)）；nb-layout/src/drag-gesture.ts:321-331（放下时按此刻坐标与此刻的 top 元素再判一次）
+- 现象：指针停在 `data-no-drag` 的按钮区（面板头的动作按钮）或被菜单挡住 150ms，offered 为 null，预览变成 source-removed，触发 collapseSource；这时 lastLiveDrop 还是指针进按钮区之前最后一次 dropAt 的结果（比如某块面板的外缘）。来源收起后布局挪动，指针下不再是按钮；不动指针直接松手，drag-gesture 的 drop() 按同一点再判，这次 onButtons 为假，走进 dropAt → judgeAt，held.point 相同，返回那个旧落点，commitsUnderPointer 为真就提交了。画面上是 source-removed（没有任何落点），结果却是早先经过的那个落点。
+- 为什么是问题：违反“松手放到的就是屏幕上那个”（输出 38），而且这份旧值的来源要推演三处代码才看得出。
+- 如何核实：读上面三处；运行时复现需要按钮区收起后被别的面板替换，主 Agent 可选做。
+- 建议改法：held.drop 用触发收起的那个候选：LiveDrag 调 collapseSource 时把 `offered`（preview 为 source-removed 时就是 null）传过去，删掉 lastLiveDrop 这个字段与 dropAt 包装，judgeAt 直接作为 dropAt。少一个状态，也和“收起那一刻指针下的落点”字面一致。
+
+## 5. 收起后的几何是“按矩形差平移量好的 DOM”，有两种情形差出一格：活动栏只按 sidebar 的条目上移，编辑组折行的头高度被当成不变
+- 严重程度：建议；类别：正确性（从代码推断）
+- 位置：layout-drag.ts:478-481（bar 的上移）、:333-339（measureBar 只留 `sidebar` 面板的条目）、:466-469（头的高度不变）；state/layout-present.ts:82-86（活动栏列的是侧栏这一整列的面板）；nb-layout/src/vue/tab-strip-geometry.ts:45-54（translateTabStrip 不重排）
+- 现象：
+  (a) 活动栏列的是侧栏这一列所有面板的视图（sidebarColumnPanels，按树序），measureBar 只留 `sidebar` 的条目。来源在这一列里排在 sidebar 之前的另一块面板（从侧栏上缘拆出来的）时，收起后画面上 sidebar 的条目整体上移一格，但 `kept.bar.findIndex(entry.tab === source.tab)` 为 -1，不移；barDrop 的插入位在收起后差一格。来源在 sidebar 里、但它下一个 sidebar 条目之间隔着别的面板的条目时，gap 也算大了。
+  (b) 编辑组的标签条折行（wrap）时，头的高度随宽度变：收起后邻居变宽，折行变少，头变矮、正文上移，而 collapsed() 认为“头的高度不变”，translateTabStrip 也只平移、不重排，第二行的标签在快照里还在第二行。指针在新头下沿与旧头下沿之间时，判定是标签条（插入位），画面上是正文的上窄带；第二行的插入位也对不上。
+- 为什么是问题：输出 38 写“标签条与活动栏条目跟着挪”，收起后判定要和静止布局一致。Trellis 的 dropBase 是按收起后的文档整份重算（layoutRects），没有这类近似。两种情形都不常见，但差的是一整格，不是几个像素。
+- 如何核实：(a) 读上面几行代码即可确认；运行时：把一个视图拖到侧栏上缘拆出一块，再把它拖到别处等收起，指针回活动栏，读 data-live-preview 里的 index 与画面上指针所在的条目间隙。(b) 编辑组 overflow 为 wrap、标签多到两行时，拖走邻组唯一的标签等收起，再看邻组的头。
+- 建议改法：(a) measureBar 量这一列全部条目（带上所属面板），收起时按全列下标上移，判定时再过滤到 sidebar；(b) 至少在注释与 Task 记录里写明 wrap 时的偏差；要消除就得在收起后等一帧重量这块面板的头（与“预览不进输入”冲突，需开发者取舍）。
+
+## 6. 浮动窗把手加了 [data-moving] 过渡，却没有跟着加 [data-float-gesture] 的“手势中不过渡”：别的过渡还在走时缩放浮动窗，把手拖尾
+- 严重程度：建议；类别：正确性 / 回归（从代码推断）
+- 位置：packages/nb-layout/src/vue/NestedGrid.vue:470（chrome 只绑 data-moving，不绑 data-float-gesture）、:564-576（`.nb-grid-frame[data-float-gesture], .nb-grid-content[data-float-gesture] {transition: none}` 没有 chrome）
+- 现象：bc3938ad7 给 `.nb-grid-float-chrome[data-moving]` 加了 transform/width/height 的 470ms 过渡。`moving` 是整个网格的标记：任何一轮布局过渡（刚落地一个窗、刚放下一个面板）的约 0.5 秒里都为真。这时缩放浮动窗，floats 的矩形每帧变，外框与内容有 `[data-float-gesture]` 压成 `transition: none` 跟手，把手层没有，宽高与位置按 470ms 缓动追，四边手柄落在窗后面。整窗拖动不受影响：placeFloat 写的是 `translate`，不在过渡列表里。base 上把手没有过渡，不会拖尾。
+- 为什么是问题：输出 39“缩放”与开销条目要求跟手的东西不带拖尾；这条规则在外框与内容上已经有人专门写过（注释“手势中的窗跟手：别的布局变化正在过渡时也不带拖尾”），把手漏了。
+- 如何核实：e2e 里拖出一个浮动窗，松手后立刻（`[data-moving]` 还在）拖它右下角手柄，逐帧比较 `[data-float-chrome]` 与 `[data-leaf][data-float]` 的宽度，期望出现几十像素的差。
+- 建议改法：chrome 也绑 `:data-float-gesture="floatGestures.get(float.id)"`，把 `.nb-grid-float-chrome[data-float-gesture]` 加进 transition:none 那条规则。
+
+## 7. 落地时“这块叶是不是新出现的”靠两个 watch 的先后，注释给的退路也不成立；land 还会盖掉同一轮 start 写的 growing
+- 严重程度：建议；类别：不变量 / 结构
+- 位置：NestedGrid.vue:214-218（leavesBefore 在 layers 的监听里写）、:383-394（lifted 的监听读它）；useGridMotion.ts:152-168（land 直接 `growing.value = entering`）
+- 现象：(a) 两个监听都是 pre flush、同一个组件，Vue 3.5 的队列对同 id 的 pre 任务按入队先后跑，入队先后取决于依赖的通知顺序（props 键的设置顺序、computed 与 watcher 在 props.lifted 订阅链上的先后），不是“先建先跑”的公开保证。现在 layers 经 contentLayer 依赖 props.lifted、且先订阅，所以实际会先跑，结论大概率成立；但注释说“它要是还没更新，……只是不长外框”不对：lifted 的监听先跑时，leavesBefore 是“上上次布局之前”的叶，layers.value（惰性 computed）却已是放下后的，预览里刚长出来的新块会被误判成“这次才出现”，外框从卡片的矩形长出来，而不是“不长”。(b) land 在同一轮里紧跟 motion.update 之后调用，update 若因这次布局变化走了 start 并写了 entering，land 用只含一块叶的 Map 整个替换掉，别的新项就没有起点矩形、直接到终点。
+- 为什么是问题：正确性挂在两个监听的隐含先后与一条不准确的注释上，后来的人调整 watch 顺序或 props 依赖就会静默出错。
+- 如何核实：读上述代码；(a) 可在 happy-dom 里交换两个 watch 的声明顺序跑 NestedGrid 的单元测试（若有覆盖），或推演 edge 落点：预览已长出新块 → 放下时若 lifted 监听先跑，新块外框会从卡片矩形长出来。
+- 建议改法：合成一个监听 `watch([layers, () => props.lifted?.key ?? null], ([next, now], [previous, before]) => …)`，同一次回调里拿到放下前后的叶集合，删掉 leavesBefore 这个模块级变量与那段先后注释；land 合并而不是替换：`growing.value = new Map([...growing.value, ...entering])`。
+- 补充（第 6 条，整窗拖动）：整窗拖动也有拖尾，前提是拖出来的窗还在“从卡片长到终点”的那 0.5 秒里就按住它。activate 对 `source.kind === "panel"` 不调 settleMotion（layout-drag.ts:754-765），外框与内容靠 `[data-float-gesture="move"] {transition: none}` 当场跳到终点，把手层没有这条，它的 transform/width/height 过渡继续走完，translate 叠在一个还在长的矩形上：窗已经跟手，四边手柄还在从卡片大小往外长。所以审查重点 4 问的“整窗拖动时把手是否会带过渡拖尾”：会，只在落地过渡期间。修法同上（chrome 绑 data-float-gesture）。
+
+## 8. workbench-float“窗刚开、过渡还在走时拖它”改成量两次移动之间的位移，不再能发现拿起那一下的跳动；而本次恰好引入了这一跳
+- 严重程度：建议；类别：测试（放宽断言）/ 正确性
+- 位置：packages/neuro-book/e2e/workbench-float.e2e.ts:263-275（diff 里 start 改到第一次移动之后量，期望从 +200 改成 +100）；layout-drag.ts:754-760（windowDrag.grab 按 options.floats() 的终点矩形算）
+- 现象：bc3938ad7 之后拖出来的窗外框在约 470ms 里从卡片长到终点（base 是外框直接在终点、只有内容在飞）。这期间按住它的头：`press` 量到的是长到一半的标签位置，grab 却按终点矩形算，拿起时外框跳到终点（frame 有 data-float-gesture，过渡被压掉），抓住的点不再在指针下，窗相对指针跳了“半程矩形与终点矩形之差”。原用例在按下之前量 start、期望移动后是 start+200，正好能抓到这一跳，于是被改成先移一次再量，只比较之后的相对位移。
+- 为什么是问题：用例标题说的场景（过渡还在走时拖它）恰是这次行为变化的影响面，改断言让测试跟着实现走，而不是先确认这一跳可以接受。输出 39“夹取”写“拖窗从呈现的位置开始”。
+- 如何核实：在原写法下跑该用例应失败（主 Agent 已知，Task 记录写了“原来量的是过渡中间的起点”）；再加一条断言：按下后第一帧窗外框里被按住的那一点到指针的距离。
+- 建议改法：二选一并让开发者知道：(a) 接受这一跳，在 Task 记录与用例注释里写明“过渡中按住时窗先到终点”；(b) 整窗拖动 activate 时按“此刻呈现的矩形”（读 DOM，或先 settleMotion 再按终点算 grab 并把指针偏移补进 grab）算抓住的点，恢复原断言。
+
+## 9. 测试缺口：收起后的几何平移没有一条测试判到“挪过的面板”；排序这条新的每帧路径没有开销用例，注释对重算时机的说法反了
+- 严重程度：建议；类别：测试 / 性能
+- 位置：layout-drag.ts:446-486（collapsed）、nb-layout/src/vue/tab-strip-geometry.ts:45-54（translateTabStrip，无单元测试，`grep -rn translateTabStrip` 只有定义、导出与一处调用）；e2e/workbench-live-drag.e2e.ts 新增“最后一个视图”用例；e2e/workbench-drag-cost.e2e.ts（四条用例都不在标签条里排序）；live-drag.ts:204、:38-41 的注释
+- 现象：
+  (a) 唯一覆盖收起的 e2e 只证明“收起后的面板不再是落点”（右栏被摘出几何）。卡片外框、正文的平移伸缩、标签条快照的平移、活动栏条目上移这几段数学，没有一条用例在收起后去判一个挪过位置的面板（比如收起后放进邻居的标签条，看插入位对不对；或活动栏里收起后插到某个条目之前）。Task 记录说的变异检查“拿掉收起的几何”也只会让“不在了”这一条失败。第 5 条的两处偏差就在这片没测到的区域里。translateTabStrip 是 nb-layout 的新公开导出，没有单元测试。
+  (b) 排序是本次新加的“跟手的东西”。tick 里先 placeSorted 写 translate/visibility/z-index，再 settleDrop 里的 elementsFromPoint 读，这一读会强制一次样式重算（写在前、读在后）。按每帧只算一次看仍可能在预算内，但注释写的是“在帧开头调：这时样式是干净的，读它的位置不强制重算”“先于判定：判定里的 elementsFromPoint 在写之后读就要强制重算”，读者会以为放在开头就避开了重算，其实只是把重算挪到了判定里。workbench-drag-cost 没有排序的用例，开发者第 6 条“每帧样式重算至多一次”在这条路径上没有证据。
+- 为什么是问题：测试规则要求核心逻辑与边界有测试；开销是 Spec 输出 38 的验收判据（“候选不变……移动中每帧至多一次样式重算、不布局”）。
+- 如何核实：(a) grep 与读 e2e；(b) 在 workbench-drag-cost 里加一条：拖一个标签，在自己的标签条里同一个插入位范围内来回移动（候选不变），量 RecalcStyleCount 与 LayoutCount。
+- 建议改法：(a) 给 translateTabStrip 补一条纯函数单元测试；e2e 在“编辑器标签并入”那条之后补一步：收起后指针到目标标签条两个标签之间，断言 data-live-preview 里的 index。(b) 补开销用例；注释改成如实描述（写在判定之前，判定里的 elementsFromPoint 承担这一帧唯一的那次重算），或按第 2 条的建议把排序挪到渲染之后。
+
+## 10. 可简化与命名
+- 严重程度：建议；类别：代码质量
+- 位置与现象：
+  (a) layout-drag.ts:446 `collapsed(kept, doc, base, source)`：`doc` 是已提交的文档，`base` 是收起后的文档，名字反直觉（`base` 在别处指拿起时的基准）。建议 `committed`、`collapsedDoc`。函数名 `collapsed` 与 live-drag.ts 里的布尔 `collapsed` 同名不同义。
+  (b) layout-drag.ts:265 sortGrab 是“抓住的点占标签长度的比例”，第一次排序时按当时的方向定，之后横条与活动栏（竖）共用：在面板头里按横向 0.9 抓住，拖进活动栏后变成纵向 0.9。按方向各存一份，或每进一条重新取。
+  (c) layout-drag.ts:242-245 活动栏的夹取范围是整个 `[data-tool-band]`：它 flex:1 撑到底段之上，含“更多”按钮和条目下面的空白，被拖的图标能一路拖到最后一个条目下面很远处，也能压在“更多”上。Spec 写“夹在条的两端之间”，面板头那边夹的是 `[data-tab-row]`。建议用条目列表的范围（第一个条目的上沿到最后一个条目的下沿，或 `.workbench-tool-strip__list` 的子元素外接框）。
+  (d) 第 4 条里的 lastLiveDrop 与 dropAt 包装可以删掉（held.drop 用 offered）。
+- 为什么是问题：开发者一贯要求“部件少、不要修修补补”；(b)(c) 是可见的手感差异。
+- 如何核实：读代码。
+- 建议改法：见各项。
+- 更正（第 1 条）：(a) 里“具名面板不移动（输出 27），不触发”说错了。moveTabToEdge（nb-layout/src/layout-doc.ts:640-644）对单标签来源先判 edgeTargetTouches、命中就返回原文档，具名与否都一样；所以侧栏这一列上下两块工具面板、上面那块只有一个视图时，拖走它等收起、指针回到原位置（下面那块的上窄带）同样会让它重新出现。第 1 条的影响面因此包括具名工具面板，不只编辑组。
+
+## 未发现问题的方面
+- nb-layout `nearestEdge` 与 `layoutDropSectors` 的形状一致：可用边先占四角、不可用边的窄带无分区且返回 "none"、四边都不分（浮动窗）整块中央、空面板整块中央、noCenter（整窗拖动）下 "none" 与原来的“中央被禁”都落成 `moved`，行为不变。layout-constraints.test 里 `toHaveLength(1)` 改成 `≤1` 不是放宽：同一循环仍断言 resolve 等于 owners[0]?.action ?? null，空洞处必须判成 null。键盘走落点指示，中央停靠点取正文中心，不落进 "none" 窄带，enumerateDropCandidates 不需要跟着变。
+- 删除实时分区：`variant`、`inline`、`--layout-live-sector-line`、`liveSectors` 在 worktree 的代码、主题、Lab fixture、DropSectorsOverlay.dom.test 里没有残留引用；主工作区 docs/specs/theme/system.md 与 workbench-layout.md 已同步（worktree 里的 Spec 副本仍带旧词，属开分支时的副本，合入不受影响）。nbThemeFeedbackTokens 只给 Lab 的令牌表用，没有主题校验会因少一个令牌拒收旧主题。实时布局下 withSectors 直接返回，没有别的路径读 sectors。
+- presentDrag 的 slotPanel 新分支：只在 lifted 且 rendered 里落脚那块只剩一个标签时生效；预览 source-removed、center、float 时 landing 为 null，不误伤；唯一编辑组被拖空时 removeTab 保留空组，收起后按空组正常画。
+- releaseSorted 的收口：放下、取消、结构变化、dispose 都经 onActiveChange(false) → live.end() → placeSorted(null)，translate、visibility、z-index 三项都清；跨标签条换元素时先放掉旧元素。`transform: none !important` 只压 FLIP 的 transform，`translate` 是独立属性，`.nb-tab-frame--moving` 只过渡 transform，不会给 translate 加拖尾。z-index:1 是组件内局部叠放，符合 ui-development-spec 2.1。
+- workbench-dnd、editor-area 改过的期望都对应开发者决定 2（不分的边与骨架缝上没有落点）或决定 1（收起后按收起的布局瞄准），没有为通过而放宽；editor-area 的 dragFrom 改等根上的拖动标记，是因为排序时本来就没有拖影。
+- 单元测试：live-drag、drag-presentation、layout-constraints（36 项）与 nb-layout layout-drop（55 项）在本 worktree 实跑通过。
+- 跨包深导入、静默 catch、删除任务外代码：本次 diff 里没有发现。
+
+## 各级数量
+阻断 0；重要 2（第 1、2 条）；建议 8（第 3 至 10 条）。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+
+## 补充与更正索引（报告只追加，不回改前文；按条号读时请对照这里）
+- 第 1 条（更正，影响面扩大）：见第 8 条之后的“更正（第 1 条）”一段：具名工具面板也触发，不只编辑组与无名面板。
+- 第 1 条（补充，修法需开发者取舍）：已确认 `show(null)` 确实回到已提交布局：WorkbenchShell.vue:411 `showPreview: (next) => props.layout.actions.setLivePreview(next)`，state/layout-doc-store.ts:127 `renderedDoc = livePreview.value ?? doc.value`。建议里的“一处改动”（收起后 candidateDoc 为 null 时显示 sourceRemovedDoc）有代价：在收起后的原位上松手，inPlace 仍然不提交，布局会从“来源收起”的样子跳回原状（拖动中不展开、松手才展开）；而输出 28 写“预览画来源自己所在的位置”，输出 38 写“这一场不再展开”，两条在收起之后互斥。Trellis 的做法是收起后判定也换成收起后的文档，“原位”这个概念随之消失，放回去就是长出新块并提交。选哪条要开发者定，主 Agent 不要把它当成无代价的修法。
+- 第 6 条（补充 + 改级）：见第 7 条之后的“补充（第 6 条，整窗拖动）”一段。改为“重要”：外框与把手脱节，和开发者第一次试用的第二条意见（“标题栏先到位，视图才慢慢就位”）同类，而且整窗拖动刚落地的窗时也会触发。
+- 第 2、5 条（对照 Trellis，参照有、实现没有的项，聚在这里）：(1) Trellis 的 sortTabAtPointer 在同一次里算出顺序和所有标签的 transform，被拖的标签与邻居同帧到位；实现靠预览重渲染挪邻居、下一帧再写被拖的那个，见第 2 条。(2) Trellis 收起后 `d.dropBase = layoutRects(d.pdoc.root, …)` 按收起后的文档整份重算判定几何；实现按矩形差平移拿起时量的 DOM，见第 5 条。(3) Trellis 收起后判定用的文档也是收起后的（`d.pdoc = removePanel(...)`）；实现仍用已提交的文档判原位，见第 1 条。(4) Trellis 不对从浮动窗来的来源收起（`!d.fromFloat`）；实现对多标签浮动窗的标签也调 collapseSource，但 removeTab 后浮窗还在、几何不变，没有可见差别，不算问题。
+- 审查重点 1“held 什么时候该失效”的结论（放进未发现问题的方面）：键盘区域（region 非 null）进 judgeAt 时清掉；窗口尺寸与结构变化在实时布局下整场取消（structure 带 extentKey），activate 时重置；指针换了坐标就清。除第 4 条的旧值来源之外没有发现失效时机的问题。
+- 审查重点 2“多行（wrap）时夹在哪一行”的结论：夹取范围是被拖标签所在的 `[data-tab-row]` 的横向范围；wrap 时这个元素跨多条视觉行，标签只横向跟手、不纵向跟手，换到另一视觉行要等预览把它插过去（下一帧位置才对，同第 2 条 (c)）。不算单独的问题，记在这里。
+- UI 专属检查（.agents/skills/ui-development/SKILL.md 第三节与 ui-development-spec.md 第 8 节）：逐条对过与本次相关的项（键盘、界面文案、单层滚动、z-index 字面量、令牌删除）。设置说明的新文案书面、可懂；占位标签排序时可见但仍 `aria-hidden="true"`，是拖动中的暂态、读屏由常驻的 `role="status"` 播报，不算问题；translate 的内联 px 是跟手位置，不是样式常量；活动栏 band 本身 `overflow-y: auto`，夹取后被拖条目不越出 band 的边框盒，不会造出滚动。没有新的命中。
+
+## 各级数量（以此为准，覆盖上文）
+阻断 0；重要 3（第 1、2、6 条）；建议 7（第 3、4、5、7、8、9、10 条）。
+
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10
