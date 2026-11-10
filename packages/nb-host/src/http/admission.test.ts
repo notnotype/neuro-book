@@ -34,7 +34,7 @@ async function rejection(promise: Promise<unknown>): Promise<HttpAdmissionReject
 
 describe("HTTP 准入", () => {
     it("就绪前到达的请求等待就绪后才放行", async () => {
-        const admission = new HttpAdmission();
+        const admission = new HttpAdmission({productName: "Acme"});
         let admitted = false;
         const pending = admission.admit().then((ticket) => {
             admitted = true;
@@ -49,7 +49,7 @@ describe("HTTP 准入", () => {
     });
 
     it("启动失败时等待中与之后的请求都以 startup-failed 拒绝，且不留在途计数", async () => {
-        const admission = new HttpAdmission();
+        const admission = new HttpAdmission({productName: "Acme"});
         const waiting = rejection(admission.admit());
         const failure = new Error("必需插件失败");
         admission.failed(failure);
@@ -61,7 +61,7 @@ describe("HTTP 准入", () => {
     });
 
     it("排空期间新请求以 stopping 拒绝；重复 release 只计一次；全部在途结束才结算", async () => {
-        const admission = new HttpAdmission();
+        const admission = new HttpAdmission({productName: "Acme"});
         admission.ready();
         const first = await admission.admit();
         const second = await admission.admit();
@@ -81,14 +81,14 @@ describe("HTTP 准入", () => {
     });
 
     it("就绪前等待的请求在排空开始时以 stopping 拒绝", async () => {
-        const admission = new HttpAdmission();
+        const admission = new HttpAdmission({productName: "Acme"});
         const waiting = rejection(admission.admit());
         await admission.drain();
         expect((await waiting).code).toBe("stopping");
     });
 
     it("事件流移出等待：排空开始即关闭，不等它结束", async () => {
-        const admission = new HttpAdmission();
+        const admission = new HttpAdmission({productName: "Acme"});
         admission.ready();
         const ticket = await admission.admit();
         let closed = false;
@@ -102,7 +102,7 @@ describe("HTTP 准入", () => {
     });
 
     it("排空开始后才登记的事件流立即关闭", async () => {
-        const admission = new HttpAdmission();
+        const admission = new HttpAdmission({productName: "Acme"});
         admission.ready();
         const ticket = await admission.admit();
         const draining = admission.drain();
@@ -116,7 +116,7 @@ describe("HTTP 准入", () => {
 
     it("在途请求超过上限时排空以未完成拒绝，事件流关闭失败也计入", async () => {
         const clock = manualClock();
-        const admission = new HttpAdmission({clock});
+        const admission = new HttpAdmission({productName: "Acme", clock});
         admission.ready();
         await admission.admit();
         const streamTicket = await admission.admit();

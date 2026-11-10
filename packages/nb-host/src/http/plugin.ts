@@ -1,5 +1,5 @@
 /**
- * `nbook.http` 后端入口：Bun 监听、经准入分发请求，并接收其它插件的 `http.routes` 贡献。
+ * 宿主的 HTTP 插件（服务端入口）：Bun 监听、经准入分发请求，并接收其它插件的 `http.routes` 贡献。插件 id 由宿主给。
  *
  * 监听归本入口的激活作用域，入口关闭时强制断开剩余连接；排空由宿主在内核停止前完成，
  * 这里不再等待在途请求。宿主自有接口挂在 `/api/runtime/`：`/health` 在就绪后返回 200，其余由装配方
@@ -11,10 +11,9 @@ import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {descriptor} from "../plugin";
+import {HTTP_ROUTES_POINT, rethrowRouteError} from "../shared/http-contracts";
+import type {HttpRouteEnv} from "../shared/http-contracts";
 import type {HttpAdmission} from "./admission";
-import {HTTP_ROUTES_POINT, rethrowRouteError} from "../shared/contracts";
-import type {HttpRouteEnv} from "../shared/contracts";
 import {createDispatcher, errorResponse, RouteTable, validateRouteContribution} from "./dispatch";
 import type {RequestFailureContext} from "./dispatch";
 import {openStaticFiles} from "./static";
@@ -29,6 +28,8 @@ export interface HostRoute {
 const HEALTH_PATH = "/health";
 
 export interface HttpPluginOptions {
+    /** 插件 id：诊断的来源与贡献点的接收者都用它。 */
+    readonly id: string;
     readonly admission: HttpAdmission;
     readonly host: string;
     readonly port: number;
@@ -49,7 +50,7 @@ export function createHttpPlugin(options: HttpPluginOptions): PluginDefinition {
         paths.add(route.path);
     }
     return {
-        id: descriptor.id,
+        id: options.id,
         contributionPoints: [{id: HTTP_ROUTES_POINT, implementation: "required", validate: validateRouteContribution}],
         entries: [defineEntry({
             id: "server",
@@ -65,7 +66,7 @@ export function createHttpPlugin(options: HttpPluginOptions): PluginDefinition {
                         message: clientGone ? "客户端断开，请求没有处理完" : "处理请求时出错",
                         error,
                         data: detail,
-                        source: {plugin: detail.plugin ?? descriptor.id},
+                        source: {plugin: detail.plugin ?? options.id},
                     });
                 };
                 const routes = new RouteTable();
@@ -85,7 +86,7 @@ export function createHttpPlugin(options: HttpPluginOptions): PluginDefinition {
                 });
                 context.scope.register({kind: "http-listener", label: "server", value: server, release: (listener) => listener.stop(true)});
                 const url = server.url.href;
-                diagnostics.record({level: "info", event: "http.listening", message: "HTTP 已开始监听", data: {url}, source: {plugin: descriptor.id}});
+                diagnostics.record({level: "info", event: "http.listening", message: "HTTP 已开始监听", data: {url}, source: {plugin: options.id}});
                 options.onListening(url);
                 return {receivers: {[HTTP_ROUTES_POINT]: routes.receiver()}};
             },

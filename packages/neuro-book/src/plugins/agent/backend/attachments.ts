@@ -13,10 +13,10 @@ import {Hono} from "hono";
 
 import type {AttachmentPort} from "@notnotype/nb-harness/kernel/contracts";
 import {imageFormat, prepareImage} from "@notnotype/nb-harness/kit/tools";
+import {rethrowRouteError} from "@notnotype/nb-host/http/contracts";
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
 
 import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
-import {rethrowRouteError} from "nbook/plugins/http/shared/contracts";
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 
 import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 

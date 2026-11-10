@@ -10,8 +10,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {HttpAdmission} from "./admission";
-import {HTTP_ROUTES_POINT, rethrowRouteError} from "../shared/contracts";
-import type {HttpRouteEnv, HttpRouteHandler} from "../shared/contracts";
+import {HTTP_ROUTES_POINT, rethrowRouteError} from "../shared/http-contracts";
+import type {HttpRouteEnv, HttpRouteHandler} from "../shared/http-contracts";
 import {createDispatcher, RouteTable, validateRouteContribution} from "./dispatch";
 import {openStaticFiles} from "./static";
 import type {StaticFiles} from "./static";
@@ -54,7 +54,7 @@ function mount(routes: RouteTable, handle: ContributionHandle<unknown, HttpRoute
 const PAGE_ORIGIN = "http://127.0.0.1:3100";
 
 function setup(staticFiles: StaticFiles | null = null) {
-    const admission = new HttpAdmission();
+    const admission = new HttpAdmission({productName: "Acme"});
     admission.ready();
     const routes = new RouteTable();
     const errors: Array<{error: unknown; plugin: string | null; clientGone: boolean}> = [];
@@ -67,9 +67,9 @@ function setup(staticFiles: StaticFiles | null = null) {
 describe("http.routes 贡献校验", () => {
     const descriptor = (overrides: Partial<ContributionDescriptor>): ContributionDescriptor => ({
         capability: HTTP_ROUTES_POINT,
-        id: "nbook.files",
+        id: "acme.files",
         declaration: undefined,
-        plugin: "nbook.files",
+        plugin: "acme.files",
         entry: "server",
         location: "server",
         ...overrides,
@@ -86,17 +86,17 @@ describe("http.routes 贡献校验", () => {
 describe("请求分发", () => {
     it("宿主接口与插件路由按前缀分发，插件收到去掉前缀的路径并保留查询串与方法", async () => {
         const {routes, request} = setup();
-        mount(routes, routeHandle("nbook.files", new Hono().all("*", (c) => c.json({method: c.req.method, path: c.req.path, q: c.req.query("q")}))));
+        mount(routes, routeHandle("acme.files", new Hono().all("*", (c) => c.json({method: c.req.method, path: c.req.path, q: c.req.query("q")}))));
 
         expect(await (await request("/api/runtime/health")).json()).toEqual({status: "ok"});
-        const response = await request("/api/nbook.files/tree/a?q=1", {method: "POST", body: "x"});
+        const response = await request("/api/acme.files/tree/a?q=1", {method: "POST", body: "x"});
         expect(await response.json()).toEqual({method: "POST", path: "/tree/a", q: "1"});
-        expect(await (await request("/api/nbook.files")).json()).toMatchObject({path: "/"});
+        expect(await (await request("/api/acme.files")).json()).toMatchObject({path: "/"});
     });
 
     it("未挂载的插件、非 /api 路径与非法编码都是 404", async () => {
         const {request, admission} = setup();
-        for (const path of ["/api/nbook.missing/x", "/index.html", "/api/%E0%A4%A/x"]) {
+        for (const path of ["/api/acme.missing/x", "/index.html", "/api/%E0%A4%A/x"]) {
             const response = await request(path);
             expect(response.status).toBe(404);
             expect(await response.json()).toMatchObject({error: {code: "not-found"}});
@@ -106,25 +106,25 @@ describe("请求分发", () => {
 
     it("撤回后请求得到 503，摘下后是 404", async () => {
         const {routes, request} = setup();
-        const handle = routeHandle("nbook.files", new Hono().get("/", (c) => c.text("ok")));
+        const handle = routeHandle("acme.files", new Hono().get("/", (c) => c.text("ok")));
         mount(routes, handle);
 
         handle.revoke();
-        const unavailable = await request("/api/nbook.files/");
+        const unavailable = await request("/api/acme.files/");
         expect(unavailable.status).toBe(503);
         expect(await unavailable.json()).toMatchObject({error: {code: "plugin-unavailable"}});
 
         await routes.receiver().revoke!(handle, undefined, "scope-closed");
-        expect((await request("/api/nbook.files/")).status).toBe(404);
+        expect((await request("/api/acme.files/")).status).toBe(404);
     });
 
     it("处理器抛错返回 500 并报告错误，在途计数归还", async () => {
         const {routes, request, errors, admission} = setup();
         const failure = new Error("boom");
-        mount(routes, routeHandle("nbook.broken", {fetch: () => { throw failure; }}));
-        const response = await request("/api/nbook.broken/x");
+        mount(routes, routeHandle("acme.broken", {fetch: () => { throw failure; }}));
+        const response = await request("/api/acme.broken/x");
         expect(response.status).toBe(500);
-        expect(errors).toEqual([{error: failure, plugin: "nbook.broken", clientGone: false}]);
+        expect(errors).toEqual([{error: failure, plugin: "acme.broken", clientGone: false}]);
         expect(admission.active).toBe(0);
     });
 
@@ -140,19 +140,19 @@ describe("请求分发", () => {
         for (const path of ["/sync", "/async", "/chained"]) {
             it(`${path} 抛错：回 JSON 的 internal-error 并进诊断，在途计数归还`, async () => {
                 const {routes, request, errors, admission} = setup();
-                mount(routes, routeHandle("nbook.broken", app));
-                const response = await request(`/api/nbook.broken${path}`);
+                mount(routes, routeHandle("acme.broken", app));
+                const response = await request(`/api/acme.broken${path}`);
                 expect(response.status).toBe(500);
                 expect(await response.json()).toEqual({error: {code: "internal-error", message: "处理请求时出错。"}});
-                expect(errors).toEqual([{error: failure, plugin: "nbook.broken", clientGone: false}]);
+                expect(errors).toEqual([{error: failure, plugin: "acme.broken", clientGone: false}]);
                 expect(admission.active).toBe(0);
             });
         }
 
         it("HTTPException 是给客户端的响应：状态码照旧，不进诊断", async () => {
             const {routes, request, errors} = setup();
-            mount(routes, routeHandle("nbook.broken", app));
-            const response = await request("/api/nbook.broken/refused");
+            mount(routes, routeHandle("acme.broken", app));
+            const response = await request("/api/acme.broken/refused");
             expect(response.status).toBe(418);
             expect(await response.text()).toBe("refused");
             expect(errors).toEqual([]);
@@ -162,7 +162,7 @@ describe("请求分发", () => {
             const {routes, dispatch, errors, admission} = setup();
             const reading = Promise.withResolvers<void>();
             const finished = Promise.withResolvers<void>();
-            mount(routes, routeHandle("nbook.broken", new Hono<{Bindings: HttpRouteEnv}>().onError(rethrowRouteError).put("/upload", async (c) => {
+            mount(routes, routeHandle("acme.broken", new Hono<{Bindings: HttpRouteEnv}>().onError(rethrowRouteError).put("/upload", async (c) => {
                 reading.resolve();
                 try {
                     return c.json({size: (await c.req.arrayBuffer()).byteLength});
@@ -173,12 +173,12 @@ describe("请求分发", () => {
             const server = Bun.serve({port: 0, hostname: "127.0.0.1", idleTimeout: 0, fetch: dispatch});
             try {
                 const socket = await Bun.connect({hostname: "127.0.0.1", port: server.port as number, socket: {data() {}}});
-                socket.write(`PUT /api/nbook.broken/upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000000\r\n\r\npartial`);
+                socket.write(`PUT /api/acme.broken/upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000000\r\n\r\npartial`);
                 await reading.promise;
                 socket.end();
                 await finished.promise;
                 await waitUntil("上传失败已报告", () => errors.length > 0);
-                expect(errors).toEqual([{error: expect.anything(), plugin: "nbook.broken", clientGone: true}]);
+                expect(errors).toEqual([{error: expect.anything(), plugin: "acme.broken", clientGone: true}]);
                 await waitUntil("在途计数归还", () => admission.active === 0);
             } finally {
                 await server.stop(true);
@@ -189,7 +189,7 @@ describe("请求分发", () => {
     it("流式响应在正文读完前计入在途，读完后归还；排空在那之前不结算", async () => {
         const {routes, request, admission} = setup();
         const chunks = Promise.withResolvers<void>();
-        mount(routes, routeHandle("nbook.slow", {
+        mount(routes, routeHandle("acme.slow", {
             fetch: () => new Response(new ReadableStream({
                 async start(controller) {
                     controller.enqueue(new TextEncoder().encode("a"));
@@ -199,7 +199,7 @@ describe("请求分发", () => {
                 },
             })),
         }));
-        const response = await request("/api/nbook.slow/");
+        const response = await request("/api/acme.slow/");
         expect(admission.active).toBe(1);
         let drained = false;
         const draining = admission.drain().then(() => {
@@ -221,7 +221,7 @@ describe("请求分发", () => {
         const {routes, request, admission} = setup();
         const entered = Promise.withResolvers<void>();
         const finish = Promise.withResolvers<void>();
-        mount(routes, routeHandle("nbook.slow", {
+        mount(routes, routeHandle("acme.slow", {
             fetch: async () => {
                 entered.resolve();
                 await finish.promise;
@@ -230,7 +230,7 @@ describe("请求分发", () => {
             },
         }));
         const client = new AbortController();
-        const response = request("/api/nbook.slow/", {signal: client.signal});
+        const response = request("/api/acme.slow/", {signal: client.signal});
         await entered.promise;
         client.abort();
         expect(admission.active).toBe(1);
@@ -242,7 +242,7 @@ describe("请求分发", () => {
     it("登记为事件流的请求不计入排空等待，排空时执行它的关闭动作", async () => {
         const {routes, request, admission} = setup();
         let closed = false;
-        mount(routes, routeHandle("nbook.events", {
+        mount(routes, routeHandle("acme.events", {
             fetch: (_request, env) => {
                 const stream = new TransformStream<Uint8Array, Uint8Array>();
                 env.registerEventStream(() => {
@@ -252,7 +252,7 @@ describe("请求分发", () => {
                 return new Response(stream.readable, {headers: {"content-type": "text/event-stream"}});
             },
         }));
-        const response = await request("/api/nbook.events/");
+        const response = await request("/api/acme.events/");
         expect(admission.active).toBe(0);
         await admission.drain();
         expect(closed).toBe(true);
@@ -260,7 +260,7 @@ describe("请求分发", () => {
     });
 
     it("页面路径交给前端构建产物并同样经过准入；/api 命名空间里没匹配上的路径（含编码写法）不回退到页面", async () => {
-        const root = await createTestTmpRoot("neuro-book-dispatch", "static-dispatch");
+        const root = await createTestTmpRoot("nb-host-dispatch", "static-dispatch");
         tmpRoots.push(root);
         await writeFile(join(root, "index.html"), "shell");
         const {request, admission} = setup(await openStaticFiles(root));
@@ -284,9 +284,9 @@ describe("请求分发", () => {
 
     it("主机名不是回环名、或没有主机名的请求一律 421，三个回环名照常", async () => {
         const {request, routes, admission, dispatch} = setup();
-        mount(routes, routeHandle("nbook.files", new Hono().all("*", (c) => c.text("ok"))));
+        mount(routes, routeHandle("acme.files", new Hono().all("*", (c) => c.text("ok"))));
         for (const host of ["evil.example:3100", "192.168.1.5:3100", "localhost.evil.example"]) {
-            const response = await request("/api/nbook.files/raw", undefined, host);
+            const response = await request("/api/acme.files/raw", undefined, host);
             expect(response.status).toBe(421);
             expect(await response.json()).toMatchObject({error: {code: "misdirected-host"}});
         }
@@ -299,14 +299,14 @@ describe("请求分发", () => {
 
     it("写请求带了不允许的来源（含 null）是 403；允许的来源、不带来源的写请求与任何来源的读请求照常", async () => {
         const {request, routes} = setup();
-        mount(routes, routeHandle("nbook.files", new Hono().all("*", (c) => c.text(c.req.method))));
+        mount(routes, routeHandle("acme.files", new Hono().all("*", (c) => c.text(c.req.method))));
         for (const origin of ["null", "http://evil.example", "http://127.0.0.1:9999"]) {
-            const response = await request("/api/nbook.files/x", {method: "POST", body: "x", headers: {origin}});
+            const response = await request("/api/acme.files/x", {method: "POST", body: "x", headers: {origin}});
             expect(response.status).toBe(403);
             expect(await response.json()).toMatchObject({error: {code: "origin-not-allowed"}});
         }
-        expect(await (await request("/api/nbook.files/x", {method: "POST", body: "x", headers: {origin: PAGE_ORIGIN}})).text()).toBe("POST");
-        expect(await (await request("/api/nbook.files/x", {method: "PUT", body: "x"})).text()).toBe("PUT");
-        expect(await (await request("/api/nbook.files/x", {headers: {origin: "null"}})).text()).toBe("GET");
+        expect(await (await request("/api/acme.files/x", {method: "POST", body: "x", headers: {origin: PAGE_ORIGIN}})).text()).toBe("POST");
+        expect(await (await request("/api/acme.files/x", {method: "PUT", body: "x"})).text()).toBe("PUT");
+        expect(await (await request("/api/acme.files/x", {headers: {origin: "null"}})).text()).toBe("GET");
     });
 });

@@ -15,7 +15,7 @@ let tmp = "";
 let files: StaticFiles;
 
 beforeAll(async () => {
-    tmp = await createTestTmpRoot("neuro-book-static", "static-files");
+    tmp = await createTestTmpRoot("nb-host-static", "static-files");
     const root = join(tmp, "web");
     await mkdir(join(root, "assets"), {recursive: true});
     await writeFile(join(root, "index.html"), "<!doctype html><title>shell</title>");

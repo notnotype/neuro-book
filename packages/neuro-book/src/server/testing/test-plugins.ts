@@ -18,14 +18,14 @@
  */
 
 import {Hono} from "hono";
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {commandsRemoteContract} from "nbook/plugins/commands/shared/contracts";
-import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {PROBE_RECORD_NAMES, probeStorage} from "nbook/shared/testing/probe-storage";
 import type {ProbeRecordName} from "nbook/shared/testing/probe-storage";

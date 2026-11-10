@@ -4,6 +4,8 @@
  * （诊断存储、HTTP 准入、启动参数、本进程加载的清单）产出定义。
  */
 
+import {createHttpPlugin} from "@notnotype/nb-host/server";
+import type {HttpAdmission} from "@notnotype/nb-host/server";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
@@ -16,8 +18,6 @@ import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
-import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
-import {createHttpPlugin} from "nbook/plugins/http/backend/plugin";
 import {pluginsBackendPlugin} from "nbook/plugins/plugins/backend/plugin";
 import {projectsBackendPlugin} from "nbook/plugins/projects/backend/plugin";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
@@ -78,6 +78,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
 export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPluginFactory>> = {
     "runtime.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}}),
     "nbook.http": (context) => createHttpPlugin({
+        id: "nbook.http",
         admission: context.admission,
         host: context.config.host,
         port: context.config.port,

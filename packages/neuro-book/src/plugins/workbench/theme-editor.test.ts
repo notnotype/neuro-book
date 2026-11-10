@@ -11,12 +11,12 @@ import {zipSync} from "fflate";
 import {Hono} from "hono";
 import {effectScope, nextTick} from "vue";
 
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {addThemeAssetRoutes} from "nbook/plugins/files/backend/theme-asset-route";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {storageWorld} from "nbook/plugins/storage/testing/world";

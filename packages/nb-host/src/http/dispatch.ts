@@ -11,7 +11,8 @@ import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} f
 
 import type {HttpAdmission, RequestTicket} from "./admission";
 import {HttpAdmissionRejected} from "./admission";
-import type {HttpRouteEnv, HttpRouteHandler} from "../shared/contracts";
+import {LOOPBACK_URL_HOSTS} from "../server/loopback";
+import type {HttpRouteEnv, HttpRouteHandler} from "../shared/http-contracts";
 import type {StaticFiles} from "./static";
 
 /** 宿主自有接口的前缀段；插件不能以它为 id 挂载路由。 */
@@ -66,21 +67,20 @@ export interface DispatchOptions {
     readonly staticFiles: StaticFiles | null;
     /** 处理器抛错时的诊断；不改变响应。 */
     readonly reportError: (error: unknown, context: RequestFailureContext) => void;
-    /** 写请求的 `Origin` 是否允许：与 RPC 端口同一份判定（`server/start.ts`）。 */
+    /** 写请求的 `Origin` 是否允许：与 RPC 端口同一份判定，由宿主给。 */
     readonly allowOrigin: (origin: string) => boolean;
 }
 
-/**
- * 未加载鉴权时 `Host` 只能是回环名：监听只在回环地址上，别的主机名只会来自 DNS 重绑定（攻击页与本机端口同源、GET
- * 不带 `Origin`，只有 `Host` 分得出来）。`URL.hostname` 对 IPv6 带方括号。
+/*
+ * 未加载鉴权时 `Host` 只能是回环名（`LOOPBACK_URL_HOSTS`，`URL.hostname` 对 IPv6 带方括号）：监听只在回环地址上，别的主机名
+ * 只会来自 DNS 重绑定（攻击页与本机端口同源、GET 不带 `Origin`，只有 `Host` 分得出来）。
  */
-const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 /** 读请求放行任何来源（拿不到响应由浏览器的 CORS 保证）；其余方法带了 `Origin` 就要是允许的来源，`null` 不是。 */
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
 
 function rejected(request: Request, url: URL, allowOrigin: (origin: string) => boolean): Response | null {
-    if (!LOOPBACK_HOSTS.has(url.hostname)) return errorResponse(421, "misdirected-host", `不接受主机名 ${url.hostname} 的请求。`);
+    if (!LOOPBACK_URL_HOSTS.has(url.hostname)) return errorResponse(421, "misdirected-host", `不接受主机名 ${url.hostname} 的请求。`);
     const origin = request.headers.get("origin");
     if (!SAFE_METHODS.has(request.method) && origin !== null && !allowOrigin(origin)) return errorResponse(403, "origin-not-allowed", `不接受来源 ${origin} 的写请求。`);
     return null;

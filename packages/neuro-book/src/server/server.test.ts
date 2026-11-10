@@ -8,6 +8,9 @@ import {EventEmitter} from "node:events";
 import {mkdir, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
+import type {HttpAdmission} from "@notnotype/nb-host/testing";
 import {isAddressInUse, PORT_SHIFT_STEP} from "@notnotype/nb-host/server";
 import {helloFrame, openRawRpcSocket, upgradeStatus} from "@notnotype/nb-host/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -17,9 +20,6 @@ import {Hono} from "hono";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
-import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
 
 import {PROJECT_LIMIT_DEFAULTS} from "./config";

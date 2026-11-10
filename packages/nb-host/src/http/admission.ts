@@ -21,12 +21,12 @@ const systemClock: DrainClock = {
 
 export type HttpRejectionCode = "startup-failed" | "stopping";
 
-/** 准入拒绝；调用方按 `code` 映射为 503 响应。 */
+/** 准入拒绝；调用方按 `code` 映射为 503 响应，`message` 进响应体给人看，带产品名。 */
 export class HttpAdmissionRejected extends Error {
     readonly code: HttpRejectionCode;
 
-    constructor(code: HttpRejectionCode, options?: ErrorOptions) {
-        super(code === "stopping" ? "NeuroBook 正在关闭。" : "NeuroBook 启动失败。", options);
+    constructor(code: HttpRejectionCode, productName: string, options?: ErrorOptions) {
+        super(code === "stopping" ? `${productName} 正在关闭。` : `${productName} 启动失败。`, options);
         this.name = "HttpAdmissionRejected";
         this.code = code;
     }
@@ -43,6 +43,7 @@ type Readiness = {readonly status: "ready"} | {readonly status: "failed"; readon
 export class HttpAdmission {
     readonly #ready = Promise.withResolvers<Readiness>();
     readonly #clock: DrainClock;
+    readonly #productName: string;
     readonly #streams = new Set<() => void | Promise<void>>();
     readonly #closing: Array<Promise<void>> = [];
     readonly #drainFailures: unknown[] = [];
@@ -52,8 +53,10 @@ export class HttpAdmission {
     #drain: Promise<void> | null = null;
     #failure: {readonly error: unknown} | null = null;
 
-    constructor(options: {readonly clock?: DrainClock} = {}) {
+    /** `productName` 进拒绝的消息（“<产品名> 正在关闭。”），由宿主传入。 */
+    constructor(options: {readonly productName: string; readonly clock?: DrainClock}) {
         this.#clock = options.clock ?? systemClock;
+        this.#productName = options.productName;
     }
 
     /** 运行实例可用：放行等待中的请求。 */
@@ -77,8 +80,8 @@ export class HttpAdmission {
      * 此前计入的在途已撤回，调用方不需要再 release。
      */
     async admit(): Promise<RequestTicket> {
-        if (this.#failure !== null) throw new HttpAdmissionRejected("startup-failed", {cause: this.#failure.error});
-        if (this.#draining) throw new HttpAdmissionRejected("stopping");
+        if (this.#failure !== null) throw new HttpAdmissionRejected("startup-failed", this.#productName, {cause: this.#failure.error});
+        if (this.#draining) throw new HttpAdmissionRejected("stopping", this.#productName);
         this.#active += 1;
         let released = false;
         let streamClose: (() => void | Promise<void>) | null = null;
@@ -104,11 +107,11 @@ export class HttpAdmission {
         const readiness = await this.#ready.promise;
         if (readiness.status === "failed") {
             ticket.release();
-            throw new HttpAdmissionRejected("startup-failed", {cause: readiness.error});
+            throw new HttpAdmissionRejected("startup-failed", this.#productName, {cause: readiness.error});
         }
         if (readiness.status === "stopping") {
             ticket.release();
-            throw new HttpAdmissionRejected("stopping");
+            throw new HttpAdmissionRejected("stopping", this.#productName);
         }
         return ticket;
     }

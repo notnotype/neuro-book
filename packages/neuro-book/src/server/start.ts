@@ -14,7 +14,8 @@ import {writeSync} from "node:fs";
 import {homedir} from "node:os";
 import {join} from "node:path";
 
-import {isAddressInUse, listenWithShift, loopbackOrigins, PORT_SHIFT_ATTEMPTS} from "@notnotype/nb-host/server";
+import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected, isAddressInUse, listenWithShift, loopbackOrigins, PORT_SHIFT_ATTEMPTS} from "@notnotype/nb-host/server";
+import type {DrainClock} from "@notnotype/nb-host/server";
 import {RPC_PATH} from "@notnotype/nb-host/socket";
 import type {Application, StartupFailure, StartupResult, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
@@ -30,8 +31,6 @@ import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import type {PluginDescriptor} from "nbook/manifest";
-import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
-import type {DrainClock} from "nbook/plugins/http/backend/admission";
 import {clockKey, startupEnvKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
@@ -158,7 +157,7 @@ function fatalLine(event: string, fields: Record<string, unknown>): string {
 export function startServer(options: StartServerOptions): RunningServer {
     const writeFatal = options.writeFatal ?? writeStderrSync;
     const store = createDiagnosticsStore({identity: {location: "server", instanceId: INSTANCE_ID}});
-    const admission = new HttpAdmission({clock: options.clock});
+    const admission = new HttpAdmission({productName: NEUROBOOK_PROFILE.productName, clock: options.clock});
     let url: string | null = null;
     let fatalSeen = false;
     let startupFailureReported = false;
