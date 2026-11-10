@@ -112,7 +112,7 @@
         },
         "maxCost": {
             "title": "Cost limit (USD)",
-            "description": "Stops sending model requests when this session's cost reaches this amount; the last request may go slightly over. 0 means no limit. Models without a price are not counted, so the limit does not apply to them"
+            "description": "Stops sending model requests when the whole session tree (the session and the sub-agents it spawned) reaches this cost; the last few requests may go slightly over. 0 means no limit. Models without a price are not counted, so the limit does not apply to them"
         },
         "permissionRules": {
             "title": "Permission rules",
@@ -129,6 +129,18 @@
         "toolLoopThreshold": {
             "title": "Repeated call threshold",
             "description": "Reminds the model after this many identical tool calls in a row, and stops the run if the results stay the same after the reminder; 0 turns it off"
+        },
+        "subagentDepth": {
+            "title": "Sub-agent depth",
+            "description": "Sub-agents can spawn their own; spawning fails beyond this many levels."
+        },
+        "subagentsPerSession": {
+            "title": "Sub-agents per session",
+            "description": "How many sub-agents one session can have running at once, foreground or background."
+        },
+        "backgroundJobs": {
+            "title": "Running jobs",
+            "description": "How many sub-agents and background commands can run at once across all sessions."
         }
     },
     "settingsSections": {
@@ -144,6 +156,9 @@
                 },
                 "guards": {
                     "title": "Guards"
+                },
+                "subagents": {
+                    "title": "Sub-agents and background jobs"
                 }
             }
         }

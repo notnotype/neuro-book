@@ -24,6 +24,8 @@ const ProfileSettingSchema = Type.Object({
     model: Type.Optional(Type.String({minLength: 1})),
     role: Type.Optional(Type.String({minLength: 1})),
     approvalMode: Type.Optional(Type.Union([Type.Literal("ask"), Type.Literal("allow-writes"), Type.Literal("auto"), Type.Literal("yolo")])),
+    /** 可派的子代理在 Profile 声明之外加、减的（profile-settings.md 输出 25）；形状与规则同工具绑定。 */
+    agents: Type.Optional(ToolBindingSchema),
 }, {additionalProperties: false});
 
 export const ToolBindingsSchema = Type.Record(Type.String({minLength: 1}), ToolBindingSchema);
@@ -38,7 +40,7 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
     icon: "i-lucide-shield-check",
     category: "ai",
     order: 30,
-    groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}],
+    groups: [{id: "requests"}, {id: "compaction"}, {id: "guards"}, {id: "subagents"}],
 };
 
 /** “Profile”页（profile-settings.md）：这两项由页面画，不进“其它”。 */
@@ -126,6 +128,37 @@ export const agentSettings = defineSettings("nbook.agent", {
         layers: ["user"],
         section: RUN_GUARDS_SECTION,
         group: "guards",
+        order: 30,
+    },
+    // 子代理与任务中心的上限（subagents.md、jobs.md）：缺省值与硬上限是 t14 第 27 条定的。
+    subagentDepth: {
+        schema: Type.Integer({minimum: 1, maximum: 5}),
+        default: 3,
+        title: agentText("settings.subagentDepth.title"),
+        description: agentText("settings.subagentDepth.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "subagents",
+        order: 10,
+    },
+    subagentsPerSession: {
+        schema: Type.Integer({minimum: 1, maximum: 16}),
+        default: 8,
+        title: agentText("settings.subagentsPerSession.title"),
+        description: agentText("settings.subagentsPerSession.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "subagents",
+        order: 20,
+    },
+    backgroundJobs: {
+        schema: Type.Integer({minimum: 1, maximum: 32}),
+        default: 16,
+        title: agentText("settings.backgroundJobs.title"),
+        description: agentText("settings.backgroundJobs.description"),
+        layers: ["user"],
+        section: RUN_GUARDS_SECTION,
+        group: "subagents",
         order: 30,
     },
 });

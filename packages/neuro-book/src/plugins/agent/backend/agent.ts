@@ -23,6 +23,7 @@ import type {AgentService, ProfileAdmin, StartTaskOptions, StartTaskResult} from
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
+import {SessionRelations} from "./subagents/relations";
 import {ProfileBundles} from "./profile-bundles";
 import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
 import {createAttachmentPort} from "./attachments";
@@ -63,6 +64,8 @@ export interface AgentRuntime {
     readonly meta: SessionMeta;
     readonly service: AgentService;
     readonly profileAdmin: ProfileAdmin;
+    /** 会话之间的父子关系（subagents.md）。 */
+    readonly relations: SessionRelations;
     /** 会话目录的根：`sessions://` 的容器。 */
     readonly sessionsRoot: string;
     /** 存储层的会话列表，不加缺省的过滤（含归档与后台的），`sessions://` 与临时目录的清理用。 */
@@ -121,6 +124,11 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     const restore = new CompactionRestore({files: options.files, editStores: options.editStores, report: options.report});
 
     const store = createJsonlStore({root: sessionsRoot});
+    // 扫完才交出服务（深度与费用上限靠它）：之后的派发与 fork 增量登记。读不了的索引不在列表里，那些会话按没有父会话算。
+    const relations = new SessionRelations();
+    const scanned = await store.list();
+    if (scanned.ok) relations.load(scanned.value);
+    else options.report("relations-scan-failed", `could not list sessions to load sub-agent relations: ${scanned.code}`, {code: scanned.code});
     let sessions: SessionTable | null = null;
     const models = options.models === null ? NO_MODELS : options.models.port((profile) => {
         const setting = profileSettings()[profile];
@@ -180,6 +188,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     const createSession = async (createOptions: Parameters<AgentService["create"]>[0]): ReturnType<AgentService["create"]> => {
         const created = await table.create(createOptions);
         if (!created.ok) return created;
+        if (createOptions.caller !== undefined) relations.register({id: created.value.id, caller: createOptions.caller});
         const view = table.view(created.value.id);
         // Profile 设置里的审批模式是新会话的初值（contributions.md 输出 13）。
         const approvalMode = profileSettings()[createOptions.profile]?.approvalMode;
@@ -271,6 +280,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         meta,
         service,
         profileAdmin,
+        relations,
         sessionsRoot,
         listSessions: async () => {
             const listed = await store.list();

@@ -7,7 +7,7 @@ import {defineProfile} from "@notnotype/nb-harness/kernel";
 import {If, Tag, ToolName} from "@notnotype/nb-harness/prompt";
 import type {AgentExtensionImplementation, AgentProfileDeclaration, AgentProfileImplementation} from "../../../shared/points";
 
-import {MAIN_PROFILE} from "../../../shared/contracts";
+import {ADHOC_PROFILE, MAIN_PROFILE} from "../../../shared/contracts";
 import {modesExtensions} from "../../permissions/modes";
 
 const NAME = "写作助手";
@@ -23,7 +23,7 @@ const TOOLS = {
     optional: ["nbook.agent.edit-replace", SHELL, ASK],
 };
 
-export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-feather"};
+export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-feather", agents: {allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]}};
 
 const ROLE = `你是 NeuroBook 的写作助手，和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。
 书的文件在 project:// 下。没有打开书时可以讨论，产物放 session://。`;

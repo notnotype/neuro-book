@@ -112,7 +112,7 @@
         },
         "maxCost": {
             "title": "费用上限（美元）",
-            "description": "这个会话的费用到上限后不再发模型请求，最后一次可能超出一点；0 表示不设。没填单价的模型不计入，上限对它不起作用"
+            "description": "整棵会话树（会话和它派出的子代理）的费用到上限后不再发模型请求，最后几次可能超出一点；0 表示不设。没填单价的模型不计入，上限对它不起作用"
         },
         "permissionRules": {
             "title": "权限规则",
@@ -129,6 +129,18 @@
         "toolLoopThreshold": {
             "title": "重复调用阈值",
             "description": "连续这么多次相同的工具调用时提醒模型；提醒后结果还是一样就停止运行；0 表示不检测"
+        },
+        "subagentDepth": {
+            "title": "子代理最多几层",
+            "description": "子代理还能再派子代理；超过这么多层时派不出去。"
+        },
+        "subagentsPerSession": {
+            "title": "每个会话同时的子代理",
+            "description": "一个会话同时在跑的子代理至多几个，前台、后台都算。"
+        },
+        "backgroundJobs": {
+            "title": "同时在跑的任务",
+            "description": "所有会话的子代理与后台命令加起来，同时在跑的至多几个。"
         }
     },
     "settingsSections": {
@@ -144,6 +156,9 @@
                 },
                 "guards": {
                     "title": "保护"
+                },
+                "subagents": {
+                    "title": "子代理与后台任务"
                 }
             }
         }

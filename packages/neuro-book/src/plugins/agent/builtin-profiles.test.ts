@@ -24,7 +24,7 @@ import {loadRules} from "./backend/builtin/profiles/rules";
 import {ResourceReadError} from "./backend/resources";
 import {sessionMetaExtension, titleSessionId} from "./backend/session-meta";
 import type {MetaTrigger} from "./backend/session-meta";
-import {MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";
+import {ADHOC_PROFILE, MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";
 import {agentExtension, agentTool} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint, SeenRequest} from "./testing/endpoint";
@@ -205,6 +205,25 @@ describe("主创", () => {
         const after = messagesText(await turn(session, "第三轮"));
         expect(after).toContain("新规则。");
         expect(after).not.toContain("旧规则。");
+    });
+});
+
+describe("临时帮手", () => {
+    test("输出 14：角色来自初始输入，工具是该有的那些；不进选 Profile 的界面；没给角色建不成", async () => {
+        const w = await world();
+        expect(w.service.profiles().find((profile) => profile.key === ADHOC_PROFILE)).toMatchObject({status: "ok", hidden: true});
+        const created = await w.service.create({profile: ADHOC_PROFILE, initial: {role: "你是设定核对员，只看人物卡与正文是否矛盾。"}});
+        if (!created.ok) throw new Error(`create failed: ${created.code}`);
+        const request = await turn(created.value, "核对第三章");
+        expect(request.system).toContain("你是设定核对员");
+        expect(request.system).toContain("<work>");
+        expect([...request.tools].sort()).toEqual(["edit", "glob", "grep", "read", "shell", "write"]);
+        expect(await w.service.create({profile: ADHOC_PROFILE})).toMatchObject({ok: false, code: "invalid-initial"});
+    });
+
+    test("主创声明能派它、推荐它", async () => {
+        const w = await world();
+        expect(w.service.profiles().find((profile) => profile.key === MAIN_PROFILE)?.agents).toEqual({allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]});
     });
 });
 

@@ -37,6 +37,7 @@ import {BUILTIN_PROFILE_CONTRIBUTIONS, builtinProfiles} from "./builtin/profiles
 import {createDialects} from "./permissions/dialects";
 import {readProjectRules} from "./permissions/project-rules";
 import {GUARD_CONTRIBUTIONS, runGuards} from "./guards";
+import {ProfileShapes, SUBAGENTS_EXTENSION, subagentsPrompt} from "./subagents/prompt";
 import {extensionReceiver} from "./extensions";
 import {locateDocsRoot} from "./docs-root";
 import {agentRemote, PreviewTokens} from "./remote";
@@ -58,7 +59,7 @@ export const agentBackendPlugin: PluginDefinition = {
         provides: [agentKey],
         remoteProvides: [agentSessionsContract],
         receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT],
-        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION],
+        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION, {capability: EXTENSIONS_POINT, id: SUBAGENTS_EXTENSION, declaration: {}}],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
@@ -104,6 +105,10 @@ export const agentBackendPlugin: PluginDefinition = {
                 listSessions: async () => (await runtime.listSessions()).filter((session) => !session.archived && !session.background),
                 profiles: () => runtime.service.profiles(),
             });
+            const settings = context.services.require(settingsKey);
+            const shapes = new ProfileShapes((key) => runtime.profiles.resolve(key));
+            runtime.profileAdmin.onCatalogChanged(() => shapes.clear());
+            const subagents = subagentsPrompt({catalog: () => runtime.service.profiles(), binding: (profile) => settings.get(agentSettings.settings.profileSettings)[profile]?.agents}, shapes);
             let stopped: Promise<void> | null = null;
             const stop = () => (stopped ??= runtime.stop().finally(() => previews.clear()));
             context.signal.addEventListener("abort", () => void stop(), {once: true});
@@ -111,7 +116,7 @@ export const agentBackendPlugin: PluginDefinition = {
             return {
                 services: [provideService(agentKey, runtime.service)],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, sessionResources(context.services.require(workspaceFilesKey), session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal)}, previews))],
-                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch})), [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch})), [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger)), [SUBAGENTS_EXTENSION]: subagents}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,
