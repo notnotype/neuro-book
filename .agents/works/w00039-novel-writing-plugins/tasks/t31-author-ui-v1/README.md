@@ -72,6 +72,7 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 | E | `5f2552422` | 编辑器的带参数页面标签：声明的 `instances`、`restore`，页面地址 `page://<id>?<arg>`，每个标签的 context（状态容器随标签寿命）、记着的标题、存盘与恢复只看标签、页面的面包屑与“聚焦面包屑”。DOM 测试与 Lab 夹具；e2e 还没跑 |
 | K 修正 | `165d9389b`、`d2e363083` | 内核补口实现审查的修正（见下） |
 | S2（部分） | `fe0d990d7`、`4b13fa2f3` | 进程内的世界场地 `testing/node-world.ts`（Vitest 里可用，带断线、重连、项目结束），与项目子进程的场地共跑同一契约场景 `testing/venue-scenario.ts`，两边观察一致；读取层 `web/world.ts` 与 8 条用例（接真实服务），五处判据做过变异检查 |
+| S3 | `2c0d61049` | 侧栏“设定”视图：`EntryTree`（分组、未出场与已删除、展开时才读、再显示、世界断开横幅）与视图宿主 `web/entries-view.ts`；命令 `nbook.canon.open-entry`（命令域加 `canon`）；入口改成启动时激活、读取层在视图第一次挂上时才建；界面文字目录 `locales/`；nb-ui `Tree` 加 `muted`、`suffix` 插槽与 `data-tree-id`。组件测试 7 条、宿主接真实世界 4 条、Lab 场景 6 个；外观截图与外壳 e2e 待跑 |
 
 - 验证：nb-canon `bun test` 599 条全过、`bun run typecheck` 过；应用 `bun test src/plugins/canon src/plugins/plot` 全过、`bun run typecheck` 过。
 - 规模（`bun scripts/scale.ts`，1000 章、520 条目、两万条变更，负载约 3.5）：随机读一个条目并取各字段最近一次改动，50 次中位 2.05 毫秒、最慢 15 毫秒（预算 20）；常出场条目的存款在最后一章末尾的来历 8001 步，算一次中位 20 毫秒、最慢 111 毫秒（界面每翻一页算一次）。
@@ -86,4 +87,5 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 ## 下一步
 
 1. 等 `b1-sample-types` 的答复，挪样本到 nb-canon 的子路径、写 `scripts/canon-sample.ts`（S2 剩下的部分）。
-2. S3：条目树，连同入口的 `onStartup`、读取层在入口里的那一份与命令的域。“底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。
+2. S3 收尾：Lab 截图看外观；跑 `lab-scenes`（补新场景的布局基线）与假定初始布局的外壳 e2e（`workbench-*`、`plugins`：活动栏多了“设定”）。
+3. S4 条目页。“底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。
