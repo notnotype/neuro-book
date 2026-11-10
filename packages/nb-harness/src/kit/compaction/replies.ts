@@ -1,6 +1,6 @@
 /** 两种要调模型的方法共用：判回复能不能当摘要、输出上限、累计用量。 */
 
-import type {JsonValue, ModelResponse, Usage} from "@notnotype/nb-harness/kernel/contracts";
+import type {JsonValue, ModelResponse, Usage} from "../../kernel/contracts.js";
 
 /** 摘要的上限（t11 决定 1）。 */
 const SUMMARY_MAX_TOKENS = 16_384;

@@ -3,14 +3,13 @@
  * 工具声明不动，否则前缀就变了；有的端点不支持禁止工具调用（DeepSeek V4 Flash），回复带工具调用就算失败，换下一个方法。
  */
 
-import {estimateTokens} from "@notnotype/nb-harness/kernel";
-import type {CompactionMethodImpl} from "@notnotype/nb-harness/kernel/contracts";
+import {estimateTokens} from "../../kernel/index.js";
+import type {CompactionMethodImpl} from "../../kernel/contracts.js";
+import {pickCut, summaryResult} from "./cuts.js";
+import {modelFailure, outputLimit, responseText, sumUsage} from "./replies.js";
+import type {CompactionPrompts} from "./types.js";
 
-import {pickCut, summaryResult} from "./cuts";
-import {inplacePrompt} from "./prompts";
-import {modelFailure, outputLimit, responseText, sumUsage} from "./replies";
-
-export const inplaceMethod: CompactionMethodImpl = async (job) => {
+export const inplaceMethod = (prompts: CompactionPrompts): CompactionMethodImpl => async (job) => {
     // 已经溢出的请求再加一段只会再溢出（t11 决定 2）。
     if (job.reason === "overflow") return {failed: "overflowed"};
     const info = job.modelInfo({sessionModel: true});
@@ -20,7 +19,7 @@ export const inplaceMethod: CompactionMethodImpl = async (job) => {
         ...request,
         params: {...request.params, maxTokens: outputLimit(info)},
         toolChoice: "none",
-        messages: [...request.messages, {role: "user", content: [{kind: "text", text: inplacePrompt(job.require), origin: {kind: "fixed", by: "kernel"}}]}],
+        messages: [...request.messages, {role: "user", content: [{kind: "text", text: prompts.inplace(job.require), origin: {kind: "fixed", by: "kernel"}}]}],
     }, {purpose: "compaction", sessionModel: true});
     const failure = modelFailure(response);
     if (failure !== null) return {failed: failure};

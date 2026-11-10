@@ -12,6 +12,7 @@ import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
 import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
+import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
 import {kernelResources} from "@notnotype/nb-harness/kit/files";
 import type {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 
@@ -26,6 +27,7 @@ import type {AgentService, ProfileAdmin, StartTaskOptions, StartTaskResult} from
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
+import {BUILTIN_TOOL_IDS} from "./builtin/ids";
 import {ProfileBundles} from "./profile-bundles";
 import {filesFor, sessionArtifacts, sessionResources} from "./resources";
 import {createAttachmentPort} from "./attachments";
@@ -33,7 +35,6 @@ import {ProfileCatalog} from "./profiles";
 import {SessionMeta} from "./session-meta";
 import {SessionTable} from "./sessions";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
-import {CompactionRestore} from "./compaction/restore";
 import {createPermissionHook} from "./permissions/hook";
 import {modesContract} from "./permissions/modes";
 import {AgentTools} from "./tools";
@@ -120,7 +121,14 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     });
 
     const compaction = new CompactionMethods({declarations: options.declarations, activate: options.trigger});
-    const restore = new CompactionRestore({files: options.files, editStores: options.editStores, report: options.report});
+    const restore = new CompactionRestore({
+        files: sessionFilesFor,
+        editStores: options.editStores,
+        tools: BUILTIN_TOOL_IDS,
+        planOf: () => "session://plan.md",
+        logOf: (context) => `sessions://${context.sessionId}/session.jsonl`,
+        report: options.report,
+    });
 
     const store = createJsonlStore({root: sessionsRoot});
     let sessions: SessionTable | null = null;

@@ -2,7 +2,7 @@
  * 选切点与定位保留部分（docs/specs/agent/compaction.md 输出 4）。切点按路径顺序，`tokensKept` 递减。
  */
 
-import type {CompactionCut, CompactionJob, Message} from "@notnotype/nb-harness/kernel/contracts";
+import type {CompactionCut, CompactionJob, Message} from "../../kernel/contracts.js";
 
 /** 要摘要的方法留原文的量（t11 决定 1）。 */
 export const KEEP_TOKENS = 20_000;

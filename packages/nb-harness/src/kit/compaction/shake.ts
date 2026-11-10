@@ -2,10 +2,10 @@
  * shake（docs/specs/agent/compaction.md 输出 1）：不调模型，把保留窗口之外能找回的工具结果换成占位。所有轮和上一次的摘要都留着。
  */
 
-import {estimateImageTokens, estimateTokens} from "@notnotype/nb-harness/kernel";
-import type {CompactionMethodImpl, Message, ToolCall} from "@notnotype/nb-harness/kernel/contracts";
-
-import {KEEP_TOKENS} from "./cuts";
+import {estimateImageTokens, estimateTokens} from "../../kernel/index.js";
+import type {CompactionMethodImpl, Message, ToolCall} from "../../kernel/contracts.js";
+import {KEEP_TOKENS} from "./cuts.js";
+import type {BuiltinToolIds} from "./types.js";
 
 /** 省下的不到压缩前的这个比例算失败：省得太少很快又会触发。 */
 const MIN_SAVING = 0.2;
@@ -14,26 +14,19 @@ const WORTH_OMITTING_TOKENS = 100;
 /** `shell` 只省输出长的：短输出换占位，模型要重跑一遍才知道结果，不值。 */
 const LONG_SHELL_TOKENS = 1_000;
 
-/** 工具结果的占位：写明怎么找回。没有办法找回的工具不省。 */
-function placeholderFor(call: ToolCall, tokens: number): string | null {
+/** 工具结果的占位：写明怎么找回。没有办法找回的工具不省；工具按宿主给的 id 认。 */
+function placeholderFor(tools: BuiltinToolIds, call: ToolCall, tokens: number): string | null {
     const path = typeof call.args.path === "string" ? call.args.path : "";
-    switch (call.tool) {
-        case "nbook.agent.read":
-            return `（内容已省略，重新 read ${path} 可以取回）`;
-        case "nbook.agent.grep":
-        case "nbook.agent.glob":
-            return "（搜索结果已省略，需要时重新搜索）";
-        case "nbook.agent.shell":
-            return tokens >= LONG_SHELL_TOKENS ? "（输出已省略，需要时重新运行）" : null;
-        default:
-            return null;
-    }
+    if (call.tool === tools.read) return `（内容已省略，重新 read ${path} 可以取回）`;
+    if (tools.search.includes(call.tool)) return "（搜索结果已省略，需要时重新搜索）";
+    if (call.tool === tools.shell) return tokens >= LONG_SHELL_TOKENS ? "（输出已省略，需要时重新运行）" : null;
+    return null;
 }
 
 const messageTokens = (message: Message): number => message.content.reduce((sum, block) => sum + (block.kind === "image" || block.kind === "imageRef" ? estimateImageTokens(block) : estimateTokens(block.text)), 0)
     + estimateTokens(JSON.stringify(message.toolCalls ?? []));
 
-export const shakeMethod: CompactionMethodImpl = async (job) => {
+export const shakeMethod = (tools: BuiltinToolIds): CompactionMethodImpl => async (job) => {
     const {messages} = job.request;
     const calls = new Map(messages.flatMap((message) => (message.toolCalls ?? []).map((call) => [call.id, call] as const)));
     // 从末尾往前算保留窗口，窗口里的留原文。
@@ -54,7 +47,7 @@ export const shakeMethod: CompactionMethodImpl = async (job) => {
         if (tokens < WORTH_OMITTING_TOKENS) continue;
         const origin = message.content.find((block) => block.origin.kind === "event")?.origin;
         if (origin?.kind !== "event") continue;
-        const placeholder = placeholderFor(call, tokens);
+        const placeholder = placeholderFor(tools, call, tokens);
         if (placeholder === null) continue;
         omitted.push({entryId: origin.eventId, placeholder});
         saved += tokens - estimateTokens(placeholder);

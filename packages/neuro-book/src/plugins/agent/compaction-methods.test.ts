@@ -7,11 +7,9 @@ import {describe, expect, test} from "bun:test";
 import type {ContributionDeclarations, ContributionHandle} from "@notnotype/nb-runtime/plugins";
 
 import type {CompactionCut, CompactionJob, CompactionMethodImpl, Message, ModelResponse} from "@notnotype/nb-harness/kernel/contracts";
+import {keptMessageIndex, modelFailure, outputLimit, pickCut, segmentsOf, sumUsage} from "@notnotype/nb-harness/kit/compaction";
 
 import {CompactionMethods} from "./backend/compaction";
-import {keptMessageIndex, pickCut} from "./backend/compaction/cuts";
-import {modelFailure, outputLimit, sumUsage} from "./backend/compaction/replies";
-import {segmentsOf} from "./backend/compaction/summary";
 
 const event = (eventId: string) => ({kind: "event", eventId, type: "input", extension: "kernel"}) as const;
 const user = (text: string, eventId: string): Message => ({role: "user", content: [{kind: "text", text, origin: event(eventId)}]});

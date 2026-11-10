@@ -3,12 +3,12 @@
  * 预算来自 `job.modelInfo`，和发请求同一次解析的规则：会话的模型可能比压缩的模型窗口大得多。
  */
 
-import {estimateTokens} from "@notnotype/nb-harness/kernel";
-import type {CompactionMethodImpl, Message, Usage} from "@notnotype/nb-harness/kernel/contracts";
-
-import {keptMessageIndex, pickCut, summaryResult} from "./cuts";
-import {summaryInput, summarySystem} from "./prompts";
-import {modelFailure, outputLimit, responseText, sumUsage} from "./replies";
+import {estimateTokens} from "../../kernel/index.js";
+import type {CompactionMethodImpl, Message, Usage} from "../../kernel/contracts.js";
+import {MODEL_ROLES} from "../shapes.js";
+import {keptMessageIndex, pickCut, summaryResult} from "./cuts.js";
+import {modelFailure, outputLimit, responseText, sumUsage} from "./replies.js";
+import type {CompactionPrompts} from "./types.js";
 
 /** 提示词与估算误差的余量：估算只是每 3 字节一个 token。 */
 const MARGIN_TOKENS = 2_000;
@@ -76,8 +76,8 @@ export function segmentsOf(messages: readonly Message[], budgetTokens: number): 
     return segments;
 }
 
-export const summaryMethod: CompactionMethodImpl = async (job) => {
-    const info = job.modelInfo({role: "compaction"});
+export const summaryMethod = (prompts: CompactionPrompts): CompactionMethodImpl => async (job) => {
+    const info = job.modelInfo({role: MODEL_ROLES.compaction});
     if (info === null) return {failed: "no-compaction-model"};
     const output = outputLimit(info);
     // 窗口未知（0）时不分段。后一段还要带前一段的摘要，所以再扣一份输出。
@@ -96,10 +96,10 @@ export const summaryMethod: CompactionMethodImpl = async (job) => {
         const response = await job.model({
             params: {maxTokens: output},
             headers: {},
-            system: [{kind: "text", text: summarySystem(job.require), origin: {kind: "fixed", by: "kernel"}}],
-            messages: [{role: "user", content: [{kind: "text", text: summaryInput(segment, summary), origin: {kind: "fixed", by: "kernel"}}]}],
+            system: [{kind: "text", text: prompts.system(job.require), origin: {kind: "fixed", by: "kernel"}}],
+            messages: [{role: "user", content: [{kind: "text", text: prompts.input(segment, summary), origin: {kind: "fixed", by: "kernel"}}]}],
             tools: [],
-        }, {purpose: "compaction", role: "compaction"});
+        }, {purpose: "compaction", role: MODEL_ROLES.compaction});
         const failure = modelFailure(response);
         if (failure !== null) return {failed: failure};
         summary = responseText(response);

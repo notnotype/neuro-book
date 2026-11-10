@@ -5,16 +5,13 @@
 
 import {readFile, stat} from "node:fs/promises";
 
-import {estimateTokens} from "@notnotype/nb-harness/kernel";
-import type {CompactionRestoreArgs, CompactionRestored, JsonValue, LogEvent, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
-import {MAX_READ_LINES, renderSnapshot, SNAPSHOT_MAX_BYTES} from "@notnotype/nb-harness/kit/tools";
-import type {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
-
-import {decodeText} from "nbook/plugins/files/shared/contracts";
-import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
-
-import {sessionResources} from "../resources";
-import type {SessionResources} from "../../shared/resources";
+import {estimateTokens} from "../../kernel/index.js";
+import type {CompactionRestoreArgs, CompactionRestored, JsonValue, LogEvent, ToolSessionContext} from "../../kernel/contracts.js";
+import {decodeText} from "../files/index.js";
+import type {SessionFiles, SessionFilesFactory} from "../files/index.js";
+import {MAX_READ_LINES, renderSnapshot, SNAPSHOT_MAX_BYTES} from "../tools/index.js";
+import type {SessionEditStores} from "../tools/index.js";
+import type {BuiltinToolIds} from "./types.js";
 
 const MAX_FILES = 5;
 const FILE_TOKENS = 8_000;
@@ -26,19 +23,20 @@ const MIN_FILE_TOKENS = 400;
 /** 估算的口径是每 3 字节一个 token：预算换成字节给排版。 */
 const BYTES_PER_TOKEN = 3;
 
-const READ = "nbook.agent.read";
-const WRITE = "nbook.agent.write";
-const EDITS: readonly string[] = ["nbook.agent.edit", "nbook.agent.edit-replace"];
-const PLAN = "session://plan.md";
-
 export interface RestoreOptions {
-    readonly files: WorkspaceFiles;
+    readonly files: SessionFilesFactory;
     readonly editStores: SessionEditStores;
+    /** 内置工具在宿主里的 id：按它认“读过或改过”的调用。 */
+    readonly tools: BuiltinToolIds;
+    /** 计划文件的地址（单数或全局写法；放回时单独放、不占最近文件的名额）；没有为 null。 */
+    readonly planOf: (context: ToolSessionContext) => string | null;
+    /** 完整对话日志的全局地址（放回的提示里给模型）；没有为 null，不发这条提示。 */
+    readonly logOf: (context: ToolSessionContext) => string | null;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
 /** 压缩前的路径里，最近成功读过或改过的文件地址，最近的在前：调用与结果按 `callId` 配对，只收成功的。 */
-export function recentFiles(path: readonly LogEvent[], resources: Pick<SessionResources, "expand">): string[] {
+export function recentFiles(path: readonly LogEvent[], files: Pick<SessionFiles, "expand">, tools: BuiltinToolIds): string[] {
     const started = new Map<string, {readonly tool: string; readonly args: Readonly<Record<string, unknown>>}>();
     const found: string[] = [];
     for (const event of path) {
@@ -50,11 +48,11 @@ export function recentFiles(path: readonly LogEvent[], resources: Pick<SessionRe
             const call = started.get(data.callId);
             if (call === undefined) continue;
             const addresses: string[] = [];
-            if ((call.tool === READ || call.tool === WRITE) && data.status === "ok" && typeof call.args.path === "string") addresses.push(call.args.path);
+            if ((call.tool === tools.read || call.tool === tools.write) && data.status === "ok" && typeof call.args.path === "string") addresses.push(call.args.path);
             // `edit` 可以一次改几个文件，部分失败时按文件看哪些写成了。
-            else if (EDITS.includes(call.tool)) for (const file of data.details?.files ?? []) if (file.status === "written" && typeof file.address === "string") addresses.push(file.address);
+            else if (tools.edits.includes(call.tool)) for (const file of data.details?.files ?? []) if (file.status === "written" && typeof file.address === "string") addresses.push(file.address);
             for (const address of addresses) {
-                const expanded = resources.expand(address);
+                const expanded = files.expand(address);
                 if (expanded.ok) found.push(expanded.address);
             }
         }
@@ -81,7 +79,7 @@ export class CompactionRestore {
     readonly run = async (context: ToolSessionContext, args: CompactionRestoreArgs): Promise<CompactionRestored> => {
         // 没有换掉对话（shake）：放回会把省下的又加回去。
         if (args.replacement === null) return {notices: []};
-        const resources = sessionResources(this.options.files, context, null);
+        const files = this.options.files(context, null);
         const held = this.#pin(context.sessionId);
         const budget = Math.min(TOTAL_TOKENS, args.contextWindow > 0 ? Math.floor(args.contextWindow * WINDOW_SHARE) : TOTAL_TOKENS);
         let left = budget;
@@ -90,24 +88,27 @@ export class CompactionRestore {
         const take = async (address: string, kind: "file" | "plan"): Promise<void> => {
             const perFile = Math.min(FILE_TOKENS, left);
             if (perFile < MIN_FILE_TOKENS) return;
-            const shown = await this.#render(resources, held, address, perFile, args.signal);
+            const shown = await this.#render(files, held, address, perFile, args.signal);
             if (shown === null) return;
             const tokens = estimateTokens(shown.text);
             left -= tokens;
             notices.push(`${kind === "plan" ? "这是计划文件，压缩前就在用。下面是它现在的内容：" : "压缩之前你读过或改过这个文件，下面是它现在的内容："}\n${shown.text}`);
             restored.push({kind, target: address, tokens, truncated: shown.more});
         };
-        const plan = resources.expand(PLAN);
-        const planAddress = plan.ok ? plan.address : null;
-        for (const address of recentFiles(args.path, resources)) {
+        const planned = this.options.planOf(context);
+        const plan = planned === null ? null : files.expand(planned);
+        const planAddress = plan?.ok === true ? plan.address : null;
+        for (const address of recentFiles(args.path, files, this.options.tools)) {
             if (notices.length >= MAX_FILES || args.signal.aborted) break;
             // 计划单独放，别算进最近的文件里占名额。
             if (address !== planAddress) await take(address, "file");
         }
         if (planAddress !== null && !args.signal.aborted) await take(planAddress, "plan");
-        const log = `sessions://${context.sessionId}/session.jsonl`;
-        notices.push(`完整的对话记录在 ${log}（JSONL，每行一个事件）：压缩掉的细节需要时用 read 取回。`);
-        restored.push({kind: "log", target: log, tokens: 0, truncated: false});
+        const log = this.options.logOf(context);
+        if (log !== null) {
+            notices.push(`完整的对话记录在 ${log}（JSONL，每行一个事件）：压缩掉的细节需要时用 read 取回。`);
+            restored.push({kind: "log", target: log, tokens: 0, truncated: false});
+        }
         return {notices, restored};
     };
 
@@ -121,13 +122,13 @@ export class CompactionRestore {
     }
 
     /** 读一个文件、排版成 `read` 的样子；读不到、不是文本、太大都跳过并记一条诊断（放回不让压缩失败）。 */
-    async #render(resources: SessionResources, held: {readonly store: ReturnType<SessionEditStores["acquire"]>["store"]}, address: string, tokens: number, signal: AbortSignal): Promise<{readonly text: string; readonly more: boolean} | null> {
+    async #render(files: SessionFiles, held: {readonly store: ReturnType<SessionEditStores["acquire"]>["store"]}, address: string, tokens: number, signal: AbortSignal): Promise<{readonly text: string; readonly more: boolean} | null> {
         const skip = (reason: string): null => {
             this.options.report("restore-skipped", `${address} was not restored: ${reason}`, {address, reason});
             return null;
         };
         try {
-            const located = await resources.readPath(address, {signal});
+            const located = await files.readPath(address, {signal});
             if (!located.ok) return skip(located.code);
             if (located.value.kind !== "file") return skip("not-a-file");
             const {size} = await stat(located.value.path).catch(() => ({size: -1}));
