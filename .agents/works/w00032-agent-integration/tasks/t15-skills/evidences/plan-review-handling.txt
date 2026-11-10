@@ -1,0 +1,26 @@
+w00032 t15 计划设计审查的处理（审查者 Claude Opus，对象 plan.md 2026-11-10 第一稿，报告见 plan-review.txt）
+
+22 条：阻断 0、重要 10、建议 12。逐条核实（第 8、9 条读了 nbook.files 的挂载代码与 nb-harness 的导出），都成立，改进计划第二稿。其中第 1、3、5、19 条改变了已定决定（第 11 条）的说法或编辑器现有行为，交开发者知悉。
+
+1  成立，接受取舍。steer 引出的 skill 事件在同一步的 after 里排在插话之后；内核没有“附在某条事件之前”的位置，只为插话加不值得。Spec 写“插话带的 Skill 紧跟在这句插话后面”，验收 2 加插话用例。改了第 11 条“排在用户的话前面”的适用范围，告诉开发者。
+2  成立，已改计划。每个标签单独收错，读失败写 skillMissing{unreadable}；读文件带 ctx.signal；适配器看到本扩展的 extensionFailed 时给标签标“没能带上”。
+3  成立，已改计划。放回合计（文件、计划、Skill）不超过窗口 25%，文件与计划先放、Skill 用剩下的、至多 2.5 万、每个至多 5,000；180k 以上窗口是第 11 条的完整数字。逐个收错不外抛。改了第 11 条数字在小窗口下的适用，告诉开发者。
+4  成立，已改计划。内核放回参数加“压缩之后仍在上下文里的事件”，runtime.md 输出 48 补一句；放回跳过仍在上下文里的 Skill。验收 6 加用例。
+5  成立，已改计划。共用分词时行内代码与围栏代码里的 $ 不算标签，编辑器同步改（编辑器行为变化，ui/prompt-editor.md 改，告诉开发者）。父 Agent 的话照第 18 条不特殊处理；剩下的误认（纯文字里的 shell 变量恰好等于 Skill 名）记为已知风险。
+6  成立，已改计划。name 写全标准的约束；花括号写法放宽到数字开头与 .，不带花括号的仍要字母开头；菜单写不出的一律插 ${id}。
+7  成立，已改计划。改成非递归监视：根、每个 Skill 目录、每个 Skill 的 node_modules；标记在 node_modules 顶层，监视它就看得到命令行写的标记。去掉“同 ProfileBundles 的递归”的错误说法。
+8  成立，已改计划。锁改用 nb-harness 的 tryLock（flock/LockFileEx，系统放锁），锁文件放状态根按 Skill 分、建好不删；tryLock 新增公开导出。验收 5 改成“拿锁的进程被杀之后能再装”。
+9  成立，已改计划。nbook.files 的 MountDeclaration 加可选的 container 与 directory（照常核对都是真实目录、不是链接）；Spec 改动列 files 一侧；切片 1 做。
+10 成立，已改计划。skills 方案加 realPath（挂载点 create: false），写拒绝；渲染给模型的说明写 skills:// 能在 shell 里直接用、相对路径按 Skill 目录算；验收 4 加“模型经 shell 跑脚本并导入依赖”。
+11 成立，已改计划。认标签：先 id，再全目录按 name，白名单里恰好一个才带上；多个 ambiguous，都不在白名单 not-allowed，没有 not-found，坏的 broken；区分大小写；草稿、发送、点开同一规则。
+12 成立，已改计划。来源以目录条目的 source 为准，命令行的名字简写只在 source: user 里找。
+13 成立，已改计划：bun.lock 用 Bun.JSONC 读、读不了写“未知”；inputs 装后重算；进程内并入同一次、跨进程 busy；锁被别人拿着时状态 initializing；platform 含架构；--ignore-scripts 写成已知限制、inputs 去掉 trustedDependencies；只认 bun.lock。
+14 成立，已改计划。restored.kind 加 skill，适配器与压缩详情收它、压缩后用量算上。
+15 成立，已改计划。skill.open 载荷扩成 {name, id?}，已发送的消息按事件里的 id 打开，不在了提示。
+16 成立，已改计划。从 nb-markdown 根入口（已是纯 TS）导出，不新开子路径。
+17 成立，已改计划。停止时杀子进程、标记写 interrupted、放锁；监视器与防抖在插件停止时收掉；验收 5 用子进程拿锁写，不靠两个安装恰好重叠。
+18 成立（推断），计划切片 4 实测 Bun 在没有 node_modules 时的自动安装，按结果写进 Spec 的已知限制。
+19 成立，已改计划。同一 Skill 正文没变、上一份还在上下文里时只写 sameAs 的短事件（随压缩清空的 path 片记哈希）。改了“每次 $ 都附全文”，告诉开发者。preview 看不到排队中的 Skill 写进已知限制。
+20 成立，已改计划（不是缩小已定项）。Python 检测加脚本内联依赖（# /// script）与 uv 在不在 PATH；系统程序展示 compatibility 原文。
+21 成立，已改计划。Agent 经 shell 执行 nbook skill init 依赖 w00035 t01，写进未验证边界。
+22 成立，已改计划。没有 SKILL.md（含多套一层的提示）与链接都算 broken；可选字段不合规只忽略该字段并写诊断。

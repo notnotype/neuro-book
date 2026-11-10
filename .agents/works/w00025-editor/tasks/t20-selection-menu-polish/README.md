@@ -34,10 +34,16 @@ updated: 2026-11-10
 
 ## 当前状态
 
-2026-11-10 第 1 轮静态稿评审板：[`artifacts/review/`](artifacts/review/index.html)，问颜色按钮（拆分按钮或合成下拉）、选区菜单加哪些项、注音怎么写与改。草稿在 t13 的草稿 worktree `.worktree/w00025-t13-drafts`（草稿目录 `drafts/web/components/selection-menu/`，Lab 组件 `SelectionMenuDraft`），不合并。
+执行位置：`.worktree/w00025-t20-selection-menu-polish`，分支 `feat/w00025-t20-selection-menu-polish`。草稿在 t13 的草稿 worktree `.worktree/w00025-t13-drafts`（`drafts/web/components/selection-menu/`，Lab 组件 `SelectionMenuDraft`），不合并。
 
-不用开发者定、直接修的（评审板最后一节）：拖选不再选中注音小字；注音当成整体，改格式时选区扩到整个注音；三个菜单补入场动效；源码编辑器底色改成 `--bg-panel`。
+**第一段（[plan.md](plan.md)）已实施，未合入**：`e22401bfb` 注音当成整体（注音语法的 ProseMirror 插件，按加标记、去标记的步把只盖住一半的补到整段；设新注音改为放一个新的标记）与注音小字不可选；`e9e67dc0a` `AnchoredPopover` 淡入淡出、退场时停在原处，`SuggestionMenu` 只淡入（斜杠菜单关上时锚点与内容已被收走）；`5cf6164ea` 源码编辑器底色改成 `--bg-panel`。
+
+- 验证：`whole-ruby.dom.test.ts` 11 例（修之前 9 例失败；改成在“这一步之前的文档”上认注音时 2 例失败，即两次变异检查）；nb-markdown 全部测试与类型检查、nb-ui 的弹层与静态扫描测试、两包与应用的类型检查都过。e2e `markdown-editing`、`editor-code-menu`、`markdown-input` 57 例：第一次两例失败，动效用例的断言把变量原文与计算值比（`.23` 与 `0.23`），改成比计算值后通过；`markdown-input` 的“按快捷键打出删除线”在负载 16 时丢了按键，单独重跑 3 次都过（与改动无关，t17 记的同一类偶发）。
+- Spec（主工作区，未提交，合入时一起提交）：`markdown-editing.md` 加输出 26、验收 7 与实现合同；`theme/system.md` 写 Monaco 底色取 `--bg-panel`；待确认清单 t05 第 5 行写了改判结果。
+- 实现审查（Sonnet）进行中：说明与报告在仓库外 `/tmp/nb-review-w00025/t20-impl1/`。
+
+**第二段**：[plan-2.md](plan-2.md) 已写，等开发者确认。
 
 ## 下一步
 
-开发者看评审板期间，先写计划并实施“直接修”的四项；评审定了再把颜色、菜单项与注音卡片写进 Spec 与计划。
+处理第一段的实现审查；开发者确认第二段计划后实施；两段做完一起做四种主题组合的 UI 取证，再合入。

@@ -11,7 +11,7 @@ import type {LogEvent, LogHandle, LogStore, SessionHeader, SessionIndexEntry, St
 import {blobRefsOf, encodeBatch, toEventInPlace} from "./codec.js";
 import {nodeFiles, type AppendFile, type FilePort} from "./files.js";
 import type {FileLock} from "./flock.js";
-import {advanceIndex, emptyIndex, parseIndex} from "./index-file.js";
+import {advanceIndex, emptyIndex, parseIndex, predatesRunIndex} from "./index-file.js";
 import {sha256, utf8} from "./json.js";
 import {isSessionId, LogReader, NEWLINE, type ParsedLog} from "./validate.js";
 
@@ -245,8 +245,8 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
                 handle.notices.push(...notices);
                 const stored = parseIndex(await files.read(join(directory, INDEX)));
                 handle.index = advanceIndex(emptyIndex(parsed.header), events);
-                // 会话头里的后台标记与索引不符（旧版本写的索引没有这个字段）也重建。
-                if (stored === null || stored.throughSeq !== lastSeq || stored.background !== handle.index.background) {
+                // 会话头里的后台标记与索引不符、或索引早于花费与运行的记录（旧版本写的索引没有这些字段）也重建。
+                if (stored === null || stored.throughSeq !== lastSeq || stored.background !== handle.index.background || predatesRunIndex(stored)) {
                     await writeIndex(handle);
                     handle.notices.push({code: "index-rebuilt", detail: {from: stored?.throughSeq ?? -1, to: lastSeq}});
                 }
@@ -298,6 +298,16 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
                     entries.push(index);
                 }
                 return {ok: true, value: entries.sort((a, b) => b.lastActivityAt - a.lastActivityAt)};
+            } catch (error) {
+                return fail("storage-failed", {message: message(error)});
+            }
+        },
+
+        async entry(id) {
+            if (!isSessionId(id)) return fail("session-not-found");
+            try {
+                const index = parseIndex(await files.read(join(directoryOf(id), INDEX)));
+                return index === null ? fail("session-not-found") : {ok: true, value: index};
             } catch (error) {
                 return fail("storage-failed", {message: message(error)});
             }

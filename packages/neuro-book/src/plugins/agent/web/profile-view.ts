@@ -12,6 +12,7 @@ import {modelNeedGaps} from "../shared/model-needs";
 import type {ModelCapabilities, ModelNeedGap} from "../shared/model-needs";
 import {profileToolIds, sameNameTool, visibleToolIds} from "../shared/profile-tools";
 import type {ToolBinding, ToolChange} from "../shared/profile-tools";
+import {profileAgents} from "../shared/profile-agents";
 import type {ProfileSetting} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf} from "./profile-edits";
@@ -116,6 +117,8 @@ export interface ProfileView {
     readonly approval: ProfileApprovalField | null;
     /** 没有工具一节时为 null：从未打包成功的、什么工具都没有的后台 Profile。 */
     readonly tools: ProfileToolsField | null;
+    /** “可派的子代理”一节：Profile 有 `agent_spawn` 时才有（profile-settings.md 输出 25）。形状同工具一节，行的 `effect` 一列写“推荐”“我加的”。 */
+    readonly agents: ProfileToolsField | null;
 }
 
 const usable = (provider: SnapshotProvider, model: SnapshotModel): boolean => hasCredentials(provider) && model.enabled && model.status === "ok";
@@ -258,6 +261,12 @@ const BUILTIN_TOOL_SUMMARIES = {
     "nbook.agent.switch-mode": "profiles.tools.summary.switch-mode",
     "nbook.agent.ask": "profiles.tools.summary.ask",
     "nbook.agent.ask-form": "profiles.tools.summary.ask-form",
+    "nbook.agent.spawn": "profiles.tools.summary.spawn",
+    "nbook.agent.send": "profiles.tools.summary.send",
+    "nbook.agent.answer": "profiles.tools.summary.answer",
+    "nbook.agent.wait": "profiles.tools.summary.wait",
+    "nbook.agent.kill": "profiles.tools.summary.kill",
+    "nbook.agent.jobs": "profiles.tools.summary.jobs",
 } as const;
 
 export const hasBuiltinToolSummary = (id: string): boolean => id in BUILTIN_TOOL_SUMMARIES;
@@ -280,6 +289,39 @@ function toolRow(tool: ToolCatalogEntry, required: boolean, text: TextResolver):
 function byProvider<T extends {readonly id: string}>(tools: readonly T[], pluginOf: (tool: T) => string, input: ProfileViewsInput): {readonly id: string; readonly provider: string; readonly tools: readonly T[]}[] {
     const plugins = [...new Set(tools.map(pluginOf))].sort((a, b) => (a === BUILTIN_PLUGIN ? -1 : b === BUILTIN_PLUGIN ? 1 : input.pluginName(a).localeCompare(input.pluginName(b))));
     return plugins.map((plugin) => ({id: plugin, provider: sourceName(plugin, input.pluginName, input.text), tools: tools.filter((tool) => pluginOf(tool) === plugin)}));
+}
+
+const SPAWN_TOOL = "nbook.agent.spawn";
+
+function agentsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
+    if (entry.tools === undefined) return null;
+    const {text, catalog} = input;
+    const requirements = {required: entry.tools.required, optional: entry.tools.optional, ...(entry.defaultTools === false ? {defaultTools: false as const} : {})};
+    const ids = profileToolIds(requirements, catalog.filter((tool) => tool.defaultForAll === true).map((tool) => tool.id), input.bindings[entry.key]);
+    if (!ids.includes(SPAWN_TOOL)) return null;
+    const binding = input.settings[entry.key]?.agents;
+    const declared = entry.agents?.allowed ?? [];
+    const effective = profileAgents(entry.agents, binding);
+    const recommended = new Set(effective.recommended);
+    const profiles = new Map(input.profiles.map((profile) => [profile.key, profile]));
+    const row = (key: string): ProfileToolRow => {
+        const profile = profiles.get(key);
+        // 白名单里的 Profile 已被删除或不可用：一行警告，能去掉。
+        const gone = profile === undefined || profile.status !== "ok";
+        const summary = gone ? text.t(agentText("profiles.agents.gone")) : profile.description;
+        // 已删除的不再标“推荐”“我加的”：那一行只说它不在了。
+        const effect = gone ? "" : recommended.has(key) ? text.t(agentText("profiles.agents.recommended")) : declared.includes(key) ? "" : text.t(agentText("profiles.agents.userAdded"));
+        return {id: key, name: profile?.name ?? key, effect, danger: false, summary, detail: summary, required: false, gone};
+    };
+    const listed = effective.allowed.map((key) => ({key, plugin: profiles.get(key)?.source ?? GONE_GROUP}));
+    const groups: ProfileToolGroup[] = byProvider(listed.map((item) => ({id: item.key, plugin: item.plugin})), (item) => item.plugin, input).map((group) => ({id: group.id, provider: group.id === GONE_GROUP ? text.t(agentText("profiles.agents.goneGroup")) : group.provider, tools: group.tools.map((item) => row(item.id))}));
+    const allowed = new Set(effective.allowed);
+    const candidates = byProvider(input.profiles.filter((profile) => profile.status === "ok" && !allowed.has(profile.key)).map((profile) => ({id: profile.key, plugin: profile.source})), (item) => item.plugin, input).map((group) => ({
+        id: group.id,
+        provider: group.provider,
+        tools: group.tools.map((item): ProfileToolCandidate => ({...row(item.id), providerName: item.id, blocked: false})),
+    }));
+    return {groups, count: effective.allowed.length, modified: binding !== undefined, candidates};
 }
 
 function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
@@ -366,6 +408,7 @@ export function profileViews(input: ProfileViewsInput): ProfileView[] {
             model: modelField(entry, setting, input.snapshot, input.modelsFailed, text),
             approval: entry.hidden === true ? null : approvalField(setting, text),
             tools: toolsField(entry, input),
+            agents: agentsField(entry, input),
         };
     });
 }

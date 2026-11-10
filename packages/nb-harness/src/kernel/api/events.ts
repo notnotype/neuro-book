@@ -3,7 +3,7 @@
  * docs/specs/harness/session.md；事件名与字段一经写进日志就是长期合同，只加不改，改语义要升格式版本。
  */
 
-import type {Actor, JsonValue, Scope, UserInput} from "./basics.js";
+import type {Actor, Issuer, JsonValue, Scope, UserInput} from "./basics.js";
 import type {ContentBlock, ModelErrorKind, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {ToolCall, ToolImage, ToolStatus} from "./tool.js";
 
@@ -68,7 +68,8 @@ export interface KernelEvents {
     sessionCreated: K<"path", "ctrl", {initial: JsonValue}>;
 
     // ---- 输入缓冲区（session）----
-    inputQueued: K<"session", "ctrl", QueuedText & {id: string; mode: "steer" | "followup"}>;
+    /** `by` 只在会话以自己的身份发出时有（runtime.md 输出 85）。 */
+    inputQueued: K<"session", "ctrl", QueuedText & {id: string; mode: "steer" | "followup"; by?: Issuer}>;
     inputEdited: K<"session", "ctrl", QueuedText & {id: string}>;
     inputRemoved: K<"session", "ctrl", {id: string; reason: "user" | "aborted"}>;
     /** 与 `turnStarted`、`input`（或 `steer`）在同一个写入批里写，崩溃不会丢掉用户的话。 */
@@ -115,9 +116,9 @@ export interface KernelEvents {
 
     // ---- 对话（path、conv）----
     /** 开新一轮的用户的话；`queued` 是缓冲区里的 id，原文字段在 `inputQueued`、`inputEdited`。 */
-    input: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string}>;
+    input: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string; by?: Issuer}>;
     /** 运行中途插进当前这一轮的用户的话。 */
-    steer: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string}>;
+    steer: K<"path", "conv", {text: string; payload?: JsonValue; attachments?: UserInput["attachments"]; queued: string; by?: Issuer}>;
     /** `request` 与 `modelStarted`、流式增量的 `request` 对得上。 */
     assistant: K<"path", "conv", {
         request: number;
@@ -266,7 +267,8 @@ export interface SessionHeader {
     /** fork 的来源：从哪个会话的哪个节点复制了路径。 */
     readonly origin?: {readonly session: string; readonly entry: string | null};
     /** 子会话的调用方（t14）。 */
-    readonly caller?: {readonly kind: "session" | "workflow"; readonly id: string; readonly callId: string};
+    /** `invocation` 是派它的那次工具调用的唯一身份（runtime.md 输出 87）；之前建的会话没有。 */
+    readonly caller?: {readonly kind: "session" | "workflow"; readonly id: string; readonly callId: string; readonly invocation?: string};
     /** 提问交给谁：`caller` 时父会话也能应答。 */
     readonly questions: "caller" | "user";
     /** 后台会话（`agent.startTask` 的 `background`）：会话列表缺省不列。fork 不继承。 */

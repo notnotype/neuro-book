@@ -81,6 +81,11 @@ export type QuestionAnswer = {readonly kind: "answer"; readonly text: string; re
 export interface ToolContext {
     readonly signal: AbortSignal;
     readonly callId: string;
+    /**
+     * 这次调用的唯一身份，就是 `toolStarted` 的 `invocation`（runtime.md 输出 87）。`callId` 只在同一条回复里不重复（服务商
+     * 可能在不同回复里给出同一个），要跨回复认出一次调用时用它。
+     */
+    readonly invocation: string;
     readonly sessionId: string;
     /** 会话建立时校验过的初始输入。 */
     readonly initial: unknown;

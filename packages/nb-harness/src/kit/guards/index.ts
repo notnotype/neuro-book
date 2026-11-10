@@ -4,6 +4,6 @@
  */
 
 export {costGuard} from "./cost-guard.js";
-export type {CostLimits} from "./cost-guard.js";
+export type {CostLimits, SpendScope, SpendTotal} from "./cost-guard.js";
 export {loopGuard} from "./loop-guard.js";
 export {refusal} from "./refusal.js";

@@ -21,6 +21,10 @@ updated: 2026-11-06
 3. 像 Claude Code 一样能自定义状态栏。
 4. 缓存 TTL、五小时限额、七天限额。这些数字要服务商给：限额只有订阅登录的账号才有，t09 第一版不做 OAuth 登录；TTL 取决于服务商的缓存规则和最近一次写缓存的时间。开工时先查哪些服务商能拿到。
 
+子代理卡片（t14 晋升时从 Spec 里拿掉、留到这里的，2026-11-10）：
+
+5. 运行中那一行现在写工具 id 与对象（`read project://第二章.md`），改成注册表里的工具名（“读取 第二章.md”）。卡片是宿主注入的节点，拿不到对话视图的注册表，要从插件把工具名接到卡片的数据里。
+
 另外，开发者说还有一些界面错误，到时候慢慢调。
 
 合同：改 [`models/settings-pages.md`](../../../../../docs/specs/models/settings-pages.md) 与 [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。

@@ -91,3 +91,28 @@ export function questionResolution(questions: readonly PendingQuestionView[], an
     });
     return {kind: "question", answer: {text: answerText(questions, answers, labels), data: {answers: cleaned as unknown as JsonValue}}};
 }
+
+/**
+ * 进停靠区的事项：来自后代会话的（带 `source`）与异步提问；其余是阻塞的，替换输入框（Spec“输入框与待处理区”）。替换输入框的判断、
+ * 同步向导与状态栏的“等你批准”都只看阻塞的。
+ */
+export const isDocked = (item: PendingInputView): boolean => item.source !== undefined || item.async === true;
+
+/** 停靠区的界面状态：用户的展开与否、看到第几个、各事项填了一半的答案（与同步向导的分开存）。 */
+export type DockState = {
+    collapsed: boolean;
+    index: number;
+    wizard: WizardState;
+};
+
+export const EMPTY_DOCK: DockState = {collapsed: false, index: 0, wizard: EMPTY_WIZARD};
+
+export function readDockState(value: JsonValue | undefined): DockState {
+    if (value === null || value === undefined || typeof value !== "object" || Array.isArray(value)) return EMPTY_DOCK;
+    const given = value as unknown as Partial<DockState>;
+    return {
+        collapsed: given.collapsed === true,
+        index: typeof given.index === "number" && Number.isInteger(given.index) && given.index >= 0 ? given.index : 0,
+        wizard: readWizardState(given.wizard as JsonValue | undefined),
+    };
+}

@@ -75,8 +75,15 @@ type ToolRendererBase = RegistryEntryBase & {
      * - `node`：人机交互控件（提问、任务清单、Workflow 等），常显，并把思维链切开；`outcome` 的调用被退回时例外，是思维链里的一行。
      */
     presentation: "line" | "card" | "node";
+    /**
+     * 按调用定层级（例如 `shell` 带 `async` 时是 `node`）：参数生成完（不在 `streaming`）才调用，之前按 `presentation`。
+     * 读呈现层级的地方都经 `presentationOf(renderer, call)`。
+     */
+    presentationOf?: (call: ToolCallView) => "line" | "card" | "node";
     /** `node` 呈现时的专用组件，接收 `ToolComponentProps`、发 `HostComponentEmits`；缺省时用通用卡片。 */
     node?: Component;
+    /** `node` 呈现时改用宿主注入的渲染组件（`renderers` 里这个名字的）；宿主没注入时同 `node` 缺省，画通用卡片。 */
+    hostNode?: "backgroundCommand";
     /**
      * 只对 `node` 有效：成功的调用排在一轮末尾时算这一轮的结果（Spec 的“结果节点”），整轮收起后仍显示，不计入整轮摘要的
      * 操作次数。例如问答里交答案的收尾工具；被退回（出错）的那几次仍是过程。
@@ -413,4 +420,21 @@ function checkEntryTypes(contributions: readonly AgentViewContribution[]): void 
 /** 按显示条件筛出当前可见的登记项。 */
 export function visibleEntries<T extends RegistryEntryBase>(entries: readonly T[], ctx: AgentConversationContext): T[] {
     return entries.filter((entry) => entry.when?.(ctx) ?? true);
+}
+
+/** 出过错的 `presentationOf`：每整理一次轮次（流式时每个增量）都会调用，同一个回调只报一次。 */
+const failedPresentations = new WeakSet<object>();
+
+/** 这次调用的呈现层级（见 `ToolRendererBase.presentationOf`）；回调抛错时按登记的缺省层级。 */
+export function presentationOf(renderer: Pick<ToolRendererEntry, "presentation" | "presentationOf">, call: ToolCallView): "line" | "card" | "node" {
+    if (renderer.presentationOf === undefined || call.status === "streaming") return renderer.presentation;
+    try {
+        return renderer.presentationOf(call);
+    } catch (error) {
+        if (!failedPresentations.has(renderer.presentationOf)) {
+            failedPresentations.add(renderer.presentationOf);
+            console.error("nb-agent-ui: 工具渲染器的 presentationOf 出错，按登记的层级显示", error);
+        }
+        return renderer.presentation;
+    }
 }

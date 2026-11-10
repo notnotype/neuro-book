@@ -31,7 +31,8 @@ export function createAgentActivity(remote: RemoteClient<typeof agentSessionsCon
         items,
         active: computed(() => items.value.length > 0),
         target: computed(() => (items.value.find((item) => item.state === "waiting") ?? items.value[0])?.id ?? null),
-        running: computed(() => items.value.filter((item) => item.state === "running").length),
+        // 运行中按会话树数：根自己或任一后代在跑算一个（派了几个子代理不让数字翻倍）。等你处理按会话数，含子会话。
+        running: computed(() => new Set(items.value.filter((item) => item.state === "running").map((item) => item.root)).size),
         waiting: computed(() => items.value.filter((item) => item.state === "waiting").length),
         async start(signal) {
             const subscription = await remote.events.activityChanged.subscribe({}, (next) => {

@@ -26,6 +26,8 @@ export interface ViewEnvironment {
     readonly model: ModelInfo;
     readonly now: number;
     readonly initial: unknown;
+    /** 在哪个会话里；不带会话的单次请求（`complete`）没有。拦截的 `ctx.session` 取它（extensions.md 输出 31）。 */
+    readonly session?: ToolSessionContext;
 }
 
 /** 设置的缺省值写在 schema 的各项 `default` 里（装配时检查每项都有）。 */
@@ -82,6 +84,7 @@ export function viewCtx(assembly: Assembly, item: Assembled, state: StateAt, env
         model: environment.model,
         now: environment.now,
         initial: environment.initial,
+        ...(environment.session === undefined ? {} : {session: environment.session}),
     } as ViewCtx<any, any, any, any>;
 }
 

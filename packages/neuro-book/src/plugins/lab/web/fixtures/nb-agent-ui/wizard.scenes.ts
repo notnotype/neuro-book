@@ -3,7 +3,7 @@
  */
 import {createAgentContext} from "@notnotype/nb-agent-ui";
 import type {CompactionView, PendingApprovalView, PendingModeSwitchView, PendingQuestionsView} from "@notnotype/nb-agent-ui";
-import type {AgentApprovalWizard, AgentCompactionDetail, AgentModeSwitchWizard, AgentQuestionWizard, AgentStatusBar, AgentWizard, AgentWizardFrame} from "@notnotype/nb-agent-ui/lab";
+import type {AgentApprovalWizard, AgentCompactionDetail, AgentDock, AgentModeSwitchWizard, AgentQuestionWizard, AgentStatusBar, AgentWizard, AgentWizardFrame} from "@notnotype/nb-agent-ui/lab";
 
 import type {LabFixtureDefinition} from "../index";
 
@@ -16,6 +16,19 @@ export const agentWizardScenes: LabFixtureDefinition<typeof AgentWizard>["scenes
     {id: "approval", label: "审批一批", input: {props: {pending: [approval, shell]}}},
     {id: "question", label: "提问", input: {props: {pending: [questions]}}},
     {id: "collapsed", label: "收起", input: {props: {pending: [approval, shell], state: {...EMPTY, collapsed: true}}}},
+];
+
+const child = {sessionId: "child-1", name: "设定核对员", icon: "i-lucide-bot"};
+const childWrite: PendingApprovalView = {...approval, id: "d1", source: child};
+const childShell: PendingApprovalView = {...shell, id: "d2", source: {...child, name: "一个名字很长、长到标题放不下的子代理"}};
+const asyncQuestion: PendingQuestionsView = {kind: "question", id: "dq", toolCallId: "c-dq", async: true, questions: [{question: "这章结尾要不要留钩子？", options: [{label: "留"}, {label: "不留"}]}]};
+
+export const agentDockScenes: LabFixtureDefinition<typeof AgentDock>["scenes"] = [
+    {id: "approval", label: "子代理要审批", input: {props: {items: [childWrite]}}},
+    {id: "several", label: "几个：第 n / m 个、长来源标题", input: {props: {items: [childShell, childWrite, asyncQuestion], state: {collapsed: false, index: 0, wizard: EMPTY}}}},
+    {id: "async-question", label: "异步提问", input: {props: {items: [asyncQuestion]}}},
+    {id: "collapsed", label: "收起成一条", input: {props: {items: [childWrite, asyncQuestion], state: {collapsed: true, index: 0, wizard: EMPTY}}}},
+    {id: "held", label: "同步向导在：收成一条", input: {props: {items: [childWrite], held: true}}},
 ];
 
 export const agentWizardFrameScenes: LabFixtureDefinition<typeof AgentWizardFrame>["scenes"] = [

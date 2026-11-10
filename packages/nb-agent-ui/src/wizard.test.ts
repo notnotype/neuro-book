@@ -1,7 +1,7 @@
 import {describe, expect, test} from "bun:test";
 
 import type {PendingApprovalView} from "./types";
-import {allChosen, answered, choose, EMPTY_WIZARD, nextUnchosen, questionResolution, readWizardState} from "./wizard";
+import {allChosen, answered, choose, EMPTY_DOCK, EMPTY_WIZARD, isDocked, nextUnchosen, questionResolution, readDockState, readWizardState} from "./wizard";
 
 const approval = (id: string, tool: string): PendingApprovalView => ({kind: "approval", id, toolCallId: `c-${id}`, tool, args: {}, preview: {state: "loading"}});
 const items = [approval("a", "edit"), approval("b", "shell"), approval("c", "edit")];
@@ -72,5 +72,21 @@ describe("提问向导", () => {
             text: '视角？ 第三人称\n人物？ 第一人称、第三人称、其它：丁\n视角？ 表单：{"a":1}',
             data: {answers: [{selected: ["第三人称"]}, {selected: ["第一人称", "第三人称"], other: "丁"}, {selected: [], form: {a: 1}}]},
         }});
+    });
+});
+
+describe("停靠区", () => {
+    const base = {kind: "approval" as const, id: "a", toolCallId: "c", tool: "write", args: {}, preview: {state: "loading" as const}};
+    test("带来源的与异步提问进停靠区，其余阻塞", () => {
+        expect(isDocked(base)).toBe(false);
+        expect(isDocked({...base, source: {sessionId: "s", name: "子", icon: "i"}})).toBe(true);
+        expect(isDocked({kind: "question", id: "q", toolCallId: "c", async: true, questions: []})).toBe(true);
+    });
+
+    test("宿主放回的状态读不懂的按空的来，第几个只收非负整数", () => {
+        expect(readDockState(undefined)).toEqual(EMPTY_DOCK);
+        expect(readDockState("坏的")).toEqual(EMPTY_DOCK);
+        expect(readDockState({collapsed: true, index: -1})).toEqual({...EMPTY_DOCK, collapsed: true});
+        expect(readDockState({index: 2, wizard: {step: 1}})).toMatchObject({index: 2, wizard: {step: 1, approvals: {}}});
     });
 });

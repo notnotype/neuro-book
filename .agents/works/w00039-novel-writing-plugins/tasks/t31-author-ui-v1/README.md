@@ -62,7 +62,22 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 
 开发者 2026-11-10 在 t16 评审板第 10 版批准了第一批的 Spec（`b1-spec-approve`），并定面包屑第一批就做（`r6-breadcrumb`）。Spec 已提交为 planned，连同补上的面包屑：`workbench/editor.md` 输出 33 的 `breadcrumbs(arg)`、`canon/project.md` 输出 33 的上级链 `ancestors`、`canon/author-ui.md` 输出 6、20、21 的面包屑。计划相应改了“一、编辑器”与 K4、E 两片。
 
+实施（2026-11-10 起，worktree `.worktree/w00039-novel-writing-plugins`，分支 `feat/w00039-t31-author-ui`）：
+
+| 片 | 提交 | 内容与验证 |
+|---|---|---|
+| K-a | `04e440e89`、`cbd2c406c` | 读一次修订、章表（标题取自章节文件名）、登记的类型、`changes` 的 `before`、倒序与总数、事件 `inputChanged`。nb-canon `tests/author-reads.test.ts`；应用 `canon.test.ts` 经真实项目子进程与链路 |
+| K-b | `462696afd`、`6be7f80fb` | 条目树带位置与墓碑规则、条目的上级链与本体、`changedAt`（两个引擎各一份 `lastTouched`，进差分测试）、分页的来历 |
+| K-c | `ac10a99c5`、`6be7f80fb` | 就地改与记一笔的预览、语义档的记一笔、同一请求 id 重发返回第一次的结果（`edits.ts` 拆成“定方案”与“发布”两步） |
+
+- 验证：nb-canon `bun test` 599 条全过、`bun run typecheck` 过；应用 `bun test src/plugins/canon src/plugins/plot` 全过、`bun run typecheck` 过。
+- 规模（`bun scripts/scale.ts`，1000 章、520 条目、两万条变更，负载约 3.5）：随机读一个条目并取各字段最近一次改动，50 次中位 2.05 毫秒、最慢 15 毫秒（预算 20）；常出场条目的存款在最后一章末尾的来历 8001 步，算一次中位 20 毫秒、最慢 111 毫秒（界面每翻一页算一次）。
+- 实现中改了 Spec 措辞的：`project.md` 输出 28、31、32、33、验收 10 与方法表的 `previewEdit`；`model.md` 输出 37（核对点的一步也带安放）。
+- 顺带修了一个原有的竞态：世界正在打开时活页夹目录才出现，目录监视还没接上，章表会一直是空的；打开完成后补读一次清单。
+- 内核补口的实现审查（Claude Opus，范围 `6973bbb28..6be7f80fb`）在后台跑，报告回来后处理、修正单独提交。
+
 ## 下一步
 
-1. 建 worktree `.worktree/w00039-novel-writing-plugins`（分支 `feat/w00039-t31-author-ui`），从 K 三片与 E 开工；内核三片做完派 Opus 做实现审查。
-2. “底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。
+1. E：编辑器的带参数页面标签（状态容器、按标签的 context、标题、恢复、声明校验、页面的面包屑）。
+2. 处理内核补口的实现审查。
+3. S2 起的界面各片。“底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。

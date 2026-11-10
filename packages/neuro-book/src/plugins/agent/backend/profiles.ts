@@ -81,6 +81,7 @@ export class ProfileCatalog {
             ...(descriptor.declaration.defaultTools === false ? {defaultTools: false as const} : {}),
             ...(descriptor.declaration.role === undefined ? {} : {role: descriptor.declaration.role}),
             ...(descriptor.declaration.modelNeeds === undefined ? {} : {modelNeeds: descriptor.declaration.modelNeeds}),
+            ...(descriptor.declaration.agents === undefined ? {} : {agents: descriptor.declaration.agents}),
         }));
         const pluginKeys = new Set(fromPlugins.map((entry) => entry.key));
         const fromUser = (this.#user?.list() ?? []).map((profile): ProfileEntry => ({

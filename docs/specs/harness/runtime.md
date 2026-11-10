@@ -149,10 +149,10 @@ owners:
 83. 摘要（`replacement` 不是 null 的压缩）之前写下的用户消息，图片换成一行文字（名字、尺寸、地址，要看可以 `read`），当前这一轮的输入也算：不然同一轮的图撑爆窗口时，摘要写好了，重发还是原来那些图。事件没变，回退到压缩之前恢复原样。
 84. 一次请求的图片（`imageRef` 与 `image`）超过 100 张时，从最旧的起换成一行文字。在拦截链的最里面做，拦截层加的图也算，`modelCaller` 的请求也走；`preview` 同样处理。不按服务商分。超过之后每多一张新图，请求从被换掉的那张起变化，那之后的提示词缓存失效（接受）；只聊文字时集合不变，不失效。
 
-85. 输入记下发出者（planned）：`send`、`enqueue` 经 `as(issuer)` 以会话的身份发出时，`inputQueued` 与之后路径上的 `input`、`steer` 都写 `by: {kind: "session", id}`；用户发的不写 `by`，读作用户（旧日志同样）。异步提问的回答进缓冲区时，`by` 是应答者，用户应答同样不写。`by` 不进给模型的请求。
+85. 输入记下发出者：`send`、`enqueue` 经 `as(issuer)` 以会话的身份发出时，`inputQueued` 与之后路径上的 `input`、`steer` 都写 `by: {kind: "session", id}`；用户发的不写 `by`，读作用户（旧日志同样）。异步提问的回答进缓冲区时，`by` 是应答者，用户应答同样不写。`by` 不进给模型的请求。
 86. （已删除）
-87. 调用的唯一身份（planned）：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
-88. 指令交回运行（planned）：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给。
+87. 调用的唯一身份：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
+88. 指令交回运行：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给。
 
 ## 状态与转换
 
