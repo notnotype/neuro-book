@@ -9,6 +9,13 @@ import type {LogEvent, SessionHeader} from "./events.js";
 
 export type StorageResult<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly code: StorageError; readonly detail?: Readonly<Record<string, JsonValue>>};
 
+/** 索引里记的一次运行的收口。 */
+export interface IndexedRun {
+    readonly runId: string;
+    readonly reason: string;
+    readonly endedAt: number;
+}
+
 /** 会话列表用的小索引；`list` 只读它，崩溃后到下次打开之前可能略旧。 */
 export interface SessionIndexEntry {
     readonly id: string;
@@ -18,6 +25,14 @@ export interface SessionIndexEntry {
     readonly description: string | null;
     readonly archived: boolean;
     readonly background: boolean;
+    /** 会话头的调用方（子会话）；没有调用方的会话没有（session.md 输出 22）。 */
+    readonly caller?: SessionHeader["caller"];
+    /** fork 出来的会话：来源会话的 id。 */
+    readonly origin?: string;
+    /** 累计花费，与快照的 `spend` 同口径；没有这一项的旧索引读作 0。 */
+    readonly spend?: {readonly cost: number; readonly unpriced: number};
+    /** 最近 20 次收口的运行，旧的在前。 */
+    readonly runs?: readonly IndexedRun[];
     readonly createdAt: number;
     readonly lastActivityAt: number;
     readonly turns: number;

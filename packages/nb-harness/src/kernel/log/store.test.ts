@@ -131,6 +131,29 @@ describe.each(stores)("%s 存储", (_name, makeStore) => {
         expect(archived.ok && archived.value.some((entry) => entry.id === first)).toBe(false);
     });
 
+    test("session.md 输出 22：子会话的条目带调用方，fork 出来的带来源；花费与运行的收口随事件累计", async () => {
+        const store = makeStore();
+        const id = nextId();
+        const caller = {kind: "session", id: "parent", callId: "c1", invocation: "inv-1"} as const;
+        const created = await store.create({...header(id), caller, origin: {session: "source", entry: null}});
+        if (!created.ok) throw new Error(created.code);
+        const usage = (cost: number | null) => ({input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost});
+        const parent = {last: null as string | null};
+        const batch = eventsFrom(1, [
+            {type: "assistant", kind: "conv", data: {request: 1, content: [], toolCalls: [], stopReason: "stop", usage: usage(0.02)}},
+            {type: "modelEnded", data: {request: 2, usage: usage(null)}},
+            {type: "modelFailed", data: {request: 3, usage: usage(0.01)}},
+            {type: "runEnded", data: {runId: "r1", reason: "completed"}},
+        ], parent);
+        expect(await store.append(created.value, batch)).toEqual({ok: true, value: undefined});
+        await store.close(created.value);
+        const listed = await store.list();
+        const entry = listed.ok ? listed.value.find((item) => item.id === id) : undefined;
+        expect(entry).toMatchObject({caller, origin: "source", runs: [{runId: "r1", reason: "completed", endedAt: 2_004}]});
+        expect(entry?.spend?.unpriced).toBe(1);
+        expect(entry?.spend?.cost).toBeCloseTo(0.03);
+    });
+
     test("输出 19：后台会话的会话头带 background，列表条目跟着带、能按它筛", async () => {
         const store = makeStore();
         const front = nextId();
@@ -399,6 +422,21 @@ describe("JSONL 存储的文件", () => {
         if (!opened.ok) throw new Error(opened.code);
         expect(opened.value.notices.map((notice) => notice.code)).toEqual(["index-rebuilt"]);
         expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({background: true});
+        await store().close(opened.value);
+    });
+
+    test("session.md 输出 22：加花费与运行之前写下的索引读作没有，打开时按日志补上", async () => {
+        const id = nextId();
+        await writeSession(store(), id, threeBatches());
+        const path = join(root, id, "index.json");
+        const {spend: _spend, runs: _runs, ...old} = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+        await writeFile(path, JSON.stringify(old));
+        const listed = await store().list();
+        expect(listed.ok && listed.value.filter((entry) => entry.id === id).map((entry) => [entry.spend, entry.runs])).toEqual([[undefined, undefined]]);
+        const opened = await store().open(id);
+        if (!opened.ok) throw new Error(opened.code);
+        expect(opened.value.notices.map((notice) => notice.code)).toEqual(["index-rebuilt"]);
+        expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({spend: {cost: 0, unpriced: 0}, runs: [{runId: "r1", reason: "completed"}]});
         await store().close(opened.value);
     });
 

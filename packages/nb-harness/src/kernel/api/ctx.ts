@@ -79,4 +79,6 @@ export interface InterceptCtx<S extends StateDecl, St, Deps extends DepList, I =
     readonly phase: "run" | "preview";
     /** 这一层这次调用的 id，记进 `modelStarted`、`toolStarted`。 */
     readonly invocation: string;
+    /** 在哪个会话里（同 `ReactCtx.session`）；不带会话的单次请求没有。扩展对象被所有会话共用，按会话取外部数据用它。 */
+    readonly session?: ToolSessionContext;
 }

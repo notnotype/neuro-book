@@ -366,8 +366,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             }
             case "toolStarted": {
                 const callId = stringField(data, "callId");
-                // 实际执行的参数：拦截可能改过。
-                if (callId !== null && data.args !== undefined) updateCall(callId, (call) => ({...call, args: toJsonValue(data.args)}));
+                const invocation = stringField(data, "invocation");
+                // 实际执行的参数：拦截可能改过。`invocation` 是这次调用的唯一身份，宿主跨回复认调用用它（harness/runtime.md 输出 87）。
+                if (callId !== null) updateCall(callId, (call) => ({...call, ...(data.args === undefined ? {} : {args: toJsonValue(data.args)}), ...(invocation === null ? {} : {invocation})}));
                 return;
             }
             case "toolResult": {

@@ -199,6 +199,9 @@ describe("工具", () => {
         expect(assistants(midway)[0]!.toolCalls.map((call) => call.status)).toEqual(["success", "running"]);
         const [call] = assistants(transcript.messages())[0]!.toolCalls;
         expect(call).toMatchObject({name: "first", status: "success", args: {path: "改过的"}, result: {text: "第一个好了"}});
+        // 宿主跨回复认调用用的身份：就是 toolStarted 记的那个（harness/runtime.md 输出 87）。
+        const started = (await session.eventsOf("toolStarted")).map((event) => (event.data as {invocation: string}).invocation);
+        expect(assistants(transcript.messages())[0]!.toolCalls.map((item) => item.invocation)).toEqual(started);
         await expectConsistent(session, transcript);
     });
 

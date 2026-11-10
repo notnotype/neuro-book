@@ -196,6 +196,22 @@ describe("执行", () => {
     });
 });
 
+describe("调用的身份", () => {
+    test("输出 87：工具拿到的 invocation 就是 toolStarted 记的那个，每次调用都不同", async () => {
+        const seen: string[] = [];
+        const tool: TestTool = {id: "lab.who", execute: async (_args, context) => {
+            seen.push(context.invocation);
+            return "好";
+        }};
+        await using session = await createTestSession({tools: [tool]});
+        session.model.script({tools: [{tool: "lab.who"}, {tool: "lab.who"}]}, {tools: [{tool: "lab.who"}]}, "完");
+        await session.say("来");
+        const started = dataOf<{invocation: string}>(await session.events(), "toolStarted").map((data) => data.invocation);
+        expect(seen.toSorted()).toEqual(started.toSorted());
+        expect(new Set(started).size).toBe(3);
+    });
+});
+
 describe("读扩展的导出", () => {
     test("输出 23：工具实现与审批钩子按发出这批调用的那条回复所在叶子读扩展的导出；回退之后跟着回去；没装的读到 undefined", async () => {
         // 待办清单：工具把新清单放进 details，扩展从 toolResult 归约；工具执行时读当前清单再追加。
@@ -267,6 +283,24 @@ describe("拦截链", () => {
             return next(call);
         },
     }});
+
+    test("extensions.md 输出 31：模型与工具的拦截都知道在哪个会话里", async () => {
+        const sessions: string[] = [];
+        const probe = defineExtension({id: "lab.where", intercept: {
+            model: async (request, next, ctx) => {
+                sessions.push(`model ${ctx.session?.sessionId ?? "none"}`);
+                return next(request);
+            },
+            tool: async (call, next, ctx) => {
+                sessions.push(`tool ${ctx.session?.sessionId ?? "none"}`);
+                return next(call);
+            },
+        }});
+        await using session = await createTestSession({extensions: [probe], tools: [echo("lab.read")]});
+        session.model.script({tools: [{tool: "lab.read"}]}, "完");
+        await session.say("来");
+        expect(new Set(sessions)).toEqual(new Set([`model ${session.id}`, `tool ${session.id}`]));
+    });
 
     test("输出 20、79：从外到里是插件的扩展、Profile 的 extensions、Profile 自己；审批在拦截链之前", async () => {
         const trace: string[] = [];

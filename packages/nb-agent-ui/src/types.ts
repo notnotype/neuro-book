@@ -58,6 +58,8 @@ export type ToolCallView = {
     error?: string;
     /** 状态的说明，例如“你拒绝了”；适配器给的是本包目录的引用。 */
     note?: Text;
+    /** 这次调用的唯一身份（harness 适配器从 `toolStarted` 取）；调用 id 只在同一条回复里不重复，宿主跨回复认调用用它。 */
+    invocation?: string;
 };
 
 export type UserMessageView = {

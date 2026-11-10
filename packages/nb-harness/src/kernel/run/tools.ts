@@ -329,11 +329,12 @@ export async function runTools(host: ToolRunHost, reply: ReplyEvent, tools: read
                     return settle({text: `${final.tool} is not available: ${messageOf(error)}`, status: "error", code: "tool-unavailable"});
                 }
                 if (signal.aborted) throw new RunStoppedError(`the call to ${final.tool}`);
-                await host.write([ctrl("toolStarted", {callId: final.id, tool: final.tool, args: final.args, invocation: core.newId(), approval: {by: approvedBy}})]);
+                const invocation = core.newId();
+                await host.write([ctrl("toolStarted", {callId: final.id, tool: final.tool, args: final.args, invocation, approval: {by: approvedBy}})]);
                 started.add(final.id);
                 executedArgs = final.args;
                 try {
-                    executed = normalizeResult(await implementation.execute(final.args, {signal, callId: final.id, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, final.id, signal)})}), `tool ${final.tool}`);
+                    executed = normalizeResult(await implementation.execute(final.args, {signal, callId: final.id, invocation, sessionId: core.header.id, initial: host.environment().initial, read: reader as ToolContext["read"], ...(host.interactions === undefined ? {} : {ask: askFor(host, host.interactions, final.id, signal)})}), `tool ${final.tool}`);
                 } catch (error) {
                     executed = Object.freeze({text: `${final.tool} failed: ${messageOf(error)}`, status: "error", code: "tool-threw"} as const);
                 }
