@@ -29,4 +29,6 @@ export interface BuiltinToolTexts {
     readonly pathParameter: string;
     /** `edit` 两种写法的说明末尾的一段（地址怎么写、能改什么）。 */
     readonly editNote: string;
+    /** `shell` 的整段说明（工作目录、地址替换、环境变量、全文存哪里都是宿主的事实）。 */
+    readonly shell: string;
 }

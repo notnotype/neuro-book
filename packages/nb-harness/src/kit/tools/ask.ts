@@ -7,10 +7,9 @@
 
 import {checkDescription, resolveForm, validateForm} from "@notnotype/nb-form";
 
-import type {JsonValue, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
-import {failed} from "@notnotype/nb-harness/kit/files";
-
-import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
+import type {JsonValue, ToolResult} from "../../kernel/contracts.js";
+import {failed} from "../files/index.js";
+import type {KitToolDeclaration, KitToolImplementation} from "./types.js";
 
 export interface AskQuestion {
     readonly question: string;
@@ -40,7 +39,7 @@ const questionProperties = {
     multiSelect: {type: "boolean", description: "可以多选"},
 };
 
-const declarationOf = (description: string, properties: Readonly<Record<string, unknown>>): AgentToolDeclaration => ({
+const declarationOf = (description: string, properties: Readonly<Record<string, unknown>>): KitToolDeclaration => ({
     description,
     parameters: {
         type: "object",
@@ -98,7 +97,7 @@ function modelText(questions: readonly AskQuestion[], answers: readonly AskAnswe
     }).join("\n\n");
 }
 
-export const askTool: AgentToolImplementation = {
+export const askTool: KitToolImplementation = {
     create: (context) => ({
         execute: async (args, call): Promise<ToolResult> => {
             // 后台会话没有人答：停在这里会一直等到任务超时，直接告诉模型。

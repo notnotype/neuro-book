@@ -11,16 +11,13 @@ import {dirname, join} from "node:path";
 
 import {executeShell} from "@oh-my-pi/pi-natives";
 
-import type {ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
-import {commandEffect} from "@notnotype/nb-harness/kit/commands";
-import type {Dialects} from "@notnotype/nb-harness/kit/commands";
-import {failure} from "@notnotype/nb-harness/kit/files";
-
-import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
-import type {AgentToolServices, SessionResources} from "../../shared/resources";
-
-import {workingAddress} from "./common";
-import {findAddresses, substitute} from "./shell-address";
+import type {ToolResult} from "../../kernel/contracts.js";
+import {commandEffect} from "../commands/index.js";
+import type {Dialects} from "../commands/index.js";
+import {failure} from "../files/index.js";
+import type {KitServices, SessionFiles} from "../files/index.js";
+import {findAddresses, substitute} from "./shell-address.js";
+import type {KitToolDeclaration, KitToolImplementation} from "./types.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 300;
 const MAX_TIMEOUT_SECONDS = 3_600;
@@ -31,8 +28,9 @@ const PART_LINES = 500;
 const LINE_BYTES = 768;
 const ARTIFACT_LIMIT = 64 * 1024 * 1024;
 
-export const shellDeclaration: AgentToolDeclaration = {
-    description: `执行 shell 命令（内嵌的 bash 兼容 shell，只在前台）。工作目录有主项目时是项目，没有时是会话工作区。命令里直接写出的资源地址（project://a.md、session://x 等）会换成真实路径，虚拟地址在执行前报错；heredoc、变量拼接、命令替换里的地址不保证替换。环境变量 $NBOOK_PROJECT、$NBOOK_SESSION 是项目与会话工作区的真实路径。输出过长时只交回开头与结尾，全文存进 session://artifacts/，用 read 分页读。`,
+/** 整段说明由宿主给：工作目录、哪些地址会换成路径、环境变量、全文存哪里都是宿主的事实。 */
+export const shellDeclaration = (description: string): KitToolDeclaration => ({
+    description,
     parameters: {
         type: "object",
         properties: {
@@ -44,7 +42,7 @@ export const shellDeclaration: AgentToolDeclaration = {
     version: "1",
     concurrency: "exclusive",
     effect: "exec",
-};
+});
 
 /** 没有尾部换行的最后一段也算一行。 */
 function lineCount(text: string): number {
@@ -111,7 +109,7 @@ class OutputCapture {
         if (this.spoolProblem !== null || this.full) return;
         try {
             if (this.#spool === null) {
-                const directory = mkdtempSync(join(tmpdir(), "nbook-shell-"));
+                const directory = mkdtempSync(join(tmpdir(), "harness-shell-"));
                 const path = join(directory, "output.log");
                 this.#spool = {fd: openSync(path, "wx", 0o600), path};
             }
@@ -153,7 +151,7 @@ class OutputCapture {
 
 const encoder = new TextEncoder();
 
-async function saveFull(artifacts: AgentToolServices["artifacts"], capture: OutputCapture): Promise<{readonly address?: string; readonly problem?: string}> {
+async function saveFull(artifacts: KitServices["artifacts"], capture: OutputCapture): Promise<{readonly address?: string; readonly problem?: string}> {
     const path = capture.spoolPath;
     if (path === null) return {problem: capture.spoolProblem ?? "没有全文"};
     const saved = await artifacts.save("shell", async (sink) => {
@@ -167,13 +165,13 @@ async function saveFull(artifacts: AgentToolServices["artifacts"], capture: Outp
  * 全局地址定位成真实路径；目标不存在时从最近的已存在祖先接上余下的段（`mkdir`、重定向的目标），不预先建任何东西。
  * 祖先一直问到方案根（`user://new.txt` 的祖先是 `user://`）；虚拟方案的根没有真实路径，这时交回第一次的 `not-found`，原因才对得上。
  */
-async function locate(resources: SessionResources, address: string, signal: AbortSignal): Promise<{readonly path: string} | {readonly failure: ToolResult}> {
+async function locate(files: SessionFiles, address: string, signal: AbortSignal): Promise<{readonly path: string} | {readonly failure: ToolResult}> {
     const prefix = address.slice(0, address.indexOf("://") + 3);
     const segments = address.slice(prefix.length).split("/");
     const missing: string[] = [];
     let firstMissing: ToolResult | null = null;
     for (;;) {
-        const located = await resources.readPath(prefix + segments.join("/"), {signal});
+        const located = await files.readPath(prefix + segments.join("/"), {signal});
         if (located.ok) return {path: join(located.value.path, ...missing)};
         const problem = failure({code: located.code, detail: `${address}：${located.detail}`});
         if (located.code !== "not-found" || segments.length === 0) return {failure: firstMissing ?? problem};
@@ -183,7 +181,7 @@ async function locate(resources: SessionResources, address: string, signal: Abor
 }
 
 /** 换掉命令里的地址。方案是否已登记问资源视图：`https://`、`git://` 这些得 `unknown-scheme`，原样留着。 */
-async function replaceAddresses(resources: SessionResources, command: string, signal: AbortSignal): Promise<{readonly command: string} | {readonly failure: ToolResult}> {
+async function replaceAddresses(files: SessionFiles, command: string, signal: AbortSignal): Promise<{readonly command: string} | {readonly failure: ToolResult}> {
     const found = findAddresses(command);
     const known = new Map<string, boolean>();
     const replacements: (string | null)[] = [];
@@ -191,7 +189,7 @@ async function replaceAddresses(resources: SessionResources, command: string, si
         const scheme = item.address.slice(0, item.address.indexOf("://"));
         let registered = known.get(scheme);
         if (registered === undefined) {
-            const probe = await resources.readPath(`${scheme}://`, {signal});
+            const probe = await files.readPath(`${scheme}://`, {signal});
             registered = probe.ok || probe.code !== "unknown-scheme";
             known.set(scheme, registered);
         }
@@ -201,31 +199,31 @@ async function replaceAddresses(resources: SessionResources, command: string, si
         }
         // shell 里常写 `ls project://dir/`、`cp a session://dir/`：地址规则不收末尾的斜杠，去掉再补回。
         const trailing = item.address.endsWith("/") && !item.address.endsWith("://");
-        const expanded = resources.expand(trailing ? item.address.slice(0, -1) : item.address);
+        const expanded = files.expand(trailing ? item.address.slice(0, -1) : item.address);
         if (!expanded.ok) return {failure: failure({code: expanded.code, detail: `${item.address}：${expanded.detail}，命令没有执行`})};
-        const located = await locate(resources, expanded.address, signal);
+        const located = await locate(files, expanded.address, signal);
         if ("failure" in located) return located;
         replacements.push(trailing ? `${located.path}/` : located.path);
     }
     return {command: substitute(command, found, replacements)};
 }
 
-async function realPathOf(resources: SessionResources, address: string, signal: AbortSignal): Promise<string | null> {
-    const located = await resources.readPath(address, {signal});
+async function realPathOf(files: SessionFiles, address: string, signal: AbortSignal): Promise<string | null> {
+    const located = await files.readPath(address, {signal});
     return located.ok ? located.value.path : null;
 }
 
-async function run(context: ToolSessionContext, {resources, artifacts}: AgentToolServices, args: Readonly<Record<string, unknown>>, signal: AbortSignal): Promise<ToolResult> {
-    const cwd = await resources.readPath(workingAddress(context.project), {signal});
+async function run({files, artifacts}: KitServices, args: Readonly<Record<string, unknown>>, signal: AbortSignal): Promise<ToolResult> {
+    const cwd = await files.readPath(files.layout.working, {signal});
     if (!cwd.ok) return failure(cwd);
-    const replaced = await replaceAddresses(resources, args.command as string, signal);
+    const replaced = await replaceAddresses(files, args.command as string, signal);
     if ("failure" in replaced) return replaced.failure;
-    const projectPath = context.project === undefined ? null : await realPathOf(resources, "project://", signal);
-    const sessionPath = await realPathOf(resources, "session://", signal);
-    const env: Record<string, string> = {
-        ...(projectPath === null ? {} : {NBOOK_PROJECT: projectPath}),
-        ...(sessionPath === null ? {} : {NBOOK_SESSION: sessionPath}),
-    };
+    // 布局给的变量按先后求本机路径；定位不到的不设（host-kit.md 输出 10）。
+    const env: Record<string, string> = {};
+    for (const [name, address] of Object.entries(files.layout.shellEnv)) {
+        const path = await realPathOf(files, address, signal);
+        if (path !== null) env[name] = path;
+    }
 
     const capture = new OutputCapture();
     try {
@@ -258,8 +256,8 @@ async function run(context: ToolSessionContext, {resources, artifacts}: AgentToo
 }
 
 /** 判定对象是命令；只读清单在方言里，全部只读才算读（docs/specs/agent/permissions.md 输出 17）。 */
-export const shellTool = (dialects: Dialects): AgentToolImplementation => ({
-    create: (context, services) => ({execute: (args, call) => run(context, services, args, call.signal)}),
+export const shellTool = (dialects: Dialects): KitToolImplementation => ({
+    create: (_context, services) => ({execute: (args, call) => run(services, args, call.signal)}),
     effect: (args) => commandEffect(dialects("bash"), args.command as string),
     subjects: (args) => [{kind: "command", dialect: "bash", text: args.command as string}],
 });

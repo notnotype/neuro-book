@@ -273,6 +273,7 @@
       "name": "@notnotype/nb-harness",
       "version": "0.1.1",
       "dependencies": {
+        "@notnotype/nb-form": "workspace:^",
         "@notnotype/nb-profile": "workspace:^",
         "@notnotype/nb-session": "workspace:^",
         "@oh-my-pi/pi-agent-core": "18.14.0",

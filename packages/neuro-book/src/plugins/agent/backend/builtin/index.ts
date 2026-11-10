@@ -3,7 +3,7 @@
  * 提供方是接收者所在的入口：入口活着时实现就已发布，不需要写 `onAgentTool` 激活事件。
  *
  * 与应用无关的工具在宿主套件里（`@notnotype/nb-harness/kit/tools`），这里只给它们 NeuroBook 的贡献 id、给模型的名字与说明里的
- * 宿主事实（`texts.ts`），再把资源视图套上布局交给它们；`switch_mode`、`shell`、`ask` 还在 NeuroBook 这边。
+ * 宿主事实（`texts.ts`），再把资源视图套上布局交给它们；`switch_mode` 属于 Agent 模式，留在 NeuroBook。
  */
 
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
@@ -18,8 +18,6 @@ import type {ChangeModeSettings} from "../permissions/modes";
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 
 import {sessionFiles} from "../resources";
-import {askDeclaration, askFormDeclaration, askTool} from "./ask";
-import {shellDeclaration, shellTool} from "./shell";
 import {BUILTIN_TOOL_TEXTS} from "./texts";
 
 const kit = builtinDeclarations(BUILTIN_TOOL_TEXTS);
@@ -32,10 +30,10 @@ const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
     "nbook.agent.edit-replace": {...kit.editReplace, providerName: "edit"},
     "nbook.agent.grep": {...kit.grep, providerName: "grep"},
     "nbook.agent.glob": {...kit.glob, providerName: "glob"},
-    "nbook.agent.shell": {...shellDeclaration, providerName: "shell"},
+    "nbook.agent.shell": {...kit.shell, providerName: "shell"},
     "nbook.agent.switch-mode": {...switchModeDeclaration, providerName: "switch_mode"},
-    "nbook.agent.ask": {...askDeclaration, providerName: "ask"},
-    "nbook.agent.ask-form": {...askFormDeclaration, providerName: "ask"},
+    "nbook.agent.ask": {...kit.ask, providerName: "ask"},
+    "nbook.agent.ask-form": {...kit.askForm, providerName: "ask"},
 };
 
 export const BUILTIN_TOOL_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentToolDeclaration>> = Object.entries(DECLARATIONS).map(([id, declaration]) => ({capability: TOOLS_POINT, id, declaration}));
@@ -51,7 +49,7 @@ function wrap(tool: KitToolImplementation): AgentToolImplementation {
 
 /** 每次激活一套：行锚快照跟着入口这一代。审批预览要读同一份快照，由入口建好传进来。 */
 export function builtinTools(stores: SessionEditStores, dialects: Dialects, changeModeSettings: ChangeModeSettings): Readonly<Record<string, AgentToolImplementation>> {
-    const tools = kitTools({stores});
+    const tools = kitTools({stores, dialects});
     return {
         "nbook.agent.read": wrap(tools.read),
         "nbook.agent.write": wrap(tools.write),
@@ -59,9 +57,9 @@ export function builtinTools(stores: SessionEditStores, dialects: Dialects, chan
         "nbook.agent.edit-replace": wrap(tools.editReplace),
         "nbook.agent.grep": wrap(tools.grep),
         "nbook.agent.glob": wrap(tools.glob),
-        "nbook.agent.shell": shellTool(dialects),
+        "nbook.agent.shell": wrap(tools.shell),
         "nbook.agent.switch-mode": switchModeTool(changeModeSettings),
-        "nbook.agent.ask": askTool,
-        "nbook.agent.ask-form": askTool,
+        "nbook.agent.ask": wrap(tools.ask),
+        "nbook.agent.ask-form": wrap(tools.askForm),
     };
 }

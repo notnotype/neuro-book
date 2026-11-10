@@ -4,9 +4,12 @@
  * 名字，再按自己的贡献机制交给内核。
  */
 
-import {globDeclaration, globTool, grepDeclaration, grepTool} from "./search.js";
+import type {Dialects} from "../commands/index.js";
+import {askDeclaration, askFormDeclaration, askTool} from "./ask.js";
 import {hashlineDeclaration, hashlineTool, replaceDeclaration, replaceTool} from "./edit.js";
 import {readDeclaration, readTool} from "./read.js";
+import {globDeclaration, globTool, grepDeclaration, grepTool} from "./search.js";
+import {shellDeclaration, shellTool} from "./shell.js";
 import type {SessionEditStores} from "./snapshot.js";
 import type {BuiltinToolTexts, KitToolDeclaration, KitToolImplementation} from "./types.js";
 import {writeDeclaration, writeTool} from "./write.js";
@@ -20,8 +23,9 @@ export {MAX_READ_LINES, renderSnapshot, SNAPSHOT_MAX_BYTES} from "./read.js";
 export {runGlob, runGrep} from "./search.js";
 export {SessionEditStores} from "./snapshot.js";
 export type {BuiltinToolTexts, KitToolDeclaration, KitToolImplementation} from "./types.js";
+export type {AskAnswer, AskQuestion} from "./ask.js";
 
-export type BuiltinToolName = "read" | "write" | "edit" | "editReplace" | "grep" | "glob";
+export type BuiltinToolName = "read" | "write" | "edit" | "editReplace" | "grep" | "glob" | "shell" | "ask" | "askForm";
 
 /** 声明：纯数据，宿主在清单里静态登记用。 */
 export function builtinDeclarations(texts: BuiltinToolTexts): Readonly<Record<BuiltinToolName, KitToolDeclaration>> {
@@ -32,12 +36,15 @@ export function builtinDeclarations(texts: BuiltinToolTexts): Readonly<Record<Bu
         editReplace: replaceDeclaration(texts.editNote),
         grep: grepDeclaration,
         glob: globDeclaration,
+        shell: shellDeclaration(texts.shell),
+        ask: askDeclaration,
+        askForm: askFormDeclaration,
     };
 }
 
-/** 实现：每次激活一套，行锚快照跟着这一代；审批预览与压缩后的放回要读同一份快照，由宿主建好 `stores` 传进来。 */
-export function builtinTools(options: {readonly stores: SessionEditStores}): Readonly<Record<BuiltinToolName, KitToolImplementation>> {
-    const {stores} = options;
+/** 实现：每次激活一套，行锚快照跟着这一代；审批预览与压缩后的放回要读同一份快照，由宿主建好 `stores` 传进来。`dialects` 给 `shell` 求等级。 */
+export function builtinTools(options: {readonly stores: SessionEditStores; readonly dialects: Dialects}): Readonly<Record<BuiltinToolName, KitToolImplementation>> {
+    const {stores, dialects} = options;
     return {
         read: readTool(stores),
         write: writeTool(stores),
@@ -45,5 +52,9 @@ export function builtinTools(options: {readonly stores: SessionEditStores}): Rea
         editReplace: replaceTool(stores),
         grep: grepTool,
         glob: globTool,
+        shell: shellTool(dialects),
+        // 两条贡献给模型的名字相同、实现相同，只有声明不同（有没有 form）。
+        ask: askTool,
+        askForm: askTool,
     };
 }
