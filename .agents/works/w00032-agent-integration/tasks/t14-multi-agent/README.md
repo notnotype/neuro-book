@@ -156,6 +156,11 @@ t05、t06、t07。
 51. 子会话 id 随机生成（改第 24 条的“幂等”）：内核从不重新执行工具调用，按（父会话、调用 id）算出的键防不住任何真实情况，服务商在不同回复里给出重复的调用 id 时反而会把新任务发进旧子会话。会话头照记调用 id，重启后父 Agent 经 `sessions://` 根里标了调用 id 的子会话找回它。
 52. 前台等待加时限（开发者：“缺省长一点，参考 omp、Claude Code 的值”）：`agent_spawn`、`agent_send`、`agent_answer` 加 `timeout?`，缺省 1800 秒、至多 7200 秒，到时以 `running` 返回、任务转后台、不杀子代理；`wait` 缺省 1800 秒、至多 1800 秒。参照：omp 子代理运行时限缺省关闭（`task.maxRuntimeMs` 为 0）、`wait` 至多 30 分钟；Claude Code 子代理没有时限，Monitor 缺省 5 分钟、至多 30 分钟。
 
+第十四轮（开发者 2026-11-10，第二轮设计审查之后）：
+
+53. 同一条回复里并发的子代理工具不保证按调用顺序生效（放宽第 25 条）：对同一个子会话的几次放话按到达先后排队；内核不加“按顺序进入”的改动。代价：同一条回复里先 `async` 派、紧跟 `jobs`，`jobs` 可能列不出刚派的。
+54. 停靠区与本会话的同步向导同时出现时，停靠区收成一条、排在向导下面（改计划初稿“停在它上面”）：停靠区始终在输入框位置的正上方，同步向导在消息流里贴底，不改消息流的布局。
+
 调研：[各家 code agent 的子代理设计](../../research/2026-10-30-subagent-survey.md)（Claude Code、Codex CLI、omp、DeepSeek Harness、OpenCode、Gemini CLI、Kimi CLI、Roo Code、Cline、Amp）。
 
 ## 确定的工具
@@ -216,4 +221,4 @@ t05、t06、t07。
 
 ## 下一步
 
-计划与 Spec 草稿按第一轮设计审查（[处理记录](evidences/impl-plan-review-handling.txt)）与第 50–52 条修订完；开第二轮设计审查（后端 Opus、前端 Sonnet），处理完开始切片 1。
+计划第三版与 Spec 已按第二轮设计审查（[处理记录](evidences/impl-plan-review-r2-handling.txt)）与第 53、54 条修订；开第三轮（最后一轮）设计审查，处理完开始切片 1。
