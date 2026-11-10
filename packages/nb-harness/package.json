@@ -24,6 +24,7 @@
         "./kit/shapes": "./src/kit/shapes.ts",
         "./kit/files": "./src/kit/files/index.ts",
         "./kit/files/local": "./src/kit/files/local.ts",
+        "./kit/testing": "./src/kit/testing/index.ts",
         "./models": "./src/models/index.ts",
         "./process-guard": "./src/process-guard.ts",
         "./prompt": "./src/kernel/view/prompt/index.ts",
