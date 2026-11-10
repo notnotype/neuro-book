@@ -415,7 +415,8 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
         type Keyed = {rank: Rank; tie: OrderTie; step: OriginStep};
         const steps: Keyed[] = [];
         const fold: MutableFold = {state: structuredClone(entry.init), events: new Map()};
-        const initValue = entry.deleted === true ? undefined : readEntryAddress(fold.state, at.path);
+        // 别名与列表在重放时就地增删，这里要留一份当时的值，否则初值一步会跟着后面的补丁变。
+        const initValue = entry.deleted === true ? undefined : structuredClone(readEntryAddress(fold.state, at.path));
         const basis = entry.initBasis?.[at.path];
         const initStep: OriginStep = {kind: "init", value: initValue, ...(basis === undefined ? {} : {basis})};
         const timeline = snapshot.timelines.get(at.entry);

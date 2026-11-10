@@ -374,6 +374,30 @@ describe.each(ENGINES)("%s", (_name, createEngine) => {
             ]);
         });
 
+        test("来历里每一步的值是那一步当时的样子：别名与列表后来增删，不改到前面的步", () => {
+            const world = new WorldBuilder()
+                .entry("xia", "星瑕", {panel: {物品: [{id: "i0", label: "灯", 数量: 1}]}})
+                .change("c1", chapter("ch1"), [
+                    {op: "aliasAdd", at: {entry: "xia", path: "entry.aliases"}, value: "夜王"},
+                    {op: "listAdd", at: {entry: "xia", path: "panel.物品"}, value: {id: "i1", label: "药", 数量: 2}},
+                ])
+                .change("c2", chapter("ch2"), [
+                    {op: "aliasAdd", at: {entry: "xia", path: "entry.aliases"}, value: "阿瑕"},
+                    {op: "listRemove", at: {entry: "xia", path: "panel.物品"}, value: "i0"},
+                ]);
+            const engine = createEngine(world.inputs());
+            expect(engine.origins({entry: "xia", path: "entry.aliases"}, end("ch2"), "actual")).toEqual([
+                {kind: "init", value: []},
+                {kind: "patch", change: "c1", op: "aliasAdd", result: ["夜王"]},
+                {kind: "patch", change: "c2", op: "aliasAdd", result: ["夜王", "阿瑕"]},
+            ]);
+            expect(engine.origins({entry: "xia", path: "panel.物品"}, end("ch2"), "actual")).toEqual([
+                {kind: "init", value: [{id: "i0", label: "灯", 数量: 1}]},
+                {kind: "patch", change: "c1", op: "listAdd", result: [{id: "i0", label: "灯", 数量: 1}, {id: "i1", label: "药", 数量: 2}]},
+                {kind: "patch", change: "c2", op: "listRemove", result: [{id: "i1", label: "药", 数量: 2}]},
+            ]);
+        });
+
         test("待处理的排序：按位置，同一位置按种类，章已删除的排最后；读取位置指向不在章序里的章得到 chapter-not-found", () => {
             const world = new WorldBuilder()
                 .entry("xia", "星瑕", {panel: {存款: 0}})
