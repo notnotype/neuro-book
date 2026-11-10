@@ -520,12 +520,12 @@ describe("plot.brief 晋升前补的用例：读哪个位置、在场的人、�
         w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line: "main", from: 1}, {line: ids["tmp:r1"]!, from: 30}]]])});
         const result = brief(w, "ch8");
         const [before, after] = [section(result, "appearance", 0), section(result, "appearance", 1)];
-        expect(before).toContain("character.状态：15000");
-        expect(before).toContain("character.状态：剩 0 次");
-        expect(after).toContain("character.状态：20000");
+        expect(before).toContain("状态：15000");
+        expect(before).toContain("状态：剩 0 次");
+        expect(after).toContain("状态：20000");
         expect(after).not.toContain("15000");
         // 回溯次数带过去：子线上是父线在触发处的值，不是切口处的“剩 1 次”。
-        expect(after).toContain("character.状态：剩 0 次");
+        expect(after).toContain("状态：剩 0 次");
         expect(after).not.toContain("剩 1 次");
     });
 
@@ -587,7 +587,7 @@ describe("plot.brief 晋升前补的用例：读哪个位置、在场的人、�
         expect(decisions).not.toContain("哥哥何时回来");
     });
 
-    test("输出 13：涉及条目的样子去掉 know 命名空间，挂在它们下面的知识点也不在这里；别的命名空间照常渲染", () => {
+    test("输出 13：涉及条目的样子去掉 know 命名空间，挂在它们下面的知识点也不在这里；别的命名空间照常写，字段写显示名", () => {
         const w = new PlotWorld(CHAPTERS);
         const [jin, brother] = [w.person("星瑾"), w.person("哥哥")];
         const thing = w.thing("怀表");
@@ -595,7 +595,7 @@ describe("plot.brief 晋升前补的用例：读哪个位置、在场的人、�
         w.change(chapter("ch5"), {kind: "plan", text: "兄妹说话", cast: [{who: jin, role: "present"}, {who: brother, role: "present"}], patches: [addRow(jin, k, {程度: "knows"}), setState(thing, "停了")]});
         const appearance = section(brief(w, "ch5"), "appearance");
         // 简报读本章开头，计划还没发生：物件是原样。人物的条目在，但没有知情的那一段。
-        expect(appearance.split("\n").sort()).toEqual(["星瑾", "哥哥", "怀表", "character.状态：原样"].sort());
+        expect(appearance.split("\n").sort()).toEqual(["星瑾", "哥哥", "怀表", "状态：原样"].sort());
         expect(appearance).not.toContain("know.");
         expect(appearance).not.toContain("知情");
         expect(appearance).not.toContain("哥哥能回溯");
@@ -691,7 +691,7 @@ describe("plot.brief 输出 4、8、13（审查补）：写给写手的文字不
         expect(section(result, "plan")).toContain(fixed.hiddenGoalOf("管家"));
     });
 
-    test("涉及条目的主文字引到绝密知识点：带值写法里的名字换掉", () => {
+    test("涉及条目的主文字引到绝密知识点：那一块整块扣下，写固定句，名字不出现", () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");
         const secret = w.point("勇者是王子", hero, {保密: "topSecret"});
@@ -699,7 +699,8 @@ describe("plot.brief 输出 4、8、13（审查补）：写给写手的文字不
         const thing = w.publish([{ref: {kind: "entry", id: "tmp:t"}, after: {...draft, init: {...draft.init, text: [{id: "b1", source: `它和<Ref id="${secret}" />有关。`}]}}}])["tmp:t"]!;
         w.change(chapter("ch4"), {kind: "plan", text: "拿起怀表", cast: [{who: hero, role: "present"}], patches: [{op: "set", at: {entry: thing, path: "character.状态"}, value: "停了"}]});
         const result = brief(w, "ch4");
-        expect(section(result, "appearance")).toContain("它和");
+        expect(section(result, "appearance")).toContain(fixed.WITHHELD_BLOCK);
+        expect(section(result, "appearance")).toContain("怀表");
         expect(result.text).not.toContain("勇者是王子");
     });
 
@@ -740,7 +741,7 @@ describe("plot.brief（审查补二）：线、冲突写名字、已删除的条
         expect(section(brief(w, "ch4"), "secrets")).toContain("甲的隐秘目标：暗中查账；冲突：夺得爵位");
     });
 
-    test("涉及条目的引用：条目已删除写“已删除的条目”，不回到它原来的名字；名字里带引号也照样判", () => {
+    test("涉及条目的引用：引到已删除的条目、名字带引号的绝密知识点，那一块整块扣下，不回到原来的名字", () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");
         const gone = w.point("勇者是王子", hero, {保密: "topSecret"});
@@ -753,6 +754,6 @@ describe("plot.brief（审查补二）：线、冲突写名字、已删除的条
         const result = brief(w, "ch4");
         expect(result.text).not.toContain("勇者是王子");
         expect(result.text).not.toContain("男爵说");
-        expect(section(result, "appearance")).toContain("已删除的条目");
+        expect(section(result, "appearance")).toContain(fixed.WITHHELD_BLOCK);
     });
 });

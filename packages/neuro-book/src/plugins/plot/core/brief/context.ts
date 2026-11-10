@@ -76,12 +76,6 @@ export function participantsOf(plans: readonly StoryChange[]): Participant[] {
     return result;
 }
 
-/** 条目在这个位置的名字；读不到时回到 id。 */
-export function nameOf(frame: Frame, id: string): string {
-    const read = frame.view.entry(id, frame.position, "planned");
-    return read === null || read === "chapter-not-found" ? id : read.name;
-}
-
 const secrecyOf = (frame: Frame, id: string, mode: Mode): Secrecy | null => {
     const stored = frame.view.object({kind: "entry", id}) as {type?: string; deleted?: boolean} | undefined;
     if (stored === undefined || stored.deleted === true || stored.type !== ENTRY_TYPES.point) return null;
@@ -92,8 +86,6 @@ const secrecyOf = (frame: Frame, id: string, mode: Mode): Secrecy | null => {
 };
 
 export const isSecretPlus = (secrecy: Secrecy | null): secrecy is "secret" | "topSecret" => secrecy === "secret" || secrecy === "topSecret";
-/** 给写手的简报用：按计划模式。写完以后的检查不能走这里（`pointsAfterWriting` 传 `actual`）。 */
-export const secrecyAt = (frame: Frame, id: string): Secrecy | null => secrecyOf(frame, id, "planned");
 
 /** 计划上的指示：讲述上的 `reveal`（挂在讲述上，不在 `change.marks` 里）。每个知识点取最强的一种（明说强于暗示）。 */
 export function planReveals(plans: readonly StoryChange[]): Map<string, "hint" | "explicit"> {
@@ -174,13 +166,4 @@ export function pointsBeforeWriting(frame: Frame, chapter: string, plans: readon
         }
     }
     return [...points].filter((id) => secrecyOnce(id) !== null).sort();
-}
-
-/** 指向这个马甲的 `揭穿` 的知识点（称谓表与在场的人用它判断视角人物知不知道、这个马甲背后的名字能不能写）。 */
-export function unmaskingPoint(frame: Frame, mask: string): string | undefined {
-    return frame.view.entries().find((entry) => {
-        if (entry.deleted === true || entry.type !== ENTRY_TYPES.point) return false;
-        const read = frame.view.entry(entry.id, frame.position, "planned");
-        return read !== null && read !== "chapter-not-found" && (read.namespaces.point?.fields.揭穿?.value as {ref?: unknown} | null | undefined)?.ref === mask;
-    })?.id;
 }
