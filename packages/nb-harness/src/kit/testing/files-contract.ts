@@ -90,11 +90,13 @@ export function sessionFilesContract(name: string, setup: () => Promise<SessionF
             expect(text(await fixture.files.read(address))).toBe("四");
         });
 
-        it("输出 6：父目录不存在时，createParents 为真先建好，否则失败", async () => {
+        it("输出 6：父目录不存在时，createParents 为真先建好，否则失败；路上有一段是文件为 not-a-directory", async () => {
             const dir = await fresh();
             expect((await fixture.files.write(`${dir.global}/x/y/a.md`, "甲", {expect: "absent"})).ok).toBe(false);
             expect((await fixture.files.write(`${dir.global}/x/y/a.md`, "甲", {expect: "absent", createParents: true})).ok).toBe(true);
             expect(text(await fixture.files.read(`${dir.global}/x/y/a.md`))).toBe("甲");
+            await writeFile(join(dir.path, "file"), "x");
+            expect(codeOf(await fixture.files.write(`${dir.global}/file/under.md`, "乙", {expect: "absent", createParents: true}))).toBe("not-a-directory");
         });
 
         it("输出 6、8：signal 在提交之前已触发为 cancelled，目标保持原样；绑定调用的 signal 同样合进写", async () => {

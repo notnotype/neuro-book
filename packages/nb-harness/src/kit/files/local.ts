@@ -77,7 +77,8 @@ function failureOf(error: unknown, address: string): FileFailure {
         case "EISDIR":
             return fail("not-a-file", `${address} is a directory`);
         default:
-            return fail("io-failed", `${address}: ${error instanceof Error ? error.message : String(error)}`);
+            // 系统错误的 message 带本机路径，不放进 detail（host-kit.md 输出 9）。
+            return fail("io-failed", `${address}: ${errnoOf(error) ?? (error instanceof Error ? error.name : "unknown error")}`);
     }
 }
 
@@ -179,7 +180,15 @@ export function localFiles(options: LocalFilesOptions): LocalFiles {
         // 每次现读：中途可能被中止（类型收窄会把前一次判断的结果当成定值）。
         const aborted = (): boolean => signal?.aborted === true;
         try {
-            if (createParents) await mkdir(parent, {recursive: true});
+            if (createParents) {
+                try {
+                    await mkdir(parent, {recursive: true});
+                } catch (error) {
+                    // 路上有一段是文件：与没有 createParents 时同一个结论。
+                    if (errnoOf(error) === "EEXIST" || errnoOf(error) === "ENOTDIR") return fail("not-a-directory", `a parent of ${located.global} is not a directory`);
+                    throw error;
+                }
+            }
             const realParent = await confined(located.root, parent, located.global);
             if (isFailure(realParent)) return realParent;
             const target = join(realParent, basename(located.path));

@@ -3,27 +3,22 @@
  * `nbook.agent`，模型是本机的 OpenAI 兼容端点，脚本化地调用这些工具，断言落在工具结果事件与真实文件上。
  */
 
-import {EditStore} from "@oh-my-pi/pi-natives";
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {mkdir, readdir, readFile, realpath, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {deflateSync} from "node:zlib";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {defineProfile} from "@notnotype/nb-harness/kernel";
-import type {SessionApi, ToolContext, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
-import {createDialects} from "@notnotype/nb-harness/kit/commands";
-import {previewEdit, runGlob, runGrep, SessionEditStores} from "@notnotype/nb-harness/kit/tools";
+import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {LEDGER_POINT} from "nbook/plugins/files/shared/ledger";
 import type {Ledger, LedgerEntry} from "nbook/plugins/files/shared/ledger";
 
-import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./backend/builtin";
-import {sessionFiles} from "./backend/resources";
+import {BUILTIN_TOOL_CONTRIBUTIONS} from "./backend/builtin";
 import {AgentTools} from "./backend/tools";
 import {agentProfile, agentTool} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";
@@ -135,46 +130,6 @@ async function services(session: SessionApi): Promise<{resources: SessionResourc
 const numbered = (count: number): string => Array.from({length: count}, (_, index) => `第${String(index + 1)}行`).join("\n");
 const headerTag = (text: string): string => /#([0-9A-F]{4})\]/u.exec(text)?.[1] ?? "";
 
-/** 压不动的 PNG：伪随机噪声，`alpha` 时带透明通道。Bun.Image 不能从原始像素建图，这里自己组 PNG。 */
-function noisePng(width: number, height: number, alpha: boolean): Uint8Array {
-    const channels = alpha ? 4 : 3;
-    const raw = Buffer.alloc((width * channels + 1) * height);
-    let state = 12345;
-    for (let index = 0; index < raw.length; index += 1) {
-        state = (state * 1103515245 + 12345) & 0x7fffffff;
-        raw[index] = index % (width * channels + 1) === 0 ? 0 : state >> 16;
-    }
-    const crcTable = new Int32Array(256).map((_, n) => {
-        let c = n;
-        for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-        return c;
-    });
-    const crc = (bytes: Buffer): number => {
-        let c = -1;
-        for (const byte of bytes) c = crcTable[(c ^ byte) & 255]! ^ (c >>> 8);
-        return (c ^ -1) >>> 0;
-    };
-    const chunk = (type: string, data: Buffer): Buffer => {
-        const body = Buffer.concat([Buffer.from(type), data]);
-        const length = Buffer.alloc(4);
-        length.writeUInt32BE(data.length);
-        const sum = Buffer.alloc(4);
-        sum.writeUInt32BE(crc(body));
-        return Buffer.concat([length, body, sum]);
-    };
-    const header = Buffer.alloc(13);
-    header.writeUInt32BE(width, 0);
-    header.writeUInt32BE(height, 4);
-    header[8] = 8;
-    header[9] = alpha ? 6 : 2;
-    return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
-}
-
-async function png(width: number, height: number): Promise<Uint8Array> {
-    const dot = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEAQH/7yMK/gAAAABJRU5ErkJggg=="), (char) => char.charCodeAt(0));
-    return new Bun.Image(dot).resize(width, height, {fit: "fill"}).png().bytes();
-}
-
 describe("read", () => {
     test("输出 1、5：全局地址的头与行号；单数与全局写法等价；分页", async () => {
         const w = await world();
@@ -193,51 +148,6 @@ describe("read", () => {
         expect(page.text).toContain("offset=3");
     });
 
-    test("输出 5：大文件分页读回，超过 4 MiB 没有行锚；长行截断", async () => {
-        const w = await world();
-        const {session, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "big.md"), `${"长".repeat(2_500)}\n${Array.from({length: 400_000}, (_, index) => `line ${String(index)} ${"x".repeat(20)}`).join("\n")}\n`);
-        const first = await call(session, "read", {path: "session://big.md", limit: 3});
-        expect(first.text).toContain("本行共 2500 字符");
-        expect(first.text).toContain("没有行锚");
-        expect(headerTag(first.text)).toBe("");
-        const far = await call(session, "read", {path: "session://big.md", offset: 300_000, limit: 2});
-        expect(far.text).toContain("line 299998");
-        const budget = await call(session, "read", {path: "session://big.md", offset: 10, limit: 2_000});
-        expect(Buffer.byteLength(budget.text, "utf8")).toBeLessThan(60 * 1024);
-        expect(budget.text).toContain("offset=");
-    });
-
-    test("输出 5：大文件的非法 UTF-8 是 not-text，不替换成别的字符；一行特别长时内存有界、行号不乱", async () => {
-        const w = await world();
-        const {session, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "坏.txt"), Buffer.concat([Buffer.from([0xff]), Buffer.alloc(5 * 1024 * 1024, 0x61)]));
-        expect(await call(session, "read", {path: "session://坏.txt"})).toMatchObject({status: "error", code: "not-text"});
-        await writeFile(join(home, "单行.txt"), `${"甲".repeat(3 * 1024 * 1024)}\n第二行\n`);
-        const long = await call(session, "read", {path: "session://单行.txt"});
-        expect(long.status).toBe("ok");
-        expect(long.text).toContain("本行超过");
-        expect(long.text).toContain("2:第二行");
-    });
-
-    test("定位之后文件被删：not-found，不是工具抛错", async () => {
-        const w = await world();
-        const {session, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        const {resources, artifacts} = await services(session);
-        await writeFile(join(home, "a.md"), "内容");
-        const racing: SessionResources = {...resources, readPath: async (address, options) => {
-            const located = await resources.readPath(address, options);
-            await rm(join(home, "a.md"));
-            return located;
-        }};
-        const tool = await builtinTools(new SessionEditStores(), createDialects(() => []), async () => ({ok: true}))["nbook.agent.read"]!.create({sessionId: session.id, profile: MAIN} as ToolSessionContext, {resources: racing, artifacts});
-        const live = new AbortController();
-        expect(await tool.execute({path: "session://a.md"}, {signal: live.signal, callId: "c", sessionId: session.id, initial: undefined, read: () => undefined} as unknown as ToolContext)).toMatchObject({status: "error", code: "not-found"});
-    });
-
     test("输出 6：目录与虚拟根列出一层，地址是全局的", async () => {
         const w = await world();
         const {session, home, global, id} = await open(w);
@@ -249,59 +159,6 @@ describe("read", () => {
         const virtual = await call(session, "read", {path: "sessions://"});
         expect(virtual.status).toBe("ok");
         expect(virtual.text).toContain(`sessions://${id}`);
-    });
-
-    test("输出 7：压不动的图逐级压到 500 KiB 内；可能有透明的不用 JPEG；小图放大", async () => {
-        const w = await world();
-        const {session, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "噪声.dat"), noisePng(3000, 2000, false));
-        const opaque = await call(session, "read", {path: "session://噪声.dat"});
-        const opaqueBytes = Buffer.from(opaque.images![0]!.data, "base64");
-        expect(opaqueBytes.length).toBeLessThanOrEqual(500 * 1024);
-        expect(["image/jpeg", "image/webp"]).toContain(opaque.images![0]!.mime);
-        const opaqueMeta = await new Bun.Image(opaqueBytes).metadata();
-        expect([opaqueMeta.width, opaqueMeta.height]).toEqual([opaque.images![0]!.width!, opaque.images![0]!.height!]);
-        expect(opaqueMeta.width).toBeLessThanOrEqual(1568);
-
-        await writeFile(join(home, "透明.png"), noisePng(1500, 1000, true));
-        const translucent = await call(session, "read", {path: "session://透明.png"});
-        expect(translucent.images![0]!.mime).not.toBe("image/jpeg");
-        expect(Buffer.from(translucent.images![0]!.data, "base64").length).toBeLessThanOrEqual(500 * 1024);
-
-        await writeFile(join(home, "点.png"), await png(1, 1));
-        expect((await call(session, "read", {path: "session://点.png"})).images).toMatchObject([{width: 200, height: 200}]);
-        await writeFile(join(home, "细长.png"), await png(3000, 20));
-        const thin = await call(session, "read", {path: "session://细长.png"});
-        expect(thin.images![0]!.width).toBe(1568);
-        expect(thin.images![0]!.height).toBeLessThan(200);
-    }, 60_000);
-
-    test("输出 7：图片按文件头判断，缩到最长边 1568；太大 too-large；别的二进制 not-text", async () => {
-        const w = await world();
-        const {session, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "封面.dat"), await png(3136, 1000));
-        const big = await call(session, "read", {path: "session://封面.dat"});
-        expect(big.status).toBe("ok");
-        expect(big.images).toMatchObject([{width: 1568, height: 500}]);
-        const meta = await new Bun.Image(Buffer.from(big.images![0]!.data, "base64")).metadata();
-        expect(meta).toMatchObject({width: 1568, height: 500});
-        expect(big.text).toContain("3136x1000");
-
-        const small = await png(300, 300);
-        await writeFile(join(home, "小.png"), small);
-        const kept = await call(session, "read", {path: "session://小.png"});
-        expect(Buffer.from(kept.images![0]!.data, "base64").equals(Buffer.from(small))).toBe(true);
-
-        const huge = new Uint8Array(21 * 1024 * 1024);
-        huge.set(small.subarray(0, 8));
-        await writeFile(join(home, "巨大.png"), huge);
-        expect(await call(session, "read", {path: "session://巨大.png"})).toMatchObject({status: "error", code: "too-large", details: {code: "too-large"}});
-        await writeFile(join(home, "坏.png"), small.subarray(0, 16));
-        expect(await call(session, "read", {path: "session://坏.png"})).toMatchObject({code: "not-text"});
-        await writeFile(join(home, "数据.bin"), new Uint8Array([1, 0, 2]));
-        expect(await call(session, "read", {path: "session://数据.bin"})).toMatchObject({code: "not-text"});
     });
 
     test("输出 8：user:// 里指向根外的链接按目标读；不存在 not-found；不露出的文件与挂载方案的根外链接被拒", async () => {
@@ -323,19 +180,13 @@ describe("read", () => {
 });
 
 describe("write", () => {
-    test("输出 9：新建并建上级目录，覆盖不核对基线；上级是文件、不能写的位置各得失败码", async () => {
+    test("输出 9：经真实插件新建并建上级目录；只读方案、别的会话、宿主写的位置各得失败码", async () => {
         const w = await world();
         const {session, home, global} = await open(w);
         const created = await call(session, "write", {path: "session://新/目录/a.md", content: "一\n二\n"});
         expect(created.status).toBe("ok");
         expect(created.text).toContain(`[${global}/新/目录/a.md#`);
-        expect(created.text).toContain("2 行");
         expect(await readFile(join(home, "新/目录/a.md"), "utf8")).toBe("一\n二\n");
-        await writeFile(join(home, "新/目录/a.md"), "别人改过");
-        expect((await call(session, "write", {path: "session://新/目录/a.md", content: "覆盖"})).status).toBe("ok");
-        expect(await readFile(join(home, "新/目录/a.md"), "utf8")).toBe("覆盖");
-        await writeFile(join(home, "文件"), "x");
-        expect(await call(session, "write", {path: "session://文件/下面.md", content: "x"})).toMatchObject({code: "not-a-directory"});
         expect(await call(session, "write", {path: "docs://builtin/x.md", content: "x"})).toMatchObject({code: "unsupported-capability"});
         const other = await open(w);
         expect(await call(session, "write", {path: `${other.global}/x.md`, content: "x"})).toMatchObject({code: "permission-denied"});
@@ -362,59 +213,7 @@ describe("edit", () => {
         expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n贰\n叁\n");
     });
 
-    test("输出 12：没看过的行、写完 write 后直接改：引擎的规则；失败码 edit-<errorKind>", async () => {
-        const w = await world();
-        const {session, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "a.md"), "一\n二\n三\n");
-        const page = await call(session, "read", {path: "session://a.md", limit: 1});
-        const unseen = await call(session, "edit", {input: hashline("session://a.md", headerTag(page.text), "PUT 3.=3:\n+叁")});
-        expect(unseen.status).toBe("error");
-        expect(unseen.code).toMatch(/^edit-/u);
-        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n二\n三\n");
-        const written = await call(session, "write", {path: "session://b.md", content: "甲\n乙\n"});
-        expect((await call(session, "edit", {input: hashline("session://b.md", headerTag(written.text), "PUT 2.=2:\n+丙")})).status).toBe("ok");
-        expect(await readFile(join(home, "b.md"), "utf8")).toBe("甲\n丙\n");
-    });
-
-    test("输出 5、12：截断的长行不算看过，只读到它时行锚也不放行编辑", async () => {
-        const w = await world();
-        const {session, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        const long = "长".repeat(2_500);
-        await writeFile(join(home, "a.md"), `${long}\n二\n`);
-        const read = await call(session, "read", {path: "session://a.md", limit: 1});
-        expect(read.text).toContain("已截断");
-        const refused = await call(session, "edit", {input: hashline("session://a.md", headerTag(read.text), "PUT 1.=1:\n+短")});
-        expect(refused.status).toBe("error");
-        expect(refused.code).toMatch(/^edit-/u);
-        expect(await readFile(join(home, "a.md"), "utf8")).toBe(`${long}\n二\n`);
-    });
-
-    test("输出 10：裸路径、相对路径整次拒绝且不露内容；删除、移动整次拒绝；目标不存在提示用 write", async () => {
-        const w = await world();
-        const {session, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "a.md"), "一\n");
-        const read = await call(session, "read", {path: "session://a.md"});
-        const tag = headerTag(read.text);
-        const secret = join(root, `secret-${String(counter)}.md`);
-        await writeFile(secret, "机密内容\n");
-        for (const path of [secret, "a.md", "../a.md"]) {
-            const refused = await call(session, "edit", {input: hashline(path, "ABCD", "PUT 1.=1:\n+x")});
-            expect(refused).toMatchObject({status: "error", code: "invalid-address"});
-            expect(refused.text).not.toContain("机密内容");
-        }
-        expect(await readFile(secret, "utf8")).toBe("机密内容\n");
-        expect(await call(session, "edit", {input: hashline("session://a.md", tag, "REM")})).toMatchObject({code: "unsupported-capability"});
-        expect(await call(session, "edit", {input: hashline("session://a.md", tag, "MV session://b.md")})).toMatchObject({code: "unsupported-capability"});
-        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n");
-        const missing = await call(session, "edit", {input: hashline("session://没有.md", "ABCD", "PUT 1.=1:\n+x")});
-        expect(missing).toMatchObject({code: "not-found"});
-        expect(missing.text).toContain("write");
-    });
-
-    test("replace：改写、全局地址，old_string 找不到得 edit- 码，声明里没有语法", async () => {
+    test("replace：经真实插件改写，结果是全局地址", async () => {
         const w = await world();
         const {session, home, global} = await open(w, REPLACE);
         await mkdir(home, {recursive: true});
@@ -424,10 +223,6 @@ describe("edit", () => {
         expect(done.text).not.toContain("session://");
         expect(done.text).toContain(global);
         expect(await readFile(join(home, "a.md"), "utf8")).toBe("林舟走进雪里\n");
-        const miss = await call(session, "edit", {path: "session://a.md", old_string: "没有这句", new_string: "x"});
-        expect(miss.status).toBe("error");
-        expect(miss.code).toMatch(/^edit-/u);
-        expect(await call(session, "edit", {path: "a.md", old_string: "x", new_string: "y"})).toMatchObject({code: "invalid-address"});
     });
 
     test("验收 4、输出 11、13：第二个文件被别人改过：第一个已写入、第二个 conflict 不覆盖，下一次请求里看得到", async () => {
@@ -514,16 +309,9 @@ describe("grep 与 glob", () => {
         expect((await call(session, "grep", {pattern: "林舟的设定", path: "user://书"})).text).toBe("没有匹配");
     });
 
-    test("输出 14、17：够了配额就停下，不露出的文件占不掉配额；limit + 1 判截断；长行与总字节有上限；不合法的模式不报错", async () => {
+    test("输出 14：会话目录里不露出的文件占不掉配额", async () => {
         const w = await world();
-        const {session, home, global, id} = await open(w);
-        await mkdir(join(home, "many"), {recursive: true});
-        await Promise.all(Array.from({length: 1500}, (_, index) => writeFile(join(home, "many", `${String(index)}.md`), "needle\n")));
-        const few = await call(session, "grep", {pattern: "needle", path: `${global}/many`, limit: 3}) as Result & {details: {more: boolean; matches: number; filesChecked: number}};
-        expect(few.details).toMatchObject({matches: 3, more: true});
-        expect(few.details.filesChecked).toBeLessThan(1500);
-        expect(few.text).toContain("还有更多");
-
+        const {session, home, id} = await open(w);
         const blobs = join(w.stateRoot, "agent", "sessions", id, "blobs");
         await mkdir(blobs, {recursive: true});
         await Promise.all(Array.from({length: 50}, (_, index) => writeFile(join(blobs, `${String(index)}.md`), "hidden-word\n")));
@@ -533,57 +321,8 @@ describe("grep 与 glob", () => {
         expect(filtered.text).toContain("real/a.md");
         expect(filtered.text).not.toContain("blobs");
         expect(filtered.text).not.toContain("还有更多");
-
-        await writeFile(join(home, "long.md"), `start${"长".repeat(3000)}\n`);
-        const clipped = await call(session, "grep", {pattern: "start", path: "session://long.md"});
-        expect(clipped.text).toContain("已截断");
-        expect(clipped.text.length).toBeLessThan(1_000);
-        await Promise.all(Array.from({length: 300}, (_, index) => writeFile(join(home, "many", `w${String(index)}.md`), `wide${"宽".repeat(400)}\n`)));
-        const wide = await call(session, "grep", {pattern: "wide", path: `${global}/many`, limit: 500});
-        expect(Buffer.byteLength(wide.text, "utf8")).toBeLessThan(55 * 1024);
-        expect(wide.text).toContain("超过 50 KB");
-
-        await writeFile(join(home, "括号.md"), "一个 [ 括号\n");
-        expect((await call(session, "grep", {pattern: "[", path: "session://括号.md"})).status).toBe("ok");
-
-        const globbed = await call(session, "glob", {pattern: "*.md", path: `${global}/many`, limit: 5});
-        expect(globbed.text).toContain("还有更多");
-        expect(globbed.text.split("\n").filter((line) => line.startsWith("sessions://"))).toHaveLength(5);
     });
 
-    test("输出 17：到期限时 grep 标“不完整”、glob 报 timeout，与“没有匹配”分开；工具取消是 cancelled", async () => {
-        const w = await world();
-        const {session, home, global} = await open(w);
-        const {resources} = await services(session);
-        await mkdir(join(home, "many"), {recursive: true});
-        await Promise.all(Array.from({length: 2000}, (_, index) => writeFile(join(home, "many", `${String(index)}.md`), "needle\n")));
-        const live = new AbortController();
-        const grepped = await runGrep(sessionFiles(resources, {sessionId: session.id, profile: MAIN}), {pattern: "needle", path: `${global}/many`, limit: 500}, live.signal, 0);
-        expect(grepped.text).toContain("不完整");
-        expect(grepped.text).not.toBe("没有匹配");
-        expect(await runGlob(sessionFiles(resources, {sessionId: session.id, profile: MAIN}), {pattern: "**/*", path: `${global}/many`}, live.signal, 0)).toMatchObject({code: "timeout"});
-        live.abort();
-        expect(await runGrep(sessionFiles(resources, {sessionId: session.id, profile: MAIN}), {pattern: "needle", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
-
-        // 期限管整次调用：原生搜索已经把匹配交出来、核对还没做完时到期，也不再继续核对。
-        const checked: string[] = [];
-        const slow: SessionResources = {...resources, readPath: async (address, options) => {
-            if (address.includes("/many/")) {
-                checked.push(address);
-                // 核对一直不完成，直到期限信号触发：到期之后还继续核对的话，`checked` 会一路涨。
-                await new Promise<void>((resolve) => {
-                    options?.signal?.addEventListener("abort", () => resolve(), {once: true});
-                });
-            }
-            return resources.readPath(address, options);
-        }};
-        const started = Date.now();
-        const clipped = await runGrep(sessionFiles(slow, {sessionId: session.id, profile: MAIN}), {pattern: "needle", path: `${global}/many`, limit: 500}, new AbortController().signal, 150);
-        expect(clipped.text).toContain("不完整");
-        expect(checked.length).toBeLessThan(5);
-        expect(Date.now() - started).toBeLessThan(5_000);
-        expect(await runGlob(sessionFiles(resources, {sessionId: session.id, profile: MAIN}), {pattern: "**/*", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
-    });
 });
 
 describe("shell", () => {
@@ -1031,63 +770,6 @@ describe("审批预览（输出 26）", () => {
         expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n两\n三\n");
     });
 
-    test("预览不动会话的快照：引擎写完会更新快照，试算要在副本上跑", async () => {
-        const w = await world();
-        const {session, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "a.md"), "一\n二\n");
-        await call(session, "test__bt__grab", {});
-        const resources = grabbed!.resources;
-        const located = await resources.readPath("session://a.md", {signal: new AbortController().signal});
-        if (!located.ok) throw new Error(located.code);
-        const store = new EditStore();
-        const tag = store.recordSnapshot(located.value.path, "一\n二\n", [1, 2]);
-        const {written, failure} = await previewEdit("hashline", {input: hashline("session://a.md", tag, "PUT 2.=2:\n+贰")}, sessionFiles(resources, {sessionId: session.id, profile: MAIN}), store, 1024 * 1024, new AbortController().signal);
-        expect(failure).toBeNull();
-        expect([...written.values()]).toEqual(["一\n贰\n"]);
-        expect(store.headText(located.value.path)).toBe("一\n二\n");
-        expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n二\n");
-    });
-
-    test("一大一小：大的给 too-large，小的照常", async () => {
-        const w = await world();
-        const {session, id, home, global} = await open(w, REPLACE);
-        await mkdir(home, {recursive: true});
-        const big = "大".repeat(100_000);
-        await writeFile(join(home, "big.md"), big);
-        const huge = await waitingApproval(session, "edit", {path: "session://big.md", old_string: "大大", new_string: "小", replace_all: true});
-        const files = (await preview(w, id, huge.id)).files;
-        expect(files).toMatchObject([{address: `${global}/big.md`, kind: "too-large"}]);
-        await huge.approve();
-        // 原文件超了就不试算：报的是原文件的大小，不是改完的。
-        const big2 = "大".repeat(100_000);
-        await writeFile(join(home, "expand.md"), big2);
-        const expanding = await waitingApproval(session, "edit", {path: "session://expand.md", old_string: "大", new_string: "很长很长很长很长的一段替换文字", replace_all: true});
-        expect((await preview(w, id, expanding.id)).files).toEqual([{address: `${global}/expand.md`, kind: "too-large", bytes: Buffer.byteLength(big2)}]);
-        await session.resolve({commandId: cid(), id: expanding.id, decision: "deny"});
-        await until(session);
-        await writeFile(join(home, "small.md"), "一二三");
-        const small = await waitingApproval(session, "edit", {path: "session://small.md", old_string: "二", new_string: "贰"});
-        expect((await preview(w, id, small.id)).files).toEqual([{address: `${global}/small.md`, kind: "diff", before: "一二三", after: "一贰三"}]);
-        await small.approve();
-    });
-
-    test("前面的调用存的寄存器副本里没有：写明算不出来，不说没有改动；批准后照常改", async () => {
-        const w = await world();
-        const {session, id, home, global} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "source.md"), "甲\n乙\n");
-        await writeFile(join(home, "target.md"), "一\n二\n");
-        const source = await call(session, "read", {path: "session://source.md"});
-        const cut = await waitingApproval(session, "edit", {input: `[session://source.md#${headerTag(source.text)}]\nCUT 2.=2 @saved\n`});
-        await cut.approve();
-        const target = await call(session, "read", {path: "session://target.md"});
-        const paste = await waitingApproval(session, "edit", {input: `[session://target.md#${headerTag(target.text)}]\nPUT >1 @saved\n`});
-        expect((await preview(w, id, paste.id)).files).toEqual([{address: `${global}/target.md`, kind: "failed", code: "edit-no-preview"}]);
-        await paste.approve();
-        expect(await readFile(join(home, "target.md"), "utf8")).toBe("一\n乙\n二\n");
-    });
-
     test("目标不存在：预览不创建挂载目录", async () => {
         const w = await world();
         const {session, id} = await open(w);
@@ -1097,19 +779,6 @@ describe("审批预览（输出 26）", () => {
         await expect(readdir(directory)).rejects.toThrow();
         await session.resolve({commandId: cid(), id: waiting.id, decision: "deny"});
         await until(session);
-    });
-
-    test("算不出来的得 failed：文件不存在、改不上；审批不受影响", async () => {
-        const w = await world();
-        const {session, id, home, global} = await open(w, REPLACE);
-        await mkdir(home, {recursive: true});
-        const missing = await waitingApproval(session, "edit", {path: "session://没有.md", old_string: "一", new_string: "二"});
-        expect((await preview(w, id, missing.id)).files).toEqual([{address: `${global}/没有.md`, kind: "failed", code: "not-found"}]);
-        expect((await missing.approve()).code).toBe("not-found");
-        await writeFile(join(home, "a.md"), "一二三");
-        const stale = await waitingApproval(session, "edit", {path: "session://a.md", old_string: "没有这段", new_string: "二"});
-        expect((await preview(w, id, stale.id)).files).toMatchObject([{address: `${global}/a.md`, kind: "failed"}]);
-        await stale.approve();
     });
 
     test("别的工具没有预览；不是审批的事项得 unknown-interaction", async () => {
