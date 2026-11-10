@@ -118,14 +118,10 @@ Agent 工具（t08）、插图方言（t09）、生图管线（t10）、角色�
 - 拉远看对第一版范围（引用加差异、陪衬词、相近的词、中文名）的质疑：维持。
 - 收尾按主会话推荐：提案现在接受，存储的机制问题留给 `images/library` 的 Spec 与它自己的审查。
 
-仓库改放 `user://images/` 这一处，开发者追问：要不要目录层级，作者会不会用目录来管理，还是平铺、靠元数据与视图管理，Agent 怎么查。主会话的方案在会话里，定了再记，然后把提案标为接受。
+仓库改放 `user://images/` 这一处，开发者追问要不要目录层级、Agent 怎么查。主会话的方案开发者答“同意”：仓库平铺、由程序管理；用进书的图在书的目录里按作者的层级管；收藏用收藏夹（多对多）分组，第一版做；失败品靠图库页的筛选与搜索；Agent 经 t08 的检索工具查，条件与图库页同一套，中文经标签库换成标签，索引可以重建。
+
+提案 2026-11-10 标为接受，长期决定写成 [ADR 0047](../../../../../docs/adr/0047-image-prompt-items-with-numeric-weights.md)、[0048](../../../../../docs/adr/0048-image-recipe-sections-and-preset-diffs.md)、[0049](../../../../../docs/adr/0049-image-store-owns-generated-batches.md)。
 
 ## 下一步
 
-提案草稿 [图像生成第一版：工作台、配方与标签库](../../../../../docs/proposals/image-generation-v1.md) 2026-11-10 提交，开发者看过要点（“没问题”）。设计审查（开发者指定本次不用 omp）：
-
-- 第 1 轮：Opus 23 条、Sonnet 拉远看 9 条，处理见 [evidences/design-review-round1.md](evidences/design-review-round1.md)。
-- 第 2 轮：Opus 只审存储，14 条；问题在结构上，改成“每台机器的仓库是批次的唯一主人、书里存副本、对账进书”，见 [evidences/design-review-round2.md](evidences/design-review-round2.md)。
-- 第 3 轮（最后一轮）：Opus 只审新的存储结构，13 条；结构没再变，阻断（对账按批次 id 去重）与写错的平台能力已改，其余 6 条列进提案的“留给 `images/library` 的机制”，见 [evidences/design-review-round3.md](evidences/design-review-round3.md)。三轮后仍有实质问题，按 reviewing 交开发者决定：现在接受、机制留给 Spec（主会话推荐），还是把存储拆成单独的提案。
-
-等第 3 轮处理完，以及开发者对四处的表态（仓库位置改到 `user://images/`、扔掉改成先标记后删、拉远看对自动清理与第一版范围的质疑）。确认后标为接受，把长期决定写成 ADR，再写 `images/prompt` 与 `images/recipes`。
+提案 [图像生成第一版](../../../../../docs/proposals/image-generation-v1.md) 已接受（2026-11-10，三轮设计审查的处理见 `evidences/design-review-round1.md` 到 `round3.md`）。按 writing-specs 写 `images/prompt` 与 `images/recipes`，写完给开发者看过再交审查。`images/library` 归新开的 Task（提案待定项 4）。
