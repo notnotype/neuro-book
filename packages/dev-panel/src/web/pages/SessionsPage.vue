@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, Button, Select} from "@notnotype/nb-ui/components";
+import {Badge, Button, Popover, Select, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {useRoute, useRouter} from "vue-router";
 import {ApiError, getJson} from "../host/api.js";
@@ -162,6 +162,16 @@ const consoleDisabled = computed(() => {
     return null;
 });
 const sessionChangeNote = computed(() => (host.sessionChange.value ? `这格的会话换了（${shortSession(host.sessionChange.value.from)} → ${shortSession(host.sessionChange.value.to)}），发出去会发给后者` : null));
+/** 正常时 herdr 的情况只在标题旁的说明图标里（t22）：版本、推送还是轮询、多久前更新、对账补上的漏掉的状态变化、没列出的进程。 */
+const herdrNote = computed(() => {
+    const value = data.value;
+    if (!value?.herdr.available) return "";
+    const parts = [`herdr ${value.herdr.version ?? ""}`.trim(), value.herdr.mode === "subscribed" ? "已订阅推送" : "轮询中"];
+    if (value.herdr.at) parts.push(`${relativeTime(value.herdr.at)}更新`);
+    if (value.herdr.missedEvents > 0) parts.push(`对账补上了 ${value.herdr.missedEvents} 次漏掉的状态变化`);
+    if (value.ignoredProcesses > 0) parts.push(`另有 ${value.ignoredProcesses} 个短命或无关的进程没有列出`);
+    return parts.join(" · ");
+});
 const titleNote = computed(() => {
     const title = pane.value?.title ?? session.value?.title ?? null;
     if (title) return `标题取自 ${TITLE_SOURCE[title.source] ?? title.source}`;
@@ -221,11 +231,13 @@ const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.v
     <!-- 铺满（路由 layout: fill）：页头下面左列表、右详情，各自滚动，页面本身不滚（ux-b F3、ux-c R4）。手机上列表与详情分两屏。 -->
     <div class="relative h-full min-h-0" :class="tier === 'phone' && !showDetailOnPhone ? 'overflow-y-auto' : 'overflow-hidden'">
         <PageShell width="full" class="h-full min-h-0" compact :bare="phoneDetail" :crumbs="[{label: '首页', href: '/'}, {label: '会话'}]" title="会话" @navigate="navigate">
+            <!-- 页头只在 herdr 不正常时写原因；正常时 herdr 的版本、推送、对账这些收进标题旁的说明图标（t22，开发者定）。 -->
             <template v-if="data" #meta>
-                <Badge :tone="data.herdr.available ? 'success' : 'warning'" variant="soft" size="sm">{{ data.herdr.available ? `herdr ${data.herdr.version ?? ""}` : "herdr 不可用" }}</Badge>
-                <span v-if="data.herdr.available">{{ data.herdr.mode === "subscribed" ? "已订阅推送" : "轮询中" }}<template v-if="data.herdr.at"> · {{ relativeTime(data.herdr.at) }}更新</template><template v-if="data.herdr.missedEvents > 0"> · 对账补上了 {{ data.herdr.missedEvents }} 次漏掉的状态变化</template></span>
-                <span v-else>{{ data.herdr.error ?? "连不上 herdr" }}：租约照常按会话进程与 24 小时判断，看不到会话的状态</span>
-                <span v-if="data.ignoredProcesses > 0">另有 {{ data.ignoredProcesses }} 个短命或无关的进程没有列出</span>
+                <template v-if="!data.herdr.available">
+                    <Badge tone="warning" variant="soft" size="sm">herdr 不可用</Badge>
+                    <span>{{ data.herdr.error ?? "连不上 herdr" }}：租约照常按会话进程与 24 小时判断，看不到会话的状态</span>
+                </template>
+                <Tooltip v-else :text="herdrNote"><button type="button" class="nbdev-hit inline-flex size-5 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)]" :aria-label="herdrNote"><span class="i-lucide-info size-3.5" aria-hidden="true" /></button></Tooltip>
             </template>
             <LoadState v-bind="loadStateOf(sessions)" label="正在读取会话" @retry="sessions.reload()" />
             <div v-if="data" class="grid min-h-0 flex-1" :class="[tier === 'wide' ? 'grid-cols-[330px_minmax(0,1fr)]' : tier === 'medium' ? 'grid-cols-[260px_minmax(0,1fr)]' : 'grid-cols-1', phoneDetail ? '' : 'gap-4']">
@@ -262,22 +274,27 @@ const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.v
                     </div>
 
                     <template v-else>
-                        <!-- 会话信息合成一行（t17）：放不下就折行，不截断链接与原因；只有会话键截断（点一下复制全文）。 -->
+                        <!-- 会话信息一行（t17，t22 精简）：标题、状态、在动的 Task；Agent、窗格、会话键、运行数、目录、标题来源收进“详情”。 -->
                         <header class="nbdev-divider flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-2">
-                            <h2 v-if="!phoneDetail" class="nbdev-card-title min-w-0 break-words">{{ row?.title ?? `pane ${selected.paneId}` }}</h2>
+                            <h2 v-if="!phoneDetail" class="nbdev-card-title min-w-0 break-words">{{ row?.title ?? `窗格 ${selected.paneId}` }}</h2>
                             <Badge v-if="isAgent" tone="accent" variant="soft" size="sm">{{ HERDR_STATUS_LABEL[selected.status] ?? selected.status }}</Badge>
                             <Badge v-else tone="neutral" variant="soft" size="sm">只看</Badge>
-                            <div class="nbdev-note contents">
-                                <span v-if="isAgent">{{ selected.agent }}</span>
-                                <span v-else>{{ selected.agent ? `${selected.agent}，还没报会话` : "不是 Agent 会话" }}：不能发消息、不能接管</span>
-                                <span>pane <span class="font-mono">{{ selected.paneId }}</span></span>
-                                <!-- 会话键很长：只露开头一截（够认出是哪个），点一下复制全文。 -->
-                                <span v-if="isAgent" class="flex min-w-0 items-center gap-1">会话 <span class="inline-flex min-w-0 max-w-40"><TruncatedText :text="selected.sessionKey" mono /></span></span>
-                                <a v-for="lease in session?.leases ?? []" :key="`${lease.workId}/${lease.taskId}`" :href="taskHref(lease.workId, lease.taskId)" class="hover:underline" :class="{'opacity-55': lease.stale}" @click.prevent="navigate(taskHref(lease.workId, lease.taskId))">{{ workLabel(lease.workId) }}/{{ taskLabel(lease.taskId) }}</a>
-                                <span v-if="(session?.runs.length ?? 0) > 0">{{ session!.runs.length }} 个运行</span>
-                                <span v-if="!isAgent && pane?.foregroundCwd">{{ pane.foregroundCwd }}</span>
-                                <span v-if="titleNote" class="nbdev-caption">{{ titleNote }}</span>
-                            </div>
+                            <span v-if="!isAgent" class="nbdev-note">{{ selected.agent ? `${selected.agent}，还没报会话` : "不是 Agent 会话" }}：不能发消息、不能接管</span>
+                            <a v-for="lease in session?.leases ?? []" :key="`${lease.workId}/${lease.taskId}`" :href="taskHref(lease.workId, lease.taskId)" class="nbdev-small hover:underline" @click.prevent="navigate(taskHref(lease.workId, lease.taskId))">{{ workLabel(lease.workId) }}/{{ taskLabel(lease.taskId) }}<template v-if="lease.stale"> · 过期</template></a>
+                            <Popover side="bottom" align="start">
+                                <template #trigger>
+                                    <Button size="sm" variant="ghost" icon-class="i-lucide-info">详情</Button>
+                                </template>
+                                <dl class="grid max-w-[22rem] grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 nbdev-small">
+                                    <template v-if="isAgent"><dt class="nbdev-secondary">Agent</dt><dd>{{ selected.agent }}</dd></template>
+                                    <dt class="nbdev-secondary">窗格</dt><dd class="font-mono">{{ selected.paneId }}</dd>
+                                    <!-- 会话键很长：只露开头一截（够认出是哪个），点一下复制全文。 -->
+                                    <template v-if="isAgent"><dt class="nbdev-secondary">会话</dt><dd class="min-w-0"><TruncatedText :text="selected.sessionKey" mono /></dd></template>
+                                    <template v-if="(session?.runs.length ?? 0) > 0"><dt class="nbdev-secondary">运行</dt><dd>{{ session!.runs.length }} 个</dd></template>
+                                    <template v-if="!isAgent && pane?.foregroundCwd"><dt class="nbdev-secondary">目录</dt><dd class="break-all">{{ pane.foregroundCwd }}</dd></template>
+                                    <template v-if="titleNote"><dt class="nbdev-secondary">标题</dt><dd>{{ titleNote }}</dd></template>
+                                </dl>
+                            </Popover>
                         </header>
 
                         <!-- Agent 会话：终端加贴底的输入区 -->

@@ -26,8 +26,11 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{takeover: [cols: number, rows: number]; release: []; input: [data: string, paste: boolean]; resize: [cols: number, rows: number]; "open-link": [url: string]}>();
 
 const CONTROL_FONT = 13;
-/** 观看时字号的范围：再窄的容器（手机的终端画面）也尽量放下整屏，放不下就在框里横向滚动。 */
-const WATCH_FONT_MIN = 5;
+/**
+ * 观看时字号的范围：放得下整屏就放下，放不下就在框里横竖滚动。下限 10px（t22，开发者定）：原来是 5px，
+ * 桌面右栏约 760px 宽、会话 160 多列时字只有 6 到 7px，读不出内容，只能接管才看得清。代价是宽的会话一眼看不到右半边。
+ */
+const WATCH_FONT_MIN = 10;
 const WATCH_FONT_MAX = 14;
 /**
  * 不开回滚（决定点 23）：herdr 的观察流在增量帧里按光标定位逐行改写整屏、不换行滚屏，xterm 攒不下回滚（2026-10-14 实测）。
