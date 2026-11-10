@@ -171,3 +171,7 @@ read omp://sdk.md               # 读某一篇
 | read（含 `[path#tag]` 头与快照登记） | `packages/nb-harness/src/tools/read.ts` |
 | edit（`EditSession` 薄层 + 写回 + 写前确认） | `packages/nb-harness/src/tools/edit.ts` |
 | SSE 序列化 / 写入器 | `packages/nb-harness/src/sse.ts`、`src/sse-writer.ts` |
+| 宿主套件的 read、write：`hashlineFormatHeader`、`hashlineFormatNumberedLines`，读过的内容登记进 `EditStore` | `packages/nb-harness/src/kit/tools/read.ts`、`write.ts`、`snapshot.ts` |
+| 宿主套件的 edit：`EditSession`（经宿主的 `SessionFiles` 读写）、`editDescription`、`editGrammar`、`editInspect` | `packages/nb-harness/src/kit/tools/edit.ts` |
+| 宿主套件的 grep、glob：原生 `grep`、`glob` 在宿主 `readPath` 交出的本机目录里搜，命中的文件再逐个经 `readPath` 核对 | `packages/nb-harness/src/kit/tools/search.ts` |
+| 宿主套件的 shell：`executeShell` | `packages/nb-harness/src/kit/tools/shell.ts` |
