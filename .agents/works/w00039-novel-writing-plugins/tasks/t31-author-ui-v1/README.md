@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t31-author-ui-v1
-status: shelved
-updated: 2026-11-04
+status: active
+updated: 2026-11-10
 ---
 
 # 作者界面第一版
