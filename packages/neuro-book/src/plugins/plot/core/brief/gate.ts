@@ -56,6 +56,8 @@ export interface Gate {
     recognizes(x: string, p: string): boolean;
     /** 这一场用马甲、身份不给写手的本体：他的目标、态度与字段变化都不挂到马甲名下（开发者 2026-11-10 定）。 */
     identityWithheld(body: string): boolean;
+    /** 条目是身份不给写手的本体，或是他的目标：它的变化不写。 */
+    ownedByWithheld(id: string): boolean;
     /** X 对 Y 的关系（以 Y 为键的那一行）能不能写：Y 这一场用马甲而 X 不认得他时不写（Y 是占位的，名字已经是占位，照写）。 */
     relationVisible(x: string, y: string): boolean;
     value(value: unknown): string;
@@ -168,6 +170,8 @@ export function makeGate(input: GateInput): Gate {
 
     // 这一场用的马甲：只从参与者的 `as` 取（内核写入时已把 `who` 为马甲的归一成本体加 `as`）；同一段几个马甲取按计划先后最早的。
     const worn = new Map<string, string>();
+    /** 这一场他戴过的全部马甲（同一段几条计划可能各戴一个）：身份给不给写手看全部。 */
+    const wornAll = new Map<string, Set<string>>();
     const participantIds = new Set<string>();
     for (const member of input.participants) {
         if (member.who !== undefined) participantIds.add(member.who);
@@ -175,13 +179,14 @@ export function makeGate(input: GateInput): Gate {
         if (member.who === undefined || member.as === undefined) continue;
         const body = bodyOf(view, member.who);
         if (!worn.has(body)) worn.set(body, member.as);
+        wornAll.set(body, new Set([...(wornAll.get(body) ?? []), member.as]));
     }
 
     // 揭穿同一个马甲的知识点作为一组（章首或章末的 `揭穿` 指向它）。称谓表还要看以前戴过的马甲，所以按需对全部马甲扫一次。
-    let groups: Map<string, string[]> | null = null;
-    const unmasks = (mask: string): readonly string[] => {
-        if (groups === null) {
-            groups = new Map();
+    let built: Map<string, string[]> | null = null;
+    const allGroups = (): Map<string, string[]> => {
+        if (built === null) {
+            const groups = new Map<string, string[]>();
             for (const entry of view.entries()) {
                 if (entry.deleted === true || entry.type !== ENTRY_TYPES.point) continue;
                 for (const position of [frame.position, end]) {
@@ -192,9 +197,11 @@ export function makeGate(input: GateInput): Gate {
                     groups.set(target, group);
                 }
             }
+            built = groups;
         }
-        return groups.get(mask) ?? [];
+        return built;
     };
+    const unmasks = (mask: string): readonly string[] => allGroups().get(mask) ?? [];
 
     const lateCache = new Map<string, boolean>();
     const late = (id: string) => {
@@ -203,24 +210,23 @@ export function makeGate(input: GateInput): Gate {
     };
 
     // 这一场戴着的马甲的整组揭穿并进这一场涉及的知识点：组里的保密档本来写手就该知道，漏选会把整组连同作者的揭示一起扣掉。
-    const points = [...new Set([...input.points, ...[...new Set(worn.values())].flatMap((mask) => unmasks(mask))])].sort();
+    const points = [...new Set([...input.points, ...[...wornAll.values()].flatMap((masks) => [...masks]).flatMap((mask) => unmasks(mask))])].sort();
     // 到章末还没出场的知识点不给内容（名字也是占位，见 kind）。
     const shown = new Set(points.filter((point) => !late(point) && (secrecy(point) === "secret" || (secrecy(point) === "topSecret" && input.reveals.has(point)))));
-    // 身份是秘密（组里有保密以上的）的本体改名；组里有一条不给内容，这个身份就不给写手，整组都按不给内容写。
-    const renamed = new Set<string>();
+    // 身份按马甲判，不看这一场戴没戴它：揭穿它的那组里有保密以上的，身份就是秘密；其中有一条不给内容，身份就不给写手，整组都按
+    // 不给内容写（没戴的马甲，组里的知识点多半不在这一场，自然不给）。作者最可能在马甲条目里写出他是谁，与戴不戴无关。
+    const secretMask = (mask: string) => unmasks(mask).some((point) => isSecretPlus(secrecy(point)));
     const withheldMasks = new Set<string>();
     const withheldPoints = new Set<string>();
-    for (const [body, mask] of worn) {
-        const group = unmasks(mask);
-        const secret = group.filter((point) => isSecretPlus(secrecy(point)));
-        if (secret.length === 0) continue;
-        renamed.add(body);
-        if (secret.some((point) => !shown.has(point))) {
-            withheldMasks.add(mask);
-            for (const point of group) withheldPoints.add(point);
-        }
+    for (const [mask, group] of allGroups()) {
+        if (!group.some((point) => isSecretPlus(secrecy(point)) && !shown.has(point))) continue;
+        withheldMasks.add(mask);
+        for (const point of group) withheldPoints.add(point);
     }
     for (const point of withheldPoints) shown.delete(point);
+    const renamed = new Set([...wornAll].filter(([, masks]) => [...masks].some(secretMask)).map(([body]) => body));
+    /** 这一场他戴的马甲里有身份不给写手的：他的名字写马甲，他的目标、别人对他的那一行、挂在他身上的决策都不写（开发者 2026-11-10 定）。 */
+    const identityWithheld = (body: string) => [...(wornAll.get(body) ?? [])].some((mask) => withheldMasks.has(mask));
     const holders = new Set(input.participants.flatMap((member) => (member.who === undefined ? [] : [bodyOf(view, member.who)])));
 
     const hidingCache = new Map<string, HidingGoal | null>();
@@ -275,11 +281,13 @@ export function makeGate(input: GateInput): Gate {
             return isSecretPlus(secrecy(id)) ? (shown.has(id) ? "shown" : "withheld") : "none";
         }
         if (found.type === ENTRY_TYPES.goal) return hiding(id)?.state ?? "none";
-        return "none";
+        // 身份不给写手的本体：挂在他身上的决策原话里多半有本名，按不给内容守。
+        return identityWithheld(id) ? "withheld" : "none";
     };
 
     const isEntry = (id: string) => stored(id) !== undefined;
-    const describable = (id: string) => kind(id) === "plain" && !withheldMasks.has(id);
+    // 本体这一场身份不给写手时，他名下别的马甲（哪怕揭穿它只是普通档）的简介也会写出本名，同样不给。
+    const describable = (id: string) => kind(id) === "plain" && !withheldMasks.has(id) && !identityWithheld(bodyOf(view, id));
     const summary = (id: string) => (describable(id) ? (read(id, frame.position)?.summary ?? "") : "");
     const aliases = (id: string) => (describable(id) ? (read(id, frame.position)?.aliases ?? []) : []);
 
@@ -290,12 +298,15 @@ export function makeGate(input: GateInput): Gate {
         if (typeof input !== "object") return String(input);
         if (Array.isArray(input)) {
             if (input.length === 0) return fixed.NONE;
-            return input.map((item) => (typeof item === "string" ? item : item !== null && typeof item === "object" ? row(item as Record<string, unknown>) : String(item))).join("、");
+            // 以身份不给写手的本体为键的行整行不写：对他的态度、称呼说的是对本体的关系（不论这张表是谁的）。
+            const items = input.filter((item) => !(item !== null && typeof item === "object" && typeof (item as {id?: unknown}).id === "string" && identityWithheld((item as {id: string}).id)));
+            if (items.length === 0) return fixed.NONE;
+            return items.map((item) => (typeof item === "string" ? item : item !== null && typeof item === "object" ? row(item as Record<string, unknown>) : String(item))).join("、");
         }
         const ref = refOf(input);
         if (ref !== null) return name(ref);
         if ("图片" in input) return String((input as {说明?: unknown}).说明 ?? "");
-        if (typeof (input as {id?: unknown}).id === "string") return row(input as Record<string, unknown>);
+        if (typeof (input as {id?: unknown}).id === "string") return identityWithheld((input as {id: string}).id) ? fixed.OPAQUE_VALUE : row(input as Record<string, unknown>);
         return fixed.OPAQUE_VALUE;
     };
     /** 一行：行的 id 是条目时写 name，不用读取时内核补的 label（那是本名）；作者写的行用 label。再加各列。 */
@@ -349,10 +360,10 @@ export function makeGate(input: GateInput): Gate {
 
     const index = knowingIndex(view, "planned", frame.position);
     const recognizes = (x: string, p: string) => {
-        const mask = worn.get(p);
-        if (mask === undefined) return true;
-        if (withheldMasks.has(mask)) return false;
-        return unmasks(mask).some((point) => index.effective(x, point)?.程度 === "knows");
+        const masks = wornAll.get(p);
+        if (masks === undefined) return true;
+        if (identityWithheld(p)) return false;
+        return [...masks].some((mask) => unmasks(mask).some((point) => index.effective(x, point)?.程度 === "knows"));
     };
 
     // 称谓表要的“之前一起在场过”：视角人物在本章之前的已写变更，按先后。只在生成称谓表时算一次。
@@ -379,7 +390,7 @@ export function makeGate(input: GateInput): Gate {
         if (together.some((change) => (change.cast ?? []).some((c) => c.role === "present" && c.who === person && c.as === undefined))) return realName(person);
         const masked = together.map((change) => (change.cast ?? []).find((c) => c.role === "present" && c.who === person && c.as !== undefined)?.as).filter((as): as is string => as !== undefined).at(-1);
         // 以前只见过他戴马甲：揭穿那个马甲的知识点里有保密以上的，叫出马甲名会和右栏的本名对上（写出那条揭穿），用泛称。
-        return masked !== undefined && !unmasks(masked).some((point) => isSecretPlus(secrecy(point))) ? realName(masked) : fixed.A_STRANGER;
+        return masked !== undefined && !secretMask(masked) ? realName(masked) : fixed.A_STRANGER;
     };
 
     const rowName = (entry: string, path: string, element: string) => {
@@ -394,12 +405,14 @@ export function makeGate(input: GateInput): Gate {
         return fixed.AN_ITEM;
     };
 
-    const identityWithheld = (body: string) => {
-        const mask = worn.get(body);
-        return mask !== undefined && withheldMasks.has(mask);
-    };
-    // 对马甲条目本身的那一行照写（X 见到的就是这个马甲）；对本体的那一行要 X 认得他。
+    // 对马甲条目本身的那一行照写（X 见到的就是这个马甲）；对本体的那一行要 X 认得他（身份不给写手时谁都不算认得）。
     const relationVisible = (x: string, y: string) => bodyOf(view, y) !== y || recognizes(bodyOf(view, x), y);
 
-    return {frame, shown, points, secrecy, isEntry, kind, name, describable, summary, aliases, identityWithheld, relationVisible, secretClass, hiding, maskOf: (body) => worn.get(body), recognizes, value, blocks, subject, truth, hiddenGoal, narrativeName, rowName};
+    const ownedByWithheld = (id: string) => {
+        if (identityWithheld(id)) return true;
+        const found = stored(id);
+        return found?.type === ENTRY_TYPES.goal && typeof found.parent === "string" && identityWithheld(found.parent);
+    };
+
+    return {frame, shown, points, secrecy, isEntry, kind, name, describable, summary, aliases, identityWithheld, ownedByWithheld, relationVisible, secretClass, hiding, maskOf: (body) => worn.get(body), recognizes, value, blocks, subject, truth, hiddenGoal, narrativeName, rowName};
 }

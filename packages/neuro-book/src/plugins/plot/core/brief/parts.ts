@@ -84,8 +84,8 @@ export function planItems(gate: Gate, plans: readonly StoryChange[], chapter: st
         const seen = new Set<string>();
         for (const patch of plan.patches) {
             if (patch.at.path.startsWith("know.") || typeOf(gate, patch.at.entry) === ENTRY_TYPES.point) continue;
-            // 身份不给写手的本体：他的字段变化不挂到马甲名下（开发者 2026-11-10 定）。
-            if (gate.identityWithheld(patch.at.entry)) continue;
+            // 身份不给写手的本体与他的目标：变化不挂到马甲名下（开发者 2026-11-10 定）；他得知什么照写（上面的知情变化）。
+            if (gate.ownedByWithheld(patch.at.entry)) continue;
             if (gate.kind(patch.at.entry) === "placeholder") {
                 // 藏着秘密的目标写一句占位（名字与状态变化都不写）；别的占位条目不写。
                 if (gate.hiding(patch.at.entry) === null || seen.has(`hidden|${patch.at.entry}`)) continue;

@@ -43,7 +43,8 @@ function hidingGoals(gate: Gate, participants: readonly Participant[]): HidingGo
     const view = gate.frame.view;
     const holders = new Set(bodiesOf(participants, view, false));
     return view.entries().flatMap((entry) => {
-        if (entry.deleted === true || entry.type !== ENTRY_TYPES.goal || entry.parent === null || !holders.has(entry.parent)) return [];
+        // 身份不给写手的人的目标一句也不写（开发者 2026-11-10 定）。
+        if (entry.deleted === true || entry.type !== ENTRY_TYPES.goal || entry.parent === null || !holders.has(entry.parent) || gate.identityWithheld(entry.parent)) return [];
         const hidden = gate.hiding(entry.id);
         return hidden === null ? [] : [hidden];
     });

@@ -287,18 +287,24 @@ describe("brief 输出 16：两轮计划审查的复现", () => {
 });
 
 describe("brief 输出 16：变异检查补的用例", () => {
-    test("以引用为键的列表行：名字经关卡写（用马甲的人写马甲），不用读取时内核补的本名", () => {
-        const w = new PlotWorld(CHAPTERS, [EXTRA]);
-        const [lord, guard] = [w.person("王爷"), w.person("卫兵")];
-        const mask = w.person("灰袍客", {sameAs: lord});
-        w.point("灰袍客就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
-        const draft = drafts.thing("tmp:t", "令牌");
-        const ext = {type: EXTRA.id, version: 1, enabled: true, fields: {指向: null, 清单: [], 图: null, 关系: [{id: lord, 说法: "见过"}]}};
-        const thing = w.publish([{ref: {kind: "entry", id: "tmp:t"}, after: {...draft, init: {...draft.init, data: {...draft.init.data, ext}}}}])["tmp:t"]!;
-        w.change(chapter("ch4"), {kind: "plan", text: "亮出令牌", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [setState(thing, "亮出")]});
-        const result = brief(w, "ch4");
-        expect(section(result, "appearance")).toContain("关系：灰袍客（说法：见过）");
-        noLeak(result, "王爷");
+    test("以引用为键的列表行：名字经关卡写（身份给了写手的马甲写马甲，不用读取时内核补的本名）；身份绝密时以他为键的行整行不写", () => {
+        for (const level of ["secret", "topSecret"] as const) {
+            const w = new PlotWorld(CHAPTERS, [EXTRA]);
+            const [lord, guard] = [w.person("王爷"), w.person("卫兵")];
+            const mask = w.person("灰袍客", {sameAs: lord});
+            w.point("灰袍客就是王爷", lord, {保密: level, 揭穿: {ref: mask}});
+            const draft = drafts.thing("tmp:t", "令牌");
+            const ext = {type: EXTRA.id, version: 1, enabled: true, fields: {指向: null, 清单: [], 图: null, 关系: [{id: lord, 说法: "见过"}]}};
+            const thing = w.publish([{ref: {kind: "entry", id: "tmp:t"}, after: {...draft, init: {...draft.init, data: {...draft.init.data, ext}}}}])["tmp:t"]!;
+            w.change(chapter("ch4"), {kind: "plan", text: "亮出令牌", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [setState(thing, "亮出")]});
+            const result = brief(w, "ch4");
+            expect(section(result, "appearance")).not.toContain("王爷");
+            if (level === "secret") expect(section(result, "appearance")).toContain("关系：灰袍客（说法：见过）");
+            else {
+                expect(section(result, "appearance")).not.toContain("见过");
+                noLeak(result, "王爷");
+            }
+        }
     });
 
     test("本章才出场、藏着保密知识点的目标：知识点的主体不在场，也进这一场的秘密，写目标的名字与为什么", () => {
@@ -444,5 +450,54 @@ describe("brief 输出 16：实现审查（第一轮）的复现", () => {
         const later = w.publish([{ref: {kind: "entry", id: "tmp:k"}, after: {...drafts.point("tmp:k", "密室在钟楼下", hero, {保密: "secret"}), appears: chapter("ch9")}}])["tmp:k"]!;
         w.change(chapter("ch4"), {kind: "plan", text: "勇者起疑", cast: [present(hero)], patches: [addRow(hero, later, {程度: "suspects"})]});
         noLeak(brief(w, "ch4"), "密室在钟楼下");
+    });
+});
+
+describe("brief 输出 16：实现审查（第二轮）的复现", () => {
+    test("第 1 条：本章计划整张换掉卫兵的态度表：以身份不给写手的王爷为键的那一行不写", () => {
+        const {w, lord, guard, mask} = lordInDisguise();
+        w.change(chapter("ch4"), {kind: "plan", text: "卫兵改口", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [{op: "set", at: {entry: guard, path: "att.态度"}, value: [{id: lord, 态度: "敬畏", 称呼: "主公"}]}]});
+        noLeak(brief(w, "ch4"), "殿下", "主公", "敬畏", "王爷");
+    });
+
+    test("第 2、3 条：身份不给写手的王爷，他的隐秘目标、目标的变化与挂在他身上的决策原话都不写", () => {
+        const {w, lord, guard, mask} = lordInDisguise();
+        const plot = w.point("有人在查先帝的死因", lord, {保密: "secret"});
+        const hidden = w.goal("夺回先帝传下的王位", lord, {隐秘: {ref: plot}, 为什么: "他是先帝之弟"});
+        w.decision("王爷何时回宫", {about: [{kind: "entry", id: lord}], conclusion: "王爷第十章回宫", reason: "留悬念"});
+        w.change(chapter("ch4"), {kind: "plan", text: "灰袍客进了酒馆", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [addRow(lord, plot, {程度: "knows"}), {op: "set", at: {entry: hidden, path: "goal.为什么"}, value: "要为先帝报仇"}]});
+        const result = brief(w, "ch4");
+        expect(section(result, "decisions")).toContain(fixed.DECISION_ABOUT_SECRET);
+        noLeak(result, "夺回先帝传下的王位", "他是先帝之弟", "要为先帝报仇", "王爷第十章回宫", "王爷");
+    });
+
+    test("第 5 条：同一段里他先后戴两个马甲：第二个马甲的简介（写着他是谁）也不给", () => {
+        const {w, lord, guard, mask} = lordInDisguise();
+        const second = w.publish([{ref: {kind: "entry", id: "tmp:m2"}, after: {...drafts.person("tmp:m2", "黑衣人", {sameAs: lord}), init: {...drafts.person("tmp:m2", "黑衣人").init, summary: "黑衣人其实是王爷"}}}])["tmp:m2"]!;
+        w.point("黑衣人就是王爷", lord, {保密: "topSecret", 揭穿: {ref: second}});
+        w.change(chapter("ch4", 1), {kind: "plan", text: "灰袍客进了酒馆", cast: [present(guard), {who: lord, as: mask, role: "present"}]});
+        w.change(chapter("ch4", 2), {kind: "plan", text: "黑衣人出了酒馆", cast: [present(guard), {who: lord, as: second, role: "present"}]});
+        noLeak(brief(w, "ch4"), "其实是王爷", "王爷");
+    });
+
+    test("第 6 条：这一场没戴的马甲被本章计划涉及：它的简介、正文（写着他是谁）也不给，本章计划改简介那一行也不写", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [lord, guard] = [w.person("王爷"), w.person("卫兵")];
+        const draft = drafts.person("tmp:m", "灰袍客", {sameAs: lord});
+        const mask = w.publish([{ref: {kind: "entry", id: "tmp:m"}, after: {...draft, init: {...draft.init, summary: "灰袍客其实是王爷", text: [{id: "b1", source: "他是先帝之弟。"}]}}}])["tmp:m"]!;
+        w.point("灰袍客就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
+        w.change(chapter("ch4"), {kind: "plan", text: "张贴通缉", cast: [present(guard)], patches: [{op: "set", at: {entry: mask, path: "entry.summary"}, value: "灰袍客其实是王爷，已经金盆洗手"}]});
+        const result = brief(w, "ch4");
+        expect(section(result, "appearance")).toContain("灰袍客");
+        noLeak(result, "其实是王爷", "先帝之弟", "王爷");
+    });
+
+    test("种子网 136 号：身份绝密的王爷名下另一个马甲（揭穿它只是普通档）的简介写着他是谁：这一场也不给", () => {
+        const {w, lord, guard, mask} = lordInDisguise();
+        const draft = drafts.person("tmp:m2", "黑衣人", {sameAs: lord});
+        const spare = w.publish([{ref: {kind: "entry", id: "tmp:m2"}, after: {...draft, init: {...draft.init, summary: "黑衣人其实是王爷"}}}])["tmp:m2"]!;
+        w.point("黑衣人是个化名", lord, {保密: "common", 揭穿: {ref: spare}});
+        w.change(chapter("ch4"), {kind: "plan", text: "灰袍客进了酒馆", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [{op: "set", at: {entry: spare, path: "entry.aliases"}, value: ["夜行人"]}]});
+        noLeak(brief(w, "ch4"), "其实是王爷", "王爷");
     });
 });

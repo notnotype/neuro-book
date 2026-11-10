@@ -48,8 +48,6 @@ export interface SecrecyBook {
     readonly parts: readonly PartTruth[];
     /** 整份上下文里都不能出现的名字：已删除的条目、之后才出场的人。 */
     readonly never: readonly string[];
-    /** 用马甲的本体的本名：称谓表左栏写本名是例外（视角人物认得他且揭穿给了写手），判据对左栏不查这些名字。 */
-    readonly bodies: ReadonlySet<string>;
     /** 世界里的全部 id（条目、变更、决策、线、章）：上下文里一个都不能出现。 */
     readonly ids: readonly string[];
 }
@@ -88,6 +86,8 @@ export function secrecyBook(seed: number): SecrecyBook {
 
     // 马甲与揭穿：揭穿的档位随机，可以两条；一半的揭穿名字里含本名。
     const masks = new Map<string, string>();
+    /** 不戴的第二个马甲 → 本体。 */
+    const spare = new Map<string, string>();
     const unmasks = new Map<string, string[]>();
     for (const body of persons.slice(0, 1 + random(2))) {
         const name = `马甲${String(next())}号`;
@@ -106,6 +106,20 @@ export function secrecyBook(seed: number): SecrecyBook {
             group.push(id);
         }
         unmasks.set(mask, group);
+        // 三成的人另有一个这一场多半不戴的马甲，简介同样写着他是谁，揭穿它的知识点档位随机。
+        if (chance(30)) {
+            const otherName = `马甲${String(next())}号`;
+            const otherDraft = drafts.person(`tmp:m${otherName}`, otherName, {sameAs: body});
+            const other = put({...otherDraft, init: {...otherDraft.init, summary: `${otherName}其实是${names.get(body)!}`}});
+            names.set(other, otherName);
+            spare.set(other, body);
+            const lv = pick<Level>(["common", "secret", "topSecret"]);
+            const pointName = `揭穿${String(next())}号`;
+            const id = put(drafts.point(`tmp:u${pointName}`, pointName, body, {保密: lv, 揭穿: {ref: other}}));
+            names.set(id, pointName);
+            level.set(id, lv);
+            unmasks.set(other, [id]);
+        }
     }
 
     // 知识点：档位随机，主体挂在人、别的知识点或没有。
@@ -174,7 +188,8 @@ export function secrecyBook(seed: number): SecrecyBook {
             patches.push(addRow(person, point, {程度: "knows"}));
             knowing.add(`${person}|${point}`);
         }
-        for (const other of persons) if (other !== person && chance(30)) patches.push({op: "listAdd", at: {entry: person, path: "att.态度"}, value: {id: other, 态度: "崇敬", 称呼: `称呼${String(next())}`}});
+        // 称呼里带着被称呼的人的本名：这一行要是不该写却写了，本名就会被判据抓到。
+        for (const other of persons) if (other !== person && chance(30)) patches.push({op: "listAdd", at: {entry: person, path: "att.态度"}, value: {id: other, 态度: "崇敬", 称呼: `${names.get(other)!}大人`}});
     }
     // 第 2 章还让一个用马甲的人戴着马甲与别人同场：之后的称谓表会遇到“以前只见过他戴马甲”。
     const wornBefore = [...masks].map(([body, mask]) => ({who: body, as: mask, role: "present" as const}));
@@ -243,6 +258,14 @@ export function secrecyBook(seed: number): SecrecyBook {
         if (chance(40)) planPatches.push({op: "set", at: {entry: renamed, path: "entry.summary"}, value: `${names.get(renamed)!}的底细`});
         if (chance(30)) planPatches.push({op: "set", at: {entry: renamed, path: "entry.name"}, value: `${names.get(renamed)!}改`});
         if (chance(40)) planPatches.push({op: "set", at: {entry: things[0]!, path: "text[b1]"}, value: `改过的一块：<Ref id="${targets()}" />。`});
+        // 整张换掉一个人的态度表（行里也有用马甲的人）；改一个不戴的马甲的简介。
+        if (chance(30)) {
+            const owner = pick(cast).who;
+            const other = pick(persons.filter((id) => id !== owner));
+            planPatches.push({op: "set", at: {entry: owner, path: "att.态度"}, value: [{id: other, 态度: "敬畏", 称呼: `${names.get(other)!}主公`}]});
+        }
+        const spareMask = [...spare.keys()][0];
+        if (spareMask !== undefined && chance(40)) planPatches.push({op: "set", at: {entry: spareMask, path: "entry.summary"}, value: `${names.get(spareMask)!}其实是${names.get(spare.get(spareMask)!)!}，已经洗手`});
         const marks: Mark[] = [...reveals].map(([point, mode]) => ({kind: MARK_IDS.reveal, version: 1, point, mode}));
         if (chance(60)) marks.push({kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "payoff"});
         w.change({...chapter(TARGET, 5 + index), ...(line === "main" ? {} : {line})}, {kind: "plan", text: `第六章第 ${String(index + 1)} 段的计划`, cast, patches: planPatches, told: [{source: "outline", chapter: TARGET, anchor: "细纲", marks}]});
@@ -307,8 +330,13 @@ export function secrecyBook(seed: number): SecrecyBook {
             }
             if (needed.length > 0) restrict(decision.token, needed);
         }
+        // 马甲的简介写着“某某其实是本名”：按马甲判，不看这一场戴没戴它，组里保密以上的都给了内容才写得出来。
+        for (const mask of [...masks.values(), ...spare.keys()]) {
+            const secretMembers = (unmasks.get(mask) ?? []).filter(secretPlus);
+            if (secretMembers.length > 0) restrict(`${names.get(mask)!}其实是`, secretMembers.map(need));
+        }
         const pairs = new Map<string, {body: string; needed: string[] | null}>();
-        for (const [body, mask] of masks) {
+        for (const [body, mask] of [...masks, ...[...spare].map(([mask, owner]) => [owner, mask] as const)]) {
             const needed = (unmasks.get(mask) ?? []).filter(secretPlus).map(need);
             pairs.set(names.get(mask)!, {body: names.get(body)!, needed: needed.some((item) => item === null) ? null : (needed as string[][]).flat()});
         }
@@ -316,5 +344,5 @@ export function secrecyBook(seed: number): SecrecyBook {
     });
 
     const ids = [...w.world.data.entries.keys(), ...w.world.data.changes.keys(), ...w.world.data.decisions.keys(), ...lines.filter((line) => line !== "main"), ...CHAPTERS];
-    return {w, instruction, parts, never: [...deletedNames, lateName, ...lateGoals], ids, bodies: new Set([...masks.keys()].map((body) => names.get(body)!))};
+    return {w, instruction, parts, never: [...deletedNames, lateName, ...lateGoals], ids};
 }
