@@ -53,6 +53,52 @@ a { color: var(--accent); }
 <p>外框是真实组件：标题栏、活动栏、面板头、编辑器标签条、状态栏，以及按钮、分段开关、标签页、输入框这些 nb-ui 控件。工作台本身（提示词区、结果区、词库）是一次性的草稿，不是产品代码。结果图是占位图，静态稿不调用生成接口。标签的中文与使用次数是演示用的取值。画布 1600×900，亮色。</p>
 </div>
 
+<div class="round">第 3 轮 · 参数、片段、窄屏与画风对比</div>
+
+<section class="s">
+<h2>这一轮画了什么 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>按第 1、2 轮的决定（标签块、词库在侧栏、按节、预设是引用加差异）往下画四处。参数与片段页是照决定画的，不单独问；窄屏和画风对比各有一道题。</p>
+</section>
+
+<section class="q" data-nbdev-question="q5-narrow" data-nbdev-type="single" data-nbdev-recommend="tabs">
+<h2>问题 5：窄屏（390 宽）怎么放提示词和结果 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="tabs">
+<h3>A 分段切换（推荐）</h3>
+<a href="r3/narrow-tabs.webp"><figure><img src="r3/narrow-tabs.webp" alt="分段切换"></figure></a>
+<p>顶上“提示词 | 结果”切换，各占整屏。点“生成”后自动切到结果，结果页的大图还是 2×2；底部固定参数预设和“生成”。</p>
+</div>
+<div class="opt" data-nbdev-option="stack">
+<h3>B 上下叠放</h3>
+<a href="r3/narrow-stack.webp"><figure><img src="r3/narrow-stack.webp" alt="上下叠放"></figure></a>
+<p>最近一批缩成一条放在顶上，下面是提示词，一起滚动；点缩略图或“第 7 批”进大图。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐 A。</b>手机上提示词一节节往下很长，结果要看大图才判断得了好坏；叠放时那条缩略图太小（64 宽），看不出细节，又占掉一截编辑的地方。生成后自动切到结果、改完一节再切回来，这个来回在手机上是常态。</div>
+<figure><img src="r3/narrow-drawer.webp" alt="窄屏的词库抽屉" style="max-width:320px"><figcaption>两种放法都一样：词库是底部抽屉（已定 4），标题右侧写着会插到哪一节</figcaption></figure>
+</section>
+
+<section class="q" data-nbdev-question="q6-style-compare" data-nbdev-type="single" data-nbdev-recommend="first">
+<h2>问题 6：“只换画风”的对比抽卡，第一版做不做 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<figure><a href="r3/compare.webp"><img src="r3/compare.webp" alt="画风对比"></a><figcaption>画风一节选几套预设（图里是 4 套），点“对比 4 套画风”：同一个种子、同一份内容，每套画风出一张，图上写着是哪一套；选中一张可以“换成这套画风”（把这一节的预设换过去）或直接用作插图</figcaption></figure>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="first"><h3>第一版就做（推荐）</h3><p>分节和预设定了以后，它只是“同一份配方、换画风这一节、固定种子”跑几次，额外的东西只有结果区的对比视图。</p></div>
+<div class="opt" data-nbdev-option="later"><h3>以后再说</h3><p>第一版只有普通的抽卡；想比较画风就手动换预设、固定种子，再生成一次。</p></div>
+</div>
+<div class="rec-note"><b>推荐第一版就做。</b>给一本书定画风是插图的第一步，调研里画风串又是社区最常复用的东西；用同一个种子并排比，比手动来回换可靠得多。费用按张算（比几套就是几张），生成前照常显示。</div>
+</section>
+
+<section class="s">
+<h2>参数展开 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<figure><a href="r3/params.webp"><img src="r3/params.webp" alt="参数展开"></a><figcaption>点底部的参数摘要，底栏向上长出这一块，提示词区跟着变矮，“生成”那一行不动。参数也是预设（“竖图 · 标准”），改过的项标出原值（提示词引导 5.0 → 6.0），和画风预设同一套引用加差异。尺寸写出像素数，提示是否在免费范围内</figcaption></figure>
+</section>
+
+<section class="s">
+<h2>片段页 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<figure><a href="r3/fragments.webp"><img src="r3/fragments.webp" alt="片段页"></a><figcaption>侧栏“片段”页。按用途筛（外貌、服装、动作、表情、互动、场景、构图），用途是固定的一组，和文件夹分开。每个片段分核心词与陪衬词：核心必带，陪衬可以不带（法典的编者在备注里就是这么区分的）。选中的“递信”是两个人的互动，插入时 source# 与 target# 分别进两个角色</figcaption></figure>
+<p>还没想清楚的一处：人物外貌（图里的“林汐·外貌”）是片段，还是角色设定的一部分？角色接上设定（t11）以后，外貌应当从设定来，片段里只留不属于某个角色的东西。这一条留给 t11 再定。</p>
+</section>
+
 <div class="round">第 2 轮 · 分节与预设</div>
 
 <section class="s">
@@ -69,7 +115,8 @@ a { color: var(--accent); }
 </section>
 
 <section class="q" data-nbdev-question="q3-sections" data-nbdev-type="single" data-nbdev-recommend="sections">
-<h2>问题 3：提示词区按节组织，还是一整段 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 3：提示词区按节组织，还是一整段 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p data-nbdev-skip><b>11-10 定：A 按节。</b></p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="sections">
 <h3>A 按节（推荐）</h3>
@@ -86,7 +133,8 @@ a { color: var(--accent); }
 </section>
 
 <section class="q" data-nbdev-question="q4-preset-link" data-nbdev-type="single" data-nbdev-recommend="link">
-<h2>问题 4：套用预设以后，预设和配方是什么关系 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 4：套用预设以后，预设和配方是什么关系 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p data-nbdev-skip><b>11-10 定：A 引用，配方里的改动显示成差异（会话里说“按推荐来”，主会话代录）。</b></p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="link">
 <h3>A 引用，配方里的改动显示成差异（推荐）</h3>
@@ -105,7 +153,8 @@ a { color: var(--accent); }
 <div class="round">第 1 轮 · 整体版式与两个问题</div>
 
 <section class="q" data-nbdev-question="q1-tag-view" data-nbdev-type="single" data-nbdev-recommend="chips">
-<h2>问题 1：提示词里的标签怎么显示 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 1：提示词里的标签怎么显示 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p data-nbdev-skip><b>11-10 定：B 标签块，每个提示词框可以切回原文。</b></p>
 <p>三张图的其它部分都一样，只换提示词区的画法。点图看整页。</p>
 <div class="opts">
 <div class="opt" data-nbdev-option="raw">
@@ -129,7 +178,8 @@ a { color: var(--accent); }
 </section>
 
 <section class="q" data-nbdev-question="q2-library-place" data-nbdev-type="single" data-nbdev-recommend="sidebar">
-<h2>问题 2：词库放在哪 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 2：词库放在哪 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p data-nbdev-skip><b>11-10 定：A 外壳的侧栏。</b></p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="sidebar">
 <h3>A 外壳的侧栏（推荐）</h3>
