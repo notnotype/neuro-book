@@ -12,3 +12,8 @@ w00025 t05 源码编辑器的右键菜单与语法配色：收口验证（2026-1
 7. themes.e2e.ts“Lab 不受主题影响”：通过。
 8. lab-scenes.e2e.ts：第一次仍在第一步超时（15 秒内 window.__nbLab 没出现，开发服务冷启动）；整份再跑一次走完了全部场景（7.2 分钟），只剩 ThemeEditor 的 icons、icons-empty 两个场景各两条 404（/api/nbook.files/raw/user/theme-assets/ccc….svg、ddd….svg：夹具引用的素材哈希在状态根里不存在）。
    对照：在基于 master 3516715b7 的 checkout 上起开发服务打开 ThemeEditor/icons，同样这两条 404。是 master 上原有的问题（主题编辑器夹具，w00041），与 t05 无关。
+
+== 补充：实现审查修正之后（分支提交 aaa24dff0，负载约 7–18）
+9. 编辑器 Bun 测试 215 pass；typecheck 通过。
+10. 重建后 editor-code-menu（14 例）、editor-types、editor-code-settings 共 19 例全过。
+11. 变异检查：把粘贴时的 pasteOnNewLine 写死为假、重建，“整行粘贴到一行中间”一例失败；还原后重建。
