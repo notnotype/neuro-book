@@ -65,7 +65,9 @@ const hasAssistantSide = computed(() => turn.value.blocks.length > 0 || turn.val
 /** 用户手动设定过的整轮展开状态；为 null 时跟随默认规则，所以运行结束时会自动收起。 */
 const manualExpanded = ref<boolean | null>(null);
 
-const expanded = computed(() => !turn.value.foldable || (manualExpanded.value ?? defaultTurnExpanded(turn.value, props.latest)));
+/** 进行中的调用：含它们的轮次不自动收起（ctx `activeCalls`）。宿主在集合没变时不换引用，这里也就不重建。 */
+const activeCalls = computed(() => new Set(props.ctx.activeCalls ?? []));
+const expanded = computed(() => !turn.value.foldable || (manualExpanded.value ?? defaultTurnExpanded(turn.value, props.latest, activeCalls.value)));
 const processBlocks = computed(() => turn.value.blocks.slice(0, turn.value.outcomeStart));
 const outcomeBlocks = computed(() => turn.value.blocks.slice(turn.value.outcomeStart));
 
@@ -92,7 +94,12 @@ function role(id: string): RoleEntry {
     return props.registry.list("roles").find((entry) => entry.id === id) ?? FALLBACK_ROLE;
 }
 
-const userRole = computed(() => role("user"));
+/** 开这一轮的话是谁说的：别的会话发来的（父 Agent）用它带的头像与名称，否则是用户角色。色调都是用户的。 */
+const userRole = computed((): RoleEntry => {
+    const base = role("user");
+    const author = turn.value.user?.author;
+    return author === undefined ? base : {...base, icon: author.icon, label: author.label};
+});
 const assistantRole = computed(() => role("assistant"));
 /** 会话 Profile 的图标比角色的默认图标更具体。 */
 const assistantIcon = computed(() => props.ctx.session?.profileIcon || assistantRole.value.icon);

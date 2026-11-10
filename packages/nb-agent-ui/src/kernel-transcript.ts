@@ -221,7 +221,14 @@ type LiveCall = {readonly id: string; readonly name: string; args: string};
 type Live = {request: number; next: number; text: string; thinking: string; calls: LiveCall[]; broken: boolean};
 type Optimistic = {readonly commandId: string; view: UserMessageView};
 
-export function createKernelTranscript(options: {readonly toolName?: (id: string) => string} = {}): KernelTranscript {
+/** 别的会话以自己的身份发来的话的发出者（`input`、`steer` 事件的 `by`，harness/runtime.md 输出 85）。 */
+export type KernelIssuer = {readonly kind: "session"; readonly id: string};
+
+/**
+ * `toolName`：工具 id 换成界面认的名字。`authorOf`：路径上 `by` 是别的会话的那些话（父 Agent 发给子代理的）用谁的头像与名称；
+ * 不给时都画成用户。
+ */
+export function createKernelTranscript(options: {readonly toolName?: (id: string) => string; readonly authorOf?: (by: KernelIssuer) => UserMessageView["author"]} = {}): KernelTranscript {
     const toolName = options.toolName ?? ((id: string) => id);
     const problems: KernelTranscriptProblem[] = [];
     const problem = (source: string, reason: string): void => void problems.push({source, reason});
@@ -351,7 +358,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 const text = stringField(data, "text") ?? "";
                 // 带范围的附件文字里已经有它的标签，气泡按标签显示，不再单列一块。
                 const attachments = Array.isArray(data.attachments) ? data.attachments.flatMap((item): ContentBlockView[] => (isRecord(item) && typeof item.uri === "string" && typeof item.from !== "number" ? [{kind: "attachment", locator: item.uri, name: item.uri.slice(item.uri.lastIndexOf("/") + 1), mimeType: item.kind === "image" ? "image/*" : "", bytes: 0}] : [])) : [];
-                logged.push({kind: "user", id, timestamp: at, intent: type === "steer" ? "steer" : "normal", blocks: [...(text === "" ? [] : [{kind: "text" as const, text}]), ...attachments], contentOmitted: false});
+                const by = isRecord(data.by) && data.by.kind === "session" && typeof data.by.id === "string" ? {kind: "session" as const, id: data.by.id} : null;
+                const author = by === null ? undefined : options.authorOf?.(by);
+                logged.push({kind: "user", id, timestamp: at, intent: type === "steer" ? "steer" : "normal", blocks: [...(text === "" ? [] : [{kind: "text" as const, text}]), ...attachments], contentOmitted: false, ...(author === undefined ? {} : {author})});
                 return;
             }
             case "assistant": {

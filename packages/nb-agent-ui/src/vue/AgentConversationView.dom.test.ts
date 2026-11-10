@@ -629,5 +629,55 @@ describe("宿主每秒换 now", () => {
         expect(calls).toBe(afterMount);
         view.unmount();
     });
-});
 
+    it("停靠的事项不替换输入框；同步向导只收阻塞的，它在时停靠区收成一条；读屏状态区写来源", async () => {
+        const docked = {kind: "approval" as const, id: "d1", toolCallId: "c-d1", tool: "write", args: {path: "user://a.md"}, preview: {state: "ready" as const, files: []}, source: {sessionId: "child-1", name: "核对员", icon: "i-lucide-bot"}};
+        const blocking = {kind: "question" as const, id: "q1", toolCallId: "c-q1", questions: [{question: "视角？", options: [{label: "第一人称"}, {label: "第三人称"}]}]};
+        const view = mountView("zh-CN", {}, {ctx: {...context(), pendingInputs: [docked]}});
+        expect(view.find("[data-agent-dock]").exists()).toBe(true);
+        expect(view.find("[data-agent-wizard]").exists()).toBe(false);
+        expect(view.get(".acv-composer").isVisible()).toBe(true);
+        expect(view.get("[role='status']").text()).toContain("子代理「核对员」：要你批准 write");
+
+        await view.setProps({ctx: {...context(), pendingInputs: [docked, blocking]}});
+        expect(view.get("[data-agent-wizard]").text()).toContain("视角？");
+        expect(view.get("[data-agent-wizard]").text()).not.toContain("核对员");
+        expect(view.find("[data-dock-collapsed]").exists()).toBe(true);
+        view.unmount();
+    });
+
+    it("含进行中调用的轮次不自动收起：后台命令转了后台、这一轮回复完了，节点还在眼前", () => {
+        const background = {id: "c1", name: "shell", status: "success" as const, args: {command: "bun run build", async: true}, invocation: "inv-1", result: {text: "已转到后台", truncated: false}};
+        const ctx = (activeCalls?: string[]): AgentConversationContext => ({
+            ...context(),
+            messages: [
+                {kind: "user", id: "u1", timestamp: 1, intent: "normal", blocks: [{kind: "text", text: "构建一下"}], contentOmitted: false},
+                {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "", thinking: "", model: "m", toolCalls: [background], contentOmitted: false},
+                {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "构建在后台跑。", thinking: "", model: "m", toolCalls: [], contentOmitted: false},
+            ],
+            ...(activeCalls === undefined ? {} : {activeCalls}),
+        });
+        const active = mountView("zh-CN", {}, {ctx: ctx(["inv-1"])});
+        expect(active.find("[data-node]").exists()).toBe(true);
+        active.unmount();
+        const settled = mountView("zh-CN", {}, {ctx: ctx()});
+        expect(settled.find("[data-node]").exists()).toBe(false);
+        settled.unmount();
+    });
+
+    it("子会话的顶栏是面包屑：祖先可点、发 session.select；多于两层时中间的收进“…”；读不到的写未知会话", async () => {
+        const session = {...context().session!, path: [{id: "root", title: "主创"}, {id: "mid", title: ""}, {id: "parent", title: "核对员"}]};
+        const view = mountView("zh-CN", {}, {ctx: {...context(), session}});
+        const crumbs = view.findAll("[data-header-crumb]");
+        expect(crumbs.map((crumb) => crumb.text())).toEqual(["主创", "核对员"]);
+        expect(view.find("[data-header-crumb-more]").exists()).toBe(true);
+        await crumbs[1]!.trigger("click");
+        expect(view.emitted("action")).toContainEqual([{type: "session.select", sessionId: "parent"}]);
+
+        await view.setProps({ctx: {...context(), session: {...session, path: [{id: "root", title: ""}]}}});
+        expect(view.findAll("[data-header-crumb]").map((crumb) => crumb.text())).toEqual(["未知会话"]);
+        await view.setProps({ctx: context()});
+        expect(view.find("[data-header-path]").exists()).toBe(false);
+        view.unmount();
+    });
+});

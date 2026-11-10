@@ -31,6 +31,8 @@ export type AgentViewRenderers = {
     markdownPreview?: MarkdownPreviewPort;
     /** 提问向导的表单：收 `schema`、`modelValue`，发 `update:modelValue`、`update:valid`。 */
     form?: Component;
+    /** 后台命令（`shell` 带 `async`）的节点：收 `ToolComponentProps`、发 `action`；不注入时画通用卡片。 */
+    backgroundCommand?: Component;
 };
 
 type AgentViewHost = {
@@ -56,6 +58,7 @@ export type ResolvedRenderers = {
     promptTextView: Component;
     markdownPreview: MarkdownPreviewPort;
     form: Component;
+    backgroundCommand?: Component;
     /** 用的是缺省的普通文本框：没有标签、附件与粘贴块，输入框据此隐藏“添加附件”、不列 `/` 命令菜单。 */
     plainEditor: boolean;
 };
@@ -93,6 +96,7 @@ export function useAgentRenderers(): ComputedRef<ResolvedRenderers> {
             promptTextView: given.promptTextView ?? PlainPromptTextView,
             markdownPreview: given.markdownPreview === undefined ? markdownPreviewLine : guardPreview(given.markdownPreview),
             form: given.form ?? PlainForm,
+            ...(given.backgroundCommand === undefined ? {} : {backgroundCommand: given.backgroundCommand}),
             plainEditor: given.promptEditor === undefined,
         };
     });

@@ -13,7 +13,7 @@
 
 ## 数据
 
-属性 `pending`（`ctx.pendingInputs`）、`state`（`ctx.wizardState`，挂载时读一次）。事件 `action`：`input.submit`（一个事项一条）、`input.cancelRun`、`wizard.state`。
+属性 `pending`（`ctx.pendingInputs` 里阻塞的：不带 `source`、不是异步提问的；其余在 [`AgentDock`](AgentDock.md)）、`state`（`ctx.wizardState`，挂载时读一次）。事件 `action`：`input.submit`（一个事项一条）、`input.cancelRun`、`wizard.state`。
 
 这一批的 id 出现新的就从头来；别的窗口先答了的事项从 `pending` 消失，这里跟着走。
 

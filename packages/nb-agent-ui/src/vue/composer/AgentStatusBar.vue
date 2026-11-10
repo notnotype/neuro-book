@@ -11,6 +11,7 @@ import {visibleEntries} from "../../registry";
 import type {AgentViewRegistry} from "../../registry";
 import type {AgentConversationContext} from "../../types";
 import {useAgentText} from "../host";
+import {isDocked} from "../../wizard";
 import AgentContextMeter from "./AgentContextMeter.vue";
 
 const props = defineProps<{
@@ -39,7 +40,8 @@ const phase = computed<{text: string; tone: "normal" | "warn" | "wait"; spin: bo
     const {run} = props.ctx;
     const time = elapsed.value === null ? "" : ` ${formatDuration(elapsed.value)}`;
     if (run.status === "waiting") {
-        const approvals = props.ctx.pendingInputs.some((item) => item.kind === "approval");
+        // 只看阻塞的：子代理的审批与异步提问在停靠区，不是这一轮在等的。
+        const approvals = props.ctx.pendingInputs.some((item) => item.kind === "approval" && !isDocked(item));
         return {text: approvals ? t("wizard.waitingApproval") : t("wizard.waitingAnswer"), tone: "wait", spin: false};
     }
     if (run.status === "stopping") {

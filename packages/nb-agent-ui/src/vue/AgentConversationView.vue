@@ -22,6 +22,8 @@ import AgentStatusBar from "./composer/AgentStatusBar.vue";
 import AgentContextInspector from "./panels/AgentContextInspector.vue";
 import AgentSessionTree from "./panels/AgentSessionTree.vue";
 import AgentWizard from "./wizard/AgentWizard.vue";
+import AgentDock from "./wizard/AgentDock.vue";
+import {isDocked, isApproval, isModeSwitch} from "../wizard";
 import OriginalImagePreviewDialog from "./parts/OriginalImagePreviewDialog.vue";
 import {provideAgentView} from "./host";
 import type {AgentViewRenderers} from "./host";
@@ -90,6 +92,23 @@ const overflowItems = computed<DropdownMenuItemData[]>(() => [
         iconClass: currentViewMode.value === "raw" ? "i-lucide-list-collapse" : "i-lucide-list",
     },
 ]);
+
+// ─── 子会话的路径 ───────────────────────────────────────────────────────
+
+type Crumb = {kind: "session"; id: string; title: string} | {kind: "more"; items: DropdownMenuItemData[]};
+
+/** 顶栏的祖先段：多于两层时只留根与父，中间的收进“…”的菜单。标题为空（读不到）的写“未知会话”。 */
+const crumbs = computed((): Crumb[] => {
+    const path = props.ctx.session?.path ?? [];
+    const crumb = (item: {id: string; title: string}): Crumb => ({kind: "session", id: item.id, title: item.title || t("header.unknownSession")});
+    if (path.length <= 2) return path.map(crumb);
+    const middle = path.slice(1, -1).map((item) => ({id: item.id, label: item.title || t("header.unknownSession"), ...(item.icon === undefined ? {} : {iconClass: item.icon})}));
+    return [crumb(path[0]!), {kind: "more", items: middle}, crumb(path.at(-1)!)];
+});
+
+function selectSession(sessionId: string): void {
+    emit("action", {type: "session.select", sessionId});
+}
 
 function onOverflowSelect(value: string) {
     if (value === "toggle-view-mode") {
@@ -216,8 +235,24 @@ function focusComposer() {
     composerRef.value?.focus();
 }
 
-/** 等用户时向导替换输入框的位置。输入框隐藏但不卸载：草稿和撤销栈都在。 */
-const waitingForUser = computed(() => props.ctx.pendingInputs.length > 0);
+/**
+ * 等用户时向导替换输入框的位置。输入框隐藏但不卸载：草稿和撤销栈都在。只有阻塞的事项替换输入框；异步提问与子代理的事项进停靠区，
+ * 输入框照常可用。
+ */
+const blockingInputs = computed(() => props.ctx.pendingInputs.filter((item) => !isDocked(item)));
+const dockedInputs = computed(() => props.ctx.pendingInputs.filter(isDocked));
+const waitingForUser = computed(() => blockingInputs.value.length > 0);
+
+/**
+ * 停靠区的读屏播报：视图层常驻的状态区（不随停靠区挂卸，否则第一次出现时读屏收不到），文字带来源。只在事项集合变化时换文字。
+ */
+const dockAnnouncement = computed(() => {
+    const first = dockedInputs.value[0];
+    if (first === undefined) return "";
+    const what = isApproval(first) ? t("dock.what.approval", {tool: first.tool}) : isModeSwitch(first) ? t("dock.what.modeSwitch", {mode: first.toLabel}) : first.questions[0]?.question ?? "";
+    const labelled = first.source === undefined ? what : t("dock.fromSubagent", {name: first.source.name, what});
+    return t("dock.announce", {what: labelled, count: dockedInputs.value.length});
+});
 
 // 全部答完：焦点回到输入框（docs/specs/agent/conversation.md 输出 11）。
 watch(waitingForUser, (waiting, was) => {
@@ -306,6 +341,18 @@ defineExpose({focusComposer, scrollToLatest});
 <template>
     <section class="agent-conversation-view">
         <header v-if="props.header" class="acv-header">
+            <!-- 子会话：祖先在前，本会话的图标与标题（会话下拉的触发）接在后面 -->
+            <nav v-if="crumbs.length > 0" class="acv-header__path" :aria-label="t('header.path')" data-header-path>
+                <ol class="acv-header__crumbs">
+                    <li v-for="(crumb, index) in crumbs" :key="crumb.kind === 'session' ? crumb.id : `more-${index}`" class="acv-header__crumb-item">
+                        <DropdownMenu v-if="crumb.kind === 'more'" :items="crumb.items" align="start" @select="selectSession">
+                            <button type="button" class="acv-header__crumb" :aria-label="t('header.morePath')" :title="t('header.morePath')" data-header-crumb-more>…</button>
+                        </DropdownMenu>
+                        <button v-else type="button" class="acv-header__crumb" :title="crumb.title" data-header-crumb @click="selectSession(crumb.id)">{{ crumb.title }}</button>
+                        <span class="acv-header__sep" aria-hidden="true">/</span>
+                    </li>
+                </ol>
+            </nav>
             <span
                 v-if="props.ctx.session"
                 :class="[props.ctx.session.profileIcon, 'acv-header__icon']"
@@ -387,7 +434,7 @@ defineExpose({focusComposer, scrollToLatest});
                             @action="onAction"
                         />
                     </template>
-                    <AgentWizard v-if="waitingForUser" :pending="props.ctx.pendingInputs" :state="props.ctx.wizardState" @action="onAction" />
+                    <AgentWizard v-if="waitingForUser" :pending="blockingInputs" :state="props.ctx.wizardState" @action="onAction" />
                 </div>
             </div>
 
@@ -409,6 +456,9 @@ defineExpose({focusComposer, scrollToLatest});
             <OverlayScrollbar :target="streamRef" />
         </div>
 
+        <!-- 停靠区在排队消息与可用性提示（输入框里）的上面；同步向导在时收成一条，排在它下面。 -->
+        <AgentDock v-if="dockedInputs.length > 0" :items="dockedInputs" :state="props.ctx.dockState" :held="waitingForUser" @action="onAction" />
+        <span class="sr-only" role="status">{{ dockAnnouncement }}</span>
         <AgentConversationComposer
             v-show="!waitingForUser"
             ref="composerRef"
@@ -469,7 +519,9 @@ defineExpose({focusComposer, scrollToLatest});
 </template>
 
 <style scoped>
+/* 尺寸容器：停靠区的 40% 相对这里（它不在 `.acv-body` 里）。 */
 .agent-conversation-view {
+    container-type: size;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -537,6 +589,51 @@ defineExpose({focusComposer, scrollToLatest});
 
 .acv-header__spacer {
     flex: 1;
+}
+
+/* 祖先段可以收缩、截断；本会话的标题区保持原来的最小宽度。 */
+.acv-header__path {
+    display: flex;
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.acv-header__crumbs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.acv-header__crumb-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.acv-header__crumb {
+    max-width: 10em;
+    min-width: 2em;
+    overflow: hidden;
+    padding: 2px 4px;
+    border-radius: var(--radius-control);
+    color: var(--text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.acv-header__crumb:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+
+.acv-header__sep {
+    flex-shrink: 0;
+    color: var(--text-muted);
 }
 
 :global(.acv-header__sessions) {

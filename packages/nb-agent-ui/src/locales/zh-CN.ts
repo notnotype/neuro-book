@@ -16,6 +16,9 @@ export default {
         more: "更多操作",
         rawView: "原始视图",
         turnsView: "分轮视图",
+        path: "会话路径",
+        morePath: "更多上级会话",
+        unknownSession: "未知会话",
     },
     stream: {
         empty: "还没有消息",
@@ -96,6 +99,7 @@ export default {
     step: {
         thinking: "思考",
         steer: "补充说明",
+        steerBy: "{{author}}补充",
     },
     tool: {
         generic: "工具",
@@ -286,6 +290,17 @@ export default {
             local: "这次运行出错了。",
         },
         compaction: "上下文已压缩",
+    },
+    dock: {
+        label: "{{count}} 个不阻塞的待处理事项",
+        pending: "{{count}} 个待处理",
+        fromSubagent: "子代理「{{name}}」：{{what}}",
+        openSession: "打开子会话",
+        what: {
+            approval: "要你批准 {{tool}}",
+            modeSwitch: "申请切换到{{mode}}",
+        },
+        announce: "{{what}}（共 {{count}} 个待处理）",
     },
     wizard: {
         collapse: "收起",

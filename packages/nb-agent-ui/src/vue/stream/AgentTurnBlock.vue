@@ -3,6 +3,7 @@
  * 一轮里的一块，按种类分派：思维链交给 `AgentChainBlock`，其余（回复气泡、人机交互控件、信息条目、分隔线、steer、
  * 错误）在这里画。
  */
+import type {Component} from "vue";
 import {CollapsibleCard, Spinner} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
@@ -54,6 +55,13 @@ function rendererOf(step: ToolStep): ToolRendererEntry {
     return props.registry.resolveTool(step.call.name);
 }
 
+/** 节点的组件：渲染器自带的，或它指名的宿主注入组件（后台命令）；都没有时画通用卡片。 */
+function nodeOf(step: ToolStep): Component | undefined {
+    const renderer = rendererOf(step);
+    if (renderer.node !== undefined) return renderer.node;
+    return renderer.hostNode === undefined ? undefined : renderers.value[renderer.hostNode];
+}
+
 function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error" {
     const phase = toolCallPhase(step.call.status);
     if (phase === "running") return props.turnStatus === "waiting" ? "waiting" : "running";
@@ -97,9 +105,9 @@ function nodeSubtitle(step: ToolStep): string {
 
     <!-- 人机交互控件 -->
     <div v-else-if="props.block.kind === 'node'" class="acv-block" data-node>
-        <RenderGuard v-if="rendererOf(props.block.step).node" :source="`工具 ${props.block.step.call.name} 的节点组件`">
+        <RenderGuard v-if="nodeOf(props.block.step)" :source="`工具 ${props.block.step.call.name} 的节点组件`">
             <component
-                :is="rendererOf(props.block.step).node"
+                :is="nodeOf(props.block.step)"
                 :call="props.block.step.call"
                 :ctx="props.ctx"
                 :services="props.services"
@@ -156,7 +164,7 @@ function nodeSubtitle(step: ToolStep): string {
     </div>
 
     <div v-else-if="props.block.kind === 'steer'" class="acv-block acv-steer">
-        <span class="acv-steer__label">{{ t("step.steer") }}</span>
+        <span class="acv-steer__label">{{ props.block.message.author === undefined ? t("step.steer") : t("step.steerBy", {author: text(props.block.message.author.label)}) }}</span>
         <AgentUserContent
             class="acv-steer__content"
             :message="props.block.message"

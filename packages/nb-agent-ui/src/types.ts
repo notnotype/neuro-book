@@ -73,6 +73,8 @@ export type UserMessageView = {
     contentOmitted: boolean;
     /** 仅尚未确认送达的乐观消息有值。 */
     delivery?: "pending" | "unknown";
+    /** 别的会话以自己的身份发来的话（派子代理的父 Agent）：头像与名称用它；缺省是用户。 */
+    author?: {label: Text; icon: string};
 };
 
 /**
@@ -166,6 +168,11 @@ export type SessionView = {
     archived: boolean;
     /** 后台摘要生成状态。 */
     summaryState: "idle" | "running" | "failed";
+    /**
+     * 子会话的祖先，从根会话到父会话；不是子会话时不给。顶栏据此画面包屑，点祖先发 `session.select`。`title` 为空的段写
+     * “未知会话”（祖先读不到时）。
+     */
+    path?: Array<{id: string; title: string; icon?: string}>;
 };
 
 export type AvailabilityStatus = "ready" | "loading" | "empty" | "unselected" | "archived" | "profile-unavailable" | "load-error";
@@ -253,8 +260,17 @@ export type ApprovalPreviewView =
     | {state: "failed"}
     | {state: "ready"; files: Array<{address: string; kind: "diff"; before: string; after: string} | {address: string; kind: "too-large"; bytes: number} | {address: string; kind: "failed"; code: string}>};
 
+/**
+ * 待处理事项的公共字段。带 `source` 的来自后代会话（子代理的审批、提问、模式切换请求），`async` 的是异步提问；这两种进停靠区，
+ * 不替换输入框，其余是阻塞的（docs/specs/ui/agent-conversation-view.md“输入框与待处理区”）。
+ */
+export type PendingInputCommon = {
+    source?: {sessionId: string; name: string; icon: string};
+    async?: true;
+};
+
 /** 一个等批准的工具调用。`tool` 是显示给用户的工具名，也按它选怎么画（`edit`、`write` 看预览，`shell` 看命令，别的看参数）。 */
-export type PendingApprovalView = {
+export type PendingApprovalView = PendingInputCommon & {
     kind: "approval";
     /** 事项 id；提交时放在 `input.submit` 的 `batchKey` 里。 */
     id: string;
@@ -268,7 +284,7 @@ export type PendingApprovalView = {
 };
 
 /** 一次提问：一个工具调用里 1 到 4 题。 */
-export type PendingQuestionsView = {
+export type PendingQuestionsView = PendingInputCommon & {
     kind: "question";
     id: string;
     toolCallId: string;
@@ -277,7 +293,7 @@ export type PendingQuestionsView = {
 
 /** 等用户的事项。一条回复的审批是一批，都在这里，向导一步一个。 */
 /** 模型申请切换 Agent 模式（`switch_mode`）。`plan` 是退出计划模式时要批准的计划全文。 */
-export type PendingModeSwitchView = {
+export type PendingModeSwitchView = PendingInputCommon & {
     kind: "mode-switch";
     id: string;
     toolCallId: string;
@@ -469,6 +485,13 @@ export type AgentConversationContext = {
     stopRequestedAt?: number;
     /** 向导的界面状态，向导经 `wizard.state` 交出来，宿主原样放回：编辑区页面切标签会卸载，切回来答案还在。 */
     wizardState?: JsonValue;
+    /** 停靠区的界面状态（展开与否、看到第几个、各事项填了一半的答案），经 `dock.state` 交出、宿主原样放回；与 `wizardState` 分开。 */
+    dockState?: JsonValue;
+    /**
+     * 进行中的调用的 `invocation`（后台子代理、后台命令）：含这些调用的轮次不自动收起，卡片的进度留在眼前。宿主算，集合没变就
+     * 不换引用。
+     */
+    activeCalls?: readonly string[];
     /** 按工具调用 id 索引。 */
     workflows: {[toolCallId: string]: WorkflowView};
     workspaceChanges: WorkspaceChangesView;
@@ -558,9 +581,11 @@ export type BuiltinAgentViewAction =
     | {type: "model.manage"}
     | {type: "runtime.reset"}
     // 提问
-    | {type: "input.submit"; batchKey: string; resolutions: InputResolution}
+    /** `sessionId`：事项所在的会话；带 `source` 的事项（后代会话的）提交时有。 */
+    | {type: "input.submit"; batchKey: string; resolutions: InputResolution; sessionId?: string}
     | {type: "input.cancelRun"}
     | {type: "wizard.state"; state: JsonValue}
+    | {type: "dock.state"; state: JsonValue}
     | {type: "run.continue"}
     | {type: "queued.edit"; id: string}
     | {type: "queued.remove"; id: string}

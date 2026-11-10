@@ -384,6 +384,26 @@ describe("回退、队列、会话级", () => {
         expect(transcript.problems()).toHaveLength(2);
     });
 
+    test("别的会话发来的话（by）按宿主的 authorOf 画成它的作者；不给 authorOf 时都是用户", () => {
+        const author = {label: "写作助手", icon: "i-lucide-feather"};
+        const events = [
+            {id: "a", type: "input", at: 1, data: {text: "查一下设定", queued: "q1", by: {kind: "session", id: "parent"}}},
+            {id: "b", type: "steer", at: 2, data: {text: "顺便看第二章", queued: "q2", by: {kind: "session", id: "parent"}}},
+            {id: "c", type: "input", at: 3, data: {text: "我自己说的", queued: "q3"}},
+        ];
+        const seen: string[] = [];
+        const transcript = createKernelTranscript({authorOf: (by) => {
+            seen.push(by.id);
+            return author;
+        }});
+        transcript.applyPath(events);
+        expect(transcript.messages().map((message) => (message.kind === "user" ? message.author : null))).toEqual([author, author, undefined]);
+        expect(seen).toEqual(["parent", "parent"]);
+        const plain = createKernelTranscript();
+        plain.applyPath(events);
+        expect(plain.messages().every((message) => message.kind !== "user" || message.author === undefined)).toBe(true);
+    });
+
     test("没有变化时 messages() 给同一个数组", async () => {
         const transcript = createKernelTranscript();
         transcript.applyPath([{id: "a", type: "input", at: 1, data: {text: "你好", queued: "q"}}]);

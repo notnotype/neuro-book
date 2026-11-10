@@ -10,6 +10,9 @@ export default {
         more: "More actions",
         rawView: "Raw view",
         turnsView: "Turn view",
+        path: "Conversation path",
+        morePath: "More parent conversations",
+        unknownSession: "Unknown conversation",
     },
     stream: {
         empty: "No messages yet",
@@ -97,6 +100,7 @@ export default {
     step: {
         thinking: "Thinking",
         steer: "Follow-up note",
+        steerBy: "Note from {{author}}",
     },
     tool: {
         generic: "Tool",
@@ -292,6 +296,17 @@ export default {
             local: "This run failed.",
         },
         compaction: "Context compacted",
+    },
+    dock: {
+        label: "Non-blocking items waiting: {{count}}",
+        pending: "{{count}} waiting",
+        fromSubagent: "Sub-agent “{{name}}”: {{what}}",
+        openSession: "Open sub-session",
+        what: {
+            approval: "approve {{tool}}",
+            modeSwitch: "switch to {{mode}}",
+        },
+        announce: "{{what}} ({{count}} waiting in total)",
     },
     wizard: {
         collapse: "Collapse",

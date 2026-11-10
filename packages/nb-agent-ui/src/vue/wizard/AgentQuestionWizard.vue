@@ -12,10 +12,12 @@ import type {QuestionAnswer, WizardState} from "../../wizard";
 import {useAgentRenderers, useAgentText} from "../host";
 import AgentWizardFrame from "./AgentWizardFrame.vue";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     item: PendingQuestionsView;
     state: WizardState;
-}>();
+    /** 有“终止本轮”：同步提问时有；停靠区里的（异步的、子代理的）没有，那一轮不在等它。 */
+    stoppable?: boolean;
+}>(), {stoppable: true});
 
 const emit = defineEmits<{
     "update:state": [state: WizardState];
@@ -80,7 +82,7 @@ const count = computed(() => (total.value > 1 ? t("wizard.questionCount", {index
                 <Button v-if="step < total - 1" size="sm" :variant="isAnswered(step) ? 'primary' : 'subtle'" data-question-step="next" @click="go(1)">{{ t("wizard.question.next") }}</Button>
                 <Button v-else size="sm" variant="primary" :disabled="!allAnswered" data-question-submit @click="emit('submit')">{{ t("wizard.submit") }}</Button>
                 <span class="acv-question__spacer" />
-                <Button size="sm" variant="subtle" data-question-stop @click="emit('stop')">{{ t("wizard.question.stop") }}</Button>
+                <Button v-if="props.stoppable" size="sm" variant="subtle" data-question-stop @click="emit('stop')">{{ t("wizard.question.stop") }}</Button>
             </div>
         </template>
     </AgentWizardFrame>
