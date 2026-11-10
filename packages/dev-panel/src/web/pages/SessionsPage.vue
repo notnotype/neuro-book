@@ -115,12 +115,19 @@ function backToList(): void {
     if (typeof window.history.state?.back === "string" && window.history.state.back.startsWith("/live/sessions")) router.back();
     else void router.replace({query: {}});
 }
+/** 从别处的会话胶囊点进来（`?session=<会话键>`，t22）：换成它所在的 pane；它不在 herdr 里时退回列表。 */
+const sessionParam = computed(() => (typeof route.query.session === "string" ? route.query.session : null));
+watch([data, sessionParam], () => {
+    if (!data.value || sessionParam.value === null) return;
+    const target = data.value.sessions.find((entry) => entry.key === sessionParam.value)?.herdr?.paneId;
+    void router.replace({query: target ? {pane: target} : {}});
+}, {immediate: true});
 /**
  * 决定点 21：桌面上什么都没选时（进页面、点左栏的“会话”）自动选；有要处理的通知先显示通知。用 replace，不加历史。
  * 等会话与通知都读到了再选，否则先选了会话、通知到了也不会再改。
  */
 watch([data, () => notify.data.value, tier, paneId, showNotify], () => {
-    if (!data.value || !notify.data.value || tier.value === "phone" || paneId.value !== null || showNotify.value) return;
+    if (!data.value || !notify.data.value || tier.value === "phone" || paneId.value !== null || showNotify.value || sessionParam.value !== null) return;
     if (attention.value > 0) return void router.replace({query: {view: "notify"}});
     const target = autoSelect(rows.value.agents);
     if (target) void router.replace({query: {pane: target}});

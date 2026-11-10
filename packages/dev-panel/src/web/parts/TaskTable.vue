@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
 import {relativeDay, sessionName, taskLabel} from "../host/format.js";
-import {isPlainClick, taskHref} from "../host/routes.js";
+import {isPlainClick, sessionHref, taskHref} from "../host/routes.js";
 import type {TaskTableDetail} from "../host/task-expand.js";
 import type {SessionTitle, TaskView} from "../host/types.js";
 import LeaseChip from "./LeaseChip.vue";
@@ -77,7 +77,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                         <span v-if="task.uncommitted" class="nbdev-warn"> · 未提交</span>
                     </span>
                     <span role="cell" class="nbdev-task-wide flex min-w-0 flex-wrap gap-1">
-                        <LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :stale="lease.stale" compact />
+                        <LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :href="sessionHref(lease.sessionKey)" @navigate="(href) => emit('navigate', href)" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :stale="lease.stale" compact />
                     </span>
                 </div>
                 <div v-if="isOpen(task.taskId)" :id="detailId(task.taskId)" role="row" class="nbdev-task-detail nbdev-divider border-b">
@@ -114,7 +114,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                                 </ul>
                                 <h3 class="nbdev-card-title mt-2">谁在动</h3>
                                 <p v-if="task.leases.length === 0" class="nbdev-empty">没有</p>
-                                <div v-else class="flex flex-wrap gap-1"><LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :stale="lease.stale" /></div>
+                                <div v-else class="flex flex-wrap gap-1"><LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :href="sessionHref(lease.sessionKey)" @navigate="(href) => emit('navigate', href)" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :stale="lease.stale" /></div>
                             </section>
                         </div>
                     </div>

@@ -199,6 +199,8 @@
 }
 /* 面层：持久内容的卡片与面板。 */
 .nbdev-surface {
+    /* 里面的东西要知道自己落在什么底色上（“谁在动”的标签要盖住虚线框的上边线，t22）。 */
+    --nbdev-surface-bg: var(--panel-surface);
     border: var(--border-w, 1px) solid var(--divider);
     border-radius: var(--radius-panel);
     background: var(--panel-surface);

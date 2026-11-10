@@ -30,6 +30,11 @@ export function searchRecordHref(match: SearchRecordMatch): string {
     return "/live/sessions";
 }
 
+/** 会话页上的这个会话（会话页把会话键换成它所在的 pane，t22）。 */
+export function sessionHref(sessionKey: string): string {
+    return `/live/sessions?session=${encodeURIComponent(sessionKey)}`;
+}
+
 /** 普通左键点击（不带修饰键）才在本页内跳转；中键与 Ctrl、⌘、Shift、Alt 加点击交给浏览器（新标签页、新窗口、下载）。 */
 export function isPlainClick(event: MouseEvent): boolean {
     return !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;

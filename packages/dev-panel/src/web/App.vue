@@ -7,7 +7,7 @@ import {relativeTime} from "./host/format.js";
 import {groupInbox} from "./host/inbox.js";
 import {pageKey} from "./host/routes.js";
 import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
-import {readAppearance, readDismissedAudit, readNavArrange, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeDismissedAudit, writeNavArrange, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
+import {readAppearance, readDismissedAudit, readDismissedCode, readNavArrange, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeDismissedAudit, writeDismissedCode, writeNavArrange, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
 import {attentionCount} from "./host/notify-actions.js";
 import {pageTitle, type NavArrange} from "./host/nav.js";
@@ -311,6 +311,7 @@ const statusLines = computed<StatusLine[]>(() => {
     } else {
         lines.push({label: "数据", text: freshness.value, ok: true});
     }
+    if (meta.data.value?.codeChanged) lines.push({label: "代码", text: restartHint.value.replace(/^代码已更新：/u, "已更新，"), ok: true});
     const audit = meta.data.value?.audit;
     if (audit && !audit.enabled) lines.push({label: "审计", text: audit.reason === "not_initialized" ? "未开启（运行 bun run --cwd packages/dev-panel audit-init 开启）" : `不可用：${audit.detail}`, ok: audit.reason === "not_initialized"});
     return lines;
@@ -321,7 +322,30 @@ const statusLabel = computed(() => (statusProblem.value ? `状态：${statusProb
 /**
  * 顶栏下面的横幅（t15 阶段 2d）：要开发者做点什么、或者显示的东西可能不对的情形。正常时没有横幅。
  */
-type ShellBanner = {key: string; tone: BannerTone; icon: string; text: string; dismiss?: () => void};
+type ShellBanner = {key: string; tone: BannerTone; icon: string; text: string; dismiss?: () => void; action?: {label: string; run: () => void}};
+/**
+ * “代码已更新”（t22）：可以“知道了”，按面板服务的实例 id 记住（重启之后代码再变会重新出现），关掉后状态点的详情里还有一行；
+ * 作为服务运行时给“复制命令”。复制在外壳里做（剪贴板是宿主的事），失败时按钮写明，命令照样在横幅的文字里。
+ */
+const codeDismissed = ref(readDismissedCode());
+const codeCopy = ref<"idle" | "copied" | "failed">("idle");
+function dismissCode(): void {
+    const instance = meta.data.value?.instance;
+    if (!instance) return;
+    codeDismissed.value = instance;
+    writeDismissedCode(instance);
+}
+async function copyRestartCommand(): Promise<void> {
+    const command = meta.data.value?.service.restartCommand;
+    if (!command) return;
+    try {
+        await navigator.clipboard.writeText(command);
+        codeCopy.value = "copied";
+    } catch (error) {
+        console.warn("复制重启命令失败", error);
+        codeCopy.value = "failed";
+    }
+}
 /**
  * 审计有两类“没开”：`not_initialized` 是这台机器的配置（多半有意不用通知与代打字），横幅可以“知道了”，关掉后只在状态点的
  * 详情里留一行；初始化过又坏了的（`bad_owner`、`bad_mode`、`not_regular`、`unreadable`）是故障，横幅常驻、不能关。
@@ -340,7 +364,10 @@ function dismissAudit(): void {
 const banners = computed<ShellBanner[]>(() => {
     const data = meta.data.value;
     const list: ShellBanner[] = [];
-    if (data?.codeChanged) list.push({key: "code", tone: "info", icon: "i-lucide-refresh-cw", text: restartHint.value});
+    if (data?.codeChanged && codeDismissed.value !== data.instance) {
+        const action = data.service.restartCommand ? {label: codeCopy.value === "copied" ? "已复制" : codeCopy.value === "failed" ? "复制失败" : "复制命令", run: () => void copyRestartCommand()} : undefined;
+        list.push({key: "code", tone: "info", icon: "i-lucide-refresh-cw", text: restartHint.value, dismiss: dismissCode, action});
+    }
     if (data?.build.failed) list.push({key: "build", tone: "danger", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
     if (data && !data.audit.enabled) {
         if (data.audit.reason !== "not_initialized") list.push({key: "audit", tone: "danger", icon: "i-lucide-shield-alert", text: `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
@@ -412,7 +439,11 @@ const banners = computed<ShellBanner[]>(() => {
                         :dismissible="banner.dismiss !== undefined"
                         close-label="知道了"
                         @dismiss="banner.dismiss?.()"
-                    />
+                    >
+                        <template v-if="banner.action" #actions>
+                            <Button size="sm" variant="ghost" icon-class="i-lucide-copy" @click="banner.action.run">{{ banner.action.label }}</Button>
+                        </template>
+                    </Banner>
                 </div>
                 <!-- 一页一个竖向滚动者：流式页面由 main 滚，铺满的页面（文档页）由它的分栏各自滚（路由元信息 layout）。 -->
                 <main id="nbdev-main" ref="mainEl" tabindex="-1" class="relative min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">
