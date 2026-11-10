@@ -139,7 +139,10 @@ export function chapterTitles(projectRoot: string): ReadonlyMap<string, string> 
     }
     for (const name of names) {
         const match = /^(\d+)-(.*)\.md$/u.exec(name);
-        if (match !== null && match[2] !== "") titles.set(String(Number(match[1])), match[2]!);
+        if (match === null || match[2] === "") continue;
+        const id = String(Number(match[1]));
+        // 与 `chapterText` 认同一个文件：编号补零到五位的那种写法，同一章有几个文件时取目录里的第一个。
+        if (match[1] === id.padStart(5, "0") && !titles.has(id)) titles.set(id, match[2]!);
     }
     return titles;
 }

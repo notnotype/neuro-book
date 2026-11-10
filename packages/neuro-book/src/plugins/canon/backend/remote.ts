@@ -24,6 +24,21 @@ type Failure = {readonly ok: false; readonly code: "canon"; readonly detail: Can
 
 const fail = (failure: CanonFailure): Failure => ({ok: false, code: "canon", detail: failure});
 
+/**
+ * 就地改与它的预览的失败。`accumulated-value` 在内核里带着整份来历（常出场的数值字段有几千步、几百 KB），预览又是确认条
+ * 一打开就调的：链路上只带步数，调用方要看来历用分页的 `origins`。
+ */
+function editFailure(failure: CanonFailure): Failure {
+    if (failure.code !== "accumulated-value" || !Array.isArray(failure.origins)) return fail(failure);
+    const {origins, ...rest} = failure;
+    return fail({...rest, steps: origins.length});
+}
+
+/** 就地改、记一笔的写入结果：成功同 `published`，失败经 `editFailure`。 */
+function edited(result: Parameters<typeof published>[0]): ReturnType<typeof published> {
+    return result.ok ? published(result) : editFailure(result.failure as CanonFailure);
+}
+
 /** 写入结果去掉内存里的世界。 */
 function published(result: {readonly ok: boolean; readonly failure?: unknown; readonly revision?: {readonly id: string; readonly version: number}; readonly ids?: Readonly<Record<string, string>>; readonly repeated?: boolean; readonly laterRecords?: readonly string[]}): {readonly ok: true; readonly value: Published} | Failure {
     if (!result.ok) return fail(result.failure as CanonFailure);
@@ -124,14 +139,14 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
                 return "code" in result ? fail(result) : {ok: true as const, value: result};
             }),
             publish: (input) => withWorld(async (service) => denied(service, input.view, "publish") ?? published(await service.publish(input.request, input.token))),
-            editInPlace: ({token, view, ...edit}) => withWorld(async (service) => denied(service, view, "editInPlace") ?? published(await service.editInPlace(edit, token))),
-            recordDelta: ({token, view, ...delta}) => withWorld(async (service) => denied(service, view, "recordDelta") ?? published(await service.recordDelta(delta, token))),
-            recordNote: ({token, view, ...note}) => withWorld(async (service) => denied(service, view, "recordNote") ?? published(await service.recordNote(note, token))),
+            editInPlace: ({token, view, ...edit}) => withWorld(async (service) => denied(service, view, "editInPlace") ?? edited(await service.editInPlace(edit, token))),
+            recordDelta: ({token, view, ...delta}) => withWorld(async (service) => denied(service, view, "recordDelta") ?? edited(await service.recordDelta(delta, token))),
+            recordNote: ({token, view, ...note}) => withWorld(async (service) => denied(service, view, "recordNote") ?? edited(await service.recordNote(note, token))),
             previewEdit: (input) => withWorld((service) => {
                 const refused = denied(service, input.view, "previewEdit");
                 if (refused !== null) return refused;
                 const result = service.previewEdit(input.input);
-                return result.ok ? within({route: result.route, revision: result.revision, ids: result.ids, laterRecords: result.laterRecords}) : fail(result.failure as CanonFailure);
+                return result.ok ? within({route: result.route, revision: result.revision, ids: result.ids, laterRecords: result.laterRecords}) : editFailure(result.failure as CanonFailure);
             }),
             writeBack: ({token, view, ...input}) => withWorld(async (service) => denied(service, view, "writeBack") ?? published(await service.writeBack(input, token))),
             revert: ({token, view, revision, withDependents, ...meta}) => withWorld(async (service) => denied(service, view, "revert") ?? published(await service.revert(revision, withDependents, meta, token))),

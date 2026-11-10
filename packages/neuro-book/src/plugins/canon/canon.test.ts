@@ -193,6 +193,16 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect(origins).toMatchObject({ok: true, value: {total: 1, items: [{kind: "patch", op: "note", text: "把卡推了回去", at: {kind: "chapter", chapter: "1", key: 0}}]}});
         expect(await author.canon.call("recordNote", {...note, requestId: "note-2", at: {entry: star, path: "character.外观"}})).toMatchObject({ok: false, failure: {code: "validation-failed", problems: [{code: "type-mismatch"}]}});
 
+        // 有事件的语义档不能直接改：链路上的失败只带步数，不带整份来历（来历用分页的 origins 读）。
+        // 条目读取带字段声明（canon.components 输出 21）。
+        const read = await author.canon.call("entry", {id: star, position: at, mode: "actual"});
+        if (!read.ok) throw new Error(JSON.stringify(read.failure));
+        expect(read.value.declarations).toMatchObject({character: [{id: "外观"}, {id: "状态"}, {id: "态度", precision: "semantic"}]});
+        const attitude = read.value.view?.namespaces.character?.fields.态度?.value;
+        const refused = await author.canon.call("previewEdit", {input: {kind: "edit", requestId: "edit-9", by, position: at, at: note.at, value: "缓和", read: {value: attitude, version: noted.value.version}}});
+        expect(refused).toMatchObject({ok: false, failure: {code: "accumulated-value", steps: 3}});
+        expect(refused.ok === false && "origins" in refused.failure).toBe(false);
+
         const view = await author.canon.call("openView", {viewer: null, line: "main", until: at, purpose: "writer"});
         if (!view.ok) throw new Error(view.failure.code);
         expect(await author.canon.call("previewEdit", {input: {kind: "note", ...note}, view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});

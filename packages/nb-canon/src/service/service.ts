@@ -14,11 +14,11 @@ import {GREGORIAN, resolveFuzzy, validateCalendar, type Calendar, type CalendarP
 
 import {EMPTY_DIAGNOSTIC_REGISTRY, type DiagnosticRegistry} from "../components/diagnostics-registry";
 import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry} from "../components/marks";
-import type {ComponentRegistry, ComponentType} from "../components/registry";
+import {effectiveFields, type ComponentRegistry, type ComponentType} from "../components/registry";
 import {compareIds} from "../core/ids";
 import {ChapterOrder, compareRanks, defaultPosition, placementRank, positionRank} from "../core/position";
 import {parsePath} from "../core/address";
-import type {Address, AuthorSource, Decision, Entry, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
+import type {Address, AuthorSource, Decision, Entry, FieldDeclaration, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
 import {fieldOf} from "../engine/reference";
 import type {ChangedAt, EntryView, FieldState, Mode, NamespaceView, OriginStep, PendingItem, PlanProgress, ReductionInput, TouchedBy} from "../engine/types";
@@ -182,7 +182,8 @@ function addressDeclared(world: World, entry: Entry, address: Address): boolean 
     if (parsed.root !== "namespace") return true;
     const field = fieldOf(world.options.registry, entry, {entry: address.entry, path: `${parsed.namespace}.${parsed.field}`});
     if (field === undefined) return false;
-    return parsed.sub === undefined || (field.item ?? []).some((item) => item.id === parsed.sub);
+    if (parsed.element === undefined) return true;
+    return field.kind === "list" && (parsed.sub === undefined || (field.item ?? []).some((item) => item.id === parsed.sub));
 }
 
 /** 一次修订能不能还原、不能的原因（revisions.md 输出 14）：章序调整不能还原；有后面的修订依赖它时要连同它们一起。 */
@@ -367,7 +368,14 @@ export class WorldService {
             ancestors.unshift(named(up));
         }
         const view = withChangedAt ? this.#withChangedAt(world, line, read.view, position, mode) : read.view;
-        return {...read, view, ancestors, sameAs: stored.sameAs === undefined ? null : named(stored.sameAs), folder: stored.folder};
+        // 每个命名空间生效的字段声明（components.md 输出 21）：类型固定的加条目上实例声明的。面板这类只有实例字段的类型，
+        // 字段的种类与单位只在这里拿得到。
+        const declarations: Record<string, readonly FieldDeclaration[]> = {};
+        for (const namespace of Object.keys(view.namespaces)) {
+            const type = world.options.registry.byNamespace(namespace);
+            if (type !== undefined) declarations[namespace] = effectiveFields(type, stored.init.data[namespace]?.declared);
+        }
+        return {...read, view, ancestors, sameAs: stored.sameAs === undefined ? null : named(stored.sameAs), folder: stored.folder, declarations};
     }
 
     /** 给每个字段状态补上最近一次改动（输出 32）。引擎给的视图可能与它的快照共用对象，这里只新建要改的那几层。 */
@@ -919,7 +927,11 @@ export class WorldService {
         const engine = at === undefined ? undefined : world.lineAt(at.position, at.mode)?.engine;
         if (at !== undefined && engine === undefined) return "line-not-found" as const;
         const below = new Map<string | null, Entry[]>();
-        for (const entry of world.data.entries.values()) below.set(entry.parent, [...(below.get(entry.parent) ?? []), entry]);
+        for (const entry of world.data.entries.values()) {
+            const siblings = below.get(entry.parent);
+            if (siblings === undefined) below.set(entry.parent, [entry]);
+            else siblings.push(entry);
+        }
         const shown = new Map<string, boolean>();
         const listed = (entry: Entry): boolean => {
             const known = shown.get(entry.id);
@@ -974,7 +986,8 @@ export class WorldService {
     changes(filter: ChangeFilter = {}, cursor?: string, limit = 50) {
         const world = this.#world;
         // 套没套上与计划进展按 `worldline` 算，缺省当前线（活页夹最新一章末尾讲的线）。线不存在得 `line-not-found`。
-        const worldline = filter.worldline ?? world.positionLine(defaultPosition(world.options.order));
+        // 给了 `before` 而没写 `worldline`：按这个位置的线算（输出 31），不然子线上的变更套没套上会按最新一章讲的线判成 null。
+        const worldline = filter.worldline ?? (filter.before === undefined ? world.positionLine(defaultPosition(world.options.order)) : world.positionLine(filter.before.position, filter.before.mode));
         for (const line of [worldline, filter.inView]) if (line !== undefined && world.line(line) === undefined) return "line-not-found" as const;
         if (filter.before !== undefined) {
             if (positionRank(world.options.order, filter.before.position) === null) return "chapter-not-found" as const;
@@ -1206,7 +1219,6 @@ export class WorldService {
         const order = new ChapterOrder(chapters);
         const tableBefore = stableStringify(this.#chapterItems(this.#world));
         const versionBefore = this.#world.version;
-        this.#chapterTitles = titles ?? new Map();
         await this.#write(undefined, (world) => {
             const moved = world.withOptions({...world.options, order, chapterLines: chapterLines ?? new Map()});
             const result = moved.reorder(order, this.#ports.now(), `reorder-${this.#ports.digest(stableStringify({chapters, version: world.version}))}`);
@@ -1214,8 +1226,11 @@ export class WorldService {
         }, true).then((result) => {
             // 没有要发布的章序调整，或世界只读时：只换上新章序计算。
             if ((result as {repeated?: boolean}).repeated === true || !result.ok) this.#world = this.#world.withOptions({...this.#world.options, order, chapterLines: chapterLines ?? new Map()});
+            // 标题与章序一起换上：排在写入队列里等的这段时间，章表还是原来那一份。
+            this.#chapterTitles = titles ?? new Map();
             if (!result.ok && "failure" in result && (result.failure.code === "world-read-only" || result.failure.code === "write-unknown")) {
-                this.diagnostics.push({code: "reorder-not-recorded", reason: result.failure.code});
+                const reason = result.failure.code;
+                if (!this.diagnostics.some((item) => item.code === "reorder-not-recorded" && item.reason === reason)) this.diagnostics.push({code: "reorder-not-recorded", reason});
             }
             // 章表变了而没有发布章序调整（只改了段的线或标题，或世界只读）：版本不动，调用方靠这个事件知道要重读（输出 34）。
             // 发布了章序调整时已经有 `changed`。

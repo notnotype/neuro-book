@@ -12,7 +12,7 @@
 import {parsePath} from "../core/address";
 import {addExact, exactProblem, subtractExact} from "../core/decimal";
 import {chapterEnd, compareRanks, positionRank} from "../core/position";
-import {canonicalJson, sameJson} from "../core/stable-json";
+import {sameJson, stableStringify} from "../core/stable-json";
 import {valueAt, type ViewValue} from "../core/view-value";
 import type {Actor, Address, Entry, FieldDeclaration, Patch, Placement, ReadPosition, StoryChange, WriteRequest} from "../core/schema";
 import {fieldOf} from "../engine/reference";
@@ -221,9 +221,12 @@ export function recordNote(world: World, input: NoteRecord, time: string): EditR
     return repeated(world, input, digest) ?? finish(world, planNote(world, input), time, digest);
 }
 
-/** 调用方输入的摘要：同一个请求 id 重发时按它比（输出 24）。 */
-function inputDigest(world: World, method: string, input: object): string {
-    return world.options.digest(canonicalJson({[method]: input}));
+/**
+ * 调用方输入的摘要：同一个请求 id 重发时按它比（输出 24）。位置先换成读取用的那一条线（写不写线是同一次请求）；可选的键
+ * 写成 undefined 与不写一样（`stableStringify` 略过它们），不因此抛错或判成另一次请求。
+ */
+function inputDigest(world: World, method: string, input: Pick<InPlaceEdit, "position"> & object): string {
+    return world.options.digest(stableStringify({[method]: {...input, position: positionRank(world.options.order, input.position) === null ? input.position : onLine(world, input.position)}}));
 }
 
 /** 这个请求 id 已经发布过：输入相同返回第一次的结果，不同拒收；没发布过返回 null。 */
@@ -259,7 +262,8 @@ export function previewEdit(world: World, input: EditPreviewInput, time: string)
     let requestId = `preview:${planned.request.requestId}`;
     while (world.requested(requestId) !== undefined) requestId = `preview:${requestId}`;
     const result = checked(planned, world.preview({...planned.request, requestId}, time));
-    return result.ok ? {...result, route: planned.route} : result;
+    // 交出去的修订写回调用方的请求 id：算的时候用的那个只是为了绕开去重。
+    return result.ok ? {...result, revision: {...result.revision, requestId: planned.request.requestId}, route: planned.route} : result;
 }
 
 /** 地址指向的字段声明；列表元素的子字段取列表的 `item` 里的声明（就地改与记一笔对它们一样记加减）。 */

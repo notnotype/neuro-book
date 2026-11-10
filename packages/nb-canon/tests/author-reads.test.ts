@@ -9,7 +9,12 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
 import {createTestTmpRoot, removeMarkedTmpRoot, TMP_MARKER_FILE} from "@notnotype/neuro-book-test-support/tmp";
 
-import {buildRegistry, type Entry, type OriginStep, type ReadPosition, type StoryChange} from "../src/index";
+import {createHash} from "node:crypto";
+
+import {buildRegistry, type ComponentDeclaration, type Entry, type OriginStep, type ReadPosition, type StoryChange, type WriteRequest} from "../src/index";
+import {nodeFiles, WorldService, type ServiceEvent} from "../src/node/index";
+import {memoryLock} from "./fixtures/faulty-files";
+import {PANEL, PERSON} from "./fixtures/world";
 import {componentDeclarations, type PrototypeSample} from "./sample/convert";
 import {replay, type Replayed} from "./sample/replay";
 
@@ -105,6 +110,15 @@ describe("canon.project 输出 28、29、34 与 canon.components 输出 21：章
         // 同样的章表再给一次：什么也不发。
         await service.setChapters(ids, undefined, new Map([["ch2", "用钱说话"]]));
         expect(events).toEqual(["inputChanged:chapters"]);
+        // 只改第 2 章各段讲的线：章序没变，不发布修订，同样靠 inputChanged。
+        await service.setChapters(ids, new Map([["ch2", [{from: 1, line: "main"}, {from: 3, line: "main"}]]]), new Map([["ch2", "用钱说话"]]));
+        expect(service.status().version).toBe(version);
+        expect(events.splice(0)).toEqual(["inputChanged:chapters", "inputChanged:chapters"]);
+        expect(service.chapters().items[1]!.lines).toEqual([{from: 1, line: "main"}, {from: 3, line: "main"}]);
+        events.push("inputChanged:chapters");
+        await service.setChapters(ids, undefined, new Map([["ch2", "用钱说话"]]));
+        events.splice(0);
+        events.push("inputChanged:chapters");
         // 章序变了：发布章序调整，只有 changed。
         await service.setChapters([...ids].reverse(), undefined, new Map([["ch2", "用钱说话"]]));
         expect(events).toEqual(["inputChanged:chapters", "changed"]);
@@ -239,6 +253,10 @@ describe("canon.project 输出 30、32、33 与 canon.model 输出 37：条目�
         if (typeof whole === "string" || !("origins" in whole) || whole.origins === undefined) throw new Error("读不到整份来历");
         const steps = whole.origins["panel.存款"] as readonly OriginStep[];
         const between = steps.filter((step) => step.kind !== "init" && step.kind !== "reduce").reverse();
+        // 步数从样本数出来：最后留在世界里、安放在第 2 章末尾之前、改存款的已写变更，加核对存款的核对点。
+        const patched = [...service.world.data.changes.values()].filter((change) => change.kind === "written" && change.status === "active" && change.patches.some((patch) => patch.at.entry === address.entry && patch.at.path === "panel.存款"));
+        const checked = [...service.world.data.checks.values()].filter((check) => check.at.entry === address.entry && check.at.path === "panel.存款");
+        expect(between.length).toBe(patched.length + checked.length);
         expect(between.length).toBeGreaterThan(3);
 
         const first = service.origins(address, end("ch2"), "actual", undefined, 2);
@@ -272,5 +290,159 @@ describe("canon.project 输出 30、32、33 与 canon.model 输出 37：条目�
         const name = service.origins({entry: address.entry, path: "entry.name"}, end("ch2"), "actual");
         if (typeof name === "string") throw new Error(name);
         expect(name.initial).toMatchObject({kind: "init"});
+    });
+});
+
+/** 一个小世界：四章、一个人（面板、人物、会带过线的“回溯次数”）、一条回溯线。验收里星瑕样本没有的情形（子线、核对点给起点、列表元素、墓碑）在它上面测。 */
+describe("canon.project 输出 30 到 33、canon.model 输出 37、canon.revisions 输出 24：子线、核对点、列表元素与墓碑", () => {
+    const ROLLBACK: ComponentDeclaration = {id: "test.rollback", label: "回溯", namespace: "rb", version: 1, fields: [{id: "次数", label: "次数", kind: "number", carry: true}]};
+    const CHAPTERS = ["ch1", "ch2", "ch3", "ch4"];
+    let dir = "";
+    let service: WorldService;
+    let sequence = 0;
+    const at = (chapter: string, key: number, line?: string) => ({kind: "chapter" as const, chapter, key, ...(line === undefined ? {} : {line})});
+    const written = (id: string, placement: unknown, patches: unknown[] = [], extra: object = {}) => ({ref: {kind: "change" as const, id}, after: {id, kind: "written", text: id.replace("tmp:", ""), at: placement, told: [], involves: [], lines: [], links: [], patches, status: "active", by: {kind: "author"}, ...extra}});
+    const entry = (id: string, name: string, extra: Partial<Entry> = {}, data: Entry["init"]["data"] = {}) => ({ref: {kind: "entry" as const, id}, after: {id, type: "人物", parent: null, folder: "人物", order: 0, init: {name, aliases: [], summary: "", text: [], data}, ...extra}});
+    const publish = async (puts: unknown[]): Promise<Readonly<Record<string, string>>> => {
+        const result = await service.publish({requestId: `small-${String(++sequence)}`, by: {kind: "author"}, what: "edit", title: "写入", baseVersion: service.status().version, puts} as WriteRequest);
+        if (!result.ok) throw new Error(JSON.stringify(result.failure));
+        return result.ids;
+    };
+    const open = async (chapters: readonly string[]): Promise<WorldService> => {
+        const opened = await WorldService.open({files: nodeFiles, lock: memoryLock(), logDir: join(dir, "log"), sideDir: join(dir, "side"), cachePath: join(dir, "cache.jsonl"), chapterText: () => "", digest: (text) => createHash("sha256").update(text).digest("hex"), clock: () => 0, now: () => "2026-11-10T00:00:00.000Z"}, {chapters, registry: buildRegistry([PANEL, PERSON, ROLLBACK])});
+        if ("code" in opened) throw new Error(opened.code);
+        return opened;
+    };
+
+    beforeEach(async () => {
+        dir = await createTestTmpRoot("nb-canon-author-reads-small");
+        service = await open(CHAPTERS);
+        sequence = 0;
+    });
+    afterEach(async () => {
+        await service.stop();
+        await removeMarkedTmpRoot(dir, join(dir, TMP_MARKER_FILE));
+    });
+
+    /** 星瑕与一条回溯线：第 2 章“回溯”把次数用掉（c3），线从 c1 之后重来。 */
+    const withLine = async () => {
+        const xia = (await publish([entry("tmp:xia", "星瑕", {}, {
+            panel: {type: PANEL.id!, version: 1, enabled: true, declared: [{id: "幸运", label: "幸运", kind: "number"}], fields: {存款: 20000, 魔力上限: null, 魔力: null, 物品: [{id: "sword", label: "剑", 数量: 1}], 幸运: 7}},
+            character: {type: PERSON.id!, version: 1, enabled: true, fields: {外观: null, 状态: null, 态度: "冷淡"}},
+            rb: {type: ROLLBACK.id!, version: 1, enabled: true, fields: {次数: 1}},
+        })]))["tmp:xia"]!;
+        const story = await publish([
+            written("tmp:c0", at("ch1", 10), [{op: "set", at: {entry: xia, path: "rb.次数"}, value: 5}]),
+            written("tmp:item", at("ch1", 20), [{op: "add", at: {entry: xia, path: "panel.物品[sword].数量"}, value: 2}]),
+            written("tmp:c1", at("ch2", 10)),
+            written("tmp:c3", at("ch2", 30), [{op: "set", at: {entry: xia, path: "rb.次数"}, value: 0}]),
+        ]);
+        const forked = await publish([written("tmp:f", at("ch2", 35), [], {nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut: story["tmp:c1"], trigger: story["tmp:c3"], type: "rollback", who: xia}})]);
+        return {xia, story, line: forked["tmp:r1"]!};
+    };
+    const fields = (read: ReturnType<WorldService["entry"]>, namespace: string) => {
+        if (typeof read === "string" || read.view === null) throw new Error("读不到条目");
+        return read.view.namespaces[namespace]!.fields;
+    };
+    const stored = (id: string) => service.object({kind: "change", id}).object as StoryChange;
+
+    test("changedAt：列表元素子字段的改动算在列表字段上；子线上带过去而本线没再改的值给原线上的那一条，不给分叉", async () => {
+        const {xia, story, line} = await withLine();
+        const main = service.entry(xia, end("ch1"), "actual", false, true);
+        expect(fields(main, "panel")["物品"]!.changedAt).toEqual({by: "change", id: story["tmp:item"]!, at: stored(story["tmp:item"]!).at});
+        expect(fields(main, "rb")["次数"]!.changedAt).toEqual({by: "change", id: story["tmp:c0"]!, at: stored(story["tmp:c0"]!).at});
+        expect("changedAt" in fields(main, "panel")["存款"]!).toBe(false);
+
+        const child = service.entry(xia, {...end("ch3"), line}, "actual", false, true);
+        expect(fields(child, "rb")["次数"]).toMatchObject({value: 0, changedAt: {by: "change", id: story["tmp:c3"]!, at: stored(story["tmp:c3"]!).at}});
+    });
+
+    test("changedAt：语义档的起点由核对点给出时给那个核对点与它的安放", async () => {
+        const {xia} = await withLine();
+        const ids = await publish([{ref: {kind: "check", id: "tmp:k"}, after: {id: "tmp:k", at: {entry: xia, path: "character.态度"}, value: 3, told: {source: "note"}, place: at("ch1", 40), by: {kind: "author"}}}]);
+        const read = service.entry(xia, end("ch1"), "actual", false, true);
+        expect(fields(read, "character")["态度"]!.changedAt).toEqual({by: "check", id: ids["tmp:k"]!, at: at("ch1", 40)});
+        // 核对点之前的位置没有。
+        expect("changedAt" in fields(service.entry(xia, {kind: "chapter", chapter: "ch1", edge: "start"}, "actual", false, true), "character")["态度"]!).toBe(false);
+    });
+
+    test("changes 的 before 在子线上、不写 worldline：只列那条线视图里的，套没套上也按那条线算", async () => {
+        const {xia, line} = await withLine();
+        const own = (await publish([written("tmp:o", at("ch3", 5, line), [{op: "add", at: {entry: xia, path: "panel.存款"}, value: -100}])]))["tmp:o"]!;
+        const page = service.changes({before: {position: {...end("ch4"), line}, mode: "actual"}, order: "desc"});
+        if (typeof page === "string") throw new Error(page);
+        expect(page.items.find((item) => item.change.id === own)).toMatchObject({outcome: {applied: true}});
+        expect(page.items.every((item) => item.outcome !== null)).toBe(true);
+        // 主线上看不到这条线上的变更。
+        const onMain = service.changes({before: {position: end("ch4"), mode: "actual"}});
+        if (typeof onMain === "string") throw new Error(onMain);
+        expect(onMain.items.some((item) => item.change.id === own)).toBe(false);
+    });
+
+    test("条目读取带每个命名空间生效的字段声明，含条目上实例声明的；来历对“不是列表的字段带元素”是空的", async () => {
+        const {xia} = await withLine();
+        const read = service.entry(xia, end("ch1"), "actual");
+        if (typeof read === "string" || !("declarations" in read)) throw new Error("读不到条目");
+        expect(read.declarations.panel).toEqual([...PANEL.fields!, {id: "幸运", label: "幸运", kind: "number"}]);
+        expect(read.declarations.rb).toEqual(ROLLBACK.fields!);
+        const empty = {items: [], total: 0, initial: null, reduced: null};
+        expect(service.origins({entry: xia, path: "panel.存款[x]"}, end("ch4"), "actual")).toMatchObject(empty);
+        expect(service.origins({entry: xia, path: "panel.物品[sword].没有"}, end("ch4"), "actual")).toMatchObject(empty);
+        expect(service.origins({entry: xia, path: "panel.物品[sword].数量"}, end("ch4"), "actual")).toMatchObject({total: 1, initial: {kind: "init", value: 1}});
+        expect(service.origins({entry: xia, path: "panel.幸运"}, end("ch4"), "actual")).toMatchObject({total: 0, initial: {kind: "init", value: 7}});
+    });
+
+    test("墓碑：已删除的条目下面只有已删除的子条目时不列；上级唯一的子条目删了以后 hasChildren 为假", async () => {
+        const ids = await publish([entry("tmp:p", "父"), entry("tmp:q", "另一个父")]);
+        const children = await publish([entry("tmp:c", "子", {parent: ids["tmp:p"]!}), entry("tmp:d", "独子", {parent: ids["tmp:q"]!})]);
+        const remove = async (id: string) => publish([{ref: {kind: "entry", id}, after: {...(service.object({kind: "entry", id}).object as Entry), deleted: true}}]);
+        const roots = () => {
+            const page = service.tree(null);
+            if (typeof page === "string") throw new Error(page);
+            return page.items.map((item) => ({name: item.name, deleted: item.deleted, hasChildren: item.hasChildren}));
+        };
+        expect(roots()).toEqual([{name: "父", deleted: false, hasChildren: true}, {name: "另一个父", deleted: false, hasChildren: true}]);
+        await remove(children["tmp:d"]!);
+        await remove(ids["tmp:p"]!);
+        // 父删了、子还在：作墓碑列出；另一个父的独子删了：它没有子项了。
+        expect(roots()).toEqual([{name: "父", deleted: true, hasChildren: true}, {name: "另一个父", deleted: false, hasChildren: false}]);
+        await remove(children["tmp:c"]!);
+        expect(roots()).toEqual([{name: "另一个父", deleted: false, hasChildren: false}]);
+    });
+
+    test("就地改与记一笔的请求 id：可选的键写成 undefined 与不写是同一次请求；被普通写入用过的请求 id 得到 request-id-reused；语义档的记一笔重发返回第一次的结果", async () => {
+        const {xia} = await withLine();
+        const version = service.status().version;
+        const edit = {requestId: "edit-1", by: {kind: "author"} as const, position: {kind: "initial"} as const, at: {entry: xia, path: "entry.name"}, value: "夜王", read: {value: "星瑕", version}};
+        const first = await service.editInPlace({...edit, title: undefined, intent: undefined} as never);
+        if (!first.ok) throw new Error(JSON.stringify(first.failure));
+        expect(await service.editInPlace(edit)).toMatchObject({ok: true, repeated: true, revision: {id: first.revision.id}});
+        // `small-1` 是建星瑕那次普通写入用过的请求 id。
+        expect(await service.editInPlace({...edit, requestId: "small-1"})).toMatchObject({ok: false, failure: {code: "request-id-reused"}});
+
+        const note = {requestId: "note-1", by: {kind: "author"} as const, position: end("ch1"), at: {entry: xia, path: "character.态度"}, text: "把卡推了回去", read: {value: "冷淡", version: service.status().version}};
+        const noted = await service.recordNote(note);
+        if (!noted.ok) throw new Error(JSON.stringify(noted.failure));
+        const revisions = service.world.revisions.length;
+        expect(await service.recordNote(note)).toMatchObject({ok: true, repeated: true, revision: {id: noted.revision.id}});
+        expect(service.world.revisions.length).toBe(revisions);
+        expect(await service.recordNote({...note, text: "别的话"})).toMatchObject({ok: false, failure: {code: "request-id-reused"}});
+        // 预览交出的修订带的是调用方的请求 id。
+        const preview = service.previewEdit({kind: "note", ...note, requestId: "note-2", read: {value: service.entry(xia, end("ch1"), "actual") === null ? null : (fields(service.entry(xia, end("ch1"), "actual"), "character")["态度"]!.value), version: service.status().version}});
+        if (!preview.ok) throw new Error(JSON.stringify(preview.failure));
+        expect(preview.revision.requestId).toBe("note-2");
+    });
+
+    test("没有章的作品：写过东西以后宿主再给一次空章序，不发布章序调整", async () => {
+        await service.stop();
+        await removeMarkedTmpRoot(dir, join(dir, TMP_MARKER_FILE));
+        dir = await createTestTmpRoot("nb-canon-author-reads-empty");
+        service = await open([]);
+        const events: ServiceEvent["kind"][] = [];
+        service.subscribe((event) => events.push(event.kind));
+        await publish([entry("tmp:a", "甲")]);
+        await service.setChapters([]);
+        expect(events).toEqual(["changed"]);
+        expect(service.world.revisions.map((revision) => revision.what)).toEqual(["edit"]);
     });
 });

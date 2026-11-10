@@ -12,7 +12,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {ActorSchema, AddressSchema, AuthorizationSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
-import type {CanonReadView, ChapterItem, ComponentType, DecisionView, EditRoute, OriginStep, Placement, TreeItem, TreeItemAt, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, ChapterItem, ComponentType, DecisionView, EditRoute, FieldDeclaration, OriginStep, Placement, TreeItem, TreeItemAt, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -181,7 +181,7 @@ const methods = {
     recordDelta: {input: Type.Object({...DeltaFields, token: Token, view: View}), output: Out, effect: "write", errors},
     /** 语义档的记一笔（revisions.md 输出 23）：`text` 是这条变更的文字，也是给这个字段的事件。 */
     recordNote: {
-        input: Type.Object({requestId: Type.String({minLength: 1}), by: ActorSchema, position: ReadPositionSchema, at: AddressSchema, text: Type.String({minLength: 1}), read: Read, token: Token, view: View}),
+        input: Type.Object({...NoteFields, token: Token, view: View}),
         output: Out,
         effect: "write",
         errors,
@@ -314,7 +314,7 @@ export interface Page<T> {
 export interface CanonOutputs {
     readonly status: CanonStatus;
     /** 条目存在时另带上级链（从最上面一级到直接上级）、本体与分组（输出 33）；带视图令牌读时没有这三项。 */
-    readonly entry: {readonly version: number; readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>; readonly ancestors?: readonly EntryName[]; readonly sameAs?: EntryName | null; readonly folder?: string};
+    readonly entry: {readonly version: number; readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>; readonly ancestors?: readonly EntryName[]; readonly sameAs?: EntryName | null; readonly folder?: string; readonly declarations?: Readonly<Record<string, readonly FieldDeclaration[]>>};
     /** 给了位置时每项是 `TreeItemAt`；`remaining` 是这一层在这一页之后还会列出几项。 */
     readonly tree: Page<TreeItem & Partial<Pick<TreeItemAt, "nameAt" | "appeared" | "sameAs">>> & {readonly remaining: number};
     /** 来历的一页：`items` 从最近一步往前；`initial` 与 `reduced` 是页外的初值与归纳两步。 */
