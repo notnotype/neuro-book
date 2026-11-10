@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>选区菜单与注音：静态稿评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 920px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+section { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.info { background: var(--accent-soft); color: var(--accent); }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.common { margin: 8px 0 0; padding-left: 20px; }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+figure { margin: 8px 0 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figure.small img { width: auto; max-width: 100%; }
+figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<h1>选区菜单与注音：静态稿评审板</h1>
+<div class="lead">
+<p>w00025 t20，第 1 轮。来源是开发者试用 t04、t05 之后提的问题：选区菜单的文字颜色、高亮没有默认色，菜单有点简陋；注音的交互没做好；菜单的动效；拖选时注音被选中、改格式后注音乱跑。</p>
+<p>图是在草稿 worktree 的 Lab 里用真实的 nb-ui 组件与主题变量搭的静态稿（亮色、nbook 主题），正文写死，不接编辑内核。三道题都是选答，答哪道都行。</p>
+</div>
+
+<section>
+<h2>现状 <span class="badge info" data-nbdev-skip>参照</span></h2>
+<div class="grid2">
+<figure class="small"><img src="r1/now-selection-menu.webp" alt="现在的选区菜单"><figcaption>现在的选区菜单：文字颜色、高亮点了只开色板，没有默认色</figcaption></figure>
+<figure class="small"><img src="r1/now-ruby-prompt.webp" alt="现在的注音输入框"><figcaption>现在的注音输入：选区不再高亮，只有一个光秃秃的输入框；已有注音不带出来，也去不掉</figcaption></figure>
+<figure class="small"><img src="r1/now-drag-selected.webp" alt="拖选时注音被选中"><figcaption>拖选经过注音：注音小字也被画成选中</figcaption></figure>
+<figure class="small"><img src="r1/now-split-ruby.webp" alt="注音被拆成两份"><figcaption>从注音中间开始选、加粗：注音拆成两段，每段都带完整的注音，看起来像旁边的字也被注了音</figcaption></figure>
+</div>
+</section>
+
+<section data-nbdev-question="q1-color" data-nbdev-type="single" data-nbdev-recommend="split">
+<h2>问题 1：文字颜色与高亮怎么给默认色 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="split">
+<h3>A 拆分按钮</h3>
+<p>左半边一点就上色，用上次用过的颜色（第一次是红色文字、黄色高亮），图标下的色条就是这个颜色；右半边的小箭头开色板。参照 Word、WPS、Google 文档。</p>
+<figure><img src="r1/split.webp" alt="拆分按钮"><figcaption>平时</figcaption></figure>
+<figure><img src="r1/split-open.webp" alt="拆分按钮：色板打开"><figcaption>点文字颜色右边的箭头</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="merged">
+<h3>B 合成一个下拉</h3>
+<p>一个“A▾”，图标的底色与色条显示上次的背景色与文字色；点了开一个面板，文字颜色、背景颜色各一组。比 A 省一个按钮宽，但没有一键上色，每次都要点两下。参照飞书、Notion。</p>
+<figure><img src="r1/merged.webp" alt="合成一个下拉"><figcaption>平时</figcaption></figure>
+<figure><img src="r1/merged-open.webp" alt="合成一个下拉：打开"><figcaption>点开</figcaption></figure>
+</div>
+</div>
+<div class="rec-note"><b>推荐 A。</b>“有默认的颜色”要的是一键上色，只有 A 做得到；菜单只多两个窄箭头。上次用过的颜色记在本机，所有作品共用。固定工具栏里的两个颜色按钮与选区菜单用同一个组件，一起改。</div>
+</section>
+
+<section data-nbdev-question="q2-items" data-nbdev-type="multi" data-nbdev-recommend="block,more">
+<h2>问题 2：选区菜单加哪些项 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>下面的图用的是问题 1 的 A。“加批注”在 t13 已定要进选区菜单，随 t13 做，这里不问。两项都加时菜单从约 280px 宽到约 400px。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="block">
+<h3>最前面加块类型下拉</h3>
+<p>与固定工具栏的块类型同一个下拉：正文、标题 1–3，带快捷键。选中标题里的字时一眼看出它是第几级，不用回到工具栏去改。</p>
+<figure><img src="r1/items.webp" alt="扩充后的菜单"><figcaption>扩充后的菜单</figcaption></figure>
+<figure><img src="r1/items-block.webp" alt="块类型下拉打开"><figcaption>块类型下拉打开</figcaption></figure>
+</div>
+<div class="opt rec" data-nbdev-option="more">
+<h3>末尾加“⋯”</h3>
+<p>放上标、下标（现在只在固定工具栏的“⋯”里）。以后插件贡献的项多了，放不下的也收进这里。</p>
+<figure><img src="r1/items-more.webp" alt="更多打开"><figcaption>“⋯”打开</figcaption></figure>
+</div>
+</div>
+</section>
+
+<section data-nbdev-question="q3-ruby" data-nbdev-type="single" data-nbdev-recommend="card">
+<h2>问题 3：注音怎么写、怎么改 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>两个候选共用的部分：</p>
+<ul class="common">
+<li>选中的文字里有注音时，菜单上的注音按钮显示为按下（下图）。点它，或者直接点注音小字，打开修改。</li>
+<li>写注音的时候原来的选区保持高亮，看得出在给哪段字注音。回车确定，Esc 取消。</li>
+</ul>
+<figure><img src="r1/ruby-active.webp" alt="注音按钮按下"><figcaption>选中“林汐”：注音按钮按下</figcaption></figure>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="card">
+<h3>A 一行卡片</h3>
+<p>贴在文字下方的一行卡片，外框、阴影与 t13 定下的批注卡片相同；注音直接写在卡片里，没有输入框的框。右边是确定；已有注音时多一个“移除注音”。</p>
+<figure><img src="r1/card-add.webp" alt="卡片：新加"><figcaption>给“缆绳”新加注音</figcaption></figure>
+<figure><img src="r1/card-edit.webp" alt="卡片：修改"><figcaption>修改“林汐”的注音：预先填好，可以移除</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="inline">
+<h3>B 在注音的位置上直接写</h3>
+<p>不弹卡片：文字上方注音的位置变成可写的一小格，写什么就显示什么。没有按钮，清空后回车就是移除。代价：注音的字是正文的 0.6 倍，那一格很小、不好点；移除没有看得见的入口。</p>
+<figure><img src="r1/inline-add.webp" alt="原位：新加"><figcaption>给“缆绳”新加注音</figcaption></figure>
+<figure><img src="r1/inline-edit.webp" alt="原位：修改"><figcaption>修改“林汐”的注音</figcaption></figure>
+</div>
+</div>
+<div class="rec-note"><b>推荐 A。</b>和批注是同一种卡片，用户学一次；移除注音有看得见的按钮（现在界面上完全没有办法去掉注音）。</div>
+</section>
+
+<section>
+<h2>不用定、直接修的 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<ul class="common">
+<li><b>拖选不再选中注音小字。</b>复制出来的文字本来就不带注音，只是显示的问题。</li>
+<li><b>注音当成一个整体。</b>选区只盖住注音的一部分时，改格式（粗体、斜体、删除线、行内代码、颜色、高亮、上下标、清除格式、设注音）先把选区扩到整个注音再改，不再拆成两段。另一种做法是允许注音的正文里有局部格式，要改 Markdown 方言，别的渲染器也认不了，不采用。</li>
+<li><b>菜单的入场动效。</b>选区菜单、注音输入、斜杠菜单现在没有入场动画，直接出现；补成设计语言“浮层入退场的编排是固定的”那一套：透明度加从 0.96 放大到 1，时长 <code>--motion-fast</code>，入场用主曲线 <code>--ease-layout</code>，退场用 <code>--ease-dialog-leave</code>。右键菜单、块手柄菜单、色板、工具栏下拉已经是这样。</li>
+<li><b>源码编辑器的底色改成稿纸底</b>（<code>--bg-panel</code>）。八套配色上语法色的对比度都还达标；两套护眼配色的桌面与稿纸本来同色，不变。</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

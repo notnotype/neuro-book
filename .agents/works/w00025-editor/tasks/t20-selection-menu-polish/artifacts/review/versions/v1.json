@@ -1,0 +1,109 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t20-selection-menu-polish",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "选区菜单与注音：静态稿",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "9517ce73a78c611015815ce4c013414fc15ad53560f279a7ce3cae027367e4d1",
+    "files": [
+        "index.html",
+        "r1/card-add.webp",
+        "r1/card-edit.webp",
+        "r1/inline-add.webp",
+        "r1/inline-edit.webp",
+        "r1/items-block.webp",
+        "r1/items-more.webp",
+        "r1/items.webp",
+        "r1/merged-open.webp",
+        "r1/merged.webp",
+        "r1/now-drag-selected.webp",
+        "r1/now-ruby-prompt.webp",
+        "r1/now-selection-menu.webp",
+        "r1/now-split-ruby.webp",
+        "r1/ruby-active.webp",
+        "r1/split-open.webp",
+        "r1/split.webp"
+    ],
+    "questions": [
+        {
+            "id": "q1-color",
+            "type": "single",
+            "label": "问题 1：文字颜色与高亮怎么给默认色",
+            "options": [
+                {
+                    "value": "split",
+                    "label": "A 拆分按钮"
+                },
+                {
+                    "value": "merged",
+                    "label": "B 合成一个下拉"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "split"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q2-items",
+            "type": "multi",
+            "label": "问题 2：选区菜单加哪些项",
+            "options": [
+                {
+                    "value": "block",
+                    "label": "最前面加块类型下拉"
+                },
+                {
+                    "value": "more",
+                    "label": "末尾加“⋯”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "block",
+                "more"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q3-ruby",
+            "type": "single",
+            "label": "问题 3：注音怎么写、怎么改",
+            "options": [
+                {
+                    "value": "card",
+                    "label": "A 一行卡片"
+                },
+                {
+                    "value": "inline",
+                    "label": "B 在注音的位置上直接写"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "card"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-10T11:58:40.928Z"
+}
