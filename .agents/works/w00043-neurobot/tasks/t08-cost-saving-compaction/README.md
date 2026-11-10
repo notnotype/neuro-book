@@ -9,9 +9,9 @@ updated: 2026-11-10
 
 ## 目标与范围
 
-nb-harness 的压缩指令带原因与方法顺序；加缓存过期前压缩与空闲压缩（截止时刻由持久数据算、用户来消息先中止压缩）；nb-models 按服务商加凭据类型配缓存寿命；记下每次的花费与估算的节省。NeuroBook 不开这两种触发，行为不变。
+nb-harness 的压缩指令带原因与方法顺序；kit 里加两种新触发（缓存过期前、空闲）与应用无关的判断条件和截止时刻的计算（从最后一次对话请求算起），到点发起的计时由 NeuroBot 的对话管理持有；nb-models 按服务商、模型能力与凭据类型查缓存寿命，设置里配档位，模型适配器显式传档位；已发出的压缩请求让它做完；记下每次的花费与估算的节省。NeuroBook 不开这两种触发，行为不变。
 
-合同：改 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)（压缩指令带原因与方法顺序、`CompactionJob` 的两个新原因、Profile 的压缩设置）、模型的 Spec（缓存寿命按服务商与凭据类型配置并随请求发出、单价未知时不做）、`docs/specs/harness/host-kit.md`（w00032 t32 新建；会话句柄层的计时、截止时刻、用户消息到达时中止）；NeuroBot 一侧的条件与数值写进 `bot/conversations.md`。NeuroBook 不开这两种触发，行为不变。
+合同：改 [`harness/runtime.md`](../../../../../docs/specs/harness/runtime.md)（压缩指令带原因与方法顺序、`CompactionJob` 的两个新原因、Profile 的压缩设置）、模型的 Spec（缓存寿命按服务商与凭据类型配置并随请求发出、单价未知时不做）、`docs/specs/harness/host-kit.md`（w00032 t32 新建；两种新触发的判断条件与截止时刻的计算）；NeuroBot 一侧的条件与数值写进 `bot/conversations.md`。NeuroBook 不开这两种触发，行为不变。
 
 依赖：w00032 t32、t02 的 `nb-models`。nb-harness 与 nb-models 这部分可与 t06 同时做；接进 NeuroBot 在 t06 之后。
 
