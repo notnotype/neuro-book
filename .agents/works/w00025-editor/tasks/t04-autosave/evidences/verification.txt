@@ -1,0 +1,21 @@
+w00025 t04 自动保存：收口验证（2026-11-10，分支 feat/w00025-editor，提交 8b52d05b2..436ee1660）
+
+1. 编辑器的 Bun 测试：cd packages/neuro-book && bun test src/plugins/editor
+   206 pass，0 fail（含新文件 auto-save.test.ts 22 例）。
+2. 组件测试：npx vitest run src/plugins/editor src/plugins/markdown src/plugins/settings
+   14 个文件 135 例全过（含 EditorGroup.dom.test.ts 的 leave 一例、MarkdownControl.dom.test.ts 的“还有没交出的输入”一例）。
+3. 应用的全部 Bun 测试：bun run test:bun
+   2957 pass，3 fail。其中 window-catalogs.test.ts 两例是本次引入的（编辑器入口在没有 document 的宿主里激活时报 document is not defined），
+   已在 7fcc3a83a 里修掉，单独重跑 3 pass。另一例 server-projects.test.ts 的 SIGTERM 收口在负载 16 时超时 5 秒，
+   与本次无关（没有改服务端），单独重跑 9 pass。
+4. 类型检查：bun run typecheck 通过。
+5. governance:check --since 25451818c：failures 0，本次改动无警告；docs:check 无失败。
+6. 合入前 e2e（10 个文件，NB_E2E_WIDE 写明理由：缺省改为失焦时保存，要确认关掉自动保存的用例与缺省模式下的其余用例都成立）：
+   NB_E2E_WIDE="…" npx playwright test -c e2e/playwright.config.ts e2e/editor-autosave.e2e e2e/editor-area.e2e e2e/editor-types.e2e e2e/markdown-editing.e2e e2e/markdown-input.e2e e2e/files-explorer.e2e e2e/workbench-shell.e2e e2e/workbench-titlebar.e2e e2e/bookshelf-stats.e2e e2e/settings.e2e
+   166 passed（15.6 分钟，生产构建、本机 Chrome）。跑之前先静态过了一遍依赖“输入后失焦仍未保存”的用例：editor-area 与 workbench-titlebar 在启动时关掉自动保存，titlebar 的离开确认断言移出了回调；bookshelf-stats 那一例输入后不离开正文，不受影响。
+   窗口失焦与页面隐藏在无头浏览器里是派发事件模拟的；输入法组字用 CDP 的 Input.imeSetComposition。
+7. 变异检查（scripts 在仓库外，逐个改坏 web/auto-save.ts 或 web/area.ts 后跑 auto-save.test.ts，再从备份还原）：
+   去掉“磁盘已变化”“未裁决”“写不出”“可写”任一条件、去掉失败闸、去掉闸的复位、到点不顺延、修订变了不重排、savesOnClose 写死为假、
+   换模式不立即保存、换标签不算离开、leaving 空操作：都有用例失败。
+   去掉“冲突”条件：用例仍全过。等价变异：文档有冲突时文件层的保存自己就拒绝、不发写入、不记 saveProblem，失败闸不落，可观察的结果
+   （磁盘、写请求数、提示）相同；条件保留，作用是不发一次注定被拒的保存。
