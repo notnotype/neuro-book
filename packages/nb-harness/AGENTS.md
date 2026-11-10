@@ -2,7 +2,7 @@
 
 本包位于 `packages/nb-harness`，遵循仓库共享 Agent 合同 [`../../AGENTS.md`](../../AGENTS.md)。本文件只保留本包的项目专属规则。
 
-`@notnotype/nb-harness` 是 NeuroBook 领域 harness，不追求通用：内核与循环直接以 OMP 包族（`@oh-my-pi/*`）为底座（模型取自 `pi-catalog`、循环与工具协议来自 `pi-agent-core`、传输用 `pi-ai` 的 `streamSimple`、编辑走 `pi-natives` 的 `EditSession`），通用能力由 OMP 覆盖，不另造平行抽象。行为合同是 [`docs/specs/agent/harness.md`](../../docs/specs/agent/harness.md)：只经 Profile 运行，工具只来自 Profile 的声明（内置的读、改文件工具也要宿主登记、Profile 声明才有）；领域工具由插件经登记表贡献，不在本包内实现。
+`@notnotype/nb-harness` 是 Agent harness：内核加宿主套件，NeuroBook 与 NeuroBot 共用，应用专有的地址、文字与 id 一律由宿主传入（`src/app-neutral.test.ts` 检查源码里不出现应用名、不导入应用包与 nb-runtime）。内核与循环直接以 OMP 包族（`@oh-my-pi/*`）为底座（模型取自 `pi-catalog`、循环与工具协议来自 `pi-agent-core`、传输用 `pi-ai` 的 `streamSimple`、编辑走 `pi-natives` 的 `EditSession`），通用能力由 OMP 覆盖，不另造平行抽象。行为合同是 [`docs/specs/agent/harness.md`](../../docs/specs/agent/harness.md)：只经 Profile 运行，工具只来自 Profile 的声明（内置的读、改文件工具也要宿主登记、Profile 声明才有）；领域工具由插件经登记表贡献，不在本包内实现。
 
 ## 新内核 `src/kernel/`
 
@@ -12,6 +12,16 @@
 - 分层：`api/` 只放类型与码表；目录之间单向依赖、只用相对导入、不引用 `kernel/` 之外的旧文件；`node:fs` 只在 `log/`，OMP 只在 `model/`；产品代码不引 `testing/`。规则由 `src/kernel/architecture.test.ts` 检查，新增目录先在它的目录表里登记。
 - 定稿类型的写错用例在 `tests/kernel/typetest.tsx`，由 `bun run typecheck` 检查；改类型时补用例，编号只追加。
 - 各目录的模块头写这个目录的时序与不变量；行为规则链接 Spec，不复述。
+
+## 宿主套件 `src/kit/`
+
+宿主把内核装成产品时用的通用件（w00032 t32）：文件访问接口与本机参考实现、工具、审批判定、压缩方法与放回、运行守卫、会话句柄表。宿主给的文件访问的合同是 [`harness/host-kit.md`](../../docs/specs/harness/host-kit.md)，其余各块的行为仍以 `docs/specs/agent/` 下对应的 Spec 为准。
+
+- 分层：单元之间按 `src/kit/architecture.test.ts` 的单元表单向依赖，新建单元先在表里登记；对内核只经公开入口（`kernel/index.js`、`kernel/contracts.js`），不引旧 harness 与 `src/models/`；kit 内只用相对导入。
+- 浏览器会加载 `./kit/shapes` 与 `./kit/files`：这两条链只值导入 `typebox`，内核的类型只 `import type` 自 `kernel/contracts.js`，同一个测试顺着导入链检查。
+- 写盘只在 `files/local.ts`（本机参考实现）：工具、压缩、审批对 `node:fs` 只许具名导入只读函数，不用 `Bun.write`、`Bun.spawn` 等写法；`tools/shell.ts` 的输出暂存与执行入口单独放行。
+- 宿主专有的说明文字、提示词、扩展 id、原因串与诊断消息都由宿主传入，kit 不给缺省值；kit 只留与应用无关的文字。
+- 对 nb-form 只用核心入口（`@notnotype/nb-form`）：不导入它的 `./vue`、`./locales`、`./lab-sources`，不依赖 nb-ui 与 vue；表单怎么画由宿主定。
 
 ## 开工前
 
@@ -36,6 +46,7 @@ bun test
 ```
 
 - 改新内核时，`bun test` 已包含 `src/kernel/**` 与 `tests/kernel/` 的测试，`bun run typecheck` 包含 `tests/kernel/typetest.tsx`。
+- 改宿主套件时，`bun test` 已包含 `src/kit/**` 的测试与 `src/app-neutral.test.ts`。
 
 - 涉及会话、运行或工具的改动，必须跑 `tests/session.test.ts`、`tests/acceptance.test.ts`（脚本化模型输出，`src/testing` 的 `scriptedModel`）与 `tests/provider.test.ts`（本机起的 OpenAI 兼容端点），都不调用真实模型；再用 `bun run test:llm` 跑 `tests/harness.llm.test.ts` 的两条真实模型 Smoke（缺凭据时跳过，记为未验证）。
 - 触及包级资产（`docs/`、本文件）时，另跑仓库门禁：`bun run governance:check` 与 `bun run docs:check`。

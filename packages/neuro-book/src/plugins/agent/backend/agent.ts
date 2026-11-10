@@ -11,6 +11,11 @@ import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
 import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
+import type {Dialects} from "@notnotype/nb-harness/kit/commands";
+import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
+import {SessionMeta, SessionTable} from "@notnotype/nb-harness/kit/sessions";
+import {kernelResources} from "@notnotype/nb-harness/kit/files";
+import type {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
@@ -18,23 +23,20 @@ import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
-import {TASK_ID, taskSessionId} from "../shared/contracts";
+import {SESSION_TITLE_PROFILE, TASK_ID, taskSessionId} from "../shared/contracts";
 import type {AgentService, ProfileAdmin, StartTaskOptions, StartTaskResult} from "../shared/contracts";
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
+import {BUILTIN_TOOL_IDS} from "./builtin/ids";
 import {ProfileBundles} from "./profile-bundles";
-import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
+import {filesFor, sessionArtifacts, sessionResources} from "./resources";
 import {createAttachmentPort} from "./attachments";
 import {ProfileCatalog} from "./profiles";
-import {SessionMeta} from "./session-meta";
-import {SessionTable} from "./sessions";
+import {SESSION_META_MATERIAL} from "./session-meta";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
-import {CompactionRestore} from "./compaction/restore";
-import type {SessionEditStores} from "./builtin/common";
-import {createPermissionHook} from "./permissions/hook";
+import {createPermissionHook} from "./permissions";
 import {modesContract} from "./permissions/modes";
-import type {Dialects} from "./permissions/dialects";
 import {AgentTools} from "./tools";
 
 export interface AgentRuntimeOptions {
@@ -105,6 +107,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         for (const listener of catalogListeners) listener();
     };
 
+    const sessionFilesFor = filesFor(options.files);
     // 宿主要先建好、再接收贡献；Profile 变了要通知它，它又要按 Profile 解析：用一个先占位的引用把这个环断开。
     let hostRef: AgentHost | null = null;
     const tools = new AgentTools({catalogChanged, declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
@@ -118,7 +121,14 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     });
 
     const compaction = new CompactionMethods({declarations: options.declarations, activate: options.trigger});
-    const restore = new CompactionRestore({files: options.files, editStores: options.editStores, report: options.report});
+    const restore = new CompactionRestore({
+        files: sessionFilesFor,
+        editStores: options.editStores,
+        tools: BUILTIN_TOOL_IDS,
+        planOf: () => "session://plan.md",
+        logOf: (context) => `sessions://${context.sessionId}/session.jsonl`,
+        report: options.report,
+    });
 
     const store = createJsonlStore({root: sessionsRoot});
     let sessions: SessionTable | null = null;
@@ -136,7 +146,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             declarations: (context) => tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]),
             create: (id, context) => tools.create(id, context),
         },
-        resources: (context) => kernelResources(sessionResources(options.files, context, null)),
+        resources: (context) => kernelResources(sessionFilesFor(context, null)),
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock: kernelClock(options.clock),
         approve: createPermissionHook({
@@ -240,7 +250,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
-    const meta = new SessionMeta({table, create: createSession, models, report: options.report});
+    const meta = new SessionMeta({table, create: createSession, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
 
     const profileAdmin: ProfileAdmin = {
         toolCatalog: () => {

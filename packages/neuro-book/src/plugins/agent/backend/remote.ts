@@ -11,14 +11,14 @@ import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 import {commandErrors, hostOnlyCommands} from "@notnotype/nb-harness/kernel/contracts";
 import type {Diagnostic, SessionApi, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import {PreviewUnavailable} from "@notnotype/nb-harness/kernel";
+import {SessionUnavailable} from "@notnotype/nb-harness/kit/sessions";
+import type {SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
 import type {AgentService, ProfileAdmin} from "../shared/contracts";
 import type {Rule} from "../shared/permissions";
 import type {agentSessionsContract, ApprovalPreview, RemoteCommandName} from "../shared/remote";
 
 import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
-import {AgentSessionUnavailable} from "./sessions";
-import type {SessionTable} from "./sessions";
 
 type Contract = typeof agentSessionsContract;
 type Methods = RemoteImplementation<Contract>["methods"];
@@ -63,13 +63,13 @@ export class PreviewTokens {
 }
 
 /**
- * 查询打开会话失败时视图抛 `AgentSessionUnavailable`，这里换成合同里的失败码；别的错误照常抛出，通道报成 `provider-error`。
+ * 查询打开会话失败时视图抛 `SessionUnavailable`，这里换成合同里的失败码；别的错误照常抛出，通道报成 `provider-error`。
  */
 async function query<T>(run: () => Promise<T>, fail: (code: string) => unknown): Promise<{ok: true; value: T} | unknown> {
     try {
         return {ok: true, value: await run()};
     } catch (error) {
-        if (error instanceof AgentSessionUnavailable) return fail(error.code);
+        if (error instanceof SessionUnavailable) return fail(error.code);
         throw error;
     }
 }
@@ -90,7 +90,7 @@ async function whole<T>(run: () => Promise<T>, context: {ok: (value: T) => unkno
         const value = await run();
         return byteLength(value) <= PAGE_BYTES ? context.ok(value) : context.fail("result-too-large");
     } catch (error) {
-        if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
+        if (error instanceof SessionUnavailable) return context.fail(error.code as "open-failed");
         throw error;
     }
 }
@@ -156,7 +156,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                 // 工具声明里按参数算的 `effect` 是函数，通道编不了：直接交对象的话带这种工具的会话一律失败。分段读拿到的本来就是这份文字。
                 return context.ok(bytes <= PAGE_BYTES ? {kind: "inline", preview: JSON.parse(text) as typeof preview} : {kind: "oversized", token: previews.put(text), bytes});
             } catch (error) {
-                if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
+                if (error instanceof SessionUnavailable) return context.fail(error.code as "open-failed");
                 if (error instanceof PreviewUnavailable) return context.fail("preview-unavailable", {message: error.message});
                 throw error;
             }
@@ -172,7 +172,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                 const bytes = Buffer.byteLength(text);
                 return context.ok(bytes <= PAGE_BYTES ? {kind: "inline", preview} : {kind: "oversized", token: previews.put(text), bytes});
             } catch (error) {
-                if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
+                if (error instanceof SessionUnavailable) return context.fail(error.code as "open-failed");
                 throw error;
             }
         },
@@ -190,7 +190,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                 const chunk = chunkOf(JSON.stringify(event), index);
                 return chunk === null ? context.fail("out-of-range") : context.ok(chunk);
             } catch (error) {
-                if (error instanceof AgentSessionUnavailable) return context.fail(error.code as "open-failed");
+                if (error instanceof SessionUnavailable) return context.fail(error.code as "open-failed");
                 throw error;
             }
         },

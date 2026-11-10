@@ -12,6 +12,8 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {ToolContext, ToolImplementation, ToolResult, ToolSessionContext, ToolCall, ToolEffect, ToolInfo} from "@notnotype/nb-harness/kernel/contracts";
+import {createDialects} from "@notnotype/nb-harness/kit/commands";
+import {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {definitionAt} from "nbook/manifest";
@@ -24,9 +26,7 @@ import {killSpawnedProjects, projectHarness} from "nbook/server/testing/projects
 import type {ProjectHarness} from "nbook/server/testing/projects";
 
 import {builtinTools} from "./backend/builtin";
-import {SessionEditStores} from "./backend/builtin/common";
-import {createDialects} from "./backend/permissions/dialects";
-import {createPermissionHook} from "./backend/permissions/hook";
+import {createPermissionHook} from "./backend/permissions";
 import {sessionArtifacts, sessionResources} from "./backend/resources";
 
 let tmp = "";

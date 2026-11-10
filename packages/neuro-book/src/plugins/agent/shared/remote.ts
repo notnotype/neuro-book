@@ -15,6 +15,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contracts";
 import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandName, Diagnostic, HostOnlyCommand, DiagnosticLevel, DeltaFrame, Frame, InputMode, LogEvent, PreviewResult, RewindTarget, TreeNode, RunResult, RunStatus, SessionIndexEntry, SessionSnapshot} from "@notnotype/nb-harness/kernel/contracts";
+import type {FilePreview} from "@notnotype/nb-harness/kit/shapes";
 
 import {TASK_ID} from "./contracts";
 import {RulesSchema} from "./permissions";
@@ -129,7 +130,7 @@ export type PreviewItem = {readonly kind: "inline"; readonly preview: PreviewRes
 export type ActivityItem = {readonly id: string; readonly state: "running" | "waiting"};
 
 /** 审批预览（builtin-tools.md 输出 26）：按文件分组。 */
-export type ApprovalPreview = {readonly files: ReadonlyArray<{readonly address: string; readonly kind: "diff"; readonly before: string; readonly after: string} | {readonly address: string; readonly kind: "too-large"; readonly bytes: number} | {readonly address: string; readonly kind: "failed"; readonly code: string}>};
+export type ApprovalPreview = FilePreview;
 /** 放不进一条消息时和 `preview` 一样经 `previewChunk` 分段读。 */
 export type ApprovalPreviewItem = {readonly kind: "inline"; readonly preview: ApprovalPreview} | {readonly kind: "oversized"; readonly token: string; readonly bytes: number};
 

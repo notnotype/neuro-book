@@ -10,11 +10,12 @@ import {createHash} from "node:crypto";
 import {lstat, opendir} from "node:fs/promises";
 import {join} from "node:path";
 
+import {decodeText} from "@notnotype/nb-harness/kit/files";
+
 import type {Baseline, DirectoryEntry, FileText, FindResult, FolderKind, Listing, ManifestState, SavedIdentity} from "../shared/contracts";
 import {encodedTextBytes, TEXT_BUDGET_BYTES} from "../shared/contracts";
 import type {FilesFailureCode} from "../shared/failures";
 import {pathProblem} from "../shared/resource";
-import {decodeText} from "../shared/text";
 import {BODY_NAME, compareEntries, folderKindOf, itemsAt, MANIFEST_NAME, parseManifest} from "./folder-kinds";
 import type {ManifestItem} from "./folder-kinds";
 import {entryToken} from "./rooted";

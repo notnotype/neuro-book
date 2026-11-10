@@ -8,11 +8,11 @@ import {Type} from "typebox";
 
 import {defineContract, implement, reminder, shape} from "@notnotype/nb-harness/kernel";
 import type {ApprovalMode, JsonValue, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
+import {failed} from "@notnotype/nb-harness/kit/files";
 
 import {AGENT_MODES_EXTENSION, MODE_SWITCH_KIND} from "../../shared/permissions";
 import type {AgentMode, ModeSwitchAnswer, ModeSwitchRequest} from "../../shared/permissions";
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
-import {failed} from "../builtin/common";
 
 const AGENT_MODES: readonly AgentMode[] = ["normal", "discuss", "plan"];
 const APPROVAL_MODES: readonly ApprovalMode[] = ["ask", "allow-writes", "auto", "yolo"];

@@ -170,7 +170,7 @@ export interface ModelQuery {
 }
 
 /**
- * 模型端口：模型目录与凭据由宿主实现（Agent 插件经 `nbook.models`，nb-story 用它自己的解析）。同步：宿主在内存里维护
+ * 模型端口：模型目录与凭据由宿主实现（应用经自己的模型服务，nb-story 用它自己的解析）。同步：宿主在内存里维护
  * 目录、配置与“哪些服务商有凭据”的快照；解析之后、请求之前凭据没了，由适配器在请求时以 `auth` 失败。
  */
 export interface ModelPort {
