@@ -1,7 +1,7 @@
 /**
  * 宿主面：指令与查询、向外吐的帧、预览、诊断、`SessionEnv`、插件宿主。
  *
- * 与 NeuroBook 平台的对应（只对形状，不导入 nb-runtime）：每个指令是远程服务的一个 `write` 方法，`commandErrors` 里的码就是
+ * 与宿主平台的对应（只对形状，不导入 nb-runtime）：每个指令是远程服务的一个 `write` 方法，`commandErrors` 里的码就是
  * 方法的 `errors`；写请求帧发出后链路断了得到路由层的“结果未知”，所以每个指令带 `commandId`，重发同一个得到同一个结果
  * （`commandAccepted`）。`frames` 是远程服务的一个事件，断线重连用 `log` 按 seq 补。
  */

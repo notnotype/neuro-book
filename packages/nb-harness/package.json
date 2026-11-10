@@ -21,6 +21,7 @@
         "./kernel/contracts": "./src/kernel/contracts.ts",
         "./kernel/helpers": "./src/kernel/helpers/index.ts",
         "./kernel/testing": "./src/kernel/testing/index.ts",
+        "./kit/shapes": "./src/kit/shapes.ts",
         "./models": "./src/models/index.ts",
         "./process-guard": "./src/process-guard.ts",
         "./prompt": "./src/kernel/view/prompt/index.ts",
