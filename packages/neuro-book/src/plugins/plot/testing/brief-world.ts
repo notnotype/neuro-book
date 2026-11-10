@@ -12,7 +12,7 @@ import type {InstructionSnapshot} from "../shared/instructions";
 import {seeded} from "./random-edits";
 import {addRow, chapter, drafts, PlotWorld} from "./world";
 
-/** 测试用的 Component：一个引用字段、一张作者写的带 id 列表、一个图片字段。 */
+/** 测试用的 Component：一个引用字段、一张作者写的带 id 列表、一个图片字段、一张以引用为键的列表。 */
 export const EXTRA: ComponentDeclaration = {
     id: "test.extra",
     label: "杂项",
@@ -22,6 +22,7 @@ export const EXTRA: ComponentDeclaration = {
         {id: "指向", label: "指向", kind: "ref"},
         {id: "清单", label: "清单", kind: "list", item: [{id: "数量", label: "数量", kind: "number"}]},
         {id: "图", label: "图", kind: "image"},
+        {id: "关系", label: "关系", kind: "list", keyedBy: "ref", item: [{id: "说法", label: "说法", kind: "text"}]},
     ],
 };
 
@@ -147,7 +148,7 @@ export function secrecyBook(seed: number): SecrecyBook {
     for (let index = 0; index < 2; index++) {
         const name = `物${String(next())}号`;
         const draft = drafts.thing(`tmp:t${name}`, name);
-        const ext = {type: EXTRA.id, version: 1, enabled: true, fields: {指向: {ref: targets()}, 清单: [{id: "x1", label: "短剑", 数量: 1}], 图: {图片: "assets/a.png", 说明: "一张图"}}};
+        const ext = {type: EXTRA.id, version: 1, enabled: true, fields: {指向: {ref: targets()}, 清单: [{id: "x1", label: "短剑", 数量: 1}], 图: {图片: "assets/a.png", 说明: "一张图"}, 关系: [{id: pick(persons), 说法: "见过"}]}};
         const blocks = Array.from({length: 3}, () => blockOf(things[0] ?? null));
         const id = put({...draft, init: {...draft.init, text: blocks.map((source, i) => ({id: `b${String(i + 1)}`, source})), data: {...draft.init.data, ext}}});
         names.set(id, name);

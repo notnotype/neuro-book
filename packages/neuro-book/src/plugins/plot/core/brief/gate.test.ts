@@ -4,6 +4,7 @@ import type {Entry} from "@notnotype/nb-canon";
 
 import {COMPONENT_IDS, MARK_IDS} from "../../shared/declarations";
 import type {InstructionSnapshot} from "../../shared/instructions";
+import {EXTRA} from "../../testing/brief-world";
 import {addRow, chapter, drafts, PlotWorld, present} from "../../testing/world";
 import * as fixed from "./fixed";
 import {composeBrief, type BriefInput, type BriefResult} from "./index";
@@ -282,5 +283,70 @@ describe("brief 输出 16：两轮计划审查的复现", () => {
         const parallel = brief(w, "ch8", {instruction: instruction("ch8", {timeMode: {parallel: "ch3"}})});
         expect(common(parallel, "instruction")).toContain("与第 3 章同时");
         expect(common(parallel, "instruction")).not.toContain("ch3");
+    });
+});
+
+describe("brief 输出 16：变异检查补的用例", () => {
+    test("以引用为键的列表行：名字经关卡写（用马甲的人写马甲），不用读取时内核补的本名", () => {
+        const w = new PlotWorld(CHAPTERS, [EXTRA]);
+        const [lord, guard] = [w.person("王爷"), w.person("卫兵")];
+        const mask = w.person("灰袍客", {sameAs: lord});
+        w.point("灰袍客就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
+        const draft = drafts.thing("tmp:t", "令牌");
+        const ext = {type: EXTRA.id, version: 1, enabled: true, fields: {指向: null, 清单: [], 图: null, 关系: [{id: lord, 说法: "见过"}]}};
+        const thing = w.publish([{ref: {kind: "entry", id: "tmp:t"}, after: {...draft, init: {...draft.init, data: {...draft.init.data, ext}}}}])["tmp:t"]!;
+        w.change(chapter("ch4"), {kind: "plan", text: "亮出令牌", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [setState(thing, "亮出")]});
+        const result = brief(w, "ch4");
+        expect(section(result, "appearance")).toContain("关系：灰袍客（说法：见过）");
+        noLeak(result, "王爷");
+    });
+
+    test("本章才出场、藏着保密知识点的目标：知识点的主体不在场，也进这一场的秘密，写目标的名字与为什么", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [butler, baron] = [w.person("管家"), w.person("男爵")];
+        const debt = w.point("男爵欠了赌债", baron, {保密: "secret"});
+        w.goal("拿到借据", butler, {隐秘: {ref: debt}, 为什么: "要挟男爵"}, {appears: chapter("ch4", 5)});
+        w.change(chapter("ch4", 10), {kind: "plan", text: "翻书房", cast: [present(butler)]});
+        const secrets = section(brief(w, "ch4"), "secrets");
+        expect(secrets).toContain("真相：男爵欠了赌债");
+        expect(secrets).toContain("管家的隐秘目标：拿到借据；为什么：要挟男爵");
+    });
+
+    test("用马甲的人的列表增减：本章计划里主人写马甲", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const lord = attitudePerson(w, "王爷");
+        const guard = w.person("卫兵");
+        const mask = w.person("灰袍客", {sameAs: lord});
+        w.point("灰袍客就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
+        w.change(chapter("ch4"), {kind: "plan", text: "盯着卫兵", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [{op: "listAdd", at: {entry: lord, path: "att.态度"}, value: {id: guard, 态度: "提防"}}]});
+        const result = brief(w, "ch4");
+        expect(section(result, "plan")).toContain("灰袍客的");
+        noLeak(result, "王爷");
+    });
+
+    test("回溯章：前段他露面、后段他用马甲（身份绝密）：称谓表取用马甲的那一份，左右两栏都写马甲", () => {
+        const {w, lord, guard, mask} = lordInDisguise();
+        const cut = w.change(chapter("ch7", 20));
+        const trigger = w.change(chapter("ch7", 50));
+        const ids = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch7", 90)), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, trigger, type: "rollback", who: guard, carry: []}}}]);
+        const branch = ids["tmp:r1"]!;
+        w.change(chapter("ch8", 5), {kind: "plan", text: "王爷巡城", cast: [present(guard), present(lord)]});
+        w.change({...chapter("ch8", 5), line: branch}, {kind: "plan", text: "灰袍客现身", cast: [present(guard), {who: lord, as: mask, role: "present"}]});
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch8", [{line: "main", from: 1}, {line: branch, from: 30}]]])});
+        const result = brief(w, "ch8", {instruction: instruction("ch8", {pov: {kind: "entry", id: guard}, povMode: "limited"})});
+        expect(section(result, "address")).toContain("灰袍客 = 灰袍客");
+    });
+
+    test("涉及条目的样子跳过用马甲（身份绝密）的本体：他本体字段里写的身份不出去", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const guard = w.person("卫兵");
+        const draft = drafts.person("tmp:lord", "王爷");
+        const lord = w.publish([{ref: {kind: "entry", id: "tmp:lord"}, after: {...draft, init: {...draft.init, data: {...draft.init.data, character: {type: "test.person", version: 1, enabled: true, fields: {状态: "镇南王府的主人"}}}}}}])["tmp:lord"]!;
+        const mask = w.person("灰袍客", {sameAs: lord});
+        w.point("灰袍客就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
+        w.change(chapter("ch4"), {kind: "plan", text: "灰袍客进了酒馆", cast: [present(guard), {who: lord, as: mask, role: "present"}]});
+        const result = brief(w, "ch4");
+        expect(section(result, "appearance")).toContain("灰袍客");
+        noLeak(result, "镇南王府", "王爷");
     });
 });
