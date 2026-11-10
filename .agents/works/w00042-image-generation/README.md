@@ -29,6 +29,7 @@ updated: 2026-11-06
 ## 调研
 
 - [标签来源、NovelAI 能力与法典图鉴](research/2026-11-06-tag-sources-and-novelai.md)
+- [社区提示词的结构：法典图鉴数据统计](research/2026-11-10-community-prompt-structure.md)
 
 ## 顺序
 
