@@ -1,0 +1,249 @@
+# t22 面板 UI 与可访问性走查报告
+
+说明：只读走查。截图在 `.local/agent/works/w00022-dev-panel/tasks/t22-panel-ui-a11y-pass/shots/`，代码在 `packages/dev-panel/src/web/`。
+截图本身的局限：edit、checkouts 的桌面与手机图、github 桌面图拍在“加载中”；search 拍在搜索进行中；task-peek 两张图里速览面板没有打开（和 task 图一样）。这些页面的已加载状态只能从代码判断，下面会标明。audit.json 里只有桌面亮色有 Tab 记录，手机没有。
+axe 已报的规则（color-contrast、region、landmark-unique、heading-order、label-content-name-mismatch、scrollable-region-focusable）不逐条重复，只挑影响大的说原因。
+
+### 1. Task 页的“产物与文档”（含待答徽标）排在整篇 README 之后，手机上要滚过整篇正文才看到
+- 页面与截图：task-desktop-light.png、task-mobile-light.png、task-peek-desktop-light.png
+- 影响：开发者进 Task 页多半是来答题或看产物。桌面上侧栏顺序是“执行 checkout”“碰过这个 Task 的提交”，然后才是“产物与文档”，最想点的东西排第三；手机上侧栏整块接在几屏长的 README 后面，待答徽标看不到。
+- 严重：高
+- 类别：可用性（需要产品判断）
+- 原因：`pages/TaskPage.vue` 第 188 到 194 行：`<article>`（README 卡片）在前，`<aside>` 在后，窄屏 `grid-cols-1` 把 aside 排到 README 下面；aside 里 section 的顺序（第 196、206、217 行）是 checkout、提交、产物、Spec、证据、谁在动，把开发者很少看的 checkout 与提交放在最前。
+- 建议改法：把“产物与文档（待答）”提到侧栏最上面，窄屏时在页头下面、README 之前单独放一行“产物 N 个，待答 M”（可以是锚点或折叠块）；checkout 与提交收到底部或折叠。
+
+### 2. 评审板里 iframe 在答题表单之前，键盘用户要连按约 15 次 Tab 穿过会话做的页面才到答题区，且 iframe 内没有可见焦点
+- 页面与截图：artifact-desktop-light.png；audit.json 中 artifact desktop light 的 tabs 第 26 到 40 项（全是同一个 iframe，outline 为 none）
+- 影响：只用键盘（或读屏）的人从“关闭评审”按钮往后 Tab，先进入 iframe 里页面自己的所有可聚焦元素（记录里占 15 个停靠点，页面更复杂会更多），没有跳过的办法；答题控件在第 41 项之后。iframe 里页面的焦点样式不归面板管，所以看不见焦点在哪。
+- 严重：高
+- 类别：可访问性缺陷（有客观判据）
+- 原因：`pages/ArtifactPage.vue` 第 162 到 165 行：`ArtifactFrame` 先于 `<aside aria-label="问题">` 渲染，DOM 顺序即 Tab 顺序；页面里没有“跳到答题区”的入口。
+- 建议改法：任选其一或合用：（a）DOM 里把 aside 放在 iframe 前面，用 CSS（grid order）保持视觉上左页右表；（b）在 iframe 前加一个“跳到答题表单”的跳转链接，聚焦到 aside 的标题；（c）iframe 外加一个说明“页面里的控件在这里；答题区在后面”并给 iframe 一个按键（如 Esc 之外）退出的方式。推荐 (a) 加 (b)。
+
+### 3. 手机上评审板先是一整屏 iframe（自带两个方向的滚动条），答题表单在它下面，手指在页面上滑动会被 iframe 吃掉
+- 页面与截图：artifact-mobile-light.png、artifact-mobile-dark.png
+- 影响：手机上看 Work、Task、评审板并答题是核心场景。第一屏几乎全是 iframe（最小高 32rem），iframe 自己有竖向与横向滚动条，手指落在 iframe 上滑动是滚页面里的内容而不是滚整个页；要找到答题表单得从 iframe 边缘外的空隙滑，或一路滑到 iframe 内容尽头再接着滑。表单顶上的“待答 3”在第一屏之外，看不出有题要答。
+- 严重：高
+- 类别：可用性（需要产品判断）
+- 原因：`pages/ArtifactPage.vue` 第 162 到 163 行：窄屏 `grid-cols-1`，`ArtifactFrame` 带 `min-h-[32rem]`，aside 在其后；整页由最外层 div 滚（第 144 行），iframe 是嵌套的第二个滚动者。
+- 建议改法：窄屏上改成两个分页或折叠：顶部一个“页面 | 答题（待答 N）”切换（或把 iframe 默认折叠成“展开页面”，题表在上），保持“答复只经侧栏表单”的合同不变；至少在页头下面放一个“去答题（N）”的跳转按钮。
+
+### 4. 手机上 Work 页的 Task 表只剩“Task、状态”两列，待答、谁在动、最近更新全被藏起来
+- 页面与截图：work-mobile-light.png（对比 work-desktop-light.png）
+- 影响：手机上看一个 Work 想知道“哪个 Task 有题等我答”，表里看不到；必须逐个展开 Task（展开按钮只有 24px 见点 22）。同一份信息在首页卡片与左栏里却有待答徽标，表里反而没有。
+- 严重：高
+- 类别：可用性（需要产品判断）
+- 原因：`parts/TaskTable.vue` 第 169 到 178 行：`@media (max-width: 767px)` 下 `.nbdev-task-wide { display: none }`，“待答”列（第 71 到 74 行）也在 `nbdev-task-wide` 里被一并隐藏。
+- 建议改法：待答不属于“宽屏才显示”的列，手机上保留为状态旁的小徽标（有待答才显示，没有就不占位）；谁在动可以收成状态旁的一个小点加数字。另外 Work 页的表按 Task 编号排，进行中与有待答的 Task 混在几十行完成的 Task 中间（work-desktop-light.png 里 t05 进行中排第五），可以考虑进行中与待答的置顶，或把已完成的默认折叠。
+
+### 5. 全站颜色对比不足，来源集中在三处：soft 徽标、灰色占位字、被整体降透明度的行
+- 页面与截图：几乎所有页；axe 数量最多的是 runs（桌面亮色 51 处）、sessions（34 处）、home（26 处）、artifacts（20 处）；new-desktop-light.png、runs-desktop-light.png 最明显
+- 影响：11 到 12px 的小字叠加 2.5 到 3.8 的对比度，在亮色底上读起来费力，尤其是状态徽标、占位说明、已结束的运行。暗色下数量少得多（runs 33、sessions 38 但其余页多为个位数），亮色是主要问题。
+- 严重：高
+- 类别：可访问性缺陷（有客观判据）
+- 原因：（1）nb-ui 的 soft 徽标色：`#007aff` 在 `#e0ecf6` 上 3.34、`#2c7a39` 在 `#d5dbcb` 上 3.75，`#007aff` 在 `#d0dbe3` 上 2.85（home、work、artifacts、sessions 的“进行中”“完成”“已采纳”“待答”）；（2）面板用 `nbdev-empty`（`--text-muted` 即 `#8b857b`，在页面底 `#ece8df` 上 2.99）承载还有信息的文字：任务页“没有”、GitHub 页占位、Field 的说明文字、404 的说明；（3）`parts/ProcList.vue` 第 4 行给已结束的运行整行 `opacity-60`，文字落到 2.63 到 2.8。
+- 建议改法：（1）改 nb-ui 的 soft 徽标文字取更深的前景角色，或徽标用实心与描边版式（共性，在 nb-ui 里改一次）；（2）`app.css` 的 `.nbdev-empty` 改用达标的次级色，并把“没有”这类空状态收成带图标的一行而不是 muted 灰；nb-ui 的 Field description 同理；（3）已结束的行不降透明度，改用“已结束”徽标加删除线或次级色（要达到 4.5:1）。
+
+### 6. 到处是 11 到 12px 的灰色说明字，页面像“数据加注释”，找不到重点
+- 页面与截图：home-desktop-light.png、work-desktop-light.png、sessions-desktop-light.png、runs-desktop-light.png、checkouts（代码）
+- 影响：卡片、页头、列表行下面常挂一行 12px 次级灰字（最近更新、记录来源、提交数、临时标签），再加 11px 的“标注”。读者看不出哪行是结论、哪行是备注；手机上这些字更难读。nb-ui 自己的设计语言写明“界面不靠说明文字解释自己，不加副标题和控件下方的说明”，面板的做法与它冲突。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：`app.css` 把说明定为 `nbdev-note`（12px，次级色）与 `nbdev-caption`（11px，次级色）；在 pages 与 parts 里 `nbdev-note` 出现 63 次、`nbdev-small`（12px）54 次、`nbdev-empty`（灰字）67 次，`nbdev-caption` 7 次。典型：`pages/RunsPage.vue` 页头挂一句命令用法、`pages/SessionsPage.vue` 页头挂 herdr 内部指标、`parts/NewWorkForm.vue` 的“短名”“目标”字段下各挂一行 description。
+- 建议改法：共性。给面板定一个下限：承载信息的文字不小于 13px，11px 只用于纯装饰标注；说明性文字先问“删掉用户会迷路吗”，不会就删，必须留的收进标签旁的说明图标或悬停（并保证触屏可达）；页头第二行只留最多一两个事实（状态、更新时间）。
+
+### 7. 内部术语、编号与路径直接给人看，中英文混杂
+- 页面与截图：artifact-desktop-light.png（题号）、artifacts-desktop-light.png、sessions-desktop-light.png、runs-desktop-light.png、home-desktop-light.png、task-desktop-light.png
+- 影响：开发者本人虽然懂，但一屏里同时出现“#r4-placement”“review · v5”“pane w1:p2”“claude:c38df555-3a36-49…”“claude a4a0ff05”“herdr”“checkout”“执行 checkout”“provenance”“临时”“无主的运行”“未认出的调用者”“分离 HEAD”，读起来像日志而不是界面，手机上还占掉本来就窄的行宽。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：分散在多处：`parts/AnswerForm.vue` 第 113、134 行每道题后面写 `#{{ question.id }}`；`parts/ArtifactList.vue` 第 31 行、`parts/InboxList.vue` 第 59 行写 `{{ artifactId }}`；`pages/ArtifactPage.vue` 第 176 行的空状态文案含英文“provenance”；`pages/SessionsPage.vue` 的会话页头（pane、会话键、标题来源）；`parts/ProcList.vue` 第 12 行写完整日志路径（含 `<家目录>/...`）；`parts/LeaseChip.vue` 的胶囊是“会话标题加 claude 加 8 位短键”。
+- 建议改法：给面板做一份“可见文字词表”：用户看得见的位置一律用中文说法（checkout 写“工作目录”或“分支目录”，provenance 写“提问者”，pane 写“窗格”），编号与路径放进悬停、复制按钮或“详情”折叠；题号 `#id` 默认不显示，只在有错误或复制时需要。
+
+### 8. 目标与“当前情况”按纯文本显示，Markdown 源码（反引号、链接地址）直接露在界面上
+- 页面与截图：home-desktop-light.png（Work 卡片“[内核提案](../../../docs/proposals/world-...”）、task-desktop-light.png（“当前情况：…合入 `master`（`2b4f7b4f8`），4400 …”）、task-mobile-light.png
+- 影响：卡片目标被截断在一串相对路径的链接源码上，读不到有用的字；当前情况里的反引号原样显示。Work 页的 Task 表已经做了行内渲染（`WorkPage.vue` 第 86 到 87 行有注释“不再露出 `[链接](…)` 源码”），说明这是已知问题，但首页卡片、Work 页目标、Task 页当前情况漏了。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：`parts/WorkCard.vue` 第 34 到 36 行 `{{ work.goal.value }}`（再 `line-clamp-2`）；`pages/WorkPage.vue` 第 112 行同样 `{{ goal }}`；`pages/TaskPage.vue` 第 185 行 `当前情况：{{ currentState }}`，都是插值而不是渲染。
+- 建议改法：共性。这三处改用已有的 `renderInlineMarkdown`（链接显示文字、不带地址），或服务端给一个去掉标记的纯文本摘要；卡片里 line-clamp 之前先去掉链接地址。
+
+### 9. “代码已更新”横幅在每一页常驻，不能关，里面是一条要手抄的命令，手机上占两行
+- 页面与截图：全部 60 张图顶部（例如 home-mobile-light.png）
+- 影响：每一页的顶栏下面永远有一行蓝底提示，内容是“运行 systemctl --user restart nbdev-panel-neuro-book.service 后生效”，开发者不重启它就一直在；命令不能点复制，手机上折成两行占掉首屏。看久了变成背景噪声，真有构建失败或审计告警时反而不显眼。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：`App.vue` 第 343 行 `data?.codeChanged` 时加入 banners；第 406 到 415 行只有审计那条带 `dismiss`；命令写在 `message` 的纯文本里（第 33 到 36 行）。
+- 建议改法：这条做成可关闭（按“代码改动的版本”记住，再次变化才重新出现），命令放进一个“复制命令”按钮；或收进顶栏状态点的详情里，只在“状态”图标上加黄点。
+
+### 10. 会话页头与详情头是一串内部指标，手机上占掉列表上方四行
+- 页面与截图：sessions-desktop-light.png（“herdr 0.9.3 已订阅推送 · 刚刚更新 · 对账补上了 22 次漏掉的状态变化 另有 8 个短命或无关的进程没有列出”）、sessions-mobile-light.png
+- 影响：开发者进会话页是为了找一个会话、看它在干什么、接管或发一句话。页头先给的是推送订阅、对账、被忽略进程数这类面板自己的运行指标，正常时与用户任务无关；手机上这些字把会话列表挤到第二屏。详情头同理：“plan-suggestion-menu-review 工作中 claude pane w1:p2 会话 claude:c38df555-3a36-49… w00028/t04 标题取自 Claude Code (/rename)”七八个字段挤在一行。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：`pages/SessionsPage.vue` 的 `#meta` 插槽（页面开头）把 herdr 版本、模式、更新时间、`missedEvents`、`ignoredProcesses` 全部放进页头；详情 header（“会话信息合成一行（t17）”）一行放 title、状态、agent、pane、会话键、租约链接、运行数、标题来源。
+- 建议改法：页头只在不正常时显示（herdr 不可用、连接断开）；正常状态收进顶栏的状态点详情（`App.vue` 已有该弹层）。详情头保留“名称、状态、所属 Task”，其余（pane、会话键、标题来源）进“更多信息”折叠。
+
+### 11. 会话终端观看时字号可以缩到 5px，桌面上也读不出内容
+- 页面与截图：sessions-desktop-light.png（右侧终端画面几乎是色块）
+- 影响：在“观察中、只读”状态下想读 Agent 在输出什么，实际看到的是约 6 到 7px 的字，只能点“接管键盘”才能读，而接管有副作用（改变 pane 尺寸、需要确认）。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：`parts/TerminalView.vue` 第 25 到 27 行 `WATCH_FONT_MIN = 5`，`fitWatchFont`（第 61 到 84 行）为了放下整屏列数把字号压到最小；pane 有 160 多列时桌面右栏约 760px 宽，只能到 6 到 7px。注释写明是为了“尽量放下整屏”，没有说为什么可读性让位。
+- 建议改法：观看字号设下限（约 11 到 12px），放不下就横向滚动（代码已有“框里滚动并贴着底”的分支）；或者窄时默认走已有的文字视图（`TerminalTextView`）。这是个产品取舍：要“整屏一眼”还是“读得清”，建议问开发者。
+
+### 12. 答题表单里“加说明”“清除选择”是没有样式的裸文字按钮，目标只有 36×18px
+- 页面与截图：artifact-desktop-light.png（每道题下面的“加说明”）；audit.json artifact desktop light 第 42 项“加说明”size 36x18
+- 影响：灰色 12px 的两个字，看不出能点，手机上点不准；同一个表单里的“改答”“取消改答”是 nb-ui 的 ghost 按钮，样式和大小都不一样。“清除选择”是单选题误点后唯一的反悔方式，更不该藏成灰字。
+- 严重：中
+- 类别：可访问性缺陷（有客观判据）：目标尺寸低于 24×24 的最低要求；同类控件不一致属可用性
+- 原因：`parts/AnswerForm.vue` 第 122、123、141 行用原生 `<button class="nbdev-note">`，没有内边距、下划线或图标；第 143、149 行同类操作用 `<Button variant="ghost" size="sm">`。
+- 建议改法：统一换成 nb-ui 的 `Button variant="ghost" size="sm"` 并带图标（加说明用消息图标、清除选择用撤销图标），保证至少 28px 高；“清除选择”放在选项组的右上角而不是题下。
+
+### 13. 页头的操作和页内跳转都是同一种“淡”样式，看不出主要操作，也看不出哪些能点
+- 页面与截图：work-desktop-light.png（右上“改状态、编辑 README、新建 Task、看 README”）、work-mobile-light.png（折成两行）、task-desktop-light.png、home-desktop-light.png（“7 个会话（…）”是个链接但看着是说明）、artifact-desktop-light.png
+- 影响：四个操作并排，字号、字重、颜色完全一样，“新建 Task”和“看 README”不分主次；首页 Work 标题行右边的“N 个会话（…）”看上去是一句统计，其实是跳到会话页的链接。手机上四个小按钮折成两行，指尖目标只有 28px 高。操作名里还混着英文（README、Task）。
+- 严重：低
+- 类别：可用性（需要产品判断）
+- 原因：`parts/ActionLink.vue` 把“次要操作”做成 12px、`--text-main`、无边框无底色、只有悬停才出背景的链接（样式在 `<style scoped>` 里）；`WorkPage.vue` 第 93 到 100 行、`TaskPage.vue` 第 172 到 175 行把四个同级别的 ActionLink 与 StatusSwitch 的 Button 平铺在页头。
+- 建议改法：每页指定一个主要操作用 `Button variant="primary" size="sm"`（Work 页是“新建 Task”，Task 页是“编辑 README”），其余折进“更多”菜单；纯跳转链接保持下划线或带箭头图标；文案“README”改“说明文件”之类可以讨论，至少“看 README”与“编辑 README”要有区别（一个是看渲染，一个是改）。
+
+### 14. 首页的面包屑与标题都是“首页”，404 页的面包屑与标题说法不一致
+- 页面与截图：home-desktop-light.png（顶上小字“首页”、下面大字“首页”）、missing-desktop-light.png（面包屑“找不到这一页”，标题“没有这一页”，EmptyState 标题又是“地址可能写错了”）
+- 影响：重复的“首页”占了首屏两行，什么也没说；404 页同一件事三种说法，读屏者会听到三遍。
+- 严重：低
+- 类别：可用性（需要产品判断）
+- 原因：`pages/HomePage.vue` 第 46 行 `:crumbs="[{label: '首页'}]" title="首页"`；`PageShell.vue` 第 50 到 52 行普通页头总会先画面包屑再画 h1，只有 compact 档会去掉最后一项（第 19 到 20 行）；`pages/MissingPage.vue` 第 12 行三处文案不一致。
+- 建议改法：单项面包屑（只有当前页自己）不画；首页 h1 改成有信息量的“待你处理”“今天”之类，或者隐藏 h1 只留 sr-only；404 页保留一个说法。
+
+### 15. “谁在动”的会话胶囊是可聚焦的 span，没有角色，提示只在悬停时出现，首页每张卡片多出几个无意义的 Tab 停靠点
+- 页面与截图：home-desktop-light.png；audit.json home desktop light 的 Tab 第 20、23、24、26、28 到 30、32、33、36、37、39 项都是“span”，名字是会话标题加短键
+- 影响：键盘用户在首页按 45 次 Tab，前 19 次是外壳，剩下的才走到第 12 张卡片左右，其中近一半停靠点是这些胶囊；胶囊本身什么也做不了（不是链接也不是按钮），聚焦后只弹出一个提示，读屏器读到一个没有角色的聚焦元素。提示里的重要信息（“提问的会话已经不在（租约失效）”）在触屏上拿不到。收件箱里的胶囊还嵌在整行链接里面，成了“链接里的可聚焦元素”。
+- 严重：中
+- 类别：可访问性缺陷（有客观判据）
+- 原因：`parts/LeaseChip.vue` 第 24 行 `:tabindex="tip === '' ? undefined : 0"` 给 span 加 tabindex，靠 `Tooltip` 展示 `hint` 与完整标题；`parts/InboxList.vue` 第 60 行把它放在 `<a>`（第 49 行）里面。
+- 建议改法：胶囊不聚焦；把关键状态（“已失效”“租约过期”）直接写进可见文字或 `sr-only` 文字（代码已有 `（已失效）`的 sr-only），其余只作悬停提示；真要点开会话的，改成真正的链接（跳到会话页对应会话）。
+
+### 16. 产物列表在手机上标题被元数据挤成两三个字，35 条“已采纳”徽标淹没了真正要处理的几条
+- 页面与截图：artifacts-mobile-light.png（“资源管理器打磨：配…”“nb-story 问答页接入…”）、artifacts-desktop-light.png
+- 影响：手机上每行右边的“w00017 / t86 · review · v5”加徽标占去大半行宽，标题只剩几个字，认不出是哪块评审；桌面上也是整页同款绿色“已采纳”，只有个别行是蓝色“等会话采纳”或橙色“待答”，需要处理的混在其中；列表按 Work 编号排，不按“要处理的在前”排。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：`parts/ArtifactList.vue` 第 30 到 36 行：标题 `min-w-0 flex-1 truncate`（基础宽度为 0，永远不会因元数据而换行），元数据与三个徽标挤在同一行；“已采纳”徽标（第 35 行 `ADOPTION`）对已采纳项也显示。
+- 建议改法：窄屏时让标题占满一行（`basis-full`，允许换成两行），元数据与徽标换到下一行；“已采纳”这种完成态不画徽标（只在“待答”“等会话采纳”这类需要动作的状态上画）；列表把待答的排在最前。
+
+### 17. 手机上搜索结果把命中的关键词截掉了，高亮只剩一个“…”；记录条目的编号写了两遍
+- 页面与截图：search-mobile-light.png（最后几行“w00032/t06 w00032 t06 权限与 Agent 模式：…”后面是一块高亮的“…”）、search-desktop-light.png（“w00027/t06 t06 设置界面外观评审板”）
+- 影响：搜“评审”，命中的字落在被截断的部分，用户看到一块空高亮，不知道为什么命中；标题里重复的编号（“w00028/t04 w00028 t04 …”）又吃掉本来就窄的宽度。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：`parts/SearchResults.vue` 第 8 到 10 行记录行 `<span class="truncate">` 单行截断，高亮在被截断的尾部；编号重复来自 `recordText(match)` 把“编号 + 标题”拼接，而标题本身又以编号开头（只从截图看，没有展开 `recordText`）。
+- 建议改法：手机上记录行允许换成两行（`line-clamp-2`），或者像第 85、89 行的文件命中那样用 `snippetAround` 把命中的片段移进可见范围；标题以编号开头时不再重复编号。
+
+### 18. 文档页里 Markdown 表格的前几列被挤成一字一行
+- 页面与截图：docs-desktop-light.png（“两个来源”表，“来源”“面板”“产物”每列一字一行）、docs-mobile-light.png
+- 影响：开发者读合同与 Task 记录，表格是最常见的结构之一；窄列把中文标题一字一行竖排，整张表变得很高、很难扫读，行内代码（`127.0.0.1:4400`）也被拆行。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：`app.css` 第 266 行 `.nbdev-markdown table { display: block; overflow-x: auto; max-width: 100% }` 加第 267 行单元格没有最小宽度；表格被限制在阅读栏宽度里，长内容列把短内容列压到只容得下一个汉字。
+- 建议改法：给 th 和 td 设最小宽度（如 `min-width: 6em`），表格 `width: max-content` 让它超宽时在容器里横向滚动；行内 `code` 在表格里 `white-space: nowrap`。
+
+### 19. “在跑”页里已结束的运行与正在跑的混排，整页以已结束为主，日志路径整条露出
+- 页面与截图：runs-desktop-light.png（第一屏三条里两条“已结束”，唯一“在跑”夹在中间）、runs-mobile-light.png
+- 影响：开发者进“在跑”是为了看哪些服务还活着、点地址进去；实际页面按启动时间混排，已结束的和正在跑的相同大小，每条下面再带一整条 `<仓库>/.local/agent/...` 的日志绝对路径（桌面两行、手机四到五行），重复出现的 w00032-t14-drafts 占满屏。左栏徽标写“在跑 3”，页面里却有一长串“已结束”（只从截图看，没有核对徽标的口径，数字可能对不上页面第一屏的内容）。
+- 严重：中
+- 类别：可用性（需要产品判断）
+- 原因：`parts/ProcList.vue` 第 4 行只对已结束行降透明度（见第 5 条），不分组；第 12 行直接渲染 `run.logPath`；`pages/RunsPage.vue` 没有“只看在跑”的开关。
+- 建议改法：正在跑的置顶、单独成组，已结束的折叠成“已结束 N 个”；日志路径缩成一个“复制日志路径”按钮，或者只显示文件名；左栏计数与页面“在跑”分组使用同一口径（先核对现在的口径）。
+
+### 20. 主按钮在条件不满足时灰掉，没有说明差什么
+- 页面与截图：new-desktop-light.png（“新建 Work”灰）、artifact-desktop-light.png（“提交 0 题”灰）
+- 影响：新建页必填的字段多（短名、标题、目标、首个 Task 短名），灰色按钮不告诉用户还差哪几项；评审板底栏的“提交 0 题”灰着，旁边的“已改 0 题”只说现状，没说“选一个答案后可提交”。灰态按钮对比度本来就低，视觉上更像“这里没有按钮”。
+- 严重：低
+- 类别：可用性（需要产品判断）
+- 原因：`parts/NewWorkForm.vue` 的提交按钮 `:disabled="!complete || ..."`；`parts/AnswerForm.vue` 第 164 行 `:disabled="!ready || ..."`，只有必答题数在旁边的 note 里说明（第 166 行）。必填标记只有字段标签后的红星。
+- 建议改法：按钮保持可点，点击时聚焦到第一个未完成项并给出文字提示；或在按钮旁边用一句话说明“还差：短名、标题”（只列缺的项）。
+
+### 21. 标题层级与地标有跳级和重名（axe 已报，影响读屏导航）
+- 页面与截图：artifact-*.png、sessions-*.png、task-desktop-light.png、home-desktop-light.png
+- 影响：读屏器的标题导航在评审板侧栏里从 h1 直接跳到 h3；左栏 `aside` 与 Task 页右侧栏 `aside` 没有区分名字，读屏器列地标时是两个同名的“complementary”；首页每张卡片里的“谁在动”虚线框是 `section` 却都叫“谁在动（临时）”，同一页重复多次。
+- 严重：低
+- 类别：可访问性缺陷（有客观判据）
+- 原因：`parts/AnswerForm.vue` 第 106、129 行用 `<h3>`，上面没有 h2；`parts/SessionList.vue` 的分组标题（`nbdev-session-group`）用 h3；`App.vue` 第 370 行 `<aside class="shell-nav">` 没有 `aria-label`，`TaskPage.vue` 第 194 行 `<aside>` 同样；`parts/EphemeralFrame.vue` 第 6 行 `aria-label` 在每张卡片里重复。
+- 建议改法：答题区标题改 h2；左栏 aside 加 `aria-label="导航区"` 之类，Task 页 aside 加“Task 相关信息”；EphemeralFrame 在卡片里不要做成地标（改成 div，用 `sr-only` 标题或把 Work 名带进标签）。
+
+### 22. 一批点击目标低于 24px 或只有鼠标能点，手机上尤其难用
+- 页面与截图：audit.json 桌面亮色 Tab 记录；work-mobile-light.png、task-desktop-light.png、home-desktop-light.png
+- 影响：顶栏的“状态”按钮 20×16；Task 页的“复制提交号”按钮 59×18、文件格式等行内链接 22px 高；Work 表的展开按钮 24×24；左栏 Work 的展开箭头 20×20 且被设成 `aria-hidden`、`tabindex=-1`，只有鼠标与触屏能用；首页 Work 卡片的标题链接 21px 高，Work 表里 Task 链接约 18px 高（左栏项 30px，是够的）。手机上抽屉里展开 Work 要点 20px 的箭头。
+- 严重：中
+- 类别：可访问性缺陷（有客观判据）：24×24 是 WCAG 2.2 的最低值，手机建议 44px
+- 原因：`App.vue` 第 390 行状态按钮 `px-1.5 py-1` 内容是 8px 圆点；`parts/TruncatedText.vue` 的 `.nbdev-truncated` 按钮是文字行高；`parts/TaskTable.vue` 第 147 到 153 行 `.nbdev-task-toggle` 1.5rem；`parts/PanelNav.vue` 第 284 到 292 行 `.nbdev-nav-toggle` 1.25rem。
+- 建议改法：共性。给面板的小控件统一最小目标（桌面 24px，触屏 `@media (pointer: coarse)` 下 40 到 44px，可以用透明内边距扩大点击区而不改变外观）；左栏展开箭头在触屏下加大；状态按钮把圆点与文字一起做成至少 28px 高的按钮。
+
+### 23. 左栏上半部分固定占约 440px，Work 树只剩下半屏，矮窗口与手机抽屉里更少
+- 页面与截图：全部桌面图（Work 树从 y≈470 开始，约 14 行）；手机抽屉没有截图，只从代码推断
+- 影响：左栏顶上有 5 个导航项、4 个现场项、“工作”标题、排列下拉和筛选输入，这些都不滚动；窗口高 768 时 Work 树只剩约 300px，手机抽屉里同样。左栏里真正常用的是当前 Work 与它的 Task。
+- 严重：低
+- 类别：可用性（需要产品判断）
+- 原因：`parts/PanelNav.vue` 第 170 行起上半部分是 `shrink-0` 的 flex 列，第 197 行才是滚动的树。
+- 建议改法：把“资料”“现场”的次要入口收成一行图标（或合成一个组），或让整栏一起滚动；至少在高度不足时让上半部分也可滚。
+
+### 24. 搜索框输入一个字再回车毫无反应，也没有搜索按钮
+- 页面与截图：search-desktop-light.png、全部页面顶栏
+- 影响：搜单字（人名、编号）回车后页面不动、没有提示，用户不知道是没搜、没结果还是出错。顶栏占位文字很长（“搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）”），手机上被截成“搜索 Work、Task、产物、会话与文件”，快捷键提示在手机上本来也没用。
+- 严重：低
+- 类别：可用性（需要产品判断）
+- 原因：`App.vue` 第 203 到 206 行 `if (q.length >= 2) router.push(...)`，不足两个字符静默返回；输入框没有提交按钮，只靠回车。
+- 建议改法：不足两个字符时在输入框下用 `role="status"` 提示“至少输入 2 个字符”，或允许一个字符也搜；占位文字改短（“搜索”），快捷键只写在提示里。
+
+### 25. 左栏与正文之间的分隔线键盘聚焦时只亮一条 1px 线，对比度未知
+- 页面与截图：audit.json 每页桌面亮色的 Tab 第 15 项“调整 导航 与 正文 的宽度”，outline 为 none、box-shadow 为 none
+- 影响：键盘用户聚焦到分隔线时，除了一条 1px 的线以外没有别的焦点提示；不知道它能用方向键调宽。
+- 严重：低
+- 类别：可访问性缺陷（有客观判据）：待核实。自动记录判为“无焦点样式”，但 nb-layout 的 `SashHandle.vue` 第 306 行把 outline 置 none 后、第 425 行用 `[data-sash]:focus-visible > .sash-line { opacity: 1 }` 让线全亮，所以并非完全没有提示，是否达到 3:1 与可见性没有测。
+- 原因：`packages/nb-layout/src/vue/SashHandle.vue` 的焦点样式只显示 1px 线，面板没有另外补；这条属于 nb-layout，不属于面板。
+- 建议改法：在 nb-layout 的分隔线聚焦时给一个更粗或带底色的焦点标记（例如 3px 的强调色线加手柄），并保证与相邻面层 3:1 以上。
+
+### 26. Work 页 Task 表有 8 列，其中几列对大多数行毫无信息，当前情况一律截成两行
+- 页面与截图：work-desktop-light.png
+- 影响：“记录”列每一行都是 master，“待答”列绝大多数是 0（只靠淡灰区分），“产物”列的 0 同样；真正要读的“当前情况”被截成两行带省略号，要点进去才知道。表的最小宽度 67rem，内容区窄于约 1070px（左栏 300px、页面内边距 48px 时，视口低于约 1420px 就开始）整张表出现横向滚动，成了页面里的第二个滚动条。
+- 严重：低
+- 类别：可用性（需要产品判断）
+- 原因：`parts/TaskTable.vue` 第 36 行 `COLUMNS` 与第 130 到 132 行 `min-width: 67rem`；第 62 行 `line-clamp-2`。
+- 建议改法：默认只显示“Task、状态、当前情况、最近更新”，把“记录”（只在不是 master 时写出分支）、产物数、待答数、谁在动合进状态旁的徽标；表头用达标的颜色（`app.css` 第 88 到 91 行已经为此改过）。
+
+### 27. 虚线加“临时”标签的框在每张卡片里重复出现，标签的底色与卡片不一致，含义对新人不明
+- 页面与截图：home-desktop-light.png、home-desktop-dark.png、task-desktop-light.png
+- 影响：首页每张卡片、Task 页侧栏、Work 页都有一个虚线框，上沿压着“谁在动 · 临时”。“临时”指数据不持久，是实现细节；标签用 11px 的 `#0a7ea4`，对比 3.78；标签底色是页面底色而卡片是更亮的面层，上边线被一块色差盖着，看上去像贴歪了的标签。没人在动时 Task 页仍画一个写着“没有”的空虚线框。
+- 严重：低
+- 类别：可用性（需要产品判断）
+- 原因：`parts/EphemeralFrame.vue` 第 17 到 21 行标签 `background: var(--bg-main)`、字号 `--text-2xs`；`TaskPage.vue` 第 248 到 253 行无论有没有租约都画框。
+- 建议改法：没有内容时不画（或只画一行“没人在动”的灰字）；标签字号不小于 12px，颜色用达标的强调文字色；或去掉虚线框，只在标题后加一个“实时”小徽标（与“在跑”页已有的“临时”徽标做法一致）。
+
+### 28. checkout 页是 9 列的宽表，手机上整张表横向滚动；整行可点但行内另有多个小链接与复制按钮
+- 页面与截图：checkouts-desktop-light.png、checkouts-mobile-light.png（两张都拍在“正在读取”状态，已加载的样子只从代码推断）
+- 影响：手机上看 checkout 状态要横向拖一张 56rem 宽的表，第一屏只看到“checkout”一列；整行 `cursor: pointer`、行内有“跳到 Task”的链接、复制按钮、未提交文件的按钮，同一行里多个点击目标挨得很近。页面标题与导航项直接写英文“checkout”，英文名也出现在加载提示“正在读取 checkout”里。
+- 严重：低
+- 类别：可用性（需要产品判断）
+- 原因：`pages/CheckoutsPage.vue` 第 122 到 123 行 `min-w-[56rem]` 加 `overflow-x-auto`；第 128 到 130 行起各单元格；`onTableClick` 把整行当链接。
+- 建议改法：手机上改成卡片列表（每个 checkout 一张，只列分支、是否干净、领先落后、跑着的服务）；中文名统一（如“工作目录”），英文“checkout”只在悬停提示里保留。
+
+## 总体判断
+
+### 最该先改的 5 件事
+1. 把评审板与 Task 页的“答题与产物”提到前面（报告第 1、2、3 条）：Task 页产物与待答放在 README 之前；评审板的 DOM 里把答题区放在 iframe 之前并加“跳到答题区”，手机上改成“页面 | 答题”切换。这是“手机上看 Work、Task、评审板并答题”的主路径，现在最难用。
+2. 收拾颜色与字号的根（第 5、6 条）：nb-ui 的 soft 徽标配色、面板的 `nbdev-empty` 灰、已结束行的降透明度三处一次改掉；规定承载信息的文字不小于 13px。这一项把 axe 的 color-contrast 大头消掉，改动集中。
+3. 手机上 Work 表的待答与谁在动要保留，Task 表降列（第 4、26 条），产物列表标题换行与“已采纳”徽标收掉（第 16 条），搜索结果高亮不被截（第 17 条）。
+4. 把内部术语、编号、路径从可见文字里拿掉（第 7、8、9、10 条）：题号、产物编号、日志路径、pane 与会话键、herdr 内部指标、Markdown 源码、常驻的“代码已更新”横幅。给面板定一份可见文字词表。
+5. 点击目标与键盘细节（第 12、15、22 条）：裸文字按钮换成 nb-ui 按钮，会话胶囊不再聚焦，小控件统一最小目标。同时顺手补上标题层级与地标（第 21 条）。
+
+### 整体不友好的根源
+- 说明文字太多、字号太小：`app.css` 的 note、caption、small、empty 四个类（11 到 12px 灰字）在页面里合计出现 190 多次，页面是“数据加注释”，没有层次。nb-ui 的设计语言写明界面不靠说明文字解释自己，面板的做法与此相反；从根上要改的是“默认加一行说明”的习惯，而不是调颜色。
+- 把实现细节当界面：编号、路径、会话键、pane、herdr 指标、“临时”、provenance 这些词是为 Agent 与排错准备的，开发者本人读起来也累，手机上更甚。
+- 同一类控件有三种做法：nb-ui 的 Button、`ActionLink`、裸 `<button class="nbdev-note">`，大小、颜色、可见度都不同，且没有主操作。
+- 桌面优先：手机上是靠隐藏列（`display: none`）与整页横向滚动适配，隐藏的恰好是待答与谁在动这类“要处理”的信息，答题页的 iframe 嵌套滚动也没有为触屏考虑。
+- 两个上游问题值得另议（审查要求质疑上游选择）：（a）颜色对比不足的主源是 nb-ui 的 soft 徽标与 `--text-muted`，面板在页面里补不干净，应改上游；（b）分隔线焦点提示在 nb-layout，不在面板。
+
+### 没覆盖到的
+- edit、checkouts、github（桌面）、search（加载完）、task-peek（面板打开）的真实样子没有截图；手机端没有 Tab 记录；手机抽屉导航没有截图。上面涉及这些的条目已标“只从代码推断”或“只从截图看”。
+- 没有实际运行读屏器；键盘部分只依据 audit.json 的 Tab 记录与代码。
