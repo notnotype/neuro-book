@@ -15,52 +15,48 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 </head>
 <body>
 <h1>t14 多 Agent</h1>
-<p>都是静态稿：真实的对话视图和 nb-ui 组件，新加的部分是草稿，数据是写死的样本。第 3 轮是剩下的几样：异步提问放哪、会话面板怎样嵌套，再请你过一眼“可派的子代理”设置和后台命令卡片。这一轮定了，界面就齐了，接着写实施计划。</p>
+<p>都是静态稿：真实的对话视图和 nb-ui 组件，新加的部分是草稿，数据是写死的样本。第 4 轮看第 3 轮改过的三样：会话面板再优化后的两版，异步提问与后台命令卡片的改动。</p>
 
-<section data-nbdev-question="async-question" data-nbdev-type="single" data-nbdev-recommend="b">
-  <h2><span class="badge" data-nbdev-skip>待定</span>异步提问（<code>ask</code> 带 <code>async</code>）放在哪</h2>
-  <p>已定：异步提问不让运行停下，Agent 接着做别的；回答只经卡片，输入框里打的字一律是普通输入（插话或排队）。问题会留到你回答为止，跨过这一轮也还在。</p>
+<section data-nbdev-question="session-nest-2" data-nbdev-type="single" data-nbdev-recommend="b1">
+  <h2><span class="badge" data-nbdev-skip>待定</span>会话面板：再优化后的两版</h2>
+  <p>两版共同的改动：左边不再留折叠箭头的空槽，所有图标对齐；折叠开关写成“4 个子代理”放在父会话第二行的右边；收起时如果有子代理在等你处理，父会话行写“子代理等你处理”（图里的“人物小传”）；子会话挂在父会话标题下面，一条细线连着，状态是图标（运行中转圈、完成打勾、出错红叉）或“等你处理”。区别只在子会话占几行。</p>
   <div class="row">
-    <div data-nbdev-option="a" data-nbdev-label="A 消息流里，在提问的位置">
-      <figure><figcaption>A 消息流里</figcaption><img src="r3/ask-stream.webp" alt="提问卡片在 Agent 的回复下面，和后台命令卡片挨着"></figure>
-      <p>在 Agent 提问的地方，前因后果看得清。但 Agent 接着往下写，卡片很快被顶上去；跨轮之后要往回翻才找得到。</p>
+    <div data-nbdev-option="b1" data-nbdev-label="B1 子会话一行（推荐）">
+      <figure><figcaption>B1 一行</figcaption><img src="r4/sessions-b1.webp" alt="子会话每个一行：名字、正在做什么、状态"></figure>
+      <p>名字后面接着写正在做什么；派得多时也不长。窄的左栏里说明会截得很短。</p>
     </div>
-    <div data-nbdev-option="b" data-nbdev-label="B 输入框上方（推荐）">
-      <figure><figcaption>B 输入框上方</figcaption><img src="r3/ask-dock.webp" alt="提问卡片浮在输入框上方，输入框照常能用"></figure>
-      <p>在审批向导的位置，但不替换输入框，输入框照常能用；一直看得到，几个问题时标“1 / 2”翻看。能像向导一样收成一条小条。消息流里那次调用只留一行。</p>
+    <div data-nbdev-option="b2" data-nbdev-label="B2 子会话两行">
+      <figure><figcaption>B2 两行</figcaption><img src="r4/sessions-b2.webp" alt="子会话每个两行：名字与状态一行，正在做什么一行"></figure>
+      <p>和普通会话一样两行，说明能多显示一些；派得多时面板拉得很长。</p>
     </div>
   </div>
+  <p>两版都有的毛病：父会话第二行要放说明、状态和“4 个子代理”，左栏窄时说明只剩几个字。</p>
 </section>
 
-<section data-nbdev-question="session-nest" data-nbdev-type="single" data-nbdev-recommend="b">
-  <h2><span class="badge" data-nbdev-skip>待定</span>会话面板里子会话怎样嵌</h2>
-  <p>已定：子会话嵌在父会话下，默认收起；搜索命中子会话时展开它的父会话。图里“第三章全面检查”展开着，“大纲梳理”收着。子会话的行和普通会话一样两行、等高，状态照常显示。</p>
-  <div class="row">
-    <div data-nbdev-option="a" data-nbdev-label="A 父会话下面一行个数">
-      <figure><figcaption>A 下面一行</figcaption><img src="r3/sessions-a.webp" alt="父会话下面一行小字“3 个子代理 · 1 运行中 · 1 等你处理”，点开展开"></figure>
-      <p>个数与状态写得全；有子会话的父会话多占一行。</p>
-    </div>
-    <div data-nbdev-option="b" data-nbdev-label="B 个数在父会话行里（推荐）">
-      <figure><figcaption>B 行里</figcaption><img src="r3/sessions-b.webp" alt="父会话行左边一个折叠箭头，第二行右边一个人形图标加个数"></figure>
-      <p>所有行一样高；左边折叠箭头，第二行右边写个数。子会话的状态在展开后看，父会话自己的状态照常显示。</p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="rest" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>这两样照图做行不行</h2>
+<section data-nbdev-question="dock-and-shell" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>异步提问与后台命令卡片，这样改行不行</h2>
   <div class="row">
     <div>
-      <figure><figcaption>Profile 设置页：可派的子代理</figcaption><img src="r3/spawnable.webp" alt="和工具一节一样的列表：分组、名字、推荐、说明、删除"></figure>
-      <p>和工具一节同一个样子，放在工具一节下面：按来源分组，一行一个 Profile，标出 Profile 声明的“推荐”，你自己加的标“我加的”；“添加”打开和添加工具一样的对话框，“恢复默认”回到 Profile 声明的那份。推荐不能在这里改。</p>
+      <figure><figcaption>异步提问：展开</figcaption><img src="r4/ask-dock.webp" alt="提问卡片在输入框上方，圆角与输入框相同，阴影很轻，右上角有收起按钮"></figure>
+      <figure><figcaption>异步提问：收起</figcaption><img src="r4/ask-collapsed.webp" alt="收成一条：有 1 个问题等你回答，加问题的前半句和展开按钮"></figure>
+      <p>阴影换成向导收起的小条那一层，圆角与输入框相同，右上角收起；收起后是一条，写有几个问题、第一个问题的前半句。这条规则已写进 UI 规范（停靠的面不用浮层的阴影档，圆角同贴着的面）。</p>
     </div>
     <div>
-      <figure><figcaption>后台命令卡片（<code>shell</code> 带 <code>async</code>）</figcaption><img src="r3/ask-stream.webp" alt="上图里的后台命令卡片：命令、任务号与用时、停止，下面一行最后一行输出与输出文件"></figure>
-      <p>看上图的第一张卡：卡头是命令、任务号与用时、停止按钮；下面一行运行中是最后一行输出，结束后是退出码和行数，右边是输出文件。高度固定，和子代理卡片一个道理。“停止”是你在界面上停它，Agent 用 <code>kill</code>。</p>
+      <figure><figcaption>后台命令：展开</figcaption><img src="r4/shell-expanded.webp" alt="后台命令卡片展开，下面是输出的最后十几行，限高、在区内滚动"></figure>
+      <p>点第二行展开，看输出的最后若干行（运行中跟着更新），限高、区内滚动，和子代理卡片的结果一个道理；全文仍是右边的输出文件。</p>
     </div>
   </div>
-  <div data-nbdev-option="accept" data-nbdev-label="照图做"></div>
+  <div data-nbdev-option="accept" data-nbdev-label="可以"></div>
   <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>第 3 轮</h2>
+  <ul>
+    <li><b>异步提问</b>：停在输入框上方，不替换输入框，能收起（<a href="r3/ask-dock.webp">第 3 轮的图</a>，阴影与圆角按第 4 轮改）。</li>
+    <li><b>可派的子代理</b>：照图做（<a href="r3/spawnable.webp">图</a>）。</li>
+    <li><b>后台命令卡片</b>：照图做，另外要能展开。</li>
+  </ul>
 </section>
 
 <section>
