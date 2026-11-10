@@ -48,12 +48,30 @@ updated: 2026-11-09
 
 ## 当前状态
 
-2026-11-10：[plan.md](plan.md) 初稿已写（Opus 子代理），未定稿、未审查：
+2026-11-10：[plan.md](plan.md) 初稿（Opus）做了计划审查（Opus，15 条，[`evidences/plan-review-r1-opus.txt`](evidences/plan-review-r1-opus.txt)）与文件访问接口的独立设计（Sonnet，[`evidences/plan-independent-design-r1-sonnet.txt`](evidences/plan-independent-design-r1-sonnet.txt)），按下表改第二稿。开发者 2026-11-10 选了 NeuroBot 提案待定项 1 的 (b)：模型服务（`models/backend/core.ts`）由 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md) 抽，本 Task 不碰它的服务部分、`server/` 与 `web/`。
 
-- NeuroBot 提案（[`docs/proposals/neurobot.md`](../../../../../docs/proposals/neurobot.md)）的待定项 1 问开发者“仍在 NeuroBook 应用里的那些怎么给 NeuroBot”，答复可能扩大本 Task 的范围（例如把模型服务、服务端宿主的通用部分一起抽出），定了再改计划；
-- 计划第 7 节列了 6 个待确认项，随计划一起交开发者；
-- 实施计划 Skill 要求的“独立设计”（文件访问接口）与计划审查都还没做。
+### 计划第一稿的处理
+
+| 来源 | 结论 | 第二稿怎么改 |
+|---|---|---|
+| 审查 1：浏览器早已在运行期导入 nb-harness（`shared/remote.ts:16`） | 成立 | 风险改写成新增两个子路径的导入链：类型只能 `import type`，`vue-tsc` 会顺着类型导入检查哪些文件 |
+| 审查 2、3、12：`modelChoice` 漏了按用途定角色两步、导入边界；按开发者定的 (b) 模型服务归 w00043 t02 | 成立 | t32 只搬 `models/shared/rules.ts`、`compaction.ts`（`rules.ts` 只依赖 `typebox` 与 `import type`），`port.resolve` 的选择顺序留给 w00043 t02；确认项第 6 条删去 |
+| 审查 4：`kit/compaction` 要用角色常量，分层表不许 | 成立 | 角色常量放进 `kit/shapes.ts` |
+| 审查 5：句柄表换成 `clock.wait` 后到点之后取消不再生效 | 成立（审查者已降为低） | kit 的句柄表收 `schedule(cb, ms) => cancel` 形状的计时口，保住同步取消，不经 `Clock.wait` |
+| 审查 6：判定者只在 `auto` 那一步可换，其余转问写死交给用户 | 成立，涉及开发者定的“判定接口不能写死判定者” | 钩子加 `escalate` 选项：所有要转问的调用（规则、闸门、地址分类、项目规则读坏、审批模型转人工）都经它，带来源；缺省原样交回 `ask`，NeuroBook 不传、行为不变 |
+| 审查 7：`localFiles` 当成 NeuroBot 的实现，缺写锁与改动记录 | 成立 | `localFiles` 定位为 kit 测试的真实依赖与参考实现，`classify` 必传；NeuroBot 自己实现 `SessionFiles`（可以包它），写锁与改动记录在 NeuroBot |
+| 审查 8：baseline 漏了 kit 自带的文字 | 成立 | baseline 加放回提示、shake 占位、模式拒绝文字、循环守卫提醒、摘要输入的排版、标题材料，都用固定输入调真实函数 |
+| 审查 9：没有测试证明 `localFiles` 与 NeuroBook 实现在失败码上一致 | 成立 | kit 导出参数化的 `SessionFiles` 合同测试，两个实现各跑一遍 |
+| 审查 10：代码与守它的测试同一片里一起改写 | 成立 | 每片两次提交：先只搬实现、应用测试只改导入照跑通过；再把用例改写进 kit；`auto-review.test.ts` 每组写明去向 |
+| 审查 11：两处会进日志的文字被改 | 成立 | 项目规则读坏的诊断消息由宿主给；错误类改名列为 baseline 的预期差异 |
+| 审查 13：只读检查漏了别的写盘写法 | 成立（`EditSession` 那半句审查者已撤回） | 改成白名单式：禁命名空间与默认导入、`Bun.file(…).write`、`.writer(`、`Bun.$`、`Bun.spawn`、动态 `import(`，`shell.ts` 的执行入口单独放行 |
+| 审查 14：kit 没有自己的合同 | 成立 | 开一份 draft `docs/specs/harness/host-kit.md`，先写 `SessionFiles` 的合同（失败码、`locate`、`forCall` 的分组与来源、全文）；其余块的宿主无关条目留到 NeuroBot 接入时 |
+| 审查 15、独立设计：`SessionLayout` 塞了别的功能的配置 | 成立 | 布局只留与文件访问和判定相关的：工作目录、草稿根、本地写的根、必须询问的写、搜索时跳过的；计划文件、日志地址、项目根改由放回与审批模型各自的选项给 |
+| 独立设计：方法名与现有 `SessionResources` 一致 | 采纳 | NeuroBook 的现有对象结构上直接满足接口，只补布局 |
+| 独立设计：`decodeText`、`renderVirtual` 只留一份 | 采纳 | 搬进 nb-harness，`nbook.files` 改为从那里取；删去“两份对照”的风险条目 |
+| 独立设计：模式（`switch_mode` 与提醒文字）整个留在 NeuroBook | 采纳：没有第二个使用者 | kit 只给钩子要的闸门分类（按草稿根判断）；`createAgentModes` 不进 kit |
+| 独立设计：NeuroBot 的“目录外读要审批”用缺省规则表达 | 采纳 | 接口不为它加字段；写进计划的“不做” |
 
 ## 下一步
 
-等提案待定项 1 的答复，改计划，做独立设计与计划审查（本会话用 Opus），再交开发者确认。
+按上表改出第二稿（派 Opus 子代理），主会话核对后交开发者确认计划与剩下的确认项。

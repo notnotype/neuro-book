@@ -1,0 +1,309 @@
+w00032 t32 文件访问接口：独立设计（Sonnet，只读调研，未跑任何构建与测试）
+
+结论先行
+1. 要有这个接口，但它是 NeuroBook 现有 `SessionResources` 的一个小子集（约 6 个方法），不是 `WorkspaceFiles`（20 多个方法）。方法名与 `SessionResources` 取成一样（expand、read、readPath、list、call(call).write），NeuroBook 的现有对象结构上直接满足它，只补一块很小的“宿主布局”（layout）。
+2. 读：接口交本机路径，harness 自己读，沿用 ADR 0040 第 1 条。写：只有一个入口 `call(call).write(addr, text, {expect, createParents})`；暂存、锁、记账、分组、来源都在实现里，harness 不碰。
+3. “目录外的读要审批”不进接口：NeuroBot 用 `userRules()` 层的默认规则表达（规则已支持 `not`、`any` 与路径 glob）。接口只留“强制询问”的 `mustAsk`。
+4. 地址只在一处“定义”：harness 只持有“地址形状”的几行约定与 `joinAddress`、`schemeOf`；完整校验永远在实现的 `expand` 里。NeuroBot 把本机路径在 `expand` 里统一规范成别名地址，Windows 的大小写、盘符、分隔符问题因此只在一个函数里处理。
+5. 搬进去的是 `decodeText`、`renderVirtual`（单一来源，nbook 改为 re-export）、工具、放回、审批钩子；NeuroBook 专有的东西（`.nbook` 排除、项目规则文件、`user://` 强制询问、工具文案、Agent 模式提示）留在 neuro-book，经注入进来。
+
+====================================================================
+一、我读了什么（确认依赖，不按名字推断）
+====================================================================
+已读：agent 插件的 backend/resources.ts、shared/resources.ts、builtin/{common,read,write,edit,search,shell,shell-address,preview,index}.ts、compaction/restore.ts、permissions/{hook,modes,judge,rules,project-rules}.ts、builtin/profiles/rules.ts；files 插件的 shared/{contracts,workspace-files,schemes,resource,text,failures}.ts；ADR 0040；agent/resources.md；workspace/resources.md 的写入接口一节；neurobot.md 第四节；nb-harness 的 package.json、AGENTS.md、kernel/api/{ctx,host,tool}.ts、kernel/architecture.test.ts。
+
+实际用到的文件操作（grep 统计，排除测试）：
+- expand（同步、纯字符串）：工具、钩子、放回、内核资源接口都用。
+- classify：只有钩子用，且只看 `write === "ask"`（user://）；`ResourceClass.content` 在生产代码里没有读者。
+- read（字节加基线）：edit 取基线、审批预览、switch_mode 读计划、内核资源接口。
+- readPath：read、write（取行锚用路径）、edit（引擎的 resolveUrl）、grep、glob、shell（cwd、环境变量、命令里的地址、逐级找祖先）、放回、钩子读项目规则。另外 shell 用 `readPath("<方案>://")` 探测方案是否登记（得 `unknown-scheme` 即未登记）。
+- list：只有 read 工具（目录与虚拟根）。
+- call(call).write(...{expect, createParents})：write、edit。call(call).read：switch_mode。
+- artifacts.save（流式、expect 为 absent、宿主身份）：只有 shell 的大输出溢出。
+- 没有任何内置代码用 update、identify、create、rename、convert、reorder、display、include、drop、move、copy、delete、stage（artifacts 之外）。这些只是给第三方插件的 `services.resources` 用的，不该进 nb-harness 的接口。
+
+当前对 nbook 的耦合点（搬迁时必须切断）：`nbook/plugins/files/shared/contracts` 的 `decodeText`、`parseAddress`、`renderVirtual`、`Baseline`、`WorkspaceFiles`（共 7 处导入）；`../../shared/points`、`shared/permissions`、`shared/remote`（插件内的类型：声明、规则、审批预览）；`sessionResources(...)` 被 4 个地方各自构造（工具的 services、内核的 `SessionEnv.resources`、钩子每次调用、放回每次运行）。
+
+nb-harness 已有的条件：依赖里已有 `@oh-my-pi/pi-natives`（EditStore、EditSession、grep、glob、executeShell 都在其中），所以工具搬进去不增加外部依赖；`kernel/architecture.test.ts` 只约束 `src/kernel/`（node:fs 只在 log/、OMP 只在 model/），新代码放在 `kernel/` 之外，不用改它的目录表。
+
+====================================================================
+二、逐个视角的质疑
+====================================================================
+（1）反对与精简
+- 能不能不要接口，两边各写一套工具？不行：工具约 2,400 行（read 244、edit 220、search 273、shell 265、shell-address 114、restore 154、hook 227 等），一半是分页、行锚、配额、取消、部分失败这类与存放位置无关的逻辑，复制两份是长期债。
+- 能不能直接用 `WorkspaceFiles`？不行：NeuroBot 要实现十几个用不到的方法；且它的类型引用 nbook 的 TypeBox schema，harness 不能依赖。
+- 能不能只收本机路径、不收地址？不行：丢掉 ADR 0040 要的“带会话来源、同一次调用的写成一组”，也丢掉 `session://` 这类单数地址（模型看到、日志里留的都是地址）。
+- 能不能更小？可以，也做到了：不要 `update`、`stage`（给工具）、文件操作、`classify` 的 `content`、`denied` 分类（钩子不看它，拒绝由实现在读写时给 `permission-denied`）。
+- 现成库或仓库模块？没有适合的：memfs、unionfs 之类是“虚拟文件系统”，而 grep、glob（pi-natives 原生）、shell 的 cwd、EditStore（按真实路径登记行锚）都要真实路径，虚拟文件系统挡不住这些。方向上与 pi-natives 自己的 `EditSession`（`urlSchemes` 加 `resolveUrl`：地址先解析成路径再改）一致，所以接口的核心就是“地址解析成路径”，不另造抽象。仓库内没有第二份可复用的实现（旧 `nb-harness/src/tools/read.ts` 只接裸路径，不带地址与来源）。
+
+（2）成本
+- 开发：搬约 2,400 行加 NeuroBook 一侧约 60 行的适配（布局与注入）；NeuroBot 一侧约 300 行（见第五节）。主要工作量在搬迁时保证 NeuroBook 行为不变，所以测试是大头。
+- 运行：NeuroBook 零新增开销（结构满足，不包一层）；钩子多的只是对路径规则的求值。NeuroBot 写入多一次锁与一次改名。
+- 给模型的工具说明：NeuroBook 必须逐字不变（声明冻结进会话快照，改了会使缓存失效）。做法见第四节“文案”：声明函数收一份 wording，NeuroBook 的原文留在 neuro-book，快照测试逐字比对。NeuroBot 有自己的文案，不增加参数、不增加工具。
+
+（3）使用者体验
+- 写工具的人：拿到的是一个 `files` 对象，五件事（解析地址、取路径、读字节、列目录、写文本），失败是带码的结果、不抛错。不用管暂存、锁、分组。
+- 宿主作者（两个应用）：实现一个接口加一个布局，再跑 harness 提供的合同测试套件，过了就能用全部内置工具。
+- 模型：看到的地址形式、报错文字、行锚格式都由工具决定，与存放位置无关；NeuroBot 的模型既可以写别名地址也可以写本机路径，接口不要求模型学新东西。
+
+（4）迁移与兼容
+- 贡献 id、工具声明：工具的注册表（`BUILTIN_TOOL_CONTRIBUTIONS`）留在 neuro-book，只把“实现”换成 harness 导出的；id、`providerName`、`concurrency`、`effect` 逐字不变；声明文字由 wording 参数产生，快照测试守。
+- 第三方：`AgentToolServices`（`resources`、`artifacts`）和 SDK 的 `nbook/plugins/files/shared/workspace-files` 导出（`sdk/files.ts` 只 re-export `WorkspaceFiles`、`StagedSink` 等，不含 `SessionResources`）一个字都不改。内置工具在 `create(context, services)` 里自己从 `services.resources` 取出接口，不往 `AgentToolServices` 加字段。
+- 内核：`SessionEnv.resources`（`Resources`：read、resolve）不变，只是适配器 `kernelResources` 随之搬进 harness（它只用 expand、read 和 decodeText）。
+
+（5）可观测与排障
+- 失败码是接口合同的一部分（第三节列了 harness 依赖的码表），两边实现用同一份合同测试守。
+- 每个失败带 `detail`，要求含地址与原始原因（errno 名）。工具把码同时放在结果和 `details.code`（现状）。
+- 所有“吞掉”的地方（放回跳过、搜索核对丢弃）保持现有的诊断上报，接口不新增静默分支。
+- NeuroBot 的改动记录（时刻、会话、调用、来源）本身就是排障材料；写失败（冲突、拒绝）也走 `report`，不进记录。
+
+（6）长期维护与技术债
+- 地址语法两份？见第三节“地址语法的单一来源”。结论：harness 只拥有“形状”，完整校验在实现；`decodeText`、`renderVirtual` 搬进 harness，nbook 改为 re-export，保证只有一份。
+- Windows：见第五节。要点是地址永远用 `/`，本机路径只在 `Located.path` 里出现并规范化，harness 里不对路径做字符串拼接（只用 node:path 的 join）。
+
+====================================================================
+三、接口的形状
+====================================================================
+落点：`packages/nb-harness/src/files/`（接口、地址形状、decodeText、renderVirtual、码表、合同测试套件），子路径 `@notnotype/nb-harness/files` 与 `@notnotype/nb-harness/files/testing`；工具在 `src/builtin-tools/`，钩子在 `src/permissions/`，放回在 `src/compaction-restore/`（或并入已有的 compaction 相关目录），都在 `kernel/` 之外，单向依赖 `files/` 和 `kernel/contracts`。`files/` 不依赖任何别的目录，也不依赖 nb-runtime、neuro-book、nbook/*；新增一个 `src/files/architecture.test.ts`（仿 kernel 的写法）：禁止这些导入，并禁止 `builtin-tools/` 里出现对已寻址文件的写调用（见第六节）。
+
+3.1 基本类型
+
+```ts
+/** 规范地址：`<方案>://<路径>`，方案匹配 /^[a-z][a-z0-9+.-]*$/，路径用 `/` 分隔。语义与校验归实现。 */
+export type Address = string;
+
+/** 失败码是开放字符串；harness 解释的那几个见 FILE_CODES。 */
+export type FileFailure = {readonly ok: false; readonly code: string; readonly detail: string};
+export type FileResult<T> = {readonly ok: true; readonly value: T} | FileFailure;
+export type Expanded = {readonly ok: true; readonly address: Address} | FileFailure;
+
+/** 不透明的基线：harness 只传递，不解释。形状与 nbook 的 Baseline 相同，所以结构上互通。 */
+export interface Baseline { readonly hash: string }
+export type Expect = Baseline | "absent" | "any";
+
+export interface CallOptions { readonly signal?: AbortSignal }
+
+export interface Located {
+  readonly path: string;                     // 本机路径，规范化：同一个文件永远是同一个字符串（EditStore 以它作键）
+  readonly kind: "file" | "directory" | "other";
+}
+
+/** `Listing`（真实目录）和 `VirtualListing`（虚拟根）的共同上位类型，NeuroBook 的两者都直接满足它。 */
+export interface Directory {
+  readonly kind?: "virtual";
+  readonly description?: string;
+  readonly entries: ReadonlyArray<{
+    readonly name: string;
+    readonly kind?: string;                  // 真实目录项有 file/directory/link/other/missing；虚拟项没有
+    readonly address?: Address;              // 虚拟项有全局地址
+    readonly title?: string;
+    readonly meta?: Readonly<Record<string, string>>;
+  }>;
+}
+```
+
+3.2 读、写与解析
+
+```ts
+export interface FileReader {
+  /** 本机读路径。目标不存在为 `not-found`；`<方案>://`（只有方案）在方案未登记时为 `unknown-scheme`；虚拟根为 `unsupported-capability`。 */
+  readPath(address: Address, options?: CallOptions): Promise<FileResult<Located>>;
+  /** 字节与基线，读改写用；大文件为 `too-large`。虚拟根交回它的文字。读不建目录。 */
+  read(address: Address, options?: CallOptions): Promise<FileResult<{readonly bytes: Uint8Array; readonly baseline: Baseline}>>;
+  list(address: Address, options?: CallOptions): Promise<FileResult<Directory>>;
+}
+
+export interface FileWriter {
+  /**
+   * 整份文本（UTF-8）写入并提交，是写的唯一入口。`expect` 为基线时目标当前必须是这一版，否则 `conflict`；
+   * `absent` 只在不存在时新建；`any` 不论现状。失败一律经结果交回，不抛错；取消为 `cancelled`，且目标不变。
+   */
+  write(address: Address, content: string, options: CallOptions & {readonly expect: Expect; readonly createParents?: boolean}): Promise<FileResult<{readonly baseline: Baseline}>>;
+}
+
+export interface AddressSpace {
+  /** 纯字符串运算，不碰磁盘，同步。单数地址或别名改成规范地址；规范地址原样通过（幂等）。 */
+  expand(input: string): Expanded;
+}
+
+/** 一次工具调用要用到的全部文件能力；每个会话由宿主构造一个（`filesFor(context, toolId)`）。 */
+export interface FileAccess extends AddressSpace, FileReader {
+  /**
+   * 绑定一次工具调用：这次调用里的写成一组，来源带 `callId`，`signal` 合进每次调用。读不记账，所以只有写需要绑定。
+   * 工具每次执行只调用一次 `call` 并复用返回的 FileWriter（edit 一次改多个文件，它们同属一组）；实现不必让两次 `call(同一个 callId)` 共组。
+   */
+  call(call: {readonly callId: string; readonly signal: AbortSignal}): FileWriter;
+  readonly layout: HostLayout;
+}
+
+/** 宿主给的、不能从地址推出来的布局。全部是规范地址；会话没有对应的根时省略（例如没有主项目）。 */
+export interface HostLayout {
+  /** shell 的 cwd，也是 grep、glob 的缺省搜索根。 */
+  readonly workdir: Address;
+  /** 讨论、计划模式下“只写这里算草稿”的根。 */
+  readonly scratchRoots: readonly Address[];
+  /** `auto` 模式下写入这些根不问审批模型。 */
+  readonly localRoots: readonly Address[];
+  /** 计划文件与会话日志（放回时提示模型；没有则省略）。 */
+  readonly planFile?: Address;
+  readonly transcript?: Address;
+  /** 强制询问：别的规则放行也要问（NeuroBook 的 user://，NeuroBot 的权限规则文件）。同步、只看规范地址。 */
+  mustAsk(access: "read" | "write", address: Address): boolean;
+  /** 搜索根下不扫的相对 glob（NeuroBook 的项目根 `/.nbook`）。授权仍以 `readPath` 为准，这只是省下无谓的读。 */
+  hidden(root: Address): readonly string[];
+}
+
+/** 宿主身份保存大结果全文（shell 的输出溢出）。Agent 自己没有写这里的权限，所以与 FileWriter 分开。 */
+export interface ArtifactStore {
+  save(label: string, write: (sink: {write(chunk: Uint8Array): Promise<void>}) => Promise<void>): Promise<FileResult<{readonly address: Address}>>;
+}
+
+/** 唯一的注入点：内核的资源接口、工具、钩子、放回都用它，不再各自构造。`toolId` 给分组缺省标题；不属于哪个工具时为 null。 */
+export type FilesFor = (context: ToolSessionContext, toolId: string | null) => FileAccess;
+```
+
+3.3 harness 解释的失败码（接口合同的一部分，`FILE_CODES` 常量导出，合同测试逐项验证）
+- not-found：路径不存在（shell 逐级找祖先、edit 提示“新建用 write”、搜索丢弃、内核 read 返回 undefined）。
+- unknown-scheme：`readPath("<方案>://")` 时方案未登记（shell 决定要不要替换命令里的地址）。
+- unsupported-capability：虚拟根或该位置不支持 readPath，read 工具据此改为列目录。
+- permission-denied、protected-path、outside-root、not-a-file、not-a-directory：搜索核对时“丢掉这个文件”的集合（现有 DROP）；其它码在搜索里是“结束这次搜索”的路由失败。
+- conflict：write 的 expect 不成立（edit 原样交给模型）。
+- invalid-address、no-project：expand 的失败，原样给模型。
+- too-large、not-text、cancelled、io-failed、timeout：工具自己产生的码。
+- 其余码（NeuroBook 的 root-gone、busy、source-changed 等）harness 不解释，原样传给模型与 `details.code`。码表是开放的，所以 NeuroBook 不用映射，NeuroBot 要把 errno 映射到上面这些（ENOENT 到 not-found，EACCES、EPERM 到 permission-denied，ENOTDIR、EISDIR 到 not-a-directory、not-a-file）。
+
+3.4 地址语法的单一来源（回答“会不会出现两份”）
+- harness 只持有“形状”：`SCHEME_TOKEN`、`schemeOf(address)`、`joinAddress(base, rel)`（现在的 `joinAddress` 原样搬来）、`isAddressLike(text)`，约 30 行，写在 `files/address.ts`。理由：shell 词法扫描要找“像地址的片段”，搜索与列目录要拼子项地址，edit 要告诉引擎方案列表，这些只需要形状。
+- 完整校验（`.`、`..`、空段、盘符、路径字节上限、UNC、设备名）只在实现的 `expand` 里。NeuroBook 继续用 `parseAddress`，NeuroBot 用自己的。harness 不 import 任何 parseAddress。
+- 防两份分叉：合同测试套件里有一条“形状一致”：对实现给的一批合法地址，`isAddressLike` 为真且 `schemeOf` 等于实现自己解析出的方案；NeuroBook 的 `resource.test.ts` 里加同样的断言（一行）。
+- `decodeText`（严格 UTF-8、BOM 保留、含 NUL 为二进制）与 `renderVirtual` 是“同一份字节各处同一结论”和“读根与列根同一份文字”的规则，必须单一来源：搬进 `files/`，nbook 的 `files/shared/text.ts` 与 `schemes.ts` 改成 `export {…} from "@notnotype/nb-harness/files"`。neuro-book 已依赖 nb-harness，不增依赖；浏览器侧用到这两个纯函数时，子路径 `./files` 不带 node 或 pi-natives（该子路径的入口文件禁止 import 它们，由 architecture 测试守）。
+- 备选“把 `parseAddress` 整个搬进 harness 让 nbook 依赖回来”被放弃：文件服务的地址规则是 workspace.resources 这份 Spec 的内容，反过来受 harness 约束会让 files 插件依赖 Agent 的底座；NeuroBot 的规范地址（别名加 `file://` 外部路径）也不一定满足 NeuroBook 的路径规则（如盘符段），强行共用一个校验反而要放宽两边。
+
+3.5 工具、钩子、放回、内核适配器怎么接这个接口（harness 一侧导出）
+```ts
+export interface BuiltinToolDeps {
+  readonly filesFor: FilesFor;
+  readonly artifactsFor: (context: ToolSessionContext) => ArtifactStore;
+  readonly dialects: Dialects;
+  readonly wording: ToolWording;              // 见第四节“文案”
+  readonly changeMode?: ChangeModeSettings;   // 没有模式机的宿主（NeuroBot v1）不给，switch_mode 不装
+}
+export function builtinTools(deps: BuiltinToolDeps): Readonly<Record<ToolId, {declaration: ToolDeclaration; implementation: FileToolImplementation}>>;
+
+export interface PermissionHookOptions {      // 现有字段保留，files: WorkspaceFiles 换成下面两项，并注入项目规则
+  readonly filesFor: FilesFor;
+  readonly projectRules: (context: ToolSessionContext, signal?: AbortSignal) => Promise<Rule[] | "invalid">; // NeuroBook: 读 .nbook/permissions.json；NeuroBot: 读自己的规则文件
+  /* userRules、dialects、modeWriteAction、subjectsOf、modeOf、report 同现状 */
+}
+export class CompactionRestore { constructor(options: {filesFor: FilesFor; editStores: SessionEditStores; report: ...}); }
+export function kernelResources(files: Pick<FileAccess, "expand" | "read">): Resources; // 连同 ResourceReadError 一起搬来
+```
+`FileToolImplementation` 与现在的 `AgentToolImplementation` 同形，只是 `create(context, {files, artifacts})`。`ToolSubject`、`Rule` 这几个纯类型随钩子搬进 harness，nbook 的 shared/points 与 shared/permissions 改为 re-export（本任务范围内只需保证类型同一份）。
+
+====================================================================
+四、NeuroBook 一侧的实现要点
+====================================================================
+目标：行为、贡献 id、声明文字逐字不变；ADR 0040 一条不弱化。
+
+1. 接口直接由现有对象满足。`SessionResources` 已有 `expand`、`read`、`readPath`、`list`、`call(call)`，方法名故意与接口一致；结果类型（`ResourceResult`，失败里多带 `current`、`cause`）、`Listing | VirtualListing`、`Baseline`、`CommitExpect` 都是接口类型的子类型。因此适配只有一个函数：
+
+```ts
+// neuro-book/src/plugins/agent/backend/file-access.ts
+export function fileAccessOf(resources: SessionResources, context: ToolSessionContext): FileAccess {
+  return {
+    expand: resources.expand, readPath: resources.readPath, read: resources.read, list: resources.list, call: resources.call,
+    layout: neuroBookLayout(resources, context),
+  };
+}
+```
+并加一条编译期断言（`satisfies FileReader & AddressSpace`，放在 resources.test.ts 旁的类型测试）：`SessionResources` 的这几个方法一旦与接口失配就编译失败。`filesFor = (context, toolId) => fileAccessOf(sessionResources(options.files, context, toolId), context)`，在 `agent.ts` 里建一次，传给工具、内核、钩子、放回（现在这 4 个地方各自调 `sessionResources`；合并后只剩一个构造点）。`sessionResources` 仍只由 `nbook.agent` 构造，“别的插件拿不到能代表会话的读写”的不变量不变：`FilesFor` 只在 `agent.ts` 内部传递，不进 `AgentService`。
+
+2. 布局 `neuroBookLayout`：
+   - workdir：有主项目为 `projects://<id>`，否则 `sessions://<会话>/home`（即现在 `workingAddress` 的展开结果）。
+   - scratchRoots：`expand("session://")`、`expand("tmp://")`。localRoots：再加 `expand("project://")`（没有主项目则省略）。钩子里的 `inside()` 前缀判断保留，但对象换成这两个数组（取代钩子里写死的三个单数地址）。
+   - planFile：`expand("session://plan.md")`；transcript：`sessions://<id>/session.jsonl`。
+   - mustAsk：`access === "write" && resources.classify(address).write === "ask"`（即现在 `classifiedAsk`）。`classify` 与 `ResourceClass` 留在 `SessionResources` 里给第三方，harness 不见它。
+   - hidden：项目根的 `["/.nbook"]`（现在 search.ts 的 `controlExclude`，用 nbook 的 `parseAddress`）；其它为空。
+3. 写入保持 ADR 0040：`call(call)` 就是现在的 `bind(lazy(scoped), ...)`，一次调用的写入与文件操作成一个分组、来源带条目 id、`signal` 合并；文件服务暂存、拥有根的进程加锁提交。harness 的工具只调 `files.call(call).write(...)`，没有任何路径能绕过暂存写盘（第六节的架构测试守）。读继续是“拿本机路径自己读”。`readPath` 对挂载点会建目录而 `read` 不建（`previewEdit` 的注释依赖这个差别）：这是实现的行为，进合同测试，不能被统一成“都不建”。
+4. 宿主写全文：`sessionArtifacts` 原样保留，作为 `ArtifactStore`（`save` 的签名已经一样：label、写入函数、交回 `{address}`）。
+5. 注入项目规则：`projectRules = (context, signal) => readProjectRules(files, context.project, signal)`（现有 project-rules.ts 留在 neuro-book，因为它读 `.nbook/permissions.json`，这是 NeuroBook 的控制目录约定）。
+6. 文案（模型可见，必须逐字不变）：工具声明里与存放位置有关的文字有这些：`path` 参数的说明（“资源地址，例如 project://正文/第一章.md、session://plan.md”）、read 说明里的“目录与虚拟根”、edit 的 NOTE（“路径都是资源地址……不接受裸路径”）、grep 与 glob 的 `PATH_PARAMETER`（“缺省是 shell 的工作目录”“虚拟根不能搜”）、shell 说明。做法：harness 导出 `readDeclaration(wording)` 之类的函数，`ToolWording` 是一个小对象（路径示例、路径参数说明、edit 的 NOTE、搜索根说明、shell 里关于地址的段落）；harness 不提供缺省值，NeuroBook 的原文放在 neuro-book 里。验证：在搬迁之前先用当前代码把全部声明（id 到 JSON）导出为快照文件，搬完后在 neuro-book 里 `expect(现声明).toEqual(快照)`。`description` 里调用 pi-natives 的 `editDescription`、`editGrammar` 不变。
+7. 模式机：`switch_mode` 与 modes 的提醒文字（里面有 `session://plan.md`、`tmp://`）整体留在 neuro-book，harness 只导出钩子所需的闸门分类（scratch 判断读 `layout.scratchRoots`）。理由：NeuroBot 第一版没有讨论、计划模式，搬进去没有第二个使用者；`planFile` 保留在布局里，将来要搬再搬。
+8. 第三方：`services.resources` 即 `SessionResources`，类型、行为不动；`AgentToolServices` 不加字段；内置工具的包装层（neuro-book 里 `builtinTools` 的接线）在 `create(context, services)` 里调 `fileAccessOf(services.resources, context)`。
+
+====================================================================
+五、NeuroBot 一侧的实现要点
+====================================================================
+包 `packages/neuro-bot`，一个文件 `files.ts`（约 300 行）加布局与默认规则。直接读写本机，不经 nb-runtime 的文件服务，也不经 NeuroBook 的任何东西。
+
+1. 规范地址与 `expand`（同步，纯运算，不碰磁盘）：
+   - 两个别名：`workspace://`（`<数据目录>/workspace`）与 `memory://`（`<数据目录>/bots/<bot>/memory`）。别名里出现 `.`、`..`、空段、反斜杠为 `invalid-address`（与 NeuroBook 同样不去点段，先校验后拼接）。
+   - 本机路径：相对路径按工作目录（workspace）解析；绝对路径（POSIX 的 `/…`，Windows 的 `C:\…`、`C:/…`、UNC）先用 `node:path` 规范化。落在两个根里的（Windows 上大小写不敏感比较）改写成别名地址，落在外面的写成 `file://<规范化后用 / 的绝对路径>`（如 `file:///home/x/a`、`file:///C:/Users/x/a`）。这是全接口里唯一处理 Windows 路径的地方；其余代码只见规范地址。
+   - 幂等：`expand(expand(x))` 等于 `expand(x)`；同一文件的不同写法（斜杠方向、盘符大小写、`./`）得到同一个规范地址。
+   - 规范地址里的 `file://` 不满足 NeuroBook 的路径规则（盘符段），所以不与 `parseAddress` 共用，见第三节 3.4。
+2. `readPath`：规范地址换回本机路径，`fs.realpath.native` 得到规范路径（同一文件同一字符串，Windows 上也是真实大小写），ENOENT 为 `not-found`；`<方案>://` 只对 `workspace`、`memory`、`file` 登记，别的为 `unknown-scheme`。符号链接按最终目标给路径，指向根外也给；是否问用户由默认规则按规范地址的字面判断（与 NeuroBook 一致：授权在入口按地址做，shell 能做的事不在其内）。这是已知缺口，写进 Spec 的“已知限制”，不假装拦住。
+3. `read`：读字节加 SHA-256 基线（与 nbook 同算法 `{hash}`），超过 32 MB 为 `too-large`。`list`：`readdir` 加类型，没有虚拟根。
+4. `call(call).write`：这是需求第 5 条（写锁、暂存改名、每次改动记一条）的落点。
+   - 锁：每个根一把进程内的异步互斥（键为规范化的根路径，Windows 上小写）。数据目录已由 gateway 独占认领，所以进程内锁足够；shell 或外部编辑器直接写会绕过它，靠基线检测：下一次带基线的写得 `conflict`（与 ADR 0040 同样承认“记账只对守约方成立，不是安全边界”）。
+   - 在锁里：读现状算哈希；`expect` 是基线而不相等、或 `absent` 但已存在，得 `conflict`；否则在同目录写 `.<name>.<uuid>.tmp`（同卷才能原子改名），刷盘，`rename` 覆盖。Windows 上目标被别的进程短暂占用时 rename 报 EPERM 或 EBUSY：做 3 次短退避重试，仍失败为 `io-failed`。出错或取消时删掉临时文件。
+   - 记账：改名成功后、仍在锁里，追加一行 JSON 到 `memory/.changes.jsonl`：`{at, session, call(callId), source(主对话、任务运行、将来的外部渠道), op, path(别名地址), before(哈希或 null), after}`。顺序是先改名后记账：崩溃时最坏丢一条记录，不会留下“记了但没改”的假记录（ADR 0040 同样的取舍）。锁里读到的现状哈希与内存索引里该文件上次记的 `after` 不一致时，先补一条 `source: "external"`，这样 web 上看到的链条是连续的。
+   - 只有记忆根需要记账与来源限制；workspace 写同样走暂存加改名（原子），不记账。
+   - 来源限制：`filesFor(context)` 知道会话是主对话还是任务运行；任务运行写核心记忆文件得 `permission-denied`（只能写日记文件）。这是实现里的判断，不是接口的一部分。
+   - 取消：锁等待与写入都看 `signal`；锁前取消直接 `cancelled`，改名之后不再取消（已提交）。
+5. 布局：workdir `workspace://`；localRoots `[workspace://, memory://]`；scratchRoots `[]`（第一版无讨论、计划模式）；mustAsk：权限规则文件与 bot 设置文件的写（防止模型在放行规则下改自己的权限，和 NeuroBook 的 `user://` 同一道理）；hidden：`[]`。
+6. 审批：“目录之外的读与写要批准”用 `userRules()` 层提供的缺省规则，不是接口：
+   每个工具一条（read、grep、glob、write、edit*，工具名模式只支持 `*`，不支持 `|`）：`{tool: <工具>, when: {not: {any: [{type:"path", glob:"workspace://**"}, {type:"path", glob:"memory://**"}]}}, action: "ask"}`。
+   规则按规范地址字面匹配，所以绝对路径必须先被 `expand` 规范成别名，这也是上面第 1 点要把本机路径规范化的原因之一。用户加一条放行规则就能让某个外部目录不再问，行为符合直觉。shell 命令按它的方言走“执行命令要批准”（提案第 7 小节），不在这一层。
+   主对话审批 30 分钟没人回应按拒绝、任务运行的工具清单，是钩子外层的 NeuroBot 逻辑（`approve` 包一层），与本接口无关。
+7. `ArtifactStore`：写到 `workspace://.artifacts/<会话>/<label>-<uuid>.log`，同样暂存加改名，宿主身份，不记账；模型之后用 read 读它，在 workspace 里所以不触发询问。
+8. 工具文案：NeuroBot 自己的 `ToolWording`（路径可写别名地址或本机路径，示例用 `memory://notes.md` 与 `workspace://x.md`），不改工具数量与参数。
+9. Windows：`Located.path` 经 realpath.native 规范；命令里替换进去的本机路径在 harness 的 shell 工具里统一换成正斜杠再按引号上下文转义（现在的 `substitute` 只处理引号，没处理反斜杠）。pi-natives 原生包与 bash 方言在 Windows 上是否可用是 t32 之外的风险，这里只写一句不展开。
+
+====================================================================
+六、要守住的不变量，与怎么用测试守
+====================================================================
+合同测试套件：`@notnotype/nb-harness/files/testing` 导出 `fileAccessContract(name, makeAccess)`，两个应用各自在自己的包里用真实实现跑（NeuroBook 用真实插件宿主，沿用 resources.test.ts 的搭法；NeuroBot 用临时数据目录，由 createTestTmpRoot 提供）。不用替身冒充实现。套件里每条对应下面一条不变量。
+
+A. 写只有一个入口（ADR 0040）
+ - 守法：`src/files/architecture.test.ts` 用 TypeScript 语法树扫 `builtin-tools/` 与 `compaction-restore/`：不得导入 `writeFile`、`appendFile`、`rename`、`copyFile`、`unlink`、`rm`、`createWriteStream`、`Bun.write`（shell 的溢出临时文件在 tmpdir，单独列一个白名单文件并写明理由），也不得导入 nb-runtime、neuro-book、`nbook/*`。
+ - 守法：套件里 `write` 之后用独立的 `readPath` 读，内容一致；`expect` 为旧基线得 `conflict`，`absent` 对已存在得 `conflict`，`any` 覆盖；取消后目标不变、没有残留临时文件。
+B. 同一次调用的写成一组、来源带调用 id（NeuroBook）：保留 resources.test.ts 验收 6（一次调用里写两个文件、删一个，浏览器订阅收到三条事件，来源都是该会话、带这次调用的条目 id 与同一个组）一行不改；harness 侧用一个记录调用的假 `FileAccess` 断言“edit 一次改两个文件只调用一次 `call`，且 write 带 `expect` 为 read 到的基线”。（这里的假实现只测工具对接口的用法，不替代上面两个应用的真实实现测试。）
+C. 记忆目录写锁、暂存改名、每次改动记一条（NeuroBot）：两次并发写同一文件，恰好一次成功或串行成功且记录两条、顺序与文件内容一致；写到一半崩溃（在 rename 前抛错）后目标不变、无临时文件、无记录；每条记录含时刻、会话、调用 id、来源；外部改动后下一次带基线写得 `conflict`；任务运行写核心记忆得 `permission-denied`。
+D. 读不建目录、`readPath` 对挂载点会建（NeuroBook 的行为，`previewEdit` 的注释依赖）：套件里放一条“实现可选”的断言，由实现声明 `createsMountOnLocate`；NeuroBook 为真，NeuroBot 为假。
+E. 地址解析：
+ - `expand` 幂等；同一文件不同写法得同一个规范地址（NeuroBot 含 Windows 盘符大小写与斜杠方向，用 `path.win32` 的纯函数测试在 Linux 上也跑，另在 Windows CI 上跑真实目录）。
+ - 先校验后拼接，不去点段：`session://a/../b`、`workspace://../x` 为 `invalid-address`。
+ - `readPath` 对不存在的路径为 `not-found`，对未登记的方案为 `unknown-scheme`；`readPath` 对同一文件的不同写法给出同一个 `path` 字符串（EditStore 以它作键，不一致则行锚在 edit 里“找不到”）。
+ - 形状一致：实现给出的合法地址满足 `isAddressLike`，`schemeOf` 一致。
+F. 码表：套件逐项验证第三节 3.3 的码在对应情形出现（含取消为 `cancelled`、失败经结果交回而不是抛错）。
+G. 声明逐字不变：搬迁前先把全部内置工具声明导出成快照文件提交；搬完在 neuro-book 里 `toEqual` 快照。同时保留现有的贡献 id 测试。
+H. 第三方面不变：`services.resources` 的类型和行为由 resources.test.ts 现有用例守（不改一行）；再加一条 SDK 的类型快照测试（`sdk/files.ts` 导出名单与 `AgentToolServices` 的键集合不变）。
+I. 行为不变的端到端：builtin-tools.test.ts、builtin-tools-project.test.ts、permissions.test.ts、compaction.test.ts、modes.test.ts 一行不改；搬迁提交之内这些必须全绿，不放宽断言。`test:llm` 的 smoke（builtin-tools.llm.test.ts）在合入前跑一次。
+J. 钩子：NeuroBook 现有的 permissions.test.ts 全部保留；新增一条 NeuroBot 默认规则的测试：读 `memory://x.md` 放行、读 `file:///etc/passwd` 询问、读 `C:\Users\x\a.txt`（经 expand 规范成 `file:///C:/Users/x/a.txt`）询问、读绝对路径指向 workspace 内的文件放行。
+K. 放回：`recentFiles` 与放回的行锚与 `read` 给的一样能被 edit 认（现有 compaction.test.ts）；加一条用 NeuroBot 实现的放回用例，确认 `Located.path` 一致使行锚可用。
+
+====================================================================
+七、考虑过又放弃的备选
+====================================================================
+1. 不建接口，两边各写一套工具：约 2,400 行复制，分页、行锚、取消的 bug 要修两遍。
+2. harness 直接依赖 `WorkspaceFiles`（全量）：NeuroBot 要实现十几个用不到的方法，类型还牵着 nbook 的 TypeBox schema。
+3. 虚拟文件系统式接口（readFile、writeFile、readdir、stat）：grep、glob、shell、EditStore 都要真实路径，原生工具绕过它，ADR 0040 的“读拿路径自己读”也被推翻。
+4. 接口只收本机路径、不收地址：丢掉会话来源、分组和 `session://` 这类单数地址，NeuroBook 的审批规则也没法写。
+5. 把 `parseAddress` 整个搬进 harness 让 nbook 依赖回来：让文件服务反向依赖 Agent 底座，且 NeuroBot 的 `file://` 外部地址过不了 NeuroBook 的路径规则。只共用“形状”和两个纯函数。
+6. 新建一个叶子包放地址语法：多一个要发 npm 的包，而要共用的只有 30 行形状加两个纯函数，不值。若以后第三个使用者出现再拆。
+7. 在接口里加 `classify` 返回读写三态和区域（草稿、本地、外部）：NeuroBot 的“外部读要问”用规则层就能表达（规则已有 `not`、`any`、路径 glob），不改钩子；只留强制询问的 `mustAsk`。这个备选的代价是把读闸门写死在钩子里，用户就没法用一条放行规则关掉。
+8. 接口里留 `stage` 给工具：工具只写整份文本，流式只有 shell 溢出，且它是宿主身份；单独的 `ArtifactStore` 更小，也保住“Agent 不能写 artifacts/”。
+9. 新增 `hasScheme(scheme)` 方法代替 `readPath("<方案>://")` 探测：更干净，但改变 NeuroBook 现有对象的形状，要加适配层；探测的约定写进合同测试即可。留作以后清理项。
+10. `SessionResources` 直接 `extends FileAccess`：`classify` 与 `layout` 的语义不同，且会让第三方可见类型多出 `layout`。用结构满足加一个适配函数，公开类型不动。
+11. 给 `AgentToolServices` 加 `files` 字段：这是第三方可见的合同，不动。
+12. 工具文案放在 harness 里做缺省：harness 就带着 `project://` 之类 NeuroBook 专有说法，NeuroBot 要覆盖全部字段；改为 wording 必填，原文留在各自应用。
+
+====================================================================
+八、迁移顺序与风险（给实施用）
+====================================================================
+1. 先不动代码：导出声明快照；记录现有测试基线（受影响文件清单跑一遍）。
+2. 加 `src/files/`（类型、地址形状、decodeText、renderVirtual、码表、合同套件）；nbook 的 text.ts、schemes.ts 改为 re-export；这一步只加不删，NeuroBook 测试全绿后提交。
+3. NeuroBook 的 `fileAccessOf`、`filesFor` 与编译期断言；`agent.ts` 里 4 个构造点合并成一个。
+4. 按 read、write、edit、search、shell、放回、钩子的顺序逐个搬进 harness，每搬一个跑对应的现有测试；搬的时候只改导入与注入，不改逻辑。`ToolWording` 与快照测试在搬 read 时一起落地。
+5. NeuroBot 的实现可以与第 4 步并行，用合同套件驱动。
+风险：(a) 声明文字漂移，靠快照；(b) `SessionEditStores` 与放回共用的行锚快照生命周期，搬迁时保持“按会话引用计数”的现状；(c) `Located.path` 在 Windows 上的规范化与 pi-natives 返回的相对路径分隔符（需要在 Windows 上实测一次，若是反斜杠则在 search 里统一替换成 `/` 再拼地址）；(d) 放回与钩子目前每次调用都新建资源视图，换成注入的 `filesFor` 后要确认会话换 Profile 时仍按新上下文重建（Spec 的时序要求），所以 `filesFor` 必须按调用时的 `context` 现算，不缓存在会话级。

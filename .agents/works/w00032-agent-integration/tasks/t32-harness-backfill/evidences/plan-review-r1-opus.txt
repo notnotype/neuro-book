@@ -1,0 +1,112 @@
+# w00032 t32 计划审查（Opus，只读）
+审查对象：/tmp/review-w00032-t32-design/plan-900867d0a.md
+
+### 1. “浏览器第一次在运行期导入 nb-harness”这条前提不成立，风险兜底针对错了对象（严重程度：低）
+位置：计划“不做与风险”第 2 条；“models/rules.ts”一节末段
+问题：计划说“现在 web 只从 nb-harness 导入类型”，把 `./kit/shapes`、`./models/rules` 当成浏览器第一次运行期导入 nb-harness。实际浏览器早已运行期导入：`packages/neuro-book/src/plugins/agent/shared/remote.ts:16` 是值导入 `import {commandErrors, storageErrors} from "@notnotype/nb-harness/kernel/contracts"`，而 `web/plugin.ts:44` 值导入 `agentSessionsContract`（来自 `shared/remote`）。所以 Vite 解析 nb-harness 的 `exports`、打包 nb-harness 源码这条路已经被走通。
+依据：上面两处文件:行。
+建议：把这条风险改写成真正新增的部分：新增的两个子路径各自的导入链（`kit/shapes.ts` 若为拿 `ToolEffect`、`ToolCall` 等类型去引 `kernel/contracts`，必须是 `import type`；见第 3 条 `models/rules.ts` 的同类问题），以及 `vue-tsc -p tsconfig.web.json`（`types` 只有 `vite/client`，没有 bun 类型）会顺着新的类型导入把哪些 nb-harness 源文件拉进类型检查。现有前提错，容易让实施者以为 `vue-tsc` 过了就证明了“OMP 不进浏览器包”，而这两件事无关。
+
+### 2. `modelChoice` 的签名与注释漏了“按用途定角色”这两步，照字面实现会改变模型选择（严重程度：高）
+位置：计划“`packages/nb-harness/src/models/rules.ts`（设计问题 7）”的代码块与“理由”段
+问题：现在的选择顺序是 `packages/neuro-book/src/plugins/models/backend/core.ts:340-347`：先 `query.role`，再 `purpose === "compaction"` → 角色 `compaction`，再 `purpose === "approval"` → 角色 `fast`，然后才是会话选择、Profile 的 `model`、Profile 的 `role ?? "main"`。计划给 `modelChoice` 写的注释只有三步“指定的角色、会话选的、Profile 缺省的模型或角色”，`MODEL_ROLES` 只列 `main`、`fast`、`compaction` 三个 id，没有表达“用途 approval 用 fast 角色”。照字面实现，`approval` 用途会落到会话选的模型，`auto` 的审批模型从快模型变成对话模型，行为变化且没有测试点名（计划的验收映射只说 `models.service` 输出 8、9 由搬来的测试覆盖）。另外计划“理由”里“审批模型按用途 approval、取不到时退回会话模型”是 kit 侧 `auto-review.ts:131-133`（`role-unbound` 时带 `sessionModel: true` 重试）的行为，与端口的选择顺序是两回事，写在一起容易让人以为退回会话模型由 `modelChoice` 负责。
+依据：`core.ts:340-347`；`auto-review.ts:131-133`；`nb-harness/src/kernel/api/model.ts:163-170` 的 `ModelQuery`（`purpose`、`role` 分开）。
+建议：`modelChoice` 的注释与返回值把五步写全（指定角色 → 用途对应的角色 → 会话选择 → Profile 模型 → Profile 角色或 `main`），用途到角色的表作为常量导出（例如 `PURPOSE_ROLES = {compaction: "compaction", approval: "fast"}`），在 `rules.test.ts` 里逐步各一条用例；变异检查里“选择顺序”那一项明确包括用途这两步。
+
+### 3. `models/rules.ts` 要的 `ModelQuery` 类型从哪里导入，计划没定；现有边界测试只放行会拖进 OMP 的那个入口（严重程度：中）
+位置：计划“`models/rules.ts`（设计问题 7）”末段“`rules.ts` 只引 `typebox`……`boundary.test.ts` 的允许表加 `typebox`”
+问题：`modelChoice(query: ModelQuery, …)` 需要内核的 `ModelQuery`（`nb-harness/src/kernel/api/model.ts:163`）。`src/models/boundary.test.ts:10` 的 `ALLOWED` 只放行 `../kernel/index.js`，不放行 `../kernel/contracts.js`；而 `kernel/index.ts` 值导出 `ompCall`、`ompModelInfo`（`./model/omp.js`，引 OMP 与 `Bun.Image`）、`createJsonlStore` 等。实施者照现有测试写 `import type {ModelQuery} from "../kernel/index.js"`：运行期会被擦掉，但 `vue-tsc -p tsconfig.web.json`（`types: ["vite/client"]`，没有 bun 类型）会顺着这条类型导入检查整个内核，`Bun.*`、`node:` 的类型可能报错；有人顺手写成值导入，OMP 就进浏览器包。计划说的“单独核对 `rules.ts` 不引 `node:` 与 OMP”只看 `rules.ts` 自己的说明符，拦不住经 `kernel/index.js` 的传递依赖。
+依据：`boundary.test.ts:10`；`kernel/index.ts` 的导出列表；`packages/neuro-book/tsconfig.web.json` 的 `types`。
+建议：明确 `rules.ts` 只 `import type` 自 `../kernel/contracts.js`（它注明“不拖内核实现”），边界测试对 `rules.ts` 单列允许表：`typebox`、`../kernel/contracts.js` 且必须是 `import type`；或者 `modelChoice` 的参数改成结构类型 `Pick<ModelQuery, …>` 的本地等价物，彻底不引内核。
+
+### 4. `kit/compaction` 要用 `models/rules.ts` 的角色常量，但 kit 的分层表和导入规则都不允许（严重程度：低）
+位置：计划“总体：`src/kit/`”的分层表（`compaction/` 只可依赖 `files`、`tools`）与“只经内核公开入口……也不引旧 harness（`src/*.ts`、`src/tools/`）”；“`kit/compaction/`”一节“角色 id 用 `models/rules.ts` 的常量”
+问题：两处自相矛盾。照分层表写的 `kit/architecture.test.ts` 会拒绝 `kit/compaction/summary.ts` 引 `../../models/rules.js`；若为通过测试再在表里加一条，`kit/` 就依赖了 `src/models/`，而 `src/models/index.ts` 是 OMP 适配层，以后有人从 `../../models/index.js` 取东西也很难拦。
+依据：计划两处原文；现 `compaction/summary.ts:80,102` 写的是字面量 `"compaction"`。
+建议：在分层表里显式登记 `compaction/` 可依赖 `../../models/rules.js`（只这一个文件），或把 `MODEL_ROLES` 放进 `kit/shapes.ts` 由 `models/rules.ts` 转出；二选一写进计划。
+
+### 5. 句柄表换成 `clock.wait` 后，“取消”在到点之后不再生效，复查回调要自己识别过期的计时（严重程度：中）
+位置：计划“`kit/guards/`、`src/kit/sessions/`”第 2 条（“只比现在晚一个微任务”“then(复查并关闭, 忽略中止)”）；“不做与风险”的“SessionTable 换时钟”
+问题：现在 `sessions.ts:276-281` 用 `RuntimeClock.schedule`，取消函数同步摘掉计时，回调里 `entry.cancelIdle = null` 清的一定是自己。换成 `clock.wait(...).then(cb)` 后，到点时 `kernelClock`（`agent.ts:76-95`）在 `schedule` 回调里先 `resolve()`、摘掉 abort 监听，`cb` 排在微任务里；这之间如果同一个同步段里有人调了 `cancelIdle()`（`controller.abort()`）再经 `#release` → `#maybeIdle` 登记了新计时，旧的 `cb` 仍会跑：把新的 `entry.cancelIdle` 清成 null，且按当时的 `refs === 0 && idle` 直接关掉会话，新的 30 秒计时作废。nb-runtime 的 `ManualClock.advance`（`nb-runtime/src/lifecycle/testing/manual-clock.ts:24-31`）正是在一个同步段里按先后执行全部到点回调，并注明“前一个回调可能已取消它”，现有实现依赖取消同步生效；`agent.test.ts:336` 就有 `advance(IDLE_CLOSE_MS * 2)` 这种一次跨过多个计时的写法。生产上的真实时钟每个计时一个宏任务，窗口很小，但“只晚一个微任务”的结论只在“到点与取消不在同一同步段”时成立，计划没写这个前提。
+依据：上述文件:行。停止顺序本身（`stop` → `closeGate` → `#close` → `cancelIdle`）不受影响：`abort` 让 `wait` reject、被忽略，`#close` 照旧。
+建议：回调开头先查 `controller.signal.aborted` 与 `entry.cancelIdle === 本次的取消函数`，不是就直接返回；`sessions/table.test.ts` 加一条：同一次 `advance` 里先到点、后取消再重登记，断言会话没被提前关。或者 kit 的句柄表直接收一个 `schedule(cb, ms) => cancel` 形状的计时口（与 `RuntimeClock` 同形），不经 `Clock.wait`，保留同步取消的语义。
+
+### 6. 判定者只在 `auto` 的第 6 步可换；其余转问一律交给用户，NeuroBot 要“bot 判定工具调用”只能复制整个钩子（严重程度：高，涉及开发者决定 2）
+位置：计划“`kit/approval/`”的 `Reviewer`、`createApprovalHook` 与“怎么接”一段
+问题：开发者定的是“判定接口不能写死判定者”，层面是“工具调用这一层”。计划的 `review` 只在 `decide` 交回 `review`（`approvalMode === "auto"` 且不是本地写）时调用；规则的 `ask`、模式闸门的 `ask`、地址分类为 `ask` 的写（`user://`，`hook.ts` 里 `classifiedAsk`）、项目规则读坏后的 `ask`、`auto` 下审批模型转人工，全部作为 `{verdict: "ask"}` 交回内核问用户，判定者仍被写死为用户。`auto` 下本地写（`isLocalWrite`）又绕过判定者直接放行。计划给的出路是“用导出的 `decide` 与 `createApprovalHook` 之外的组合自建钩子”，但把调用整理成判定对象的部分（`hook.ts` 的 `buildViews`、`redirectTarget`、`classify` 闸门分类、`isLocalWrite`、`rememberFor`，约 150 行）计划没说导出，自建就要复制，以后两份分叉。NeuroBot 提案第七节还要“任务运行不等审批，清单外直接拒绝”，同样需要在“要转问用户”这一点换成别的处理。
+依据：`packages/neuro-book/src/plugins/agent/backend/permissions/hook.ts:43-95`（`decide` 之后只有 `review` 一个分叉）、`judge.ts:27-46`；`docs/proposals/neurobot.md` 第 157-161 行。
+建议：把“谁来回答需要询问的调用”做成钩子的一个选项，例如 `escalate?: (request: ReviewRequest & {source: "rule" | "gate" | "address" | "rules-invalid" | "reviewer"; reason?: string}, ctx) => Promise<ApprovalVerdict>`，缺省原样交回 `ask`（NeuroBook 不传，行为不变）；或者导出一个纯的 `evaluate(call, info, ctx) → {decision, request, remember}`，`createApprovalHook` 建在它上面，宿主可以只换最后一步。两种都不改内核，也不改 NeuroBook 的行为；计划至少要写明选哪种，免得 NeuroBot 落地时回头改 kit 的公开接口。
+
+### 7. `localFiles` 被定位成 NeuroBot 的实现，但缺 NeuroBot 提案明写要的写锁与改动记录，`forCall` 把调用身份丢了（严重程度：中）
+位置：计划“`kit/files/`”的 `files/local.ts` 段；“需要开发者确认”第 4 条
+问题：计划说 `localFiles` “也是 NeuroBot‘直接读写 bot 的电脑’的实现”，`write` 是“按基线核对后写临时文件再改名”，`forCall` “不分组”。NeuroBot 提案第五节对记忆目录的要求是“目录一把写锁，写暂存文件后改名；每次改动记一条（时刻、会话、工具调用、来源）”。按计划的写法：(a) 没有锁，核对基线与改名之间另一个会话（主对话与任务会话共用一台电脑，提案第七节）的写入会被静默覆盖，`expect` 失去意义；(b) `forCall(call)` 交回的 `FileCalls` 不带 `callId`、会话，`localFiles` 的选项里也没有记录改动的回调，NeuroBot 想记“哪个会话哪个调用写的”只能另包一层、自己再实现一遍 `forCall`；(c) `classify?` 可选但没写缺省值，缺省若是 `allowed`，`allow-writes` 下 bot 可以改自己的规则与设置文件（NeuroBook 靠 `user://` 分类为 `ask` 防这一点，`permissions.md` 输出 7）。这些不补，NeuroBot 实际用时要改 `localFiles` 的选项形状，即改 kit 的公开接口。
+依据：`docs/proposals/neurobot.md` 第 131 行（写锁、改动记录）、第 155-156 行（共享一台电脑、文件访问由 NeuroBot 实现）；计划原文。
+建议：二选一写清。其一，`localFiles` 只定位为 kit 测试的真实依赖与参考实现，确认项第 4 条改成“NeuroBot 自己实现 `SessionFiles`，可以包 `localFiles`”；其二，现在就给它进程内按根的写锁（基线核对与改名在锁内）、`onWrite({address, session, callId, title})` 回调，`classify` 缺省为 `denied` 或必须传。无论哪种，确认项第 4 条的“NeuroBot 也直接用它”要与提案“文件访问由 NeuroBot 实现”对齐。
+
+### 8. baseline 只覆盖宿主文字，kit 自带的、同样进日志与模型上下文的文字不在对照里（严重程度：中）
+位置：计划“切片”开头的 baseline 清单；“不做与风险”第 1 条
+问题：dump 清单是工具声明、三段摘要提示词、模式提醒、审批请求、三条原因串、扩展 id。计划自己列为“kit 自带、保持不变”的文字没有一条在里面：放回的两句提示（`compaction/restore.ts:97,109`）、shake 的三种占位、`MODE_BLOCKED_TEXT`（`judge.ts:20`，经 `params.reason` 进工具结果）、循环守卫的提醒、摘要输入里对话的排版（`summary.ts:27-28` 的“【用户】”“【助手】”“工具结果（失败）”）、会话标题的材料格式（计划把它改成 `SessionMeta` 的 `material` 选项）。这些文字恰好是要改写成“函数参数 + 模板”或拆到两个包的那部分，最容易在搬动中改了一个字；计划说“测试按规范不锁措辞”，于是这些变化没有任何东西拦。风险段写的兜底范围（“文字或 id 被改了一个字”）比 dump 实际覆盖的大。
+依据：上述文件:行；计划“保持不变的通用文字”一句与 baseline 清单对比。
+建议：baseline 再加：用固定输入跑 `CompactionRestore.run` 得到的放回消息、`shakeMethod` 对一段固定对话的输出、`MODE_BLOCKED_TEXT`、循环守卫的提醒文字、`summary` 对固定消息的输入串、标题生成的两种材料。都调真实函数，搬前搬后同一份输入。
+
+### 9. 搬进 kit 的测试改跑 `localFiles`，但没有一条测试证明 `localFiles` 与 NeuroBook 的 `SessionFiles` 在 kit 依赖的失败码上一致（严重程度：中）
+位置：计划“验收映射”末段的拆分规则；“`kit/files/`”的 `files/local.ts` 段
+问题：kit 的工具按失败码分支：`read` 靠 `unsupported-capability` 认出虚拟根（`builtin/read.ts:230`），`shell` 靠根地址探测的 `unknown-scheme` 判方案是否登记、靠逐级 `not-found` 往上找祖先（`builtin/shell.ts:176-195`），`grep`/`glob` 按 `DROP` 集合丢文件（`builtin/search.ts:70-76`），`edit` 按 `not-found` 换提示（`edit.ts:109`）；另外 `readPath` 对挂载目录有“会建目录”的副作用（`edit.ts:189` 注释）。搬走的约一半用例（分页、大文件、引擎规则、配额、shell 环境与地址替换、全文保存、预览试算）以后只在 `localFiles` 上跑。对 NeuroBook 来说，`localFiles` 就是一个替身；测试规范要求“替身要与真实实现对过契约”（`docs/testing/README.md:16`）。计划只给 `decodeText` 安排了两边对照（风险第 3 条），没给 `SessionFiles` 本身安排。将来 `nbook.files` 改了某个码（例如虚拟根改报别的码），kit 的测试全过，应用里“每块一条集成用例”也未必碰到那条分支。
+依据：上述文件:行；`docs/testing/README.md` 第 16、56、216 行。
+建议：在 nb-harness 的 `kit/files/` 写一份参数化的 `SessionFiles` 合同测试（导出成可复用的测试函数，像 `kernel/testing` 那样经子路径提供），覆盖 kit 依赖的每个码与 `locate` 的种类；`localFiles` 与 NeuroBook 的 `sessionFiles` 各跑一遍（后者在 `resources.test.ts` 里调用）。这样“依赖用真的”与“替身对过契约”同时成立。
+
+### 10. 代码与守它的测试在同一片里一起搬、一起改写，“行为不变”在那一片里没有不动的测试作对照（严重程度：中）
+位置：计划“切片”第 4–8 片（“测试按‘验证’一节的规则搬”）；“验收映射”首句“行为不变，每条输出由原来的测试守着”
+问题：要搬的用例大多不是纯函数测试：`builtin-tools.test.ts` 开 `agentWorld`（整套应用插件）加 `fakeEndpoint` 的脚本化模型，经会话事件断言工具结果（`builtin-tools.test.ts:32-35,97`）；`auto-review.test.ts` 的“问审批模型”“模型看到什么”同样经 `agentWorld` 与真实的模型端口（`role-unbound` 回退依赖 NeuroBook 的 `fast` 角色没绑）。搬到 nb-harness 后只能用内核的 `createTestSession` 和 `localFiles` 重写夹具与驱动方式，属于改写而不是搬动。同一次提交里实现与测试都换了，测试过了只说明“新测试认可新实现”，不能说明与搬前一致；计划说的“原来的测试守着”在这几片里并不成立。另外 `auto-review.test.ts` 的“哪些调用到不了模型”一组前两条（本地写直接放行、规则先判）计划没写去向。
+依据：上述测试文件:行；计划“验收映射”的拆分规则。
+建议：每片分两步提交：先只搬实现、应用的测试一行不改（只改导入）照跑通过，作为不变性的证据；再在下一次提交里把用例改写到 kit、删应用里的重复用例。验收映射里给 `auto-review.test.ts` 每一组写明去向。
+
+### 11. 计划自定“日志里的字符串不变”，又在两处改了会进日志的文字，依据只是“测试没断言”（严重程度：低）
+位置：计划 Context“用户可观察的行为、贡献 id、设置、日志里的字符串与界面都不变”；“`kit/approval/`”末段（`permission-rules-invalid` 的消息去掉 `.nbook/`）；“`kit/sessions/`”第 2 条（错误类改名、消息不再写 `nbook.agent`）
+问题：`permission-rules-invalid` 的消息经 `options.report` 进诊断（`hook.ts:56`）；`AgentStopping` 的消息 `"nbook.agent is stopping"`、类名 `AgentStopping`/`AgentSessionUnavailable` 在别的错误路径上会作为 `cause.name`/`message` 进远程诊断（`remote.ts:81-83`）。这些都是自己定下的不变量的例外，理由“没有测试断言”恰好是不变量要防的情形（风险第 1 条自己说测试不锁措辞）。
+依据：上述文件:行；计划原文。
+建议：要么让这些文字也由宿主传入（`projectRulesInvalidMessage`、错误类收一个 `owner` 名），NeuroBook 原样传；要么在 Context 里把它们明确列为允许变化的例外，写进 baseline 的“预期差异”。
+
+### 12. 计划没按开发者决定 3 更新：`modelChoice` 的理由与确认项第 6 条仍按“NeuroBot 自己实现模型端口”写（严重程度：中）
+位置：计划“`models/rules.ts`（设计问题 7）”的“理由”段；“需要开发者确认”第 6 条；Context 的“开发者已确认”只记了决定 1、2
+问题：开发者 11-10 选了 (b)：模型服务（`models/backend/core.ts`，含“按角色解析模型”与“给 harness 的模型端口”）由 w00043 t02 抽成包，两边共用，排在 t32 之后（`.agents/works/w00043-neurobot/tasks/t02-host-base/README.md` 第 21、29 行）。计划仍写“NeuroBot 的模型端口要照它实现”，并以此为由在 t32 里把 `port.resolve` 的选择顺序抽成 `modelChoice`、改 `core.ts`。按决定 3，NeuroBot 不会另写模型端口；`core.ts` 会在 t02 整体搬走，t32 先改一遍、t02 再搬一遍，选择顺序也会在 t02 的计划里被重新定位置。kit 本身不需要 `modelChoice`：摘要方法与审批模型都只经内核的 `ctx.model({purpose, role})` 取模型（`compaction/summary.ts:102`、`permissions/auto-review.ts:131-133`），选择是端口实现的事。
+依据：上述文件:行；t32 README“当前状态”写明要等待定项 1 的答复再改计划。
+建议：t32 只搬 `shared/rules.ts`、`shared/compaction.ts`（浏览器也要用的纯规则，t02 的服务会依赖它们），`port.resolve` 留给 t02 随 `core.ts` 一起搬；确认项第 6 条改为“不搬，留给 w00043 t02”，或者若坚持现在搬，理由改成“为 t02 预先拆出纯函数”，并在 t02 README 里记一笔避免两边各做一次。Context 补上决定 3 及其对本计划范围的影响（本 Task 不碰 `core.ts` 的服务部分、`server/`、`web/`）。
+
+### 13. “工具不自己写盘”的静态检查只看 `node:fs` 具名导入与 `Bun.write`，漏掉同样能写盘的写法（严重程度：低）
+位置：计划“总体：`src/kit/`”第 3 条；“不做与风险”最后一条（兜底是只读名单）
+问题：照计划写的检查拦不住：`Bun.file(p).write(...)`、`Bun.file(p).writer()`、`Bun.$` 与 `Bun.spawn`（工具里起子进程写盘）、`import * as fs from "node:fs/promises"` 后调 `fs.writeFile`（若检查只看具名导入）、动态 `import("node:fs")`；`@oh-my-pi/pi-natives` 的 `EditSession` 不给写入回调时会自己写（现在 `edit.ts` 给了 `writer`，`edit.ts:139-146`，但检查不守这一点）。计划把这条检查列为 ADR 0040 在 harness 一侧的兜底，覆盖面应当写清。
+依据：计划原文；`builtin/edit.ts:139-146`。
+建议：检查改成白名单式：`tools/`、`compaction/`、`approval/` 对 `node:fs*` 只许具名导入名单内的函数且禁止命名空间与默认导入；源码禁止出现 `Bun.file(…).write`、`.writer(`、`Bun.$`、`Bun.spawn`、动态 `import(`（`shell.ts` 的 `executeShell` 是唯一放行的执行入口）；`EditSession` 的构造在测试里断言总带写入回调，或在注释里写明这条约束。
+更正（第 13 条）：已核实 `pi-natives` 的 `EditSession.apply(request, writer)` 的 `writer` 是必填参数（`node_modules/@oh-my-pi/pi-natives/native/index.d.ts:204`），引擎不会绕过回调自己写；第 13 条里关于 `EditSession` 的那半句与对应建议作废，其余写法的漏检仍成立。
+
+### 14. kit 没有自己的行为合同，`nb-harness` 被挂成 NeuroBook 专属 Spec 的 owner（严重程度：低，上游选择）
+位置：计划“Spec 与文档改动”表中 `docs/specs/harness/*.md` 一行（“kit 不新开 Spec……NeuroBot 用 kit 时在自己的 Spec 里引用”）与各 `agent/*.md` 的 owner 改动
+问题：`agent/builtin-tools.md`、`permissions.md`、`compaction.md` 的条目以 NeuroBook 的地址方案与 `nbook.agent.*` id 写成（三份分别有 15、6、5 处 `project://` 或 `nbook.agent`）。把 nb-harness 加为 owner 后，kit 的行为（失败码、判定顺序、放回规则）只能经“NeuroBook 实例”表达；NeuroBot 要引用就得引用写着 `project://` 的条目，改 kit 行为时要改 NeuroBook 的 Spec，两个应用的合同在一份文件里耦合。计划的理由是“行为合同不变”，但这是把 owner 关系从“应用拥有、harness 无关”改成“共有”，比开新 Spec 更难维护。
+依据：上面的计数（`grep -c` 于三份 Spec）；`docs/specs/harness/` 现有 extensions、models、profile、runtime、session 五份，都是按宿主无关写的。
+建议：本 Task 至少给 `SessionFiles`/`SessionLayout` 的合同（失败码、`locate` 语义、`forCall` 的分组与来源、`saveArtifact`）在 `docs/specs/harness/` 下开一份 draft（例如 `harness/host-kit.md`），`agent/*.md` 只在实现合同里指向它；其余块的宿主无关条目可以留到 NeuroBot 接入时再抽，但在计划“不做”里写明。
+
+### 15. `SessionLayout` 把三个功能各自的配置塞进文件访问接口，`project` 与 `working`、`localWrites` 语义重叠（严重程度：低）
+位置：计划“`kit/files/`”的 `SessionLayout`
+问题：`plan` 只给模式与放回用，`log` 只给放回的提示用，`project` 只给审批模型的输入用（`hook.ts:83` 的 `projectRoot` 进 `autoReview` 的 `project`，同时作为本地写的根之一）；它们跟“怎么读写文件”无关，却成了每个 `SessionFiles` 实现（包括 NeuroBot 的、`localFiles`）必须提供的字段。`project` 与 `working`（NeuroBook 有主项目时两者都是 `project://`）、`localWrites`（含 `project://`）三者在 NeuroBook 里取值重叠，含义差别只写在注释里；NeuroBot 只有“工作目录”和“记忆目录”，`project` 该填工作目录还是 null，计划没说，填法不同审批模型拿到的上下文就不同（系统提示词里有“anything outside the current project”）。
+依据：`permissions/hook.ts:79-87`、`auto-review.ts` 的 `SYSTEM_PROMPT`；计划 `SessionLayout` 注释。
+建议：`SessionLayout` 只留与文件访问和判定直接相关的 `working`、`scratch`、`localWrites`、`shellEnv`、`searchExcludes`；`plan` 交给 `createAgentModes` 与 `CompactionRestore` 的选项（`planOf(context)`），`log` 交给 `CompactionRestore`（`logOf(context)`），`project` 交给 `modelReviewer`（`projectOf(context)`，注释写明“交给审批模型作‘当前项目’的根”）。
+
+## 维度 9：对“需要开发者确认”六项的判断
+1. nb-form 不进 nb-harness 依赖：同意。已核实 nb-story 只把 nb-form 放 devDependencies（`packages/nb-story/package.json:46`），注入 `AskForms` 合理；实现时 `check` 要保住现在只算 `severity === "error"` 的过滤（`builtin/ask.ts:110-112`）。
+2. 旧 `src/tools/` 不合并、留给 t31：同意；但计划列的调用方漏了 `packages/nb-harness/tests/acceptance.test.ts`，且 `registerBuiltinTools`、`createReadTool`、`createEditTool` 是已发布包根入口的导出（`nb-harness/src/index.ts:19-26`），t31 删除时属于发布合同变更，记进 t31 时一并写明。
+3. 摘要小节只由宿主给：同意；Profile 已有 `compaction.require` 可追加，按 Profile 换整套小节要改内核类型，不值得在本 Task 做。
+4. kit 带 `localFiles`：做，但先按第 7 条定清定位（kit 测试的真实依赖与参考实现，还是 NeuroBot 的正式实现）；后者要补写锁、改动记录回调与 `classify` 缺省值，并与提案“文件访问由 NeuroBot 实现”对齐。
+5. 新增公开子路径：同意，与 nb-runtime“每个机制一个子路径入口”同例；按 `packages/AGENTS.md:11` 先记跨模块决策，并在 README 标明只有 `./kit/shapes`、`./models/rules` 可进浏览器。
+6. `port.resolve` 搬成 `modelChoice`：不建议在 t32 做（第 12 条），随 `core.ts` 留给 w00043 t02；若仍要搬，必须补上“用途对应角色”两步（第 2 条）并解决导入边界（第 3 条）。
+
+审查结束，共 15 条
+
+更正（第 5 条，严重程度改为“低”）：再读 `sessions.ts:201-217`、`255-267` 后收窄。确定成立的是机制：`kernelClock.wait`（`agent.ts:88-91`）到点时先摘掉 abort 监听再 `resolve()`，此后 `controller.abort()` 不再让它 reject，计划写的“忽略中止”在到点之后不起作用，`then` 回调必定会跑。造成错关的情形要求“到点”与“取消后重新登记”落在同一个同步段：`#acquire` 在第一个 `await` 之前同步做 `refs += 1` 与 `cancelIdle()`，之后的 `#release` 在 `await` 之后，所以经 `#acquire` 不会在同一段里重新登记，回调复查时 `refs > 0`，不会错关；剩下的触发途径只有状态帧（`subscribe` 回调同步调 `#maybeIdle`/`cancelIdle`）与 `ManualClock.advance` 一次跨过多个计时，属少见情形。建议不变：回调开头查 `controller.signal.aborted` 且确认 `entry.cancelIdle` 仍是本次的取消函数，再复查；“只晚一个微任务”的结论补上这个前提。
+
+## 补记：检查过、没有发现问题的重点
+- 重点 1 中 ADR 0040 的部分：现有写入路径 `write.ts:39`（`resources.call(call).write`）、`edit.ts:159-163`（同一 `scoped` 下逐文件 `write`，一次调用一个分组）、`modes.ts` 读计划经 `resources.call(call).read`、`sessionArtifacts` 经 `files.stage`（`backend/resources.ts` 的 `sessionArtifacts`）都能一一对到计划的 `forCall(...).write`、`saveArtifact`；NeuroBook 实现直接包 `SessionResources.call` 与 `SessionArtifacts.save`，写入暂存、根拥有者在锁里提交、`as: {agent: {session, profile, entry}}` 的来源与按调用分组都原样保住；t08 的方案注册不经 kit。仔细检查后没有发现问题。
+- 重点 6（nb-story 与发布）：nb-story 的非测试源码只从根入口 `"@notnotype/nb-harness"` 导入（7 处），不会加载 kit；新增运行时依赖只有 `unbash`（纯 JS），nb-form 不进依赖（nb-story 只放 devDependencies，`packages/nb-story/package.json:46`）；应用打包（`packages/neuro-book/scripts/pack-app.ts:110`）用 `Bun.build` 把 nb-harness 源码与 `unbash` 一起打进 bundle，不受依赖从应用包移到 nb-harness 的影响；`release:check`、`release:smoke` 在根 `package.json:47-48`，计划已安排。Windows 上 kit 的 `shell`、`grep`、`glob` 未核实，计划已列为未验证边界，nb-story 不加载它们。仔细检查后没有发现问题。
+- 重点 2 中方法贡献 id：`nbook.agent.shake` 等 id 留在 `compaction/index.ts:18-20`，kit 只收 `BuiltinToolIds` 与宿主给的扩展 id，与“nb-harness 不出现 NeuroBook 名字”不冲突；`app-neutral` 扫描现有命中确实只有计划说的三处注释（`kernel/api/host.ts:4`、`kernel/api/model.ts:173`、`models/index.ts:3`）。没有发现问题。
+
+审查结束，共 15 条
