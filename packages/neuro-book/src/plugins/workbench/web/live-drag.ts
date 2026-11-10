@@ -37,17 +37,19 @@ export interface LiveDragHost {
     placeCard(rect: GridRect): void;
     /**
      * 标签条里排序：被拖的标签自己沿标签条跟手，夹在条里（`point` 是指针，`panel` 是吸收它的那块面板的标签条）；null 是不在排序，放回原位。
-     * 在帧开头调：这时样式是干净的，读它的位置不强制重算。
+     * 这一步只读（帧开头样式是干净的，读不强制重算），返回写的那一步：调用方在判定（也读 DOM）之后再写，写在读前面的话判定就要强制重算。
      */
-    placeSorted(at: {readonly point: GridDropPoint; readonly panel: string} | null): void;
+    placeSorted(at: {readonly point: GridDropPoint; readonly panel: string} | null): () => void;
+    /** 同上，等这一帧的渲染做完再放：预览或卡片刚变，标签换了位置或刚要显示出来，按上一帧的状态放会错一帧。只在状态变的那一帧调，读位置强制一次重算。 */
+    placeSortedAfterRender(at: {readonly point: GridDropPoint; readonly panel: string} | null): void;
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）：离开标签条，或离开来源面板。 */
     cardShrink(): "strip" | "panel";
     /** 按这个落点摆的文档；null 是摆不出来（放回原处、编辑器会合并或拒绝），就用已提交的。 */
     candidateDoc(source: LayoutTabSource, drop: LayoutDragDrop): LayoutDoc | null;
     /** 摘掉来源后的文档。 */
     sourceRemovedDoc(source: LayoutTabSource): LayoutDoc | null;
-    /** 来源收起了：之后按收起后的布局判定（输出 38）。一场至多一次，收起就不再展开。 */
-    collapseSource(source: LayoutTabSource): void;
+    /** 来源收起了：之后按收起后的布局判定（输出 38）。一场至多一次，收起就不再展开。`drop` 是收起时屏幕上的落点（来源收起的预览是 null），指针再动之前一直是它。 */
+    collapseSource(source: LayoutTabSource, drop: LayoutDragDrop | null): void;
     /** 来源在已提交的文档里所在的面板。 */
     homeOf(source: LayoutTabSource): string | null;
     show(doc: LayoutDoc | null): void;
@@ -75,9 +77,10 @@ export interface LiveDrag {
 }
 
 const clampUnit = (value: number): number => Math.min(1, Math.max(0, value));
-const keyOf = (drop: LayoutDragDrop): string => (drop.inPlace ? "in-place" : JSON.stringify([layoutDropKey(drop.action), drop.part ?? null]));
 /** 落在哪块面板的标签条上（活动栏是侧栏的标签条）；不是标签条为 null。 */
 const stripOf = ({kind, ...action}: LayoutDropAction): string | null => (kind === "strip" || kind === "reveal" ? (action as {readonly panel: string}).panel : null);
+/** 原位的落点结果都一样，键也一样；只有标签条里的原位分开：来源收起之后它是排序（已提交的样子），别的原位是来源收起的样子。 */
+const keyOf = (drop: LayoutDragDrop): string => (drop.inPlace ? (stripOf(drop.action) === null ? "in-place" : "in-place-strip") : JSON.stringify([layoutDropKey(drop.action), drop.part ?? null]));
 
 export function createLiveDrag(host: LiveDragHost): LiveDrag {
     const active = shallowRef(false);
@@ -157,21 +160,21 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         host.placeCard(rect);
     }
 
-    /** 候选稳定了就换预览。 */
-    function stepPreview(from: LayoutTabSource, now: number): void {
+    /** 候选稳定了就换预览；换了返回真。 */
+    function stepPreview(from: LayoutTabSource, now: number): boolean {
         if (!started) {
             started = true;
             state = initialLiveDrop(now);
         }
         const before = state.preview;
         state = stepLiveDrop(state, {now, candidate: offered === null ? null : candidateOf(offered, from)});
-        if (state.preview === before) return;
+        if (state.preview === before) return false;
         const {preview} = state;
         // 落到别处才收起来源：自己的标签条里换序、放回原处都还没离开。
         const elsewhere = preview.kind === "source-removed" || (preview.kind === "candidate" && offered !== null && !offered.inPlace && stripOf(offered.action) !== host.homeOf(from));
         if (elsewhere && !collapsed) {
             collapsed = true;
-            host.collapseSource(from);
+            host.collapseSource(from, preview.kind === "candidate" ? offered : null);
         }
         if (preview.kind === "candidate") {
             shown = offered;
@@ -180,7 +183,10 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             // 摆不出来（原位、编辑器会合并或拒绝）就没有预览，盖层看它。
             shownAction.value = doc === null ? null : (offered?.action ?? null);
             absorbedIn = offered !== null && (offered.inPlace || doc !== null) ? stripOf(offered.action) : null;
-            host.show(doc);
+            // 来源收起之后，摆不出来的（原位、编辑器会合并）仍是来源收起的样子：已提交的文档里来源还在原处，换回它就是又展开。
+            // 只有在自己的标签条里排序是已提交的样子：那块面板还在，来源就在它的标签条里。
+            const sorting = offered !== null && offered.inPlace && stripOf(offered.action) !== null;
+            host.show(doc ?? (collapsed && !sorting ? host.sourceRemovedDoc(from) : null));
         } else if (preview.kind === "source-removed") {
             shown = null;
             previewKey.value = "source-removed";
@@ -189,9 +195,10 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             host.show(host.sourceRemovedDoc(from));
         }
         slot.value = state.slot === null ? null : {x: state.slot.left - origin.x, y: state.slot.top - origin.y, width: state.slot.right - state.slot.left, height: state.slot.bottom - state.slot.top};
+        return true;
     }
 
-    /** 上一帧的状态下，被拖的标签在不在标签条里排序：卡片收回了就是。 */
+    /** 被拖的标签在不在标签条里排序：卡片收回了就是。帧开头调时是上一帧的状态。 */
     function sortingAt(): {readonly point: GridDropPoint; readonly panel: string} | null {
         if (pointer === null || offered === null || wantsCard()) return null;
         const panel = stripOf(offered.action);
@@ -201,15 +208,18 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     function tick(now: number): void {
         frame = host.requestFrame(tick);
         if (source === null) return;
-        // 先于判定：判定里的 `elementsFromPoint` 在写之后读就要强制重算。用上一帧的指针，晚一帧看不出来。
-        host.placeSorted(sortingAt());
+        // 读在判定之前、写在判定之后：两次读之间没有写，这一帧不强制重算。用上一帧的状态；状态一变，渲染之后再放一次（`placeSortedAfterRender`）。
+        const placeSorted = host.placeSorted(sortingAt());
         host.settleDrop();
         // 判定时结构变了会结束这一场。
         if (source === null) return;
+        placeSorted();
         pointer = host.pointer() ?? pointer;
-        stepPreview(source, now);
+        const lifted = card.value !== null;
+        const changed = stepPreview(source, now);
         updateCard(now);
         lastFrame = now;
+        if (changed || lifted !== (card.value !== null)) host.placeSortedAfterRender(sortingAt());
     }
 
     return {
@@ -255,7 +265,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             slot.value = null;
             card.value = null;
             cardSize = null;
-            host.placeSorted(null);
+            host.placeSorted(null)();
             host.show(null);
         },
     };

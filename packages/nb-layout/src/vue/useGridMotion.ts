@@ -160,7 +160,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         if (timer !== null) clearTimeout(timer);
         timer = setTimeout(stop, duration + MOTION_SLACK_MS);
         if (entering === undefined || entering.size === 0) return;
-        growing.value = entering;
+        // 同一轮的布局变化可能刚写了别的新项的起点：并进去，不盖掉。
+        growing.value = new Map([...growing.value, ...entering]);
         void nextTick(() => {
             void options.root.value?.offsetWidth;
             growing.value = new Map();

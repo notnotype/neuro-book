@@ -37,7 +37,8 @@ function setup(over: Partial<LiveDragHost> = {}) {
         settleDrop: () => undefined,
         pointer: () => null,
         placeCard: (rect) => placed.push(rect),
-        placeSorted: (at) => sorted.push(at === null ? null : at.panel),
+        placeSorted: (at) => () => sorted.push(at === null ? null : at.panel),
+        placeSortedAfterRender: () => undefined,
         cardShrink: () => "strip",
         candidateDoc: () => DOC,
         sourceRemovedDoc: () => REMOVED,
@@ -91,6 +92,22 @@ describe("createLiveDrag", () => {
         t.frame();
         expect(t.shown).toEqual([DOC]);
         expect(t.live.card.value).toBeNull();
+    });
+
+    it("来源收起之后，摆不出来的候选（原位、编辑器会合并）仍是来源收起的样子，不把来源又摆回去；自己标签条里的排序是已提交的样子", () => {
+        const t = setup({candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC)});
+        t.live.begin(SOURCE, {x: 700, y: 400});
+        t.live.offer(CENTER);
+        t.frame();
+        t.frame(200);
+        expect(t.collapses).toEqual([SOURCE.tab]);
+        t.live.offer(dropOf({kind: "edge", target: {kind: "split", panel: "other", edge: "left"}}, true));
+        t.frame();
+        t.frame(200);
+        expect(t.shown.at(-1)).toBe(REMOVED);
+        t.live.offer(dropOf({kind: "strip", panel: "home", index: 0}, true));
+        t.frame();
+        expect(t.shown.at(-1)).toBeNull();
     });
 
     it("卡片收回、指针在标签条上时，被拖的标签在吸收它的那条里排序；离开要卡片时放回", () => {
