@@ -34,7 +34,7 @@ updated: 2026-11-09
 - **文件访问接口**：工具、放回、审批判定都经 `nbook.files` 读写与解析地址（写入按 [ADR 0040](../../../../../docs/adr/0040-file-writes-staged-and-committed-by-root-owner.md) 暂存、由根的拥有者提交并记账；地址方案按 [t08](../t08-resources-home/README.md) 注册在文件服务里），几块互相引用（`permissions/hook.ts`、`permissions/modes.ts`、`compaction/restore.ts` 引用 `builtin/common.ts`、`builtin/read.ts`、`resources.ts`），要一起搬。在 harness 里定一个由宿主传入的文件访问接口：NeuroBook 用文件服务实现，NeuroBot 直接读写 bot 的电脑。
 - **写小说专用的部分改成参数**：压缩摘要的小节按写小说定（[t11](../t11-compaction/README.md) 决定 5），改成由 Profile 或宿主给，现有那份留在 NeuroBook。
 - **审批判定者可替换**：NeuroBot 要让另一个 bot 判定工具调用（开发者 2026-11-09，w00043），这与本 Work [t14](../t14-multi-agent/README.md) 决定 8“审批一律交给用户”对 NeuroBot 不同。本 Task 不实现，但搬过去的判定接口不能把“判定者是用户或审批模型”写死。
-- **依赖**：nb-harness 新增 `unbash`（纯 JS、无依赖）与 `nb-form`（只依赖 TypeBox）；`pi-natives` 已在。nb-harness 以源码发到 npm、nb-story 依赖它（[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)），nb-story 本来就依赖 nb-form。
+- **依赖**：nb-harness 新增 `unbash`（纯 JS、无依赖）；`pi-natives` 已在。`ask` 用到的 `nb-form` 包级依赖 nb-ui 与 Vue（本 README 第一稿误写成“只依赖 TypeBox”，计划改为表单校验由宿主注入，nb-harness 不依赖它）。nb-harness 以源码发到 npm、nb-story 依赖它（[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。
 
 非目标：不改用户可观察的行为、贡献 id（例如 `nbook.agent.shake`）、设置与界面；不实现 NeuroBot 的任何东西；不做 t14 的子代理与任务中心。
 
@@ -48,8 +48,12 @@ updated: 2026-11-09
 
 ## 当前状态
 
-2026-11-09 新建，未开工；先写 `plan.md`，开发者确认后实施。
+2026-11-10：[plan.md](plan.md) 初稿已写（Opus 子代理），未定稿、未审查：
+
+- NeuroBot 提案（[`docs/proposals/neurobot.md`](../../../../../docs/proposals/neurobot.md)）的待定项 1 问开发者“仍在 NeuroBook 应用里的那些怎么给 NeuroBot”，答复可能扩大本 Task 的范围（例如把模型服务、服务端宿主的通用部分一起抽出），定了再改计划；
+- 计划第 7 节列了 6 个待确认项，随计划一起交开发者；
+- 实施计划 Skill 要求的“独立设计”（文件访问接口）与计划审查都还没做。
 
 ## 下一步
 
-按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写 `plan.md`。
+等提案待定项 1 的答复，改计划，做独立设计与计划审查（本会话用 Opus），再交开发者确认。

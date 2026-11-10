@@ -1,0 +1,184 @@
+# w00043 t01 NeuroBot 第一版提案：后端、领域与架构设计审查（Opus）
+审查对象：/tmp/review-w00043-t01-design/neurobot-a7fcc49f6.md（下称“提案”）；行号指该副本或仓库 master 上的文件。
+
+### 1. 两个新触发点没写压缩方法；对照现有三种方法，“按缓存价读”只对 inplace 成立，现有 compact 指令也指定不了方法（严重程度：高）
+位置：提案第四节第 4 小节“压缩触发点”（91–94 行）；第六节“对 Spec 的预期改动”
+问题：提案说“缓存过期前压缩”时“读上下文按缓存价算”，“空闲压缩”只走“压缩”角色的方法，但没写两种触发各用哪几种方法、什么顺序。拿现有方法逐个对：
+- `inplace` 用会话的模型与推理档、在压缩前的请求末尾追加，前缀与对话请求相同，才吃得到缓存价；
+- `summary` 把消息序列化成文字、换“压缩”角色的模型，前缀全变，缓存价一分也拿不到；
+- `shake` 不调模型，但把旧工具结果换成占位，下一次请求从第一个被换的位置起缓存全部失效。
+所以“过期前压缩”只在 `inplace`（前面可以有 `shake`）上成立，“空闲压缩”只在 `summary` 上成立。两者的方法顺序正好相反，而现有缺省顺序是 `shake → inplace → summary`。
+内核也给不出这种选择：只压缩的运行固定以 `reason: "manual"` 调压缩流程，方法顺序取 Profile 的 `onThreshold`（runtime.md 输出 47、52；loop.ts:192 写死 `reason: "manual"`）；`CompactionJob.reason` 的类型只有 `"threshold" | "overflow" | "manual"`（kernel/api/extension.ts:33）；`compact({requirement?})` 没有方法或原因参数。照字面把“加在 nb-harness 的压缩流程里”实现成宿主定时发 `compact`，两种新触发都会走 `shake → inplace → summary`：过期前压缩在 shake 省够 20% 时直接停，缓存价根本没用上；空闲压缩会先用会话模型按全价跑 inplace，与提案给的前提正好相反。
+另外，方法名带应用前缀（`nbook.agent.shake` 等，compaction.md 输出 31）。t32 的非目标是“不改贡献 id”，同时又要加架构测试保证“nb-harness 不出现 NeuroBook 的名字”。新触发点的方法顺序要写成宿主给的参数，不能把 `nbook.*` 名字写进 nb-harness。
+依据：docs/specs/agent/compaction.md 输出 1–3、33 行；docs/specs/harness/runtime.md 输出 47、52；packages/nb-harness/src/kernel/run/loop.ts:182–197；packages/nb-harness/src/kernel/api/extension.ts:30–46；t32 README“非目标”与“授权与限制”最后一条。
+建议：提案写明两种触发各自的方法顺序（例如过期前 `inplace`，空闲 `summary`），以及失败时要不要换别的方法（换成别的方法就违背“省钱”的前提，宁可不压缩）。第六节补上 `harness/runtime.md` 的指令合同改动：`compact` 加 `reason` 或方法顺序参数，`CompactionJob.reason` 加两个值，Profile 的 `compaction` 加对应的键。第六节现在只写了“加空闲压缩的触发点”，漏了过期前压缩。
+
+### 2. 缓存寿命和“压缩模型更便宜”的判断都没有数据来源（严重程度：高）
+位置：提案第四节第 4 小节“缓存过期前压缩”“空闲压缩”
+问题：两种触发都靠两个数：服务商提示词缓存的寿命，以及压缩模型与会话模型的单价对比。提案没说这两个数从哪来、由谁判断。
+- 寿命：nb-harness 的模型目录与模型规范里没有缓存寿命字段（catalog.ts 的 `ModelPrice` 只有单价；models.md 只有 `priceKnown`）。寿命在 OMP 的 pi-ai 里按服务商、凭据类型、环境变量与模型能力解析：Anthropic 用 API key 时缺省 5 分钟，OAuth 订阅且模型支持时 1 小时，`cacheRetention` 或 `PI_CACHE_RETENTION` 可以覆盖（node_modules/@oh-my-pi/pi-ai/src/providers/anthropic.ts:526–545）；OpenAI 是 30 分钟或 12 小时（pi-ai types.ts:460–469）；DeepSeek 一类的硬盘缓存没有公布寿命；开发者常用的中转站更不知道。nb-harness 现在也不往 pi-ai 传 `cacheRetention`（在 nb-harness 与 neuro-book 源码里搜不到），宿主连自己发出的请求用的是哪一档都不知道。
+- 单价：`priceKnown` 可以是 false（target.ts:169、187；custom 模型不配价就是未知），这时“压缩模型比会话模型便宜”判断不了。订阅制的凭据（OAuth）按额度计费，不按 token 计价，“省钱”的前提本身就不成立。
+- 寿命是尽力而为：服务商可以提前逐出缓存，“过期前一点”在提前逐出时照样按全价读。
+依据：packages/nb-harness/src/models/catalog.ts:25–30、129–134；packages/nb-harness/src/models/target.ts:157–190；docs/specs/harness/models.md:48、70；pi-ai 源码如上。参照：OpenClaw 的 cache-ttl 裁剪按配置取寿命，未设时 5 分钟、Anthropic 插件种子值 1 小时；nanobot 的空闲压缩用可配置的分钟数，文档说“缓存保留更久时调大”（调研 open-source-architecture.md:179、320）。
+建议：提案写明：寿命按“服务商加凭据类型”配置在模型设置里（缺省值表），宿主把同一个值作为 `cacheRetention` 传给 pi-ai，保证配的和实际发的一致；单价未知、订阅制凭据、没配寿命时，两种触发都不做。这些是模型目录与设置的合同改动，第六节要补 `harness/models.md` 或模型设置的 Spec。
+
+### 3. “压缩前刷记忆”在阈值与溢出触发时没有执行的地方；在空闲压缩前做，又会抵掉空闲压缩省下的钱（严重程度：高）
+位置：提案第四节第 4 小节“压缩前刷记忆”（96 行）
+问题：
+- 阈值与溢出触发的压缩发生在运行中途的边界，或者在一次模型请求溢出之后（loop.ts:233–239、285–289），由内核同步调方法。`CompactionJob` 只给方法 `model`（模型调用）和 `modelInfo`，没有执行工具的通道（kernel/api/extension.ts:30–46）。压缩拦截链同样不能经内核的工具流程（审批、写日志）执行工具。所以“先跑一个静默回合、让 bot 用工具写记忆文件”插不进这两种触发：要么在方法或拦截里绕过内核直接写文件，这样写入不进会话日志，与提案“两者合起来是完整的原始记录”（110 行）矛盾，也不经审批；要么就不做。
+- 空闲压缩的前提是“缓存已过期、用便宜的压缩模型读一遍”。静默回合是 bot 自己的回合，用会话模型读整段上下文，缓存已过期时按全价算，正好是空闲压缩要省的那一笔；写记忆还要调工具，每来回一次再读一遍。
+- “静默”在内核里没有对应物：一次运行与它的输入都写进会话日志，界面经 `log` 与帧照常看到。要不出现在对话流里，宿主得另做过滤（`SessionEnv.outbound`），原始记录也要排除。
+依据：packages/nb-harness/src/kernel/run/loop.ts:233–239、285–289；packages/nb-harness/src/kernel/api/extension.ts:30–46；docs/specs/harness/runtime.md 输出 54（出站过滤）。参照：OpenClaw 的刷记忆只在“回复发送完毕、前台所有者关闭后”跑，新消息会取消它（调研 open-source-architecture.md:175）；nanobot 用被压缩的摘要追加到 `history.jsonl`，由 Dream 离线整理，不在回复路径上跑回合（同文件 318 行）。
+建议：二选一写进提案。(a) 刷记忆只在宿主发起的压缩前做（过期前压缩、轮换），做法是宿主先发一次真实运行（带专门的输入，经出站过滤不给界面看），结束后再发 `compact`；空闲压缩不刷，阈值与溢出不刷。(b) 照 nanobot：不跑回合，压缩成功后把摘要追加到记忆目录的日记文件，由以后的整理任务处理。哪种都要写明对省钱目标的影响。
+
+### 4. 周期任务无人值守，任务会话里的审批与提问没有人答，web 上也没有地方显示（严重程度：高）
+位置：提案第四节第 6 小节“任务在单独的会话里跑”；第 7 小节“审批”（134 行）；决定 9 的 web 范围
+问题：任务（例如每周简报）多半在用户不在时到点运行。提案定的审批是“shell 与工作目录外的写入缺省要用户在 web 上批准”，而做简报几乎一定要跑 shell（抓网页、调命令）。内核里运行总有提问通道（control.ts:41、118），所以任务会话会停在 `waiting`，一直等下去。可是：
+- 用户不感知会话，web 只做“bot 列表、对话流、日程、记忆文件查看”（决定 9），没有显示任务会话里待审批事项的地方；
+- 如果照 NeuroBook 把任务会话标成后台会话（`startTask` 的 `background`），活动快照只列前台会话（sessions.md 输出 15），连“有东西在等用户”都看不出来；
+- `ask` 工具的提问同理。
+结果是任务静默挂起，到下一个周期再起一个，或者重启后被结算为 `interrupted`。实现者为了让任务跑通，最可能的做法是给任务会话开 `yolo`，那就和提案“靠审批兜底”的安全说法（第五节）矛盾。
+任务会话按次新建还是一个任务一个长期会话，提案也没写；长期会话又带来压缩与轮换。
+依据：packages/nb-harness/src/kernel/run/control.ts:41、118；packages/nb-harness/src/kernel/run/tools.ts:261–266；docs/specs/agent/sessions.md 输出 4、12、15。参照：OpenClaw 的 cron 每次新会话，心跳“等空闲再跑”（调研 open-source-architecture.md:128、210–211）；Grok Bot 与 Muse 是“需要你输入时通知”（commercial-bots.md:104、199）。
+建议：提案写明三件事。(1) 任务会话的审批策略：按任务给允许的工具或命令清单，清单外的拒绝，不能挂起；或者等审批时在主对话里发一条带审批卡片的消息，并给等待设上限。(2) 任务会话按次新建（照 OpenClaw），会话 id 由“任务 id 加计划时刻”定，重启后能幂等补发（对照 sessions.md 输出 10、11 的 `startTask` 幂等）。(3) web 范围补“待处理事项”的入口；这一条属于决定 9 的 web 范围，标“质疑已定决定”，由开发者定。
+
+### 5. 第一版要自己写的部分比提案列的大得多，漏了模型服务和服务端、浏览器两端的宿主；“复用”要给出量级让开发者判断（严重程度：高）
+位置：提案第四节第 3 小节“应用包与依赖”（82–83 行）；第三节第一条
+问题：先说成立的部分：nb-runtime 不经 `plugin-platform` 就能装配内置插件。内核的 `createApplication` 直接接收 `plugins: PluginDefinition[]`（nb-runtime/src/application/contracts.ts:94–113），NeuroBook 的 application.ts 只是带上平台档案（14 行）；`plugin-platform` 只在 `src/server/*` 里被引用（安装、清单、启动准备）。所以“只用内置插件、不搬 plugin-platform”可行。
+不成立的是“自己写够用的最小版”的范围。提案只列了 HTTP、存储、设置和“harness 的接线”，下面几块都在应用里、t32 不搬，NeuroBot 第一版都要：
+- 模型服务：按角色解析模型（“压缩”角色就靠它）、服务商与模型配置、OMP 凭据库、`ModelPort`，在 `plugins/models/backend/core.ts`（555 行，依赖 `nbook/shared/settings`）。t32 只搬 `plugins/models/shared/`（t32 README 表格最后一行）。
+- 服务端宿主：RPC 端口的 WebSocket 监听（含 `Origin` 核对）、状态根认领（防两个进程同用一个数据目录）、启动参数、信号与停止、浏览器引导接口，`src/server/` 非测试代码约 3,950 行。
+- 浏览器宿主：`src/web/` 非测试代码约 1,990 行。
+- Agent 的接线：`plugins/agent/backend/` 顶层去掉 t32 要搬的 `sessions.ts`、`session-meta.ts`、`resources.ts` 后约 2,000 行（`agent.ts` 的装配与 `startTask` 幂等、`remote.ts`、`frames.ts` 的帧合并、Profile 包加载、附件 HTTP）。
+对照：已经量过的应用插件非测试行数（含前端）是 http 628、settings 5,919、storage 915、models 4,263、agent 11,897（其中 t32 搬约 3,800）。NeuroBot 不会全抄，但“最小版”加起来很可能上万行，与“复用 nb-runtime、nb-harness”给读者的印象差得远。远程合同、帧合并、大事件分段（sessions.md 输出 7–9）这类已经调好的行为，在两个应用里会各写一份并逐渐走样。
+依据：packages/nb-runtime/src/application/contracts.ts:94–113；packages/neuro-book/src/application.ts；packages/neuro-book/src/server/start.ts:24–36、process.ts:15–18（plugin-platform 的引用）；packages/neuro-book/src/plugins/models/backend/core.ts:1–25；t32 README 的表格与“留在 nbook.agent”一段；行数用 find 加 wc 统计非测试的 .ts/.vue 文件（2026-11-10，推断其中多少要重写）。
+建议：第 3 小节列出要自写的全部块（加上模型服务、服务端宿主、浏览器宿主、Agent 接线），各给量级，标出哪些是 NeuroBook 已经调好的合同（远程分页与帧合并、RPC 来源核对、状态根认领）。再给开发者一个候选：t32 之后紧接一个 Task，把服务端宿主的通用部分（RPC 监听、来源核对、状态根认领）和模型服务抽成包，代价是推迟 NeuroBot 开工；不抽的话写明接受两份实现。
+
+### 6. 宿主发起的压缩期间用户发来的消息会停在输入缓冲区，压缩完也不会自动发出（严重程度：中）
+位置：提案第四节第 4 小节两种新触发；重点 2“会不会和用户恰好发来的新消息竞争”
+问题：宿主发起压缩只能用 `compact`，空闲时它开一次只压缩的运行（runtime.md 输出 52）。这期间用户发 `send`，会话不空闲，只写 `inputQueued` 与 `commandAccepted`，交回的 `runId` 为 null（runtime.md 输出 2；commands.ts:106）。只压缩的运行做完一次压缩就收口（loop.ts:182–197），不像对话运行那样在轮末取 followup（loop.ts:380–382）；运行收口后内核也不会因为缓冲区不空而再开一次运行（control.ts:122–133 的收尾只置空闲、结算等待者）。所以用户这条消息会一直排着，直到他再发一条，或者宿主自己发 `start`（从代码推断，没有跑过）。`summary` 分段压缩长上下文要几十秒以上，这个窗口不小。
+反过来，压缩开始前一刻用户刚好发来消息：过期前压缩用的是会话模型，会和这条消息的请求同时花钱，压缩也就白做了。
+依据：docs/specs/harness/runtime.md 输出 2、52；packages/nb-harness/src/kernel/run/commands.ts:95–115；loop.ts:182–197、378–382；control.ts:113–133。参照：OpenClaw 的维护性回合“新消息会取消它”（调研 open-source-architecture.md:175）。
+建议：Spec 里写明竞争规则。例如：宿主发起的压缩在用户的 `send` 到达时先 `abort`（中止的压缩不写事件，对话不变，runtime.md 输出 51），再发这条消息；或者在只压缩的运行收口后，缓冲区不空就由宿主发 `start`。哪一种都要在 nb-harness 的句柄层或 NeuroBot 的对话管理里明确归属，并补一条验收：“空闲压缩中途用户发消息，回复不晚于压缩被中止加一次正常回复”。
+
+### 7. 两种新触发的计时由谁持有、gateway 重启后怎样，提案没写；“放进 nb-harness”指哪一层也不清楚（严重程度：中）
+位置：提案第四节第 4 小节“两种都加在 nb-harness 的压缩流程里”（94 行）；决定 9“新压缩触发点放进 nb-harness”
+问题：内核的压缩只在运行的边界上判断（runtime.md 输出 46），内核里没有空闲调度。会话的句柄在“没有引用、没有运行、30 秒内没有调用”时就关掉（sessions.md 输出 6；sessions.ts:17 `IDLE_CLOSE_MS = 30_000`）。过期前压缩要在运行结束后几分钟到一小时触发，空闲压缩更晚，这时会话早已关闭。所以计时器只能放在内核之外、句柄表之上：句柄表（t32 要从 `nbook.agent` 搬进 nb-harness），或 NeuroBot 的对话管理。提案说放进 nb-harness 的“压缩流程”，照字面实现者会去改内核循环，而那里做不到。
+重启：计时器只在内存里，gateway 重启就丢了。重启后要么漏掉压缩，要么为了重算计时把每个对话的会话都打开一遍（打开要把整份日志读回内存再归约，session.md“不承诺”一节、ADR 0035 决策 1 的代价），之后再等 30 秒关掉。
+依据：docs/specs/harness/runtime.md 输出 46；docs/specs/agent/sessions.md 输出 6 与状态表；packages/neuro-book/src/plugins/agent/backend/sessions.ts:17、276–281；docs/specs/harness/session.md 输出 19（`index.json` 有最后活动时刻）。
+建议：提案写明：计时属于 nb-harness 的句柄层（t32 之后），或者 NeuroBot 的对话管理；内核只提供指令（见第 1 条要改的 `compact`）。截止时刻由持久数据算出（会话 `index.json` 的最后活动时刻，或最后一条 `runEnded` 的 `at`），不靠内存计时；重启后按截止时刻补做或跳过，规则写进 Spec。顺带写明两种触发的先后：过期前压缩做过的，空闲压缩还做不做。
+
+### 8. 会话轮换没有现成机制，“新会话从上一次的摘要开始”照字面做会在第二次轮换时丢掉第一段的内容（严重程度：中）
+位置：提案第四节第 4 小节“会话轮换”（98 行）
+问题：
+- harness 里没有“从摘要开新会话”。`fork` 复制根到所选节点的整条路径（runtime.md 输出 37），轮换后体积不变。新建会话只能经 `initial` 把摘要交给 Profile（kernel/api/host.ts:487–498），摘要就落进开场或系统区，不是一条 `compaction` 事件。可是压缩的输入“只收对话本身的内容，开场、规则文件和扩展的槽每次请求都重新渲染，不收”（compaction.md 输出 4），旧摘要里“用户的要求”原样保留的规则（输出 5）也只认会话里的压缩事件。于是新会话第一次压缩时，上一段的摘要不会并进新摘要；它要么一直挂在开场里，要么到第二次轮换时被下一份摘要换掉，第一段的内容就丢了。
+- 会话私有的东西不跟过去：`session://` 是会话自己的 `home/`（sessions.md 36 行），放回用的 `session://plan.md`、附件 `sessions://<id>/home/attachments/` 都在旧会话里；放回给的日志地址也指向旧会话（compaction.md 输出 8）。设置补丁、批准记忆、缓冲区里还没取走的输入、扩展的 session 片同样不带过去。
+- 轮换必须在空闲、没有待处理事项（审批、异步提问）、缓冲区为空时做，提案没写。
+- “对话 → 当前会话”的指针要持久化，而且新会话建好与指针改写之间崩溃时要能收拾，否则重启后对话裂成两段，或者留下一个没人用的会话。
+- 上游选择：轮换是为了绕开“打开时整份日志读回内存、从头归约”。ADR 0035 决策 1 已经定了它的出路：“超出时再加检查点快照（快照是缓存，不改格式）”，session.md“不承诺”一节也把检查点列为以后要加的。轮换绕开了这条，代价是上面几条，提案没比较。
+依据：docs/specs/harness/runtime.md 输出 37；packages/nb-harness/src/kernel/api/host.ts:487–498；docs/specs/agent/compaction.md 输出 4、5、8、49 行；docs/specs/agent/sessions.md 36 行、输出 15（附件）；docs/adr/0035-harness-log-driven-kernel.md 决策 1 的代价段；docs/specs/harness/session.md 22–23 行。
+建议：提案先说清轮换要解决什么（打开慢，还是文件大），给出阈值的单位（事件条数比字节更贴近 ADR 0035 的“2 万条 1 秒”预算）。再在两条路里选一条：(a) 不轮换，按 ADR 0035 给 nb-harness 加检查点快照，NeuroBook 也受益；(b) 轮换，就在 nb-harness 加“以一条摘要事件开头的新会话”（新会话第一条是 `compaction` 事件、来源指向旧会话），让后续压缩把它当旧摘要处理，并写明 `home/` 下的文件、设置与批准记忆带不带过去、指针怎么原子地切换。选 (b) 的话第六节要补 `harness/session.md` 与 `harness/runtime.md` 的改动。
+
+### 9. 原始记录与会话日志的先后、对账和“出站消息”的定义都没写；“原始记录是真相源”只对入站成立（严重程度：中）
+位置：提案第四节第 5 小节“原始记录”（104–110 行）；第 4 小节“界面”（100 行）
+问题：
+- 先后与崩溃：入站要写原始记录、再 `send` 进会话，两次追加之间崩溃就只有一份有这条消息。提案没定先写哪份、重启后怎样对账。内核有现成的幂等键：`send` 的 `commandId` 被受理后记进日志，重发只生效一次，重启后也成立（session.md 输出 17）。原始记录每条入站带上它的 `commandId`，就能“先写原始记录，重启时把没受理的补发”。提案没用上这一点。
+- 出站是什么：bot 的回复先在会话日志里产生，原始记录只是副本。提案没定义哪些算“出站消息”：一次运行里的每段文字，还是只算最后一条回复；中止后的半截回复（`partial`，runtime.md 输出 9）；回退、重试、切分支之后的另一版回复（runtime.md 输出 35–37）；提醒和任务结果（见第 10 条）。原始记录只追加，用户在界面上重试一次，它就和会话日志对不上。
+- 真相源有两个：ADR 0035 决策 1 定的是“会话日志是唯一真相源”。对出站与 bot 的行动来说，真相源仍是会话日志，原始记录是它的投影；只有入站（以及以后群里没 @ 的消息）以原始记录为准。提案把原始记录整体称为真相源，又说“两者合起来是完整的原始记录”，前后不一。
+- 界面以谁为准：对话流要“跨越压缩与轮换连续显示”、能展开压缩的摘要、显示流式输出，这些只在会话日志与帧里；原始记录里没有。照现状界面只能以会话日志为准，再把多个会话按轮换顺序接起来，远程合同要能跨会话分页。提案没说。
+- 原始记录自己也只追加、只增不减，第 4 小节为会话日志设计了轮换，原始记录却没有分段或索引，界面往回翻页也没有游标。
+- 重放需要的字段没列：消息 id、对话场所、发送者身份与信任级（见第 14 条）、对应的会话 id 与 seq 范围、附件（现在存在会话的 `home/attachments/` 下，轮换或删除会话后就悬空）。
+依据：docs/specs/harness/session.md 输出 17；docs/specs/harness/runtime.md 输出 9、35–37；docs/adr/0035-harness-log-driven-kernel.md 决策 1；docs/specs/agent/sessions.md 输出 15（附件位置）。参照：OpenClaw 的“持久入口”先把原始事件落盘、再推进恢复序号，用服务商事件 id 去重，交给 agent 是至少一次（调研 open-source-architecture.md:107）。
+建议：`memory.md`（或 `conversations.md`）的 Spec 要写明：入站先写原始记录（带消息 id 与 `commandId`），再 `send`，重启时补发没受理的；出站在运行结束后从会话日志投影写进原始记录，只记最终可见的回复，并带 `{sessionId, seq}` 指回日志；回退、重试产生的新版本记成新的一条，带“替代哪一条”；界面的对话流以会话日志为准，原始记录只用于重放与评测；附件存到对话一级，不放会话的 `home/`。
+
+### 10. 提醒与任务结果“作为一条消息发进对话”在主会话里怎样表示没定，三种现成做法各有副作用（严重程度：中）
+位置：提案第四节第 6 小节“提醒”“任务……做完把结果作为一条消息发进 bot 与用户的对话”（126–127 行）；决定 9
+问题：这条消息要让用户在对话流里看到，也要让主会话的模型知道（否则用户接着问“简报第三条什么意思”，bot 不知道自己发过什么）。harness 现有三种写法：
+- `send`：成为一条用户的话，会开一次运行，bot 会对着自己的任务结果再回一轮（多花一次全上下文的钱），模型还会把它当成用户说的；
+- `enqueue`：只进缓冲区，要等用户下一条消息才进上下文，界面上也不是“bot 主动发的”；
+- 扩展在 `mount` 里写自己的对话事件：空闲时立刻写，运行中到下一个边界写（extensions.md 输出 20），不开运行，视图里能渲染成 bot 一侧的消息；`reminder` 是现成先例（输出 29）。但会话要先被打开（句柄 30 秒空闲就关），写进去的事件在请求里的角色要由 Profile 决定。
+主对话正在运行时（用户正和 bot 聊），三种做法的时机也不同：`send` 排队；扩展事件插在下一个边界，会插进进行中的这一轮。
+“提醒”是模板文字还是 bot 生成的话也没定：模板文字只进原始记录、不进会话，bot 就不知道自己提醒过；由 bot 生成，就要在主会话里开一次运行。
+依据：docs/specs/harness/runtime.md 输出 2、3；docs/specs/harness/extensions.md 输出 19、20、29；docs/specs/agent/sessions.md 输出 6。参照：OpenClaw 的主会话“后台工作回报给它，新建会话通知排队给它”，群活动合并成紧凑通知，下次运行时让 agent 看到（调研 open-source-architecture.md:134、159）。
+建议：Spec 定一种：推荐由 NeuroBot 的一个扩展写 `bot-message{kind: "reminder" | "task-result", taskRunId, text}` 对话事件，不开运行，Profile 把它渲染成助手一侧的消息或带标记的系统通知；主对话运行中时等这次运行结束再写，不插进进行中的这一轮。原始记录同一时刻记一条出站，带来源标记。提醒用模板文字还是开一次运行，要写明。
+
+### 11. 第一版就会有两个会话同时写同一个记忆目录，提案没有写锁、原子替换，也没有改动记录（严重程度：中）
+位置：提案第四节第 5 小节“记忆”；第 6 小节“任务在单独的会话里跑，带这个 bot 的身份与记忆”；第 7 小节“文件访问接口由 NeuroBot 实现，直接读写本机”
+问题：任务会话与主对话、以后的“压缩前刷记忆”会同时读写同一个 bot 的记忆文件。这已经是路线里推到第 3 步的“分身共享记忆”，只是第一版就出现了。
+- `write` 整份覆盖，后写的会悄悄吃掉先写的；`edit` 的 hashline 锚点能发现文件变了、改动失败（builtin/edit.ts），但失败后模型多半改用 `write` 重写。
+- “直接读写本机”放弃了 NeuroBook 写入的不变量：一个根一把锁、写暂存文件后原子替换（ADR 0040 决策 2）。直接就地写时，核心记忆每次请求都要读，可能读到写了一半的文件。
+- 记忆目录内读写“放行”，用户在 web 上只能看到文件现在的样子，看不出 bot 什么时候改了什么，也撤不回。改动的参数在会话日志的工具调用里，但分散在多个会话中。
+依据：packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts（hashline 模式）、write.ts；docs/adr/0040-file-writes-staged-and-committed-by-root-owner.md 决策 2；调研 repo-survey.md:61（“同一 bot 多个分身同时写记忆时的合并”列为没有对应物）。参照：OpenClaw 写 `MEMORY.md` 前先把旧版存进 SQLite，以便审阅与回滚（调研 open-source-architecture.md:199）。
+建议：t32 定的文件访问接口在 NeuroBot 的实现里写明：每个 bot 的记忆目录一把写锁，写暂存文件后改名；记忆文件的每次改动追加一条记录（时刻、会话 id、工具调用 id），供 web 查看与回滚。这些写进 `memory.md` 的 Spec，不留给实现时临场决定。
+
+### 12. “核心记忆每次请求都放进提示词”与省钱目标相冲：bot 一改核心记忆，整段提示词缓存就失效（严重程度：中）
+位置：提案第四节第 5 小节“一份核心记忆……每次请求都放进提示词，有长度上限”（115 行）
+问题：核心记忆放在提示词前部（系统区或开场），每次请求重新读；bot 在对话中、任务会话里、刷记忆时改了它，下一次请求的前缀就变了，后面整段对话的缓存都失效，按全价重读。内核对这种写法有专门的诊断：易变的槽放进系统区时报 `slot-volatile-in-system`，说明是“whenever it changes, the whole prompt cache misses”（kernel/view/request.ts:183）。这正好抵掉两个新压缩触发点要省的钱。内核已有更合适的机制：`opening({load})` 在会话创建与每次压缩之后调用 `load`，存进 path 片（extensions.md 输出 30）。也就是会话开头取一次快照，压缩时刷新。
+“有长度上限”超了怎么办也没写：拒绝写入、写入照常但注入时截断，还是报错给 bot。
+依据：packages/nb-harness/src/kernel/view/request.ts:183；docs/specs/harness/extensions.md 输出 30。参照：OpenClaw 的核心记忆“会话开头按来源资格注入并受预算限制，超预算时磁盘文件完整、注入副本截断”（调研 open-source-architecture.md:190）；Muse 的 Memory.md“在对话开始时加载”（commercial-bots.md:169）。
+建议：改成“会话创建与每次压缩后取一次快照”（用 `opening`），对话中改了核心记忆，到下次压缩才进提示词；bot 自己刚写的内容在这一段对话里本来就看得见。超长时磁盘完整、注入截断，并在 bot 写入的工具结果里提示已超预算。
+
+### 13. “只监听本机、不登录”成立的前提是 NeuroBook 服务端宿主的几条来源核对，它们在应用代码里，“自写最小版”要逐条带过去（严重程度：中）
+位置：提案第五节“安全”；第四节第 3 小节“HTTP……自己写够用的最小版”
+问题：NeuroBook 不登录也安全，靠的是服务端宿主与 `nbook.http` 的几条规则，都不在 nb-runtime 里：
+- 没加载鉴权插件时只许监听回环地址，其它地址按参数无效处理（server-host.md:40）；
+- HTTP 的 `Host` 必须是回环名，否则 421，用来防 DNS 重绑定（server-host.md:70；plugins/http/backend/dispatch.ts:2、75–84）；
+- 写请求带 `Origin` 就要是允许的来源；RPC 端口的 WebSocket 升级核对 `Origin`，只许本进程页面的三个回环别名（server-host.md:67；server/rpc/listener.ts:5–6、65–67）。
+浏览器发起的跨源 WebSocket 不受 CORS 限制，漏掉 `Origin` 核对，本机打开的任意网页就能连上 gateway，调用远程合同：发消息、批准审批（审批也在同一套远程合同里，sessions.md 43 行的 `resolve`）、改审批模式（`changeSettings` 的 `approvalMode`，runtime.md 输出 31）。bot 能在本机执行命令，后果比 NeuroBook 更直接。提案的安全一节只写了“只监听本机，没有登录”，自写最小版的实现者很可能只做到 `hostname: 127.0.0.1`。
+依据：docs/specs/runtime/server-host.md:40、67、70；packages/neuro-book/src/server/rpc/listener.ts:1–10、60–70；packages/neuro-book/src/plugins/http/backend/dispatch.ts:75–90；docs/specs/agent/sessions.md 43、121 行（“信任边界：浏览器是用户本人”）。
+建议：第五节把这三条列为 NeuroBot 第一版必须满足的安全不变量，并在 Spec 里写验收（跨源页面连 RPC 得 403、重绑定的 `Host` 得 421、非回环地址启动失败）；或者把它们和第 5 条说的服务端宿主一起抽成包，两边共用一份。
+
+### 14. 不可信的外部内容第一版就会进来（周期任务上网做简报），记忆目录放行加核心记忆每次注入，会让一次提示注入长期生效；来源标记应该现在预留（严重程度：中）
+位置：提案第五节“安全”（“远程访问、外部渠道进来之后要重新评估”）；第四节第 6 小节周期任务；第 7 小节“记忆目录内的读写放行”；第九节路线 1“外部消息一律当作不可信内容”
+问题：提案把“不可信输入”推到接 QQ 之后，但第一版的周期任务（每周整理某领域的简报）本身就要读网页、视频页面或别人的帖子，外部内容第一版就进了任务会话的上下文。两条放行规则凑在一起，问题第一版就成立：
+- 记忆目录内的写入不经审批，被注入的模型可以把指令写进核心记忆；
+- 核心记忆每次请求都放进提示词，并且对主对话生效。
+结果是一次注入变成长期、跨会话的系统级指令，用户只有主动翻看记忆文件才发现。
+另外，只读工具一律放行（sessions.md 输出 4），bot 不经审批就能读本机任意文件（例如 `~/.ssh`、OMP 凭据库），读到的内容会发给模型服务商；接 QQ 后，回复本身不是工具调用、不经审批，就成了外发通道。路线 1 写的“外部消息一律当作不可信内容，不能改变权限”管不到这两条。
+依据：docs/specs/agent/sessions.md 输出 4；提案第 6、7 小节。参照：OpenClaw 的原则“写路径是安全边界（用来源标记而不是事后检测坏记忆）”，做梦的来源污染门剔除 `untrusted` 来源，cron、心跳、子代理的转录不进语料，并有 `memory-provenance`（调研 open-source-architecture.md:187、201、227）。
+建议：第一版不实现防护，但现在就在数据里预留：原始记录与记忆文件的每次改动带来源（主对话、任务会话、以后的外部渠道）与信任级；任务会话写核心记忆要审批，或者只许写日记类文件，由主对话或整理任务晋升到核心记忆。读权限的范围（是否限制在工作目录、记忆目录与显式授权的路径）在第 7 小节写明取舍。
+
+### 15. 两种新触发什么时候才省钱没写成条件，按缺省做可能更费钱，记忆也损失更多；参照实现选的是更轻的做法（严重程度：中）
+位置：提案第四节第 4 小节；决定 8（目标是省钱，已定）。触发机制是作者的推荐，下面只质疑机制，不改目标
+问题：
+- 空闲压缩：压缩本身要用压缩模型读一遍全文、写出摘要（输出按输出价算），只有用户之后真的回来，才省下“会话模型全价重读一次”。用户当天不回来，下次空闲又压一遍，钱是白花的。提案只给了“压缩模型比会话模型便宜”一个条件，没有“上下文超过多少才做”的下限（过期前压缩有“超过一定比例”，空闲压缩没有），照字面每次停顿都会压。
+- 过期前压缩：缓存寿命是 5 分钟的服务商（Anthropic 的 API key，见第 2 条），用户每停顿 4 分多钟想一想，就触发一次压缩。一次真实的聊天里会压很多次；每次压缩都丢细节，摘要的摘要越来越粗，这和“像真人一样长期聊下去”的目标是冲突的。
+- 两种触发会叠加：过期前压缩做完后，空闲压缩到点还做不做，没写。
+- 参照：OpenClaw 没做整段的空闲压缩，缓存过期后只裁旧的工具结果（保留首尾、超过阈值才整条换占位），而且只在上下文超过约 30% 时做；nanobot 的空闲压缩缺省 15 分钟、可关。提案选了更重的整段压缩，没说为什么不选裁剪。
+依据：调研 open-source-architecture.md:177–179、320；docs/specs/agent/compaction.md 输出 1（`shake` 就是现成的“裁工具结果”方法）。
+建议：Spec 里把收益条件写成判断式：上下文 token 数大于下限；按目录单价算，预期节省（全价重读的钱减去压缩花的钱）为正；两次压缩之间至少隔多久。空闲压缩缺省关，或者先只用 `shake`（不调模型、不丢对话文字）。第一版先记下每次触发的花费与节省（原始记录或诊断），用真实数据再决定要不要开。
+
+### 16. gateway 重启后的行为没写：进行中的回复不续跑也没有交代，错过的周期任务、数据目录的单实例都没提（严重程度：中）
+位置：提案第四节第 2 小节“gateway……常驻进程”；第 6 小节；第 8 小节“数据目录缺省 ~/.neurobot/”
+问题：
+- 重启时正在回复的那一轮，打开会话时被结算为 `interrupted`，缓冲区里的输入留着、不自动发出（runtime.md 输出 34；t14 决定 23、28 沿用 t07 决定 7 的“不自动续跑”）。在 NeuroBook 里，用户会看到“上次运行被中断”，自己点继续；在 NeuroBot 里用户“不感知会话”，结果就是 bot 不回话了，排着的消息也不发出去。
+- 错过的周期任务与提醒：提案把“错过的处理”推给 `schedule.md`，可它决定了数据结构（要记“上次触发的计划时刻”），也决定了任务会话的幂等 id（见第 4 条），应该在提案里先定方向。
+- 两个 gateway 用同一个数据目录：会话有锁（session.md 输出 11），但原始记录、日程数据、记忆文件没有，两个进程会各自触发一遍日程、各写一份原始记录。NeuroBook 用状态根认领（server-host.md 186 行的 `claimStateRoot`）防这件事，这也是第 5 条说的“服务端宿主”的一部分，提案没列。
+依据：docs/specs/harness/runtime.md 输出 34；.agents/works/w00032-agent-integration/tasks/t14-multi-agent/README.md 决定 23、28；docs/specs/harness/session.md 输出 11；docs/specs/runtime/server-host.md:186（实例认领）。参照：OpenClaw 优雅停止时给运行中的会话写标记，启动后发一条系统输入，让 agent 先检查文件、进程、外部动作再继续；调度器在睡眠后迟到唤醒时合并错过的周期（调研 open-source-architecture.md:74、210）。
+建议：`conversations.md` 写明重启后主对话的处理：有被中断的回合、或缓冲区不空时，由 gateway 发一条系统输入让 bot 接着处理（照 OpenClaw），不让对话停住。提案里先定“错过的周期合并成一次、提醒过期多久就不发”的方向。数据目录启动时认领，认领不到就退出。
+
+### 17. bot 正在回复时用户又发来消息，走插话（steer）还是排队（followup），提案没选（严重程度：低）
+位置：提案第四节第 4 小节“用户发消息就进当前会话”
+问题：聊天软件式的用法里，用户常连发几条，或者在 bot 回复途中补一句。内核两种模式都有：`steer` 在下一个边界进当前这一轮，`followup` 等这一轮结束再开下一轮（runtime.md 输出 7、28）；`send` 缺省是 `followup`（commands.ts:105）。两种的体验与花费都不同：连发三条走 followup，就是三轮完整回复。提案没选，也没说界面上要不要合并连发的消息。
+依据：docs/specs/harness/runtime.md 输出 7、28；packages/nb-harness/src/kernel/run/commands.ts:105。参照：OpenClaw 会话进行中收到新消息缺省 `steer`，500 毫秒去抖、队列上限 20、溢出时 `summarize`（调研 open-source-architecture.md:135）。
+建议：`conversations.md` 定缺省模式（推荐运行中用 steer，空闲时短时间内的连发合并成一条再 `send`），并写明队列上限。
+
+### 18. 对 ADR 0030 搬迁条件的引用改了原意，应该改 ADR 或记一条决定，不在提案里重新解释（严重程度：低）
+位置：提案第四节第 3 小节“ADR 0030 定的是出现第二个使用插件模式的应用时搬，第三方插件进来时再搬”（82 行）
+问题：ADR 0030 决策 2 的原文只有一个条件：“出现第二个使用插件模式的应用时，再把这个目录搬成包”。NeuroBot 正是第二个在 nb-runtime 插件模式上装配的应用，照字面条件已经满足。提案加了“第三方插件进来时再搬”，把条件改成了“第二个需要第三方插件的应用”。这个改法本身合理：目录管的是第三方插件的安装与登记，NeuroBot 第一版用不上（第 5 条核实过）。但它是对已接受 ADR 的改动，写在提案里，以后读 ADR 的人会认为 NeuroBot 违反了它。
+依据：docs/adr/0030-plugin-platform-layering.md 决策 2；提案 82 行。
+建议：在 ADR 0030 的后果或修订里补一句“触发条件是第二个需要第三方插件的应用；只用内置插件的应用直接用 nb-runtime”，注明开发者的决定日期；提案引用改成指向这条修订。
+
+### 19. 第六节“对 Spec 的预期改动”漏了几份要改的合同（严重程度：低）
+位置：提案第六节
+问题：照前面各条，下面的合同改动没有列出，后续切片照第六节排工作会漏掉：
+- `harness/runtime.md` 输出 52 的 `compact` 指令与 `CompactionJob.reason`（第 1 条）；第六节只写了“空闲压缩的触发点”，过期前压缩没提；
+- 模型目录或模型设置的 Spec：缓存寿命、单价未知时的处理（第 2 条）；
+- 会话轮换如果在 nb-harness 里做（第 8 条），要改 `harness/session.md` 与 `harness/runtime.md`；
+- NeuroBot 服务端宿主的合同：监听、来源核对、数据目录认领（第 13、16 条），对应 NeuroBook 的 `runtime/server-host.md`；
+- NeuroBot 的远程合同（对话流跨会话分页、记忆文件、日程），对应 NeuroBook 的 `agent/sessions.md`；
+- t32 的方法贡献 id 与“nb-harness 不出现 NeuroBook 名字”之间的处理（第 1 条），要回写 t32。
+依据：上列各条。
+建议：第六节按上表补齐，并标出哪些是 nb-harness 的合同（NeuroBook 也受影响）、哪些只属于 NeuroBot。
+
+审查结束，共 19 条
