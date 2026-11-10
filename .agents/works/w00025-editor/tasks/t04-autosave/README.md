@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t04-autosave
-status: planned
-updated: 2026-10-15
+status: active
+updated: 2026-11-10
 ---
 
 # 自动保存
