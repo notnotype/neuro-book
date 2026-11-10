@@ -70,4 +70,8 @@ Spec 的条目级 planned 合同已提交（`workbench-layout`、`views`、`nest
 
 ## 下一步
 
-在 worktree `.worktree/w00026-t24-view-containers`（分支 `feat/w00026-t24-view-containers`）按 `plan.md` 的切片实施，从切片 0 开始。
+在 worktree `.worktree/w00026-t24-view-containers`（分支 `feat/w00026-t24-view-containers`）按 `plan.md` 的切片实施：
+
+- 切片 0（`isPanelShown` 收口，行为不变）已提交：nb-layout、工作台单元测试通过。
+- 切片 1（nb-layout 的锚、分节、容器归属，区域整体拖到零）已提交，编码派 Fable，主 Agent 审 diff 并自跑：nb-layout 498、组件 187、工作台 206 项单元测试与类型检查通过，`workbench-views`、`workbench-dnd` e2e 68 项通过。与说明不同的三处：锚的当前容器字段叫 `activeContainer`；“新模型的锚”要求带 `entries`；`grid-geometry.ts` 收起的分支里不再报空间不够的诊断。实现审查（Fable）在后台。
+- 切片 2（工作台的模型与声明）编码中，派 Fable。
