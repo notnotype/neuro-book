@@ -10,9 +10,9 @@
 import {createInterface} from "node:readline";
 import type {Interface} from "node:readline";
 
+import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application, ApplicationManifest, EmergencyReport, StopResult} from "@notnotype/nb-runtime/application";
-
-import {createApplication} from "nbook/application";
+import type {PluginPlatform} from "@notnotype/nb-runtime/plugins";
 
 export type FatalKind = "uncaught-exception" | "unhandled-rejection";
 
@@ -26,7 +26,13 @@ export interface ServerHostOptions {
     readonly instanceId: string;
     /** 运行位置：服务端进程为 `server`（缺省），项目子进程为 `project`，两者共用这个适配器。 */
     readonly location?: "server" | "project";
-    readonly manifest: ApplicationManifest;
+    /** 清单不带平台档案：档案由下面的 `platform` 给，放在清单之后，清单覆盖不了它。 */
+    readonly manifest: Omit<ApplicationManifest, "platform">;
+    /**
+     * 应用的平台档案，必填：漏传时内置插件不在自己 id 之下的贡献会被拒，界面少东西却没有类型错误。只有本适配器与浏览器
+     * 一侧的适配器调内核的 `createApplication`（`src/architecture.test.ts`）。
+     */
+    readonly platform: PluginPlatform;
     readonly emergency: (report: EmergencyReport) => void;
     /** 挂接信号与未处理异常的进程对象；缺省当前进程。 */
     readonly process?: ProcessEvents;
@@ -94,7 +100,7 @@ class ServerHostImpl implements ServerHost {
                 stopSignal: this.#controller.signal,
                 emergency: this.#emergency,
             },
-            options.manifest,
+            {...options.manifest, platform: options.platform},
         );
         // 启动失败时内核自行收口：同样结算并移除监听，之后到达的信号不再触碰该实例。
         void this.application.stopped.then((result) => {

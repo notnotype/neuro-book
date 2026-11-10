@@ -20,7 +20,8 @@ import ts from "typescript";
 const SRC = import.meta.dir;
 const PACKAGE_ROOT = resolve(SRC, "..");
 /** 现有的应用名：NeuroBook 与 NeuroBot。 */
-const APP_NAMES = /nbook|neurobook|nbot|neurobot/iu;
+/** `nbot` 前后不能是字母：`drainBoth` 这类单词内部的“nBot”不算。 */
+const APP_NAMES = /nbook|neurobook|neurobot|(?<![a-z])nbot(?![a-z])/iu;
 /** 应用包本身；`@notnotype/neuro-book-test-support` 不是应用包。 */
 const APP_PACKAGES = /^(?:nbook\/|@notnotype\/neuro-book(?:\/|$)|@notnotype\/neuro-bot(?:\/|$))/u;
 const BROWSER_PACKAGES = /^(?:@notnotype\/nb-runtime\/[a-z-]+|typebox)$/u;
@@ -121,6 +122,8 @@ describe("nb-host 的边界", () => {
 
     it("每条规则都能拦下对应的违规", () => {
         for (const name of ["NeuroBook", "nbook", "NeuroBot", "nbot"]) expect(APP_NAMES.test(`const id = "${name}";`)).toBe(true);
+        for (const name of ["nbot.memory", "NBOT_HOME"]) expect(APP_NAMES.test(name)).toBe(true);
+        expect(APP_NAMES.test("const drained = drainBoth();")).toBe(false);
         const use = (file: string, specifier: string, typeOnly = false, names: readonly string[] | null = null): ImportUse => ({file, specifier, typeOnly, names});
         const cases: readonly ImportUse[] = [
             use("server/start.ts", "nbook/server/config"),

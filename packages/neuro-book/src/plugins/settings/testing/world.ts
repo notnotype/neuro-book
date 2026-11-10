@@ -7,6 +7,7 @@
 
 import {join} from "node:path";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -18,7 +19,6 @@ import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 
 import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 import {clockKey, stateRootKey, windowConnectionKey, windowNavigationKey} from "nbook/shared/host";
@@ -65,7 +65,6 @@ export interface SettingsWorldOptions {
 }
 
 type HostCapability = NonNullable<Parameters<typeof createApplication>[1]["capabilities"]>[number];
-
 
 export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<PluginDefinition>, options: SettingsWorldOptions = {}): Promise<SettingsWorld> {
     const apps: Application[] = [];

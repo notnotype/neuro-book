@@ -4,6 +4,8 @@
  * 清单写了浏览器入口而两张表都没有时，窗口以启动失败结束，不静默少装。
  */
 
+import {createBrowserDiagnosticsPlugin} from "@notnotype/nb-host/web";
+import type {DiagnosticsConsole} from "@notnotype/nb-host/web";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {Catalog} from "@notnotype/nb-ui/text";
@@ -12,8 +14,6 @@ import {pluginsAt, productPlugins} from "nbook/manifest";
 import {STUDY_ICON_NAMES} from "nbook/plugins/theme-study/plugin";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
-import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
-import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
 import {editorBrowserPlugin} from "nbook/plugins/editor/web/plugin";
 import {editorCatalogs} from "nbook/plugins/editor/web/text";
 import {htmlPreviewBrowserPlugin} from "nbook/plugins/html-preview/web/plugin";

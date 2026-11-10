@@ -5,6 +5,7 @@
 
 import {expect} from "bun:test";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
@@ -14,7 +15,6 @@ import type {WriteRequest} from "@notnotype/nb-canon";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createApplication} from "nbook/application";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowProjectKey} from "nbook/shared/projects";
 

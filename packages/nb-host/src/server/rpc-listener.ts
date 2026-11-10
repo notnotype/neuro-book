@@ -3,18 +3,23 @@
  * “内核 RPC 端口”）。
  *
  * 升级前先过门（等运行实例就绪，启动失败与停止中为 503），再核对 `Origin`：顺序不能反，HTTP 端口为 0 时
- * 允许的来源要等 `nbook.http` 监听后才知道。没有 `Origin` 头的升级放行：浏览器发起的 WebSocket 握手总会带，
+ * 允许的来源要等宿主的 HTTP 插件监听后才知道。没有 `Origin` 头的升级放行：浏览器发起的 WebSocket 握手总会带，
  * 网页无法省略，不带的只有本机的非浏览器客户端。监听与路由归宿主：插件全部关闭后才由装配方停止。
  */
 
-import {createSocketLink, RPC_MAX_MESSAGE_BYTES, RPC_PATH} from "@notnotype/nb-host/socket";
-import type {SocketLink} from "@notnotype/nb-host/socket";
 import type {RemoteRouter} from "@notnotype/nb-runtime/remote";
+
+import {createSocketLink, RPC_MAX_MESSAGE_BYTES, RPC_PATH} from "../shared/socket";
+import type {SocketLink} from "../shared/socket";
+import {assertLoopbackHost} from "./loopback";
 
 /** 门的结果；拒绝时 `code` 进 503 响应的错误码（`startup-failed`、`stopping`）。 */
 export type RpcGateResult = {readonly ok: true} | {readonly ok: false; readonly code: string};
 
 export interface RpcListenerOptions {
+    /** 503 文字里的产品名（“<产品名> 暂不接受 RPC 连接。”）。 */
+    readonly productName: string;
+    /** 只许回环地址：监听之前核对一次（`loopback.ts`）。 */
     readonly host: string;
     readonly port: number;
     readonly router: RemoteRouter;
@@ -47,6 +52,7 @@ function rejection(status: number, code: string, message: string): Response {
 
 /** 开始监听；端口被占用等监听失败时同步抛错。 */
 export function startRpcListener(options: RpcListenerOptions): RpcListener {
+    assertLoopbackHost(options.host, options.host);
     const server = Bun.serve({
         hostname: options.host,
         port: options.port,
@@ -59,7 +65,7 @@ export function startRpcListener(options: RpcListenerOptions): RpcListener {
             }
             const gate = await options.admit();
             if (!gate.ok) {
-                return rejection(503, gate.code, "NeuroBook 暂不接受 RPC 连接。");
+                return rejection(503, gate.code, `${options.productName} 暂不接受 RPC 连接。`);
             }
             const origin = request.headers.get("origin");
             if (origin !== null && !options.allowOrigin(origin)) {

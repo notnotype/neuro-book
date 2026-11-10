@@ -10,6 +10,7 @@ import {randomBytes} from "node:crypto";
 import {mkdir, readdir, readFile, rm, stat, symlink, truncate, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -17,7 +18,6 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {definitionAt} from "nbook/manifest";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {projectsKey} from "nbook/shared/projects";

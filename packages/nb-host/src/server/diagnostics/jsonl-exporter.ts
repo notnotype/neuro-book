@@ -26,7 +26,7 @@ import {isNodeErrorCode, isOwnedLogFile, JsonlLogWriter} from "./log-writer";
 /** 授予锁文件；放在被授予目录内，不匹配任何 `server-*` 日志归属模式。 */
 export const LOG_LOCATION_LOCK_NAME = "server-logs.lock";
 
-/** proper-lockfile 的过期与心跳参数；所有 NeuroBook 进程必须一致，否则会误判对方的锁过期。 */
+/** 日志位置锁（长期持有、带心跳）的过期与心跳参数；所有写同一日志位置的进程必须一致，否则会误判对方的锁过期。 */
 export const LOG_LOCATION_LOCK_STALE_MS = 30_000;
 export const LOG_LOCATION_LOCK_UPDATE_MS = 10_000;
 

@@ -11,9 +11,10 @@
 
   | 子路径 | 运行位置 |
   |---|---|
-  | `./server` | Bun：回环与来源校验、端口顺延、状态根认领、HTTP 插件 |
+  | `./server` | Bun：回环与来源校验、端口顺延、状态根认领、HTTP 插件、诊断的 JSONL 出口、宿主适配器、内核 RPC 端口的监听 |
   | `./http/contracts` | 不限：贡献点 `http.routes` 的形状，没有运行时导入 |
   | `./socket` | 不限：服务端与浏览器共用的 WebSocket 链路 |
+  | `./web` | 浏览器：诊断的 console 出口 |
   | `./testing` | Bun，只给测试：连 RPC 端口的原始客户端、能掐断连接的 TCP 转发 |
 
 - 浏览器会加载 `src/web/` 与 `src/shared/`：它们只许导入 nb-runtime 的子路径与 TypeBox，不用 DOM 之外的平台 API；新加第三方依赖要同时加进应用 `vite.config.ts` 的 `optimizeDeps.include`。目录名叫 `web/`：应用开发监督进程按路径段 `web` 判前端文件，改它不触发后端重启。

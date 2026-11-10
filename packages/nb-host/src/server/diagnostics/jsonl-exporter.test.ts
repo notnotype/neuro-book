@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 async function tempRoot(): Promise<string> {
-    const root = await createTestTmpRoot("nbook-diagnostics", "runtime-diagnostics");
+    const root = await createTestTmpRoot("nb-host-diagnostics", "runtime-diagnostics");
     ROOTS.push(root);
     return root;
 }

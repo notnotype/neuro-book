@@ -6,6 +6,7 @@
 
 import {createHttpPlugin} from "@notnotype/nb-host/server";
 import type {HttpAdmission} from "@notnotype/nb-host/server";
+import {createServerDiagnosticsPlugin} from "@notnotype/nb-host/server";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
@@ -16,7 +17,6 @@ import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
-import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
 import {pluginsBackendPlugin} from "nbook/plugins/plugins/backend/plugin";
 import {projectsBackendPlugin} from "nbook/plugins/projects/backend/plugin";

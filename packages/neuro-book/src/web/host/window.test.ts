@@ -14,6 +14,7 @@ import {join} from "node:path";
 
 import {helloFrame, openRawRpcSocket, startTcpProxy} from "@notnotype/nb-host/testing";
 import {errorResponse} from "@notnotype/nb-host/testing";
+import type {DiagnosticsConsole} from "@notnotype/nb-host/web";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -25,7 +26,6 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import type {PluginDescriptor} from "nbook/manifest";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {fakePage} from "nbook/plugin-platform/testing/fake-page";
-import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {manifestServerPlugins} from "nbook/server/plugins";
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {startClaimedServer} from "nbook/server/testing/claimed-server";

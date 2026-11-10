@@ -12,6 +12,7 @@
         "./server": "./src/server/index.ts",
         "./http/contracts": "./src/shared/http-contracts.ts",
         "./socket": "./src/shared/socket.ts",
+        "./web": "./src/web/index.ts",
         "./testing": "./src/testing/index.ts"
     },
     "scripts": {

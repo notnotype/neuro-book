@@ -7,11 +7,10 @@ import {afterEach, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 
 import {createServerDiagnosticsPlugin} from "./plugin";
-
-import {createApplication} from "nbook/application";
 
 const original = {warn: console.warn, error: console.error};
 let root = "";
@@ -23,7 +22,7 @@ afterEach(async () => {
 });
 
 it("激活期间 console.warn/error 照常输出并记入诊断，关闭后恢复激活前的函数", async () => {
-    root = await createTestTmpRoot("nbook-diagnostics", "console-bridge");
+    root = await createTestTmpRoot("nb-host-diagnostics", "console-bridge");
     const printed: unknown[][] = [];
     const recordWarn = (...args: unknown[]): void => {
         printed.push(["warn", ...args]);

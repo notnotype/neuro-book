@@ -8,7 +8,8 @@ import {join, relative} from "node:path";
 
 const SRC = import.meta.dir;
 /** 现有的应用名：NeuroBook 与 NeuroBot。 */
-const APP_NAMES = /nbook|neurobook|nbot|neurobot/iu;
+/** `nbot` 前后不能是字母：`drainBoth` 这类单词内部的“nBot”不算。 */
+const APP_NAMES = /nbook|neurobook|neurobot|(?<![a-z])nbot(?![a-z])/iu;
 /** 应用包本身；`@notnotype/neuro-book-test-support` 不是应用包。 */
 const APP_PACKAGES = /from\s+["'](?:nbook\/|@notnotype\/neuro-book(?:\/|["'])|@notnotype\/neuro-bot(?:\/|["']))/u;
 
@@ -27,6 +28,8 @@ describe("与应用无关", () => {
         expect(hits(APP_NAMES)).toEqual([]);
         expect(hits(APP_PACKAGES)).toEqual([]);
         for (const name of ["NeuroBook", "nbook", "NeuroBot", "nbot"]) expect(APP_NAMES.test(`const id = "${name}";`)).toBe(true);
+        for (const name of ["nbot.memory", "NBOT_HOME"]) expect(APP_NAMES.test(name)).toBe(true);
+        expect(APP_NAMES.test("const drained = drainBoth();")).toBe(false);
         expect(APP_PACKAGES.test('import {commitStaged} from "nbook/backend/staged-commit";')).toBe(true);
         expect(APP_PACKAGES.test('import {x} from "@notnotype/neuro-bot/server";')).toBe(true);
         expect(APP_PACKAGES.test('import {x} from "@notnotype/neuro-book-test-support/tmp";')).toBe(false);

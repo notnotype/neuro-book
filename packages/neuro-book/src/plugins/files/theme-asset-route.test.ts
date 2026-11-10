@@ -10,13 +10,13 @@ import {join} from "node:path";
 import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
 import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
 import {createDispatcher, HttpAdmission, RouteTable, validateRouteContribution} from "@notnotype/nb-host/testing";
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Hono} from "hono";
 
 import {definitionAt} from "nbook/manifest";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {killSpawnedProjects, projectHarness} from "nbook/server/testing/projects";
 
 import {filesBackendPlugin} from "./backend/plugin";

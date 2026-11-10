@@ -5,13 +5,13 @@
 
 import {afterEach, describe, expect, it} from "bun:test";
 
-import {loopbackOrigins} from "@notnotype/nb-host/server";
-import {RPC_MAX_MESSAGE_BYTES} from "@notnotype/nb-host/socket";
-import {helloFrame, openRawRpcSocket, upgradeStatus} from "@notnotype/nb-host/testing";
 import {createRemoteNode, createRemoteRouter, WIRE_PROTOCOL_VERSION} from "@notnotype/nb-runtime/remote";
 
-import {startRpcListener} from "./listener";
-import type {RpcGateResult, RpcListener} from "./listener";
+import {RPC_MAX_MESSAGE_BYTES} from "../shared/socket";
+import {helloFrame, openRawRpcSocket, upgradeStatus} from "../testing/rpc-client";
+import {loopbackOrigins} from "./loopback";
+import {startRpcListener} from "./rpc-listener";
+import type {RpcGateResult, RpcListener} from "./rpc-listener";
 
 const PAGE_ORIGIN = "http://127.0.0.1:3000";
 
@@ -24,6 +24,7 @@ afterEach(() => {
 function listen(admit: () => Promise<RpcGateResult> = () => Promise.resolve({ok: true})): RpcListener {
     const router = createRemoteRouter(createRemoteNode({instance: {id: "server", kind: "server", role: "hub", project: null, client: null}}));
     const listener = startRpcListener({
+        productName: "Acme",
         host: "127.0.0.1",
         port: 0,
         router,

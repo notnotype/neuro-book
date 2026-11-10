@@ -7,6 +7,7 @@
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
@@ -20,7 +21,6 @@ import {ref} from "vue";
 
 import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";

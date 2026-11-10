@@ -12,13 +12,13 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createLinkTap} from "nbook/plugins/files/testing/tap";
 import type {LinkTap} from "nbook/plugins/files/testing/tap";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";

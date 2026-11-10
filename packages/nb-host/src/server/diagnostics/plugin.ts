@@ -10,9 +10,11 @@ import {createDiagnosticsPlugin, diagnosticsKey} from "@notnotype/nb-runtime/dia
 import type {DiagnosticLevel, DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationOutput, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {descriptor} from "../plugin";
 import {createJsonlExporterFactory, createStderrFallback} from "./jsonl-exporter";
 import type {JsonlExporterOptions} from "./jsonl-exporter";
+
+/** 内核自带的诊断插件的 id（nb-runtime 的保留发布者 `runtime`）。 */
+const DIAGNOSTICS_PLUGIN_ID = "runtime.diagnostics";
 
 export interface ServerDiagnosticsPluginOptions {
     readonly store: DiagnosticsStore;
@@ -29,8 +31,9 @@ export function createServerDiagnosticsPlugin(options: ServerDiagnosticsPluginOp
         fallback: createStderrFallback(),
     });
     const [baseEntry] = base.entries;
-    if (base.id !== descriptor.id || base.entries.length !== 1 || baseEntry === undefined) {
-        throw new Error(`nb-runtime 的诊断插件形状变了，${descriptor.id} 的后端入口需要同步`);
+    // 包一层要求内核的诊断插件正好一个入口、id 是 runtime.diagnostics；内核改了形状时在这里失败，不悄悄漏掉入口。
+    if (base.id !== DIAGNOSTICS_PLUGIN_ID || base.entries.length !== 1 || baseEntry === undefined) {
+        throw new Error(`nb-runtime 的诊断插件形状变了，${DIAGNOSTICS_PLUGIN_ID} 的后端入口需要同步`);
     }
     return {
         ...base,
@@ -55,7 +58,7 @@ function bridgeConsole(store: DiagnosticsStore): () => void {
             event: `console.${level}`,
             message: args.map(describeConsoleArgument).join(" "),
             error: args.find((argument) => argument instanceof Error),
-            source: {plugin: descriptor.id},
+            source: {plugin: DIAGNOSTICS_PLUGIN_ID},
         });
     };
     console.warn = bridge("warn", originals.warn);

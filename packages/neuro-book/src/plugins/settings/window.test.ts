@@ -15,6 +15,7 @@ import {ref} from "@vue/reactivity";
 import {defineComponent} from "vue";
 import type {Component} from "vue";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -28,7 +29,6 @@ import {Type} from "typebox";
 
 import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import {descriptor as workbenchDescriptor} from "nbook/plugins/workbench/plugin";

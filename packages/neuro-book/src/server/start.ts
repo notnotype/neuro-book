@@ -14,8 +14,8 @@ import {writeSync} from "node:fs";
 import {homedir} from "node:os";
 import {join} from "node:path";
 
-import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected, isAddressInUse, listenWithShift, loopbackOrigins, PORT_SHIFT_ATTEMPTS} from "@notnotype/nb-host/server";
-import type {DrainClock} from "@notnotype/nb-host/server";
+import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected, isAddressInUse, listenWithShift, loopbackOrigins, PORT_SHIFT_ATTEMPTS, startRpcListener, startServerHost} from "@notnotype/nb-host/server";
+import type {DrainClock, FatalKind, ProcessEvents, RpcGateResult, RpcListener} from "@notnotype/nb-host/server";
 import {RPC_PATH} from "@notnotype/nb-host/socket";
 import type {Application, StartupFailure, StartupResult, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
@@ -29,26 +29,22 @@ import {installedPlugins, NO_PREPARED_PLUGINS} from "nbook/plugin-platform/backe
 import {pluginProblems} from "nbook/plugin-platform/shared/problems";
 import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
-import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
+import {NEUROBOOK_PLATFORM, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import type {PluginDescriptor} from "nbook/manifest";
 import {clockKey, startupEnvKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import type {ServerConfig} from "./config";
-import {startServerHost} from "./host";
 import type {StateRootClaim} from "./instance";
 import {startupEnv} from "./startup-env";
 import {resolveUserDirectories} from "./user-directories";
-import type {FatalKind, ProcessEvents} from "./host";
 import {manifestServerPlugins} from "./plugins";
 import type {ServerPluginContext} from "./plugins";
 import {createProjectManager} from "./projects/manager";
 import type {ProjectManager} from "./projects/manager";
 import {createProjectRegistry} from "./projects/registry";
 import type {ProjectRegistry} from "./projects/registry";
-import {startRpcListener} from "./rpc/listener";
-import type {RpcGateResult, RpcListener} from "./rpc/listener";
 
 export type ExitCode = 0 | 1;
 
@@ -218,6 +214,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             rpcPort: options.config.rpcPort,
             shift: options.config.shiftPorts,
             listenRpc: (port) => startRpcListener({
+                productName: NEUROBOOK_PROFILE.productName,
                 host: options.config.host,
                 port,
                 router,
@@ -321,6 +318,7 @@ export function startServer(options: StartServerOptions): RunningServer {
     const userDirectories = resolveUserDirectories({platform: process.platform, env: process.env, home});
     const host = startServerHost({
         instanceId: INSTANCE_ID,
+        platform: NEUROBOOK_PLATFORM,
         manifest: {
             capabilities: [
                 {id: "host.state-root", key: stateRootKey, create: () => stateRoot},

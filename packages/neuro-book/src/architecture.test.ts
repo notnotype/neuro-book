@@ -238,7 +238,7 @@ describe("包内依赖方向", () => {
             use("project/start.ts", "vue"),
             use("web/host/window.ts", "nbook/plugins/storage/backend/plugin"),
             use("shared/browser-bootstrap.ts", "@notnotype/nb-host/server"),
-            use("plugins/workbench/web/plugin.ts", "nbook/plugins/diagnostics/web/plugin"),
+            use("plugins/workbench/web/plugin.ts", "nbook/plugins/editor/web/plugin"),
             use("web/main.ts", "vite"),
             use("server/start.ts", "nbook/plugin-platform/build/build-plugin"),
             use("web/host/window.ts", "@vue/test-utils"),
@@ -271,7 +271,7 @@ describe("包内依赖方向", () => {
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
-            use("plugins/workbench/web/plugin.ts", "nbook/plugins/diagnostics/web/plugin", true),
+            use("plugins/workbench/web/plugin.ts", "nbook/plugins/editor/web/plugin", true),
             use("plugins/projects/web/plugin.ts", "nbook/plugins/workbench/shared/contracts"),
             use("plugins/storage/web/plugin.ts", "nbook/plugins/commands/shared/contracts"),
             use("server/development-main.ts", "nbook/development-manifest"),

@@ -10,6 +10,7 @@
  * 不依赖 Vue 与 DOM：连接对象、页面事件目标、console 与时钟由装配方传入，界面经 `onChange` 订阅状态。
  */
 
+import type {DiagnosticsConsole} from "@notnotype/nb-host/web";
 import type {StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticInput, DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -31,7 +32,6 @@ import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 import {createPluginCodeHost, pageDocument} from "nbook/plugin-platform/web/plugin-code";
 import type {PluginCodeHost, PluginDocument, PluginLink} from "nbook/plugin-platform/web/plugin-code";
 import {attachPluginStyles} from "nbook/plugin-platform/web/styles";
-import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
