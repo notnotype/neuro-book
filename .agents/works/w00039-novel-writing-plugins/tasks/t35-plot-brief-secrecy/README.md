@@ -43,10 +43,9 @@ t34 晋升前逐条核对时，简报三轮实现审查每轮都找出新的泄�
 
 ## 当前状态
 
-2026-11-07 经 nbdev 新建；2026-11-09 开工，执行位置 `.worktree/w00039-t35-brief-secrecy`（分支 `fix/w00039-t35-brief-secrecy`）。计划审查 P1（Opus）15 条全部成立，计划已按它修订（[报告](evidences/plan-review-P1-opus.txt)、[处理](evidences/plan-review-P1-resolution.txt)）；第二轮计划审查进行中。计划末尾两项待确认开发者 11-10 都按推荐定了。
+2026-11-07 经 nbdev 新建；2026-11-09 开工，执行位置 `.worktree/w00039-t35-brief-secrecy`（分支 `fix/w00039-t35-brief-secrecy`）。计划审查两轮（Opus）：P1 15 条、P2 13 条，全部成立，计划已按它们修订（[P1 报告](evidences/plan-review-P1-opus.txt)、[P1 处理](evidences/plan-review-P1-resolution.txt)、[P2 报告](evidences/plan-review-P2-opus.txt)、[P2 处理](evidences/plan-review-P2-resolution.txt)）；第二轮没有阻断，不再开第三轮，进入实现（第 1 片：内核的纯文字渲染）。计划末尾两项待确认开发者 11-10 都按推荐定了。
 
 ## 下一步
 
-1. 第二轮计划审查（Opus 子代理；开发者 2026-11-09 定本 session 的审查不开 omp），处理结论；
-2. 按计划四片实现，实现审查一次；
-3. 晋升前逐条核对，晋升 `plot/brief.md`。
+1. 按计划四片实现，实现审查一次（Opus；开发者 2026-11-09 定本 session 的审查不开 omp）；
+2. 晋升前逐条核对，晋升 `plot/brief.md`。
