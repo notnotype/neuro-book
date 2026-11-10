@@ -59,10 +59,91 @@ ol.week li { margin: 2px 0; }
 <p>界面上不出现记录 id、Component、字段路径（提案第 8 节“入口与用词”），所以草稿里把提案的几个词换成了作者的说法：初值 → 开局，讲述 → 讲到的地方，补丁 → 改了什么，生效位置 → 什么时候。</p>
 </div>
 
-<div class="round">第一批（设定侧）· Spec 请你批准</div>
+<div class="round">前情与文风 · S 摘要的方案（你要的）</div>
+
+<section class="s">
+<h2>方案：范围摘要两两合并 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>你的要求：L 摘要管一章（三级，探索时的提示词我读了：L1 不超过原文一半，L2 约三分之一，L3 两三百字）；S 摘要管一个范围，把几乎无限的前文压到固定的长度，越远记得越粗，参数可调。</p>
+<p><b>做法。</b>每满 10 章，用小模型把这 10 章的 L2 合成一段范围摘要（约 400 字）。相邻两段同样大小的范围摘要再合成一段更粗的，字数不变、管的章数翻倍：20 章、40 章、80 章……给写手时，用最少的几段把“很久以前”盖满，最远的用最大的段。不满 10 章的零头由每章的 L3 顶着。</p>
+<p>例：写第 152 章，按你给的阶梯（原文 2 章、L1 3 章、L2 4 章、L3 至少 11 章）：</p>
+<table style="width:100%;border-collapse:collapse;table-layout:fixed"><tr><td style="width:30%;background:#e8e8e8;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>第 1–80 章</b><br>一段，约 400 字</td><td style="width:17%;background:#dedede;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>第 81–120 章</b><br>一段，约 400 字</td><td style="width:8%;background:#d4d4d4;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>121–130</b><br>一段</td><td style="width:13%;background:#fff3c4;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>131–142</b><br>每章 L3</td><td style="width:8%;background:#ffe9a0;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>143–146</b><br>每章 L2</td><td style="width:8%;background:#ffdf7a;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>147–149</b><br>每章 L1</td><td style="width:10%;background:#ffd24d;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>150–151</b><br>原文</td><td style="width:6%;background:#fff;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>152</b><br>要写的</td></tr></table>
+<p>左边三段灰的就是 S 摘要：131 章只用了三段、约 1200 字。因为每段字数一样而管的章数越远越多，自然就是“越远越粗”。</p>
+<table>
+<tr><th>书的长度</th><th>S 摘要最多几段</th><th>约多少字</th></tr>
+<tr><td>100 章</td><td>3 段</td><td>1200</td></tr>
+<tr><td>1000 章</td><td>7 段</td><td>2800</td></tr>
+<tr><td>3000 章</td><td>9 段</td><td>3600</td></tr>
+</table>
+<p><b>为什么不用“一份摘要每章滚着改”当 S 摘要。</b>滚着改的那种每章都把旧摘要再压一遍，细节一轮轮丢、错了会一直带下去；改了前面某一章就得从那一章起全部重做；而且它每章都变，吃不到缓存。两两合并的每一段只做一次，改了某一章只重做盖着它的那几段（1000 章的书最多 7 段），S 这一部分每 10 章才变一次。</p>
+<p><b>可调的参数</b>（缺省值在括号里）：原文几章（2）、L1 几章（3）、L2 几章（4）、L3 至少几章（11）、多少章合一段（10）、每段多少字（400）。再给两三个现成的档：省（原文 1、L1 2、L2 3、L3 10）、标准（上面这组，3000 字一章时前情约两万字）、宽。</p>
+<p><b>几条规则。</b></p>
+<ul>
+<li>摘要只从正文做，不给摘要的模型看设定里的真相。所以摘要里只有读者读到过的东西，不会把写手不该知道的秘密带进去。</li>
+<li>每份摘要记着它是从哪一版正文做的。正文改了，那一章的三级摘要和盖着它的范围摘要标成“过期”，工作单上能看到、点了重做；重做之前先用旧的。</li>
+<li>在中间插章、调章序会让后面的范围摘要全部过期（每 10 章一段的边界挪了）。1000 章重做约 100 次小模型调用，可以接受，记为已知的代价。</li>
+<li>三级 L 摘要逐级转：正文 → L1 → L2 → L3（你说的“详细的可以转成粗略的”）。开工前先用探索时那一章对比一次“逐级转”和“各自从正文做”，差别大就改回各自从正文做。</li>
+</ul>
+</section>
+
+<section class="s">
+<h2>写手上下文的排法 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>照你写的五块来，我补了每块从哪来、缓存断在哪：</p>
+<table>
+<tr><th>块</th><th>内容</th><th>从哪来</th><th>多久变一次</th></tr>
+<tr><td>1 系统</td><td>NeuroBook 的系统提示词、你加的额外指令</td><td>内置加设置</td><td>基本不变</td></tr>
+<tr><td>2 写作提示词</td><td>文风提示词、参考正文（可空）、文风检查提示词（开卷）</td><td>作品里的三个文件</td><td>你改的时候</td></tr>
+<tr><td>3 稳定的设定</td><td>这本书是什么、题材、受众、基础世界观、核心设定</td><td>作品里的一个文件，你写</td><td>你改的时候</td></tr>
+<tr><td colspan="4" style="text-align:center;color:#888">以上跨章都能吃到缓存</td></tr>
+<tr><td>4 前情</td><td>从远到近：S 摘要、L3、L2、L1、最近两章原文；最后是滚动摘要</td><td>写完一章后小模型做好存着</td><td>S 每 10 章变；别的每章往前挪一格</td></tr>
+<tr><td>5 这一章</td><td>写作指令、细纲，以及现在已有的本章计划、这一场的秘密、在场的人、称谓、伏笔等</td><td>工作单的“细纲”一步</td><td>每章</td></tr>
+</table>
+<ul>
+<li>第 4 块从远到近排，S 摘要在最前，所以连着 10 章这一段也能吃到缓存；同一章里重写、写完以后的文风检查，前四块全部命中。</li>
+<li>文风检查就是“写完以后”里的一项检查：一份提示词文件就是一项检查。上一轮的“再查一项”里自己写的那一句，存成文件以后就成了每章都跑的检查，这也回答了“检查要不要可扩展”。</li>
+<li>第 3 块是你手写的文件，程序不替你遮秘密；我会让它在交给写手前按现有的保密规则扫一遍，里面出现了绝密设定的名字就在工作单上提醒。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="s-scheme" data-nbdev-type="single" data-nbdev-recommend="merge">
+<h2>S 摘要用哪种做法 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="merge"><h3>两两合并（上面的方案）</h3><p>每 10 章一段，相邻两段再合；字数随书的长度只慢慢涨（1000 章约 2800 字）。</p></div>
+<div class="opt" data-nbdev-option="volume"><h3>按卷</h3><p>一卷一段摘要，卷里再按 10 章分段。读起来最顺，但要你把章分好卷，卷的大小不一样时“越远越粗”不成立，很长的书段数一直涨。</p></div>
+<div class="opt" data-nbdev-option="rolling"><h3>只要一份滚着改的</h3><p>长度固定、最简单，缺点见上面。</p></div>
+</div>
+<div class="rec-note"><b>推荐：两两合并。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="s-rolling" data-nbdev-type="single" data-nbdev-recommend="reset">
+<h2>“滚动摘要”怎么做 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>你列的第 4 块里另有一份“到目前为止的滚动摘要”，用来快速告诉模型现在的局面。它和 S 摘要分工不同：S 是按范围留下因果，滚动摘要是一段固定 300 字左右的“故事到现在”。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="reset"><h3>每章滚一次，每 10 章从头对一次</h3><p>平时用“上一份加这一章的 L3”更新；每满 10 章，改成从 S 摘要和最近几章的 L3 重新写一份，免得越滚越偏。</p></div>
+<div class="opt" data-nbdev-option="pure"><h3>一直滚</h3><p>不重对。最省，会慢慢偏。</p></div>
+<div class="opt" data-nbdev-option="none"><h3>先不要</h3><p>S 摘要加阶梯已经盖住全部前文；等真写起来觉得缺再加。</p></div>
+</div>
+<div class="rec-note"><b>推荐：每 10 章对一次。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="s-stable" data-nbdev-type="single" data-nbdev-recommend="file">
+<h2>“稳定的设定”从哪来 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="file"><h3>作品里的一个文件，你写</h3><p>例如“设定/总纲.md”。内容你说了算，改得少，缓存稳。</p></div>
+<div class="opt" data-nbdev-option="entries"><h3>从条目里挑</h3><p>在条目上标“核心设定”，程序把它们的文字拼起来。和设定库不会两处不一致，但条目一改这一块就变，缓存常失效。</p></div>
+<div class="opt" data-nbdev-option="both"><h3>文件为主，另可以点名带几个条目</h3><p>两种都做。</p></div>
+</div>
+<div class="rec-note"><b>推荐：文件。</b>现在每章已经会按场景带上“涉及条目的样子”，核心设定再从条目拼一遍会重复。</div>
+</section>
+
+<section class="q" data-nbdev-question="s-notes" data-nbdev-type="text">
+<h2>这套方案还有哪里不对 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>文风按你写的三个部分做成作品里的三个文件（文风提示词、参考正文、文风检查提示词），上一版“文风从哪里来”那一题不再问。你定了以后我建一个后端任务：章的三级摘要、范围摘要、滚动摘要、写手上下文的新排法，Spec 改 <code>plot/brief.md</code>；界面上工作单的“细纲”一步相应改。</p>
+</section>
+
+<div class="round">第一批（设定侧）· Spec（已批准）</div>
 
 <section class="q" data-nbdev-question="b1-spec-approve" data-nbdev-type="single" data-nbdev-recommend="approve">
-<h2>第一批的 Spec 可以定下来开工吗 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>第一批的 Spec 可以定下来开工吗 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>第一批（条目树、条目页、就地改与记一笔、回执与还原、待处理、改动记录、状态栏）的 Spec 草稿写完了，分两路又审了一轮：内核的补口 15 条、界面与编辑器 18 条，33 条核实后都成立，已经改进 Spec 与计划（处理记录在 Task t31 的 <code>evidences/design-review-r2-resolution.txt</code>）。这一轮没有推翻方向的发现，我不打算再审第三轮。批准以后 Spec 提交为“计划中”，我从内核补口开工。</p>
 <p>审查以后变了的、你可能在意的几处：</p>
 <table>
@@ -113,7 +194,7 @@ ol.week li { margin: 2px 0; }
 <section class="s" id="s08"><h2>8 一条秘密的条目页（带面包屑）</h2><figure><img src="r6/s08-secret.webp" alt="秘密的条目页"><figcaption>秘密是条目，它的面包屑写的是它在哪：设定 › 秘密 › 关于星瑕 › 名字，不是“从哪一页点过来的”。</figcaption></figure></section>
 
 <section class="q" data-nbdev-question="r6-outline-step" data-nbdev-type="single" data-nbdev-recommend="as-drawn">
-<h2>中间一步“细纲”放这些东西对不对 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>中间一步“细纲”放这些东西对不对 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>图 2。我的理解是：这一步的主体是细纲、对写手的要求和这一章打算写的；“写手还会拿到什么”收在这一步下面当预览，不再单独占一步。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="as-drawn"><h3>就按图 2</h3><p>细纲、要求、计划在上，写手还会拿到的在下，底部交给写手。</p></div>
@@ -124,7 +205,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="r6-recap" data-nbdev-type="single" data-nbdev-recommend="summary-tail">
-<h2>“前情”缺省给写手什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>“前情”缺省给写手什么 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>现在程序只给“上一章最后 600 字”。要加前情，得先有每章的摘要：我打算在写完一章记账时让 Agent 顺手写一段（两三百字），你可以改。这是后端的新工作，会单开一个任务。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="summary-tail"><h3>前面几章的摘要，加上一章最后 600 字原文</h3><p>缺省取最近 3 章的摘要（书长了以后更早的用卷的摘要）。原文只留结尾，保证衔接。每章可以在工作单里改取哪些。</p></div>
@@ -134,15 +215,6 @@ ol.week li { margin: 2px 0; }
 <div class="rec-note"><b>推荐：摘要加上一章结尾。</b></div>
 </section>
 
-<section class="q" data-nbdev-question="r6-style" data-nbdev-type="single" data-nbdev-recommend="file">
-<h2>“文风”从哪里来 <span class="badge todo" data-nbdev-skip>待定</span></h2>
-<div class="opts">
-<div class="opt rec" data-nbdev-option="file"><h3>作品里的一个文件，你自己写或贴样例</h3><p>例如“文风/第一卷.md”：几条要求加一两段样例。整本书用同一份，某一卷、某一章可以换另一份。和细纲一样是作品里的文件，用现有的编辑器改。</p></div>
-<div class="opt" data-nbdev-option="auto"><h3>程序从已经写好的章里自动挑两段当样例</h3><p>不用你管，但挑到哪两段不可控，第一章也没有东西可挑。</p></div>
-<div class="opt" data-nbdev-option="both"><h3>有文件用文件，没有就自动挑</h3><p>两种都做。</p></div>
-</div>
-<div class="rec-note"><b>推荐：作品里的文件。</b>“固定文风”要的是你说了算的那一份；自动挑的以后可以再加。</div>
-</section>
 
 <section class="q" data-nbdev-question="r6-ripple" data-nbdev-type="single" data-nbdev-recommend="list">
 <h2>写了很多章以后改设定：这样处理行不行 <span class="badge todo" data-nbdev-skip>待定</span></h2>
@@ -155,7 +227,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="r6-checks" data-nbdev-type="single" data-nbdev-recommend="row">
-<h2>“再查一项”这样画行不行 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>“再查一项”这样画行不行 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>图 3、4。界面上每种检查是一行，结果都是同样的卡片，所以以后多一种检查不用改界面。已有的几种（别的插件登记的也算）可以直接点；“自己写一句要查什么”后端现在还没有，要加。不做“保存一套自己的检查”这类框架，等这个功能定了再说。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="row"><h3>就按图</h3><p>开写前、写完以后各有“再查一项”，可以点已有的，也可以自己写一句。</p></div>
@@ -166,7 +238,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="r6-breadcrumb" data-nbdev-type="single" data-nbdev-recommend="later">
-<h2>面包屑什么时候做 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>面包屑什么时候做 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>图 7、8。上次我建议“要，第一批就加”。第一批的设计审查指出它比我想的贵：现在的面包屑组件、键盘操作都只认文件，要加一种“点了执行命令”的段；条目的面包屑要读出它的整条上级。所以我改了建议。画法上，面包屑写的是“这一页在哪”，不是“从哪一页点过来的”。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="later"><h3>第一批不做，和剧情侧一起做</h3><p>第一批的条目页在名字上面写一行“分组 › 上级”（上级能点），够用。等剧情侧这几种页面定了，一次把页面的面包屑做对。</p></div>
@@ -177,7 +249,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="r6-screens" data-nbdev-type="text">
-<h2>这 8 张图里，哪一张还不对 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>这 8 张图里，哪一张还不对 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>可以只写图号加一句话。下面第 5 轮的两题（看哪条线、时间线怎么排）也还等你答。</p>
 </section>
 
@@ -250,7 +322,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="r5-timeline" data-nbdev-type="single" data-nbdev-recommend="grid">
-<h2>时间线这样排行不行 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>时间线这样排行不行 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>图 11：列是故事里的时间段（“十年前”“周三”这种说法照原样），行可以换成一条线一行、一个人一行，或者按讲的先后排；每件事标着“在哪一章讲的”，所以回忆排在它发生的那一格。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="grid"><h3>就按这个格子做</h3><p>同一周的两条视角线是两行，回溯是另一行，回忆在它发生的那一列。时间段多了以后列可以按卷折起来。要在 nb-ui 里新做一个格子组件。</p></div>
