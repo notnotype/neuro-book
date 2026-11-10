@@ -30,6 +30,7 @@ import type {
     AgentWizard,
     AgentWizardFrame,
     AgentDock,
+    AgentSessionChildRows,
     PlainForm,
     AgentRawView,
     AgentTaskList,
@@ -48,7 +49,7 @@ import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
 import {agentApprovalWizardScenes, agentCompactionDetailScenes, agentDockScenes, agentModeSwitchWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";
 import {agentModelCatalogScenes} from "./catalog.scenes";
-import {agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
+import {agentSessionChildRowsScenes, agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
 import {agentContextInspectorScenes, agentConversationComposerScenes, agentMessageEditorScenes, agentModelPickerScenes, agentQueuedMessagesScenes, agentRoleModelPickerScenes, agentSessionTreeScenes} from "./composer.scenes";
 import {
     agentChainSummaryScenes,
@@ -166,6 +167,7 @@ export const nbAgentUiFixtures: LabFixture[] = [
     defineLabFixture<typeof AgentStatusBar>({component: "AgentStatusBar", scenes: agentStatusBarScenes, load: async () => (await import("./AgentStatusBarFixture.vue")).default}),
     defineSubjectFixture<typeof AgentWizard>({component: "AgentWizard", scenes: agentWizardScenes, subject: agentSubject("AgentWizard"), events: ["action"], class: "w-full"}),
     defineSubjectFixture<typeof AgentDock>({component: "AgentDock", scenes: agentDockScenes, subject: agentSubject("AgentDock"), events: ["action"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentSessionChildRows>({component: "AgentSessionChildRows", scenes: agentSessionChildRowsScenes, subject: agentSubject("AgentSessionChildRows"), events: ["select", "toggle"], class: "w-[320px]"}),
     defineSubjectFixture<typeof AgentWizardFrame>({component: "AgentWizardFrame", scenes: agentWizardFrameScenes, subject: agentSubject("AgentWizardFrame"), slotPresets: {default: () => "内容区", foot: () => "按钮"}, events: ["collapse"], class: "w-full"}),
     defineSubjectFixture<typeof AgentApprovalWizard>({component: "AgentApprovalWizard", scenes: agentApprovalWizardScenes, subject: agentSubject("AgentApprovalWizard"), events: ["update:state", "submit", "denyAll", "collapse"], class: "w-full"}),
     defineSubjectFixture<typeof AgentModeSwitchWizard>({component: "AgentModeSwitchWizard", scenes: agentModeSwitchWizardScenes, subject: agentSubject("AgentModeSwitchWizard"), events: ["update:state", "answer", "collapse"], class: "w-full"}),

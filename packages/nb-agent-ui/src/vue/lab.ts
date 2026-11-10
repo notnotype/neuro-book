@@ -17,6 +17,7 @@ export {default as AgentStatusBar} from "./composer/AgentStatusBar.vue";
 export {default as AgentWizard} from "./wizard/AgentWizard.vue";
 export {default as AgentWizardFrame} from "./wizard/AgentWizardFrame.vue";
 export {default as AgentDock} from "./wizard/AgentDock.vue";
+export {default as AgentSessionChildRows} from "./AgentSessionChildRows.vue";
 export {default as AgentApprovalWizard} from "./wizard/AgentApprovalWizard.vue";
 export {default as AgentQuestionWizard} from "./wizard/AgentQuestionWizard.vue";
 export {default as AgentModeSwitchWizard} from "./wizard/AgentModeSwitchWizard.vue";

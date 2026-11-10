@@ -33,6 +33,7 @@ import {modelNeedsText} from "./profile-view";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
 import type {AncestorItem, JobItem, TreeItem} from "../shared/subagents";
 import {agentText} from "../shared/text";
+import type {SubagentStore} from "./subagent-store";
 
 type SessionsRemote = RemoteClient<typeof agentSessionsContract>;
 
@@ -193,8 +194,8 @@ export interface RoleOption {
 export interface SessionHost {
     readonly ctx: ComputedRef<AgentConversationContext>;
     readonly sessionId: ShallowRef<string | null>;
-    /** 子代理与后台命令卡片的数据（见 `SubagentData`）。 */
-    readonly subagents: ShallowRef<SubagentData>;
+    /** 子代理与后台命令卡片的数据与动作（见 `subagent-store.ts`）。 */
+    readonly subagents: SubagentStore;
     /** 回到这个位置最近用过的会话；不在了就显示未选择。 */
     restore(): Promise<void>;
     open(id: string): Promise<void>;
@@ -265,7 +266,48 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let dockState: AgentConversationContext["dockState"];
     /** 进行中的调用；集合没变就不换引用，轮次不因此重算（ctx `activeCalls`）。 */
     let activeCalls: readonly string[] = [];
-    const subagents = shallowRef<SubagentData>({sessionId: null, tree: new Map(), jobs: new Map()});
+    const subagentData = shallowRef<SubagentData>({sessionId: null, tree: new Map(), jobs: new Map()});
+    const subagentNow = ref(deps.now());
+    let cancelSubagentTick: (() => void) | null = null;
+    /** 卡片的 `now`：有进行中的项时每秒走，没有就停（不拖着整个 ctx）。 */
+    const syncSubagentTicker = (active: boolean): void => {
+        if (active && cancelSubagentTick === null) {
+            const tick = (): void => {
+                subagentNow.value = deps.now();
+                cancelSubagentTick = deps.schedule(tick, TICK_MS);
+            };
+            tick();
+        } else if (!active && cancelSubagentTick !== null) {
+            cancelSubagentTick();
+            cancelSubagentTick = null;
+            subagentNow.value = deps.now();
+        }
+    };
+    const subagents: SubagentStore = {
+        data: subagentData,
+        now: subagentNow,
+        tail: async (jobId, lines) => {
+            const session = subagentData.value.sessionId;
+            if (session === null) return null;
+            const tail = await remote.jobTail({sessionId: session, jobId, lines});
+            return tail.ok ? tail.value : null;
+        },
+        status: async (jobId) => {
+            const session = subagentData.value.sessionId;
+            if (session === null) return null;
+            const statuses = await remote.jobStatuses({sessionId: session, jobIds: [jobId]});
+            return statuses.ok ? statuses.value[0] ?? null : null;
+        },
+        kill: async (jobId) => {
+            const session = subagentData.value.sessionId;
+            if (session === null) return;
+            const killed = await remote.killJob({sessionId: session, jobId});
+            if (!killed.ok && killed.code !== "job-unknown") {
+                notice = agentText("conversation.reject.other", {code: killed.code});
+                bump();
+            }
+        },
+    };
     let previews = new Map<string, ApprovalPreviewView>();
     let stopRequestedAt: number | null = null;
 
@@ -749,7 +791,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         wizardState = undefined;
         dockState = undefined;
         activeCalls = [];
-        subagents.value = {sessionId: null, tree: new Map(), jobs: new Map()};
+        subagentData.value = {sessionId: null, tree: new Map(), jobs: new Map()};
+        syncSubagentTicker(false);
         stopRequestedAt = null;
         unknownSends.clear();
         notice = null;
@@ -768,16 +811,17 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     /** 子树与任务换了：卡片的数据只替换变了的项，`activeCalls` 集合没变不换引用。 */
     function publishSubtree(target: Current): void {
         if (current !== target) return;
-        const previous = subagents.value;
+        const previous = subagentData.value;
         const tree = new Map(target.tree.map((item) => [item.id, previous.tree.get(item.id) !== undefined && JSON.stringify(previous.tree.get(item.id)) === JSON.stringify(item) ? previous.tree.get(item.id)! : item]));
         const jobs = new Map(target.jobs.map((item) => [item.id, previous.jobs.get(item.id) !== undefined && JSON.stringify(previous.jobs.get(item.id)) === JSON.stringify(item) ? previous.jobs.get(item.id)! : item]));
-        subagents.value = {sessionId: target.id, tree, jobs};
+        subagentData.value = {sessionId: target.id, tree, jobs};
         // 子代理的任务在两边都有（后代的 `runInvocation` 与任务的 `invocation` 是同一次调用），去重。
         const active = [...new Set([
             ...target.tree.flatMap((item) => (item.state !== "idle" && item.runInvocation !== undefined ? [item.runInvocation] : [])),
             ...target.jobs.flatMap((item) => (item.state === "running" || item.state === "question" ? [item.invocation] : [])),
         ])].sort();
         if (active.join(" ") !== activeCalls.join(" ")) activeCalls = active;
+        syncSubagentTicker(active.length > 0);
         // 路径还没到时事项表是空的：这时走 `afterChange` 会把重开前保留的向导状态当成“答完了”清掉。到齐之后 `open` 会走一次。
         if (target.loading) bump();
         else afterChange(target);
