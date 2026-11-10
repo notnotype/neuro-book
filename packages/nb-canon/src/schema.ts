@@ -12,6 +12,8 @@ export type {DecisionView} from "./world/decisions";
 export type {CanonHint, GroupItem, PendingPage} from "./service/pending-groups";
 export type {DiagnosticCompute, Finding, FindingAt} from "./service/diagnostics";
 export type {CanonReadView, ReadStamp} from "./service/reads";
+export type {PlainBlock, PlainProblem} from "./render/render";
+export type {PlainOptions} from "./render/entry";
 export type {NeededAuthorization} from "./world/authorization";
 export type {TellingHint, TellingItem} from "./service/reads";
 export type {ViewDenial, ViewedPage, ViewedReads, ViewGrant} from "./service/views";
