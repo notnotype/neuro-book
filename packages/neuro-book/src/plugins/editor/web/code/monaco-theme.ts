@@ -100,7 +100,9 @@ export function buildMonacoTheme(root: HTMLElement): Monaco.editor.IStandaloneTh
         return color === null || color[3] === 0 ? fallback : `#${color.map(byte).join("")}`;
     };
     try {
-        const background = solid("--bg-main", dark ? "#1f1f1f" : "#ffffff");
+        // 与 Markdown 稿纸同一档（docs/specs/theme/system.md）：编辑组的面是 `--panel-surface`，自带主题里它就是 `--bg-panel`。
+        // 读配色变量、不读面变量：编辑内核要不透明的颜色，面变量在别的主题里可以是半透明的。
+        const background = solid("--bg-panel", dark ? "#1f1f1f" : "#ffffff");
         const foreground = solid("--text-main", dark ? "#e6e6e6" : "#1f2328");
         const muted = solid("--text-muted", dark ? "#8b949e" : "#6e7781");
         return {
