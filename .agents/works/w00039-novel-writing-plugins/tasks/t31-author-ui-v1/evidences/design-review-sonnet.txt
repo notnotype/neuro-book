@@ -1,0 +1,356 @@
+w00039 t31 作者界面第一批（设定侧）设计审查报告（Sonnet，只读）
+审查对象：plan.md（第二版）、docs/specs/canon/author-ui.md、docs/specs/workbench/editor.md 未提交的 planned 改动
+说明：条目按发现先后编号，不按严重程度排；严重程度见每条，最后有汇总次序。"从代码推断"表示没有在运行时复现。
+
+### 1. 就地改的"预览"没有合同：preview 不收就地改请求，也不返回"写回哪里"
+严重程度：阻断
+类别：正确性（合同缺口）
+位置：author-ui.md 输出 16、21、验收 2；plan.md"关键设计 四"就地改一段；packages/neuro-book/src/plugins/canon/shared/contracts.ts:152；packages/nb-canon/src/service/service.ts:869-876；packages/nb-canon/src/world/edits.ts:57-111
+现象：Spec 要求确认条在保存前显示预览，写"这次会写回哪里（改初值、改第 2 章'订了蛋糕'那一笔、在第 3 章末尾记一条变更）"加带来的变化；计划写"先调 preview 给出写回哪条记录、带来的变化，再保存（editInPlace，路由规则在 revisions.md 输出 8）"。但 `preview` 的入参只有 `WriteRequest` 或还原请求（contracts.ts:152、service.ts:870-871）。就地改的路由（看来历决定改初值、改哪条变更的补丁、还是新记一条变更）整个写在 `editInPlace`（edits.ts）里，它把"读到的值、新值、意图"转成 `WriteRequest` 之后立刻 `world.publish`，没有只算不发的出口。返回值（`preview.revision`）是整份 Revision（ops、impact），不含"这次改的是哪一类记录"的结论，界面要写"改第 2 章'订了蛋糕'那一笔"得自己从 ops 里反推。
+为什么是问题：照字面实现只有两条路：(a) 界面把 edits.ts 的路由（来历分类、writeInit、补丁替换、story 意图下的 keyAt 排序键）再抄一份，拼出 WriteRequest 去 preview——同一条规则两份，正是 revisions.md 输出 8 想避免的；(b) 内核补一个 `previewEdit`/`preview` 收就地改请求。Spec 与计划都没有把它列成内核改动，S5 做到一半才会发现。验收 2"预览写'改初值'"现在没有任何接口能产出这句话。另外 `recordDelta` 同样没有预览。
+如何核实：grep -n "preview" packages/neuro-book/src/plugins/canon/shared/contracts.ts packages/nb-canon/src/service/service.ts；读 edits.ts:57-111，没有 `world.preview` 调用。
+建议改法：在计划里新增一个前置切片（S2 之前或并入 S2）：内核 + 远程合同加 `previewEdit`（入参同 `editInPlace`/`recordDelta`，返回 `{route: {kind: "init"} | {kind: "change", change} | {kind: "new-change", at}, revision(预览), laterRecords, failure?}`），并在 revisions.md 输出 5/8 写明；或者明确决定"确认条不预览，只在保存后给回执与撤销"，同步改 Spec 输出 16 与验收 2。二选一，当前两头都不成立。
+
+### 2. 语义档"记一笔"没有内核入口：recordDelta 只收数，手拼变更还缺必填的排序键
+严重程度：重要
+类别：正确性（合同缺口）
+位置：author-ui.md 输出 14、17、验收 3；plan.md"记一笔"；contracts.ts:172-177；edits.ts:141-146；packages/nb-canon/src/core/schema.ts:16-18
+现象：Spec 输出 17 写"精确档填变化量……语义档只填一句发生了什么……确认即发布（revisions 输出 9；语义档是一条带事件的剧情变更）"。但 `recordDelta` 的 `delta: Type.Number()`，内核实现一上来 `typeof input.read.value !== "number"` 就返回 `incomplete-field`；revisions.md 输出 9 只定义了数值加减。语义档要写一条带 `note` 补丁的剧情变更，只能走 `publish` 自己拼 `StoryChange`。而 `PlacementSchema` 的 `key` 是必填 `Type.Number()`（schema.ts:18），revisions.md 输出 18 说"写入请求没给排序键时程序按……算"与 schema 不一致；`keyAt`（本章最小键减一/最大键加一，且要把核对点的 place.key 也算进去）在 edits.ts 里是私有函数，界面拿不到：`changes` 只列剧情变更，核对点的键从任何读取方法都读不到。界面要么写错排序键（与核对点同键），要么再抄 `keyAt`。
+为什么是问题：面板"记一笔"两档里有一档无法实现；"章的开头"位置的精确档走 `recordDelta`→`editInPlace(story)`（keyAt 在内核里，这半边没问题），语义档不行，两档的行为也会不一致。
+如何核实：读 edits.ts:141-146、schema.ts:16-18、grep -n "keyAt" packages/nb-canon/src。
+建议改法：内核加 `recordNote`（或让 `recordDelta`/`editInPlace(story)` 收语义档：`note` 补丁），由内核算排序键；并在 revisions.md 输出 9 写上语义档；顺带改 revisions.md 输出 18 与 schema 的不一致（key 要么可选要么说清楚谁算）。
+
+### 3. 回执页要的"改了什么"读不到：没有任何读取方法返回修订的 ops
+严重程度：阻断
+类别：正确性（合同缺口）
+位置：author-ui.md 输出 20（回执页）、验收 2；plan.md 界面表"回执页……`revisions` 里那一条（改了什么、带来的变化）"；contracts.ts:288（revisions 结果）；service.ts:838-858；schema.ts:285（ObjectKindSchema）
+现象：回执页要"新建、修改、删除的对象，一类一节，修改的列出每个字段的改前与改后"，这些是修订的 `ops`。`revisions` 方法的返回项是 `{id, version, by, what, title, time, chapter, impact, revertable}`，没有 `ops`、`why`、`idMap`、`notes`、`reverts`；`object` 的 `kind` 只有 entry/change/check/decision/suggestion，没有 revision；`publish` 的结果只有修订 id/版本/id 对照。唯一带 ops 的是 `preview`（发布前）。另外，回执页的参数是修订 id，而 `revisions` 的筛选只有章/条目/写入者，没有按 id 取一条：要找到某个 id 得翻页遍历。
+为什么是问题：回执页（页面标签、刷新后恢复、从任意修订进入）最核心的一节没有数据来源；刷新恢复后按 id 重开回执更是无从找起。计划"已核实的现状"没提。
+如何核实：grep -n "ops" packages/neuro-book/src/plugins/canon/shared/contracts.ts（无命中）；读 service.ts:851-855 的 items 映射。
+建议改法：内核加按 id 取修订的读取（`revision {id}` 返回完整 Revision），写入 project.md 方法表与 `CanonOutputs`；或让 `revisions` 的筛选支持 `id`。把它列为 S2 的内核前置，不要等到 S6。
+
+### 4. 条目页的位置选择需要章序与章标题，哪个读取方法也不给；计划没有这条依赖
+严重程度：重要
+类别：正确性（隐含依赖）
+位置：author-ui.md 输出 7、验收 1、状态栏输出 25 的"缺省位置"；plan.md"条目页的结构"；contracts.ts 全文；backend/binder.ts
+现象：位置选择要列"每一章的第 N 章开头/末尾，写章的序号与标题"，缺省是"最新一章末尾"，`chapter-not-found` 时回退。世界客户端的方法里没有"章列表"：`status` 不返回章序，`lines` 是世界线，`pending/changes` 只带章 id。章序与章名来自活页夹清单（binder.xml）和章节文件名，读它的 `readBinder` 在 canon 的后端（backend/binder.ts，node:fs）。浏览器端没有任何读活页夹的服务。计划的"读取层"与"技术选型"完全没有提到这件事。另外章 id 是清单里的编号，标题在 `<五位编号>-<章名>.md` 的文件名里；界面要么经 `nbook.files` 读清单并复制解析，要么 canon 后端加一个"章表"读取。章序变化时世界还要等宿主发 reorder 修订才跟上，这期间界面章表与世界章序不同步。
+为什么是问题：位置选择是条目页的头号控件，"第 N 章改过"（输出 10）、情节分页、改动记录"按章筛"（输出 24）、待处理的位置文字都要章名。没有章表就都写不出来。
+如何核实：grep -n "chapters" packages/neuro-book/src/plugins/canon/shared/contracts.ts；浏览器侧 grep -rli binder src/plugins/*/web 只有资源管理器的图标。
+建议改法：在 canon 合同里加 `chapters`（章 id、序号、标题、所讲世界线，带世界版本），写入 project.md；读取层对它同样按版本失效。顺带决定缺省位置与"最新一章"的定义都由这个方法回答。
+
+### 5. 条目树：tree 不给出场、马甲、总数，也不带读取位置；Spec 输出 2 的四件事靠它给不出来
+严重程度：重要
+类别：正确性（合同缺口）
+位置：author-ui.md 输出 2、3、4；plan.md 界面表"条目树"；contracts.ts:68、278；service.ts:749-761；model.md 输出 14、23
+现象：Spec 输出 2 要：(a)"每项显示条目在缺省位置上的名字"——`tree` 返回的是 `entry.init.name`（初值里的名字），没有位置参数；条目改名后（如"哥哥"在第 N 章以后叫别的）树里的名字与条目页标题不一致；(b)"尚未出场的用次级色并写未出场"——返回项里没有 `appears`/`appeared`；(c)"马甲条目显示在本体下面"——返回项里没有 `sameAs`，`tree` 是按 `parent` 分层，马甲不一定在本体的 `parent` 下，也不会因为 `sameAs` 出现在本体下面；(d)"一层超过一页时末尾有'再显示 N 项'"——`Page` 没有总数/剩余数。要拿这些信息只能每项再调 `entry`（取出场与名字）加 `object`（取 sameAs），一页 50 项就是 100 次远程调用，且每个版本变化都重来。`entry` 对每个条目返回完整视图（正文块、全部命名空间字段），只为了取一个出场标志。
+为什么是问题：设定树是第一个视图、默认显示、每次发布都要刷新；按 Spec 字面实现就是 N+1 远程读取。
+如何核实：读 service.ts:749-761 与 contracts.ts:278 的返回项字段。
+建议改法：内核 `tree` 加读取位置参数，项里加 `appeared`、`name`（位置上的名字）、`sameAs`、`deleted`，页里加 `remaining`；在 project.md 方法表更新。若不想改内核，就把 Spec 输出 2 里的"未出场"、"马甲挂本体下"降成第二批，并如实说明树只显示初值名字。
+
+### 6. Spec 输出 2"已删除的条目不列出"与 model.md 输出 23"子条目显示在原父条目的墓碑下"互相矛盾
+严重程度：重要
+类别：正确性（Spec 冲突）
+位置：author-ui.md 输出 2；model.md 输出 23（"父条目被删除后，子条目照常存在，在树里显示在原父条目的墓碑下"）；service.ts:749-761（tree 返回 deleted 标志）
+现象：model.md 要求被删父条目的子条目仍可在树里到达（挂在墓碑下），`tree` 也确实返回 `deleted: true` 的项并保留 `hasChildren`。author-ui 输出 2 却写"已删除的条目不列出"，计划的界面表也写"未出场与已删除的置灰标注"，与输出 2 又不一致（一处不列出，一处置灰标注）。照"不列出"做，删掉有子条目的条目会让整棵子树不可达，作者只能在别处找到它们；照"置灰标注"做，又和输出 2 矛盾。
+为什么是问题：删除条目是第一批要做的功能（输出 19），这正好是它的后果。
+如何核实：对照三处原文。
+建议改法：输出 2 改成"已删除且没有子条目的不列出；有子条目的保留一行'已删除'的墓碑，展开仍能看到子条目"，计划界面表同步；验收补一条"删有子条目的父条目"。
+
+### 7. "第 N 章改过"（输出 10）与"改这一笔"（输出 11）的数据，需要来历之外再读每条变更，合同上是 N+1，且来历只到字段一级
+严重程度：重要
+类别：正确性 / 性能
+位置：author-ui.md 输出 10、11、12、14；contracts.ts:67、277；service.ts:328-340；engine/types.ts:109-115、FieldState 无变更位置
+现象：(a)"在所选位置之前被某条剧情变更改过的值，后面写第 N 章改过（前史里改的写前史改过）"：`render` 的 `canonValue` 节点只有 path/raw/display/incomplete，没有"最近一次是哪章改的"；`entry` 的 `FieldState` 也没有。唯一来源是 `withOrigins` 给的来历，最后一步是 `{kind:"patch", change: "c12"}`，只有变更 id，章位置要再对每个 id 调 `object`（或翻 `changes`）才知道，页面上每个被改过的值一次。(b) `withOrigins` 的实现只对 `namespaces[*].fields` 的顶层字段给来历（service.ts:336-337 的 `Object.keys(data.fields)`），列表元素/子字段（物品的数量、元素子字段）和 `entry.name/summary/aliases`、`text[...]` 块没有来历。Spec 输出 11 说"点一个值"，输出 12 说"列表字段一行一个元素"，值都可点；这些点不开。(c) `entry` 带来历一次返回所有字段的来历，条目页每次换位置/版本变化都重算（面板条目字段多、流水长）；远程消息上限 1 MiB，面板条目流水一长会 `too-large`，失败表只写"列表改用更小的一页重读"，对 `entry` 没有退路。
+为什么是问题：条目页最核心的"点值看来历"和"改过"标记，现有读取方法给不出完整数据，组件为此要自己拼多次读取，读取层的"同参数合并"也救不了 N 条不同的变更 id。
+如何核实：grep -n "origins" packages/nb-canon/src/service/service.ts；engine/types.ts 的 OriginStep 无 chapter。
+建议改法：内核让来历步骤直接带安放（`at: Placement`）与变更标题（或随 `withOrigins` 给 `changes` 摘要表）；`origins` 单独成方法按地址取（让点开某个值时才读，而不是整页一次全读）；同时把 `entry`/`origins` 的 too-large 退路写进 Spec。
+
+### 8. 五条 `nbook.canon.*` 命令的域 `canon` 不在内置命令的域词表里，登记会被拒
+严重程度：重要
+类别：规范 / 正确性
+位置：author-ui.md"命令"表（open-entry、open-receipt、open-change、new-entry、show-pending）；packages/neuro-book/src/plugins/commands/shared/registry.ts:81、134；docs/specs/workbench/commands.md"命名与域词表"
+现象：内置插件（`nbook.*`）的命令 id 必须是 `nbook.<域>.<动作>`，域取词表 `view, editor, edit, quick-open, settings, account, project, app, help, files, agent`（registry.ts:81），不在词表的贡献被拒（registry.ts:134 `未登记的命令域：canon`）。`canon` 不在其中。命令 Spec 的词表里也没有。计划与 Spec 都没提要加域或改用别的域。
+为什么是问题：S3 之后第一条命令登记就会失败，状态栏条目的点击命令（`show-pending`）、树的"新建条目"都跟着失败，要到集成时才暴露。
+如何核实：读 registry.ts:80-81、118-140。
+建议改法：在计划的"Spec 与文档改动"表里加一行：commands.md 的域词表加 `canon`、registry.ts 的 `COMMAND_DOMAINS` 加 `canon`；或把命令改成走已有的 `nbook.view.open`（show-pending 本来就是它：views.md 输出 14 的 `nbook.view.open {viewId}` 已实现，status 条目的 `command: {id, args}` 可以直接写 `nbook.view.open` 加 `{viewId: "nbook.canon.pending"}`，`nbook.canon.show-pending` 是多余的一条命令）。
+
+### 9. `ComponentViewContext.world: WorldReads` 的类型放在 canon 的 `web/`，别的插件按架构规则引不到；Spec 同时说它"随插件版本变"又说它在公开签名里
+严重程度：重要
+类别：规范 / 代码质量
+位置：author-ui.md"数据分页的贡献点"（ComponentViewContext、WorldReads 一段）、"边界与兼容"；plan.md"第二批里剧情插件用同一个贡献点"；packages/neuro-book/AGENTS.md 第 15 行（插件之间运行时只引用对方的 `shared/contracts.ts`）
+现象：(a) 仓库规则：插件之间"运行时只引用对方的 `shared/contracts.ts`……类型可以 `import type`"，`web/` 不对外（Lab 场景除外），由 `src/architecture.test.ts` 检查。Spec 把 `WorldReads` 写成"本插件 `web/` 的公开类型"，剧情插件（第二批的使用者）要写 `ComponentViewContext` 就得 `import type` canon 的 `web/` 里的类型，违反规则。(b) Spec 边界与兼容把"贡献点的声明与实现签名"列为公开接口，而 `ComponentViewContext.world` 就在签名里，同一段又说"`WorldReads` 的方法不是公开接口"。第三方拿到一个类型不稳定的参数，等于签名不稳定。(c) 内容上也说不通：`WorldReads` 含写入包装（publish、editInPlace、recordDelta、revert），把整层交给第三方界面，等于每个专门界面都能还原修订、解除独占。第三方原本就能经 `canonWorldContract` 自己调（callers 含 browser），所以并没有提升能力，但"读取层共用、发布后自己更新"的新鲜度是它真要的，那只需要读取这一半。
+为什么是问题：第二批马上要用，要么违反架构测试，要么返工合同。
+如何核实：读 AGENTS.md 第 15 行；grep -n "import" packages/neuro-book/src/architecture.test.ts 看它的检查口径。
+建议改法：把 `ComponentViewContext` 与一个只读的 `WorldRead` 窄接口（`read(method, input)` 加 `version`）放进 `canon/shared/contracts.ts`，写入另给一个窄的 `writes` 对象（`editInPlace`、`recordDelta`，带 busy/只读判断），实现留在 `web/`；Spec 只承诺窄接口。
+
+### 10. 内存客户端在 Lab 场景里（真实浏览器）跑不起来：`@notnotype/nb-canon/node` 引 `node:fs`、没有内存版 LogFiles、`digest` 要同步 SHA-256
+严重程度：重要
+类别：测试
+位置：plan.md"二、样本与测试底座"（`plugins/canon/testing/memory-client.ts`，"给组件的 `*.dom.test.ts` 与 Lab 场景用"）；packages/nb-canon/src/node/files.ts:8-10、log.ts:14、cache.ts:6；service.ts:43-66（ServicePorts）
+现象：`WorldService` 只从 `./node` 导出，`./node/index.ts` 重导出 `nodeFiles`，后者 `import {constants} from "node:fs"` 与 `node:fs/promises`；`log.ts`、`cache.ts` 还引 `node:path`。`WorldService` 本身（service.ts）经 `../node/log`、`../node/cache` 传递依赖 `node:path`。包 README 与 monorepo-boundaries 都写明浏览器不导入 `./node`。组件的 `*.dom.test.ts` 在 Vitest（Node）里跑，引 `node:*` 没问题；但 Lab 场景是在真实浏览器里由 Vite 加载的，具名导入 `node:fs/promises` 的 `readdir` 等会在 Vite 里被外部化而失败（从代码推断，未跑开发服务）。其次，`ServicePorts.files` 要一个 `LogFiles`，仓库里只有 `nodeFiles` 与按脚本注入失败的 `faultyFiles`（后者包着真实 nodeFiles），没有纯内存实现；计划写"内存文件上的真实 WorldService"却没把"写一个内存 LogFiles，并让它跑 node-log.test.ts 的契约测试"列成工作（nb-canon 自己的约定是替身与真实实现跑同一组契约，files.ts 头注释）。第三，`digest: (text) => string` 是同步的，浏览器只有异步的 `crypto.subtle`；Lab 里要自带同步 SHA-256。
+为什么是问题：计划把"Lab 场景"和"dom 测试"当成同一个底座，实际只有 dom 测试那半能用；S3 到 S6 的每个组件都要 Lab 场景（组件规范要求）。
+如何核实：读 files.ts 头 10 行；`grep -rn "memoryFiles\|class .*LogFiles" packages` 没有内存实现；读 service.ts:43-66。
+建议改法：在 nb-canon 加一个浏览器安全的入口（例如 `./service` 或把 `WorldService` 与内存 `LogFiles`、同步摘要放进不引 node:* 的路径，把 node 文件操作留在 `./node`），内存 LogFiles 与 nodeFiles 跑同一组契约测试；或者明确 Lab 场景改用假客户端的录像数据（失去"真实服务"，但可行），并把该取舍写进计划。
+
+### 11. 产品里的世界宿主没接小模型：语义档永远是"未归纳"，Spec 里"归纳"相关的行为在产品里与 e2e 里都看不到
+严重程度：重要
+类别：测试 / 规范
+位置：author-ui.md 输出 13（人物"归纳出的现在的样子"）、输出 26（"语义档的归纳补算完成……同样重读"）、验收 1/3；plan.md"二、样本"；packages/neuro-book/src/plugins/canon/backend/world-host.ts:219-234（ServicePorts 里没有 `reducer`、`project`、`verifyAuthorSource`）；service.ts:1123、1128
+现象：`WorldService` 的归纳缓存键含 `model: reducer?.version ?? null`（service.ts:1123）。产品的世界宿主没有传 `reducer`，所以所有语义档字段在产品里都是"起点；之后：事件……"加"未归纳"，`reduced` 事件永不触发；样本脚本即使把原型的 2 条归纳写进 `.nbook/cache/reductions.jsonl`，键里的 `model` 是 `"prototype-table"`，与产品宿主的 `null` 对不上，也命中不了。计划与 Spec 把"归纳"当成界面会出现的状态，没有说产品当前接不接小模型，也没有一条验收覆盖"未归纳"这一默认状态。
+为什么是问题：(a) Spec 输出 13、26 的"归纳"分支在 e2e 与手测里走不到，验证不了；(b) 人物界面"现在的态度"在作者的真实作品里永远显示拼接文字，作者看到的是一串"……；之后：……"的原始事件，Spec 只写了"未归纳时写'还没归纳'"，而实际展示的是未归纳的起点加事件拼接值（`FieldState.value` 是拼接文字，`notReduced: true`）。两种写法的界面描述不同。
+如何核实：grep -n "reducer" packages/neuro-book/src/plugins/canon/backend/world-host.ts（无命中）；读 service.ts:1120-1130。
+建议改法：Spec 输出 13 改成对"未归纳"的真实呈现（起点、之后的事件、"尚未归纳"标记）并写进验收；在计划里写明"产品暂无小模型接入，归纳分支只由组件测试的假归纳器覆盖"；若要在 e2e 里验归纳，由脚本给宿主注入一个与产品相同版本标识的缓存（不可行，需要先接小模型）。
+
+### 12. 改动记录的"还原"对含决策修改的修订必然失败，Spec 的失败表与按钮状态没写
+严重程度：建议
+类别：规范
+位置：author-ui.md 输出 22、24、失败表；revisions.md 输出 21（还原）；world-host.ts 的 ports 无 `verifyAuthorSource`；contracts.ts:151、service.ts:870（预览还原请求另给 `needed`）
+现象：补偿里涉及需要作者来源的决策字段时，还原必须带授权；宿主没有签发能力、没有 `verifyAuthorSource`（world-host.ts），界面也没有签发入口。`revisions` 返回的 `revertable` 只看依赖与章序，不看授权。所以改动记录里第二批（Agent 记账里的决策）产生的修订显示"还原"可点，预览阶段才得到 `needed`/`author-source-required`。失败表只列了 `has-dependents`、`not-revertable`，没有这两个码；"表里没有的码写出码与服务给的说明"会把一串内部 JSON 说明直接给作者看。
+为什么是问题：第一批本身不写决策，但样本项目之外的作品里 Agent 记账（t19 等）会产生，作者点"还原"得到一个难看的失败。
+如何核实：读 revisions.md 输出 21 最后一条；grep -n "verifyAuthorSource" packages/neuro-book/src/plugins/canon（只有类型引用）。
+建议改法：失败表加 `author-source-required`/`author-source-invalid`，写"这次还原涉及作者确认过的决定，第一版界面里还不能还原"，且预览阶段（输出 22）就让按钮不可用并写原因。
+
+### 13. 页面标签"只在活动时渲染"且没有按标签区分的实例：位置、分页、展开的来历没有地方存，换标签就丢；而且同一组里两个条目页共用一个组件实例
+严重程度：阻断
+类别：不变量
+位置：author-ui.md 输出 7（"位置与……展开的来历是这个标签自己的状态：换到别的标签再回来还在"）、输出 16；plan.md"条目页的结构"末句"位置与 Tab 是标签自己的状态，不进地址"与假设 1；editor.md 第 36 行（"页面标签只在活动时渲染"）；packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:241-243
+现象：editor.md 的"视图"一条明说"页面标签只在活动时渲染"。实现：EditorGroup.vue 241 行起对活动标签的页面只渲染一个 `<component :is="pageComponent" :context="pages!.context">`，没有 `:key`，也没有 keep-alive；`pageComponent` 由页面 id 取（pages.ts `component(id)`，同一个交付句柄返回同一个异步组件对象）。后果：(a) 同一组里从条目 A 的标签切到条目 B 的标签，页面 id 相同，Vue 对同一个组件类型只做 patch，不重建实例：A 的位置、当前分页、展开的来历、未提交的就地改输入框，都留给 B，除非组件自己监听 `arg` 重置所有内部状态；(b) 切到别的组的标签或文件标签再回来，实例卸载，状态全丢，与 Spec"换到别的标签再回来还在"相反。计划把这件事当成"组件自己的状态"，没有设计"每个标签的状态存在哪"。
+为什么是问题：作者在条目页切到第 1 章末尾、展开了来历，点开资源管理器里的文件再回来，条目页回到缺省位置——验收场景 1、2 的第二步就会"失效"；而且是静默的跨标签状态串扰（A 的位置显示在 B 上，比丢状态更糟）。
+如何核实：读 EditorGroup.vue:241-243 与 pages.ts `source()`；读 editor.md 第 36 行；在 happy-dom 里挂两个 `instances` 页面标签、切换后看组件的 `setup` 次数（实施时第一个 S1 用例就能暴露，建议现在写进验收）。
+建议改法：二选一并写进 Spec 与计划：(a) EditorGroup 对页面标签加 `:key="tab.id"`，并给页面组件一个由标签 id 键入的"标签状态"容器（`context.state`，一个响应式对象，生命周期与标签一致，标签关闭才销毁），位置等状态放里面；(b) 把"回来还在"降成"同一标签只在同一次激活里保持"，Spec 输出 7 改成"换标签后回到缺省位置"。无论哪个，在编辑器 Spec 的验收 44 里加一条"两个同页面标签来回切换，组件各自的状态不串"。
+
+### 14. 页面组件的 `context` 在编辑器里是整个窗口共用的一个对象，带不了每个标签自己的 `arg`
+严重程度：重要
+类别：不变量 / 代码质量
+位置：plan.md"关键设计 一"（"页面组件的 context 多一个 arg"）；editor.md 第 50 行 diff；packages/neuro-book/src/plugins/editor/web/pages.ts:60-63、109-134；web/plugin.ts:151、276；EditorGroup.vue:242
+现象：`EditorPageContext` 是 `{recent}`，由 plugin.ts:151 建一次 `reactive({recent})`，`EditorPageSource.context` 返回的是这一个对象，EditorGroup 把它原样传给活动标签的页面组件。要让组件收到各自的 `arg`，`source()` 不能再返回固定的 `context`，要变成"按标签（或按地址）取 context"，同时 `EditorGroup.vue` 的传参要改成按活动标签算。这不是"context 多一个字段"的小改动，计划把 S1 写成小改动。
+为什么是问题：S1 的估时与测试面（`pages.ts`、`EditorGroup.vue`、`plugin.ts`、`EditorGroup.md`、Lab 里的 editor-scene 夹具）比计划写的大；还会碰到欢迎页、对话页、主题编辑器页三个现有使用者。
+如何核实：读 pages.ts:60-63（`readonly context: EditorPageContext;`）与 plugin.ts:151、276。
+建议改法：计划 S1 里写明改 `EditorPageSource` 为 `contextOf(tab)`，每个标签一个稳定的 context 对象（与第 13 条的标签状态容器合并），并把现有三个页面的回归列入验证。
+
+### 15. `title(arg)` 在标签条里的响应式读取：谁来订阅、读几次、用什么文字类型，计划没有交代，Spec 输出 6 的"名字变了标题跟着变"与输出 26 的"不可见的标签回到前台时重读"互相打架
+严重程度：重要
+类别：不变量 / 性能
+位置：plan.md"关键设计 一"（`title(arg)`）、"三、读取层"；author-ui.md 输出 6、26；editor.md 第 50 行 diff（"响应式读取"）；packages/neuro-book/src/plugins/editor/web/tab-label.ts、components/EditorGroupHead.vue:77-79、web/tab-drag.ts:33
+现象：标签名由 `tabLabel(area, tab, text, pages)` 在 EditorGroupHead 的 `tabs` computed 里为组内每个标签算一次，拖动影像（tab-drag.ts:33）里还会再非响应式地算一次。条目页的标题要读条目名，只能走读取层的 `entry`（或另一个读取）：于是 (a) 标签条的 computed 里触发网络读取，是 computed 的副作用，读取层的"还有组件在用的读取自动重读、没人用的丢掉"没法判断标签条这个使用者何时不再用（computed 没有清理钩子）；(b) 每个打开的条目标签（含不在前台的）每次世界版本变化都要为取一个名字重读整个 `entry`（含全部命名空间），与输出 26"不可见的标签回到前台时重读"矛盾——输出 6 要求不可见标签的标题也实时变，输出 26 要求不可见标签不读；(c) 拖影的一次性读取会留下没有释放的订阅；(d) 贡献撤回或页面没交付时 `tabLabel` 回退成页面 id，两个条目标签的名字相同，分不开；(e) 条目名是作品内容，要用"字面文字值"，而 `title` 现在是界面文字值（i18n 键）经 `text.t(...)` 解析，Spec 写"返回文字值"没说是哪种。
+为什么是问题：标签数多时是持续的、与是否可见无关的读取；读取层的设计假设（"组件在用"）在这里不成立。
+如何核实：读 tab-label.ts、EditorGroupHead.vue:77-79、tab-drag.ts:33。
+建议改法：不要让标签条直接订阅读取层。条目页组件（或读取层里一个按标签 id 记的"标题登记表"）在条目名读到之后写进 `context.setTitle(text)`，标签条读这个响应式值；这样读取跟着页面（可见才读），标题在页面第一次加载前用声明的标题，并在 Spec 里写明"不可见的标签的标题在回到前台时才更新"，对应改输出 6。
+
+### 16. 恢复时"贡献还没交付显示正在加载页面"不是"现有的"行为：现有代码对没交付和已撤回都显示"这个页面已经不在了"；也没处理"一直不交付"
+严重程度：重要
+类别：正确性
+位置：plan.md"关键设计 一"恢复一条（"页面的贡献还没交付时显示现有的'正在加载页面'"）；editor.md 第 220 行 diff；EditorGroup.vue:241-245；pages.ts 的 `component()`
+现象：现有的"正在加载页面"是 `defineAsyncComponent` 在组件加载期间的占位（pages.ts `pageStates().loading`），前提是句柄已交付。EditorGroup 在 `pageComponent === null`（还没交付或已撤回，二者不分）时一律显示 `page.missing`（"这个页面已经不在了"）。对不恢复的页面这没问题（用户刚打开时一定已交付）；对要恢复的页面，刷新后标签先于贡献方的浏览器入口激活出现，必然先闪一下"已经不在了"再变成内容，而 Spec 说此时应是"正在加载页面"。要区分只能加"声明在而句柄不在"的状态（`pages.declaration(id) !== null && !available(id)`），这是新行为不是"现有的"。另外，贡献方入口激活失败或被禁用但声明还在时，会永远停在"正在加载页面"，没有终态。快照这边：`groups.ts` 的 `snapshot()` 是纯模型，不知道页面声明里有没有 `restore`，要么 `PageTab` 带一个 `restore` 字段（打开时从声明抄），要么恢复时再查登记表（登记表此刻还没就绪）。计划都没写。
+为什么是问题：刷新后每个条目页都先闪一次错误提示；Spec 输出 5/33 的表述与实现不符；失败态不可见。
+如何核实：读 EditorGroup.vue:241-245（`page.missing`），pages.ts:109-134。
+建议改法：计划 S1 明写三状态（未交付→加载中且带超时转失败提示、已撤回/声明不在→不在了、交付→组件），给 `PageTab` 加 `restore` 字段，快照与恢复各补一条模型测试，并在 Spec 里写出"激活失败"的呈现。
+
+### 17. editor.md 的 planned 改动不完整，自相矛盾：命令表没改、输出 33 正文仍说"不恢复"和"open-page {id}"，错误码与声明校验有缺口
+严重程度：建议
+类别：文档 / 规范
+位置：docs/specs/workbench/editor.md 第 101 行（命令表）、第 220 行（输出 33 前半）、第 335 行；plan.md"Spec 与文档改动"表第 2 行；packages/neuro-book/src/plugins/editor/shared/contracts.ts:158-164
+现象：(a) 计划说要改命令表 `open-page` 的参数，diff 里第 101 行仍是 `{id}`；(b) 输出 33 前半仍写"`nbook.editor.open-page {id}`……页面标签刷新后不恢复（输出 5）"，后面追加的 planned 段落说 `restore: true` 的刷新后恢复，同一条里两句相反，读者要靠"planned"标记自己拼；输出 5 也没改；(c) 计划写 `arg` 非法时 `invalid`，Spec 写 `invalid-args`；(d) `openOnFirstVisit` 与 `restore` 不能同时写，但 `instances: true` 的页面没有 `arg`，`openOnFirstVisit` 会让 `firstVisitPages()` 调 `openPage(id)` 得 `invalid-args`，应一并禁止；(e) 声明 schema 是 `additionalProperties: false`（contracts.ts:164），`instances`/`restore` 要加进去，"两者不能同时"这类跨字段规则 TypeBox schema 表达不了，要写在 `validateEditorPageContribution` 里，计划没提；(f) 验收 44 只描述了"开两个标签再刷新"，没有覆盖：同一组里切换标签组件状态不串、`pageIdOf` 对带 `?` 地址、`arg` 超过 200 字符、`restore` 页面在贡献还没交付时的占位。
+为什么是问题：实施者按 Spec 字面做会漏掉旧句，读 Spec 的人看到互相矛盾的两句。
+如何核实：git diff -- docs/specs/workbench/editor.md 对照上面行号。
+建议改法：把输出 33 与输出 5 的原句改成按 `restore` 区分的单一说法，命令表改参数，错误码统一，补上述验收。
+
+### 18. 条目页每次版本变化重读 `entry(withOrigins)`：三百万字夹具上单次约 0.93 MB，已贴着 983,040 字节的预算，再大就是 `too-large`，Spec 对它没有退路
+严重程度：重要
+类别：安全与性能
+位置：plan.md"关键设计 三"（按世界版本整体失效）、"条目页拼几次读取先并行发"、"超过 200 毫秒再回来加"；author-ui.md 输出 11、26、失败表 `too-large`；contracts.ts:25（预算 = 1 MiB − 64 KiB = 983,040 B）、service.ts:328-340
+现象：我用产品的世界宿主（`createWorldHost`）和 canon-scale.ts 的同一套生成器造了 60 章与 200 章的世界，量了最常出场条目 `entry(id, 最新章末尾, actual, withOrigins=true)` 的序列化大小（实验脚本与输出在 /tmp/review-w00039-t31-design/exp/measure.ts，真实服务，未绕过运行时；机器负载 40，时间仅供参考）：
+  60 章：55,846 B（面板.存款 481 步）；200 章：184,850 B（存款 1,601 步，态度 202 步）。不带来历只有 6,464 B。线性外推：每章约 0.92 KB，**1000 章约 925 KB，是预算 983,040 B 的 94%**；约 1,060 章就会得到 `too-large`。三百万字夹具正是 1000 章。冷读 200 章已 578 毫秒（负载下）。
+  而计划的读取层规则是"任何发布都让在用的读取重读"：条目页开着时，每次记账（每章一次）都重发这 ~0.9 MB，只为让来历里多一行。计划只写"超过 200 毫秒再回来加"，没有写读取超预算时的退路；Spec 失败表里 `too-large` 的呈现只说"列表改用更小的一页重读"，`entry` 不是列表。
+为什么是问题：作者的真实长篇上，打开最常出场的主角条目就会失败或每次版本变化都传近 1 MB；Spec 把"点值看来历"绑在整页读取上。
+如何核实：cd /tmp/review-w00039-t31-design/exp && bun measure.ts 200（约 1 分半）；或读 service.ts:336-337（对每个字段都算来历）。
+建议改法：来历不要随 `entry` 一起要：条目页只读 `entry`（不带来历，几 KB），点值时才读该字段的来历（需要按地址取来历的读取方法，见第 7 条），且来历分页（最近 N 步，往前翻）。这同时解决"改过"标记的 N+1。
+
+### 19. 情节分页只能从最旧的往新翻，"安放在所选位置之前"没有筛选，页数没有总数：热门条目要点上百次"再显示"
+严重程度：重要
+类别：正确性（合同缺口）/ 性能
+位置：author-ui.md 输出 15；plan.md 界面表"条目页……`changes`"；contracts.ts:70-93（changes 的筛选）；reads.ts:372-399 `listChanges`、`sortByPlacement`
+现象：输出 15 要"涉及这个条目、安放在所选位置之前的剧情变更……按安放的先后，新的在下；超过一页时末尾有再显示 N 项"。`changes` 的筛选里有 `entry`（涉及）、`chapter`（单个章）、`range: {after, through}`（用变更 id 当界），没有"位置之前"，结果恒按安放的先后升序，没有倒序，页里没有总数/剩余数（`Page` 只有 `items`/`cursor`），所以"再显示 N 项"的 N 取不到。取"所选位置之前"要先知道位置之前最后一条变更的 id 才能填 `range.through`（再用一次读取，或自己把章序与键比较）。我在 200 章的生成世界里量：最常出场的条目涉及 1,401 条变更（约 7 条/章），1000 章约 7,000 条；每页 50 条的话，第一页是第 1 章的事，要看到所选位置（比如第 800 章）之前最近的事，要点约 110 次"再显示"。按"新的在下"又不能从底往上翻。
+为什么是问题：情节分页对长篇基本不可用：读者要看的是离当前位置最近的事。
+如何核实：见第 18 条实验的 `changes(entry=hot0)` 输出；读 reads.ts:372-399。
+建议改法：内核 `changes` 加 `before: ReadPosition`（位置之前）、`order: "desc"`（或默认倒序）与 `total`，Spec 输出 15 改成"最近的在上，默认只显示最近一页，往上翻看更早的"；若不改内核，输出 15 应降为"只显示所选章的"（`chapter` 筛选）加"更早的"链接。
+
+### 20. 读取层的请求量与时序：每次版本变化 30 到 110 次读取，事件爆发没有合并，翻过页的列表整体 `cursor-stale`，订阅与首读的先后没写
+严重程度：重要
+类别：安全与性能 / 正确性
+位置：plan.md"关键设计 三"；author-ui.md 输出 3、24、26、27；project.md"时序与寿命"、输出 19；client.ts:43-63
+现象：(a) 请求量，按 Spec 字面。每个版本变化时，所有在用的读取重读：设定树每个已展开层（样本 11 个条目一页；1000 章夹具约 520 个条目，根一页 50 项）加上第 5 条说的每项补取出场与马甲：样本约 11×2=22 次，夹具一页就 50×2=100 次（`entry` 取出场与名字、`object` 取 sameAs）；条目页 3 次（entry、render、changes）加"改过"标记按每个被改过的值的变更 id 再 `object` 取章（第 7 条，样本约 3 到 8 次、夹具上页面字段数的量级）；状态栏计数 1 次；每个打开的条目标签的标题 1 次（第 15 条）；待处理/改动记录视图可见时各 1 次。估算：样本 30 次上下，夹具 110 次以上，外加第 18 条那 ~0.9 MB。这是估算，没有在真实宿主上数；计划里"S4 收口时量打开条目页耗时"只量打开一页，不量"版本变化时的总量"。(b) 事件爆发：project.md 输出 17 说读进别的进程的行时"每行一个 changed"；记账一次发多个修订或多进程交替发布时，计划的"版本变了就重读"会每个事件一轮，没有合并（防抖/只认最新版本）。(c) 游标：游标记着读取输入摘要，任何发布都使它作废（输出 19）；树的某层翻过两页、改动记录翻过几页后，一次发布就让所有后续页的游标 `cursor-stale`，Spec 只在输出 24 为改动记录写了"从头重读并保持滚动位置在顶部"，树、情节、待处理列表没有规则，输出 3 又要求"展开状态与滚动位置保留"，二者对多页的层冲突。(d) 时序：计划写"启动时读一次 status，之后跟 changed 走"，没有写要先订阅再读 status；顺序反了会漏掉两者之间的事件。读取结果的 `version` 与事件的 `version` 也会交错到达（先发的慢请求晚到），"同一 (method,input) 在同一版本只发一次"要按响应里的 `version` 记，旧响应不能盖掉新响应——计划没写这条规则。
+为什么是问题：这些不是"以后调优"的事，而是读取层语义的一部分，写不进 world.test.ts 的用例就不会有人测。
+如何核实：数 client.ts 与合同的方法；读 project.md 输出 17、19。
+建议改法：读取层规则补三条并各配一个 world.test.ts 用例：(1) 订阅先于首读；(2) 事件合并成"最新版本"后再重读，响应按自带版本取舍；(3) 翻页列表的刷新规则（只重读已翻过的页数×页大小的第一次请求，用 `limit` 一次读够，而不是顺着游标）。把树的出场/马甲要求并入内核 `tree`（第 5 条）以去掉 N+1。
+
+### 21. 确认条打开期间世界版本前进：预览"自动重取"用哪个 read，值没变与值变了没有区分
+严重程度：建议
+类别：正确性
+位置：author-ui.md"时序与寿命"第二条、输出 16、29；plan.md"关键设计 四"就地改
+现象：就地改的 `read: {value, version}` 必须是读到的值与读取时的版本（revisions.md 输出 19）。Spec 说预览显示后版本变了"预览作废并自动重取"，但没写重取时用哪个 `read`：保持原 read，则预览与保存都按旧版本，后者因为改过的对象在 baseVersion 之后被动过得 `version-conflict`（即使值没变）；换成新 read，则作者输入时看的值与保存时的不是同一个，应当提示。输出 29 只覆盖了保存失败后的两个码，没有覆盖"打开着确认条时别处写入把这个值改了"这一更常见的情形（Spec 验收 6 只验页面更新，不验正在编辑的输入）。
+为什么是问题：作者正在改存款，agent 同时记了一笔账，会得到一个难解释的 `version-conflict`/`value-conflict`。
+如何核实：读 revisions.md 输出 19 与 edits.ts:57-62（read.value 与现算的值比较）。
+建议改法：Spec 补一条：值没变（`sameJson`）就静默换成新 read 重取预览；值变了就在输入控件下写"这个值刚刚变成了 X"，保留作者输入，让作者再点一次确认。
+
+更正（对第 15 条 (e)）：核对 docs/specs/ui/i18n.md 后，`Text = string | TextRef | LocaleMap`，字符串就是"不翻译的字面文字"，所以 `title(arg)` 直接返回条目名字符串在类型上可行，(e) 不成立，请忽略。第 15 条其余几点（订阅者、与输出 26 的矛盾、拖影、同名回退）仍成立。
+
+### 22. 输出 21、23 要"在编辑区打开那一章并选中原句"，编辑器没有这个能力，计划里也没有对应切片
+严重程度：重要
+类别：正确性（缺口）
+位置：author-ui.md 输出 21、23（核对点不符"可跳到原句"、冲突"按设定改正文"只在编辑区打开那一章并选中原句）；editor.md 第 49 行、输出 29；packages/neuro-book/src/plugins/editor/web/commands.ts:61（`reveal: Type.Optional(Type.Literal("end"))`）
+现象：`nbook.editor.open` 的 `reveal` 只有 `"end"`（把光标放到末尾），没有按偏移/行/原句选中的参数；控件句柄只有 `revealEnd()`、`revealHeading`、`revealLine`（行导航）。读取方法给的原句位置是 `{chapter, paragraph, offset}`，段号按"正文按换行切开、去掉首尾空白仍不为空的行"数，`offset` 是段内偏移（model.md 输出 24），而编辑器打开的是章节文件原文（Markdown 方言，是否含 frontmatter 等）；"段 N 的偏移 M"到"文件里的哪个偏移或哪一行"的映射没有定义。S1 只做页面标签，没有这条编辑器能力。
+为什么是问题：三处 Spec 行为（变更详情的原句链接、核对点不符的"可跳到原句"、冲突的"按设定改正文"）都落在这条不存在的能力上。
+如何核实：grep -n "reveal" packages/neuro-book/src/plugins/editor/web/commands.ts；读 editor.md 输出 29。
+建议改法：二选一：(a) 在 editor.md 加 `reveal: {quote, nth}`（按原句在文档里找并选中，不依赖偏移映射，找不到时只打开文件）并给 S1 之外的单独一片；(b) 第一批只"打开那一章并回到末尾/章首"，把"选中原句"移到第二批，Spec 三处同步降级。
+
+### 23. 待处理的处理办法没有写入合同；原型里这些按钮多半是空的占位
+严重程度：重要
+类别：正确性（Spec 缺口）
+位置：author-ui.md 输出 23（"改这一笔""插一笔漏记的""正文的数写错了""按正文改设定""是剧情里的变化""按设定改正文"）、验收 4；原型 world-engine/PendingView.vue:63-64、73-75；story.ts:278-291
+现象：Spec 把六个处理办法列成第一批行为，却没有写每一个发出什么写入：(a)"插一笔漏记的"和"正文的数写错了"在原型里是没有事件处理的按钮（PendingView.vue:63-64 只有 `<Button>` 没有 `@click`），Spec 没有说它们做什么（建一条什么位置的加减？"数写错了"是删除核对点、改核对点的值，还是在编辑区改正文？前两者在内核里分别是 `puts` 的 delete 与 modify，后者做不到）；(b) 冲突三个办法在原型里是 story.ts 的 `resolveConflict` 组合写入（撤销待定变更、改设定、把待定转为生效，各自不同），内核里只有 `what: "resolve"` 的种类与 revisions.md 输出 17（待定转生效完整校验），没有现成方法；界面要自己拼 `WriteRequest`（含 `held`→`active`、`status: undone` 的原因、改初值），这正是第 1 条说的"同一规则两份"。Spec 对"改这一笔"也没说是打开变更详情页还是就地改。
+为什么是问题：S7 的验收 4 最后一步"点'改这一笔'改成对得上的数并保存"能做，但其余办法不能验收，也没有失败呈现。
+如何核实：读 PendingView.vue:55-80（`grep -n "@click" PendingView.vue` 只有三处冲突按钮）与 story.ts:270-300。
+建议改法：第一批只做"改这一笔"（走就地改）和"打开变更详情"，其余办法列为"不承诺"；或在内核加 `resolveHeld(change, how)`，并为每个办法写一条 Spec 输出和一条验收。
+
+### 24. 新建条目对话框缺必填项：条目的种类、分组、顺序、出场位置；"类型"一词把 Component 类型与条目种类混了
+严重程度：重要
+类别：正确性
+位置：author-ui.md 输出 4、验收缺；model.md"条目"表（`type`、`parent`、`folder`、`order`、`appears`）；schema.ts:121-133（`type: Text`、`folder: Text`、`order: Number` 必填）；contracts.ts:278（`tree` 项没有 `order`）
+现象：写入一个新条目必须给 `type`（种类，一段短文字，如"人物"；`剧情线` 有专门含义）、`folder`、`order`。输出 4 的对话框只有：名字、"类型（已登记的 Component 类型里选零个或多个，决定启用哪些数据）"、放在谁下面、简介。这里的"类型"是 Component 类型，不是条目的种类；`type` 与 `folder` 没处填，`order`（同级顺序，要排在末尾）要读 `tree` 才知道，而 `tree` 项里没有 `order`。也没有出场位置：不填 `appears` 的新条目"从头就有"，即从初值起就存在，在作者的作品里新建一个第 20 章才出场的人物会错误地出现在第 1 章前；新建需要作者的"我是从哪一章起有它"。
+为什么是问题：S3 的新建条目照字面做会写出不合 schema 的请求或错的出场位置。
+如何核实：读 schema.ts:121-133、author-ui.md 输出 4。
+建议改法：对话框加"种类"（缺省取第一个选中的类型的显示名或手填）、"从哪里起有"（缺省'初值'，可选某章）；分组用父条目的分组；`order` 由写入处读 `tree` 末项或内核给"追加到末尾"的写法；界面用语"类型"改成"数据"（输出 4 与 Spec 术语）。
+
+### 25. 删除条目确认里的"几个子条目、被几处引用"，预览给不出
+严重程度：建议
+类别：正确性（缺口）
+位置：author-ui.md 输出 19；contracts.ts:294-305（preview 的结果）；schema.ts:299-309（`ImpactSchema`）
+现象：输出 19 写"确认对话框写明它有几个子条目、被几处引用（预览给出的）"。预览的 `revision.impact` 只有 `pendingResolved/pendingAdded/values/broken(brokenOn)/rekeyed`，没有"子条目数"和"引用数"；子条目数只能数 `tree` 的页（项里只有布尔 `hasChildren`）；"被几处引用"最接近 `impact.broken.length`（让后面几条记录套不上），它是"套不上的变更数"，不是"引用数"（引用在 `refs` 里，按 `revisions` 的条目筛选只能看出哪些修订写过它，没有计数）。另外删除是给条目加 `deleted` 墓碑的整对象写入（revisions.md 输出 20，`after` 为空会 `not-deletable`），界面要先 `object` 读整条再写回。
+为什么是问题：确认框的主要信息读不到；"几个子条目"在父条目已有墓碑规则（第 6 条）下还会变。
+如何核实：读 schema.ts:299-309。
+建议改法：确认框改写成预览真有的信息："这会让第 N 章的 M 条记录套不上"（`impact.broken`）、"有子条目"（`hasChildren`），去掉具体数字，或先补内核的计数。
+
+### 26. 字段的种类、单位、选项、范围、实例声明的字段从哪来：`entry` 的字段状态只有值与显示名
+严重程度：重要
+类别：正确性（缺口）
+位置：author-ui.md 输出 12（"值与单位"）、输出 16（"按字段的种类：数、文字、选项"）、输出 14（面板）；engine/types.ts:55-67（`FieldState`）；components/registry.ts（`ComponentDeclaration`）；canon/web/plugin.ts（只有 `componentsPoint`，没有接收者）
+现象：`FieldState` 只有 `value`、`label?`、`incomplete?`、`notReduced?`、`unreduced?`、`textSays?`，没有 `kind`、`unit`、`options`、`min/max`。通用字段表、就地改的输入控件、面板的值卡（单位）都需要它们。固定类型的声明在贡献点 `canon.components` 的声明里，浏览器入口可以经 `context.declarations.list(...)` 读（编辑器就是这样读自己的贡献点），但计划没有写；浏览器入口现在只登记了 `componentsPoint`，没有接收者，也没有读声明的代码。面板类型是 `instanceFields: true`，字段由每个条目自己声明，存在 `init.data.<ns>.declared`（以及之后的变更里），要 `object` 读整条条目才拿得到，而且这份声明会被后来的补丁改动。计划的"读取层"只列了 `entry/render/changes` 三类读取。
+为什么是问题：面板界面（计划里最复杂的一个）没有字段种类就画不出输入控件与单位，只能猜（数字还是文字）。
+如何核实：读 engine/types.ts:55-67 与 components/registry.ts:14-37；grep -n "declared" packages/nb-canon/src/core/schema.ts。
+建议改法：内核让 `entry` 的 `FieldState` 带上它的声明（`kind`、`unit`、`options`、`min/max`，来自 registry 或实例声明），一处出，所有界面共用；若不改内核，计划要写"从声明与 `object` 取"，并在读取层加一个"字段声明"读取。
+
+### 27. 回执页：对象和字段的显示名、章序调整、"删除它的那次修订"都没有来源
+严重程度：建议
+类别：正确性
+位置：author-ui.md 输出 8、20；revisions.md"存下来的修订"（ops 的四种形状、路径写法）
+现象：即使补了读取 ops（第 3 条），Spec 输出 20 还需要：(a) 把 `fields[].path`（`panel.存款`、`text[b1]`、`character.态度`、`initBasis["…"]`）译成作者看得懂的名字，而路径里可能是实例声明的字段、块 id、元素 id，译名来自第 26 条那份声明，计划未写；(b) 章序调整（`reorder`）的 ops 是 `{kind: "chapters", before, after}`，不是"新建、修改、删除的对象"，Spec 的三类节放不下它，回执页对这种修订空着；(c) 输出 8 要"到删除它的那次修订的回执的链接"：`revisions` 按条目筛选只给"碰过它的修订"（含引用），没有 ops 就分不出哪次加了墓碑；(d) 输出 20 要"它是一次还原时写明还原的是哪一次"，`reverts` 字段同样没有出口（第 3 条）。
+如何核实：读 revisions.md"存下来的修订"一段。
+建议改法：并入第 3 条的内核补口：读取修订返回完整 Revision（含 ops、reverts）；Spec 输出 20 补"章序调整"一节和 path 译名规则。
+
+### 28. nb-ui 的 `Tree` 没有计划要的东西：右键菜单、行内次级色/后缀、"再显示 N 项"行、单击不展开；"原型已用，全部现成"不成立
+严重程度：重要
+类别：代码质量 / 规范
+位置：plan.md"技术选型"表第一行；author-ui.md 输出 2、4、5；packages/nb-ui/src/components/navigation/Tree.md（"不支持"一节、`TreeSlots = Record<never, never>`、"点击行会选择节点；若其有 children，同一次点击也会切换展开态"）
+现象：Tree.md 明写：没有插槽、不提供右键菜单、没有搜索或虚拟滚动；节点只有 `id/title/iconClass/disabled/children`，`disabled` 还未生效；点一个有子节点的行同时选中并切换展开。计划要的：(a) 树项右键菜单"在它下面新建"（输出 4）；(b) 未出场的项用次级色并在名字后加"未出场"（title 是纯字符串，不能单独着色，要把后缀拼进标题，读屏会读成一个名字）；(c) "再显示 N 项"这样的非节点行，会被当成普通节点，点它还会触发选中；(d) 输出 5"单击打开条目页"与"点有子节点的行会切换展开"绑在一起，没有办法只展开不打开，或只打开不展开；(e) 再点当前选中项会清除选中（单选），树里"选中的条目还在就保持选中"（输出 3）要处理。原型的 SettingsTree.vue 只有 44 行，是静态数据，没有这些。
+为什么是问题：要么改 nb-ui（公共库，要走组件规范与 Lab），要么自己写树，S3 的体量比计划大；计划把它当成"现成"。
+如何核实：读 Tree.md 全文；读原型 SettingsTree.vue。
+建议改法：S3 开头先做一次"Tree 够不够"的决定：给 Tree 加行插槽与 `contextmenu` 事件（nb-ui 的变更），或条目树自己建在 reka 的 Tree 原语上；把这条写进计划风险。
+
+### 29. canon 的浏览器入口没有 `onStartup`，也没有公开状态键：设定视图与状态栏条目不会出现，"N 为 0 时不显示"做不到
+严重程度：重要
+类别：正确性（实现缺口）
+位置：plan.md 界面表"状态栏"一行、author-ui.md 输出 25、"输入与前置条件"；packages/neuro-book/src/plugins/canon/web/plugin.ts:20-30；workbench/web/contracts.ts:42（"显示与否只由声明的 `when` 决定，`text()` 不承担隐藏"）；editor/web/status-items.ts:34、editor/web/state.ts:23
+现象：(a) canon 浏览器入口没有 `activationEvents`，现在只因为有消费者依赖 `canonClientKey` 才激活，全仓库产品代码里没有这样的消费者（grep 只有测试）。别的贡献视图与页面的入口（explorer、editor、projects、lab）都写了 `activationEvents: ["onStartup"]`（AGENTS.md 也写着"贡献命令的入口要启动即激活"）。不加，新的视图/页面/状态栏条目/命令都不会被交付。(b) 状态栏条目的显示与否只由声明的 `when: {requires: [公开状态键]}` 决定，`text()` 不能隐藏。Spec 输出 25 要"N 等于 0、没绑定项目、世界还没读到时不显示"，必须由 canon 浏览器入口登记一个布尔公开状态键（如 `nbook.canon/hasPending`，带 `unready` 与 `reason`），编辑器的"未保存 N 个"就是这样做的。计划与 Spec 都没有这个键，也没有测试它。
+为什么是问题：S3 刚开工发现视图没出现；S7 才发现隐藏做不到。
+如何核实：grep -n "activationEvents" packages/neuro-book/src/plugins/{explorer,editor,projects}/web/plugin.ts；读 editor/web/status-items.ts:34。
+建议改法：计划 S3 加"入口加 onStartup"，S7 加"登记公开状态键 `nbook.canon/hasPending`（及其 unready 条件）"；Spec 输入表加这一行。
+
+### 30. 计划假定内核不改，实际至少有 7 处内核或合同要补，且没有对应的切片；这些改的是已经 implemented 的 Spec
+严重程度：阻断
+类别：规范 / 计划
+位置：plan.md"切片"表、"Spec 与文档改动"表；canon/project.md、revisions.md、model.md（均为 implemented）
+现象：计划 S2 到 S8 都只改应用包，"内核（nb-canon）与剧情侧都已合进 master……13 份 Spec 是 implemented"，把合同当现成。本报告核实出的内核/合同缺口：就地改预览（第 1 条）、语义档记一笔（第 2 条）、按 id 读修订与 ops（第 3 条）、章表（第 4 条）、`tree` 的位置/出场/马甲/总数（第 5 条）、来历的安放信息与按地址取（第 7 条）、`changes` 的位置之前与倒序（第 19 条）、字段声明（第 26 条）；另外 `entry` 来历随页读取在大书上贴着预算（第 18 条）。这些要改 `packages/nb-canon`、`canon/shared/contracts.ts`、`backend/remote.ts`，并改 project.md 的方法表、revisions.md 输出 5/8/9、model.md 输出 15 等 implemented 的 Spec 与对应的合同测试，按仓库流程这些是需要开发者批准的合同变更，不是实现细节。计划的"Spec 与文档改动"表一行也没有列它们。
+为什么是问题：S0 的批准会变成"批准一份没写全范围的计划"；S5、S6 做到一半停下来改内核，切片顺序和估时都不成立。
+如何核实：把本报告第 1、2、3、4、5、7、18、19、26 条对照 contracts.ts 的方法表。
+建议改法：在 S1、S2 前加一片 S1.5"内核补口"，逐项列出方法与 Spec 的改动，单独给开发者批准；或把作者界面第一批收窄到现有合同给得出的东西（树的名字/层级、条目页的值与来历、待处理的显示与"改这一笔"、改动记录与还原），其余明说"等内核补口"。
+
+### 31. 组件测试用的内存客户端自己重写订阅、独占、断线，测不到真实 `createCanonClient`；而 resync、ended、hold 恰恰是读取层要测的
+严重程度：重要
+类别：测试
+位置：plan.md"二、样本与测试底座"（"它与远程那条路的差别只有编码与断线……用 canon.test.ts 里的读写用例对一遍"）、验收映射"失败的呈现：busy、只读、断开"；packages/neuro-book/src/plugins/canon/web/client.ts:43-95
+现象：`resync`、`ended`、租约订阅的结束、`unknown-outcome` 都是 `createCanonClient`（client.ts）把远程订阅/失败码翻译成 `CanonEvent`/`CanonResult` 的行为。把 `WorldService` 包成一个自己实现的 `CanonClient`，等于重写了 `subscribe`、`hold`、错误翻译；测读取层对 `resync/ended` 的反应，测的是这份新写的替身，与产品里的 client.ts 无关，"用 canon.test.ts 对一遍"只对一遍读写结果，没对一遍事件与失败语义（canon.test.ts 里有真实项目子进程与远程合同，但那是 `unbound`/`bound` 与读写，不含断线重连）。计划自己写了"差别只有编码与断线"，这两样恰是 client.ts 的全部职责。
+为什么是问题：失败的呈现一整行验收（busy、只读、断开）用的是替身的行为，client.ts 的回归抓不到。
+如何核实：读 client.ts:43-95 与 canon.test.ts 里 "resync"/"ended" 有没有用例（grep -n "resync\|ended" canon.test.ts）。
+建议改法：让内存客户端做成一个"内存版的远程合同"（把 `WorldService` 按 `canonWorldContract` 的方法与事件装成 `DelegatedRemoteAccess`，由真实的 `createCanonClient` 去用），断线用可控的 `RemoteSubscription` 模拟 `onResync/onEnd`；这样 client.ts 的翻译也被覆盖。
+
+### 32. 切片顺序与基线：S3 新建条目依赖 S4/S5，S7 的外壳基线要写两遍，S2 过重
+严重程度：建议
+类别：计划
+位置：plan.md"切片"表、"不做与风险"；author-ui.md 输出 4（新建条目"打开它的条目页，按输出 17 给提示"）、验收 4
+现象：(a) S3 含"新建条目"，成功后要"打开它的条目页并给保存后的提示"，条目页在 S4、提示在 S5，S3 的这条行为在自己的片里测不了（计划写 S3 自跑验证只有 SettingsTree.dom.test.ts）；(b) S7 的外壳 e2e 基线按"默认显示"写，等 t24 的"不让所在区域默认显示"到位后再改，同一条基线写两遍，且 canon-author e2e 的场景 4"底部面板是隐藏的"（验收 4）在声明到位前不成立，验收段没有标 planned；(c) S2 同时装：样本子路径、生成脚本、内存客户端、读取层、测试，而第 30 条的内核补口也都挤进来，是八片里最大的一片；(d) S1 与 S2 "互不依赖"成立，S3 到 S7 "都依赖 S1、S2" 但 S6（回执页、变更详情页）与 S7（改动记录）其实还依赖第 3 条的内核读取。
+为什么是问题：每片"单独提交、验证过后再下一片"的流程会在 S3、S7 卡住。
+如何核实：对照 plan.md 切片表与 author-ui.md 输出 4。
+建议改法：新建条目移到 S5；S7 先做状态栏和视图，隐藏默认值的基线等 t24 后一次写；验收 4 的"底部面板是隐藏的"标 planned；S2 拆成"样本与内存底座""读取层"两片。
+
+
+### 33. Spec 写法：交叉引用错位、写不成测试的句子、实现细节漏进 Spec、与界面文字规则冲突
+严重程度：建议
+类别：文档 / 规范
+位置：author-ui.md 输出 4、10、12、14、24、"ComponentViewContext" 注释、"公开接口"（第 188 行）；docs/specs/README.md 两条判据
+现象：
+(a) 引用错位：输出 4 "按输出 17 给提示"，保存后的提示是输出 18（17 是记一笔）；输出 14 "记一笔的输入（输出 16）"，记一笔是输出 17（16 是就地改）；`ComponentViewContext.world` 注释"行为同本 Spec 输出 24 到 26"，读取、新鲜度、断开是输出 26 到 28（24 是改动记录视图，25 是状态栏条目）。
+(b) 输出 10 用"算不出"作为不完整时的界面文字；ui-development-spec 自检清单把这类口语列为禁用（见"界面不靠说明文字解释自己"和文案自检），应改为"未完整"之类的名词性状态词。
+(c) 写不成测试的句子：输出 2/15/23/24 的"再显示 N 项"里的 N 不可知（`Page<T>` 没有总数，见第 5、19 条）；输出 23 左边列表与右边详情"上下排"以外，没有写待处理视图所在位置（底部面板里横向窄而扁，左右分栏在 1/3 高度的面板里是否可用）和选中项保持规则（版本变化后选中的那一条消失了呢）；"只是提示""已处理"两组的详情画法没有写（输出 23 的详情"按种类"只有三种待处理的种类）；输出 30"值是按钮，读屏读出字段名、值、改过的标记"在值按钮内部又要放"改"（输出 16），按钮嵌套没有处理办法。
+(d) 实现细节漏进 Spec：`WorldReads` 的名字出现在"公开接口"小节里，同一行又说它"不是公开接口"（第 9 条）；"重复的按贡献点的通则拒绝后一个"是贡献点的通用规则，而 `idPrefix: "plugin"` 下一个插件只能为自己的类型登记界面，"重复"几乎不会发生，句子是死的。
+(e) 输出 31 "第一版只有中文"：i18n Spec 的做法是文字机制照常登记 Text，不要写版本；这是路线图描述，不是可检验的行为。
+如何核实：grep -n "输出 1[0-9]" docs/specs/canon/author-ui.md 并对照 17/18 的编号；读 ui-development-spec 自检清单关于文案的条目。
+建议改法：改三处引用；"算不出"改名词状态词；把"N"改成"再显示更多"；补待处理视图的位置、选中项保持规则和另外两组的详情；删去 `WorldReads` 与"第一版只有中文"。
+
+### 34. 设计规范：悬停才出现的"改"在窄屏/触屏上找不到；内容列封顶只写了文字分页；通知不会自己消失
+严重程度：建议
+类别：规范
+位置：author-ui.md 输出 10、14、15、16、18、32
+现象：
+(a) 输出 16 "改"只在悬停或聚焦时出现：触屏和 390 像素窄屏没有悬停，只有点值本身（值是按钮，打开来历，输出 11）才能到"改"；对没有键盘的使用者"改"不可发现；Spec 的窄屏条目（输出 32）没有写"改"常显。
+(b) 内容列宽度封顶（design-language）只在输出 10 写了；通用字段表、情节分页、来历、回执页、变更详情页都是长文字内容，没有写。
+(c) 输出 18 的提示"同一时间只有一条，新的顶掉旧的"，没有自动消失条件；成功类通知常驻页面顶部，不符合"界面不靠说明文字解释自己"，而且连续保存几次，旧回执的"撤销"入口被顶掉后只能去改动记录找。
+(d) 输出 11 的值按钮展开来历、输出 15 的情节行"点一行打开变更详情"同时行内还有"改这一笔""看回执"等操作：可点击卡片内嵌操作要防按钮嵌套（design-language 自检），Spec 没写结构。
+如何核实：读 design-language.md 与 ui-development-spec 的自检清单；对照 author-ui.md 各输出。
+建议改法：触屏/窄屏下"改"常显（`@media (hover: none)`）；内容列封顶写成跨分页的通则；提示给出消失条件（例如 8 秒或切换页面）并保留在改动记录里；行内操作与整行点击分开。
+
+### 35. `canon.component-views` 的形状：计划与 Spec 不一致，第二批的剧情界面够不够没有论证
+严重程度：建议
+类别：规范 / 代码质量
+位置：plan.md:91 对 author-ui.md:60-78
+现象：
+(a) 计划的声明是 `{title?, order?}`，Spec 只有 `{title?}`；计划的上下文是 `{entry, namespace, position, mode}` 加读取层，Spec 的 `ComponentViewContext` 还有 `world` 且 `position/mode` 是响应式的；两份对不上，S4 照哪份实现不清。
+(b) `title?: Text`，但 Spec 没写它的 convention key（i18n 通则要求贡献点文字走 key），"不写时用类型的显示名"来自 `canon.components` 声明，是另一个贡献点的数据，浏览器入口需读 `context.declarations`（第 26 条）。
+(c) `idPrefix: "plugin"` 的含义是：贡献 id 前缀必须是贡献方插件 id，所以别的插件（例如第二批的剧情插件）想给 `nbook.canon.panel` 配界面只能用它自己的前缀，类型 id 与前缀对不上，校验必然失败；Spec 没写"面板与人物的界面就由 canon 自己贡献"以及第二批怎么做（需要 `idPrefix: "none"` 或把键改成"类型 id"字段而不是贡献 id）。
+(d) 把整个读写入口 `world` 交给第三方界面，等于让第三方绕过条目页的确认条直接发布；Spec 没限定它只读，也没限定可以写什么。
+如何核实：grep -n "idPrefix" packages/neuro-book/src/plugins/editor/shared/contracts.ts 看规则；对比 plan.md:91 与 author-ui.md:63-78。
+建议改法：统一为一份声明/上下文；前缀不符的问题单独决定（贡献 id 与类型 id 分开，类型 id 放声明里）；第三方界面拿到的 `world` 默认只读，写入经条目页提供的"提交确认"函数。
+
+## 未发现问题的方面
+
+- 地址里的 `?` 对 `isWithin`/`rebase` 安全：scheme 不同时直接返回 false，页面地址不会被当成文件路径被改写。
+- canon 插件自己用 `context.remote.use(canonWorldContract)` 取客户端是合法的（agent 插件同样这么做）。
+- `pending` 的 `counts.pending` 可以直接作为状态栏条数；"不完整"也有出口。
+- `client.ts` 对 `changed`/`resync`/`ended` 的转发本身没有发现问题（问题在于测试没覆盖它，见第 31 条）。
+- 变更详情页的"涉及的条目""它的每一处改动"可以用按章筛选的 `changes` 取得。
+- 回执页对撤销/还原的提示，其"还原按输出 22 的规则"与 revisions.md 输出 11、12 的预览规则一致。
+
+## 汇总
+
+条目共 35 条。
+- 阻断 4：第 1、3、13、30 条
+- 重要 23：第 2、4、5、6、7、8、9、10、11、14、15、16、18、19、20、22、23、24、26、28、29、31 条（共 22 条）加第 21 条以外的重要项见下行核对
+- 建议 9：第 12、17、21、25、27、32、33、34、35 条
+
+按条核对（以上面各条自己写的严重程度为准）：阻断 4（1、3、13、30）；重要 22（2、4、5、6、7、8、9、10、11、14、15、16、18、19、20、22、23、24、26、28、29、31）；建议 9（12、17、21、25、27、32、33、34、35）。合计 35。
+
+最重要的几条：第 30 条（计划假定内核不改，实际要补 7 处以上，改的是 implemented 的 Spec，没有切片）、第 1 与 3 条（就地改预览与修订 ops 在合同里没有出口，输出 16、20 做不出来）、第 13 条（页面标签只在活动时渲染且无按标签区分的实例，输出 7 的状态保持不成立）、第 18 与 19 条（三百万字夹具上 `entry(withOrigins)` 已贴预算、情节分页无法倒序）。
+
+有效发现编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35（第 15 条的 (e) 点已更正撤回）
+
+更正（汇总计数以此为准）：阻断 4，重要 22，建议 9，合计 35。上面"重要 23"一行的写法有误，请忽略。
