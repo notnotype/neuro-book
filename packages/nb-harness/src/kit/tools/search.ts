@@ -6,14 +6,11 @@
 import {FileType, glob as nativeGlob, grep as nativeGrep} from "@oh-my-pi/pi-natives";
 import type {GrepMatch} from "@oh-my-pi/pi-natives";
 
-import type {ToolResult} from "@notnotype/nb-harness/kernel/contracts";
-
-import {parseAddress} from "nbook/plugins/files/shared/contracts";
-
-import type {AgentToolDeclaration, AgentToolImplementation, ToolSubject} from "../../shared/points";
-import type {SessionResources} from "../../shared/resources";
-
-import {failed, failure, joinAddress, workingAddress} from "./common";
+import type {ToolResult} from "../../kernel/contracts.js";
+import {failed, failure, joinAddress} from "../files/index.js";
+import type {SessionFiles} from "../files/index.js";
+import type {ToolSubject} from "../shapes.js";
+import type {KitToolDeclaration, KitToolImplementation} from "./types.js";
 
 const GREP_DEFAULT_LIMIT = 100;
 const GREP_MAX_LIMIT = 500;
@@ -31,7 +28,7 @@ const GREP_MAX_PENDING = 10_000;
 
 const PATH_PARAMETER = {type: "string", description: "搜索根：资源地址，可以是链接；缺省是 shell 的工作目录。虚拟根不能搜，根下面的目录链接不进（要搜就把链接本身当根）"};
 
-export const grepDeclaration: AgentToolDeclaration = {
+export const grepDeclaration: KitToolDeclaration = {
     description: "在文件内容里搜索正则（pi-natives 的语法；不合法的模式不报错，按字面搜或得到零条）。隐藏文件也搜，按 .gitignore 过滤。结果的地址都是全局地址。",
     parameters: {
         type: "object",
@@ -50,7 +47,7 @@ export const grepDeclaration: AgentToolDeclaration = {
     effect: "read",
 };
 
-export const globDeclaration: AgentToolDeclaration = {
+export const globDeclaration: KitToolDeclaration = {
     description: "按 glob 模式列文件，例如 **/*.md。隐藏文件也列，按 .gitignore 过滤。结果的地址都是全局地址。",
     parameters: {
         type: "object",
@@ -70,25 +67,19 @@ export const globDeclaration: AgentToolDeclaration = {
 const DROP = new Set(["protected-path", "outside-root", "not-found", "not-a-file", "not-a-directory", "permission-denied"]);
 type Verdict = {readonly visible: boolean} | {readonly failure: ToolResult};
 
-async function verdictOf(resources: SessionResources, address: string, signal: AbortSignal): Promise<Verdict> {
-    const located = await resources.readPath(address, {signal});
+async function verdictOf(files: SessionFiles, address: string, signal: AbortSignal): Promise<Verdict> {
+    const located = await files.readPath(address, {signal});
     if (located.ok) return {visible: true};
     return DROP.has(located.code) ? {visible: false} : {failure: failure(located)};
 }
 
-/** 搜索根：全局地址与本机路径。 */
-async function searchRoot(resources: SessionResources, sessionProject: string | undefined, path: unknown, signal: AbortSignal): Promise<{readonly address: string; readonly path: string; readonly kind: string} | {readonly failure: ToolResult}> {
-    const expanded = resources.expand(typeof path === "string" ? path : workingAddress(sessionProject));
+/** 搜索根：全局地址与本机路径。没给时是布局的工作目录。 */
+async function searchRoot(files: SessionFiles, path: unknown, signal: AbortSignal): Promise<{readonly address: string; readonly path: string; readonly kind: string} | {readonly failure: ToolResult}> {
+    const expanded = files.expand(typeof path === "string" ? path : files.layout.working);
     if (!expanded.ok) return {failure: failure(expanded)};
-    const located = await resources.readPath(expanded.address, {signal});
+    const located = await files.readPath(expanded.address, {signal});
     if (!located.ok) return {failure: failure(located)};
     return {address: expanded.address, path: located.value.path, kind: located.value.kind};
-}
-
-/** 项目根的 `.nbook/` 不露出，直接不扫，省下无谓的读（授权仍以 `readPath` 为准）。 */
-function controlExclude(address: string): readonly string[] {
-    const parsed = parseAddress(address);
-    return parsed.ok && parsed.address.scheme === "projects" && !parsed.address.path.includes("/") ? ["/.nbook"] : [];
 }
 
 interface Located {
@@ -117,8 +108,8 @@ function renderMatches(matches: readonly Located[]): {readonly text: string; rea
     return {text: rows.join("\n"), clipped: false};
 }
 
-export async function runGrep(resources: SessionResources, project: string | undefined, args: Readonly<Record<string, unknown>>, signal: AbortSignal, deadlineMs = GREP_DEADLINE_MS): Promise<ToolResult> {
-    const root = await searchRoot(resources, project, args.path, signal);
+export async function runGrep(files: SessionFiles, args: Readonly<Record<string, unknown>>, signal: AbortSignal, deadlineMs = GREP_DEADLINE_MS): Promise<ToolResult> {
+    const root = await searchRoot(files, args.path, signal);
     if ("failure" in root) return root.failure;
     const limit = (args.limit as number | undefined) ?? GREP_DEFAULT_LIMIT;
     const context = (args.context as number | undefined) ?? 0;
@@ -149,7 +140,7 @@ export async function runGrep(resources: SessionResources, project: string | und
                 if (stopped.aborted) return;
                 let allowed = verdicts.get(match.path);
                 if (allowed === undefined) {
-                    const verdict = await verdictOf(resources, addressOf(match), verifying);
+                    const verdict = await verdictOf(files, addressOf(match), verifying);
                     // 核对途中到期：这一个的结果是被取消的，不算路由失败。
                     if (stopped.aborted) return;
                     if ("failure" in verdict) {
@@ -193,7 +184,7 @@ export async function runGrep(resources: SessionResources, project: string | und
             ...(typeof args.glob === "string" ? {glob: args.glob} : {}),
             ...(args.ignoreCase === true ? {ignoreCase: true} : {}),
             ...(context === 0 ? {} : {contextBefore: context, contextAfter: context}),
-            exclude: [...controlExclude(root.address)],
+            exclude: [...files.layout.searchExcludes(root.address)],
             hidden: true,
             gitignore: true,
             maxColumns: MAX_COLUMNS,
@@ -223,8 +214,8 @@ export async function runGrep(resources: SessionResources, project: string | und
     return {text: [rendered.text, ...notes].join("\n"), details};
 }
 
-export async function runGlob(resources: SessionResources, project: string | undefined, args: Readonly<Record<string, unknown>>, signal: AbortSignal, deadlineMs = GLOB_DEADLINE_MS): Promise<ToolResult> {
-    const root = await searchRoot(resources, project, args.path, signal);
+export async function runGlob(files: SessionFiles, args: Readonly<Record<string, unknown>>, signal: AbortSignal, deadlineMs = GLOB_DEADLINE_MS): Promise<ToolResult> {
+    const root = await searchRoot(files, args.path, signal);
     if ("failure" in root) return root.failure;
     if (root.kind !== "directory") return failed("not-a-directory", `not-a-directory: ${root.address} 不是目录`);
     const limit = (args.limit as number | undefined) ?? GLOB_DEFAULT_LIMIT;
@@ -240,7 +231,7 @@ export async function runGlob(resources: SessionResources, project: string | und
     const shown: string[] = [];
     for (const match of [...found.matches].sort((a, b) => (a.path < b.path ? -1 : 1))) {
         const address = joinAddress(root.address, match.path);
-        const verdict = await verdictOf(resources, address, signal);
+        const verdict = await verdictOf(files, address, signal);
         if ("failure" in verdict) return verdict.failure;
         if (!verdict.visible) continue;
         shown.push(`${address}${match.fileType === FileType.Dir ? "/" : ""}`);
@@ -262,12 +253,12 @@ export async function runGlob(resources: SessionResources, project: string | und
 /** 没写 `path` 时搜工作目录：规则看的是工具写明的路径，缺省的不算（读不是闸门要拦的）。 */
 const searchSubjects = (args: Readonly<Record<string, unknown>>): readonly ToolSubject[] => (typeof args.path === "string" ? [{kind: "path", access: "read", address: args.path}] : []);
 
-export const grepTool: AgentToolImplementation = {
+export const grepTool: KitToolImplementation = {
     subjects: searchSubjects,
-    create: (context, {resources}) => ({execute: (args, call) => runGrep(resources, context.project, args, call.signal)}),
+    create: (_context, {files}) => ({execute: (args, call) => runGrep(files, args, call.signal)}),
 };
 
-export const globTool: AgentToolImplementation = {
+export const globTool: KitToolImplementation = {
     subjects: searchSubjects,
-    create: (context, {resources}) => ({execute: (args, call) => runGlob(resources, context.project, args, call.signal)}),
+    create: (_context, {files}) => ({execute: (args, call) => runGlob(files, args, call.signal)}),
 };

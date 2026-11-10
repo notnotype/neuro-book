@@ -8,10 +8,9 @@
 import {checkDescription, resolveForm, validateForm} from "@notnotype/nb-form";
 
 import type {JsonValue, ToolResult} from "@notnotype/nb-harness/kernel/contracts";
+import {failed} from "@notnotype/nb-harness/kit/files";
 
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
-
-import {failed} from "./common";
 
 export interface AskQuestion {
     readonly question: string;

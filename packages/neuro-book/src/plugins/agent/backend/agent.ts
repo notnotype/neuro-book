@@ -11,7 +11,9 @@ import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
 import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
+import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {kernelResources} from "@notnotype/nb-harness/kit/files";
+import type {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
@@ -32,10 +34,8 @@ import {SessionMeta} from "./session-meta";
 import {SessionTable} from "./sessions";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
 import {CompactionRestore} from "./compaction/restore";
-import type {SessionEditStores} from "./builtin/common";
 import {createPermissionHook} from "./permissions/hook";
 import {modesContract} from "./permissions/modes";
-import type {Dialects} from "./permissions/dialects";
 import {AgentTools} from "./tools";
 
 export interface AgentRuntimeOptions {

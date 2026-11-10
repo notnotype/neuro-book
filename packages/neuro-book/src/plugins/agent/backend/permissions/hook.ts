@@ -6,16 +6,16 @@
 import {Value} from "typebox/value";
 
 import type {ApproveHook, JsonValue, ToolEffect, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {CommandDialect, Dialects, SimpleCommand} from "@notnotype/nb-harness/kit/commands";
+import {joinAddress} from "@notnotype/nb-harness/kit/files";
 
 import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 
 import {RulesSchema} from "../../shared/permissions";
 import type {Rule} from "../../shared/permissions";
 import type {ToolSubject as Subject} from "../../shared/points";
-import {joinAddress, workingAddress} from "../builtin/common";
+import {workingAddress} from "../builtin/common";
 import {sessionResources} from "../resources";
-import type {CommandDialect, SimpleCommand} from "./bash-dialect";
-import type {Dialects} from "./dialects";
 import {autoReview} from "./auto-review";
 import {decide} from "./judge";
 import type {GateClass, ModeWriteAction} from "./judge";

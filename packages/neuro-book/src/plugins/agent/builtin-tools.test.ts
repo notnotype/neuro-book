@@ -14,6 +14,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {defineProfile} from "@notnotype/nb-harness/kernel";
 import type {SessionApi, ToolContext, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import {createDialects} from "@notnotype/nb-harness/kit/commands";
+import {previewEdit, runGlob, runGrep, SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -21,10 +23,7 @@ import {LEDGER_POINT} from "nbook/plugins/files/shared/ledger";
 import type {Ledger, LedgerEntry} from "nbook/plugins/files/shared/ledger";
 
 import {BUILTIN_TOOL_CONTRIBUTIONS, builtinTools} from "./backend/builtin";
-import {SessionEditStores} from "./backend/builtin/common";
-import {createDialects} from "./backend/permissions/dialects";
-import {previewEdit} from "./backend/builtin/edit";
-import {runGlob, runGrep} from "./backend/builtin/search";
+import {sessionFiles} from "./backend/resources";
 import {AgentTools} from "./backend/tools";
 import {agentProfile, agentTool} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";
@@ -559,12 +558,12 @@ describe("grep 与 glob", () => {
         await mkdir(join(home, "many"), {recursive: true});
         await Promise.all(Array.from({length: 2000}, (_, index) => writeFile(join(home, "many", `${String(index)}.md`), "needle\n")));
         const live = new AbortController();
-        const grepped = await runGrep(resources, undefined, {pattern: "needle", path: `${global}/many`, limit: 500}, live.signal, 0);
+        const grepped = await runGrep(sessionFiles(resources, {sessionId: session.id, profile: MAIN}), {pattern: "needle", path: `${global}/many`, limit: 500}, live.signal, 0);
         expect(grepped.text).toContain("不完整");
         expect(grepped.text).not.toBe("没有匹配");
-        expect(await runGlob(resources, undefined, {pattern: "**/*", path: `${global}/many`}, live.signal, 0)).toMatchObject({code: "timeout"});
+        expect(await runGlob(sessionFiles(resources, {sessionId: session.id, profile: MAIN}), {pattern: "**/*", path: `${global}/many`}, live.signal, 0)).toMatchObject({code: "timeout"});
         live.abort();
-        expect(await runGrep(resources, undefined, {pattern: "needle", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
+        expect(await runGrep(sessionFiles(resources, {sessionId: session.id, profile: MAIN}), {pattern: "needle", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
 
         // 期限管整次调用：原生搜索已经把匹配交出来、核对还没做完时到期，也不再继续核对。
         const checked: string[] = [];
@@ -579,11 +578,11 @@ describe("grep 与 glob", () => {
             return resources.readPath(address, options);
         }};
         const started = Date.now();
-        const clipped = await runGrep(slow, undefined, {pattern: "needle", path: `${global}/many`, limit: 500}, new AbortController().signal, 150);
+        const clipped = await runGrep(sessionFiles(slow, {sessionId: session.id, profile: MAIN}), {pattern: "needle", path: `${global}/many`, limit: 500}, new AbortController().signal, 150);
         expect(clipped.text).toContain("不完整");
         expect(checked.length).toBeLessThan(5);
         expect(Date.now() - started).toBeLessThan(5_000);
-        expect(await runGlob(resources, undefined, {pattern: "**/*", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
+        expect(await runGlob(sessionFiles(resources, {sessionId: session.id, profile: MAIN}), {pattern: "**/*", path: `${global}/many`}, live.signal)).toMatchObject({code: "cancelled"});
     });
 });
 
@@ -1043,7 +1042,7 @@ describe("审批预览（输出 26）", () => {
         if (!located.ok) throw new Error(located.code);
         const store = new EditStore();
         const tag = store.recordSnapshot(located.value.path, "一\n二\n", [1, 2]);
-        const {written, failure} = await previewEdit("hashline", {input: hashline("session://a.md", tag, "PUT 2.=2:\n+贰")}, resources, store, 1024 * 1024, new AbortController().signal);
+        const {written, failure} = await previewEdit("hashline", {input: hashline("session://a.md", tag, "PUT 2.=2:\n+贰")}, sessionFiles(resources, {sessionId: session.id, profile: MAIN}), store, 1024 * 1024, new AbortController().signal);
         expect(failure).toBeNull();
         expect([...written.values()]).toEqual(["一\n贰\n"]);
         expect(store.headText(located.value.path)).toBe("一\n二\n");

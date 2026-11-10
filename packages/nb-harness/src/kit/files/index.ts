@@ -6,7 +6,7 @@
  * 套件不认识任何地址方案：地址怎么改写、哪些根有特殊含义、写入记在谁名下，都在宿主的实现里。
  */
 
-import type {Resources, ToolSessionContext} from "../../kernel/contracts.js";
+import type {Resources, ToolResult, ToolSessionContext} from "../../kernel/contracts.js";
 
 /** 失败码是开放字符串：套件只按 `KNOWN_FILE_FAILURES` 里的码分支，宿主自己的码（例如没有主项目）原样交给模型。 */
 export type FileFailure = {readonly ok: false; readonly code: string; readonly detail: string};
@@ -117,6 +117,22 @@ export function renderVirtual(listing: VirtualListing): string {
     });
     return [listing.description, ...(lines.length === 0 ? [] : ["", ...lines])].join("\n");
 }
+
+/** 工具的失败结果：码同时放在结果与 `details`，内核的事件读前者，工具的调用方按后者判断，都不看文字。 */
+export const failed = (code: string, text: string): ToolResult => ({text, status: "error", code, details: {code}});
+export const failure = (result: {readonly code: string; readonly detail: string}): ToolResult => failed(result.code, `${result.code}: ${result.detail}`);
+
+/** 全局地址；改写不了时交回失败结果。 */
+export function globalAddress(files: Pick<SessionFiles, "expand">, address: string): {readonly ok: true; readonly address: string} | {readonly ok: false; readonly failure: ToolResult} {
+    const expanded = files.expand(address);
+    return expanded.ok ? expanded : {ok: false, failure: failure(expanded)};
+}
+
+/** 在地址后接一段相对路径；`base` 可以是方案的根（`x://`）。只拼接，不校验。 */
+export const joinAddress = (base: string, relative: string): string => (base.endsWith("://") || base.endsWith("/") ? `${base}${relative}` : `${base}/${relative}`);
+
+/** 地址的方案名（`://` 之前）。只取形状，不校验。 */
+export const schemeOf = (address: string): string => address.slice(0, address.indexOf("://"));
 
 /** 内核的 `Resources.read` 只有文字或抛出：调用方要分辨失败时按 `code`（docs/specs/agent/resources.md 输出 9）。 */
 export class ResourceReadError extends Error {

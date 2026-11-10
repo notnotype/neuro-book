@@ -12,14 +12,14 @@ import {dirname, join} from "node:path";
 import {executeShell} from "@oh-my-pi/pi-natives";
 
 import type {ToolResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import {commandEffect} from "@notnotype/nb-harness/kit/commands";
+import type {Dialects} from "@notnotype/nb-harness/kit/commands";
+import {failure} from "@notnotype/nb-harness/kit/files";
 
 import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
 import type {AgentToolServices, SessionResources} from "../../shared/resources";
 
-import {commandEffect} from "../permissions/dialects";
-import type {Dialects} from "../permissions/dialects";
-
-import {failure, workingAddress} from "./common";
+import {workingAddress} from "./common";
 import {findAddresses, substitute} from "./shell-address";
 
 const DEFAULT_TIMEOUT_SECONDS = 300;

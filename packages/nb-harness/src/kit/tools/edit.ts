@@ -6,15 +6,11 @@
 import {EditSession, EditStore, editDescription, editGrammar, editInspect} from "@oh-my-pi/pi-natives";
 import type {EditApplyOutcome, EditPolicy, EditUrlResolution, EditWriteRequest, EditWriteResponse} from "@oh-my-pi/pi-natives";
 
-import type {ToolResult} from "@notnotype/nb-harness/kernel/contracts";
-
-import type {Baseline} from "nbook/plugins/files/shared/contracts";
-
-import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
-import type {SessionResources} from "../../shared/resources";
-
-import {failed, failure} from "./common";
-import type {SessionEditStores} from "./common";
+import type {ToolResult} from "../../kernel/contracts.js";
+import {failed, failure, schemeOf} from "../files/index.js";
+import type {Baseline, SessionFiles} from "../files/index.js";
+import type {SessionEditStores} from "./snapshot.js";
+import type {KitToolDeclaration, KitToolImplementation} from "./types.js";
 
 type Mode = "hashline" | "replace";
 
@@ -22,23 +18,22 @@ type Mode = "hashline" | "replace";
  * 引擎的本地路径分支（相对路径按 `cwd`、`~` 按 `homeDir`）不能碰到真实目录：目标都先按资源地址校验过，这两个只是兜底，
  * 写一个不存在的目录。
  */
-const NO_LOCAL_PATHS = "/nonexistent/nbook-agent-edit";
+const NO_LOCAL_PATHS = "/nonexistent/harness-kit-edit";
 /** 与 `read` 的单行上限对应：有行锚来源的长行引擎仍认，没有的拒绝。 */
 const MAX_COLUMNS = 2_000;
 
-const NOTE = "\n\n路径都是资源地址（例如 project://正文/第一章.md），不接受裸路径。只改已存在的文件，新建用 write；不删除、不移动文件。";
-
-export const hashlineDeclaration: AgentToolDeclaration = {
-    description: `${editDescription("hashline")}${NOTE}`,
+/** `note` 接在引擎的说明后面：地址怎么写、能改什么是宿主的事实。 */
+export const hashlineDeclaration = (note: string): KitToolDeclaration => ({
+    description: `${editDescription("hashline")}${note}`,
     parameters: {type: "object", properties: {input: {type: "string"}}, required: ["input"]},
     customFormat: {syntax: "lark", definition: editGrammar("hashline") as string},
     version: "1",
     concurrency: "exclusive",
     effect: "write",
-};
+});
 
-export const replaceDeclaration: AgentToolDeclaration = {
-    description: `${editDescription("replace")}${NOTE}`,
+export const replaceDeclaration = (note: string): KitToolDeclaration => ({
+    description: `${editDescription("replace")}${note}`,
     parameters: {
         type: "object",
         properties: {path: {type: "string"}, old_string: {type: "string"}, new_string: {type: "string"}, replace_all: {type: "boolean"}},
@@ -47,7 +42,7 @@ export const replaceDeclaration: AgentToolDeclaration = {
     version: "1",
     concurrency: "exclusive",
     effect: "write",
-};
+});
 
 /**
  * 进引擎前把目标换成全局地址：引擎的结果头照抄输入的写法，这样输出才是全局地址，不必去改引擎的文字（输出 1）。
@@ -61,8 +56,6 @@ function globalArgs(mode: Mode, args: Readonly<Record<string, unknown>>, expande
     })};
 }
 
-const schemeOf = (address: string): string => address.slice(0, address.indexOf("://"));
-
 interface FileOutcome {
     readonly address: string;
     readonly status: "written" | "failed";
@@ -74,15 +67,15 @@ function summary(files: readonly FileOutcome[]): string {
     return ["", "逐文件结果：", ...files.map((file) => `- ${file.address}：${file.status === "written" ? "已写入" : `失败（${file.code ?? ""}）`}`)].join("\n");
 }
 
-function editTool(mode: Mode, stores: SessionEditStores): AgentToolImplementation {
+function editTool(mode: Mode, stores: SessionEditStores): KitToolImplementation {
     return {
         // 一次能改几个文件，路径由编辑引擎读出来，和执行时用的是同一份。
         subjects: (args) => editInspect(mode, JSON.stringify(args)).paths.map((address) => ({kind: "path", access: "write", address})),
-        create: (context, {resources}) => {
+        create: (context, {files}) => {
             const held = stores.acquire(context.sessionId);
             return {
                 dispose: () => held.release(),
-                execute: (args, call) => run(mode, args, resources, held.store, call),
+                execute: (args, call) => run(mode, args, files, held.store, call),
             };
         },
     };
@@ -92,20 +85,20 @@ function editTool(mode: Mode, stores: SessionEditStores): AgentToolImplementatio
  * 预检目标、读基线、跑引擎。引擎只算新内容，落盘交给 `save`：工具写回并核对基线，审批预览只记下算出来的内容。
  * `save` 抛错就是这个文件写失败，引擎按部分失败收口。
  */
-async function runEngine(mode: Mode, args: Readonly<Record<string, unknown>>, resources: SessionResources, store: EditStore, signal: AbortSignal, save: (address: string, content: string, baseline: Baseline) => Promise<void>): Promise<{readonly ok: true; readonly outcome: EditApplyOutcome} | {readonly ok: false; readonly failure: ToolResult}> {
+async function runEngine(mode: Mode, args: Readonly<Record<string, unknown>>, files: SessionFiles, store: EditStore, signal: AbortSignal, save: (address: string, content: string, baseline: Baseline) => Promise<void>): Promise<{readonly ok: true; readonly outcome: EditApplyOutcome} | {readonly ok: false; readonly failure: ToolResult}> {
     const inspection = editInspect(mode, JSON.stringify(args));
     if (inspection.fileOps.length > 0) return {ok: false, failure: failed("unsupported-capability", `unsupported-capability: edit 不删除、不移动文件（${inspection.fileOps.map((op) => `${op.kind} ${op.path}`).join("，")}），什么都没有改`)};
 
     const expanded = new Map<string, string>();
     for (const path of inspection.paths) {
-        const address = resources.expand(path);
+        const address = files.expand(path);
         if (!address.ok) return {ok: false, failure: failed(address.code, `${address.code}: edit 的目标要是资源地址：${path}（${address.detail}），什么都没有改`)};
         expanded.set(path, address.address);
     }
 
     const baselines = new Map<string, Baseline>();
     for (const address of new Set(expanded.values())) {
-        const read = await resources.read(address, {signal});
+        const read = await files.read(address, {signal});
         if (!read.ok) return {ok: false, failure: read.code === "not-found" ? failed("not-found", `not-found: ${address} 不存在，新建要用 write`) : failure(read)};
         baselines.set(address, read.value.baseline);
     }
@@ -114,7 +107,7 @@ async function runEngine(mode: Mode, args: Readonly<Record<string, unknown>>, re
     const addressOf = new Map<string, string>();
     const resolveUrl = async (error: Error | null, url: string): Promise<EditUrlResolution> => {
         if (error !== null) return {error: error.message, planWritable: false};
-        const located = await resources.readPath(url, {signal});
+        const located = await files.readPath(url, {signal});
         if (!located.ok) return {error: `${located.code}: ${located.detail}`, planWritable: false};
         addressOf.set(located.value.path, url);
         return {path: located.value.path, planWritable: false};
@@ -155,41 +148,41 @@ async function runEngine(mode: Mode, args: Readonly<Record<string, unknown>>, re
     }
 }
 
-async function run(mode: Mode, args: Readonly<Record<string, unknown>>, resources: SessionResources, store: EditStore, call: {readonly callId: string; readonly signal: AbortSignal}): Promise<ToolResult> {
-    const scoped = resources.call(call);
-    const files: FileOutcome[] = [];
+async function run(mode: Mode, args: Readonly<Record<string, unknown>>, files: SessionFiles, store: EditStore, call: {readonly callId: string; readonly signal: AbortSignal}): Promise<ToolResult> {
+    const scoped = files.call(call);
+    const outcomes: FileOutcome[] = [];
     let writeFailure: string | null = null;
-    const ran = await runEngine(mode, args, resources, store, call.signal, async (address, content, baseline) => {
+    const ran = await runEngine(mode, args, files, store, call.signal, async (address, content, baseline) => {
         const saved = await scoped.write(address, content, {expect: baseline});
         if (!saved.ok) {
             writeFailure = saved.code;
-            files.push({address, status: "failed", code: saved.code});
+            outcomes.push({address, status: "failed", code: saved.code});
             throw new Error(`${saved.code}: ${saved.detail}`);
         }
-        files.push({address, status: "written"});
+        outcomes.push({address, status: "written"});
     });
     if (!ran.ok) return ran.failure;
     const {outcome} = ran;
-    if (!outcome.isError) return {text: outcome.text, details: {mode, files: files as unknown as never}};
+    if (!outcome.isError) return {text: outcome.text, details: {mode, files: outcomes as unknown as never}};
     const code = writeFailure ?? `edit-${outcome.errorKind ?? "failed"}`;
-    const partial = files.some((file) => file.status === "written");
-    return {text: partial ? `${outcome.text}\n${summary(files)}` : outcome.text, status: "error", code, details: {mode, code, files: files as unknown as never}};
+    const partial = outcomes.some((file) => file.status === "written");
+    return {text: partial ? `${outcome.text}\n${summary(outcomes)}` : outcome.text, status: "error", code, details: {mode, code, files: outcomes as unknown as never}};
 }
 
 /**
  * 审批预览（输出 26）：试算 `edit` 的结果，不写盘。引擎落盘之后会更新快照，所以在一份副本上跑，会话的行锚不受影响：
  * 副本里放这次调用引用的那些快照，行锚的校验和真的执行时一样。
  */
-export async function previewEdit(mode: Mode, args: Readonly<Record<string, unknown>>, resources: SessionResources, store: EditStore, maxBytes: number, signal: AbortSignal): Promise<{readonly written: ReadonlyMap<string, string>; readonly tooLarge: ReadonlyMap<string, number>; readonly failure: {readonly code: string; readonly targets: readonly string[]} | null}> {
+export async function previewEdit(mode: Mode, args: Readonly<Record<string, unknown>>, files: SessionFiles, store: EditStore, maxBytes: number, signal: AbortSignal): Promise<{readonly written: ReadonlyMap<string, string>; readonly tooLarge: ReadonlyMap<string, number>; readonly failure: {readonly code: string; readonly targets: readonly string[]} | null}> {
     const targets = new Set(editInspect(mode, JSON.stringify(args)).paths.map((path) => {
-        const expanded = resources.expand(path);
+        const expanded = files.expand(path);
         return expanded.ok ? expanded.address : path;
     }));
     // 先看原文件：这时用户还没批准，不为超过预算的文件试算（`replace_all` 的结果可以比原文件大很多倍）。存在的才往下走：
     // 下面的 `readPath` 会创建挂载目录，预览不能有这个副作用。
     const sizes = new Map<string, number>();
     for (const target of targets) {
-        const read = await resources.read(target, {signal});
+        const read = await files.read(target, {signal});
         if (read.ok) sizes.set(target, read.value.bytes.byteLength);
     }
     const tooLarge = new Map([...sizes].filter(([, bytes]) => bytes > maxBytes));
@@ -198,15 +191,15 @@ export async function previewEdit(mode: Mode, args: Readonly<Record<string, unkn
     const scratch = new EditStore();
     if (mode === "hashline") {
         for (const [, path, tag] of (args.input as string).matchAll(/^\[([^#\r\n]+)#([^\]\s]+)/gmu)) {
-            const expanded = resources.expand(path!);
-            const located = expanded.ok && sizes.has(expanded.address) ? await resources.readPath(expanded.address, {signal}) : null;
+            const expanded = files.expand(path!);
+            const located = expanded.ok && sizes.has(expanded.address) ? await files.readPath(expanded.address, {signal}) : null;
             if (located?.ok !== true) continue;
             const text = store.byHashText(located.value.path, tag!);
             if (text !== null) scratch.recordSnapshot(located.value.path, text, store.seenLines(located.value.path, tag!));
         }
     }
     const written = new Map<string, string>();
-    const ran = await runEngine(mode, args, resources, scratch, signal, async (address, content) => {
+    const ran = await runEngine(mode, args, files, scratch, signal, async (address, content) => {
         written.set(address, content);
     });
     const unwritten = [...targets].filter((target) => !written.has(target));
@@ -216,5 +209,5 @@ export async function previewEdit(mode: Mode, args: Readonly<Record<string, unkn
     return {written, tooLarge, failure: unwritten.length === 0 ? null : {code: "edit-no-preview", targets: unwritten}};
 }
 
-export const hashlineTool = (stores: SessionEditStores): AgentToolImplementation => editTool("hashline", stores);
-export const replaceTool = (stores: SessionEditStores): AgentToolImplementation => editTool("replace", stores);
+export const hashlineTool = (stores: SessionEditStores): KitToolImplementation => editTool("hashline", stores);
+export const replaceTool = (stores: SessionEditStores): KitToolImplementation => editTool("replace", stores);

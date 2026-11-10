@@ -4,8 +4,8 @@
 
 import {describe, expect, test} from "bun:test";
 
-import {createBashDialect} from "./bash-dialect";
-import type {ParsedCommand} from "./bash-dialect";
+import {createBashDialect} from "./bash-dialect.js";
+import type {ParsedCommand} from "./bash-dialect.js";
 
 const dialect = createBashDialect();
 const parsed = (text: string): ParsedCommand => {

@@ -2,10 +2,10 @@
  * 方言表（docs/specs/agent/permissions.md 的“命令与方言”）：第一版只有 `bash`。形状就是将来贡献点的形状。
  */
 
-import type {ToolEffect} from "@notnotype/nb-harness/kernel/contracts";
+import type {ToolEffect} from "../../kernel/contracts.js";
 
-import {createBashDialect} from "./bash-dialect";
-import type {CommandDialect} from "./bash-dialect";
+import {createBashDialect} from "./bash-dialect.js";
+import type {CommandDialect} from "./bash-dialect.js";
 
 export type Dialects = (id: string) => CommandDialect | undefined;
 

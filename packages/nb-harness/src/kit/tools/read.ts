@@ -8,17 +8,13 @@ import {open, stat} from "node:fs/promises";
 import {hashlineFormatHeader, hashlineFormatNumberedLines} from "@oh-my-pi/pi-natives";
 import type {EditStore} from "@oh-my-pi/pi-natives";
 
-import type {ToolResult} from "@notnotype/nb-harness/kernel/contracts";
-
-import {decodeText, renderVirtual} from "nbook/plugins/files/shared/contracts";
-
-import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/points";
-import type {SessionResources} from "../../shared/resources";
-
-import {failed, failure, globalAddress, joinAddress} from "./common";
-import type {SessionEditStores} from "./common";
-import {imageFormat, prepareImage} from "./image";
-import type {ImageFormat} from "./image";
+import type {ToolResult} from "../../kernel/contracts.js";
+import {decodeText, failed, failure, globalAddress, joinAddress, renderVirtual} from "../files/index.js";
+import type {SessionFiles} from "../files/index.js";
+import {imageFormat, prepareImage} from "./image.js";
+import type {ImageFormat} from "./image.js";
+import type {SessionEditStores} from "./snapshot.js";
+import type {KitToolDeclaration, KitToolImplementation} from "./types.js";
 
 const MAX_LINES = 2_000;
 const MAX_BYTES = 50 * 1024;
@@ -32,12 +28,12 @@ const MAX_BUFFERED_LINE = 1024 * 1024;
 /** `recordSnapshot` 把空集当作“不限行”，没有完整展示的行时要传这个（引擎的“没看过任何行”）。 */
 const NOTHING_SEEN = [0];
 
-export const readDeclaration: AgentToolDeclaration = {
+export const readDeclaration = (pathParameter: string): KitToolDeclaration => ({
     description: "读取一个资源地址：文本带行号与行锚（一次至多 2000 行、50 KB，用 offset 与 limit 分页），目录与虚拟根列出一层，png、jpeg、gif、webp 图片直接给你看。",
     parameters: {
         type: "object",
         properties: {
-            path: {type: "string", description: "资源地址，例如 project://正文/第一章.md、session://plan.md"},
+            path: {type: "string", description: pathParameter},
             offset: {type: "integer", minimum: 1, description: "从第几行开始，从 1 数起"},
             limit: {type: "integer", minimum: 1, maximum: MAX_LINES, description: "最多读多少行"},
         },
@@ -46,7 +42,7 @@ export const readDeclaration: AgentToolDeclaration = {
     version: "1",
     concurrency: "shared",
     effect: "read",
-};
+});
 
 async function readImage(path: string, address: string, format: ImageFormat, size: number): Promise<ToolResult> {
     if (size > IMAGE_LIMIT) return failed("too-large", `too-large: ${address} 有 ${String(size)} 字节，图片至多 ${String(IMAGE_LIMIT)} 字节`);
@@ -201,11 +197,11 @@ function readFailure(error: unknown, address: string, signal: AbortSignal): Tool
     return failed("io-failed", `io-failed: 读 ${address} 失败（${error instanceof Error ? error.message : String(error)}）`);
 }
 
-async function listOne(resources: SessionResources, address: string, signal: AbortSignal): Promise<ToolResult> {
-    const listed = await resources.list(address, {signal});
+async function listOne(files: SessionFiles, address: string, signal: AbortSignal): Promise<ToolResult> {
+    const listed = await files.list(address, {signal});
     if (!listed.ok) return failure(listed);
     const {value} = listed;
-    if ("kind" in value) {
+    if (value.kind === "virtual") {
         const shown = {...value, entries: value.entries.slice(0, MAX_ENTRIES)};
         return {text: `${renderVirtual(shown)}${value.entries.length > MAX_ENTRIES ? `\n（还有 ${String(value.entries.length - MAX_ENTRIES)} 项没有列出）` : ""}`};
     }
@@ -214,21 +210,21 @@ async function listOne(resources: SessionResources, address: string, signal: Abo
     return {text: rows.length === 0 ? `[${address}]（空目录）` : rows.join("\n")};
 }
 
-export function readTool(stores: SessionEditStores): AgentToolImplementation {
+export function readTool(stores: SessionEditStores): KitToolImplementation {
     return {
         subjects: (args) => [{kind: "path", access: "read", address: args.path as string}],
-        create: (context, {resources}) => {
+        create: (context, {files}) => {
             const held = stores.acquire(context.sessionId);
             return {
                 dispose: () => held.release(),
                 execute: async (args, call) => {
-                    const expanded = globalAddress(resources, args.path as string);
+                    const expanded = globalAddress(files, args.path as string);
                     if (!expanded.ok) return expanded.failure;
                     const {address} = expanded;
-                    const located = await resources.readPath(address, {signal: call.signal});
+                    const located = await files.readPath(address, {signal: call.signal});
                     // 虚拟根没有本机路径，它的内容是列出来的。
-                    if (!located.ok) return located.code === "unsupported-capability" ? listOne(resources, address, call.signal) : failure(located);
-                    if (located.value.kind === "directory") return listOne(resources, address, call.signal);
+                    if (!located.ok) return located.code === "unsupported-capability" ? listOne(files, address, call.signal) : failure(located);
+                    if (located.value.kind === "directory") return listOne(files, address, call.signal);
                     if (located.value.kind === "other") return failed("not-text", `not-text: ${address} 不是普通文件`);
                     // 定位之后文件可能被 shell 或外部编辑器删掉：这是预料之中的，不能变成工具抛错。
                     try {

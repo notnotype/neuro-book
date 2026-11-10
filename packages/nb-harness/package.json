@@ -24,7 +24,9 @@
         "./kit/shapes": "./src/kit/shapes.ts",
         "./kit/files": "./src/kit/files/index.ts",
         "./kit/files/local": "./src/kit/files/local.ts",
+        "./kit/commands": "./src/kit/commands/index.ts",
         "./kit/testing": "./src/kit/testing/index.ts",
+        "./kit/tools": "./src/kit/tools/index.ts",
         "./models": "./src/models/index.ts",
         "./process-guard": "./src/process-guard.ts",
         "./prompt": "./src/kernel/view/prompt/index.ts",
@@ -44,7 +46,8 @@
         "@oh-my-pi/pi-catalog": "18.14.0",
         "@oh-my-pi/pi-natives": "18.14.0",
         "@oh-my-pi/pi-utils": "18.14.0",
-        "typebox": "^1.3.6"
+        "typebox": "^1.3.6",
+        "unbash": "^6.0.3"
     },
     "devDependencies": {
         "@notnotype/neuro-book-test-support": "workspace:*",

@@ -7,12 +7,12 @@ import {readFile, stat} from "node:fs/promises";
 
 import {estimateTokens} from "@notnotype/nb-harness/kernel";
 import type {CompactionRestoreArgs, CompactionRestored, JsonValue, LogEvent, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import {MAX_READ_LINES, renderSnapshot, SNAPSHOT_MAX_BYTES} from "@notnotype/nb-harness/kit/tools";
+import type {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 
 import {decodeText} from "nbook/plugins/files/shared/contracts";
 import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 
-import type {SessionEditStores} from "../builtin/common";
-import {MAX_READ_LINES, renderSnapshot, SNAPSHOT_MAX_BYTES} from "../builtin/read";
 import {sessionResources} from "../resources";
 import type {SessionResources} from "../../shared/resources";
 

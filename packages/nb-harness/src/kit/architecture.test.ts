@@ -41,6 +41,8 @@ const UNITS: Readonly<Record<string, UnitRule>> = {
     shapes: {dependsOn: [], packages: ["typebox"], builtins: [], kernel: "types"},
     files: {dependsOn: ["shapes"], packages: [], builtins: [], kernel: "types"},
     "files/local": {dependsOn: ["files"], packages: [], builtins: ["node:fs/promises", "node:path", "node:crypto"], kernel: "none"},
+    commands: {dependsOn: [], packages: ["unbash"], builtins: [], kernel: "types"},
+    tools: {dependsOn: ["files", "commands", "shapes"], packages: ["@oh-my-pi/pi-natives"], builtins: ["node:fs", "node:fs/promises", "node:os", "node:path"], kernel: "types"},
     // 合同测试要在夹具的目录里放文件与链接，所以能碰磁盘；它只给测试用。
     testing: {dependsOn: ["files"], packages: [], builtins: ["bun:test", "node:fs/promises", "node:os", "node:path"], kernel: "none"},
 };
