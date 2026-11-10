@@ -27,12 +27,12 @@ import {appendRevision, openLog, readNew, type LogDiagnostic, type LogLock, type
 import {appendReduction, loadReductions} from "../node/cache";
 import {renderEntryForAgent, renderEntryForAuthor, type RenderOptions} from "../render/entry";
 import {writeBack, type WriteBackInput, type WriteBackResult} from "../render/writeback";
-import {editInPlace, recordDelta, type EditResult, type InPlaceEdit} from "../world/edits";
+import {editInPlace, previewEdit, recordDelta, recordNote, type DeltaRecord, type EditPreview, type EditPreviewInput, type EditResult, type InPlaceEdit, type NoteRecord} from "../world/edits";
 import {marksIn} from "../world/references";
 import {TellingLocator, type Occurrence} from "../world/tellings";
 import {processFindings, type DiagnosticCompute, type Finding} from "./diagnostics";
 import {canonHints, HINT_GROUP_ORDER, occurrencePosition, PENDING_GROUP_ORDER, placementPosition, sortableCanonItem, sortGroup, type GroupItem, type PendingPage, type Sortable, type SortPosition} from "./pending-groups";
-import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositionWithin, tellingWithin, ViewAudit, type ChapterItem, type ViewedReads, type ViewGrant} from "./views";
+import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositionWithin, tellingWithin, ViewAudit, type ChapterItem, type TreeItem, type TreeItemAt, type TreePage, type ViewedReads, type ViewGrant} from "./views";
 import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {timeState, type TimeState} from "../time/state";
@@ -173,30 +173,6 @@ interface Lease {
 function recomputedOn(world: World): number {
     const others = new Set(world.lines.updates.map((update) => update.line).filter((line) => line !== MAIN_LINE));
     return [...others].reduce((sum, line) => sum + (world.lines.peek(line)?.engine.recomputed ?? 0), world.line().engine.recomputed);
-}
-
-/** 条目树的一项（方法表 `tree`）；`name` 是初值里的名字。 */
-export interface TreeItem {
-    readonly id: string;
-    readonly name: string;
-    readonly type: string;
-    readonly folder: string;
-    readonly deleted: boolean;
-    readonly hasChildren: boolean;
-}
-
-/** 给了读取位置时的一项（project.md 输出 30）：这个位置上的名字、是否已出场、它是谁的马甲。 */
-export interface TreeItemAt extends TreeItem {
-    readonly nameAt: string;
-    readonly appeared: boolean;
-    readonly sameAs: string | null;
-}
-
-/** `remaining` 是这一层在这一页之后还会列出几项。 */
-export interface TreePage<T> {
-    readonly items: readonly T[];
-    readonly remaining: number;
-    readonly cursor?: string;
 }
 
 /** 一个地址是不是声明过的（model.md 输出 37）：名字、别名、一句话与主文字的块，或这个条目上有声明的字段、它的元素与子字段。 */
@@ -1108,8 +1084,21 @@ export class WorldService {
         return this.#write(token, (world) => editInPlace(world, edit, this.#ports.now()));
     }
 
-    recordDelta(input: Parameters<typeof recordDelta>[1], token?: string): Promise<EditResult | {readonly ok: false; readonly failure: ServiceFailure}> {
+    recordDelta(input: DeltaRecord, token?: string): Promise<EditResult | {readonly ok: false; readonly failure: ServiceFailure}> {
         return this.#write(token, (world) => recordDelta(world, input, this.#ports.now()));
+    }
+
+    /** 语义档的记一笔（revisions.md 输出 23）。 */
+    recordNote(input: NoteRecord, token?: string): Promise<EditResult | {readonly ok: false; readonly failure: ServiceFailure}> {
+        return this.#write(token, (world) => recordNote(world, input, this.#ports.now()));
+    }
+
+    /**
+     * 就地改与记一笔的预览（revisions.md 输出 22）：只按世界算。只读、别人持有独占、正在停止这些服务的状态不在这里判断，
+     * 调用方按 `status` 与独占的事件另行处理。
+     */
+    previewEdit(input: EditPreviewInput): EditPreview {
+        return previewEdit(this.#world, input, this.#ports.now());
     }
 
     writeBack(input: WriteBackInput, token?: string): Promise<WriteBackResult | {readonly ok: false; readonly failure: ServiceFailure}> {

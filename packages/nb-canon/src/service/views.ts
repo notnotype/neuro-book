@@ -50,6 +50,30 @@ export interface ChapterItem {
     readonly lines: readonly {readonly from: number; readonly line: string}[];
 }
 
+/** 条目树的一项（方法表 `tree`）；`name` 是初值里的名字。 */
+export interface TreeItem {
+    readonly id: string;
+    readonly name: string;
+    readonly type: string;
+    readonly folder: string;
+    readonly deleted: boolean;
+    readonly hasChildren: boolean;
+}
+
+/** 给了读取位置时的一项（project.md 输出 30）：这个位置上的名字、是否已出场、它是谁的马甲。 */
+export interface TreeItemAt extends TreeItem {
+    readonly nameAt: string;
+    readonly appeared: boolean;
+    readonly sameAs: string | null;
+}
+
+/** `remaining` 是这一层在这一页之后还会列出几项。 */
+export interface TreePage<T> {
+    readonly items: readonly T[];
+    readonly remaining: number;
+    readonly cursor?: string;
+}
+
 /** 带视图令牌的一页。 */
 export type ViewedPage<T> = ReadStamp & {readonly items: readonly T[]; readonly cursor?: string};
 

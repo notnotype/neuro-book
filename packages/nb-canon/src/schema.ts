@@ -5,7 +5,7 @@
 
 export * from "./core/schema";
 export {buildRegistry, type ComponentDeclaration, type ComponentRegistry, type ComponentType, type RegistryDiagnostic} from "./components/registry";
-export type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PendingItem, PlanProgress} from "./engine/types";
+export type {ChangedAt, ChangeOutcome, EntryView, EventKey, FieldState, Mode, NamespaceView, OriginStep, PendingItem, PlanProgress} from "./engine/types";
 export {paragraphsOf, type Occurrence, type TellingPosition} from "./world/tellings";
 export {valueAt, type ViewValue} from "./core/view-value";
 export type {DecisionView} from "./world/decisions";
@@ -16,7 +16,7 @@ export type {PlainBlock, PlainProblem} from "./render/render";
 export type {PlainOptions} from "./render/entry";
 export type {NeededAuthorization} from "./world/authorization";
 export type {TellingHint, TellingItem} from "./service/reads";
-export type {ChapterItem, ViewDenial, ViewedPage, ViewedReads, ViewGrant} from "./service/views";
+export type {ChapterItem, TreeItem, TreeItemAt, TreePage, ViewDenial, ViewedPage, ViewedReads, ViewGrant} from "./service/views";
 export type {DiagnosticDeclaration, DiagnosticKeyPart} from "./components/diagnostics-registry";
 export type {MarkDeclaration, MarkRefKind, MarkTarget} from "./components/marks";
 /** 规范的 JSON 与按它比较（键排序）：插件比较存下来的值时用，不按对象键的插入顺序。 */
