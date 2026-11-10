@@ -256,6 +256,20 @@ function compareAll(inc: Engine, ref: Engine, inputs: EngineInputs, where: () =>
         for (const position of positions) {
             for (const mode of ["actual", "planned"] as const) {
                 expect(inc.entry(id, position, mode), `${where()} entry ${id} ${JSON.stringify(position)} ${mode}`).toEqual(ref.entry(id, position, mode));
+                expect(inc.lastTouched(id, position, mode), `${where()} lastTouched ${id} ${JSON.stringify(position)} ${mode}`).toEqual(ref.lastTouched(id, position, mode));
+            }
+        }
+        // canon.project 输出 32：最近一次定下字段的那一步，就是来历里最后一步剧情变更或给起点的核对点。
+        for (const path of ["panel.存款", "character.态度"]) {
+            for (const position of positions.filter((_, index) => index % 3 === 0)) {
+                const steps = ref.origins({entry: id, path}, position, "actual");
+                const touched = inc.lastTouched(id, position, "actual");
+                if (steps === "chapter-not-found" || touched === "chapter-not-found") {
+                    expect(touched).toBe(steps as "chapter-not-found");
+                    continue;
+                }
+                const last = steps.filter((step) => step.kind === "patch" || (step.kind === "check" && step.result === "anchor")).at(-1);
+                expect(touched[path], `${where()} lastTouched 对来历 ${id} ${path} ${JSON.stringify(position)}`).toEqual(last === undefined ? undefined : last.kind === "patch" ? {kind: "patch", change: last.change} : {kind: "check", check: (last as {check: string}).check});
             }
         }
         // 列表元素子字段的来历（事件与归纳键）也比，两种模式都比；只取前三个条目的那一行，全比会让每个种子慢几倍。

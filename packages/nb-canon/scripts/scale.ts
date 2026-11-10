@@ -183,11 +183,32 @@ for (let i = 0; i < 20; i += 1) {
     plannedAgain.push(performance.now() - start);
 }
 
+/** 作者界面的两项读取（project.md 输出 32、model.md 输出 37）：读条目时连同每个字段最近一次改动；点开常出场条目的一个数看来历。 */
+const touchedReads: number[] = [];
+for (let i = 0; i < 50; i += 1) {
+    const id = rnd() < 0.5 ? hot[Math.floor(rnd() * hot.length)]! : entryIds[Math.floor(rnd() * entryIds.length)]!;
+    const position = randomPosition();
+    start = performance.now();
+    engine.entry(id, position, "actual");
+    engine.lastTouched(id, position, "actual");
+    touchedReads.push(performance.now() - start);
+}
+const originReads: number[] = [];
+let originSteps = 0;
+for (let i = 0; i < 10; i += 1) {
+    start = performance.now();
+    const steps = engine.origins({entry: hot[i % hot.length]!, path: "panel.存款"}, chapterEnd(last), "actual");
+    originReads.push(performance.now() - start);
+    if (steps !== "chapter-not-found") originSteps = Math.max(originSteps, steps.length);
+}
+
 console.log(
     `${String(chapters)} 章${spread ? "（计划在之后 1 到 5 章随机兑现）" : ""}：条目 ${String(inputs.world.entries.size)}、变更 ${String(inputs.world.changes.size)}、核对点 ${String(inputs.world.checks.size)}\n` +
         `  建引擎（打开时的首次计算）${ms(buildMs)} ms，重算 ${String(engine.recomputed)} 个事件；建好后回收垃圾，堆 ${heapAfterBuild.toFixed(0)} MB（含模拟世界本身）\n` +
         `  随机读一个条目（实际模式）50 次中位 ${ms(median(reads))} ms，最慢 ${ms(Math.max(...reads))} ms\n` +
         `  最新一章补记一次（15 条变更、2 个核对点）10 次中位 ${ms(median(publishLatest))} ms\n` +
         `  改常出场条目的初值 5 次中位 ${ms(median(publishFirst))} ms\n` +
-        `  按计划模式随机读：第一次 20 次中位 ${ms(median(plannedFirst))} ms、最慢 ${ms(Math.max(...plannedFirst))} ms；同位置再读中位 ${ms(median(plannedAgain))} ms`,
+        `  按计划模式随机读：第一次 20 次中位 ${ms(median(plannedFirst))} ms、最慢 ${ms(Math.max(...plannedFirst))} ms；同位置再读中位 ${ms(median(plannedAgain))} ms\n` +
+        `  随机读一个条目并取各字段最近一次改动 50 次中位 ${ms(median(touchedReads))} ms，最慢 ${ms(Math.max(...touchedReads))} ms\n` +
+        `  常出场条目的存款在最后一章末尾的来历（最多 ${String(originSteps)} 步；界面每翻一页算一次）10 次中位 ${ms(median(originReads))} ms，最慢 ${ms(Math.max(...originReads))} ms`,
 );

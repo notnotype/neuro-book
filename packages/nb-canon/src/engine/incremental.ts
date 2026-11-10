@@ -18,7 +18,7 @@
 
 import type {ComponentRegistry} from "../components/registry";
 import {semanticText} from "../components/values";
-import {addressKey, addressesOverlap} from "../core/address";
+import {addressKey, addressesOverlap, fieldPath} from "../core/address";
 import {deepFreeze} from "../core/freeze";
 import {compareIds} from "../core/ids";
 import {ENABLE_FIELD} from "../core/identifiers";
@@ -28,7 +28,7 @@ import {sameJson} from "../core/stable-json";
 import {applyChange, incompleteAt, isCarry, replayAnchor, replayChangeOnEntry, type ChangeResult, type FoldState, type IncompleteEvent} from "../model/apply";
 import {fieldOf, reductionFieldId} from "./reference";
 import {sortPending, type RankedPending} from "./pending";
-import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, WorldData} from "./types";
+import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, TouchedBy, WorldData} from "./types";
 import {buildEntryView, carrySlotOf, readEntryAddress, type EntryFold} from "./views";
 
 const SNAPSHOT_EVERY = 8;
@@ -525,6 +525,29 @@ function engineFrom(inputs: EngineInputs, actual: Snapshot, recomputed: number, 
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
             return originsUpTo(at, snapshotFor(mode, rank), (event) => rankBefore(event.rank, rank), checksBefore(rank));
+        },
+
+        lastTouched(id, position, mode) {
+            const rank = resolve(position);
+            if (rank === "chapter-not-found") return rank;
+            const touched: Record<string, TouchedBy> = {};
+            const timeline = snapshotFor(mode, rank).timelines.get(id);
+            if (timeline === undefined) return touched;
+            // 从这个位置往前扫：每个字段第一次遇到的就是最近的一步。
+            for (let index = countBefore(timeline, {rank, tie: {version: -Infinity, id: ""}, inclusive: false}) - 1; index >= 0; index -= 1) {
+                const item = timeline.items[index]!;
+                if (item.ev.kind === "anchor") {
+                    const key = fieldPath(item.ev.check.at.path);
+                    if (key !== null) touched[key] ??= {kind: "check", check: item.ev.check.id};
+                    continue;
+                }
+                if (!item.applied) continue;
+                for (const patch of item.ev.change.patches) {
+                    const key = patch.at.entry === id ? fieldPath(patch.at.path) : null;
+                    if (key !== null) touched[key] ??= {kind: "patch", change: item.ev.change.id};
+                }
+            }
+            return touched;
         },
 
         originsAfter(change, at) {

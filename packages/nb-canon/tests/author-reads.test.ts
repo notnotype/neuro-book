@@ -9,7 +9,7 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
 import {createTestTmpRoot, removeMarkedTmpRoot, TMP_MARKER_FILE} from "@notnotype/neuro-book-test-support/tmp";
 
-import {buildRegistry, type ReadPosition, type StoryChange} from "../src/index";
+import {buildRegistry, type Entry, type OriginStep, type ReadPosition, type StoryChange} from "../src/index";
 import {componentDeclarations, type PrototypeSample} from "./sample/convert";
 import {replay, type Replayed} from "./sample/replay";
 
@@ -149,5 +149,128 @@ describe("canon.project 输出 28、29、34 与 canon.components 输出 21：章
         expect(service.status().version).toBe(version);
         expect(service.components().items.some((type) => type.namespace === "panel")).toBe(false);
         stop();
+    });
+});
+
+describe("canon.project 输出 30、32、33 与 canon.model 输出 37：条目树带位置、条目的上级与最近改动、按地址取来历", () => {
+    const start = (chapter: string): ReadPosition => ({kind: "chapter", chapter, edge: "start"});
+
+    test("条目树：马甲“哥哥”在星瑕下面、sameAs 是星瑕；根这一层带位置上的名字与出场，一页 2 项时 remaining 是其余会列出的条数", () => {
+        const {service, ids} = replayed;
+        const xingxia = ids.get("xingxia");
+        const below = service.tree(xingxia, undefined, 50, {position: start("ch1"), mode: "actual"});
+        if (typeof below === "string") throw new Error(below);
+        expect(below.items.find((item) => item.id === ids.get("brother"))).toMatchObject({name: "哥哥", nameAt: "哥哥", sameAs: xingxia, deleted: false});
+
+        const roots = [...service.world.data.entries.values()].filter((entry) => entry.parent === null && entry.deleted !== true);
+        const page = service.tree(null, undefined, 2, {position: start("ch1"), mode: "actual"});
+        if (typeof page === "string") throw new Error(page);
+        expect(page.items).toHaveLength(2);
+        expect(page.remaining).toBe(roots.length - 2);
+        // 每项的出场与名字就是在这个位置读这个条目得到的。
+        for (const item of page.items) {
+            const read = service.entry(item.id, start("ch1"), "actual");
+            if (typeof read === "string" || read.view === null) throw new Error("读不到条目");
+            expect(item).toMatchObject({nameAt: read.view.name, appeared: read.view.appeared});
+        }
+        // 样本里有第 1 章之后才出场的条目：在第 1 章开头读是未出场。
+        const all = service.tree(null, undefined, 1000, {position: start("ch1"), mode: "actual"});
+        const later = service.tree(null, undefined, 1000, {position: end("ch3"), mode: "actual"});
+        if (typeof all === "string" || typeof later === "string") throw new Error("读取失败");
+        expect(all.remaining).toBe(0);
+        const appearedLater = all.items.filter((item) => !item.appeared && later.items.find((other) => other.id === item.id)?.appeared === true);
+        expect(appearedLater.length).toBeGreaterThan(0);
+
+        // 位置属于游标的读取参数；章不存在得到 chapter-not-found。
+        if (page.cursor === undefined) throw new Error("要有下一页");
+        expect(service.tree(null, page.cursor, 2, {position: end("ch1"), mode: "actual"})).toBe("cursor-stale");
+        expect(service.tree(null, undefined, 2, {position: end("ch9"), mode: "actual"})).toBe("chapter-not-found");
+    });
+
+    test("删掉一个没有子条目的条目后它不再列出，remaining 少一；它的上级照常显示有没有子项", async () => {
+        const {service, ids} = replayed;
+        const xingxia = ids.get("xingxia");
+        const before = service.tree(xingxia, undefined, 1);
+        if (typeof before === "string") throw new Error(before);
+        const brother = service.object({kind: "entry", id: ids.get("brother")}).object as Entry;
+        const result = await service.publish({requestId: "delete-brother", by: {kind: "author"}, what: "edit", title: "删除哥哥", baseVersion: service.status().version, puts: [{ref: {kind: "entry", id: brother.id}, after: {...brother, deleted: true}}]});
+        if (!result.ok) throw new Error(JSON.stringify(result.failure));
+        const after = service.tree(xingxia, undefined, 1000);
+        if (typeof after === "string") throw new Error(after);
+        expect(after.items.some((item) => item.id === brother.id)).toBe(false);
+        expect(after.items.length + after.remaining).toBe(before.items.length + before.remaining - 1);
+    });
+
+    test("要最近一次改动：第 1 章末尾存款没有 changedAt，第 2 章末尾是“工资到账”那条与它的安放；“哥哥”的上级与本体都是星瑕", () => {
+        const {service, ids} = replayed;
+        const xingxia = ids.get("xingxia");
+        const plain = service.entry(xingxia, end("ch2"), "actual");
+        const first = service.entry(xingxia, end("ch1"), "actual", false, true);
+        const second = service.entry(xingxia, end("ch2"), "actual", false, true);
+        if (typeof plain === "string" || typeof first === "string" || typeof second === "string" || plain.view === null || first.view === null || second.view === null) throw new Error("读不到星瑕");
+        expect("changedAt" in plain.view.namespaces.panel!.fields["存款"]!).toBe(false);
+        expect("changedAt" in first.view.namespaces.panel!.fields["存款"]!).toBe(false);
+        // 样本最后一项“记一笔：工资到账”新建的那条变更。
+        const salary = service.world.revisions.at(-1)!.ops.find((op) => op.kind === "create" && op.ref.kind === "change") as {ref: {id: string}};
+        expect(second.view.namespaces.panel!.fields["存款"]!.changedAt).toEqual({by: "change", id: salary.ref.id, at: (service.object({kind: "change", id: salary.ref.id}).object as StoryChange).at});
+        // 不要的时候与要的时候，别的内容一样。
+        expect({...second.view.namespaces.panel!.fields["存款"]!, changedAt: undefined}).toEqual({...plain.view.namespaces.panel!.fields["存款"]!, changedAt: undefined});
+        expect(second).toMatchObject({ancestors: [], sameAs: null, folder: "人物"});
+
+        const brother = service.entry(ids.get("brother"), end("ch2"), "actual");
+        if (typeof brother === "string") throw new Error(brother);
+        expect(brother).toMatchObject({ancestors: [{id: xingxia, name: second.view.name}], sameAs: {id: xingxia, name: second.view.name}, folder: "人物"});
+    });
+
+    test("带视图令牌读条目：没有上级、本体与 changedAt", () => {
+        const {service, ids} = replayed;
+        const opened = service.openView({viewer: null, line: "main", until: end("ch2"), purpose: "writer"});
+        if (typeof opened === "string" || !("token" in opened)) throw new Error("开不了视图");
+        const read = service.viewed(opened.token).entry(ids.get("brother"), undefined);
+        if (typeof read === "string" || read.view === null) throw new Error("读不到");
+        expect("ancestors" in read || "sameAs" in read || "folder" in read).toBe(false);
+        expect(Object.values(read.view.namespaces).flatMap((data) => Object.values(data.fields)).some((field) => "changedAt" in field)).toBe(false);
+    });
+
+    test("按地址取来历：从最近一步往前分页，变更的一步带安放与文字，初值在页外；翻页接得上；不存在的条目与没声明的路径是空的", () => {
+        const {service, ids} = replayed;
+        const address = {entry: ids.get("xingxia"), path: "panel.存款"};
+        const whole = service.entry(address.entry, end("ch2"), "actual", true);
+        if (typeof whole === "string" || !("origins" in whole) || whole.origins === undefined) throw new Error("读不到整份来历");
+        const steps = whole.origins["panel.存款"] as readonly OriginStep[];
+        const between = steps.filter((step) => step.kind !== "init" && step.kind !== "reduce").reverse();
+        expect(between.length).toBeGreaterThan(3);
+
+        const first = service.origins(address, end("ch2"), "actual", undefined, 2);
+        if (typeof first === "string") throw new Error(first);
+        expect(first.total).toBe(between.length);
+        expect(first.initial as OriginStep | null).toEqual(steps[0]!);
+        expect(first.initial).toMatchObject({kind: "init", value: 41800});
+        expect(first.reduced).toBeNull();
+        const source = (step: OriginStep) => (step.kind === "patch" ? step.change : step.kind === "check" ? step.check : null);
+        expect(first.items.map(source)).toEqual(between.slice(0, 2).map(source));
+        const newest = first.items[0] as {kind: string; change: string; at: unknown; text: string};
+        expect(newest.kind).toBe("patch");
+        const stored = service.object({kind: "change", id: newest.change}).object as StoryChange;
+        expect(newest).toMatchObject({at: stored.at, text: stored.text});
+        expect(stored.text).toContain("工资到账");
+
+        const rest = service.origins(address, end("ch2"), "actual", first.cursor, 1000);
+        if (typeof rest === "string") throw new Error(rest);
+        expect([...first.items, ...rest.items]).toHaveLength(between.length);
+        expect(rest.cursor).toBeUndefined();
+        // 核对点的一步带它的安放。
+        const check = [...first.items, ...rest.items].find((step) => step.kind === "check") as {check: string; at: unknown} | undefined;
+        expect(check?.at).toEqual((service.object({kind: "check", id: check!.check}).object as {place: unknown}).place);
+
+        const empty = {items: [], total: 0, initial: null, reduced: null};
+        expect(service.origins({entry: "e999999", path: "panel.存款"}, end("ch2"), "actual")).toMatchObject(empty);
+        expect(service.origins({entry: address.entry, path: "panel.没有这个字段"}, end("ch2"), "actual")).toMatchObject(empty);
+        expect(service.origins({entry: address.entry, path: "不是路径"}, end("ch2"), "actual")).toMatchObject(empty);
+        expect(service.origins(address, end("ch9"), "actual")).toBe("chapter-not-found");
+        // 名字的来历也能按地址取。
+        const name = service.origins({entry: address.entry, path: "entry.name"}, end("ch2"), "actual");
+        if (typeof name === "string") throw new Error(name);
+        expect(name.initial).toMatchObject({kind: "init"});
     });
 });

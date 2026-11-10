@@ -61,6 +61,15 @@ export interface FieldState {
     readonly unreduced?: {readonly anchor: string | null; readonly events: number};
     /** 这个位置之前最近一次对这个地址的核对不符时，正文写的数（输出 11）。 */
     readonly textSays?: number;
+    /** 最近一次定下这个字段的那一步（project.md 输出 32）；只在调用方要了的时候由世界服务补上，引擎不给。 */
+    readonly changedAt?: ChangedAt;
+}
+
+/** 最近一次定下一个字段的值的那一步与它的安放：一条剧情变更，或给语义档起点的核对点。 */
+export interface ChangedAt {
+    readonly by: "change" | "check";
+    readonly id: string;
+    readonly at: Placement;
 }
 
 export interface NamespaceView {
@@ -130,11 +139,19 @@ export interface CarrySlot {
     readonly incomplete: boolean;
 }
 
+/** 最近一次定下一个字段的值的那一步（project.md 输出 32）：一条套上了的剧情变更，或给语义档起点的核对点。 */
+export type TouchedBy = {readonly kind: "patch"; readonly change: string} | {readonly kind: "check"; readonly check: string};
+
 /** 引擎对外回答的问题；两种实现对同一输入的回答必须逐字相同。 */
 export interface Engine {
     /** 读取位置指向不在章序里的章时返回 `chapter-not-found`。 */
     entry(id: string, position: ReadPosition, mode: Mode): EntryView | null | "chapter-not-found";
     origins(address: Address, position: ReadPosition, mode: Mode): readonly OriginStep[] | "chapter-not-found";
+    /**
+     * 这个位置之前，这个条目的每个字段（键见 `fieldPath`）最近一次是被谁定下的；只由初值给出的字段不在结果里。与来历同一个口径：
+     * 整条变更套上了、补丁碰到这个字段（含元素与子字段）就算；精确档的核对点不改值，不算。只看事件、不复制值，所以比取来历便宜得多。
+     */
+    lastTouched(entry: string, position: ReadPosition, mode: Mode): Readonly<Record<string, TouchedBy>> | "chapter-not-found";
     outcome(change: string): ChangeOutcome | undefined;
     progress(plan: string, position: ReadPosition): PlanProgress | "chapter-not-found";
     /**

@@ -17,9 +17,11 @@ import {EMPTY_MARK_REGISTRY, markStatus, type MarkRegistry} from "../components/
 import type {ComponentRegistry, ComponentType} from "../components/registry";
 import {compareIds} from "../core/ids";
 import {ChapterOrder, compareRanks, defaultPosition, placementRank, positionRank} from "../core/position";
-import type {AuthorSource, Decision, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
+import {parsePath} from "../core/address";
+import type {Address, AuthorSource, Decision, Entry, ObjectRef, ReadPosition, Revision, StoryChange, Telling, WriteRequest} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
-import type {Mode, PendingItem, PlanProgress, ReductionInput} from "../engine/types";
+import {fieldOf} from "../engine/reference";
+import type {ChangedAt, EntryView, FieldState, Mode, NamespaceView, OriginStep, PendingItem, PlanProgress, ReductionInput, TouchedBy} from "../engine/types";
 import type {LogFiles} from "../node/files";
 import {appendRevision, openLog, readNew, type LogDiagnostic, type LogLock, type Tail} from "../node/log";
 import {appendReduction, loadReductions} from "../node/cache";
@@ -34,6 +36,7 @@ import {boundRank, chapterWithin, placementWithin, positionWithin, tellingPositi
 import {DEFAULT_TIME} from "../time/network";
 import {answerTime, type TimeAnswer, type TimeQuery} from "../time/queries";
 import {timeState, type TimeState} from "../time/state";
+import type {LineView} from "../lines/set";
 import {lineTable, MAIN_LINE} from "../lines/table";
 import {changeItem, createReadView, lineSummaries, pageOf, readStampOf, type CanonReadView, type ReadStamp, listChanges, listDecisions, listPresence, listTellings, tellingInLine, type ChangeFilter, type DecisionFilter, type PresenceFilter, type TellingFilter} from "./reads";
 import type {RevertRequest} from "../world/authorization";
@@ -170,6 +173,40 @@ interface Lease {
 function recomputedOn(world: World): number {
     const others = new Set(world.lines.updates.map((update) => update.line).filter((line) => line !== MAIN_LINE));
     return [...others].reduce((sum, line) => sum + (world.lines.peek(line)?.engine.recomputed ?? 0), world.line().engine.recomputed);
+}
+
+/** 条目树的一项（方法表 `tree`）；`name` 是初值里的名字。 */
+export interface TreeItem {
+    readonly id: string;
+    readonly name: string;
+    readonly type: string;
+    readonly folder: string;
+    readonly deleted: boolean;
+    readonly hasChildren: boolean;
+}
+
+/** 给了读取位置时的一项（project.md 输出 30）：这个位置上的名字、是否已出场、它是谁的马甲。 */
+export interface TreeItemAt extends TreeItem {
+    readonly nameAt: string;
+    readonly appeared: boolean;
+    readonly sameAs: string | null;
+}
+
+/** `remaining` 是这一层在这一页之后还会列出几项。 */
+export interface TreePage<T> {
+    readonly items: readonly T[];
+    readonly remaining: number;
+    readonly cursor?: string;
+}
+
+/** 一个地址是不是声明过的（model.md 输出 37）：名字、别名、一句话与主文字的块，或这个条目上有声明的字段、它的元素与子字段。 */
+function addressDeclared(world: World, entry: Entry, address: Address): boolean {
+    const parsed = parsePath(address.path);
+    if (parsed === null) return false;
+    if (parsed.root !== "namespace") return true;
+    const field = fieldOf(world.options.registry, entry, {entry: address.entry, path: `${parsed.namespace}.${parsed.field}`});
+    if (field === undefined) return false;
+    return parsed.sub === undefined || (field.item ?? []).some((item) => item.id === parsed.sub);
 }
 
 /** 一次修订能不能还原、不能的原因（revisions.md 输出 14）：章序调整不能还原；有后面的修订依赖它时要连同它们一起。 */
@@ -332,8 +369,109 @@ export class WorldService {
         return found;
     }
 
-    entry(id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
-        return this.#entryOn(this.#world, id, position, mode, withOrigins);
+    /**
+     * 条目在这个位置的样子，另带上级链、本体与分组（输出 33）；`withChangedAt` 时每个字段状态带最近一次改动（输出 32）。
+     * 带视图令牌的读取不走这里（`#viewedOn`），所以拿不到这几项：上级与本体会说出马甲是谁。
+     */
+    entry(id: string, position: ReadPosition, mode: Mode, withOrigins = false, withChangedAt = false) {
+        const world = this.#world;
+        const read = this.#entryOn(world, id, position, mode, withOrigins);
+        if (typeof read === "string" || read.view === null) return read;
+        const line = world.lineAt(position, mode)!;
+        const named = (other: string): {readonly id: string; readonly name: string} => {
+            const view = line.engine.entry(other, position, mode);
+            return {id: other, name: (view === null || view === "chapter-not-found" ? undefined : view.name) ?? world.data.entries.get(other)?.init.name ?? ""};
+        };
+        const stored = world.data.entries.get(id)!;
+        const ancestors: {readonly id: string; readonly name: string}[] = [];
+        // 上级链从直接上级往上走；写入校验不让它成环，`seen` 只防坏数据把读取卡死。
+        const seen = new Set([id]);
+        for (let up = stored.parent; up !== null && !seen.has(up) && world.data.entries.has(up); up = world.data.entries.get(up)!.parent) {
+            seen.add(up);
+            ancestors.unshift(named(up));
+        }
+        const view = withChangedAt ? this.#withChangedAt(world, line, read.view, position, mode) : read.view;
+        return {...read, view, ancestors, sameAs: stored.sameAs === undefined ? null : named(stored.sameAs), folder: stored.folder};
+    }
+
+    /** 给每个字段状态补上最近一次改动（输出 32）。引擎给的视图可能与它的快照共用对象，这里只新建要改的那几层。 */
+    #withChangedAt(world: World, line: LineView, view: EntryView, position: ReadPosition, mode: Mode): EntryView {
+        const touched = line.engine.lastTouched(view.id, position, mode);
+        if (touched === "chapter-not-found") return view;
+        const namespaces: Record<string, NamespaceView> = {};
+        for (const [namespace, data] of Object.entries(view.namespaces)) {
+            const fields: Record<string, FieldState> = {};
+            for (const [field, state] of Object.entries(data.fields)) {
+                const path = `${namespace}.${field}`;
+                const by = touched[path];
+                const changedAt = by === undefined ? null : this.#changedAt(world, line, by, {entry: view.id, path});
+                fields[field] = changedAt === null ? state : {...state, changedAt};
+            }
+            namespaces[namespace] = {...data, fields};
+        }
+        return {...view, namespaces};
+    }
+
+    /**
+     * 一步的出处与安放。子线上带过去的值在引擎里是一条合成的变更（id 是分叉那条）：换成原线上最近定下它的那一步，原线上也只是
+     * 带过去的就再往上找；一路都只有初值时没有（输出 32 的“不给分叉”）。
+     */
+    #changedAt(world: World, line: LineView, by: TouchedBy, address: Address): ChangedAt | null {
+        let current: LineView | undefined = line;
+        let step: TouchedBy | undefined = by;
+        const table = lineTable(world.data, world.options.order);
+        while (step !== undefined && step.kind === "patch" && current !== undefined && current.synthetic.has(step.change)) {
+            const fork: string = step.change;
+            const definer = [...table.lines.values()].find((entry) => entry.fork.id === fork);
+            if (definer === undefined) return null;
+            current = world.line(definer.parent);
+            const steps: readonly OriginStep[] = current?.engine.originsAfter(definer.fork.fork.trigger ?? definer.fork.fork.cut, address) ?? [];
+            const last: OriginStep | undefined = steps.filter((item) => item.kind === "patch" || (item.kind === "check" && item.result === "anchor")).at(-1);
+            step = last?.kind === "patch" ? {kind: "patch", change: last.change} : last?.kind === "check" ? {kind: "check", check: last.check} : undefined;
+        }
+        if (step === undefined) return null;
+        if (step.kind === "check") {
+            const check = world.data.checks.get(step.check);
+            return check === undefined ? null : {by: "check", id: check.id, at: check.place};
+        }
+        const change = world.data.changes.get(step.change);
+        return change === undefined ? null : {by: "change", id: change.id, at: change.at};
+    }
+
+    /**
+     * 一个地址的来历的一页（model.md 输出 37）：从最近一步往前；初值与归纳两步在页外。条目不存在、路径不是声明过的地址时
+     * 结果是空的。常出场的数值字段可以有几千步，所以不整份返回；每翻一页都重算整条来历，只在作者点开一个值时才调。
+     */
+    origins(address: Address, position: ReadPosition, mode: Mode, cursor?: string, limit = 20) {
+        const world = this.#world;
+        if (positionRank(world.options.order, position) === null) return "chapter-not-found" as const;
+        if (world.lineAt(position, mode) === undefined) return "line-not-found" as const;
+        const stamp = this.#stampOf(world);
+        const entry = world.data.entries.get(address.entry);
+        const steps = entry === undefined || !addressDeclared(world, entry, address) ? [] : this.#readViewOf(world, world.positionLine(position, mode)).origins(address, position, mode);
+        if (steps === "chapter-not-found") return steps;
+        const between = steps.filter((step) => step.kind !== "init" && step.kind !== "reduce").reverse();
+        const page = this.#page(stamp, between, cursor, limit, {method: "origins", address, position, mode});
+        if (page === "cursor-stale") return page;
+        return {
+            ...stamp,
+            items: page.items.map((step) => {
+                // 界面一行一步要写“在哪、发生了什么”：变更给安放与文字，核对点给安放。
+                if (step.kind === "patch") {
+                    const change = world.data.changes.get(step.change);
+                    return change === undefined ? step : {...step, at: change.at, text: change.text};
+                }
+                if (step.kind === "check") {
+                    const check = world.data.checks.get(step.check);
+                    return check === undefined ? step : {...step, at: check.place};
+                }
+                return step;
+            }),
+            total: between.length,
+            initial: steps.find((step) => step.kind === "init") ?? null,
+            reduced: steps.find((step) => step.kind === "reduce") ?? null,
+            ...(page.next === undefined ? {} : {cursor: page.next}),
+        };
     }
 
     #entryOn(world: World, id: string, position: ReadPosition, mode: Mode, withOrigins = false) {
@@ -793,16 +931,44 @@ export class WorldService {
         return {...this.#stamp(), revision: found ?? null, ...(found === undefined ? {} : {revertable: revertableOf(world, found.id)})};
     }
 
-    /** 条目树的一层：父条目（null 是根）下按顺序的条目（输出：`tree`）。 */
-    tree(parent: string | null, cursor?: string, limit = 50) {
+    /**
+     * 条目树的一层：父条目（null 是根）下按顺序的条目（输出：`tree`）。已删除的条目只在它还有没删除的子孙时列出（墓碑，
+     * model.md 输出 23），`hasChildren` 与 `remaining` 只数会列出的。给了 `at` 时每项另带这个位置上的名字、出场与本体（输出 30）。
+     */
+    tree(parent: string | null, cursor?: string, limit?: number): (ReadStamp & TreePage<TreeItem>) | "cursor-stale";
+    tree(parent: string | null, cursor: string | undefined, limit: number | undefined, at: {readonly position: ReadPosition; readonly mode: Mode}): (ReadStamp & TreePage<TreeItemAt>) | "cursor-stale" | "chapter-not-found" | "line-not-found";
+    tree(parent: string | null, cursor?: string, limit = 50, at?: {readonly position: ReadPosition; readonly mode: Mode}): (ReadStamp & TreePage<TreeItem | TreeItemAt>) | "cursor-stale" | "chapter-not-found" | "line-not-found" {
         const world = this.#world;
-        const children = [...world.data.entries.values()].filter((entry) => entry.parent === parent).sort((a, b) => a.order - b.order || compareIds(a.id, b.id));
+        if (at !== undefined && positionRank(world.options.order, at.position) === null) return "chapter-not-found" as const;
+        const engine = at === undefined ? undefined : world.lineAt(at.position, at.mode)?.engine;
+        if (at !== undefined && engine === undefined) return "line-not-found" as const;
+        const below = new Map<string | null, Entry[]>();
+        for (const entry of world.data.entries.values()) below.set(entry.parent, [...(below.get(entry.parent) ?? []), entry]);
+        const shown = new Map<string, boolean>();
+        const listed = (entry: Entry): boolean => {
+            const known = shown.get(entry.id);
+            if (known !== undefined) return known;
+            // 先记成不列，再往下看：坏数据里上级成环时不会转不出来。
+            shown.set(entry.id, false);
+            const result = entry.deleted !== true || (below.get(entry.id) ?? []).some(listed);
+            shown.set(entry.id, result);
+            return result;
+        };
+        const children = (below.get(parent) ?? []).filter(listed).sort((a, b) => a.order - b.order || compareIds(a.id, b.id));
         const stamp = this.#stamp();
-        const page = this.#page(stamp, children, cursor, limit, {method: "tree", parent});
+        const page = this.#page(stamp, children, cursor, limit, {method: "tree", parent, ...(at === undefined ? {} : {position: at.position, mode: at.mode})});
         if (page === "cursor-stale") return page;
+        const last = page.items.at(-1);
         return {
             ...stamp,
-            items: page.items.map((entry) => ({id: entry.id, name: entry.init.name, type: entry.type, folder: entry.folder, deleted: entry.deleted === true, hasChildren: [...world.data.entries.values()].some((other) => other.parent === entry.id)})),
+            items: page.items.map((entry) => {
+                const item = {id: entry.id, name: entry.init.name, type: entry.type, folder: entry.folder, deleted: entry.deleted === true, hasChildren: (below.get(entry.id) ?? []).some(listed)};
+                if (engine === undefined || at === undefined) return item;
+                const view = engine.entry(entry.id, at.position, at.mode);
+                const found = view === null || view === "chapter-not-found" ? undefined : view;
+                return {...item, nameAt: found?.name ?? entry.init.name, appeared: found?.appeared ?? false, sameAs: entry.sameAs ?? null};
+            }),
+            remaining: last === undefined ? 0 : children.length - children.indexOf(last) - 1,
             ...(page.next === undefined ? {} : {cursor: page.next}),
         };
     }

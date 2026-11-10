@@ -12,7 +12,7 @@
 
 import type {ComponentRegistry} from "../components/registry";
 import {semanticText} from "../components/values";
-import {addressKey, addressesOverlap, parsePath} from "../core/address";
+import {addressKey, addressesOverlap, fieldPath, parsePath} from "../core/address";
 import {compareIds} from "../core/ids";
 import {ENABLE_FIELD} from "../core/identifiers";
 import {compareRanks, compareTie, placementRank, positionRank, rankBefore, type OrderTie, type Rank} from "../core/position";
@@ -20,7 +20,7 @@ import type {Address, Check, Entry, FieldDeclaration, ReadPosition, StoryChange}
 import {applyChange, incompleteAt, initialFoldState, isCarry, namespaceFields, replayAnchor, type ChangeResult, type FoldState} from "../model/apply";
 import {buildEntryView, carrySlotOf, readEntryAddress, type EntryFold} from "./views";
 import {sortPending, type RankedPending} from "./pending";
-import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress} from "./types";
+import type {ChangeOutcome, Engine, EngineInputs, EntryView, Mode, OriginStep, PendingItem, PlanProgress, TouchedBy} from "./types";
 
 type FoldEvent =
     | {readonly kind: "change"; readonly rank: Rank; readonly tie: OrderTie; readonly change: StoryChange}
@@ -319,6 +319,31 @@ export function createReferenceEngine(inputs: EngineInputs): Engine {
             const rank = resolve(position);
             if (rank === "chapter-not-found") return rank;
             return originsUpTo(at, eventsFor(mode, rank), (event) => rankBefore(event.rank, rank), checksBefore(rank));
+        },
+
+        lastTouched(id, position, mode) {
+            const rank = resolve(position);
+            if (rank === "chapter-not-found") return rank;
+            const touched: Record<string, TouchedBy> = {};
+            const entry = world.entries.get(id);
+            if (entry === undefined || entry.deleted === true) return touched;
+            const state = initialFoldState(world.entries.values());
+            // 从头按先后套一遍：后面的一步盖掉前面的。
+            for (const event of eventsFor(mode, rank)) {
+                if (!rankBefore(event.rank, rank)) break;
+                if (event.kind === "anchor") {
+                    applyAnchor(state, event.check, event.field);
+                    const key = event.check.at.entry === id && state.entries.has(id) ? fieldPath(event.check.at.path) : null;
+                    if (key !== null) touched[key] = {kind: "check", check: event.check.id};
+                    continue;
+                }
+                if (!applyChange(state, event.change, context).applied) continue;
+                for (const patch of event.change.patches) {
+                    const key = patch.at.entry === id ? fieldPath(patch.at.path) : null;
+                    if (key !== null) touched[key] = {kind: "patch", change: event.change.id};
+                }
+            }
+            return touched;
         },
 
         originsAfter(change, at) {
