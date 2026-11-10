@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00042-image-generation",
+    "taskId": "t07-prompt-workbench",
+    "artifactId": "review",
+    "answerId": "20261110T003319710Z-07b99634",
+    "artifactVersion": 2,
+    "contentHash": "4521c93413be45de3711f81ea5b01b4257739123b9909e658c20ef31ce59b606",
+    "submittedAt": "2026-11-10T00:33:19.078Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "q1-tag-view": "chips",
+        "q2-library-place": "sidebar",
+        "q3-sections": "sections"
+    },
+    "comments": {},
+    "note": "预设配方和节的关系是什么？"
+}
