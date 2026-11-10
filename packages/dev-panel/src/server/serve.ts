@@ -6,6 +6,7 @@ import {NbdevError, isNbdevError, systemErrorCode, type Warning} from "../core/e
 import type {RepoContext} from "../core/repo.js";
 import {createNameIndexCache, searchCheckouts, validateSearchQuery} from "../core/search.js";
 import {createPanelAuth, type PanelAuth} from "./auth.js";
+import {ANSWER_BRIDGE_FILE, answerBridgeScript, injectAnswerBridge} from "./artifact-bridge.js";
 import {allowedHosts, contentType, decodePath, guardedFile, rejectForwarded, rejectHost, sameHostOn, type Rejection} from "./guard.js";
 import {PanelState, type PartName} from "./state.js";
 import {assertMainWritable} from "../core/repo.js";
@@ -29,7 +30,7 @@ import {createSessionTitles} from "./session-titles.js";
  */
 
 export const PANEL_API_SCHEMA = "nbdev.panel-api/v1";
-/** 产物来源上的保留路径（回 404）：t10 不做页内答复，留着以后用，不让它与 checkout key 撞名。 */
+/** 产物来源上的保留路径：放页面里答题用的脚本（t23），别的都回 404；不让它与 checkout key 撞名。 */
 export const RESERVED_ARTIFACT_SEGMENT = "_nbdev";
 
 export type PanelServerOptions = {
@@ -403,20 +404,29 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
         const decoded = decodePath(new URL(req.url).pathname);
         if (isRejection(decoded)) return rejection(decoded);
         const [a, prefix, checkoutKey, ...rest] = decoded.segments;
-        if (a !== "a" || !equalSecret(prefix ?? null, artifactPrefix) || checkoutKey === undefined || checkoutKey === RESERVED_ARTIFACT_SEGMENT || rest.length === 0) return plain(404, "找不到");
+        if (a !== "a" || !equalSecret(prefix ?? null, artifactPrefix) || checkoutKey === undefined || rest.length === 0) return plain(404, "找不到");
+        const panelOrigins = allowedHosts(panelPort()).map((allowed) => `http://${allowed}`).join(" ");
+        const headers = (type: string) => ({
+            ...SECURITY_HEADERS,
+            "Content-Type": type,
+            // 地址里有猜不到的前缀，才能放开 CORS：沙箱 iframe 是不透明来源，模块脚本、fetch 与字体都按 CORS 取。
+            "Access-Control-Allow-Origin": "*",
+            "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups; frame-ancestors ${panelOrigins}`,
+        });
+        if (checkoutKey === RESERVED_ARTIFACT_SEGMENT) {
+            if (rest.length !== 1 || rest[0] !== ANSWER_BRIDGE_FILE) return plain(404, "找不到");
+            return new Response(await answerBridgeScript(), {headers: headers("text/javascript; charset=utf-8")});
+        }
         const checkout = state.checkoutByKey(checkoutKey);
         if (!checkout) return plain(404, "找不到");
         const file = await guardedFile(checkout.root, rest.join("/"), ".agents/works/");
         if (!file) return plain(404, "找不到");
-        const requestHost = req.headers.get("host")!.toLowerCase();
-        const panelOrigins = allowedHosts(panelPort()).map((allowed) => `http://${allowed}`).join(" ");
-        return new Response(Bun.file(file), {headers: {
-            ...SECURITY_HEADERS,
-            "Content-Type": contentType(file),
-            // 地址里有猜不到的前缀，才能放开 CORS：沙箱 iframe 是不透明来源，模块脚本、fetch 与字体都按 CORS 取。
-            "Access-Control-Allow-Origin": "*",
-            "Content-Security-Policy": `sandbox allow-scripts allow-forms allow-popups; frame-ancestors ${panelOrigins}`,
-        }});
+        const type = contentType(file);
+        // HTML 回应插上答题脚本的标签（t23），其余文件照旧直接回。长度按插过的内容算，HEAD 也一样。
+        if (type.startsWith("text/html")) {
+            return new Response(injectAnswerBridge(await Bun.file(file).text(), `/a/${artifactPrefix}/${RESERVED_ARTIFACT_SEGMENT}/${ANSWER_BRIDGE_FILE}`), {headers: headers(type)});
+        }
+        return new Response(Bun.file(file), {headers: headers(type)});
     }
 
     panel = listen(options.port, (port) => Bun.serve<SocketData>({
