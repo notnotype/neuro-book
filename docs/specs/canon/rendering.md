@@ -11,7 +11,7 @@ owners:
 
 ## 目标与非目标
 
-条目的主文字用 MDX 写，可以引用本条目与别的条目的字段（`{panel.魔力}`）。同一份数据给作者看界面、给 Agent 读文字。本能力定义 MDX 的白名单与按块解析、给作者的渲染结果、给 Agent 的带值写法，以及 Agent 交回改过的一块时怎样拆成修订。只解释白名单里的语法树，不执行代码（[ADR 0038](../../adr/0038-world-engine-entry-text-is-whitelisted-mdx.md)）；同样的输入在浏览器里与在项目进程里算出的结果逐字相同。
+条目的主文字用 MDX 写，可以引用本条目与别的条目的字段（`{panel.魔力}`）。同一份数据给作者看界面、给 Agent 读文字。本能力定义 MDX 的白名单与按块解析、给作者的渲染结果、给 Agent 的带值写法、给不回写的读者（例如写手的简报）的纯文字，以及 Agent 交回改过的一块时怎样拆成修订。只解释白名单里的语法树，不执行代码（[ADR 0038](../../adr/0038-world-engine-entry-text-is-whitelisted-mdx.md)）；同样的输入在浏览器里与在项目进程里算出的结果逐字相同。
 
 不承诺：
 
@@ -94,6 +94,12 @@ owners:
     6. 两者作为一次修订发布；回写的预览（planned）。Agent 的回写不需要作者确认，改动记录与可撤销的提示照常给作者。
 13. **回写拒收。** 以下情况整次拒收，不发布：`->` 的部分被改（`computed-edited`）；注记被删、重排、复制或新增（`annotation-mismatch`，要加新的引用请改源文）；同一字段出现两处、被改成两个不同的新值（`conflicting-values`；只改了其中一处的，按改了的那处）；改了不完整、不可用的字段，或几笔累出来的数（[`canon.revisions`](revisions.md) 输出 8 的 `incomplete-field`、`field-unavailable`、`accumulated-value`）；来源不止一个而请求没给处理方式（`needs-handling`，详情给出来历）（planned，现在是 `accumulated-value`）；读取之后世界版本前进过，而交回的文字与现在的世界有差别：差别是值的得 `value-conflict`，别的得 `version-conflict`，重读再改（没有差别算没有改动，不发布）。
 14. **出错的块。** 给 Agent 的渲染里，出错的块给出原样的源文（不换注记）并标“出错”，带诊断。回写这样的块时，交回的文字整体当作这一块的新源文（不做注记对应），按输出 1 检查，通过就整段替换。
+15. **纯文字的渲染。** 给不回写的读者（例如写手的简报，[`plot.brief`](../plot/brief.md) 输出 8、13）：读取视图的 `renderPlain(条目, 位置, 模式, {entryName?})` 按块给出文字，每块带三样，由调用方据此决定这段文字能不能给：
+    - `reads`：表达式读了谁的数据：写了 `ref(...)` 的条目（含本条目自己），加上路径里以引用为键的列表的行键（`{att.态度["e1"].称呼}` 读的是关于 e1 的数据，本条目自己字段里的行键也算）；不写 `ref` 的本条目字段不算。图片标签属性里的表达式同样记。
+    - `mentions`：文字里写了谁的名字：`<Ref>`、值是引用的、以引用为键的列表的行。
+    - `problems`：这一块有写不干净的地方：`syntax`（块出错，文字是原样源文）、`raw-value`（结果没有纯文字的写法，例如取出的单个列表行，或图片的说明写成了表达式）、`quoted-block`（读到另一块的原文，`text[...]`）、`unavailable`（读不到值，输出 6）。有问题的那一处不写文字。
+    - 值的写法：字符串、数（千位分隔）、真假（是、否）、未知（“未知”）同输出 7；引用写条目当时的名字；以引用为键的列表写各行条目的名字，用顿号连；作者写的列表写各行的 `label`；字符串列表用顿号连；图片写说明。名字由调用方的 `entryName` 给，不给时用条目当时的名字，删除的、不存在的写“已删除的条目”；读取时给以引用为键的行补的 `label` 不用（调用方可能要改写这个名字）。
+    - `<Image>` 标签整个写成它的说明（`alt`，没有就不写），属性里的表达式不拼进文字；只含注释的表达式去掉。
 
 ## 状态与转换
 
@@ -122,7 +128,7 @@ owners:
 
 ## 边界与兼容
 
-- 公开接口：白名单与表达式的节点表、保留名、两个内置标签、带值写法的文法与装饰、回写请求的参数与失败码。
+- 公开接口：白名单与表达式的节点表、保留名、两个内置标签、带值写法的文法与装饰、纯文字渲染的三样与值的写法、回写请求的参数与失败码。
 - 白名单与保留名只增不减；收紧白名单会让已存的块在渲染时成为出错块（输出 4），不会丢数据。
 - 条目里的 MDX 是项目数据，可能来自模板或别人分享的世界观：只解释白名单，不执行代码，不需要隔离环境。Component 的 `agentView` 随插件发布，和插件代码同样受信任，但仍按同一个白名单解释。
 
@@ -132,12 +138,13 @@ owners:
 2. **回写。** Agent 把上一块里的 `3110` 改成 `3000`、把“魔力”改成“魔法力”，意图为剧情变化：一次修订里，第 5 章末尾记一条 −110，并记一条这一块的整段替换，新源文是 `魔法力 {panel.魔力}/…`。改了 `->` 后面的 `"能变身"`：`computed-edited`。
 3. **一块坏了。** 存下来的三块里第二块含白名单以外的标签（旧数据）：渲染时第一、三块照常，第二块显示纯文本与诊断；Agent 读到它的原样源文与“出错”标记，交回一段合法的文字后，这一块被整段替换。
 4. **花括号与括注。** 写入一块“他说{+5}”被拒（`no-field-expression`）；写成 `他说\{+5}` 通过，作者看到“他说{+5}”，Agent 读到 `他说\{+5}`。源文 `{panel.存款}（未知）` 里作者自己写的括注，在 Agent 读到的 `{panel.存款 = null}（未知）` 里是注记以外的字，回写时照原样保留。
+5. **纯文字里曾漏过的写法。** 星瑕的 `rel.关系` 有一行对 e2，主文字各块分别写 `{rel.关系["e2"]}`（取出单个列表行）、`{ref("e2").text[b1]}`（引另一块的原文）、`{rel.关系["e2"].态度 == "崇敬" ? rel.对象 : rel.清单}`（算出来的引用）、`{rel.关系["e2"].态度}`（按行键读）、`<Image src="a.png" alt={ref("e2").entry.name} />`（说明是表达式）、`又名{entry.aliases}`（字符串列表）：第一、二、五块各带 `raw-value`、`quoted-block`、`raw-value`，不写出 JSON 与原文；第三块写 e2 的名字并把 e2 记进 `mentions`；第四块写“崇敬”并把 e2 记进 `reads`；第六块写“又名小瑕、阿瑕”。调用方给的 `entryName` 把 e2 写成“旅人”时，`<Ref>`、引用的值与以引用为键的行都写“旅人”。
 
 Smoke：不适用——本能力没有独立的运行入口，由 [`canon.project`](project.md) 的 Smoke 一并覆盖。
 
 ## 实现合同
 
-- **公开入口**：`@notnotype/nb-canon`：`parseBlock`、`blockProblem`、`renderEntryForAuthor`、`renderEntryForAgent`、`renderBlockForAuthor`、`renderBlockForAgent`、`splitBlocks`、`evaluate`、`scanAnnotations`、`writeBack`；应用侧 `canonWorldContract` 的 `render`、`writeBack`。
+- **公开入口**：`@notnotype/nb-canon`：`parseBlock`、`blockProblem`、`renderEntryForAuthor`、`renderEntryForAgent`、`renderBlockForAuthor`、`renderBlockForAgent`、`splitBlocks`、`evaluate`、`scanAnnotations`、`writeBack`；读取视图 `CanonReadView.renderPlain` 与类型 `PlainBlock`、`PlainProblem`、`PlainOptions`（`@notnotype/nb-canon/schema`）；应用侧 `canonWorldContract` 的 `render`、`writeBack`。
 - **owner 与依赖方向**：渲染与回写全在 `nb-canon`：渲染经引擎只读取值，回写的字段操作走就地改（[`canon.revisions`](revisions.md) 输出 8），最后在真实世界上整体发布一次。依赖 MDX 解析链，不依赖应用包；canon 插件的远程层只转发。
 - **关键不变量**：
   - 白名单以外的写法在写入时拒收并指出块、行、列；`set` 整段替换一块同样检查（输出 1、2）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“`set` 整段替换一块也过白名单”。
@@ -145,6 +152,7 @@ Smoke：不适用——本能力没有独立的运行入口，由 [`canon.projec
   - 读取之后世界前进过，旧文字原样交回不会把别的修订写的值改回去（输出 13）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“别的修订改了值，Agent 把旧文字原样交回：value-conflict，值不被改回去，也不发布”。
   - 只有按实际模式读到的块能回写（输出 12）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“按计划模式读到的块原样交回：拒收 planned-not-writable，世界不变（输出 12）”。
   - 一块坏了不影响别的块，交回合法文字后整段替换（输出 4、14）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“一块坏了：作者看到纯文本与诊断，Agent 读到原样源文与出错标记，交回合法文字后整段替换（场景 3、输出 14）”。
+  - 纯文字里写出的每一个名字都在 `mentions`、读到的每一个条目都在 `reads`，写不干净的报 `problems`（输出 15、场景 5）：[`rendering.test.ts`](../../../packages/nb-canon/tests/rendering.test.ts)“canon.rendering 输出 15：纯文字的渲染”。
 
 ## 证据
 
