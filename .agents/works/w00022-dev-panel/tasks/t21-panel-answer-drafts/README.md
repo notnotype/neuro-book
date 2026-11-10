@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t21-panel-answer-drafts
-status: active
+status: done
 updated: 2026-11-10
 ---
 
