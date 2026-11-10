@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00039-novel-writing-plugins
 issueId: null
 status: active
-updated: 2026-11-06
+updated: 2026-11-10
 ---
 
 # 小说创作插件
@@ -63,6 +63,7 @@ updated: 2026-11-06
 | 2026-11-09 | 开发者：继续 [t35](tasks/t35-plot-brief-secrecy/README.md)；用了马甲的人按推荐写（这一场用马甲的人简报各段写马甲，本名只在写手可以知道的那条“揭穿”秘密里出现）。另提出 nb-story 抽取要能向外求助，按推荐记进 w00024 t48，先做实验 |
 | 2026-11-10 | 开发者：t35 实现审查到三轮上限后“再修一轮后合入”，别的条目正文提到身份不给写手的人“整块扣下”；窄场景的取舍“倾向于性能不差，复杂度（模型心智）较低”。t35 完成：合入 master，`plot/brief.md` 晋升 `implemented` |
 | 2026-11-10 | 开发者：t35 计划的两项待确认按推荐（马甲身份不是秘密时不遮；称谓表左栏在视角人物认得他且揭穿给了写手时可以写本名） |
+| 2026-11-10 | 开发者：作者界面“按你的建议分两批开始”。剧情侧已做完，11-04 搁置 [t31](tasks/t31-author-ui-v1/README.md) 的理由不再成立，恢复 t31：第一批照 t31 原范围做设定侧（条目树、条目页、回执、待处理、就地改、记一笔、还原），先修内核来历的缺陷（1a0080305，已合入）、再写计划给开发者确认；同时给剧情侧（时间线、知情、伏笔账本、目标表、决策、检查、简报预览）出一轮静态稿，定了再做第二批 |
 
 ## 调研
 
@@ -88,7 +89,8 @@ updated: 2026-11-06
 | 3 | [t10](tasks/t10-setting-schema/README.md) | 内置 Component 的字段清单与设定表单（字段声明写法已并入 t27） | t27、t30 |
 | 3 | [t14](tasks/t14-plugin-split/README.md) | nb-memory 检索的复用、查看器进工作台（包切分已并入 t27） | t27 |
 | 4 | [t20](tasks/t20-agent-tools/README.md) | Agent 工具与写手的上下文 | t27、t19 |
-| 4 | [t16](tasks/t16-plot-workbench-ui/README.md) | 作者界面（静态稿与原型已到第 3 轮；含原 t29 第 9 片的界面接入） | t27、t29 |
+| 1 | [t31](tasks/t31-author-ui-v1/README.md) | 作者界面第一版（11-10 恢复）：第一批设定侧，第二批剧情侧（先在 t16 出静态稿） | t29、t34、t35 |
+| 1 | [t16](tasks/t16-plot-workbench-ui/README.md) | 作者界面的设计（设定侧的静态稿与原型已到第 3 轮；11-10 起补剧情侧的静态稿） | t27、t29 |
 | 5 | [t28](tasks/t28-entry-mdx-editing/README.md) | 作者编辑条目的主 MDX | t16 |
 | 5 | [t12](tasks/t12-project-templates/README.md) | 作品的来路：三条起步路、模板、旧项目迁移 | t27、t10 |
 | 5 | [t22](tasks/t22-incremental-extraction/README.md) | 改稿后重新记账 | t27 |
