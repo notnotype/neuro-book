@@ -19,11 +19,31 @@ code { background: #f1ece5; padding: 0 4px; border-radius: 3px; }
 </style>
 </head>
 <body>
-<h1>失败详情组件与常驻通知（第 3 轮）</h1>
-<p>第 2 轮你指出：占画面的是编辑器顶部“文件没有保存”那条横幅整行，不是详情块；还说带详情的通知里“重试”单独占一列不好。这一轮按这两点重画：编辑器失败改发通知、详情用对话框打开、动作挪到正文下一行。图都是 Component Lab 的静态稿，亮色。</p>
+<h1>失败详情组件与常驻通知（第 4 轮）</h1>
+<p>第 3 轮你选了“详情开对话框”，并要求优化对话框里“文字展示 + 复制”的样式、考虑复用组件或直接用 Markdown 代码块。这一轮是<strong>真实实现</strong>的截图（不再是静态稿），亮色；第 3 轮的几题已定，挪到下面。</p>
+
+<section data-nbdev-question="detail-dialog-style" data-nbdev-type="confirm" data-nbdev-label="确认：详情对话框按这一版的样式">
+  <h2><span class="badge" data-nbdev-skip>待定</span>详情对话框：原文展示加复制</h2>
+  <div class="row">
+    <figure><img src="r4/detail-dialog.webp" alt="详情对话框" width="600"><figcaption>通知“文件没有保存”点“详情”打开的样子</figcaption></figure>
+  </div>
+  <div class="row">
+    <figure><img src="r4/detail-dialog-untitled.webp" alt="没有标题" width="470"><figcaption>通知没有标题时，对话框标题只写“详情”</figcaption></figure>
+    <figure><img src="r4/detail-dialog-long-mobile.webp" alt="手机长原文" width="240"><figcaption>390 宽、很长且被截断的原文：只在块内滚动，复制按钮始终在块顶；块底写“原文过长，已截断”</figcaption></figure>
+  </div>
+  <p>相对第 3 轮静态稿改了这些：</p>
+  <ul>
+    <li>“诊断原文”与“复制”合成一行块头，第 3 轮复制按钮单独占的那一行去掉了；块头下面一条分隔线。</li>
+    <li>原文字号从 11px 提到 12px（主题规定 11px 只给角标、序号，不承载要读的句子），行高 1.6；长行不折行，在块内横向滚动。</li>
+    <li>复制后按钮变成绿色对勾“已复制”，1.5 秒后复原；剪贴板不可用（例如用 http 地址打开）时先退到浏览器的旧复制方式，两条都不通才显示红色“复制失败，请手动选择文字”。原文本身可以直接选中复制，空行复制出来是空的。</li>
+    <li>页脚只有次级按钮“关闭”；打开时焦点落在正文上，不在复制按钮上画光晕。</li>
+  </ul>
+  <p>复用：原文块就是 nb-ui 现有的 <code>CodeBlock</code>（Agent 对话视图的工具详情也用它），这次只给它加了块头右侧的操作位与可调最大高度；复制做成单独的 <code>CopyButton</code>，以后别处放原文也能用。没用 Markdown 的代码块：它是一块没有块头、没有复制、没有高度上限的 <code>pre</code>，而且 Markdown 包建在 nb-ui 之上，nb-ui 里的对话框不能反过来依赖它。</p>
+  <p class="rec">推荐确认。要调字号、颜色或块头的，直接在评论里写。</p>
+</section>
 
 <section data-nbdev-question="notice-actions-align" data-nbdev-type="single" data-nbdev-recommend="left">
-  <h2><span class="badge" data-nbdev-skip>待定</span>通知里的动作行放左还是放右</h2>
+  <h2><span class="badge done" data-nbdev-skip>已定：左对齐</span>通知里的动作行放左还是放右</h2>
   <p>动作行是正文下面单独一行，“重试”“详情”并排，关闭键留在右上角；正文宽度不再随有没有动作变化，代价是每条带动作的通知高约 30px。</p>
   <div class="cand" data-nbdev-option="left" data-nbdev-label="A 左对齐，与标题、正文连成一条竖线">
     <h3>A 左对齐</h3>
@@ -44,7 +64,7 @@ code { background: #f1ece5; padding: 0 4px; border-radius: 3px; }
 </section>
 
 <section data-nbdev-question="notice-detail-where" data-nbdev-type="single" data-nbdev-recommend="dialog">
-  <h2><span class="badge" data-nbdev-skip>待定</span>通知里的“详情”点开后怎么显示（取代第 1 轮 footer 插槽那一题）</h2>
+  <h2><span class="badge done" data-nbdev-skip>已定：对话框</span>通知里的“详情”点开后怎么显示（取代第 1 轮 footer 插槽那一题）</h2>
   <div class="cand" data-nbdev-option="dialog" data-nbdev-label="A 对话框：与别处统一，通知保持两行加动作行">
     <h3>A 点“详情”开居中对话框（第 2 轮你选的做法），通知本身不变高</h3>
     <div class="row">
@@ -62,7 +82,7 @@ code { background: #f1ece5; padding: 0 4px; border-radius: 3px; }
 </section>
 
 <section data-nbdev-question="no-banner" data-nbdev-type="confirm" data-nbdev-label="确认：编辑器与资源管理器的失败改发通知，状态栏条目点开对话框" data-nbdev-required>
-  <h2><span class="badge" data-nbdev-skip>待定</span>没有横幅、没有常驻结果区的版面</h2>
+  <h2><span class="badge done" data-nbdev-skip>已确认</span>没有横幅、没有常驻结果区的版面</h2>
   <div class="row">
     <figure><img src="r3/editor-failure.webp" alt="编辑器" width="470"><figcaption>编辑器：顶上没有横幅，正文从标签栏下直接开始；标签上换成警告图标，失败通知在右下角</figcaption></figure>
     <figure><img src="r3/explorer-failure.webp" alt="资源管理器" width="470"><figcaption>资源管理器：栏底没有常驻结果区，移动失败改发通知（只有“详情”）</figcaption></figure>
@@ -89,9 +109,9 @@ code { background: #f1ece5; padding: 0 4px; border-radius: 3px; }
 <section>
   <h2><span class="badge done">已定</span>前两轮的决定（提交在 Task README）</h2>
   <ul>
-    <li>带详情的通知一律常驻，只能手动关闭；视口最多显示最新 4 条，其余折成“还有 n 条”小条。</li>
-    <li>详情是字符串（<code>detail?: string</code>，开发诊断原文，不翻译）；复制三态：待复制、已复制、剪贴板不可用时全选原文并提示“已选中，按 Ctrl+C 复制”。</li>
-    <li>复制按钮放在原文上方一行；原文区文字可选；暗色对比够用。</li>
+    <li>带详情的通知缺省常驻（发出方明确给 <code>sticky: false</code> 时仍按时消失），只能手动关闭；视口最多显示最新 4 条，其余折成“还有 n 条较早的通知”小条。</li>
+    <li>详情是字符串（<code>detail?: string</code>，开发诊断原文，不翻译，已脱敏、最长 8000 字）；复制三态：待复制、已复制、复制失败（计划审查后改：不再全选原文提示 Ctrl+C，改用浏览器的旧复制方式作退路）。</li>
+    <li>原文区文字可选；暗色对比够用。复制按钮的位置见第 4 轮。</li>
     <li>实现时的组件缺口：<code>NotificationItem</code> 加 <code>detail</code>、<code>NotificationStack</code> 加上限与折叠小条、<code>Notification</code> 加动作行槽并改成网格布局、<code>Button</code> 视需要加最小档、Dialog 的初始焦点放在面板上。</li>
   </ul>
 </section>
