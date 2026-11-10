@@ -3,6 +3,7 @@
 建在 nb-runtime 上的应用共用的两端宿主：只监听回环、`Host` 与 `Origin` 核对、状态根认领、内核 RPC 端口、启动与停止、诊断出口，以及浏览器一侧的连接与重连。应用只做装配，给出自己的名字、插件与配置。
 
 - `./server`：只在 Bun 进程里用。
+  - 服务端进程 `startHostServer`：先核对回环，再监听内核 RPC 端口（缺省端口被占用时成组顺延），自己建诊断出口与 HTTP 两个宿主插件，交应用装配其余插件、能力与宿主接口，启动后把停止来源汇合成一次有序停止并算出退出码（0 或 1）。应用给产品名、平台档案、认领、插件表与扩展钩子（`attach`、`ready`、`stopping`、`problems`）；来源判定、准入与排空应用换不掉，交回的插件表里宿主插件的入口被换掉或漏掉时装配失败。
   - 回环与来源：`assertLoopbackHost`、`parseAllowedOrigins`、`assertLoopbackOrigins`、`loopbackOrigins`；不合时抛 `HostConfigError`（`non-loopback-host`、`invalid-origin`）。
   - 端口：缺省端口被占用时成组顺延（`listenWithShift`、`freeGroupOffset`、`probePort`），试探之前也核对回环。
   - 宿主适配器 `startServerHost`：把进程的停止来源（信号、标准输入、未处理异常）汇合成一次停止；平台档案必填。服务端进程与项目子进程共用。

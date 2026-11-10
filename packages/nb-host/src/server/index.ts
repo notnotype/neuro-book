@@ -10,14 +10,10 @@ export type {ListenWithShiftOptions, ShiftedListen} from "./ports";
 export {claimStateRoot, defineClaimProfile, HELLO_TIMEOUT_MS, instanceAddress, queryInstance} from "./claim";
 export type {ClaimOptions, ClaimProfile, ClaimResult, InstanceInfo, InstanceKind, InstanceQuery, InstanceStatus, StateRootClaim} from "./claim";
 export type {HostRoute} from "../http/plugin";
-// 过渡导出：启动流程还在应用里，应用要自己建 HTTP 插件、准入与 RPC 监听；启动流程搬进本包后删去。
-export {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "../http/admission";
 export type {DrainClock} from "../http/admission";
-export {createHttpPlugin} from "../http/plugin";
-export type {HttpPluginOptions} from "../http/plugin";
-export {startRpcListener} from "./rpc-listener";
-export type {RpcGateResult, RpcListener, RpcListenerOptions} from "./rpc-listener";
 export {startServerHost} from "./host";
 export type {FatalKind, ProcessEvents, ServerHost, ServerHostOptions} from "./host";
 export {createServerDiagnosticsPlugin} from "./diagnostics/plugin";
 export type {ServerDiagnosticsPluginOptions} from "./diagnostics/plugin";
+export {SERVER_INSTANCE_ID, ServerAssemblyError, ServerStartupError, startHostServer} from "./start";
+export type {ExitCode, HostAttachContext, HostListen, HostPluginContext, HostServer, HostServerExtension, HostServerOptions, HostStopOutcome} from "./start";

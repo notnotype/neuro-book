@@ -11,7 +11,7 @@
 
   | 子路径 | 运行位置 |
   |---|---|
-  | `./server` | Bun：回环与来源校验、端口顺延、状态根认领、HTTP 插件、诊断的 JSONL 出口、宿主适配器、内核 RPC 端口的监听 |
+  | `./server` | Bun：服务端进程的启动与停止（`startHostServer`）、回环与来源校验、端口顺延、状态根认领，以及项目子进程也用的宿主适配器与诊断出口 |
   | `./http/contracts` | 不限：贡献点 `http.routes` 的形状，没有运行时导入 |
   | `./socket` | 不限：服务端与浏览器共用的 WebSocket 链路 |
   | `./web` | 浏览器：诊断的 console 出口 |

@@ -12,6 +12,7 @@
 import {writeSync} from "node:fs";
 import {join} from "node:path";
 
+import {ServerAssemblyError, ServerStartupError} from "@notnotype/nb-host/server";
 import type {InstanceKind} from "@notnotype/nb-host/server";
 
 import {prepareInstalledPlugins, safeModeOf} from "nbook/plugin-platform/backend/startup";
@@ -24,7 +25,7 @@ import type {ServerConfig} from "./config";
 import {claimNeuroBook} from "./instance";
 import type {ClaimResult, StateRootClaim} from "./instance";
 import {ompProcess} from "./omp-process";
-import {ServerAssemblyError, ServerStartupError, startServer} from "./start";
+import {startServer} from "./start";
 import type {RunningServer, StartServerOptions} from "./start";
 
 function fatal(event: string, fields: Record<string, unknown>): void {

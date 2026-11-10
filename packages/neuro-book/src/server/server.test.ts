@@ -10,8 +10,7 @@ import {join} from "node:path";
 
 import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
 import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
-import type {HttpAdmission} from "@notnotype/nb-host/testing";
-import {isAddressInUse, PORT_SHIFT_STEP} from "@notnotype/nb-host/server";
+import {isAddressInUse, PORT_SHIFT_STEP, ServerAssemblyError} from "@notnotype/nb-host/server";
 import {helloFrame, openRawRpcSocket, upgradeStatus} from "@notnotype/nb-host/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -23,7 +22,6 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
 
 import {PROJECT_LIMIT_DEFAULTS} from "./config";
-import {ServerAssemblyError} from "./start";
 import {startClaimedServer} from "./testing/claimed-server";
 import {manifestServerPlugins} from "./plugins";
 import {createRemoteProbePlugin, createTestPlugin, newRemoteProbeState, routePlugin} from "./testing/test-plugins";
@@ -341,20 +339,16 @@ describe("后端宿主（同进程）", () => {
     it("启动失败：等待就绪的请求得到 503 startup-failed，以 1 退出", async () => {
         const hold = Promise.withResolvers<void>();
         const listening = Promise.withResolvers<string>();
-        const captured: {admission?: HttpAdmission} = {};
         const server = await startClaimedServer({
             config: config("startup-failed"),
-            plugins: (context) => {
-                captured.admission = context.admission;
-                return [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)];
-            },
+            plugins: (context) => [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)],
             process: new EventEmitter(),
             onListening: listening.resolve,
             writeFatal: () => undefined,
         });
         server.ready.catch(() => undefined);
         const waiting = fetch(`${await listening.promise}api/runtime/health`);
-        await waitUntil("请求进入等待就绪", () => captured.admission?.active === 1);
+        await waitUntil("请求进入等待就绪", () => server.activeRequests === 1);
         hold.resolve();
         const response = await waiting;
         expect(response.status).toBe(503);
@@ -509,19 +503,15 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
 
     it("启动失败：等待就绪的 RPC 升级得到 503 startup-failed，以 1 退出", async () => {
         const hold = Promise.withResolvers<void>();
-        const captured: {admission?: HttpAdmission} = {};
         const server = await startClaimedServer({
             config: config("rpc-startup-failed"),
-            plugins: (context) => {
-                captured.admission = context.admission;
-                return [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)];
-            },
+            plugins: (context) => [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)],
             process: new EventEmitter(),
             writeFatal: () => undefined,
         });
         server.ready.catch(() => undefined);
         const waiting = upgradeStatus(Number(new URL(server.rpcUrl).port));
-        await waitUntil("升级进入等待就绪", () => captured.admission?.active === 1);
+        await waitUntil("升级进入等待就绪", () => server.activeRequests === 1);
         hold.resolve();
         expect(await waiting).toBe(503);
         expect((await server.stopped).exitCode).toBe(1);
