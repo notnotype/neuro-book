@@ -9,7 +9,8 @@ import type {ControlSize} from "../shared-types";
  * 视觉特征：
  * 1. 形态：圆角消费 var(--radius-control) / calc，与 Button、Input 等控件一致；
  * 2. 材质：solid 模式采用纯正状态色实底 + 纯白反色文字 + 16% 微透光反光边 + 轻微柔影；
- * 3. 警示色调（warning）：消费 var(--status-warning) 往黑混的深一档；
+ * 3. 柔光与镂空的字色：状态色往正文色（--text-main）混一截。状态色直接当 11px 的字色，在浅底上只有 2.9 到 3.9:1（2026-11-10 面板 axe 实测），
+ *    往正文色混三成多（65% 状态色），在亮色里变深、暗色里变亮，两态都到 4.5:1 以上；实心的底色仍是状态色本身（warning 往黑混一档，配反色字）；
  * 4. 支持 dot（状态圆点）、iconClass（图标）与 count（徽标）。
  */
 
@@ -67,29 +68,29 @@ const sizeClass = computed(() => (props.size === "sm"
 }
 
 .nb-badge--accent {
-    --nb-badge-tone: var(--accent-main);
+    --nb-badge-tone: color-mix(in srgb, var(--accent-main) 65%, var(--text-main));
     --nb-badge-tone-bg: color-mix(in srgb, var(--accent-main) 12%, transparent);
     --nb-badge-tone-solid: var(--accent-main);
     --nb-badge-tone-border: color-mix(in srgb, var(--accent-main) 30%, transparent);
 }
 
 .nb-badge--success {
-    --nb-badge-tone: var(--status-success);
+    --nb-badge-tone: color-mix(in srgb, var(--status-success) 65%, var(--text-main));
     --nb-badge-tone-bg: color-mix(in srgb, var(--status-success) 12%, transparent);
     --nb-badge-tone-solid: var(--status-success);
     --nb-badge-tone-border: color-mix(in srgb, var(--status-success) 30%, transparent);
 }
 
-/* 优化后的深琥珀暖金色（告别高亮刺眼黄与黑字） */
+/* 实心是深琥珀暖金色（告别高亮刺眼黄与黑字）；柔光与镂空的字色同其它色调，往正文色混。 */
 .nb-badge--warning {
-    --nb-badge-tone: color-mix(in srgb, var(--status-warning) 80%, black);
+    --nb-badge-tone: color-mix(in srgb, var(--status-warning) 65%, var(--text-main));
     --nb-badge-tone-bg: color-mix(in srgb, var(--status-warning) 14%, transparent);
     --nb-badge-tone-solid: color-mix(in srgb, var(--status-warning) 82%, black);
     --nb-badge-tone-border: color-mix(in srgb, var(--status-warning) 35%, transparent);
 }
 
 .nb-badge--danger {
-    --nb-badge-tone: var(--status-danger);
+    --nb-badge-tone: color-mix(in srgb, var(--status-danger) 65%, var(--text-main));
     --nb-badge-tone-bg: color-mix(in srgb, var(--status-danger) 12%, transparent);
     --nb-badge-tone-solid: var(--status-danger);
     --nb-badge-tone-border: color-mix(in srgb, var(--status-danger) 30%, transparent);

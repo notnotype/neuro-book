@@ -166,7 +166,7 @@ describe("阶段 1 实现审查的建议", () => {
         expect(host.confirm.value).toBeNull();
         // notice 是响应式代理，数组属性用 toMatchObject 比不上，拆成普通值比。
         expect([host.notice.value?.outcome, host.notice.value?.title, [...(host.notice.value?.items ?? [])]]).toEqual(["failure", "没有发出去", ["原文：给 A 的话"]]);
-        expect(host.notice.value?.message).toContain(`pane ${A.paneId}`);
+        expect(host.notice.value?.message).toContain(`窗格 ${A.paneId}`);
         stop();
     });
 

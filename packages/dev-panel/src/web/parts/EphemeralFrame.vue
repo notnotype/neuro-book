@@ -14,9 +14,9 @@ defineProps<{title: string}>();
 .ephemeral-frame {
     border-color: var(--status-info, var(--accent-main));
 }
-/* 标签压在虚线框的上边线上：底色与页面相同，把那一段线盖住。 */
+/* 标签压在虚线框的上边线上：底色与所在的面相同，把那一段线盖住。在卡片里取卡片的底色（`.nbdev-surface` 给的 `--nbdev-surface-bg`），直接放在页面上取页面底色。 */
 .ephemeral-label {
-    background: var(--bg-main);
+    background: var(--nbdev-surface-bg, var(--bg-main));
     font-size: var(--text-xs);
     /* 状态色当 11px 的字色对比度只有 3.8：往正文色混一截，到 4.5 以上（t22）。 */
     color: color-mix(in srgb, var(--status-info, var(--accent-main)) 70%, var(--text-main));

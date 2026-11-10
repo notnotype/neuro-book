@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
 import {relativeDay, sessionName, taskLabel} from "../host/format.js";
-import {isPlainClick, taskHref} from "../host/routes.js";
+import {isPlainClick, sessionHref, taskHref} from "../host/routes.js";
 import type {TaskTableDetail} from "../host/task-expand.js";
 import type {SessionTitle, TaskView} from "../host/types.js";
 import LeaseChip from "./LeaseChip.vue";
@@ -33,7 +33,12 @@ function follow(event: MouseEvent, href: string): void {
 }
 const isOpen = (taskId: string) => props.expanded.includes(taskId);
 const detailId = (taskId: string) => `nbdev-task-detail-${props.workId}-${taskId}`;
-const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "待答", "记录", "谁在动"];
+/**
+ * t22（开发者定）：待答、谁在动、记录在分支上、有未提交的改动都是状态旁的小标记，有才显示、手机上也在；
+ * 原来的“产物”“待答”“记录”“谁在动”四列多数行是 0 或 master，手机上又整列藏掉。产物数并进“当前情况”的末尾。
+ */
+const COLUMNS = ["Task", "状态", "当前情况", "最近更新"];
+const productCount = (task: TaskView) => task.artifacts.length + task.documents.length;
 </script>
 
 <template>
@@ -57,27 +62,23 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                             <span class="nbdev-secondary">{{ taskLabel(task.taskId) }}</span> {{ task.title ?? task.taskId }}
                         </a>
                     </span>
-                    <span role="cell"><StatusChip :status="task.status" /></span>
+                    <span role="cell" class="nbdev-task-status">
+                        <StatusChip :status="task.status" />
+                        <Badge v-if="task.waiting > 0" tone="warning" variant="soft" size="sm" icon-class="i-lucide-message-circle-question">待答 {{ task.waiting }}</Badge>
+                        <span v-if="task.leases.length > 0" class="nbdev-task-mark nbdev-accent" :title="`${task.leases.length} 个会话在动`"><span class="i-lucide-user-round size-3" aria-hidden="true" />在动<span v-if="task.leases.length > 1" class="nbdev-num">&nbsp;{{ task.leases.length }}</span></span>
+                        <span v-if="task.source === 'branch'" class="nbdev-task-mark nbdev-secondary">分支</span>
+                        <span v-if="task.uncommitted" class="nbdev-task-mark nbdev-warn">未提交</span>
+                    </span>
                     <span role="cell" class="nbdev-task-wide min-w-0">
-                        <MarkdownView v-if="currentHtml[task.taskId]" class="nbdev-secondary line-clamp-2" :html="currentHtml[task.taskId]!" inline @navigate="(href) => emit('navigate', href)" />
-                        <span v-else class="nbdev-empty">未标</span>
+                        <span class="nbdev-secondary line-clamp-2">
+                            <MarkdownView v-if="currentHtml[task.taskId]" :html="currentHtml[task.taskId]!" inline @navigate="(href) => emit('navigate', href)" />
+                            <span v-else class="nbdev-empty">未标</span>
+                            <span v-if="productCount(task) > 0" class="nbdev-num"> · 产物 {{ productCount(task) }}</span>
+                        </span>
                     </span>
                     <span role="cell" class="nbdev-task-wide">
                         <span v-if="task.updated.value" class="nbdev-secondary">{{ relativeDay(task.updated.value) }}</span>
                         <span v-else class="nbdev-empty">未标</span>
-                    </span>
-                    <!-- 为 0 的计数淡化：一眼只看到有东西的格子。 -->
-                    <span role="cell" class="nbdev-task-wide nbdev-num text-right" :class="task.artifacts.length + task.documents.length > 0 ? 'nbdev-secondary' : 'nbdev-empty'">{{ task.artifacts.length + task.documents.length }}</span>
-                    <span role="cell" class="nbdev-task-wide text-right">
-                        <Badge v-if="task.waiting > 0" tone="warning" variant="soft" size="sm">{{ task.waiting }}</Badge>
-                        <span v-else class="nbdev-empty nbdev-num">0</span>
-                    </span>
-                    <span role="cell" class="nbdev-task-wide">
-                        <span class="nbdev-secondary">{{ task.source === "branch" ? "分支" : "master" }}</span>
-                        <span v-if="task.uncommitted" class="nbdev-warn"> · 未提交</span>
-                    </span>
-                    <span role="cell" class="nbdev-task-wide flex min-w-0 flex-wrap gap-1">
-                        <LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :stale="lease.stale" compact />
                     </span>
                 </div>
                 <div v-if="isOpen(task.taskId)" :id="detailId(task.taskId)" role="row" class="nbdev-task-detail nbdev-divider border-b">
@@ -114,7 +115,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                                 </ul>
                                 <h3 class="nbdev-card-title mt-2">谁在动</h3>
                                 <p v-if="task.leases.length === 0" class="nbdev-empty">没有</p>
-                                <div v-else class="flex flex-wrap gap-1"><LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :stale="lease.stale" /></div>
+                                <div v-else class="flex flex-wrap gap-1"><LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :href="sessionHref(lease.sessionKey)" @navigate="(href) => emit('navigate', href)" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :stale="lease.stale" /></div>
                             </section>
                         </div>
                     </div>
@@ -125,14 +126,14 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
 </template>
 
 <style scoped>
-/* 列宽：标题列最宽、单行截断。整张表最窄约 67rem（定宽列 25.5、三个 minmax 的下限 35、8 个列间距 6、行的左右内边距 0.5），
-   再窄就由外层横向滚动；min-width 与这个和一致，行的分隔线才横跨到最后一列。“谁在动”一列只有约 7rem，胶囊用紧凑写法。 */
+/* 列宽：标题列最宽、单行截断。整张表最窄约 51rem（定宽列 8、三个 minmax 的下限 39、4 个列间距 3、行的左右内边距 0.5），
+   再窄就由外层横向滚动；min-width 与这个和一致，行的分隔线才横跨到最后一列。状态一列放状态与几个小标记，放不下就折行。 */
 .nbdev-task-grid {
-    min-width: 67rem;
+    min-width: 51rem;
 }
 .nbdev-task-row {
     display: grid;
-    grid-template-columns: 2rem minmax(16rem, 2.2fr) 5.5rem minmax(12rem, 3fr) 6rem 3rem 3.5rem 5.5rem minmax(7rem, 1.2fr);
+    grid-template-columns: 2rem minmax(16rem, 2.2fr) minmax(9rem, 1fr) minmax(14rem, 3fr) 6rem;
     align-items: center;
     column-gap: 0.75rem;
     padding: 0.375rem 0.25rem;
@@ -140,6 +141,19 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
 .nbdev-task-head {
     color: var(--text-secondary);
     font-weight: 500;
+}
+.nbdev-task-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.375rem;
+}
+.nbdev-task-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    font-size: var(--text-xs);
+    white-space: nowrap;
 }
 .nbdev-task-open {
     background: color-mix(in srgb, var(--accent-bg) 45%, transparent);
@@ -165,13 +179,18 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1.25rem;
 }
-/* 手机上只留展开按钮、Task 与状态三列，其余在展开里看；展开内容改成一栏，不再横向滚动。 */
+/* 手机上只留展开按钮、Task 与状态（带标记）三列，当前情况与更新时间在展开里看；展开内容改成一栏，不再横向滚动。 */
 @media (max-width: 767px) {
     .nbdev-task-grid {
         min-width: 0;
     }
     .nbdev-task-row {
         grid-template-columns: 2rem minmax(0, 1fr) auto;
+    }
+    /* 状态与标记靠右，最宽 10rem，多了折行（待答与谁在动在手机上也看得到）。 */
+    .nbdev-task-status {
+        max-width: 10rem;
+        justify-content: flex-end;
     }
     .nbdev-task-wide {
         display: none;

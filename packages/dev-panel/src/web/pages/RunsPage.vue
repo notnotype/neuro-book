@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge} from "@notnotype/nb-ui/components";
+import {Badge, Tooltip} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {useRouter} from "vue-router";
 import {loadStateOf, useResource} from "../host/panel-data.js";
@@ -19,12 +19,14 @@ const runs = useResource<RunsData>(() => "/api/runs", ["activity"]);
 const data = computed(() => runs.data.value);
 const router = useRouter();
 const navigate = (href: string) => void router.push(href);
+const STOP_NOTE = "面板这里只看不停：停服务在终端运行 nbdev dev stop（别人起的要加 --force）";
 </script>
 
 <template>
     <!-- 现场页整页是临时内容：分区标题旁一个“临时”小徽标，不再整页虚线框（t15 阶段 3g）。 -->
     <PageShell :crumbs="[{label: '首页', href: '/'}, {label: '在跑'}]" title="在跑" @navigate="navigate">
-        <template #meta><span>停服务在终端运行 nbdev dev stop（别人起的要 --force）；面板这里只看不停。</span></template>
+        <!-- 怎么停服务是不看也能用这一页的说明：放进标题旁的说明图标，不常驻占一行（t22）。 -->
+        <template #meta><Tooltip :text="STOP_NOTE"><button type="button" class="nbdev-hit inline-flex size-5 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-secondary)]" :aria-label="STOP_NOTE"><span class="i-lucide-info size-3.5" aria-hidden="true" /></button></Tooltip></template>
         <LoadState v-bind="loadStateOf(runs)" label="正在读取在跑的进程" @retry="runs.reload()" />
         <template v-if="data">
             <section class="nbdev-stack" aria-labelledby="procs-title">

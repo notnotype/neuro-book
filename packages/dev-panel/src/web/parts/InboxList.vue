@@ -56,7 +56,7 @@ function follow(event: MouseEvent, href: string): void {
                     {{ row.questions.slice(0, SHOWN).map((question) => question.label).join("；") }}<template v-if="row.questions.length > SHOWN">；等 {{ row.questions.length }} 道</template>
                 </span>
                 <span class="flex flex-wrap items-center gap-x-2 gap-y-1 pl-6 nbdev-note">
-                    <span>{{ workLabel(row.workId) }} / {{ taskLabel(row.taskId) }} · {{ row.artifactId }}</span>
+                    <span>{{ workLabel(row.workId) }} / {{ taskLabel(row.taskId) }}</span>
                     <LeaseChip v-for="asker in row.askers" :key="asker.key" :session="sessionName(asker.key, null, sessionTitles)" :ended="asker.active === false" :hint="asker.active === false ? '提问的会话已经不在（租约失效），答了要等别的会话来采纳' : '提问的会话'" />
                     <span v-if="row.askers.length === 0" class="nbdev-empty">提问者未知</span>
                 </span>

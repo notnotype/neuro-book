@@ -4,7 +4,7 @@
 
 # TruncatedText
 
-单行截断的长文字（t15 阶段 3e）：路径、id、分支名、sha 这类放不下时截断，被截断时悬停或键盘聚焦用 nb-ui 的 `Tooltip` 看全文；可复制时是一个按钮，点一下把全文复制到剪贴板，提示改成“已复制”。checkout 页的路径不必再横向滚动才看得全。
+单行截断的长文字（t15 阶段 3e）：路径、id、分支名、sha 这类放不下时截断，被截断时悬停或键盘聚焦用 nb-ui 的 `Tooltip` 看全文；可复制时是一个按钮，点一下把全文复制到剪贴板，提示改成“已复制”。给了 `display` 时显示它（例如“复制日志路径”）、复制的仍是全文，提示里给全文（t22）。checkout 页的路径不必再横向滚动才看得全。
 
 ## 布局
 
@@ -26,6 +26,8 @@ interface TruncatedTextProps {
     mono?: boolean;
     /** 点击复制；可选，默认 true */
     copyable?: boolean;
+    /** 显示的文字（缺省就是全文）；复制与提示仍用全文；可选，默认 null */
+    display?: string | null;
 }
 ```
 
