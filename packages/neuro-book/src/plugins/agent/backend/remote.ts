@@ -20,7 +20,7 @@ import type {AncestorItem, JobItem} from "../shared/subagents";
 
 import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
 import {jobDirectory, OUTPUT_FILE, readStatus} from "./builtin/shell-background";
-import {LINE_BYTES} from "./builtin/shell-window";
+import {capLine, LINE_BYTES} from "./builtin/shell-window";
 import type {Job, JobCenter} from "./jobs/center";
 import {PushThrottle} from "./push-throttle";
 import {AgentSessionUnavailable} from "./sessions";
@@ -93,7 +93,7 @@ async function tailOf(path: string, count: number): Promise<string[] | null> {
     if (text.endsWith("\n")) lines.pop();
     // 从文件中间切开时第一行可能是半行，丢掉。
     if (size > TAIL_BYTES) lines.shift();
-    return lines.slice(-count).map((line) => (Buffer.byteLength(line, "utf8") <= LINE_BYTES ? line : `${Buffer.from(line, "utf8").subarray(0, LINE_BYTES).toString("utf8").replace(/\uFFFD+$/u, "")}…`));
+    return lines.slice(-count).map((line) => capLine(line));
 }
 
 /** 预览大到放不进一条消息时先存起来，经令牌分段读；所有调用方共用一张表。 */
@@ -337,7 +337,11 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             treeChanged: {
                 subscribe({sessionId}, sink, context) {
                     if (context.signal.aborted) return;
-                    const stop = tree.watch(sessionId, (items) => sink.next(items), pushFailed("treeChanged"));
+                    // 与查询 `tree` 同一个上限：放不进一条消息时不推（写诊断），宿主照旧显示上一份；请求里的长文字已在算的时候截短。
+                    const stop = tree.watch(sessionId, (items) => {
+                        if (byteLength(items) <= PAGE_BYTES) sink.next(items);
+                        else report("tree-too-large", `the sub-agent tree of session ${sessionId} does not fit in one message; the push was skipped`, {session: sessionId});
+                    }, pushFailed("treeChanged"));
                     context.signal.addEventListener("abort", stop, {once: true});
                 },
             },

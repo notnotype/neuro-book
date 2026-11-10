@@ -249,7 +249,10 @@ function startInBackground(context: ToolSessionContext, args: Readonly<Record<st
     if (prepared.sessionPath === null) return failed("unavailable", "unavailable: 会话工作区不可用，后台命令的输出没处写。");
     const command = args.command as string;
     const reserved = background.jobs.reserve(context.sessionId, "shell", call.invocation, command.length <= 80 ? command : `${command.slice(0, 80)}…`);
-    if (!reserved.ok) return {...failed("concurrency-limit", "concurrency-limit: 整个应用同时在跑的任务已经到上限；在前台跑，或稍后再试。"), details: {code: "concurrency-limit", scope: reserved.scope}};
+    if (!reserved.ok) {
+        if (reserved.code === "unavailable") return failed("unavailable", "unavailable: nbook.agent 正在停止，不能再起后台命令。");
+        return {...failed("concurrency-limit", "concurrency-limit: 整个应用同时在跑的任务已经到上限；在前台跑，或稍后再试。"), details: {code: "concurrency-limit", scope: reserved.scope}};
+    }
     const job = reserved.job;
     const address = jobOutputAddress(context.sessionId, job.id);
     try {

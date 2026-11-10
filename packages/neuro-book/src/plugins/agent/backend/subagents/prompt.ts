@@ -32,6 +32,8 @@ export interface SubagentPromptDeps {
 export class ProfileShapes {
     readonly #shapes = new Map<string, Shape>();
     readonly #loading = new Set<string>();
+    /** `clear` 时加一：清空之前发出的解析晚到时按代数丢掉，旧形状不会写回。 */
+    #generation = 0;
 
     constructor(private readonly resolve: (key: string) => Promise<AnyProfile | undefined>) {}
 
@@ -43,19 +45,27 @@ export class ProfileShapes {
 
     /** Profile 目录变了（重新打包、增删）：下次用到时重新取。 */
     clear(): void {
+        this.#generation += 1;
         this.#shapes.clear();
+        this.#loading.clear();
     }
 
     #load(key: string): void {
         if (this.#loading.has(key)) return;
         this.#loading.add(key);
+        const generation = this.#generation;
         void this.resolve(key).then((resolved) => {
-            if (resolved === undefined) return;
+            if (generation !== this.#generation) return;
+            // 解析不到的记成没有形状，不在每次请求时再解析；目录变了（`clear`）再试。
+            if (resolved === undefined) {
+                this.#shapes.set(key, {});
+                return;
+            }
             // `defineProfile` 的结果带着这两个字段，`AnyProfile` 只列内核按名字读的；内核建会话时也这样读（session.ts 的 `initial`）。
             const profile = resolved as AnyProfile & {readonly initial?: unknown; readonly result?: {readonly schema: unknown}};
             this.#shapes.set(key, {...(profile.initial === undefined ? {} : {initial: profile.initial as JsonValue}), ...(profile.result === undefined ? {} : {result: profile.result.schema as JsonValue})});
         }, () => undefined).finally(() => {
-            this.#loading.delete(key);
+            if (generation === this.#generation) this.#loading.delete(key);
         });
     }
 }

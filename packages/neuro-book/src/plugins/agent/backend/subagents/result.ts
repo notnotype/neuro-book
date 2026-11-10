@@ -31,6 +31,12 @@ export function pendingOf(events: readonly LogEvent[]): PendingItem[] {
     return [...requested.values()];
 }
 
+/**
+ * 事项是不是等用户的：审批、模式切换请求，以及会话头 `questions: "user"` 的提问；`questions: "caller"` 的其余提问交给派它的 Agent。
+ * 句柄表的“等用户”、`tree` 的 `waiting` 与 `pending` 都按这一条（subagents.md 输出 14、21）。
+ */
+export const forUser = (kind: PendingItem["kind"], questions: "caller" | "user", modeSwitch: boolean): boolean => kind === "approval" || modeSwitch || questions === "user";
+
 /** 模式切换请求（`switch_mode` 的提问）：只能由用户答（subagents.md 输出 11、14）。 */
 export const isModeSwitch = (item: Pick<PendingItem, "kind" | "request">): boolean => {
     if (item.kind !== "question") return false;
@@ -38,11 +44,25 @@ export const isModeSwitch = (item: Pick<PendingItem, "kind" | "request">): boole
     return data?.kind === MODE_SWITCH_KIND;
 };
 
-/** 提问给模型看的文字：问题，有选项时附上。 */
-export function questionText(request: JsonValue): string {
-    const {question, options} = (request ?? {}) as {question?: unknown; options?: unknown};
+type AskedQuestion = {readonly question?: unknown; readonly options?: unknown; readonly multiSelect?: unknown};
+
+function oneQuestion(item: AskedQuestion): string | null {
+    if (typeof item.question !== "string") return null;
+    const labels = Array.isArray(item.options) ? item.options.map((option: unknown) => (typeof option === "object" && option !== null && typeof (option as {label?: unknown}).label === "string" ? (option as {label: string}).label : typeof option === "string" ? option : null)).filter((label): label is string => label !== null) : [];
+    if (labels.length === 0) return item.question;
+    return `${item.question}（${item.multiSelect === true ? "可多选" : "选一个"}：${labels.join(" / ")}）`;
+}
+
+/**
+ * 提问给模型看的文字：`ask` 的请求把各题放在 `data.questions`（题干、选项、是否多选），按题写出选项；别的工具的提问只有顶层的 `question`。
+ * `first`：只要第一题（`tree` 的 `question.text`，subagents.md 输出 21）。
+ */
+export function questionText(request: JsonValue, options: {readonly first?: boolean} = {}): string {
+    const {question, data} = (request ?? {}) as {question?: unknown; data?: {questions?: unknown}};
+    const asked = Array.isArray(data?.questions) ? (data.questions as AskedQuestion[]).map(oneQuestion).filter((text): text is string => text !== null) : [];
+    if (asked.length > 0) return options.first === true ? asked[0]! : asked.join("\n");
     const text = typeof question === "string" ? question : JSON.stringify(request);
-    return Array.isArray(options) && options.length > 0 ? `${text}（选项：${options.map(String).join(" / ")}）` : text;
+    return options.first === true ? text.split("\n")[0]! : text;
 }
 
 const SENTENCE_LIMIT = 120;

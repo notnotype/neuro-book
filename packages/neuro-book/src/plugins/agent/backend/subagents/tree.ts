@@ -6,7 +6,7 @@
  * （关着的一定空闲）。在跑的后代的最近一步与工具次数从它的当前路径数，至多给 16 个；有等用户事项的一律给全。
  */
 
-import type {JsonValue, LogEvent, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {JsonValue, LogEvent, SessionIndexEntry, SessionSnapshot, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {ProfileEntry} from "../../shared/contracts";
@@ -16,7 +16,7 @@ import {AgentSessionUnavailable, type SessionTable} from "../sessions";
 import type {JobCenter} from "../jobs/center";
 import {isLive} from "../jobs/center";
 import type {SessionRelations} from "./relations";
-import {isModeSwitch, pendingOf, questionText, type PendingItem} from "./result";
+import {forUser, isModeSwitch, pendingOf, questionText, type PendingItem} from "./result";
 
 /** 给动态字段（`step`、`tools`）的在跑后代至多几个（按开始时间取最近的）。 */
 export const DETAILED_LIMIT = 16;
@@ -69,8 +69,43 @@ function progressOf(path: readonly LogEvent[], runId: string): {startedAt?: numb
     return {startedAt: path[start]!.at, tools, ...(step === undefined ? {} : {step})};
 }
 
+/** 审批请求里的长字符串（`write` 的整份正文）截到这么多字：停靠区的预览另经 `approvalPreview` 取，这里只要看得出是什么。 */
+const REQUEST_STRING_CHARS = 2_000;
+
+function trimRequest(value: JsonValue): JsonValue {
+    if (typeof value === "string") return [...value].length <= REQUEST_STRING_CHARS ? value : `${[...value].slice(0, REQUEST_STRING_CHARS).join("")}…（已截断，共 ${String([...value].length)} 字）`;
+    if (Array.isArray(value)) return value.map(trimRequest);
+    if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, trimRequest(item)]));
+    return value;
+}
+
+type IndexCache = {readonly entry: SessionIndexEntry | null; readonly whileOpen: boolean};
+type DynamicCache = {readonly key: string; readonly item: TreeItem};
+
+/**
+ * 算一项的代价主要在读打开着的后代的路径（经出站过滤）与读索引文件，所以两样都缓存：
+ * - 索引按会话缓存，会话写了日志就作废；句柄打开时缓存的，关掉之后再读一次（关会话时写下的收口不经日志帧）。
+ * - 打开着的后代的项按“日志最新 seq、运行状态、跟着它的任务与提问”缓存，没变就不读路径。
+ */
 export class SubagentTree {
-    constructor(private readonly options: SubagentTreeOptions) {}
+    readonly #indexed = new Map<string, IndexCache>();
+    readonly #dynamic = new Map<string, DynamicCache>();
+
+    constructor(private readonly options: SubagentTreeOptions) {
+        options.table.onLog((id) => {
+            this.#indexed.delete(id);
+        });
+    }
+
+    async #index(id: string): Promise<SessionIndexEntry | null> {
+        const open = this.options.table.isOpen(id);
+        const cached = this.#indexed.get(id);
+        if (cached !== undefined && !(cached.whileOpen && !open)) return cached.entry;
+        const read = await this.options.entry(id);
+        const entry = read.ok ? read.value : null;
+        this.#indexed.set(id, {entry, whileOpen: open});
+        return entry;
+    }
 
     async tree(sessionId: string): Promise<TreeItem[]> {
         const {relations} = this.options;
@@ -89,8 +124,7 @@ export class SubagentTree {
     async #item(id: string, icons: ReadonlyMap<string, string | undefined>): Promise<TreeItem> {
         const {relations, table, jobs} = this.options;
         const call = relations.callOf(id);
-        const indexed = await this.options.entry(id);
-        const index = indexed.ok ? indexed.value : null;
+        const index = await this.#index(id);
         const profile = index?.profile ?? null;
         const icon = profile === null ? undefined : icons.get(profile);
         const base = {
@@ -105,20 +139,36 @@ export class SubagentTree {
             runs: index?.runs ?? [],
         };
         // 关着的一定空闲（运行与等待都持着句柄）；也不为读它的事项去打开。
-        if (!table.isOpen(id)) return {...base, state: "idle"};
+        if (!table.isOpen(id)) {
+            this.#dynamic.delete(id);
+            return {...base, state: "idle"};
+        }
         const view = table.view(id);
         let snapshot: Awaited<ReturnType<typeof view.snapshot>>;
         let path: LogEvent[];
         try {
-            [snapshot, path] = await Promise.all([view.snapshot(), view.path()]);
+            snapshot = await view.snapshot();
+            const tracking = snapshot.status.state === "idle" || snapshot.status.state === "broken" ? undefined : jobs.forRun(id, snapshot.status.runId);
+            const key = `${String(snapshot.head)}|${snapshot.status.state}|${tracking?.invocation ?? ""}|${tracking?.state ?? ""}|${tracking?.question?.id ?? ""}|${index?.title ?? ""}`;
+            const cached = this.#dynamic.get(id);
+            if (cached?.key === key) return {...cached.item, ...base, profile: cached.item.profile, name: cached.item.name};
+            path = await view.path();
+            const item = this.#openItem(id, base, snapshot, path);
+            this.#dynamic.set(id, {key, item});
+            return item;
         } catch (error) {
             // 刚好在这期间关掉、又打不开了：按空闲给，下一次推送再看。
             if (error instanceof AgentSessionUnavailable) return {...base, state: "idle"};
             throw error;
         }
+    }
+
+    /** 打开着的后代：状态、等用户的事项、这次运行的进度，从快照与当前路径算。 */
+    #openItem(id: string, base: Omit<TreeItem, "state">, snapshot: SessionSnapshot, path: readonly LogEvent[]): TreeItem {
+        const {jobs} = this.options;
         const unanswered = pendingOf(path);
-        const toUser = (item: PendingItem) => item.kind === "approval" || isModeSwitch(item) || snapshot.header.questions === "user";
-        const pending = unanswered.filter(toUser).map(({id: itemId, kind, callId, request}) => ({id: itemId, kind, callId, request}));
+        const toUser = (item: PendingItem) => forUser(item.kind, snapshot.header.questions, isModeSwitch(item));
+        const pending = unanswered.filter(toUser).map(({id: itemId, kind, callId, request}) => ({id: itemId, kind, callId, request: trimRequest(request)}));
         const status = snapshot.status;
         const named = {...base, profile: snapshot.profile.id, name: snapshot.title, ...(pending.length === 0 ? {} : {pending})};
         if (status.state === "idle" || status.state === "broken") return {...named, state: "idle"};
@@ -128,7 +178,8 @@ export class SubagentTree {
         const blocking = status.state === "waiting" ? unanswered.filter((item) => status.pending.some((summary) => summary.id === item.id)) : [];
         const state: TreeState = blocking.length === 0 ? "running" : blocking.some(toUser) ? "waiting" : "question";
         const asked = blocking[0];
-        const question = state !== "question" ? undefined : live?.question ?? (asked === undefined ? undefined : {id: asked.id, text: questionText(asked.request)});
+        // 第一题的文字（输出 21）；任务上记的是交给模型的全部题目。
+        const question = state !== "question" ? undefined : asked !== undefined ? {id: asked.id, text: questionText(asked.request, {first: true})} : live?.question;
         return {
             ...named,
             state,
@@ -145,13 +196,29 @@ export class SubagentTree {
      */
     watch(sessionId: string, push: (items: TreeItem[]) => void, failed: (error: unknown) => void): () => void {
         const {relations, table, jobs, clock} = this.options;
-        const throttle = new PushThrottle({clock, intervalMs: TREE_PUSH_MS, compute: () => this.tree(sessionId), push, failed});
+        // 结果没变就不推：后代写一条日志不一定改变任何一项（例如流式中的助手消息之外的事件）。
+        let pushed = "";
+        const pushChanged = (items: TreeItem[]) => {
+            const text = JSON.stringify(items);
+            if (text === pushed) return;
+            pushed = text;
+            push(items);
+        };
+        const throttle = new PushThrottle({clock, intervalMs: TREE_PUSH_MS, compute: () => this.tree(sessionId), push: pushChanged, failed});
         const inTree = (id: string) => relations.ancestorsOf(id).includes(sessionId);
+        // 活动变化不带是哪个会话：只在这棵树里的会话的活动变了时重算。
+        let activity = "";
+        const treeActivity = () => JSON.stringify(table.activity().filter((item) => inTree(item.id)));
         const stops = [
             table.onLog((id) => {
                 if (inTree(id)) throttle.trigger();
             }),
-            table.onActivityChanged(() => throttle.trigger()),
+            table.onActivityChanged(() => {
+                const now = treeActivity();
+                if (now === activity) return;
+                activity = now;
+                throttle.trigger();
+            }),
             jobs.onChanged((owner) => {
                 if (owner === sessionId || inTree(owner)) throttle.trigger();
             }),

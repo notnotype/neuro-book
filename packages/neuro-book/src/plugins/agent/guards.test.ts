@@ -212,15 +212,16 @@ describe("重复调用", () => {
 
     test("输出 14：wait 交回的结果在变时反复等不算重复；结果相同照常计数", async () => {
         let polls = 0;
-        const waitSession = (execute: () => string) => createTestSession({tools: [{id: "lab.wait", execute}], extensions: [{extension: loopGuard(() => 3, new Set(["lab.wait"])), plugin: "nbook.agent"}]});
+        // 真实的 `wait` 文字里带已等的秒数，每次都不同；比的是 `details`。
+        const waitSession = (details: () => object) => createTestSession({tools: [{id: "lab.wait", execute: () => ({text: `等了 ${String((polls += 1))} 秒`, details: details() as never})}], extensions: [{extension: loopGuard(() => 3, new Set(["lab.wait"])), plugin: "nbook.agent"}]});
         const waits = (times: number) => Array.from({length: times}, () => ({tools: [{tool: "lab.wait", args: {}}]}));
-        await using changing = await waitSession(() => `第 ${String((polls += 1))} 个任务结束了`);
+        await using changing = await waitSession(() => ({jobs: [{jobId: `job-${String(polls)}`, state: "completed"}]}));
         changing.model.script(...waits(8), "好了");
         const report = await changing.say("开始");
         expect(report.result.text).toBe("好了");
         expect(texts(report.events, `${LOOP}/redirected`)).toHaveLength(0);
 
-        await using same = await waitSession(() => "等了 1800 秒还没有结果");
+        await using same = await waitSession(() => ({jobs: [{jobId: "job-1", state: "running"}]}));
         // 第一次重复没有更早的结果可比，算不同、不计数；之后与普通调用一样，提醒后再到阈值才停。
         same.model.script(...waits(7), "不该发到这里");
         expect((await same.say("开始")).result).toMatchObject({error: {code: "tool-call-loop"}});

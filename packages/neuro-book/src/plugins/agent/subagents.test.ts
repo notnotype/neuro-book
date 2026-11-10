@@ -229,9 +229,13 @@ describe("提问与插话", () => {
         await turn(parent, "派", [{tool: "agent_spawn", args: {profile: MAIN_PROFILE, prompt: "按大纲起草"}}, "等它"]);
         const [spawned] = await toolResults(parent, "nbook.agent.spawn");
         expect(spawned!.details).toMatchObject({status: "question"});
-        expect(spawned!.text).toContain("要几章？");
+        // 父 Agent 看得到选项（ask 的选项在请求的 data 里）。
+        expect(spawned!.text).toContain("要几章？（选一个：三章 / 五章）");
         const child = spawned!.details!.sessionId!;
-        const question = /提问 (\S+)：/u.exec(spawned!.text)![1]!;
+        const question = /提问 ([^：\s]+)：/u.exec(spawned!.text)![1]!;
+        // 子会话停在交给父 Agent 的提问上：用户没有要处理的，活动不算“等用户”。
+        const {client} = await w.window("activity");
+        expect(ok(await client.activity({})).find((item) => item.id === child)).toMatchObject({state: "running", root: parent.id});
 
         await turn(parent, "答它", [{tool: "agent_answer", args: {id: child, question, answer: {text: "三章"}}}, "好"]);
         const [answered] = await toolResults(parent, "nbook.agent.answer");
@@ -473,5 +477,70 @@ describe("fork", () => {
         const copy = w.service.session(forkedParent.value.sessionId);
         await turn(copy, "也想放话", [{tool: "agent_send", args: {id: child, message: "我也来"}}, "好"]);
         expect((await toolResults(copy, "nbook.agent.send")).at(-1)).toMatchObject({code: "not-owner"});
+    });
+});
+
+describe("续用与边界", () => {
+    test("输出 6：前台等到 timeout 以 running 返回、任务转后台，之后 wait 取到结果", async () => {
+        const {w, parent} = await open();
+        endpoint.scriptFor("要很久的活", "终于做完了。");
+        const held = endpoint.holdFor("要很久的活");
+        endpoint.script(adhoc("要很久的活", {timeout: 1}), {tool: "wait"}, "好");
+        const sent = await parent.send({commandId: cid(), input: {text: "派"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(JSON.stringify(sent));
+        await held.arrived;
+        await waitUntil("前台等到超时", async () => {
+            w.settings.clock.advance(1_000);
+            return (await toolResults(parent, "nbook.agent.spawn")).length === 1;
+        });
+        held.release();
+        await parent.waitRun(sent.value.runId);
+        const [spawned] = await toolResults(parent, "nbook.agent.spawn");
+        expect(spawned!.details).toMatchObject({status: "running"});
+        expect(spawned!.text).toContain("等了 1 秒");
+        expect((await toolResults(parent, "nbook.agent.wait"))[0]!.text).toContain("终于做完了。");
+    });
+
+    test("输出 10：queue 立即以 running 返回、话排到下一轮；在跑时不带 message 得 already-running，正常完成后得 nothing-to-continue", async () => {
+        const {w, parent} = await open();
+        endpoint.scriptFor("先做第一件", "第一件做完了", "第二件也做完了");
+        const held = endpoint.holdFor("先做第一件");
+        await turn(parent, "派", [adhoc("先做第一件", {async: true}), "好"]);
+        await held.arrived;
+        const child = (await toolResults(parent, "nbook.agent.spawn"))[0]!.details!.sessionId!;
+        await turn(parent, "排一句", [{tools: [{tool: "agent_send", args: {id: child, message: "接着做第二件", queue: true}}, {tool: "agent_send", args: {id: child}}]}, "好"]);
+        const [queued, resumed] = await toolResults(parent, "nbook.agent.send");
+        expect(queued!.details).toMatchObject({status: "running"});
+        expect(resumed).toMatchObject({code: "already-running"});
+        held.release();
+        await waitUntil("排着的话也做完", async () => (await childOf(w, child).path()).filter((event) => event.type === "assistant").length === 2);
+        await settledReason(childOf(w, child));
+        expect((await childOf(w, child).path()).some((event) => event.type === "input" && (event.data as {text: string; by?: {id: string}}).text === "接着做第二件" && (event.data as {by?: {id: string}}).by?.id === parent.id)).toBe(true);
+        await turn(parent, "继续", [{tool: "agent_send", args: {id: child}}, "好"]);
+        expect((await toolResults(parent, "nbook.agent.send")).at(-1)).toMatchObject({code: "nothing-to-continue"});
+    });
+
+    test("输出 15：questions 为 user 时子代理的提问交给用户：tree 里是 waiting、带 pending，父 Agent 答得 not-allowed", async () => {
+        const {w, parent} = await open({"nbook.agent/profileSettings": {[MAIN_PROFILE]: {agents: {added: [MAIN_PROFILE], removed: []}}}});
+        const {client} = await w.window("user-questions");
+        endpoint.scriptFor("问作者", {tool: "ask", args: {questions: [{question: "要几章？", options: [{label: "三章"}, {label: "五章"}]}]}}, "好");
+        await turn(parent, "派", [{tool: "agent_spawn", args: {profile: MAIN_PROFILE, prompt: "问作者", questions: "user", async: true}}, "好"]);
+        const child = (await toolResults(parent, "nbook.agent.spawn"))[0]!.details!.sessionId!;
+        await waitUntil("子会话等用户", async () => ok(await client.tree({sessionId: parent.id}))[0]?.state === "waiting");
+        const [item] = ok(await client.tree({sessionId: parent.id}));
+        expect(item!.pending).toEqual([expect.objectContaining({kind: "question"})]);
+        expect(ok(await client.activity({})).find((entry) => entry.id === child)).toMatchObject({state: "waiting"});
+        await turn(parent, "替作者答", [{tool: "agent_answer", args: {id: child, question: item!.pending![0]!.id, answer: {text: "三章"}}}, "好"]);
+        const [answered] = await toolResults(parent, "nbook.agent.answer");
+        expect(answered).toMatchObject({code: "not-allowed"});
+        expect(answered!.text).toContain("交给用户");
+    });
+
+    test("输出 1：指名的模型解析不了得 model-unavailable，不建子会话", async () => {
+        const {w, parent} = await open();
+        await turn(parent, "派", [adhoc("随便", {model: "nope/none"}), "好"]);
+        expect((await toolResults(parent, "nbook.agent.spawn"))[0]).toMatchObject({code: "model-unavailable"});
+        const listed = await w.service.list();
+        expect(listed.ok && listed.value.filter((entry) => entry.caller !== undefined)).toEqual([]);
     });
 });

@@ -19,12 +19,15 @@ export function lineCount(text: string): number {
     return lines;
 }
 
+/** 一行截到 `LINE_BYTES`；`marker` 给截掉之后接的说明（缺省一个省略号）。 */
+export function capLine(line: string, marker: (bytes: number) => string = () => "…"): string {
+    const size = Buffer.byteLength(line, "utf8");
+    // 按字节切可能切开多字节字符，解码时多出来的替换字符去掉。
+    return size <= LINE_BYTES ? line : `${Buffer.from(line, "utf8").subarray(0, LINE_BYTES).toString("utf8").replace(/\uFFFD+$/u, "")}${marker(size)}`;
+}
+
 export function capLines(text: string): string {
-    return text.split("\n").map((line) => {
-        const size = Buffer.byteLength(line, "utf8");
-        // 按字节切可能切开多字节字符，解码时多出来的替换字符去掉。
-        return size <= LINE_BYTES ? line : `${Buffer.from(line, "utf8").subarray(0, LINE_BYTES).toString("utf8").replace(/�+$/u, "")} …[本行共 ${String(size)} 字节，已截断]`;
-    }).join("\n");
+    return text.split("\n").map((line) => capLine(line, (size) => ` …[本行共 ${String(size)} 字节，已截断]`)).join("\n");
 }
 
 /** 已经截下的开头与结尾拼成窗口：开头去掉最后一行、结尾去掉第一行（可能是半行），各至多 `PART_LINES` 行。 */

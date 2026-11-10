@@ -21,7 +21,13 @@ export async function watchSteer(table: SessionTable, sessionId: string): Promis
     });
     // 会话打不开：没有插话能来，等待只按别的条件结束。
     if (!subscribed.ok) return {arrived, release: () => undefined};
-    const snapshot = await table.view(sessionId).snapshot();
-    if (snapshot.buffer.some((item) => item.mode === "steer")) arrive();
+    try {
+        const snapshot = await table.view(sessionId).snapshot();
+        if (snapshot.buffer.some((item) => item.mode === "steer")) arrive();
+    } catch (error) {
+        // 订阅持着会话的引用：读不了快照时先放掉，否则这个会话再也不会空闲关闭。
+        subscribed.release();
+        throw error;
+    }
     return {arrived, release: () => subscribed.release()};
 }

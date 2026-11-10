@@ -409,6 +409,16 @@ describe("会话之间的输入与交回的运行", () => {
         expect(dataOf(events, "input").map((data) => data.by)).toEqual([parent, undefined]);
     });
 
+    test("输出 85：只入队的话之后由 start 开运行，路径上的 input 仍记发出者", async () => {
+        await using session = await createTestSession({caller: {kind: "session", id: "parent", callId: "c1"}});
+        session.model.script("收到");
+        expect(await session.raw.as(parent).enqueue({commandId: id(), input: {text: "排在后面的话"}, mode: "followup"})).toMatchObject({ok: true});
+        const started = await session.raw.start({commandId: id()});
+        if (!started.ok) throw new Error(started.code);
+        await session.raw.waitRun(started.value.runId);
+        expect(dataOf(await session.events(), "input").map((data) => [data.text, data.by])).toEqual([["排在后面的话", parent]]);
+    });
+
     test("输出 85、88：插进在跑的运行时交回它的 runId，插话带着 by 送达", async () => {
         const release = gate();
         const started = gate();

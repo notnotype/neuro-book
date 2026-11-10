@@ -217,7 +217,7 @@ describe("临时帮手", () => {
         const request = await turn(created.value, "核对第三章");
         expect(request.system).toContain("你是设定核对员");
         expect(request.system).toContain("<work>");
-        expect([...request.tools].sort()).toEqual(["edit", "glob", "grep", "read", "shell", "write"]);
+        expect([...request.tools].sort()).toEqual(["edit", "glob", "grep", "jobs", "kill", "read", "shell", "wait", "write"]);
         expect(await w.service.create({profile: ADHOC_PROFILE})).toMatchObject({ok: false, code: "invalid-initial"});
     });
 

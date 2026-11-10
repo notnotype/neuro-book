@@ -339,6 +339,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         stop: async () => {
             stopping = true;
             table.closeGate();
+            // 先关任务中心的门：之后已打开会话里的工具起不了新的后台命令（否则它在 `jobs.clear()` 之后没人收口）。
+            jobs.close();
             // 后台命令按 interrupted 收口、写完 `status.json`；子代理运行不在这里停，由下面关会话收口。
             await Promise.allSettled(jobs.live().filter((job) => job.kind === "shell").map((job) => job.driver?.kill("interrupted")));
             await userProfiles.stop();

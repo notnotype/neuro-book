@@ -13,7 +13,7 @@ import {executeShell} from "@oh-my-pi/pi-natives";
 
 import type {CommandStatus} from "../../shared/subagents";
 import type {Job, JobCenter} from "../jobs/center";
-import {capLines, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window";
+import {capLine, capLines, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window";
 
 export const OUTPUT_FILE = "output.log";
 export const STATUS_FILE = "status.json";
@@ -30,8 +30,12 @@ export interface BackgroundCommand {
 export const jobDirectory = (sessionHome: string, jobId: string): string => join(sessionHome, "jobs", jobId);
 export const jobOutputAddress = (sessionId: string, jobId: string): string => `sessions://${sessionId}/home/jobs/${jobId}/${OUTPUT_FILE}`;
 
-/** 最后一行给远程与卡片看，截到一行的上限。 */
-const shortLine = (line: string): string => (Buffer.byteLength(line, "utf8") <= LINE_BYTES ? line : `${Buffer.from(line, "utf8").subarray(0, LINE_BYTES).toString("utf8").replace(/�+$/u, "")}…`);
+/** 内存里只留还没换行的那段的尾部（够截出最后一行）：输出一直不换行（`\r` 刷新的进度、二进制）也不会累积。 */
+const PARTIAL_CHARS = LINE_BYTES * 2;
+/** 最后一行变了，至多每隔这么久报一次（每次都会唤醒等它的调用与远程推送）。 */
+const PROGRESS_MS = 250;
+
+const tailOf = (text: string): string => (text.length > PARTIAL_CHARS ? text.slice(-PARTIAL_CHARS) : text);
 
 /**
  * 建好输出目录与文件、登记驱动并开始跑。目录或文件建不成时抛错，调用方退回名额；之后的失败都记进 `status.json` 与任务的终态。
@@ -44,10 +48,12 @@ export function startBackgroundCommand(jobs: JobCenter, job: Job, directory: str
     let bytes = 0;
     let lines = 0;
     let truncated = false;
-    /** 还没换行的最后一段；输出以换行结尾时它是空的，最后一行看 `lastComplete`。 */
+    /** 还没换行的最后一段（只留尾部）；输出以换行结尾时它是空的，最后一行看 `lastComplete`。 */
     let partial = "";
     let lastComplete = "";
     let problem: string | null = null;
+    let reportedAt = Number.NEGATIVE_INFINITY;
+    const lastLine = (): string => capLine((partial.trim() === "" ? lastComplete : partial).trimEnd());
 
     const take = (chunk: string) => {
         const encoded = Buffer.from(chunk, "utf8");
@@ -62,13 +68,21 @@ export function startBackgroundCommand(jobs: JobCenter, job: Job, directory: str
             bytes += taken.length;
             if (taken.length < encoded.length) truncated = true;
         } else truncated = true;
-        const parts = (partial + chunk).split("\n");
-        partial = parts.pop()!;
-        lines += parts.length;
-        const complete = parts.filter((part) => part.trim() !== "").at(-1);
-        if (complete !== undefined) lastComplete = complete;
-        const last = partial.trim() === "" ? lastComplete : partial;
-        if (last !== "" && last !== job.lastLine) jobs.progress(job, shortLine(last));
+        // 只切这一块：开头接上留着的尾部，各段都有界。
+        const segments = chunk.split("\n");
+        if (segments.length === 1) partial = tailOf(partial + chunk);
+        else {
+            lines += segments.length - 1;
+            const complete = [partial + segments[0]!, ...segments.slice(1, -1)].filter((part) => part.trim() !== "").at(-1);
+            if (complete !== undefined) lastComplete = tailOf(complete);
+            partial = tailOf(segments.at(-1)!);
+        }
+        const last = lastLine();
+        const now = clock.now();
+        if (last !== "" && last !== job.lastLine && now - reportedAt >= PROGRESS_MS) {
+            reportedAt = now;
+            jobs.progress(job, last);
+        }
     };
 
     const done = executeShell({command: command.command, cwd: command.cwd, env: {...command.env}, ...(command.timeoutMs === undefined ? {} : {timeoutMs: command.timeoutMs}), signal: controller.signal}, (error, chunk) => {
@@ -96,7 +110,8 @@ export function startBackgroundCommand(jobs: JobCenter, job: Job, directory: str
         } catch (error) {
             problem ??= `status.json: ${error instanceof Error ? error.message : String(error)}`;
         }
-        jobs.end(job, state, {reason: state, ...(exitCode === null ? {} : {exitCode}), lines: total, ...(job.lastLine === undefined ? {} : {line: job.lastLine})});
+        const last = lastLine();
+        jobs.end(job, state, {reason: state, ...(exitCode === null ? {} : {exitCode}), lines: total, ...(last === "" ? {} : {line: last})});
     });
 
     jobs.start(job, {

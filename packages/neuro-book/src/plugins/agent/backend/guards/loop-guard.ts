@@ -61,7 +61,8 @@ export function loopGuard(threshold: () => number, waits: ReadonlySet<string> = 
                 const sameResults = loop.sameResults && (loop.previousResults === null || loop.previousResults === loop.currentResults);
                 return {loop: {...loop, count: loop.count + 1, sameResults, previousResults: loop.currentResults, currentResults: ""}};
             },
-            toolResult: (event, {loop}) => ({loop: {...loop, currentResults: sha256(JSON.stringify([loop.currentResults, event.data.status, event.data.text]))}}),
+            // `wait` 的文字里有已等的秒数，每次都不同：按 `details`（各任务的 id 与状态）比，结果没变才算相同（run-guards.md 输出 14）。
+            toolResult: (event, {loop}) => ({loop: {...loop, currentResults: sha256(JSON.stringify([loop.currentResults, event.data.status, waits.has(event.data.tool) ? event.data.details ?? null : event.data.text]))}}),
             redirected: (_event, {loop}) => ({loop: {...loop, count: 0, sameResults: true, redirected: true}}),
             stopped: (_event, {loop}) => ({loop: {...loop, stopped: true}}),
             // 只有用户的新话解除。`start` 接着跑时 `inputId` 是 null：它没有带来新的东西，解除了就会一直循环下去。

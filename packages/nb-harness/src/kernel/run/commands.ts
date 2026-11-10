@@ -138,7 +138,8 @@ export function startCommand(host: CommandHost, args: CommandMap["start"]["args"
         const runId = core.newId();
         const started: EventDraft = {type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "chat"}};
         const next = core.session.kernel.buffer[0];
-        if (next !== undefined) return {value: {runId}, drafts: [started, ...takeInputDrafts(next.id, next.input, core.newId())], launch: runId};
+        // 缓冲区里的话可能是别的会话放的（父 Agent 排在后面的），路径上照样记发出者（runtime.md 输出 85）。
+        if (next !== undefined) return {value: {runId}, drafts: [started, ...takeInputDrafts(next.id, next.input, core.newId(), next.by)], launch: runId};
         // 缓冲区空：没有新输入的“继续”运行；末尾已经是完整的回复时没什么可继续的。
         const history = core.leafState.kernel.history;
         const last = history.current ?? (history.committed === null ? null : history.committed.head);

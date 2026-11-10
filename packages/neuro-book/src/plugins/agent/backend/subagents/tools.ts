@@ -27,7 +27,7 @@ import type {AgentToolServices} from "../../shared/resources";
 import {failed} from "../builtin/common";
 import type {Job, JobCenter} from "../jobs/center";
 import {isLive} from "../jobs/center";
-import {watchSteer} from "../jobs/steer";
+import {watchSteer, type SteerWatch} from "../jobs/steer";
 import {modesContract} from "../permissions/modes";
 import {AgentSessionUnavailable, type SessionTable} from "../sessions";
 import type {ChildRuns, SaveFull} from "./children";
@@ -166,6 +166,9 @@ function failure(code: string, text: string, sessionId?: string): ToolResult {
 /** 内核与存储的失败原样交回（“失败与恢复”的最后一段）。 */
 const passthrough = (result: {readonly code: string; readonly detail?: unknown}, what: string, sessionId?: string): ToolResult => failure(result.code, result.detail === undefined ? what : `${what}（${JSON.stringify(result.detail)}）`, sessionId);
 
+/** `nbook.agent` 正在停止：任务中心关了门。 */
+const unavailable = (): ToolResult => failure("unavailable", "nbook.agent 正在停止，不能再派子代理或续用。");
+
 const concurrencyLimit = (scope: "session" | "global"): ToolResult => ({
     ...failed("concurrency-limit", scope === "session"
         ? "concurrency-limit: 你同时在跑的子代理已经到上限。用 wait 等一个结束，或自己做。"
@@ -232,18 +235,25 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
 
     /**
      * 跑起来之后的等（输出 6）。后台（`async`、`queue`）立即以 `running` 交回。前台跟着任务：收口交回结果；停在新提问上交回提问；
-     * 插话与超时以 `running` 交回、任务转后台；父会话中止时立即交回，自己开的运行跟着中止（输出 16）。
+     * 插话与超时以 `running` 交回、任务转后台；父会话中止时立即交回，自己开的运行跟着中止（输出 16）。前台的 `attach` 由调用方在任务
+     * 可见之前做，这里在 `finally` 里 `detach`：任何一步抛错，任务都不会永远算作“前台在等”。
      */
     const settle = async (job: Job, call: ToolContext, args: Readonly<Record<string, unknown>>, foreground: boolean, answered?: string): Promise<ToolResult> => {
         if (!foreground) return deps.children.report(job);
-        const steer = await watchSteer(deps.table, job.owner);
+        let delivered = false;
+        let steer: SteerWatch | null = null;
         try {
+            steer = await watchSteer(deps.table, job.owner);
             const outcome = await deps.jobs.follow(job, {timeoutMs: timeoutMs(args), signal: call.signal, interrupted: steer.arrived, ...(answered === undefined ? {} : {answered})});
-            const result = outcome === "ended" || outcome === "question" ? await deps.children.report(job) : null;
-            deps.jobs.detach(job, result !== null);
-            if (result !== null) return result;
+            if (outcome === "ended" || outcome === "question") {
+                const result = await deps.children.report(job);
+                delivered = true;
+                return result;
+            }
             const child = job.target!.sessionId;
             if (outcome === "aborted") {
+                // 对模型来说 `aborted` 就是这次调用的终态：任务收口后直接移出，不再由 `wait` 交回一次（jobs.md 输出 6）。
+                deps.jobs.settleEarly(job);
                 if (job.ownRun === true && !deps.stopping()) {
                     void deps.table.view(child, issuerOf(job.owner)).abort({commandId: crypto.randomUUID(), keepQueue: true}).then((aborted) => {
                         if (!aborted.ok) deps.report("subagent-abort-failed", `could not abort sub-agent session ${child}: ${aborted.code}`, {session: child, code: aborted.code});
@@ -256,7 +266,8 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
             const running = resultOf({sessionId: child, jobId: job.id, runId: job.target!.runId, invocation: job.invocation, status: "running", note: `${why}。用 wait 等它，jobs 看状态，kill 停掉`});
             return {text: running.text, details: running.details};
         } finally {
-            steer.release();
+            deps.jobs.detach(job, delivered);
+            steer?.release();
         }
     };
 
@@ -300,7 +311,7 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
         const limit = deps.depthLimit();
         if (deps.relations.depthOf(parent) + 1 > limit) return failure("depth-limit", `子代理至多派到第 ${String(limit)} 层，这一层不能再派；自己做，或请用户调高上限。`);
         const reserved = deps.jobs.reserve(parent, "agent", call.invocation, title);
-        if (!reserved.ok) return concurrencyLimit(reserved.scope);
+        if (!reserved.ok) return reserved.code === "unavailable" ? unavailable() : concurrencyLimit(reserved.scope);
         const job = reserved.job;
         const foreground = args.async !== true;
         if (foreground) deps.jobs.attach(job);
@@ -359,61 +370,82 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
         }
     };
 
+    /**
+     * 对自己派的子会话放话或应答的共同部分（输出 9–13），整段在这个子会话的 lane 上：读快照；种类自己的检查（`check`）；子会话的运行
+     * 没有本会话的任务跟着时先占名额（占不到得 `concurrency-limit`，子会话不动）；收紧模式与只读；发指令（`issue`）；认任务，前台的当场
+     * `attach`（任务可见之前，同一条回复里的 `wait` 取不走它）。占了名额之后任何一步失败或抛错都退回。
+     */
+    const runOnChild = async (
+        parent: string,
+        child: string,
+        call: ToolContext,
+        services: AgentToolServices,
+        foreground: boolean,
+        steps: {
+            readonly check: (view: SessionApi, snapshot: SessionSnapshot) => Promise<ToolResult | null>;
+            readonly issue: (view: SessionApi, snapshot: SessionSnapshot) => Promise<{readonly runId: string | null; readonly ownRun: boolean} | Failure>;
+        },
+    ): Promise<Failure | {readonly job: Job | null; readonly runId: string | null}> => {
+        const limits = await parentLimits(parent, call);
+        const view = deps.table.view(child, issuerOf(parent));
+        return lanes.run(child, async () => {
+            const snapshot = await view.snapshot();
+            const refused = await steps.check(view, snapshot);
+            if (refused !== null) return {failure: refused};
+            let reserved: Job | null = null;
+            if (needsSlot(child, snapshot, parent)) {
+                const slot = deps.jobs.reserve(parent, "agent", call.invocation, snapshot.title ?? child);
+                if (!slot.ok) return {failure: slot.code === "unavailable" ? unavailable() : concurrencyLimit(slot.scope)};
+                reserved = slot.job;
+            }
+            try {
+                const tightened = await tighten(view, snapshot, limits, `${call.invocation}-tighten`);
+                if (tightened !== null) {
+                    if (reserved !== null) deps.jobs.release(reserved);
+                    return {failure: tightened};
+                }
+                const issued = await steps.issue(view, snapshot);
+                if (isFailure(issued) || issued.runId === null) {
+                    if (reserved !== null) deps.jobs.release(reserved);
+                    return isFailure(issued) ? issued : {job: null, runId: null};
+                }
+                const job = adopt(parent, child, issued.runId, reserved, issued.ownRun, call, services, snapshot.title ?? child);
+                if (job !== null && foreground) deps.jobs.attach(job);
+                return {job, runId: issued.runId};
+            } catch (error) {
+                if (reserved !== null) deps.jobs.release(reserved);
+                throw error;
+            }
+        });
+    };
+
+    const stoppingChild = (snapshot: SessionSnapshot, child: string, what: string): ToolResult | null =>
+        (snapshot.status.state === "aborting" ? failure("child-stopping", `子会话 ${child} 正在中止，${what}；稍后再试。`, child) : null);
+
     const send = async (context: ToolSessionContext, services: AgentToolServices, args: Readonly<Record<string, unknown>>, call: ToolContext): Promise<ToolResult> => {
         const parent = context.sessionId;
         const child = args.id as string;
         const notOwned = await owned(parent, child);
         if (notOwned !== null) return notOwned;
-        const limits = await parentLimits(parent, call);
         const message = typeof args.message === "string" ? args.message : undefined;
         const queue = args.queue === true;
-        const view = deps.table.view(child, issuerOf(parent));
-
-        const sentOrFailure = await lanes.run(child, async (): Promise<Failure | {readonly job: Job | null; readonly runId: string | null}> => {
-            const snapshot = await view.snapshot();
-            if (snapshot.status.state === "aborting") return {failure: failure("child-stopping", `子会话 ${child} 正在中止，话没有放进去；稍后再发。`, child)};
-            if (message === undefined && snapshot.status.state !== "idle") return {failure: failure("already-running", `子会话 ${child} 在跑；用 wait 等它，或带 message 插话。`, child)};
-            const tightened = await tighten(view, snapshot, limits, `${call.invocation}-tighten`);
-            if (tightened !== null) return {failure: tightened};
-            let reserved: Job | null = null;
-            if (needsSlot(child, snapshot, parent)) {
-                const slot = deps.jobs.reserve(parent, "agent", call.invocation, snapshot.title ?? child);
-                if (!slot.ok) return {failure: concurrencyLimit(slot.scope)};
-                reserved = slot.job;
-            }
-            const release = () => {
-                if (reserved !== null) deps.jobs.release(reserved);
-            };
-            let runId: string | null;
-            let ownRun: boolean;
-            if (message === undefined) {
-                const started = await view.start({commandId: call.invocation});
-                if (!started.ok) {
-                    release();
-                    return {failure: passthrough(started, `子会话 ${child} 没能继续`, child)};
+        const foreground = !queue && args.async !== true;
+        const outcome = await runOnChild(parent, child, call, services, foreground, {
+            check: async (_view, snapshot) => stoppingChild(snapshot, child, "话没有放进去")
+                ?? (message === undefined && snapshot.status.state !== "idle" ? failure("already-running", `子会话 ${child} 在跑；用 wait 等它，或带 message 插话。`, child) : null),
+            issue: async (view) => {
+                if (message === undefined) {
+                    const started = await view.start({commandId: call.invocation});
+                    return started.ok ? {runId: started.value.runId, ownRun: true} : {failure: passthrough(started, `子会话 ${child} 没能继续`, child)};
                 }
-                runId = started.value.runId;
-                ownRun = true;
-            } else {
                 const sent = await view.send({commandId: call.invocation, input: {text: message}, mode: queue ? "followup" : "steer"});
-                if (!sent.ok) {
-                    release();
-                    return {failure: passthrough(sent, `话没有放进子会话 ${child}`, child)};
-                }
-                runId = sent.value.runId ?? sent.value.currentRunId ?? null;
-                ownRun = sent.value.runId !== null;
-            }
-            if (runId === null) {
-                release();
-                return {job: null, runId: null};
-            }
-            return {job: adopt(parent, child, runId, reserved, ownRun, call, services, snapshot.title ?? child), runId};
+                // 交回的 `runId` 是这次开的或接着跑的（算调用方开的）；插进别人的运行时是 `currentRunId`。
+                return sent.ok ? {runId: sent.value.runId ?? sent.value.currentRunId ?? null, ownRun: sent.value.runId !== null} : {failure: passthrough(sent, `话没有放进子会话 ${child}`, child)};
+            },
         });
-        if (isFailure(sentOrFailure)) return sentOrFailure.failure;
-        const {job} = sentOrFailure;
-        if (job === null) return untracked(child, sentOrFailure.runId, call, "话已送达");
-        if (!queue && args.async !== true) deps.jobs.attach(job);
-        return settle(job, call, args, !queue && args.async !== true);
+        if (isFailure(outcome)) return outcome.failure;
+        if (outcome.job === null) return untracked(child, outcome.runId, call, "话已送达");
+        return settle(outcome.job, call, args, foreground);
     };
 
     const answer = async (context: ToolSessionContext, services: AgentToolServices, args: Readonly<Record<string, unknown>>, call: ToolContext): Promise<ToolResult> => {
@@ -423,38 +455,28 @@ export function subagentTools(deps: SubagentToolDeps): Readonly<Record<string, A
         const reply = args.answer as {text: string; data?: JsonValue};
         const notOwned = await owned(parent, child);
         if (notOwned !== null) return notOwned;
-        const limits = await parentLimits(parent, call);
-        const view = deps.table.view(child, issuerOf(parent));
-
-        const answeredOrFailure = await lanes.run(child, async (): Promise<Failure | {readonly job: Job | null; readonly runId: string | null}> => {
-            const [snapshot, path] = await Promise.all([view.snapshot(), view.path()]);
-            const item = pendingOf(path).find((pending) => pending.id === question);
-            if (item === undefined) return {failure: failure("question-unknown", `子会话 ${child} 没有待答的提问 ${question}（可能已经答过，或在被回退掉的分支上）。`, child)};
-            if (item.kind === "approval") return {failure: failure("not-allowed", "这是审批，只能由用户批；等用户处理。", child)};
-            if (isModeSwitch(item)) return {failure: failure("not-allowed", "这是子代理申请切换模式，只能由用户答；等用户处理。", child)};
-            if (snapshot.header.questions !== "caller") return {failure: failure("not-allowed", "这个子会话的提问交给用户，只能由用户答；等用户处理。", child)};
-            if (snapshot.status.state === "aborting") return {failure: failure("child-stopping", `子会话 ${child} 正在中止；稍后再答。`, child)};
-            const tightened = await tighten(view, snapshot, limits, `${call.invocation}-tighten`);
-            if (tightened !== null) return {failure: tightened};
-            let reserved: Job | null = null;
-            if (needsSlot(child, snapshot, parent)) {
-                const slot = deps.jobs.reserve(parent, "agent", call.invocation, snapshot.title ?? child);
-                if (!slot.ok) return {failure: concurrencyLimit(slot.scope)};
-                reserved = slot.job;
-            }
-            const resolved = await view.resolve({commandId: call.invocation, id: question, decision: "answer", answer: reply});
-            if (!resolved.ok || resolved.value.runId === undefined) {
-                if (reserved !== null) deps.jobs.release(reserved);
-                return resolved.ok ? {job: null, runId: null} : {failure: passthrough(resolved, `没能应答子会话 ${child} 的提问 ${question}`, child)};
-            }
-            // 同步提问的回答叫醒原来那次运行（任务照旧）；异步提问的回答在子会话空闲时开新运行，算调用方开的。
-            return {job: adopt(parent, child, resolved.value.runId, reserved, snapshot.status.state === "idle", call, services, snapshot.title ?? child), runId: resolved.value.runId};
+        const foreground = args.async !== true;
+        let wasIdle = false;
+        const outcome = await runOnChild(parent, child, call, services, foreground, {
+            check: async (view, snapshot) => {
+                const item = pendingOf(await view.path()).find((pending) => pending.id === question);
+                if (item === undefined) return failure("question-unknown", `子会话 ${child} 没有待答的提问 ${question}（可能已经答过，或在被回退掉的分支上）。`, child);
+                if (item.kind === "approval") return failure("not-allowed", "这是审批，只能由用户批；等用户处理。", child);
+                if (isModeSwitch(item)) return failure("not-allowed", "这是子代理申请切换模式，只能由用户答；等用户处理。", child);
+                if (snapshot.header.questions !== "caller") return failure("not-allowed", "这个子会话的提问交给用户，只能由用户答；等用户处理。", child);
+                wasIdle = snapshot.status.state === "idle";
+                return stoppingChild(snapshot, child, "没有应答");
+            },
+            issue: async (view) => {
+                const resolved = await view.resolve({commandId: call.invocation, id: question, decision: "answer", answer: reply});
+                if (!resolved.ok) return {failure: passthrough(resolved, `没能应答子会话 ${child} 的提问 ${question}`, child)};
+                // 同步提问的回答叫醒原来那次运行（任务照旧）；异步提问的回答在子会话空闲时开新运行，算调用方开的。
+                return {runId: resolved.value.runId ?? null, ownRun: wasIdle};
+            },
         });
-        if (isFailure(answeredOrFailure)) return answeredOrFailure.failure;
-        const {job} = answeredOrFailure;
-        if (job === null) return untracked(child, answeredOrFailure.runId, call, answeredOrFailure.runId === null ? "回答已排进子会话的缓冲区，它现在没有运行可开（例如模型不可用）" : "已应答");
-        if (args.async !== true) deps.jobs.attach(job);
-        return settle(job, call, args, args.async !== true, question);
+        if (isFailure(outcome)) return outcome.failure;
+        if (outcome.job === null) return untracked(child, outcome.runId, call, outcome.runId === null ? "回答已排进子会话的缓冲区，它现在没有运行可开（例如模型不可用）" : "已应答");
+        return settle(outcome.job, call, args, foreground, question);
     };
 
     /** 放话、应答成功但没有任务可跟：子会话没有运行（`idle`），或补占名额没占到。 */

@@ -13,6 +13,8 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {commandErrors} from "@notnotype/nb-harness/kernel/contracts";
 import type {AgentHost, CreateSessionOptions, Frame, Issuer, SessionApi, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
 
+import {forUser, isModeSwitch, type PendingItem} from "./subagents/result";
+
 /** 空闲多久关闭（sessions.md 输出 6）。 */
 export const IDLE_CLOSE_MS = 30_000;
 
@@ -41,8 +43,13 @@ interface Entry {
     session: SessionApi | null;
     /** 后台会话不算“正在运行”（sessions.md 的 `running()`）。 */
     background: boolean;
-    /** 运行中还是在等用户；活动条目读它（sessions.md 输出 15）。 */
+    /**
+     * 运行停在等用户的事项上；活动条目读它（sessions.md 输出 15）。停在只交给派它的 Agent 的提问上不算（子代理向父 Agent 提问时，用户
+     * 没有要处理的），按 `forUser` 的规则判断，所以要会话头的 `questions` 与哪些事项是模式切换请求。
+     */
     waiting: boolean;
+    questions: "caller" | "user";
+    modeSwitches: Set<string>;
     /** 打开的结果：同时到达的请求等同一个。 */
     ready: Promise<{readonly ok: true} | OpenFailure>;
     refs: number;
@@ -101,7 +108,7 @@ export class SessionTable {
         if (!created.ok) return created;
         const session = created.value;
         // 停止在建会话期间开始：照样登记，停止等这次建会话结束后关掉它。
-        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, questions: options.questions ?? "user", modeSwitches: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
         this.#entries.set(session.id, entry);
         this.#watch(entry, session);
         this.#maybeIdle(entry);
@@ -230,7 +237,7 @@ export class SessionTable {
                 continue;
             }
             if (entry === undefined) {
-                entry = {id, state: "opening", session: null, background: false, waiting: false, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+                entry = {id, state: "opening", session: null, background: false, waiting: false, questions: "user", modeSwitches: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
                 entry.ready = this.#open(entry);
                 this.#entries.set(id, entry);
             }
@@ -260,7 +267,9 @@ export class SessionTable {
                 this.#entries.delete(entry.id);
                 return {ok: false, code: opened.code, ...(opened.detail === undefined ? {} : {detail: opened.detail})};
             }
-            entry.background = (await opened.value.snapshot()).header.background === true;
+            const {header} = await opened.value.snapshot();
+            entry.background = header.background === true;
+            entry.questions = header.questions;
             entry.session = opened.value;
             entry.state = "open";
             this.#watch(entry, opened.value);
@@ -276,14 +285,16 @@ export class SessionTable {
     #watch(entry: Entry, session: SessionApi): void {
         entry.stopWatching = session.subscribe((frame) => {
             if (frame.type === "log") {
+                if (frame.event.type === "interactionRequested" && isModeSwitch(frame.event.data as unknown as PendingItem)) entry.modeSwitches.add((frame.event.data as {id: string}).id);
                 for (const listener of this.#logListeners) listener(entry.id, frame);
                 return;
             }
             if (frame.type !== "status") return;
             const wasWaiting = entry.waiting;
             const wasIdle = entry.idle;
-            entry.idle = frame.status.state === "idle" || frame.status.state === "broken";
-            entry.waiting = frame.status.state === "waiting";
+            const {status} = frame;
+            entry.idle = status.state === "idle" || status.state === "broken";
+            entry.waiting = status.state === "waiting" && status.pending.some((item) => forUser(item.kind, entry.questions, entry.modeSwitches.has(item.id)));
             if (entry.idle !== wasIdle || entry.waiting !== wasWaiting) this.#activityChanged();
             if (entry.idle) this.#maybeIdle(entry);
             else {

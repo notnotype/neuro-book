@@ -68,7 +68,11 @@ export interface Job {
     ownRun?: boolean;
 }
 
-export type ReserveResult = {readonly ok: true; readonly job: Job} | {readonly ok: false; readonly code: "concurrency-limit"; readonly scope: "session" | "global"};
+export type ReserveResult =
+    | {readonly ok: true; readonly job: Job}
+    | {readonly ok: false; readonly code: "concurrency-limit"; readonly scope: "session" | "global"}
+    /** 插件正在停止（`close` 之后）：不再登记新任务，免得停止期间起的后台命令没人收口。 */
+    | {readonly ok: false; readonly code: "unavailable"};
 
 export interface JobLimits {
     /** 一个会话同时在跑的子代理运行。 */
@@ -99,6 +103,7 @@ export class JobCenter {
     readonly #listeners = new Set<() => void>();
     /** 远程的 `jobsChanged` 与子代理进度：哪个会话的任务变了。 */
     readonly #owners = new Set<(owner: string) => void>();
+    #closed = false;
 
     constructor(private readonly options: {readonly clock: Clock; readonly limits: () => JobLimits; readonly newId: () => string}) {}
 
@@ -109,6 +114,7 @@ export class JobCenter {
 
     /** 占名额并登记一个 `starting` 的任务（jobs.md 输出 2）；在工具的同步段里调用，几次并发的启动不会一起越过上限。 */
     reserve(owner: string, kind: JobKind, invocation: string, summary: string): ReserveResult {
+        if (this.#closed) return {ok: false, code: "unavailable"};
         const limits = this.options.limits();
         const live = [...this.#jobs.values()].filter((job) => isLive(job.state));
         if (live.length >= limits.global) return {ok: false, code: "concurrency-limit", scope: "global"};
@@ -168,8 +174,24 @@ export class JobCenter {
         job.outcome = outcome;
         job.endedAt = this.options.clock.now();
         delete job.question;
+        // 前台调用已经以终态交回过（父会话中止时的 `aborted`）：结束即移出，不再当没取过的后台任务交给 `wait`。
+        if (job.fetched && job.waiters === 0) this.#jobs.delete(job.id);
         this.#changed(job);
         this.#trim(job.owner);
+    }
+
+    /**
+     * 前台调用不等它收口就以终态交回了（父会话中止，subagents.md 输出 16）：视同取过，结束时直接移出（jobs.md 输出 6）。调用方之后照常
+     * `detach`。
+     */
+    settleEarly(job: Job): void {
+        job.fetched = true;
+        if (!isLive(job.state) && job.waiters === 0) this.#jobs.delete(job.id);
+    }
+
+    /** 停止的第一步：之后 `reserve` 一律得 `unavailable`；在跑的照常由调用方停掉（jobs.md 输出 8）。 */
+    close(): void {
+        this.#closed = true;
     }
 
     /** 前台调用开始、结束等它。以终态交回的视同取过，移出。 */
@@ -182,7 +204,7 @@ export class JobCenter {
         if (delivered && !isLive(job.state)) {
             job.fetched = true;
             this.#jobs.delete(job.id);
-        }
+        } else if (job.fetched && !isLive(job.state) && job.waiters === 0) this.#jobs.delete(job.id);
         if (delivered && job.question !== undefined) job.questionDelivered = job.question.id;
         this.#changed(job);
     }
@@ -212,7 +234,8 @@ export class JobCenter {
                 candidates.push(job);
             }
         } else {
-            candidates = this.list(owner).filter((job) => job.waiters === 0 && (isLive(job.state) || !job.fetched));
+            // 取过的（含前台已经以中止交回、还在收口的）不再等。
+            candidates = this.list(owner).filter((job) => job.waiters === 0 && !job.fetched);
         }
         if (candidates.length === 0) return {kind: "failed", code: "no-jobs"};
         const ready = (): Job | undefined => candidates.find((job) => !isLive(job.state) && !job.fetched)

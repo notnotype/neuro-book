@@ -25,7 +25,7 @@ function center(limits = {perSession: 8, global: 16}) {
     /** 起一个在跑的任务；`kill` 照实把它记成已停止。 */
     const run = (owner: string, kind: "agent" | "shell" = "agent", summary = "活"): Job => {
         const reserved = jobs.reserve(owner, kind, `inv-${String(ids)}`, summary);
-        if (!reserved.ok) throw new Error(reserved.scope);
+        if (!reserved.ok) throw new Error(reserved.code);
         const job = reserved.job;
         jobs.start(job, {kill: async () => jobs.end(job, "aborted", {reason: "aborted"}), result: async () => `${summary}的结果`});
         return job;
@@ -109,6 +109,30 @@ describe("wait", () => {
         stop.abort();
         expect(await aborted).toMatchObject({kind: "aborted"});
         expect(job.state).toBe("running");
+    });
+});
+
+describe("停止与提前交回", () => {
+    test("输出 8：关门之后不再登记新任务，在跑的照常可停", async () => {
+        const {jobs, run} = center();
+        const job = run("p", "shell");
+        jobs.close();
+        expect(jobs.reserve("p", "shell", "i", "停止期间的命令")).toEqual({ok: false, code: "unavailable"});
+        expect(await jobs.kill(null, job.id)).toBe("killed");
+    });
+
+    test("输出 6：前台以中止交回的任务，收口后直接移出，wait 不再交回它", async () => {
+        const {jobs, run} = center();
+        const aborted = run("p", "agent", "中止的");
+        const other = run("p", "agent", "后台的");
+        jobs.attach(aborted);
+        jobs.settleEarly(aborted);
+        jobs.detach(aborted, false);
+        jobs.end(aborted, "aborted", {reason: "aborted"});
+        expect(jobs.get(aborted.id)).toBeUndefined();
+        const waiting = jobs.wait("p", {timeoutMs: 1_000, signal: never});
+        jobs.end(other, "completed", {reason: "completed"});
+        expect(await waiting).toMatchObject({kind: "ready", job: {id: other.id}});
     });
 });
 
