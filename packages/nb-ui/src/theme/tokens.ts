@@ -5,7 +5,8 @@
  * 这里只登记名字与分组，用途有两个：给消费方一个可枚举的契约，以及给测试一条「两个文件是否声明齐全」的兜底断言。
  *
  * 与 `colorway/colorway-contract.ts` 的分工：那边是**随配色变化的颜色**，这边是**主题可以覆盖的形状与节奏**。
- * `--elevation-*` 是唯一的交界处——它是常量公式，但公式里引用了随主题变的 `--shadow-color`。
+ * 两处交界：`--elevation-*` 是常量公式，但公式里引用了随主题变的 `--shadow-color`；语法着色（`nbThemeSyntaxTokens`）
+ * 是颜色，却不进配色契约：它的缺省全由配色变量推导，配色不用各写一份，主题想要自己的色板时才改判。
  */
 
 /** 排版：界面字体、字号刻度、行高、字重 */
@@ -142,8 +143,25 @@ export const nbThemeFeedbackTokens = [
     "--layout-card-radius",
     "--layout-card-shadow",
 ] as const;
+/**
+ * 语法着色：代码里各种成分的颜色，源码编辑器按它着色。缺省由配色变量推导（`tokens.css`）；主题改判时只写成配色变量的
+ * 引用或 `color-mix()`，不写字面色。
+ */
+export const nbThemeSyntaxTokens = [
+    "--syntax-comment",
+    "--syntax-keyword",
+    "--syntax-string",
+    "--syntax-number",
+    "--syntax-type",
+    "--syntax-tag",
+    "--syntax-attribute",
+    "--syntax-regexp",
+    "--syntax-variable",
+    "--syntax-punctuation",
+] as const;
+
 /** 主题层基线的合集 */
-export const nbThemeTokens = [...nbThemeMetricTokens, ...nbThemeDecorTokens, ...nbThemeRoleTokens, ...nbThemeFeedbackTokens] as const;
+export const nbThemeTokens = [...nbThemeMetricTokens, ...nbThemeDecorTokens, ...nbThemeRoleTokens, ...nbThemeFeedbackTokens, ...nbThemeSyntaxTokens] as const;
 
 export type NbThemeToken = typeof nbThemeTokens[number];
 
