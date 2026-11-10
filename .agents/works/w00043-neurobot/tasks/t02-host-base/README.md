@@ -43,6 +43,9 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 代码在 `.worktree/w00043-neurobot`（分支 `feat/w00043-neurobot`），主会话写。
 
 - 第 1 片（`nb-file-lock`）已提交：包与两条真实子进程用例（并发替换 40 次不丢、暂停到过期后被接管只报诊断不崩）、应用 26 个文件改导入、`startup.ts` 改用 `lockHeld`、补丁校验加“只有 nb-file-lock 直接声明”、应用架构测试加运行位置表。验证：包的 `typecheck` 与 `bun test`（5 条）；应用 `bun run typecheck`（三份配置都过，证实入口的 `/// <reference>` 把 `proper-lockfile` 的声明带给使用方）；应用 `src/backend`、`files`、`settings`、`canon`、`plugin-platform`、`server/projects`、`server/instance.test.ts`、`explorer`、`diagnostics`、`projects` 与架构测试 761 条，1 条负载下超时、单独重跑通过；`validate-proper-lockfile-patch.ts` 通过，把 nb-time 临时改成直接声明时它报错；脚本的类型检查与 `scripts/ci` 测试；`governance:check`、`docs:check`；`test:affected` 选得到新包。
+- 第 1 片漏改一处：应用依赖多了 nb-file-lock，开发监督进程的监视目录随之多一项，`src/server/dev/watch.test.ts` 的期望没改（第 1 片的验证没跑 `src/server/dev`），已单独提交修正。
+- 第 2 片（nb-host 骨架、`./socket`、`./testing`）已提交：nb-host 的两份类型检查与边界测试；应用类型检查、`src/server`、`src/web/host`、`files/transport.test.ts`、`canon`、架构测试，3 条项目子进程用例负载下超时、单独重跑通过；`build:web`；`build:sdk` 的产物里没有 nb-host 与 nb-file-lock；开发模式页面加载（书架页，报告无问题）。第 1、2 片之后应用整套 `test:bun` 2754 条通过，6 条子进程用例负载下超时，单独重跑 44 条全过。
+- 第 3 片（`./server`：回环与来源、端口顺延、状态根认领）已提交：认领档案改成 `defineClaimProfile` 建出（核对字段不与基础字段重名、建好整个应答的 schema），发布时核对应用字段，各加一条用例；应用 `instance.ts` 是 NeuroBook 的档案加 `claimNeuroBook`、`queryNeuroBook`（版本只在测试里换）。验证：nb-host 24 条；应用类型检查；`src/server`、`src/cli`、架构测试、`window.test.ts` 206 条，`server-projects.test.ts` 的项目停止用例在负载 16 到 20 下超时，放宽到 30 秒全过（每条约 5 秒）。
 
 ### 计划第一稿的处理
 
