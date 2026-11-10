@@ -36,6 +36,8 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 
 2026-11-10：[plan.md](plan.md) 初稿（Opus）做了计划审查（Opus 审服务端、HTTP 与模型服务 16 条，Sonnet 审浏览器宿主 12 条）与独立设计（Sonnet），报告在 `evidences/`。处理如下；三项交开发者（见“待开发者定”），定了再改第二稿。
 
+2026-11-10：按下表与“开发者定的”三项改出第二稿（Opus，424 行）：新包三个（`nb-file-lock`、`nb-host`、`nb-models`）；切片重排为 0 ADR（主 Agent 在主工作区写）、1 `nb-file-lock`、2 到 6 `nb-host`、7 与 8 `nb-models`（t32 合入、变基之后）、9 文档与合入前清单，第 1 到 6 片可在 t32 合入前先合。表外顺带改的：补丁校验脚本加“只有 `nb-file-lock` 声明 `proper-lockfile` 且版本 4.1.2”；第 4 片用过渡导出 `createHostPlugins`、第 5 片删去；`runtime/diagnostics.md` 进 Spec 改动表；B4 的“锁失效只报诊断、进程不崩”用例放在 `nb-file-lock`。主 Agent 核对：引用 `locked-replace` 的非测试文件 19 个、提到它的测试 9 份（`locked-replace.test.ts` 随包搬走、`architecture.test.ts` 另改，要改导入的正是计划写的 7 份）；直接导入 `proper-lockfile` 的应用文件 4 个（`locked-replace.ts`、`jsonl-exporter.ts`、`layer-file.ts`、`plugin-platform/backend/startup.ts`），计划都给了去处。剩三项交开发者（计划“需要开发者确认”）。
+
 ### 计划第一稿的处理
 
 后端审查（B）、前端审查（F）、独立设计（D）：
@@ -82,4 +84,4 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 
 ## 下一步
 
-派 Opus 按上表与上面三项改第二稿；第二稿交开发者确认后，主 Agent 在主工作区写 ADR（新包 nb-host、nb-models、加锁替换的小包，ADR 0030 决策 2 的修订），再开工。
+开发者定计划“需要开发者确认”的三项（小包名 `nb-file-lock`；三个包的 exports 与 `private: true`；五个内置角色与选择顺序归 `nb-models`）。定了以后主 Agent 在主工作区写 ADR（第 0 片），再建 worktree 开工；第 7、8 片等 w00032 t32 合入。
