@@ -44,8 +44,9 @@ Spec 草稿 `docs/specs/canon/author-ui.md` 与 `editor.md`、`docs/specs/README
 
 另：写 Spec 时发现“底部面板默认隐藏”要落在工作台的视图容器合同里（w00026 t24 正在改），本 Task 没动那两份 Spec，放到评审板问由谁加（`b1-panel-default-owner`）。
 
+开发者 2026-11-10 在 t16 评审板第 9 版答（答复 `20261110T081136877Z-57ae1ba0`）：`b1-kernel-gaps` 选“补上这八项，第一批前面加一片内核补口”（推荐项）；`b1-panel-default-owner` 选“让 t24 顺手加”（推荐项，由开发者转告那边；本 Task 在它提供之前按默认显示做）。
+
 ## 下一步
 
-1. 等开发者答 t16 评审板第 9 版的 `b1-kernel-gaps`、`b1-panel-default-owner`。
-2. 按答复出计划第三版并重写 Spec：加“内核补口”一片（或收窄）、页面标签的新设计、读取层与测试的改法、处理记录里丁与戊各条。
-3. 再审一轮（界面部分 Sonnet，内核补口 Opus），请开发者批准后开工。
+1. 出计划第三版并重写 Spec：加“内核补口”一片（八项，改 `canon/project.md`、`revisions.md`、`model.md`、`components.md` 的 planned 条目）、页面标签的新设计（每个标签自己的实例与状态容器，另看要不要给页面标签面包屑，见 t16 第 5 轮的答复）、读取层与测试的改法、处理记录里丁与戊各条。
+2. 再审一轮（界面部分 Sonnet，内核补口 Opus），请开发者批准后开工。
