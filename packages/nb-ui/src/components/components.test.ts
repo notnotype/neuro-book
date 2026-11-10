@@ -374,6 +374,26 @@ describe("nb-ui components", () => {
         expect(wrapper.emitted("dismiss")).toHaveLength(1);
     });
 
+    it("notification: action and details share one row under the message; details only with hasDetail and reports its button", async () => {
+        const plain = mount(Notification, {props: {message: "已保存", dismissible: true}});
+        expect(plain.find("[data-notification-actions]").exists()).toBe(false);
+
+        const withAction = mount(Notification, {props: {message: "连接已断开", actionLabel: "重试"}});
+        expect(withAction.get("[data-notification-actions]").text()).toBe("重试");
+        expect(withAction.find("[data-notification-detail]").exists()).toBe(false);
+
+        const wrapper = mount(Notification, {props: {tone: "danger", title: "文件没有保存", message: "没有写入权限", actionLabel: "重试", hasDetail: true, dismissible: true}, attachTo: document.body});
+        const row = wrapper.get("[data-notification-actions]");
+        expect(row.findAll("button").map((button) => button.text())).toEqual(["重试", "详情"]);
+        // 关闭键不在动作行里，仍在右上角。
+        expect(row.find("[aria-label]").exists()).toBe(false);
+        expect(wrapper.find("button[aria-label]").exists()).toBe(true);
+        await wrapper.get("[data-notification-detail]").trigger("click");
+        expect(wrapper.emitted("detail")?.[0]?.[0]).toBe(wrapper.get("[data-notification-detail]").element);
+        expect(wrapper.emitted("action")).toBeUndefined();
+        wrapper.unmount();
+    });
+
     it("renders themed checkbox and emits updates", async () => {
         const wrapper = mount(Checkbox, {
             props: {modelValue: false, label: "接收通知"},

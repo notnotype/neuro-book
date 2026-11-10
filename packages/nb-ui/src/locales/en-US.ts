@@ -70,6 +70,7 @@ export default {
     notification: {
         close: "Dismiss notification",
         inProgress: "In progress",
+        detail: "Details",
     },
     numberInput: {
         increase: "Increase",

@@ -74,6 +74,7 @@ export default {
     notification: {
         close: "关闭通知",
         inProgress: "进行中",
+        detail: "详情",
     },
     numberInput: {
         increase: "增加",

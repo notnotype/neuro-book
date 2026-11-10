@@ -85,6 +85,7 @@ const CASES: readonly Case[] = [
     {name: "NumberInput 增加按钮", component: NumberInput, props: {modelValue: "1"}, read: attr("button[aria-label]", "aria-label"), zh: "增加", en: "Increase", override: {props: {incrementLabel: "加一"}, expected: "加一"}},
     {name: "Slider 滑块名", component: Slider, props: {modelValue: [10, 20]}, read: attr("[role=slider]", "aria-label"), zh: "滑块 1", en: "Slider 1", override: {props: {ariaLabel: "音量"}, expected: "音量"}},
     {name: "InfoTip 读屏名", component: InfoTip, props: {text: "说明文字"}, read: attr("button", "aria-label"), zh: "说明", en: "Info", override: {props: {label: "主题色说明"}, expected: "主题色说明"}},
+    {name: "Notification 详情按钮", component: Notification, props: {hasDetail: true, message: "m"}, read: text("[data-notification-detail]"), zh: "详情", en: "Details", override: {props: {detailLabel: "查看原文"}, expected: "查看原文"}},
     {name: "Notification 关闭按钮", component: Notification, props: {dismissible: true, message: "m"}, read: attr("button[aria-label]", "aria-label"), zh: "关闭通知", en: "Dismiss notification", override: {props: {closeLabel: "知道了"}, expected: "知道了"}},
     {name: "Notification 不确定进度", component: Notification, props: {message: "m", progress: null}, read: attr("[role=progressbar]", "aria-valuetext"), zh: "进行中", en: "In progress"},
     {name: "NotificationStack 关闭按钮", component: NotificationStack, props: {queue}, read: attr("button[aria-label]", "aria-label"), zh: "关闭通知", en: "Dismiss notification", override: {props: {closeLabel: "知道了"}, expected: "知道了"}},

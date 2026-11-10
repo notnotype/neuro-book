@@ -156,13 +156,15 @@ export const feedbackFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof Notification>({
         component: "Notification",
-        events: ["action", "dismiss"],
+        events: ["action", "dismiss", "detail"],
         class: "w-full max-w-[420px]",
         scenes: [
             {id: "info", label: "信息", input: {props: {tone: "info", title: "已切换到项目「长夜行」", message: "上次的标签与展开的目录已恢复。", dismissible: true, closeLabel: "关闭"}}},
             {id: "success", label: "成功", input: {props: {tone: "success", title: "已保存", message: "第十七章 雪线", dismissible: true}}},
             {id: "warning", label: "警告与操作", input: {props: {tone: "warning", title: "布局没保存上", message: "存储暂时不可用，修改只在这个窗口里。", actionLabel: "重试", dismissible: true}}},
             {id: "error", label: "错误", input: {props: {tone: "danger", title: "保存失败", message: "磁盘已满（ENOSPC）。", actionLabel: "重试", dismissible: false}}},
+            {id: "detail", label: "错误、重试与详情", input: {props: {tone: "danger", title: "文件没有保存", message: "没有写入权限，第三章仍是上次保存的内容。", actionLabel: "重试", hasDetail: true, dismissible: true}}},
+            {id: "detail-only", label: "只有详情、长正文", input: {props: {tone: "warning", title: "没能移动 3 个文件", message: "目标目录里已有同名文件：第一章.md、第二章.md、设定/人物.md；其余文件已移动。", hasDetail: true, dismissible: true}}},
             {id: "progress", label: "确定进度", input: {props: {tone: "info", title: "正在统计字数", message: "已统计 2 部，共 6 部", progress: 33, dismissible: true}}},
             {id: "indeterminate", label: "不确定进度", input: {props: {tone: "info", title: "正在连接", message: "等待服务端回应…", progress: null, dismissible: true}}},
         ],

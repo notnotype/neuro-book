@@ -59,6 +59,7 @@ const LEGACY: readonly Legacy[] = [
     {key: "input.clear", zh: "清空输入"}, // form/Input.vue 的 clearLabel 缺省
     {key: "notification.close", zh: "关闭通知"}, // feedback/Notification.vue 与 NotificationStack.vue 的 closeLabel 缺省
     {key: "notification.inProgress", zh: "进行中"}, // feedback/Notification.vue 不确定进度条的 aria-valuetext
+    {key: "notification.detail", zh: "详情"}, // feedback/Notification.vue 的 detailLabel 缺省（w00028 t04 新增）
     {key: "numberInput.increase", zh: "增加"}, // form/NumberInput.vue 的 incrementLabel 缺省
     {key: "numberInput.decrease", zh: "减少"}, // 同上，decrementLabel 缺省
     {key: "searchSelect.empty", zh: "没有匹配的选项"}, // form/SearchSelect.vue 的 emptyText 缺省
