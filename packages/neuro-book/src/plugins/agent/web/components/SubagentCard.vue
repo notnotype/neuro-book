@@ -21,6 +21,8 @@ const model = computed(() => cardModel(props.call, store?.data.value.tree ?? new
 
 const STATE_ICON: Readonly<Partial<Record<CardState, string>>> = {
     "dispatch-failed": "i-lucide-circle-x",
+    denied: "i-lucide-ban",
+    invalid: "i-lucide-circle-alert",
     waiting: "i-lucide-shield-alert",
     question: "i-lucide-message-circle-question",
     done: "i-lucide-check",
@@ -47,14 +49,23 @@ const line = computed(() => {
     switch (state) {
         case "preparing": return t("conversation.subagent.preparing");
         case "dispatch-failed": return t("conversation.subagent.dispatchFailed", {code: code ?? ""});
+        case "denied": return t("conversation.subagent.denied");
+        case "invalid": return t("conversation.subagent.invalid");
         case "running": return text === "" ? t("conversation.subagent.starting") : text;
-        case "waiting": return t("conversation.subagent.waiting");
+        case "waiting": {
+            const waiting = model.value.waitingFor;
+            if (waiting?.kind === "approval") return t("conversation.subagent.waitingApproval", {tool: waiting.tool});
+            if (waiting?.kind === "question") return t("conversation.subagent.waitingAnswer", {text: waiting.text});
+            if (waiting?.kind === "mode-switch") return t("conversation.subagent.waitingMode");
+            return t("conversation.subagent.waiting");
+        }
         case "question": return t("conversation.subagent.question", {text});
         case "done": return text === "" ? t("conversation.subagent.done") : text;
         case "failed": return text === "" ? t("conversation.subagent.failedNoLine") : t("conversation.subagent.failed", {line: text});
         case "aborted": return t("conversation.subagent.aborted");
         case "interrupted": return t("conversation.subagent.interrupted");
-        case "unknown": return t("conversation.subagent.unknown");
+        // 找得到子会话就是派出去了，只是不知道现在怎样：叫用户去核对。
+        case "unknown": return t(model.value.childId === null ? "conversation.subagent.unknownDispatch" : "conversation.subagent.unknownOpen");
     }
 });
 
@@ -70,7 +81,7 @@ function openChild(): void {
             <span class="sa-card__name" :title="model.name">{{ model.name }}</span>
             <Badge v-if="model.background" size="sm" variant="soft">{{ t("conversation.subagent.background") }}</Badge>
             <span class="sa-card__meta" data-subagent-meta>{{ meta }}</span>
-            <Spinner v-if="spinning" size="sm" class="sa-card__state" />
+            <Spinner v-if="spinning" size="sm" :label="t('conversation.subagent.running')" class="sa-card__state" />
             <span v-else :class="[STATE_ICON[model.state], 'sa-card__state sa-card__state-icon']" aria-hidden="true" />
             <IconButton size="xs" icon-class="i-lucide-square-arrow-out-up-right" :disabled="model.childId === null" :title="t('conversation.subagent.open')" :aria-label="t('conversation.subagent.open')" data-subagent-open @click="openChild" />
         </div>

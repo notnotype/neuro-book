@@ -12,7 +12,7 @@ import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import type {SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {ProfileEntry} from "../shared/contracts";
-import type {ActivityItem, agentSessionsContract} from "../shared/remote";
+import type {ActivityItem, agentSessionsContract, ListedSession} from "../shared/remote";
 
 export interface SessionListStore {
     readonly items: ComputedRef<readonly AgentSessionListItem[]>;
@@ -41,7 +41,7 @@ export function createSessionList(options: {
     readonly failed: (code: string) => string;
     readonly now: () => number;
 }): SessionListStore {
-    const entries = shallowRef<readonly SessionIndexEntry[]>([]);
+    const entries = shallowRef<readonly ListedSession[]>([]);
     const query = ref("");
     const scope = ref<"project" | "all">(options.project === null ? "all" : "project");
     const selectedProfiles = ref<ReadonlySet<string>>(new Set());
@@ -76,7 +76,7 @@ export function createSessionList(options: {
     const items = computed<readonly AgentSessionListItem[]>(() => {
         const activity = new Map(options.activity().map((item) => [item.id, item.state]));
         const needle = query.value.trim().toLowerCase();
-        const all = entries.value as readonly (SessionIndexEntry & {readonly parent?: string})[];
+        const all = entries.value;
         const byId = new Map(all.map((entry) => [entry.id, entry]));
         const children = new Map<string, string[]>();
         for (const entry of all) if (entry.parent !== undefined && byId.has(entry.parent)) children.set(entry.parent, [...(children.get(entry.parent) ?? []), entry.id]);

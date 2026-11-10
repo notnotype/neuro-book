@@ -17,6 +17,8 @@ const props = defineProps<{
     label: string;
     /** 组元素的 id：父会话行的开关用 `aria-controls` 指它。 */
     listId: string;
+    /** 面板给的 id 前缀，往里一层的组接着用。 */
+    idPrefix: string;
 }>();
 
 const emit = defineEmits<{select: [id: string]; toggle: [id: string]}>();
@@ -45,7 +47,7 @@ const countOf = (node: SessionNode): number => node.item.childCount ?? node.chil
                     type="button"
                     class="acv-children__kids"
                     :aria-expanded="props.expanded[node.item.id] === true"
-                    :aria-controls="`acv-children-${node.item.id}`"
+                    :aria-controls="props.expanded[node.item.id] === true ? `${props.idPrefix}-children-${node.item.id}` : undefined"
                     data-panel-children
                     @click="emit('toggle', node.item.id)"
                 >
@@ -54,7 +56,8 @@ const countOf = (node: SessionNode): number => node.item.childCount ?? node.chil
             </div>
             <AgentSessionChildRows
                 v-if="props.expanded[node.item.id] === true && node.children.length > 0"
-                :list-id="`acv-children-${node.item.id}`"
+                :list-id="`${props.idPrefix}-children-${node.item.id}`"
+                :id-prefix="props.idPrefix"
                 :nodes="node.children"
                 :selected-id="props.selectedId"
                 :expanded="props.expanded"

@@ -23,9 +23,10 @@ const emit = defineEmits<{
 }>();
 
 const text = useAgentPageText();
-/** 两节的文字在目录里结构相同，只是前缀不同。 */
-const key = (rest: string) => `profiles.${props.kind}.${rest}` as Parameters<typeof text>[0];
-const sectionKey = `profiles.sections.${props.kind}` as Parameters<typeof text>[0];
+/** 两节的文字在目录里结构相同，只是前缀不同。返回类型列出两节的全部键：哪一节缺了键，类型检查就报。 */
+type SectionText = "section.help" | "section.count" | "section.restore" | "section.add" | "required" | "remove";
+const key = (rest: SectionText): `profiles.${"tools" | "agents"}.${SectionText}` => `profiles.${props.kind}.${rest}`;
+const sectionKey: `profiles.sections.${"tools" | "agents"}` = `profiles.sections.${props.kind}`;
 const folded = ref(new Set<string>());
 function fold(id: string): void {
     const next = new Set(folded.value);
@@ -49,7 +50,7 @@ function openAdd(): void {
 </script>
 
 <template>
-    <section class="profile-tools" data-profile-tools>
+    <section class="profile-tools" :data-profile-section="props.kind" data-profile-tools>
         <div class="profile-tools__title">
             <h4>{{ text(sectionKey) }}</h4>
             <InfoTip :text="text(key('section.help'))" />

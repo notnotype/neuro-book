@@ -1441,6 +1441,16 @@ describe("子代理（w00032 t14）", () => {
         expect(docked()!.source).toMatchObject({name: "改人物卡", icon: "i-lucide-bot"});
         await until("取到预览", () => docked()?.preview.state === "ready");
         expect(h.ctx().activeCalls).toHaveLength(1);
+        // 停靠区的界面状态同向导：归还超过 30 秒再借回还在。
+        const dockState = {collapsed: true, index: 0, wizard: {collapsed: false, step: 0, approvals: {}, notes: {}, answers: {}}};
+        h.host.act({type: "dock.state", state: dockState});
+        const give = h.host.borrow();
+        give();
+        w.settings.clock.advance(RELEASE_DELAY_MS + 1);
+        const back = h.host.borrow();
+        await until("重新打开", () => docked() !== undefined);
+        expect(h.ctx().dockState).toEqual(dockState);
+        back();
         // 停靠的事项不替换输入框：阻塞的只有这个会话自己的同步事项。
         expect(h.ctx().pendingInputs.filter((item) => item.source === undefined && item.async !== true)).toEqual([]);
         const item = docked()!;
@@ -1456,6 +1466,8 @@ describe("子代理（w00032 t14）", () => {
         await until("顶栏路径", () => h.ctx().session?.path?.[0]?.id === parent);
         const first = h.ctx().messages.find((message) => message.kind === "user");
         expect(first?.kind === "user" && first.author).toMatchObject({icon: "i-lucide-feather"});
+        // 父 Agent 发来的话不是用户说的：上方向键翻不到。
+        expect(h.ctx().composer.recall).not.toContain("改人物卡");
     });
 
     test("会话面板：子会话带父会话、父会话带个数；搜索命中子会话时上级弱化列出；状态栏按会话树数运行中", async () => {

@@ -665,7 +665,7 @@ describe("宿主每秒换 now", () => {
         settled.unmount();
     });
 
-    it("子会话的顶栏是面包屑：祖先可点、发 session.select；多于两层时中间的收进“…”；读不到的写未知会话", async () => {
+    it("子会话的顶栏是面包屑：祖先可点、发 session.select；多于两层时中间的收进“…”；读不到的写未知会话，没有标题的写未命名", async () => {
         const session = {...context().session!, path: [{id: "root", title: "主创"}, {id: "mid", title: ""}, {id: "parent", title: "核对员"}]};
         const view = mountView("zh-CN", {}, {ctx: {...context(), session}});
         const crumbs = view.findAll("[data-header-crumb]");
@@ -674,8 +674,8 @@ describe("宿主每秒换 now", () => {
         await crumbs[1]!.trigger("click");
         expect(view.emitted("action")).toContainEqual([{type: "session.select", sessionId: "parent"}]);
 
-        await view.setProps({ctx: {...context(), session: {...session, path: [{id: "root", title: ""}]}}});
-        expect(view.findAll("[data-header-crumb]").map((crumb) => crumb.text())).toEqual(["未知会话"]);
+        await view.setProps({ctx: {...context(), session: {...session, path: [{id: "root", title: null}, {id: "parent", title: ""}]}}});
+        expect(view.findAll("[data-header-crumb]").map((crumb) => crumb.text())).toEqual(["未知会话", "未命名会话"]);
         await view.setProps({ctx: context()});
         expect(view.find("[data-header-path]").exists()).toBe(false);
         view.unmount();

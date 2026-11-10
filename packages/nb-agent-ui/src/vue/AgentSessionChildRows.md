@@ -9,7 +9,7 @@
 
 ## 数据
 
-属性 `nodes`（`nestSessions` 的子树）、`selectedId`、`expanded`（`Record<string, boolean>`，面板持有）、`label`（父会话的标题，组的读屏名称）、`listId`（组元素的 id，父会话行的开关用 `aria-controls` 指它）。事件 `select`（会话 id）、`toggle`（会话 id）。
+属性 `nodes`（`nestSessions` 的子树）、`selectedId`、`expanded`（`Record<string, boolean>`，面板持有）、`label`（父会话的标题，组的读屏名称）、`listId`（组元素的 id，父会话行的开关用 `aria-controls` 指它）、`idPrefix`（面板给的 id 前缀，往里一层的组用它拼 id：同一页面上两个面板展开同一个父会话时 id 不重复）。事件 `select`（会话 id）、`toggle`（会话 id）。
 
 ## 隐藏通道理由
 

@@ -171,6 +171,8 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
     {
         id: "request_user_input", toolNames: ["request_user_input", "ask"], category: "interact", icon: "i-lucide-message-circle-question",
         label: agentRef("tool.requestUserInput"), summary: firstQuestion, presentation: "node",
+        // 不用马上答的提问（`async`）在停靠区里答，消息流里只留过程里的一行，不再画一张同样的提问卡。
+        presentationOf: (call) => (argBoolean(call, "async") === true ? "line" : "node"),
     },
     {
         id: "switch_mode", toolNames: ["switch_mode"], category: "interact", icon: "i-lucide-toggle-right",

@@ -5,7 +5,7 @@
  * 界面状态（展开与否、看到第几个、填了一半的答案）在这里，每次变化经 `dock.state` 交给宿主、宿主经 `ctx.dockState` 放回，同同步向导。
  * 不移动焦点：它不替换输入框，用户可能正在打字。
  */
-import {computed, provide, ref} from "vue";
+import {computed, nextTick, provide, ref, watch} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
 
 import type {InputResolution, JsonValue, PendingInputView} from "../../types";
@@ -30,14 +30,26 @@ const emit = defineEmits<{action: [action: ViewAction]}>();
 
 const {t} = useAgentText();
 const state = ref<DockState>(readDockState(props.state));
-/** 看到的那个事项的 id：前面的答完消失时还是它，它自己消失时停在原来的位置。 */
+const rootRef = ref<HTMLElement | null>(null);
+/**
+ * 看到的那个事项的 id 与它上次的位置：别的事项出现、消失时还是它；它自己消失（答完了）时停在原来的位置，显示接在那里的事项。
+ * 每次显示都记下来，不只在点上一个、下一个时。
+ */
 const seenId = ref<string | null>(null);
+const seenAt = ref(state.value.index);
 
 const index = computed(() => {
     const byId = seenId.value === null ? -1 : props.items.findIndex((item) => item.id === seenId.value);
-    return byId >= 0 ? byId : Math.min(state.value.index, props.items.length - 1);
+    return byId >= 0 ? byId : Math.min(seenAt.value, props.items.length - 1);
 });
 const item = computed(() => props.items[Math.max(0, index.value)]);
+watch([() => item.value?.id, index], ([id, at], [before]) => {
+    if (id === undefined) return;
+    seenId.value = id;
+    seenAt.value = at;
+    // 换了一个事项：题号从第一题开始（题号只有一份，答案与选择按事项 id 存）。
+    if (before !== undefined && id !== before && state.value.wizard.step !== 0) setState({...state.value, index: at, wizard: {...state.value.wizard, step: 0}});
+}, {immediate: true});
 const collapsed = computed(() => props.held === true || state.value.collapsed);
 
 function setState(next: DockState): void {
@@ -45,9 +57,26 @@ function setState(next: DockState): void {
     emit("action", {type: "dock.state", state: next as unknown as JsonValue});
 }
 
-function go(to: number): void {
+/**
+ * 焦点在停靠区里时，操作之后放回对应的按钮（向导按事项重建、收起换成小条，原来的按钮没了）：按顺序取第一个找得到的。
+ * 焦点不在停靠区里时不动，免得抢输入框的焦点。
+ */
+function keepFocus(...selectors: string[]): void {
+    if (!rootRef.value?.contains(document.activeElement)) return;
+    void nextTick(() => {
+        for (const selector of selectors) {
+            const target = rootRef.value?.querySelector<HTMLElement>(selector);
+            if (target !== null && target !== undefined) return target.focus();
+        }
+    });
+}
+
+function go(to: number, direction: "previous" | "next"): void {
     seenId.value = props.items[to]?.id ?? null;
-    setState({...state.value, index: to});
+    seenAt.value = to;
+    setState({...state.value, index: to, wizard: {...state.value.wizard, step: 0}});
+    // 到头了那个方向的按钮不可用：换到另一个方向。
+    keepFocus(`[data-dock-step='${direction}']:not(:disabled)`, "[data-dock-step]:not(:disabled)", "[data-wizard-collapse]");
 }
 
 function setWizard(wizard: WizardState): void {
@@ -56,6 +85,7 @@ function setWizard(wizard: WizardState): void {
 
 function setCollapsed(value: boolean): void {
     setState({...state.value, collapsed: value});
+    keepFocus(value ? "[data-dock-expand]" : "[data-wizard-collapse]");
 }
 
 function submit(resolutions: InputResolution): void {
@@ -83,8 +113,8 @@ const frame = computed((): DockFrame => {
     return {
         ...(source === undefined ? {} : {source, open: () => emit("action", {type: "session.select", sessionId: source.sessionId})}),
         ...(total > 1 ? {count: t("wizard.count", {index: at + 1, total})} : {}),
-        ...(at > 0 ? {previous: () => go(at - 1)} : {}),
-        ...(at < total - 1 ? {next: () => go(at + 1)} : {}),
+        ...(at > 0 ? {previous: () => go(at - 1, "previous")} : {}),
+        ...(at < total - 1 ? {next: () => go(at + 1, "next")} : {}),
     };
 });
 provide(dockFrameKey, frame);
@@ -99,7 +129,7 @@ const summary = computed(() => {
 </script>
 
 <template>
-    <div v-if="item !== undefined" class="acv-dock" role="group" :aria-label="t('dock.label', {count: props.items.length})" data-agent-dock data-stream-scroll-ignore>
+    <div v-if="item !== undefined" ref="rootRef" class="acv-dock" role="group" :aria-label="t('dock.label', {count: props.items.length})" data-agent-dock data-stream-scroll-ignore>
         <div v-if="collapsed" class="acv-dock__bar nb-ui-popover-surface" data-dock-collapsed>
             <span class="acv-dock__dot" aria-hidden="true" />
             <b>{{ t("dock.pending", {count: props.items.length}) }}</b>

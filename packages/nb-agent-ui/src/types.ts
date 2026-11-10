@@ -169,10 +169,10 @@ export type SessionView = {
     /** 后台摘要生成状态。 */
     summaryState: "idle" | "running" | "failed";
     /**
-     * 子会话的祖先，从根会话到父会话；不是子会话时不给。顶栏据此画面包屑，点祖先发 `session.select`。`title` 为空的段写
-     * “未知会话”（祖先读不到时）。
+     * 子会话的祖先，从根会话到父会话；不是子会话时不给。顶栏据此画面包屑，点祖先发 `session.select`。`title` 为 `null`
+     * 的段写“未知会话”（祖先读不到），空字符串写“未命名会话”（读到了、还没有标题）。
      */
-    path?: Array<{id: string; title: string; icon?: string}>;
+    path?: Array<{id: string; title: string | null; icon?: string}>;
 };
 
 export type AvailabilityStatus = "ready" | "loading" | "empty" | "unselected" | "archived" | "profile-unavailable" | "load-error";
@@ -291,7 +291,6 @@ export type PendingQuestionsView = PendingInputCommon & {
     questions: PendingQuestionView[];
 };
 
-/** 等用户的事项。一条回复的审批是一批，都在这里，向导一步一个。 */
 /** 模型申请切换 Agent 模式（`switch_mode`）。`plan` 是退出计划模式时要批准的计划全文。 */
 export type PendingModeSwitchView = PendingInputCommon & {
     kind: "mode-switch";
@@ -300,9 +299,14 @@ export type PendingModeSwitchView = PendingInputCommon & {
     fromLabel: string;
     toLabel: string;
     plan?: string;
-    approval: {options: ComposerApprovalOption[]; value: string};
+    /**
+     * 批准计划时可以顺带改的审批模式，`value` 是那个会话现在的模式。宿主不知道时不给（后代会话的请求）：向导不画这一栏，
+     * 批准时也不改模式。
+     */
+    approval?: {options: ComposerApprovalOption[]; value: string};
 };
 
+/** 等用户的事项。一条回复的审批是一批，都在这里，向导一步一个。 */
 export type PendingInputView = PendingApprovalView | PendingQuestionsView | PendingModeSwitchView;
 
 export type WorkflowView = {
@@ -581,8 +585,13 @@ export type BuiltinAgentViewAction =
     | {type: "model.manage"}
     | {type: "runtime.reset"}
     // 提问
-    /** `sessionId`：事项所在的会话；带 `source` 的事项（后代会话的）提交时有。 */
-    | {type: "input.submit"; batchKey: string; resolutions: InputResolution; sessionId?: string}
+    | {
+        type: "input.submit";
+        batchKey: string;
+        resolutions: InputResolution;
+        /** 事项所在的会话；带 `source` 的事项（后代会话的）提交时有。 */
+        sessionId?: string;
+    }
     | {type: "input.cancelRun"}
     | {type: "wizard.state"; state: JsonValue}
     | {type: "dock.state"; state: JsonValue}

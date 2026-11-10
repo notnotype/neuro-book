@@ -284,6 +284,9 @@
             "preparing": "正在准备派发…",
             "dispatchFailed": "没派出去：{{code}}",
             "waiting": "等你处理",
+            "waitingApproval": "等你批准：{{tool}}",
+            "waitingAnswer": "等你回答：{{text}}",
+            "waitingMode": "等你切换模式",
             "question": "在问父 Agent：{{text}}",
             "done": "已完成",
             "failed": "出错：{{line}}",
@@ -291,6 +294,11 @@
             "aborted": "已停止",
             "interrupted": "已中断（应用停止时它在跑）",
             "unknown": "状态未知",
+            "denied": "没有派出",
+            "invalid": "参数不对，没有派出",
+            "unknownDispatch": "不知道派没派出",
+            "unknownOpen": "状态未知，打开子会话核对",
+            "running": "运行中",
             "starting": "正在开始",
             "showResult": "看结果全文",
             "hideResult": "收起结果",
@@ -302,8 +310,12 @@
             "commandFailed": "失败 · 退出码 {{code}}",
             "commandAborted": "已停止",
             "commandInterrupted": "已中断（应用停止时它在跑）",
+            "commandPending": "等待开始",
+            "commandDenied": "没有执行",
+            "commandInvalid": "参数不对，没有执行",
             "showOutput": "看输出",
             "hideOutput": "收起输出",
+            "openOutput": "打开输出文件 {{path}}",
             "outputUnavailable": "输出读不到"
         }
     },
@@ -498,6 +510,7 @@
                 "add": "添加子代理"
             },
             "remove": "不再允许派 {{name}}（{{id}}）",
+            "required": "必需",
             "add": {
                 "title": "添加可派的子代理",
                 "done": "添加",

@@ -20,7 +20,9 @@ const emit = defineEmits<{
 }>();
 
 const text = useAgentPageText();
-const key = (rest: string) => `profiles.${props.kind}.${rest}` as Parameters<typeof text>[0];
+/** 返回类型列出两种对话框的全部键：哪一种缺了键，类型检查就报。 */
+type DialogText = "add.title" | "add.done" | "add.search" | "add.empty" | "add.noMatch" | "add.blocked" | "add.replaces" | "add.join" | "add.unjoin";
+const key = (rest: DialogText): `profiles.${"tools" | "agents"}.${DialogText}` => `profiles.${props.kind}.${rest}`;
 const query = ref("");
 const picked = ref(new Set<string>());
 /** 打开时定下：开着的时候目录变了不刷新，用户正在看的行不跳。 */

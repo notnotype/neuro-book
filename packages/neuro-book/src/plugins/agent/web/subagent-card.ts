@@ -6,11 +6,13 @@
  * `agent_send` 交回的）→ `tree` 项 `runs` 里同 `runId` 的收口 → 在跑的 `tree` 项。子会话按调用的 `invocation` 认（fork 出来的不认）。
  */
 
-import type {JsonValue, MessageView, ToolCallView} from "@notnotype/nb-agent-ui";
+import type {MessageView, ToolCallView} from "@notnotype/nb-agent-ui";
 
-import type {TreeItem} from "../shared/subagents";
+import {MODE_SWITCH_KIND} from "../shared/permissions";
+import type {TreeItem, TreePending} from "../shared/subagents";
 
-export type CardState = "preparing" | "dispatch-failed" | "running" | "waiting" | "question" | "done" | "failed" | "aborted" | "interrupted" | "unknown";
+/** `denied`、`invalid`：调用没执行（被拒、参数不合 schema），没有派出；`unknown`：不知道派没派出（调用 `unknown`、进程崩溃留下的）。 */
+export type CardState = "preparing" | "dispatch-failed" | "denied" | "invalid" | "running" | "waiting" | "question" | "done" | "failed" | "aborted" | "interrupted" | "unknown";
 
 export interface CardModel {
     readonly state: CardState;
@@ -28,7 +30,11 @@ export interface CardModel {
     readonly result?: string;
     /** 派发失败的码。 */
     readonly code?: string;
+    /** 等用户时等的是什么（`waiting`）：子会话最早的那个事项。 */
+    readonly waitingFor?: WaitingFor;
 }
+
+export type WaitingFor = {readonly kind: "approval"; readonly tool: string} | {readonly kind: "question"; readonly text: string} | {readonly kind: "mode-switch"};
 
 type Details = {readonly sessionId?: string; readonly jobId?: string; readonly runId?: string; readonly status?: string; readonly line?: string; readonly code?: string; readonly jobs?: readonly {readonly runId?: string; readonly state?: string; readonly line?: string}[]};
 
@@ -37,7 +43,21 @@ const RUN_REASON: Readonly<Record<string, CardState>> = {finished: "done", compl
 const NAME_CHARS = 30;
 
 const detailsOf = (call: ToolCallView): Details => (call.result?.details ?? {}) as Details;
-const record = (value: JsonValue): Readonly<Record<string, JsonValue>> => (value !== null && typeof value === "object" && !Array.isArray(value) ? value : {});
+const record = (value: unknown): Readonly<Record<string, unknown>> => (value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
+
+/** 事项的请求是内核事件里的原文：审批带工具 id，提问带 `data.questions`，模式切换的 `data.kind` 是 `mode-switch`。 */
+function waitingOf(item: TreePending | undefined): WaitingFor | undefined {
+    if (item === undefined) return undefined;
+    const request = record(item.request);
+    if (item.kind === "approval") {
+        const tool = typeof request.tool === "string" ? request.tool : "";
+        return {kind: "approval", tool: tool.slice(tool.lastIndexOf(".") + 1)};
+    }
+    const data = record(request.data);
+    if (data.kind === MODE_SWITCH_KIND) return {kind: "mode-switch"};
+    const first = Array.isArray(data.questions) ? record(data.questions[0]) : {};
+    return {kind: "question", text: typeof first.question === "string" ? first.question : ""};
+}
 
 function laterTerminal(messages: readonly MessageView[], runId: string, self: string): {readonly state: CardState; readonly line?: string; readonly result?: string} | null {
     for (const message of messages) {
@@ -68,6 +88,8 @@ export function cardModel(call: ToolCallView, tree: ReadonlyMap<string, TreeItem
     const base = {childId, name, icon: item?.profileIcon ?? "i-lucide-bot"};
 
     if (call.status === "streaming") return {...base, state: "preparing", line: "", background: false};
+    // 调用没执行：被拒（用户、规则、模式）或参数不对。工具没跑，所以既没有子会话也没有运行。
+    if (call.status === "denied" || call.status === "invalid") return {...base, state: call.status, line: "", background: false, ...(call.result === undefined ? {} : {result: call.result.text})};
     // 还没有结果时认运行：子会话正跟着这次调用的运行；派发的运行是子会话的第一次运行（同一批里先收口的子代理，整批结束前就画出终态）。
     const runId = details.runId
         ?? (item?.runInvocation !== undefined && item.runInvocation === call.invocation ? item.runId : undefined)
@@ -92,9 +114,12 @@ export function cardModel(call: ToolCallView, tree: ReadonlyMap<string, TreeItem
                 background,
                 ...(item.tools === undefined ? {} : {tools: item.tools}),
                 ...(item.startedAt === undefined ? {} : {startedAt: item.startedAt}),
+                ...(item.state === "waiting" ? {waitingFor: waitingOf(item.pending?.[0])} : {}),
             };
         }
     }
+    // 开始了但不知道有没有执行完（内核给的 `unknown`）：上面按运行找不到，就说不知道派没派出。
+    if (call.status === "unknown") return {...base, state: "unknown", line: "", background};
     // 还在等结果的前台调用（子会话的进度还没推到）：照运行中画；父会话都不跑了还找不到，是崩溃留下的。
     if (call.result === undefined && !parentIdle) return {...base, state: "running", line: "", background: false};
     if (details.status === "question") return {...base, state: "question", line: "", background};

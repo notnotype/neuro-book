@@ -1,3 +1,8 @@
+<script lang="ts">
+/** 挂载过几个面板：拼组元素 id 的前缀。 */
+let panelCount = 0;
+</script>
+
 <script setup lang="ts">
 /**
  * 会话面板（docs/specs/agent/conversation.md 输出 2、3）：同一个组件放在点标题弹出的下拉和左栏视图里。纯受控：搜索、范围、过滤都发给宿主，
@@ -92,19 +97,31 @@ function toggle(id: string): void {
     setRecord({...record.value, [id]: record.value[id] !== true});
 }
 
-// 选中会话的祖先、要露出的会话的祖先、有子代理在等你处理的：这些输入变了时展开一次，之后用户手动的优先。
+/**
+ * 选中会话的祖先、要露出的会话的祖先、有子代理在等你处理的：这些输入变了时展开一次，之后用户手动的优先。所以只动“新进入这个集合”的会话；
+ * 挂载时（面板关掉再打开）只补记录里没有的，用户收起过的不改回来。
+ */
 const autoKey = computed(() => [...autoExpanded(props.items, props.selectedId, props.expandFor)].sort().join(" "));
-watch(autoKey, (key) => {
+watch(autoKey, (key, before) => {
     if (key === "") return;
+    const previous = new Set(before === undefined || before === "" ? [] : before.split(" "));
     const next = {...record.value};
     let changed = false;
     for (const id of key.split(" ")) {
-        if (next[id] === true) continue;
+        const fresh = before !== undefined && !previous.has(id);
+        if (next[id] === true || (!fresh && next[id] !== undefined)) continue;
         next[id] = true;
         changed = true;
     }
     if (changed) setRecord(next);
 }, {immediate: true});
+
+/**
+ * 组元素的 id 带上这个面板的前缀：下拉与左栏里的面板同时展开同一个父会话时不重复。用模块里的计数而不是 `useId()`：
+ * 后者只在同一个 Vue 应用里唯一，两个面板可能挂在不同的应用里。
+ */
+const idPrefix = `acv-panel-${String((panelCount += 1))}`;
+const listId = (id: string) => `${idPrefix}-children-${id}`;
 
 const countOf = (node: SessionNode): number => node.item.childCount ?? node.children.length;
 
@@ -186,7 +203,8 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
                                 <span class="acv-panel__description">{{ item.description }}</span>
                                 <Badge v-if="item.archived === true" size="sm" tone="neutral" variant="soft">{{ t("panel.archivedTag") }}</Badge>
                                 <span v-if="item.status !== 'idle'" class="acv-panel__state" :data-state="item.status">{{ t(STATE_KEYS[item.status]) }}</span>
-                                <span v-else-if="item.childWaiting === true && children.length > 0 && record[item.id] !== true" class="acv-panel__state" data-state="child-waiting">{{ t("panel.childWaiting") }}</span>
+                                <!-- 个数与提醒按全部子会话算：子会话被筛掉、没有可展开的行时也写出来 -->
+                                <span v-else-if="item.childWaiting === true && (children.length === 0 || record[item.id] !== true)" class="acv-panel__state" data-state="child-waiting">{{ t("panel.childWaiting") }}</span>
                             </span>
                             <span v-if="item.dimmed === true" class="sr-only">{{ t("panel.ancestor") }}</span>
                         </span>
@@ -197,7 +215,7 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
                         type="button"
                         class="acv-panel__kids"
                         :aria-expanded="record[item.id] === true"
-                        :aria-controls="`acv-children-${item.id}`"
+                        :aria-controls="record[item.id] === true ? listId(item.id) : undefined"
                         data-panel-children
                         @click="toggle(item.id)"
                     >
@@ -211,7 +229,8 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
                 </div>
                 <AgentSessionChildRows
                     v-if="children.length > 0 && record[item.id] === true"
-                    :list-id="`acv-children-${item.id}`"
+                    :list-id="listId(item.id)"
+                    :id-prefix="idPrefix"
                     :nodes="children"
                     :selected-id="props.selectedId"
                     :expanded="record"
@@ -358,7 +377,9 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
     align-items: center;
     gap: 2px;
     max-width: 6.5em;
+    overflow: hidden;
     padding: 0 4px;
+    text-overflow: ellipsis;
     border: 0;
     border-radius: var(--radius-control);
     background: none;

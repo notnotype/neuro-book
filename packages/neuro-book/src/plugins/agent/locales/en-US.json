@@ -284,6 +284,9 @@
             "preparing": "Preparing…",
             "dispatchFailed": "Not started: {{code}}",
             "waiting": "Needs you",
+            "waitingApproval": "Needs your approval: {{tool}}",
+            "waitingAnswer": "Needs your answer: {{text}}",
+            "waitingMode": "Needs you to switch mode",
             "question": "Asking its parent: {{text}}",
             "done": "Done",
             "failed": "Failed: {{line}}",
@@ -291,6 +294,11 @@
             "aborted": "Stopped",
             "interrupted": "Interrupted (it was running when the app stopped)",
             "unknown": "Status unknown",
+            "denied": "Not started: denied",
+            "invalid": "Not started: invalid arguments",
+            "unknownDispatch": "Unclear whether it started",
+            "unknownOpen": "Status unknown; open the sub-session to check",
+            "running": "Running",
             "starting": "Starting",
             "showResult": "Show full result",
             "hideResult": "Hide result",
@@ -302,8 +310,12 @@
             "commandFailed": "Failed · exit code {{code}}",
             "commandAborted": "Stopped",
             "commandInterrupted": "Interrupted (it was running when the app stopped)",
+            "commandPending": "Waiting to start",
+            "commandDenied": "Not run",
+            "commandInvalid": "Not run: invalid arguments",
             "showOutput": "Show output",
             "hideOutput": "Hide output",
+            "openOutput": "Open output file {{path}}",
             "outputUnavailable": "Output is not readable"
         }
     },
@@ -498,6 +510,7 @@
                 "add": "Add sub-agent"
             },
             "remove": "Stop allowing {{name}} ({{id}})",
+            "required": "Required",
             "add": {
                 "title": "Add allowed sub-agents",
                 "done": "Add",

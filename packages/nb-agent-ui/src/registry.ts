@@ -422,13 +422,19 @@ export function visibleEntries<T extends RegistryEntryBase>(entries: readonly T[
     return entries.filter((entry) => entry.when?.(ctx) ?? true);
 }
 
+/** 出过错的 `presentationOf`：每整理一次轮次（流式时每个增量）都会调用，同一个回调只报一次。 */
+const failedPresentations = new WeakSet<object>();
+
 /** 这次调用的呈现层级（见 `ToolRendererBase.presentationOf`）；回调抛错时按登记的缺省层级。 */
 export function presentationOf(renderer: Pick<ToolRendererEntry, "presentation" | "presentationOf">, call: ToolCallView): "line" | "card" | "node" {
     if (renderer.presentationOf === undefined || call.status === "streaming") return renderer.presentation;
     try {
         return renderer.presentationOf(call);
     } catch (error) {
-        console.error("nb-agent-ui: 工具渲染器的 presentationOf 出错，按登记的层级显示", error);
+        if (!failedPresentations.has(renderer.presentationOf)) {
+            failedPresentations.add(renderer.presentationOf);
+            console.error("nb-agent-ui: 工具渲染器的 presentationOf 出错，按登记的层级显示", error);
+        }
         return renderer.presentation;
     }
 }

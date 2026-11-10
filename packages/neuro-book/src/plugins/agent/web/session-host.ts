@@ -104,7 +104,8 @@ function recallOf(messages: readonly MessageView[]): string[] {
     const seen = new Set<string>();
     for (let index = messages.length - 1; index >= 0 && seen.size < RECALL_LIMIT; index -= 1) {
         const message = messages[index]!;
-        if (message.kind !== "user" || message.intent !== "normal" || message.delivery !== undefined) continue;
+        // 父 Agent 发来的话（带 `author`）不是用户说的。
+        if (message.kind !== "user" || message.intent !== "normal" || message.delivery !== undefined || message.author !== undefined) continue;
         const text = message.blocks.flatMap((block) => (block.kind === "text" ? [block.text] : [])).join("");
         if (text !== "") seen.add(text);
     }
@@ -266,6 +267,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let dockState: AgentConversationContext["dockState"];
     /** 进行中的调用；集合没变就不换引用，轮次不因此重算（ctx `activeCalls`）。 */
     let activeCalls: readonly string[] = [];
+    /** 上次推给视图的后代事项（会话 id 与事项 id）：子树推送只有它或 `activeCalls` 变了才重建 ctx。 */
+    let descendantPending = "";
     const subagentData = shallowRef<SubagentData>({sessionId: null, tree: new Map(), jobs: new Map()});
     const subagentNow = ref(deps.now());
     let cancelSubagentTick: (() => void) | null = null;
@@ -791,6 +794,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         wizardState = undefined;
         dockState = undefined;
         activeCalls = [];
+        descendantPending = "";
         subagentData.value = {sessionId: null, tree: new Map(), jobs: new Map()};
         syncSubagentTicker(false);
         stopRequestedAt = null;
@@ -808,20 +812,30 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         return {label: profile?.name ?? deps.text.t(agentText("conversation.author.otherSession")), icon: ancestor?.icon ?? profile?.icon ?? "i-lucide-bot"};
     }
 
-    /** 子树与任务换了：卡片的数据只替换变了的项，`activeCalls` 集合没变不换引用。 */
+    /**
+     * 子树与任务换了：卡片的数据经 `subagentData` 给（不进 ctx），只替换变了的项。ctx 只在后代的事项（停靠区）或进行中的调用
+     * （`activeCalls`）变了时重建：后代每走一步工具都推一次，不能每次都让整个对话重算。
+     */
     function publishSubtree(target: Current): void {
         if (current !== target) return;
         const previous = subagentData.value;
-        const tree = new Map(target.tree.map((item) => [item.id, previous.tree.get(item.id) !== undefined && JSON.stringify(previous.tree.get(item.id)) === JSON.stringify(item) ? previous.tree.get(item.id)! : item]));
-        const jobs = new Map(target.jobs.map((item) => [item.id, previous.jobs.get(item.id) !== undefined && JSON.stringify(previous.jobs.get(item.id)) === JSON.stringify(item) ? previous.jobs.get(item.id)! : item]));
+        const same = <T>(before: T | undefined, item: T): T => (before !== undefined && JSON.stringify(before) === JSON.stringify(item) ? before : item);
+        const tree = new Map(target.tree.map((item) => [item.id, same(previous.tree.get(item.id), item)]));
+        const jobs = new Map(target.jobs.map((item) => [item.id, same(previous.jobs.get(item.id), item)]));
         subagentData.value = {sessionId: target.id, tree, jobs};
         // 子代理的任务在两边都有（后代的 `runInvocation` 与任务的 `invocation` 是同一次调用），去重。
         const active = [...new Set([
             ...target.tree.flatMap((item) => (item.state !== "idle" && item.runInvocation !== undefined ? [item.runInvocation] : [])),
             ...target.jobs.flatMap((item) => (item.state === "running" || item.state === "question" ? [item.invocation] : [])),
         ])].sort();
-        if (active.join(" ") !== activeCalls.join(" ")) activeCalls = active;
-        syncSubagentTicker(active.length > 0);
+        const callsChanged = active.join(" ") !== activeCalls.join(" ");
+        if (callsChanged) activeCalls = active;
+        // 还在加载时不走：页面显示的是加载中，加载失败也不该留下一个走着的计时器；到齐之后 `open` 会再推一次。
+        if (!target.loading) syncSubagentTicker(active.length > 0);
+        const pending = target.tree.flatMap((item) => (item.pending ?? []).map((entry) => `${item.id}/${entry.id}`)).join(" ");
+        const pendingChanged = pending !== descendantPending;
+        descendantPending = pending;
+        if (!callsChanged && !pendingChanged) return;
         // 路径还没到时事项表是空的：这时走 `afterChange` 会把重开前保留的向导状态当成“答完了”清掉。到齐之后 `open` 会走一次。
         if (target.loading) bump();
         else afterChange(target);
@@ -832,16 +846,19 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
      * 交回取消订阅的函数。
      */
     async function followSubtree(target: Current): Promise<() => void> {
+        // 取不到时卡片退回调用自己的结果、停靠区里没有后代的事项：界面上没有别的线索，留诊断。
         const reloadTree = async () => {
             const tree = await remote.tree({sessionId: target.id});
-            if (tree.ok && current === target) {
+            if (!tree.ok) deps.report("conversation-subtree-failed", `tree of session ${target.id}: ${tree.code}`);
+            else if (current === target) {
                 target.tree = tree.value;
                 publishSubtree(target);
             }
         };
         const reloadJobs = async () => {
             const jobs = await remote.jobs({sessionId: target.id});
-            if (jobs.ok && current === target) {
+            if (!jobs.ok) deps.report("conversation-subtree-failed", `jobs of session ${target.id}: ${jobs.code}`);
+            else if (current === target) {
                 target.jobs = jobs.value;
                 publishSubtree(target);
             }
@@ -856,6 +873,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 publishSubtree(target);
             }, {onResync: () => void reloadJobs()}),
         ]);
+        for (const [name, subscription] of [["tree", treeSubscription], ["jobs", jobsSubscription]] as const) {
+            if (!subscription.ok) deps.report("conversation-subtree-failed", `subscribing to ${name} of session ${target.id}: ${subscription.code}`);
+        }
         await Promise.all([reloadTree(), reloadJobs()]);
         return () => {
             if (treeSubscription.ok) treeSubscription.value.release();
@@ -868,12 +888,14 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         const token = generation;
         // 同一个会话重新打开（归还 30 秒后借回）：未提交的答案还要；换了会话才清。事项答完了的话，`afterChange` 会清。
         const keptWizard = sessionId.value === id ? wizardState : undefined;
+        const keptDock = sessionId.value === id ? dockState : undefined;
         const switching = sessionId.value !== id;
         // 还没有会话时选的模式只属于接下来新建的那一个；打开别的会话就作废，否则会悄悄带到以后新建的会话。
         draftMode = "normal";
         flushDraft();
         closeCurrent();
         wizardState = keptWizard;
+        dockState = keptDock;
         // A 会话没发的字不带到 B；还没有会话时写的字留着（第一次发送才建会话）。附件的地址带会话 id，只有为它们新建的会话（`keepDraft`）才能接着用。
         if (switching && !options.keepDraft) {
             if (sessionId.value !== null) setDraftSilently("");
@@ -918,7 +940,9 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             bump();
             return;
         }
-        const releaseSubtree = await followSubtree(target);
+        // 子树与快照、祖先互不依赖，一起取（子树自己先订阅再取）。
+        const epoch = modelEpoch;
+        const [releaseSubtree, snapshot, ancestors] = await Promise.all([followSubtree(target), remote.snapshot({sessionId: id}), remote.ancestors({sessionId: id})]);
         target.release = () => {
             subscription.value.release();
             releaseSubtree();
@@ -927,11 +951,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             target.release();
             return;
         }
-
-        const epoch = modelEpoch;
-        const [snapshot, ancestors] = await Promise.all([remote.snapshot({sessionId: id}), remote.ancestors({sessionId: id})]);
-        if (token !== generation) return;
         if (ancestors.ok) target.ancestors = ancestors.value;
+        else deps.report("conversation-ancestors-failed", `ancestors of session ${id}: ${ancestors.code}`);
         if (!snapshot.ok) {
             target.failed = {code: snapshot.code};
             bump();
@@ -949,6 +970,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         }
         target.loading = false;
         live = true;
+        syncSubagentTicker(activeCalls.length > 0);
         void loadBranchPoints(target);
         // 日志帧不大于 `head` 的由适配器丢掉。
         early.forEach((frame, index) => {
@@ -1459,7 +1481,8 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 fromLabel: modeLabel(data.from),
                 toLabel: modeLabel(data.to),
                 ...(data.plan === undefined ? {} : {plan: data.plan}),
-                approval: {options: [...APPROVAL_OPTIONS], value: extra.approvalMode ?? "ask"},
+                // 后代会话的模式宿主不知道（`tree` 项里没有）：不给，向导就不问。
+                ...(extra.source === undefined ? {approval: {options: [...APPROVAL_OPTIONS], value: extra.approvalMode ?? "ask"}} : {}),
             };
         }
         return {...common, kind: "question", id: item.id, toolCallId: item.callId, questions: (data as {questions?: PendingQuestionView[]} | undefined)?.questions ?? []};
@@ -1521,7 +1544,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 archived: meta.archived,
                 summaryState: "idle",
                 // 祖先从父会话起交回，面包屑从根排起。
-                ...(target.ancestors.length === 0 ? {} : {path: [...target.ancestors].reverse().map((item) => ({id: item.id, title: item.title ?? "", ...(item.icon === undefined ? {} : {icon: item.icon})}))}),
+                ...(target.ancestors.length === 0 ? {} : {path: [...target.ancestors].reverse().map((item) => ({id: item.id, title: item.profile === null ? null : item.title ?? "", ...(item.icon === undefined ? {} : {icon: item.icon})}))}),
             },
             availability,
             interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canStop: true, canChangeRuntime: target !== null, canChangeMode: true, canArchive: true, canRestore: true, canManageModels: true, canRegisterAttachments: true, triggers: HOST_TRIGGERS, canInspectContext: target !== null, canOpenTree: target !== null, canMutateHistory: target !== null && meta?.archived !== true && meta?.readOnly === null, commands: HOST_COMMANDS},
@@ -1617,9 +1640,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                     if (borrowers === 0) {
                         // 只放开订阅，当前会话的记号留着。未提交的答案跟着事项走：还在等的话，回来时事项还在、答案也在。
                         const keptState = wizardState;
+                        const keptDock = dockState;
                         const keptDraft = draftText;
                         closeCurrent();
                         wizardState = keptState;
+                        dockState = keptDock;
                         draftText = keptDraft;
                     }
                 }, RELEASE_DELAY_MS);

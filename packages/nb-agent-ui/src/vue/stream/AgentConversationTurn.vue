@@ -65,8 +65,12 @@ const hasAssistantSide = computed(() => turn.value.blocks.length > 0 || turn.val
 /** 用户手动设定过的整轮展开状态；为 null 时跟随默认规则，所以运行结束时会自动收起。 */
 const manualExpanded = ref<boolean | null>(null);
 
-/** 进行中的调用：含它们的轮次不自动收起（ctx `activeCalls`）。宿主在集合没变时不换引用，这里也就不重建。 */
-const activeCalls = computed(() => new Set(props.ctx.activeCalls ?? []));
+/**
+ * 进行中的调用：含它们的轮次不自动收起（ctx `activeCalls`）。宿主在集合没变时不换数组的引用；先单独取出数组，ctx 整体换了而
+ * 数组没换时 computed 的值不变，下游不重算。
+ */
+const activeList = computed(() => props.ctx.activeCalls);
+const activeCalls = computed(() => new Set(activeList.value ?? []));
 const expanded = computed(() => !turn.value.foldable || (manualExpanded.value ?? defaultTurnExpanded(turn.value, props.latest, activeCalls.value)));
 const processBlocks = computed(() => turn.value.blocks.slice(0, turn.value.outcomeStart));
 const outcomeBlocks = computed(() => turn.value.blocks.slice(turn.value.outcomeStart));

@@ -72,6 +72,6 @@ export const agentSessionListScenes: Scene[] = [
 
 const childNode = (id: string, children: string[] = []) => ({item: NESTED_ITEMS.find((item) => item.id === id)!, children: children.map((child) => ({item: NESTED_ITEMS.find((item) => item.id === child)!, children: []}))});
 export const agentSessionChildRowsScenes: LabFixtureDefinition<typeof AgentSessionChildRows>["scenes"] = [
-    {id: "rows", label: "运行中、等你处理、完成、出错", input: {props: {nodes: ["n1a", "n1b", "n1c", "n1d"].map((id) => childNode(id)), selectedId: "n1b", expanded: {}, label: "第三章全面检查", listId: "lab-children"}}},
-    {id: "nested", label: "子会话还有子会话：开关与再缩一层", input: {props: {nodes: [childNode("n2", ["n2a", "n2b"])], selectedId: null, expanded: {n2: true}, label: "上级", listId: "lab-children"}}},
+    {id: "rows", label: "运行中、等你处理、完成、出错", input: {props: {nodes: ["n1a", "n1b", "n1c", "n1d"].map((id) => childNode(id)), selectedId: "n1b", expanded: {}, label: "第三章全面检查", listId: "lab-children", idPrefix: "lab"}}},
+    {id: "nested", label: "子会话还有子会话：开关与再缩一层", input: {props: {nodes: [childNode("n2", ["n2a", "n2b"])], selectedId: null, expanded: {n2: true}, label: "上级", listId: "lab-children", idPrefix: "lab"}}},
 ];

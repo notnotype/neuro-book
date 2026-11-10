@@ -100,9 +100,10 @@ type Crumb = {kind: "session"; id: string; title: string} | {kind: "more"; items
 /** 顶栏的祖先段：多于两层时只留根与父，中间的收进“…”的菜单。标题为空（读不到）的写“未知会话”。 */
 const crumbs = computed((): Crumb[] => {
     const path = props.ctx.session?.path ?? [];
-    const crumb = (item: {id: string; title: string}): Crumb => ({kind: "session", id: item.id, title: item.title || t("header.unknownSession")});
+    const titleOf = (title: string | null): string => (title === null ? t("header.unknownSession") : title || t("header.untitled"));
+    const crumb = (item: {id: string; title: string | null}): Crumb => ({kind: "session", id: item.id, title: titleOf(item.title)});
     if (path.length <= 2) return path.map(crumb);
-    const middle = path.slice(1, -1).map((item) => ({id: item.id, label: item.title || t("header.unknownSession"), ...(item.icon === undefined ? {} : {iconClass: item.icon})}));
+    const middle = path.slice(1, -1).map((item) => ({id: item.id, label: titleOf(item.title), ...(item.icon === undefined ? {} : {iconClass: item.icon})}));
     return [crumb(path[0]!), {kind: "more", items: middle}, crumb(path.at(-1)!)];
 });
 
@@ -457,7 +458,8 @@ defineExpose({focusComposer, scrollToLatest});
         </div>
 
         <!-- 停靠区在排队消息与可用性提示（输入框里）的上面；同步向导在时收成一条，排在它下面。 -->
-        <AgentDock v-if="dockedInputs.length > 0" :items="dockedInputs" :state="props.ctx.dockState" :held="waitingForUser" @action="onAction" />
+        <!-- 按会话重建：换了会话，组件里的展开与看到第几个不带过去（状态由宿主按会话放回）。 -->
+        <AgentDock v-if="dockedInputs.length > 0" :key="props.ctx.session?.id ?? ''" :items="dockedInputs" :state="props.ctx.dockState" :held="waitingForUser" @action="onAction" />
         <span class="sr-only" role="status">{{ dockAnnouncement }}</span>
         <AgentConversationComposer
             v-show="!waitingForUser"

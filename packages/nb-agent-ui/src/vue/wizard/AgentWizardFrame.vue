@@ -31,7 +31,8 @@ const dock = inject(dockFrameKey, null);
 const docked = computed(() => dock?.value ?? null);
 const icon = computed(() => docked.value?.source?.icon ?? props.icon);
 const title = computed(() => (docked.value?.source === undefined ? props.title : t("dock.fromSubagent", {name: docked.value.source.name, what: props.title})));
-const count = computed(() => (docked.value === null ? props.count : docked.value.count));
+/** 停靠区里两个计数都写：第几个事项、这个事项的第几题（提问有几题时）。 */
+const count = computed(() => (docked.value === null ? props.count : [docked.value.count, props.count].filter((part) => part !== undefined && part !== "").join(" · ") || undefined));
 </script>
 
 <template>

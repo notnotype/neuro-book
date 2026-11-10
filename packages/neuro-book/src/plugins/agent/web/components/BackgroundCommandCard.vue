@@ -11,7 +11,7 @@ import {subagentStoreKey} from "../subagent-store";
 import {useAgentPageText} from "../text";
 
 const props = defineProps<{call: ToolCallView; ctx: AgentConversationContext; services?: unknown; locale?: string}>();
-defineEmits<{action: [action: AgentViewAction]}>();
+const emit = defineEmits<{action: [action: AgentViewAction]}>();
 
 const t = useAgentPageText();
 const store = inject(subagentStoreKey, null);
@@ -37,7 +37,17 @@ watch(job, (now, before) => {
 });
 
 const running = computed(() => job.value?.state === "running");
-const state = computed((): "running" | "completed" | "failed" | "aborted" | "interrupted" | "unknown" => {
+/**
+ * 还没有任务 id 时看调用自己：在等审批或正在登记写“等待开始”，被拒、参数不对写“没有执行”。有了任务 id 看任务表，
+ * 任务已移出时看 `status.json`。
+ */
+const state = computed((): "pending" | "denied" | "invalid" | "running" | "completed" | "failed" | "aborted" | "interrupted" | "unknown" => {
+    if (details.value.jobId === undefined) {
+        if (props.call.status === "running" || props.call.status === "streaming") return "pending";
+        if (props.call.status === "denied" || props.call.status === "invalid") return props.call.status;
+        if (props.call.status === "error") return "failed";
+        return "unknown";
+    }
     if (job.value !== undefined) return job.value.state === "question" ? "running" : job.value.state;
     return saved.value?.state ?? "unknown";
 });
@@ -56,33 +66,56 @@ const meta = computed(() => {
 });
 const summary = computed(() => {
     switch (state.value) {
+        case "pending": return t("conversation.subagent.commandPending");
+        case "denied": return t("conversation.subagent.commandDenied");
+        case "invalid": return t("conversation.subagent.commandInvalid");
         case "running": return job.value?.lastLine === undefined ? t("conversation.subagent.starting") : t("conversation.subagent.lastLine", {line: job.value.lastLine});
         case "completed": return t("conversation.subagent.exited", {code: exitCode.value ?? 0, lines: lines.value});
-        case "failed": return t("conversation.subagent.commandFailed", {code: exitCode.value ?? "?"});
+        // 没登记成任务就失败了（例如任务数到了上限）：写调用的错误。
+        case "failed": return details.value.jobId === undefined ? t("conversation.subagent.failed", {line: props.call.result?.text ?? ""}) : t("conversation.subagent.commandFailed", {code: exitCode.value ?? "?"});
         case "aborted": return t("conversation.subagent.commandAborted");
         case "interrupted": return t("conversation.subagent.commandInterrupted");
         case "unknown": return t("conversation.subagent.unknown");
     }
 });
-const STATE_ICON = {completed: "i-lucide-check", failed: "i-lucide-circle-x", aborted: "i-lucide-circle-stop", interrupted: "i-lucide-circle-pause", unknown: "i-lucide-circle-help"} as const;
+const STATE_ICON = {
+    pending: "i-lucide-clock",
+    denied: "i-lucide-ban",
+    invalid: "i-lucide-circle-alert",
+    completed: "i-lucide-check",
+    failed: "i-lucide-circle-x",
+    aborted: "i-lucide-circle-stop",
+    interrupted: "i-lucide-circle-pause",
+    unknown: "i-lucide-circle-help",
+} as const;
 
 const open = ref(false);
 const tail = ref<string | null>(null);
 let fetchedAt = Number.NEGATIVE_INFINITY;
+/** 取到的是哪一行之后的输出：最后一行变了、上次取过超过一秒，就该再取。 */
+let fetchedLine: string | undefined;
+/** 请求的序号：只认最新一次的回应，先发后到的旧回应不盖掉新的。 */
+let requests = 0;
 async function loadTail(): Promise<void> {
     if (details.value.jobId === undefined || store === null) return;
+    const request = (requests += 1);
     fetchedAt = store.now.value;
+    fetchedLine = job.value?.lastLine;
     const read = await store.tail(details.value.jobId, TAIL_LINES);
-    tail.value = read === null ? null : read.lines.join("\n");
+    if (request === requests) tail.value = read === null ? null : read.lines.join("\n");
 }
 function toggle(): void {
     open.value = !open.value;
     if (open.value) void loadTail();
 }
-// 展开着、运行中：最后一行变了就再取，至多每秒一次；结束时再取一次拿到完整的结尾。
-watch(() => [job.value?.lastLine, state.value] as const, ([, now], [, before]) => {
+/**
+ * 展开着：结束时取一次拿到完整的结尾；运行中最后一行变了就再取，至多每秒一次。每秒走的 `now` 也触发，所以一秒内的最后一次
+ * 变化不会丢：等够一秒那一拍会补取。
+ */
+watch(() => [job.value?.lastLine, state.value, store?.now.value] as const, ([line, phase], [, before]) => {
     if (!open.value) return;
-    if (now !== before || (store?.now.value ?? 0) - fetchedAt >= TAIL_EVERY_MS) void loadTail();
+    if (phase !== before) void loadTail();
+    else if (phase === "running" && line !== fetchedLine && (store?.now.value ?? 0) - fetchedAt >= TAIL_EVERY_MS) void loadTail();
 });
 </script>
 
@@ -94,16 +127,19 @@ watch(() => [job.value?.lastLine, state.value] as const, ([, now], [, before]) =
             <code class="bg-card__command" :title="command">{{ command }}</code>
             <span class="bg-card__meta">{{ meta }}</span>
             <template v-if="running">
-                <Spinner size="sm" class="bg-card__state" />
+                <Spinner size="sm" :label="t('conversation.subagent.running')" class="bg-card__state" />
                 <Button size="sm" variant="ghost" data-background-stop @click="details.jobId !== undefined && store?.kill(details.jobId)">{{ t("conversation.subagent.stop") }}</Button>
             </template>
             <span v-else :class="[STATE_ICON[state === 'running' ? 'unknown' : state], 'bg-card__state bg-card__state-icon']" aria-hidden="true" />
         </div>
-        <button type="button" class="bg-card__row nb-ui-focus-ring-inset" :aria-expanded="open" :title="t(open ? 'conversation.subagent.hideOutput' : 'conversation.subagent.showOutput')" data-background-line @click="toggle">
-            <span class="bg-card__line">{{ summary }}</span>
-            <span v-if="details.output" class="bg-card__address">{{ details.output }}</span>
-            <span :class="[open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right', 'bg-card__chevron']" aria-hidden="true" />
-        </button>
+        <div class="bg-card__row" :class="{'is-open': open}">
+            <button type="button" class="bg-card__toggle nb-ui-focus-ring-inset" :disabled="details.jobId === undefined" :aria-expanded="details.jobId === undefined ? undefined : open" :title="details.jobId === undefined ? undefined : t(open ? 'conversation.subagent.hideOutput' : 'conversation.subagent.showOutput')" data-background-line @click="toggle">
+                <span class="bg-card__line">{{ summary }}</span>
+                <span v-if="details.jobId !== undefined" :class="[open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right', 'bg-card__chevron']" aria-hidden="true" />
+            </button>
+            <!-- 与展开的按钮并列：点地址打开输出文件，不展开 -->
+            <button v-if="details.output" type="button" class="bg-card__address nb-ui-focus-ring-inset" :title="t('conversation.subagent.openOutput', {path: details.output})" data-background-output @click="emit('action', {type: 'reference.open', target: details.output})">{{ details.output }}</button>
+        </div>
         <pre v-if="open" class="bg-card__tail" data-background-tail>{{ tail ?? t("conversation.subagent.outputUnavailable") }}</pre>
     </div>
 </template>
@@ -172,12 +208,25 @@ watch(() => [job.value?.lastLine, state.value] as const, ([, now], [, before]) =
     color: var(--status-danger);
 }
 
+/* 卡片的最后一块（输出没展开时）：圆角跟着卡片，悬停底色与焦点环不戳出卡片的圆角。 */
 .bg-card__row {
     display: flex;
+    align-items: stretch;
+    height: 26px;
+    overflow: hidden;
+    border-radius: 0 0 var(--radius-control) var(--radius-control);
+}
+
+.bg-card__row.is-open {
+    border-radius: 0;
+}
+
+.bg-card__toggle {
+    display: flex;
+    flex: 1;
     align-items: center;
     gap: 6px;
-    width: 100%;
-    height: 26px;
+    min-width: 0;
     padding: 0 8px;
     border: 0;
     background: none;
@@ -185,10 +234,14 @@ watch(() => [job.value?.lastLine, state.value] as const, ([, now], [, before]) =
     font: inherit;
     font-size: var(--text-xs);
     text-align: left;
+}
+
+.bg-card__toggle:not(:disabled) {
     cursor: pointer;
 }
 
-.bg-card__row:hover {
+.bg-card__toggle:not(:disabled):hover,
+.bg-card__address:hover {
     background: var(--bg-hover);
 }
 
@@ -205,10 +258,15 @@ watch(() => [job.value?.lastLine, state.value] as const, ([, now], [, before]) =
     min-width: 0;
     max-width: 40%;
     overflow: hidden;
+    padding: 0 8px;
+    border: 0;
+    background: none;
     color: var(--accent-text);
+    font: inherit;
     font-size: var(--text-2xs);
     text-overflow: ellipsis;
     white-space: nowrap;
+    cursor: pointer;
 }
 
 .bg-card__tail {

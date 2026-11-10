@@ -25,12 +25,31 @@ describe("子代理卡片", () => {
         expect(cardModel(built, tree(), [], true)).toMatchObject({state: "dispatch-failed", childId: "child"});
     });
 
+    test("调用没执行：被拒写 denied、参数不对写 invalid，父会话还在跑也不转圈", () => {
+        const denied = spawn({status: "denied", result: {text: "用户拒绝了", truncated: false}});
+        expect(cardModel(denied, tree(), [], false)).toMatchObject({state: "denied", childId: null, result: "用户拒绝了"});
+        expect(cardModel(spawn({status: "invalid", result: {text: "prompt 是必填的", truncated: false}}), tree(), [], false)).toMatchObject({state: "invalid"});
+    });
+
+    test("调用 unknown：按运行找得到就照运行画，找不到就是 unknown（父会话还在跑也不写运行中）", () => {
+        const uncertain = spawn({status: "unknown", result: {text: "不知道有没有执行完", truncated: false}});
+        expect(cardModel(uncertain, tree(), [], false)).toMatchObject({state: "unknown", childId: null});
+        expect(cardModel(uncertain, tree(child({state: "running", runId: "r1", runInvocation: "inv-1"})), [], false)).toMatchObject({state: "running", childId: "child"});
+    });
+
     test("运行中按调用的 invocation 认子会话（fork 出来的不认），写最近一步、工具次数与开始时刻", () => {
         const running = child({state: "running", runId: "r1", runInvocation: "inv-1", tools: 3, startedAt: 100, step: {tool: "read", target: "project://第二章.md"}});
         const forked = child({id: "copy", forked: true, state: "running", runId: "r9", runInvocation: "inv-1"});
         expect(cardModel(spawn(), tree(forked, running), [], false)).toMatchObject({state: "running", childId: "child", line: "read project://第二章.md", tools: 3, startedAt: 100, name: "称谓检查"});
         expect(cardModel(spawn(), tree(child({state: "question", runId: "r1", runInvocation: "inv-1", question: {id: "q", text: "要几章？"}})), [], false)).toMatchObject({state: "question", line: "要几章？"});
         expect(cardModel(spawn(), tree(child({state: "waiting", runId: "r1", runInvocation: "inv-1"})), [], false)).toMatchObject({state: "waiting"});
+    });
+
+    test("等用户时写等的是什么：批准哪个工具、回答哪个问题、切换模式", () => {
+        const waiting = (request: unknown, kind: "approval" | "question") => cardModel(spawn(), tree(child({state: "waiting", runId: "r1", runInvocation: "inv-1", pending: [{id: "p1", kind, callId: "x", request: request as never}]})), [], false).waitingFor;
+        expect(waiting({tool: "nbook.agent.write", args: {}}, "approval")).toEqual({kind: "approval", tool: "write"});
+        expect(waiting({data: {questions: [{question: "要几章？", options: []}]}}, "question")).toEqual({kind: "question", text: "要几章？"});
+        expect(waiting({data: {kind: "mode-switch", from: "plan", to: "normal"}}, "question")).toEqual({kind: "mode-switch"});
     });
 
     test("终态：调用自己的结果优先，其次后来的 wait 结果里同 runId 的，再次 runs 里的收口", () => {

@@ -309,7 +309,8 @@ function agentsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
         // 白名单里的 Profile 已被删除或不可用：一行警告，能去掉。
         const gone = profile === undefined || profile.status !== "ok";
         const summary = gone ? text.t(agentText("profiles.agents.gone")) : profile.description;
-        const effect = recommended.has(key) ? text.t(agentText("profiles.agents.recommended")) : declared.includes(key) ? "" : text.t(agentText("profiles.agents.userAdded"));
+        // 已删除的不再标“推荐”“我加的”：那一行只说它不在了。
+        const effect = gone ? "" : recommended.has(key) ? text.t(agentText("profiles.agents.recommended")) : declared.includes(key) ? "" : text.t(agentText("profiles.agents.userAdded"));
         return {id: key, name: profile?.name ?? key, effect, danger: false, summary, detail: summary, required: false, gone};
     };
     const listed = effective.allowed.map((key) => ({key, plugin: profiles.get(key)?.source ?? GONE_GROUP}));
