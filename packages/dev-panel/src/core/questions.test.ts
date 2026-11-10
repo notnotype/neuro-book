@@ -4,6 +4,7 @@ import {resolve} from "node:path";
 import {parseOptionsShorthand, parseQuestionMarkup, validateAnswerValue, validateQuestionDefinition, type MarkupProblem} from "./questions.js";
 
 const EXAMPLE = resolve(import.meta.dirname, "../../docs/examples/questions.html");
+const TEMPLATE = resolve(import.meta.dirname, "../../docs/examples/review-board.html");
 const T03_BOARD = resolve(import.meta.dirname, "../../tests/fixtures/t03-review/index.html");
 
 const codes = (problems: readonly MarkupProblem[]) => problems.map((problem) => [problem.code, problem.questionId, problem.line]);
@@ -21,6 +22,15 @@ describe("提问标记的解析", () => {
             {id: "approve-spec", type: "confirm", label: "批准把草稿晋升为 Spec", required: true, recommend: [], options: []},
         ]);
         expect(parsed.questions.every((question) => question.page === "questions.html" && typeof question.line === "number")).toBe(true);
+    });
+
+    test("评审板模板（t23）：两道题照常解析，推荐行与“直接修”“已定”两节不成题", async () => {
+        const parsed = await parseQuestionMarkup(await readFile(TEMPLATE, "utf8"), "index.html");
+        expect(parsed.problems).toEqual([]);
+        expect(parsed.questions.map(({page: _page, line: _line, ...question}) => question)).toEqual([
+            {id: "submit-place", type: "single", label: "“提交”放在答题栏底部还是页头？", required: false, recommend: ["bottom"], options: [{value: "bottom", label: "A 答题栏底部"}, {value: "header", label: "B 页头右侧"}]},
+            {id: "approve-layout", type: "confirm", label: "按 A 改产物页的答题栏", required: false, recommend: [], options: []},
+        ]);
     });
 
     test("t03 评审板的拷贝：给两节加上标记，徽标跳过，选项名取选项里的标题而不是整段文字", async () => {
