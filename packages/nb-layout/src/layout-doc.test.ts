@@ -13,6 +13,7 @@ import {
     floatTab,
     insertTab,
     isPanelShown,
+    isSectionCollapsed,
     LAYOUT_MAX_FLOATS,
     movePanelToEdge,
     movePanelToStrip,
@@ -28,6 +29,7 @@ import {
     replaceTab,
     resizeFloatRect,
     sameLayoutShape,
+    sectionCollapseBlock,
     setActiveContainer,
     setBarHidden,
     setContainerEntries,
@@ -805,6 +807,19 @@ describe("区域与容器", () => {
             expect(isPanelShown(stale, id)).toBe(true);
         });
 
+        it("归属只在带容器的区域里起作用：区域的具名面板不是锚时，同一列里带着归属的面板照常显示，具名面板隐藏也不带走它", () => {
+            const doc = mixed();
+            const stale: LayoutDoc = {...doc, panels: {...doc.panels, x: {...(doc.panels.x as LayoutDoc["panels"][string]), container: "gone"}}};
+            expect(regionOf(stale, "x")).toBe("auxiliarybar");
+            expect(isPanelShown(stale, "x")).toBe(true);
+            expect(isPanelShown(okDoc(setPanelHidden(stale, "auxiliarybar", true)), "x")).toBe(true);
+            // 写入路径问的是同一件事：挨着它开的新面板不带归属，它自己拆开时残留的归属清掉。
+            const opened = okDoc(openPanelAtEdge(stale, {id: "v", panel: {role: "tool", tabs: [view("v")], active: "view:v"}, target: edge(stale, "x", "bottom")}, testPolicy()));
+            expect(opened.panels.v?.container).toBeUndefined();
+            const split = okDoc(splitIntoSections(stale, {panel: "x"}, testPolicy()));
+            expect([split.panels.x?.container, split.panels.n1?.container]).toEqual([undefined, undefined]);
+        });
+
         it("不在当前容器里的分节与锚不是键盘拖动的落点，也不被别的落点当成相邻的兄弟", () => {
             const candidates = enumerateDropCandidates({doc: containers(), source: {kind: "tab", tab: "view:p1"}, policy: testPolicy(), stripIndexes: () => [0]});
             expect([...new Set(candidates.map((candidate) => candidate.region))].sort()).toEqual(["ea", "s1", "s2"]);
@@ -847,6 +862,104 @@ describe("区域与容器", () => {
             expect(setActiveContainer(doc, "ghost", "A")).toMatchObject({ok: false, code: "not-found"});
             expect(setActiveContainer(mixed(), "auxiliarybar", null)).toMatchObject({ok: false, code: "rejected"});
             expect(shownOf(okDoc(setActiveContainer(doc, "sidebar", null)), ["s1", "s2", "s3"])).toEqual([false, false, false]);
+        });
+    });
+
+    describe("收成标题行（输出 11、20）", () => {
+        it("区域此刻只显示这一个分节时它不算收起，记录留着；又显示两个分节时重新起作用", () => {
+            const doc = okDoc(setPanelCollapsed(containers(), "s1", true));
+            expect(isSectionCollapsed(doc, "s1")).toBe(true);
+            expect(sectionCollapseBlock(doc, "s1")).toBeNull();
+
+            // s2 换到容器 B：位置是原处，只换归属。当前容器 A 里只剩 s1。
+            const alone = okDoc(movePanelToEdge(doc, {panel: "s2", target: edge(doc, "s1", "bottom"), container: "B"}, testPolicy()));
+            expect(alone.tree).toEqual(doc.tree);
+            expect(shownOf(alone, ["s1", "s2"])).toEqual([true, false]);
+            expect(alone.panels.s1?.collapsed).toBe(true);
+            expect(isSectionCollapsed(alone, "s1")).toBe(false);
+            expect(sectionCollapseBlock(alone, "s1")).toBe("lone-section");
+
+            const back = okDoc(movePanelToEdge(alone, {panel: "s2", target: edge(alone, "s1", "bottom"), container: "A"}, testPolicy()));
+            expect(isSectionCollapsed(back, "s1")).toBe(true);
+            expect(back.panels).toEqual(doc.panels);
+        });
+
+        it("另一个分节是关掉的、区域切到只有一个分节的容器，也一样", () => {
+            const closed = okDoc(removeTab(okDoc(setPanelCollapsed(containers(), "s1", true)), "view:s2"));
+            expect(closed.panels.s1?.collapsed).toBe(true);
+            expect(isSectionCollapsed(closed, "s1")).toBe(false);
+
+            // 不在当前容器里的分节按“区域此刻显示的”判：s3 现在不显示，收起只是记下；切过去它是唯一的一节，不算收起。
+            const hiddenOne = okDoc(setPanelCollapsed(containers(), "s3", true));
+            expect(isSectionCollapsed(hiddenOne, "s3")).toBe(true);
+            const switched = okDoc(setActiveContainer(hiddenOne, "sidebar", "B"));
+            expect(switched.panels.s3?.collapsed).toBe(true);
+            expect(isSectionCollapsed(switched, "s3")).toBe(false);
+        });
+
+        it("收起：区域唯一显示的分节、底部面板的分节都拒绝，文档不变；展开总是允许，清掉留着的记录", () => {
+            const doc = containers();
+            const single = okDoc(setActiveContainer(doc, "sidebar", "B"));
+            expect(setPanelCollapsed(single, "s3", true)).toMatchObject({ok: false, code: "rejected"});
+            expect(setPanelCollapsed(doc, "p1", true)).toMatchObject({ok: false, code: "rejected"});
+            expect(sectionCollapseBlock(doc, "p1")).toBe("row-region");
+            // 拒绝的是分节，不是区域：底部面板的锚照常收起（整个区域拖到零）。
+            expect(sectionCollapseBlock(doc, "panel")).toBeNull();
+            expect(okDoc(setPanelCollapsed(doc, "panel", true)).panels.panel?.collapsed).toBe(true);
+            // 两节都显示时各自能收，两节一起收成标题行也行。
+            const both = okDoc(setPanelCollapsed(okDoc(setPanelCollapsed(doc, "s1", true)), "s2", true));
+            expect([isSectionCollapsed(both, "s1"), isSectionCollapsed(both, "s2")]).toEqual([true, true]);
+
+            const alone = okDoc(removeTab(okDoc(setPanelCollapsed(doc, "s1", true)), "view:s2"));
+            const expanded = okDoc(setPanelCollapsed(alone, "s1", false));
+            expect(expanded.panels.s1?.collapsed).toBeUndefined();
+            expect(okDoc(setPanelCollapsed(expanded, "s1", false))).toBe(expanded);
+        });
+
+        it("底部面板的分节记录里留着 `collapsed` 也不算收起", () => {
+            const doc = containers();
+            const stale: LayoutDoc = {...doc, panels: {...doc.panels, p1: {...(doc.panels.p1 as LayoutDoc["panels"][string]), collapsed: true}}};
+            expect(isSectionCollapsed(stale, "p1")).toBe(false);
+            expect(okDoc(setPanelCollapsed(stale, "p1", false)).panels.p1?.collapsed).toBeUndefined();
+        });
+
+        it("不在带容器的区域里的面板只看记录：没有容器的那一列里唯一的工具面板照常收起；锚的 `collapsed` 是区域拖到零，不是收成标题行", () => {
+            const plain = okDoc(setPanelCollapsed(mixed(), "x", true));
+            expect(isSectionCollapsed(plain, "x")).toBe(true);
+            expect(sectionCollapseBlock(plain, "x")).toBeNull();
+            const zero = okDoc(setPanelCollapsed(mixed(), "sidebar", true));
+            expect(zero.panels.sidebar?.collapsed).toBe(true);
+            expect(isSectionCollapsed(zero, "sidebar")).toBe(false);
+            expect(isSectionCollapsed(zero, "ghost")).toBe(false);
+        });
+
+        it("不算收起的分节照常占份额、照常收手势写回的尺寸：唯一显示的分节带着 `collapsed` 时，把区域拖宽不丢", () => {
+            const doc = okDoc(removeTab(okDoc(setPanelCollapsed(containers(), "s1", true)), "view:s2"));
+            const side = findTreeNode(doc.tree.root, "side")?.node as GridSnapshotNode;
+            expect(countsInShare(doc, side)).toBe(true);
+
+            const {input, sashSize, collapsedTo} = projectLayoutDoc(doc, PROJECTION);
+            const sizes = createGrid<string>(input, {sashSize}).layout({width: 1000, height: 600}).sizes;
+            const presented = sizes.s1 as {width: number; height: number};
+            const rebased = rebaseIntents(doc, {...sizes, s1: {...presented, width: presented.width + 60}}, collapsedTo);
+            expect(sizeOf(rebased.tree.root, "s1").width).toBe(presented.width + 60);
+            expect(presentedSizes(rebased).s1?.width).toBe(presented.width + 60);
+        });
+
+        it("底部面板的分节带着 `collapsed` 时，分节之间拖出来的宽度照常写回", () => {
+            const base = docOf(V([H(["activitybar", V(["ea", H(["panel", "p1", "p2"], "row")], "center")], "body"), "statusbar"], "root"), {
+                panel: {tabs: [], active: null, entries: ["P"], activeContainer: "P"},
+                p1: {container: "P", collapsed: true},
+                p2: {container: "P"},
+            });
+            const {input, sashSize, collapsedTo} = projectLayoutDoc(base, PROJECTION);
+            const sizes = createGrid<string>(input, {sashSize}).layout({width: 1000, height: 600}).sizes;
+            const [p1, p2] = [sizes.p1, sizes.p2] as [{width: number; height: number}, {width: number; height: number}];
+            expect(p1.width).toBeCloseTo(p2.width);
+            const dragged = {...sizes, p1: {...p1, width: p1.width - 120}, p2: {...p2, width: p2.width + 120}};
+            const again = presentedSizes(rebaseIntents(base, dragged, collapsedTo));
+            expect(again.p1?.width).toBeCloseTo(p1.width - 120);
+            expect(again.p2?.width).toBeCloseTo(p2.width + 120);
         });
     });
 
@@ -940,6 +1053,63 @@ describe("区域与容器", () => {
             expect(moveTabToStrip(doc, {tab: "view:y", panel: "sidebar", index: 0}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
             expect(movePanelToStrip(doc, {panel: "x", target: "sidebar"}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
             expect(showPanelAndInsert(doc, {panel: "sidebar", source: {kind: "tab", tab: "view:y"}}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            // 目标是分节也一样：区域的显隐记在锚上，分节不接收标签；区域隐藏着时不会留下“成功了但还看不见”的结果。
+            const hidden = okDoc(setPanelHidden(doc, "sidebar", true));
+            for (const source of [{kind: "tab", tab: "view:y"}, {kind: "panel", panel: "x"}] as const) {
+                expect(showPanelAndInsert(hidden, {panel: "s1", source}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            }
+            // 不用容器的具名面板照旧。
+            const plain = okDoc(showPanelAndInsert(okDoc(setPanelHidden(doc, "auxiliarybar", true)), {panel: "auxiliarybar", source: {kind: "tab", tab: "view:y"}}, testPolicy()));
+            expect(plain.panels.auxiliarybar).toMatchObject({tabs: [view("auxiliarybar"), view("y")], active: "view:y"});
+            expect(plain.panels.auxiliarybar?.hidden).toBeUndefined();
+        });
+
+        it("锚的交叉方向外缘不是落点（侧栏、右栏的锚的左右，底部面板的锚的上下）：开新面板、移面板、移标签都拒绝，文档不变；沿区域方向的外缘照常", () => {
+            const doc = containers();
+            const record = {role: "tool" as const, tabs: [view("v")], active: "view:v"};
+            for (const side of ["left", "right"] as const) {
+                for (const kind of ["split", "spread"] as const) {
+                    const target: LayoutEdgeTarget = {kind, panel: "sidebar", edge: side};
+                    expect(openPanelAtEdge(doc, {id: "v", panel: record, target}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+                    expect(movePanelToEdge(doc, {panel: "p1", target}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+                    expect(moveTabToEdge(doc, {tab: "view:s2", target}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+                }
+            }
+            for (const side of ["top", "bottom"] as const) {
+                expect(openPanelAtEdge(doc, {id: "v", panel: record, target: {kind: "split", panel: "panel", edge: side}}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            }
+            // 只剩锚的区域也一样：右栏的锚直接在横向的骨架分支里，往它左右放仍然拒绝。
+            expect(openPanelAtEdge(doc, {id: "v", panel: {...record, container: "R"}, target: {kind: "split", panel: "auxiliarybar", edge: "left"}}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+
+            const below = okDoc(openPanelAtEdge(doc, {id: "v", panel: record, target: {kind: "split", panel: "sidebar", edge: "bottom"}}, testPolicy()));
+            expect(regionOf(below, "v")).toBe("sidebar");
+            expect(shownOf(below, ["s1", "s2", "s3", "v"])).toEqual([true, true, false, true]);
+            const beside = okDoc(openPanelAtEdge(doc, {id: "v", panel: record, target: {kind: "split", panel: "panel", edge: "right"}}, testPolicy()));
+            expect(regionOf(beside, "v")).toBe("panel");
+            expect(beside.panels.v?.container).toBe("P");
+        });
+
+        it("区域的锚不移动：移到外缘、并进别的面板都拒绝，区域不会因此隐藏", () => {
+            const doc = mixed();
+            expect(movePanelToEdge(doc, {panel: "sidebar", target: edge(doc, "x", "bottom")}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            expect(movePanelToEdge(doc, {panel: "sidebar", target: edge(doc, "ea", "right")}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            expect(movePanelToStrip(doc, {panel: "sidebar", target: "x"}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            expect(movePanelToStrip(doc, {panel: "sidebar", target: "s1"}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            // 不用容器的空具名面板并进别处照旧：没有东西可并，它隐藏。
+            const empty: LayoutDoc = {...doc, panels: {...doc.panels, auxiliarybar: {...(doc.panels.auxiliarybar as LayoutDoc["panels"][string]), tabs: [], active: null}}};
+            expect(okDoc(movePanelToStrip(empty, {panel: "auxiliarybar", target: "x"}, testPolicy())).panels.auxiliarybar?.hidden).toBe(true);
+        });
+
+        it("点名了容器、落点却不在带容器的区域里：拒绝，文档不变；没点名的照旧清掉归属", () => {
+            const doc = mixed();
+            const toPlain = edge(doc, "x", "bottom");
+            expect(movePanelToEdge(doc, {panel: "s1", target: toPlain, container: "A"}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            expect(moveTabToEdge(doc, {tab: "view:s1", target: edge(doc, "ea", "right"), container: "A"}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            expect(openPanelAtEdge(doc, {id: "v", panel: {role: "tool", tabs: [view("v")], active: "view:v", container: "A"}, target: toPlain}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            // 位置是原处时也一样：x 不在带容器的区域里，换不了归属。
+            expect(movePanelToEdge(doc, {panel: "x", target: {kind: "split", panel: "auxiliarybar", edge: "bottom"}, container: "A"}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            expect(splitIntoSections(doc, {panel: "x", container: "A"}, testPolicy())).toMatchObject({ok: false, code: "rejected"});
+            expect(okDoc(movePanelToEdge(doc, {panel: "s1", target: toPlain}, testPolicy())).panels.s1?.container).toBeUndefined();
         });
     });
 
@@ -1057,6 +1227,17 @@ describe("区域与容器", () => {
     describe("校验", () => {
         it("带容器的文档通过", () => {
             expect(validateLayoutDoc(containers())).toEqual({ok: true, doc: containers()});
+        });
+
+        it("浮动窗不属于容器：带着归属的浮动窗记录拒绝；开浮动窗时不把归属写进去", () => {
+            const floated = okDoc(floatTab(containers(), {tab: "view:s3", rect: {x: 10, y: 10, width: 300, height: 200}}, testPolicy()));
+            const id = floated.floats[0]?.panel as string;
+            expect(validateLayoutDoc(floated)).toMatchObject({ok: true});
+            expect(validateLayoutDoc({...floated, panels: {...floated.panels, [id]: {...floated.panels[id], container: "B"}}})).toMatchObject({ok: false, code: "invalid"});
+
+            const opened = okDoc(openFloatPanel(containers(), {id: "f", panel: {role: "tool", tabs: [view("f")], active: "view:f", container: "A"}, rect: {x: 10, y: 10, width: 300, height: 200}}));
+            expect(opened.panels.f).toEqual({role: "tool", tabs: [view("f")], active: "view:f"});
+            expect(validateLayoutDoc(opened)).toMatchObject({ok: true});
         });
 
         it.each<[string, string, Record<string, unknown>]>([

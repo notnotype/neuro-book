@@ -12,6 +12,7 @@ import {
     type GridOrientation,
     type GridSnapshot,
 } from "./grid";
+import {createGridGestureSession, type GridGestureSession} from "./grid-gesture";
 
 /** 容器取「意图之和 + sash」，让呈现与意图一一对应：读测试时不必换算比例。 */
 const CONTAINER: GridExtent = {width: 1000, height: 600};
@@ -924,7 +925,7 @@ describe("拆分树原语：批量原子调整与收起", () => {
 /** 分支的收起（docs/specs/ui/nested-grid.md 的“分支的收起”）：一列里上下两块，下面那块又左右拆开；收起策略配在这一列上。 */
 describe("拆分树原语：分支的收起", () => {
     const POLICY = {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24};
-    const column = (collapsed: boolean): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
+    const column = (collapsed: boolean, collapsedSize = POLICY.collapsedSize): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
         {
             ...branch("side", "width", "vertical", 300, [
                 {...leaf("top", "height", 300, 80), minimumSize: {width: 160, height: 80}},
@@ -934,7 +935,7 @@ describe("拆分树原语：分支的收起", () => {
                 ]),
             ]),
             sizing: "fixed",
-            collapse: {...POLICY, collapsed},
+            collapse: {...POLICY, collapsedSize, collapsed},
         },
         leaf("editor", "width", 699, 120),
     ]);
@@ -949,12 +950,36 @@ describe("拆分树原语：分支的收起", () => {
         expect(extent(closed.sizes, "editor").width).toBe(999);
     });
 
-    it("另一根轴放不下照常报诊断：和没收起时报的一样", () => {
+    it("收起为零的分支在另一根轴上也不占最小尺寸：父分支的下限不算它，里面放不下不报诊断；收成一条的还看得见，照常报", () => {
         const short: GridExtent = {width: 1000, height: 100};
         const open = createGrid(column(false), {sashSize: SASH}).layout(short);
-        const closed = createGrid(column(true), {sashSize: SASH}).layout(short);
         expect(open.issues.length).toBeGreaterThan(0);
-        expect(closed.issues).toEqual(open.issues);
+        expect(open.constraints.root?.minimumSize.height).toBe(161);
+
+        const zero = createGrid(column(true), {sashSize: SASH}).layout(short);
+        expect(zero.issues).toEqual([]);
+        expect(zero.constraints.root?.minimumSize.height).toBe(0);
+        // 它自己展开后的约束不变，分支内部沿自己那一轴照常分。
+        expect(zero.constraints.side?.minimumSize.height).toBe(161);
+        expect(["top", "pair"].map((id) => extent(zero.sizes, id).height)).toEqual(["top", "pair"].map((id) => extent(open.sizes, id).height));
+
+        const strip = createGrid(column(true, 30), {sashSize: SASH}).layout(short);
+        expect(extent(strip.sizes, "side").width).toBe(30);
+        expect(strip.constraints.root?.minimumSize.height).toBe(161);
+        expect(strip.issues).toEqual(open.issues);
+    });
+
+    it("同一行里别的节点的最小尺寸照算：收起为零的那一列不再把这一行撑高，也不压低它", () => {
+        const withTallEditor = (collapsed: boolean): GridBranchInput<string> => {
+            const root = column(collapsed);
+            return {...root, children: root.children.map((child) => (child.id === "editor" ? {...child, minimumSize: {width: 120, height: 90}} : child))};
+        };
+        const zero = createGrid(withTallEditor(true), {sashSize: SASH}).layout({width: 1000, height: 100});
+        expect(zero.constraints.root?.minimumSize.height).toBe(90);
+        expect(zero.issues).toEqual([]);
+        const tooShort = createGrid(withTallEditor(true), {sashSize: SASH}).layout({width: 1000, height: 60});
+        expect(tooShort.issues.some((issue) => issue.includes("editor"))).toBe(true);
+        expect(tooShort.issues.some((issue) => /side|top|pair/u.test(issue))).toBe(false);
     });
 
     it("拖过阈值收起、从零拉回：都随批量落账，意图保留展开宽度，里面各块回到收起前的尺寸", () => {
@@ -973,5 +998,74 @@ describe("拆分树原语：分支的收起", () => {
         expect(reopened.issues).toEqual([]);
         expect(extent(reopened.sizes, "side").width).toBe(260);
         expect(["top", "pair"].map((id) => extent(reopened.sizes, id).height)).toEqual(["top", "pair"].map((id) => extent(open, id).height));
+    });
+
+    it("手势会话对“子节点是分支”的边界：指针拖过阈值收起、从零跟着指针拉回，Enter 收起与恢复到记忆宽度；提交里收起的是这个分支", () => {
+        const open = (collapsed: boolean, source: "pointer" | "keyboard"): GridGestureSession<string> => {
+            const grid = createGrid(column(collapsed), {sashSize: SASH});
+            return createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: CONTAINER, layout: grid.layout(CONTAINER), sashSize: SASH, sessionId: "branch-collapse", source, sashes: [{branchId: "root", index: 0, axis: "width"}]});
+        };
+        const widthsIn = (session: GridGestureSession<string>, preview: ReturnType<GridGestureSession<string>["update"]>): number[] => {
+            expect(session.issues).toEqual([]);
+            return ["side", "top", "a", "b", "editor"].map((id) => extent(preview?.layout.sizes ?? {}, id).width);
+        };
+
+        // 展开最小宽度是 a、b 各 100 加一条缝；再往里拖过 24 才收起。
+        const dragIn = open(false, "pointer");
+        expect(dragIn.update({x: -90, y: 0})?.changes[0]?.collapsed).toEqual({});
+        const closed = dragIn.update({x: -200, y: 0});
+        expect(widthsIn(dragIn, closed)).toEqual([0, 0, 0, 0, 999]);
+        expect(dragIn.finish()?.changes[0]).toMatchObject({branchId: "root", target: {side: 0, editor: 999}, collapsed: {side: true}});
+
+        const dragOut = open(true, "pointer");
+        expect(dragOut.update({x: 150, y: 0})).toBeNull();
+        const pulled = dragOut.update({x: 250, y: 0});
+        expect(widthsIn(dragOut, pulled)[0]).toBe(250);
+        expect(dragOut.finish()?.changes[0]).toMatchObject({target: {side: 250, editor: 749}, collapsed: {side: false}});
+
+        const enterIn = open(false, "keyboard");
+        expect(widthsIn(enterIn, enterIn.toggleCollapsed())).toEqual([0, 0, 0, 0, 999]);
+        expect(enterIn.finish()?.changes[0]?.collapsed).toEqual({side: true});
+
+        const enterOut = open(true, "keyboard");
+        expect(widthsIn(enterOut, enterOut.toggleCollapsed())[0]).toBe(POLICY.restoreSize);
+        expect(enterOut.finish()?.changes[0]).toMatchObject({target: {side: 300, editor: 699}, collapsed: {side: false}});
+    });
+});
+
+/** 显式恢复回到哪：缺省是记忆的 `restoreSize`；`restoreToShare` 是按权重该得的那一份。 */
+describe("拆分树原语：手势会话里按比例分的叶的显式恢复", () => {
+    const WIDE: GridExtent = {width: 1208, height: 400};
+    const row = (restoreToShare: boolean): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
+        leaf("a", "width", 300, 80),
+        leaf("b", "width", 300, 80),
+        {...leaf("c", "width", 300, 120), collapse: {collapsed: false, collapsedSize: 0, restoreSize: 200, collapseThreshold: 24, expandThreshold: 24, ...(restoreToShare ? {restoreToShare: true} : {})}},
+    ]);
+    /** 在 b、c 之间的边界上按一次 Enter，提交落到 grid 上；返回落账后三块的宽度。 */
+    const enter = (grid: ReturnType<typeof createGrid<string>>): number[] => {
+        const session = createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: WIDE, layout: grid.layout(WIDE), sashSize: 4, sessionId: "enter", source: "keyboard", sashes: [{branchId: "root", index: 1, axis: "width"}]});
+        session.toggleCollapsed();
+        const commit = session.finish();
+        if (commit === null) throw new Error("Enter 没有产生提交");
+        const applied = grid.resizeBranches(commit.changes);
+        if (!applied.ok) throw new Error(applied.reason);
+        const sizes = grid.layout(WIDE).sizes;
+        return ["a", "b", "c"].map((id) => Math.round(extent(sizes, id).width));
+    };
+
+    it("缺省：每一轮都恢复到记忆的 `restoreSize`，连按几轮不漂", () => {
+        const grid = createGrid(row(false), {sashSize: 4});
+        expect(["a", "b", "c"].map((id) => extent(grid.layout(WIDE).sizes, id).width)).toEqual([400, 400, 400]);
+        for (let round = 0; round < 3; round += 1) {
+            expect(enter(grid)).toEqual([400, 800, 0]);
+            expect(enter(grid)).toEqual([400, 600, 200]);
+        }
+    });
+
+    it("`restoreToShare`：恢复到按权重此刻该得的那一份，不读 `restoreSize`；让位的是挨着边界的兄弟", () => {
+        const grid = createGrid(row(true), {sashSize: 4});
+        expect(enter(grid)).toEqual([400, 800, 0]);
+        // `resizeBranches` 落账后三块的权重是 300、600、300：c 的份额是 1200 的四分之一。
+        expect(enter(grid)).toEqual([400, 500, 300]);
     });
 });

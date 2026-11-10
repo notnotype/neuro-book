@@ -178,6 +178,8 @@
         "cannotFloat": "这个标签不能再浮动",
         "floatMaximize": "浮动窗不能最大化",
         "floatCollapse": "浮动窗不能收起",
+        "rowSectionCollapse": "底部面板里的视图不能收起",
+        "loneSectionCollapse": "这里只显示这一个视图，不能收起",
         "floatLimit": "浮动窗太多了，先关掉几个"
     },
     "partCommands": {

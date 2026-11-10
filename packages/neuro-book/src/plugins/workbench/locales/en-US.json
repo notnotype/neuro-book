@@ -178,6 +178,8 @@
         "cannotFloat": "This tab cannot float",
         "floatMaximize": "A floating window cannot be maximized",
         "floatCollapse": "A floating window cannot be collapsed",
+        "rowSectionCollapse": "A view in the bottom panel cannot be collapsed",
+        "loneSectionCollapse": "The only view shown here cannot be collapsed",
         "floatLimit": "Too many floating windows; close some first"
     },
     "partCommands": {

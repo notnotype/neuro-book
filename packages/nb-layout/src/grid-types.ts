@@ -46,6 +46,13 @@ export type SashCollapsePolicy = {
      * `solveSashCollapse` 的调用方已经选定了对象，求解器不再过滤。
      */
     toggleable?: boolean;
+    /**
+     * true：显式恢复（按钮、Enter）不读 `restoreSize`，回到这块面板按 `size` 权重此刻该得的那一份，也就是把它翻成展开后重新分配给它的尺寸（缺省 false）。
+     * 给手里没有像素记忆的 `weight` 面板用：宿主的权重只记兄弟之间的比例时，`restoreSize` 给不出展开后的像素（工作台里一列工具面板就是这样）。
+     * 宿主要自己保证收起期间这块面板的份额不被兄弟的落账冲掉；`Grid.resizeBranches` 反解权重时不保，所以只用 grid 自己落账的宿主不要打开。
+     * 拖动展开不受影响，照旧跟随指针。
+     */
+    restoreToShare?: boolean;
 };
 
 export type SashCollapseState = SashCollapsePolicy & {collapsed: boolean};

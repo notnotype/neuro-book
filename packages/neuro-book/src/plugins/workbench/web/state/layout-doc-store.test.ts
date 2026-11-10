@@ -436,10 +436,22 @@ describe("损坏与失败", () => {
         const w = await world();
         const {store} = await openLayoutDoc(w, "a", "c");
         const section = sectionOf(store, "test.side");
+        // 区域只显示这一个分节时收不成标题行：拒绝，文档不变。
+        const single = store.actions.document();
+        expect(store.actions.setCollapsed(section, true)).toMatchObject({ok: false, code: "rejected"});
+        expect(store.actions.document()).toBe(single);
+
+        expect(store.actions.moveView("test.panel", {newPanelNextTo: section}).ok).toBe(true);
         store.actions.setCollapsed(section, true);
         expect(store.actions.document().panels[section]?.collapsed).toBe(true);
         store.actions.activate("view:test.side");
         expect(store.actions.document().panels[section]?.collapsed).toBeUndefined();
+
+        // 记录里留着收起、此刻却是唯一显示的分节：它没收起，点标题不动这条记录；另一个分节回来时它还是标题行。
+        store.actions.setCollapsed(section, true);
+        expect(store.actions.resetView("test.panel").ok).toBe(true);
+        store.actions.activate("view:test.side");
+        expect(store.actions.document().panels[section]?.collapsed).toBe(true);
     });
 
     it("浮动窗回到停靠：视图各回声明的容器，一个标签一个分节，看得见的是窗的活动标签那个容器（输出 39）", async () => {

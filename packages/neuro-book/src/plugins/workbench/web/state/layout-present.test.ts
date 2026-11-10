@@ -122,7 +122,12 @@ describe("有效可见", () => {
     test("区域隐藏、区域拖到零、分节收起、放不下被收走、被最大化盖住都不算", () => {
         expect(effectiveVisibleTabs(withPanel(doc(), "sidebar", {hidden: true}), FACTS).has("view:files")).toBe(false);
         expect(effectiveVisibleTabs(withPanel(doc(), "sidebar", {collapsed: true}), FACTS).has("view:files")).toBe(false);
-        expect(effectiveVisibleTabs(withPanel(doc(), FILES, {collapsed: true}), FACTS).has("view:files")).toBe(false);
+        // “大纲”换进“文件”的容器：侧栏显示两个分节，“文件”收成标题行就不可见。
+        const paired = withPanel(doc(), OUTLINE, {container: doc().panels[FILES]?.container as string});
+        expect(effectiveVisibleTabs(paired, FACTS).has("view:files")).toBe(true);
+        expect(effectiveVisibleTabs(withPanel(paired, FILES, {collapsed: true}), FACTS).has("view:files")).toBe(false);
+        // 区域只显示它一个分节时收不成标题行（输出 11）：记录里留着 `collapsed` 也照常可见。
+        expect(effectiveVisibleTabs(withPanel(doc(), FILES, {collapsed: true}), FACTS).has("view:files")).toBe(true);
         expect(effectiveVisibleTabs(doc(), {...FACTS, removed: new Set([FILES])}).has("view:files")).toBe(false);
         const covered = effectiveVisibleTabs(doc(), {...FACTS, maximized: OUTPUT});
         expect([...covered]).toEqual(["view:output"]);

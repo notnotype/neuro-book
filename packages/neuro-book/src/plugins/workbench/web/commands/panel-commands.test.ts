@@ -116,8 +116,10 @@ describe("公开状态（输出 36）", () => {
     it("分节收成标题行的区域算可见，拖到零的不算（输出 11、36）", async () => {
         const store = await layout();
         const keys = workbenchStateBindings(shallowRef<LayoutDocStore | null>(store));
-        // 侧栏的分节收成标题行：仍占着地方。
-        store.actions.setCollapsed(sectionOf(store, "test.side"), true);
+        // 侧栏的分节收成标题行：仍占着地方。区域里要有两个分节才收得成（输出 11）。
+        const side = sectionOf(store, "test.side");
+        expect(store.actions.moveView("test.panel", {newPanelNextTo: side}).ok).toBe(true);
+        expect(store.actions.setCollapsed(side, true).ok).toBe(true);
         expect(keys.sidebarVisible.value).toBe(true);
         // 区域拖到零记在锚上：宽度为 0。
         store.actions.setCollapsed("auxiliarybar", true);
@@ -129,7 +131,10 @@ describe("命令", () => {
     it("收起省略参数时切换，带参数时设成给定值；缺省作用在当前面板，panelId 优先", async () => {
         const store = await layout();
         const commands = panelCommands(() => store);
-        const [side, aux] = [sectionOf(store, "test.side"), sectionOf(store, "test.aux")];
+        // 侧栏里放两个分节：只显示一个时它收不成标题行（下一条）。
+        const side = sectionOf(store, "test.side");
+        expect(store.actions.moveView("test.panel", {newPanelNextTo: side}).ok).toBe(true);
+        const lower = sectionOf(store, "test.panel");
         store.actions.focusPanel(side);
         const collapsed = (panel: string) => store.state.doc.panels[panel]?.collapsed === true;
 
@@ -140,15 +145,55 @@ describe("命令", () => {
         await commands[SET_PANEL_COLLAPSED_COMMAND].run({});
         expect(collapsed(side)).toBe(false);
 
-        await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: aux, collapsed: true});
-        expect(collapsed(aux)).toBe(true);
+        await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: lower, collapsed: true});
+        expect(collapsed(lower)).toBe(true);
         expect(collapsed(side)).toBe(false);
+
+        // 对区域的锚是整个区域拖到零：省略参数时按锚自己的记录切换。
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: "auxiliarybar"})).toEqual({ok: true, value: null});
+        expect(collapsed("auxiliarybar")).toBe(true);
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: "auxiliarybar"})).toEqual({ok: true, value: null});
+        expect(collapsed("auxiliarybar")).toBe(false);
+    });
+
+    it("收不成标题行的分节 unavailable，文档不变：底部面板的分节不折叠；区域此刻唯一显示的分节不能收起，记录里留着的收起切换时不算（输出 11、20、35）", async () => {
+        const store = await layout();
+        const commands = panelCommands(() => store);
+        const [side, lower] = [sectionOf(store, "test.side"), sectionOf(store, "test.panel")];
+        const before = store.actions.document();
+
+        for (const args of [{}, {collapsed: true}, {collapsed: false}]) {
+            expect(failureText(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: lower, ...args}))).toBe("底部面板里的视图不能收起");
+        }
+        for (const args of [{}, {collapsed: true}]) {
+            const result = await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, ...args});
+            expect(result).toMatchObject({ok: false, code: "unavailable"});
+            expect(failureText(result)).toBe("这里只显示这一个视图，不能收起");
+        }
+        expect(store.actions.document()).toBe(before);
+
+        // 两个分节时收起一个，再把另一个移走：记录留着，但它此刻没收起，切换仍然是“收起”，不可用；明说展开可以，把记录清掉。
+        expect(store.actions.moveView("test.aux", {newPanelNextTo: side}).ok).toBe(true);
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, collapsed: true})).toEqual({ok: true, value: null});
+        expect(store.actions.resetView("test.aux").ok).toBe(true);
+        expect(store.actions.document().panels[side]?.collapsed).toBe(true);
+        expect(failureText(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side}))).toBe("这里只显示这一个视图，不能收起");
+        expect(store.actions.document().panels[side]?.collapsed).toBe(true);
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, collapsed: false})).toEqual({ok: true, value: null});
+        expect(store.actions.document().panels[side]?.collapsed).toBeUndefined();
     });
 
     it("最大化切换，不落盘；隐藏或收起最大化着的面板时退出（输出 13）", async () => {
         const store = await layout();
         const commands = panelCommands(() => store);
         const [side, lower] = [sectionOf(store, "test.side"), sectionOf(store, "test.panel")];
+        // 区域唯一显示的分节收不成标题行：收起不可用，最大化不退出。
+        await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: side});
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, collapsed: true})).toMatchObject({ok: false, code: "unavailable"});
+        expect(store.state.maximized).toBe(side);
+        await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: side});
+        // 侧栏里再放一个分节，下面才收得起来。
+        expect(store.actions.moveView("test.aux", {newPanelNextTo: side}).ok).toBe(true);
         store.actions.focusPanel(lower);
         await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({});
         expect(store.state.maximized).toBe(lower);

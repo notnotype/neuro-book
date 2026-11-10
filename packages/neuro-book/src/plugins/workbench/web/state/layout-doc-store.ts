@@ -7,7 +7,7 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, fixedNodesOf, floatTab, isContainerAnchor, isFloating, isPanelShown, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, fixedNodesOf, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {GridExtent, GridFloatInput, LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, LayoutSource, PanelName} from "@notnotype/nb-layout";
 
 import {defineStore} from "nbook/shared/store/store";
@@ -148,7 +148,7 @@ function defineLayoutDocStore(bound: boolean) {
         const effectiveMaximized = computed(() => {
             const panel = maximized.value === null ? undefined : doc.value.panels[maximized.value];
             // 这块面板不在了、隐藏了（包括标签被搬空）、收起了都退出（输出 13）：不管是哪条路径改的文档。
-            return maximized.value === null || panel === undefined || !isPanelShown(doc.value, maximized.value) || panel.collapsed === true || collapse.value.removed.has(maximized.value) || isFloating(doc.value, maximized.value) ? null : maximized.value;
+            return maximized.value === null || panel === undefined || !isPanelShown(doc.value, maximized.value) || isSectionCollapsed(doc.value, maximized.value) || collapse.value.removed.has(maximized.value) || isFloating(doc.value, maximized.value) ? null : maximized.value;
         });
         /**
          * 缩放中的浮动窗矩形：只有它在变，不换文档、不重算投影。整窗拖动只在开始时写一次带上标记，跟手的位置由外壳直接写元素。
@@ -410,14 +410,16 @@ function defineLayoutDocStore(bound: boolean) {
                     });
                 },
                 setCollapsed: (panel: string, collapsed: boolean): LayoutResult => {
-                    if (collapsed && maximized.value === panel) maximized.value = null;
-                    return apply((current) => setPanelCollapsed(current, panel, collapsed));
+                    const result = apply((current) => setPanelCollapsed(current, panel, collapsed));
+                    // 收不成标题行的分节会被拒绝（区域唯一显示的、底部面板的）：没收起就不退出最大化。
+                    if (result.ok && collapsed && maximized.value === panel) maximized.value = null;
+                    return result;
                 },
                 /** 激活标签（切标签合并着存）；面板收成标题行时一起展开（输出 11）。 */
                 activate: (key: string): LayoutResult => apply((current) => {
                     const activated = activateTab(current, key);
                     const panel = findTab(current, key)?.panel;
-                    return activated.ok && panel !== undefined && current.panels[panel]?.collapsed === true ? setPanelCollapsed(activated.doc, panel, false) : activated;
+                    return activated.ok && panel !== undefined && isSectionCollapsed(current, panel) ? setPanelCollapsed(activated.doc, panel, false) : activated;
                 }),
                 /** 在标签条里换一位（Alt 加方向键，输出 20）：活动标签不变，到头了不动。 */
                 reorderTab: (key: string, delta: -1 | 1): LayoutResult => apply((current) => {

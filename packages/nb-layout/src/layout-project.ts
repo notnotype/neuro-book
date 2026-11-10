@@ -9,7 +9,7 @@
  */
 
 import {UNBOUNDED_EXTENT} from "./grid-geometry";
-import {barOfRef, isContainerAnchor, isFixedChild, isPanelShown, REGION_ORIENTATION, regionNodeOf, treeLeaves} from "./layout-doc";
+import {barOfRef, isContainerAnchor, isFixedChild, isPanelShown, isSectionCollapsed, REGION_ORIENTATION, regionNodeOf, treeLeaves} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, PanelName, PanelRecord} from "./layout-doc";
 import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode, SashCollapseState} from "./grid-types";
 
@@ -55,18 +55,21 @@ const isBarInput = (node: GridNodeInput<string>): boolean => node.kind === "leaf
  * - 谁吸收余量：`isFixedChild`。所以和编辑区并排的工具面板保留像素，全是工具面板的一列按比例分，分支里总有人吸收余量，不留白。
  * - 收起：横向分支里拖到零，纵向分支里收成标题行。编辑组不可收起。
  * - 带容器的区域（docs/specs/ui/workbench-layout.md 输出 11、12）：代表区域的节点（`regionAnchors`）收起是整个区域拖到零，沿它所在的骨架分支那一轴为 0，状态读锚的；
- *   这个节点是分节的叶时，一个节点只有一份收起策略，给区域用，这个分节自己的收成标题行这时不呈现。区域里的分节（`region` 非空）只会收成标题行：
+ *   这个节点是分节的叶时，一个节点只有一份收起策略，给区域用；这个分节自己这时不算收起（`isSectionCollapsed`，输出 11：区域只显示一个分节时它不收成标题行）。区域里的分节（`region` 非空）只会收成标题行：
  *   只有一列的区域（侧栏、右栏）里直接排在纵向分支里的分节有；底部面板里的、区域里被左右拆开的没有收起策略，它们之间的边界停在最小尺寸。
  */
 function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: LayoutProjectionOptions, regionAnchors: ReadonlyMap<string, string>, region: PanelName | null = null): void {
     if (node.kind === "leaf") return;
     const main = axisOf(node.orientation);
+    // 按比例分的子节点，意图只记兄弟之间的比例（`rebaseIntents`：有收起、隐藏的兄弟或区域的锚时不写像素），当不了 `restoreSize`：
+    // 让 Enter 回到它按比例该得的那一份，和改了收起记录再呈现（按钮、命令）一样（输出 12）。保留像素的节点意图就是像素，照旧。
     const collapseOf = (child: GridNodeInput<string>, collapsed: boolean, collapsedSize: number): SashCollapseState => ({
         collapsed,
         collapsedSize,
         restoreSize: Math.max(child.size?.[main] ?? 0, child.minimumSize?.[main] ?? 0),
         collapseThreshold: options.collapseThreshold,
         expandThreshold: options.collapseThreshold,
+        ...(child.sizing === "weight" ? {restoreToShare: true} : {}),
     });
     for (const child of node.children) {
         const sizing: GridSizing = isFixedChild(doc, node.children, child) ? "fixed" : "weight";
@@ -84,7 +87,7 @@ function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: La
         const panel = doc.panels[child.id];
         if (panel?.role !== "tool") continue;
         if (region !== null && (REGION_ORIENTATION[region] !== "vertical" || node.orientation !== "vertical")) continue;
-        child.collapse = collapseOf(child, panel.collapsed === true, node.orientation === "vertical" ? options.headHeight : 0);
+        child.collapse = collapseOf(child, isSectionCollapsed(doc, child.id), node.orientation === "vertical" ? options.headHeight : 0);
     }
 }
 
@@ -152,8 +155,9 @@ export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOption
 }
 
 function minimumOf(node: GridNodeInput<string>, axis: keyof GridExtent, parentAxis: keyof GridExtent | null, sashSize: (branchId: string, index: number) => number): number {
-    // 分支也可能收起（整个区域拖到零）：不然零宽的区域还按分节的最小宽度算，窗口窄了会把它们“收走”。
-    if (node.collapse?.collapsed === true && axis === parentAxis) return node.collapse.collapsedSize;
+    // 收起为零的节点（整个区域拖到零、横向分支里拖到零的面板）没有看得见的内容，两根轴都不占最小尺寸（docs/specs/ui/nested-grid.md 的“分支的收起”）：
+    // 不然窗口窄了、矮了，会把看不见的分节“收走”。收成标题行的还占着面板头，只在父分支主轴上换成面板头的高度。
+    if (node.collapse?.collapsed === true && (node.collapse.collapsedSize === 0 || axis === parentAxis)) return node.collapse.collapsedSize;
     if (node.kind === "leaf") return node.minimumSize?.[axis] ?? 0;
     const own = axisOf(node.orientation);
     const inner = node.children.map((child) => minimumOf(child, axis, own, sashSize));

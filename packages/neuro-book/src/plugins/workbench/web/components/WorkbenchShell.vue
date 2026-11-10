@@ -5,7 +5,7 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, layoutDropKey, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, isSectionCollapsed, layoutDropKey, regionOf, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc, LayoutSource} from "@notnotype/nb-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
@@ -169,8 +169,11 @@ const TAB_TRUNCATED_PX = 96;
 const TAB_ICON_PX = 28;
 const FRAME_BUTTON_PX = 26;
 const HEAD_PADDING_PX = 20;
-/** 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有收起按钮（输出 20）。 */
-const collapsibleHere = (panelId: string): boolean => findTreeNode(renderedDoc.value.tree.root, panelId)?.parent?.orientation === "vertical";
+/**
+ * 横向分支里收起就是零宽，和隐藏重复，无名面板还找不回来：只有上下排的面板有收起按钮（输出 20）。
+ * 带容器的区域里再问库：底部面板的分节、区域此刻唯一显示的分节收不成标题行（输出 11），也没有按钮。和 `setPanelCollapsed` 拒绝的是同一个判定。
+ */
+const collapsibleHere = (panelId: string): boolean => findTreeNode(renderedDoc.value.tree.root, panelId)?.parent?.orientation === "vertical" && sectionCollapseBlock(renderedDoc.value, panelId) === null;
 function headReserved(panelId: string): number {
     const panel = renderedDoc.value.panels[panelId];
     // 浮动窗只有“回到停靠”；树里是最大化、浮动，加上收起与隐藏。
@@ -226,7 +229,7 @@ function frameActionsOf(panelId: string): PanelFrameAction[] {
     const floatable = viewId !== null && catalog.value.get(viewId)?.floatable !== false && catalog.value.get(viewId)?.movable !== false;
     return [
         ...(floatable ? [describe(FLOAT_COMMAND, "i-lucide-picture-in-picture-2", "commands.nbook.view.float.title")] : []),
-        ...(collapsibleHere(panelId) ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", panel?.collapsed === true)] : []),
+        ...(collapsibleHere(panelId) ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", isSectionCollapsed(renderedDoc.value, panelId))] : []),
         describe(TOGGLE_PANEL_MAXIMIZED_COMMAND, "i-lucide-maximize-2", "commands.nbook.view.toggle-panel-maximized.title", state.value.maximized === panelId),
         // 无名面板没有隐藏按钮。
         ...(panel?.name === undefined ? [] : [describe(SET_PART_HIDDEN_COMMAND, "i-lucide-x", "shell.frame.hide")]),

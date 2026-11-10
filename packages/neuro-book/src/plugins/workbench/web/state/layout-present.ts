@@ -2,7 +2,7 @@
  * 由文档算出这一刻怎么呈现（docs/specs/ui/workbench-layout.md“渲染”“面板头与活动栏”）：内容项、有效可见、活动栏条目点了做什么。纯模块，不碰 DOM 与记录。
  */
 
-import {findTab, isContainerAnchor, isFloating, isPanelShown, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridContentInput, GridExtent, LayoutDoc, PanelRecord} from "@notnotype/nb-layout";
 
 import type {DisplayText} from "nbook/shared/localized-text";
@@ -60,7 +60,7 @@ export function effectiveVisibleTabs(doc: LayoutDoc, facts: VisibilityFacts): Re
         // 分节所在的区域拖到零记在锚上（输出 17）：命令写了它之后，呈现尺寸要到下一次布局才跟上，所以不只看尺寸。
         const region = regionOf(doc, id);
         const anchor = region === null ? undefined : doc.panels[regionNodeOf(doc, region)?.anchor ?? ""];
-        const committed = panel.collapsed !== true && anchor?.collapsed !== true && hasRoom(panel, facts.sizes[id]);
+        const committed = !isSectionCollapsed(doc, id) && anchor?.collapsed !== true && hasRoom(panel, facts.sizes[id]);
         const pulledOut = facts.preview !== null && hasRoom(panel, facts.preview[id]);
         // 最大化盖在上面，矩形不来自布局结果。
         if (committed || pulledOut || facts.maximized === id) visible.add(panel.active);

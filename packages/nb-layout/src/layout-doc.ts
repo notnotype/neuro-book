@@ -196,7 +196,11 @@ export function regionOf(doc: LayoutDoc, panelId: string): PanelName | null {
 
 /** 区域的锚：面板 id 与记录。 */
 function anchorOf(doc: LayoutDoc, region: PanelName): {readonly id: string; readonly panel: PanelRecord} | null {
-    for (const [id, panel] of Object.entries(doc.panels)) if (panel.name === region) return {id, panel};
+    // 每片分节判可见都要问一次：不用 `Object.entries`，那样每次都新建一份整表的数组。
+    for (const id in doc.panels) {
+        const panel = doc.panels[id] as PanelRecord;
+        if (panel.name === region) return {id, panel};
+    }
     return null;
 }
 
@@ -217,17 +221,17 @@ export function regionNodeOf(doc: LayoutDoc, region: PanelName): {readonly ancho
  *
  * - 区域的锚不显示：它只记区域的状态，永远不进呈现树。
  * - 分节（有 `container`）另要所在区域没隐藏、区域的当前容器是它的容器。区域的隐藏直接读锚的 `hidden`，不问“锚显示不显示”：锚自己永远不显示。
- * - 有 `container` 却不在任何区域里（浮动窗）：归属不起作用，照常显示。结构操作不会留下这种记录，这里只是不让它变成找不回来的面板。
+ * - 有 `container` 却不在带容器的区域里（不在任何区域里，或区域的具名面板是一块普通面板、不是锚）：归属不起作用，照常显示。“区域用不用容器”和写入路径问的是同一个
+ *   `containerAnchorOf`；结构操作不会留下这种记录，这里只是不让它变成找不回来的面板（没有锚就没有能让它显示的操作）。
  */
 export function isPanelShown(doc: LayoutDoc, panelId: string): boolean {
     const panel = doc.panels[panelId];
     if (panel === undefined || panel.hidden === true) return false;
     if (panel.name !== undefined) return !isContainerAnchor(panel);
     if (panel.container === undefined) return true;
-    const region = regionOf(doc, panelId);
-    const anchor = region === null ? null : anchorOf(doc, region);
+    const anchor = containerAnchorOf(doc, panelId);
     if (anchor === null) return true;
-    return anchor.panel.hidden !== true && anchor.panel.activeContainer === panel.container;
+    return anchor.hidden !== true && anchor.activeContainer === panel.container;
 }
 
 /** 这个节点此刻占不占地方：隐藏的面板、隐藏的条不占；分支看它的子节点。 */
@@ -238,10 +242,42 @@ export function isNodeShown(doc: LayoutDoc, node: GridSnapshotNode): boolean {
     return isPanelShown(doc, node.id);
 }
 
+/**
+ * 带容器的区域里，这个分节此刻为什么不能收成标题行（docs/specs/ui/workbench-layout.md 输出 11、20）；能收，或者它不是带容器的区域里的分节时是 null。
+ *
+ * - `"row-region"`：底部面板的分节不折叠。
+ * - `"lone-section"`：它是所在区域此刻唯一显示的分节。那一列在呈现里塌成它这一片叶，叶上唯一的一份收起策略给了“整个区域拖到零”（`projectLayoutDoc`）。
+ *
+ * 按文档判，不看放不下被收走的：那是呈现的事，窗口变大就回来。
+ */
+export type SectionCollapseBlock = "row-region" | "lone-section";
+
+export function sectionCollapseBlock(doc: LayoutDoc, panelId: string): SectionCollapseBlock | null {
+    const region = containerAnchorOf(doc, panelId) === null ? null : regionOf(doc, panelId);
+    const column = region === null ? null : regionNodeOf(doc, region);
+    if (region === null || column === null) return null;
+    if (REGION_ORIENTATION[region] !== "vertical") return "row-region";
+    const shown = treeLeaves(column.node).filter((leaf) => isPanelShown(doc, leaf.id));
+    return shown.length === 1 && shown[0]?.id === panelId ? "lone-section" : null;
+}
+
+/**
+ * 这块面板此刻是不是收起着：“收没收起”只有这一个判定，别处不直接读分节的 `collapsed`，和 `isPanelShown` 之于 `hidden` 一样。
+ *
+ * 记录里的 `collapsed` 是用户的意图，留着；此刻收不成标题行的分节（`sectionCollapseBlock`）按没收起算，区域里又显示两个以上分节时它重新起作用（输出 11）。
+ * 不在带容器的区域里的面板（没有容器的文档、浮动窗）只看 `collapsed`。区域的锚恒为 false：它的 `collapsed` 是整个区域拖到零，读锚的记录。
+ */
+export function isSectionCollapsed(doc: LayoutDoc, panelId: string): boolean {
+    const panel = doc.panels[panelId];
+    // 先看记录：没收起的面板（绝大多数）不去找区域。
+    if (panel === undefined || panel.collapsed !== true || isContainerAnchor(panel)) return false;
+    return sectionCollapseBlock(doc, panelId) === null;
+}
+
 /** 这个节点占不占主轴的份额：隐藏的不占，收起的只占面板头。 */
 export function countsInShare(doc: LayoutDoc, node: GridSnapshotNode): boolean {
     if (node.kind === "branch") return node.children.some((child) => countsInShare(doc, child));
-    return isNodeShown(doc, node) && doc.panels[node.id]?.collapsed !== true;
+    return isNodeShown(doc, node) && !isSectionCollapsed(doc, node.id);
 }
 
 const isBarLeaf = (node: GridSnapshotNode): boolean => node.kind === "leaf" && barOfRef(node.ref) !== null;
@@ -377,7 +413,7 @@ function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
 
 /**
  * 把呈现尺寸写回意图：手势落账后、结构操作之前调。`collapsedTo` 是呈现里塌陷掉的分支由谁代表（`projectLayoutDoc` 给），它们的尺寸就是幸存者的。
- * 不写的：呈现为零的轴；收起的面板（纵向收成标题行时呈现高度是面板头，不是展开尺寸）；条（厚度不是意图）。
+ * 不写的：呈现为零的轴；收起的面板（`isSectionCollapsed`；纵向收成标题行时呈现高度是面板头，不是展开尺寸）；条（厚度不是意图）。
  *
  * 全是工具面板的分支按比例分（`projectLayoutDoc`）：里面有收起或隐藏的兄弟时，其余的呈现尺寸是占了它们的空间之后的，直接写进去，兄弟回来时比例就错了，展开只回到一部分。
  * 所以这些子节点只更新彼此的比例，总量保持原来的份额。含编辑组的分支不用：工具面板保留像素，余量归编辑组。
@@ -386,7 +422,7 @@ export function rebaseIntents(doc: LayoutDoc, sizes: Readonly<Record<string, Gri
     const sizeOfNode = (node: GridSnapshotNode): GridExtent | undefined => sizes[node.id] ?? sizes[collapsedTo.get(node.id) ?? ""];
     // `frozen`：呈现尺寸不是意图的节点。保留像素的节点只会被压缩，不会自己变（输出 8）；由调用方给，因为谁保留像素是呈现树决定的。
     const isFrozen = (node: GridSnapshotNode): boolean => frozen.has(node.id) || frozen.has(collapsedTo.get(node.id) ?? "");
-    const isSkipped = (node: GridSnapshotNode): boolean => isFrozen(node) || (node.kind === "leaf" && (barOfRef(node.ref) !== null || doc.panels[node.id]?.collapsed === true));
+    const isSkipped = (node: GridSnapshotNode): boolean => isFrozen(node) || (node.kind === "leaf" && (barOfRef(node.ref) !== null || isSectionCollapsed(doc, node.id)));
     const holdsEditor = (node: GridSnapshotNode): boolean => treeLeaves(node).some((leaf) => doc.panels[leaf.id]?.role === "editor");
 
     const write = (node: GridSnapshotNode): GridSnapshotNode => {
@@ -495,14 +531,15 @@ function refusesMoreTabs(target: PanelRecord): string | null {
 /**
  * 目标是分节时，“并进它的标签条”改成紧挨着它新建分节：插入位在最前是它前面，其余是它后面；新分节跟它同一个容器。
  * 目标不是分节、或不在树里（浮动窗上的归属不起作用）时是 null，照原来的并入。
+ * 目标带着归属却不在带容器的区域里（残留的记录）时不点名容器：新块落下后和它一样没有归属，`settleLanding` 不会因为点了名而拒绝。
  */
-function besideSection(doc: LayoutDoc, panelId: string, index: number | undefined): {readonly target: LayoutEdgeTarget; readonly container: string} | null {
+function besideSection(doc: LayoutDoc, panelId: string, index: number | undefined): {readonly target: LayoutEdgeTarget; readonly container?: string} | null {
     const container = doc.panels[panelId]?.container;
     const parent = container === undefined ? null : (findTreeNode(doc.tree.root, panelId)?.parent ?? null);
     if (container === undefined || parent === null) return null;
     const before = index !== undefined && index <= 0;
     const edge: LayoutEdge = parent.orientation === "vertical" ? (before ? "top" : "bottom") : (before ? "left" : "right");
-    return {target: {kind: "split", panel: panelId, edge}, container};
+    return {target: {kind: "split", panel: panelId, edge}, ...(containerAnchorOf(doc, panelId) === null ? {} : {container})};
 }
 
 /**
@@ -532,12 +569,16 @@ function splitPanelInPlace(next: MutableDoc, id: string, newId: () => string): s
 
 /**
  * 一块面板放到外缘之后，按它落在哪定归属（输出 40）。落在带容器的区域里：写上 `wanted`，没给就是区域的当前容器；区域没有当前容器又没给时不放
- * （没有归属的分节哪个容器都不显示它）；带着几个标签时拆成一个标签一节。落在别处：清掉归属。返回问题说明；没有问题是 null。
+ * （没有归属的分节哪个容器都不显示它）；带着几个标签时拆成一个标签一节。落在别处：清掉它原来的归属；调用方点名了容器（`wanted`）时不放，
+ * 不把点名的容器悄悄丢掉。返回问题说明；没有问题是 null。
+ *
+ * `wanted` 不要求已经在锚的入口顺序里：新建容器时入口顺序由调用方在同一次提交里补（`setContainerEntries`），库不规定两步的先后。
  */
 function settleLanding(next: MutableDoc, id: string, wanted: string | undefined, policy: LayoutPolicy): string | null {
     const panel = next.panels[id] as PanelRecord;
     const anchor = containerAnchorOf(asDoc(next), id);
     if (anchor === null) {
+        if (wanted !== undefined) return `落点不在带容器的区域里，放不进容器 ${wanted}`;
         const {container: _container, ...plain} = panel;
         if (panel.container !== undefined) next.panels[id] = plain;
         return null;
@@ -584,7 +625,8 @@ export function setContainerEntries(doc: LayoutDoc, anchor: string, entries: Rea
 
 /**
  * 树里一块多标签的工具面板拆成一个标签一块（多标签的浮动窗停靠进区域之后，输出 39、40）：按原顺序，都写同一个归属。归属是 `container`，没给就沿用这块面板的，
- * 再没有就是区域的当前容器；不在带容器的区域里时不写归属，只拆。第一块沿用原来的 id，其余的 id 用 `policy.newId`。只有一个标签时只定归属。
+ * 再没有就是区域的当前容器；不在带容器的区域里时不写归属，只拆，这时点名 `container` 会被拒绝。第一块沿用原来的 id，其余的 id 用 `policy.newId`。只有一个标签时只定归属。
+ * `container` 不要求已经在入口顺序里：入口顺序由调用方在同一次提交里补。
  */
 export function splitIntoSections(doc: LayoutDoc, input: {readonly panel: string; readonly container?: string}, policy: LayoutPolicy): LayoutResult {
     const panel = doc.panels[input.panel];
@@ -592,7 +634,9 @@ export function splitIntoSections(doc: LayoutDoc, input: {readonly panel: string
     if (panel.role !== "tool" || panel.name !== undefined) return failure("rejected", "只拆无名的工具面板");
     if (findTreeNode(doc.tree.root, input.panel) === null) return failure("rejected", "浮动窗先停靠再拆");
     const next = editable(doc);
-    const problem = settleLanding(next, input.panel, input.container ?? panel.container, policy) ?? splitPanelInPlace(next, input.panel, () => policy.newId("panel"));
+    // 面板自己带着的归属只在带容器的区域里才算“沿用”：在别处它是要清掉的残留，不能当成调用方点名的容器交给 `settleLanding`。
+    const kept = containerAnchorOf(doc, input.panel) === null ? undefined : panel.container;
+    const problem = settleLanding(next, input.panel, input.container ?? kept, policy) ?? splitPanelInPlace(next, input.panel, () => policy.newId("panel"));
     if (problem !== null) return failure("rejected", problem);
     return finish(doc, next);
 }
@@ -688,6 +732,8 @@ export function movePanelToStrip(doc: LayoutDoc, input: {readonly panel: string;
     const target = doc.panels[input.target];
     if (source === undefined || target === undefined) return failure("not-found", `面板 ${input.panel} 或 ${input.target}`);
     if (input.panel === input.target) return {ok: true, doc};
+    // 锚恒为空：照“空的具名面板并进别处”处理，就成了隐藏整个区域的一个意外入口（输出 40：锚不移动）。
+    if (isContainerAnchor(source)) return failure("rejected", "区域的锚不移动");
     if (!policy.accepts(source.tabs, target, "strip")) return failure("rejected", "接受矩阵拒绝");
     if (isContainerAnchor(target)) return failure("rejected", "区域的锚不放标签");
     const beside = besideSection(doc, input.target, input.index);
@@ -817,6 +863,18 @@ export function firstPanelIn(doc: LayoutDoc, nodeId: string): PanelRecord | null
 /** 外缘目标里的一块真实面板，接受矩阵问它。 */
 const edgeAnchorOf = (doc: LayoutDoc, target: LayoutEdgeTarget): PanelRecord | null => firstPanelIn(doc, target.kind === "between" ? target.before : target.panel);
 
+/**
+ * 这个目标是不是锚的交叉方向外缘（侧栏、右栏的锚的左右，底部面板的锚的上下）。往那里放会把锚和新块包进一层交叉方向的分支：锚不再是那一列（排）的直接子叶，
+ * `regionOf` 认不出区域，各容器的分节一起显示，结果还过得了校验。所以外缘操作在 `placeLeaf` 之前拒绝它。往区域里加分节用锚沿区域方向的外缘。
+ */
+function crossesAnchor(doc: LayoutDoc, target: LayoutEdgeTarget): boolean {
+    if (target.kind === "between") return false;
+    const panel = doc.panels[target.panel];
+    return panel?.name !== undefined && isContainerAnchor(panel) && orientationOfEdge(target.edge) !== REGION_ORIENTATION[panel.name];
+}
+
+const ANCHOR_CROSS_EDGE = "不能往区域的锚的交叉方向外缘放";
+
 /** 这个目标紧贴着这块面板：放下去还在原处（输出 28）。隐藏的兄弟不算挨着，跳过去看下一个。 */
 export function edgeTargetTouches(doc: LayoutDoc, target: LayoutEdgeTarget, panel: string): boolean {
     if (target.kind === "between") return target.before === panel || target.after === panel;
@@ -833,24 +891,28 @@ export function edgeTargetTouches(doc: LayoutDoc, target: LayoutEdgeTarget, pane
 
 /**
  * 整块面板移到外缘：同一块叶，id 不变，内容不重建。这也让“放回原处”自然是原对象。
- * 落进带容器的区域时写归属：`container`，没给就是那个区域的当前容器；多标签的拆成一个标签一节（`settleLanding`）。
+ * 落进带容器的区域时写归属：`container`，没给就是那个区域的当前容器；多标签的拆成一个标签一节（`settleLanding`）。点名了 `container`、落点却不在带容器的区域里时拒绝。
+ * `container` 不要求已经在入口顺序里：入口顺序由调用方在同一次提交里补（`setContainerEntries`）。区域的锚不移动（输出 40）。
  */
 export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; readonly target: LayoutEdgeTarget; readonly container?: string}, policy: LayoutPolicy): LayoutResult {
     const source = doc.panels[input.panel];
     if (source === undefined) return failure("not-found", `面板 ${input.panel}`);
+    if (isContainerAnchor(source)) return failure("rejected", "区域的锚不移动");
     // 浮动窗没有叶，现造一片：尺寸由落点分（`placeLeaf`）。
     const floating = isFloating(doc, input.panel);
     const leaf = floating ? {kind: "leaf" as const, id: input.panel, ref: panelRef(input.panel), size: {width: 0, height: 0}} : findTreeNode(doc.tree.root, input.panel)?.node;
     if (leaf === undefined || leaf.kind !== "leaf") return failure("not-found", `面板 ${input.panel}`);
     if (edgeTargetTouches(doc, input.target, input.panel)) {
-        // 位置是原处，但指定了另一个容器（“移动到”那个容器，而它的最后一节正好挨着来源）：只换归属。
-        if (input.container === undefined || input.container === source.container || containerAnchorOf(doc, input.panel) === null) return {ok: true, doc};
+        // 位置是原处，但指定了另一个容器（“移动到”那个容器，而它的最后一节正好挨着来源）：只换归属。原处不在带容器的区域里时和 `settleLanding` 一样拒绝。
+        if (input.container === undefined || input.container === source.container) return {ok: true, doc};
+        if (containerAnchorOf(doc, input.panel) === null) return failure("rejected", `落点不在带容器的区域里，放不进容器 ${input.container}`);
         const moved = editable(doc);
         moved.panels[input.panel] = {...source, container: input.container};
         return finish(doc, moved);
     }
     const anchor = edgeAnchorOf(doc, input.target);
     if (anchor === null) return failure("not-found", "目标已不存在");
+    if (crossesAnchor(doc, input.target)) return failure("rejected", ANCHOR_CROSS_EDGE);
     if (!policy.accepts(source.tabs, anchor, "edge")) return failure("rejected", "接受矩阵拒绝");
     const next = editable(doc);
     // 放下去的东西要看得见：同一方向移动也展开。
@@ -873,7 +935,7 @@ export function movePanelToEdge(doc: LayoutDoc, input: {readonly panel: string; 
 
 /**
  * 标签移到外缘。来源只有这一个标签时是同一块面板移动；否则拆出新面板，继承来源的角色。具名面板不移动：它的位置就是默认位置，标签拆出去，它拖空隐藏（布局提案 2026-11-06 的决策记录）。
- * 工具视图的内容项跟着 `key` 走、不重建；编辑器标签的视图由编辑器决定。`container` 同 `movePanelToEdge`。
+ * 工具视图的内容项跟着 `key` 走、不重建；编辑器标签的视图由编辑器决定。`container` 同 `movePanelToEdge`：入口顺序由调用方在同一次提交里补。
  */
 export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; readonly target: LayoutEdgeTarget; readonly container?: string}, policy: LayoutPolicy): LayoutResult {
     const found = findTab(doc, input.tab);
@@ -886,6 +948,7 @@ export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; read
     }
     const anchor = edgeAnchorOf(doc, input.target);
     if (anchor === null) return failure("not-found", "目标已不存在");
+    if (crossesAnchor(doc, input.target)) return failure("rejected", ANCHOR_CROSS_EDGE);
     if (!policy.accepts([found.tab], anchor, "edge")) return failure("rejected", "接受矩阵拒绝");
     const next = editable(doc);
     takeTab(next, found.panel, found.index);
@@ -903,10 +966,12 @@ export function moveTabToEdge(doc: LayoutDoc, input: {readonly tab: string; read
 
 /**
  * 在外缘开一块新面板（`"side"` 打开、移动到“新面板”）。`activate: false` 只建组、不改活动编辑组：“在侧边打开”到打开时才切过去。
- * 落进带容器的区域时归属取 `panel.container`，没写就是那个区域的当前容器（`settleLanding`）。
+ * 落进带容器的区域时归属取 `panel.container`，没写就是那个区域的当前容器（`settleLanding`）；写了 `panel.container`、落点却不在带容器的区域里时拒绝。
+ * `panel.container` 不要求已经在入口顺序里：入口顺序由调用方在同一次提交里补（`setContainerEntries`）。
  */
 export function openPanelAtEdge(doc: LayoutDoc, input: {readonly id: string; readonly panel: PanelRecord; readonly target: LayoutEdgeTarget; readonly activate?: boolean}, policy: LayoutPolicy): LayoutResult {
     if (doc.panels[input.id] !== undefined || findTreeNode(doc.tree.root, input.id) !== null) return failure("rejected", `面板已存在 ${input.id}`);
+    if (crossesAnchor(doc, input.target)) return failure("rejected", ANCHOR_CROSS_EDGE);
     const next = editable(doc);
     next.panels[input.id] = input.panel;
     const leaf: GridSnapshotLeaf = {kind: "leaf", id: input.id, ref: panelRef(input.id), size: {width: 0, height: 0}};
@@ -957,12 +1022,16 @@ export function raiseFloat(doc: LayoutDoc, panel: string): LayoutResult {
     return finish(doc, next);
 }
 
-/** 开一个空的浮动窗（文件拖到没有落点的地方：窗先有，文件再打开进去）。`activate: false` 同 `openPanelAtEdge`。 */
+/**
+ * 开一个空的浮动窗（文件拖到没有落点的地方：窗先有，文件再打开进去）。`activate: false` 同 `openPanelAtEdge`。
+ * 记录里的 `container` 不写进去：浮动窗不属于任何容器（输出 40），带着它的话“分节只有一个标签”在这块窗上各个入口答案不一。
+ */
 export function openFloatPanel(doc: LayoutDoc, input: {readonly id: string; readonly panel: PanelRecord; readonly rect: LayoutFloatRect; readonly activate?: boolean}): LayoutResult {
     if (doc.panels[input.id] !== undefined) return failure("rejected", `面板已存在 ${input.id}`);
     if (doc.floats.length >= LAYOUT_MAX_FLOATS) return failure("limit-exceeded", `浮动窗 ${String(doc.floats.length)} 个`);
     const next = editable(doc);
-    next.panels[input.id] = input.panel;
+    const {container: _container, ...record} = input.panel;
+    next.panels[input.id] = record;
     next.floats.push({panel: input.id, rect: roundFloatRect(input.rect)});
     if (input.panel.role === "editor" && input.activate !== false) next.currentEditor = input.id;
     return finish(doc, next);
@@ -1011,11 +1080,17 @@ export function setPanelHidden(doc: LayoutDoc, panelId: string, hidden: boolean)
     return finish(doc, next);
 }
 
+/**
+ * 收起或展开。区域的锚上是整个区域拖到零。带容器的区域里，此刻收不成标题行的分节（`sectionCollapseBlock`：底部面板的、区域唯一显示的）不收：
+ * 呈现里没有它的标题行，写了只会让文档说收起、界面是展开。展开总是允许，记录里留着的 `collapsed` 由它清掉。
+ */
 export function setPanelCollapsed(doc: LayoutDoc, panelId: string, collapsed: boolean): LayoutResult {
     const panel = doc.panels[panelId];
     if (panel === undefined) return failure("not-found", `面板 ${panelId}`);
     if (collapsed && panel.role === "editor") return failure("rejected", "编辑组不可收起");
     if (collapsed && isFloating(doc, panelId)) return failure("rejected", "浮动窗不可收起");
+    const block = collapsed ? sectionCollapseBlock(doc, panelId) : null;
+    if (block !== null) return failure("rejected", block === "row-region" ? "底部面板的分节不折叠" : "区域只显示这一个分节，不收成标题行");
     const next = editable(doc);
     const {collapsed: _collapsed, ...rest} = panel;
     next.panels[panelId] = collapsed ? {...panel, collapsed: true} : rest;
@@ -1031,8 +1106,13 @@ export function setBarHidden(doc: LayoutDoc, bar: LayoutBar, hidden: boolean): L
 
 /**
  * 活动栏放进隐藏的侧栏：一次写入显示面板并接收，不经过“显示了但还是空的”的中间态。`index` 缺省插到最后；标签本来就在这块面板里时只显示并激活，不重排（侧栏拖到零时，活动栏条目拖回活动栏）。
+ *
+ * 只给不用容器的面板用。带容器的区域里显隐记在锚上，分节不接收标签：目标是锚或分节时拒绝，不留“成功了但区域还隐藏着”的结果。
+ * 带容器的区域用 `setPanelHidden(锚, false)` 加 `openPanelAtEdge`。
  */
 export function showPanelAndInsert(doc: LayoutDoc, input: {readonly panel: string; readonly source: LayoutSource; readonly index?: number}, policy: LayoutPolicy): LayoutResult {
+    const record = doc.panels[input.panel];
+    if (record !== undefined && (isContainerAnchor(record) || containerAnchorOf(doc, input.panel) !== null)) return failure("rejected", "带容器的区域不经这里显示并接收");
     const shown = setPanelHidden(doc, input.panel, false);
     if (!shown.ok) return shown;
     const expanded = setPanelCollapsed(shown.doc, input.panel, false);
@@ -1180,6 +1260,7 @@ export function validateLayoutDoc(value: unknown): LayoutDocValidation {
         const panel = value.panels[id];
         if (!isObject(panel) || (panel.role !== "tool" && panel.role !== "editor") || !Array.isArray(panel.tabs) || !panel.tabs.every(isTabRef)) return invalid(`面板 ${id} 不合法`);
         if (floating.has(id) && (panel.name !== undefined || panel.hidden !== undefined || panel.collapsed !== undefined)) return invalid(`浮动窗 ${id} 不能具名、隐藏或收起`);
+        if (floating.has(id) && panel.container !== undefined) return invalid(`浮动窗 ${id} 不属于容器`);
         if (panel.role === "editor" && inTree.has(id)) editors += 1;
         if (panel.role === "editor" && (panel.name !== undefined || panel.hidden !== undefined || panel.collapsed !== undefined)) return invalid(`编辑组 ${id} 不能具名、隐藏或收起`);
         if (panel.hidden !== undefined && (panel.hidden !== true || panel.name === undefined)) return invalid(`面板 ${id} 的隐藏不合法：只有具名面板会隐藏`);

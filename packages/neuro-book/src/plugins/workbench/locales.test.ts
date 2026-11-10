@@ -394,6 +394,9 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "state.maximized.reason": {"zh-CN": "没有最大化的面板", "en-US": "No panel is maximized"},
     // w00026 t24：工作台声明的视图容器（docs/specs/workbench/views.md 输出 15）。
     "viewContainers.project.title": {"zh-CN": "项目", "en-US": "Project"},
+    // w00026 t24：收不成标题行的分节（docs/specs/ui/workbench-layout.md 输出 11、20）。
+    "panelCommands.rowSectionCollapse": {"zh-CN": "底部面板里的视图不能收起", "en-US": "A view in the bottom panel cannot be collapsed"},
+    "panelCommands.loneSectionCollapse": {"zh-CN": "这里只显示这一个视图，不能收起", "en-US": "The only view shown here cannot be collapsed"},
 };
 
 /**

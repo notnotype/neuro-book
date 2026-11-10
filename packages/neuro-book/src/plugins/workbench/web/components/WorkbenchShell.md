@@ -20,7 +20,7 @@
 ## 交互
 
 - 拖动边界的结果交给 store 的 `commitGesture`，布局发布的尺寸交给 `acceptPresented`；记录读完之前边界不能拖。
-- 面板头的框架按钮执行命令（`set-panel-collapsed`、`toggle-panel-maximized`、`set-part-hidden`），可用与原因取命令系统的可用性。收起按钮只给上下排的面板。标签的右键或菜单键开“移动到”：别的工具面板、“新面板（挨着 X）”、“重置位置”，视图所在面板、交付状态或代际一变菜单就关。
+- 面板头的框架按钮执行命令（`set-panel-collapsed`、`toggle-panel-maximized`、`set-part-hidden`），可用与原因取命令系统的可用性。收起按钮只给上下排的面板；带容器的区域里，底部面板的分节与区域此刻唯一显示的分节没有（`sectionCollapseBlock`），按下状态问 `isSectionCollapsed`。标签的右键或菜单键开“移动到”：别的工具面板、“新面板（挨着 X）”、“重置位置”，视图所在面板、交付状态或代际一变菜单就关。
 - 活动栏只列侧栏这一列的视图。条目按 `toolEntryIntent`：不可见显示并聚焦，可见隐藏（无名面板收起）。右键或菜单键同标签。
 - 状态栏的面板按钮执行 `set-part-hidden`；重试、放弃转给 store。
 - 内容被停放时焦点还在里面：移到同一面板看得见的标签，面板看不见时移到活动栏条目，都没有时外壳根；焦点在外壳之外时不抢。
