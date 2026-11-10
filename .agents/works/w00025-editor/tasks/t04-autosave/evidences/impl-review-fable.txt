@@ -1,0 +1,161 @@
+w00025 t04 自动保存：实现审查报告（只读）
+
+审查范围：25451818c..436ee1660，在 /tmp/nb-review-w00025/t04-impl/tree 里读。
+实验：实现 worktree（.worktree/w00025-editor）的 HEAD 已不是 436ee1660，而是 4c611eaba（多了 t05 的两个提交）；核对过 web/auto-save.ts、web/area.ts、web/documents/、auto-save.test.ts 与被审提交一致，模型实验仍然有效。实验文件只在 /tmp/nb-review-w00025/t04-impl/scratch/（exp1.test.ts、exp2.test.ts，用真实 Files 场地与真实链路，从实现 worktree 的 packages/neuro-book 里用 bun test 跑），没有改实现 worktree 的任何文件，没有做变异检查，没有跑 e2e。
+下面按影响排序。
+
+### 1. 自动保存遇到“结果未知”、核对后发现没有落盘：失败闸不复位，横幅没有按钮，这份文档的自动保存就此停下
+
+**严重程度**：重要
+**类别**：正确性、对照 Spec
+**位置**：packages/neuro-book/src/plugins/editor/web/auto-save.ts:75-77、110-112；web/documents/store.ts:344-354；web/components/EditorGroup.vue:133
+**现象**：自动保存的写请求还没到服务端时断线（服务端重启、网络抖动），保存得到 `unknown-outcome`，闸落下。重连后核对读到的哈希不等于快照（没落盘），`store.ts:346` 只把 `uncertain` 清掉，`saveProblem` 仍是 `unknown-outcome`。闸的复位条件是“变干净或 `saveProblem` 被清掉”，两个都不会发生；横幅对 `unknown-outcome` 不给“重试保存”，文案还停在“保存的结果未知，正在核对磁盘。”。之后再输入、离开视图、窗口失焦都不保存。
+**为什么是问题**：Spec“失败与恢复”表写的是“保存失败或结果未知……重试保存（组顶部的提示上有按钮）”，输出 14 写“否则保持 dirty 并说明”。实际上核对早已结束，提示却说正在核对，没有按钮，开着自动保存的用户只能自己想到按 Ctrl+S。断线正是最需要自动保存恢复的时候。
+**如何核实**：scratch/exp2.test.ts 的 E1（`holdSend` 扣住写请求、`windowLink.disconnect()`、`reconnect()`，真实链路）：重连并核对后 `disk=A、dirty=true、saveProblem=unknown-outcome、diskChanged=false`；再输入后 `viewLeft` 与 `windowBlurred`，`saving=false`，写请求增量 0；手动 `area.save()` 才成功。
+**建议改法**：核对读到的不是快照时，把 `saveProblem` 换成一个可重试的失败（或清掉并让闸复位，由下一次触发重试）；横幅据此给“重试保存”。`auto-save.test.ts` 补“结果未知、未落盘”一例（计划第 7 节列了“结果未知核对成功”，也没有用例）。
+
+### 2. 保存失败后把正文改回原样（例如撤销）：横幅仍写“保存失败”，新加的“重试保存”点了没有任何效果
+
+**严重程度**：重要
+**类别**：正确性、相邻行为
+**位置**：web/components/EditorGroup.vue:132-133；web/documents/store.ts:571（不 dirty 时直接返回成功，不清 `saveProblem`）；web/auto-save.ts:51-52（注释自己写了“`saveProblem` 在文档变干净之后可能还留着”）
+**现象**：一次保存失败后用户撤销回原文，文档不 dirty，`saveProblem` 还在。横幅只看 `saveProblem !== null`，继续显示“保存失败：……”与“重试保存”。点按钮走 `area.save()` → `saveNow` 因为不 dirty 直接返回 `{ok: true}`，不发写入，也不清 `saveProblem`：提示与按钮原样留着。状态栏那边按“未保存的文档”过滤，已经不报错，两处不一致。
+**为什么是问题**：设计审查第 3 条指出过“文档干净后它还留着”，处理只在 `adopt`（重新载入）里清了；“改回原样”这条路没处理，而 Spec 输出 63 把它与重新载入并列为“变干净”。这次新加的按钮在这个状态下是个死按钮。
+**如何核实**：scratch/exp1.test.ts 的 E2：目录只读 → 输入 → `viewLeft` 失败 → 把正文交回 "A" → `dirty=false`、`saveProblem=permission-denied`；恢复可写后 `area.save()` 返回 `{ok:true}`，写请求增量 0，`saveProblem` 仍是 `permission-denied`。
+**建议改法**：文档变干净时清掉 `saveProblem`（例如 `saveNow` 的“不 dirty 直接成功”分支里清，或提交使正文等于已保存正文时清），横幅就不必另加条件；用例补在 `documents.test.ts` 的保存一组。
+
+### 3. 源码编辑器在“停手后”模式下会在输入法组字途中保存：只有 Markdown 控件交了 `pending`
+
+**严重程度**：重要（非缺省模式；从代码推断，没有在浏览器里复现，e2e 不在本次允许范围）
+**类别**：对照 Spec、设计审查第 1 条的处理不完整
+**位置**：web/components/MonacoControl.vue:159-162（`attach` 不给第二个参数）、287-292（每次模型变化立即 `commit`）；Spec 输出 63“停手后……输入法组字期间不保存”
+**现象**：Monaco 在组字期间把候选前的拼音直接写进模型：`node_modules/monaco-editor`（0.55.1）`textAreaEditContextInput.js:158-177` 在 `compositionupdate` 时 `_onType.fire`，`textAreaEditContext.js:231-234` 转成 `compositionType` 改模型。于是 `onDidChangeModelContent` → `commit`，文档带着半截拼音变 dirty、修订前进、计时排上。控件没有登记 `pending`，`documents.pending(document)` 为假，用户选字停顿超过延迟（缺省 1000 毫秒，选候选字常常超过）就把拼音写进磁盘。
+**为什么是问题**：Spec 的这句话没有限定编辑器；设计审查第 1 条的结论是“定时到点遇到它就顺延”，计划 4.2 写“源码编辑器按它现有的缓冲情况交（没有缓冲就不传）”，漏了“没有缓冲但正在组字”。后果比 Markdown 轻（保存不重画，组字不被打断），但磁盘上会短暂出现拼音，Agent 或外部程序读得到。场景 37 的 e2e 只测了 Markdown。
+**如何核实**：读上面三处代码；要实证可在 `editor-autosave.e2e.ts` 里对 `.txt` 文件照场景 37 的写法组字并数写请求。
+**建议改法**：`MonacoControl` 用 `editor.onDidCompositionStart/End` 记一个标志，`attach` 的第二个参数返回它；或者 Spec 写明只对 Markdown 承诺。
+
+### 4. e2e“窗口失焦时”一例分不出 `document.hasFocus()` 的过滤有没有生效：场景 38 的“焦点进入内嵌页面时不保存”实际没有被验到
+
+**严重程度**：重要
+**类别**：测试
+**位置**：packages/neuro-book/e2e/editor-autosave.e2e.ts:181-189；web/plugin.ts（`windowBlur` 里的 `page?.hasFocus() === false`）
+**现象**：用例先派发 `blur`（注释说此刻 `hasFocus()` 为真，等同于焦点进了内嵌页面，不保存），紧接着派发 `visibilitychange`，最后只断言磁盘内容与 `writes.length === 1`。假如去掉过滤：`blur` 那一下就发出写请求（第 1 次）；随后的 `visibilitychange` 再触发时文档要么已经干净，要么并进排队的保存、`saveNow` 发现不 dirty 直接返回，不再发写请求。总数仍是 1，磁盘内容相同，用例照样通过。两次派发之间没有任何断言。
+**为什么是问题**：计划第 9 节风险 3 说这条过滤“用‘焦点在 HTML 预览的 iframe 里时不保存’的用例兜底”，Spec 的 Smoke 也写场景 38 由这份 e2e 运行；`plugin.ts` 的窗口监听没有别的测试。这条判据现在没有任何用例能让它失败。
+**如何核实**：按上面的顺序推演 `auto-save.ts:85-89` 与 `store.ts:547-571`（重复保存并进排队的那次、不 dirty 时不写）；没有跑 e2e 做变异。
+**建议改法**：派发 `blur` 之后先证明没有发出写请求再继续（例如在页面里等一次往返后断言 `writes.length === 0` 且标签仍带未保存标记），并加一例真的把焦点点进 HTML 预览的内嵌页面。也可以把“这一下 blur 算不算窗口失焦”抽成一个小函数在 Bun 里测。
+
+### 5. e2e 组字一例没有走到“到点顺延”的分支；那处固定等待证明的是另一件事
+
+**严重程度**：建议
+**类别**：测试
+**位置**：packages/neuro-book/e2e/editor-autosave.e2e.ts:139-151；web/auto-save.ts:102-105；markdown/web/components/MarkdownControl.vue:376-382
+**现象**：用例等第一次保存完成（磁盘为“甲一”、写请求 1 次）之后才开始组字。Markdown 控件在组字期间不把输入交给文档（`commitWhenSettled` 一直顺延），文档此时不 dirty，“停手后”的计时根本没有排上。等 1200 毫秒没有保存，原因是文档没变，不是 `documents.pending` 让计时顺延：把 `auto-save.ts:104` 的顺延去掉，这条用例照样通过。
+**为什么是问题**：设计审查第 1 条要防的时序是“计时已经排上（刚交出过输入），随后开始组字，到点时 `attempt` 里的 `settle` 把半截拼音结算进正文并落盘”。这个时序只有 `auto-save.test.ts` 用假的 `pending` 回调测过；控件那一侧 `pending` 的 `composing` 分支（`MarkdownControl.vue:226`）没有任何用例，`MarkdownControl.dom.test.ts` 只测了计时未到的分支。固定等待的理由写的是“证明计时到点时没有发出保存”，实际没有计时。
+**如何核实**：按代码推演；没有跑 e2e。
+**建议改法**：先打一个字，在控件的 150 毫秒加延迟到点之前立刻开始组字，再让页面的计时器走过那个点，断言写请求数不变、磁盘不变；这样固定等待才对应它声称的判据。
+
+（第 5 条补充）建议改法里的时机要更准确：组字必须在“输入已交给文档、计时已排上”之后开始，否则控件连第一个字都不交，仍然走不到顺延。可行的写法是把延迟设大（例如 2000 毫秒），等标签出现未保存标记（可观察，说明输入已交出）再开始组字，然后让页面计时器走过 2000 毫秒。
+
+### 6. `leave()` 的调用方里有三处不是“离开视图”也触发保存；其中换成按字节显示的编辑器对 dirty 文档必然先被拒一次
+
+**严重程度**：建议
+**类别**：正确性、对照 Spec（输出 63 对“离开”的定义）
+**位置**：web/area.ts:558（`leave` 里的 `autoSave.viewLeft`）、765（`open` 无条件 `leave(target)`）、938-940（`reopenWith` 先 `leave` 再 `changeEditor`）、577（`needsSettle` 含 `saving`）
+**现象**：
+1. `open(address)` 的目标就是目标组此刻的活动标签（在资源管理器、搜索结果、继续写作里再次打开当前文件，或带 `reveal` 跳到同一文件的某处）时，标签没有被换下，`leave` 仍然放行并保存。scratch/exp1.test.ts 的 E3：`open` 同一个地址后 `saving=true`。`open` 之后因为 `editorRefusal` 失败返回时也已经发出了保存。
+2. `reopenWith` 在同一个标签上换编辑器（富文本与源码互换）也先保存一次。
+3. `reopenWith` 换成按字节显示的编辑器：`leave` 同步发起保存，紧接着 `changeEditor` 看到 `document.saving` 为真，返回 `refusal.unsavedBeforeBytes`。缺省模式下，只要文档 dirty，第一次必然被拒、第二次才成功。待确认清单把它写成“失焦触发的保存还在途会被拒一次”，实际是这个命令自己触发的保存挡住了自己，每次都发生。
+**为什么是问题**：Spec 列的“离开”是焦点离开控件或标签被换下（换到同组另一个标签、被 preview 替换、移走）。前两处只是多一次保存，无害但与 Spec 不一致；第 3 处是可见的、必现的拒绝，提示还是“先保存”。
+**如何核实**：E3（实测）；第 2、3 处读代码推演，没有另做实验。
+**建议改法**：`open` 只在活动标签真的会换时才算离开（与 `activate` 的 `found.group.active !== tabId` 同一个判断）；`reopenWith` 换成字节编辑器时等这次保存完成再换，或把待确认清单的说法改成实际情况。
+
+### 7. “停手后”的计时会被与这份文档无关的变化重排：别的文档的失败闸、任意一项设置
+
+**严重程度**：建议
+**类别**：隐含的耦合与共享状态
+**位置**：web/auto-save.ts:54（全体文档共用一个 `failed` 引用）、114-117（监听的取值函数每次返回新数组）；settings/shared/instance.ts:228（`get` 读的是整层的状态）
+**现象**：每份文档的第二个 `watch` 返回 `[armed, revision]` 新数组，`@vue/reactivity` 3.5.39 对单个取值函数用 `hasChanged(新数组, 旧数组)`，恒为真：任何依赖触发都会进回调并 `arm()` 重新计时。依赖里有三样不属于这份文档：`failed.value`（任何一份文档的闸落下或复位都换一个新 Set）、`options.settings()` 读到的延迟、以及产品里 `settings.get` 背后的整层状态（改任何一项设置都触发）。
+**为什么是问题**：后果是保存被推迟最多一个延迟，不丢数据；但“计时按文档记”“从最后一次输入算”的合同被无关事件打破，延迟设得长（上限 10 分钟）时，旁边一份文档反复失败与复位可以让这份一直不保存。计划 4.1 还写“`delay` 改了只影响之后排的定时”，实现是立即重排。
+**如何核实**：scratch/exp1.test.ts 的 E5（`DELAY-1` 时把设置换成值相同的新对象，再走 1 毫秒 `saving=false`，到 `2*DELAY-1` 才保存）与 E6（两组各开一份文档，b 的闸复位后 a 在自己的延迟到点时 `saving=false`）。
+**建议改法**：取值函数返回可比较的值（例如分成两个 `watch`，或用 `armed` 与 `revision` 拼成的原始值），失败闸按文档各记一个布尔引用。
+
+### 8. 关闭标签时的自动保存没有照设计审查第 6 条的处理做：不核对文档还在不在 store 里，同步异常直接抛出 `closeOne`
+
+**严重程度**：建议
+**类别**：错误路径、实现没照设计审查的处理结果做
+**位置**：web/area.ts:626-628；web/auto-save.ts:72-79（`save` 不核对、不包异常）对比 81-86（`attempt` 核对了）
+**现象**：处理记录第 6 条写“调用前核对文档仍在 store 里，并包住同步异常”。`attempt` 这样做了；`closeOne` 走的 `autoSave.save(document)` 没有，`AutoSave.save` 的注释把它写成调用方的前提（“文档必须还开着”）。等保存期间编辑器区被释放（换作品、插件停止），保存期间又有过输入时，循环回到开头：文档对象上 `dirty` 仍为真、`savesOnClose` 为真，第二次 `documents.save` 对已丢弃的文档同步抛 `RangeError`，`closeOne` 以拒绝结束。
+**为什么是问题**：`close`、`closeOthers`、`moveTab` 的调用方都按“返回结果”写，没有处理拒绝；这条路径上会变成未捕获的 Promise 拒绝。概率很低（要在保存在途的那一刻释放，且期间有输入）。对照：关掉自动保存时同样的时序是另一种坏法，询问对话框开在已释放的编辑器区上、永远没人回答（scratch 的 E13，既有问题，不在本次范围）。
+**如何核实**：scratch/exp2.test.ts 的 E12（扣住写请求的回复 → 输入 → `area.dispose()` → 放行）：`closing` 以 `RangeError: Document project://a.md is closed` 拒绝。实验直接调了 `area.dispose()`，时序是真实运行时会产生的（换作品时释放），但没有在页面里复现。
+**建议改法**：`closeOne` 循环开头加 `disposed` 或 `documents.get(地址) !== document` 的判断，返回 `"gone"`；或让 `AutoSave.save` 自己核对并返回 `{ok: false, code: "closed"}`。
+
+### 9. “窗口失焦时”模式：焦点在 HTML 预览的内嵌页面里时切到别的程序，可能不保存（推断，未实测）
+
+**严重程度**：建议
+**类别**：边界、没写出来的假设
+**位置**：web/plugin.ts 的 `windowBlur` 与 `visibilityChange`
+**现象**：焦点从正文进入同页的内嵌页面时，顶层窗口收到一次 `blur`，`hasFocus()` 为真，按设计不保存。之后用户从内嵌页面直接切到别的程序：失焦事件发给内嵌页面自己的窗口，顶层窗口已经失过焦，Chrome 下通常不会再收到一次 `blur`；页面没有被遮住或最小化时也没有 `visibilitychange`。两个监听都不触发，“窗口失焦时”模式下这份 dirty 的文档不保存。缺省的“失焦时”不受影响（焦点离开控件那一下已经保存）。
+**为什么是问题**：实现假设“窗口真正失焦时顶层窗口一定收到 `blur`”。这个假设在焦点位于内嵌页面时不成立的话，Spec 输出 63“窗口失去焦点……时保存全部打开的文档”就有一个缺口；计划第 8 节把“真实窗口切换只按事件模拟”列为未验证边界，但没有提到这个组合。
+**如何核实**：只按浏览器的事件模型推断，没有在真实窗口里试；需要在有界面的 Chrome 里点进 HTML 预览再切走来确认。
+**建议改法**：若属实，在收到“焦点进了内嵌页面”的那次 `blur` 之后记一个标志，随后用 `document.hasFocus()` 的轮询或内嵌页面窗口的 `blur`（同源的预览拿得到）补一次判断；或在 Spec 里写明这个缺口。
+
+### 10. 计划第 7 节验收映射里列了、实际没有用例的判据
+
+**严重程度**：建议
+**类别**：测试
+**位置**：packages/neuro-book/src/plugins/editor/auto-save.test.ts；web/components/EditorGroup.dom.test.ts；markdown/web/components/MarkdownControl.dom.test.ts；计划 plan.md 第 7 节
+**现象**：逐行对照映射表与测试文件（`auto-save.test.ts` 共 22 例），下面几条写了“覆盖”却找不到用例：
+- 输出 4“另一组打开同一文件”“批量关闭遇失败停在询问”：“关闭标签”一组只有 4 例（不问、保存期间输入、失败落回询问、磁盘已变化照旧问）。批量那条我用 scratch 的 E7 试过，行为是对的（`closeOthers` 停在询问，取消后返回 `batchCancelled`、已关 0 个），只是没有用例守着。
+- 输出 63“条件恢复后补存”的三种情形只测了“采用当前正文”；“结果未知核对成功”“手动保存慢于延迟”没有（前者正好挨着第 1 条的缺陷）。
+- “不自动保存”的“只读”（订阅结束 `ended`）没有单独的用例；`writable` 条件是被“被其它来源删除”那一例顺带守住的。
+- “横幅‘重试保存’| EditorGroup.dom.test.ts”：该文件只加了 `leave` 一例；按钮只在 e2e 场景 39 里点过，“结果未知时不给按钮”没有任何用例。
+- “Markdown 控件的 `pending` 在组字与缓冲时为真”：只测了缓冲（计时未到），组字分支没有（见第 5 条）。
+- “还原后不再显示保存失败 | documents.test.ts 的还原一组”：`documents.test.ts` 没有改，判据放在了 `auto-save.test.ts` 的“失败后重新载入”一例里；判据测到了，映射表与实际位置不符。
+**为什么是问题**：验证记录写的是“22 例全过”，读的人会以为映射表逐行都有用例。
+**如何核实**：`grep -n "it(" auto-save.test.ts` 与映射表逐行比对；`git diff --stat` 里没有 `documents.test.ts`。
+**建议改法**：补前四条的用例，或把映射表改成实际覆盖的范围并在“未验证边界”里列出没测的。
+
+### 11. `editor-area.e2e.ts` 整份关掉自动保存：38 例都改在非缺省配置下跑，缺省模式与这些交互的组合不再有 e2e
+
+**严重程度**：建议
+**类别**：测试覆盖
+**位置**：packages/neuro-book/e2e/editor-area.e2e.ts:127-139（`beforeAll` 与 `afterEach` 都写 `"nbook.editor/autoSave": "off"`）
+**现象**：计划第 6 节片 4 写的是“前提是‘输入后失焦仍未保存’的（用例）在启动处写 off”。实现是整份文件 38 例全部关掉。按标题粗数，真正依赖“失焦后仍未保存”的约 8 例（预览与 Ctrl+S、外部修改、关闭先问、真实控件的缓冲、离开确认、资源管理器的结算、状态栏未保存数、服务端重启的终态页）。其余 30 例（拖动与键盘拖动、拆分与过渡、浮动、撤销历史属于各组、Monaco 保持原文字节、换编辑器、重新打开回到光标等）原来跑在产品的缺省配置上，现在跑在用户要手动改设置才会进入的配置上。
+**为什么是问题**：这次改动让换标签、移动标签、拆分、换编辑器都多了一次保存（`leave` 里的 `viewLeft`），正是这 30 例在做的动作；它们在缺省模式下是否仍然成立（例如撤销历史在自动保存之后、移动标签时保存在途、Monaco 的字节保持在自动保存路径上）现在只靠 `editor-autosave.e2e.ts` 的 7 例与别的文件顺带覆盖。关掉自动保存的那 8 例本身没有放宽断言，这一点没有问题。
+**如何核实**：`grep -c "^test(" editor-area.e2e.ts` 为 38；逐条看标题；`grep -ln autoSave e2e/*.ts` 只有三份文件。
+**建议改法**：缺省不写这项设置，只在那约 8 例的开头经 `writeSettings({"nbook.editor/autoSave": "off"})` 关掉；其余用例在缺省模式下重跑一遍，看哪些断言要改。
+
+### 12. 对照 VS Code：计划第 3 节没列的一项，网页版的缺省是“停手后”
+
+**严重程度**：建议（供开发者知情，不要求改）
+**类别**：对照需求与参照
+**位置**：计划 plan.md 第 3 节；shared/settings.ts 的 `autoSaveSetting`
+**现象**：计划注明第 3 节“凭记忆，没有联网核对”。我取了 VS Code 主分支的 `editorAutoSave.ts` 与 `filesConfigurationService.ts` 对了一遍：表里关于四种模式、窗口失焦在两种模式下都保存全部、换下活动编辑器算一次失焦、改设置后立即存一次、延迟缺省 1000 的说法都对得上。表里没有的一项：`filesConfigurationService.ts` 里 `DEFAULT_AUTO_SAVE_MODE = isWeb ? AFTER_DELAY : OFF`，网页版缺省是“停手后”，桌面版缺省是关闭。
+**为什么值得提**：开发者定的缺省是“失焦时”，这是已确认的决定，不该由审查改。但它参照的是桌面版的取舍；本应用是网页，没有跨刷新保留（仍在“不承诺”里），浏览器崩溃、标签页被系统回收时，“失焦时”模式下正在写的那一段没有任何落盘机会，“停手后”则最多丢一个延迟。VS Code 为网页版单独选缺省，针对的就是这个差别。
+**如何核实**：`/tmp/nb-review-w00025/t04-impl/scratch/vscode/filesConfigurationService.ts:127`（公开源码的副本）。
+**建议改法**：把这一行补进计划第 3 节的对照表与待确认清单的缺省值那一行，让开发者在知道这个差别的前提下追认缺省。
+
+### 13. 小项：注释叠放、一条用例的观察点、一个恒真的条件、共用文档的标签关闭不算离开
+
+**严重程度**：建议
+**类别**：代码质量、测试
+**位置与现象**：
+- web/documents/store.ts:118-120：`attachView` 上面连着两个 `/** … */`。工具只把紧挨声明的那一个当文档，原来那句“视图登记自己的结算函数：保存、切换、资源管理器的操作之前同步调用……”在悬停提示里丢了。合成一个注释。
+- auto-save.test.ts:151-152：“窗口失焦时模式下，应用内换标签不保存”用 `dirty === true` 当观察点。保存在途时 `dirty` 也为真，这条断言在保存慢的时候会误过；文件头自己定的观察点是 `saving`（同步为真）。这条判据另有“三种模式下视图发 leave 不保存”一例守着，所以只是这一处断言该换成 `saving` 或写请求数。其余用到 `saving` 的地方我逐条看过：触发都是同步的（`viewLeft`、`windowBlurred`、手动时钟的 `advance`、`@vue/reactivity` 的 `watch` 没有调度器时同步执行），`store.save` 同步置 `pending`，作为“没有发起保存”的观察点可靠。
+- web/area.ts:626：`!shared &&` 恒为真。`shared` 为真还能走到这里，只可能是这个视图自己有未裁决输入或写不出，而那时 `savesOnClose` 里的 `unobstructed` 已经为假。留着无害，但读的人会去找它防的是什么；删掉或在注释里说明。
+- web/area.ts:623：同一文件在两个组里打开、关掉正在输入的那个标签时走 `break`，不经 `leave`，也不调 `viewLeft`。“失焦时”模式下文档留在另一组里保持 dirty，要等另一组的视图失焦或窗口失焦才保存（被关掉的控件发不发 blur 取决于浏览器）。Spec 对“离开”的列举里没有“关闭”，按字面不算违反；建议在这条路径上也调一次 `viewLeft`，或在 Spec 里写明。
+**如何核实**：读代码；没有另做实验。
+
+## 未发现问题的方面
+
+仔细检查后没有发现问题的：
+- `auto-save.ts` 的寿命：每份文档的两个 `watch` 与计时在文档进入 `openDocuments` 时建，关闭标签、资源管理器删除（`closed` 事件）、文本换成字节编辑器、`dispose` 时释放并取消计时；改名只换地址，文档对象不变，监听不重建。释放之后控件迟到的 `leave`、窗口事件经 `attempt` 里的核对变成空操作。
+- 失败闸的落下与复位（除第 1、2 条外）：手动保存失败后闸没落，自动保存还会试一次，再失败才落；手动或重试成功、结果未知被核对为已落盘、重新载入（`adopt` 清 `saveProblem`）、变干净都复位。`then` 里判 `saveProblem` 的时机：结果是冲突、未裁决而 `saveProblem` 是更早一次失败留下的时闸也会落，但这些情形各有阻碍标记，处理后（覆盖成功或重新载入）`saveProblem` 被清、闸复位，没有卡死的路径。
+- `closeOne` 的新分支：没有找到死循环（保存成功而仍需结算只可能是期间又有输入或别人排了保存，都会收敛）、没有吞掉取消（等保存期间没有对话框）、该问的都问（已删除、订阅结束、磁盘已变化、冲突、未裁决、写不出、闸已落下时都落到询问）；保存期间另一组打开同一文件时按 `shared` 直接关。
+- `plugin.ts`：没有 `document` 的宿主里三个监听都安全；`blur` 与 `visibilitychange` 先后都到时第二次并进排队的保存、不多写；`beforeunload` 先由 `needsLeaveConfirm` 结算再 `leaving()`；监听随 `context.signal` 移除。
+- 常见返工项：没有按错误文案分支（用结果码）、没有静默吞错、没有测试专用分支（没有 `document` 的判断是宿主差异）、没有删除任务之外的代码与注释、没有跨包深导入。`workbench-titlebar.e2e.ts` 把断言移出回调的改法是对的。
+
+## 数量
+
+阻断 0；重要 4（第 1、2、3、4 条）；建议 9（第 5–13 条）。撤回 0。有效发现：第 1–13 条。
+其中第 3、9 条是从代码与浏览器事件模型推断，没有在浏览器里复现；第 4、5 条是读 e2e 推演，没有跑 e2e 做变异。第 1、2、6（第 1 点）、7、8 条有 scratch 里的实验结果。
