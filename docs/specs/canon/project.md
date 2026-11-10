@@ -74,7 +74,7 @@ owners:
 | `components`（planned） | 读 | — | 登记的 Component 类型与字段声明（[`canon.components`](components.md) 输出 21） |
 | `render` | 读 | 条目、读取位置、模式、给作者或 Agent | [`canon.rendering`](rendering.md) 输出 7、8；结果带版本、位置与模式，回写时照带 |
 | `preview` | 读 | 写入请求，或还原请求（修订 id、是否连同依赖） | [`canon.revisions`](revisions.md) 输出 5；还原请求的预览另给补偿与需要的作者授权（同一 Spec 输出 21） |
-| `previewEdit`（planned） | 读 | 与 `editInPlace`、`recordDelta` 或 `recordNote` 相同，不带独占令牌 | [`canon.revisions`](revisions.md) 输出 22 |
+| `previewEdit`（planned） | 读 | `{kind: "edit" \| "delta" \| "note", …}`：`kind` 写明是哪一种，其余与 `editInPlace`、`recordDelta` 或 `recordNote` 的输入相同，不带独占令牌 | [`canon.revisions`](revisions.md) 输出 22 |
 | `outcome` | 读 | 请求 id | 这次写入有没有发布、发布成了哪次修订（[`canon.revisions`](revisions.md) 输出 16） |
 | `publish` | 写 | 写入请求，可选独占令牌 | 修订 id、版本、新对象的 id 对照，或失败 |
 | `editInPlace`、`recordDelta`、`writeBack` | 写 | 见 [`canon.revisions`](revisions.md) 输出 8、9 与 [`canon.rendering`](rendering.md) 输出 12；可选独占令牌 | 同 `publish` |
@@ -129,8 +129,8 @@ owners:
 29. **读一次修订。** `revision` 按 id 返回存下来的修订（[`canon.revisions`](revisions.md)“存下来的修订”：谁、种类、标题、时间、章、操作、带来的变化、还原的是哪一次），另带能不能还原与原因（同一 Spec 输出 14）；不存在时为空。带视图令牌时拒绝（`view-denied`），同改动记录。（planned）
 30. **条目树带位置。** `tree` 可以给读取位置（缺省见 [`canon.model`](model.md) 输出 21）与模式：每项另带这个位置上的名字 `nameAt`、是否已出场 `appeared`、它是谁的马甲 `sameAs`（不是马甲时为空）；现有的 `name`（初值里的名字）、`deleted` 不变。已删除的条目只在它还有没删除的子孙时列出（同一 Spec 输出 23 的墓碑），`hasChildren` 与页另带的 `remaining`（这一层在这一页之后还有几项）都只数会列出的。位置与模式属于游标的读取参数（输出 19）。位置的线读不到得 `line-not-found`，章不存在得 `chapter-not-found`。（planned）
 31. **剧情变更的筛选与顺序。** `changes` 的筛选另有 `before`（读取位置与模式）：只列安放在这个位置之前的变更，“之前”按 [`canon.model`](model.md) 输出 2 的全序。已写的不论生效状态都列（要只看生效的另给 `status`）；计划只在按计划模式时列，生效的计划只列这个位置计入的（同一 Spec 输出 5：已兑现、被取代的不算），待定与已撤销的计划按安放列。按这个位置的线算（不写线时是那一章讲的线），只列那条线视图里的；与 `range` 同用时取交集。位置是初值时一条也没有。`order` 为 `desc` 时从新到旧，缺省从旧到新。页另带 `total`：符合筛选的总条数。`before` 与 `order` 属于游标的读取参数（输出 19）。（planned）
-32. **字段状态带最近一次改动。** `entry` 的调用方要了的时候，每个字段状态另带 `changedAt`：所选位置之前，最近一次定下这个地址（含它的元素与子字段）的值的那一步，`{by: "change" | "check", id, at}`。算的是来历里（[`canon.model`](model.md) 输出 15）最后一步不是初值、不是归纳的那一步：剧情变更的补丁（这个补丁本身套上了才算）给那条变更与它的安放，核对点给的起点给那个核对点与它的安放，子线上带过去而本线没再改过的给原线上的那一条，不给分叉；值只由初值给出时没有。按计划模式时计入的计划也算。带这一项的读取同样在输出 14 的预算之内。带视图令牌时不给。（planned）
-33. **条目读取带上级、本体与分组。** `entry` 另带 `ancestors`（从最上面一级到直接上级，每级是条目的 id 与它在这个位置上的名字；没有上级时为空）、`sameAs`（它是谁的马甲：本体的 id 与名字，不是马甲时为空）与 `folder`（分组）。带视图令牌时这三项都不给：上级与本体会说出马甲是谁。（planned）
+32. **字段状态带最近一次改动。** `entry` 的调用方要了的时候，每个字段状态另带 `changedAt`：所选位置之前，最近一次定下这个地址（含它的元素与子字段）的值的那一步，`{by: "change" | "check", id, at}`。算的是来历里（[`canon.model`](model.md) 输出 15）最后一步不是初值、不是归纳的那一步：剧情变更的补丁给那条变更与它的安放（与来历同一个口径：整条变更套上了、补丁碰到这个字段就算），核对点给的起点给那个核对点与它的安放，子线上带过去而本线没再改过的给原线上的那一条，不给分叉；值只由初值给出时没有。按计划模式时计入的计划也算。带这一项的读取同样在输出 14 的预算之内。带视图令牌时不给。（planned）
+33. **条目读取带上级、本体与分组。** `entry` 另带 `ancestors`（从最上面一级到直接上级，每级是条目的 id 与它在这个位置上的名字；没有上级时为空）、`sameAs`（它是谁的马甲：本体的 id 与名字，不是马甲时为空）与 `folder`（分组）；条目树每项的 `sameAs` 只是本体的 id。带视图令牌时这三项都不给：上级与本体会说出马甲是谁。（planned）
 34. **版本不动的变化。** 章表（章序调整还没发布、只改了某一章各段讲的线、章的标题变了）或登记的 Component 类型变了，而世界版本没有前进时，发 `inputChanged`：`{what: "chapters" | "components"}`。调用方收到后重读章表或登记的类型，以及依赖它们的读取。（planned）
 35. **新方法与视图令牌。** 带视图令牌时：`components` 照常（登记不涉及位置）；`origins`、`revision` 拒绝（`view-denied`）；`chapters` 按输出 28；`previewEdit`、`recordNote` 同别的预览与写入，拒绝。（planned）
 
