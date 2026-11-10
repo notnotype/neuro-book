@@ -32,6 +32,8 @@ export interface CanonNodeWindow {
     readonly canon: CanonClient;
     /** 关掉窗口的链路（网络断开），窗口实例不停。 */
     disconnect(): void;
+    /** 像窗口的重连那样换一条链路再握手；订阅随之重建，世界客户端推一个 `resync`。 */
+    reconnect(): Promise<void>;
     close(): Promise<void>;
 }
 
@@ -92,7 +94,7 @@ export async function canonNodeWorld(root: string): Promise<CanonNodeWorld> {
         window: async (id, extra = []) => {
             const client = `client-${id}`;
             const node = createRemoteNode({instance: {id, kind: "browser", role: "client", project: null, client}, bind: {project: "book"}});
-            const pair = createLinkPair();
+            let pair = createLinkPair();
             router.accept(pair.right);
             const bound = await node.connect(pair.left);
             if (!bound.ok) throw new Error(`窗口 ${id} 连不上路由：${JSON.stringify(bound)}`);
@@ -114,6 +116,12 @@ export async function canonNodeWorld(root: string): Promise<CanonNodeWorld> {
             return {
                 canon: canon!,
                 disconnect: () => pair.left.close(),
+                reconnect: async () => {
+                    pair = createLinkPair();
+                    router.accept(pair.right);
+                    const result = await node.connect(pair.left);
+                    if (!result.ok) throw new Error(`窗口 ${id} 重连失败：${JSON.stringify(result)}`);
+                },
                 close: async () => {
                     apps.splice(apps.indexOf(app), 1);
                     await app.stop();
