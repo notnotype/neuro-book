@@ -128,11 +128,13 @@ test.beforeAll(async () => {
     server = await startProductServer(stateRoot);
 });
 
+/** 用户层的设置；每个用例结束时写回空的。 */
+const writeSettings = (values: Readonly<Record<string, unknown>> = {}): Promise<void> => writeFile(join(stateRoot, "settings.json"), JSON.stringify(values));
 /**
- * 这个文件验的是手动保存的合同（未保存圆点、关闭时询问、冲突、离开确认）：用例在输入后去点别处，文档要仍未保存。自动保存的
- * 缺省是失焦时保存（输出 63，另由 `editor-autosave.e2e.ts` 验），所以整份文件关掉它；用例要别的设置时经这里写，不丢掉这一项。
+ * 验手动保存合同（未保存圆点、关闭时询问、冲突、离开确认）的用例在输入后去点别处，文档要仍未保存：自动保存的缺省是失焦时
+ * 保存（输出 63，另由 `editor-autosave.e2e.ts` 验），这些用例开头关掉它；其余用例在缺省模式下跑。
  */
-const writeSettings = (extra: Readonly<Record<string, unknown>> = {}): Promise<void> => writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.editor/autoSave": "off", ...extra}));
+const MANUAL_SAVE = {"nbook.editor/autoSave": "off"} as const;
 
 test.afterEach(async () => {
     // 用例自己写的设置不带到下一个用例。
@@ -306,6 +308,7 @@ test("外部修改：不 dirty 时换成磁盘内容；dirty 时提示，保存�
 });
 
 test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆分后两组共用正文；拖动两组间的分隔线调整宽度；刷新后组、标签与宽度恢复", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     // 右栏默认开着对话：要拖 120 像素，两组都得比最小宽度宽出这么多。
     await page.setViewportSize({width: 1600, height: 900});
     await open(page);
@@ -913,6 +916,7 @@ test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看�
 });
 
 test("编辑器标签浮动（docs/specs/ui/workbench-layout.md 输出 39）：拖到标题栏上松手开窗，是同一个视图，接着输入、撤销都还在；回到停靠并回树里；关到空后焦点回树里的组", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     await page.setViewportSize({width: 1600, height: 900});
     await open(page);
     await closeAll(page);
@@ -1156,6 +1160,7 @@ test("标签的记录丢了（docs/specs/ui/workbench-layout.md 输出 34）：�
 });
 
 test("真实控件的缓冲：Markdown 刚输入就把标签拖到另一组，保存后字在磁盘上；刚输入就“关闭已保存”，这个标签留下", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     await page.setViewportSize({width: 1440, height: 900});
     // 用这一例自己的两个文件：保存会改磁盘，别的用例按 fixture 的原文断言。
     await writeFile(join(projectDir, "notes/buffer-a.md"), "甲\n");
@@ -1357,6 +1362,7 @@ test("Markdown：A 输入、切到 B 输入、回 A 撤销只作用于 A；重�
 });
 
 test("资源管理器的结算：未保存时剪切、保存、粘贴，标签跟到新路径、正文保留；复制先问；删除确认列出未保存的文档", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     await open(page);
     await closeAll(page);
     for (const folder of ["project://moving", "project://target"]) {
