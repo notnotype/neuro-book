@@ -1,0 +1,346 @@
+w00026 t24 切片 2 交付报告：工作台的容器模型与声明
+
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers
+分支 feat/w00026-t24-view-containers。全部改动未提交、未暂存；没有 commit、push、stash、切分支。
+下面的路径都相对 packages/neuro-book/。
+
+====================================================================
+一、结论
+====================================================================
+
+- 九条产品改动都落了；类型检查与单元测试通过（两条与本片无关的超时见第七节）。
+- e2e：第一轮（三份文件 48 条）9 通过、39 失败。按 Spec 改完期望后是 49 条（多了一条，见 5.3 的 339）：34 通过、15 失败。
+  失败的 15 条都没有 skip，也没有为过渡界面另写期望，分五类（逐条的失败断言与归属见 5.2）：
+  - 7 条断言的是切片 3、5 要重做的行为（活动栏条目 3 条，“移动到”的目标 4 条），在 workbench-views.e2e.ts，原样没动。
+  - 4 条的对象是工具面板的标签带。停靠区域里已经没有标签带（本片的模型变化），它只在多标签的浮动窗里还有，而现在的界面搭不出多标签的浮动窗，
+    所以没能按主 Agent 的第 1 条改，原样留着。理由与归属见 5.2 B。
+  - 2 条是本片跑 e2e 时看到的产品行为与 Spec 不一致，没有改产品：焦点在分节头里时隐藏区域，焦点掉到 body（第四节 12）；
+    分节之间的边界上 Enter 收起再展开，高度比原来多 18px（第四节 15）。
+  - 1 条是 workbench-shell.e2e.ts 的 Lab 用例（Lab 夹具还是旧模型）。
+  - 1 条是 plugins.e2e.ts:78，失败在设置页的“其它”分区，与本片无关（读代码推断是提交 4d73e28ef 起的问题，没在基线上跑）。
+- 另有一处与 Spec 不一致、没有用例失败的：区域只显示一个分节时收起按钮还在（第四节 11）。
+
+====================================================================
+二、改了哪些文件
+====================================================================
+
+产品代码
+- src/plugins/workbench/shared/views.ts：视图声明加 container?；贡献点 workbench.viewContainers 的 id、schema、校验、
+  定义（viewContainersPoint，implementation: "none"、idPrefix: "plugin"，同 workbench.themes 的顶层声明式）；
+  IMPLICIT_CONTAINER_PREFIX（view:）、CUSTOM_CONTAINER_PREFIX（custom:）、PROJECT_VIEW_CONTAINER。
+- src/plugins/workbench/shared/contracts.ts：转出 PROJECT_VIEW_CONTAINER、WORKBENCH_VIEW_CONTAINERS_POINT、ViewContainerDeclaration。
+- src/plugins/workbench/plugin.ts：descriptor 加贡献点 viewContainersPoint 与内置容器“项目”的声明。
+- src/plugins/workbench/locales/zh-CN.json、en-US.json：viewContainers.project.title（“项目”/“Project”）。
+- src/plugins/workbench/web/plugin.ts：receives 加 viewContainersPoint；入口激活时建容器目录、对引用不存在容器的视图各记一条
+  warn 诊断（event: workbench.views.container-missing）；先交容器目录再交视图目录。
+- src/plugins/workbench/web/views/registry.ts：viewContainerCatalog（第三方容器没写 order 时同视图补 THIRD_PARTY_VIEW_ORDER）。
+- src/plugins/workbench/web/state/containers.ts（新）：纯函数。viewHome、unresolvedContainerRefs、regionAnchor、regionSections、
+  regionContainers、containerRegion、viewSection、containerLabel、sectionLanding、settleContainers。
+- src/plugins/workbench/web/state/default-tree.ts：默认布局按声明建（锚 tabs: []、entries、activeContainer，分节各带 container）；
+  fitsSkeleton 的新规则；predatesContainers（位置合骨架、只是不合容器规则）；reconcileViews 用 openPanelAtEdge 带 container。
+- src/plugins/workbench/web/state/layout-doc-store.ts：读取回落（见第四节 1）；acceptViewContainers；apply 之后与 doc computed 里
+  settleContainers；手势提交先查 regionAnchors；partVisible、setPartHidden、moveView、resetView、dockFloat、revealView、toggleMaximized
+  按区域与容器。
+- src/plugins/workbench/web/state/layout-constraints.ts：panelConstraints 多一个 region 参数；layoutProjectionOptions 要传 doc；
+  collapseOrder、toolPanelAxis 按 regionOf。
+- src/plugins/workbench/web/state/layout-present.ts：effectiveVisibleTabs（区域拖到零记在锚上）、sidebarColumnPanels、moveTargetsOf、
+  canResetView 按区域与容器。
+- src/plugins/workbench/web/state/public-state.ts：focusedPart 按区域。
+- src/plugins/workbench/web/components/WorkbenchSurface.vue：场景图下角画在区域里最后一块显示着的分节上（sceneCorners）。
+- src/plugins/workbench/web/components/WorkbenchShell.vue：视图的 location、活动栏“隐藏”按 regionOf；panelConstraints、canResetView 的新参数。
+- src/plugins/workbench/web/commands/panel-commands.ts：对区域的锚最大化时返回 unavailable（原因“没有可以操作的面板”），不再误报成“浮动窗不能最大化”。
+- src/plugins/explorer/web/plugin.ts、src/plugins/agent/web/plugin.ts：资源管理器与会话的声明写 container: PROJECT_VIEW_CONTAINER。对话没动。
+- src/sdk/workbench.ts：转出 WORKBENCH_VIEW_CONTAINERS_POINT 与 ViewContainerDeclaration。
+- plugin-sdk/examples/testing/workbench.ts、src/plugins/lab/web/fixtures/WorkbenchSurfaceFixture.vue、
+  src/plugins/lab/web/fixtures/editor-scene/EditorAreaFixture.vue：只做签名变化带来的编译修正（见第六节 Lab 的遗留）。
+
+测试
+- 新：src/plugins/workbench/web/state/containers.test.ts（21 条）。
+- 改期望并补用例：web/state/default-tree.test.ts、layout-constraints.test.ts、layout-doc-store.test.ts、layout-present.test.ts。
+- 按新模型翻译（见第四节 9）：web/shell/adjacency.test.ts、web/commands/panel-commands.test.ts、part-commands.test.ts、
+  view-commands.test.ts、web/views/registry.test.ts。
+- 登记新增项：src/plugins/workbench/locales.test.ts（新键）、src/sdk/sdk.test.ts、plugin-sdk/pack.test.ts（SDK 多出的导出）。
+
+====================================================================
+三、容器 id 与声明
+====================================================================
+
+- 内置容器：贡献点 workbench.viewContainers，贡献 id（即容器 id）nbook.workbench.project，
+  声明 {title: workbenchText("viewContainers.project.title"), icon: "i-lucide-folder-kanban", location: "sidebar", order: 0}。
+  图标在 node_modules/@iconify-json/lucide/icons.json 里有（folder-kanban）。
+- 资源管理器、会话：container: "nbook.workbench.project"。对话：没写，右栏的隐式容器 view:<视图 id>。
+- 隐式容器 view:<视图 id>；用户容器 custom:<UUID>（本片只在 moveView 的兜底里会新建，见第四节 5）。
+- 声明的容器 id 的规则：点分小写段、至多 VIEW_ID_MAX_LENGTH 个字符、以插件 id 加“.”开头（idPrefix: "plugin"），不得以 view:、custom: 开头。
+- 分节的面板 id：section:<视图 id>；区域那一列的分支 id：region:<区域名>；撞名时加 #2、#3。测试里不写死这两种 id，用 viewSection、
+  regionNodeOf 取。
+
+====================================================================
+四、拿不准的地方（附 Spec 原句；都在 docs/specs/ui/workbench-layout.md）
+====================================================================
+
+1. 读取回落的范围。Spec“状态与转换”：
+   “记录合法，但锚上有标签、区域里有多标签的面板或分节没有归属（有容器之前存的）：默认布局，开着的编辑器标签带进它的编辑组；
+   外壳根写一条诊断，下次保存覆盖这条记录。不迁移。模板这样时当作没有模板”。
+   做法：位置合骨架、只是不合容器规则（predatesContainers）时走 outsideSkeleton，并用 carryDynamicTabs 把编辑器标签带进默认布局；
+   位置本身不合骨架的（2026-11-06 以前的那一类）照旧不带标签。没加版本号，不进 guarded。验收 30 写成了 layout-doc-store.test.ts
+   的一条用例（读、改、存、再读）。
+
+2. 声明的容器与隐式容器空了以后，id 留在锚的 entries 里（只是 regionContainers 不列它），成员回来时入口回到原位。依据输出 41：
+   “声明的容器空了入口消失，有视图回来入口回来；用户拖出来的容器空了就不再存在，它的 id 从入口顺序里删掉。”
+   “入口回来”回到原位还是排到最后，Spec 没写；我选了原位。
+
+3. 约束（输出 6）：“区域实际的约束是这一行与当前容器里各视图声明的并”。
+   做法：每块分节各取“区域那一行 ∪ 自己视图的声明”，同一列里的聚合交给求解器，没有另算一份区域级的约束。
+   layout-constraints.test.ts 用 previewPanelRects 验了“甲要 400，同一容器的甲乙都是 400；切到另一个容器按上限夹回”。
+   拖动预览的约束仍按已提交文档的区域算（预览文档里新出现的面板按“不在区域里”）。
+
+4. 区域那一列的分支里，锚永远没有呈现尺寸，rebaseIntents 把它当“不在场的兄弟”：分节主轴上的尺寸意图只按彼此比例写，总量不变；
+   交叉轴照写。所以“手势把分节拉回”的测试断言的是两块分节的比例，不是像素。
+
+5. moveView 的过渡规则（命令归切片 5，这里只保证不坏）。输出 23：
+   “移进一个容器是成为它最后一个分节……‘新容器’是在那个区域新建一个只含它的用户容器，入口排在最后。两种都把目标区域切到这个容器，
+   区域隐藏或拖到零时同一次写入展开；区域里原来一个容器都没有也一样。”
+   - target 是区域的锚：进区域的当前容器。区域一个容器都没有时，依次试视图声明的容器、它的隐式容器（容器在别的区域只剩这个视图时
+     算可用，跟着视图过去），都不行才新建 custom:<UUID>。这个顺序是我定的，Spec 里“放进一个没有容器的区域”只有“新容器（某区域）”一种说法。
+   - target 是区域里的分节：进它的容器，成为最后一个分节（界面目前不会发出这种目标）。
+   - newPanelNextTo 是分节：紧挨着它、进它的容器并切过去；是锚：进区域的当前容器，区域没有当前容器时库会拒绝（rejected）。
+   - moveTargetsOf（右键菜单与命令面板的目标表）：“放进去”只列别的区域的锚，“新面板（挨着 X）”只列显示着的分节。菜单文案没改。
+
+6. 底部面板的分节。输出 20：“收起按钮只给侧栏、右栏的分节，底部面板的分节不折叠”。
+   本片没有改面板头的按钮，也没有让 set-panel-collapsed 命令拒绝底部面板的分节；原来“panel 收成标题行仍算可见”的测试场景搬到了侧栏的分节。
+
+7. 空区域点“显示”：settleContainers 会在同一次提交里把它再隐藏（输出 43：“区域里一个容器都没有时锚隐藏”）。看起来是点了没反应，
+   并且多一次内容相同的写入。要不要在命令里先拦，留给切片 5。
+
+8. 最大化。输出 13：“区域里最大化的是一个分节，切走它所在的容器时退出”。toggleMaximized 对锚返回 false；切走容器、分节被搬走、
+   区域隐藏都由 effectiveMaximized 的“这块不显示了”一条判定退出。
+
+9. 现有测试的改法分三类：Spec 改了期望的照 Spec 改；属于切片 3 到 5 的动作只做“按区域问”的最小翻译；旧模型才有的行为
+   （工具面板里几个标签：换位、标签带）把场景搬到浮动窗，没有删、没有跳过。
+   - default-tree.test.ts 的随机操作用例加了 30 秒上限并写了注释：一个视图一个分节之后面板比以前多，每步拖动都要按矩形算一遍缝，
+     空闲时三秒多，负载高时过默认的 5 秒。
+   - view-commands.test.ts 里“两步选择之间目标面板没了”的场景，改成目标分节唯一的标签在第二步之前被搬进浮动窗。
+
+10. 活动栏（切片 3 重做）：现在仍按视图列条目，侧栏各个容器的视图都列（不只当前容器的）；点看不见的视图是切到它的容器并显示，
+    点可见视图的条目是隐藏整个侧栏。同一个容器里的几个视图各有一个条目、同时是按下态。toolEntryIntent 的
+    "collapse" 分支在产品里已走不到（保留着，有测试）。focusedPart 的 "tool" 兜底只在工具面板不在区域里又不浮动时出现，骨架不允许这种位置。
+
+11. 区域只显示一个分节时的收起按钮（e2e 里看到的，没有改）。输出 11 的表：
+    “区域此刻只显示一个分节时它不收成标题行，没有收起按钮”。
+    探针页上侧栏只显示样例甲、右栏只显示样例丁，两个分节的头里都有收起按钮（浮动、收起、最大化三个）；底部面板的样例戊没有
+    （浮动、最大化两个，合输出 20）。原因：WorkbenchShell.vue 的 collapsibleHere 只看文档树里父分支的方向，区域分支是纵向的。
+    计划的切片表里没有哪一片写了这一条，请主 Agent 指给切片 3 或 5。
+
+12. 焦点在分节的头里时隐藏区域，焦点掉到 body（e2e 里看到的，没有改）。输出 16：
+    “焦点所在的内容被停放、或焦点所在的面板头随面板隐藏时，焦点移到同一面板可见的标签；面板不可见时移到活动栏里它所在容器的入口
+    （只有侧栏的容器有）（planned），都没有时移到外壳根”。
+    - 现象：workbench-shell.e2e.ts 第一条的最后一步，焦点在资源管理器分节头的最大化按钮上，用脚本点标题栏的侧栏按钮隐藏侧栏，
+      document.activeElement 是 body（临时加了一行打印确认，已删掉）。
+    - 原因：头上的焦点只有 WorkbenchShell.vue 的 runFrameAction 在“点头里的隐藏按钮”时处理；分节没有隐藏按钮（输出 20），这条路没有了。
+      nb-layout 的 content-parked 只在内容项含焦点时发。所以经标题栏按钮、命令或快捷键隐藏区域而焦点在头里时没人接。
+      焦点在内容里的那一种没问题（同一条用例的上一步：焦点在底部面板的内容里，隐藏后在外壳根，通过）。
+    - 这一片之前，经命令隐藏而焦点在头里的情况从代码看同样没人接（未验证）；这一片之后它成了唯一的走法。
+    - 影响面：复现用的是脚本点击。真用鼠标点标题栏按钮，焦点会先到按钮上，不会掉到 body。键盘用户实际能走到的路径
+      （快捷键、命令面板执行后焦点还原到头里）没有复现过，严重程度按“未在真实路径上验证”看。
+    - 没改的理由：落点是“活动栏里它所在容器的入口”，Spec 标着 planned，是切片 3 的事；现在补只能落到过渡的按视图的条目上。
+      runFrameAction 里隐藏那一支对停靠的面板已经走不到（锚不画头，分节没有 name）。
+
+13. 分隔线的名称。nb-layout 用两侧节点的 id 拼 aria-label（既有做法）。锚不进呈现树之后，侧栏那条边界的名称是
+    “调整 region:sidebar 与 g0 的宽度”（底部面板没显示）或“调整 region:sidebar 与 center 的宽度”（显示着）；区域只显示一个分节时
+    前一半是 section:<视图 id>。读屏用户听到的是内部 id，这一点以前也是（“调整 sidebar 与 center 的宽度”），只是现在更长。没有改。
+
+14. data-panel-count（外壳根上的测试钩子）数的是文档树里的面板叶，锚也算：探针页是 10（3 个锚、6 个分节、编辑组），以前是 4。没有改它的算法。
+
+15. 分节之间的边界上 Enter：收起再展开，高度回不到原来的值（e2e 里看到的，没有改）。输出 12：
+    “侧栏、右栏里分节之间的边界这样拖是收成标题行……（planned）；边界上的 Enter 是同一个切换。……按钮、命令与 Enter 恢复意图尺寸。”
+    - 现象（workbench-shell.e2e.ts 第 376 行的用例）：默认布局侧栏两个分节，焦点在它们之间的边界上按 Enter，边界前面的那块收成 32 高、
+      内容停放、记录里 collapsed 为真，这几步都对；再按 Enter 展开到 439，原来是 421。
+    - 同一块分节经头里的收起按钮收起再展开，回到原高（第 186 行的用例里有这一步，通过）。所以差在 Enter 这条走法上。
+    - 原因没有查清。猜测与第四节 4 有关：边界上的操作按手势落账，落账时把分节的尺寸意图按呈现比例重写，记住的尺寸与兄弟的意图不再是同一个基准。这是推断。
+    - Spec 把分节之间的边界标着 planned；归切片 4（结构键）还是回到切片 1 的库里修，请主 Agent 定。
+
+====================================================================
+五、e2e
+====================================================================
+
+命令都在 packages/neuro-book 下，-c e2e/playwright.config.ts --reporter=line，输出与退出码进日志。
+行号写“HEAD 行 → 现在的行”，“现在”指交付时的文件。日志比最后两处改动早的，里面的行号偏小：
+workbench-shell.e2e.ts 第 376 行之后的差 18，workbench-views.e2e.ts 第 415 行之后的差 8。
+
+5.1 各轮结果
+
+- 第一轮（期望没改，三份整跑）：9 passed / 39 failed，EXIT 1，29.8 分钟。/tmp/w00026-t24-s2/e2e-full-round1.log
+- 之后只按“文件:行”重跑，没有再整跑。每条用例最后一次的结果合起来（49 条）：34 passed / 15 failed。
+  - workbench-shell.e2e.ts 16 条：13 通过、3 失败。
+    e2e-shell-r2.log（12 条：5 过 7 败）→ 改辅助函数 → e2e-shell-r3.log（那 7 条：6 过 1 败）→ e2e-shell-r4.log（r2 里通过的 5 条在改完辅助函数后再跑：5 过）；
+    F6（434→490）与 Lab 第二条（688→751）在 e2e-rest-r2.log 里通过；新加的第 376 行那条在 e2e-r5.log、e2e-r6.log 里失败（两轮，按规矩停下）。
+  - workbench-views.e2e.ts 31 条：20 通过、11 失败。
+    e2e-views-r2.log（改过的 13 条：12 过 1 败）→ 修用例里伪造记录的写法 → e2e-views-r3.log（那 1 条通过）；
+    第一轮就通过的 6 条（282→294、299→311、515→547、660→695、940→976、1019→1056）与原样没动的 12 条在 e2e-rest-r2.log：6 过 12 败；
+    那 12 条里的 403→415 之后按输出 20 改了，e2e-r5.log 里通过。
+  - plugins.e2e.ts 2 条：1 通过、1 失败（e2e-rest-r2.log）。
+  - e2e-rest-r2.log 整份是 23 条：9 passed / 14 failed，EXIT 1。
+- 负载：重跑时多在 3 到 10；e2e-shell-r4.log 跑完时到 27（别的会话），那 5 条仍通过。没有因超时失败后靠重跑才过的用例。
+- 页面没有报错、没有空白：全链路用例（282→294）在第一轮与 e2e-rest-r2.log 里都通过。
+
+5.2 还失败的 15 条（都没有 skip，没有改成过渡界面的期望）
+
+A. 断言的是后面的切片要按 Spec 重做的行为：workbench-views.e2e.ts 里原样没动的 7 条
+
+活动栏按容器列入口、点击三态、按下态、溢出（输出 22）→ 切片 3
+- 331→343 “活动栏：不可见时点它显示并聚焦，可见时点它隐藏所在的具名面板……”：第 53 行 box(page, "sidebar") 找不到 [data-leaf="sidebar"]（超时）。
+- 377→389 “活动栏只列侧栏这一列的视图，顺序是文档里的标签顺序……”：第 398 行 entries 期望 [A, C, B]，实得是丙并进当前容器之后的顺序。
+- 909→945 “活动栏放不下时，末尾的条目收进底部的‘更多’……”：第 954 行 aria-pressed="true" 期望 1 个，实得 4 个（过渡的活动栏一个视图一个条目，同容器的同时按下）。
+
+“移动到”的目标、“新面板（挨着…）”“重置位置”、命令面板的移动视图（输出 23、35）→ 切片 5
+- 461→493 “移动到：右键菜单里把乙移进面板……甲移到新面板……重置位置后回到初始”：第 500 行 data-panel-count 期望 "4"，实得 "10"（第四节 14）。
+- 504→536 “键盘：焦点在活动栏条目上按菜单键打开‘移动到’菜单，用键盘选一项移动”：第 544 行 [data-panel-head="panel"] 里找不到丙的标签（丙进了底部面板，成了分节）。
+- 525→557 “命令面板的移动视图：先选视图、再选目标”：第 571 行 [data-panel-head="auxiliarybar"] 里找不到丙的标签。
+- 564→598 “实例保留：fill 与 scroll 两种视图在切标签、移到别的面板、新面板……”：第 121 行菜单项“新面板（挨着侧栏/右栏）”不存在（过渡菜单写的是分节的标题），超时。
+
+B. 对象是工具面板的标签带：本片的模型变化，没能按主 Agent 的第 1 条改的 4 条（workbench-views.e2e.ts，原样没动）
+
+为什么现在改不了：停靠区域里一块面板只有一个标签，标签带没有了（输出 40；输出 20：“分节的头只写它那个视图的标题”）。标签带的这些行为 Spec 还留着
+（输出 20：“标签带的键盘：方向键、Home、End 切换并跟焦点，Alt 加方向键换一位……标签带放不下时逐级让位”），对象只剩几个标签的工具视图浮动窗
+（输出 20：“工具视图的浮动窗只有一个标签时也不画标签带”）。界面上搭出多标签浮动窗的走法是把视图拖到浮动窗的头上（输出 20：“浮动窗只写标题的头没有插入位，
+拖到头上是添加到最后”；验收 22 里“视图拖到浮动窗的标签条上”标着 planned），“移动到”菜单与命令都不列浮动窗。把期望改成“没有标签带”等于删掉这几条行为的覆盖，所以没改。
+- 868→904 “面板标签带变窄时逐级让位……”：第 912 行标签数期望 3，实得 0。→ 切片 4（场景搬到多标签浮动窗）。
+- 955→991 “标签带：Alt 加方向键换一位……”：第 995 行 before.length 期望大于 1，实得 0。→ 切片 4。
+- 972→1008 “标签带：标签与内容互相关联；长标题标签与三个框架按钮在 840 宽下……”：第 1012 行取标签的 aria-controls 超时（底部面板的分节头里是标题，不是 role="tab"）。→ 切片 4。
+- 706→742 “活动栏、工具面板、面板头与选中标记的颜色取主题 token……”：page.evaluate 报 Cannot read properties of null (reading 'append')。这条用例里有三种东西：
+  （1）按区域名选卡片与头：[data-shell-card="sidebar"]、[data-panel-head="sidebar"]、[data-panel-head="auxiliarybar"]、card("sidebar")。这是本片的选择器变化，
+       第一处取不到的就是它（从代码看是第 760 行的 [data-shell-card="sidebar"]）。没有单独改：改了整条仍过不了（2）。
+  （2）选中标签的颜色、tablist 不画框：[data-panel-head="panel"] [role="tab"][aria-selected="true"] 与 [role="tablist"]，对象同上，只在多标签浮动窗里。→ 切片 4。
+  （3）“新面板（挨着侧栏）”之后量工具面板之间的线。→ 切片 5。
+  整条归切片 5 收口，（1）到时一起改。
+
+C. 本片看到的产品行为与 Spec 不一致（没有改产品，也没有改期望）：workbench-shell.e2e.ts 的 2 条
+- 165→186 “隐藏、收成标题行、最大化……隐藏时焦点到活动栏条目”：前面各步都过，最后一步第 261 行
+  expect([data-tool-entry="nbook.explorer"]).toBeFocused() 失败，焦点在 body。见第四节 12；落点归切片 3。
+  断言本身是原有的（HEAD 第 227 行），没有改成别的落点。
+- 新加的第 376 行“侧栏里分节之间的边界：Enter 把分节收成标题行、内容停放，再按一次恢复记忆的尺寸”：第 390 行期望回到 421，实得 439。见第四节 15。
+  它是 HEAD 第 339 行那条用例照原意搬到分节之间的边界（见 5.3），不是新造的要求。
+
+D. Lab：workbench-shell.e2e.ts 的 1 条
+- 606→669 “同一场景里移动、最大化、隐藏、放不下被收走再回来……”：第 699 行 data-content-leaf 期望 "auxiliarybar"，实得 "section:a"。
+  Lab 夹具（WorkbenchSurfaceFixture.vue）的按钮还是照旧模型以具名面板为目标（moveTabToStrip 到锚，被库拒绝后夹具回到原文档，读代码推断）。
+  夹具与这条用例没有改：它模拟的是拖放提交与活动栏，归切片 4（夹具的移动按钮）与切片 3（夹具里的活动栏）。
+  同一夹具还被 e2e/lab-workbench-surface.e2e.ts 用，那份没跑，预计同样受影响。
+
+E. plugins.e2e.ts 的 1 条
+- 78 “安装 → 重启后配置项出现、能写进本作品层 → ……”：第 71 行点 [data-settings-nav='other'] 超时，它是 aria-disabled。
+  - 原因（读代码推断，没在基线上跑）：提交 4d73e28ef（2026-11-07，“feat(agent): Profile 设置页的列表、头部、模型与审批”）把工具绑定归到了 Profile 分区，
+    “其它”分区没有配置项就停用了，用例注释还写着“工具绑定没有归到别的分区”。本片的 diff 没碰设置。
+  - git log 4d73e28ef..master -- packages/neuro-book/e2e/plugins.e2e.ts 是空的：master 上还没有人修这份用例。
+  - 用例在第 71 行就断了，后面的步骤这次没有跑到。整份文件里没有依赖布局的选择器（grep data-leaf、data-panel-head、data-tool-entry、data-panel-tab、
+    data-content、sidebar、auxiliarybar、activitybar 都没有命中），进设置用的是活动栏底段的 [data-activity-item='nbook.settings']，这一步通过。
+    所以计划里说的“plugins e2e 会因默认活动栏变化而改期望”这次没有要改的地方；后面的步骤等 71 行修好后再确认。没有改这份文件。
+
+5.3 改了哪些期望与理由
+
+workbench-shell.e2e.ts（产品页组；Lab 组两条没动）
+- 辅助函数：按面板名取的 frame、box("sidebar") 之类改成按视图取（sectionOf、sectionBox、headOf、frame(view, …)）：锚不进呈现树（输出 40），
+  分节的 id 是布局起的，用例从 [data-content="view:<id>"] 的 data-content-leaf 读，不写死 section:<视图 id>。
+  sidebarSash、panelSash 按名称里编辑区那一侧认（第四节 13；编辑区那一侧在底部面板显示着时是 center，没显示时是 g0）；regionToggle 是标题栏的区域按钮。
+  本地的 SavedDoc、sizeOf 换成包里的 LayoutDoc 与 regionNodeOf（区域的尺寸意图记在区域分支上）。
+- open()：不再点“显示面板”。默认布局里底部面板没有容器（输出 1），点了无效（第四节 7）。要看底部面板的用例先用 sessionsToPanel 把会话移进去。
+- 165→186：收成标题行改在侧栏的资源管理器分节上做，记录读 panels[分节].collapsed（输出 11：收成标题行是分节的；“底部面板的分节不折叠”）。
+  最大化盖住的是会话分节、编辑组、对话分节三块，矩形不变（输出 13）。
+  原来的“收起后隐藏，再显示两个状态一起清掉”换成“分节收着时隐藏侧栏再显示，分节仍是 32 高”（输出 11：“区域的隐藏与拖到零同时为真时，
+  ‘显示’把两个都清掉；分节收成标题行的不动”）。“隐藏与拖到零同时为真再显示”在界面上走不到（拖到零之后标题栏按钮是恢复），
+  由 web/commands/part-commands.test.ts 的“带 part 时按可见切换；‘显示’同时清掉隐藏与拖到零……”覆盖。
+  隐藏不再点头里的按钮（输出 20：“分节没有隐藏按钮，隐藏是区域的事”），改用状态栏、标题栏的按钮。
+- 230→264、369→424、403→459、454→510：只换了量哪一块（侧栏的宽量资源管理器分节的叶）与读区域尺寸的写法。数值都没动：
+  默认 340、上限 560、下限 160、步长后的 549 与 539、保存失败那条的 350。
+- 302→338：最大化与 Tab 步进在资源管理器分节上；底部面板先 sessionsToPanel，隐藏后从状态栏显示回到 200。
+- 339 “纵向分支的边界：Enter 把面板收成标题行、内容停放，再按一次恢复记忆的尺寸”拆成两条。原来的边界是编辑组与底部面板之间那条，
+  输出 12 现在把它分成两种：“区域挨着编辑区的那条边界……整个区域拖到零”与“侧栏、右栏里分节之间的边界这样拖是收成标题行”，“边界上的 Enter 是同一个切换”。
+  - 第 376 行（原意照搬）：侧栏两个分节之间的边界，Enter 把边界前面的那块收成 32 高、内容停放、记录 collapsed，再按恢复原高。
+    “收的是前面那块”Spec 没写，是看到的行为。最后一步失败（5.2 C）。
+  - 第 394 行（同一条边界在新模型下的行为）：底部面板挨着编辑区的边界，Enter 把整个区域拖到零：高 0、边界还在、panels.panel.collapsed 为真、再按回 200。通过。
+- 352→408：不再造“新面板（挨着侧栏）”，直接收默认的会话、资源管理器两个分节：各 32 高，编辑组矩形不变，展开一个另一个仍是 32。
+- 479→535：先 sessionsToPanel；底部分节头完整可见时的框架按钮数期望 2（浮动、最大化；输出 20：底部面板的分节不折叠、分节没有隐藏按钮），原来是面板头的 3 个。
+  诊断从匹配区域名改成 toContain("收走 <分节的面板 id>")：诊断写的是被收走的面板，现在是分节。
+- 519→579：原“窄的时候切个标签”。停靠区域没有标签可切了，换成“收起会话分节”作为那次会保存的操作，断言没变：区域记下的宽仍是放宽时的值。
+  说明：收起是结构操作，和切标签不是同一种写入；原场景在停靠区域已经不存在，这是能找到的最接近的替代。
+- 532→593：第二个窗口的那次改动从“点底部面板头里的隐藏按钮”（panels.panel.hidden）换成用标题栏按钮隐藏右栏（panels.auxiliarybar.hidden）：
+  默认布局里底部面板本来就不显示，分节也没有隐藏按钮。
+- 560→622：卡片与头按分节的 id 选（data-shell-card、data-panel-head）。
+
+workbench-views.e2e.ts
+- 辅助函数：原有的 head(panel)、frame(panel, …) 留着没动（没改的用例还在用）；新增 headOf(view)、frameOf(view, …)、panelSash；
+  sidebarSash、auxiliarySash 按编辑区那一侧认。SavedDoc 加了可选的 container、activeContainer。
+- 175→185、204→215、1000→1036：box("auxiliarybar")、data-shell-card="sidebar"、诊断里的区域名，改成视图所在分节的 id（panelOfTab）。
+- 230→242、390→402、1056→1093：head(page, "sidebar") 改成 headOf(视图)。
+- 316→328：最大化的按钮取样例戊所在分节的头。
+- 403→415：原“头的样式按标签数：……放进第二个变标签带……活动栏隐藏后侧栏也画标签带，切换靠标签”。按输出 20 改成：
+  右栏的丁只写标题；甲移进右栏是又一个分节（和丁不是同一块面板），两块的头都只写标题、没有 role="tab"；搬回侧栏后仍然如此；
+  活动栏隐藏后侧栏的头不变（输出 20：“活动栏隐藏时侧栏的头不变，容器只能经命令切换”），用命令面板的“打开视图”切到样例丙，丙的头也只写标题。
+  原来对底部面板“两个标签”的那一行断言没有了：底部面板现在只显示戊一个分节。仍用 moveViaMenu(…, "右栏"/"侧栏")，菜单名是过渡的。
+- 425→445：让布局定下来的那次操作从“收起面板”换成隐藏右栏；伪造的记录从“侧栏面板多一个标签”换成“侧栏多一个分节”
+  （树上加叶 section:test.gone、面板记录带 container: "view:test.gone"、锚的 entries 与 activeContainer 指向它）。
+  关闭后的期望从“活动标签换到相邻的”换成“侧栏切到入口顺序里它前面的容器，样例丙显示”（输出 43：“当前容器的最后一个分节被拿走或关掉，
+  提交之后区域切到入口顺序里它前面的那个容器，前面没有就切到后面的”）。
+- 543→575：隐藏侧栏从点头里的隐藏按钮换成标题栏按钮（输出 20）；其余断言没动（包括活动栏条目的按下态，现在通过）。
+- 622→656、645→679：丁移进底部面板后是又一个分节，和戊一起显示，不用再点戊的标签；“丁仍在面板里”从“在 panel 的头里”换成
+  “它的分节归底部面板的当前容器”。这两条仍用 moveViaMenu(…, "面板")，菜单名是过渡的（见第六节）。
+- 690→725：诊断改成 toContain("收走 section:<丁的视图 id>")。这里写死了分节 id 的命名（窄屏下丁已经被收走，页面上读不到它的面板 id）。
+- 805→841：底部面板那条线用 panelSash。
+
+没有放宽的地方：数值期望都没动；选择器换成等价或更窄的；诊断从正则匹配区域名改成包含确切的面板 id。
+
+====================================================================
+六、留给切片 3 到 5 与别处的事
+====================================================================
+
+切片 3（活动栏）
+- 活动栏按容器列入口（regionContainers + containerLabel 已经给出顺序、标题、图标）；现在的 WorkbenchToolStrip 仍按视图列。
+- 点入口的三态（切过去、隐藏区域、展开）与 toolEntryIntent 的重写；“collapse”分支可以删。
+- 场景图下角现在画在区域最后一块显示着的分节上，区域只有标题行时的样子没有专门看过。
+
+切片 4（拖动）
+- src/plugins/workbench/web/layout-drag.ts 没动（里面还有 const SIDEBAR = "sidebar"）。拖到入口上、拖到分节前后与缝上的归属
+  由库的 settleLanding 写；拖动预览不过 settleContainers（输出 38）。
+- 拖动预览的约束按已提交文档的区域取。
+
+切片 5（命令）
+- moveView、moveTargetsOf、“移动到”菜单与命令面板的目标表按输出 23 重做（目标是容器与“新容器（区域）”）；上面第四节 5 的过渡规则随之删。
+- set-panel-collapsed 对底部面板分节、对锚的语义；空区域点“显示”。
+
+Lab 与别的 e2e
+- src/plugins/lab/web/fixtures/WorkbenchSurfaceFixture.vue 的场景仍是旧模型的文档（具名面板上有标签），只做了编译修正。
+- 不在本片三份 e2e 里、仍用旧选择器（[data-leaf="sidebar"]、[data-panel-head="panel"] 之类）的文件，没有改也没有跑：
+  e2e/files-explorer.e2e.ts、editor-area.e2e.ts、workbench-titlebar.e2e.ts、lab-workbench-surface.e2e.ts、workbench-float.e2e.ts、
+  workbench-dnd.e2e.ts、workbench-live-drag.e2e.ts、workbench-drag-cost.e2e.ts。
+
+e2e 留下的事
+- 还失败的 15 条的归属见 5.2。请主 Agent 定的三件：第四节 11（单个分节的收起按钮）、第四节 15（分节之间 Enter 恢复差 18px）归哪一片；
+  5.2 B 的四条是否同意留到切片 4、5。
+- 依赖过渡菜单名“面板”“右栏”“侧栏”的地方，切片 5 改“移动到”的目标时一起改：workbench-shell.e2e.ts 的 sessionsToPanel（四条用例用它把会话放进底部面板）、
+  workbench-views.e2e.ts 的 403→415、622→656、645→679。
+- workbench-shell.e2e.ts 第一条最后一步断言的 [data-tool-entry="nbook.explorer"] 是按视图的过渡条目，切片 3 换成容器“项目”的入口，并处理第四节 12。
+- layout-present.ts 的 titleOnlyPanels 里“活动栏隐藏时侧栏这一列也按标签数”的分支，对停靠区域已经不起作用（分节只有一个标签，总是只写标题；
+  e2e 403→415 验了活动栏隐藏时头不变），本片没删。WorkbenchShell.vue 的 runFrameAction 里隐藏那一支对停靠的面板走不到了，也没删。
+
+====================================================================
+七、验证命令与结果
+====================================================================
+
+都在 packages/neuro-book 下执行，输出与退出码写进日志文件。
+
+- bunx vue-tsc --noEmit -p tsconfig.web.json：EXIT 0（/tmp/w00026-t24-s2/tsc-2.log）。
+- bunx tsc --noEmit（含测试文件）：EXIT 0（/tmp/w00026-t24-s2/tsc-all.log）。
+- bun test src/plugins/workbench src/plugins/explorer src/plugins/agent：1137 pass / 11 skip / 2 fail，EXIT 1
+  （/tmp/w00026-t24-s2/test-2.log；这次运行之后又改了 layout-doc-store.ts 的 newPanelNextTo 与两条测试，
+  改后重跑 web/state 与 web/commands：181 pass / 0 fail，/tmp/w00026-t24-s2/t-store.log）。两个失败都是 5 秒超时，本机负载 25 左右：
+  - src/plugins/explorer/actions.test.ts“转换：普通目录转为内容文件夹再转回，带冻结的令牌”：单独重跑通过。
+  - src/plugins/workbench/package-io.test.ts“文件太多、单个文件解压后太大……”：单独重跑仍超时（15 秒）；在主工作区 master 上
+    跑同一文件同样超时（/tmp/w00026-t24-s2/pkgio-master.log）。它只依赖主题包的导入导出，本片没碰。
+  - 改动前的基线（/tmp/w00026-t24-s2/base-test.log）：1087 pass / 11 skip / 1 fail，那一条是
+    src/plugins/agent/session-host.test.ts“结果未知再点一次用同一个指令 id；明确被拒时编辑器不关”，这次运行里它通过了（时序用例）。
+- cd packages/nb-layout && bun test src：498 pass / 0 fail，EXIT 0（/tmp/w00026-t24-s2/nb-layout.log）。
+- 构建 build:server、build:web、build:e2e：EXIT 0。
+- bunx vue-tsc --noEmit -p tsconfig.browser-test.json（覆盖 e2e 与 web 的单元测试）：EXIT 0（/tmp/w00026-t24-s2/tsc-browser-test-3.log，e2e 最后一次改动之后跑的）。
+- e2e：见第五节 5.1。最后状态 49 条里 34 passed / 15 failed（第一轮 48 条里 9 / 39）；失败的 15 条逐条列在 5.2。
+  e2e 期望改完之后没有再动产品源码，构建产物是 build-2.log 那一次的，没有重建。
+- git diff --check：EXIT 0。git status 里只有第二节列的文件与两份 e2e；没有 commit、stash、切分支。
