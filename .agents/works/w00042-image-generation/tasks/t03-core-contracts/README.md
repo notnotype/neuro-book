@@ -111,4 +111,10 @@ Agent 工具（t08）、插图方言（t09）、生图管线（t10）、角色�
 
 ## 下一步
 
-提案草稿 [图像生成第一版：工作台、配方与标签库](../../../../../docs/proposals/image-generation-v1.md) 2026-11-10 提交，开发者看过要点（“没问题”）。设计审查第 1 轮（开发者指定本次不用 omp）：Opus 23 条、Sonnet 拉远看 9 条，报告与逐条处理在 [evidences/design-review-round1.md](evidences/design-review-round1.md)；提案已按成立的条目修订（图片仓库改放 `user://images/`、结果经待交付进书、一件事实一个主人等）。等开发者确认修订稿，并对两条质疑已定决定的意见（自动清理、第一版范围）表态；确认后标为接受，把长期决定写成 ADR，再写 `images/prompt` 与 `images/recipes`。
+提案草稿 [图像生成第一版：工作台、配方与标签库](../../../../../docs/proposals/image-generation-v1.md) 2026-11-10 提交，开发者看过要点（“没问题”）。设计审查（开发者指定本次不用 omp）：
+
+- 第 1 轮：Opus 23 条、Sonnet 拉远看 9 条，处理见 [evidences/design-review-round1.md](evidences/design-review-round1.md)。
+- 第 2 轮：Opus 只审存储，14 条；问题在结构上，改成“每台机器的仓库是批次的唯一主人、书里存副本、对账进书”，见 [evidences/design-review-round2.md](evidences/design-review-round2.md)。
+- 第 3 轮（最后一轮）：Opus 只审新的存储结构，进行中。
+
+等第 3 轮处理完，以及开发者对四处的表态（仓库位置改到 `user://images/`、扔掉改成先标记后删、拉远看对自动清理与第一版范围的质疑）。确认后标为接受，把长期决定写成 ADR，再写 `images/prompt` 与 `images/recipes`。
