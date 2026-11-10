@@ -52,7 +52,8 @@ t34 晋升前逐条核对时，简报三轮实现审查每轮都找出新的泄�
 - 第 3 片 80ba9b199、b24dee033：`gate.test.ts`（I12 各条与 P1、P2 的复现，23 条）、种子网 `secrecy.test.ts` 与生成器 `testing/brief-world.ts`（40 个种子约 1 秒，另临时跑 400 个通过；种子网找出“之后才出场的目标被当作藏着秘密的目标”一处，已修）；变异检查 25 个全部抓到（第一轮存活 5 个，各补一条用例），I12 第 14 项的 P5 补了物件候选的用例（[`evidences/mutation-check.txt`](evidences/mutation-check.txt)）。剧情插件 308 个用例（307 过、1 跳过）、应用类型检查通过。
 - 第 4 片：`plot/brief.md`（新输出 16，输出 4、5、7、8、9、13 与失败表随之改，验收 8 到 12）与 `canon/rendering.md`（新输出 15、验收 5、实现合同）已在主工作区改好，`docs:check` 通过，**先不提交**，与代码一起合入。`plot/brief.md` 的晋升等实现审查处理完、逐条核对后再做。
 - 实现审查 I1（Opus）：18 条（阻断 2、重要 10、建议 6），修正在 9d47674b8（[报告](evidences/impl-review-I1-opus.txt)、[处理](evidences/impl-review-I1-resolution.txt)）。共同根因是本章计划的“地址的变化”一行没经关卡，已收进关卡。开发者 2026-11-10 定：身份不给写手的本体，目标、态度、字段变化都不写；两段各算各的秘密记为已知限制，并定窄场景取复杂度低。Spec 随之改（仍未提交）。
-- 实现审查 I2（Opus，只看修正与 Spec 的改动）进行中。
+- 实现审查 I2（Opus）：7 条（阻断 2、重要 4、建议 1），修正在 d5d32710c（[报告](evidences/impl-review-I2-opus.txt)、[处理](evidences/impl-review-I2-resolution.txt)）。马甲身份的规则改成按马甲与本体判、不看场合。
+- 实现审查 I3（第三轮，按轮数上限是最后一轮）待开。
 
 ## 后续（不在本 Task）
 
