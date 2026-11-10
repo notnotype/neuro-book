@@ -11,7 +11,7 @@
 
 import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewPanelRects, removeTab, resolveLayoutDrop, sourceTabs, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, GridRect, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
-import {createDragSession, layoutMotionMs, measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops} from "@notnotype/nb-layout/vue";
+import {createDragSession, layoutMotionMs, measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops, translateTabStrip} from "@notnotype/nb-layout/vue";
 import type {DragSession, TabStripSnapshot} from "@notnotype/nb-layout/vue";
 
 import {nextTick, readonly, shallowRef} from "vue";
@@ -203,6 +203,15 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const result = removeTab(options.doc(), source.tab);
             return result.ok ? result.doc : null;
         },
+        collapseSource: (source, drop) => {
+            const result = removeTab(options.doc(), source.tab);
+            if (!result.ok || frozen === null) return;
+            frozen = collapsed(frozen, options.doc(), result.doc, source);
+            // 预览缓存里并入的矩形是按旧几何算的。
+            previews.clear();
+            // 照 Trellis：指针再动才按收起后的布局重判。收起时指针下的落点留着，松手（按指针下重判）还是屏幕上这个。
+            held = {point: session.state.value?.point ?? null, drop};
+        },
         homeOf: (source) => findTab(options.doc(), source.tab)?.panel ?? null,
         show: (doc) => options.showPreview(doc),
         panelRect: (panel) => {
@@ -216,8 +225,78 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         settleDrop: () => session.flush(),
         pointer: () => session.state.value?.point ?? null,
         placeCard: (rect) => options.placeCard(rect),
+        placeSorted: (at) => measureSorted(at),
+        placeSortedAfterRender: (at) => {
+            void nextTick(() => {
+                if (live.active.value) measureSorted(at)();
+            });
+        },
         cardShrink: () => options.cardShrink(),
     });
+
+    /**
+     * 标签条里排序（输出 38“标签条上”）：被拖的那个标签就是它留着的位置，邻居按预览滑开；它自己显示出来，沿条跟着指针，夹在条的两端之间，不另画拖影。
+     * 位置直接写元素的 `translate`（跟手的东西不走渲染）；标签条的换位过渡用 `transform`，两者不打架，占位的那个标签不参与换位过渡（样式里压掉）。
+     */
+    let sorting: HTMLElement | null = null;
+    /** 抓住的点占标签的比例：第一次排序时定，这一场不变，换到别的标签条里也一样。 */
+    let sortGrab: number | null = null;
+    function sortTargetOf(at: {readonly point: GridDropPoint; readonly panel: string}, tab: string): {readonly frame: HTMLElement; readonly bounds: GridDropRect; readonly vertical: boolean} | null {
+        const band = toolBand();
+        const bandRect = rectOf(band);
+        const viewId = viewIdOf(tab);
+        if (band !== null && bandRect !== null && contains(bandRect, at.point)) {
+            if (viewId === null) return null;
+            const frame = band.querySelector<HTMLElement>(`[data-tool-entry="${escape(viewId)}"]`)?.closest<HTMLElement>(".workbench-tool-strip__frame") ?? null;
+            return frame === null ? null : {frame, bounds: bandRect, vertical: true};
+        }
+        if (options.titleOnly(at.panel)) return null;
+        const editor = options.doc().panels[at.panel]?.role === "editor";
+        const container = root.querySelector(editor ? `[data-panel-strip="${escape(at.panel)}"]` : `[data-panel-head="${escape(at.panel)}"]`);
+        const element = container?.querySelector<HTMLElement>(`[data-panel-tab="${escape(tab)}"]`) ?? null;
+        const frame = element?.parentElement ?? null;
+        const bounds = rectOf(element?.closest("[data-tab-row]"));
+        return frame === null || bounds === null ? null : {frame, bounds, vertical: false};
+    }
+    function releaseSorted(frame: HTMLElement): void {
+        frame.style.removeProperty("translate");
+        frame.style.removeProperty("visibility");
+        frame.style.removeProperty("z-index");
+    }
+    /** 读这一次要写什么，返回写的那一步：调用方把写放在这一帧别的读（判定）之后。 */
+    function measureSorted(at: {readonly point: GridDropPoint; readonly panel: string} | null): () => void {
+        const source = session.state.value?.source;
+        const target = at === null || source?.kind !== "tab" ? null : sortTargetOf(at, source.tab);
+        const rect = target === null ? null : target.frame.getBoundingClientRect();
+        if (target === null || rect === null || at === null) {
+            return () => {
+                if (sorting !== null) releaseSorted(sorting);
+                sorting = null;
+            };
+        }
+        const {frame, bounds, vertical} = target;
+        // 此刻写在它上面的位移按元素上的值算，不按记下的：Vue 重渲染可能把整个 style 换掉。
+        const written = frame.style.translate.split(" ").map((part) => Number.parseFloat(part));
+        const along0 = vertical ? written[1] : written[0];
+        const shifted = along0 !== undefined && Number.isFinite(along0) ? along0 : 0;
+        const size = vertical ? rect.height : rect.width;
+        const resting = (vertical ? rect.top : rect.left) - shifted;
+        const along = vertical ? at.point.y : at.point.x;
+        sortGrab ??= size > 0 ? Math.min(1, Math.max(0, (along - resting) / size)) : 0.5;
+        const [start, end] = vertical ? [bounds.top, bounds.bottom] : [bounds.left, bounds.right];
+        const wanted = Math.min(Math.max(along - sortGrab * size, start), Math.max(start, end - size));
+        const next = Math.round((wanted - resting) * 100) / 100;
+        // Vue 重渲染这个标签时可能整个换掉 style：值对不上就重写，不只看上一次写了什么。
+        // 写成浏览器读回来的同一个样子（只有横向时省掉 y），不然每帧都对不上、每帧都重写。
+        const value = vertical ? `0px ${String(next)}px` : `${String(next)}px`;
+        return () => {
+            if (sorting !== null && sorting !== frame) releaseSorted(sorting);
+            if (frame.style.translate !== value) frame.style.translate = value;
+            if (frame.style.visibility !== "visible") frame.style.visibility = "visible";
+            if (frame.style.zIndex !== "1") frame.style.zIndex = "1";
+            sorting = frame;
+        };
+    }
     const stripOf = (panel: string): Element | null => root.querySelector(`[data-panel-strip="${escape(panel)}"] [data-tab-strip]`);
 
     function geometryOf(doc: LayoutDoc, id: string): LayoutDropPanelGeometry | null {
@@ -377,6 +456,47 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         };
     }
 
+    /**
+     * 来源收起之后判定用的几何（输出 38）：按收起后的文档算每块面板挪到哪，不读 DOM，预览怎么摆都不变，判定和预览不会互相牵着来回换。
+     * 拿起时量的卡片、头、标签条和面板之间的内外边距不变，所以每块面板按它在两份文档里的矩形差平移、伸缩。收起后不在的面板（来源是它最后一个标签）不再是落点，
+     * 来源不会因为指针回到原处又展开。
+     */
+    function collapsed(kept: NonNullable<typeof frozen>, doc: LayoutDoc, base: LayoutDoc, source: LayoutTabSource): NonNullable<typeof frozen> {
+        const extent = options.extent();
+        if (extent === null) return kept;
+        const ids = treeLeaves(doc.tree.root).map((leaf) => leaf.id);
+        const before = previewPanelRects(doc, ids, options.projection(), extent, dpr());
+        const after = previewPanelRects(base, ids, options.projection(), extent, dpr());
+        const moves = new Map<string, {readonly left: number; readonly top: number; readonly right: number; readonly bottom: number}>();
+        for (const id of ids) {
+            const from = before[id];
+            const to = after[id];
+            if (from !== undefined && to !== undefined) moves.set(id, {left: to.left - from.left, top: to.top - from.top, right: to.right - from.right, bottom: to.bottom - from.bottom});
+        }
+        const panels = kept.geometry.panels.flatMap((item) => {
+            const move = moves.get(item.id);
+            if (move === undefined) return [];
+            const across = (rect: GridDropRect): GridDropRect => ({...rect, left: rect.left + move.left, right: rect.right + move.right});
+            // 头的高度不变：标签条跟着上沿走；正文的下沿跟着下沿走。
+            const strip = item.strip === null ? null : {...across(item.strip), top: item.strip.top + move.top, bottom: item.strip.bottom + move.top};
+            const bodyTop = item.body.top + move.top;
+            const body = {...across(item.body), top: bodyTop, bottom: Math.max(bodyTop, item.body.bottom + move.bottom)};
+            const frame = item.frame === undefined ? undefined : {...across(item.frame), top: item.frame.top + move.top, bottom: Math.max(item.frame.top + move.top, item.frame.bottom + move.bottom)};
+            return [{...item, body, strip, ...(frame === undefined ? {} : {frame})}];
+        });
+        const strips = new Map([...kept.strips].flatMap(([id, snapshot]) => {
+            const move = moves.get(id);
+            if (move === undefined) return base.floats.some((float) => float.panel === id) ? [[id, snapshot] as const] : [];
+            return [[id, translateTabStrip(snapshot, {x: move.left, y: move.top}, move.right - move.left)] as const];
+        }));
+        const floats = kept.geometry.floats.filter((item) => base.floats.some((float) => float.panel === item.id));
+        // 活动栏上来源的条目没了，它下面的都往上补一格。
+        const at = kept.bar.findIndex((entry) => entry.tab === source.tab);
+        const gap = at < 0 ? 0 : (kept.bar[at + 1]?.rect.top ?? kept.bar[at]!.rect.bottom) - kept.bar[at]!.rect.top;
+        const bar = at < 0 ? kept.bar : kept.bar.flatMap((entry, index) => (index === at ? [] : index < at ? [entry] : [{...entry, rect: new DOMRect(entry.rect.x, entry.rect.y - gap, entry.rect.width, entry.rect.height)}]));
+        return {geometry: {...kept.geometry, panels, floats}, strips, bar};
+    }
+
     /** 这个来源能浮出来吗（输出 39）：视图可以声明不许；窗数到了上限不行；已经独占一个窗的标签再浮还是它（键盘不列这个落点）。 */
     function canFloat(doc: LayoutDoc, source: LayoutTabSource): boolean {
         const found = findTab(doc, source.tab);
@@ -453,7 +573,14 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return drop === null ? moved : sectored(drop, resolved, input);
     }
 
+    /** 来源收起那一刻屏幕上的落点：指针没动之前一直是它（`collapseSource`）。 */
+    let held: {readonly point: GridDropPoint | null; readonly drop: LayoutDragDrop | null} | null = null;
+
     function dropAt(source: LayoutTabSource, point: GridDropPoint, region: KeyboardRegion | null): LayoutDragDrop | null {
+        if (held !== null) {
+            if (region === null && held.point !== null && held.point.x === point.x && held.point.y === point.y) return held.drop;
+            held = null;
+        }
         const doc = options.doc();
         if (region?.id === FLOAT_REGION) return canFloat(doc, source) ? floatDrop(doc, options.floatMinimum(source), null) : null;
         if (live.active.value && frozen === null) freeze(doc, source);
@@ -505,7 +632,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     /** 分区不进预览缓存：缓存按动作存，画的是指针所在的那块。 */
     function withSectors(drop: LayoutDragDrop, input: LayoutDropInput): LayoutDragDrop {
         // 缝上没有分区：缝不属于哪一块面板（输出 37）。
-        if (!options.sectors() || (drop.action.kind === "edge" && drop.action.target.kind === "between")) return drop;
+        // 实时布局不画分区：预览就是反馈（输出 38）。
+        if (!options.sectors() || live.active.value || (drop.action.kind === "edge" && drop.action.target.kind === "between")) return drop;
         const panel = layoutDropPanelAt(input);
         const items = panel === null ? null : layoutDropSectors(input, panel);
         if (panel === null || items === null) return drop;
@@ -625,6 +753,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         sourceAt,
         activate: (source, keyboard, at) => {
             previews.clear();
+            sortGrab = null;
+            held = null;
             shownDrop = null;
             shownDropKey = "";
             frozen = null;

@@ -169,6 +169,21 @@ describe("分段章与补叙", () => {
         expect(ids(found, "time")).toEqual(["time:main#1", `time:${r1}#1`]);
     });
 
+    test("物件层按这一段的线算阶段：子线上埋下、读者口径没读到（活页夹讲那章只讲主线），后面讲子线的一段照样问", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const clock = w.thing("那座钟");
+        const fs = w.foreshadow("那座钟慢了一刻", {物件: [{id: clock}]});
+        w.texts.set("ch1", "开头。\n");
+        const cut = w.change(chapter("ch1"));
+        const forked = w.publish([{ref: {kind: "change", id: "tmp:f"}, after: {...drafts.change("tmp:f", chapter("ch2")), nature: "fork", fork: {line: "tmp:r1", name: "回溯", parent: "main", cut, type: "branch"}}}]);
+        const r1 = forked["tmp:r1"]!;
+        w.texts.set("ch3", "钟慢了一刻。\n");
+        w.change({kind: "chapter", chapter: "ch3", key: 0, line: r1}, {told: [{source: "chapter", chapter: "ch3", quote: "钟慢了一刻", marks: [{kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "plant"}]}]});
+        w.texts.set("ch5", "那座钟又响了。\n");
+        w.world = w.world.withOptions({...w.world.options, chapterLines: new Map([["ch5", [{line: r1, from: 1}]]])});
+        expect(ids(candidates(w, "ch5"), "object")).toEqual([`object:${r1}#1:${clock}`]);
+    });
+
     test("补叙章：候选读声明的安放，不读本章章末；讲述落在本章、安放在别处的变更也算本章", () => {
         const w = new PlotWorld(CHAPTERS);
         const hero = w.person("勇者");

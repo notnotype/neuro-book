@@ -220,9 +220,10 @@ describe("策略按边回答（edgeTarget）", () => {
     /** 工具面板只能上下拆。 */
     const vertical: Pick<LayoutPolicy, "edgeTarget"> = {edgeTarget: (doc, _tabs, panel, edge) => (edge === "left" || edge === "right" ? null : edgeTargetOf(doc, panel, edge))};
 
-    it("策略不给的边没有窄带，指针在那里算中央；给的边照常是外缘", () => {
+    it("策略不给的边的窄带上没有落点，不算中央；给的边照常是外缘；正中是中央", () => {
         const policy = testPolicy(vertical);
-        expect(drop(THREE(), VIEW, 310, 300, {policy})).toEqual({kind: "center", panel: "b"});
+        expect(drop(THREE(), VIEW, 310, 300, {policy})).toBeNull();
+        expect(drop(THREE(), VIEW, 450, 300, {policy})).toEqual({kind: "center", panel: "b"});
         expect(drop(THREE(), VIEW, 450, 40, {policy})).toMatchObject({kind: "edge", target: {kind: "split", panel: "b", edge: "top"}});
     });
 

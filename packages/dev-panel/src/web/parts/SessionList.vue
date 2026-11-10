@@ -36,7 +36,7 @@ const TONE_CLASS: Record<SessionTone, string> = {blocked: "nbdev-warn", working:
             <span class="min-w-0 flex-1 font-semibold">通知<template v-if="attention > 0"> · {{ attention }} 条要处理</template></span>
             <span class="i-lucide-chevron-right size-4 shrink-0 opacity-60" aria-hidden="true" />
         </a>
-        <h3 class="nbdev-session-group">Agent 会话 · {{ agents.length }}<Badge tone="accent" variant="outline" size="sm">临时</Badge></h3>
+        <h2 class="nbdev-session-group">Agent 会话 · {{ agents.length }}<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
         <p v-if="agents.length === 0" class="nbdev-empty px-4 py-1">本仓库里没有 Agent 会话</p>
         <template v-for="row in agents" :key="row.key">
             <a v-if="row.selectable && row.paneId" :href="hrefOf(row.paneId)" class="nbdev-session-row" :class="{'nbdev-session-sel': selected === row.paneId}" :aria-current="selected === row.paneId ? 'page' : undefined" @click="follow($event, () => emit('select', row.paneId!))">
@@ -63,7 +63,7 @@ const TONE_CLASS: Record<SessionTone, string> = {blocked: "nbdev-warn", working:
                 </span>
             </div>
         </template>
-        <h3 class="nbdev-session-group mt-2">其它 pane（只读）· {{ panes.length }}</h3>
+        <h2 class="nbdev-session-group mt-2">其它 pane（只读）· {{ panes.length }}</h2>
         <p v-if="panes.length === 0" class="nbdev-empty px-4 py-1">本仓库里没有别的 pane</p>
         <a v-for="row in panes" :key="row.key" :href="hrefOf(row.paneId!)" class="nbdev-session-row" :class="{'nbdev-session-sel': selected === row.paneId}" :aria-current="selected === row.paneId ? 'page' : undefined" @click="follow($event, () => emit('select', row.paneId!))">
             <span class="nbdev-session-dot nbdev-dot-pane" aria-hidden="true" />

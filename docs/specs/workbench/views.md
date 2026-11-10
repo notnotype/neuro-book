@@ -11,7 +11,7 @@ owners:
 
 ## 目标与非目标
 
-**目标**：插件经贡献点 `workbench.views` 向工作台提供视图（侧栏、右栏或面板里的一块工具内容）：插件给声明与组件加载函数，工作台持有实例、落位、尺寸与失败呈现。视图在声明、实现、实例三层上各有寿命，插件入口停止、激活失败、组件加载失败、组件渲染出错都只影响这一个视图，不拖垮外壳，也不丢用户的布局。落位与“移动到”的界面行为见 [ui.workbench-layout](../ui/workbench-layout.md)。
+**目标**：插件经贡献点 `workbench.views` 向工作台提供视图（侧栏、右栏或面板里的一块工具内容）：插件给声明与组件加载函数，工作台持有实例、落位、尺寸与失败呈现。视图在声明、实现、实例三层上各有寿命，插件入口停止、激活失败、组件加载失败、组件渲染出错都只影响这一个视图，不拖垮外壳，也不丢用户的布局。落位与“移动到”的界面行为见 [ui.workbench-layout](../ui/workbench-layout.md)。插件还能经贡献点 `workbench.viewContainers` 声明视图容器，让几个视图共用一个入口、一起显示（planned）。
 
 **非目标**：
 
@@ -26,6 +26,7 @@ owners:
 - **交付句柄**：工作台的接收者在 `published` 时拿到的 `ContributionHandle`（[`runtime.plugins`](../runtime/plugins.md) 输出 24），每次加载都经它的 `implementation()` 取实现。
 - **视图代际**：工作台为每个视图维护的单调整数，每创建一个新实例加一；工作台存活期内按视图 id 不复用，不写进布局记录。
 - **有效可见**：见 [ui.workbench-layout](../ui/workbench-layout.md) 输出 17。
+- **视图容器**、**隐式容器**、**区域**、**分节**（planned）：见 [ui.workbench-layout](../ui/workbench-layout.md) 的术语与输出 40、41。本 Spec 只定义容器的声明与视图怎样指认容器。
 - 参与者：贡献视图的插件入口（贡献方）、`nbook.workbench` 的浏览器入口（贡献点拥有者、接收者与实例宿主）、浏览器宿主（提供本地能力 `window.plugins`）。
 
 ## 输入与前置条件
@@ -36,7 +37,8 @@ owners:
 interface ViewDeclaration {
     readonly title: Text;                                // 文字值（ui/i18n），与命令标题同一方案；不写时取约定键
     readonly icon: string;                               // 图标类名，例如 i-lucide-files
-    readonly location: "sidebar" | "auxiliarybar" | "panel"; // 第一次放到哪个具名面板；之后它在哪由布局文档决定
+    readonly location: "sidebar" | "auxiliarybar" | "panel"; // 它的隐式容器第一次放在哪个区域（planned）；之后它在哪由布局文档决定
+    readonly container?: string;                         // （planned）所属容器的 id，可以是别的插件声明的；不写时属于自己的隐式容器 view:<视图 id>（输出 16）
     readonly order?: number;                             // 同一位置内的顺序，同值按 id；不写时见输出 13
     readonly layout: "scroll" | "fill";                  // scroll：外壳给内边距并负责滚动；fill：视图占满、自己滚动，内边距用外壳给的 --view-inset-inline、--view-inset-block
     readonly minimumSize?: {readonly width?: number; readonly height?: number};
@@ -61,7 +63,15 @@ interface ViewContext {
     readonly id: string;
     readonly generation: number;
     readonly visible: Readonly<Ref<boolean>>;            // 有效可见；停放与加载中都不算
-    readonly location: Readonly<Ref<"sidebar" | "auxiliarybar" | "panel">>;
+    readonly location: Readonly<Ref<"sidebar" | "auxiliarybar" | "panel" | null>>; // 所在区域，不在区域里时 null（输出 9）
+}
+
+// （planned）贡献点 workbench.viewContainers：只有声明，没有实现；贡献 id 就是容器 id
+interface ViewContainerDeclaration {
+    readonly title: Text;                                // 入口的名称
+    readonly icon: string;                               // 入口的图标类名
+    readonly location: "sidebar" | "auxiliarybar" | "panel"; // 容器第一次放在哪个区域；之后它在哪由布局文档决定
+    readonly order?: number;                             // 第一次生成布局时入口在区域里的顺序，同值按 id；缺省同输出 13
 }
 ```
 
@@ -71,12 +81,23 @@ interface ViewContext {
 | `title` 是文字（见 [`ui/i18n`](../ui/i18n.md)）；`icon` 非空；`location`、`layout` 取上表的值 | 同上 |
 | 尺寸是正有限数；`maximumSize` 不小于有效最小值| 同上 |
 | 声明不认识的字段 | 同上 |
+| `container` 是非空字符串（planned） | 同上 |
+
+容器声明的规则（planned）：
+
+| 规则 | 不满足时 |
+|---|---|
+| 容器 id 的写法同视图 id；不得以 `view:`、`custom:` 开头（这两个前缀留给隐式容器与用户拖出来的容器） | 声明被拒（`invalid-declaration`） |
+| `title` 是文字；`icon` 非空；`location` 取上表的值；`order` 是有限数 | 同上 |
+| 声明不认识的字段 | 同上 |
+
+视图的 `container` 指向的容器没有已接受的声明，不算声明不合规则：声明照收，按输出 16 处理。
 
 前置：`nbook.workbench` 的浏览器入口已激活；它激活时读本位置已接受的全部视图声明。
 
 ## 输出与可观察行为
 
-输出 7（声明消失时清理布局项）要等插件管理提供声明消失的来源，现在只在纯模型里有规则，标 `(planned)`；其余条目已实现。
+输出 7（声明消失时清理布局项）要等插件管理提供声明消失的来源，现在只在纯模型里有规则，标 `(planned)`。视图容器还没有实现：输出 15、16 整条，以及输出 9、13、14 里带“（planned）”的那一句是目标合同。其余条目已实现。
 
 1. **注册表的两种输入**：工作台激活时从已接受声明取得视图目录，未交付实现的视图也出现在导航里；接收者只更新交付句柄与交付状态。导航不因交付先后而跳动。
 2. **交付状态**：每个视图处于下列之一，原位呈现：
@@ -99,12 +120,14 @@ interface ViewContext {
 6. **撤回只卸载**：交付句柄被撤回时卸载该视图的组件、丢弃已加载的组件定义，当前代际作废，布局项保留；`receiver-closed`（工作台自己的接收者关闭）同样只释放运行资源，不当作用户删除定制。之后同一视图再次交付时，用新的句柄与新代际重新创建。
 7. **声明消失**：视图的声明不再被接受时（插件禁用或卸载），它留在树上显示占位，写明原因，可以关闭（[ui.workbench-layout](../ui/workbench-layout.md) 输出 4）；不动同插件其它仍有效的视图。
 8. **`window.plugins`**：浏览器宿主向工作台提供本地能力：查询入口状态与入口声明的激活事件、订阅入口状态变化、对激活失败的入口执行“恢复并重新激活”（不是激活失败的入口返回 `not-failed`）；另有 `problems()` 列出本窗口的问题，供插件页显示（[`runtime.browser-host`](../runtime/browser-host.md)）。工作台只经视图 id 重试，拿不到别的入口。
-9. **`ViewContext.visible`** 随有效可见变化；加载中、停放、收起时为 `false`。`location` 是视图所在具名面板的名字，在无名面板里是 `null`。
+9. **`ViewContext.visible`** 随有效可见变化；加载中、停放、收起时为 `false`。`location` 是视图此刻所在区域的名字，跟着视图换区域变化；不在任何区域里（浮动）时是 `null`（planned）。
 10. **标题动作**：外壳把声明的 `actions` 里 `placement` 为 `inline`（或省略）的画成 24px 的图标按钮，`menu` 的收进按钮之后的“⋯”下拉（没有 `menu` 项时不画“⋯”，[`workbench.menus`](menus.md) 输出 7）；按钮与“⋯”在面板头里，标签带之后、框架按钮之前（[ui.workbench-layout](../ui/workbench-layout.md) 输出 20）。按钮的可访问名称是动作标题；可用与否与不可用的原因看命令自己的 `when`（与应用菜单同一规则），不可用时禁用、悬停提示是原因；声明了 `toggled` 的是开关，`aria-pressed` 跟着那个公开键。点了经命令服务执行命令：`args: "instance"` 时参数是被点的那个视图实例的 `{viewId, generation}`（[workbench.commands](commands.md) 的 `refresh-files`），否则是 `{}`；视图第一次显示或重新交付、实例还没建立时，要实例的动作禁用、原因是“视图还没加载好”，不要实例的照常可点。视图自己不再画工具栏。按钮、“⋯”与“移动到”只在鼠标位于所在范围上、焦点在范围里或其中的菜单打开时显示，其余时候透明（仍占位、仍能 Tab 到）：multiple 时范围是这个视图的窗格，single 时是整个侧栏或右栏，面板标签带旁的是整个面板；显隐淡入淡出 100ms；不能悬停的设备一直显示。面板与侧栏自己的框架按钮不在此列。
 11. **别的插件贡献的标题动作**：贡献点 `workbench.view-title`（菜单项的共同规则见 [`workbench.menus`](menus.md)）给某个视图加按钮或“⋯”里的项，声明里的 `view` 是视图 id。贡献来的项排在视图自己的动作之后：按钮排在视图自己的按钮之后，“⋯”里的项排在视图自己的 `menu` 动作之后、中间画一条分隔线。位置、可用与原因、按下态与“实例还没建立”的规则同输出 10；要实例的贡献项写 `context: "instance"`，收到的参数与输出 10 的 `args: "instance"` 相同。一个视图的按钮（自己的加贡献来的）至多 8 个，放不下的按钮回到它所在的节收进“⋯”（视图自己的在自己那一节，贡献的在它原来的节）。视图没有已接受的声明时它的贡献项不画。“⋯”打开时记下视图、所在容器与模式、交付状态与实例代际（同“移动到”的菜单身份，[`ui.workbench-shell`](../ui/workbench-shell.md) 外壳二），其中任一变化时菜单关闭，之前的选择不执行。
 12. **滚动条**：视图里的竖向滚动条（`scroll` 由外框负责，`fill` 由视图自己的滚动元素负责）叠在内容上、不占宽度：6px 宽的半透明滑块、没有轨道底色，内容不溢出时不画；鼠标位于视图上、正在滚动（最后一次滚动后 500ms 内）或拖着滑块时显示，进入时淡入 100ms，离开后等 500ms 再用 800ms 淡出，系统减少动画时不过渡。拖滑块按比例滚动，点滑块以外的轨道按一页滚动。实现是 nb-ui 的 `OverlayScrollbar`。
-13. **不写 `order` 的缺省**：内置插件（发布者是保留的发布者）的视图按 0 排；第三方插件的视图按 1000 排，排在内置视图之后，装上插件后侧栏仍先显示内置视图。内置视图的 `order` 都小于 1000。写了 `order` 的照写的排。与写明同一个 `order` 等价。`order` 只决定第一次放进具名面板时排在哪（[ui.workbench-layout](../ui/workbench-layout.md) 输出 4）。
-14. **打开视图**：命令 `nbook.view.open {viewId?}`（`nbook.workbench` 的浏览器入口贡献，`effect: write`，不对 Agent 开放，`when` 要布局已就绪）显示视图所在的面板（隐藏、拖到零、收起时都回来）并激活它；成功表示布局已改，视图在下一次渲染时出现，不移动焦点。不给 `viewId` 时经选择服务列出树上的视图（标签是视图标题、说明是所在面板），取消为成功且不写。`viewId` 没有已接受的声明或不在布局里为 `invalid-args`，不在工作台页面（没有布局）为 `unavailable`。作者的状态栏条目收视图助手时，点击即以它的 id 执行这条命令（[`runtime.plugin-api`](../runtime/plugin-api.md) 的“作者 API”）。
+13. **不写 `order` 的缺省**：内置插件（发布者是保留的发布者）的视图按 0 排；第三方插件的视图按 1000 排，排在内置视图之后，装上插件后侧栏仍先显示内置视图。内置视图的 `order` 都小于 1000。写了 `order` 的照写的排。与写明同一个 `order` 等价。`order` 只在第一次生成布局文档时定先后：容器里分节的先后，以及隐式容器的入口在区域里的先后；文档已经有了之后才出现的视图加在最后，同时出现的几个之间按 `order`（[ui.workbench-layout](../ui/workbench-layout.md) 输出 1、4）（planned）。
+14. **打开视图**：命令 `nbook.view.open {viewId?}`（`nbook.workbench` 的浏览器入口贡献，`effect: write`，不对 Agent 开放，`when` 要布局已就绪）显示视图所在的面板（隐藏、拖到零、收起时都回来）并激活它；视图所在的容器不是区域的当前容器时切到它（[ui.workbench-layout](../ui/workbench-layout.md) 输出 42）（planned）；成功表示布局已改，视图在下一次渲染时出现，不移动焦点。不给 `viewId` 时经选择服务列出树上的视图（标签是视图标题、说明是所在面板；在区域里的说明是所在容器的标题（planned）），取消为成功且不写。`viewId` 没有已接受的声明或不在布局里为 `invalid-args`，不在工作台页面（没有布局）为 `unavailable`。作者的状态栏条目收视图助手时，点击即以它的 id 执行这条命令（[`runtime.plugin-api`](../runtime/plugin-api.md) 的“作者 API”）。
+15. **视图容器的声明**（planned）：贡献点 `workbench.viewContainers` 上一条已接受的声明就是一个声明的容器，贡献 id 是容器 id。工作台激活时读本位置已接受的全部容器声明。容器有成员时才有入口（[ui.workbench-layout](../ui/workbench-layout.md) 输出 41），入口的名称与图标用声明的 `title`、`icon`。`location` 与 `order` 只在容器第一次放进布局时用：放在哪个区域、入口排在哪（规则同输出 13）；之后由布局文档决定。
+16. **视图属于哪个容器**（planned）：视图声明写了 `container`、这个容器有已接受的声明（可以是别的插件的）时，视图第一次放进布局就是这个容器的一个分节；没写时属于自己的隐式容器 `view:<视图 id>`，放在视图的 `location`。写的容器没有已接受的声明（那个插件没装、被禁用，或声明被拒）时，视图落回自己的隐式容器，并记一条诊断，写明视图 id 与它指向的容器 id；视图照常显示。归属只在视图第一次放进布局时按声明定一次，之后由布局文档决定；“重置位置”按执行那一刻的声明算。
 
 ### 约定键
 
@@ -140,6 +163,8 @@ interface ViewContext {
 | 情况 | 结果 | 调用方或用户怎么办 |
 |---|---|---|
 | 声明不合规则 | 声明被拒，内核诊断写明原因；视图不出现 | 插件作者按诊断修正 |
+| 容器声明不合规则（planned） | 声明被拒，内核诊断写明原因；指向它的视图按下一行处理 | 插件作者按诊断修正 |
+| 视图的 `container` 指向没有声明的容器（planned） | 视图落回自己的隐式容器，记一条诊断 | 装上或启用声明容器的插件后，对视图执行“重置位置” |
 | 入口受阻 | `entry-blocked`，原位显示原因 | 解决依赖后刷新页面 |
 | 入口激活失败 | `entry-failed`，原位显示原因与“重试” | 点“重试” |
 | `load()` 失败 | 原位错误与“重新加载” | 点“重新加载” |
@@ -149,7 +174,7 @@ interface ViewContext {
 
 ## 边界与兼容
 
-- 公开接口：贡献点 `workbench.views`、`ViewDeclaration`、`ViewImplementation`、`ViewContext`。声明字段只增不改；新增可选字段不影响旧插件。
+- 公开接口：贡献点 `workbench.views`、`ViewDeclaration`、`ViewImplementation`、`ViewContext`。声明字段只增不改；新增可选字段不影响旧插件。贡献点 `workbench.viewContainers` 与 `ViewContainerDeclaration` 也是（planned）；`view:`、`custom:` 开头的容器 id 留给工作台。
 - 信任边界：组件跑在工作台的 Vue 应用里，错误边界只覆盖 Vue 调用路径；第三方插件的组件加载随 [`runtime.plugin-code-loading`](../runtime/plugin-code-loading.md)。
 - `window.plugins` 是浏览器宿主给工作台的本地能力，不是插件公开 API；插件管理实现后它的职责并入插件管理的服务。
 
@@ -168,6 +193,8 @@ interface ViewContext {
 9. Given 侧栏里的资源管理器与一个 `scroll` 布局、内容溢出的样例视图，When 鼠标在侧栏之外，Then 标题动作透明、滑块不可见，内容宽度与没有滚动条时相同；When 鼠标移入视图，Then 动作与滑块出现；When 鼠标移开、焦点用 Tab 进到标题动作，Then 动作仍可见；When 打开“移动到”菜单并把鼠标移到菜单上，Then 动作不消失；When 拖滑块，Then 内容按比例滚动（输出 10、12）。
 10. Given 侧栏被隐藏，When 从命令面板执行“打开视图”并选侧栏里的一个视图，Then 侧栏显示、激活它；When 再执行一次并取消，Then 布局记录不变（输出 14）。
 
+11. （planned）Given 测试插件声明一个侧栏容器，两个视图写了它的 id，第三个视图写了一个没有声明的容器 id，When 用默认布局打开产品页，Then 活动栏多一个入口，名称与图标是容器声明的，点它侧栏显示这两个视图各一个分节；第三个视图有自己的入口，名称与图标是视图的，诊断里有一条写明它指向的容器不存在。When 把容器里的一个视图移到别的容器再执行“重置位置”，Then 它回到声明的容器。Given 容器 id 以 `view:` 或 `custom:` 开头，Then 这条容器声明被拒，别的贡献不受影响。
+
 Smoke 入口：`e2e/workbench-views.e2e.ts`（e2e 构建装上测试插件 `test.sample-views`）。
 
 ## 实现合同
@@ -181,4 +208,4 @@ Smoke 入口：`e2e/workbench-views.e2e.ts`（e2e 构建装上测试插件 `test
 - 实现入口：[`web/views/registry.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.ts)、[`web/views/view-instances.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/view-instances.ts)、[`web/components/WorkbenchViewFrame.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewFrame.vue)、[`web/host/window-plugins.ts`](../../../packages/neuro-book/src/web/host/window-plugins.ts)
 - 合同测试：标题动作（输出 10、11：placement 与“⋯”、别的插件贡献的项、按钮上限、按 key 执行）为 [`workbench/view-actions.test.ts`](../../../packages/neuro-book/src/plugins/workbench/view-actions.test.ts)（真实内核的命令系统与公开状态：可用与原因、按下态、instance 参数、实例还没建立）；[`views/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（真实内核：从未交付、受阻、激活失败与重试、停止、加载中停止、拥有者停止）；打开视图（输出 14）为 [`commands/view-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts)（真实布局 store 与真实命令注册表：侧栏与面板被隐藏、面板收起时显示并选中容器，多视图容器里收起的视图展开，未知视图与没有布局，选择与取消，Agent 调用得 `not-exposed`）
 - Smoke：打开视图（验收 10）为 `workbench-views.e2e.ts` 的“命令面板的打开视图……”一例；别的插件贡献的标题动作（验收 8）为 `workbench-views.e2e.ts` 的“视图自己的按钮在前、贡献的在后……”一例（测试插件 `test.menus`）；标题动作与滚动条随鼠标显示（验收 9）为同一文件的“标题动作与滚动条随鼠标显示……”一例；标题动作为 [`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)（经标题动作新建、全部收起、切换清单文件）；[`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`：全链路、激活失败与重试、入口停止与刷新、加载失败与渲染出错）
-- 批准依据：标题动作（输出 10）为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 5 节，开发者 2026-10-12 确认；[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 4、5 节；视图合同提前到外壳二的决策记录见同一设计稿末尾。输出 10 的显示规则、输出 12 与验收 9 来自 [t89 的评审板](../../../.agents/works/w00017-application-runtime-architecture/tasks/t89-explorer-polish-2/README.md#决定)，开发者 2026-10-14 确认。
+- 批准依据：标题动作（输出 10）为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 5 节，开发者 2026-10-12 确认；[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 4、5 节；视图合同提前到外壳二的决策记录见同一设计稿末尾。输出 10 的显示规则、输出 12 与验收 9 来自 [t89 的评审板](../../../.agents/works/w00017-application-runtime-architecture/tasks/t89-explorer-polish-2/README.md#决定)，开发者 2026-10-14 确认。标 planned 的视图容器条目（输出 15、16 等）来自[视图容器提案](../../proposals/workbench-view-containers.md)（开发者 2026-11-10 接受）与 [ADR 0046](../../adr/0046-workbench-view-containers.md)。

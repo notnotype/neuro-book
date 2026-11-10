@@ -33,7 +33,7 @@ function outcomeText(state: QuestionState): string {
             看的是 v{{ version }} 的题表（最新是 v{{ latestVersion }}）；状态按全部答复现算
         </p>
         <section v-if="!answering" class="nbdev-stack" aria-label="待答">
-            <h3 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.pending.length }}<template v-if="pendingRequired > 0"> · 必答 {{ pendingRequired }}</template></span></h3>
+            <h2 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.pending.length }}<template v-if="pendingRequired > 0"> · 必答 {{ pendingRequired }}</template></span></h2>
             <p v-if="groups.pending.length === 0" class="nbdev-empty">没有待答的题</p>
             <article v-for="state in groups.pending" :key="state.question.id" class="nbdev-stack border-b pb-3 last:border-b-0 nbdev-divider">
                 <div class="flex flex-wrap items-center gap-1.5">

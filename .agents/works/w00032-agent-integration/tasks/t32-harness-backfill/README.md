@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t32-harness-backfill
-status: planned
-updated: 2026-11-09
+status: active
+updated: 2026-11-10
 ---
 
 # 把落在 nbook.agent 里的通用部分补回 nb-harness
@@ -21,9 +21,9 @@ updated: 2026-11-09
 | 审批判定：规则、bash 方言、审批模型、模式 | `…/agent/backend/permissions/`（作品目录的规则 `project-rules.ts` 留下） |
 | 守卫：花费、循环、拒答 | `…/agent/backend/guards/`（接设置的部分留下） |
 | 会话句柄表、会话元数据 | `…/agent/backend/sessions.ts`、`session-meta.ts` |
-| 通用工具 read、write、edit、search、shell、ask、image | `…/agent/backend/builtin/`；合并 `nb-harness/src/tools/` 里旧的 read、edit |
+| 通用工具 read、write、edit、search、shell、ask、image | `…/agent/backend/builtin/`；`nb-harness/src/tools/` 里旧的 read、edit 不合并、不改，留给 [t31](../t31-nb-story-new-kernel/README.md) 随 `createHarness` 一起删（见“决定”） |
 | 资源视图 | `…/agent/backend/resources.ts` 与 `agent/shared/resources.ts` |
-| 模型角色、压缩触发点的规则 | `packages/neuro-book/src/plugins/models/shared/` |
+| ~~模型角色、压缩触发点的规则~~ | 不在本 Task：2026-11-10 改由 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md) 搬进新包 `nb-models`（见“决定”） |
 
 留在 `nbook.agent`：把 harness 装成 nb-runtime 插件的接线（贡献点、Profile 包加载、扩展）、给界面的远程接口、附件的 HTTP 路由、NeuroBook 的地址方案（`project://`、`docs://` 等）、作品目录的审批规则、设置页、NeuroBook 专有工具。
 
@@ -34,7 +34,7 @@ updated: 2026-11-09
 - **文件访问接口**：工具、放回、审批判定都经 `nbook.files` 读写与解析地址（写入按 [ADR 0040](../../../../../docs/adr/0040-file-writes-staged-and-committed-by-root-owner.md) 暂存、由根的拥有者提交并记账；地址方案按 [t08](../t08-resources-home/README.md) 注册在文件服务里），几块互相引用（`permissions/hook.ts`、`permissions/modes.ts`、`compaction/restore.ts` 引用 `builtin/common.ts`、`builtin/read.ts`、`resources.ts`），要一起搬。在 harness 里定一个由宿主传入的文件访问接口：NeuroBook 用文件服务实现，NeuroBot 直接读写 bot 的电脑。
 - **写小说专用的部分改成参数**：压缩摘要的小节按写小说定（[t11](../t11-compaction/README.md) 决定 5），改成由 Profile 或宿主给，现有那份留在 NeuroBook。
 - **审批判定者可替换**：NeuroBot 要让另一个 bot 判定工具调用（开发者 2026-11-09，w00043），这与本 Work [t14](../t14-multi-agent/README.md) 决定 8“审批一律交给用户”对 NeuroBot 不同。本 Task 不实现，但搬过去的判定接口不能把“判定者是用户或审批模型”写死。
-- **依赖**：nb-harness 新增 `unbash`（纯 JS、无依赖）；`pi-natives` 已在。`ask` 用到的 `nb-form` 包级依赖 nb-ui 与 Vue（本 README 第一稿误写成“只依赖 TypeBox”，计划改为表单校验由宿主注入，nb-harness 不依赖它）。nb-harness 以源码发到 npm、nb-story 依赖它（[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。
+- **依赖**：nb-harness 新增 `unbash`（纯 JS、无依赖）与 `@notnotype/nb-form`（只导入核心入口，见“决定”）；`pi-natives` 已在。nb-form 的 `nb-ui`、`vue`、`typescript` 改为可选 peer，装 nb-story 不连带装上 Vue 一套（本 README 第一稿误写成 nb-form“只依赖 TypeBox”，那只是核心入口的运行时依赖）。nb-harness 以源码发到 npm、nb-story 依赖它（[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。
 
 非目标：不改用户可观察的行为、贡献 id（例如 `nbook.agent.shake`）、设置与界面；不实现 NeuroBot 的任何东西；不做 t14 的子代理与任务中心。
 
@@ -46,9 +46,44 @@ updated: 2026-11-09
 - 另一个会话在做 t14（静态稿评审）：本 Task 不改 t14 的记录与草稿；t14 的前后端实施在本 Task 合入之后开始，它的通用部分直接写进 nb-harness。
 - 搬完加一条架构测试：nb-harness 不出现 NeuroBook 的名字、不依赖 `nbook.files`（参照 `packages/nb-runtime/src/app-neutral.test.ts`）。
 
+## 决定
+
+| 日期 | 决定 |
+|---|---|
+| 2026-11-10 | 开发者：“我觉得可以依赖 nb-form”。推翻计划第二稿确认项第 1 条的推荐（表单校验由宿主注入）：nb-harness 直接依赖 nb-form，`ask` 照现在用它校验表单。代价（主 Agent 核实）：nb-form 的包级依赖有 nb-ui 与 Vue（非可选 peer），装 nb-story 时会连带装上；运行时只加载 nb-form 的核心入口（只依赖 TypeBox） |
+| 2026-11-10 | 开发者：“我想要 nb-harness 的数据结构支持表单，但是不用 nb-form 的 vue 组件实现。”做法：nb-harness 只导入 nb-form 的核心入口（表单描述、检查、解析、校验；运行时只依赖 TypeBox，对 nb-ui 只取文字值的类型，由 nb-form 的 `boundary.test.ts` 守着），不导入 `./vue`，nb-harness 加一条导入边界测试守住；表单怎么画由各宿主决定。为了装 nb-story 时不连带装上 Vue 一套，nb-form 的 `nb-ui` 与 `vue` 改为可选的 peer 依赖（只有 `./vue` 用到），并加进 nb-form 的开发依赖供它自己的测试用；这一步是主 Agent 的推荐，放进本 Task，开发者有异议再改 |
+| 2026-11-10 | 开发者：压缩摘要的小节“由应用决定”（确认项第 3 条按推荐） |
+| 2026-11-10 | 开发者同意 w00043 t02 的三项（答“可以”）：模型服务放进新包 `nb-models`，所以本 Task 不再搬 `models/shared/rules.ts`、`compaction.ts`（改由 w00043 t02 搬进 `nb-models`），`./models/rules` 子路径删去；kit 要用的压缩角色 id 留在 `kit/shapes.ts`。确认项第 4 条（新增公开子路径）按推荐，清单按第三稿实际的目录 |
+| 2026-11-10 | 计划第三稿“需要开发者确认”第 1 条按“待确认默认追认”算定（开发者同意 w00043 的 Task 规划时它还列着、没有单独作答）：旧 `src/tools/` 不合并、不改，留给 t31 删；`registerBuiltinTools`、`createReadTool`、`createEditTool` 是已发布包根入口的导出，删除属于发布合同变更，合入时记进 t31 的“要做的事”。代码由谁写没有答复，按开发者的全局规则由主会话写 |
+
 ## 当前状态
 
 2026-11-10：[plan.md](plan.md) 初稿（Opus）做了计划审查（Opus，15 条，[`evidences/plan-review-r1-opus.txt`](evidences/plan-review-r1-opus.txt)）与文件访问接口的独立设计（Sonnet，[`evidences/plan-independent-design-r1-sonnet.txt`](evidences/plan-independent-design-r1-sonnet.txt)），按下表改第二稿。开发者 2026-11-10 选了 NeuroBot 提案待定项 1 的 (b)：模型服务（`models/backend/core.ts`）由 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md) 抽，本 Task 不碰它的服务部分、`server/` 与 `web/`。
+
+2026-11-10：按“决定”表改出第三稿（Opus）：`ask` 直接从 nb-form 核心入口导入、删去 `AskForms`；新增第 1 片把 nb-form 的 `nb-ui`、`vue`、`typescript` 改为可选 peer（`typescript` 是计划另加的：它也只有 `./vue` 用到，不标可选装 nb-story 仍会装上它），`release:smoke` 的 `smokeStory` 加一条“装好后没有 nb-ui、vue、typescript”的检查，并实测 `bun pm pack` 会改写 peer 里的 `workspace:^`；删去模型规则那一片、`./models/rules` 与 `models.e2e.ts`。主 Agent 核对：`./vue` 的消费者（应用、nb-story 网页、冒烟的 Vue 宿主）都自己依赖 nb-ui 与 vue，nb-story 的这两个只在开发依赖里；`bun.lock` 里没有包硬依赖 `typescript`，那条检查在第 1 片成立。
+
+### 实施进度
+
+代码在 `.worktree/w00032-t32-harness-backfill`（分支 `feat/w00032-t32-harness-backfill`），主会话写。
+
+- 开工前：draft Spec [`harness/host-kit.md`](../../../../../docs/specs/harness/host-kit.md) 已提交；baseline 录在 `.local/agent/works/w00032-agent-integration/tasks/t32-harness-backfill/baseline.json`（dump 脚本是不提交的 `packages/neuro-book/src/plugins/agent/t32-baseline.dump.test.ts`，两次运行逐字相同）。
+- 第 1 片（nb-form 的可选 peer）：`release:check`、nb-form 测试与类型检查、应用与 nb-story 的类型检查、nb-story `build:web`、`release:smoke`（在干净克隆里跑，tarball 里 nb-form 的 peer 已改写成 `^0.3.0`，装 nb-story 不带 nb-ui、vue、typescript）都通过。
+- 第 2 片（kit 骨架与边界测试）、第 3 片（文件访问接口、本机参考实现、合同测试）已提交；第 3 片后 baseline 逐字相同。合同测试两个实现都过（本机 13 条，NeuroBook 经真实插件 21 条）。
+
+- 第 4 片（读、写、改、搜索、预览、命令方言）、第 5 片（shell、ask，nb-harness 依赖 nb-form 核心）已提交，两片后 baseline 都逐字相同；第 5 片后 `release:check` 通过（发布顺序 nb-form 在 nb-harness 前），`agent-conversation.e2e.ts` 19 条通过。
+
+与计划的偏差：
+
+- baseline 没录“标题生成的两种材料”与“项目规则读坏时的诊断消息”：只能在真实运行里取，搬家时逐字对照源码。
+- `kit/testing` 单元除 `bun:test` 外还用 `node:fs/promises`、`node:os`、`node:path`：合同测试要在夹具目录里放文件与链接。
+- 两条扫描整个 `src/` 的检查改用 TypeScript 的 `preProcessFile` 取说明符：建语法树每条要 1.5 秒，超出快速测试的预算。
+- 合同测试发现 `host-kit.md` 漏了“只读方案的写为 `unsupported-capability`”（NeuroBook 现有行为，文件服务的能力矩阵），已在 master 补上。
+- 应用名扫描的正则另加了 `nbot`、`neurobot`。
+- kit 的工具交出两组：`builtinDeclarations(texts)`（纯数据，宿主静态登记贡献要用）与 `builtinTools({stores, dialects})`，不是计划写的一个工厂；`renderSnapshot` 留在 `tools/read.ts`，`snapshot.ts` 只放 `SessionEditStores`。
+- nb-harness 的 tsconfig `lib` 升到 ES2023：图片缩放用 `findLast`。
+- 改写用例时查出本机参考实现两处不合合同（上级是文件报 `io-failed`、认不出的错误把本机路径带进 `detail`），已修，并把“路上有一段是文件”补进合同测试。
+- `ask` 的 kit 测试按内核 `QuestionAnswer` 的类型直接给回答，没用 `createTestSession`；经真实提问通道的一条留在应用。
+- 第 3 片第二次提交漏跑应用名扫描，合同测试注释里的应用名由单独的修正提交去掉。
 
 ### 计划第一稿的处理
 
@@ -74,4 +109,4 @@ updated: 2026-11-09
 
 ## 下一步
 
-按上表改出第二稿（派 Opus 子代理），主会话核对后交开发者确认计划与剩下的确认项。
+建 worktree，先提交 draft Spec `docs/specs/harness/host-kit.md`，按切片实施（主会话写）；t14 的前后端实施在本 Task 合入之后。

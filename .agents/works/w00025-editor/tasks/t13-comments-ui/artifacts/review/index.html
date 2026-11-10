@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>批注界面：静态稿评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 920px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+section { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.info { background: var(--accent-soft); color: var(--accent); }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 10px 0; }
+.opts.wide { grid-template-columns: 1fr; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 8px 0 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+table { border-collapse: collapse; margin: 8px 0; }
+th, td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; vertical-align: top; }
+th { background: var(--bg); font-weight: 600; }
+.narrow { max-width: 300px; }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<h1>批注界面：静态稿评审板</h1>
+<div class="lead">
+<p>w00025 t13，第 2 轮（第 1 轮在下面）。批注的格式早已定下并实现（一段被批注的正文加一条意见，写在正文里：<code>&lt;comment body="意见"&gt;正文&lt;/comment&gt;</code>），但现在只有波浪线：意见要换到源码编辑器才看得到、改得了，也没有加批注的入口。这一轮先定意见显示在哪里。</p>
+<p>图是在草稿 worktree 的 Lab 里用真实的 nb-ui 组件与主题变量搭的静态稿（亮色、nbook 主题），正文是写死的，不接编辑内核。</p>
+</div>
+<h2 style="margin-top:32px">第 2 轮</h2>
+<div class="lead">
+<p>第 1 轮的决定：注意力排序同意；意见“浮层和页边都要”；写意见的样子不太匹配（灰底输入框加实心蓝按钮，像表单）。这一轮问两者怎样并存，并给写意见换样子。第 1 轮的“总览做到哪一步”拿掉了：页边打开时本身就是总览。</p>
+</div>
+
+<section data-nbdev-question="q4-coexist" data-nbdev-type="single" data-nbdev-recommend="toggle">
+<h2>问题 4：浮层与页边怎样并存 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts wide">
+<div class="opt rec" data-nbdev-option="toggle">
+<h3>A 页边由开关打开，缺省关</h3>
+<p>标签条右侧一个“批注 3”的开关（这一章有几条就写几），缺省关：写作时只有波浪线，光标进批注出浮层。打开后意见排到页边；编辑组窄得放不下页边时（拆成两栏、开着侧栏）退回浮层，开关仍是开着。开关按作品记住。</p>
+<div class="pair">
+<figure><img src="r2/r2-off-view.webp" alt="开关关着：浮层"><figcaption>开关关着：浮层</figcaption></figure>
+<figure><img src="r2/r2-on-view.webp" alt="开关开着：页边"><figcaption>开关开着：页边</figcaption></figure>
+</div>
+<figure class="narrow"><img src="r2/r2-on-narrow.webp" alt="开着但窄：浮层"><figcaption>开关开着、窗口窄：退回浮层</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="auto">
+<h3>B 有地方就自动出页边</h3>
+<p>这一章有批注、编辑组又宽得放下页边时，页边一直在；窄了用浮层。没有开关。</p>
+<p>代价：只要有批注，写作时页边就一直在视野里，和第 1 轮定的“写作时只有波浪线”相反；拆分、开关侧栏时版面会跳。</p>
+</div>
+<div class="opt" data-nbdev-option="toggle-on">
+<h3>C 和 A 一样有开关，但缺省开</h3>
+<p>适合把批注当主要工作的时候（改稿、审稿）；平时写作要自己关掉。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐：A。</b>它守住第 1 轮的注意力排序，又能在改稿时一眼看到全部意见；“记住开关”让改稿期间不用每次重开。</div>
+</section>
+
+<section data-nbdev-question="q5-look" data-nbdev-type="single" data-nbdev-recommend="note">
+<h2>问题 5：写意见的样子 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>同一段“码头的灯一盏一盏熄下去”正在加批注，左边在浮层里写，右边在页边里写。</p>
+<div class="opts wide">
+<div class="opt rec" data-nbdev-option="note">
+<h3>B 便签</h3>
+<p>字直接写在批注色的淡底上，没有输入框的框；用正文的字体，比正文小一号；按键提示一行小字（Ctrl+Enter 保存、Esc 取消），不放按钮。</p>
+<div class="pair">
+<figure><img src="r2/r2-note-popover.webp" alt="便签：浮层里写"></figure>
+<figure><img src="r2/r2-note-margin.webp" alt="便签：页边里写"></figure>
+</div>
+</div>
+<div class="opt" data-nbdev-option="plain">
+<h3>C 页边批语</h3>
+<p>没有底色，左边一条批注色的线，像写在页边的批语；保存、取消是两个小图标。</p>
+<div class="pair">
+<figure><img src="r2/r2-plain-popover.webp" alt="批语：浮层里写"></figure>
+<figure><img src="r2/r2-plain-margin.webp" alt="批语：页边里写"></figure>
+</div>
+</div>
+<div class="opt" data-nbdev-option="form">
+<h3>保持第 1 轮的样子</h3>
+<p>灰底输入框加“取消”“保存”两个按钮。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐：B 便签。</b>和查看时的卡片是同一块（只是可以打字），从看到写不换样子；批注色的淡底让它一眼看得出是“意见”而不是正文。C 更轻，但页边里没有底色，几条挨着时分不清边界。</div>
+</section>
+
+<h2 style="margin-top:32px">第 1 轮</h2>
+<section>
+<h2>第 1 轮 问题 1：注意力排序（已定：同意） <span class="badge info" data-nbdev-skip>已定</span></h2>
+<p>写作是主要的事，批注是次要的。我建议按这个顺序安排：</p>
+<ol>
+<li><b>写作时只有波浪线。</b>被批注的文字带波浪线，别的什么都不显示，不占稿纸之外的地方。</li>
+<li><b>要看的那一条才展开。</b>光标进到一段批注里，或者点它，这一条的意见出现；光标离开就收起。</li>
+<li><b>全部批注的总览默认不出现。</b>逐条过一遍、或者找某一条时才用，由用户主动打开。</li>
+</ol>
+<figure class="narrow" style="max-width: 720px"><img src="r1/idle.webp" alt="写作时只有波浪线"><figcaption>写作时：三条批注，只有波浪线</figcaption></figure>
+<div class="rec-note"><b>推荐：同意。</b>后面两题的候选都是按这个顺序评的；你要是希望意见一直看得见（像审稿软件那样），问题 2 的结论会不一样。</div>
+</section>
+
+<section>
+<h2>第 1 轮 问题 2：意见显示在哪里（已定：浮层和页边都要） <span class="badge info" data-nbdev-skip>已定</span></h2>
+<p>每个候选两张图：左边是光标在第二条批注里（查看），右边是选中一段文字正在写意见（添加）。</p>
+<div class="opts wide">
+<div class="opt rec" >
+<h3>A 浮层：贴在被批注的那一行下面</h3>
+<p>光标进入批注，意见卡片出现在这行文字下面，上面有上一条、下一条、编辑、删除。加批注时同一个位置出现输入框。</p>
+<div class="pair">
+<figure><img src="r1/popover-view.webp" alt="浮层：查看"></figure>
+<figure><img src="r1/popover-add.webp" alt="浮层：添加"></figure>
+</div>
+<p>好处：不占版面，窗口多窄都是同一种样子（390px 见下图）；意见就在眼睛正看的地方。代价：会盖住下面一两行；一次只看得到一条。</p>
+<figure class="narrow"><img src="r1/popover-narrow.webp" alt="浮层：390px"><figcaption>390px 宽</figcaption></figure>
+</div>
+<div class="opt" >
+<h3>B 页边：意见排在稿纸右边，与所在段落对齐</h3>
+<p>像 Word、Google 文档。每条批注在页边有一张小卡片，当前的一条展开，其余收成两行。</p>
+<div class="pair">
+<figure><img src="r1/margin-view.webp" alt="页边：查看"></figure>
+<figure><img src="r1/margin-add.webp" alt="页边：添加"></figure>
+</div>
+<p>好处：不盖正文，全部批注一直看得见，位置和正文对应。代价：稿纸要往左让出约 270px，编辑组窄于约 1000px 时页边放不下（拆分成两栏、开着侧栏时就是这样），那时还得另有一种样子；批注一直在视野里，与问题 1 的“写作时只有波浪线”相反；卡片多了要互相让位，位置对不齐。</p>
+</div>
+<div class="opt" >
+<h3>C 侧栏：编辑器右边一栏，列出这一章的全部批注</h3>
+<p>旧应用的做法（那里是 360px 的一栏）。每条写被批注的原文与意见，点一条正文滚过去；加批注时在栏里出现输入框。</p>
+<div class="pair">
+<figure><img src="r1/panel-view.webp" alt="侧栏：查看"></figure>
+<figure><img src="r1/panel-add.webp" alt="侧栏：添加"></figure>
+</div>
+<p>好处：适合逐条过一遍；不盖正文。代价：占 300px；看一条意见，眼睛要从正文移到右边再对回去；栏没开的时候，光有波浪线仍然看不到意见，所以它不能是唯一的入口。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐：A 浮层。</b>它是唯一一个在任何宽度下都成立、又符合“要看的那一条才展开”的；B 要为窄窗口再做一套，C 解决的是“总览”而不是“看这一条”（总览放到问题 3）。</div>
+</section>
+
+
+
+<section>
+<h2>现状与参照 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<table>
+<tr><th></th><th>加批注</th><th>看意见</th><th>改、删</th><th>总览</th></tr>
+<tr><td>新应用现在</td><td>没有入口（编辑动作里有“加批注”，没接界面）</td><td>只有波浪线；意见要到源码里看</td><td>改源码</td><td>没有</td></tr>
+<tr><td>旧应用</td><td>选区菜单与右键，弹一个输入对话框</td><td>波浪线加序号；按住 Ctrl 点批注，打开右边 360px 的评论栏</td><td>在评论栏的卡片里</td><td>评论栏，默认关；编辑区窄于 700px 时盖住整个编辑区</td></tr>
+<tr><td>Word、Google 文档</td><td>选区菜单、右键、快捷键，在页边写</td><td>页边卡片</td><td>页边卡片</td><td>页边本身；另有评论列表</td></tr>
+<tr><td>Notion</td><td>选区菜单，在文字旁的浮层里写</td><td>点带底色的文字，浮层</td><td>浮层里</td><td>右侧的评论栏，默认关</td></tr>
+</table>
+<p>格式决定了界面里没有的东西：批注没有作者、时间、回复与“已解决”（方言 Spec 的不承诺），一条批注只有一段意见。所以卡片上不画头像、时间和回复框；“删除批注”只去掉标记，正文留着。</p>
+</section>
+
+<section>
+<h2>不单独问、按下面做的 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>这些我按推荐做，记进待确认清单，你有不同意见直接说：</p>
+<ul>
+<li><b>加批注的入口</b>：选区菜单上加一个按钮、正文右键菜单里一项、快捷键 Ctrl+Alt+M（Word 与 VS Code 都是它）；没有选中文字时不可用。不放进固定工具栏与斜杠菜单（旧应用的斜杠命令插的是占位批注，没用）。</li>
+<li><b>写意见</b>：多行输入框，Ctrl+Enter 保存，Escape 取消；意见为空时保存等于取消。</li>
+<li><b>浮层何时出现</b>：光标进入批注就出现，不要求按住 Ctrl 点；正在打字时不弹（光标是打字移进来的不算），免得挡住正在写的地方。</li>
+<li><b>块批注</b>（整段被批注）：浮层贴在这一块第一行的下面。</li>
+<li><b>两条批注重叠处</b>：浮层里上下排两条。</li>
+<li><b>只读文件</b>：能看，不能加、改、删。</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

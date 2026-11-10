@@ -1,26 +1,27 @@
 /**
- * 这一场的秘密（docs/specs/plot/brief.md 输出 4）与相关的决策归属（输出 4 末几条、输出 9）。
+ * 这一场的秘密（docs/specs/plot/brief.md 输出 4）与决策的去向（输出 4 末几条、输出 9）。名字、真相与秘密的种类都经关卡
+ * （`gate.ts`），这里只按 Spec 排段。
  *
- * 保密档（secret）：给真相，加写手知道、本章在场的人按有效知情分成知道的、不知道的、误信的。绝密档（topSecret）：本章计划暗示或揭示
- * 它时给真相与“只能写到”；不暗示也不揭示时只写“有一件涉及某某的绝密设定”，在场的人里知道它的加“在人前的表现”。隐秘的目标并进它指向
- * 的知识点那一项。视角人物知道的保密秘密加一句；视角人物是绝密的持有者时只给表现并加“叙述不写他想到这件事”。
+ * 给了内容的（保密档，或绝密而本章计划暗示、揭示）：给真相；保密档加写手知道、本章在场的人按有效知情分成知道的、不知道的、
+ * 误信的；绝密加“只能写到”。不给内容的：只写“有一件涉及某某的绝密设定”，在场的人里知道它的加“在人前的表现”。隐秘的目标
+ * 并进它藏着的知识点里排第一的那一项。
  */
 
 import type {CanonReadView, Decision} from "@notnotype/nb-canon/schema";
 
-import {type Secrecy} from "../../shared/declarations";
+import {ENTRY_TYPES} from "../../shared/declarations";
 import {NO_REASON} from "../decisions";
 import {bodyOf, knowingIndex} from "../knowledge";
-import {conflictsOf, goalsOf, readGoal} from "../goals";
-import {nameOf, isSecretPlus, secrecyAt, type Frame, type Participant} from "./context";
+import {isSecretPlus, type Participant} from "./context";
 import * as fixed from "./fixed";
+import type {Gate, HidingGoal} from "./gate";
 import type {BriefHint} from "./types";
 
 export interface SecretItem {
     readonly point: string;
     readonly name: string;
     readonly secrecy: "secret" | "topSecret";
-    /** 绝密、本章不暗示也不揭示：内容与目标都不给。 */
+    /** 不给内容：名字与内容都不写。 */
     readonly hidden: boolean;
     readonly lines: string[];
 }
@@ -28,67 +29,49 @@ export interface SecretItem {
 export interface SecretsResult {
     readonly items: SecretItem[];
     readonly hints: BriefHint[];
-    /** 目标 id -> 它藏着的知识点（`隐秘`）；别的段按这个把目标改写成“某某的一个隐秘目标”。 */
-    readonly hiddenGoals: ReadonlyMap<string, {readonly holder: string; readonly point: string}>;
-    /** 这一场的秘密里给了内容的知识点。 */
-    readonly shown: ReadonlySet<string>;
 }
 
-const rankOf = (secrecy: Secrecy | null) => (secrecy === "topSecret" ? 0 : 1);
-
-/** 一个知识点的“真相”写法：名字（命题），有简介时再加简介。 */
-function truthOf(frame: Frame, point: string): string {
-    const read = frame.view.entry(point, frame.position, "planned");
-    if (read === null || read === "chapter-not-found") return point;
-    return read.summary === "" ? read.name : `${read.name}（${read.summary}）`;
+/** 秘密的先后：绝密在前，同档按 id。 */
+export function byRank(gate: Gate) {
+    return (a: string, b: string) => Number(gate.secrecy(b) === "topSecret") - Number(gate.secrecy(a) === "topSecret") || (a < b ? -1 : a > b ? 1 : 0);
 }
 
-const presentOf = (participants: readonly Participant[], view: CanonReadView) => [...new Set(participants.filter((member) => member.role === "present" && member.who !== undefined).map((member) => bodyOf(view, member.who!)))];
+const bodiesOf = (participants: readonly Participant[], view: CanonReadView, present: boolean) => [...new Set(participants.filter((member) => member.who !== undefined && (!present || member.role === "present")).map((member) => bodyOf(view, member.who!)))];
 
-/**
- * 这个条目是不是要遮的隐秘目标：`隐秘` 指向保密以上的知识点，而这一场的秘密里没给那个知识点的内容（`shown`）。持有者不在本章参与者里时也一样，所以直接读目标，不靠 `hiddenGoals`。
- */
-export function concealedGoal(frame: Frame, shown: ReadonlySet<string>, id: string): {readonly holder: string} | null {
-    const goal = readGoal(frame.view, id, frame.position, "planned");
-    if (goal === null || goal.隐秘 === null || shown.has(goal.隐秘) || !isSecretPlus(secrecyAt(frame, goal.隐秘))) return null;
-    return {holder: goal.holder};
+/** 参与者（含只被提到的）的目标里藏着秘密的：隐秘目标的持有者只是被提到、不在场时也要遮，同一份简报不能一边遮、一边写。 */
+function hidingGoals(gate: Gate, participants: readonly Participant[]): HidingGoal[] {
+    const view = gate.frame.view;
+    const holders = new Set(bodiesOf(participants, view, false));
+    return view.entries().flatMap((entry) => {
+        // 身份不给写手的人的目标一句也不写（开发者 2026-11-10 定）。
+        if (entry.deleted === true || entry.type !== ENTRY_TYPES.goal || entry.parent === null || !holders.has(entry.parent) || gate.identityWithheld(entry.parent)) return [];
+        const hidden = gate.hiding(entry.id);
+        return hidden === null ? [] : [hidden];
+    });
 }
 
-/** 在场的人里有隐秘目标指向这个知识点的：`[持有者, 目标]`。 */
-function goalsHiding(frame: Frame, holders: readonly string[], point: string) {
-    return holders.flatMap((holder) => goalsOf(frame.view, holder, frame.position, "planned").filter((goal) => goal.隐秘 === point).map((goal) => ({holder, goal})));
-}
-
-export function buildSecrets(frame: Frame, points: readonly string[], participants: readonly Participant[], reveals: ReadonlyMap<string, "hint" | "explicit">, pov: string | null, povMode: string | undefined): SecretsResult {
-    const view = frame.view;
-    const index = knowingIndex(view, "planned", frame.position);
-    const holders = presentOf(participants, view);
-    // 隐秘目标的持有者只是被提到、不在场时也要遮（knowledge 输出 10 的集合按参与者收）：同一份简报不能一边遮、一边写。
-    const everyone = [...new Set(participants.flatMap((member) => (member.who === undefined ? [] : [bodyOf(view, member.who)])))];
+export function buildSecrets(gate: Gate, points: readonly string[], participants: readonly Participant[], reveals: ReadonlyMap<string, "hint" | "explicit">, pov: string | null): SecretsResult {
+    const view = gate.frame.view;
+    const index = knowingIndex(view, "planned", gate.frame.position);
+    const present = bodiesOf(participants, view, true);
+    const goals = hidingGoals(gate, participants);
     const hints: BriefHint[] = [];
     const items: SecretItem[] = [];
-    const hiddenGoals = new Map<string, {holder: string; point: string}>();
-    const secretPoints = points.filter((point) => isSecretPlus(secrecyAt(frame, point))).sort((a, b) => rankOf(secrecyAt(frame, a)) - rankOf(secrecyAt(frame, b)) || (a < b ? -1 : 1));
     const povBody = pov === null ? null : bodyOf(view, pov);
-    // 这一场的秘密里给内容的知识点：写冲突时要知道对方的隐秘目标遮不遮，所以先算出来，不等循环写到它。
-    const shown = new Set(secretPoints.filter((point) => secrecyAt(frame, point) === "secret" || reveals.has(point)));
-    for (const point of secretPoints) {
-        const secrecy = secrecyAt(frame, point) as "secret" | "topSecret";
-        const reveal = reveals.get(point);
-        const name = nameOf(frame, point);
-        const hiding = goalsHiding(frame, everyone, point);
-        for (const {holder, goal} of hiding) hiddenGoals.set(goal.id, {holder, point});
+    for (const point of [...new Set(points)].filter((id) => isSecretPlus(gate.secrecy(id))).sort(byRank(gate))) {
+        const secrecy = gate.secrecy(point) as "secret" | "topSecret";
         const lines: string[] = [];
-        if (secrecy === "secret" || reveal !== undefined) {
-            lines.push(`真相：${truthOf(frame, point)}`);
-            if (secrecy === "topSecret") lines.push(fixed.onlyWriteTo(reveal!));
+        const truth = gate.truth(point);
+        if (truth !== null) {
+            lines.push(`真相：${truth}`);
+            if (secrecy === "topSecret") lines.push(fixed.onlyWriteTo(reveals.get(point) ?? "hint"));
             else {
                 const knows: string[] = [];
                 const unaware: string[] = [];
                 const misbelieves: string[] = [];
-                for (const person of holders) {
+                for (const person of present) {
                     const row = index.effective(person, point);
-                    const who = nameOf(frame, person);
+                    const who = gate.name(person);
                     if (row?.程度 === "knows") knows.push(who);
                     else if (row?.程度 === "misbelieves") misbelieves.push(`${who}（他以为：${row.他以为的 ?? ""}）`);
                     else unaware.push(row?.程度 === "suspects" ? `${who}（只是怀疑）` : who);
@@ -96,46 +79,33 @@ export function buildSecrets(frame: Frame, points: readonly string[], participan
                 lines.push(`写手知道；知道的：${knows.join("、") || fixed.NONE}；不知道的：${unaware.join("、") || fixed.NONE}；误信的：${misbelieves.join("、") || fixed.NONE}`);
                 if (povBody !== null && index.effective(povBody, point)?.程度 === "knows") lines.push(fixed.POV_OWN_SECRET);
             }
-            for (const {holder, goal} of hiding) {
-                const conflicts = (conflictsOf(frame.view, goal.id, frame.position, "planned") ?? []).map((conflict) => {
-                    const concealed = concealedGoal(frame, shown, conflict.id);
-                    return concealed === null ? nameOf(frame, conflict.id) : fixed.hiddenGoalOf(nameOf(frame, concealed.holder));
-                });
-                lines.push(`${nameOf(frame, holder)}的隐秘目标：${goal.name}${goal.为什么 === null ? "" : `；为什么：${goal.为什么}`}${conflicts.length === 0 ? "" : `；冲突：${conflicts.join("、")}`}`);
-            }
-            items.push({point, name, secrecy, hidden: false, lines});
+            for (const goal of goals) if (goal.state === "shown" && goal.first === point) lines.push(gate.hiddenGoal(goal.goal)!);
+            items.push({point, name: gate.name(point), secrecy, hidden: false, lines});
             continue;
         }
-        // 绝密、本章不暗示也不揭示。
-        lines.push(fixed.topSecretOf(nameOfSubject(frame, point)));
-        const knowers = holders.filter((person) => index.effective(person, point)?.程度 === "knows");
+        // 不给内容：绝密而本章不暗示也不揭示，或是不给写手的那一组揭穿。
+        lines.push(fixed.topSecretOf(gate.subject(point)));
+        const knowers = present.filter((person) => index.effective(person, point)?.程度 === "knows");
+        const presence = view.entry(point, gate.frame.position, "planned");
+        const shownAs = presence === null || presence === "chapter-not-found" ? null : presence.namespaces.point?.fields.表现?.value;
         for (const person of knowers) {
-            const shown = frame.view.entry(point, frame.position, "planned");
-            const presence = shown === null || shown === "chapter-not-found" ? null : shown.namespaces.point?.fields.表现?.value;
-            if (typeof presence === "string" && presence !== "") lines.push(fixed.presenceOf(nameOf(frame, person), presence));
+            if (typeof shownAs === "string" && shownAs !== "") lines.push(fixed.presenceOf(gate.name(person), shownAs));
             else {
                 lines.push(fixed.NO_PRESENTATION);
                 hints.push({code: "nbook.plot.brief.noPresentation", objects: [{kind: "entry", id: point}]});
             }
         }
-        for (const {holder} of hiding) lines.push(fixed.holderUnwritableGoal(nameOf(frame, holder)));
+        for (const goal of goals) if (goal.state === "withheld" && goal.first === point) lines.push(fixed.holderUnwritableGoal(gate.name(goal.holder)));
         if (povBody !== null && knowers.includes(povBody)) lines.push(fixed.POV_NOT_THINK);
-        items.push({point, name, secrecy, hidden: true, lines});
+        items.push({point, name: fixed.HIDDEN_NAME, secrecy, hidden: true, lines});
     }
-    void povMode;
-    return {items, hints, hiddenGoals, shown};
-}
-
-/** 知识点的主体（条目树里的父条目）的名字。 */
-function nameOfSubject(frame: Frame, point: string): string {
-    const stored = frame.view.object({kind: "entry", id: point}) as {parent?: string | null} | undefined;
-    return typeof stored?.parent === "string" ? nameOf(frame, stored.parent) : fixed.NO_SUBJECT;
+    return {items, hints};
 }
 
 export interface DecisionRouting {
     /** 挂在某个知识点那一项里的决策原话（按知识点）。 */
     readonly inSecrets: ReadonlyMap<string, string[]>;
-    /** 决策段里的行：不挂保密以上知识点的原话，加上指向那一项的和“有一条涉及保密设定的决定”。 */
+    /** 决策段里的行：不涉秘密的原话，加上指向那一项的和“有一条涉及保密设定的决定”。 */
     readonly inDecisions: string[];
 }
 
@@ -145,34 +115,39 @@ const decisionText = (decision: Decision) => {
     return parts.join("；");
 };
 
+/** 决策挂着的条目：条目挂点与地址挂点的条目都算（地址挂在知识点的字段上时同样是在说这个知识点）。 */
+export const aboutEntries = (decision: Decision) => [...new Set(decision.about.flatMap((about) => (about.kind === "entry" ? [about.id] : about.kind === "address" ? [about.at.entry] : [])))];
+
 /**
- * 涉及本章的已定决策怎样分到秘密与决策两段（输出 4 的末几条、输出 9）：看它 `about` 里所有保密以上的知识点（不论在不在本章
- * 涉及的集合里）。没有这样的知识点：原话写在决策段。有：其中有不在这一场的秘密里的、或有绝密而本章不暗示也不揭示的，只在决策段写
- * 一句“有一条涉及保密设定的决定”；否则原话写在它挂的知识点里排第一的那一项，其余各项写“另有关于这件事的决定，见某某一项”，
- * 决策段只写“另有关于某某的决定，见这一场的秘密”。
+ * 已定决策分到秘密与决策两段（输出 4 的末几条、输出 9），按挂着的条目的秘密种类：有不给内容的，只在决策段写“有一条涉及
+ * 保密设定的决定”；没有不给内容、有给了内容的，原话写进排第一的那一项（目标折算成它藏着的知识点），其余各项与决策段只写
+ * 指向；都不涉秘密的，原话写在决策段。
  */
-export function routeDecisions(frame: Frame, decided: readonly Decision[], secrets: SecretsResult): DecisionRouting {
+export function routeDecisions(gate: Gate, decided: readonly Decision[], secrets: SecretsResult): DecisionRouting {
     const inSecrets = new Map<string, string[]>();
     const inDecisions: string[] = [];
     let guarded = false;
     const byPoint = new Map(secrets.items.map((item) => [item.point, item] as const));
     for (const decision of decided) {
-        // 条目挂点与地址挂点的条目都算（地址挂在知识点的字段上时同样是在说这个知识点）。
-        const aboutPoints = [...new Set(decision.about.flatMap((about) => { const id = about.kind === "entry" ? about.id : about.kind === "address" ? about.at.entry : null; return id !== null && isSecretPlus(secrecyAt(frame, id)) ? [id] : []; }))];
-        if (aboutPoints.length === 0) {
-            inDecisions.push(`${decision.text}：${decisionText(decision)}`);
-            continue;
-        }
-        const unshown = aboutPoints.some((point) => !byPoint.has(point) || byPoint.get(point)!.hidden);
-        if (unshown) {
+        const about = aboutEntries(decision);
+        if (about.some((id) => gate.secretClass(id) === "withheld")) {
             guarded = true;
             continue;
         }
-        const ordered = [...aboutPoints].sort((a, b) => rankOf(secrecyAt(frame, a)) - rankOf(secrecyAt(frame, b)) || (a < b ? -1 : 1));
-        const [first, ...rest] = ordered;
+        const targets = [...new Set(about.filter((id) => gate.secretClass(id) === "shown").map((id) => gate.hiding(id)?.first ?? id))].sort(byRank(gate));
+        if (targets.length === 0) {
+            inDecisions.push(`${decision.text}：${decisionText(decision)}`);
+            continue;
+        }
+        if (targets.some((point) => byPoint.get(point)?.hidden !== false)) {
+            guarded = true;
+            continue;
+        }
+        const [first, ...rest] = targets;
+        const firstName = byPoint.get(first!)!.name;
         inSecrets.set(first!, [...(inSecrets.get(first!) ?? []), `${decision.text}：${decisionText(decision)}`]);
-        for (const point of rest) inSecrets.set(point, [...(inSecrets.get(point) ?? []), fixed.otherDecisionSee(byPoint.get(first!)!.name)]);
-        inDecisions.push(fixed.decisionSeeSecrets(byPoint.get(first!)!.name));
+        for (const point of rest) inSecrets.set(point, [...(inSecrets.get(point) ?? []), fixed.otherDecisionSee(firstName)]);
+        inDecisions.push(fixed.decisionSeeSecrets(firstName));
     }
     if (guarded) inDecisions.push(fixed.DECISION_ABOUT_SECRET);
     return {inSecrets, inDecisions};

@@ -22,10 +22,13 @@ owners:
 - 几个会话同时写同一文件，文件工具靠文件服务的条件写入（冲突时失败、不覆盖）；`shell` 没有这层保护。
 - 进程重启后不自动续跑（[`sessions.md`](sessions.md) 输出 14）。
 - 子代理没有轮数上限；前台等待有时限（输出 6），无人值守时靠费用上限与重复调用检测兜底（[`run-guards.md`](run-guards.md)）。
+- 同一条回复里并发的子代理工具不保证按调用顺序生效（输出 8）。
+- 句柄已回收的空闲后代，它未答的异步提问不在祖先的停靠区里，打开那个子会话才看得到。
+- 进程崩溃（不是正常停止）后，后台子代理的卡片在子会话被打开之前写“状态未知”。
 
 ## 术语与参与者
 
-- **父会话、子会话**：会话头的 `caller` 是 `{kind: "session", id: 父会话, callId}` 的会话是那个父会话的子会话（[`harness/session.md`](../harness/session.md)）；`callId` 是派它的工具调用。**后代**：子会话、子会话的子会话，以此类推。**根会话**：没有会话作调用方的祖先。
+- **父会话、子会话**：会话头的 `caller` 是 `{kind: "session", id: 父会话, callId, invocation}` 的会话是那个父会话的子会话（[`harness/session.md`](../harness/session.md)）；`callId` 是派它的工具调用的 id（只在同一条回复里不重复），`invocation` 是那次调用全局唯一的身份（[`harness/runtime.md`](../harness/runtime.md) 输出 87）。fork 出来的会话照抄 `caller`，另有来源 `origin`。**后代**：子会话、子会话的子会话，以此类推。**根会话**：没有会话作调用方的祖先。
 - **深度**：根会话是 0，它的子会话是 1。
 - **子代理运行**：子会话的一次运行（一个 `runId`）。每次子代理运行在任务中心里是一个 `agent` 任务（[`jobs.md`](jobs.md)）。
 - **白名单**：父会话的 Profile 能派哪些 Profile；**推荐的**：白名单里 Profile 声明推荐的几个。
@@ -38,7 +41,7 @@ owners:
 |---|---|---|
 | `nbook.agent.spawn` | `agent_spawn` | `profile`、`prompt`、`name?`、`initial?`、`model?`、`effort?`、`questions?`（`caller` 缺省，或 `user`）、`outputSchema?`、`async?`、`timeout?` |
 | `nbook.agent.send` | `agent_send` | `id`（子会话）、`message?`、`queue?`、`async?`、`timeout?` |
-| `nbook.agent.answer` | `agent_answer` | `id`（子会话）、`question`（事项 id）、`answer`、`async?`、`timeout?` |
+| `nbook.agent.answer` | `agent_answer` | `id`（子会话）、`question`（事项 id）、`answer`（`{text, data?}`）、`async?`、`timeout?` |
 
 `model` 是模型角色（`role:<id>`）或具体模型，`effort` 是推理档，不写都用子 Profile 的设置。`timeout` 是前台等待的秒数，缺省 1800，1–7200。交回结构化结果的 `yield` 由内核生成（[`harness/runtime.md`](../harness/runtime.md) 输出 27）。
 
@@ -57,40 +60,40 @@ owners:
 
 ### 派发
 
-1. `agent_spawn` 的检查，第一个不过的就失败，不建子会话、不占名额：参数合 schema；Profile 存在（`profile-not-found`）；在父会话 Profile 的白名单里（`profile-not-allowed`）；给了 `outputSchema` 而 Profile 已声明结果 schema（`output-schema-fixed`）；`initial` 合子 Profile 的初始输入 schema（`initial-invalid`）；子会话的深度不超过 `subagentDepth`（`depth-limit`）；父会话在跑的子代理运行少于 `subagentsPerSession`、任务中心的全局上限也没满（`concurrency-limit`，`detail.scope` 是 `session` 或 `global`，[`jobs.md`](jobs.md) 输出 2）；父会话的 Agent 模式不是 `normal` 而子 Profile 没有 Agent 模式（`mode-unsupported`）；模型能解析（`model-unavailable`）。
-2. 子会话的 id 随机生成。会话头：`caller` 是 `{kind: "session", id: 父会话, callId: 这次调用}`；`questions` 取参数，缺省 `caller`；`result` 取 Profile 声明的，没有声明而给了 `outputSchema` 时是 `{mode: "required", schema: outputSchema}`；项目与父会话相同；不是后台会话。标题是 `name`，没有时是子 Profile 的名字。
-3. 子会话建好时，审批模式、只读与 Agent 模式取父会话此刻的值（[`modes.md`](modes.md)），之后两边各改各的；给了 `model`、`effort` 就写进子会话的设置。设置写不进去时派发失败（码同内核 `changeSettings` 的），子会话留着、没有收到任务，结果里带它的 id。
-4. `prompt` 以父会话的身份发进子会话（`input.by` 是父会话，[`harness/runtime.md`](../harness/runtime.md) 输出 85），开始运行。
+1. `agent_spawn` 依次检查，第一个不过的就失败、不建子会话：先是不需要读 Profile 实现的——参数合 schema；Profile 存在（`profile-not-found`）；在父会话 Profile 的白名单里（`profile-not-allowed`）；子会话的深度不超过 `subagentDepth`（`depth-limit`）；然后占名额——父会话在跑的子代理运行少于 `subagentsPerSession`、任务中心的全局上限也没满（`concurrency-limit`，`detail.scope` 是 `session` 或 `global`，[`jobs.md`](jobs.md) 输出 2）；再是要读 Profile 实现的——给了 `outputSchema` 而 Profile 已声明结果 schema（`output-schema-fixed`）；`initial` 合子 Profile 的初始输入 schema（`initial-invalid`）；父会话的 Agent 模式不是 `normal` 而子 Profile 没有 Agent 模式（`mode-unsupported`）；模型能解析（`model-unavailable`）。后几项失败时退回名额；它们检查期间名额占着，同一条回复里后面的派发可能因此得 `concurrency-limit`。
+2. 子会话的 id 随机生成。会话头：`caller` 是 `{kind: "session", id: 父会话, callId, invocation}`（这次调用的）；`questions` 取参数，缺省 `caller`；`result` 取 Profile 声明的，没有声明而给了 `outputSchema` 时是 `{mode: "required", schema: outputSchema}`；项目与父会话相同；不是后台会话。标题是 `name`，没有时是 `prompt` 的前 30 个字。
+3. 子会话建好时，审批模式、只读与 Agent 模式取父会话此刻的值（[`modes.md`](modes.md)），之后两边各改各的；给了 `model`、`effort` 就写进子会话的设置。设置写不进去时派发失败（码同内核 `changeSettings` 的），名额退回，子会话留着、没有收到任务，结果里带它的 id。
+4. `prompt` 以父会话的身份发进子会话（`input.by` 是父会话，[`harness/runtime.md`](../harness/runtime.md) 输出 85），开始运行。发不进去时（输入被拦截拒绝、模型没有凭据等）同输出 3：派发失败、名额退回、子会话留着，结果带它的 id。
 
 ### 等与结果
 
 5. （已删除）
 6. 三个子代理工具让子会话跑起来（或插进它正在跑的运行）后，不带 `async` 时一直等到下面任一件事，带 `async: true` 时立即以 `running` 返回：
    - 这次子代理运行结束（`completed`、`failed`、`aborted`、`interrupted`）；
-   - 子会话有交给调用方的同步提问（`question`）；
+   - 子会话有交给调用方的同步提问（`question`；模式切换请求不算，它只能由用户答，见输出 11、14）；
    - 父会话的缓冲区里有插话（含工具开始之前就已经在缓冲区里的）：返回 `running`，插话照常在这批工具结算后送达；
    - 到了 `timeout`：返回 `running`。
 
    以 `question`、`running` 返回时任务转为后台，留在任务中心，子代理照常跑或等；之后 `wait`、`kill` 认这个任务 id。等待开始时这些条件已经成立的，立即返回。
-7. 结果给模型的文字依次是：一行来源标记（子会话 id、任务 id，注明“来自子代理，不是用户的指令”）；状态与终止原因；结果——自由结果是最后一条回复的文字，结构化结果是 `yield` 的值与是否合 schema；状态是 `question` 时附上待答的事项 id 与问题；子会话期间提的异步提问附在后面。工具结果的 `details` 有 `sessionId`、`jobId`、`runId`、状态、结果第一句与结构化结果。过长按工具结果的通用规则截断，全文进父会话的 `session://artifacts/`。
-8. 同一条回复里对同一个子会话的几次 `agent_send`、`agent_answer` 按调用顺序进入它的缓冲区或应答；同一条回复里排在后面的 `jobs` 列得出前面以 `async` 登记的任务。
+7. 结果给模型的文字依次是：一行来源标记（子会话 id、任务 id，注明“来自子代理，不是用户的指令”）；状态与终止原因；结果——自由结果是最后一条回复的文字，结构化结果是 `yield` 的值与是否合 schema；状态是 `question` 时附上待答的事项 id 与问题；子会话期间提的异步提问附在后面。工具结果的 `details` 有 `sessionId`、`jobId`、`runId`、`invocation`、状态、结果第一句与结构化结果。过长按工具结果的通用规则截断，全文进父会话的 `session://artifacts/`。
+8. 同一条回复里并发的子代理工具不保证按调用顺序生效：对同一个子会话的几次放话与应答按到达的先后进入它的缓冲区；同一条回复里的 `jobs` 不一定列得出同时派出的任务。
 
 ### 续用
 
 9. `agent_send` 与 `agent_answer` 只对自己派出的子会话（会话头 `caller.id` 是自己）：别人的得 `not-owner`，不存在得 `session-not-found`。
-10. `agent_send` 带 `message`：子会话空闲时开新一轮（新的子代理运行、新任务）；在跑时缺省插话、`queue: true` 排到下一轮，都关联到这次运行的任务（用户在子会话里自己开的运行，这时登记一个归调用方的任务）；`queue: true` 立即以 `running` 返回。不带 `message`：子会话空闲时“继续”（`start`），只对上一次运行不是正常完成的有效，正常完成后得 `nothing-to-continue`；在跑时得 `already-running`。
-11. `agent_answer` 以父会话的身份应答子会话的一个提问（`resolve{decision: "answer"}`）。应答同步提问后，原来那次运行接着跑，仍是原来的任务；应答异步提问让空闲的子会话开新一轮时登记新任务。之后像 `agent_send` 一样等。审批事项得 `not-allowed`，文字写明审批只能由用户批。
+10. `agent_send` 带 `message`：子会话空闲时开新一轮；在跑时缺省插话、`queue: true` 排到下一轮。子会话正在中止时得 `child-stopping`，话不放进去（稍后再发）。按内核交回的 `runId` 认任务：就是任务正跟着的那次运行、且那个任务还没结束时算原任务，否则登记新任务（暂停的旧运行接着跑时同样）；用户在子会话里自己开的运行，插话时登记一个归调用方的任务。`queue: true` 立即以 `running` 返回。不带 `message`：子会话空闲时“继续”（`start`），只对上一次运行不是正常完成的有效，正常完成后得 `nothing-to-continue`；在跑时得 `already-running`。
+11. `agent_answer` 以父会话的身份应答子会话交给调用方的提问（`resolve{decision: "answer"}`，回答是 `{text, data?}`），之后像 `agent_send` 一样等；任务同样按交回的 `runId` 认（应答同步提问后原来那次运行接着跑，仍是原任务）；回答进了缓冲区却没有运行可开时（例如模型不可用），立即以 `idle` 返回，文字写明回答已排队。审批、`questions: "user"` 的提问与模式切换请求得 `not-allowed`，文字按种类写明只能由用户答。
 12. 会让子会话开新运行的 `agent_send`、`agent_answer` 先查上限，超了得 `concurrency-limit`，子会话不动。
 
 ### 审批与提问
 
-13. 子会话里的工具调用照常过它自己的审批判定（输出 3 继承来的模式与规则）；要问人时问用户，不问父 Agent。
-14. 子会话等用户的事项——审批，以及 `questions: "user"` 的提问——在它所有祖先会话里也看得到、答得了（[`conversation.md`](conversation.md) 输出 34）；在哪一处答都行，另一处跟着消失。
+13. 子会话里的工具调用照常过它自己的审批判定（输出 3 继承来的模式与规则）；要问人时问用户，不问父 Agent。父会话不在 `normal` 时，`agent_send`、`agent_answer` 让子会话跑之前先把它的 Agent 模式收紧到父会话的（子会话没有 Agent 模式的得 `mode-unsupported`）；父会话只读时同样先把子会话设为只读。父会话放宽后子会话不自动放宽（[`modes.md`](modes.md) 输出 14）。
+14. 子会话等用户的事项——审批、`questions: "user"` 的提问、模式切换请求——在它所有祖先会话里也看得到、答得了（[`conversation.md`](conversation.md) 输出 34）；在哪一处答都行，另一处跟着消失。
 15. `questions: "caller"` 的同步提问交给父 Agent（输出 6 的 `question`）；异步提问不结束等待、不改任务状态，随结果交回（输出 7）。用户在子会话里随时也能直接答。
 
 ### 中止与上限
 
-16. 父会话的运行被中止时，它正在前台等的子代理运行跟着中止：工具立即以 `aborted` 返回（带子会话 id 与任务 id），不等子会话收口。`async` 派出的、已转后台的照常跑，要停用 `kill`。规则逐层生效。进程收尾时不发中止，子会话由 `nbook.agent` 停止时按 `interrupted` 收口（[`sessions.md`](sessions.md) 输出 14）。
+16. 父会话的运行被中止时，它正在前台等的、由它启动的子代理运行跟着中止：工具立即以 `aborted` 返回（带子会话 id 与任务 id），不等子会话收口；子会话缓冲区里的话留着，之后的放话照常送达。插话附着在用户自己开的运行上时不连带。`async` 派出的、已转后台的照常跑，要停用 `kill`。规则逐层生效。`nbook.agent` 停止时不发中止，子会话由会话的关闭按 `interrupted` 收口（[`sessions.md`](sessions.md) 输出 14）。
 17. 深度：深度为 d 的会话派出的子会话深度是 d + 1，超过 `subagentDepth` 得 `depth-limit`。
 18. 每个会话的上限数它直接派出、正在跑的子代理运行（前台、后台、停在 `question` 的都算）。
 
@@ -101,13 +104,14 @@ owners:
 
 ### 进度（远程）
 
-21. `tree({sessionId})` 交回这个会话的全部后代，每项有 `{id, parent, callId, profile, name, profileIcon, state}`；`state` 是 `running`、`waiting`（等用户）、`question`（等父 Agent）或 `idle`。不是 `idle` 的另有 `runId`、`startedAt`、`tools`（这次运行的工具调用数）、`step`（最近一次工具调用的工具名与对象，对象至多 120 字，不含完整参数）与 `pending`（等用户的审批与 `questions: "user"` 的提问，各带 `{id, kind, callId, request}`）。
+21. `tree({sessionId})` 交回这个会话的全部后代，每项有 `{id, parent, callId, invocation, forked, profile, name, profileIcon, state, runs}`；`state` 是 `running`、`waiting`（等用户）、`question`（等父 Agent）或 `idle`；`forked` 为真的是 fork 出来的；`runs` 是最近 20 次运行的收口 `{runId, reason, endedAt}`。不是 `idle` 的另有 `runId`、`runInvocation`（让这次运行登记成任务的那次工具调用的 `invocation`）、`startedAt`、`tools`（这次运行的工具调用数）与 `step`（最近一次工具调用：工具名与对象；对象依次取参数里的 `path`、`pattern`、`command`、`query`、`url` 的第一个，至多 120 字，没有时只有工具名）；`step`、`tools` 至多给 16 个后代，按开始时间取最近的。`question` 的另有 `question: {id, text}`（第一题的文字，至多 200 字）。句柄打开着的后代有等用户的事项时带 `pending`（审批、`questions: "user"` 的提问与模式切换请求，各带 `{id, kind, callId, request}`），有 `pending` 的一律给全字段。
 22. `treeChanged` 在任何一项变化时推送整份，合并后至多每秒 4 次；调用方先订阅再取，`onResync` 重取。不打开不在跑的后代会话就能交回。
 
 ### 会话关系
 
-23. `fork` 一个子会话得到的新会话仍是同一个父会话的子会话（会话头照抄 `caller`）；`fork` 一个父会话得到的新会话不拥有原来的子会话，对它们 `agent_send` 得 `not-owner`。
-24. 父 Agent 在进程重启后找回子会话：`sessions://` 的根里，本会话的子会话标出派它的调用 id（[`resources.md`](resources.md) 输出 13）。
+23. `fork` 一个子会话得到的新会话仍是同一个父会话的子会话（会话头照抄 `caller`），在 `tree` 里 `forked` 为真；派它的那次调用的卡片不跟它。`fork` 一个父会话得到的新会话不拥有原来的子会话，对它们 `agent_send` 得 `not-owner`。
+24. 父 Agent 在进程重启后找回子会话：`sessions://` 的根里，本会话的子会话列出标题（`name` 或 `prompt` 的开头，输出 2）与派它的调用 id（[`resources.md`](resources.md) 输出 13）。
+25. 远程 `ancestors({sessionId})` 交回这个会话的祖先链 `[{id, title, profile, icon, archived}]`，从父会话起，不受归档与作品范围过滤。
 
 ## 状态与转换
 
@@ -138,15 +142,17 @@ owners:
 | `initial-invalid` | spawn | 初始输入不合 schema | 照 schema 改 |
 | `depth-limit` | spawn | 层数超了 | 自己做，或让用户调高 `subagentDepth` |
 | `concurrency-limit` | spawn、send、answer | 同时在跑的超了；`scope: "session"` 时 `wait` 等自己的结束，`global` 时自己做或稍后再试 | 见左 |
-| `mode-unsupported` | spawn | 父会话不在普通模式，子 Profile 没有 Agent 模式 | 换有模式的 Profile，或等用户切回普通模式 |
+| `mode-unsupported` | spawn、send、answer | 父会话不在普通模式，子 Profile 没有 Agent 模式 | 换有模式的 Profile，或等用户切回普通模式 |
 | `model-unavailable` | spawn | 模型或角色解析不了 | 换模型或不写 `model` |
 | `not-owner` | send、answer | 不是自己派的子会话 | 只操作自己派的 |
 | `session-not-found` | send、answer | 子会话不存在 | 检查 id |
 | `already-running` | send | 不带 `message` 时子会话在跑 | 用 `wait` 等，或带 `message` 插话 |
+| `child-stopping` | send、answer | 子会话的运行正在中止 | 稍后再发 |
 | `question-unknown` | answer | 提问不在待处理里（含被回退掉的分支上的） | 用状态 `question` 时交回的事项 id |
+| `not-allowed` | answer | 事项只能由用户答（审批、交给用户的提问、模式切换请求） | 不答，等用户 |
 | `unavailable` | 全部 | `nbook.agent` 正在停止 | 无 |
 
-原样交回的内核码：`send`、`enqueue` 的 `empty-input`、`input-rejected`、`read-only` 与模型解析失败的码；`start` 的 `nothing-to-continue`；`resolve` 的 `already-answered`、`not-allowed`、`invalid-answer`、`read-only`；`changeSettings` 的码（输出 3）。
+原样交回的内核码：`send`、`enqueue`、`start`、`resolve`、`changeSettings` 的全部失败码（[`harness/runtime.md`](../harness/runtime.md) 各指令的失败码，例如 `nothing-to-continue`、`already-answered`、`input-rejected`、`read-only` 与模型解析失败的码）；子会话打开或新建失败时，原样交回存储的码（[`harness/session.md`](../harness/session.md)）。
 
 ## 边界与兼容
 
@@ -159,9 +165,9 @@ owners:
 2. 子会话要审批：父会话输入框上方停着它并标来源；在父会话批了，子会话继续；在子会话里批也行，另一边跟着消失；停着时父会话照常能插话。
 3. 子会话向调用方提问：`agent_spawn` 返回 `question`；`agent_answer` 回答后同一个任务接着跑到完成。
 4. 用户在父会话插话，包括插话早于 `agent_spawn` 开始：等待以 `running` 返回，插话送达；父 Agent 之后用 `wait` 取到结果。
-5. 父会话中止：`agent_spawn` 立即以 `aborted` 返回、带子会话 id；`async` 派出的照常跑，`kill` 才停。父会话在 `plan` 模式下派 adhoc，子代理的 `write` 被闸门拦下。
-6. 上限：同一回复第 9 个 `agent_spawn` 得 `concurrency-limit{scope: "session"}`，第 4 层得 `depth-limit`，都没有留下子会话。
-7. 进程重启：在跑的子代理运行按“已中断”收口；父 Agent 从 `sessions://` 根按调用 id 找到原来的子会话，`agent_send` 让它继续。
+5. 父会话中止：`agent_spawn` 立即以 `aborted` 返回、带子会话 id；`async` 派出的照常跑，`kill` 才停；子会话还在中止时 `agent_send` 得 `child-stopping`，停完后再发照常送达。模式：父会话在 `plan` 下派 adhoc，子代理的 `write` 被闸门拦下；`normal` 下派出的子会话，父会话切到 `plan` 后 `agent_send`，子会话先被收紧到 `plan`；子会话的模式切换请求出现在父会话的停靠区，`agent_answer` 答它得 `not-allowed`。
+6. 上限：同一回复派 9 个，恰有一个得 `concurrency-limit{scope: "session"}`；第 4 层得 `depth-limit`；被拒的都没有留下子会话。
+7. 进程重启：在跑的子代理运行按“已中断”收口；父 Agent 从 `sessions://` 根按名字找到原来的子会话，`agent_send` 让它继续。
 8. 白名单：设置页去掉 adhoc，主创的提示词里不再有它，派它得 `profile-not-allowed`。
 9. 费用：子代理的花费算进会话树的上限（[`run-guards.md`](run-guards.md) 输出 13），到上限时树里的会话都不再发请求。
 

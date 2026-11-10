@@ -1,0 +1,130 @@
+# w00043 t02 计划第一稿审查（服务端、HTTP 与模型服务；Opus）
+
+### 1. 扩展的 attach 只拿到运行实例，项目管理器要的路由与诊断存储拿不到（严重程度：高）
+位置：计划“startHostServer”一节 HostServerExtension.attach、HostPluginContext、HostServer 形状（plan-r1.md:142-153、165）
+问题：计划让 NeuroBook 在 attach(application) 里建项目管理器，但 createProjectManager 必须拿到 startHostServer 内部新建的 RemoteRouter：项目子进程的链路要 router.accept(child.link, {expect: …}) 接进来；另外要 serverInstanceId（"server"）判定服务端插件调用者、要诊断存储写 record。计划给的 attach 参数只有 Application；HostPluginContext 只有 {store, admission, rpc, allowOrigin, onListening, listen}，没有 router；HostServer 返回值也没有 router，而且 attach 在 startHostServer 返回之前的同步段里调用，应用拿不到返回值。照字面实施，第 4 片写到项目管理器时接不上，要回头改 nb-host 的公开接口。store 只能靠在 plugins 回调里顺手存一份，属于靠调用顺序碰巧成立。
+依据：packages/neuro-book/src/server/start.ts:191-194（router 在宿主内部建）、:382-396（createProjectManager 传 router、serverInstanceId、record）；src/server/projects/manager.ts:51-56（ProjectManagerOptions 要 router、serverInstanceId）、:358、:485（router.accept 子进程链路）。
+建议：attach 改收一个宿主上下文 {application, router, store, instanceId}（或把 router 与 instanceId 放进 HostPluginContext，并写明 attach 时它们已就绪）；在计划里写清 projectTitle、plugin-inventory 的 problems() 这类要晚绑定运行实例的闭包也从 attach 取。
+
+### 2. 模型的选择顺序已归本 Task，但计划仍写“按 t32 的 modelChoice”，且服务里写死了三个角色 id（严重程度：高）
+位置：Context“与其它工作的关系”（plan-r1.md:17）；模型服务一节（:205、:220、:221）
+问题：按开发者的决定 2，port.resolve 的选择顺序不在 t32 搬，由本 Task 负责；计划把它当作 t32 已提供的 modelChoice 来用，没有说本 Task 搬到哪、谁测。更要紧的是选择顺序和写入规则里写死了 NeuroBook 的角色 id：purpose 为 compaction 取角色 "compaction"，approval 取 "fast"，缺省取 "main"；setRole 里“第一次绑 fast 时 compaction 跟着它”也写死这两个 id。计划同时说“内置角色与缺省角色表由宿主传”，两者自相矛盾：宿主传进来的内置角色表管不到 resolve 里写死的 id。NeuroBot 的角色表里没有 main 或 fast，就会静默得到 role-unbound。
+依据：packages/neuro-book/src/plugins/models/backend/core.ts:340-348（resolve 的顺序与三个 id）、:440-443（seedCompaction）、:58 与 :459、:467（BUILTIN 只管 builtin 标记和不许改删）；t32 plan.md:301-311 当时写的 modelChoice 已按开发者决定不在 t32 做。
+建议：在计划里明确选择顺序搬进 nb-harness `./models`（例如 `models/choice.ts`，纯函数加测试，变异检查也带上），角色 id 作为导出常量（main、fast、compaction），并写明宿主内置角色表必须包含这三个，或者把“用途到角色”的映射与“绑 fast 时顺带绑 compaction”规则也做成宿主参数。同步修改 Context 与验收映射（“models.service 输出 8”由谁测）。
+
+### 3. ModelsConfigStore 只写了方法签名，服务依赖的四条语义都没写进接口（严重程度：中）
+位置：模型服务一节 ModelsConfigStore（plan-r1.md:191-200）；验收映射 models.service 一行（:274）
+问题：服务的正确性依赖设置服务的几条行为，计划的接口里一条都没写，NeuroBot 和 nb-harness 测试用的内存存储照签名实现时很容易漏掉：
+(a) 自己写入之后也要触发 onDidChange：快照与解析缓存只在 onDidChange 时作废，写入路径本身不作废。存储不通知自己的写入，快照就一直是旧的。
+(b) write 返回 ok 后，providers()/roles() 要立刻读到新值：setKey、clearKey 第二步之后用 statusNow 读 providers()。
+(c) 冲突后重试要等 onDidChange 送来外部变化（changeOf，最多 1 秒）：存储只在自己写入时才通知的话，每次冲突都要等满 1 秒。
+(d) expect 的比较语义：value 为 undefined 表示“这一层还没有这个键”，按规范化后的值比较；editable 返回 undefined 时服务用缺省值合并。
+另外，验收映射说应用 models.test.ts 那条“同时证明内存存储与设置服务的冲突语义一致”，这推不出来：那条只测了设置服务一侧。
+依据：core.ts:89-99（缓存只靠订阅作废）、:242-260（mutate 与 expect: {value: user.value}）、:218-228（changeOf）、:483、:489（写后立即读）；src/shared/settings.ts:419-423（expect 的定义）、:438（onDidChange）。
+建议：把这几条写进 ModelsConfigStore 的注释，算作接口合同；在 nb-harness 的 `./testing` 里放一组存储一致性测试，内存存储与 NeuroBook 的 settingsModelsConfig 适配器都跑这一组（应用侧用真实设置场地）。这样“两边语义一致”才有测试在守。
+
+### 4. “只做取锁与放锁”的认领锁模块会丢掉 holdLock 的两道保护和诊断事件名（严重程度：中）
+位置：技术选型第一行（plan-r1.md:29）；需要确认第 3 条（:317）；风险“认领锁两份配置分叉”（:308）
+问题：计划说 nb-host 的私有模块“参数与 holdLock 相同、不用 stillHeld”。但 holdLock 除了参数还做了三件事，认领同样依赖：
+(a) 传 onCompromised：proper-lockfile 缺省的 onCompromised 是直接 throw，在刷新计时器里抛出，会变成未捕获异常。认领发生在宿主挂接 uncaughtException 之前，进程会直接崩溃。
+(b) release 先核对锁目录的身份（dev、ino、birthtime），锁已被别人接管就不删。这一步内部就是在调 stillHeld，所以“不用 stillHeld”的说法不成立。照字面写一个精简版，进程在认领中被暂停超过 10 秒、锁被接管后，放锁时会删掉接管者的锁目录。
+(c) 诊断事件 instance.claim.lock.compromised、instance.claim.lock.release-failed。计划自己承诺诊断事件名不变。
+另外，参数现在有两份（应用的 LOCK_STALE_MS 注释写着“所有 NeuroBook 进程必须一致”），以后改一边，另一边不会跟着变。
+依据：packages/neuro-book/src/backend/locked-replace.ts:26-28、:96-136（onCompromised、identity、release 里的 stillHeld）、:140-146（release-failed）；src/server/instance.ts:118（report 前缀 instance.claim.）；node_modules/proper-lockfile/lib/lockfile.js:213（缺省 onCompromised: (err) => { throw err; }）。
+建议：在计划里把私有模块的合同写全：必须传 onCompromised 并报告、放锁前做身份核对、事件名与现在逐字相同；claim.test.ts 加一条“锁在持有中失效只报诊断、进程不崩”。参数分叉在 claim-lock.ts 的注释里写明与 locked-replace 的对应关系（另见第 12 条关于上游的质疑）。
+
+### 5. HTTP 插件的安全接线仍留给每个应用自己装，“安全不变量只有一份”只做到一半（严重程度：中）
+位置：HostServerOptions.plugins 与 HostPluginContext（plan-r1.md:132、142）；HTTP 插件一节（:170）；验收 17 的应用侧用例（:266）
+问题：Host 与 Origin 的判定函数进了 nb-host，但把 admission、allowOrigin、onListening、host、port 交给 createHttpPlugin 这一步，仍由每个应用在 plugins(context) 里手写。NeuroBot 如果传了自己写的 allowOrigin，或者忘了把 onListening 接回 context：url 一直是 null，本页来源的写请求和 RPC 升级全部 403，claim 发布的页面地址也是 null，类型检查都拦不下。计划为此要在应用 server.test.ts 里加一条“证明装配把同一份 allowOrigin 交给了 HTTP”，这条测试正说明接线还是分散在各个应用里的，NeuroBot 也得再写一遍。
+依据：packages/neuro-book/src/server/plugins.ts:80-88（应用手接）；start.ts:205-213、:264-267（allowOrigin 读 url，url 只由 onListening 设）。
+建议：让 startHostServer 自己建 HTTP 插件。选项给 http: {id, hostRoutes, staticRoot}，宿主把 admission、allowOrigin、onListening、监听地址接好，再并进插件表。应用只提供路由与插件 id。这样验收 17 的应用侧用例可以去掉，或降成一条产品冒烟。
+
+### 6. readyInfo 返回 unknown，与认领档案的 fields schema 之间没有类型关联；不合 schema 的发布会让后来者把实例判成“没有应答”（严重程度：中）
+位置：HostServerOptions.readyInfo（plan-r1.md:139）；ClaimProfile 与 StateRootClaim.publish({url, rpcUrl, extra})（:106-116）；HostServerOptions.claim: StateRootClaim（:131，没有泛型）
+问题：应用字段的 schema 写在 ClaimProfile.fields 里，发布的值却来自返回 unknown 的 readyInfo，claim 在 HostServerOptions 里也没有泛型。应用发布的形状和自己的 schema 不一致时，类型检查拦不下，运行中也不报错：读者按“基础字段 + fields”完整校验，校验失败就当作 unresponsive。后果是 `nbook start` 报“已有实例但没有应答”并拒绝启动，`nbook plugin list` 读不到插件集合。
+依据：packages/neuro-book/src/server/instance.ts:281-289（parseInfo 校验不过返回 null）、:257-258（null 当作没有应答）；src/cli/start.ts:100-103。
+建议：StateRootClaim<Extra> 与 ClaimProfile<E> 带同一个类型参数，startHostServer 的 claim 与 readyInfo 用 Static<TObject<E>>；publish 时在包里用 Value.Check 核一次，不合就立刻抛错（测试里马上暴露）。
+
+### 7. 扩展钩子的几处时序没写，开发任务现有的守卫要靠实现者自己想到（严重程度：中）
+位置：HostServerExtension 注释（plan-r1.md:143-152）；停止顺序（:161）
+问题：
+(a) ready() 会不会在 stopping() 之后被调用：运行实例可能在停止请求之后才报告可用。现在靠 devTaskClosed 保证这种情况下不启动开发任务。计划没说 startHostServer 是否在 stopping 之后跳过 ready()，也没要求扩展自己守。
+(b) stopping() 返回的 Promise 被拒绝时怎么算：现在开发任务的停止在 beforeStop 的 finally 里 await，拒绝会成为 beforeStopError，最后计为“停止步骤失败：排空”，退出码 1。计划只说“与排空并行等待”。
+(c) ready() 与 admission.ready()、claim.publish 的先后：现在是先放行请求，再发布地址，最后启动开发任务。
+依据：packages/neuro-book/src/server/start.ts:296-302、:365-374、:400-409；src/server/host.ts:118-127（beforeStop 失败记 beforeStopError）、start.ts:431。
+建议：在接口注释里写死三条：停止开始后不再调 ready()；stopping() 拒绝时计入停止失败、退出码 1；ready() 在 admission.ready() 与 claim.publish 之后调用。nb-host 的 start.test.ts 各配一条同进程用例（“启动中请求停止，ready 不调用”最关键）。
+
+### 8. 合入前跑的 `bun run docs:check` 在分支上必然失败，合入后到文档提交之间 master 也是红的（严重程度：低）
+位置：验证一节合入前清单（plan-r1.md:281）；“Spec 与文档改动”的提交时机（:228）；切片“合入后”一行（:257）
+问题：docs:check 会把活跃文档里指向不存在文件的相对链接记为失败，而且检查全部受管文件，不按改动范围缩小。分支上的 Spec 副本仍链接要删掉的 src/server/host.ts、src/plugins/http/backend/plugin.ts 等文件，所以第 7 片的 docs:check 一定报错。计划又要求 Spec 只在合入后到主工作区去改，两条规定互相冲突；合入那一刻 CI 的 docs:check 也会失败。
+依据：scripts/ci/check-documentation.ts:283-310（活跃文档的链接失败计入 failures）、:97-100（检查全部受管文件）；docs/specs/runtime/server-host.md:203（链接 host.ts、plugins/http/backend/plugin.ts）；.github/workflows/ci.yml:56。
+建议：在计划里写明分支上 docs:check 预期只报这几条链接（列出清单，其它失败仍算阻断），或者在合入后先提交文档、再推送 master，让 CI 看到的是一起到位的状态；并把这个做法写进 Task 记录，免得验收时误判。
+
+### 9. “退出码按 75 > 1 > 0 一处算出”与现有实现不符，接口里也没有给 75 的通道（严重程度：低）
+位置：要守住的顺序与时序最后一条（plan-r1.md:163），该节开头写着“都读过实现确认”（:157）
+问题：现在的实现只有 0 和 1（ExitCode = 0 | 1），75 是 Spec 里租约失效的退出码，还没有实现。计划把 Spec 的说法当成了已经核实的实现。以后加 Session Store 租约时，HostServerExtension 只能通过 problems() 把退出码顶到 1，没有办法要求 75。
+依据：packages/neuro-book/src/server/start.ts:55、:443；docs/specs/runtime/server-host.md:91、:94、:190。
+建议：把这句改成“现在只有 0 和 1，取值顺序按 Spec”，并决定 75 以后从哪进来（例如停止来源带一个退出码，或扩展返回 {exitCode}）。本 Task 不实现也行，但不要把它写成已经守住的不变量。
+
+### 10. 第二道回环校验没放在“任何监听之前”，startHostServer 自查失败时的收尾也没写（严重程度：低）
+位置：loopback.ts 一节的“不变量（第二道）”（plan-r1.md:99）
+问题：计划把 assertLoopbackHost 放在 startRpcListener 与 HTTP 插件里，startHostServer 开头只核 allowedOrigins。可是 listenWithShift 在调 listenRpc 之前，会先用 Bun.serve 在 host 上试探 HTTP 端口（shiftPorts 为真时）；开发监督进程的 freeGroupOffset、probePort、freePort 也直接在 host 上监听。传进非回环地址时，第二道校验之前已经短暂监听过。另外，startHostServer 自查 allowedOrigins 失败时，要不要写致命诊断、放下认领、抛 ServerAssemblyError，计划没写；照现在 try 块的范围，这个检查会落在 try 之外，认领就漏放了。
+依据：packages/neuro-book/src/server/ports.ts:29-38、:60-68；src/server/dev/run.ts:46、:140-141；start.ts:216-249（只有 listenWithShift 在 try 里，失败时 release）。
+建议：startHostServer 第一步就对 host 与 allowedOrigins 一起校验，失败走现有的装配失败路径（写 fatal、claim.release()、ServerAssemblyError）。ports.ts 的试探函数也调一次 assertLoopbackHost。loopback.test.ts 加一条：非回环 host 加 shiftPorts 时，没有发生任何监听，认领已放下。
+
+### 11. 回环主机名集合与产品名还有遗漏：分发层另有一份集合，RPC 端口的 503 文字写着 NeuroBook（严重程度：低）
+位置：通用划分表（plan-r1.md:46、50）；loopback.ts 一节（:88-89）；HostServerOptions.product（:128）；HTTP 插件一节（:169）
+问题：
+(a) dispatch.ts 自己定义了一份 LOOPBACK_HOSTS（就是 URL.hostname 的写法），与 config.ts 的 LOOPBACK_ORIGIN_HOSTS 内容相同。计划说“原样搬”dispatch，又新建 loopback.ts 的 LOOPBACK_ORIGIN_HOSTS，搬完包里会有两份，与“安全规则只有一份”的目标相反。
+(b) RPC 监听的 503 文字是“NeuroBook 暂不接受 RPC 连接。”。计划只写了 HttpAdmissionRejected 与 startHostServer 的 product.name，没写 startRpcListener 也要收产品名。扫描测试会拦下，但到第 4 片才会撞上，要回头改接口。
+依据：packages/neuro-book/src/plugins/http/backend/dispatch.ts:77、:83；src/server/config.ts:52-54；src/server/rpc/listener.ts:62；src/plugins/http/backend/admission.ts:29。
+建议：dispatch 改用 loopback.ts 的常量；在计划的 rpc-listener 一节写明它的选项里加 productName（由 startHostServer 传入）。
+
+### 12. 诊断插件 runtime.diagnostics 不在划分表里，nb-host 的 HTTP 插件与停止收尾却依赖它（严重程度：低）
+位置：通用与应用专有的划分表（plan-r1.md:41-60）；start.test.ts 的“nb-host 自己的测试入口与 acme 档案”（:253、:269）
+问题：nb-host 的 HTTP 插件声明依赖 diagnosticsKey；startHostServer 的致命诊断“出口可用时随后落盘”，停止不完整时还要 store.flush()，这些都靠 runtime.diagnostics 插件（JSONL 日志出口在 src/plugins/diagnostics/backend/）。这个插件留在应用，表里没列，nb-host 的测试入口要用哪个诊断插件也没写。NeuroBot 要自己再写一份日志出口，这一点 Task 的“NeuroBot 自己写”清单里也没有。
+依据：packages/neuro-book/src/plugins/http/backend/plugin.ts:58、:61；src/server/plugins.ts:79；src/plugins/diagnostics/backend/plugin.ts:9、:24；start.ts:9-10 头注释、:435-442。
+建议：划分表补一行写明它的去向（留应用，或者因为 id 本来就是 runtime.diagnostics、与应用无关，搬进 nb-host）；nb-host 的测试用 nb-runtime 的 createDiagnosticsPlugin；README 写明宿主必须提供 diagnosticsKey。
+
+### 13. 服务的结果类型是 code: string 加 detail，远程合同按方法声明的失败码和 detail 形状没有类型关联；ProfileModelDefaults 放在哪没写（严重程度：低）
+位置：ModelService 接口（plan-r1.md:208-217）；应用侧 modelsRemote 适配（:223）
+问题：远程合同 nbook.models/settings 为每个方法声明了允许的失败码和 detail 的 schema，例如 settings-unavailable 的 detail 带 code，partially-applied 的 detail 带 key。服务挪进 nb-harness 后只交回 {ok: false, code, detail}，应用的适配层要么像现在的 relay 那样用 `as never` 断言，要么逐个方法再映射一遍。服务以后多返回一个失败码时，类型检查拦不下，只能等运行时的合同校验报错。另外 port(profileDefaults) 用到的 ProfileModelDefaults 现在定义在应用的 shared/contracts.ts，nb-harness 不能反过来导入应用，计划没写这个类型搬去哪。
+依据：packages/neuro-book/src/plugins/models/shared/contracts.ts:97、:107、:115-118、:159-215；core.ts:59-63（relay 的断言与理由）。
+建议：在 `./models/schema` 里放各方法的失败码表（码到 detail schema），服务的结果类型从这张表推出来，应用的合同直接引用同一张表；ProfileModelDefaults 搬进 nb-harness 的 `./models`，应用的合同转出它。
+
+### 14. 质疑上游选择：加锁替换（locked-replace）留在应用，NeuroBot 自己写设置与存储时会成为第三份（严重程度：低，质疑已定决定的范围）
+位置：技术选型第一行与需要确认第 3 条（plan-r1.md:29、:317）；开发者决定 2 的划分
+问题：否决把 holdLock 搬进 nb-host 的理由是“它是 Files、设置、canon 共用的加锁替换工具，归宿主包不对”。这个理由本身成立，但它说明的是不该放进 nb-host，并不说明该留在应用。按开发者决定 2，设置与存储由 NeuroBot 自己写；NeuroBook 的设置层文件写入就是靠它做跨进程的加锁替换（配置层输出 14，改名前核对锁的身份、权限位、临时文件），这是“安全攸关、已经调好”的代码，和决定 2 想要共用的那类东西是同一种。（推断）NeuroBot 写自己的设置文件时，要么照抄一份，要么不加锁。照抄的话，算上 nb-host 的认领锁，同一套锁参数就有三份。
+依据：packages/neuro-book/src/backend/locked-replace.ts:1-16（设置与 Files 共用、跨进程）、:26（“所有进程必须一致”）；src/plugins/settings/backend/layer-file.ts 引用它；docs/proposals/neurobot.md 的决定 2 划分（common-basis）。
+建议：作为候选交给开发者：把 locked-replace（含 holdLock）抽成一个与应用无关的小包（或放进现有的 file-snapshot-cache 一类文件工具包），nb-host 的认领与 NeuroBook 的设置、Files 都用它，锁的参数只有一份。代价是改 20 多个导入，但都是机械改动。如果开发者维持现状，计划里记一句“NeuroBot 的设置写入怎么做加锁替换”留作 NeuroBot 计划的待定项。
+
+### 15. socketPrefix 只影响长路径时的套接字地址，两个应用误用同一状态根时，能不能互相挡住取决于路径长短（严重程度：低）
+位置：ClaimProfile.socketPrefix（plan-r1.md:107-108）；“server.sock 等文件名不参数化”（:120）
+问题：状态根路径不超过 100 字节时，套接字是状态根里固定的 server.sock，与前缀无关；超过时改放到运行时目录，文件名是 `<前缀>-<哈希>.sock`。NeuroBook 与 NeuroBot 指向同一个状态根时：短路径下，后来者连得上前者，但应答不符合自己的 schema，报“有实例但没有应答”（文字有误导，不过挡住了）；长路径下两者地址不同，都能认领成功，同时写同一个状态根。认领锁是同一个 server.claim.lock，它只串行化认领过程本身，挡不住这种情况。
+依据：packages/neuro-book/src/server/instance.ts:97-105（instanceAddress）、:281-289。
+建议：二选一，写进计划：(a) 长路径的回退地址也不带应用前缀（只用哈希），两种情况行为一致，再在应答的基础字段里加应用名，读者据此报“状态根被另一个应用占用”；(b) 明确不支持两个应用共用状态根，在 nb-host 的 README 里写明，测试不覆盖。
+
+### 16. server.test.ts 拆分时，有三条同进程用例两边的清单都没列，搬家后可能没人测（严重程度：中）
+位置：切片第 4 片“server.test.ts 按验收映射拆”（plan-r1.md:253）；验收映射中 2、3、4、6、9、10、19、21 一行（:269）
+问题：验收映射逐条列了哪些用例进 nb-host 的 start.test.ts（启动失败、几种停止来源、在途请求、关闭失败、未捕获异常、未处理拒绝、标准输入结束、排空超时、等待就绪的 503、装配失败），也列了应用留下哪几条，但现有“后端宿主（同进程）”组里的这三条哪边都没列：
+(a) 两个插件同时提交 http.routes，各自挂在自己的前缀下（server.test.ts:268）；
+(b) 同一插件的两个入口都提交 http.routes：两条都判为 duplicate-contribution、都不挂载，别的插件照常挂载（:283），这条测的是 HTTP 插件的贡献点声明加内核校验，dispatch.test.ts 是直接调分发层，覆盖不到；
+(c) 前端构建目录缺少 index.html：http 入口激活失败、以 1 退出，而且具体原因“缺少 index.html”要出现在致命通道里（:380-390），这条也在守 runtime.startup.causes 那一行。static.test.ts:75 只测 openStaticFiles 会拒绝，不测原因能不能走到致命通道。
+照验收映射拆，这三条很可能在搬家时一起丢掉。
+依据：packages/neuro-book/src/server/server.test.ts:268-311、:380-390；src/plugins/http/backend/dispatch.test.ts:78-300（没有贡献点层面的用例）；src/plugins/http/backend/static.test.ts:75-80。
+建议：(a)(b) 放进 nb-host 的 http 测试（真实宿主加 createHttpPlugin、测试插件用中性 id），(c) 放进 start.test.ts 的同进程组。改写验收映射时，按 server.test.ts 的用例名逐条列出去向（进 nb-host、留应用或删除并说明理由），不要只按 Spec 编号归并。
+
+### 重点逐项核对中没有发现问题的部分
+- 重点 5（新包与发布）：仔细检查后没有发现问题。应用包的 build:server 与 pack-app 把工作区包打进 bundle（scripts/pack-app.ts:94-110），nb-host 设为 private 不影响；SDK 的类型路径表（plugin-sdk/pack.ts:66-80）只覆盖 SDK 用得到的包，SDK 的入口不经 rpc-socket、http 与 models（files 合同对 rpc-socket 只有值导入，而 SDK 只从 workspace-files 做类型导入）；RELEASE_PACKAGES 是写死的名单（scripts/release/packages.ts:15-25），不会带上 nb-host；test:affected 按 packages/ 目录与依赖图自动发现包（scripts/cli/test-affected.ts:191-200），NeuroBook 依赖 nb-host 后，改 nb-host 会连带选中应用。
+- 重点 6（应用名不进包）：环境变量、套接字前缀、产品名都会被 /nbook|neurobook/i 的扫描拦下。只有第 11 条说的 RPC 503 文字计划里没写到，扫描能抓到，所以不会漏，但要回头改接口。
+- 重点 1 的“NeuroBot 不需要项目管理器与开发任务时能否直接用”：仔细检查后没有发现问题（attach 的参数问题见第 1 条）。计划里 router 与 extensions 都是可选项（plan-r1.md:137-138），nb-runtime 的 RemoteRouterOptions 里 bindProject、projectAccess 也是可选，不给时带 bind 的 hello 一律 project-unavailable，项目访问一律 denied（packages/nb-runtime/src/remote/router.ts:57-70）。
+- 重点 3 的“根上 proper-lockfile 补丁对 nb-host 是否生效”：仔细检查后没有发现问题。根与应用都把版本钉在 4.1.2（package.json:128、packages/neuro-book/package.json:54），补丁按“包名@版本”登记（package.json:176-178），packages/*/node_modules 下没有另装一份，nb-host 声明同一个精确版本时会提升到根上那一份；scripts/ci/validate-proper-lockfile-patch.ts 检查的正是根上那份。
+
+### 维度 9：对“需要开发者确认”各项的判断
+1. 新包 nb-host、private：同意。nb-runtime 只依赖 TypeBox、前后端共用、已发 npm，这几条理由现在仍然成立；只给应用用、打进 bundle，不需要发布。
+2. 一份 ADR 0045 合记三件事：同意合写。建议 ADR 里一并记下“HTTP 插件由宿主装配”（第 5 条）与“模型的选择顺序与内置角色 id 归 nb-harness”（第 2 条），这两条都是跨应用的约定。
+3. 认领锁由 nb-host 自带、holdLock 留在应用：有条件同意，前提是私有模块按第 4 条保住 onCompromised、放锁前的身份核对与事件名；locked-replace 的归属建议按第 14 条另作候选交开发者。
+4. 模型服务拆两半：方向同意，但要先补两处才能确认。一是选择顺序和内置角色 id 由本 Task 搬（第 2 条），二是 ModelsConfigStore 的语义合同与一致性测试（第 3 条）。远程合同留在应用的理由（nb-harness 不导入 nb-runtime）成立。
+5. HTTP 插件工厂进 nb-host、id 由应用传：同意，并建议更进一步，由 startHostServer 自己装配这个插件（第 5 条）；`./http/contracts` 的划分没有问题。
+
+审查结束，共 16 条

@@ -54,10 +54,19 @@ export interface RefTag {
     readonly id: string;
 }
 
+/** 一个 `<Image>` 标签的起止与说明：纯文字的渲染整个换成说明（rendering.md 输出 15）。`alt` 写成表达式时 `alt` 为 null、`altExpression` 为真。 */
+export interface ImageTag {
+    readonly start: number;
+    readonly end: number;
+    readonly alt: string | null;
+    readonly altExpression: boolean;
+}
+
 export interface ParsedBlock {
     readonly tree: Root;
     readonly expressions: readonly ExpressionSite[];
     readonly refs: readonly RefTag[];
+    readonly images: readonly ImageTag[];
 }
 
 export type ParseResult = {readonly ok: true; readonly block: ParsedBlock} | {readonly ok: false; readonly problem: SyntaxProblem};
@@ -97,6 +106,7 @@ function parseUncached(source: string): ParseResult {
     }
     const expressions: ExpressionSite[] = [];
     const refs: RefTag[] = [];
+    const images: ImageTag[] = [];
     let problem: SyntaxProblem | null = null;
     const fail = (code: SyntaxCode, node: {position?: {start: {line: number; column: number}}}, message: string) => {
         problem ??= {code, line: node.position?.start.line ?? 1, column: node.position?.start.column ?? 1, message};
@@ -145,6 +155,11 @@ function parseUncached(source: string): ParseResult {
                         refs.push({start, end, id: String(value ?? "")});
                     }
                 }
+                if (name === "Image") {
+                    const start = node.position?.start.offset ?? 0;
+                    const alt = (node.attributes as Array<{name?: string; value?: unknown}>).find((attribute) => attribute.name === "alt")?.value;
+                    images.push({start, end: node.position?.end.offset ?? start, alt: typeof alt === "string" ? alt : null, altExpression: alt !== null && typeof alt === "object"});
+                }
                 return;
             }
             default:
@@ -154,7 +169,7 @@ function parseUncached(source: string): ParseResult {
     visit(tree as unknown as Parameters<typeof visit>[0]);
     if (problem !== null) return {ok: false, problem};
     expressions.sort((a, b) => a.start - b.start);
-    return {ok: true, block: {tree, expressions, refs}};
+    return {ok: true, block: {tree, expressions, refs, images}};
 }
 
 type Fail = (code: SyntaxCode, node: {position?: {start: {line: number; column: number}}}, message: string) => void;

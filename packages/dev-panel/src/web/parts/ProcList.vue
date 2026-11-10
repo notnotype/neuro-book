@@ -33,7 +33,7 @@ const safeUrl = (url: string | null) => (url && /^https?:\/\//u.test(url) ? url 
 <template>
     <p class="nbdev-empty" v-if="runs.length === 0">没有经 nbdev 起的服务（Agent 用 nbdev dev start 起）</p>
     <ul v-else class="flex flex-col gap-2">
-        <li v-for="{run, owner} in rows" :key="run.runId" class="flex flex-col gap-0.5 border-b pb-2 last:border-b-0 nbdev-divider" :class="{'opacity-60': run.state === 'ended'}">
+        <li v-for="{run, owner} in rows" :key="run.runId" class="flex flex-col gap-0.5 border-b pb-2 last:border-b-0 nbdev-divider">
             <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <Badge :tone="TONE[run.state]" variant="soft" size="sm">{{ LABEL[run.state] }}</Badge>
                 <span class="font-medium"><a :href="checkoutHref(run.checkoutKey)" class="hover:underline" @click="follow($event, checkoutHref(run.checkoutKey))">{{ run.checkoutKey }}</a> · {{ run.package }} · {{ run.script }}</span>

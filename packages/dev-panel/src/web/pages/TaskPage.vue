@@ -4,7 +4,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {useRoute, useRouter} from "vue-router";
 import {groupQuestions} from "../host/answers.js";
 import {relativeDay, sessionName, taskLabel, workLabel} from "../host/format.js";
-import {renderMarkdown} from "../host/markdown.js";
+import {renderInlineMarkdown, renderMarkdown} from "../host/markdown.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {parsePeek, peekValue, type Peek} from "../host/peek.js";
 import {artifactHref, docHref, editHref, isPlainClick, workHref} from "../host/routes.js";
@@ -44,6 +44,11 @@ const writeBlocked = computed(() => {
 const status = useStatusChange(() => `/api/works/${encodeURIComponent(props.workId)}/tasks/${encodeURIComponent(props.taskId)}/status`, () => page.data.value?.task.readmeHash ?? null, () => page.reload());
 
 const RULE_LABEL: Record<string, string> = {readme: "README 的执行位置", name: "目录名", home: "登记表", work: "Work 的执行 worktree", master: "主工作区"};
+/** “当前情况”按行内 Markdown 显示，反引号与链接不露源码（t22）。 */
+const currentHtml = computed(() => {
+    const data = page.data.value;
+    return data?.task.currentState ? renderInlineMarkdown(data.task.currentState, {checkoutKey: data.task.checkoutKey ?? "main", path: data.task.readmePath, artifactBase: meta.data.value?.artifactBase ?? null}) : null;
+});
 const readmeHtml = computed(() => {
     const data = page.data.value;
     if (!data?.detail.readme.text) return "";
@@ -182,7 +187,7 @@ const peekEvidence = computed(() => {
                 <WriteResult :notice="status.notice.value" @dismiss="status.notice.value = null" @retry="status.retry" />
             </template>
             <LoadState v-if="page.data.value" v-bind="loadStateOf(page)" :subject="`${taskId} 这个 Task`" :up-href="workHref(workId)" up-label="回到 Work" @navigate="navigate" @retry="page.reload()" />
-            <p v-if="page.data.value" :class="page.data.value.task.currentState ? 'nbdev-secondary' : 'nbdev-empty'">当前情况：{{ page.data.value.task.currentState ?? "未标" }}</p>
+            <p v-if="page.data.value" :class="currentHtml ? 'nbdev-secondary' : 'nbdev-empty'">当前情况：<MarkdownView v-if="currentHtml" inline :html="currentHtml" @navigate="navigate" /><template v-else>未标</template></p>
             <UncommittedDialog :open="status.pending.value !== null" :path="status.pending.value?.path ?? ''" :changes="status.pending.value?.changes ?? null" :pending="status.write.pending.value" @confirm="status.confirmUncommitted" @cancel="status.pending.value = null" />
             <!-- 速览面板并排时正文只剩约 680px，放不下阅读宽度的卡片加 22rem 的侧栏：改成一栏，侧栏接在 README 下面。 -->
             <div class="grid grid-cols-1 gap-5" :class="{'lg:grid-cols-[minmax(0,max-content)_22rem]': !(peek && peekMode === 'side')}">
@@ -191,7 +196,7 @@ const peekEvidence = computed(() => {
                     <MarkdownView v-else-if="readmeHtml" :html="readmeHtml" @navigate="navigate" />
                     <p v-else class="nbdev-empty">没有 README</p>
                 </article>
-                <aside class="nbdev-stack-page min-w-0">
+                <aside class="nbdev-stack-page min-w-0" aria-label="产物、提交与证据">
                     <template v-if="page.data.value">
                         <section class="nbdev-stack">
                             <h2 class="nbdev-heading">执行 checkout</h2>

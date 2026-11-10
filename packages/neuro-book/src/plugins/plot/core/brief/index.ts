@@ -15,8 +15,9 @@ import {involvedDecisions} from "../decisions";
 import type {Digest} from "../guards";
 import {appearanceItems} from "./appearance";
 import {DEFAULT_LIMITS, trim} from "./budget";
-import {framesOf, nameOf, participantsOf, planReveals, plansOf, pointsBeforeWriting, type Frame} from "./context";
+import {framesOf, participantsOf, planReveals, plansOf, pointsBeforeWriting, type Participant} from "./context";
 import * as fixed from "./fixed";
+import {makeGate, participantGoalPoints, type Gate} from "./gate";
 import {addressItems, allowedItems, decisionItems, foreshadowItems, peopleItems, planItems, readerItems, sceneItems, selfReportItems} from "./parts";
 import {buildSecrets, routeDecisions} from "./secrets";
 import type {BriefHint, BriefItem, BriefSection} from "./types";
@@ -75,14 +76,35 @@ export function previousTailOf(view: CanonReadView, chapter: string, limit: numb
 
 const lineItems = (text: string): BriefItem[] => text.split("\n").map((line, index) => ({label: `第 ${String(index + 1)} 行`, text: line}));
 
-function instructionLines(frame: Frame, instruction: InstructionSnapshot | undefined): BriefItem[] {
+/** 共同的段（写作指示、称谓）用合并的关卡写名字：这个人在哪一份里不写本名，就用最早那一份的写法（brief.md 输出 16）。 */
+const commonName = (gates: readonly Gate[], id: string) => (gates.find((gate) => gate.kind(id) !== "plain") ?? gates[0]!).name(id);
+
+/** 第几章（按章序）；章不在章序里时为 null。不把章 id 写给写手。 */
+const chapterNumber = (view: CanonReadView, chapter: string) => {
+    const index = view.chapters.indexOf(chapter);
+    return index === -1 ? null : index + 1;
+};
+
+function timeModeText(view: CanonReadView, timeMode: NonNullable<InstructionSnapshot["timeMode"]>): string {
+    if (timeMode === "follow") return "承接";
+    if ("parallel" in timeMode) {
+        const number = chapterNumber(view, timeMode.parallel);
+        return number === null ? "与另一章同时" : `与第 ${String(number)} 章同时`;
+    }
+    const placement = timeMode.flashback as {kind?: string; chapter?: string};
+    if (placement.kind === "prehistory") return "补叙前史里的事";
+    if (placement.kind !== "chapter") return "补叙一段还没排进章序的事";
+    const number = typeof placement.chapter === "string" ? chapterNumber(view, placement.chapter) : null;
+    return number === null ? "补叙另一章的事" : `补叙第 ${String(number)} 章的事`;
+}
+
+function instructionLines(gates: readonly Gate[], instruction: InstructionSnapshot | undefined): BriefItem[] {
     if (instruction === undefined) return [];
     const lines: string[] = [];
     if (instruction.readerChange !== undefined) lines.push(`读完这一章读者该有什么变化：${instruction.readerChange}`);
-    if (instruction.pov !== undefined) lines.push(`视角人物：${nameOf(frame, instruction.pov.id)}`);
+    if (instruction.pov !== undefined) lines.push(`视角人物：${commonName(gates, instruction.pov.id)}`);
     if (instruction.povMode !== undefined) lines.push(`视角方式：${{first: "第一人称", limited: "有限视角", omniscient: "全知"}[instruction.povMode]}`);
-    const timeMode = instruction.timeMode;
-    if (timeMode !== undefined) lines.push(`时间方式：${timeMode === "follow" ? "承接" : "parallel" in timeMode ? `与第 ${timeMode.parallel} 章同时` : `补叙 ${JSON.stringify(timeMode.flashback)} 处的事`}`);
+    if (instruction.timeMode !== undefined) lines.push(`时间方式：${timeModeText(gates[0]!.frame.view, instruction.timeMode)}`);
     if (instruction.tone !== undefined) lines.push(`语气：${instruction.tone}`);
     if (instruction.opening !== undefined) lines.push(`开场：${instruction.opening}`);
     if (instruction.ending !== undefined) lines.push(`结尾：${instruction.ending}`);
@@ -104,40 +126,45 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
         for (const label of dropped) omitted.push(`${title}：${label}`);
         return {key, title, items: [...kept, ...extra]};
     };
-    const first = frames[0]!;
+    // 先给每一份框架算出关卡：共同的段（写作指示、称谓）要看所有份。
+    const framed = frames.map((frame) => {
+        const plans = plansOf(frame, chapter);
+        const participants: readonly Participant[] = participantsOf(plans);
+        const reveals = planReveals(plans);
+        const points = [...new Set([...pointsBeforeWriting(frame, chapter, plans, "planned"), ...participantGoalPoints(frame, chapter, participants)])].sort();
+        const gate = makeGate({frame, chapter, plans, participants, reveals, points});
+        return {frame, plans, participants, reveals, points, gate};
+    });
+    const gates = framed.map((item) => item.gate);
     const common: BriefSection[] = [
-        section("instruction", fixed.TITLES.instruction, instructionLines(first, instruction)),
+        section("instruction", fixed.TITLES.instruction, instructionLines(gates, instruction)),
         section("outline", fixed.TITLES.outline, lineItems(input.outline)),
     ];
     const povId = instruction?.pov?.id ?? null;
-    // 称谓表只写一次：各段（回溯前后）的参与者合在一起。
-    const allParticipants = frames.flatMap((frame) => participantsOf(plansOf(frame, chapter)));
-    const parts: BriefPart[] = frames.map((frame, frameIndex) => {
-        const plans = plansOf(frame, chapter);
-        const participants = participantsOf(plans);
-        const reveals = planReveals(plans);
-        const points = pointsBeforeWriting(frame, chapter, plans, "planned");
-        const secrets = buildSecrets(frame, points, participants, reveals, povId, instruction?.povMode);
+    const parts: BriefPart[] = framed.map(({frame, plans, participants, reveals, gate}, frameIndex) => {
+        // 关卡的集合在传进去的集合上并了这一场戴着的马甲的整组揭穿（输出 16）。
+        const points = gate.points;
+        const secrets = buildSecrets(gate, points, participants, reveals, povId);
         const decided = involvedDecisions(frame.view, chapter, "planned", points);
         const decidedFull = decided.filter((decision) => decision.status === "decided").map((decision) => frame.view.object({kind: "decision", id: decision.id}) as Decision);
         const pendingDue = decided.filter((decision) => decision.status === "pending" && decision.due !== null && frame.view.chapters.indexOf(decision.due) !== -1 && frame.view.chapters.indexOf(decision.due) <= frame.view.chapters.indexOf(chapter)).map((decision) => frame.view.object({kind: "decision", id: decision.id}) as Decision);
-        const routing = routeDecisions(frame, decidedFull, secrets);
+        const routing = routeDecisions(gate, decidedFull, secrets);
         const frameHints: BriefHint[] = [...secrets.hints];
-        const people = peopleItems(frame, chapter, participants, secrets, povId);
-        // 绝密而本章不暗示也不揭示的，名字就是真相，不写出来。
-        const secretItems: BriefItem[] = secrets.items.map((item) => ({label: item.hidden ? "绝密设定" : item.name, text: [...(item.hidden ? [] : [item.name]), ...item.lines, ...(routing.inSecrets.get(item.point) ?? [])].join("\n"), protect: true}));
+        const people = peopleItems(gate, chapter, participants, povId);
+        // 不给内容的那一项，名字就是真相，不写出来。
+        const secretItems: BriefItem[] = secrets.items.map((item) => ({label: item.hidden ? fixed.HIDDEN_NAME : item.name, text: [...(item.hidden ? [] : [item.name]), ...item.lines, ...(routing.inSecrets.get(item.point) ?? [])].join("\n"), protect: true}));
         const sections: BriefSection[] = [
-            section("plan", fixed.TITLES.plan, planItems(frame, plans, secrets, participants, chapter)),
+            section("plan", fixed.TITLES.plan, planItems(gate, plans, chapter)),
             ...(frameIndex === 0 ? [section("rules", fixed.BRIEF_PARTS.rules, fixed.RULES.map((text) => ({label: text.slice(0, 8), text, protect: true})))] : []),
             section("secrets", fixed.BRIEF_PARTS.secrets, secretItems),
             {...section("people", fixed.BRIEF_PARTS.people, people.items), items: [{label: "说明", text: people.header, protect: true}, ...trim(people.items, limits.people ?? Infinity).kept]},
             section("scene", fixed.BRIEF_PARTS.scene, sceneItems(plans, chapter, frameHints)),
-            ...(frameIndex === 0 ? [section("address", fixed.BRIEF_PARTS.address, addressItems(frame, allParticipants, povId, instruction?.povMode, secrets))] : []),
-            section("foreshadow", fixed.BRIEF_PARTS.foreshadow, foreshadowItems(frame, chapter, plans, secrets, frameHints)),
-            section("decisions", fixed.BRIEF_PARTS.decisions, decisionItems(frame, routing.inDecisions, pendingDue)),
-            section("reader", fixed.BRIEF_PARTS.reader, readerItems(frame, chapter, points, secrets)),
+            ...(frameIndex === 0 ? [section("address", fixed.BRIEF_PARTS.address, addressItems(gates, framed.map((item) => item.participants), povId, instruction?.povMode))] : []),
+            section("foreshadow", fixed.BRIEF_PARTS.foreshadow, foreshadowItems(gate, chapter, plans, frameHints)),
+            section("decisions", fixed.BRIEF_PARTS.decisions, decisionItems(gate, routing.inDecisions, pendingDue)),
+            section("reader", fixed.BRIEF_PARTS.reader, readerItems(gate, chapter, points, secrets)),
             ...(frameIndex === frames.length - 1 ? [section("allowed", fixed.BRIEF_PARTS.allowed, allowedItems(instruction)), section("selfReport", fixed.BRIEF_PARTS.selfReport, selfReportItems())] : []),
-            section("appearance", fixed.TITLES.appearance, appearanceItems(frame, chapter, secrets)),
+            section("appearance", fixed.TITLES.appearance, appearanceItems(gate, chapter)),
         ];
         hints.push(...frameHints);
         return {label: frame.label, sections};

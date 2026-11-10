@@ -29,6 +29,22 @@ describe("presentDrag", () => {
         expect(presentDrag(input({source: null})).ghost).toBe(false);
     });
 
+    it("实时布局里卡片收回、指针在标签条上：标签自己在条里跟手，不要拖影；落点指示照样要拖影", () => {
+        const onStrip = dropOf({kind: "strip", panel: "sidebar", index: 1});
+        expect(presentDrag(input({drop: onStrip})).ghost).toBe(false);
+        expect(presentDrag(input({drop: dropOf({kind: "reveal", panel: "sidebar"})})).ghost).toBe(false);
+        expect(presentDrag(input({drop: onStrip, lifted: true})).ghost).toBe(false);
+        expect(presentDrag(input({drop: onStrip, live: false})).ghost).toBe(true);
+        expect(presentDrag(input({drop: dropOf({kind: "center", panel: "auxiliarybar"})})).ghost).toBe(true);
+    });
+
+    it("拿起的是面板唯一的标签：那块面板是空位，头不留在原地；面板里还有别的标签时不是", () => {
+        expect(presentDrag(input({lifted: true})).slotPanel).toBe("sidebar");
+        expect(presentDrag(input({lifted: false})).slotPanel).toBeNull();
+        const two: LayoutDoc = {...doc, panels: {...doc.panels, sidebar: {role: "tool", name: "sidebar", tabs: [{kind: "view", viewId: "nbook.explorer"}, {kind: "view", viewId: "nbook.other"}], active: TAB}}};
+        expect(presentDrag(input({lifted: true, rendered: two})).slotPanel).toBeNull();
+    });
+
     it("长出新块时，来源落进去的那块是空位", () => {
         const action: LayoutDropAction = {kind: "edge", target: {kind: "split", panel: "panel", edge: "right"}};
         expect(presentDrag(input({shownAction: action})).slotPanel).toBe("sidebar");
@@ -60,10 +76,9 @@ describe("presentDrag", () => {
         expect(presentDrag(input({drop: dropOf({kind: "center", panel: "sidebar"}, true)})).feedback.kind).toBe("noop");
     });
 
-    it("分区：实时布局画在卡片后面，落点指示画在反馈层", () => {
+    it("分区只有落点指示画；实时布局不画", () => {
         const sectors = {rect: {left: 0, top: 0, right: 1, bottom: 1}, items: [], active: null};
         const drop = {...dropOf({kind: "center", panel: "auxiliarybar"}), sectors};
-        expect(presentDrag(input({drop})).liveSectors).toBe(sectors);
         expect(presentDrag(input({drop})).feedbackSectors).toBeNull();
         expect(presentDrag(input({live: false, drop})).feedbackSectors).toBe(sectors);
     });

@@ -1,0 +1,780 @@
+w00043 t02 独立设计：两端宿主的通用部分与模型服务放到哪里、怎么切
+作者：Sonnet（独立设计，没读 t02 的 plan.md）
+依据：读过 docs/proposals/neurobot.md 第三节与第四节第 2、3、8、10 小节、ADR 0025/0029/0030/0033、docs/specs/runtime/server-host.md，
+以及 packages/neuro-book/src/server、web/host、plugins/http、plugins/models、project/start.ts、nb-runtime 与 nb-harness 的 package.json 和相关源码。
+全程只读，没有跑构建与测试；下面凡写“确认”的都是读源码的结果，写“推断”的没有运行证据。
+
+====================================================================
+0. 结论（先看这一节）
+====================================================================
+
+新建两个包，都不发 npm（private），都不动 nb-runtime 与 nb-harness：
+
+  A. packages/nb-host    两端宿主的通用部分（服务端、浏览器、两端共用的协议），一个包，按子路径分层
+  B. packages/nb-models  模型服务的通用部分（配置形状、纯规则、远程合同的定义对象、核心），依赖 nb-runtime 与 nb-harness
+
+要点：
+  1. 凡是“带应用名的字面量”（环境变量前缀、套接字名前缀、插件 id、服务键 id、远程合同 id、存储键、界面文案里的应用名、
+     内核平台档案）一律由应用以 profile 或参数传入，包里不定义。内核硬性规定服务键与远程合同 id 要以“插件 id/”开头，
+     所以 nb-models 只导出合同的定义对象（methods、events、version），应用自己用 `nbook.models/…` 的 id 调 defineRemoteService。
+  2. 服务端不是“整份 start.ts 搬过去再参数化”，而是包里一个小编排函数 startServer，收四个钩子：assemble（能力与插件）、
+     router（项目回调，可选）、attach（排空前后的额外步骤，可选）、claimExtra（认领应答的扩展字段，可选）。
+     项目管理器、第三方插件清单、开发任务、引导路由全部留在 NeuroBook 的 start.ts，由它组装在包之上。
+  3. HTTP 抽整个“准入 + 分发 + 静态 + http.routes 合同 + 插件工厂”，不是只抽那 20 行来源核对。理由是来源核对必须在分发器里
+     “先于一切路由”执行，只抽判定函数，等于把“每条路由都被核对”这个性质交给每个应用的分发器各自保证。Hono 不进包。
+  4. “来源核对放不放得过”不交给应用：包的 startServer 只给应用一个 ctx.plugins.http(...) 造 HTTP 插件，allowOrigin 由包按
+     allowedOrigins 加实际监听端口算出来，同一个函数实例喂给 HTTP 与 RPC 升级，应用拿不到、也换不掉。
+  5. 设置服务的依赖换成一个窄接口 ModelsConfigPort（五项配置各一个小槽位：读当前值、读用户层、带期望值写回、变化通知），
+     NeuroBook 写一个约 60 行的适配器。包同时导出针对这个接口的契约测试，NeuroBook 与 NeuroBot 各用自己的真实适配器跑一遍。
+  6. 安全不变量的测试分两层：包里用“acme 档案”的最小服务端，经真实子进程、真实回环套接字与真实 WebSocket 握手测每一条；
+     包导出一个一致性套件，NeuroBook 与 NeuroBot 各自对着自己的真实产品入口再跑一遍，防“包对、应用接线漏了”。
+  7. 有两个不在简报清单里、但包离不开的附带依赖，需要开发者拍板：诊断的 JSONL 日志出口（plugins/diagnostics/backend，约 600 行，
+     含 proper-lockfile）和文件锁 backend/locked-replace（241 行，状态根认领用它的 holdLock）。建议一并进 nb-host，
+     否则 NeuroBot 只能抄一份。理由与替代见第 2.9 节与第 6 节。
+
+====================================================================
+1. 六个视角的质疑
+====================================================================
+
+1.1 反对与精简：能不能更少
+----------------------------------------------------------------
+问：开发者已定要抽，那么最小切面在哪？依据的判据是“NeuroBot 不抽就得重写、且重写后会出现第二份有微妙时序的代码”。
+
+  逐块过一遍：
+  - 回环与来源判定（config.ts 的 LOOPBACK_HOSTS、loopbackOrigins、parseOrigins，dispatch.ts 的 LOOPBACK_HOSTS 与 SAFE_METHODS）：
+    必须抽。现状 NeuroBook 里回环名单就有两份（config.ts 一份写 “::1”，dispatch.ts 一份写 “[::1]”），说明这块天然容易漂。
+    抽包时合成一份，写在 protocol/loopback.ts。
+  - 状态根认领（instance.ts 301 行）：必须抽。套接字探测、3 秒无应答不接管、崩溃留下的文件清理、只删自己建的文件，
+    每一处都有真实进程测试在守，复制过去没有意义。
+  - RPC 端口监听（rpc/listener.ts 141 行）与端口顺延（ports.ts 68 行）：必须抽。NeuroBook 的开发监督进程也用顺延的函数。
+  - 宿主适配器（host.ts 162 行：信号、标准输入 stop、未处理异常汇合为一次停止）：必须抽。项目子进程（project/start.ts）
+    已经在用它（location: "project"），所以它早就是被两个入口共用的东西。
+  - start.ts（462 行）：只抽通用的一半（约 300 行：诊断存储、准入、远程节点与路由、RPC 监听与顺延、双排空、退出码、
+    认领的 publish/stopping/release、致命通道）。这是全仓最容易写错时序的代码，注释里记着几处只有真实故障才暴露的顺序约束
+    （例如启动失败要通知两次：紧急报告时先拒绝等待中的请求，内核关闭完成后再补报）。让 NeuroBot 重抄这段，等于每个应用重新踩一遍。
+  - process.ts（189 行）：抽成通用的运行器，NeuroBook 特有的部分（第三方插件准备、OMP 清理）以钩子传入。
+  - HTTP 的 admission、dispatch、static、插件工厂（约 630 行）：抽。判据见 2.4。
+  - 浏览器：只抽 browser-host.ts（93）、connection.ts（118）、remote-session.ts（189）、client-identity.ts（46）。
+    window.ts（538 行）不抽：它混着工作台、第三方插件装载、抢救未保存正文、项目标题、消息目录，全是 NeuroBook 的事。
+    代价是 NeuroBot 的窗口要自己写约 80 行胶水（建节点、建会话、把状态映射成界面状态）。这是有意接受的重复，理由是
+    抽象要看到第二个真实写法才抽得准，只凭 window.ts 一个使用者设计出来的钩子形状大概率不合 NeuroBot；
+    触发条件见第 6 节。
+  - 不抽：项目管理器与项目子进程（server/projects/）、开发监督进程（server/dev/，1666 行含测试，尚未有第二个使用者）、
+    引导路由（browser-bootstrap.ts，内容是 NeuroBook 的插件集合）、插件文件端点、user-directories。
+
+  问：有没有现成的库或仓库里的模块可以替代？
+  - 实例认领：思路来自 VS Code 的 claimInstance，没有现成包；本仓库没有别的模块做这件事。
+  - HTTP 分发：Hono 只管路由。准入、排空、事件流登记、响应体发送完毕才归还在途计数，这些是自写的；Hono 替代不了，
+    反而要把 Hono 作为包的依赖。包里不用 Hono：现在 plugins/http/backend/plugin.ts 只在宿主自有路由（health 加引导）上用了一个
+    Hono 实例，换成一个 Map<路径, 处理器> 的小路由即可（见 2.4）。
+  - WebSocket：Bun 自带。端口探测：70 行，不值得为它引 get-port 这类库。
+  - 仓库里别的“监听回环”的服务（nb-story 的 `nbstory serve`、dev-panel 的面板）：我在 packages/ 下的 ts 与 vue 里搜
+    “421”“misdirected”“origin-not-allowed”“rebind”，只有 neuro-book 的命中（范围限定在这个搜索词，没有逐文件读 nb-story 与 dev-panel）。
+    如果它们确实没有 Host 与 Origin 核对，这是现成的、本任务之外的缺口，包做好后它们可以直接用 server/http，但这不属于 t02，
+    只在第 6 节提一笔，不扩范围。
+
+1.2 成本：开发、发布、构建、类型检查
+----------------------------------------------------------------
+  - 新包两个，都是“以源码为入口”的 workspace 包（exports 指向 .ts），没有构建步骤，和 nb-runtime 一样。
+    NeuroBook 的 `bun build`（build:server）与 Vite 直接把它们当源码打进 bundle，pack-app.ts 的 bundleProblems 只拦外部模块，
+    不受影响（推断：未跑构建）。应用的 npm 产物仍然没有 dependencies（ADR 0033 决定 1）。
+  - 不发 npm：NeuroBook 发的是 bundle，NeuroBot 第一版“只从仓库运行，不发 npm”（提案第五节）。发布意味着 ADR 0029 的“只承诺 Bun”
+    之外再加两个 semver 面、release:check 的清单检查（要求每个源码导入的依赖都写进包自己的 dependencies）、
+    根 README 的包表。没有使用者需要它们，等需要时 private 改成发布是机械的。
+  - 类型检查：nb-host 仿 nb-runtime 两份配置：tsconfig.json（Bun 类型、不带 DOM，查 src/server 与 src/protocol）、
+    tsconfig.browser.json（DOM、不带 Bun 与 Node 类型，查 src/browser 与 src/protocol）。这样浏览器入口误用 Bun 或 Node 全局
+    会在类型检查时就失败，不靠 NeuroBook 的 vue-tsc 碰巧发现。nb-models 同样两份：./config 与 ./contract 查浏览器配置，
+    ./core 查 Bun 配置。
+  - 登记处（读 scripts/ci、.github 后确认没有按包名硬编码的清单）：根 package.json 的 workspaces；
+    根 AGENTS.md 仓库结构图；packages/AGENTS.md 的成员列表；docs/modules/monorepo-boundaries.md 的当前布局表；
+    NeuroBook 的 package.json 加两条 workspace 依赖；`bun install`。不需要动 scripts/release/packages.ts（不发布）。
+  - 工作量估计（行数按现有非测试代码，推断）：nb-host 约 3,200 行（服务端通用 1,300、HTTP 630、诊断出口 600、文件锁 240、
+    浏览器 450、协议 130），nb-models 约 700 行（core 555 加合同与规则 220 减去留在应用的部分）。测试随代码走，约 1,800 行。
+    绝大多数是搬迁加去耦，真正新写的是：profile、startServer 的钩子、ModelsConfigPort 与适配器、一致性套件、两个扫描测试。
+
+1.3 使用者体验：NeuroBook 与 NeuroBot 的宿主作者装配起来顺不顺
+----------------------------------------------------------------
+  判据：NeuroBot 的 gateway 入口应该是“一个 profile、一个 assemble、几行入口”，看不到端口顺延、排空顺序、退出码、认领细节。
+  按本设计，NeuroBot 的服务端入口大致是（示意，不是最终代码）：
+
+    // packages/neuro-bot/src/gateway/main.ts
+    import "@notnotype/nb-host/server/startup-env";      // 第一条导入，零依赖，先于任何求值 OMP 的模块
+    import "./omp-process";                              // 第二条，应用自己的 13 行（nb-host 不依赖 nb-harness）
+    const {runServerProcess} = await import("@notnotype/nb-host/server");
+    const {NEUROBOT_HOST, assemble} = await import("./host");
+    await runServerProcess(NEUROBOT_HOST, {version: PRODUCT_VERSION, assemble, cleanup: () => ompProcess.cleanup()});
+
+  profile 里是 displayName、envPrefix、socketPrefix、平台档案、缺省端口。assemble 返回 NeuroBot 的能力与插件。
+  不需要项目管理器：router 钩子不给就是内核缺省（bindProject 缺省时拒绝绑定，projectAccess 缺省时拒绝，已在 nb-runtime
+  remote/router.ts 确认两者都是可选）。
+  浏览器一侧：`new BrowserRuntimeHost({platform})`、`createConnection(location.origin)`、`createRemoteSession({...protocolVersion})`。
+  有意不顺的一点：NeuroBot 的窗口骨架还要自己写（见 1.1），换来的是不为单个使用者设计钩子。
+  要写进 nb-host 的 AGENTS.md 的“怎样接一个新应用”清单：profile、第一条导入、assemble、引导协议版本号、一致性套件，共五步。
+
+1.4 迁移与兼容：NeuroBook 现有行为、e2e、开发监督进程、npm 构建产物
+----------------------------------------------------------------
+  “行为不变”的可验证形式是下面这张可观察字面量表，抽包时一个都不许变，迁移后用现有测试对它们逐项核对：
+    - 环境变量：NBOOK_STATE_ROOT、NBOOK_HOST、NBOOK_PORT、NBOOK_RPC_PORT、NBOOK_ALLOWED_ORIGINS、NBOOK_WEB_ROOT（由 envPrefix 推出），
+      NBOOK_PROJECT_GRACE_MS、NBOOK_PROJECT_START_MS、NBOOK_PROJECT_STOP_MS（留在 NeuroBook，解析时复用包导出的 parseDuration）；
+      命令行 --stop-stdin。
+    - 标准输出两行：`Listening on <地址>`、`RPC listening on <ws 地址>`（backend-process.ts、scripts/smoke-server.ts、
+      e2e/fixtures.ts 都在用正则解析它们；scripts/check-dist.ts 还要求服务端 bundle 里含 "Listening on" 与 "nbook.http" 两个字符串）。
+    - 认领：文件名 server.sock、server.claim.lock，长路径回退 `$XDG_RUNTIME_DIR/nbook-<哈希>.sock`，Windows `\\.\pipe\nbook-<哈希>`
+      （socketPrefix 传 "nbook"），hello 请求与应答的字段（schema: 1、pid、version、kind、status、url、rpcUrl、plugins）。
+    - 诊断事件名与致命通道：`runtime.state-root.busy / unwritable / claim-failed`、`runtime.config.invalid`、`runtime.startup.failed`、
+      `runtime.startup.causes`、`runtime.stop.incomplete`、`runtime.stop.emergency`、`runtime.diagnostics.flushFailed`、
+      `server.ports.shifted`、`rpc.upgrade.failed`、`http.listening`、`http.request.failed`、`http.request.aborted`、`process.uncaught-exception`、
+      `process.unhandled-rejection`、`instance.claim.*`、`instance.socket.*`；致命通道仍是同步写一行 `{level:"fatal", event, …}` JSON 到标准错误。
+    - HTTP 响应码与错误体：421 `misdirected-host`、403 `origin-not-allowed`、503 `startup-failed` 与 `stopping`、503 `plugin-unavailable`、
+      404 `not-found`、405 `method-not-allowed`、500 `internal-error`，错误体仍是 `{error:{code,message}}`；/api/runtime/health；
+      RPC 端口的 404、426、503、403、400、500。
+    - 退出码：0、1、75（租约失效，由 NeuroBook 的存储插件触发，不在包里）、76（看门狗，不在包里）。
+    - 日志位置：`<状态根>/logs/server-current.jsonl`。
+    - 服务键与远程合同 id：`nbook/state-root`、`nbook/startup-env`、`nbook/clock`（SDK 的 index.ts 还把 clockKey 与 stateRootKey 以
+      hostClockKey、hostStateRootKey 导出给第三方插件，已确认），`nbook.models/models`、`nbook.models/settings`，设置键
+      `nbook.models/providers` 与 `nbook.models/roles`（用户磁盘上的数据）。这些 id 一个都不进包，包里不 defineServiceKey。
+    - 客户端身份的存储键 `nbook.client-identity`（Spec browser-host.md 写死了它）。
+  开发监督进程（server/dev/run.ts）只改导入：`loopbackOrigins`、`freeGroupOffset`、`PORT_SHIFT_ATTEMPTS` 改从 nb-host 取；
+  其余（Vite、监视、重启）留在应用。cli/*.ts 里取 `queryInstance`、`claimStateRoot`、`readServerConfig`、`runServerProcess`、`claimReport`
+  的地方改成从 nb-host 取（套上 NeuroBook 的 profile）。project/start.ts 取 `startServerHost`、`ProcessEvents`、`FatalKind`，
+  包里的宿主适配器必须保留 `location: "server" | "project"` 与 `signals` 参数（项目子进程只认 SIGTERM，已确认）。
+  同时注意 startup-env.ts 与 omp-process.ts 的“第一条、第二条导入”规则：startup-env 搬进包后仍是零依赖模块，
+  打包后的顺序由现有的 startup-env.test.ts（真实子进程探针）守住；omp-process 不搬（它依赖 nb-harness/process-guard），
+  所以 runServerProcess 收一个 cleanup 钩子，替代现在的 exitAfterOmpCleanup。
+  e2e：Playwright 起的是应用自己的探针服务端与产品入口，不直接引用被搬走的路径（e2e/fixtures.ts 只解析上面两行标准输出），
+  预期不需要改 e2e 文件，但迁移每一片之后仍要跑覆盖服务端宿主、认领、dev 监督的那几组（推断）。
+
+1.5 可观测与排障
+----------------------------------------------------------------
+  - 事件名与错误码见上表，原样保留。新增的只有一类：包的 profile 校验失败（envPrefix 不合法等）按 `runtime.config.invalid` 报。
+  - 面向人的文案里的应用名（`NeuroBook 正在关闭。`、`NeuroBook 暂不接受 RPC 连接。`、`NeuroBook 启动失败。`、环境变量名）
+    由 profile.displayName 与 envPrefix 拼出，NeuroBook 的字符串与现在逐字相同。
+  - 两个应用同机运行时的排障：认领的 hello 应答加一个可选字段 `app`（取 socketPrefix），读者容忍缺失。
+    这样 NeuroBook 命令行指到 NeuroBot 的数据目录时，报“已被 nbot 的实例占用”而不是“应答无法识别”。成本很小，但属于新增，
+    列入第 6 节让开发者决定要不要。两个应用的缺省数据目录与缺省端口本来就不同，不加也不会互相认领。
+  - 缺省端口建议：NeuroBot 的缺省 HTTP 与 RPC 端口个位数与 NeuroBook（4217、4218）不同（例如 4227、4228）。顺延步长是 100、
+    至多 10 组，个位数不同就永远不会顺延到对方的端口上。这是 NeuroBot 自己 Spec 的事，只在这里提醒。
+
+1.6 长期维护与技术债：同一类代码会不会出现两份；包会不会越长越大
+----------------------------------------------------------------
+  - 两份的风险点，逐个给对策：
+    a) 回环名单在 NeuroBook 里已有两份（见 1.1），合成一份放 protocol/loopback.ts，配置解析与分发器都从那里取。
+    b) NeuroBot 的窗口骨架（1.1）：接受重复，写明触发条件。
+    c) 设置页的界面（models/web/components 下约 22 处导入对应的组件）：简报定“留在应用”。NeuroBot 要复制的话就是两份。
+       NeuroBot 不依赖 neuro-book，不能直接用这批组件。预案：第一版做简版设置页，等界面稳定后再把这批组件抽成 nb-models 的
+       ./vue 子路径（依赖 nb-ui）。两种都不属于 t02，列入第 6 节 D4。
+    d) 开发监督进程（server/dev/ 约 800 行非测试）：NeuroBot 开发模式迟早要一份。本任务不抽，但把端口、回环这些共用件放进包，
+       使以后抽 ./dev 只需搬监督进程本体。
+    e) 防“应用里又手写一份”的守护：NeuroBook 的 architecture.test.ts 加一条规则，Bun.serve、node:net 的 createServer、
+       `new WebSocket(` 只许出现在 server/dev/（试探端口）与测试里；NeuroBot 同样加。机检，不靠人记。
+  - 包不会越长越大的约束不用行数，用“词汇”：
+    * nb-host 的非测试源码（含注释）不出现应用名（正则 /nbook|neurobook|neurobot|nbot/iu，照抄 nb-runtime 的 app-neutral.test.ts，
+      把 nbot 加进去），不导入 `nbook/` 别名，不导入 neuro-book 包名；
+    * 依赖白名单：nb-host 只许 @notnotype/nb-runtime、typebox、proper-lockfile 与 node:*、bun；protocol 与 browser 子树不许 node:*、bun；
+    * nb-models 只许 nb-runtime、nb-harness、typebox；config 与 contract 子路径不许值导入 nb-harness（只许 import type）与 node:*。
+    进包的准入规则：不含应用词汇、不含“项目”“第三方插件安装”“工作台”这类 NeuroBook 概念、有第二个使用者（或第二个使用者已在计划里）。
+    不满足的留在应用。
+  - nb-harness 的边界：nb-models 依赖 nb-harness，反过来不行；另一个计划正在 nb-harness 加扫描测试禁止它依赖 nb-runtime，
+    本设计没有任何要求让 nb-harness 依赖 nb-runtime 或 nb-models，所以不冲突。nb-host 不依赖 nb-harness
+    （omp-process 留在应用），因此 nb-host 的使用者不会被拖进 OMP 原生模块（nb-harness 的依赖里有每平台约 122 MB 的原生插件，
+    见 pack-app.ts 的注释）。这也是模型服务不能和宿主放同一个包的原因。
+
+====================================================================
+2. 方案
+====================================================================
+
+2.1 包与依赖总表
+----------------------------------------------------------------
+  包名与位置                         作用                                         运行时依赖                                   发布
+  packages/nb-host                   两端宿主通用部分、HTTP 来源核对、认领        @notnotype/nb-runtime、typebox、proper-lockfile  private
+  packages/nb-models                 模型服务的配置形状、规则、合同定义、核心     @notnotype/nb-runtime、@notnotype/nb-harness、typebox   private
+  packages/nb-runtime（不动）         内核                                         typebox                                      已发
+  packages/nb-harness（不动）         模型目录、凭据库、解析                       OMP 系列（含原生模块）等                       已发
+  应用 neuro-book / neuro-bot        依赖上面两个包；neuro-bot 不依赖 neuro-book
+
+  依赖方向：应用 → nb-host、nb-models；nb-models → nb-harness、nb-runtime；nb-host → nb-runtime；
+  nb-host 与 nb-models 互不依赖；任何包不依赖应用；nb-harness 与 nb-runtime 不依赖这两个包。
+  测试依赖：@notnotype/neuro-book-test-support（createTestTmpRoot、waitUntil）、@types/bun，都是 devDependencies。
+
+  回答“已有包的新子路径还是新包”：
+  - nb-runtime 的新子路径：否。nb-runtime 的 AGENTS.md 与 package.json 规定运行时依赖只有 TypeBox、两份 tsconfig 分别拦 Bun/Node 全局和
+    DOM 全局，已发 npm。服务端宿主要 Bun.serve、node:net、node:fs、proper-lockfile，浏览器宿主要 WebSocket、fetch、localStorage 的注入面，
+    模型核心要 nb-harness（带 OMP 原生模块），都违反 ADR 0030 决策 1。
+  - nb-harness 的新子路径：否。模型服务要 nb-runtime 的 eventSource、RemoteImplementation 与服务键，而 nb-harness 不能依赖 nb-runtime
+    （nb-story 依赖 nb-harness，另一个计划正在加扫描测试）。
+  - 一个包放宿主加模型：否。模型包必然带 OMP 原生依赖，宿主包不应该带。
+  - 服务端、浏览器各一个包：否。理由见第 5 节。
+
+2.2 nb-host：子路径与服务端、浏览器的分界
+----------------------------------------------------------------
+  packages/nb-host/package.json 的 exports（全部指向 .ts 源码）：
+
+    "./protocol"            src/protocol/index.ts       前后端共用，零 I/O，不引 node:、bun；浏览器配置与 Bun 配置都查它
+    "./server"              src/server/index.ts         配置、端口、认领、宿主适配器、RPC 监听、startServer、runServerProcess
+    "./server/http"         src/server/http/index.ts    准入、分发（Host 与 Origin 核对）、静态文件、http.routes 合同、插件工厂
+    "./server/diagnostics"  src/server/diagnostics/index.ts   JSONL 日志出口与 runtime.diagnostics 的后端入口（见 2.9）
+    "./server/file-lock"    src/server/file-lock.ts     holdLock、replaceLocked 等（见 2.9）
+    "./server/startup-env"  src/server/startup-env.ts   零依赖，只做 process.env 快照；入口的第一条导入
+    "./server/testing"      src/server/testing/index.ts 真实依赖的测试辅助与一致性套件（只测试引用）
+    "./browser"             src/browser/index.ts        BrowserRuntimeHost、createConnection、createRemoteSession、readClientIdentity
+
+  分界：
+  - protocol（两端共用，零 I/O）：RPC_PATH、RPC_MAX_MESSAGE_BYTES、createSocketLink 与 SocketLink（现 shared/rpc-socket.ts，原样搬）、
+    BOOTSTRAP_PATH（`/api/runtime/browser-bootstrap`）、引导响应的“基础形状”BootstrapBaseSchema（protocolVersion、revision、rpc）、
+    declaredProtocolVersion、loopback.ts（回环主机名单、loopbackOrigins、isLoopbackHostname）。
+  - server：一切要 Bun 或 node 的东西。只能依赖 protocol，不依赖 browser。
+  - browser：一切要 fetch、WebSocket、页面事件的东西（经注入，不直接碰 DOM 类型，保持 bun test 可测）。只能依赖 protocol，不依赖 server。
+  - 类型隔离：tsconfig.json（Bun 类型，include src/server、src/protocol、测试）与 tsconfig.browser.json（DOM、`types: []`，
+    include src/browser、src/protocol）；包的 typecheck 脚本两份都跑。另有边界测试 boundary.test.ts 按导入语句检查
+    “browser 与 protocol 不引 node:、bun、../server”，因为 Bun 能解析两侧，打包与类型检查不一定拦得住（照搬 NeuroBook 的
+    architecture.test.ts 的理由）。
+
+2.3 “应用名与配置不进包”：逐个字面量的去处
+----------------------------------------------------------------
+  现状字面量                                     去处
+  NBOOK_HOST/PORT/RPC_PORT/ALLOWED_ORIGINS/
+    STATE_ROOT/WEB_ROOT 与对应报错文字            profile.envPrefix 推出：`${envPrefix}_HOST` 等
+  缺省端口 4217/4218                             profile.defaultPorts
+  NBOOK_PROJECT_*_MS 与 ServerConfig.projects    留在 NeuroBook：NeuroBook 的 readServerConfig 薄封装 =
+                                                  包的 readServerConfig(...) 加自己的 projects 字段（复用包导出的 parseDuration）
+  server.sock、server.claim.lock                  包内固定（它们不带应用名）
+  nbook-<哈希>.sock、\\.\pipe\nbook-<哈希>        profile.socketPrefix
+  InstanceInfo.plugins（带 NotLoadedSchema，来自   claim 的 extra 扩展：包的 InstanceInfo = 基础字段 加调用方给的一个 TypeBox 对象
+    plugin-platform）                              schema 的字段，平铺在同一层；NeuroBook 传 Type.Object({plugins: …}) 保持线上形状不变
+  NeuroBook 平台档案 NEUROBOOK_PLATFORM           profile.platform（nb-runtime 的 PluginPlatform）；包内 createApplication(platform, host, manifest)
+  nbook/application 的包装                         应用自己保留这个包装给插件用；包不使用它
+  “NeuroBook 正在关闭/启动失败/暂不接受 RPC”      profile.displayName
+  插件 id nbook.http                              ctx.plugins.http({id, …}) 的参数
+  nbook.client-identity                           readClientIdentity(storage, {key})
+  服务键 nbook/state-root、nbook/startup-env、
+    nbook/clock 及 SDK 导出                       全部留在应用的 shared/host.ts；包通过 assemble 返回的 capabilities 接收，不定义
+  HTTP 的 /api/runtime/ 命名空间与 health        包内固定（`runtime` 是内核自己的命名空间，不是应用名）
+  引导协议版本号（现为 5）与 BrowserBootstrap     协议版本号归应用（createRemoteSession 的参数）；包只定义基础形状，应用的完整 schema
+    的 plugins、catalogs、project 字段              用 Type.Intersect(BootstrapBaseSchema, 自己的字段) 组合，读取方容忍多余字段（现状如此）
+  nbook.models/*、nbook.models/providers 等       见 2.7，全留在应用
+  OMP 凭据库路径 <状态根>/agent/credentials.db     留在应用的插件入口（现状就在 models/backend/plugin.ts）；nb-models 只收已打开的 CredentialStore
+  startup-env 快照                                包提供模块；应用在入口第一条导入
+  omp-process（takeOverOmpProcessHandlers）       留在应用；runServerProcess 收 cleanup 钩子
+
+  profile 的形状：
+
+    export interface HostProfile {
+        /** 给人看的名字，进 503 文案与启动诊断：`${displayName} 正在关闭。` */
+        readonly displayName: string;
+        /** 环境变量前缀，必须匹配 /^[A-Z][A-Z0-9]*$/：`${envPrefix}_HOST`。 */
+        readonly envPrefix: string;
+        /** 认领套接字（长路径回退、Windows 命名管道）的文件名前缀：`${socketPrefix}-<哈希>.sock`。 */
+        readonly socketPrefix: string;
+        /** 内核平台档案，建运行实例时带上。 */
+        readonly platform: PluginPlatform;
+        readonly defaultPorts: {readonly http: number; readonly rpc: number};
+    }
+
+  守护：nb-host 的 app-neutral 扫描测试（1.6）；包自己的测试一律用 acme 档案（displayName "Acme"、envPrefix "ACME"、socketPrefix "acme"），
+  于是任何漏掉的 NeuroBook 字面量会让测试失败（例如认领文件名仍叫 nbook-…）。
+
+2.4 HTTP 抽到哪里为止（判据与结论）
+----------------------------------------------------------------
+  判据：被 NeuroBot 重写就会出现第二份、而且这份的安全性质依赖“位置”的最大连通块；且其中不含应用词汇。
+  - 只抽 `rejected()` 那 20 行：不够。Spec 要求来源核对对所有路由（宿主接口、页面资源、插件路由）都先于准入执行，
+    这是分发器里“调用顺序”的性质，不是判定函数的性质。函数在包里、分发器在两个应用里各一份，等于“核对是否先于一切路由”
+    要在每个应用里各证明一次。
+  - 抽到插件工厂：需要的东西是 admission（153，RPC 升级也用它做就绪门，所以 startServer 本来就需要它）、dispatch（230）、
+    static（109）、RouteTable 与 http.routes 合同（约 45）、createHttpPlugin（94）。全部不含应用词汇，除了：插件 id `nbook.http`
+    （改为参数）、三处 “NeuroBook …” 文案（改为 displayName）、Hono 的使用。
+  - Hono 不进包：plugin.ts 里 Hono 只用来搭 health 和宿主自有路由，换成 Map<路径, HostRoute>。`rethrowRouteError` 只用 Error 与
+    Response 的形状，本来就不 import hono，原样搬到 server/http。应用的插件路由仍然可以用 Hono（http.routes 的处理器只要有 fetch 方法）。
+  - 结构性保证（这是本设计在安全上最关键的一处）：HTTP 插件只能经 startServer 给应用的 ctx.plugins.http(...) 造。
+    它的 allowOrigin 由 startServer 按 config.allowedOrigins 加“实际监听后的 HTTP 端口在三个回环别名上的来源”算出一次，
+    同一个函数实例喂给 HTTP 分发器与 RPC 升级；admission 同样。包不导出 createHttpPlugin 的“可自带 allowOrigin”版本。
+    startServer 在启动前核对应用交来的 plugins 里确实包含 ctx 造出的那个 HTTP 插件对象与诊断插件对象（按对象身份），
+    缺了抛 ServerAssemblyError，致命诊断照常。应用因此既换不掉判定，也漏不掉插件。
+  - 现状里 allowOrigin 的依赖：现在 start.ts 的 allowOrigin 读 `url`（HTTP 端口监听成功后才有值），RPC 升级先过准入门（等就绪）
+    再调它，所以顺序不能反。这一点原样保留，包里的 startServer 保持同样的先后，并在注释里写明（现有 listener.ts 头注释就是这个理由）。
+  - `plugins/http/shared/contracts.ts`（HTTP_ROUTES_POINT、HttpRouteEnv、HttpRouteHandler、rethrowRouteError）搬到
+    nb-host/server/http。NeuroBook 里有 8 个非测试文件按旧路径引用它（files、projects、agent 的路由文件与插件文件），改为从
+    `@notnotype/nb-host/server/http` 导入；不保留旧路径转出。NeuroBook 的 `plugins/http/plugin.ts`（描述符 nbook.http）留着，
+    `plugins/http/backend/` 整个目录删除。
+  - 形状：
+
+    // @notnotype/nb-host/server/http
+    export interface HostRoute {readonly method: "GET"; readonly path: string; handle(request: Request): Response | Promise<Response>}
+    export interface HttpPluginSpec {
+        /** 插件 id，例如应用的 "nbook.http"。 */
+        readonly id: string;
+        /** 挂在 /api/runtime/ 下的宿主自有接口；/health 由包提供。 */
+        readonly hostRoutes?: ReadonlyArray<HostRoute>;
+    }
+    // 在 ctx 上：ctx.plugins.http(spec: HttpPluginSpec): PluginDefinition
+
+2.5 服务端接口形状
+----------------------------------------------------------------
+  配置（@notnotype/nb-host/server）
+
+    export interface ServerConfig {
+        readonly host: string;            // 只许 127.0.0.1、::1、localhost，否则 ServerConfigError("non-loopback-host")
+        readonly port: number;
+        readonly rpcPort: number;
+        readonly shiftPorts: boolean;
+        readonly stateRoot: string;
+        readonly logDirectory: string;    // <stateRoot>/logs
+        readonly webRoot: string | null;
+        readonly stopStdin: boolean;
+        readonly allowedOrigins: ReadonlyArray<string>;   // 每项必须是回环主机上的 http 来源
+    }
+    export function readServerConfig(profile: HostProfile, argv: readonly string[], env: Env, cwd: string): ServerConfig;
+    export function parseDuration(name: string, value: string | undefined, fallback: number): number;   // NeuroBook 的项目时限复用
+    export class ServerConfigError extends Error {readonly code: ServerConfigErrorCode}                 // 码集合不变
+
+  NeuroBook 的 ServerConfig 即 `ServerConfig & {projects: {graceMs, startMs, stopMs}}`，由它自己的薄封装产出。
+
+  认领（现 instance.ts，去耦后）
+
+    export function claimStateRoot<Extra extends TObject>(profile: HostProfile, options: {
+        stateRoot: string; kind: InstanceKind; version: string; extra?: Extra; report: (event: string, error: unknown) => void;
+    }): Promise<ClaimResult<Extra>>;
+    export function queryInstance<Extra extends TObject>(profile: HostProfile, stateRoot: string, options?: {extra?: Extra; timeoutMs?: number}): Promise<InstanceQuery<Extra>>;
+    export interface StateRootClaim<Extra> {
+        publish(ready: {url: string | null; rpcUrl: string; extra: Static<Extra>}): void;   // hello 应答：基础字段加 extra 的字段（平铺）
+        stopping(): void;
+        release(): Promise<void>;
+    }
+
+  宿主适配器（现 host.ts）：整体搬，签名只改一处：`platform` 作为必填参数（原来写死 nbook/application 的包装）。
+  `location: "server" | "project"`、`signals`、`stopInput`、`beforeStop`、`onFatal`、`process`、`emergency` 全部原样，
+  这样 NeuroBook 的项目子进程（signals: ["SIGTERM"]）不受影响。
+
+  RPC 监听（现 rpc/listener.ts）：整体搬，503 文案改为 displayName。
+
+  startServer（核心，约 300 行，来自 start.ts 通用的那一半）：
+
+    export interface ServerOptions<Claim extends StateRootClaim<any>> {
+        readonly profile: HostProfile;
+        readonly config: ServerConfig;                // 已解析；端口可以是 0
+        readonly claim: Claim;                        // 已认领；startServer 接管它的 publish、stopping、release
+        /** 应用的能力与插件。diagnostics 与 http 两个宿主适配器插件必须从 ctx 取。 */
+        readonly assemble: (ctx: ServerAssemblyContext) => ServerAssembly;
+        /** 内核路由的项目回调（nb-runtime 的 createRemoteRouter 选项）；没有项目概念的应用不给。 */
+        readonly router?: RemoteRouterOptions;
+        /** 运行实例建立后同一个同步段里调用；返回排空与收尾要用的两个函数。 */
+        readonly attach?: (running: {application: Application; router: RemoteRouter; store: DiagnosticsStore}) => ServerAttachment;
+        /** 运行实例可用、认领已发布之后调用；停止已开始则不调用（isStopping）。 */
+        readonly onAvailable?: (ctx: {isStopping(): boolean}) => void;
+        /** 认领应答里 extra 字段的值，就绪时取一次。 */
+        readonly claimExtra?: () => Static<ExtraOf<Claim>>;
+        // 测试缝，沿用现有：clock、process、signals、stopInput、writeFatal、onListening、onRpcListening
+    }
+    export interface ServerAssemblyContext {
+        readonly config: ServerConfig;                // 实际端口已定（RPC 已监听）
+        readonly store: DiagnosticsStore;
+        readonly rpc: {readonly port: number; readonly path: string};
+        readonly onListening: (url: string) => void;  // 交给 ctx.plugins.http 内部，应用一般不用
+        readonly plugins: {
+            http(spec: HttpPluginSpec): PluginDefinition;
+            diagnostics(): PluginDefinition;          // JSONL 出口，目录取 config.logDirectory
+        };
+    }
+    export interface ServerAssembly {
+        readonly capabilities: ReadonlyArray<HostCapability>;   // 应用的宿主能力（状态根、启动环境、时钟、项目……）
+        readonly plugins: ReadonlyArray<PluginDefinition>;      // 必须含 ctx 造的两个
+        readonly backgroundStartupPlugins?: ReadonlyArray<string>;
+        readonly requiredPlugins?: ReadonlyArray<string>;       // 包会并入 runtime.diagnostics 与 http 插件的 id
+        readonly satisfies?: …; readonly gates?: …;             // 透传 ApplicationManifest 的同名字段
+    }
+    export interface ServerAttachment {
+        stopAdmission(): void;                      // 排空的同步段里调用，早于 HTTP 与 RPC 排空
+        shutdownProblems(): ReadonlyArray<string>;  // 停止结算时并入“停止步骤失败”
+    }
+    export interface RunningServer {application; ready; stopped; url; rpcUrl; requestStop(source)}   // NeuroBook 在外面再加 projects
+
+  包负责的：诊断存储与致命通道、紧急报告（启动失败通知两次的顺序）、HTTP 准入、远程节点与路由、RPC 监听与顺延、
+  allowOrigin、宿主适配器、HTTP 与 RPC 的并行排空（20 秒上限）、认领的 publish/stopping/release、退出码换算、ServerStartupError 与
+  ServerAssemblyError。应用负责的：能力、插件、项目、开发任务、引导路由。
+
+  运行器：
+
+    export function runServerProcess<Extra, Prepared>(profile: HostProfile, options: {
+        version: string; kind?: InstanceKind; config?: ServerConfig; claim?: StateRootClaim<Extra>;
+        prepare?: (config: ServerConfig, claim: StateRootClaim<Extra>) => Promise<Prepared>;   // NeuroBook: prepareInstalledPlugins
+        start: (config: ServerConfig, claim: StateRootClaim<Extra>, prepared: Prepared) => RunningServer;
+        cleanup?: () => Promise<void>;                                                          // NeuroBook: ompProcess.cleanup
+        quiet?: boolean; onReady?; onStartupFailed?; onStopped?;                               // 沿用现有
+    }): Promise<never>;
+
+  认领先于任何写状态根的动作、认领失败时的致命诊断与退出码 1、`Listening on`/`RPC listening on` 两行输出，都在这里，字面量不变。
+
+  补充：配置要能被应用扩展。runServerProcess 与 startServer 对配置类型是泛型（C extends ServerConfig），
+  runServerProcess 另收 `readConfig?: (argv, env, cwd) => C`，缺省是包的 readServerConfig；NeuroBook 传带 projects 的版本，
+  这样 main.ts、development-main.ts、cli/start.ts 三条入口读配置的行为不变。
+
+2.6 浏览器接口形状（@notnotype/nb-host/browser）
+----------------------------------------------------------------
+  只有 openRemote 与退避循环是通用的；引导的“取”是通用的，引导的“读”（schema 与版本）是应用的。分工：
+
+    export class BrowserRuntimeHost {
+        constructor(options: {readonly platform: PluginPlatform});          // 原来写死 nbook/application 的包装
+        start(options: BrowserHostOptions): BrowserHost;                    // 其余字段、pagehide 语义、instance table 不变
+        get(instanceId: string): BrowserHost | null;
+    }
+
+    export interface Connection {
+        /** 取引导响应的原始 JSON；query 是附带的查询参数（NeuroBook 传 {project}）。失败抛 ConnectionError。 */
+        bootstrap(query?: Readonly<Record<string, string>>): Promise<unknown>;
+        openRemote(endpoint: RpcEndpoint): Promise<RemoteLink>;
+        /** 取一份相对服务端地址的文本（NeuroBook 用它取消息目录；原 catalog(path) 改名并去掉 NeuroBook 的措辞）。 */
+        fetchText(path: string): Promise<string>;
+    }
+    export function createConnection(baseUrl: string): Connection;          // 引导路径固定为 protocol 的 BOOTSTRAP_PATH
+    export class ConnectionError extends Error {readonly status: number | null}
+
+    export interface RemoteSessionOptions {
+        readonly connection: Connection;
+        readonly node: RemoteNode;
+        readonly clock: RuntimeClock;
+        /** 应用的引导协议版本；重连时先读响应声明的版本，不等就是 incompatible（现有语义，常量改为参数）。 */
+        readonly protocolVersion: number;
+        readonly onState: (state: RemoteSessionState, reason: string | null) => void;
+        readonly onRetryFailed?: (reason: string) => void;
+    }
+    // RemoteSessionState 仍是 "online" | "offline" | "server-restarted" | "project-gone" | "incompatible"：后三个是内核 remote 的终态
+    //（nb-runtime 的 RemoteNode 本身就产出 server-restarted 与 project-gone），不是 NeuroBook 概念；NeuroBot 不绑项目，不会收到 project-gone。
+    // 重连取端点：connection.bootstrap() 后用 BootstrapBaseSchema 检查并取 rpc；应用的完整 schema 是它的超集，
+    // 基础检查对多余字段宽容（TypeBox 对象缺省允许多余字段），所以不需要把“重新取端点”做成注入函数。
+
+    export function readClientIdentity(storage: () => IdentityStorage, options: {readonly key: string}): ClientIdentity;
+
+  留在应用：window.ts（工作台、第三方插件装载、抢救正文、项目标题、消息目录）、text-engine、appearance-hint、locale-hint、
+  plugin-modules、window-plugins、mount、router、boot、createLinkState（它产出 WindowConnection 能力，服务键在应用）。
+  测试：remote-session.test.ts 现在用 NeuroBook 的 RunningServer；搬进包后改用包自己的 acme 最小服务端
+  （这是单包的一个好处：客户端与服务端的往返测试不依赖任何应用）。client-identity.dom.test.ts 若只用注入的存储，
+  改成 bun test 不需要 DOM（推断，未读全文）。
+
+2.7 nb-models：怎么切
+----------------------------------------------------------------
+  现状：models 插件的 core.ts（555 行）是 nb-harness 的 models 模块与 NeuroBook 设置服务之间的接线层；
+  shared/ 里是合同、规则、压缩形状、配置 schema；设置定义（defineSettings）和界面在应用。
+
+  子路径与内容：
+    ./config    浏览器与服务端都用，纯 TS：ModelConfigSchema、ProviderConfigSchema、RoleConfigSchema、ProvidersSchema、RolesSchema（现
+                shared/settings.ts 里不依赖 defineSettings 的那部分）、PROVIDER_ID、BUILTIN_ROLES、DEFAULT_ROLES；
+                CompactionSettingSchema、DEFAULT_COMPACTION、compactionTrigger、effectiveCompaction（现 compaction.ts）；
+                规则 splitReference、roleReference、roleOfReference、referenceOf、providerIdFor、missingContextWindow、rolesUsing、seriesOf（现 rules.ts）。
+    ./contract  浏览器与服务端都用：快照与各方法的 schema（KeyStatusSchema、SnapshotModelSchema、ModelsSnapshotSchema……）、
+                modelsSettingsMethods 与 modelsSettingsEvents（`as const` 的定义对象）、modelsSettingsSpec、ModelsService 接口、
+                ProfileModelDefaults、hasCredentials。对 nb-harness 只有 `import type`（ModelPort）。
+    ./core      只在服务端：createModelsCore(deps)；值导入 nb-harness/models（目录、解析、检测、凭据）与 nb-runtime/remote 的 eventSource。
+    ./testing   ModelsConfigPort 的契约测试套件与一个内存参考实现、假的 OpenAI 兼容端点辅助（现 models.test.ts 里那段 Bun.serve）。
+  留在应用：settings 定义（modelsSettings，含标题、说明、分区 id、nbook.agent.reliability 的分区归属与 group、order）、
+  text.ts 与 locales、builtinRoleNameKey、全部 web 界面与 models-store、插件描述符与入口（打开凭据库、取依赖、登记清理）、测试场地 world.ts。
+
+  远程合同与服务键：应用自己用自己的 id 定义，包只给内容。内核规定服务键以“插件 id/”开头（registration.ts 的 foreign-service-id）、
+  远程合同 id 为“插件 id/名称”（remote/contract.ts），NeuroBook 的插件 id 必须仍是 nbook.models（设置键与用户磁盘上的设置文件都带它）。
+
+    // nb-models/contract
+    export const modelsSettingsSpec = {version: 1, provider: "server", callers: ["browser"], methods: modelsSettingsMethods, events: modelsSettingsEvents} as const;
+    export type ModelsSettingsContract = RemoteContract<typeof modelsSettingsMethods, typeof modelsSettingsEvents, "server">;
+    export interface ModelsService {port(profileDefaults?): ModelPort; snapshot(): ModelsSnapshot; onChange(listener): () => void}
+
+    // 应用 nbook/plugins/models/shared/contracts.ts（保留这个文件：ADR 0025 规定别的插件只引用对方的 shared/contracts.ts）
+    export const modelsKey: ServiceKey<ModelsService> = defineServiceKey<ModelsService>("nbook.models/models");
+    export const modelsSettingsContract = defineRemoteService({id: "nbook.models/settings", ...modelsSettingsSpec});
+
+    // NeuroBot：同一份 spec，id 换成它自己的插件 id
+    export const modelsSettingsContract = defineRemoteService({id: "nbot.models/settings", ...modelsSettingsSpec});
+
+  这是整份设计最容易写虚的一点，所以列为第一个要先跑的小验证：defineRemoteService 的泛型是 `const Methods`，展开 `as const` 对象后
+  推导出的合同类型要能赋给 `RemoteContract<typeof modelsSettingsMethods, typeof modelsSettingsEvents, "server">`，
+  核心返回的 `RemoteImplementation<ModelsSettingsContract>` 才能直接用在应用的 provideRemote 上（推断：RemoteContract 的 id 字段是 string，
+  没有字面量类型依赖，从 contract.ts 的定义看应当成立，未运行类型检查）。
+  约 14 处导入（agent、plot、lab 夹具、web 界面，按 grep 的命中数，含测试）现在从 models/shared/contracts 取类型，迁移后类型与 schema 改为从 nb-models 直接导入，
+  只有两个常量（modelsKey、modelsSettingsContract）留在应用的合同文件；不保留“旧路径转出”。
+
+  对 NeuroBook 设置服务的依赖换成什么：
+  core.ts 对 SettingsService 只用了 get、inspect(...).user、update(..., {expect})、onDidChange 四个方法，没有用 declaration；
+  读的设置项是五个：providers、roles（读写）、compaction、streamFirstEventTimeoutSeconds、streamIdleTimeoutSeconds（只读，每次请求现读）。
+  所以窄接口按“固定字段”给，不是“按定义读任意设置”：
+
+    export type SlotWriteResult =
+        | {readonly ok: true}
+        | {readonly ok: false; readonly code: "conflict"}                          // 期间别处改过，调用方重读重来
+        | {readonly ok: false; readonly code: "invalid-value"; readonly detail: string}
+        | {readonly ok: false; readonly code: string; readonly detail: string};    // 其余一律映射成合同的 settings-unavailable，code 原样带上
+    export type UserLayer<T> = {readonly status: "ok"; readonly value: T | undefined} | {readonly status: "unavailable" | "invalid"};
+    export interface ConfigSlot<T> {
+        read(): DeepReadonly<T>;                         // 当前有效值，同步、不失败
+        readUserLayer(): UserLayer<T>;                   // 用户层的值；层不可写时给状态（原 absent 与 unavailable 合并为 unavailable）
+        write(next: T, expect: {readonly value: T | undefined}): Promise<SlotWriteResult>;   // 带期望值写回（比较并交换）
+    }
+    export interface ModelsConfigPort {
+        readonly providers: ConfigSlot<ProviderConfig[]>;
+        readonly roles: ConfigSlot<RolesConfig>;
+        readonly compaction: Pick<ConfigSlot<CompactionSetting>, "read">;
+        readonly streamFirstEventTimeoutSeconds: Pick<ConfigSlot<number>, "read">;
+        readonly streamIdleTimeoutSeconds: Pick<ConfigSlot<number>, "read">;
+        /** 任一项的有效值变化（含别处改了磁盘文件）；回调带变化的是哪几项。返回取消函数。 */
+        onChange(listener: (changed: ReadonlySet<"providers" | "roles" | "compaction">) => void): () => void;
+    }
+    export interface ModelsCoreDeps {
+        readonly config: ModelsConfigPort;
+        readonly credentials: CredentialStore;     // 应用打开（路径由应用定）
+        readonly env: StartupEnv;
+        readonly record: (level: "info" | "warn", event: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    }
+    export function createModelsCore(deps: ModelsCoreDeps): ModelsCore;   // {service, remote(consumer), close()}，同现状
+
+  NeuroBook 的适配器 `nbook/plugins/models/backend/settings-port.ts`（约 60 行）：对每个槽位，read = settings.get(def)，
+  readUserLayer = settings.inspect(def).user（status ok→ok，absent/unavailable→unavailable，invalid→invalid），
+  write = settings.update(def, next, {expect: {value}}) 并把 SettingWriteResult 的 code 映射过来，onChange 把 settings.onDidChange 的键集
+  映射成 changed 集合。core 里现有的 mutate、changeOf（等视图跟上磁盘，最多 1 秒）、串行队列、冲突重读三次的逻辑不变。
+  NeuroBot 若没有“用户层与项目层”两层，它的适配器就是读一个文件，readUserLayer 恒为 ok。
+  nb-models 对 NeuroBook 的 nbook.agent.reliability 分区一无所知：RUN_GUARDS_SECTION 与 group、order 都在应用的 modelsSettings 里。
+  依赖方向与 nb-harness 的约束：nb-models → nb-harness 是合法方向（nb-story 就是这样用 nb-harness 的）；nb-harness 不得反向依赖 nb-models
+  或 nb-runtime，另一个计划的扫描测试守的正是后者，本设计不需要它放松。
+
+2.8 NeuroBook 怎样组装在包之上（server/start.ts 瘦身后的样子）
+----------------------------------------------------------------
+  NeuroBook 的 src/server/start.ts 保留，约 150 行，只做 NeuroBook 特有的事：
+
+    export function startServer(options: StartServerOptions): RunningServer {
+        let projects: ProjectManager | null = null;
+        const projectsReady = Promise.withResolvers<ProjectManager>();
+        const running = startHostServer({
+            profile: NEUROBOOK_HOST, config: options.config, claim: options.claim,
+            router: {bindProject: (request, client) => projects?.bind(request, client) ?? Promise.resolve({ok: false, reason: "project-unavailable", message: "服务端还没有就绪"}),
+                     projectAccess: (caller, id, generation) => projects?.access(caller, id, generation) ?? "denied"},
+            assemble: (ctx) => ({
+                capabilities: [stateRoot, startupEnv, userDirectories, clock, pluginInventory, {id: "host.projects", key: projectsKey, create: async () => (await projectsReady.promise).provision()}],
+                plugins: manifestServerPlugins(ctx, …),      // 清单驱动；runtime.diagnostics 与 nbook.http 两项取 ctx.plugins.diagnostics()/http({id: "nbook.http", hostRoutes: […引导路由、插件文件端点、目录端点]})
+                backgroundStartupPlugins: [...thirdPartyIds], requiredPlugins: …, satisfies: pluginVersionSatisfies,
+            }),
+            attach: ({application, router, store}) => {                 // 建项目登记表与管理器，resolve projectsReady，返回排空与收尾
+                const manager = createProjectManager({application, router, …});
+                projects = manager; projectsReady.resolve(manager);
+                return {stopAdmission: () => manager.stopAdmission(), shutdownProblems: () => manager.shutdownProblems()};
+            },
+            claimExtra: () => ({plugins: …}),
+            onAvailable: ({isStopping}) => { if (options.devTask && !isStopping()) devTask = options.devTask(…); },
+        });
+        return {...running, projects: projectManager};
+    }
+
+  NeuroBook 里被替换或删除的：server/config.ts（改为薄封装）、ports.ts、host.ts、instance.ts、rpc/listener.ts、process.ts 的通用部分、
+  startup-env.ts、plugins/http/backend/、shared/rpc-socket.ts、shared/browser-bootstrap.ts 中的基础形状与协议常量（完整 schema 留在应用，
+  由基础形状组合）、plugins/diagnostics/backend/（见 2.9）、backend/locked-replace.ts（见 2.9）、web/host/browser-host.ts、connection.ts、
+  remote-session.ts、client-identity.ts。
+  保留的：server/main.ts 与 development-main.ts（改为调用包的运行器，第一、第二条导入不变）、projects/、dev/、plugins.ts（去掉
+  serverHostPlugins 表，两个宿主适配器改经 ctx）、plugin-files.ts、browser-bootstrap.ts、user-directories.ts、omp-process.ts、testing/ 里依赖
+  存储与命令的那几个测试插件、project/ 子进程。
+
+2.9 两个不在简报清单里的附带依赖（需要开发者定）
+----------------------------------------------------------------
+  a) 诊断的 JSONL 出口（plugins/diagnostics/backend/jsonl-exporter.ts 243、log-writer.ts 169、plugin.ts 95，依赖 proper-lockfile 与 nb-runtime
+     的 diagnostics，没有一行应用词汇）。startServer 要“记录能力先于任何插件存在”并把致命诊断落盘到 <状态根>/logs/，
+     没有它，包里的 startServer 就得让应用传一个出口。NeuroBot 也必须有日志。建议随包走，作为 nb-host/server/diagnostics：
+     startServer 的 ctx.plugins.diagnostics() 直接用它。项目子进程也用同一个入口（location: "project"），保留参数。
+     代价是 nb-host 多一个 proper-lockfile 依赖（认领的文件锁本来就要它）和约 600 行搬迁。
+     若不搬：NeuroBot 抄一份或让应用传出口，两种都违背“同一类代码不出现两份”。
+  b) backend/locked-replace.ts（241 行）：认领用它的 holdLock（约 125 行），files 插件（rooted.ts、staging.ts、entry-ops.ts、workspace-files.ts）
+     用它的 replaceLocked，plugin-platform 也把它列为允许引用的共用件（architecture.test.ts 的 PLATFORM_SHARED_UTILITIES）。
+     三个使用者，所以“只拷 holdLock 一份给包”不可取，会出现两份锁实现。建议整体搬进 nb-host/server/file-lock，应用的文件插件与
+     plugin-platform 改从包导入。它放在宿主包里内聚性一般（文件锁不是宿主概念），可接受的原因是它已被宿主的认领使用、不引应用词汇，
+     且拆成独立小包以后只是机械的。替代：单独一个很小的包 nb-file-lock；我不选它，因为 241 行加 proper-lockfile 不值得多一套
+     package.json、tsconfig、登记，等第三个独立使用者出现再拆。
+
+====================================================================
+3. 要守住的不变量与测试
+====================================================================
+
+3.1 安全不变量（NeuroBook 现有规则，提案第四节第 10 小节要求 NeuroBot 同样满足并有验收）
+----------------------------------------------------------------
+  I1 只许监听回环。
+     - 配置：`HOST` 取 0.0.0.0、::、公网名、空白以外的任何非回环值，启动失败（ServerConfigError "non-loopback-host"，致命诊断
+       runtime.config.invalid，退出码 1）；ALLOWED_ORIGINS 里非回环主机、非 http、带路径的项失败（"invalid-origin"）。
+     - 套接字层：HTTP 与 RPC 两个端口都只绑回环。测试用 os.networkInterfaces() 找一个非回环的本机地址，向它的 HTTP 端口与 RPC 端口建
+       TCP 连接，必须被拒绝；机器上没有非回环地址时跳过并在输出里写明跳过原因（不静默通过）。这条比“配置被拒绝”更接近真实的安全性质。
+  I2 HTTP 的 Host 必须是回环名，否则 421 `misdirected-host`（防 DNS 重绑定）。用裸 node:net 套接字手写请求（fetch 不保证能随意设 Host）：
+     evil.example、127.0.0.1.evil.example、localhost.evil.example（后缀欺骗）、空 Host、HTTP/1.0 不带 Host，都是 421；
+     127.0.0.1、localhost、[::1]（带端口、大小写混用）放行。对每一类路由都做：/api/runtime/health、宿主自有路由、一个插件路由、页面资源、
+     不存在的路径、`/%61pi/x`（编码绕过的 /api 前缀）。另一个性质：应用尚未就绪时坏 Host 也立刻得到 421，不会挂着等就绪
+     （核对先于准入）。
+  I3 HTTP 写请求的 Origin：GET、HEAD 以外带了不允许的 Origin（含字面量 `null`）是 403 `origin-not-allowed`；
+     允许集合 = 本进程 HTTP 端口在三个回环别名上的来源（端口取实际监听的端口，包括端口 0 与顺延之后）加 ALLOWED_ORIGINS，比较前按 URL 规范化。
+     放行：允许的来源、不带 Origin 的写请求、任何来源的读请求。拒绝：同主机不同端口、同端口不同主机、http 与 https 不同。
+  I4 RPC 升级的 Origin：带不允许的 Origin 的升级请求得到 403 且不升级；允许的来源升级成功并真的完成 nb-runtime 的 hello 握手
+     （用真实 WebSocket 与真实的远程节点，不手写帧）；不带 Origin 的放行（已知限制，Spec 已写）；非 GET 或非升级请求 426；路径不是 / 404；
+     就绪前升级请求等待，启动失败 503 `startup-failed`，停止中 503 `stopping`。次序：先过门、再核对 Origin（端口 0 时允许集合要等 HTTP 监听后才知道）。
+  I5 HTTP 与 RPC 用同一个判定：测试对同一张来源表（含 `null`、大小写、尾斜杠、别名主机、其它端口）分别走 HTTP 写请求与 RPC 升级，
+     两边放行与拒绝的结果必须逐项相同。结构上也是同一个函数实例（2.4），测试从行为上再证一次。
+  I6 状态根认领：同一状态根只一个实例。真实子进程：先到者认领成功；后到者以 1 退出，致命诊断 runtime.state-root.busy 带对方 pid 与地址，
+     不动状态根；SIGSTOP 暂停第一个实例后，第二个报 busy（3 秒内无应答不接管）；SIGKILL 第一个留下套接字文件后，第三个能认领；
+     八个进程同时认领恰好一个成功；套接字文件权限 0600；长路径回退到运行时目录；hello 应答按 schema 校验，超过 1 MB 或 3 秒不发完请求的连接被断开。
+  I7 停止与排空：信号、标准输入 stop、标准输入关闭、未处理异常汇合为一次停止；先封闭接纳再排空；在途请求完成后才关闭插件；
+     排空超过 20 秒记为未完成、退出码 1；启动失败时等待中的请求得到 503 `startup-failed`；退出码表不变。
+
+3.2 放哪里、用什么真实依赖
+----------------------------------------------------------------
+  真实依赖清单（这些不用替身）：真实子进程（Bun.spawn 跑最小服务端入口）、真实回环与非回环地址上的 TCP 套接字、真实 Bun.serve、
+  真实 WebSocket 与 nb-runtime 的远程节点握手、真实文件系统上的状态根（createTestTmpRoot）、真实信号。时钟用 nb-runtime 的 ManualClock
+  的地方只限“排空截止”这类现有就有注入缝的计时。
+
+  第一层：nb-host 自己的测试（acme 档案）。
+    - 最小服务端入口 src/server/testing/fixture-entry.ts：profile = acme，assemble 只有 ctx 造的两个宿主适配器插件加几个测试插件
+      （慢请求、激活失败、关闭失败、稍后抛未捕获异常、远程探针——现 server/testing/test-plugins.ts 里不依赖存储与命令的那几个搬来）。
+    - 把现 server.test.ts 里属于“宿主”的用例整体搬进来：启动、信号与标准输入停止、排空、关闭隔离、退出码、认领、顺延、RPC 来源、同进程用例；
+      I1 到 I7 在这里逐条写成用例。dispatch.test.ts、admission.test.ts、static.test.ts、listener.test.ts、instance.test.ts、ports.test.ts、
+      config.test.ts 随代码搬。
+    - 因为用 acme 档案，漏掉的 NeuroBook 字面量（例如认领文件仍叫 nbook-…，环境变量仍读 NBOOK_…）会在这里失败。
+    - 浏览器：remote-session.test.ts 与 browser-host.test.ts 搬来，对着包自己的最小服务端做真实往返（断线重连、服务端换进程、协议版本不符）。
+    - 扫描测试：app-neutral.test.ts（1.6）、依赖白名单与 server/browser 分界的边界测试。
+  第二层：一致性套件，防“包是对的、应用接线漏了”。
+    - nb-host/server/testing 导出 `runHostConformance({label, start})`，start 返回 {httpUrl, rpcUrl, stateRoot, stop, spawnSecond}，
+      套件里是 I1 的套接字层、I2、I3、I4、I5、I6 的“第二个实例被拒”各一条。每个应用对着自己的真实产品入口跑一遍：
+      NeuroBook 在 server.test.ts 里对 `server/main.ts`（已有 MAIN 入口用例的位置），NeuroBot 对 gateway 的 main.ts。每个应用只写约 10 行。
+    - 这样 NeuroBot 的“三条来源核对必须满足并有验收”（提案第 10 小节）的验收证据就是同一套件的输出，不另写一遍。
+  第三层：NeuroBook 保留的集成验收：server.test.ts 里项目子进程、第三方插件、存储与命令相关的用例，e2e 里服务端启动与停止，
+    dev 监督进程测试（supervisor.test.ts、run.test.ts），cli.test.ts（认领与 plugin 子命令），startup-env.test.ts（真实子进程探针，
+    守第一条导入的顺序）。迁移每片之后跑受影响的这些，不跑全量（验证门禁）。
+  变异检查（作为 Task 证据，不是产品代码）：实现完成后逐条临时削弱——去掉 Host 核对、把 SAFE_METHODS 改成包含 POST、RPC 升级不调 allowOrigin、
+  HTTP 绑 0.0.0.0、认领不查 hello 应答——确认套件在对应条上失败，把输出存进 Task 的 evidences/（仓库里 w00039 t35 已有同类先例）。
+
+3.3 模型服务的不变量与测试
+----------------------------------------------------------------
+  M1 密钥不出服务端：任何远程响应、事件、快照、诊断记录里都没有密钥原文（设置了密钥之后，把响应与诊断序列化后逐个搜密钥字符串）。
+     放包里，用真实凭据库（nb-harness 的 openCredentials 在临时目录）和内存参考实现的 ModelsConfigPort，因为这条由核心产生，与哪个应用无关。
+  M2 解析表：角色、引用、Profile 缺省、`compaction`、`approval` 用途的解析结论与角色有效性一致；目录漂移只诊断一次；缓存在设置或凭据变化时作废。
+     用本机 Bun.serve 起的假 OpenAI 兼容端点收真实 HTTP 请求（现有做法），不 mock 解析函数。
+  M3 串行写入与冲突重读：并发 20 个写入不丢；期望值冲突时重读重来，三次仍冲突报 write-conflict；写入失败的各码映射不变。
+  M4 窄接口的契约：包导出 `runModelsConfigPortContract(makeFixture)`，检查读写一致、期望值不符得到 "conflict"、外部写入触发 onChange 且带对的键、
+     非法值得到 "invalid-value"、层不可写得到 unavailable 或 invalid、取消订阅后不再回调。
+     包里对内存参考实现跑一遍；NeuroBook 对 settings-port 适配器 + 真实的 settingsWorld（真实设置文件、真实链路）跑一遍；
+     NeuroBot 对自己的适配器跑一遍。这是仓库规则“替身要与真实实现对过契约”的落点。
+  M5 NeuroBook 的行为不变：现有 models.test.ts（settingsWorld + modelsWorld，窗口经真实远程合同调用）原样保留并必须通过；
+     web 界面的 models-store.test.ts 与 Lab 夹具只改导入路径。
+
+3.4 哪些是已有的、哪些是新写的（核实过测试名）
+----------------------------------------------------------------
+  已有、随代码搬进包：instance.test.ts 的认领用例（第二个认领者被拒、SIGSTOP 不接管、SIGKILL 残留不挡、几个进程同时认领恰好一个、
+  长路径回退、应答不合协议当作没有应答、放下认领不被不发请求的客户端挡住、状态根不可写）；dispatch.test.ts 的 421 与 403 用例
+  （主机名非回环或没有主机名一律 421，三个回环名照常；写请求带不允许的来源含 null 是 403）；server.test.ts 的 RPC 来源用例（三个回环别名与
+  ALLOWED_ORIGINS 放行，其它 403）、启动失败 503、排空超时。
+  新写：I1 的套接字层（非回环地址连接被拒）、I2 里后缀欺骗与“核对先于准入”、I5 的 HTTP 与 RPC 逐项一致、一致性套件本体、
+  ModelsConfigPort 的契约套件与适配器、两个扫描测试、server/browser 边界测试、变异检查证据。
+
+====================================================================
+4. 迁移顺序与每一步的验证
+====================================================================
+
+  先做一个半天的小验证（失败则改设计，不要先搬代码）：
+  V1 类型：在 nb-models 骨架里放 modelsSettingsSpec，在 NeuroBook 一个临时文件里 `defineRemoteService({id: "nbook.models/settings", ...spec})`，
+     确认它能赋给核心返回类型要求的 `RemoteContract<…>`，provideRemote 与 context.remote.use 的推导不退化成 unknown。
+  V2 打包顺序：把 startup-env 放进 nb-host 的临时包，改一个入口，`bun run build:server` 后跑 startup-env.test.ts 的探针，
+     确认包路径下“第一条导入先求值”的性质还在（推断成立，ADR 0033 的 bundle 用 --splitting）。
+  V3 Vite 与 vue-tsc 对 workspace 包的 .ts 源码入口：nb-runtime 已是先例，只需确认 nb-host/browser 在 `tsconfig.web.json` 下通过。
+
+  然后按片推进，每片一个提交，每片“先在原位置去耦、同一提交里搬走、旧位置删净”（不留转出，不留旧入口）：
+  S1  骨架：两个包的 package.json、两份 tsconfig、AGENTS.md、扫描测试；protocol/（rpc-socket、loopback、引导基础形状）、server 的
+      config 与 ports。NeuroBook 的 cli/start.ts、dev/run.ts、shared 与 server 的导入改过去。验证：包的 typecheck 与测试；NeuroBook typecheck；
+      config.test、ports.test、dev 的 run.test 与 supervisor.test。
+  S2  server/http：admission、dispatch、static、合同、插件工厂（去 Hono）。NeuroBook 的 8 个引用文件（另有测试）改导入；plugins/http/backend/ 删除。
+      验证：包里 admission、dispatch、static 测试；NeuroBook 的 files、projects、agent 里挂路由的测试；server.test 里 http 相关用例。
+  S3  file-lock 与 instance（认领）：locked-replace 整体搬，files 与 plugin-platform 改导入（architecture.test.ts 的
+      PLATFORM_SHARED_UTILITIES 改指向包）；instance 去耦（profile、extra）。验证：instance.test、files 的锁相关测试、cli.test、
+      plugin-platform 测试。
+  S4  host（宿主适配器）、rpc/listener、diagnostics（JSONL 出口）。项目子进程 project/start.ts 改导入。验证：host、listener、jsonl-exporter 测试；
+      project 的 child 测试。
+  S5  startServer 与 runServerProcess（这一片最重）：包里写小编排函数、acme 最小服务端与 server 通用用例；NeuroBook 的 start.ts 瘦身为 2.8 的样子；
+      main.ts、development-main.ts、cli/start.ts、fixture-entry 改调用。验证：包的全部 server 测试；NeuroBook 的 server.test.ts（产品入口与项目用例）、
+      server-projects.test.ts、cli.test、dev 测试；`bun run build` 加 check:dist（"Listening on" 与 "nbook.http" 仍在 bundle 里）与 `smoke:server`；
+      e2e 里覆盖服务端启动与停止、dev 监督的几组（改了什么跑什么，不整套）。
+  S6  browser：browser-host、connection、remote-session、client-identity；window.ts 改为传 platform 与 protocolVersion；catalog 改名 fetchText。
+      验证：包里的浏览器测试；NeuroBook 的 window.test、window-catalogs.test、browser-host 相关 dom 测试（vitest）。
+  S7  nb-models（与 S1 到 S6 无依赖，可并行，另一个 worktree）：config、contract、core、testing；NeuroBook 写 settings-port 适配器；
+      约 14 处引用合同的导入与 web/components 下约 22 处导入改路径。验证：包的测试（含契约套件）；NeuroBook 的 models.test.ts、models-store.test.ts、
+      agent 与 plot 里用 modelsKey 的测试、Lab 夹具、`vue-tsc`。
+  S8  一致性套件接入 NeuroBook；变异检查证据；Spec 与 ADR 与登记处。
+  机械迁移（改导入路径、移动测试、改名）可以派规则写死、有测试兜底的 Haiku 或 Sonnet（说明里写清规则、范围、验证命令）；
+  S5 的编排函数、S7 的适配器与窄接口、一致性套件需要设计判断，由主会话写，子代理只做批量改导入。diff 由主会话审、自己跑验证。
+
+  文档与登记（成本别漏）：
+  - 新 ADR（建议编号 0045）：两个 private 包与边界、应用名与 id 一律由应用传入、服务键与合同 id 不进包、HTTP 整体进包的理由、附带依赖（诊断出口与文件锁）的归属、
+    不发 npm 的决定与改判条件。
+  - 新 Spec 或改 Spec：docs/specs/runtime/server-host.md 与 browser-host.md 现在把 `packages/neuro-book/src/server/main.ts` 之类写进术语，
+    环境变量名写成合同。建议保持这两份是 NeuroBook 的行为合同，“通用规则”（回环、421、403、认领、停止序列）仍只写在这一处，
+    加一小节说明它们由 nb-host 实现、NeuroBot 的 gateway Spec（docs/specs/bot/gateway.md）引用这几节并只写差异
+    （环境变量前缀、缺省端口、没有项目子进程），不复制正文——复制就是文字上的两份。docs/specs/models/service.md 同理。
+    这是一项要有人写的工作量，不要当成“顺手改路径”。
+  - docs/modules/monorepo-boundaries.md 加两行；根 AGENTS.md 结构图、packages/AGENTS.md 成员列表；两个包各自的 AGENTS.md
+    （Owner、公开 exports、依赖方向、验证命令，packages.md 规范要求）。
+  - 与 w00032 t32 的冲突面：t32 改 plugins/agent 并把 Agent 通用部分补进 nb-harness；本设计只在 agent 里改“从哪里导入模型类型”，
+    且保留 plugins/models/shared/contracts.ts 里的两个常量，所以冲突面只有导入行。建议 S7 在 t32 合入之后或之前都可，但不要与它同时在一个文件上改。
+
+====================================================================
+5. 考虑过又放弃的备选（各一句理由）
+====================================================================
+  1. 放进 nb-runtime 的新子路径：违反 ADR 0030 决策 1（只依赖 TypeBox、前后端共用、不碰 Bun 与 Node），且已发 npm，会把宿主 API 变成 semver 承诺。
+  2. 放进 nb-harness 的新子路径：模型服务要 nb-runtime，而 nb-harness 不能依赖它（nb-story 依赖 nb-harness，另一个计划在加扫描测试）。
+  3. 宿主与模型放同一个包：模型包带 OMP 原生依赖（每平台约 122 MB），宿主包的使用者不该被拖进来。
+  4. 服务端与浏览器各一个包：两侧共享协议（RPC 链路、引导基础形状、回环名单），拆开要么再出第三个协议包，要么协议放一侧让另一侧依赖它；
+     而 nb-runtime 已示范“一个包两份 tsconfig”能把两侧类型隔开，客户端与服务端的往返测试也能留在一个包里。
+  5. 只抽叶子（来源核对函数、认领、RPC 监听、端口），start.ts 与 process.ts 留应用：NeuroBot 要重抄约 300 行有时序约束的代码，是最该共用的部分。
+  6. 把 start.ts 整体搬走再参数化：它的结构跟着项目管理器、第三方插件、开发任务长出来，参数化的结果是满屏可选项；改为小编排函数加四个钩子，
+     NeuroBook 在外面组装。
+  7. 沿用 ADR 0030 对 plugin-platform 的做法（先在应用内按目录去耦、机检边界，等第二个应用再搬成包）：开发者已定直接抽包，NeuroBot 紧接着开工；
+     但保留它的好处，每一片都“先去耦再搬”，并且边界机检从第一天就有。
+  8. 包里定义 modelsKey 与合同常量：内核要求 id 以插件 id 开头，NeuroBot 得叫 nbook.models 或让 NeuroBook 改 id，后者会改用户磁盘上的设置键。
+  9. 窄接口做成“按 SettingDefinition 读任意设置”的缩小版 SettingsService：会把 NeuroBook 的 defineSettings（依赖 nb-form、插件文字与目录）拖进包。
+  10. 服务键 clockKey、stateRootKey、startupEnvKey 放进包：它们的 id 带 nbook，且 SDK 已把前两个导出给第三方插件，改 id 是兼容性变更。
+  11. HTTP 只抽判定函数：“核对先于一切路由”依赖分发器的调用顺序，函数共用而分发器各写一份，等于每个应用重新证明一次（2.4）。
+  12. 包里用 Hono：只有宿主自有路由用了它，换成一张 Map 即可，不让每个宿主应用被迫带 Hono。
+  13. 把 window.ts 骨架一并抽成 createWindowLink：只有一个使用者，形状会照着工作台与项目来设计；等 NeuroBot 写出自己的版本再对比。
+  14. 把开发监督进程（server/dev/）一并抽：约 800 行非测试代码，依赖 Vite 与 NeuroBook 的后端文件集合规则，NeuroBot 还没有对应需求；
+      只把它共用的端口与回环件放进包，将来抽 ./dev 时只搬本体。
+  15. 文件锁抽成独立小包 nb-file-lock：现在只值一个子路径，三个使用者里两个就在应用内（见 2.9）。
+  16. 两个包发布到 npm：没有使用者（NeuroBook 发 bundle，NeuroBot 第一版只在仓库运行），发布会多出 semver 面与 release:check 约束。
+  17. 不抽诊断出口，让应用传出口：NeuroBot 必须有日志，传出口等于每个应用抄 600 行。
+
+====================================================================
+6. 需要开发者拍板的点、风险与触发条件
+====================================================================
+  要开发者决定（超出简报字面的，我都建议做，但这是你的范围）：
+  D1 诊断 JSONL 出口与文件锁随 nb-host 走（2.9）。不做的话 NeuroBot 要抄 840 行。
+  D2 HTTP 整体进包，不只是“来源核对”（2.4）。不做的话来源核对的位置性质要在两个应用的分发器里各保证一次。
+  D3 认领应答加可选字段 app（1.5）：小改动，纯排障收益，可以不做。
+  D4 NeuroBot 设置页里的模型界面：复制那批组件（两份）、做简版、还是以后抽 nb-models/vue（依赖 nb-ui）。建议第一版做简版，稳定后抽 ./vue。
+  D5 浏览器窗口骨架的重复（约 80 行胶水）：接受，触发条件为“NeuroBot 的窗口骨架写出来后与 window.ts 的同类段落重合超过约 60 行”时抽一个共用函数。
+
+  风险与未验证项：
+  R1 defineRemoteService 展开 spec 后的类型推导（V1）。若不成立，退路是包导出一个 `defineModelsSettingsContract(id)`，内部固定 methods 与 events，
+     返回类型显式标注为包里的 ModelsSettingsContract；应用仍用自己的 id 调它。
+  R2 认领应答的 extra 平铺可能与基础字段重名：包在定义时核对 extra 的键不与基础字段相交，相交抛错。
+  R3 配置与 startServer 的泛型（C extends ServerConfig）会让类型签名变长；若可读性差，退路是 ServerConfig 带一个 `app: Readonly<Record<string, unknown>>`
+     由应用在其上收窄，但那是更弱的类型，我倾向泛型。
+  R4 迁移期间两个版本并存的窗口很短（每片同一提交搬完），但 S5 是大片：建议在 S5 之前先合入 S1 到 S4，S5 单独审查。
+  R5 长验证前看负载（子进程测试多，别的会话在跑时会因超时失败，先区分产品、测试、环境）。
+  R6 我没有验证的：pack-app.ts 对新 workspace 包的打包行为（推断无影响）、Windows 与命名管道路径（现状就未验证）、client-identity.dom.test.ts 能否改成不需要 DOM。
+  R7 范围外观察：我在 packages/ 的 ts 与 vue 里搜“421”“origin-not-allowed”“rebind”只在 neuro-book 命中；如果 nb-story 的 `serve` 与 dev-panel 的面板确实没有
+     Host 与 Origin 核对，包做好后它们可以直接使用 server/http。这不属于 t02，只作记录。
+
+====================================================================
+7. 勘误与补充（交付前复核后追加；以本节为准，与前文冲突处按本节）
+====================================================================
+  7.1 2.4 的“按对象身份核对 ctx 造的插件”要改。读了 plugin-platform/shared/definitions.ts 的 definitionAt（NeuroBook 的 manifestServerPlugins
+      就是经它把描述里的顶层贡献并上去）：它返回 `{...definition, version, contributions}`，是新对象，所以“对象身份”核对在 NeuroBook 上会误判缺失，
+      启动即 ServerAssemblyError。改为：ctx 签发 HTTP 与诊断两个插件时记下 id 和各自的 `entries` 数组元素（spread 复制的是 entries 数组的引用，
+      元素身份保留，已按源码确认），startServer 在拿到应用交来的 plugins 后，按 id 找到定义，核对其入口元素与签发时是同一批对象；
+      id 不在、入口被换掉或被删，都抛 ServerAssemblyError。备选是在 ctx 造的定义上挂一个 symbol 品牌（spread 会复制自有可枚举的
+      symbol 属性），两者任选，我倾向按 id 加入口身份，因为它不依赖属性是否被复制。这仍是 NeuroBook 与 NeuroBot 都绕不开的机制：
+      应用换不掉判定，也漏不掉插件。实现这一片时先写“经 definitionAt 包装后仍通过核对”的用例，再写“换掉入口或漏掉插件时失败”的用例。
+  7.2 1.1 与 1.4 里说的“回环名单两份会漂”不准确，更正：config.ts 本来就有两个集合，用途不同：LOOPBACK_HOSTS（127.0.0.1、::1、localhost）是
+      NBOOK_HOST 的绑定地址写法；LOOPBACK_ORIGIN_HOSTS（127.0.0.1、localhost、[::1]）是 URL.hostname 的写法，IPv6 带方括号。dispatch.ts 里的
+      LOOPBACK_HOSTS 与后者同形，是后者的重复。protocol/loopback.ts 要导出这两个集合（命名区分“绑定地址形式”和“URL 主机名形式”）
+      以及 loopbackOrigins、isLoopbackHostname；config 用前者校验 HOST、用后者校验 ALLOWED_ORIGINS，分发器只用后者。
+      合并时不得把两者并成一个集合，否则 `NBOOK_HOST=::1` 与 `Host: [::1]` 其中一边会坏。测试里各放一条用例钉住两种写法。
+  7.3 2.6 的重连只按 BootstrapBaseSchema 检查会与现状有一处小偏差：remote-session.ts 的 refreshEndpoint 现在用完整的 BrowserBootstrapSchema 做
+      Value.Check，不符就返回 null 继续退避；只查基础形状后，plugins 或 catalogs 字段损坏的应答会被接受、会话转 online。窗口重连不重新登记插件，
+      后果多半无害，但与“行为不变”的字面有出入。采用的办法：RemoteSessionOptions 加可选的 `checkBootstrap?: (raw: unknown) => boolean`，
+      NeuroBook 传完整 schema 的检查，NeuroBot 不传就只查基础形状。包的基础检查始终先做（取 rpc 端点要用）。
+  7.4 实现时先跑的验证里再加一条：V4 definitionAt 包装之后的核对用例（见 7.1）。
+  7.5 未验证项汇总：defineRemoteService 展开 spec 后的类型推导（V1）；startup-env 在包路径下的打包求值顺序（V2）；nb-host/browser 在
+      NeuroBook 的 vue-tsc 下通过（V3）；pack-app.ts 对新 workspace 包的打包行为、Windows 命名管道、client-identity.dom.test.ts 能否去掉 DOM，
+      都是从代码推断，没有运行证据。

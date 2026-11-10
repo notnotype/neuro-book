@@ -1,0 +1,217 @@
+# w00025 t05 实施计划审查报告（源码编辑器右键菜单与语法配色）
+
+审查对象：/tmp/nb-review-w00025/t05-design/plan.md；代码读主工作区 master；Monaco 0.55.1 读 node_modules/monaco-editor/esm。
+凡写“读代码得出、未在浏览器里跑”的，都没有经过真实运行时。
+
+### 1. `editor.addCommand` 接 Shift+F10 会在多个编辑器实例之间串，并且永不释放
+**严重程度**：阻断；**类别**：正确性
+**位置**：plan.md:24（3.1“打开”）；node_modules/monaco-editor/esm/vs/editor/standalone/browser/standaloneCodeEditor.js:84-93；standalone/browser/standaloneServices.js:312-345
+**现象**：`addCommand(keybinding, handler, context)` 生成全局命令 id `DYNAMIC_n`，调 `StandaloneKeybindingService.addDynamicKeybinding(commandId, keybinding, handler, whenExpression)`。这个键位服务是整页单例；`when` 只来自调用方传的 `context`，不带 `editorId`；返回的 disposable 被 `addCommand` 丢掉（它只返回 commandId 字符串）。对照同文件 97-148 行的 `addAction`：precondition 里有 `ContextKeyExpr.equals('editorId', this.getId())`，返回 disposable。
+**为什么是问题**：工作台每个编辑器组一个 `MonacoControl`（load-monaco.ts:42 的注释就写了“同一文件在几个组里各有模型”）。每个实例各调一次 `addCommand`，同一个键位、同一权重（weight1=1000）的动态规则里后加的赢：在组 A 里按 Shift+F10，执行的是最后建的那个实例的 handler，菜单开在另一个组的光标处，或者那个实例已经 `dispose`（handler 闭包仍被全局登记表持有，`getScrolledVisiblePosition` 在没有模型的编辑器上返回 null）。每挂载一次控件就多一条永久的键位规则和命令，控件卸载后清不掉。计划的风险 1 只写了“Shift+F10 被 Monaco 的动作吃掉”，没有提这一点。
+**如何核实**：读上面两个文件的行号；真实运行时复现：Lab 或工作台里左右两个组各开一个源码文件，焦点在先建的那个，按 Shift+F10（未跑）。
+**建议改法**：不用 `addCommand`。两种都按实例隔离、能释放：(a) `editor.onKeyDown(e)` 里认 `e.keyCode === KeyCode.ContextMenu` 与 `e.shiftKey && e.keyCode === KeyCode.F10`，`preventDefault` + `stopPropagation` 后开菜单。`onKeyDown` 由输入区元素上的监听发出，早于容器节点上的键位分发（standaloneServices.js:260 的监听挂在 `getContainerDomNode()`），`stopPropagation` 之后 Monaco 自己的 `editor.action.showContextMenu` 不会再吃这次按键；Monaco 自带的控制器对菜单键就是这样写的（contextmenu.js:59-69）。(b) `editor.addAction({id, label, keybindings: [KeyMod.Shift | KeyCode.F10], run})`，把返回的 disposable 在卸载时释放。推荐 (a)：两个键同一条路径，见第 2 条。
+
+（第 1 条的真实运行时复现，后补）实验：/tmp/nb-review-w00025/t05-design/scratch/run.mjs（Playwright 驱动本机 Chrome 156 headless，页面加载 node_modules/monaco-editor/min 的 0.55.1 AMD 构建，两个 `contextmenu: false` 的编辑器 A、B 各调一次 `addCommand(Shift|F10)`）。焦点在 A 按 Shift+F10，执行的是 B 的 handler（输出 `{"ev":"addCommand-handler","owner":"B"}`）。产品用的是 ESM 构建，代码相同，实验没有经过产品的打包。下文的“实验 T*/R*”都指这个目录里的 run.mjs、run2.mjs。
+
+### 2. 剪切用 `document.execCommand("cut")` 在 Chrome 上什么都不做
+**严重程度**：阻断；**类别**：正确性
+**位置**：plan.md:30（内置项表“剪切、复制”）；node_modules/monaco-editor/esm/vs/editor/contrib/clipboard/browser/clipboard.js:190-198；common/config/editorOptions.js:699-704、3135
+**现象**：0.55.1 的 `editContext` 选项缺省为真，Chrome 支持 EditContext，所以输入区是一个带 EditContext 的 div，不是 textarea。Monaco 自己的剪切实现里写着“execCommand(copy) works for edit context, but not execCommand(cut)”，它的做法是 `execCommand('copy')` 再 `trigger(undefined, "cut")`。
+**实验 T6（真实 Chrome）**：选中 `beta`，在按钮的 click 里 `editor.focus(); document.execCommand("cut")`：返回 true，没有 `cut` 事件，正文不变（`alpha beta gamma`），剪贴板仍是预置的 `SENTINEL`。没有选区时同样无效。`execCommand("copy")` 正常（`copy@native-edit-context`，剪贴板 `beta`）。对照：`editor.trigger("nbook", "editor.action.clipboardCutAction", null)` 正文变成 `alpha  gamma`、剪贴板 `beta`。
+**为什么是问题**：计划写“与 Ctrl+X 同一条路径”，这个前提在 EditContext 下不成立；照字面实现，“剪切”一项点了没有任何反应，也没有报错。计划第 7 节把 `execCommand` 的风险只记在 Safari、Firefox 上。
+**建议改法**：剪切、复制都执行 Monaco 的命令：先 `editor.focus()`，再 `editor.trigger("nbook", "editor.action.clipboardCutAction" | "editor.action.clipboardCopyAction", null)`。这两个是命令不是动作（实验 T8：`getAction` 返回 null），只能用 `trigger`；它们也正是 Monaco 自带菜单执行的东西，更贴合“菜单项来自 Monaco 的动作”。e2e 断言剪切后正文与剪贴板两样都变。不要用关掉 `editContext` 来迁就 `execCommand`：那会换掉整个输入实现。
+
+### 3. `onContextMenu` 里读到的是旧光标与旧焦点；关掉自带菜单后那条残留分支还有三处副作用，计划一处没写
+**严重程度**：重要；**类别**：正确性
+**位置**：plan.md:24；node_modules/monaco-editor/esm/vs/editor/contrib/contextmenu/browser/contextmenu.js:71-82、331
+**现象**（实验 T1、T12、T13、T14，真实 Chrome）：
+1. 我们的监听在 `monaco.editor.create` 之后立即登记，自带控制器是 `BeforeFirstInteraction` 才实例化，所以我们的回调先跑。回调里 `getSelection()` 还是 `[1,1 -> 1,1]`、`hasTextFocus()` 为 false；控制器随后才 `focus()` 并 `setPosition`（微任务后是 `[3,10 -> 3,10]`、已聚焦）。在回调里同步取“有没有选区”“`isSupported()`”“活动组的贡献项”都会取到点击前的状态。
+2. 残留分支只看主选区（`getSelection().containsPosition`，启用菜单的分支看全部选区）：两个选区时右击次选区内部，选区被收成一个光标（T13：`selsAfter: 1`）。VS Code 与计划引用的 Markdown 规则（点在选区内保留选区）都不是这样。
+3. 残留分支不分目标类型：右击滚动条（type 11）光标被移到 `3:17`，右击行号（type 3）光标被移走。
+4. 右击查找框的输入（type 12）：控制器把焦点从输入框抢回正文（T12：`focusAfter: true`）；计划又写“在 `onContextMenu` 里 `preventDefault`”，没限定目标，查找、替换输入框里浏览器自己的菜单（粘贴）也没了。Monaco 启用菜单时特意放过这两类（contextmenu.js:83-88）。
+`contextmenu: false` 时确实不 `preventDefault`（T1：`defaultPrevented` 为 false），这一点计划说对了。
+**建议改法**：不依赖那条残留分支。照 `MarkdownContextMenu.vue` 的做法在控件根元素上挂捕获阶段的 DOM `contextmenu` 监听：用公开的 `editor.getTargetAtClientPoint(x, y)` 取目标；`OVERLAY_WIDGET`、`CONTENT_WIDGET` 直接返回（不拦，留给浏览器）；滚动条、小地图只 `preventDefault`；正文与行号区自己 `focus()`、按全部选区判断后 `setPosition`，再开菜单；处理过的事件 `stopPropagation`，控制器就不再动光标与焦点（实验 R5：拦掉后焦点留在查找框，`textFocus: false`）。Spec 的验收补一条“右击查找框输入不出应用菜单、焦点不动”。
+
+### 4. 菜单键走原生 `contextmenu` 事件：目标类型是 UNKNOWN、坐标不在光标处；光标滚出可见区时锚点在屏幕外
+**严重程度**：重要；**类别**：正确性
+**位置**：plan.md:24（“菜单键与 Shift+F10 在光标处打开”）、plan.md:114（风险 1）
+**现象**（实验 T3、T4、R1、R4，真实 Chrome，按键由 Playwright 模拟）：
+- 菜单键：`contextmenu: false` 时控制器的 keydown 分支提前返回（contextmenu.js:60），浏览器随后发原生 `contextmenu`，Monaco 转成 `onContextMenu`：`target.type` 为 0（UNKNOWN）、`position` 为 null、`button` 为 -1、事件目标是 `native-edit-context`，坐标 (69, 88) 是输入区元素的位置，不是光标（光标在 4:12）。EditContext 的 div 没有 `PartFingerprint.TextArea` 标记（只有 textAreaEditContext.js:122 写它），所以 Monaco 原来靠 `TEXTAREA` 类型识别键盘来源的办法在这里也不成立。
+- 计划没写怎样区分键盘与鼠标来源。按第 3 条限定目标类型后，type 0 会被过滤掉，菜单键就没有反应；不过滤则菜单开在那个偏左的坐标。
+- Shift+F10：被 `editor.action.showContextMenu` 吃掉后什么都不发（T4 只有两条 keydown），这一点计划知道。
+- `getScrolledVisiblePosition` 在光标滚出可见区时返回视口外的值（R4：`top: -2000`）；计划没有写先 `revealPosition`，`clampMenuPosition` 会把菜单夹到窗口边上，离编辑器很远。Monaco 自己是先 `revealPosition(…, Immediate)` 再 `render()` 再取坐标（contextmenu.js:171-177）。
+**建议改法**：两个键都在 `editor.onKeyDown` 里处理（见第 1 条的 (a)），不走原生事件。实验 R1：对菜单键 `preventDefault` 后原生 `contextmenu` 不再发出；对 Shift+F10 `stopPropagation` 后全局键位不再触发。打开前 `revealPosition` + `render()`，锚点取光标底边（`top + height`）。Windows 上菜单键的 `contextmenu` 在 keyup 发（记忆中的行为，不确定），所以 DOM 监听里对 `button !== 2` 的事件也按“光标处打开”处理，两条路径幂等。未验证：真实键盘与 Windows、macOS。
+
+### 5. `isSupported()` 含焦点条件：菜单开着时“更改所有匹配项”取不到、点了也不执行
+**严重程度**：重要；**类别**：正确性
+**位置**：plan.md:14（“按 `isSupported()` 与只读决定显示”）、plan.md:35；node_modules/monaco-editor/esm/vs/editor/common/editorAction.js:15-23；contrib/multicursor/browser/multicursor.js:670-672
+**现象**：`InternalEditorAction.run()` 先查 `isSupported()`，不满足就静默返回。`editor.action.changeAll` 的 precondition 是 `writable && editorTextFocus`。nb-ui 的 `ContextMenu` 打开后把焦点放到第一项（ContextMenu.vue:86），此时编辑器没有文本焦点。
+**实验**（真实 Chrome）：T8：焦点在别的按钮上时 `getAction("editor.action.changeAll").isSupported()` 为 false，`editor.focus()` 之后同步变 true。R3a：不聚焦直接 `run()`，选区数仍是 1（没执行）；R3b：先 `focus()` 再 `run()`，选区数 3。结合第 3 条：右击一个原本没有焦点的编辑器，回调当时 `hasTextFocus()` 也是 false。
+**为什么是问题**：计划只对剪切、复制写了“聚焦编辑器后”执行，其余动作没写；选型表又把 `isSupported()` 当成通用的显示条件。照字面实现：在 computed 里求值则这一项永远不出现；打开时求值则第一次右击未聚焦的编辑器时不出现；项的 action 里不先聚焦则点了没反应。`actions.find`、`startFindReplaceAction`、`formatDocument` 不含焦点条件（T8 未聚焦时为 true），不受影响。另：只读时 `startFindReplaceAction.isSupported()` 仍为 true（实现里才返回 false），“替换”只能靠表里的只读标记隐藏，计划的表是这样写的，没问题。
+**建议改法**：计划写明两条规则：(1) 每一项的 action 第一步都是 `editor.focus()`，然后再 `getAction(id).run()` 或 `trigger`；(2) 显示条件在打开那一刻、聚焦之后取一次快照传给 `codeMenuItems`，其中 `isSupported()` 只用于 `formatDocument`（“这门语言有没有格式化”），`changeAll` 只按只读判断。`code-context-menu.test.ts` 之外，e2e 补“先点别的面板再右击编辑器，‘更改所有匹配项’在且有效”。
+
+### 6. 菜单粘贴丢了 Monaco 的剪贴板元数据：整行复制后从菜单粘贴会插在行中间
+**严重程度**：重要；**类别**：正确性
+**位置**：plan.md:31；node_modules/monaco-editor/esm/vs/editor/contrib/clipboard/browser/clipboard.js:270-288；browser/widget/codeEditor/codeEditorWidget.js:790-792
+**现象**：Monaco 复制时把“来自空选区（整行）”“多光标各段文本”记在 `InMemoryClipboardMetadataManager`，粘贴时按文本取回，交给 `paste` 处理器的 `pasteOnNewLine`、`multicursorText`、`mode`。计划只传 `{text}`。
+**实验 R2**（真实 Chrome）：正文 `first\nsecond\n`，光标在第 1 行无选区按 Ctrl+C（剪贴板 `first\n`），光标移到 2:4。Ctrl+V 得到 `first\nfirst\nsecond\n`（整行插在上一行）；计划的 `readText()` + `trigger("nbook", "paste", {text})` 得到 `first\nsecfirst\nond\n`。计划自己规定“没选区时复制作用于整行，照旧”，于是同一个菜单里“复制”再“粘贴”就把行拆了。
+**核对过、成立的部分**：`"paste"` 是受支持的处理器（codeEditorWidget.js:790）；多光标时多行文本按光标分发（T7：`Xaa\nYbb\n`）；只读时不改（T7）；焦点不在编辑器时也生效、撤销一步回去（T7）。另外 Monaco 自己的 `editor.action.clipboardPasteAction` 在 standalone 0.55.1 里不能用：它要 `IProductService`，standaloneServices.js 没有登记（实验 R2c 页面报 `unknown service 'productService'`，正文不变），所以计划自己读剪贴板是对的，不能改成执行 Monaco 的粘贴命令。
+**建议改法**：二选一并写进 Spec。(a) 从 `monaco-editor/esm/vs/editor/browser/controller/editContext/clipboardUtils.js` 取 `InMemoryClipboardMetadataManager.INSTANCE.get(text)`，把 `pasteOnNewLine`（还要与 `emptySelectionClipboard` 选项相与）、`multicursorText`、`mode` 一起传；这是内部模块，升级时由 e2e 的“整行复制后菜单粘贴”一例兜底。(b) 不取元数据，Spec 明写“菜单粘贴按纯文本插在光标处，与 Ctrl+V 的整行粘贴不同”。推荐 (a)：一个 import、三四行，行为与键盘一致。无论哪种，粘贴前先 `editor.focus()`（读剪贴板是异步的，菜单已关、焦点可能在别处；T7 显示不聚焦也会插入，但插完焦点不在编辑器）。
+
+### 7. 缺省推导在两套亮色自带配色上过不了计划自己的对比度判据；计划给的补救路径会把固定色带进护眼主题
+**严重程度**：重要；**类别**：设计
+**位置**：plan.md:54-66（3.3）、plan.md:102（判据“除注释外不低于 4.5，注释不低于 3”）、plan.md:124（待确认 4）；packages/nb-ui/themes/nbook/colorways.ts、themes/macos/colorways.ts；packages/neuro-book/src/ui/theme/contrast-checks.ts:31-42
+**现象**：按 3.3 的映射、对 Monaco 实际用的底色 `--bg-main`（monaco-theme.ts:29）算 WCAG 对比度（脚本 scratch/contrast.ts、contrast2.ts，直接读仓库里的色值）：
+- nbook 亮：注释 2.99、关键字 3.29、字符串 4.35、数字与属性名 4.44、类型 3.79，十项里六项不达标；
+- macos 亮：注释 2.38、关键字 3.77、字符串 3.10，三项不达标；
+- nbook 暗、macos 暗、护眼四套全部达标。
+计划写“状态色本来就按‘在底色上读得清’校过”：校的是 `--bg-panel`（contrast-checks.ts:41 的 surfaces 只有 `--bg-panel`），源码编辑器的底是 `--bg-main`，nbook 亮色里两者差一档（#ece8df 对 #fffcf5）。`--accent-main` 根本不是文字色，契约里的文字色是 `--accent-text`，它在四套自带配色的 `--bg-main` 上是 4.59、7.29、5.28、7.40，全部达标。
+**为什么是问题**：(1) “nbook、macos 先用缺省”在第一次跑 e2e 时就不成立，主题包的改判不是可选项，工作量没算进切片。(2) 护眼两套与“我的主题”都是 `base: "nbook"` 的声明式主题，`data-nb-theme` 仍是 `nbook`；一旦 nbook 的 `vars.css` 按明暗写死 `--syntax-*`，它们拿到的就是为象牙底配的固定色，不再从自己的配色推导，3.3 的核心论点（声明式主题不用各写一份）正好在补救时失效。(3) 声明式主题自己改不了：`--syntax-*` 不进 `THEME_ROLE_VARS`。
+**建议改法**：先改缺省，让它在自带配色上直接达标，主题包不写固定色：关键字用 `--accent-text`；注释用 `--text-secondary`，或把注释的判据写成对 `--text-muted` 的已知例外；macos 亮的 `--status-success`（3.10，在 `--bg-panel` 上也只有 3.30）是配色本身的问题，单独记。主题包确实要改判时只许写成配色变量的引用，不写字面色，并在 `themes.e2e.ts` 或主题包测试里对“nbook 基底 + 护眼配色”量一次。另请开发者确认源码编辑器的底该是 `--bg-main` 还是稿面 `--bg-panel`：换成后者，nbook 亮除注释与关键字外全部达标。
+（第 7 条补充与更正）“护眼两套与‘我的主题’都是 `base: "nbook"`”说宽了：护眼两套是（workbench/shared/themes.ts 的 `BUILTIN_THEME_CONTRIBUTIONS`），“我的主题”的基底可选 nbook 或 macos，受影响的是选了被改判的那个基底的。`data-nb-theme` 等于声明的 `base` 已核对：ui/theme/product-themes.ts:24-27（`themeId: theme.base`）、ui/theme/document-theme.ts:90。
+
+### 8. 十个变量只有八种颜色，几对相邻出现的 token 同色
+**严重程度**：重要；**类别**：设计
+**位置**：plan.md:52-63（3.3 的表）、plan.md:74、plan.md:115（风险 2）
+**现象**：缺省里 `number` 与 `attribute` 同取 `--status-warning`，`tag` 与 `regexp` 同取 `--status-danger`，`invalid` 也用 `--status-danger`。脚本 scratch/contrast.ts 数出各套配色下十个变量的不同色值都是 8 个，nb-ui 内置暗色预设是 7 个（`--accent-main` 与 `--status-warning` 同为 #f59e0b，关键字、数字、属性名三者同色；nbook 的 colorways.ts 把这一点列为不变量 ③ 专门避开）。落到文件里：
+- JSON：键（`string.key.json`，按表归“属性名、JSON 的键”）与数字值（`number.json`）同色，`"n": 12` 两边一个颜色；
+- CSS：属性名（`attribute.name`）与数值、单位（`attribute.value.number`、`attribute.value.unit`）同色；
+- HTML/JS：标签、正则、转义与 `invalid` 同为“错误红”，nbook 暗色下是 #ff453a，整份 HTML 看起来像报错，真的 `invalid` 反而认不出。
+计划的风险 2 只提了关键字与类型相近。实际算 ΔE76（scratch/de.mjs）：那一对在 macos 亮是 11.0，其余自带配色 26 以上，不算最糟；更近的是护眼绿的关键字与字符串（亮 #22653f 对 #1a5f34，ΔE 4.2；暗 5.1）、护眼米黄的关键字与数字（亮 9.4、暗 8.8），因为这两套的强调色本来就取在状态色旁边。参照：nbook 亮的字符串与数字是 63.8。
+**为什么是问题**：语法着色的用处是把相邻的不同成分分开；键与值、属性与数值同色时等于没着色。状态色带语义（危险、警告），拿来当大面积的语法色，会和同一屏上真正的状态提示混。
+**建议改法**：缺省不要两个变量共用一个配色变量：属性名可取 `--accent-text` 与 `--text-main` 的中间色之外的独立来源（例如 `--status-info`），类型改用 `color-mix` 派生（配合第 9 条修好换算）；`invalid` 保留 `--status-danger`，`tag` 换成别的。护眼两套的近色要么在这两套声明里补语法色（需要第 7 条说的白名单决定），要么接受并写进 Spec。最终色板请连同截图交开发者定，计划已有这一步，但要把“相邻 token 不同色”列成判据：JSON 的键、字符串值、数字、`true`，CSS 的属性名与数值，HTML 的标签、属性名、属性值，各自两两不同。
+（第 8 条措辞更正）“建议改法”第一句应读作：缺省里每个变量各取一个不同的来源，例如属性名不再与数字共用 `--status-warning`、标签不再与正则和 `invalid` 共用 `--status-danger`；具体取哪个由截图定。
+
+### 9. 现有 `hex()` 只换得了不透明的旧式 sRGB 颜色：选区色接不上，`color-mix()`、`oklch()`、`light-dark()` 一律静默退回基底色
+**严重程度**：重要；**类别**：正确性
+**位置**：plan.md:73、plan.md:75（“把选区色接上”）、plan.md:116（风险 3）；packages/neuro-book/src/plugins/editor/web/code/monaco-theme.ts:16-24；nb-ui 各配色的 `--selection-bg`
+**现象**（实验 T10，真实 Chrome 156）：
+- `getComputedStyle(root).getPropertyValue("--syntax-x")` 对 `var()` 链只做替换，返回被引用变量的原文：`#2c7a39`、`rgba(0, 122, 255, 0.22)`、`color-mix(in srgb, #272420 78%, #2d2925)`、`oklch(0.6 0.2 30)`、`light-dark(#111111, #eeeeee)` 都原样返回，不会算成 `rgb()`。
+- 画布 `fillStyle` 的读回值：`rgba(0, 122, 255, 0.22)` 读回 `rgba(0, 122, 255, 0.22)`；不透明的 `color-mix(in srgb, …)` 读回 `color(srgb 0.158118 0.14549 0.129804)`；`oklch()` 读回 `oklch(...)`；`light-dark()` 画布不认，保持上一个值。`hex()` 只接受读回值是 `#rrggbb` 的，其余全部返回 `fallback`。
+- 四套自带配色与内置预设的 `--selection-bg` 都是 `rgba(…, 0.22~0.34)`（nbook/colorways.ts、macos/colorways.ts、presets.ts:95），只有护眼四套是十六进制。
+**为什么是问题**：照计划“经现有的 `hex()`”实现，nbook、macos 四个组合的选区仍是 Monaco 的蓝，只有护眼主题变了；没有报错，验收映射里也没有选区色的判据，不会被发现。语法色今天都是十六进制所以碰巧能换，但第 7、8 条的修法和第三方主题一用 `color-mix()` 就退回基底色。风险 3 说“e2e 的‘等于变量解析值’会暴露退回”，但没说 e2e 怎样求“解析值”；用同一个画布办法求，两边一起错。
+**建议改法**：换算改成两步，输出带透明度的 `#rrggbbaa`（Monaco 的颜色与选区都接受）：先把取值设到一个临时元素的 `color` 上读计算值（解掉 `var()`、`light-dark()`、`currentColor`），再把这个值填进 1×1 画布、`getImageData` 读回 RGBA 四个字节（任何画布认得的色彩空间都落成 8 位 sRGB）。读不出时才用后备色，并记一条诊断。给 `monaco-theme.test.ts` 之外补一条浏览器里的用例：`--selection-bg` 为 `rgba()`、语法变量为 `color-mix()` 时，Monaco 的 `--vscode-editor-selectionBackground` 与 token 颜色等于换算值。e2e 的期望值用同一个“临时元素的计算色”求，不用画布。docs/specs/theme/system.md:66 现在写的是“不读 `color-mix(...)` 表达式”，要一起改。
+
+### 10. 括号不归 token 规则管：括号对着色与失焦选区仍是 Monaco 为白底、黑底配的颜色
+**严重程度**：重要；**类别**：遗漏
+**位置**：plan.md:63（`--syntax-punctuation` 用在“分隔符、运算符”）、plan.md:72-75、plan.md:113（不做的清单）；node_modules/monaco-editor/esm/vs/editor/common/core/editorColorRegistry.js:71-77；standalone/common/themes.js 的 `colors`（vs：`editor.inactiveSelectionBackground: #E5EBF1`、`editor.selectionHighlightBackground: #ADD6FF4D`；vs-dark：#3A3D41、#ADD6FF26）
+**现象**：
+- 0.55.1 的 `bracketPairColorization.enabled` 缺省为真。实验 T11（真实 Chrome，`inherit: true` 的自定主题）：`(`、`{`、`[` 的 span 是 `mtk1 bracket-highlighting-0/1`，颜色 rgb(4, 49, 250)、rgb(49, 147, 49)，来自主题色 `editorBracketHighlight.foreground1..3`（亮：#0431FA、#319331、#7B3814；暗：#FFD700、#DA70D6、#179FFF），不是 token 规则。把 `delimiter` 映射到 `--syntax-punctuation` 改不了它们。
+- 计划接了 `editor.selectionBackground`，但基底的 `colors` 里写死了失焦选区与“相同内容”高亮。`inherit: true` 时这两个不从我们的选区色派生。应用菜单一打开焦点就离开编辑器（ContextMenu.vue:86），选区当场从 `--selection-bg` 变成基底的蓝灰。
+**为什么是问题**：Task 的目标是“护眼主题下着色不再是为白底、黑底配的”。括号是代码里出现最多的彩色字符之一，三个固定色不随主题变，护眼绿底上仍是纯蓝、绿、棕；验收映射的 e2e 只读关键字、字符串、注释三种 token，发现不了。失焦选区变色正好发生在本 Task 新加的右键菜单打开时。
+**建议改法**：括号二选一写进计划：`bracketPairColorization: {enabled: false}`（括号回到 `delimiter.*` 的 token 色，由 `--syntax-punctuation` 管，最省事）；或把 `editorBracketHighlight.foreground1..3` 与 `unexpectedBracket.foreground` 接到语法变量上（实验 R6 确认这样设有效）。选区一并设 `editor.inactiveSelectionBackground` 与 `editor.selectionHighlightBackground`（由 `--selection-bg` 减半透明度），或采用第 11 条的 `inherit: false`，这两个就自动从选区色派生。截图清单里加一张“有选区、菜单打开”的。
+
+### 11. `inherit: true` 的理由不成立；改成 `inherit: false` 可以不追基底的 51 条规则
+**严重程度**：建议；**类别**：设计
+**位置**：plan.md:17、plan.md:72（“`inherit` 保持为真（编辑器部件的颜色仍来自基底）”）、plan.md:100；node_modules/monaco-editor/esm/vs/editor/standalone/browser/standaloneThemeService.js:69-103、117-146；common/languages/supports/tokenization.js:65-103、248-270
+**核对结果**：
+- 计划对优先级的说法是对的。规则先按 token 名排序再插进前缀树，子节点建的时候克隆父节点的规则，之后父规则不再往下传；自定规则与基底规则同名时后者（自定）赢，不同名时更具体的基底规则赢。实验 T11：只写 `string` 时，JSON 的 `string.key.json` 仍是基底的 rgb(163, 21, 21)、`string.value.json` 与 `keyword.json` 仍是 rgb(4, 81, 165)。
+- `vs` 46 条、`vs-dark` 45 条，并集 51 个 token（scratch/imp.mjs）。两表不同：只在 `vs` 的有 `attribute.value.number`、`attribute.value.unit`、`attribute.value.html`、`attribute.value.xml`、`string.html`、`string.yaml`；只在 `vs-dark` 的有 `variable.parameter`、`meta.tag`、`attribute.value.number.css`、`attribute.value.unit.css`、`attribute.value.hex.css`。`hc-black`、`hc-light` 另有 `meta`、`string.key`、`string.value`，但 `buildMonacoTheme` 只用 `vs`、`vs-dark`，不相干。覆盖测试要按并集核对，并且判据是“表里有同名规则”，前缀命中不算。`themes.js` 在 Bun 与 Node 下都能直接 import（28 ms、64 ms），测试写得出来。
+- “编辑器部件的颜色来自基底”不准确：部件颜色来自颜色登记表按明暗类型给的缺省值（`getDefault` → `colorRegistry.resolveDefaultColor`），类型由 `base` 决定，与 `inherit` 无关。`inherit` 只多带两样：基底的 token 规则，和基底 `colors` 里的 6 个值（背景、前景、失焦选区、两条缩进线、相同内容高亮）。
+**为什么值得改**：`inherit: true` 带来的正是计划要逐条压掉的那 51 条规则，外加一个读 Monaco 内部文件的测试，以及第 10 条的失焦选区。实验 R6（`inherit: false`）：只写 `string` 一条，JSON 的键与值都跟着变；查找框等部件的底色仍是缺省的 #f3f3f3；失焦选区自动是选区色的一半透明度。
+**建议改法**：`inherit: false`，规则表只写十来条前缀规则（`comment`、`keyword`、`string`、`number`、`constant`、`type`、`annotation`、`tag`、`metatag`、`attribute.name`、`attribute.value`、`string.key`、`regexp`、`delimiter`、`operator`、`variable`、`invalid`，加 `emphasis`、`strong`、`metatag.php` 三条字形），缩进线两色用 `--border-color`、`--border-strong`。没有规则的 token 落到前景色，比落到基底的蓝更符合“跟随主题”。测试改成对几门语言的样例做 `monaco.editor.tokenize`，核对出现的每种 token 类型都命中某条规则或有意留给前景色。若仍保留 `inherit: true`，把计划里的理由改成实际的理由。
+（第 1 条补充）实例数比“每组一个”更多：MonacoControl.md:9 写的是“每个标签一个实例”，每开一个源码标签就多一条永久的全局键位规则。
+
+### 12. 3.2 说位置字段“同 `editor.body-context`”（只有 `icon`），验收却要“按后缀筛选”：照 3.2 实现，带 `extensions` 的声明会被拒
+**严重程度**：重要；**类别**：接口与合同
+**位置**：plan.md:44、plan.md:98；packages/neuro-book/src/plugins/editor/shared/contracts.ts:104-108；packages/neuro-book/src/plugins/commands/shared/menus.ts:69-74、85-92；docs/specs/workbench/menus.md:44-61
+**现象**：`editorBodyContextLocation = menuLocation(EDITOR_BODY_CONTEXT_POINT, MENU_ICON, {contexts: ["resource"]})`，没有 `MENU_EXTENSIONS`。位置的 schema 是 `additionalProperties: false`，menus.md 也写“下面四个字段只在位置表里列出它的位置可用”，表里 `editor.body-context` 一行的“另有的字段”只有 `icon`、“当前文件”是“无”。所以按 3.2 建的 `editor.code-context` 不接受 `extensions`，第 6 节“贡献项出现、按后缀筛选、`resource` 参数”这条验收里的“按后缀筛选”写不出来（测试插件的声明会是 `invalid-declaration`）。
+**为什么是问题**：两节互相矛盾，照字面实现任意一节都要返工另一节。而且对源码编辑器来说后缀筛选比 Markdown 正文更有用：同一个位置下开的是 `.json`、`.ts`、`.css`、`.html`，只对 JSON 有意义的项不该出现在别的文件上；Markdown 正文那个位置只有一种文件，所以当初没给。
+**核对过、没问题的部分**：`createEditorMenus.contributed` 已经把活动标签的文件名作 `current` 传给 `arrangeMenu`（editing-menus.ts:76），位置一旦带 `MENU_EXTENSIONS` 筛选就生效，不用改公共代码。菜单位置的常量没有从 `src/sdk/` 导出，也没有快照（在 `packages/neuro-book/src/sdk`、`plugin-sdk`、e2e 里搜 `editor.body-context`、`EDITOR_BODY_CONTEXT`、`EDITOR_BLOCK_POINT` 都没搜到），要动的只有 `shared/contracts.ts`、`web/plugin.ts`（贡献点、`receives`、`MenuItemRegistry`、`createEditorMenus` 的 `items`、`receivers` 五处）、`src/web/testing/test-menus.ts` 与两份 Spec。
+**建议改法**：3.2 改成 `menuLocation(EDITOR_CODE_CONTEXT_POINT, {...MENU_ICON, ...MENU_EXTENSIONS}, {contexts: ["resource"]})`，menus.md 新行的“另有的字段”写 `icon`、`extensions`，“当前文件”写“被右击的编辑器的文件”。这也给“不复用 `editor.body-context`”补了一条比计划现有理由更硬的理由：两个位置的字段不同。
+
+### 13. 贡献项的“当前文件”取活动组的活动标签，不是被右击的编辑器；显示的快捷键按两档平台写不对
+**严重程度**：建议；**类别**：接口与合同
+**位置**：plan.md:23、plan.md:38、plan.md:44；packages/neuro-book/src/plugins/editor/web/editing-menus.ts:40-44、80-88；packages/neuro-book/src/plugins/commands/shared/keybinding.ts:11、68-72；node_modules/monaco-editor/esm/vs/editor/contrib/find/browser/findController.js:780-788；contrib/format/browser/formatActions.js:185-192
+**现象一**：`EditorMenus.contributed(point)` 与 `runContributed` 都用 `activeAddress()`（活动组的活动标签）。右击一个非活动组里的源码编辑器时，要等编辑器拿到焦点、组变成活动组之后，筛选与 `{address}` 才是对的。Markdown 正文菜单是先 `editor.view.focus()` 再开（MarkdownContextMenu.vue:19、24 的注释写明了这一点）；Monaco 这边按第 3 条，焦点是在我们的回调之后才给的。贡献项若在回调里同步求值，取到的是另一个组的文件。从代码推断，未在产品里运行。
+**建议**：打开前自己 `editor.focus()`（第 3 条的改法已包含）；`code-context-menu.test.ts`（贡献项那一份）加一例“两个组、右击非活动组”，或在 e2e 里覆盖。
+**现象二**：计划写“快捷键只是显示（`formatKeybinding`），键位仍归 Monaco”。Monaco 的键位按平台不同：替换是 Ctrl+H，macOS 是 ⌥⌘F；格式化文档是 Shift+Alt+F，Linux 是 Ctrl+Shift+I；更改所有匹配项是 Ctrl/⌘+F2。应用的 `KeyPlatform` 只有 `"mac" | "other"`，Linux 与 Windows 分不开；`EditorMenus.shortcut()` 只收 `EditingActionId`，这些动作不在表里，只能用 `keyLabel()` 手写。手抄的键位在 Linux 上会显示成 Shift+Alt+F，而实际生效的是 Ctrl+Shift+I。
+**建议**：要么这几项不显示快捷键（只给剪切、复制、粘贴、全选、查找这些各平台一致的），要么在 `code-context-menu.ts` 里按 `navigator` 的平台写一张三档的表并在 e2e 里按当前平台核对一项。公开 API 取不到 Monaco 的键位标签（`lookupKeybinding` 在内部的 `_standaloneKeybindingService` 上），不建议去读。
+
+### 14. 对照 VS Code、Monaco 自带菜单与 Markdown 正文菜单：没做也没写“不做”的项，以及取舍理由前后不一（收窄，见第 17 条）
+**严重程度**：建议；**类别**：设计
+**位置**：plan.md:26-39
+**对照 Monaco 自带菜单**（读 esm 里登记到 `MenuId.EditorContext` 的动作：contrib/format/browser/formatActions.js:187、213，contrib/multicursor/browser/multicursor.js:670，contrib/clipboard/browser/clipboard.js，contrib/rename/browser/rename.js:296，standalone/browser/quickAccess/）：现在用户右击能看到、计划既没保留也没列进“不放的”有：
+- “格式化选定内容”（`editor.action.formatSelection`，实验 T8 确认 id 存在；JSON 有选区格式化）；
+- “转到符号”（`editor.action.quickOutline`，JSON 有符号提供者）；
+- 有提供者时才出现的转到定义、重命名、重构：现在没有语言服务所以不出现，但 `editor.languages` 的贡献以后带上提供者时，自己维护的表不会自动长出这些项。计划应写一句“表是封闭的，新增语言能力的菜单项要改表”，否则这是换表时悄悄丢掉的能力。
+**对照 VS Code**（凭记忆，不确定细节）：它的编辑器右键是转到定义一组、重命名、更改所有匹配项、格式化文档、格式化选定内容、重构、剪切、复制、粘贴、命令面板；没有全选、查找、替换，也没有撤销、重做。计划用“VS Code 的菜单没有”作为不放撤销、重做的理由，却放了 VS Code 同样没有的全选、查找、替换。两边都说得通（写作者不记快捷键，放上更友好），但理由要一致：建议改成“按本产品 Markdown 正文菜单的习惯取舍”，并说明为什么撤销、重做不在其列。
+**对照 Markdown 正文菜单**（markdown-editing.md 输出 20–23、MarkdownContextMenu.vue）：
+- 那边没有选区时剪切、复制置灰，这边作用于整行（计划写了“照旧”，Spec 里要写成明确的差异）；
+- 那边规定“粘贴结果和 Ctrl+V 相同”，这边见第 6 条；
+- 那边内置项带图标（剪刀、复制、剪贴板），计划没说这边带不带，两个菜单并排看应一致；
+- 那边只读时不显示的项是直接去掉，这边同样，没问题；
+- 那边行号区（gutter）右击不出菜单，这边行号区怎样没写（见第 3 条）。
+**建议**：在“不放的”里补上格式化选定内容、转到符号、Monaco 的命令面板之外的这几项及理由；或者把“格式化选定内容”放进来（有选区且 `isSupported()` 时显示），这是 `hasSelection` 这个入参目前唯一说得出的用处（见第 15 条）。
+
+### 15. 零散的遗漏与对不上的地方
+**严重程度**：建议；**类别**：遗漏
+**位置**：plan.md:25、40、50、82、97-102
+1. `codeMenuItems({supported, readonly, hasSelection})` 有 `hasSelection`，验收写“随只读、选区、`isSupported` 变化”，但内置项表里没有任何一项随选区变（剪切、复制无选区时作用于整行）。要么删掉这个入参与判据里的“选区”，要么写出哪一项用它。
+2. 关闭时机只写了“换绑定时关闭”。还缺：`visible` 变 false（标签被切到后台，控件还挂着）、`readonly` 在菜单开着时变化（项是打开时的快照）、编辑器内容滚动（菜单是固定坐标，Monaco 自带菜单在滚轮时会收起，contextmenu.js:48-57）。各写一句处理或“不处理”。
+3. 验收映射没有覆盖的行为：点外面关闭后不抢焦点、换文件时关闭、粘贴的三种失败通知、选区色（第 9 条）、括号（第 10 条）、右击查找框输入（第 3 条）。粘贴失败的分类在 Markdown 那边是 `clipboard.ts` 的 `paste()`，绑着 tiptap 的 `Editor`，这边用不了；计划说“与 Markdown 同文案”，但没说判断逻辑放哪。建议把“读剪贴板并分类失败”抽成编辑器插件里的一个函数（可注入读取器，Bun 测试三种失败），两边共用，不各写一份。
+4. nb-ui 这边除了 `tokens.css`、`theme/tokens.ts`，还要动：`theme/tokens.ts` 文件头的分工说明（现在写“这边是主题可以覆盖的形状与节奏”，语法色是颜色）、`@notnotype/nb-ui/theme` 入口导出新分组、Lab 变量页签的分组表 `packages/neuro-book/src/plugins/lab/web/lab-tokens.ts:28-44`（分组是逐个列的，不加就不显示）、`packages/nb-ui/docs/authoring-themes.md:96` 起的“能改哪些变量”。计划只写了“实施时核对 docs”。
+5. Lab 里没有注入 `editorMenusKey` 时“文字用键名兜底”：`nbdev shot` 出来的场景图上菜单项是 `cut`、`copy` 这样的键名，给开发者看效果时不合适。建议 Lab 场景提供一个最小的 `EditorMenus`（Markdown 的 Lab 场景怎样做的照做）。
+6. e2e 可行性已核对：token 落在 `<span class="mtkN">` 上，颜色由生成的样式表给，`getComputedStyle(span).color` 读得到（实验 T11）；Playwright 的 `keyboard.press("ContextMenu")` 在 headless Chrome 里会触发真实路径（T3、R1）；剪贴板权限已有先例（e2e/markdown-editing.e2e.ts:568）。注意 Monaco 分词是异步的，读颜色前要等 `mtk` 类出现；按文字找 span 时括号、空白是单独的 span。
+
+### 16. 上游选择：哪些理由还成立，哪些说得不准（收窄，见第 17 条）
+**严重程度**：建议；**类别**：设计
+**位置**：plan.md:5、14-16、41-45
+1. **“Monaco 的菜单在 shadow DOM 里，只能改颜色”**：成立的前提是 `useShadowDOM` 取缺省值（contextmenu.js:180、editor.api.d.ts:3947 有这个公开选项，设为 false 菜单就画在普通 DOM 里，可以写样式）。所以“只能改颜色”说得太满。但换掉它的结论仍然成立，而且有一条计划没提、更硬的理由：自带菜单的“粘贴”在 standalone 0.55.1 里是坏的（第 6 条：`unknown service 'productService'`）；另外它的文字语言在加载时定死（`esm/nls.messages.zh-cn.js` 要在加载编辑器前引入，不能随应用的显示语言切换）。建议把这两条写进 Context，替掉“只能改颜色”。
+2. **“读 `MenuRegistry` 标题只有英文”**：不准确，Monaco 自带 `nls.messages.zh-cn.js`。否决读内部登记表的其余理由（内部模块、context key 求值）成立。代价见第 14 条：表是封闭的。
+3. **`editor.all.js` 全量引入**：带进来的 `contextmenu` 贡献在关掉后仍留着一条会动光标、抢焦点的分支（第 3 条），F1 的 Monaco 命令面板也还开得出来（standaloneCommandsQuickAccess.js:62，计划只说菜单里“不放”它，没说 F1 仍会弹出一个英文面板）。改成按需引入各贡献可以去掉这两样，但要自己维护一份贡献清单，每次升级核对；不建议为这个 Task 改，第 3 条的捕获监听足够。F1 是否要拦，请在计划里写一句。
+4. **EditContext**：剪切失效（第 2 条）来自 0.55.1 把 `editContext` 缺省打开。关掉它能让 `execCommand("cut")` 生效，但等于换回旧的输入实现（输入法、无障碍的行为都跟着变），不建议；按第 2 条改执行 Monaco 的命令即可。
+5. **配色契约只有 33 个键**：不进契约的理由成立（tokens.test.ts:62 还专门断言角色变量不与契约重名）。但“不进声明式主题的白名单，因为名字公开后不能改”这条理由对 nb-ui 同样适用：`--syntax-*` 一进 `nbThemeTokens`，主题包就能按 `authoring-themes.md` 覆盖它，名字同样公开了。白名单只是多挡了声明式主题这一类作者，而它们恰好是第 7、8 条里最需要改判的（护眼两套）。建议要么这次就把十个名字定稿并放进 `THEME_ROLE_VARS`，要么在计划里写明护眼主题的近色怎样处理。
+
+## 补充建议（计划没想到、明显有用的）
+
+- 建议：截图与对比度样例加 `.md`、`.yaml`、`.css`。这款应用里用源码编辑器打开最多的是 Markdown 源码与 frontmatter，不是 `.ts`。Monaco 的 Markdown 语法把引用块标成 `comment`、标题与列表符号标成 `keyword`、行内代码标成 `variable`、链接标成 `string.link`（basic-languages/markdown/markdown.js）：按 3.3 的映射，引用块整段是 `--text-muted`（nbook 亮 2.99），行内代码与正文同色。`.css` 能暴露第 8 条的属性名与数值同色。
+- 建议：调色板时用 Monaco 自带的“检查 token”（动作 `editor.action.inspectTokens`，`editor.all.js` 里有）看某个字符落在哪个 token 上，比猜规则表快；只在 Lab 场景里放一个入口，不进产品菜单。（更正见第 17 条）
+- 建议：菜单里加“自动换行”开关（设置里已有 `wordWrap`）。看长 JSON、长 Markdown 行时是右键里最常用的一项，执行应用自己的设置命令即可，不经 Monaco。可以放到后续。
+- 建议：`code-context-menu.ts` 的表每一行带上“执行方式”（`action` 走 `getAction().run()`、`command` 走 `trigger`、`handler` 走 `trigger` 加载荷）。实验 T8 显示全选、剪切、复制、粘贴、撤销、重做用 `getAction` 都取不到（是命令），查找、替换、更改所有匹配项、格式化取得到；混用时取到 null 是静默的。Bun 测试核对表的形状，e2e 逐项点。
+- 建议：粘贴被拒的文案现在写死“请用 Ctrl+V”（locales/zh-CN.json:553）；macOS 上是 ⌘V。这是已有文案，源码编辑器复用时一并用 `keyLabel("Mod+V")` 拼。
+
+## 对 6 个待确认项的判断
+
+1. **自己维护表，不读 Monaco 内部菜单登记**：同意。把“菜单项来自 Monaco 的动作”理解成“每项执行 Monaco 的动作”站得住，前提是剪切、复制也真的执行 Monaco 的命令（第 2 条；计划现在写的 `execCommand` 反而不是）。要向开发者说明代价：表是封闭的，以后语言贡献带来的动作不会自动出现（第 14 条）。否决理由里“标题只有英文”不准确（第 16 条）。
+2. **内置项清单**：大体同意。先修第 2、5、6 条；补上对“格式化选定内容”“转到符号”的取舍，并把取舍理由统一（第 14 条）。
+3. **新开 `editor.code-context`**：同意。更硬的理由是字段不同：这个位置需要 `extensions`，而 `editor.body-context` 没有（第 12 条）。
+4. **语法色做成角色变量、缺省由配色推导、nbook 与 macos 先不配色板**：前半句同意（不进配色契约的理由成立）；后半句不成立：缺省在两套亮色上过不了计划自己的判据（第 7 条），而主题包一改判就连累以它为基底的声明式主题。先改缺省（关键字用 `--accent-text` 等），并决定 `--syntax-*` 进不进 `THEME_ROLE_VARS`（第 16 条第 5 点）。
+5. **十个变量的划分与映射**：划分可以，缺省的取值不行：十个变量八种颜色，JSON 的键与数字、CSS 的属性名与数值同色，标签、正则、`invalid` 同为危险色（第 8 条）。括号不在这十个里管得到的范围内（第 10 条）。
+6. **顺手接选区色**：同意接，但照现在的 `hex()` 在四套自带配色上接不上（`--selection-bg` 都是 `rgba()`，第 9 条），还要一并处理失焦选区（第 10 条）。
+
+## 未发现问题的方面（仔细检查后）
+
+- `contextmenu: false` 后 `editor.onContextMenu` 仍然发出、浏览器菜单需要自己 `preventDefault`：与计划一致（contextmenu.js:75-82，实验 T1）。
+- `editor.trigger("nbook", "paste", {text})` 是受支持的处理器；多光标、只读、撤销的行为正常（第 6 条的“核对过”部分）。
+- `editor.action.selectAll` 是命令，`trigger` 能执行，聚焦与否都生效（实验 T9）；`actions.find`、`editor.action.startFindReplaceAction`、`editor.action.changeAll`、`editor.action.formatDocument` 四个 id 都存在且是动作（实验 T8）。
+- `inherit: true` 时“更具体的基底规则压过较短的自定规则”的说法正确（第 11 条）；`vs` 与 `vs-dark` 规则表不同，计划的测试读两张表是对的。
+- 新变量的登记：`tokens.test.ts` 要求登记的变量在 `tokens.css` 或 `theme.css` 的裸 `:root` 里有声明、不与配色契约重名；`token-consumption.test.ts` 只查“用到的变量有声明”，不要求登记的变量被 nb-ui 组件消费；主题装载器只拒绝主题 `declares` 与保留名撞名，仓库里（nb-ui、neuro-book/src、nb-markdown、nb-agent-ui、docs/specs）没有搜到已有的 `--syntax-` 变量。计划的放法不违反这些检查。
+- 声明式主题只改配色变量时推导成立：主题的变量以内联样式写在文档根与 body 上（ui/theme/document-theme.ts:99-104），`:root` 上的 `--syntax-x: var(--status-y)` 在根上替换，`buildMonacoTheme` 读的也是根。主题包的 `vars.css` 是静态引入的（themes/nbook/index.ts:6），不存在样式表晚到、`MutationObserver` 收不到的问题。
+- 菜单位置的登记范围：SDK 公开入口不导出位置常量、没有快照（第 12 条的“核对过”部分）。
+- 第 6 节的 e2e 在本机 Chrome 上写得出来（第 15 条第 6 点）；`monaco-theme.test.ts` 读 `themes.js` 在 Bun 下可行（第 11 条）。
+
+## 实验与限制
+
+- 真实运行时的实验都在 /tmp/nb-review-w00025/t05-design/scratch/（index.html、run.mjs、run2.mjs，Playwright 驱动本机 Chrome 156 headless）。页面加载的是 monaco-editor 0.55.1 的 `min` AMD 构建（含 TypeScript 语言服务，所以 `.ts` 的 `formatDocument.isSupported()` 为 true，产品里不会），没有经过产品的 ESM 打包、nb-ui 的 `ContextMenu` 与工作台；按键由 Playwright 模拟，不是真实键盘；只测了 Linux 上的 Chrome。
+- 第 7、8 条的数字由 scratch/contrast.ts、contrast2.ts、de.mjs 直接读仓库里的色值算出，没有经过浏览器渲染；nbook 配色里 `--bg-subtle`、`--border-accent` 是 `color-mix()`，不在计算范围内。
+- 第 13 条现象一、第 15 条第 2 点是读代码推断，未运行。VS Code 的菜单内容凭记忆，标了不确定。
+- 第 11 条说 `themes.js` 在 Bun 下能直接 import：模块本身 28 ms 加载完，但我用 `bun -e` 不带 `process.exit` 跑时进程 120 秒没有退出（Monaco 的模块留着存活的句柄）。`monaco-theme.test.ts` 若在 Bun 测试里 import 它，实施时确认测试进程能正常结束；不行就改成把文件当文本读、用正则取 `token:`。
+
+
+### 17. 对第 14、16 条与一条补充建议的收窄：产品不加载 quickAccess 与 inspectTokens
+**严重程度**：建议；**类别**：文档
+**位置**：packages/neuro-book/src/plugins/editor/web/code/load-monaco.ts:16-19；node_modules/monaco-editor/esm/vs/editor/editor.all.js:1-65；edcore.main.js:67-71
+**现象**：产品引入的是 `editor.api.js` + `editor.all.js`。`editor.all.js` 有 `contextmenu`、`clipboard`、`find`、`format`、`multicursor`、`rename`，没有 `standalone/browser/quickAccess/*`（F1 命令面板、转到符号、转到行）与 `standalone/browser/inspectTokens/`；这些只在 `edcore.main.js`、`editor.main.js` 里。我的实验页用的是 `min` 构建的 `editor.main`，所以 T8 里 `editor.action.quickOutline`、`quickCommand`、`gotoLine` 取得到，产品里取不到。
+**据此收窄**：
+- 第 14 条里“转到符号（`editor.action.quickOutline`）现在用户右击能看到”不成立，产品的自带菜单里没有它；该条其余内容（格式化选定内容、表是封闭的、与 VS Code 和 Markdown 菜单的对照）不变。
+- 第 16 条第 3 点里“F1 的 Monaco 命令面板也还开得出来”不成立，产品里 F1 没有绑定这个面板；“残留分支会动光标、抢焦点”那半句不变。
+- 补充建议里“`editor.action.inspectTokens` 在 `editor.all.js` 里有”不对：要用得另外引入 `monaco-editor/esm/vs/editor/standalone/browser/inspectTokens/inspectTokens.js`，只在 Lab 里引。
+**顺带一处计划的不准确**：plan.md:39 把“Monaco 自己的命令面板（F1）”列在“不放的”里，但产品根本没有加载它，这一项本来就不存在，不是取舍；删掉或改成“未加载”。
+**其余实验结论不受影响**：用到的 `contextmenu.js`、`clipboard.js`、`findController.js`、`multicursor.js`、`formatActions.js`、`coreCommands.js`、键位服务与主题服务在两种构建里是同一份源码，产品都加载了；`IProductService` 在 esm 的 standaloneServices.js 里同样没有登记（按源码核对）。
+
+## 数量
+
+阻断 2（第 1、2 条）；重要 9（第 3、4、5、6、7、8、9、10、12 条）；建议 6（第 11、13、14、15、16、17 条）。没有撤回的条目；第 14、16 条收窄（见第 17 条）；第 1、7、8 条各有一处补充或措辞更正，写在紧随其后的括号段里。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15、16、17

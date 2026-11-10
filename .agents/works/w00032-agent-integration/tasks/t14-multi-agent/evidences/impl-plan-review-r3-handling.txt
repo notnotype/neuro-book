@@ -1,0 +1,24 @@
+w00032 t14 实施计划第三轮（最后一轮）设计审查的处理（2026-11-10）
+后端：Claude Opus，12 条（阻断 0、重要 7、建议 5），结论“改完切片 0 就能开工”，报告 impl-plan-review-r3-backend.txt
+前端：Claude Sonnet，11 条（阻断 0、重要 7、建议 4），结论同上，报告 impl-plan-review-r3-frontend.txt
+处理按 Agent 记忆“窄场景选简单改法”：边角情况用简单的 fail-closed 规则或记为已知限制。
+
+后端
+1 成立，改：子会话正在中止时续用得 child-stopping（不等它停完）。
+2 成立，改：fork 出来的会话照常计入树累计，复制来的用量重复计算（偏紧），不再按 origin 排除。
+3 成立，记为已知限制：句柄已回收的空闲后代的未答异步提问不进祖先停靠区，打开子会话才看得到。
+4 成立，改：子会话标题是 name，没写时是 prompt 的前 30 个字；sessions:// 根列标题。
+5 成立，改：send、enqueue、resolve 受理后会话有运行就交回 runId；回答排队开不了运行时 agent_answer 以 idle 返回。
+6 成立，改：jobs.md 跟上第 53 条；模式切换请求不让任务进 question；中止只连带由它启动的；验收改“恰有一个”。
+7 成立，改（同前端第 1 条）：send、answer 的卡片按参数 id 与 runInvocation 认。
+建议：只读也收紧（改）；前台以 question 交回过的提问算已交回（改）；已结束的任务不因暂停的运行接着跑而复活（改）；崩溃后卡片写“状态未知”（记为已知限制）；kill 保留缓冲区（改）。
+
+前端
+1 成立，改：tree 非 idle 项带 runInvocation；jobs 项带 invocation；details 总带 jobId。
+2 成立，改：对话视图根节点是尺寸容器，停靠区用它的 40%。
+3 成立，改：jobTail 的 lines 可为 0；加 jobStatuses 批量读 status.json。
+4 成立，改：wait、kill 结果的 details 形状写进 jobs.md。
+5 成立，改：question 项带 question.text；step.target 的取法写明。
+6 成立，改：子代理卡片是 node，措辞改。
+7 成立，改：ui Spec 的类型块与动作表补 invocation、PendingInputCommon、input.submit 的 sessionId、dock.state。
+建议：面板展开记录受控、由宿主持有（改）；16 个按开始时间取最近（改）、invalid 一行（改）、卡头截断规则（改）；fork 出来的父会话里复制的卡片写“子会话属于原会话”（记为已知限制）；同步向导消失后停靠区回到原来的展开或收起（改）。

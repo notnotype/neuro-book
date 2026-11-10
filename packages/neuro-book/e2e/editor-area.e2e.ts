@@ -190,7 +190,8 @@ async function savedCursor(page: Page, address: string): Promise<unknown> {
 }
 
 /**
- * 按住 `source` 拖到 `to` 再松手；拖影出现之后才算拖动开始，`before` 在松手前做。`to` 可以是函数：目标在拖动开始后才出现时，等拖影出现再量。
+ * 按住 `source` 拖到 `to` 再松手；根上有拖动标记之后才算拖动开始（实时布局在自己的标签条里没有拖影，标签自己跟手），`before` 在松手前做。
+ * `to` 可以是函数：目标在拖动开始后才出现时，等拖动开始再量。
  */
 async function dragFrom(page: Page, source: Locator, to: {x: number; y: number} | (() => Promise<{x: number; y: number}>), before?: () => Promise<void>): Promise<void> {
     const ghost = page.locator("[data-workbench-drag-ghost]");
@@ -199,7 +200,7 @@ async function dragFrom(page: Page, source: Locator, to: {x: number; y: number} 
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
     await page.mouse.down();
     await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
-    await expect(ghost).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("data-workbench-dragging", "");
     const target = typeof to === "function" ? await to() : to;
     await page.mouse.move(target.x, target.y, {steps: 8});
     await before?.();
@@ -1055,14 +1056,13 @@ test("编辑器标签的落点（docs/specs/ui/workbench-layout.md 输出 25、2
     await dragTab("b.md", await center(page.locator("[data-tool-entry=\"nbook.explorer\"]")), () => noDropShown(page));
     await expect(tabs(page)).toHaveCount(2);
 
-    // 侧栏和编辑组之间的缝：工具视图归侧栏（来源就是侧栏，所以是原位），编辑器标签归编辑组。
+    // 侧栏和编辑组之间的缝：工具视图归侧栏，编辑器标签归编辑组。
     const sash = await page.getByRole("separator", {name: /^调整 sidebar 与 .+ 的宽度$/u}).boundingBox();
     if (sash === null) throw new Error("没有侧栏与编辑区之间的分隔线");
     const seamX = sash.x + sash.width / 2;
     const seamY = sash.y + sash.height / 2;
-    await dragFrom(page, explorer, {x: seamX - 2, y: seamY}, async () => {
-        await expect(page.locator("[data-drop-kind=\"noop\"]")).toHaveCount(1);
-    });
+    // 缝左边归侧栏，落在它右缘的窄带上：侧栏不左右分，那里没有落点。
+    await dragFrom(page, explorer, {x: seamX - 2, y: seamY}, () => rejectedHere(page));
     await dragFrom(page, explorer, {x: seamX + 2, y: seamY}, () => rejectedHere(page));
     // 缝右边 2px 在编辑组的左缘窄带里，松手会拆出新组：看到落点就用 Escape 取消，后面接着用这一个组。
     await dragTab("b.md", {x: seamX + 2, y: seamY}, async () => {
@@ -2135,6 +2135,13 @@ test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局�
         await page.mouse.down();
         await page.mouse.move(from.x + from.width / 2, from.y + 60, {steps: 3});
         await page.mouse.move(targetBody.x + targetBody.width / 2, targetBody.y + targetBody.height / 2, {steps: 8});
+        // a.md 是它那一组的最后一个标签：落到别处时那一组收起，目标铺满。指针没动时落点不变；之后按收起后的布局判，指针挪到目标此刻的正中。
+        await expect.poll(async () => (await page.locator(`[data-leaf="${target}"]`).boundingBox())?.width ?? 0).toBeGreaterThan(targetBody.width + 100);
+        await expect(page.locator("[data-live-merge]")).toHaveAttribute("data-live-merge-panel", target);
+        await expect(page.locator("[data-moving]")).toHaveCount(0);
+        const widened = await page.locator(`[data-leaf="${target}"]`).boundingBox();
+        if (widened === null) throw new Error("目标不见了");
+        await page.mouse.move(widened.x + widened.width / 2, widened.y + widened.height / 2, {steps: 4});
         const merge = page.locator("[data-live-merge]");
         await expect(merge).toHaveAttribute("data-live-merge-panel", target);
         // 目标还只有自己的标签：a.md 放下才进来。

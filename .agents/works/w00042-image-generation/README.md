@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00042-image-generation
 issueId: null
 status: active
-updated: 2026-11-06
+updated: 2026-11-10
 ---
 
 # 图像生成插件
@@ -25,6 +25,7 @@ updated: 2026-11-06
 | 2026-11-06 | 开发者：接受后用稳定 id 的 `<image-generated id="…">`，不用标准图片语法，否则换一版就要改正文。主会话建议补一个 `alt`，开发者未答复，见 [t09](tasks/t09-markdown-dialect/README.md) |
 | 2026-11-06 | 开发者：NovelAI 专属标签不单独成层，官方文档已经整理好（[Special Tags](https://docs.novelai.net/en/image/tags#special-tags)），并入标签库基础层，见 [t05](tasks/t05-tag-library/README.md) |
 | 2026-11-06 | 开发者：成人标签不隐藏，不做分级开关。主会话保留一条：涉及未成年人性内容的标签在构建词库时去掉，这是构建时的排除名单，运行时没有逻辑，这类内容主会话不做进去 |
+| 2026-11-10 | 开发者：产物管理、模型灵活度、图片存储都按主会话的推荐定：历史移出配方、集中记在书里；节可以同种多个；应用级的图片仓库加空间上限（缺省 40 GB，到上限自动清没收藏的），收藏是应用级的；书里的图一张一个 `.image` 文件夹。全文见 [t03](tasks/t03-core-contracts/README.md#产物管理与模型灵活度2026-11-10-开发者都按推荐) |
 
 ## 调研
 

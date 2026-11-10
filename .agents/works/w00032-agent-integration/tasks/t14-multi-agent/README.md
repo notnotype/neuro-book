@@ -156,6 +156,11 @@ t05、t06、t07。
 51. 子会话 id 随机生成（改第 24 条的“幂等”）：内核从不重新执行工具调用，按（父会话、调用 id）算出的键防不住任何真实情况，服务商在不同回复里给出重复的调用 id 时反而会把新任务发进旧子会话。会话头照记调用 id，重启后父 Agent 经 `sessions://` 根里标了调用 id 的子会话找回它。
 52. 前台等待加时限（开发者：“缺省长一点，参考 omp、Claude Code 的值”）：`agent_spawn`、`agent_send`、`agent_answer` 加 `timeout?`，缺省 1800 秒、至多 7200 秒，到时以 `running` 返回、任务转后台、不杀子代理；`wait` 缺省 1800 秒、至多 1800 秒。参照：omp 子代理运行时限缺省关闭（`task.maxRuntimeMs` 为 0）、`wait` 至多 30 分钟；Claude Code 子代理没有时限，Monitor 缺省 5 分钟、至多 30 分钟。
 
+第十四轮（开发者 2026-11-10，第二轮设计审查之后）：
+
+53. 同一条回复里并发的子代理工具不保证按调用顺序生效（放宽第 25 条）：对同一个子会话的几次放话按到达先后排队；内核不加“按顺序进入”的改动。代价：同一条回复里先 `async` 派、紧跟 `jobs`，`jobs` 可能列不出刚派的。
+54. 停靠区与本会话的同步向导同时出现时，停靠区收成一条、排在向导下面（改计划初稿“停在它上面”）：停靠区始终在输入框位置的正上方，同步向导在消息流里贴底，不改消息流的布局。
+
 调研：[各家 code agent 的子代理设计](../../research/2026-10-30-subagent-survey.md)（Claude Code、Codex CLI、omp、DeepSeek Harness、OpenCode、Gemini CLI、Kimi CLI、Roo Code、Cline、Amp）。
 
 ## 确定的工具
@@ -216,4 +221,10 @@ t05、t06、t07。
 
 ## 下一步
 
-计划与 Spec 草稿按第一轮设计审查（[处理记录](evidences/impl-plan-review-handling.txt)）与第 50–52 条修订完；开第二轮设计审查（后端 Opus、前端 Sonnet），处理完开始切片 1。
+实施中，worktree `.worktree/w00032-t14-multi-agent`（分支 `feat/w00032-t14-multi-agent`）。已完成：切片 1 内核五处（另加视图上下文带会话，`extensions.md` 输出 31 已改）、切片 2 假端点按会话分派、切片 3 白名单与提示词一节、临时帮手、三项设置、会话关系表；切片 4 任务中心与 `wait`、`kill`、`jobs`；切片 5 三个子代理工具（主创 Profile 升到 4，加子代理与任务工具和一句“什么时候派”）；切片 6 `shell`、`ask` 的 `async`，费用上限按会话树、`wait` 豁免重复检测，`sessions://`、`profiles://` 的根。切片 7 远程合同；切片 8 前半（停靠区、父 Agent 的话标作者、`shell` 转后台画成节点、进行中的轮次不自动收起、子会话顶栏路径）。后端（切片 1–7）的实现审查已提前做完（Opus，19 条：重要 9、建议 10，全部成立、已改），报告与逐条处理见 [`evidences/impl-review-backend.txt`](evidences/impl-review-backend.txt)、[`evidences/impl-review-backend-handling.txt`](evidences/impl-review-backend-handling.txt)；`jobs.md` 输出 9、`sessions.md` 输出 19、`builtin-profiles.md` 输出 14 随之改。下一步切片 8 后半（会话面板嵌套），再切片 9 Agent 浏览器端。
+
+实现中的取舍（实现审查时一并看）：续用时子会话已在另一种非普通模式（例如父会话 `discuss`、子会话 `plan`）不改，只把 `normal` 的收紧到父会话的模式；子会话的标题用 `setGeneratedMeta` 写（不算用户改过）；子代理出错时工具结果的状态仍是 `ok`，出错写在文字与 `details.status` 里。
+
+测试未覆盖（审查第 8 条）：`child-stopping`（中止中的窗口太短）、后台命令 64 MiB 截断（要真写 64 MiB）。
+
+已知的旧问题：nb-harness 存储测试“别的进程持有时得 session-busy”偶发失败（文件句柄在垃圾回收时报未关闭），重跑通过，与本 Task 无关。

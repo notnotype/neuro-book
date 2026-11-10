@@ -1,6 +1,6 @@
 /**
- * 简报的其余各段（docs/specs/plot/brief.md 输出 2、5 到 11、13）：本章计划、在场的人、场景条件、称谓、伏笔、决策、读者已知、本章
- * 允许新增什么、涉及条目的样子。每一段返回若干项（裁剪按项从后往前）。
+ * 简报的其余各段（docs/specs/plot/brief.md 输出 2、5 到 11）：本章计划、在场的人、场景条件、称谓、伏笔、决策、读者已知、本章
+ * 允许新增什么。每一段返回若干项（裁剪按项从后往前）。条目的名字、值与作者文字都经关卡（`gate.ts`，输出 16）。
  */
 
 import type {Decision, Patch, StoryChange} from "@notnotype/nb-canon/schema";
@@ -10,140 +10,125 @@ import type {InstructionSnapshot} from "../../shared/instructions";
 import {foreshadowIndex} from "../foreshadowing";
 import {goalsOf} from "../goals";
 import {bodyOf, knowingIndex, readerKnowing} from "../knowledge";
-import {nameOf, planReveals, secrecyAt, isSecretPlus, unmaskingPoint, type Frame, type Participant} from "./context";
+import {isSecretPlus, planReveals, type Participant} from "./context";
 import * as fixed from "./fixed";
-import {concealedGoal, type SecretsResult} from "./secrets";
+import type {Gate} from "./gate";
+import {aboutEntries, type SecretsResult} from "./secrets";
 import type {BriefHint, BriefItem} from "./types";
-
-const json = (value: unknown) => (typeof value === "string" ? value : JSON.stringify(value));
 
 const DEGREE_TEXT: Readonly<Record<string, string>> = {knows: "知道", suspects: "怀疑", misbelieves: "误信", unaware: "不知道", forgot: "忘了"};
 const degreeText = (row: {readonly 程度: string | null} | null) => (row === null || row.程度 === null ? "没有记录" : (DEGREE_TEXT[row.程度] ?? row.程度));
 
-/** 知识点在简报里的写法：这一场的秘密里给了内容的写名字；绝密而不给的、保密以上又不在这一场的秘密里的，不写名字。 */
-function pointName(frame: Frame, secrets: SecretsResult, point: string): string {
-    if (secrets.items.some((item) => item.point === point && !item.hidden)) return nameOf(frame, point);
-    return isSecretPlus(secrecyAt(frame, point)) ? fixed.aPrivateMatter : nameOf(frame, point);
-}
-
-/**
- * 一个人在简报里的写法：这一场他用了马甲、而 `揭穿` 指向这个马甲的知识点是绝密又不给内容时，写马甲的名字，不写本名（本名就是那个
- * 秘密）；别的时候写本名。
- */
-function displayName(frame: Frame, secrets: SecretsResult, participants: readonly Participant[], id: string): string {
-    const mask = participants.find((member) => member.who === id && member.as !== undefined)?.as;
-    if (mask === undefined) return nameOf(frame, id);
-    const point = unmaskingPoint(frame, mask);
-    return point !== undefined && secrets.items.some((item) => item.point === point && item.hidden) ? nameOf(frame, mask) : nameOf(frame, id);
-}
-
 /** 条目自己的几个地址的写法。 */
 const ENTRY_FIELDS: Readonly<Record<string, string>> = {"entry.name": "名字", "entry.summary": "一句话描述", "entry.aliases": "别名"};
 
-const fieldLabel = (frame: Frame, entry: string, namespace: string, field: string): string => {
-    const read = frame.view.entry(entry, frame.position, "planned");
+/** 字段的显示名（字段声明的 label，不是条目的名字）。 */
+const fieldLabel = (gate: Gate, entry: string, namespace: string, field: string): string => {
+    const read = gate.frame.view.entry(entry, gate.frame.position, "planned");
     return (read === null || read === "chapter-not-found" ? undefined : read.namespaces[namespace]?.fields[field]?.label) ?? field;
 };
 
-const isEntry = (frame: Frame, id: string) => frame.view.object({kind: "entry", id}) !== undefined;
-
-/** 本章计划里提到一个条目：隐秘目标与保密以上的知识点不写名字（输出 4）；不是条目的（列表元素自己的 id）原样写。 */
-export function shownName(frame: Frame, secrets: SecretsResult, id: string): string {
-    const concealed = concealedGoal(frame, secrets.shown, id);
-    if (concealed !== null) return fixed.hiddenGoalOf(nameOf(frame, concealed.holder));
-    return isEntry(frame, id) ? pointName(frame, secrets, id) : id;
-}
-
-/** 表里的一行：“名字（字段：值；…）”。 */
-function rowText(frame: Frame, secrets: SecretsResult, row: Record<string, unknown>): string {
-    const cells = Object.entries(row).flatMap(([key, value]) => (key === "id" || key === "label" || value === null || value === undefined ? [] : [`${key}：${valueText(frame, secrets, value)}`]));
-    return `${typeof row.label === "string" ? row.label : shownName(frame, secrets, String(row.id))}${cells.length === 0 ? "" : `（${cells.join("；")}）`}`;
-}
-
-/** 值的写法：引用写名字，列表写每一行，不把条目 id 写给写手。 */
-function valueText(frame: Frame, secrets: SecretsResult, value: unknown): string {
-    if (value === null || value === undefined) return fixed.NONE;
-    if (Array.isArray(value)) return value.length === 0 ? fixed.NONE : value.map((item) => (item !== null && typeof item === "object" ? rowText(frame, secrets, item as Record<string, unknown>) : json(item))).join("、");
-    if (typeof value === "object") {
-        const ref = (value as {ref?: unknown}).ref;
-        if (typeof ref === "string") return shownName(frame, secrets, ref);
-        if (typeof (value as {id?: unknown}).id === "string") return rowText(frame, secrets, value as Record<string, unknown>);
-    }
-    return json(value);
-}
+const typeOf = (gate: Gate, id: string) => (gate.frame.view.object({kind: "entry", id}) as {type?: string} | undefined)?.type;
 
 /** 一个地址在简报里的写法（输出 2）：“星瑾的状态”“星瑾对哥哥的态度”。字段写显示名，不写命名空间；以条目为键的列表的一行写成“对某某”。 */
-function fieldPhrase(frame: Frame, secrets: SecretsResult, participants: readonly Participant[], at: Patch["at"]): string {
-    const owner = displayName(frame, secrets, participants, at.entry);
+function fieldPhrase(gate: Gate, at: Patch["at"]): string {
+    const owner = gate.name(at.entry);
     const own = ENTRY_FIELDS[at.path];
     if (own !== undefined) return `${owner}的${own}`;
     const parsed = /^([^.[\]]+)\.([^.[\]]+)(?:\[([^\]]+)\](?:\.(.+))?)?$/u.exec(at.path);
     if (parsed === null) return `${owner}的${at.path}`;
     const [, namespace, field, element, sub] = parsed as unknown as [string, string, string, string | undefined, string | undefined];
-    const label = fieldLabel(frame, at.entry, namespace, field);
+    const label = fieldLabel(gate, at.entry, namespace, field);
     if (element === undefined) return `${owner}的${label}`;
-    return isEntry(frame, element) ? `${owner}对${shownName(frame, secrets, element)}的${sub ?? label}` : `${owner}的${label}（${element}）${sub === undefined ? "" : `的${sub}`}`;
+    return gate.isEntry(element) ? `${owner}对${gate.name(element)}的${sub ?? label}` : `${owner}的${label}（${gate.rowName(at.entry, at.path, element)}）${sub === undefined ? "" : `的${sub}`}`;
 }
 
-/** 增减列表一行的写法。引到的知识点按 `pointName` 写：保密以上的不写名字。 */
-function listLine(frame: Frame, secrets: SecretsResult, participants: readonly Participant[], patch: Patch): string {
+/** 增减列表一行的写法；行是对一个条目的、而这层关系不能写（输出 16）时为 null。 */
+function listLine(gate: Gate, patch: Patch): string | null {
     const parsed = /^([^.[\]]+)\.([^.[\]]+)$/u.exec(patch.at.path);
-    const label = parsed === null ? patch.at.path : fieldLabel(frame, patch.at.entry, parsed[1]!, parsed[2]!);
-    const owner = displayName(frame, secrets, participants, patch.at.entry);
-    if (patch.op === "listRemove") return `${owner}的${label}：去掉${shownName(frame, secrets, String(patch.value))}`;
-    return `${owner}的${label}：加上${rowText(frame, secrets, (patch.value ?? {}) as Record<string, unknown>)}`;
+    const label = parsed === null ? patch.at.path : fieldLabel(gate, patch.at.entry, parsed[1]!, parsed[2]!);
+    const owner = gate.name(patch.at.entry);
+    const element = patch.op === "listRemove" ? String(patch.value) : (patch.value as {id?: unknown} | null)?.id;
+    if (typeof element === "string" && gate.isEntry(element) && !gate.relationVisible(patch.at.entry, element)) return null;
+    if (patch.op === "listRemove") return `${owner}的${label}：去掉${gate.isEntry(String(element)) ? gate.name(String(element)) : gate.rowName(patch.at.entry, patch.at.path, String(element))}`;
+    return `${owner}的${label}：加上${gate.value(patch.value ?? {})}`;
+}
+
+/**
+ * 一个地址的变化能不能照值写（输出 2、16）：主文字的块不写源文（只写“改了一块”）；条目的名字只在名字照写时写；一句话描述与
+ * 别名只在它们能给时写；对一个条目的那一行，这层关系不能写时不写。
+ */
+function changeShape(gate: Gate, at: Patch["at"]): "value" | "text" | "skip" {
+    if (at.path.startsWith("text[")) return "text";
+    if (at.path === "entry.name") return gate.kind(at.entry) === "plain" ? "value" : "skip";
+    if (at.path === "entry.summary" || at.path === "entry.aliases") return gate.describable(at.entry) ? "value" : "skip";
+    const element = /\[([^\]]+)\]/u.exec(at.path)?.[1];
+    return element !== undefined && gate.isEntry(element) && !gate.relationVisible(at.entry, element) ? "skip" : "value";
 }
 
 /**
  * 本章计划（输出 2）：每条计划一项，状态的变化写成字段的形式“对象的字段：旧 → 新”，不写自然语言的摘要句。知情行的变化（谁在这一章
- * 得知什么）写成“某某对某事：不知道 → 知道”；知识点自己的字段不写（真相只在这一场的秘密里）；藏着的目标只写“某某的一个隐秘目标”；
- * 同一个地址在一条计划里改几次只写一行（第一个旧值到最后一个新值）。
+ * 得知什么）写成“某某对某事：不知道 → 知道”；知识点自己的字段不写（真相只在这一场的秘密里）；藏着秘密的目标只写一句它的占位；
+ * 名字占位的别的条目（已删除、之后才出场）不写它的变化；同一个地址在一条计划里改几次只写一行（第一个旧值到最后一个新值）。
+ * 项的 label 是计划原话的开头（进“已省略”的就是它），不是计划 id。
  */
-export function planItems(frame: Frame, plans: readonly StoryChange[], secrets: SecretsResult, participants: readonly Participant[], chapter: string): BriefItem[] {
+export function planItems(gate: Gate, plans: readonly StoryChange[], chapter: string): BriefItem[] {
+    const view = gate.frame.view;
     const end = {kind: "chapter", chapter, edge: "end"} as const;
-    const index = knowingIndex(frame.view, "planned", end);
+    const index = knowingIndex(view, "planned", end);
     return plans.map((plan) => {
         const lines = [plan.text];
         for (const person of new Set(plan.patches.filter((patch) => patch.at.path.startsWith("know.")).map((patch) => patch.at.entry))) {
-            for (const change of index.changedBy(person, plan.id)) lines.push(fixed.changeKnowing(nameOf(frame, person), pointName(frame, secrets, change.point), degreeText(change.before), degreeText(change.after)));
+            for (const change of index.changedBy(person, plan.id)) lines.push(fixed.changeKnowing(gate.name(person), gate.name(change.point), degreeText(change.before), degreeText(change.after)));
         }
         const seen = new Set<string>();
         for (const patch of plan.patches) {
-            if (patch.at.path.startsWith("know.") || secrecyAt(frame, patch.at.entry) !== null) continue;
-            const hidden = secrets.hiddenGoals.get(patch.at.entry);
-            // 隐秘目标：持有者在本章参与者里的在 `hiddenGoals`；不在的这里也不写它的名字与状态变化。
-            const concealed = hidden === undefined ? concealedGoal(frame, secrets.shown, patch.at.entry) : null;
-            if (hidden !== undefined || concealed !== null) {
-                const key = `hidden|${patch.at.entry}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                const holder = (hidden ?? concealed)!.holder;
-                const shown = hidden === undefined ? undefined : secrets.items.find((item) => item.point === hidden.point && !item.hidden);
-                lines.push(shown === undefined ? fixed.hiddenGoalOf(nameOf(frame, holder)) : `${fixed.hiddenGoalOf(nameOf(frame, holder))}，见这一场的秘密`);
+            if (patch.at.path.startsWith("know.") || typeOf(gate, patch.at.entry) === ENTRY_TYPES.point) continue;
+            // 身份不给写手的本体与他的目标：变化不挂到马甲名下（开发者 2026-11-10 定）；他得知什么照写（上面的知情变化）。
+            if (gate.ownedByWithheld(patch.at.entry)) continue;
+            if (gate.kind(patch.at.entry) === "placeholder") {
+                // 藏着秘密的目标写一句占位（名字与状态变化都不写）；别的占位条目不写。
+                if (gate.hiding(patch.at.entry) === null || seen.has(`hidden|${patch.at.entry}`)) continue;
+                seen.add(`hidden|${patch.at.entry}`);
+                lines.push(gate.name(patch.at.entry));
                 continue;
             }
             // 增减一张列表的一行写成一件事，不把整张列表写成 JSON。
             if (patch.op === "listAdd" || patch.op === "listRemove") {
-                lines.push(listLine(frame, secrets, participants, patch));
+                const line = listLine(gate, patch);
+                if (line !== null) lines.push(line);
                 continue;
             }
             const key = `${patch.at.entry}|${patch.at.path}`;
             if (seen.has(key)) continue;
             seen.add(key);
-            const steps = frame.view.origins(patch.at, end, "planned");
+            const shape = changeShape(gate, patch.at);
+            if (shape === "skip") continue;
+            if (shape === "text") {
+                lines.push(fixed.textChanged(gate.name(patch.at.entry)));
+                continue;
+            }
+            const steps = view.origins(patch.at, end, "planned");
             if (steps === "chapter-not-found") continue;
             const values = steps.flatMap((step) => (step.kind === "init" || step.kind === "carried" ? [{value: step.value, change: undefined as string | undefined}] : step.kind === "patch" ? [{value: step.result, change: step.change}] : []));
             const at = values.findIndex((item) => item.change === plan.id);
             if (at === -1) continue;
-            lines.push(`${fieldPhrase(frame, secrets, participants, patch.at)}：${valueText(frame, secrets, at === 0 ? null : values[at - 1]!.value)} → ${valueText(frame, secrets, values[at]!.value)}`);
+            // 值按表的主人写（主人不认得的那一行不写）；整张列表丢掉那一行以后前后一样的，这一行不写。
+            const [rawBefore, rawAfter] = [at === 0 ? null : values[at - 1]!.value, values[at]!.value];
+            const [before, after] = [gate.value(rawBefore, patch.at.entry), gate.value(rawAfter, patch.at.entry)];
+            if (!(Array.isArray(rawAfter) && before === after)) lines.push(`${fieldPhrase(gate, patch.at)}：${before} → ${after}`);
         }
-        return {label: `计划 ${plan.id}`, text: lines.join("\n")};
+        return {label: [...plan.text].slice(0, 12).join(""), text: lines.join("\n")};
     });
 }
 
-/** 在场的人（输出 5）：视角人物排第一；进行或受挫、没有隐秘的目标；两人都在本章的态度对子。 */
-export function peopleItems(frame: Frame, chapter: string, participants: readonly Participant[], secrets: SecretsResult, pov: string | null): {readonly header: string; readonly items: BriefItem[]} {
-    const view = frame.view;
+/**
+ * 在场的人（输出 5）：视角人物排第一；进行或受挫、不藏秘密的目标；两人都在本章的态度对子。X 对一个这一场用马甲的人 P 的态度：
+ * X 认得他（`gate.recognizes`）时列 X 对 P 本体的那一行，否则列 X 对马甲条目的那一行（有的话）：不认得他，对本体的态度不适用；
+ * 身份不给写手时，对本体的关系同样是这条秘密的内容。
+ */
+export function peopleItems(gate: Gate, chapter: string, participants: readonly Participant[], pov: string | null): {readonly header: string; readonly items: BriefItem[]} {
+    const view = gate.frame.view;
     const bodies: string[] = [];
     const labels: string[] = [];
     for (const member of participants) {
@@ -157,27 +142,32 @@ export function peopleItems(frame: Frame, chapter: string, participants: readonl
     bodies.sort((a, b) => Number(b === povBody) - Number(a === povBody));
     const scene = new Set([...bodies, ...view.chapterEntries(chapter, "planned")]);
     const items: BriefItem[] = bodies.map((who) => {
-        const lines = [displayName(frame, secrets, participants, who)];
-        // 目标按名字再按 id 排：条目在内部表里的先后（发布的批次）不能改变简报的文字。
-        for (const goal of [...goalsOf(view, who, frame.position, "planned")].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id < b.id ? -1 : 1))) {
-            if (goal.隐秘 !== null) {
-                const mask = [...secrets.hiddenGoals.values()].some((hidden) => hidden.holder === who && hidden.point === goal.隐秘);
-                const shown = secrets.items.find((item) => item.point === goal.隐秘 && !item.hidden);
-                lines.push(shown !== undefined ? fixed.hiddenGoalSeeSecrets : mask ? fixed.hiddenGoalOf(nameOf(frame, who)) : fixed.hiddenGoalOf(nameOf(frame, who)));
+        const lines = [gate.name(who)];
+        // 身份不给写手的本体：只写马甲，不把他的目标与态度挂到马甲名下（开发者 2026-11-10 定）。
+        if (gate.identityWithheld(who)) return {label: gate.name(who), text: lines.join("\n"), protect: who === povBody};
+        // 目标按写出来的名字再按 id 排：条目在内部表里的先后（发布的批次）不能改变简报的文字。藏着秘密的目标写出来都一样，谁先无所谓。
+        const goals = goalsOf(view, who, gate.frame.position, "planned").map((goal) => ({goal, shown: gate.name(goal.id)}));
+        for (const {goal} of goals.sort((a, b) => (a.shown < b.shown ? -1 : a.shown > b.shown ? 1 : a.goal.id < b.goal.id ? -1 : 1))) {
+            if (gate.hiding(goal.id) !== null) {
+                lines.push(gate.secretClass(goal.id) === "shown" ? fixed.hiddenGoalSeeSecrets : fixed.hiddenGoalOf(gate.name(who)));
                 continue;
             }
-            lines.push(`目标：${goal.name}${goal.为什么 === null ? "" : `（${goal.为什么}）`}${goal.状态 === "blocked" ? "，受挫" : ""}`);
+            lines.push(`目标：${gate.name(goal.id)}${goal.为什么 === null ? "" : `（${goal.为什么}）`}${goal.状态 === "blocked" ? "，受挫" : ""}`);
         }
-        const read = view.entry(who, frame.position, "planned");
+        const read = view.entry(who, gate.frame.position, "planned");
         const rows = read === null || read === "chapter-not-found" ? [] : ((read.namespaces.att?.fields.态度?.value as Array<Record<string, unknown>> | undefined) ?? []);
         for (const row of rows) {
             const object = String(row.id);
             if (object === who || !scene.has(object) || typeof row.态度 !== "string") continue;
+            const body = bodyOf(view, object);
+            // 关系能不能写由关卡判断（X 不认得用马甲的他时不列对本体的一行）；X 认得他时对马甲条目的一行不重复列。
+            if (!gate.relationVisible(who, object)) continue;
+            if (body !== object && gate.maskOf(body) === object && gate.recognizes(who, body)) continue;
             const cause = (row.起因 as {ref?: unknown} | null | undefined)?.ref;
-            const showCause = typeof cause === "string" && !isSecretPlus(secrecyAt(frame, cause));
-            lines.push(`对${nameOf(frame, object)}的态度：${row.态度}${showCause ? `（起因：${nameOf(frame, cause)}）` : ""}`);
+            const showCause = typeof cause === "string" && gate.kind(cause) === "plain";
+            lines.push(`对${gate.name(object)}的态度：${row.态度}${showCause ? `（起因：${gate.name(cause)}）` : ""}`);
         }
-        return {label: displayName(frame, secrets, participants, who), text: lines.join("\n"), protect: who === povBody};
+        return {label: gate.name(who), text: lines.join("\n"), protect: who === povBody};
     });
     for (const label of labels) items.push({label, text: label});
     if (bodies.length + labels.length > 1) items.push({label: "其他人", text: fixed.OTHERS_NO_ATTITUDE});
@@ -195,116 +185,106 @@ export function sceneItems(plans: readonly StoryChange[], chapter: string, hints
 }
 
 /**
- * 称谓（输出 7）：视角方式是第一人称或有限视角时生成。本章在场与被提到的每个人 P，叙述用的称呼按顺序取第一个能取到的：视角人物
- * 对 P 的态度行里的 `称呼`；P 这一场用马甲 M 而视角人物对“`揭穿` 指向 M”的知识点没有知道的有效知情时用 M 的名字；视角人物在本章之前
- * 有一条剧情变更与 P 同时在场、那一条里 P 没用马甲时用 P 的名字；只和用着马甲的 P 同时在场过时用最近那一次的马甲名；都没有用泛称。
+ * 称谓（输出 7）：视角方式是第一人称或有限视角时生成，整章只写一次（回溯章的几份合在一起）。每个人取一份框架的关卡给左右两栏：
+ * 有一份里他用马甲而视角人物不认得他，取最早那一份（左栏写本名的例外要每一份都允许）；否则有一份里他改名，取最早那一份；
+ * 否则取他出现的第一份。左右两栏出自同一份，两段各用一个马甲时不会把两个马甲对上。
  */
-export function addressItems(frame: Frame, participants: readonly Participant[], pov: string | null, povMode: InstructionSnapshot["povMode"], secrets: SecretsResult): BriefItem[] {
-    if (pov === null || (povMode !== "first" && povMode !== "limited")) return [];
-    const view = frame.view;
+export function addressItems(gates: readonly Gate[], participantsByFrame: readonly (readonly Participant[])[], pov: string | null, povMode: InstructionSnapshot["povMode"]): BriefItem[] {
+    if (pov === null || (povMode !== "first" && povMode !== "limited") || gates.length === 0) return [];
+    const view = gates[0]!.frame.view;
     const povBody = bodyOf(view, pov);
-    const index = knowingIndex(view, "planned", frame.position);
-    const read = view.entry(povBody, frame.position, "planned");
-    const attitudes = read === null || read === "chapter-not-found" ? [] : ((read.namespaces.att?.fields.态度?.value as Array<Record<string, unknown>> | undefined) ?? []);
-    const startKey = view.positionKey(frame.position);
-    const before = view.changes({kind: "written"}).filter((change) => {
-        const key = view.eventKey(change.id, "planned");
-        return change.status === "active" && key !== null && startKey !== null && view.compareKeys(key, startKey) < 0;
-    }).sort((a, b) => view.compareKeys(view.eventKey(a.id, "planned")!, view.eventKey(b.id, "planned")!));
-    const unmasking = (mask: string) => unmaskingPoint(frame, mask);
-    const people = new Map<string, Participant | undefined>();
-    for (const member of participants) {
-        if (member.who === undefined) continue;
-        const body = bodyOf(view, member.who);
-        if (body !== povBody && (!people.has(body) || member.as !== undefined)) people.set(body, member);
+    const people: string[] = [];
+    const labels: string[] = [];
+    for (const participants of participantsByFrame) {
+        for (const member of participants) {
+            if (member.who === undefined) {
+                if (member.label !== undefined && !labels.includes(member.label)) labels.push(member.label);
+                continue;
+            }
+            const body = bodyOf(view, member.who);
+            if (body !== povBody && !people.includes(body)) people.push(body);
+        }
     }
     const items: BriefItem[] = [];
-    for (const [person, member] of people) {
-        const call = attitudes.find((row) => row.id === person && typeof row.称呼 === "string" && row.称呼 !== "")?.称呼 as string | undefined;
-        let name: string;
-        if (call !== undefined) name = call;
-        else if (member?.as !== undefined && (() => {
-            const point = unmasking(member.as);
-            return point === undefined || index.effective(povBody, point)?.程度 !== "knows";
-        })()) name = nameOf(frame, member.as);
-        else {
-            const together = before.filter((change) => (change.cast ?? []).some((c) => c.role === "present" && c.who !== undefined && bodyOf(view, c.who) === povBody) && (change.cast ?? []).some((c) => c.role === "present" && c.who !== undefined && bodyOf(view, c.who) === person));
-            const plain = together.some((change) => (change.cast ?? []).some((c) => c.role === "present" && c.who === person && c.as === undefined));
-            const masked = together.map((change) => (change.cast ?? []).find((c) => c.role === "present" && c.who === person && c.as !== undefined)?.as).filter((as): as is string => as !== undefined).at(-1);
-            name = plain ? nameOf(frame, person) : masked !== undefined ? nameOf(frame, masked) : "一个陌生人";
-        }
-        items.push({label: name, text: `${name} = ${displayName(frame, secrets, participants, person)}`});
+    for (const person of people) {
+        const appears = gates.filter((_gate, index) => participantsByFrame[index]!.some((member) => member.who !== undefined && bodyOf(view, member.who) === person));
+        const gate = appears.find((candidate) => candidate.maskOf(person) !== undefined && !candidate.recognizes(povBody, person)) ?? appears.find((candidate) => candidate.kind(person) !== "plain") ?? appears[0] ?? gates[0]!;
+        const name = gate.narrativeName(pov, person);
+        items.push({label: name, text: `${name} = ${gate.name(person)}`});
     }
-    for (const member of participants) if (member.who === undefined && member.label !== undefined) items.push({label: member.label, text: `${member.label} = ${member.label}`});
+    for (const label of labels) items.push({label, text: `${label} = ${label}`});
     if (items.length > 0) items.push({label: "末尾", text: fixed.ADDRESS_FOOTER, protect: true});
     return items;
 }
 
 /**
- * 伏笔（输出 8）：只列本章计划里有节点的伏笔，和依赖的物件出现在本章计划里的伏笔。节点是回收的：给主文字（打算怎么回收），但伏笔的
- * `答案` 是保密以上的知识点而本章计划没有对它的揭示时，不给主文字，写“回收方式按细纲写”并给提示；其余只给名字、节点的种类与指示，加“不要点破”。
+ * 伏笔（输出 8）：只列本章计划里有节点的伏笔，和依赖的物件出现在本章计划里的伏笔。节点是回收的：给主文字的纯文字（打算怎么回收）；
+ * 答案是保密以上而本章计划没有揭示它，或主文字有一块经关卡扣下时，不给主文字，写“回收方式按细纲写”并给带原因的提示；其余只给名字、
+ * 节点的种类与指示，加“不要点破”。
  */
-export function foreshadowItems(frame: Frame, chapter: string, plans: readonly StoryChange[], secrets: SecretsResult, hints: BriefHint[]): BriefItem[] {
-    const index = foreshadowIndex(frame.view, frame.position, "planned");
+export function foreshadowItems(gate: Gate, chapter: string, plans: readonly StoryChange[], hints: BriefHint[]): BriefItem[] {
+    const view = gate.frame.view;
+    const index = foreshadowIndex(view, gate.frame.position, "planned");
     const planIds = new Set(plans.map((plan) => plan.id));
     const reveals = planReveals(plans);
-    const entries = new Set(frame.view.chapterEntries(chapter, "planned"));
+    const entries = new Set(view.chapterEntries(chapter, "planned"));
     const items: BriefItem[] = [];
     for (const foreshadow of index.foreshadows) {
         const nodes = index.planned.filter((node) => node.foreshadow === foreshadow.id && planIds.has(node.plan));
         if (nodes.length === 0 && !foreshadow.objects.some((id) => entries.has(id))) continue;
-        const lines = [foreshadow.name];
+        const title = gate.name(foreshadow.id);
+        const lines = [title];
         for (const node of nodes) {
             if (node.role === "payoff" || node.role === "partial") {
-                // 主文字给的是纯文字：不是回写用的带值写法（写手不回写，注记与条目 id 会被当成素材）。它引到本章不能写名字的条目时，同样不给。
-                const plain = frame.view.renderPlain(foreshadow.id, frame.position, "planned");
-                const blocks = plain === null || typeof plain === "string" ? [] : plain.blocks;
-                const sensitive = blocks.some((block) => block.references.some((id) => shownName(frame, secrets, id) !== nameOf(frame, id)));
-                const withheld = sensitive || (foreshadow.answer !== null && isSecretPlus(secrecyAt(frame, foreshadow.answer)) && !reveals.has(foreshadow.answer));
-                if (withheld) {
-                    lines.push(`${node.role === "payoff" ? "回收" : "部分回收"}：${fixed.PAYOFF_BY_OUTLINE}`);
-                    hints.push({code: "nbook.plot.brief.payoffWithheld", objects: [{kind: "entry", id: foreshadow.id}], range: {from: chapter, to: chapter}});
+                const blocks = gate.blocks(foreshadow.id);
+                // 答案按关卡不给内容（含不给写手的那组揭穿、已删除），或是保密以上而本章计划没有揭示它：都不给主文字。
+                const secretAnswer = foreshadow.answer !== null && (gate.secretClass(foreshadow.answer) === "withheld" || (isSecretPlus(gate.secrecy(foreshadow.answer)) && !reveals.has(foreshadow.answer)));
+                const reason = secretAnswer ? "answer" : (blocks.find((block) => block.withheld !== null)?.withheld ?? null);
+                const role = node.role === "payoff" ? "回收" : "部分回收";
+                if (reason !== null) {
+                    lines.push(`${role}：${fixed.PAYOFF_BY_OUTLINE}`);
+                    hints.push({code: "nbook.plot.brief.payoffWithheld", objects: [{kind: "entry", id: foreshadow.id}], range: {from: chapter, to: chapter}, reason});
                 } else {
                     // 主文字写打算怎么回收（术语）；还没写时退回一句话描述与名字。
                     const text = blocks.map((block) => block.text).join("\n");
-                    const read = frame.view.entry(foreshadow.id, frame.position, "planned");
-                    const main = text !== "" ? text : read === null || read === "chapter-not-found" || read.summary === "" ? foreshadow.name : read.summary;
-                    lines.push(`${node.role === "payoff" ? "回收" : "部分回收"}：${main}${node.note === undefined ? "" : `（指示：${node.note}）`}`);
+                    const main = text !== "" ? text : gate.summary(foreshadow.id) || title;
+                    lines.push(`${role}：${main}${node.note === undefined ? "" : `（指示：${node.note}）`}`);
                 }
             } else lines.push(`${node.role === "plant" ? "埋下" : node.role === "mislead" ? "误导" : "呼应"}${node.note === undefined ? "" : `（指示：${node.note}）`}；${fixed.DONT_BREAK}`);
         }
-        items.push({label: foreshadow.name, text: lines.join("\n")});
+        items.push({label: title, text: lines.join("\n")});
     }
     return items;
 }
 
 /**
- * 决策（输出 9）：不挂保密以上知识点的原话、挂在秘密里的指向，加上 `due` 不晚于本章的待定决策；待定决策挂着保密以上的知识点时文字
+ * 决策（输出 9）：不涉秘密的原话、挂在秘密里的指向，加上 `due` 不晚于本章的待定决策；待定决策挂着秘密（给不给内容都算）时文字
  * 天然带秘密，只写“有一条涉及保密设定的待定决定到期了”。
  */
-export function decisionItems(frame: Frame, lines: readonly string[], pendingDue: readonly Decision[]): BriefItem[] {
+export function decisionItems(gate: Gate, lines: readonly string[], pendingDue: readonly Decision[]): BriefItem[] {
     const items = lines.map((text) => ({label: text.slice(0, 12), text}));
     for (const decision of pendingDue) {
-        const secret = decision.about.some((about) => about.kind === "entry" && isSecretPlus(secrecyAt(frame, about.id)));
+        const secret = aboutEntries(decision).some((id) => gate.secretClass(id) !== "none");
         items.push(secret ? {label: "待定决定", text: fixed.DECISION_DUE_ABOUT_SECRET} : {label: decision.text.slice(0, 12), text: `待定（到期）：${decision.text}`});
     }
     return items;
 }
 
 /** 读者已知（输出 10）：本章涉及的知识点里，读者在上一章末尾已经 `knows` 的写“读者已经知道”，`suspects` 的写“读者已经在怀疑”；保密以上的只写这一场的秘密里那一项的名字。 */
-export function readerItems(frame: Frame, chapter: string, points: readonly string[], secrets: SecretsResult): BriefItem[] {
-    const index = frame.view.chapters.indexOf(chapter);
+export function readerItems(gate: Gate, chapter: string, points: readonly string[], secrets: SecretsResult): BriefItem[] {
+    const view = gate.frame.view;
+    const index = view.chapters.indexOf(chapter);
     if (index <= 0) return [];
-    const at = {chapter: frame.view.chapters[index - 1]!, edge: "end"} as const;
+    const at = {chapter: view.chapters[index - 1]!, edge: "end"} as const;
     const items: BriefItem[] = [];
-    for (const point of points) {
-        const degree = readerKnowing(frame.view, point, at);
+    for (const point of new Set(points)) {
+        const degree = readerKnowing(view, point, at);
         if (degree === "unaware") continue;
         const secret = secrets.items.find((item) => item.point === point);
-        // 保密以上的只写这一场的秘密里那一项的名字；绝密而不给内容的那一项名字就是真相，用称呼代替；不在那里的保密以上知识点不写。
-        if (secret === undefined && isSecretPlus(secrecyAt(frame, point))) continue;
-        const what = secret === undefined ? nameOf(frame, point) : secret.hidden ? fixed.READER_SEES_HIDDEN : `（见这一场的秘密：${secret.name}）`;
-        items.push({label: secret?.hidden === true ? fixed.HIDDEN_NAME : nameOf(frame, point), text: `${degree === "knows" ? "读者已经知道" : "读者已经在怀疑"}：${what}`});
+        // 不在这一场的秘密里、又涉及秘密的（保密以上、不给写手的揭穿、已删除）不写；不给内容的那一项名字就是真相，用称呼代替。
+        if (secret === undefined && gate.secretClass(point) !== "none") continue;
+        const what = secret === undefined ? gate.name(point) : secret.hidden ? fixed.READER_SEES_HIDDEN : `（见这一场的秘密：${secret.name}）`;
+        items.push({label: secret?.hidden === true ? fixed.HIDDEN_NAME : gate.name(point), text: `${degree === "knows" ? "读者已经知道" : "读者已经在怀疑"}：${what}`});
     }
     return items;
 }

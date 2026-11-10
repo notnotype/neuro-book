@@ -34,8 +34,64 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 
 ## 当前状态
 
-2026-11-10 新建，未开工；先写 `plan.md`。
+2026-11-10：[plan.md](plan.md) 初稿（Opus）做了计划审查（Opus 审服务端、HTTP 与模型服务 16 条，Sonnet 审浏览器宿主 12 条）与独立设计（Sonnet），报告在 `evidences/`。处理如下；三项交开发者（见“待开发者定”），定了再改第二稿。
+
+2026-11-10：按下表与“开发者定的”三项改出第二稿（Opus，424 行）：新包三个（`nb-file-lock`、`nb-host`、`nb-models`）；切片重排为 0 ADR（主 Agent 在主工作区写）、1 `nb-file-lock`、2 到 6 `nb-host`、7 与 8 `nb-models`（t32 合入、变基之后）、9 文档与合入前清单，第 1 到 6 片可在 t32 合入前先合。表外顺带改的：补丁校验脚本加“只有 `nb-file-lock` 声明 `proper-lockfile` 且版本 4.1.2”；第 4 片用过渡导出 `createHostPlugins`、第 5 片删去；`runtime/diagnostics.md` 进 Spec 改动表；B4 的“锁失效只报诊断、进程不崩”用例放在 `nb-file-lock`。主 Agent 核对：引用 `locked-replace` 的非测试文件 19 个、提到它的测试 9 份（`locked-replace.test.ts` 随包搬走、`architecture.test.ts` 另改，要改导入的正是计划写的 7 份）；直接导入 `proper-lockfile` 的应用文件 4 个（`locked-replace.ts`、`jsonl-exporter.ts`、`layer-file.ts`、`plugin-platform/backend/startup.ts`），计划都给了去处。剩三项交开发者（计划“需要开发者确认”）。
+
+### 计划第一稿的处理
+
+后端审查（B）、前端审查（F）、独立设计（D）：
+
+| 来源 | 结论 | 第二稿怎么改 |
+|---|---|---|
+| B1 扩展的 `attach` 拿不到路由与诊断存储 | 成立 | `attach` 收宿主上下文 `{application, router, store, instanceId}`，写明调用时它们已就绪 |
+| B2 选择顺序已归本 Task，服务里写死三个角色 id | 成立 | 选择顺序与内置角色 id 由本 Task 搬，角色 id 导出为常量，宿主的角色表必须包含；纯函数加测试与变异检查 |
+| B3、D 设置存储接口只有签名、没写语义 | 成立 | 写进接口合同（自己写入也通知、写后立即可读、冲突重试等通知、`expect` 的比较）；导出一组一致性测试，内存实现与 NeuroBook 的设置适配器各跑一遍 |
+| B4 认领锁的精简版丢了两道保护与诊断事件名 | 成立 | 视“待开发者定”第 2 项：抽出加锁替换就直接用它；不抽则私有模块保住 `onCompromised`、放锁前的身份核对与事件名，并加“锁失效只报诊断、进程不崩”的用例 |
+| B5、D HTTP 插件的安全接线仍由各应用手接 | 成立 | `startHostServer` 自己装 HTTP 插件，应用只给插件 id、路由与静态目录；来源判定函数由包算出，应用换不掉 |
+| B6 认领档案的扩展字段与 `readyInfo` 没有类型关联 | 成立 | 同一个类型参数贯穿；发布时在包里校验，不合就抛错 |
+| B7 扩展钩子的时序没写 | 成立 | 接口注释写死三条（停止开始后不调 `ready`、`stopping` 失败计退出码 1、`ready` 在放行与发布之后），各配一条同进程用例 |
+| B8 分支上的 `docs:check` 必然报指向旧文件的链接 | 成立 | 写明分支上预期只报这几条链接（列清单）；合入后紧接着在主工作区提交文档 |
+| B9 退出码 75 现在没有实现 | 成立 | 改写为“现在只有 0 和 1”，75 以后从哪进来写进不做 |
+| B10 第二道回环校验没在任何监听之前 | 成立 | `startHostServer` 第一步核 host 与来源，失败走装配失败路径（写致命诊断、放认领）；端口试探也核一次 |
+| B11 回环集合有两份、RPC 的 503 文字带产品名 | 成立 | 分发层用同一份常量；RPC 监听收产品名 |
+| B12、D 诊断日志出口不在划分表里 | 成立 | 见“待开发者定”第 3 项 |
+| B13、D 远程合同的失败码与服务结果没有类型关联 | 成立 | 视“待开发者定”第 1 项：放进新包时合同的定义对象与失败码表随服务一起进包 |
+| B14、D 加锁替换留在应用，NeuroBot 会抄第三份 | 质疑已定范围 | 交开发者（“待开发者定”第 2 项） |
+| B15 两个应用误用同一状态根，挡不挡得住取决于路径长短 | 成立，窄场景 | 记为已知限制：不支持两个应用共用状态根，写进 nb-host 的 README |
+| B16 拆 `server.test.ts` 时三条用例两边都没列 | 成立 | 验收映射按用例名逐条列去向，这三条进 nb-host |
+| F1 重连的不兼容终态不带原因 | 成立 | `refreshEndpoint` 交回 `{incompatible: string}`，原因由应用拼；不得抛错 |
+| F2 应用的“前端不引后端”测试对 nb-host 子路径失效 | 成立 | 应用的架构测试加 nb-host 子路径的运行位置表，第 1 片就加 |
+| F3 浏览器身份的 DOM 测试在新包里没有归宿 | 成立 | 改写成 `bun test`（存储替身加抛 `SecurityError` 的取存储函数），真实存储由已有 e2e 代表 |
+| F4 浏览器从第 1 片起就经 Vite 用 nb-host | 成立 | 第 1 片验证加 `build:web` 与开发模式页面加载，第 5 片再跑一次 |
+| F5 必填的 `platform` 可被清单覆盖 | 成立 | 清单类型去掉 `platform`，档案放后面；只有宿主文件能调内核的 `createApplication` |
+| F6 应用名扫描不认 NeuroBot | 成立 | 正则加 `neurobot`、`nbot`，各带反例 |
+| F7 浏览器侧的第三方依赖要白名单 | 成立 | 分层测试改成白名单，失败信息指向应用的 `optimizeDeps.include` |
+| F8 三段浏览器代码缺直接测试 | 成立 | 加 `openRpcSocket` 的真实 WebSocket 测试与地址拼接的纯函数测试；应用侧给 `refreshEndpoint` 加直接测试与重连时版本变化的用例 |
+| F9 NeuroBot 的重启后自动重连 | 部分成立 | 写明终态后由应用重建窗口实例；`refreshEndpoint` 收 `AbortSignal`、关闭时中止；退避表做成选项不做（没有使用者） |
+| F10 `ConnectionError` 放在套接字文件里 | 成立 | 单独成文件，列出要改导入的文件 |
+| F11 浏览器类型检查没覆盖 `./http/contracts`、要排除测试 | 成立 | 挪到 `src/shared/` 或加进 include；写明 `exclude` |
+| F12 插件 SDK 的类型打包不认识 nb-host | B 已核实 SDK 不经这些入口 | 第 1 片验证加 `build:sdk`，确认产物不出现 nb-host |
+| D 模型服务放进新包 nb-models（合同定义对象随服务进包） | 与初稿不同 | 交开发者（“待开发者定”第 1 项） |
+| D `definitionAt` 交回新对象，按对象身份核对插件会误判 | 成立 | 按 id 加入口身份核对 |
+| D 范围外：nb-story 与开发者面板的本地服务可能没有 `Host`、`Origin` 核对 | 不成立（读代码判断） | nb-story 有一次性口令登录加会话 Cookie（`packages/nb-story/src/server/auth.ts`），重绑定的页面拿不到 Cookie；不处理 |
+
+### 开发者定的（2026-11-10，答“可以”，三项都按推荐）
+
+1. 模型服务放进新包 `nb-models`（依赖 nb-runtime 与 nb-harness），远程合同的定义对象与失败码表随服务进包，两个应用只填各自的 id。原来 w00032 t32 要搬进 nb-harness 的 `models/shared/rules.ts`、`compaction.ts` 改由本 Task 搬进 `nb-models`。
+2. 加锁替换（`packages/neuro-book/src/backend/locked-replace.ts`）抽成一个与应用无关的小包；nb-host 的数据目录认领、NeuroBook 的设置与 Files、以后 NeuroBot 的记忆与设置都用它，锁的参数只有一份。
+3. 诊断日志的输出插件（`runtime.diagnostics`）进 nb-host。
+
+### 第二稿的确认项（2026-11-10 按“待确认默认追认”算定）
+
+开发者同意 Work 的 Task 规划（答“可以”）时，计划“需要开发者确认”的三项还列着、没有单独作答，按推荐算定，有异议再改：
+
+1. 小包叫 `@notnotype/nb-file-lock`（`packages/nb-file-lock`）；`staged-commit.ts` 留在应用。
+2. 三个包的 exports 按计划所列，都设 `private: true`、不发 npm；写进第 0 片的 ADR。
+3. 五个内置角色与选择顺序归 `nb-models`，两个应用共用；名字与说明各应用自己写。
+
+代码由谁写没有答复，按开发者的全局规则由主会话写。
 
 ## 下一步
 
-按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写 `plan.md`，开发者确认后实施。
+第 0 片已做（2026-11-10）：[ADR 0045](../../../../../docs/adr/0045-shared-host-packages-for-second-app.md) 记三个新包与 ADR 0030 决策 2 的修订，索引已补注。接着建 worktree 开工，第 1 到 6 片可在 w00032 t32 合入前做完先合，第 7、8 片等 t32。

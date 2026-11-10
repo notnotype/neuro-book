@@ -35,6 +35,7 @@ Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
 - 验证和提交分成两步：看过验证结果再提交，不把测试与 `git commit` 串在一条命令里。
 - 用 `git rm`、`git mv` 改过暂存区后，提交别的片之前先用 `git diff --cached --stat` 核对暂存区只有本片的文件。
+- 主工作区的暂存区是几个会话共用的：先对未暂存的改动单独跑 `git diff --check -- <路径>`（看它的退出码），再在一条命令里 `git add <路径>` 并 `git commit -- <路径>`。先暂存、再单独跑 `git diff --cached --check`，中间的空档里别的会话不带路径的提交会把你暂存的文件一起带走（w00039 t35 两个文件这样入库，那个提交后来又被改写掉，文件落回暂存区）。worktree 里只有自己，照“`git diff --cached --check` 单独一步”做。
 - 删除合进非 master 分支的本地分支时，先用 `git merge-base --is-ancestor <分支> <目标分支>` 确认已包含，再用 `git branch -D`：`-d` 只和该分支的上游比较，没有上游时和执行命令处检出的分支比较，在主工作区执行就是拿 master 比。
 - push和PR属于远端写入，分别获授权后执行。
 

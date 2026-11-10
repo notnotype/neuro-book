@@ -1,0 +1,245 @@
+# w00032 t14 前端第二轮设计审查报告
+
+审查对象见 brief-frontend-r2.md。证据标注：「读码」是读了现有实现确认；「推断」是从合同与代码推出、没有在浏览器里跑；没有跑 e2e 与开发服务。按影响排序，逐条追加。每条末尾注明是否属于第一轮没处理好的条目。
+
+## 1. 返回时还没结束的调用，卡片的终态没有任何数据来源
+
+- 严重程度：阻断；类别：不变量
+- 位置：plan.md:125（卡片数据：“有结果且对应的运行已结束时用结果的 details，否则用 tree”）；docs/specs/agent/conversation.md:99（输出 33）；docs/specs/agent/subagents.md:75（输出 7）、:104（输出 21：不是 `idle` 的才有 `runId`、`step`、`tools`；idle 项只有身份）；docs/specs/agent/jobs.md:56（输出 9：任务取走后移出）
+- 现象：第一轮第 15 条的修法是“终态取工具结果”。这只对“调用返回时运行已经结束”的调用成立。输出 6 规定了四种提前返回：`async: true` 立即返回 `running`、同步提问返回 `question`、插话返回 `running`、到时限返回 `running`，`queue: true` 也立即返回 `running`。这些调用的 `details` 里状态是返回那一刻的（`running` 或 `question`），不含最终结果。运行之后结束了：
+  1. `tree` 里这个子会话回到 `idle`，按输出 21 idle 项没有 `runId`、没有结果句、没有终止原因；
+  2. `jobs` 里的任务在 `wait` 取过后移出（输出 9 与寿命条目），或进程重启后整张表为空；
+  3. 最终结果只在后来某次 `wait`、`agent_send` 调用的结果里，卡片找不到那条。
+  所以 plan.md:125 的规则对这张卡片得出：结果说 `running`、对应运行“已结束”→ 用结果 → 一直写“运行中”（或 `question` 的“在问：…”）；或者 `tree` 没数据 → 落到输出 33 的“数据还没到时写正在启动”。两种都是错的，而且发生在最主要的异步场景（`async` 派出去、父会话早已回复完，任务早已完成）上。重启后更糟：子代理按 `interrupted` 收口，旧卡片仍写“运行中”。
+- 为什么是问题：验收场景 3（question 后 answer 到完成）、`async` 派发、`agent_send` 超时转后台，卡片的“结束后一行结果”都做不到；这是开发者定的第 36、40 条的核心。第 41 条要求高度不变，但一行文字是错的。
+- 如何核实：读 subagents.md 输出 6、7、21 与 jobs.md 寿命条目，列一个异步派发：结果 `{status: "running", runId: R1}`；R1 结束后 `tree` idle 项的字段，`jobs` 被 `wait` 取走。没有一处存着 R1 的终态。
+- 建议改法：让终态有一个不会过期的来源，按（子会话、runId）存每次运行的收口摘要：会话日志里每次子代理运行收口时已有 `runEnded` 之类的事件，服务端据此在远程加 `childRuns({sessionId})`，交回 `[{childId, runId, status, line, endedAt}]`（`line` 取结果第一句，与 `details` 同口径，每次运行一条、只给收口了的），卡片按 `details.runId` 精确查，不依赖“最近一次”。只在 `tree` 的 idle 项上加一个 `last`（最近一次）不够：同一个子会话后来又被 `agent_send` 跑过，旧调用的卡片就没有对应项了。无论怎样，在 Spec 里写明“调用返回时没结束的卡片，终态怎么来”，并配一个宿主测试：async 派发、结束、wait 取走、刷新页面后卡片仍写结果句。
+- 属于第一轮第 15 条没处理好。
+
+## 2. `pinned(call, ctx)` 与“独立响应式源、不进 ctx”互相矛盾，分轮是纯函数拿不到活数据
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:113（`pinned?(call, ctx)`）、plan.md:125（卡片数据“不进 ctx，免得每次推送重建整个上下文”）；packages/nb-agent-ui/src/vue/stream/AgentConversationTurn.vue:43-56（整理一轮只依赖 `run`、`history`、`now` 三个 computed）、packages/nb-agent-ui/src/conversation-turns.ts:193-198（`TurnEnvironment` 只有 `registry`、`run`、`history`、`now`）、:1-15（“纯函数，不持有状态”“输出可完整 JSON 化”）
+- 现象：进行中的判断只能来自 `tree`/`jobs`：`async` 派发返回时 `call.status` 已是 `success`，调用本身看不出子代理还在不在跑（第 1 条）。但 `buildTurn` 是纯函数，输入只有消息、注册表、`run`、`history`、`now`；宿主把活数据放在 `provide` 里，`ctx` 里没有，`pinned(call, ctx)` 里的 `ctx` 拿不到它。要让 `pinned` 读到，只有两条路：把活数据放进 `ctx`（推翻 plan.md:125 的“不进 ctx”，AgentConversationTurn.vue:43 的注释正是为避免 ctx 整体替换时重算而写），或让 `buildTurn` 在 computed 里读一个 Vue 响应式源（它不再是纯函数，输出依赖外部，nb-agent-ui 也就不再是“纯受控视图”）。
+- 为什么是问题：计划把两个互相排斥的做法各写了一半。照字面实现，实现者会走进第一条路，每次 `tree` 推送（至多每秒 4 次）重算所有含 `agent_spawn` 的轮次，或者在 `pinned` 里写死 `status === "running"`，async 的卡片在父会话回复完时被收起，第一轮第 16 条没修好。
+- 如何核实：读 AgentConversationTurn.vue:43-56、conversation-turns.ts:193-198；`rg "pinned" docs packages/nb-agent-ui` 只在计划与 Spec 中出现，没有签名与调用点。
+- 建议改法：`pinned` 的输入改成宿主喂给视图的一份纯数据：`ctx` 里加一个只含“进行中的调用 id 集合”的小字段（例如 `ctx.activeCalls: readonly string[]`，宿主从 `tree`/`jobs` 算出，集合没变就保持引用不变，所以只在集合变化时重算），`pinned?(call)` 只读 `call` 与这个集合；卡片需要的逐项进度仍走独立响应式源。把这个集合的稳定性（没变不换引用）写进 Spec 与 DOM 测试。
+- 属于第一轮第 16 条没处理好。
+
+## 3. `pinned` 的卡片在整轮收起/展开/结束时位置会变，与“不跳”相反
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:113；docs/specs/agent/conversation.md:99（输出 33 末句）；packages/nb-agent-ui/src/conversation-turns.ts:181-190（`findOutcomeStart`）、vue/stream/AgentConversationTurn.vue:204-253（收起时只渲染 `processDividers` 与 `outcomeBlocks`）
+- 现象：整轮收起时，模板只渲染摘要行、`processDividers` 和 `outcomeBlocks`（`turn.blocks.slice(outcomeStart)`）。`outcomeStart` 是从末尾向前越过连续的“结果”块得出的，pinned 的卡片通常夹在过程中间（派出之后，父 Agent 还读了文件、再回复），不会是末尾连续段，无法靠把它算成结果来显示。要显示只能像 `processDividers` 那样单独抽出来渲染在摘要行与结果之间。这带来三件事，计划没有一件处理：
+  1. 展开时它在过程里原位，收起时被渲染到摘要行下面的另一个 `v-for`，是另一棵组件树，卡片被卸载重建，已展开的结果全文区、滚动位置丢失；用户点“展开过程/收起”时卡片在页面上跳位；
+  2. 运行中的轮次不可收起；转为 `done` 的那一刻，整轮自动收起（AgentConversationTurn.vue:68），这张卡片正好从原位移到摘要行之下，之后任务完成又从屏幕上消失，页面内容两次上移。这正是开发者第 41 条反对的“数据到了版式才变”；
+  3. 多张 pinned 卡片与结果之间的先后（按原顺序、在最终回复之前）和摘要行里的“操作次数”是否计入它们，都没有写。
+- 为什么是问题：卡片的价值就在后台还在做事时用户看着它，而它恰在这一刻搬家。
+- 如何核实：读上面几处；推断（没有在浏览器里跑）：构造一轮“`agent_spawn async` → `read` → 最终回复”，收起时 `outcomeStart` 指向最终回复，pinned 卡片不在其中。
+- 建议改法：把“收起”做成过程区的 CSS 折叠（`display: none` 或高度折叠）而不是换渲染树，pinned 节点留在原位、不卸载；或者明确规定 pinned 的卡片在收起时的唯一位置，并让展开态也画在那里（它不再在过程里）。Spec 与 Lab 场景要覆盖：运行中 → 结束 → 任务完成三个时刻卡片的位置与高度。
+- 属于第一轮第 16 条没处理好。
+
+## 4. 后台命令卡片的渲染器没有归属：内置 `bash` 已占了 `shell`，插件再登记会抛冲突
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:112（“`shell` 带 `async` 的画成常显的后台命令卡片”）、plan.md:111、:125；packages/nb-agent-ui/src/builtin-tools.ts:189-191（内置条目 `bash`，`toolNames: ["bash", "shell"]`，`presentation: "card"`）、registry.ts:337-352（`checkToolNames`：同一精确名出现在两个来源即抛 `AgentViewRegistryConflictError`）、registry.ts:393（`resolveTool` 按名字取第一个）；读 `.presentation` 的两处：conversation-turns.ts:394、vue/stream/AgentChainBlock.vue:133
+- 现象：`presentationOf` 是渲染器条目上的字段，条目按工具名唯一。`shell` 已经由 nb-agent-ui 的内置条目 `bash` 登记。后台卡片要用 Agent 插件的节点组件（要读 `jobs`、调 `killJob`、`jobTail`），内置条目不能依赖插件，而插件登记 `toolNames: ["shell"]` 会在 `createAgentViewRegistry` 里抛冲突（构造时抛，对话视图起不来）。计划与 Spec 都没有说谁登记、怎样合并。第一轮第 3 条指出“注册表只有 `resolveTool(name)`”，处理只加了 `presentationOf`，没有处理条目归属。另外把 `.presentation` 改成 `presentationOf(call)` 要改两处读取点（上面两处）加 `AgentToolStepRow` 等按渲染器取值的地方，计划没有列。
+- 为什么是问题：切片 9 一上来就是冲突错误；各种绕法（插件覆盖内置、内置里放通用后台卡片再靠 `ctx.extensions` 取数据）都推翻已经写下的决定（独立响应式源）或违反“不静默覆盖”的注册表约定。
+- 如何核实：读 builtin-tools.ts:189-191 与 registry.ts:337-352；`rg "presentation" packages/nb-agent-ui/src --glob '!*.test.ts'`。
+- 建议改法：二选一并写进计划：（a）注册表加“按调用叠加”的扩展点：条目上的 `refine?(call) => {presentation?, node?} | null`，同一工具名允许内置条目 + 一个明确声明了 `refines: "bash"` 的插件条目；（b）内置 `bash` 条目的 `shell` 名让出（nb-agent-ui 只登记 `bash`，宿主登记 `shell` 的整个条目并自带普通命令的画法，复用导出的内置零件）。同时列出所有读取呈现层级的位置，并让合同测试覆盖“同一工具名流式中途从 card 变 node 时轮次结构”。
+- 属于第一轮第 3 条没处理完。
+
+## 5. 停靠区与同步向导并存：几何上无法“停在它上面”，40% 没有容器可量
+
+- 严重程度：重要；类别：不变量
+- 位置：docs/specs/agent/conversation.md:103（输出 37：“同步的照旧替换输入框，停靠区收成一条停在它上面”“最高占视图的 40%”）、docs/specs/ui/agent-conversation-view.md:298、plan.md:114；packages/nb-agent-ui/src/vue/AgentConversationView.vue:390（同步向导画在 `.acv-stream__content` 末尾）、vue/wizard/AgentWizard.vue:150-157（`position: sticky; bottom: 6px`）、vue/AgentConversationView.vue:412-421（输入框 `v-show`、`inert`）、:564-571（`.acv-body` 是 `container-type: size`）、vue/wizard/AgentWizardFrame.vue:41（`max-height: 60cqh`）、vue/composer/AgentConversationComposer.vue:357-359（排队条与提示条在输入框组件里面）
+- 现象：
+  1. 同步向导不在输入框的位置，它在消息流里，粘在流的底边（sticky）。“输入框上方”的停靠区若是视图级的一块（输入框之上、`.acv-body` 之下），物理位置在同步向导下面，不是“停在它上面”。要真的在上面，停靠区也得进消息流并和向导一起 sticky 叠起来（两个 `bottom: 6px` 的 sticky 会重叠，需要偏移），布局和滚动逻辑要重写。
+  2. 若把停靠区放进输入框组件（那里已经有排队条和提示条），它会随输入框 `v-show=false` + `inert` 一起隐藏，同步向导出现时恰好看不见这条收起的小条。
+  3. “视图高度的 40%”的单位没有定义。现有的 `cqh` 相对 `.acv-body` 这个 size container，不是整个视图：390x560 的场景里 `.acv-body` 约 390 高，视图 560，40% 的两种读法差 60px。停靠区放在 `.acv-body` 外时 `cqh` 没有祖先容器，回退成视口高度，限高失效；Frame 现成的 `60cqh` 若被 docked 变体继承，同样不对。
+  4. 与排队消息、可用性提示（`availability.message`）的上下顺序、与 `.acv-jump`（“回到最新”浮钮，绝对定位在 `.acv-body` 内）是否重叠，都没有写。
+- 为什么是问题：这是开发者第 50 条改定后新增的布局，Spec 的一句话在现有结构里没有一种实现同时满足“在同步向导上面”“不被隐藏”“限高”。切片 8 的实现者要自己选，选错会在 Lab 看图时才发现。
+- 如何核实：读上面各处；推断（没跑）：同时有同步审批与后代审批时，DOM 里同步向导在 `.acv-stream__content` 内，停靠区在 `.acv-body` 之外。
+- 建议改法：Spec 先画出这种并存态的自上而下顺序（建议：消息流内容 → 同步向导（sticky，流内）→ 视图级停靠区（流外、输入框上方，同步向导在时收成一条）→ 输入框），“停在它上面”是开发者 2026-11-10 确认计划初稿时定下的，不要悄悄改成“下面”：要保留就要把停靠区的收起小条也做成消息流里的 sticky（和向导叠起来，给两个 sticky 不同的 `bottom` 偏移并量得出高度），并把这个代价告诉开发者，由他决定要“上面”还是“视图级、在向导下面”。无论选哪种，停靠区的限高都要写明 40% 相对谁（`.acv-body` 还是整个视图），放 `.acv-body` 外就要自带 `container-type` 或改用百分比，并让 e2e 量同一个基准。
+- 属于第一轮第 9 条没处理好（位置与高度预算只给了一句话）。
+
+## 6. 停靠区靠 `aria-live` 播报，但这个 live 区会随内容一起挂载；复用 `AgentWizard` 还会带来抢焦点
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:114（“不替换输入框、不抢焦点，出现时只经 `aria-live` 报”）；docs/specs/agent/conversation.md:100、:103；packages/nb-agent-ui/src/vue/wizard/AgentWizard.vue:38-41、61-70、108-109（`aria-live` 的 span 与内容同属一个根，`onMounted` 与 `watch(pendingIds)` 里 `focusRoot()`）
+- 现象：
+  1. 现有向导的播报其实靠焦点：出现时焦点落到根（`aria-label` 是 `announcement`），那个 `aria-live="polite"` 的 span 与根同时挂载、里面一开始就有文字。多数读屏对“带着文字一起插入的 live 区”不会播报（live 区要先存在、之后文字变化才播）。停靠区不抢焦点，这就是唯一的播报手段，因此它大概率不响。计划只写了“经 `aria-live` 报”。
+  2. 计划只说 `AgentWizardFrame` 加 `docked` 变体（plan.md:114），但抢焦点的逻辑在 `AgentWizard.vue`（`onMounted` 与 `watch(pendingIds)`），不在 Frame 里。停靠区若复用 `AgentWizard`，出现与事项变化时就会 `focusRoot()`，违反“不抢焦点”；`wizard.announce.approval` 文字只有数量、没有来源，第一轮第 24 条要求带来源，处理记录写了“随实现”，计划与 Spec 都没落成条目。
+  3. 停靠区有多个事项要翻看，同步向导有自己的“第 n / m 个”：标题行右边已有计数；翻看的上一个/下一个按钮放在哪、键盘怎么翻（方向键？Tab？）、翻到的事项被别处先答后停在哪一项，Spec 只说“可翻看”。
+- 为什么是问题：“不抢焦点”与“能被读屏用户知道”是第 50 条的两个要求，现在的写法做不到后者，做前者要改的组件也写错了位置。
+- 如何核实：读 AgentWizard.vue 上述行；对照 WAI-ARIA live region 的常规做法（区先挂载、再改文字）；读屏实测未做，推断。
+- 建议改法：视图里放一个常驻的、视觉隐藏的 `role="status"` 区（挂在 `AgentConversationView` 层，不随停靠区卸载），停靠区出现新事项时往里写带来源的文字（“子代理「名字」要运行命令 …，等你批准”）；停靠区做成单独的组件或给 `AgentWizard` 加 `docked` 属性并在该属性下完全跳过 `focusRoot`；Spec 写出翻看的控件与键盘行为；DOM 测试断言“停靠区出现/事项变化时 `document.activeElement` 不变”。
+- 属于第一轮第 6、24 条没处理好。
+
+## 7. `pendingInputs` 的使用者要分流，`wizardState` “分两份”的载体没有定义
+
+- 严重程度：重要；类别：不变量
+- 位置：docs/specs/ui/agent-conversation-view.md:107、:298（`wizardState` 分两份）；plan.md:115、:117；packages/nb-agent-ui/src/vue/AgentConversationView.vue:220、:390、:412-419；vue/wizard/AgentWizard.vue:34-36、76-91；vue/composer/AgentStatusBar.vue:42；packages/nb-agent-ui/src/types.ts:465、:470-472（`wizardState?: JsonValue` 一份、动作 `wizard.state` 没有区分）；wizard.ts:17-29、:58
+- 现象：
+  1. Spec 把带 `source`/`async` 的事项放在同一个 `pendingInputs` 里。现有三个使用者都按“有事项就是同步等待”写：`waitingForUser`（替换输入框、`inert`、答完回焦点）、`AgentWizard` 内的 `find(isQuestions)`（审批优先于提问，只取第一个提问）、状态栏的 `pendingInputs.some(approval)`（`run.status === "waiting"` 时决定写“等你批准”还是“等你回答”）。后代的审批进来后，本会话正等一个同步提问时，状态栏会写“等你批准”。计划与 Spec 都没有列出这些使用者要加过滤，只写了停靠区的行为。
+  2. “`wizardState` 分两份”没有给类型：`ctx.wizardState` 是一个 JSON，动作 `wizard.state {state}` 不带区分。要么加第二个字段（如 `dockState`）并给动作加 `dock: true`，要么把一个对象拆成 `{sync, docked}` 并改 `readWizardState`。这是 nb-agent-ui 公开合同，nb-story、Lab 也会受影响。
+  3. 停靠区的事项混着审批和提问，“每个单独提交”。现有 `AgentApprovalWizard` 是对一批审批 `allChosen` 后一起提交、有“全部拒绝”，`WizardState.step` 也是批内下标；停靠区需要“外层翻看事项、内层只放一个事项”的新壳，`step` 的含义变成事项下标，“全部拒绝”要么不出现要么只拒当前一个。这一壳是新写的，不是“`AgentWizardFrame` 加变体”。
+- 为什么是问题：读 Spec 的人以为是复用，实际要改的公开类型、三个使用者和一个新壳都没出现在切片 8 的清单里。
+- 如何核实：读上述行。
+- 建议改法：Spec 与计划在“事项字段”处加一条：视图把 `pendingInputs` 分成 `blocking`（无 `source`、无 `async`）与 `docked` 两组，所有使用者只看前者；给出 `wizardState` 的两份的字段名与动作区分；写明停靠区单事项壳的按钮集（无“全部拒绝”）。
+- 属于第一轮第 5、7、8 条的残余。
+
+## 8. 事项“消失时回收状态”会把还没来得及到的数据当成消失
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:115（“按会话存在宿主里，切走再回来还在，事项消失时回收”）；packages/neuro-book/src/plugins/agent/web/session-host.ts:367（现状：`pending.length === 0` 就 `wizardState = undefined`）；plan.md:107（`tree` 的先订阅再取、`onResync` 重取）；docs/specs/agent/subagents.md:105
+- 现象：现在的回收依据是内核事件推出的 `pending`，空就是真空。停靠区的事项来自 `tree.pending`，以下时刻它都是“暂时空”：打开会话后第一份 `tree` 还没到；切走再切回时订阅重建、30 秒借用计数归零后取消订阅（conversation.md 时序条）；连接重连的 `onResync` 与重取之间；`tree` 因后代数超限没有给出该项（见第 10 条）。“事项消失就回收”照字面执行，就把用户已经选好的、写到一半的附言和答案清掉了，而计划同一句话说的是“切走再回来还在”，两者冲突。
+- 为什么是问题：用户在停靠区里填了表单题，切到子会话看一眼再回来，答案没了；与第一轮第 7 条指出的“静默丢掉用户输入”同类。
+- 如何核实：读 session-host.ts:360-370 与上述时序；推断（没跑）：模拟 `tree` 订阅重建期间 `pending` 为空一帧。
+- 建议改法：只在“确认已答”时回收：事项经 `resolveInput` 成功、或收到明确的 `interactionResolved`（该后代会话的帧）、或 `tree` 的一份完整快照里该后代存在且明确没有这个事项；订阅未就绪、重取中、后代缺席（被限额截断）时一律保留；写进 Spec 并配宿主测试（订阅重建期间状态保留）。
+- 属于第一轮第 7 条的残余。
+
+## 9. 父会话空闲时 `ctx.now` 不走，异步子代理与后台命令的“用时”冻结
+
+- 严重程度：重要；类别：正确性
+- 位置：docs/specs/agent/conversation.md:99、:102（卡头“用时”）；plan.md:125（“用时用等宽数字”）；packages/neuro-book/src/plugins/agent/web/session-host.ts:680-701（`syncTicker`：只在当前会话自己的 `run.status !== "idle"` 时起每秒的计时器）、:1305（`now = nowValue.value`）、packages/nb-agent-ui/src/types.ts:478-479（`now`：“视图不自己计时”）
+- 现象：卡片的用时 = `ctx.now - startedAt`。`ctx.now` 只在当前会话自己在运行时滴答。第 16 条要保护的正是“父会话回复完了、`async` 子代理或后台命令还在跑”的时刻，此时父会话 `idle`，计时器已停，`nowValue` 停在运行结束的那一刻；`tree`/`jobs` 的推送只触发重绘，不更新 `nowValue`。卡片的用时冻结在父会话收口时的值，子代理实际跑了一小时也不动。后启动的任务（`startedAt` 晚于最后一次滴答）用时会是负数（卡片怎样处理负数是推断，没有实现可读）。
+- 为什么是问题：用时是第 36 条要求的卡头内容，进行中的卡片恰是它最该变的时候；这是一个没人会去写测试的隐含耦合（计时器的开关由另一件事决定）。
+- 如何核实：读 session-host.ts:680-701：`syncTicker` 只从 `afterChange` 调用，只看 `target.transcript.run()`。
+- 建议改法：`syncTicker` 的“在跑”改成“当前会话在跑，或 `tree`/`jobs` 里还有在跑的项”；Spec 与宿主集成测试加“父会话空闲、后台任务在跑时用时每秒变化”；计时器每秒 `bump()` 整个 ctx 的代价与第 2 条合并考虑（用时可以由卡片自己用独立的 `now` 源算，不必推动整个 ctx）。
+
+## 10. fork 出的子会话与原子会话同一个（父会话、`callId`），`agent_spawn` 卡片按它查会有两个候选
+
+- 严重程度：重要；类别：正确性
+- 位置：docs/specs/agent/subagents.md:109（输出 23：fork 一个子会话得到的新会话“会话头照抄 `caller`”）、:104（`tree` 每项有 `callId`）；plan.md:72、:125（卡片按“（父会话、`callId`）”找）
+- 现象：用户在子会话里 `/fork`（conversation.md 输出 30 的命令，子会话里照常可用），新会话的会话头照抄了原来的 `caller {kind, id, callId}`。`tree` 于是有两项相同的（`parent`, `callId`）。`agent_spawn` 的那张卡片按这对值找子会话，会得到两个：一个是真正派出的，一个是用户事后 fork 的；先到先得就会把卡片的进度、状态、“打开子会话”按钮指到 fork 出来的那个，或者两者轮流。
+- 为什么是问题：卡片的身份是由会话头的值决定的，而这个值可以被用户的操作复制。第一轮第 1 条的修法（加 `callId`）在此失效；数据来源写成“按调用找”后，没有一处规定重复时选谁。
+- 如何核实：读 subagents.md 输出 23 与输出 21 的字段；构造：父 P 的调用 c1 派出 S1；用户 `/fork` S1 得 S1'，两者 `caller` 相同。
+- 建议改法：二选一并写进 Spec：（a）fork 出来的会话会话头里 `caller.callId` 去掉或加 `forkedFrom`，`tree` 的 `callId` 只给原件；（b）卡片遇到重复时取 `startedAt` 最早且 `forkedFrom` 为空的，并在 `tree` 项里加 `forkedFrom?`。再配一个卡片测试。
+
+## 11. `tree` 的“在跑的至多 16 个”只在计划里，Spec 没有；超出的后代的审批无处可见
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:106（“载荷受上限约束（在跑的至多 16 个）”）；docs/specs/agent/subagents.md:52、:104-105（没有这条上限）、docs/specs/agent/run-guards.md:41-42（`subagentsPerSession` 可设到 16，`backgroundJobs` 可设到 32）；docs/specs/agent/conversation.md:100（输出 34）
+- 现象：
+  1. 上限在计划里写了 16，Spec 的输出 21、22 没写，也没写超出时怎么处理。设置允许一个会话同时 16 个子代理、深度至多 5，全局还可能更多；上限 16 在合法配置下就会被超过。
+  2. 超出的在跑后代没有 `runId`、`step`、`pending`，或根本不在交回里。其中正好有在等审批的：后代被审批卡住，祖先的停靠区、卡片、会话面板都看不到它，状态栏“等你处理”也漏数；用户只能在会话列表里一个个找。没有规定“要用户处理的优先保留”。
+  3. 子会话停在 `idle` 之后仍然可以有未回答的异步提问（输出 11：应答异步提问会让空闲的子会话开新运行），而输出 21 说 idle 项没有 `pending`。这样的提问对祖先不可见，与输出 14“所有祖先都看得到、答得了”不符。
+- 为什么是问题：审批是阻塞性事项，信息丢失的后果是子代理永远等；这是第 50 条（停靠区）的数据前提。
+- 如何核实：读上面几处；第 3 点是从合同推断，没有查内核里空闲会话上异步提问是否保留。
+- 建议改法：Spec 写进上限与超出规则：有 `pending` 的后代一律给全字段，不计入 16 个名额；超出的只丢 `step`/`tools`；idle 的后代若有未答的 `pending` 也给；把这三条放进载荷大小的合同测试。
+
+## 12. 会话面板的展开集合是并集，父会话行上的开关在常见情形下按了没反应
+
+- 严重程度：重要；类别：不变量
+- 位置：docs/specs/ui/agent-conversation-view.md:344；docs/specs/agent/conversation.md:104（输出 38）；plan.md:120
+- 现象：展开集合 = 用户手动展开 ∪ `selectedId` 的全部祖先 ∪ 有子会话等用户的 ∪ `expandFor` 的祖先。用户想收起的父会话如果属于后三类之一（当前会话所在的父会话、有子会话在等你的父会话、搜索命中的），按“N 个子代理”开关把“手动展开”去掉，并集里仍有它，行不收起，`aria-expanded` 仍是 `true`。一个按了没反应的开关，是读屏和键盘用户最先踩到的错。当前会话的父会话最典型：用户进入子会话后打开面板，想把列表收短，做不到。
+- 为什么是问题：开关语义和展开规则互相打架，“展开记录由面板持有”只管手动那一部分。
+- 如何核实：读 Spec 上述一句；推断（没跑）。
+- 建议改法：展开状态用三态：手动展开、手动收起、自动；自动规则只在条目集合或 `selectedId` 变化的时刻生效一次（把对应的父会话放进展开集），之后手动收起优先，直到下一次这些输入变化。Spec 写出这条优先级并配 DOM 测试：当前会话的父会话可以被手动收起。
+- 属于第一轮第 12 条的残余。
+
+## 13. “N 个子代理”和“子代理等你处理”由已过滤的条目算，过滤后数字和提醒都会错
+
+- 严重程度：重要；类别：正确性
+- 位置：docs/specs/ui/agent-conversation-view.md:344；plan.md:120；packages/neuro-book/src/plugins/agent/web/session-list.ts:70-74（宿主按 Profile 与关键词逐条过滤）；packages/nb-agent-ui/src/vue/AgentSessionPanel.vue:54-66（分组按各行自己的 `updatedAt`）
+- 现象：`AgentSessionPanel` 是纯受控的，只看到 `items`。“N 个子代理”只能数 `items` 里 `parentId` 指向这一行的条目；“收起时有子会话 `waiting`”也是看这些条目。宿主过滤之后：
+  1. 按 Profile 过滤（常见，选“主创”）时，子代理多是 adhoc/隐藏 Profile，全被滤掉，父会话行没有开关，也没有“子代理等你处理”的提醒，子代理却在等审批；
+  2. 搜索命中一个子会话时，Spec 要求把祖先带进来，父会话的“N 个子代理”写成 1，实际 8 个；
+  3. 日期组：子会话“跟父会话在同一个日期组”，但面板按各行自己的 `updatedAt` 分组，列表里的 `updatedAt` 来自各会话自己的 `lastActivityAt`；内核是否把后代的活动记到父会话上没有写（从合同推断：没有）。昨天的父会话，今天一直在跑的子代理被收进“昨天”组里（或要等用户时被挤到下面）。
+- 为什么是问题：第 47 条 B1 的两个核心提示（个数、等你处理）在有过滤时失真；用户靠它们决定要不要展开。
+- 如何核实：读 session-list.ts:70-74；推断（没跑）。
+- 建议改法：`AgentSessionListItem` 加 `childCount?` 与 `childWaiting?`，由宿主按未过滤的 `list` 算好交进来（行上的开关用它，不数 `items`）；父会话 `updatedAt` 取自身与后代中最新的；Spec 写明分组与排序的依据。
+
+## 14. 状态栏“运行中只数顶层会话”要的父子数据，`activity` 没有，也不该为此去取 `list`
+
+- 严重程度：重要；类别：正确性
+- 位置：docs/specs/agent/conversation.md:78（输出 19 的 planned 部分）；plan.md:128；packages/neuro-book/src/plugins/agent/shared/remote.ts:129（`ActivityItem = {id, state}`）、packages/neuro-book/src/plugins/agent/web/activity.ts:1-4、34-36（只放轻量声明，`running`/`waiting` 是对 `items` 的计数）
+- 现象：规则是“运行中只数没有会话作调用方的会话，子会话在跑算在它的根会话里；等你处理含子会话”。`activity` 的条目只有 `id` 与 `state`，没有父子关系。现在 `sessions.md` 输出 15 是“前台会话”，子会话不是后台会话（subagents.md:61），所以它们已经出现在 `activity` 里：派 8 个就是“9 运行中”。要按规则数，状态栏条目要么拿到 `parent`，要么去取 `list`；plan.md:127-128 说“用 `list` 的 `parent` 与 `activity`”，但状态栏条目所在的 `activity.ts` 被设计成“只放声明与轻量模块，打开窗口不多花时间”，窗口启动时没有 `list`，且 `list` 受范围与归档过滤，沿链找根会断。还有一句本身不清楚：根会话自己空闲、子会话在跑，算“运行中 1”还是 0（“算在它的根会话里”可以读成算作根会话在跑）。
+- 为什么是问题：这条会让输出 19 的测试（“活动条目”）改了行为却没有数据来源；实现者会自己加字段或加一次 `list` 调用，是远程合同的改动，现在没在“远程合同”一节出现。
+- 如何核实：读 remote.ts:129 与 activity.ts。
+- 建议改法：`ActivityItem` 加 `root: string`（根会话 id，由服务端按关系表算好）；Spec 把计数写成：“运行中”= 有会话在跑的根会话数（根自己或任一后代在跑），“等你处理”= 在等用户的会话数（含子会话）；点击时优先切到等用户的那个会话。远程合同一节补这个字段。
+
+## 15. 卡片的状态表只列了子代理自己的状态，漏了调用本身的状态与派发失败
+
+- 严重程度：建议；类别：测试
+- 位置：docs/specs/agent/conversation.md:99（输出 33 的行文清单）；packages/nb-agent-ui/src/types.ts:44-45（`ToolCallStatus`：`streaming`、`running`、`success`、`error`、`invalid`、`denied`、`unknown`）；plan.md:125；docs/specs/agent/subagents.md:60（输出 1：派发失败的码）
+- 现象：输出 33 按子代理的状态列了行文（运行中、等用户、等父 Agent、完成、出错、中止/中断、数据没到写“正在启动”）。调用本身还有这些情形，没写：
+  1. `agent_spawn` 派发失败（`profile-not-allowed`、`depth-limit`、`concurrency-limit` 等）：`call.status = error`，没有子会话、没有 `tree` 项，卡头的 Profile 图标、名字从哪来（参数里的 `profile` 键，宿主 Profile 表）、“打开子会话”按钮灰掉，行文写错误原因。按现在的规则这类卡片落到“正在启动”并且永远如此；
+  2. 参数还在流式生成（`streaming`）：`profile`、`prompt` 可能是半截；
+  3. `invalid`（参数不合 schema）、`denied`（被规则或用户拒绝）、`unknown`（重启后不知道有没有执行完）。重启前后卡片的“已中断”与 `unknown` 怎么区分；
+  4. 子代理在等用户但等的是模式切换（输出 34 说后代的模式切换不进停靠区）：`tree.pending` 是否包含它没写；包含则卡片写“等你回答：…”而停靠区没有，不包含则 `state: waiting` 配空 `pending`，行文空白。
+- 为什么是问题：第 41 条要求高度不变、数据没到不塌；这些情形没有行文就会各写各的。
+- 如何核实：读上面几处。
+- 建议改法：输出 33 的行文表改成以 `call.status` 为一轴、子代理状态为另一轴的矩阵；派发失败的卡片用参数里的 `profile` 键在宿主 Profile 表里取图标与名字；模式切换请求写明“`tree.pending` 不含，`state: waiting` 且无 pending 时行文写‘在等你切换模式，打开子会话处理’”。
+- 属于第一轮第 15 条的残余。
+
+## 16. 计划与 Spec 里留下的自相矛盾与过时句子
+
+- 严重程度：建议；类别：文档
+- 位置：docs/specs/agent/conversation.md:99（输出 33 前半“常显，不收进过程”对末句“结束后才随过程收起”）；packages/nb-agent-ui/src/conversation-turns.ts:1-15、:181-190（现有 `node` 常显只表示切开思维链，整轮收起时除结果节点外都收进过程）；plan.md:178（宿主集成测试要覆盖“部分失败”）；plan.md:116、docs/specs/ui/agent-conversation-view.md:107（`async` 事项与 `source` 事项同在 `pendingInputs`）与 :298
+- 现象：
+  1. 输出 33 的“常显，不收进过程”与现有 `node` 的含义不同（现有 `node` 整轮收起时照样收起，只有 `outcome` 例外），而且同一句末尾又说“结束后才随过程收起”，读者无法判断“常显”指什么。第一轮第 16 条处理时加了末句，没改前半。
+  2. 计划的验证一节仍写宿主集成测试覆盖“部分失败”。第 50 条之后停靠区每个事项单独提交，没有“一批里部分成功”；有意义的是“单个事项提交失败（后代会话已关闭、`already-answered`、`not-owner`）时在这个事项上写原因并保留所选”（输出 34 末句）。
+  3. 审批类事项在 Spec 里叫 `PendingApprovalView`，`source` 放在公共字段（第一轮第 19 条处理），但 plan.md:117 只说“`PendingInputView` 公共字段加 `source?` 与 `async?: true`”，没有说 `mode-switch` 类型是否可能有 `source`（输出 34 说不会）：类型层要不要用 `Omit` 拒绝，没写。
+- 为什么是问题：实现与测试按字面写，会做出不存在的“批内部分失败”，并且卡片收起行为照“常显”写错。
+- 如何核实：读上面几处。
+- 建议改法：输出 33 前半改成“思维链里的一张卡片，不随思维链折叠”并与 `pinned` 的规则合并成一段；验证一节的“部分失败”改成“单个事项提交失败时的原因与所选保留”；类型里让 `mode-switch` 事项不带 `source`。
+
+## 17. 验收的几条在写出的形态下量不到，且漏了新增的行为
+
+- 严重程度：建议；类别：测试
+- 位置：plan.md:175-181（验证）；packages/neuro-book/e2e/lab-agent-ui.e2e.ts（nb-agent-ui 的 Lab 场景）、packages/neuro-book/src/plugins/lab/web/fixtures/agent-scene/（插件夹具的目录，现有 Profile 页夹具）、packages/neuro-book/e2e/agent-conversation.e2e.ts:106、137-141、156、185-188、290，lab-agent-ui.e2e.ts:556-594（用 `[data-agent-wizard]`、`[data-wizard-count]` 等钩子，没有 `.first()`）
+- 现象：
+  1. “卡片高度不随文字变（含 390px）”写在 `lab-agent-ui.e2e.ts`，但卡片是 Agent 插件的节点组件，要读宿主 provide 的源。nb-agent-ui 的场景用内置登记，挂不出真卡片；插件夹具的目录是 `agent-scene/`，没有对应 e2e。计划没有说卡片的 Lab 场景放哪、怎样驱动 provide 的源（短进度、超长进度、结果句、各状态各一次）。
+  2. 同时有停靠区和同步向导时，页面里有两个 `data-agent-wizard`。上面这些现有 e2e 用的是严格模式下的 `page.locator("[data-agent-wizard]")`，出现两个会直接报多元素匹配。第一轮第 22.7 条提了这点，处理记录没提。
+  3. “进度只改那一行文字”的 DOM 测试若用 `ctx.now` 的变化触发（用时每秒变），会同时改用时文字，需要把时间固定；计划写“数渲染次数或观察 DOM 变化”，没写固定时钟。
+  4. 没有判据的新增行为：停靠区出现时焦点不动（第 6 条）、停靠区在 390px 的限高（第 5 条）、停靠区与同步向导并存时的顺序、输入框始终可输入、暗色下的阴影（design-language 要求暗色外阴影加重，第一轮第 24 条的“两色 Lab 场景”被归入“随实现”后没有落成条目）。
+- 为什么是问题：开发者最在意的两项（高度、阴影）和第 50 条的“不抢焦点、不替换输入框”都需要真实浏览器的断言；写在错的文件里会等到切片 10 才暴露。
+- 如何核实：读上面各处。
+- 建议改法：验证一节明写：卡片场景放 `agent-scene/`，并为它加 e2e（或在 `lab-agent-ui.e2e.ts` 里加载插件夹具）；停靠区与同步向导各自带 `data-agent-dock`/`data-agent-wizard` 区分，现有 e2e 的定位器随之改；DOM 测试固定 `now`；补焦点、限高、并存顺序、输入框可用、明暗两色阴影五条断言。
+- 属于第一轮第 22 条没处理完。
+
+## 18. 顶栏路径的祖先来自 `list`，归档的父会话会被写成“未知会话”
+
+- 严重程度：建议；类别：正确性
+- 位置：plan.md:119、:127（“打开会话时按关系取一次祖先链（`list` 的 `parent`）”）；docs/specs/agent/sessions.md:57（`list` 缺省不列归档的）、:82；docs/specs/agent/conversation.md:101（输出 35：取不到的祖先写“未知会话”）
+- 现象：`list` 缺省不列归档的会话，也受作品范围限制。父会话被归档（或属于另一个作品）后，它仍然存在、能打开，但祖先链在这里断开，路径里写“未知会话”，用户以为它丢了。第一轮第 20 条提了“祖先被归档”，处理只加了“取不到写未知会话”，没有换来源。另外为了一条面包屑每次打开会话都取整张 `list`，会话几千条时是不必要的负担。
+- 为什么是问题：“未知会话”这个词在这里是错的：它是已归档会话，标题和图标是知道的。
+- 如何核实：读 sessions.md:57；推断。
+- 建议改法：祖先链由服务端按 `caller` 逐级给：`ancestors({sessionId})` 交回 `[{id, title, profile, archived}]`（不受归档与作品范围过滤），或 `tree` 的对偶 `path` 查询；取不到才写“未知会话”（会话被删除）。
+
+## 19. 其余没处理好的第一轮残余与小项
+
+- 严重程度：建议；类别：代码质量 / 测试 / 文档
+- 位置与现象，各一两句：
+  1. 工具名串味没有根除（第一轮第 2 条）：`displayToolName` 只对 `nbook.agent.*` 显式映射，其余仍取最后一段（session-host.ts:119-124）。别的插件登记的 `x.wait`、`x.kill`、`x.jobs`、`x.shell` 仍会被画成子代理/后台命令的卡片。映射表应当反过来：登记表按完整 id（或插件前缀 + 名字）登记，视图的 `call.name` 带上前缀；至少合同测试要覆盖“别的插件同名工具不被劫持”。
+  2. 输出 36 的“运行中跟着更新”（`jobTail`）没有触发规则：是随 `jobsChanged` 重取、定时重取，还是只在展开时取一次。一张展开的卡片加每秒 4 次的 `jobsChanged`，若每次都取 `jobTail`，是每秒 4 次读文件；未展开的卡片若进入页面就取（为了拿 `status.json`），历史会话里每张后台命令卡片各一次请求。写进 Spec：只在展开时取，运行中合并成至多每秒 1 次。
+  3. `tree`/`jobs` 的推送进入宿主后，哪些改动会 `bump()` 整个 ctx：停靠区的事项在 `ctx.pendingInputs` 里，宿主若在每次 `treeChanged` 里调 `bump()`（与处理日志帧同一个习惯），“进度只改那一行”和“不重建整个上下文”就都做不到。写明：只有 `pending` 集合变化才 `bump()`，其余只更新独立源。
+  4. `AgentSessionPanel` 里 `dimmed` 的祖先只写了“弱化显示”，没有读屏上的表达（它不是匹配项，只是路径）；弱化也要保持对比度不低于正文的最低要求。建议给 `aria-description`（“仅作为命中子代理的上级显示”）。
+  5. 卡片对 `ask { async }` 没有说明：异步提问的调用立即成功返回，流里的 `ask` 节点显示什么、用户在停靠区答完后它是否变成“已回答”，没写（第一轮第 8 条只处理了停靠区一侧）。
+- 如何核实：读上面各处。
+- 建议改法：见各项。
+
+## 第一轮已处理好、本轮仔细检查后没有发现问题的方面
+
+- 第一轮第 1 条（`tree` 加 `callId`、`profile`、`runId`）在计划与 Spec 输出 21 里都写了，字段齐全；剩余的重复 `callId` 问题见第 10 条。
+- 第 4 条（事项带 `sessionId`、预览、规则、`unknown-interaction` 的判断）写进了计划与输出 34；第 50 条之后跨会话的“同规则联动”已不存在（单事项壳），没有新问题。
+- 第 10 条（作者）的内核侧改法（路径事件上写 `by`）与适配器选项 `authorOf` 一致，未发现新问题。
+- 第 13 条（状态栏计数口径）的 Spec 文字已改，数据来源问题见第 14 条。
+- 第 17 条（标题可收缩）在 Spec 输出 34 与 ui 规范 298 里都写了，同步向导同样适用也写了。
+- 第 18 条（独立响应式源）方向对；与 `pinned` 的矛盾见第 2 条。
+- 第 21 条（Profile 设置页抽通用一节）：抽“绑定列表一节”与“选择对话框”、警告行、自引用不拦、没有 `agent_spawn` 时不显示，都写进了 profile-settings.md 输出 25；本轮没有发现新问题。
+- 第 23 条“接受”的理由（异步提问不在列表与状态栏提示）站得住：状态栏的“等你处理”本来就以阻塞为准。
+
+## 数量
+
+- 阻断：1（第 1 条）
+- 重要：13（第 2–14 条）
+- 建议：5（第 15–19 条）
+- 合计：19 条
+
+最重要的三条：
+1. 第 1 条：调用返回时还没结束的子代理（async、question、超时、插话），卡片的终态没有来源，tree 的 idle 项和 jobs 都不带最终结果。
+2. 第 2、3 条：`pinned(call, ctx)` 要活数据，而分轮是纯函数、活数据又被规定不进 ctx；pinned 的卡片在整轮收起、结束时还会搬家和消失。
+3. 第 5、6 条：停靠区与同步向导并存的布局在现有结构里无法“停在它上面”，40% 没有容器可量；不抢焦点之后只剩的 aria-live 播报会随内容一起挂载而不响。

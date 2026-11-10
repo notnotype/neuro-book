@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00042-image-generation",
+    "taskId": "t07-prompt-workbench",
+    "artifactId": "review",
+    "answerId": "20261110T011356406Z-5ce44596",
+    "artifactVersion": 4,
+    "contentHash": "68ca6462da3a1b3a2c0bb4a0d5785f05612f8406566140ca1fd6116160e642d5",
+    "submittedAt": "2026-11-10T01:13:55.701Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "q7-tag-extras": [
+            "lint",
+            "paste",
+            "related"
+        ],
+        "q8-preset-home": "book-shelf"
+    },
+    "comments": {},
+    "note": null
+}

@@ -8,6 +8,7 @@ import {loadStateOf, useResource} from "../host/panel-data.js";
 import {taskHref, workHref} from "../host/routes.js";
 import {useNotifyActions} from "../host/notify-actions.js";
 import type {ArtifactPageData, Meta, NotifyData, WriteData} from "../host/types.js";
+import {useAnswerDraft} from "../host/answer-draft.js";
 import {answerText, groupQuestions} from "../host/answers.js";
 import {failureNotice, successNotice, useWrite, type Notice} from "../host/writes.js";
 import ActionLink from "../parts/ActionLink.vue";
@@ -26,6 +27,7 @@ import WriteResult from "../parts/WriteResult.vue";
  * 页面文件不按版本保存，所以切版本只切换题表，iframe 上标“页面是当前版本”；磁盘内容与最新一版不同时标“有未发布的改动”。
  * 答复只经侧栏表单提交：外壳不监听 iframe 发来的消息（页面自己的脚本能伪造任何取值）。390 宽时侧栏移到 iframe 下面。
  * 答复成功后侧栏多一块“通知”（t11）：这份答复要通知谁、在等什么、发出去了没有，随推送更新；提问的会话已经换了时弹小窗一次。
+ * 表单里没交的填写存在这台浏览器里（t21）：离开、刷新、面板重启后回来还在，提交成功或开发者自己关闭评审时清掉。
  */
 const props = defineProps<{workId: string; taskId: string; artifactId: string}>();
 const router = useRouter();
@@ -48,7 +50,8 @@ const meta = useResource<Meta>(() => "/api/meta", ["records"]);
 const write = useWrite();
 const notice = ref<Notice | null>(null);
 const formErrors = ref<Record<string, string>>({});
-const resetKey = ref(0);
+// 产物页按路径参数重建实例，这里的键在页面的一生里不变。
+const {draft: answerDraft, clear: clearAnswerDraft} = useAnswerDraft(`${props.workId}/${props.taskId}/${props.artifactId}`);
 /** 表单只给有发布记录的 Task 产物；能不能答写成原因，零件据此置只读。 */
 const showForm = computed(() => data.value !== undefined && data.value !== null && data.value.ref.taskId !== null && data.value.state !== "unpublished");
 const answerDisabled = computed(() => {
@@ -70,7 +73,7 @@ const canClose = computed(() => showForm.value && answerDisabled.value === null 
 const closeAsking = ref(false);
 const closeMessage = computed(() => {
     const pending = pendingCount.value === 0 ? "没有没答的题" : `没答的 ${pendingCount.value} 道题会撤回，不再进收件箱`;
-    return `${pending}；已答的留着，表单里填了没交的不会保存。${isQuestionSet.value ? "" : "会话要继续问时重新发布就会打开。"}在等答复的会话会醒来，看到这块评审关了。`;
+    return `${pending}；已答的留着，表单里填了没交的会清掉。${isQuestionSet.value ? "" : "会话要继续问时重新发布就会打开。"}在等答复的会话会醒来，看到这块评审关了。`;
 });
 async function closeReview(): Promise<void> {
     const current = data.value;
@@ -79,7 +82,7 @@ async function closeReview(): Promise<void> {
     const outcome = await write.run(() => sendJson<WriteData>("POST", "/api/artifact-close", {workId: current.ref.workId, taskId: current.ref.taskId, artifactId: current.ref.artifactId}));
     closeAsking.value = false;
     notice.value = outcome.ok ? successNotice(isQuestionSet.value ? "撤回了没答的题" : "评审关了", outcome.body) : failureNotice(`没有${closeLabel.value}`, outcome.failure);
-    resetKey.value += 1;
+    if (outcome.ok) clearAnswerDraft();
     artifact.reload();
 }
 
@@ -116,7 +119,7 @@ async function submitAnswer(answer: AnswerInput): Promise<void> {
         notice.value = {...successNotice(`答了 ${summary.length} 题`, outcome.body), items: summary};
         lastAnswerId.value = (outcome.body.data as WriteData & {answer?: {answerId: string}}).answer?.answerId ?? null;
         notify.reload();
-        resetKey.value += 1;
+        clearAnswerDraft();
         artifact.reload();
         return;
     }
@@ -133,6 +136,15 @@ async function submitAnswer(answer: AnswerInput): Promise<void> {
 }
 
 const navigate = (href: string) => void router.push(href);
+/**
+ * 跳过左边的页面去答题：DOM 里 iframe 在侧栏前面，键盘要先穿过页面里的全部控件（t22 实测 15 个停靠点）。
+ * 侧栏比视口高，先不滚动地聚焦、再把它的顶边滚进来，标题不会被滚走。
+ */
+const answerPanel = ref<HTMLElement | null>(null);
+function skipToAnswer(): void {
+    answerPanel.value?.focus({preventScroll: true});
+    answerPanel.value?.scrollIntoView({block: "start"});
+}
 </script>
 
 <template>
@@ -156,12 +168,13 @@ const navigate = (href: string) => void router.push(href);
                 <span class="nbdev-num">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
             </template>
             <LoadState v-bind="loadStateOf(artifact)" label="正在读取产物" :subject="`${props.artifactId} 这个产物`" :up-href="upHref" up-label="回到上一级" @navigate="navigate" @retry="artifact.reload()" />
+            <a v-if="data?.pageUrl" href="#nbdev-answer" class="nbdev-skip-local" @click.prevent="skipToAnswer">{{ showForm ? "跳到答题" : "跳到问题" }}</a>
             <div v-if="data" class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:grid-rows-[minmax(0,1fr)]">
                 <ArtifactFrame v-if="data.pageUrl" class="min-h-[32rem] lg:min-h-0" :src="data.pageUrl" :title="`${data.title ?? props.artifactId} 的页面`" note="页面是当前版本（磁盘上的），切换版本只切换题表" />
                 <!-- 有表单时不留下内边距：表单的提交栏贴底，滚动容器的下内边距会让它离底边一截、后面的内容从缝里露出来。 -->
-                <aside class="nbdev-surface relative min-w-0 px-4 pt-4 lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-gutter:stable]" :class="{'lg:col-span-2': !data.pageUrl, 'pb-4': !showForm}" aria-label="问题">
+                <aside id="nbdev-answer" ref="answerPanel" tabindex="-1" class="nbdev-surface relative min-w-0 px-4 pt-4 outline-none lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-gutter:stable]" :class="{'lg:col-span-2': !data.pageUrl, 'pb-4': !showForm}" aria-label="问题">
                     <div class="flex flex-col gap-4">
-                        <AnswerForm v-if="showForm" :questions="data.questions" :latest-version="data.latestVersion ?? 0" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" :errors="formErrors" :reset-key="resetKey" @submit="submitAnswer">
+                        <AnswerForm v-if="showForm" :questions="data.questions" :latest-version="data.latestVersion ?? 0" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" v-model:draft="answerDraft" :errors="formErrors" @submit="submitAnswer">
                             <template #readonly>
                                 <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" answering />
                             </template>

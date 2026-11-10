@@ -1,0 +1,129 @@
+# w00032 t14 前端第三轮（最后一轮）设计审查报告
+
+审查对象见 brief-frontend-r3.md：plan.md 第三版、conversation.md 输出 19/33–39、ui/agent-conversation-view.md、subagents.md、jobs.md、sessions.md。证据标注：「读码」读了现有实现；「实验」在 /tmp/review-t14-design/lab/ 用本机 google-chrome 跑过；「推断」从合同推出。只报阻断与重要，建议最多 5 条放最后。
+
+第二轮标“成立，改”的 19 条里，第 2、3（pinned）、第 5 前半（停靠区在向导下面）、第 6、7、8、10、12、13、14、16、18、19 在 Spec 与计划里确实改到了，没有发现问题；下面只列没改到或改错的，以及修订引入的新问题。
+
+## 1. 卡片找数据的键只对 `agent_spawn` 成立：`agent_send`、`agent_answer`、`shell async` 三类卡片查不到数据，`activeCalls` 也算不出它们
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:29、:110、:120；conversation.md:99（输出 33“卡片按调用的 `invocation` 认子会话”）；subagents.md:62（输出 2：子会话会话头 `caller.invocation` 是“这次调用的”，即派发那次）、:76（输出 7：`details` 只规定了三个子代理工具）、:104（输出 21 `tree` 项只有 `invocation` 一个键）；jobs.md:57（输出 9：`jobs` 项 `{id, kind, state, summary, startedAt, endedAt?, lastLine?, exitCode?, lines?}`，没有 `invocation`，也没有 `sessionId`/`runId`）；builtin-tools.md:105（输出 27 只说“见 jobs.md 输出 7”，没说 `shell async` 的 `details` 带 `jobId`）；ui/agent-conversation-view.md:108
+- 现象：第二轮前端第 10 条的修法把“按（父会话、callId）找”换成“按 `invocation` 找”。但 `tree` 项里的 `invocation` 是派出子会话的那次 `agent_spawn` 的，`agent_send`、`agent_answer` 自己的 `invocation` 是另外两个值，对不上任何 `tree` 项。Spec 33 却说这三个工具“各画一张卡”并“按调用的 `invocation` 认子会话”。结果：
+  1. `agent_send`/`agent_answer` 的卡片永远找不到子会话，落到“数据还没到写正在启动”；图标、名字也没有来源（这两个工具的参数里没有 `profile`，输出 33 的“派发失败取参数里的 Profile”只适用 spawn）；
+  2. `activeCalls` 只含 `tree` 里的 spawn 的 `invocation`。`agent_send {async: true}` 让已完成的子会话又跑起来后，这次调用所在的轮次在父会话回复完时照常自动收起，验收场景 12 对 send 不成立；
+  3. 后台命令卡片：`jobs` 项没有任何能对上调用的键，`shell async` 的结果 `details` 也没规定带 `jobId`；`activeCalls` 要“从 `jobs` 算”，更没有 `invocation` 可算。卡片只能去解析结果文字里的任务 id（违反“不按文案判断”），或让宿主扫父会话日志建 `jobId → invocation` 的表（计划没写）。
+- 为什么是问题：第二轮前端第 10 条“成立，改”的落点只改对了 spawn；send/answer 占三张卡里的两张，后台命令卡片是第 46 条要的另一张。照字面实现，切片 9 做到这里才发现，返工的是 `tree`/`jobs` 的远程合同（切片 7）。
+- 如何核实：读 subagents.md 输出 2 与 21、jobs.md 输出 9；`rg "invocation" docs/specs/agent` 看 `jobs` 一侧没有任何出现。
+- 建议改法：（a）send/answer 的卡片按参数 `id`（子会话 id）找 `tree` 项，spawn 才按 `invocation`；（b）`Job` 与远程 `jobs` 项加 `invocation`（启动它的那次调用，插件用 `ToolContext.invocation` 现成可得），`tree` 的非 `idle` 项加 `runInvocation`（让这一次运行开跑的那次调用）；`activeCalls` = 这两处的 `invocation` 的并集，send/answer 的轮次才被保护；（c）`shell async`、`agent_*` 的 `details` 总带 `jobId`（Spec 写进输出 7 与 jobs.md 输出 1）；（d）输出 33 的行文矩阵补 send/answer：找不到子会话时（`not-owner`、`session-not-found`）卡头用通用图标和 `id`，打开按钮不可用。
+- 属于第二轮前端第 10 条改得不全。
+
+## 2. 停靠区“自带尺寸容器、最高为整个视图高度的 40%”照字面写会得到高度 0 或相对视口
+
+- 严重程度：重要；类别：不变量
+- 位置：ui/agent-conversation-view.md:300（“自带尺寸容器，最高为视图高度的 40%”）；conversation.md:103（输出 37）；plan.md:111；packages/nb-agent-ui/src/vue/AgentConversationView.vue:472-479（根 `.agent-conversation-view` 不是容器）、:564-567（只有 `.acv-body` 是 `container-type: size`）；wizard/AgentWizardFrame.vue:51、:58（`85cqh`、`60cqh` 相对 `.acv-body`）
+- 现象：这是第二轮前端第 5 条第 3 点的修订，改错了。容器查询单位（`cqh`）只相对元素的祖先容器，元素自己带的 `container-type` 对自己的 `max-height` 不起作用；而 `container-type: size` 会让元素的高度不再由内容撑开。所以：
+  1. 停靠区自己带 `container-type: size`，再给 `max-height: 40cqh`：`cqh` 找不到祖先容器（根不是容器），回退成视口；同时停靠区因尺寸隔离高度变 0。
+  2. 停靠区不带容器、直接写 `40cqh`：同样回退成视口高度，限高与“整个视图”无关。
+  3. `AgentWizardFrame` 的缺省 `max-height: 60cqh` 放进停靠区后会相对根（若根成为容器）或视口，与向导的基准不一致。
+- 实验：/tmp/review-t14-design/lab/cq.html（高 500 的 flex 列，根不是容器，视口高 720）。停靠区自带 `container-type: size` 加 `max-height: 40cqh`、内容 300：实测高度 0；不带容器、只写 `max-height: 40cqh`：实测 288（=视口 720 的 40%，不是根 500 的 40%）。
+- 为什么是问题：开发者最在意的限高验收（“停靠区在 390px 的限高”）按字面实现会在 Lab 看图时才暴露；实现者要自己发明办法。
+- 建议改法：Spec 与计划改成：对话视图根 `.agent-conversation-view` 加 `container-type: size`（它已有 `height: 100%`，有确定高度；`.acv-body` 作为内层容器不受影响），停靠区用 `max-height: 40cqh`，不自带 `container-type`；`docked` 变体显式把 Frame 的 `max-height` 去掉（由停靠区的容器管），e2e 的限高断言以根的高度为基准。若不想改根，则改成停靠区 `max-height: 40%` 并要求根高度确定，同样要写进 Spec。
+- 属于第二轮前端第 5 条的第 3 点改错。
+
+## 3. 后台命令卡片“展开才取 `jobTail`”与“收起的卡片要用 `status.json` 画终态”互相矛盾
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:122（“展开时才取 `jobTail`”）；conversation.md:102（输出 36：任务不在任务中心时“来自 `jobTail` 的 `status.json`”，结束后那一行写退出码与行数）；jobs.md:58（输出 10）、:59-62（任务表只在内存，重启后为空）；plan.md 验收场景 9（“重启后卡片从 `status.json` 画出终态”）
+- 现象：第二轮前端第 19 条第 2 点的修法“只在展开时取、至多每秒一次”只考虑了“看输出”。可是已移出任务中心（`wait` 取过、前台交回、重启）的后台命令，没有 `jobs` 项，卡片收起时那一行的退出码、行数、结束时刻只有 `status.json` 一处来源，而它只能经 `jobTail` 读。按“展开才取”，这类卡片收起时永远画不出终态（历史会话、重启后全是这种）；要画就得在每张卡片挂载时取一次，正好是第二轮前端 19.2 想避免的“历史会话每张卡一次请求”。另外 `jobTail` 缺省读 50 行，只要状态时也读，没有“只要 status.json”的参数。
+- 为什么是问题：验收场景 9 的“重启后卡片画出终态”和计划的取数规则不能同时成立。
+- 如何核实：读上面几处；推断（没跑）。
+- 建议改法：二选一写进 Spec：（a）`jobTail` 加 `lines: 0` 的含义“只要 `status.json`”（不读输出文件），卡片挂载且 `jobs` 里没有它时取一次，结果按（会话、任务 id）缓存，终态不再重取；展开才取输出行；（b）把 `status.json` 的内容放进 `jobs` 项或另加一个批量的 `jobStatus({sessionId, jobIds})`，一次取完整张历史里所有后台命令卡片的终态。无论哪种，写明历史里有 N 张卡片时的请求数上限，并配宿主测试（重启后空任务表、`status.json` 存在，收起的卡片写退出码）。
+- 属于第二轮前端第 19 条第 2 点处理时引入的矛盾。
+
+## 4. 终态来源 2（父会话里后来的 `wait`、`agent_send` 结果）依赖的 `details` 形状没有规定，`wait` 的尤其
+
+- 严重程度：重要；类别：不变量
+- 位置：conversation.md:99（“父会话里后来的工具结果（`wait`、`agent_send` 等）中同一次运行的终态”）；plan.md:120；subagents.md:76（输出 7 只给三个子代理工具的 `details`）；jobs.md:52（输出 3：`wait`“交回最先有结果的那一个，带上其余任务的状态”）、:56（输出 8 起没有 `wait` 的 `details`）
+- 现象：第二轮前端第 1 条的修法有四个来源，其中来源 2 要从后来的工具结果里找“同一个 `runId`”的终态。`agent_send`/`agent_answer` 的 `details` 有 `runId`、状态、结果第一句；但 `wait` 的 `details` 在 Spec 里一个字没写：它一次可能带几个任务（一个“最先有结果的”，其余只是“状态”），每个任务有没有 `runId`、是否终态、有没有结果第一句、结果被截断时 `details` 还在不在，都没规定。`kill` 的结果同样没有。实现者会各写各的，卡片的来源 2 也就没有可测的合同。顺带：卡片要“扫父会话后来的所有工具结果”，每张卡每次消息更新各扫一遍是 O(卡片数×消息数)，计划没写成按 `runId` 建一次索引。
+- 为什么是问题：这是第二轮唯一的阻断（第 1 条）的主要修法，落点是合同，不是文字；`wait` 正是异步派发场景里最常取到结果的工具（场景 12 的“父 Agent `wait` 取过之后”）。
+- 如何核实：`rg "details" docs/specs/agent/jobs.md` 无命中；读 jobs.md 输出 3。
+- 建议改法：jobs.md 加一条：`wait`、`kill` 的 `details` 是 `{jobs: [{jobId, kind, state, sessionId?, runId?, firstLine?}]}`，每个任务一项（含“其余任务的状态”），终态项总带 `runId` 与 `firstLine`；Spec 33 的来源 2 引用这条；宿主按 `runId` 建一份（随消息更新增量维护的）索引，不让每张卡片自己扫日志。宿主集成测试的“终态的四个来源”各用真实的 `wait`/`agent_send` 结果覆盖。
+- 属于第二轮前端第 1 条的修订没落到合同。
+
+## 5. 卡片行文要求的两项数据，`tree` 里没有：等父 Agent 的“问题”文字，和“正在做什么”的对象与注册表摘要的对接
+
+- 严重程度：重要；类别：不变量
+- 位置：conversation.md:99（“等父 Agent 写‘在问：问题’”“写成‘读取 …’”）；subagents.md:104（输出 21：`question` 项只有 `runId`、`startedAt`、`tools`、`step`；`pending` 只给等用户的事项）；packages/nb-agent-ui/src/registry.ts:62（`summary: (call: ToolCallView) => string`，读 `call.args`）
+- 现象：
+  1. 子代理停在 `question`（等父 Agent）时，`tree` 项没有问题文字：`pending` 明写只含等用户的事项（审批、`questions: "user"` 的提问、模式切换请求），`step` 是最近一次工具调用。`async` 派发后子代理才提问（最常见：父会话早已回复完，卡片靠 `tree`），卡片没有任何来源可写“在问：问题”；`agent_spawn` 的结果 `details` 只有首次返回时的状态。
+  2. “正在做什么”要“按注册表的摘要写成读取 …”，但 `step` 只有 `{tool, target}`，`target` 是服务端抽的“对象”（至多 120 字），而注册表的 `summary` 要整个 `ToolCallView`（按各工具的参数名读 `path`、`command`、`sql` 等）。服务端怎么抽 `target`（哪个参数、各插件的工具怎么办）、前端怎么把 `{tool, target}` 变成摘要（`tool` 是工具 id 还是显示名，要不要经 `displayToolName`），都没写。
+- 为什么是问题：卡片是第 36、40 条的核心，运行中一行与等父 Agent 一行都得不到数据；实现者会各自编造 `target` 的抽法，两侧对不上就写出“读取 undefined”。
+- 如何核实：读 subagents.md 输出 21、registry.ts:62；`rg "target" docs/specs/agent/subagents.md` 只在“对象至多 120 字”一处。
+- 建议改法：（a）`tree` 的 `question` 项加 `asking: {id, text}`（`text` 至多 120 字），并入 16 个名额之外（与 `pending` 同待遇）；（b）`step` 改成 `{tool, label?}`：`tool` 写成显示名（与 `displayToolName` 同一张表），`target` 由服务端按一条通用规则取（工具声明的“摘要参数”，没有则取第一个字符串参数；工具可在 `ToolDef` 里声明），前端只用注册表条目的 `label` 加 `target`，不调 `summary`。把规则写进 subagents.md 输出 21，并配“没有 `target`、`target` 过长、陌生工具”三类的卡片测试。
+- 属于第二轮前端第 15 条的矩阵里有行文、无数据。
+
+## 6. 子代理卡片的呈现层级与组件没有落字：Spec 说“思维链里的 card”，`card` 画不了卡头，`node` 又会切开思维链
+
+- 严重程度：重要；类别：不变量
+- 位置：conversation.md:99（输出 33“在思维链里，是一张不随思维链折叠的卡片”）；plan.md:109、:120（“节点组件”）；ui/agent-conversation-view.md:164、:194；packages/nb-agent-ui/src/registry.ts:68-80（`presentation` 三档的定义）、:62（`summary` 是 `(call) => string`）；packages/nb-ui/src/components/layout/CollapsibleCard.vue:9-17（`title`、`subtitle` 都是字符串，只有 `actions` 与默认槽）；vue/stream/AgentChainBlock.vue:133-146（`card` 的头只画 `summary(call)`，内容区是展开后才有的 `detail`）；conversation-turns.ts:394-397（`node` 切开思维链）
+- 现象：输出 33 要的卡头有 Profile 图标、名字、工具次数与用时（每秒走）、状态、打开子会话按钮，下面一行进度，且“进度更新只改那一行”。`card` 的头只能是静态字符串，`summary(call)` 是纯函数拿不到响应式源；要画活数据只能是 `node` 的专用组件。但注册表里 `node` 的定义是“常显，并把思维链切开”，与输出 33 的“在思维链里”相反；`card` 的定义是“属于思维链，默认随思维链折叠”，与“不随思维链折叠”相反。plan.md 只在后台命令卡片处明写了 `presentationOf` 与 `node`，`agent_*` 三个工具登记成什么层级、用什么组件，两份文档各说各的。
+- 为什么是问题：层级决定同一条回复里“读文件、派子代理、读文件”的版式（node 则被切成两段思维链，中间一张卡），也决定整轮收起时卡片是否还在；开发者在评审板上定稿的样子是否就是这个版式，没有一处写明。Lab 场景与 DOM 测试要先知道层级才能写。
+- 如何核实：读 registry.ts:68-80 与 CollapsibleCard.vue 的 props；`rg "node" docs/specs/agent/conversation.md` 对照输出 33。
+- 建议改法：Spec 33 与计划明写：`agent_spawn`、`agent_send`、`agent_answer` 登记成 `node`、非 `outcome`，用 Agent 插件的专用组件；改掉“在思维链里”“不随思维链折叠”这两处措辞（改成“常显的一张卡片，会把前后的过程分成两段；整轮收起时同别的过程一起收起”）；ui 规范 194 行的 `node` 清单加上它们；Lab 场景要有“读文件 – 派子代理 – 读文件”这一轮的版式。如果开发者想要的是真正夹在思维链里，就要改 `CollapsibleCard` 的头部能力，那是另一个范围，要先告诉他。
+- 属于第二轮前端第 16 条只改了一半（改了末句，没定层级）。
+
+## 7. UI Spec 的类型与动作表没有跟上修订：`ToolCallView.invocation`、`input.submit` 的 `sessionId`、`dock.state`
+
+- 严重程度：重要；类别：文档/合同
+- 位置：ui/agent-conversation-view.md:140-146（`ToolCallView` 没有 `invocation`）、:362（动作表 `input.submit {batchKey, resolutions}` 没有 `sessionId`，`wizard.state` 一行没有 `dock.state`）、:107、:300（正文却写“带 `sessionId`”“动作 `dock.state`”）；plan.md:34、:112
+- 现象：计划说适配器把 `toolStarted.invocation` 放进 `ToolCallView.invocation`，`activeCalls`、卡片查子会话全靠它，但 nb-agent-ui 的公开类型一节（Spec 说“语义以本节为准”）没有这个字段。动作表里 `input.submit` 的形状没带 `sessionId`，也没有 `dock.state`，与正文矛盾；`PendingInputView` 的 `source`、`async` 只在 ctx 表的一句话里，类型块里没有，模式切换事项能否带 `source` 没落到类型。nb-agent-ui 是跨包公开合同，nb-story、Lab 都消费它，合同测试按这一节写。
+- 为什么是问题：第二轮前端第 7、16 条要求的是“写进 Spec”，现在只写在叙述里，类型和动作表（实现者与合同测试照抄的地方）没改。
+- 如何核实：`rg "invocation" docs/specs/ui/agent-conversation-view.md` 只命中 `activeCalls` 一行；读 :362。
+- 建议改法：在切片 0 里把 `ToolCallView.invocation?: string`（流式中、旧会话没有）、`PendingInputView` 的 `source?`、`async?`（`mode-switch` 变体可带 `source`）、`input.submit` 加 `sessionId?`、动作 `dock.state {state}` 补进类型块与动作表；`invocation` 缺失时卡片的行为写明（“正在准备”或按 `id` 退路，见第 1 条）。
+- 属于第二轮前端第 7、16 条没落到类型层。
+
+## 建议（4 条）
+
+### 8. 建议；会话面板的展开记录“由面板持有”，面板在 Popover 里每次关闭都会卸载
+- 位置：ui/agent-conversation-view.md:346；packages/neuro-book/src/plugins/agent/web/ConversationHost.vue:59（面板放在 `#sessions` 插槽）、packages/nb-agent-ui/src/vue/AgentConversationView.vue:314-321（`Popover`）、packages/nb-ui/src/components/feedback/Popover.vue:53-72（`PopoverPortal` 内的 `PopoverContent`，未 `forceMount`）。
+- 现象（推断，Reka 的内容默认关闭即卸载，没在浏览器里跑）：用户手动收起/展开的记录随面板实例消失，下次打开面板重新走一遍“自动展开一次”，手动收起过的父会话又被展开（尤其是有子会话等你处理的），第二轮前端第 12 条要保证的“手动的优先”只在面板打开期间成立。
+- 建议：展开记录交给宿主持有（面板加 `v-model:expanded` 之类的受控属性，宿主按会话保存），或在 Spec 里写明“关闭面板即清空”并接受。
+
+### 9. 建议；`tree` 的“至多 16 个”没有挑选规则；卡片行文矩阵还差 `invalid` 一行与卡头截断
+- 位置：subagents.md:104（输出 21“`step`、`tools` 至多给 16 个后代”）；conversation.md:99；plan.md:102、:120。
+- 现象：默认每会话 8 个、深度 3，一棵树的在跑后代可超过 16；超出的在跑子代理没有 `step`，卡片会写成“正在思考”，与实际在调用工具相悖，且“哪 16 个”没有规则（可能每次推送换一批，卡片文字抖动）。矩阵里还缺 `invalid`（参数不合 schema）一行，卡头（图标、名字、次数、用时、状态、按钮）在 390px 放不下时怎么截断也没写，高度恒定的 e2e 会量到它。
+- 建议：规则写成“有 `pending` 或 `asking` 的优先，其余按 `startedAt` 晚的优先，同一批内稳定”；超出的卡片写“运行中”而不是“正在思考”；补 `invalid` 的行文与卡头名字单行省略、计数与按钮固定右侧。
+
+### 10. 建议；在 fork 出来的父会话里，复制过来的 spawn 卡片查不到子会话
+- 位置：subagents.md:109（输出 23：fork 父会话得到的新会话不拥有原来的子会话）；conversation.md:99；plan.md:29（`invocation` 全局唯一）。
+- 现象：fork 父会话时历史里的 `agent_spawn` 调用和它的 `invocation` 一并被复制；新父会话的 `tree` 里没有这些子会话。结果里没终态的老卡片（`async` 派出、结果是 `running`）会永远写“正在启动”。
+- 建议：Spec 写一句：`tree` 里找不到且调用已有结果时，卡片按结果 `details` 写（来源 1、2 之外加“结果里的状态”），并把“打开子会话”按钮指向 `details.sessionId`（能打开原会话）；“全局唯一”改成“在一次生成里唯一，fork 的会话里会重复出现”。
+
+### 11. 建议；停靠区被同步向导收成一条后，用户手动展开/收起的状态怎么还原没有写
+- 位置：conversation.md:103（输出 37）、ui/agent-conversation-view.md:300、:109（`dockState`）。
+- 现象：同步向导出现时停靠区“收成一条”。这是显示上的强制收起，还是写回 `dockState` 的收起？向导答完后停靠区回到用户之前的展开状态还是留在收起，两种实现都说得通，DOM 测试与 Lab 无从断言。
+- 建议：写成“强制收起只是显示，不改 `dockState`；向导消失后回到 `dockState` 里的状态”，并补一条断言。
+
+## 第二轮“成立，改”且这次检查没有发现问题的方面
+
+- 前端第 2、3 条（不加 `pinned`，`activeCalls` 不换引用、进行中的轮次不自动收起）：计划与 UI 规范 108 一致，`defaultTurnExpanded` 只需多收一个参数；仍需第 1 条的键才对 send/answer 与 shell 成立。
+- 前端第 5 条的“停靠区在向导下面”（第 54 条）的 DOM 顺序：根 → `.acv-body`（含流内向导）→ 停靠区 → 输入框（`v-show` 隐藏）与实现结构吻合；排队条与可用性提示在输入框组件内，停靠区在它们上面成立。限高基准见第 2 条。
+- 前端第 6 条（不移焦点、常驻 `role="status"`、翻看控件）、第 7 条（阻塞与停靠分流、`dockState`、单事项壳）、第 8 条（只在确认已答时回收）、第 11 条（有 `pending` 一律给全）、第 12–14 条（三态展开、`childCount`/`childWaiting`、`root`）、第 18 条（`ancestors`）、第 19 条的 1、3、4、5 点：Spec 与计划已落字，没有发现新的矛盾。
+
+## 数量
+
+- 阻断：0
+- 重要：7（第 1–7 条）
+- 建议：4（第 8–11 条）
+- 合计：11 条
+
+## 结论
+
+计划可以开工。没有阻断；开工前必须先在切片 0（Spec 定稿）里改掉的是第 1、2、3、4、5、6、7 条里属于合同和措辞的部分，都是改文字和补字段，不用再开一轮设计讨论：
+1. 第 1 条：send/answer 卡片按参数 `id` 找子会话；`Job`、`jobs` 项、`tree` 项加 `invocation`/`runInvocation`；`details` 总带 `jobId`。
+2. 第 2 条：根 `.agent-conversation-view` 做 size 容器，停靠区用 `40cqh`、不自带容器（实验：自带 `container-type: size` 时高度为 0）。
+3. 第 3 条：后台命令卡片收起时的终态取数（`lines: 0` 或批量状态），与“展开才取”对齐。
+4. 第 4 条：规定 `wait`/`kill` 的 `details`，宿主按 `runId` 建索引。
+5. 第 5 条：`tree` 的 `question` 项加问题文字；`step` 的 `target` 抽法与前端对接写明。
+6. 第 6 条：`agent_*` 卡片登记成 `node`，改掉“在思维链里”“不随思维链折叠”。
+7. 第 7 条：补 UI Spec 的类型块与动作表。

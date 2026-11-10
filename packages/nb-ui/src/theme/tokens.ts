@@ -134,7 +134,6 @@ export const nbThemeFeedbackTokens = [
     "--layout-sector-line",
     "--layout-sector-active-fill",
     "--layout-sector-active-line",
-    "--layout-live-sector-line",
     "--layout-slot-border",
     "--layout-slot-fill",
     "--layout-merge-fill",

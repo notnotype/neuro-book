@@ -39,7 +39,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 
 - 验证和提交分两步：看过结果再提交。用验证结果决定下一步时看命令自己的退出码，不经管道截取后再接 `&&`
 - `git rebase`、`git merge` 之后先确认成功（退出码、`git status` 没有冲突）再做别的。把它和构建、测试串在一条命令里，冲突时后面的结果全都作废
-- `git diff --cached --check` 单独一步：它报错时，串在后面的 `git commit` 静默不跑，记录却可能已经写成“已合入”
+- `git diff --cached --check` 单独一步：它报错时，串在后面的 `git commit` 静默不跑，记录却可能已经写成“已合入”。主工作区的暂存区几个会话共用：先对未暂存的改动跑 `git diff --check -- <路径>`，再把 `git add` 与 `git commit -- <路径>` 放在一条命令里，免得暂存后的空档被别人的提交带走
 - 变基或合入后，master 新增了 workspace 包或外部依赖时先 `bun install`
 - 长验证前先看负载（`cat /proc/loadavg`）：别的会话在跑时用例会因超时失败，失败先区分产品、测试和环境，单独重跑确认
 

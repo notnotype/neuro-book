@@ -1,0 +1,67 @@
+w00025 t05 语法色缺省的量色（2026-11-10）
+
+命令：S=0.75 bun <本文件末尾的脚本>（在主工作区根运行；读 nb-ui 的 nbook、macos 配色与 workbench 的护眼主题，按 tokens.css 的推导公式算出十个语法色，
+量每种颜色对 --bg-main 的 WCAG 对比度（注释判据 3，其余 4.5），以及常相邻成分两两的 CIE76 色差，列出小于 15 的）。S 是彩色往正文字色混的比例，0.75 即 tokens.css 里的 75%。
+每套配色两行：第一行是 comment keyword string number type tag attribute regexp variable punctuation 的颜色，第二行是底色与不达标、近色。
+
+== 结果
+nbook-light        #716c63 #484070 #296331 #7b4b06 #0f6681 #982e25 #1c6459 #8a3d16 #1f1c17 #57534b
+   bg #ece8df  不达标: 无  近色(<15): 无
+nbook-dark         #aaa397 #b89ab4 #60d77a #fbb23f #87d8f7 #fb6e63 #73d8b9 #fb9051 #efe9df #c3bcb0
+   bg #201d1a  不达标: 无  近色(<15): 无
+macos-light        #747c89 #4f3b73 #158041 #8b4411 #2050ba #a92326 #1b687e #9a341c #111827 #4b5563
+   bg #f6f8fa  不达标: 无  近色(<15): tag~regexp 12.4
+macos-dark         #bbbbc1 #baaed5 #58d285 #f6b547 #87bafa #fb93a2 #6fc6c0 #f9a575 #fafafa #d4d4d8
+   bg #1c1c1e  不达标: 无  近色(<15): 无
+eye-green-light    #405144 #4b3f2b #1b522f #634808 #1c5273 #822a22 #1c5252 #733915 #1d2a20 #3a4b3e
+   bg #dcefdc  不达标: 无  近色(<15): 无
+eye-green-dark     #b8c7bc #c2c1ab #97d6ad #e0c17c #96c7e6 #eca7a0 #96ceca #e6b48e #dfe9e1 #c2d0c6
+   bg #1f2a24  不达标: 无  近色(<15): 无
+eye-sepia-light    #534a37 #6f391b #2e542b #674507 #204d6b #832a1f #28514b #753713 #2c261a #4c4332
+   bg #f4ecd8  不达标: 无  近色(<15): tag~regexp 14.1, keyword~regexp 6.1
+eye-sepia-dark     #c3b8a3 #e7b791 #aacf9d #e5c079 #9dc3db #eda699 #a4c9bc #e9b489 #eadfca #cdc2ad
+   bg #2a2520  不达标: 无  近色(<15): regexp~number 14.9, keyword~regexp 3.8
+
+结论：八套配色都达标；近色只剩正则与标签、关键字在 macos 亮、护眼米黄上（正则少见，接受，见待确认清单）。e2e editor-code-menu.e2e.ts 在 nbook 亮暗、macos 亮、护眼绿亮上用真实页面再量了 JSON 的四种成分。
+
+== 脚本
+// 语法色缺省推导的候选：对每套自带与护眼配色，量各变量在 --bg-main 上的对比度与两两色差（CIE76）。
+const R = "/home/notnotype/CodeRepository/neuro-book/packages";
+const {nbookColorways} = await import(`${R}/nb-ui/themes/nbook/colorways.ts`);
+const {macosColorways} = await import(`${R}/nb-ui/themes/macos/colorways.ts`);
+const eye = await import(`${R}/neuro-book/src/plugins/workbench/shared/eye-care-themes.ts`);
+type V = Record<string, string>;
+const looks: Record<string, V> = {...(nbookColorways as Record<string, V>), ...(macosColorways as Record<string, V>)};
+const base = nbookColorways as Record<string, V>;
+for (const [name, set] of [["eye-green", eye.EYE_GREEN_LOOKS], ["eye-sepia", eye.EYE_SEPIA_LOOKS]] as const) {
+    for (const mode of ["light", "dark"] as const) looks[`${name}-${mode}`] = {...base[`nbook-${mode}`]!, ...((set as Record<string, {colors?: V}>)[mode]?.colors ?? {})};
+}
+const rgb = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const hexOf = (c: number[]): string => `#${c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+const mix = (a: string, pa: number, b: string): string => hexOf(rgb(a).map((v, i) => v * pa + rgb(b)[i]! * (1 - pa)));
+const lum = (hex: string): number => { const v = rgb(hex).map((c) => c / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)); return 0.2126 * v[0]! + 0.7152 * v[1]! + 0.0722 * v[2]!; };
+const ratio = (a: string, b: string): number => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x! + 0.05) / (y! + 0.05); };
+const lab = (hex: string): number[] => { const [r, g, b] = rgb(hex).map((c) => c / 255).map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)); const x = (0.4124 * r! + 0.3576 * g! + 0.1805 * b!) / 0.95047, y = 0.2126 * r! + 0.7152 * g! + 0.0722 * b!, z = (0.0193 * r! + 0.1192 * g! + 0.9505 * b!) / 1.08883; const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116); return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))]; };
+const dE = (a: string, b: string): number => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]!));
+const S = Number(process.env.S ?? "0.8");
+const strong = (v: V, c: string): string => mix(c, S, v["--text-main"]!);
+const palette = (v: V): Record<string, string> => ({
+    comment: mix(v["--text-secondary"]!, 0.5, v["--text-muted"]!),
+    keyword: strong(v, mix(v["--accent-text"]!, 0.55, v["--status-danger"]!)),
+    string: strong(v, v["--status-success"]!),
+    number: strong(v, v["--status-warning"]!),
+    type: strong(v, v["--status-info"]!),
+    tag: strong(v, v["--status-danger"]!),
+    attribute: strong(v, mix(v["--status-info"]!, 0.5, v["--status-success"]!)),
+    regexp: strong(v, mix(v["--status-danger"]!, 0.5, v["--status-warning"]!)),
+    variable: v["--text-main"]!,
+    punctuation: v["--text-secondary"]!,
+});
+const pairs = [["attribute", "string"], ["attribute", "number"], ["attribute", "keyword"], ["tag", "attribute"], ["tag", "string"], ["tag", "keyword"], ["keyword", "type"], ["keyword", "string"], ["keyword", "number"], ["regexp", "string"], ["regexp", "number"], ["type", "attribute"], ["type", "string"], ["tag", "regexp"], ["tag", "number"], ["keyword", "tag"], ["keyword", "regexp"], ["attribute", "type"], ["number", "string"]];
+for (const [name, v] of Object.entries(looks)) {
+    if (!v["--bg-main"]?.startsWith("#")) { console.log(name, "bg-main 不是十六进制", v["--bg-main"]); continue; }
+    const p = palette(v);
+    const low = Object.entries(p).filter(([k, c]) => ratio(c, v["--bg-main"]!) < (k === "comment" ? 3 : 4.5)).map(([k, c]) => `${k} ${ratio(c, v["--bg-main"]!).toFixed(2)}`);
+    const near = pairs.map(([a, b]) => [a, b, dE(p[a!]!, p[b!]!)] as const).filter(([, , d]) => d < 15).map(([a, b, d]) => `${a}~${b} ${d.toFixed(1)}`);
+    console.log(`${name.padEnd(18)} ${Object.values(p).join(" ")}\n   bg ${v["--bg-main"]}  不达标: ${low.join(", ") || "无"}  近色(<15): ${near.join(", ") || "无"}`);
+}

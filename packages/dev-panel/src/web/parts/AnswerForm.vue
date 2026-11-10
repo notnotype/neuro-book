@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import {Badge, Button, Field, Textarea} from "@notnotype/nb-ui/components";
-import {computed, ref, watch} from "vue";
+import {computed} from "vue";
 import {controlCharProblem} from "../../core/text-rules.js";
 import {validateAnswerValue} from "../../core/questions.js";
-import {answerText, editingValue, groupQuestions, isBlankAnswer, isNewQuestion, staleText, submittedValue} from "../host/answers.js";
+import {answerText, editingValue, groupQuestions, isBlankAnswer, isNewQuestion, staleText, submittedValue, type AnswerDraft} from "../host/answers.js";
 import {relativeTime} from "../host/format.js";
 import type {QuestionState} from "../host/types.js";
 import QuestionControl from "./QuestionControl.vue";
 
 /**
  * 产物页侧栏的答复表单：待答的题给控件，已答的题只读、点“改答”才给控件；之前几版留下的题不进表单（宿主经 `readonly` 插槽放只读的列表）。
- * 只交改过或新填的题；校验用核心的同一份规则。提交栏贴在侧栏底部。零件不发请求：按“提交”只发 `submit`。契约见同名 .md。
+ * 只交改过或新填的题；校验用核心的同一份规则。提交栏贴在侧栏底部。零件不发请求：按“提交”只发 `submit`。
+ * 填写都在受控的 `draft` 里（宿主存在本机、提交成功后清空），零件自己不留状态。契约见同名 .md。
  */
 const props = defineProps<{
     questions: QuestionState[];
@@ -22,51 +23,41 @@ const props = defineProps<{
     disabledReason: string | null;
     /** 服务端按题号退回的错误。 */
     errors: Record<string, string>;
-    /** 变了就清空本地的填写（提交成功之后）。 */
-    resetKey: number;
 }>();
 const emit = defineEmits<{submit: [answer: {values: Record<string, unknown>; comments: Record<string, string>; note: string | null}]}>();
 
+/** 这块评审还没交的填写：受控，每次改动都整份换掉（宿主据此存进本机）。 */
+const draft = defineModel<AnswerDraft>("draft", {required: true});
 const groups = computed(() => groupQuestions(props.questions));
-const values = ref<Record<string, unknown>>({});
-const comments = ref<Record<string, string>>({});
-const commenting = ref<Record<string, boolean>>({});
-const touched = ref<Record<string, boolean>>({});
+const values = computed(() => draft.value.values);
+const touched = computed(() => draft.value.touched);
+const comments = computed(() => draft.value.comments);
+const commenting = computed(() => draft.value.commenting);
 /** 已答的题里点了“改答”的。 */
-const editing = ref<Record<string, boolean>>({});
-const note = ref("");
-
-function reset(): void {
-    values.value = {};
-    comments.value = {};
-    commenting.value = {};
-    touched.value = {};
-    editing.value = {};
-    note.value = "";
-}
-watch(() => props.resetKey, reset, {immediate: true});
+const editing = computed(() => draft.value.editing);
+const note = computed({get: () => draft.value.note, set: (text: string) => (draft.value = {...draft.value, note: text})});
 
 /** 取值照存（文本框里的空白仍显示），清空了的不算改过、不交。 */
 function set(id: string, value: unknown): void {
-    values.value = {...values.value, [id]: value};
-    touched.value = {...touched.value, [id]: !isBlankAnswer(value)};
+    draft.value = {...draft.value, values: {...values.value, [id]: value}, touched: {...touched.value, [id]: !isBlankAnswer(value)}};
+}
+function setComment(id: string, text: string): void {
+    draft.value = {...draft.value, comments: {...comments.value, [id]: text}};
+}
+function openComment(id: string): void {
+    draft.value = {...draft.value, commenting: {...commenting.value, [id]: true}};
 }
 /** 单选组与确认题点了就收不回，待答的题给一个“清除选择”回到没答。 */
 const canClear = (state: QuestionState) => (state.question.type === "single" || state.question.type === "confirm") && values.value[state.question.id] !== undefined;
 function startEdit(state: QuestionState): void {
     const id = state.question.id;
-    values.value = {...values.value, [id]: editingValue(state, values.value, touched.value)};
-    editing.value = {...editing.value, [id]: true};
+    draft.value = {...draft.value, values: {...values.value, [id]: editingValue(state, values.value, touched.value)}, editing: {...editing.value, [id]: true}};
 }
 /** 取消改答：取值回到已答的那份，说明也丢掉，这道题不再交。 */
 function cancelEdit(state: QuestionState): void {
     const id = state.question.id;
     const without = <T,>(record: Record<string, T>) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== id));
-    editing.value = without(editing.value);
-    touched.value = without(touched.value);
-    comments.value = without(comments.value);
-    commenting.value = without(commenting.value);
-    values.value = without(values.value);
+    draft.value = {...draft.value, values: without(values.value), touched: without(touched.value), comments: without(comments.value), commenting: without(commenting.value), editing: without(editing.value)};
 }
 
 /** 能交的题：待答的，加上点了“改答”的已答题。 */
@@ -112,7 +103,7 @@ function submit(): void {
         <p v-if="disabledReason" class="nbdev-hint">{{ disabledReason }}</p>
         <section class="nbdev-stack" aria-label="待答">
             <!-- 题缺省是选答，能只答一部分就提交；只有标了必答的单独数出来。 -->
-            <h3 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.pending.length }}<template v-if="pendingRequired > 0"> · 必答 {{ pendingRequired }}</template></span></h3>
+            <h2 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.pending.length }}<template v-if="pendingRequired > 0"> · 必答 {{ pendingRequired }}</template></span></h2>
             <p v-if="groups.pending.length === 0" class="nbdev-empty">没有待答的题</p>
             <fieldset v-for="state in groups.pending" :key="state.question.id" class="nbdev-stack border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
                 <legend class="flex flex-wrap items-center gap-1.5 pb-1">
@@ -125,17 +116,18 @@ function submit(): void {
                 <p v-if="state.stale" class="nbdev-hint nbdev-hint-warn">{{ staleText(state) }}</p>
                 <QuestionControl :question="state.question" :model-value="values[state.question.id]" @update:model-value="(value) => set(state.question.id, value)" />
                 <Field v-if="commenting[state.question.id]" label="说明（可选）">
-                    <Textarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
+                    <Textarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => setComment(state.question.id, value)" />
                 </Field>
-                <div v-if="!commenting[state.question.id] || canClear(state)" class="flex flex-wrap items-center gap-3">
-                    <button v-if="!commenting[state.question.id]" type="button" class="nbdev-note" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
-                    <button v-if="canClear(state)" type="button" class="nbdev-note" @click="set(state.question.id, undefined)">清除选择</button>
+                <!-- 与“改答”同一种小按钮：原来是 12px 的灰字，看不出能点、点击区只有 36×18（t22）。 -->
+                <div v-if="!commenting[state.question.id] || canClear(state)" class="flex flex-wrap items-center gap-1">
+                    <Button v-if="!commenting[state.question.id]" size="sm" variant="ghost" icon-class="i-lucide-message-square-plus" @click="openComment(state.question.id)">加说明</Button>
+                    <Button v-if="canClear(state)" size="sm" variant="ghost" icon-class="i-lucide-eraser" @click="set(state.question.id, undefined)">清除选择</Button>
                 </div>
                 <p v-if="problems[state.question.id] ?? errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
             </fieldset>
         </section>
         <section v-if="groups.answered.length > 0" class="nbdev-stack" aria-label="已答">
-            <h3 class="nbdev-card-title">已答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.answered.length }}</span></h3>
+            <h2 class="nbdev-card-title">已答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.answered.length }}</span></h2>
             <fieldset v-for="state in groups.answered" :key="state.question.id" class="nbdev-stack border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
                 <legend class="flex flex-wrap items-center gap-1.5 pb-1">
                     <span class="font-medium">{{ state.question.label }}</span>
@@ -145,9 +137,9 @@ function submit(): void {
                 <template v-if="editing[state.question.id]">
                     <QuestionControl :question="state.question" :model-value="values[state.question.id]" @update:model-value="(value) => set(state.question.id, value)" />
                     <Field v-if="commenting[state.question.id]" label="说明（可选）">
-                        <Textarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
+                        <Textarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => setComment(state.question.id, value)" />
                     </Field>
-                    <button v-else type="button" class="nbdev-note self-start" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
+                    <Button v-else class="self-start" size="sm" variant="ghost" icon-class="i-lucide-message-square-plus" @click="openComment(state.question.id)">加说明</Button>
                     <p v-if="problems[state.question.id] ?? errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
                     <Button class="self-start" size="sm" variant="ghost" icon-class="i-lucide-undo-2" @click="cancelEdit(state)">取消改答</Button>
                 </template>

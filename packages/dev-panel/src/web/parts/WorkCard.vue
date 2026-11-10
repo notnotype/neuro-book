@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
 import {relativeDay, sessionName, taskLabel, workLabel} from "../host/format.js";
+import {inlineMarkdownText} from "../host/markdown.js";
 import {isPlainClick, workHref} from "../host/routes.js";
 import type {OverviewWork, SessionTitle} from "../host/types.js";
 import BranchNote from "./BranchNote.vue";
@@ -32,7 +33,8 @@ function follow(event: MouseEvent, href: string): void {
             </a>
         </header>
         <p class="line-clamp-2" :class="work.goal.value ? 'nbdev-secondary' : 'nbdev-empty'">
-            {{ work.goal.value ?? "目标：未标" }}
+            <!-- 只放得下两行：去掉 Markdown 标记（链接的地址、反引号）只留文字（t22）。 -->
+            {{ work.goal.value ? inlineMarkdownText(work.goal.value) : "目标：未标" }}
         </p>
         <StatusBar :counts="work.taskCounts" />
         <div class="flex flex-wrap items-center gap-2 nbdev-note">

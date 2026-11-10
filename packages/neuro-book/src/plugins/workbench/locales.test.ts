@@ -406,6 +406,7 @@ const REVISED: Readonly<Record<string, {readonly "zh-CN"?: string; readonly "en-
     "viewCommands.partial": {"zh-CN": "要么都不给，要么同时给 viewId 和 target", "en-US": "Give nothing, or both viewId and target"},
     "viewCommands.stale": {"zh-CN": "视图或目标面板已经不在了，没有移动", "en-US": "The view or the target panel is gone; nothing moved"},
     "themeEditor.transfer.copyFailed": {"zh-CN": "复制失败：读不到或传不上素材 {reason}", "en-US": "Copy failed: the asset {reason} could not be read or uploaded"},
+    "settings.dropSectors.description": {"zh-CN": "拖动手感是落点指示时，拖到面板上画出上下左右中能放的位置；实时布局不画，布局本身就是预览", "en-US": "With the drop indicator drag feel, show the places a view or tab can go when dragged over a panel; live layout doesn't draw them, the layout itself is the preview"},
 };
 
 const EXPECTED = {...LEGACY, ...RUNTIME, ...ADDED};

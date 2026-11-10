@@ -198,6 +198,8 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 
 .workbench-tool-strip__frame--placeholder {
     visibility: hidden;
+    /* 宿主拖着它在条里排序时它自己跟手（写 `translate`），不参与换位过渡：过渡的 `transform` 会让它先滑回空位再跳到指针下。 */
+    transform: none !important;
 }
 
 /* 底段贴着列底，不滚动：放不下时上段先滚动。上下留出与上段相同的余地，按钮的焦点光环不被列裁掉。 */

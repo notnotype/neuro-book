@@ -1,15 +1,17 @@
 /**
- * 求值与两种渲染（docs/specs/canon/rendering.md 输出 4–11、14）。
+ * 求值与三种渲染（docs/specs/canon/rendering.md 输出 4–11、14、15）。
  *
  * 给 Agent 的带值写法在源文上按偏移量拼接：只把表达式（含花括号）换成注记、给 `<Ref>` 补上 `name`，注记以外的字
  * 与源文逐字相同，所以转义的 `\{` 与代码里的花括号原样保留（输出 8）。给作者的渲染返回语法树，表达式节点换成
- * 值、算出来的结果、占位等几种节点，由前端画。
+ * 值、算出来的结果、占位等几种节点，由前端画。纯文字的渲染同样按偏移量拼接，另外交出“读了谁、写了谁的名字、
+ * 哪里写不干净”，由调用方决定给不给（输出 15）。
  */
 
 import type {Expression, Node as EsNode} from "estree";
 import type {Root} from "mdast";
 
 import type {ComponentRegistry} from "../components/registry";
+import {parsePath} from "../core/address";
 import type {ChapterOrder} from "../core/position";
 import type {ReadPosition} from "../core/schema";
 import type {Engine, EntryView, IncompleteMark, Mode} from "../engine/types";
@@ -245,32 +247,100 @@ function authorNode(site: ExpressionSite, {resolve, entryName}: RenderContext): 
     return {type: "canonComputed", source: site.source.trim(), raw: result.value, display: displayText(result.value), ...(result.incomplete === undefined ? {} : {incomplete: result.incomplete})};
 }
 
-/** 给 Agent 的一块：带值写法（输出 8、9、14）。 */
-/** 纯文字的一块（给写手的文字用，不回写）。`references` 是这一块引到的别的条目：调用方据此判断这段文字能不能给。 */
+/** 纯文字的一块哪里写不干净（rendering.md 输出 15）：调用方据此决定这段文字能不能给。 */
+export type PlainProblem = "syntax" | "raw-value" | "quoted-block" | "unavailable";
+
+/**
+ * 纯文字的一块（给不回写的读者，例如写手的简报；rendering.md 输出 15）。`reads` 与 `mentions` 是调用方判断“这段文字能不能给”
+ * 的依据：前者是表达式读了谁的数据（写了 `ref(...)` 的条目，含本条目自己；路径里以引用为键的行键；不写 `ref` 的本条目字段不算），
+ * 后者是文字里写了谁的名字（含写到本条目自己的 `<Ref>`）。本条目自己的数据给不给由调用方决定。
+ */
 export interface PlainBlock {
     readonly id: string;
     readonly text: string;
-    readonly references: readonly string[];
+    readonly reads: readonly string[];
+    readonly mentions: readonly string[];
+    readonly problems: readonly PlainProblem[];
 }
 
-export function renderBlockPlain(id: string, source: string, context: RenderContext): PlainBlock {
+/** 纯文字渲染多要一样：判断一个 id 是不是条目（以引用为键的列表的行键、行的 id）。 */
+export interface PlainContext extends RenderContext {
+    readonly isEntry: (id: string) => boolean;
+}
+
+const DELETED_NAME = "已删除的条目";
+
+/**
+ * 一个值的纯文字写法。只有字符串、数、真假、引用、图片、字符串列表、带 id 的列表有写法；别的（例如取出的单个列表行）
+ * 记 `raw-value`，文字留空：调用方见到问题就不该给这一块，留空免得把 JSON 写出去。
+ */
+function plainValue(value: unknown, context: PlainContext, mentions: Set<string>, problems: Set<PlainProblem>): string {
+    if (value === null || value === undefined || typeof value !== "object") return displayText(value);
+    const name = (id: string) => {
+        mentions.add(id);
+        return context.entryName(id) ?? DELETED_NAME;
+    };
+    if (Array.isArray(value)) {
+        if (value.every((item) => typeof item === "string")) return value.join("、");
+        const rows = value.map((item) => {
+            const row = item as {id?: unknown; label?: unknown} | null;
+            if (row === null || typeof row !== "object" || typeof row.id !== "string") return null;
+            // 以引用为键的行：内核读取时补的 label 是被引条目的本名，名字一律经回调写（调用方可能要改写它）。
+            if (context.isEntry(row.id)) return name(row.id);
+            return typeof row.label === "string" ? row.label : null;
+        });
+        if (rows.some((row) => row === null)) {
+            problems.add("raw-value");
+            return "";
+        }
+        return rows.join("、");
+    }
+    const ref = (value as {ref?: unknown}).ref;
+    if (typeof ref === "string") return name(ref);
+    if ("图片" in value) return String((value as {说明?: unknown}).说明 ?? "");
+    problems.add("raw-value");
+    return "";
+}
+
+export function renderBlockPlain(id: string, source: string, context: PlainContext): PlainBlock {
     const parsed = parseBlock(source);
-    if (!parsed.ok) return {id, text: source, references: []};
-    const references = new Set<string>();
+    if (!parsed.ok) return {id, text: source, reads: [], mentions: [], problems: ["syntax"]};
+    const reads = new Set<string>();
+    const mentions = new Set<string>();
+    const problems = new Set<PlainProblem>();
+    const read = (reference: FieldReference) => {
+        if (reference.entry !== null) reads.add(reference.entry);
+        // 按条目选出的一行（`att.态度["e1"].称呼`）读的是关于那个条目的数据，本条目自己的字段也一样。
+        const path = parsePath(reference.path);
+        if (path?.root === "namespace" && path.element !== undefined && context.isEntry(path.element)) reads.add(path.element);
+        if (path?.root === "text") problems.add("quoted-block");
+    };
     const splices: {start: number; end: number; text: string}[] = [];
+    // 图片标签整个换成说明；标签属性里的表达式照记读取，但不再拼进文字。
+    for (const image of parsed.block.images) {
+        if (image.altExpression) problems.add("raw-value");
+        splices.push({start: image.start, end: image.end, text: image.alt ?? ""});
+    }
+    const inImage = (site: ExpressionSite) => parsed.block.images.some((image) => site.start >= image.start && site.end <= image.end);
     for (const site of parsed.block.expressions) {
-        for (const reference of site.references) if (reference.entry !== null) references.add(reference.entry);
-        if (site.expression === null) {
+        for (const reference of site.references) read(reference);
+        if (inImage(site)) continue;
+        // 引另一块原文：那是 MDX 源文（含条目 id 与表达式），这一处不写文字。
+        if (site.expression === null || site.references.some((reference) => reference.path.startsWith("text["))) {
             splices.push({start: site.start, end: site.end, text: ""});
             continue;
         }
         const result = site.reference !== null ? context.resolve(site.reference) : evaluate(site.expression, site.references, context.resolve);
-        const unavailable = result.unavailable !== undefined && (result.value ?? null) === null;
-        splices.push({start: site.start, end: site.end, text: unavailable ? `（${String(result.unavailable)}）` : displayText(result.value)});
+        if (result.unavailable !== undefined && (result.value ?? null) === null) {
+            problems.add("unavailable");
+            splices.push({start: site.start, end: site.end, text: ""});
+            continue;
+        }
+        splices.push({start: site.start, end: site.end, text: plainValue(result.value, context, mentions, problems)});
     }
     for (const ref of parsed.block.refs) {
-        references.add(ref.id);
-        splices.push({start: ref.start, end: ref.end, text: context.entryName(ref.id) ?? "已删除的条目"});
+        mentions.add(ref.id);
+        splices.push({start: ref.start, end: ref.end, text: context.entryName(ref.id) ?? DELETED_NAME});
     }
     splices.sort((a, b) => a.start - b.start);
     let text = "";
@@ -279,9 +349,10 @@ export function renderBlockPlain(id: string, source: string, context: RenderCont
         text += source.slice(cursor, splice.start) + splice.text;
         cursor = splice.end;
     }
-    return {id, text: text + source.slice(cursor), references: [...references]};
+    return {id, text: text + source.slice(cursor), reads: [...reads], mentions: [...mentions], problems: [...problems]};
 }
 
+/** 给 Agent 的一块：带值写法（输出 8、9、14）。 */
 export function renderBlockForAgent(id: string, source: string, context: RenderContext): AgentBlock {
     const parsed = parseBlock(source);
     if (!parsed.ok) return {id, text: source, error: parsed.problem};

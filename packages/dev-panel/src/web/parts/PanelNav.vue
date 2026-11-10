@@ -207,7 +207,7 @@ onBeforeUnmount(() => observer?.disconnect());
                     <div v-for="branch in section.branches" :key="branch.work.key" role="none" class="flex flex-col">
                         <div role="none" class="flex items-center">
                             <!-- 展开按钮只给鼠标：读屏器从 treeitem 的 aria-expanded 知道展开状态，键盘用左右键。 -->
-                            <button type="button" tabindex="-1" aria-hidden="true" class="nbdev-nav-toggle" @click="emit('toggle', branch.work.workId, !branch.work.open)">
+                            <button type="button" tabindex="-1" aria-hidden="true" class="nbdev-nav-toggle nbdev-hit" @click="emit('toggle', branch.work.workId, !branch.work.open)">
                                 <span :class="branch.work.open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3.5" aria-hidden="true" />
                             </button>
                             <Tooltip :text="`${branch.work.number} ${branch.work.title}`" side="right" :disabled="!truncated.has(branch.work.key)">
@@ -281,7 +281,12 @@ onBeforeUnmount(() => observer?.disconnect());
     height: 0.5rem;
     border-radius: 9999px;
 }
+/* 箭头紧挨着状态点与 Work 名：点击区只往上下扩（填满 30px 的行），横向不扩，免得盖住名字。 */
 .nbdev-nav-toggle {
+    --nbdev-hit-x: 0px;
+    --nbdev-hit-x-coarse: 0px;
+    --nbdev-hit-y: -5px;
+    --nbdev-hit-y-coarse: -5px;
     display: inline-flex;
     width: 1.25rem;
     height: 1.25rem;

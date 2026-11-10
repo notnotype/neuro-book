@@ -1,0 +1,130 @@
+# w00032 t14 第三轮设计审查（后端、内核、远程合同）
+
+审查对象：主工作区 HEAD a266f257f（t14 的计划与 Spec 在 ac42e0135 修订，即计划第三版）的 `plan.md`、`docs/specs/agent/subagents.md`、`jobs.md` 与各 planned 条目。只报两类：第二轮标“成立，改”而没改到或改错的；修订引入、照字面实现会做错或返工的新问题。第 50–54 条不议。每核实一条追加一条。
+
+## 1. 中止后“紧接着的 `agent_send` 送达”照字面做不到：放进正在中止的子会话的话留在缓冲区，没有运行去取它，`agent_send` 交回 `aborted`
+
+- **严重程度**：重要；**类别**：正确性；第二轮第 12 条没处理好（与内核第 5 处叠加后换了个样子）
+- **位置**：`docs/specs/agent/subagents.md:94`（输出 16“子会话缓冲区里的话留着，之后的放话照常送达”）、`subagents.md:82`（输出 10 按交回的 `runId` 认任务）、`subagents.md:165`（验收 5“紧接着的 `agent_send` 送达”）；`plan.md:67`、`plan.md:68`、`plan.md:161`（验收 6）；`docs/specs/harness/runtime.md:78`（输出 30 末句“轮以 `error` 或 `aborted` 结束时不取 `followup`”）、`runtime.md:155`（输出 88）；代码 `packages/nb-harness/src/kernel/run/commands.ts:166-170`、`run/control.ts:136-143`、`run/loop.ts:365`、`:380-381`
+- **现象**：父会话中止后插件对子会话发 `abort{keepQueue: true}`，不等收口。子会话收口前 `control.idle` 为假（`#active` 要到循环的 `finally` 才清），这时到达的 `agent_send{message}` 走 `send` 的“不空闲”分支：话入缓冲区，按内核第 5 处交回正在中止的那次运行的 `runId`。随后运行以 `aborted` 收口：`keepQueue` 让这条话留下，但中止的轮不取 followup，steer 也只在下一个边界取，内核不会为留下的话开新运行（`abortCommand` 收口后只写 `inputRemoved` 或什么都不写）。于是：
+  1. 插件按输出 10“交回的运行就是任务正跟着的那次”去认任务，可原任务已因前台调用以 `aborted` 交回而移出（jobs 输出 6）；这次运行既不是“原任务正跟着的”，也不是新运行，输出 10 的三种情形都不覆盖。
+  2. 不管登记成什么，`waitRun(该 runId)` 立即以 `aborted` 完成，`agent_send` 交回“已停止”；话留在子会话缓冲区里，要等下一次有人 `send` 或 `start` 才被处理。模型以为子代理又被停了一次，用户看到的是“让它接着干，它没动”。
+  `keepQueue` 只解决了第二轮第 12 条的“话被清掉”，没解决“话没人处理、调用交回错的结局”。
+- **为什么是问题**：用户中止后马上说“继续”是最常见的交互之一；验收 5/6 写的“紧接着的 `agent_send` 送达”照字面写测试会失败，实现者只能自己发明补救。
+- **如何核实**：读 commands.ts:157-182 与 loop.ts:360-382；脚本化模型：子会话跑一个慢工具，父会话 `agent_spawn` 前台等，中止父会话后立即 `agent_send{id, message}`，看 `send` 的值、子会话缓冲区与之后有没有新的 `runStarted`。
+- **建议改法**：Spec 输出 10/16 与计划写明二选一：(a) `agent_send`、`agent_answer` 看到子会话处于 `aborting` 时先等它收口（有上限，例如 10 秒，超了得一个可重试的码），再按空闲处理（`send` 开新运行、登记新任务）；(b) 插件对子会话发的中止收口后，缓冲区里还有话就由插件 `start`，并把这次新运行登记给最后放话的那个调用。(a) 简单、与内核语义一致，推荐。同时在输出 10 补一句：交回的 `runId` 对应的任务已移出且这次运行正在中止时按 (a) 处理。
+
+## 2. “fork 出来的会话不计入”把用户 `/fork` 出来的根会话也排除了：它自己的花费从此不算，费用上限对它失效（比现状还松）
+
+- **严重程度**：重要；**类别**：正确性 / 不变量；第二轮第 7 条的修法引入
+- **位置**：`docs/specs/agent/run-guards.md:67`（输出 13“fork 出来的会话不计入（它复制来的用量已在来源会话里）”）；`plan.md:90`（“不含 fork 出来的会话……fork 出来的会话整个不计”）、`plan.md:62`（“fork 出来的会话（索引有 `origin`）在关系表里标出”）、`plan.md:180`；`docs/specs/harness/session.md:134`（输出 20：任何 fork 出来的会话头都有 `origin`）；`docs/specs/agent/conversation.md:92`（输出 30 `/fork`）；`docs/specs/agent/subagents.md:81`、`:110`（输出 9、23：fork 出来的子会话照抄 `caller`，父 Agent 仍是它的 owner）；代码 `packages/neuro-book/src/plugins/agent/backend/guards/cost-guard.ts:46-51`
+- **现象**：判定“fork 出来的”用的是索引的 `origin`，而用户 `/fork` 出来的普通会话同样有 `origin`。照 run-guards 输出 13 与 plan.md:90 字面：用户 fork 一个主创会话后接着用，树累计 = 关系表里这棵树各会话之和、不含 fork 出来的会话，根自己被排除，树累计只剩它派出的子会话；它自己再花多少都不触发 `cost-limit`。现状的 cost-guard 用 `ctx.spend` 判（含复制来的用量），fork 出来的会话是受限的；这一稿让它变成不受限。
+  另一半：fork 出来的子会话照抄 `caller`，父 Agent 仍能 `agent_send` 它（输出 9 只看 `caller.id`），它 fork 之后新花的钱也整份不计。plan.md:180 把这当成“上限对它偏松”，但它是可以被模型持续驱动的会话，不只是一次性的偏差。
+- **为什么是问题**：重复计算只发生在“fork 出来的会话与来源在同一棵树里”（fork 子会话）；fork 根会话的来源在另一棵树，整份计入不会重复。现在的规则为了消掉复制部分的重复，把 fork 会话之后的全部真实花费也丢了，上限是要真拦请求的（验收 9/11）。
+- **如何核实**：对照 session.md 输出 20、conversation.md 输出 30 与 run-guards 输出 13；代入“用户 `/fork` 主创会话后让它继续写”。
+- **建议改法**：只扣复制来的那部分，不整份排除：fork 时内核已按 runtime 输出 70 算出复制路径上的用量，索引加 `spendBase`（fork 时复制来的累计，非 fork 会话为 0），树累计取 `spend − spendBase`；或者至少把规则收窄成“根会话一律计入；fork 出来的非根会话扣掉来源会话在 fork 时的累计”。run-guards 输出 13、session 输出 22、plan.md:90、:180 一并改，并加一条验收：fork 一个根会话后它自己的花费仍触发上限。
+
+## 3. `tree` 要给“空闲而有未答异步提问的”后代带 `pending`，又要“不打开不在跑的后代会话就能交回”：这份数据没有来源
+
+- **严重程度**：重要；**类别**：接口；本轮修订（前端第二轮第 11 条的处理）引入
+- **位置**：`docs/specs/agent/subagents.md:105`（输出 21“有等用户事项的（含空闲而有未答异步提问的）一律带 `pending`”）、`subagents.md:106`（输出 22“不打开不在跑的后代会话就能交回”）；`plan.md:102`；`plan.md:94`（状态从句柄表的 `activity()` 与任务中心取）；`docs/specs/harness/session.md:137`（输出 22：索引新增的只有 `caller`、`origin`、`spend`、`runs`）；代码 `packages/neuro-book/src/plugins/agent/backend/sessions.ts:124-125`（`activity()` 只列打开着且不空闲的）、`sessions.ts:262`、`:276`（空闲的句柄会被回收）；`packages/nb-harness/src/kernel/api/storage.ts:13-25`
+- **现象**：异步提问的待答事项在会话日志的叶子状态里（`leafState.kernel.pending`），会话空闲后句柄按闲置回收关掉；`activity()` 不列空闲的会话，索引（含第三版新加的四项）也没有待答事项。所以“空闲、关着、有一个 `questions: "user"` 的未答异步提问”的后代，`tree` 要么打开它（违反输出 22，且要先知道该打开哪些，只能全打开），要么交不出 `pending`。进程重启后所有后代都是关着的，这种事项从父会话的停靠区里全部消失，只能逐个打开子会话才看得到。
+- **为什么是问题**：照字面实现，切片 7 写 `tree` 时才发现缺数据，要回头改内核索引（切片 1 已交付），或者悄悄去掉这条；停靠区（第 44、50 条）对这类事项的承诺落空。
+- **如何核实**：读 sessions.ts:120-140、255-280 与 storage.ts 的 `SessionIndexEntry`；场景：子会话 `questions: "user"`，提一个异步提问后结束本轮，等句柄回收（或重启），父会话取 `tree`。
+- **建议改法**：内核第 3 处的索引再加一项 `pendingAsync?: number`（或 `pending?: {id, kind}[]`，只记异步的、给用户的待答事项），随 `interactionRequested`/`interactionResolved` 更新；`tree` 对关着的后代凭它决定是否要打开取详情（打开的数目有上限），或只交计数、点开时再取。若不想再动内核，就把输出 21 的“含空闲而有未答异步提问的”改成“打开着的后代”，并在不承诺里写明关着的后代的异步提问只在打开子会话时看得到。
+
+## 4. `sessions://` 根要列子会话 `prompt` 的开头，但不打开会话就取不到 `prompt`：索引里没有，存储也没有不加锁的读法
+
+- **严重程度**：重要；**类别**：接口；第二轮第 15 条的修法引入
+- **位置**：`docs/specs/agent/resources.md:74`（输出 13“子会话另列名字、`prompt` 的开头……状态不靠打开会话取得”）、`docs/specs/agent/subagents.md:111`（输出 24）、`plan.md:72`、`plan.md:94`、`plan.md:163`（验收 8 按名字找回）；`docs/specs/harness/session.md:137`（输出 22）；代码 `packages/nb-harness/src/kernel/api/storage.ts:13-25`（索引字段）、`storage.ts:45-52`（`LogStore` 只有 `create`、`open`、`append`、`list`、`close`）
+- **现象**：`prompt` 是以父会话身份发进子会话的第一条输入，只在子会话日志里。索引条目有 `title`（就是 `name`，没写时是 Profile 名）与 `description`，没有首条输入；第三版的内核第 3 处也没加。`LogStore` 读日志的唯一办法是 `open`（持锁、读回全部事件）。重启后读 `sessions://` 根时，本会话的子会话全是关着的，列 `prompt` 开头就得逐个打开（子会话数不限，每个都读全部事件、占锁，与别处打开撞 `session-busy`），或者插件绕过存储直接读 JSONL 文件。
+- **为什么是问题**：第二轮第 15 条的修法把“按名字与 `prompt` 开头认”作为重启后找回的主要线索（验收 8 依赖它）；没写的不是名字（索引有），而是 `prompt` 开头，而大多数调用不写 `name`，几个 adhoc 子会话的标题都是“adhoc”，只剩 `prompt` 开头能区分。
+- **如何核实**：读 storage.ts:13-52；对照 resources 输出 13 的“状态不靠打开会话取得”与 session 输出 22 的字段。
+- **建议改法**：派发时把 `prompt` 的开头（例如前 80 字）写进会话头，例如 `caller.summary`（会话头由插件在 `createSession` 时给出，内核照抄进索引的 `caller`，第 3 处的改动只多一个可选字段）；或者 `name` 缺省时取 `prompt` 的开头作标题（`setTitle` 或建会话时给），这样索引的 `title` 就够用，不必改内核。二选一写进 subagents 输出 2/24 与 session 输出 22。
+
+## 5. 内核第 5 处的 `resolve` 只在“开了或续了运行”时交回 `runId`：应答插进在跑的运行（异步提问的回答当 steer）时不交回，`agent_answer` 按 `runId` 认任务的规则在这条路径上落空
+
+- **严重程度**：重要；**类别**：接口；第二轮第 5 条没处理完
+- **位置**：`docs/specs/harness/runtime.md:155`（输出 88）、`plan.md:32`；`docs/specs/agent/subagents.md:83`（输出 11“任务同样按交回的 `runId` 认”）、`subagents.md:90`（输出 15：异步提问也交给调用方）；代码 `packages/nb-harness/src/kernel/run/interaction.ts:129-151`
+- **现象**：`resolveCommand` 对异步提问的回答：子会话在跑时当 steer 入缓冲区（interaction.ts:134-135），不 `launch`；按输出 88“开了或续了运行就交回，没有时不给”，这时没有 `runId`。而 `send`、`enqueue` 的同一情形（有运行时）是交回在跑的 `runId` 的。于是：
+  1. 子会话在跑、父 Agent `agent_answer` 一个交给调用方的异步提问：回答插进当前运行，插件拿不到 `runId`，只能事后读快照状态猜（第二轮第 5 条要消掉的正是这种猜）；输出 11 的“按交回的 `runId` 认”无从执行，前台等哪次运行、关联哪个任务都没定。
+  2. 子会话空闲但 `startProblem` 非空（没凭据、只读）：回答入队、不开运行、`resolve` 成功、不给 `runId`。输出 11 没写这时 `agent_answer` 交回什么（等什么都等不到）。
+  3. 同步提问的应答：运行一直在（`waiting`），也不算“开了或续了”，同样不给 `runId`；输出 11 用括号里的“仍是原任务”兜住了，但与“按交回的 `runId` 认”字面矛盾。
+- **为什么是问题**：切片 1 按输出 88 做完内核，切片 5 写 `agent_answer` 时才发现情形 1、2 没有依据，要么回头改内核，要么按状态猜。
+- **如何核实**：读 interaction.ts:129-156；脚本化模型：子会话 `questions: "caller"`、提异步提问后接着跑一个慢工具，父会话 `agent_answer` 它，看 `resolve` 的值。
+- **建议改法**：输出 88 改成与 `send` 一致：“`resolve` 受理时会话有运行（在跑、等这个事项、或因这次应答新开、续上）就交回它的 `runId`；回答只入队、没有运行时不给”。subagents 输出 11 补一句：没有 `runId`（回答已入队但子会话开不了运行）时立即交回，状态写明原因（码同 `send` 的 `startProblem`，或一个新码），不登记任务。
+
+## 6. `jobs.md` 没跟着改：仍写“排在后面的 `jobs` 列得出前面以 `async` 登记的任务”“工具开始时就登记”，模式切换请求仍会让任务进 `question`、让 `wait` 交回
+
+- **严重程度**：重要；**类别**：接口 / 文档；第二轮第 1、3、8 条（第 53 条）的处理没传到 jobs.md
+- **位置**：`docs/specs/agent/jobs.md:75`（“任务在启动它的工具开始时就登记（占名额）；同一条回复里排在后面的 `jobs` 列得出前面以 `async` 登记的任务”）、`jobs.md:49`（输出 3“某个 `agent` 任务的子会话有交给调用方的同步提问”）、`jobs.md:66`（状态表“子会话有交给调用方的同步提问 → `question`”）、`jobs.md:68`（“父会话中止它正前台等的”）；对照 `docs/specs/agent/subagents.md:25`、`:71`、`:77`（输出 6、8 与不承诺）、`subagents.md:61`（输出 1 的检查顺序）、`subagents.md:94`（输出 16“由它启动的”）、`jobs.md:48`（输出 2“还在检查中的任务不出现在 `jobs`”）、`plan.md:64`
+- **现象**：
+  1. 时序一节第一句与第 53 条、subagents 输出 8 以及同一文件输出 2 直接矛盾：子代理工具不保证调用顺序，`starting` 的任务不出现在 `jobs` 里，登记发生在同步检查之后而不是“工具开始时”。照它写的测试（同一回复 `[agent_spawn{async}, jobs]`，断言列得出）会时好时坏。
+  2. 模式切换请求在内核里是 `kind: "question"`，子会话缺省 `questions: "caller"`，所以它就是“交给调用方的同步提问”。subagents 输出 6 与 plan.md:64 已把它排除（当“等用户”），但 jobs 输出 3 与状态表没有排除：切片 4 照 jobs.md 写 `wait` 与任务状态，后台子代理一请求切换模式，任务就进 `question`、`wait` 立即交回它，模型照着去 `agent_answer`，得 `not-allowed`。
+  3. 状态表“父会话中止它正前台等的 → `aborted`”没跟输出 16 的“由它启动的”收窄，插话附着在用户自己开的运行时也被写成 `aborted`。
+- **为什么是问题**：jobs.md 是切片 4 的依据；三处都是照字面会做错的合同，不是措辞。
+- **如何核实**：对照上列行号；`git show ac42e0135 -- docs/specs/agent/jobs.md` 只改了术语、输出 2、3、6、8、12，没碰时序一节与状态表。
+- **建议改法**：时序一节第一句改成“任务在派发的同步检查通过后登记（占名额），异步检查完成前不出现在 `jobs` 与远程里；同一条回复里的 `jobs` 不保证列得出同时派出的任务（[`subagents.md`](subagents.md) 输出 8）”。输出 3 与状态表的“交给调用方的同步提问”都加“（模式切换请求不算：它只能由用户答，任务仍是 `running`，[`subagents.md`](subagents.md) 输出 6）”。状态表那一行改成“父会话中止它启动且正前台等的”。同一原因，subagents 验收 6 与 plan 验收 7 的“同一回复第 9 个 `agent_spawn` 得 `concurrency-limit`”改成“同一回复 9 个 `agent_spawn`，恰有一个得 `concurrency-limit{scope: "session"}` 且没有留下子会话”，不指定是第几个。
+
+## 7. 卡片“按调用的 `invocation` 认子会话”只对 `agent_spawn` 成立：`agent_send`、`agent_answer` 的 `invocation` 不在任何子会话的 `caller` 里，卡片找不到子会话；对 fork 出来的子会话续用时又被“不认 fork 出来的”排除
+
+- **严重程度**：重要；**类别**：接口；第二轮第 4 条的修法引入（落在 conversation.md 与计划的浏览器端，前端审查者可能也会报）
+- **位置**：`docs/specs/agent/conversation.md:99`（输出 33“`agent_spawn`、`agent_send`、`agent_answer` 的调用各画一张卡……卡片按调用的 `invocation` 认子会话（不认 fork 出来的）”）；`plan.md:120`（“节点组件按 `invocation` 找子会话（不认 fork 出来的）”）；`plan.md:110`（`activeCalls` 是进行中调用的 `invocation`，宿主从 `tree`、`jobs` 算）；`docs/specs/agent/subagents.md:105`（输出 21 `tree` 项的 `invocation` 是派它的调用的）、`subagents.md:81`、`:110`（输出 9、23：fork 出来的子会话仍归父会话，能被 `agent_send`）
+- **现象**：子会话头的 `caller.invocation` 是派它的那次 `agent_spawn` 的；之后每次 `agent_send`、`agent_answer` 都有自己的 `invocation`，不会出现在任何 `tree` 项里。照字面，续用调用的卡片在拿到工具结果之前（整个前台等待期间）找不到子会话，只能画占位；宿主按 `tree` 的 `invocation` 算 `activeCalls` 时也算不出这些调用，它们所在的轮次会被自动收起。另外父 Agent 可以对 fork 出来的子会话 `agent_send`（输出 9 只看 `caller.id`），这张卡要跟的恰是 fork 出来的那个，却被“不认 fork 出来的”排除。
+- **为什么是问题**：续用（插话、回答提问、重启后让它继续）是验收 3、5、8 的路径，这些卡片在运行中全是空的。
+- **如何核实**：对照 conversation 输出 33 与 subagents 输出 2、21；代入“`agent_spawn` 以 `question` 返回后 `agent_answer`”看第二张卡用什么键。
+- **建议改法**：输出 33 与 plan.md:120 改成：`agent_spawn` 的卡按 `invocation` 认（不认 fork 出来的）；`agent_send`、`agent_answer` 的卡按参数里的 `id` 认子会话（fork 出来的也认），运行中用 `tree` 项的当前 `runId`，有结果后用 `details.runId` 定终态。`activeCalls` 的算法相应写成“`tree` 里在跑的后代，派它的 `agent_spawn` 调用，加上参数 `id` 指向它、还没有终态结果的续用调用”。
+
+## 建议（至多 5 条）
+
+### S1. 只读也能经续用绕过，与第二轮第 2 条同构
+
+- **严重程度**：建议；**类别**：不变量；第二轮第 2 条只修了 Agent 模式（严格说不在本轮两类之内，列出供决定）
+- **位置**：`docs/specs/agent/subagents.md:63`（输出 3：只读也是建时复制、之后各改各的）、`subagents.md:88`（输出 13 只收紧 Agent 模式）
+- **现象**：父会话 `normal` 时派出子会话，之后用户把父会话开成只读；`agent_send` 是 `read` 等级，只读放行，子会话不是只读，照写作品。与第二轮第 2 条的绕过是同一种结构，只是闸门换成了内核的只读。
+- **建议改法**：输出 13 的“先收紧”同时覆盖只读：父会话只读时，续用前把子会话也设成只读；或在不承诺里写明只读不随续用传递。
+
+### S2. 前台调用以 `question` 交回后，下一次 `wait` 还会为同一个提问立即返回一次
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`plan.md:57`（`questionDelivered` 只由 `wait` 记）、`docs/specs/agent/jobs.md:49`（输出 3“同一个提问只在第一次让 `wait` 立即返回”）
+- **现象**：`agent_spawn` 前台等待以 `question{X}` 返回，任务转后台；模型想先等别的任务，调 `wait`，因为 X 还没被 `wait` 交回过，又立即交回 X。多一次请求，不会成环。
+- **建议改法**：任何把提问交给模型的返回（前台调用或 `wait`）都记 `questionDelivered`。
+
+### S3. “交回的运行就是任务正跟着的那次时算原任务”会把已结束、没取过的任务复活
+
+- **严重程度**：建议；**类别**：正确性（边界）
+- **位置**：`docs/specs/agent/subagents.md:82`（输出 10）、`plan.md:68`
+- **现象**：后台任务的运行被中止（`aborted`，留在任务中心等 `wait`），用户在子会话里回退到那次运行中途；之后 `agent_send` 让暂停的运行接着跑，`send` 交回同一个 `runId`。原任务没移出，按字面“算原任务”，一个终态任务回到在跑，状态表没有这条转换，`wait` 取过的结果也可能是旧的那次。
+- **建议改法**：改成“原任务还没结束时算原任务；已结束（无论移出与否）就登记新任务、沿用这个 `runId`”。
+
+### S4. 进程崩溃（不是正常停止）后，后台子代理的卡片画不出“已中断”
+
+- **严重程度**：建议；**类别**：接口（从代码推断）
+- **位置**：`plan.md:163`（验收 8 后半句）、`docs/specs/harness/session.md:137`（输出 22 的 `runs` 只记收口了的运行，“打开会话时按日志补上”）
+- **现象**：正常停止时会话关闭写 `runEnded{interrupted}`，索引的 `runs` 有它；崩溃时没有 `runEnded`，要等内核恢复（打开子会话时）才写。父会话的卡片取 `tree` 时子会话关着，`runs` 里没有那次运行，现况又是 `idle`，卡片没有终态可画。
+- **建议改法**：验收 8 写明“正常停止后”；或索引加 `running?: runId`（`runStarted` 时写、收口时清），启动扫描时把带它的后代当作“已中断”交给 `tree`。
+
+### S5. `kill` 的中止没跟输出 16 对齐
+
+- **严重程度**：建议；**类别**：一致性
+- **位置**：`docs/specs/agent/jobs.md:52`（输出 4）
+- **现象**：输出 16 对父会话中止定了 `keepQueue: true` 与“插话附着在用户自己开的运行上时不连带”；`kill` 只写“中止那次子代理运行”，没写是否保留缓冲区、能否停掉用户自己开的那次运行（插话时登记给父 Agent 的任务）。
+- **建议改法**：输出 4 写明 `kill` 同样带 `keepQueue: true`；对“归调用方的、附着在用户运行上的任务”，`kill` 只结束任务、不中止运行（或明确允许中止并写进不承诺）。
+
+## 第二轮处理的核对结论
+
+- 没处理好的：第 5 条（本报告第 5 条）、第 12 条（第 1 条）；第 1、3、8 条的修改没传到 jobs.md（第 6 条）。
+- 处理引入新问题的：第 7 条（第 2 条）、第 15 条（第 4 条）、第 4 条（第 7 条）；前端第 11 条落到 `tree` 合同上（第 3 条）。
+- 其余标“成立，改”的后端条目（第 2、6、9、10、11、14、16、17 条）在计划与 Spec 里都改到了，没有发现照字面会做错的问题；第 3、13 条随第 53 条消失，计划与 subagents.md 已删干净（jobs.md 的残留见第 6 条）。
+
+## 各级数量
+
+- 阻断：0
+- 重要：7（第 1–7 条）
+- 建议：5（S1–S5）
+- 合计：12
+
+## 结论
+
+计划可以开工，但切片 0（Spec 定稿）里要先改完第 1–7 条：第 1、2、5 条改的是行为合同（中止后的续用、fork 的费用口径、`resolve` 交回 `runId`），第 3、4 条决定内核第 3 处的索引还要不要再加字段（必须在切片 1 之前定，否则切片 7 返工内核），第 6、7 条是 jobs.md 与 conversation.md 的字面错误。建议级不阻塞开工。

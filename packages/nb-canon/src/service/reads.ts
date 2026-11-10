@@ -16,7 +16,7 @@ import {compareRanks, compareTie, defaultPosition, placementRank, positionRank, 
 import type {Check, Address, Decision, Entry, FieldDeclaration, ObjectRef, Placement, ReadPosition, StoryChange, Telling} from "../core/schema";
 import {canonicalJson, stableStringify} from "../core/stable-json";
 import type {ChangeOutcome, EntryView, EventKey, Mode, OriginStep, PlanProgress} from "../engine/types";
-import {renderEntryForAgent, renderEntryPlain} from "../render/entry";
+import {renderEntryForAgent, renderEntryPlain, type PlainOptions} from "../render/entry";
 import {aboutMatches} from "../world/decisions";
 import {compareOccurrences, readBy, TellingLocator, type Located, type TellingPosition} from "../world/tellings";
 import type {World} from "../world/world";
@@ -139,8 +139,8 @@ export interface CanonReadView {
     declarationsDigest(): string;
     /** 条目在读取位置上给 Agent 的渲染（canon.rendering 输出 7、8）：主文字块的带值写法；线读不到、条目不在时为 null。 */
     render(entry: string, position: ReadPosition, mode: Mode): ReturnType<typeof renderEntryForAgent>;
-    /** 纯文字的渲染：值写显示文字，条目引用写名字，不是回写用的带值写法（给写手的文字用）。 */
-    renderPlain(entry: string, position: ReadPosition, mode: Mode): ReturnType<typeof renderEntryPlain>;
+    /** 纯文字的渲染（canon.rendering 输出 15）：不回写的读者用，每块给出文字、读了谁、写了谁的名字与写不干净的地方；名字可由调用方给。 */
+    renderPlain(entry: string, position: ReadPosition, mode: Mode, options?: PlainOptions): ReturnType<typeof renderEntryPlain>;
     /** 一个地址的来历（model.md 输出 15）：每一步是哪条变更、改后的值。列表的地址给出整个列表在每一步之后的值。 */
     origins(address: Address, position: ReadPosition, mode: Mode): readonly OriginStep[] | "chapter-not-found";
     /** 一条剧情变更这次套没套上；不在实际模式的事件里时为 undefined。 */
@@ -237,7 +237,7 @@ export function createReadView(world: World, locator: TellingLocator, stamp: Rea
         declarationsDigest: () => world.options.digest(canonicalJson(declarationsInput(world))),
         // 与这张视图的别的读取一样按视图的线；位置里显式写了线才用位置的（回溯后那份简报里，主文字与字段值要出自同一条线）。
         render: (entry, position, mode) => deepFreeze(renderEntryForAgent(world, entry, position.line === undefined ? {...position, line} : position, mode)),
-        renderPlain: (entry, position, mode) => deepFreeze(renderEntryPlain(world, entry, position.line === undefined ? {...position, line} : position, mode)),
+        renderPlain: (entry, position, mode, options) => deepFreeze(renderEntryPlain(world, entry, position.line === undefined ? {...position, line} : position, mode, options)),
         origins: (address, position, mode) => {
             const steps = lineView().engine.origins(address, position, mode);
             return deepFreeze(steps === "chapter-not-found" ? steps : carried(steps));

@@ -60,6 +60,47 @@ export function editingValue(state: QuestionState, values: Readonly<Record<strin
 }
 export const submittedValue = editingValue;
 
+/**
+ * 答复表单里还没交的填写（t21）：取值、哪些题改过、各题的说明与是否展开说明框、哪些已答的题点了“改答”、整份的备注。
+ * 由产物页持有、存在这台浏览器里（`host/answer-draft.ts`），表单经 `v-model:draft` 改它；离开页面、刷新、面板重启后回来还在。
+ */
+export type AnswerDraft = {
+    values: Record<string, unknown>;
+    touched: Record<string, boolean>;
+    comments: Record<string, string>;
+    commenting: Record<string, boolean>;
+    editing: Record<string, boolean>;
+    note: string;
+};
+
+export function emptyAnswerDraft(): AnswerDraft {
+    return {values: {}, touched: {}, comments: {}, commenting: {}, editing: {}, note: ""};
+}
+
+/** 草稿里有没有值得留的东西：改过的取值、写了字的说明或备注、点了“改答”的题。只展开了空的说明框不算。 */
+export function hasDraftContent(draft: AnswerDraft): boolean {
+    const any = (record: Record<string, boolean>) => Object.values(record).some(Boolean);
+    return any(draft.touched) || any(draft.editing) || Object.values(draft.comments).some((text) => text.trim() !== "") || draft.note.trim() !== "";
+}
+
+/** 读回存着的草稿：形状不对（旧版本存的、被手改过）就当没有，返回 null。取值不在这里校验，表单按题当场校验。 */
+export function parseAnswerDraft(raw: unknown): AnswerDraft | null {
+    if (typeof raw !== "object" || raw === null) return null;
+    const draft = raw as Record<string, unknown>;
+    const recordOf = (value: unknown, check: (entry: unknown) => boolean) => typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every(check);
+    const isBoolean = (entry: unknown) => typeof entry === "boolean";
+    const isString = (entry: unknown) => typeof entry === "string";
+    if (!recordOf(draft.values, () => true) || !recordOf(draft.touched, isBoolean) || !recordOf(draft.comments, isString) || !recordOf(draft.commenting, isBoolean) || !recordOf(draft.editing, isBoolean) || typeof draft.note !== "string") return null;
+    return {
+        values: draft.values as Record<string, unknown>,
+        touched: draft.touched as Record<string, boolean>,
+        comments: draft.comments as Record<string, string>,
+        commenting: draft.commenting as Record<string, boolean>,
+        editing: draft.editing as Record<string, boolean>,
+        note: draft.note,
+    };
+}
+
 /** 作废的旧答复为什么要重答。 */
 export function staleText(state: QuestionState): string | null {
     if (!state.stale) return null;

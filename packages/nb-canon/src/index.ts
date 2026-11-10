@@ -40,6 +40,6 @@ export {authorizationBinds, fieldsDigest, requestDigest, signedContent, type Nee
 export {NO_REASON, type DecisionView, type Transition} from "./world/decisions";
 export {editInPlace, recordDelta, replaceOnce, type EditFailure, type EditResult, type InPlaceEdit} from "./world/edits";
 export {blockProblem, parseBlock, type ExpressionSite, type FieldReference, type ParsedBlock, type SyntaxCode, type SyntaxProblem} from "./render/syntax";
-export {annotation, displayText, evaluate, renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type AuthorNode, type Evaluated, type RenderContext, type Resolve, type Resolved} from "./render/render";
-export {renderEntryForAgent, renderEntryForAuthor, splitBlocks, type EntryRender} from "./render/entry";
+export {annotation, displayText, evaluate, renderBlockForAgent, renderBlockForAuthor, resolverFor, type AgentBlock, type AuthorBlock, type AuthorNode, type Evaluated, type PlainBlock, type PlainProblem, type RenderContext, type Resolve, type Resolved} from "./render/render";
+export {renderEntryForAgent, renderEntryForAuthor, splitBlocks, type EntryRender, type PlainOptions} from "./render/entry";
 export {scanAnnotations, writeBack, type WriteBackFailure, type WriteBackInput, type WriteBackResult} from "./render/writeback";

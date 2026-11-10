@@ -72,3 +72,16 @@ export const READER_SEES_HIDDEN = "（见这一场的秘密里的绝密设定）
 export const DECISION_DUE_ABOUT_SECRET = "有一条涉及保密设定的待定决定到期了";
 export const changeKnowing = (who: string, point: string, before: string, after: string) => `${who}对${point}：${before} → ${after}`;
 export const aPrivateMatter = "一件绝密设定";
+/** 已删除或读不到的条目（与内核纯文字渲染的写法一致）。 */
+export const DELETED_ENTRY = "已删除的条目";
+/** 到本章末还没出场、也不是本章计划参与者的条目（brief.md 输出 16）。 */
+export const LATER_ENTRY = "一个之后才出场的人或物";
+/** 没有文字写法的值（例如取出的单个对象）：不写 JSON。 */
+export const OPAQUE_VALUE = "（略）";
+/** 列表里不是条目、作者也没写名字的一行。 */
+export const AN_ITEM = "一项";
+export const A_STRANGER = "一个陌生人";
+/** 涉及条目的样子里被扣下的一块（输出 13）。 */
+export const WITHHELD_BLOCK = "（这一段写到本章不能写的设定，略去）";
+/** 本章计划改了主文字的一块：不写源文（输出 2、16）。 */
+export const textChanged = (owner: string) => `${owner}的主文字改了一块`;

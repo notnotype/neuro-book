@@ -18,7 +18,7 @@ owners:
 不承诺：
 
 - 把标签拖出窗口；拖动时按 Ctrl 复制标签；固定标签的紧凑样式；标签条的滚动按钮。
-- 自动保存；未保存的修改跨页面刷新保留。
+- 未保存的修改跨页面刷新保留。
 - Markdown 富文本里的批注侧栏、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。工具栏、选区菜单、斜杠菜单、块按钮与正文右键见 [`workbench.markdown-editing`](markdown-editing.md)。
 - 差异比较界面；跨文件撤销；同一文档在两个组里共享撤销历史。
 - 预读；`project://`、`user://` 之外的方案。
@@ -67,7 +67,8 @@ owners:
       readonly text: Readonly<Ref<string>>;
       readonly revision: Readonly<Ref<number>>;
       commit(baseRevision: number, text: string): {status: "accepted" | "conflict"; revision: number} | {status: "stale"};
-      attach(flush: () => void): () => void;
+      /** `pending`：这个视图手里有还没交给文档的输入，或正在组字（输出 63 的“停手后”据此顺延）。 */
+      attach(flush: () => void, pending?: () => boolean): () => void;
       unresolved(): boolean;
       readonly cursor: {offset: number} | {line: number; column: number} | null;
       remember(cursor: {offset: number} | {line: number; column: number}): void;
@@ -88,7 +89,7 @@ owners:
   }
   ```
 
-  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。提供编辑动作的控件（Markdown 富文本）交出 `editing`（[`workbench.markdown-editing`](markdown-editing.md)）。按标题组织的控件（Markdown 富文本）交出 `outline: Readonly<Ref<{binding: string; version: number; items: ReadonlyArray<{id: string; level: number; text: string}>; current: string | null} | null>>` 与 `revealHeading(binding, version, id): "ok" | "stale"`，供面包屑（输出 60）使用：`binding` 是当前绑定的 `token`，正文每变一次 `version` 加一，`id` 按位置区分同名标题；换绑定、没有绑定、卸载时同步为 `null`；`binding` 或 `version` 对不上为 `stale`，不移动光标。
+  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`，以及可选的 `leave()`（用户的焦点离开了这个视图，输出 63）；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。提供编辑动作的控件（Markdown 富文本）交出 `editing`（[`workbench.markdown-editing`](markdown-editing.md)）。按标题组织的控件（Markdown 富文本）交出 `outline: Readonly<Ref<{binding: string; version: number; items: ReadonlyArray<{id: string; level: number; text: string}>; current: string | null} | null>>` 与 `revealHeading(binding, version, id): "ok" | "stale"`，供面包屑（输出 60）使用：`binding` 是当前绑定的 `token`，正文每变一次 `version` 加一，`id` 按位置区分同名标题；换绑定、没有绑定、卸载时同步为 `null`；`binding` 或 `version` 对不上为 `stale`，不移动光标。
   控件的寿命：一个控件拿到一份绑定，标签切走、换组都不换绑定，换编辑器时换控件。`visible` 为假时控件隐藏、不可交互，但仍要跟着正文更新：等切回来再追，结算时会造成假冲突。`attach` 的结算回调只交还没交出的输入：正文被别处改了、控件还没跟上时，本地与正文不同不算输入。控件可能被卸载（术语“视图”）：卸载前交出还没交出的输入，把视图状态存进 `binding.slot`、要留的实例存进 `host`，再挂上时接着用；这两个槽只在标签关闭或换编辑器时释放。
 
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
@@ -146,7 +147,7 @@ owners:
 1. 单击打开（`preview`）替换本组已有的 preview 标签；目标已在本组打开时只激活它。“已在本组打开”按地址加编辑器判断：不指定编辑器的打开，本组有这个地址、编辑器不是预览编辑器的标签（不论是不是 preview 标签）就激活它；指定了编辑器时找地址与编辑器都相同的标签。所以同一组里一个文件的源码标签与它的预览视图可以并存。`permanent` 打开、在标签里编辑或双击标签都把 preview 转为 permanent。
 2. 打开在活动组进行；活动组是最近获得焦点或执行过打开的组。拆分在活动组右侧或下方新建组、打开同一文档，新组成为活动组；两个组的视图共用一份文档，各有自己的撤销历史。组与组之间是 1px 的分隔线，拖动它（或聚焦后用方向键）调整两边的大小，规则同 nb-layout 的 grid（[ui.nested-grid](../ui/nested-grid.md)）；编辑组至少 220×120px，调整后的尺寸在布局文档里（[ui.workbench-layout](../ui/workbench-layout.md)）。
 3. 关闭标签后同组激活它右侧的标签（没有时左侧）；组里最后一个标签关闭且还有别的组时，组随之关闭，焦点到相邻组（浮动的组没有相邻，到树序最后一个编辑组）。
-4. 关闭文档的最后一个标签时，文档 dirty 或有未裁决输入就询问“保存 / 不保存 / 取消”，默认在取消；文档仍在别的组打开时不问。preview 打开不会换掉这样的标签：本组的 preview 标签是要结算的文档最后一个能编辑的标签时（例如别处改过的正式标签关掉时因为还有它而没问），它先转为 permanent，新文件另开 preview 标签，不询问也不丢修改。“仍在别处打开”只算可编辑的标签：剩下的只有预览视图或只读的编辑器时照常询问，选“不保存”时修改丢掉，这些视图回到磁盘上的内容。预览视图显示 dirty 圆点，在它上面可以保存。
+4. 关闭文档的最后一个标签时，文档 dirty 或有未裁决输入就询问“保存 / 不保存 / 取消”，默认在取消；文档仍在别的组打开时不问。preview 打开不会换掉这样的标签：本组的 preview 标签是要结算的文档最后一个能编辑的标签时（例如别处改过的正式标签关掉时因为还有它而没问），它先转为 permanent，新文件另开 preview 标签，不询问也不丢修改。“仍在别处打开”只算可编辑的标签：剩下的只有预览视图或只读的编辑器时照常询问，选“不保存”时修改丢掉，这些视图回到磁盘上的内容。预览视图显示 dirty 圆点，在它上面可以保存。开着自动保存、文档又没有阻碍时不问（输出 63）：先保存，等保存完成再关，保存失败才问。
 5. 组的布局、每组标签的顺序与活动项在工作台的布局文档里（[ui.workbench-layout](../ui/workbench-layout.md) 输出 33）。绑定项目的窗口把每个标签的地址、编辑器、preview、固定存进 project/local 记录 `editor.tabs`，不存正文；重新打开时按这两条恢复，标签先出现，正文按打开流程读取。读不到的标签显示原因，不静默删除。未绑定项目的窗口只在内存里。
 
 **打开与切换**
@@ -175,12 +176,12 @@ owners:
 
 **离开与终态**
 
-21. 有 dirty、未裁决输入或在途保存的文档时离开或刷新页面，先结算视图输入，再请求浏览器的离开确认。
+21. 有 dirty、未裁决输入或在途保存的文档时离开或刷新页面，先结算视图输入，再请求浏览器的离开确认；开着自动保存时同时发出保存（输出 63），用户选择留下时正文已经存好，不保证在页面卸载前完成。
 22. 页面转入服务端已重启、项目已关闭或版本不一致的终态页时，终态页列出本窗口未保存的正文（文件路径与可复制的文本，含未裁决输入）。
 
 **资源管理器的结算**
 
-23. 复制的源包含需要结算的文档时，在冻结源之前询问“先保存再复制 / 复制磁盘版本 / 取消”，默认在取消；先保存失败或冲突时不复制并说明。
+23. 复制的源包含需要结算的文档时，在冻结源之前询问“先保存再复制 / 复制磁盘版本 / 取消”，默认在取消；先保存失败或冲突时不复制并说明。自动保存的缺省模式下，焦点到资源管理器时文档多半已经保存；本条与第 24、25 条的询问主要留给关掉自动保存、“停手后”还没到点与存不了的文档。
 24. 移动、拖动与改名提交前取得租约：视图输入结算、在途保存完成、新的保存排队；有未裁决输入或磁盘冲突的文档时不提交并说明。剪贴板或拖动冻结的源身份经 `translate` 换成本窗口保存后的身份：剪切后保存再粘贴照常移动，外部替换仍为 `source-changed`。成功项按第 17 条改地址，失败项不动；结果未知时租约保持，资源管理器核对或放弃后才释放。
 25. 删除确认列出将丢失未保存修改的文档；删除成功的项关闭标签、丢弃正文（第 18 条只适用于其它来源的删除）。
 
@@ -196,7 +197,7 @@ owners:
 | `nbook.editor.language` | 活动视图的语言名，例如“Python” | `nbook.editor/hasLanguage` | `nbook.editor.change-language` | 28 | 12 |
 | `nbook.editor.cursor` | 第 L 行，第 C 列 | `nbook.editor/hasCursorPosition` | 无 | 30 | 10 |
 
-26. 未保存数按文档计（同一文件在几个组里打开只算一个），含非活动的文档；“需要保存”与第 4 条询问的判据相同（dirty、未裁决输入、写不出，输出 61）。提示列出至多 5 个文件；有文档正在保存时写“正在保存”；有保存失败的文档时条目为 `error` 状态，提示列出失败的文件与原因。点击执行全部保存。
+26. 未保存数按文档计（同一文件在几个组里打开只算一个），含非活动的文档；“需要保存”与第 4 条询问的判据相同（dirty、未裁决输入、写不出，输出 61）。提示列出至多 5 个文件；有文档正在保存时写“正在保存”；有保存失败的文档时条目为 `error` 状态，提示列出失败的文件与原因。点击执行全部保存。自动保存的缺省模式下，这个条目主要在输入期间与自动保存存不了时出现（输出 63）。
 27. 字数取活动文档当前正文：汉字、假名、谚文每字计 1，连续的拉丁字母与数字（中间可夹 `'`、`’`、`-`）计 1 个词，标点、空白与 Markdown 标记不计，开头的 YAML frontmatter 不计；Markdown 方言的标签与属性、原样内容不计，规则与已知偏差见 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 的“副作用与数据”；方言的字数规则来自它们的声明（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md) 输出 9）。打开或切换文档时立即显示它的字数；输入时停手 300ms 后更新，停手之前显示上一次的值（全文计数随正文变长，不在每次按键时算）。书架的作品统计用同一套算法（[`runtime.projects`](../runtime/projects.md)）。
 28. 光标位置只由源码编辑器给出：选区活动端的行号与列号，都从 1 起，列按源码编辑器的列计（制表符计 1）。Markdown 富文本编辑器不给出位置：富文本里的段落位置与源文件的行号不同（frontmatter 与写出时的格式都会改变行数），条目在它活动时不显示。控件卸载时位置随之撤回。
 
@@ -255,7 +256,7 @@ owners:
 49. **移动标签**：标签可以在组内换位置、移到别的组，移到某个组的一边拆出新组，或浮出来（[ui.workbench-layout](../ui/workbench-layout.md) 输出 39，结算同拆出新组；整窗停靠时逐个标签走这里的结算、合并与分区，中途被拒绝就停）（输出 55 的拖动与输出 57 的命令）。视图跟着标签走：控件不重建，光标、滚动与撤销历史都还在，内容从旧位置滑到新位置。只有一个标签的组移到外缘是同一块面板移动：组 id 不变，不用结算；组里还有别的标签时才拆出新组（[ui.workbench-layout](../ui/workbench-layout.md) 输出 27）。移动前先结算活动标签会变的组（换组时的源组，以及目标组）；其中有未裁决输入就不移动，组顶部给出与换文档相同的提示。真实发生移动的 preview 标签转为 permanent，每组至多一个 preview 标签。源组空了随之关闭（输出 3）。目标组已有地址与编辑器都相同的标签时不再多开：激活那个标签，再按第 3、4 条关闭被移动的标签：共享的修改不问，只问被移动的视图自己的未裁决输入；用户取消时被移动的标签留在原处。移动后焦点在目标组的活动视图。
 50. **固定标签**：标签可以固定（输出 57）。每组里固定标签排在前、普通标签在后；固定标签不是 preview，固定时转为 permanent 并排到固定标签的末尾，取消固定时排到普通标签的开头；页面标签不能固定。新打开的标签插在活动标签之后，但不插进固定标签之间（活动标签是固定的时插在普通标签开头）；preview 替换只找普通标签；Alt+←/→ 只在同一类标签里移动；拖动的落点跨过两类的分界时随之固定或取消固定。换编辑器保留固定（并到同组已有的同编辑器标签时，两者有一个固定就固定）；拆分出的标签不固定；改名保留固定；资源管理器删除与普通关闭照常关闭固定标签。固定记进 `editor.tabs`（第 5 条）；布局文档里两类交错时（两条记录不是一次写的）按出现顺序把固定的排到前面，活动标签不变。
 51. **批量关闭**：“关闭其他”“关闭右侧”“关闭已保存”作用于一个组：开始时定下要关的标签（跳过固定标签；“关闭已保存”先结算各视图的输入，再取不需要保存、没有未裁决输入、没有在途保存的标签），之后新开或移进来的标签不在其中。逐个按第 3、4 条关闭：已经不在这一组的跳过；用户在询问里取消、或选“保存”而保存失败时停下，已关的不恢复，结果写明关了几个、停在哪个文件、为什么停。同一时刻只进行一次批量关闭，第二次为 `unavailable`。
-52. **设置**：设置窗口的“编辑器”分区有“标签”与“代码编辑器”两个小组，改了都立即生效。“标签”三项，缺省都开：`nbook.editor/enablePreview`（预览标签页：关掉时单击打开也是 permanent，已有的 preview 标签立即转为 permanent，恢复的会话同样）；`nbook.editor/wrapTabs`（多行标签，输出 54；切换后活动标签滚到可见，键盘焦点留在原标签）；`nbook.editor/breadcrumbs`（面包屑，输出 60；关掉时它的下拉收起、在途读取作废，焦点在面包屑里时交给本组的编辑器）。“代码编辑器”管源码编辑器（Monaco）的排版，Markdown 正文不归它：`nbook.editor/code.fontFamily`（CSS 字体列表，空串跟随主题的等宽字体）、`code.fontSize`（8–40 的整数，缺省 14）、`code.lineHeight`（0 按字号自动，小于 8 是字号的倍数，8 以上是像素）、`code.tabSize`（1–8 的整数，缺省 4）、`code.detectIndentation`（缺省开：按文件内容推测空格还是制表符与缩进格数，推测不出时用 `code.tabSize` 与空格；关掉时一律用 `code.tabSize` 与空格）、`code.lineNumbers`（显示、不显示、相对，缺省显示）、`code.minimap`（缺省关）、`code.wordWrap`（缺省开）。改动时源码编辑器不重建，光标、滚动与撤销栈都在；缩进两项用到已打开的文件：当前的文件立即用，停放的文件在下次显示时用，设置没变时再显示不重新推测，切走再切回缩进不变。
+52. **设置**：设置窗口的“编辑器”分区有“标签”“保存”与“代码编辑器”三个小组，改了都立即生效。“保存”两项：`nbook.editor/autoSave`（自动保存：关闭 `off`、停手后 `afterDelay`、失焦时 `onFocusChange`、窗口失焦时 `onWindowChange`，缺省失焦时）与 `nbook.editor/autoSaveDelay`（停手后保存的延迟，100–600000 的整数毫秒，缺省 1000，只在“停手后”时生效），行为见输出 63。“标签”三项，缺省都开：`nbook.editor/enablePreview`（预览标签页：关掉时单击打开也是 permanent，已有的 preview 标签立即转为 permanent，恢复的会话同样）；`nbook.editor/wrapTabs`（多行标签，输出 54；切换后活动标签滚到可见，键盘焦点留在原标签）；`nbook.editor/breadcrumbs`（面包屑，输出 60；关掉时它的下拉收起、在途读取作废，焦点在面包屑里时交给本组的编辑器）。“代码编辑器”管源码编辑器（Monaco）的排版，Markdown 正文不归它：`nbook.editor/code.fontFamily`（CSS 字体列表，空串跟随主题的等宽字体）、`code.fontSize`（8–40 的整数，缺省 14）、`code.lineHeight`（0 按字号自动，小于 8 是字号的倍数，8 以上是像素）、`code.tabSize`（1–8 的整数，缺省 4）、`code.detectIndentation`（缺省开：按文件内容推测空格还是制表符与缩进格数，推测不出时用 `code.tabSize` 与空格；关掉时一律用 `code.tabSize` 与空格）、`code.lineNumbers`（显示、不显示、相对，缺省显示）、`code.minimap`（缺省关）、`code.wordWrap`（缺省开）。改动时源码编辑器不重建，光标、滚动与撤销栈都在；缩进两项用到已打开的文件：当前的文件立即用，停放的文件在下次显示时用，设置没变时再显示不重新推测，切走再切回缩进不变。
 53. **标签栏的样子**：标签条的底色比正文低一档（主题 token `--editor-tabs-surface`，[theme.system](../theme/system.md)），活动标签是与正文同色的一块、顶部两角圆，像从正文里长出来；不用加粗区分。别的组的活动标签同样是一块，文字为次级色。每个标签依次是文件图标（与资源管理器同一套）、名字、同名提示（输出 56）与状态位：未保存时是圆点，活动或悬停时换成关闭按钮，固定标签是图钉（点它取消固定）；关闭按钮不显示时仍占位，preview 标签的名字是斜体。同一行相邻标签之间是 1px 的竖线，上下各空出四分之一的高度，活动与悬停标签两侧不画。切换活动标签、悬停与状态变化都不改变标签的宽度。
 54. **多行标签**：多行时固定标签单独占第一行，这一行不换行，放不下时在行内横向滚动；普通标签放不下时换行，最多显示 3 行，再多在标签区里纵向滚动（悬停滚动条）；编辑区标题（输出 34）在最后一行的右侧。组矮的时候标签区跟着让：先给正文留至少一行字的高度、给组顶部的提示条与面包屑它们本来的高度，余下的才给标签区（至多 3 行，至少 1 行，在区内滚动）；编辑组最小（220×120）时正文、提示条的按钮、标题动作与菜单都仍能用。关掉多行时所有标签在一行里横向滚动，固定标签排在最前。
 55. **拖动标签**：按住标签的名字或图标拖动（鼠标与笔移动 6px、触摸按住 200 毫秒起拖），关闭按钮、图钉与编辑区标题不起拖；按下落在组与组之间分隔线的命中带里时是调整大小，不是拖标签。手势和落点规则与工具视图是同一套（[ui.workbench-layout](../ui/workbench-layout.md) 输出 25 到 32）：某组的标签条（插入位置画一条竖线，多行时先按纵向距离选行；行尾的插入位是下一行的行首之前），某组的正文中央（移到那一组普通标签的末尾，本组的正文中央是原位），编辑组的外缘（放到两块编辑组之间或拆这一组；挨着面板的那条边是拆这一组，不从面板取空间）；工具面板的标签条、中央和外缘、活动栏都不接受编辑器标签。拖动中指针右下有一个跟手的拖影，写被拖标签的图标与名字（与标签条上的相同），指针不在任何落点上时也跟着；光标是抓手。放下去和现在一样时不移动：只有一个标签的组，拖到挨着它的那条边上也是原位，不重建组、没有过渡。键盘：焦点在标签上时空格拿起，同工具视图。手势按 [ui.layout-drag](../ui/layout-drag.md)：Escape、指针被取消或丢失、窗口失焦、页面隐藏、焦点移到工作台之外都取消且不改任何东西，拖动中方向键等归拖动，标签带不响应。拖动中组或标签的结构变了（组关闭、标签增减、固定状态或多行设置变化）整场取消；只是窗口尺寸或滚动变了时按当前位置重新显示落点。松手时按当前位置再算一次，与最后显示的落点相同才按第 49 条移动。
@@ -272,6 +273,31 @@ owners:
     - 用退格删字后接着打字，同样按上面两条：带上的仍带（粗体删到只剩一个字、删光了再打仍是粗体），不带的不带（链接的文字删光后接着打的是普通文字，不留空链接）；
     - 打出的网址与邮箱是文字，不自动变成链接（写回时按 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 4 转义）。
     输入法上屏的字与键盘打的字相同。
+
+63. **自动保存**：按设置 `nbook.editor/autoSave`（输出 52）自动保存 dirty 的文档，保存与手动保存是同一个动作（输出 14）。
+    - **失焦时**（缺省）：用户离开一份文档的视图时保存它。离开指：焦点离开这个视图的控件，或这个标签被换下（换到同组另一个标签、被 preview 替换、移走）；窗口失焦时保存全部打开的文档。焦点进入源码编辑器自己的查找框不算离开；Markdown 编辑器自己的下拉菜单、右键菜单与链接、注音的输入框拿走焦点算离开，这时保存的是操作中途的正文，操作完成后文档再变 dirty、下次离开再保存。
+    - **窗口失焦时**：窗口失去焦点或页面被隐藏时保存全部打开的文档；应用内换焦点不保存。焦点进入同一页面里的内嵌页面（HTML 预览）不算窗口失焦。
+    - **停手后**：文档从最后一次输入起过了 `autoSaveDelay` 毫秒就保存；继续输入重新计时，输入法组字期间不保存。Markdown 编辑器停手 150 毫秒才把输入交给文档，所以实际的停手时间是 150 毫秒加延迟。这种模式下失焦不触发。
+    - **关闭**：只有手动保存。
+    - **不自动保存的文档**：被其它来源删除的（保存会在原路径重建文件，第 18 条）、有磁盘冲突的、dirty 时磁盘已变化的、有未裁决输入或写不出的、只读的。这些要用户先处理，界面照各自的条目提示。
+    - **失败后停下**：一份文档的一次自动保存失败（断线、权限等）后不再自动保存它，文档保持 dirty，组顶部的保存失败提示给出“重试保存”，状态栏条目为错误状态（第 26 条）；它变干净（重新载入、改回原样），或一次保存成功（手动、重试，或结果未知的那次被核对为已落盘）之后恢复自动保存。阻碍消除之后（裁决了输入、冲突已处理、恢复了自动保存）仍 dirty 的文档，“停手后”模式下重新计时保存。
+    - **改设置**：从别的模式换成任一开启的模式时，立即把能自动保存的文档保存一次；离开“停手后”时还没到点的计时取消。
+    - **关闭标签**（第 4 条）：三种开启的模式下都不问，先保存。所以缺省模式下“不保存”与“还原文件”实际上用不到：去执行还原时焦点一离开正文就已保存；要回到之前的内容靠撤销。
+    - 自动保存不改正文、不裁决、不覆盖磁盘版本；保存失败不另弹通知。
+
+64. **源码编辑器的右键菜单**：在源码编辑器的正文或行号区右击，出现应用的菜单（与 Markdown 正文右键同一种外观），不出现浏览器与编辑内核自己的菜单。
+    - **项**，分三节，都执行编辑内核自己的编辑动作，结果与对应的快捷键相同：剪切、复制、粘贴；全选；查找、替换、更改所有匹配项、格式化文档、格式化选定内容。之后是别的插件经贡献点 `editor.code-context` 贡献的项（共同规则见 [`workbench.menus`](menus.md)，可以写 `extensions` 按文件后缀出现，`context: "resource"` 的项收到 `{address}`）。菜单里只标出剪切、复制、粘贴、全选、查找五项的快捷键。
+    - 没有选中文字时，剪切、复制作用于光标所在的整行（与 Ctrl+X、Ctrl+C 相同；Markdown 正文菜单是置灰）；整行复制之后从菜单粘贴，插成完整的一行。格式化两项只在这门语言有格式化时出现（现在是 JSON），“格式化选定内容”还要有选区。粘贴读不到剪贴板时（浏览器不支持、被拒绝、为空）在组顶部说明，正文不变。
+    - **只读**（预览视图、只读文档）：只有复制、全选、查找，不显示贡献项。
+    - **光标与选区**：点在某个选区之内，全部选区保留；点在选区之外，光标移到点击处。右击滚动条与小地图不出菜单；右击编辑器自己的浮层（查找与替换的输入框）不出应用的菜单、焦点不动，留给浏览器。
+    - **键盘**：焦点在正文时按菜单键或 Shift+F10，在光标处打开（光标不在可见区时先滚到它）；几个编辑组各按各的。
+    - **关闭**：选了一项或按 Escape 后焦点回到正文；点外面关闭、不抢焦点；正文滚动、换文件、标签被切走时关闭。
+    - 菜单里没有撤销、重做与转到行。
+65. **语法配色**：源码编辑器的语法着色、选区、缩进线随产品主题与明暗变，用护眼主题或自己做的主题时同样跟着变，不用编辑内核自带的配色。
+    - 颜色来自主题的语法变量 `--syntax-*`（[theme.system](../theme/system.md) 的“变量体系”）：注释、关键字、字符串（与属性值）、数字（与常量）、类型（与命名空间、注解）、标签名、属性名（与 JSON 的键）、正则（与转义）、变量、分隔符（与运算符、括号）各一种；没有归到这十类的成分用正文字色；`invalid` 用危险色加下划线。
+    - 括号按分隔符着色，不按嵌套层数分色。
+    - 自带的主题与护眼主题下，这些颜色在源码编辑器的底色上读得清：注释的对比度不低于 3，其余不低于 4.5；JSON 的键、字符串值、数字与 `true`，CSS 的属性名与数值，HTML 的标签、属性名与属性值，颜色两两分得开。
+    - 查找框、建议框这些部件仍是编辑内核按明暗给的颜色。
 
 ### 约定键
 
@@ -300,6 +326,7 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 - 编辑器的实现交付晚于会话恢复是正常情形：标签与它的文件条目照常建立，控件等交付后挂上；贡献撤回时这种编辑器的控件卸载、标签保留并按输出 40 显示。贡献方的 `activate` 在交出贡献之前就失败时，接收方收不到任何通知，这种编辑器停在“还没交付”（进度条），直到贡献方再次激活。
 - 语言的分词与编辑规则在本页第一次遇到这门语言时向贡献方要一次：那时语言已撤回或加载失败，这门语言按纯文本显示，之后再交付也要刷新页面才生效（源码编辑器对一门语言只要一次规则）。
 - 继续写作的定位（第 29 条）绑定到打开时记下的标签与组：切换、关闭、焦点离开编辑器区、窗口停止即取消，迟到的就绪不动光标与焦点；定位那一刻再核对一次标签与句柄仍是活动的。
+- “停手后”的计时（输出 63）按文档记，改名不影响它；文档变干净或关闭、模式改变、编辑器区释放时取消。自动保存发出的保存与手动保存走同一个队列：排在在途的保存与资源管理器的租约之后。
 
 ## 副作用与数据
 
@@ -315,7 +342,7 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 | 读取失败（`not-found`、`not-text`、`too-large`、`permission-denied`、断线） | 内容区说明原因 | 重试或关闭 |
 | 未裁决输入 | 第 13 条 | 采用当前正文或保留本视图内容 |
 | 磁盘冲突 | 第 15 条 | 重新载入或覆盖 |
-| 保存失败或结果未知 | 第 14 条 | 重试保存 |
+| 保存失败或结果未知 | 第 14 条；自动保存对这份文档停下（输出 63） | 重试保存（组顶部的提示上有按钮），成功后自动保存恢复 |
 | 被其它来源删除 | 第 18 条 | 保存重建或关闭 |
 | 订阅结束、页面终态 | 第 18、22 条 | 复制正文后刷新 |
 | 已知二进制或不是 UTF-8 文本 | 第 37 条 | 用别的编辑器打开或关闭 |
@@ -367,7 +394,17 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 33. Given 打开的 `正文/第二章.md` 有三个标题，When 看面包屑，Then 是“作品名 › 正文 › 第二章.md › 光标所在的标题”；When 点“正文”，Then 列出同级的章节，选一章即打开；When 点标题段选另一个标题，Then 光标跳过去；When 下拉打开期间切到另一个文件，Then 下拉关闭、旧选项不跳。
 34. Given 一段只有引用小块 `[123](project://123)` 的文字（在源码编辑器里写好、换回富文本），When 光标在行尾或行首打字、用输入法打字，Then 字写在链接外；When 在行尾退格删光链接文字再打字，Then 是普通文字；When 打 `https://example.com` 再打空格，Then 写回的是转义的文字。
 
-Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。场景 22–24、26 由 `e2e/editor-types.e2e.ts` 运行；场景 27–33 由 `editor-area.e2e.ts` 的标签栏样子、多行键盘与 120px 组、拖动、右键菜单、面包屑几例运行，场景 27、28、31、32 的模型部分另由 `area.test.ts`、`groups.test.ts`、`tab-menu.test.ts`、`tab-hints.test.ts` 覆盖；触摸拖动只按代码与 `tree-drag.ts` 的同一套门槛，没有在真机上验；场景 23 的改名与删除、场景 24 的关闭时询问另由 `area.test.ts` 覆盖；场景 25 由 `editor-registry.test.ts`（真实插件宿主，交付先后与停止）与 `area.test.ts`（用默认编辑器打开）覆盖。场景 34 与输出 62 由 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组（经编辑内核的输入入口逐种格式测）与 `e2e/markdown-input.e2e.ts`（本机 Chrome 的键盘、输入法事件与方向键，源码与富文本来回换；按快捷键打出的粗体、斜体、删除线看得出来）运行。
+35. Given 缺省设置下打开的 Markdown 文件，When 输入后点资源管理器，Then 磁盘上是新正文、标签的未保存圆点消失；When 输入后用键盘换到同组另一个标签，Then 换下的文件已保存；When 输入后关闭标签，Then 不询问、磁盘上是新正文。
+36. Given 自动保存设为“关闭”，When 输入后点资源管理器，Then 文档仍未保存；关闭标签时照第 4 条询问。
+37. Given 自动保存设为“停手后”、延迟 500 毫秒，When 输入后不动，Then 到点后磁盘更新；When 用输入法组字、迟迟不上屏，Then 组字期间磁盘不变，上屏并停手后保存。
+38. Given 源码编辑器里输入后按 Ctrl+F 进查找框，Then 文档仍未保存；When 再点资源管理器，Then 已保存。Given 自动保存设为“窗口失焦时”，When 输入后点资源管理器，Then 未保存；When 窗口失去焦点，Then 已保存；焦点进入 HTML 预览的内嵌页面时不保存。
+39. Given dirty 的文档在磁盘上被别的程序改了，When 焦点离开，Then 不保存，提示“磁盘已变化”；Given 保存会失败（目录不可写），When 焦点离开，Then 组顶部提示保存失败并有“重试保存”，再输入、再离开不重复尝试；恢复可写后点“重试保存”，Then 磁盘更新，之后离开视图又会自动保存。
+40. Given 源码编辑器里打开的 `a.json`，When 右击正文，Then 出现应用的菜单，有剪切、复制、粘贴、全选、查找、替换、更改所有匹配项、格式化文档；When 选中一个词点“剪切”，Then 正文里没有它、剪贴板里是它；When 光标在一行里不选中、点“复制”再到另一行点“粘贴”，Then 多出完整的一行；When 点“格式化文档”，Then 正文被格式化；When 先点别的面板再右击正文选“更改所有匹配项”，Then 同名的词都被选中。
+41. Given 两个选区，When 右击其中一个选区之内，Then 两个选区都在；When 右击选区之外，Then 光标到点击处；When 右击查找输入框，Then 没有应用的菜单、焦点仍在输入框；When 两个编辑组各开一个源码文件、在其中一个按 Shift+F10 或菜单键，Then 菜单开在这一个的光标处；When 按 Escape，Then 焦点回到正文；When 菜单开着时滚动正文，Then 菜单关闭；Given 只读的文件，Then 菜单只有复制、全选、查找。
+42. Given 一个测试插件往 `editor.code-context` 贡献一个 `extensions: [".json"]`、`context: "resource"` 的项，When 右击 `a.json`，Then 这一项在内置项之后，点它命令收到 `{address}`；When 右击 `a.css`，Then 没有这一项。
+43. Given `.ts`、`.json`、`.css`、`.html`、`.md` 的样例，When 用源码编辑器打开，Then 关键字、字符串、注释、括号与选区的颜色等于主题的语法变量与选区变量的值；When 切到暗色、护眼绿，Then 这些颜色随之改变，对比度与相邻成分的区分仍满足输出 65。
+
+Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。场景 22–24、26 由 `e2e/editor-types.e2e.ts` 运行；场景 27–33 由 `editor-area.e2e.ts` 的标签栏样子、多行键盘与 120px 组、拖动、右键菜单、面包屑几例运行，场景 27、28、31、32 的模型部分另由 `area.test.ts`、`groups.test.ts`、`tab-menu.test.ts`、`tab-hints.test.ts` 覆盖；触摸拖动只按代码与 `tree-drag.ts` 的同一套门槛，没有在真机上验；场景 23 的改名与删除、场景 24 的关闭时询问另由 `area.test.ts` 覆盖；场景 25 由 `editor-registry.test.ts`（真实插件宿主，交付先后与停止）与 `area.test.ts`（用默认编辑器打开）覆盖。场景 40–43 与输出 64、65 由 `e2e/editor-code-menu.e2e.ts` 运行（带探针的生产构建与测试插件 `test.menus`；语法色在 nbook 亮暗、macos 亮、护眼绿亮下量计算颜色与对比度），内置项的表另由 `code/context-menu.test.ts`、规则表由 `code/monaco-theme.test.ts`、读剪贴板由 `shared/clipboard-read.test.ts` 覆盖。场景 35–39 与输出 63 由 `e2e/editor-autosave.e2e.ts` 运行（窗口失焦与页面隐藏在无头浏览器里是派发事件模拟的），模型部分另由 `auto-save.test.ts` 覆盖。场景 34 与输出 62 由 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组（经编辑内核的输入入口逐种格式测）与 `e2e/markdown-input.e2e.ts`（本机 Chrome 的键盘、输入法事件与方向键，源码与富文本来回换；按快捷键打出的粗体、斜体、删除线看得出来）运行。
 
 ## 实现合同
 
@@ -386,14 +423,19 @@ Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、
   - 拖动的落点按此刻的布局算，起拖后结构变了整场取消，松手与最后显示的落点相同才提交（`web/tab-drag.ts`，`editor-area.e2e.ts` 的拖动一例）；
   - 标签右键菜单里编辑器自己的项直接作用于被右击的标签，不经命令的 `when`（`tab-menu.test.ts`）；
   - 面包屑按组读本组控件句柄的大纲，大纲带绑定与版本、对不上不跳；目录读取按请求序号作废迟到的结果（`EditorBreadcrumbs.dom.test.ts`）；
+  - 源码编辑器的右键菜单不读 Monaco 的菜单登记：内置项是 `code/context-menu.ts` 的一张表，每项执行 Monaco 的命令或动作，打开时取一次状态；打开经控件容器上捕获阶段的右键与 `onKeyDown`，不用整页共用的 `addCommand`（`context-menu.test.ts`、`editor-code-menu.e2e.ts`）；
+  - Monaco 的主题不继承 `vs`、`vs-dark`，规则表把 token 前缀映射到 `--syntax-*`，颜色经计算样式与画布换算（`code/monaco-theme.ts`，`monaco-theme.test.ts`）；
+  - 自动保存只结算与发起保存，不改正文、不裁决、不覆盖；有阻碍的文档不自动保存，一次自动保存失败后对这份文档停下，文档变干净或一次保存成功后恢复；“停手后”的计时按文档对象记，视图还有没交出的输入或正在组字时顺延（`web/auto-save.ts`，`auto-save.test.ts`）；
   - 语言声明在源码编辑器建模型之前一次登记进 Monaco，分词与编辑规则在第一次遇到这门语言时才经交付加载；Monaco 自带的语言表由 `scripts/gen-monaco-languages.ts` 生成，与已装的 Monaco 一致（`languages.test.ts`）；纯文本与 JSON 不经贡献点。
 
 ## 证据
 
+- 批准依据：输出 64、65 与场景 40–43 的方向（关掉编辑内核自己的菜单、换成应用的、项来自它的动作、给插件一个位置；语法配色进主题 token）由开发者 2026-10-15 同意（[w00025 t05](../../../.agents/works/w00025-editor/tasks/t05-monaco-polish/README.md)）；其余细节来自 [t05 实施计划第二稿](../../../.agents/works/w00025-editor/tasks/t05-monaco-polish/plan.md)，按 autonomous-delivery 先做，记在 [w00025 待确认清单](../../../.agents/works/w00025-editor/pending-confirmations.md)，待开发者追认。
+- 批准依据：输出 63 与场景 35–39 的四种模式与缺省“失焦时”由开发者 2026-10-15 同意（[w00025 t04](../../../.agents/works/w00025-editor/tasks/t04-autosave/README.md)）；其余细节来自 [t04 实施计划第二稿](../../../.agents/works/w00025-editor/tasks/t04-autosave/plan.md)，按 autonomous-delivery 先做，记在 [w00025 待确认清单](../../../.agents/works/w00025-editor/pending-confirmations.md)，待开发者追认。
 - 批准依据：输出 49–60 与场景 27–33 来自 w00025 t03 的“开发者的决定”1–11 与实施计划第二版，开发者 2026-10-15 确认（记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t03-tabs-and-split/README.md` 与 `plan.md`）。
 - 批准依据：输出 36–48 与场景 22–26 来自 [w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 1–6 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md)，开发者 2026-10-14 确认。
 - 批准依据：输出 35（`group` 参数与 `data-editor-group` 公开标记）来自[t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
 - 批准依据：输出 30–33 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 4 节，开发者 2026-10-12 确认；[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，开发者 2026-10-14 整体追认）；输出 32 的空态改为标志与提示，为 t79 计划第二轮第 11 节，开发者 2026-10-12 选第五轮稿 E1。
 - 实现入口：[`editor/plugin.ts`](../../../packages/neuro-book/src/plugins/editor/plugin.ts)、[`editor/web/area.ts`](../../../packages/neuro-book/src/plugins/editor/web/area.ts)、[`groups/groups.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.ts)、[`editor/web/tab-drag.ts`](../../../packages/neuro-book/src/plugins/editor/web/tab-drag.ts)、[`editor/web/tab-menu.ts`](../../../packages/neuro-book/src/plugins/editor/web/tab-menu.ts)、[`editor/web/tab-hints.ts`](../../../packages/neuro-book/src/plugins/editor/web/tab-hints.ts)、[`EditorTabBar.vue`](../../../packages/neuro-book/src/plugins/editor/web/components/EditorTabBar.vue)、[`EditorBreadcrumbs.vue`](../../../packages/neuro-book/src/plugins/editor/web/components/EditorBreadcrumbs.vue)、[`editor/shared/settings.ts`](../../../packages/neuro-book/src/plugins/editor/shared/settings.ts)、[`documents/store.ts`](../../../packages/neuro-book/src/plugins/editor/web/documents/store.ts)、[`editor/web/editors.ts`](../../../packages/neuro-book/src/plugins/editor/web/editors.ts)、[`editor/web/code/languages.ts`](../../../packages/neuro-book/src/plugins/editor/web/code/languages.ts)
-- 合同测试：标签栏、移动与面包屑（输出 49–60）为 `groups.test.ts` 的输出 49、50 两组（纯模型）、`area.test.ts` 的输出 49–51 一组（真实 Files 场地与请求闸门）、[`editor/tab-menu.test.ts`](../../../packages/neuro-book/src/plugins/editor/tab-menu.test.ts)（真实编辑器区与命令注册表）、[`editor/web/tab-hints.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/tab-hints.test.ts)、组件测试 `EditorTabBar.dom.test.ts` 与 `EditorBreadcrumbs.dom.test.ts`；编辑器与语言（输出 36–45）为 [`editor/editors.test.ts`](../../../packages/neuro-book/src/plugins/editor/editors.test.ts)、[`editor/editor-registry.test.ts`](../../../packages/neuro-book/src/plugins/editor/editor-registry.test.ts)（真实插件宿主）、[`editor/languages.test.ts`](../../../packages/neuro-book/src/plugins/editor/languages.test.ts) 与 `area.test.ts` 的输出 1、4、37–41、45、48 几组；编辑区标题（输出 34）为 [`editor/title-actions.test.ts`](../../../packages/neuro-book/src/plugins/editor/title-actions.test.ts)（真实命令注册表与编辑组布局：自己的与贡献的项、按后缀、resource 参数、按钮上限、菜单身份）；空编辑组的提示（输出 32）为 [`editor/empty-tips.test.ts`](../../../packages/neuro-book/src/plugins/editor/empty-tips.test.ts)（真实命令系统：筛选、按键与位置、语言）；页面标签（输出 33）为 `area.test.ts` 的“页面标签”一例与 `groups.test.ts` 的“页面标签不进快照”一例；上次的光标与最近打开（输出 30、31）为 `area.test.ts` 的“上次的光标与最近打开”一组、`groups.test.ts` 的快照往返、[`editor/recent.test.ts`](../../../packages/neuro-book/src/plugins/editor/recent.test.ts)（真实 Storage 场地）；[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14、16）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/code/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)；在格式的边界打字（输出 62）为 `MarkdownControl.dom.test.ts` 的同名一组；Markdown 编辑器与写不出（输出 19、61）为 [`MarkdownControl.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.dom.test.ts)（真实编辑器、真实编辑器区与文档模型）、`documents.test.ts` 与 `area.test.ts` 的“写不出”两组、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts) 的复制一组
-- Smoke：[`markdown-input.e2e.ts`](../../../packages/neuro-book/e2e/markdown-input.e2e.ts)（场景 34：在格式的边界打字）、[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页；验收 21 与编辑区标题在 390px 下的布局为“编辑区标题”一组，测试插件 `test.menus`；场景 17、18 的“重新打开回到上次的光标”一例）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（继续写作之后刷新回到记下的光标）、[`welcome.e2e.ts`](../../../packages/neuro-book/e2e/welcome.e2e.ts)（验收 20：欢迎页自动打开、不恢复、只开一个）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）、[`editor-types.e2e.ts`](../../../packages/neuro-book/e2e/editor-types.e2e.ts)（场景 22–24、26：图片、二进制与非 UTF-8、HTML 预览、语言）
+- 合同测试：标签栏、移动与面包屑（输出 49–60）为 `groups.test.ts` 的输出 49、50 两组（纯模型）、`area.test.ts` 的输出 49–51 一组（真实 Files 场地与请求闸门）、[`editor/tab-menu.test.ts`](../../../packages/neuro-book/src/plugins/editor/tab-menu.test.ts)（真实编辑器区与命令注册表）、[`editor/web/tab-hints.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/tab-hints.test.ts)、组件测试 `EditorTabBar.dom.test.ts` 与 `EditorBreadcrumbs.dom.test.ts`；编辑器与语言（输出 36–45）为 [`editor/editors.test.ts`](../../../packages/neuro-book/src/plugins/editor/editors.test.ts)、[`editor/editor-registry.test.ts`](../../../packages/neuro-book/src/plugins/editor/editor-registry.test.ts)（真实插件宿主）、[`editor/languages.test.ts`](../../../packages/neuro-book/src/plugins/editor/languages.test.ts) 与 `area.test.ts` 的输出 1、4、37–41、45、48 几组；编辑区标题（输出 34）为 [`editor/title-actions.test.ts`](../../../packages/neuro-book/src/plugins/editor/title-actions.test.ts)（真实命令注册表与编辑组布局：自己的与贡献的项、按后缀、resource 参数、按钮上限、菜单身份）；空编辑组的提示（输出 32）为 [`editor/empty-tips.test.ts`](../../../packages/neuro-book/src/plugins/editor/empty-tips.test.ts)（真实命令系统：筛选、按键与位置、语言）；页面标签（输出 33）为 `area.test.ts` 的“页面标签”一例与 `groups.test.ts` 的“页面标签不进快照”一例；上次的光标与最近打开（输出 30、31）为 `area.test.ts` 的“上次的光标与最近打开”一组、`groups.test.ts` 的快照往返、[`editor/recent.test.ts`](../../../packages/neuro-book/src/plugins/editor/recent.test.ts)（真实 Storage 场地）；[`editor/status-items.test.ts`](../../../packages/neuro-book/src/plugins/editor/status-items.test.ts)（状态栏条目，场景 12–14、16）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/word-count.test.ts)、[`editor/documents.test.ts`](../../../packages/neuro-book/src/plugins/editor/documents.test.ts)、[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)、[`groups.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/groups/groups.test.ts)、[`source-merge.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/code/source-merge.test.ts)、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts)；在格式的边界打字（输出 62）为 `MarkdownControl.dom.test.ts` 的同名一组；Markdown 编辑器与写不出（输出 19、61）为 [`MarkdownControl.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.dom.test.ts)（真实编辑器、真实编辑器区与文档模型）、`documents.test.ts` 与 `area.test.ts` 的“写不出”两组、[`explorer/documents.test.ts`](../../../packages/neuro-book/src/plugins/explorer/documents.test.ts) 的复制一组；自动保存（输出 4、21、63）为 `editor/auto-save.test.ts`（真实 Files 场地、手动时钟：三种触发、阻碍、失败闸、关闭时不问、租约）、`EditorGroup.dom.test.ts`（控件的 `leave` 到保存）、`MarkdownControl.dom.test.ts`（还有没交出的输入）
+- Smoke：`e2e/editor-autosave.e2e.ts`（场景 35–39）、[`markdown-input.e2e.ts`](../../../packages/neuro-book/e2e/markdown-input.e2e.ts)（场景 34：在格式的边界打字）、[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts)（产品页；验收 21 与编辑区标题在 390px 下的布局为“编辑区标题”一组，测试插件 `test.menus`；场景 17、18 的“重新打开回到上次的光标”一例）、[`bookshelf-stats.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf-stats.e2e.ts)（继续写作之后刷新回到记下的光标）、[`welcome.e2e.ts`](../../../packages/neuro-book/e2e/welcome.e2e.ts)（验收 20：欢迎页自动打开、不恢复、只开一个）、[`lab-editor.e2e.ts`](../../../packages/neuro-book/e2e/lab-editor.e2e.ts)（Lab 集成场景）、[`editor-types.e2e.ts`](../../../packages/neuro-book/e2e/editor-types.e2e.ts)（场景 22–24、26：图片、二进制与非 UTF-8、HTML 预览、语言）

@@ -59,6 +59,15 @@ export function renderMarkdown(text: string, context: MarkdownContext): string {
     return sanitize(marked.parse(text, {async: false, gfm: true}) as string, context);
 }
 
+/**
+ * 行内 Markdown 去掉标记后的纯文字：链接只留文字，反引号、强调符号去掉。给只放得下两行摘要、不放链接的地方（首页 Work 卡片的目标）。
+ * 只在浏览器里用：`DOMParser` 解析出的文档不执行脚本、不加载图片，只取文字。
+ */
+export function inlineMarkdownText(text: string): string {
+    const html = marked.parseInline(text, {async: false, gfm: true}) as string;
+    return new DOMParser().parseFromString(html, "text/html").body.textContent ?? text;
+}
+
 /** 行内 Markdown（表格里的“当前情况”这类一行字）：只认行内语法，不出段落；清洗与链接改写同 renderMarkdown。 */
 export function renderInlineMarkdown(text: string, context: MarkdownContext): string {
     return sanitize(marked.parseInline(text, {async: false, gfm: true}) as string, context);
@@ -88,6 +97,9 @@ function sanitize(html: string, context: MarkdownContext): string {
                 node.setAttribute("target", "_blank");
                 node.setAttribute("rel", "noopener noreferrer");
             }
+        } else if (node.tagName === "PRE" || node.tagName === "TABLE") {
+            // 代码块与表格放不下时自己横向滚动：能聚焦，键盘才滚得动（axe scrollable-region-focusable）。
+            node.setAttribute("tabindex", "0");
         } else if (node.tagName === "SOURCE") {
             // `<picture>` 里给明暗两套图的 `<source>`：外站的候选去掉，退回同一个 `<picture>` 里的 `<img>`（它会被换成链接）。
             if (hasWebCandidate(node.getAttribute("srcset") ?? "")) node.removeAttribute("srcset");

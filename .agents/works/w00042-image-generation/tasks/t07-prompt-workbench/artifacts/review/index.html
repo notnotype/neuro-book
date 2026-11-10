@@ -43,6 +43,16 @@ table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
 th { color: var(--muted); font-weight: 600; border-top: 0; }
 a { color: var(--accent); }
+.model { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 14px; margin: 12px 0; }
+.model .box { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 14px; }
+.model .box + .box { margin-top: 10px; }
+.model .box > b { display: block; margin-bottom: 4px; }
+.model .row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; padding: 4px 0; border-top: 1px dashed var(--line); font-size: 13px; }
+.model .row span:first-child { font-weight: 600; }
+.model .from { color: var(--muted); }
+.pill { display: inline-block; padding: 0 7px; border: 1px solid var(--accent); border-radius: 6px; color: var(--accent); font-size: 12px; line-height: 20px; }
+.pill.frag { border-style: dashed; }
+@media (max-width: 760px) { .model { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
@@ -53,6 +63,126 @@ a { color: var(--accent); }
 <p>外框是真实组件：标题栏、活动栏、面板头、编辑器标签条、状态栏，以及按钮、分段开关、标签页、输入框这些 nb-ui 控件。工作台本身（提示词区、结果区、词库）是一次性的草稿，不是产品代码。结果图是占位图，静态稿不调用生成接口。标签的中文与使用次数是演示用的取值。画布 1600×900，亮色。</p>
 </div>
 
+<div class="round">第 4 轮 · 标签系统与预设系统</div>
+
+<section class="s">
+<h2>这一轮画了什么 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>开发者 11-10 的附言：最关键的是预设和标签系统。前三轮这两块只画到“长什么样”，这一轮画“怎么用”：标签系统四张图，预设系统三张图加一张关系图，各问一道题。没有单独问的地方是照推荐画的，有不同意见写在题的批注或附言里。</p>
+<p data-nbdev-skip><b>两道题 11-10 都已答，静态稿到此告一段落。</b>四轮八道题的决定按编号记在 Task 记录的“已定”里，下一步写 Spec。</p>
+</section>
+
+<section class="s">
+<h2>标签系统：找词、看懂、改词 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>作者用中文想画面，模型只认 Danbooru 的英文词。标签系统在两者之间做三件事，依据都是本地词库（t05：约 14 万个 Danbooru 标签，并入 NovelAI 的特殊词，加中文名与别名）：</p>
+<ul>
+<li><b>找词</b>：在任何一节里直接打字，联想列表贴着光标弹出，中文、英文、别名都能搜。</li>
+<li><b>看懂</b>：每个标签块下面一行中文（已定 8）；选中一个块，气泡里有一句解释、类别和使用次数。使用次数是 Danbooru 上带这个词的图片数，只能粗略参考：模型认不认得一个词，不能只看它（t01 调研）。NovelAI 自己的联想接口会给出模型对标签的了解程度，能在线取到时再显示。</li>
+<li><b>改词</b>：权重按数值改，不数括号；换成相近的词；搬到负面，或者删掉。</li>
+</ul>
+<figure><a href="r4/suggest.webp"><img src="r4/suggest.webp" alt="打字联想"></a><figcaption>找词。在“场景与构图”里打“港口”：列表里是中文名里带这两个字的标签，命中的字用正文色，右边是使用次数；harbour 是别名，选它会写成 harbor；存好的片段也在同一个列表里（“雾夜港口”）。上下键选、回车插入。选到画师这类属于别的节的词，会放进它该去的那一节</figcaption></figure>
+<figure><a href="r4/chip.webp"><img src="r4/chip.webp" alt="标签块上的操作"></a><figcaption>看懂与改词。选中 cinematic lighting：一句中文解释、类别与使用次数；权重是数值（可以填负数，“压掉”就是给一个负权重，在画面里去掉它）；“相近的”是能换上去的词；底下一行是移到负面、收藏、删除。键盘上左右键在块之间移动，Ctrl 加上下键调权重</figcaption></figure>
+</section>
+
+<section class="q" data-nbdev-question="q7-tag-extras" data-nbdev-type="multi" data-nbdev-recommend="lint,paste">
+<h2>问题 7：标签系统的这三样，哪几样进第一版（可多选） <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p data-nbdev-skip><b>11-10 定：三样都进第一版。</b>相近的词要的那份数据，由 t05 放进第一版，先解决来源与授权。</p>
+<p>打字联想和标签块上的操作是“标签块”这个决定的一部分，第一版必做，不在这道题里。下面三样是在它们之上加的。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="lint">
+<h3>体检（推荐）</h3>
+<a href="r4/lint.webp"><figure><img src="r4/lint.webp" alt="体检"></figure></a>
+<p>每一节随时在本地检查，不调模型：下划线写法、SD 的权重写法、重复的词、放错节的词、模型不认的习惯词、词库里没有的词。有问题的块底色变浅黄，下面一行写原因；节标题上写“6 处可整理”，展开逐条处理，或者一次改掉能自动改的。</p>
+</div>
+<div class="opt rec" data-nbdev-option="paste">
+<h3>粘贴拆到各节（推荐）</h3>
+<a href="r4/paste.webp"><figure><img src="r4/paste.webp" alt="粘贴拆到各节"></figure></a>
+<p>粘贴一整串别人的提示词时，先给一张预览：左边是原文，按去向着色；右边是拆到各节以后的样子。画风那一段可以当场存成预设，质量那一段和已有预设一样就直接套用，顺手做一遍体检。也可以选“原样粘贴”。</p>
+</div>
+<div class="opt" data-nbdev-option="related">
+<h3>相近的词</h3>
+<p>上一节第二张图气泡里“相近的”那一行：选中一个词，列出能换上去的近义词或同组词。它要词库带“哪些词常一起出现、哪些词是一组”的数据，这份数据在 t05 里是可选层，来源的授权还没确认。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐体检和粘贴拆分进第一版，相近的词等词库有数据再做。</b>调研里社区的提示词毛病很多（四成带下划线写法、三到五成有重复的词），而大多数人是从粘贴别人的提示词开始的。粘贴拆分还是预设的主要来源：画风串是社区最常复用的东西，拆出来就能存成预设。这两样只靠词库的类别和提示词的语法，都在本地算。</div>
+</section>
+
+<section class="s">
+<h2>预设系统：配方、节、预设、片段的关系 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>先回答第 2 轮附言里的问题“预设、配方和节是什么关系”：</p>
+<div class="model">
+<div>
+<div class="box">
+<b>一份配方 = 一个标签页 = 一张插图的全部写法</b>
+<div class="row"><span>主体</span><span class="from">自动：按角色数填 1girl, 1boy</span></div>
+<div class="row"><span>画风</span><span><span class="pill">预设 冷雾水彩</span> <span class="from">加这份配方自己改的 2 处</span></span></div>
+<div class="row"><span>质量</span><span><span class="pill">预设 V4.5 标准</span></span></div>
+<div class="row"><span>场景与构图</span><span class="from">自己写：标签，加 <span class="pill frag">片段 邮局柜台</span></span></div>
+<div class="row"><span>自然语言</span><span class="from">自己写</span></div>
+<div class="row"><span>角色 × 2</span><span class="from">来自设定，或自己写；加 <span class="pill frag">片段 递信</span></span></div>
+<div class="row"><span>负面</span><span><span class="pill">预设 Heavy</span> <span class="from">加另外 3 个词</span></span></div>
+<div class="row"><span>参数</span><span><span class="pill">预设 竖图 · 标准</span></span></div>
+</div>
+</div>
+<div>
+<div class="box"><b>预设：一整节的值</b>只有画风、质量、负面、参数四种节能套，一节最多套一个。配方里记的是“用了哪个预设、在它上面改了什么”（已定 11）。</div>
+<div class="box"><b>片段：节里的一小段</b>外貌、服装、动作、场景、构图这些，一节里可以放好几个；分核心词与陪衬词，陪衬词可以不带。</div>
+<div class="box"><b>本书默认：四个预设各指定一个</b>新建配方时，四个预设节照它填好。它只是起点，配方建好以后和它无关。</div>
+</div>
+</div>
+<table>
+<tr><th></th><th>是什么</th><th>配方里怎么记</th><th>改了它，谁跟着变</th></tr>
+<tr><td>预设</td><td>一整节的值</td><td>引用，加这份配方自己的改动</td><td>引用它、而且没改过那一项的配方</td></tr>
+<tr><td>片段</td><td>节里的一小段</td><td>引用，陪衬词可以逐个关掉</td><td>引用它的配方</td></tr>
+<tr><td>本书默认</td><td>四个预设各指定一个</td><td>不记，只在新建时用一次</td><td>以后新建的配方</td></tr>
+<tr><td>配方</td><td>一张图的全部写法</td><td></td><td>只有它自己；已经生成的批次不变</td></tr>
+</table>
+<figure><a href="r4/new.webp"><img src="r4/new.webp" alt="新配方从本书默认开始"></a><figcaption>新建一份配方。画风、质量、负面、参数已经按“本书默认”填好并收成一行，作者只用写场景和角色。左边预设页顶上就是本书默认，四行各点开可以换</figcaption></figure>
+<figure><a href="r4/preset-detail.webp"><img src="r4/preset-detail.webp" alt="预设详情"></a><figcaption>预设页里选中“冷雾水彩”：它的内容摘要、在哪个模型上调的、用在哪 3 份配方（各自改了什么），右上是改名、复制、放到我的书架、删除。预设页只做管理，内容不在这里改</figcaption></figure>
+<figure><a href="r4/preset-update.webp"><img src="r4/preset-update.webp" alt="更新预设前的确认"></a><figcaption>在配方里调好画风，点“更新‘冷雾水彩’”。确认框列出写回哪 2 处，以及另外 2 份配方会怎样：“灯塔下”没改过这两项，跟着变；“码头清晨”自己改过 saltwind，这一项保持它自己的值</figcaption></figure>
+<p>照推荐画的几条规则：</p>
+<ol>
+<li><b>预设的内容在配方里改。</b>展开套着它的那一节直接改，改动先算这份配方自己的，点“更新预设”才写回去。不另做预设编辑器：调画风总要对着一张具体的图试。</li>
+<li><b>更新预设前，列出受影响的配方。</b>已经生成的图不变。</li>
+<li><b>新配方从本书默认开始。</b>以后生图管线（t10）给正文配图、角色定妆图（t11）也从它开始。封面、立绘需要另一套起点时，再把它扩成几个模板；第一版只有一组。</li>
+<li><b>预设记着它是在哪个模型上调的。</b>配方换了模型，对不上的节上提示一句，不拦。</li>
+<li><b>样图从结果里挑一张</b>（“设为样图”），不单独生成。</li>
+<li><b>从历史恢复配方时仍然引用原来的预设</b>，差异按当时的内容重新算，所以恢复以后再生成，提示词和当时一样。</li>
+<li><b>预设从三处来：</b>把当前这一节存为预设；粘贴别人的提示词时把画风那一段存下来；从“我的书架”拿。</li>
+</ol>
+</section>
+
+<section class="q" data-nbdev-question="q8-preset-home" data-nbdev-type="single" data-nbdev-recommend="book-shelf">
+<h2>问题 8：预设和片段存在哪里 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p data-nbdev-skip><b>11-10 定：A 跟书走，另有“我的书架”。</b></p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="book-shelf">
+<h3>A 跟书走，另有“我的书架”（推荐）</h3>
+<p>预设和片段存在这本书里，配方只引用本书里的。“我的书架”跨书：从书架拿一个到这本书里用，是复制一份进来。官方的那几个（负面的 Heavy、Light，各模型的质量词）每本书都能直接用，只读。上面几张图预设页顶上的“本书 | 我的书架”就是这个做法。</p>
+</div>
+<div class="opt" data-nbdev-option="global">
+<h3>B 全部跨书共用</h3>
+<p>只有一个库，所有书的配方引用同一份预设。</p>
+</div>
+<div class="opt" data-nbdev-option="book-only">
+<h3>C 只跟书走</h3>
+<p>没有书架。第二本书要用，靠导出再导入。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐 A。</b>书要自己带齐：把这本书的目录拷到另一台机器，配方照样能生成；在另一本书里调画风，这本书的插图不会悄悄变样。B 最省事，但这两条都做不到。C 少一个概念，代价是写第二本书时要手动搬。平台已经有“项目”和“用户”两层存储，A 不用新造机制。</div>
+</section>
+
+<section class="s">
+<h2>这一轮搭稿时发现的事 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>不用这一轮回答，记给 t03（合同）、t05（词库）和实现：</p>
+<ol>
+<li><b>词库的中文名不能只是可选包。</b>t05 现在写的是“中文层作可选包”。标签块下面那行中文（已定 8）和中文联想都靠它；没有它，块只剩一行英文，联想只能搜英文。</li>
+<li><b>打字联想可以直接用 nb-ui 现成的候选菜单（SuggestionMenu）。</b>它一行是“图标、名称、右侧次要文字”，中文与次数放进次要文字里够用。它的次要文字现在是纯文字，要高亮命中的字得给它加一个参数。</li>
+<li><b>体检和粘贴拆分要三样东西：</b>提示词的语法切分（权重、SD 写法）、词库的类别（画师）、特殊词表（质量、年份、主体数量）。前一样在 t03 的提示词模型里，后两样在 t05 的基础层里。</li>
+<li><b>历史要按节存拼好的内容，</b>才能把一批恢复到各节里。已定 11 写的是“存拼好的整串”，写 Spec 时改成按节。</li>
+<li><b>同一份对话框也可以接图片。</b>NovelAI 生成的图里带着完整的元数据（主提示词、负面、角色、参数）。把图拖进工作台，可以走同一张拆分预览。放不放进第一版，写 Spec 时再看。</li>
+</ol>
+</section>
+
 <div class="round">第 3 轮 · 参数、片段、窄屏与画风对比</div>
 
 <section class="s">
@@ -61,7 +191,8 @@ a { color: var(--accent); }
 </section>
 
 <section class="q" data-nbdev-question="q5-narrow" data-nbdev-type="single" data-nbdev-recommend="tabs">
-<h2>问题 5：窄屏（390 宽）怎么放提示词和结果 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 5：窄屏（390 宽）怎么放提示词和结果 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p data-nbdev-skip><b>11-10 定：A 分段切换。</b></p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="tabs">
 <h3>A 分段切换（推荐）</h3>
@@ -79,7 +210,8 @@ a { color: var(--accent); }
 </section>
 
 <section class="q" data-nbdev-question="q6-style-compare" data-nbdev-type="single" data-nbdev-recommend="first">
-<h2>问题 6：“只换画风”的对比抽卡，第一版做不做 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 6：“只换画风”的对比抽卡，第一版做不做 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p data-nbdev-skip><b>11-10 定：以后再说。</b>开发者的批注：绝大部分情况下用不上对比抽卡。要比画风时，固定种子、换一个画风预设再生成一次。</p>
 <figure><a href="r3/compare.webp"><img src="r3/compare.webp" alt="画风对比"></a><figcaption>画风一节选几套预设（图里是 4 套），点“对比 4 套画风”：同一个种子、同一份内容，每套画风出一张，图上写着是哪一套；选中一张可以“换成这套画风”（把这一节的预设换过去）或直接用作插图</figcaption></figure>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="first"><h3>第一版就做（推荐）</h3><p>分节和预设定了以后，它只是“同一份配方、换画风这一节、固定种子”跑几次，额外的东西只有结果区的对比视图。</p></div>

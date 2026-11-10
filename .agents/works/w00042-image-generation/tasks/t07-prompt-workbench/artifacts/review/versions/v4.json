@@ -1,0 +1,251 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00042-image-generation",
+    "taskId": "t07-prompt-workbench",
+    "artifactId": "review",
+    "version": 4,
+    "supersedes": 3,
+    "action": "publish",
+    "kind": "design",
+    "title": "提示词工作台：静态稿评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "68ca6462da3a1b3a2c0bb4a0d5785f05612f8406566140ca1fd6116160e642d5",
+    "files": [
+        "index.html",
+        "r1/current.webp",
+        "r1/overview-chips.webp",
+        "r1/q1-chips-crop.webp",
+        "r1/q1-raw-crop.webp",
+        "r1/q1-raw.webp",
+        "r1/q1-split-crop.webp",
+        "r1/q1-split.webp",
+        "r1/q2-inline.webp",
+        "r2/picker.webp",
+        "r2/sections-crop.webp",
+        "r2/sections.webp",
+        "r2/style-open-crop.webp",
+        "r2/style-open.webp",
+        "r3/compare.webp",
+        "r3/fragments.webp",
+        "r3/narrow-drawer.webp",
+        "r3/narrow-stack.webp",
+        "r3/narrow-tabs.webp",
+        "r3/params.webp",
+        "r4/chip.webp",
+        "r4/lint.webp",
+        "r4/new.webp",
+        "r4/paste.webp",
+        "r4/preset-detail.webp",
+        "r4/preset-update.webp",
+        "r4/suggest.webp"
+    ],
+    "questions": [
+        {
+            "id": "q1-tag-view",
+            "type": "single",
+            "label": "问题 1：提示词里的标签怎么显示",
+            "options": [
+                {
+                    "value": "raw",
+                    "label": "A 原文着色"
+                },
+                {
+                    "value": "chips",
+                    "label": "B 标签块（推荐）"
+                },
+                {
+                    "value": "split",
+                    "label": "C 上原文、下对照"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "chips"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q2-library-place",
+            "type": "single",
+            "label": "问题 2：词库放在哪",
+            "options": [
+                {
+                    "value": "sidebar",
+                    "label": "A 外壳的侧栏（推荐）"
+                },
+                {
+                    "value": "inline",
+                    "label": "B 标签页里自带一栏"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "sidebar"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q3-sections",
+            "type": "single",
+            "label": "问题 3：提示词区按节组织，还是一整段",
+            "options": [
+                {
+                    "value": "sections",
+                    "label": "A 按节（推荐）"
+                },
+                {
+                    "value": "flat",
+                    "label": "B 一整段（第 1 轮的样子）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "sections"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "q4-preset-link",
+            "type": "single",
+            "label": "问题 4：套用预设以后，预设和配方是什么关系",
+            "options": [
+                {
+                    "value": "link",
+                    "label": "A 引用，配方里的改动显示成差异（推荐）"
+                },
+                {
+                    "value": "copy",
+                    "label": "B 复制，套用以后各自独立"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "link"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "q5-narrow",
+            "type": "single",
+            "label": "问题 5：窄屏（390 宽）怎么放提示词和结果",
+            "options": [
+                {
+                    "value": "tabs",
+                    "label": "A 分段切换（推荐）"
+                },
+                {
+                    "value": "stack",
+                    "label": "B 上下叠放"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "tabs"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "q6-style-compare",
+            "type": "single",
+            "label": "问题 6：“只换画风”的对比抽卡，第一版做不做",
+            "options": [
+                {
+                    "value": "first",
+                    "label": "第一版就做（推荐）"
+                },
+                {
+                    "value": "later",
+                    "label": "以后再说"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "first"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "q7-tag-extras",
+            "type": "multi",
+            "label": "问题 7：标签系统的这三样，哪几样进第一版（可多选）",
+            "options": [
+                {
+                    "value": "lint",
+                    "label": "体检（推荐）"
+                },
+                {
+                    "value": "paste",
+                    "label": "粘贴拆到各节（推荐）"
+                },
+                {
+                    "value": "related",
+                    "label": "相近的词"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "lint",
+                "paste"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "q8-preset-home",
+            "type": "single",
+            "label": "问题 8：预设和片段存在哪里",
+            "options": [
+                {
+                    "value": "book-shelf",
+                    "label": "A 跟书走，另有“我的书架”（推荐）"
+                },
+                {
+                    "value": "global",
+                    "label": "B 全部跨书共用"
+                },
+                {
+                    "value": "book-only",
+                    "label": "C 只跟书走"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "book-shelf"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-10T01:00:00.144Z"
+}

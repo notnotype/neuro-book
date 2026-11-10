@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00043-neurobot
 issueId: null
 status: active
-updated: 2026-11-09
+updated: 2026-11-10
 ---
 
 # NeuroBot：常驻、有记忆的 AI 员工
@@ -58,6 +58,9 @@ updated: 2026-11-09
 | 2026-11-09 | 提案 [NeuroBot 第一版](../../../docs/proposals/neurobot.md) 的要点开发者看过：缓存过期前压缩与空闲压缩都是为了省钱；其余待定项按推荐同意（名字暂用 `neuro-bot`、`nbot`；bot 与 Profile 分开；原始记录与会话日志分开；新压缩触发点放进 nb-harness；周期任务在单独的会话里跑；web 范围） |
 | 2026-11-09 | 开发者：本会话的设计审查不用 omp，改用 Opus 子代理 |
 | 2026-11-10 | 提案第二稿的待定项（开发者“可以，用推荐 b 吧”）：仍在 NeuroBook 应用里的部分只把安全攸关、已调好的抽成包共用（两端宿主中与应用无关的部分、HTTP 的来源核对、模型服务），其余 NeuroBot 自己写；web 加“待你处理”入口与设置页、另写 ADR 改 0030 的搬迁条件，没有单独作答，按推荐算追认 |
+| 2026-11-10 | 开发者同意 t02 计划审查后的三项：模型服务放进新包 `nb-models`；加锁替换抽成与应用无关的小包；诊断日志的输出插件进 `nb-host` |
+| 2026-11-10 | 开发者同意下面的“Task 规划”（答“可以”）。同一轮里还列着、没有单独作答的，按“待确认默认追认”算定：t02 计划的三项（小包名 `nb-file-lock`；三个包的 exports 与 `private: true`；五个内置角色与选择顺序归 `nb-models`）、w00032 t32 计划的旧 `src/tools/` 不合并留给 t31 删。代码由谁写没有答复，按开发者的全局规则由主会话写 |
+| 2026-11-10 | 提案第二轮审查后的四项（开发者“都按推荐，第一版先把框架搭起来就行”）：gateway 加每次启动生成的本机口令（nb-host 可选项，t04 做）；第一版加只读的联网抓取工具，任务缺省不许跑 shell；主对话等用户时输入框一直可用，发消息即结算为“没批准”并带上这句话，30 分钟没人理由内核按过期结算；第一版网页只做标题未读数、页面内未读分隔线、按天分隔线与最小设置页，首次启动自动建缺省的看板娘。第一版以搭起框架为准（[t01](tasks/t01-direction/README.md)） |
 
 ## 调研
 
@@ -65,7 +68,49 @@ updated: 2026-11-09
 - [商业产品：Grok Bot、Muse、ChatGPT Dots、DeepSeek super-agent](research/2026-11-09-commercial-bots.md)
 - [开源实现：OpenClaw、CopilotKit/OpenBot、nanobot、Letta、QQ 接入、Koishi](research/2026-11-09-open-source-architecture.md)
 
+## Task 规划
+
+开发者 2026-11-10 同意。第一版按能用到什么程度分四步，每步做完都能实际用起来：
+
+1. **能聊**：看板娘在 web 上有一条不断的对话，用户不开会话、不切会话。
+2. **能长期聊**：有记忆，省钱的压缩，上下文不超限。
+3. **能办事**：日程、到点提醒，周期任务自己去跑。
+4. **自用调参**：实际跑一段，按真实花费与记录调数值，攒下记忆评测的材料。
+
+| Task | 内容 | 依赖 |
+|---|---|---|
+| **准备** | | |
+| [t01](tasks/t01-direction/README.md) | 提案第二轮审查，接受 | 无 |
+| [w00032 t32](../w00032-agent-integration/tasks/t32-harness-backfill/README.md) | nb-harness 补回 Agent 的通用部分（别的 Work） | 无 |
+| [t02](tasks/t02-host-base/README.md) | 抽 `nb-file-lock`、`nb-host`、`nb-models` | `nb-models` 的两片在 w00032 t32 之后 |
+| [t03](tasks/t03-web-design/README.md) | web 界面设计评审（静态稿） | 无 |
+| **第一步：能聊** | | |
+| [t04](tasks/t04-app-skeleton/README.md) | 应用骨架与 gateway | t01、t02 的 `nb-host` |
+| [t05](tasks/t05-models-settings/README.md) | 模型与设置页 | t02 的 `nb-models`、t04、t03 |
+| [t06](tasks/t06-main-conversation/README.md) | 主对话（原始记录、harness 接线、对话页） | w00032 t32、t04、t05、t03 |
+| [t07](tasks/t07-agent-ui-for-bot/README.md) | nb-agent-ui 的调整（事件开启的轮次、分隔线） | t03；与 w00032 t14 错开 |
+| **第二步：能长期聊** | | |
+| [t08](tasks/t08-cost-saving-compaction/README.md) | 省钱的两种压缩触发 | w00032 t32、t02 的 `nb-models` |
+| [t09](tasks/t09-bot-memory/README.md) | bot 的记忆 | t06、t08 |
+| **第三步：能办事** | | |
+| [t10](tasks/t10-schedule/README.md) | 日程与周期任务插件 | t06、t07、t09 |
+| **第四步** | | |
+| [t11](tasks/t11-dogfood/README.md) | 第一版自用与调参 | t10 |
+
+最长的依赖链是 w00032 t32 → t02 的 `nb-models` → t05 → t06 → t09 → t10，起点是 t32。t01、t02 不碰 t32 的那几片、t03 与 t32 可以同时做；t04 在 `nb-host` 合入后就能开工。提案接受后，每个 Task 开工时先写自己那份 Spec 的草稿，再写计划。
+
+第一版之后的路线（QQ、记忆评测与 nb-memory、多 bot、组织、设备与渠道、社媒运营）不建 Task：提案写明每一步开工前另行讨论。
+
 ## Task
 
 - [t01 方向讨论与同类项目调研](tasks/t01-direction/README.md)
 - [t02 把两端宿主的通用部分与模型服务抽成包](tasks/t02-host-base/README.md)
+- [t03 第一版 web 界面设计评审](tasks/t03-web-design/README.md)
+- [t04 NeuroBot 应用骨架与 gateway](tasks/t04-app-skeleton/README.md)
+- [t05 模型与设置页](tasks/t05-models-settings/README.md)
+- [t06 主对话](tasks/t06-main-conversation/README.md)
+- [t07 nb-agent-ui 为 NeuroBot 做的调整](tasks/t07-agent-ui-for-bot/README.md)
+- [t08 省钱的两种压缩触发](tasks/t08-cost-saving-compaction/README.md)
+- [t09 bot 的记忆](tasks/t09-bot-memory/README.md)
+- [t10 日程与周期任务插件](tasks/t10-schedule/README.md)
+- [t11 第一版自用与调参](tasks/t11-dogfood/README.md)

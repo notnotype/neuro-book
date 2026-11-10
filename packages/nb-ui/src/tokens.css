@@ -255,8 +255,7 @@
     --layout-sector-line: color-mix(in srgb, var(--accent-main) 65%, transparent);
     --layout-sector-active-fill: color-mix(in srgb, var(--accent-main) 12%, transparent);
     --layout-sector-active-line: var(--drop-area-border);
-    /* 实时布局：反馈就是布局本身，分区只留淡线，空位只有一圈边框，并入是目标变暗加内描边，跟手的卡片有投影。 */
-    --layout-live-sector-line: color-mix(in srgb, var(--accent-main) 14%, transparent);
+    /* 实时布局：反馈就是布局本身，不画分区，空位什么都不画，并入是目标变暗加内描边，跟手的卡片有投影。 */
     --layout-slot-border: transparent;
     --layout-slot-fill: transparent;
     --layout-merge-fill: var(--layout-scrim);

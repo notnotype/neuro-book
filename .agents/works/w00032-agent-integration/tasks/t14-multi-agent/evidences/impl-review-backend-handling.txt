@@ -1,0 +1,29 @@
+w00032 t14 后端实现审查的处理（审查者 Claude Opus，提交范围 ee1314411..8390c3f72，报告见 impl-review-backend.txt）
+
+19 条：阻断 0、重要 9、建议 10。逐条核实，都成立，没有误判；修正在提交 98880b802（worktree 分支 feat/w00032-t14-multi-agent）。
+
+1  成立，已改。loop-guard 对 wait 按 details（各任务的 id 与状态）比，不按带已等秒数的文字；测试改用文字变、details 不变的 wait。
+2  成立，已改。questionText 读 ask 请求 data.questions 的题干、选项与是否多选；tree 的 question.text 只取第一题。场景 3 断言父 Agent 看得到“（选一个：三章 / 五章）”。
+3  成立，已改。后台命令只在内存留还没换行那段的尾部（2 × 768 字节）；只切当前这一块；最后一行至多每 250 毫秒报一次，收口时用最终的最后一行。
+4  成立，已改。JobCenter 加 close()，停止的第一步就关门，之后 reserve 一律 unavailable（shell、spawn、send、answer 都交回 unavailable），再按 interrupted 停在跑的后台命令。测试：jobs.test.ts“停止与提前交回”。
+5  成立，已改（简化做法）。tree 的索引按会话缓存、会话写日志即作废、打开时缓存的关掉后重读；打开着的后代按“日志最新 seq、运行状态、跟着它的任务与提问、标题”缓存，没变不读路径；推送前与上一次比，没变不推；活动变化只在这棵树里的会话的活动变了时触发。没改成完全增量的状态机：缓存之后只在后代真的写了日志时才重读一次路径，代价与“有变化的后代数 × 至多每秒 4 次”成正比，记为已知的开销。
+6  成立，已改。pending 的请求里超过 2,000 字的字符串截短（停靠区的预览另经 approvalPreview 取）；treeChanged 推送与查询 tree 同一个上限，放不进一条消息时不推、写诊断。
+7  成立，已改。settle 的 detach 放进 finally（delivered 只在拿到结果后为真）；watchSteer 读快照失败时先放掉订阅再抛。
+8  成立，已补测试：前台 timeout 以 running 返回后 wait 取到、queue 立即返回且话带 by 进下一轮、在跑时不带 message 得 already-running、正常完成后得 nothing-to-continue、questions: "user" 时 tree 是 waiting 且父 Agent 答得 not-allowed、model-unavailable 不建子会话。没补的：child-stopping（中止中的窗口太短，测不稳）、64 MiB 截断（要真写 64 MiB），记为未覆盖。
+9  成立，已改。send、answer 在 lane 里认出任务后当场 attach，与 spawn 一致。
+10 成立，改 Spec：jobs.md 输出 9 写明列出全部任务与 invocation、foreground、sessionId、runId。
+11 成立，已改。内核 start 从缓冲区取输入时带上 next.by；interaction.test.ts 补“只入队的话之后由 start 开运行，路径上的 input 仍记发出者”。
+12 成立，已改。句柄表的“等用户”按 forUser 规则（审批、模式切换请求、questions: "user" 的提问），停在交给父 Agent 的提问上算 running；tree 与句柄表共用 forUser。sessions.md 输出 19 写明。场景 3 断言 activity 里子会话是 running。
+13 成立，已改。send、answer 先占名额、再收紧，收紧失败退回名额。
+14 成立，已改。JobCenter.settleEarly：前台以中止交回的任务视同取过，收口时直接移出，wait 不再交回它。
+15 成立，已改。临时帮手加可选的 wait、kill、jobs，Profile 升到 2；builtin-profiles.md 输出 14 同步。
+16 成立，已改。ProfileShapes 加代数，clear 之后晚到的解析丢掉；解析不到的记成没有形状。
+17 成立，已改。shell-window.ts 导出 capLine，三处共用；send 与 answer 的 lane 主体抽成 runOnChild。
+18 成立，改 Spec：sessions.md 输出 19 写明这几项不打开会话，不存在的会话交回空。
+19 成立，已改。runOnChild 里占名额之后的指令抛错时退回名额。
+
+需要运行确认的两点：
+- executeShell 收到取消信号后子进程退出：jobs.test.ts 的 kill 与插件停止用例（sleep 30）几秒内收口、status.json 写下，已确认。
+- 超过 1 MiB 的推送：第 6 条改成推送前量大小，不再依赖通道的表现。
+
+验证（负载 25–30，别的会话在跑）：agent 插件 605 个用例里 604 过，1 个（session-host“结果未知再点一次用同一个指令 id”）5 秒超时，同一条在 master 上同样超时，判为负载；应用与 nb-harness 的类型检查通过；nb-harness interaction 测试通过。

@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t13-comments-ui",
+    "artifactId": "review",
+    "answerId": "20261110T020608287Z-82c132f0",
+    "artifactVersion": 1,
+    "contentHash": "99edbf9d8ff83c5314d392e38fb0bc3faee3cc435f916ed33ef12d2ba6cc58cd",
+    "submittedAt": "2026-11-10T02:06:06.629Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "q1-attention": true,
+        "q2-where": "popover"
+    },
+    "comments": {
+        "q2-where": "浮层和页边都要。同时这个编辑样式有点不太匹配"
+    },
+    "note": null
+}

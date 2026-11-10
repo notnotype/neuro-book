@@ -6,7 +6,7 @@
 import {createHash} from "node:crypto";
 
 import {buildDiagnosticRegistry, buildMarkRegistry, buildRegistry, ChapterOrder, World} from "@notnotype/nb-canon";
-import type {CastMember, Decision, Entry, Mark, Patch, Placement, StoryChangeDraft, TellingDraft, WriteRequest} from "@notnotype/nb-canon";
+import type {CastMember, ComponentDeclaration, Decision, Entry, Mark, Patch, Placement, StoryChangeDraft, TellingDraft, WriteRequest} from "@notnotype/nb-canon";
 import {createWorldReadView} from "@notnotype/nb-canon/node";
 import type {CanonReadView} from "@notnotype/nb-canon/schema";
 
@@ -15,10 +15,10 @@ import {signAuthorization, TEST_PROJECT, verifyTestSource} from "./authorization
 
 const PERSON = {id: "test.person", label: "人物", namespace: "character", version: 1, fields: [{id: "状态", label: "状态", kind: "text" as const}]};
 
-/** 剧情世界的登记：剧情插件的 Component、标注种类与诊断，加一个测试用的人物类型。 */
-export function plotRegistries() {
+/** 剧情世界的登记：剧情插件的 Component、标注种类与诊断，加一个测试用的人物类型；`extra` 是个别测试另要的 Component。 */
+export function plotRegistries(extra: readonly ComponentDeclaration[] = []) {
     return {
-        registry: buildRegistry([...PLOT_COMPONENTS, PERSON]),
+        registry: buildRegistry([...PLOT_COMPONENTS, PERSON, ...extra]),
         marks: buildMarkRegistry(PLOT_MARKS.map((declaration) => ({plugin: PLOT_PLUGIN_ID, declaration}))),
         diagnostics: buildDiagnosticRegistry(PLOT_DIAGNOSTICS.map((declaration) => ({plugin: PLOT_PLUGIN_ID, declaration}))),
     };
@@ -51,11 +51,11 @@ export class PlotWorld {
     readonly texts = new Map<string, string>();
     #sequence = 0;
 
-    constructor(chapters: readonly string[]) {
+    constructor(chapters: readonly string[], extraComponents: readonly ComponentDeclaration[] = []) {
         for (const chapter of chapters) this.texts.set(chapter, "");
         this.world = World.empty({
             order: new ChapterOrder(chapters),
-            ...plotRegistries(),
+            ...plotRegistries(extraComponents),
             reductions: () => undefined,
             chapterText: (chapter) => this.texts.get(chapter),
             digest: (text) => createHash("sha256").update(text).digest("hex"),

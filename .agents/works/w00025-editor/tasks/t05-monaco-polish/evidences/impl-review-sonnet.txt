@@ -1,0 +1,119 @@
+w00025 t05 实现审查报告（审查对象 c919a0082、4c611eaba、817dd6dfa；实现 worktree HEAD 为 aea428daa，被审文件与这三个提交一致）
+实验文件在 /tmp/nb-review-w00025/t05-impl/scratch/（Monaco 0.55.1 的 min 构建 + 本机 Chrome，不是产品打包）。没有改动仓库文件，没有跑 e2e。
+
+### 1. “整行复制后从菜单粘贴插成完整一行”的 e2e 判据区分不出有没有用上 InMemoryClipboardMetadataManager
+**严重程度**：重要
+**类别**：测试（判据没被真正测到）
+**位置**：packages/neuro-book/e2e/editor-code-menu.e2e.ts:98-113（用例“剪切后正文与剪贴板都变；光标在一行里不选中、复制后到另一行粘贴……”）；对应实现 packages/neuro-book/src/plugins/editor/web/code/context-menu.ts:103-112
+**现象**：用例的文档是 `{"alpha": 1,\n"beta": 2}\n`，剪掉 beta 后在 alpha 行复制（空选区，整行），`Control+End` 到文档末尾，再右击 `.view-line` 的最后一个元素点“粘贴”。文档末尾有换行，所以光标在第 3 行，一个空行的第 1 列。把整行文本 `{"alpha": 1,\n` 粘贴到“空行第 1 列”，带不带 pasteOnNewLine 结果完全一样。
+**为什么是问题**：这段元数据（pasteOnNewLine、multicursorText、mode）正是设计审查第 6 条、Spec 输出 64“整行复制之后从菜单粘贴，插成完整的一行”要求的东西，也是实现里唯一依赖 Monaco 内部模块（`clipboardUtils.js`）的地方；e2e 是它的唯一兜底，却不能在它坏掉时失败。两个后果：(a) 把 `pasteOnNewLine` 恒写 false、或把整段 import/get 删掉，这条用例照样通过；(b) “生产构建里这个动态 import 与 Monaco 自己用的是不是同一个模块实例”（InMemoryClipboardMetadataManager.INSTANCE 是单例）至今没有被任何测试证明。开发模式里 `optimizeDeps.noDiscovery` 让 monaco 按源码逐文件提供，路径相同所以是同一份；生产构建靠 Rollup 的模块去重，从代码推断也是同一份，但没有证据。
+**如何核实**：scratch/paste.mjs（scratch/site/paste.html）在真实 Chrome 里对 Monaco 做 `editor.trigger("t","paste",{text:'{"alpha": 1,\n', pasteOnNewLine})`：
+- 空行第 3 行第 1 列：false 与 true 结果都是 `{"alpha": 1,\n"": 2}\n{"alpha": 1,\n`（相同）；
+- 第 2 行中间（第 2 列）：false 得 `…\n"{"alpha": 1,\n": 2}\n`（插进行中间），true 得 `…\n{"alpha": 1,\n"": 2}\n`（整行插在上面）。
+所以只有粘贴点在非空行中间时判据才有区分力。断言第 112 行（每个含 alpha 的行都以 `{"alpha"` 或 `"alpha"` 开头）在中间插入时会失败，但这条路径没人走。多光标各段（multicursorText）也没有任何用例。我没有在实现 worktree 里做变异（e2e 不让跑），这条结论来自上面的实验加读代码。
+**建议改法**：粘贴点改到一行中间（例如右击 `"beta"` 行里的某个 token，光标落在行中），断言多出的是完整的一行、原行没被切开；补一例两个光标分别复制、再粘贴到两个光标的用例（或在报告里写明多光标不测）。顺带这条用例在生产构建里就证明了模块实例是同一份。
+
+### 2. 语法色 e2e 只量了 JSON 的四种成分；规则表对 Monarch 语言的覆盖、注释与括号、明暗切换都没被测到
+**严重程度**：重要
+**类别**：测试（Spec 场景 43 的判据缺口）
+**位置**：packages/neuro-book/e2e/editor-code-menu.e2e.ts:212-232（语法配色 4 例）；packages/neuro-book/src/plugins/editor/web/code/monaco-theme.ts:25-48（SYNTAX_RULES）；packages/neuro-book/src/plugins/editor/web/code/monaco-theme.test.ts
+**现象**：场景 43 写的是“`.ts`、`.json`、`.css`、`.html`、`.md` 的样例……关键字、字符串、注释、括号与选区的颜色等于主题的语法变量……When 切到暗色、护眼绿，Then 这些颜色随之改变”。实际 e2e 只开 `{"key": "value", "n": 12, "t": true}`，量键、字符串值、数字、true 四个 token，四个 (theme, appearance) 组合各开一个新页面。
+**为什么是问题**：
+- JSON 的 token 来自 JSON 语言服务自己的分词（`string.key.json`、`string.value.json`、`number.json`、`keyword.json`），不是 Monaco 的 Monarch 语法。这次改成 `inherit: false` 之后，风险全在 Monarch 语言的前缀匹配上：`comment`、`type.identifier`、`tag`、`attribute.value.number.css`（按前缀落到 `attribute.value`，CSS 的数字会用字符串色）、`delimiter.bracket`、`keyword.md`、`string.link.md`、`variable.source.md` 等，没有任何一条被量过。规则表错一行，e2e 都不会失败。
+- monaco-theme.test.ts 只断言规则表的形状（每个 --syntax-* 有人用、token 不重复、两对键值不同色），不涉及 Monaco 真实的 token 名。
+- 注释色（对比度判据是 3，本表里最低）与括号着色（本任务特意关掉了按层数分色）没有被量。
+- 运行时切换主题或明暗（MutationObserver → applyTheme）没有被测：每例都是新 goto，主题在加载前就写好了。
+- verification.txt 与 editor.md 第 407 行写“语法色在 nbook 亮暗、macos 亮、护眼绿亮下量计算颜色与对比度”，这句话成立，但“.ts/.css/.html/.md 的样例”没有出现，Spec 场景 43 的 Given 没有被满足。
+**如何核实**：读 e2e 全文，语法色用例的 Given 只有一个 JSON；`grep -n "\.ts\|\.css\|\.html\|\.md" e2e/editor-code-menu.e2e.ts` 只有 `a40.css`（量的是菜单）。
+**建议改法**：加一例同一页面里依次开 `.ts`（注释、关键字、字符串、type）、`.css`、`.html`、`.md` 的样例，各量一两个 token 对 `--syntax-*` 的计算色；再加一例在同一页面里通过设置把 appearance 从亮切到暗，断言 token 色变成暗色那一套。规则表的覆盖不足也可以写进 monaco-theme.ts 的注释，说明哪些 Monarch token 故意落到前景色。
+
+### 3. Spec 场景 40、41 的几条判据没有用例，现有用例换成错实现也能过（右击选区之外移光标、两个编辑组、光标在可见区外）
+**严重程度**：重要
+**类别**：测试
+**位置**：packages/neuro-book/e2e/editor-code-menu.e2e.ts:119-126（c40）、128-166（d41）；packages/neuro-book/src/plugins/editor/web/components/CodeContextMenu.vue:79-80、36-48
+**现象**：
+(a) “右击选区之外，光标移到点击处”（CodeContextMenu.vue:79-80 的 `editor.setPosition(position)`）：c40 用例右击 `cat dog cat` 行的 (6,6) 处，落在第一个 `cat` 的第 1 列，而文件刚打开时光标就在 1:1。把 `setPosition` 那一行删掉，用例仍然通过（“更改所有匹配项”改的是光标所在词，两种做法都是第一个 cat）。d41 只测了“点在选区之内”。
+(b) “两个编辑组各开一个源码文件、在其中一个按 Shift+F10……菜单开在这一个的光标处”和贡献项的 `current` 取被右击的那份文件：没有用例开两个组，d41 与 a40 都在单个组里。`current` 依赖“`editor.focus()` 触发 focusin、`useEditorGroupRoot.onFocusIn` 同步激活该组”（右键的 pointerdown 不激活，见 useEditorGroupRoot.ts:35-37 的 `button === 0`），这条依赖没有证据。
+(c) 光标不在可见区时按 Shift+F10：showAtCursor 的注释特意写了“光标可能滚出了可见区”，但 d41 的光标就在第一屏。这一条正是“`revealPosition` 触发 `onDidScrollChange` 把刚开的菜单关掉”的风险点。我用 Monaco min 构建做了实验（scratch/scroll.mjs）：光标在第 1 行、滚到 3000px 后调用 `focus(); revealPosition(pos, Immediate); render()`，`onDidScrollChange` 在 `revealPosition` 内同步触发 1 次，之后 600 毫秒内没有再触发，所以按当前顺序（先 reveal 再 show）菜单不会被关掉，这个风险我没有找到问题；但产品里没有测试守着，Monaco 升级后顺序变了不会被发现。
+(d) 菜单键走 `contextmenu` 事件（非鼠标、`button !== 2`，CodeContextMenu.vue:58-63）的分支没有任何测试：Playwright 的 `press("ContextMenu")` 只发 keydown，不会发 contextmenu，所以这条分支是死代码还是有效，e2e 说不出。
+**为什么是问题**：这些都是 Spec 输出 64 和场景 41 明文写的行为，且是设计审查第 3、4、13 条特别处理过的地方；写了处理却没有判据，之后有人“简化”掉就不会失败。
+**如何核实**：读 e2e 与上面的位置；(a) 变异我没有跑（规则禁止 e2e），结论来自代码：c40 的文档是单行 `cat dog cat\n`，右击点 (6,6) 位于 1:1 与初始光标同位置。
+**建议改法**：c40 改成右击 `dog`（行内靠后的位置），断言改的是 dog；加一例用 `editor.setSelection` 或点击把光标放在远处、先滚走再 Shift+F10；加一例用 `split-right` 开两个组再按键与右击，断言菜单位置与贡献项收到的 address 是被操作的那个文件；(d) 用 `dispatchEvent(new MouseEvent("contextmenu", {button: 0}))` 在文字区聚焦时派发一次。
+
+### 4. 用 `button !== 2` 区分“键盘触发的 contextmenu”不可靠；触摸长按、macOS 的 Ctrl+点击可能被当成菜单键，菜单开在光标处而不是指针处
+**严重程度**：建议（从代码与平台行为推断，没有在对应平台验证）
+**类别**：正确性 / 边界
+**位置**：packages/neuro-book/src/plugins/editor/web/components/CodeContextMenu.vue:57-64
+**现象**：非鼠标右键（`event.button !== 2`）的 contextmenu 一律按“键盘”处理：焦点在文字区就 `showAtCursor`，忽略 `clientX/Y` 与 `target`。
+**为什么是问题**：
+- 触摸屏长按（Android Chrome、iPad）发出的 contextmenu 一般 `button` 为 0、坐标是手指处；macOS 上 Ctrl+点击在不同浏览器里 `button` 也可能是 0。这两种情况下用户期望的是指针处的菜单、点在选区内外的光标规则，现在得到的是“光标处”的菜单，且不做 `setPosition`。Monaco 自己的 mouse handler 也把 mac 的 Ctrl+左键当右键处理（mousedown 里 `isMacintosh && leftButton && ctrlKey` 不处理），说明这个组合是真实存在的。
+- Windows 上菜单键的 contextmenu 是在 keyup 之后由系统补发的；本组件在 keydown 里已经开了菜单（Reka 把焦点移进菜单），这时补发的 contextmenu 若落在文字区之外会因 `hasTextFocus()` 为假直接 `return`、不 preventDefault，浏览器自己的菜单可能叠出来；若焦点还没移走，则会再开一次。这是对 Chromium 行为的推断，没验证。
+**如何核实**：没有可复现的实验（无头 Chrome 里 CDP 的按键不发 contextmenu，见第 3 条 (d)）；读代码即可看到判据。
+**建议改法**：改用 `PointerEvent.pointerType`（Chrome 的 contextmenu 是 PointerEvent，键盘触发为空串）或坐标是否落在文字区内来分；键盘触发的 contextmenu 在 keydown 已经处理过的情况下，用一个短时间内的标记吞掉（或始终 preventDefault 而不再开菜单）。至少在注释里写明“键盘触发的只有菜单键，触摸与 Ctrl+点击不在支持范围”。
+
+### 5. `createColorReader` 的“表达式不合法就用后备色”只对语法错误成立；变量缺失时读到的是继承来的正文色，后备色永远用不上
+**严重程度**：建议
+**类别**：正确性 / 与注释不符
+**位置**：packages/neuro-book/src/plugins/editor/web/code/monaco-theme.ts:68-79、89-97
+**现象**：`probe.style.color = "var(--x)"` 对任何 `var()` 都在解析期接受（`style.color` 回读为 `var(--x)`），变量不存在时计算值是“无效于计算时”，`color` 继承自 body。所以第 73 行 `probe.style.color === ""` 只能拦住字面量写错的情况（实验：`"notacolor"` → 空串 → null），拦不住缺失的变量。
+**为什么是问题**：注释写“表达式不合法时这一行不生效，`color` 是继承来的正文色：宁可用后备色”，函数签名与 `solid(name, fallback)`、`translucent(name, fallback)` 都在承诺后备色；变量缺失时实际得到的是 body 的 `color`。对 `--syntax-*` 和 `--text-main` 影响不大（本来就近似正文色），但对 `translucent("--selection-bg")` 意味着选区底色变成不透明的正文字色（文字被选区盖住）。产品里这些变量都在配色合同里有声明，所以目前不会触发；第三方主题把 `--syntax-keyword: var(--不存在)` 这种写错会静默得到 body 的颜色，而不是 `foreground`。
+**如何核实**：scratch/probe.mjs：`var(--nothing-here)` → `style.color` = `var(--nothing-here)`，计算色 `rgb(18, 52, 86)`（= body 的 color），画布读回 `[18,52,86,255]`，返回非 null。
+**建议改法**：读完后用 `getComputedStyle(root).getPropertyValue(name).trim() === ""` 先判变量是否有值，空就走后备；或把 probe 的初始 `color` 设成一个哨兵色（例如 `transparent`），读到哨兵就当成“没解析出来”。
+
+### 6. 画布换算在半透明色上有预乘误差，e2e 的容差 1 只对恰好那一个主题的透明度成立
+**严重程度**：建议
+**类别**：正确性（精度）/ 测试
+**位置**：packages/neuro-book/src/plugins/editor/web/code/monaco-theme.ts:74-78；packages/neuro-book/e2e/editor-code-menu.e2e.ts:232-245
+**现象**：把 rgba 画到 1×1 画布再 `getImageData`，读回的是从预乘 8 位存储还原的值。实验（scratch/probe.mjs，Chrome）：`rgba(173,214,255,0.25)` 读回 `[171,215,255,64]`（R 差 2）；`rgba(38,79,120,0.2)` → `[40,80,120,51]`（R 差 2）；`rgba(255,200,10,0.1)` → `[255,196,10,26]`（G 差 4）。不透明色与 `color-mix()` 到 `color(srgb …)` 的结果没有这个问题。
+**为什么是问题**：误差本身肉眼看不出来（选区底色本来就是半透明叠色），不是显示缺陷；但（1）这一步的存在理由写的是“认 color-mix() 与带透明度的写法”，而最需要精确的恰是透明度；（2）选区色的 e2e（场景 43）用容差 `≤ 1` 比较 `--vscode-editor-selectionBackground` 与 `--selection-bg`，当前只跑 nbook 亮色一个主题，其透明度恰好误差 ≤1；换成 alpha 更低的配色（macos 亮、护眼）同一断言会失败，是潜在的间歇红。
+**如何核实**：同上实验；e2e 只在 `nbook`/`light` 下跑选区用例（第 232 行起）。
+**建议改法**：计算色已经是 `rgb()/rgba()/color(srgb …)` 文本时直接解析数值（e2e 的 `resolved` 就是这么做的），只有 `oklch()`、`lab()` 这类才走画布；或者把容差放到按 alpha 估算（`ceil(0.5/alpha)`），并在 e2e 里多跑一个半透明更重的主题。
+
+（第 6 条补注，收窄）核对了仓库里的 --selection-bg：nbook/macos 的 alpha 在 0.22–0.34 之间，误差都 ≤1，所以现有四套配色下 e2e 不会失败；“间歇红”只对 alpha 低于约 0.2 的第三方或用户配色成立，是假设。这条维持“建议”，主要理由是“这一步的存在理由与精度不匹配”。
+
+### 7. context-menu.test.ts 的最后一例断言每项的 `run.kind`，是在测实现；两份单元测试的头注释指向了没有相关用例的 e2e 文件
+**严重程度**：建议
+**类别**：测试 / 注释准确性
+**位置**：packages/neuro-book/src/plugins/editor/web/code/context-menu.test.ts:29-36；packages/neuro-book/src/plugins/editor/web/code/monaco-theme.test.ts:1-4；packages/neuro-book/src/plugins/editor/web/components/CodeContextMenu.md:27
+**现象**：
+- context-menu.test.ts 第 4 例断言 `{cut: "command", paste: "paste", find: "action", …}` 整张映射。把“全选”从 `trigger` 命令改成别的执行方式（用户可见的行为不变）这条用例就失败；反过来，把某项映射错（例如把“查找”写成 command）而 e2e 又没点它，单元测试其实在守这个，但守的是内部表而不是行为。项目测试规则：行为不变的重构让测试失败，说明测试写错了。真正的行为判据是 e2e，而 e2e 只点了剪切、复制、粘贴、格式化文档、更改所有匹配项和贡献项，没有点全选、查找、替换、格式化选定内容（verification.txt 写的“菜单各项逐项点”与事实不符）。这四项的命令/动作 id 是否有效（`actions.find`、`editor.action.startFindReplaceAction`、`editor.action.selectAll`）没有任何测试验证；它们我在 Monaco 0.55.1 源码里核对过：selectAll 是 MultiCommand、`editor.action.changeAll` 在 multicursor.js，方向是对的，但不是测试保证的。
+- monaco-theme.test.ts 头注释写“颜色的换算……由 `e2e/editor-types.e2e.ts` 在浏览器里验”，实际是 `editor-code-menu.e2e.ts`；editor-types.e2e.ts 里没有任何 Monaco 颜色相关内容（grep 验证）。
+- CodeContextMenu.md 与 MonacoControl.md 写“没有注入时（Lab 与组件测试里直接挂控件）不出菜单”，但 Lab 的 EditorAreaFixture 已经 `provide(editorMenusKey, createLabEditorMenus(...))`（EditorAreaFixture.vue:155），Lab 里该有菜单。
+**建议改法**：第 4 例留“哪些项带快捷键”，去掉 run.kind 映射；e2e 补一例依次点全选（断言选中全部）、查找（断言查找框出现且聚焦）、替换、格式化选定内容；改正两处文档/注释。
+
+### 8. Shift+F10 的判断不管其它修饰键；两处静默分支没有诊断
+**严重程度**：建议
+**类别**：边界 / 错误路径
+**位置**：packages/neuro-book/src/plugins/editor/web/components/CodeContextMenu.vue:102、45；packages/neuro-book/src/plugins/editor/web/code/context-menu.ts:96
+**现象**：
+- 第 102 行 `event.shiftKey && event.keyCode === keys.F10` 对 Ctrl+Shift+F10、Alt+Shift+F10、Meta+Shift+F10 也成立，这些组合会被 preventDefault、stopPropagation 并开菜单；Monaco 绑定的只是单独的 Shift+F10。别的插件或浏览器/系统绑在这些组合上的快捷键会被吞掉（stopPropagation 在 Monaco 的文字区上，页面级快捷键收不到）。
+- 第 45 行 `if (spot === null) return;`：此时 keydown 已经 preventDefault，菜单键什么也没发生，也没有任何诊断（编辑器容器零尺寸/被隐藏时会这样）。
+- context-menu.ts:96 `await editor.getAction(run.id)?.run()`：动作不存在（Monaco 升级后 id 改了）时静默什么也不做，用户点了菜单项没反应。封闭表的前提就是“id 靠人维护”，这种情况应该有诊断。
+**建议改法**：加 `!event.ctrlKey && !event.altKey && !event.metaKey`；动作取不到时抛错（上层 `.catch(menus.reportError)` 已经接着了），`spot === null` 时 `reportError` 一条或至少不 preventDefault。
+
+### 9. 魔法数字与动态 import 的取舍没写理由
+**严重程度**：建议
+**类别**：代码质量
+**位置**：packages/neuro-book/src/plugins/editor/web/components/CodeContextMenu.vue:42（`1 satisfies Monaco.editor.ScrollType.Immediate`）；packages/neuro-book/src/plugins/editor/web/code/context-menu.ts:43、105
+**现象**：
+- CodeContextMenu 的 `showAtCursor` 用数值 1 表示 `ScrollType.Immediate`，而同一文件的 `onContextMenu` 已经在用 `props.monaco.editor.MouseTargetType`；`showAtCursor` 的调用点（`onKeyDown` 的监听里）在 `watch` 回调里同样拿得到 `monaco`，传进去即可，不必用 satisfies 的数字。context-menu.ts 里 `EMPTY_SELECTION_CLIPBOARD = 45` 同理（`runCodeMenuItem` 只多收一个参数）。`satisfies` 保证了 Monaco 升级时编译期报错，所以不是缺陷，只是不必要地依赖“枚举值不变”。
+- 第 105 行在 `editor.focus()` 之后才 `await import(...)`：开发模式第一次可能真的是一次网络请求，焦点与光标可能在这期间被改（读剪贴板那一段已经有同样的窗口，注释只提了读剪贴板）。注释也没说为什么要动态 import（静态 import 会把 Monaco 内部模块带进 context-menu.ts 的依赖图；它只被按需加载的 MonacoControl 用到，这个理由可能不成立）。
+**建议改法**：枚举值从已有的 `monaco` 取；先 import 后 focus，或者在注释里写明为什么动态；如果静态 import 在构建里没有副作用，直接静态引入更简单。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- onDidScrollChange 在打开那一下关掉菜单：实验（scratch/scroll.mjs）里 revealPosition(Immediate) 的滚动事件同步触发 1 次、之后不再有，先 reveal 再 show 的顺序成立（测试缺口见第 3 条）。
+- 监听的登记与释放：host 的捕获监听、editor.onKeyDown/onDidScrollChange 的 dispose 在 host/editor/monaco 变化与卸载时都收口；没有注入 editorMenusKey 时两处都早返回，不拦事件，Monaco 的残留处理照常（`contextmenu: false`）。
+- show 里先聚焦再取快照、`editor.focus()` 先于 `setPosition`：顺序正确。
+- monaco-modules.d.ts 对 0.55.1 的 `InMemoryClipboardMetadataManager`（静态 INSTANCE、get(text) 返回 isFromEmptySelection/multicursorText/mode 或 null）与实际一致；`editor.trigger("…","paste",{text,pasteOnNewLine,multicursorText,mode})` 与 Monaco 自己网页路径（clipboard.js:274-290）同一形状；EMPTY_SELECTION_CLIPBOARD = 45 与 editorOptions.js 中 emptySelectionClipboard 一致，satisfies 守着升级。动态 import 在开发模式（noDiscovery 按源码提供）里路径相同，是同一份模块；生产构建里是否同一份没有被测（见第 1 条）。
+- inherit: false 之后的部件色：scratch/theme.mjs 用同一份规则在 Monaco 里比较 inherit true/false，1727 个 --vscode-* 变量只有 inactiveSelectionBackground 与 selectionHighlightBackground 两个不同，且都是由选区色派生（符合代码注释）；行号、当前行、查找高亮、括号匹配高亮没有变化。
+- tokens.css 的 --syntax-* 声明在 :root 块内，和其它角色变量同层；它们引用的配色变量在同一元素上解析，声明式主题的内联样式与主题包 vars.css 改配色变量时能一路传到语法色；tokens.ts 登记（nbThemeSyntaxTokens 进 nbThemeTokens/nbReservedTokens）、Lab 变量页签分组、authoring-themes.md 与 theme/system.md 的描述一致；palette.txt 的量色结论本次没有重算。
+- editor.code-context 的登记：contracts.ts、web/plugin.ts（声明点、receives、items 映射、receiver 四处）、test-menus.ts 都有，menus.md 的位置表已有一行；贡献项的 current 取活动组的活动标签，被右击的编辑器经 focusin 同步成为活动组（依赖见第 3 条 (b)）。
+- Markdown 正文菜单改用共用 readClipboardText：行为与原来一致（纯文本粘贴路径的 unsupported/empty/denied 三种分类不变，别的错误照常抛出）。
+- 跨包深导入：`monaco-editor/esm/...` 的内部路径导入是本插件已有做法（load-monaco.ts、monaco-languages.ts），不是新增的越界；.d.ts 里写了升级时报错的保护。
+
+## 汇总
+- 阻断：0
+- 重要：3（第 1、2、3 条，都是测试判据没有真正测到 Spec 条款）
+- 建议：6（第 4–9 条；第 6 条已在补注中收窄）
+- 有效发现编号：1–9；撤回：无
+- 没有做的核实：变异检查与 e2e（规则禁止跑 e2e）；macOS/触摸/Windows 菜单键的平台行为（第 4 条为推断）。

@@ -175,8 +175,9 @@ describe("落点分区与判定一致（docs/specs/ui/workbench-layout.md“落�
                         const [rx, ry] = [(x + 0.5) / 200, (y + 0.5) / 120];
                         // 对角线上两块都对：避开。
                         if (Math.abs(rx - ry) < 0.01 || Math.abs(rx + ry - 1) < 0.01) continue;
+                        // 不分的那两条边的窄带没有分区，那里也没有落点。
                         const owners = sectors.filter((sector) => inPolygon(sector.points, rx, ry));
-                        expect(owners).toHaveLength(1);
+                        expect(owners.length).toBeLessThanOrEqual(1);
                         expect(resolveLayoutDrop({...base, point: {x: panel.body.left + x + 0.5, y: y + 0.5}})).toEqual(owners[0]?.action ?? null);
                     }
                 }
@@ -184,4 +185,21 @@ describe("落点分区与判定一致（docs/specs/ui/workbench-layout.md“落�
             expect(seen).toEqual(expected);
         });
     }
+
+    it("工具面板不分的那两条边上没有落点，不算并入；编辑组四条边都分（开发者 2026-11-09 定）", () => {
+        const {doc, panels} = scene();
+        const base = {doc, panels, policy: createLayoutPolicy()};
+        const at = (id: string, rx: number, ry: number) => {
+            const body = panels.find((panel) => panel.id === id)?.body;
+            if (body === undefined) throw new Error(`没有 ${id}`);
+            return {x: body.left + (body.right - body.left) * rx, y: body.top + (body.bottom - body.top) * ry};
+        };
+        const view = {kind: "tab" as const, tab: "view:a"};
+        expect(resolveLayoutDrop({...base, source: view, point: at("sidebar", 0.05, 0.5)})).toBeNull();
+        expect(resolveLayoutDrop({...base, source: view, point: at("sidebar", 0.95, 0.5)})).toBeNull();
+        expect(resolveLayoutDrop({...base, source: view, point: at("panel", 0.5, 0.05)})).toBeNull();
+        expect(resolveLayoutDrop({...base, source: view, point: at("sidebar", 0.5, 0.5)})).toEqual({kind: "center", panel: "sidebar"});
+        expect(resolveLayoutDrop({...base, source: view, point: at("sidebar", 0.05, 0.05)})?.kind).toBe("edge");
+        expect(resolveLayoutDrop({...base, source: {kind: "tab", tab: "tab:u"}, point: at("g0", 0.05, 0.5)})?.kind).toBe("edge");
+    });
 });
