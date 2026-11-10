@@ -49,6 +49,6 @@ provide(NB_FIELD_CONTEXT_KEY, {
         <slot :input-id="inputId" :description-id="descriptionId" :error-id="errorId" :aria-describedby="ariaDescribedby" :invalid="invalid" />
         <!-- 错误不在字段下插一行字（会让表单重排）：控件标红，原因只给读屏；看得见的原因由宿主写在固定位置（ui-development-spec 的“表单与无障碍”）。 -->
         <span v-if="props.error" :id="errorId" class="sr-only">{{ props.error }}</span>
-        <span v-if="props.description" :id="descriptionId" class="block text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ props.description }}</span>
+        <span v-if="props.description" :id="descriptionId" class="block text-[length:var(--text-xs)] text-[var(--text-secondary)]">{{ props.description }}</span>
     </component>
 </template>

@@ -40,7 +40,7 @@ function outcomeText(state: QuestionState): string {
                     <Badge tone="neutral" variant="outline" size="sm">{{ TYPE_LABEL[state.question.type] }}</Badge>
                     <Badge v-if="isNewQuestion(state.question, latestVersion)" tone="accent" variant="soft" size="sm">新</Badge>
                     <Badge v-if="state.question.required" tone="warning" variant="soft" size="sm">必答</Badge>
-                    <span class="nbdev-note">#{{ state.question.id }} · 自 v{{ state.question.since }}</span>
+                    <span class="nbdev-note">自 v{{ state.question.since }}</span>
                 </div>
                 <p class="font-medium">{{ state.question.label }}</p>
                 <ul v-if="state.question.options.length > 0" class="nbdev-note flex flex-col gap-0.5 pl-1">
@@ -76,7 +76,7 @@ function outcomeText(state: QuestionState): string {
             </template>
             <div class="mt-2 flex flex-col gap-2">
                 <article v-for="state in groups.earlier" :key="state.question.id" class="flex flex-col gap-0.5">
-                    <p class="font-medium">{{ state.question.label }} <span class="nbdev-note font-normal">#{{ state.question.id }} · v{{ state.question.since }} 的题</span></p>
+                    <p class="font-medium">{{ state.question.label }} <span class="nbdev-note font-normal">v{{ state.question.since }} 的题</span></p>
                     <template v-if="state.answer">
                         <p class="break-words">{{ answerText(state.question, state.answer.value) }}</p>
                         <p class="nbdev-note">v{{ state.answer.artifactVersion }} 答 · {{ relativeTime(state.answer.submittedAt) }}<template v-if="state.answer.comment"> · {{ state.answer.comment }}</template></p>

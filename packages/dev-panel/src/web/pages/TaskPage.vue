@@ -7,7 +7,7 @@ import {relativeDay, sessionName, taskLabel, workLabel} from "../host/format.js"
 import {renderInlineMarkdown, renderMarkdown} from "../host/markdown.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {parsePeek, peekValue, type Peek} from "../host/peek.js";
-import {artifactHref, docHref, editHref, isPlainClick, workHref} from "../host/routes.js";
+import {artifactHref, docHref, editHref, isPlainClick, sessionHref, workHref} from "../host/routes.js";
 import {useStatusChange} from "../host/status-change.js";
 import type {ArtifactPageData, DocFileData, Meta, TaskPageData} from "../host/types.js";
 import ActionLink from "../parts/ActionLink.vue";
@@ -25,8 +25,8 @@ import MarkdownView from "../parts/MarkdownView.vue";
 import StatusChip from "../parts/StatusChip.vue";
 
 /**
- * Task 页（Proposal 第九节；第三轮没有单独的稿，结构照 Work 页）：当前情况、执行 checkout 与它上面的提交、README、
- * 产物与文档类产物、证据、链到的 Spec、谁在动。从这里进文档页时带上执行 checkout。
+ * Task 页（Proposal 第九节；第三轮没有单独的稿，结构照 Work 页）：当前情况、README，右栏依次是产物与文档类产物、
+ * 链到的 Spec、证据、谁在动、执行 checkout 与它上面的提交（t22 把产物提到最上）。从这里进文档页时带上执行 checkout。
  */
 const props = defineProps<{workId: string; taskId: string}>();
 const router = useRouter();
@@ -44,6 +44,22 @@ const writeBlocked = computed(() => {
 const status = useStatusChange(() => `/api/works/${encodeURIComponent(props.workId)}/tasks/${encodeURIComponent(props.taskId)}/status`, () => page.data.value?.task.readmeHash ?? null, () => page.reload());
 
 const RULE_LABEL: Record<string, string> = {readme: "README 的执行位置", name: "目录名", home: "登记表", work: "Work 的执行 worktree", master: "主工作区"};
+/**
+ * 一栏排版（手机、速览并排）时右栏接在很长的 README 后面：README 之前放一行产物与待答的数，点了跳到那一节（t22）。
+ * 先不滚动地聚焦标题、再把它滚进来，同评审板的“跳到答题”。
+ */
+const artifactsHeading = ref<HTMLElement | null>(null);
+const artifactSummary = computed(() => {
+    const task = page.data.value?.task;
+    if (!task) return null;
+    const count = task.artifacts.length + task.documents.length;
+    const waiting = task.artifacts.reduce((sum, artifact) => sum + artifact.waiting, 0);
+    return count === 0 ? null : {count, waiting};
+});
+function jumpToArtifacts(): void {
+    artifactsHeading.value?.focus({preventScroll: true});
+    artifactsHeading.value?.scrollIntoView({block: "start"});
+}
 /** “当前情况”按行内 Markdown 显示，反引号与链接不露源码（t22）。 */
 const currentHtml = computed(() => {
     const data = page.data.value;
@@ -176,7 +192,7 @@ const peekEvidence = computed(() => {
             <template v-if="page.data.value" #status><StatusChip :status="page.data.value.task.status" size="md" /></template>
             <template v-if="page.data.value" #actions>
                 <StatusSwitch :status="page.data.value.task.status.value" :options="TASK_STATUSES" :subject="taskLabel(props.taskId)" :disabled-reason="writeBlocked" :pending="status.write.pending.value" :slow="status.write.slow.value" @confirm="status.change" />
-                <ActionLink v-if="!writeBlocked" :href="editHref(page.data.value.task.readmePath)" icon="i-lucide-pencil" @navigate="navigate">编辑 README</ActionLink>
+                <ActionLink v-if="!writeBlocked" :href="editHref(page.data.value.task.readmePath)" icon="i-lucide-pencil" primary @navigate="navigate">编辑 README</ActionLink>
             </template>
             <template v-if="page.data.value" #meta>
                 <span>{{ page.data.value.task.workId }}/{{ page.data.value.task.taskId }}</span>
@@ -188,6 +204,9 @@ const peekEvidence = computed(() => {
             </template>
             <LoadState v-if="page.data.value" v-bind="loadStateOf(page)" :subject="`${taskId} 这个 Task`" :up-href="workHref(workId)" up-label="回到 Work" @navigate="navigate" @retry="page.reload()" />
             <p v-if="page.data.value" :class="currentHtml ? 'nbdev-secondary' : 'nbdev-empty'">当前情况：<MarkdownView v-if="currentHtml" inline :html="currentHtml" @navigate="navigate" /><template v-else>未标</template></p>
+            <p v-if="artifactSummary" :class="{'lg:hidden': !(peek && peekMode === 'side')}">
+                <a href="#task-artifacts" class="inline-flex items-center gap-1.5" @click.prevent="jumpToArtifacts"><span class="i-lucide-arrow-down size-3.5" aria-hidden="true" />产物与文档 {{ artifactSummary.count }}<Badge v-if="artifactSummary.waiting > 0" tone="warning" variant="soft" size="sm">待答 {{ artifactSummary.waiting }}</Badge></a>
+            </p>
             <UncommittedDialog :open="status.pending.value !== null" :path="status.pending.value?.path ?? ''" :changes="status.pending.value?.changes ?? null" :pending="status.write.pending.value" @confirm="status.confirmUncommitted" @cancel="status.pending.value = null" />
             <!-- 速览面板并排时正文只剩约 680px，放不下阅读宽度的卡片加 22rem 的侧栏：改成一栏，侧栏接在 README 下面。 -->
             <div class="grid grid-cols-1 gap-5" :class="{'lg:grid-cols-[minmax(0,max-content)_22rem]': !(peek && peekMode === 'side')}">
@@ -198,29 +217,9 @@ const peekEvidence = computed(() => {
                 </article>
                 <aside class="nbdev-stack-page min-w-0" aria-label="产物、提交与证据">
                     <template v-if="page.data.value">
-                        <section class="nbdev-stack">
-                            <h2 class="nbdev-heading">执行 checkout</h2>
-                            <ul class="nbdev-stack-tight nbdev-small">
-                                <li v-for="candidate in page.data.value.detail.execution.candidates" :key="candidate.key" class="flex min-w-0 flex-wrap items-center gap-1.5">
-                                    <Badge v-if="candidate.key === executionKey" tone="accent" variant="soft" size="sm">选中</Badge>
-                                    <RouterLink :to="{name: 'docs', query: {checkout: candidate.key, prefer: preferKeys}}">{{ candidate.key }}</RouterLink>
-                                    <span class="nbdev-secondary flex min-w-0 items-center gap-1"><TruncatedText :text="candidate.branch ?? '分离 HEAD'" mono :copyable="candidate.branch !== null" /> · 按{{ RULE_LABEL[candidate.rule] }}</span>
-                                </li>
-                            </ul>
-                        </section>
-                        <section class="nbdev-stack">
-                            <h2 class="nbdev-heading">{{ page.data.value.detail.commits.range === "branch" ? `${page.data.value.detail.commits.checkout} 分支上的提交` : "碰过这个 Task 的提交" }}</h2>
-                            <p v-if="page.data.value.detail.commits.entries.length === 0" class="nbdev-empty">没有</p>
-                            <ol v-else class="nbdev-stack-tight nbdev-small">
-                                <li v-for="commit in page.data.value.detail.commits.entries" :key="commit.sha" class="flex min-w-0 items-center gap-2">
-                                    <span class="nbdev-secondary shrink-0"><TruncatedText :text="commit.sha.slice(0, 9)" mono /></span>
-                                    <span class="min-w-0 flex-1 truncate" :title="commit.subject">{{ commit.subject }}</span>
-                                    <span class="nbdev-secondary shrink-0">{{ relativeDay(commit.date) }}</span>
-                                </li>
-                            </ol>
-                        </section>
-                        <section class="nbdev-stack">
-                            <h2 class="nbdev-heading">产物与文档</h2>
+                        <!-- 产物与文档放最上面（开发者多半是来答题、看产物的），执行 checkout 与提交挪到最下面（t22）。 -->
+                        <section id="task-artifacts" class="nbdev-stack">
+                            <h2 ref="artifactsHeading" tabindex="-1" class="nbdev-heading outline-none">产物与文档</h2>
                             <ul class="nbdev-stack-tight">
                                 <li v-for="artifact in page.data.value.task.artifacts" :key="artifact.artifactId" class="flex flex-wrap items-center gap-1.5">
                                     <a :href="artifactHref(props.workId, props.taskId, artifact.artifactId)" @click="openPeek($event, {kind: 'artifact', artifactId: artifact.artifactId})">{{ artifact.title ?? artifact.artifactId }}</a>
@@ -249,13 +248,33 @@ const peekEvidence = computed(() => {
                                 </li>
                             </ul>
                         </section>
-                        <!-- 持久页里混着的临时片段，仍用虚线框标出（t15 阶段 3g）。 -->
-                        <EphemeralFrame title="谁在动">
-                            <p v-if="page.data.value.task.leases.length === 0" class="nbdev-empty">没有</p>
-                            <div v-else class="flex flex-wrap gap-1.5">
-                                <LeaseChip v-for="lease in page.data.value.task.leases" :key="lease.sessionKey" :session="sessionName(lease.sessionKey, lease.label, page.data.value.sessionTitles)" :stale="lease.stale" />
+                        <!-- 持久页里混着的临时片段，仍用虚线框标出（t15 阶段 3g）；没人在动时不画（t22）。 -->
+                        <EphemeralFrame v-if="page.data.value.task.leases.length > 0" title="谁在动">
+                            <div class="flex flex-wrap gap-1.5">
+                                <LeaseChip v-for="lease in page.data.value.task.leases" :key="lease.sessionKey" :href="sessionHref(lease.sessionKey)" @navigate="navigate" :session="sessionName(lease.sessionKey, lease.label, page.data.value.sessionTitles)" :stale="lease.stale" />
                             </div>
                         </EphemeralFrame>
+                        <section class="nbdev-stack">
+                            <h2 class="nbdev-heading">执行 checkout</h2>
+                            <ul class="nbdev-stack-tight nbdev-small">
+                                <li v-for="candidate in page.data.value.detail.execution.candidates" :key="candidate.key" class="flex min-w-0 flex-wrap items-center gap-1.5">
+                                    <Badge v-if="candidate.key === executionKey" tone="accent" variant="soft" size="sm">选中</Badge>
+                                    <RouterLink :to="{name: 'docs', query: {checkout: candidate.key, prefer: preferKeys}}">{{ candidate.key }}</RouterLink>
+                                    <span class="nbdev-secondary flex min-w-0 items-center gap-1"><TruncatedText :text="candidate.branch ?? '分离 HEAD'" mono :copyable="candidate.branch !== null" /> · 按{{ RULE_LABEL[candidate.rule] }}</span>
+                                </li>
+                            </ul>
+                        </section>
+                        <section class="nbdev-stack">
+                            <h2 class="nbdev-heading">{{ page.data.value.detail.commits.range === "branch" ? `${page.data.value.detail.commits.checkout} 分支上的提交` : "碰过这个 Task 的提交" }}</h2>
+                            <p v-if="page.data.value.detail.commits.entries.length === 0" class="nbdev-empty">没有</p>
+                            <ol v-else class="nbdev-stack-tight nbdev-small">
+                                <li v-for="commit in page.data.value.detail.commits.entries" :key="commit.sha" class="flex min-w-0 items-center gap-2">
+                                    <span class="nbdev-secondary shrink-0"><TruncatedText :text="commit.sha.slice(0, 9)" mono /></span>
+                                    <span class="min-w-0 flex-1 truncate" :title="commit.subject">{{ commit.subject }}</span>
+                                    <span class="nbdev-secondary shrink-0">{{ relativeDay(commit.date) }}</span>
+                                </li>
+                            </ol>
+                        </section>
                     </template>
                 </aside>
             </div>

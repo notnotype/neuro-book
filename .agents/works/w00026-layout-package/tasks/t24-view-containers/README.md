@@ -74,4 +74,5 @@ Spec 的条目级 planned 合同已提交（`workbench-layout`、`views`、`nest
 
 - 切片 0（`isPanelShown` 收口，行为不变）已提交：nb-layout、工作台单元测试通过。
 - 切片 1（nb-layout 的锚、分节、容器归属，区域整体拖到零）已提交，编码派 Fable，主 Agent 审 diff 并自跑：nb-layout 498、组件 187、工作台 206 项单元测试与类型检查通过，`workbench-views`、`workbench-dnd` e2e 68 项通过。与说明不同的三处：锚的当前容器字段叫 `activeContainer`；“新模型的锚”要求带 `entries`；`grid-geometry.ts` 收起的分支里不再报空间不够的诊断。实现审查（Fable）在后台。
+- 切片 1 的实现审查（Fable，[`evidences/impl-review-s1.txt`](evidences/impl-review-s1.txt)）：9 条（重要 3、建议 6），旧文档行为不变经差分模糊 9773 步 0 处不一致。处理（切片 2 提交后修，单独提交）：F1 锚做交叉方向的外缘、锚当来源、给了归属却落在区域外，一律拒绝；F2 只显示一个分节时不收成标题行（主 Agent 按“窄场景选简单改法”定，Spec 输出 11 已写；`collapsed` 留着，区域里又有两个以上分节时起作用），库给“此刻是不是收成标题行”的判定，工作台都问它；F3 浮动窗不许带归属、非锚区域的归属不起作用；F4 `showPanelAndInsert` 对分节拒绝，活动栏落点在切片 4 之前不可用（中间态）；F5 拖到零的区域里看不见的分隔线不可聚焦、不进命中（先在 `NestedGrid.dom` 测试里复现）；F6 不缓存，`anchorOf` 改 `for…in`；F7 `movePanelToStrip` 拒绝锚当来源；F8 补测试；F9 拖到零的区域两根轴的最小尺寸都是 0。
 - 切片 2（工作台的模型与声明）编码中，派 Fable。

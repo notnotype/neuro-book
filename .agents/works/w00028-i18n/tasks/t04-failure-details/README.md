@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-failure-details
-status: active
+status: done
 updated: 2026-11-10
 ---
 
@@ -23,7 +23,22 @@ updated: 2026-11-10
 
 ## 当前状态
 
-2026-11-10 开发者确认计划第二版，开工；实现在 worktree 分支 `feat/w00028-t04-failure-details`，按 [plan.md](plan.md) 的六个切片推进。2026-11-07 开发者同意的顺序：先做本 Task，再重写 w00031 t03 的计划（它要用这里的“详情”载体）。本 Task 与 t05 做完即可收口 w00028。
+2026-11-10 完成并合入 master。“详情”载体（`detail` 字段、`DetailDialog`、`CopyButton`）、通知的动作行、视口上限折叠与详情对话框都已实现，行为写进 [`workbench/notifications.md`](../../../../../docs/specs/workbench/notifications.md) 的输出 3、5、8、10 到 12 与验收 5 到 7。使用方迁移（编辑器、资源管理器）在 t05；失败投影产出 `detail` 在 w00031 t03。
+
+### 完成情况
+
+- 提交（分支 `feat/w00028-t04-failure-details`）：切片 1 `CopyButton` 与 `CodeBlock` 文字可选、空行不写空格；切片 2 `DetailDialog`；切片 3 队列与工作台服务的 `detail`、`hasNotificationDetail`、8000 码元上限、带详情缺省常驻；切片 4 `Notification` 动作行与“详情”；切片 5 `NotificationStack` 上限折叠、region、详情对话框接线、inert 与焦点归还；第 5 轮决定的对话框改版；e2e 一例；实现审查的修正。
+- 与计划的偏离：
+  - 对话框外观按第 5 轮决定改为“不给面”（第 14 条），不再用 `CodeBlock` 装原文；计划里 `CodeBlock` 的 `maxHeight`、块头操作位随之撤掉。
+  - `DetailDialog` 加 `closed` 事件：视口要在 `Dialog` 交还焦点之后再放焦点（`close-handoff.ts` 的时序）。
+  - `Notification` 的 `detail` 事件带上被点的按钮，视口用它做焦点归还，不另记元素。
+  - 对话框打开时视口不只 `inert`，还降到模态层级之下（实现审查 F1：`inert` 不改绘制，通知会画在遮罩与对话框上面），不加 `aria-hidden`。
+  - 靠右的视口位置改贴 `right-0`：原来 `w-full` 加 `right-4` 在窄屏上整列从左边溢出 16px（base 上就有，新加的折叠小条因此被裁）；桌面上卡片离右边从 32px 变成 16px。
+  - 计划的两个文字键 `notification.detailTitleBare` 没加，无标题时复用 `notification.detail`（“详情”）。
+- 验证：nb-ui 受影响的 7 个 vitest 文件 214 条、工作台 `notifications.dom.test.ts` 9 条、`sdk.test.ts` 与 `surface.test.ts`、Lab 夹具登记测试全过；nb-ui 与 neuro-book 类型检查通过；`docs:check`、`governance:check` 无新增问题；e2e `lab-nb-ui.e2e.ts` 的“通知的‘详情’”一例通过（真实浏览器复制原文，含去掉剪贴板 API 后走 `execCommand` 的退路）。`plugin-sdk/pack.test.ts`：12 条里 10 条过，“page 分区少了必填的 icon”“诊断写明是哪一项”两条在 60 秒超时（机器负载 16 到 26）；同两条在 master 上同样超时，不是本次回归。合入后在 master 上复跑时，`notifications.dom.test.ts` 原有的“限时通知到点消失”（30ms）在负载 22 下四次失败一次：视口多挂了一个关着的对话框，首次渲染变慢，30ms 先到；已把时长放宽到 1500ms（78ff58864），连跑三次通过。
+- Lab 取证：`CopyButton`、`DetailDialog`、`Notification`、`NotificationStack` 在 nbook/macos × 亮/暗 × 1200 宽与 390 宽下 `lab:shot`，测量没有溢出、焦点环被裁与页面错误（截图集在本地 `.local/agent/works/w00028-i18n/tasks/t04-failure-details/shots/`）。
+- 实现审查：Claude Sonnet 前端审查 14 条（阻断 0、重要 4、建议 10），报告与逐条处理在 [`evidences/impl-review-sonnet-frontend.txt`](evidences/impl-review-sonnet-frontend.txt)。
+- 未验证的边界：模态对话框焦点陷阱里退路 textarea 能否被选中（Lab 的对话框是非模态的 contained 形态，e2e 走的是那里）；真实 `http://` 局域网页面里手点 `execCommand` 复制；Safari 的按钮焦点与用户手势要求。
 
 ### 设计决定（评审板 review）
 
@@ -62,4 +77,4 @@ updated: 2026-11-10
 
 ## 下一步
 
-切片 1 到 4 已提交；切片 5（视口）进行中。对话框按第 5 轮决定（第 14 条）改成“不给面”。
+无。后续：t05 迁编辑器与资源管理器的失败到通知；w00031 t03 重写计划，把错误码与参数投影成 `detail`。

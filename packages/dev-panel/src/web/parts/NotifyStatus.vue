@@ -35,7 +35,7 @@ function jobLine(job: NotifyJob): {tone: Tone; text: string} {
     case "legacy": return {tone: "neutral", text: `旧答复（早于启用通知）没有自动通知 ${shortSession(job.sessionKey)}，可以手动发`};
     case "waiting_herdr": return {tone: "warning", text: `已排队：herdr 不可用，等它回来再通知 ${shortSession(job.sessionKey)}`};
     case "no_target": return {tone: "warning", text: `答复已保存，没有可通知的会话（提问的 ${shortSession(job.sessionKey)} 不在 herdr 里）`};
-    case "replaced": return {tone: "warning", text: `会话已更换：${job.askerPaneId ?? "原来的 pane"} 上现在是 ${shortSession(job.replacedBy!.sessionKey)}，不是提问的 ${shortSession(job.sessionKey)}`};
+    case "replaced": return {tone: "warning", text: `会话已更换：${job.askerPaneId ?? "原来的窗格"} 上现在是 ${shortSession(job.replacedBy!.sessionKey)}，不是提问的 ${shortSession(job.sessionKey)}`};
     case "not_in_repository": return {tone: "warning", text: `${asker} 已不在本仓库的目录里，不自动通知`};
     case "manual_only": return {tone: "neutral", text: `这个 herdr 版本不自动投递；可以手动通知 ${asker}`};
     case "waiting_idle": return {tone: "accent", text: `已排队：${asker} 这一轮结束后通知`};

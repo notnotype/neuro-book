@@ -1,11 +1,12 @@
 /**
- * 通知队列（`createNotificationQueue`）：自建队列互不干扰；进度与文字可更新；时长改变后重新计时；常驻不自动消失。
+ * 通知队列（`createNotificationQueue`）：自建队列互不干扰；进度与文字可更新；时长改变后重新计时；常驻不自动消失；
+ * 详情原文的有无、截断与清除。
  * 计时用真实的短时长，等可观察的状态，不用假计时器。
  */
 
 import {describe, expect, it, vi} from "vitest";
 
-import {createNotificationQueue, useNotification} from "./useNotification";
+import {createNotificationQueue, hasNotificationDetail, NOTIFICATION_DETAIL_MAX_CHARS, useNotification} from "./useNotification";
 
 const ids = (queue: ReturnType<typeof createNotificationQueue>): string[] => queue.notifications.value.map((item) => item.id);
 
@@ -73,6 +74,47 @@ describe("createNotificationQueue", () => {
         const [info, warning, error] = queue.notifications.value.map((item) => item.duration);
         expect(info).toBeLessThan(warning as number);
         expect(warning).toBeLessThan(error as number);
+        queue.clearAll();
+    });
+
+    it("详情：空串与全空白等于没有；队列不按详情折算时长", () => {
+        expect([undefined, "", "  \n\t ", "x"].map(hasNotificationDetail)).toEqual([false, false, false, true]);
+        const queue = createNotificationQueue();
+        queue.notify({message: "空白", detail: " \n "});
+        queue.notify({message: "有详情", detail: "Error: EACCES"});
+        const [blank, withDetail] = queue.notifications.value;
+        expect(blank).not.toHaveProperty("detail");
+        expect(blank).not.toHaveProperty("detailTruncated");
+        expect(withDetail).toMatchObject({detail: "Error: EACCES", detailTruncated: false, duration: 3200});
+        queue.clearAll();
+    });
+
+    it("超长详情截到上限并置 detailTruncated；不在代理对中间切开", () => {
+        const queue = createNotificationQueue();
+        const huge = queue.notify({message: "m", detail: "x".repeat(1_000_000), duration: 0});
+        // 上限处正好是一个代理对的前半：整个字符往前退，不留孤立的高位代理。
+        const emoji = queue.notify({message: "m", detail: `${"y".repeat(NOTIFICATION_DETAIL_MAX_CHARS - 1)}😀tail`, duration: 0});
+        const item = (id: string) => queue.notifications.value.find((entry) => entry.id === id)!;
+        expect(item(huge).detail).toHaveLength(NOTIFICATION_DETAIL_MAX_CHARS);
+        expect(item(huge).detailTruncated).toBe(true);
+        expect(item(emoji).detail).toBe("y".repeat(NOTIFICATION_DETAIL_MAX_CHARS - 1));
+        expect(item(emoji).detailTruncated).toBe(true);
+        // 发出方自己截过的，队列没截也保留标志。
+        const upstream = queue.notify({message: "m", detail: "前 100 行", detailTruncated: true});
+        expect(item(upstream).detailTruncated).toBe(true);
+        queue.clearAll();
+    });
+
+    it("update 的详情：给新原文就换掉并重算截断；给空串清除；不给不动", () => {
+        const queue = createNotificationQueue();
+        const id = queue.notify({message: "m", detail: "x".repeat(NOTIFICATION_DETAIL_MAX_CHARS + 1), duration: 0});
+        queue.update(id, {detail: "短原文"});
+        expect(queue.notifications.value[0]).toMatchObject({detail: "短原文", detailTruncated: false});
+        queue.update(id, {progress: 50});
+        expect(queue.notifications.value[0]?.detail).toBe("短原文");
+        queue.update(id, {detail: ""});
+        expect(queue.notifications.value[0]).not.toHaveProperty("detail");
+        expect(queue.notifications.value[0]).not.toHaveProperty("detailTruncated");
         queue.clearAll();
     });
 });

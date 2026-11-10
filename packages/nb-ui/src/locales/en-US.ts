@@ -18,6 +18,16 @@ export default {
         empty: "No content",
         truncated: "Only part of the content is shown",
     },
+    copyButton: {
+        copy: "Copy",
+        copied: "Copied",
+        failed: "Copy failed; select manually",
+    },
+    detailDialog: {
+        copy: "Copy output",
+        close: "Close",
+        truncated: "Output too long; truncated",
+    },
     diffView: {
         mode: "Display",
         inline: "Inline",
@@ -60,6 +70,11 @@ export default {
     notification: {
         close: "Dismiss notification",
         inProgress: "In progress",
+        detail: "Details",
+        detailTitle: "{{title}}: details",
+        region: "Notifications",
+        folded: "Show {{count}} earlier",
+        collapse: "Show less",
     },
     numberInput: {
         increase: "Increase",

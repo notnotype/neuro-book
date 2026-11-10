@@ -30,13 +30,13 @@ function send(): void {
 <template>
     <Dialog :open="open" :title="replaced ? '提问的会话已经换了' : '通知持有租约的会话'" size="md" :busy="pending" :close-on-overlay="!replaced" :close-on-esc="!replaced" @request-close="!replaced && emit('cancel')">
         <div v-if="compose" class="flex flex-col gap-3">
-            <p v-if="replaced">{{ workLabel(compose.job.workId) }}/{{ taskLabel(compose.job.taskId) }} 有新的答复，提问的会话已经不在了，它原来的 pane 上换成了另一个会话。</p>
+            <p v-if="replaced">{{ workLabel(compose.job.workId) }}/{{ taskLabel(compose.job.taskId) }} 有新的答复，提问的会话已经不在了，它原来的窗格上换成了另一个会话。</p>
             <p v-else>{{ workLabel(compose.job.workId) }}/{{ taskLabel(compose.job.taskId) }} 有新的答复，提问的会话不在 herdr 里。下面这个会话持有这个 Task 的租约。</p>
             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 nbdev-small">
                 <dt class="nbdev-secondary">谁问的</dt>
-                <dd class="break-all"><code>{{ compose.job.sessionKey }}</code><template v-if="compose.job.askerPaneId">（在 pane {{ compose.job.askerPaneId }}）</template></dd>
+                <dd class="break-all"><code>{{ compose.job.sessionKey }}</code><template v-if="compose.job.askerPaneId">（在窗格 {{ compose.job.askerPaneId }}）</template></dd>
                 <dt class="nbdev-secondary">发给</dt>
-                <dd class="break-all"><code>{{ compose.target.sessionKey }}</code>（pane {{ compose.target.paneId }}，{{ compose.target.agent ?? "Agent" }}，{{ HERDR_STATUS_LABEL[compose.target.status] ?? compose.target.status }}）</dd>
+                <dd class="break-all"><code>{{ compose.target.sessionKey }}</code>（窗格 {{ compose.target.paneId }}，{{ compose.target.agent ?? "Agent" }}，{{ HERDR_STATUS_LABEL[compose.target.status] ?? compose.target.status }}）</dd>
             </dl>
             <p class="nbdev-note">{{ shortSession(compose.target.sessionKey) }} 没有提过这道题，所以不发 [nbdev] 通知（那一句规则只让提问者照做），而是以你的名义发下面这段普通消息，它按普通的用户消息处理。可以先改；发之前同样核对它是否空闲、输入框是否为空。<template v-if="replaced">不通知的话，提问的会话下次读答复时也会看到。</template></p>
             <Textarea v-model="draft" :rows="6" :maxlength="MAX" aria-label="要发的消息" />

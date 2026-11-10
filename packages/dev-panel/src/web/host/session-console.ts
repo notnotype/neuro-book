@@ -33,7 +33,7 @@ export function samePane(a: ConsoleTarget | null, b: ConsoleTarget | null): bool
     return a !== null && b !== null && a.paneId === b.paneId && a.terminalId === b.terminalId;
 }
 
-const label = (target: ConsoleTarget) => `${shortSession(target.sessionKey)}（pane ${target.paneId}）`;
+const label = (target: ConsoleTarget) => `${shortSession(target.sessionKey)}（窗格 ${target.paneId}）`;
 
 function ago(iso: string): string {
     const seconds = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1_000));

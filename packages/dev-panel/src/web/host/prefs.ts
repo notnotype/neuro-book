@@ -2,7 +2,7 @@ import {emptyAnswerDraft, hasDraftContent, parseAnswerDraft, type AnswerDraft} f
 import {NAV_ARRANGES, type NavArrange} from "./nav.js";
 
 /**
- * 面板的偏好（明暗、左栏各组的展开、左栏的宽度与收起、左栏 Work 列表的排列方式、通知里“知道了”的尝试、审计横幅的“知道了”）与答复表单的草稿：只在这一处读写 localStorage，组件不碰浏览器存储。
+ * 面板的偏好（明暗、左栏各组的展开、左栏的宽度与收起、左栏 Work 列表的排列方式、通知里“知道了”的尝试、审计与“代码已更新”横幅的“知道了”）与答复表单的草稿：只在这一处读写 localStorage，组件不碰浏览器存储。
  * 键都带 `nbdev-panel:` 前缀；读写都包 try/catch（隐私模式、存储被禁用时照常工作，只是记不住）。
  * localStorage 按来源分开：`127.0.0.1:4400` 与 `localhost:4400` 各有一份，可以接受。
  */
@@ -102,6 +102,18 @@ export function readDismissedAudit(): string | null {
 
 export function writeDismissedAudit(key: string): void {
     write("audit-dismissed", key);
+}
+
+/**
+ * 横幅“代码已更新”点过“知道了”的那一次：记面板服务的实例 id（t22）。重启之后是新的实例，代码再变时横幅重新出现；
+ * 同一个实例里代码又变了不再出现（`codeChanged` 一个实例里只会从假变真一次）。
+ */
+export function readDismissedCode(): string | null {
+    return read("code-dismissed");
+}
+
+export function writeDismissedCode(instance: string): void {
+    write("code-dismissed", instance);
 }
 
 /** 通知里“知道了”的尝试（attemptId）：只在本浏览器记住，最多留最近 200 个。 */

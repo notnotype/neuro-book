@@ -36,7 +36,7 @@ description: 指导 NeuroBook 与 nb-ui 的前端与 UI 开发、组件设计与
 
 ## 反思回写
 
-按 [task-reflection](../task-reflection/SKILL.md) 列出回写建议，经批准后写入。UI 类知识的目标位置：
+按用户级 Skill `task-reflection` 列出回写建议，经批准后写入。UI 类知识的目标位置：
 
 - 浏览器怪异行为与判据失误：写到 [`design-language.md` 的“踩过的坑”](../../../packages/nb-ui/docs/design-language.md#八踩过的坑)，按“现象 → 根因 → 判据”的格式。
 - 控件参数、交互合同，以及用户提出或纠正的 UI 规范：写到 [`ui-development-spec.md`](../../../packages/nb-ui/docs/ui-development-spec.md) 对应小节；自动化工具查不出的易错项写到其中的开发后自检与易错清单。

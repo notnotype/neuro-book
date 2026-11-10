@@ -2,7 +2,7 @@
 import {Badge} from "@notnotype/nb-ui/components";
 import {relativeDay, sessionName, taskLabel, workLabel} from "../host/format.js";
 import {inlineMarkdownText} from "../host/markdown.js";
-import {isPlainClick, workHref} from "../host/routes.js";
+import {isPlainClick, sessionHref, workHref} from "../host/routes.js";
 import type {OverviewWork, SessionTitle} from "../host/types.js";
 import BranchNote from "./BranchNote.vue";
 import EphemeralFrame from "./EphemeralFrame.vue";
@@ -46,7 +46,7 @@ function follow(event: MouseEvent, href: string): void {
         <BranchNote v-if="work.source === 'branch'" :branch="work.branch" :checkout-key="work.checkoutKey" />
         <EphemeralFrame v-if="work.activeLeases.length > 0" title="谁在动">
             <div class="flex flex-wrap gap-1.5">
-                <LeaseChip v-for="lease in work.activeLeases" :key="`${lease.sessionKey}/${lease.taskId}`" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :task="taskLabel(lease.taskId)" :stale="lease.stale" />
+                <LeaseChip v-for="lease in work.activeLeases" :key="`${lease.sessionKey}/${lease.taskId}`" :href="sessionHref(lease.sessionKey)" @navigate="(href) => emit('navigate', href)" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :task="taskLabel(lease.taskId)" :stale="lease.stale" />
             </div>
         </EphemeralFrame>
     </article>
