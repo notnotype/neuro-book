@@ -40,10 +40,10 @@ updated: 2026-11-10
 
 - 验证：`whole-ruby.dom.test.ts` 11 例（修之前 9 例失败；改成在“这一步之前的文档”上认注音时 2 例失败，即两次变异检查）；nb-markdown 全部测试与类型检查、nb-ui 的弹层与静态扫描测试、两包与应用的类型检查都过。e2e `markdown-editing`、`editor-code-menu`、`markdown-input` 57 例：第一次两例失败，动效用例的断言把变量原文与计算值比（`.23` 与 `0.23`），改成比计算值后通过；`markdown-input` 的“按快捷键打出删除线”在负载 16 时丢了按键，单独重跑 3 次都过（与改动无关，t17 记的同一类偶发）。
 - Spec（主工作区，未提交，合入时一起提交）：`markdown-editing.md` 加输出 26、验收 7 与实现合同；`theme/system.md` 写 Monaco 底色取 `--bg-panel`；待确认清单 t05 第 5 行写了改判结果。
-- 实现审查（Sonnet）进行中：说明与报告在仓库外 `/tmp/nb-review-w00025/t20-impl1/`。
+- 实现审查（Sonnet）已处理：阻断 1（反转映射反转了整个事务，撤销 `**…**` 输入规则时抛错、撤销栈卡住，无注音的文档也会）、重要 1、建议 6；修正在 `e43c383b8`，用例补到 18 例并做了三次变异检查。暗色下源码编辑器当前行与缩进线对比变弱一条接受取舍，四种组合取证时看暗色截图。报告与逐条处理见 [evidences/impl-review-sonnet.txt](evidences/impl-review-sonnet.txt)、[evidences/impl-review-disposition.txt](evidences/impl-review-disposition.txt)。修正后 e2e `markdown-editing`、`markdown-input` 43 例通过；快捷键那条在负载下的偶发记到 t17。
 
 **第二段**：[plan-2.md](plan-2.md) 已写，等开发者确认。
 
 ## 下一步
 
-处理第一段的实现审查；开发者确认第二段计划后实施；两段做完一起做四种主题组合的 UI 取证，再合入。
+开发者确认第二段计划后实施；两段做完一起做四种主题组合的 UI 取证，再合入。
