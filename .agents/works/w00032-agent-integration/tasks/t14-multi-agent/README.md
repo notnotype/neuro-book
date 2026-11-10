@@ -221,4 +221,6 @@ t05、t06、t07。
 
 ## 下一步
 
-三轮设计审查都处理完（[第三轮处理](evidences/impl-plan-review-r3-handling.txt)，结论“改完切片 0 就能开工”）；开始切片 1（内核五处与适配器的 `invocation`），在 `.worktree/w00032-t14-multi-agent`。
+实施中，worktree `.worktree/w00032-t14-multi-agent`（分支 `feat/w00032-t14-multi-agent`）。已完成：切片 1 内核五处（另加视图上下文带会话，`extensions.md` 输出 31 已改）、切片 2 假端点按会话分派、切片 3 白名单与提示词一节、临时帮手、三项设置、会话关系表。下一步切片 4 任务中心与 `wait`、`kill`、`jobs`。
+
+已知的旧问题：nb-harness 存储测试“别的进程持有时得 session-busy”偶发失败（文件句柄在垃圾回收时报未关闭），重跑通过，与本 Task 无关。
