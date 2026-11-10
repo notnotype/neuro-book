@@ -11,6 +11,7 @@ import {Type} from "typebox";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
+import {commandsMessage} from "nbook/plugins/commands/shared/text";
 import {provideText} from "nbook/shared/testing/text-port";
 
 import type {NotificationInput} from "../../shared/contracts";
@@ -105,7 +106,41 @@ describe("WorkbenchCommandHost", () => {
         await vi.waitFor(() => expect(document.body.querySelector('[role="option"][id$="-option-nbook.app.count"]')).not.toBeNull());
         document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         await vi.waitFor(() => expect(notices.map(titled("zh-CN"))).toEqual([{tone: "warning", title: "统计没有完成", message: "选区里没有文字"}]));
-        expect(reported).toEqual(["Command nbook.app.count failed: 选区里没有文字"]);
+        expect(reported).toEqual(["Command nbook.app.count failed (invalid-args): 选区里没有文字"]);
+        wrapper.unmount();
+    });
+
+    it("面板执行的命令抛异常：通知正文是“命令执行出错”，异常原文脱敏后放在通知的详情里，诊断带上原文（commands 验收 21）", async () => {
+        const registry = createCommandRegistry({contextKeys: contextTable({}), report: () => undefined});
+        const slot = new PaletteSlot();
+        registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: completedCommand(OPEN_COMMANDS_ID, OPEN_COMMANDS_DECLARATION), run: () => slot.command.run({})});
+        registry.register({
+            id: "nbook.app.crash",
+            source: "nbook.test",
+            declaration: {title: {"zh-CN": "崩溃", "en-US": "Crash"}, description: "crash", args: Type.Object({}, {additionalProperties: false}), effect: "read"},
+            run: () => {
+                throw new Error("token=abc boom");
+            },
+        });
+        const notices: NotificationInput[] = [];
+        const reported: string[] = [];
+        const wrapper = mount(WorkbenchCommandHost, {
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), notify: (input: NotificationInput) => notices.push(input)},
+            attachTo: document.body,
+            global: {provide: provideText(workbenchTestText("zh-CN"))},
+        });
+        await nextTick();
+        shortcut();
+        await vi.waitFor(() => expect(document.body.querySelector('[role="option"][id$="-option-nbook.app.crash"]')).not.toBeNull());
+        document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        await vi.waitFor(() => expect(notices).toHaveLength(1));
+        const [notice] = notices.map(titled("zh-CN"));
+        expect(notice).toMatchObject({tone: "warning", title: "崩溃没有完成", message: commandsMessage("failures.executionError")});
+        expect(notice?.detail).toContain("boom");
+        expect(notice?.detail).not.toContain("abc");
+        expect(reported).toHaveLength(1);
+        expect(reported[0]).toContain("(execution-error)");
+        expect(reported[0]).toContain("boom");
         wrapper.unmount();
     });
 
@@ -133,7 +168,7 @@ describe("WorkbenchCommandHost", () => {
         expect(titled("zh-CN")(notices[0]!).title).toBe("Broken没有完成");
         expect(workbenchTestText("zh-CN").t(notices[0]!.message)).toBe("当前页面没有命令面板");
         expect(workbenchTestText("en-US").t(notices[0]!.message)).toBe("This page has no command palette");
-        expect(reported).toEqual(["Command nbook.app.broken failed: nbook.workbench:palette.unavailable"]);
+        expect(reported).toEqual(["Command nbook.app.broken failed (unavailable): nbook.workbench:palette.unavailable"]);
         wrapper.unmount();
     });
 

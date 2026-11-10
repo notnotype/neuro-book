@@ -11,11 +11,10 @@ import {useText} from "@notnotype/nb-ui/text-port";
 
 import {currentKeyPlatform} from "nbook/plugins/commands/shared/contracts";
 import type {CommandFailure, CommandService, Release} from "nbook/plugins/commands/shared/contracts";
-import {diagnosticText} from "nbook/shared/localized-text";
 
 import type {NotificationInput} from "../../shared/contracts";
 import WorkbenchCommandPalette from "../components/WorkbenchCommandPalette.vue";
-import {failureNotice} from "./failure-notice";
+import {failureDiagnostic, failureNotice} from "./failure-notice";
 import {createKeymapDispatcher} from "./keymap";
 import {createPaletteHost} from "./palette-host";
 import type {PaletteHost} from "./palette-host";
@@ -43,7 +42,7 @@ function notifyFailure(id: string, failure: CommandFailure): void {
 const host = createPaletteHost({
     commands: props.commands,
     onFailure: (id, failure) => {
-        props.report(new Error(`Command ${id} failed: ${diagnosticText(failure.reason)}`));
+        props.report(failureDiagnostic(id, failure));
         notifyFailure(id, failure);
     },
 });

@@ -209,7 +209,7 @@ describe("createKeymapDispatcher", () => {
         const reported = app.nextReport();
         app.dispatcher.handle(press({key: "P", ctrlKey: true, shiftKey: true}));
         await reported;
-        expect(app.reported).toEqual(["Command nbook.quick-open.open-commands failed: 没有地方放面板"]);
+        expect(app.reported).toEqual(["Command nbook.quick-open.open-commands failed (unavailable): 没有地方放面板"]);
         expect(app.failures).toEqual(["nbook.quick-open.open-commands:unavailable"]);
 
         app.dispatcher.dispose();
