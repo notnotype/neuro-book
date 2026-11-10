@@ -18,7 +18,7 @@ updated: 2026-11-10
 
 ## 当前状态
 
-2026-11-10 完成，合入 master 前的最后一步。执行位置：worktree `.worktree/w00025-editor`，分支 `feat/w00025-editor`。
+2026-11-10 完成，已合入 master（快进到 `de519d6f9`）。执行位置：worktree `.worktree/w00025-editor`，分支 `feat/w00025-editor`。
 
 - **计划审查**：fable 子代理，17 条（阻断 2），全部成立，计划重写为第二稿。[报告](evidences/design-review-fable.txt)，[处理](evidences/design-review-disposition.txt)。
 - **实现审查**：Sonnet 子代理（前端），9 条：阻断 0、重要 3、建议 6；8 条改，1 条审查者自己收窄。补的多语言用例查出括号仍按层数着色（独立版里那是模型的选项），已改。[报告](evidences/impl-review-sonnet.txt)，[处理](evidences/impl-review-disposition.txt)。
@@ -30,4 +30,4 @@ updated: 2026-11-10
 
 ## 下一步
 
-与 t04 一起合入 master。
+完成。合入后在合并结果上补跑：nb-ui 组件与主题测试 523 例、typecheck、编辑器 Bun 测试 215 例、自动保存与源码右键的 e2e 22 例全过；`test:affected` 在负载 30 上下被 nb-story 命令行子进程用例的超时截停，同一文件在 master 上对照同样失败，分支没有改 nb-story。worktree `.worktree/w00025-editor` 与分支 `feat/w00025-editor` 已删。
