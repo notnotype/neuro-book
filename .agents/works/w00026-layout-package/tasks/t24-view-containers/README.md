@@ -82,4 +82,5 @@ Spec 的条目级 planned 合同已提交（`workbench-layout`、`views`、`nest
   - `plugins.e2e.ts:78` 失败在设置页“其它”分区，和本片无关（编码者读代码推断是 `4d73e28ef` 把工具绑定移到 Profile 分区后用例没跟上，没在 master 上跑确认）。
   - 别的 e2e（`files-explorer`、`editor-area`、`workbench-titlebar`、`lab-workbench-surface`、`workbench-float`、`workbench-dnd`、`workbench-live-drag`、`workbench-drag-cost`）仍用旧选择器，切片 3、4 一起改。
   - 过渡规则：`moveView` 放进没有容器的区域时依次试声明的容器、隐式容器，都不行才新建用户容器；空区域点“显示”会被归整再隐藏。切片 5 按输出 23 重做。
-- 切片 1 审查的修正（含上面两条）编码中，派 Fable。
+- 切片 1 审查的修正（含上面两条）已提交（`b462eb722`），编码派 Fable，报告 [`evidences/coder-report-s1fix.txt`](evidences/coder-report-s1fix.txt)。主 Agent 审 diff 并自跑：nb-layout 517 项与组件 188 项、工作台与 Lab 518 项（1 条 `package-io` 5 秒超时，master 上同样）、类型检查三份都通过；`workbench-shell`、`workbench-views`、`plugins` e2e 35 过、14 败，失败的就是切片 2 留下的那些（Enter 那条已过），各归切片 3 到 5。超出说明字面的两处，主 Agent 认可并写进 nested-grid 的 Spec：收起策略加 `restoreToShare`（分节的意图只记比例，Enter 按比例恢复）；收起为零的叶与分支都按两轴最小为零，grid 交叉轴的约束跟着改。其余按报告第七节处理：唯一分节按文档数、底部分节的命令展开也不可用、`revealView` 照旧展开，都不改。
+- 切片 3（活动栏）编码中，派 Fable。说明里定的：一个容器一个入口；右键菜单第一步只有“重置”，搬整个容器做成 store 的一个动作（第二步的“移到”共用），分节比例不变，方向变了平分；焦点按输出 16 落到容器的入口；新开 `workbench-containers.e2e.ts`（验收 24、28、30）。
