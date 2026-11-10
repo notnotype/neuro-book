@@ -2,20 +2,24 @@
 
 ## Context
 
-[t02](../t02-harness-baseline/README.md) 决定 3 按“离开 NeuroBook 还能不能用”分工，资源地址的登记机制、审批判定、压缩、通用文件工具归 harness。之后 t06、t11、t12 把压缩方法、审批判定、守卫、会话句柄表、通用工具、资源视图写进了 `nbook.agent`，模型角色与压缩触发点的规则写进了 `nbook.models`。NeuroBot（[w00043](../../../w00043-neurobot/README.md)）在 nb-runtime 上自建、要复用这些能力，而领域包不许依赖应用包（[`packages/AGENTS.md`](../../../../../packages/AGENTS.md)、[`docs/modules/monorepo-boundaries.md`](../../../../../docs/modules/monorepo-boundaries.md)）。本 Task 把实现补回 `packages/nb-harness`，用户可观察的行为、贡献 id、设置、日志里的字符串与界面都不变。
+本稿（第二稿）按第一轮计划审查与文件访问接口的独立设计修订，处理见 [README](README.md) 的“计划第一稿的处理”。
 
-期望结果：nb-harness 多一层“宿主套件”（`src/kit/`），只用内核的公开入口写成，不认识 NeuroBook；`nbook.agent`、`nbook.models` 只剩贡献点接线、NeuroBook 的地址方案与文字、设置与界面。NeuroBot 拿 kit 加自己的文件访问实现与文字就能装出同样的工具、审批、压缩与会话管理。
+[t02](../t02-harness-baseline/README.md) 决定 3 按“离开 NeuroBook 还能不能用”分工，资源地址的登记机制、审批判定、压缩、通用文件工具归 harness。之后 t06、t11、t12 把压缩方法、审批判定、守卫、会话句柄表、通用工具、资源视图写进了 `nbook.agent`，模型角色与压缩触发点的规则写进了 `nbook.models`。NeuroBot（[w00043](../../../w00043-neurobot/README.md)）在 nb-runtime 上自建、要复用这些能力，而领域包不许依赖应用包（[`packages/AGENTS.md`](../../../../../packages/AGENTS.md)、[`docs/modules/monorepo-boundaries.md`](../../../../../docs/modules/monorepo-boundaries.md)）。本 Task 把实现补回 `packages/nb-harness`，用户可观察的行为、贡献 id、设置、日志里的字符串与界面都不变；唯一的例外是会话句柄表的两个错误类（类名与停止时的消息），列在 baseline 的“预期差异”里。
 
-依据：[ADR 0035](../../../../../docs/adr/0035-harness-log-driven-kernel.md)（扩展只用公开接口、常见写法做成 helper）、[ADR 0040](../../../../../docs/adr/0040-file-writes-staged-and-committed-by-root-owner.md)（读不经文件服务，写只经暂存与根拥有者提交）、[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)（以源码发 npm，源码值导入的第三方包写进本包依赖）、[ADR 0031](../../../../../docs/adr/0031-nb-story-supports-windows.md)、[t08](../t08-resources-home/README.md) 实施前决定 1（方案都注册进文件服务）、[t11](../t11-compaction/README.md) 决定 5（摘要小节按写小说定）。
+期望结果：nb-harness 多一层“宿主套件”（`src/kit/`），只用内核的公开入口写成，不认识 NeuroBook；`nbook.agent`、`nbook.models` 只剩贡献点接线、NeuroBook 的地址方案与文字、Agent 模式、设置与界面。NeuroBot 拿 kit 加自己的文件访问实现（`SessionFiles`）与文字，就能装出同样的工具、审批、压缩与会话管理。
 
-开发者已确认：2026-11-09 同意按 t02 决定 3 补回 nb-harness、不新建包，与 t14 的界面静态稿阶段并行；NeuroBot 要让另一个 bot 判定工具调用，本 Task 不实现，但判定接口不能写死判定者（w00043 决定表）。
+依据：[ADR 0035](../../../../../docs/adr/0035-harness-log-driven-kernel.md)（扩展只用公开接口、常见写法做成 helper）、[ADR 0040](../../../../../docs/adr/0040-file-writes-staged-and-committed-by-root-owner.md)（读不经文件服务，写只经暂存与根拥有者提交）、[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)（以源码发 npm，源码值导入的第三方包写进本包依赖）、[ADR 0031](../../../../../docs/adr/0031-nb-story-supports-windows.md)、[t08](../t08-resources-home/README.md) 实施前决定 1（方案都注册进文件服务）、[t11](../t11-compaction/README.md) 决定 5（摘要小节按写小说定）、[NeuroBot 提案](../../../../../docs/proposals/neurobot.md)。
+
+开发者已确认：
+
+- 2026-11-09：按 t02 决定 3 补回 nb-harness、不新建包，与 t14 的界面静态稿阶段并行；NeuroBot 要让另一个 bot 判定工具调用，本 Task 不实现，但判定接口不能写死判定者（w00043 决定表）。
+- 2026-11-10：NeuroBot 提案待定项 1 选 (b)，模型服务（`packages/neuro-book/src/plugins/models/backend/core.ts`：按角色解析模型、服务商与模型配置、OMP 凭据库、给 harness 的模型端口）由 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md) 抽成两边共用的包，排在本 Task 合入之后。对本计划的影响：本 Task 只搬 `models/shared/rules.ts`、`models/shared/compaction.ts` 这两份纯规则（t02 的模型服务建在它们之上）；模型端口 `resolve` 的选择顺序随 `core.ts` 留给 t02，本计划不抽；本 Task 不碰 `core.ts` 的服务逻辑、`packages/neuro-book/src/server/`、`packages/neuro-book/src/web/`。`core.ts` 与设置页的几个组件仍要把导入改到新位置（只改导入行）。
 
 工作方式与约束：
 
-- 代码在 worktree 里改；Spec 与 Task 记录在主工作区 master 上改（代码合入之后，见“Spec 与文档改动”）。
-- 每片搬完就删掉应用里的旧文件、改完全部调用方，不留转发的旧入口（[`common.md`](../../../../../docs/standards/code/common.md)“迁移完整切换消费者并删除旧入口”）。公开入口（`nbook/plugins/agent/shared/*`、`nbook/plugins/models/shared/contracts`、SDK 的 `nbook/sdk/agent`）的导出名不变，需要时改成从 harness 转出。
+- 代码在 worktree 里改；Spec 与 Task 记录在主工作区 master 上改（新 Spec `harness/host-kit.md` 在开工前，其余在代码合入之后，见“Spec 与文档改动”）。
+- 每片搬完就删掉应用里的旧文件、改完全部调用方，不留转发的旧入口（[`common.md`](../../../../../docs/standards/code/common.md)“迁移完整切换消费者并删除旧入口”）。公开入口（`nbook/plugins/agent/shared/*`、`nbook/plugins/models/shared/contracts`、`nbook/plugins/files/shared/contracts`、SDK 的 `nbook/sdk/agent`）的导出名不变，需要时改成从 harness 转出。
 - 另一个会话在做 t14（多 Agent 的界面静态稿）。本 Task 不碰 t14 的记录与草稿；t14 的前后端实施在本 Task 合入之后开始，它的通用部分直接写进 `nb-harness/src/kit/`。
-- `implementation-planning` 要求的“独立设计”这次没有派子代理（派发说明不许开），请审查时一并补上。
 
 ## 技术选型
 
@@ -23,9 +27,10 @@
 |---|---|---|
 | `bash` 命令解析 | `unbash`（已在 `packages/neuro-book` 依赖里，6.0.3，纯 JS、无依赖、ISC） | 随 `bash-dialect.ts` 原样搬进 nb-harness 的 `dependencies`，应用包去掉这条依赖；不换库 |
 | 行锚编辑、搜索、内嵌 shell、`hashline` 排版 | `@oh-my-pi/pi-natives`（nb-harness 已依赖，版本 18.14.0 已锁） | 现有实现就用它；不引 `pi-coding-agent`（包规则禁止） |
-| `ask` 的表单校验 | 由宿主注入（`AskForms`），nb-harness 不依赖 `@notnotype/nb-form` | Task README 写“nb-form 只依赖 TypeBox”，实际它的 `dependencies` 有 `@notnotype/nb-ui`（带 `@iconify-json/lucide`、`reka-ui` 等，peer 有 `vue`、`nuxt`）；nb-story 现在只把 nb-form 放 devDependencies。nb-harness 依赖它，`npm i @notnotype/nb-story` 就会装一整套 Vue 组件库。否决“nb-harness 直接依赖 nb-form”（见“需要开发者确认”第 1 条） |
+| `ask` 的表单校验 | 由宿主注入（`AskForms`），nb-harness 不依赖 `@notnotype/nb-form` | nb-form 的 `dependencies` 有 `@notnotype/nb-ui`（带 `@iconify-json/lucide`、`reka-ui` 等，peer 有 `vue`、`nuxt`）；nb-story 现在只把 nb-form 放 devDependencies。nb-harness 依赖它，`npm i @notnotype/nb-story` 就会装一整套 Vue 组件库。否决“nb-harness 直接依赖 nb-form”（见“需要开发者确认”第 1 条） |
 | 图片缩放 | `Bun.Image`（现有实现，nb-harness 内核的 `model/omp.ts` 已在用） | 不加库 |
 | 路径通配 | `Bun.Glob`（规则求值现有实现） | 不加库 |
+| 合同测试的运行器 | `bun:test`（`./kit/testing` 作为发布的源码导入它，照 `./kernel/testing` 的先例） | `scripts/release/packages.ts` 对 `bun:` 前缀直接放行，不进依赖表 |
 
 没有用库替换手写实现的地方，不需要对照测试切片。
 
@@ -35,121 +40,132 @@
 
 新目录 `src/kit/`（宿主套件）：宿主把内核装成产品时用的通用件。规则：
 
-- 只经内核的公开入口引用内核（`../../kernel/index.js`、`../../kernel/contracts.js`），不引 `kernel/` 内部文件，也不引旧 harness（`src/*.ts`、`src/tools/`）。这与 ADR 0035“常见写法只用公开接口写成”一致，也让 t31 删旧实现、把 `kernel/` 上移一层时只改这一处导入前缀。
-- 子目录单向依赖，由 `src/kit/architecture.test.ts` 按目录表检查（写法照 `src/kernel/architecture.test.ts`：TypeScript 语法树读出导入，登记可依赖的目录、包与内置模块）：
+- 只经内核的公开入口引用内核（`../../kernel/index.js`、`../../kernel/contracts.js`），不引 `kernel/` 内部文件，也不引旧 harness（`src/*.ts`、`src/tools/`）与 `src/models/`。这与 ADR 0035“常见写法只用公开接口写成”一致，也让 t31 删旧实现、把 `kernel/` 上移一层时只改这一处导入前缀。
+- 子目录单向依赖，由 `src/kit/architecture.test.ts` 按目录表检查（写法照 `src/kernel/architecture.test.ts`：TypeScript 语法树读出导入，区分值导入与 `import type`，登记可依赖的目录、包与内置模块）：
 
 | 目录 | 可依赖的 kit 目录 | 外部包 | 内置模块 |
 |---|---|---|---|
-| `shapes.ts`（单文件） | — | `typebox` | 无（浏览器也要用） |
-| `files/` | — | — | `node:fs/promises`、`node:path`、`node:crypto` |
+| `shapes.ts`（单文件） | — | `typebox`；`kernel/contracts.js` 只许 `import type` | 无 |
+| `files/`（`local.ts` 除外） | `shapes` | `kernel/contracts.js` 只许 `import type` | 无 |
+| `files/local.ts` | `files` | — | `node:fs/promises`、`node:path`、`node:crypto` |
+| `testing/` | `files` | — | `bun:test` |
 | `commands/` | — | `unbash` | — |
 | `tools/` | `files`、`commands`、`shapes` | `@oh-my-pi/pi-natives` | `node:fs`、`node:fs/promises`、`node:os`、`node:path` |
 | `approval/` | `files`、`commands`、`shapes` | `typebox` | — |
-| `compaction/` | `files`、`tools` | — | `node:fs/promises` |
+| `compaction/` | `files`、`tools`、`shapes` | — | `node:fs/promises` |
 | `guards/` | — | — | `node:crypto` |
 | `sessions/` | — | — | `node:crypto` |
 
-- 同一个架构测试守住 ADR 0040 在 harness 这一侧的不变量“工具不自己写盘”：`tools/`、`compaction/`、`approval/` 从 `node:fs`、`node:fs/promises` 只能具名导入只读的函数（`open`、`stat`、`lstat`、`readFile`、`readdir`、`realpath`、`createReadStream`），源码里不出现 `Bun.write`；唯一例外是 `tools/shell.ts` 的输出暂存（`mkdtempSync`、`openSync`、`writeSync`、`closeSync`、`rmSync`，在 `os.tmpdir()` 里，不在任何根里），按文件名单独放行。写盘只在 `files/local.ts`（本机实现）。
-- 子路径导出（`package.json` 的 `exports`，属于公开合同变更，见“需要开发者确认”第 5 条）：`./kit/shapes`、`./kit/files`、`./kit/commands`、`./kit/tools`、`./kit/approval`、`./kit/compaction`、`./kit/guards`、`./kit/sessions`，以及模型规则的 `./models/rules`。
-- 文字：NeuroBook 专有的说明文字、提示词、扩展 id、日志里会出现的原因串都由宿主传入；kit 只留与应用无关的文字（放回的提示、shake 的占位、模式闸门的拒绝文字、守卫的提醒）。kit 不给这些宿主文字缺省值，免得出现第三套要维护的提示词。
+- 浏览器可用的子路径有三个：`./kit/shapes`、`./kit/files`、`./models/rules`。前两个由 `kit/architecture.test.ts` 从入口文件顺着相对导入走完整条链，后一个由 `src/models/boundary.test.ts` 检查：值导入只许 `typebox`，类型导入只许 `kernel/contracts.js`，不许 `node:`、`bun:`、OMP 与 `pi-natives`。`kernel/contracts.js` 已经被浏览器经 `agent/shared/remote.ts` 值导入（`commandErrors`、`storageErrors`），这三条链不新增它之外的内核文件。
+- 同一个架构测试守住 ADR 0040 在 harness 这一侧的不变量“工具不自己写盘”，按白名单检查 `tools/`、`compaction/`、`approval/`：对 `node:fs`、`node:fs/promises` 只许具名导入只读的函数（`open`、`stat`、`lstat`、`readFile`、`readdir`、`realpath`、`createReadStream`），禁止命名空间导入与默认导入；源码里不许出现 `Bun.write`、`Bun.file(…).write`、`.writer(`、`Bun.$`、`Bun.spawn` 与动态 `import(`。唯一例外是 `tools/shell.ts`：输出暂存（`mkdtempSync`、`openSync`、`writeSync`、`closeSync`、`rmSync`，在 `os.tmpdir()` 里，不在任何根里）与 `pi-natives` 的 `executeShell` 执行入口，按文件名单独放行。写盘只在 `files/local.ts`（本机参考实现）。
+- 子路径导出（`package.json` 的 `exports`，属于公开合同变更，见“需要开发者确认”第 4 条）：`./kit/shapes`、`./kit/files`、`./kit/files/local`、`./kit/testing`、`./kit/commands`、`./kit/tools`、`./kit/approval`、`./kit/compaction`、`./kit/guards`、`./kit/sessions`，以及模型规则的 `./models/rules`。每个条目随第一次用到它的那片一起加（第 1 片先加 `./kit/shapes`），`kit/architecture.test.ts` 同时核对 `exports` 只列已建的入口。
+- 文字：NeuroBook 专有的说明文字、提示词、扩展 id、日志里会出现的原因串与诊断消息都由宿主传入；kit 只留与应用无关的文字（放回的提示、shake 的占位、循环守卫的提醒、摘要输入的排版）。kit 不给宿主文字缺省值，免得出现第三套要维护的提示词。
 
 ### `packages/nb-harness/src/kit/files/`：文件访问接口（设计问题 1、2）
 
-现在的依赖：工具、放回与审批都经 `SessionResources`（`agent/shared/resources.ts`，`WorkspaceFiles` 按会话绑定）读写，并直接引用 `nbook/plugins/files/shared/contracts` 的 `decodeText`、`renderVirtual`、`parseAddress`、`Baseline`。实际用到的只有：`expand`、`classify`、`readPath`、`read`、`list`、`write`（`expect` 为基线或 `any`）、`call(call)` 之后的 `write`/`read`、`SessionArtifacts.save`；`update`、`move`、`copy`、`delete` 等内置工具都没用。接口就按用到的定：
+现在的依赖：工具、放回与审批都经 `SessionResources`（`agent/shared/resources.ts`，`WorkspaceFiles` 按会话绑定）读写，并直接引用 `nbook/plugins/files/shared/contracts` 的 `decodeText`、`renderVirtual`、`parseAddress`、`Baseline`。实际用到的只有 `expand`、`classify`（只看写是不是 `ask`）、`readPath`、`read`、`list`、`call(call)` 之后的 `write`/`read`，以及 `SessionArtifacts.save`；`update`、`stage`、`move`、`copy`、`delete` 等内置代码都没用。接口就按用到的定，方法名与 `SessionResources` 一致，NeuroBook 的现有对象结构上直接满足，只补一个布局：
 
 ```ts
-/** kit 会按码分支的失败码；其余码（宿主自己的，例如 `no-project`）原样交给模型。 */
-export type KnownFileFailure =
-    | "not-found" | "invalid-address" | "unknown-scheme" | "unsupported-capability" /* 没有本机路径：虚拟根 */
-    | "protected-path" | "outside-root" | "not-a-file" | "not-a-directory" | "permission-denied" | "too-large" | "cancelled";
-export type FileFailure = {readonly ok: false; readonly code: KnownFileFailure | (string & {}); readonly detail: string};
+/** 失败码是开放字符串；kit 按码分支的那几个见 KNOWN_FILE_FAILURES，其余码（宿主自己的，例如 `no-project`）原样交给模型。 */
+export type FileFailure = {readonly ok: false; readonly code: string; readonly detail: string};
 export type FileResult<T> = {readonly ok: true; readonly value: T} | FileFailure;
+export const KNOWN_FILE_FAILURES = ["not-found", "unknown-scheme", "unsupported-capability", "invalid-address", "protected-path", "outside-root", "not-a-file", "not-a-directory", "permission-denied", "conflict", "too-large", "cancelled"] as const;
 /** 读到的内容的指纹；只用来交回给 `write` 的 `expect`，kit 不解读。 */
 export interface Baseline { readonly hash: string }
-export type DirectoryListing =
-    | {readonly kind: "entries"; readonly entries: ReadonlyArray<{readonly name: string; readonly kind: string}>}
-    /** 虚拟根：条目数与按上限排好的文字（NeuroBook 用 `renderVirtual`）。 */
-    | {readonly kind: "virtual"; readonly count: number; render(limit: number): string};
+export type WriteExpect = Baseline | "absent" | "any";
+export interface Located { readonly path: string; readonly kind: "file" | "directory" | "other" }
+export interface DirectoryListing { readonly entries: ReadonlyArray<{readonly name: string; readonly kind: string}> }
+/** 虚拟根：条目带全局地址，读根本身得到 `renderVirtual` 的文字。 */
+export interface VirtualListing {
+    readonly kind: "virtual";
+    readonly description: string;
+    readonly entries: ReadonlyArray<{readonly address: string; readonly title?: string; readonly meta?: Readonly<Record<string, string>>}>;
+}
 
 export interface FileCalls {
     read(address: string, options?: {readonly signal?: AbortSignal}): Promise<FileResult<{readonly bytes: Uint8Array; readonly baseline: Baseline}>>;
-    write(address: string, content: Uint8Array | string, options: {readonly expect: Baseline | "absent" | "any"; readonly createParents?: boolean; readonly signal?: AbortSignal}): Promise<FileResult<{readonly baseline: Baseline}>>;
+    write(address: string, content: Uint8Array | string, options: {readonly expect: WriteExpect; readonly createParents?: boolean; readonly signal?: AbortSignal}): Promise<FileResult<{readonly baseline: Baseline}>>;
 }
 
-/** 一个会话看到的文件：地址可以是单数写法，进来先改写。由宿主按 `ToolSessionContext` 建。 */
+/** 一个会话看到的文件：地址可以是单数写法，进来先改写。宿主按调用时的 `ToolSessionContext` 现建，不按会话缓存（换 Profile 后要按新上下文）。 */
 export interface SessionFiles extends FileCalls {
     readonly layout: SessionLayout;
-    /** 单数地址改写成全局地址，全局地址原样通过。 */
+    /** 单数地址改写成全局地址，全局地址原样通过（幂等）；同步、不碰磁盘。 */
     expand(address: string): {readonly ok: true; readonly address: string} | FileFailure;
-    /** 写这个地址要不要另外问用户（`ask` 时别的规则放行也问，permissions.md 输出 7）。 */
+    /** 写这个地址要不要另外问用户：`ask` 时别的规则放行也问（permissions.md 输出 7）。 */
     classify(address: string): {readonly write: "allowed" | "ask" | "denied"} | FileFailure;
-    /** 本机读路径：调用方自己读（ADR 0040 决策 1）。 */
-    locate(address: string, options?: {readonly signal?: AbortSignal}): Promise<FileResult<{readonly path: string; readonly kind: "file" | "directory" | "other"}>>;
-    list(address: string, options?: {readonly signal?: AbortSignal}): Promise<FileResult<DirectoryListing>>;
-    /** 绑定一次工具调用：写入的来源带这次调用、同一次调用的写成一组（builtin-tools.md 输出 3）；`signal` 合进每次调用。 */
-    forCall(call: {readonly callId: string; readonly signal: AbortSignal}, info?: {readonly title?: string}): FileCalls;
-    /** 以宿主身份存一份全文（resources.md 输出 11）：文件名由宿主生成，写入函数正常结束即提交，交回全局地址。 */
-    saveArtifact(label: string, write: (sink: {write(chunk: Uint8Array): Promise<void>}) => Promise<void>): Promise<FileResult<{readonly address: string}>>;
+    /** 本机读路径，调用方自己读（ADR 0040 决策 1）；`<方案>://` 在方案没登记时为 `unknown-scheme`，虚拟根为 `unsupported-capability`。 */
+    readPath(address: string, options?: {readonly signal?: AbortSignal}): Promise<FileResult<Located>>;
+    list(address: string, options?: {readonly signal?: AbortSignal}): Promise<FileResult<DirectoryListing | VirtualListing>>;
+    /** 绑定一次工具调用：经它的写入属于这次调用（来源带 `callId`，宿主据此分组）；`signal` 合进每次调用。工具每次执行只调一次并复用。 */
+    call(call: {readonly callId: string; readonly signal: AbortSignal}, info?: {readonly title?: string}): FileCalls;
 }
 
-/** 这个会话的地址布局：NeuroBook 专有的地址都从这里来，kit 不写死任何方案。 */
+/** 这个会话的地址布局：kit 不写死任何方案。只放与文件访问和判定有关的；计划文件、日志、项目根由用到它的块各自的选项给。 */
 export interface SessionLayout {
     /** `shell` 的工作目录与 `grep`、`glob` 的缺省根（可写单数地址）。 */
     readonly working: string;
-    /** 模式闸门的草稿根：写只落在这里算“只写草稿”（agent/modes.md）。 */
+    /** 模式闸门的草稿根：写只落在这里算“只写草稿”（agent/modes.md 输出 1）。 */
     readonly scratch: readonly string[];
-    /** `auto` 不问模型的写的根（permissions.md 输出 19）。 */
+    /** `auto` 不问审批者的写的根（permissions.md 输出 19）。 */
     readonly localWrites: readonly string[];
-    /** 交给审批模型的当前项目根；没有为 null。 */
-    readonly project: string | null;
-    /** 计划文件（模式切换与放回）；没有为 null。 */
-    readonly plan: string | null;
-    /** 完整对话日志的全局地址（放回的提示）；没有为 null。 */
-    readonly log: string | null;
     /** `shell` 的环境变量：名 → 地址；定位不到真实路径的不设。 */
     readonly shellEnv: Readonly<Record<string, string>>;
-    /** 以这个全局地址为根搜索时不扫的子目录（以 `/` 开头）。 */
+    /** 以这个全局地址为根搜索时不扫的子目录（以 `/` 开头）。只省下无谓的读，授权仍以 `readPath` 为准。 */
     searchExcludes(root: string): readonly string[];
 }
 
-/** 宿主交给 kit 的工厂。`owner` 是建它的工具 id，作 `forCall` 分组的缺省标题；审批、放回、内核资源接口为 null。 */
+/** 宿主身份保存大结果的全文（resources.md 输出 11）：Agent 自己写不了这里，所以与 `SessionFiles` 分开。 */
+export interface ArtifactStore {
+    save(label: string, write: (sink: {write(chunk: Uint8Array): Promise<void>}) => Promise<void>): Promise<FileResult<{readonly address: string}>>;
+}
+
+/** 工具工厂拿到的服务。 */
+export interface KitServices { readonly files: SessionFiles; readonly artifacts: ArtifactStore }
+/** 审批、放回、内核资源接口用的工厂。`owner` 是用它的工具 id，作分组的缺省标题；不属于哪个工具时为 null。 */
 export type SessionFilesFactory = (context: ToolSessionContext, owner: string | null) => SessionFiles;
 ```
 
-同目录还有：`decodeText`（严格 UTF-8、BOM 留在文字里、含 NUL 的不是文字，与 `nbook.files` 的同名函数同一规则）、`joinAddress`、`schemeOf`、`failed`/`failure`（把失败码同时放进结果与 `details.code`，现 `builtin/common.ts`）、`kernelResources(files): Resources` 与 `ResourceReadError`（现 `backend/resources.ts` 末尾，改成建在 `SessionFiles` 上）。
+“必须询问的写”由 `classify` 表达，不在布局里另设字段：`SessionResources` 已有同名方法，NeuroBook 不需要适配；NeuroBot 的实现同样必须给它。
 
-`files/local.ts`：本机实现 `localFiles({roots, aliases, layout, artifacts, classify?})`，方案名映射到本机目录，`..` 与经链接逃出根的得 `outside-root`；`write` 按基线核对后写临时文件再改名；`forCall` 不分组。它是 kit 测试用的真实依赖（[测试写法](../../../../../docs/testing/README.md#测试写法)“依赖用真的”），也是 NeuroBot“直接读写 bot 的电脑”的实现（见“需要开发者确认”第 4 条）。
+同目录还有（都不引 node，经 `./kit/files` 交出）：`decodeText`（严格 UTF-8、BOM 留在文字里、含 NUL 的不是文字）与 `renderVirtual`（现 `files/shared/text.ts`、`files/shared/schemes.ts`，整个搬来，参数改成上面的结构类型）、`joinAddress`、`schemeOf`、`failed`/`failure`（把失败码同时放进结果与 `details.code`，现 `builtin/common.ts`）、`kernelResources(files): Resources` 与 `ResourceReadError`（现 `backend/resources.ts` 末尾，参数改成 `Pick<SessionFiles, "expand" | "read">`）。`decodeText`、`renderVirtual` 只留这一份：`nbook.files` 的 `shared/text.ts`、`shared/schemes.ts` 改成从 `@notnotype/nb-harness/kit/files` 转出，`files/shared/contracts.ts` 的导出名不变，文件服务、写入接口与 Agent 对“是不是文字”“虚拟根的文字”因此不会分叉。`files/shared/contracts` 被浏览器值导入（`editor/web`、`html-preview/web`），这就是 `./kit/files` 必须不引 node 的原因，`localFiles` 因此放在单独的子路径。
+
+`files/local.ts`（`./kit/files/local`）：本机实现 `localFiles({roots, aliases, layout, classify, artifacts})`，方案名映射到本机目录，`..` 与经链接逃出根的得 `outside-root`；`write` 按基线核对后写临时文件再改名；`call` 不分组、不记来源；`classify` 必传，不给缺省值（缺省成 `allowed` 会让 bot 在放行写入下改掉自己的规则）。它的定位是 kit 测试的真实依赖（[测试写法](../../../../../docs/testing/README.md#测试写法)“依赖用真的”）与参考实现，不是 NeuroBot 的正式实现：NeuroBot 提案要的写锁、改动记录与按会话的来源限制都在 NeuroBot 自己的 `SessionFiles` 里（可以包 `localFiles`）。
+
+`src/kit/testing/files-contract.ts`（`./kit/testing`）：参数化的 `SessionFiles` 合同测试 `sessionFilesContract(name, setup)`，`setup` 交回被测对象与夹具（一个可写的根地址，可选的虚拟根、受保护地址与未登记的方案）。逐条覆盖 `harness/host-kit.md` 的输出：`KNOWN_FILE_FAILURES` 每个码在对应情形出现、失败经结果交回而不抛错；`expand` 幂等；`readPath` 的三种 `kind`、对 `<方案>://` 的探测；`read` 与 `write` 的基线（`expect` 为旧基线得 `conflict`、`absent` 对已存在得 `conflict`、`any` 覆盖、取消后目标不变）；`list` 的两种形状。`localFiles` 在 `kit/files/local.test.ts` 里跑它，NeuroBook 的 `sessionFiles` 在 `agent/resources.test.ts` 里经真实插件跑它，两个实现对过同一份契约之后，搬进 kit、改跑 `localFiles` 的工具用例才算“替身对过契约”（[测试写法](../../../../../docs/testing/README.md#测试写法)）。
 
 搬走的文件引用留下的文件，逐个处理：
 
 | 引用 | 处理 |
 |---|---|
 | `builtin/common.ts` → `shared/resources`（`Expanded`、`SessionResources`） | 换成 `SessionFiles`；`globalAddress` 改用 `files.expand` |
-| `read.ts` → `decodeText`、`renderVirtual` | `decodeText` 用 kit 的；虚拟根由宿主的 `list` 交回 `kind: "virtual"`，kit 调 `render(500)` |
+| `read.ts` → `decodeText`、`renderVirtual` | 用 kit 的同名函数；虚拟根照旧由 `list` 交回 `kind: "virtual"`，截断与“还有几项”的文字由 kit 拼，和现在一样 |
 | `edit.ts` → `Baseline` 类型 | kit 的 `Baseline` |
 | `search.ts` → `parseAddress`（只为跳过项目根的 `.nbook/`） | `layout.searchExcludes(root)` |
 | `shell.ts` → `workingAddress`、`NBOOK_PROJECT`/`NBOOK_SESSION` | `layout.working`、`layout.shellEnv` |
-| `preview.ts` → `shared/remote` 的 `ApprovalPreview` | kit 在 `shapes.ts` 定 `FilePreview`（同形状），`shared/remote.ts` 的 `ApprovalPreview` 改为它的别名 |
-| `compaction/restore.ts` → `WorkspaceFiles`、`sessionResources`、`decodeText`、`session://plan.md`、`sessions://<id>/session.jsonl` | `SessionFilesFactory`；`layout.plan`、`layout.log` |
-| `permissions/hook.ts` → `WorkspaceFiles`、`sessionResources`、`workingAddress`、`project://`、`session://`、`tmp://`、`readProjectRules` | `SessionFilesFactory` 与 `layout`；项目规则改为选项 `projectRules(context, signal)`，`project-rules.ts` 留在应用 |
-| `permissions/modes.ts` → `failed`、`session://plan.md` | kit 的 `failed`；`layout.plan` 与宿主文字 |
+| `preview.ts` → `shared/remote` 的 `ApprovalPreview` | kit 在 `shapes.ts` 定 `FilePreview`（同形状），`shared/remote.ts` 的 `ApprovalPreview` 改为它的别名（`import type`） |
+| `compaction/restore.ts` → `WorkspaceFiles`、`sessionResources`、`decodeText`、`session://plan.md`、`sessions://<id>/session.jsonl` | `SessionFilesFactory`；放回的选项 `planOf`、`logOf` |
+| `permissions/hook.ts` → `WorkspaceFiles`、`sessionResources`、`workingAddress`、`project://`、`session://`、`tmp://`、`readProjectRules` | `SessionFilesFactory` 与 `layout`；项目规则改为选项 `projectRules(context, signal)`，`project-rules.ts` 留在应用；`project://` 只剩审批模型要，改为 `modelReviewer` 的 `projectOf` |
+| `permissions/modes.ts`（留在应用）→ `builtin/common` 的 `failed` | 改从 `@notnotype/nb-harness/kit/files` 取，其余不动 |
 
 NeuroBook 的实现留在 `packages/neuro-book/src/plugins/agent/backend/resources.ts`：现有 `sessionResources`、`sessionArtifacts`、`bind`、`lazy`、`expand`、`classify` 不动（它们也是第三方工具 `services.resources` 的实现，SDK 合同不变），新增
 
-- `sessionLayout(context)`：`working` 有主项目为 `project://`、否则 `session://`；`scratch` 为 `session://`、`tmp://`；`localWrites` 再加有主项目时的 `project://`；`project` 同理；`plan` 为 `session://plan.md`；`log` 为 `sessions://<id>/session.jsonl`；`shellEnv` 为 `NBOOK_SESSION → session://`，有主项目时另加 `NBOOK_PROJECT → project://`；`searchExcludes` 对 `projects://<名>` 交回 `["/.nbook"]`。
-- `sessionFiles(workspace, context, owner)` 与 `filesFromServices(services, context)`：在 `SessionResources`、`SessionArtifacts` 外面套一层，`locate` 就是 `readPath`，`forCall` 就是 `resources.call(call, info)`，`saveArtifact` 就是 `artifacts.save`，`list` 把 `VirtualListing` 包成 `{kind: "virtual", count, render}`（截断与“还有几项”的文字仍由 kit 拼，和现在一样）。
+- `sessionLayout(context)`：`working` 有主项目为 `project://`、否则 `session://`；`scratch` 为 `session://`、`tmp://`；`localWrites` 再加有主项目时的 `project://`；`shellEnv` 为 `NBOOK_SESSION → session://`，有主项目时另加 `NBOOK_PROJECT → project://`；`searchExcludes` 对 `projects://<名>`（用 `parseAddress` 判断）交回 `["/.nbook"]`。
+- `sessionFiles(resources, context): SessionFiles`：`{...resources, layout: sessionLayout(context)}`；返回类型标注就是编译期检查，`SessionResources` 的方法一旦与接口失配就编译失败。`sessionArtifacts` 原样当 `ArtifactStore`（签名已一致）。
+- `filesFor(files: WorkspaceFiles): SessionFilesFactory`：`(context, owner) => sessionFiles(sessionResources(files, context, owner), context)`，在 `agent.ts` 建一次，交给审批钩子、放回与 `kernelResources`；`plugin.ts` 的审批预览也用它。工具仍经 `AgentTools` 的 `services` 拿 `SessionResources`，由包装层套上布局。`filesFor` 只在 `nbook.agent` 内部传递，不进 `AgentService`：别的插件拿不到能代表会话的读写，这条不变量不变。
 
 这样 ADR 0040 的保证原样保住：读按读授权拿本机路径后自己读；写都经 `WorkspaceFiles.write`/`stage`，带 `as: {agent: {session, profile, entry}}`，由拥有根的进程在锁里提交并记账，同一次调用一个操作分组；全文以宿主身份经 `stage` 写进 `artifacts/`。t08 的方案注册（`backend/schemes.ts` 的五个方案经 `files.schemes`）不动。
 
 ### 资源视图与地址怎么切（设计问题 2）
 
-t02 决定 3 的“资源地址的登记机制”归 harness，在 kit 里是 `SessionFiles`/`SessionLayout` 这份合同与建在它上面的 `kernelResources`：宿主经它把“地址怎么改写、怎么定位、怎么写、哪些根有特殊含义”交给 kit。地址的语法（`parseAddress`）、单数别名表、方案注册与授权属于宿主的文件服务（NeuroBook 是 `nbook.files`，[`workspace/resources.md`](../../../../../docs/specs/workspace/resources.md)），留在应用；kit 不另写一份地址解析器，免得两份语法分叉。
+t02 决定 3 的“资源地址的登记机制”归 harness，在 kit 里是 `SessionFiles`/`SessionLayout` 这份合同（`harness/host-kit.md`）与建在它上面的 `kernelResources`：宿主经它把“地址怎么改写、怎么定位、怎么写、哪些根有特殊含义”交给 kit。kit 只持有地址的形状（`joinAddress`、`schemeOf`）；地址的完整校验（`parseAddress`）、单数别名表、方案注册与授权属于宿主的文件服务（NeuroBook 是 `nbook.files`，[`workspace/resources.md`](../../../../../docs/specs/workspace/resources.md)），留在应用，kit 不另写一份地址解析器。
 
 | 文件 | 去向 |
 |---|---|
-| `agent/backend/resources.ts` | `kernelResources`、`ResourceReadError` 进 `kit/files/`；其余留下，并加 `sessionLayout`、`sessionFiles`、`filesFromServices` |
+| `agent/backend/resources.ts` | `kernelResources`、`ResourceReadError` 进 `kit/files/`；其余留下，并加 `sessionLayout`、`sessionFiles`、`filesFor` |
 | `agent/backend/schemes.ts` | 全部留下（具体方案与映射目录） |
 | `agent/shared/resources.ts` | 全部留下、不改（SDK 的 `AgentToolServices`） |
+| `files/shared/text.ts`、`files/shared/schemes.ts` 的 `renderVirtual` | 实现进 `kit/files/`，这里改为转出；`VirtualListing`、`VirtualEntry` 类型留在 `nbook.files`（结构上满足 kit 的类型） |
 
 ### `packages/nb-harness/src/kit/commands/`
 
@@ -163,7 +179,7 @@ t02 决定 3 的“资源地址的登记机制”归 harness，在 kit 里是 `S
 export interface KitTool {
     /** 声明里序列化得了的部分；宿主补 id、`provider`、`providerName`。 */
     readonly declaration: {readonly description: string; readonly parameters: Readonly<Record<string, unknown>>; readonly version: string; readonly concurrency: "shared" | "exclusive"; readonly effect: ToolEffect; readonly customFormat?: {readonly syntax: "lark"; readonly definition: string}};
-    create(context: ToolSessionContext, files: SessionFiles): ToolImplementation;
+    create(context: ToolSessionContext, services: KitServices): ToolImplementation;
     effect?(args: Readonly<Record<string, unknown>>): ToolEffect;
     subjects?(args: Readonly<Record<string, unknown>>): readonly ToolSubject[];
 }
@@ -176,7 +192,7 @@ export interface BuiltinToolTexts {
     readonly shell: string;
 }
 export interface AskForms {
-    /** Agent 策略下不合规时交回问题（路径与码），合规交回空数组。 */
+    /** Agent 策略下不合规时交回严重级为错误的问题（路径与码），合规交回空数组。 */
     check(form: Readonly<Record<string, unknown>>): readonly {readonly path: string; readonly code: string}[];
     /** 回答的表单值不合规时交回问题码。 */
     validate(form: Readonly<Record<string, unknown>>, value: unknown): readonly string[];
@@ -189,15 +205,15 @@ export function previewChanges(kind: "write" | "hashline" | "replace", args: Rea
 
 `ToolSubject` 在 `kit/shapes.ts`（与 `agent/shared/points.ts` 的同名类型同形状）。points.ts 的 `ToolSubject` 是 SDK 的公开类型，留在应用不动：它经 `subjectsOf` 交给 kit 的审批钩子时由编译器核对可赋值，不需要另写检查。SDK 的类型面因此不变（`src/sdk/surface.test.ts`、`plugin-sdk/build-plugin.test.ts` 守着）。
 
-NeuroBook 一侧 `agent/backend/builtin/index.ts` 留下：贡献 id 与 `providerName` 的表、`BuiltinToolTexts` 的 NeuroBook 文字（新文件 `builtin/texts.ts`，原样取自现在的声明）、`AskForms` 的 nb-form 实现（`checkDescription(form, {policy: "agent"})`、`validateForm(resolveForm(form), value)`），以及把 `KitTool` 包成 `AgentToolImplementation` 的一层（`create: (context, services) => tool.create(context, filesFromServices(services, context))`）。`builtin/preview.ts` 只剩工具 id 到 `kind` 的表与调用 `previewChanges`。`backend/attachments.ts` 的 `imageFormat`、`prepareImage` 改从 `@notnotype/nb-harness/kit/tools` 取。
+NeuroBook 一侧 `agent/backend/builtin/index.ts` 留下：贡献 id 与 `providerName` 的表、`BuiltinToolTexts` 的 NeuroBook 文字（新文件 `builtin/texts.ts`，原样取自现在的声明）、`AskForms` 的 nb-form 实现（`checkDescription(form, {policy: "agent"})` 保留现在只取 `severity === "error"` 的过滤，`validateForm(resolveForm(form), value)`）、`switch_mode`（模式整个留在应用），以及把 `KitTool` 包成 `AgentToolImplementation` 的一层（`create: (context, services) => tool.create(context, {files: sessionFiles(services.resources, context), artifacts: services.artifacts})`）。`builtin/preview.ts` 只剩工具 id 到 `kind` 的表与调用 `previewChanges`。`backend/attachments.ts` 的 `imageFormat`、`prepareImage` 改从 `@notnotype/nb-harness/kit/tools` 取。
 
-nb-harness 现有的 `src/tools/`（`read`、`edit`、`registry`、`bridge`、`effective`、`builtin`）不合并、不改。查清的调用方：nb-story 经根入口用 `createHarness`、`createToolRegistry`、`registerPlugin`（`src/qa/engine.ts`、`probe.ts`、`tools.ts`），不用旧的 `read`、`edit`；`registerBuiltinTools` 只有 `nb-agent-ui/src/harness.contract.test.ts` 与 nb-harness 自己的 `tests/harness.llm.test.ts` 在用；`createReadTool`、`createEditTool` 只有 nb-harness 的 `tests/read-tool.test.ts`、`edit-tool.test.ts`。它们属于旧 `createHarness` 的合同（交给 OMP `Agent` 的 `AgentTool`），与 kit 的 `ToolImplementation` 形状不同，按包 AGENTS.md“旧实现只为让它们的测试照跑，不再加功能”冻结，随 `createHarness` 在 [t31](../t31-nb-story-new-kernel/README.md) 一起删；合入时在 t31 的“要做的事”补这一条。kit 的工具是之后唯一维护的读、改实现。nb-story 不加载 kit；它装 nb-harness 时多装一个 `unbash`（纯 JS），Windows 上不受影响（kit 的 `shell` 等在 Windows 上能不能用未核实，nb-story 用不到）。
+nb-harness 现有的 `src/tools/`（`read`、`edit`、`registry`、`bridge`、`effective`、`builtin`）不合并、不改。查清的调用方：nb-story 经根入口用 `createHarness`、`createToolRegistry`、`registerPlugin`（`src/qa/engine.ts`、`probe.ts`、`tools.ts`），不用旧的 `read`、`edit`；`registerBuiltinTools` 只有 `nb-agent-ui/src/harness.contract.test.ts` 与 nb-harness 自己的 `tests/harness.llm.test.ts`、`tests/acceptance.test.ts` 在用；`createReadTool`、`createEditTool` 只有 nb-harness 的 `tests/read-tool.test.ts`、`edit-tool.test.ts`。它们属于旧 `createHarness` 的合同（交给 OMP `Agent` 的 `AgentTool`），与 kit 的 `ToolImplementation` 形状不同，按包 AGENTS.md“旧实现只为让它们的测试照跑，不再加功能”冻结，随 `createHarness` 在 [t31](../t31-nb-story-new-kernel/README.md) 一起删；这三个名字是已发布包根入口（`src/index.ts`）的导出，删除属于发布合同变更，合入时在 t31 的“要做的事”连同这一点补上。kit 的工具是之后唯一维护的读、改实现。nb-story 不加载 kit；它装 nb-harness 时多装一个 `unbash`（纯 JS），Windows 上不受影响（kit 的 `shell` 等在 Windows 上能不能用未核实，nb-story 用不到）。
 
 ### `packages/nb-harness/src/kit/approval/`（设计问题 5）
 
-搬来 `rules.ts`、`judge.ts`、`hook.ts`、`auto-review.ts`（改名 `review.ts`）、`modes.ts` 的机制部分；`rules.test.ts` 跟着搬。`kit/shapes.ts` 收 `RuleSchema`、`RulesSchema`、`Rule`、`RuleAction`、`AgentMode`、`MODE_SWITCH_KIND`、`ModeSwitchRequest`、`ModeSwitchAnswer`、`ToolSubject`、`FilePreview`，`agent/shared/permissions.ts` 改为转出它们，并保留 NeuroBook 自己的常量（`AGENT_MODES_EXTENSION`、三条审批原因串）。规则的存储形状因此只有一份。
+搬来 `rules.ts`、`judge.ts`、`hook.ts`、`auto-review.ts`（改名 `review.ts`）；`rules.test.ts` 跟着搬。Agent 模式（`modes.ts`：模式扩展、提醒、`switch_mode` 与它的文字）整个留在 NeuroBook：它没有第二个使用者，kit 只给钩子要的闸门分类（按 `layout.scratch` 判断）。`kit/shapes.ts` 收 `RuleSchema`、`RulesSchema`、`Rule`、`RuleAction`、`ToolSubject`、`FilePreview`；`agent/shared/permissions.ts` 改为转出前四个，并保留 NeuroBook 自己的 `AgentMode`、`AGENT_MODES_EXTENSION`、`MODE_SWITCH_KIND`、`ModeSwitchRequest`、`ModeSwitchAnswer` 与三条审批原因串。规则的存储形状因此只有一份。
 
-判定链与判定者：
+判定链、判定者与转问：
 
 ```ts
 export interface ReviewRequest {
@@ -205,24 +221,38 @@ export interface ReviewRequest {
     readonly effect: ToolEffect;
     /** 展开过的判定路径。 */
     readonly paths: readonly PathSubject[];
-    /** `layout.project` 展开后的地址；没有为 null。 */
-    readonly project: string | null;
 }
-/** 判定流水线判出“交给审批者”时调用。可以放行、拒绝或转问用户；不会被调用于规则或闸门已经定了的调用。 */
+/** `decide` 判出“交给审批者”时调用（`auto` 且不是本地写）：放行、拒绝或转问。 */
 export type Reviewer = (request: ReviewRequest, ctx: ApprovalCtx) => Promise<ApprovalVerdict>;
+
+/** 这次调用为什么要转问。 */
+export type EscalationSource =
+    | "rule"            // 某层规则判 ask
+    | "rules-invalid"   // 项目规则读坏，写与执行一律问（permissions.md 输出 6）
+    | "address"         // 写的地址 `classify` 为 ask（输出 7）
+    | "gate"            // 模式闸门判为写、闸门动作是 ask
+    | "mode"            // 审批模式本身要问（`ask`，或 `allow-writes` 下的执行）
+    | "reviewer";       // 审批者转人工
+export interface Escalation extends ReviewRequest { readonly source: EscalationSource; readonly reason?: string }
+/** 要转问的调用交给谁回答。缺省原样交回 `{verdict: "ask", reason}`，由内核问用户。 */
+export type Escalate = (escalation: Escalation, ctx: ApprovalCtx) => Promise<ApprovalVerdict>;
 
 export function createApprovalHook(options: {
     readonly files: SessionFilesFactory;
     readonly userRules: () => readonly Rule[];
     /** 宿主的项目层规则；没有项目为 `[]`，读不了为 `"invalid"`（NeuroBook 读 `.nbook/permissions.json`）。 */
     readonly projectRules: (context: ToolSessionContext, signal: AbortSignal) => Promise<readonly Rule[] | "invalid">;
+    /** 项目规则读不了时诊断 `permission-rules-invalid` 的消息（进日志，宿主定）。 */
+    readonly projectRulesInvalidMessage: string;
     readonly dialects: Dialects;
+    /** 这一刻有没有模式闸门（NeuroBook：Agent 模式不是 `normal`）。 */
+    readonly gated: (read: ApprovalCtx["read"]) => boolean;
     readonly modeWriteAction: () => ModeWriteAction;
+    /** 闸门的文字：转问时的原因串、拒绝时给模型的话（都进日志，宿主定）。 */
+    readonly gate: {readonly askReason: string; readonly blockedText: string};
     readonly subjectsOf: (tool: string, args: Readonly<Record<string, unknown>>, activate: boolean) => Promise<readonly ToolSubject[] | null>;
-    readonly modeOf: (read: ApprovalCtx["read"]) => string;
     readonly review: Reviewer;
-    /** 闸门转问用户时的原因串（进日志，宿主定）。 */
-    readonly modeGateReason: string;
+    readonly escalate?: Escalate;
     readonly report: (code: string, message: string, params?: Record<string, unknown>) => void;
 }): ApproveHook;
 
@@ -231,6 +261,8 @@ export function modelReviewer(options: {
     readonly agentDescription: string;
     /** 判定工具声明的 `provider`（进日志的请求里）。 */
     readonly provider: string;
+    /** 交给审批模型作“当前项目”的根（全局地址）；没有为 null。 */
+    readonly projectOf: (context: ToolSessionContext) => string | null;
     /** 没判出来、转人工的原因串（宿主定，界面按它换成本地文字）。 */
     readonly reasons: {readonly failed: string; readonly escalatedPrefix: string};
     readonly report: (code: string, message: string, params?: Record<string, unknown>) => void;
@@ -238,17 +270,21 @@ export function modelReviewer(options: {
 }): Reviewer;
 ```
 
-怎么接：内核只认 `ApproveHook`（`kernel/api/host.ts`），它是 `SessionEnv.approve`，宿主整体可换。kit 的 `createApprovalHook` 是一种实现：三层规则、模式闸门与 `decide`（`judge.ts`，纯函数，导出）先判；`decide` 交回 `review` 时调 `options.review`，判定者是谁由宿主给。NeuroBook 给 `modelReviewer`（就是现在的 `autoReview`，“审批模型”）。NeuroBot 要“另一个 bot 判定”时写一个 `Reviewer`：把 `ReviewRequest` 发给判定 bot 的会话、等它的结论，交回放行、拒绝或转问用户；不必改 kit，也不必改内核。转问用户的那一步仍由内核的审批交互完成；内核的 `resolve` 只收用户应答审批（`kernel/run/interaction.ts` 的 `allowed`），所以“bot 回答已经弹出的审批请求”不在这条路上，那要改内核，留给 NeuroBot 的 Task。`review` 只在 `decide` 判到第 6 步（`auto`）时调用；NeuroBot 若要所有写都过判定者，可以直接用导出的 `decide` 与 `createApprovalHook` 之外的组合自建钩子。
+怎么接：内核只认 `ApproveHook`（`kernel/api/host.ts`），它是 `SessionEnv.approve`，宿主整体可换。kit 的 `createApprovalHook` 是一种实现：三层规则、闸门分类与 `decide`（`judge.ts`，纯函数，导出）先判；判出放行或拒绝的直接交回；判出“交给审批者”的调 `options.review`；判出要转问的，以及审批者转人工的，都经 `options.escalate`，带来源与原因。转问之后的结论若仍是 `ask` 且调用含命令，再附上 `remember`（“本会话都批准”要记的前缀，现在的 `rememberFor`），与现在一样。判定者与回答者由宿主给，钩子不写死“用户”或“审批模型”：
 
-`decide` 的 `MODE_ASK_REASON` 改成参数 `modeGateReason`；`MODE_BLOCKED_TEXT`（英文、与应用无关）留在 kit。项目规则读坏时的诊断码 `permission-rules-invalid` 不变，消息去掉 `.nbook/` 字样（只有码被测试断言）。
+- NeuroBook 给 `modelReviewer`（就是现在的 `autoReview`，“审批模型”），不传 `escalate`，行为不变。
+- NeuroBot 要“另一个 bot 判定”时写一个 `Reviewer`，把 `ReviewRequest` 发给判定 bot 的会话、等它的结论；要所有转问都先过判定 bot、或“任务运行不等审批，清单外直接拒绝”（提案第七节）时写一个 `Escalate`，按 `source` 处理。都不必改 kit，也不必改内核。要所有写都过审批者时把 `localWrites` 给空数组。
+- 内核的 `resolve` 只收用户应答审批（`kernel/run/interaction.ts` 的 `allowed`），所以“bot 回答已经弹出的审批请求”不在这条路上，那要改内核，留给 NeuroBot 的 Task。
 
-模式（`modes.ts`）：kit 交出 `createAgentModes({extensionId, reminderId, texts})`，返回 `{contract, extensions, switchModeTool(changeSettings), switchModeDeclaration}`。`texts` 含两种模式的完整与简短提示、退出提示、`switch_mode` 的说明与提问文字；计划文件地址取 `layout.plan`。NeuroBook 的 `agent/backend/permissions/modes.ts` 只剩一处 `createAgentModes({extensionId: AGENT_MODES_EXTENSION, reminderId: "nbook.agent.mode-reminder", texts: …})`，现在的文字原样搬进来；主 Profile 与钩子的 `modeOf` 用它交出的 `contract`。
+实现上要注意的两处现状：项目规则读坏与地址分类为 `ask` 都是在 `decide` 之前把规则结果改成 `{action: "ask"}`（`hook.ts`），来源在那一步就丢了，所以钩子另记一个“谁把它改成 ask”的变量（两者都成立时记后改的 `address`），`decide` 交回 `rule` 来源的询问时换成它；`decide` 的询问结果加 `source`（`rule`、`gate`、`mode`），不改它的判定顺序。缺省的 `escalate` 交回的原因与现在逐字相同：闸门为 `gate.askReason`，规则为规则自己的 `reason`，审批模型为它交回的原因，其余没有原因。
 
-留在 `agent/backend/permissions/`：`project-rules.ts`、`modes.ts`（实例与文字）、新文件 `index.ts`（`createApprovalHook` 的 NeuroBook 选项：设置、`readProjectRules`、`modelReviewer({agentDescription: "a writing and coding agent", provider: "nbook.agent", reasons: …})`）。
+`decide` 的 `MODE_ASK_REASON` 与 `MODE_BLOCKED_TEXT` 改成选项 `gate` 的两个字段：拒绝文字说的是 NeuroBook 的 `switch_mode` 与 discuss、plan 两种模式，模式留在 NeuroBook，它的文字也留下。项目规则读坏时的诊断码 `permission-rules-invalid` 不变，消息由宿主给，NeuroBook 原样传入现在的英文消息。
+
+留在 `agent/backend/permissions/`：`project-rules.ts`、`modes.ts`（模式扩展、提醒、`switch_mode` 与文字；`failed` 改从 kit 取）、新文件 `index.ts`（`createApprovalHook` 的 NeuroBook 选项：设置、`readProjectRules`、模式的 `gated` 与 `gate` 文字、`modelReviewer({agentDescription: "a writing and coding agent", provider: "nbook.agent", projectOf: …, reasons: …})`）。
 
 ### `packages/nb-harness/src/kit/compaction/`（设计问题 4）
 
-搬来 `cuts.ts`、`replies.ts`、`shake.ts`、`inplace.ts`、`summary.ts`、`restore.ts`；`compaction-methods.test.ts` 的“切点”“摘要的输入”“模型的回复”三组跟着搬，“贡献点的方法表”留下（测的是接线）。
+搬来 `cuts.ts`、`replies.ts`、`shake.ts`、`inplace.ts`、`summary.ts`、`restore.ts`；`compaction-methods.test.ts` 的“切点”“摘要的输入”“模型的回复”三组在第二次提交搬来，“贡献点的方法表”留下（测的是接线）。
 
 ```ts
 /** 摘要的提示词：小节与规则由宿主定（t11 决定 5 的写小说版本留在 NeuroBook）。 */
@@ -264,13 +300,24 @@ export interface BuiltinToolIds {
 }
 export function compactionMethods(options: {readonly prompts: CompactionPrompts; readonly tools: BuiltinToolIds}): {readonly shake: CompactionMethodImpl; readonly inplace: CompactionMethodImpl; readonly summary: CompactionMethodImpl};
 export class CompactionRestore {
-    constructor(options: {readonly files: SessionFilesFactory; readonly editStores: SessionEditStores; readonly tools: BuiltinToolIds; readonly report: …});
+    constructor(options: {
+        readonly files: SessionFilesFactory;
+        readonly editStores: SessionEditStores;
+        readonly tools: BuiltinToolIds;
+        /** 计划文件的地址（放回时单独放、不占最近文件的名额）；没有为 null。 */
+        readonly planOf: (context: ToolSessionContext) => string | null;
+        /** 完整对话日志的全局地址（放回的提示里给模型）；没有为 null，不发这条提示。 */
+        readonly logOf: (context: ToolSessionContext) => string | null;
+        readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    });
     forget(sessionId: string): void;
     readonly run: (context: ToolSessionContext, args: CompactionRestoreArgs) => Promise<CompactionRestored>;
 }
 ```
 
-摘要模型按角色 `compaction` 取（`summary.ts` 的 `{role: "compaction"}`），角色 id 用 `models/rules.ts` 的常量。NeuroBook 一侧 `agent/backend/compaction/` 留下 `index.ts`（`CompactionMethods` 接收者、三个方法 id、`DEFAULT_COMPACTION_ORDER`、贡献声明）与 `prompts.ts`（现在的文字原样，改成交出一个 `CompactionPrompts` 对象），新增 NeuroBook 的 `BuiltinToolIds`（与 `builtin/index.ts` 共用一处常量）。
+摘要模型按角色取（`summary.ts` 现在写的是字面量 `{role: "compaction"}`），角色 id 改用 `kit/shapes.ts` 的 `MODEL_ROLES.compaction`（`MODEL_ROLES = {compaction: "compaction"} as const`，注释写明宿主的角色表里必须有这个 id）。审批模型只经 `ctx.model({purpose: "approval"})` 取，选哪个角色是宿主模型端口的事（NeuroBook 在 `core.ts`，归 w00043 t02），kit 不需要别的角色常量。NeuroBook 一侧加一条断言：`models/shared/settings.ts` 的 `BUILTIN_ROLES` 含 `MODEL_ROLES` 的每个 id（放在 `models.test.ts`）。
+
+NeuroBook 一侧 `agent/backend/compaction/` 留下 `index.ts`（`CompactionMethods` 接收者、三个方法 id、`DEFAULT_COMPACTION_ORDER`、贡献声明）与 `prompts.ts`（现在的文字原样，改成交出一个 `CompactionPrompts` 对象），新增 NeuroBook 的 `BuiltinToolIds`（与 `builtin/index.ts` 共用一处常量）；`planOf` 为 `session://plan.md` 展开后的地址，`logOf` 为 `sessions://<id>/session.jsonl`。
 
 小节只由宿主在建方法时给，不做按 Profile 换：Profile 已有 `compaction.require` 追加要求；按 Profile 换整套小节要改内核的 Profile 类型，不在本 Task（见“需要开发者确认”第 3 条）。
 
@@ -280,39 +327,31 @@ export class CompactionRestore {
 |---|---|---|
 | `compaction/prompts.ts` | 七个小节、“写作对话”“接着写” | `CompactionPrompts` |
 | `permissions/auto-review.ts` | “a writing and coding agent”；判定工具的 `provider: "nbook.agent"` | `modelReviewer` 的 `agentDescription`、`provider` |
-| `permissions/modes.ts` | “不改作品”等提示、`session://plan.md`、扩展与提醒 id | `createAgentModes` 的 `texts`、id；`layout.plan` |
+| `permissions/judge.ts`、`shared/permissions.ts` | `MODE_BLOCKED_TEXT`、`MODE_ASK_REASON` | `createApprovalHook` 的 `gate` |
+| `permissions/hook.ts` | `permission-rules-invalid` 的消息（含 `.nbook/`） | `projectRulesInvalidMessage` |
+| `permissions/hook.ts`、`auto-review.ts` | 另两条 `nbook.agent/…` 原因串 | `modelReviewer` 的 `reasons` |
 | `builtin/read.ts`、`write.ts`、`edit.ts`、`shell.ts` 的说明 | `project://正文/第一章.md`、`$NBOOK_PROJECT`、`session://artifacts/` | `BuiltinToolTexts` |
 | `compaction/shake.ts`、`restore.ts`、`builtin/preview.ts` | `nbook.agent.read` 等工具 id | `BuiltinToolIds`；预览的 id 表留在应用 |
+| `compaction/restore.ts` | `session://plan.md`、`sessions://<id>/session.jsonl` | `planOf`、`logOf` |
 | `guards/*.ts`、`session-meta.ts` | 扩展 id（事件名 `<扩展 id>/<名字>` 进日志） | 工厂参数 |
-| `permissions/hook.ts`、`judge.ts` | 三条 `nbook.agent/…` 原因串 | 参数 |
 | `session-meta.ts` | 标题 Profile key、标签、给标题模型的材料格式 | `SessionMeta` 选项 |
 
-保持不变的通用文字（kit 自带）：放回的两句提示、shake 的三种占位、`MODE_BLOCKED_TEXT`、循环守卫的提醒、`ask` 与 `grep`、`glob`、`read` 的说明主体。
+保持不变的通用文字（kit 自带）：放回的两句提示与日志提示、shake 的三种占位、循环守卫的提醒、摘要输入里对话的排版（“【用户】”“【助手】”“工具结果（失败）”）、`ask` 与 `grep`、`glob`、`read` 的说明主体。
 
 ### `packages/nb-harness/src/kit/guards/`、`src/kit/sessions/`（设计问题 3）
 
-- `guards/`：`costGuard({id, limits})`、`loopGuard({id, threshold})`、`refusal`；`guards.test.ts` 整个搬来（只用 `createTestSession`）。`agent/backend/guards/index.ts` 留下：两个 id、贡献声明、按设置现读的闭包。
-- `sessions/table.ts`：`SessionTable`、`IDLE_CLOSE_MS`，错误类改名 `SessionUnavailable`、`SessionTableStopping`（`code` 仍是 `unavailable`；消息不再写 `nbook.agent`，没有测试断言消息）。时钟从 nb-runtime 的 `RuntimeClock.schedule` 改为内核的 `Clock`（`kernel/api/basics.ts`）：空闲计时用 `clock.wait(IDLE_CLOSE_MS, controller.signal).then(复查并关闭, 忽略中止)`，取消就 `controller.abort()`。核实过的时序：到点时的复查仍在同一个同步段里做完（`then` 回调内），只比现在晚一个微任务；NeuroBook 传入的是 `agent.ts` 现有的 `kernelClock(options.clock)`，它在 `schedule` 回调里 resolve；`agent.test.ts` 推进时钟之后用 `waitUntil` 等关闭，不依赖同步关闭。
-- `sessions/meta.ts`：`SessionMeta`、`sessionMetaExtension({id, tag, notify})`、`titleSessionId`（`session-title-<哈希>` 已有会话在用，不变）。选项加 `titleProfile`（NeuroBook：`SESSION_TITLE_PROFILE`）与 `material`（第一轮与压缩后两种输入文字，原样取自现在的代码）；`CreateResult` 换成内核的结果形状。贡献声明 `SESSION_META_CONTRIBUTION` 留在应用。
+- `guards/`：`costGuard({id, limits})`、`loopGuard({id, threshold})`、`refusal`；`agent/guards.test.ts` 整个搬来（只用 `createTestSession`）。`agent/backend/guards/index.ts` 留下：两个 id、贡献声明、按设置现读的闭包。
+- `sessions/table.ts`：`SessionTable`、`IDLE_CLOSE_MS`。计时口不换形状：选项 `clock` 的类型是 kit 自己定的结构类型 `{schedule(callback: () => void, ms: number): () => void}`，与 nb-runtime 的 `RuntimeClock.schedule` 同形，NeuroBook 照旧传 `options.clock`；取消同步生效，到点回调里 `entry.cancelIdle = null` 清的一定是自己，现在的时序原样保住（不经内核 `Clock.wait`：那样到点之后的取消不再生效）。错误类改名 `SessionUnavailable`、`SessionTableStopping`（`code` 仍是 `unavailable`），停止时的消息不再写 `nbook.agent`；`backend/remote.ts` 的 `instanceof` 改用新类。类名与消息会作为 `cause.name`/`message` 进远程诊断，列为 baseline 的预期差异。
+- `sessions/meta.ts`：`SessionMeta`、`sessionMetaExtension({id, tag, notify})`、`titleSessionId`（`session-title-<哈希>` 已有会话在用，不变）。选项加 `titleProfile`（NeuroBook：`SESSION_TITLE_PROFILE`）与 `material`（第一轮与压缩后两种输入文字，原样取自现在的代码）；模型经内核的 `ModelPort` 取（现状）；`CreateResult` 换成内核的结果形状。贡献声明 `SESSION_META_CONTRIBUTION` 留在应用。
 - 接线留在 `nbook.agent`：`shared/points.ts` 的贡献点、`compaction/index.ts`、`guards/index.ts`、`builtin/index.ts`、`tools.ts`（`agent.tools` 接收者）、`extensions.ts`、`profiles.ts`、`agent.ts` 的装配、`plugin.ts`。nb-harness 不加 nb-runtime 依赖，由架构测试守住。
 
 ### `packages/nb-harness/src/models/rules.ts`（设计问题 7）
 
-搬：`models/shared/rules.ts` 全部（模型引用写法 `splitReference`、`referenceOf`、`roleReference`、`roleOfReference`，`providerIdFor`、`missingContextWindow`、`rolesUsing`、`seriesOf`，参数类型改成结构类型 `Pick<…>`），`models/shared/compaction.ts` 全部（`CompactionSettingSchema`、`DEFAULT_COMPACTION`、`compactionTrigger`、`effectiveCompaction`），以及 `models/backend/core.ts` 里 `port.resolve` 的选择顺序，抽成纯函数：
+搬：`models/shared/rules.ts` 全部（模型引用写法 `splitReference`、`referenceOf`、`roleReference`、`roleOfReference`，`providerIdFor`、`missingContextWindow`、`rolesUsing`、`seriesOf`；它唯一的导入是 `import type … from "./settings"`，参数类型改成本地的结构类型，例如 `{readonly kind: string}`、`{readonly contextWindow?: number}`），`models/shared/compaction.ts` 全部（`CompactionSettingSchema`、`DEFAULT_COMPACTION`、`compactionTrigger`、`effectiveCompaction`）。搬完 `rules.ts` 只值导入 `typebox`，不引内核，所以浏览器的类型检查也不会顺着它检查内核。
 
-```ts
-/** 内核按用途要的角色；宿主的角色表里必须有这几个 id。 */
-export const MODEL_ROLES = {main: "main", fast: "fast", compaction: "compaction"} as const;
-/** 一次模型查询选哪一个：指定的角色、会话选的（模型引用或 `role:<id>`）、Profile 缺省的模型或角色（docs/specs/models/service.md 输出 8）。 */
-export function modelChoice(query: ModelQuery, defaults: {readonly model?: string; readonly role?: string}):
-    | {readonly kind: "role"; readonly id: string} | {readonly kind: "selection"; readonly value: string} | {readonly kind: "reference"; readonly value: string};
-```
+不搬：模型端口 `resolve` 的选择顺序（`core.ts`），随模型服务归 w00043 t02（见 Context）。
 
-理由：kit 的摘要方法按 `compaction` 角色取模型，审批模型按用途 `approval`、取不到时退回会话模型；NeuroBot 的模型端口要按同一规则选，kit 才能用。`core.ts` 改成按 `modelChoice` 的结果分派，`settings.ts` 的 `BUILTIN_ROLES` 用 `MODEL_ROLES` 的 id。
-
-留下：设置项定义（`settings.ts` 的 `defineSettings`、供应商与角色的 schema、`BUILTIN_ROLES` 的轴与顺序）、`core.ts` 的服务（凭据、读改写、检测、发现、远程合同）、设置页。
-
-`./models/rules` 是浏览器也要用的子路径（`ProvidersPage.vue`、`ManageModelsDialog.vue`、`RolesPage.vue`、`ModelEditDialog.vue`、Lab 的 `models-scene/fake-remote.ts` 在用）：`rules.ts` 只引 `typebox`，不经 `models/index.ts`（那里引 OMP）。`src/models/boundary.test.ts` 的允许表加 `typebox`，并单独核对 `rules.ts` 不引 `node:` 与 OMP。消费者全部改成从 `@notnotype/nb-harness/models/rules` 取，删掉两个旧文件；`models/shared/contracts.ts` 对外的 `roleOfReference`、`roleReference` 改为从 harness 转出（公开入口不变）。`models/shared/compaction.test.ts` 搬成 `nb-harness/src/models/rules.test.ts`，另加一条：`reserve` 模式不写基数时与内核 `triggerPoint` 的缺省一致（现在两处各写一份 15% 与 16,384，靠注释说一致）。
+`./models/rules` 是浏览器也要用的子路径（`ProvidersPage.vue`、`ManageModelsDialog.vue`、`RolesPage.vue`、`ModelEditDialog.vue`、Lab 的 `models-scene/fake-remote.ts` 在用）。`src/models/boundary.test.ts` 给 `rules.ts` 单列允许表：只许 `typebox`，不许 `../kernel/index.js`（它值导出 OMP 适配器）、`node:` 与 OMP；目录里其余文件的允许表不变。消费者全部改成从 `@notnotype/nb-harness/models/rules` 取（`core.ts` 只改两行导入、设置页四个组件、Lab 夹具、`agent` 与 `models` 的 `*.llm.test.ts`），删掉两个旧文件；`models/shared/contracts.ts` 对外的 `roleOfReference`、`roleReference` 与它用的 `CompactionSettingSchema` 改为从 harness 取（公开入口不变）。`models/shared/compaction.test.ts` 搬成 `nb-harness/src/models/rules.test.ts`，另加一条：`reserve` 模式不写基数时与内核 `triggerPoint` 的缺省一致（现在两处各写一份 15% 与 16,384，靠注释说一致）。
 
 ### `packages/nb-harness/src/app-neutral.test.ts`（设计问题 8）
 
@@ -320,78 +359,104 @@ export function modelChoice(query: ModelQuery, defaults: {readonly model?: strin
 
 ### `packages/nb-harness/AGENTS.md`、`README.md`、`docs/omp-capabilities.md`
 
-- AGENTS.md 开头“NeuroBook 领域 harness，不追求通用”与本 Task 的目标冲突，改为：内核加宿主套件，NeuroBook 与 NeuroBot 共用，应用专有的地址、文字与 id 由宿主传入。“领域工具不在本包内实现”保留（kit 的工具是通用工具）。加 `src/kit/` 一节：分层表由 `kit/architecture.test.ts` 检查、只经内核公开入口、写盘只在 `files/local.ts`、宿主文字不给缺省值；完成门禁加上 kit 的测试。
-- README.md 加 kit 与 `./models/rules` 子路径的一段。
+- AGENTS.md 开头“NeuroBook 领域 harness，不追求通用”与本 Task 的目标冲突，改为：内核加宿主套件，NeuroBook 与 NeuroBot 共用，应用专有的地址、文字与 id 由宿主传入。“领域工具不在本包内实现”保留（kit 的工具是通用工具）。加 `src/kit/` 一节：分层表由 `kit/architecture.test.ts` 检查、只经内核公开入口、写盘只在 `files/local.ts`、宿主文字不给缺省值、只有 `./kit/shapes`、`./kit/files`、`./models/rules` 可进浏览器；完成门禁加上 kit 的测试。
+- README.md 加 kit 与 `./models/rules` 子路径的一段，写明哪三个子路径可进浏览器、`./kit/testing` 给宿主跑合同测试。
 - `docs/omp-capabilities.md` 补 kit 用到的 `pi-natives` 能力（`EditSession`、`hashline*`、`grep`、`glob`、`executeShell`），先读它现有的表再按格式加。
 
 ## Spec 与文档改动
 
-行为合同不变，只改 owner、实现合同与证据（[`docs/specs/README.md`](../../../../../docs/specs/README.md#实现合同与证据)）。这几份的证据行链接了要搬的文件，`docs:check` 检查活跃文档的链接，所以 Spec 在代码合入 master 之后、在主工作区紧接着提交，不在分支上改。
+行为合同不变，只改 owner、实现合同与证据（[`docs/specs/README.md`](../../../../../docs/specs/README.md#实现合同与证据)）；kit 的文件访问接口是新合同，另开一份。
+
+开工前，主工作区（单独一次提交，`git commit -- <路径>`）：
 
 | 文件 | 改什么 |
 |---|---|
-| `docs/specs/agent/builtin-tools.md` | `owners` 加 `nb-harness`；实现合同：公开入口加 `@notnotype/nb-harness/kit/tools`（实现）与 `nbook.agent` 的 id、说明文字、`SessionFiles` 实现；依赖方向写 `nbook.agent` → kit，kit 经宿主的 `SessionFiles` 读写；“工具不自己写盘”加上 `kit/architecture.test.ts`；证据的实现入口与合同测试改到新路径 |
-| `docs/specs/agent/compaction.md` | `owners` 加 `nb-harness`；实现合同写方法与放回在 kit、摘要提示词与方法 id 在 `nbook.agent`；证据路径 |
-| `docs/specs/agent/permissions.md` | `owners` 改为 `nb-harness` 与 `…/agent/backend/permissions`；依赖：`unbash` 改在 nb-harness；判定在 kit 的 `createApprovalHook`，`nbook.agent` 给规则、项目层、审批者与原因串；证据路径 |
+| `docs/specs/harness/host-kit.md`（新） | `status: planned`、`owners: nb-harness`，按 [`writing-specs`](../../../../skills/writing-specs/SKILL.md) 的九节写，先只写 `SessionFiles`、`SessionLayout`、`ArtifactStore` 的合同：失败码与各自的情形、`expand` 幂等、`readPath` 的种类与对 `<方案>://` 的探测、`read`/`write` 的基线与取消、`list` 的两种形状、`call` 交回的写入属于这次调用（来源与分组由实现按调用记）、`classify`、`save` 的宿主身份与单段 `label`。不承诺里写明：kit 其余块（工具、审批、压缩、守卫、句柄表）的宿主无关条目留到 NeuroBot 接入时再从 `agent/*.md` 抽出 |
+| `docs/specs/README.md` | 注册表加 `harness/host-kit.md` 一行 |
+
+代码合入之后，主工作区紧接着提交（这几份的证据行链接了要搬的文件，`docs:check` 检查活跃文档的链接，所以不在分支上改）：
+
+| 文件 | 改什么 |
+|---|---|
+| `docs/specs/harness/host-kit.md` | 补实现合同与证据（`kit/files/`、`kit/testing/files-contract.ts`、两处运行它的测试）；注册表说明加“待晋升” |
+| `docs/specs/agent/builtin-tools.md` | `owners` 加 `nb-harness`；实现合同：公开入口加 `@notnotype/nb-harness/kit/tools`（实现）与 `nbook.agent` 的 id、说明文字、`SessionFiles` 实现；依赖方向写 `nbook.agent` → kit，kit 经宿主的 `SessionFiles`（`harness/host-kit.md`）读写；“工具不自己写盘”加上 `kit/architecture.test.ts`；证据的实现入口与合同测试改到新路径 |
+| `docs/specs/agent/compaction.md` | `owners` 加 `nb-harness`；实现合同写方法与放回在 kit、摘要提示词、方法 id、计划与日志地址在 `nbook.agent`；证据路径 |
+| `docs/specs/agent/permissions.md` | `owners` 改为 `nb-harness` 与 `…/agent/backend/permissions`；依赖：`unbash` 改在 nb-harness；判定在 kit 的 `createApprovalHook`（审批者与转问可由宿主替换），`nbook.agent` 给规则、项目层、审批者、闸门文字与原因串；证据路径 |
+| `docs/specs/agent/modes.md` | 实现合同：闸门分类（输出 1）在 kit 的 `createApprovalHook`，按 `layout.scratch`；模式本身与 `switch_mode` 仍在 `backend/permissions/modes.ts`；证据路径 |
 | `docs/specs/agent/sessions.md` | 实现合同：句柄表的实现在 `kit/sessions`，实例由 `nbook.agent` 持有；证据路径 |
 | `docs/specs/agent/run-guards.md` | 实现入口与合同测试路径（`guards.test.ts` 移到 nb-harness）；owner 加 `nb-harness` |
-| `docs/specs/agent/modes.md` | owner 加 `nb-harness`；`backend/permissions/modes.ts` 的说明改为“实例与文字”，机制在 `kit/approval/modes.ts` |
-| `docs/specs/agent/resources.md` | 实现合同加 `SessionFiles` 的 NeuroBook 实现（`backend/resources.ts`）与 `kernelResources` 在 kit；证据路径 |
+| `docs/specs/agent/resources.md` | 实现合同加 `SessionFiles` 的 NeuroBook 实现（`backend/resources.ts` 的 `sessionFiles`、`filesFor`）与 `kernelResources` 在 kit；证据路径 |
 | `docs/specs/agent/builtin-profiles.md` | 证据的 `backend/session-meta.ts` 改到 `kit/sessions/meta.ts` 与 NeuroBook 的接线处 |
 | `docs/specs/models/service.md` | 公开入口加 `@notnotype/nb-harness/models/rules`；`shared/rules`、`shared/compaction` 的提法改到新位置 |
-| `docs/specs/harness/*.md` | 不改：内核的行为与接口（`ApproveHook`、`SessionEnv.compaction`、`Resources`、`Clock`）都没变；kit 不新开 Spec，它的行为合同就是上面几份 `agent/*.md` 经 NeuroBook 实例表达的那些条目，NeuroBot 用 kit 时在自己的 Spec 里引用 |
+| `docs/specs/harness/` 现有五份 | 不改：内核的行为与接口（`ApproveHook`、`SessionEnv.compaction`、`Resources`、`Clock`）都没变 |
 | `docs/modules/monorepo-boundaries.md` | nb-harness 那一行改为“内核与宿主套件，NeuroBook 与 NeuroBot 共用” |
-| `.agents/works/w00032-agent-integration/README.md`、t31 README | 合入后在主工作区记：t32 完成；t31“要做的事”加“删 `src/tools/` 与 `registerBuiltinTools`、`createReadTool`、`createEditTool`” |
+| `.agents/works/w00032-agent-integration/README.md`、t31 README | 合入后在主工作区记：t32 完成；t31“要做的事”加“删 `src/tools/` 与 `registerBuiltinTools`、`createReadTool`、`createEditTool`（根入口导出，发布合同变更）” |
 
 ## 切片
 
-开工前（不提交）：在 worktree 里写一个一次性脚本，把下面的值 dump 成 JSON 存到 `.local/agent/works/w00032-agent-integration/tasks/t32-harness-backfill/baseline.json`：全部内置工具贡献的声明（`BUILTIN_TOOL_CONTRIBUTIONS`）、`inplacePrompt`/`summarySystem`/`summaryInput` 对两组 `require` 的输出、模式提醒对每对新旧模式的输出、审批模型请求的 `system` 与工具声明、三条原因串、两个守卫与会话元数据的扩展 id。每片改完对一次，最后一片再对一次，必须逐字相同（工具声明进 Profile 哈希与会话快照，字不同就是行为变化）。
+开工前（不提交）：在 worktree 里写一个一次性脚本，用固定输入调真实的导出，把结果 dump 成 JSON 存到 `.local/agent/works/w00032-agent-integration/tasks/t32-harness-backfill/baseline.json`：
 
-| 片 | 内容（对应关键设计） | 提交边界 | 自跑验证 |
+- 宿主文字：全部内置工具贡献的声明（`BUILTIN_TOOL_CONTRIBUTIONS`）；`inplacePrompt`/`summarySystem`/`summaryInput` 对两组 `require` 的输出；审批模型请求的 `system` 与工具声明；三条原因串、`MODE_BLOCKED_TEXT`、`permission-rules-invalid` 的消息；两个守卫与会话元数据的扩展 id；标题生成的两种材料（第一轮、压缩后）。
+- kit 自带的文字：`CompactionRestore.run` 对一个固定会话（读过两个文件、有计划文件）的放回消息；`shake` 对一段固定对话的输出；循环守卫的提醒；`summary` 对固定消息交给模型的输入串。
+- 预期差异（对照时允许不同、逐条核对差的就是这几处）：句柄表两个错误类的类名与停止时的消息。
+
+每片第一次提交前对一次、最后一片再对一次，除预期差异外必须逐字相同（工具声明进 Profile 哈希与会话快照，文字进日志与模型上下文，字不同就是行为变化）。dump 脚本要取自上面这些导出，不另抄一份。
+
+每片两次提交：
+
+- **第一次：只搬实现。** 实现搬进 kit、应用改接线、删旧文件；应用里经真实插件的测试（`agentWorld` 加脚本化模型的那些）一行不改、只改导入，照跑通过，作为“行为不变”的证据。只调被搬函数的纯单元测试（`bash-dialect.test.ts`、`rules.test.ts`、`guards.test.ts`、`models/shared/compaction.test.ts`）同一次提交跟着搬，内容不改、只改导入。
+- **第二次：把用例改写进 kit。** 只断言工具、方法、规则自身行为的用例改写到 kit（`createTestSession` 加 `localFiles`），删掉应用里与之重复的；按“验收映射”末段的规则留下应用的用例。kit 新增的用例（`escalate`、合同测试、句柄表时序）也在这一次。
+
+下表的命令都在包目录执行；“nb-harness”指 `packages/nb-harness`，“应用”指 `packages/neuro-book`。
+
+| 片 | 内容（对应关键设计） | 第一次提交与自跑 | 第二次提交与自跑 |
 |---|---|---|---|
-| 1 | `kit/architecture.test.ts`（先只登记已建的目录）、`src/app-neutral.test.ts` 与三处注释、`kit/shapes.ts` 的骨架、AGENTS.md 的 kit 一节 | 一次提交 | nb-harness：`bun run typecheck`；`bun test src/kit src/app-neutral.test.ts` |
-| 2 | `models/rules.ts` 与 `./models/rules`；`core.ts` 改用 `modelChoice`；web 与 Lab 的消费者；删 `shared/rules.ts`、`shared/compaction.ts` | 一次提交 | nb-harness：`bun test src/models`；neuro-book：`bun test src/plugins/models`、`bun run test:vitest src/plugins/models`、`bun run typecheck`（含 `vue-tsc`，确认浏览器能解析 harness 的纯子路径） |
-| 3 | `kit/files/`（接口、`decodeText`、`kernelResources`、`localFiles` 与测试）；NeuroBook 的 `sessionLayout`、`sessionFiles`、`filesFromServices`；`agent.ts` 的 `resources` 改用 kit 的 `kernelResources` | 一次提交 | nb-harness：`bun test src/kit/files`；neuro-book：`bun test src/plugins/agent/resources.test.ts src/plugins/agent/agent.test.ts` |
-| 4 | `kit/commands/`（加 `unbash` 依赖，应用删掉）；`kit/tools/` 的 `snapshot`、`read`、`image`、`write`、`edit`、`search`、`preview`；`builtin/index.ts`、`texts.ts`、`preview.ts`、`attachments.ts` 改接线；测试按“验证”一节的规则搬 | 一次提交 | nb-harness：`bun test src/kit`；neuro-book：`bun test src/plugins/agent/builtin-tools.test.ts src/plugins/agent/builtin-tools-project.test.ts src/plugins/agent/attachments.test.ts src/plugins/agent/permissions.test.ts`；对 baseline |
-| 5 | `kit/tools/` 的 `shell`、`shell-address`、`ask`（`AskForms` 注入）；接线；测试 | 一次提交 | 同上，加 `session-host.test.ts`；对 baseline |
-| 6 | `kit/compaction/`；`compaction/index.ts`、`prompts.ts` 改接线；`CompactionRestore` 改用 `SessionFilesFactory` 与 `BuiltinToolIds`；测试 | 一次提交 | nb-harness：`bun test src/kit/compaction`；neuro-book：`bun test src/plugins/agent/compaction.test.ts src/plugins/agent/compaction-methods.test.ts src/plugins/agent/builtin-profiles.test.ts`；对 baseline |
-| 7 | `kit/shapes.ts` 补规则与模式形状；`kit/approval/`；`permissions/` 只留实例、项目规则与选项；`shared/permissions.ts` 转出；`shared/remote.ts` 的 `ApprovalPreview` 改别名 | 一次提交 | nb-harness：`bun test src/kit/approval src/kit/commands`；neuro-book：`bun test src/plugins/agent/permissions.test.ts src/plugins/agent/modes.test.ts src/plugins/agent/auto-review.test.ts src/plugins/agent/session-host.test.ts`、`bun run test:vitest src/plugins/agent/web`、`bun run typecheck`；对 baseline |
-| 8 | `kit/guards/`、`kit/sessions/`；`guards/index.ts`、`agent.ts`、`plugin.ts` 改接线；删应用里的旧文件 | 一次提交 | nb-harness：`bun test src/kit`；neuro-book：`bun test src/plugins/agent`；对 baseline |
-| 9 | nb-harness README、`omp-capabilities.md`；最后一次对 baseline；“验证”一节的合入前清单 | 一次提交 | 见“验证” |
-| 合入后 | 主工作区：Spec、`monorepo-boundaries.md`、Work README、t31 README | 一次提交（`git commit -- <路径>`） | `bun run docs:check`、`bun run governance:check` |
+| 1 | `kit/architecture.test.ts`（先只登记已建的目录与三条浏览器链）、`src/app-neutral.test.ts` 与三处注释、`kit/shapes.ts` 的骨架（`MODEL_ROLES`）、AGENTS.md 的 kit 一节 | 只有这一次提交。nb-harness：`bun run typecheck`；`bun test src/kit src/app-neutral.test.ts` | — |
+| 2 | `models/rules.ts` 与 `./models/rules`；`boundary.test.ts` 的单列允许表；消费者改导入；删 `shared/rules.ts`、`shared/compaction.ts` | `shared/compaction.test.ts` 搬成 `nb-harness/src/models/rules.test.ts`（只改导入）。nb-harness：`bun run typecheck`、`bun test src/models`；应用：`bun test src/plugins/models`、`bun run test:vitest src/plugins/models`、`bun run typecheck`（含 `vue-tsc`） | 加 `triggerPoint` 一致的用例、`BUILTIN_ROLES` 含 `MODEL_ROLES` 的断言。nb-harness：`bun test src/models`；应用：`bun test src/plugins/models/models.test.ts` |
+| 3 | `kit/files/`（接口、`decodeText`、`renderVirtual`、`kernelResources`）、`files/local.ts`；`nbook.files` 的 `text.ts`、`schemes.ts` 改为转出；NeuroBook 的 `sessionLayout`、`sessionFiles`、`filesFor`；`agent.ts` 的 `resources` 改用 kit 的 `kernelResources` | nb-harness：`bun run typecheck`、`bun test src/kit`；应用：`bun test src/plugins/agent/resources.test.ts src/plugins/agent/agent.test.ts src/plugins/files`、`bun run typecheck`；对 baseline | `kit/testing/files-contract.ts`；`kit/files/local.test.ts` 与应用 `resources.test.ts` 各跑一遍合同；`kit/files/kernel-resources.test.ts`。nb-harness：`bun test src/kit/files`；应用：`bun test src/plugins/agent/resources.test.ts` |
+| 4 | `kit/commands/`（加 `unbash` 依赖，应用删掉）；`kit/tools/` 的 `snapshot`、`read`、`image`、`write`、`edit`、`search`、`preview`；`builtin/index.ts`、`texts.ts`、`preview.ts`、`attachments.ts` 改接线 | `bash-dialect.test.ts` 跟着搬。nb-harness：`bun run typecheck`、`bun test src/kit`；应用：`bun test src/plugins/agent/builtin-tools.test.ts src/plugins/agent/builtin-tools-project.test.ts src/plugins/agent/attachments.test.ts src/plugins/agent/permissions.test.ts`、`bun run typecheck`；对 baseline | `builtin-tools.test.ts` 里这几个工具自身行为的用例改写成 `kit/tools/*.test.ts`，应用删重复。nb-harness：`bun test src/kit/tools`；应用：`bun test src/plugins/agent/builtin-tools.test.ts` |
+| 5 | `kit/tools/` 的 `shell`、`shell-address`、`ask`（`AskForms` 注入）；接线 | 同第 4 片第一次，加 `src/plugins/agent/session-host.test.ts`；对 baseline | `shell`、`ask`、“全文”的工具自身用例改写进 kit。命令同第 4 片第二次 |
+| 6 | `kit/compaction/`；`compaction/index.ts`、`prompts.ts` 改接线；`CompactionRestore` 改用 `SessionFilesFactory`、`BuiltinToolIds`、`planOf`、`logOf`；`summary.ts` 用 `MODEL_ROLES` | nb-harness：`bun run typecheck`、`bun test src/kit`；应用：`bun test src/plugins/agent/compaction.test.ts src/plugins/agent/compaction-methods.test.ts src/plugins/agent/builtin-profiles.test.ts`、`bun run typecheck`；对 baseline | `compaction-methods.test.ts` 三组与放回的规则用例改写进 `kit/compaction/*.test.ts`。nb-harness：`bun test src/kit/compaction`；应用：`bun test src/plugins/agent/compaction.test.ts src/plugins/agent/compaction-methods.test.ts` |
+| 7 | `kit/shapes.ts` 补规则形状、`ToolSubject`、`FilePreview`；`kit/approval/`（`rules`、`judge`、`hook`、`review`，含 `escalate`）；`permissions/` 只留模式、项目规则与 `index.ts` 选项；`shared/permissions.ts` 转出；`shared/remote.ts` 的 `ApprovalPreview` 改别名 | `rules.test.ts` 跟着搬。nb-harness：`bun run typecheck`、`bun test src/kit`；应用：`bun test src/plugins/agent/permissions.test.ts src/plugins/agent/modes.test.ts src/plugins/agent/auto-review.test.ts src/plugins/agent/session-host.test.ts`、`bun run test:vitest src/plugins/agent/web`、`bun run typecheck`；对 baseline | `auto-review.test.ts` 按“验收映射”的去向改写；`kit/approval/hook.test.ts` 加 `escalate`：每种来源各一条，缺省时结论与原因与不传相同，转问后仍为 `ask` 时带 `remember`。nb-harness：`bun test src/kit/approval`；应用：`bun test src/plugins/agent/auto-review.test.ts src/plugins/agent/permissions.test.ts` |
+| 8 | `kit/guards/`、`kit/sessions/`；`guards/index.ts`、`agent.ts`、`plugin.ts`、`remote.ts` 改接线；删应用里的旧文件 | `guards.test.ts` 跟着搬。nb-harness：`bun run typecheck`、`bun test src/kit`；应用：`bun test src/plugins/agent`、`bun run typecheck`；对 baseline | `kit/sessions/table.test.ts`：测试里写一个与 `RuntimeClock.schedule` 同语义的手动计时口（同步取消、一次推进内按先后同步执行），覆盖空闲关闭、在用不关、停止，以及同一次推进里先到点、再取消并重新登记时不提前关；`kit/sessions/meta.test.ts` 覆盖材料与标题 id。nb-harness：`bun test src/kit/sessions` |
+| 9 | nb-harness README、`omp-capabilities.md`；最后一次对 baseline；“验证”一节的合入前清单 | 只有这一次提交。见“验证” | — |
+| 合入后 | 主工作区：Spec、`monorepo-boundaries.md`、Work README、t31 README | 一次提交（`git commit -- <路径>`）。`bun run docs:check`、`bun run governance:check` | — |
 
-顺序的理由：文件接口是工具、放回、审批共同的底；放回要用工具的行锚快照，审批要用方言与工具交出的判定对象，所以压缩与审批排在工具之后；守卫与会话不依赖别的块，放最后收尾。每片结束时应用都完整可用，不存在搬了一半的块。
+顺序的理由：文件接口是工具、放回、审批共同的底；放回要用工具的行锚快照，审批要用方言与工具交出的判定对象，所以压缩与审批排在工具之后；守卫与会话不依赖别的块，放最后收尾。每次提交结束时应用都完整可用，不存在搬了一半的块。
 
 ## 验收映射
 
-行为不变，每条输出由原来的测试守着；下表写这一次之后每条由哪里覆盖。“kit”指 nb-harness 里跟着代码搬来的测试（用 `localFiles` 与 `createTestSession`），“应用”指 `packages/neuro-book/src/plugins/` 下留下的测试。
+行为不变，每条输出由原来的测试守着；下表写这一次之后每条由哪里覆盖。“kit”指 nb-harness 里的测试（用 `localFiles` 与 `createTestSession`），“应用”指 `packages/neuro-book/src/plugins/` 下留下的测试。
 
 | Spec 编号 | 覆盖 |
 |---|---|
-| `agent.builtin-tools` 输出 5、7、9、10、12、13、14、16、17、20、21、22、23、24、25、26，验收 2、3、4 | kit：`tools/*.test.ts`（从 `builtin-tools.test.ts` 搬来的对应用例）；应用：`builtin-tools.test.ts` 留下的“声明”与每个工具一条经真实插件的用例 |
+| `harness.host-kit` 全部输出 | kit：`kit/testing/files-contract.ts`，由 `kit/files/local.test.ts`（`localFiles`）与应用 `agent/resources.test.ts`（NeuroBook 的 `sessionFiles`，真实插件）各跑一遍；分组与来源另由应用 `resources.test.ts`“写入接口的会话绑定版” |
+| `agent.builtin-tools` 输出 5、7、9、10、12、13、14、16、17、20、21、22、23、24、25、26，验收 2、3、4 | kit：`tools/*.test.ts`（从 `builtin-tools.test.ts` 改写来的对应用例）；应用：`builtin-tools.test.ts` 留下的“声明”与每个工具一条经真实插件的用例 |
 | `agent.builtin-tools` 输出 1、3、4、6、8、11、15、18、19 | 应用：`builtin-tools.test.ts`（全局地址、来源与分组、全文、虚拟根、链接、不露出的文件、地址替换遇到虚拟或受保护的位置）、`builtin-tools-project.test.ts` |
 | `agent.compaction` 输出 1–6，验收 1–3 | kit：`compaction/*.test.ts`；应用：`compaction.test.ts`“方法与缺省顺序”“切点”“溢出” |
 | `agent.compaction` 输出 7–11 | kit：`compaction/restore.test.ts`；应用：`compaction.test.ts`“放回”第一条（NeuroBook 的计划与日志地址） |
 | `agent.compaction` 输出 12 | 应用：`compaction-methods.test.ts`“贡献点的方法表”、`compaction.test.ts`“贡献的方法” |
-| `agent.permissions` 输出 1、2、5、10–17 | kit：`approval/rules.test.ts`、`commands/bash-dialect.test.ts` |
-| `agent.permissions` 输出 18–21 | kit：`approval/review.test.ts`（从 `auto-review.test.ts` 搬来“问审批模型”“模型看到什么”）；应用：`auto-review.test.ts` 留下“用户设置的写一律问用户”（`user://` 的分类） |
+| `agent.permissions` 输出 1、2、5、10–17 | kit：`approval/rules.test.ts`、`approval/hook.test.ts`、`commands/bash-dialect.test.ts` |
+| `agent.permissions` 输出 18–21 | kit：`approval/review.test.ts`（`auto-review.test.ts`“问审批模型”四条与“模型看到什么”，`role-unbound` 用内核测试模型的 `unavailable` 表造）、`approval/hook.test.ts`（“哪些调用到不了模型”前两条：本地写直接放行、规则先判）；应用：`auto-review.test.ts` 留下“用户设置的写一律问用户”（`user://` 的分类）与“答放行才放行”一条经真实插件的接线 |
 | `agent.permissions` 输出 3、4、6–9、22、23，验收 1–9 | 应用：`permissions.test.ts`、`builtin-tools-project.test.ts`、`web/permission-page.dom.test.ts`、`agent-conversation.e2e.ts` |
-| `agent.modes` 全部 | 应用：`modes.test.ts`、`session-host.test.ts`“Agent 模式”、`agent-conversation.e2e.ts` |
-| `agent.sessions` 输出 5、6 | kit：`sessions/table.test.ts`（`createAgentHost`、内存存储、`createTestClock`）；应用：`agent.test.ts`“会话” |
+| `agent.modes` 输出 1（闸门分类） | kit：`approval/hook.test.ts`；应用：`modes.test.ts` |
+| `agent.modes` 其余 | 应用：`modes.test.ts`、`session-host.test.ts`“Agent 模式”、`agent-conversation.e2e.ts` |
+| `agent.sessions` 输出 5、6 | kit：`sessions/table.test.ts`（测试里的手动计时口）；应用：`agent.test.ts`“会话”（nb-runtime 的 `ManualClock`） |
 | `agent.sessions` 输出 7–15 | 应用：`sessions.test.ts`、`tasks.test.ts`、`agent.test.ts`“停止时……” |
 | `agent.run-guards` 输出 3–12，验收 1、2 | kit：`guards/guards.test.ts`；应用：`agent.test.ts`“运行保护的接线” |
 | `agent.resources` 输出 1、2、4–8、10、11 | 应用：`resources.test.ts`、`builtin-tools.test.ts`“全文” |
-| `agent.resources` 输出 9 | kit：`files/kernel-resources.test.ts`；应用：`resources.test.ts` |
-| `agent.builtin-profiles` 输出 6–13 | 应用：`builtin-profiles.test.ts`（标题 Profile 是 NeuroBook 的，用例不搬） |
-| `models.service` 输出 8、9、15、17 | kit：`models/rules.test.ts`；应用：`models.test.ts` |
-| 计划自己的要求：kit 不认识应用、不依赖 nb-runtime 与应用包、工具不自己写盘、`./kit/shapes` 与 `./models/rules` 不引 node 与 OMP | nb-harness：`src/app-neutral.test.ts`、`src/kit/architecture.test.ts`、`src/models/boundary.test.ts` |
-| 计划自己的要求：文字、id、原因串逐字不变 | baseline 对照（每片与合入前） |
+| `agent.resources` 输出 9 | kit：`files/kernel-resources.test.ts`；应用：`resources.test.ts`“内核的资源接口” |
+| `agent.builtin-profiles` 输出 6–13 | 应用：`builtin-profiles.test.ts`（标题 Profile 是 NeuroBook 的，用例不搬）；kit：`sessions/meta.test.ts` |
+| `models.service` 输出 17 | nb-harness：`models/rules.test.ts`（从 `shared/compaction.test.ts` 搬来）；应用：`models.test.ts` |
+| `models.service` 输出 5、8、15 | 应用：`models.test.ts`（规则函数只换了导入位置；输出 8 的选择顺序不动） |
+| 计划自己的要求：kit 不认识应用、不依赖 nb-runtime 与应用包、工具不自己写盘、三个浏览器子路径不引 node 与 OMP | nb-harness：`src/app-neutral.test.ts`、`src/kit/architecture.test.ts`、`src/models/boundary.test.ts` |
+| 计划自己的要求：宿主文字与 kit 自带文字、id、原因串逐字不变 | baseline 对照（每片第一次提交前与合入前） |
 
-测试怎么拆，规则只有一条：断言依赖 NeuroBook 的地址方案、文件服务的授权、来源与分组、贡献 id 或 NeuroBook Profile 的留在应用；只断言工具、方法、规则自身行为的跟代码搬进 kit，改用 `localFiles`。每一块在应用里至少留一条经真实插件的集成用例证明接线。按这条规则 `builtin-tools.test.ts` 大约一半用例搬走：“read”的分页、大文件、非法 UTF-8、图片，“edit”的引擎规则、裸路径、增删移动、部分失败，“grep 与 glob”的配额与期限，“shell”的环境、引号替换、输出窗口与全文保存，“ask”的回答校验，“审批预览”的试算；直接调 `runGrep`、`runGlob`、`previewEdit` 的用例全部搬。`rules.test.ts`、`bash-dialect.test.ts`、`guards.test.ts`、`models/shared/compaction.test.ts` 整个搬。`permissions.test.ts`、`modes.test.ts`、`sessions.test.ts`、`tasks.test.ts`、`resources.test.ts`、`builtin-profiles.test.ts`、`builtin-tools-project.test.ts` 不搬。
+测试怎么拆，规则只有一条：断言依赖 NeuroBook 的地址方案、文件服务的授权、来源与分组、贡献 id 或 NeuroBook Profile 的留在应用；只断言工具、方法、规则自身行为的改写进 kit，改用 `localFiles`。每一块在应用里至少留一条经真实插件的集成用例证明接线。按这条规则 `builtin-tools.test.ts` 大约一半用例改写进 kit：“read”的分页、大文件、非法 UTF-8、图片，“edit”的引擎规则、裸路径、增删移动、部分失败，“grep 与 glob”的配额与期限，“shell”的环境、引号替换、输出窗口与全文保存，“ask”的回答校验，“审批预览”的试算；直接调 `runGrep`、`runGlob`、`previewEdit` 的用例全部搬。`rules.test.ts`、`bash-dialect.test.ts`、`guards.test.ts`、`models/shared/compaction.test.ts` 整个搬。`permissions.test.ts`、`modes.test.ts`、`sessions.test.ts`、`tasks.test.ts`、`resources.test.ts`（另加合同测试的调用）、`builtin-profiles.test.ts`、`builtin-tools-project.test.ts` 不搬。
 
 ## 验证
 
-- 每片的命令见“切片”。包内跑文件时在包目录执行（`bun run test <路径>` 或 `bun test <路径>`），不在命令里接 `&&` 后再提交。
+- 每次提交的命令见“切片”。包内跑文件时在包目录执行（`bun run test <路径>` 或 `bun test <路径>`），不在命令里接 `&&` 后再提交。
 - 合入前跑一次：
   - `bun run test:affected --typecheck`（仓库根）：会选中 nb-harness 与依赖它的 neuro-book、nb-story、nb-agent-ui。长验证前看 `/proc/loadavg`，失败先分产品、测试与环境，单独重跑确认。
   - nb-harness 完成门禁：`bun run typecheck`、`bun test`（含 `tests/session.test.ts`、`acceptance.test.ts`、`provider.test.ts`，内核没改，按包 AGENTS.md 仍跑）。
@@ -399,28 +464,26 @@ export function modelChoice(query: ModelQuery, defaults: {readonly model?: strin
   - `bun run governance:check`、`bun run docs:check`。
   - 浏览器 e2e，3 个文件：`agent-conversation.e2e.ts`（审批、预览、模式切换、提问、规则写入）、`agent-profiles.e2e.ts`（工具绑定与声明）、`models.e2e.ts`（设置页改用 harness 的纯子路径）。按 `packages/neuro-book` 的 `test:e2e` 自己构建；跑前停掉多余的开发服务。
   - 真实模型：`bun run --cwd packages/neuro-book test:llm` 只跑 `compaction.llm.test.ts`、`permissions.llm.test.ts`、`builtin-tools.llm.test.ts`、`run-guards.llm.test.ts`、`agent.llm.test.ts`；缺凭据时记“未验证”。
-  - 变异检查：对 `kit/architecture.test.ts` 的只读名单、`app-neutral.test.ts`、`modelChoice` 的选择顺序、`createApprovalHook` 调 `review` 的条件各改坏一次，确认对应测试失败后还原（先提交或备份再改，不用 `git checkout` 还原）。
-- 实施中改动之后只重跑覆盖改动的文件和失败项；e2e 只在第 5、7 片之后各重跑 `agent-conversation.e2e.ts` 一次，其余留到合入前。
-- 明确留下的未验证边界：Windows（ADR 0031 只由开发者的 Windows 机器实测；nb-story 不加载 kit，只多装 `unbash`）；kit 的 `shell`、`grep`、`glob` 在 Windows 上的行为；NeuroBot 实际接上 kit（本 Task 不做）。
+  - 变异检查：对 `kit/architecture.test.ts` 的只读白名单与浏览器链、`app-neutral.test.ts`、合同测试（让 `localFiles` 把虚拟根报成别的码）、`createApprovalHook` 调 `review` 与 `escalate` 的条件、句柄表到点回调的取消判断各改坏一次，确认对应测试失败后还原（先提交或备份再改，不用 `git checkout` 还原）。
+- 实施中改动之后只重跑覆盖改动的文件和失败项；e2e 只在第 5、7 片的第一次提交之后各重跑 `agent-conversation.e2e.ts` 一次，其余留到合入前。
+- 明确留下的未验证边界：Windows（ADR 0031 只由开发者的 Windows 机器实测；nb-story 不加载 kit，只多装 `unbash`）；kit 的 `shell`、`grep`、`glob` 在 Windows 上的行为；NeuroBot 实际接上 kit、自己的 `SessionFiles` 过合同测试（本 Task 不做）。
 
 ## 不做与风险
 
-不做：NeuroBot 的任何代码与它的文件访问配置；bot 应答已弹出的审批请求（要改内核 `allowed`）；按 Profile 替换摘要小节；`tools.ts`、`profiles.ts`、`frames.ts`、`remote.ts` 这类 nb-runtime 接线与远程投影的抽取（Task README 已定等 NeuroBot 写出来再比）；旧 `src/tools/` 与 `createHarness` 的删除（t31）；nb-harness 升版本与发布（远端写入，另请授权；nb-story 不需要新版本）；t14 的子代理与任务中心。
+不做：NeuroBot 的任何代码与它的 `SessionFiles` 实现（写锁、改动记录、来源限制都在那里）；NeuroBot 的“目录外的读要审批”不进接口，由它在 `userRules` 层给缺省规则表达（规则已支持 `not`、`any` 与路径 glob），kit 不为它加字段；bot 应答已弹出的审批请求（要改内核 `allowed`）；Agent 模式进 kit（没有第二个使用者）；按 Profile 替换摘要小节；模型端口 `resolve` 的选择顺序与模型服务（w00043 t02）；`tools.ts`、`profiles.ts`、`frames.ts`、`remote.ts` 这类 nb-runtime 接线与远程投影的抽取（Task README 已定等 NeuroBot 写出来再比）；kit 其余块的宿主无关 Spec 条目（留到 NeuroBot 接入时）；旧 `src/tools/` 与 `createHarness` 的删除（t31）；nb-harness 升版本与发布（远端写入，另请授权；nb-story 不需要新版本）；t14 的子代理与任务中心。
 
 风险与兜底：
 
-- **文字或 id 被改了一个字**：工具声明进 Profile 哈希，扩展 id 进事件名，原因串进日志，改了就是行为变化而测试不一定拦得住（测试按规范不锁措辞）。兜底是 baseline 对照，它调用的是真实的贡献声明与真实的提示词函数，实施时核对 dump 脚本确实取自这些导出，不是另抄一份。
-- **浏览器第一次在运行期导入 nb-harness**（`./kit/shapes` 经 `shared/permissions.ts`，`./models/rules` 经设置页）：现在 web 只从 nb-harness 导入类型。兜底是第 2、7 片的 `vue-tsc` 与 Vitest 的 DOM 用例（Vitest 用前端的 Vite 配置解析），以及合入前的 `models.e2e.ts`、`agent-conversation.e2e.ts`（真实构建产物）。
-- **两份 `decodeText`**（kit 与 `nbook.files`）：规则一样，分叉了 `read` 与写入接口对“是不是文字”的判断会不同。兜底是应用的 `resources.test.ts` 加一条用同一组字节（BOM、NUL、非法 UTF-8、空）比两者结果。
-- **`SessionTable` 换时钟**：只比现在晚一个微任务；兜底是 `agent.test.ts`“会话”与“停止”几条（真实插件、nb-runtime 的手动时钟经 `kernelClock`）和 kit 的 `sessions/table.test.ts`（内核的手动时钟）。
-- **测试搬走后应用的接线没人测**：兜底是“每块在应用里留一条经真实插件的集成用例”，实施时逐块核对留下的那条确实走到了 `filesFromServices`、`createApprovalHook` 的 NeuroBook 选项与 `compactionMethods` 的 NeuroBook 参数。
-- **kit 绕开文件服务写盘**：兜底是 `kit/architecture.test.ts` 的只读名单（静态检查导入），NeuroBook 一侧仍由 `builtin-tools.test.ts`“输出 3”核对写入带会话来源与分组。
+- **文字或 id 被改了一个字**：工具声明进 Profile 哈希，扩展 id 进事件名，原因串与诊断消息进日志，放回与摘要输入进模型上下文，改了就是行为变化而测试不一定拦得住（测试按规范不锁措辞）。兜底是 baseline 对照，宿主文字与 kit 自带文字都在里面，它调用的是真实的贡献声明与真实函数，实施时核对 dump 脚本确实取自这些导出，不是另抄一份。
+- **新增的浏览器导入链拖进 node 或 OMP**：浏览器早已在运行期值导入 nb-harness（`agent/shared/remote.ts` 经 `kernel/contracts`），本 Task 新增三条：`./kit/shapes`（经 `shared/permissions.ts`、`shared/remote.ts`）、`./kit/files`（经 `files/shared/contracts.ts` 转出 `decodeText`、`renderVirtual`）、`./models/rules`（经设置页）。这三个入口顺着相对导入只能值导入 `typebox`，类型只能 `import type` 自 `kernel/contracts.js`。兜底是 `kit/architecture.test.ts` 与 `models/boundary.test.ts` 按整条链检查；`vue-tsc -p tsconfig.web.json`（`types` 只有 `vite/client`）只证明类型导入拉进来的文件能过类型检查，不证明打包产物里没有 OMP，后者由链检查与合入前的 `models.e2e.ts`、`agent-conversation.e2e.ts`（真实构建产物）兜底。
+- **kit 的测试改跑 `localFiles` 后与 NeuroBook 的真实行为脱节**：兜底是两个实现各跑一遍的 `SessionFiles` 合同测试；`nbook.files` 改了某个失败码时，应用里那一遍先失败。
+- **测试搬走后应用的接线没人测**：兜底是“每块在应用里留一条经真实插件的集成用例”，实施时逐块核对留下的那条确实走到了 `sessionFiles`/`filesFor`、`createApprovalHook` 的 NeuroBook 选项与 `compactionMethods` 的 NeuroBook 参数。
+- **改写用例时把行为一起改了**：兜底是每片两次提交，第一次提交时应用的集成测试一行不改照跑通过。
+- **kit 绕开文件服务写盘**：兜底是 `kit/architecture.test.ts` 的白名单（静态检查导入与 `Bun` 写法），NeuroBook 一侧仍由 `builtin-tools.test.ts`“输出 3”核对写入带会话来源与分组。
 
 ## 需要开发者确认
 
 1. **nb-form 不进 nb-harness 的依赖**：Task README 写 nb-harness 新增 nb-form（“只依赖 TypeBox”），实际 nb-form 依赖 nb-ui（Vue 组件库与图标集），nb-story 现在只把它放 devDependencies。推荐：`ask` 的表单校验由宿主注入（`AskForms`），NeuroBook 用 nb-form 实现，nb-harness 只新增 `unbash`。
-2. **旧 `src/tools/` 不合并、不改，留给 t31 删**：nb-story 不用旧的 `read`、`edit`；用到它们的只有 nb-agent-ui 的契约测试与 nb-harness 自己的旧测试。推荐如此，kit 的工具是唯一维护的实现。
+2. **旧 `src/tools/` 不合并、不改，留给 t31 删**：nb-story 不用旧的 `read`、`edit`；用到它们的只有 nb-agent-ui 的契约测试与 nb-harness 自己的旧测试（含 `tests/acceptance.test.ts`）。`registerBuiltinTools`、`createReadTool`、`createEditTool` 是已发布包根入口的导出，删除属于发布合同变更。推荐如此，kit 的工具是唯一维护的实现，删除与发布合同的说明记进 t31。
 3. **摘要小节只由宿主给**，不做按 Profile 换（要改内核的 Profile 类型）。推荐宿主给，Profile 继续用 `compaction.require` 追加要求。
-4. **kit 带一个本机文件访问实现 `localFiles`**：kit 的测试需要真实依赖，NeuroBot 也直接用它。推荐做；它不含 NeuroBot 的配置与权限策略。
-5. **nb-harness 新增的公开子路径**：`./kit/shapes`、`./kit/files`、`./kit/commands`、`./kit/tools`、`./kit/approval`、`./kit/compaction`、`./kit/guards`、`./kit/sessions`、`./models/rules`，目录名 `src/kit/`。按 `packages/AGENTS.md`，exports 变化要先记为跨模块决策；推荐按此确认后写进 Task README 的决定。
-6. **模型角色的选择顺序（`core.ts` 的 `port.resolve`）一起搬成 `modelChoice`**：Task README 只列了 `models/shared/`。推荐搬，kit 的摘要方法与审批模型依赖这套选择顺序，NeuroBot 的模型端口要照它实现。
+4. **nb-harness 新增的公开子路径**：`./kit/shapes`、`./kit/files`、`./kit/files/local`、`./kit/testing`、`./kit/commands`、`./kit/tools`、`./kit/approval`、`./kit/compaction`、`./kit/guards`、`./kit/sessions`、`./models/rules`，目录名 `src/kit/`；其中只有 `./kit/shapes`、`./kit/files`、`./models/rules` 可进浏览器。按 `packages/AGENTS.md`，exports 变化要先记为跨模块决策；推荐按此确认后写进 Task README 的决定。

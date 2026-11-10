@@ -74,4 +74,4 @@ updated: 2026-11-09
 
 ## 下一步
 
-按上表改出第二稿（派 Opus 子代理），主会话核对后交开发者确认计划与剩下的确认项。
+第二稿（2026-11-10，按上表改，另有几处落实时必须一起改的：浏览器要用的 `./kit/files` 不引 node、`localFiles` 拆到 `./kit/files/local`；模式闸门的文字由宿主给；`escalate` 的来源加 `mode`；`ReviewRequest` 去掉 `project`）已写，交开发者确认计划第七节的 4 项。确认后建 worktree 开工；t14 的前后端实施在本 Task 合入之后。
