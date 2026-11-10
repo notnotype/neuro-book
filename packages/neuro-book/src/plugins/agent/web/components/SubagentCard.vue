@@ -51,7 +51,7 @@ const line = computed(() => {
         case "dispatch-failed": return t("conversation.subagent.dispatchFailed", {code: code ?? ""});
         case "denied": return t("conversation.subagent.denied");
         case "invalid": return t("conversation.subagent.invalid");
-        case "running": return text === "" ? t("conversation.subagent.starting") : text;
+        case "running": return text !== "" ? text : t(model.value.thinking === true ? "conversation.subagent.thinking" : "conversation.subagent.starting");
         case "waiting": {
             const waiting = model.value.waitingFor;
             if (waiting?.kind === "approval") return t("conversation.subagent.waitingApproval", {tool: waiting.tool});

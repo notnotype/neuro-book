@@ -415,6 +415,14 @@ describe("审批与提问（输出 10–14）", () => {
         await until("重新打开", () => approvals(h.ctx()).length === 1);
         expect(h.ctx().wizardState).toEqual({collapsed: true, step: 1});
         back();
+        // 按会话存：切到别的会话再切回来还在；别的会话不带过去。
+        const here = h.ctx().session!.id;
+        const other = await h.host.create(MAIN_PROFILE);
+        expect(h.ctx().wizardState).toBeUndefined();
+        await h.host.open(here);
+        await until("切回来", () => approvals(h.ctx()).length === 1);
+        expect(h.ctx().wizardState).toEqual({collapsed: true, step: 1});
+        expect(other).not.toBeNull();
 
         h.host.act({type: "input.submit", batchKey: approvals(h.ctx())[0]!.id, resolutions: {kind: "approval", decision: "allow"}});
         await until("这一批答完", () => h.ctx().wizardState === undefined);

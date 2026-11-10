@@ -26,6 +26,8 @@ export interface CardModel {
     readonly startedAt?: number;
     /** 调用先返回了（`async`、超时、插话），之后在后台跑。 */
     readonly background: boolean;
+    /** 运行中、子会话的进度已到但还没有工具调用：写“正在思考”；进度还没到时写“正在启动”。 */
+    readonly thinking?: true;
     /** 结果全文（点开看）。 */
     readonly result?: string;
     /** 派发失败的码。 */
@@ -115,6 +117,7 @@ export function cardModel(call: ToolCallView, tree: ReadonlyMap<string, TreeItem
                 ...(item.tools === undefined ? {} : {tools: item.tools}),
                 ...(item.startedAt === undefined ? {} : {startedAt: item.startedAt}),
                 ...(item.state === "waiting" ? {waitingFor: waitingOf(item.pending?.[0])} : {}),
+                ...(item.state === "running" && item.step === undefined ? {thinking: true as const} : {}),
             };
         }
     }

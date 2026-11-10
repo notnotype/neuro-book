@@ -41,6 +41,9 @@ describe("子代理卡片", () => {
         const running = child({state: "running", runId: "r1", runInvocation: "inv-1", tools: 3, startedAt: 100, step: {tool: "read", target: "project://第二章.md"}});
         const forked = child({id: "copy", forked: true, state: "running", runId: "r9", runInvocation: "inv-1"});
         expect(cardModel(spawn(), tree(forked, running), [], false)).toMatchObject({state: "running", childId: "child", line: "read project://第二章.md", tools: 3, startedAt: 100, name: "称谓检查"});
+        // 进度到了、还没有工具调用：在思考；进度还没到：不标（卡片写正在启动）。
+        expect(cardModel(spawn(), tree(child({state: "running", runId: "r1", runInvocation: "inv-1"})), [], false)).toMatchObject({state: "running", thinking: true});
+        expect(cardModel(spawn(), tree(), [], false).thinking).toBeUndefined();
         expect(cardModel(spawn(), tree(child({state: "question", runId: "r1", runInvocation: "inv-1", question: {id: "q", text: "要几章？"}})), [], false)).toMatchObject({state: "question", line: "要几章？"});
         expect(cardModel(spawn(), tree(child({state: "waiting", runId: "r1", runInvocation: "inv-1"})), [], false)).toMatchObject({state: "waiting"});
     });

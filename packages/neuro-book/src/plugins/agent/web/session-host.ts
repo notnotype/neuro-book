@@ -39,6 +39,8 @@ type SessionsRemote = RemoteClient<typeof agentSessionsContract>;
 
 /** 归零之后等这么久才取消订阅：切标签回来不用重新打开。 */
 export const RELEASE_DELAY_MS = 30_000;
+/** 切走的会话至多记这么多个的向导与停靠区状态。 */
+const KEPT_UI_STATES = 20;
 const TICK_MS = 1_000;
 
 /** 发出去、结果还没定的一句话：重发用同一个指令 id 和同一份附件，明确被拒时 `restore` 把附件放回输入框。 */
@@ -269,6 +271,19 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     let activeCalls: readonly string[] = [];
     /** 上次推给视图的后代事项（会话 id 与事项 id）：子树推送只有它或 `activeCalls` 变了才重建 ctx。 */
     let descendantPending = "";
+    /**
+     * 切走的会话的向导与停靠区状态（conversation.md 输出 37：按会话存，切走再回来还在），最近的在后，至多 `KEPT_UI_STATES` 个。
+     * 事项答完了的话，回来时 `afterChange` 会清。
+     */
+    const keptUiStates = new Map<string, {readonly wizard: AgentConversationContext["wizardState"]; readonly dock: AgentConversationContext["dockState"]}>();
+    function keepUiState(id: string): void {
+        keptUiStates.delete(id);
+        if (wizardState !== undefined || dockState !== undefined) keptUiStates.set(id, {wizard: wizardState, dock: dockState});
+        for (const oldest of keptUiStates.keys()) {
+            if (keptUiStates.size <= KEPT_UI_STATES) break;
+            keptUiStates.delete(oldest);
+        }
+    }
     const subagentData = shallowRef<SubagentData>({sessionId: null, tree: new Map(), jobs: new Map()});
     const subagentNow = ref(deps.now());
     let cancelSubagentTick: (() => void) | null = null;
@@ -886,16 +901,16 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
     async function open(id: string, options: {readonly keepDraft?: boolean} = {}): Promise<void> {
         generation += 1;
         const token = generation;
-        // 同一个会话重新打开（归还 30 秒后借回）：未提交的答案还要；换了会话才清。事项答完了的话，`afterChange` 会清。
-        const keptWizard = sessionId.value === id ? wizardState : undefined;
-        const keptDock = sessionId.value === id ? dockState : undefined;
+        // 向导与停靠区的状态按会话记：切走时记下这一个的，再取要打开的那个的（同一个会话重新打开也是这样拿回来）。
+        if (sessionId.value !== null) keepUiState(sessionId.value);
+        const kept = keptUiStates.get(id);
         const switching = sessionId.value !== id;
         // 还没有会话时选的模式只属于接下来新建的那一个；打开别的会话就作废，否则会悄悄带到以后新建的会话。
         draftMode = "normal";
         flushDraft();
         closeCurrent();
-        wizardState = keptWizard;
-        dockState = keptDock;
+        wizardState = kept?.wizard;
+        dockState = kept?.dock;
         // A 会话没发的字不带到 B；还没有会话时写的字留着（第一次发送才建会话）。附件的地址带会话 id，只有为它们新建的会话（`keepDraft`）才能接着用。
         if (switching && !options.keepDraft) {
             if (sessionId.value !== null) setDraftSilently("");

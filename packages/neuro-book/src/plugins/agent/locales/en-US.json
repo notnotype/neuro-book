@@ -300,6 +300,7 @@
             "unknownOpen": "Status unknown; open the sub-session to check",
             "running": "Running",
             "starting": "Starting",
+            "thinking": "Thinking",
             "showResult": "Show full result",
             "hideResult": "Hide result",
             "command": "Background command",
