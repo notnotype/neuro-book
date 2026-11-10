@@ -49,6 +49,7 @@ updated: 2026-11-10
 | 5 | [t10](tasks/t10-generation-pipeline/README.md) | 生图管线 | t08、t09 |
 | 6 | [t11](tasks/t11-character-visual-profile/README.md) | 角色视觉档案 | t10、w00039 内核合入 |
 | 6 | [t12](tasks/t12-image-editing/README.md) | 局部重绘与图像编辑 | t06、t07 |
+| 3 | [t13](tasks/t13-image-library/README.md) | 图片库与空间管理（提案接受时从 t06 分出） | t03 |
 
 ## 待定
 
