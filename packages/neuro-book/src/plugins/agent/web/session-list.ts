@@ -25,6 +25,8 @@ export interface SessionListStore {
     readonly error: Ref<string | null>;
     /** 分组与时间列按它算，每次刷新更新：空闲时也要跨过午夜。 */
     readonly now: Ref<number>;
+    /** 子会话的展开记录（面板受控，关掉再打开还在）。 */
+    readonly expanded: Ref<Readonly<Record<string, boolean>>>;
     toggleProfile(id: string): void;
     setScope(scope: "project" | "all"): void;
     setShowArchived(show: boolean): void;
@@ -47,6 +49,7 @@ export function createSessionList(options: {
     const loading = ref(false);
     const error = ref<string | null>(null);
     const now = ref(options.now());
+    const expanded = ref<Readonly<Record<string, boolean>>>({});
 
     /** 只有最后一次请求的结果算数：换范围时前一次可能还在路上。 */
     let latest = 0;
@@ -66,23 +69,50 @@ export function createSessionList(options: {
     }
 
     const profileById = computed(() => new Map(options.profileEntries().map((profile) => [profile.key, profile])));
+    /**
+     * 子会话挂在父会话下（conversation.md 输出 3 的子会话部分）：个数与“子代理等你处理”按未过滤的会话算；过滤命中子会话时把它的祖先一并
+     * 交进来、标 `dimmed`；父会话的时间取自身与后代中最新的，跟着最新的子代理排到前面。
+     */
     const items = computed<readonly AgentSessionListItem[]>(() => {
         const activity = new Map(options.activity().map((item) => [item.id, item.state]));
         const needle = query.value.trim().toLowerCase();
-        return entries.value
-            .filter((entry) => selectedProfiles.value.size === 0 || selectedProfiles.value.has(entry.profile))
-            .filter((entry) => needle === "" || `${entry.title ?? ""}\n${entry.description ?? ""}`.toLowerCase().includes(needle))
+        const all = entries.value as readonly (SessionIndexEntry & {readonly parent?: string})[];
+        const byId = new Map(all.map((entry) => [entry.id, entry]));
+        const children = new Map<string, string[]>();
+        for (const entry of all) if (entry.parent !== undefined && byId.has(entry.parent)) children.set(entry.parent, [...(children.get(entry.parent) ?? []), entry.id]);
+        const descendants = (id: string, seen = new Set<string>()): string[] => (children.get(id) ?? []).filter((child) => !seen.has(child) && seen.add(child)).flatMap((child) => [child, ...descendants(child, seen)]);
+        const matches = (entry: SessionIndexEntry) => (selectedProfiles.value.size === 0 || selectedProfiles.value.has(entry.profile))
+            && (needle === "" || `${entry.title ?? ""}\n${entry.description ?? ""}`.toLowerCase().includes(needle));
+        const matched = new Set(all.filter(matches).map((entry) => entry.id));
+        // 命中的会话的祖先也列出（弱化）：子会话不会脱离父会话单独出现。
+        const listed = new Set(matched);
+        for (const id of matched) {
+            const seen = new Set<string>();
+            for (let parent = byId.get(id)?.parent; parent !== undefined && byId.has(parent) && !seen.has(parent); parent = byId.get(parent)?.parent) {
+                seen.add(parent);
+                listed.add(parent);
+            }
+        }
+        return all
+            .filter((entry) => listed.has(entry.id))
             .map((entry): AgentSessionListItem => {
                 const profile = profileById.value.get(entry.profile);
+                const below = descendants(entry.id);
+                const latest = Math.max(entry.lastActivityAt, ...below.map((id) => byId.get(id)?.lastActivityAt ?? 0));
+                const kids = children.get(entry.id)?.length ?? 0;
                 return {
                     id: entry.id,
                     title: entry.title ?? "",
                     ...(entry.description === null ? {} : {description: entry.description}),
-                    updatedAt: entry.lastActivityAt,
+                    updatedAt: latest,
                     status: activity.get(entry.id) ?? "idle",
                     ...(profile?.icon === undefined ? {} : {icon: profile.icon}),
                     iconTitle: profile?.name ?? entry.profile,
                     ...(entry.archived ? {archived: true} : {}),
+                    ...(entry.parent !== undefined && byId.has(entry.parent) ? {parentId: entry.parent} : {}),
+                    ...(kids === 0 ? {} : {childCount: kids}),
+                    ...(below.some((id) => activity.get(id) === "waiting") ? {childWaiting: true} : {}),
+                    ...(matched.has(entry.id) ? {} : {dimmed: true}),
                 };
             })
             .sort((a, b) => b.updatedAt - a.updatedAt);
@@ -99,6 +129,7 @@ export function createSessionList(options: {
         loading,
         error,
         now,
+        expanded,
         toggleProfile(id) {
             const next = new Set(selectedProfiles.value);
             if (!next.delete(id)) next.add(id);

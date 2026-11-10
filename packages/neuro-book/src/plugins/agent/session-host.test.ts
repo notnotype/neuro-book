@@ -26,6 +26,7 @@ import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
 import type {AgentWorld, SessionsClient} from "./testing/world";
 import {createAgentActivity} from "./web/activity";
+import {createSessionList} from "./web/session-list";
 import {createSessionHost, displayToolName, RELEASE_DELAY_MS} from "./web/session-host";
 import type {SessionHost, SessionHostDeps} from "./web/session-host";
 
@@ -1455,5 +1456,34 @@ describe("子代理（w00032 t14）", () => {
         await until("顶栏路径", () => h.ctx().session?.path?.[0]?.id === parent);
         const first = h.ctx().messages.find((message) => message.kind === "user");
         expect(first?.kind === "user" && first.author).toMatchObject({icon: "i-lucide-feather"});
+    });
+
+    test("会话面板：子会话带父会话、父会话带个数；搜索命中子会话时上级弱化列出；状态栏按会话树数运行中", async () => {
+        const w = await world();
+        const h = await harness(w);
+        const parent = await h.host.create(MAIN_PROFILE);
+        endpoint.scriptFor("慢慢查一遍", "查完了");
+        const held = endpoint.holdFor("慢慢查一遍");
+        endpoint.script({tool: "agent_spawn", args: {profile: "nbook.agent.adhoc", prompt: "慢慢查一遍", initial: {role: "核对员"}, async: true}}, "派了");
+        h.host.act({type: "composer.submit", text: "派", delivery: "prompt"});
+        await held.arrived;
+        await idle(h);
+        const controller = new AbortController();
+        const activity = createAgentActivity(h.client, (message) => {
+            throw new Error(message);
+        });
+        await activity.start(controller.signal);
+        await until("子会话在跑", () => activity.running.value === 1);
+        expect(activity.items.value).toEqual([expect.objectContaining({state: "running", root: parent})]);
+
+        const list = createSessionList({remote: h.client, project: null, profileEntries: () => [], activity: () => activity.items.value, failed: (code) => code, now: () => 0});
+        await list.refresh();
+        const child = list.items.value.find((item) => item.parentId === parent);
+        expect(child).toMatchObject({title: "慢慢查一遍", status: "running"});
+        expect(list.items.value.find((item) => item.id === parent)).toMatchObject({childCount: 1});
+        list.query.value = "慢慢查";
+        expect(Object.fromEntries(list.items.value.map((item) => [item.id, item.dimmed === true]))).toEqual({[child!.id]: false, [parent!]: true});
+        held.release();
+        controller.abort();
     });
 });
