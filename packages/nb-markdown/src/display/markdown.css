@@ -134,10 +134,16 @@
     padding-left: 1em;
 }
 
-/* 注音（输出 12）：正文上方的小字。 */
+/*
+ * 注音（输出 12）：正文上方的小字。不可选：拖选经过时不画成选中，复制只读正文时也不带它，与编辑器复制的结果一致
+ * （docs/specs/workbench/markdown-editing.md 输出 26）。
+ */
 .nb-markdown .nb-ruby-text {
     color: var(--text-muted);
     font-size: 0.6em;
+    /* Safari 只认带前缀的；带前缀的写在前面，见 nb-ui styles.css 里 backdrop-filter 那条。 */
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 /* 双语对照（输出 13）：原文上方一行弱色的译文。 */

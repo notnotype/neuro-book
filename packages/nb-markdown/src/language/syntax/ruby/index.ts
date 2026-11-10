@@ -8,7 +8,7 @@
  */
 
 import {Mark, mergeAttributes} from "@tiptap/core";
-import type {Mark as PMMark} from "@tiptap/pm/model";
+import type {Mark as PMMark, MarkType, Node as PMNode} from "@tiptap/pm/model";
 import type {MarkedExtension, Token, Tokens} from "marked";
 import {decodeHTMLStrict} from "entities";
 
@@ -17,6 +17,7 @@ import {escapeAttribute} from "../../../markdown-dialect";
 import {closeInline, openTagAt, openTagIndex} from "../tags";
 import {CODE_EXCLUSIVE} from "../types";
 import type {MarkdownSyntax, MarkWriter, TokenReader, WriteContext} from "../types";
+import {wholeRubyPlugin} from "./whole-ruby";
 
 declare module "@tiptap/core" {
     interface Commands<ReturnType> {
@@ -35,6 +36,19 @@ type RubyStyle =
     | {readonly form: "attr"; readonly open: string; readonly text: string}
     | {readonly form: "rt"; readonly open: string; readonly close: string; readonly rt: string}
     | {readonly form: "bare"; readonly open: string; readonly close: string};
+
+/** 范围里有没有能放注音的字：所在的块收这个标记，字上也没有排斥它的标记（行内代码）。同 Tiptap `setMark` 的判断。 */
+function allowsRuby(doc: PMNode, from: number, to: number, type: MarkType): boolean {
+    let allowed = false;
+    doc.nodesBetween(from, to, (node, _pos, parent) => {
+        if (allowed) return false;
+        if (node.isInline) {
+            allowed = (parent === null || parent.type.allowsMarkType(type)) && !node.marks.some((mark) => mark.type !== type && mark.type.excludes(type));
+        }
+        return !allowed;
+    });
+    return allowed;
+}
 
 export const MarkdownRuby = Mark.create({
     name: "markdownRuby",
@@ -56,9 +70,21 @@ export const MarkdownRuby = Mark.create({
     },
     addCommands() {
         return {
-            setMarkdownRuby: (text: string) => ({commands}) => commands.setMark(this.name, {text}),
+            // 每次放一个新的注音，不用 `setMark`：它把选区里旧注音的属性（含记下的原文写法）合进来，盖住旧注音与旁边的字时
+            // 成了两个属性不同的注音，写回是两个 `<ruby>`。
+            setMarkdownRuby: (text: string) => ({tr, state, dispatch}) => {
+                const {empty, ranges} = state.selection;
+                if (empty || !ranges.some((range) => allowsRuby(state.doc, range.$from.pos, range.$to.pos, this.type))) return false;
+                if (dispatch !== undefined) {
+                    for (const range of ranges) tr.addMark(range.$from.pos, range.$to.pos, this.type.create({text}));
+                }
+                return true;
+            },
             unsetMarkdownRuby: () => ({commands}) => commands.unsetMark(this.name),
         };
+    },
+    addProseMirrorPlugins() {
+        return [wholeRubyPlugin(this.type)];
     },
 });
 
