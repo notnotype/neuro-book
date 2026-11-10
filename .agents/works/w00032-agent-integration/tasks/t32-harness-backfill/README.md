@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t32-harness-backfill
-status: planned
+status: active
 updated: 2026-11-10
 ---
 
@@ -61,6 +61,22 @@ updated: 2026-11-10
 2026-11-10：[plan.md](plan.md) 初稿（Opus）做了计划审查（Opus，15 条，[`evidences/plan-review-r1-opus.txt`](evidences/plan-review-r1-opus.txt)）与文件访问接口的独立设计（Sonnet，[`evidences/plan-independent-design-r1-sonnet.txt`](evidences/plan-independent-design-r1-sonnet.txt)），按下表改第二稿。开发者 2026-11-10 选了 NeuroBot 提案待定项 1 的 (b)：模型服务（`models/backend/core.ts`）由 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md) 抽，本 Task 不碰它的服务部分、`server/` 与 `web/`。
 
 2026-11-10：按“决定”表改出第三稿（Opus）：`ask` 直接从 nb-form 核心入口导入、删去 `AskForms`；新增第 1 片把 nb-form 的 `nb-ui`、`vue`、`typescript` 改为可选 peer（`typescript` 是计划另加的：它也只有 `./vue` 用到，不标可选装 nb-story 仍会装上它），`release:smoke` 的 `smokeStory` 加一条“装好后没有 nb-ui、vue、typescript”的检查，并实测 `bun pm pack` 会改写 peer 里的 `workspace:^`；删去模型规则那一片、`./models/rules` 与 `models.e2e.ts`。主 Agent 核对：`./vue` 的消费者（应用、nb-story 网页、冒烟的 Vue 宿主）都自己依赖 nb-ui 与 vue，nb-story 的这两个只在开发依赖里；`bun.lock` 里没有包硬依赖 `typescript`，那条检查在第 1 片成立。
+
+### 实施进度
+
+代码在 `.worktree/w00032-t32-harness-backfill`（分支 `feat/w00032-t32-harness-backfill`），主会话写。
+
+- 开工前：draft Spec [`harness/host-kit.md`](../../../../../docs/specs/harness/host-kit.md) 已提交；baseline 录在 `.local/agent/works/w00032-agent-integration/tasks/t32-harness-backfill/baseline.json`（dump 脚本是不提交的 `packages/neuro-book/src/plugins/agent/t32-baseline.dump.test.ts`，两次运行逐字相同）。
+- 第 1 片（nb-form 的可选 peer）：`release:check`、nb-form 测试与类型检查、应用与 nb-story 的类型检查、nb-story `build:web`、`release:smoke`（在干净克隆里跑，tarball 里 nb-form 的 peer 已改写成 `^0.3.0`，装 nb-story 不带 nb-ui、vue、typescript）都通过。
+- 第 2 片（kit 骨架与边界测试）、第 3 片（文件访问接口、本机参考实现、合同测试）已提交；第 3 片后 baseline 逐字相同。合同测试两个实现都过（本机 13 条，NeuroBook 经真实插件 21 条）。
+
+与计划的偏差：
+
+- baseline 没录“标题生成的两种材料”与“项目规则读坏时的诊断消息”：只能在真实运行里取，搬家时逐字对照源码。
+- `kit/testing` 单元除 `bun:test` 外还用 `node:fs/promises`、`node:os`、`node:path`：合同测试要在夹具目录里放文件与链接。
+- 两条扫描整个 `src/` 的检查改用 TypeScript 的 `preProcessFile` 取说明符：建语法树每条要 1.5 秒，超出快速测试的预算。
+- 合同测试发现 `host-kit.md` 漏了“只读方案的写为 `unsupported-capability`”（NeuroBook 现有行为，文件服务的能力矩阵），已在 master 补上。
+- 应用名扫描的正则另加了 `nbot`、`neurobot`。
 
 ### 计划第一稿的处理
 
