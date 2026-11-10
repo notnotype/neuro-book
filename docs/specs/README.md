@@ -252,7 +252,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Harness 扩展 | [`harness/extensions.md`](harness/extensions.md) | 新内核的扩展（骨架）：定义与装配、id 规则、片与归约、反应与写入批、`mount`、各入口读的状态、插件装卸 |
 | Harness 视图 | [`harness/profile.md`](harness/profile.md) | 新内核由状态算请求：模板节点与文字拼法、缺省布局、轮的渲染与 `render`、纯函数提交与提交缓存、槽、请求校验、块的来源、开发检查 |
 | Harness 运行 | [`harness/runtime.md`](harness/runtime.md) | 新内核的指令、运行循环与运行结果（逐步补齐）：输入缓冲区、受理批、followup、失败与中止的收口、位置章、帧、`waitRun` |
-| Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补 |
+| Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补。待晋升 |
 | Harness 模型端口 | [`harness/models.md`](harness/models.md) | 模型端口与 OMP 适配器：失败归类、密钥遮盖、相邻 user 合并、工具名换算、思考签名、用量与停止原因 |
 | Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |
 | 剧情图谱：图的修订 | [`story/revisions.md`](story/revisions.md) | 确认或驳回候选身份、手动连两个对象、改对象种类、挪称呼；修订按书单独保存、套用后查询、不剧透、可撤销、重抽后按锚对应 |

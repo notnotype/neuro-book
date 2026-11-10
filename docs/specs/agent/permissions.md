@@ -4,6 +4,7 @@ kind: behavior
 status: implemented
 capability: agent.permissions
 owners:
+  - nb-harness
   - packages/neuro-book/src/plugins/agent/backend/permissions
 ---
 
@@ -152,18 +153,18 @@ Smoke：`packages/neuro-book/src/plugins/agent/permissions.llm.test.ts`（`test:
 
 ## 实现合同
 
-- **公开入口**：设置 `nbook.agent/permissionRules`、`readOnlyCommands`、`modeWriteAction`；项目文件 `.nbook/permissions.json`；规则形状 `RuleSchema`（`nbook/plugins/agent/shared/permissions`）；工具交出判定对象的 `AgentToolImplementation.subjects`（`shared/points`）；远程方法 `projectPermissionRules`（`nbook.agent/sessions`）。判定本身没有公开接口：内核只认 `ApproveHook`，`nbook.agent` 在创建运行时把钩子接上。
-- **owner 与依赖方向**：`backend/permissions` 拥有判定；依赖 `nbook.files`（展开地址、读项目根）、`unbash`（`bash` 解析）与内核的 `ApprovalCtx`（`read`、`model`）；内核不认识规则。设置页在 `web/permission-page.ts`，只经配置服务写用户层。
+- **公开入口**：设置 `nbook.agent/permissionRules`、`readOnlyCommands`、`modeWriteAction`；项目文件 `.nbook/permissions.json`；规则形状 `RuleSchema`（`nbook/plugins/agent/shared/permissions`，转出自 `@notnotype/nb-harness/kit/shapes`）；工具交出判定对象的 `AgentToolImplementation.subjects`（`shared/points`）；远程方法 `projectPermissionRules`（`nbook.agent/sessions`）。判定没有面向插件的公开接口：内核只认 `ApproveHook`，`nbook.agent` 用 `@notnotype/nb-harness/kit/approval` 的 `createApprovalHook` 建钩子，在创建运行时接上。
+- **owner 与依赖方向**：判定在 nb-harness 的宿主套件（`kit/approval` 的规则、判定顺序、钩子与审批模型，`kit/commands` 的 `bash` 解析，依赖 `unbash`），审批者与转问可由宿主替换；`backend/permissions` 给规则的三层、项目层的读取、审批者、闸门文字与原因串，经宿主的 `SessionFiles`（建在 `nbook.files` 上）展开地址；用到内核的 `ApprovalCtx`（`read`、`model`），内核不认识规则。设置页在 `web/permission-page.ts`，只经配置服务写用户层。
 - **关键不变量**：
-  - 判定顺序固定且是纯函数：规则拒绝、闸门、放行、询问、只写草稿、审批模式（`rules.test.ts`“判定顺序”）。
-  - 算不出来时偏向收紧：拒绝与询问算命中，放行不算，不生效的放行不挡后面的拒绝（`rules.test.ts`“一层的结果”）。
-  - 只读是白名单到子命令、选项与展开：`sed` 脚本、`env` 变量、带展开的参数都不放过（`bash-dialect.test.ts`“只读清单”）。
-  - `auto` 的模型只看用户亲手打的字与工具调用，输出靠强制调用判定工具，不是恰好一次合法调用就转问用户（`auto-review.test.ts`）。
+  - 判定顺序固定且是纯函数：规则拒绝、闸门、放行、询问、只写草稿、审批模式（nb-harness 的 `kit/approval/rules.test.ts`“判定顺序”）。
+  - 算不出来时偏向收紧：拒绝与询问算命中，放行不算，不生效的放行不挡后面的拒绝（`kit/approval/rules.test.ts`“一层的结果”）。
+  - 只读是白名单到子命令、选项与展开：`sed` 脚本、`env` 变量、带展开的参数都不放过（nb-harness 的 `kit/commands/bash-dialect.test.ts`“只读清单”）。
+  - `auto` 的模型只看用户亲手打的字与工具调用，输出靠强制调用判定工具，不是恰好一次合法调用就转问用户（`auto-review.test.ts`“模型看到什么”，nb-harness 的 `kit/approval/review.test.ts`）。
   - 用户规则的写入排成一个队、每次带比较，同一拍的两次追加都落盘（`web/permission-page.dom.test.ts`“规则写入”）。
 
 ## 证据
 
 - 批准依据：开发者 2026-11-06（[t06 计划](../../../.agents/works/w00032-agent-integration/tasks/t06-approval/plan.md) 的“开发者的决定”与“确认结果”）；开发者 2026-11-07 批准晋升为 `implemented`。
-- 实现入口：[`backend/permissions/hook.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/hook.ts)、[`judge.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/judge.ts)、[`rules.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/rules.ts)、[`bash-dialect.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/bash-dialect.ts)、[`auto-review.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/auto-review.ts)、[`project-rules.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/project-rules.ts)
-- 合同测试：[`permissions.test.ts`](../../../packages/neuro-book/src/plugins/agent/permissions.test.ts)（真实内核、真实 `shell`、本机端点）、[`auto-review.test.ts`](../../../packages/neuro-book/src/plugins/agent/auto-review.test.ts)、[`rules.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/rules.test.ts)、[`bash-dialect.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/bash-dialect.test.ts)、[`builtin-tools-project.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools-project.test.ts)、[`permission-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/permission-page.dom.test.ts)
+- 实现入口：[`backend/permissions/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/index.ts)、[`project-rules.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/project-rules.ts)；nb-harness 的 [`kit/approval/hook.ts`](../../../packages/nb-harness/src/kit/approval/hook.ts)、[`judge.ts`](../../../packages/nb-harness/src/kit/approval/judge.ts)、[`rules.ts`](../../../packages/nb-harness/src/kit/approval/rules.ts)、[`review.ts`](../../../packages/nb-harness/src/kit/approval/review.ts)、[`kit/commands/bash-dialect.ts`](../../../packages/nb-harness/src/kit/commands/bash-dialect.ts)
+- 合同测试：[`permissions.test.ts`](../../../packages/neuro-book/src/plugins/agent/permissions.test.ts)（真实内核、真实 `shell`、本机端点）、[`auto-review.test.ts`](../../../packages/neuro-book/src/plugins/agent/auto-review.test.ts)、[`builtin-tools-project.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools-project.test.ts)、[`permission-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/permission-page.dom.test.ts)；nb-harness 的 [`kit/approval/rules.test.ts`](../../../packages/nb-harness/src/kit/approval/rules.test.ts)、[`hook.test.ts`](../../../packages/nb-harness/src/kit/approval/hook.test.ts)、[`review.test.ts`](../../../packages/nb-harness/src/kit/approval/review.test.ts)、[`kit/commands/bash-dialect.test.ts`](../../../packages/nb-harness/src/kit/commands/bash-dialect.test.ts)
 - Smoke：[`permissions.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/permissions.llm.test.ts)（`test:llm`，真实模型）

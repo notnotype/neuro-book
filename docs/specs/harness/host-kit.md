@@ -142,3 +142,6 @@ Smoke：`@notnotype/nb-harness/kit/testing` 的合同测试对本机参考实现
 ## 证据
 
 - 批准依据：[w00032 t32](../../../.agents/works/w00032-agent-integration/tasks/t32-harness-backfill/README.md) 的“决定”（开发者 2026-11-09 同意补回 nb-harness，2026-11-10 定公开子路径）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)、[ADR 0040](../../adr/0040-file-writes-staged-and-committed-by-root-owner.md)
+- 实现入口：[`kit/files/index.ts`](../../../packages/nb-harness/src/kit/files/index.ts)（接口与共用函数）、[`kit/files/local.ts`](../../../packages/nb-harness/src/kit/files/local.ts)（本机参考实现）、[`kit/testing/files-contract.ts`](../../../packages/nb-harness/src/kit/testing/files-contract.ts)（合同测试）；NeuroBook 的实现在 [`backend/resources.ts`](../../../packages/neuro-book/src/plugins/agent/backend/resources.ts)
+- 合同测试：[`kit/files/local.test.ts`](../../../packages/nb-harness/src/kit/files/local.test.ts)（本机参考实现）、[`resources.test.ts`](../../../packages/neuro-book/src/plugins/agent/resources.test.ts)（NeuroBook 的实现，经真实插件宿主）、[`kit/files/kernel-resources.test.ts`](../../../packages/nb-harness/src/kit/files/kernel-resources.test.ts)
+- Smoke：[`kit/files/local.test.ts`](../../../packages/nb-harness/src/kit/files/local.test.ts)（对本机参考实现跑整份合同测试）

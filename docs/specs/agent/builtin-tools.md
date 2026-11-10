@@ -5,6 +5,7 @@ status: implemented
 capability: agent.builtin-tools
 owners:
   - nbook.agent
+  - nb-harness
 ---
 
 # Agent 的内置工具
@@ -148,10 +149,10 @@ Smoke：`packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts`（`tes
 
 ## 实现合同
 
-- **公开入口**：工具 id 与声明（`nbook.agent` 经 `agent.tools` 贡献），Profile 按 id 绑定；工具工厂的 `services` 形状在 `nbook/plugins/agent/shared/resources`。
-- **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这些工具；读写依赖 `nbook.files` 的写入接口，行锚、搜索与 shell 依赖 `@oh-my-pi/pi-natives`。
+- **公开入口**：工具 id 与声明（`nbook.agent` 经 `agent.tools` 贡献），Profile 按 id 绑定；工具工厂的 `services` 形状在 `nbook/plugins/agent/shared/resources`。工具的实现在 `@notnotype/nb-harness/kit/tools`（`builtinDeclarations`、`builtinTools`、`previewChanges`），工具 id、说明文字与 `SessionFiles` 的实现由 `nbook.agent` 给。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这些工具，依赖 nb-harness 的宿主套件；套件的工具经宿主给的 `SessionFiles`（[`harness/host-kit.md`](../harness/host-kit.md)）读写，NeuroBook 的实现建在 `nbook.files` 的写入接口上；行锚、搜索与 shell 依赖 `@oh-my-pi/pi-natives`。
 - **关键不变量**：
-  - 工具不自己写盘：写都经资源视图或 `SessionArtifacts`，所以来源、分组与授权由文件服务判定（`builtin-tools.test.ts`“edit”“全文”）。
+  - 工具不自己写盘：写都经资源视图或 `SessionArtifacts`，所以来源、分组与授权由文件服务判定（`builtin-tools.test.ts`“edit”“全文”；套件一侧由 nb-harness 的 `kit/architecture.test.ts` 按导入白名单检查）。
   - `edit` 的引擎只算新内容，写回核对这次调用里读到的基线；进引擎前把目标换成全局地址，不去改引擎的文字（输出 1、11，`builtin-tools.test.ts`“验收 4”）。
   - `shell` 的输出回调只做同步的事，全文在命令结束后才保存：暂存不可用不影响执行，命令恰好执行一次（输出 22，`builtin-tools.test.ts`“验收 3”）。
   - `grep` 的回调不等异步核对：匹配入队、逐文件核对，配额与期限到了都不再核对，核对过的结果留着（输出 14、17，`builtin-tools.test.ts`“grep 与 glob”）。
@@ -160,6 +161,6 @@ Smoke：`packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts`（`tes
 ## 证据
 
 - 批准依据：[w00032 t12](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/README.md) 的决定与[第四稿计划](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/plan.md)；开发者 2026-11-04 批准晋升为 `implemented`；`ask` 与审批预览见 [w00032 t17](../../../.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/README.md)，开发者 2026-11-05 批准。
-- 实现入口：[`backend/builtin/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/index.ts)、[`read.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/read.ts)、[`image.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/image.ts)、[`write.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/write.ts)、[`edit.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/edit.ts)、[`search.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/search.ts)、[`shell.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/shell.ts)、[`shell-address.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/shell-address.ts)、[`ask.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/ask.ts)、[`preview.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/preview.ts)
-- 合同测试：[`builtin-tools.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.test.ts)（真实服务端内核、真实文件、真实 brush、本机的 OpenAI 兼容端点）、[`builtin-tools-project.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools-project.test.ts)（真实项目子进程）
+- 实现入口：[`backend/builtin/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/index.ts)、[`preview.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/preview.ts)、[`texts.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/texts.ts)；nb-harness 的 [`kit/tools/index.ts`](../../../packages/nb-harness/src/kit/tools/index.ts)、[`read.ts`](../../../packages/nb-harness/src/kit/tools/read.ts)、[`image.ts`](../../../packages/nb-harness/src/kit/tools/image.ts)、[`write.ts`](../../../packages/nb-harness/src/kit/tools/write.ts)、[`edit.ts`](../../../packages/nb-harness/src/kit/tools/edit.ts)、[`search.ts`](../../../packages/nb-harness/src/kit/tools/search.ts)、[`shell.ts`](../../../packages/nb-harness/src/kit/tools/shell.ts)、[`shell-address.ts`](../../../packages/nb-harness/src/kit/tools/shell-address.ts)、[`ask.ts`](../../../packages/nb-harness/src/kit/tools/ask.ts)、[`preview.ts`](../../../packages/nb-harness/src/kit/tools/preview.ts)
+- 合同测试：[`builtin-tools.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.test.ts)（真实服务端内核、真实文件、真实 brush、本机的 OpenAI 兼容端点）、[`builtin-tools-project.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools-project.test.ts)（真实项目子进程）；nb-harness 的 [`kit/tools/`](../../../packages/nb-harness/src/kit/tools/) 下各工具的测试（本机参考实现 `localFiles`）
 - Smoke：[`builtin-tools.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts)（`test:llm`，真实模型）
