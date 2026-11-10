@@ -206,6 +206,8 @@ t05、t06、t07。
 
 讨论完成（开发者 2026-10-30 确认定稿）：六轮决定与确定的工具见上；两轮 omp 设计审查已处理（报告在 `evidences/`）。2026-11-09 开工：先做界面设计评审（第 34 条）。注意力排序已定（第 36–39 条）；评审板 [`artifacts/review/`](artifacts/review/index.html) 四轮评审定稿（第 40–49 条），草稿在 worktree `.worktree/w00032-t14-drafts`（分支 `w00032-t14/drafts`，不合并）。
 
+实施计划 [`plan.md`](plan.md) 开发者 2026-11-10 确认，含四条替开发者定的：派子代理本身不审批（等级 `read`）、卡片上的“停止”以用户身份、同步向导与异步提问同时出现时异步的收成一条停在上面、三项上限放可靠性分区。本会话的设计与实现审查，后端与计划改派 Claude Opus，不开 omp（开发者 2026-11-10）。
+
 ## 下一步
 
-核对现状，出界面静态稿与评审板；版式定了按 implementation-planning 写计划，改 Spec（会话、工具、资源、Profile、对话界面）。t20 内核的三处修正已在 t20 实现（交互通道、`shared` 并发、`yield`）。
+切片 0：写 Spec 草稿（新 `agent/subagents.md`、`agent/jobs.md`，改计划“Spec 与文档改动”表里的各份），交设计审查（后端与计划 Opus、前端 Sonnet），处理完开始写代码。
