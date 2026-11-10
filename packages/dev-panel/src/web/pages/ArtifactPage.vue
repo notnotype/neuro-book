@@ -136,6 +136,15 @@ async function submitAnswer(answer: AnswerInput): Promise<void> {
 }
 
 const navigate = (href: string) => void router.push(href);
+/**
+ * 跳过左边的页面去答题：DOM 里 iframe 在侧栏前面，键盘要先穿过页面里的全部控件（t22 实测 15 个停靠点）。
+ * 侧栏比视口高，先不滚动地聚焦、再把它的顶边滚进来，标题不会被滚走。
+ */
+const answerPanel = ref<HTMLElement | null>(null);
+function skipToAnswer(): void {
+    answerPanel.value?.focus({preventScroll: true});
+    answerPanel.value?.scrollIntoView({block: "start"});
+}
 </script>
 
 <template>
@@ -159,10 +168,11 @@ const navigate = (href: string) => void router.push(href);
                 <span class="nbdev-num">v{{ data.latestVersion }} 发布于 {{ relativeTime(data.publishedAt) }}</span>
             </template>
             <LoadState v-bind="loadStateOf(artifact)" label="正在读取产物" :subject="`${props.artifactId} 这个产物`" :up-href="upHref" up-label="回到上一级" @navigate="navigate" @retry="artifact.reload()" />
+            <a v-if="data?.pageUrl" href="#nbdev-answer" class="nbdev-skip-local" @click.prevent="skipToAnswer">{{ showForm ? "跳到答题" : "跳到问题" }}</a>
             <div v-if="data" class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:grid-rows-[minmax(0,1fr)]">
                 <ArtifactFrame v-if="data.pageUrl" class="min-h-[32rem] lg:min-h-0" :src="data.pageUrl" :title="`${data.title ?? props.artifactId} 的页面`" note="页面是当前版本（磁盘上的），切换版本只切换题表" />
                 <!-- 有表单时不留下内边距：表单的提交栏贴底，滚动容器的下内边距会让它离底边一截、后面的内容从缝里露出来。 -->
-                <aside class="nbdev-surface relative min-w-0 px-4 pt-4 lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-gutter:stable]" :class="{'lg:col-span-2': !data.pageUrl, 'pb-4': !showForm}" aria-label="问题">
+                <aside id="nbdev-answer" ref="answerPanel" tabindex="-1" class="nbdev-surface relative min-w-0 px-4 pt-4 outline-none lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-gutter:stable]" :class="{'lg:col-span-2': !data.pageUrl, 'pb-4': !showForm}" aria-label="问题">
                     <div class="flex flex-col gap-4">
                         <AnswerForm v-if="showForm" :questions="data.questions" :latest-version="data.latestVersion ?? 0" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" v-model:draft="answerDraft" :errors="formErrors" @submit="submitAnswer">
                             <template #readonly>

@@ -103,7 +103,7 @@ function submit(): void {
         <p v-if="disabledReason" class="nbdev-hint">{{ disabledReason }}</p>
         <section class="nbdev-stack" aria-label="待答">
             <!-- 题缺省是选答，能只答一部分就提交；只有标了必答的单独数出来。 -->
-            <h3 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.pending.length }}<template v-if="pendingRequired > 0"> · 必答 {{ pendingRequired }}</template></span></h3>
+            <h2 class="nbdev-card-title">待答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.pending.length }}<template v-if="pendingRequired > 0"> · 必答 {{ pendingRequired }}</template></span></h2>
             <p v-if="groups.pending.length === 0" class="nbdev-empty">没有待答的题</p>
             <fieldset v-for="state in groups.pending" :key="state.question.id" class="nbdev-stack border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
                 <legend class="flex flex-wrap items-center gap-1.5 pb-1">
@@ -118,15 +118,16 @@ function submit(): void {
                 <Field v-if="commenting[state.question.id]" label="说明（可选）">
                     <Textarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => setComment(state.question.id, value)" />
                 </Field>
-                <div v-if="!commenting[state.question.id] || canClear(state)" class="flex flex-wrap items-center gap-3">
-                    <button v-if="!commenting[state.question.id]" type="button" class="nbdev-note" @click="openComment(state.question.id)">加说明</button>
-                    <button v-if="canClear(state)" type="button" class="nbdev-note" @click="set(state.question.id, undefined)">清除选择</button>
+                <!-- 与“改答”同一种小按钮：原来是 12px 的灰字，看不出能点、点击区只有 36×18（t22）。 -->
+                <div v-if="!commenting[state.question.id] || canClear(state)" class="flex flex-wrap items-center gap-1">
+                    <Button v-if="!commenting[state.question.id]" size="sm" variant="ghost" icon-class="i-lucide-message-square-plus" @click="openComment(state.question.id)">加说明</Button>
+                    <Button v-if="canClear(state)" size="sm" variant="ghost" icon-class="i-lucide-eraser" @click="set(state.question.id, undefined)">清除选择</Button>
                 </div>
                 <p v-if="problems[state.question.id] ?? errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
             </fieldset>
         </section>
         <section v-if="groups.answered.length > 0" class="nbdev-stack" aria-label="已答">
-            <h3 class="nbdev-card-title">已答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.answered.length }}</span></h3>
+            <h2 class="nbdev-card-title">已答 <span class="nbdev-secondary nbdev-num font-normal">{{ groups.answered.length }}</span></h2>
             <fieldset v-for="state in groups.answered" :key="state.question.id" class="nbdev-stack border-b pb-3 last:border-b-0 nbdev-divider" :disabled="disabledReason !== null || pending">
                 <legend class="flex flex-wrap items-center gap-1.5 pb-1">
                     <span class="font-medium">{{ state.question.label }}</span>
@@ -138,7 +139,7 @@ function submit(): void {
                     <Field v-if="commenting[state.question.id]" label="说明（可选）">
                         <Textarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => setComment(state.question.id, value)" />
                     </Field>
-                    <button v-else type="button" class="nbdev-note self-start" @click="openComment(state.question.id)">加说明</button>
+                    <Button v-else class="self-start" size="sm" variant="ghost" icon-class="i-lucide-message-square-plus" @click="openComment(state.question.id)">加说明</Button>
                     <p v-if="problems[state.question.id] ?? errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
                     <Button class="self-start" size="sm" variant="ghost" icon-class="i-lucide-undo-2" @click="cancelEdit(state)">取消改答</Button>
                 </template>

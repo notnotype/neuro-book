@@ -150,7 +150,7 @@ const actualId = computed(() => (created.value ? (submittedMode.value === "work"
             <NewWorkForm v-if="mode === 'work'" v-model="workForm" :problems="formProblems" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="formBlocked" @submit="submit" />
             <NewTaskForm v-else v-model="taskForm" :works="works" :problems="formProblems" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="formBlocked" @submit="submit" />
             <!-- 结果放在右栏顶上：出现时不推动左边的表单（t15 阶段 3c）。 -->
-            <aside class="nbdev-stack min-w-0">
+            <aside class="nbdev-stack min-w-0" aria-label="预览">
                 <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="submit" />
                 <section v-if="created" class="nbdev-surface nbdev-stack-tight p-3" aria-label="新建的结果">
                     <p v-if="created.previewed && created.previewed !== actualId" class="nbdev-warn">预览时是 {{ created.previewed }}，提交时它已被领走，实际领到 {{ actualId }}</p>

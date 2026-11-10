@@ -48,7 +48,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
             <template v-for="task in tasks" :key="task.taskId">
                 <div role="row" class="nbdev-task-row nbdev-divider border-b" :class="{'nbdev-task-open': isOpen(task.taskId)}">
                     <span role="cell">
-                        <button type="button" class="nbdev-task-toggle" :aria-expanded="isOpen(task.taskId)" :aria-controls="detailId(task.taskId)" :aria-label="`${taskLabel(task.taskId)} 的详情`" @click="emit('toggle', task.taskId)">
+                        <button type="button" class="nbdev-task-toggle nbdev-hit" :aria-expanded="isOpen(task.taskId)" :aria-controls="detailId(task.taskId)" :aria-label="`${taskLabel(task.taskId)} 的详情`" @click="emit('toggle', task.taskId)">
                             <span :class="isOpen(task.taskId) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-4" aria-hidden="true" />
                         </button>
                     </span>

@@ -367,7 +367,7 @@ const banners = computed<ShellBanner[]>(() => {
     <a href="#nbdev-main" class="nbdev-skip" :inert="panelState.unauthorized || undefined" @click.prevent="skipToMain">跳到主内容</a>
     <Splitter class="h-full" :panels="panels" :sash-sizes="[narrow ? 0 : 1]" :disabled="navHidden" :inert="panelState.unauthorized || undefined" @gesture-end="onNavGestureEnd">
         <template #[NAV_SLOT]>
-            <aside class="shell-nav h-full overflow-hidden" :inert="navHidden || undefined">
+            <aside class="shell-nav h-full overflow-hidden" aria-label="导航" :inert="navHidden || undefined">
                 <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" :arrange="navArrange" @navigate="(href) => router.push(href)" @toggle="toggleWork" @arrange="setNavArrange">
                     <template #actions>
                         <Tooltip text="收起左栏"><IconButton icon-class="i-lucide-panel-left-close" aria-label="收起左栏" data-shell="collapse-nav" @click="setNavCollapsed(true, true)" /></Tooltip>
@@ -387,7 +387,7 @@ const banners = computed<ShellBanner[]>(() => {
                         <RouterLink v-if="attention > 0" to="/live/sessions?view=notify" aria-label="有要处理的通知，去会话页"><Badge tone="warning" variant="soft" size="sm" icon-class="i-lucide-bell">通知要处理 {{ attention }}</Badge></RouterLink>
                         <Popover side="bottom" align="end">
                             <template #trigger>
-                                <button type="button" class="nbdev-status flex items-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1" :aria-label="statusLabel">
+                                <button type="button" class="nbdev-status nbdev-hit flex min-h-6 min-w-6 items-center justify-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1" :aria-label="statusLabel">
                                     <span class="size-2 rounded-full" :class="statusProblem ? 'bg-[var(--status-warning)]' : 'bg-[var(--status-success)]'" aria-hidden="true" />
                                     <span v-if="statusProblem" class="max-w-[24rem] truncate nbdev-warn">{{ statusProblem.label }}{{ statusProblem.text }}</span>
                                 </button>

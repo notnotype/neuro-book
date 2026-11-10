@@ -19,6 +19,7 @@ import BranchNote from "../parts/BranchNote.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LeaseChip from "../parts/LeaseChip.vue";
 import LoadState from "../parts/LoadState.vue";
+import MarkdownView from "../parts/MarkdownView.vue";
 import StatusBar from "../parts/StatusBar.vue";
 import StatusChip from "../parts/StatusChip.vue";
 import TaskTable from "../parts/TaskTable.vue";
@@ -83,7 +84,11 @@ function retryDetail(taskId: string): void {
     const index = expansion.value.slots.indexOf(taskId);
     if (index >= 0) slotResources[index]!.reload();
 }
-/** Task 表的“当前情况”按行内 Markdown 渲染（不再露出 `[链接](…)` 源码）。 */
+/** 目标与 Task 表的“当前情况”按行内 Markdown 渲染（不再露出 `[链接](…)` 源码）。 */
+const goalHtml = computed(() => {
+    const data = work.data.value;
+    return data?.goal.value ? renderInlineMarkdown(data.goal.value, {checkoutKey: data.checkoutKey ?? "main", path: data.readmePath, artifactBase: artifactBase.value}) : null;
+});
 const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((work.data.value?.tasks ?? []).filter((task) => task.currentState).map((task) => [task.taskId, renderInlineMarkdown(task.currentState!, {checkoutKey: task.checkoutKey ?? "main", path: task.readmePath, artifactBase: artifactBase.value})])));
 </script>
 
@@ -109,7 +114,8 @@ const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((w
         <LoadState v-bind="loadStateOf(work)" label="正在读取 Work" :subject="`${props.workId} 这个 Work`" up-href="/" up-label="回到首页" @navigate="navigate" @retry="work.reload()" />
         <template v-if="work.data.value">
             <section class="nbdev-stack">
-                <p class="max-w-[72ch] whitespace-pre-line" :class="work.data.value.goal.value ? 'nbdev-secondary' : 'nbdev-empty'">{{ work.data.value.goal.value ?? "目标：未标" }}</p>
+                <p v-if="goalHtml" class="max-w-[72ch] whitespace-pre-line nbdev-secondary"><MarkdownView inline :html="goalHtml" @navigate="navigate" /></p>
+                <p v-else class="nbdev-empty">目标：未标</p>
                 <BranchNote v-if="work.data.value.source === 'branch'" :branch="work.data.value.branch" :checkout-key="work.data.value.checkoutKey" />
                 <div class="max-w-md"><StatusBar :counts="work.data.value.taskCounts" /></div>
             </section>
