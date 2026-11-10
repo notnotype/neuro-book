@@ -274,6 +274,9 @@ export function createWorldHost(root: string, report: (input: DiagnosticInput) =
             }
         });
         watchBinder();
+        // 打开时读过一次清单，监视到这里才接上：这中间活页夹目录才出现或清单被改的，没有事件会来，所以接上以后再读一次。
+        // 清单没变时 `setChapters` 什么也不做。
+        reloadBinder();
         return opened;
     };
 

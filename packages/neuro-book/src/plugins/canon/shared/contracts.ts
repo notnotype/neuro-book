@@ -12,7 +12,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {ActorSchema, AddressSchema, AuthorizationSchema, ObjectRefSchema, ReadPositionSchema, WriteRequestSchema} from "@notnotype/nb-canon/schema";
-import type {CanonReadView, ChapterItem, ComponentType, DecisionView, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
+import type {CanonReadView, ChapterItem, ComponentType, DecisionView, EditRoute, OriginStep, Placement, TreeItem, TreeItemAt, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -56,6 +56,19 @@ const TellingPositionSchema = Type.Union([
     Type.Object({chapter: Type.String(), edge: Type.Union([Type.Literal("start"), Type.Literal("end")])}),
 ]);
 const Out = Type.Unknown();
+/** 就地改、记一笔、语义档的记一笔的输入；写入与它们的预览（`previewEdit`）共用，两边的字段才不会各写各的。 */
+const EditFields = {
+    requestId: Type.String({minLength: 1}),
+    by: ActorSchema,
+    position: ReadPositionSchema,
+    at: AddressSchema,
+    value: Type.Unknown(),
+    read: Read,
+    intent: Type.Optional(Type.Union([Type.Literal("creative"), Type.Literal("story")])),
+    title: Type.Optional(Type.String()),
+};
+const DeltaFields = {requestId: Type.String({minLength: 1}), by: ActorSchema, position: ReadPositionSchema, at: AddressSchema, delta: Type.Number(), reason: Type.String(), read: Read};
+const NoteFields = {requestId: Type.String({minLength: 1}), by: ActorSchema, position: ReadPositionSchema, at: AddressSchema, text: Type.String({minLength: 1}), read: Read};
 
 /** 失败的详情：nb-canon 的失败对象。 */
 const FailureSchema = Type.Object({code: Type.String()});
@@ -64,8 +77,11 @@ const errors = {canon: FailureSchema};
 const methods = {
     status: {input: Type.Object({}), output: Out, effect: "read", errors},
     /** 带视图令牌时 `position` 可以不写，读到上限为止。 */
-    entry: {input: Type.Object({id: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, withOrigins: Type.Optional(Type.Boolean()), view: View}), output: Out, effect: "read", errors},
-    tree: {input: Type.Object({parent: Type.Union([Type.String(), Type.Null()]), cursor: Cursor, limit: Limit, view: View}), output: Out, effect: "read", errors},
+    entry: {input: Type.Object({id: Type.String(), position: Type.Optional(ReadPositionSchema), mode: Mode, withOrigins: Type.Optional(Type.Boolean()), withChangedAt: Type.Optional(Type.Boolean()), view: View}), output: Out, effect: "read", errors},
+    /** 给了 `position` 时每项另带这个位置上的名字、出场与本体（输出 30）；`mode` 缺省实际模式。 */
+    tree: {input: Type.Object({parent: Type.Union([Type.String(), Type.Null()]), position: Type.Optional(ReadPositionSchema), mode: Type.Optional(Mode), cursor: Cursor, limit: Limit, view: View}), output: Out, effect: "read", errors},
+    /** 一个地址的来历的一页，从最近一步往前（canon.model 输出 37）；带视图令牌拒。 */
+    origins: {input: Type.Object({at: AddressSchema, position: Type.Optional(ReadPositionSchema), mode: Mode, cursor: Cursor, limit: Limit, view: View}), output: Out, effect: "read", errors},
     lookup: {input: Type.Object({names: Type.Array(Type.String(), {maxItems: 200}), position: Type.Optional(ReadPositionSchema), view: View}), output: Out, effect: "read", errors},
     changes: {
         input: Type.Object({
@@ -161,27 +177,27 @@ const methods = {
     preview: {input: Type.Object({request: Type.Union([WriteRequestSchema, Type.Object({revert: Type.String(), withDependents: Type.Boolean(), requestId: Type.String({minLength: 1}), by: ActorSchema, title: Type.Optional(Type.String())})]), view: View}), output: Out, effect: "read", errors},
     outcome: {input: Type.Object({requestId: Type.String()}), output: Out, effect: "read", errors},
     publish: {input: Type.Object({request: WriteRequestSchema, token: Token, view: View}), output: Out, effect: "write", errors},
-    editInPlace: {
-        input: Type.Object({
-            requestId: Type.String({minLength: 1}),
-            by: ActorSchema,
-            position: ReadPositionSchema,
-            at: AddressSchema,
-            value: Type.Unknown(),
-            read: Read,
-            intent: Type.Optional(Type.Union([Type.Literal("creative"), Type.Literal("story")])),
-            title: Type.Optional(Type.String()),
-            token: Token,
-            view: View,
-        }),
+    editInPlace: {input: Type.Object({...EditFields, token: Token, view: View}), output: Out, effect: "write", errors},
+    recordDelta: {input: Type.Object({...DeltaFields, token: Token, view: View}), output: Out, effect: "write", errors},
+    /** 语义档的记一笔（revisions.md 输出 23）：`text` 是这条变更的文字，也是给这个字段的事件。 */
+    recordNote: {
+        input: Type.Object({requestId: Type.String({minLength: 1}), by: ActorSchema, position: ReadPositionSchema, at: AddressSchema, text: Type.String({minLength: 1}), read: Read, token: Token, view: View}),
         output: Out,
         effect: "write",
         errors,
     },
-    recordDelta: {
-        input: Type.Object({requestId: Type.String({minLength: 1}), by: ActorSchema, position: ReadPositionSchema, at: AddressSchema, delta: Type.Number(), reason: Type.String(), read: Read, token: Token, view: View}),
+    /** 就地改、记一笔、语义档的记一笔的预览（revisions.md 输出 22）：`input` 是三种入口之一的输入，`kind` 写明是哪一种。 */
+    previewEdit: {
+        input: Type.Object({
+            input: Type.Union([
+                Type.Object({kind: Type.Literal("edit"), ...EditFields}, {additionalProperties: false}),
+                Type.Object({kind: Type.Literal("delta"), ...DeltaFields}, {additionalProperties: false}),
+                Type.Object({kind: Type.Literal("note"), ...NoteFields}, {additionalProperties: false}),
+            ]),
+            view: View,
+        }),
         output: Out,
-        effect: "write",
+        effect: "read",
         errors,
     },
     writeBack: {
@@ -276,6 +292,15 @@ export interface CanonStatus {
     };
 }
 
+/** 一个条目的 id 与它在读取位置上的名字。 */
+export interface EntryName {
+    readonly id: string;
+    readonly name: string;
+}
+
+/** 来历的一步（canon.model 输出 37）：剧情变更的一步带安放与文字，核对点的一步带安放。 */
+export type OriginItem = Exclude<OriginStep, {kind: "init"} | {kind: "reduce"}> & {readonly at?: Placement; readonly text?: string};
+
 /** 一次修订能不能还原（revisions.md 输出 14）：章序调整不能；有后面的修订依赖它时列出它们。 */
 export type Revertable = {readonly ok: true} | {readonly ok: false; readonly reason: "not-revertable"} | {readonly ok: false; readonly reason: "has-dependents"; readonly dependents: readonly string[]};
 
@@ -288,8 +313,12 @@ export interface Page<T> {
 /** 各方法成功时的值；形状与 nb-canon 的 `WorldService` 相同，只是写入结果去掉了内存里的世界。 */
 export interface CanonOutputs {
     readonly status: CanonStatus;
-    readonly entry: {readonly version: number; readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>};
-    readonly tree: Page<{readonly id: string; readonly name: string; readonly type: string; readonly folder: string; readonly deleted: boolean; readonly hasChildren: boolean}>;
+    /** 条目存在时另带上级链（从最上面一级到直接上级）、本体与分组（输出 33）；带视图令牌读时没有这三项。 */
+    readonly entry: {readonly version: number; readonly view: EntryView | null; readonly origins?: Readonly<Record<string, unknown>>; readonly ancestors?: readonly EntryName[]; readonly sameAs?: EntryName | null; readonly folder?: string};
+    /** 给了位置时每项是 `TreeItemAt`；`remaining` 是这一层在这一页之后还会列出几项。 */
+    readonly tree: Page<TreeItem & Partial<Pick<TreeItemAt, "nameAt" | "appeared" | "sameAs">>> & {readonly remaining: number};
+    /** 来历的一页：`items` 从最近一步往前；`initial` 与 `reduced` 是页外的初值与归纳两步。 */
+    readonly origins: Page<OriginItem> & {readonly total: number; readonly initial: Extract<OriginStep, {kind: "init"}> | null; readonly reduced: Extract<OriginStep, {kind: "reduce"}> | null};
     readonly lookup: {readonly version: number; readonly found: Readonly<Record<string, readonly string[]>>};
     /** `total` 是符合筛选的总条数（输出 31）。 */
     readonly changes: Page<{readonly change: StoryChange; readonly outcome: unknown; readonly placedOn: string}> & {readonly total: number};
@@ -326,6 +355,9 @@ export interface CanonOutputs {
     readonly publish: Published;
     readonly editInPlace: Published;
     readonly recordDelta: Published;
+    readonly recordNote: Published;
+    /** 预览：这次会写回哪里、预览的修订（操作与带来的变化）、后面改过同一地址的记录。 */
+    readonly previewEdit: {readonly route: EditRoute; readonly revision: Revision; readonly ids: Readonly<Record<string, string>>; readonly laterRecords: readonly string[]};
     readonly writeBack: Published;
     readonly revert: Published;
     readonly acquireExclusive: {readonly token: string; readonly expires: number};

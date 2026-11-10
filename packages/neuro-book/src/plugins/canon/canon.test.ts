@@ -86,7 +86,7 @@ describe("canon.project：世界服务在项目子进程里", () => {
         keep.release();
     }, 30_000);
 
-    it("输出 28、29、31、34、35 与 canon.components 输出 21：经链路读章表、一次修订、登记的类型；章节文件改名收到 inputChanged", async () => {
+    it("输出 28 到 35、canon.model 输出 37 与 canon.components 输出 21：经链路读章表、一次修订、登记的类型、条目树、条目的上级与来历；章节文件改名收到 inputChanged", async () => {
         const h = await projectHarness(tmp, {plugins: serverPlugins()});
         const keep = leaseOf(await h.manager.acquire("book", "test"));
         await h.ready(1);
@@ -126,12 +126,77 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect(await author.canon.call("changes", {filter: {before: {position: {kind: "chapter", chapter: "2", edge: "end"}, mode: "actual"}, order: "desc"}})).toMatchObject({ok: true, value: {items: [], total: 0}});
         expect(await author.canon.call("changes", {filter: {before: {position: {kind: "chapter", chapter: "9", edge: "end"}, mode: "actual"}}})).toMatchObject({ok: false, failure: {code: "chapter-not-found"}});
 
+        // 输出 30、32、33 与 canon.model 输出 37：条目树带位置、条目的上级与最近改动、按地址取来历。
+        const star = Object.values(written.value.ids)[0]!;
+        const child = person("哥哥");
+        const mask = await publish(author.canon, {...child, baseVersion: written.value.version, puts: [{ref: child.puts[0]!.ref, after: {...(child.puts[0]!.after as Entry), parent: star, sameAs: star}}]});
+        if (!mask.ok) throw new Error(JSON.stringify(mask.failure));
+        const brother = Object.values(mask.value.ids)[0]!;
+        const at = {kind: "chapter", chapter: "1", edge: "end"} as const;
+        expect(await author.canon.call("tree", {parent: star, position: at})).toMatchObject({ok: true, value: {items: [{id: brother, name: "哥哥", nameAt: "哥哥", appeared: true, sameAs: star, hasChildren: false}], remaining: 0}});
+        expect(await author.canon.call("tree", {parent: null})).toMatchObject({ok: true, value: {items: [{id: star, hasChildren: true}], remaining: 0}});
+        expect(await author.canon.call("entry", {id: brother, position: at, mode: "actual", withChangedAt: true})).toMatchObject({ok: true, value: {ancestors: [{id: star, name: "星瑕"}], sameAs: {id: star, name: "星瑕"}, folder: ""}});
+        expect(await author.canon.call("origins", {at: {entry: star, path: "character.外观"}, position: at, mode: "actual"})).toMatchObject({ok: true, value: {items: [], total: 0, initial: {kind: "init", value: null}, reduced: null}});
+        expect(await author.canon.call("origins", {at: {entry: star, path: "character.没有"}, mode: "actual"})).toMatchObject({ok: true, value: {total: 0, initial: null}});
+
         // 带视图令牌：章表只到上限所在的章，登记的类型照常，读一次修订被拒。
         const view = await author.canon.call("openView", {viewer: null, line: "main", until: {kind: "chapter", chapter: "1", edge: "end"}, purpose: "writer"});
         if (!view.ok) throw new Error(view.failure.code);
         expect(await author.canon.call("chapters", {view: view.value.token})).toMatchObject({ok: true, value: {items: [{id: "1"}]}});
         expect((await author.canon.call("components", {view: view.value.token})).ok).toBe(true);
         expect(await author.canon.call("revision", {id: written.value.revision, view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        expect(await author.canon.call("origins", {at: {entry: star, path: "character.外观"}, mode: "actual", view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        const viewed = await author.canon.call("entry", {id: brother, mode: "actual", view: view.value.token});
+        if (!viewed.ok) throw new Error(viewed.failure.code);
+        expect("ancestors" in viewed.value || "sameAs" in viewed.value).toBe(false);
+
+        await author.close();
+        keep.release();
+    }, 30_000);
+
+    it("canon.revisions 输出 22、23、24：经链路预览就地改、给语义档记一笔、同一请求 id 重发；带视图令牌都被拒", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        const author = await windowOf(h, "browser-1", "profile-1");
+        await binder(h, `<binder><chapter id="1"/></binder>`);
+        await until(async () => {
+            const read = await author.canon.call("chapters", {});
+            return read.ok && read.value.items.length === 1;
+        });
+        const created = await publish(author.canon, {...person("星瑾"), baseVersion: await version(author.canon)});
+        if (!created.ok) throw new Error(JSON.stringify(created.failure));
+        const star = Object.values(created.value.ids)[0]!;
+        const at = {kind: "chapter", chapter: "1", edge: "end"} as const;
+        const by = {kind: "author"} as const;
+
+        // 预览改名字：路由是改初值；预览不发布，随后用同一个请求 id 写入，操作与预览的相同。
+        const rename = {requestId: "rename-1", by, position: at, at: {entry: star, path: "entry.name"}, value: "星瑾（妹妹）", read: {value: "星瑾", version: created.value.version}};
+        const preview = await author.canon.call("previewEdit", {input: {kind: "edit", ...rename}});
+        if (!preview.ok) throw new Error(JSON.stringify(preview.failure));
+        expect(preview.value.route).toEqual({kind: "init"});
+        expect(await version(author.canon)).toBe(created.value.version);
+        const renamed = await author.canon.call("editInPlace", rename);
+        if (!renamed.ok) throw new Error(JSON.stringify(renamed.failure));
+        const stored = await author.canon.call("revision", {id: renamed.value.revision});
+        expect(stored.ok && stored.value.revision?.ops).toEqual(preview.value.revision.ops);
+        // 重发：返回第一次的结果，不因为名字已经变了而报冲突；换了内容得到 request-id-reused。
+        expect(await author.canon.call("editInPlace", rename)).toMatchObject({ok: true, value: {revision: renamed.value.revision, repeated: true}});
+        expect(await author.canon.call("editInPlace", {...rename, value: "别的名字"})).toMatchObject({ok: false, failure: {code: "request-id-reused"}});
+
+        // 语义档的记一笔：预览的路由是在这一章新记一条变更；写入后字段多一条事件。
+        const note = {requestId: "note-1", by, position: at, at: {entry: star, path: "character.态度"}, text: "把卡推了回去", read: {value: null, version: renamed.value.version}};
+        expect(await author.canon.call("previewEdit", {input: {kind: "note", ...note}})).toMatchObject({ok: true, value: {route: {kind: "change", at: {kind: "chapter", chapter: "1", key: 0}}}});
+        const noted = await author.canon.call("recordNote", note);
+        if (!noted.ok) throw new Error(JSON.stringify(noted.failure));
+        const origins = await author.canon.call("origins", {at: note.at, position: at, mode: "actual"});
+        expect(origins).toMatchObject({ok: true, value: {total: 1, items: [{kind: "patch", op: "note", text: "把卡推了回去", at: {kind: "chapter", chapter: "1", key: 0}}]}});
+        expect(await author.canon.call("recordNote", {...note, requestId: "note-2", at: {entry: star, path: "character.外观"}})).toMatchObject({ok: false, failure: {code: "validation-failed", problems: [{code: "type-mismatch"}]}});
+
+        const view = await author.canon.call("openView", {viewer: null, line: "main", until: at, purpose: "writer"});
+        if (!view.ok) throw new Error(view.failure.code);
+        expect(await author.canon.call("previewEdit", {input: {kind: "note", ...note}, view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
+        expect(await author.canon.call("recordNote", {...note, requestId: "note-3", view: view.value.token})).toMatchObject({ok: false, failure: {code: "view-denied"}});
 
         await author.close();
         keep.release();

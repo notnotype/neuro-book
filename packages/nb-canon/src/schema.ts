@@ -17,6 +17,7 @@ export type {PlainOptions} from "./render/entry";
 export type {NeededAuthorization} from "./world/authorization";
 export type {TellingHint, TellingItem} from "./service/reads";
 export type {ChapterItem, TreeItem, TreeItemAt, TreePage, ViewDenial, ViewedPage, ViewedReads, ViewGrant} from "./service/views";
+export type {EditRoute} from "./world/edits";
 export type {DiagnosticDeclaration, DiagnosticKeyPart} from "./components/diagnostics-registry";
 export type {MarkDeclaration, MarkRefKind, MarkTarget} from "./components/marks";
 /** 规范的 JSON 与按它比较（键排序）：插件比较存下来的值时用，不按对象键的插入顺序。 */

@@ -83,9 +83,10 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             status: () => withWorld((service) => ({ok: true as const, value: service.status()})),
             entry: (input) => withWorld((service) => {
                 if (input.view !== undefined) return read(service.viewed(own(input.view)).entry(input.id, input.position, input.mode));
-                return read(service.entry(input.id, position(service, input.position), input.mode, input.withOrigins === true));
+                return read(service.entry(input.id, position(service, input.position), input.mode, input.withOrigins === true, input.withChangedAt === true));
             }),
-            tree: (input) => withWorld((service) => denied(service, input.view, "tree") ?? paged(input.limit, (limit) => service.tree(input.parent, input.cursor, limit))),
+            tree: (input) => withWorld((service) => denied(service, input.view, "tree") ?? paged(input.limit, (limit) => (input.position === undefined ? service.tree(input.parent, input.cursor, limit) : service.tree(input.parent, input.cursor, limit, {position: input.position, mode: input.mode ?? "actual"})))),
+            origins: (input) => withWorld((service) => denied(service, input.view, "origins") ?? paged(input.limit, (limit) => service.origins(input.at, position(service, input.position), input.mode, input.cursor, limit), 20)),
             lookup: (input) => withWorld((service) => read(input.view === undefined ? service.lookup(input.names, position(service, input.position)) : service.viewed(own(input.view)).lookup(input.names, input.position))),
             changes: (input) => withWorld((service) => paged(input.limit, (limit) => (input.view === undefined ? service.changes(input.filter ?? {}, input.cursor, limit) : service.viewed(own(input.view)).changes(input.filter ?? {}, input.cursor, limit)))),
             time: (input) => withWorld((service) => {
@@ -125,6 +126,13 @@ export function remoteWorld(host: WorldHost, holdings: CallerHoldings): Implemen
             publish: (input) => withWorld(async (service) => denied(service, input.view, "publish") ?? published(await service.publish(input.request, input.token))),
             editInPlace: ({token, view, ...edit}) => withWorld(async (service) => denied(service, view, "editInPlace") ?? published(await service.editInPlace(edit, token))),
             recordDelta: ({token, view, ...delta}) => withWorld(async (service) => denied(service, view, "recordDelta") ?? published(await service.recordDelta(delta, token))),
+            recordNote: ({token, view, ...note}) => withWorld(async (service) => denied(service, view, "recordNote") ?? published(await service.recordNote(note, token))),
+            previewEdit: (input) => withWorld((service) => {
+                const refused = denied(service, input.view, "previewEdit");
+                if (refused !== null) return refused;
+                const result = service.previewEdit(input.input);
+                return result.ok ? within({route: result.route, revision: result.revision, ids: result.ids, laterRecords: result.laterRecords}) : fail(result.failure as CanonFailure);
+            }),
             writeBack: ({token, view, ...input}) => withWorld(async (service) => denied(service, view, "writeBack") ?? published(await service.writeBack(input, token))),
             revert: ({token, view, revision, withDependents, ...meta}) => withWorld(async (service) => denied(service, view, "revert") ?? published(await service.revert(revision, withDependents, meta, token))),
             openView: (input) => withWorld((service) => {
