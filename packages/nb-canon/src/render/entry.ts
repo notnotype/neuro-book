@@ -66,10 +66,8 @@ export function renderEntryPlain(world: World, entry: string, position: ReadPosi
     const plain: PlainContext = {
         ...shared,
         ...(options.entryName === undefined ? {} : {entryName: options.entryName}),
-        isEntry: (id) => {
-            const found = engine.entry(id, position, mode);
-            return found !== null && found !== "chapter-not-found";
-        },
+        // 只问条目表里有没有：不必为此折叠一遍条目。
+        isEntry: (id) => world.data.entries.has(id),
     };
     return {blocks: view.text.map((block) => renderBlockPlain(block.id, block.source, plain))};
 }

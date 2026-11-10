@@ -252,7 +252,8 @@ export type PlainProblem = "syntax" | "raw-value" | "quoted-block" | "unavailabl
 
 /**
  * 纯文字的一块（给不回写的读者，例如写手的简报；rendering.md 输出 15）。`reads` 与 `mentions` 是调用方判断“这段文字能不能给”
- * 的依据：前者是表达式读了谁的数据，后者是文字里写了谁的名字；两者都不含本条目自己（本条目自己的数据由调用方决定给不给）。
+ * 的依据：前者是表达式读了谁的数据（写了 `ref(...)` 的条目，含本条目自己；路径里以引用为键的行键；不写 `ref` 的本条目字段不算），
+ * 后者是文字里写了谁的名字（含写到本条目自己的 `<Ref>`）。本条目自己的数据给不给由调用方决定。
  */
 export interface PlainBlock {
     readonly id: string;
@@ -324,7 +325,8 @@ export function renderBlockPlain(id: string, source: string, context: PlainConte
     for (const site of parsed.block.expressions) {
         for (const reference of site.references) read(reference);
         if (inImage(site)) continue;
-        if (site.expression === null) {
+        // 引另一块原文：那是 MDX 源文（含条目 id 与表达式），这一处不写文字。
+        if (site.expression === null || site.references.some((reference) => reference.path.startsWith("text["))) {
             splices.push({start: site.start, end: site.end, text: ""});
             continue;
         }

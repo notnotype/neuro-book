@@ -312,16 +312,19 @@ describe("brief 输出 16：变异检查补的用例", () => {
         expect(secrets).toContain("管家的隐秘目标：拿到借据；为什么：要挟男爵");
     });
 
-    test("用马甲的人的列表增减：本章计划里主人写马甲", () => {
-        const w = new PlotWorld(CHAPTERS);
-        const lord = attitudePerson(w, "王爷");
-        const guard = w.person("卫兵");
-        const mask = w.person("灰袍客", {sameAs: lord});
-        w.point("灰袍客就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
-        w.change(chapter("ch4"), {kind: "plan", text: "盯着卫兵", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [{op: "listAdd", at: {entry: lord, path: "att.态度"}, value: {id: guard, 态度: "提防"}}]});
-        const result = brief(w, "ch4");
-        expect(section(result, "plan")).toContain("灰袍客的");
-        noLeak(result, "王爷");
+    test("用马甲的人（身份保密、给了写手）的列表增减：本章计划里主人写马甲；身份绝密时这项变化不写", () => {
+        for (const level of ["secret", "topSecret"] as const) {
+            const w = new PlotWorld(CHAPTERS);
+            const lord = attitudePerson(w, "王爷");
+            const guard = w.person("卫兵");
+            const mask = w.person("灰袍客", {sameAs: lord});
+            w.point("灰袍客就是王爷", lord, {保密: level, 揭穿: {ref: mask}});
+            w.change(chapter("ch4"), {kind: "plan", text: "盯着卫兵", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [{op: "listAdd", at: {entry: lord, path: "att.态度"}, value: {id: guard, 态度: "提防"}}]});
+            const plan = section(brief(w, "ch4"), "plan");
+            expect(plan).not.toContain("王爷");
+            if (level === "secret") expect(plan).toContain("灰袍客的");
+            else expect(plan).not.toContain("提防");
+        }
     });
 
     test("回溯章：前段他露面、后段他用马甲（身份绝密）：称谓表取用马甲的那一份，左右两栏都写马甲", () => {
@@ -348,5 +351,98 @@ describe("brief 输出 16：变异检查补的用例", () => {
         const result = brief(w, "ch4");
         expect(section(result, "appearance")).toContain("灰袍客");
         noLeak(result, "镇南王府", "王爷");
+    });
+});
+
+describe("brief 输出 16：实现审查（第一轮）的复现", () => {
+    test("第 1、9 条：身份绝密的本体，本章计划改他的名字、别名、简介与字段，在场的人里他的目标，都不写", () => {
+        const {w, lord, guard, mask} = lordInDisguise();
+        w.goal("夺回先帝传下的王位", lord, {为什么: "他是先帝之弟"});
+        w.change(chapter("ch4"), {kind: "plan", text: "灰袍客进了酒馆", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [{op: "set", at: {entry: lord, path: "entry.name"}, value: "摄政王"}, {op: "set", at: {entry: lord, path: "entry.aliases"}, value: ["镇北王"]}, {op: "set", at: {entry: lord, path: "entry.summary"}, value: "先帝之弟"}]});
+        const result = brief(w, "ch4");
+        expect(section(result, "people")).toContain("灰袍客");
+        noLeak(result, "王爷", "摄政王", "镇北王", "先帝之弟", "夺回先帝传下的王位");
+    });
+
+    test("第 2 条：本章计划改主文字的一块：只写“改了一块”，不写源文、id 与路径", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const k = w.point("勇者是王子", hero, {保密: "topSecret"});
+        const thing = withText(w, drafts.thing("tmp:t", "怀表"), ["表盖有划痕。"]);
+        w.change(chapter("ch4"), {kind: "plan", text: "改怀表", cast: [present(hero)], patches: [{op: "set", at: {entry: thing, path: "text[b1]"}, value: `它和 {ref("${k}").entry.name} 有关，<Ref id="${k}" />。`}]});
+        const result = brief(w, "ch4");
+        expect(section(result, "plan")).toContain(fixed.textChanged("怀表"));
+        for (const raw of ["text[", "<Ref", "{ref(", k]) expect(section(result, "plan")).not.toContain(raw);
+        noLeak(result, "勇者是王子");
+    });
+
+    test("第 3 条：身份不给写手的马甲条目，别的条目用表达式读它的简介：那一块扣下；它自己的正文也不给", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [lord, guard] = [w.person("王爷"), w.person("卫兵")];
+        const maskDraft = drafts.person("tmp:m", "灰袍客", {sameAs: lord});
+        const mask = w.publish([{ref: {kind: "entry", id: "tmp:m"}, after: {...maskDraft, init: {...maskDraft.init, summary: "其实是王爷的化身", text: [{id: "b1", source: "化身的底细。"}]}}}])["tmp:m"]!;
+        w.point("灰袍客就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
+        const thing = withText(w, drafts.thing("tmp:t", "怀表"), [`主人：{ref("${mask}").entry.summary}`]);
+        w.change(chapter("ch4"), {kind: "plan", text: "灰袍客拿起怀表", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [setState(thing, "停了")]});
+        const result = brief(w, "ch4");
+        expect(section(result, "appearance")).toContain(fixed.WITHHELD_BLOCK);
+        noLeak(result, "其实是王爷的化身", "化身的底细");
+    });
+
+    test("第 4、5 条：揭穿组里另一条保密档与这一场无关：并进这一场，作者的暗示照常生效；组里还有不揭示的绝密时，以组里的揭穿为答案的回收不给主文字", () => {
+        const {w, lord, guard, mask, unmask} = lordInDisguise();
+        const stranger = w.person("路人");
+        w.point("灰袍客其实是贵人", stranger, {保密: "secret", 揭穿: {ref: mask}});
+        const hinted = told("ch4", [reveal(unmask, "hint")]);
+        w.change(chapter("ch4"), {kind: "plan", text: "灰袍客露了一手", cast: [present(guard), {who: lord, as: mask, role: "present"}], told: [hinted]});
+        const secrets = section(brief(w, "ch4"), "secrets");
+        expect(secrets).toContain("真相：灰袍客就是王爷");
+        expect(secrets).toContain(fixed.onlyWriteTo("hint"));
+        // 再加一条不揭示的绝密揭穿：整组不给，以组里那条为答案的伏笔也不给主文字。
+        w.point("灰袍客是先帝之弟", lord, {保密: "topSecret", 揭穿: {ref: mask}});
+        const fs = withText(w, drafts.foreshadow("tmp:fs", "兜帽", {答案: {ref: unmask}}), ["灰袍客当众摘下兜帽。"]);
+        w.change(chapter("ch6"), {kind: "plan", text: "摘兜帽", cast: [present(guard), {who: lord, as: mask, role: "present"}], told: [told("ch6", [reveal(unmask, "hint"), {kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "payoff"}])]});
+        const result = brief(w, "ch6");
+        expect(section(result, "foreshadow")).toContain(fixed.PAYOFF_BY_OUTLINE);
+        expect(result.hints).toContainEqual(expect.objectContaining({code: "nbook.plot.brief.payoffWithheld", reason: "answer"}));
+        noLeak(result, "摘下兜帽", "王爷");
+    });
+
+    test("第 7 条：本章计划改卫兵对王爷那一行（王爷这一场用马甲、卫兵不认得他）：不写这一行", () => {
+        const {w, lord, guard, mask} = lordInDisguise();
+        w.change(chapter("ch4"), {kind: "plan", text: "卫兵改口", cast: [present(guard), {who: lord, as: mask, role: "present"}], patches: [{op: "set", at: {entry: guard, path: `att.态度[${lord}].称呼`}, value: "主公"}]});
+        const result = brief(w, "ch4");
+        noLeak(result, "殿下", "主公", "王爷");
+    });
+
+    test("第 8 条：视角人物以前只见过他戴马甲、揭穿是绝密，这一场他不戴：称谓左栏用泛称，不写旧马甲", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [lord, guard] = [w.person("王爷"), w.person("卫兵")];
+        const mask = w.person("黑衣人", {sameAs: lord});
+        w.point("黑衣人就是王爷", lord, {保密: "topSecret", 揭穿: {ref: mask}});
+        w.change(chapter("ch2"), {cast: [present(guard), {who: lord, as: mask, role: "present"}]});
+        w.change(chapter("ch4"), {kind: "plan", text: "王爷巡城", cast: [present(guard), present(lord)]});
+        const address = section(brief(w, "ch4", {instruction: instruction("ch4", {pov: {kind: "entry", id: guard}, povMode: "limited"})}), "address");
+        expect(address).toContain(`${fixed.A_STRANGER} = 王爷`);
+        expect(address).not.toContain("黑衣人");
+    });
+
+    test("第 15 条：不在本章的人的隐秘目标：本章计划写“某某的一个隐秘目标”，不加指向秘密段的话", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const [butler, hero, baron] = [w.person("管家"), w.person("勇者"), w.person("男爵")];
+        const debt = w.point("男爵欠了赌债", baron, {保密: "secret"});
+        const goal = w.goal("拿到借据", butler, {隐秘: {ref: debt}});
+        w.change(chapter("ch4"), {kind: "plan", text: "勇者查账", cast: [present(hero)], patches: [addRow(hero, debt, {程度: "knows"}), {op: "set", at: {entry: goal, path: "goal.状态"}, value: "blocked"}]});
+        const plan = section(brief(w, "ch4"), "plan");
+        expect(plan).toContain(fixed.hiddenGoalOf("管家"));
+        expect(plan).not.toContain("见这一场的秘密");
+    });
+
+    test("第 16 条：之后才出场的知识点被本章计划引到：名字写占位，也不给真相", () => {
+        const w = new PlotWorld(CHAPTERS);
+        const hero = w.person("勇者");
+        const later = w.publish([{ref: {kind: "entry", id: "tmp:k"}, after: {...drafts.point("tmp:k", "密室在钟楼下", hero, {保密: "secret"}), appears: chapter("ch9")}}])["tmp:k"]!;
+        w.change(chapter("ch4"), {kind: "plan", text: "勇者起疑", cast: [present(hero)], patches: [addRow(hero, later, {程度: "suspects"})]});
+        noLeak(brief(w, "ch4"), "密室在钟楼下");
     });
 });

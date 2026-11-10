@@ -38,6 +38,8 @@ export interface PartTruth {
     readonly requires: ReadonlyMap<string, readonly string[]>;
     /** 这一份里根本不能出现的名字（不给内容又没有出口的）。 */
     readonly hidden: ReadonlySet<string>;
+    /** 马甲名 → 本名与“把两者写在一起”要求的真相（null 表示这一份里永远不能写在一起）：称谓表一行“马甲 = 本名”就是那条揭穿。 */
+    readonly pairs: ReadonlyMap<string, {readonly body: string; readonly needed: readonly string[] | null}>;
 }
 
 export interface SecrecyBook {
@@ -46,6 +48,8 @@ export interface SecrecyBook {
     readonly parts: readonly PartTruth[];
     /** 整份上下文里都不能出现的名字：已删除的条目、之后才出场的人。 */
     readonly never: readonly string[];
+    /** 用马甲的本体的本名：称谓表左栏写本名是例外（视角人物认得他且揭穿给了写手），判据对左栏不查这些名字。 */
+    readonly bodies: ReadonlySet<string>;
     /** 世界里的全部 id（条目、变更、决策、线、章）：上下文里一个都不能出现。 */
     readonly ids: readonly string[];
 }
@@ -87,7 +91,9 @@ export function secrecyBook(seed: number): SecrecyBook {
     const unmasks = new Map<string, string[]>();
     for (const body of persons.slice(0, 1 + random(2))) {
         const name = `马甲${String(next())}号`;
-        const mask = put(drafts.person(`tmp:m${name}`, name, {sameAs: body}));
+        const maskDraft = drafts.person(`tmp:m${name}`, name, {sameAs: body});
+        // 一半的马甲在简介里写着他是谁：身份不给写手时这一句不能出去。
+        const mask = put(chance(50) ? {...maskDraft, init: {...maskDraft.init, summary: `${name}其实是${names.get(body)!}`}} : maskDraft);
         names.set(mask, name);
         masks.set(body, mask);
         const group: string[] = [];
@@ -170,7 +176,9 @@ export function secrecyBook(seed: number): SecrecyBook {
         }
         for (const other of persons) if (other !== person && chance(30)) patches.push({op: "listAdd", at: {entry: person, path: "att.态度"}, value: {id: other, 态度: "崇敬", 称呼: `称呼${String(next())}`}});
     }
-    w.change(chapter("ch2"), {patches});
+    // 第 2 章还让一个用马甲的人戴着马甲与别人同场：之后的称谓表会遇到“以前只见过他戴马甲”。
+    const wornBefore = [...masks].map(([body, mask]) => ({who: body, as: mask, role: "present" as const}));
+    w.change(chapter("ch2"), {patches, cast: [...wornBefore.slice(0, 1), ...persons.filter((id) => !masks.has(id)).slice(0, 2).map((who) => ({who, role: "present" as const}))]});
 
     // 决策：已定的挂在随机条目上，到期待定的挂在知识点的地址上；原话里放记号。
     const decisions: {token: string; about: string[]}[] = [];
@@ -230,6 +238,11 @@ export function secrecyBook(seed: number): SecrecyBook {
             }
         }
         for (const thing of things) planPatches.push({op: "set", at: {entry: thing, path: "character.状态"}, value: "被拿起"});
+        // 改条目自己的地址：名字、一句话描述（新值里带着本名，写出来就会被判据抓到）与主文字的一块。
+        const renamed = pick(cast).who;
+        if (chance(40)) planPatches.push({op: "set", at: {entry: renamed, path: "entry.summary"}, value: `${names.get(renamed)!}的底细`});
+        if (chance(30)) planPatches.push({op: "set", at: {entry: renamed, path: "entry.name"}, value: `${names.get(renamed)!}改`});
+        if (chance(40)) planPatches.push({op: "set", at: {entry: things[0]!, path: "text[b1]"}, value: `改过的一块：<Ref id="${targets()}" />。`});
         const marks: Mark[] = [...reveals].map(([point, mode]) => ({kind: MARK_IDS.reveal, version: 1, point, mode}));
         if (chance(60)) marks.push({kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "payoff"});
         w.change({...chapter(TARGET, 5 + index), ...(line === "main" ? {} : {line})}, {kind: "plan", text: `第六章第 ${String(index + 1)} 段的计划`, cast, patches: planPatches, told: [{source: "outline", chapter: TARGET, anchor: "细纲", marks}]});
@@ -294,9 +307,14 @@ export function secrecyBook(seed: number): SecrecyBook {
             }
             if (needed.length > 0) restrict(decision.token, needed);
         }
-        return {requires, hidden};
+        const pairs = new Map<string, {body: string; needed: string[] | null}>();
+        for (const [body, mask] of masks) {
+            const needed = (unmasks.get(mask) ?? []).filter(secretPlus).map(need);
+            pairs.set(names.get(mask)!, {body: names.get(body)!, needed: needed.some((item) => item === null) ? null : (needed as string[][]).flat()});
+        }
+        return {requires, hidden, pairs};
     });
 
     const ids = [...w.world.data.entries.keys(), ...w.world.data.changes.keys(), ...w.world.data.decisions.keys(), ...lines.filter((line) => line !== "main"), ...CHAPTERS];
-    return {w, instruction, parts, never: [...deletedNames, lateName, ...lateGoals], ids};
+    return {w, instruction, parts, never: [...deletedNames, lateName, ...lateGoals], ids, bodies: new Set([...masks.keys()].map((body) => names.get(body)!))};
 }

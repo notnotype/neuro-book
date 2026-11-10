@@ -43,16 +43,27 @@ function fieldPhrase(gate: Gate, at: Patch["at"]): string {
     return gate.isEntry(element) ? `${owner}对${gate.name(element)}的${sub ?? label}` : `${owner}的${label}（${gate.rowName(at.entry, at.path, element)}）${sub === undefined ? "" : `的${sub}`}`;
 }
 
-/** 增减列表一行的写法。 */
-function listLine(gate: Gate, patch: Patch): string {
+/** 增减列表一行的写法；行是对一个条目的、而这层关系不能写（输出 16）时为 null。 */
+function listLine(gate: Gate, patch: Patch): string | null {
     const parsed = /^([^.[\]]+)\.([^.[\]]+)$/u.exec(patch.at.path);
     const label = parsed === null ? patch.at.path : fieldLabel(gate, patch.at.entry, parsed[1]!, parsed[2]!);
     const owner = gate.name(patch.at.entry);
-    if (patch.op === "listRemove") {
-        const element = String(patch.value);
-        return `${owner}的${label}：去掉${gate.isEntry(element) ? gate.name(element) : gate.rowName(patch.at.entry, patch.at.path, element)}`;
-    }
+    const element = patch.op === "listRemove" ? String(patch.value) : (patch.value as {id?: unknown} | null)?.id;
+    if (typeof element === "string" && gate.isEntry(element) && !gate.relationVisible(patch.at.entry, element)) return null;
+    if (patch.op === "listRemove") return `${owner}的${label}：去掉${gate.isEntry(String(element)) ? gate.name(String(element)) : gate.rowName(patch.at.entry, patch.at.path, String(element))}`;
     return `${owner}的${label}：加上${gate.value(patch.value ?? {})}`;
+}
+
+/**
+ * 一个地址的变化能不能照值写（输出 2、16）：主文字的块不写源文（只写“改了一块”）；条目的名字只在名字照写时写；一句话描述与
+ * 别名只在它们能给时写；对一个条目的那一行，这层关系不能写时不写。
+ */
+function changeShape(gate: Gate, at: Patch["at"]): "value" | "text" | "skip" {
+    if (at.path.startsWith("text[")) return "text";
+    if (at.path === "entry.name") return gate.kind(at.entry) === "plain" ? "value" : "skip";
+    if (at.path === "entry.summary" || at.path === "entry.aliases") return gate.describable(at.entry) ? "value" : "skip";
+    const element = /\[([^\]]+)\]/u.exec(at.path)?.[1];
+    return element !== undefined && gate.isEntry(element) && !gate.relationVisible(at.entry, element) ? "skip" : "value";
 }
 
 /**
@@ -73,6 +84,8 @@ export function planItems(gate: Gate, plans: readonly StoryChange[], chapter: st
         const seen = new Set<string>();
         for (const patch of plan.patches) {
             if (patch.at.path.startsWith("know.") || typeOf(gate, patch.at.entry) === ENTRY_TYPES.point) continue;
+            // 身份不给写手的本体：他的字段变化不挂到马甲名下（开发者 2026-11-10 定）。
+            if (gate.identityWithheld(patch.at.entry)) continue;
             if (gate.kind(patch.at.entry) === "placeholder") {
                 // 藏着秘密的目标写一句占位（名字与状态变化都不写）；别的占位条目不写。
                 if (gate.hiding(patch.at.entry) === null || seen.has(`hidden|${patch.at.entry}`)) continue;
@@ -82,12 +95,19 @@ export function planItems(gate: Gate, plans: readonly StoryChange[], chapter: st
             }
             // 增减一张列表的一行写成一件事，不把整张列表写成 JSON。
             if (patch.op === "listAdd" || patch.op === "listRemove") {
-                lines.push(listLine(gate, patch));
+                const line = listLine(gate, patch);
+                if (line !== null) lines.push(line);
                 continue;
             }
             const key = `${patch.at.entry}|${patch.at.path}`;
             if (seen.has(key)) continue;
             seen.add(key);
+            const shape = changeShape(gate, patch.at);
+            if (shape === "skip") continue;
+            if (shape === "text") {
+                lines.push(fixed.textChanged(gate.name(patch.at.entry)));
+                continue;
+            }
             const steps = view.origins(patch.at, end, "planned");
             if (steps === "chapter-not-found") continue;
             const values = steps.flatMap((step) => (step.kind === "init" || step.kind === "carried" ? [{value: step.value, change: undefined as string | undefined}] : step.kind === "patch" ? [{value: step.result, change: step.change}] : []));
@@ -120,6 +140,8 @@ export function peopleItems(gate: Gate, chapter: string, participants: readonly 
     const scene = new Set([...bodies, ...view.chapterEntries(chapter, "planned")]);
     const items: BriefItem[] = bodies.map((who) => {
         const lines = [gate.name(who)];
+        // 身份不给写手的本体：只写马甲，不把他的目标与态度挂到马甲名下（开发者 2026-11-10 定）。
+        if (gate.identityWithheld(who)) return {label: gate.name(who), text: lines.join("\n"), protect: who === povBody};
         // 目标按写出来的名字再按 id 排：条目在内部表里的先后（发布的批次）不能改变简报的文字。藏着秘密的目标写出来都一样，谁先无所谓。
         const goals = goalsOf(view, who, gate.frame.position, "planned").map((goal) => ({goal, shown: gate.name(goal.id)}));
         for (const {goal} of goals.sort((a, b) => (a.shown < b.shown ? -1 : a.shown > b.shown ? 1 : a.goal.id < b.goal.id ? -1 : 1))) {
@@ -135,9 +157,8 @@ export function peopleItems(gate: Gate, chapter: string, participants: readonly 
             const object = String(row.id);
             if (object === who || !scene.has(object) || typeof row.态度 !== "string") continue;
             const body = bodyOf(view, object);
-            const mask = gate.maskOf(body);
-            // 对本体的一行：这一场他用马甲、X 不认得时不列；对马甲条目的一行：X 认得他时不列（用对本体的那一行）。
-            if (body === object && mask !== undefined && !gate.recognizes(who, body)) continue;
+            // 关系能不能写由关卡判断（X 不认得用马甲的他时不列对本体的一行）；X 认得他时对马甲条目的一行不重复列。
+            if (!gate.relationVisible(who, object)) continue;
             if (body !== object && gate.maskOf(body) === object && gate.recognizes(who, body)) continue;
             const cause = (row.起因 as {ref?: unknown} | null | undefined)?.ref;
             const showCause = typeof cause === "string" && gate.kind(cause) === "plain";
@@ -213,7 +234,8 @@ export function foreshadowItems(gate: Gate, chapter: string, plans: readonly Sto
         for (const node of nodes) {
             if (node.role === "payoff" || node.role === "partial") {
                 const blocks = gate.blocks(foreshadow.id);
-                const secretAnswer = foreshadow.answer !== null && isSecretPlus(gate.secrecy(foreshadow.answer)) && !reveals.has(foreshadow.answer);
+                // 答案按关卡不给内容（含不给写手的那组揭穿、已删除），或是保密以上而本章计划没有揭示它：都不给主文字。
+                const secretAnswer = foreshadow.answer !== null && (gate.secretClass(foreshadow.answer) === "withheld" || (isSecretPlus(gate.secrecy(foreshadow.answer)) && !reveals.has(foreshadow.answer)));
                 const reason = secretAnswer ? "answer" : (blocks.find((block) => block.withheld !== null)?.withheld ?? null);
                 const role = node.role === "payoff" ? "回收" : "部分回收";
                 if (reason !== null) {

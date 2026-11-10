@@ -738,7 +738,7 @@ function plainBlocks(base: World, options: PlainOptions = {}): PlainBlock[] {
     return [...rendered.blocks];
 }
 
-const shape = (block: PlainBlock) => ({text: block.text, reads: [...block.reads].sort(), mentions: [...block.mentions].sort(), problems: [...block.problems].sort()});
+const shape = (block: PlainBlock) => ({text: block.text, reads: [...block.reads].sort(), mentions: [...block.mentions].sort(), problems: [...block.problems].sort() as string[]});
 
 describe("canon.rendering 输出 15：纯文字的渲染", () => {
     test.each([
@@ -747,7 +747,8 @@ describe("canon.rendering 输出 15：纯文字的渲染", () => {
         ["按条目选出的一行的子字段：读了那个条目", '{rel.关系["e2"].态度}', {text: "崇敬", reads: ["e2"], mentions: [], problems: []}],
         ["行里的引用：写名字", '{rel.关系["e2"].起因}', {text: "阿七", reads: ["e2"], mentions: ["e3"], problems: []}],
         ["取出单个列表行：没有写法", '前{rel.关系["e2"]}后', {text: "前后", reads: ["e2"], mentions: [], problems: ["raw-value"]}],
-        ["引另一块原文", '{ref("e2").text[b1]}', {text: "", reads: ["e2"], mentions: [], problems: ["quoted-block", "unavailable"]}],
+        ["引别的条目的一块原文", '{ref("e2").text[b1]}', {text: "", reads: ["e2"], mentions: [], problems: ["quoted-block"]}],
+        ["引本条目一块原文（被引的块存在，源文里有 <Ref> 与表达式）：不写源文", '前<Ref id="e2" />{rel.对象}，引：{text[b1]}后', {text: "前星瑾星瑾，引：后", reads: [], mentions: ["e2"], problems: ["quoted-block"]}],
         ["算出来的引用：写名字", '{rel.关系["e2"].态度 == "崇敬" ? rel.对象 : rel.清单}', {text: "星瑾", reads: ["e2"], mentions: ["e2"], problems: []}],
         ["以引用为键的列表：行写名字，不用读取时补的 label", "{rel.关系}", {text: "星瑾", reads: [], mentions: ["e2"], problems: []}],
         ["作者写的列表：行写 label", "{rel.清单}", {text: "短剑", reads: [], mentions: [], problems: []}],

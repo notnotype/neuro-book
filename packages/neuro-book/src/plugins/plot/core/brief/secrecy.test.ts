@@ -6,8 +6,9 @@ import {composeBrief, type BriefResult} from "./index";
 
 /**
  * 简报保密的种子网（docs/specs/plot/brief.md 输出 4、5、7、8、9、13、16）：逐条用例只守得住想到的路径，这里按种子随机造书，
- * 用生成器记下的真值按 Spec 判。份内的段按那一份的真值判；共同的段（写作指示、称谓右栏）要每一份都允许；称谓左栏是叙述用的
- * 称呼（视角人物认得他且揭穿给了写手时可以写本名，开发者 2026-11-10 定），不在判据里。
+ * 用生成器记下的真值按 Spec 判。份内的段按那一份的真值判；共同的段（写作指示、称谓两栏）要每一份都允许。称谓左栏是叙述用的
+ * 称呼，视角人物认得他且揭穿给了写手时可以写本名（开发者 2026-11-10 定），所以左栏不查本名；但一行“马甲 = 本名”就是那条揭穿，
+ * 要那组揭穿在每一份都给了内容。
  */
 
 const SEEDS = Array.from({length: 40}, (_, index) => index + 1);
@@ -22,17 +23,24 @@ function violations(seed: number, book: SecrecyBook, result: BriefResult): strin
     const problems: string[] = [];
     const partText = result.parts.map((part) => part.sections.filter((s) => s.key !== "address").map((s) => s.items.map((item) => item.text).join("\n")).join("\n"));
     const secrets = result.parts.map((_part, index) => sectionText(result, index, "secrets"));
-    const address = sectionText(result, 0, "address").split("\n").map((line) => (line.includes(" = ") ? line.slice(line.indexOf(" = ") + 3) : line));
-    const common = [...result.common.filter((s) => s.key === "instruction").map((s) => s.items.map((item) => item.text).join("\n")), ...address].join("\n");
+    const lines = sectionText(result, 0, "address").split("\n").filter((line) => line.includes(" = ")).map((line) => ({left: line.slice(0, line.indexOf(" = ")), right: line.slice(line.indexOf(" = ") + 3)}));
+    const instructionText = result.common.filter((s) => s.key === "instruction").map((s) => s.items.map((item) => item.text).join("\n")).join("\n");
+    // 本名在左栏是例外，其余名字左右两栏都查。
+    const commonFor = (name: string) => [instructionText, ...lines.map((line) => line.right), ...(book.bodies.has(name) ? [] : lines.map((line) => line.left))].join("\n");
     const satisfied = (part: number, needed: readonly string[]) => needed.every((name) => secrets[part]!.includes(`真相：${name}`));
     book.parts.forEach((truth, part) => {
         for (const name of truth.hidden) {
             if (partText[part]!.includes(name)) problems.push(`第 ${String(part)} 份写出了不能写的“${name}”`);
-            if (common.includes(name)) problems.push(`共同的段写出了第 ${String(part)} 份不能写的“${name}”`);
+            if (commonFor(name).includes(name)) problems.push(`共同的段写出了第 ${String(part)} 份不能写的“${name}”`);
         }
         for (const [name, needed] of truth.requires) {
             if (partText[part]!.includes(name) && !satisfied(part, needed)) problems.push(`第 ${String(part)} 份写出了“${name}”，秘密段却没给 ${needed.join("、")} 的真相`);
-            if (common.includes(name) && !satisfied(part, needed)) problems.push(`共同的段写出了“${name}”，第 ${String(part)} 份没给 ${needed.join("、")} 的真相`);
+            if (commonFor(name).includes(name) && !satisfied(part, needed)) problems.push(`共同的段写出了“${name}”，第 ${String(part)} 份没给 ${needed.join("、")} 的真相`);
+        }
+        for (const line of lines) {
+            const pair = truth.pairs.get(line.left);
+            if (pair === undefined || !line.right.includes(pair.body)) continue;
+            if (pair.needed === null || !satisfied(part, pair.needed)) problems.push(`称谓表写出“${line.left} = ${line.right}”，第 ${String(part)} 份没给那组揭穿的内容`);
         }
     });
     const everything = [result.text, JSON.stringify(result.record), JSON.stringify(result.hints)].join("\n");

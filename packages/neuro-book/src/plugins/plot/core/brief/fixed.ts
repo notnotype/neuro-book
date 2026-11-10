@@ -83,3 +83,5 @@ export const AN_ITEM = "一项";
 export const A_STRANGER = "一个陌生人";
 /** 涉及条目的样子里被扣下的一块（输出 13）。 */
 export const WITHHELD_BLOCK = "（这一段写到本章不能写的设定，略去）";
+/** 本章计划改了主文字的一块：不写源文（输出 2、16）。 */
+export const textChanged = (owner: string) => `${owner}的主文字改了一块`;

@@ -92,8 +92,10 @@ function timeModeText(view: CanonReadView, timeMode: NonNullable<InstructionSnap
         return number === null ? "与另一章同时" : `与第 ${String(number)} 章同时`;
     }
     const placement = timeMode.flashback as {kind?: string; chapter?: string};
-    const number = placement.kind === "chapter" && typeof placement.chapter === "string" ? chapterNumber(view, placement.chapter) : null;
-    return number === null ? "补叙前史里的事" : `补叙第 ${String(number)} 章的事`;
+    if (placement.kind === "prehistory") return "补叙前史里的事";
+    if (placement.kind !== "chapter") return "补叙一段还没排进章序的事";
+    const number = typeof placement.chapter === "string" ? chapterNumber(view, placement.chapter) : null;
+    return number === null ? "补叙另一章的事" : `补叙第 ${String(number)} 章的事`;
 }
 
 function instructionLines(gates: readonly Gate[], instruction: InstructionSnapshot | undefined): BriefItem[] {
@@ -139,7 +141,9 @@ export function composeBrief(input: BriefInput): BriefResult | "chapter-not-foun
         section("outline", fixed.TITLES.outline, lineItems(input.outline)),
     ];
     const povId = instruction?.pov?.id ?? null;
-    const parts: BriefPart[] = framed.map(({frame, plans, participants, reveals, points, gate}, frameIndex) => {
+    const parts: BriefPart[] = framed.map(({frame, plans, participants, reveals, gate}, frameIndex) => {
+        // 关卡的集合在传进去的集合上并了这一场戴着的马甲的整组揭穿（输出 16）。
+        const points = gate.points;
         const secrets = buildSecrets(gate, points, participants, reveals, povId);
         const decided = involvedDecisions(frame.view, chapter, "planned", points);
         const decidedFull = decided.filter((decision) => decision.status === "decided").map((decision) => frame.view.object({kind: "decision", id: decision.id}) as Decision);

@@ -30,7 +30,8 @@ export function appearanceItems(gate: Gate, chapter: string): BriefItem[] {
         if (summary !== "") lines.push(summary);
         const aliases = gate.aliases(id);
         if (aliases.length > 0) lines.push(`别名：${aliases.join("、")}`);
-        for (const block of gate.blocks(id)) lines.push(block.withheld === null ? block.text : fixed.WITHHELD_BLOCK);
+        // 身份不给写手的马甲条目，正文与简介、别名同一条规则：不给。
+        if (gate.describable(id)) for (const block of gate.blocks(id)) lines.push(block.withheld === null ? block.text : fixed.WITHHELD_BLOCK);
         for (const [namespace, data] of Object.entries(read.namespaces)) {
             if (SKIPPED_NAMESPACES.has(namespace)) continue;
             for (const [field, value] of Object.entries(data.fields)) {

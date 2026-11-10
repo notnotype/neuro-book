@@ -704,7 +704,7 @@ describe("plot.brief 输出 4、8、13（审查补）：写给写手的文字不
         expect(result.text).not.toContain("勇者是王子");
     });
 
-    test("改用了马甲的人的字段：本章计划写马甲，不写本名", () => {
+    test("改用了马甲（身份绝密）的人的字段：本章计划不写这项变化，也不写本名", () => {
         const w = new PlotWorld(CHAPTERS);
         const lord = w.person("王爷");
         const mask = w.publish([{ref: {kind: "entry", id: "tmp:m"}, after: drafts.person("tmp:m", "灰袍客", {sameAs: lord})}])["tmp:m"]!;
@@ -712,7 +712,8 @@ describe("plot.brief 输出 4、8、13（审查补）：写给写手的文字不
         expect(typeof k).toBe("string");
         w.change(chapter("ch4"), {kind: "plan", text: "灰袍客现身", cast: [{who: lord, as: mask, role: "present"}], patches: [{op: "set", at: {entry: lord, path: "entry.summary"}, value: "换了说法"}]});
         const plan = section(brief(w, "ch4"), "plan");
-        expect(plan).toContain("灰袍客的一句话描述");
+        expect(plan).not.toContain("一句话描述");
+        expect(plan).not.toContain("换了说法");
         expect(plan).not.toContain("王爷");
     });
 });
