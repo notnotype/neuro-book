@@ -11,7 +11,7 @@ updated: 2026-11-10
 
 在 nb-canon 内核上做作者界面的第一版：样本项目打开后能在应用里看条目、切换位置、看回执与待处理、就地改、记一笔、还原
 
-合同：要新写作者界面的 Spec，并改编辑器 Spec 的页面标签（`docs/specs/workbench/editor.md` 输出 33）；Spec 在 S0 写。
+合同：要新写作者界面的 Spec（`docs/specs/canon/author-ui.md`，S0 写），并改编辑器 Spec 的页面标签（[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md) 输出 33）；读写世界按 [`canon/project.md`](../../../../../docs/specs/canon/project.md) 的方法表。
 
 ## 当前状态
 
