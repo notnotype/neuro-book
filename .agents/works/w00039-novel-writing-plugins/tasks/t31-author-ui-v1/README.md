@@ -27,5 +27,5 @@ updated: 2026-11-10
 
 ## 下一步
 
-1. 开发者确认 `plan.md` 末尾的五项。
+1. 开发者在 [t16 评审板](../t16-plot-workbench-ui/artifacts/review/index.html)上答 `plan.md` 末尾的五项（题号 `b1-*`）。
 2. 写 Spec（S0），设计审查，开发者批准后从 S1、S2 开工。

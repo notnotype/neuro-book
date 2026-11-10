@@ -96,6 +96,6 @@ updated: 2026-11-10
 
 ## 下一步
 
-1. 开发者答第 4 轮的三道题与审查后要定的五件事（在会话里问）。
+1. 开发者 2026-11-10 要求“需要我决定的都放到评审板上，我一次回复”：评审板第 7 版最上面是“要你定的事”共 14 题：第一批计划的 5 题（`b1-entry-crud`、`b1-restore`、`b1-preview`、`b1-component-tabs`、`b1-panel-quiet`）、审查以后的 6 题（`r4-stale`、`r4-write-anyway`、`r4-outline`、`r4-term-writer`、`r4-term-workorder`、`r4-timeline-split`）、第 4 轮原有的 3 题。等答复；`b1-*` 的决定写进 t31 的记录。细纲的推荐从“工作单里的文本框”改成“作品里的文件”（t19 的流程稿一直按细纲文件写）。
 2. 第 5 轮重画：按审查的处理记录改；“给写手的上下文”用真实的 `composeBrief` 输出，顺带把这份星瑕的剧情数据做成真的样本。
 3. 定稿后在 t31 补第二批的计划；第一批的界面行为由 t31 的 S0 写进 Spec（`docs/specs/canon/author-ui.md`）。
