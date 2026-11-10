@@ -115,6 +115,6 @@ Agent 工具（t08）、插图方言（t09）、生图管线（t10）、角色�
 
 - 第 1 轮：Opus 23 条、Sonnet 拉远看 9 条，处理见 [evidences/design-review-round1.md](evidences/design-review-round1.md)。
 - 第 2 轮：Opus 只审存储，14 条；问题在结构上，改成“每台机器的仓库是批次的唯一主人、书里存副本、对账进书”，见 [evidences/design-review-round2.md](evidences/design-review-round2.md)。
-- 第 3 轮（最后一轮）：Opus 只审新的存储结构，进行中。
+- 第 3 轮（最后一轮）：Opus 只审新的存储结构，13 条；结构没再变，阻断（对账按批次 id 去重）与写错的平台能力已改，其余 6 条列进提案的“留给 `images/library` 的机制”，见 [evidences/design-review-round3.md](evidences/design-review-round3.md)。三轮后仍有实质问题，按 reviewing 交开发者决定：现在接受、机制留给 Spec（主会话推荐），还是把存储拆成单独的提案。
 
 等第 3 轮处理完，以及开发者对四处的表态（仓库位置改到 `user://images/`、扔掉改成先标记后删、拉远看对自动清理与第一版范围的质疑）。确认后标为接受，把长期决定写成 ADR，再写 `images/prompt` 与 `images/recipes`。
