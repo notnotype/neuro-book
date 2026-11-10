@@ -181,6 +181,11 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "tabMenu.float": {"zh-CN": "浮动", "en-US": "Float"},
     // Markdown 的编辑命令与菜单（docs/specs/workbench/markdown-editing.md）。
     "banner.retrySave": {"zh-CN": "重试保存", "en-US": "Retry Save"},
+    "menus.find": {"zh-CN": "查找", "en-US": "Find"},
+    "menus.replace": {"zh-CN": "替换", "en-US": "Replace"},
+    "menus.changeAll": {"zh-CN": "更改所有匹配项", "en-US": "Change All Occurrences"},
+    "menus.formatDocument": {"zh-CN": "格式化文档", "en-US": "Format Document"},
+    "menus.formatSelection": {"zh-CN": "格式化选定内容", "en-US": "Format Selection"},
     "settingsSections.nbook.editor.groups.saving.title": {"zh-CN": "保存", "en-US": "Saving"},
     "settings.autoSave.title": {"zh-CN": "自动保存", "en-US": "Auto Save"},
     "settings.autoSave.description": {"zh-CN": "什么时候自动保存未保存的修改", "en-US": "When unsaved changes are saved automatically"},

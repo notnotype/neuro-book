@@ -8,12 +8,15 @@
 
 import type {Editor} from "@tiptap/core";
 
+import {isClipboardDenied, readClipboardText} from "nbook/shared/clipboard-read";
+import type {PasteFailure} from "nbook/shared/clipboard-read";
+
+export type {PasteFailure};
+
 export function copyOrCut(editor: Editor, command: "copy" | "cut"): void {
     editor.view.focus();
     document.execCommand(command);
 }
-
-export type PasteFailure = "pasteUnsupported" | "pasteDenied" | "pasteEmpty";
 
 interface ClipboardReader {
     read?(): Promise<ReadonlyArray<ClipboardItem>>;
@@ -25,10 +28,10 @@ export async function paste(editor: Editor, plain: boolean, clipboard: Clipboard
     if (clipboard?.readText === undefined || (!plain && clipboard.read === undefined)) return "pasteUnsupported";
     try {
         if (plain) {
-            const text = await clipboard.readText();
-            if (text === "") return "pasteEmpty";
+            const read = await readClipboardText(clipboard);
+            if (!read.ok) return read.failure;
             editor.view.focus();
-            editor.view.pasteText(text);
+            editor.view.pasteText(read.text);
             return null;
         }
         const items = await clipboard.read!();
@@ -48,7 +51,7 @@ export async function paste(editor: Editor, plain: boolean, clipboard: Clipboard
         }
         return "pasteEmpty";
     } catch (error) {
-        if (error instanceof DOMException && error.name === "NotAllowedError") return "pasteDenied";
+        if (isClipboardDenied(error)) return "pasteDenied";
         throw error;
     }
 }

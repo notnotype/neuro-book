@@ -15,6 +15,7 @@ import type {MonacoApi} from "../code/load-monaco";
 import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
 import type {EditorControlEmits} from "../control";
 import {mergeSource} from "../code/source-merge";
+import CodeContextMenu from "./CodeContextMenu.vue";
 
 // `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例，不需要把实例留在标签的实例槽。
 // `locale`：控件合同的一员；源码编辑器自己不显示要翻译的文字。
@@ -71,6 +72,8 @@ const root = ref<HTMLElement | null>(null);
 const failed = ref<string | null>(null);
 let monaco: MonacoApi | null = null;
 let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
+/** 建好的编辑器与 API，给模板里的右键菜单用；上面两个变量是同一份，脚本里用它们。 */
+const instance = shallowRef<{readonly monaco: MonacoApi; readonly editor: Monaco.editor.IStandaloneCodeEditor} | null>(null);
 let bound: TextEditorBinding | null = null;
 let detach: (() => void) | null = null;
 /** 程序改模型（换成文档的正文）时不当成用户输入交出去。 */
@@ -281,9 +284,14 @@ onMounted(async () => {
         automaticLayout: true,
         ...editorOptionsOf(options()),
         scrollBeyondLastLine: false,
+        // 自带的右键菜单换成应用的（`CodeContextMenu`，输出 64）。
+        contextmenu: false,
+        // 括号按分隔符着色（输出 65）：按嵌套层数分色用的是 Monaco 的三个固定主题色，不随产品主题变。
+        bracketPairColorization: {enabled: false},
         theme: MONACO_THEME,
         ariaLabel: props.label,
     });
+    instance.value = {monaco, editor};
     editor.onDidChangeModelContent(() => {
         const binding = bound;
         if (applying || binding === null) return;
@@ -317,6 +325,7 @@ onBeforeUnmount(() => {
     if (props.binding !== null) leave(props.binding);
     themeObserver?.disconnect();
     // 模型归视图状态槽，由编辑器区在标签关闭或淘汰时释放；这里只释放编辑器实例。
+    instance.value = null;
     editor?.dispose();
     editor = null;
     emit("ready", null);
@@ -326,6 +335,7 @@ onBeforeUnmount(() => {
 <template>
     <div class="relative h-full w-full" data-editor-control="code">
         <div ref="root" class="h-full w-full" data-editor-monaco></div>
+        <CodeContextMenu :monaco="instance?.monaco ?? null" :editor="instance?.editor ?? null" :host="root" :readonly="readonly" :binding="binding?.token ?? null" :visible="visible" />
         <p v-if="failed !== null" class="absolute inset-0 p-6 text-sm text-[var(--status-danger)]" role="alert">{{ failed }}</p>
     </div>
 </template>
