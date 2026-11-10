@@ -44,6 +44,8 @@ const UNITS: Readonly<Record<string, UnitRule>> = {
     commands: {dependsOn: [], packages: ["unbash"], builtins: [], kernel: "types"},
     // nb-form 只许根说明符（核心入口）：子路径另由“对 nb-form 只用核心入口”那条拦。
     tools: {dependsOn: ["files", "commands", "shapes"], packages: ["@oh-my-pi/pi-natives", "@notnotype/nb-form"], builtins: ["node:fs", "node:fs/promises", "node:os", "node:path"], kernel: "types"},
+    // 审批模型读内核的对话记录（值导入 `coreHistory`）。
+    approval: {dependsOn: ["files", "commands", "shapes"], packages: ["typebox"], builtins: [], kernel: "values"},
     // 方法要用内核的估算（值导入 `kernel/index.js`）；放回自己读文件（只读）。
     compaction: {dependsOn: ["files", "tools", "shapes"], packages: [], builtins: ["node:fs/promises"], kernel: "values"},
     // 合同测试要在夹具的目录里放文件与链接，所以能碰磁盘；它只给测试用。
@@ -193,7 +195,8 @@ function browserViolation(use: ImportUse): string | null {
         if (!relative(KIT, target).startsWith("..")) return null;
         return target === join(SRC, "kernel", "contracts") && use.typeOnly ? null : `${use.file} 在浏览器链上引用了 ${specifier}：kit 之外只许 import type 自 kernel/contracts.js`;
     }
-    return !use.typeOnly && packageName(specifier) === "typebox" ? null : `${use.file} 在浏览器链上引用了 ${specifier}：值导入只许 typebox`;
+    // typebox 的值与类型都可以；别的包连类型也不许：类型导入会把那个包的源码拉进浏览器配置的类型检查。
+    return packageName(specifier) === "typebox" ? null : `${use.file} 在浏览器链上引用了 ${specifier}：只许 typebox`;
 }
 
 /** 从一个入口顺着 kit 内的相对导入走完整条链，交回链上的全部导入。 */
@@ -306,8 +309,10 @@ describe("nb-harness 宿主套件的边界", () => {
         expect(unitViolation(use("other.ts", "typebox"))).toContain("不属于登记过的单元");
         expect(universalViolation(use("shapes.ts", "@oh-my-pi/pi-coding-agent"))).toContain("禁止的包");
         // 浏览器链。
-        expect(browserViolation(use("shapes.ts", "node:path"))).toContain("值导入只许 typebox");
-        expect(browserViolation(use("shapes.ts", "@notnotype/nb-form"))).toContain("值导入只许 typebox");
+        expect(browserViolation(use("shapes.ts", "node:path"))).toContain("只许 typebox");
+        expect(browserViolation(use("shapes.ts", "@notnotype/nb-form"))).toContain("只许 typebox");
+        expect(browserViolation(use("shapes.ts", "@oh-my-pi/pi-ai", {typeOnly: true}))).toContain("只许 typebox");
+        expect(browserViolation(use("shapes.ts", "typebox", {typeOnly: true}))).toBeNull();
         expect(browserViolation(use("shapes.ts", "../kernel/index.js", {typeOnly: true}))).toContain("只许 import type 自 kernel/contracts.js");
         expect(browserViolation(use("shapes.ts", "typebox"))).toBeNull();
         // nb-form 只用核心入口。

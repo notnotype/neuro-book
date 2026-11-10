@@ -21,6 +21,7 @@
         "./kernel/contracts": "./src/kernel/contracts.ts",
         "./kernel/helpers": "./src/kernel/helpers/index.ts",
         "./kernel/testing": "./src/kernel/testing/index.ts",
+        "./kit/approval": "./src/kit/approval/index.ts",
         "./kit/shapes": "./src/kit/shapes.ts",
         "./kit/files": "./src/kit/files/index.ts",
         "./kit/files/local": "./src/kit/files/local.ts",

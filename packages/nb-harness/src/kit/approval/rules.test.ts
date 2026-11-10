@@ -4,13 +4,15 @@
 
 import {describe, expect, test} from "bun:test";
 
-import type {ApprovalMode, ToolEffect} from "@notnotype/nb-harness/kernel/contracts";
+import type {ApprovalMode, ToolEffect} from "../../kernel/contracts.js";
+import type {Rule} from "../shapes.js";
+import {decide} from "./judge.js";
+import type {GateClass, ModeWriteAction} from "./judge.js";
+import {evaluate, layerResult, matchesCommand, mergeLayers} from "./rules.js";
+import type {CallView, RuleHit} from "./rules.js";
 
-import type {Rule} from "../../shared/permissions";
-import {decide} from "./judge";
-import type {GateClass, ModeWriteAction} from "./judge";
-import {evaluate, layerResult, matchesCommand, mergeLayers} from "./rules";
-import type {CallView, RuleHit} from "./rules";
+/** 闸门的文字由宿主给；这里只看它们进了哪里。 */
+const GATE = {askReason: "gate-ask", blockedText: "gate-blocked"};
 
 const view = (patch: Partial<CallView> = {}): CallView => ({tool: "nbook.agent.shell", toolName: "shell", args: {}, paths: [], unresolvedPaths: false, others: [], subjectsAvailable: true, argv: null, opaqueText: null, readOnly: false, redirectWrites: false, ...patch});
 const noExpand = (glob: string): string => glob;
@@ -153,7 +155,7 @@ describe("三层合并（输出 2）", () => {
 
 describe("判定顺序（输出 1）", () => {
     const judged = (rules: RuleHit["action"] | null, gate: GateClass | null, approvalMode: ApprovalMode, effect: ToolEffect = "write", modeWriteAction: ModeWriteAction = "deny"): string => {
-        const verdict = decide({rules: rules === null ? null : hit(rules), gate, modeWriteAction, effect, approvalMode});
+        const verdict = decide({rules: rules === null ? null : hit(rules), gate, gateTexts: GATE, modeWriteAction, effect, approvalMode});
         return verdict.verdict === "deny" ? `deny:${verdict.rejection.code}` : verdict.verdict;
     };
 
@@ -195,19 +197,19 @@ describe("判定顺序（输出 1）", () => {
     });
 
     test("auto：读与作品内写放行，其余交审批模型；规则与闸门排在模型前面", () => {
-        const auto = {rules: null, gate: null, modeWriteAction: "deny", approvalMode: "auto"} as const;
+        const auto = {rules: null, gate: null, gateTexts: GATE, modeWriteAction: "deny", approvalMode: "auto"} as const;
         expect(decide({...auto, effect: "read"})).toEqual({verdict: "allow", by: "mode:read"});
         expect(decide({...auto, effect: "write", localWrite: true})).toEqual({verdict: "allow", by: "mode:auto"});
         expect(decide({...auto, effect: "write"})).toEqual({verdict: "review"});
         expect(decide({...auto, effect: "exec"})).toEqual({verdict: "review"});
         expect(decide({...auto, effect: "exec", rules: {action: "allow"}})).toEqual({verdict: "allow", by: "rule"});
-        expect(decide({...auto, effect: "exec", rules: {action: "ask"}})).toEqual({verdict: "ask"});
+        expect(decide({...auto, effect: "exec", rules: {action: "ask"}})).toEqual({verdict: "ask", source: "rule"});
         expect(decide({...auto, effect: "exec", rules: {action: "deny"}}).verdict).toBe("deny");
         expect(decide({...auto, effect: "exec", gate: "write"}).verdict).toBe("deny");
     });
 
     test("规则的 reason 进给模型的拒绝文字", () => {
-        const verdict = decide({rules: {action: "deny", reason: "不许推送"}, gate: null, modeWriteAction: "deny", effect: "exec", approvalMode: "ask"});
+        const verdict = decide({rules: {action: "deny", reason: "不许推送"}, gate: null, gateTexts: GATE, modeWriteAction: "deny", effect: "exec", approvalMode: "ask"});
         expect(verdict).toEqual({verdict: "deny", rejection: {code: "rule-denied", by: "rule", params: {reason: "不许推送"}}});
     });
 });

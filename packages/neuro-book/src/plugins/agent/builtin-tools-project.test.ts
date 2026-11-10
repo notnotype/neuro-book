@@ -26,7 +26,7 @@ import {killSpawnedProjects, projectHarness} from "nbook/server/testing/projects
 import type {ProjectHarness} from "nbook/server/testing/projects";
 
 import {builtinTools} from "./backend/builtin";
-import {createPermissionHook} from "./backend/permissions/hook";
+import {createPermissionHook} from "./backend/permissions";
 import {sessionArtifacts, sessionResources} from "./backend/resources";
 
 let tmp = "";

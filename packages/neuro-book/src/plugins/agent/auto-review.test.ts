@@ -7,10 +7,10 @@ import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {ApprovalCtx, ModelResponse, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import {modelReviewer} from "@notnotype/nb-harness/kit/approval";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {autoReview} from "./backend/permissions/auto-review";
 import {MAIN_PROFILE} from "./shared/contracts";
 import {AUTO_ESCALATED_PREFIX, AUTO_FAILED_REASON} from "./shared/permissions";
 import type {Rule} from "./shared/permissions";
@@ -115,7 +115,8 @@ describe("问审批模型（输出 19、21）", () => {
         });
         const reports: string[] = [];
         const ctx = {signal: new AbortController().signal, model: never, read: () => undefined} as unknown as ApprovalCtx;
-        const verdict = await autoReview({call: {id: "c", tool: "shell", args: {command: "touch a"}}, effect: "exec", paths: [], project: null}, ctx, (code, _message, params) => void reports.push(`${code}:${String(params?.kind)}`), 5);
+        const review = modelReviewer({agentDescription: "a writing and coding agent", provider: "nbook.agent", projectOf: () => null, reasons: {failed: AUTO_FAILED_REASON, escalatedPrefix: AUTO_ESCALATED_PREFIX}, report: (code, _message, params) => void reports.push(`${code}:${String(params?.kind)}`), timeoutMs: 5});
+        const verdict = await review({call: {id: "c", tool: "shell", args: {command: "touch a"}}, effect: "exec", paths: []}, ctx);
         expect(verdict).toEqual({verdict: "ask", reason: AUTO_FAILED_REASON});
         expect(reports).toEqual(["permission-auto-failed:timeout"]);
     });

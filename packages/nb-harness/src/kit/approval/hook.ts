@@ -1,62 +1,67 @@
 /**
- * 审批钩子（docs/specs/agent/permissions.md）：把一次调用整理成规则要看的样子，算出规则结果与闸门分类，交给 `decide`。
- * 内核只知道“问钩子”，规则、判定对象与方言都在这里。
+ * 审批钩子（docs/specs/agent/permissions.md）：把一次调用整理成规则要看的样子，算出规则结果与闸门分类，交给 `decide`；判出
+ * “交给审批者”的交给宿主给的审批者，要问人的交给宿主给的转问。内核只认 `ApproveHook`，这是它的一种实现；规则、判定对象与方言都在这里。
+ *
+ * 地址只经宿主给的文件访问改写与分类（docs/specs/harness/host-kit.md），哪些根是草稿、哪些写不问审批者由布局给。
  */
 
 import {Value} from "typebox/value";
 
-import type {ApproveHook, JsonValue, ToolEffect, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
-import type {CommandDialect, Dialects, SimpleCommand} from "@notnotype/nb-harness/kit/commands";
-import {joinAddress} from "@notnotype/nb-harness/kit/files";
+import type {ApprovalCtx, ApprovalVerdict, ApproveHook, JsonValue, ToolEffect, ToolSessionContext} from "../../kernel/contracts.js";
+import type {CommandDialect, Dialects, SimpleCommand} from "../commands/index.js";
+import {joinAddress} from "../files/index.js";
+import type {SessionFiles, SessionFilesFactory} from "../files/index.js";
+import {RulesSchema} from "../shapes.js";
+import type {Rule, ToolSubject as Subject} from "../shapes.js";
+import {decide} from "./judge.js";
+import type {GateClass, GateTexts, ModeWriteAction} from "./judge.js";
+import {layerResult, matchesTool, mergeLayers, needsSubjects} from "./rules.js";
+import type {CallView, PathSubject, RuleHit} from "./rules.js";
+import type {Escalate, EscalationSource, Reviewer} from "./types.js";
 
-import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
-
-import {RulesSchema} from "../../shared/permissions";
-import type {Rule} from "../../shared/permissions";
-import type {ToolSubject as Subject} from "../../shared/points";
-import {workingAddress} from "../builtin/common";
-import {sessionResources} from "../resources";
-import {autoReview} from "./auto-review";
-import {decide} from "./judge";
-import type {GateClass, ModeWriteAction} from "./judge";
-import {readProjectRules} from "./project-rules";
-import {layerResult, matchesTool, mergeLayers, needsSubjects} from "./rules";
-import type {CallView, PathSubject, RuleHit} from "./rules";
-
-export interface PermissionHookOptions {
-    readonly files: WorkspaceFiles;
+export interface ApprovalHookOptions {
+    readonly files: SessionFilesFactory;
     readonly userRules: () => readonly Rule[];
+    /** 宿主的项目层规则；没有项目为 `[]`，读不了为 `"invalid"`。 */
+    readonly projectRules: (context: ToolSessionContext, signal: AbortSignal) => Promise<readonly Rule[] | "invalid">;
+    /** 项目规则读不了时诊断 `permission-rules-invalid` 的消息（进日志，宿主定）。 */
+    readonly projectRulesInvalidMessage: string;
     readonly dialects: Dialects;
+    /** 这一刻有没有模式闸门（例如 Agent 处在只读的模式里）。 */
+    readonly gated: (read: ApprovalCtx["read"]) => boolean;
     readonly modeWriteAction: () => ModeWriteAction;
+    /** 闸门的文字：转问时的原因串、拒绝时给模型的话（都进日志，宿主定）。 */
+    readonly gate: GateTexts;
     /** 工具交出的判定对象。`activate` 为真时提供方没激活就先激活；取不到（激活失败、抛错）交回 null。 */
     readonly subjectsOf: (tool: string, args: Readonly<Record<string, unknown>>, activate: boolean) => Promise<readonly Subject[] | null>;
-    /** 当前 Agent 模式；`normal` 或没装扩展时没有闸门。 */
-    readonly modeOf: (read: Parameters<ApproveHook>[2]["read"]) => string;
+    /** `auto` 下判出“交给审批者”的调用交给它。 */
+    readonly review: Reviewer;
+    /** 要问人的调用交给它；缺省原样交回询问，由内核问用户。 */
+    readonly escalate?: Escalate;
     readonly report: (code: string, message: string, params?: Record<string, unknown>) => void;
 }
 
-interface Scratch {
-    readonly session: string | null;
-    readonly temp: string | null;
-}
 const inside = (address: string, root: string | null): boolean => root !== null && (address === root || address.startsWith(root.endsWith("/") ? root : `${root}/`));
 
-export function createPermissionHook(options: PermissionHookOptions): ApproveHook {
+/** 缺省的转问：原样交回询问，原因串照旧（审批记录与界面按它显示）。 */
+const askUser: Escalate = async (escalation) => ({verdict: "ask", ...(escalation.reason === undefined ? {} : {reason: escalation.reason})});
+
+export function createApprovalHook(options: ApprovalHookOptions): ApproveHook {
+    const escalate = options.escalate ?? askUser;
     return async (call, info, ctx) => {
         const context: ToolSessionContext = ctx.context;
-        const resources = sessionResources(options.files, context, null);
+        const files = options.files(context, null);
         const expandGlob = (glob: string): string | null => {
             if (!glob.includes("://")) return glob;
-            const expanded = resources.expand(glob);
+            const expanded = files.expand(glob);
             return expanded.ok ? expanded.address : null;
         };
         const reportRule = (rule: Rule): void => options.report("permission-rule-unevaluable", `a rule for ${rule.tool} could not be evaluated`, {tool: call.tool, rule: rule.tool});
 
-        const mode = options.modeOf(ctx.read);
-        const gated = mode !== "normal";
+        const gated = options.gated(ctx.read);
         const user = options.userRules();
-        const project = await readProjectRules(options.files, context.project, ctx.signal);
-        if (project === "invalid") options.report("permission-rules-invalid", "the project's .nbook/permissions.json could not be read or is not a valid list of rules", {session: ctx.sessionId});
+        const project = await options.projectRules(context, ctx.signal);
+        if (project === "invalid") options.report("permission-rules-invalid", options.projectRulesInvalidMessage, {session: ctx.sessionId});
         const projectRules = project === "invalid" ? [] : project.filter((rule) => {
             if (rule.action !== "allow") return true;
             options.report("permission-allow-ignored", "allow rules in a project's permissions file have no effect", {rule: rule.tool});
@@ -75,32 +80,47 @@ export function createPermissionHook(options: PermissionHookOptions): ApproveHoo
         const needed = (gated || info.mode === "auto") && info.effect !== "read" || [...user, ...projectRules].some((rule) => matchesTool(rule.tool, identity) && rule.when !== undefined && needsSubjects(rule.when));
         const subjects = await options.subjectsOf(call.tool, call.args, needed);
 
-        const views = buildViews(call.args, identity, subjects, options.dialects, context, resources);
+        const views = buildViews(call.args, identity, subjects, options.dialects, files);
         const hit = (rules: readonly Rule[]): RuleHit | null => (rules.length === 0 ? null : layerResult(rules, views.views, expandGlob, reportRule));
         let rules = mergeLayers({user: hit(user), project: hit(projectRules), session: hit(session)});
+        // 是谁把规则结果改成了 ask：两处都成立时记后改的那个。`decide` 交回规则来源的询问时换成它。
+        let forcedBy: EscalationSource | null = null;
         // 项目规则文件坏了：拦不下来的拒绝规则可能就在里面，写与执行都问（输出 6）。
-        if (project === "invalid" && info.effect !== "read" && rules?.action !== "deny") rules = {action: "ask"};
-        // 地址分类为“写入要询问”的（`user://`，输出 7）：别的规则放行也要问，免得模型在放行写入下改掉自己的规则。
-        if (rules?.action !== "deny" && views.views.some((view) => view.paths.some((path) => path.access === "write" && classifiedAsk(resources, path.address)))) rules = {action: "ask"};
+        if (project === "invalid" && info.effect !== "read" && rules?.action !== "deny") {
+            rules = {action: "ask"};
+            forcedBy = "rules-invalid";
+        }
+        // 地址分类为“写入要询问”的（输出 7）：别的规则放行也要问，免得模型在放行写入下改掉自己的规则。
+        if (rules?.action !== "deny" && views.views.some((view) => view.paths.some((path) => path.access === "write" && classifiedAsk(files, path.address)))) {
+            rules = {action: "ask"};
+            forcedBy = "address";
+        }
 
-        const scratch: Scratch = {session: address(resources, "session://"), temp: address(resources, "tmp://")};
+        const scratch = files.layout.scratch.map((root) => address(files, root));
         const gate: GateClass | null = gated ? classify(info.effect, views, scratch) : null;
-        const projectRoot = address(resources, "project://");
-        const decided = decide({rules, gate, modeWriteAction: options.modeWriteAction(), effect: info.effect, approvalMode: info.mode, localWrite: isLocalWrite(info.effect, views, [projectRoot, scratch.session, scratch.temp])});
-        const verdict = decided.verdict === "review"
-            ? await autoReview({call, effect: info.effect, paths: views.views.flatMap((view) => view.paths), project: projectRoot}, ctx, options.report)
-            : decided;
+        const decided = decide({rules, gate, gateTexts: options.gate, modeWriteAction: options.modeWriteAction(), effect: info.effect, approvalMode: info.mode, localWrite: isLocalWrite(info.effect, views, files.layout.localWrites.map((root) => address(files, root)))});
+        const request = {call, effect: info.effect, paths: views.views.flatMap((view) => view.paths)};
+        let verdict: ApprovalVerdict;
+        if (decided.verdict === "review") {
+            const reviewed = await options.review(request, ctx);
+            verdict = reviewed.verdict === "ask" ? await escalate({...request, source: "reviewer", ...(reviewed.reason === undefined ? {} : {reason: reviewed.reason})}, ctx) : reviewed;
+        } else if (decided.verdict === "ask") {
+            const source: EscalationSource = decided.source === "rule" && forcedBy !== null ? forcedBy : decided.source;
+            verdict = await escalate({...request, source, ...(decided.reason === undefined ? {} : {reason: decided.reason})}, ctx);
+        } else {
+            verdict = decided;
+        }
         if (verdict.verdict !== "ask" || !views.hasCommand) return verdict;
         return {...verdict, remember: rememberFor(call.tool, views) as unknown as JsonValue};
     };
 }
 
-const address = (resources: ReturnType<typeof sessionResources>, text: string): string | null => {
-    const expanded = resources.expand(text);
+const address = (files: SessionFiles, text: string): string | null => {
+    const expanded = files.expand(text);
     return expanded.ok ? expanded.address : null;
 };
-const classifiedAsk = (resources: ReturnType<typeof sessionResources>, text: string): boolean => {
-    const classified = resources.classify(text);
+const classifiedAsk = (files: SessionFiles, text: string): boolean => {
+    const classified = files.classify(text);
     return "write" in classified && classified.write === "ask";
 };
 
@@ -111,19 +131,18 @@ interface Views {
     readonly hasCommand: boolean;
 }
 
-/** 写重定向的目标换成全局地址。相对路径从工作目录算；磁盘路径没有地址，原样比对（不会落进草稿）。 */
-function redirectTarget(target: string, context: ToolSessionContext, resources: ReturnType<typeof sessionResources>): string | null {
+/** 写重定向的目标换成全局地址。相对路径从布局的工作目录算；磁盘路径没有地址，原样比对（不会落进草稿）。 */
+function redirectTarget(target: string, files: SessionFiles): string | null {
     if (target.startsWith("/")) return target;
-    return address(resources, target.includes("://") ? target : joinAddress(workingAddress(context.project), target));
+    return address(files, target.includes("://") ? target : joinAddress(files.layout.working, target));
 }
 
 function buildViews(
     args: Readonly<Record<string, unknown>>,
     identity: Pick<CallView, "tool" | "toolName">,
     subjects: readonly Subject[] | null,
-    dialects: PermissionHookOptions["dialects"],
-    context: ToolSessionContext,
-    resources: ReturnType<typeof sessionResources>,
+    dialects: Dialects,
+    files: SessionFiles,
 ): Views {
     const base = {...identity, args, others: [] as {kind: string; value: string}[], subjectsAvailable: subjects !== null};
     const paths: PathSubject[] = [];
@@ -132,7 +151,7 @@ function buildViews(
     for (const subject of subjects ?? []) {
         if (subject.kind === "path") {
             const {access, address: raw} = subject as Extract<Subject, {kind: "path"}>;
-            const expanded = address(resources, raw);
+            const expanded = address(files, raw);
             if (expanded === null) unresolved = true;
             else paths.push({access, address: expanded});
         } else if (subject.kind === "command") {
@@ -167,7 +186,7 @@ function buildViews(
             known.push({dialect: dialect!, command});
             let viewUnresolved = unresolved;
             const redirects = command.redirects.filter((item) => item.write).flatMap((item): PathSubject[] => {
-                const target = item.literal ? redirectTarget(item.target, context, resources) : null;
+                const target = item.literal ? redirectTarget(item.target, files) : null;
                 if (target === null) {
                     viewUnresolved = true;
                     return [];
@@ -207,20 +226,20 @@ function rememberFor(tool: string, views: Views): {readonly label: string; reado
     return {label: unique.join("、"), rules: unique.map((pattern) => ({tool, when: {type: "command", pattern}, action: "allow"}))};
 }
 
-/** `auto` 不问模型的写（输出 19）：写工具，每个写路径都认得出、都落在这几个根里。命令与没交出路径的工具（第三方、MCP）不算。 */
+/** `auto` 不问审批者的写（输出 19）：写工具，每个写路径都认得出、都落在布局的 `localWrites` 里。命令与没交出路径的工具（第三方、MCP）不算。 */
 function isLocalWrite(effect: ToolEffect, views: Views, roots: readonly (string | null)[]): boolean {
     if (effect !== "write" || views.hasCommand || views.views.some((view) => view.unresolvedPaths || !view.subjectsAvailable)) return false;
     const writes = views.views.flatMap((view) => view.paths.filter((path) => path.access === "write"));
     return writes.length > 0 && writes.every((path) => roots.some((root) => inside(path.address, root)));
 }
 
-/** 闸门分类（agent/modes.md 输出 1）：只读；写路径全部落在草稿、命令都只读（不看重定向）算只写草稿；其余算写。 */
-function classify(effect: ToolEffect, views: Views, scratch: Scratch): GateClass {
+/** 闸门分类（agent/modes.md 输出 1）：只读；写路径全部落在布局的草稿根、命令都只读（不看重定向）算只写草稿；其余算写。 */
+function classify(effect: ToolEffect, views: Views, scratch: readonly (string | null)[]): GateClass {
     if (effect === "read") return "read";
     if (views.commands === null) return "write";
     if (views.views.some((view) => view.unresolvedPaths || !view.subjectsAvailable)) return "write";
     const writes = views.views.flatMap((view) => view.paths.filter((path) => path.access === "write"));
-    if (writes.length === 0 || !writes.every((path) => inside(path.address, scratch.session) || inside(path.address, scratch.temp))) return "write";
+    if (writes.length === 0 || !writes.every((path) => scratch.some((root) => inside(path.address, root)))) return "write";
     if (views.hasCommand && !views.commands.every(({dialect, command}) => dialect.readOnly({...command, redirects: []}))) return "write";
     // 不是命令的工具（`write`、`edit`）只凭路径；`exec` 的非命令工具说不清它还做了什么。
     return !views.hasCommand && effect === "exec" ? "write" : "scratch";

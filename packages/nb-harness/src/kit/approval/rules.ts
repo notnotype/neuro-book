@@ -4,7 +4,7 @@
  * 匹配是三值的：命中、不命中、算不出来。算不出来时规则偏向收紧：拒绝与询问算命中，放行不算，所以坏掉的匹配器不会让拒绝规则失效。
  */
 
-import type {Rule, RuleAction} from "../../shared/permissions";
+import type {Rule, RuleAction} from "../shapes.js";
 
 export interface PathSubject {
     readonly access: "read" | "write";

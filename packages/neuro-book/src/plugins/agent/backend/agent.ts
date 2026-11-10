@@ -35,7 +35,7 @@ import {ProfileCatalog} from "./profiles";
 import {SessionMeta} from "./session-meta";
 import {SessionTable} from "./sessions";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
-import {createPermissionHook} from "./permissions/hook";
+import {createPermissionHook} from "./permissions";
 import {modesContract} from "./permissions/modes";
 import {AgentTools} from "./tools";
 
