@@ -35,8 +35,12 @@ export function failureNotice(id: string, metadata: CommandMetadata | null, fail
     };
 }
 
-/** 记进诊断的一条：码、原因（按源语言）与诊断原文，两个入口写法相同。 */
+/**
+ * 记进诊断的一条：码、诊断原文与原因（按源语言），两个入口写法相同。有原文时排在原因前面：诊断按条截到字符串上限，命令
+ * 返回很长的原因时不能把原文挤掉，原因用户在通知里看得到。
+ */
 export function failureDiagnostic(id: string, failure: CommandFailure): Error {
-    const detail = failure.detail === undefined ? "" : `; ${failure.detail}`;
-    return new Error(`Command ${id} failed (${failure.code}): ${diagnosticText(failure.reason)}${detail}`);
+    const reason = diagnosticText(failure.reason);
+    const body = failure.detail === undefined ? reason : `${failure.detail}; reason: ${reason}`;
+    return new Error(`Command ${id} failed (${failure.code}): ${body}`);
 }

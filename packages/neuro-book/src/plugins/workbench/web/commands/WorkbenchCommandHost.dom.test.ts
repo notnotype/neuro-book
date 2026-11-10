@@ -140,9 +140,8 @@ describe("WorkbenchCommandHost", () => {
         expect(workbenchTestText("en-US").t(notice?.message ?? "")).toBe("The command failed while running");
         expect(notice?.detail).toContain("boom");
         expect(notice?.detail).not.toContain("abc");
-        expect(reported).toHaveLength(1);
-        expect(reported[0]).toContain("(execution-error)");
-        expect(reported[0]).toContain("boom");
+        // 诊断原文排在原因前面：很长的原因被诊断截断时原文还在。
+        expect(reported).toEqual(["Command nbook.app.crash failed (execution-error): Error: token=[REDACTED] boom; reason: 命令执行出错"]);
         wrapper.unmount();
     });
 

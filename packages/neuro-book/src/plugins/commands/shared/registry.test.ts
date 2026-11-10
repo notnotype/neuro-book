@@ -4,6 +4,8 @@
  */
 
 import {describe, expect, it} from "bun:test";
+
+import {MAX_STRING_LENGTH} from "@notnotype/nb-runtime/diagnostics";
 import {Type} from "typebox";
 import type {TSchema} from "typebox";
 
@@ -317,12 +319,13 @@ describe("参数严格校验与执行错误", () => {
         expect(await registry.execute("nbook.quick-open.open-commands")).toEqual({ok: false, code: "unavailable", reason: "42"});
     });
 
-    it("失败的详情：异常原文脱敏后进详情，原因不含原文；处理函数返回的字符串详情保留，别的类型丢掉", async () => {
+    it("失败的详情：异常原文脱敏后进详情，原因不含原文；处理函数返回的字符串详情脱敏、截到诊断字符串的上限后保留，别的类型丢掉", async () => {
         const {registry} = harness();
         value(registry.register(command("nbook.editor.focus", {run: () => {
             throw new Error("token=abc boom");
         }})));
         value(registry.register(command("nbook.edit.undo", {run: () => ({ok: false, code: "execution-error", reason: "没写成", detail: "raw"})})));
+        value(registry.register(command("nbook.editor.go-to-line", {run: () => ({ok: false, code: "execution-error", reason: "没写成", detail: `token=abc ${"x".repeat(MAX_STRING_LENGTH)}`})})));
         value(registry.register(command("nbook.edit.redo", {run: () => ({ok: false, code: "execution-error", reason: "没写成", detail: {path: "/x"}}) as unknown as CommandResult<unknown>})));
 
         const thrown = await registry.execute("nbook.editor.focus");
@@ -333,6 +336,10 @@ describe("参数严格校验与执行错误", () => {
         expect(detail).not.toContain("abc");
         expect(JSON.stringify(thrown.ok ? null : thrown.reason)).not.toContain("boom");
         expect(await registry.execute("nbook.edit.undo")).toEqual({ok: false, code: "execution-error", reason: "没写成", detail: "raw"});
+        const returned = await registry.execute("nbook.editor.go-to-line");
+        const returnedDetail = returned.ok ? "" : (returned.detail ?? "");
+        expect(returnedDetail.startsWith("token=[REDACTED] x")).toBe(true);
+        expect(returnedDetail).toEndWith("[truncated 17 chars]");
         expect(await registry.execute("nbook.edit.redo")).toEqual({ok: false, code: "execution-error", reason: "没写成"});
     });
 
