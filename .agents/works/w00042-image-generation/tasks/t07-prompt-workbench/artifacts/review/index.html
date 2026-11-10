@@ -53,6 +53,55 @@ a { color: var(--accent); }
 <p>外框是真实组件：标题栏、活动栏、面板头、编辑器标签条、状态栏，以及按钮、分段开关、标签页、输入框这些 nb-ui 控件。工作台本身（提示词区、结果区、词库）是一次性的草稿，不是产品代码。结果图是占位图，静态稿不调用生成接口。标签的中文与使用次数是演示用的取值。画布 1600×900，亮色。</p>
 </div>
 
+<div class="round">第 2 轮 · 分节与预设</div>
+
+<section class="s">
+<h2>这一轮改了什么 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>开发者 11-10 指出第 1 轮漏了预设系统。同一天的调研（<a href="../../../../research/2026-11-10-community-prompt-structure.md">社区提示词的结构</a>）发现：社区的提示词天然分成几节（主体、画风、质量、场景、角色、负面），有一半的 V5 提示词用空行分节，还有人自己写 <code>&lt;style&gt;</code> 标记；画风串是最主要的复用单位；负面提示词是各自改着用的个人预设。所以这一轮把提示词区改成按节组织，预设挂在节上：</p>
+<ul>
+<li><b>节</b>：主体、画风、质量、场景与构图、自然语言、角色、负面，生成时按这个顺序拼成一串（这是社区最常见的顺序，节可以拖动换序）。主体默认按角色自动填。</li>
+<li><b>预设挂在节上</b>：画风、质量、负面、参数四种节可以套用预设，标题上是预设名；场景、自然语言自由书写；角色可以“来自设定”（t11 角色视觉档案）。</li>
+<li><b>套了预设的节默认收起成一行</b>，自由书写的节默认展开：一屏先看到这张图要画什么，画风与质量退到一行摘要。</li>
+<li><b>画风是一类单独的预设</b>：画师一行一位、拖权重；年份、压制（负权重）、其它画风词是小块；带一张样图，记着被几份配方用到。</li>
+<li><b>侧栏的词库多一页“预设”</b>，按类列出；画风预设带样图。</li>
+<li><b>历史记的是拼好的整串</b>：以后改了预设，旧的批次照样能按当时的提示词重现。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="q3-sections" data-nbdev-type="single" data-nbdev-recommend="sections">
+<h2>问题 3：提示词区按节组织，还是一整段 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="sections">
+<h3>A 按节（推荐）</h3>
+<a href="r2/sections.webp"><figure><img src="r2/sections-crop.webp" alt="按节"></figure></a>
+<p>每节一个标题，可以收起、换预设、存成片段、拖动换序。原文由各节按顺序拼成。</p>
+</div>
+<div class="opt" data-nbdev-option="flat">
+<h3>B 一整段（第 1 轮的样子）</h3>
+<a href="r1/overview-chips.webp"><figure><img src="r1/q1-chips-crop.webp" alt="一整段"></figure></a>
+<p>主提示词是一整段，画风靠片段引用；预设只能整段替换或插入。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐按节。</b>社区已经在用空行和自造的标记分节，说明有这个需要；分节以后预设有了明确的挂载点，画风、质量能收起，一屏放得下内容。代价是：粘贴一整段别人的提示词时，要先拆进各节。拆法可以本地按词类先拆（画师、年份、质量词、负权重都认得出来），拆不准的留在“场景与构图”里，再由你挪动。第 1 轮的问题 1（标签块还是原文）在每一节里照样适用。</div>
+</section>
+
+<section class="q" data-nbdev-question="q4-preset-link" data-nbdev-type="single" data-nbdev-recommend="link">
+<h2>问题 4：套用预设以后，预设和配方是什么关系 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="link">
+<h3>A 引用，配方里的改动显示成差异（推荐）</h3>
+<a href="r2/style-open.webp"><figure><img src="r2/style-open-crop.webp" alt="引用加差异"></figure></a>
+<p>配方记“用了哪个预设，在它上面改了什么”。标题上写“改了 2 处”，展开后列出改动（saltwind 1.20 → 1.00，加了 year 2024），可以还原、另存为新预设，或者把改动写回预设。预设更新以后，没有改过那几项的配方跟着变。</p>
+</div>
+<div class="opt" data-nbdev-option="copy">
+<h3>B 复制，套用以后各自独立</h3>
+<p>套用时把预设的内容复制进配方，之后和预设无关；标题上只记“来自 冷雾水彩”。简单，但调好一套画风以后，用到它的其它配方不会跟着变。社区现在就是这样：同一份负面提示词抄出上千种变体。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐引用。</b>小说插图要整本书画风统一：在一份配方里调好画风，点“更新预设”，全书的配方都跟着换，比逐个改可靠。差异只记改动，不存整份，和 w00039 修订“只存变了的字段”是同一个想法。历史批次存的是拼好的整串，不受预设以后的改动影响。</div>
+<figure><img src="r2/picker.webp" alt="换画风预设"><figcaption>换画风预设：从节标题上点开，每个预设一张样图，记着被几份配方用到；底部可以把当前画风存为预设，或进入管理</figcaption></figure>
+</section>
+
 <div class="round">第 1 轮 · 整体版式与两个问题</div>
 
 <section class="q" data-nbdev-question="q1-tag-view" data-nbdev-type="single" data-nbdev-recommend="chips">

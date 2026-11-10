@@ -1,0 +1,133 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00042-image-generation",
+    "taskId": "t07-prompt-workbench",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "提示词工作台：静态稿评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "4521c93413be45de3711f81ea5b01b4257739123b9909e658c20ef31ce59b606",
+    "files": [
+        "index.html",
+        "r1/current.webp",
+        "r1/overview-chips.webp",
+        "r1/q1-chips-crop.webp",
+        "r1/q1-raw-crop.webp",
+        "r1/q1-raw.webp",
+        "r1/q1-split-crop.webp",
+        "r1/q1-split.webp",
+        "r1/q2-inline.webp",
+        "r2/picker.webp",
+        "r2/sections-crop.webp",
+        "r2/sections.webp",
+        "r2/style-open-crop.webp",
+        "r2/style-open.webp"
+    ],
+    "questions": [
+        {
+            "id": "q1-tag-view",
+            "type": "single",
+            "label": "问题 1：提示词里的标签怎么显示",
+            "options": [
+                {
+                    "value": "raw",
+                    "label": "A 原文着色"
+                },
+                {
+                    "value": "chips",
+                    "label": "B 标签块（推荐）"
+                },
+                {
+                    "value": "split",
+                    "label": "C 上原文、下对照"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "chips"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q2-library-place",
+            "type": "single",
+            "label": "问题 2：词库放在哪",
+            "options": [
+                {
+                    "value": "sidebar",
+                    "label": "A 外壳的侧栏（推荐）"
+                },
+                {
+                    "value": "inline",
+                    "label": "B 标签页里自带一栏"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "sidebar"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q3-sections",
+            "type": "single",
+            "label": "问题 3：提示词区按节组织，还是一整段",
+            "options": [
+                {
+                    "value": "sections",
+                    "label": "A 按节（推荐）"
+                },
+                {
+                    "value": "flat",
+                    "label": "B 一整段（第 1 轮的样子）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "sections"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "q4-preset-link",
+            "type": "single",
+            "label": "问题 4：套用预设以后，预设和配方是什么关系",
+            "options": [
+                {
+                    "value": "link",
+                    "label": "A 引用，配方里的改动显示成差异（推荐）"
+                },
+                {
+                    "value": "copy",
+                    "label": "B 复制，套用以后各自独立"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "link"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-10T00:15:04.616Z"
+}
