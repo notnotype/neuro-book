@@ -5,10 +5,9 @@
 
 import {createHash} from "node:crypto";
 
-import {conv, defineExtension, ext, slice} from "@notnotype/nb-harness/kernel";
-import type {AgentExtensionImplementation} from "../../shared/points";
-
-import {refusal} from "./refusal";
+import {conv, defineExtension, ext, slice} from "../../kernel/index.js";
+import type {AnyExtension} from "../../kernel/contracts.js";
+import {refusal} from "./refusal.js";
 
 const ARGS_SUMMARY_LIMIT = 400;
 
@@ -39,10 +38,11 @@ function canonical(value: unknown): unknown {
 /** 调用的顺序、参数键的顺序都不算不同。 */
 const callsHash = (calls: readonly {readonly tool: string; readonly args: unknown}[]): string => sha256(JSON.stringify(calls.map((call) => JSON.stringify([call.tool, canonical(call.args)])).sort()));
 
-/** `threshold` 每次判断时现读。 */
-export function loopGuard(threshold: () => number): AgentExtensionImplementation {
+/** `id` 是扩展 id（事件名进日志），宿主给；`threshold` 每次判断时现读。 */
+export function loopGuard(options: {readonly id: string; readonly threshold: () => number}): AnyExtension {
+    const {threshold} = options;
     return defineExtension({
-        id: "nbook.agent.loop-guard",
+        id: options.id,
         state: {loop: slice.path<LoopState>(INITIAL)},
         events: {
             redirected: conv<{tool: string; count: number; args: string}>(),

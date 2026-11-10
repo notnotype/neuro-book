@@ -4,12 +4,13 @@
  */
 
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
+
+import {costGuard, loopGuard} from "@notnotype/nb-harness/kit/guards";
+
 import type {SettingsService} from "nbook/shared/settings";
 
 import {EXTENSIONS_POINT, type AgentExtensionDeclaration, type AgentExtensionImplementation} from "../../shared/points";
 import {agentSettings} from "../../shared/settings";
-import {costGuard} from "./cost-guard";
-import {loopGuard} from "./loop-guard";
 
 const COST_GUARD = "nbook.agent.cost-guard";
 const LOOP_GUARD = "nbook.agent.loop-guard";
@@ -18,7 +19,7 @@ export const GUARD_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentExt
 
 export function runGuards(settings: SettingsService): Readonly<Record<string, AgentExtensionImplementation>> {
     return {
-        [COST_GUARD]: costGuard(() => ({warnCost: settings.get(agentSettings.settings.warnCost), maxCost: settings.get(agentSettings.settings.maxCost)})),
-        [LOOP_GUARD]: loopGuard(() => settings.get(agentSettings.settings.toolLoopThreshold)),
+        [COST_GUARD]: costGuard({id: COST_GUARD, limits: () => ({warnCost: settings.get(agentSettings.settings.warnCost), maxCost: settings.get(agentSettings.settings.maxCost)})}),
+        [LOOP_GUARD]: loopGuard({id: LOOP_GUARD, threshold: () => settings.get(agentSettings.settings.toolLoopThreshold)}),
     };
 }

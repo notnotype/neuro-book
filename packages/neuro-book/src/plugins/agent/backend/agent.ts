@@ -13,6 +13,7 @@ import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
 import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
+import {SessionMeta, SessionTable} from "@notnotype/nb-harness/kit/sessions";
 import {kernelResources} from "@notnotype/nb-harness/kit/files";
 import type {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 
@@ -22,7 +23,7 @@ import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
-import {TASK_ID, taskSessionId} from "../shared/contracts";
+import {SESSION_TITLE_PROFILE, TASK_ID, taskSessionId} from "../shared/contracts";
 import type {AgentService, ProfileAdmin, StartTaskOptions, StartTaskResult} from "../shared/contracts";
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
@@ -32,8 +33,7 @@ import {ProfileBundles} from "./profile-bundles";
 import {filesFor, sessionArtifacts, sessionResources} from "./resources";
 import {createAttachmentPort} from "./attachments";
 import {ProfileCatalog} from "./profiles";
-import {SessionMeta} from "./session-meta";
-import {SessionTable} from "./sessions";
+import {SESSION_META_MATERIAL} from "./session-meta";
 import {CompactionMethods, DEFAULT_COMPACTION_ORDER} from "./compaction";
 import {createPermissionHook} from "./permissions";
 import {modesContract} from "./permissions/modes";
@@ -250,7 +250,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
-    const meta = new SessionMeta({table, create: createSession, models, report: options.report});
+    const meta = new SessionMeta({table, create: createSession, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
 
     const profileAdmin: ProfileAdmin = {
         toolCatalog: () => {

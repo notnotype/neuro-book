@@ -1,4 +1,4 @@
-import type {ModelRequest, ModelResponse} from "@notnotype/nb-harness/kernel/contracts";
+import type {ModelRequest, ModelResponse} from "../../kernel/contracts.js";
 
 /**
  * 不发请求，直接交回失败。形状要完整：缺字段时内核按“拦截交回了不合格的值”跳过这一层，请求照发，保护就静默失效了。

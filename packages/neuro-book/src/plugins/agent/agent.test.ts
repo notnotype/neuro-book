@@ -16,7 +16,7 @@ import type {LogEvent, SessionApi, ToolImplementation} from "@notnotype/nb-harne
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {IDLE_CLOSE_MS} from "./backend/sessions";
+import {IDLE_CLOSE_MS} from "@notnotype/nb-harness/kit/sessions";
 import {REVOKE_GRACE_MS} from "./backend/tools";
 import {agentExtension, agentProfile, agentTool} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";

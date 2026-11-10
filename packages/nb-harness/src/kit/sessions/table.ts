@@ -8,28 +8,34 @@
  * 一条记录只在这里改状态；每次状态检查都在同一个同步段里做完（JavaScript 单线程），不会两次碰会话锁。
  */
 
-import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import {commandErrors} from "../../kernel/contracts.js";
+import type {AgentHost, CreateSessionOptions, Frame, Issuer, SessionApi, StorageResult} from "../../kernel/contracts.js";
 
-import {commandErrors} from "@notnotype/nb-harness/kernel/contracts";
-import type {AgentHost, CreateSessionOptions, Frame, Issuer, SessionApi, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
+/**
+ * 计时口：登记一次到点回调，交回的函数同步取消（取消之后回调不会再跑）。与宿主运行时的时钟同形（例如 nb-runtime 的
+ * `RuntimeClock.schedule`）。不用内核的 `Clock.wait`：到点之后的取消在那里不再生效，空闲关闭会关掉刚被引用的会话。
+ */
+export interface SessionTableClock {
+    schedule(callback: () => void, ms: number): () => void;
+}
 
 /** 空闲多久关闭（sessions.md 输出 6）。 */
 export const IDLE_CLOSE_MS = 30_000;
 
 /** 查询类方法打开会话失败时抛它（指令类交回 `{ok: false, code}`）。 */
-export class AgentSessionUnavailable extends Error {
+export class SessionUnavailable extends Error {
     constructor(readonly code: string, readonly sessionId: string) {
         super(`session ${sessionId} is not available: ${code}`);
-        this.name = "AgentSessionUnavailable";
+        this.name = "SessionUnavailable";
     }
 }
 
 /** 服务停止后的调用（sessions.md 输出 14）。 */
-export class AgentStopping extends Error {
+export class SessionTableStopping extends Error {
     readonly code = "unavailable";
     constructor() {
-        super("nbook.agent is stopping");
-        this.name = "AgentStopping";
+        super("the session table is stopping");
+        this.name = "SessionTableStopping";
     }
 }
 
@@ -57,7 +63,7 @@ const QUERIES = ["snapshot", "log", "rewindTargets", "path", "siblings", "treeNo
 
 export interface SessionTableOptions {
     readonly host: AgentHost;
-    readonly clock: RuntimeClock;
+    readonly clock: SessionTableClock;
     /** 建会话或打开会话之前调：激活扩展的提供方（contributions.md 输出 2）。 */
     readonly beforeOpen: () => Promise<void>;
     /** 会话关了：放掉按会话持有的内存（行锚的快照）。 */
@@ -83,7 +89,7 @@ export class SessionTable {
      * `run` 里建出的会话照常登记进表，停止随后把它关掉。
      */
     accept<T>(run: () => Promise<T>): Promise<T> {
-        if (this.#stopping) return Promise.reject(new AgentStopping());
+        if (this.#stopping) return Promise.reject(new SessionTableStopping());
         const work = run();
         this.#accepted.add(work);
         void work.then(() => undefined, () => undefined).finally(() => this.#accepted.delete(work));
@@ -182,14 +188,14 @@ export class SessionTable {
     }
 
     #gate(): void {
-        if (this.#stopping) throw new AgentStopping();
+        if (this.#stopping) throw new SessionTableStopping();
     }
 
     async #use<T>(id: string, run: (session: SessionApi) => Promise<T>, kind: "command" | "query"): Promise<T> {
         const acquired = await this.#acquire(id);
         if (!acquired.ok) {
             if (kind === "command") return {ok: false, code: acquired.code, ...(acquired.detail === undefined ? {} : {detail: acquired.detail})} as T;
-            throw new AgentSessionUnavailable(acquired.code, id);
+            throw new SessionUnavailable(acquired.code, id);
         }
         try {
             return await run(acquired.session);
@@ -321,7 +327,7 @@ export class SessionTable {
             held = acquired.entry;
             unsubscribe = acquired.session.as(issuer).subscribe(listener);
         }, (error: unknown) => {
-            if (!(error instanceof AgentStopping)) this.options.report("session-subscribe-failed", `subscribing to session ${id} threw`, {session: id, message: error instanceof Error ? error.message : String(error)});
+            if (!(error instanceof SessionTableStopping)) this.options.report("session-subscribe-failed", `subscribing to session ${id} threw`, {session: id, message: error instanceof Error ? error.message : String(error)});
         });
         return () => {
             if (cancelled) return;

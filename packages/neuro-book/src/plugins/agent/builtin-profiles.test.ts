@@ -16,14 +16,16 @@ import {createJsonlStore, defineExtension} from "@notnotype/nb-harness/kernel";
 import type {CompactionJob, CompactionResult, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestSession} from "@notnotype/nb-harness/kernel/testing";
 import {ResourceReadError} from "@notnotype/nb-harness/kit/files";
+import {sessionMetaExtension, titleSessionId} from "@notnotype/nb-harness/kit/sessions";
+import type {MetaTrigger} from "@notnotype/nb-harness/kit/sessions";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
 
 import {loadRules} from "./backend/builtin/profiles/rules";
-import {sessionMetaExtension, titleSessionId} from "./backend/session-meta";
-import type {MetaTrigger} from "./backend/session-meta";
+import {SESSION_META_TAG} from "./backend/builtin/profiles/session-title";
+import {SESSION_META_EXTENSION} from "./backend/session-meta";
 import {MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";
 import {agentExtension, agentTool} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
@@ -368,7 +370,7 @@ describe("标题和说明", () => {
             const cut = job.cuts.filter((item) => item.kind === "turn").at(-1);
             return cut === undefined ? {failed: "no-cut"} : {method: job.method, firstKeptEntryId: cut.entryId, replacement: summary, omitted: [], tokensBefore: 100, tokensAfter: 10};
         };
-        await using session = await createTestSession({extensions: [sessionMetaExtension((_id, trigger) => seen.push(trigger))], compaction: {methods: {shake: method, inplace: method}}});
+        await using session = await createTestSession({extensions: [sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (_id, trigger) => seen.push(trigger)})], compaction: {methods: {shake: method, inplace: method}}});
         session.model.script("一", "二");
         await session.say("第一轮");
         await session.say("第二轮");

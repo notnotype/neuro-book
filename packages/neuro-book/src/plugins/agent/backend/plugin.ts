@@ -15,6 +15,7 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {PluginDefinition, TriggerActivationResult} from "@notnotype/nb-runtime/plugins";
 
 import {createDialects} from "@notnotype/nb-harness/kit/commands";
+import {sessionMetaExtension} from "@notnotype/nb-harness/kit/sessions";
 import {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 
 import {SCHEMES_POINT, workspaceFilesKey} from "nbook/plugins/files/shared/contracts";
@@ -43,7 +44,8 @@ import {locateDocsRoot} from "./docs-root";
 import {agentRemote, PreviewTokens} from "./remote";
 import {filesFor} from "./resources";
 import {AGENT_SCHEMES, agentSchemes} from "./schemes";
-import {SESSION_META_CONTRIBUTION, SESSION_META_EXTENSION, sessionMetaExtension} from "./session-meta";
+import {SESSION_META_CONTRIBUTION, SESSION_META_EXTENSION} from "./session-meta";
+import {SESSION_META_TAG} from "./builtin/profiles/session-title";
 import {prepareTempContainer, sweepTemps} from "./temps";
 
 const allActivated = (result: TriggerActivationResult): boolean => result.status === "triggered" && result.results.every((item) => item.status === "activated");
@@ -112,7 +114,7 @@ export const agentBackendPlugin: PluginDefinition = {
             return {
                 services: [provideService(agentKey, runtime.service)],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal)}, previews))],
-                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch})), [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension((session, trigger) => runtime.meta.notify(session, trigger))}},
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch})), [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(context.services.require(settingsKey)), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)})}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,

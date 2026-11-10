@@ -3,11 +3,9 @@
  * 费用也是对的。上限是软的：只在发请求前判断。
  */
 
-import {defineExtension, ext, slice} from "@notnotype/nb-harness/kernel";
-import type {ReactCtx} from "@notnotype/nb-harness/kernel/contracts";
-import type {AgentExtensionImplementation} from "../../shared/points";
-
-import {refusal} from "./refusal";
+import {defineExtension, ext, slice} from "../../kernel/index.js";
+import type {AnyExtension, ReactCtx} from "../../kernel/contracts.js";
+import {refusal} from "./refusal.js";
 
 export interface CostLimits {
     /** 0 表示不设。 */
@@ -15,15 +13,18 @@ export interface CostLimits {
     readonly maxCost: number;
 }
 
-/** `limits` 每次判断时现读：设置改了立刻生效，也不进 Profile 哈希。 */
-export function costGuard(limits: () => CostLimits): AgentExtensionImplementation {
+/**
+ * `id` 是扩展 id（事件名是 `<id>/<名字>`，进日志），宿主给；`limits` 每次判断时现读：设置改了立刻生效，也不进 Profile 哈希。
+ */
+export function costGuard(options: {readonly id: string; readonly limits: () => CostLimits}): AnyExtension {
+    const {limits} = options;
     const check = (ctx: ReactCtx<any, any, any, any, any>): void => {
         const {warnCost, maxCost} = limits();
         if (warnCost > 0 && ctx.spend.cost >= warnCost && warnCost > (ctx.state.warnedAt as number)) ctx.emit("costWarned", {spent: ctx.spend.cost, limit: warnCost});
         if ((warnCost > 0 || maxCost > 0) && ctx.spend.unpriced > 0 && ctx.state.unpricedWarned !== true) ctx.emit("costUnpriced", undefined);
     };
     return defineExtension({
-        id: "nbook.agent.cost-guard",
+        id: options.id,
         state: {
             /** 已经告警到的线：记线而不是“告警过”，调高之后到新的线还要再告警。 */
             warnedAt: slice.session(0),
