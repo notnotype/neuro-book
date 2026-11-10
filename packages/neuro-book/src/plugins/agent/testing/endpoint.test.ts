@@ -31,4 +31,16 @@ describe("按会话分派", () => {
         expect(replies).toEqual(["伏笔一", "设定一", "全局一"]);
         expect(await ask("先核对设定")).toBe("全局二");
     });
+
+    test("holdFor 只挂这个会话的第 n 个请求，别的请求照常；放行后取它自己的回复", async () => {
+        endpoint.scriptFor("起草大纲", "大纲一", "大纲二");
+        endpoint.script("全局一");
+        const second = endpoint.holdFor("起草大纲", 2);
+        expect(await ask("起草大纲")).toBe("大纲一");
+        const held = ask("起草大纲");
+        await second.arrived;
+        expect(await ask("用户自己的话")).toBe("全局一");
+        second.release();
+        expect(await held).toBe("大纲二");
+    });
 });

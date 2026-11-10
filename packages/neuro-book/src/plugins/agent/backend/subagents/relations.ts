@@ -24,13 +24,25 @@ interface Node {
 export class SessionRelations {
     readonly #nodes = new Map<string, Node>();
     readonly #children = new Map<string, Set<string>>();
+    readonly #listeners = new Set<(id: string) => void>();
+
+    /** 登记了一个会话（新派的子会话、fork）：子代理进度据此重算。启动扫描不通知。 */
+    onRegistered(listener: (id: string) => void): () => void {
+        this.#listeners.add(listener);
+        return () => this.#listeners.delete(listener);
+    }
 
     /** 启动时的扫描结果；与扫描期间已经登记的按会话 id 合并，已登记的优先（扫描读到的可能是旧的）。 */
     load(entries: readonly RelationEntry[]): void {
-        for (const entry of entries) if (!this.#nodes.has(entry.id)) this.register(entry);
+        for (const entry of entries) if (!this.#nodes.has(entry.id)) this.#put(entry);
     }
 
     register(entry: RelationEntry): void {
+        this.#put(entry);
+        for (const listener of [...this.#listeners]) listener(entry.id);
+    }
+
+    #put(entry: RelationEntry): void {
         const caller = entry.caller?.kind === "session" ? entry.caller : undefined;
         const node: Node = {
             parent: caller?.id ?? null,

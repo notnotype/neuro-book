@@ -62,11 +62,14 @@ export interface SessionTableOptions {
     readonly beforeOpen: () => Promise<void>;
     /** 会话关了：放掉按会话持有的内存（行锚的快照）。 */
     readonly closed?: (sessionId: string) => void;
+    /** `fork` 建了新会话：登记进会话关系表（fork 一个子会话得到的仍是同一个父会话的子会话，subagents.md 输出 23）。 */
+    readonly forked?: (sessionId: string) => void;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
 export class SessionTable {
     readonly #activityListeners = new Set<() => void>();
+    readonly #logListeners = new Set<(sessionId: string, frame: Extract<Frame, {type: "log"}>) => void>();
     readonly #entries = new Map<string, Entry>();
     /** 已接纳、还没登记进表的操作（建会话与它之后的初始设置）：停止要等它们登记完再关。 */
     readonly #accepted = new Set<Promise<unknown>>();
@@ -116,6 +119,11 @@ export class SessionTable {
             waitRun: (runId: string) => table.#use(id, (session) => session.waitRun(runId), "query"),
         };
         for (const name of COMMANDS) api[name] = (args: unknown) => table.#use(id, (session) => (session.as(issuer)[name] as (args: unknown) => Promise<unknown>)(args), "command");
+        api.fork = async (args: unknown) => {
+            const result = await table.#use(id, (session) => session.as(issuer).fork(args as Parameters<SessionApi["fork"]>[0]), "command");
+            if (result.ok) table.options.forked?.(result.value.sessionId);
+            return result;
+        };
         for (const name of QUERIES) api[name] = (args?: unknown) => table.#use(id, (session) => (session.as(issuer)[name] as (args?: unknown) => Promise<unknown>)(args), "query");
         return api as unknown as SessionApi;
     }
@@ -128,6 +136,20 @@ export class SessionTable {
     onActivityChanged(listener: () => void): () => void {
         this.#activityListeners.add(listener);
         return () => this.#activityListeners.delete(listener);
+    }
+
+    /** 句柄打开着（子代理进度只给打开着的后代读等用户的事项，不为它去打开会话）。 */
+    isOpen(id: string): boolean {
+        return this.#entries.get(id)?.state === "open";
+    }
+
+    /**
+     * 打开着的会话写下的每条日志事件（以用户的身份，经出站过滤之前的原样）：子代理进度据此知道后代有了新的一步，不必逐个订阅。
+     * 句柄打开之前写下的不补。
+     */
+    onLog(listener: (sessionId: string, frame: Extract<Frame, {type: "log"}>) => void): () => void {
+        this.#logListeners.add(listener);
+        return () => this.#logListeners.delete(listener);
     }
 
     #activityChanged(): void {
@@ -253,6 +275,10 @@ export class SessionTable {
     /** 跟着运行状态：运行结束（回到空闲）时看能不能开始空闲计时。 */
     #watch(entry: Entry, session: SessionApi): void {
         entry.stopWatching = session.subscribe((frame) => {
+            if (frame.type === "log") {
+                for (const listener of this.#logListeners) listener(entry.id, frame);
+                return;
+            }
             if (frame.type !== "status") return;
             const wasWaiting = entry.waiting;
             const wasIdle = entry.idle;

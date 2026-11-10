@@ -11,22 +11,13 @@ import {join} from "node:path";
 
 import {executeShell} from "@oh-my-pi/pi-natives";
 
+import type {CommandStatus} from "../../shared/subagents";
 import type {Job, JobCenter} from "../jobs/center";
 import {capLines, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window";
 
 export const OUTPUT_FILE = "output.log";
 export const STATUS_FILE = "status.json";
 
-/** `status.json` 的内容；`jobTail`、`jobStatuses` 与卡片读它（jobs.md 输出 10）。 */
-export interface CommandStatus {
-    readonly state: "completed" | "failed" | "aborted" | "interrupted";
-    readonly exitCode: number | null;
-    readonly lines: number;
-    readonly bytes: number;
-    readonly truncated: boolean;
-    readonly timedOut: boolean;
-    readonly endedAt: number;
-}
 
 export interface BackgroundCommand {
     readonly command: string;

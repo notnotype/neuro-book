@@ -95,9 +95,17 @@ export interface WaitOptions {
 
 export class JobCenter {
     readonly #jobs = new Map<string, Job>();
+    /** 等待者（`wait`、`follow`）：任一任务变了就复查。 */
     readonly #listeners = new Set<() => void>();
+    /** 远程的 `jobsChanged` 与子代理进度：哪个会话的任务变了。 */
+    readonly #owners = new Set<(owner: string) => void>();
 
-    constructor(private readonly options: {readonly clock: Clock; readonly limits: () => JobLimits; readonly newId: () => string; readonly changed?: (owner: string) => void}) {}
+    constructor(private readonly options: {readonly clock: Clock; readonly limits: () => JobLimits; readonly newId: () => string}) {}
+
+    onChanged(listener: (owner: string) => void): () => void {
+        this.#owners.add(listener);
+        return () => this.#owners.delete(listener);
+    }
 
     /** 占名额并登记一个 `starting` 的任务（jobs.md 输出 2）；在工具的同步段里调用，几次并发的启动不会一起越过上限。 */
     reserve(owner: string, kind: JobKind, invocation: string, summary: string): ReserveResult {
@@ -214,7 +222,7 @@ export class JobCenter {
                 job.fetched = true;
                 this.#jobs.delete(job.id);
             } else if (job.question !== undefined) job.questionDelivered = job.question.id;
-            this.options.changed?.(job.owner);
+            this.#ownerChanged(job.owner);
             return {kind: "ready", job, others: candidates.filter((other) => other !== job)};
         };
         const now = ready();
@@ -276,8 +284,10 @@ export class JobCenter {
 
     /** 插件停止：表里的都不再有人取。 */
     clear(): void {
+        const owners = new Set([...this.#jobs.values()].map((job) => job.owner));
         this.#jobs.clear();
         this.#notify();
+        for (const owner of owners) this.#ownerChanged(owner);
     }
 
     live(): readonly Job[] {
@@ -285,8 +295,12 @@ export class JobCenter {
     }
 
     #changed(job: Job): void {
-        this.options.changed?.(job.owner);
+        this.#ownerChanged(job.owner);
         this.#notify();
+    }
+
+    #ownerChanged(owner: string): void {
+        for (const listener of [...this.#owners]) listener(owner);
     }
 
     #notify(): void {

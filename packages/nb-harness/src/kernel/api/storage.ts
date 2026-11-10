@@ -63,6 +63,8 @@ export interface LogStore {
     /** 一个写入批：一次写入后同步到盘。失败时句柄进损坏状态，结果对调用方不确定，重开以文件为准。 */
     append(handle: LogHandle, batch: readonly LogEvent[]): Promise<StorageResult<void>>;
     list(filter?: {readonly project?: string; readonly archived?: boolean; readonly background?: boolean}): Promise<StorageResult<readonly SessionIndexEntry[]>>;
+    /** 只读一个会话的索引（session.md 输出 23）；没有这个会话、索引读不懂时 `session-not-found`。 */
+    entry(id: string): Promise<StorageResult<SessionIndexEntry>>;
     /** 释放锁。句柄已坏时只做清理。 */
     close(handle: LogHandle): Promise<void>;
 }

@@ -154,6 +154,17 @@ describe.each(stores)("%s 存储", (_name, makeStore) => {
         expect(entry?.spend?.cost).toBeCloseTo(0.03);
     });
 
+    test("session.md 输出 23：entry 只读一个会话的索引，与 list 的条目相同；没有的得 session-not-found", async () => {
+        const store = makeStore();
+        const id = nextId();
+        await writeSession(store, id, threeBatches());
+        const listed = await store.list();
+        const fromList = listed.ok ? listed.value.find((item) => item.id === id) : undefined;
+        expect(await store.entry(id)).toEqual({ok: true, value: fromList!});
+        expect(await store.entry(nextId())).toMatchObject({ok: false, code: "session-not-found"});
+        expect(await store.entry("../x")).toMatchObject({ok: false, code: "session-not-found"});
+    });
+
     test("输出 19：后台会话的会话头带 background，列表条目跟着带、能按它筛", async () => {
         const store = makeStore();
         const front = nextId();

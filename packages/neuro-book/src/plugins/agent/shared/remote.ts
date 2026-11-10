@@ -19,6 +19,7 @@ import type {BranchPoint, CommandErrorDetails, CommandMap, JsonValue, CommandNam
 import {TASK_ID} from "./contracts";
 import {RulesSchema} from "./permissions";
 import type {ProfileEntry, ToolCatalogEntry} from "./contracts";
+import type {AncestorItem, CommandStatus, JobItem, TreeItem} from "./subagents";
 
 const object = <T>() => Type.Unsafe<T>(Type.Object({}, {additionalProperties: true}));
 const Nullable = <S extends TSchema>(schema: S) => Type.Union([schema, Type.Null()]);
@@ -126,7 +127,16 @@ const wholeErrors = errorsOf([...OPEN_CODES, "result-too-large"] as const);
 export type LogItem = {readonly kind: "event"; readonly event: LogEvent} | {readonly kind: "oversized"; readonly seq: number; readonly type: string; readonly bytes: number};
 export type PreviewItem = {readonly kind: "inline"; readonly preview: PreviewResult} | {readonly kind: "oversized"; readonly token: string; readonly bytes: number};
 
-export type ActivityItem = {readonly id: string; readonly state: "running" | "waiting"};
+/** `root`：这个会话所在会话树的根（自己就是根时是自己），状态栏按根数“运行中”（sessions.md 输出 19）。 */
+export type ActivityItem = {readonly id: string; readonly state: "running" | "waiting"; readonly root: string};
+
+/** `list` 的条目：会话头的调用方是会话时带 `parent`（sessions.md 输出 18）。 */
+export type ListedSession = SessionIndexEntry & {readonly parent?: string};
+
+/** 后台命令输出的最后几行与 `status.json`（jobs.md 输出 10）。 */
+export type JobTail = {readonly lines: readonly string[]; readonly status: CommandStatus | null};
+
+const JobId = Type.String({pattern: "^job-[0-9a-f]{12}$"});
 
 /** 审批预览（builtin-tools.md 输出 26）：按文件分组。 */
 export type ApprovalPreview = {readonly files: ReadonlyArray<{readonly address: string; readonly kind: "diff"; readonly before: string; readonly after: string} | {readonly address: string; readonly kind: "too-large"; readonly bytes: number} | {readonly address: string; readonly kind: "failed"; readonly code: string}>};
@@ -140,9 +150,35 @@ const methods = {
     ...commandMethods,
     list: {
         input: Type.Object({project: Type.Optional(Type.String()), archived: Type.Optional(Type.Boolean()), background: Type.Optional(Type.Boolean())}, {additionalProperties: false}),
-        output: Type.Unsafe<readonly SessionIndexEntry[]>(Type.Array(Type.Object({}, {additionalProperties: true}))),
+        output: Type.Unsafe<readonly ListedSession[]>(Type.Array(Type.Object({}, {additionalProperties: true}))),
         effect: "read",
         errors: errorsOf(storageErrors),
+    },
+    /** 祖先链，从父会话起；不受归档与作品范围过滤（subagents.md 输出 25）。 */
+    ancestors: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<readonly AncestorItem[]>(Type.Array(Type.Unknown())), effect: "read"},
+    /** 全部后代与它们的进度（subagents.md 输出 21）：先订阅 `treeChanged` 再取。 */
+    tree: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<readonly TreeItem[]>(Type.Array(Type.Unknown())), effect: "read", errors: errorsOf(["result-too-large"] as const)},
+    /** 这个会话启动、还在任务中心里的任务（jobs.md 输出 9）：先订阅 `jobsChanged` 再取。 */
+    jobs: {input: Type.Object(BySession, {additionalProperties: false}), output: Type.Unsafe<readonly JobItem[]>(Type.Array(Type.Unknown())), effect: "read"},
+    /** 后台命令输出的最后 `lines` 行（缺省 50），按文件读（jobs.md 输出 10）。 */
+    jobTail: {
+        input: Type.Object({...BySession, jobId: JobId, lines: Type.Optional(Type.Integer({minimum: 0, maximum: 200}))}, {additionalProperties: false}),
+        output: object<JobTail>(),
+        effect: "read",
+        errors: errorsOf(["job-unknown"] as const),
+    },
+    /** 一次读多个后台命令的 `status.json`，读不到的是 null。 */
+    jobStatuses: {
+        input: Type.Object({...BySession, jobIds: Type.Array(JobId, {maxItems: 100})}, {additionalProperties: false}),
+        output: Type.Unsafe<readonly (CommandStatus | null)[]>(Type.Array(Type.Unknown())),
+        effect: "read",
+    },
+    /** 以用户的身份停这个会话启动的任何任务（jobs.md 输出 11）。 */
+    killJob: {
+        input: Type.Object({...BySession, jobId: JobId}, {additionalProperties: false}),
+        output: Type.Object({outcome: Type.Union([Type.Literal("killed"), Type.Literal("already-ended")])}, {additionalProperties: false}),
+        effect: "write",
+        errors: errorsOf(["job-unknown"] as const),
     },
     create: {
         input: Type.Object({profile: Type.String({minLength: 1}), initial: Type.Optional(Type.Unknown()), project: Type.Optional(Type.String())}, {additionalProperties: false}),
@@ -243,6 +279,10 @@ const events = {
     /** 先订阅、再用 `log` 补到 `through`；`onResync` 时按最后收到的 seq 再补（sessions.md 输出 7、8）。 */
     frames: {filter: Type.Object(BySession, {additionalProperties: false}), payload: object<RemoteFrame>()},
     activityChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Unsafe<readonly ActivityItem[]>(Type.Array(Type.Unknown()))},
+    /** 任一后代变化时推整份，合并后至多每秒 4 次（subagents.md 输出 22）；`onResync` 时重取 `tree`。 */
+    treeChanged: {filter: Type.Object(BySession, {additionalProperties: false}), payload: Type.Unsafe<readonly TreeItem[]>(Type.Array(Type.Unknown()))},
+    /** 任一任务变化时推整份，合并后至多每秒 4 次（jobs.md 输出 9）；`onResync` 时重取 `jobs`。 */
+    jobsChanged: {filter: Type.Object(BySession, {additionalProperties: false}), payload: Type.Unsafe<readonly JobItem[]>(Type.Array(Type.Unknown()))},
     /** 只说目录变了，没有载荷：先订阅、再取 `profiles` 与 `toolCatalog`，`onResync` 时重取（sessions.md 输出 17）。 */
     profileCatalogChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Object({}, {additionalProperties: false})},
 } as const;

@@ -4,21 +4,29 @@
  */
 
 import {randomUUID} from "node:crypto";
+import {basename, join} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 
 import {commandErrors, hostOnlyCommands} from "@notnotype/nb-harness/kernel/contracts";
-import type {Diagnostic, SessionApi, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
+import type {Diagnostic, SessionApi, SessionIndexEntry, StorageResult, ToolSessionContext} from "@notnotype/nb-harness/kernel/contracts";
 import {PreviewUnavailable} from "@notnotype/nb-harness/kernel";
 
 import type {AgentService, ProfileAdmin} from "../shared/contracts";
 import type {Rule} from "../shared/permissions";
-import type {agentSessionsContract, ApprovalPreview, RemoteCommandName} from "../shared/remote";
+import type {agentSessionsContract, ApprovalPreview, JobTail, RemoteCommandName} from "../shared/remote";
+import type {AncestorItem, JobItem} from "../shared/subagents";
 
 import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
+import {jobDirectory, OUTPUT_FILE, readStatus} from "./builtin/shell-background";
+import {LINE_BYTES} from "./builtin/shell-window";
+import type {Job, JobCenter} from "./jobs/center";
+import {PushThrottle} from "./push-throttle";
 import {AgentSessionUnavailable} from "./sessions";
 import type {SessionTable} from "./sessions";
+import type {SessionRelations} from "./subagents/relations";
+import {TREE_PUSH_MS, type SubagentTree} from "./subagents/tree";
 
 type Contract = typeof agentSessionsContract;
 type Methods = RemoteImplementation<Contract>["methods"];
@@ -37,6 +45,55 @@ export interface AgentRemoteOptions {
     /** 审批预览（builtin-tools.md 输出 26）：按这个会话的资源权限试算。 */
     readonly previewApproval: (session: ToolSessionContext, tool: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal) => Promise<ApprovalPreview>;
     readonly projectRules: (project: string, signal: AbortSignal) => Promise<Rule[] | "invalid">;
+    /** 子代理与任务（subagents.md 输出 21、25，jobs.md 输出 9–11）。 */
+    readonly subagents: {
+        readonly relations: SessionRelations;
+        readonly jobs: JobCenter;
+        readonly tree: SubagentTree;
+        readonly entry: (id: string) => Promise<StorageResult<SessionIndexEntry>>;
+        /** 会话目录的根：后台命令的输出在 `<根>/<会话>/home/jobs/<任务>/`。 */
+        readonly sessionsRoot: string;
+        readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
+    };
+}
+
+/** `jobTail` 缺省读几行。 */
+const TAIL_LINES = 50;
+/** 读输出文件末尾至多这么多字节再切行：200 行、每行至多 768 字节放得下。 */
+const TAIL_BYTES = 200 * (LINE_BYTES + 1);
+
+function jobItem(job: Job): JobItem {
+    return {
+        id: job.id,
+        kind: job.kind,
+        state: job.state as JobItem["state"],
+        summary: job.summary,
+        invocation: job.invocation,
+        foreground: job.waiters > 0,
+        startedAt: job.startedAt,
+        ...(job.endedAt === undefined ? {} : {endedAt: job.endedAt}),
+        ...(job.lastLine === undefined ? {} : {lastLine: job.lastLine}),
+        ...(job.outcome?.exitCode === undefined ? {} : {exitCode: job.outcome.exitCode}),
+        ...(job.outcome?.lines === undefined ? {} : {lines: job.outcome.lines}),
+        ...(job.target === undefined ? {} : {sessionId: job.target.sessionId, runId: job.target.runId}),
+    };
+}
+
+/** 会话 id 只当一段路径用：带分隔符或以点开头的不认。 */
+const safeSegment = (value: string): boolean => value !== "" && basename(value) === value && !value.startsWith(".");
+
+/** 输出文件的最后 `count` 行，每行截到一行的上限；没有文件时为 null。 */
+async function tailOf(path: string, count: number): Promise<string[] | null> {
+    const file = Bun.file(path);
+    if (!(await file.exists())) return null;
+    if (count === 0) return [];
+    const size = file.size;
+    const text = await file.slice(Math.max(0, size - TAIL_BYTES)).text();
+    const lines = text.split("\n");
+    if (text.endsWith("\n")) lines.pop();
+    // 从文件中间切开时第一行可能是半行，丢掉。
+    if (size > TAIL_BYTES) lines.shift();
+    return lines.slice(-count).map((line) => (Buffer.byteLength(line, "utf8") <= LINE_BYTES ? line : `${Buffer.from(line, "utf8").subarray(0, LINE_BYTES).toString("utf8").replace(/\uFFFD+$/u, "")}…`));
 }
 
 /** 预览大到放不进一条消息时先存起来，经令牌分段读；所有调用方共用一张表。 */
@@ -100,7 +157,11 @@ const TREE_PAGE_BYTES = PAGE_BYTES - 4096;
 
 export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens): RemoteImplementation<Contract> {
     const {service} = options;
+    const {relations, jobs, tree, entry, sessionsRoot, report} = options.subagents;
+    const pushFailed = (event: string) => (error: unknown) => report("remote-push-failed", `computing ${event} failed`, {message: error instanceof Error ? error.message : String(error)});
     const view = (sessionId: string): SessionApi => service.session(sessionId, {kind: "user"});
+    const activity = () => options.sessions.activity().map((item) => ({...item, root: relations.rootOf(item.id)}));
+    const jobsOf = (sessionId: string): JobItem[] => jobs.list(sessionId).map(jobItem);
 
     const commandMethods = Object.fromEntries(COMMANDS.map((name) => [name, async ({sessionId, ...args}: {sessionId: string} & Record<string, unknown>, context: {ok: (value: unknown) => unknown; fail: (code: string, detail?: unknown) => unknown}) => {
         const result = await (view(sessionId)[name] as (args: unknown) => Promise<{ok: boolean; value?: unknown; seq?: number; replayed?: boolean; code?: string; detail?: unknown}>)(args);
@@ -111,7 +172,43 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         ...commandMethods,
         list: async (filter, context) => {
             const listed = await service.list(filter);
-            return listed.ok ? context.ok(listed.value) : context.fail(listed.code, listed.detail as undefined);
+            return listed.ok
+                ? context.ok(listed.value.map((session) => (session.caller?.kind === "session" ? {...session, parent: session.caller.id} : session)))
+                : context.fail(listed.code, listed.detail as undefined);
+        },
+        ancestors: async ({sessionId}, context) => {
+            const icons = new Map(service.profiles().map((profile) => [profile.key, profile.icon]));
+            const items = await Promise.all(relations.ancestorsOf(sessionId).map(async (id): Promise<AncestorItem> => {
+                const indexed = await entry(id);
+                if (!indexed.ok) return {id, title: null, profile: null, archived: false};
+                const icon = icons.get(indexed.value.profile);
+                return {id, title: indexed.value.title, profile: indexed.value.profile, ...(icon === undefined ? {} : {icon}), archived: indexed.value.archived};
+            }));
+            return context.ok(items);
+        },
+        tree: async ({sessionId}, context) => {
+            const items = await tree.tree(sessionId);
+            return byteLength(items) <= PAGE_BYTES ? context.ok(items) : context.fail("result-too-large");
+        },
+        jobs: ({sessionId}, context) => context.ok(jobsOf(sessionId)),
+        jobTail: async ({sessionId, jobId, lines = TAIL_LINES}, context) => {
+            if (!safeSegment(sessionId)) return context.fail("job-unknown");
+            const directory = jobDirectory(join(sessionsRoot, sessionId, "home"), jobId);
+            const tail = await tailOf(join(directory, OUTPUT_FILE), lines);
+            if (tail === null) return context.fail("job-unknown");
+            const result: JobTail = {lines: tail, status: await readStatus(directory)};
+            return context.ok(result);
+        },
+        jobStatuses: async ({sessionId, jobIds}, context) => {
+            if (!safeSegment(sessionId)) return context.ok(jobIds.map(() => null));
+            const home = join(sessionsRoot, sessionId, "home");
+            return context.ok(await Promise.all(jobIds.map((jobId) => readStatus(jobDirectory(home, jobId)))));
+        },
+        killJob: async ({sessionId, jobId}, context) => {
+            // 用户停这个会话启动的任何任务（前台、后台），别的会话的不认。
+            if (jobs.get(jobId)?.owner !== sessionId) return context.fail("job-unknown");
+            const outcome = await jobs.kill(null, jobId);
+            return outcome === "job-unknown" ? context.fail("job-unknown") : context.ok({outcome});
         },
         create: async ({profile, initial, project}, context) => {
             const created = await service.create({profile, ...(initial === undefined ? {} : {initial: initial as never}), ...(project === undefined ? {} : {project})});
@@ -211,7 +308,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             return deleted.ok ? context.ok({}) : context.fail(deleted.code);
         },
         projectPermissionRules: async ({project}, context) => context.ok(await options.projectRules(project, context.signal)),
-        activity: (_input, context) => context.ok(options.sessions.activity()),
+        activity: (_input, context) => context.ok(activity()),
         startTask: async ({initial, ...task}, context) => {
             const started = await service.startTask({...task, ...(initial === undefined ? {} : {initial: initial as never})});
             // 码是联合时 `fail` 的类型只收 undefined 的详情；运行时照传，合同里每个码的详情 schema 都收对象。
@@ -232,8 +329,29 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             activityChanged: {
                 subscribe(_filter, sink, context) {
                     if (context.signal.aborted) return;
-                    const stop = options.sessions.onActivityChanged(() => sink.next(options.sessions.activity()));
+                    // 关系变了根也可能变（新派的子会话一开始跑就进活动）：活动推送本身就带着最新的根。
+                    const stop = options.sessions.onActivityChanged(() => sink.next(activity()));
                     context.signal.addEventListener("abort", stop, {once: true});
+                },
+            },
+            treeChanged: {
+                subscribe({sessionId}, sink, context) {
+                    if (context.signal.aborted) return;
+                    const stop = tree.watch(sessionId, (items) => sink.next(items), pushFailed("treeChanged"));
+                    context.signal.addEventListener("abort", stop, {once: true});
+                },
+            },
+            jobsChanged: {
+                subscribe({sessionId}, sink, context) {
+                    if (context.signal.aborted) return;
+                    const throttle = new PushThrottle({clock: options.clock, intervalMs: TREE_PUSH_MS, compute: () => jobsOf(sessionId), push: (items) => sink.next(items), failed: pushFailed("jobsChanged")});
+                    const stop = jobs.onChanged((owner) => {
+                        if (owner === sessionId) throttle.trigger();
+                    });
+                    context.signal.addEventListener("abort", () => {
+                        throttle.close();
+                        stop();
+                    }, {once: true});
                 },
             },
             frames: {

@@ -303,6 +303,16 @@ export function createJsonlStore(options: JsonlStoreOptions): LogStore {
             }
         },
 
+        async entry(id) {
+            if (!isSessionId(id)) return fail("session-not-found");
+            try {
+                const index = parseIndex(await files.read(join(directoryOf(id), INDEX)));
+                return index === null ? fail("session-not-found") : {ok: true, value: index};
+            } catch (error) {
+                return fail("storage-failed", {message: message(error)});
+            }
+        },
+
         async close(handle) {
             const state = internal(handle);
             if (state.closed) return;

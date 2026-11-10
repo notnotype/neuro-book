@@ -10,7 +10,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
@@ -26,6 +26,7 @@ import {agentSettings} from "../shared/settings";
 import {JobCenter} from "./jobs/center";
 import {ChildRuns} from "./subagents/children";
 import {SessionRelations} from "./subagents/relations";
+import {SubagentTree} from "./subagents/tree";
 import {TreeSpend} from "./subagents/tree-spend";
 import {ProfileBundles} from "./profile-bundles";
 import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
@@ -75,6 +76,10 @@ export interface AgentRuntime {
     readonly treeSpend: TreeSpend;
     /** 子代理运行与任务中心之间的跟踪（subagents.md 输出 6、7）。 */
     readonly children: ChildRuns;
+    /** 子代理的进度（subagents.md 输出 21、22）。 */
+    readonly tree: SubagentTree;
+    /** 只读一个会话的索引（不打开会话）。 */
+    sessionEntry(id: string): Promise<StorageResult<SessionIndexEntry>>;
     /** 模型端口：派子代理时先解析指名的模型（subagents.md 输出 1 的 `model-unavailable`）。 */
     readonly models: ModelPort;
     /** 插件开始停止之后为真：子代理工具据此不对子会话发中止，交给会话的关闭按 interrupted 收口（subagents.md 输出 16）。 */
@@ -208,7 +213,13 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         });
         return activating;
     };
-    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => restore.forget(id), report: options.report});
+    // fork 出来的会话：会话头照抄了 `caller`、另有 `origin`，从它的索引读出来登记。
+    const registerFork = async (id: string): Promise<void> => {
+        const entry = await store.entry(id);
+        if (entry.ok) relations.register(entry.value);
+        else options.report("relations-fork-failed", `could not read the index of forked session ${id}: ${entry.code}`, {session: id, code: entry.code});
+    };
+    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => restore.forget(id), forked: (id) => void registerFork(id), report: options.report});
     const table = sessions;
 
     const createSession = async (createOptions: Parameters<AgentService["create"]>[0]): ReturnType<AgentService["create"]> => {
@@ -277,6 +288,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
 
     const meta = new SessionMeta({table, create: createSession, models, report: options.report});
     const children = new ChildRuns({table, jobs, report: options.report});
+    const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
 
     const profileAdmin: ProfileAdmin = {
         toolCatalog: () => {
@@ -310,6 +322,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         relations,
         jobs,
         children,
+        tree,
+        sessionEntry: (id) => store.entry(id),
         treeSpend,
         models,
         stopping: () => stopping,

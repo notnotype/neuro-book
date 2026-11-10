@@ -4,6 +4,7 @@
  *
  * 几个会话同时发请求时（父会话与子代理），请求到达的先后由 I/O 决定，一条全局队列会被交错着取走。`scriptFor(text, …)` 给第一条
  * 用户消息含 `text` 的会话单开一条队列：子代理的第一条用户消息就是派它时的 `prompt`，各子代理给不同的 `prompt` 就各取各的。
+ * 挂起同理：`hold()` 挂的是下一个到达的请求，不管是谁的；`holdFor(text, n)` 只挂这个会话的第 n 个请求。
  */
 
 /** 一条回复：一段文字、分几块流出的文字、一次或几次工具调用（`chunked`：参数分块流出），或一个错误状态码。 */
@@ -26,6 +27,8 @@ export interface FakeEndpoint {
     scriptFor(text: string, ...replies: Scripted[]): void;
     /** 下一次请求到达后挂住，交回放行函数与“已到达”的 Promise。 */
     hold(): {readonly arrived: Promise<void>; release(): void};
+    /** 从现在起第一条用户消息含 `text` 的第 `nth` 个请求（缺省 1）到达后挂住；它不占 `hold()` 的挂起。 */
+    holdFor(text: string, nth?: number): {readonly arrived: Promise<void>; release(): void};
     /** 丢掉没用完的脚本与挂起（每个测试之后调，免得上一个测试剩下的回复串到下一个）。 */
     reset(): void;
     stop(): void;
@@ -33,11 +36,24 @@ export interface FakeEndpoint {
 
 const chunk = (payload: object): string => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...payload})}\n\n`;
 
+function holdGate(): {readonly arrived: () => void; readonly released: Promise<void>; readonly handle: {readonly arrived: Promise<void>; release(): void}} {
+    let arrived!: () => void;
+    let release!: () => void;
+    const arrivedPromise = new Promise<void>((resolve) => {
+        arrived = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    return {arrived, released, handle: {arrived: arrivedPromise, release}};
+}
+
 export function fakeEndpoint(): FakeEndpoint {
     const queue: Scripted[] = [];
     const routes: {readonly text: string; readonly replies: Scripted[]}[] = [];
     const requests: SeenRequest[] = [];
     const holds: {arrived: () => void; released: Promise<void>}[] = [];
+    const routeHolds: {readonly text: string; skip: number; readonly arrived: () => void; readonly released: Promise<void>}[] = [];
     let calls = 0;
     const server = Bun.serve({
         port: 0,
@@ -52,13 +68,17 @@ export function fakeEndpoint(): FakeEndpoint {
                 options: {toolChoice: body.tool_choice, maxTokens: body.max_completion_tokens ?? body.max_tokens, reasoningEffort: body.reasoning_effort},
                 system: messages.filter((message) => message.role === "system").map((message) => typeof message.content === "string" ? message.content : JSON.stringify(message.content)).join("\n"),
             });
-            const hold = holds.shift();
+            const firstUser = messages.find((message) => message.role === "user");
+            const firstText = firstUser === undefined ? "" : typeof firstUser.content === "string" ? firstUser.content : JSON.stringify(firstUser.content);
+            const matching = routeHolds.filter((item) => firstText.includes(item.text));
+            const routeHold = matching.find((item) => item.skip === 0);
+            for (const item of matching) if (item.skip > 0) item.skip -= 1;
+            const hold = routeHold ?? (matching.length === 0 ? holds.shift() : undefined);
+            if (routeHold !== undefined) routeHolds.splice(routeHolds.indexOf(routeHold), 1);
             if (hold !== undefined) {
                 hold.arrived();
                 await hold.released;
             }
-            const firstUser = messages.find((message) => message.role === "user");
-            const firstText = firstUser === undefined ? "" : typeof firstUser.content === "string" ? firstUser.content : JSON.stringify(firstUser.content);
             const route = routes.find((item) => item.replies.length > 0 && firstText.includes(item.text));
             const reply = route?.replies.shift() ?? queue.shift() ?? "好";
             calls += 1;
@@ -95,21 +115,20 @@ export function fakeEndpoint(): FakeEndpoint {
             else existing.replies.push(...replies);
         },
         hold: () => {
-            let arrived!: () => void;
-            let release!: () => void;
-            const arrivedPromise = new Promise<void>((resolve) => {
-                arrived = resolve;
-            });
-            const released = new Promise<void>((resolve) => {
-                release = resolve;
-            });
-            holds.push({arrived, released});
-            return {arrived: arrivedPromise, release};
+            const gate = holdGate();
+            holds.push(gate);
+            return gate.handle;
+        },
+        holdFor: (text, nth = 1) => {
+            const gate = holdGate();
+            routeHolds.push({text, skip: nth - 1, arrived: gate.arrived, released: gate.released});
+            return gate.handle;
         },
         reset: () => {
             queue.length = 0;
             routes.length = 0;
             holds.length = 0;
+            routeHolds.length = 0;
         },
         stop: () => {
             void server.stop(true);

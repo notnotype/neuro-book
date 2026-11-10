@@ -15,6 +15,7 @@ import {ADHOC_PROFILE, MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contr
 import type {ProfileEntry} from "./shared/contracts";
 import {AGENT_MODES_EXTENSION} from "./shared/permissions";
 import {profileAgents} from "./shared/profile-agents";
+import type {JobItem, TreeItem} from "./shared/subagents";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint, Scripted} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
@@ -375,5 +376,102 @@ describe("资源地址的根", () => {
         for (const child of [first!, second!]) expect(children.some((line) => lists(line, `sessions://${child.details!.sessionId!}`))).toBe(true);
         expect(entries(profilesRoot!.text).find((line) => lists(line, `profiles://${ADHOC_PROFILE}`))).toContain("subagent: 可派");
         expect(entries(profilesRoot!.text).find((line) => lists(line, `profiles://${MAIN_PROFILE}`))).toContain("subagent: 不可派");
+    });
+});
+
+/** 远程调用的值；失败时抛出，测试按失败结束。 */
+function ok<T>(result: {readonly ok: boolean; readonly value?: T; readonly code?: string}): T {
+    if (!result.ok) throw new Error(`remote call failed: ${JSON.stringify(result)}`);
+    return result.value as T;
+}
+
+describe("远程", () => {
+    test("输出 21、22、25，sessions.md 输出 18、19：tree 的项与推送、ancestors、list 带父会话、activity 带根", async () => {
+        const {w, parent} = await open();
+        const {client} = await w.window("tree");
+        const pushes: (readonly TreeItem[])[] = [];
+        ok(await client.events.treeChanged.subscribe({sessionId: parent.id}, (items) => pushes.push(items)));
+        endpoint.scriptFor("慢慢做", {tool: "read", args: {path: "session://"}}, "做完了。");
+        // 子会话的第二个请求（读完之后）挂住：这时它在跑、做过一步。
+        const childSecond = endpoint.holdFor("慢慢做", 2);
+        await turn(parent, "派", [adhoc("慢慢做", {async: true}), "派出去了"]);
+        await childSecond.arrived;
+        const [spawned] = await toolResults(parent, "nbook.agent.spawn");
+        const child = spawned!.details!.sessionId!;
+
+        const items = ok(await client.tree({sessionId: parent.id}));
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({id: child, parent: parent.id, invocation: spawned!.details!.invocation, forked: false, profile: ADHOC_PROFILE, name: "慢慢做", profileIcon: "i-lucide-bot", state: "running", runId: spawned!.details!.runId, runInvocation: spawned!.details!.invocation, tools: 1, step: {tool: "nbook.agent.read", target: "session://"}});
+        expect(ok(await client.ancestors({sessionId: child}))).toMatchObject([{id: parent.id, profile: MAIN_PROFILE, icon: "i-lucide-feather", archived: false}]);
+        expect(ok(await client.list({})).find((session) => session.id === child)?.parent).toBe(parent.id);
+        expect(ok(await client.activity({}))).toContainEqual({id: child, state: "running", root: parent.id});
+
+        childSecond.release();
+        await childOf(w, child).waitRun(spawned!.details!.runId!);
+        const settled = () => pushes.at(-1)?.[0];
+        await waitUntil("推送到收口", async () => {
+            w.settings.clock.advance(250);
+            return settled()?.state === "idle";
+        });
+        expect(settled()!.runs).toContainEqual(expect.objectContaining({runId: spawned!.details!.runId, reason: "completed"}));
+    });
+
+    test("输出 21：后代等审批时 tree 带 pending，状态是 waiting；在父会话的窗口里批了子会话接着跑", async () => {
+        const {w, parent} = await open();
+        const {client} = await w.window("pending");
+        endpoint.scriptFor("改人物卡", {tool: "write", args: {path: "user://a.md", content: "x"}}, "改好了");
+        await turn(parent, "派", [adhoc("改人物卡", {async: true}), "好"]);
+        const child = (await toolResults(parent, "nbook.agent.spawn"))[0]!.details!.sessionId!;
+        await waitUntil("子会话等审批", async () => ok(await client.tree({sessionId: parent.id}))[0]?.state === "waiting");
+        const [item] = ok(await client.tree({sessionId: parent.id}));
+        expect(item!.pending).toEqual([expect.objectContaining({kind: "approval", request: expect.objectContaining({tool: "nbook.agent.write"})})]);
+        ok(await client.resolve({sessionId: child, commandId: cid(), id: item!.pending![0]!.id, decision: "allow"}));
+        expect(await settledReason(childOf(w, child))).toBe("completed");
+    });
+
+    test("jobs.md 输出 9–11：jobs、jobTail、jobStatuses、jobsChanged、killJob", async () => {
+        const {w, parent} = await open({"nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}});
+        const {client} = await w.window("jobs");
+        const pushes: (readonly JobItem[])[] = [];
+        ok(await client.events.jobsChanged.subscribe({sessionId: parent.id}, (items) => pushes.push(items)));
+        await turn(parent, "跑", [{tool: "shell", args: {command: "echo 开始; sleep 30", async: true}}, "好"]);
+        const started = (await toolResults(parent, "nbook.agent.shell"))[0]!;
+        const jobId = (started.details as {jobId: string}).jobId;
+        expect(ok(await client.jobs({sessionId: parent.id}))).toMatchObject([{id: jobId, kind: "shell", state: "running", foreground: false, invocation: expect.any(String)}]);
+        await waitUntil("输出写进文件", async () => ok(await client.jobTail({sessionId: parent.id, jobId})).lines.includes("开始"));
+        expect(ok(await client.jobTail({sessionId: parent.id, jobId, lines: 0}))).toEqual({lines: [], status: null});
+        expect(await client.jobTail({sessionId: parent.id, jobId: "job-000000000000"})).toMatchObject({ok: false, code: "job-unknown"});
+        expect(await client.killJob({sessionId: "someone-else", jobId})).toMatchObject({ok: false, code: "job-unknown"});
+
+        expect(ok(await client.killJob({sessionId: parent.id, jobId}))).toEqual({outcome: "killed"});
+        expect(ok(await client.jobStatuses({sessionId: parent.id, jobIds: [jobId, "job-000000000000"]}))).toEqual([expect.objectContaining({state: "aborted"}), null]);
+        await waitUntil("推送到已停止", async () => {
+            w.settings.clock.advance(250);
+            return pushes.at(-1)?.[0]?.state === "aborted";
+        });
+    });
+});
+
+describe("fork", () => {
+    test("输出 23：fork 子会话得到的仍是同一个父会话的子会话、tree 里标 forked，父 Agent 能对它放话；fork 父会话得到的不拥有原来的子会话", async () => {
+        const {w, parent} = await open();
+        const {client} = await w.window("fork");
+        endpoint.scriptFor("写一段", "写好了", "接着写好了");
+        await turn(parent, "派", [adhoc("写一段"), "好"]);
+        const child = (await toolResults(parent, "nbook.agent.spawn"))[0]!.details!.sessionId!;
+        const forkedChild = (await childOf(w, child).fork({commandId: cid()}));
+        if (!forkedChild.ok) throw new Error(forkedChild.code);
+        await waitUntil("fork 登记进关系表", async () => ok(await client.tree({sessionId: parent.id})).length === 2);
+        const items = ok(await client.tree({sessionId: parent.id}));
+        expect(items.find((item) => item.id === forkedChild.value.sessionId)).toMatchObject({parent: parent.id, forked: true});
+        expect(items.find((item) => item.id === child)).toMatchObject({forked: false});
+        await turn(parent, "接着", [{tool: "agent_send", args: {id: forkedChild.value.sessionId, message: "接着写"}}, "好"]);
+        expect((await toolResults(parent, "nbook.agent.send"))[0]!.details).toMatchObject({status: "completed"});
+
+        const forkedParent = await parent.fork({commandId: cid()});
+        if (!forkedParent.ok) throw new Error(forkedParent.code);
+        const copy = w.service.session(forkedParent.value.sessionId);
+        await turn(copy, "也想放话", [{tool: "agent_send", args: {id: child, message: "我也来"}}, "好"]);
+        expect((await toolResults(copy, "nbook.agent.send")).at(-1)).toMatchObject({code: "not-owner"});
     });
 });
