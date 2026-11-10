@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t04-migration
 status: planned
-updated: 2026-10-27
+updated: 2026-11-10
 ---
 
 # 错误与诊断迁移
@@ -18,6 +18,10 @@ updated: 2026-10-27
 不在本 Task：现有英文工具说明与命令 `description` 的语言（等 t05）。
 
 合同：按 t03 列出的 Spec，起点是 [`runtime/diagnostics.md`](../../../../../docs/specs/runtime/diagnostics.md) 与 t03 的清单。
+
+## 范围修订（2026-11-10）
+
+失败投影（码与参数、主文案、详情）按错误域拆到 t03、t06–t12（Work README 第 13 条），本 Task 只管开发诊断改英文。做法按开发者 2026-11-10 的决定：不做一次性全量翻译；新写的诊断必须英文，碰到哪个文件改哪个文件，`governance:check` 对新增的中文诊断构造告警（本 Task 实现这条机检）；需要全量时再单独排期。另外接 t03 计划列给本 Task 的：B1（包装分支保留 `Error.cause`）、B2（命令行插件日志并入诊断边界）、M7 兜底 catch 的剩余部分、nb-ui `GridResult` 与 nb-markdown 的中文抛错。
 
 ## 当前状态
 
