@@ -1,7 +1,8 @@
+import {emptyAnswerDraft, hasDraftContent, parseAnswerDraft, type AnswerDraft} from "./answers.js";
 import {NAV_ARRANGES, type NavArrange} from "./nav.js";
 
 /**
- * 面板的偏好（明暗、左栏各组的展开、左栏的宽度与收起、左栏 Work 列表的排列方式、通知里“知道了”的尝试、审计横幅的“知道了”）：只在这一处读写 localStorage，组件不碰浏览器存储。
+ * 面板的偏好（明暗、左栏各组的展开、左栏的宽度与收起、左栏 Work 列表的排列方式、通知里“知道了”的尝试、审计横幅的“知道了”）与答复表单的草稿：只在这一处读写 localStorage，组件不碰浏览器存储。
  * 键都带 `nbdev-panel:` 前缀；读写都包 try/catch（隐私模式、存储被禁用时照常工作，只是记不住）。
  * localStorage 按来源分开：`127.0.0.1:4400` 与 `localhost:4400` 各有一份，可以接受。
  */
@@ -24,6 +25,14 @@ function write(key: string, value: string): void {
         window.localStorage.setItem(`${PREFIX}${key}`, value);
     } catch (error) {
         console.warn(`存不了面板偏好 ${key}，这次改动只在本页有效`, error);
+    }
+}
+
+function remove(key: string): void {
+    try {
+        window.localStorage.removeItem(`${PREFIX}${key}`);
+    } catch (error) {
+        console.warn(`删不了面板偏好 ${key}`, error);
     }
 }
 
@@ -110,4 +119,26 @@ export function readDismissedNotify(): string[] {
 
 export function writeDismissedNotify(value: readonly string[]): void {
     write("notify-dismissed", JSON.stringify(value.slice(-200)));
+}
+
+/**
+ * 答复表单的草稿（t21），一块评审一份，键是“Work/Task/产物”。没有内容时删掉这一项，不留空草稿；
+ * 存坏了（不是 JSON、形状不对）按没有草稿处理。存不下（配额满、存储被禁用）时只在本页有效。
+ */
+export function readAnswerDraft(target: string): AnswerDraft {
+    const value = read(`answer-draft:${target}`);
+    if (!value) return emptyAnswerDraft();
+    try {
+        const parsed = parseAnswerDraft(JSON.parse(value));
+        if (parsed) return parsed;
+        console.warn(`答复草稿 ${target} 的形状不对，按没有草稿处理`);
+    } catch (error) {
+        console.warn(`答复草稿 ${target} 不是合法 JSON，按没有草稿处理`, error);
+    }
+    return emptyAnswerDraft();
+}
+
+export function writeAnswerDraft(target: string, draft: AnswerDraft): void {
+    if (hasDraftContent(draft)) write(`answer-draft:${target}`, JSON.stringify(draft));
+    else remove(`answer-draft:${target}`);
 }
