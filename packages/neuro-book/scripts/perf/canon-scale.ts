@@ -1,7 +1,8 @@
 /**
  * 世界服务的完整路径规模测量（docs/specs/canon/project.md 输出 14、场景 6）：在临时项目里用产品的世界宿主
  * （`holdLock` 的跨进程锁、`./node` 的分段日志、活页夹与章节文件）发布一部约 1000 章的模拟世界，关掉再打开，量：
- * 打开到可以读、随机读（实际与按计划模式）、在最新一章发布一次记账、改常出场条目的初值。项目进程里直接调用，不经远程。
+ * 打开到可以读、随机读（实际与按计划模式）、读条目带各字段最近一次改动、一页来历、在最新一章发布一次记账、改常出场条目的初值。
+ * 项目进程里直接调用，不经远程。
  *
  * 形状同 nb-canon 的 `scripts/scale.ts`：开局 20 个条目（前 5 个常出场），每章 5 个计划（4 个本章兑现）、15 条已写变更
  * （常出场条目之间转账、每三条记一笔语义档）、2 个核对点，每两章一个新条目；每章一次写入。核对点写的是记录算出来的
@@ -236,6 +237,27 @@ const plannedFirsts = plannedPositions.map((position) => {
 const plannedFirst = Math.max(...plannedFirsts);
 const plannedReads = timedReads("planned", () => plannedPositions[Math.floor(rnd() * plannedPositions.length)]!);
 
+// ---------- 作者界面的两项读取（project.md 输出 32、33） ----------
+// 读条目时连同每个字段最近一次改动（同读取预算）；点开常出场条目的存款看来历的第一页（每翻一页都重算整条来历，所以一页的耗时就是翻页的耗时）。
+const touchedReads = Array.from({length: 50}, () => {
+    const id = rnd() < 0.5 ? hot[Math.floor(rnd() * hot.length)]! : entryIds[Math.floor(rnd() * entryIds.length)]!;
+    const position = randomPosition();
+    const begin = performance.now();
+    service.entry(id, position, "actual", false, true);
+    return performance.now() - begin;
+});
+const originPages: number[] = [];
+let originSteps = 0;
+for (let i = 0; i < 10; i += 1) {
+    const address = {entry: hot[i % hot.length]!, path: "panel.存款"};
+    const end: ReadPosition = {kind: "chapter", chapter: chapterIds.at(-1)!, edge: "end"};
+    const begin = performance.now();
+    const page = service.origins(address, end, "actual");
+    originPages.push(performance.now() - begin);
+    if (typeof page === "string") throw new Error(page);
+    originSteps = Math.max(originSteps, page.total);
+}
+
 // ---------- 讲述（canon.model 输出 24 到 27） ----------
 // 不带筛选的第一页要定位全部讲述（每章 17 条）再排序；第一次读要把每章正文切成段，之后按章缓存。
 const tellingsPage = (filter: Parameters<WorldService["tellings"]>[0] = {}): number => {
@@ -374,6 +396,7 @@ console.log(`生成（每章一次发布）：${ms(generated / 1000)} 秒`);
 console.log(`打开到可以读：${ms(openMs)} 毫秒（预算 2000）`);
 console.log(`随机读（实际）：中位 ${ms(median(actualReads))} 毫秒，最大 ${ms(Math.max(...actualReads))}（预算 20）`);
 console.log(`按计划第一次读（5 个位置里最慢的）：${ms(plannedFirst)} 毫秒（预算 1000）；之后在这些位置上读，中位 ${ms(median(plannedReads))} 毫秒（预算 20）`);
+console.log(`读条目并带各字段最近一次改动：中位 ${ms(median(touchedReads))} 毫秒，最大 ${ms(Math.max(...touchedReads))}（预算 20）；常出场条目存款的来历一页（最多 ${String(originSteps)} 步）10 次中位 ${ms(median(originPages))} 毫秒，最大 ${ms(Math.max(...originPages))}`);
 console.log(`讲述（${String(chapters * 17)} 条）：不带筛选的第一页，第一次 ${ms(tellingsFirst)} 毫秒，之后中位 ${ms(median(tellingsAll))}；只读一章，中位 ${ms(median(tellingsOneChapter))}；改一章正文后通知 ${ms(textChangedMs)} 毫秒，接着读第一页 ${ms(tellingsAfterEdit)} 毫秒`);
 console.log(`最新一章发布一次记账：中位 ${ms(median(publishes))} 毫秒，最大 ${ms(Math.max(...publishes))}（预算 100）`);
 console.log(`改常出场条目的初值：中位 ${ms(median(initial))} 毫秒（预算 1000）`);
