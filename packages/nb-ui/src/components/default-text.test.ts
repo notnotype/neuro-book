@@ -14,6 +14,7 @@ import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "../locales";
 import {TEXT_PORT_KEY} from "../text-port";
 import type {TextPort} from "../text-port";
 import {createMinimalTranslator} from "../text/minimal";
+import CopyButton from "./controls/CopyButton.vue";
 import Spinner from "./display/Spinner.vue";
 import Banner from "./feedback/Banner.vue";
 import Dialog from "./feedback/Dialog.vue";
@@ -72,6 +73,7 @@ const CASES: readonly Case[] = [
     {name: "Spinner 读屏名", component: Spinner, props: {}, read: attr("[role=status]", "aria-label"), zh: "加载中", en: "Loading", override: {props: {label: "保存中"}, expected: "保存中"}},
     {name: "EmptyState 标题", component: EmptyState, props: {}, read: text("p"), zh: "暂无数据", en: "No data", override: {props: {title: "没有章节"}, expected: "没有章节"}},
     {name: "Table 空态", component: Table, props: {columns: [{key: "a", label: "A"}], rows: []}, read: text("tbody"), zh: "暂无数据", en: "No data", override: {props: {emptyText: "没有行"}, expected: "没有行"}},
+    {name: "CopyButton 按钮文字", component: CopyButton, props: {text: "x"}, read: text("button"), zh: "复制", en: "Copy", override: {props: {label: "复制原文"}, expected: "复制原文"}},
     {name: "CodeBlock 空态", component: CodeBlock, props: {lines: []}, read: text(".nb-code-block__empty"), zh: "无内容", en: "No content", override: {props: {emptyText: "空"}, expected: "空"}},
     {name: "CodeBlock 截断说明", component: CodeBlock, props: {lines: [], truncated: true}, read: text(".nb-code-block__note"), zh: "只公开了部分内容", en: "Only part of the content is shown", override: {props: {truncatedText: "已截断"}, expected: "已截断"}},
     {name: "Toolbar 读屏名", component: Toolbar, props: {}, read: attr("[role=toolbar]", "aria-label"), zh: "工具栏", en: "Toolbar", override: {props: {ariaLabel: "编辑工具"}, expected: "编辑工具"}},

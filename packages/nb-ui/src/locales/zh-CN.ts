@@ -22,6 +22,11 @@ export default {
         empty: "无内容",
         truncated: "只公开了部分内容",
     },
+    copyButton: {
+        copy: "复制",
+        copied: "已复制",
+        failed: "复制失败，请手动选择文字",
+    },
     diffView: {
         mode: "显示方式",
         inline: "行内",

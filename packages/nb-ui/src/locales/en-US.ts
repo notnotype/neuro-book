@@ -18,6 +18,11 @@ export default {
         empty: "No content",
         truncated: "Only part of the content is shown",
     },
+    copyButton: {
+        copy: "Copy",
+        copied: "Copied",
+        failed: "Copy failed; select the text manually",
+    },
     diffView: {
         mode: "Display",
         inline: "Inline",

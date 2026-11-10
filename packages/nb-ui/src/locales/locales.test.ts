@@ -30,6 +30,9 @@ const LEGACY: readonly Legacy[] = [
     {key: "breadcrumb.label", zh: "面包屑导航"}, // navigation/Breadcrumb.vue 模板里的 aria-label
     {key: "codeBlock.empty", zh: "无内容"}, // display/CodeBlock.vue 的 emptyText 缺省
     {key: "codeBlock.truncated", zh: "只公开了部分内容"}, // 同上，truncatedText 缺省
+    {key: "copyButton.copy", zh: "复制"}, // controls/CopyButton.vue 的按钮文字（w00028 t04 新增）
+    {key: "copyButton.copied", zh: "已复制"}, // 同上，复制成功的回执（新增）
+    {key: "copyButton.failed", zh: "复制失败，请手动选择文字"}, // 同上，两条复制路径都失败（新增）
     {key: "diffView.mode", zh: "显示方式"}, // display/DiffView.vue，切换行内与两栏的读屏名称
     {key: "diffView.inline", zh: "行内"}, // 同上
     {key: "diffView.split", zh: "两栏"}, // 同上

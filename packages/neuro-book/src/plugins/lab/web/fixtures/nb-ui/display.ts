@@ -3,7 +3,7 @@
 import type {Badge, Breadcrumb, CodeBlock, DiffView, EmptyState, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
-import {Button as NbButton} from "@notnotype/nb-ui/components";
+import {Button as NbButton, CopyButton as NbCopyButton} from "@notnotype/nb-ui/components";
 
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
@@ -41,6 +41,16 @@ const DIFF_PROSE = {
     after: "雨越下越大，巷子里只剩下卖炭人的独轮车还在吱呀作响。\n陈砚推开药铺的后门时，天刚擦黑，他回头看了一眼，又很快转回去，把那包从城外带回来的干草放在门槛上，先听了听屋里的动静。\n巷口的灯灭了。",
 };
 const DIFF_PADDING = "柜台后面没有人，算盘却摆在正中，珠子停在一个他看不懂的数上，他盯着看了很久。".repeat(8);
+/** 诊断原文的样例（w00028 t04）：一行很长、带一个空行，看横向滚动与空行复制。 */
+const DIAGNOSTIC = [
+    "EditorSaveError: EACCES: permission denied, open '/books/长夜行/第三章.md'",
+    "    code: workspace.file-write-denied",
+    "    at saveFile (editor/shared/files.ts:88:13)",
+    "    at runCommand (commands/shared/registry.ts:353:9)",
+    "",
+    "    request: PUT /api/nbook.files/raw/%E9%95%BF%E5%A4%9C%E8%A1%8C/%E7%AC%AC%E4%B8%89%E7%AB%A0.md?revision=4f2a9c1e0b7d -> 500 Internal Server Error",
+    "    trace: 4f2a9c1e",
+];
 const DIFF_LINES = Array.from({length: 40}, (_, index) => `第 ${index + 1} 段：夜里的雨一直没停。`);
 
 export const displayFixtures: LabFixture[] = [
@@ -62,7 +72,10 @@ export const displayFixtures: LabFixture[] = [
     defineSubjectFixture<typeof CodeBlock>({
         component: "CodeBlock",
         class: "w-full",
+        slotPresets: {actions: () => h(NbCopyButton, {text: DIAGNOSTIC.join("\n")})},
         scenes: [
+            {id: "copy", label: "标题行带复制（诊断原文）", input: {props: {label: "诊断原文", lines: DIAGNOSTIC.map((text) => ({text}))}, slots: {actions: true}}},
+            {id: "copy-only", label: "只有操作、没有标题", input: {props: {lines: DIAGNOSTIC.slice(0, 3).map((text) => ({text}))}, slots: {actions: true}}},
             {id: "content", label: "带行号的文件内容", input: {props: {label: "正文/第三章 雨夜.md", startLine: 12, lines: [{text: "钟声敲到第十二下，"}, {text: "雨还没有停。"}, {text: "她把信折好，塞回了外套内侧的口袋。"}]}}},
             {id: "diff", label: "diff", input: {props: {label: "正文/第三章 雨夜.md", lines: [{text: "@@ -12,2 +12,2 @@", tone: "muted"}, {text: "钟声敲到第十一下，", tone: "removed"}, {text: "钟声敲到第十二下，", tone: "added"}, {text: "雨还没有停。"}]}}},
             {id: "long", label: "长行与截断", input: {props: {lines: Array.from({length: 30}, (_, index) => ({text: `${String(index + 1).padStart(2, "0")} ${"港口的雾从傍晚开始漫上来，先是码头，再是灯塔的基座。".repeat(3)}`})), truncated: true}}},
