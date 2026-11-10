@@ -149,6 +149,9 @@ Agent 工具（t08）、插图方言（t09）、生图管线（t10）、角色�
 ## Spec 审查（2026-11-10）
 
 - **第 1 轮：**omp 审查，31 条，全部处理，见 `evidences/spec-review-round1.md`。
+- **第 3 轮（最后一轮）：**omp 审查，有效 10 条，见 `evidences/spec-review-round3.md`。
+  - 2026-11-10 开发者选 A：照改法改完定稿，不再开审查。
+  - 剩下的风险由实现阶段的合同测试兜底。
 - **第 2 轮：**omp 审查，有效 23 条，见 `evidences/spec-review-round2.md`。
   - 第 5 条交开发者，其余都改了。
   - 编号恢复成第一版的编号，新条目放到末尾。原来问开发者的“编号重排”因此不用再定。
@@ -186,4 +189,8 @@ Agent 工具（t08）、插图方言（t09）、生图管线（t10）、角色�
 
 提案 [图像生成第一版](../../../../../docs/proposals/image-generation-v1.md) 已接受（2026-11-10，三轮设计审查的处理见 `evidences/design-review-round1.md` 到 `round3.md`）。`images/library` 归 [t13](../t13-image-library/README.md)。
 
-`images/prompt` 与 `images/recipes` 按第 2 轮审查修订完，待确认已确认，开第 3 轮（最后一轮）omp 审查。第 3 轮仍有实质问题时，不再逐条补：把 `recipes.md` 拆小（id 索引、展开、快照与恢复各成一份）作为选项，交开发者决定。
+`images/prompt` 与 `images/recipes` 经三轮审查定稿（`planned`），本 Task 的合同写完。后续的 Spec 在各自的 Task 里写：
+- `images/library` 归 t13；
+- `images/tags` 与 `images/checks` 归 t05；
+- `images/generation` 归 t06；
+- `images/workbench` 归 t07。
