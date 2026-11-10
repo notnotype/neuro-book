@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t14-multi-agent
-status: active
+status: done
 updated: 2026-11-10
 ---
 
@@ -229,9 +229,9 @@ t05、t06、t07。
 
 验证（合并 master 之后）：nb-harness、nb-agent-ui、neuro-book 类型检查通过；nb-harness `bun test` 815 条中 1 条失败：存储“最后一批截在任何一个字节处”在负载 16 时超时，之前在 master 上同样出现，这次合并没动它（另一条“非测试源码不出现应用名”是我在套件注释里写了 nbook.agent，已改、重跑通过）；Agent 插件 `bun test` 356 过、11 条真实模型用例跳过，`vitest` 37 过；nb-agent-ui（master 没改它）`bun test` 247、`vitest` 132 过；governance:check 无新警告；e2e 跑覆盖改动的 5 个文件（`agent-subagents`、`agent-conversation`、`agent-profiles`、`lab-agent-ui`、`lab-scenes`，58 条）：55 过；“状态栏的活动条目”与“运行中逐步展开”两条在负载 15–18 时超时，单独重跑通过；`lab-scenes` 只剩 ThemeEditor 两个场景的资源 404（之前就有，与本 Task 无关），它在版面基线比对之前就失败，所以 Agent 面板场景的版面比对这次没跑到。合入时 master 新增的 36 个提交不碰 nb-harness、nb-agent-ui 与 Agent 插件，上面的证据仍然有效。
 
-待开发者批准晋升（planned 改 implemented）：[`subagents.md`](../../../../../docs/specs/agent/subagents.md)、[`jobs.md`](../../../../../docs/specs/agent/jobs.md) 整份；`conversation.md` 输出 33–39；`agent-conversation-view.md` 标 planned 的四处；`profile-settings.md` 输出 25；`contributions.md` 输出 19；`modes.md` 输出 14；`sessions.md` 输出 18、19；`builtin-profiles.md` 输出 14、15；`builtin-tools.md` 输出 27、28；`resources.md` 输出 12–14；`run-guards.md` 输出 13、14；`harness/session.md` 输出 22、23 与会话头的 `caller`；`harness/runtime.md` 输出 85、87、88；`harness/extensions.md` 输出 31。
+开发者 2026-11-10 批准晋升，已改为 implemented：[`subagents.md`](../../../../../docs/specs/agent/subagents.md)、[`jobs.md`](../../../../../docs/specs/agent/jobs.md) 整份；`conversation.md` 输出 33–39；`agent-conversation-view.md` 标 planned 的四处；`profile-settings.md` 输出 25；`contributions.md` 输出 19；`modes.md` 输出 14；`sessions.md` 输出 18、19；`builtin-profiles.md` 输出 14、15；`builtin-tools.md` 输出 27、28；`resources.md` 输出 12–14；`run-guards.md` 输出 13、14；`harness/session.md` 输出 22、23 与会话头的 `caller`；`harness/runtime.md` 输出 85、87、88；`harness/extensions.md` 输出 31。
 
-晋升前要处理的偏差（planned 条目里没做的，前端审查第 17 条）：卡片按注册表的摘要写“读取 …”（现在是工具名加对象）；fork 出来的父会话里复制的卡片写“子会话属于原会话”；异步提问那一行写“提了一个问题，不用马上答”“已回答”（现在是“提问”加题干）；停靠区提交处说明“回答之后 Agent 会接着做”；没答成功时在事项上写原因（现在是会话级提示，所选保留）。要么补做，要么从 Spec 里删掉，由开发者定。
+planned 条目里没做的五处（前端审查第 17 条），开发者交我判断，都改 Spec 跟现在的行为走：卡片运行中写工具名与对象（改成注册表的“读取 …”记进 [t29](../t29-ui-polish-after-t15/README.md) 第 5 条：卡片拿不到对话视图的注册表，要另接一条数据）；找不到子会话的卡片（例如 fork 出来的会话里复制的）按调用自己的结果画、没有终态写“状态未知，打开子会话核对”，不另写“子会话属于原会话”（要等子树取到才判断得了，窄场景）；异步提问那一行是“提问”加题干，回答在停靠区，不写“已回答”（要读停靠区的事项）；停靠区不加“回答之后 Agent 会接着做”的说明；没答成功时原因写在会话的提示里、所选保留，不挂在事项上。草稿 worktree `.worktree/w00032-t14-drafts`（未提交的静态稿）还留着，等开发者定删不删。
 
 已知限制：关着的后代会话里的异步提问不进祖先的停靠区（只读打开着的后代）；进程崩溃留下的卡片写“不知道派没派出”；fork 出来的会话照常计入会话树的费用，复制来的用量会重复算（上限偏紧，`tree-spend.ts` 有注释）。
 

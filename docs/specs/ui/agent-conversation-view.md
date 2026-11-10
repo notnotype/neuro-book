@@ -96,7 +96,7 @@ type AgentConversationViewEmits = {
 
 | 部分 | 内容 |
 |---|---|
-| `session` | 当前会话的标题、摘要、Profile 名称与图标、状态、后台摘要状态；子会话另有祖先路径 `path`（planned，见“顶栏”）；未选择会话时为 `null` |
+| `session` | 当前会话的标题、摘要、Profile 名称与图标、状态、后台摘要状态；子会话另有祖先路径 `path`（见“顶栏”）；未选择会话时为 `null` |
 | `availability` | `ready`、`loading`、`empty`、`unselected`、`archived`、`profile-unavailable`、`load-error` 之一，附用户可读说明和可执行的恢复动作 |
 | `interaction` | 当前允许的操作：发送、运行中补充说明（steer）、运行中排队（followup）、回答提问、修改历史、停止、登记附件、修改模型与模式、归档、恢复、宿主有没有管理模型的地方、宿主做了的输入框命令（`commands`）与触发字符（`triggers`，没列的不打开菜单）、能不能给上下文详情与分支树 |
 | `run` | 运行状态 `idle`、`running`、`waiting`、`stopping`，当前运行阶段文案，正在运行的轮次 |
@@ -104,9 +104,9 @@ type AgentConversationViewEmits = {
 | `history` | 是否还有更早的消息、是否正在加载、加载错误 |
 | `branches` | 按消息 id 索引的分支切换信息：当前第几个、共几个 |
 | `editing` | 正在编辑的历史消息：消息 id、完整原文、原文是否仍在加载 |
-| `pendingInputs` | 等待用户回答的提问与审批，含题目、选项、表单规格；来自后代会话的带来源 `source: {sessionId, name, icon}`，异步提问带 `async: true`（planned：带 `source` 或 `async` 的进停靠区，其余是阻塞的，替换输入框、状态栏的“等你批准”只看阻塞的；见“输入框与待处理区”） |
-| `activeCalls` | planned：进行中的调用的 `invocation`（宿主算，集合没变不换引用）；含这些调用的轮次不自动收起 |
-| `dockState` | planned：停靠区的界面状态，宿主放回（动作 `dock.state`），与 `wizardState` 分开 |
+| `pendingInputs` | 等待用户回答的提问与审批，含题目、选项、表单规格；来自后代会话的带来源 `source: {sessionId, name, icon}`，异步提问带 `async: true`（带 `source` 或 `async` 的进停靠区，其余是阻塞的，替换输入框、状态栏的“等你批准”只看阻塞的；见“输入框与待处理区”） |
+| `activeCalls` | 进行中的调用的 `invocation`（宿主算，集合没变不换引用）；含这些调用的轮次不自动收起 |
+| `dockState` | 停靠区的界面状态，宿主放回（动作 `dock.state`），与 `wizardState` 分开 |
 | `workflows` | 按工具调用 id 索引的 Workflow 运行状态：阶段、当前动作、等待中的问题、结果 |
 | `workspaceChanges` | 待审阅的文件变更分组、每组的 diff 状态、加载与错误 |
 | `composer` | 可选模型（各带分组名与用不了的原因，可选）与当前模型、思考档位、Agent 模式、排队中的消息、已登记的会话附件、模型是否支持图片、输入框中附件（图片与文件）的上传状态（就绪的带附件目标）、已发送内容（供输入历史使用）、粘贴分档设置、草稿（文字加版本号；版本号变化时视图用它替换输入框内容） |
@@ -123,7 +123,7 @@ type MessageView =
     | {kind: "user"; id: string; timestamp: number; intent: "normal" | "steer";
        blocks: ContentBlockView[]; contentOmitted: boolean;
        delivery?: "pending" | "unknown";
-       author?: {label: Text; icon: string}}   // planned：别的会话发来的话（父 Agent），缺省是用户
+       author?: {label: Text; icon: string}}   // 别的会话发来的话（父 Agent），缺省是用户
     | {kind: "assistant"; id: string; timestamp: number;
        status: "streaming" | "done" | "stopped" | "interrupted" | "error";
        text: string; thinking: string; model: string; usage?: UsageView;
@@ -143,10 +143,10 @@ type ToolCallView = {
     status: "streaming" | "running" | "success" | "error" | "invalid" | "denied" | "unknown";
     note?: Text;
     args: JsonValue; result?: ToolResultView; error?: string;
-    invocation?: string;   // planned：这次调用的唯一身份（harness 适配器从 toolStarted 取）
+    invocation?: string;   // 这次调用的唯一身份（harness 适配器从 toolStarted 取）
 };
 
-// planned：待处理事项的公共字段（审批、提问、模式切换都有）
+// 待处理事项的公共字段（审批、提问、模式切换都有）
 type PendingInputCommon = {
     source?: {sessionId: string; name: string; icon: string};   // 来自后代会话
     async?: true;                                                 // 异步提问
@@ -168,7 +168,7 @@ type PendingInputCommon = {
 | 扩展点 | 专属字段 |
 |---|---|
 | 角色 | 图标与名称；色调（强调色或中性色） |
-| 工具渲染器 | 匹配的工具名或名称前缀；类别（`explore`、`mutate`、`interact`、`other`）；图标与名称；单行摘要（调用出错时也会调用，可以写出失败原因）；探查组的合并摘要（`explore` 必有，收到这一组里它处理的各次调用，含出错与运行中的）；对文件的影响；diff 行（改文件的工具给出，没有专用详细内容组件时详情画成 diff）；展开后的详细内容组件；呈现层级（思维链中的一行 `line`、思维链中的卡片 `card`、常显的交互控件 `node`）；`node` 的专用组件；是否算本轮结果（只对 `node`）；按调用定层级 `presentationOf(call)`（planned：参数生成完才调用，之前按缺省层级；内置的 `bash` 条目用它，`shell` 带 `async` 时是 `node`，画宿主注入的 `renderers.backgroundCommand`，没注入时画通用卡片） |
+| 工具渲染器 | 匹配的工具名或名称前缀；类别（`explore`、`mutate`、`interact`、`other`）；图标与名称；单行摘要（调用出错时也会调用，可以写出失败原因）；探查组的合并摘要（`explore` 必有，收到这一组里它处理的各次调用，含出错与运行中的）；对文件的影响；diff 行（改文件的工具给出，没有专用详细内容组件时详情画成 diff）；展开后的详细内容组件；呈现层级（思维链中的一行 `line`、思维链中的卡片 `card`、常显的交互控件 `node`）；`node` 的专用组件；是否算本轮结果（只对 `node`）；按调用定层级 `presentationOf(call)`（参数生成完才调用，之前按缺省层级；内置的 `bash` 条目用它，`shell` 带 `async` 时是 `node`，画宿主注入的 `renderers.backgroundCommand`，没注入时画通用卡片） |
 | 条目渲染器 | 匹配的消息类型与系统条目来源，或附注的 `customType`；内容组件。视图现在只按 `customType` 读取附注 |
 | 消息操作 | 适用的消息类型，可再按单条消息判断（例如尚未确认送达的用户消息不能编辑、重试或分支）；图标与名称；点击后发出的 action |
 | 顶栏动作 | 图标与名称；角标数；点击后发出 action 或打开某个面板；是否允许常驻顶栏 |
@@ -220,7 +220,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 - 常驻顶栏的动作不超过两个，其余动作收进溢出菜单。溢出菜单固定包含“原始视图”切换项。
 - 390 宽时标题区域不小于 160px。
 - `header` 为 false 时不显示顶栏；原始视图的切换入口随之没有，宿主要切换时用受控属性 `viewMode`。
-- 子会话的路径（planned）：`session.path` 不空时顶栏是面包屑（`nav`、`ol`）：各段祖先（标题，可点，发出 `session.select`）、分隔符，最后是本会话的图标与标题，这一段仍是 `sessions` 下拉的触发；祖先多于两层时中间的收成“…”，点开列出；标题为 `null` 的段（祖先读不到）写“未知会话”，空字符串的段（读到了、还没有标题）写“未命名会话”。
+- 子会话的路径：`session.path` 不空时顶栏是面包屑（`nav`、`ol`）：各段祖先（标题，可点，发出 `session.select`）、分隔符，最后是本会话的图标与标题，这一段仍是 `sessions` 下拉的触发；祖先多于两层时中间的收成“…”，点开列出；标题为 `null` 的段（祖先读不到）写“未知会话”，空字符串的段（读到了、还没有标题）写“未命名会话”。
 
 ### 分轮视图
 
@@ -304,8 +304,8 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 - `composer.resume` 为真时占位文字说明上次运行被中断、回车继续，发送按钮换成继续（图标 `>>>`，大小不变）；空着发送发出 `run.continue`，写了字照常发送。
 - `availability` 不是 `ready` 时，输入框上方显示对应的横幅和恢复动作，输入框只读。
 - 待处理区依次显示已登记条目；内置条目为 Workflow 待回答、工作区变更、排队消息。
-- 停靠区（planned）：消息流与输入框之间的一块，放 `async: true` 的提问与带 `source` 的事项（后代会话的审批、提问、模式切换请求）。内容与同步向导相同（`AgentWizardFrame` 的 `docked` 变体），不替换输入框；是单独的组件，出现与事项变化时不移动焦点（焦点已在停靠区里时，翻页、收起、展开之后放回对应的按钮），播报经视图层常驻、视觉隐藏的 `role="status"` 区（文字带来源）。一次一个事项：标题行有“第 n / m 个”与上一个、下一个（提问事项另接“第 k / j 题”，换事项时从第一题开始），每个单独提交（`input.submit` 带 `sessionId`），没有“全部拒绝”“终止本轮”。能收起成一条，写有几个与第一个的前半句。最高为对话视图高度的 40%（视图根节点是尺寸容器），内容区内滚动；在排队消息与可用性提示的上面。带 `source` 的标题写“子代理「名字」要……”，图标换成 `source.icon`，标题行有打开子会话的按钮（`session.select {sessionId}`）；后代会话的模式切换请求不带 `approval`（宿主不知道那个会话的审批模式），向导不问审批模式、批准不改它。标题放不下时省略号截断，计数与按钮固定在右边（同步向导同样）。同步向导出现时停靠区收成一条，排在向导下面；同步向导消失后回到用户原来的展开或收起。阴影只留很轻的一层、圆角同输入框（nb-ui 设计语言“停靠的面不用浮层的阴影档”），收起与展开相同。元素钩子 `data-agent-dock`，与同步向导的 `data-agent-wizard` 分开。
-- `user` 消息带 `author` 时（planned），头像与名称用它，不用“用户”角色。harness 适配器的选项 `authorOf(by)` 由宿主给，把路径事件上的 `by` 换成 `author`；不给时都是用户。
+- 停靠区：消息流与输入框之间的一块，放 `async: true` 的提问与带 `source` 的事项（后代会话的审批、提问、模式切换请求）。内容与同步向导相同（`AgentWizardFrame` 的 `docked` 变体），不替换输入框；是单独的组件，出现与事项变化时不移动焦点（焦点已在停靠区里时，翻页、收起、展开之后放回对应的按钮），播报经视图层常驻、视觉隐藏的 `role="status"` 区（文字带来源）。一次一个事项：标题行有“第 n / m 个”与上一个、下一个（提问事项另接“第 k / j 题”，换事项时从第一题开始），每个单独提交（`input.submit` 带 `sessionId`），没有“全部拒绝”“终止本轮”。能收起成一条，写有几个与第一个的前半句。最高为对话视图高度的 40%（视图根节点是尺寸容器），内容区内滚动；在排队消息与可用性提示的上面。带 `source` 的标题写“子代理「名字」要……”，图标换成 `source.icon`，标题行有打开子会话的按钮（`session.select {sessionId}`）；后代会话的模式切换请求不带 `approval`（宿主不知道那个会话的审批模式），向导不问审批模式、批准不改它。标题放不下时省略号截断，计数与按钮固定在右边（同步向导同样）。同步向导出现时停靠区收成一条，排在向导下面；同步向导消失后回到用户原来的展开或收起。阴影只留很轻的一层、圆角同输入框（nb-ui 设计语言“停靠的面不用浮层的阴影档”），收起与展开相同。元素钩子 `data-agent-dock`，与同步向导的 `data-agent-wizard` 分开。
+- `user` 消息带 `author` 时，头像与名称用它，不用“用户”角色。harness 适配器的选项 `authorOf(by)` 由宿主给，把路径事件上的 `by` 换成 `author`；不给时都是用户。
 
 ### 状态栏
 
@@ -350,7 +350,7 @@ type AgentSessionListItem = {
 - 关联 Agent：上下游列表、状态，点击切换到对应会话。
 - 系统提示：打开时请求加载，Markdown 渲染，刷新。
 - 会话面板 `AgentSessionPanel`：搜索、作品范围、过滤菜单（Profile、已归档；选了的条件是过滤按钮上的条数，有没有选高度都不变）、按日期分组，每行带 Profile 图标。新建、归档、恢复、改名发 action，选 Profile 与改名的输入框归宿主。组件独立导出，宿主决定放在下拉还是侧栏。
-- 会话面板的子会话（planned）：条目加 `parentId?`、`childCount?`、`childWaiting?`、`dimmed?`（个数与提醒由宿主按未过滤的会话算好）。条目带 `parentId` 且父会话也在条目里时，子会话挂在父会话下，跟父会话在同一个日期组。父会话第二行右边“N 个子代理”是折叠开关，是与打开会话的按钮并列的兄弟按钮（`aria-expanded`、`aria-controls`），左边不留空槽；子会话列表是嵌在父会话行下的列表，每个一行（图标、标题、说明、状态），图标对齐父会话的标题。父会话行的“N 个子代理”与“子代理等你处理”用 `childCount`、`childWaiting`。展开有三种来源：用户手动展开或收起；`selectedId` 的祖先、`childWaiting` 为真的、属性 `expandFor?: string[]` 列出的子会话的祖先会自动展开，自动只在这些输入变化时生效一次，之后手动的优先；展开记录受控（属性 `expanded` 与事件 `update:expanded`），由宿主持有，面板关掉再打开还在。宿主的过滤命中子会话时把它的祖先一并交进条目（祖先带 `dimmed: true`，弱化显示，读屏说明它只是上级）；父会话不在条目里的子会话不列出。`AgentSessionList` 不变。
+- 会话面板的子会话：条目加 `parentId?`、`childCount?`、`childWaiting?`、`dimmed?`（个数与提醒由宿主按未过滤的会话算好）。条目带 `parentId` 且父会话也在条目里时，子会话挂在父会话下，跟父会话在同一个日期组。父会话第二行右边“N 个子代理”是折叠开关，是与打开会话的按钮并列的兄弟按钮（`aria-expanded`、`aria-controls`），左边不留空槽；子会话列表是嵌在父会话行下的列表，每个一行（图标、标题、说明、状态），图标对齐父会话的标题。父会话行的“N 个子代理”与“子代理等你处理”用 `childCount`、`childWaiting`。展开有三种来源：用户手动展开或收起；`selectedId` 的祖先、`childWaiting` 为真的、属性 `expandFor?: string[]` 列出的子会话的祖先会自动展开，自动只在这些输入变化时生效一次，之后手动的优先；展开记录受控（属性 `expanded` 与事件 `update:expanded`），由宿主持有，面板关掉再打开还在。宿主的过滤命中子会话时把它的祖先一并交进条目（祖先带 `dimmed: true`，弱化显示，读屏说明它只是上级）；父会话不在条目里的子会话不列出。`AgentSessionList` 不变。
 - 分支树：顶栏菜单打开，`interaction.canOpenTree` 为真才有入口；打开时发 `tree.refresh`，关掉时发 `tree.closed`，数据在 `panels.sessionTree`。内部节点（模型请求、轮次边界）穿过去，只显示用户的话、回复与工具；过滤有默认、不含工具、只看用户、全部。两种视图共用搜索与选中，写节点数与分叉数，图标按说话的人着色：
   - 列表（缺省）：竖着一行一个节点，分叉处缩进线，线按分支着色；当前路径的字亮、别的暗，当前那行有底色，有分叉的行写几条分支，分支的开头能收起。上下键选，左右键收起展开，回车切换。
   - 图：节点是小块，线连起来，当前路径强调色，别的分支各一种颜色；排列方向可调，缺省从上往下，也可以从左往右。分叉节点上有“‹ 1/3 ›”，点一下把选中换到另一条分支，先看再切。方向键沿时间走到父节点或孩子，垂直于时间的方向换分支。节点超过 1,500 个时说明并让用列表。
@@ -366,7 +366,7 @@ type AgentSessionListItem = {
 | 引用与文件 | `reference.open {target}`、`link.open {href}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
 | 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}` |
 | 运行设置 | `mode.set {mode}`、`model.set {modelKey}`、`thinking.set {level}`、`model.manage`、`runtime.reset` |
-| 审批与提问 | `input.submit {batchKey, resolutions, sessionId?}`（`batchKey` 是事项 id，一个事项一条；`resolutions` 是 `{kind: "approval", decision, note?}` 或 `{kind: "question", answer: {text, data}}`；planned：`sessionId` 是事项所在的会话，带 `source` 的事项提交时有）、`input.cancelRun`、`input.resync`、`wizard.state {state}`（向导的界面状态，宿主放回 `ctx.wizardState`）、`dock.state {state}`（planned：停靠区的界面状态，宿主放回 `ctx.dockState`） |
+| 审批与提问 | `input.submit {batchKey, resolutions, sessionId?}`（`batchKey` 是事项 id，一个事项一条；`resolutions` 是 `{kind: "approval", decision, note?}` 或 `{kind: "question", answer: {text, data}}`；`sessionId` 是事项所在的会话，带 `source` 的事项提交时有）、`input.cancelRun`、`input.resync`、`wizard.state {state}`（向导的界面状态，宿主放回 `ctx.wizardState`）、`dock.state {state}`（停靠区的界面状态，宿主放回 `ctx.dockState`） |
 | 中断与排队 | `run.continue`、`queued.edit {id}`、`queued.remove {id}` |
 | 审批模式 | `approval.set {mode}` |
 | 恢复 | `availability.act {action}`、`connection.reconnect` |

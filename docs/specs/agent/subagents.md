@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.subagents
 owners:
   - nbook.agent
@@ -173,6 +173,20 @@ owners:
 
 Smoke：`packages/neuro-book/e2e/agent-subagents.e2e.ts`（场景 1、2、4）。
 
+## 实现合同
+
+- **公开入口**：工具 id `nbook.agent.spawn`、`nbook.agent.send`、`nbook.agent.answer`（经 `agent.tools` 贡献，给模型的名字是 `agent_spawn`、`agent_send`、`agent_answer`）；Profile 声明的 `agents`（`agent.profiles`）；提示词里“可派的子代理”一节是扩展 `nbook.agent.subagents`；远程 `tree`、`treeChanged`、`ancestors`（`agentSessionsContract`）。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有会话关系表、子代理的运行跟踪与 `tree`；子会话经同一个会话句柄表建与打开，以会话的身份发话（nb-harness 内核的 `as(issuer)`、会话头的 `caller`、调用的 `invocation`）；每次运行登记成任务中心的任务（[`jobs.md`](jobs.md)）。父会话里的卡片与停靠区在 nb-agent-ui 与 Agent 插件的浏览器端（[`conversation.md`](conversation.md) 输出 33–39）。
+- **关键不变量**：
+  - 派发的检查（白名单、深度、名额、模型）都在建子会话之前，被拒的不留下子会话（`subagents.test.ts`“输出 1、9”“场景 6”）。
+  - 名额先同步占位再建子会话，建不成或收紧失败时退回；续用的 `agent_send`、`agent_answer` 同样先占后用（`jobs.test.ts`“上限”，`subagents.test.ts`“场景 6”）。
+  - 前台等待在插话、超时、提问、结束任一条件下返回，返回时放开对任务的等待（`subagents.test.ts`“场景 4”“输出 6”“场景 3”）。
+  - 会话关系表启动时扫一次索引，之后派发与 fork 增量登记；深度、`tree` 与费用的会话树都读它（`subagents.test.ts`“会话关系”“输出 23”）。
+  - `tree` 的推送合并限频、没变不推，单条放不下时不推并写诊断（`subagents.test.ts`“输出 21、22、25”）。
+
 ## 证据
 
-- 批准依据：w00032 t14 的决定与开发者 2026-11-10 确认的计划（`.agents/works/w00032-agent-integration/tasks/t14-multi-agent/plan.md`）。
+- 批准依据：[w00032 t14](../../../.agents/works/w00032-agent-integration/tasks/t14-multi-agent/README.md) 的决定与[计划](../../../.agents/works/w00032-agent-integration/tasks/t14-multi-agent/plan.md)；开发者 2026-11-10 确认计划，同日批准晋升为 `implemented`。
+- 实现入口：[`backend/subagents/tools.ts`](../../../packages/neuro-book/src/plugins/agent/backend/subagents/tools.ts)、[`children.ts`](../../../packages/neuro-book/src/plugins/agent/backend/subagents/children.ts)、[`relations.ts`](../../../packages/neuro-book/src/plugins/agent/backend/subagents/relations.ts)、[`tree.ts`](../../../packages/neuro-book/src/plugins/agent/backend/subagents/tree.ts)、[`prompt.ts`](../../../packages/neuro-book/src/plugins/agent/backend/subagents/prompt.ts)、[`shared/profile-agents.ts`](../../../packages/neuro-book/src/plugins/agent/shared/profile-agents.ts)、[`shared/subagents.ts`](../../../packages/neuro-book/src/plugins/agent/shared/subagents.ts)
+- 合同测试：[`subagents.test.ts`](../../../packages/neuro-book/src/plugins/agent/subagents.test.ts)（真实内核与会话存储、本机假端点）、[`subagent-card.test.ts`](../../../packages/neuro-book/src/plugins/agent/subagent-card.test.ts)、[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)（“子代理”一组）
+- Smoke：[`agent-subagents.e2e.ts`](../../../packages/neuro-book/e2e/agent-subagents.e2e.ts)

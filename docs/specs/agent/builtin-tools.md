@@ -103,8 +103,8 @@ owners:
 
 26. `edit`、`edit-replace`、`write` 有只读预览：`approvalPreview({sessionId, interactionId})` 按这个事项的参数试算，不写盘、不激活提供方，按会话的资源权限读。结果按文件分组：`diff`（`before`、`after`）、`too-large`（单个文件超过 256 KiB；`edit` 的原文件超过时不试算，这次调用的其余文件得 `failed`，码 `preview-skipped`）、`failed`（`code`；试算成功却没有这个文件的结果，比如粘贴前面调用存的寄存器，码 `edit-no-preview`）。别的工具得空列表。
 
-27. `shell` 的 `async`（planned）：参数加 `async?`，为真时转后台，见 [`jobs.md`](jobs.md) 输出 7。
-28. `ask` 的 `async`（planned）：参数加 `async?`，为真时提出异步提问（[`harness/runtime.md`](../harness/runtime.md) 输出 40、43），工具立即返回一句“问题已提出，回答会作为一条输入送来”，运行接着跑；问题留到有人回答，跨轮也在；回答作为一条输入进缓冲区。后台会话里同样得 `ask-unavailable`。
+27. `shell` 的 `async`：参数加 `async?`，为真时转后台，见 [`jobs.md`](jobs.md) 输出 7。
+28. `ask` 的 `async`：参数加 `async?`，为真时提出异步提问（[`harness/runtime.md`](../harness/runtime.md) 输出 40、43），工具立即返回一句“问题已提出，回答会作为一条输入送来”，运行接着跑；问题留到有人回答，跨轮也在；回答作为一条输入进缓冲区。后台会话里同样得 `ask-unavailable`。
 
 ## 状态与转换
 
