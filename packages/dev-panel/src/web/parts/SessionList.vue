@@ -46,7 +46,7 @@ const TONE_CLASS: Record<SessionTone, string> = {blocked: "nbdev-warn", working:
                 <span class="nbdev-session-sub">
                     <span>{{ row.agent }}</span><span class="font-mono">{{ row.paneId }}</span>
                     <template v-if="!compact">
-                        <span v-for="task in row.tasks" :key="task.label" class="nbdev-session-chip" :class="{'opacity-55': task.stale}">{{ task.label }}</span>
+                        <span v-for="task in row.tasks" :key="task.label" class="nbdev-session-chip" :class="{'nbdev-session-chip-stale': task.stale}">{{ task.label }}<template v-if="task.stale"> · 过期</template></span>
                         <span v-if="row.runs > 0">{{ row.runs }} 个运行</span>
                         <span v-if="row.tasks.length === 0 && row.runs === 0" class="nbdev-empty">没有租约</span>
                     </template>
@@ -152,6 +152,20 @@ a.nbdev-session-row:hover {
     border-radius: 9999px;
     padding: 0 0.4rem;
     font-size: var(--text-2xs);
+}
+/* 过期的租约：原来整体降到 55% 不透明，字只有 2.6:1（t22 真实面板 axe）。字色照旧，边框换成中性色，写出“过期”。 */
+.nbdev-session-chip-stale {
+    border-color: var(--text-muted);
+}
+/* 选中行的底是强调色的浅底：状态字再往正文色混一些，暗色下“工作中”才到 4.5:1（t22 真实面板 axe 实测 4.02）。 */
+.nbdev-session-sel .nbdev-session-state.nbdev-accent {
+    color: color-mix(in srgb, var(--accent-main) 60%, var(--text-main));
+}
+.nbdev-session-sel .nbdev-session-state.nbdev-warn {
+    color: color-mix(in srgb, var(--status-warning) 60%, var(--text-main));
+}
+.nbdev-session-sel .nbdev-session-state.nbdev-ok {
+    color: color-mix(in srgb, var(--status-success) 60%, var(--text-main));
 }
 .nbdev-session-notify {
     display: flex;
