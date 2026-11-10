@@ -172,12 +172,13 @@ describe("工作台通知服务", () => {
 
     it("限时通知到点消失", async () => {
         const {notifications, texts} = world();
-        notifications.queue.notify({message: "一闪而过", duration: 30});
+        // 时长留足：机器忙时 30ms 这类短时长会在“先看到它”的断言之前就到。
+        notifications.queue.notify({message: "一闪而过", duration: 1500});
         await flushPromises();
         expect(texts()).toHaveLength(1);
         await vi.waitFor(() => {
             expect(texts()).toHaveLength(0);
-        });
+        }, {timeout: 6000});
         notifications.dispose();
     });
 });
