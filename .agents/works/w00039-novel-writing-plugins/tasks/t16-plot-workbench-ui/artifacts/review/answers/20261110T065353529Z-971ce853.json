@@ -1,0 +1,39 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t16-plot-workbench-ui",
+    "artifactId": "review",
+    "answerId": "20261110T065353529Z-971ce853",
+    "artifactVersion": 7,
+    "contentHash": "c3686ad4dc645686576f217faef850864df13c88fc7df98b955558f508749caf",
+    "submittedAt": "2026-11-10T06:53:51.334Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r4-placement": "by-chapter",
+        "r4-order": [
+            "workorder",
+            "knowledge",
+            "person",
+            "ledger",
+            "checks",
+            "timeline",
+            "goals"
+        ],
+        "b1-entry-crud": "yes",
+        "b1-restore": "yes",
+        "b1-preview": "no",
+        "b1-component-tabs": "custom",
+        "b1-panel-quiet": "hidden",
+        "r4-stale": "whole",
+        "r4-write-anyway": "later",
+        "r4-outline": "file",
+        "r4-term-writer": "writer",
+        "r4-term-workorder": "workorder",
+        "r4-timeline-split": "together"
+    },
+    "comments": {},
+    "note": null
+}
