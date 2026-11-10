@@ -376,7 +376,7 @@ describe("PluginsPage", () => {
         fake.answerNext({ok: false, code: "denied", detail: "调用方没有权限"});
         await submitPath(wrapper, "/plugins/denied");
         problem = document.querySelector("[data-plugin-problem]");
-        expect(problem?.textContent).toContain("操作没有完成");
+        expect(problem?.textContent).toContain("没有权限执行这个操作");
         expect(problem?.textContent).toContain("调用方没有权限");
     });
 
@@ -387,7 +387,7 @@ describe("PluginsPage", () => {
         fake.answerNext({ok: false, code: "unknown-outcome"});
         await wrapper.find("[data-plugin-row=\"example.hello\"] [data-plugin-toggle]").trigger("click");
         await flushPromises();
-        expect(document.querySelector("[data-plugin-problem]")?.textContent).toContain("已重新读取列表");
+        expect(document.querySelector("[data-plugin-problem]")?.textContent).toContain("不知道操作有没有完成");
         expect(fake.calls.filter((call) => call === "list").length).toBe(before + 1);
     });
 

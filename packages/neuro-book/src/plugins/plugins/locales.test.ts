@@ -95,10 +95,6 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "errors.not-installed": {"zh-CN": "这个插件已经不在了", "en-US": "This plugin is no longer installed"},
     "errors.builtin-fixed": {"zh-CN": "内置插件不能这样操作", "en-US": "Built-in plugins cannot be changed"},
     "errors.registry-failed": {"zh-CN": "读写插件登记表失败", "en-US": "Reading or writing the plugin registry failed"},
-    "remoteErrors.unavailable": {"zh-CN": "连不上服务端", "en-US": "The server is unreachable"},
-    "remoteErrors.timeout": {"zh-CN": "服务端没有及时答复", "en-US": "The server did not answer in time"},
-    "remoteErrors.unknown-outcome": {"zh-CN": "不知道操作有没有完成，已重新读取列表", "en-US": "It is unknown whether the operation completed; the list was reloaded"},
-    "failures.unknown": {"zh-CN": "操作没有完成", "en-US": "The operation did not complete"},
 };
 
 /**

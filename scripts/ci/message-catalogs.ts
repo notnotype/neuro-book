@@ -39,8 +39,14 @@ export interface CatalogDirectory {
 }
 
 export const CATALOG_DIRECTORIES: ReadonlyArray<CatalogDirectory> = [
-    // 宿主自己的文字（命名空间 nbook.host），见 packages/neuro-book/src/web/host/text-engine.ts。
-    {path: "packages/neuro-book/src/web/locales", source: "zh-CN"},
+    // 宿主自己的文字（命名空间 nbook.host），见 packages/neuro-book/src/web/host/text-engine.ts。`errors.*` 恰好是远程路由的
+    // 失败码（nb-runtime 的 REMOTE_FAILURE_CODES）：仓库根不依赖 nb-runtime，这里照抄一份。码表新增一个码时，
+    // packages/neuro-book/src/web/failure-text.test.ts 先报目录缺文案，补上文案后这里再报照抄的一份缺码，两处都跟着改。
+    {
+        path: "packages/neuro-book/src/web/locales",
+        source: "zh-CN",
+        closedCodes: ["invalid-input", "denied", "target-gone", "unavailable", "not-provided", "version-changed", "timeout", "cancelled", "unknown-outcome", "provider-error"],
+    },
     // 作者模板的目录：模板的清单是 `_package.json`（create 时改名），不在上面按 package.json 找到的范围里。
     {path: "packages/neuro-book/plugin-sdk/template/locales", source: "zh-CN"},
     // 内置插件的目录（命名空间是插件 id），由 packages/neuro-book/src/web/plugins.ts 的 builtinPluginCatalogs 登记进窗口。

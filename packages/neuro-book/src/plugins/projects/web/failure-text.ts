@@ -9,6 +9,8 @@ import type {Text} from "@notnotype/nb-ui/text";
 import type {ProjectRegisterFailure} from "nbook/shared/projects";
 import type {TextResolver} from "nbook/shared/localized-text";
 
+import {isRemoteFailureCode, remoteFailureText} from "nbook/web/failure-text";
+
 import {projectsText} from "../shared/text";
 import type {ProjectsTextKey} from "../shared/text";
 
@@ -44,14 +46,6 @@ export const BUSINESS_FAILURE_KEYS = {
     "identity-conflict": "errors.identity-conflict",
 } as const satisfies Readonly<Record<string, ProjectsTextKey>>;
 
-/** 路由层的失败码；目录里还是本插件的 `remoteErrors.*`，等宿主目录有了这一组再归过去。 */
-export const REMOTE_FAILURE_KEYS = {
-    "version-changed": "remoteErrors.version-changed",
-    unavailable: "remoteErrors.unavailable",
-    "not-provided": "remoteErrors.unavailable",
-    "target-gone": "remoteErrors.unavailable",
-} as const satisfies Readonly<Record<string, ProjectsTextKey>>;
-
 /** 作品信息的字段名，给失败码 `invalid-metadata` 的提示用。 */
 const FIELD_KEYS = {
     title: "shelf.fields.title",
@@ -76,10 +70,14 @@ export function retryTitle(code: string): Text {
     return key === null ? projectsText("open.retryTitle.unknown", {reason: code}) : projectsText(key);
 }
 
-/** 路由层与常见业务失败码的原因；不认识的码照原样显示，服务端说明（`detail`）有就跟在码后面。 */
+/**
+ * 业务失败码与路由失败码的原因：业务码查本插件的表，路由码用宿主的文案。都不认识的码照原样显示，服务端说明（`detail`）
+ * 有就跟在码后面：书架上的这些提示还没有“详情”可放，改按码兜底、原文进详情归 w00031 t08。
+ */
 export function failureReason(text: TextResolver, code: string, detail?: unknown): string {
-    const key = lookup(BUSINESS_FAILURE_KEYS, code) ?? lookup(REMOTE_FAILURE_KEYS, code);
+    const key = lookup(BUSINESS_FAILURE_KEYS, code);
     if (key !== null) return text.t(projectsText(key));
+    if (isRemoteFailureCode(code)) return text.t(remoteFailureText(code));
     return typeof detail === "object" && detail !== null && "detail" in detail && typeof detail.detail === "string" && detail.detail !== "" ? `${code}：${detail.detail}` : code;
 }
 
