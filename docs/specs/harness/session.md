@@ -103,6 +103,8 @@ interface LogStore {
     open(id: string): Promise<StorageResult<LogHandle>>;
     append(handle: LogHandle, batch: readonly LogEvent[]): Promise<StorageResult<void>>;
     list(filter?: {project?: string; archived?: boolean}): Promise<StorageResult<readonly SessionIndexEntry[]>>;
+    /** 一个会话的索引（planned，输出 23）。 */
+    entry(id: string): Promise<StorageResult<SessionIndexEntry>>;
     close(handle: LogHandle): Promise<void>;
 }
 type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; detail?: Record<string, JsonValue>};
@@ -135,6 +137,7 @@ type StorageResult<T> = {ok: true; value: T} | {ok: false; code: StorageError; d
 21. 内存存储与 JSONL 存储的行为相同，且每次读写都做 JSON 往返：在 JSONL 里会出错的值（`Date`、`Map`、`undefined`）在内存存储里同样出错。
 
 22. 索引带调用方、来源、花费与运行（planned）：`index.json` 与 `list` 的条目另有：`caller`（会话头有时照抄，含 `callId` 与 `invocation`）；`origin`（fork 出来的会话的来源会话 id）；`spend: {cost, unpriced}`，与快照的累计花费同一口径（`assistant`、`modelEnded`、`modelFailed`，[`runtime.md`](runtime.md) 输出 70）；`runs`，最近 20 次收口的运行 `{runId, reason, endedAt}`。没有这些的旧索引读作没有、花费 0，不算读不懂；打开会话时按日志补上。
+23. 按会话读索引（planned）：`entry(id)` 只读这个会话目录的 `index.json`，条目同 `list` 的；没有这个会话、索引读不懂时得 `session-not-found`（读不懂的索引要打开会话才重建），读文件出错得 `storage-failed`。给只关心少数几个会话的调用方用（子代理的进度，[`agent/subagents.md`](../agent/subagents.md) 输出 21），不用扫全部会话。
 
 ## 状态与转换
 
