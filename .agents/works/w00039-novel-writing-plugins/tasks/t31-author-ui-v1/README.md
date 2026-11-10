@@ -71,6 +71,7 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 | K-c | `ac10a99c5`、`6be7f80fb` | 就地改与记一笔的预览、语义档的记一笔、同一请求 id 重发返回第一次的结果（`edits.ts` 拆成“定方案”与“发布”两步） |
 | E | `5f2552422` | 编辑器的带参数页面标签：声明的 `instances`、`restore`，页面地址 `page://<id>?<arg>`，每个标签的 context（状态容器随标签寿命）、记着的标题、存盘与恢复只看标签、页面的面包屑与“聚焦面包屑”。DOM 测试与 Lab 夹具；e2e 还没跑 |
 | K 修正 | `165d9389b`、`d2e363083` | 内核补口实现审查的修正（见下） |
+| S2（部分） | `fe0d990d7`、`4b13fa2f3` | 进程内的世界场地 `testing/node-world.ts`（Vitest 里可用，带断线、重连、项目结束），与项目子进程的场地共跑同一契约场景 `testing/venue-scenario.ts`，两边观察一致；读取层 `web/world.ts` 与 8 条用例（接真实服务），五处判据做过变异检查 |
 
 - 验证：nb-canon `bun test` 599 条全过、`bun run typecheck` 过；应用 `bun test src/plugins/canon src/plugins/plot` 全过、`bun run typecheck` 过。
 - 规模（`bun scripts/scale.ts`，1000 章、520 条目、两万条变更，负载约 3.5）：随机读一个条目并取各字段最近一次改动，50 次中位 2.05 毫秒、最慢 15 毫秒（预算 20）；常出场条目的存款在最后一章末尾的来历 8001 步，算一次中位 20 毫秒、最慢 111 毫秒（界面每翻一页算一次）。
@@ -79,7 +80,10 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 - 内核补口的实现审查（Claude Opus，范围 `6973bbb28..6be7f80fb`）：11 条（重要 6、建议 5）都成立，都改了；第 3 条建议的“差分纳入列表字段”接受取舍（两个引擎共用 `fieldPath`，差分抓不到口径错，改由 `author-reads` 的用例守，变异检查确认）。[报告](evidences/impl-review-k-opus.txt)、[处理](evidences/impl-review-k-resolution.txt)。Spec 措辞随之对齐：`components.md` 输出 21，`project.md` 输出 9、28、33，`revisions.md` 输出 8、22、24，`model.md` 输出 37。
 - 修正后的验证：nb-canon 606 条全过；应用 canon、plot 插件测试全过、typecheck 过。完整路径规模（[`evidences/scale-k-service.txt`](evidences/scale-k-service.txt)，1000 章、负载 1.3 到 2.0）：带 `changedAt` 的随机读中位 0.33 毫秒、最大 11；常出场条目的存款来历一页（8000 步）中位 33 毫秒、最大 139。“发布一次记账”中位 162 毫秒超预算，是 t34 C7 已记的（当时 155），不是本次回归。
 
+- E 片的 e2e（2026-11-10，`editor-area`、`editor-types`、`workbench-shell`、`lab-scenes`、`welcome`、`bookshelf-stats`）：73 过、2 失败。`editor-area` 的“离开页面先请求确认”单独重跑通过（第一次负载约 3，偶发）；`lab-scenes` 只剩主题编辑器场景的素材 404（夹具用假哈希，w00041 引入，w00025 t05 与 w00026 t22 都在 master 上对照确认过），不是本分支引入。顺带补了页面面包屑组件文档的 `state:inject` 标签（治理检查）。
+- 星瑕样本项目要用应用内置的类型，样本自己的四种类型（人物五个字段、面板、身份、剧情线）与内置的两种对不上，放到 t16 评审板第 13 版问开发者（`b1-sample-types`，推荐换成内置类型、内置人物补“身体”“现在的样子”“性格”三个文字字段）。定了以后再挪样本、写生成脚本。
+
 ## 下一步
 
-1. 跑 E 片受影响的 e2e（`editor-area`、`welcome`、`lab-scenes`）。
-2. S2 起的界面各片。“底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。
+1. 等 `b1-sample-types` 的答复，挪样本到 nb-canon 的子路径、写 `scripts/canon-sample.ts`（S2 剩下的部分）。
+2. S3：条目树，连同入口的 `onStartup`、读取层在入口里的那一份与命令的域。“底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。

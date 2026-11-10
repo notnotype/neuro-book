@@ -171,8 +171,8 @@
 | K-c | K1、K8、K9：预览、语义档的记一笔、重试 | `revisions.test.ts`、`edits.test.ts`；预览与发布一致、同一请求 id 重发的用例 |
 | — | 内核补口的实现审查（Opus），修正 | — |
 | E | 带参数的页面标签（状态容器、按标签的 context、标题与记着的标题、恢复、声明校验、页面的面包屑） | 编辑器的 `bun test` 与 `*.dom.test.ts`、`e2e/editor-area.e2e.ts`、`e2e/welcome.e2e.ts` |
-| S2 | Node 侧的测试场地（先验证走得通）；样本与生成脚本；读取层；入口的 `onStartup` 与命令的域 | `sample.test.ts`、场地的契约用例、读取层的测试（真实服务：失效、合并、写入返回抬版本、留 64 个键、resync、ended） |
-| S3 | 条目树（`EntryTree`） | `*.dom.test.ts`；Lab 场景 |
+| S2 | Node 侧的测试场地（先验证走得通）；样本与生成脚本；读取层（入口的 `onStartup` 与命令的域挪到 S3：第一个视图出现时才有要在启动时交付的东西） | `sample.test.ts`、场地的契约用例、读取层的测试（真实服务：失效、合并、写入返回抬版本、留 64 个键、resync、ended） |
+| S3 | 条目树（`EntryTree`）；入口的 `onStartup`、读取层在入口里的那一份、命令的域 | `*.dom.test.ts`；Lab 场景 |
 | S4 | 条目页（文字、位置、来历、情节）；贡献点、通用字段表、人物与面板两个界面；量读取次数与耗时 | `*.dom.test.ts`；Lab 场景；数字记进 `evidences/` |
 | S5 | 写入：就地改、记一笔、保存后的提示、新建与删除条目、失败的呈现 | `*.dom.test.ts`（真实服务上写入后界面跟着变） |
 | S6 | 回执页、变更详情页 | 同上 |
