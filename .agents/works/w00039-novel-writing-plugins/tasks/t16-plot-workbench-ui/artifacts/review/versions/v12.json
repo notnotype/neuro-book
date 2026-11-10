@@ -1,0 +1,979 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t16-plot-workbench-ui",
+    "artifactId": "review",
+    "version": 12,
+    "supersedes": 11,
+    "action": "publish",
+    "kind": "design",
+    "title": "作者视角的世界引擎：静态稿与原型",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "9b785222c7928c2b1830aae81e028f1bb332a550fc16f9d575d454282bb3e62f",
+    "files": [
+        "index.html",
+        "r1/s01-opening.webp",
+        "r1/s02-entry.webp",
+        "r1/s03-receipt.webp",
+        "r1/s04-pending.webp",
+        "r1/s05-change.webp",
+        "r1/s06-panel.webp",
+        "r1/s07-inplace.webp",
+        "r1/s08-suggestions.webp",
+        "r1/s09-revisions.webp",
+        "r1/s10-plot.webp",
+        "r2/model.ts",
+        "r2/p01-opening.webp",
+        "r2/p02-entry.webp",
+        "r2/p03-receipt.webp",
+        "r2/p04-pending.webp",
+        "r2/p05-change.webp",
+        "r2/p06-panel.webp",
+        "r2/p07-shape.webp",
+        "r2/p08-suggestions.webp",
+        "r2/p09-revert.webp",
+        "r2/p10-plot.webp",
+        "r2/p11-author-receipt.webp",
+        "r2/world.json",
+        "r3/model.ts",
+        "r3/p08-suggestions.webp",
+        "r3/p11-author-receipt.webp",
+        "r3/p12-semantic-money.webp",
+        "r3/p13-semantic-attitude.webp",
+        "r3/world.json",
+        "r4/q01-workorder.webp",
+        "r4/q02-brief.webp",
+        "r4/q03-checks.webp",
+        "r4/q04-knowledge.webp",
+        "r4/q05-ledger.webp",
+        "r4/q06-goals.webp",
+        "r4/q07-timeline.webp",
+        "r4/q08-person.webp",
+        "r4/q09-experience.webp",
+        "r5/r01-before.webp",
+        "r5/r02-decide.webp",
+        "r5/r03-brief.webp",
+        "r5/r04-after.webp",
+        "r5/r05-stale.webp",
+        "r5/r06-who.webp",
+        "r5/r07-secret.webp",
+        "r5/r08-ledger.webp",
+        "r5/r09-goals.webp",
+        "r5/r10-person.webp",
+        "r5/r11-timeline.webp",
+        "r5/r12-rewind.webp",
+        "r5/r13-who-branch.webp",
+        "r6/s01-before.webp",
+        "r6/s02-outline.webp",
+        "r6/s03-after.webp",
+        "r6/s04-adding.webp",
+        "r6/s05-ripple-receipt.webp",
+        "r6/s06-ripple-chapter.webp",
+        "r6/s07-who.webp",
+        "r6/s08-secret.webp",
+        "r6/s09-icons.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-expectation",
+            "type": "text",
+            "label": "整体看下来，符合你的预期吗？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-detail-place",
+            "type": "single",
+            "label": "待处理、建议点开以后的详情放在哪",
+            "options": [
+                {
+                    "value": "panel",
+                    "label": "留在底部面板，作者自己拉高"
+                },
+                {
+                    "value": "editor",
+                    "label": "详情进编辑器区的标签页"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "panel"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-data",
+            "type": "text",
+            "label": "看完数据长什么样，有没有和你理解的不一样的地方？",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r4-placement",
+            "type": "single",
+            "label": "剧情侧的东西按什么组织",
+            "options": [
+                {
+                    "value": "by-chapter",
+                    "label": "按章组织：每章一张工作单"
+                },
+                {
+                    "value": "by-kind",
+                    "label": "按种类组织：不设工作单"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "by-chapter"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "r4-order",
+            "type": "multi",
+            "label": "第二批先做哪几块",
+            "options": [
+                {
+                    "value": "workorder",
+                    "label": "章的工作单：开写前与给写手的上下文"
+                },
+                {
+                    "value": "knowledge",
+                    "label": "秘密与知情"
+                },
+                {
+                    "value": "person",
+                    "label": "人物条目页的三个分页"
+                },
+                {
+                    "value": "ledger",
+                    "label": "伏笔账本"
+                },
+                {
+                    "value": "goals",
+                    "label": "目标表"
+                },
+                {
+                    "value": "checks",
+                    "label": "写完以后的检查"
+                },
+                {
+                    "value": "timeline",
+                    "label": "时间线"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "workorder",
+                "knowledge",
+                "person"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "r4-screens",
+            "type": "text",
+            "label": "九张图里，哪一张和你想的不一样",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 5,
+            "outcome": null
+        },
+        {
+            "id": "b1-entry-crud",
+            "type": "single",
+            "label": "第一批做不做条目的新建与删除",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "做最小的"
+                },
+                {
+                    "value": "no",
+                    "label": "不做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "yes"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "b1-restore",
+            "type": "single",
+            "label": "条目页刷新以后恢不恢复",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "恢复"
+                },
+                {
+                    "value": "no",
+                    "label": "不恢复"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "yes"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "b1-preview",
+            "type": "single",
+            "label": "点条目树是不是“预览标签”",
+            "options": [
+                {
+                    "value": "no",
+                    "label": "第一批不做，单击就开正式标签"
+                },
+                {
+                    "value": "yes",
+                    "label": "做，和文件树一样"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "no"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "b1-component-tabs",
+            "type": "single",
+            "label": "条目页里“人物”“面板”这些分页怎么画",
+            "options": [
+                {
+                    "value": "generic",
+                    "label": "第一批先用一张通用的字段表"
+                },
+                {
+                    "value": "custom",
+                    "label": "第一批就给人物、面板各写一个专门的界面"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "generic"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "b1-panel-quiet",
+            "type": "single",
+            "label": "底部面板默认显不显示",
+            "options": [
+                {
+                    "value": "hidden",
+                    "label": "默认隐藏"
+                },
+                {
+                    "value": "shown",
+                    "label": "默认显示"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "hidden"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "r4-stale",
+            "type": "single",
+            "label": "写完以后的检查：处理了一条，其余几条怎么办",
+            "options": [
+                {
+                    "value": "whole",
+                    "label": "规则不变，界面明说"
+                },
+                {
+                    "value": "keep-shown",
+                    "label": "过期的结果照样显示，标上“过期”"
+                },
+                {
+                    "value": "narrow",
+                    "label": "只让受影响的那一条过期"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "whole"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "r4-write-anyway",
+            "type": "single",
+            "label": "开写前的“先照写”按钮",
+            "options": [
+                {
+                    "value": "later",
+                    "label": "这一轮不画，等写作流程定了再加"
+                },
+                {
+                    "value": "snooze",
+                    "label": "现在就定成“这一章不再提醒”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "later"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "r4-outline",
+            "type": "single",
+            "label": "细纲放在哪",
+            "options": [
+                {
+                    "value": "file",
+                    "label": "细纲是作品里的文件，每章一份"
+                },
+                {
+                    "value": "box",
+                    "label": "细纲是工作单里的一个文本框"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "file"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "r4-term-writer",
+            "type": "single",
+            "label": "界面上管写正文的那个 AI 叫什么",
+            "options": [
+                {
+                    "value": "writer",
+                    "label": "写手"
+                },
+                {
+                    "value": "ai",
+                    "label": "AI"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "writer"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "r4-term-workorder",
+            "type": "single",
+            "label": "“章的工作单”叫什么",
+            "options": [
+                {
+                    "value": "workorder",
+                    "label": "工作单，标签写成“第 3 章 卡里的两万 · 工作单”"
+                },
+                {
+                    "value": "prep",
+                    "label": "章节准备"
+                },
+                {
+                    "value": "chapter-panel",
+                    "label": "不起名字，做成章节文件旁边的一栏"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "workorder"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "r4-timeline-split",
+            "type": "single",
+            "label": "时间线与多条线，要不要从第二批拆出去",
+            "options": [
+                {
+                    "value": "split",
+                    "label": "拆出去，第二批先不做"
+                },
+                {
+                    "value": "together",
+                    "label": "和第二批一起设计"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "split"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "r5-line-scope",
+            "type": "single",
+            "label": "“看哪条线”是整个窗口一个，还是每页各选各的",
+            "options": [
+                {
+                    "value": "global",
+                    "label": "整个窗口一个"
+                },
+                {
+                    "value": "per-page",
+                    "label": "每页各选各的"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "global"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 8,
+            "outcome": null
+        },
+        {
+            "id": "r5-timeline",
+            "type": "single",
+            "label": "时间线这样排行不行",
+            "options": [
+                {
+                    "value": "grid",
+                    "label": "就按这个格子做"
+                },
+                {
+                    "value": "list",
+                    "label": "先做成简单的列表"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "grid"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 8,
+            "outcome": null
+        },
+        {
+            "id": "r5-screens",
+            "type": "text",
+            "label": "13 张图里，哪一张还不对",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 8,
+            "outcome": {
+                "kind": "superseded",
+                "in": 10,
+                "by": null
+            }
+        },
+        {
+            "id": "b1-kernel-gaps",
+            "type": "single",
+            "label": "界面要用、内核现在给不出的东西，补还是砍",
+            "options": [
+                {
+                    "value": "fill",
+                    "label": "补上这八项，第一批前面加一片“内核补口”"
+                },
+                {
+                    "value": "narrow",
+                    "label": "不动内核，第一批收窄到现在给得出的"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "fill"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 9,
+            "outcome": null
+        },
+        {
+            "id": "b1-panel-default-owner",
+            "type": "single",
+            "label": "“底部面板默认隐藏”由谁来加",
+            "options": [
+                {
+                    "value": "t24",
+                    "label": "让 t24 顺手加"
+                },
+                {
+                    "value": "t31",
+                    "label": "等 t24 合入以后，由我在第一批里加"
+                },
+                {
+                    "value": "shown",
+                    "label": "不加了，底部面板默认显示"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "t24"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 9,
+            "outcome": null
+        },
+        {
+            "id": "b1-spec-approve",
+            "type": "single",
+            "label": "第一批的 Spec 可以定下来开工吗",
+            "options": [
+                {
+                    "value": "approve",
+                    "label": "批准，开工"
+                },
+                {
+                    "value": "hold",
+                    "label": "先不批，我有要改的"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "approve"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "r6-outline-step",
+            "type": "single",
+            "label": "中间一步“细纲”放这些东西对不对",
+            "options": [
+                {
+                    "value": "as-drawn",
+                    "label": "就按图 2"
+                },
+                {
+                    "value": "outline-only",
+                    "label": "这一步只放细纲、要求和计划"
+                },
+                {
+                    "value": "other",
+                    "label": "都不对"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "as-drawn"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "r6-recap",
+            "type": "single",
+            "label": "“前情”缺省给写手什么",
+            "options": [
+                {
+                    "value": "summary-tail",
+                    "label": "前面几章的摘要，加上一章最后 600 字原文"
+                },
+                {
+                    "value": "prev-full",
+                    "label": "上一章全文，加更早几章的摘要"
+                },
+                {
+                    "value": "summary-only",
+                    "label": "只给摘要，不给原文"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "summary-tail"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "r6-style",
+            "type": "single",
+            "label": "“文风”从哪里来",
+            "options": [
+                {
+                    "value": "file",
+                    "label": "作品里的一个文件，你自己写或贴样例"
+                },
+                {
+                    "value": "auto",
+                    "label": "程序从已经写好的章里自动挑两段当样例"
+                },
+                {
+                    "value": "both",
+                    "label": "有文件用文件，没有就自动挑"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "file"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": {
+                "kind": "superseded",
+                "in": 11,
+                "by": null
+            }
+        },
+        {
+            "id": "r6-ripple",
+            "type": "single",
+            "label": "写了很多章以后改设定：这样处理行不行",
+            "options": [
+                {
+                    "value": "list",
+                    "label": "就按图：列出来，一章一章处理与重查"
+                },
+                {
+                    "value": "batch",
+                    "label": "另加“重查这几章”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "list"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "r6-checks",
+            "type": "single",
+            "label": "“再查一项”这样画行不行",
+            "options": [
+                {
+                    "value": "row",
+                    "label": "就按图"
+                },
+                {
+                    "value": "registered-only",
+                    "label": "先只能点已有的"
+                },
+                {
+                    "value": "none",
+                    "label": "先不要“再查一项”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "row"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "r6-breadcrumb",
+            "type": "single",
+            "label": "面包屑什么时候做",
+            "options": [
+                {
+                    "value": "later",
+                    "label": "第一批不做，和剧情侧一起做"
+                },
+                {
+                    "value": "now",
+                    "label": "第一批就做"
+                },
+                {
+                    "value": "none",
+                    "label": "不要面包屑"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "later"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "r6-screens",
+            "type": "text",
+            "label": "这 8 张图里，哪一张还不对",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "s-scheme",
+            "type": "single",
+            "label": "S 摘要用哪种做法",
+            "options": [
+                {
+                    "value": "merge",
+                    "label": "两两合并（上面的方案）"
+                },
+                {
+                    "value": "volume",
+                    "label": "按卷"
+                },
+                {
+                    "value": "rolling",
+                    "label": "只要一份滚着改的"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "merge"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "s-rolling",
+            "type": "single",
+            "label": "“滚动摘要”怎么做",
+            "options": [
+                {
+                    "value": "reset",
+                    "label": "每章滚一次，每 10 章从头对一次"
+                },
+                {
+                    "value": "pure",
+                    "label": "一直滚"
+                },
+                {
+                    "value": "none",
+                    "label": "先不要"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "reset"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "s-stable",
+            "type": "single",
+            "label": "“稳定的设定”从哪来",
+            "options": [
+                {
+                    "value": "file",
+                    "label": "作品里的一个文件，你写"
+                },
+                {
+                    "value": "entries",
+                    "label": "从条目里挑"
+                },
+                {
+                    "value": "both",
+                    "label": "文件为主，另可以点名带几个条目"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "file"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "s-notes",
+            "type": "text",
+            "label": "这套方案还有哪里不对",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "p-layers",
+            "type": "single",
+            "label": "两层这个方向对不对",
+            "options": [
+                {
+                    "value": "two-layers",
+                    "label": "对：作品层由 NeuroBook 拼，Profile 只管自己的系统提示词与选项"
+                },
+                {
+                    "value": "profile-form",
+                    "label": "还是放在 Profile 里，把表单机制做强"
+                },
+                {
+                    "value": "other",
+                    "label": "都不是"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "two-layers"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 12,
+            "outcome": null
+        },
+        {
+            "id": "p-trigger",
+            "type": "multi",
+            "label": "提示词卡第一版做哪几种“什么时候带上”",
+            "options": [
+                {
+                    "value": "always",
+                    "label": "总是带"
+                },
+                {
+                    "value": "scene",
+                    "label": "按场景"
+                },
+                {
+                    "value": "manual",
+                    "label": "这一章手动勾"
+                },
+                {
+                    "value": "keyword",
+                    "label": "按关键词"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "always",
+                "scene",
+                "manual"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 12,
+            "outcome": null
+        },
+        {
+            "id": "p-notes",
+            "type": "text",
+            "label": "这个方案还缺什么",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 12,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-10T13:02:56.330Z"
+}
