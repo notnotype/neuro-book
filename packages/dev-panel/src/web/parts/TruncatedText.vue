@@ -44,7 +44,7 @@ async function copy(): Promise<void> {
 
 <template>
     <Tooltip :text="tip" :disabled="!copyable && !truncated">
-        <button v-if="copyable" type="button" class="nbdev-truncated" :class="{'font-mono': mono}" :aria-label="`${text}（点击复制）`" @click="copy" @pointerleave="copied = null" @blur="copied = null">
+        <button v-if="copyable" type="button" class="nbdev-truncated nbdev-hit" :class="{'font-mono': mono}" :aria-label="`${text}（点击复制）`" @click="copy" @pointerleave="copied = null" @blur="copied = null">
             <span ref="label" class="block truncate">{{ text }}</span>
             <!-- 提示框给读屏器的副本在打开时就定了，复制的结果另用一处 live 区念出来。 -->
             <span class="sr-only" aria-live="polite">{{ copied === "ok" ? "已复制" : copied === "failed" ? "复制失败" : "" }}</span>

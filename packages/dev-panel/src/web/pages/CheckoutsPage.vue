@@ -135,7 +135,7 @@ const STATUS_LABEL: Record<string, string> = {M: "改", A: "新增", D: "删", T
                 <template #cell-dirty="{row}">
                     <span v-if="row.checkout.error" class="nbdev-warn" :title="row.checkout.error">读不出</span>
                     <span v-else-if="row.checkout.timedOut" class="nbdev-empty" title="git 3 秒内没算完（冷的大 worktree），下一轮再算">没算完</span>
-                    <button v-else-if="hasChanges(row.checkout)" type="button" class="nbdev-warn nbdev-num whitespace-nowrap underline-offset-2 hover:underline" :aria-expanded="filesKey === row.checkout.key" :aria-label="`${row.checkout.key} 的未提交文件：改了 ${row.checkout.tracked}、新 ${row.checkout.untracked}`" @click="toggleFiles(row.checkout.key)">改 {{ row.checkout.tracked }} · 新 {{ row.checkout.untracked }}</button>
+                    <button v-else-if="hasChanges(row.checkout)" type="button" class="nbdev-warn nbdev-num whitespace-nowrap underline-offset-2 hover:underline" :aria-expanded="filesKey === row.checkout.key" :aria-label="`改 ${row.checkout.tracked} · 新 ${row.checkout.untracked}：${row.checkout.key} 的未提交文件`" @click="toggleFiles(row.checkout.key)">改 {{ row.checkout.tracked }} · 新 {{ row.checkout.untracked }}</button>
                     <span v-else class="nbdev-empty">干净</span>
                 </template>
                 <template #cell-sync="{row}">

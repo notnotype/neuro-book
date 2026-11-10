@@ -106,7 +106,7 @@ function send(): void {
                 <!-- 按键组用 contents，按键与后面窄时的原因排在同一个折行的弹性盒里：原因落在按键最后一行的空位上，不另起一行。 -->
                 <div class="contents" role="group" aria-label="按键">
                     <span class="nbdev-note">按键{{ controlling ? "（接管中单击即发）" : "" }}：</span>
-                    <Button v-for="entry in KEYS" :key="entry.key" size="sm" variant="secondary" :title="controlling ? entry.controlHint : entry.hint" :aria-label="controlling ? entry.controlHint : entry.hint" :disabled="pending || (disabledReason !== null && !controlling)" @click="emit('key', entry.key)">{{ entry.label }}<span v-if="!controlling && entry.confirm" class="nbdev-confirm-mark" aria-hidden="true">确认</span></Button>
+                    <Button v-for="entry in KEYS" :key="entry.key" size="sm" variant="secondary" :title="controlling ? entry.controlHint : entry.hint" :aria-label="`${entry.label}：${controlling ? entry.controlHint : entry.hint}`" :disabled="pending || (disabledReason !== null && !controlling)" @click="emit('key', entry.key)">{{ entry.label }}<span v-if="!controlling && entry.confirm" class="nbdev-confirm-mark" aria-hidden="true">确认</span></Button>
                     <span v-if="!controlling" class="nbdev-caption nbdev-key-note">带“确认”的键先给你看屏幕再发</span>
                 </div>
                 <!-- 同一句原因的窄档位置，与上面宽档的那份同时只显示一份；输入框的 aria-describedby 指向上面那份（隐藏的被引用元素照样读得到），这份不重复读。 -->

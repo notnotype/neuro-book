@@ -48,7 +48,9 @@ function follow(item: {href?: string}, event: MouseEvent): void {
             <slot name="feedback" />
         </header>
         <header v-else-if="!bare" class="nbdev-page-header nbdev-stack">
-            <Breadcrumb v-if="items.length > 0" :items="items" @click="follow" />
+            <Breadcrumb v-if="items.length > 1" :items="items" @click="follow" />
+            <!-- 只有当前页一项（首页）时与紧跟的 h1 写的是同一个名字：不显示，但留出同样的高度，标题仍停在各页同一处（t22）。 -->
+            <Breadcrumb v-else-if="items.length === 1" class="invisible" aria-hidden="true" :items="items" />
             <!-- 标题行至少 2rem 高：状态徽章、操作按钮有没有都不改变标题的位置，换页时标题停在同一处。 -->
             <div class="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">
                 <div class="flex min-h-8 min-w-0 flex-1 basis-64 items-center gap-2">
