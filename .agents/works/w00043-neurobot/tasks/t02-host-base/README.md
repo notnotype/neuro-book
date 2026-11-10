@@ -82,6 +82,16 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 2. 加锁替换（`packages/neuro-book/src/backend/locked-replace.ts`）抽成一个与应用无关的小包；nb-host 的数据目录认领、NeuroBook 的设置与 Files、以后 NeuroBot 的记忆与设置都用它，锁的参数只有一份。
 3. 诊断日志的输出插件（`runtime.diagnostics`）进 nb-host。
 
+### 第二稿的确认项（2026-11-10 按“待确认默认追认”算定）
+
+开发者同意 Work 的 Task 规划（答“可以”）时，计划“需要开发者确认”的三项还列着、没有单独作答，按推荐算定，有异议再改：
+
+1. 小包叫 `@notnotype/nb-file-lock`（`packages/nb-file-lock`）；`staged-commit.ts` 留在应用。
+2. 三个包的 exports 按计划所列，都设 `private: true`、不发 npm；写进第 0 片的 ADR。
+3. 五个内置角色与选择顺序归 `nb-models`，两个应用共用；名字与说明各应用自己写。
+
+代码由谁写没有答复，按开发者的全局规则由主会话写。
+
 ## 下一步
 
-开发者定计划“需要开发者确认”的三项（小包名 `nb-file-lock`；三个包的 exports 与 `private: true`；五个内置角色与选择顺序归 `nb-models`）。定了以后主 Agent 在主工作区写 ADR（第 0 片），再建 worktree 开工；第 7、8 片等 w00032 t32 合入。
+主 Agent 在主工作区写 ADR（第 0 片：新包 `nb-host`、`nb-models`、`nb-file-lock`，部分取代 ADR 0030 决策 2）；再建 worktree 开工，第 1 到 6 片可在 w00032 t32 合入前做完先合，第 7、8 片等 t32。

@@ -512,4 +512,6 @@ nb-harness 依赖 nb-form 之后，`npm i @notnotype/nb-story` 会装上 nb-form
 
 ## 需要开发者确认
 
+2026-11-10 按推荐算定（见 Task README“决定”）。
+
 1. **旧 `src/tools/` 不合并、不改，留给 t31 删**（第二稿第 2 条，“决定”表里还没有答复）：nb-story 不用旧的 `read`、`edit`；用到它们的只有 nb-agent-ui 的契约测试与 nb-harness 自己的旧测试（含 `tests/acceptance.test.ts`）。`registerBuiltinTools`、`createReadTool`、`createEditTool` 是已发布包根入口的导出，删除属于发布合同变更。推荐如此：kit 的工具是唯一维护的实现，删除与发布合同的说明记进 t31。Task README“要补回的”表写的是“合并 `nb-harness/src/tools/` 里旧的 read、edit”，确认后那一格随之改。

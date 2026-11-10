@@ -21,7 +21,7 @@ updated: 2026-11-10
 | 审批判定：规则、bash 方言、审批模型、模式 | `…/agent/backend/permissions/`（作品目录的规则 `project-rules.ts` 留下） |
 | 守卫：花费、循环、拒答 | `…/agent/backend/guards/`（接设置的部分留下） |
 | 会话句柄表、会话元数据 | `…/agent/backend/sessions.ts`、`session-meta.ts` |
-| 通用工具 read、write、edit、search、shell、ask、image | `…/agent/backend/builtin/`；合并 `nb-harness/src/tools/` 里旧的 read、edit |
+| 通用工具 read、write、edit、search、shell、ask、image | `…/agent/backend/builtin/`；`nb-harness/src/tools/` 里旧的 read、edit 不合并、不改，留给 [t31](../t31-nb-story-new-kernel/README.md) 随 `createHarness` 一起删（见“决定”） |
 | 资源视图 | `…/agent/backend/resources.ts` 与 `agent/shared/resources.ts` |
 | ~~模型角色、压缩触发点的规则~~ | 不在本 Task：2026-11-10 改由 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md) 搬进新包 `nb-models`（见“决定”） |
 
@@ -54,6 +54,7 @@ updated: 2026-11-10
 | 2026-11-10 | 开发者：“我想要 nb-harness 的数据结构支持表单，但是不用 nb-form 的 vue 组件实现。”做法：nb-harness 只导入 nb-form 的核心入口（表单描述、检查、解析、校验；运行时只依赖 TypeBox，对 nb-ui 只取文字值的类型，由 nb-form 的 `boundary.test.ts` 守着），不导入 `./vue`，nb-harness 加一条导入边界测试守住；表单怎么画由各宿主决定。为了装 nb-story 时不连带装上 Vue 一套，nb-form 的 `nb-ui` 与 `vue` 改为可选的 peer 依赖（只有 `./vue` 用到），并加进 nb-form 的开发依赖供它自己的测试用；这一步是主 Agent 的推荐，放进本 Task，开发者有异议再改 |
 | 2026-11-10 | 开发者：压缩摘要的小节“由应用决定”（确认项第 3 条按推荐） |
 | 2026-11-10 | 开发者同意 w00043 t02 的三项（答“可以”）：模型服务放进新包 `nb-models`，所以本 Task 不再搬 `models/shared/rules.ts`、`compaction.ts`（改由 w00043 t02 搬进 `nb-models`），`./models/rules` 子路径删去；kit 要用的压缩角色 id 留在 `kit/shapes.ts`。确认项第 4 条（新增公开子路径）按推荐，清单按第三稿实际的目录 |
+| 2026-11-10 | 计划第三稿“需要开发者确认”第 1 条按“待确认默认追认”算定（开发者同意 w00043 的 Task 规划时它还列着、没有单独作答）：旧 `src/tools/` 不合并、不改，留给 t31 删；`registerBuiltinTools`、`createReadTool`、`createEditTool` 是已发布包根入口的导出，删除属于发布合同变更，合入时记进 t31 的“要做的事”。代码由谁写没有答复，按开发者的全局规则由主会话写 |
 
 ## 当前状态
 
@@ -85,4 +86,4 @@ updated: 2026-11-10
 
 ## 下一步
 
-第三稿已核对（2026-11-10）。开工前要开发者定两件事：计划“需要开发者确认”第 1 条（旧 `src/tools/` 不合并、留给 t31 删；确认后“要补回的”表里“合并旧的 read、edit”那一格随之改），以及代码由谁写。之后建 worktree、提交 draft Spec `docs/specs/harness/host-kit.md`，按切片实施；t14 的前后端实施在本 Task 合入之后。
+建 worktree，先提交 draft Spec `docs/specs/harness/host-kit.md`，按切片实施（主会话写）；t14 的前后端实施在本 Task 合入之后。

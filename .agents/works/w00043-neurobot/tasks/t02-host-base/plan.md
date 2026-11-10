@@ -419,6 +419,8 @@ NeuroBook 的 `src/server/start.ts` 改成装配者：读 `prepared` 与插件�
 
 ## 需要开发者确认
 
+2026-11-10 三项都按推荐算定（见 Task README“第二稿的确认项”）。
+
 1. **小包的名字 `@notnotype/nb-file-lock`（`packages/nb-file-lock`）**：内容是跨进程锁 `holdLock` 与加锁替换 `replaceLocked`，名字按锁而不按其中一个函数取；近来的新包都用 `nb-` 前缀（`owned-process`、`file-snapshot-cache` 是更早的命名）。推荐 `nb-file-lock`；`staged-commit.ts` 留在应用（只有 Files 用）。
 2. **三个新包的 exports 与 `private`**：`nb-file-lock` 只有 `.`；`nb-host` 为 `./server`、`./http/contracts`、`./socket`、`./web`、`./testing`；`nb-models` 为 `./config`、`./contract`、`./core`、`./testing`，其中 `./config`、`./contract` 可进浏览器。三个都 `private: true`、不发 npm。按 `packages/AGENTS.md` 是跨模块决策；推荐按此确认，写进第 0 片的 ADR。
 3. **内置角色表归 `nb-models`、两个应用共用**：`tiny`、`fast`、`main`、`deep` 与 `compaction` 五个内置角色及选择顺序在包里，NeuroBot 的设置里也是这五个（可再加自建角色）；名字与说明的文字各应用自己写。推荐如此：选择顺序与“绑快速档时压缩跟着它”写死了其中三个 id，让应用另给内置表反而要多一层“必须包含”的核对。
