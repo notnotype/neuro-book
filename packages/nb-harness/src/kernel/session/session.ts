@@ -152,11 +152,13 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
         return modelInfo();
     }, get initial() {
         return initialOf();
+    }, get session() {
+        return context();
     }};
     // 资源按上下文建；换 Profile 时重建（`refreshContext`），各处拿着的都是这个转发对象。
     let currentResources = env.resources(context());
     const resources: Resources = {read: (uri) => currentResources.read(uri), resolve: (uri) => currentResources.resolve(uri)};
-    const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf()}), resources, session: context};
+    const react: ReactHost = {environment: () => ({tools: tools(), model: modelInfo(), now: core.clock.now(), initial: initialOf(), session: context()}), resources, session: context};
     const mounts = new Mounts(core, {...react, running: () => !control.idle});
     const state: Internals = {core, control, react, mounts, box, environment, turnModel, readOnly, closed: false, pendingReassembly: null, profileLost: null, reassembling: null, closing: null, settledWaiters: [], refreshContext: async () => {
         currentResources = env.resources(context());
@@ -187,7 +189,7 @@ function internalsFor(env: SessionEnv, core: SessionCore, readOnly: string | nul
                 write: args.write,
             }, args),
         },
-        environment: (model, list) => ({tools: list, model, now: core.clock.now(), initial: initialOf()}),
+        environment: (model, list) => ({tools: list, model, now: core.clock.now(), initial: initialOf(), session: context()}),
         markReadOnly: (code) => {
             state.readOnly = code;
         },
@@ -256,8 +258,8 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         id: core.header.id,
         issuer,
         as: (next) => buildApi(env, core, state.readOnly, next, state),
-        send: (args) => closedGuard(() => sendCommand(host, args)),
-        enqueue: (args) => closedGuard(() => enqueueCommand(host, args)),
+        send: (args) => closedGuard(() => sendCommand(host, issuer, args)),
+        enqueue: (args) => closedGuard(() => enqueueCommand(host, issuer, args)),
         start: (args) => closedGuard(() => startCommand(host, args)),
         abort: (args) => closedGuard(() => abortCommand(host, args)),
         edit: (args) => closedGuard(() => editCommand(host, args)),
@@ -387,7 +389,7 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
         async runResult({runId}) {
             return runResultOf(core.events, runId, core.byId);
         },
-        preview: (args) => previewRequest({core, models: env.models, box: state.box, resources: state.react.resources, environment: (model, tools) => ({tools, model, now: core.clock.now(), initial: state.environment.initial})}, args),
+        preview: (args) => previewRequest({core, models: env.models, box: state.box, resources: state.react.resources, environment: (model, tools) => ({tools, model, now: core.clock.now(), initial: state.environment.initial, session: state.environment.session})}, args),
         // 过滤按查询参数：`afterSeq` 取最后一次出现在它之后的（合并过的诊断按最后一次算），`extension` 与 `level` 按值。
         async diagnostics(args = {}) {
             return core.diagnostics.all().filter((item) => (args.afterSeq === undefined || item.lastSeq > args.afterSeq) && (args.extension === undefined || item.extension === args.extension) && (args.level === undefined || item.level === args.level));

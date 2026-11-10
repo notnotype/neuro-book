@@ -80,6 +80,11 @@ const ProfileDeclarationSchema = Type.Object({
         thinking: Type.Optional(Type.Boolean()),
         minContext: Type.Optional(Type.Integer({minimum: 1})),
     }, {additionalProperties: false})),
+    /** 能派哪些 Profile 做子代理（Profile 的 key），其中推荐哪几个；不写就是空白名单（contributions.md 输出 19）。 */
+    agents: Type.Optional(Type.Object({
+        allowed: Type.Array(Type.String({minLength: 1})),
+        recommended: Type.Optional(Type.Array(Type.String({minLength: 1}))),
+    }, {additionalProperties: false})),
 }, {additionalProperties: false});
 
 export type AgentExtensionDeclaration = Static<typeof ExtensionDeclarationSchema>;

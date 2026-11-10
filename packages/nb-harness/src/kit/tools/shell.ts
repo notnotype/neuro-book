@@ -1,5 +1,6 @@
 /**
- * `shell`（docs/specs/agent/builtin-tools.md 输出 18–22）：`pi-natives` 内嵌的 brush shell，只在前台。
+ * `shell`（docs/specs/agent/builtin-tools.md 输出 18–22）：`pi-natives` 内嵌的 brush shell。套件只管前台；宿主给了 `ShellBackground` 时
+ * `async: true` 的命令准备好之后交给宿主转后台（任务的登记、寿命与输出文件是宿主的事）。
  *
  * 输出的回调不等异步，所以回调里只做同步的事（同 omp 的 `OutputSink`）：内存里留开头与结尾，放不下之后同步追加到一个本地临时文件；命令
  * 结束后才把它拷进 `artifacts/`。这样暂存目录不可用不影响命令执行，命令也不会因为保存失败而跑第二遍。
@@ -11,54 +12,41 @@ import {dirname, join} from "node:path";
 
 import {executeShell} from "@oh-my-pi/pi-natives";
 
-import type {ToolResult} from "../../kernel/contracts.js";
+import type {ToolContext, ToolResult, ToolSessionContext} from "../../kernel/contracts.js";
 import {commandEffect} from "../commands/index.js";
 import type {Dialects} from "../commands/index.js";
 import {failure} from "../files/index.js";
 import type {KitServices, SessionFiles} from "../files/index.js";
 import {findAddresses, substitute} from "./shell-address.js";
+import {capLines, headAndTail, lineCount, LINE_BYTES, OUTPUT_LIMIT, PART_BYTES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window.js";
 import type {KitToolDeclaration, KitToolImplementation} from "./types.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 300;
 const MAX_TIMEOUT_SECONDS = 3_600;
-const WINDOW_BYTES = 50 * 1024;
-const WINDOW_LINES = 2_000;
-const PART_BYTES = 20 * 1024;
-const PART_LINES = 500;
-const LINE_BYTES = 768;
-const ARTIFACT_LIMIT = 64 * 1024 * 1024;
 
-/** 整段说明由宿主给：工作目录、哪些地址会换成路径、环境变量、全文存哪里都是宿主的事实。 */
-export const shellDeclaration = (description: string): KitToolDeclaration => ({
+/**
+ * 整段说明由宿主给：工作目录、哪些地址会换成路径、环境变量、全文存哪里都是宿主的事实。`background` 为真时多一个 `async` 参数，
+ * 宿主要同时给 `shellTool` 后台的实现。
+ */
+export const shellDeclaration = (description: string, options: {readonly background?: boolean} = {}): KitToolDeclaration => ({
     description,
     parameters: {
         type: "object",
         properties: {
             command: {type: "string"},
-            timeout: {type: "integer", minimum: 1, maximum: MAX_TIMEOUT_SECONDS, description: `超时秒数，缺省 ${String(DEFAULT_TIMEOUT_SECONDS)}`},
+            ...(options.background === true
+                ? {
+                    timeout: {type: "integer", minimum: 1, maximum: MAX_TIMEOUT_SECONDS, description: `超时秒数，前台缺省 ${String(DEFAULT_TIMEOUT_SECONDS)}；后台不写就不设超时`},
+                    async: {type: "boolean", description: "为 true 时转后台：命令照常跑，输出边跑边写进文件"},
+                }
+                : {timeout: {type: "integer", minimum: 1, maximum: MAX_TIMEOUT_SECONDS, description: `超时秒数，缺省 ${String(DEFAULT_TIMEOUT_SECONDS)}`}}),
         },
         required: ["command"],
     },
-    version: "1",
+    version: options.background === true ? "2" : "1",
     concurrency: "exclusive",
     effect: "exec",
 });
-
-/** 没有尾部换行的最后一段也算一行。 */
-function lineCount(text: string): number {
-    if (text === "") return 0;
-    let lines = text.endsWith("\n") ? 0 : 1;
-    for (let at = text.indexOf("\n"); at >= 0; at = text.indexOf("\n", at + 1)) lines += 1;
-    return lines;
-}
-
-function capLines(text: string): string {
-    return text.split("\n").map((line) => {
-        const size = Buffer.byteLength(line, "utf8");
-        // 按字节切可能切开多字节字符，解码时多出来的替换字符去掉。
-        return size <= LINE_BYTES ? line : `${Buffer.from(line, "utf8").subarray(0, LINE_BYTES).toString("utf8").replace(/\uFFFD+$/u, "")} …[本行共 ${String(size)} 字节，已截断]`;
-    }).join("\n");
-}
 
 /**
  * 收集输出：放得进窗口就只在内存里；放不下（总量、行数或单行超限）之后内存只留开头与结尾，全文进本地临时文件。
@@ -114,7 +102,7 @@ class OutputCapture {
                 this.#spool = {fd: openSync(path, "wx", 0o600), path};
             }
             const bytes = Buffer.from(text, "utf8");
-            const room = ARTIFACT_LIMIT - this.#spoolBytes;
+            const room = OUTPUT_LIMIT - this.#spoolBytes;
             const taken = bytes.length > room ? bytes.subarray(0, room) : bytes;
             writeSync(this.#spool.fd, taken);
             this.#spoolBytes += taken.length;
@@ -129,12 +117,7 @@ class OutputCapture {
         if (!this.overflowed) return {text: this.#memory, clipped: false};
         // 总量与行数都在预算内，只是单行超限（内存这时一定是全部输出）：不用省略中间。
         if (this.totalBytes <= WINDOW_BYTES && lineCount(this.#memory) <= WINDOW_LINES) return {text: capLines(this.#memory), clipped: true};
-        const head = this.#head.split("\n");
-        if (head.length > 1) head.pop();
-        const tail = Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8").split("\n");
-        if (tail.length > 1) tail.shift();
-        const notice = `…[中间省略，共 ${String(this.totalBytes)} 字节]…`;
-        return {text: capLines([...head.slice(0, PART_LINES), notice, ...tail.slice(-PART_LINES)].join("\n")), clipped: true};
+        return {text: headAndTail(this.#head, Buffer.from(this.#memory, "utf8").subarray(-PART_BYTES).toString("utf8"), this.totalBytes), clipped: true};
     }
 
     get spoolPath(): string | null {
@@ -213,7 +196,21 @@ async function realPathOf(files: SessionFiles, address: string, signal: AbortSig
     return located.ok ? located.value.path : null;
 }
 
-async function run({files, artifacts}: KitServices, args: Readonly<Record<string, unknown>>, signal: AbortSignal): Promise<ToolResult> {
+/** 命令准备好之后的样子：地址换成了本机路径，工作目录与环境变量定好了。 */
+export interface PreparedCommand {
+    readonly command: string;
+    readonly cwd: string;
+    readonly env: Readonly<Record<string, string>>;
+}
+
+/**
+ * 宿主给了它，`async: true` 的命令转后台：套件把命令准备好就交给它，由它登记任务、起命令、交回结果（例如任务 id 与输出文件的地址）。
+ * 交回之后命令与这次调用无关：父会话的运行被中止不影响它。
+ */
+export type ShellBackground = (prepared: PreparedCommand, request: {readonly args: Readonly<Record<string, unknown>>; readonly call: ToolContext; readonly context: ToolSessionContext; readonly files: SessionFiles}) => ToolResult | Promise<ToolResult>;
+
+async function run(context: ToolSessionContext, {files, artifacts}: KitServices, args: Readonly<Record<string, unknown>>, call: ToolContext, background: ShellBackground | undefined): Promise<ToolResult> {
+    const signal = call.signal;
     const cwd = await files.readPath(files.layout.working, {signal});
     if (!cwd.ok) return failure(cwd);
     const replaced = await replaceAddresses(files, args.command as string, signal);
@@ -224,6 +221,8 @@ async function run({files, artifacts}: KitServices, args: Readonly<Record<string
         const path = await realPathOf(files, address, signal);
         if (path !== null) env[name] = path;
     }
+
+    if (args.async === true && background !== undefined) return background({command: replaced.command, cwd: cwd.value.path, env}, {args, call, context, files});
 
     const capture = new OutputCapture();
     try {
@@ -256,8 +255,8 @@ async function run({files, artifacts}: KitServices, args: Readonly<Record<string
 }
 
 /** 判定对象是命令；只读清单在方言里，全部只读才算读（docs/specs/agent/permissions.md 输出 17）。 */
-export const shellTool = (dialects: Dialects): KitToolImplementation => ({
-    create: (_context, services) => ({execute: (args, call) => run(services, args, call.signal)}),
+export const shellTool = (dialects: Dialects, background?: ShellBackground): KitToolImplementation => ({
+    create: (context, services) => ({execute: (args, call) => run(context, services, args, call, background)}),
     effect: (args) => commandEffect(dialects("bash"), args.command as string),
     subjects: (args) => [{kind: "command", dialect: "bash", text: args.command as string}],
 });

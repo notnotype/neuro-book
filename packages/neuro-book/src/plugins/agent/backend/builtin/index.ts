@@ -10,7 +10,7 @@ import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {builtinDeclarations, builtinTools as kitTools} from "@notnotype/nb-harness/kit/tools";
-import type {KitToolImplementation, SessionEditStores} from "@notnotype/nb-harness/kit/tools";
+import type {KitToolImplementation, SessionEditStores, ShellBackground} from "@notnotype/nb-harness/kit/tools";
 
 import {TOOLS_POINT} from "../../shared/points";
 import {switchModeDeclaration, switchModeTool} from "../permissions/modes";
@@ -20,7 +20,8 @@ import type {AgentToolDeclaration, AgentToolImplementation} from "../../shared/p
 import {sessionFiles} from "../resources";
 import {BUILTIN_TOOL_TEXTS} from "./texts";
 
-const kit = builtinDeclarations(BUILTIN_TOOL_TEXTS);
+// `shell` 带 `async`：转后台由任务中心接（`shell-background.ts`）。
+const kit = builtinDeclarations(BUILTIN_TOOL_TEXTS, {shellBackground: true});
 
 const DECLARATIONS: Readonly<Record<string, AgentToolDeclaration>> = {
     "nbook.agent.read": {...kit.read, providerName: "read"},
@@ -48,8 +49,8 @@ function wrap(tool: KitToolImplementation): AgentToolImplementation {
 }
 
 /** 每次激活一套：行锚快照跟着入口这一代。审批预览要读同一份快照，由入口建好传进来。 */
-export function builtinTools(stores: SessionEditStores, dialects: Dialects, changeModeSettings: ChangeModeSettings): Readonly<Record<string, AgentToolImplementation>> {
-    const tools = kitTools({stores, dialects});
+export function builtinTools(stores: SessionEditStores, dialects: Dialects, changeModeSettings: ChangeModeSettings, shellBackground: ShellBackground): Readonly<Record<string, AgentToolImplementation>> {
+    const tools = kitTools({stores, dialects, shellBackground});
     return {
         "nbook.agent.read": wrap(tools.read),
         "nbook.agent.write": wrap(tools.write),

@@ -29,6 +29,8 @@ import type {
     AgentStatusBar,
     AgentWizard,
     AgentWizardFrame,
+    AgentDock,
+    AgentSessionChildRows,
     PlainForm,
     AgentRawView,
     AgentTaskList,
@@ -45,9 +47,9 @@ import type {Component} from "vue";
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
-import {agentApprovalWizardScenes, agentCompactionDetailScenes, agentModeSwitchWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";
+import {agentApprovalWizardScenes, agentCompactionDetailScenes, agentDockScenes, agentModeSwitchWizardScenes, agentQuestionWizardScenes, agentStatusBarScenes, agentWizardFrameScenes, agentWizardScenes} from "./wizard.scenes";
 import {agentModelCatalogScenes} from "./catalog.scenes";
-import {agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
+import {agentSessionChildRowsScenes, agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
 import {agentContextInspectorScenes, agentConversationComposerScenes, agentMessageEditorScenes, agentModelPickerScenes, agentQueuedMessagesScenes, agentRoleModelPickerScenes, agentSessionTreeScenes} from "./composer.scenes";
 import {
     agentChainSummaryScenes,
@@ -88,7 +90,8 @@ export const nbAgentUiFixtures: LabFixture[] = [
     defineSubjectFixture<typeof AgentSessionPanel>({
         component: "AgentSessionPanel", scenes: agentSessionPanelScenes, class: "h-[480px] w-[360px]",
         subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentSessionPanel)}),
-        events: ["action", "update:query", "update:scope", "toggle-profile", "update:show-archived"],
+        events: ["action", "update:query", "update:scope", "toggle-profile", "update:show-archived", "update:expanded"],
+        writeBack: {"update:expanded": {layer: "model", key: "expanded"}},
     }),
     // 目录对话框同样从公开入口取、套一层场景的翻译端口；它渲染到 body，根是传送门。
     defineSubjectFixture<typeof AgentModelCatalog>({
@@ -163,6 +166,8 @@ export const nbAgentUiFixtures: LabFixture[] = [
     }),
     defineLabFixture<typeof AgentStatusBar>({component: "AgentStatusBar", scenes: agentStatusBarScenes, load: async () => (await import("./AgentStatusBarFixture.vue")).default}),
     defineSubjectFixture<typeof AgentWizard>({component: "AgentWizard", scenes: agentWizardScenes, subject: agentSubject("AgentWizard"), events: ["action"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentDock>({component: "AgentDock", scenes: agentDockScenes, subject: agentSubject("AgentDock"), events: ["action"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentSessionChildRows>({component: "AgentSessionChildRows", scenes: agentSessionChildRowsScenes, subject: agentSubject("AgentSessionChildRows"), events: ["select", "toggle"], class: "w-[320px]"}),
     defineSubjectFixture<typeof AgentWizardFrame>({component: "AgentWizardFrame", scenes: agentWizardFrameScenes, subject: agentSubject("AgentWizardFrame"), slotPresets: {default: () => "内容区", foot: () => "按钮"}, events: ["collapse"], class: "w-full"}),
     defineSubjectFixture<typeof AgentApprovalWizard>({component: "AgentApprovalWizard", scenes: agentApprovalWizardScenes, subject: agentSubject("AgentApprovalWizard"), events: ["update:state", "submit", "denyAll", "collapse"], class: "w-full"}),
     defineSubjectFixture<typeof AgentModeSwitchWizard>({component: "AgentModeSwitchWizard", scenes: agentModeSwitchWizardScenes, subject: agentSubject("AgentModeSwitchWizard"), events: ["update:state", "answer", "collapse"], class: "w-full"}),

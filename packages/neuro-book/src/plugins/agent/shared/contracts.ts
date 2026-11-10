@@ -16,6 +16,8 @@ export type ProfileStatus = "ok" | "unavailable" | "error";
 export const MAIN_PROFILE = "nbook.agent.main";
 /** 给前台会话生成标题和说明的 Profile；不给人选。 */
 export const SESSION_TITLE_PROFILE = "nbook.agent.session-title";
+/** 临时帮手：别的 Agent 派出来做一件事的子代理（builtin-profiles.md 输出 14）。 */
+export const ADHOC_PROFILE = "nbook.agent.adhoc";
 
 /** 不可用或有错误的原因（contributions.md 输出 15）：界面按码翻译，不带本机的绝对路径。 */
 export type ProfileProblem =
@@ -47,6 +49,8 @@ export interface ProfileEntry {
     /** 声明的缺省角色；用户级没有。 */
     readonly role?: string;
     readonly modelNeeds?: AgentProfileDeclaration["modelNeeds"];
+    /** 声明的可派子代理（contributions.md 输出 19）；用户级的没有声明，白名单只来自 Profile 设置。 */
+    readonly agents?: AgentProfileDeclaration["agents"];
 }
 
 /** 工具目录的一项（contributions.md 输出 17）。 */

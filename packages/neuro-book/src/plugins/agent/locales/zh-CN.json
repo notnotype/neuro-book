@@ -112,7 +112,7 @@
         },
         "maxCost": {
             "title": "费用上限（美元）",
-            "description": "这个会话的费用到上限后不再发模型请求，最后一次可能超出一点；0 表示不设。没填单价的模型不计入，上限对它不起作用"
+            "description": "整棵会话树（会话和它派出的子代理）的费用到上限后不再发模型请求，最后几次可能超出一点；0 表示不设。没填单价的模型不计入，上限对它不起作用"
         },
         "permissionRules": {
             "title": "权限规则",
@@ -129,6 +129,18 @@
         "toolLoopThreshold": {
             "title": "重复调用阈值",
             "description": "连续这么多次相同的工具调用时提醒模型；提醒后结果还是一样就停止运行；0 表示不检测"
+        },
+        "subagentDepth": {
+            "title": "子代理最多几层",
+            "description": "子代理还能再派子代理；超过这么多层时派不出去。"
+        },
+        "subagentsPerSession": {
+            "title": "每个会话同时的子代理",
+            "description": "一个会话同时在跑的子代理至多几个，前台、后台都算。"
+        },
+        "backgroundJobs": {
+            "title": "同时在跑的任务",
+            "description": "所有会话的子代理与后台命令加起来，同时在跑的至多几个。"
         }
     },
     "settingsSections": {
@@ -144,6 +156,9 @@
                 },
                 "guards": {
                     "title": "保护"
+                },
+                "subagents": {
+                    "title": "子代理与后台任务"
                 }
             }
         }
@@ -252,6 +267,57 @@
         "modeSwitch": {
             "approved": "批准",
             "declined": "不同意"
+        },
+        "author": {
+            "otherSession": "另一个会话"
+        },
+        "subagent": {
+            "spawn": "派子代理",
+            "send": "对子代理说",
+            "answer": "回答子代理",
+            "wait": "等任务",
+            "kill": "停止任务",
+            "jobs": "查看任务",
+            "open": "打开子会话",
+            "background": "后台",
+            "tools": "{{count}} 次",
+            "preparing": "正在准备派发…",
+            "dispatchFailed": "没派出去：{{code}}",
+            "waiting": "等你处理",
+            "waitingApproval": "等你批准：{{tool}}",
+            "waitingAnswer": "等你回答：{{text}}",
+            "waitingMode": "等你切换模式",
+            "question": "在问父 Agent：{{text}}",
+            "done": "已完成",
+            "failed": "出错：{{line}}",
+            "failedNoLine": "出错",
+            "aborted": "已停止",
+            "interrupted": "已中断（应用停止时它在跑）",
+            "unknown": "状态未知",
+            "denied": "没有派出",
+            "invalid": "参数不对，没有派出",
+            "unknownDispatch": "不知道派没派出",
+            "unknownOpen": "状态未知，打开子会话核对",
+            "running": "运行中",
+            "starting": "正在启动",
+            "thinking": "正在思考",
+            "showResult": "看结果全文",
+            "hideResult": "收起结果",
+            "command": "后台命令",
+            "commandJob": "任务 {{id}}",
+            "stop": "停止",
+            "lastLine": "最后一行：{{line}}",
+            "exited": "退出码 {{code}} · {{lines}} 行输出",
+            "commandFailed": "失败 · 退出码 {{code}}",
+            "commandAborted": "已停止",
+            "commandInterrupted": "已中断（应用停止时它在跑）",
+            "commandPending": "等待开始",
+            "commandDenied": "没有执行",
+            "commandInvalid": "参数不对，没有执行",
+            "showOutput": "看输出",
+            "hideOutput": "收起输出",
+            "openOutput": "打开输出文件 {{path}}",
+            "outputUnavailable": "输出读不到"
         }
     },
     "views": {
@@ -343,7 +409,8 @@
         },
         "sections": {
             "model": "模型与审批",
-            "tools": "工具"
+            "tools": "工具",
+            "agents": "可派的子代理"
         },
         "model": {
             "label": "模型",
@@ -401,7 +468,13 @@
                 "shell": "运行一条命令。",
                 "switch-mode": "申请切换讨论、计划或普通模式。",
                 "ask": "向用户提问，只有固定选项。",
-                "ask-form": "向用户提问，可以带选项或表单。"
+                "ask-form": "向用户提问，可以带选项或表单。",
+                "wait": "等自己启动的后台任务结束，或子代理有提问时返回。",
+                "kill": "停掉自己启动的一个任务。",
+                "jobs": "列出自己启动的任务。",
+                "spawn": "派一个子代理去做一件事。",
+                "send": "给自己派的子代理发话或让它继续。",
+                "answer": "回答子代理交给自己的提问。"
             }
         },
         "create": {
@@ -429,6 +502,31 @@
             "thinking": "这个模型不支持思考",
             "context": "这个模型的上下文窗口只有 {{have}}，这个 Profile 要 {{need}}",
             "separator": "；"
+        },
+        "agents": {
+            "section": {
+                "help": "这个 Profile 能用 agent_spawn 派哪些子代理；下一次模型请求起生效",
+                "count": "可派 {{count}} 个",
+                "restore": "恢复默认",
+                "add": "添加子代理"
+            },
+            "remove": "不再允许派 {{name}}（{{id}}）",
+            "required": "必需",
+            "add": {
+                "title": "添加可派的子代理",
+                "done": "添加",
+                "search": "搜索 Profile",
+                "empty": "没有别的可用的 Profile",
+                "noMatch": "没有匹配的 Profile",
+                "blocked": "不能添加",
+                "replaces": "（替换同名的）",
+                "join": "选上 {{name}}（{{id}}）",
+                "unjoin": "不选 {{name}}（{{id}}）"
+            },
+            "recommended": "推荐",
+            "userAdded": "我加的",
+            "gone": "已删除或不可用",
+            "goneGroup": "已删除或不可用"
         }
     }
 }

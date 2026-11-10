@@ -7,7 +7,7 @@
  * （runtime.md 输出 24），拒绝时整条指令失败、不写日志。`abort` 不经队列（先触发信号），清空缓冲区作为之后的一项写入。
  */
 
-import type {Attributed, CommandMap, CommandName, CommandResult, JsonValue, LogEvent, ModelPort, Resources, UserInput} from "../api/index.js";
+import type {Attributed, CommandMap, CommandName, CommandResult, Issuer, JsonValue, LogEvent, ModelPort, Resources, UserInput} from "../api/index.js";
 import {LogBrokenError, type EventDraft, type SessionCore} from "../dispatch/core.js";
 import {canonicalJson, sha256} from "../log/json.js";
 import type {RunControl} from "./control.js";
@@ -93,7 +93,7 @@ export function startProblem(host: CommandHost): string | null {
     return resolution.ok ? null : resolution.code;
 }
 
-export function sendCommand(host: CommandHost, args: CommandMap["send"]["args"] & {commandId: string}): Promise<CommandResult<"send">> {
+export function sendCommand(host: CommandHost, issuer: Issuer, args: CommandMap["send"]["args"] & {commandId: string}): Promise<CommandResult<"send">> {
     return accept(host, "send", args, async () => {
         if (isEmpty(args.input)) return {fail: "empty-input"};
         const {core, control} = host;
@@ -103,26 +103,27 @@ export function sendCommand(host: CommandHost, args: CommandMap["send"]["args"] 
         const intercepted = await interceptInput(host, args.input);
         if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
         const inputId = core.newId();
-        const queued: EventDraft = {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, args.mode ?? "followup")};
-        if (!idle) return {value: {inputId, runId: null}, drafts: [...intercepted.failed, queued]};
+        const queued: EventDraft = {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, args.mode ?? "followup", issuer)};
+        if (!idle) return {value: {inputId, runId: null, currentRunId: control.active!.runId}, drafts: [...intercepted.failed, queued]};
         // 叶子上有暂停的运行：入队后让它接着跑，这条话等它的当前一轮结束（或它在轮之间时立刻）开新的一轮。
         const paused = control.paused;
         if (paused !== null) return {value: {inputId, runId: paused}, drafts: [...intercepted.failed, queued], launch: paused};
         const runId = core.newId();
         // 受理批先把输入放进缓冲区，再取走它开第一轮；崩溃在这之后由恢复结算这次运行。
         const started: EventDraft = {type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "chat"}};
-        return {value: {inputId, runId}, drafts: [...intercepted.failed, queued, started, ...takeInputDrafts(inputId, intercepted.input, core.newId())], launch: runId};
+        return {value: {inputId, runId}, drafts: [...intercepted.failed, queued, started, ...takeInputDrafts(inputId, intercepted.input, core.newId(), issuer)], launch: runId};
     });
 }
 
-export function enqueueCommand(host: CommandHost, args: CommandMap["enqueue"]["args"] & {commandId: string}): Promise<CommandResult<"enqueue">> {
+export function enqueueCommand(host: CommandHost, issuer: Issuer, args: CommandMap["enqueue"]["args"] & {commandId: string}): Promise<CommandResult<"enqueue">> {
     return accept(host, "enqueue", args, async () => {
         if (isEmpty(args.input)) return {fail: "empty-input"};
         if (host.readOnly() !== null) return {fail: "read-only"};
         const intercepted = await interceptInput(host, args.input);
         if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
         const inputId = host.core.newId();
-        return {value: {inputId, position: host.core.session.kernel.buffer.length}, drafts: [...intercepted.failed, {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, args.mode)}]};
+        const current = host.control.active?.runId ?? host.control.paused ?? undefined;
+        return {value: {inputId, position: host.core.session.kernel.buffer.length, ...(current === undefined ? {} : {currentRunId: current})}, drafts: [...intercepted.failed, {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, args.mode, issuer)}]};
     });
 }
 
@@ -137,7 +138,8 @@ export function startCommand(host: CommandHost, args: CommandMap["start"]["args"
         const runId = core.newId();
         const started: EventDraft = {type: "runStarted", kind: "ctrl", scope: "path", data: {runId, kind: "chat"}};
         const next = core.session.kernel.buffer[0];
-        if (next !== undefined) return {value: {runId}, drafts: [started, ...takeInputDrafts(next.id, next.input, core.newId())], launch: runId};
+        // 缓冲区里的话可能是别的会话放的（父 Agent 排在后面的），路径上照样记发出者（runtime.md 输出 85）。
+        if (next !== undefined) return {value: {runId}, drafts: [started, ...takeInputDrafts(next.id, next.input, core.newId(), next.by)], launch: runId};
         // 缓冲区空：没有新输入的“继续”运行；末尾已经是完整的回复时没什么可继续的。
         const history = core.leafState.kernel.history;
         const last = history.current ?? (history.committed === null ? null : history.committed.head);
@@ -194,7 +196,7 @@ export function editCommand(host: CommandHost, args: CommandMap["edit"]["args"] 
         if (problem !== null) return {fail: problem};
         const intercepted = await interceptInput(host, args.input);
         if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
-        const data = queuedData(args.inputId, intercepted, "followup") as Record<string, JsonValue>;
+        const data = queuedData(args.inputId, intercepted, "followup", {kind: "user"}) as Record<string, JsonValue>;
         const {mode: _mode, ...edited} = data;
         return {value: {}, drafts: [...intercepted.failed, {type: "inputEdited", kind: "ctrl", scope: "session", data: edited}]};
     });

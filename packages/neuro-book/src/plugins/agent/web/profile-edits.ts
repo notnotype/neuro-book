@@ -34,3 +34,9 @@ export function withApprovalChoice(settings: Readonly<Record<string, ProfileSett
     const {approvalMode: _approvalMode, ...rest} = settings[profile] ?? {};
     return withSetting(settings, profile, choice === FOLLOW_APPROVAL ? rest : {...rest, approvalMode: choice as NonNullable<ProfileSetting["approvalMode"]>});
 }
+
+/** 白名单写回（profile-settings.md 输出 25）：`undefined` 是恢复默认，`agents` 这一项去掉。 */
+export function withAgentsChoice(settings: Readonly<Record<string, ProfileSetting>>, profile: string, agents: ProfileSetting["agents"] | undefined): Record<string, ProfileSetting> {
+    const {agents: _agents, ...rest} = settings[profile] ?? {};
+    return withSetting(settings, profile, agents === undefined ? rest : {...rest, agents});
+}

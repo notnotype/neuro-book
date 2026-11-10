@@ -38,9 +38,12 @@ function canonical(value: unknown): unknown {
 /** 调用的顺序、参数键的顺序都不算不同。 */
 const callsHash = (calls: readonly {readonly tool: string; readonly args: unknown}[]): string => sha256(JSON.stringify(calls.map((call) => JSON.stringify([call.tool, canonical(call.args)])).sort()));
 
-/** `id` 是扩展 id（事件名进日志），宿主给；`threshold` 每次判断时现读。 */
-export function loopGuard(options: {readonly id: string; readonly threshold: () => number}): AnyExtension {
-    const {threshold} = options;
+/**
+ * `id` 是扩展 id（事件名进日志），宿主给；`threshold` 每次判断时现读。`waits` 是等后台任务的工具（例如 `wait`）：反复等是正常用法，
+ * 交回的结果与上一次不同时不算重复、也不清计数；相同时照常计数（run-guards.md 输出 14）。
+ */
+export function loopGuard(options: {readonly id: string; readonly threshold: () => number; readonly waits?: ReadonlySet<string>}): AnyExtension {
+    const {threshold, waits = new Set<string>()} = options;
     return defineExtension({
         id: options.id,
         state: {loop: slice.path<LoopState>(INITIAL)},
@@ -54,10 +57,12 @@ export function loopGuard(options: {readonly id: string; readonly threshold: () 
                 if (calls.length === 0) return {loop: {...INITIAL, stopped: loop.stopped}};
                 const hash = callsHash(calls);
                 if (hash !== loop.hash) return {loop: {...INITIAL, hash, count: 1, stopped: loop.stopped}};
+                if (calls.every((call) => waits.has(call.tool)) && loop.previousResults !== loop.currentResults) return {loop: {...loop, previousResults: loop.currentResults, currentResults: ""}};
                 const sameResults = loop.sameResults && (loop.previousResults === null || loop.previousResults === loop.currentResults);
                 return {loop: {...loop, count: loop.count + 1, sameResults, previousResults: loop.currentResults, currentResults: ""}};
             },
-            toolResult: (event, {loop}) => ({loop: {...loop, currentResults: sha256(JSON.stringify([loop.currentResults, event.data.status, event.data.text]))}}),
+            // `wait` 的文字里有已等的秒数，每次都不同：按 `details`（各任务的 id 与状态）比，结果没变才算相同（run-guards.md 输出 14）。
+            toolResult: (event, {loop}) => ({loop: {...loop, currentResults: sha256(JSON.stringify([loop.currentResults, event.data.status, waits.has(event.data.tool) ? event.data.details ?? null : event.data.text]))}}),
             redirected: (_event, {loop}) => ({loop: {...loop, count: 0, sameResults: true, redirected: true}}),
             stopped: (_event, {loop}) => ({loop: {...loop, stopped: true}}),
             // 只有用户的新话解除。`start` 接着跑时 `inputId` 是 null：它没有带来新的东西，解除了就会一直循环下去。

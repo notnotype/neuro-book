@@ -47,8 +47,14 @@ interface Entry {
     session: SessionApi | null;
     /** 后台会话不算“正在运行”（sessions.md 的 `running()`）。 */
     background: boolean;
-    /** 运行中还是在等用户；活动条目读它（sessions.md 输出 15）。 */
+    /**
+     * 运行停在等用户的事项上；活动条目读它（sessions.md 输出 15）。审批总是等用户；提问看会话头的 `questions`：只交给派它的 Agent 的
+     * （子代理向父 Agent 提问）用户没有要处理的，不算，宿主的 `userOnly` 认出的除外。
+     */
     waiting: boolean;
+    questions: "caller" | "user";
+    /** `userOnly` 认出的提问的 id。 */
+    userOnly: Set<string>;
     /** 打开的结果：同时到达的请求等同一个。 */
     ready: Promise<{readonly ok: true} | OpenFailure>;
     refs: number;
@@ -68,11 +74,19 @@ export interface SessionTableOptions {
     readonly beforeOpen: () => Promise<void>;
     /** 会话关了：放掉按会话持有的内存（行锚的快照）。 */
     readonly closed?: (sessionId: string) => void;
+    /** `fork` 建了新会话：宿主据此登记（例如记进会话的父子关系：fork 一个子会话得到的仍是同一个父会话的子会话）。 */
+    readonly forked?: (sessionId: string) => void;
+    /**
+     * 不管会话头的 `questions`，总要用户答的提问（例如宿主的模式切换请求），收到 `interactionRequested` 时按它的数据判断。
+     * 不给时只有审批与 `questions: "user"` 会话的提问算等用户。
+     */
+    readonly userOnly?: (request: unknown) => boolean;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
 export class SessionTable {
     readonly #activityListeners = new Set<() => void>();
+    readonly #logListeners = new Set<(sessionId: string, frame: Extract<Frame, {type: "log"}>) => void>();
     readonly #entries = new Map<string, Entry>();
     /** 已接纳、还没登记进表的操作（建会话与它之后的初始设置）：停止要等它们登记完再关。 */
     readonly #accepted = new Set<Promise<unknown>>();
@@ -104,7 +118,7 @@ export class SessionTable {
         if (!created.ok) return created;
         const session = created.value;
         // 停止在建会话期间开始：照样登记，停止等这次建会话结束后关掉它。
-        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+        const entry: Entry = {id: session.id, state: "open", session, background: options.background === true, waiting: false, questions: options.questions ?? "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
         this.#entries.set(session.id, entry);
         this.#watch(entry, session);
         this.#maybeIdle(entry);
@@ -122,6 +136,11 @@ export class SessionTable {
             waitRun: (runId: string) => table.#use(id, (session) => session.waitRun(runId), "query"),
         };
         for (const name of COMMANDS) api[name] = (args: unknown) => table.#use(id, (session) => (session.as(issuer)[name] as (args: unknown) => Promise<unknown>)(args), "command");
+        api.fork = async (args: unknown) => {
+            const result = await table.#use(id, (session) => session.as(issuer).fork(args as Parameters<SessionApi["fork"]>[0]), "command");
+            if (result.ok) table.options.forked?.(result.value.sessionId);
+            return result;
+        };
         for (const name of QUERIES) api[name] = (args?: unknown) => table.#use(id, (session) => (session.as(issuer)[name] as (args?: unknown) => Promise<unknown>)(args), "query");
         return api as unknown as SessionApi;
     }
@@ -134,6 +153,20 @@ export class SessionTable {
     onActivityChanged(listener: () => void): () => void {
         this.#activityListeners.add(listener);
         return () => this.#activityListeners.delete(listener);
+    }
+
+    /** 句柄打开着（子代理进度只给打开着的后代读等用户的事项，不为它去打开会话）。 */
+    isOpen(id: string): boolean {
+        return this.#entries.get(id)?.state === "open";
+    }
+
+    /**
+     * 打开着的会话写下的每条日志事件（以用户的身份，经出站过滤之前的原样）：子代理进度据此知道后代有了新的一步，不必逐个订阅。
+     * 句柄打开之前写下的不补。
+     */
+    onLog(listener: (sessionId: string, frame: Extract<Frame, {type: "log"}>) => void): () => void {
+        this.#logListeners.add(listener);
+        return () => this.#logListeners.delete(listener);
     }
 
     #activityChanged(): void {
@@ -214,7 +247,7 @@ export class SessionTable {
                 continue;
             }
             if (entry === undefined) {
-                entry = {id, state: "opening", session: null, background: false, waiting: false, ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
+                entry = {id, state: "opening", session: null, background: false, waiting: false, questions: "user", userOnly: new Set(), ready: Promise.resolve({ok: true}), refs: 0, idle: true, cancelIdle: null, stopWatching: null, closed: null};
                 entry.ready = this.#open(entry);
                 this.#entries.set(id, entry);
             }
@@ -244,7 +277,9 @@ export class SessionTable {
                 this.#entries.delete(entry.id);
                 return {ok: false, code: opened.code, ...(opened.detail === undefined ? {} : {detail: opened.detail})};
             }
-            entry.background = (await opened.value.snapshot()).header.background === true;
+            const {header} = await opened.value.snapshot();
+            entry.background = header.background === true;
+            entry.questions = header.questions;
             entry.session = opened.value;
             entry.state = "open";
             this.#watch(entry, opened.value);
@@ -259,11 +294,17 @@ export class SessionTable {
     /** 跟着运行状态：运行结束（回到空闲）时看能不能开始空闲计时。 */
     #watch(entry: Entry, session: SessionApi): void {
         entry.stopWatching = session.subscribe((frame) => {
+            if (frame.type === "log") {
+                if (frame.event.type === "interactionRequested" && this.options.userOnly?.(frame.event.data) === true) entry.userOnly.add((frame.event.data as {id: string}).id);
+                for (const listener of this.#logListeners) listener(entry.id, frame);
+                return;
+            }
             if (frame.type !== "status") return;
             const wasWaiting = entry.waiting;
             const wasIdle = entry.idle;
-            entry.idle = frame.status.state === "idle" || frame.status.state === "broken";
-            entry.waiting = frame.status.state === "waiting";
+            const {status} = frame;
+            entry.idle = status.state === "idle" || status.state === "broken";
+            entry.waiting = status.state === "waiting" && status.pending.some((item) => item.kind === "approval" || entry.questions === "user" || entry.userOnly.has(item.id));
             if (entry.idle !== wasIdle || entry.waiting !== wasWaiting) this.#activityChanged();
             if (entry.idle) this.#maybeIdle(entry);
             else {

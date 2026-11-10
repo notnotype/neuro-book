@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 import type {ToolCallView} from "./types";
 import {builtinToolRenderers} from "./builtin-tools";
-import {createAgentViewRegistry} from "./registry";
+import {createAgentViewRegistry, presentationOf} from "./registry";
 import {fileContentLines} from "./tool-detail-lines";
 import {editInputChanges} from "./tool-formats";
 
@@ -82,6 +82,20 @@ describe("NeuroBook 的内置工具", () => {
         expect(entry("shell").id).toBe("bash");
         expect(entry("ask").presentation).toBe("node");
         expect(entry("ask").summary(callWith("ask", {questions: [{question: "视角？", options: []}]}))).toBe("视角？");
+    });
+
+    it("ask 带 async 是过程里的一行（在停靠区答），不带是节点", () => {
+        const ask = entry("ask");
+        expect(presentationOf(ask, callWith("ask", {questions: [{question: "要几章？"}], async: true}, {status: "success"}))).toBe("line");
+        expect(presentationOf(ask, callWith("ask", {questions: [{question: "要几章？"}]}, {status: "running"}))).toBe("node");
+    });
+
+    it("shell 带 async 是常显的节点（画宿主注入的后台命令），参数还在生成时按卡片；不带 async 是卡片", () => {
+        const shell = entry("shell");
+        expect(presentationOf(shell, callWith("shell", {command: "bun run build", async: true}, {status: "running"}))).toBe("node");
+        expect(presentationOf(shell, callWith("shell", {command: "bun run build", async: true}, {status: "streaming"}))).toBe("card");
+        expect(presentationOf(shell, callWith("shell", {command: "ls"}))).toBe("card");
+        expect(shell.hostNode).toBe("backgroundCommand");
     });
 
     it("正在写的文件：摘要带路径与字数，写完了只有路径", () => {
