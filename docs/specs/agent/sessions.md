@@ -136,7 +136,7 @@ Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试与 `agent.llm.t
 ## 实现合同
 
 - **公开入口**：`nbook/plugins/agent/shared/contracts`（服务键 `agentKey`、`AgentService`、`StartTaskOptions`、`taskSessionId`）、`nbook/plugins/agent/shared/remote`（远程合同 `agentSessionsContract` 与 `LogItem`、`PreviewItem`、`RemoteFrame` 投影）。
-- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有句柄表、远程提供方与 `agentKey`；句柄表的实现是 nb-harness 宿主套件的 `SessionTable`（`@notnotype/nb-harness/kit/sessions`），实例与计时口由 `nbook.agent` 给；会话日志由内核的 JSONL 存储写在 `<状态根>/agent/sessions/`。浏览器经远程合同调用，同进程的插件经 `agentKey`。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有句柄表、远程提供方与 `agentKey`；句柄表的实现是 nb-harness 宿主套件的 `SessionTable`（`@notnotype/nb-harness/kit/sessions`），实例与计时口由 `nbook.agent` 给，“等用户”里总要用户答的提问（模式切换请求，输出 19）经它的 `userOnly` 给；会话日志由内核的 JSONL 存储写在 `<状态根>/agent/sessions/`。浏览器经远程合同调用，同进程的插件经 `agentKey`。
 - **关键不变量**：
   - 句柄表是会话打开、关闭与引用的唯一所有者：同时到达的打开共用一次，交出的视图不持引用、每次调用时取会话，空闲关闭在同一个同步段里复查（输出 5、6，`agent.test.ts`“会话”，nb-harness 的 `kit/sessions/table.test.ts`）。
   - 停止先关门（服务的每个入口），再停用户 Profile 的打包、等在建的会话登记完，最后按 `interrupted` 关闭（输出 14，`agent.test.ts`“停止时还在建的会话”“停止时运行中的会话”）。

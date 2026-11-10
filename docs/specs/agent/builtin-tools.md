@@ -149,7 +149,7 @@ Smoke：`packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts`（`tes
 
 ## 实现合同
 
-- **公开入口**：工具 id 与声明（`nbook.agent` 经 `agent.tools` 贡献），Profile 按 id 绑定；工具工厂的 `services` 形状在 `nbook/plugins/agent/shared/resources`。工具的实现在 `@notnotype/nb-harness/kit/tools`（`builtinDeclarations`、`builtinTools`、`previewChanges`），工具 id、说明文字与 `SessionFiles` 的实现由 `nbook.agent` 给。
+- **公开入口**：工具 id 与声明（`nbook.agent` 经 `agent.tools` 贡献），Profile 按 id 绑定；工具工厂的 `services` 形状在 `nbook/plugins/agent/shared/resources`。工具的实现在 `@notnotype/nb-harness/kit/tools`（`builtinDeclarations`、`builtinTools`、`previewChanges`），工具 id、说明文字与 `SessionFiles` 的实现由 `nbook.agent` 给；`shell` 的 `async`（[`jobs.md`](jobs.md) 输出 7）经 `builtinTools` 的 `shellBackground` 交给 `nbook.agent` 的任务中心（`backend/builtin/shell-background.ts`）。
 - **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这些工具，依赖 nb-harness 的宿主套件；套件的工具经宿主给的 `SessionFiles`（[`harness/host-kit.md`](../harness/host-kit.md)）读写，NeuroBook 的实现建在 `nbook.files` 的写入接口上；行锚、搜索与 shell 依赖 `@oh-my-pi/pi-natives`。
 - **关键不变量**：
   - 工具不自己写盘：写都经资源视图或 `SessionArtifacts`，所以来源、分组与授权由文件服务判定（`builtin-tools.test.ts`“edit”“全文”；套件一侧由 nb-harness 的 `kit/architecture.test.ts` 按导入白名单检查）。

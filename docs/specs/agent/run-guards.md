@@ -99,7 +99,7 @@ Smoke：`packages/neuro-book/src/plugins/agent/run-guards.llm.test.ts`（`test:l
 
 ## 实现合同
 
-- **公开入口**：扩展 id `nbook.agent.cost-guard`、`nbook.agent.loop-guard`（经 `agent.extensions` 贡献），扩展本身由 `@notnotype/nb-harness/kit/guards` 的 `costGuard`、`loopGuard` 按宿主给的 id 与设置建出；设置项见“输入与前置条件”；事件类型 `<扩展 id>/<名字>`。
+- **公开入口**：扩展 id `nbook.agent.cost-guard`、`nbook.agent.loop-guard`（经 `agent.extensions` 贡献），扩展本身由 `@notnotype/nb-harness/kit/guards` 的 `costGuard`、`loopGuard` 按宿主给的 id 与设置建出：费用按会话树算（输出 13）由 `nbook.agent` 经 `costGuard` 的 `scope` 给出树的累计（`backend/subagents/tree-spend.ts`），`wait` 不算重复（输出 14）经 `loopGuard` 的 `waits` 给出工具 id；设置项见“输入与前置条件”；事件类型 `<扩展 id>/<名字>`。
 - **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这两个扩展；费用累计读内核的 `ctx.spend`（[`harness/runtime.md`](../harness/runtime.md) 输出 70），重发由内核做，`nbook.agent` 只交次数；两个超时设置属于 `nbook.models`，只是显示在这里的分区。
 - **关键不变量**：
   - 累计数在内核、按全部日志事件算，扩展不另记：旧会话打开时费用就是对的（nb-harness 的 `kit/guards/guards.test.ts`“验收 2”）。
