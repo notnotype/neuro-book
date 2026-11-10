@@ -51,6 +51,8 @@ updated: 2026-11-09
 | 日期 | 决定 |
 |---|---|
 | 2026-11-10 | 开发者：“我觉得可以依赖 nb-form”。推翻计划第二稿确认项第 1 条的推荐（表单校验由宿主注入）：nb-harness 直接依赖 nb-form，`ask` 照现在用它校验表单。代价（主 Agent 核实）：nb-form 的包级依赖有 nb-ui 与 Vue（非可选 peer），装 nb-story 时会连带装上；运行时只加载 nb-form 的核心入口（只依赖 TypeBox） |
+| 2026-11-10 | 开发者：“我想要 nb-harness 的数据结构支持表单，但是不用 nb-form 的 vue 组件实现。”做法：nb-harness 只导入 nb-form 的核心入口（表单描述、检查、解析、校验；运行时只依赖 TypeBox，对 nb-ui 只取文字值的类型，由 nb-form 的 `boundary.test.ts` 守着），不导入 `./vue`，nb-harness 加一条导入边界测试守住；表单怎么画由各宿主决定。为了装 nb-story 时不连带装上 Vue 一套，nb-form 的 `nb-ui` 与 `vue` 改为可选的 peer 依赖（只有 `./vue` 用到），并加进 nb-form 的开发依赖供它自己的测试用；这一步是主 Agent 的推荐，放进本 Task，开发者有异议再改 |
+| 2026-11-10 | 开发者：压缩摘要的小节“由应用决定”（确认项第 3 条按推荐） |
 
 ## 当前状态
 
