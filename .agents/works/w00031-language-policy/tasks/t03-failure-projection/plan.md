@@ -90,13 +90,13 @@
 - **宿主目录**加两组：
   - `errors.unknown`（参数 `code`）；
   - `remoteErrors.<码>`，10 个远程路由码（`nb-runtime/src/remote/protocol.ts` 的码表）。
-  
+
   “结果未知”（`unknown-outcome`）的文案要用户先核对；`cancelled` 不说失败。
 - **新文件** `src/shared/failure-text.ts`：
   - `codeText(table, code, params?): Text`：查到返回拥有者的文字引用，查不到返回宿主的 `errors.unknown`；
   - `REMOTE_ERROR_KEYS`：路由码的闭合表；
   - `remoteFailureText(code)`。
-  
+
   它替换 `projects/web/failure-text.ts` 里的 `lookup` 与 `REMOTE_FAILURE_KEYS`，以及 plugins 插件里的同类表；两个插件目录里的 `remoteErrors.*` 删掉。
 - **登记**：路由码表作为闭合域登记给目录检查（`scripts/ci/message-catalogs.ts`）。
 - **现有“未知码照原样显示”的调用点**，本 Task 只改 projects 与 plugins 两处；其余随各域 Task 改。
@@ -108,7 +108,7 @@
 - **`registry.ts`**：
   - `execution-error` 的原因改为命令插件目录里的“命令执行出错”，异常经 `describeDiagnosticError` 进 `detail`；
   - “没有返回结构化结果”和其余 11 处中文字面量改成目录键。
-  
+
   命令插件现在没有目录，要新增 `commands/locales/`，经 `src/web/plugins.ts` 的 `builtinPluginCatalogs` 登记（w00028 t03 的做法）。
 - **`workbench/web/commands/failure-notice.ts`** 把 `failure.detail` 交给通知；按通知输出 3，带详情的通知不自动消失。
 - **`keymap.ts`** 记诊断时写码与 `detail`，不再把原因拼进 `Error`。
@@ -168,7 +168,7 @@
   - `execution-error` 的原因不含诊断原文；
   - 通知带详情；
   - 总则 12 那一句。
-  
+
   都标“（planned）”。
 - [`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)：保存类命令的失败分为拒绝、失败、结果未知；“全部保存”的原因与详情。标“（planned）”。
 - Work README：任务表加 t06–t11，写明推进顺序；t04 README 改范围（只管诊断改英文）。
@@ -225,5 +225,5 @@
    - 新写的必须英文；
    - 碰到哪个文件就改哪个文件；
    - `governance:check` 对新增的中文诊断构造给告警。
-   
+
    推荐：同意；需要全量时再单独排期。
