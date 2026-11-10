@@ -113,7 +113,10 @@ export function planItems(gate: Gate, plans: readonly StoryChange[], chapter: st
             const values = steps.flatMap((step) => (step.kind === "init" || step.kind === "carried" ? [{value: step.value, change: undefined as string | undefined}] : step.kind === "patch" ? [{value: step.result, change: step.change}] : []));
             const at = values.findIndex((item) => item.change === plan.id);
             if (at === -1) continue;
-            lines.push(`${fieldPhrase(gate, patch.at)}：${gate.value(at === 0 ? null : values[at - 1]!.value)} → ${gate.value(values[at]!.value)}`);
+            // 值按表的主人写（主人不认得的那一行不写）；整张列表丢掉那一行以后前后一样的，这一行不写。
+            const [rawBefore, rawAfter] = [at === 0 ? null : values[at - 1]!.value, values[at]!.value];
+            const [before, after] = [gate.value(rawBefore, patch.at.entry), gate.value(rawAfter, patch.at.entry)];
+            if (!(Array.isArray(rawAfter) && before === after)) lines.push(`${fieldPhrase(gate, patch.at)}：${before} → ${after}`);
         }
         return {label: [...plan.text].slice(0, 12).join(""), text: lines.join("\n")};
     });

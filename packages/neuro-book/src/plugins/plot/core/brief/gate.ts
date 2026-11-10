@@ -60,7 +60,7 @@ export interface Gate {
     ownedByWithheld(id: string): boolean;
     /** X 对 Y 的关系（以 Y 为键的那一行）能不能写：Y 这一场用马甲而 X 不认得他时不写（Y 是占位的，名字已经是占位，照写）。 */
     relationVisible(x: string, y: string): boolean;
-    value(value: unknown): string;
+    value(value: unknown, owner?: string): string;
     blocks(entry: string): readonly {readonly text: string; readonly withheld: Withheld | null}[];
     subject(point: string): string;
     /** 给了内容的知识点的真相：名字，有简介时加简介；不给内容的为 null。 */
@@ -223,10 +223,18 @@ export function makeGate(input: GateInput): Gate {
         withheldMasks.add(mask);
         for (const point of group) withheldPoints.add(point);
     }
-    for (const point of withheldPoints) shown.delete(point);
     const renamed = new Set([...wornAll].filter(([, masks]) => [...masks].some(secretMask)).map(([body]) => body));
-    /** 这一场他戴的马甲里有身份不给写手的：他的名字写马甲，他的目标、别人对他的那一行、挂在他身上的决策都不写（开发者 2026-11-10 定）。 */
-    const identityWithheld = (body: string) => [...(wornAll.get(body) ?? [])].some((mask) => withheldMasks.has(mask));
+    // 这一场他戴的马甲里有身份不给写手的：他本人、他名下所有马甲（与揭穿它们的知识点）、他的目标都按不给内容处理（开发者 2026-11-10 定）。
+    const withheldBodies = new Set([...wornAll].filter(([, masks]) => [...masks].some((mask) => withheldMasks.has(mask))).map(([body]) => body));
+    for (const [mask, group] of allGroups()) {
+        if (!withheldBodies.has(bodyOf(view, mask))) continue;
+        withheldMasks.add(mask);
+        for (const point of group) withheldPoints.add(point);
+    }
+    for (const point of withheldPoints) shown.delete(point);
+    const identityWithheld = (body: string) => withheldBodies.has(body);
+    /** 身份不给写手的那个人：本体，或他名下的任何一个马甲条目（没有揭穿知识点的马甲也算）。 */
+    const withheldPerson = (id: string) => withheldMasks.has(id) || withheldBodies.has(bodyOf(view, id));
     const holders = new Set(input.participants.flatMap((member) => (member.who === undefined ? [] : [bodyOf(view, member.who)])));
 
     const hidingCache = new Map<string, HidingGoal | null>();
@@ -248,7 +256,7 @@ export function makeGate(input: GateInput): Gate {
         const found = stored(id);
         if (found === undefined || found.deleted === true || late(id)) return "placeholder";
         if (found.type === ENTRY_TYPES.point) return withheldPoints.has(id) || (isSecretPlus(secrecy(id)) && !shown.has(id)) ? "placeholder" : "plain";
-        if (found.type === ENTRY_TYPES.goal && hiding(id) !== null) return "placeholder";
+        if (found.type === ENTRY_TYPES.goal && (hiding(id) !== null || (typeof found.parent === "string" && identityWithheld(found.parent)))) return "placeholder";
         return renamed.has(id) ? "rename" : "plain";
     };
 
@@ -264,6 +272,8 @@ export function makeGate(input: GateInput): Gate {
                 return realName(id);
             case "placeholder": {
                 const hidden = found.type === ENTRY_TYPES.goal ? hiding(id) : null;
+                // 身份不给写手的人的目标：只写“某某的一个隐秘目标”（某某是马甲），不加指向（秘密段不列他的目标）。
+                if (found.type === ENTRY_TYPES.goal && typeof found.parent === "string" && identityWithheld(found.parent)) return fixed.hiddenGoalOf(name(found.parent));
                 if (hidden === null) return fixed.aPrivateMatter;
                 // 只有参与者的目标列在这一场的秘密里（输出 4），别人的目标不加指向，免得指向一个不存在的项。
                 return hidden.state === "shown" && holders.has(hidden.holder) ? `${fixed.hiddenGoalOf(name(hidden.holder))}，见这一场的秘密` : fixed.hiddenGoalOf(name(hidden.holder));
@@ -280,26 +290,30 @@ export function makeGate(input: GateInput): Gate {
             if (withheldPoints.has(id)) return "withheld";
             return isSecretPlus(secrecy(id)) ? (shown.has(id) ? "shown" : "withheld") : "none";
         }
-        if (found.type === ENTRY_TYPES.goal) return hiding(id)?.state ?? "none";
-        // 身份不给写手的本体：挂在他身上的决策原话里多半有本名，按不给内容守。
-        return identityWithheld(id) ? "withheld" : "none";
+        if (found.type === ENTRY_TYPES.goal) return typeof found.parent === "string" && identityWithheld(found.parent) ? "withheld" : (hiding(id)?.state ?? "none");
+        // 身份不给写手的人（本体或他的马甲条目）：挂在他身上的决策原话里多半有本名，按不给内容守。
+        return withheldPerson(id) ? "withheld" : "none";
     };
 
     const isEntry = (id: string) => stored(id) !== undefined;
     // 本体这一场身份不给写手时，他名下别的马甲（哪怕揭穿它只是普通档）的简介也会写出本名，同样不给。
-    const describable = (id: string) => kind(id) === "plain" && !withheldMasks.has(id) && !identityWithheld(bodyOf(view, id));
+    const describable = (id: string) => kind(id) === "plain" && !withheldPerson(id);
     const summary = (id: string) => (describable(id) ? (read(id, frame.position)?.summary ?? "") : "");
     const aliases = (id: string) => (describable(id) ? (read(id, frame.position)?.aliases ?? []) : []);
 
     /** 值的写法：不出现条目 id 与 JSON（输出 2、16）。 */
-    const value = (input: unknown): string => {
+    const value = (input: unknown, owner?: string): string => {
         if (input === null || input === undefined) return fixed.NONE;
         if (typeof input === "string") return input;
         if (typeof input !== "object") return String(input);
         if (Array.isArray(input)) {
             if (input.length === 0) return fixed.NONE;
             // 以身份不给写手的本体为键的行整行不写：对他的态度、称呼说的是对本体的关系（不论这张表是谁的）。
-            const items = input.filter((item) => !(item !== null && typeof item === "object" && typeof (item as {id?: unknown}).id === "string" && identityWithheld((item as {id: string}).id)));
+            // 给了表的主人时，主人不认得的那一行（对这一场用马甲的本体）也不写：整张替换与逐行增减同一个判断。
+            const items = input.filter((item) => {
+                const id = item !== null && typeof item === "object" ? (item as {id?: unknown}).id : undefined;
+                return typeof id !== "string" || (!identityWithheld(id) && (owner === undefined || !isEntry(id) || relationVisible(owner, id)));
+            });
             if (items.length === 0) return fixed.NONE;
             return items.map((item) => (typeof item === "string" ? item : item !== null && typeof item === "object" ? row(item as Record<string, unknown>) : String(item))).join("、");
         }
@@ -326,7 +340,8 @@ export function makeGate(input: GateInput): Gate {
             else if ([...block.mentions, ...block.reads].some((id) => kind(id) === "placeholder")) withheld = "placeholder";
             // 读改名的本体的任何数据都扣：`entry.name` 不经名字回调，按条目选出的态度行说的是对本体的关系。
             // 读身份不给写手的马甲条目的数据（它的简介、别名）同样扣：那里最可能写着他是谁。
-            else if (block.reads.some((id) => kind(id) === "rename" || withheldMasks.has(id))) withheld = "rename";
+            // 写到身份不给写手的本体（名字会写成马甲，但这一块说的是对本体的事），或读到这个人（本体与他的马甲条目）的数据，整块扣（开发者 2026-11-10 定）。
+            else if (block.mentions.some((id) => withheldBodies.has(id)) || block.reads.some((id) => kind(id) === "rename" || withheldPerson(id))) withheld = "rename";
             return {text: block.text, withheld};
         });
     };
@@ -354,7 +369,7 @@ export function makeGate(input: GateInput): Gate {
         const fields = read(goal, frame.position)?.namespaces.goal?.fields ?? {};
         const why = typeof fields.为什么?.value === "string" ? `；为什么：${fields.为什么.value}` : "";
         // 这一项在这一场的秘密里：冲突对象也是给了内容的隐秘目标时写它的名字（它在这一段也给了内容）；别的照关卡写。
-        const conflicts = (conflictsOf(view, goal, frame.position, "planned") ?? []).map((conflict) => (hiding(conflict.id)?.state === "shown" ? realName(conflict.id) : name(conflict.id)));
+        const conflicts = (conflictsOf(view, goal, frame.position, "planned") ?? []).map((conflict) => (hiding(conflict.id)?.state === "shown" && kind(conflict.id) === "placeholder" && !ownedByWithheld(conflict.id) ? realName(conflict.id) : name(conflict.id)));
         return `${name(hidden.holder)}的隐秘目标：${realName(goal)}${why}${conflicts.length === 0 ? "" : `；冲突：${conflicts.join("、")}`}`;
     };
 
