@@ -68,7 +68,10 @@ export function cardModel(call: ToolCallView, tree: ReadonlyMap<string, TreeItem
     const base = {childId, name, icon: item?.profileIcon ?? "i-lucide-bot"};
 
     if (call.status === "streaming") return {...base, state: "preparing", line: "", background: false};
-    const runId = details.runId ?? (item?.runInvocation !== undefined && item.runInvocation === call.invocation ? item.runId : undefined);
+    // 还没有结果时认运行：子会话正跟着这次调用的运行；派发的运行是子会话的第一次运行（同一批里先收口的子代理，整批结束前就画出终态）。
+    const runId = details.runId
+        ?? (item?.runInvocation !== undefined && item.runInvocation === call.invocation ? item.runId : undefined)
+        ?? (call.name === "agent_spawn" ? item?.runs[0]?.runId : undefined);
     // 派发或续用没成：有码、没有运行。
     if (details.code !== undefined || (call.status === "error" && runId === undefined)) return {...base, state: "dispatch-failed", line: "", background: false, ...(details.code === undefined ? {} : {code: details.code}), ...(call.result === undefined ? {} : {result: call.result.text})};
 

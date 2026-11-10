@@ -45,6 +45,10 @@ describe("子代理卡片", () => {
         expect(cardModel(background, tree(child({runs: [{runId: "r1", reason: "interrupted", endedAt: 5}]})), [reply(background)], true)).toMatchObject({state: "interrupted", background: true});
     });
 
+    test("同一批里先收口的子代理：调用还没有结果，按子会话的第一次运行画出终态", () => {
+        expect(cardModel(spawn(), tree(child({runs: [{runId: "r1", reason: "error", endedAt: 5}]})), [], false)).toMatchObject({state: "failed"});
+    });
+
     test("父会话不在跑、也找不到子会话的收口：状态未知（进程崩溃留下的）", () => {
         const background = spawn({status: "success", result: {text: "还在跑", truncated: false, details: {sessionId: "child", runId: "r1", status: "running"}}});
         expect(cardModel(background, tree(child()), [reply(background)], true)).toMatchObject({state: "unknown"});
