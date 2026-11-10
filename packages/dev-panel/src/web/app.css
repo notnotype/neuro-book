@@ -166,18 +166,19 @@
 .nbdev-empty {
     color: var(--text-secondary);
 }
+/* 状态色当 12px 的字色差一点到 4.5:1（警告 4.43、成功 4.34，t22 axe 实测）：往正文色混两成，亮色里变深、暗色里变亮。 */
 .nbdev-warn {
-    color: var(--status-warning);
+    color: color-mix(in srgb, var(--status-warning) 80%, var(--text-main));
 }
 .nbdev-danger {
-    color: var(--status-danger);
+    color: color-mix(in srgb, var(--status-danger) 80%, var(--text-main));
 }
 .nbdev-ok {
-    color: var(--status-success);
+    color: color-mix(in srgb, var(--status-success) 80%, var(--text-main));
 }
 /* 强调色的文字与图标（进行中、排队中这类中性的提示）。 */
 .nbdev-accent {
-    color: var(--accent-main);
+    color: color-mix(in srgb, var(--accent-main) 80%, var(--text-main));
 }
 .nbdev-num {
     font-variant-numeric: tabular-nums;
