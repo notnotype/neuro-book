@@ -27,7 +27,10 @@ updated: 2026-11-09
 
 ## 当前状态
 
-第 1 轮静态稿已出，评审板 [artifacts/review/index.html](artifacts/review/index.html) 问两件事：标签怎么显示（原文着色、标签块、上原文下对照，推荐标签块并保留切回原文）；词库放外壳侧栏还是标签页里（推荐侧栏）。
+评审板 [artifacts/review/index.html](artifacts/review/index.html) 有两轮、四道题，都待答：
+
+- 第 1 轮：标签怎么显示（推荐标签块并保留切回原文）；词库放外壳侧栏还是标签页里（推荐侧栏）。开发者 11-10 说“先别急”，先做了[社区提示词结构的调研](../../research/2026-11-10-community-prompt-structure.md)。
+- 第 2 轮（开发者 11-10 指出漏了预设系统）：提示词区按节组织还是一整段（推荐按节：主体、画风、质量、场景与构图、自然语言、角色、负面）；套用预设以后是引用加差异还是复制（推荐引用加差异）。画风、质量、负面、参数四种节可以套预设，角色可以来自设定。
 
 草稿在 `.worktree/w00042-t07-drafts`（分支 `w00042-t07/drafts`，不合并、不推送），组件在 `packages/neuro-book/src/plugins/drafts/web/components/prompt-workbench/`，Lab 里是 `PromptWorkbenchDraft` 的四个场景。
 
