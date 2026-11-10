@@ -88,6 +88,14 @@ updated: 2026-11-10
 - 草稿代码在新的草稿 worktree `.worktree/w00039-t16-drafts-plot`（分支 `t16/drafts-plot`，基于 11-10 的 master，不合并、不推送）：`packages/neuro-book/src/plugins/drafts/web/components/plot-side/`，Lab 组件 `PlotDraft`，场景 q01 到 q09。外壳是画的示意：旧草稿 worktree 用的外壳组件（`WorkbenchActivityBar`、`WorkbenchShellLayout`）在 master 上已经没有，旧 worktree 原样留着，作第一批搬组件的参照。
 - 原图在本地 `.local/agent/works/w00039-novel-writing-plugins/tasks/t16-plot-workbench-ui/shots/`。
 
+第 4 轮的审查（2026-11-10）：开发者要求派几个 Sonnet 子代理用实际例子模拟体验、审查静态稿（含 UI 规范与用户体验）。四位各一个角度（新作者走四件事、换一部悬疑长篇放大规模、推演每个按钮点下去以后、对照界面规范），共 84 条（阻断 4、重要 54、建议 26）；主会话核实后没有判为不成立的，1 条接受取舍。报告与处理在 [`evidences/design-review-r4-resolution.txt`](evidences/design-review-r4-resolution.txt)（四份报告同目录）。评审板加了“审查后的更正”一段（发布第 6 版），九张图未重画。
+
+- 稿子自己能改的（下一轮重画）：样本与手写文字的错；要作者拍板的东西收成三种卡片加提示，计数一个口径；决定、目标、写作指示、计划的编辑去处，名字一律是链接、点了开条目页；伏笔账本改成一行一个伏笔加按章的节点带；秘密与知情默认列主要角色并给筛选；位置与页头沿用第一批条目页；删掉灰色说明文字；用词改成作者的说法。
+- 要开发者定的：检查过期的粒度与表现；“先照写”记什么；细纲存在哪、写作指示在哪里写；“写手”“工作单”叫什么；时间线与多线（回溯、平行视角、补叙）是否从第二批拆出去单独一轮。
+- 实施时要守的（进第二批的计划）：窄屏版式、表头语义、组件复用（要先补时间线与矩阵表两样）、界面文字机制、取值走 token。
+
 ## 下一步
 
-等开发者答第 4 轮的三道题；答复写进本文件后，在 t31 补第二批的计划。第一批的界面行为由 t31 的 S0 写进 Spec（`docs/specs/canon/author-ui.md`）。
+1. 开发者答第 4 轮的三道题与审查后要定的五件事（在会话里问）。
+2. 第 5 轮重画：按审查的处理记录改；“给写手的上下文”用真实的 `composeBrief` 输出，顺带把这份星瑕的剧情数据做成真的样本。
+3. 定稿后在 t31 补第二批的计划；第一批的界面行为由 t31 的 S0 写进 Spec（`docs/specs/canon/author-ui.md`）。
