@@ -28,6 +28,8 @@ type Props = {
 type Emits = {
     ready: [handle: EditorControlHandle | null];
     focus: [focused: boolean];
+    /** 编辑内核失焦；焦点进自己的菜单与输入框也算（自动保存的“失焦时”用）。 */
+    leave: [];
 };
 ```
 

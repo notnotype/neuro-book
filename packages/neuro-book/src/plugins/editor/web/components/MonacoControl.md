@@ -23,6 +23,8 @@ type Props = {
 type Emits = {
     ready: [handle: EditorControlHandle | null];
     focus: [focused: boolean];
+    /** 焦点离开了编辑器部件；进它自己的查找框不算（自动保存的“失焦时”用）。 */
+    leave: [];
 };
 ```
 

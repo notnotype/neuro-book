@@ -19,7 +19,7 @@ import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/s
 import {diagnosticText} from "nbook/shared/localized-text";
 import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
+import {autoSaveDelaySetting, autoSaveSetting, breadcrumbsSetting, codeSettings, enablePreviewSetting, markdownToolbarPlacementSetting, markdownToolbarSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {editorPanelsKey, quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -143,6 +143,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                 createStore: project === null ? null : () => editorTabsStore.create(context, {storage, diagnostics}),
                 createRecentStore: project === null ? null : () => editorRecentStore.create(context, {storage, diagnostics}),
                 enablePreview: () => settings.get(enablePreviewSetting),
+                autoSave: () => ({mode: settings.get(autoSaveSetting), delay: settings.get(autoSaveDelaySetting)}),
                 report,
             });
             context.signal.addEventListener("abort", () => session.dispose(), {once: true});
@@ -193,14 +194,39 @@ export const editorBrowserPlugin: PluginDefinition = {
                 const release = rescue.instance.register(() => session.area.value?.documents.rescue() ?? []);
                 context.signal.addEventListener("abort", release, {once: true});
             }
-            // 离开页面前：结算全部视图输入，有需要结算的文档时请求浏览器的离开确认。
+            // 离开页面前：结算全部视图输入，有需要结算的文档时请求浏览器的离开确认。开着自动保存时顺手把保存发出去：用户在
+            // 确认框里选择留下时正文已经存好；不指望它在卸载前完成。
             const beforeUnload = (event: Event): void => {
                 if (session.area.value?.needsLeaveConfirm() !== true) return;
+                session.area.value.leaving();
                 // 现在的浏览器以 preventDefault 请求离开确认（Chrome 119 起不再要求 returnValue）。
                 event.preventDefault();
             };
+            // 窗口失焦（docs/specs/workbench/editor.md 输出 63）：焦点进了同页的内嵌页面（HTML 预览的 iframe）时窗口也收到
+            // blur，但 `document.hasFocus()` 仍为真，那不算离开窗口。切走浏览器标签在有的平台上只有 visibilitychange。两个
+            // 事件先后都到时第二次没有东西可存；页面卸载时的 visibilitychange 发出的保存同样无害。
+            // 入口也会在没有页面的宿主里激活（窗口合同测试用 Bun）：那里没有 `document`，也就没有焦点与可见性可看。这个文件在
+            // 后端的类型检查范围里，没有 DOM 类型，只写用到的几个成员。
+            const page = (globalThis as {document?: {
+                hasFocus(): boolean;
+                readonly visibilityState: string;
+                addEventListener(type: "visibilitychange", listener: () => void): void;
+                removeEventListener(type: "visibilitychange", listener: () => void): void;
+            }}).document;
+            const windowBlur = (): void => {
+                if (page?.hasFocus() === false) session.area.value?.windowBlurred();
+            };
+            const visibilityChange = (): void => {
+                if (page?.visibilityState === "hidden") session.area.value?.windowBlurred();
+            };
             globalThis.addEventListener("beforeunload", beforeUnload);
-            context.signal.addEventListener("abort", () => globalThis.removeEventListener("beforeunload", beforeUnload), {once: true});
+            globalThis.addEventListener("blur", windowBlur);
+            page?.addEventListener("visibilitychange", visibilityChange);
+            context.signal.addEventListener("abort", () => {
+                globalThis.removeEventListener("beforeunload", beforeUnload);
+                globalThis.removeEventListener("blur", windowBlur);
+                page?.removeEventListener("visibilitychange", visibilityChange);
+            }, {once: true});
 
             const execute = (command: string): void => {
                 void commands.execute(command, {}, {source: "user"}).then((result) => {

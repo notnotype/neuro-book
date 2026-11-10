@@ -114,6 +114,19 @@ describe("交出（方言 Spec 输出 1–3）", () => {
         expect(binding.text.value).toBe("* 甲\r\n\r\n<ruby>汉<rt>hàn</rt></ruby>字\r\n\r\n乙改\r\n");
     });
 
+    it("打了字还没到停手：登记的“还有没交出的输入”为真，交出后为假（editor 输出 63）", async () => {
+        const {area, editor, handle, binding, groupId} = await opened("甲\n");
+        const document = area.documentOf(groupId)!;
+        expect(area.documents.pending(document)).toBe(false);
+        editor.commands.focus("end");
+        type(editor, "乙");
+        expect(binding.text.value).toBe("甲\n");
+        expect(area.documents.pending(document)).toBe(true);
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("甲乙\n");
+        expect(area.documents.pending(document)).toBe(false);
+    });
+
     it("写回被接受后写法固定（输出 2）：为分开相邻列表换了符号的新列表，删掉前一个列表再改它，仍写 `*`", async () => {
         const {editor, handle, binding} = await opened("- 甲\n\n正文\n");
         // 把“正文”一段换成一个新列表（编辑器的“转为列表”会并进前一个列表，这里要的是两个相邻的列表）。

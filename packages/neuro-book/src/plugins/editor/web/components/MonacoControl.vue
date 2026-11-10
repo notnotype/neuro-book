@@ -301,6 +301,8 @@ onMounted(async () => {
         rememberCursor();
         emit("focus", false);
     });
+    // 部件一级的失焦：焦点进查找框时文字区失焦、部件没有，不算离开视图。
+    editor.onDidBlurEditorWidget(() => emit("leave"));
     // 主题或明暗变了（文档根上的 token 换了）：重新生成 Monaco 的主题。
     themeObserver = new MutationObserver(applyTheme);
     themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ["style", "class", "data-nb-appearance", "data-nb-theme"]});

@@ -62,6 +62,7 @@
         "deletedClean": "The file was deleted.",
         "ended": "The file service ended ({{reason}}); saving is not possible.",
         "saveFailed": "Save failed: {{reason}}",
+        "retrySave": "Retry Save",
         "saveUnknown": "The save outcome is unknown; checking the disk."
     },
     "closeDialog": {
@@ -82,6 +83,9 @@
                     "tabs": {
                         "title": "Tabs"
                     },
+                    "saving": {
+                        "title": "Saving"
+                    },
                     "code": {
                         "title": "Code Editor"
                     }
@@ -101,6 +105,29 @@
         "breadcrumbs": {
             "title": "Breadcrumbs",
             "description": "Show the file path and the current heading below the tabs"
+        },
+        "autoSave": {
+            "title": "Auto Save",
+            "description": "When unsaved changes are saved automatically",
+            "choices": {
+                "off": {
+                    "title": "Off"
+                },
+                "afterDelay": {
+                    "title": "After Delay"
+                },
+                "onFocusChange": {
+                    "title": "On Focus Change"
+                },
+                "onWindowChange": {
+                    "title": "On Window Change"
+                }
+            }
+        },
+        "autoSaveDelay": {
+            "title": "Auto Save Delay",
+            "description": "How long after you stop typing before saving; only applies to After Delay",
+            "unit": "ms"
         },
         "code": {
             "fontFamily": {

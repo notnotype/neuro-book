@@ -130,7 +130,7 @@ const banner = computed((): GroupBanner | null => {
     if (current.status.value === "deleted") return {tone: "warning", text: current.dirty.value ? t("banner.deleted") : t("banner.deletedClean"), actions: []};
     if (current.diskChanged.value) return {tone: "warning", text: t("banner.diskChanged"), actions: [{id: "reload", label: t("banner.reload"), run: () => void props.area.revert()}]};
     const problem = current.saveProblem.value;
-    if (problem !== null) return {tone: "danger", text: problem.code === "unknown-outcome" ? t("banner.saveUnknown") : t("banner.saveFailed", {reason: problem.detail || problem.code}), actions: []};
+    if (problem !== null) return {tone: "danger", text: problem.code === "unknown-outcome" ? t("banner.saveUnknown") : t("banner.saveFailed", {reason: problem.detail || problem.code}), actions: problem.code === "unknown-outcome" ? [] : [{id: "retry", label: t("banner.retrySave"), run: () => void props.area.save()}]};
     return null;
 });
 
@@ -254,6 +254,7 @@ provide(editorToolbarSlotKey, toolbarSlot);
                     :locale="port.locale.value"
                     @ready="(handle: EditorControlHandle | null) => area.registerTabHandle(item.tabId, item.editor, handle)"
                     @focus="(focused: boolean) => (area.focused.value = focused)"
+                    @leave="() => area.viewLeft(item.tabId)"
                 />
             </div>
         </div>
