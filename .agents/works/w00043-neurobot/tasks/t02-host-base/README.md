@@ -46,6 +46,8 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 - 第 1 片漏改一处：应用依赖多了 nb-file-lock，开发监督进程的监视目录随之多一项，`src/server/dev/watch.test.ts` 的期望没改（第 1 片的验证没跑 `src/server/dev`），已单独提交修正。
 - 第 2 片（nb-host 骨架、`./socket`、`./testing`）已提交：nb-host 的两份类型检查与边界测试；应用类型检查、`src/server`、`src/web/host`、`files/transport.test.ts`、`canon`、架构测试，3 条项目子进程用例负载下超时、单独重跑通过；`build:web`；`build:sdk` 的产物里没有 nb-host 与 nb-file-lock；开发模式页面加载（书架页，报告无问题）。第 1、2 片之后应用整套 `test:bun` 2754 条通过，6 条子进程用例负载下超时，单独重跑 44 条全过。
 - 第 3 片（`./server`：回环与来源、端口顺延、状态根认领）已提交：认领档案改成 `defineClaimProfile` 建出（核对字段不与基础字段重名、建好整个应答的 schema），发布时核对应用字段，各加一条用例；应用 `instance.ts` 是 NeuroBook 的档案加 `claimNeuroBook`、`queryNeuroBook`（版本只在测试里换）。验证：nb-host 24 条；应用类型检查；`src/server`、`src/cli`、架构测试、`window.test.ts` 206 条，`server-projects.test.ts` 的项目停止用例在负载 16 到 20 下超时，放宽到 30 秒全过（每条约 5 秒）。
+- 第 4 片（HTTP 进 nb-host，路由合同 `./http/contracts`）已提交：准入拒绝的产品名由宿主传入（应用传 `NEUROBOOK_PROFILE.productName`，文字不变），HTTP 插件的 id 由宿主传入，`Host` 核对改用 `LOOPBACK_URL_HOSTS`；应用 17 个文件改导入（计划写 12 个，另有 `browser-bootstrap.ts`、`plugin-files.ts` 用 `HostRoute`，`window.test.ts` 用 `errorResponse`，`server.test.ts`、`theme-asset-route.test.ts` 用准入与分发层）。验证：nb-host 53 条；应用类型检查；`src/server`、`files`、`projects`、`theme-editor.test.ts`、架构测试、`window.test.ts`、`agent/attachments.test.ts` 555 条，`files/project-child.test.ts` 一条“没有外部回声”在负载下多收 7 条变更，单独跑两次都过。分支上 `docs:check` 报 `runtime/server-host.md` 证据里 4 条指向 `plugins/http/backend/` 的链接，合入后改。
+- 与计划的偏差（第 4 片）：没有做过渡的 `createHostPlugins` 包装，直接从 `./server` 过渡导出 `createHttpPlugin`、`HttpAdmission`、`HttpAdmissionRejected`、`HTTP_DRAIN_LIMIT_MS`，第 5 片删去；产品名只给准入，没有再给 HTTP 插件（插件里没有带产品名的文字）。`HostRoute` 类型从 `./server` 长期导出（应用给宿主接口）。
 
 ### 计划第一稿的处理
 
