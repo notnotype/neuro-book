@@ -9,7 +9,7 @@
 import type {MarkType, Node as PMNode} from "@tiptap/pm/model";
 import {Plugin, PluginKey} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
-import {AddMarkStep, RemoveMarkStep} from "@tiptap/pm/transform";
+import {AddMarkStep, RemoveMarkStep, StepMap} from "@tiptap/pm/transform";
 
 interface Range {
     readonly from: number;
@@ -45,35 +45,72 @@ function rubyAround(doc: PMNode, pos: number, type: MarkType): Range | null {
     return found;
 }
 
+/**
+ * 一个事务里改变过位置的步（替换步；标记步不改位置）与它们的下标。按它们在事务之前的文档与第几步之后的文档之间换算位置：
+ * 只有标记步的事务（全选加粗）什么都不用换。不用 `Mapping.slice(0, i).invert()`：prosemirror-transform 的 `invert` 不看
+ * `slice` 的范围，反转的是整个事务。
+ */
+class Moves {
+    private readonly moves: ReadonlyArray<{readonly at: number; readonly map: StepMap}>;
+
+    constructor(transaction: Transaction) {
+        this.moves = transaction.steps.flatMap((step, at) => {
+            const map = step.getMap();
+            return map === StepMap.empty ? [] : [{at, map}];
+        });
+    }
+
+    /** 第 `at` 步之前的文档里的位置，换回事务之前的文档；落在这个事务新插入的内容里时为 null。 */
+    toBefore(pos: number, at: number, assoc: number): number | null {
+        let mapped = pos;
+        for (let index = this.moves.length - 1; index >= 0; index -= 1) {
+            const move = this.moves[index]!;
+            if (move.at >= at) continue;
+            const result = move.map.invert().mapResult(mapped, assoc);
+            if (result.deleted) return null;
+            mapped = result.pos;
+        }
+        return mapped;
+    }
+
+    /** 第 `from` 步之前的文档里的位置，换到事务之后的文档。 */
+    toAfter(pos: number, from: number, assoc: number): number {
+        let mapped = pos;
+        for (const move of this.moves) if (move.at >= from) mapped = move.map.map(mapped, assoc);
+        return mapped;
+    }
+}
+
 export function wholeRubyPlugin(type: MarkType): Plugin {
     return new Plugin({
         key: new PluginKey("markdownWholeRuby"),
         appendTransaction(transactions, _oldState, newState) {
             let tr: Transaction | null = null;
             transactions.forEach((transaction, index) => {
-                transaction.steps.forEach((step, stepIndex) => {
+                const moves = new Moves(transaction);
+                /**
+                 * 一端换到最终文档：落在注音中间时取这段注音的边，否则取这一端自己。在整个事务之前的文档上认注音：`addMark` 换掉同类
+                 * 或被排斥的标记时先生成一步去掉旧注音、再生成一步加新标记，到第二步时旧注音已经被切开，认不出它原来盖到哪里。
+                 * 两端都往注音里面靠（左端 assoc 1、右端 -1），不把边上新插入的字算进来。
+                 */
+                const end = (pos: number, at: number, side: "left" | "right"): {readonly pos: number; readonly widened: boolean} => {
+                    const assoc = side === "left" ? 1 : -1;
+                    const before = moves.toBefore(pos, at, assoc);
+                    const run = before === null ? null : rubyAround(transaction.before, before, type);
+                    let mapped = run === null ? moves.toAfter(pos, at, assoc) : moves.toAfter(side === "left" ? run.from : run.to, 0, assoc);
+                    for (const later of transactions.slice(index + 1)) mapped = later.mapping.map(mapped, assoc);
+                    return {pos: mapped, widened: run !== null};
+                };
+                transaction.steps.forEach((step, at) => {
                     if (!(step instanceof AddMarkStep) && !(step instanceof RemoveMarkStep)) return;
-                    // 在整个事务之前的文档上认注音：`addMark` 换掉同类或被排斥的标记时先生成一步去掉旧注音、再生成一步加新标记，
-                    // 到第二步时旧注音已经被切开，认不出它原来盖到哪里。
-                    const back = transaction.mapping.slice(0, stepIndex).invert();
-                    const stepFrom = back.mapResult(step.from, 1);
-                    const stepTo = back.mapResult(step.to, -1);
-                    if (stepFrom.deleted || stepTo.deleted) return;
-                    const left = rubyAround(transaction.before, stepFrom.pos, type);
-                    const right = rubyAround(transaction.before, stepTo.pos, type);
-                    if (left === null && right === null) return;
-                    // 换到最终文档：经过整个事务，再经过之后的各个事务。两端都往注音里面靠，不把边上新插入的字算进来。
-                    let from = transaction.mapping.map(left?.from ?? stepFrom.pos, 1);
-                    let to = transaction.mapping.map(right?.to ?? stepTo.pos, -1);
-                    for (const later of transactions.slice(index + 1)) {
-                        from = later.mapping.map(from, 1);
-                        to = later.mapping.map(to, -1);
-                    }
-                    if (from >= to) return;
-                    // 标记步不改位置，所以几次补写共用最终文档的坐标。补写的两端都在注音的边上，下一轮不再触发。
+                    const from = end(step.from, at, "left");
+                    const to = end(step.to, at, "right");
+                    if ((!from.widened && !to.widened) || from.pos >= to.pos) return;
+                    // 标记步不改位置，所以几次补写共用最终文档的坐标。ProseMirror 不把插件自己追加的事务再交给它，不会循环。
                     tr ??= newState.tr;
-                    if (step instanceof AddMarkStep) tr.addMark(from, to, step.mark);
-                    else tr.removeMark(from, to, step.mark.type);
+                    if (step instanceof AddMarkStep) tr.addMark(from.pos, to.pos, step.mark);
+                    // 去的是这一个标记（例如某一条批注），不是这一类：同类的别的标记不受牵连。
+                    else tr.removeMark(from.pos, to.pos, step.mark);
                 });
             });
             return tr;

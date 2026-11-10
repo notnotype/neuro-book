@@ -468,9 +468,9 @@ input.nb-ui-native-input[type="number"] {
 
 /*
  * 只入场：开关由锚点决定的浮层（SuggestionMenu）关上时锚点与内容已经被宿主收走，没有可以淡出的东西；
- * 没有退场动画，原语在关上时立即卸载。
+ * 没有退场动画，原语在关上时立即卸载。选择器比上面退场那条多一个类：不靠先后取胜。
  */
-.nb-ui-popover-motion--enter-only[data-state="closed"] {
+.nb-ui-popover-motion.nb-ui-popover-motion--enter-only[data-state="closed"] {
     animation: none;
 }
 
