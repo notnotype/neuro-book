@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00042-image-generation
 issueId: null
 status: active
-updated: 2026-11-06
+updated: 2026-11-10
 ---
 
 # 图像生成插件
@@ -52,3 +52,4 @@ updated: 2026-11-06
 
 - **决策模型：** 开发者说的“决策模型”具体指什么；如果只是拿 LLM 做判断，它是一个角色，不用拆插件。不影响第一版。
 - **首发后端：** 主会话推荐 NovelAI，取决于 [t02](tasks/t02-backend-probe/README.md)。
+- **产物管理：** 开发者 2026-11-10 指出产物（抽出来的图、采用的插图、版本、历史、缓存）怎么管还没设计，以后用起来最烦的就是它。现有的零散规则：t06 废片放缓存、采用后进作品目录；t09 稳定 id 与版本；t12 源图谱系；t11 定妆图。先模拟使用再出方案，见 [t03](tasks/t03-core-contracts/README.md#下一步)。
