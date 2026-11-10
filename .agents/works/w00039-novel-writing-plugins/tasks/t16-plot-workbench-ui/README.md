@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t16-plot-workbench-ui
 status: active
-updated: 2026-11-04
+updated: 2026-11-10
 ---
 
 # 作者界面
@@ -79,6 +79,15 @@ updated: 2026-11-04
 
 2026-11-02 按已接受的[内核提案](../../../../../docs/proposals/world-engine-kernel.md)重切（Work README 决定表同日）：范围改成上面的样子。
 
+第 4 轮（2026-11-10，剧情侧的静态稿）：开发者定作者界面分两批（Work README 决定表同日），第一批设定侧的计划在 [t31](../t31-author-ui-v1/plan.md)；本轮给第二批看剧情侧放在哪。评审板加了“第 4 轮 · 剧情侧放在哪”（发布第 5 版）。
+
+- 九张图：第 3 章的工作单（开写前）、给写手的上下文、第 2 章的工作单（写完以后的检查）、秘密与知情、伏笔账本、目标表、时间线与回溯、人物条目页的“知道什么”与“经历”。
+- 主会话提出的放法：侧栏“剧情”（剧情线、四张表的入口、各章的工作单）；章的工作单与四张表是编辑器区的页面；人物条目页多三个分页；底部面板多一个“决定”视图，检查结果进已有的“待处理”；状态栏一项“第 N 章开写前有几件事”。
+- 三道题待开发者答：`r4-placement`（按章组织还是按种类组织，推荐按章）、`r4-order`（第二批先做哪几块，推荐工作单的前两个分页、秘密与知情、人物条目页的分页）、`r4-screens`（哪一张和想的不一样）。
+- 搭稿时发现的 6 条写在评审板上，其中影响排期的：没有带剧情数据的样本；“写完以后”依赖记账（t19、t20）；细纲与写作指示在应用里还没有地方写；时间线要先在 nb-ui 做组件。
+- 草稿代码在新的草稿 worktree `.worktree/w00039-t16-drafts-plot`（分支 `t16/drafts-plot`，基于 11-10 的 master，不合并、不推送）：`packages/neuro-book/src/plugins/drafts/web/components/plot-side/`，Lab 组件 `PlotDraft`，场景 q01 到 q09。外壳是画的示意：旧草稿 worktree 用的外壳组件（`WorkbenchActivityBar`、`WorkbenchShellLayout`）在 master 上已经没有，旧 worktree 原样留着，作第一批搬组件的参照。
+- 原图在本地 `.local/agent/works/w00039-novel-writing-plugins/tasks/t16-plot-workbench-ui/shots/`。
+
 ## 下一步
 
-版式与数据结构已定到第 3 轮；t27 写 Spec 时把评审板上的决定写进去，再实施。评审板的选答题 `r2-data` 开发者 2026-11-02 在会话里答“没有异议”，已代录。
+等开发者答第 4 轮的三道题；答复写进本文件后，在 t31 补第二批的计划。第一批的界面行为由 t31 的 S0 写进 Spec（`docs/specs/canon/author-ui.md`）。
