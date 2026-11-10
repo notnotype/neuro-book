@@ -66,6 +66,14 @@ t05、t08、t10。
 
 16. `user://skills/` 的初始化：应用按标记判断状态；入口是设置里 Skill 页的“初始化”、`$` 未就绪的 Skill 时的询问、命令行 `nbook skill init <id>`（`--yes` 跳过确认），三者做同一件事；开始前列出要装多少个包、要联网；用应用自带的 Bun 在 Skill 目录里执行 `bun install --frozen-lockfile --ignore-scripts`，同一个 Skill 同一时间只跑一个；成功写标记，失败把原因写进标记的 `error`。只有 `package.json`、没有 `bun.lock` 时也允许初始化：明确告诉用户“将按最新版本解析依赖并生成锁文件”，生成之后都按锁安装。
 
+第六轮（开发者 2026-11-10，看实施计划之后）：
+
+17. Profile 没声明 Skill 白名单时没有可用的 Skill；主创声明“全部”，放进 `user://skills/` 的马上能 `$`；临时帮手不声明。用户在 Profile 设置页按 Profile 去掉或加上。
+18. 父 Agent 发给子代理的话里有 `$x` 也算触发，不特殊处理（只要在子会话 Profile 的白名单里）。
+19. `nbook skill init` 不要求应用在运行：命令行直接调用同一个初始化模块，用 Skill 目录里的锁文件挡住与应用同时装，应用经监视看到结果。
+20. 插件的 Skill（贡献点 `agent.skills`）与插件 SDK 的构建（第 7 条）拆到 [t33](../t33-plugin-skills/README.md)；本 Task 的目录服务按来源设计，接上只多一个来源。
+21. 先出一轮界面静态稿（Skill 页、`$` 菜单的状态、初始化确认、用户消息上的 Skill、Profile 页的 Skill 一节），定了再写界面；后端几片与评审并行。
+
 先调研再定的：字段全表、Skill 参数与“带参数自动执行脚本”、依赖（Python、Node、Bun）、更新与 Skill 市场。调研：[各家的 Skill](../../research/2026-10-30-skill-survey.md)。
 
 ## 来自 t05 的事项（2026-11-07）
@@ -74,8 +82,8 @@ t05、t08、t10。
 
 ## 当前状态
 
-讨论完成（开发者 2026-10-30 确认）：五轮决定见上；不做设计审查，实施时再审查。计划与实施切片在本 Work 的讨论全部完成后另定。
+讨论完成（开发者 2026-10-30 确认）：五轮决定见上。2026-11-10 开工：实施计划 [`plan.md`](plan.md) 开发者确认（第六轮第 17–21 条）。
 
 ## 下一步
 
-实施时按 implementation-planning 写计划；改插件 SDK 的构建预设（t10）、资源 Spec（`skills://`）与 `nbook` 命令行（`skill init`，命令行的整体设计在 [w00035](../../../w00035-nbook-cli/README.md)）。
+切片 0：计划设计审查（Opus）与界面静态稿（评审板）并行，写 `agent/skills.md` 与相关 Spec 的改动。之后按计划切片在 worktree `.worktree/w00032-t15-skills`（分支 `feat/w00032-t15-skills`）实施。插件 SDK 的构建在 [t33](../t33-plugin-skills/README.md)。
