@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t32-harness-backfill
 status: planned
-updated: 2026-11-09
+updated: 2026-11-10
 ---
 
 # 把落在 nbook.agent 里的通用部分补回 nb-harness
@@ -23,7 +23,7 @@ updated: 2026-11-09
 | 会话句柄表、会话元数据 | `…/agent/backend/sessions.ts`、`session-meta.ts` |
 | 通用工具 read、write、edit、search、shell、ask、image | `…/agent/backend/builtin/`；合并 `nb-harness/src/tools/` 里旧的 read、edit |
 | 资源视图 | `…/agent/backend/resources.ts` 与 `agent/shared/resources.ts` |
-| 模型角色、压缩触发点的规则 | `packages/neuro-book/src/plugins/models/shared/` |
+| ~~模型角色、压缩触发点的规则~~ | 不在本 Task：2026-11-10 改由 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md) 搬进新包 `nb-models`（见“决定”） |
 
 留在 `nbook.agent`：把 harness 装成 nb-runtime 插件的接线（贡献点、Profile 包加载、扩展）、给界面的远程接口、附件的 HTTP 路由、NeuroBook 的地址方案（`project://`、`docs://` 等）、作品目录的审批规则、设置页、NeuroBook 专有工具。
 
@@ -34,7 +34,7 @@ updated: 2026-11-09
 - **文件访问接口**：工具、放回、审批判定都经 `nbook.files` 读写与解析地址（写入按 [ADR 0040](../../../../../docs/adr/0040-file-writes-staged-and-committed-by-root-owner.md) 暂存、由根的拥有者提交并记账；地址方案按 [t08](../t08-resources-home/README.md) 注册在文件服务里），几块互相引用（`permissions/hook.ts`、`permissions/modes.ts`、`compaction/restore.ts` 引用 `builtin/common.ts`、`builtin/read.ts`、`resources.ts`），要一起搬。在 harness 里定一个由宿主传入的文件访问接口：NeuroBook 用文件服务实现，NeuroBot 直接读写 bot 的电脑。
 - **写小说专用的部分改成参数**：压缩摘要的小节按写小说定（[t11](../t11-compaction/README.md) 决定 5），改成由 Profile 或宿主给，现有那份留在 NeuroBook。
 - **审批判定者可替换**：NeuroBot 要让另一个 bot 判定工具调用（开发者 2026-11-09，w00043），这与本 Work [t14](../t14-multi-agent/README.md) 决定 8“审批一律交给用户”对 NeuroBot 不同。本 Task 不实现，但搬过去的判定接口不能把“判定者是用户或审批模型”写死。
-- **依赖**：nb-harness 新增 `unbash`（纯 JS、无依赖）；`pi-natives` 已在。`ask` 用到的 `nb-form` 包级依赖 nb-ui 与 Vue（本 README 第一稿误写成“只依赖 TypeBox”，计划改为表单校验由宿主注入，nb-harness 不依赖它）。nb-harness 以源码发到 npm、nb-story 依赖它（[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。
+- **依赖**：nb-harness 新增 `unbash`（纯 JS、无依赖）与 `@notnotype/nb-form`（只导入核心入口，见“决定”）；`pi-natives` 已在。nb-form 的 `nb-ui`、`vue`、`typescript` 改为可选 peer，装 nb-story 不连带装上 Vue 一套（本 README 第一稿误写成 nb-form“只依赖 TypeBox”，那只是核心入口的运行时依赖）。nb-harness 以源码发到 npm、nb-story 依赖它（[ADR 0029](../../../../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。
 
 非目标：不改用户可观察的行为、贡献 id（例如 `nbook.agent.shake`）、设置与界面；不实现 NeuroBot 的任何东西；不做 t14 的子代理与任务中心。
 
@@ -58,6 +58,8 @@ updated: 2026-11-09
 ## 当前状态
 
 2026-11-10：[plan.md](plan.md) 初稿（Opus）做了计划审查（Opus，15 条，[`evidences/plan-review-r1-opus.txt`](evidences/plan-review-r1-opus.txt)）与文件访问接口的独立设计（Sonnet，[`evidences/plan-independent-design-r1-sonnet.txt`](evidences/plan-independent-design-r1-sonnet.txt)），按下表改第二稿。开发者 2026-11-10 选了 NeuroBot 提案待定项 1 的 (b)：模型服务（`models/backend/core.ts`）由 [w00043 t02](../../../w00043-neurobot/tasks/t02-host-base/README.md) 抽，本 Task 不碰它的服务部分、`server/` 与 `web/`。
+
+2026-11-10：按“决定”表改出第三稿（Opus）：`ask` 直接从 nb-form 核心入口导入、删去 `AskForms`；新增第 1 片把 nb-form 的 `nb-ui`、`vue`、`typescript` 改为可选 peer（`typescript` 是计划另加的：它也只有 `./vue` 用到，不标可选装 nb-story 仍会装上它），`release:smoke` 的 `smokeStory` 加一条“装好后没有 nb-ui、vue、typescript”的检查，并实测 `bun pm pack` 会改写 peer 里的 `workspace:^`；删去模型规则那一片、`./models/rules` 与 `models.e2e.ts`。主 Agent 核对：`./vue` 的消费者（应用、nb-story 网页、冒烟的 Vue 宿主）都自己依赖 nb-ui 与 vue，nb-story 的这两个只在开发依赖里；`bun.lock` 里没有包硬依赖 `typescript`，那条检查在第 1 片成立。
 
 ### 计划第一稿的处理
 
@@ -83,4 +85,4 @@ updated: 2026-11-09
 
 ## 下一步
 
-派 Opus 按“决定”表改第三稿：`ask` 直接用 nb-form 的核心入口、nb-form 的 `nb-ui` 与 `vue` 改为可选 peer、nb-harness 加 nb-form 的导入边界测试、删去模型规则那一片。第三稿核对后开工（谁写代码待开发者定）；t14 的前后端实施在本 Task 合入之后。
+第三稿已核对（2026-11-10）。开工前要开发者定两件事：计划“需要开发者确认”第 1 条（旧 `src/tools/` 不合并、留给 t31 删；确认后“要补回的”表里“合并旧的 read、edit”那一格随之改），以及代码由谁写。之后建 worktree、提交 draft Spec `docs/specs/harness/host-kit.md`，按切片实施；t14 的前后端实施在本 Task 合入之后。
