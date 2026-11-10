@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00042-image-generation",
+    "taskId": "t07-prompt-workbench",
+    "artifactId": "review",
+    "ackId": "20261110T003345055Z-c9b50e2e",
+    "answers": [
+        "20261110T003319710Z-07b99634"
+    ],
+    "through": "20261110T003319710Z-07b99634",
+    "included": [
+        ".agents/works/w00042-image-generation/tasks/t07-prompt-workbench/README.md"
+    ],
+    "ackedAt": "2026-11-10T00:33:45.055Z"
+}
