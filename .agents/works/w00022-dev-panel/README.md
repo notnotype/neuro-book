@@ -59,5 +59,5 @@ status: active
 | [t19](tasks/t19-answer-notify-fixes/README.md) | 评审板能不选（清空的题回到没答、什么题标选答）、自动通知认带会话名的 Claude 输入框、发布后给出挂等待的命令；2026-11-02 合入 `master`（`bd8116055`），4400 已重启，待等到一次真实的自动通知 |
 | [t20](tasks/t20-panel-review-close-and-reading-width/README.md) | 评审题缺省选答、开发者能在面板上关闭评审（在等的会话会醒）；只在旧副本里的撞号不再进收件箱；Task 与文档页的 Markdown 加宽；左栏 Task 多的 Work 缺省收起一部分；2026-11-05 合入 `master`（`2b4f7b4f8`），4400 已重启 |
 | [t21](tasks/t21-panel-answer-drafts/README.md) | 评审板没交的填写（取值、说明、改答、备注）存在这台浏览器里，换页、刷新、面板重启后还在，提交成功或自己关闭评审后清掉；2026-11-10 合入 `master`（`1b8a62a66`），重启 4400 后生效 |
-| [t22](tasks/t22-panel-ui-a11y-pass/README.md) | 面板 UI 与可访问性的一次大检查：60 张截图、axe、键盘走查，独立审查者 28 条；第一批客观缺陷与第二批（开发者在评审板上定的 12 条，手机评审板移到 t23）都已合入 `master`（`1d294928a`），等重启 4400 后在真实面板核对 |
-| [t23](tasks/t23-review-board-inline-answers/README.md) | 评审板：页面里作答、侧栏确认提交，nbdev 出评审板模板（参考开发者 visualize 的经验），给页面更多横向与纵向空间，手机上“页面”“答题”两个切换；计划待开发者确认 |
+| [t22](tasks/t22-panel-ui-a11y-pass/README.md) | 面板 UI 与可访问性的一次大检查：60 张截图、axe、键盘走查，独立审查者 28 条；第一批客观缺陷与第二批（开发者在评审板上定的 12 条，手机评审板移到 t23）都已合入，重启后真实面板走查又修了 3 处；已完成 |
+| [t23](tasks/t23-review-board-inline-answers/README.md) | 评审板：页面里作答、侧栏确认提交，nbdev 出评审板模板（参考开发者 visualize 的经验），给页面更多横向与纵向空间，手机上“页面”“答题”两个切换；已合入 `master`（`9347a9d7a`），等重启 4400 后在真实面板核对 |
