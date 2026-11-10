@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, useTemplateRef, watch} from "vue";
+import {computed, shallowRef, useTemplateRef, watch} from "vue";
 import {PopoverContent, PopoverPortal, PopoverRoot} from "reka-ui";
 
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
@@ -28,6 +28,28 @@ const {zIndex} = usePopoverLayer();
 const reference = computed(() => toPopoverReference(props.anchor));
 const visible = computed(() => props.open && reference.value !== undefined);
 
+/**
+ * 退场动画期间外框停在关上那一刻的位置。宿主的锚点常跟着选区走，关的时候选区多半已经变了（点到别处、打字把选区换成光标），
+ * 不冻住的话外框会一边淡出一边跳到新位置；锚点在关上时变成 null 也一样（没有锚点，原语把外框放到窗口角上）。
+ * 开着时每次定位都重新量。
+ */
+const kept = shallowRef(reference.value);
+watch(reference, (value) => {
+    if (value !== undefined) kept.value = value;
+});
+let lastRect: DOMRect | null = null;
+const positioned = computed<PopoverReference | undefined>(() => {
+    const target = kept.value;
+    if (target === undefined) return undefined;
+    return {
+        getBoundingClientRect: () => {
+            if (visible.value || lastRect === null) lastRect = target.getBoundingClientRect();
+            return lastRect;
+        },
+        ...(target.contextElement === undefined ? {} : {contextElement: target.contextElement}),
+    };
+});
+
 const content = useTemplateRef<HTMLElement>("content");
 watch(content, (element) => {
     for (const name of ["role", "aria-labelledby", "tabindex"]) element?.closest("[data-anchored-popover]")?.removeAttribute(name);
@@ -52,14 +74,14 @@ defineExpose({
     <PopoverRoot :open="visible" :modal="false">
         <PopoverPortal>
             <PopoverContent
-                :reference="reference"
+                :reference="positioned"
                 :side="props.side"
                 align="center"
                 :side-offset="props.sideOffset"
                 :avoid-collisions="true"
                 :collision-padding="8"
                 update-position-strategy="always"
-                class="nb-ui-popover-surface"
+                class="nb-ui-popover-surface nb-ui-popover-motion"
                 :style="{zIndex}"
                 data-anchored-popover
                 @open-auto-focus.prevent

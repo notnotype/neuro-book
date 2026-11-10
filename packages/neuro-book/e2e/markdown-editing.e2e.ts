@@ -283,6 +283,67 @@ test.describe("选区菜单", () => {
         await page.keyboard.press("Control+s");
         await expect.poll(() => disk("notes/selection-ruby.md")).toBe("<ruby text=\"hàn zì\">汉字</ruby>\n");
     });
+
+    test("注音是一个整体：拖选不带注音小字，从注音中间加粗时整段注音一起加粗（输出 26、场景 7）", async ({page}) => {
+        await openFile(page, "notes/selection-whole-ruby.md", "前文<ruby text=\"zhù yīn\">注音</ruby>后文\n");
+        const base = prose(page).locator(".nb-ruby-base");
+        const box = await base.boundingBox();
+        if (box === null) throw new Error("注音不可见");
+        // 从“注”与“音”之间按下，拖到“后文”的中间：经过注音小字所在的那一行。
+        const y = box.y + box.height / 2;
+        await page.mouse.move(box.x + box.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width + 20, y, {steps: 6});
+        await page.mouse.up();
+        await expect(selectionMenu(page)).toBeVisible();
+        expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).not.toContain("zhù");
+        await page.keyboard.press("Control+b");
+        await expect(prose(page).locator("rt")).toHaveCount(1);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-whole-ruby.md")).toBe("前文**<ruby text=\"zhù yīn\">注音</ruby>后**文\n");
+    });
+
+    test("选区菜单淡入、淡出，淡出时停在原处；斜杠菜单只淡入（设计语言“浮层入退场的编排是固定的”）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await openFile(page, "notes/selection-motion.md", "第一段文字，长一些，好在别处点。\n\n第二段\n");
+        // 把浮层的时长放慢到 3 秒：退场期间来得及量，也分得清“立即拿掉”和“淡出”。
+        await page.addStyleTag({content: ":root { --motion-fast: 3000ms !important; }"});
+        // 变量的原文与计算值写法不同（`.23` 与 `0.23`）：放到一个元素上，取计算后的写法来比。
+        const easeLayout = await page.evaluate(() => {
+            const probe = document.createElement("div");
+            probe.style.animationTimingFunction = "var(--ease-layout)";
+            document.body.append(probe);
+            const value = getComputedStyle(probe).animationTimingFunction;
+            probe.remove();
+            return value;
+        });
+        const surface = page.locator("[data-anchored-popover]");
+        const motion = () => surface.evaluate((element) => ({
+            name: getComputedStyle(element).animationName,
+            easing: getComputedStyle(element).animationTimingFunction,
+            state: element.getAttribute("data-state"),
+            // 定位写在原语外包的那一层上。
+            at: (element.parentElement as HTMLElement).style.transform,
+        }));
+        await dragSelect(page);
+        await expect(selectionMenu(page)).toBeVisible();
+        const opened = await motion();
+        expect(opened).toMatchObject({name: "nb-popover-in", easing: easeLayout, state: "open"});
+        // 点到第二段：选区换成那里的光标，菜单淡出，淡出期间不跟着跳。
+        await prose(page).locator("p").nth(1).click();
+        expect(await motion()).toMatchObject({name: "nb-popover-out", state: "closed", at: opened.at});
+        await expect(surface).toHaveCount(0, {timeout: 10_000});
+
+        await page.keyboard.press("End");
+        await page.keyboard.press("Enter");
+        await page.keyboard.type("/");
+        const slash = page.locator("[data-suggestion-menu]");
+        await expect(slash).toBeVisible();
+        expect(await slash.evaluate((element) => getComputedStyle(element).animationName)).toBe("nb-popover-in");
+        await page.keyboard.press("Escape");
+        // 只入场：关上就拿掉，不等 3 秒的淡出。
+        await expect(slash).toHaveCount(0, {timeout: 1000});
+    });
 });
 
 test.describe("斜杠菜单", () => {

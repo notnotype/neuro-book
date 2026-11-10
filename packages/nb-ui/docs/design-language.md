@@ -577,6 +577,10 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
    押在 `animationend` 上，交接时刻由动画时长决定而不是状态本身。`QuickPick` 与
    `AlertDialog` 关闭时立即卸载，把「关闭完成」交给原语的真实卸载事件（`closed`）表达；
    宿主在收到该事件后才执行命令或激活下一个交互层。入场仍走第 1 条配方。
+7. **跟着锚点的浮层。** 锚点跟着选区或光标走的浮层（`AnchoredPopover`）退场期间停在关上那一刻的位置，
+   不再读锚点：关的时候选区多半已经变了，接着读会一边淡出一边跳到新位置。开关就是“有没有锚点”的浮层
+   （`SuggestionMenu`）只入场（`.nb-ui-popover-motion--enter-only`）：关上时锚点与内容都已经被宿主收走。
+   两者原来都没挂动效，直接蹦出来（w00025 t20）。
 
 ### 禁条
 

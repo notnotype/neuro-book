@@ -466,6 +466,14 @@ input.nb-ui-native-input[type="number"] {
     animation: nb-popover-out var(--motion-fast) var(--ease-dialog-leave);
 }
 
+/*
+ * 只入场：开关由锚点决定的浮层（SuggestionMenu）关上时锚点与内容已经被宿主收走，没有可以淡出的东西；
+ * 没有退场动画，原语在关上时立即卸载。
+ */
+.nb-ui-popover-motion--enter-only[data-state="closed"] {
+    animation: none;
+}
+
 .nb-menu-level {
     overflow: hidden;
     transition-property: top, left, width, height !important;
