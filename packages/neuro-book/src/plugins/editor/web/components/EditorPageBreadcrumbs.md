@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["页面面包屑", "Editor Page Breadcrumbs"]
 ---
 
@@ -45,6 +45,8 @@ type Emits = {
 - 默认：如上。
 - 空数据：`items` 为空时什么也不渲染。
 - 禁用、只读、加载中、出错：没有这些状态；页面还没给出面包屑时宿主不渲染本组件。
+
+- `state:inject`：经 `useEditorText()` 取宿主注入的翻译端口，导航区的无障碍标签在本插件的目录（命名空间 `nbook.editor`）；测试与 Lab 场景要注入登记了本插件目录的宿主引擎端口，否则只显示键名。
 
 ## 不支持
 

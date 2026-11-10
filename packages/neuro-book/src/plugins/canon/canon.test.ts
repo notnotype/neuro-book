@@ -25,6 +25,7 @@ import {CANON_BUDGET_BYTES, canonClientKey} from "./shared/contracts";
 import type {CanonClient, CanonEvent} from "./shared/contracts";
 import {publish, serverPlugins, until, version, windowOf} from "./testing/harness";
 import {CANON_PROBE_ID, PROBE_DIAGNOSTIC, PROBE_MARK} from "./testing/probe-plugin";
+import {venueScenario} from "./testing/venue-scenario";
 import {canonBrowserPlugin} from "./web/plugin";
 
 let tmp = "";
@@ -269,6 +270,14 @@ describe("canon.project：世界服务在项目子进程里", () => {
         expect(ends).toEqual(["ended"]);
 
         await author.close();
+        keep.release();
+    }, 30_000);
+
+    it("两种场地的契约：订阅、独占与断开后的失败码同进程内的场地（node-world.dom.test.ts）", async () => {
+        const h = await projectHarness(tmp, {plugins: serverPlugins()});
+        const keep = leaseOf(await h.manager.acquire("book", "test"));
+        await h.ready(1);
+        expect(await venueScenario({window: (id) => windowOf(h, id, `profile-${id}`)})).toEqual({changedMatchesPublish: true, writeWhileHeld: "busy", writeAfterHolderGone: true, callAfterDisconnect: "unavailable"});
         keep.release();
     }, 30_000);
 
