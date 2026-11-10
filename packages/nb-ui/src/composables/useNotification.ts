@@ -48,7 +48,7 @@ export const NOTIFICATION_DETAIL_MAX_CHARS = 8000;
  * “这条通知有没有详情”的唯一判据：去掉首尾空白后非空。工作台服务算常驻、队列存条目、视口出“详情”入口都用它，
  * 三处不各写一份，免得空白原文在一处算有、另一处算没有。
  */
-export function hasNotificationDetail(detail: string | undefined): detail is string {
+export function hasNotificationDetail(detail: string | undefined): boolean {
     return detail !== undefined && detail.trim() !== "";
 }
 
@@ -63,7 +63,7 @@ function boundDetail(detail: string): {detail: string; truncated: boolean} {
 
 /** 条目里的详情字段：没有详情时两个字段都不出现；有时按上限截断，截断标志与发出方给的取或。 */
 function detailFields(detail: string | undefined, truncated: boolean | undefined): Pick<NotificationItem, "detail" | "detailTruncated"> {
-    if (!hasNotificationDetail(detail)) return {};
+    if (detail === undefined || !hasNotificationDetail(detail)) return {};
     const bounded = boundDetail(detail);
     return {detail: bounded.detail, detailTruncated: bounded.truncated || truncated === true};
 }

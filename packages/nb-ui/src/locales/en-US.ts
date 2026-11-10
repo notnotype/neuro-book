@@ -21,7 +21,7 @@ export default {
     copyButton: {
         copy: "Copy",
         copied: "Copied",
-        failed: "Copy failed; select the text manually",
+        failed: "Copy failed; select manually",
     },
     detailDialog: {
         copy: "Copy output",

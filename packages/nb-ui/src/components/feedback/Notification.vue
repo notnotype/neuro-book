@@ -38,7 +38,8 @@ const slots = useSlots();
 const text = useUiText();
 const closeText = computed(() => props.closeLabel ?? text("notification.close"));
 const detailText = computed(() => props.detailLabel ?? text("notification.detail"));
-const hasAction = computed(() => slots.action !== undefined || props.actionLabel !== "");
+/** 渲染时现取：插槽不是响应式的，放进 computed 会在 action 插槽后来出现或消失时不更新。 */
+const hasAction = (): boolean => slots.action !== undefined || props.actionLabel !== "";
 
 const toneClass = computed(() => `nb-notification--${props.tone}`);
 const iconClass = computed(() => {
@@ -79,8 +80,8 @@ const progressTone = computed(() => {
                 </span>
             </span>
             <!-- 动作行：在正文下面单独一行、左对齐，不占正文右侧那一列（Notification.md 的“布局与状态”）。 -->
-            <span v-if="hasAction || props.hasDetail" class="mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1" data-notification-actions>
-                <button v-if="hasAction" type="button" class="nb-notification__act nb-ui-focus-ring font-medium text-[var(--nb-notification-tone)]" data-notification-action @click="emit('action')">
+            <span v-if="hasAction() || props.hasDetail" class="mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1" data-notification-actions>
+                <button v-if="hasAction()" type="button" class="nb-notification__act nb-ui-focus-ring font-medium text-[var(--nb-notification-tone)]" data-notification-action @click="emit('action')">
                     <slot name="action">{{ props.actionLabel }}</slot>
                 </button>
                 <button v-if="props.hasDetail" type="button" class="nb-notification__act nb-notification__detail nb-ui-focus-ring text-[var(--text-secondary)]" data-notification-detail @click="emit('detail', $event.currentTarget as HTMLButtonElement)">

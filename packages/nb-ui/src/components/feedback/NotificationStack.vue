@@ -52,8 +52,9 @@ function scrollToNewest(): void {
         if (element !== null) element.scrollTop = element.scrollHeight;
     });
 }
-watch(() => notifications.value.length, () => {
-    if (expanded.value) scrollToNewest();
+// 只在条数变多时滚：关掉一条较早的、限时的到时消失，都不该把正在看的位置拽到底。
+watch(() => notifications.value.length, (count, previous) => {
+    if (expanded.value && count > previous) scrollToNewest();
 });
 
 function toggleFold(): void {
@@ -77,7 +78,7 @@ const detailTitle = computed(() => {
 });
 
 function openDetail(item: NotificationItem, trigger: HTMLButtonElement): void {
-    if (!hasNotificationDetail(item.detail)) return;
+    if (item.detail === undefined || !hasNotificationDetail(item.detail)) return;
     snapshot.value = {title: item.title, detail: item.detail, truncated: item.detailTruncated === true};
     opener = trigger;
     detailOpen.value = true;
@@ -119,17 +120,18 @@ function runAction(item: NotificationItem): void {
 </script>
 
 <template>
-    <!-- 对话框打开期间整块 inert：通知层级高于对话框，不这样的话通知盖在遮罩上、还能点（NotificationStack.md 的“交互”）。 -->
+    <!-- 详情对话框打开期间：整块 inert（不能点、读屏读不到），层级降到模态之下，让遮罩盖住它。只 inert 不降层级的话，
+         通知（9050）仍画在对话框（9000）上面，与“模态”矛盾（NotificationStack.md 的“交互”）。
+         不另加 aria-hidden：inert 已经把它从无障碍树里拿掉，焦点还在里面时再加 aria-hidden 会被 Chrome 拦下并报错。 -->
     <div
         ref="root"
         class="pointer-events-none fixed flex w-full max-w-md flex-col gap-2 px-4 outline-none"
-        :style="{zIndex: NB_Z_INDEX.notification}"
+        :style="{zIndex: detailOpen ? NB_Z_INDEX.dialog - 1 : NB_Z_INDEX.notification}"
         :class="positionClass"
         role="region"
         :aria-label="uiText('notification.region')"
         tabindex="-1"
         :inert="detailOpen"
-        :aria-hidden="detailOpen ? 'true' : undefined"
         data-notification-stack
     >
         <!-- 展开时这一层自己纵向滚动（外层是 pointer-events-none，所以它要接指针），四周留 4px 给阴影与焦点环。
@@ -207,7 +209,9 @@ function runAction(item: NotificationItem): void {
     color: var(--text-main);
 }
 
+/* 展开：自己纵向滚动。四周留 4px 给阴影与焦点环，宽度同步加 8px，卡片与收起时一样宽（只差滚动条的槽）。 */
 .nb-notification-list--expanded {
+    width: calc(100% + 8px);
     max-height: calc(100svh - 6rem);
     overflow-y: auto;
     margin: -4px;

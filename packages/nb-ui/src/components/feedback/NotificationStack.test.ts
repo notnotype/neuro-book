@@ -110,11 +110,12 @@ describe("NotificationStack", () => {
 
     it("折起来的限时通知照常到时消失", async () => {
         const {queue} = mountStack({maxVisible: 1});
-        const timed = queue.notify({message: "一闪而过", duration: 30});
+        // 时长留足：机器忙时 30ms 这类短时长可能在断言“它被折起来”之前就到了。
+        const timed = queue.notify({message: "一闪而过", duration: 1500});
         queue.notify({message: "常驻", duration: 0});
         await flushPromises();
         expect(shownMessages()).toEqual(["常驻"]);
-        await vi.waitFor(() => expect(queue.notifications.value.some((item) => item.id === timed)).toBe(false));
+        await vi.waitFor(() => expect(queue.notifications.value.some((item) => item.id === timed)).toBe(false), {timeout: 6000});
         await flushPromises();
         expect(fold()).toBeNull();
         queue.clearAll();
@@ -143,12 +144,14 @@ describe("NotificationStack", () => {
         expect(dialog()?.textContent).toContain("EditorSaveError: EACCES");
         expect(dialog()?.textContent).toContain("trace: 4f2a9c1e");
         expect(stack().hasAttribute("inert")).toBe(true);
-        expect(stack().getAttribute("aria-hidden")).toBe("true");
+        // 层级降到模态之下：遮罩盖住通知，而不是通知画在对话框上面。
+        expect(Number(stack().style.zIndex)).toBeLessThan(Number(dialog()!.style.zIndex));
 
         pressEscape();
         await flushPromises();
         await vi.waitFor(() => expect(dialog()).toBeNull());
         expect(stack().hasAttribute("inert")).toBe(false);
+        expect(Number(stack().style.zIndex)).toBeGreaterThan(9000);
         await vi.waitFor(() => expect(document.activeElement).toBe(opener));
         queue.clearAll();
     });

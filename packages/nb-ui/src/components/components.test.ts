@@ -386,6 +386,14 @@ describe("nb-ui components", () => {
         expect(wrapper.emitted("detail")?.[0]?.[0]).toBe(wrapper.get("[data-notification-detail]").element);
         expect(wrapper.emitted("action")).toBeUndefined();
         wrapper.unmount();
+
+        // action 插槽后来才出现：动作行跟着出现（插槽不是响应式的，不能缓存在 computed 里）。
+        const withSlot = ref(false);
+        const host = mount(defineComponent({render: () => h(Notification, {message: "m"}, withSlot.value ? {action: () => "撤销"} : {})}));
+        expect(host.find("[data-notification-actions]").exists()).toBe(false);
+        withSlot.value = true;
+        await nextTick();
+        expect(host.get("[data-notification-actions]").text()).toBe("撤销");
     });
 
     it("renders themed checkbox and emits updates", async () => {
