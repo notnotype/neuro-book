@@ -19,13 +19,57 @@ code { background: #f1ece5; padding: 0 4px; border-radius: 3px; }
 </style>
 </head>
 <body>
-<h1>失败详情组件与常驻通知（第 5 轮）</h1>
+<h1>失败详情组件与常驻通知（第 6 轮）</h1>
 <p>（第 4 轮的说明）第 3 轮你选了“详情开对话框”，并要求优化对话框里“文字展示 + 复制”的样式、考虑复用组件或直接用 Markdown 代码块。这一轮是<strong>真实实现</strong>的截图（不再是静态稿），亮色；第 3 轮的几题已定，挪到下面。</p>
 
-<p>第 4 轮你说对话框“样式有点丑”。我对照设计语言找了原因，这一轮出三种外观上拉开差距的候选。图是 Lab 里用真实 nb-ui 组件搭的静态稿，亮色，另附暗色与 390 宽。</p>
+<p>t04 已经合入。剩两件要你定：通知离窗口右边多远（实现时顺手改了，没经你确认），以及下一步先做哪个 Task。图是 Lab 里的真实组件，亮色；灰框代替窗口，通知贴在框的右下角。</p>
+
+<section data-nbdev-question="notice-right-edge" data-nbdev-type="single" data-nbdev-recommend="adaptive">
+  <h2><span class="badge" data-nbdev-skip>待定</span>靠右的通知离窗口右边多远</h2>
+  <p>原来的写法是“整列占满宽度、再往左挪 16px”，窗口比 464px 窄时（手机）整列会从左边溢出 16px：卡片贴着左边、右边空 32px，新加的折叠小条也被裁掉。实现时改成贴右，桌面上的距离也随之从 32px 变成 16px，这个外观变化没经你确认。所有页面靠右的通知都受影响。</p>
+
+  <div class="cand" data-nbdev-option="tight" data-nbdev-label="A 一律 16px（现在合入的样子）">
+    <h3>A 一律 16px（现在合入的）</h3>
+    <div class="row">
+      <figure><img src="r6/a-desktop.webp" alt="A 桌面" width="460"><figcaption>桌面：离右边 16px</figcaption></figure>
+      <figure><img src="r6/a-phone.webp" alt="A 手机" width="240"><figcaption>390 宽：左右各 16px</figcaption></figure>
+    </div>
+  </div>
+
+  <div class="cand" data-nbdev-option="old" data-nbdev-label="B 改回原来的 32px（手机上溢出）">
+    <h3>B 改回原来的 32px</h3>
+    <div class="row">
+      <figure><img src="r6/b-desktop.webp" alt="B 桌面" width="460"><figcaption>桌面：离右边 32px</figcaption></figure>
+      <figure><img src="r6/b-phone.webp" alt="B 手机" width="240"><figcaption>390 宽：卡片贴左边、右边空 32px，折叠小条被裁</figcaption></figure>
+    </div>
+  </div>
+
+  <div class="cand" data-nbdev-option="adaptive" data-nbdev-label="C 宽窗口 32px、窄窗口自动收到 16px">
+    <h3>C 宽窗口 32px，窄窗口自动收到 16px</h3>
+    <div class="row">
+      <figure><img src="r6/c-desktop.webp" alt="C 桌面" width="460"><figcaption>桌面：离右边 32px（同原来）</figcaption></figure>
+      <figure><img src="r6/c-phone.webp" alt="C 手机" width="240"><figcaption>390 宽：左右各 16px，不溢出</figcaption></figure>
+    </div>
+    <p>按窗口宽度算右边距：放得下 448px 宽的通知列再加 16px 时离右边 32px，放不下时逐渐收到 16px。改一行。</p>
+  </div>
+  <p class="rec">推荐 C：桌面保持原来的观感，手机上的溢出也修了。</p>
+</section>
+
+<section data-nbdev-question="next-task" data-nbdev-type="single" data-nbdev-recommend="w00031-t03">
+  <h2><span class="badge" data-nbdev-skip>待定</span>下一步先做哪个</h2>
+  <div class="cand" data-nbdev-option="w00031-t03" data-nbdev-label="先重写 w00031 t03 的计划（失败投影）">
+    <p><strong>w00031 t03</strong>：把错误码与参数投影成用户看得懂的主文案，诊断原文放进这次做好的“详情”。11-07 你同意的顺序是 t04 做完先做它。</p>
+  </div>
+  <div class="cand" data-nbdev-option="w00028-t05" data-nbdev-label="先做 w00028 t05（编辑器与资源管理器改发通知）">
+    <p><strong>w00028 t05</strong>：编辑器顶部横幅（保存失败、外部改动、冲突等）与资源管理器栏底的结果区改发通知，标签上“保存失败”换警告图标。做完它 w00028 就能收口；但那时失败的详情原文还没有投影，只能先放现有的诊断文字。</p>
+  </div>
+  <p class="rec">推荐按原顺序先做 w00031 t03。</p>
+</section>
+
+<p>（第 5 轮的说明）第 4 轮你说对话框“样式有点丑”。我对照设计语言找了原因，这一轮出三种外观上拉开差距的候选。图是 Lab 里用真实 nb-ui 组件搭的静态稿，亮色，另附暗色与 390 宽。</p>
 
 <section data-nbdev-question="detail-dialog-look" data-nbdev-type="single" data-nbdev-recommend="flat">
-  <h2><span class="badge" data-nbdev-skip>待定</span>详情对话框的外观（取代第 4 轮那一题）</h2>
+  <h2><span class="badge done" data-nbdev-skip>已定：A 不给面</span>详情对话框的外观（取代第 4 轮那一题）</h2>
   <p>第 4 轮那一版的问题（对照 <code>nb-ui/docs/design-language.md</code>）：</p>
   <ul>
     <li><strong>盒中盒</strong>：对话框里套一个带描边的块，块里又有一条分隔线。设计语言写的是“面板里再放一个面，多数情况的正确答案是不给面”。</li>
