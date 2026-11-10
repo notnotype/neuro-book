@@ -150,7 +150,7 @@ describe("主创", () => {
         const request = await turn(await createMain(w), "开始");
         for (const section of SECTIONS) expect(request.system).toContain(`<${section}>`);
         expect(request.system).toContain("<shell>");
-        expect([...request.tools].sort()).toEqual(["ask", "edit", "glob", "grep", "read", "shell", "switch_mode", "write"]);
+        expect([...request.tools].sort()).toEqual(["agent_answer", "agent_send", "agent_spawn", "ask", "edit", "glob", "grep", "jobs", "kill", "read", "shell", "switch_mode", "wait", "write"]);
     });
 
     /** 让模型调一次 `edit`，交回这次调用实际执行的工具 id。 */
@@ -176,7 +176,7 @@ describe("主创", () => {
         const session = await createMain(w);
         const request = await turn(session, "开始");
         expect(request.system).not.toContain("<shell>");
-        expect([...request.tools].sort()).toEqual(["ask", "edit", "glob", "grep", "read", "switch_mode", "write"]);
+        expect([...request.tools].sort()).toEqual(["agent_answer", "agent_send", "agent_spawn", "ask", "edit", "glob", "grep", "jobs", "kill", "read", "switch_mode", "wait", "write"]);
         expect(await editedBy(w, session, {input: "不是合法的 hashline"})).toBe("nbook.agent.edit");
     });
 
@@ -221,9 +221,17 @@ describe("临时帮手", () => {
         expect(await w.service.create({profile: ADHOC_PROFILE})).toMatchObject({ok: false, code: "invalid-initial"});
     });
 
-    test("主创声明能派它、推荐它", async () => {
+    test("输出 15：主创声明能派它、推荐它，提示词里有什么时候派与可派的它；去掉 agent_spawn 两节都没有", async () => {
         const w = await world();
         expect(w.service.profiles().find((profile) => profile.key === MAIN_PROFILE)?.agents).toEqual({allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]});
+        const request = await turn(await createMain(w), "开始");
+        expect(request.system).toContain("<delegate>");
+        expect(request.system).toContain(`${ADHOC_PROFILE}（临时帮手）`);
+
+        const without = await world({settings: {"nbook.agent/toolBindings": {[MAIN_PROFILE]: {added: [], removed: ["nbook.agent.spawn"]}}}});
+        const plain = await turn(await createMain(without), "开始");
+        expect(plain.system).not.toContain("<delegate>");
+        expect(plain.system).not.toContain("临时帮手");
     });
 });
 

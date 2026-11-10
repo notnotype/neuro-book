@@ -61,6 +61,11 @@ export interface Job {
     /** 后台命令输出的最后一行。 */
     lastLine?: string;
     driver?: JobDriver;
+    /**
+     * 子代理：这次运行是不是调用方自己开的（派发，或子会话空闲时的续用）。父会话中止时只连带这些；插话附着到用户在子会话里自己开的
+     * 运行时为 false（subagents.md 输出 16）。
+     */
+    ownRun?: boolean;
 }
 
 export type ReserveResult = {readonly ok: true; readonly job: Job} | {readonly ok: false; readonly code: "concurrency-limit"; readonly scope: "session" | "global"};
@@ -76,6 +81,9 @@ export type WaitOutcome =
     | {readonly kind: "ready"; readonly job: Job; readonly others: readonly Job[]}
     | {readonly kind: "timeout" | "interrupted" | "aborted"; readonly jobs: readonly Job[]}
     | {readonly kind: "failed"; readonly code: "job-unknown" | "job-foreground" | "no-jobs"; readonly job?: string};
+
+/** 前台跟一个任务（子代理工具）的结局：结束了、有新的提问、插话、超时、被中止。 */
+export type FollowOutcome = "ended" | "question" | "interrupted" | "timeout" | "aborted";
 
 export interface WaitOptions {
     readonly ids?: readonly string[];
@@ -119,12 +127,17 @@ export class JobCenter {
         return this.#jobs.get(id);
     }
 
-    /** 按子会话的运行找任务（续用时插话、应答接着跑的是不是原来那次）。 */
+    /**
+     * 按子会话的运行找任务（续用时插话、应答接着跑的是不是原来那次）。暂停的运行接着跑时，同一个 `runId` 可能有一个已结束没取过的旧任务和
+     * 一个新任务，先给还没结束的。
+     */
     forRun(sessionId: string, runId: string): Job | undefined {
-        return [...this.#jobs.values()].find((job) => job.target?.sessionId === sessionId && job.target.runId === runId);
+        const matching = [...this.#jobs.values()].filter((job) => job.target?.sessionId === sessionId && job.target.runId === runId);
+        return matching.find((job) => isLive(job.state)) ?? matching[0];
     }
 
     question(job: Job, question: JobQuestion | null): void {
+        if (!isLive(job.state)) return;
         if (question === null) {
             delete job.question;
             if (job.state === "question") job.state = "running";
@@ -223,6 +236,38 @@ export class JobCenter {
                 else options.signal.addEventListener("abort", () => resolve({kind: "aborted", jobs: candidates}), {once: true, signal: stop.signal});
             });
             return "ready" in outcome ? deliver(outcome.ready) : outcome;
+        } finally {
+            timer.abort();
+            stop.abort();
+        }
+    }
+
+    /**
+     * 前台跟着一个任务（subagents.md 输出 6），直到它结束、停在一个新的提问上、本会话来了插话、超时或被中止。`answered` 是调用方刚答过的
+     * 提问：应答写下之后，子会话那边的结算要过一会儿才清掉任务上的提问，这期间不能把它当新提问立即返回。调用方先 `attach`，按结局 `detach`。
+     */
+    async follow(job: Job, options: {readonly timeoutMs: number; readonly signal: AbortSignal; readonly interrupted?: Promise<void>; readonly answered?: string}): Promise<FollowOutcome> {
+        const ready = (): FollowOutcome | undefined => {
+            if (!isLive(job.state)) return "ended";
+            return job.state === "question" && job.question !== undefined && job.question.id !== options.answered ? "question" : undefined;
+        };
+        const now = ready();
+        if (now !== undefined) return now;
+        const timer = new AbortController();
+        const stop = new AbortController();
+        try {
+            return await new Promise<FollowOutcome>((resolve) => {
+                const check = () => {
+                    const outcome = ready();
+                    if (outcome !== undefined) resolve(outcome);
+                };
+                this.#listeners.add(check);
+                stop.signal.addEventListener("abort", () => this.#listeners.delete(check), {once: true});
+                this.options.clock.wait(options.timeoutMs, timer.signal).then(() => resolve("timeout"), () => undefined);
+                options.interrupted?.then(() => resolve("interrupted"), () => undefined);
+                if (options.signal.aborted) resolve("aborted");
+                else options.signal.addEventListener("abort", () => resolve("aborted"), {once: true, signal: stop.signal});
+            });
         } finally {
             timer.abort();
             stop.abort();

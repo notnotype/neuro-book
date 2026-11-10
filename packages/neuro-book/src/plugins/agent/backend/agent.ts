@@ -24,6 +24,7 @@ import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
 import {JobCenter} from "./jobs/center";
+import {ChildRuns} from "./subagents/children";
 import {SessionRelations} from "./subagents/relations";
 import {ProfileBundles} from "./profile-bundles";
 import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
@@ -69,6 +70,10 @@ export interface AgentRuntime {
     readonly relations: SessionRelations;
     /** 任务中心（jobs.md）。 */
     readonly jobs: JobCenter;
+    /** 子代理运行与任务中心之间的跟踪（subagents.md 输出 6、7）。 */
+    readonly children: ChildRuns;
+    /** 模型端口：派子代理时先解析指名的模型（subagents.md 输出 1 的 `model-unavailable`）。 */
+    readonly models: ModelPort;
     /** 插件开始停止之后为真：子代理工具据此不对子会话发中止，交给会话的关闭按 interrupted 收口（subagents.md 输出 16）。 */
     stopping(): boolean;
     /** 内核用的时钟（注入的，测试推进它）。 */
@@ -264,6 +269,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     };
 
     const meta = new SessionMeta({table, create: createSession, models, report: options.report});
+    const children = new ChildRuns({table, jobs, report: options.report});
 
     const profileAdmin: ProfileAdmin = {
         toolCatalog: () => {
@@ -296,6 +302,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         profileAdmin,
         relations,
         jobs,
+        children,
+        models,
         stopping: () => stopping,
         kernelClock: clock,
         sessionsRoot,
