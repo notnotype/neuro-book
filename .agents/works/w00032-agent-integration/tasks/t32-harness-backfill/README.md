@@ -70,6 +70,8 @@ updated: 2026-11-10
 - 第 1 片（nb-form 的可选 peer）：`release:check`、nb-form 测试与类型检查、应用与 nb-story 的类型检查、nb-story `build:web`、`release:smoke`（在干净克隆里跑，tarball 里 nb-form 的 peer 已改写成 `^0.3.0`，装 nb-story 不带 nb-ui、vue、typescript）都通过。
 - 第 2 片（kit 骨架与边界测试）、第 3 片（文件访问接口、本机参考实现、合同测试）已提交；第 3 片后 baseline 逐字相同。合同测试两个实现都过（本机 13 条，NeuroBook 经真实插件 21 条）。
 
+- 第 4 片（读、写、改、搜索、预览、命令方言）、第 5 片（shell、ask，nb-harness 依赖 nb-form 核心）已提交，两片后 baseline 都逐字相同；第 5 片后 `release:check` 通过（发布顺序 nb-form 在 nb-harness 前），`agent-conversation.e2e.ts` 19 条通过。
+
 与计划的偏差：
 
 - baseline 没录“标题生成的两种材料”与“项目规则读坏时的诊断消息”：只能在真实运行里取，搬家时逐字对照源码。
@@ -77,6 +79,11 @@ updated: 2026-11-10
 - 两条扫描整个 `src/` 的检查改用 TypeScript 的 `preProcessFile` 取说明符：建语法树每条要 1.5 秒，超出快速测试的预算。
 - 合同测试发现 `host-kit.md` 漏了“只读方案的写为 `unsupported-capability`”（NeuroBook 现有行为，文件服务的能力矩阵），已在 master 补上。
 - 应用名扫描的正则另加了 `nbot`、`neurobot`。
+- kit 的工具交出两组：`builtinDeclarations(texts)`（纯数据，宿主静态登记贡献要用）与 `builtinTools({stores, dialects})`，不是计划写的一个工厂；`renderSnapshot` 留在 `tools/read.ts`，`snapshot.ts` 只放 `SessionEditStores`。
+- nb-harness 的 tsconfig `lib` 升到 ES2023：图片缩放用 `findLast`。
+- 改写用例时查出本机参考实现两处不合合同（上级是文件报 `io-failed`、认不出的错误把本机路径带进 `detail`），已修，并把“路上有一段是文件”补进合同测试。
+- `ask` 的 kit 测试按内核 `QuestionAnswer` 的类型直接给回答，没用 `createTestSession`；经真实提问通道的一条留在应用。
+- 第 3 片第二次提交漏跑应用名扫描，合同测试注释里的应用名由单独的修正提交去掉。
 
 ### 计划第一稿的处理
 
