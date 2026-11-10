@@ -9,6 +9,7 @@ import {taskHref, workHref} from "../host/routes.js";
 import {useNotifyActions} from "../host/notify-actions.js";
 import type {ArtifactPageData, Meta, NotifyData, WriteData} from "../host/types.js";
 import {useAnswerDraft} from "../host/answer-draft.js";
+import {useArtifactBridge} from "../host/artifact-bridge.js";
 import {answerText, groupQuestions} from "../host/answers.js";
 import {failureNotice, successNotice, useWrite, type Notice} from "../host/writes.js";
 import ActionLink from "../parts/ActionLink.vue";
@@ -25,7 +26,8 @@ import WriteResult from "../parts/WriteResult.vue";
 /**
  * 产物页（t03 第二轮产物页）：左边是产物来源上的原页（沙箱 iframe，不给同源），右边是问题侧栏与答复表单（t10）。
  * 页面文件不按版本保存，所以切版本只切换题表，iframe 上标“页面是当前版本”；磁盘内容与最新一版不同时标“有未发布的改动”。
- * 答复只经侧栏表单提交：外壳不监听 iframe 发来的消息（页面自己的脚本能伪造任何取值）。390 宽时侧栏移到 iframe 下面。
+ * 页面里每道题末尾有答题控件（t23）：页面里填的经 `useArtifactBridge` 校验后只进草稿，提交仍在侧栏表单里按（页面自己的脚本能伪造任何取值）。
+ * 390 宽时侧栏移到 iframe 下面。
  * 答复成功后侧栏多一块“通知”（t11）：这份答复要通知谁、在等什么、发出去了没有，随推送更新；提问的会话已经换了时弹小窗一次。
  * 表单里没交的填写存在这台浏览器里（t21）：离开、刷新、面板重启后回来还在，提交成功或开发者自己关闭评审时清掉。
  */
@@ -63,6 +65,14 @@ const answerDisabled = computed(() => {
     if (current.state === "closed") return "产物已关闭，不能再答";
     if (current.version !== current.latestVersion) return `只能对最新一版（v${current.latestVersion}）答复；切回最新一版再答`;
     return null;
+});
+const frame = ref<InstanceType<typeof ArtifactFrame> | null>(null);
+const bridge = useArtifactBridge({
+    frame: () => frame.value?.contentWindow() ?? null,
+    questions: () => (showForm.value ? data.value?.questions ?? null : null),
+    draft: answerDraft,
+    // 提交在途时页面里也不能改：成功后草稿整份清空，在途时改的会悄悄丢掉。
+    disabledReason: () => answerDisabled.value ?? (write.pending.value ? "正在提交" : null),
 });
 /** Task 的提问集不能关闭（关了这个 Task 就再也不能提问），开发者不想答时把没答的题一次撤回。 */
 const isQuestionSet = computed(() => data.value?.ref.artifactId === "questions");
@@ -170,11 +180,11 @@ function skipToAnswer(): void {
             <LoadState v-bind="loadStateOf(artifact)" label="正在读取产物" :subject="`${props.artifactId} 这个产物`" :up-href="upHref" up-label="回到上一级" @navigate="navigate" @retry="artifact.reload()" />
             <a v-if="data?.pageUrl" href="#nbdev-answer" class="nbdev-skip-local" @click.prevent="skipToAnswer">{{ showForm ? "跳到答题" : "跳到问题" }}</a>
             <div v-if="data" class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_24rem] lg:grid-rows-[minmax(0,1fr)]">
-                <ArtifactFrame v-if="data.pageUrl" class="min-h-[32rem] lg:min-h-0" :src="data.pageUrl" :title="`${data.title ?? props.artifactId} 的页面`" note="页面是当前版本（磁盘上的），切换版本只切换题表" />
+                <ArtifactFrame v-if="data.pageUrl" ref="frame" class="min-h-[32rem] lg:min-h-0" :src="data.pageUrl" :title="`${data.title ?? props.artifactId} 的页面`" note="页面是当前版本（磁盘上的），切换版本只切换题表" />
                 <!-- 有表单时不留下内边距：表单的提交栏贴底，滚动容器的下内边距会让它离底边一截、后面的内容从缝里露出来。 -->
                 <aside id="nbdev-answer" ref="answerPanel" tabindex="-1" class="nbdev-surface relative min-w-0 px-4 pt-4 outline-none lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-gutter:stable]" :class="{'lg:col-span-2': !data.pageUrl, 'pb-4': !showForm}" aria-label="问题">
                     <div class="flex flex-col gap-4">
-                        <AnswerForm v-if="showForm" :questions="data.questions" :latest-version="data.latestVersion ?? 0" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" v-model:draft="answerDraft" :errors="formErrors" @submit="submitAnswer">
+                        <AnswerForm v-if="showForm" :questions="data.questions" :latest-version="data.latestVersion ?? 0" :pending="write.pending.value" :slow="write.slow.value" :disabled-reason="answerDisabled" v-model:draft="answerDraft" :errors="formErrors" :revealable="data.pageUrl !== null" @submit="submitAnswer" @reveal="bridge.reveal">
                             <template #readonly>
                                 <QuestionPanel :questions="data.questions" :version="data.version ?? 0" :latest-version="data.latestVersion ?? 0" answering />
                             </template>

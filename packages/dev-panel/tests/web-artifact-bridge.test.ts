@@ -1,9 +1,16 @@
 import {describe, expect, test} from "bun:test";
 import {JSDOM} from "jsdom";
+import {effectScope, nextTick, ref, type EffectScope} from "vue";
 import {answerBridgeScript} from "../src/server/artifact-bridge.js";
 import type {BridgeQuestion, PageMessage, ShellMessage} from "../src/web/bridge/protocol.js";
+import {acceptPageDraft, bridgeQuestions, useArtifactBridge} from "../src/web/host/artifact-bridge.js";
+import {emptyAnswerDraft, setDraftValue, type AnswerDraft} from "../src/web/host/answers.js";
+import type {QuestionState, VersionQuestion} from "../src/web/host/types.js";
+import {useWebEnv} from "./web-env.js";
 
 /**
+ * 页面里作答（t23）的两头：评审板页面里的答题脚本，与产物页收消息、写草稿的一侧。
+ *
  * 评审板页面里的答题脚本（t23，`src/web/bridge/answer-bridge.ts`）：跑的是产物来源实际回的那份转译结果。
  * 页面是一个 jsdom 窗口，外壳是另一个；把页面的 `parent` 指到外壳窗口，就是面板 iframe 里的样子（jsdom 不加载 iframe 里的页面）。
  * 外壳发消息用页面窗口上的 `message` 事件、`source` 写外壳窗口，与浏览器里 `postMessage` 送到时一样；页面发的消息记在外壳窗口的 `postMessage` 上。
@@ -151,5 +158,120 @@ describe("页面里的答题控件", () => {
         send({type: "nbdev:reveal", id: "approve"});
         send({type: "nbdev:reveal", id: "asked"});
         expect(scrolled).toEqual(["approve"]);
+    });
+});
+
+/**
+ * 外壳一侧（`host/artifact-bridge.ts`）：页面能伪造任何消息，所以只认 iframe 发来的、只收这一版待答题的合法取值、只写草稿。
+ * iframe 的窗口用假的（只记下发给它的消息）；消息经 `web-env` 装的假 `window` 派发，`source` 写成谁就是谁发的。
+ */
+const scopes: EffectScope[] = [];
+useWebEnv(() => {
+    for (const scope of scopes.splice(0)) scope.stop();
+});
+
+const versionQuestion = (id: string, patch: Partial<VersionQuestion> = {}): VersionQuestion => ({id, type: "single", label: id, options: [{value: "a", label: "甲"}, {value: "b", label: "乙"}], required: false, recommend: ["a"], origin: "markup", page: "index.html", about: null, since: 1, outcome: null, ...patch});
+const questionState = (q: VersionQuestion, name: QuestionState["state"], value?: unknown): QuestionState => ({question: q, state: name, answer: value === undefined ? null : {answerId: "x", value, artifactVersion: 1, submittedAt: "2026-11-10T00:00:00.000Z", comment: null}, stale: null});
+const SHEET: QuestionState[] = [
+    questionState(versionQuestion("pick"), "open"),
+    questionState(versionQuestion("many", {type: "multi"}), "open"),
+    questionState(versionQuestion("words", {type: "text", options: [], recommend: []}), "open"),
+    questionState(versionQuestion("done"), "answered", "b"),
+    questionState(versionQuestion("old", {page: null}), "answered", "a"),
+    questionState(versionQuestion("gone", {outcome: {kind: "withdrawn", in: 1, reason: "explicit"}}), "withdrawn"),
+];
+
+describe("外壳发给页面的题表", () => {
+    test("只发这一版待答与已答的题；待答的带草稿里改过的取值，已答的带答案文字", () => {
+        const draft = setDraftValue(emptyAnswerDraft(), "pick", "b", false);
+        expect(bridgeQuestions(SHEET, draft).map((entry) => [entry.id, entry.state, entry.value, entry.changed, entry.answerText])).toEqual([
+            ["pick", "pending", "b", true, null], ["many", "pending", null, false, null], ["words", "pending", null, false, null], ["done", "answered", null, false, "乙"],
+        ]);
+    });
+});
+
+describe("页面发来的取值", () => {
+    const accept = (id: unknown, value: unknown, draft: AnswerDraft = emptyAnswerDraft(), disabledReason: string | null = null) => acceptPageDraft({questions: SHEET, draft, disabledReason, id, value});
+
+    test("待答题的合法取值写进草稿并标“页面里填的”；null 与空白是清空，标记也去掉；侧栏里再改就去掉标记", () => {
+        const picked = accept("pick", "b");
+        expect("draft" in picked && [picked.draft.values.pick, picked.draft.touched.pick, picked.draft.fromPage]).toEqual(["b", true, {pick: true}]);
+        const draft = "draft" in picked ? picked.draft : emptyAnswerDraft();
+        const cleared = accept("pick", null, draft);
+        expect("draft" in cleared && [cleared.draft.touched.pick, cleared.draft.fromPage]).toEqual([false, {}]);
+        const blank = accept("words", "   ", draft);
+        expect("draft" in blank && [blank.draft.touched.words, blank.draft.fromPage]).toEqual([false, {pick: true}]);
+        expect(setDraftValue(draft, "pick", "a", false).fromPage).toEqual({});
+    });
+
+    test("不收：已答的题、之前几版的题、撤回的题、不认识的题号、不合法的取值、表单只读时", () => {
+        const reasons = [accept("done", "a"), accept("old", "a"), accept("gone", "a"), accept("nope", "a"), accept(7, "a"), accept("pick", "c"), accept("many", ["a", "a"]), accept("words", "带\u0007控制字符"), accept("pick", "a", emptyAnswerDraft(), "产物已关闭，不能再答")];
+        expect(reasons.map((outcome) => "rejected" in outcome)).toEqual(Array(9).fill(true));
+    });
+});
+
+describe("产物页和页面的对话", () => {
+    function mountShell(options: {disabledReason?: string | null} = {}) {
+        const frameSent: ShellMessage[] = [];
+        const frame = {postMessage: (message: ShellMessage) => void frameSent.push(message)} as unknown as Window;
+        const draft = ref<AnswerDraft>(emptyAnswerDraft());
+        const disabledReason = ref<string | null>(options.disabledReason ?? null);
+        const scope = effectScope();
+        scopes.push(scope);
+        const bridge = scope.run(() => useArtifactBridge({frame: () => frame, questions: () => SHEET, draft, disabledReason: () => disabledReason.value}))!;
+        const receive = (data: PageMessage, source: unknown = frame) => window.dispatchEvent(Object.assign(new Event("message"), {data, source}));
+        return {frameSent, frame, draft, disabledReason, bridge, receive, scope};
+    }
+    const states = (sent: ShellMessage[]) => sent.filter((message) => message.type === "nbdev:state");
+
+    test("页面发 ready 之前不发题表；ready 之后发一份，草稿或只读原因变了再发", async () => {
+        const shell = mountShell();
+        shell.draft.value = setDraftValue(shell.draft.value, "pick", "a", false);
+        await nextTick();
+        expect(shell.frameSent).toEqual([]);
+        shell.receive({type: "nbdev:ready"});
+        expect(states(shell.frameSent).map((message) => message.type === "nbdev:state" && message.questions.find((entry) => entry.id === "pick")?.value)).toEqual(["a"]);
+        shell.disabledReason.value = "正在提交";
+        await nextTick();
+        const last = states(shell.frameSent).at(-1);
+        expect(last?.type === "nbdev:state" && last.disabledReason).toBe("正在提交");
+    });
+
+    test("iframe 发来的合法取值进草稿；别的来源发来的不理；不收的取值写警告并重发题表，页面回到草稿的样子", async () => {
+        const shell = mountShell();
+        shell.receive({type: "nbdev:ready"});
+        shell.receive({type: "nbdev:draft", id: "pick", value: "b"}, {postMessage: () => undefined});
+        expect(shell.draft.value.touched).toEqual({});
+        shell.receive({type: "nbdev:draft", id: "pick", value: "b"});
+        expect([shell.draft.value.values.pick, shell.draft.value.fromPage]).toEqual(["b", {pick: true}]);
+        const before = states(shell.frameSent).length;
+        const warn = console.warn;
+        const warnings: unknown[][] = [];
+        console.warn = (...args: unknown[]) => void warnings.push(args);
+        try {
+            shell.receive({type: "nbdev:draft", id: "done", value: "a"});
+        } finally {
+            console.warn = warn;
+        }
+        expect([shell.draft.value.values.done, warnings.length, states(shell.frameSent).length > before]).toEqual([undefined, 1, true]);
+    });
+
+    test("表单只读时页面发来的取值不收；reveal 发给页面；页面卸载后不再收消息", () => {
+        const shell = mountShell({disabledReason: "只能对最新一版（v2）答复"});
+        shell.receive({type: "nbdev:ready"});
+        const warn = console.warn;
+        console.warn = () => undefined;
+        try {
+            shell.receive({type: "nbdev:draft", id: "pick", value: "a"});
+        } finally {
+            console.warn = warn;
+        }
+        expect(shell.draft.value.touched).toEqual({});
+        shell.bridge.reveal("pick");
+        expect(shell.frameSent.at(-1)).toEqual({type: "nbdev:reveal", id: "pick"});
+        shell.scope.stop();
+        shell.disabledReason.value = null;
+        shell.receive({type: "nbdev:draft", id: "pick", value: "a"});
+        expect(shell.draft.value.touched).toEqual({});
     });
 });

@@ -23,16 +23,23 @@ interface ArtifactFrameProps {
 }
 ```
 
-没有事件、插槽与 expose；attrs 落到外层 `section`。
+没有事件与插槽；attrs 落到外层 `section`。
+
+```ts
+interface ArtifactFrameExpose {
+    /** iframe 的窗口，还没挂上时是 null。产物页拿它和页面里的答题控件对话（t23）：只收这个窗口发来的消息、只往它发 */
+    contentWindow(): Window | null;
+}
+```
 
 ## 安全与外观的理由
 
 - `sandbox="allow-scripts allow-forms allow-popups"`，**不给 `allow-same-origin`**：产物页的脚本是 Agent 写的，同源就能读面板的 cookie、调写接口。产物来源本来就是另一个端口加随机前缀（不透明来源），沙箱再隔一层。
 - `referrerpolicy="no-referrer"`：产物页里的外链不带出面板地址与随机前缀。
 - 定死 `color-scheme: light` 并垫白底：产物页按亮色画、多半没有自己的底色。Chrome 只在载入时按明暗是否一致垫白底，面板切到暗色后不会重算，就成了深底黑字（t11 实现审查第 5 条）。想支持暗色的产物页自己设底色。
-- 答复只经外面的表单提交：外壳不监听 iframe 发来的消息（页面自己的脚本能伪造任何取值）。
+- 答复只经外面的表单提交：页面里的答题控件（t23，产物来源注入的脚本）发来的取值只进草稿，由产物页校验来源与取值（页面自己的脚本能伪造任何取值，最多改动草稿）。零件自己不收消息。
 
 ## 不支持
 
-- 不做页内答复（推迟事项，见 w00022 后续清单）。
+- 在页面里提交：页面里填的只进草稿，提交在产物页的侧栏（t23）。
 - 不给按版本看页面：页面文件不按版本保存，只有磁盘上的当前版本。

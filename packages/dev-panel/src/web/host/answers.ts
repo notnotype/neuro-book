@@ -61,7 +61,8 @@ export function editingValue(state: QuestionState, values: Readonly<Record<strin
 export const submittedValue = editingValue;
 
 /**
- * 答复表单里还没交的填写（t21）：取值、哪些题改过、各题的说明与是否展开说明框、哪些已答的题点了“改答”、整份的备注。
+ * 答复表单里还没交的填写（t21）：取值、哪些题改过、各题的说明与是否展开说明框、哪些已答的题点了“改答”、整份的备注，
+ * 以及哪些题的取值是在评审板页面里填的（t23，`fromPage`，侧栏据此标“页面里填的”）。
  * 由产物页持有、存在这台浏览器里（`host/answer-draft.ts`），表单经 `v-model:draft` 改它；离开页面、刷新、面板重启后回来还在。
  */
 export type AnswerDraft = {
@@ -71,10 +72,21 @@ export type AnswerDraft = {
     commenting: Record<string, boolean>;
     editing: Record<string, boolean>;
     note: string;
+    fromPage: Record<string, boolean>;
 };
 
 export function emptyAnswerDraft(): AnswerDraft {
-    return {values: {}, touched: {}, comments: {}, commenting: {}, editing: {}, note: ""};
+    return {values: {}, touched: {}, comments: {}, commenting: {}, editing: {}, note: "", fromPage: {}};
+}
+
+/**
+ * 改一道题的取值，返回新的整份草稿：取值照存（文本框里的空白仍显示），清空了的不算改过、不交。
+ * `fromPage` 记这次是不是页面里改的：侧栏里再改就去掉标记，清空了也去掉。
+ */
+export function setDraftValue(draft: AnswerDraft, id: string, value: unknown, fromPage: boolean): AnswerDraft {
+    const blank = isBlankAnswer(value);
+    const marks = Object.fromEntries(Object.entries(draft.fromPage).filter(([key]) => key !== id));
+    return {...draft, values: {...draft.values, [id]: value}, touched: {...draft.touched, [id]: !blank}, fromPage: fromPage && !blank ? {...marks, [id]: true} : marks};
 }
 
 /** 草稿里有没有值得留的东西：改过的取值、写了字的说明或备注、点了“改答”的题。只展开了空的说明框不算。 */
@@ -91,6 +103,8 @@ export function parseAnswerDraft(raw: unknown): AnswerDraft | null {
     const isBoolean = (entry: unknown) => typeof entry === "boolean";
     const isString = (entry: unknown) => typeof entry === "string";
     if (!recordOf(draft.values, () => true) || !recordOf(draft.touched, isBoolean) || !recordOf(draft.comments, isString) || !recordOf(draft.commenting, isBoolean) || !recordOf(draft.editing, isBoolean) || typeof draft.note !== "string") return null;
+    // t21 存下的草稿没有 `fromPage`：补成空的；有但形状不对就整份不要。
+    if (draft.fromPage !== undefined && !recordOf(draft.fromPage, isBoolean)) return null;
     return {
         values: draft.values as Record<string, unknown>,
         touched: draft.touched as Record<string, boolean>,
@@ -98,6 +112,7 @@ export function parseAnswerDraft(raw: unknown): AnswerDraft | null {
         commenting: draft.commenting as Record<string, boolean>,
         editing: draft.editing as Record<string, boolean>,
         note: draft.note,
+        fromPage: (draft.fromPage ?? {}) as Record<string, boolean>,
     };
 }
 

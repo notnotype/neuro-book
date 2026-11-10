@@ -10,6 +10,8 @@
 - **已答**：这一版里能答、已经答了的题，只读显示答案、针对哪一版、什么时候答的与说明；点“改答”才变成控件，“取消改答”回到已答的那份、这道题不再交；
 - **之前几版的题**（页面上已没有）不进表单：服务端不再收它们的答复（`question_earlier`），宿主经 `readonly` 插槽放只读的 `QuestionPanel`。
 
+旁边的评审板页面里有答题控件时（t23，宿主传 `revealable`），页面上有元素的题（页面标记登记、属于这一版页面的）标题后有“在页面里看”的小按钮，点了发 `reveal`，宿主让页面滚到那道题；页面里填的取值由宿主写进同一份草稿，这道题标“页面里填的”，在侧栏里再改就去掉标记。
+
 每题可以加说明，整份答复可以写备注。填写都在受控的 `draft` 里：零件自己不留状态，宿主（产物页）把它存在这台浏览器里，离开页面、刷新、面板重启后回来还在（t21）。只交改过或新填的题与写了说明的题。清空了的题回到“没答”、不交（多选全取消、文字只剩空白；待答的单选、确认题选了之后多一个“清除选择”），不会因为它校验不过而整份交不了（t19）。取值按核心的 `validateAnswerValue` 与控制字符规则当场校验（同一份规则，不复制）。零件不发请求，按“提交”只发 `submit`。
 
 ## 布局
@@ -34,6 +36,8 @@ interface AnswerFormProps {
     errors: Record<string, string>;
     /** 还没交的填写（`v-model:draft`，受控）；必填。宿主给空的就是没填过，提交成功后由宿主换回空的 */
     draft: AnswerDraft;
+    /** 旁边的评审板页面里有答题控件（t23）：页面上有元素的题给“在页面里看”；可选，默认 false */
+    revealable?: boolean;
 }
 /** `host/answers.ts`：取值、哪些题改过、各题的说明与说明框是否展开、哪些已答的题点了“改答”、整份的备注 */
 interface AnswerDraft {
@@ -43,12 +47,16 @@ interface AnswerDraft {
     commenting: Record<string, boolean>;
     editing: Record<string, boolean>;
     note: string;
+    /** 取值是在评审板页面里填的题（t23）：标“页面里填的”；侧栏里改了就去掉 */
+    fromPage: Record<string, boolean>;
 }
 interface AnswerFormEmits {
     /** 按下提交；`values` 只含改过或新填的题 */
     (event: "submit", answer: {values: Record<string, unknown>; comments: Record<string, string>; note: string | null}): void;
     /** 每改一处（选、打字、加说明、改答、取消改答、清除选择、备注）发一份新的整份草稿 */
     (event: "update:draft", draft: AnswerDraft): void;
+    /** 点了一道题的“在页面里看”（t23） */
+    (event: "reveal", id: string): void;
 }
 interface AnswerFormSlots {
     /** 已答之后、备注之前的只读内容（产物页放 QuestionPanel 的“之前几版的题”“已取代与撤回”）；可选 */

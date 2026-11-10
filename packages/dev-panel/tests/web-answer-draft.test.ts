@@ -28,7 +28,7 @@ describe("答复草稿", () => {
         page.draft.value = {...page.draft.value, comments: {pick: "倾向乙"}, commenting: {pick: true}, note: "整体可以"};
         await nextTick();
 
-        expect(openPage(REVIEW).draft.value).toEqual({values: {pick: "b", words: "第二段太长"}, touched: {pick: true, words: true}, comments: {pick: "倾向乙"}, commenting: {pick: true}, editing: {}, note: "整体可以"});
+        expect(openPage(REVIEW).draft.value).toEqual({values: {pick: "b", words: "第二段太长"}, touched: {pick: true, words: true}, comments: {pick: "倾向乙"}, commenting: {pick: true}, editing: {}, note: "整体可以", fromPage: {}});
         expect(openPage("w00022-dev-panel/t21-panel-answer-drafts/other").draft.value).toEqual(emptyAnswerDraft());
     });
 
@@ -56,6 +56,11 @@ describe("答复草稿", () => {
         page.draft.value = {...page.draft.value, values: {pick: ["a"]}, editing: {pick: true}};
         await nextTick();
         expect(openPage(REVIEW).draft.value.editing).toEqual({pick: true});
+    });
+
+    test("t21 存下的草稿没有“页面里填的”标记：照常读回，标记补成空的", () => {
+        localStorage.setItem(`nbdev-panel:answer-draft:${REVIEW}`, JSON.stringify({values: {words: "旧的"}, touched: {words: true}, comments: {}, commenting: {}, editing: {}, note: ""}));
+        expect(openPage(REVIEW).draft.value).toEqual({...emptyAnswerDraft(), values: {words: "旧的"}, touched: {words: true}});
     });
 
     test("存坏了（不是 JSON、形状不对）按没有草稿处理，页面照常打开", () => {
