@@ -43,5 +43,6 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0041](0041-world-engine-kernel-mechanisms-plot-plugin-semantics.md) | 世界引擎的内核只加通用机制（条目引用、讲述发生点与标注、在场、时间说法、世界线、决策存储、标注与诊断两个贡献点），知情、伏笔、目标、决策的语义与检查放进剧情插件 |
 | [0042](0042-world-engine-worldlines-as-per-line-views.md) | 世界线是每条线一份线性视图、复用现有引擎，日志加线与分叉；计划按写下的先后跨线，哪些线要更新在更新时按值比对（部分取代 0037 的“换掉位置模块”） |
 | [0043](0043-world-engine-placement-and-telling-orders.md) | 故事里的事实按安放折叠，读者看到的按当前正文里的讲述算；时间是约束网络算出的范围，不决定折叠 |
-| [0044](0044-workbench-single-layout-tree.md) | 工作台除标题栏外是一棵布局树，内容按矩形摆放，工作台拥有摆放、插件拥有内容，布局工具自写并全部收进 `nb-layout` |
+| [0044](0044-workbench-single-layout-tree.md) | 工作台除标题栏外是一棵布局树，内容按矩形摆放，工作台拥有摆放、插件拥有内容，布局工具自写并全部收进 `nb-layout`（其中的“取消 ViewContainer”已被 0046 取代） |
 | [0045](0045-shared-host-packages-for-second-app.md) | 第二个应用要的宿主底座抽成三个不发布的包：`nb-host`（两端宿主、HTTP 的来源核对、诊断出口，应用名由应用传入）、`nb-models`（模型服务，内置角色与选择顺序共用）、`nb-file-lock`（跨进程锁与加锁替换）；`plugin-platform` 改为出现第二个需要第三方插件的应用时再搬（部分取代 0030 决策 2） |
+| [0046](0046-workbench-view-containers.md) | 工作台加回视图容器：三片具名面板当区域的锚，容器归属记在分节自己的记录上、不放在树的分支上，可见只有一个判定，拖动预览不切换容器（部分取代 0044 决策 3） |

@@ -1,17 +1,22 @@
 ---
 schema: nbook.proposal/v1
-status: reviewing
+status: accepted
 created: 2026-11-09
-decided: null
+decided: 2026-11-10
 supersedes: []
 superseded-by: null
-specs: []
-adrs: []
+specs:
+  - docs/specs/ui/workbench-layout.md
+  - docs/specs/workbench/views.md
+  - docs/specs/ui/layout-drag.md
+  - docs/specs/ui/nested-grid.md
+adrs:
+  - docs/adr/0046-workbench-view-containers.md
 ---
 
 # 工作台的视图容器
 
-本稿在 [工作台布局：一棵树、按矩形摆放与 nb-layout](workbench-single-tree-layout.md) 之上加回“容器”这一层：活动栏、右栏、底部面板的一个入口切换的是一组视图，不是一个视图。一棵树、规范形、按矩形摆放、两种拖动手感都不变。接受后另写一份 ADR，部分取代 [ADR 0044](../adr/0044-workbench-single-layout-tree.md) 的决策 3（“取消 ViewContainer”），决策 1 不动。过程见 [w00026 t24](../../.agents/works/w00026-layout-package/tasks/t24-view-containers/README.md)，两轮审查的归类在那里。
+本稿在 [工作台布局：一棵树、按矩形摆放与 nb-layout](workbench-single-tree-layout.md) 之上加回“容器”这一层：活动栏、右栏、底部面板的一个入口切换的是一组视图，不是一个视图。一棵树、规范形、按矩形摆放、两种拖动手感都不变。长期决定见 [ADR 0046](../adr/0046-workbench-view-containers.md)，它部分取代 [ADR 0044](../adr/0044-workbench-single-layout-tree.md) 的决策 3（“取消 ViewContainer”），决策 1 不动。过程见 [w00026 t24](../../.agents/works/w00026-layout-package/tasks/t24-view-containers/README.md)，两轮审查的归类在那里。
 
 ## 问题
 
@@ -139,10 +144,11 @@ adrs: []
 
 ## 待定项
 
-1. **拖入口能去哪**（第 5 节，第二轮审查 R7）：推荐只含一个视图的入口拖它就是拖视图，含几个视图的入口只能在入口条之间走（换序、换区域），不能拖进分节区域，也不进实时布局。另一种是多视图的入口也能拖进别的区域的分节里，那要一种新的拖动来源（整组分节）和它的预览，部件多不少。
+无。
 
 ## 决策记录
 
 - 2026-11-09 开发者：右栏、底部面板也做容器；容器既有插件声明的，也能由用户拖出来。容器里怎么排（分节或面板）、一个容器有几个视图时图标用谁的，暂时定不下，等本稿给出推荐再定。
 - 2026-11-10 开发者：待定项“都先按推荐”：容器里是分节；用户拖出来的容器用第一个分节的视图的图标；旧的布局记录不迁移、回落默认树；右栏、底部面板的入口条放在各自的头上，右栏用图标、底部面板用标题。
 - 2026-11-10 开发者：第一轮审查后的改稿（容器是记录里的清单、缺省一个视图一个入口、拖到入口不预览切容器、分节规则、旧记录不加版本号）与三个新待定项“都按推荐”：默认声明侧栏容器“项目”（会话、资源管理器），对话留在右栏；活动栏隐藏时只用命令切换侧栏容器；切换容器不改尺寸意图，只在呈现时夹。
+- 2026-11-10 开发者：第二轮审查后的改稿与待定项（拖入口能去哪）“按推荐走，不用再审了”：只含一个视图的入口拖它就是拖视图，含几个视图的入口只在入口条之间走；提案接受。
