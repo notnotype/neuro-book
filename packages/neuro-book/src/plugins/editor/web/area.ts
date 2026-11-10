@@ -544,18 +544,24 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return editorText(unrepresentable ? "refusal.targetUnrepresentable" : "refusal.targetUnresolved");
     };
 
+    /** 这次打开落在组此刻的活动标签上（再次打开当前文件）：活动标签不换，不算离开视图。判断同输出 1 的“已在本组打开”。 */
+    const opensActive = (groupId: string, address: string, editor: string | undefined): boolean => {
+        const group = groups.groups.value.find((candidate) => candidate.id === groupId);
+        const tab = group?.tabs.find((candidate) => candidate.id === group.active);
+        return tab !== undefined && tab.kind === "file" && tab.address === address && (editor === undefined ? !isPreview(tab.editor) : tab.editor === editor);
+    };
     /**
      * 换文档前结算活动视图的输入；它有未裁决输入或写不出时不换。放行就是用户要离开这个视图了，算一次失焦（输出 63）：
      * 不等控件的 `leave`，聚焦的元素被隐藏时浏览器发不发 blur 并不一致。
      */
-    const leave = (groupId: string): boolean => {
+    const leave = (groupId: string, how: {readonly leaving?: boolean} = {}): boolean => {
         const current = activeBound(groupId);
         if (current === undefined) return true;
         documents.settle(current.document);
         const held = holding(groupId);
         if (held === "unresolved") notice.value = editorText("notice.unresolved");
         if (held === "unrepresentable") notice.value = editorText("notice.unrepresentable");
-        if (held === null) autoSave.viewLeft(current.document);
+        if (held === null && how.leaving !== false) autoSave.viewLeft(current.document);
         return held === null;
     };
 
@@ -620,10 +626,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const ownInput = own !== null && (own.unresolved() || own.blocked());
             // 只剩预览视图或只读的编辑器时照常问：它们改不了正文（输出 4）。
             const shared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === found.tab.address && editable(tab)));
-            if (shared ? !ownInput : !needsSettle(document)) break;
+            if (shared ? !ownInput : !needsSettle(document)) {
+                // 别的组还开着这份文档：关掉这个标签也是离开它（“失焦时”保存），被关掉的控件发不发 blur 不可靠。
+                if (shared) autoSave.viewLeft(document);
+                break;
+            }
             // 开着自动保存、文档又没有阻碍（输出 4、63）：不问，先保存，存完回到开头再看。保存期间又有输入就再存一次；
             // 失败则落到下面的询问。
-            if (!shared && !autoSaveFailed && autoSave.savesOnClose(document)) {
+            if (!autoSaveFailed && autoSave.savesOnClose(document)) {
                 autoSaveFailed = !(await autoSave.save(document)).ok;
                 continue;
             }
@@ -762,7 +772,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (request.group !== undefined && request.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === request.group)) return {ok: false, reason: editorText("refusal.groupClosed")};
         // 只结算活动标签要换掉的那一组（同 `activate`）：目标组；侧边还没有组时要新建，没有要结算的。
         const target = request.group === "side" ? groups.rightOf(groups.activeGroup.value) : (request.group ?? groups.activeGroup.value);
-        if (target !== null && !leave(target)) return {ok: false, reason: refusal(target, target === groups.activeGroup.value ? "current" : "target")};
+        if (target !== null && !leave(target, {leaving: !opensActive(target, address, request.editor)})) return {ok: false, reason: refusal(target, target === groups.activeGroup.value ? "current" : "target")};
         if (request.editor !== undefined) {
             const refusal = editorRefusal(catalog, request.editor, address);
             if (refusal !== null) return {ok: false, reason: refusal};
@@ -935,7 +945,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (tab.kind === "page") return {ok: false, reason: editorText("refusal.pageEditor")};
             const unusable = editorRefusal(catalog, editor, tab.address);
             if (unusable !== null) return {ok: false, reason: unusable};
-            if (!leave(group)) return {ok: false, reason: refusal(group, "current")};
+            // 同一个标签换编辑器不算离开这个文件：换成按字节显示的编辑器时，自己触发的保存还会挡住这次换（输出 39）。
+            if (!leave(group, {leaving: false})) return {ok: false, reason: refusal(group, "current")};
             // 换成的编辑器在本组已有这个文件的标签：切过去，当前这个关掉并释放。
             return changeEditor(tab, editor);
         },

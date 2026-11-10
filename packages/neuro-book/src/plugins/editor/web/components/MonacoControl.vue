@@ -81,6 +81,8 @@ let applying = false;
 let unmounted = false;
 let themeObserver: MutationObserver | null = null;
 let cursorTimer: ReturnType<typeof setTimeout> | null = null;
+/** 输入法正在组字：Monaco 把候选前的拼音直接写进模型并交出，“停手后”的自动保存据此顺延（输出 63）。 */
+let composing = false;
 
 /** 光标停下这么久才记到标签上（随会话记录保存，输出 30）；换文档与失焦时立即记。 */
 const CURSOR_REMEMBER_MS = 1000;
@@ -162,7 +164,7 @@ const enter = (binding: TextEditorBinding): void => {
     detach = binding.attach(() => {
         const current = stateOf(binding);
         if (current !== null && !current.held && current.confirmed === binding.revision.value && textOf(current) !== binding.text.value) commit(binding, current);
-    });
+    }, () => composing);
 };
 
 /** 把光标记到当前绑定的标签上。 */
@@ -308,6 +310,12 @@ onMounted(async () => {
     editor.onDidBlurEditorText(() => {
         rememberCursor();
         emit("focus", false);
+    });
+    editor.onDidCompositionStart(() => {
+        composing = true;
+    });
+    editor.onDidCompositionEnd(() => {
+        composing = false;
     });
     // 部件一级的失焦：焦点进查找框时文字区失焦、部件没有，不算离开视图。
     editor.onDidBlurEditorWidget(() => emit("leave"));

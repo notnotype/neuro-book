@@ -115,8 +115,10 @@ export interface DocumentStore {
     block(document: TextDocument, token: string, input: BlockedInput): void;
     /** 视图不再写不出：它的一次输入交出成功（提交时自动解除），或用户选了采用当前正文。 */
     unblock(document: TextDocument, token: string): void;
-    /** 视图登记自己的结算函数：保存、切换、资源管理器的操作之前同步调用，让视图把还没交出的输入交给文档。 */
-    /** `pending`：这个视图手里有还没交出的输入或正在组字时为真；不给就是没有缓冲。 */
+    /**
+     * 视图登记自己的结算函数：保存、切换、资源管理器的操作之前同步调用，让视图把还没交出的输入交给文档。`pending`：这个
+     * 视图手里有还没交出的输入或正在组字时为真；不给就是没有缓冲。
+     */
     attachView(document: TextDocument, flush: () => void, pending?: () => boolean): () => void;
     /** 这份文档有视图手里还有没交出的输入（或正在组字）：此刻结算会把半截输入写进正文。文档已关闭为假。 */
     pending(document: TextDocument): boolean;
@@ -350,6 +352,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
                 entry.saveProblem.value = null;
                 return;
             }
+            // 核对完了、那次写入没有落盘：不再是“结果未知”，是一次失败，组顶部说明并给“重试保存”（输出 14）。
+            if (entry.saveProblem.value?.code === "unknown-outcome") entry.saveProblem.value = {code: "not-written", detail: ""};
         }
         if (baseline.hash === entry.baseline?.hash) return;
         // 视图里可能还有没交出的输入（控件有输入延迟）：先结算，再按 dirty 决定换不换正文。
@@ -758,6 +762,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             if (baseRevision === revision) {
                 entry.text.value = text;
                 entry.revision.value = revision + 1;
+                // 改回了已保存的正文：上次保存的失败不再相关，留着它组顶部还写“保存失败”，“重试保存”也无事可做。
+                if (!isDirty(entry)) entry.saveProblem.value = null;
                 return {status: "accepted", revision: revision + 1};
             }
             const candidates = new Map(entry.candidates.value);

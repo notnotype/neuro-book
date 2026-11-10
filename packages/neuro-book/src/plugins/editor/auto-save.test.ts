@@ -26,6 +26,7 @@ import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-pa
 import {createEditorArea} from "./web/area";
 import type {EditorArea, TextEditorBinding} from "./web/area";
 import type {AutoSaveMode, AutoSaveSettings} from "./web/auto-save";
+import {CODE_EDITOR} from "./shared/contracts";
 import type {TextDocument} from "./web/documents/store";
 
 let tmp = "";
@@ -149,7 +150,7 @@ describe("Spec workbench.editor 输出 63：离开视图与窗口失焦", () => 
         const b = await open(at, "b.md");
         type(at, "B1");
         // 窗口失焦时模式下，应用内换标签不保存。
-        expect(documentOf(at, "project://a.md").dirty.value).toBe(true);
+        expect(documentOf(at, "project://a.md").saving.value).toBe(false);
         at.area.windowBlurred();
         await saved(at, "a.md", "A1");
         await saved(at, "b.md", "B1");
@@ -366,6 +367,84 @@ describe("Spec workbench.editor 输出 63：不自动保存的文档", () => {
     });
 });
 
+describe("Spec workbench.editor 输出 14、63：存不了之后怎样恢复", () => {
+    it("结果未知、核对后没落盘：说明保存失败，“重试保存”成功后自动保存恢复", async () => {
+        const at = await world("onFocusChange");
+        const document = await open(at, "a.md");
+        type(at, "A1");
+        // 写请求还没到服务端就断线：结果未知。
+        const held = at.tap.holdSend((frame) => (frame as {type?: string; method?: string}).type === "request" && (frame as {method?: string}).method === "write");
+        at.area.viewLeft(tabId(at));
+        await held.arrived;
+        at.scene.windowLink.disconnect();
+        await until(at, "结果未知", () => document.saveProblem.value?.code === "unknown-outcome" && !document.saving.value);
+        await at.scene.windowLink.reconnect();
+        await until(at, "核对过：没有落盘", () => document.saveProblem.value?.code === "not-written");
+        expect(await disk(at, "a.md")).toBe("A");
+        expect(document.dirty.value).toBe(true);
+        // 停下了：再离开视图不发保存。
+        at.area.viewLeft(tabId(at));
+        expect(document.saving.value).toBe(false);
+        expect(await at.area.save()).toEqual({ok: true});
+        expect(document.saveProblem.value).toBeNull();
+        type(at, "A2");
+        at.area.viewLeft(tabId(at));
+        await saved(at, "a.md", "A2");
+    });
+
+    it("保存失败后把正文改回原样：不再提示保存失败，之后的输入照常自动保存", async () => {
+        const at = await world("onFocusChange");
+        const document = await open(at, "a.md");
+        await chmod(at.scene.project, 0o555);
+        type(at, "A1");
+        at.area.viewLeft(tabId(at));
+        await until(at, "保存失败", () => document.saveProblem.value !== null && !document.saving.value);
+        type(at, "A");
+        expect(document.dirty.value).toBe(false);
+        expect(document.saveProblem.value).toBeNull();
+        await chmod(at.scene.project, 0o755);
+        type(at, "A3");
+        at.area.viewLeft(tabId(at));
+        await saved(at, "a.md", "A3");
+    });
+
+    it("设置换成值相同的新对象：“停手后”的计时不重排", async () => {
+        const at = await world("afterDelay");
+        const a = await open(at, "a.md");
+        type(at, "A1");
+        at.clock.advance(DELAY - 1);
+        // 换一个值相同的设置对象：取值没变，不重排。
+        at.settings.value = {mode: "afterDelay", delay: DELAY};
+        at.clock.advance(1);
+        expect(a.saving.value).toBe(true);
+        await saved(at, "a.md", "A1");
+    });
+});
+
+describe("Spec workbench.editor 输出 63：什么不算离开视图", () => {
+    it("再次打开组里正活动的文件、同一个标签换编辑器：不保存", async () => {
+        const at = await world("onFocusChange");
+        const document = await open(at, "a.md");
+        type(at, "A1");
+        expect(at.area.open("project://a.md", {mode: "permanent"})).toMatchObject({ok: true});
+        expect(document.saving.value).toBe(false);
+        expect(at.area.reopenWith(CODE_EDITOR)).toMatchObject({ok: true});
+        expect(document.saving.value).toBe(false);
+        expect(document.dirty.value).toBe(true);
+    });
+
+    it("同一文件在两个组里：关掉其中一组的标签算离开，保存", async () => {
+        const at = await world("onFocusChange");
+        const document = await open(at, "a.md");
+        expect(at.area.split("right")).toMatchObject({ok: true});
+        await until(at, "右组就绪", () => at.area.binding(groupId(at)) !== null);
+        type(at, "A1");
+        expect(await at.area.close(tabId(at))).toBe("closed");
+        await saved(at, "a.md", "A1");
+        expect(document.dirty.value).toBe(false);
+    });
+});
+
 describe("Spec workbench.editor 输出 4、63：关闭标签", () => {
     it("开着自动保存：关闭未保存的标签不询问，保存完成后关闭", async () => {
         const at = await world("afterDelay");
@@ -402,6 +481,22 @@ describe("Spec workbench.editor 输出 4、63：关闭标签", () => {
         expect(await closing).toBe("cancelled");
         expect(document.dirty.value).toBe(true);
         expect(at.area.groups.activeTab()?.address).toBe("project://a.md");
+    });
+
+    it("批量关闭遇保存失败：停在询问，取消后已关的不恢复", async () => {
+        const at = await world("onFocusChange");
+        await open(at, "b.md");
+        await open(at, "a.md");
+        const keep = tabId(at);
+        await at.area.activate(at.area.groups.groups.value[0]!.tabs[0]!.id);
+        await until(at, "b 就绪", () => at.area.binding(groupId(at))?.address.value === "project://b.md");
+        await chmod(at.scene.project, 0o555);
+        type(at, "B1");
+        const closing = at.area.closeOthers(keep);
+        await until(at, "问", () => at.area.dialog.value !== null);
+        at.area.answer("cancel");
+        expect(await closing).toMatchObject({ok: false, closed: 0});
+        expect(at.area.groups.groups.value[0]!.tabs).toHaveLength(2);
     });
 
     it("磁盘已变化的文档：照旧询问", async () => {

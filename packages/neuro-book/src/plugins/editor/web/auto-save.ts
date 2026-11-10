@@ -6,7 +6,7 @@
  */
 
 import {shallowRef, watch} from "@vue/reactivity";
-import type {ComputedRef} from "@vue/reactivity";
+import type {ComputedRef, ShallowRef} from "@vue/reactivity";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
@@ -51,13 +51,18 @@ export function createAutoSave(options: AutoSaveOptions): AutoSave {
      * 失败闸：上一次自动保存失败的文档，不再自动保存，免得“停手后”反复重试。不借用文档的 `saveProblem`：手动保存失败
      * 之后自动保存还可以再试一次，而且 `saveProblem` 在文档变干净之后可能还留着。
      */
-    const failed = shallowRef<ReadonlySet<TextDocument>>(new Set());
+    // 每份文档一个引用：一份文档的闸落下或复位，不让别的文档的计时重排。
+    const gates = new WeakMap<TextDocument, ShallowRef<boolean>>();
+    const gateOf = (document: TextDocument): ShallowRef<boolean> => {
+        let gateRef = gates.get(document);
+        if (gateRef === undefined) {
+            gateRef = shallowRef(false);
+            gates.set(document, gateRef);
+        }
+        return gateRef;
+    };
     const gate = (document: TextDocument, closed: boolean): void => {
-        if (failed.value.has(document) === closed) return;
-        const next = new Set(failed.value);
-        if (closed) next.add(document);
-        else next.delete(document);
-        failed.value = next;
+        gateOf(document).value = closed;
     };
 
     /** 没有要用户先处理的事：被删除、冲突、磁盘已变化、未裁决、写不出、只读的文档都不自动保存。 */
@@ -66,10 +71,12 @@ export function createAutoSave(options: AutoSaveOptions): AutoSave {
         && !document.diskChanged.value
         && document.unresolved.value.length === 0
         && document.blocked.value.size === 0
-        && !failed.value.has(document);
+        && !gateOf(document).value;
     const saveable = (document: TextDocument): boolean => unobstructed(document) && document.dirty.value;
 
     const save = (document: TextDocument): Promise<SaveResult> => {
+        // 已关闭的文档 `save` 会同步抛错：关闭标签时等保存期间编辑器区可能已被释放。
+        if (documents.get(document.target.value.path) !== document) return Promise.resolve({ok: false, code: "closed"});
         const saving = documents.save(document);
         // 保存失败（文档模型记下了 `saveProblem`）才落闸；冲突、未裁决、写不出有各自的标记，已经算阻碍。
         void saving.then((result) => {
@@ -110,10 +117,11 @@ export function createAutoSave(options: AutoSaveOptions): AutoSave {
             watch(() => !document.dirty.value || document.saveProblem.value === null, (recovered) => {
                 if (recovered) gate(document, false);
             }),
-            // 修订变了重新计时；阻碍消除（可自动保存从假变真）而修订没变时也要排上，否则它一直 dirty 到下一次输入。
-            watch(() => [options.settings().mode === "afterDelay" && saveable(document), document.revision.value] as const, ([armed]) => {
-                if (armed) arm();
-                else disarm();
+            // 修订变了重新计时；阻碍消除（可自动保存从假变真）而修订没变时也要排上，否则它一直 dirty 到下一次输入。取值是
+            // 字符串：取值函数里读到的设置与别的状态变了、而这两样没变时，不回调、不重排。
+            watch(() => (options.settings().mode === "afterDelay" && saveable(document) ? `armed:${String(document.revision.value)}` : "idle"), (state) => {
+                if (state === "idle") disarm();
+                else arm();
             }, {immediate: true}),
         ];
         return () => {
