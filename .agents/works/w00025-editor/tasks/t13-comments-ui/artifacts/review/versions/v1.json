@@ -1,0 +1,97 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t13-comments-ui",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "批注界面：静态稿评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "99edbf9d8ff83c5314d392e38fb0bc3faee3cc435f916ed33ef12d2ba6cc58cd",
+    "files": [
+        "index.html",
+        "r1/idle.webp",
+        "r1/margin-add.webp",
+        "r1/margin-view.webp",
+        "r1/panel-add.webp",
+        "r1/panel-view.webp",
+        "r1/popover-add.webp",
+        "r1/popover-narrow.webp",
+        "r1/popover-view.webp"
+    ],
+    "questions": [
+        {
+            "id": "q1-attention",
+            "type": "confirm",
+            "label": "问题 1：注意力排序，同意吗",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q2-where",
+            "type": "single",
+            "label": "问题 2：一条批注的意见显示在哪里",
+            "options": [
+                {
+                    "value": "popover",
+                    "label": "A 浮层：贴在被批注的那一行下面"
+                },
+                {
+                    "value": "margin",
+                    "label": "B 页边：意见排在稿纸右边，与所在段落对齐"
+                },
+                {
+                    "value": "panel",
+                    "label": "C 侧栏：编辑器右边一栏，列出这一章的全部批注"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "popover"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q3-overview",
+            "type": "single",
+            "label": "问题 3：全部批注的总览，第一版做到哪一步",
+            "options": [
+                {
+                    "value": "nav-only",
+                    "label": "只做逐条跳转"
+                },
+                {
+                    "value": "view",
+                    "label": "另做一个“批注”视图"
+                },
+                {
+                    "value": "none",
+                    "label": "都不做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "nav-only"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-10T01:12:24.305Z"
+}
