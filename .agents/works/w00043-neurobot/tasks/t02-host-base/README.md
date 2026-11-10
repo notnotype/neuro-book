@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-host-base
-status: planned
+status: active
 updated: 2026-11-10
 ---
 
@@ -28,7 +28,7 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 
 ## 与其它工作的关系
 
-- [w00032 t32](../../../w00032-agent-integration/tasks/t32-harness-backfill/README.md) 把模型角色与压缩触发点的规则搬进 nb-harness 的 `./models/rules`；本 Task 的模型服务部分建在它之上，排在 t32 合入之后。两端宿主与 HTTP 的部分不碰 t32 的文件，可以先做。
+- [w00032 t32](../../../w00032-agent-integration/tasks/t32-harness-backfill/README.md) 已于 2026-11-10 合入。它的第三稿不再搬模型规则：模型角色与压缩触发点的规则、选择顺序都由本 Task 搬进 `nb-models`；t32 只在 nb-harness 的 `kit/shapes.ts` 定了压缩角色 id `MODEL_ROLES.compaction`，本 Task 的模型几片要用它。
 - 抽到哪个包（nb-runtime 的新子路径，还是新包）在计划里定：nb-runtime 现在运行时依赖只有 TypeBox、前后端共用、与应用无关（[ADR 0030](../../../../../docs/adr/0030-plugin-platform-layering.md) 决策 1），服务端宿主要用 Bun 的服务与文件锁。
 - 代码在 Work 分支上做（`feat/w00043-neurobot`，worktree `.worktree/w00043-neurobot`），开工时建。
 
@@ -94,4 +94,4 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 
 ## 下一步
 
-第 0 片已做（2026-11-10）：[ADR 0045](../../../../../docs/adr/0045-shared-host-packages-for-second-app.md) 记三个新包与 ADR 0030 决策 2 的修订，索引已补注。接着建 worktree 开工，第 1 到 6 片可在 w00032 t32 合入前做完先合，第 7、8 片等 t32。
+第 0 片已做（2026-11-10）：[ADR 0045](../../../../../docs/adr/0045-shared-host-packages-for-second-app.md) 记三个新包与 ADR 0030 决策 2 的修订，索引已补注。2026-11-10 开发者听过三个包与对 nb-harness、`nbook.agent` 的影响后答“可以”，开工：worktree `.worktree/w00043-neurobot`（分支 `feat/w00043-neurobot`），代码由主会话写，从第 1 片做起。
