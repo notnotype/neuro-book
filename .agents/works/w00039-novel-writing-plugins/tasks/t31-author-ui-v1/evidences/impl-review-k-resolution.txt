@@ -1,0 +1,35 @@
+w00039 t31 内核补口（K-a、K-b、K-c）实现审查的处理
+审查：Claude Opus 子代理，范围 6973bbb28..6be7f80fb，报告 impl-review-k-opus.txt（11 条：重要 6、建议 5）
+修正提交：165d9389b（代码与用例）、d2e363083（完整路径规模脚本）；Spec 措辞在主工作区随本记录一起提交
+
+逐条（全部成立，按“成立，要改”处理；第 3 条的差分扩展部分接受取舍）：
+
+1. 输入摘要遇到值为 undefined 的键抛 TypeError —— 改用跳过 undefined 的 stableStringify，摘要前先把读取位置规整到它所在的线。
+   用例：author-reads“就地改与记一笔的请求 id”（title、intent 写成 undefined 与不写是同一次请求）。
+   Spec：revisions.md 输出 24 补“读取位置先规整到所在的线、键的先后不影响比较”。
+2. tree 建“父到子”表用展开复制，平方级 —— 改成 push。
+3. changedAt 与墓碑规则的判据没有测试（五个变异存活） —— author-reads 补小世界用例：回溯线（子线往父线找）、列表元素、核对点、墓碑、
+   上级的 hasChildren。四处变异（fieldPath 原样返回、核对点分支、墓碑、子线）逐个改坏后都被抓到，已还原。
+   接受取舍：建议的“差分第二段纳入列表字段”没做。两个引擎共用 fieldPath，口径错在差分里两边一起错，差分抓不到；口径由上面的
+   author-reads 用例守（变异 D 被抓到）。差分已覆盖两引擎各自的 lastTouched。
+4. components.md 输出 21 的实例字段声明没有实现 —— entry 返回 declarations（每个命名空间生效的字段声明：类型登记的加实例声明的），
+   带视图令牌时不给。用例：canon.test.ts 链路。Spec：components.md 输出 21、project.md 输出 33 改写。
+5. changes 给了 before、没写线时按“最新一章讲的线” —— 改成按 before 位置的线。用例：author-reads 回溯线。
+6. origins 对“非列表字段带元素”返回父字段的步 —— 元素路径要求字段 kind 为 list，否则结果为空。Spec：model.md 输出 37 补一句。
+7. 章标题与正文各自找文件 —— chapterTitles 只认五位补零编号、同章取第一个文件，与 chapterText 一致。用例：binder.test.ts。
+   Spec：project.md 输出 28 补“与读正文取同一个文件”。
+8. accumulated-value 的失败带整份来历 —— 远程层的 editFailure 把 origins 换成步数 steps（来历用 origins 分页读）。
+   用例：canon.test.ts 链路断言 steps 且没有 origins。Spec：revisions.md 输出 8 的表格补一句。
+9. 测试标题与断言对不上 —— a 补只改段的线；b 补 hasChildren 断言；c 来历总步数改成从样本数；d 补请求 id 被普通写入用过、
+   语义档记一笔重发。
+10. 打开后补读活页夹在没有活页夹的项目里发布空的章序调整 —— World.reorder：没记过章序且给的是空章序时一律不发布（不看版本）。
+    现有用例“订阅：释放后不再收到事件”恢复通过。Spec：project.md 输出 9 补一句。
+11. a recordNote 输入复用 NoteFields；b 预览的修订带调用方的请求 id（Spec：revisions.md 输出 22 补一句）；c 章标题挪进 .then、
+    与章序一起换；d reorder-not-recorded 诊断去重；e 规模测量量服务层：在应用的完整路径脚本 scripts/perf/canon-scale.ts
+    加两项（读条目带 changedAt、一页来历），见 scale-k-service.txt。
+
+验证（负载 1.3 到 2.0）：
+- nb-canon bun test 606 条全过、typecheck 过；
+- 应用 bun test src/plugins/canon（22 条）、src/plugins/plot（325 条、1 跳过）全过，bun run typecheck 过；
+- 完整路径规模（1000 章）：带 changedAt 的随机读中位 0.33 ms、最大 11（预算 20）；常出场条目存款来历一页（8000 步）中位 33 ms、最大 139。
+  “最新一章发布一次记账”中位 162 ms 超预算 100，是 t34 C7 已记的超预算（当时 155），不是本次回归。
