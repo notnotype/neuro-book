@@ -24,7 +24,8 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 import {Value} from "typebox/value";
 
-import {holdLock} from "nbook/backend/locked-replace";
+import {holdLock} from "@notnotype/nb-file-lock";
+
 import {NotLoadedSchema} from "nbook/plugin-platform/shared/types";
 
 const InstanceKindSchema = Type.Union([Type.Literal("product"), Type.Literal("development"), Type.Literal("fixture")]);

@@ -8,6 +8,10 @@ const PACKAGE_NAME = "proper-lockfile";
 const PACKAGE_VERSION = "4.1.2";
 const PATCH_RELATIVE_PATH = "patches/proper-lockfile@4.1.2.patch";
 const PATCHED_FILES = ["lib/lockfile.js", "lib/mtime-precision.js"] as const;
+/** 工作区里唯一直接依赖 proper-lockfile 的成员；旧应用只读、不参加检查。 */
+const LOCK_PACKAGE = "packages/nb-file-lock";
+const LEGACY_APP = "packages/neuro-book-legacy";
+const DEPENDENCY_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const;
 
 function ensure(condition: boolean, message: string): asserts condition {
     if (!condition) throw new Error(message);
@@ -25,6 +29,16 @@ export async function validateProperLockfilePatch(root = repositoryRoot): Promis
         packageJson.patchedDependencies?.[`${PACKAGE_NAME}@${PACKAGE_VERSION}`] === PATCH_RELATIVE_PATH,
         "proper-lockfile 精确 patch 登记缺失或路径错误",
     );
+
+    // Bun 按“包名@版本”打补丁：工作区成员声明别的版本会装出一份不带补丁的嵌套副本。锁参数也只该有一份，所以只许 nb-file-lock 直接依赖它。
+    const workspaces = (JSON.parse(await readFile(resolve(projectRoot, "package.json"), "utf8")) as {workspaces?: string[]}).workspaces ?? [];
+    for (const member of workspaces) {
+        if (member === LEGACY_APP) continue;
+        const manifest = JSON.parse(await readFile(resolve(projectRoot, member, "package.json"), "utf8")) as Record<string, Record<string, string> | undefined>;
+        const declared = DEPENDENCY_FIELDS.map((field) => manifest[field]?.[PACKAGE_NAME]).find((value) => value !== undefined);
+        if (member === LOCK_PACKAGE) ensure(declared === PACKAGE_VERSION, `${LOCK_PACKAGE} 必须直接依赖 proper-lockfile@${PACKAGE_VERSION}`);
+        else ensure(declared === undefined, `${member} 直接声明了 proper-lockfile：改从 @notnotype/nb-file-lock 取锁`);
+    }
 
     const lockfileText = await readFile(resolve(projectRoot, "bun.lock"), "utf8");
     ensure(

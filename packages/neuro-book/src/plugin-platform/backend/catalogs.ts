@@ -7,10 +7,9 @@
 import {lstat, readFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {errno} from "@notnotype/nb-file-lock";
 import {catalogFile, parseCatalog} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
-
-import {errno} from "nbook/backend/locked-replace";
 
 import {brief} from "./record";
 

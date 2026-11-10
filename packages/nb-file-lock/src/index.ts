@@ -1,8 +1,11 @@
+/// <reference path="./types/proper-lockfile.d.ts" />
+// 上面这行让每个导入本包的类型检查都带上 proper-lockfile 的声明（它自己不带类型）。
+
 /**
- * 加锁替换一个文件：配置层文件（docs/specs/settings/configuration.md 输出 14）与 Files 的条件保存
- * （docs/specs/workspace/files.md 的“读取与保存”）共用的提交。
+ * 跨进程的文件锁与加锁替换。使用方举例：设置的配置层文件（docs/specs/settings/configuration.md 输出 14）与文件服务的
+ * 条件保存（docs/specs/workspace/files.md 的“读取与保存”）、插件登记、数据目录的认领。锁的过期与退避参数只在本文件。
  *
- * 取写入锁 → 读当前字节并记下文件身份 → 由调用方按当前字节决定写什么或就此结束 → 写同目录的临时文件 → 改名前核对仍持有锁、
+ * 加锁替换：取写入锁 → 读当前字节并记下文件身份 → 由调用方按当前字节决定写什么或就此结束 → 写同目录的临时文件 → 改名前核对仍持有锁、
  * 文件身份没变，身份变了就从新字节重做 → 改名替换 → 释放锁。
  * - 写入锁跨进程：用不同状态根的两个服务端可以同时打开同一个项目（docs/specs/runtime/projects.md），同一个文件会有两个写入方，进程内的
  *   串行挡不住它们互相覆盖。锁是 proper-lockfile 的锁目录，只在读到改名之间持有；锁目录放在哪里由调用方定（配置层放在文件旁，
@@ -20,9 +23,16 @@ import {access, open, readFile, rename, stat, unlink} from "node:fs/promises";
 import type {Stats} from "node:fs";
 import {basename, dirname, join} from "node:path";
 
-import {lock} from "proper-lockfile";
+import {check, lock} from "proper-lockfile";
 
-/** 锁目录 10 秒没有刷新视为残留，可被接管；所有 NeuroBook 进程必须一致。 */
+/**
+ * 原样转出给锁参数不同的另一把锁（长期持有、带心跳的那类）与测试：工作区里只有本包直接导入 proper-lockfile，
+ * 根上的补丁（patches/proper-lockfile@4.1.2.patch）只对这一份生效。
+ */
+export {lock} from "proper-lockfile";
+export type {LockOptions} from "proper-lockfile";
+
+/** 锁目录 10 秒没有刷新视为残留，可被接管；所有共用这把锁的进程必须一致。 */
 export const LOCK_STALE_MS = 10_000;
 /** 等锁的退避：约 3 秒仍等不到为失败。 */
 const LOCK_RETRIES = {retries: 12, factor: 1.5, minTimeout: 20, maxTimeout: 600} as const;
@@ -136,6 +146,14 @@ export async function holdLock(lockPath: string, report: (event: string, error: 
             },
         },
     };
+}
+
+/**
+ * 锁目录现在是否被某个存活的持有者占着（按同一个 `LOCK_STALE_MS` 判残留）。只是一次观察：返回之后锁随时可能被取得或放下，
+ * 要据此改东西的调用方仍须自己取锁。
+ */
+export function lockHeld(lockPath: string): Promise<boolean> {
+    return check(lockPath, {realpath: false, lockfilePath: lockPath, stale: LOCK_STALE_MS});
 }
 
 async function releaseLock(release: () => Promise<void>, report: (event: string, error: unknown) => void): Promise<void> {

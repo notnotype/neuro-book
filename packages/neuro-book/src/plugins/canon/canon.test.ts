@@ -9,13 +9,13 @@ import {existsSync} from "node:fs";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {replaceLocked} from "@notnotype/nb-file-lock";
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {Entry, WriteRequest} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createApplication} from "nbook/application";
-import {replaceLocked} from "nbook/backend/locked-replace";
 import {killSpawnedProjects, leaseOf, projectHarness} from "nbook/server/testing/projects";
 import type {ProjectHarness} from "nbook/server/testing/projects";
 import {windowProjectKey} from "nbook/shared/projects";

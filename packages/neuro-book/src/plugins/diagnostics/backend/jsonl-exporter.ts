@@ -7,9 +7,9 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import {lock as acquireFileLock} from "proper-lockfile";
-import type {LockOptions} from "proper-lockfile";
 
+import {lock as acquireFileLock} from "@notnotype/nb-file-lock";
+import type {LockOptions} from "@notnotype/nb-file-lock";
 import {describeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
 import type {
     DiagnosticExporter,

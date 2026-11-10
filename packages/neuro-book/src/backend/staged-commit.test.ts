@@ -9,9 +9,9 @@ import {existsSync, statSync, writeFileSync} from "node:fs";
 import {chmod, mkdir, readdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {holdLock} from "@notnotype/nb-file-lock";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {holdLock} from "./locked-replace";
 import {commitStaged} from "./staged-commit";
 import type {StagedCommitOptions, StagedCurrent} from "./staged-commit";
 

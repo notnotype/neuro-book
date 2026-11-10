@@ -9,10 +9,10 @@ import {createHash} from "node:crypto";
 import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {holdLock} from "@notnotype/nb-file-lock";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {holdLock} from "nbook/backend/locked-replace";
 import {extraWindow, files} from "nbook/plugins/files/testing/scene";
 import type {Layout, Scene} from "nbook/plugins/files/testing/scene";
 import {filesWrites} from "nbook/plugins/files/testing/tap";
