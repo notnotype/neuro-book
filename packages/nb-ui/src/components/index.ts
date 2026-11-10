@@ -2,6 +2,7 @@
 import type {} from "./aria-attributes";
 
 export {default as Button} from "./controls/Button.vue";
+export {default as CopyButton} from "./controls/CopyButton.vue";
 export {default as DropdownMenu} from "./popup/DropdownMenu.vue";
 export {default as IconButton} from "./controls/IconButton.vue";
 export {default as Menubar} from "./popup/Menubar.vue";
@@ -23,6 +24,7 @@ export {default as Table} from "./display/Table.vue";
 export {default as AlertDialog} from "./feedback/AlertDialog.vue";
 export {default as ContextMenu} from "./popup/ContextMenu.vue";
 export {default as Dialog} from "./feedback/Dialog.vue";
+export {default as DetailDialog} from "./feedback/DetailDialog.vue";
 export {default as FloatingWindow} from "./feedback/FloatingWindow.vue";
 export {default as Drawer} from "./feedback/Drawer.vue";
 export {default as InfoTip} from "./feedback/InfoTip.vue";
@@ -61,6 +63,7 @@ export {default as RadioGroup} from "./form/RadioGroup.vue";
 export {default as Slider} from "./form/Slider.vue";
 
 export type {ButtonSize, ButtonVariant} from "./controls/Button.vue";
+export type {CopyButtonState} from "./controls/CopyButton.vue";
 export type {DropdownMenuItemData, DropdownMenuItemType} from "./popup/dropdown-menu.types";
 export type {IconButtonSize, IconButtonVariant} from "./controls/IconButton.vue";
 export type {FocusRingStyle} from "./controls/focus-ring";

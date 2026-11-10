@@ -41,7 +41,7 @@ const MARKS = {added: "+", removed: "-", muted: " "} as const;
             >
                 <span v-if="props.startLine !== null" class="nb-code-block__number">{{ props.startLine + index }}</span>
                 <span v-if="line.tone === 'added' || line.tone === 'removed'" class="nb-code-block__mark" aria-hidden="true">{{ MARKS[line.tone] }}</span>
-                <span class="nb-code-block__text">{{ line.text || " " }}</span>
+                <span class="nb-code-block__text">{{ line.text }}</span>
             </div>
         </div>
         <p v-if="props.truncated" class="nb-code-block__note">{{ truncatedLabel }}</p>
@@ -76,19 +76,23 @@ const MARKS = {added: "+", removed: "-", muted: " "} as const;
     border-top: var(--border-w, 1px) solid var(--divider);
 }
 
-/* 长行不折行，在块内横向滚动，不撑宽外层。 */
+/* 长行不折行，在块内横向滚动，不撑宽外层。
+   外层可能是 select-none（例如通知卡片），原文要能选中复制，所以这里显式 select-text。 */
 .nb-code-block__scroll {
     max-height: 280px;
     overflow: auto;
+    user-select: text;
     padding: 4px 0;
     font-family: var(--font-mono);
     line-height: 1.6;
 }
 
+/* 每行是一个块：选中多行时浏览器按块插入换行，粘出来的与原文一致。空行靠 min-height 占住行高，不写空格。 */
 .nb-code-block__line {
     display: flex;
     width: max-content;
     min-width: 100%;
+    min-height: 1lh;
     padding: 0 8px;
     color: var(--text-secondary);
 }

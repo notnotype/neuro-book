@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, Dialog, Drawer, FloatingWindow, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, AnchoredPopover, Banner, ContextMenu, DetailDialog, Dialog, Drawer, FloatingWindow, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -52,6 +52,17 @@ const CHAPTER_ITEMS = Array.from({length: 60}, (_, index) => ({
     iconClass: "i-lucide-file-text",
 }));
 
+/** 诊断原文样例（w00028 t04）：一行很长，看横向滚动；长版本看块内纵向滚动与截断说明。 */
+const DIAGNOSTIC = [
+    "EditorSaveError: EACCES: permission denied, open '/books/长夜行/第三章.md'",
+    "    code: workspace.file-write-denied",
+    "    at saveFile (editor/shared/files.ts:88:13)",
+    "    at runCommand (commands/shared/registry.ts:353:9)",
+    "    request: PUT /api/nbook.files/raw/%E9%95%BF%E5%A4%9C%E8%A1%8C/%E7%AC%AC%E4%B8%89%E7%AB%A0.md?revision=4f2a9c1e0b7d -> 500 Internal Server Error",
+    "    trace: 4f2a9c1e",
+].join("\n");
+const LONG_DIAGNOSTIC = [DIAGNOSTIC, ...Array.from({length: 60}, (_, index) => `    at frame${String(index + 1)} (plugins/example/web/module-${String(index + 1)}.ts:${String(10 + index)}:5)`)].join("\n");
+
 export const feedbackFixtures: LabFixture[] = [
     defineLabFixture<typeof Dialog>({
         component: "Dialog",
@@ -66,6 +77,16 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "closed", label: "关闭（用控制区打开）", input: {props: {title: "从书架移除", size: "sm", showFooter: true}, model: {open: false}, slots: {default: true}}},
         ],
         load: async () => (await import("./DialogFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof DetailDialog>({
+        component: "DetailDialog",
+        writeBack: {"update:open": {layer: "model", key: "open"}},
+        scenes: [
+            {id: "default", label: "保存失败的诊断原文", input: {props: {title: "文件没有保存：详情", detail: DIAGNOSTIC}, model: {open: true}}},
+            {id: "long", label: "很长、被截断的原文（块内滚动）", input: {props: {title: "布局没有保存：详情", detail: LONG_DIAGNOSTIC, truncated: true}, model: {open: true}}},
+            {id: "untitled", label: "通知没有标题时", input: {props: {title: "详情", detail: "SyntaxError: Unexpected token '}' in settings.json at line 12"}, model: {open: true}}},
+        ],
+        subject: nbUiSubject("DetailDialog"),
     }),
     defineLabFixture<typeof FloatingWindow>({
         component: "FloatingWindow",
@@ -135,13 +156,15 @@ export const feedbackFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof Notification>({
         component: "Notification",
-        events: ["action", "dismiss"],
+        events: ["action", "dismiss", "detail"],
         class: "w-full max-w-[420px]",
         scenes: [
             {id: "info", label: "信息", input: {props: {tone: "info", title: "已切换到项目「长夜行」", message: "上次的标签与展开的目录已恢复。", dismissible: true, closeLabel: "关闭"}}},
             {id: "success", label: "成功", input: {props: {tone: "success", title: "已保存", message: "第十七章 雪线", dismissible: true}}},
             {id: "warning", label: "警告与操作", input: {props: {tone: "warning", title: "布局没保存上", message: "存储暂时不可用，修改只在这个窗口里。", actionLabel: "重试", dismissible: true}}},
             {id: "error", label: "错误", input: {props: {tone: "danger", title: "保存失败", message: "磁盘已满（ENOSPC）。", actionLabel: "重试", dismissible: false}}},
+            {id: "detail", label: "错误、重试与详情", input: {props: {tone: "danger", title: "文件没有保存", message: "没有写入权限，第三章仍是上次保存的内容。", actionLabel: "重试", hasDetail: true, dismissible: true}}},
+            {id: "detail-only", label: "只有详情、长正文", input: {props: {tone: "warning", title: "没能移动 3 个文件", message: "目标目录里已有同名文件：第一章.md、第二章.md、设定/人物.md；其余文件已移动。", hasDetail: true, dismissible: true}}},
             {id: "progress", label: "确定进度", input: {props: {tone: "info", title: "正在统计字数", message: "已统计 2 部，共 6 部", progress: 33, dismissible: true}}},
             {id: "indeterminate", label: "不确定进度", input: {props: {tone: "info", title: "正在连接", message: "等待服务端回应…", progress: null, dismissible: true}}},
         ],
@@ -153,6 +176,9 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "bottom-right", label: "右下", input: {props: {position: "bottom-right"}}},
             {id: "bottom-center", label: "底部居中", input: {props: {position: "bottom-center"}}},
             {id: "top-right", label: "右上", input: {props: {position: "top-right"}}},
+            {id: "detail", label: "带详情（点“详情”开对话框）", input: {props: {position: "bottom-right"}}},
+            {id: "six", label: "六条：只显示最新 4 条，其余折叠", input: {props: {position: "bottom-right"}}},
+            {id: "top-right-six", label: "右上、六条（折叠小条仍在列顶）", input: {props: {position: "top-right"}}},
         ],
         load: async () => (await import("./NotificationStackFixture.vue")).default,
     }),
