@@ -1,0 +1,284 @@
+# w00032 t14 前端设计审查报告（子代理与任务中心的界面）
+
+审查范围见 brief-frontend.md。证据标注：「读码」是读了实现确认；「推断」是从代码与合同推出、未在浏览器里跑；没有跑 e2e 与开发服务。按影响排序，逐条追加。
+
+## 1. `tree` 的条目没有调用 id，卡片找不到自己对应的子会话
+
+- 严重程度：阻断；类别：不变量
+- 位置：docs/specs/agent/subagents.md:99（输出 20）、plan.md:113（远程合同）、plan.md:129（卡片）
+- 现象：`tree` 每项是 `{id, parent, name, profileIcon, state, step?, tools, startedAt, endedAt?, line, pending}`，没有会话头 `caller.callId`；`list` 的 `caller` 也明写“不含 `callId`”（docs/specs/harness/session.md:137）。卡片是按工具调用画的（`ToolCallView.id`，packages/nb-agent-ui/src/types.ts:48），`agent_spawn` 前台调用等子代理时还没有结果，`result.details` 里没有子会话 id，参数里只有可选的 `name`。
+- 为什么是问题：最主要的场景（同一条回复派两个、前台等）里，运行中的 `agent_spawn` 卡片拿不到“我是哪个子会话”，进度行、状态、打开子会话按钮全都没有来源。靠 `name` 匹配会在 `name` 缺省或重名时错配。切片 6 照 Spec 字面实现后，切片 8 才会发现，要回头改远程合同与 Spec。
+- 如何核实：读 Spec 输出 20 的字段表；读 `ToolCallView`；子会话 id 是 SHA-256 确定性生成（plan.md 技术选型），浏览器里没有同步的 SHA-256。
+- 建议改法：`tree` 每项加 `callId`（会话头 `caller.callId`）和 `profile`（key），卡片按 `(parent, callId)` 找子会话；`agent_send`、`agent_answer` 卡片按参数 `id` 找。同时在 Spec 里写明找不到时（子会话已被删、树还没推到）卡片怎样画，见第 15 条。
+
+## 2. 注册表按 `agent_spawn` 登记，视图里的工具名是 `spawn`
+
+- 严重程度：重要；类别：正确性
+- 位置：plan.md:129；packages/neuro-book/src/plugins/agent/web/session-host.ts:119-124（`displayToolName`）、packages/nb-agent-ui/src/kernel-transcript.ts:225、286、584；docs/specs/agent/subagents.md:38-39
+- 现象：Spec 写明工具 id 是 `nbook.agent.spawn`，`agent_spawn` 是交给模型的名字（t04 决定 1：“日志视图、界面、审批都用 id”）。宿主把调用名过 `displayToolName`，它取 id 最后一段：`nbook.agent.spawn` 变成 `spawn`，`send`、`answer`、`wait`、`kill`、`jobs` 同理。计划却说“注册表加 `agent_spawn`、`agent_send`、`agent_answer`”，`resolveTool` 按名字精确匹配，对不上就落到通用渲染，卡片不出现。
+- 为什么是问题：按最后一段取名还有串味风险：别的插件的 `foo.send`、`foo.wait` 也会被画成子代理卡片或“等待”行（没有登记 `explore` 以外的前缀隔离）。
+- 如何核实：读 `displayToolName`（只特判了 `edit-replace`、`ask-form`）；读 `createKernelTranscript` 用 `toolName(call.tool)` 生成 `call.name`。「读码」。
+- 建议改法：二选一并写进计划：`displayToolName` 对 `nbook.agent.*` 保留全 id（注册表按全 id 登记），或给这几个工具显式映射成唯一的展示名。登记表与 `displayToolName` 的映射用一条合同测试锁住（id 到展示名到渲染器）。
+
+## 3. `shell` 带 `async` 才画后台命令卡片：注册表没有按调用选择呈现层级的能力
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:129（“`shell` 带 `async` 的画后台命令卡片”）；packages/nb-agent-ui/src/registry.ts:77（`presentation` 是渲染器的静态属性）、conversation-turns.ts:394（按 `renderer.presentation === "node"` 分块）
+- 现象：`shell` 现在是一个渲染器，呈现层级固定（思维链里的卡片）。后台命令卡片要是常显的 `node`，且只在 `args.async === true` 时。注册表只有 `resolveTool(name)`，没有按调用（`call.args`）挑渲染器或呈现层级的接口；计划只说“注册表加三项”，没有这一项。
+- 为什么是问题：1）分块逻辑得改，属于 nb-agent-ui 公开合同（要进 Spec 与 `.md`）；2）参数是流式生成的，`async` 往往出现在 JSON 后部，流式中途 `args.async` 还没到，这一调用先按“思维链里的卡片”画，字段到了才变成常显 `node`，条目换层、切断思维链、整块重排，正是开发者最在意的“不跳”的反面。
+- 如何核实：读 `conversation-turns.ts:380-400`；`ToolCallView.args` 注释写明“流式生成中可能缺字段”。
+- 建议改法：给渲染器加 `presentationOf?: (call) => ...`，并规定参数未成形（`status: "streaming"`）时按缺省层级、成形后升级时不移动位置；或者另起工具名（模型看到的 `shell` 保持，界面按调用结果的 `details.job` 再决定），避免靠半截参数决定版式。无论哪种，把“流式中途变层级”写进 Lab 场景。
+
+## 4. 后代的审批并进向导后，宿主里按“当前会话”写死的几处都会出错
+
+- 严重程度：重要；类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/session-host.ts:364-365（预览只取本会话的）、988-1010（`resolveInput`）、1280-1296（`pendingViews`，`mode-switch` 读本会话设置）、plan.md:123、130
+- 现象：
+  1. `resolveInput` 恒用 `current.id` 作 `sessionId` 发 `resolve`；动作若带 `sessionId`，`allow-always` 分支里递归调用 `resolveInput(id, {decision: "allow-session"})` 也得带。漏带的话是用父会话 id 去解子会话的事项，得 `unknown-interaction`，而第 1008 行之后的代码对 `unknown-interaction` 静默忽略（为“别的窗口先答了”设计的）：决定被丢掉，子代理一直等，向导还显示着事项。
+  2. `allow-always` 从 `target.transcript.pending()` 里找事项取 `remember` 规则，后代的事项不在本会话 transcript，`rules` 为空，`saved` 是 `null`，没有通知，结果是以 `allow-session` 放行、永久规则没存，用户不知道。
+  3. 预览：`loadPreview(target, id)` 只对本会话 pending 里的审批取（`afterChange`），`tree.pending[].request` 里没有预览，后代的编辑审批永远是 `loading`（或没有 diff），用户在批一个看不见内容的写入。
+  4. `mode-switch`：`approval.value` 读 `target.transcript.meta().settings.approvalMode`，来自后代时是父会话的审批模式。
+- 为什么是问题：这些是“能不能正确批”的核心路径，计划只写了“提交时动作带上 `sessionId`，宿主发给对应的会话”，没有写预览、规则、`mode-switch` 与错误通道。
+- 如何核实：读 session-host.ts 上述行；后端 packages/neuro-book/src/plugins/agent/backend/remote.ts:167 的预览按 `sessionId` 找 `interactionRequested`，说明服务端支持，缺的是宿主。
+- 建议改法：宿主把“事项”抽成 `{sessionId, id, kind, request}`，`resolveInput`、预览缓存键、规则读取都按事项自带的会话处理；`unknown-interaction` 只在事项已不在列表里时才当成别处先答了，否则报；`mode-switch` 来自后代时要么不并入（只列审批），要么 `tree.pending` 带上该会话的审批模式。把这几点写进 Spec 输出 34 并各配一个宿主测试（用真实 remote 假端点）。
+
+## 5. 一批里混着几个会话的审批：语义没定义，现有的“同规则一起选”会跨会话
+
+- 严重程度：重要；类别：正确性
+- 位置：packages/nb-agent-ui/src/wizard.ts:40-50（`rememberKey`、`choose`）、vue/wizard/AgentWizard.vue:80-88（`submitApprovals`、`denyAll`）、plan.md:123-124；docs/specs/agent/conversation.md 输出 34
+- 现象：
+  - `choose` 在选了“本会话都批准／以后都允许”时，把这一批里 `rememberKey`（`tool + remember.label`）相同且没选的一起选上，键里没有会话。父会话的 `shell git diff *` 与子代理的同规则审批会被一起选中，用户翻到子代理那一步时它已经是“本会话都批准”。
+  - “本会话都批准”在内核里是 `approvalRemembered scope: "session"`，记在事项所在的会话（子会话）上。按钮文字对父会话的用户读起来是“整个这次会话”，实际只管那个子会话，子会话多半很快结束，规则白记。
+  - `denyAll(note)` 对整批（含后代）发拒绝，附言也发给每个子代理的模型；一次 `submit` 是循环发多个 `input.submit`，各自 `resolve`，其中一个失败（子会话已关闭、`not-owner`）时 `notice` 只留最后一个失败码（session-host.ts:1011-1014），看不出是哪一个会话的哪一步失败，也不知道其余是否已生效。
+  - Spec 与计划都没写：全部拒绝是否包含后代、提交时部分成功后向导怎样收缩（已答的消失、没答的保留所选）。
+- 为什么是问题：“批准”是用户对具体会话的授权，跨会话自动选中等于替用户做了没看过的决定；失败不可定位。
+- 如何核实：读 `choose`；读 `resolveInput` 的错误处理；推断：混批时 `ready` 要求全部选完，用户可能点“本会话都批准”后直接提交。
+- 建议改法：`rememberKey` 加入 `source?.sessionId`，只在同一个会话的事项之间联动；带来源的步骤把“本会话都批准”改成明确文字（如“这个子代理都批准”）或不提供 `allow-always`（以后都允许写的是用户层规则，对子代理的高权限审批值得多一层确认，至少在 Spec 写出这是有意的）；“全部拒绝”在 Spec 写明含后代；提交失败按事项记 `failed: code`，向导在对应步骤上标红、不丢所选。
+
+## 6. 后代的待处理事项会把父会话的输入框替换掉，并抢走焦点；父会话可能根本没在等
+
+- 严重程度：重要；类别：不变量
+- 位置：packages/nb-agent-ui/src/vue/AgentConversationView.vue:220（`waitingForUser`）、:388、:399-406（`v-show`、`inert`）、vue/wizard/AgentWizard.vue:63-65、69-71（出现时 `focusRoot`）
+- 现象：`waitingForUser = pendingInputs.length > 0`，一有事项就隐藏并 `inert` 输入框（收起成小条也一样），且向导出现与事项集合变化时把焦点拉到向导容器。后代事项并进 `pendingInputs` 之后：`async` 派出的子代理等审批时，父会话是空闲的，用户可能正在输入框里打字，输入框被藏起来、焦点被拉走；用户想对父 Agent 说“别管它先做别的”也说不了，只能先批或拒。
+- 为什么是问题：原来的向导只在本会话运行停下等待时出现，用户无法同时输入，替换输入框是合理的；后代的事项来自别的会话、随时出现、不阻塞父运行，沿用“替换”就成了对输入的打断。Spec 输出 34 与计划都没有区分这两种。
+- 如何核实：读 View 的 `waitingForUser` 与 `AgentWizard` 的 `onMounted`、`watch(pendingIds)`。推断：父会话空闲 + 子代理 `async` 在等审批即可复现。
+- 建议改法：把事项分两类写进合同：“阻塞本会话运行”的（本会话自己的审批与同步提问）仍替换输入框；“来自后代、本会话没在等”的与异步提问同样停靠在输入框上方、不替换、不抢焦点（出现时只用 `aria-live` 报，不动焦点）。`waitingForUser` 只数前者。
+
+## 7. 向导状态只有一份：打开子会话会丢掉已选的，异步提问会被同步批次的收尾清空
+
+- 严重程度：重要；类别：不变量
+- 位置：session-host.ts:367（`if (pending.length === 0) wizardState = undefined`）、:709、:719-728（`open` 只在同一个会话 id 时保留 `wizardState`）、types.ts:469、nb-agent-ui/src/wizard.ts:17-29（`WizardState` 单个 `collapsed`、`step`）；plan.md:124；conversation.md 输出 37
+- 现象：
+  1. 向导里每个来自子代理的步骤有“打开子会话”按钮，正是给用户先看一眼子会话再回来批的；但 `open(id)` 换了会话就清掉 `wizardState`，回到父会话时这一批已选的决定、写到一半的附言全丢。
+  2. 异步提问与同步向导共用一个 `ctx.wizardState`（`collapsed`、`step` 各一个）：同步向导收起会把异步面也收起，两边的“第几步”互相覆盖。计划写“收起状态由宿主持有，同向导”，没说两个面各存一份。
+  3. `afterChange` 在 `pending` 为空时清 `wizardState`。如果异步提问也进 `pending`（见第 8 条），“空”的判断就取决于它；如果不进，异步面的状态没人存。反过来，只要同步批次答完而异步提问还在，清空会连异步提问里未提交的答案一起丢。
+- 为什么是问题：用户已经输入的内容被静默丢掉；“收起”这个界面状态跨面串扰。
+- 如何核实：读 session-host.ts 上述行与 `AgentWizard.vue:35`（挂载时读一次）。「读码」。
+- 建议改法：`wizardState` 按面分开（例如 `{sync, async}`，或按事项 id 的映射），宿主按“事项是否还在”回收，而不是按“本会话 pending 是否为空”；离开会话时保留状态到事项消失（按会话 id 存），回来时放回。在 `AgentConversationView.md` 与 Spec 写明状态的作用域。
+
+## 8. 异步提问在适配器里被丢掉，向导又只能显示一个提问
+
+- 严重程度：重要；类别：不变量
+- 位置：packages/nb-agent-ui/src/kernel-transcript.ts:466-468（“异步提问不让运行停下，第一版不进向导”，`if (data.async !== true) pending = ...`）、vue/wizard/AgentWizard.vue:38-39（`questions = props.pending.find(isQuestions)`）、AgentQuestionWizard.vue:62-65（“终止本轮”）、plan.md:124；docs/specs/agent/conversation.md:104（输出 37）
+- 现象：
+  1. 适配器根本不把 `async: true` 的 `interactionRequested` 放进 `pending()`，计划把改动写成“`PendingInputView` 加 `async?: true`”，没有提适配器（`kernel-transcript.ts`、`harness.ts`）要改；`KernelPending` 也没有 `async` 字段。
+  2. 向导对提问只取第一个（`find`），审批优先于提问（`v-else-if` 顺序）。计划说异步提问“几个时 1/2 翻看”，现有提问向导只翻“一个事项里的几道题”，不翻事项；要做多事项翻页得重写这一层。
+  3. 提问向导底部的“终止本轮”发 `input.cancelRun`（中止父会话的运行）。对异步提问它没有意义（运行本来没停），对来自后代的提问它会中止父会话而不是子会话。
+  4. 回答异步提问在内核里是“一条输入”（packages/nb-harness/src/kernel/run/interaction.ts:130-148）：空闲时会开新一轮，运行中当 steer；提交按钮的结果与用户的预期（“回答”）一致，但界面没有地方说明答完会让 Agent 开始动。
+- 为什么是问题：计划把“同一个向导”当成现成能力，实际要改适配器、事项类型、翻页层与按钮集，切片 7 的工作量与风险被低估，后续切片会反复返工。
+- 如何核实：读上述行；`rg "async" packages/nb-agent-ui/src/kernel-transcript.ts`。
+- 建议改法：计划切片 7 明列：适配器保留 `async` 事项并带 `async` 标记；向导按“面”（同步面、异步面）分别渲染，异步面支持多事项翻页，隐藏“终止本轮”（异步面）；Spec 写明异步提问答完后的行为说明。
+
+## 9. 停靠在输入框上方的面：没有放它的位置，展开态仍是浮层阴影，高度没有预算
+
+- 严重程度：重要；类别：不变量
+- 位置：packages/nb-agent-ui/src/vue/AgentConversationView.vue:384-406（布局：消息流、输入框、状态栏）、AgentConversationView.md:109（“待处理区（S7）做好后”）、vue/wizard/AgentWizardFrame.vue:30、37-44（`nb-ui-popover-surface`、`max-height: 60cqh`）、AgentWizard.vue:119-127（只有收起的小条覆盖了 `box-shadow`）、packages/nb-ui/docs/design-language.md:190-193
+- 现象：
+  1. Spec 的布局写着“顶栏、消息流、待处理区、输入框、状态栏”，但实现里没有独立的待处理区；排队消息（`AgentQueuedMessages`）画在输入框组件里（AgentConversationComposer.vue:359）。计划说异步提问“停在输入框上方”，没有说放在视图的哪一层、与排队消息的上下顺序、与工作区变更条的关系。
+  2. 向导的展开态用 `AgentWizardFrame`，外框类是 `nb-ui-popover-surface`（浮层阴影）；design-language 的判据是“常驻停靠面的 `box-shadow` 不等于 `--elevation-popover`、`border-radius` 等于相邻面的”。目前只有收起的小条覆盖了阴影（还是弹窗圆角，不是输入框圆角），异步提问展开后的主体仍是重阴影。计划写“与向导收起的小条共用一个类”，只覆盖了收起态；开发者 2026-11-10 两次指出的正是这一点。同步向导（要替换输入框的）仍应是浮层档，所以 `AgentWizardFrame` 需要 `docked` 变体，而不是整个换。
+  3. 展开的异步面最高 `60cqh`，加上输入框、排队条、状态栏，窄而矮的视图（390 宽、约 700 高）里消息流被挤到约 20%；Spec 的老规则是“内容变多时，待处理区先折叠为一行”，没有说停靠面怎样参与。
+- 为什么是问题：开发者特别在意的“阴影轻、圆角同输入框”只会在收起态成立，展开态（用户真正读选项的时候）仍然重；位置不明让切片 7 自己发明布局。
+- 如何核实：读上述行；design-language.md 判据可用 `getComputedStyle` 机检（见第 22 条）。
+- 建议改法：先在 AgentConversationView 定一个容纳“停靠面”的位置（输入框上方、排队条之上或之下，写清）；`AgentWizardFrame` 加 `docked`（轻阴影 + 输入框圆角 `--radius-*` 的同一档），收起小条与展开面共用；展开态的最大高度给预算（例如不超过 40cqh，超出区内滚动），并写进 Spec。
+
+## 10. 子会话里“父 Agent 发来的话”的 `author` 没有数据来源，刷新后丢失
+
+- 严重程度：重要；类别：不变量
+- 位置：packages/nb-agent-ui/src/kernel-transcript.ts:349-355（用户消息由路径上的 `input`/`steer` 事件生成，不读 `by`）、packages/nb-harness/src/kernel/run/loop.ts:67-85（`input`、`steer` 带 `queued: inputId`，没有 `by`）、docs/specs/harness/runtime.md:152（输出 85：`by` 只写在 `inputQueued`）、interaction.ts:134-148（`inputQueued` 是 `scope: "session"`）；plan.md:121（`author`）
+- 现象：用户消息从路径事件来，路径只含 `scope: "path"` 的事件（后端 remote.ts:129 `view.path()`）；`inputQueued` 是会话作用域事件，不在路径上。计划只在内核加 `inputQueued.by`。于是适配器有两种做法都不通：只读路径，拿不到 `by`；读 `inputQueued` 并按 `queued` 关联，则只在实时帧里成立，`refresh`/`loadPath` 重建或页面重载后（`applyPath`）丢失，父 Agent 的话又变回“你”。再者 `author` 需要父会话的 Profile 名与图标，适配器是纯函数、没有这份数据，计划没有说谁来解析 `by.id`。
+- 为什么是问题：README 第 43 条要的是“要求日志能分出用户输入是谁发的”，且用户自己在子会话说的话必须仍是“你”；这条合同错一次，子会话里的归属就会误导。
+- 如何核实：读 `loop.ts:67-85`、`kernel-transcript.ts:349-356`；推断（未在浏览器里验证）：重载后 `path()` 不含 `inputQueued`。
+- 建议改法：内核在 `input`、`steer` 路径事件上也写 `by`（或写 `by` 的引用），适配器选项里加 `authorOf(by) => {label, icon} | null`，由宿主用 `session.path` 或 `list` 解析；Spec 补一条“重载后仍保留”的验收。
+
+## 11. 会话面板的嵌套：Spec 写在没人用的组件上，且父会话行里放折叠开关会嵌套按钮
+
+- 严重程度：重要；类别：不变量
+- 位置：docs/specs/ui/agent-conversation-view.md:330（嵌套写在“会话列表”`AgentSessionList` 一节）与 :346（`AgentSessionPanel` 一节没有 planned 项）、packages/nb-agent-ui/src/vue/AgentSessionPanel.vue:133-150（行是 `div`，里面一个 `button.acv-panel__open` 加一个“更多”菜单）、AgentSessionList.vue:73-95（整行是一个 `button`）、packages/neuro-book/src/plugins/agent/web/SessionPanelHost.vue:7、67；packages/nb-story/src/web/pages/QaPage.vue（`AgentSessionList` 的使用者）
+- 现象：
+  1. 产品里的会话面板是 `AgentSessionPanel`（按日期分组、搜索、范围、过滤、行菜单），`AgentSessionList` 只有 Lab 与 nb-story 用。评审板画的是 Panel 的样子（“今天”分组、左边图标），Spec 的 `parentId`、`expandFor`、“图标对齐父会话的标题”却写在 List 一节（List 没有图标）。plan.md:125 写“列表按它嵌套”也没说是哪个组件。
+  2. 父会话行第二行右边的“N 个子代理”是折叠开关，放在现有的 `button.acv-panel__open`（或 List 的整行 `button`）里就是 `<button>` 套 `<button>`；ui-development-spec.md 自检清单明令禁止（“可点击卡片内嵌操作防按钮嵌套”）。要放进去，Panel 的整行结构要改成“主触发区与开关并列”，行的点击区域、Tab 顺序（“每行一个按钮、Tab 逐行经过”）、读屏名称（行名由内容拼出，会读出“4 个子代理”）都变，需要写进合同。
+  3. 子会话行也要有“更多”菜单吗（改名、归档）？父会话归档时子会话怎么办（见第 12 条）？
+- 为什么是问题：实现者按 Spec 字面去改 List，产品里的面板不会变；改 Panel 又会撞上嵌套按钮。
+- 如何核实：`rg AgentSessionList packages --glob '!node_modules'` 与 `rg AgentSessionPanel`；读上述行。
+- 建议改法：Spec 与计划明确改 `AgentSessionPanel`（List 要不要同步，单独定）；在 Panel 的行里把开关做成与 `acv-panel__open` 并列的兄弟节点，带 `aria-expanded` 与 `aria-controls`，子会话列表用 `ul` 嵌在父行 `li` 下，读屏读出“4 个子代理，已收起”；子会话行的操作菜单规则写出。
+
+## 12. 面板展开：搜索命中子会话时父会话已被过滤掉；当前会话是子会话时被收起；父会话归档后子会话变成顶层
+
+- 严重程度：重要；类别：不变量
+- 位置：packages/neuro-book/src/plugins/agent/web/session-list.ts:72-74（逐条过滤：Profile 与关键词）、:51-58（`archived`、范围过滤）；docs/specs/ui/agent-conversation-view.md:330（“父会话不在列表里的子会话按普通条目列出”、`expandFor`）、:326（“列表不持有展开状态”）；docs/specs/agent/sessions.md:82（`parent?`）
+- 现象：
+  1. 过滤是对每个会话独立做的：搜“伏笔”只命中子会话时，父会话（标题不含）被过滤掉，子会话按“父会话不在列表里”的规则当顶层条目列出，`expandFor` 永远用不上（它只在父会话也在列表里时才有意义）。要实现第 38 条“搜索命中子会话时展开它的父会话”，过滤必须保留命中项的祖先。Profile 过滤同理：子代理多是 `adhoc`（多半 `hidden`），选了“主创”过滤，子会话全部消失。
+  2. 展开状态“由列表持有、缺省收起”：面板放在顶栏下拉里时（`SessionPanelHost` 在 Popover 里，关掉就卸载），每次打开都是收起的；当前会话是某个子会话时，它的父会话也是收起的，当前项（`aria-current`）不在可见行里，用户找不到自己在哪。同一小节还有“列表不持有展开状态”（指下拉的开关，Spec 内部用词冲突）。
+  3. 父会话归档（或不在“当前作品”范围）时，它的所有子会话没有被一起过滤，每个都变成顶层普通行混进主列表，一次派 8 个子代理就是 8 条杂行。
+  4. 按日期分组：Panel 的分组按每行自己的 `updatedAt`；父会话在“更早”、子会话在“今天”时，子会话挂在哪个组？计划没说。
+  5. `list` 的 `parent` 是会话头 `caller` 的会话 id；`caller.kind` 也可能是 `"workflow"`（harness/session.md:60）。`parent` 里放 workflow id 时面板会当成“找不到的父会话”，应只在 `kind === "session"` 时输出。
+- 为什么是问题：第 38 条与 B1 的核心交互（搜索展开、折叠）在真实数据上不成立；当前会话在收起的行里是常见路径（点卡片切到子会话后再开面板）。
+- 如何核实：读 `session-list.ts` 的两个 `filter`；读 `SessionPanelHost.vue` 是否在 Popover 内；推断：下拉关闭卸载内部 `ref`。
+- 建议改法：展开集合 = 用户手动展开 ∪ `expandFor` ∪ `selectedId` 的全部祖先 ∪（可选）有等待中子会话的父会话；过滤在 store 里做“命中项带祖先”（祖先以弱化样式出现）；父会话被归档或过滤的子会话默认不在顶层列出（可从树进入），或由“随父归档”规则处理，写进 Spec；按父会话所在的组放子会话；`parent` 只在 `kind === "session"` 时给。
+
+## 13. 子会话行的“正在做什么”与状态没有数据来源；状态栏计数口径变了
+
+- 严重程度：重要；类别：不变量
+- 位置：plan.md:113（`tree` 只按当前打开会话订阅）、:125；packages/neuro-book/src/plugins/agent/web/activity.ts（只有 `{id, state: "running" | "waiting"}`）；docs/specs/agent/sessions.md:82、conversation.md:78（输出 19：“Agent：1 运行中 · 1 等你处理”）；SessionIndexEntry 的 `description`
+- 现象：B1 的子会话行要显示“名字、正在做什么、状态”，父会话行要显示“N 个子代理”“子代理等你处理”。面板里的行来自 `list`（索引条目：标题、说明、最近活动）加 `activity`（只有运行或等待）。`tree` 只在“当前打开会话”上订阅，面板里别的父会话下的子会话拿不到“正在做什么”（`step`）；`description` 是静态的索引说明。“子代理等你处理”靠 `activity` 的 `waiting` 推出，而 `activity` 只看打开着的句柄、异步提问不在内（sessions.md:77）。
+- 为什么是问题：评审板上的 B1 版式要的数据，只有当前会话的子代理才有；其余是空白或静态说明，按图验收时对不上。另外，状态栏“Agent：N 运行中”按会话数，子会话也各算一个，派 8 个就是“9 运行中”，Spec 输出 19 与“只数前台会话”的测试意图被悄悄改了。
+- 如何核实：读 `activity.ts`、`session-list.ts:76-90`（`status` 只取 `activity`，`description` 取索引）。
+- 建议改法：Spec 写清：非当前会话的子会话行只显示 `description` 与状态（运行中、等你处理），“正在做什么”只对当前会话的子代理出现；或让 `activityChanged` 带上 `parent` 与最近一步（短文字）。状态栏计数按“顶层会话”数还是含子会话，写进输出 19 并改测试。
+
+## 14. `tree` 每次推整份：历史后代无限累积，`step` 带完整参数
+
+- 严重程度：重要；类别：安全与性能
+- 位置：docs/specs/agent/subagents.md:99-100（输出 20、21）、plan.md:113、:191（风险）
+- 现象：`tree` 返回“全部后代”，`treeChanged` 在任一项变化时推整份，至多每秒 4 次。限额只数“正在跑的”（每会话 8 个），不限总数：一个长会话里派过的子代理累积到几十上百个，每个都带 `line`（结果第一句）、`pending[].request`；只要有一个在跑，每 250 ms 整份重发一次。`step` 是“最近一次工具调用的名字与参数”，没有长度上限：子代理在写大文件时 `write` 的整份内容放进 `step.args`，每秒推四次，每个在跑的后代都有。
+- 为什么是问题：载荷随会话历史增长，而卡片只需要在跑的与屏幕上可见的那几个；`step.args` 会把大块内容反复推给浏览器，还会进到 `ctx.extensions` 的 JSON 里。估算：200 个后代、每项约 300 字节、再加两个大参数，一次推送 0.1 到 数 MB，每秒 4 次（估算，未测）。
+- 如何核实：读 Spec 输出 20、21；子代理能写任意大的参数。
+- 建议改法：`tree` 分两层：静态部分（`id`、`parent`、`callId`、`name`、`profile`、`endedAt`、`line`）只在变化时推增量项；动态部分只推在跑的与有 `pending` 的；`step` 在服务端折成短摘要（工具名加一两个关键参数，每个字符串截到固定长度），不传完整参数；或客户端按卡片可见范围订阅子集。写进 Spec 输出 20 的字段约束与上限，并加一个载荷大小的合同测试。
+
+## 15. 卡片的数据是“子会话的现状”，不是“这次调用”；没数据时没有降级画法
+
+- 严重程度：重要；类别：不变量
+- 位置：docs/specs/agent/conversation.md:99、:102（输出 33、36）；subagents.md:99（`step`、`tools`、`line` 是这次运行的）、jobs.md:55、docs/specs/agent/jobs.md（任务中心不持久化，前台调用结果返回后移出、重启后为空）、plan.md:129
+- 现象：
+  1. 同一个子会话可被多次 `agent_send`，每次一张卡。`tree` 每个子会话只有一份 `step/tools/line/state`，所以前面几次调用的卡片会显示子会话最新一次运行的进度与结果句，甚至比它自己的结果更新（第一张卡已完成，因为第二次 `agent_send` 在跑，又显示“正在读取…”）。
+  2. `jobs` 里的任务结束并被 `wait` 取走后移出，进程重启后任务中心为空。打开一个旧会话，后台命令卡片没有 `jobs` 项：状态、退出码、最后一行、展开看输出（`jobTail` 得 `job-unknown`，虽然输出文件还在 `session://jobs/3/output.log`）都没有；Spec 输出 36 只写了“数据来自 `jobs`”。子代理卡片同理：子会话被删后 `tree` 没有这一项。
+  3. `step` 缺省（子代理刚起、在思考、在等模型）时进度行写什么？评审板上还画了“等你批准：…”“在问父 Agent：…”“出错：…”，Spec 输出 33 只写了“运行中写正在做什么，结束后写结果第一句”，状态为 `waiting`、`question`、`failed`、`aborted`、`interrupted` 时这一行写什么没有规定。
+- 为什么是问题：历史会话是卡片出现最多的地方；没数据时画成什么、是否塌高度，都得先定，否则就是“数据到了高度才变”。
+- 如何核实：读 Spec 输出 20、33、36 与 jobs.md 的寿命条目；对照评审板 r2/cards-decided.webp 的五种状态。
+- 建议改法：卡片以工具结果（`result.details` 里的结果摘要、状态、任务 id）为兜底来源，`tree`/`jobs` 只在“这次调用仍在进行”时覆盖；`tree` 加 `runs` 或把 `line`、`state` 放到“最近一次运行”并带 `callId`，旧调用只用结果；Spec 输出 33 写全各状态的行文与无数据时的占位（高度不变）；`jobTail` 失败时退回读输出文件地址。
+
+## 16. 父会话这一轮结束后，仍在跑或在等你的 `async` 子代理卡片会被整轮收起
+
+- 严重程度：重要；类别：不变量
+- 位置：packages/nb-agent-ui/src/conversation-turns.ts:664-666（`defaultTurnExpanded`：只有最新一轮且出错或被停止才展开）、vue/stream/AgentConversationTurn.vue:68-70、229；docs/specs/agent/conversation.md:99（输出 33 末句“整轮收起时卡片随过程收起”）
+- 现象：`agent_spawn` 带 `async` 立即返回，父 Agent 常常随后回复完结束这一轮；轮次 `done` 就默认整轮收起，过程里的 `node`（包括子代理卡片）只露出一行摘要。此时子代理还在跑、可能在等审批，用户看不到进度卡，只能靠面板与向导。后台命令卡片同理。t22 的活动面板明确不在本 Task，所以本 Task 里卡片是用户唯一能看进度的地方。
+- 为什么是问题：卡片的价值在“后台还在做事”的时候，那时它反而被收起；与 Spec 输出 33 的“常显”自相矛盾。
+- 如何核实：读 `defaultTurnExpanded` 与 `processBlocks`/`outcomeBlocks` 切分；推断：`done` 状态的最新轮次折叠。
+- 建议改法：任务仍在进行（`tree`/`jobs` 里 `running`、`waiting`、`question`）的卡片不计入“过程”：要么把这类 `node` 视为结果区（像 `outcome`），要么在整轮摘要里出现“2 个子代理在运行”的一项并默认展开；写清卡片结束后才随过程收起。
+
+## 17. 向导标题行：带来源的标题加“打开子会话”按钮，窄屏会撑破
+
+- 严重程度：重要；类别：测试
+- 位置：packages/nb-agent-ui/src/vue/wizard/AgentWizardFrame.vue:33、86-90（`.acv-wizard-frame__title` 为 `flex-shrink: 0`，无 `min-width: 0`、无省略）、:62-71（`__scroll` 是 `overflow-y: auto`，会连带出横向滚动）；README 第 42 条；AgentApprovalWizard.vue:62-65
+- 现象：标题不收缩、不截断。带来源时标题是“子代理「名字」要运行这条命令”，名字由 Profile 或模型给（`name` 参数没有长度限制），加上图标 16px、`detail`（路径）、计数“第 1 / 2 个”、收起按钮，再加一个打开子会话的 `IconButton`。390 宽时可用宽度约 342px（视图 12px 边距 + 框内 12px），标题自己 14 到 20 个汉字就约 200 到 280px，加按钮与计数超出，横向出现滚动条或把右侧按钮挤出框外。第 42 条“混批翻步时高度不变”依赖标题行永远一行，现在宽度不受约束。
+- 为什么是问题：开发者定的版式是“标题行不另加一行”，布局约束没落到样式；同一批里不带来源的步骤标题短，带来源的长，翻步时右侧按钮位置跳。
+- 如何核实：读 `AgentWizardFrame.vue` 样式；推断（未测）：按字号算宽度。
+- 建议改法：标题可收缩（`min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap`，悬停与读屏取完整标题），计数与按钮 `flex-shrink: 0` 固定在右侧；在 390px 的 Lab 场景放一条长名字的来源审批，用 `lab:shot` 或 e2e 量标题行高度恒定且无横向滚动。
+
+## 18. `ctx.extensions` 给卡片喂数据：重渲染范围与引用稳定性没有约束
+
+- 严重程度：建议；类别：安全与性能
+- 位置：packages/nb-agent-ui/src/context.ts:34（`extensions: {}` 每次构造新对象）、types.ts:480（`JsonValue`）、vue/stream/AgentConversationTurn.vue:222-278（每个子组件拿 `props.ctx`）；plan.md:129（“进度只改那一行的文字，不引起别处重排”）
+- 现象：`ctx` 是 session-host 里一个 `computed`，每次 `bump()` 重建；`ctx` 对象身份一变，`AgentConversationTurn` 及其子组件的 props 都变，整棵都会重新执行 render（DOM 补丁量很小）。卡片取 `ctx.extensions["nbook.agent"]`，若宿主每次重建这份 JSON（新对象与新数组），卡片里凡是对象型依赖都会失效。`tree` 每 250 ms 推一次，每次都走一遍 `bump()`、重建全部消息视图。“只改一行文字”在 DOM 层面做得到，在 Vue 层面没有任何测试或约定保证。
+- 为什么是问题：开发者在意的是观感与性能；不约束的话，每个卡片的 computed 返回新对象，列表型内容（`pending`、结果全文区）每次重排。
+- 如何核实：读 `createAgentContext`、session-host 里的 `ctx` computed。「读码」，卡顿幅度未测。
+- 建议改法：宿主给 `extensions["nbook.agent"]` 做结构共享（只替换变了的那一项，其余沿用旧引用）；卡片组件内用 `computed` 只取自己那项并按字段取值，用单测数 render 次数、用 `MutationObserver` 验证进度更新只改一个文本节点；`tree`/`jobs` 的更新不走整个会话的 `bump()` 重建消息，而是单独的响应式源。
+
+## 19. Spec 与计划的内部矛盾
+
+- 严重程度：建议；类别：文档
+- 位置：docs/specs/agent/conversation.md:100（输出 34：后代的“审批与提问”）、docs/specs/agent/subagents.md:83（输出 13：“审批，以及 `questions: "user"` 的提问”）、plan.md:123、:130（只写“审批”）、README 第 37 条（只写“审批”）；docs/specs/ui/agent-conversation-view.md:107、:298（`source` 加在 `pendingInputs` 上）与计划的“审批的 `PendingInputView` 加 `source`”；ui spec :326 与 :330（“列表不持有展开状态”与“展开状态由列表持有”）
+- 现象：向导里并入的后代事项到底含不含提问，Spec 与计划不一致；`source` 的 TS 位置（审批类型还是公共基类）不一致；若含提问，第 5、8 条的问题（`终止本轮` 的对象、`mode-switch`）都要处理。折叠状态的矛盾见第 12 条。
+- 为什么是问题：实现者可能只做审批，验收却按 Spec 查提问。
+- 如何核实：读上述位置。
+- 建议改法：决定一次：并入审批与 `questions: "user"` 的普通提问，不含 `mode-switch`（`switch_mode` 针对本会话的 Agent 模式）；`source` 放在 `PendingInputView` 公共字段；“列表不持有展开状态”改写成“列表不持有选中与下拉开关”。
+
+## 20. 顶栏路径：祖先的标题与图标从哪来、与“会话下拉”按钮怎样并存、省略前面的段怎么做
+
+- 严重程度：建议；类别：不变量
+- 位置：plan.md:122、:131（“路径来自会话头的 `caller` 链”）；packages/nb-agent-ui/src/vue/AgentConversationView.vue:308-330（标题是 `sessions` 下拉按钮）、:499-560（样式）；docs/specs/ui/agent-conversation-view.md:214；conversation.md:101（输出 35）
+- 现象：
+  1. 会话头的 `caller` 只有直接父会话的 id；孙会话要逐级读各祖先的会话头（或 `list`）才有标题、图标、Profile 名；祖先可能被归档、不在 `list` 的当前范围、标题为空（“未命名”）。标题还会被自动命名更新，路径要跟着变。计划没有说宿主怎样取、什么时候刷新、取不到时怎么画。
+  2. 有 `sessions` 插槽时，顶栏标题本身是一个下拉按钮；路径的祖先段也是按钮（发 `session.select`）。最后一段（本会话）还是下拉触发器吗？两个交互在同一行并列，键盘顺序与读屏（`nav` 的面包屑语义、当前段 `aria-current`）没有规定。
+  3. “放不下时省略前面的段”：纯 CSS 只能截断，做不到“整段换成省略号”；390 宽“标题区域不小于 160px”的老规则与三段路径冲突，需要测量或容器查询。
+- 为什么是问题：父会话归档后点路径回不去、孙会话标题空白、窄屏顶栏挤掉“更多”按钮，都是容易漏掉的边界。
+- 如何核实：读 `AgentConversationView.vue` 顶栏模板与 Spec 输出 35。
+- 建议改法：宿主在打开会话时取一次祖先链（按 `caller` 逐级，带 3 秒级缓存，换标题时事件刷新），取不到的段写“未知会话”且仍可点；顶栏用面包屑 `nav` + `ol`，最后一段是下拉触发器；省略规则写成“超过两段时中间段省略为 …（菜单列出）”这类可纯 CSS/少量测量实现的规则，并加 390 宽的 Lab 场景。
+
+## 21. “可派的子代理”一节：工具一节与添加对话框里有一半是工具专用的
+
+- 严重程度：建议；类别：代码质量
+- 位置：packages/neuro-book/src/plugins/agent/web/components/ProfileToolsSection.vue:12-18、60-80；components/AddToolsDialog.vue:12-18、36-60、85-100；profile-view.ts:55-100、285-320；docs/specs/agent/profile-settings.md:77（输出 25）
+- 现象：
+  1. 数据类型是工具专用的：行里有 `effect`、`danger`、`required`、`gone`、`summary/detail`，对话框候选有 `providerName` 同名互斥（`toggle` 里“同名的只能选一个”）、`replaces`、`blocked`；Profile 行要的是图标、名字、“推荐”、说明，来源分组与“我加的”。
+  2. 文字键全是 `profiles.tools.*`（标题、添加、恢复默认、移除、搜索占位、空态）。
+  3. 工具一节有 `gone` 分组：绑定里写了但目录里已不存在的工具以警告行显示，用户能看到并移除；输出 25 只写“列出不在白名单里、可用的 Profile”，没有写白名单里的 Profile 被删除、不可用（`problem`）、被隐藏时怎样显示，也没有写 Profile 能不能派自己、派到循环（A 的白名单里有 B，B 里有 A，由深度上限兜底，界面不拦）。
+  4. 这一节“Profile 有 `agent_spawn` 时才有”，用户在上面的工具一节里去掉了 spawn 工具，这一节会消失，而 `agents: {added, removed}` 仍存在设置里；`toolsField` 对 `hidden` 且空的 Profile 返回 null，类似的隐藏规则这一节没有。
+- 为什么是问题：硬复用会把 Profile 的数据塞进工具专用的组件，每加一个字段就在两个地方分叉；不复用又和第 46 条“同工具一节的样子”重复。
+- 如何核实：读上述两个组件与 `toolsField`；`rg "profiles.tools" packages/neuro-book/src/plugins/agent/web`。
+- 建议改法：抽通用的“绑定列表一节”与“选择对话框”（行用插槽或 `{id, title, subtitle, badges}` 的通用形状，文字经 props 传入），工具与子代理各写自己的“视图模型”到通用形状的转换；补上白名单里已删除或不可用的 Profile 的警告行、自引用与循环的处理（至少 Spec 写明由深度上限兜底）、工具一节去掉 spawn 后这一节的显示规则。
+
+## 22. 验收映射：开发者最在意的几条没有能真正量到的测试
+
+- 严重程度：重要；类别：测试
+- 位置：plan.md:184-190（验证）、:169-180（验收场景）；packages/nb-agent-ui/vitest.config.ts（happy-dom，没有排版）；packages/neuro-book/e2e/lab-agent-ui.e2e.ts（不在计划列出的受影响 e2e 里）
+- 现象：
+  1. “卡片高度不随文字变”（开发者最在意）：DOM 测试跑在 happy-dom，没有排版，量不出高度；计划里的 e2e（`agent-subagents.e2e.ts` 场景 1、2、4）是行为场景，没有量卡片高度、没有 390px。应当有 Lab 场景加真实浏览器断言：同一张卡片里放短进度、超长进度、结果第一句，高度相同。
+  2. 停靠面的阴影与圆角：design-language.md:193 给了判据（`box-shadow` 不等于 `--elevation-popover`、`border-radius` 等于输入框的），应有一个读 `getComputedStyle` 的 Lab e2e 断言，收起与展开两个态都量；lab-agent-ui.e2e.ts 里已有读样式的写法（:410、:414），但验证清单没有列这个文件，而本 Task 会改它覆盖的向导、会话面板、视图字段。
+  3. “进度只改一个文本节点”：需要组件级 DOM 测试（happy-dom 可以做，用 `MutationObserver` 或 render 计数），计划没提。
+  4. 向导混批：并入后代的事项、先答了收缩、部分失败、`allow-always` 落规则、预览加载，都是宿主与视图的交互，计划只有场景 2 的整体 e2e；缺 session-host 层用真实 remote 假端点的测试。
+  5. 异步提问的收起/展开、多个翻页、与同步向导并存、焦点不抢：没有对应判据。
+  6. 会话面板：嵌套、搜索展开祖先、当前会话是子会话时展开、父会话被过滤，计划只写 Lab 场景。
+  7. 读屏与键盘：两个并存的 `data-agent-wizard`（同步与异步）会让现有按 `[data-agent-wizard]` 取元素的测试出现多匹配，需要区分的钩子。
+- 为什么是问题：开发者特别点出的两条（高度、阴影）恰好没有机检；其余靠 Lab 目测。
+- 如何核实：读 vitest 配置与验证一节；`rg "data-agent-wizard" packages --glob '*.ts'`。
+- 建议改法：验证清单补：`lab-agent-ui.e2e.ts` 新增“卡片高度恒定（含 390px）”“停靠面计算样式”“长名字来源标题不溢出”三个断言；nb-agent-ui DOM 测试加“进度只改文本节点”；session-host 增加混批与失败的集成测试；受影响 e2e 加 `lab-agent-ui`。
+
+## 23. 异步提问没有“在别处也看得见”的出口
+
+- 严重程度：建议；类别：不变量
+- 位置：docs/specs/agent/sessions.md:77（输出 15：`activity` “异步提问不在内”）；conversation.md:104；packages/neuro-book/src/plugins/agent/web/activity.ts
+- 现象：异步提问不让运行停下，只在会话打开时由输入框上方的面提示。会话列表（`note` 字段）、状态栏的“等你处理”都不算它；用户切到别的会话或关掉面板，就没有任何提示。
+- 为什么是问题：异步提问是子代理或后台任务向用户要答案的通道，错过的代价是 Agent 一直带着缺省假设干活，且没有地方能看到“有 3 个问题没回答”。
+- 如何核实：读 Spec 输出 15 与 activity.ts。
+- 建议改法：先不改行为，但在 Spec 里写明“有意不提示”的理由（或给会话列表行加 `note`“有未回答的问题”，成本很小，`AgentSessionListItem.note` 已存在）。
+
+## 24. 其他小项（各一两句）
+
+- 严重程度：建议；类别：文档 / 代码质量
+- 国际化与文档：新增文字要同时进 `locales/zh-CN.ts` 与 `locales/en-US.ts`；改动的组件（`AgentWizard`、`AgentWizardFrame`、`AgentSessionPanel`、`AgentConversationView`）各自的同名 `.md` 要同步；计划的“Spec 与文档改动”表里没有 nb-agent-ui 组件文档与 locales，`governance:check` 与评审时才会发现。
+- 读屏：`aria-live` 现在只报“N 个待批准”（AgentWizard.vue:44-48，`wizard.announce.approval`），不含来源；来自子代理的步骤应在读屏文字里带“子代理名”，异步提问的面应写“不影响正在运行的任务”之类的说明，否则读屏用户分不出同步与异步。
+- 明暗两色：停靠面的轻阴影在暗色下按 design-language“暗色下外阴影要加重”的规则要不要加重，计划没写；两色都要有 Lab 场景。
+- 进度行的数字：用时每秒变（`now` 驱动），“1:12”到“10:12”宽度变化，卡头右侧用等宽数字（`font-variant-numeric: tabular-nums`）避免右边的按钮晃动。
+- 向导里提交 `input.submit` 的 `batchKey`：命名是“批”，实际是单个事项 id；加 `sessionId` 时顺便在类型注释里写明，避免后来的宿主按“一批一个键”理解。
+
+## 未发现问题的方面
+
+- 与已定设计的一致性：README 第 36–49 条在计划与 Spec 33–39 里逐条都有对应，没有发现悄悄改变已定项（第 40 条“各自一张卡、不合组”、第 41 条“一行、不自动展开”、第 47 条 B1 都如实写入）；不一致只在 Spec 内部（第 19 条）。
+- 插件登记的节点渲染器能拿到 `ctx.extensions`：`ToolComponentProps` 含完整 `ctx`（packages/nb-agent-ui/src/registry.ts:110-115），`extensions` 分区在 `AgentConversationContext` 里已存在，只是目前恒为 `{}`（context.ts:34），没有现成的写入方，需要宿主新写。
+- `input.submit` 增加可选 `sessionId` 与现有合同兼容：不认识它的宿主（nb-story、Lab）不会收到带 `source` 的事项，行为不变；问题在宿主内部怎样用它（第 4 条）。
+- 异步提问与 `ask` 在内核里确是同一条交互通道：interaction.ts 里 `resolve` 对 `item.async` 只是把回答当成一条输入，界面复用同一个向导在合同层面成立（缺的是适配器与向导层，见第 8 条）。
+- `tree`、`jobs` 的“先订阅后取、`onResync` 重取”：推送的是整份、同一连接有序，不需要序号去重，没发现竞态。
+- 整轮收起与 `node` 的关系：Spec 输出 33 写的“常显（不收进过程）”与“整轮收起时随过程收起”在 `conversation-turns` 里并不矛盾（`node` 只切断思维链，不是结果区），问题只在“仍在跑的卡片也被收起”（第 16 条）。
+- 子代理子会话的 id、`name` 与白名单 Profile 的候选过滤：未发现新的前端问题（后端部分另见 backend-report.md）。
+
+## 数量
+
+- 阻断：1（第 1 条）
+- 重要：17（第 2–17、22 条）
+- 建议：6（第 18–21、23、24 条）
+- 合计：24 条
+
+最严重的几条：
+1. 第 1 条：`tree` 没有 `callId`，运行中的前台 `agent_spawn` 卡片找不到对应子会话。
+2. 第 4、5、7 条：后代审批并进向导后，`resolveInput`、`allow-always` 规则、预览、`mode-switch` 都按当前会话写死；“同规则一起选”跨会话；`打开子会话` 与同步批次收尾会清掉向导状态。
+3. 第 8、9 条：异步提问被适配器丢弃、向导只取第一个、展开态仍是浮层阴影且没有放置位置，开发者特别在意的阴影与圆角在展开态不成立。
