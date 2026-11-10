@@ -49,6 +49,9 @@ export const SYNTAX_RULES: ReadonlyArray<SyntaxRule> = [
 
 type Rgba = readonly [number, number, number, number];
 
+/** 读不出颜色时的记号：任何主题都不会用到的一个颜色，计算样式里原样回读。 */
+const SENTINEL = "rgb(1, 2, 3)";
+
 const byte = (value: number): string => value.toString(16).padStart(2, "0");
 
 /**
@@ -67,10 +70,11 @@ function createColorReader(owner: Document): {read(expression: string): Rgba | n
     return {
         read: (expression) => {
             if (context === null) return null;
-            probe.style.color = "";
-            probe.style.color = expression;
-            // 表达式不合法时这一行不生效，`color` 是继承来的正文色：宁可用后备色。
-            if (probe.style.color === "") return null;
+            // 先放一个哨兵色：表达式写错（这一行不生效）或变量不存在（`var()` 在计算时无效，继承正文色），读到的都不是
+            // 想要的颜色，有哨兵垫底才认得出来、改用后备色。
+            probe.style.color = SENTINEL;
+            probe.style.color = expression.replace(/^var\((--[\w-]+)\)$/u, `var($1, ${SENTINEL})`);
+            if (getComputedStyle(probe).color === SENTINEL) return null;
             context.clearRect(0, 0, 1, 1);
             context.fillStyle = getComputedStyle(probe).color;
             context.fillRect(0, 0, 1, 1);

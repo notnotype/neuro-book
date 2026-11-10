@@ -39,7 +39,10 @@ export interface CodeMenuItem {
     readonly run: CodeMenuRun;
 }
 
-/** `EditorOption.emptySelectionClipboard`：没选区时复制整行。枚举在运行时的 API 对象上，这个模块只引类型，写数值。 */
+/**
+ * `EditorOption.emptySelectionClipboard`：没选区时复制整行。枚举只在运行时的 API 对象上，这个模块只引类型，所以写数值；
+ * `satisfies` 让 Monaco 升级后编号变了时类型检查报错。
+ */
 const EMPTY_SELECTION_CLIPBOARD = 45 satisfies Monaco.editor.EditorOption.emptySelectionClipboard;
 
 const FORMAT_DOCUMENT = "editor.action.formatDocument";
@@ -93,7 +96,10 @@ export async function runCodeMenuItem(editor: Monaco.editor.IStandaloneCodeEdito
         return null;
     }
     if (run.kind === "action") {
-        await editor.getAction(run.id)?.run();
+        const action = editor.getAction(run.id);
+        // 表里的 id 是对着 0.55.1 写的：升级后改了名，这里报出来，不静默不执行。
+        if (action === null) throw new Error(`Monaco action ${run.id} is not registered`);
+        await action.run();
         return null;
     }
     const read = await readClipboardText(clipboard);
@@ -101,7 +107,8 @@ export async function runCodeMenuItem(editor: Monaco.editor.IStandaloneCodeEdito
     // 读剪贴板是异步的，这期间焦点可能去了别处。
     editor.focus();
     // 与 Monaco 自己在网页上的粘贴同一段逻辑：文字就是上一次在 Monaco 里复制的那段时，带上“整行复制”“多光标各段”，
-    // 否则整行复制后从菜单粘贴会插在行中间，和 Ctrl+V 不一样。
+    // 否则整行复制后从菜单粘贴会插在行中间，和 Ctrl+V 不一样。这份记录在 Monaco 的内部模块里（没有公开接口）；按需
+    // 导入，和 Monaco 本身一样只在第一次用到源码编辑器时加载，与它拿到的是同一个模块实例。
     const {InMemoryClipboardMetadataManager} = await import("monaco-editor/esm/vs/editor/browser/controller/editContext/clipboardUtils.js");
     const metadata = InMemoryClipboardMetadataManager.INSTANCE.get(read.text);
     editor.trigger("nbook", "paste", {

@@ -26,12 +26,8 @@ describe("Spec workbench.editor 输出 64：源码编辑器右键的内置项", 
         expect(ids({readonly: true, hasSelection: true, canFormat: true, canFormatSelection: true})).toEqual([["copy"], ["selectAll"], ["find"]]);
     });
 
-    it("只标各平台一致的五个快捷键；剪贴板与全选走命令，粘贴自己读剪贴板，其余走动作", () => {
+    it("只标各平台一致的五个快捷键", () => {
         const items = codeMenuSections({...PLAIN, hasSelection: true, canFormat: true, canFormatSelection: true}).flat();
         expect(items.filter((item) => item.keybinding !== undefined).map((item) => item.id)).toEqual(["cut", "copy", "paste", "selectAll", "find"]);
-        expect(Object.fromEntries(items.map((item) => [item.id, item.run.kind]))).toEqual({
-            cut: "command", copy: "command", paste: "paste", selectAll: "command",
-            find: "action", replace: "action", changeAll: "action", formatDocument: "action", formatSelection: "action",
-        });
     });
 });

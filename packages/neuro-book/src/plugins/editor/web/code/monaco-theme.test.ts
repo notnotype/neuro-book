@@ -1,6 +1,6 @@
 /**
  * 语法着色的规则表（docs/specs/workbench/editor.md 输出 65）：表的形状。颜色的换算要真实的计算样式与画布，由
- * `e2e/editor-types.e2e.ts` 在浏览器里验。
+ * `e2e/editor-code-menu.e2e.ts` 在浏览器里验。
  */
 
 import {describe, expect, it} from "bun:test";

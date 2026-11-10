@@ -41,9 +41,9 @@ function showAtCursor(editor: Monaco.editor.IStandaloneCodeEditor): void {
     editor.focus();
     editor.revealPosition(position, 1 satisfies Monaco.editor.ScrollType.Immediate);
     editor.render();
-    const spot = editor.getScrolledVisiblePosition(position);
-    if (spot === null) return;
     const box = node.getBoundingClientRect();
+    // 量不到光标（编辑器还没布局）时开在编辑器的左上角，不至于按了没反应。
+    const spot = editor.getScrolledVisiblePosition(position) ?? {left: 0, top: 0, height: 0};
     show(editor, box.left + spot.left, box.top + spot.top + spot.height);
 }
 
@@ -54,8 +54,17 @@ function showAtCursor(editor: Monaco.editor.IStandaloneCodeEditor): void {
 const onContextMenu = (event: MouseEvent): void => {
     const {editor, monaco} = props;
     if (editor === null || monaco === null || menus === null) return;
-    // 不是鼠标右键：菜单键在有的平台上只发这个事件。焦点在文字区才归这里（在查找框里按菜单键是浏览器的事）。
-    if (event.button !== 2) {
+    // 键盘发的右键（菜单键、Shift+F10）：Chrome 的 contextmenu 是 PointerEvent，键盘发的 `pointerType` 是空串；Mac 的
+    // Ctrl+点击（`button` 为 0）与触摸长按都有指针类型，按指针处理。没有这个属性的浏览器退回看 `button`。
+    const pointerType = (event as Partial<PointerEvent>).pointerType;
+    if (pointerType === undefined ? event.button !== 2 : pointerType === "") {
+        // 菜单已经由按键打开（有的平台在 keyup 时补发这个事件，焦点已在菜单上）：吞掉，不让浏览器的菜单出来。
+        if (open.value) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+        // 焦点不在正文（在查找框里按菜单键）：是浏览器的事。
         if (!editor.hasTextFocus()) return;
         event.preventDefault();
         event.stopPropagation();
@@ -99,7 +108,8 @@ watch(() => [props.editor, props.monaco] as const, ([editor, monaco]) => {
     const listeners = [
         // 这里的监听先于 Monaco 的键位分发：拦下之后它绑在 Shift+F10 上的“显示菜单”不再吃这次按键。
         editor.onKeyDown((event) => {
-            if (event.keyCode !== keys.ContextMenu && !(event.shiftKey && event.keyCode === keys.F10)) return;
+            const shiftF10 = event.keyCode === keys.F10 && event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+            if (event.keyCode !== keys.ContextMenu && !shiftF10) return;
             event.preventDefault();
             event.stopPropagation();
             showAtCursor(editor);

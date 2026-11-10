@@ -137,6 +137,9 @@ const enter = (binding: TextEditorBinding): void => {
     const wanted = wantedLanguage(binding);
     if (state === null) {
         const model = monaco.editor.createModel(binding.text.value, wanted ?? undefined, modelUri(monaco, binding.address.value));
+        // 括号按分隔符着色（输出 65）。按嵌套层数分色用的是 Monaco 的三个固定主题色，不随产品主题变；独立版里这是模型的
+        // 选项，编辑器选项 `bracketPairColorization` 管不到。
+        model.updateOptions({bracketColorizationOptions: {enabled: false, independentColorPoolPerBracketType: false}});
         state = {model, indentation: null, view: null, confirmed: binding.revision.value, held: false, source: binding.text.value, base: valueOf(model)};
         binding.slot.state = state;
         binding.slot.dispose = () => model.dispose();
@@ -288,8 +291,6 @@ onMounted(async () => {
         scrollBeyondLastLine: false,
         // 自带的右键菜单换成应用的（`CodeContextMenu`，输出 64）。
         contextmenu: false,
-        // 括号按分隔符着色（输出 65）：按嵌套层数分色用的是 Monaco 的三个固定主题色，不随产品主题变。
-        bracketPairColorization: {enabled: false},
         theme: MONACO_THEME,
         ariaLabel: props.label,
     });

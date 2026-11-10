@@ -45,8 +45,8 @@ const lines = (page: Page) => editor(page).locator(".view-lines");
 const menu = (page: Page) => page.getByRole("menu");
 /** 菜单项的名字以显示文字开头（后面可能接着快捷键）。 */
 const entry = (page: Page, label: string) => menu(page).getByRole("menuitem", {name: new RegExp(`^${label}`, "u")});
-/** 源码编辑器里文字正好是 `text` 的第一个 token。 */
-const token = (page: Page, text: string) => lines(page).locator("span > span").filter({hasText: new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`, "u")}).first();
+/** 源码编辑器里文字正好是 `text` 的第一个 token；Monaco 把空格画成不换行空格，两种都认。 */
+const token = (page: Page, text: string) => lines(page).locator("span > span").filter({hasText: new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&").replace(/ /gu, "[ \\u00a0]")}$`, "u")}).first();
 /** 一行（Monaco 把空格画成不换行空格，按 token 找不到带空格的文字）。 */
 const line = (page: Page, contains: string) => lines(page).locator(".view-line").filter({hasText: contains}).first();
 /** 文档的正文：从 Monaco 取（不读磁盘，自动保存关着）。 */
@@ -93,9 +93,9 @@ test("JSON 文件：右击出现应用的菜单，内置三节之后是只对 .j
     await expect(entry(page, "测试源码右键项")).toHaveCount(0);
 });
 
-test("剪切后正文与剪贴板都变；光标在一行里不选中、复制后到另一行粘贴，插成完整的一行；格式化文档（场景 40）", async ({page, context}) => {
+test("剪切后正文与剪贴板都变；光标在一行里不选中、复制后到另一行的中间粘贴，插成完整的一行；格式化文档（场景 40）", async ({page, context}) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-    await openFile(page, "code/b40.json", "{\"alpha\": 1,\n\"beta\": 2}\n");
+    await openFile(page, "code/b40.json", "{\"alpha\": 1,\n\"beta\": 2,\n\"gamma\": 3}\n");
     await token(page, "\"beta\"").dblclick();
     await token(page, "\"beta\"").click({button: "right"});
     await entry(page, "剪切").click();
@@ -105,24 +105,87 @@ test("剪切后正文与剪贴板都变；光标在一行里不选中、复制�
     await token(page, "\"alpha\"").click();
     await token(page, "\"alpha\"").click({button: "right"});
     await entry(page, "复制").click();
-    await page.keyboard.press("Control+End");
-    await lines(page).locator(".view-line").last().click({button: "right"});
+    // 右击落在“gamma”这个词的中间：光标在行中间。整行复制的信息没带上时，粘贴会插在这里，把这一行拆开。
+    await token(page, "\"gamma\"").click({button: "right"});
     await entry(page, "粘贴").click();
-    await expect.poll(async () => (await text(page)).split("\n").filter((line) => line.includes("alpha")).length).toBe(2);
-    expect((await text(page)).split("\n").filter((line) => line.includes("alpha")).every((line) => line.trim().startsWith("{\"alpha\"") || line.trim().startsWith("\"alpha\""))).toBe(true);
+    await expect.poll(async () => (await text(page)).split("\n").filter((line) => line === "{\"alpha\": 1,").length).toBe(2);
+    expect((await text(page)).split("\n")).toContain("\"gamma\": 3}");
 
     await lines(page).click({button: "right"});
     await entry(page, "格式化文档").click();
     await expect.poll(() => text(page)).toMatch(/^\s+"alpha": 1/mu);
 });
 
-test("先点资源管理器再右击正文，“更改所有匹配项”在且有效（场景 40）", async ({page}) => {
+test("全选、查找、替换与格式化选定内容（场景 40）", async ({page}) => {
+    await openFile(page, "code/h40.json", "{\"a\": [1,2,3]}\n");
+    await token(page, "\"a\"").click({button: "right"});
+    await entry(page, "全选").click();
+    await expect(editor(page).locator(".selected-text").first()).toBeVisible();
+    await token(page, "\"a\"").click({button: "right"});
+    await expect(entry(page, "格式化选定内容")).toBeVisible();
+    await entry(page, "格式化选定内容").click();
+    await expect.poll(() => text(page)).toMatch(/^\s+"a": \[/mu);
+    await token(page, "\"a\"").click({button: "right"});
+    await entry(page, "查找").click();
+    await expect(editor(page).locator(".find-widget textarea").first()).toBeFocused();
+    await page.keyboard.press("Escape");
+    await token(page, "\"a\"").click({button: "right"});
+    await entry(page, "替换").click();
+    await expect(editor(page).locator(".find-widget .replace-input textarea, .find-widget .replace-part textarea").first()).toBeVisible();
+});
+
+test("先点资源管理器再右击正文，光标移到点击处，“更改所有匹配项”在且有效（场景 40、41）", async ({page}) => {
     await openFile(page, "code/c40.txt", "cat dog cat\n");
+    await line(page, "dog").click({position: {x: 2, y: 6}});
+    await page.keyboard.press("Home");
     await item(page, "project://code").click();
-    await line(page, "dog").click({button: "right", position: {x: 6, y: 6}});
+    // 右击在“dog”上：光标原来在行首，右击之后应在点击处。
+    const dog = await page.evaluate(() => {
+        const host = document.querySelector("[data-editor-group-active] [data-editor-kind=\"nbook.editor.code\"] .view-lines .view-line");
+        const range = document.createRange();
+        const textNode = [...(host?.querySelectorAll("span span") ?? [])].map((span) => span.firstChild).find((node) => node?.textContent?.includes("dog"));
+        if (textNode == null) return null;
+        const at = textNode.textContent!.indexOf("dog");
+        range.setStart(textNode, at + 1);
+        range.setEnd(textNode, at + 2);
+        const rect = range.getBoundingClientRect();
+        return {x: rect.x + rect.width / 2, y: rect.y + rect.height / 2};
+    });
+    await page.mouse.click(dog!.x, dog!.y, {button: "right"});
+    await expect(menu(page)).toBeVisible();
+    await expect(page.locator("[data-workbench-status-bar] [data-workbench-item=\"nbook.editor.cursor\"]")).toContainText(/第 1 行，第 [56] 列/u);
     await entry(page, "更改所有匹配项").click();
     await page.keyboard.type("fox");
-    await expect.poll(() => text(page)).toContain("fox dog fox");
+    await expect.poll(() => text(page)).toContain("cat fox cat");
+});
+
+test("两个编辑组各按各的 Shift+F10；光标滚出可见区时先滚回来、菜单开在光标处；只发右键事件的键盘也在光标处打开（场景 41）", async ({page}) => {
+    await openFile(page, "code/k41.txt", `${Array.from({length: 120}, (_, index) => `row ${String(index)}`).join("\n")}\n`);
+    await line(page, "row 0").click();
+    await page.keyboard.press("Control+\\");
+    await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+    const right = page.locator("[data-editor-group-active]");
+    const rightBox = await right.boundingBox();
+    await page.keyboard.press("Shift+F10");
+    const opened = await menu(page).boundingBox();
+    expect(opened!.x).toBeGreaterThanOrEqual(rightBox!.x - 1);
+    await page.keyboard.press("Escape");
+
+    // 光标在第 1 行，把正文滚到底再按：菜单不能开到编辑器外面去。
+    await lines(page).hover();
+    await page.mouse.wheel(0, 4000);
+    await expect.poll(async () => (await text(page)).includes("row 0")).toBe(false);
+    await page.keyboard.press("Shift+F10");
+    const after = await menu(page).boundingBox();
+    const box = await editor(page).boundingBox();
+    expect(after!.y).toBeGreaterThanOrEqual(box!.y);
+    expect(after!.y).toBeLessThanOrEqual(box!.y + box!.height);
+    await page.keyboard.press("Escape");
+    await expect(menu(page)).toHaveCount(0);
+
+    // 有的平台菜单键只发 contextmenu：键盘发的 pointerType 是空串。
+    await page.evaluate(() => document.activeElement?.dispatchEvent(new PointerEvent("contextmenu", {bubbles: true, cancelable: true, pointerType: "", button: 0})));
+    await expect(menu(page)).toBeVisible();
 });
 
 test("两个选区时右击其中一个之内选区都在；右击查找输入框没有应用的菜单；Shift+F10 与菜单键在光标处打开，Escape 后焦点回正文；滚动时关闭（场景 41）", async ({page}) => {
@@ -228,6 +291,29 @@ for (const [theme, appearance] of [["nbook", "light"], ["nbook", "dark"], ["maco
         expect(new Set(seen.map((color) => color.join(","))).size).toBe(cases.length);
     });
 }
+
+test("TypeScript、CSS、HTML 的成分各取对应的语法变量；切换明暗后颜色跟着变（场景 43）", async ({page}) => {
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.editor/autoSave": "off", "nbook.workbench/theme": "nbook", "nbook.workbench/appearance": "light"}));
+    const cases: Record<string, {readonly content: string; readonly tokens: ReadonlyArray<readonly [string, string]>}> = {
+        "code/s43.ts": {content: "// 注释\nexport const n = f(\"s\");\n", tokens: [["// 注释", "--syntax-comment"], ["export", "--syntax-keyword"], ["\"s\"", "--syntax-string"], ["(", "--syntax-punctuation"]]},
+        "code/s43.css": {content: ".a {\n    color: red;\n}\n", tokens: [["color:", "--syntax-attribute"], ["{", "--syntax-punctuation"]]},
+        "code/s43.html": {content: "<p id=\"x\">t</p>\n", tokens: [["p", "--syntax-tag"], ["id", "--syntax-attribute"], ["\"x\"", "--syntax-string"]]},
+    };
+    for (const [path, {content, tokens}] of Object.entries(cases)) {
+        await openFile(page, path, content);
+        for (const [text, variable] of tokens) {
+            const expected = await resolved(page, `var(${variable})`);
+            await expect.poll(async () => near(await tokenColor(page, text), expected), {message: `${path} 的 ${text} 应取 ${variable}`}).toBe(true);
+        }
+    }
+    // 运行中切到暗色：主题重新生成，同一个 token 的颜色变成暗色下的值。
+    const lightColor = await tokenColor(page, "id");
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.editor/autoSave": "off", "nbook.workbench/theme": "nbook", "nbook.workbench/appearance": "dark"}));
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    const dark = await resolved(page, "var(--syntax-attribute)");
+    await expect.poll(async () => near(await tokenColor(page, "id"), dark)).toBe(true);
+    expect(near(lightColor, dark)).toBe(false);
+});
 
 test("选区色取主题的 --selection-bg（带透明度的 rgba 也换算得对）（场景 43）", async ({page}) => {
     await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.editor/autoSave": "off", "nbook.workbench/theme": "nbook", "nbook.workbench/appearance": "light"}));
