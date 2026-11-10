@@ -1,0 +1,72 @@
+### 1. refreshEndpoint 的 "incompatible" 不带原因，重连时的用户可见文案要么丢失要么需要包知道协议版本（严重程度：中）
+位置：计划“`remote-session.ts`”一条（`refreshEndpoint(): Promise<RpcEndpoint | "incompatible" | {readonly retry: string}>`）；packages/neuro-book/src/web/host/remote-session.ts:111-115
+问题：现在重连时发现引导协议版本变了，会话自己拼出原因 `服务端的引导协议版本已不是 ${BROWSER_PROTOCOL_VERSION}`，经 `onState("incompatible", reason)` 进入窗口的 `{status, reason}`，最后显示在只给刷新的失败页上。计划把版本判定移到应用的 `refreshEndpoint`，`BROWSER_PROTOCOL_VERSION` 与 `browser-bootstrap` 协议按划分表留在应用，但返回值里 `"incompatible"` 是不带字符串的字面量。照字面实施，nb-host 只能自己编一句不含版本号的文字（用户看到的失败原因变了，违反“用户可观察行为不变”），或者在包里硬编码一个版本号（违反“协议留应用”）。`{retry: string}` 带了原因，唯独终态没带，形状不对称。
+依据：remote-session.ts:111-115；window.ts:225-230 把 `reason ?? next` 直接放进窗口状态；Task 非目标“用户可观察的行为不变”。
+建议：返回值改为 `{readonly incompatible: string}`（原因由应用拼），与 `{retry: string}` 对称；包里不出现任何协议版本的概念。顺带在计划里写明 `refreshEndpoint` 不应抛错（抛了由 `retry()` 的 catch 按一次失败退避，现有行为），并把现有两处 `onRetryFailed` 的调用（取引导失败、结构不符）归入 `{retry}` 的处理。
+
+### 2. 应用的“前端不引后端”架构测试对 nb-host 的子路径失效（严重程度：中）
+位置：计划“`architecture.test.ts`”一条（只写了 nb-host 包内的分层）；packages/neuro-book/src/architecture.test.ts:70-76, 92-99
+问题：应用的检查靠 `targetInSrc`：只有 `nbook/…` 与相对路径才算“在 src 内”，包名返回 null；前端规则是 `web && (isPlatformModule(specifier) || (target !== null && isBackend(target)))`，共用代码规则同理。以前 `web/` 里写 `nbook/server/...` 会被拦下；搬家后同样的代码写成 `@notnotype/nb-host/server`（或 `./http`、`./testing`，它们引 Bun.serve、node:net、proper-lockfile）target 为 null、也不是 node:/bun 开头，什么都拦不住。反方向同理：`backend/` 或 `server/` 引 `@notnotype/nb-host/web` 不报。nb-host 自己的测试只检查 nb-host 内部，管不到调用方。AGENTS 里写的“前端误引后端时打包与类型检查不一定失败（Bun 能解析两侧）”这个理由对新包完全成立。
+依据：architecture.test.ts:70-76（targetInSrc）、92-99（violationsOf 前三条规则）；计划“包骨架”分层测试一条只覆盖包内。
+建议：在应用 `architecture.test.ts` 加一张“nb-host 子路径的运行位置表”（`./server`、`./http`、`./testing` 只后端；`./web` 只前端；`./socket`、`./http/contracts` 不限），把 `@notnotype/nb-host/<子路径>` 按这张表参与 web / server / neutral 三条规则，并为每个方向带一个反例。放进第 1 片，因为 `./socket` 从那里开始被共用代码导入。
+
+### 3. client-identity.dom.test.ts 无处可去：新包不能带 Vitest，happy-dom 的真实 localStorage 测试没有归宿（严重程度：中）
+位置：计划“`client-identity.ts`”一条与第 5 片；docs/testing/README.md:141, 217；packages/neuro-book/src/web/host/client-identity.dom.test.ts
+问题：现有测试是 `*.dom.test.ts`，在 Vitest + happy-dom 里用真实 `window.localStorage`，并用抛 `SecurityError` 的取存储函数测“不可用”分支。测试规范写明：新包用 `bun test`，Vitest 例外只给新应用的 Vue 组件测试，包内不引入 vitest 配置；nb-host 的脚本只有 `bun test`，也没有 happy-dom。第 5 片只列了 `browser-host.test.ts`、`remote-session.test.ts` 搬入，client-identity 的测试去向没写：留在应用就是“测试文件与被测源码同目录”的反例（被测函数已在包里，应用里只剩一行包装）；搬进 nb-host 则 `bun test` 里没有 `window`，要么跑不起来，要么悄悄引入 vitest 配置。
+依据：README.md:141（`bunfig.toml` 让 `bun test` 跳过 dom 测试，只对新应用）与 :217（新包不引入 vitest 配置）；该函数的参数本来就是注入的 `() => IdentityStorage`（client-identity.ts:34）。
+建议：在计划里明确改写为 `client-identity.test.ts`（bun test），用 Map 做存储替身加一个抛 `DOMException("…","SecurityError")` 的取存储函数（Bun 有 `DOMException`）；“真实 localStorage”这一层由已有的 e2e（`lab.e2e.ts:112` 读 `nbook.client-identity`）代表，并在计划里写一句替身与真实存储对过契约的依据。应用侧只保留对键与包装的一条断言。
+
+### 4. “浏览器第一次从 nb-host 取代码”实际发生在第 1 片，而第 1 片的验证里没有 Vite、Vitest 或 build:web（严重程度：中）
+位置：计划“风险与兜底”倒数第二条（把它放在第 5 片）；切片表第 1 片的验证列
+问题：第 1 片把 `rpc-socket.ts` 搬成 `@notnotype/nb-host/socket` 并“改全部导入”，其中 `plugins/files/shared/contracts.ts`（第 16 行）与 `plugins/canon/shared/contracts.ts`（第 19 行）导入的是 `RPC_MAX_MESSAGE_BYTES`；这两份 `shared/contracts.ts` 被浏览器入口导入（`files/web/plugin.ts:13`、`files/web/client.ts`）。所以浏览器包从第 1 片起就要经 Vite 解析 nb-host 的子路径，开发服务（`optimizeDeps.noDiscovery: true`）与生产构建（rollup）都是。第 1 片的验证列只有 `bun test` 与 `bun run typecheck`（vue-tsc 只证明类型解析，不证明 Vite 的解析、依赖预构建清单与浏览器目标），风险条目又说“第 5 片的 vue-tsc、Vitest、合入前的 e2e”兜底。一旦 nb-host 的 `exports` 写法或依赖有问题，要到第 5 片、甚至合入前的 e2e 才暴露，前四片的提交都建立在没验过的解析之上。
+依据：files/shared/contracts.ts:16、files/web/plugin.ts:13；vite.config.ts 的 `optimizeDeps`；计划“写计划时没有核实”一条把 Vite 解析列为“第 5 片核对”。
+建议：第 1 片验证加 `bun run build:web`（或 `bun run test:vitest src/plugins/files`）与一次开发模式下页面加载的检查；风险条目改为“第 1 片起”；第 5 片再加 `build:web`，因为 `./web` 的 barrel 带来的是另一批模块。
+
+### 5. `platform` 必填与 `ApplicationManifest.platform` 重复，必填保护可被 manifest 覆盖（严重程度：低到中）
+位置：计划“`browser-host.ts`”一条（`start({…, manifest, …, platform})`，“platform 必填，内部调内核的 createApplication”）；packages/nb-runtime/src/application/contracts.ts:111-112；packages/neuro-book/src/application.ts:14
+问题：内核的 `ApplicationManifest` 已经有可选的 `platform`。现在应用的包装是 `{platform: NEUROBOOK_PLATFORM, ...manifest}`，manifest 里的 `platform` 会覆盖档案。计划让适配器同时收 `manifest: ApplicationManifest` 和必填 `platform`，没说两者同时出现时谁赢。若照现有写法逐字搬成 `{platform: options.platform, ...options.manifest}`，调用方在 manifest 里带一个 `platform: undefined`（可选属性允许显式 undefined，除非开了 exactOptionalPropertyTypes，应用没有）就能让“必填”形同虚设，且没有类型错误，正好是应用 `application.ts` 头注释要防的“漏传平台档案”。
+依据：contracts.ts:111-112；application.ts:14；计划“风险与兜底·漏传平台档案”声称类型检查拦下。
+建议：适配器选项写成 `manifest: Omit<ApplicationManifest, "platform">` 加 `platform: PluginPlatform`，内部用 `{...manifest, platform}`（档案放后面）；nb-host 的 `architecture.test.ts` 加与应用 `KERNEL_CREATE` 同样的检查，让包内只有 `browser-host.ts` 与 `server/host.ts` 导入内核的 `createApplication`。
+
+### 6. 应用名扫描的正则没有包括第二个应用 NeuroBot（严重程度：低到中）
+位置：计划“`src/architecture.test.ts`”第一条（`/nbook|neurobook/i`；说明符不以 `nbook/`、`@notnotype/neuro-book` 开头）；packages/nb-runtime/src/app-neutral.test.ts:13-14
+问题：照搬 nb-runtime 的写法，但那份注释写明“出现第二个应用时把它的名字加进来”，而 nb-host 存在的理由就是第二个应用 NeuroBot。`/neurobook/i` 不匹配 `neurobot`，`/nbook/i` 不匹配 `nbot`。浏览器一侧最容易漏进去的恰恰是存储键、`[nbot]` 之类的日志前缀与诊断文案，扫描对它们全部放行。
+依据：app-neutral.test.ts:13-14；计划“应用名不进包”的目标。
+建议：正则加 `neurobot|nbot|nbook|neurobook`（并为 `neurobot` 与 `nbot` 各带一个反例）；导入说明符的黑名单加 `@notnotype/neurobot` 之类将来的应用包名前缀（先写 `@notnotype/neuro-bot`，以 t03 起的实际包名为准）。注意要连注释一起扫，计划已写，保持。
+
+### 7. 浏览器侧第三方依赖要有白名单：Vite 关了依赖发现，新依赖会让开发模式整页逐文件加载（严重程度：低到中）
+位置：计划“分层”一条（`web/` 与 `shared/` 的黑名单：node:*、bun、hono、proper-lockfile）；packages/neuro-book/vite.config.ts:62-86
+问题：应用的 Vite 配置 `noDiscovery: true` 加手写 `include`，注释说漏列一个子路径就会在开发模式下触发 `ERR_INSUFFICIENT_RESOURCES`。nb-host 的 `web/`、`shared/` 现在只依赖 nb-runtime（工作区源码，不预构建）。计划的规则是黑名单，将来有人在 `web/` 里加任何第三方包（或 typebox 的新子路径）都不会被拦，也不会提醒要改应用的 `optimizeDeps.include`。注意搬家后 `remote-session.ts` 不再需要 `typebox/value`（它随 refreshEndpoint 回到应用），这个依赖变化要在清单里反映。
+依据：vite.config.ts:62-86 的注释；计划“写计划时没有核实”说“不用加 optimizeDeps（推断）”。
+建议：分层测试改成白名单：`web/`、`shared/` 的包导入只能是 `@notnotype/nb-runtime/<子路径>`（与 `typebox` 及其已列子路径，如需要），新增依赖时测试失败信息指向应用 vite.config 的 `optimizeDeps.include`。同时在第 1 片的核对项里写明“nb-host/web 的第三方导入集合 ⊆ 应用 include 清单”。
+
+### 8. 搬家后三段浏览器代码缺直接测试：openRpcSocket、重连中的引导判定、注入形状（严重程度：中）
+位置：计划“验收映射”`runtime.browser-host` 一行与第 5 片
+问题：(a) `openRpcSocket` 是新的公开函数（拼地址、`https→wss`、改端口、打开前关闭转 `ConnectionError`、地址非法转 `ConnectionError`），映射表里没有一个测试直接指向它，现有覆盖只是 `window.test.ts` 的“RPC 端口连不上”顺带走过；`https→wss` 与端口替换更没有任何测试（Origin 与页面一致是服务端来源核对的前提，connection.ts 文件头注释写了这一点）。(b) 现在重连时引导的协议版本变化、结构不符这两条路径，在 window.test.ts、mount.dom.test.ts 与 e2e 里都没有直接断言（`incompatible` 的几处断言都是首连：window.test.ts:222-244, 599；rpc.e2e.ts:131 是 wire-version 首连）。搬家后这段逻辑成了应用里一个没有测试的函数，而包里新的 `remote-session.test.ts` 用测试自己写的 `refreshEndpoint`，只能证明“每次重连都调用了它”，不再证明真实引导的重取。(c) 原 `remote-session.test.ts` 的用例“服务端不在时每次重连都在取引导时失败”依赖真实 HTTP 引导，改成注入后这句话的含义变了，计划没有说明替代方式。
+依据：window.test.ts 与 rpc.e2e.ts 的断言位置（grep `incompatible`）；remote-session.test.ts:60-80；connection.ts:1-6 文件头注释。
+建议：新增 nb-host `web/rpc-socket.test.ts`（真实 `Bun.serve` WebSocket：打开成功、端口没人听得到 `ConnectionError`、打开前关闭、服务端关闭后 `onClose`）；把地址拼接抽成纯函数并断言 `http→ws`、`https→wss`、端口覆盖、保持主机名；应用侧给 `refreshEndpoint` 加一个直接测试（版本不同返回 incompatible、结构不符返回 retry、取引导抛错返回 retry 且记原因），并加一个“重连时版本变化转 incompatible 终态”的窗口用例。
+
+### 9. 划分表对“终态”的描述没有交代 NeuroBot 的“重启后自动重连”，且重连参数写死（严重程度：低）
+位置：计划划分表 remote-session 行；NeuroBot 提案第四节第 8 小节（`docs/proposals/neurobot.md:175`）；packages/nb-runtime/src/remote/node.ts:159-173, 1163
+问题：我核对后认为抽出的接口没有堵死“gateway 重启后页面自动重连”：`server-restarted` 是内核节点自己判的终态（welcome 的 boot 与第一次不同；node.ts:365, 1163），此时新进程已经连得上，NeuroBot 可以在 `onState("server-restarted")` 时丢弃旧窗口实例、用新节点与新 `instanceId` 重建（`BrowserRuntimeHost` 的实例表对关闭的 id 退役，所以不能复用 id，这点与计划一致）。但计划没有把这个结论写下来，三处仍可能让后续切片返工：(a) 退避表 `RETRY_DELAYS_MS`/`STEADY_RETRY_MS` 是模块常量，NeuroBot 不能调；(b) `refreshEndpoint` 没有 `AbortSignal` 或超时，`close()` 后在途的引导请求不会取消，gateway 进程半死时 `retry()` 一直卡在 await 上，既不报 `onRetryFailed` 也不再排下一次（这是现有行为，但接口正好在这一步定型）；(c) 状态里 `project-gone` 是项目概念，NeuroBot 没有项目，保留无妨但应在 README 里标注。
+依据：node.ts:159-173、365、1163；remote-session.ts:30-31, 105-124；提案 :175。
+建议：计划里加一句“终态后由应用重建窗口实例，不要求包支持原地恢复”；`refreshEndpoint(signal: AbortSignal)`，`close()` 时中止；退避表作为可选的 `delaysMs` 选项（缺省同现在，本 Task 不用）。这三点都不改变 NeuroBook 的行为。
+
+### 10. ConnectionError 放进 rpc-socket.ts 但被 HTTP 引导与消息目录共用，命名与归属别扭（严重程度：低）
+位置：计划“`rpc-socket.ts`：`openRpcSocket(...)` 与 `ConnectionError`”；connection.ts:16-27, 78-117
+问题：`ConnectionError` 带 `status`（HTTP 状态码），主要由应用留下的 `bootstrap()` 与 `catalog()` 抛出，`window.ts:441`、`mount.dom.test.ts:21` 做 `instanceof` 判断。把它放在名为 rpc-socket 的文件里，应用 `connection.ts`、`window.ts`、测试都要从套接字模块导入一个 HTTP 语义的错误类，而 `ConnectionError` 的文案（“无法连接服务端”）也是应用页面直接显示的。计划同时又说不留转发的旧入口，所以这些导入点全部要改。
+依据：connection.ts:16-27；window.ts:53, 441；mount.dom.test.ts:21。
+建议：`ConnectionError` 单独成文件（`web/connection-error.ts`）从 `./web` 导出，`openRpcSocket` 与应用的 `bootstrap`/`catalog` 共用；计划里列出需要改导入的文件（window.ts、connection.ts、mount.dom.test.ts、window.test.ts）。
+
+### 11. `./http/contracts` 与 `./socket` 标“不限”，但浏览器类型检查只覆盖 `src/web`、`src/shared`（严重程度：低）
+位置：计划“包骨架”子路径表与 `tsconfig.browser.json` 一条
+问题：`./socket` 在 `src/shared/`，被浏览器配置覆盖，没问题。`./http/contracts` 在 `src/http/contracts.ts`，标“不限，无运行时导入”，但不在 `tsconfig.browser.json` 内，规则只靠扫描测试。现在的文件确实没有任何导入（核实），所以不是当下的问题，只是“不限”这个声明没有类型检查支撑；以后给它加一个 `import type` 的 hono 类型，浏览器配置也不会报。另外 `tsconfig.browser.json` 要排除测试（计划没写 `exclude`，nb-runtime 的写法有 `exclude: ["src/**/*.test.ts"]`，照抄时别漏，否则 web 下的测试会引 `bun:test`、`node:events` 而整份检查失败）。
+依据：nb-runtime/tsconfig.browser.json；packages/neuro-book/src/plugins/http/shared/contracts.ts 无导入。
+建议：把 `src/http/contracts.ts` 也放进 `tsconfig.browser.json` 的 include，或把它挪到 `src/shared/`（子路径名不变）；计划里写明 `exclude` 测试。分层测试也要写明测试文件豁免（`remote-session.test.ts` 起真实服务端，必然导入 `../server`、`node:*`）。
+
+### 12. 插件 SDK 的类型打包路径映射不认识 nb-host，需要核对（严重程度：低，推断）
+位置：计划第 1 片“改全部导入（`files`、`canon` 的合同…）”；packages/neuro-book/plugin-sdk/pack.ts:62-75
+问题：`files/shared/contracts.ts` 里的类型经 SDK 的 `/files` 子路径再导出（`sdk/files.ts` → `files/shared/workspace-files.ts` → `import type … from "./contracts"`）。`pack.ts` 的 `typePaths()` 手写了 nb-runtime、nb-form、nb-harness 的路径映射来打平 d.ts；contracts.ts 现在多了一个 `@notnotype/nb-host/socket` 的值导入。d.ts 打包通常只跟类型使用链，值导入未必触发，但映射里没有 nb-host，这是新包第一次进入 SDK 的类型图，且 nb-host 是 `private`，SDK 是对外发布的。我没有跑构建，属推断。
+依据：pack.ts:62-75；sdk/files.ts；workspace-files.ts:10。
+建议：第 1 片的验证里加 `bun run build:sdk`（或 `plugin-sdk` 的相关测试），确认产物 d.ts 不出现 `@notnotype/nb-host`；若出现，把常量搬离 `shared/contracts.ts` 的类型图，或在映射里补上。
+审查结束，共 12 条
