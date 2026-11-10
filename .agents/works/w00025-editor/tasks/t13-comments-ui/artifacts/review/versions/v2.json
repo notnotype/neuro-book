@@ -1,0 +1,164 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t13-comments-ui",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "批注界面：静态稿评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "9c6210436b73bcb6043d50e7238bc57f0b0f4888272e408c9f22dae5cdb9ee00",
+    "files": [
+        "index.html",
+        "r1/idle.webp",
+        "r1/margin-add.webp",
+        "r1/margin-view.webp",
+        "r1/panel-add.webp",
+        "r1/panel-view.webp",
+        "r1/popover-add.webp",
+        "r1/popover-narrow.webp",
+        "r1/popover-view.webp",
+        "r2/r2-note-margin.webp",
+        "r2/r2-note-popover.webp",
+        "r2/r2-off-view.webp",
+        "r2/r2-on-narrow.webp",
+        "r2/r2-on-view.webp",
+        "r2/r2-plain-margin.webp",
+        "r2/r2-plain-popover.webp"
+    ],
+    "questions": [
+        {
+            "id": "q1-attention",
+            "type": "confirm",
+            "label": "问题 1：注意力排序，同意吗",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q2-where",
+            "type": "single",
+            "label": "问题 2：一条批注的意见显示在哪里",
+            "options": [
+                {
+                    "value": "popover",
+                    "label": "A 浮层：贴在被批注的那一行下面"
+                },
+                {
+                    "value": "margin",
+                    "label": "B 页边：意见排在稿纸右边，与所在段落对齐"
+                },
+                {
+                    "value": "panel",
+                    "label": "C 侧栏：编辑器右边一栏，列出这一章的全部批注"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "popover"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q3-overview",
+            "type": "single",
+            "label": "问题 3：全部批注的总览，第一版做到哪一步",
+            "options": [
+                {
+                    "value": "nav-only",
+                    "label": "只做逐条跳转"
+                },
+                {
+                    "value": "view",
+                    "label": "另做一个“批注”视图"
+                },
+                {
+                    "value": "none",
+                    "label": "都不做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "nav-only"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "superseded",
+                "in": 2,
+                "by": null
+            }
+        },
+        {
+            "id": "q4-coexist",
+            "type": "single",
+            "label": "问题 4：浮层与页边怎样并存",
+            "options": [
+                {
+                    "value": "toggle",
+                    "label": "A 页边由开关打开，缺省关"
+                },
+                {
+                    "value": "auto",
+                    "label": "B 有地方就自动出页边"
+                },
+                {
+                    "value": "toggle-on",
+                    "label": "C 和 A 一样有开关，但缺省开"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "toggle"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "q5-look",
+            "type": "single",
+            "label": "问题 5：写意见的样子",
+            "options": [
+                {
+                    "value": "note",
+                    "label": "B 便签"
+                },
+                {
+                    "value": "plain",
+                    "label": "C 页边批语"
+                },
+                {
+                    "value": "form",
+                    "label": "保持第 1 轮的样子"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "note"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-10T06:07:28.216Z"
+}
