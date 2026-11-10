@@ -79,7 +79,7 @@ type SessionFilesFactory = (context: ToolSessionContext, owner: string | null) =
    - `expect` 为 `any` 时不核对，覆盖；
    - 父目录不存在时，`createParents` 为真先建好，否则失败；
    - `signal` 在提交之前触发为 `cancelled`，目标保持原样；
-   - 宿主不许写的位置为 `permission-denied`，不露出的位置为 `protected-path`，解析后落在根外为 `outside-root`；写虚拟根为 `permission-denied`。
+   - 宿主不许写的位置为 `permission-denied`，不露出的位置为 `protected-path`，解析后落在根外为 `outside-root`；写虚拟根为 `permission-denied`；方案本身不支持写时（只读的方案）为 `unsupported-capability`，在授权之前就拒绝。
 7. **列出**：`list` 对目录交回一层目录项，不读文件内容；对虚拟根交回 `VirtualListing`。不存在为 `not-found`，是文件为 `not-a-directory`。
 8. **按调用绑定**：`call({callId, signal}, info?)` 交回绑定一次工具调用的 `read` 与 `write`：经它的写入在宿主的记录里属于这次调用（同一次调用的写入可以与别的调用区分开），`info.title` 给了时作这次调用的标题，否则用工厂的 `owner`；调用的 `signal` 合进每次读写，触发后在途与之后的写都以 `cancelled` 结束。工具每次执行只调一次 `call`，复用交回的对象。
 9. **失败经结果交回**：所有方法的预期失败都经 `{ok: false, code, detail}` 交回，不抛错；`detail` 用地址描述，不带服务端的绝对路径。失败码是开放字符串：下面“失败与恢复”表里的码含义固定，套件只按这些码分支；其余码（宿主自己的）由套件原样交给模型。
@@ -113,7 +113,7 @@ type SessionFilesFactory = (context: ToolSessionContext, owner: string | null) =
 |---|---|---|
 | `not-found` | 资源不存在 | 改地址或先建 |
 | `unknown-scheme` | 没有这个方案 | 不重试 |
-| `unsupported-capability` | 这个位置不支持该操作（例如虚拟根的本机路径） | 不重试 |
+| `unsupported-capability` | 这个位置不支持该操作（例如虚拟根的本机路径、只读方案的写） | 不重试 |
 | `invalid-address` | 地址或路径不合法，或 `save` 的 `label` 不是单段 | 修正地址 |
 | `protected-path` | 不露出的位置 | 不重试 |
 | `outside-root` | 解析后落在根外 | 不重试 |
