@@ -7,12 +7,12 @@
  */
 
 import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
+import {renderVirtual} from "@notnotype/nb-harness/kit/files";
 
 import type {ProjectRecord, ProjectsService} from "nbook/shared/projects";
 
 import type {Baseline, FileText, Listing, OperationDone, SavedText} from "../shared/contracts";
 import {projectFilesContract} from "../shared/contracts";
-import {renderVirtual} from "../shared/schemes";
 import type {ServerFilesResult, VirtualListing} from "../shared/schemes";
 import {hashOf} from "./files-service";
 

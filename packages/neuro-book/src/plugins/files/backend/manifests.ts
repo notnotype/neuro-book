@@ -3,9 +3,10 @@
  * 内容树、哪一层，读源条目，在 `content.xml` 的加锁替换里改清单。修改本身是 `manifest-edit.ts` 的纯函数。
  */
 
+import {decodeText} from "@notnotype/nb-harness/kit/files";
+
 import type {ManifestIssue} from "../shared/contracts";
 import type {ChangeHub} from "./changes";
-import {decodeText} from "../shared/text";
 import {BODY_NAME, folderKindOf, MANIFEST_NAME, parseManifest} from "./folder-kinds";
 import {applyEdit, itemAt} from "./manifest-edit";
 import type {Edit, ItemNode, Level} from "./manifest-edit";

@@ -39,10 +39,12 @@ interface UnitRule {
  */
 const UNITS: Readonly<Record<string, UnitRule>> = {
     shapes: {dependsOn: [], packages: ["typebox"], builtins: [], kernel: "types"},
+    files: {dependsOn: ["shapes"], packages: [], builtins: [], kernel: "types"},
+    "files/local": {dependsOn: ["files"], packages: [], builtins: ["node:fs/promises", "node:path", "node:crypto"], kernel: "none"},
 };
 
 /** 浏览器会加载的入口：顺着相对导入整条链检查。 */
-const BROWSER_ENTRIES = ["shapes.ts"];
+const BROWSER_ENTRIES = ["shapes.ts", "files/index.ts"];
 
 const FORBIDDEN_PACKAGES = ["@oh-my-pi/pi-coding-agent", "@oh-my-pi/pi-agent-core"];
 /** 内核的公开入口（不带扩展名）。 */

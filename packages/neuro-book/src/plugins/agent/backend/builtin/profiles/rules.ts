@@ -5,9 +5,8 @@
 
 import {opening} from "@notnotype/nb-harness/kernel";
 import type {Resources} from "@notnotype/nb-harness/kernel/contracts";
+import {ResourceReadError} from "@notnotype/nb-harness/kit/files";
 import type {AgentExtensionImplementation} from "../../../shared/points";
-
-import {ResourceReadError} from "../../resources";
 
 export const RULES_EXTENSION = "nbook.agent.rules";
 const LIMIT_BYTES = 32 * 1024;

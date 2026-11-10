@@ -11,6 +11,7 @@ import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
 import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
+import {kernelResources} from "@notnotype/nb-harness/kit/files";
 
 import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
@@ -24,7 +25,7 @@ import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
 import {ProfileBundles} from "./profile-bundles";
-import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
+import {filesFor, sessionArtifacts, sessionResources} from "./resources";
 import {createAttachmentPort} from "./attachments";
 import {ProfileCatalog} from "./profiles";
 import {SessionMeta} from "./session-meta";
@@ -105,6 +106,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         for (const listener of catalogListeners) listener();
     };
 
+    const sessionFilesFor = filesFor(options.files);
     // 宿主要先建好、再接收贡献；Profile 变了要通知它，它又要按 Profile 解析：用一个先占位的引用把这个环断开。
     let hostRef: AgentHost | null = null;
     const tools = new AgentTools({catalogChanged, declarations: options.declarations, clock: options.clock, activate: options.trigger, report: options.report, services: (context, toolId) => ({resources: sessionResources(options.files, context, toolId), artifacts: sessionArtifacts(options.files, context)})});
@@ -136,7 +138,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             declarations: (context) => tools.forProfile(profiles.requirements(context.profile), bindings()[context.profile]),
             create: (id, context) => tools.create(id, context),
         },
-        resources: (context) => kernelResources(sessionResources(options.files, context, null)),
+        resources: (context) => kernelResources(sessionFilesFor(context, null)),
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
         clock: kernelClock(options.clock),
         approve: createPermissionHook({

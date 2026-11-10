@@ -22,6 +22,8 @@
         "./kernel/helpers": "./src/kernel/helpers/index.ts",
         "./kernel/testing": "./src/kernel/testing/index.ts",
         "./kit/shapes": "./src/kit/shapes.ts",
+        "./kit/files": "./src/kit/files/index.ts",
+        "./kit/files/local": "./src/kit/files/local.ts",
         "./models": "./src/models/index.ts",
         "./process-guard": "./src/process-guard.ts",
         "./prompt": "./src/kernel/view/prompt/index.ts",

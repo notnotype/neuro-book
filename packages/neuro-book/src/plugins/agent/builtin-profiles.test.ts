@@ -15,13 +15,13 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createJsonlStore, defineExtension} from "@notnotype/nb-harness/kernel";
 import type {CompactionJob, CompactionResult, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestSession} from "@notnotype/nb-harness/kernel/testing";
+import {ResourceReadError} from "@notnotype/nb-harness/kit/files";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
 
 import {loadRules} from "./backend/builtin/profiles/rules";
-import {ResourceReadError} from "./backend/resources";
 import {sessionMetaExtension, titleSessionId} from "./backend/session-meta";
 import type {MetaTrigger} from "./backend/session-meta";
 import {MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";

@@ -16,6 +16,7 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 
 import {defineProfile} from "@notnotype/nb-harness/kernel";
 import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import {kernelResources} from "@notnotype/nb-harness/kit/files";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -23,7 +24,6 @@ import {userFilesContract} from "nbook/plugins/files/shared/contracts";
 import type {ChangesMessage, FileChange} from "nbook/plugins/files/shared/contracts";
 
 import {buildAgentDocs} from "../../../scripts/agent-docs";
-import {kernelResources} from "./backend/resources";
 import {agentProfile, agentTool} from "./shared/points";
 import type {AgentToolImplementation} from "./shared/points";
 import type {SessionResources} from "./shared/resources";
