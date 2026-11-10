@@ -54,6 +54,40 @@ describe("工作台通知服务", () => {
         notifications.dispose();
     });
 
+    it("输出 3、5：带详情的缺省常驻（警告、无动作的也是）；明确给的 sticky 优先；空白详情等于没有", () => {
+        const {notifications} = world();
+        const DETAIL = "EditorSaveError: EACCES\n    trace: 4f2a9c1e";
+        // sticky 不给、true、false 三种，各配有无详情。
+        for (const sticky of [undefined, true, false]) {
+            for (const detail of [undefined, DETAIL]) {
+                notifications.notify({tone: "warning", message: "m", ...(sticky === undefined ? {} : {sticky}), ...(detail === undefined ? {} : {detail})});
+            }
+        }
+        notifications.notify({tone: "info", message: "空白详情", detail: "  \n "});
+        expect(notifications.queue.notifications.value.map((item) => item.duration)).toEqual([4200, 0, 0, 0, 4200, 4200, 3200]);
+        expect(notifications.queue.notifications.value[1]?.detail).toBe(DETAIL);
+        notifications.dispose();
+    });
+
+    it("输出 5：update 的详情——无到有变常驻、换一段原文不动时长、有到无回到按色调限时；明确给的 sticky 仍优先", () => {
+        const {notifications} = world();
+        const handle = notifications.notify({tone: "info", message: "正在同步"});
+        const entry = () => notifications.queue.notifications.value[0]!;
+        expect(entry().duration).toBe(3200);
+        handle.update({detail: "Error: offline"});
+        expect(entry()).toMatchObject({detail: "Error: offline", duration: 0});
+        handle.update({detail: "Error: offline (retry 2)"});
+        expect(entry()).toMatchObject({detail: "Error: offline (retry 2)", duration: 0});
+        handle.update({detail: ""});
+        expect(entry()).not.toHaveProperty("detail");
+        expect(entry().duration).toBe(3200);
+        // 明确给过 sticky: false 的，加上详情仍限时。
+        const timed = notifications.notify({tone: "info", message: "限时", sticky: false});
+        timed.update({detail: "x"});
+        expect(notifications.queue.notifications.value[1]?.duration).toBe(3200);
+        notifications.dispose();
+    });
+
     it("动作点了之后执行并移除通知", async () => {
         const {notifications, texts} = world();
         const runs: string[] = [];
