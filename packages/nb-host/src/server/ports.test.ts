@@ -1,8 +1,12 @@
-/** 端口成组顺延（docs/specs/runtime/server-host.md 的“输入与前置条件”与开发模式）：真实监听，占住一个端口看整组是否顺延。 */
+/**
+ * 端口成组顺延（docs/specs/runtime/server-host.md 的“输入与前置条件”与开发模式）：真实监听，占住一个端口看整组是否顺延；
+ * 非回环地址在试探之前就被拒（验收 11），没有发生监听。
+ */
 
 import {describe, expect, it} from "bun:test";
 
-import {freeGroupOffset, PORT_SHIFT_STEP, probePort} from "./ports";
+import {HostConfigError} from "./loopback";
+import {freeGroupOffset, listenWithShift, PORT_SHIFT_STEP, probePort} from "./ports";
 
 const HOST = "127.0.0.1";
 
@@ -34,5 +38,13 @@ describe("端口成组顺延", () => {
         } finally {
             await occupied.stop(true);
         }
+    });
+
+    it("非回环地址：试探与监听之前就以 non-loopback-host 拒绝，监听函数没有被调用", async () => {
+        let listened = false;
+        expect(() => listenWithShift({host: "0.0.0.0", httpPort: 0, rpcPort: 0, shift: true, listenRpc: () => (listened = true)})).toThrow(HostConfigError);
+        expect(listened).toBe(false);
+        await expect(probePort("0.0.0.0", 0)).rejects.toMatchObject({code: "non-loopback-host"});
+        await expect(freeGroupOffset("0.0.0.0", [0])).rejects.toMatchObject({code: "non-loopback-host"});
     });
 });

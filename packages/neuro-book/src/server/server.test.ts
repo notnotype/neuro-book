@@ -8,6 +8,7 @@ import {EventEmitter} from "node:events";
 import {mkdir, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 
+import {isAddressInUse, PORT_SHIFT_STEP} from "@notnotype/nb-host/server";
 import {helloFrame, openRawRpcSocket, upgradeStatus} from "@notnotype/nb-host/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -25,7 +26,6 @@ import {PROJECT_LIMIT_DEFAULTS} from "./config";
 import {ServerAssemblyError} from "./start";
 import {startClaimedServer} from "./testing/claimed-server";
 import {manifestServerPlugins} from "./plugins";
-import {isAddressInUse, PORT_SHIFT_STEP} from "./ports";
 import {createRemoteProbePlugin, createTestPlugin, newRemoteProbeState, routePlugin} from "./testing/test-plugins";
 
 const FIXTURE = join(import.meta.dir, "testing", "fixture-entry.ts");

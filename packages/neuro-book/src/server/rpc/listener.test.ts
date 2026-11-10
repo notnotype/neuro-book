@@ -5,11 +5,11 @@
 
 import {afterEach, describe, expect, it} from "bun:test";
 
+import {loopbackOrigins} from "@notnotype/nb-host/server";
 import {RPC_MAX_MESSAGE_BYTES} from "@notnotype/nb-host/socket";
 import {helloFrame, openRawRpcSocket, upgradeStatus} from "@notnotype/nb-host/testing";
 import {createRemoteNode, createRemoteRouter, WIRE_PROTOCOL_VERSION} from "@notnotype/nb-runtime/remote";
 
-import {loopbackOrigins} from "../config";
 import {startRpcListener} from "./listener";
 import type {RpcGateResult, RpcListener} from "./listener";
 

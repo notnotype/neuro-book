@@ -14,6 +14,7 @@ import {writeSync} from "node:fs";
 import {homedir} from "node:os";
 import {join} from "node:path";
 
+import {isAddressInUse, listenWithShift, loopbackOrigins, PORT_SHIFT_ATTEMPTS} from "@notnotype/nb-host/server";
 import {RPC_PATH} from "@notnotype/nb-host/socket";
 import type {Application, StartupFailure, StartupResult, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
@@ -35,7 +36,6 @@ import {clockKey, startupEnvKey, stateRootKey, userDirectoriesKey} from "nbook/s
 import {projectsKey} from "nbook/shared/projects";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
-import {loopbackOrigins} from "./config";
 import type {ServerConfig} from "./config";
 import {startServerHost} from "./host";
 import type {StateRootClaim} from "./instance";
@@ -43,7 +43,6 @@ import {startupEnv} from "./startup-env";
 import {resolveUserDirectories} from "./user-directories";
 import type {FatalKind, ProcessEvents} from "./host";
 import {manifestServerPlugins} from "./plugins";
-import {isAddressInUse, listenWithShift, PORT_SHIFT_ATTEMPTS} from "./ports";
 import type {ServerPluginContext} from "./plugins";
 import {createProjectManager} from "./projects/manager";
 import type {ProjectManager} from "./projects/manager";
@@ -57,7 +56,7 @@ export type ExitCode = 0 | 1;
 export interface StartServerOptions {
     readonly config: ServerConfig;
     /**
-     * 已认领的状态根（`claimStateRoot`，必须就是 `config.stateRoot`）。本函数接管它：就绪时发布地址，停止开始时标记，
+     * 已认领的状态根（`claimNeuroBook`，必须就是 `config.stateRoot`）。本函数接管它：就绪时发布地址，停止开始时标记，
      * 停止结算后或装配失败时放下。没有认领就起不了服务端，一个状态根只跑一个实例由此保证。
      */
     readonly claim: StateRootClaim;
@@ -403,7 +402,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             options.claim.publish({
                 url,
                 rpcUrl: rpc.url,
-                plugins: {safeMode: prepared.startup.safeMode, items: prepared.startup.plugins.map(({id, version, state, notLoaded}) => ({id, version, state, notLoaded}))},
+                extra: {plugins: {safeMode: prepared.startup.safeMode, items: prepared.startup.plugins.map(({id, version, state, notLoaded}) => ({id, version, state, notLoaded}))}},
             });
             if (options.devTask !== undefined && !devTaskClosed) devTask = options.devTask({registry, stateRoot: options.config.stateRoot});
             return;
