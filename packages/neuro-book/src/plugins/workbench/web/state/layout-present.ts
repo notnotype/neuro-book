@@ -2,7 +2,7 @@
  * 由文档算出这一刻怎么呈现（docs/specs/ui/workbench-layout.md“渲染”“面板头与活动栏”）：内容项、有效可见、活动栏条目点了做什么。纯模块，不碰 DOM 与记录。
  */
 
-import {findTab, findTreeNode, isFloating, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, isPanelShown, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridContentInput, GridExtent, LayoutDoc, PanelRecord} from "@notnotype/nb-layout";
 
 import type {DisplayText} from "nbook/shared/localized-text";
@@ -53,7 +53,7 @@ export function effectiveVisibleTabs(doc: LayoutDoc, facts: VisibilityFacts): Re
             visible.add(panel.active);
             continue;
         }
-        if (panel.active === null || panel.hidden === true || facts.removed.has(id)) continue;
+        if (panel.active === null || !isPanelShown(doc, id) || facts.removed.has(id)) continue;
         if (facts.maximized !== null && facts.maximized !== id) continue;
         const committed = panel.collapsed !== true && hasRoom(panel, facts.sizes[id]);
         const pulledOut = facts.preview !== null && hasRoom(panel, facts.preview[id]);
@@ -110,7 +110,7 @@ export function moveTargetsOf(doc: LayoutDoc, viewId: string): ReadonlyArray<Mov
     const alone = doc.panels[from.panel]?.tabs.length === 1;
     const leaves = treeLeaves(doc.tree.root).filter((leaf) => doc.panels[leaf.id] !== undefined);
     const into = leaves.filter((leaf) => leaf.id !== from.panel && doc.panels[leaf.id]?.role === "tool").map((leaf): MoveTarget => ({kind: "panel", panel: leaf.id}));
-    const beside = leaves.filter((leaf) => doc.panels[leaf.id]?.role === "tool" && doc.panels[leaf.id]?.hidden !== true && !(alone && leaf.id === from.panel)).map((leaf): MoveTarget => ({kind: "new-panel", nextTo: leaf.id}));
+    const beside = leaves.filter((leaf) => doc.panels[leaf.id]?.role === "tool" && isPanelShown(doc, leaf.id) && !(alone && leaf.id === from.panel)).map((leaf): MoveTarget => ({kind: "new-panel", nextTo: leaf.id}));
     return [...into, ...beside];
 }
 

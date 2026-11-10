@@ -144,13 +144,21 @@ export function treeLeaves(node: GridSnapshotNode): GridSnapshotLeaf[] {
     return node.kind === "leaf" ? [node] : node.children.flatMap(treeLeaves);
 }
 
-/** 这个节点此刻占不占地方：隐藏的具名面板、隐藏的条不占；分支看它的子节点。 */
+/**
+ * 这块面板此刻显示不显示：“面板看不看得见”只有这一个判定，别处不直接读 `hidden`（区域与容器的条件也只加在这里，ADR 0046）。
+ * 不管放不放得下、有没有被最大化盖住：那些是呈现的事。
+ */
+export function isPanelShown(doc: LayoutDoc, panelId: string): boolean {
+    const panel = doc.panels[panelId];
+    return panel !== undefined && panel.hidden !== true;
+}
+
+/** 这个节点此刻占不占地方：隐藏的面板、隐藏的条不占；分支看它的子节点。 */
 export function isNodeShown(doc: LayoutDoc, node: GridSnapshotNode): boolean {
     if (node.kind === "branch") return node.children.some((child) => isNodeShown(doc, child));
     const bar = barOfRef(node.ref);
     if (bar !== null) return !doc.hiddenBars.includes(bar);
-    const panel = doc.panels[node.id];
-    return panel !== undefined && panel.hidden !== true;
+    return isPanelShown(doc, node.id);
 }
 
 /** 这个节点占不占主轴的份额：隐藏的不占，收起的只占面板头。 */

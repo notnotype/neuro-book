@@ -6,7 +6,7 @@
  */
 
 import {UNBOUNDED_EXTENT} from "./grid-geometry";
-import {barOfRef, isFixedChild, treeLeaves} from "./layout-doc";
+import {barOfRef, isFixedChild, isPanelShown, treeLeaves} from "./layout-doc";
 import type {LayoutBar, LayoutDoc, PanelRecord} from "./layout-doc";
 import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode} from "./grid-types";
 
@@ -107,7 +107,7 @@ export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOption
             return {kind: "leaf", id: node.id, ref: node.ref, size: fixed, minimumSize: fixed, maximumSize: {...UNBOUNDED_EXTENT, [main]: thickness}, sizing: "fixed"};
         }
         const panel = doc.panels[node.id];
-        if (panel === undefined || panel.hidden === true || options.removed?.has(node.id) === true) return null;
+        if (panel === undefined || !isPanelShown(doc, node.id) || options.removed?.has(node.id) === true) return null;
         const {minimumSize, maximumSize} = options.constraints(node.id, panel);
         return {kind: "leaf", id: node.id, ref: node.ref, size: {...node.size}, minimumSize, maximumSize};
     };
@@ -147,7 +147,7 @@ export function presentationCollapse(doc: LayoutDoc, extent: GridExtent, options
     };
     const removed = new Set<string>();
     if (overflowOf(removed) === 0) return {removed, squeezed: false};
-    const shown = new Set(treeLeaves(doc.tree.root).map((leaf) => leaf.id).filter((id) => doc.panels[id]?.role === "tool" && doc.panels[id]?.hidden !== true));
+    const shown = new Set(treeLeaves(doc.tree.root).map((leaf) => leaf.id).filter((id) => doc.panels[id]?.role === "tool" && isPanelShown(doc, id)));
     const queue = [...options.order.filter((id) => shown.has(id)), ...[...shown].filter((id) => !options.order.includes(id))];
     const ordered = [...queue.filter((id) => id !== options.focused), ...queue.filter((id) => id === options.focused)];
     let squeezed = true;
