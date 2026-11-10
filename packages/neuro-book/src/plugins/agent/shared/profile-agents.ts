@@ -23,3 +23,21 @@ export function profileAgents(declaration: AgentsDeclaration | undefined, bindin
     for (const key of binding?.removed ?? []) allowed.delete(key);
     return {allowed: [...allowed], recommended: (declaration?.recommended ?? []).filter((key) => allowed.has(key))};
 }
+
+/**
+ * 设置页改白名单（profile-settings.md 输出 25）：加声明里有的就是撤销“去掉”，加声明里没有的记成“我加的”；去掉反过来。两个数组都空时交回
+ * undefined，设置里不留这一项。
+ */
+export function changeAgentsBinding(binding: ToolBinding | undefined, declared: readonly string[], change: {readonly add?: readonly string[]; readonly remove?: readonly string[]}): {added: string[]; removed: string[]} | undefined {
+    const added = new Set(binding?.added ?? []);
+    const removed = new Set(binding?.removed ?? []);
+    for (const key of change.add ?? []) {
+        removed.delete(key);
+        if (!declared.includes(key)) added.add(key);
+    }
+    for (const key of change.remove ?? []) {
+        added.delete(key);
+        if (declared.includes(key)) removed.add(key);
+    }
+    return added.size === 0 && removed.size === 0 ? undefined : {added: [...added], removed: [...removed]};
+}

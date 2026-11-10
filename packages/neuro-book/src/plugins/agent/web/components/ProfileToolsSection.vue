@@ -6,13 +6,16 @@ import type {ProfileToolsField, ToolChange} from "../profile-view";
 import {useAgentPageText} from "../text";
 import AddToolsDialog from "./AddToolsDialog.vue";
 
-/** Profile 设置页的工具一节（同名 .md）。 */
+/**
+ * Profile 设置页的绑定列表一节（同名 .md）：工具一节，也是“可派的子代理”一节（`kind` 选文字）。两节的行、分组、添加与恢复默认相同。
+ */
 const props = withDefaults(defineProps<{
     tools: ProfileToolsField;
     disabled?: boolean;
     addTools?: (change: ToolChange) => Promise<string | null>;
     initialAdd?: boolean;
-}>(), {disabled: false, addTools: async () => null, initialAdd: false});
+    kind?: "tools" | "agents";
+}>(), {disabled: false, addTools: async () => null, initialAdd: false, kind: "tools"});
 
 const emit = defineEmits<{
     (e: "remove", id: string): void;
@@ -20,6 +23,9 @@ const emit = defineEmits<{
 }>();
 
 const text = useAgentPageText();
+/** 两节的文字在目录里结构相同，只是前缀不同。 */
+const key = (rest: string) => `profiles.${props.kind}.${rest}` as Parameters<typeof text>[0];
+const sectionKey = `profiles.sections.${props.kind}` as Parameters<typeof text>[0];
 const folded = ref(new Set<string>());
 function fold(id: string): void {
     const next = new Set(folded.value);
@@ -45,12 +51,12 @@ function openAdd(): void {
 <template>
     <section class="profile-tools" data-profile-tools>
         <div class="profile-tools__title">
-            <h4>{{ text("profiles.sections.tools") }}</h4>
-            <InfoTip :text="text('profiles.tools.section.help')" />
-            <span class="profile-tools__count">{{ text("profiles.tools.section.count", {count: tools.count}) }}</span>
+            <h4>{{ text(sectionKey) }}</h4>
+            <InfoTip :text="text(key('section.help'))" />
+            <span class="profile-tools__count">{{ text(key('section.count'), {count: tools.count}) }}</span>
             <span class="profile-tools__side">
-                <Button v-if="tools.modified" size="sm" variant="ghost" :disabled="disabled" data-profile-tools-restore @click="emit('restore')">{{ text("profiles.tools.section.restore") }}</Button>
-                <Button size="sm" variant="secondary" icon-class="i-lucide-plus" :disabled="disabled" data-profile-tools-add @click="openAdd">{{ text("profiles.tools.section.add") }}</Button>
+                <Button v-if="tools.modified" size="sm" variant="ghost" :disabled="disabled" data-profile-tools-restore @click="emit('restore')">{{ text(key('section.restore')) }}</Button>
+                <Button size="sm" variant="secondary" icon-class="i-lucide-plus" :disabled="disabled" data-profile-tools-add @click="openAdd">{{ text(key('section.add')) }}</Button>
             </span>
         </div>
         <section v-for="group in tools.groups" :key="group.id" class="profile-tools__group" :data-profile-tool-group="group.id">
@@ -66,15 +72,16 @@ function openAdd(): void {
                         <span class="profile-tools__summary" tabindex="0">{{ tool.summary }}</span>
                     </Tooltip>
                     <span class="profile-tools__action">
-                        <Badge v-if="tool.required" size="sm" variant="soft" :tone="tool.gone ? 'warning' : undefined">{{ text("profiles.tools.required") }}</Badge>
-                        <Tooltip v-else :text="text('profiles.tools.remove', {name: tool.name, id: tool.id})">
-                            <IconButton size="xs" icon-class="i-lucide-x" :aria-label="text('profiles.tools.remove', {name: tool.name, id: tool.id})" :disabled="disabled" data-profile-tool-remove @click="emit('remove', tool.id)" />
+                        <Badge v-if="tool.required" size="sm" variant="soft" :tone="tool.gone ? 'warning' : undefined">{{ text(key('required')) }}</Badge>
+                        <Tooltip v-else :text="text(key('remove'), {name: tool.name, id: tool.id})">
+                            <IconButton size="xs" icon-class="i-lucide-x" :aria-label="text(key('remove'), {name: tool.name, id: tool.id})" :disabled="disabled" data-profile-tool-remove @click="emit('remove', tool.id)" />
                         </Tooltip>
                     </span>
                 </li>
             </ul>
         </section>
-        <AddToolsDialog v-model:open="adding" :candidates="tools.candidates" :busy="busy" :status="failure" @done="done" />
+        <AddToolsDialog
+            :kind="props.kind" v-model:open="adding" :candidates="tools.candidates" :busy="busy" :status="failure" @done="done" />
     </section>
 </template>
 

@@ -241,3 +241,32 @@ describe("工具一节", () => {
         expect(tools({hidden: true})).not.toBeNull();
     });
 });
+
+describe("可派的子代理一节", () => {
+    const SPAWN = {id: "nbook.agent.spawn", description: "派子代理", providerName: "agent_spawn", effect: "read" as const, plugin: "nbook.agent"};
+    const agentsOf = (over: {spawn?: boolean; setting?: object} = {}) => profileViews({
+        profiles: [
+            entry({key: "main", name: "主创", tools: {required: [], optional: over.spawn === false ? [] : ["nbook.agent.spawn"]}, agents: {allowed: ["helper", "gone"], recommended: ["helper"]}}),
+            entry({key: "helper", name: "临时帮手", description: "做一件事"}),
+            entry({key: "user.x", name: "我的", source: "user"}),
+            entry({key: "broken", name: "坏的", status: "unavailable"}),
+        ],
+        catalog: [SPAWN],
+        bindings: {},
+        settings: over.setting === undefined ? {} : {main: over.setting},
+        snapshot: snapshot(),
+        modelsFailed: false,
+        pluginName: (plugin) => `插件 ${plugin}`,
+        text,
+    })[0]!.agents;
+
+    test("profile-settings.md 输出 25：有 agent_spawn 才有；推荐、我加的、已删除的各标出来；候选是不在白名单里、可用的", () => {
+        expect(agentsOf({spawn: false})).toBeNull();
+        const agents = agentsOf({setting: {agents: {added: ["user.x"], removed: []}}})!;
+        const rows = agents.groups.flatMap((group) => group.tools.map((row) => [row.id, row.effect, row.gone]));
+        expect(rows).toEqual(expect.arrayContaining([["helper", "推荐", false], ["user.x", "我加的", false], ["gone", "", true]]));
+        expect(agents.count).toBe(3);
+        expect(agents.modified).toBe(true);
+        expect(agents.candidates.flatMap((group) => group.tools.map((row) => row.id)).sort()).toEqual(["main"]);
+    });
+});

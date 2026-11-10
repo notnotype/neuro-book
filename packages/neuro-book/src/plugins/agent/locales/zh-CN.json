@@ -396,7 +396,8 @@
         },
         "sections": {
             "model": "模型与审批",
-            "tools": "工具"
+            "tools": "工具",
+            "agents": "可派的子代理"
         },
         "model": {
             "label": "模型",
@@ -488,6 +489,30 @@
             "thinking": "这个模型不支持思考",
             "context": "这个模型的上下文窗口只有 {{have}}，这个 Profile 要 {{need}}",
             "separator": "；"
+        },
+        "agents": {
+            "section": {
+                "help": "这个 Profile 能用 agent_spawn 派哪些子代理；下一次模型请求起生效",
+                "count": "可派 {{count}} 个",
+                "restore": "恢复默认",
+                "add": "添加子代理"
+            },
+            "remove": "不再允许派 {{name}}（{{id}}）",
+            "add": {
+                "title": "添加可派的子代理",
+                "done": "添加",
+                "search": "搜索 Profile",
+                "empty": "没有别的可用的 Profile",
+                "noMatch": "没有匹配的 Profile",
+                "blocked": "不能添加",
+                "replaces": "（替换同名的）",
+                "join": "选上 {{name}}（{{id}}）",
+                "unjoin": "不选 {{name}}（{{id}}）"
+            },
+            "recommended": "推荐",
+            "userAdded": "我加的",
+            "gone": "已删除或不可用",
+            "goneGroup": "已删除或不可用"
         }
     }
 }

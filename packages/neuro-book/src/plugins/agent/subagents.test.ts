@@ -14,7 +14,7 @@ import {SessionRelations} from "./backend/subagents/relations";
 import {ADHOC_PROFILE, MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";
 import type {ProfileEntry} from "./shared/contracts";
 import {AGENT_MODES_EXTENSION} from "./shared/permissions";
-import {profileAgents} from "./shared/profile-agents";
+import {changeAgentsBinding, profileAgents} from "./shared/profile-agents";
 import type {JobItem, TreeItem} from "./shared/subagents";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint, Scripted} from "./testing/endpoint";
@@ -26,6 +26,16 @@ describe("白名单", () => {
         expect(profileAgents({allowed: ["a", "b"], recommended: ["a", "b"]}, {added: ["c"], removed: ["a"]})).toEqual({allowed: ["b", "c"], recommended: ["b"]});
         expect(profileAgents(undefined, undefined)).toEqual({allowed: [], recommended: []});
         expect(profileAgents(undefined, {added: ["user.x"], removed: []})).toEqual({allowed: ["user.x"], recommended: []});
+    });
+});
+
+describe("设置页改白名单", () => {
+    test("profile-settings.md 输出 25：加声明里有的是撤销去掉，加没有的记成我加的；去掉反过来；都空时不留", () => {
+        const declared = ["nbook.agent.adhoc"];
+        expect(changeAgentsBinding(undefined, declared, {add: ["user.x"]})).toEqual({added: ["user.x"], removed: []});
+        expect(changeAgentsBinding(undefined, declared, {remove: ["nbook.agent.adhoc"]})).toEqual({added: [], removed: ["nbook.agent.adhoc"]});
+        expect(changeAgentsBinding({added: [], removed: ["nbook.agent.adhoc"]}, declared, {add: ["nbook.agent.adhoc"]})).toBeUndefined();
+        expect(changeAgentsBinding({added: ["user.x"], removed: []}, declared, {remove: ["user.x"]})).toBeUndefined();
     });
 });
 

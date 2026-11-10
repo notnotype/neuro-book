@@ -396,7 +396,8 @@
         },
         "sections": {
             "model": "Model and approval",
-            "tools": "Tools"
+            "tools": "Tools",
+            "agents": "Allowed sub-agents"
         },
         "model": {
             "label": "Model",
@@ -488,6 +489,30 @@
             "thinking": "This model doesn't support thinking",
             "context": "This model's context window is {{have}}; this profile needs {{need}}",
             "separator": "; "
+        },
+        "agents": {
+            "section": {
+                "help": "Which profiles this profile can spawn with agent_spawn; takes effect from the next model request",
+                "count": "{{count}} allowed",
+                "restore": "Restore defaults",
+                "add": "Add sub-agent"
+            },
+            "remove": "Stop allowing {{name}} ({{id}})",
+            "add": {
+                "title": "Add allowed sub-agents",
+                "done": "Add",
+                "search": "Search profiles",
+                "empty": "No other usable profiles",
+                "noMatch": "No matching profiles",
+                "blocked": "Cannot be added",
+                "replaces": "(replaces the same name)",
+                "join": "Select {{name}} ({{id}})",
+                "unjoin": "Deselect {{name}} ({{id}})"
+            },
+            "recommended": "Recommended",
+            "userAdded": "Added by me",
+            "gone": "Deleted or unavailable",
+            "goneGroup": "Deleted or unavailable"
         }
     }
 }
