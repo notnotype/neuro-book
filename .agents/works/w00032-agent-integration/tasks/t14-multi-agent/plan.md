@@ -10,6 +10,10 @@ t14 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–33 条，
 
 工作方式：主会话写代码，worktree `.worktree/w00032-t14-multi-agent`、分支 `feat/w00032-t14-multi-agent`；按切片提交；本会话的审查后端与计划派 Claude Opus、前端派 Sonnet（开发者 2026-11-10：不开 omp）；验证、审查处理完直接合入。
 
+### 第三轮设计审查之后（开工前改完）
+
+第三轮（后端 Opus 12 条、前端 Sonnet 11 条，都是阻断 0）结论都是“改完切片 0 就能开工”。这些已改进 Spec 与本稿：中止中的子会话续用得 `child-stopping`；`resolve` 有运行就交回 `runId`，回答排队而开不了运行时 `agent_answer` 以 `idle` 返回；父会话只读时续用同样先把子会话设为只读；`agent_send`、`agent_answer` 的卡片按参数 id 与 `runInvocation` 认；子代理卡片明确是 `node`；停靠区的 40% 以对话视图根节点为尺寸容器；会话面板的展开记录受控、由宿主持有；`jobs.md` 跟上第 53 条；验收的“第 9 个”改成“恰有一个”。按“窄场景选简单改法”记为已知限制的：句柄已回收的空闲后代的异步提问不进祖先停靠区、进程崩溃后后台子代理卡片写“状态未知”、fork 出来的父会话里复制的卡片找不到子会话、fork 的用量在树累计里重复计算。
+
 ## 技术选型
 
 | 问题 | 选用 | 理由与否决 |
@@ -29,7 +33,7 @@ t14 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–33 条，
 2. **调用的唯一身份。** `ToolContext` 加 `invocation`（就是 `toolStarted` 里已有的那个 id，内核生成、全局唯一）。会话头的 `caller` 加 `invocation`。调用 id 只在同一条回复里不重复（服务商可能跨回复给出 `call_0`），子会话、卡片与找回都按 `invocation` 认（第二轮后端第 4 条、前端第 10 条）。
 3. **索引多四项。** `SessionIndexEntry` 加 `caller?: {kind, id, callId, invocation}`、`origin?: string`（fork 的来源会话）、`spend?: {cost, unpriced}`（同快照累计的口径：`assistant`、`modelEnded`、`modelFailed`）、`runs?: {runId, reason, endedAt}[]`（最近 20 次运行的收口）。旧索引没有这些读作没有，打开会话时按日志补。用途：会话面板、深度、费用按树算、卡片的终态，都不用打开后代会话。
 4. **拦截上下文带会话。** `InterceptCtx` 加 `session`（与 `ReactCtx` 同一份），费用上限在模型拦截里要知道是哪棵树。
-5. **指令交回运行。** `send`、`enqueue` 在会话有运行（含暂停的运行）时交回它的 `runId`；`resolve` 在开了或续了运行时交回 `runId`，没开时不给。任务与运行一一对应靠它（第二轮后端第 5 条）。
+5. **指令交回运行。** `send`、`enqueue`、`resolve` 受理之后，会话有运行（在跑的、暂停的、这次开的或续的）就交回它的 `runId`，没有时不给（第二轮后端第 5 条、第三轮后端第 5 条）。
 
 “同一段 `shared` 调用按顺序进入实现”不做（第 53 条）。各补 `runtime.md`、`session.md`、`extensions.md` 的条目与测试；nb-agent-ui 的 harness 适配器把 `toolStarted.invocation` 放进 `ToolCallView.invocation`。
 
@@ -69,7 +73,7 @@ interface Job {
 - **结果（`result.ts`）。** 来源标记、状态与终止原因、结果、附带的异步提问；`details` 有 `sessionId`、`jobId`、`runId`、`invocation`、状态、结果第一句与结构化结果。过长截断，全文进父会话的 `session://artifacts/`。
 - **失败码。** Spec 按工具分节列全：本插件的码；原样交回的内核码（直接引用 `commandErrors` 里 `send`、`enqueue`、`start`、`resolve`、`changeSettings` 的全部码）；子会话打开与新建失败时原样交回的存储码。`not-allowed` 的文字按事项种类区分（审批、交给用户的提问、模式切换）。`concurrency-limit` 带 `scope`。
 - **白名单、提示词、adhoc。** 同上一稿：`agents?: {allowed, recommended?}` 与 `profileSettings[key].agents`；扩展 `nbook.agent.subagents` 的提示词一节；`nbook.agent.adhoc` 装 `nbook.agent.modes`。
-- **重启后找回。** `sessions://` 根给子会话列出名字与 `prompt` 的开头（模型自己写的，认得出），另标调用 id 供界面与测试用（第二轮后端第 15 条）。
+- **重启后找回。** 子会话的标题是 `name`，没写时是 `prompt` 的前 30 个字（模型自己写的，认得出）；`sessions://` 根列出它，另标调用 id 供界面与测试用（第二轮后端第 15 条、第三轮后端第 4 条）。
 
 ### 工具
 
@@ -87,11 +91,11 @@ interface Job {
 - **`shell` 的 `async`。** 同上一稿：任务自己的信号、`async` 时不写 `timeout` 不设超时、输出 64 MiB 上限、`status.json`、`home/jobs/` 宿主写。
 - **`ask` 的 `async`。** 立即返回“问题已提出，回答会作为一条输入送来”。
 - **`loop-guard`。** `wait` 交回的结果与上一次不同时才豁免重复检测（第二轮后端第 6 条），相同的照常计数。
-- **`cost-guard`（第二轮后端第 7 条）。** 不用增量：插件按会话 id 存绝对值——打开着的会话取自己最近一次反应里的 `ctx.spend`，关着的取索引的 `spend`；树累计 = 关系表里这棵树各会话的值之和（不含 fork 出来的会话）。模型拦截用 `ctx.session` 找到根。告警按会话记。fork 子会话复制来的用量不进树累计（fork 出来的会话整个不计），写进不承诺。
+- **`cost-guard`（第二轮后端第 7 条）。** 不用增量：插件按会话 id 存绝对值——打开着的会话取自己最近一次反应里的 `ctx.spend`，关着的取索引的 `spend`；树累计 = 关系表里这棵树各会话的值之和；fork 出来的会话照常计入，复制来的用量重复计算，偏紧不扣除（第三轮后端第 2 条：按 `origin` 排除会把用户 `/fork` 出来的根会话也排除掉）。模型拦截用 `ctx.session` 找到根。告警按会话记。
 
 ### 资源地址、设置
 
-- `sessions://` 根：先列有关的会话（父、子、兄弟，带状态；子会话带名字、`prompt` 的开头与调用 id），再按最近使用。状态从句柄表的 `activity()` 与任务中心取。
+- `sessions://` 根：先列有关的会话（父、子、兄弟，带状态；子会话带调用 id，它的标题是 `name`，没写时是 `prompt` 的前 30 个字），再按最近使用。状态从句柄表的 `activity()` 与任务中心取。
 - `profiles://` 根：每项标“可派”或“不可派”。
 - 设置：可靠性分区加 `subagentDepth`（3，1–5）、`subagentsPerSession`（8，1–16）、`backgroundJobs`（16，1–32）。
 
@@ -99,8 +103,8 @@ interface Job {
 
 - `list` 的条目带 `parent?`（只在调用方是会话时）。
 - `ancestors({sessionId})`：按关系表逐级交回祖先 `[{id, title, profile, icon, archived}]`，不受归档与作品范围过滤（顶栏路径用，第二轮前端第 18 条）。
-- `tree({sessionId})`、`treeChanged`：后代每项 `{id, parent, callId, invocation, forked, profile, name, profileIcon, state, runs}`，`runs` 来自索引（最近 20 次的 `{runId, reason, endedAt}`）；在跑、等用户、等父 Agent 的另有 `runId`、`startedAt`、`tools`、`step`（`{tool, target}`，`target` 至多 120 字）；有等用户事项的（含空闲而有未答异步提问的）带 `pending`（`{id, kind, callId, request}`，含模式切换）。`step`、`tools` 至多给 16 个在跑的后代，有 `pending` 的一律给全（第二轮前端第 11 条）。合并后至多每秒 4 次推整份。
-- `jobs`、`jobsChanged`、`jobTail`（读文件，与任务表无关）、`killJob`（用户身份）。
+- `tree({sessionId})`、`treeChanged`：后代每项 `{id, parent, callId, invocation, forked, profile, name, profileIcon, state, runs}`，`runs` 来自索引（最近 20 次的 `{runId, reason, endedAt}`）；在跑、等用户、等父 Agent 的另有 `runId`、`startedAt`、`tools`、`step`（`{tool, target}`，`target` 至多 120 字）；句柄打开着的后代有等用户的事项时带 `pending`（`{id, kind, callId, request}`，含模式切换）；句柄已回收的空闲后代的未答异步提问不给，记为已知限制（第三轮后端第 3 条）。非 `idle` 的项带 `runInvocation`，`question` 的带 `question: {id, text}`，`step.target` 依次取参数的 `path`、`pattern`、`command`、`query`、`url`（第三轮前端第 1、5 条）。`step`、`tools` 至多给 16 个在跑的后代，有 `pending` 的一律给全（第二轮前端第 11 条）。合并后至多每秒 4 次推整份。
+- `jobs`、`jobsChanged`（任务项带 `invocation`）、`jobTail`（读文件，与任务表无关，`lines: 0` 只读状态）、`jobStatuses`（一次读多个 `status.json`）、`killJob`（用户身份）。`wait`、`kill` 结果的 `details` 形状写进 `jobs.md`，宿主按 `runId`、`jobId` 建索引（第三轮前端第 3、4 条）。
 - `activity` 的条目加 `root`（根会话 id，服务端按关系表算）。
 
 ### 对话视图（`packages/nb-agent-ui`）
@@ -177,4 +181,4 @@ interface Job {
 ## 不做与风险
 
 - 不做：结束通知与空闲时唤起、自动转后台、活动面板（t22）；查会话全部历史的工具（t23）；Workflow（t24）；子代理继承父会话上下文；会话删除；异步提问在会话列表与状态栏的提示；并发子代理工具的调用顺序（第 53 条）。
-- 风险：派得多时 `tree` 推送与订阅数上升，靠合并、限频、只给在跑的后代动态字段兜住；跨会话写同一文件靠文件服务的条件写入，`shell` 没有保护（第 26 条）；fork 子会话的用量不进树累计，上限对它偏松。
+- 风险：派得多时 `tree` 推送与订阅数上升，靠合并、限频、只给在跑的后代动态字段兜住；跨会话写同一文件靠文件服务的条件写入，`shell` 没有保护（第 26 条）；fork 出来的会话复制来的用量在树累计里重复计算，上限对它偏紧。

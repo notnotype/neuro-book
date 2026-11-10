@@ -80,7 +80,7 @@ owners:
 15. **附件。** 存在 `sessions://<会话 id>/home/attachments/<SHA-256>.<扩展名>`，写全局地址：`fork` 只复制日志，不用复制文件；原会话被删后按缺失处理。扩展名按 MIME 白名单定，图片按文件头认，声明是图片、文件头不是的（包括 SVG）按普通文件存。上传 `POST /api/nbook.agent/sessions/<id>/attachments`，体是文件字节，原名按百分号编码放 `X-Attachment-Name`；别的网页发起的拒绝；会话不存在 404；单个 25 MB，边读边数，超了 413，不信 `Content-Length`；同一内容已有算成功；交回 `{uri, kind, name, mime, bytes, width?, height?}`。读取 `GET`、`HEAD` 同前缀加文件名，文件名只接受哈希加扩展名；别的网页发起的拒绝；会话不存在 404（归档的还读得到）；所有响应带 `Content-Security-Policy: sandbox` 与 `nosniff`，位图内联，别的下载，`ETag` 用哈希。不做缩略图。发给模型前由内核的读取端口缩放（最长边 1,568，目标 500 KB，同 `read` 工具），原图不动；解不了的（损坏、格式不支持、像素超限）换一行字，不发原图。
 
 18. 列表带父会话（planned）：`list` 的条目有 `parent?`，是会话头 `caller` 的会话 id（只在调用方是会话时）（[`harness/session.md`](../harness/session.md) 输出 22）；没有调用方的会话没有这一项。
-19. 子代理与任务的远程（planned）：查询 `tree({sessionId})` 与事件 `treeChanged`（[`subagents.md`](subagents.md) 输出 21、22）、`ancestors({sessionId})`（同上输出 25）；`activity` 的条目加 `root`（根会话 id）；查询 `jobs({sessionId})`、`jobTail({sessionId, jobId, lines?})`、事件 `jobsChanged`、指令 `killJob({sessionId, jobId})`（[`jobs.md`](jobs.md) 输出 9–11）。都以用户的身份，会话打不开时得会话的失败码。
+19. 子代理与任务的远程（planned）：查询 `tree({sessionId})` 与事件 `treeChanged`（[`subagents.md`](subagents.md) 输出 21、22）、`ancestors({sessionId})`（同上输出 25）；`activity` 的条目加 `root`（根会话 id）；查询 `jobs({sessionId})`、`jobTail({sessionId, jobId, lines?})`、`jobStatuses({sessionId, jobIds})`、事件 `jobsChanged`、指令 `killJob({sessionId, jobId})`（[`jobs.md`](jobs.md) 输出 9–11）。都以用户的身份，会话打不开时得会话的失败码。
 
 ## 状态与转换
 

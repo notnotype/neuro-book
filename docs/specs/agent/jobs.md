@@ -45,16 +45,16 @@ Agent 的工具启动的、要跑一阵的事——子代理运行（[`subagents
 
 ## 输出与可观察行为
 
-1. 每次子代理运行与每条带 `async` 的 `shell` 命令都是一个任务；启动它的工具的结果里总有任务 id。任务 id 只在本进程内有效。
+1. 每次子代理运行与每条带 `async` 的 `shell` 命令都是一个任务；启动它的工具的结果里总有任务 id（`details.jobId`）。`jobs` 与远程的任务项带启动它的那次调用的 `invocation`。任务 id 只在本进程内有效。
 2. 全局上限数任务中心里所有在跑的任务（前台、后台、停在 `question` 的都算）；到 `backgroundJobs` 时新的启动整体拒绝，得 `concurrency-limit{scope: "global"}`，什么都不开始。名额在派发的检查过程中占下，同一条回复里并发的几次启动不会一起越过上限；启动失败时名额退回。还在检查中的任务不出现在 `jobs` 与远程里。
-3. `wait` 只看自己（调用它的会话）启动的后台任务：给了 `jobs` 就只看这些，没给就看全部后台任务；点名的任务不是自己的或不存在得 `job-unknown`，是正被前台等着的得 `job-foreground`。有已经结束、还没取过的，立即交回它；状态是 `question` 的，同一个提问只在第一次让 `wait` 立即返回，之后只列在其余任务的状态里、照常等别的。否则等到任一件事：某个任务结束；某个 `agent` 任务的子会话有交给调用方的同步提问；本会话的缓冲区里有插话；超时。交回最先有结果的那一个，带上其余任务的状态；超时与插话时交回各任务的当前状态，不改变任务。一个可等的都没有得 `no-jobs`。`wait` 本身被中止时只结束等待，不停它等的任务。
-4. `kill` 只对自己启动的任务（否则 `job-unknown`）：在跑的停掉，交回“已停止”；已经结束的交回“已经结束”。停掉 `agent` 任务就是中止那次子代理运行，子会话还在，之后还能 `agent_send`；停掉 `shell` 任务取消那条命令。
+3. `wait` 只看自己（调用它的会话）启动的后台任务：给了 `jobs` 就只看这些，没给就看全部后台任务；点名的任务不是自己的或不存在得 `job-unknown`，是正被前台等着的得 `job-foreground`。有已经结束、还没取过的，立即交回它；状态是 `question` 的，同一个提问只让 `wait` 立即返回一次（前台调用以 `question` 交回过的也算），之后只列在其余任务的状态里、照常等别的。否则等到任一件事：某个任务结束；某个 `agent` 任务的子会话有交给调用方的同步提问（模式切换请求不算，它等用户）；本会话的缓冲区里有插话；超时。交回最先有结果的那一个，带上其余任务的状态；超时与插话时交回各任务的当前状态，不改变任务。一个可等的都没有得 `no-jobs`。`wait` 本身被中止时只结束等待，不停它等的任务。
+4. `kill` 只对自己启动的任务（否则 `job-unknown`）：在跑的停掉，交回“已停止”；已经结束的交回“已经结束”。停掉 `agent` 任务就是中止那次子代理运行（缓冲区里的话留着），子会话还在，之后还能 `agent_send`；停掉 `shell` 任务取消那条命令。
 5. `jobs` 列出自己启动、还在任务中心里的任务：id、种类、状态、开始时间、一行摘要、是否前台。
 6. 寿命：任何一个前台等它的调用以终态交回时，任务移出（视同取过）；后台任务结束后留到 `wait` 取过。结束了、没取过的后台任务每个会话至多留 32 个、全部至多 1,024 个，多了先丢最早结束的。会话闲置、句柄关闭不影响任务。移出后 id 不再可查，`agent` 任务的结果仍在子会话的日志里，后台命令的在输出文件与 `status.json` 里。
 7. 后台命令：`shell` 带 `async: true` 时登记任务就返回任务 id 与输出文件的地址 `sessions://<会话>/home/jobs/<任务 id>/output.log`；命令照常跑，输出边跑边追加到那个文件（Agent 只读，[`resources.md`](resources.md) 输出 12）。不写 `timeout` 就不设超时，写了照用。父会话的运行被中止不影响它。输出文件至多 64 MiB，到了不再追加，结果里注明截断。结束时同一目录写 `status.json`：退出码、行数、结束时刻、是否截断；任务的结果是这些加输出的开头和结尾（同前台 `shell` 的截断规则）。审批与前台相同。
 8. `nbook.agent` 停止时：先拒绝新的调用，再取消在跑的后台命令（记 `interrupted`，`status.json` 照写），再由会话的关闭把子代理运行按 `interrupted` 收口（这时不对子会话发中止），最后丢掉任务表。
 9. 远程 `jobs({sessionId})` 交回这个会话启动、还在任务中心里的后台任务，每项 `{id, kind, state, summary, startedAt, endedAt?, lastLine?, exitCode?, lines?}`，`lastLine` 是后台命令输出的最后一行。`jobsChanged` 在任一项变化时推送整份，合并后至多每秒 4 次；先订阅再取，`onResync` 重取。
-10. 远程 `jobTail({sessionId, jobId, lines?})` 读后台命令输出文件的最后 `lines` 行（缺省 50，至多 200，每行截到 768 字节），有 `status.json` 时一并交回；按文件读，任务已移出或进程重启后照样读得到。没有这个文件得 `job-unknown`。
+10. 远程 `jobTail({sessionId, jobId, lines?})` 读后台命令输出文件的最后 `lines` 行（缺省 50，0–200，每行截到 768 字节），有 `status.json` 时一并交回；按文件读，任务已移出或进程重启后照样读得到。没有这个文件得 `job-unknown`。远程 `jobStatuses({sessionId, jobIds})` 一次读多个后台命令的 `status.json`（至多 100 个），读不到的交回 null。
 11. 远程 `killJob({sessionId, jobId})` 以用户的身份停这个会话启动的任何任务（前台、后台），结果同输出 4。
 12. `wait` 交回的结果与上一次 `wait` 相同时照常计入重复调用检测（[`run-guards.md`](run-guards.md) 输出 14）。
 
@@ -63,16 +63,16 @@ Agent 的工具启动的、要跑一阵的事——子代理运行（[`subagents
 | 状态 | 事件 | 下一状态 |
 |---|---|---|
 | `running` | 子代理运行结束、命令退出 | `completed` 或 `failed` |
-| `running` | 子会话有交给调用方的同步提问 | `question` |
+| `running` | 子会话有交给调用方的同步提问（不含模式切换请求） | `question` |
 | `question` | 提问被应答，同一次运行接着跑 | `running` |
-| `running`、`question` | `kill`、`killJob`、父会话中止它正前台等的 | `aborted` |
+| `running`、`question` | `kill`、`killJob`、父会话中止它正前台等的且由它启动的 | `aborted` |
 | `running`、`question` | `nbook.agent` 停止 | `interrupted` |
 
 一个任务对应一次运行：应答同步提问、插话进在跑的运行，仍是原来的任务；子会话开新一轮才是新任务。
 
 时序与寿命：
 
-- 任务在启动它的工具开始时就登记（占名额）；同一条回复里排在后面的 `jobs` 列得出前面以 `async` 登记的任务。
+- 任务在派发的检查过程中登记（占名额），检查过了才出现在 `jobs` 与远程里；同一条回复里的 `jobs` 不一定列得出同时启动的任务（[`subagents.md`](subagents.md) 输出 8）。
 - 任务表只在内存里；进程重启后为空，之前的 id 在 `wait`、`kill` 里得 `job-unknown`。
 
 ## 副作用与数据
@@ -94,6 +94,7 @@ Agent 的工具启动的、要跑一阵的事——子代理运行（[`subagents
 
 - 公开接口：三个工具与 `shell` 的 `async`、失败码；输出文件与 `status.json` 的位置与字段；远程 `jobs`、`jobsChanged`、`jobTail`、`killJob`。
 - 信任边界：Agent 只管自己启动的任务；用户经远程能停这个会话启动的任何任务。
+- `wait` 结果的 `details` 是 `{jobs: [{jobId, kind, invocation, state, sessionId?, runId?, line?, exitCode?, lines?}]}`，先列交回的那一个；`kill` 结果的 `details` 是 `{jobId, outcome}`。界面按 `runId`、`jobId` 从它们取终态。
 
 ## 验收与 Smoke
 
@@ -102,6 +103,7 @@ Agent 的工具启动的、要跑一阵的事——子代理运行（[`subagents
 3. 用户在等待中插话：`wait` 提前返回，任务不变。
 4. 父 Agent `async` 派出子代理后结束这一轮，会话闲置超过 30 秒，子代理完成；之后 `wait` 仍取得到结果。
 5. 进程重启：任务表为空，之前的任务 id 得 `job-unknown`；`jobTail` 照样读得到后台命令的输出与 `status.json`。
+6. 同一条回复派 9 个子代理：恰有一个得 `concurrency-limit{scope: "session"}`。
 
 Smoke：`packages/neuro-book/e2e/agent-subagents.e2e.ts`。
 

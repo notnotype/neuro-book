@@ -221,4 +221,4 @@ t05、t06、t07。
 
 ## 下一步
 
-计划第三版与 Spec 已按第二轮设计审查（[处理记录](evidences/impl-plan-review-r2-handling.txt)）与第 53、54 条修订；开第三轮（最后一轮）设计审查，处理完开始切片 1。
+三轮设计审查都处理完（[第三轮处理](evidences/impl-plan-review-r3-handling.txt)，结论“改完切片 0 就能开工”）；开始切片 1（内核五处与适配器的 `invocation`），在 `.worktree/w00032-t14-multi-agent`。

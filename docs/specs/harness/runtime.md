@@ -152,7 +152,7 @@ owners:
 85. 输入记下发出者（planned）：`send`、`enqueue` 经 `as(issuer)` 以会话的身份发出时，`inputQueued` 与之后路径上的 `input`、`steer` 都写 `by: {kind: "session", id}`；用户发的不写 `by`，读作用户（旧日志同样）。异步提问的回答进缓冲区时，`by` 是应答者，用户应答同样不写。`by` 不进给模型的请求。
 86. （已删除）
 87. 调用的唯一身份（planned）：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
-88. 指令交回运行（planned）：`send`、`enqueue` 在会话有运行（含暂停的运行）时交回它的 `runId`；`resolve` 在受理时开了或续了运行就交回那次的 `runId`，没有时不给。
+88. 指令交回运行（planned）：`send`、`enqueue`、`resolve` 受理之后，会话有运行（在跑的、暂停的、这次受理开的或续的）就交回它的 `runId`，没有时不给。
 
 ## 状态与转换
 
