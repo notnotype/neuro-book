@@ -1,0 +1,18 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00042-image-generation",
+    "taskId": "t07-prompt-workbench",
+    "artifactId": "review",
+    "answerId": "20261110T003454335Z-bea5e9c2",
+    "artifactVersion": 2,
+    "contentHash": "4521c93413be45de3711f81ea5b01b4257739123b9909e658c20ef31ce59b606",
+    "submittedAt": "2026-11-10T00:34:54.335Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "q4-preset-link": "link"
+    },
+    "comments": {},
+    "note": "开发者 2026-11-10 在会话里说“可以，按推荐来”"
+}
