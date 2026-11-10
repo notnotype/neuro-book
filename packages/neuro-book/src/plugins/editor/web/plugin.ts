@@ -4,7 +4,7 @@
  * 文件），绑定项目的窗口先读会话记录。
  */
 
-import {computed, defineAsyncComponent, defineComponent, h, provide as provideToChildren, reactive, shallowRef, watch} from "vue";
+import {computed, defineAsyncComponent, defineComponent, h, provide as provideToChildren, reactive, shallowRef, watch, watchEffect} from "vue";
 import type {Component, PropType} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -134,6 +134,15 @@ export const editorBrowserPlugin: PluginDefinition = {
             const languages = new LanguageRegistry(context.declarations, (error, language) => {
                 diagnostics.record({level: "error", event: "editor.language", message: `Rules for language ${language} failed to load; showing it as plain text: ${error instanceof Error ? error.message : String(error)}`, error, data: {language}, source: {plugin: descriptor.id}});
             });
+            const pages = new EditorPageRegistry(context.declarations);
+            // 页面组件收到的上下文里各标签共用的那部分：最近打开随记录变化（reactive 把 computed 拆成值）。会话在下面才建，
+            // 取值在页面渲染时，那时 `session` 已经有了。
+            const pageContext = reactive({recent: computed((): ReadonlyArray<string> => session.recent?.state.recent.display.addresses ?? [])});
+            const pageSource = pages.source(pageContext, (id, args) => {
+                void commands.execute(id, args, {source: "user"}).then((result) => {
+                    if (!result.ok) diagnostics.record({level: "warn", event: "editor.page", message: `Breadcrumb command ${id} failed: ${result.code}`, source: {plugin: descriptor.id}});
+                });
+            });
             const session = createEditorSession({
                 editors: editors.catalog,
                 conflict: (address, ids) => diagnostics.record({level: "warn", event: "editor.editors.conflict", message: `${address} matches ${String(ids.length)} default editors at the same level; using ${ids[0] ?? ""}`, data: {address, editors: ids}, source: {plugin: descriptor.id}}),
@@ -145,12 +154,25 @@ export const editorBrowserPlugin: PluginDefinition = {
                 createRecentStore: project === null ? null : () => editorRecentStore.create(context, {storage, diagnostics}),
                 enablePreview: () => settings.get(enablePreviewSetting),
                 autoSave: () => ({mode: settings.get(autoSaveSetting), delay: settings.get(autoSaveDelaySetting)}),
+                pageHasBreadcrumbs: (tab) => pageSource.crumbs(tab, text).length > 0,
                 report,
             });
             context.signal.addEventListener("abort", () => session.dispose(), {once: true});
-            const pages = new EditorPageRegistry(context.declarations);
-            // 页面组件收到的上下文：最近打开随记录变化（reactive 把 computed 拆成值）。
-            const pageContext = reactive({recent: computed(() => session.recent?.state.recent.display.addresses ?? [])});
+
+            // 页面标签（输出 33）：把页面此刻给的标题记到要恢复的标签上（刷新后还没点开的标签靠它显示名字）；标签关掉了就丢掉
+            // 它的 `state`。两件事都跟着“现在有哪些页面标签”走，放在一个副作用里。
+            const pageTabs = computed(() => (session.area.value?.groups.groups.value ?? []).flatMap((group) => group.tabs.filter((tab) => tab.kind === "page")));
+            let knownPageTabs = new Set<string>();
+            const stopPageTabs = watchEffect(() => {
+                const live = new Set(pageTabs.value.map((tab) => tab.id));
+                for (const id of knownPageTabs) if (!live.has(id)) pageSource.release(id);
+                knownPageTabs = live;
+                for (const tab of pageTabs.value) {
+                    const title = tab.restore === true ? pageSource.liveTitle(tab, text) : null;
+                    if (title !== null && title !== tab.title) session.area.value?.rememberPageTitle(tab.id, title);
+                }
+            });
+            context.signal.addEventListener("abort", () => stopPageTabs(), {once: true});
 
             // 继续写作（输出 29）：地址参数一读到就去掉；等编辑器区建好（会话记录读完）再打开并定位。
             const navigation = context.services.require(windowNavigationKey);
@@ -302,7 +324,6 @@ export const editorBrowserPlugin: PluginDefinition = {
                 notify: (message) => session.area.value?.notify(message),
                 report,
             });
-            const pageSource = pages.source(pageContext);
             const area: EditorAreaImplementation = {
                 load: async () => {
                     const [{default: EditorGroup}, {default: EditorGroupHead}, {default: EditorHost}] = await Promise.all([import("./components/EditorGroup.vue"), import("./components/EditorGroupHead.vue"), import("./components/EditorHost.vue")]);

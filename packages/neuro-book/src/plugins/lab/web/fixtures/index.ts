@@ -5,6 +5,7 @@ import type EditorGroupHead from "nbook/plugins/editor/web/components/EditorGrou
 import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
+import type EditorPageBreadcrumbs from "nbook/plugins/editor/web/components/EditorPageBreadcrumbs.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
@@ -777,6 +778,15 @@ export const labFixtures: LabFixture[] = [
         // 目录下拉的列表：场景里的假数据，点哪个目录都列出同样几项。
         runtimeProps: async () => ({list: async (address: string) => ({ok: true as const, entries: [{name: "卷二", address: `${address}/卷二`, kind: "directory" as const}, {name: "第一章 雨夜.md", address: `${address}/第一章 雨夜.md`, kind: "file" as const}, {name: "第二章 旧城.md", address: `${address}/第二章 旧城.md`, kind: "file" as const}]})}),
         subject: () => import("nbook/plugins/editor/web/components/EditorBreadcrumbs.vue"),
+    }),
+    defineLabFixture<typeof EditorPageBreadcrumbs>({
+        component: "EditorPageBreadcrumbs",
+        scenes: [
+            {id: "entry", label: "条目页：设定 › 人物 › 星瑕 › 哥哥（“人物”与最后一段不可点）", input: {props: {items: [{label: "设定"}, {label: "人物"}, {label: "星瑕"}, {label: "哥哥"}]}}},
+            {id: "long", label: "中间的段很长：先缩短它", input: {props: {items: [{label: "设定"}, {label: "改动记录里一条很长很长的修订标题：按故事种子开局，建了 18 个条目、10 条前史，记下 7 个未决问题"}, {label: "这次改动"}]}}},
+            {id: "plain", label: "没有可点的段", input: {props: {items: [{label: "设定"}, {label: "第 2 章"}, {label: "订了星瑾小时候最喜欢的蛋糕"}]}}},
+        ],
+        load: async () => (await import("./EditorPageBreadcrumbsFixture.vue")).default,
     }),
     defineSubjectFixture<typeof EditorTabBar>({
         component: "EditorTabBar",

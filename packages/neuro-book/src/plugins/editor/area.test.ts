@@ -616,6 +616,25 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
 });
 
 describe("Spec workbench.editor 输出 33：页面标签", () => {
+    it("带参数的页面：同一个参数已经开着就切过去，不同的参数各开一个标签；restore 抄到标签上并进记录，记着的标题随记录走", async () => {
+        const at = await world();
+        const a = at.area.openPage("nbook.test.entry", {arg: "a", restore: true});
+        const b = at.area.openPage("nbook.test.entry", {arg: "b?#/", restore: true});
+        const plain = at.area.openPage("nbook.test.welcome");
+        if (!a.ok || !b.ok || !plain.ok) throw new Error("打不开页面");
+        expect(new Set([a.tabId, b.tabId, plain.tabId]).size).toBe(3);
+        expect(at.area.groups.groups.value[0]!.tabs.map((tab) => tab.address)).toEqual(["page://nbook.test.entry?a", "page://nbook.test.entry?b%3F%23%2F", "page://nbook.test.welcome"]);
+        expect(at.area.openPage("nbook.test.entry", {arg: "a", restore: true})).toEqual({ok: true, tabId: a.tabId});
+        expect(at.area.groups.activeTab()?.id).toBe(a.tabId);
+        // 不带参数与带参数是两个地址：`nbook.test.entry` 本身没有开着。
+        expect(at.area.groups.groups.value.flatMap((group) => group.tabs).some((tab) => tab.address === "page://nbook.test.entry")).toBe(false);
+
+        at.area.rememberPageTitle(a.tabId, "条目 a");
+        await until(at, "记着的标题进了存盘的记录", () => (at.saved.at(-1)?.tabs[a.tabId] as {title?: string} | undefined)?.title === "条目 a");
+        expect(at.saved.at(-1)!.tabs).toMatchObject({[a.tabId]: {page: true, id: "nbook.test.entry", arg: "a", title: "条目 a"}, [b.tabId]: {page: true, id: "nbook.test.entry", arg: "b?#/"}, [plain.tabId]: {page: true}});
+        expect("id" in at.saved.at(-1)!.tabs[plain.tabId]!).toBe(false);
+    });
+
     it("打开页面：活动组开一个正式标签，没有文档与绑定；再开同一页面切到已开的那个（在别的组也一样）；页面不拆分、不换编辑器，可以关闭；资源打开不接受页面地址", async () => {
         const at = await world();
         at.area.open("project://a.md", {mode: "permanent"});

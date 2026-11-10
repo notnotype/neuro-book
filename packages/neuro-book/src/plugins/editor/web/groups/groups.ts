@@ -12,6 +12,7 @@ import type {LayoutEdgeTarget, LayoutFloatRect} from "@notnotype/nb-layout";
 import type {EditorPanels} from "nbook/plugins/workbench/shared/contracts";
 
 import {isWithin, rebase} from "../documents/address";
+import {pageAddress, pageArgOf, pageIdOf} from "../page-address";
 
 import type {TabCursor} from "../../shared/contracts";
 
@@ -40,12 +41,20 @@ export interface FileTab {
     readonly pinned?: true;
 }
 
-/** 不对应文件的页面标签（输出 33）：地址是 `page://<页面 id>`，不进会话记录，没有编辑器与光标。 */
+/**
+ * 不对应文件的页面标签（输出 33）：地址是 `page://<页面 id>`（带参数的再接 `?<参数>`），没有编辑器与光标。
+ * `restore` 与 `title` 在打开时就抄到标签上：存盘与恢复只看标签自己，不看那时页面的声明在不在（声明晚到、贡献方没启动时
+ * 标签与它的记录都还在）。
+ */
 export interface PageTab {
     readonly kind: "page";
     readonly id: string;
     readonly address: string;
     readonly preview: false;
+    /** 刷新后恢复（页面声明了 `restore`）。 */
+    readonly restore?: true;
+    /** 记着的标题：最近一次从页面得到的标题，页面给不出标题时显示它。 */
+    readonly title?: string;
 }
 
 export type EditorTab = FileTab | PageTab;
@@ -101,7 +110,15 @@ export interface SavedFileTab {
 /**
  * 记录里的一项。页面标签也留一项：布局文档里有它，恢复时要分得清“页面不恢复”（输出 33，从文档里拿掉）和“这个标签的记录丢了”（显示原因，docs/specs/ui/workbench-layout.md 输出 34）。
  */
-export type SavedTab = SavedFileTab | {readonly page: true};
+export type SavedTab = SavedFileTab | {readonly page: true} | SavedPageTab;
+
+/** 要恢复的页面标签的记录：页面 id、参数与记着的标题。 */
+export interface SavedPageTab {
+    readonly page: true;
+    readonly id: string;
+    readonly arg?: string;
+    readonly title?: string;
+}
 
 /** 存进记录的形状（`editor.tabs`）：`tabId` → 属性。 */
 export interface TabsSnapshot {
@@ -129,7 +146,9 @@ export interface EditorGroups {
      */
     open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor: string; readonly group?: string; readonly reuse?: (tab: FileTab) => boolean}): {readonly tab: FileTab; readonly replaced: EditorTab | null};
     /** 在活动组以正式标签打开页面；窗口里已开着的由调用方先找（同一页面只开一个）。 */
-    openPage(address: string): PageTab;
+    openPage(address: string, options?: {readonly restore?: boolean}): PageTab;
+    /** 记下页面标签最近一次得到的标题（输出 33）；标签不在或不是页面标签时什么也不做。 */
+    rememberPageTitle(tabId: string, title: string): void;
     /** preview 转为 permanent。 */
     keep(tabId: string): void;
     /** 固定或取消固定（输出 50）：固定时转正、排到固定区末尾；取消时排到普通区开头。页面标签不能固定。 */
@@ -308,11 +327,16 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
             insert(group, tab);
             return {tab, replaced: null};
         },
-        openPage: (address) => {
+        openPage: (address, options = {}) => {
             const group = groupOf(tree.current.value) ?? (groups.value[0] as EditorGroup);
-            const tab: PageTab = {kind: "page", id: newTabId(), address, preview: false};
+            const tab: PageTab = {kind: "page", id: newTabId(), address, preview: false, ...(options.restore === true ? {restore: true as const} : {})};
             insert(group, tab);
             return tab;
+        },
+        rememberPageTitle: (tabId, title) => {
+            const found = locate(tabId);
+            if (found === null || found.tab.kind !== "page" || found.tab.title === title) return;
+            setTab({...found.tab, title});
         },
         keep: (tabId) => {
             const found = locate(tabId);
@@ -453,7 +477,12 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
             tabs: Object.fromEntries([...attributes.value].flatMap(([id, tab]): Array<[string, SavedTab]> => {
                 // 丢了记录的占位不写：写成页面的话下次恢复就悄悄没了，原因只显示过一次。
                 if (tab.address === LOST_TAB_ADDRESS) return [];
-                if (tab.kind === "page") return [[id, {page: true}]];
+                if (tab.kind === "page") {
+                    const page = tab.restore === true ? pageIdOf(tab.address) : null;
+                    if (page === null) return [[id, {page: true}]];
+                    const arg = pageArgOf(tab.address);
+                    return [[id, {page: true, id: page, ...(arg === undefined ? {} : {arg}), ...(tab.title === undefined ? {} : {title: tab.title})}]];
+                }
                 return [[id, {address: tab.address, editor: tab.editor, preview: tab.preview, ...(tab.pinned === true ? {pinned: true as const} : {}), ...(tab.cursor === undefined ? {} : {cursor: tab.cursor}), ...(tab.language === undefined ? {} : {language: tab.language})}]];
             })),
         }),
@@ -461,7 +490,7 @@ export function createEditorGroups(panels: EditorPanels, initial: TabsSnapshot |
 }
 
 /**
- * 按读到的记录恢复标签的属性（docs/specs/ui/workbench-layout.md 输出 34）。布局文档说了算：文档里没有的 `tabId` 不恢复；文档里有、记录里没有的显示占位；页面标签不恢复，从文档里拿掉。
+ * 按读到的记录恢复标签的属性（docs/specs/ui/workbench-layout.md 输出 34）。布局文档说了算：文档里没有的 `tabId` 不恢复；文档里有、记录里没有的显示占位；页面标签只恢复记了页面 id 的（声明了 `restore` 的页面），别的从文档里拿掉。
  * 两条记录不是一次写的，崩在中间时固定与普通可能交错：按出现顺序把固定的排到前面。
  */
 function restoreTabs(panels: EditorPanels, initial: TabsSnapshot | null, cursorKind: CursorKind): ReadonlyMap<string, EditorTab> {
@@ -470,7 +499,11 @@ function restoreTabs(panels: EditorPanels, initial: TabsSnapshot | null, cursorK
         for (const id of panel.tabs) {
             const saved = initial?.tabs[id];
             if (saved === undefined) attributes.set(id, {kind: "page", id, address: LOST_TAB_ADDRESS, preview: false});
-            else if ("page" in saved) panels.tabs.remove(id);
+            else if ("page" in saved) {
+                // 要恢复的页面标签带着页面 id；只有记号的不恢复，从文档里拿掉。
+                if ("id" in saved) attributes.set(id, {kind: "page", id, address: pageAddress(saved.id, saved.arg), preview: false, restore: true, ...(saved.title === undefined ? {} : {title: saved.title})});
+                else panels.tabs.remove(id);
+            }
             else attributes.set(id, restoredFile(id, saved, cursorKind));
         }
     }
