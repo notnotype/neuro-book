@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t22-panel-ui-a11y-pass
-status: active
+status: done
 updated: 2026-11-10
 ---
 
