@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t04-failure-details
-status: planned
-updated: 2026-10-27
+status: active
+updated: 2026-11-10
 ---
 
 # 失败详情组件与常驻通知
@@ -23,7 +23,7 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 建，未开工。提案已接受、t03 已交付（2026-10-29）；2026-11-07 开发者同意的顺序：先做本 Task，再重写 w00031 t03 的计划（它要用这里的“详情”载体）。本 Task 做完即可收口 w00028。
+2026-11-10 开发者确认计划第二版，开工；实现在 worktree 分支 `feat/w00028-t04-failure-details`，按 [plan.md](plan.md) 的六个切片推进。2026-11-07 开发者同意的顺序：先做本 Task，再重写 w00031 t03 的计划（它要用这里的“详情”载体）。本 Task 与 t05 做完即可收口 w00028。
 
 ### 设计决定（评审板 review）
 
@@ -54,4 +54,4 @@ updated: 2026-10-27
 
 ## 下一步
 
-开工时先写设计稿给开发者看。
+切片 1：`CodeBlock` 的 `maxHeight` 与 `actions` 槽、新的 `CopyButton`；做完在 Lab 截图给开发者看对话框里“原文展示加复制”的样式，再做切片 2。
