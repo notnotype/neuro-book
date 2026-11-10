@@ -64,8 +64,13 @@ const onContextMenu = (event: MouseEvent): void => {
     }
     const target = editor.getTargetAtClientPoint(event.clientX, event.clientY);
     const kinds = monaco.editor.MouseTargetType;
-    // Monaco 自己的浮层（查找与替换的输入框）：留给浏览器，输入框里要能粘贴。
-    if (target === null || target.type === kinds.OVERLAY_WIDGET || target.type === kinds.CONTENT_WIDGET) return;
+    if (target === null) return;
+    // Monaco 自己的浮层（查找与替换的输入框）：留给浏览器，输入框里要能粘贴。仍要拦住 Monaco 那段处理，否则它把焦点
+    // 从输入框抢回正文。
+    if (target.type === kinds.OVERLAY_WIDGET || target.type === kinds.CONTENT_WIDGET) {
+        event.stopPropagation();
+        return;
+    }
     event.preventDefault();
     event.stopPropagation();
     if (target.type === kinds.SCROLLBAR || target.type === kinds.OVERVIEW_RULER) return;
