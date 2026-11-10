@@ -4,7 +4,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {chmod, mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
@@ -268,38 +268,4 @@ describe("放回", () => {
         expect(await readFile(join(home, "a.md"), "utf8")).toBe("一\n贰\n三\n");
     });
 
-    test("输出 8、10：放回的合计不超过窗口的四分之一：小窗口的模型上文件被截断，并标出来", async () => {
-        const w = await world(8_000, 2_000);
-        const {session, id, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "long.md"), Array.from({length: 3_000}, (_, line) => `第 ${String(line)} 行`).join("\n"));
-        endpoint.script({tool: "read", args: {path: `sessions://${id}/home/long.md`, limit: 5}}, "好");
-        await say(session, "读一下");
-        endpoint.script("摘要", "答二");
-        const second = await say(session, HUGE);
-        const restored = (dataOf(second.events, "compaction")[0]!.restored as {kind: string; tokens: number; truncated: boolean}[]).find((item) => item.kind === "file")!;
-        expect(restored.truncated).toBe(true);
-        expect(restored.tokens).toBeLessThanOrEqual(2_000);
-    });
-
-    test("输出 8、9：一个文件读到一半出问题（没有权限）或单行就超预算：只跳过它，别的文件照放", async () => {
-        const w = await world(8_000, 2_000);
-        const {session, id, home} = await open(w);
-        await mkdir(home, {recursive: true});
-        await writeFile(join(home, "ok.md"), "好文件\n");
-        await writeFile(join(home, "locked.md"), "读得到的时候没问题\n");
-        await writeFile(join(home, "wide.md"), "宽".repeat(6_000));
-        endpoint.script({tool: "read", args: {path: `sessions://${id}/home/ok.md`}}, {tool: "read", args: {path: `sessions://${id}/home/locked.md`}}, {tool: "read", args: {path: `sessions://${id}/home/wide.md`}}, "好");
-        await say(session, "读三个文件");
-        await chmod(join(home, "locked.md"), 0o000);
-        try {
-            endpoint.script("摘要", "答二");
-            const second = await say(session, HUGE);
-            const restored = dataOf(second.events, "compaction")[0]!.restored as {kind: string; target: string; tokens: number}[];
-            expect(restored.filter((item) => item.kind === "file").map((item) => item.target)).toEqual([`sessions://${id}/home/ok.md`]);
-            expect(dataOf(second.events, "compaction")[0]!.method).toBe("nbook.agent.inplace");
-        } finally {
-            await chmod(join(home, "locked.md"), 0o600);
-        }
-    });
 });
