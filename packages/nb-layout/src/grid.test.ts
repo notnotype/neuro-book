@@ -920,3 +920,58 @@ describe("拆分树原语：批量原子调整与收起", () => {
         expect(extent(grid.layout(CONTAINER).sizes, "left").width).toBe(300);
     });
 });
+
+/** 分支的收起（docs/specs/ui/nested-grid.md 的“分支的收起”）：一列里上下两块，下面那块又左右拆开；收起策略配在这一列上。 */
+describe("拆分树原语：分支的收起", () => {
+    const POLICY = {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24};
+    const column = (collapsed: boolean): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
+        {
+            ...branch("side", "width", "vertical", 300, [
+                {...leaf("top", "height", 300, 80), minimumSize: {width: 160, height: 80}},
+                branch("pair", "height", "horizontal", 299, [
+                    {...leaf("a", "width", 150, 100), minimumSize: {width: 100, height: 80}},
+                    {...leaf("b", "width", 149, 100), minimumSize: {width: 100, height: 80}},
+                ]),
+            ]),
+            sizing: "fixed",
+            collapse: {...POLICY, collapsed},
+        },
+        leaf("editor", "width", 699, 120),
+    ]);
+
+    it("收起的分支在父分支主轴上是 collapsedSize，里面的节点在这一轴上都取这个尺寸，另一轴的分配不变；不报诊断", () => {
+        const open = createGrid(column(false), {sashSize: SASH}).layout(CONTAINER);
+        const closed = createGrid(column(true), {sashSize: SASH}).layout(CONTAINER);
+        expect(open.issues).toEqual([]);
+        expect(closed.issues).toEqual([]);
+        expect(["side", "top", "pair", "a", "b"].map((id) => extent(closed.sizes, id).width)).toEqual([0, 0, 0, 0, 0]);
+        expect(["top", "pair"].map((id) => extent(closed.sizes, id).height)).toEqual(["top", "pair"].map((id) => extent(open.sizes, id).height));
+        expect(extent(closed.sizes, "editor").width).toBe(999);
+    });
+
+    it("另一根轴放不下照常报诊断：和没收起时报的一样", () => {
+        const short: GridExtent = {width: 1000, height: 100};
+        const open = createGrid(column(false), {sashSize: SASH}).layout(short);
+        const closed = createGrid(column(true), {sashSize: SASH}).layout(short);
+        expect(open.issues.length).toBeGreaterThan(0);
+        expect(closed.issues).toEqual(open.issues);
+    });
+
+    it("拖过阈值收起、从零拉回：都随批量落账，意图保留展开宽度，里面各块回到收起前的尺寸", () => {
+        const grid = createGrid(column(false), {sashSize: SASH});
+        const open = grid.layout(CONTAINER).sizes;
+        const closed = grid.resizeBranches([{branchId: "root", axis: "width", baseline: {side: 300, editor: 699}, target: {side: 0, editor: 999}, collapsed: {side: true}}]);
+        if (!closed.ok) throw new Error(closed.reason);
+        expect(closed.collapsed).toEqual({side: true});
+        expect(extent(closed.intents, "side").width).toBe(300);
+        expect(extent(grid.layout(CONTAINER).sizes, "side").width).toBe(0);
+
+        const back = grid.resizeBranches([{branchId: "root", axis: "width", baseline: {side: 0, editor: 999}, target: {side: 260, editor: 739}, collapsed: {side: false}}]);
+        if (!back.ok) throw new Error(back.reason);
+        expect(back.collapsed).toEqual({side: false});
+        const reopened = grid.layout(CONTAINER);
+        expect(reopened.issues).toEqual([]);
+        expect(extent(reopened.sizes, "side").width).toBe(260);
+        expect(["top", "pair"].map((id) => extent(reopened.sizes, id).height)).toEqual(["top", "pair"].map((id) => extent(open, id).height));
+    });
+});

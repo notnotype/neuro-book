@@ -5,7 +5,7 @@ import {docOf, H, sizeOf, testPolicy, V} from "./layout-doc-fixtures";
 import {fixedNodesOf, projectLayoutDoc, presentationCollapse} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridAxis, GridExtent, GridNodeInput} from "./grid-types";
-import {moveTabToEdge, rebaseIntents, setPanelCollapsed} from "./layout-doc";
+import {moveTabToEdge, rebaseIntents, setActiveContainer, setPanelCollapsed} from "./layout-doc";
 import type {LayoutDoc} from "./layout-doc";
 
 /** 呈现树（docs/specs/ui/workbench-layout.md 输出 5 到 7、10、11、13）。 */
@@ -204,5 +204,171 @@ describe("放不下时收走", () => {
     it("隐藏的面板不算：不在队列里", () => {
         const hidden = docOf(DEFAULT_TREE(), {auxiliarybar: {hidden: true}});
         expect([...presentationCollapse(hidden, {width: 500, height: 600}, {...OPTIONS, order: ORDER}).removed]).toEqual([]);
+    });
+});
+
+/** 带容器的区域（docs/specs/ui/workbench-layout.md 输出 11、12、40、42；ADR 0046）。 */
+describe("带容器的区域", () => {
+    const ANCHORS = {
+        sidebar: {tabs: [], active: null, entries: ["A", "B"], activeContainer: "A"},
+        panel: {tabs: [], active: null, entries: ["P"], activeContainer: "P"},
+        auxiliarybar: {tabs: [], active: null, hidden: true, entries: [], activeContainer: null},
+    };
+    /** 侧栏的容器 A（当前）有 s1、s2，容器 B 有 s3；底部面板的容器 P 有 p1、p2；右栏没有容器。 */
+    const regions = (overrides: Record<string, object> = {}): LayoutDoc => docOf(V([H(["activitybar", V(["sidebar", "s1", "s2", "s3"], "side"), V(["ea", H(["panel", "p1", "p2"], "row")], "center"), "auxiliarybar"], "body"), "statusbar"], "root"), {
+        ...ANCHORS,
+        s1: {container: "A"},
+        s2: {container: "A"},
+        s3: {container: "B"},
+        p1: {container: "P"},
+        p2: {container: "P"},
+        ...overrides,
+    });
+    const EXTENT: GridExtent = {width: 1200, height: 800};
+    const okDoc = (result: ReturnType<typeof setActiveContainer>): LayoutDoc => {
+        if (!result.ok) throw new Error(result.detail);
+        return result.doc;
+    };
+    const childOf = (node: GridNodeInput<string>, id: string): GridNodeInput<string> | undefined => {
+        if (node.kind === "leaf") return undefined;
+        for (const child of node.children) {
+            if (child.id === id) return child;
+            const inner = childOf(child, id);
+            if (inner !== undefined) return inner;
+        }
+        return undefined;
+    };
+
+    it("锚与不在当前容器里的分节不进呈现树；区域的节点对到锚上，没有显示着的分节的区域不在里面", () => {
+        const {projection, layout} = solve(regions(), EXTENT);
+        expect(shapeOfInput(projection.input)).toBe("V[H[activitybar,V[s1,s2],V[ea,H[p1,p2]]],statusbar]");
+        expect([...projection.regionAnchors]).toEqual([["side", "sidebar"], ["row", "panel"]]);
+        expect(layout.sizes.s3).toBeUndefined();
+        expect(layout.sizes.sidebar).toBeUndefined();
+        expect(layout.issues).toEqual([]);
+    });
+
+    it("区域拖到零配在那一列的分支上：整列宽度为 0，编辑区吸收，分节之间的高度照旧；分节自己只收成标题行", () => {
+        const open = solve(regions(), EXTENT);
+        const zero = solve(regions({sidebar: {...ANCHORS.sidebar, collapsed: true}}), EXTENT);
+        expect(zero.layout.sizes.side?.width).toBe(0);
+        expect([zero.layout.sizes.s1?.width, zero.layout.sizes.s2?.width]).toEqual([0, 0]);
+        expect([zero.layout.sizes.s1?.height, zero.layout.sizes.s2?.height]).toEqual([open.layout.sizes.s1?.height, open.layout.sizes.s2?.height]);
+        expect(zero.layout.sizes.ea?.width).toBe((open.layout.sizes.ea?.width ?? 0) + (open.layout.sizes.side?.width ?? 0));
+        expect(zero.layout.issues).toEqual([]);
+
+        const side = childOf(open.projection.input, "side");
+        expect(side?.collapse).toMatchObject({collapsed: false, collapsedSize: 0, restoreSize: sizeOf(regions().tree.root, "side").width});
+        expect(childOf(open.projection.input, "s1")?.collapse).toMatchObject({collapsed: false, collapsedSize: OPTIONS.headHeight});
+
+        const titleRow = solve(regions({s1: {container: "A", collapsed: true}}), EXTENT);
+        expect(titleRow.layout.sizes.s1?.height).toBe(OPTIONS.headHeight);
+        expect(titleRow.layout.sizes.s1?.width).toBe(open.layout.sizes.s1?.width);
+    });
+
+    it("拖那一列与编辑区之间的缝越过阈值：手势报告的是区域节点收起，对到锚上；零宽的呈现尺寸不写回意图", () => {
+        const doc = regions();
+        const {projection, grid, layout} = solve(doc, EXTENT);
+        const base = {activitybar: layout.sizes.activitybar?.width ?? 0, side: layout.sizes.side?.width ?? 0, center: layout.sizes.center?.width ?? 0};
+        const result = grid.resizeBranches([{branchId: "body", axis: "width", baseline: base, target: {...base, side: 0, center: base.center + base.side}, collapsed: {side: true}}]);
+        if (!result.ok) throw new Error(result.reason);
+        expect(result.collapsed).toEqual({side: true});
+        expect(projection.regionAnchors.get("side")).toBe("sidebar");
+
+        const presented = grid.layout(EXTENT).sizes;
+        expect([presented.s1?.width, presented.s2?.width]).toEqual([0, 0]);
+        const collapsed = okDoc(setPanelCollapsed(doc, projection.regionAnchors.get("side") as string, true));
+        const written = rebaseIntents(collapsed, presented, projection.collapsedTo);
+        expect(sizeOf(written.tree.root, "side").width).toBe(sizeOf(doc.tree.root, "side").width);
+        const expanded = okDoc(setPanelCollapsed(written, "sidebar", false));
+        expect(solve(expanded, EXTENT).layout.sizes.side?.width).toBe(base.side);
+    });
+
+    it("只显示一个分节时那一列塌陷：区域拖到零配在这片叶上，状态读锚的；这个分节自己的收成标题行这时不呈现", () => {
+        const single = (overrides: Record<string, object> = {}): LayoutDoc => regions({s2: {container: "B"}, ...overrides});
+        const open = solve(single(), EXTENT);
+        expect(shapeOfInput(open.projection.input)).toBe("V[H[activitybar,s1,V[ea,H[p1,p2]]],statusbar]");
+        expect(open.projection.regionAnchors.get("s1")).toBe("sidebar");
+        expect(open.projection.collapsedTo.get("side")).toBe("s1");
+        expect(childOf(open.projection.input, "s1")?.collapse).toMatchObject({collapsed: false, collapsedSize: 0});
+
+        const zero = solve(single({sidebar: {...ANCHORS.sidebar, collapsed: true}}), EXTENT);
+        expect(zero.layout.sizes.s1?.width).toBe(0);
+        const own = solve(single({s1: {container: "A", collapsed: true}}), EXTENT);
+        expect(own.layout.sizes.s1).toEqual(open.layout.sizes.s1);
+    });
+
+    it("底部面板是一排：区域拖到零是高度为 0；分节没有收起策略，它们之间的缝停在最小宽度", () => {
+        const open = solve(regions(), EXTENT);
+        expect(childOf(open.projection.input, "row")?.collapse).toMatchObject({collapsed: false, collapsedSize: 0});
+        expect(childOf(open.projection.input, "p1")?.collapse).toBeUndefined();
+        expect(childOf(open.projection.input, "p2")?.collapse).toBeUndefined();
+
+        const zero = solve(regions({panel: {...ANCHORS.panel, collapsed: true}}), EXTENT);
+        expect([zero.layout.sizes.p1?.height, zero.layout.sizes.p2?.height]).toEqual([0, 0]);
+        expect(zero.layout.sizes.ea?.height).toBe((open.layout.sizes.ea?.height ?? 0) + (open.layout.sizes.row?.height ?? 0));
+        expect(zero.layout.issues).toEqual([]);
+    });
+
+    it("区域里被拆到另一个方向的分节没有收起策略：侧栏里左右并排的、底部面板里上下叠的，边界都停在最小尺寸；区域拖到零照样整块为 0", () => {
+        const doc = (overrides: Record<string, object> = {}): LayoutDoc => docOf(V([H(["activitybar", V(["sidebar", "s1", H(["s2", "s3"], "pair")], "side"), V(["ea", H(["panel", "p1", V(["p2", "p3"], "stack")], "row")], "center")], "body"), "statusbar"], "root"), {
+            ...ANCHORS,
+            sidebar: {...ANCHORS.sidebar, entries: ["A"]},
+            ...Object.fromEntries(["s1", "s2", "s3"].map((id) => [id, {container: "A"}])),
+            ...Object.fromEntries(["p1", "p2", "p3"].map((id) => [id, {container: "P"}])),
+            ...overrides,
+        });
+        const open = solve(doc(), EXTENT);
+        expect(childOf(open.projection.input, "s1")?.collapse).toMatchObject({collapsedSize: OPTIONS.headHeight});
+        for (const id of ["s2", "s3", "pair", "p1", "p2", "p3", "stack"]) expect(childOf(open.projection.input, id)?.collapse).toBeUndefined();
+
+        const zero = solve(doc({sidebar: {...ANCHORS.sidebar, entries: ["A"], collapsed: true}, panel: {...ANCHORS.panel, collapsed: true}}), EXTENT);
+        expect(["s1", "s2", "s3"].map((id) => zero.layout.sizes[id]?.width)).toEqual([0, 0, 0]);
+        expect(["p1", "p2", "p3"].map((id) => zero.layout.sizes[id]?.height)).toEqual([0, 0, 0]);
+        expect(zero.layout.issues).toEqual([]);
+    });
+
+    it("切走再切回：两个容器各自的尺寸意图都不变（中间每次呈现都把尺寸写回文档）", () => {
+        const settle = (doc: LayoutDoc): LayoutDoc => {
+            const {projection, layout} = solve(doc, EXTENT);
+            return rebaseIntents(doc, layout.sizes, projection.collapsedTo, fixedNodesOf(projection.input));
+        };
+        const start = regions();
+        const dragged = solve(start, EXTENT);
+        const base = {s1: dragged.layout.sizes.s1?.height ?? 0, s2: dragged.layout.sizes.s2?.height ?? 0};
+        expect(dragged.grid.resizeBranch("side", "height", base, {s1: base.s1 + 120, s2: base.s2 - 120}).ok).toBe(true);
+        const inA = rebaseIntents(start, dragged.grid.layout(EXTENT).sizes, dragged.projection.collapsedTo);
+        const heights = (doc: LayoutDoc): number[] => ["s1", "s2", "s3"].map((id) => sizeOf(doc.tree.root, id).height);
+
+        const inB = settle(okDoc(setActiveContainer(inA, "sidebar", "B")));
+        expect(shapeOfInput(solve(inB, EXTENT).projection.input)).toBe("V[H[activitybar,s3,V[ea,H[p1,p2]]],statusbar]");
+        const back = settle(okDoc(setActiveContainer(inB, "sidebar", "A")));
+
+        heights(back).forEach((height, index) => expect(height).toBeCloseTo(heights(inA)[index] as number));
+        expect(sizeOf(back.tree.root, "side").width).toBeCloseTo(sizeOf(inA.tree.root, "side").width);
+        const again = solve(back, EXTENT).layout.sizes;
+        expect([again.s1?.height, again.s2?.height]).toEqual([base.s1 + 120, base.s2 - 120]);
+    });
+
+    it("放不下时：不在当前容器里的分节与锚不进收走的队列；拖到零的区域不占最小宽度，不引起收走", () => {
+        const order = ["sidebar", "s3", "p1", "p2", "s1", "s2"];
+        // 底部面板两节并排最少要 321 宽，所以 300 宽时还要收走其中一节。
+        const narrow = presentationCollapse(regions(), {width: 300, height: 800}, {...OPTIONS, order});
+        expect([...narrow.removed].sort()).toEqual(["p1", "s1", "s2"]);
+
+        // 48 + 160 + 321 加两条缝放不进 400；侧栏拖到零之后放得下。
+        expect([...presentationCollapse(regions(), {width: 400, height: 800}, {...OPTIONS, order}).removed].sort()).toEqual(["s1", "s2"]);
+        const zero = regions({sidebar: {...ANCHORS.sidebar, collapsed: true}});
+        expect(presentationCollapse(zero, {width: 400, height: 800}, {...OPTIONS, order})).toEqual({removed: new Set(), squeezed: false});
+    });
+
+    it("不用容器的文档照旧：没有区域节点；空着显示的具名面板还是一片叶，带自己的收起策略", () => {
+        const plain = solve(docOf(V([H(["activitybar", V(["sidebar", "tool"], "side"), V(["ea", "panel"]), "auxiliarybar"]), "statusbar"]), {auxiliarybar: {tabs: [], active: null}, sidebar: {collapsed: true}}));
+        expect(plain.projection.regionAnchors.size).toBe(0);
+        expect(shapeOfInput(plain.projection.input)).toBe("V[H[activitybar,V[sidebar,tool],V[ea,panel],auxiliarybar],statusbar]");
+        expect(childOf(plain.projection.input, "side")?.collapse).toBeUndefined();
+        expect(childOf(plain.projection.input, "auxiliarybar")?.collapse).toMatchObject({collapsed: false, collapsedSize: 0});
+        expect(plain.layout.sizes.sidebar?.height).toBe(OPTIONS.headHeight);
+        expect(plain.layout.sizes.sidebar?.width).toBeGreaterThan(0);
     });
 });

@@ -3,12 +3,15 @@
  *
  * 隐藏的、放不下被收走的面板不进呈现树：它们的零宽缝如果夹在两个可见面板之间，拖那条缝改的是隐藏面板，不是两边。文档树不动，
  * 单子分支在呈现里塌陷时用 `collapsedTo` 记下它由谁代表，`rebaseIntents` 据此把尺寸写回文档树。
+ *
+ * 带容器的区域（ADR 0046）：锚和不在当前容器里的分节不进呈现树（`isPanelShown`）；整个区域拖到零的收起策略配在区域在呈现树里的那个节点上，
+ * 状态记在锚上（`regionAnchors`）。
  */
 
 import {UNBOUNDED_EXTENT} from "./grid-geometry";
-import {barOfRef, isFixedChild, isPanelShown, treeLeaves} from "./layout-doc";
-import type {LayoutBar, LayoutDoc, PanelRecord} from "./layout-doc";
-import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode} from "./grid-types";
+import {barOfRef, isContainerAnchor, isFixedChild, isPanelShown, REGION_ORIENTATION, regionNodeOf, treeLeaves} from "./layout-doc";
+import type {LayoutBar, LayoutDoc, PanelName, PanelRecord} from "./layout-doc";
+import type {GridExtent, GridNodeInput, GridOrientation, GridSizing, GridSnapshotNode, SashCollapseState} from "./grid-types";
 
 export interface PanelConstraints {
     readonly minimumSize: GridExtent;
@@ -34,6 +37,12 @@ export interface LayoutProjection {
     readonly sashSize: (branchId: string, index: number) => number;
     /** 呈现里塌陷掉的文档分支 → 代表它的节点。 */
     readonly collapsedTo: ReadonlyMap<string, string>;
+    /**
+     * 呈现树里代表一个带容器的区域的节点 → 这个区域的锚（面板 id）。节点是当前容器那一列（排）的分支；只显示一个分节时分支塌陷，就是那个分节的叶。
+     * 这个节点上的收起是整个区域拖到零：手势报告它收起或展开时，宿主要写到锚的 `collapsed` 上，不写到这个节点同名的面板上。
+     * 区域没有显示着的分节时不在里面；不用容器的文档里是空的。
+     */
+    readonly regionAnchors: ReadonlyMap<string, string>;
 }
 
 const axisOf = (orientation: GridOrientation): keyof GridExtent => (orientation === "horizontal" ? "width" : "height");
@@ -45,26 +54,37 @@ const isBarInput = (node: GridNodeInput<string>): boolean => node.kind === "leaf
  *
  * - 谁吸收余量：`isFixedChild`。所以和编辑区并排的工具面板保留像素，全是工具面板的一列按比例分，分支里总有人吸收余量，不留白。
  * - 收起：横向分支里拖到零，纵向分支里收成标题行。编辑组不可收起。
+ * - 带容器的区域（docs/specs/ui/workbench-layout.md 输出 11、12）：代表区域的节点（`regionAnchors`）收起是整个区域拖到零，沿它所在的骨架分支那一轴为 0，状态读锚的；
+ *   这个节点是分节的叶时，一个节点只有一份收起策略，给区域用，这个分节自己的收成标题行这时不呈现。区域里的分节（`region` 非空）只会收成标题行：
+ *   只有一列的区域（侧栏、右栏）里直接排在纵向分支里的分节有；底部面板里的、区域里被左右拆开的没有收起策略，它们之间的边界停在最小尺寸。
  */
-function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: LayoutProjectionOptions): void {
+function assignByParent(doc: LayoutDoc, node: GridNodeInput<string>, options: LayoutProjectionOptions, regionAnchors: ReadonlyMap<string, string>, region: PanelName | null = null): void {
     if (node.kind === "leaf") return;
     const main = axisOf(node.orientation);
+    const collapseOf = (child: GridNodeInput<string>, collapsed: boolean, collapsedSize: number): SashCollapseState => ({
+        collapsed,
+        collapsedSize,
+        restoreSize: Math.max(child.size?.[main] ?? 0, child.minimumSize?.[main] ?? 0),
+        collapseThreshold: options.collapseThreshold,
+        expandThreshold: options.collapseThreshold,
+    });
     for (const child of node.children) {
         const sizing: GridSizing = isFixedChild(doc, node.children, child) ? "fixed" : "weight";
         child.sizing = sizing;
+        const anchor = doc.panels[regionAnchors.get(child.id) ?? ""];
+        if (anchor?.name !== undefined) {
+            child.collapse = collapseOf(child, anchor.collapsed === true, 0);
+            if (child.kind === "branch") assignByParent(doc, child, options, regionAnchors, anchor.name);
+            continue;
+        }
         if (child.kind === "branch") {
-            assignByParent(doc, child, options);
+            assignByParent(doc, child, options, regionAnchors, region);
             continue;
         }
         const panel = doc.panels[child.id];
         if (panel?.role !== "tool") continue;
-        child.collapse = {
-            collapsed: panel.collapsed === true,
-            collapsedSize: node.orientation === "vertical" ? options.headHeight : 0,
-            restoreSize: Math.max(child.size?.[main] ?? 0, child.minimumSize?.[main] ?? 0),
-            collapseThreshold: options.collapseThreshold,
-            expandThreshold: options.collapseThreshold,
-        };
+        if (region !== null && (REGION_ORIENTATION[region] !== "vertical" || node.orientation !== "vertical")) continue;
+        child.collapse = collapseOf(child, panel.collapsed === true, node.orientation === "vertical" ? options.headHeight : 0);
     }
 }
 
@@ -85,6 +105,19 @@ export function fixedNodesOf(root: GridNodeInput<string>): ReadonlySet<string> {
 export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOptions): LayoutProjection {
     const collapsedTo = new Map<string, string>();
     const sashes = new Map<string, number[]>();
+    const regionAnchors = new Map<string, string>();
+    // 带容器的区域在文档树里的节点 → 锚。
+    const regionRoots = new Map<string, string>();
+    for (const panel of Object.values(doc.panels)) {
+        const region = panel.name === undefined || !isContainerAnchor(panel) ? null : regionNodeOf(doc, panel.name);
+        if (region !== null) regionRoots.set(region.node.id, region.anchor);
+    }
+    /** 文档树的 `node` 呈现成了 `presented`：它是区域的节点时按呈现后的 id 记下（分支可能已经塌陷成一片叶）。 */
+    const presentedAs = (node: GridSnapshotNode, presented: GridNodeInput<string>): GridNodeInput<string> => {
+        const anchor = regionRoots.get(node.id);
+        if (anchor !== undefined) regionAnchors.set(presented.id, anchor);
+        return presented;
+    };
 
     const project = (node: GridSnapshotNode, parentOrientation: GridOrientation | null): GridNodeInput<string> | null => {
         if (node.kind === "branch") {
@@ -93,10 +126,10 @@ export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOption
             if (children.length === 1) {
                 const survivor = children[0] as GridNodeInput<string>;
                 collapsedTo.set(node.id, survivor.id);
-                return {...survivor, size: {...node.size}};
+                return presentedAs(node, {...survivor, size: {...node.size}});
             }
             sashes.set(node.id, children.slice(0, -1).map((child, index) => (isBarInput(child) || isBarInput(children[index + 1] as GridNodeInput<string>) ? 0 : options.sashSize)));
-            return {kind: "branch", id: node.id, orientation: node.orientation, size: {...node.size}, children};
+            return presentedAs(node, {kind: "branch", id: node.id, orientation: node.orientation, size: {...node.size}, children});
         }
         const bar = barOfRef(node.ref);
         if (bar !== null) {
@@ -114,15 +147,14 @@ export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOption
 
     const input = project(doc.tree.root, null);
     if (input === null) throw new Error("布局文档的树里没有可呈现的节点：校验应该已经拒绝");
-    assignByParent(doc, input, options);
-    return {input, collapsedTo, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
+    assignByParent(doc, input, options, regionAnchors);
+    return {input, collapsedTo, regionAnchors, sashSize: (branchId, index) => sashes.get(branchId)?.[index] ?? 0};
 }
 
 function minimumOf(node: GridNodeInput<string>, axis: keyof GridExtent, parentAxis: keyof GridExtent | null, sashSize: (branchId: string, index: number) => number): number {
-    if (node.kind === "leaf") {
-        if (node.collapse?.collapsed === true && axis === parentAxis) return node.collapse.collapsedSize;
-        return node.minimumSize?.[axis] ?? 0;
-    }
+    // 分支也可能收起（整个区域拖到零）：不然零宽的区域还按分节的最小宽度算，窗口窄了会把它们“收走”。
+    if (node.collapse?.collapsed === true && axis === parentAxis) return node.collapse.collapsedSize;
+    if (node.kind === "leaf") return node.minimumSize?.[axis] ?? 0;
     const own = axisOf(node.orientation);
     const inner = node.children.map((child) => minimumOf(child, axis, own, sashSize));
     if (own !== axis) return Math.max(...inner);

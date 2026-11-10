@@ -418,6 +418,8 @@ export function branchSashSizes<T>(branch: GridBranch<T>, sashSize: number | Gri
     return sashValues(branch, sashSize);
 }
 
+const NO_AXES: ReadonlySet<GridAxis> = new Set();
+
 /** 位置无关的布局：返回足以渲染同一几何的尺寸、约束与实际 sash，不修改树的意图。 */
 export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sashSize: number | GridSashResolver): GridLayoutResult {
     const sizes: Record<string, GridExtent> = Object.create(null) as Record<string, GridExtent>;
@@ -428,7 +430,7 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
     if (!root) {
         return {sizes, constraints, sashSizes, issues};
     }
-    measure(root, {width: Math.max(0, finite(container.width, 0)), height: Math.max(0, finite(container.height, 0))}, null);
+    measure(root, {width: Math.max(0, finite(container.width, 0)), height: Math.max(0, finite(container.height, 0))}, null, NO_AXES);
     return {sizes, constraints, sashSizes, issues};
 
     /**
@@ -448,18 +450,22 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
         };
     }
 
-    function measure(node: GridNode<T>, space: GridExtent, parentMain: GridAxis | null): GridExtent {
+    /**
+     * `rigid`：祖先沿这几根轴收起着。收起的分支把 collapsedSize 原样交给里面的节点（docs/specs/ui/nested-grid.md 的“分支的收起”），
+     * 所以这几根轴上“空间小于约束下限”是有意的，不报诊断；另一根轴照常。
+     */
+    function measure(node: GridNode<T>, space: GridExtent, parentMain: GridAxis | null, rigid: ReadonlySet<GridAxis>): GridExtent {
         const nodeBounds = boundsOf(node, parentMain);
         constraints[node.id] = nodeBounds;
+        // 收起是有意的零内容：它不该再报成“可用空间小于约束下限”。自己收起与祖先收起是同一个理由。
+        const quiet = node.collapse?.collapsed === true && parentMain !== null && !rigid.has(parentMain) ? new Set([...rigid, parentMain]) : rigid;
         if (node.kind === "leaf") {
             const extent: GridExtent = {
                 width: Math.min(space.width, nodeBounds.maximumSize.width),
                 height: Math.min(space.height, nodeBounds.maximumSize.height),
             };
-            // 收起是有意的零内容：它不该再报成“可用空间小于约束下限”。
-            const collapsed = node.collapse?.collapsed === true && parentMain !== null;
             for (const axis of ["width", "height"] as const) {
-                if (collapsed && axis === parentMain) {
+                if (quiet.has(axis)) {
                     continue;
                 }
                 if (space[axis] < nodeBounds.minimumSize[axis] - EPSILON) {
@@ -478,19 +484,20 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
         const effectiveSashes = configuredSashes.map((value) => value * sashScale);
         const effectiveGap = effectiveSashes.reduce((sum, value) => sum + value, 0);
         sashSizes[node.id] = effectiveSashes;
-        if (configuredGap > target + EPSILON) {
+        if (configuredGap > target + EPSILON && !quiet.has(main)) {
             issues.push(`分支 ${node.id} 的 sash 占用 ${round(configuredGap)} 超过可用 ${round(target)}，已压缩分隔条与子节点`);
         }
         const crossBounds = constraintOnAxis(node, cross, sashSize, issues, reportedConstraints);
         const crossSize = Math.min(space[cross], clampAxis(space[cross], crossBounds.low, crossBounds.high));
-        if (crossSize < crossBounds.low - EPSILON) {
+        if (crossSize < crossBounds.low - EPSILON && !quiet.has(cross)) {
             issues.push(`分支 ${node.id} 的交叉轴可用空间 ${round(space[cross])} 小于约束下限 ${round(crossBounds.low)}，已按可用空间降级`);
         }
-        const assigned = allocateAxis(node, main, Math.max(0, target - effectiveGap), sashSize, issues);
+        // 主轴被祖先收起时，这里分不够是有意的：分配照做，诊断不收。
+        const assigned = allocateAxis(node, main, Math.max(0, target - effectiveGap), sashSize, quiet.has(main) ? [] : issues);
         const measured: number[] = [];
         let total = effectiveGap;
         for (const [index, child] of node.children.entries()) {
-            const childSize = measure(child, extentOf(main, assigned[index]!, crossSize), main)[main];
+            const childSize = measure(child, extentOf(main, assigned[index]!, crossSize), main, quiet)[main];
             measured.push(childSize);
             total += childSize;
         }
