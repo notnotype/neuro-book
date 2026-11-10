@@ -23,6 +23,7 @@ import type {AgentService, ProfileAdmin, StartTaskOptions, StartTaskResult} from
 import {ON_AGENT_SESSION} from "../shared/points";
 import {agentSettings} from "../shared/settings";
 
+import {JobCenter} from "./jobs/center";
 import {SessionRelations} from "./subagents/relations";
 import {ProfileBundles} from "./profile-bundles";
 import {kernelResources, sessionArtifacts, sessionResources} from "./resources";
@@ -66,6 +67,12 @@ export interface AgentRuntime {
     readonly profileAdmin: ProfileAdmin;
     /** 会话之间的父子关系（subagents.md）。 */
     readonly relations: SessionRelations;
+    /** 任务中心（jobs.md）。 */
+    readonly jobs: JobCenter;
+    /** 插件开始停止之后为真：子代理工具据此不对子会话发中止，交给会话的关闭按 interrupted 收口（subagents.md 输出 16）。 */
+    stopping(): boolean;
+    /** 内核用的时钟（注入的，测试推进它）。 */
+    readonly kernelClock: Clock;
     /** 会话目录的根：`sessions://` 的容器。 */
     readonly sessionsRoot: string;
     /** 存储层的会话列表，不加缺省的过滤（含归档与后台的），`sessions://` 与临时目录的清理用。 */
@@ -130,6 +137,13 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     if (scanned.ok) relations.load(scanned.value);
     else options.report("relations-scan-failed", `could not list sessions to load sub-agent relations: ${scanned.code}`, {code: scanned.code});
     let sessions: SessionTable | null = null;
+    const clock = kernelClock(options.clock);
+    const jobs = new JobCenter({
+        clock,
+        newId: () => crypto.randomUUID().replaceAll("-", ""),
+        limits: () => ({perSession: options.settings.get(agentSettings.settings.subagentsPerSession), global: options.settings.get(agentSettings.settings.backgroundJobs)}),
+    });
+    let stopping = false;
     const models = options.models === null ? NO_MODELS : options.models.port((profile) => {
         const setting = profileSettings()[profile];
         const role = setting?.role ?? profiles.defaultRole(profile);
@@ -146,7 +160,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
         resources: (context) => kernelResources(sessionResources(options.files, context, null)),
         sessions: {get: async (id, issuer) => sessions!.view(id, issuer)},
-        clock: kernelClock(options.clock),
+        clock,
         approve: createPermissionHook({
             files: options.files,
             userRules: () => options.settings.get(agentSettings.settings.permissionRules),
@@ -281,6 +295,9 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         service,
         profileAdmin,
         relations,
+        jobs,
+        stopping: () => stopping,
+        kernelClock: clock,
         sessionsRoot,
         listSessions: async () => {
             const listed = await store.list();
@@ -288,11 +305,14 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             return listed.value;
         },
         // 先停 Profile 的监听与打包（迟到的结果不再发布），再关会话（sessions.md 输出 14）。
+        // 停止的先后（jobs.md 输出 8）：关门之后子代理工具就不再对子会话发中止，子代理运行由会话的关闭按 interrupted 收口；任务表最后丢。
         stop: async () => {
+            stopping = true;
             table.closeGate();
             await userProfiles.stop();
             await table.stop();
             await meta.settled();
+            jobs.clear();
         },
     };
 }

@@ -416,7 +416,13 @@
                 "shell": "Runs a command.",
                 "switch-mode": "Asks to switch to discuss, plan, or normal mode.",
                 "ask": "Asks the user with fixed choices.",
-                "ask-form": "Asks the user, with choices or a form."
+                "ask-form": "Asks the user, with choices or a form.",
+                "wait": "Waits for its own background jobs to finish, or for a sub-agent to ask a question.",
+                "kill": "Stops one of its own jobs.",
+                "jobs": "Lists the jobs it started.",
+                "spawn": "Spawns a sub-agent to do one task.",
+                "send": "Sends a message to one of its sub-agents, or lets it continue.",
+                "answer": "Answers a question a sub-agent passed to it."
             }
         },
         "create": {

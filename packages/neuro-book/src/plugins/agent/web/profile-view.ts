@@ -258,6 +258,12 @@ const BUILTIN_TOOL_SUMMARIES = {
     "nbook.agent.switch-mode": "profiles.tools.summary.switch-mode",
     "nbook.agent.ask": "profiles.tools.summary.ask",
     "nbook.agent.ask-form": "profiles.tools.summary.ask-form",
+    "nbook.agent.spawn": "profiles.tools.summary.spawn",
+    "nbook.agent.send": "profiles.tools.summary.send",
+    "nbook.agent.answer": "profiles.tools.summary.answer",
+    "nbook.agent.wait": "profiles.tools.summary.wait",
+    "nbook.agent.kill": "profiles.tools.summary.kill",
+    "nbook.agent.jobs": "profiles.tools.summary.jobs",
 } as const;
 
 export const hasBuiltinToolSummary = (id: string): boolean => id in BUILTIN_TOOL_SUMMARIES;
