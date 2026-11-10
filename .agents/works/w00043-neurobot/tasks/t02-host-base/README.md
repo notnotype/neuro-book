@@ -34,8 +34,8 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 
 ## 当前状态
 
-2026-11-10 新建，未开工；先写 `plan.md`。
+2026-11-10：[plan.md](plan.md) 初稿已写（Opus），未定稿：新包 `packages/nb-host`（服务端宿主、HTTP、两端共用的套接字链路、浏览器宿主），模型服务进 nb-harness 的 `./models`（t32 合入之后），一份 ADR 记新包、模型服务的位置与 ADR 0030 决策 2 的修订。计划审查与独立设计进行中。
 
 ## 下一步
 
-按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 写 `plan.md`，开发者确认后实施。
+处理计划审查（Opus 审服务端、HTTP 与模型服务，Sonnet 审浏览器宿主）与独立设计（包放哪、模型服务怎么分）的结论，改第二稿，交开发者确认。
