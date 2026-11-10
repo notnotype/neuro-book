@@ -24,7 +24,7 @@ export default {
         failed: "Copy failed; select the text manually",
     },
     detailDialog: {
-        source: "Diagnostic output",
+        copy: "Copy output",
         close: "Close",
         truncated: "Output too long; truncated",
     },

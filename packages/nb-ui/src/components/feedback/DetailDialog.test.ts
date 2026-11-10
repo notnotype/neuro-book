@@ -1,5 +1,5 @@
 /**
- * DetailDialog（同名 .md）：原文按行显示、复制的是完整原文、截断说明、初始焦点与三种关闭。
+ * DetailDialog（同名 .md）：原文按行显示、续行的悬挂缩进、复制的是完整原文、截断说明、初始焦点与关闭。
  * 对话框传送到 body，所以从 body 读。
  */
 
@@ -30,26 +30,32 @@ async function open(props: {detail: string; title?: string; truncated?: boolean}
 }
 
 describe("DetailDialog", () => {
-    it("标题、“诊断原文”与按行拆开的原文；CRLF、LF、单独的 CR 一样拆", async () => {
+    it("标题与按行拆开的原文；CRLF、LF、单独的 CR 一样拆，空行是空的", async () => {
         await open({detail: "第一行\r\n第二行\n\n第四行\r第五行"});
         expect(query("[role=dialog]").textContent).toContain("文件没有保存：详情");
-        expect(query(".nb-code-block__label").textContent).toBe("诊断原文");
-        const lines = [...document.body.querySelectorAll(".nb-code-block__text")].map((cell) => cell.textContent);
+        const lines = [...query("[data-detail-dialog-text]").children].map((line) => line.textContent);
         expect(lines).toEqual(["第一行", "第二行", "", "第四行", "第五行"]);
-        expect(document.body.querySelector(".nb-code-block__note")).toBeNull();
+        expect(document.body.querySelector("[data-detail-dialog-truncated]")).toBeNull();
+    });
+
+    it("折行的续行比本行缩进多缩 2 个字符（制表符按 4 个算）", async () => {
+        await open({detail: "Error: x\n    at saveFile\n\tat tab"});
+        const indents = [...query("[data-detail-dialog-text]").children].map((line) => (line as HTMLElement).style.paddingLeft);
+        expect(indents).toEqual(["2ch", "6ch", "6ch"]);
     });
 
     it("复制的是完整原文，不是拆开后的行", async () => {
         const detail = "EditorSaveError: EACCES\r\n    trace: 4f2a9c1e";
         await open({detail});
-        query<HTMLButtonElement>("[data-copy-state] button").click();
+        const copy = [...document.body.querySelectorAll<HTMLButtonElement>("footer button")].find((button) => button.textContent?.trim() === "复制原文");
+        copy!.click();
         await vi.waitFor(() => expect(query("[data-copy-state]").getAttribute("data-copy-state")).toBe("copied"), {interval: 5});
         expect(await navigator.clipboard.readText()).toBe(detail);
     });
 
     it("原文被截断时块底写明", async () => {
         await open({detail: "x", truncated: true});
-        expect(query(".nb-code-block__note").textContent).toBe("原文过长，已截断");
+        expect(query("[data-detail-dialog-truncated]").textContent).toBe("原文过长，已截断");
     });
 
     it("打开时焦点在正文容器上，不在复制按钮上", async () => {

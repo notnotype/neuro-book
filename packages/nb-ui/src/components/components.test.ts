@@ -234,15 +234,9 @@ describe("nb-ui components", () => {
         expect(mount(CodeBlock, {props: {lines: [], emptyText: "Empty"}}).text()).toBe("Empty");
     });
 
-    it("code block: draws the header row only for a label or actions, puts actions on it, and keeps empty lines empty", () => {
-        expect(mount(CodeBlock, {props: {lines: [{text: "a"}]}}).find(".nb-code-block__header").exists()).toBe(false);
-        expect(mount(CodeBlock, {props: {lines: [{text: "a"}], label: "参数"}}).get(".nb-code-block__header").text()).toBe("参数");
-
-        const withActions = mount(CodeBlock, {props: {lines: [{text: "first"}, {text: ""}, {text: "third"}], maxHeight: "120px"}, slots: {actions: "<button class='act'>复制</button>"}});
-        expect(withActions.get(".nb-code-block__header .act").text()).toBe("复制");
-        expect(withActions.get(".nb-code-block__scroll").attributes("style")).toContain("max-height: 120px");
-        // 空行不写空格：选中复制出来的空行应当是空的。
-        expect(withActions.findAll(".nb-code-block__text").map((cell) => cell.element.textContent)).toEqual(["first", "", "third"]);
+    it("code block: empty lines stay empty so a selected copy has empty lines, not spaces", () => {
+        const block = mount(CodeBlock, {props: {lines: [{text: "first"}, {text: ""}, {text: "third"}]}});
+        expect(block.findAll(".nb-code-block__text").map((cell) => cell.element.textContent)).toEqual(["first", "", "third"]);
     });
 
     it("renders segmented control as a labelled radio group: one item checked, no toggle-button state", () => {

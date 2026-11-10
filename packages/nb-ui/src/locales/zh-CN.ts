@@ -28,7 +28,7 @@ export default {
         failed: "复制失败，请手动选择文字",
     },
     detailDialog: {
-        source: "诊断原文",
+        copy: "复制原文",
         close: "关闭",
         truncated: "原文过长，已截断",
     },
