@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t14-multi-agent",
+    "artifactId": "review",
+    "answerId": "20261110T000128815Z-8e490192",
+    "artifactVersion": 3,
+    "contentHash": "464f7856ee7d99c7ed86ab023b02aafbfc55a5c899484a5edc7986a5e7a62b70",
+    "submittedAt": "2026-11-10T00:01:28.117Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "async-question": "b",
+        "session-nest": "b",
+        "rest": "accept"
+    },
+    "comments": {
+        "async-question": "应该也能收起才对\n但是你这个阴影太重了，不是第一侧翻这个错误了，而且圆角程度不够，这里的圆角应该和下面 composer 输入框的圆角一样圆才对。要改一下 ui 规范",
+        "session-nest": "再优化一下",
+        "rest": "后台命令也应该能展开"
+    },
+    "note": "整个静态稿都需要派一个 opus 子代理审查一下"
+}
