@@ -3,12 +3,15 @@
  * 会话面板（docs/specs/agent/conversation.md 输出 2、3）：同一个组件放在点标题弹出的下拉和左栏视图里。纯受控：搜索、范围、过滤都发给宿主，
  * 宿主把筛好的行给回来。今天、昨天、更早按 `now` 分组：宿主要定期更新它，否则过了午夜分组不会变。
  */
-import {computed} from "vue";
+import {computed, ref, watch} from "vue";
 import {Badge, DropdownMenu, IconButton, Input} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 
 import {formatListTime} from "../format";
+import {autoExpanded, nestSessions} from "../session-nesting";
+import type {SessionNode} from "../session-nesting";
 import type {AgentLocale, AgentSessionListItem, AgentViewAction, SessionPanelFilter} from "../types";
+import AgentSessionChildRows from "./AgentSessionChildRows.vue";
 import {provideAgentText} from "./text";
 
 const props = withDefaults(defineProps<{
@@ -24,6 +27,12 @@ const props = withDefaults(defineProps<{
     loading?: boolean;
     error?: string | null;
     locale?: AgentLocale;
+    /**
+     * 哪些会话的子会话展开着（true）或被收起（false），没有的跟随自动规则。受控：宿主持有，面板关掉再打开还在；不给时面板自己记。
+     */
+    expanded?: Readonly<Record<string, boolean>>;
+    /** 要展开到能看见的会话（例如刚派出的子会话）：它们的祖先自动展开一次。 */
+    expandFor?: readonly string[];
 }>(), {
     query: "",
     scope: null,
@@ -32,6 +41,8 @@ const props = withDefaults(defineProps<{
     loading: false,
     error: null,
     locale: undefined,
+    expanded: undefined,
+    expandFor: () => [],
 });
 
 const emit = defineEmits<{
@@ -40,6 +51,7 @@ const emit = defineEmits<{
     "update:scope": [scope: "project" | "all"];
     "toggle-profile": [id: string];
     "update:show-archived": [show: boolean];
+    "update:expanded": [expanded: Record<string, boolean>];
 }>();
 
 const {t, locale} = provideAgentText(() => props.locale);
@@ -51,19 +63,50 @@ function startOfDay(timestamp: number): number {
     return date.getTime();
 }
 
+/** 子会话跟父会话在同一个日期组：按顶层的会话分组（宿主让父会话的时间取自身与后代中最新的）。 */
 const groups = computed(() => {
     const today = startOfDay(props.now);
-    const buckets: {key: "today" | "yesterday" | "earlier"; label: string; rows: AgentSessionListItem[]}[] = [
+    const buckets: {key: "today" | "yesterday" | "earlier"; label: string; rows: SessionNode[]}[] = [
         {key: "today", label: t("panel.today"), rows: []},
         {key: "yesterday", label: t("panel.yesterday"), rows: []},
         {key: "earlier", label: t("panel.earlier"), rows: []},
     ];
-    for (const item of props.items) {
-        const bucket = item.updatedAt >= today ? 0 : item.updatedAt >= today - DAY ? 1 : 2;
-        buckets[bucket]!.rows.push(item);
+    for (const node of nestSessions(props.items)) {
+        const bucket = node.item.updatedAt >= today ? 0 : node.item.updatedAt >= today - DAY ? 1 : 2;
+        buckets[bucket]!.rows.push(node);
     }
     return buckets.filter((bucket) => bucket.rows.length > 0);
 });
+
+// ─── 子会话的展开 ───────────────────────────────────────────────────────
+
+const local = ref<Record<string, boolean>>({});
+const record = computed(() => props.expanded ?? local.value);
+
+function setRecord(next: Record<string, boolean>): void {
+    local.value = next;
+    emit("update:expanded", next);
+}
+
+function toggle(id: string): void {
+    setRecord({...record.value, [id]: record.value[id] !== true});
+}
+
+// 选中会话的祖先、要露出的会话的祖先、有子代理在等你处理的：这些输入变了时展开一次，之后用户手动的优先。
+const autoKey = computed(() => [...autoExpanded(props.items, props.selectedId, props.expandFor)].sort().join(" "));
+watch(autoKey, (key) => {
+    if (key === "") return;
+    const next = {...record.value};
+    let changed = false;
+    for (const id of key.split(" ")) {
+        if (next[id] === true) continue;
+        next[id] = true;
+        changed = true;
+    }
+    if (changed) setRecord(next);
+}, {immediate: true});
+
+const countOf = (node: SessionNode): number => node.item.childCount ?? node.children.length;
 
 const STATE_KEYS = {running: "panel.state.running", waiting: "panel.state.waiting", interrupted: "panel.state.interrupted", error: "panel.state.error"} as const;
 
@@ -130,7 +173,8 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
             <p v-if="props.error === null && props.items.length === 0" class="acv-panel__empty">{{ props.loading ? t("panel.loading") : t("panel.empty") }}</p>
             <template v-for="group in groups" :key="group.key">
                 <div class="acv-panel__group">{{ group.label }}</div>
-                <div v-for="item in group.rows" :key="item.id" class="acv-panel__row" :class="{'is-current': item.id === props.selectedId, 'is-archived': item.archived === true}">
+                <template v-for="{item, children} in group.rows" :key="item.id">
+                <div class="acv-panel__row" :class="{'is-current': item.id === props.selectedId, 'is-archived': item.archived === true, 'is-dimmed': item.dimmed === true, 'has-children': children.length > 0}">
                     <button type="button" class="acv-panel__open" :aria-current="item.id === props.selectedId ? 'true' : undefined" data-panel-row @click="emit('action', {type: 'session.select', sessionId: item.id})">
                         <span :class="[item.icon ?? 'i-lucide-bot', 'acv-panel__icon']" :title="item.iconTitle" aria-hidden="true" />
                         <span class="acv-panel__body">
@@ -142,8 +186,22 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
                                 <span class="acv-panel__description">{{ item.description }}</span>
                                 <Badge v-if="item.archived === true" size="sm" tone="neutral" variant="soft">{{ t("panel.archivedTag") }}</Badge>
                                 <span v-if="item.status !== 'idle'" class="acv-panel__state" :data-state="item.status">{{ t(STATE_KEYS[item.status]) }}</span>
+                                <span v-else-if="item.childWaiting === true && children.length > 0 && record[item.id] !== true" class="acv-panel__state" data-state="child-waiting">{{ t("panel.childWaiting") }}</span>
                             </span>
+                            <span v-if="item.dimmed === true" class="sr-only">{{ t("panel.ancestor") }}</span>
                         </span>
+                    </button>
+                    <!-- 与打开会话的按钮并列：折叠子会话不打开会话 -->
+                    <button
+                        v-if="children.length > 0"
+                        type="button"
+                        class="acv-panel__kids"
+                        :aria-expanded="record[item.id] === true"
+                        :aria-controls="`acv-children-${item.id}`"
+                        data-panel-children
+                        @click="toggle(item.id)"
+                    >
+                        {{ t("panel.children", {count: countOf({item, children})}) }}<span :class="record[item.id] === true ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" aria-hidden="true" />
                     </button>
                     <span class="acv-panel__more">
                         <DropdownMenu :items="rowMenu(item)" align="end" @select="onRowMenu(item, $event)">
@@ -151,6 +209,17 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
                         </DropdownMenu>
                     </span>
                 </div>
+                <AgentSessionChildRows
+                    v-if="children.length > 0 && record[item.id] === true"
+                    :list-id="`acv-children-${item.id}`"
+                    :nodes="children"
+                    :selected-id="props.selectedId"
+                    :expanded="record"
+                    :label="item.title || t('header.untitled')"
+                    @select="emit('action', {type: 'session.select', sessionId: $event})"
+                    @toggle="toggle"
+                />
+                </template>
             </template>
         </div>
     </div>
@@ -271,8 +340,41 @@ function onRowMenu(item: AgentSessionListItem, id: string): void {
     cursor: pointer;
 }
 
-.acv-panel__row.is-archived .acv-panel__title {
+.acv-panel__row.is-archived .acv-panel__title,
+.acv-panel__row.is-dimmed .acv-panel__title {
     color: var(--text-muted);
+}
+
+/* “N 个子代理”在第二行右边：第二行给它让出位置，左边不留空槽。 */
+.acv-panel__row.has-children .acv-panel__line--second {
+    padding-right: 7em;
+}
+
+.acv-panel__kids {
+    position: absolute;
+    right: 8px;
+    bottom: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    max-width: 6.5em;
+    padding: 0 4px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-2xs);
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.acv-panel__kids:hover {
+    background: var(--bg-hover);
+}
+
+.acv-panel__state[data-state="child-waiting"] {
+    color: var(--status-warning);
 }
 
 .acv-panel__icon {

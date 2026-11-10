@@ -644,6 +644,14 @@ export type AgentSessionListItem = {
     archived?: boolean;
     /** 需要注意的一句，提醒色另起一行，例如“读到 38.12，早于你现在的位置”；图标缺省 i-lucide-circle-alert。 */
     note?: {text: string; icon?: string};
+    /** 会话面板：父会话的 id。父会话也在条目里时，这一行挂在它下面；父会话不在条目里的不列出。 */
+    parentId?: string;
+    /** 会话面板：它的子会话个数（宿主按未过滤的会话算），父会话行写“N 个子代理”。 */
+    childCount?: number;
+    /** 会话面板：它有后代在等用户（宿主按未过滤的会话算）；收起时写“子代理等你处理”。 */
+    childWaiting?: boolean;
+    /** 会话面板：它本身不符合筛选，只因为后代符合才列出（弱化显示，读屏说明它是上级）。 */
+    dimmed?: boolean;
 };
 
 export type AgentSessionListState = "ready" | "loading" | "error";

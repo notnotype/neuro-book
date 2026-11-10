@@ -89,7 +89,8 @@ export const nbAgentUiFixtures: LabFixture[] = [
     defineSubjectFixture<typeof AgentSessionPanel>({
         component: "AgentSessionPanel", scenes: agentSessionPanelScenes, class: "h-[480px] w-[360px]",
         subject: async () => ({default: (await import("./agent-text")).withAgentSceneText((await import("@notnotype/nb-agent-ui/vue")).AgentSessionPanel)}),
-        events: ["action", "update:query", "update:scope", "toggle-profile", "update:show-archived"],
+        events: ["action", "update:query", "update:scope", "toggle-profile", "update:show-archived", "update:expanded"],
+        writeBack: {"update:expanded": {layer: "model", key: "expanded"}},
     }),
     // 目录对话框同样从公开入口取、套一层场景的翻译端口；它渲染到 body，根是传送门。
     defineSubjectFixture<typeof AgentModelCatalog>({

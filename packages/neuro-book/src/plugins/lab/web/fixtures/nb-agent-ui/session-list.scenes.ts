@@ -31,6 +31,19 @@ const PANEL_ITEMS: AgentSessionListItem[] = [
     {id: "6", title: "润色第 4 章对话", description: "没有设置图标的 Profile 用缺省图标。", updatedAt: at(10, 12), status: "idle"},
     {id: "7", title: "旧的会话", description: "归档了。", updatedAt: at(9, 2), status: "idle", archived: true, icon: "i-lucide-feather"},
 ];
+/** 子会话（w00032 t14 第 47 条的 B1）：父会话的个数与提醒由宿主按未过滤的会话算。 */
+const NESTED_ITEMS: AgentSessionListItem[] = [
+    {id: "n1", title: "第三章全面检查", description: "设定、称谓、伏笔、时间线、文风分头查", updatedAt: at(10, 20, 12, 44), status: "running", icon: "i-lucide-feather", iconTitle: "写作助手", childCount: 4},
+    {id: "n1a", title: "设定核对", description: "正在读取 正文/第二章.md", updatedAt: at(10, 20, 12, 42), status: "running", icon: "i-lucide-book-check", parentId: "n1"},
+    {id: "n1b", title: "伏笔检查", description: "写入 session://伏笔清单.md", updatedAt: at(10, 20, 12, 42), status: "waiting", icon: "i-lucide-bot", parentId: "n1"},
+    {id: "n1c", title: "称谓检查", description: "找到 4 处称谓前后不一致", updatedAt: at(10, 20, 12, 43), status: "idle", icon: "i-lucide-bot", parentId: "n1"},
+    {id: "n1d", title: "风格对照", description: "模型请求超时", updatedAt: at(10, 20, 12, 44), status: "error", icon: "i-lucide-bot", parentId: "n1"},
+    {id: "n2", title: "人物小传", description: "苏晴、陈砚、周叔三人的小传", updatedAt: at(10, 20, 11, 40), status: "idle", icon: "i-lucide-feather", childCount: 2, childWaiting: true},
+    {id: "n2a", title: "苏晴", description: "等你批准写入", updatedAt: at(10, 20, 11, 41), status: "waiting", icon: "i-lucide-bot", parentId: "n2"},
+    {id: "n2b", title: "陈砚", description: "完成", updatedAt: at(10, 20, 11, 41), status: "idle", icon: "i-lucide-bot", parentId: "n2"},
+    {id: "n3", title: "第三章节奏调整", description: "只因子会话命中搜索才列出", updatedAt: at(10, 20, 10, 2), status: "idle", icon: "i-lucide-feather", childCount: 1, dimmed: true},
+    {id: "n3a", title: "合并回忆段落", description: "完成", updatedAt: at(10, 20, 10, 3), status: "idle", icon: "i-lucide-bot", parentId: "n3"},
+];
 const PROFILES = [{id: "writer", label: "写作助手", icon: "i-lucide-feather", active: false}, {id: "qa", label: "剧情问答", icon: "i-lucide-book-open-text", active: false}];
 
 type PanelScene = LabFixtureDefinition<typeof AgentSessionPanel>["scenes"][number];
@@ -43,6 +56,7 @@ export const agentSessionPanelScenes: PanelScene[] = [
     {id: "no-project", label: "没有打开作品：没有范围按钮", input: {props: panelBase, model: {scope: null}}},
     {id: "empty", label: "没有会话", input: {props: {...panelBase, items: []}, model: panelModel}},
     {id: "error", label: "取不到", input: {props: {...panelBase, items: [], error: "会话列表取不到，请稍后重试。"}, model: panelModel}},
+    {id: "subagents", label: "子会话挂在父会话下：展开的、收起时有子代理等你处理、只因后代命中而列出的上级", input: {props: {...panelBase, items: NESTED_ITEMS, selectedId: "n1"}, model: {...panelModel, expanded: {n1: true, n2: false}}}},
 ];
 
 export const agentSessionListScenes: Scene[] = [

@@ -11,6 +11,10 @@
 
 顶部是搜索、作品范围（`scope` 为 null 时没有）、过滤按钮、新建。过滤菜单选 Profile、显示已归档；选了的条件是过滤按钮上的条数，菜单里能一次清除，有没有选都不改变高度。每行是 Profile 图标（名字在悬停提示）、标题、时间、说明、状态（运行中、等你处理、已中断），按今天、昨天、更早分组。改名、归档、恢复在每行悬停的菜单里。
 
+子会话（条目带 `parentId`，且父会话也在条目里）挂在父会话下，跟父会话在同一个日期组；父会话不在条目里的子会话不列出。父会话第二行右边“N 个子代理”是折叠开关，是与打开会话的按钮并列的兄弟按钮（`aria-expanded`、`aria-controls`），左边不留空槽；收起时有后代在等用户（`childWaiting`），第二行写“子代理等你处理”。子会话由 [`AgentSessionChildRows`](AgentSessionChildRows.md) 画，每个一行，图标对齐父会话的标题，一条细线连着。只因后代命中筛选才列出的上级（`dimmed`）弱化显示，读屏说明它是上级。
+
+展开有三种来源：用户手动展开或收起；选中会话的祖先、`expandFor` 里会话的祖先、有后代在等用户的父会话自动展开——自动只在这些输入变化时生效一次（发一次 `update:expanded`），之后用户手动的优先。展开记录受控（`expanded`），由宿主持有，面板关掉再打开还在；不给时面板自己记。
+
 ## 数据
 
 ```ts
@@ -27,10 +31,16 @@ type AgentSessionPanelProps = {
     loading?: boolean;
     error?: string | null;
     locale?: AgentLocale;
+    /** 子会话的展开记录：true 展开、false 收起，没有的跟随自动规则。 */
+    expanded?: Readonly<Record<string, boolean>>;
+    /** 要露出的会话：它们的祖先自动展开一次。 */
+    expandFor?: readonly string[];
 };
 ```
 
-事件：`action`（`session.select`、`session.create`、`session.rename`、`session.archive`、`session.restore`）、`update:query`、`update:scope`、`toggle-profile`、`update:show-archived`。纯受控，筛选由宿主做。
+条目里与嵌套有关的字段（`AgentSessionListItem`）：`parentId?`、`childCount?`（宿主按未过滤的会话算）、`childWaiting?`（同上）、`dimmed?`。
+
+事件：`action`（`session.select`、`session.create`、`session.rename`、`session.archive`、`session.restore`）、`update:query`、`update:scope`、`toggle-profile`、`update:show-archived`、`update:expanded`。纯受控，筛选由宿主做。
 
 ## 隐藏通道理由
 

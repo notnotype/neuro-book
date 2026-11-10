@@ -52,4 +52,51 @@ describe("AgentSessionPanel", () => {
         // 刷新失败不盖掉已经取到的列表：断线时还要能切会话。
         expect(panel({error: "取不到"}).findAll("[data-panel-row]")).toHaveLength(4);
     });
+
+    describe("子会话", () => {
+        const tree: AgentSessionListItem[] = [
+            {id: "p", title: "第三章全面检查", updatedAt: at(20), status: "idle", childCount: 2},
+            {id: "c1", title: "设定核对", description: "正在读取 正文/第二章.md", updatedAt: at(19), status: "running", parentId: "p"},
+            {id: "c2", title: "伏笔检查", updatedAt: at(3), status: "waiting", parentId: "p"},
+            {id: "orphan", title: "没有父会话的", updatedAt: at(20), status: "idle", parentId: "gone"},
+            {id: "q", title: "人物小传", updatedAt: at(20), status: "idle", childCount: 1, childWaiting: true, dimmed: true},
+            {id: "q1", title: "苏晴", updatedAt: at(20), status: "waiting", parentId: "q"},
+        ];
+
+        it("挂在父会话下、跟父会话同一个日期组；开关写个数、是打开按钮的兄弟；父会话不在条目里的不列出", async () => {
+            const view = panel({items: tree, selectedId: null, expanded: {}});
+            expect(view.findAll(".acv-panel__group").map((node) => node.text())).toEqual(["今天"]);
+            expect(view.text()).not.toContain("没有父会话的");
+            const toggle = view.get("[data-panel-children]");
+            expect(toggle.text()).toContain("2 个子代理");
+            expect(toggle.attributes("aria-expanded")).toBe("false");
+            expect(toggle.element.closest("[data-panel-row]")).toBeNull();
+            expect(view.find("#acv-children-p").exists()).toBe(false);
+            await toggle.trigger("click");
+            // 受控：宿主没回写自动展开的那次，记录仍是传进来的那份。
+            expect(view.emitted("update:expanded")?.at(-1)).toEqual([{p: true}]);
+            await view.setProps({expanded: {p: true}});
+            expect(view.get("#acv-children-p").findAll("[data-panel-child]").map((node) => node.text())).toEqual([expect.stringContaining("设定核对"), expect.stringContaining("伏笔检查")]);
+            await view.get("#acv-children-p").findAll("[data-panel-child]")[1]!.trigger("click");
+            expect(view.emitted("action")?.at(-1)).toEqual([{type: "session.select", sessionId: "c2"}]);
+        });
+
+        it("收起时有子代理在等你处理，父会话行写出来；只因后代命中筛选才列出的父会话弱化并有读屏说明", async () => {
+            const view = panel({items: tree, selectedId: null, expanded: {q: false}});
+            const parent = view.findAll(".acv-panel__row").find((row) => row.text().includes("人物小传"))!;
+            expect(parent.text()).toContain("子代理等你处理");
+            expect(parent.classes()).toContain("is-dimmed");
+            expect(parent.text()).toContain("上级会话");
+        });
+
+        it("选中会话的祖先与有子代理在等的父会话自动展开一次；之后手动收起照常", async () => {
+            const view = panel({items: tree, selectedId: "c1", expanded: {}});
+            expect(view.emitted("update:expanded")?.at(-1)).toEqual([{p: true, q: true}]);
+            await view.setProps({expanded: {p: true, q: true}});
+            await view.get("[data-panel-children][aria-controls='acv-children-p']").trigger("click");
+            expect(view.emitted("update:expanded")?.at(-1)).toEqual([{p: false, q: true}]);
+            await view.setProps({expanded: {p: false, q: true}, items: [...tree]});
+            expect(view.emitted("update:expanded")).toHaveLength(2);
+        });
+    });
 });
