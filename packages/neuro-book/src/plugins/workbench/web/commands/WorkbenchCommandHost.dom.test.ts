@@ -11,7 +11,6 @@ import {Type} from "typebox";
 
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
-import {commandsMessage} from "nbook/plugins/commands/shared/text";
 import {provideText} from "nbook/shared/testing/text-port";
 
 import type {NotificationInput} from "../../shared/contracts";
@@ -135,7 +134,10 @@ describe("WorkbenchCommandHost", () => {
         document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         await vi.waitFor(() => expect(notices).toHaveLength(1));
         const [notice] = notices.map(titled("zh-CN"));
-        expect(notice).toMatchObject({tone: "warning", title: "崩溃没有完成", message: commandsMessage("failures.executionError")});
+        expect(notice).toMatchObject({tone: "warning", title: "崩溃没有完成"});
+        // 正文是语言映射，视口按当前语言取；两种语言都是固定的一句，不含异常原文。
+        expect(workbenchTestText("zh-CN").t(notice?.message ?? "")).toBe("命令执行出错");
+        expect(workbenchTestText("en-US").t(notice?.message ?? "")).toBe("The command failed while running");
         expect(notice?.detail).toContain("boom");
         expect(notice?.detail).not.toContain("abc");
         expect(reported).toHaveLength(1);

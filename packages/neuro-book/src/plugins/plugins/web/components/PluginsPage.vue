@@ -12,10 +12,10 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {compareVersions} from "nbook/plugin-platform/shared/versions";
 import type {WindowPlugins} from "nbook/shared/host";
-import {remoteFailureText} from "nbook/web/failure-text";
+import {codeText, isRemoteFailureCode, remoteFailureText} from "nbook/web/failure-text";
 
 import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
-import {usePluginsText} from "../text";
+import {pluginsText, usePluginsText} from "../text";
 import type {PluginsTextKey} from "../text";
 import {builtinPluginTextKey} from "../../shared/builtin-names";
 
@@ -58,7 +58,8 @@ type FailureCode = PluginFailureCode | RemoteFailureCode;
 
 /**
  * 业务失败码（plugin-install 的失败码表）都有文字，键是 `errors.<码>`；路由层失败码用宿主的文案，不认识的码用宿主的
- * 未知码文案（docs/specs/ui/i18n.md 输出 13），这两种都在下面列出服务端详情。
+ * 未知码文案（docs/specs/ui/i18n.md 输出 13）。路由层的码文字已经说全，服务端详情是诊断原文，不列；不认识的码列出详情，
+ * 那是唯一能说明发生了什么的信息。
  */
 const FAILURE_KEYS: Readonly<Record<PluginFailureCode, PluginsTextKey>> = {
     "manifest-invalid": "errors.manifest-invalid",
@@ -75,7 +76,7 @@ const FAILURE_KEYS: Readonly<Record<PluginFailureCode, PluginsTextKey>> = {
 };
 
 /** 服务端详情能补充信息的码；其余的码固定文字已经说全，详情只会重复。 */
-const DETAIL_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["manifest-invalid", "catalog-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
+const DETAIL_CODES: ReadonlySet<PluginFailureCode> = new Set<PluginFailureCode>(["manifest-invalid", "catalog-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
 /** 失败后列表可能已过时的码：写出原因之后重新读列表。 */
 const STALE_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["unknown-outcome", "not-installed", "uninstall-pending", "already-installed"]);
 
@@ -193,9 +194,10 @@ const groups = computed(() => [
     {key: "builtin", heading: "groups.builtin" as const, items: items.value.filter((item) => item.source === "builtin")},
 ]);
 
-const isPluginFailure = (code: string): code is PluginFailureCode => Object.hasOwn(FAILURE_KEYS, code);
-/** 失败码的一句原因：本插件的码取本插件目录，路由码与不认识的码取宿主目录。 */
-const reasonOf = (code: string): string => (isPluginFailure(code) ? text(FAILURE_KEYS[code]) : port.t(remoteFailureText(code)));
+/** 失败码的一句原因：路由码取宿主目录，本插件的码取本插件目录，都不是时是宿主的未知码文案。 */
+const reasonOf = (code: string): string => port.t(isRemoteFailureCode(code) ? remoteFailureText(code) : codeText(pluginsText, FAILURE_KEYS, code));
+/** 列不列服务端详情：本插件的码只在能补充时列，路由码不列，不认识的码列。 */
+const listsDetail = (code: string): boolean => (Object.hasOwn(FAILURE_KEYS, code) ? DETAIL_CODES.has(code as PluginFailureCode) : !isRemoteFailureCode(code));
 
 function detailOf(failure: Failure): {readonly detail: string; readonly problems: ReadonlyArray<string>} {
     const detail = failure.detail;
@@ -213,7 +215,7 @@ async function report(failure: Failure): Promise<void> {
     // 出错字段（清单无效）本身就是原因；没有时才用服务端的一句话。
     const lines = problems.length > 0 ? problems : [detail].filter((line) => line !== "");
     serial += 1;
-    problem.value = {serial, code: failure.code, reason: reasonOf(failure.code), lines: isPluginFailure(failure.code) && !DETAIL_CODES.has(failure.code) ? [] : lines};
+    problem.value = {serial, code: failure.code, reason: reasonOf(failure.code), lines: listsDetail(failure.code) ? lines : []};
     await nextTick();
     problemRegion.value?.scrollIntoView({block: "nearest"});
     if (STALE_CODES.has(failure.code)) await refresh();
@@ -233,7 +235,7 @@ async function refresh(): Promise<"failed" | "ready" | null> {
     reading = false;
     if (!result.ok) {
         const {detail} = detailOf(result);
-        loadFailure.value = [reasonOf(result.code), detail].filter((line) => line !== "").join(" · ");
+        loadFailure.value = [reasonOf(result.code), listsDetail(result.code) ? detail : ""].filter((line) => line !== "").join(" · ");
         state.value = "failed";
         return "failed";
     }
