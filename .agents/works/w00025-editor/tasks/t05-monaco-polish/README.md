@@ -18,8 +18,11 @@ updated: 2026-11-10
 
 ## 当前状态
 
-2026-11-10 计划已写（开发者用 autonomous-delivery 指定 t04 之后做），正在做计划审查（fable 子代理）。未开工；执行位置同 t04：worktree `.worktree/w00025-editor`，分支 `feat/w00025-editor`。
+2026-11-10 计划已写并过了设计审查，未开工；执行位置同 t04：worktree `.worktree/w00025-editor`，分支 `feat/w00025-editor`。
+
+- **计划审查**（2026-11-10）：独立审查，一个 fable 子代理（开发者指定本会话不用 omp），在真实 Chrome 里对 Monaco 0.55.1 做了实验。17 条：阻断 2、重要 9、建议 6，全部成立，计划重写为第二稿。报告 [`evidences/design-review-fable.txt`](evidences/design-review-fable.txt)，逐条处理 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)。两条阻断：`editor.addCommand` 的键位是整页单例、会在编辑器实例之间串；`document.execCommand("cut")` 在 Chrome 的 EditContext 输入下无效。第二稿改为在 DOM 事件与 `onKeyDown` 上打开菜单、每项执行 Monaco 的命令、主题用 `inherit: false` 自己写规则、语法色缺省重新推导并用脚本量过。
+- 照推荐先做、等开发者追认的决定记在 [待确认清单](../../pending-confirmations.md)。
 
 ## 下一步
 
-t04 的切片提交后，处理计划审查的结论，再按计划实施。
+t04 收口后按计划第二稿的四个切片实施。
