@@ -132,27 +132,62 @@ test("设为关闭：失焦后仍未保存，关闭时照旧询问（场景 36�
     expect(await disk("notes/a36.md")).toBe("甲\n");
 });
 
-test("停手后：到点保存，焦点不用离开；输入法组字期间不保存，上屏后保存的是汉字（场景 37）", async ({page}) => {
-    await settings({"nbook.editor/autoSave": "afterDelay", "nbook.editor/autoSaveDelay": 300});
+/** 输入法组字：先出拼音、停着不上屏（Chrome 的 `Input.imeSetComposition`，与真实输入法的事件顺序相同）。 */
+async function startComposing(page: Page, pinyin: string): Promise<{finish(text: string): Promise<void>}> {
+    const cdp = await page.context().newCDPSession(page);
+    for (let length = 1; length <= pinyin.length; length += 1) await cdp.send("Input.imeSetComposition", {text: pinyin.slice(0, length), selectionStart: length, selectionEnd: length});
+    return {
+        finish: async (text) => {
+            await cdp.send("Input.insertText", {text});
+            await cdp.detach();
+        },
+    };
+}
+
+/**
+ * 让页面的计时器走过 `ms`。要证明“到点也没有保存”，页面上没有别的可观察事件可等。
+ */
+async function letPageTimersPass(page: Page, ms: number): Promise<void> {
+    // test-lint-allow fixed-wait: 证明计时到点时没有发出保存，只能让页面的计时器队列走过这个点
+    await page.evaluate((delay) => new Promise((resolve) => setTimeout(resolve, delay)), ms);
+}
+
+test("停手后：到点保存，焦点不用离开；计时排上之后开始组字，到点也不保存，上屏后保存的是汉字（场景 37）", async ({page}) => {
+    await settings({"nbook.editor/autoSave": "afterDelay", "nbook.editor/autoSaveDelay": 2000});
     const writes = recordWrites(page);
     await openFiles(page, {"notes/a37.md": "甲\n"});
     await typeProse(page, "一");
-    await expect.poll(() => disk("notes/a37.md")).toBe("甲一\n");
+    await expect.poll(() => disk("notes/a37.md"), {timeout: 10_000}).toBe("甲一\n");
     await expect(prose(page)).toBeFocused();
     await expect.poll(() => writes.length).toBe(1);
 
-    const cdp = await page.context().newCDPSession(page);
-    for (const length of [1, 2, 3]) await cdp.send("Input.imeSetComposition", {text: "hou".slice(0, length), selectionStart: length, selectionEnd: length});
-    // 组字停着不动，让页面的计时器走过自动保存本该到点的时刻（延迟 300 毫秒加控件的 150 毫秒）：要证明的是“到点也没有保存”，
-    // 页面上没有别的可观察事件可等。
-    // test-lint-allow fixed-wait: 证明计时到点时没有发出保存，只能让页面的计时器队列走过这个点
-    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1200)));
+    // 再打一个字，等它交给文档（标签出现未保存标记，计时已经排上），再开始组字：到点时要顺延，不能把拼音结算进正文。
+    await page.keyboard.type("二");
+    await expect(tab(page, "a37.md")).toHaveAttribute("data-editor-tab-dirty", "");
+    const ime = await startComposing(page, "hou");
+    await letPageTimersPass(page, 2600);
     expect(writes.length).toBe(1);
     expect(await disk("notes/a37.md")).toBe("甲一\n");
-    await cdp.send("Input.insertText", {text: "后"});
-    await cdp.detach();
-    await expect.poll(() => disk("notes/a37.md")).toBe("甲一后\n");
+    await ime.finish("后");
+    await expect.poll(() => disk("notes/a37.md"), {timeout: 10_000}).toBe("甲一二后\n");
     expect(writes.length).toBe(2);
+});
+
+test("停手后、源码编辑器：组字期间同样不保存（场景 37）", async ({page}) => {
+    await settings({"nbook.editor/autoSave": "afterDelay", "nbook.editor/autoSaveDelay": 2000});
+    const writes = recordWrites(page);
+    await openFiles(page, {"notes/a37.txt": "甲\n"});
+    await code(page).locator(".view-lines").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.type("一");
+    await expect(tab(page, "a37.txt")).toHaveAttribute("data-editor-tab-dirty", "");
+    const ime = await startComposing(page, "hou");
+    await letPageTimersPass(page, 2600);
+    expect(writes.length).toBe(0);
+    expect(await disk("notes/a37.txt")).toBe("甲\n");
+    await ime.finish("后");
+    await expect.poll(() => disk("notes/a37.txt"), {timeout: 10_000}).toBe("甲\n一后");
+    expect(writes.length).toBe(1);
 });
 
 test("源码编辑器：焦点进自己的查找框不算离开，回来接着打字、再点别处只保存一次（场景 38）", async ({page}) => {
@@ -171,7 +206,7 @@ test("源码编辑器：焦点进自己的查找框不算离开，回来接着�
     expect(writes.length).toBe(1);
 });
 
-test("窗口失焦时：应用内换焦点不保存；窗口失去焦点或页面隐藏时保存（场景 38）", async ({page}) => {
+test("窗口失焦时：应用内换焦点不保存；焦点进同页的内嵌页面不算；窗口失去焦点或页面隐藏时保存（场景 38）", async ({page}) => {
     await settings({"nbook.editor/autoSave": "onWindowChange"});
     const writes = recordWrites(page);
     await openFiles(page, {"notes/w38.md": "甲\n"});
@@ -179,13 +214,15 @@ test("窗口失焦时：应用内换焦点不保存；窗口失去焦点或页�
     await leaveEditor(page, "notes");
     await expect(tab(page, "w38.md")).toHaveAttribute("data-editor-tab-dirty", "");
     // 无头浏览器里没有真实的窗口切换：派发页面在窗口失焦时收到的事件。页面此刻有焦点，`document.hasFocus()` 为真，
-    // 这一下 blur 等同于“焦点进了同页的内嵌页面”，不保存。
+    // 这一下 blur 等同于“焦点进了同页的内嵌页面”，不保存。之后再打一个字、再让页面隐藏：这一下 blur 要是保存了，
+    // 会是先“甲一”、后“甲一二”两次写入。
     await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+    await typeProse(page, "二");
     await page.evaluate(() => {
         Object.defineProperty(document, "visibilityState", {configurable: true, get: () => "hidden"});
         document.dispatchEvent(new Event("visibilitychange"));
     });
-    await expect.poll(() => disk("notes/w38.md")).toBe("甲一\n");
+    await expect.poll(() => disk("notes/w38.md")).toBe("甲一二\n");
     expect(writes.length).toBe(1);
 });
 
