@@ -239,6 +239,9 @@
         "split-right": {
             "title": "Split Editor Right"
         },
+        "toggle-comment-margin": {
+            "title": "Show or Hide Comment Margin"
+        },
         "split-down": {
             "title": "Split Editor Down"
         },
@@ -417,6 +420,9 @@
         },
         "hasLanguage": {
             "reason": "The active editor has no language mode"
+        },
+        "hasComments": {
+            "reason": "The active editor has no comment margin"
         },
         "canFormat": {
             "reason": "Formatting is not available here"

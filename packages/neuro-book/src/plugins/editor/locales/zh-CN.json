@@ -239,6 +239,9 @@
         "split-right": {
             "title": "向右拆分编辑器"
         },
+        "toggle-comment-margin": {
+            "title": "显示或隐藏批注页边"
+        },
         "split-down": {
             "title": "向下拆分编辑器"
         },
@@ -417,6 +420,9 @@
         },
         "hasLanguage": {
             "reason": "活动的编辑器不分语言"
+        },
+        "hasComments": {
+            "reason": "当前编辑器没有批注页边"
         },
         "canFormat": {
             "reason": "光标所在的地方不能加格式"

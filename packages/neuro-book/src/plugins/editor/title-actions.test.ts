@@ -7,6 +7,8 @@
 import {describe, expect, it} from "bun:test";
 import {Type} from "typebox";
 
+import {ref} from "@vue/reactivity";
+
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
 
@@ -15,7 +17,9 @@ import type {EditorTitleItemDeclaration} from "./shared/contracts";
 import {REOPEN_WITH_COMMAND, SPLIT_RIGHT_COMMAND} from "./web/commands";
 import {createEditorGroups} from "./web/groups/groups";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
+import {TOGGLE_COMMENT_MARGIN_COMMAND} from "./web/editing-commands";
 import {createEditorTitleActions} from "./web/title-actions";
+import {BADGE_EXTRA_PX, titleModelFor} from "nbook/ui/menus/title-actions";
 import {testTextPort} from "nbook/shared/testing/text-port";
 import {editorCatalogs} from "./web/text";
 
@@ -93,5 +97,70 @@ describe("编辑区标题的动作（editor.md 输出 34）", () => {
         expect(titles.current(zh)!.identity).not.toBe(before);
         groups.activate(first.tab.id);
         expect(titles.current(zh)!.identity).toBe(before);
+    });
+});
+
+describe("批注页边的开关（markdown-editing.md 输出 33）", () => {
+    /** 带 `when: hasComments` 的真实命令，活动控件有没有 `comments` 决定它出不出现；开关与条数是响应式的。 */
+    function withComments() {
+        const hasComments = ref(false);
+        const count = ref(3);
+        const margin = ref(false);
+        const commands = createCommandRegistry({contextKeys: contextTable({"nbook.editor/hasComments": "当前编辑器没有批注页边"}, () => ({"nbook.editor/hasComments": hasComments.value})), report: () => undefined});
+        for (const [id, title, when] of [[SPLIT_RIGHT_COMMAND, "向右拆分", undefined], [REOPEN_WITH_COMMAND, "用其它编辑器重新打开", undefined], [TOGGLE_COMMENT_MARGIN_COMMAND, "显示或隐藏批注页边", {requires: ["nbook.editor/hasComments"]}]] as const) {
+            const registered = commands.register({id, source: "nbook.test", declaration: {title: {"zh-CN": title, "en-US": title}, description: "test", args: Type.Object({}, {additionalProperties: false}), effect: "read", ...(when === undefined ? {} : {when})}, run: () => ({ok: true, value: null})});
+            if (!registered.ok) throw new Error(registered.reason);
+        }
+        const groups = createEditorGroups(createMemoryEditorPanels());
+        const activeHandle = {get value() {
+            return hasComments.value ? {comments: {count}} : {};
+        }};
+        const titles = createEditorTitleActions({
+            area: () => ({groups, activeHandle} as never),
+            commands,
+            state: {read: (key) => (key === "nbook.editor/commentMargin" ? {status: "ready", value: margin.value} : {status: "undeclared"})} as never,
+            items: () => [],
+            platform: "other",
+        });
+        groups.open("project://a.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
+        return {titles, hasComments, count, margin};
+    }
+
+    it("活动控件没有 comments 时不出现；有时是拆分之后的按钮，带条数，按下态读开关，条数变了当场变", () => {
+        const {titles, hasComments, count, margin} = withComments();
+        expect(keys(titles.current(zh)!.model(4).buttons)).toEqual(["own:split-right"]);
+        hasComments.value = true;
+        let button = titles.current(zh)!.model(4).buttons[1]!;
+        expect(button.key).toBe("own:comment-margin");
+        expect(button.badge).toBe("3");
+        expect(button.pressed).toBe(false);
+        margin.value = true;
+        count.value = 120;
+        button = titles.current(zh)!.model(4).buttons[1]!;
+        expect(button.pressed).toBe(true);
+        expect(button.badge).toBe("99+");
+        count.value = 0;
+        expect(titles.current(zh)!.model(4).buttons[1]!.badge).toBe("0");
+    });
+
+    it("按钮放不下时收进“⋯”，仍是开关（按下态）", () => {
+        const {titles, hasComments, margin} = withComments();
+        hasComments.value = true;
+        margin.value = true;
+        const model = titles.current(zh)!.model(1);
+        expect(keys(model.buttons)).toEqual(["own:split-right"]);
+        expect(model.menu[0]!.find((entry) => entry.key === "own:comment-margin")?.pressed).toBe(true);
+    });
+
+    it("带数字的按钮比 24px 宽：预算扣掉多出的宽度，保住标签条的最小宽度", () => {
+        const {titles, hasComments} = withComments();
+        hasComments.value = true;
+        const model = (maxButtons: number) => titles.current(zh)!.model(maxButtons);
+        // 宽度刚好放下两个普通按钮加“⋯”（24 + 26 + 26 = 76，加保底 104）时，带数字的那个放不下，按预算少一个。
+        const width = 104 + 24 + 26 * 2;
+        expect(keys(titleModelFor(model, width, 104, 4).buttons)).toEqual(["own:split-right"]);
+        expect(keys(titleModelFor(model, width + BADGE_EXTRA_PX, 104, 4).buttons)).toEqual(["own:split-right", "own:comment-margin"]);
+        // 没有带数字的按钮时就是个数预算。
+        expect(keys(titleModelFor(model, null, 104, 4).buttons)).toEqual(["own:split-right", "own:comment-margin"]);
     });
 });

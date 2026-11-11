@@ -34,4 +34,6 @@ type Emits = {
 - “⋯”打开时记下 `identity`；之后 `identity` 变了（例如视图切换了容器或换代、活动编辑组或活动标签变了），菜单关闭，之前的选择不发 `run`。这与工作台“移动到”菜单同一规则。
 - 点击发 `run`，由宿主执行命令；组件不认识命令，也不记状态。
 
+有 `badge` 的按钮在图标后面画这段数字（例如批注的条数），按钮比 24px 宽，宽度的预算由拥有者用 `title-actions.ts` 的 `titleModelFor` 扣掉；收进“⋯”的项不画数字。
+
 每个按钮带 `data-title-action="<命令 id>"` 与 `data-title-action-key="<key>"`，“⋯”带 `data-title-actions-more`。

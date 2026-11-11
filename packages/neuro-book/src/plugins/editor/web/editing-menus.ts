@@ -35,6 +35,7 @@ export function createEditorMenus(options: {
     readonly version: Readonly<Ref<number>>;
     readonly toolbarVisible: Readonly<Ref<boolean>>;
     readonly toolbarPlacement: Readonly<Ref<EditorToolbarPlacement>>;
+    readonly commentMargin: Readonly<Ref<boolean>>;
     readonly notify: (text: DisplayText) => void;
     readonly report: (error: unknown) => void;
 }): EditorMenus {
@@ -94,6 +95,7 @@ export function createEditorMenus(options: {
         },
         toolbarVisible: computed(() => options.toolbarVisible.value),
         toolbarPlacement: computed(() => options.toolbarPlacement.value),
+        commentMargin: computed(() => options.commentMargin.value),
         keyLabel: (keybinding) => formatKeybinding(keybinding, options.platform),
         notify: (key) => options.notify(editorText(`menus.${key}` as never)),
         reportError: options.report,

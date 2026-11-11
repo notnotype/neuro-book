@@ -162,6 +162,8 @@ export interface EditorMenus {
     runContributed(point: string, id: string): void;
     readonly toolbarVisible: Readonly<Ref<boolean>>;
     readonly toolbarPlacement: Readonly<Ref<EditorToolbarPlacement>>;
+    /** 这部作品的批注页边开关（输出 33）；页边画不画得出来还要看控件的宽度，由控件判断。 */
+    readonly commentMargin: Readonly<Ref<boolean>>;
     /** 键位写法按平台写好（剪贴板这类不是命令的动作用）。 */
     keyLabel(keybinding: string): string;
     /** 给用户看的一条通知（`menus.<key>`）。 */
@@ -413,6 +415,8 @@ export interface EditorControlHandle {
     revealRange?(from: number, to: number): void;
     /** 控件提供的编辑动作（docs/specs/workbench/markdown-editing.md）；只有 Markdown 控件提供。 */
     readonly editing?: EditorEditing;
+    /** 提供批注页边的控件（Markdown 富文本）交出文档里批注的条数（输出 33）；编辑区标题的“批注 N”据此出现。 */
+    readonly comments?: {readonly count: Readonly<Ref<number>>};
 }
 
 /** 大纲（docs/specs/workbench/editor.md 的控件合同）：`binding` 是当前绑定的 token，正文每变一次 `version` 加一；`id` 按位置给，同名标题不冲突。 */

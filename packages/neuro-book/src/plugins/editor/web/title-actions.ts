@@ -16,6 +16,7 @@ import type {EditorTitleItemDeclaration} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import type {EditorArea} from "./area";
 import {OPEN_PREVIEW_COMMAND, REOPEN_WITH_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
+import {TOGGLE_COMMENT_MARGIN_COMMAND} from "./editing-commands";
 import {nameOf} from "./documents/address";
 
 export const EDITOR_TITLE_MAX_BUTTONS = 4;
@@ -28,9 +29,12 @@ export const EDITOR_TITLE_TAB_RESERVE = 96 + 8;
  * `whenHidden`：命令不可用时不出现（而不是画成禁用）。“打开预览”只对有预览的文件有意义，其余文件上一直灰着是噪音
  * （docs/specs/workbench/editor.md 输出 47）。
  */
-const OWN: ReadonlyArray<{readonly key: string; readonly command: string; readonly icon: string; readonly menu: boolean; readonly args?: Readonly<Record<string, unknown>>; readonly whenHidden?: true}> = [
+const OWN: ReadonlyArray<{readonly key: string; readonly command: string; readonly icon: string; readonly menu: boolean; readonly args?: Readonly<Record<string, unknown>>; readonly whenHidden?: true; readonly pressed?: string; readonly badge?: true}> = [
     {key: "own:open-preview", command: OPEN_PREVIEW_COMMAND, icon: "i-lucide-eye", menu: false, whenHidden: true},
     {key: "own:split-right", command: SPLIT_RIGHT_COMMAND, icon: "i-lucide-columns-2", menu: false},
+    // 批注页边的开关（markdown-editing.md 输出 33）：活动控件提供批注页边时才有（命令的 `when` 读 `hasComments`），按下态读这部作品的开关，
+    // 图标后面是文档里批注的条数。
+    {key: "own:comment-margin", command: TOGGLE_COMMENT_MARGIN_COMMAND, icon: "i-lucide-message-square-text", menu: false, whenHidden: true, pressed: "nbook.editor/commentMargin", badge: true},
     {key: "own:open-preview-side", command: OPEN_PREVIEW_COMMAND, icon: "i-lucide-eye", menu: true, args: {side: true}, whenHidden: true},
     {key: "own:reopen-with", command: REOPEN_WITH_COMMAND, icon: "i-lucide-file-cog", menu: true},
 ];
@@ -53,7 +57,8 @@ export interface EditorTitleActions {
 
 export function createEditorTitleActions(options: {
     /** 只读编辑组的布局（活动组与它的标签）。 */
-    readonly area: () => Pick<EditorArea, "groups"> | null;
+    /** `activeHandle` 给了才有“批注 N”（输出 33）：活动控件提供 `comments` 时出现。 */
+    readonly area: () => (Pick<EditorArea, "groups"> & Partial<Pick<EditorArea, "activeHandle">>) | null;
     readonly commands: Pick<CommandService, "get" | "isEnabled" | "execute">;
     readonly state: Pick<PublicStateService, "read">;
     /** 此刻已交付的贡献项（产品里是 `MenuItemRegistry.items()`，响应式）。 */
@@ -68,6 +73,11 @@ export function createEditorTitleActions(options: {
         return {group, tab, file: tab !== null && tab.kind === "file" ? tab.address : null};
     };
 
+    const isOn = (key: string): boolean => {
+        const read = options.state.read(key);
+        return read.status === "ready" && read.value === true;
+    };
+
     return {
         current: (text) => {
             const area = options.area();
@@ -80,12 +90,16 @@ export function createEditorTitleActions(options: {
                 const enabled = options.commands.isEnabled(action.command);
                 if (action.whenHidden === true && !(enabled.ok && enabled.value)) return [];
                 const keybinding = command.value.keybinding;
+                const count = action.badge === true ? area.activeHandle?.value?.comments?.count.value : undefined;
+                const pressed = action.pressed === undefined ? undefined : isOn(action.pressed);
                 return [{menu: action.menu, entry: {
                     key: action.key,
                     command: action.command,
                     title,
                     icon: action.icon,
                     disabledReason: enabled.ok ? (enabled.value ? null : title) : text.t(enabled.reason),
+                    ...(pressed === undefined ? {} : {pressed}),
+                    ...(count === undefined ? {} : {badge: count > 99 ? "99+" : String(count)}),
                     ...(keybinding === undefined ? {} : {shortcut: formatKeybinding(keybinding, options.platform)}),
                 }}];
             });
@@ -95,10 +109,7 @@ export function createEditorTitleActions(options: {
                     return command.ok ? command.value : null;
                 },
                 isEnabled: (id) => options.commands.isEnabled(id),
-                isOn: (key) => {
-                    const read = options.state.read(key);
-                    return read.status === "ready" && read.value === true;
-                },
+                isOn,
                 text,
                 platform: options.platform,
                 current: file === null ? null : [nameOf(file)],

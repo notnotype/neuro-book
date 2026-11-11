@@ -11,7 +11,7 @@ import {EDITING_COMMAND_DECLARATIONS, editingCommands} from "./editing-commands"
 import {editorState} from "./state";
 
 const ids = Object.keys(EDITING_ACTIONS) as EditingActionId[];
-const SOURCES = {toggleToolbar: async () => undefined};
+const SOURCES = {toggleToolbar: async () => undefined, toggleCommentMargin: () => undefined};
 
 function areaWith(editing: EditorEditing | undefined) {
     return shallowRef({activeHandle: {value: {editing}}} as unknown as EditorArea);

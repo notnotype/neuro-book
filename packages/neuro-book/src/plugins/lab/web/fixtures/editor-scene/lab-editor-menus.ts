@@ -33,6 +33,7 @@ export function createLabEditorMenus(area: EditorArea, text: TextPort): EditorMe
         runContributed: () => undefined,
         toolbarVisible: ref(true),
         toolbarPlacement: ref("full"),
+        commentMargin: ref(false),
         keyLabel: (keybinding) => keybinding.replace("Mod", "Ctrl"),
         notify: (key) => area.notify(editorText(`menus.${key}` as never)),
         reportError: () => undefined,
