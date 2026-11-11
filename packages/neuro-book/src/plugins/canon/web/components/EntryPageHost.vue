@@ -45,8 +45,11 @@ const props = defineProps<{
     world: CanonWorld;
     /** 一个地址的来历的一页；失败时 reject。 */
     fetchOrigins: (address: TextAddress, position: ReadPosition, mode: "actual" | "planned", cursor?: string) => Promise<OriginsPage>;
-    /** 世界客户端的读取（预览、读一个对象）。 */
-    call: CanonClient["call"];
+    /**
+     * 世界客户端的读取（预览、读一个对象）。包在对象里传：直接写 `CanonClient["call"]` 时单文件组件的编译器把运行时类型
+     * 推成了 Promise。
+     */
+    client: Pick<CanonClient, "call">;
     views: ComponentViewRegistry;
     /** 本窗口的保存后的提示。 */
     notices: CanonNotices;
@@ -188,7 +191,7 @@ const fieldAt = (path: string) => {
 };
 const edit = useInPlaceEdit({
     world,
-    call: props.call,
+    call: props.client.call,
     entry: props.id,
     draft: () => state.edit,
     setDraft: (draft) => {
@@ -246,7 +249,7 @@ const confirmDelete = async (): Promise<void> => {
     deleting.value = true;
     deleteError.value = "";
     const name = view.value?.name ?? "";
-    const stored = await props.call("object", {ref: {kind: "entry", id: props.id}});
+    const stored = await props.client.call("object", {ref: {kind: "entry", id: props.id}});
     const entryNow = stored.ok ? (stored.value.object as Entry | null) : null;
     const baseVersion = world.status.value.data?.version;
     if (entryNow === null || baseVersion === undefined) {

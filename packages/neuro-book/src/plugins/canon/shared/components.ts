@@ -33,7 +33,8 @@ export const componentsPoint: ContributionPointDefinition<ComponentContribution>
 };
 
 /**
- * 内置的两个最小类型，字段只够测试与星瑕样本用；完整字段清单由 w00039 t10 定。
+ * 内置的两个最小类型，字段只够测试与星瑕样本用；完整字段清单由 w00039 t10 定。“身体”“现在的样子”“性格”是星瑕样本要的
+ * （开发者 2026-11-11 定样本换成内置类型、内置人物补这三个字段，都做成文字：选项是那本书专有的），t10 定清单时再整理。
  */
 export const BUILTIN_COMPONENTS: readonly ComponentDeclaration[] = [
     {
@@ -45,6 +46,9 @@ export const BUILTIN_COMPONENTS: readonly ComponentDeclaration[] = [
             {id: "外观", label: "外观", kind: "text", retold: true},
             {id: "状态", label: "状态", kind: "text"},
             {id: "态度", label: "现在的态度", kind: "text", precision: "semantic"},
+            {id: "身体", label: "身体", kind: "text"},
+            {id: "样子", label: "现在的样子", kind: "text"},
+            {id: "性格", label: "性格", kind: "text"},
         ],
     },
     {

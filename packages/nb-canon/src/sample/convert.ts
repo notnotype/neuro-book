@@ -1,7 +1,8 @@
 /**
  * 把 t16 原型里星瑕样本的写入草稿换成 nb-canon 的写入请求（canon.project 场景 1）。原型与 Spec 第三版的形状差别：
  *
- * - Component 类型：原型按命名空间 `ns` 登记，这里给每个类型一个 id `sample.<ns>`；`max: {field}` 写成字段 id。
+ * - Component 类型：原型按命名空间 `ns` 登记，缺省给每个类型一个 id `sample.<ns>`；`max: {field}` 写成字段 id。调用方可以
+ *   给 `SampleTypes` 换成别的类型（应用的样本项目换成内置类型），换不过去的命名空间整块不带。
  * - 条目的数据块要带类型与版本；`initTold` 改名 `retold`；未决问题挂在字段上时 `about.kind` 是 `address`。
  * - 新建对象用 `tmp:<原型 id>`，发布后按 id 对照记下原型 id 对应的世界 id；之后的写入、对象里的 id 字段与主 MDX 里的
  *   `ref("…")`、`<Ref id>` 都换成世界 id。正文建议的 `cause` 是修订 id，按原型修订的先后换成世界的修订 id。
@@ -10,7 +11,8 @@
  * 不含断言。
  */
 
-import type {ComponentDeclaration, FieldDeclaration, WriteRequest} from "../../src/index";
+import type {ComponentDeclaration} from "../components/registry";
+import type {FieldDeclaration, WriteRequest} from "../core/schema";
 
 export interface PrototypeSample {
     readonly componentTypes: ReadonlyArray<{readonly ns: string; readonly label: string; readonly version: number; readonly fields: ReadonlyArray<Record<string, unknown>>}>;
@@ -40,6 +42,20 @@ interface Draft {
 }
 
 export const typeId = (ns: string): string => `sample.${ns}`;
+
+/** 一个原型命名空间换成哪个类型：类型 id、版本、放在哪个命名空间，以及要写进条目的实例字段声明；null 是整块不带。 */
+export interface SampleType {
+    readonly type: string;
+    readonly version: number;
+    readonly namespace: string;
+    readonly declared?: readonly FieldDeclaration[];
+}
+export type SampleTypes = (ns: string) => SampleType | null;
+
+/** 缺省：每个原型命名空间是它自己的类型 `sample.<ns>`（内核的样本测试用）。 */
+export function prototypeTypes(sample: PrototypeSample): SampleTypes {
+    return (ns) => ({type: typeId(ns), version: sample.componentTypes.find((type) => type.ns === ns)?.version ?? 1, namespace: ns});
+}
 
 export function componentDeclarations(sample: PrototypeSample): ComponentDeclaration[] {
     return sample.componentTypes.map((type) => ({
@@ -116,11 +132,17 @@ function anchored(telling: {source: string; chapter?: string; anchor?: string}, 
 }
 
 /** 原型对象换成 Spec 第三版的形状（不含 id 的替换）。 */
-function reshape(kind: Draft["puts"][number]["ref"]["kind"], after: Record<string, unknown>, sample: PrototypeSample, written: ReadonlyMap<string, string>): Record<string, unknown> {
+function reshape(kind: Draft["puts"][number]["ref"]["kind"], after: Record<string, unknown>, types: SampleTypes, written: ReadonlyMap<string, string>): Record<string, unknown> {
     if (kind === "entry") {
         const {initTold, init, ...rest} = after as {initTold?: unknown; init: PrototypeState};
-        const version = (ns: string) => sample.componentTypes.find((type) => type.ns === ns)?.version ?? 1;
-        const data = Object.fromEntries(Object.entries(init.data).map(([ns, block]) => [ns, {type: typeId(ns), version: version(ns), enabled: block.enabled, fields: block.fields}]));
+        const data: Record<string, unknown> = {};
+        for (const [ns, block] of Object.entries(init.data)) {
+            const type = types(ns);
+            if (type === null) continue;
+            // 两个原型命名空间换到同一个类型时（应用的样本把身份并进人物）字段合起来。
+            const previous = data[type.namespace] as {fields: Record<string, unknown>} | undefined;
+            data[type.namespace] = {type: type.type, version: type.version, enabled: block.enabled, fields: {...previous?.fields, ...block.fields}, ...(type.declared === undefined ? {} : {declared: type.declared})};
+        }
         return {...rest, init: {...init, data}, ...(initTold === undefined ? {} : {retold: initTold})};
     }
     if (kind === "question") {
@@ -149,7 +171,7 @@ function reshape(kind: Draft["puts"][number]["ref"]["kind"], after: Record<strin
 /**
  * 原型草稿 → 写入请求。`written` 是“计划 id → 兑现它的已写变更的原型 id”，由调用方随发布维护（本次草稿里的也算）。
  */
-export function toRequest(draft: Draft, index: number, ids: IdMap, sample: PrototypeSample, baseVersion: number, written: Map<string, string>): WriteRequest {
+export function toRequest(draft: Draft, index: number, ids: IdMap, sample: PrototypeSample, baseVersion: number, written: Map<string, string>, types: SampleTypes = prototypeTypes(sample)): WriteRequest {
     const creating = new Set(draft.puts.filter((put) => !ids.has(put.ref.id)).map((put) => put.ref.id));
     for (const put of draft.puts) {
         if (put.ref.kind !== "change" || put.after === null) continue;
@@ -160,7 +182,7 @@ export function toRequest(draft: Draft, index: number, ids: IdMap, sample: Proto
     const puts = draft.puts.map((put) => {
         const id = map(put.ref.id);
         if (put.after === null) return {ref: {kind: put.ref.kind, id}, after: null};
-        const shaped = reshape(put.ref.kind, put.after as Record<string, unknown>, sample, written);
+        const shaped = reshape(put.ref.kind, put.after as Record<string, unknown>, types, written);
         const remapped = remap(shaped, map) as Record<string, unknown>;
         const cause = put.ref.kind === "suggestion" ? {cause: ids.revision(String(shaped.cause))} : {};
         // 决策挂在条目或变更上时，`about[].id` 是对象 id。

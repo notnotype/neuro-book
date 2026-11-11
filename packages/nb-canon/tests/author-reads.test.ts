@@ -3,7 +3,6 @@
  * 都读星瑕样本：样本经世界服务发布到临时项目（真实的 `./node` 存储），期望值从样本的写入里数出来，不从被测的读取里取。
  */
 
-import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {afterEach, beforeEach, describe, expect, test} from "bun:test";
@@ -15,10 +14,10 @@ import {buildRegistry, type ComponentDeclaration, type Entry, type OriginStep, t
 import {nodeFiles, WorldService, type ServiceEvent} from "../src/node/index";
 import {memoryLock} from "./fixtures/faulty-files";
 import {PANEL, PERSON} from "./fixtures/world";
-import {componentDeclarations, type PrototypeSample} from "./sample/convert";
+import {componentDeclarations, loadXingxiaSample, type PrototypeSample} from "../src/sample/index";
 import {replay, type Replayed} from "./sample/replay";
 
-const sample = JSON.parse(await readFile(join(import.meta.dir, "sample", "xingxia-prototype.json"), "utf8")) as PrototypeSample;
+const sample = (await loadXingxiaSample()) as PrototypeSample;
 const end = (chapter: string): ReadPosition => ({kind: "chapter", chapter, edge: "end"});
 
 let root = "";

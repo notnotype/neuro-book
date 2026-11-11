@@ -91,7 +91,7 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                         const id = props.context.arg;
                         if (world === null || id === undefined) return h("p", {class: "px-6 py-4 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
                         // 换了参数（不会发生：参数是标签的身份）也按 key 重建，免得宿主里的读取还指着旧条目。
-                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, call: options.call, views: options.views, notices: options.notices, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
+                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, views: options.views, notices: options.notices, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
                     };
                 },
             });

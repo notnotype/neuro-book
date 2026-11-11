@@ -313,7 +313,9 @@ describe("条目页", () => {
         expect(wrapper.findAll("[data-change]").map((row) => row.text().replace(/\s+/gu, ""))).toEqual(["第2章买了书存款−300", "第1章领了工资存款+200"]);
 
         state.tab = "data:character";
-        await waitUntil("人物的字段", () => wrapper.findAll("[data-field]").length === 3);
+        // 内置人物的字段按声明的顺序列出；条目数据里没写的（身体、现在的样子、性格）是未知。
+        await waitUntil("人物的字段", () => wrapper.findAll("[data-field]").length === 6);
+        expect(wrapper.get("[data-field='character.样子']").text()).toContain("未知");
         expect(wrapper.get("[data-field='character.外观']").text()).toContain("黑发");
         expect(wrapper.get("[data-field='character.状态']").text()).toContain("未知");
 

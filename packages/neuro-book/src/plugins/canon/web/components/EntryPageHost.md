@@ -32,8 +32,14 @@ type EntryPageHostProps = {
     state: EntryPageState;
     world: CanonWorld;
     fetchOrigins: (address: TextAddress, position: ReadPosition, mode: "actual" | "planned", cursor?: string) => Promise<OriginsPage>;
+    /** 世界客户端的读取（预览、读一个对象）。 */
+    client: Pick<CanonClient, "call">;
+    /** 本窗口的保存后的提示。 */
+    notices: CanonNotices;
     views: ComponentViewRegistry;
     open: (ref: {readonly kind: "entry" | "change"; readonly id: string}) => void;
+    /** 打开一次修订的回执页。 */
+    receipt: (revision: string) => void;
     /** 读到页头时报给页面实现：标签标题与面包屑用它。 */
     onHead: (head: EntryHead) => void;
 };

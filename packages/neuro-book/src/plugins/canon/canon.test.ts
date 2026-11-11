@@ -198,7 +198,7 @@ describe("canon.project：世界服务在项目子进程里", () => {
         // 条目读取带字段声明（canon.components 输出 21）。
         const read = await author.canon.call("entry", {id: star, position: at, mode: "actual"});
         if (!read.ok) throw new Error(JSON.stringify(read.failure));
-        expect(read.value.declarations).toMatchObject({character: [{id: "外观"}, {id: "状态"}, {id: "态度", precision: "semantic"}]});
+        expect(read.value.declarations).toMatchObject({character: [{id: "外观"}, {id: "状态"}, {id: "态度", precision: "semantic"}, {id: "身体"}, {id: "样子"}, {id: "性格"}]});
         const attitude = read.value.view?.namespaces.character?.fields.态度?.value;
         const refused = await author.canon.call("previewEdit", {input: {kind: "edit", requestId: "edit-9", by, position: at, at: note.at, value: "缓和", read: {value: attitude, version: noted.value.version}}});
         expect(refused).toMatchObject({ok: false, failure: {code: "accumulated-value", steps: 3}});
