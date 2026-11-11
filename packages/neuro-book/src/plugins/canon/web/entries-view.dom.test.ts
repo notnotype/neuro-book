@@ -15,6 +15,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import type {CanonClient} from "../shared/contracts";
+import {countedClient} from "../testing/counted-client";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
 import EntryTree from "./components/EntryTree.vue";
@@ -56,28 +57,13 @@ async function publish(canon: CanonClient, entries: Entry[]): Promise<Record<str
     return result.value.ids;
 }
 
-/** 数 `tree` 读取各读了哪个父条目。 */
-function counted(client: CanonClient): {readonly client: CanonClient; readonly parents: Array<string | null>} {
-    const parents: Array<string | null> = [];
-    return {
-        parents,
-        client: {
-            call: (method, input) => {
-                if (method === "tree") parents.push((input as {parent: string | null}).parent);
-                return client.call(method, input);
-            },
-            publish: (request, token) => client.publish(request, token),
-            subscribe: (listener) => client.subscribe(listener),
-            hold: (label, onEnded) => client.hold(label, onEnded),
-        },
-    };
-}
-
-async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; state: EntriesViewState; opened: string[]; parents: Array<string | null>; view: () => ReturnType<typeof mount>}> {
+async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; state: EntriesViewState; opened: string[]; parents: () => Array<string | null>; view: () => ReturnType<typeof mount>}> {
     venue = await canonNodeWorld(tmp);
     const mine = await venue.window("mine");
     const other = await venue.window("other");
-    const {client, parents} = counted(mine.canon);
+    const {client, calls} = countedClient(mine.canon);
+    /** `tree` 读取各读了哪个父条目。 */
+    const parents = (): Array<string | null> => calls.filter((call) => call.method === "tree").map((call) => (call.input as {parent: string | null}).parent);
     const world = createCanonWorld(client);
     cleanups.push(() => world.dispose());
     const state = entriesViewState();
@@ -106,11 +92,11 @@ describe("设定视图", () => {
         await waitUntil("根这一层", () => rowTexts(wrapper).join("|") === "人物|地点");
         state.expanded.value = ["folder:人物", "folder:地点"];
         await waitUntil("分组展开", () => rowTexts(wrapper).join("|") === "人物|星瑕|地点|学院");
-        expect(parents).not.toContain(ids[star.id]);
+        expect(parents()).not.toContain(ids[star.id]);
 
         state.expanded.value = [...state.expanded.value, ids[star.id]!];
         await waitUntil("读到星瑕下面那一层", () => rowTexts(wrapper).join("|") === "人物|星瑕|哥哥|地点|学院");
-        expect(parents).toContain(ids[star.id]);
+        expect(parents()).toContain(ids[star.id]);
 
         await publish(other.canon, [person("白灵")]);
         await waitUntil("新条目出现在人物下", () => rowTexts(wrapper).join("|") === "人物|星瑕|哥哥|白灵|地点|学院");

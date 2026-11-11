@@ -6,7 +6,13 @@ import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPrev
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
 import type EditorPageBreadcrumbs from "nbook/plugins/editor/web/components/EditorPageBreadcrumbs.vue";
+import type EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
+import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
 import type EntryTree from "nbook/plugins/canon/web/components/EntryTree.vue";
+import type FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
+import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
+import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
+import type PlotList from "nbook/plugins/canon/web/components/PlotList.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
@@ -815,6 +821,7 @@ export const labFixtures: LabFixture[] = [
         })(),
         load: async () => (await import("./EntryTreeFixture.vue")).default,
     }),
+    ...canonEntryPageFixtures(),
     defineSubjectFixture<typeof EditorTabBar>({
         component: "EditorTabBar",
         events: ["activate", "keep", "close", "unpin", "move", "menu"],
@@ -1363,4 +1370,110 @@ function settingsFixtures(): LabFixture[] {
 
 export function findLabFixture(component: string): LabFixture | null {
     return labFixtures.find((fixture) => fixture.component === component) ?? null;
+}
+
+/** 条目页的几个组件（canon 插件，docs/specs/canon/author-ui.md 输出 6 到 15）：场景用星瑕样本里的样子手写。 */
+function canonEntryPageFixtures() {
+    const origins = [
+        {key: "p3", where: "第 3 章", what: "被扒手偷了", basis: {text: "估计：大概三百", estimate: true}, delta: "−300", result: "2,400 元", change: "c3"},
+        {key: "k2", where: "第 2 章", what: "核对：正文写 2,800，对不上", result: "", check: "mismatch" as const},
+        {key: "p2", where: "第 2 章", what: "领了打工的工资", basis: {text: "原文：“店长塞给她三千”", estimate: false}, delta: "+3,000", result: "2,700 元", change: "c2"},
+        {key: "p1", where: "第 1 章", what: "交了学费", basis: {text: "作者给的", estimate: false}, delta: "−800", result: "−300 元", change: "c1"},
+        {key: "init", where: "", what: "初值", result: "500 元"},
+    ];
+    const row = (path: string, label: string, display: string, extra: Record<string, unknown> = {}) => ({path, label, display, unknown: false, incomplete: false, mark: null as string | null, ...extra});
+    const fields = [
+        row("character.外观", "外观", "黑发，左眼下有颗痣", {mark: "前史改过"}),
+        row("character.状态", "状态", "未知", {unknown: true}),
+        row("character.态度", "现在的态度", "对学院长提防，对白灵信任", {mark: "第 2 章改过", notes: [{where: "第 1 章", text: "起点：谁也不信"}, {where: "第 2 章", text: "白灵替她挡了一次"}], notReduced: true}),
+        row("panel.物品", "随身物品", "", {items: ["魔杖", "旧课本", "半块面包"]}),
+    ];
+    const t = (value: string) => ({type: "text", value});
+    const value = (path: string, label: string, display: string, extra: Record<string, unknown> = {}) => ({type: "canonValue", path, entry: null, label, display, ...extra});
+    const blocks = [
+        {id: "b1", tree: {type: "root", children: [{type: "heading", depth: 1, children: [t("近况")]}, {type: "paragraph", children: [t("星瑕现在有 "), value("panel.存款", "存款", "2,400"), t(" 元，魔力 "), value("panel.魔力", "魔力", "未知", {unknown: true}), t("。")]}]}},
+        {id: "b2", tree: {type: "root", children: [{type: "paragraph", children: [t("她的另一个身份是 "), {type: "canonRef", id: "gege", name: "哥哥", deleted: false}, t("。"), {type: "strong", children: [t("没人知道。")]}]}]}},
+        {id: "b3", error: {message: "不认识的标签 <Foo>"}, text: "<Foo>坏掉的一块</Foo>"},
+    ];
+    const marks = {"panel.存款": "第 3 章改过"};
+    const cards = [
+        row("panel.存款", "存款", "2,400 元", {mark: "第 3 章改过"}),
+        row("panel.魔力", "魔力", "3,110", {incomplete: true}),
+        row("panel.物品", "随身物品", "", {items: ["魔杖", "旧课本"]}),
+    ];
+    const plot = [
+        {id: "c4", where: "第 4 章", text: "她会离开学院", flags: ["plan" as const], patches: []},
+        {id: "c3", where: "第 3 章", text: "被扒手偷了", flags: [] as ("plan" | "held" | "undone")[], patches: ["存款 −300"]},
+        {id: "c2", where: "第 2 章", text: "领了打工的工资", flags: ["held" as const], patches: ["存款 +3,000"]},
+        {id: "c1", where: "第 1 章", text: "交了学费", flags: ["undone" as const], patches: ["存款 −800", "状态 → 入学"]},
+    ];
+    const positions = [{value: "initial", label: "初值"}, {value: "1:start", label: "第 1 章开头"}, {value: "1:end", label: "第 1 章末尾"}, {value: "2:start", label: "第 2 章开头"}, {value: "2:end", label: "第 2 章末尾"}];
+    const tabs = [{value: "text", label: "文字"}, {value: "data:character", label: "人物"}, {value: "data:panel", label: "面板"}, {value: "plot", label: "情节", count: 4}];
+    const page = {props: {status: "normal" as const, name: "星瑕", summary: "第三魔法学院一年级，靠打工交学费", sameAs: null, positions, tabs}, model: {position: "2:end", planned: false, tab: "text"}};
+    return [
+        defineLabFixture<typeof OriginList>({
+            component: "OriginList",
+            scenes: [
+                {id: "sample", label: "估计、核对对不上、初值", input: {props: {rows: origins, caption: "存款是怎么来的"}}},
+                {id: "more", label: "还有没读的步", input: {props: {rows: [...origins.slice(0, 2), origins[4]!], remaining: 29}}},
+                {id: "loading", label: "读取中", input: {props: {rows: [], loading: true}}},
+                {id: "failed", label: "读取失败", input: {props: {rows: [], failed: true}}},
+                {id: "sample-english", label: "英文界面", input: {props: {rows: origins, remaining: 3}}},
+            ],
+            load: async () => (await import("./OriginListFixture.vue")).default,
+        }),
+        defineLabFixture<typeof FieldTable>({
+            component: "FieldTable",
+            scenes: [
+                {id: "sample", label: "人物：改过、未知、语义档的各句、列表", input: {props: {rows: fields}}},
+                {id: "open", label: "展开着一个字段", input: {props: {rows: fields, open: "character.外观"}}},
+                {id: "empty", label: "没有字段", input: {props: {rows: []}}},
+                {id: "sample-english", label: "英文界面", input: {props: {rows: fields}}},
+            ],
+            load: async () => (await import("./FieldTableFixture.vue")).default,
+        }),
+        defineLabFixture<typeof EntryText>({
+            component: "EntryText",
+            scenes: [
+                {id: "sample", label: "值、改过、未知、引用、出错的块", input: {props: {blocks, self: "xingxia", marks}}},
+                {id: "open", label: "展开着存款", input: {props: {blocks, self: "xingxia", marks, open: "xingxia|panel.存款"}}},
+                {id: "sample-english", label: "英文界面", input: {props: {blocks, self: "xingxia", marks}}},
+            ],
+            load: async () => (await import("./EntryTextFixture.vue")).default,
+        }),
+        defineLabFixture<typeof PanelView>({
+            component: "PanelView",
+            scenes: [
+                {id: "sample", label: "选中存款，旁边是流水", input: {props: {cards, selected: "panel.存款", ledger: origins, ledgerRemaining: 12}}},
+                {id: "loading", label: "流水读取中", input: {props: {cards, selected: "panel.魔力", ledger: [], ledgerLoading: true}}},
+                {id: "empty", label: "面板还没有内容", input: {props: {cards: []}}},
+                {id: "sample-english", label: "英文界面", input: {props: {cards, selected: "panel.存款", ledger: origins}}},
+            ],
+            load: async () => (await import("./PanelViewFixture.vue")).default,
+        }),
+        defineLabFixture<typeof PlotList>({
+            component: "PlotList",
+            scenes: [
+                {id: "sample", label: "计划、待定、已撤销与改动", input: {props: {rows: plot, remaining: 8}}},
+                {id: "loading", label: "读取中", input: {props: {rows: [], loading: true}}},
+                {id: "empty", label: "还没有情节", input: {props: {rows: []}}},
+                {id: "sample-english", label: "英文界面", input: {props: {rows: plot}}},
+            ],
+            load: async () => (await import("./PlotListFixture.vue")).default,
+        }),
+        defineLabFixture<typeof EntryPage>({
+            component: "EntryPage",
+            scenes: [
+                {id: "sample", label: "页头与分页", input: page},
+                {id: "same-as", label: "马甲、还没出场、选过的章不在了", input: {props: {...page.props, name: "哥哥", summary: "星瑕扮成的男生", sameAs: {id: "xingxia", name: "星瑕"}, notAppeared: "第 1 章末尾", positionGone: true}, model: {...page.model, position: "1:end"}}},
+                {id: "disconnected", label: "世界已断开", input: {props: {...page.props, disconnected: true}, model: page.model}},
+                {id: "loading", label: "读取中", input: {props: {status: "loading" as const}, model: {position: "", planned: false, tab: ""}}},
+                {id: "failed", label: "读取失败", input: {props: {status: "failed" as const}, model: {position: "", planned: false, tab: ""}}},
+                {id: "missing", label: "找不到", input: {props: {status: "missing" as const}, model: {position: "", planned: false, tab: ""}}},
+                {id: "deleted", label: "已删除", input: {props: {status: "deleted" as const, name: "旧设定"}, model: {position: "", planned: false, tab: ""}}},
+                {id: "sample-english", label: "英文界面", input: page},
+            ],
+            load: async () => (await import("./EntryPageFixture.vue")).default,
+        }),
+    ];
 }

@@ -1,21 +1,13 @@
 {
     "commands": {
         "category": "设定",
-        "nbook": {
-            "canon": {
-                "open-entry": {
-                    "title": "打开条目"
-                }
-            }
+        "open-entry": {
+            "title": "打开条目"
         }
     },
     "views": {
-        "nbook": {
-            "canon": {
-                "entries": {
-                    "title": "设定"
-                }
-            }
+        "entries": {
+            "title": "设定"
         }
     },
     "world": {
@@ -31,5 +23,92 @@
         "deleted": "已删除",
         "more": "再显示（还有 {{count}} 项）",
         "loading": "读取中…"
+    },
+    "editorPages": {
+        "entry": {
+            "title": "条目"
+        }
+    },
+    "componentViews": {
+        "person": {
+            "title": "人物"
+        },
+        "panel": {
+            "title": "面板"
+        }
+    },
+    "entry": {
+        "missing": "找不到这个条目",
+        "deleted": "这个条目已删除",
+        "notAppeared": "在{{position}}还没出场",
+        "positionGone": "原来选的那一章已经不在了",
+        "sameAs": "是谁：",
+        "position": "位置",
+        "planned": "按计划",
+        "tabs": {
+            "label": "条目的分页",
+            "text": "文字",
+            "plot": "情节"
+        },
+        "writeUnavailable": "这里还不能写"
+    },
+    "position": {
+        "initial": "初值",
+        "start": "第 {{index}} 章开头",
+        "end": "第 {{index}} 章末尾",
+        "startTitled": "第 {{index}} 章开头：{{title}}",
+        "endTitled": "第 {{index}} 章末尾：{{title}}"
+    },
+    "place": {
+        "chapter": "第 {{index}} 章",
+        "prehistory": "前史",
+        "unscheduled": "未安放"
+    },
+    "mark": {
+        "changed": "{{place}}改过",
+        "checked": "{{place}}核对过"
+    },
+    "value": {
+        "unknown": "未知",
+        "incomplete": "不完整",
+        "label": "{{label}}：{{value}}",
+        "blockFailed": "这一块没有渲染出来：{{reason}}",
+        "deletedRef": "已删除的条目"
+    },
+    "origin": {
+        "caption": "{{label}}是怎么来的",
+        "more": "再显示更早的（还有 {{count}} 步）",
+        "initial": "初值",
+        "check": "核对：正文写 {{written}}",
+        "checkOk": "对得上",
+        "checkMismatch": "对不上",
+        "carried": "从另一条线带过来",
+        "basisQuote": "原文：“{{quote}}”",
+        "basisEstimate": "估计：{{note}}",
+        "basisAuthor": "作者给的",
+        "basisDerived": "由核对推出",
+        "editStep": "改这一笔",
+        "failed": "来历没有读出来",
+        "where": "位置",
+        "what": "发生了什么",
+        "delta": "变化",
+        "result": "结果"
+    },
+    "fields": {
+        "empty": "这个分页还没有字段",
+        "notReduced": "还没归纳",
+        "anchor": "起点：{{value}}",
+        "viewFailed": "专门的界面没有加载出来，先用字段表：{{reason}}"
+    },
+    "panel": {
+        "empty": "这个面板还没有内容",
+        "ledger": "{{label}}的流水",
+        "cards": "面板的值"
+    },
+    "plot": {
+        "empty": "还没有涉及它的情节",
+        "plan": "计划",
+        "held": "待定",
+        "undone": "已撤销"
     }
 }

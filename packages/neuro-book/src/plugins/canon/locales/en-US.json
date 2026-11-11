@@ -1,21 +1,13 @@
 {
     "commands": {
         "category": "Lore",
-        "nbook": {
-            "canon": {
-                "open-entry": {
-                    "title": "Open Entry"
-                }
-            }
+        "open-entry": {
+            "title": "Open Entry"
         }
     },
     "views": {
-        "nbook": {
-            "canon": {
-                "entries": {
-                    "title": "Lore"
-                }
-            }
+        "entries": {
+            "title": "Lore"
         }
     },
     "world": {
@@ -31,5 +23,92 @@
         "deleted": "deleted",
         "more": "Show more ({{count}} left)",
         "loading": "Reading…"
+    },
+    "editorPages": {
+        "entry": {
+            "title": "Entry"
+        }
+    },
+    "componentViews": {
+        "person": {
+            "title": "Character"
+        },
+        "panel": {
+            "title": "Panel"
+        }
+    },
+    "entry": {
+        "missing": "This entry was not found",
+        "deleted": "This entry has been deleted",
+        "notAppeared": "Not yet on stage at {{position}}",
+        "positionGone": "The chapter you picked is gone",
+        "sameAs": "Really: ",
+        "position": "Position",
+        "planned": "Include plans",
+        "tabs": {
+            "label": "Entry tabs",
+            "text": "Text",
+            "plot": "Plot"
+        },
+        "writeUnavailable": "Cannot write here yet"
+    },
+    "position": {
+        "initial": "Initial",
+        "start": "Start of chapter {{index}}",
+        "end": "End of chapter {{index}}",
+        "startTitled": "Start of chapter {{index}}: {{title}}",
+        "endTitled": "End of chapter {{index}}: {{title}}"
+    },
+    "place": {
+        "chapter": "Chapter {{index}}",
+        "prehistory": "Backstory",
+        "unscheduled": "Unplaced"
+    },
+    "mark": {
+        "changed": "changed in {{place}}",
+        "checked": "checked in {{place}}"
+    },
+    "value": {
+        "unknown": "unknown",
+        "incomplete": "incomplete",
+        "label": "{{label}}: {{value}}",
+        "blockFailed": "This block could not be rendered: {{reason}}",
+        "deletedRef": "deleted entry"
+    },
+    "origin": {
+        "caption": "How {{label}} came to be",
+        "more": "Show earlier ({{count}} steps left)",
+        "initial": "Initial value",
+        "check": "Check: the text says {{written}}",
+        "checkOk": "matches",
+        "checkMismatch": "does not match",
+        "carried": "Carried over from another line",
+        "basisQuote": "Text: “{{quote}}”",
+        "basisEstimate": "Estimate: {{note}}",
+        "basisAuthor": "Given by the author",
+        "basisDerived": "Derived from a check",
+        "editStep": "Edit this step",
+        "failed": "Could not read the history",
+        "where": "Where",
+        "what": "What happened",
+        "delta": "Change",
+        "result": "Result"
+    },
+    "fields": {
+        "empty": "No fields on this tab yet",
+        "notReduced": "not summarised yet",
+        "anchor": "Starting point: {{value}}",
+        "viewFailed": "The dedicated view did not load; showing the field table: {{reason}}"
+    },
+    "panel": {
+        "empty": "This panel has nothing yet",
+        "ledger": "Ledger for {{label}}",
+        "cards": "Panel values"
+    },
+    "plot": {
+        "empty": "No plot touches it yet",
+        "plan": "plan",
+        "held": "on hold",
+        "undone": "undone"
     }
 }

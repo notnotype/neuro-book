@@ -258,6 +258,32 @@ for (let i = 0; i < 10; i += 1) {
     originSteps = Math.max(originSteps, page.total);
 }
 
+// ---------- 打开热门条目页（author-ui.md 输出 6 到 15） ----------
+// 条目页打开时的一组读取，在最新一章末尾：条目（带各字段最近一次改动）、章表、登记的类型、文字分页的渲染、情节分页的第一页
+// （数分页名后的总条数），再点开存款看来历的第一页。各记耗时与结果的 JSON 字节数（远程调用编码后的大小），预算按单次读取。
+const pageReads: Record<string, {ms: number[]; bytes: number}> = {};
+const pageRead = (name: string, read: () => unknown): void => {
+    const begin = performance.now();
+    const result = read();
+    const spent = performance.now() - begin;
+    if (typeof result === "string") throw new Error(`${name}: ${result}`);
+    const entry = (pageReads[name] ??= {ms: [], bytes: 0});
+    entry.ms.push(spent);
+    entry.bytes = Math.max(entry.bytes, Buffer.byteLength(JSON.stringify(result)));
+};
+for (let i = 0; i < 10; i += 1) {
+    const id = hot[i % hot.length]!;
+    const end: ReadPosition = {kind: "chapter", chapter: chapterIds.at(-1)!, edge: "end"};
+    pageRead("entry", () => service.entry(id, end, "actual", false, true));
+    pageRead("chapters", () => service.chapters());
+    pageRead("components", () => service.components());
+    pageRead("render", () => service.render(id, end, "actual", "author"));
+    pageRead("changes", () => service.changes({entry: id, before: {position: end, mode: "actual"}, order: "desc"}, undefined, 50));
+    pageRead("origins", () => service.origins({entry: id, path: "panel.存款"}, end, "actual"));
+}
+const pageReadSummary = Object.entries(pageReads).map(([name, {ms: spent, bytes}]) => `${name} 中位 ${ms(median(spent))} 毫秒、最大 ${ms(Math.max(...spent))}、${(bytes / 1024).toFixed(1)} KB`).join("；");
+const pageReadTotal = median(Array.from({length: 10}, (_, i) => Object.values(pageReads).reduce((sum, {ms: spent}) => sum + spent[i]!, 0)));
+
 // ---------- 讲述（canon.model 输出 24 到 27） ----------
 // 不带筛选的第一页要定位全部讲述（每章 17 条）再排序；第一次读要把每章正文切成段，之后按章缓存。
 const tellingsPage = (filter: Parameters<WorldService["tellings"]>[0] = {}): number => {
@@ -397,6 +423,7 @@ console.log(`打开到可以读：${ms(openMs)} 毫秒（预算 2000）`);
 console.log(`随机读（实际）：中位 ${ms(median(actualReads))} 毫秒，最大 ${ms(Math.max(...actualReads))}（预算 20）`);
 console.log(`按计划第一次读（5 个位置里最慢的）：${ms(plannedFirst)} 毫秒（预算 1000）；之后在这些位置上读，中位 ${ms(median(plannedReads))} 毫秒（预算 20）`);
 console.log(`读条目并带各字段最近一次改动：中位 ${ms(median(touchedReads))} 毫秒，最大 ${ms(Math.max(...touchedReads))}（预算 20）；常出场条目存款的来历一页（最多 ${String(originSteps)} 步）10 次中位 ${ms(median(originPages))} 毫秒，最大 ${ms(Math.max(...originPages))}`);
+console.log(`打开热门条目页的一组读取（10 次）：合计中位 ${ms(pageReadTotal)} 毫秒；${pageReadSummary}`);
 console.log(`讲述（${String(chapters * 17)} 条）：不带筛选的第一页，第一次 ${ms(tellingsFirst)} 毫秒，之后中位 ${ms(median(tellingsAll))}；只读一章，中位 ${ms(median(tellingsOneChapter))}；改一章正文后通知 ${ms(textChangedMs)} 毫秒，接着读第一页 ${ms(tellingsAfterEdit)} 毫秒`);
 console.log(`最新一章发布一次记账：中位 ${ms(median(publishes))} 毫秒，最大 ${ms(Math.max(...publishes))}（预算 100）`);
 console.log(`改常出场条目的初值：中位 ${ms(median(initial))} 毫秒（预算 1000）`);

@@ -1,6 +1,6 @@
 /**
  * `nbook.canon` 浏览器入口的命令（docs/specs/canon/author-ui.md 的“输入与前置条件”的命令表）。标题省略，登记时补成约定键
- * `commands.<命令 id>.title`（`locales/`）。
+ * `commands.<本地 id>.title`（`locales/`，本地 id 是去掉插件 id 前缀的命令 id）。
  */
 
 import {Type} from "typebox";

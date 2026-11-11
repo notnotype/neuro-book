@@ -9,9 +9,8 @@
 import {computed, defineComponent, h, onBeforeUnmount, shallowRef, watch} from "vue";
 import type {Component, ShallowRef} from "vue";
 
-import type {ReadPosition} from "@notnotype/nb-canon";
-
 import type {EntryTreeItem, EntryTreeLayer} from "./components/entry-tree";
+import {defaultPosition} from "./positions";
 import {useCanonText} from "./text";
 import type {CanonWorld, ListHandle} from "./world";
 
@@ -36,12 +35,6 @@ export interface EntriesViewHostOptions {
     readonly state: EntriesViewState;
     /** 打开条目页（命令 `nbook.canon.open-entry`）。 */
     readonly open: (id: string) => void;
-}
-
-/** 缺省的读取位置（canon.model 输出 21）。 */
-export function defaultPosition(chapters: readonly {readonly id: string}[] | undefined): ReadPosition {
-    const last = chapters?.at(-1);
-    return last === undefined ? {kind: "initial"} : {kind: "chapter", chapter: last.id, edge: "end"};
 }
 
 export function createEntriesViewHost(tree: Component, options: EntriesViewHostOptions): Component {
