@@ -122,4 +122,4 @@ t05、t08、t10。
 
 ## 下一步
 
-第 2 轮答复回来后记决定、补 `skills.md` 的界面条目与 `agent/conversation.md`、`ui/agent-conversation-view.md`，然后做切片 5（前端），再做切片 6（e2e `agent-skills.e2e.ts` 与收口审查：后端派 Opus、前端派 Sonnet）。插件 SDK 的构建在 [t33](../t33-plugin-skills/README.md)。
+第 3 轮答复回来后记决定；界面几片（切片 5）排在 [t34](../t34-background-tasks/README.md)（工作台的后台任务）之后，补 `agent/conversation.md`、`ui/agent-conversation-view.md` 的界面条目后做，再做切片 6（e2e `agent-skills.e2e.ts` 与收口审查：后端派 Opus、前端派 Sonnet）。插件 SDK 的构建在 [t33](../t33-plugin-skills/README.md)。
