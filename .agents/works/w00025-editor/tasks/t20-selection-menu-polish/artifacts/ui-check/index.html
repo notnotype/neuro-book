@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>w00025 t20 第二段：选区菜单、注音卡片与颜色按钮的实际样子</title>
+<style>
+body { font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; color: #1f1c17; background: #fbf8f1; max-width: 980px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 36px 0 8px; }
+p, li { margin: 6px 0; }
+figure { margin: 12px 0 20px; }
+figure img { display: block; border: 1px solid #e6dfd0; border-radius: 8px; background: #fff; max-width: 100%; }
+figcaption { color: #6b6457; font-size: 13px; margin-top: 6px; }
+.row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+table { border-collapse: collapse; margin: 8px 0; font-size: 14px; }
+th, td { border: 1px solid #e6dfd0; padding: 4px 10px; text-align: left; }
+th { background: #f3eee3; }
+</style>
+</head>
+<body>
+<h1>t20 第二段：选区菜单、注音卡片与颜色按钮的实际样子</h1>
+<p>开发服务里的组件 Lab（<code>EditorGroup</code> 的“Markdown 方言”场景），亮色。nbook、macos 两套主题的亮暗四种组合都量过计算样式，没有页面错误与控制台警告；逐项数值记在 Task 的 <code>evidences/ui-check.txt</code>。</p>
+
+<h2>选区菜单</h2>
+<p>最前面是块类型下拉，与工具栏同一个。文字颜色、高亮是拆分按钮：左半边直接用上次的颜色（第一次是红色、黄色，图标下的色条就是这个颜色），右半边的小箭头开色板。选区里有注音时，注音按钮显示按下。</p>
+<div class="row">
+<figure><img src="img/menu-nbook-light.webp" alt="nbook 亮色下的选区菜单"><figcaption>nbook 亮色</figcaption></figure>
+<figure><img src="img/menu-macos-light.webp" alt="macos 亮色下的选区菜单"><figcaption>macos 亮色（圆角跟主题）</figcaption></figure>
+</div>
+<figure><img src="img/block-dropdown-nbook-light.webp" alt="块类型下拉打开"><figcaption>块类型下拉打开时，选区菜单留着；选了以后焦点回正文。</figcaption></figure>
+
+<h2>注音卡片</h2>
+<p>点注音小字，或选中带注音的文字后点注音按钮：卡片贴在下方，预填原来的读音，右边是“移除注音”和“确定”。卡片开着时，原来的选区仍画成选中的颜色。</p>
+<div class="row">
+<figure><img src="img/ruby-card-nbook-light.webp" alt="nbook 亮色下的注音卡片"><figcaption>nbook 亮色</figcaption></figure>
+<figure><img src="img/ruby-card-macos-light.webp" alt="macos 亮色下的注音卡片"><figcaption>macos 亮色</figcaption></figure>
+</div>
+<p>取证时修了一处：正文的选区原来是浏览器的缺省颜色（系统深蓝），卡片一开就变成主题的浅蓝，看起来像换了状态。现在两者都是主题的选区色，见上面选区菜单那张图。</p>
+
+<h2>窄窗口（390px）</h2>
+<figure><img src="img/narrow-390-card.webp" alt="390px 窗口里的注音卡片"><figcaption>选区菜单（宽 371px）与注音卡片都在窗口里。</figcaption></figure>
+
+<h2>源码编辑器暗色（第一段审查第 5 条）</h2>
+<p>底色改成稿纸底以后，暗色下当前行与缩进线的对比度变低，但仍看得出，所以维持接受取舍。</p>
+<figure><img src="img/monaco-nbook-dark.webp" alt="暗色源码编辑器的当前行与缩进线"><figcaption>nbook 暗色，光标在第 2 行。</figcaption></figure>
+<table>
+<tr><th></th><th>改底色之前</th><th>现在</th><th>VS Code 缺省暗色</th></tr>
+<tr><td>当前行对底色</td><td>1.38</td><td>1.19</td><td>约 1.13</td></tr>
+<tr><td>缩进线对底色</td><td>1.92</td><td>1.65</td><td>约 1.6</td></tr>
+</table>
+
+<h2>不属于这个 Task、待另建 Task</h2>
+<p>一行里有注音时，按 End 光标停在注音后面，到不了行尾。master 上也是这样，不是这次改出来的。</p>
+</body>
+</html>
