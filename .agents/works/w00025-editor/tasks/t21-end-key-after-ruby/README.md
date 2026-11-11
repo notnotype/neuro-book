@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t21-end-key-after-ruby
-status: planned
+status: done
 updated: 2026-11-11
 ---
 
