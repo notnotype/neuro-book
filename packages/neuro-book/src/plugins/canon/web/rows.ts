@@ -3,7 +3,7 @@
  * 值怎么显示、哪几步带“改这一笔”、变化量怎么算、依据怎么写。都是纯函数，文字经调用方给的 `text` 取。
  */
 
-import {displayText} from "@notnotype/nb-canon";
+import {displayText} from "@notnotype/nb-canon/schema";
 import type {FieldDeclaration, FieldState, OriginStep, StoryChange} from "@notnotype/nb-canon";
 
 import type {CanonOutputs, OriginItem} from "../shared/contracts";

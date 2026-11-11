@@ -7,7 +7,7 @@ import {Type} from "typebox";
 
 import type {CommandImplementation, CommandResult, CommandService, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
-import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/views";
+import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/contracts";
 
 import {canonText} from "../shared/text";
 

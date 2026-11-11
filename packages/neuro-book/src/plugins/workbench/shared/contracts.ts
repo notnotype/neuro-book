@@ -19,7 +19,7 @@ import {workbenchText} from "./text";
  * 浏览器合同在 `web/contracts.ts`。
  */
 
-export {WORKBENCH_VIEWS_POINT} from "./views";
+export {OPEN_VIEW_COMMAND, WORKBENCH_VIEWS_POINT} from "./views";
 export type {ViewDeclaration, ViewLocation} from "./views";
 // 条目贡献点（状态栏、标题栏、活动栏底部）、页面浮层与无项目首页贡献点：定义与校验在各自的模块，其它插件只从这里引用（跨插件运行时导入只能指向 shared/contracts）。
 export {WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "./items";

@@ -76,6 +76,11 @@ const isPluginContracts = (target: string): boolean => /^(?:\.\.\/plugin-sdk\/ex
 /** 路径段含 `testing`：本包的测试支持目录，或内核的 `@notnotype/nb-runtime/<机制>/testing` 入口。 */
 const importsTesting = (use: ImportUse, target: string | null): boolean => use.specifier.split("/").includes("testing") || (target !== null && has(target, "testing"));
 const labSceneMayImport = (file: string, target: string): boolean => file.startsWith("plugins/lab/web/fixtures/") && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
+/**
+ * nb-canon 的主入口带着渲染链（MDX 解析与它的依赖），`node` 子路径要 `node:fs`：浏览器代码在运行时只能引 `schema` 子路径，
+ * 别的只引类型。主入口在 Vite 开发模式下加载不了（依赖里的 CommonJS 包没有缺省导出），引了它整个窗口起不来（t31 S5 时踩到）。
+ */
+const isCanonKernelEntry = (specifier: string): boolean => specifier === "@notnotype/nb-canon" || specifier === "@notnotype/nb-canon/node";
 const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name) => specifier === name || specifier.startsWith(`${name}/`));
 /**
  * 示例插件按第三方插件写：宿主与内置插件的东西只经 SDK 取，此外只有宿主模块表共享的包与 TypeBox
@@ -92,6 +97,7 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         const server = isBackend(use.file);
         const neutral = use.file.startsWith("shared/") || has(use.file, "shared") || /^(?:\.\.\/plugin-sdk\/examples\/)?plugins\/[^/]+\/plugin\.ts$/u.test(use.file) || use.file === "manifest.ts" || use.file === "development-manifest.ts";
         if (web && (isPlatformModule(use.specifier) || (target !== null && isBackend(target)))) found.push(`前端引用了后端或运行平台：${where}`);
+        if ((web || neutral) && !use.typeOnly && isCanonKernelEntry(use.specifier)) found.push(`浏览器代码在运行时引用了 nb-canon 的主入口或 node 子路径（改用 @notnotype/nb-canon/schema）：${where}`);
         if (server && (isFrontendPackage(use.specifier) || (target !== null && has(target, "web")))) found.push(`后端引用了前端：${where}`);
         if (neutral && target !== null && (isBackend(target) || has(target, "web"))) found.push(`共用代码引用了一侧的实现：${where}`);
         const from = pluginOf(use.file);
@@ -249,6 +255,8 @@ describe("包内依赖方向", () => {
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "nbook/plugins/storage/shared/contracts"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "@notnotype/nb-runtime/plugins"),
             use("../plugin-sdk/examples/plugins/notes/web/plugin.ts", "@notnotype/nb-ui/composables"),
+            use("plugins/canon/web/rows.ts", "@notnotype/nb-canon"),
+            use("plugins/canon/shared/components.ts", "@notnotype/nb-canon/node"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
@@ -266,6 +274,9 @@ describe("包内依赖方向", () => {
             use("../plugin-sdk/examples/plugins/counter/backend/plugin.ts", "@vue/reactivity"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "../../clock/shared/contracts"),
             use("../plugin-sdk/examples/plugins/notes/web/plugin.ts", "../shared/contracts"),
+            use("plugins/canon/web/rows.ts", "@notnotype/nb-canon", true),
+            use("plugins/canon/web/rows.ts", "@notnotype/nb-canon/schema"),
+            use("plugins/canon/backend/remote.ts", "@notnotype/nb-canon"),
         ])).toEqual([]);
 
         expect(importsOf(join(SRC, "web", "main.ts")).some((item) => item.specifier === "./development-plugins" && item.dynamic === true)).toBe(true);

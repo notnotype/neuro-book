@@ -8,6 +8,7 @@ export {buildRegistry, type ComponentDeclaration, type ComponentRegistry, type C
 export type {ChangedAt, ChangeOutcome, EntryView, EventKey, FieldState, Mode, NamespaceView, OriginStep, PendingItem, PlanProgress} from "./engine/types";
 export {paragraphsOf, type Occurrence, type TellingPosition} from "./world/tellings";
 export {valueAt, type ViewValue} from "./core/view-value";
+export {displayText} from "./core/display";
 export type {DecisionView} from "./world/decisions";
 export type {CanonHint, GroupItem, PendingPage} from "./service/pending-groups";
 export type {DiagnosticCompute, Finding, FindingAt} from "./service/diagnostics";

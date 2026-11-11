@@ -12,7 +12,7 @@
 import {computed, onScopeDispose, shallowRef, watch} from "vue";
 import type {ComputedRef} from "vue";
 
-import {displayText} from "@notnotype/nb-canon";
+import {displayText} from "@notnotype/nb-canon/schema";
 import type {FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import type {Text} from "@notnotype/nb-ui/text";
 

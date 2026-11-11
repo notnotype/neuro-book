@@ -13,7 +13,7 @@ import type {PropType} from "vue";
 import type {ReadPosition} from "@notnotype/nb-canon";
 
 import type {EditorPageContext, EditorPageCrumb, EditorPageImplementation} from "nbook/plugins/editor/web/pages";
-import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/views";
+import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/contracts";
 
 import type {CanonClient, CanonOutputs, EntryName} from "../shared/contracts";
 import {canonText} from "../shared/text";

@@ -3,7 +3,7 @@
  * 说明（校验不过的第一条、结果不符时读回的值）原样带上。写入的各个入口共用。
  */
 
-import {displayText} from "@notnotype/nb-canon";
+import {displayText} from "@notnotype/nb-canon/schema";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import {canonText} from "../shared/text";
