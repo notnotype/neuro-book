@@ -48,6 +48,7 @@ import {extensionReceiver} from "./extensions";
 import {locateDocsRoot} from "./docs-root";
 import {SkillCatalog} from "./skills/catalog";
 import {SKILLS_EXTENSION, skillsExtension} from "./skills/extension";
+import {restoreSkills} from "./skills/restore";
 import {profileSkills} from "../shared/profile-skills";
 import {agentRemote, PreviewTokens} from "./remote";
 import {filesFor} from "./resources";
@@ -78,6 +79,12 @@ export const agentBackendPlugin: PluginDefinition = {
             const models = await context.services.resolve(modelsKey);
             const editStores = new SessionEditStores();
             const dialects = createDialects(() => context.services.require(settingsKey).get(agentSettings.settings.readOnlyCommands));
+            // 用户的 Skill 在 `user://skills/`；内置的随应用分发，这一版还没有内置的 Skill（skills.md 的来源）。
+            const skillCatalog = await SkillCatalog.open({
+                roots: [{source: "user", root: join(context.services.require(stateRootKey).path, "user", "skills"), watch: true}, {source: "builtin", root: null, watch: false}],
+                clock: context.services.require(clockKey),
+                report,
+            });
             const runtime = await createAgentRuntime({
                 stateRoot: context.services.require(stateRootKey).path,
                 settings: context.services.require(settingsKey),
@@ -88,6 +95,7 @@ export const agentBackendPlugin: PluginDefinition = {
                 declarations: context.declarations,
                 editStores,
                 trigger: async (event) => allActivated(await context.activation.trigger(event, {signal: context.signal})),
+                restoreMore: (args, previous) => restoreSkills({catalog: skillCatalog, report}, args, previous),
                 report,
             });
             const attachmentRoutes = createAttachmentRoutes({
@@ -106,12 +114,6 @@ export const agentBackendPlugin: PluginDefinition = {
                 const archived = new Set((await runtime.listSessions()).filter((session) => session.archived).map((session) => session.id));
                 await sweepTemps(tempContainer, async (session) => !archived.has(session) && (await lstat(join(runtime.sessionsRoot, session)).then(() => true, () => false)), (message) => report("temps-sweep", message));
             }
-            // 用户的 Skill 在 `user://skills/`；内置的随应用分发，这一版还没有内置的 Skill（skills.md 的来源）。
-            const skillCatalog = await SkillCatalog.open({
-                roots: [{source: "user", root: join(stateRoot, "user", "skills"), watch: true}, {source: "builtin", root: null, watch: false}],
-                clock,
-                report,
-            });
             const allowedSkills = (profile: string): ReadonlySet<string> => new Set(profileSkills(
                 runtime.service.profiles().find((entry) => entry.key === profile)?.skills,
                 context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.skills,
