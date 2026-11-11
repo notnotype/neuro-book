@@ -86,7 +86,16 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
 
 - S3 的验证（2026-11-10）：Lab 截图（亮色，分组、未出场、已删除、再显示、断开横幅）看过。外壳 e2e 第一轮 120 过 10 败：活动栏多了“设定”，外壳用例本来就用 `NBOOK_EXCLUDE_PLUGINS` 排除带视图的内置插件，照做加上 canon 与依赖它的剧情插件；`EntryTree` 有两个根节点，Lab 报属性透传警告，包了一层根。重跑后 `workbench-views`、`workbench-dnd` 全过；`lab-scenes` 只剩主题编辑器的素材 404（master 原有）。`plugins.e2e` 在“其它”设置分区点不动而失败：在 S3 之前的提交 `4b13fa2f3` 上同样失败，不是 S3 引入的；是本分支早先的提交还是 master 原有，留到合入前对照。
 
+- S4 条目页（2026-11-11，`5a9e05e59`；细计划见 `plan.md` 的“S4 的细计划”，主工作区 `032a573d2`）：页面 `nbook.canon.entry`（带参数、刷新后恢复，标签状态随标签，标题与面包屑读挂着的条目页报上来的页头）；骨架 `EntryPage`、文字 `EntryText`（自己画作者渲染的 mdast）、来历 `OriginList`、`FieldTable`、`PanelView`、`PlotList`，各配同名文档、组件测试与 Lab 场景；宿主 `EntryPageHost` 与两个数据分页界面（`FieldsDataView`、`PanelDataView`）标 `io:read`，只在真实界面验证；贡献点 `canon.component-views` 与注册表。只读，写入入口在 S5。
+  - 验证：canon 前端测试 47 条（条目页接真实世界 9 条：页头与面包屑、缺省位置与换位置、点值才读来历、来历分页与初值一行、状态随标签、选过的章被删掉、情节与数据分页、别处发布原地更新不出加载占位、找不到/已删除/未出场、断开横幅、读取次数）、Lab 覆盖测试、`bun test src/plugins/canon`、`bun run typecheck`、`governance:check` 都过。
+  - e2e（`lab-scenes`、`plugins`、`editor-area`）：52 过、3 失败。`lab-scenes` 只剩主题编辑器的素材 404（master 原有），新加的六个组件的场景都挂得上、没有警告；`plugins.e2e` 是 S3 时对照过的老失败；`editor-area` 的“离开页面先请求确认”单独重跑通过（第一次负载约 6，偶发，E 片时也见过）。
+  - 实现中对 Spec 的改动：`author-ui.md` 输入一节的 `ComponentViewContext` 加 `state`、`blocked`、`place`（标签状态要随标签、写入入口要知道能不能写、界面要把安放写成“第 N 章”）；数据分页标题的约定键改成 `componentViews.<本地 id>.title`（同视图与页面）。
+  - 修了 S3 的一个错：视图与命令标题的约定键是去掉插件前缀的本地 id（`views.entries.title`），目录里原来写成了完整 id，S3 的测试没测标题。
+  - 测量（[`evidences/scale-s4-entry-page.txt`](evidences/scale-s4-entry-page.txt)）：一次别处发布引起的读取，每个在用的读取各一次；1000 章上打开热门条目页的一组读取合计中位 66 毫秒，其中 `entry` 12、`changes` 20、`origins` 35 毫秒超过单次预算的一半，都在内核，加了内核优化片 K-d（排在 S8 之前）。
+  - 已知限制：条目树的选中项还是“最后点过的那个”，没有跟着活动的条目页（要订阅编辑器的活动标签，S8 前补）；“停了再激活换回专门界面”（验收 9 的后一半）运行时没有单独停一个插件的接口，组件测试只测了撤回与加载失败，留给 S8 的 e2e。
+
 ## 下一步
 
 1. 等 `b1-sample-types` 的答复，挪样本到 nb-canon 的子路径、写 `scripts/canon-sample.ts`（S2 剩下的部分）。
-2. S4 条目页：开工前在 `plan.md` 补细计划。“底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。
+2. S4 的前端实现审查（Sonnet，后台，不阻塞），之后进 S5 写入：开工前在 `plan.md` 补细计划。
+3. K-d 内核读取的性能，S8 之前做。“底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。
