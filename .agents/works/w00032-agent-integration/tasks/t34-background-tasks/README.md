@@ -59,4 +59,8 @@ updated: 2026-11-11
 
 ## 下一步
 
-Spec 与计划开发者 2026-11-11 看过（“可以”，含两处：结束通知的标题就是任务标题；只有失败的能重试，见第 16 条）。Opus 设计审查 16 条（重要 9、建议 7），15 条照改、1 条接受取舍（[处理](evidences/design-review.txt)）。下一步：按 [plan.md](plan.md) 的五片实施，代码在 `.worktree/w00032-t34-background-tasks`。草稿在 `.worktree/w00032-t34-drafts`（不提交）。
+Spec 与计划开发者 2026-11-11 看过（“可以”，含两处：结束通知的标题就是任务标题；只有失败的能重试，见第 16 条）。Opus 设计审查 16 条（重要 9、建议 7），15 条照改、1 条接受取舍（[处理](evidences/design-review.txt)）。下一步：按 [plan.md](plan.md) 的五片实施，代码在 `.worktree/w00032-t34-background-tasks`（分支 `feat/w00032-t34-background-tasks`）。
+
+进展：
+
+- 切片 1（服务端）提交 `4806def3b`：`nbook.tasks` 服务端入口、远程接口、`PushThrottle` 移到 `src/shared/`；`tasks.test.ts` 16 例（输出 1–9、输入校验、验收 3、5、清单过大），两条核心判据做过变异检查；类型检查、受影响的测试（2838 例，新插件补进宿主测试的插件清单与内置插件名称表后全过）、治理检查通过。草稿在 `.worktree/w00032-t34-drafts`（不提交）。
