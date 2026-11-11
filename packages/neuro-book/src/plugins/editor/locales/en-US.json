@@ -549,6 +549,8 @@
         "toolbar": "Formatting",
         "more": "More Actions",
         "colorNone": "Default",
+        "pickTextColor": "Choose Text Color",
+        "pickHighlight": "Choose Highlight Color",
         "align-left": "Align Left",
         "align-center": "Center",
         "align-right": "Align Right",

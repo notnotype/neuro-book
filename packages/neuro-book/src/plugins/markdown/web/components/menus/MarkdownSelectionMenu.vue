@@ -149,8 +149,8 @@ const buttonTitle = (id: EditingActionId): string => {
             />
             <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
             <IconButton v-if="hasLink" size="sm" icon-class="i-lucide-link" :title="props.menus.title('link')" :aria-label="props.menus.title('link')" @click="props.menus.execute(LINK_COMMAND)" />
-            <MarkdownColorButton action="text-color" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" />
-            <MarkdownColorButton action="highlight" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" />
+            <MarkdownColorButton action="text-color" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" in-selection-menu />
+            <MarkdownColorButton action="highlight" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" in-selection-menu />
             <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
             <IconButton
                 size="sm"

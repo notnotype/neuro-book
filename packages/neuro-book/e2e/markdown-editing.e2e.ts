@@ -130,6 +130,34 @@ test.describe("工具栏", () => {
         await expect(page.getByRole("menuitem", {name: "清除格式"})).toBeVisible();
     });
 
+    test("文字颜色是拆分按钮：左半边用上次的颜色（第一次是红色），箭头开色板，选了记住，刷新后仍记得（输出 1）", async ({page}) => {
+        await openFile(page, "notes/toolbar-color.md", "一二三\n");
+        const bar = activeGroup(page).locator(".markdown-toolbar [data-markdown-color-bar]").first();
+        await expect(bar).toHaveCSS("background-color", "rgb(239, 68, 68)");
+        await focusFirst(page);
+        await page.keyboard.press("Control+a");
+        await toolbarButton(page, "文字颜色").click();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/toolbar-color.md")).toBe("<span style=\"color: #ef4444\">一二三</span>\n");
+
+        // 选区还在、选区菜单本来开着：工具栏的色板开着时选区菜单收起，不盖住色板。
+        await toolbarButton(page, "选择文字颜色").click();
+        await expect(selectionMenu(page)).toHaveCount(0);
+        await page.locator("[data-color-swatch=\"#0ea5e9\"]").click();
+        await expect(bar).toHaveCSS("background-color", "rgb(14, 165, 233)");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/toolbar-color.md")).toBe("<span style=\"color: #0ea5e9\">一二三</span>\n");
+
+        // 刷新页面、换一个文件：仍是上次的颜色，左半边直接用它。
+        await openFile(page, "notes/toolbar-color-2.md", "四五\n");
+        await expect(bar).toHaveCSS("background-color", "rgb(14, 165, 233)");
+        await focusFirst(page);
+        await page.keyboard.press("Control+a");
+        await toolbarButton(page, "文字颜色").click();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/toolbar-color-2.md")).toBe("<span style=\"color: #0ea5e9\">四五</span>\n");
+    });
+
     test("“视图”菜单关掉后工具栏消失，再打开恢复", async ({page}) => {
         await openFile(page, "notes/toolbar-toggle.md", "字\n");
         const toolbar = activeGroup(page).locator(".markdown-toolbar");
@@ -215,6 +243,21 @@ test.describe("选区菜单", () => {
         await expect.poll(() => disk("notes/selection-bold.md")).toContain("**");
         await page.keyboard.type("后");
         await expect(selectionMenu(page)).toHaveCount(0);
+    });
+
+    test("高亮是拆分按钮：左半边第一次是黄色；色板开着时菜单留着，选了记住（输出 6）", async ({page}) => {
+        await openFile(page, "notes/selection-highlight.md", "一二三\n");
+        await focusFirst(page);
+        await page.keyboard.press("Control+a");
+        const bar = selectionMenu(page).locator("[data-markdown-color-bar]").nth(1);
+        await expect(bar).toHaveCSS("background-color", "rgb(254, 249, 195)");
+        await selectionMenu(page).getByRole("button", {name: "选择高亮颜色"}).click();
+        await expect(selectionMenu(page)).toBeVisible();
+        await page.locator("[data-color-swatch=\"#dbeafe\"]").click();
+        await expect(prose(page)).toBeFocused();
+        await expect(bar).toHaveCSS("background-color", "rgb(219, 234, 254)");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-highlight.md")).toBe("<mark style=\"background-color: #dbeafe\">一二三</mark>\n");
     });
 
     test("按 Esc 收起；键盘选完也出现", async ({page}) => {

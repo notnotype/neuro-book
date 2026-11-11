@@ -546,6 +546,8 @@
         "toolbar": "格式",
         "more": "更多操作",
         "colorNone": "默认",
+        "pickTextColor": "选择文字颜色",
+        "pickHighlight": "选择高亮颜色",
         "align-left": "左对齐",
         "align-center": "居中",
         "align-right": "右对齐",

@@ -225,6 +225,8 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "menus.promptRuby": {"zh-CN": "注音", "en-US": "Ruby Text"},
     "menus.promptBilingual": {"zh-CN": "对照原文", "en-US": "Source Text"},
     "menus.promptConfirm": {"zh-CN": "确定", "en-US": "Confirm"},
+    "menus.pickTextColor": {"zh-CN": "选择文字颜色", "en-US": "Choose Text Color"},
+    "menus.pickHighlight": {"zh-CN": "选择高亮颜色", "en-US": "Choose Highlight Color"},
     "categories.view": {"zh-CN": "视图", "en-US": "View"},
     "commands.nbook.edit.align.title": {"zh-CN": "对齐", "en-US": "Align"},
     "commands.nbook.edit.bilingual.title": {"zh-CN": "双语对照", "en-US": "Bilingual"},
