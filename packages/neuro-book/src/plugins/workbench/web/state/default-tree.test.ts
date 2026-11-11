@@ -89,6 +89,19 @@ function randomOf(seed: number): () => number {
 const VIEW = (location: PanelName, order: number) => ({title: {"zh-CN": "视", "en-US": "V"}, icon: "i", location, layout: "scroll" as const, order});
 const CATALOG: ViewCatalog = new Map([["a", VIEW("sidebar", 1)], ["b", VIEW("sidebar", 2)], ["c", VIEW("sidebar", 3)], ["d", VIEW("auxiliarybar", 1)], ["f", VIEW("auxiliarybar", 2)], ["g", VIEW("panel", 1)]]);
 
+describe("默认树里区域的显隐（ui/workbench-layout.md 输出 1，workbench/views.md 输出 18）", () => {
+    it("有视图的区域显示、没有的隐藏；只有 revealRegion: false 的视图时区域照样有这些标签、但保持隐藏，混进一个普通视图就显示", () => {
+        const quiet = {...VIEW("panel", 1), revealRegion: false};
+        const onlyQuiet = defaultLayoutDoc(new Map([["a", VIEW("sidebar", 1)], ["tasks", quiet], ["notes", {...quiet, order: 2}]]));
+        expect(onlyQuiet.panels.sidebar?.hidden).toBeUndefined();
+        expect(onlyQuiet.panels.auxiliarybar?.hidden).toBe(true);
+        expect(onlyQuiet.panels.panel?.hidden).toBe(true);
+        expect(onlyQuiet.panels.panel?.tabs.map(tabKey)).toEqual(["view:tasks", "view:notes"]);
+        const mixed = defaultLayoutDoc(new Map([["tasks", quiet], ["g", VIEW("panel", 2)]]));
+        expect(mixed.panels.panel?.hidden).toBeUndefined();
+    });
+});
+
 describe("从默认树出发，任何操作之后都合骨架", () => {
     /** 两种分法都走一遍：随机切。 */
     let shared = false;

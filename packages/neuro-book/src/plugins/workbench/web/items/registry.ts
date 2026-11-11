@@ -7,9 +7,11 @@
  *   起就不再显示、也不再调用它的实现，打开着的“更多”菜单同样如此。
  * - 显示与否只看声明的 `when`：每个键在公开状态里已就绪且为真才显示，与命令的可用性同一规则。
  * - 实现抛错的条目原位显示为出错，别的条目照常；同一个句柄只记一次诊断。
+ * - 悬停内容（输出 43）：同一个 `hover` 对象只加载一次；加载失败与渲染出错各记一次诊断，条目条退回文字提示。
  */
 
 import {shallowRef} from "@vue/reactivity";
+import type {Component} from "vue";
 
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
@@ -18,7 +20,7 @@ import type {TextResolver} from "nbook/shared/localized-text";
 
 import type {ItemDeclaration} from "../../shared/items";
 import {workbenchText} from "../../shared/text";
-import type {ItemImplementation} from "../contracts";
+import type {ItemHover, ItemImplementation} from "../contracts";
 
 export type ItemState = "normal" | "warning" | "error";
 
@@ -33,6 +35,15 @@ export interface ShownItem {
     readonly text: string;
     readonly tooltip: string | null;
     readonly state: ItemState;
+    readonly icon: {readonly name: string; readonly spin: boolean; readonly muted: boolean} | null;
+    /** 悬停内容；没有时用 `tooltip`。 */
+    readonly hover: HoverSource | null;
+}
+
+/** 条目条拿来显示悬停内容的一项：加载结果按 `hover` 对象缓存；渲染出错时调 `failed` 记诊断。 */
+export interface HoverSource {
+    load(): Promise<Component>;
+    failed(error: unknown): void;
 }
 
 /** 交给条目条组件的一项：再带上命令此刻不可用的原因（有命令且不可用时）。 */
@@ -48,6 +59,8 @@ export class ItemRegistry {
     readonly #handles = new Map<string, ItemHandle>();
     /** 已记过诊断的句柄：一个句柄的实现反复抛错只记一次。 */
     readonly #reported = new WeakSet<ItemHandle>();
+    /** 每个 `hover` 对象一份：加载只发起一次，诊断只记一次。 */
+    readonly #hovers = new WeakMap<ItemHover, HoverSource>();
     /** 句柄集合的响应式版本号：交付、撤回、停止时加一，读 `shown` 的 computed 因此重算。 */
     readonly #version = shallowRef(0);
     #stopped = false;
@@ -109,14 +122,47 @@ export class ItemRegistry {
         try {
             const implementation = handle.implementation();
             const tooltip = implementation.tooltip?.();
-            return {...base, text: text.t(implementation.text()), tooltip: tooltip === undefined ? null : text.t(tooltip), state: implementation.state?.() ?? "normal"};
+            const icon = implementation.icon?.() ?? null;
+            return {
+                ...base,
+                text: text.t(implementation.text()),
+                tooltip: tooltip === undefined ? null : text.t(tooltip),
+                state: implementation.state?.() ?? "normal",
+                icon: icon === null ? null : {name: icon.name, spin: icon.spin === true, muted: icon.muted === true},
+                hover: implementation.hover === undefined ? null : this.#hoverOf(id, implementation.hover),
+            };
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (!this.#reported.has(handle)) {
                 this.#reported.add(handle);
                 this.#report(`条目 ${id} 的实现出错：${message}`);
             }
-            return {...base, text: base.title, tooltip: text.t(workbenchText("items.broken", {message})), state: "error", command: null};
+            return {...base, text: base.title, tooltip: text.t(workbenchText("items.broken", {message})), state: "error", command: null, icon: null, hover: null};
         }
+    }
+
+    #hoverOf(id: string, hover: ItemHover): HoverSource {
+        const known = this.#hovers.get(hover);
+        if (known !== undefined) return known;
+        let loading: Promise<Component> | null = null;
+        let reported = false;
+        const report = (what: string, error: unknown): void => {
+            if (reported) return;
+            reported = true;
+            this.#report(`item ${id}: the hover content ${what}: ${error instanceof Error ? error.message : String(error)}`);
+        };
+        const source: HoverSource = {
+            load: () => {
+                // 经 then 调用：`load()` 同步抛错也落到同一个失败路径上。
+                loading ??= Promise.resolve().then(() => hover.load()).catch((error: unknown) => {
+                    report("failed to load", error);
+                    throw error;
+                });
+                return loading;
+            },
+            failed: (error) => report("failed to render", error),
+        };
+        this.#hovers.set(hover, source);
+        return source;
     }
 }

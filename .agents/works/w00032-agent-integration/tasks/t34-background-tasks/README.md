@@ -59,7 +59,9 @@ updated: 2026-11-11
 
 ## 下一步
 
-Spec 与计划开发者 2026-11-11 看过（“可以”，含两处：结束通知的标题就是任务标题；只有失败的能重试，见第 16 条）。Opus 设计审查 16 条（重要 9、建议 7），15 条照改、1 条接受取舍（[处理](evidences/design-review.txt)）。下一步：按 [plan.md](plan.md) 的五片实施，代码在 `.worktree/w00032-t34-background-tasks`（分支 `feat/w00032-t34-background-tasks`）。
+Spec 与计划开发者 2026-11-11 看过（“可以”，含两处：结束通知的标题就是任务标题；只有失败的能重试，见第 16 条）。Opus 设计审查 16 条（重要 9、建议 7），15 条照改、1 条接受取舍（[处理](evidences/design-review.txt)）。五片已实施、审查、合入 master（见下面的进展）。
+
+下一步：等开发者批准 Spec 晋升（`workbench/background-tasks.md` 改为 `implemented` 并补实现合同与证据；`workbench/notifications.md` 输出 13–17、`ui/workbench-shell.md` 输出 42–44、`workbench/views.md` 输出 17、18、`ui/workbench-layout.md` 输出 1 的相关句去掉 planned）；之后 t15 变基到 master，把 Skill 初始化接进后台任务（t15 切片 5、6）。
 
 进展：
 
@@ -69,3 +71,5 @@ Spec 与计划开发者 2026-11-11 看过（“可以”，含两处：结束通
 - 切片 4（任务的浏览器端）提交 `623065eb1`：`web/store.ts`（基线、看过、结束通知与撤回）、`TasksView`、`TasksHover`、浏览器入口（视图 `nbook.tasks.list`、状态栏条目 `nbook.tasks.status`、命令 `nbook.tasks.show` 与 `nbook.tasks.clear-finished`、公开状态 `nbook.tasks/nonEmpty` 与 `hasFinished`）、文字目录。测试：`store.test.ts` 5 例（真实远程、两个窗口；基线与撤回做过变异检查）、`TasksView.dom.test.ts` 5 例（含切换语言）；Lab 场景 `TasksView`（五个）与 `TasksHover`，截图对照过定稿；英文界面“Yesterday”放不下，两个视图的时间列都改成按内容放宽。受影响的测试：bun 2851 过，失败的 3 个里 2 个是命令标题约定键写错（已改，重跑通过），1 个是负载 13 时 Markdown 图片地址用例超时（单独重跑通过）；Vitest 511 过；治理检查过（补登文字目录）。草稿在 `.worktree/w00032-t34-drafts`（不提交）。
 - 切片 5（e2e 与收口）提交 `3df4e2fab`：测试插件 `test.tasks-probe`（控制路由登记与推进任务，只在测试入口登记）；`e2e/background-tasks.e2e.ts` 4 例覆盖验收 1、2、4、输出 15 与 notifications 验收 8、输出 17，全过。宽范围外壳 e2e 暴露两个内置底部视图让新客户端的底部面板默认显示：视图声明加 `revealRegion`（[views](../../../../../docs/specs/workbench/views.md) 输出 18、[workbench-layout](../../../../../docs/specs/ui/workbench-layout.md) 输出 1，master `521b6a0d9`），后台任务与通知都声明为 `false`，默认布局照旧不显示底部面板；三个外壳 e2e 的 7 例改为算上面板里的两个内置标签（dnd 只列测试插件的标签、views 标签数加 2、shell 的框架按钮多“浮动”与标题颜色改读右栏），单独重跑全过。lab-scenes（滤掉下面的 404 后临时单跑）查出新夹具 `TasksFixture`、`NotificationsViewFixture` 在手机画布上横向溢出，宽度改为不超过舞台后干净。类型检查、治理检查过。
 - 与本 Task 无关的既有失败（master 上同样会失败，未改）：`e2e/plugins.e2e.ts` 等“插件设置”分区里的 `nbook.agent/toolBindings`，它在 `4d73e28ef`（Profile 设置页）移进 Profile 分区后那个分区在用户层为空、被停用；`e2e/lab-scenes.e2e.ts` 的 ThemeEditor 两个场景用假素材名取预览报 404，另有 AgentDock、BackgroundCommandCard、ProfileRail、ProfileSettingsPage、SubagentCard 的场景在手机画布上越界、不在基线里。
+- 实现审查（2026-11-11）：后端 Claude Opus 6 条（重要 1、建议 5）、前端 Claude Sonnet 9 条（重要 5、建议 4 组），逐条处理见 [后端](evidences/impl-review-backend.txt)、[前端](evidences/impl-review-frontend.txt)。修正提交 `3d07ca273`。改动要点：清单存文字的副本；两次推送之间开始又失败的任务照样发通知；没有在跑的任务时悬停写一句说明；通知中心的详情同样截到 8000 码元；任务视图不到 600px 宽时每件排两行（390 宽截图核对过）；只有图标的条目以 `tooltip()` 作可访问描述。Spec 同步在 master `d76dd6031`。与计划的偏差：`TaskItemSchema` 没有带 `maxLength`，长度与 `ns` 改在核心入口保证（远程节点逐份校验推送，放进 schema 后截短出一点差错整份推送都会被丢）。
+- 合入 master `15f50e1cd`（合并前用 `git merge-tree` 试算无冲突；master 这段时间改的是品牌素材、Markdown、编辑器与 nb-ui 表单和弹层，与本分支不是同一批代码，分支上的验证仍有效）。分支上的收口验证：`test:affected` 全过，neuro-book 与 nb-ui 类型检查、治理检查、文档检查过，`e2e/background-tasks.e2e.ts` 4 过；外壳 e2e 的 7 例改后单独重跑过。

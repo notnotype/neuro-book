@@ -87,8 +87,11 @@ async function dragTo(page: Page, source: Locator, to: {x: number; y: number}): 
     await page.mouse.move(to.x, to.y, {steps: 8});
 }
 
-/** 这块面板头里的标签键，按显示顺序。 */
-const tabsOf = (page: Page, panel: string): Promise<string[]> => head(page, panel).locator("[data-panel-tab]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-panel-tab")!));
+/**
+ * 这块面板头里测试插件的标签键，按显示顺序。底部面板里还有内置的“后台任务”与“通知”（`nbook.*`，排除不掉：通知视图属于工作台
+ * 自己），它们不参与这里的拖放，所以不列。
+ */
+const tabsOf = (page: Page, panel: string): Promise<string[]> => head(page, panel).locator("[data-panel-tab]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-panel-tab")!).filter((key) => key.startsWith("view:test.")));
 
 /** 标签所在面板的 id（面板头上写着）。 */
 const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);

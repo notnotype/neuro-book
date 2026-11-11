@@ -24,6 +24,7 @@ export const BUILTIN_PLUGIN_IDS = [
     "nbook.settings",
     "nbook.state",
     "nbook.storage",
+    "nbook.tasks",
     "nbook.theme-study",
     "nbook.workbench",
     "runtime.diagnostics",

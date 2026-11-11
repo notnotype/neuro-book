@@ -21,15 +21,18 @@ const props = withDefaults(defineProps<{
     panelHidden: boolean;
     panelToggleDisabled?: boolean;
     problems?: ReadonlyArray<StatusBarProblem>;
-    /** 贡献的条目（外壳四输出 35）：左侧的排在项目名与布局问题之后，右侧的排在“显示面板”之前。 */
+    /** 贡献的条目（外壳四输出 35）：左侧的排在项目名与布局问题之后，右侧的排在铃铛之前。 */
     items?: StripEntry[];
-}>(), {panelToggleDisabled: false, problems: () => [], items: () => []});
+    /** 通知中心里没看过的条数（docs/specs/workbench/notifications.md 输出 17）；大于 0 时铃铛带点。 */
+    unreadNotifications?: number;
+}>(), {panelToggleDisabled: false, problems: () => [], items: () => [], unreadNotifications: 0});
 
 const emit = defineEmits<{
     (event: "toggle-panel"): void;
     (event: "retry", record: string): void;
     (event: "discard", record: string): void;
     (event: "run-item", itemId: string): void;
+    (event: "open-notifications"): void;
 }>();
 
 const leftItems = computed(() => props.items.filter((item) => item.alignment === "left"));
@@ -49,6 +52,8 @@ const REASON_KEYS: Readonly<Record<string, WorkbenchTextKey>> = {
 };
 
 const reason = (code: string): string => (Object.hasOwn(REASON_KEYS, code) ? text(REASON_KEYS[code]!) : code);
+
+const bellLabel = computed(() => (props.unreadNotifications > 0 ? text("statusBar.notificationsUnread", {count: props.unreadNotifications}) : text("statusBar.notifications")));
 
 /** 有修改没保存上的优先：用户刚做的修改可能丢，比“正在用默认布局”更要紧。 */
 const shown = computed(() => props.problems.find((problem) => problem.kind === "unsaved") ?? props.problems[0] ?? null);
@@ -74,6 +79,21 @@ const problemText = computed(() => {
         </div>
         <WorkbenchItemStrip :entries="rightItems" :item-height="20" align="end" @run="(id) => emit('run-item', id)" />
         <div class="workbench-status-bar__right">
+            <Button
+                size="sm"
+                variant="ghost"
+                focus-ring="inset"
+                class="workbench-status-bar__button"
+                :aria-label="bellLabel"
+                :title="bellLabel"
+                data-status-notifications
+                @click="emit('open-notifications')"
+            >
+                <span class="workbench-status-bar__bell">
+                    <span class="i-lucide-bell workbench-status-bar__icon" aria-hidden="true"></span>
+                    <span v-if="unreadNotifications > 0" class="workbench-status-bar__dot" aria-hidden="true" data-status-notifications-dot></span>
+                </span>
+            </Button>
             <Button
                 size="sm"
                 variant="ghost"
@@ -137,7 +157,31 @@ const problemText = computed(() => {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
+    gap: 4px;
     margin-inline-start: auto;
+}
+
+/* 铃铛（docs/specs/workbench/notifications.md 输出 17）：图标 12px，不变色；有没看过的通知时右上角一个强调色的点，外圈用状态栏的底色把它和铃铛分开。 */
+.workbench-status-bar__bell {
+    position: relative;
+    display: block;
+}
+
+.workbench-status-bar__icon {
+    display: block;
+    width: 12px;
+    height: 12px;
+}
+
+.workbench-status-bar__dot {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--accent-main);
+    box-shadow: 0 0 0 1.5px var(--shell-chrome-surface, var(--bg-panel));
 }
 
 /* 状态栏只有 22px：按钮压到条内高度，字号随状态栏。 */
