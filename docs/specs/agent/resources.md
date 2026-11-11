@@ -73,6 +73,7 @@ owners:
 12. `home/jobs/` 只有宿主能写：后台命令的输出（[`jobs.md`](jobs.md) 输出 7）写在这里，Agent 经资源视图写 `jobs/` 下得 `permission-denied`，读照常。
 13. `sessions://` 的根先列有关的会话：读它的会话的父会话、子会话、兄弟会话排在前面，各带状态（运行中、等用户、空闲），子会话另列派它的调用 id（子会话的标题是 `name` 或 `prompt` 的开头）；状态不靠打开会话取得；之后按最近使用，合计仍至多 200 个，不重复，不列后台会话。
 14. `profiles://` 的根每项多一列“可派”或“不可派”：按读它的会话的 Profile 的白名单（[`subagents.md`](subagents.md)）。
+15. `skills://` 的根列出 Skill 目录，挂载点 `<Skill id>` 是那个 Skill 的目录：能读、能列、能取真实路径，Agent 不可写；根与挂载点的细则见 [`skills.md`](skills.md) 输出 23、24。上表 `skills://` 一行随之改为这条。（planned）
 
 ## 状态与转换
 
