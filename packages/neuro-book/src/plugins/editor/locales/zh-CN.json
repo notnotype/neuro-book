@@ -298,6 +298,9 @@
                 "ruby-remove": {
                     "title": "移除注音"
                 },
+                "comment": {
+                    "title": "添加批注"
+                },
                 "paragraph": {
                     "title": "正文"
                 },

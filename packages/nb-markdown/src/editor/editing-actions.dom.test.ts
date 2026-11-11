@@ -172,3 +172,58 @@ describe("编辑动作", () => {
         expect(active(editor, id)).toBe(true);
     });
 });
+
+describe("批注（输出 28、29、34、35）", () => {
+    const find = (editor: Editor, text: string): {from: number; to: number} => {
+        let found: {from: number; to: number} | null = null;
+        editor.state.doc.descendants((node, pos) => {
+            const at = node.isText ? (node.text as string).indexOf(text) : -1;
+            if (found === null && at >= 0) found = {from: pos + at, to: pos + at + text.length};
+        });
+        if (found === null) throw new Error(`找不到 ${text}`);
+        return found;
+    };
+
+    it("加批注：选区里有字才可用；意见去掉首尾空白，空的不加；写回是行内批注", () => {
+        const {editor, write} = open("甲乙丙\n");
+        editor.commands.setTextSelection(2);
+        expect(enabled(editor, "comment")).toBe(false);
+        editor.commands.setTextSelection(find(editor, "乙"));
+        expect(enabled(editor, "comment")).toBe(true);
+        expect(act(editor, "comment", {text: "  \n "})).toBe(false);
+        expect(write().trim()).toBe("甲乙丙");
+        expect(act(editor, "comment", {text: " 意见 "})).toBe(true);
+        expect(write().trim()).toBe("甲<comment body=\"意见\">乙</comment>丙");
+    });
+
+    it("选区在代码块里不可用；只选了空白不可用；选区跨了代码块与段落时只给段落那部分加", () => {
+        const {editor, write} = open("甲乙\n\n```\ncode\n```\n");
+        editor.commands.setTextSelection(find(editor, "code"));
+        expect(enabled(editor, "comment")).toBe(false);
+        // `can()` 在这里为真但文档不会变：动作自己判断，不用它。
+        expect(editor.can().addComment("x")).toBe(true);
+        expect(act(editor, "comment", {text: "x"})).toBe(false);
+        expect(write()).not.toContain("<comment");
+        const {editor: spaces} = open("甲  乙\n");
+        spaces.commands.setTextSelection(find(spaces, "  "));
+        expect(enabled(spaces, "comment")).toBe(false);
+        editor.commands.setTextSelection({from: find(editor, "乙").from, to: find(editor, "code").to});
+        expect(enabled(editor, "comment")).toBe(true);
+        expect(act(editor, "comment", {text: "跨"})).toBe(true);
+        expect(write()).toContain("<comment body=\"跨\">乙</comment>");
+    });
+
+    it("改意见与删除按卡片给的指纹：指纹不齐、对不上时不可用也不执行", () => {
+        const {editor, write} = open("甲<comment body=\"一\">乙</comment>丙\n");
+        const ref = {index: 0, body: "一", quote: "乙"};
+        expect(markdownEditingActions["comment-edit"]?.enabled(editor, ref)).toBe(true);
+        expect(markdownEditingActions["comment-edit"]?.enabled(editor, {index: 0, body: "旧", quote: "乙"})).toBe(false);
+        expect(markdownEditingActions["comment-edit"]?.enabled(editor, {index: "0", body: "一", quote: "乙"})).toBe(false);
+        expect(act(editor, "comment-edit", {...ref, text: "  "})).toBe(false);
+        expect(act(editor, "comment-edit", {...ref, text: " 新 "})).toBe(true);
+        expect(write().trim()).toBe("甲<comment body=\"新\">乙</comment>丙");
+        expect(act(editor, "comment-delete", ref)).toBe(false);
+        expect(act(editor, "comment-delete", {...ref, body: "新"})).toBe(true);
+        expect(write().trim()).toBe("甲乙丙");
+    });
+});

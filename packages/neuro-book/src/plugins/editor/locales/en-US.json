@@ -298,6 +298,9 @@
                 "ruby-remove": {
                     "title": "Remove Ruby"
                 },
+                "comment": {
+                    "title": "Add Comment"
+                },
                 "paragraph": {
                     "title": "Paragraph"
                 },

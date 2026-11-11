@@ -11,6 +11,7 @@ import {EDITING_ACTIONS} from "nbook/plugins/editor/shared/editing";
 import type {EditingActionInfo} from "nbook/plugins/editor/shared/editing";
 import {editorText} from "nbook/plugins/editor/shared/text";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
+import {keyEventMatches} from "nbook/plugins/editor/web/key-event";
 
 export function createLabEditorMenus(area: EditorArea, text: TextPort): EditorMenus {
     const editing = () => area.activeHandle.value?.editing;
@@ -18,6 +19,10 @@ export function createLabEditorMenus(area: EditorArea, text: TextPort): EditorMe
         title: (action) => text.t(editorText(`commands.nbook.edit.${action}.title` as never)),
         label: (key) => text.t(editorText(`menus.${key}` as never)),
         shortcut: (action) => (EDITING_ACTIONS[action] as EditingActionInfo).keybinding?.replace("Mod", "Ctrl") ?? null,
+        matches: (action, event) => {
+            const keybinding = (EDITING_ACTIONS[action] as EditingActionInfo).keybinding;
+            return keybinding !== undefined && keyEventMatches(keybinding, "other", event);
+        },
         has: () => false,
         run: (action, args) => void editing()?.run(action, args),
         execute: (command) => {

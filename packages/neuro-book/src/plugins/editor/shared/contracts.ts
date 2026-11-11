@@ -129,6 +129,17 @@ export type EditorToolbarPlacement = "full" | "merged" | "bottom";
 /** 编辑组面包屑那一行右侧留给控件的位置（`merged` 时工具栏传送到这里）：每组一个。值是元素；这个文件也进后端的类型检查，写不了 DOM 类型。 */
 export const editorToolbarSlotKey: InjectionKey<Readonly<Ref<object | null>>> = Symbol("nbook.editor/toolbar-slot");
 
+/** 键盘事件里键位匹配要读的字段（`KeyboardEvent` 的子集，测试里不用造整个事件）。 */
+export interface KeyEventLike {
+    readonly code: string;
+    readonly ctrlKey: boolean;
+    readonly metaKey: boolean;
+    readonly altKey: boolean;
+    readonly shiftKey: boolean;
+    readonly isComposing: boolean;
+    getModifierState(key: string): boolean;
+}
+
 /** 编辑器区交给控件的菜单（`provide`）：控件画内置项，命令、贡献项、文字都从这里取。响应式：在渲染函数或 computed 里读。 */
 export interface EditorMenus {
     /** 动作的显示标题。 */
@@ -137,6 +148,8 @@ export interface EditorMenus {
     label(key: string): string;
     /** 按平台写好的快捷键，没有为 null。 */
     shortcut(action: EditingActionId): string | null;
+    /** 这个键盘事件是不是该动作目录里写的快捷键（按物理键位、按平台映射 Mod；AltGr、组字中不算）。 */
+    matches(action: EditingActionId, event: KeyEventLike): boolean;
     /** 这条命令此刻在目录里：t09 登记 `nbook.edit.link` 之前，链接按钮不出现。 */
     has(command: string): boolean;
     /** 经命令服务执行编辑动作。 */

@@ -17,6 +17,7 @@ import type {EditingActionId, EditingActionInfo} from "../shared/editing";
 import {editorText} from "../shared/text";
 import type {EditorArea} from "./area";
 import {nameOf} from "./documents/address";
+import {keyEventMatches} from "./key-event";
 
 type Items = () => ReadonlyArray<{readonly id: string; readonly declaration: MenuItemDeclaration}>;
 
@@ -51,6 +52,10 @@ export function createEditorMenus(options: {
         shortcut: (action) => {
             const keybinding = (EDITING_ACTIONS[action] as EditingActionInfo).keybinding;
             return keybinding === undefined ? null : formatKeybinding(keybinding, options.platform);
+        },
+        matches: (action, event) => {
+            const keybinding = (EDITING_ACTIONS[action] as EditingActionInfo).keybinding;
+            return keybinding !== undefined && keyEventMatches(keybinding, options.platform, event);
         },
         has: (command) => {
             void options.version.value;
