@@ -33,6 +33,11 @@ const emit = defineEmits<{(event: "writing", writing: boolean): void}>();
 /** 每次选区或文档变化加一：列表与光标处的批注都是现算的，不缓存（缓存会让卡片上的序号对着旧文档）。 */
 const tick = ref(0);
 const focused = ref(false);
+/**
+ * 只读的正文（`contenteditable="false"`）拿不到焦点，`focus`、`blur` 都不来；这时用浏览器的选区在不在正文里判断“眼睛还在这里”
+ * （输出 30：只读文档也出卡片）。可写时不用。
+ */
+const readingInside = ref(false);
 /** 光标进了批注、卡片开着（“看”）。 */
 const cardOpen = ref(false);
 /** 正在“写”：`ref` 为 null 是还不在文档里的新批注。 */
@@ -67,7 +72,8 @@ const labels = computed<CommentCardLabels>(() => ({
     body: props.menus.label("commentBody"),
 }));
 
-const viewOpen = computed(() => !props.marginDrawn && cardOpen.value && focused.value && at.value.length > 0 && !props.blocked && writing.value === null);
+const attending = computed(() => focused.value || (props.readonly && readingInside.value));
+const viewOpen = computed(() => !props.marginDrawn && cardOpen.value && attending.value && at.value.length > 0 && !props.blocked && writing.value === null);
 const popoverOpen = computed(() => viewOpen.value || (writing.value !== null && !props.marginDrawn));
 
 /** 新批注贴选区（同注音卡片）；已有的贴光标所在行，块批注贴块里第一个文字处（输出 30）。 */
@@ -183,6 +189,12 @@ const onFocus = (): void => {
 const onBlur = (): void => {
     focused.value = false;
 };
+const onSelectionChange = (): void => {
+    const editor = props.editor;
+    if (editor === null || !props.readonly) return;
+    const anchor = document.getSelection()?.anchorNode ?? null;
+    readingInside.value = anchor !== null && editor.view.dom.contains(anchor);
+};
 const onPointerDown = (): void => {
     pointerDown = true;
 };
@@ -230,6 +242,7 @@ watch(() => [props.editor, props.scroller] as const, ([editor, scroller]) => {
     scroller?.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
+    document.addEventListener("selectionchange", onSelectionChange);
     detach = () => {
         editor.off("transaction", onTransaction);
         editor.off("focus", onFocus);
@@ -238,6 +251,7 @@ watch(() => [props.editor, props.scroller] as const, ([editor, scroller]) => {
         scroller?.removeEventListener("pointerdown", onPointerDown);
         window.removeEventListener("pointerup", onPointerUp);
         window.removeEventListener("pointercancel", onPointerUp);
+        document.removeEventListener("selectionchange", onSelectionChange);
     };
 }, {immediate: true});
 onBeforeUnmount(() => {

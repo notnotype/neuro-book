@@ -13,7 +13,7 @@ import {editorText} from "nbook/plugins/editor/shared/text";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
 import {keyEventMatches} from "nbook/plugins/editor/web/key-event";
 
-export function createLabEditorMenus(area: EditorArea, text: TextPort): EditorMenus {
+export function createLabEditorMenus(area: EditorArea, text: TextPort, options: {readonly commentMargin?: boolean} = {}): EditorMenus {
     const editing = () => area.activeHandle.value?.editing;
     return {
         title: (action) => text.t(editorText(`commands.nbook.edit.${action}.title` as never)),
@@ -33,7 +33,7 @@ export function createLabEditorMenus(area: EditorArea, text: TextPort): EditorMe
         runContributed: () => undefined,
         toolbarVisible: ref(true),
         toolbarPlacement: ref("full"),
-        commentMargin: ref(false),
+        commentMargin: ref(options.commentMargin === true),
         keyLabel: (keybinding) => keybinding.replace("Mod", "Ctrl"),
         notify: (key) => area.notify(editorText(`menus.${key}` as never)),
         reportError: () => undefined,

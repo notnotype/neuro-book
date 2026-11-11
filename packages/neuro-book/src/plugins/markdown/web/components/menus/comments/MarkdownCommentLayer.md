@@ -16,4 +16,4 @@
 - **当前批注**：自己记着（跳转、点摘要写入），不从光标反推：两条批注紧挨或同起点、光标没动时，“下一条”照样换。
 - 数据（列表、光标处的批注）每个事务现算，不缓存。
 
-`state:local`：卡片是否开着、“写”的目标与进入次数、当前批注、焦点与指针。`env:global`：`window` 上的 `pointerup`、`pointercancel`，编辑器 DOM 上的 `keydown`，卸载时摘掉。
+`state:local`：卡片是否开着、“写”的目标与进入次数、当前批注、焦点与指针。`env:global`：`window` 上的 `pointerup`、`pointercancel`，`document` 上的 `selectionchange`（只读的正文拿不到焦点，靠浏览器的选区在不在正文里判断卡片还要不要留着），编辑器 DOM 上的 `keydown`，卸载时摘掉。
