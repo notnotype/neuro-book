@@ -10,6 +10,10 @@
 
 根节点是占满可用宽度的原生 `<textarea>`，默认显示 4 行并允许纵向拖动调整大小。没有响应式结构切换；窄屏宽度随父容器收缩。`rows` 控制初始行数，`minlength` 和 `maxlength` 映射到原生约束属性。
 
+`variant="bare"` 用在已经有外框的容器里原地编辑（例如浮层卡片里写一条批注）：没有边框、底色、内阴影、圆角与内边距，聚焦时只有光标，不可拖拽缩放；字体、字号与行高随容器，文字的留白由容器给。
+
+`autosize` 让高度随内容增减：每次值变化与自己的宽度变化（折行变了）后先放开高度量内容，再夹在 `maxRows` 行（默认 12）以内，超出时在里面滚动；开着时不出现拖拽把手，`rows` 只是第一次量之前的初始高度。
+
 输入时立即发出 `update:modelValue`，但不会在组件内更新显示值；父组件需回写新值。原生键盘编辑、光标、选择、表单校验和只读/禁用行为由浏览器 textarea 提供。`disabled` 时不能编辑或聚焦；`readonly` 时不能修改但仍可聚焦；`required` 使用原生必填语义。
 
 ## 数据
@@ -26,6 +30,9 @@ interface TextareaProps {
     invalid?: boolean;   // 出错外观与 aria-invalid；默认 false，与 Field 上下文的出错取或。
     autofocus?: boolean; // 请求原生自动聚焦；默认 false。
     rows?: number;       // 初始可见行数；默认 4。
+    variant?: "default" | "bare"; // 外观；默认 "default"（带边框的字段）。"bare" 没有外框，见“布局与交互”。
+    autosize?: boolean;  // 高度随内容增减；默认 false。
+    maxRows?: number;    // autosize 时的行数上限；默认 12。
     minlength?: number;  // 原生最小字符数；默认 undefined。
     maxlength?: number;  // 原生最大字符数；默认 undefined。
 }

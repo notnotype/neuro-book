@@ -144,8 +144,8 @@ export interface KeyEventLike {
 export interface EditorMenus {
     /** 动作的显示标题。 */
     title(action: string): string;
-    /** 菜单自己的文字（`menus.<key>`）。 */
-    label(key: string): string;
+    /** 菜单自己的文字（`menus.<key>`）；文字里有 `{{name}}` 的按 `params` 填。 */
+    label(key: string, params?: Readonly<Record<string, string | number>>): string;
     /** 按平台写好的快捷键，没有为 null。 */
     shortcut(action: EditingActionId): string | null;
     /** 这个键盘事件是不是该动作目录里写的快捷键（按物理键位、按平台映射 Mod；AltGr、组字中不算）。 */

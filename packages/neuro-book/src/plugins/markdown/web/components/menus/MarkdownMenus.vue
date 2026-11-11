@@ -2,10 +2,11 @@
 /** Markdown 控件的菜单层（同名 .md）：工具栏之外的浮动菜单与它们共用的输入弹层。 */
 import {holdSelection, releaseSelection, removeSlashBlock, selectedRubyText, selectRubyAt} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
-import {computed, onBeforeUnmount, ref, watch} from "vue";
+import {computed, onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
 
 import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
+import MarkdownCommentLayer from "./comments/MarkdownCommentLayer.vue";
 import MarkdownBlockGutter from "./MarkdownBlockGutter.vue";
 import MarkdownContextMenu from "./MarkdownContextMenu.vue";
 import MarkdownSelectionMenu from "./MarkdownSelectionMenu.vue";
@@ -23,6 +24,11 @@ const props = defineProps<{
 }>();
 
 const prompting = ref<"ruby" | "bilingual" | null>(null);
+const commentLayer = useTemplateRef<InstanceType<typeof MarkdownCommentLayer>>("commentLayer");
+/** 批注卡片在“写”：选区菜单不显示（同注音卡片开着）。 */
+const commentWriting = ref(false);
+/** 右键菜单开着：批注浮层不弹（点在批注文字上时光标会移进去）。 */
+const contextOpen = ref(false);
 /** 卡片里预填的文字与有没有“移除注音”：按打开那一刻的选区算（输出 9）。 */
 const promptInitial = ref("");
 const promptRemovable = ref(false);
@@ -119,8 +125,8 @@ defineExpose({
         :menus="props.menus"
         :readonly="props.readonly"
         :binding="props.binding"
-        :suspended="prompting !== null"
-        @prompt="openPrompt"
+        :suspended="prompting !== null || commentWriting"
+        @prompt="(action) => (action === 'comment' ? commentLayer?.beginAdd() : openPrompt(action))"
     />
     <MarkdownSlashMenu
         :editor="props.editor"
@@ -148,6 +154,19 @@ defineExpose({
         :menus="props.menus"
         :readonly="props.readonly"
         :binding="props.binding"
+        @comment="commentLayer?.beginAdd()"
+        @open="(open) => { contextOpen = open; }"
+    />
+    <MarkdownCommentLayer
+        ref="commentLayer"
+        :editor="props.editor"
+        :scroller="props.scroller"
+        :editing="props.editing"
+        :menus="props.menus"
+        :readonly="props.readonly"
+        :binding="props.binding"
+        :blocked="prompting !== null || contextOpen"
+        @writing="(writing) => { commentWriting = writing; }"
     />
     <MarkdownTextPrompt
         :open="prompting !== null"

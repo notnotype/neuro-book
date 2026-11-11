@@ -17,7 +17,7 @@ export function createLabEditorMenus(area: EditorArea, text: TextPort): EditorMe
     const editing = () => area.activeHandle.value?.editing;
     return {
         title: (action) => text.t(editorText(`commands.nbook.edit.${action}.title` as never)),
-        label: (key) => text.t(editorText(`menus.${key}` as never)),
+        label: (key, params) => text.t(editorText(`menus.${key}` as never, params)),
         shortcut: (action) => (EDITING_ACTIONS[action] as EditingActionInfo).keybinding?.replace("Mod", "Ctrl") ?? null,
         matches: (action, event) => {
             const keybinding = (EDITING_ACTIONS[action] as EditingActionInfo).keybinding;

@@ -48,7 +48,7 @@ export function createEditorMenus(options: {
     };
     return {
         title: (action) => options.text.t(editorText(`commands.nbook.edit.${action}.title` as never)),
-        label: (key) => options.text.t(editorText(`menus.${key}` as never)),
+        label: (key, params) => options.text.t(editorText(`menus.${key}` as never, params)),
         shortcut: (action) => {
             const keybinding = (EDITING_ACTIONS[action] as EditingActionInfo).keybinding;
             return keybinding === undefined ? null : formatKeybinding(keybinding, options.platform);

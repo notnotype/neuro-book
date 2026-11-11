@@ -7,6 +7,7 @@ import Checkbox from "./Checkbox.vue";
 import Input from "./Input.vue";
 import NumberInput from "./NumberInput.vue";
 import Select from "../popup/Select.vue";
+import Textarea from "./Textarea.vue";
 
 describe("phase 2 form control contracts", () => {
     it("keeps Input numeric attributes, prefix slot and focus event", async () => {
@@ -58,6 +59,23 @@ describe("phase 2 form control contracts", () => {
         expect(plain.get("input").attributes("aria-invalid")).toBe("true");
         await plain.get("input").setValue("lín xī");
         expect(plain.emitted("update:modelValue")?.at(-1)).toEqual(["lín xī"]);
+    });
+
+    // 高度怎么随内容变要在浏览器里看（happy-dom 没有排版，`scrollHeight` 恒为 0）；这里守来源：外框与拖拽把手、值的往返。
+    it("Textarea 的 variant bare 不挂字段外框与内边距、不可拖拽缩放；autosize 也去掉拖拽把手并把高度交给内容", async () => {
+        const framed = mount(Textarea, {props: {modelValue: "一"}});
+        const bare = mount(Textarea, {props: {modelValue: "二", variant: "bare", invalid: true}});
+        const auto = mount(Textarea, {props: {modelValue: "三", autosize: true}});
+        expect(framed.classes()).toEqual(expect.arrayContaining(["nb-ui-control", "border", "resize-y"]));
+        expect(bare.classes()).not.toContain("nb-ui-control");
+        expect(bare.classes()).not.toContain("border");
+        expect(bare.classes()).toContain("resize-none");
+        expect(bare.classes().filter((name) => name.startsWith("px-") || name.startsWith("py-"))).toEqual([]);
+        expect(bare.attributes("aria-invalid")).toBe("true");
+        expect(auto.classes()).toContain("resize-none");
+        expect(auto.element.style.height).not.toBe("");
+        await bare.setValue("改过");
+        expect(bare.emitted("update:modelValue")?.at(-1)).toEqual(["改过"]);
     });
 
     it("scopes every native search and number pseudo-element selector to the marker", () => {

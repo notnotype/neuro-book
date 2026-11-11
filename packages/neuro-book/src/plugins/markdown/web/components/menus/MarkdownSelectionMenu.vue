@@ -24,7 +24,7 @@ const props = defineProps<{
     /** 别的弹层（注音的输入框）开着时不显示。 */
     suspended: boolean;
 }>();
-const emit = defineEmits<{(event: "prompt", action: "ruby"): void}>();
+const emit = defineEmits<{(event: "prompt", action: "ruby" | "comment"): void}>();
 
 /**
  * 这些状态只由指针、键盘与编辑器事件推进，不写 ProseMirror 插件视图：换文档时 `plugins` 数组换了，插件视图会全部重建
@@ -164,6 +164,7 @@ const buttonTitle = (id: EditingActionId): string => {
                 :aria-pressed="props.editing.active('ruby')"
                 @click="emit('prompt', 'ruby')"
             />
+            <IconButton size="sm" :icon-class="EDITING_ACTIONS.comment.icon" :title="buttonTitle('comment')" :aria-label="props.menus.title('comment')" :disabled="!props.editing.enabled('comment')" @click="emit('prompt', 'comment')" />
             <IconButton size="sm" :icon-class="EDITING_ACTIONS['clear-format'].icon" :title="props.menus.title('clear-format')" :aria-label="props.menus.title('clear-format')" @click="props.menus.run('clear-format')" />
             <template v-if="contributed.length > 0">
                 <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
