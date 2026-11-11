@@ -45,8 +45,14 @@ updated: 2026-11-11
 - Spec（主工作区，未提交，合入时一起提交）：`markdown-editing.md` 加输出 26、验收 7 与实现合同；`theme/system.md` 写 Monaco 底色取 `--bg-panel`；待确认清单 t05 第 5 行写了改判结果。
 - 实现审查（Sonnet）已处理：阻断 1（反转映射反转了整个事务，撤销 `**…**` 输入规则时抛错、撤销栈卡住，无注音的文档也会）、重要 1、建议 6；修正在 `e43c383b8`，用例补到 18 例并做了三次变异检查。暗色下源码编辑器当前行与缩进线对比变弱一条接受取舍，四种组合取证时看暗色截图。报告与逐条处理见 [evidences/impl-review-sonnet.txt](evidences/impl-review-sonnet.txt)、[evidences/impl-review-disposition.txt](evidences/impl-review-disposition.txt)。修正后 e2e `markdown-editing`、`markdown-input` 43 例通过；快捷键那条在负载下的偶发记到 t17。
 
-**第二段**：[plan-2.md](plan-2.md) 开发者 2026-11-11 已确认，实施中。
+**第二段（[plan-2.md](plan-2.md)，开发者 2026-11-11 确认）已实施，未合入**：`68a294072` nb-ui `Input` 的 `variant="bare"`；`ae031537b` 保持选区高亮（`held-selection.ts`）与 `ruby-remove` 动作；`8338a543b` 注音一行卡片（预填、移除、写时保持选区高亮、点注音小字打开）；`fc6ce379e` 文字颜色与高亮的拆分按钮，记住的颜色存 user/local 记录 `markdown.colors`；`a8dc86fda` 选区菜单最前面加块类型下拉，与工具栏共用；`8160dd749` 取证时发现正文选区是浏览器缺省色、卡片一开就变色，改成主题的 `--selection-bg`（theme/system.md 本来就这样要求）。
+
+- 验证：应用、nb-markdown、nb-ui 的单元与 DOM 测试和类型检查都过；`test:affected --since master --typecheck` 只有三例 5 秒超时（nb-story 两例命令行用例、`SnippetsPage.dom.test.ts`，都不是本分支改的），负载降下后单独重跑都过。e2e：`markdown-editing` 42 例、`markdown-input` 5 例全过；选区颜色修正后重跑注音的 4 例过（修之前新断言失败，即变异检查）。`lab-scenes` 只有 ThemeEditor 假素材的 404（已知，提交 `14051849a`，别的 Task 记过）；临时把那条改成 `expect.soft` 跑完，版面检查与基线没有新问题，改动已还原。
+- UI 取证（四种组合加 390px）：[evidences/ui-check.txt](evidences/ui-check.txt)。第一段审查第 5 条（暗色下源码编辑器当前行与缩进线变弱）量了对比度：暗色当前行 1.38 → 1.19、缩进线 1.92 → 1.65，与 VS Code 缺省暗色相近，截图里看得出，维持接受取舍。
+- 取证时发现、不属于本 Task：一行里有注音时按 End 光标停在注音后面，master 上同样如此，待另建 Task。
+- Spec（主工作区，未提交，合入时一起提交）：`markdown-editing.md` 输出 1、6、7、9，命令表加 `nbook.edit.ruby-remove`，“副作用与数据”加 `markdown.colors`，验收 8、9，实现合同与证据加新文件。
+- 实现审查（Sonnet，第二段 `e43c383b8..8160dd749`）进行中。
 
 ## 下一步
 
-开发者确认第二段计划后实施；两段做完一起做四种主题组合的 UI 取证，再合入。
+处理第二段实现审查，然后合入 master，Spec、待确认清单与 `theme/system.md` 一起提交；给开发者看亮色截图。
