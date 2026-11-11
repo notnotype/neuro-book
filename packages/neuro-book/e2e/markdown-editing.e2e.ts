@@ -444,6 +444,54 @@ test.describe("选区菜单", () => {
         await expect.poll(() => disk("notes/selection-whole-ruby.md")).toBe("前文**<ruby text=\"zhù yīn\">注音</ruby>后**文\n");
     });
 
+    test("含注音的行里 Home、End 与加 Shift 的选区到真正的行首行尾，折行的段落每一行都对（输出 27、场景 10）", async ({page}) => {
+        const wrapped = "她抬头看了他一眼，远处站着<ruby text=\"hàn zì\">汉字</ruby>先生，" + "手里拿着一本很厚的书，一页一页地翻着，像是在找什么东西，又像是只想让时间过得慢一点。".repeat(6);
+        await openFile(page, "notes/ruby-line-edges.md", `前<ruby text="lín xī">林汐</ruby>后，一行。\n\n${wrapped}\n`);
+        const selected = () => page.evaluate(() => window.getSelection()?.toString() ?? "");
+        // 一行的段落：注音在行中间，行尾在注音之后。
+        await prose(page).locator("p").nth(0).click({position: {x: 3, y: 10}});
+        await expect(prose(page)).toBeFocused();
+        await page.keyboard.press("Home");
+        await page.keyboard.press("Shift+End");
+        expect(await selected()).toBe("前林汐后，一行。");
+        await page.keyboard.press("End");
+        await page.keyboard.press("Shift+Home");
+        expect(await selected()).toBe("前林汐后，一行。");
+
+        // 折行的段落：按渲染出来的行（逐字取矩形）认每一行的文字与位置，注音的小字不算。
+        const lines = await prose(page).locator("p").nth(1).evaluate((paragraph) => {
+            const found: Array<{text: string; top: number}> = [];
+            const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode() as Text | null; node !== null; node = walker.nextNode() as Text | null) {
+                if (node.parentElement?.closest(".nb-ruby-text") != null) continue;
+                for (let index = 0; index < node.length; index += 1) {
+                    const range = document.createRange();
+                    range.setStart(node, index);
+                    range.setEnd(node, index + 1);
+                    const rect = range.getBoundingClientRect();
+                    if (rect.height === 0) continue;
+                    const last = found.at(-1);
+                    if (last === undefined || rect.top > last.top + 12) found.push({text: "", top: rect.top});
+                    (found.at(-1) as {text: string}).text += node.data[index];
+                }
+            }
+            const origin = paragraph.getBoundingClientRect().top;
+            return found.map((line) => ({text: line.text, y: line.top - origin}));
+        });
+        expect(lines.length).toBeGreaterThan(2);
+        expect(lines[0]?.text).toContain("汉字");
+        for (const line of lines) {
+            await prose(page).locator("p").nth(1).click({position: {x: 40, y: line.y + 8}});
+            await page.keyboard.press("Home");
+            await page.keyboard.press("Shift+End");
+            expect(await selected()).toBe(line.text);
+            // 行尾的光标画在这一行的末尾：再往回选到行首，选中的还是这一整行。
+            await page.keyboard.press("End");
+            await page.keyboard.press("Shift+Home");
+            expect(await selected()).toBe(line.text);
+        }
+    });
+
     test("选区菜单淡入、淡出，淡出时停在原处；斜杠菜单只淡入（设计语言“浮层入退场的编排是固定的”）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await openFile(page, "notes/selection-motion.md", "第一段文字，长一些，好在别处点。\n\n第二段\n");

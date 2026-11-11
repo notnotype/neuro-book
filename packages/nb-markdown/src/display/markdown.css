@@ -147,6 +147,31 @@
 }
 
 /*
+ * 编辑器里的注音：行内块，读音绝对定位在基底上方居中。原生的 `display: ruby` 会让 Chrome 把一行里最后一个注音的末尾当成
+ * 行尾，Home、End 与 Shift 加它们的选区在含注音的行里到不了真正的行首行尾（在没有 ProseMirror 的普通 contenteditable 里
+ * 同样复现，见 docs/specs/workbench/markdown-editing.md 输出 27）。行内块是原子的行内盒，没有这个问题，折行段落里行尾的
+ * 光标也仍画在这一行的末尾。只读显示不用改：那里没有光标。
+ * 排版与原生相近：读音不撑高行，基底顶上留 3px 让读音与上一行隔开（原生每个注音行高约多 6px）。代价是很长的基底（整句）
+ * 不再跟着折行，整个注音块掉到下一行；注音通常只给词，不处理。
+ */
+.nb-markdown.ProseMirror ruby {
+    display: inline-block;
+    position: relative;
+    padding-top: 3px;
+    max-width: 100%;
+}
+
+.nb-markdown.ProseMirror ruby > .nb-ruby-text {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    display: block;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    line-height: 1;
+}
+
+/*
  * 选区用主题的选区色（docs/specs/theme/system.md）。编辑器里焦点去了卡片的输入框时，正文自己画出选区
  * （`editor/held-selection.ts`）；两条同色，焦点进出卡片时选区看起来没变。
  */
