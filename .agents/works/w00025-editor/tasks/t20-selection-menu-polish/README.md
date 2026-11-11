@@ -37,7 +37,9 @@ updated: 2026-11-11
 
 ## 当前状态
 
-执行位置：`.worktree/w00025-t20-selection-menu-polish`，分支 `feat/w00025-t20-selection-menu-polish`。草稿在 t13 的草稿 worktree `.worktree/w00025-t13-drafts`（`drafts/web/components/selection-menu/`，Lab 组件 `SelectionMenuDraft`），不合并。
+**已完成，2026-11-11 合入 master**（快进到 `ad53fd721`，不 push）。两段实现、两轮实现审查都处理完；给开发者看的亮色截图是产物 [`ui-check`](artifacts/ui-check/index.html)。
+
+执行位置：`.worktree/w00025-t20-selection-menu-polish`，分支 `feat/w00025-t20-selection-menu-polish`（合入后删除）。草稿在 t13 的草稿 worktree `.worktree/w00025-t13-drafts`（`drafts/web/components/selection-menu/`，Lab 组件 `SelectionMenuDraft`），不合并。
 
 **第一段（[plan.md](plan.md)）已实施，未合入**：`e22401bfb` 注音当成整体（注音语法的 ProseMirror 插件，按加标记、去标记的步把只盖住一半的补到整段；设新注音改为放一个新的标记）与注音小字不可选；`e9e67dc0a` `AnchoredPopover` 淡入淡出、退场时停在原处，`SuggestionMenu` 只淡入（斜杠菜单关上时锚点与内容已被收走）；`5cf6164ea` 源码编辑器底色改成 `--bg-panel`。
 
@@ -51,8 +53,9 @@ updated: 2026-11-11
 - UI 取证（四种组合加 390px）：[evidences/ui-check.txt](evidences/ui-check.txt)。第一段审查第 5 条（暗色下源码编辑器当前行与缩进线变弱）量了对比度：暗色当前行 1.38 → 1.19、缩进线 1.92 → 1.65，与 VS Code 缺省暗色相近，截图里看得出，维持接受取舍。
 - 取证时发现、不属于本 Task：一行里有注音时按 End 光标停在注音后面，master 上同样如此，待另建 Task。
 - Spec（主工作区，未提交，合入时一起提交）：`markdown-editing.md` 输出 1、6、7、9，命令表加 `nbook.edit.ruby-remove`，“副作用与数据”加 `markdown.colors`，验收 8、9，实现合同与证据加新文件。
-- 实现审查（Sonnet，第二段 `e43c383b8..8160dd749`）进行中。
+- 实现审查（Sonnet，第二段 `e43c383b8..8160dd749`）：阻断 0、重要 3、建议 8，修正在 `8b98e50e2`。重要的三条：色板点已选的颜色没反应（根因是 nb-ui `ColorSwatches` 值不变不发事件，加了 `pick` 事件，base 里点“默认”也是这样）；“移除注音”按钮上按回车被当成确定；换文档前撤掉高亮没有测试（已补，变异检查过）。另外改了卡片开着时换到同读音的另一段不重来（浏览器里复现过）、跨几段读音不同的注音时的预填、修饰键、组字中的 Esc、入口等存储期间被停止时的资源释放。接受取舍两条：记录损坏时选了颜色也不记（与别的偏好记录同样，Spec 已写明）、颜色箭头复制 `IconButton` 的状态色不抽共享形态。报告与逐条处理见 [evidences/impl-review-2-sonnet.txt](evidences/impl-review-2-sonnet.txt)、[evidences/impl-review-2-disposition.txt](evidences/impl-review-2-disposition.txt)。
+- 合入前把 master（131 个提交，改的是 agent、lab、commands 等，与本分支没有同一个文件）合进分支（`ad53fd721`），在合并后的代码上：应用与 nb-ui 类型检查、markdown 插件 68 例通过；e2e `markdown-editing`、`markdown-input` 48 例里 47 例过，“块菜单：下移、副本、删除”在负载 6 时失败一次（删除没生效），单独重跑 3 次都过，是负载下的偶发，记到 t17 一类。修正后的截图在四种组合与 390px 下重量过。
 
 ## 下一步
 
-处理第二段实现审查，然后合入 master，Spec、待确认清单与 `theme/system.md` 一起提交；给开发者看亮色截图。
+无。“一行里有注音时按 End 停在注音后面”待另建 Task。

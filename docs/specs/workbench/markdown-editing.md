@@ -52,6 +52,7 @@ interface EditorEditing {
 | `nbook.edit.clear-format` | 无 | `canFormat` | — |
 | `nbook.edit.text-color`、`highlight` | `{color: string \| null}` | `canFormat` | — |
 | `nbook.edit.ruby` | `{text: string}` | `canFormat`、`hasSelection` | — |
+| `nbook.edit.ruby-remove` | 无 | `canFormat`（选区或光标处没有注音时 `unavailable`） | — |
 | `nbook.edit.paragraph`、`heading-1`、`heading-2`、`heading-3` | 无 | `canConvertBlock` | Ctrl+Alt+0–3 |
 | `nbook.edit.bullet-list`、`ordered-list`、`task-list` | 无 | `canConvertBlock` | Ctrl+Shift+8、7、9 |
 | `nbook.edit.quote`、`callout`、`code-block` | 无 | `canConvertBlock` | Ctrl+Shift+B、—、Ctrl+Alt+C |
@@ -83,15 +84,15 @@ interface EditorEditing {
 
 ## 输出与可观察行为
 
-1. **工具栏的内容**：撤销、重做｜块类型｜粗体、斜体、删除线、行内代码｜文字颜色、高亮｜（链接）｜无序、有序、任务列表｜引用、提示块、代码块｜对齐、清除格式｜⋯（上标、下标、分割线、注音、双语）。贡献的 `inline` 项在内置按钮之后，`menu` 项进“⋯”。
+1. **工具栏的内容**：撤销、重做｜块类型｜粗体、斜体、删除线、行内代码｜文字颜色、高亮｜（链接）｜无序、有序、任务列表｜引用、提示块、代码块｜对齐、清除格式｜⋯（上标、下标、分割线、注音、双语）。贡献的 `inline` 项在内置按钮之后，`menu` 项进“⋯”。文字颜色与高亮是拆分按钮：左半边一点就上色，用上次选过的颜色（第一次是红色文字、黄色高亮），图标下的色条就是这个颜色；右半边的小箭头打开色板。在色板（包括“⋯”里的）选了颜色就记住，选“无”不改记住的颜色；刷新、重开应用后仍记得，选区菜单与工具栏共用一份。
 2. **工具栏的位置**：只有 Markdown 编辑器有，不随正文滚动。设置 `nbook.editor/markdownToolbarPlacement` 决定位置：`full`（缺省）在面包屑下面通栏，按钮居中、和版心同一条中轴，下面一条贯通的分隔线；`merged` 并入面包屑那一行的右侧，放不下时比面包屑先收；`bottom` 是编辑区底部居中的浮条，滚到底时不挡最后一行。
 3. **工具栏的宽度**：放不下时按钮从右往左收进“⋯”，贡献的项最先收；“⋯”始终在最右。任何宽度都不出现横向滚动。
 4. **工具栏的显隐**：设置关掉或“视图”菜单取消勾选后，所有组的工具栏立即消失，正文上移；再打开时恢复。切到别的编辑器时不留着。
 5. **按钮的状态**：按钮显示自己这一组控件的状态（勾选、可用），不随别的组变化。只读文档全部置灰，版面不变。点按钮不夺走正文的焦点，动作之后光标留在正文。
-6. **选区浮动菜单**：内容是粗体、斜体、删除线、行内代码｜（链接）、文字颜色、高亮｜注音、清除格式｜贡献的项。在选区上方出现（放不下时翻到下方），随滚动跟着选区。
-7. **选区菜单的显隐**：以下全部满足才显示：选区非空；焦点在正文或菜单里；指针已松开（拖选中不显示）；不在输入法组字；不在代码块、原样块；文档可写；选中之后没有打字；没有按 Esc。切标签回来恢复的选区不显示，要重新选。
+6. **选区浮动菜单**：内容是块类型｜粗体、斜体、删除线、行内代码｜（链接）、文字颜色、高亮｜注音、清除格式｜贡献的项。在选区上方出现（放不下时翻到下方），随滚动跟着选区。块类型是与工具栏相同的下拉（正文、标题 1–3，当前类型打勾），选了以后焦点回到正文；颜色是与工具栏相同的拆分按钮（输出 1）。选区里有注音（盖住一部分也算）时注音按钮显示按下。
+7. **选区菜单的显隐**：以下全部满足才显示：选区非空；焦点在正文或菜单里（包括菜单自己打开的色板与块类型下拉；工具栏打开的不算，焦点进去时选区菜单收起，免得盖住它们）；指针已松开（拖选中不显示）；不在输入法组字；不在代码块、原样块；文档可写；选中之后没有打字；没有按 Esc。切标签回来恢复的选区不显示，要重新选。
 8. **清除格式**：移除粗体、斜体、删除线、行内代码、文字颜色、高亮、上标、下标。批注、注音、链接与块类型不变。
-9. **注音与双语的输入**：点了开一个带单个输入框的弹层，回车确定，Esc 取消，焦点离开时收起；没有说明文字，输入框有可访问名称。
+9. **注音与双语的输入**：点了在选区下方开一张一行的卡片：字直接写在卡片里（输入框没有自己的框），右边是确定按钮；输入框里回车或点确定写回，Esc 取消，焦点离开时收起；把字清空再确定等于取消。焦点在卡片的按钮上时回车是那个按钮的动作；输入法组字时的回车与 Esc 归输入法。没有说明文字，输入框有可访问名称。卡片开着时原来的选区仍画成选中的样子，选区菜单不显示。注音另有：选区里已有注音时，确定按钮左边多一个“移除注音”（`nbook.edit.ruby-remove`，去掉选区碰到的整段注音）；碰到的注音只有一种读音时卡片预填它，碰到几段读音不同的注音时不预填（确定会把整个选区写成一个读音）。点正文里注音的小字（不带修饰键），选中这整段注音并打开卡片（只读文档不打开）；卡片开着时点另一段的小字，卡片换到那一段、重新预填。双语的卡片不预填，没有移除按钮。
 10. **斜杠的触发**：`/` 在行首或空白之后打出时打开斜杠菜单；`、` 只在行首也算（中文输入法下这个键打出的字符）。代码块、原样块、表格单元格里不触发；组字时不触发。接着打的字是查询，Esc、删掉触发字符、光标离开时收起；Esc 收起后同一处不再打开。
 11. **斜杠菜单的内容**：基本（正文、标题 1–3）、列表（无序、有序、任务）、块（引用、提示块、代码块、分割线、表格、双语对照），贡献的项在各组之后。每项只有图标与名称。
 12. **筛选**：按名称，也按拼音首字母（`bt` 找到“标题 1”）。拼音库第一次打开时加载，加载完成前只按名称筛。筛不出项时菜单不显示，回车照常换行。
@@ -108,10 +109,11 @@ interface EditorEditing {
 23. **粘贴**：结果和 Ctrl+V 相同（文字与 HTML）。浏览器不给读剪贴板时给出通知，说明原因并建议用 Ctrl+V：接口不可用、权限被拒、剪贴板里没有文字（例如图片或文件）是三条不同的文字。
 24. **命令面板**：不带参数的编辑命令在 Markdown 编辑器活动时可选，条件不满足时不列出；执行结果与点按钮相同。
 25. **贡献的项**：显示与可用规则同 [`workbench.menus`](menus.md)；点了以后命令收到 `{address}`。
+26. **注音是一个整体**：加上或去掉格式（粗体、斜体、删除线、行内代码、文字颜色、高亮、上标、下标、链接、批注、清除格式，以及设新注音、去掉注音）时，只盖住一段注音的一部分，就连整段注音一起改，不把注音切成两段；不管是从按钮、菜单、快捷键还是 `**…**` 这类输入规则来的，都一样，与原来的改动在同一个撤销步里。行内代码排斥注音：盖住注音的一部分时整段注音变成代码。拖选经过注音时注音的小字不画成选中，复制出来的文字也不带它。已知限制：在注音中间带着存下的格式打字、往注音中间粘贴带格式的文字，注音照旧被切开。
 
 ## 状态与转换
 
-菜单状态都按控件实例算，没有持久化（工具栏显隐除外）。
+菜单状态都按控件实例算，没有持久化（工具栏显隐与颜色按钮记住的颜色除外）。
 
 时序与寿命：
 
@@ -122,7 +124,9 @@ interface EditorEditing {
 
 ## 副作用与数据
 
-动作的副作用就是编辑（进撤销历史，第 15 条的除外），写回规则见 [`workspace.markdown-dialect`](../workspace/markdown-dialect.md)。设置 `nbook.editor/markdownToolbar` 随设置保存。
+动作的副作用就是编辑（进撤销历史，第 15 条的除外），写回规则见 [`workspace.markdown-dialect`](../workspace/markdown-dialect.md)。设置 `nbook.editor/markdownToolbar` 随设置保存。卡片开着时画出的选区不是编辑，不进撤销历史，不写进文件。
+
+颜色按钮记住的颜色（输出 1）存在用户级、只在本机的记录 `markdown.colors`（`nbook.markdown` 拥有，第 1 版，`{text?: string, highlight?: string}`，值是 `#rrggbb`），不进作品目录。记录读不出或已损坏时按缺省颜色，这时选了颜色也不记（存储不覆盖读不出的记录）；保存失败或结果未知时只改这次运行里的显示，不重试也不提示（这是偏好，不是要用户处理的数据）；应用没装存储服务时只在这次运行里记住。
 
 ## 失败与恢复
 
@@ -147,6 +151,9 @@ interface EditorEditing {
 4. Given 拖动手柄后按 Esc 取消，When 从别的页面拖一段文字进编辑器，Then 插入的是这段文字，旧块与选区不动。
 5. Given 带批注的段落，When 全选后清除格式，Then 批注还在；When 创建副本，Then 两块都有批注，写回能读回。
 6. Given 测试插件往五个位置各贡献一条，When 打开各菜单，Then 都排在内置项之后，点了收到 `{address}`；When 入口停止，Then 都不再显示。
+7. Given 段落“前文注音后文”，“注音”两字带注音，When 用鼠标从两字中间拖到“后”之后，Then 选中的文字里没有注音的小字；When 按 Ctrl+B 并保存，Then 文件里是一个注音，粗体盖住整段注音与“后”。
+8. Given 段落里一段带注音的文字，When 点注音的小字，Then 卡片预填原来的注音、正文里整段注音画成选中、选区菜单不显示；When 把卡片里的字清空再回车，Then 注音不变；When 再打开并点“移除注音”，Then 保存后文件里没有这个注音。
+9. Given 第一次用，When 选中文字点工具栏文字颜色的左半边，Then 文字是红色；When 用箭头打开色板，Then 选区菜单不显示；When 选蓝色、刷新页面、在另一份文档里选中文字点左半边，Then 文字是蓝色。
 
 Smoke：`e2e/markdown-editing.e2e.ts`。
 
@@ -158,10 +165,14 @@ Smoke：`e2e/markdown-editing.e2e.ts`。
 - 不变量：菜单状态按控件实例算，不写 ProseMirror 插件视图、不在扩展配置里捕获组件 DOM：换 `EditorState` 时 `plugins` 数组换了，插件视图全部重建（`markdown-editing.e2e.ts` 的“切标签回来”“组件重挂”）。
 - 不变量：内置菜单读自己控件的 `editing`，公开键只服务命令的 `when`、贡献项与命令面板，拆分后互不带偏（`markdown-editing.e2e.ts` 的“拆分后”）。
 - 不变量：块菜单的动作从选区反推块，容器与原子块用节点选区（`block-actions.dom.test.ts`）；拖动结束自己清 `view.dragging`（`markdown-editing.e2e.ts` 的拖动用例）。
+- 不变量：注音整体（输出 26）在注音语法自己的 ProseMirror 插件里补，按加标记、去标记的步认，不在各个命令上补：格式的入口有编辑动作、编辑内核自带的快捷键与输入规则，最后都落成这两种步（`nb-markdown/src/language/syntax/ruby/whole-ruby.ts`，`whole-ruby.dom.test.ts`）。
+- 不变量：卡片开着时“原来的选区仍画着”用 ProseMirror 装饰画（`nb-markdown/src/editor/held-selection.ts`），不靠 DOM 选区：焦点进了输入框，浏览器就不画正文的选区。装饰随编辑映射，不进撤销历史；`MarkdownControl` 换文档、存下 `EditorState` 之前先清掉，免得切回来时还画着（`held-selection.dom.test.ts`；换文档的那一条在 `MarkdownControl.dom.test.ts` 的“换到别的文档再换回来”）。
+- 不变量：选区菜单自己打开的一层（色板、块类型下拉）带 `data-markdown-menu-layer`，菜单按焦点在不在这一层里判断“焦点在菜单里”；工具栏打开的同一组件不带这个标记（`MarkdownColorButton`、`MarkdownBlockTypeMenu` 的 `inSelectionMenu`）。块类型下拉与颜色按钮由工具栏与选区菜单共用一份组件。
+- 颜色记录 `markdown.colors` 由 `markdown/web/colors.ts` 定义，插件激活时按可选依赖取存储服务，取不到用只在内存里的一份；组件经注入取用。卡片里的输入框是 nb-ui `Input` 的 `variant="bare"`。
 
 ## 证据
 
-- 批准依据：开发者 2026-10-20、2026-11-05 的决定，记在主工作区 master 的 `.agents/works/w00025-editor/tasks/t08-editing-menus/README.md` 决定 1–15。
-- 实现入口：[`editor/web/editing-commands.ts`](../../../packages/neuro-book/src/plugins/editor/web/editing-commands.ts)、[`editor/shared/editing.ts`](../../../packages/neuro-book/src/plugins/editor/shared/editing.ts)、[`markdown/web/components/menus/MarkdownMenus.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownMenus.vue)、[`nb-markdown/src/editor/editing-actions.ts`](../../../packages/nb-markdown/src/editor/editing-actions.ts)、[`nb-markdown/src/editor/block-actions.ts`](../../../packages/nb-markdown/src/editor/block-actions.ts)
-- 合同测试：[`editing-commands.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/editing-commands.test.ts)、[`editing-actions.dom.test.ts`](../../../packages/nb-markdown/src/editor/editing-actions.dom.test.ts)、[`block-actions.dom.test.ts`](../../../packages/nb-markdown/src/editor/block-actions.dom.test.ts)、[`slash-trigger.dom.test.ts`](../../../packages/nb-markdown/src/editor/slash-trigger.dom.test.ts)、[`clipboard.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/clipboard.dom.test.ts)
+- 批准依据：开发者 2026-10-20、2026-11-05 的决定，记在主工作区 master 的 `.agents/works/w00025-editor/tasks/t08-editing-menus/README.md` 决定 1–15；2026-11-10、2026-11-11 的决定（选区菜单、注音卡片、颜色拆分按钮），记在 `.agents/works/w00025-editor/tasks/t20-selection-menu-polish/README.md` 决定 1–5。
+- 实现入口：[`editor/web/editing-commands.ts`](../../../packages/neuro-book/src/plugins/editor/web/editing-commands.ts)、[`editor/shared/editing.ts`](../../../packages/neuro-book/src/plugins/editor/shared/editing.ts)、[`markdown/web/components/menus/MarkdownMenus.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownMenus.vue)、[`nb-markdown/src/editor/editing-actions.ts`](../../../packages/nb-markdown/src/editor/editing-actions.ts)、[`nb-markdown/src/editor/block-actions.ts`](../../../packages/nb-markdown/src/editor/block-actions.ts)、[`nb-markdown/src/editor/held-selection.ts`](../../../packages/nb-markdown/src/editor/held-selection.ts)、[`nb-markdown/src/editor/ruby-text.ts`](../../../packages/nb-markdown/src/editor/ruby-text.ts)、[`markdown/web/colors.ts`](../../../packages/neuro-book/src/plugins/markdown/web/colors.ts)、[`markdown/web/components/menus/MarkdownColorButton.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownColorButton.vue)、[`markdown/web/components/menus/MarkdownBlockTypeMenu.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownBlockTypeMenu.vue)、[`markdown/web/components/menus/MarkdownTextPrompt.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.vue)
+- 合同测试：[`editing-commands.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/editing-commands.test.ts)、[`editing-actions.dom.test.ts`](../../../packages/nb-markdown/src/editor/editing-actions.dom.test.ts)、[`whole-ruby.dom.test.ts`](../../../packages/nb-markdown/src/language/syntax/ruby/whole-ruby.dom.test.ts)（输出 26）、[`held-selection.dom.test.ts`](../../../packages/nb-markdown/src/editor/held-selection.dom.test.ts)、[`ruby-text.dom.test.ts`](../../../packages/nb-markdown/src/editor/ruby-text.dom.test.ts)（输出 9）、[`MarkdownTextPrompt.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.dom.test.ts)（输出 9）、[`block-actions.dom.test.ts`](../../../packages/nb-markdown/src/editor/block-actions.dom.test.ts)、[`slash-trigger.dom.test.ts`](../../../packages/nb-markdown/src/editor/slash-trigger.dom.test.ts)、[`clipboard.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/clipboard.dom.test.ts)
 - Smoke：[`markdown-editing.e2e.ts`](../../../packages/neuro-book/e2e/markdown-editing.e2e.ts)

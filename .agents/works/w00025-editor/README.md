@@ -24,6 +24,6 @@ t02 之后的 Task 叠在一条线上：t03 从 t02 的分支 `feat/w00025-t02-e
 
 - t04、t05 在分支 `feat/w00025-editor` 上完成，2026-11-10 合入 master（快进到 `de519d6f9`），worktree 与分支已删；不 push。t13 两轮设计评审已定，下一步写 Spec 与计划。
 - 照推荐先做、等追认的决定：[待确认清单](pending-confirmations.md)。
-- 2026-11-10 开发者试用 t04、t05 后提了选区菜单、注音、菜单动效与源码编辑器底色的问题，建 [t20](tasks/t20-selection-menu-polish/README.md)：要看外观的三项出静态稿评审，其余直接修。开发者在场，这一段不按 autonomous-delivery 推进。
+- 2026-11-10 开发者试用 t04、t05 后提了选区菜单、注音、菜单动效与源码编辑器底色的问题，建 [t20](tasks/t20-selection-menu-polish/README.md)：要看外观的三项出静态稿评审，其余直接修。开发者在场，这一段不按 autonomous-delivery 推进。2026-11-11 两段都做完、审查处理完，合入 master（`ad53fd721`）。
 - t02 到 t19 的状态以各 Task README 与 `nbdev status --work w00025` 为准；t19 已撤销，由 [w00041](../w00041-themes-and-backgrounds/README.md) 重做。
 
