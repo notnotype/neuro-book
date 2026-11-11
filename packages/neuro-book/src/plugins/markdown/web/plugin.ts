@@ -79,11 +79,12 @@ export const markdownBrowserPlugin: PluginDefinition = {
                 diagnostics.record({level: "warn", event: "markdown.dialect.inactive", message, ...(error === undefined ? {} : {error}), data: {dialect: id, code}, source: {plugin: descriptor.id}});
             });
             const assets = createAssetUrls(context.services.require(filesKey));
+            // 在等存储服务之前登记：等的时候入口就可能被停止，之后登记的监听等不到这次 abort。
+            context.signal.addEventListener("abort", () => assets.dispose(), {once: true});
             const report: MarkdownReport = (event, message, error) => diagnostics.record({level: "warn", event, message, error, source: {plugin: descriptor.id}});
             const storage = await context.services.resolve(storageKey);
             const colors = storage.status === "resolved" ? colorsPort(markdownColorsStore.create(context, {storage: storage.instance, diagnostics})) : memoryColors();
             const host: Host = {catalog, assets, report, colors};
-            context.signal.addEventListener("abort", () => assets.dispose(), {once: true});
             // nb-markdown 的组件都经 `MarkdownHosted.vue` 挂上，拿到 nbook 的宿主（目标分类、文件图标、语言与诊断）。
             const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component =>
                 withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component});

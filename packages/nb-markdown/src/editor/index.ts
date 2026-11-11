@@ -8,7 +8,7 @@ export type {BlockKind, BlockTarget} from "./block-actions";
 export {markdownEditingActions} from "./editing-actions";
 export type {EditingAction, EditingArgs} from "./editing-actions";
 export {holdSelection, releaseSelection} from "./held-selection";
-export {selectRubyAt} from "./ruby-text";
+export {selectRubyAt, selectedRubyText} from "./ruby-text";
 export {createMarkdownEditorExtensions} from "./markdown-editor-extensions";
 export {activeSlash, dismissSlash, markdownSlashKey, removeSlashQuery} from "./slash-trigger";
 export type {SlashMatch} from "./slash-trigger";

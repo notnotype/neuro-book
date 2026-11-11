@@ -2,12 +2,12 @@
 /** Markdown 编辑器的固定工具栏（同名 .md）。 */
 import {DropdownMenu, IconButton, Toolbar} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
-import {computed, inject, onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
 
 import {EDITING_ACTIONS, EDITOR_TOOLBAR_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
-import {markdownColorsKey} from "../../colors";
+import {useMarkdownColors} from "../../colors";
 import {blockMenuItems} from "./block-menu";
 import MarkdownBlockTypeMenu from "./MarkdownBlockTypeMenu.vue";
 import MarkdownColorButton from "./MarkdownColorButton.vue";
@@ -17,7 +17,7 @@ import type {PaletteColor} from "./palette";
 const props = defineProps<{editing: EditorEditing; menus: EditorMenus; readonly: boolean}>();
 const emit = defineEmits<{(event: "prompt", action: "ruby" | "bilingual"): void; (event: "refocus"): void}>();
 
-const remembered = inject(markdownColorsKey, null);
+const remembered = useMarkdownColors();
 
 /** 版面用的定值：`IconButton` 的 `sm` 是 26px，按钮之间 gap 2px，分隔线连两侧 9px，“⋯”占一个按钮；颜色按钮多一个 14px 的箭头。 */
 const BUTTON = 28;
@@ -172,7 +172,7 @@ function onMore(id: string): void {
         const [, action, color] = id.split(":") as [string, "text-color" | "highlight", string];
         props.menus.run(action, {color: color === "" ? null : color});
         // 与颜色按钮的色板一样记住，宽了以后按钮上是这次的颜色。
-        if (color !== "") remembered?.remember(action, color);
+        if (color !== "") remembered.remember(action, color);
     }
     else if (id === "ruby" || id === "bilingual") emit("prompt", id);
     else props.menus.run(id as EditingActionId);

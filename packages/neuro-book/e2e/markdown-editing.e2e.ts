@@ -266,13 +266,20 @@ test.describe("选区菜单", () => {
         await expect.poll(() => disk("notes/selection-block.md")).toBe("## 第一段文字\n");
     });
 
-    test("高亮是拆分按钮：左半边第一次是黄色；色板开着时菜单留着，选了记住（输出 6）", async ({page}) => {
+    test("高亮是拆分按钮：左半边第一次是黄色，色板里点已选的黄色也上色；色板开着时菜单留着，选了记住（输出 6）", async ({page}) => {
         await openFile(page, "notes/selection-highlight.md", "一二三\n");
         await focusFirst(page);
         await page.keyboard.press("Control+a");
         const bar = selectionMenu(page).locator("[data-markdown-color-bar]").nth(1);
         await expect(bar).toHaveCSS("background-color", "rgb(254, 249, 195)");
-        await selectionMenu(page).getByRole("button", {name: "选择高亮颜色"}).click();
+        const palette = selectionMenu(page).getByRole("button", {name: "选择高亮颜色"});
+        // 色板里标着已选的是上次的颜色（第一次是黄色）：点它照样上色、色板收起。
+        await palette.click();
+        await page.locator("[data-color-swatch=\"#fef9c3\"]").click();
+        await expect(page.locator("[data-color-swatch=\"#fef9c3\"]")).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-highlight.md")).toBe("<mark style=\"background-color: #fef9c3\">一二三</mark>\n");
+        await palette.click();
         await expect(selectionMenu(page)).toBeVisible();
         await page.locator("[data-color-swatch=\"#dbeafe\"]").click();
         await expect(prose(page)).toBeFocused();
@@ -398,6 +405,24 @@ test.describe("选区菜单", () => {
         await expect(input).toHaveCount(0);
         await page.keyboard.press("Control+s");
         await expect.poll(() => disk("notes/selection-ruby-edit.md")).toBe("前注音后\n");
+    });
+
+    test("卡片开着时点另一段注音的小字：卡片换到那一段、重新预填，读音相同也一样（输出 9）", async ({page}) => {
+        await openFile(page, "notes/selection-ruby-switch.md", "<ruby text=\"lín\">林</ruby>和<ruby text=\"lín\">霖</ruby>\n");
+        const input = page.getByRole("textbox", {name: "注音"});
+        const rubies = prose(page).locator(".nb-ruby-text");
+        await rubies.nth(0).click();
+        await expect(input).toHaveValue("lín");
+        await input.fill("改了一半");
+        await rubies.nth(1).click();
+        await expect(input).toBeFocused();
+        await expect(input).toHaveValue("lín");
+        await expect(prose(page).locator(".nb-markdown-held-selection")).toHaveText("霖");
+        await input.fill("lín2");
+        await page.keyboard.press("Enter");
+        await expect(input).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-ruby-switch.md")).toBe("<ruby text=\"lín\">林</ruby>和<ruby text=\"lín2\">霖</ruby>\n");
     });
 
     test("注音是一个整体：拖选不带注音小字，从注音中间加粗时整段注音一起加粗（输出 26、场景 7）", async ({page}) => {

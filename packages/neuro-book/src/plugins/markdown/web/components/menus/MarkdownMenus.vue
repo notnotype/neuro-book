@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** Markdown 控件的菜单层（同名 .md）：工具栏之外的浮动菜单与它们共用的输入弹层。 */
-import {holdSelection, releaseSelection, removeSlashBlock, selectRubyAt} from "@notnotype/nb-markdown/editor";
+import {holdSelection, releaseSelection, removeSlashBlock, selectedRubyText, selectRubyAt} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
@@ -26,15 +26,18 @@ const prompting = ref<"ruby" | "bilingual" | null>(null);
 /** 卡片里预填的文字与有没有“移除注音”：按打开那一刻的选区算（输出 9）。 */
 const promptInitial = ref("");
 const promptRemovable = ref(false);
+/** 每打开一次加一：卡片开着时换到另一段注音，读音相同也要清掉写了一半的字。 */
+const promptSession = ref(0);
 
 function openPrompt(action: "ruby" | "bilingual"): void {
     const editor = props.editor;
     if (editor === null) return;
     const hasRuby = action === "ruby" && props.editing.active("ruby");
-    const text: unknown = hasRuby ? editor.getAttributes("markdownRuby").text : "";
-    promptInitial.value = typeof text === "string" ? text : "";
+    promptInitial.value = hasRuby ? selectedRubyText(editor) ?? "" : "";
     promptRemovable.value = hasRuby;
-    // 卡片开着时又点了一段注音的小字：卡片留着，高亮换到新的选区。
+    promptSession.value += 1;
+    // 卡片开着时又点了一段注音的小字：卡片留着，高亮换到新的选区。新选区是空的（双语只要光标）时 `holdSelection` 不画，
+    // 所以先撤掉旧的。
     if (prompting.value !== null) {
         releaseSelection(editor);
         holdSelection(editor);
@@ -50,10 +53,14 @@ watch(prompting, (now, before) => {
     else if (now === null) releaseSelection(editor);
 }, {flush: "sync"});
 
-/** 点注音小字：选中这段注音，打开修改（输出 9）。按下就处理、不让浏览器再处理这次按下：小字里放不下光标。 */
+/**
+ * 点注音小字：选中这段注音，打开修改（输出 9）。按下就处理、不让浏览器再处理这次按下：小字里放不下光标。带修饰键的按下
+ * （Shift 扩展选区、macOS 上 Ctrl 加点是右键）照常交给浏览器与编辑器。
+ */
 function onPointerDown(event: PointerEvent): void {
     const editor = props.editor;
-    if (editor === null || props.readonly || event.button !== 0 || !selectRubyAt(editor, event.target)) return;
+    if (editor === null || props.readonly || event.button !== 0) return;
+    if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || !selectRubyAt(editor, event.target)) return;
     event.preventDefault();
     openPrompt("ruby");
 }
@@ -144,6 +151,7 @@ defineExpose({
     />
     <MarkdownTextPrompt
         :open="prompting !== null"
+        :session="promptSession"
         :anchor="anchor"
         :label="promptLabel"
         :confirm-label="props.menus.label('promptConfirm')"

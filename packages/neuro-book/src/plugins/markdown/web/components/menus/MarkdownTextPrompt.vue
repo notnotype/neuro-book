@@ -5,13 +5,13 @@ import {nextTick, ref, useTemplateRef, watch} from "vue";
 
 import type {PopoverAnchor} from "./selection-anchor";
 
-const props = defineProps<{open: boolean; anchor: PopoverAnchor | null; label: string; confirmLabel: string; initial?: string; removeLabel?: string}>();
+/** `session`：宿主每打开一次就加一，开着时换到另一段也算；预填相同（同一个读音）时也要重来，所以不按预填的文字判断。 */
+const props = defineProps<{open: boolean; session: number; anchor: PopoverAnchor | null; label: string; confirmLabel: string; initial?: string; removeLabel?: string}>();
 const emit = defineEmits<{(event: "submit", text: string): void; (event: "cancel"): void; (event: "dismiss"): void; (event: "remove"): void}>();
 
 const value = ref("");
 const box = useTemplateRef<HTMLElement>("box");
-// 开着时换了预填（宿主换到另一段注音）也重来一遍。
-watch(() => [props.open, props.initial] as const, async ([open]) => {
+watch(() => [props.open, props.session] as const, async ([open]) => {
     if (!open) return;
     value.value = props.initial ?? "";
     await nextTick();
@@ -33,11 +33,13 @@ function confirm(): void {
     else emit("submit", text);
 }
 
+/** 组字中的回车与 Esc 归输入法（选候选、取消候选）。回车只在输入框里算确定：焦点在按钮上时回车是那个按钮的动作。 */
 function onKeydown(event: KeyboardEvent): void {
+    if (event.isComposing) return;
     if (event.key === "Escape") {
         event.preventDefault();
         emit("cancel");
-    } else if (event.key === "Enter" && !event.isComposing) {
+    } else if (event.key === "Enter" && event.target instanceof HTMLInputElement) {
         event.preventDefault();
         confirm();
     }

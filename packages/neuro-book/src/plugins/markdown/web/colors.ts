@@ -4,7 +4,7 @@
  * 期间只改显示。这只是偏好，不是要用户处理的数据，不重试也不提示。
  */
 
-import {reactive} from "@vue/reactivity";
+import {inject, reactive} from "vue";
 import type {InjectionKey} from "vue";
 import {Type} from "typebox";
 
@@ -71,4 +71,10 @@ export function memoryColors(): MarkdownColors {
             colors[FIELD[action]] = value;
         },
     };
+}
+
+/** 组件里取记住的颜色。没有注入时几处共用一份内存里的，工具栏与选区菜单仍记同一个颜色。 */
+let unprovided: MarkdownColors | null = null;
+export function useMarkdownColors(): MarkdownColors {
+    return inject(markdownColorsKey, null) ?? (unprovided ??= memoryColors());
 }

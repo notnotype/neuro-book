@@ -1,18 +1,18 @@
 <script setup lang="ts">
 /** 文字颜色或高亮的拆分按钮（同名 .md）：左半边用上次的颜色，箭头开色板。工具栏与选区菜单共用。 */
 import {ColorSwatches, IconButton, Popover} from "@notnotype/nb-ui/components";
-import {computed, inject, ref} from "vue";
+import {computed, ref} from "vue";
 
 import {EDITING_ACTIONS} from "nbook/plugins/editor/shared/contracts";
 import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
-import {markdownColorsKey, memoryColors} from "../../colors";
+import {useMarkdownColors} from "../../colors";
 import {HIGHLIGHT_COLORS, TEXT_COLORS} from "./palette";
 
 /** `inSelectionMenu`：放在选区菜单里；色板开着时选区菜单留着（它按 `data-markdown-menu-layer` 认自己的浮层）。 */
 const props = defineProps<{action: "text-color" | "highlight"; editing: EditorEditing; menus: EditorMenus; readonly: boolean; inSelectionMenu?: boolean}>();
 
-const remembered = inject(markdownColorsKey, null) ?? memoryColors();
+const remembered = useMarkdownColors();
 const open = ref(false);
 const colors = computed(() => (props.action === "text-color" ? TEXT_COLORS : HIGHLIGHT_COLORS).map((color) => color.value));
 const last = computed(() => remembered.last(props.action));
@@ -53,7 +53,7 @@ function pick(color: string | null): void {
                     :columns="5"
                     size="sm"
                     :label="props.menus.title(props.action)"
-                    @update:model-value="pick"
+                    @pick="pick"
                 />
             </div>
         </Popover>

@@ -43,14 +43,17 @@ describe("phase 2 form control contracts", () => {
     });
 
     // 外框与聚焦光晕都出自表单控件基座 `.nb-ui-control`（styles.css）；happy-dom 不算分层样式，外观在浏览器里看，这里只守来源。
-    it("variant bare 的两个分支都不挂字段外框，出错时仍报给读屏", async () => {
+    it("variant bare 的两个分支都不挂字段外框、没有左右内边距（文字与容器的内边距对齐），出错时仍报给读屏", async () => {
         const plain = mount(Input, {props: {modelValue: "zhù yīn", variant: "bare", invalid: true}});
+        const small = mount(Input, {props: {modelValue: "", variant: "bare", size: "sm"}});
         const decorated = mount(Input, {props: {modelValue: "", variant: "bare", clearable: true}, slots: {suffix: "<span>✓</span>"}});
         const framed = mount(Input, {props: {modelValue: ""}});
         expect(framed.classes()).toContain("nb-ui-control");
-        for (const root of [plain, decorated]) {
+        expect(framed.classes()).toContain("nb-ui-control-px");
+        for (const root of [plain, small, decorated]) {
             expect(root.classes()).not.toContain("nb-ui-control");
             expect(root.classes()).not.toContain("border");
+            expect(root.classes().filter((name) => name === "nb-ui-control-px" || name.startsWith("px-"))).toEqual([]);
         }
         expect(plain.get("input").attributes("aria-invalid")).toBe("true");
         await plain.get("input").setValue("lín xī");

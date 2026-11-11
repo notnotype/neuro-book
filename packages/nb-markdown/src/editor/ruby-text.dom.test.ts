@@ -1,9 +1,9 @@
-/** 点注音小字选中整段注音（docs/specs/workbench/markdown-editing.md 输出 9）：真实语言与真实 Tiptap 画出的 DOM。 */
+/** 点注音小字选中整段注音、卡片预填的读音（docs/specs/workbench/markdown-editing.md 输出 9）：真实语言与真实 Tiptap 画出的 DOM。 */
 import {Editor} from "@tiptap/core";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {codecFor, defaultMarkdownLanguage} from "../language";
-import {selectRubyAt} from "./ruby-text";
+import {selectedRubyText, selectRubyAt} from "./ruby-text";
 
 const editors: Editor[] = [];
 afterEach(() => {
@@ -50,5 +50,26 @@ describe("点注音小字", () => {
         expect(selectRubyAt(editor, editor.view.dom.querySelector(".nb-ruby-base"))).toBe(false);
         expect(selectRubyAt(editor, null)).toBe(false);
         expect(editor.state.selection.empty).toBe(true);
+    });
+});
+
+describe("卡片预填的读音", () => {
+    it("选区盖住一段注音（只盖一部分也算）、光标在注音中间：是这段的读音；碰不到注音：null", () => {
+        const editor = open("前<ruby text=\"lín xī\">林汐</ruby>后\n");
+        editor.commands.setTextSelection({from: 1, to: 3});
+        expect(selectedRubyText(editor)).toBe("lín xī");
+        editor.commands.setTextSelection(3);
+        expect(selectedRubyText(editor)).toBe("lín xī");
+        editor.commands.setTextSelection({from: 4, to: 5});
+        expect(selectedRubyText(editor)).toBeNull();
+    });
+
+    it("碰到几段注音：读音都相同时是这个读音，有不同的读音时是 null（不拿其中一段的去覆盖全部）", () => {
+        const same = open("<ruby text=\"lín\">林</ruby>和<ruby text=\"lín\">霖</ruby>\n");
+        same.commands.selectAll();
+        expect(selectedRubyText(same)).toBe("lín");
+        const different = open("<ruby text=\"a\">甲</ruby>和<ruby text=\"b\">乙</ruby>\n");
+        different.commands.selectAll();
+        expect(selectedRubyText(different)).toBeNull();
     });
 });

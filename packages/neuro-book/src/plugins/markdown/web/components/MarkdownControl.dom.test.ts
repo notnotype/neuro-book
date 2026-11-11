@@ -9,7 +9,7 @@ import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
-import {computed, nextTick} from "vue";
+import {computed, defineComponent, h, nextTick, shallowRef} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
@@ -19,7 +19,7 @@ import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 
-import {markdownEditingActions} from "@notnotype/nb-markdown/editor";
+import {holdSelection, markdownEditingActions} from "@notnotype/nb-markdown/editor";
 
 import {EDITING_ACTIONS, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
@@ -334,6 +334,47 @@ describe("结算（同一文档的几个控件）", () => {
         if (document === null) throw new Error("没有文档");
         first.area.documents.settle(document);
         expect(first.binding.unresolved() !== second.binding.unresolved()).toBe(true);
+    });
+});
+
+describe("换文档（“状态与转换”）", () => {
+    it("注音卡片开着时画的选区高亮不随编辑状态存下：换到别的文档再换回来，正文里没有残留（markdown-editing 输出 9）", async () => {
+        const memory = createMemoryFiles({project: [["a.md", "甲乙\n"], ["b.md", "丙\n"]], user: []});
+        const area = createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
+            throw error;
+        }});
+        cleanups.push(() => memory.dispose());
+        cleanups.push(() => area.dispose());
+        const groupId = area.groups.activeGroup.value;
+        const read = async (path: string, text: string): Promise<TextEditorBinding> => {
+            area.open(`project://${path}`, {mode: "permanent", editor: MARKDOWN_EDITOR});
+            return waitUntil(`${path} 读到`, () => {
+                const found = area.binding(groupId);
+                return found?.kind === "text" && found.text.value === text && area.documentOf(groupId)?.status.value === "ready" ? found : null;
+            });
+        };
+        const a = await read("a.md", "甲乙\n");
+        const b = await read("b.md", "丙\n");
+        area.open("project://a.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
+        const windowText = createHostTextEngine({locale: "zh-CN", strict: true});
+        windowText.register("nbook.markdown", markdownCatalogs.catalogs, markdownCatalogs.source);
+        // 与 EditorGroup 一样，换标签时绑定与实例槽一起换。不用 setProps：绑定里有 ref，测试工具把这样的属性另存，setProps 改不到。
+        const current = shallowRef(a);
+        const wrapper = mount(defineComponent(() => () => h(MarkdownControl, {binding: current.value, host: area.tabControlSlot(current.value.tabId, MARKDOWN_EDITOR), readonly: false, visible: true, label: "a.md"})), {attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port}}});
+        cleanups.push(() => wrapper.unmount());
+        const editor = (area.tabControlSlot(a.tabId, MARKDOWN_EDITOR).state as {editor: Editor}).editor;
+        editor.commands.setTextSelection({from: 1, to: 3});
+        expect(holdSelection(editor)).toBe(true);
+        expect(document.querySelectorAll(".nb-markdown-held-selection")).toHaveLength(1);
+
+        // 焦点还在卡片里时换了文档（快捷键、文件被删、别处打开）：控件先存下这份的编辑状态，再换。
+        current.value = b;
+        await nextTick();
+        expect(editor.state.doc.textContent).toBe("丙");
+        current.value = a;
+        await nextTick();
+        expect(editor.state.doc.textContent).toBe("甲乙");
+        expect(document.querySelectorAll(".nb-markdown-held-selection")).toHaveLength(0);
     });
 });
 
