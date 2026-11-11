@@ -208,9 +208,13 @@ describe("重试（输出 6）", () => {
             throw new Error("later");
         }});
         rejecting.fail({message: "x"});
+        const seen = await pushes(client);
+        await pushed(w, seen, "第一份清单有两件", (latest) => latest.length === 2);
         expect(value(await client.retry({id: throwing.id}))).toBeNull();
         expect(value(await client.retry({id: rejecting.id}))).toBeNull();
         expect(await list(client)).toEqual([]);
+        // 发起方没登记新任务，移出旧行本身也要推到窗口。
+        await pushed(w, seen, "旧行移出推到窗口", (latest) => latest.length === 0);
         await waitUntil("两条重试失败的诊断", () => diagnostics(w, "tasks.retry-failed").length === 2);
     });
 
@@ -275,7 +279,25 @@ describe("输入（输入与前置条件）", () => {
         expect(() => w.tasks.start({title: {kind: "text", ns: "nbook.tasks", key: "k", params: {flag: true as unknown as string}}})).toThrow(TypeError);
         expect(() => w.tasks.start({title: {"zh-CN": "长".repeat(400), "en-US": "x"}})).toThrow(TypeError);
         expect(() => w.tasks.start({title: "ok", message: 42 as unknown as string})).toThrow(TypeError);
+        expect(() => w.tasks.start({title: "ok", retry: true as unknown as () => void})).toThrow(TypeError);
         expect(await list(client)).toHaveLength(1);
+    });
+
+    test("截短不切开代理对：第 200 个码元是高位代理时退一位", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const handle = w.tasks.start({title: `a${"😀".repeat(150)}`});
+        expect(item(await list(client), handle.id)?.title).toBe(`a${"😀".repeat(99)}`);
+    });
+
+    test("文字引用与语言映射存的是副本：发起方之后改手里的对象，清单不变", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const message = {kind: "text" as const, ns: "nbook.tasks", key: "progress", params: {count: 1} as Record<string, unknown>};
+        const handle = w.tasks.start({title: "a", message: message as never});
+        message.params.count = true;
+        handle.report({progress: 10});
+        expect(item(await list(client), handle.id)).toMatchObject({message: {kind: "text", ns: "nbook.tasks", key: "progress", params: {count: 1}}, progress: 10});
     });
 
     test("句柄方法的文字不合格：这次调用不起作用，记诊断", async () => {
@@ -286,6 +308,11 @@ describe("输入（输入与前置条件）", () => {
         handle.fail({message: {kind: "text", key: "no-namespace"}});
         expect(item(await list(client), handle.id)).toMatchObject({state: "running", message: "原来的", progress: null});
         await waitUntil("两条输入不合格的诊断", () => diagnostics(w, "tasks.invalid-input").length === 2);
+        // 参数不是对象、详情不是字符串：同样不起作用、不抛错。
+        handle.report(undefined as never);
+        handle.fail({message: "x", detail: 42 as unknown as string});
+        expect(item(await list(client), handle.id)).toMatchObject({state: "running", message: "原来的"});
+        await waitUntil("四条输入不合格的诊断", () => diagnostics(w, "tasks.invalid-input").length === 4);
         handle.report({message: {kind: "text", ns: "nbook.tasks", key: "progress", params: {count: 23}}});
         expect(item(await list(client), handle.id)?.message).toEqual({kind: "text", ns: "nbook.tasks", key: "progress", params: {count: 23}});
     });
@@ -316,6 +343,27 @@ describe("发起方停止（输出 5，验收 3）", () => {
         expect(await client.retry({id: failed.id})).toMatchObject({ok: false, code: "not-retryable"});
         expect(item(items, others.id)?.state).toBe("running");
         expect(await client.cancel({id: running.id})).toMatchObject({ok: false, code: "not-running"});
+    });
+});
+
+describe("整体关停（时序与寿命）", () => {
+    test("服务停止：订阅以 provider-stopped 结束、不再推送；在跑的 signal 以 interrupted abort，最后一份清单里仍是在跑", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const handle = w.tasks.start({title: "跑着的"});
+        const seen: TaskItem[][] = [];
+        const ended: string[] = [];
+        expect(await client.events.changed.subscribe({}, (items) => void seen.push(items), {onEnd: (reason) => void ended.push(reason)})).toMatchObject({ok: true});
+        await pushed(w, seen, "第一份清单", (latest) => item(latest, handle.id) !== undefined);
+        expect(await w.settings.hub.stop()).toMatchObject({status: "closed"});
+        await waitUntil("订阅结束", () => ended.length > 0);
+        expect(ended).toEqual(["provider-stopped"]);
+        expect(handle.signal.reason).toBe("interrupted");
+        const count = seen.length;
+        for (let step = 0; step < 4; step += 1) w.settings.clock.advance(PUSH_INTERVAL_MS);
+        expect(seen).toHaveLength(count);
+        expect(item(seen.at(-1)!, handle.id)?.state).toBe("running");
+        expect(diagnostics(w, "tasks.push-failed")).toEqual([]);
     });
 });
 

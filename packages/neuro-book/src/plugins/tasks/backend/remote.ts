@@ -12,18 +12,19 @@ import {PushThrottle} from "nbook/shared/push-throttle";
 
 import type {TaskItem, tasksContract} from "../shared/contracts";
 import {LIST_MAX_BYTES} from "./core";
-import type {TasksCore, TasksDiagnostic} from "./core";
+import type {Outcome, TasksCore, TasksDiagnostic} from "./core";
 
 export const PUSH_INTERVAL_MS = 250;
 
-const utf8 = new TextEncoder();
+/** 核心的结果原样交给远程调用方：失败码与原因不改写。 */
+const answer = <T, Code extends string>(result: Outcome<T, Code>) => (result.ok ? ok(result.value) : fail(result.code, {detail: result.detail}));
 
 export function tasksRemote(core: TasksCore, options: {readonly clock: RuntimeClock; readonly report: TasksDiagnostic}): RemoteImplementation<typeof tasksContract> {
     const {clock, report} = options;
     /** 整份清单；超过上限时交回 null 并记诊断。 */
     const bounded = (): TaskItem[] | null => {
         const items = core.list();
-        const bytes = utf8.encode(JSON.stringify(items)).length;
+        const bytes = Buffer.byteLength(JSON.stringify(items), "utf8");
         if (bytes <= LIST_MAX_BYTES) return items;
         report("list-too-large", `the task list is ${bytes} bytes, over ${LIST_MAX_BYTES}; it was not sent`, {bytes, tasks: items.length});
         return null;
@@ -34,22 +35,10 @@ export function tasksRemote(core: TasksCore, options: {readonly clock: RuntimeCl
                 const items = bounded();
                 return items === null ? fail("too-large", {detail: "the task list is too large to send"}) : ok(items);
             },
-            detail: ({id}) => {
-                const result = core.detail(id);
-                return result.ok ? ok(result.value) : fail(result.code, {detail: result.detail});
-            },
-            cancel: ({id}) => {
-                const result = core.cancel(id);
-                return result.ok ? ok(null) : fail(result.code, {detail: result.detail});
-            },
-            retry: ({id}) => {
-                const result = core.retry(id);
-                return result.ok ? ok(null) : fail(result.code, {detail: result.detail});
-            },
-            remove: ({id}) => {
-                const result = core.remove(id);
-                return result.ok ? ok(null) : fail(result.code, {detail: result.detail});
-            },
+            detail: ({id}) => answer(core.detail(id)),
+            cancel: ({id}) => answer(core.cancel(id)),
+            retry: ({id}) => answer(core.retry(id)),
+            remove: ({id}) => answer(core.remove(id)),
             clearFinished: () => ok({removed: core.clearFinished()}),
         },
         events: {

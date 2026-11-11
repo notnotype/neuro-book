@@ -9,7 +9,7 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 
 import {definitionAt} from "nbook/manifest";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
-import type {SettingsWorld} from "nbook/plugins/settings/testing/world";
+import type {SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
 
 import {tasksBackendPlugin} from "../backend/plugin";
 import {descriptor} from "../plugin";
@@ -34,6 +34,8 @@ export interface TasksWorld {
     owner(id: string): Promise<Owner>;
     /** 起一个窗口，交回它的远程客户端。 */
     window(id: string): Promise<TasksClient>;
+    /** 已起的窗口的链路：断线与重连（重连后订阅收到 `onResync`）。 */
+    link(id: string): Pick<WorldWindow, "disconnect" | "reconnect">;
     close(): Promise<void>;
 }
 
@@ -46,7 +48,8 @@ function ownerPlugin(id: string, take: (tasks: BackgroundTasks) => void, onStart
 
 export async function tasksWorld(root: string): Promise<TasksWorld> {
     let tasks: BackgroundTasks | null = null;
-    const probe = ownerPlugin("test.tasks-probe", (value) => {
+    const windows = new Map<string, WorldWindow>();
+    const probe = ownerPlugin("test.tasks-owner", (value) => {
         tasks = value;
     }, true);
     const settings = await settingsWorld(root, [definitionAt("server", descriptor, tasksBackendPlugin), probe]);
@@ -72,9 +75,14 @@ export async function tasksWorld(root: string): Promise<TasksWorld> {
                 captured = context;
                 return {};
             }})]};
-            await settings.window(id, [page], {bound: false});
+            windows.set(id, await settings.window(id, [page], {bound: false}));
             if (captured === null) throw new Error("the test page did not activate");
             return useTasks(captured);
+        },
+        link: (id) => {
+            const found = windows.get(id);
+            if (found === undefined) throw new Error(`no window ${id}`);
+            return found;
         },
         close: async () => {
             for (const result of await settings.close()) if (result.status !== "closed") throw new Error(`an instance did not close: ${JSON.stringify(result)}`);

@@ -96,6 +96,9 @@ function tooltipOf(entry: StripEntry): string | undefined {
     return entry.disabledReason ?? entry.tooltip ?? (entry.text === entry.title ? undefined : entry.title);
 }
 
+/** 有悬停内容时原生提示让位，`tooltip()` 的那句改作可访问描述：只有图标的条目，读屏也听得到它此刻的状态（输出 43）。 */
+const descriptionOf = (entry: StripEntry): string | undefined => (hoverOf(entry) === null ? undefined : (entry.tooltip ?? undefined));
+
 function iconClass(entry: StripEntry): (string | Record<string, boolean>)[] {
     return [entry.icon?.name ?? "", "workbench-item-strip__icon", {"workbench-item-strip__icon--spin": entry.icon?.spin === true, "workbench-item-strip__icon--muted": entry.icon?.muted === true}];
 }
@@ -122,6 +125,7 @@ function iconClass(entry: StripEntry): (string | Record<string, boolean>)[] {
                     :disabled="entry.disabledReason !== null"
                     :title="tooltipOf(entry)"
                     :aria-label="nameOf(entry)"
+                    :aria-description="descriptionOf(entry)"
                     :data-workbench-item="entry.id"
                     @click="emit('run', entry.id)"
                 >

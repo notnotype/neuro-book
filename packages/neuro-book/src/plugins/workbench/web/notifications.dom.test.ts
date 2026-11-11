@@ -261,4 +261,21 @@ describe("工作台通知服务", () => {
         expect(notifications.center.entries.value[0]?.detailTruncated).toBe(true);
         notifications.dispose();
     });
+
+    it("中心里的详情与弹出处同一个上限：超过 8000 码元截掉并注明；视图开着时只进中心也一样，update 也一样（输入）", () => {
+        const {notifications} = world();
+        const popped = notifications.notify({tone: "error", message: "装不上", detail: "x".repeat(9000)});
+        expect(notifications.center.entries.value[0]).toMatchObject({detailTruncated: true});
+        expect(notifications.center.entries.value[0]?.detail).toHaveLength(8000);
+        expect(notifications.queue.notifications.value[0]?.detail).toHaveLength(8000);
+        notifications.center.setVisible(true);
+        notifications.notify({tone: "error", message: "开着时到的", detail: "y".repeat(9000)});
+        expect(notifications.center.entries.value[0]?.detail).toHaveLength(8000);
+        expect(notifications.center.entries.value[0]?.detailTruncated).toBe(true);
+        popped.update({detail: "z".repeat(8500)});
+        const updated = notifications.center.entries.value.find((entry) => entry.id === popped.id);
+        expect(updated?.detail).toBe("z".repeat(8000));
+        expect(updated?.detailTruncated).toBe(true);
+        notifications.dispose();
+    });
 });

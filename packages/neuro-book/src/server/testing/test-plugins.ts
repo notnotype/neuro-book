@@ -250,7 +250,8 @@ function createTasksProbePlugin(): PluginDefinition {
                     .post("/:task/:method", async (c) => {
                         const handle = handles.get(c.req.param("task"));
                         if (handle === undefined) return c.json({error: "unknown task"}, 404);
-                        const body = await c.req.json<Record<string, never>>().catch(() => ({}));
+                        // 正文必须是 JSON（e2e 至少发 `{}`）：写坏的正文让请求失败，而不是静默当成空参数。
+                        const body = await c.req.json<Record<string, never>>();
                         switch (c.req.param("method")) {
                             case "report": handle.report(body); break;
                             case "succeed": handle.succeed((body as {message?: string}).message); break;

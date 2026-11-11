@@ -36,11 +36,12 @@ function fakeStore(initial: readonly TaskItem[]) {
     const items = shallowRef<readonly TaskItem[]>(initial);
     const calls: string[] = [];
     const visibility: boolean[] = [];
+    const unseen = shallowRef(false);
     const store: TasksStore = {
         items,
         running: computed(() => items.value.filter((item) => item.state === "running")),
         finished: computed(() => items.value.filter((item) => item.state !== "running")),
-        unseenFailure: computed(() => false),
+        unseenFailure: computed(() => unseen.value),
         setViewVisible: (visible) => void visibility.push(visible),
         cancel: async (id) => void calls.push(`cancel ${id}`),
         retry: async (id) => void calls.push(`retry ${id}`),
@@ -49,7 +50,7 @@ function fakeStore(initial: readonly TaskItem[]) {
         detail: async (id) => (id === "gone" ? null : {text: "bun install v1.4\nerror: ETIMEDOUT", truncated: true}),
         start: async () => undefined,
     };
-    return {store, items, calls, visibility};
+    return {store, items, calls, visibility, unseen};
 }
 
 function engine() {
@@ -151,5 +152,16 @@ describe("TasksHover", () => {
         text.setLocale("en-US");
         await nextTick();
         expect(wrapper.findAll(".tasks-hover__row")[0]!.text()).toContain("Background Tasks");
+    });
+
+    it("没有在跑的：不是空框，写条目的一句说明，有没看过的失败时换一句", async () => {
+        const {store, unseen} = fakeStore([task("t.done", {state: "failed", endedAt: NOW})]);
+        const text = engine();
+        const wrapper = mount(TasksHover, {props: {store}, global: {provide: provideText(text.port)}});
+        mounted.push(wrapper);
+        expect(wrapper.text()).toBe("后台任务：都结束了");
+        unseen.value = true;
+        await nextTick();
+        expect(wrapper.text()).toBe("后台任务：有没看过的失败");
     });
 });

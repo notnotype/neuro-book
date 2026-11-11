@@ -13,7 +13,7 @@
  */
 
 // 队列从不带 DOM 的子路径取：本文件与插件入口一起在无 DOM 的编译组里，composables 的总出口会把用到 window 的别的 composable 一起拉进来。
-import {createNotificationQueue, DEFAULT_NOTIFICATION_DURATION, hasNotificationDetail} from "@notnotype/nb-ui/notifications";
+import {createNotificationQueue, DEFAULT_NOTIFICATION_DURATION, hasNotificationDetail, notificationDetailFields} from "@notnotype/nb-ui/notifications";
 import type {NotificationQueue, NotificationTone as QueueTone} from "@notnotype/nb-ui/notifications";
 import {computed, shallowRef} from "@vue/reactivity";
 import type {ComputedRef, Ref} from "@vue/reactivity";
@@ -135,7 +135,6 @@ export function createNotifications(report: (message: string) => void, text: Pic
             counter += 1;
             const id = `notification-${String(counter)}`;
             const action = input.action === undefined ? undefined : guarded(id, input.action);
-            const detail = hasNotificationDetail(input.detail) ? input.detail : undefined;
             const entry: CenterEntry = {
                 id,
                 tone: input.tone ?? "info",
@@ -144,7 +143,8 @@ export function createNotifications(report: (message: string) => void, text: Pic
                 unread: !visible,
                 ...(input.title === undefined ? {} : {title: input.title}),
                 ...(action === undefined ? {} : {action}),
-                ...(detail === undefined ? {} : {detail, ...(input.detailTruncated === true ? {detailTruncated: true} : {})}),
+                // 中心另存一份：截断与“已截断”同队列一个规则（视图开着时不进队列，只有这一份）。
+                ...notificationDetailFields(input.detail, input.detailTruncated),
             };
             entries.value = [entry, ...entries.value].slice(0, CENTER_LIMIT);
             // 用户关掉、到时消失的只在队列里移除，这里看不到：每次发出时扫掉已不在队列里的对应关系，表不随会话变长。
@@ -176,7 +176,7 @@ export function createNotifications(report: (message: string) => void, text: Pic
                             ...(patch.action === undefined ? {} : {action: guarded(id, patch.action)}),
                         };
                         if (patch.detail !== undefined && !hasNotificationDetail(patch.detail)) entries.value = entries.value.map((item) => (item.id === id ? withoutDetail({...item, ...next}) : item));
-                        else patchEntry(id, {...next, ...(patch.detail === undefined ? {} : {detail: patch.detail, detailTruncated: patch.detailTruncated === true})});
+                        else patchEntry(id, {...next, ...(patch.detail === undefined ? {} : notificationDetailFields(patch.detail, patch.detailTruncated))});
                     }
                     const queueId = queued.get(id);
                     const current = queueId === undefined ? undefined : queue.notifications.value.find((item) => item.id === queueId);

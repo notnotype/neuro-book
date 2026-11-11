@@ -2,10 +2,11 @@
 /** “后台任务”视图（同名 .md）：所有窗口同一份清单；“看过”按窗口记，由这里在可见时上报给仓库。 */
 import {Button, DetailDialog, IconButton, Progress} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {computed, onBeforeUnmount, ref, watch} from "vue";
+import {computed, ref, useId} from "vue";
 
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import {fullTime, shortTime} from "nbook/shared/short-time";
+import {useForegroundVisibility} from "nbook/ui/foreground-visibility";
 
 import type {TaskItem, TaskState} from "../../shared/contracts";
 import {tasksText} from "../../shared/text";
@@ -28,17 +29,11 @@ const STATE_ICON: Readonly<Record<Exclude<TaskState, "running">, string>> = {
 };
 
 // 输出 13：视图有效可见、并且页面在前台才算看过；卸载时报不可见。
-const pageVisible = ref(document.visibilityState === "visible");
-const onVisibility = (): void => {
-    pageVisible.value = document.visibilityState === "visible";
-};
-document.addEventListener("visibilitychange", onVisibility);
-watch(() => props.context.visible.value && pageVisible.value, (visible) => props.store.setViewVisible(visible), {immediate: true});
-onBeforeUnmount(() => {
-    document.removeEventListener("visibilitychange", onVisibility);
-    props.store.setViewVisible(false);
-});
+useForegroundVisibility(props.context.visible, (visible) => props.store.setViewVisible(visible));
 
+/** 每行标题的 id 前缀：行里的按钮用 `aria-describedby` 指向标题，同名的“重试”“移除”读屏分得出是哪一件。 */
+const idPrefix = useId();
+const titleId = (item: TaskItem): string => `${idPrefix}-${item.id}`;
 
 /** 输出 10 的进展一列。 */
 function statusOf(item: TaskItem): string {
@@ -64,7 +59,7 @@ function timeOf(item: TaskItem): {readonly short: string; readonly full: string}
     };
 }
 
-/** 每行要显示的东西一次算好：清单变了才重算，时间也随之按此刻重算。 */
+/** 每行要显示的东西一次算好，清单变了才重算；时间按重算那一刻写，清单不变时不更新（不另开计时器）。 */
 const rows = computed(() => [...props.store.running.value, ...props.store.finished.value].map((item) => ({item, status: statusOf(item), time: timeOf(item)})));
 
 const detail = ref<{readonly title: string; readonly text: string; readonly truncated: boolean} | null>(null);
@@ -87,7 +82,7 @@ async function openDetail(item: TaskItem): Promise<void> {
                     <span v-if="item.state === 'running'" class="i-lucide-loader-circle tasks-view__spin" role="img" :aria-label="port.t(tasksText('list.running'))"></span>
                     <span v-else :class="STATE_ICON[item.state]" aria-hidden="true"></span>
                 </span>
-                <span class="tasks-view__title" :title="port.t(item.title)">{{ port.t(item.title) }}</span>
+                <span :id="titleId(item)" class="tasks-view__title" :title="port.t(item.title)">{{ port.t(item.title) }}</span>
                 <span class="tasks-view__status" :title="status" data-task-status>{{ status }}</span>
                 <span class="tasks-view__progress">
                     <template v-if="item.state === 'running'">
@@ -97,12 +92,12 @@ async function openDetail(item: TaskItem): Promise<void> {
                 </span>
                 <span class="tasks-view__time" :title="time.full">{{ time.short }}</span>
                 <span class="tasks-view__actions">
-                    <Button v-if="item.state === 'running' && item.cancellable" size="sm" variant="ghost" focus-ring="inset" :disabled="item.cancelRequested" data-task-cancel @click="store.cancel(item.id)">{{ port.t(tasksText(item.cancelRequested ? "list.cancelling" : "list.cancel")) }}</Button>
-                    <Button v-if="item.retryable" size="sm" variant="ghost" focus-ring="inset" data-task-retry @click="store.retry(item.id)">{{ port.t(tasksText("list.retry")) }}</Button>
-                    <Button v-if="item.hasDetail" size="sm" variant="ghost" focus-ring="inset" data-task-detail @click="openDetail(item)">{{ port.t(tasksText("list.detail")) }}</Button>
+                    <Button v-if="item.state === 'running' && item.cancellable" size="sm" variant="ghost" focus-ring="inset" :disabled="item.cancelRequested" :aria-describedby="titleId(item)" data-task-cancel @click="store.cancel(item.id)">{{ port.t(tasksText(item.cancelRequested ? "list.cancelling" : "list.cancel")) }}</Button>
+                    <Button v-if="item.retryable" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(item)" data-task-retry @click="store.retry(item.id)">{{ port.t(tasksText("list.retry")) }}</Button>
+                    <Button v-if="item.hasDetail" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="titleId(item)" data-task-detail @click="openDetail(item)">{{ port.t(tasksText("list.detail")) }}</Button>
                 </span>
                 <span class="tasks-view__remove">
-                    <IconButton v-if="item.state !== 'running'" size="xs" focus-ring="inset" icon-class="i-lucide-x" :aria-label="port.t(tasksText('list.remove'))" :title="port.t(tasksText('list.remove'))" data-task-remove @click="store.remove(item.id)" />
+                    <IconButton v-if="item.state !== 'running'" size="xs" focus-ring="inset" icon-class="i-lucide-x" :aria-label="port.t(tasksText('list.remove'))" :title="port.t(tasksText('list.remove'))" :aria-describedby="titleId(item)" data-task-remove @click="store.remove(item.id)" />
                 </span>
             </li>
         </ul>
@@ -118,6 +113,8 @@ async function openDetail(item: TaskItem): Promise<void> {
     min-height: 0;
     overflow: auto;
     padding: var(--space-1) var(--space-2);
+    /* 窄时换排法看的是视图自己的宽度（底部面板可以很窄），不是窗口宽度。 */
+    container-type: inline-size;
 }
 
 /* 空的时候说明居中（输出 10）。 */
@@ -133,7 +130,7 @@ async function openDetail(item: TaskItem): Promise<void> {
     text-align: center;
 }
 
-/* 整个列表共用几列；标题与进展按 2 比 3 分剩下的宽度，标题至少 8 个字宽，窄时两列都截断。 */
+/* 整个列表共用几列；标题与进展按 2 比 3 分剩下的宽度，标题至少 8 个字宽，窄时两列都截断。不到 600px 宽的排法在文件末尾。 */
 .tasks-view__list {
     display: grid;
     grid-template-columns: 16px minmax(8em, 2fr) minmax(0, 3fr) 96px minmax(3.5em, max-content) max-content 24px;
@@ -250,5 +247,28 @@ async function openDetail(item: TaskItem): Promise<void> {
 .tasks-view__remove {
     display: flex;
     justify-content: center;
+}
+
+/*
+ * 视图不到 600px 宽（例如 390 宽的窗口）：一行放不下七列，进展会被挤成零宽、按钮伸出视图。每件改排两行：第一行图标、标题、
+ * 时间、按钮、移除，第二行在标题下面放进展，进度条在它右边。
+ */
+@container (max-width: 600px) {
+    .tasks-view__list {
+        grid-template-columns: 16px minmax(0, 1fr) minmax(3.5em, max-content) max-content 24px;
+        column-gap: var(--space-2);
+    }
+
+    .tasks-view__row {
+        padding-block: 2px;
+    }
+
+    .tasks-view__icon { grid-area: 1 / 1; }
+    .tasks-view__title { grid-area: 1 / 2; }
+    .tasks-view__time { grid-area: 1 / 3; }
+    .tasks-view__actions { grid-area: 1 / 4; }
+    .tasks-view__remove { grid-area: 1 / 5; }
+    .tasks-view__status { grid-area: 2 / 2 / 3 / 4; }
+    .tasks-view__progress { grid-area: 2 / 4 / 3 / 6; }
 }
 </style>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-/** 状态栏条目的悬停内容（同名 .md）：在跑的任务，每件两行。 */
+/** 状态栏条目的悬停内容（同名 .md）：在跑的任务，每件两行；没有在跑的时是条目的一句说明。 */
 import {Progress} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {tasksText} from "../../shared/text";
+import {statusSummary} from "../store";
 import type {TasksStore} from "../store";
 
 defineOptions({name: "TasksHover"});
@@ -16,7 +17,8 @@ const port = useText();
 </script>
 
 <template>
-    <span class="tasks-hover" data-tasks-hover>
+    <span v-if="store.running.value.length === 0" data-tasks-hover>{{ port.t(statusSummary(store)) }}</span>
+    <span v-else class="tasks-hover" data-tasks-hover>
         <span v-for="item in store.running.value" :key="item.id" class="tasks-hover__row">
             <span class="tasks-hover__title">{{ port.t(item.title) }}</span>
             <span class="tasks-hover__progress">

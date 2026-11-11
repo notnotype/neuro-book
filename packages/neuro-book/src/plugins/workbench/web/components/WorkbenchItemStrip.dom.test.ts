@@ -102,12 +102,13 @@ describe("WorkbenchItemStrip", () => {
         expect(failed.attributes("aria-label")).toBe("后台任务：1 个没有成功");
     });
 
-    it("有悬停内容时聚焦条目在提示框里显示加载的组件，按钮不再带 title（外壳四输出 43）", async () => {
+    it("有悬停内容时聚焦条目在提示框里显示加载的组件，按钮不再带 title，提示文字改作可访问描述（外壳四输出 43）", async () => {
         const Content = defineComponent({setup: () => () => h("span", "初始化 Skill epub-export · 正在安装 23 个包")});
         const wrapper = mount(WorkbenchItemStrip, {attachTo: document.body, props: {itemHeight: 20, align: "end", entries: [
             entry("t.running", "1 个任务", {title: "后台任务", command: SAVE, tooltip: "退回的文字", hover: hoverSource(async () => Content)}),
         ]}, global: {provide: provideText(workbenchTestText("zh-CN"))}});
         expect(wrapper.get('[data-workbench-item="t.running"]').attributes("title")).toBeUndefined();
+        expect(wrapper.get('[data-workbench-item="t.running"]').attributes("aria-description")).toBe("退回的文字");
         await vi.waitFor(async () => {
             expect(await openHover(wrapper, "t.running")).toBe("初始化 Skill epub-export · 正在安装 23 个包");
         }, {timeout: 5_000});

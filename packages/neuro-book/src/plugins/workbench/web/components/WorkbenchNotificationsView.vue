@@ -3,9 +3,10 @@
 import {hasNotificationDetail} from "@notnotype/nb-ui/notifications";
 import {Button, DetailDialog, IconButton} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {computed, onBeforeUnmount, ref, watch} from "vue";
+import {computed, ref, useId} from "vue";
 
 import {fullTime, shortTime} from "nbook/shared/short-time";
+import {useForegroundVisibility} from "nbook/ui/foreground-visibility";
 
 import {workbenchText} from "../../shared/text";
 import type {NotificationTone} from "../../shared/contracts";
@@ -29,16 +30,11 @@ const TONE_ICON: Readonly<Record<NotificationTone, string>> = {
 };
 
 // 输出 15、16：视图有效可见、并且页面在前台才算可见；卸载时报不可见，去书架页以后通知照常弹出。
-const pageVisible = ref(document.visibilityState === "visible");
-const onVisibility = (): void => {
-    pageVisible.value = document.visibilityState === "visible";
-};
-document.addEventListener("visibilitychange", onVisibility);
-watch(() => props.context.visible.value && pageVisible.value, (visible) => props.center.setVisible(visible), {immediate: true});
-onBeforeUnmount(() => {
-    document.removeEventListener("visibilitychange", onVisibility);
-    props.center.setVisible(false);
-});
+useForegroundVisibility(props.context.visible, (visible) => props.center.setVisible(visible));
+
+/** 每行文字的 id 前缀：行里的按钮用 `aria-describedby` 指向它，同名的“详情”“移除”读屏分得出是哪一条。 */
+const idPrefix = useId();
+const textId = (entry: CenterEntry): string => `${idPrefix}-${entry.id}`;
 
 const entries = computed(() => props.center.entries.value);
 
@@ -84,18 +80,20 @@ function openDetail(entry: CenterEntry): void {
                 :data-unread="entry.unread || undefined"
                 :data-notification-entry="entry.id"
             >
-                <span class="notifications-view__dot" :title="entry.unread ? port.t(workbenchText('notificationCenter.unread')) : undefined"></span>
+                <span class="notifications-view__dot" :title="entry.unread ? port.t(workbenchText('notificationCenter.unread')) : undefined">
+                    <span v-if="entry.unread" class="sr-only">{{ port.t(workbenchText("notificationCenter.unread")) }}</span>
+                </span>
                 <span class="notifications-view__icon" :class="TONE_ICON[entry.tone]" aria-hidden="true"></span>
-                <span class="notifications-view__text" :title="whole(entry)">
+                <span :id="textId(entry)" class="notifications-view__text" :title="whole(entry)">
                     <span v-if="titleOf(entry) !== ''" class="notifications-view__title">{{ titleOf(entry) }}</span>
                     <span class="notifications-view__message">{{ port.t(entry.message) }}</span>
                 </span>
                 <span class="notifications-view__time" :title="port.t(workbenchText('notificationCenter.sentAt', {time: fullTime(entry.at, port.locale.value)}))">{{ timeOf(entry) }}</span>
                 <span class="notifications-view__actions">
-                    <Button v-if="entry.action !== undefined" size="sm" variant="ghost" focus-ring="inset" data-notification-action @click="center.run(entry.id)">{{ port.t(entry.action.label) }}</Button>
-                    <Button v-if="hasNotificationDetail(entry.detail)" size="sm" variant="ghost" focus-ring="inset" data-notification-detail @click="openDetail(entry)">{{ port.t(workbenchText("notificationCenter.detail")) }}</Button>
+                    <Button v-if="entry.action !== undefined" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="textId(entry)" data-notification-action @click="center.run(entry.id)">{{ port.t(entry.action.label) }}</Button>
+                    <Button v-if="hasNotificationDetail(entry.detail)" size="sm" variant="ghost" focus-ring="inset" :aria-describedby="textId(entry)" data-notification-detail @click="openDetail(entry)">{{ port.t(workbenchText("notificationCenter.detail")) }}</Button>
                 </span>
-                <IconButton size="xs" focus-ring="inset" icon-class="i-lucide-x" :aria-label="port.t(workbenchText('notificationCenter.remove'))" :title="port.t(workbenchText('notificationCenter.remove'))" data-notification-remove @click="center.remove(entry.id)" />
+                <IconButton size="xs" focus-ring="inset" icon-class="i-lucide-x" :aria-label="port.t(workbenchText('notificationCenter.remove'))" :title="port.t(workbenchText('notificationCenter.remove'))" :aria-describedby="textId(entry)" data-notification-remove @click="center.remove(entry.id)" />
             </li>
         </ul>
         <DetailDialog v-if="detail !== null" v-model:open="detailOpen" :title="detail.title" :detail="detail.text" :truncated="detail.truncated" @closed="detail = null" />

@@ -140,6 +140,56 @@ describe("任务仓库", () => {
         expect(b.store.items.value.some((item) => item.id === first.id)).toBe(false);
     });
 
+    test("两次推送之间开始又失败、没有原文的任务照样发失败通知（输出 14 的“上一份里没有它”）", async () => {
+        const w = await world();
+        const {notifications} = await windowStore(w, "a");
+        const handle = w.tasks.start({title: "初始化 Skill docx"});
+        handle.fail({message: "registry 拒绝连接"});
+        await settled(w, "发出失败通知", () => notifications.sent.length === 1);
+        expect(notifications.sent[0]!.input).toMatchObject({tone: "error", title: "初始化 Skill docx", message: "registry 拒绝连接"});
+    });
+
+    test("视图可见时结束的任务立即算看过（输出 13）", async () => {
+        const w = await world();
+        const {store} = await windowStore(w, "a");
+        store.setViewVisible(true);
+        const handle = w.tasks.start({title: "初始化 Skill docx"});
+        await settled(w, "看到在跑", () => store.running.value.length === 1);
+        handle.fail({message: "超时"});
+        await settled(w, "看到失败", () => store.finished.value.length === 1);
+        expect(store.unseenFailure.value).toBe(false);
+    });
+
+    test("断线期间结束的任务：重连后重取到的清单只建基线、算看过，不发通知（输出 13、14）", async () => {
+        const w = await world();
+        const {store, notifications} = await windowStore(w, "a");
+        const handle = w.tasks.start({title: "初始化 Skill docx"});
+        await settled(w, "看到在跑", () => store.running.value.length === 1);
+        w.link("a").disconnect();
+        handle.fail({message: "超时"});
+        expect(await w.link("a").reconnect()).toMatchObject({ok: true});
+        await settled(w, "重连后看到失败", () => store.finished.value.length === 1);
+        expect(notifications.sent).toEqual([]);
+        expect(store.unseenFailure.value).toBe(false);
+        // 基线建好以后照常比较：之后结束的发通知。
+        w.tasks.start({title: "导出"}).succeed();
+        await settled(w, "之后的成功发通知", () => notifications.sent.length === 1);
+    });
+
+    test("订阅建好之前入口就停了：退订，不取清单、不再接收推送", async () => {
+        const w = await world();
+        const client = await w.window("a");
+        const store = createTasksStore(client, recorder(), () => undefined);
+        const stop = new AbortController();
+        stop.abort();
+        await store.start(stop.signal);
+        w.tasks.start({title: "导出"});
+        for (let step = 0; step < 4; step += 1) w.settings.clock.advance(PUSH_INTERVAL_MS);
+        // 同一条链路上的消息按序到达：这次调用的回应到了，之前排上的推送也都送到了。
+        expect((await client.list({})).ok).toBe(true);
+        expect(store.items.value).toEqual([]);
+    });
+
     test("在跑的按开始时刻、结束的按结束时刻，各自新的在前；取消与移除交给服务端", async () => {
         const w = await world();
         const {store} = await windowStore(w, "a");

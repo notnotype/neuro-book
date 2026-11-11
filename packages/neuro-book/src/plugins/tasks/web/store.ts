@@ -11,6 +11,7 @@ import {computed, shallowRef} from "@vue/reactivity";
 import type {ComputedRef, ShallowRef} from "@vue/reactivity";
 
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
+import type {Text} from "@notnotype/nb-ui/text";
 
 import type {NotificationHandle, Notifications} from "nbook/plugins/workbench/shared/contracts";
 
@@ -39,6 +40,16 @@ export interface TasksStore {
 
 const later = (time: string | null): number => (time === null ? 0 : Date.parse(time));
 
+/**
+ * 状态栏条目的一句说明：条目的 `tooltip()`（悬停内容加载失败时的退回、读屏的描述）与没有在跑的任务时的悬停内容都用它。
+ * 有在跑的写件数，都结束了写有没有没看过的失败（输出 12）。
+ */
+export function statusSummary(store: Pick<TasksStore, "running" | "unseenFailure">): Text {
+    const count = store.running.value.length;
+    if (count > 0) return tasksText("status.count", {count});
+    return tasksText(store.unseenFailure.value ? "status.failed" : "status.idle");
+}
+
 export function createTasksStore(remote: RemoteClient<typeof tasksContract>, notifications: Notifications, report: (message: string) => void): TasksStore {
     const items = shallowRef<readonly TaskItem[]>([]);
     const seen = shallowRef<ReadonlySet<string>>(new Set());
@@ -63,9 +74,13 @@ export function createTasksStore(remote: RemoteClient<typeof tasksContract>, not
             announced.set(item.id, notifications.notify({tone: "success", title: item.title, message: item.message ?? tasksText("outcome.succeeded")}));
             return;
         }
-        const detail = item.hasDetail ? await store.detail(item.id) : null;
-        // 取原文的这一会儿任务可能已离开清单：那就不发了，免得留下点不动的“重试”。
-        if (!items.value.some((entry) => entry.id === item.id)) return;
+        let detail: TaskDetail | null = null;
+        if (item.hasDetail) {
+            detail = await store.detail(item.id);
+            // 取原文的这一会儿任务可能已离开清单：那就不发了，免得留下点不动的“重试”。没有原文时不等待，这时 `accept`
+            // 还没把清单换成新的，不能拿它判断（两次推送之间开始又失败的任务在旧清单里没有）。
+            if (!items.value.some((entry) => entry.id === item.id)) return;
+        }
         announced.set(item.id, notifications.notify({
             tone: "error",
             title: item.title,
@@ -129,6 +144,11 @@ export function createTasksStore(remote: RemoteClient<typeof tasksContract>, not
             }});
             if (!subscription.ok) {
                 report(`tasks: subscribe failed: ${subscription.code}`);
+                return;
+            }
+            // 订阅还没建好时入口就停了：abort 已经派发过，后面挂的监听不会再触发。
+            if (signal.aborted) {
+                subscription.value.release();
                 return;
             }
             signal.addEventListener("abort", () => subscription.value.release(), {once: true});

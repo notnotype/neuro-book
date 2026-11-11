@@ -25,7 +25,7 @@ import {boundComponent} from "nbook/ui/bound-component";
 import {descriptor} from "../plugin";
 import {tasksContract} from "../shared/contracts";
 import {tasksText} from "../shared/text";
-import {createTasksStore} from "./store";
+import {createTasksStore, statusSummary} from "./store";
 
 export const TASKS_VIEW = "nbook.tasks.list";
 export const TASKS_STATUS_ITEM = "nbook.tasks.status";
@@ -108,7 +108,7 @@ export const tasksBrowserPlugin: PluginDefinition = {
                 },
                 // 有在跑的时候条目只表示进行中，失败由结束通知与视图承担。
                 state: () => (store.running.value.length === 0 && store.unseenFailure.value ? "error" : "normal"),
-                tooltip: () => tasksText(store.unseenFailure.value ? "status.failed" : "status.idle"),
+                tooltip: () => statusSummary(store),
                 hover: {load: async () => {
                     const TasksHover = (await import("./components/TasksHover.vue")).default;
                     return defineComponent({name: "TasksHoverBound", setup: () => () => h(TasksHover, {store})});
