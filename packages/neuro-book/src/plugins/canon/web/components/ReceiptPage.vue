@@ -52,10 +52,11 @@ const sectionTitle = (kind: string): string => text(kind === "create" ? "receipt
                         {{ text("receipt.revertOf") }}<template v-for="(item, index) in props.reverted" :key="item.id"><span v-if="index > 0">{{ text("value.listSeparator") }}</span><button type="button" class="text-[var(--accent-main)] hover:underline" @click="emit('receipt', item.id)">{{ item.title ?? text("revert.untitled") }}</button></template>
                     </p>
                 </div>
-                <div class="flex max-w-full flex-col items-end gap-1">
+                <!-- 宽屏在标题右边、靠右排；窄屏换到标题下面，靠左。 -->
+                <div class="flex max-w-full flex-col items-start gap-1 min-[481px]:items-end">
                     <Button size="sm" variant="secondary" :disabled="props.revertBlocked !== ''" @click="emit('revert')">{{ text("receipt.revert") }}</Button>
-                    <p v-if="props.revertBlocked !== ''" class="text-right text-[length:var(--text-xs)] text-[var(--text-muted)]" data-revert-blocked>{{ props.revertBlocked }}</p>
-                    <p v-else-if="props.dependents > 0" class="text-right text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ text("receipt.dependents", {count: props.dependents}) }}</p>
+                    <p v-if="props.revertBlocked !== ''" class="text-[length:var(--text-xs)] text-[var(--text-muted)] min-[481px]:text-right" data-revert-blocked>{{ props.revertBlocked }}</p>
+                    <p v-else-if="props.dependents > 0" class="text-[length:var(--text-xs)] text-[var(--text-muted)] min-[481px]:text-right">{{ text("receipt.dependents", {count: props.dependents}) }}</p>
                 </div>
             </header>
             <section v-for="section in props.model.sections" :key="section.kind" class="mt-5" :data-receipt-section="section.kind">
