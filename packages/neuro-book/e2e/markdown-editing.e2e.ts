@@ -270,7 +270,7 @@ test.describe("选区菜单", () => {
         await expect(selectionMenu(page)).toHaveCount(0);
     });
 
-    test("注音：选区菜单里输入，回车写回", async ({page}) => {
+    test("注音：选区菜单里打开卡片，写的时候选区仍画着，回车写回（输出 9）", async ({page}) => {
         await openFile(page, "notes/selection-ruby.md", "汉字\n");
         await focusFirst(page);
         await page.keyboard.press("Control+a");
@@ -278,10 +278,62 @@ test.describe("选区菜单", () => {
         await selectionMenu(page).getByRole("button", {name: "注音"}).click();
         const input = page.getByRole("textbox", {name: "注音"});
         await expect(input).toBeFocused();
+        await expect(input).toHaveValue("");
+        // 新加注音没有移除按钮。
+        await expect(page.locator("[data-markdown-text-prompt]").getByRole("button")).toHaveCount(1);
+        // 焦点在卡片里，浏览器不画正文的选区：正文自己画，与选区同色。
+        const held = prose(page).locator(".nb-markdown-held-selection");
+        await expect(held).toHaveText("汉字");
+        const colors = await held.evaluate((element) => {
+            const probe = document.createElement("div");
+            probe.style.backgroundColor = "var(--selection-bg)";
+            document.body.append(probe);
+            const expected = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return {actual: getComputedStyle(element).backgroundColor, expected};
+        });
+        expect(colors.actual).toBe(colors.expected);
         await input.fill("hàn zì");
         await page.keyboard.press("Enter");
+        await expect(held).toHaveCount(0);
         await page.keyboard.press("Control+s");
         await expect.poll(() => disk("notes/selection-ruby.md")).toBe("<ruby text=\"hàn zì\">汉字</ruby>\n");
+    });
+
+    test("已有注音：点注音小字打开修改；选中时注音按钮按下，卡片预填、可以移除；清空回车不移除（输出 9）", async ({page}) => {
+        await openFile(page, "notes/selection-ruby-edit.md", "前<ruby text=\"zhù yīn\">注音</ruby>后\n");
+        const input = page.getByRole("textbox", {name: "注音"});
+        const card = page.locator("[data-markdown-text-prompt]");
+        await prose(page).locator(".nb-ruby-text").click();
+        await expect(input).toBeFocused();
+        await expect(input).toHaveValue("zhù yīn");
+        await expect(prose(page).locator(".nb-markdown-held-selection")).toHaveText("注音");
+        await input.fill("zhuyin");
+        await card.getByRole("button", {name: "确定"}).click();
+        await expect(input).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-ruby-edit.md")).toBe("前<ruby text=\"zhuyin\">注音</ruby>后\n");
+
+        // 选区盖住注音的一部分也算有注音。
+        await focusFirst(page);
+        await page.keyboard.press("Home");
+        await page.keyboard.press("Shift+ArrowRight");
+        await page.keyboard.press("Shift+ArrowRight");
+        const rubyButton = selectionMenu(page).getByRole("button", {name: "注音"});
+        await expect(rubyButton).toHaveAttribute("aria-pressed", "true");
+        await rubyButton.click();
+        await expect(input).toHaveValue("zhuyin");
+        await input.fill("");
+        await page.keyboard.press("Enter");
+        await expect(input).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-ruby-edit.md")).toBe("前<ruby text=\"zhuyin\">注音</ruby>后\n");
+
+        await rubyButton.click();
+        await card.getByRole("button", {name: "移除注音"}).click();
+        await expect(input).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-ruby-edit.md")).toBe("前注音后\n");
     });
 
     test("注音是一个整体：拖选不带注音小字，从注音中间加粗时整段注音一起加粗（输出 26、场景 7）", async ({page}) => {

@@ -568,4 +568,9 @@ onBeforeUnmount(() => {
     color: var(--text-muted);
     pointer-events: none;
 }
+
+/* 可写时点注音小字打开修改（`menus/MarkdownMenus.md`）。 */
+.markdown-control :deep(.ProseMirror[contenteditable="true"] .nb-ruby-text) {
+    cursor: pointer;
+}
 </style>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /** Markdown 控件的菜单层（同名 .md）：工具栏之外的浮动菜单与它们共用的输入弹层。 */
-import {removeSlashBlock} from "@notnotype/nb-markdown/editor";
+import {holdSelection, releaseSelection, removeSlashBlock, selectRubyAt} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
-import {computed, ref, watch} from "vue";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
@@ -23,6 +23,49 @@ const props = defineProps<{
 }>();
 
 const prompting = ref<"ruby" | "bilingual" | null>(null);
+/** 卡片里预填的文字与有没有“移除注音”：按打开那一刻的选区算（输出 9）。 */
+const promptInitial = ref("");
+const promptRemovable = ref(false);
+
+function openPrompt(action: "ruby" | "bilingual"): void {
+    const editor = props.editor;
+    if (editor === null) return;
+    const hasRuby = action === "ruby" && props.editing.active("ruby");
+    const text: unknown = hasRuby ? editor.getAttributes("markdownRuby").text : "";
+    promptInitial.value = typeof text === "string" ? text : "";
+    promptRemovable.value = hasRuby;
+    // 卡片开着时又点了一段注音的小字：卡片留着，高亮换到新的选区。
+    if (prompting.value !== null) {
+        releaseSelection(editor);
+        holdSelection(editor);
+    }
+    prompting.value = action;
+}
+
+// 卡片开着时焦点在卡片里，浏览器不画正文的选区：画成高亮，关上时撤掉。换文档时控件存状态之前已经撤掉（`MarkdownControl` 的 leave）。
+watch(prompting, (now, before) => {
+    const editor = props.editor;
+    if (editor === null) return;
+    if (now !== null && before === null) holdSelection(editor);
+    else if (now === null) releaseSelection(editor);
+}, {flush: "sync"});
+
+/** 点注音小字：选中这段注音，打开修改（输出 9）。按下就处理、不让浏览器再处理这次按下：小字里放不下光标。 */
+function onPointerDown(event: PointerEvent): void {
+    const editor = props.editor;
+    if (editor === null || props.readonly || event.button !== 0 || !selectRubyAt(editor, event.target)) return;
+    event.preventDefault();
+    openPrompt("ruby");
+}
+let detach: (() => void) | null = null;
+watch(() => props.scroller, (scroller) => {
+    detach?.();
+    detach = null;
+    if (scroller === null) return;
+    scroller.addEventListener("pointerdown", onPointerDown);
+    detach = () => scroller.removeEventListener("pointerdown", onPointerDown);
+}, {immediate: true});
+onBeforeUnmount(() => detach?.());
 /** `+` 刚插入、还只有 `/` 的那一块：斜杠菜单放弃时删掉（输出 15）。选了一项时 `/` 已经被删掉，这里按内容判断，不会误删。 */
 let insertedBlock: number | null = null;
 function onInserted(pos: number): void {
@@ -50,12 +93,14 @@ function cancel(): void {
     prompting.value = null;
     props.editor?.commands.focus();
 }
+function remove(): void {
+    prompting.value = null;
+    props.menus.run("ruby-remove");
+}
 
 defineExpose({
     /** 工具栏的“⋯”里点了注音或双语。 */
-    prompt(action: "ruby" | "bilingual"): void {
-        prompting.value = action;
-    },
+    prompt: openPrompt,
 });
 </script>
 
@@ -68,7 +113,7 @@ defineExpose({
         :readonly="props.readonly"
         :binding="props.binding"
         :suspended="prompting !== null"
-        @prompt="(action) => { prompting = action; }"
+        @prompt="openPrompt"
     />
     <MarkdownSlashMenu
         :editor="props.editor"
@@ -77,7 +122,7 @@ defineExpose({
         :menus="props.menus"
         :readonly="props.readonly"
         :binding="props.binding"
-        @prompt="(action) => { prompting = action; }"
+        @prompt="openPrompt"
         @closed="onSlashClosed"
     />
     <MarkdownBlockGutter
@@ -97,5 +142,16 @@ defineExpose({
         :readonly="props.readonly"
         :binding="props.binding"
     />
-    <MarkdownTextPrompt :open="prompting !== null" :anchor="anchor" :label="promptLabel" @submit="submit" @cancel="cancel" @dismiss="prompting = null" />
+    <MarkdownTextPrompt
+        :open="prompting !== null"
+        :anchor="anchor"
+        :label="promptLabel"
+        :confirm-label="props.menus.label('promptConfirm')"
+        :initial="promptInitial"
+        :remove-label="promptRemovable ? props.menus.title('ruby-remove') : undefined"
+        @submit="submit"
+        @cancel="cancel"
+        @remove="remove"
+        @dismiss="prompting = null"
+    />
 </template>

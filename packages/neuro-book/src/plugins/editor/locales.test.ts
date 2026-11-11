@@ -224,6 +224,7 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "menus.selection": {"zh-CN": "选区格式", "en-US": "Selection Formatting"},
     "menus.promptRuby": {"zh-CN": "注音", "en-US": "Ruby Text"},
     "menus.promptBilingual": {"zh-CN": "对照原文", "en-US": "Source Text"},
+    "menus.promptConfirm": {"zh-CN": "确定", "en-US": "Confirm"},
     "categories.view": {"zh-CN": "视图", "en-US": "View"},
     "commands.nbook.edit.align.title": {"zh-CN": "对齐", "en-US": "Align"},
     "commands.nbook.edit.bilingual.title": {"zh-CN": "双语对照", "en-US": "Bilingual"},

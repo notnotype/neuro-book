@@ -570,6 +570,7 @@
         "selection": "Selection Formatting",
         "promptRuby": "Ruby Text",
         "promptBilingual": "Source Text",
+        "promptConfirm": "Confirm",
         "slash": "Insert Block",
         "slash-basic": "Basic",
         "slash-lists": "Lists",

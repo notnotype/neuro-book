@@ -152,7 +152,15 @@ const buttonTitle = (id: EditingActionId): string => {
             <MarkdownColorButton action="text-color" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" />
             <MarkdownColorButton action="highlight" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" />
             <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
-            <IconButton size="sm" :icon-class="EDITING_ACTIONS.ruby.icon" :title="props.menus.title('ruby')" :aria-label="props.menus.title('ruby')" @click="emit('prompt', 'ruby')" />
+            <IconButton
+                size="sm"
+                :variant="props.editing.active('ruby') ? 'accent' : 'default'"
+                :icon-class="EDITING_ACTIONS.ruby.icon"
+                :title="props.menus.title('ruby')"
+                :aria-label="props.menus.title('ruby')"
+                :aria-pressed="props.editing.active('ruby')"
+                @click="emit('prompt', 'ruby')"
+            />
             <IconButton size="sm" :icon-class="EDITING_ACTIONS['clear-format'].icon" :title="props.menus.title('clear-format')" :aria-label="props.menus.title('clear-format')" @click="props.menus.run('clear-format')" />
             <template v-if="contributed.length > 0">
                 <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
