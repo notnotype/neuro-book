@@ -46,6 +46,8 @@ import {ProfileShapes, SUBAGENTS_EXTENSION, subagentsPrompt} from "./subagents/p
 import {SUBAGENT_TOOL_CONTRIBUTIONS, subagentTools} from "./subagents/tools";
 import {extensionReceiver} from "./extensions";
 import {locateDocsRoot} from "./docs-root";
+import {SkillCatalog} from "./skills/catalog";
+import {profileSkills} from "../shared/profile-skills";
 import {agentRemote, PreviewTokens} from "./remote";
 import {filesFor} from "./resources";
 import {AGENT_SCHEMES, agentSchemes} from "./schemes";
@@ -103,6 +105,17 @@ export const agentBackendPlugin: PluginDefinition = {
                 const archived = new Set((await runtime.listSessions()).filter((session) => session.archived).map((session) => session.id));
                 await sweepTemps(tempContainer, async (session) => !archived.has(session) && (await lstat(join(runtime.sessionsRoot, session)).then(() => true, () => false)), (message) => report("temps-sweep", message));
             }
+            // 用户的 Skill 在 `user://skills/`；内置的随应用分发，这一版还没有内置的 Skill（skills.md 的来源）。
+            const skillCatalog = await SkillCatalog.open({
+                roots: [{source: "user", root: join(stateRoot, "user", "skills"), watch: true}, {source: "builtin", root: null, watch: false}],
+                clock,
+                report,
+            });
+            const allowedSkills = (profile: string): ReadonlySet<string> => new Set(profileSkills(
+                runtime.service.profiles().find((entry) => entry.key === profile)?.skills,
+                context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.skills,
+                skillCatalog.list().map((entry) => entry.id),
+            ));
             const schemes = agentSchemes({
                 sessionsRoot: runtime.sessionsRoot,
                 profilesRoot,
@@ -113,6 +126,7 @@ export const agentBackendPlugin: PluginDefinition = {
                 profiles: () => runtime.service.profiles(),
                 relations: runtime.relations,
                 activity: () => runtime.sessions.activity(),
+                skills: {userRoot: join(stateRoot, "user", "skills"), list: () => skillCatalog.list(), item: (id) => skillCatalog.item(id), allowed: allowedSkills},
                 allowedAgents: (profile) => profileAgents(runtime.service.profiles().find((entry) => entry.key === profile)?.agents, context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.agents).allowed,
             });
             const settings = context.services.require(settingsKey);
@@ -135,12 +149,12 @@ export const agentBackendPlugin: PluginDefinition = {
                 report,
             });
             let stopped: Promise<void> | null = null;
-            const stop = () => (stopped ??= runtime.stop().finally(() => previews.clear()));
+            const stop = () => (stopped ??= Promise.all([runtime.stop(), skillCatalog.close()]).then(() => undefined).finally(() => previews.clear()));
             context.signal.addEventListener("abort", () => void stop(), {once: true});
             context.onStop(stop);
             return {
                 services: [provideService(agentKey, runtime.service)],
-                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal), subagents: {relations: runtime.relations, jobs: runtime.jobs, tree: runtime.tree, entry: (id) => runtime.sessionEntry(id), sessionsRoot: runtime.sessionsRoot, report}}, previews))],
+                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, skills: skillCatalog, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal), subagents: {relations: runtime.relations, jobs: runtime.jobs, tree: runtime.tree, entry: (id) => runtime.sessionEntry(id), sessionsRoot: runtime.sessionsRoot, report}}, previews))],
                 contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock), ...subagentToolImplementations}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),

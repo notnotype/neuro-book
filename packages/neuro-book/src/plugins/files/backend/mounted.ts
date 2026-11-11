@@ -274,7 +274,7 @@ export class MountedScheme {
 
     #open(name: string, spec: MountedSchemeSpec, declaration: MountDeclaration, materialize: boolean): Mount {
         const mount: Mount = {state: "opening", ready: Promise.resolve(null), materializing: materialize, borrows: 0, lastUsed: this.#options.clock.now(), closed: null, cancelIdle: null};
-        mount.ready = this.#openDirectory(name, spec.container, declaration, materialize).then((opened) => {
+        mount.ready = this.#openDirectory(name, declaration.container ?? spec.container, declaration, materialize).then((opened) => {
             if (opened !== null && !("ok" in opened)) mount.state = "open";
             return opened;
         }, (error: unknown) => {
@@ -287,8 +287,11 @@ export class MountedScheme {
     }
 
     async #openDirectory(name: string, container: string, declaration: MountDeclaration, materialize: boolean): Promise<Opened | Fail | null> {
-        const path = join(container, name);
         const notDirectory = fail("not-a-directory", `${this.#address(name)} 不是普通目录`);
+        const directory = declaration.directory ?? name;
+        // 另给的目录名只能是容器下的一段：不让声明经 `..` 或分隔符指到容器外。
+        if (directory === "" || directory === "." || directory === ".." || /[/\\]/u.test(directory)) return notDirectory;
+        const path = join(container, directory);
         // 每次打开都核对容器与挂载点都是真实目录（不是链接）：`openRoot` 会解析整条路径，容器被换成链接时不能跟着打开到别处。
         // 只在受管容器下建一层：挂载点名是合法单段（注册表已核对），不会经链接建到别处。
         if ((await realDirectory(container)) !== "directory") return fail("root-gone", `${this.#options.scheme}:// 的容器目录不可用`);

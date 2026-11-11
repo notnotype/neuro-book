@@ -25,6 +25,7 @@ import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimT
 import {jobDirectory, OUTPUT_FILE, readStatus} from "./builtin/shell-background";
 import type {Job, JobCenter} from "./jobs/center";
 import {PushThrottle} from "./push-throttle";
+import type {SkillCatalog} from "./skills/catalog";
 import type {SessionRelations} from "./subagents/relations";
 import {TREE_PUSH_MS, type SubagentTree} from "./subagents/tree";
 
@@ -42,6 +43,8 @@ export interface AgentRemoteOptions {
     readonly profileAdmin: ProfileAdmin;
     readonly sessions: SessionTable;
     readonly clock: RuntimeClock;
+    /** Skill 目录（skills.md 输出 1、5）。 */
+    readonly skills: Pick<SkillCatalog, "list" | "onChanged">;
     /** 审批预览（builtin-tools.md 输出 26）：按这个会话的资源权限试算。 */
     readonly previewApproval: (session: ToolSessionContext, tool: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal) => Promise<ApprovalPreview>;
     readonly projectRules: (project: string, signal: AbortSignal) => Promise<Rule[] | "invalid">;
@@ -299,6 +302,7 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         },
         profiles: (_input, context) => context.ok(service.profiles()),
         toolCatalog: (_input, context) => context.ok(options.profileAdmin.toolCatalog()),
+        skills: (_input, context) => context.ok(options.skills.list()),
         createUserProfile: async ({name, description, system}, context) => {
             const created = await options.profileAdmin.createUser(name, {description, system});
             return created.ok ? context.ok({key: created.key, address: created.address}) : context.fail(created.code);
@@ -323,6 +327,13 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
                 subscribe(_filter, sink, context) {
                     if (context.signal.aborted) return;
                     const stop = options.profileAdmin.onCatalogChanged(() => sink.next({}));
+                    context.signal.addEventListener("abort", stop, {once: true});
+                },
+            },
+            skillsChanged: {
+                subscribe(_filter, sink, context) {
+                    if (context.signal.aborted) return;
+                    const stop = options.skills.onChanged(() => sink.next({}));
                     context.signal.addEventListener("abort", stop, {once: true});
                 },
             },

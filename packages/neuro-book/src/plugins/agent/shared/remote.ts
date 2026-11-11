@@ -20,6 +20,7 @@ import type {FilePreview} from "@notnotype/nb-harness/kit/shapes";
 import {TASK_ID} from "./contracts";
 import {RulesSchema} from "./permissions";
 import type {ProfileEntry, ToolCatalogEntry} from "./contracts";
+import type {SkillEntry} from "./skills";
 import type {AncestorItem, CommandStatus, JobItem, TreeItem} from "./subagents";
 
 const object = <T>() => Type.Unsafe<T>(Type.Object({}, {additionalProperties: true}));
@@ -237,6 +238,8 @@ const methods = {
     },
     profiles: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly ProfileEntry[]>(Type.Array(Type.Unknown())), effect: "read"},
     toolCatalog: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly ToolCatalogEntry[]>(Type.Array(Type.Unknown())), effect: "read"},
+    /** Skill 目录（skills.md 输出 1）：先订阅 `skillsChanged` 再取。 */
+    skills: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly SkillEntry[]>(Type.Array(Type.Unknown())), effect: "read"},
     /** 骨架里的文字由窗口按界面语言给（contributions.md 输出 18）。 */
     createUserProfile: {
         input: Type.Object({
@@ -286,6 +289,8 @@ const events = {
     jobsChanged: {filter: Type.Object(BySession, {additionalProperties: false}), payload: Type.Unsafe<readonly JobItem[]>(Type.Array(Type.Unknown()))},
     /** 只说目录变了，没有载荷：先订阅、再取 `profiles` 与 `toolCatalog`，`onResync` 时重取（sessions.md 输出 17）。 */
     profileCatalogChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Object({}, {additionalProperties: false})},
+    /** 只说 Skill 目录变了，没有载荷：先订阅、再取 `skills`，`onResync` 时重取（skills.md 输出 5）。 */
+    skillsChanged: {filter: Type.Object({}, {additionalProperties: false}), payload: Type.Object({}, {additionalProperties: false})},
 } as const;
 
 export const agentSessionsContract = defineRemoteService({id: "nbook.agent/sessions", version: 1, provider: "server", callers: ["browser"], methods, events});
