@@ -115,7 +115,7 @@ owners:
 ## 边界与兼容
 
 - 公开接口：`notificationsKey`、`Notifications`、`NotificationInput`、`NotificationHandle`（`nbook/plugins/workbench/shared/contracts`）。
-- （planned）视图 `nbook.workbench.notifications`；命令 `nbook.notifications.clear`（视图头的“全部清除”，不对 Agent 开放）。发出方的服务合同只多一个可选字段 `detailTruncated`。
+- （planned）视图 `nbook.workbench.notifications`；命令 `nbook.notifications.clear`（视图头的“全部清除”，不对 Agent 开放，中心为空时按公开状态 `nbook.workbench/hasNotifications` 不可用）。发出方的服务合同只多一个可选字段 `detailTruncated`。
 - nb-ui 侧：`createNotificationQueue`、`hasNotificationDetail`、`NOTIFICATION_DETAIL_MAX_CHARS`、`NotificationStack` 的 `queue` 与 `maxVisible`、`Notification` 的 `progress` 与 `hasDetail`、`DetailDialog`、`CopyButton`、`Banner`（`@notnotype/nb-ui`）。
 - 信任边界：文字与详情原文按纯文本渲染，不解释 HTML；详情原文不脱敏，由发出方保证已脱敏。
 - `Notification` 的动作从正文右侧一列挪到正文下一行，是 nb-ui 公开组件的外观变化（插件作者经 SDK 用到它时外观随之变）。
