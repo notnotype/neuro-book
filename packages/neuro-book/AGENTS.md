@@ -57,6 +57,7 @@ bun run smoke:server     # 打包后对产物运行进程级 smoke
 bun run lab:shot -- -c <组件> --url <开发页面地址>   # 对 Lab 场景截图并检查溢出（Node 运行，对着 bun run dev）
 bun run page:shot -- --url <开发页面地址> [--path /]   # 截产品页面：等页面画出（data-page-rendered）、画面稳定（没有有限动画与 aria-busy；无限循环的动画不等，列在报告里）再截，--click、--wait-for 按出现顺序执行、取第一个可见的匹配项；输出 page.png 与 report.json。停在宿主失败页（connection-failed、project-unavailable 等）时以 2 退出并写明是哪种，专门截失败页加 --allow-host-failure（Node 运行，对着 bun run dev；参数见 --help）
 bun run page:shot -- --url <开发页面地址> --path '/?project=sample' --click '[data-explorer-row="project://正文"]' --wait-for '[data-explorer-row="project://正文/第一章 雾港.md"]' --click '[data-explorer-row="project://正文/第一章 雾港.md"]' --wait-for '[data-editor-group-active] [data-editor-kind="markdown"] [data-editor-prose]'   # 打开样例作品并点开第一章（要 NBDEV_SAMPLE=1 起的开发服务）
+bun scripts/canon-sample.ts <目录>   # 生成星瑕样本作品（世界引擎的条目、三章与世界日志，来自 @notnotype/nb-canon/sample），在书架上“打开文件夹”选它；目录必须不存在或为空
 bun run perf:files       # Files 的性能验收（files-explorer 验收 12）：生成 3000 个文件的样本、生产构建，本机 Chrome 逐项测；在参考机器上跑，浏览器部分由 Node 运行
 NBOOK_STATE_ROOT=<目录> bun run start   # 运行打包产物（同时提供页面）
 ```
