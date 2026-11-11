@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t13-comments-ui
-status: active
-updated: 2026-11-10
+status: done
+updated: 2026-11-11
 ---
 
 # 批注界面
