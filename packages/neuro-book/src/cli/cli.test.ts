@@ -369,6 +369,27 @@ describe("nbook plugin（真实进程）", () => {
     }, 30_000);
 });
 
+describe("nbook skill init（真实进程）", () => {
+    it("skills.md 输出 22：先打出计划；非交互又没给 --yes 时以 2 退出、码 confirmation-required；加 --yes 装好、写下标记；只写名字也认；没有这个 Skill 得 skill-not-found", async () => {
+        const root = nextRoot();
+        const dep = join(root, "..", `${String(Date.now())}-local-dep`);
+        await mkdir(dep, {recursive: true});
+        await writeFile(join(dep, "package.json"), JSON.stringify({name: "local-dep", version: "1.0.0", main: "index.js"}));
+        await writeFile(join(dep, "index.js"), "module.exports = 1;\n");
+        const directory = join(root, "user", "skills", "epub-export");
+        await mkdir(directory, {recursive: true});
+        await writeFile(join(directory, "SKILL.md"), "---\nname: epub-export\ndescription: 导出\n---\n\n正文\n");
+        await writeFile(join(directory, "package.json"), JSON.stringify({name: "epub-export", private: true, dependencies: {"local-dep": `file:${dep}`}}));
+
+        const asked = await json(["skill", "init", "user.epub-export", "--state-root", root]);
+        expect(asked).toMatchObject({exit: 2, result: {ok: false, code: "confirmation-required", plan: {lock: false, dependencies: ["local-dep"]}}});
+        expect(asked.stderr).toContain("会按最新版本解析依赖并生成锁文件");
+        expect(await json(["skill", "init", "epub-export", "--yes", "--state-root", root])).toMatchObject({exit: 0, result: {ok: true, id: "user.epub-export"}});
+        expect(JSON.parse(await readFile(join(directory, "node_modules", ".nbook-skill-deps.json"), "utf8"))).toMatchObject({schema: 1, runtime: "bun"});
+        expect(await json(["skill", "init", "nothing", "--yes", "--state-root", root])).toMatchObject({exit: 1, result: {ok: false, code: "skill-not-found"}});
+    }, 60_000);
+});
+
 describe("没装 OMP 时（应用包装好依赖之前）", () => {
     it("--version、--help 与插件管理照常可用：只有 start 要求值 OMP", async () => {
         // 同一份构建拷到没有 node_modules 的目录：OMP 是外部依赖（scripts/pack-app.ts 的 SERVER_EXTERNALS），这里解析不到。

@@ -5,6 +5,7 @@
  */
 
 import {homedir} from "node:os";
+import {createInterface} from "node:readline/promises";
 
 import {Command, CommanderError} from "commander";
 
@@ -13,6 +14,7 @@ import {BUN_ENGINE, PRODUCT_VERSION} from "nbook/shared/product";
 import {CliFailure, createOutput} from "./output";
 import {installPlugin, listPlugins, setPluginEnabled, uninstallPlugin} from "./plugin";
 import type {PluginContext} from "./plugin";
+import {initSkill} from "./skill";
 import {defaultStateRoot, resolveStateRoot} from "./state-root";
 
 const TITLES: Readonly<Record<string, string>> = {"Usage:": "用法：", "Arguments:": "参数：", "Options:": "选项：", "Commands:": "命令：", "Global Options:": "全局选项："};
@@ -82,6 +84,36 @@ function program(): Command {
     plugin.command("enable").description("启用插件").argument("<id>", "插件 id").action((id: string, _options: unknown, command: Command) => setPluginEnabled(pluginContext(command), id, true));
     plugin.command("disable").description("禁用插件").argument("<id>", "插件 id").action((id: string, _options: unknown, command: Command) => setPluginEnabled(pluginContext(command), id, false));
     plugin.command("uninstall").description("卸载插件，保留它的私有数据").argument("<id>", "插件 id").action((id: string, _options: unknown, command: Command) => uninstallPlugin(pluginContext(command), id));
+    const skill = nbook.command("skill").description("管理 Skill");
+    skill
+        .command("init")
+        .description("初始化一个 Skill 的依赖：按 bun.lock 安装，不运行安装脚本；不要求应用在运行")
+        .argument("<id>", "Skill 的 id，或用户 Skill 的名字")
+        .option("--yes", "不询问，直接初始化")
+        .action(async (id: string, options: {yes?: boolean}, command: Command) => {
+            const globals = command.optsWithGlobals<GlobalOptions>();
+            const interrupt = new AbortController();
+            const onInterrupt = () => interrupt.abort();
+            process.once("SIGINT", onInterrupt);
+            try {
+                await initSkill({
+                    stateRoot: stateRootOf(globals),
+                    output: createOutput(globals.json === true),
+                    interactive: process.stdin.isTTY === true,
+                    confirm: async (question) => {
+                        const prompt = createInterface({input: process.stdin, output: process.stderr});
+                        try {
+                            return /^y(es)?$/iu.test((await prompt.question(question)).trim());
+                        } finally {
+                            prompt.close();
+                        }
+                    },
+                    signal: interrupt.signal,
+                }, id, {yes: options.yes === true});
+            } finally {
+                process.off("SIGINT", onInterrupt);
+            }
+        });
     return nbook;
 }
 
