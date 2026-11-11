@@ -30,7 +30,7 @@ t15 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–16 条，
 
 - 包：一个目录，入口 `SKILL.md`（frontmatter 加正文）。字段只收标准 6 个加 `when-to-use`（也认 `when_to_use`）：`name` 必填，1–64 个小写字母、数字、连字符，不以连字符开头或结尾、没有连续的连字符，必须等于目录名；`description` 必填，1–1024 字；`license`；`compatibility` 至多 500 字；`metadata` 字符串到字符串；`allowed-tools` 只解析不生效。其余字段不收（忽略）。第一版的表现固定：模型不能自己启用、说明不进提示词、用户用 `$` 触发（第 3 条）。
 - 来源与 id（第 9、10、13 条）：内置 `builtin.<name>`（包里的 `skills/` 目录，打包进 `dist/skills/`，定位方式同 `docs-root.ts`；这次不带内置 Skill，只有机制）；`user://skills/<name>/` 是 `user.<name>`；插件的在 t33。不做同名覆盖。来源以目录条目的 `source` 为准，不看 id 前缀（插件发布者也可以叫 `user`，审查第 12 条）。
-- 坏掉的只隔离它一个：目录里列出、状态 `broken`、带原因，写诊断（第 14 条）。算坏的：没有 `SKILL.md`（下一层有的提示“可能多套了一层目录”）、frontmatter 读不懂、必填字段缺或不合规、`name` 与目录名对不上、Skill 目录是链接（`skills://` 的挂载点不能是链接，审查第 22 条）。可选字段不合规的只忽略那个字段并写诊断，Skill 照常可用。
+- 无效的只隔离它一个：目录里列出、状态 `invalid`、带原因，写诊断（第 14 条）。算无效的：没有 `SKILL.md`（下一层有的提示“可能多套了一层目录”）、frontmatter 读不懂、必填字段缺或不合规、`name` 与目录名对不上、Skill 目录是链接（`skills://` 的挂载点不能是链接，审查第 22 条）。可选字段不合规的只忽略那个字段并写诊断，Skill 照常可用。
 - 就绪状态：没有 `package.json` 的是 `ready`；有的看标记 `node_modules/.nbook-skill-deps.json`（第 8 条：`schema`、`runtime`、`inputs`、`platform`（含 CPU 架构）、`bun`、`installedAt`、失败时 `error`）。`inputs` 是 `package.json` 里影响安装的字段（各类 dependencies、`overrides`、`resolutions`、`patchedDependencies`）加 `bun.lock` 的哈希，安装之后按现状重算（生成锁的那次也对得上）。标记与现状一致、`platform` 相同、没有 `error` 才是 `ready`；否则 `needs-init`（失败过的带原因）；本进程在装，或锁被别的进程拿着，是 `initializing`。只认 `bun.lock`，只有 `bun.lockb` 或 `package-lock.json` 的按“没有锁”算。
 - 外部依赖只检测、只报告（第 4 条）：有 `pyproject.toml`、`requirements.txt`、`uv.lock`，或 Skill 目录（两层以内）有带 `# /// script` 的 `.py` 文件的，标“要自己装 Python 依赖”，并看 `uv` 在不在 `PATH`；系统程序没法通用地检测，展示 `compatibility` 的原文。状态不因此变。
 - 目录变化：启动时扫一遍，之后按“技术选型”的监视（防抖）重扫变了的 Skill；变了推 `skillsChanged`。正文不缓存：每次 `$` 与放回都现读（第 15 条）。插件停止时关掉监视器、取消防抖。
@@ -38,7 +38,7 @@ t15 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–16 条，
 
 ### 认标签（`resolveToken`）
 
-`$` 标签的文字先按 id 认；认不出再在整个目录里按 `name` 认（区分大小写）：同名的里恰好一个在白名单里就是它，多于一个在白名单里是 `ambiguous`（界面提示改用 `${id}`），都不在白名单里是 `not-allowed`，没有同名的是 `not-found`；坏掉的是 `broken`（审查第 11 条）。草稿、发送、点开三处用同一个规则。
+`$` 标签的文字先按 id 认；认不出再在整个目录里按 `name` 认（区分大小写）：同名的里恰好一个在白名单里就是它，多于一个在白名单里是 `ambiguous`（界面提示改用 `${id}`），都不在白名单里是 `not-allowed`，没有同名的是 `not-found`；无效的是 `invalid`（审查第 11 条）。草稿、发送、点开三处用同一个规则。
 
 ### `$` 的写法（`packages/nb-markdown`）
 
@@ -58,7 +58,7 @@ t15 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–16 条，
 - 认出的现读 `SKILL.md`（带 `ctx.signal`），写对话事件 `skill`：`{id, name, location, body, truncated}`，正文超过 20,000 token 截断并写明全文地址。每个标签单独收错：读失败写 `skillMissing{reason: "unreadable"}`，不让别的 Skill 跟着丢（审查第 2 条）。
 - 位置：`input` 引出的写在这一轮的附带内容里，排在用户的话前面（第 11 条）；`steer`（含异步提问的回答转成的插话）引出的写在这句插话后面——内核的位置章没有“附在某条事件之前”，只为插话加这个能力不值得（审查第 1 条，要告诉开发者）。
 - 同一个 Skill 正文没变、上一份还在上下文里（压缩之后算不在）时，只写一条短的 `skill`（`sameAs: true`，不带正文，渲染成“Skill「x」见前文”），不重复附全文（审查第 19 条，要告诉开发者）。用一个随压缩清空的 path 片记“已附的 id 与正文哈希”。
-- 认不出的写扩展事件 `skillMissing`：`{token, reason: "not-found" | "not-allowed" | "ambiguous" | "broken" | "unreadable"}`，不进请求，只给界面显示。未就绪的照样带上正文。
+- 认不出的写扩展事件 `skillMissing`：`{token, reason: "not-found" | "not-allowed" | "ambiguous" | "invalid" | "unreadable"}`，不进请求，只给界面显示。未就绪的照样带上正文。
 - 渲染给模型的样子：`<skill id="…" name="…" location="skills://…/SKILL.md">` 加正文，末尾说明这个 Skill 的文件在 `skills://<id>/`（shell 里可以直接写这个地址），脚本里的相对路径按 Skill 目录算、shell 的工作目录不是 Skill 目录（审查第 10 条）。
 - 正文是事实：之后 Skill 改了，已经写下的轮不变（第 15 条）。`preview()` 不跑反应，排队中带 `$` 的话在“看上下文”里看不到 Skill 正文，写进已知限制。
 
@@ -80,7 +80,7 @@ t15 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–16 条，
 
 - 挂载合同（`plugins/files/shared/schemes.ts` 的 `MountDeclaration`）加可选的 `container`：这个挂载点自己的容器目录（注册方给出的真实目录，`nbook.files` 照常核对容器与挂载点都不是链接），挂载点在容器里的目录名可以另给（`directory`，缺省是挂载点名）。`skills://user.x/` 的容器是 `<状态根>/user/skills`、目录名 `x`；内置的容器是 `dist/skills`。改的是 `nbook.files` 的跨插件合同，Spec 一起改（审查第 9 条）。
 - 能力：`read`、`list`、`realPath`（模型在 shell 里能跑 Skill 的脚本），挂载点 `create: false`；Agent 写得 `permission-denied`。用户自己的 Skill 用户经 `user://skills/` 改；同一个目录有两个地址，行锚与授权按各自的地址算（审查第 10 条）。
-- 根：列出目录里全部 Skill，每项写 id、名字、说明、状态（坏的写原因），对读它的会话的 Profile 标“能用 `$`”或“不在白名单”。
+- 根：列出目录里全部 Skill，每项写 id、名字、说明、状态（无效的写原因），对读它的会话的 Profile 标“能用 `$`”或“不在白名单”。
 
 ### 远程（`shared/remote.ts`、`backend/remote.ts`）
 
@@ -106,7 +106,7 @@ t15 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–16 条，
 
 ## Spec 与文档改动
 
-- 新建 `docs/specs/agent/skills.md`（`planned`，capability `agent.skills`）：包格式与字段、坏掉的、来源与 id、就绪与标记、外部依赖的检测、认标签、白名单、`$` 与附带内容（位置、截断、`sameAs`、`skillMissing`）、放回、初始化（三个入口、锁、停止、失败）、`skills://`、远程与失败码、命令行、已知限制；注册表“待实现规范”加一行。
+- 新建 `docs/specs/agent/skills.md`（`planned`，capability `agent.skills`）：包格式与字段、无效的、来源与 id、就绪与标记、外部依赖的检测、认标签、白名单、`$` 与附带内容（位置、截断、`sameAs`、`skillMissing`）、放回、初始化（三个入口、锁、停止、失败）、`skills://`、远程与失败码、命令行、已知限制；注册表“待实现规范”加一行。
 - `agent/resources.md`：`skills://` 的根、挂载、`realPath`、只读。`workspace/resources.md`（或定义 `MountedSchemeSpec` 的 files Spec）：挂载点可以有自己的容器与目录名。
 - `agent/compaction.md`：放回加 Skill、合计口径；`restored` 的 `kind` 加 `skill`。`harness/runtime.md` 输出 48：放回参数加“仍在上下文里的事件”。
 - `agent/conversation.md`：`$` 菜单、未就绪的询问、用户消息上的 Skill、`skill.open`。`agent/contributions.md`：Profile 声明加 `skills`。`agent/profile-settings.md`：加“Skill”一节。
@@ -118,7 +118,7 @@ t15 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–16 条，
 | 片 | 内容 | 提交边界与自跑验证 |
 |---|---|---|
 | 0 | 评审板（注意力排序先定）与 `skills.md` 及上面各 Spec 的改动 | 主工作区提交；`docs:check` |
-| 1 | `nb-markdown`：代码里不认 `$`、`${…}` 放宽、根入口导出（先补对照测试）；`nbook.files` 的挂载合同加容器与目录名；目录服务（解析、来源、坏的隔离、就绪、外部依赖检测、监视）、`skills://`（含 `realPath`）、远程 `skills`、`skillsChanged` | `nb-markdown`、files、Agent 插件的单测与 typecheck |
+| 1 | `nb-markdown`：代码里不认 `$`、`${…}` 放宽、根入口导出（先补对照测试）；`nbook.files` 的挂载合同加容器与目录名；目录服务（解析、来源、无效的隔离、就绪、外部依赖检测、监视）、`skills://`（含 `realPath`）、远程 `skills`、`skillsChanged` | `nb-markdown`、files、Agent 插件的单测与 typecheck |
 | 2 | 白名单：声明、设置、换算、Profile 页一节 | 单测与 DOM 测试 |
 | 3 | 扩展 `nbook.agent.skills`（带上、`sameAs`、`skillMissing`、逐个收错）、内核放回参数、Skill 放回、`UserMessageView.skills`、压缩详情 | 真实内核的测试（本机假端点看请求里正文的位置与次数、小窗口的放回）、适配器单测 |
 | 4 | `tryLock` 导出、初始化模块、远程、命令行；实测 Bun 的自动安装 | 真跑 `bun install`（本地 `file:` 依赖，不联网）；锁的测试起一个子进程拿锁 |
@@ -127,7 +127,7 @@ t15 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–16 条，
 
 ## 验收场景（写进 `skills.md` 的“验收与 Smoke”）
 
-1. `user://skills/` 放一个合法的、一个 `name` 与目录名不同的、一个多套了一层目录的：目录里一个可用、两个 `broken` 各带原因，诊断里各一条；改好之后不重启就变成可用。
+1. `user://skills/` 放一个合法的、一个 `name` 与目录名不同的、一个多套了一层目录的：目录里一个可用、两个 `invalid` 各带原因，诊断里各一条；改好之后不重启就变成可用。
 2. 主创的输入框打 `$`：列出白名单里的 Skill；选一个发出去，模型收到的这一轮里 Skill 正文在用户的话前面；之后改 `SKILL.md`，已经发出的那一轮不变，下一次 `$` 用新的。运行中插话带 `$x`：正文紧跟在这句插话后面。
 3. 打一个不存在的 `$x`、一个不在白名单里的、一个重名的：都不带正文，用户消息上各标出原因。行内代码里的 `$HOME` 不算标签。
 4. 带 `package.json` 与 `bun.lock` 的 Skill：`$` 菜单标未初始化；选它时问要不要初始化，确认后装好、标记写下、状态变成可用；模型经 shell 运行它的脚本并成功导入依赖；`bun.lock` 改了又变回未初始化。
@@ -149,6 +149,15 @@ Smoke：`packages/neuro-book/e2e/agent-skills.e2e.ts`（场景 2、3、4）。
 
 - 不做：模型自己启用 Skill、Skill 说明进提示词、Skill 参数与“带参数自动执行脚本”（第 2、3 条）；Python 与系统程序的安装（第 4 条）；额外的 Skill 目录（第 10 条）；书专属的 Skill；目录变化实时提醒会话（第 15 条）；插件的 Skill（t33）。
 - 风险：`nb-markdown` 的分词改动影响编辑器现有的标签行为（先补对照测试）；`bun install` 在离线或代理环境里慢或失败，失败原因要写得清楚；`nbook.files` 的挂载合同是跨插件改动，`sessions://` 等现有方案的行为不能变。
+
+## 界面评审第 1 轮（2026-11-11，README 第 27–32 条）
+
+- 状态“坏了”改称“无效”（`invalid`），读不出的原因写“无法读取”。
+- 同一列表的零件落在同一列、对话框换状态不变尺寸，已写进 nb-ui 开发规范；Skill 页用整页共用的列。
+- `$` 菜单用黄色徽标：nb-ui 的 `SuggestionMenuItem` 加项尾徽标字段，同一级有一项带徽标时每行都留出这一列（切片 5 改 nb-ui，补同名 `.md` 与 Lab 场景）。
+- 确认框几种状态同一个尺寸；装的时候能关、在后台继续装，进度与结果的呈现在第 2 轮定（推荐用现有的进度通知）。
+- 用户消息不要下面那一行提示；原因放进标签的悬停提示（第 2 轮确认）。标签的悬停提示统一写“Skill：…”（`nb-markdown` 的目录）。
+- Profile 页的“Skill”一节照草稿。
 
 ## 开发者已定（2026-11-10，README 第 17–21 条）
 
