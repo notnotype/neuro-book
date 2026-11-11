@@ -63,6 +63,8 @@ import type ThemeEditor from "nbook/plugins/workbench/web/components/theme-edito
 import type ThemeSettingsPage from "nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
 import type WorkbenchNotificationsView from "nbook/plugins/workbench/web/components/WorkbenchNotificationsView.vue";
+import type TasksView from "nbook/plugins/tasks/web/components/TasksView.vue";
+import type TasksHover from "nbook/plugins/tasks/web/components/TasksHover.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
 import type WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import type WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
@@ -433,6 +435,27 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         load: async () => withWorkbenchText(createSubjectFixture<typeof ThemeSettingsPage>((await import("nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue")).default, {events: ["open"], class: "w-full max-w-[720px] p-6"}), ["mine-english"]),
+    }),
+    defineLabFixture<typeof TasksView>({
+        component: "TasksView",
+        scenes: (() => {
+            // 集成场景：内存里的任务仓库由包装组件建；输入只是占位，场景不读它。
+            const placeholder = {props: {context: {id: "nbook.tasks.list", generation: 1, visible: {value: false}, location: {value: "panel" as const}}}};
+            return [
+                {id: "mixed", label: "在跑、失败、成功、已取消、已中断（右栏隐藏时的宽度）", input: placeholder},
+                {id: "mixed-narrow", label: "默认布局的宽度", input: placeholder},
+                {id: "mixed-cancelling", label: "一件正在取消", input: placeholder},
+                {id: "empty", label: "没有任务", input: placeholder},
+                {id: "mixed-english", label: "英文界面", input: placeholder},
+            ];
+        })(),
+        load: async () => (await import("./tasks-scene/TasksFixture.vue")).default,
+    }),
+    defineLabFixture<typeof TasksHover>({
+        component: "TasksHover",
+        noInput: "唯一的属性是任务仓库，不是场景能写的数据；包装组件在内存里建一份",
+        scenes: [{id: "hover", label: "两件在跑：确定与不确定进度"}],
+        load: async () => (await import("./tasks-scene/TasksFixture.vue")).default,
     }),
     defineLabFixture<typeof WorkbenchNotificationsView>({
         component: "WorkbenchNotificationsView",

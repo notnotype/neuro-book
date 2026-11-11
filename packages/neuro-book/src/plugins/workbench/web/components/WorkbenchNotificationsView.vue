@@ -128,7 +128,7 @@ function openDetail(entry: CenterEntry): void {
 /* 整个列表共用几列：长短不一的标题不推动后面的列。 */
 .notifications-view__list {
     display: grid;
-    grid-template-columns: 6px 16px minmax(0, 1fr) 3.5em max-content 24px;
+    grid-template-columns: 6px 16px minmax(0, 1fr) minmax(3.5em, max-content) max-content 24px;
     column-gap: var(--space-3);
     margin: 0;
     padding: 0;
