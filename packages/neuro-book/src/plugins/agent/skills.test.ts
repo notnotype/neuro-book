@@ -91,14 +91,22 @@ describe("这一轮带上 Skill", () => {
         expect(await missingOf(session)).toEqual([]);
     }, 30_000);
 
-    test("场景 3、7：不存在的、用户在 Profile 设置里去掉的都不带正文，各写原因；行内代码里的 $HOME 不算标签", async () => {
+    test("场景 3、7：不存在的、用户在 Profile 设置里去掉的都不带正文；模型在用户的话前面看到 system-reminder 写明原因；行内代码里的 $HOME 不算标签", async () => {
         const w = await world({"style-guide": "正文甲。"}, {"nbook.agent/profileSettings": {[MAIN_PROFILE]: {skills: {added: [], removed: ["user.style-guide"]}}}});
         const created = await w.service.create({profile: MAIN_PROFILE});
         if (!created.ok) throw new Error(created.code);
         const session = created.value;
         const text = await ask(session, "用 $nothing 和 $style-guide，跑 `echo $HOME`");
         expect(text).not.toContain("<skill");
+        expect(text).not.toContain("正文甲");
         expect(await missingOf(session)).toEqual([{token: "nothing", reason: "not-found"}, {token: "style-guide", reason: "not-allowed"}]);
+        const words = text.indexOf("用 $nothing 和 $style-guide");
+        const notFound = text.indexOf("用户写的 $nothing 没有作为 Skill 带上：没有这个 Skill。");
+        const notAllowed = text.indexOf("用户写的 $style-guide 没有作为 Skill 带上：它不在当前 Profile 能用的 Skill 里。");
+        expect(notFound).toBeGreaterThanOrEqual(0);
+        expect(notAllowed).toBeGreaterThan(notFound);
+        expect(words).toBeGreaterThan(notAllowed);
+        expect(text).not.toContain("$HOME 没有作为 Skill 带上");
     }, 30_000);
 });
 

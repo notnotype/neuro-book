@@ -1,6 +1,6 @@
 /**
  * 这一轮带上 Skill（docs/specs/agent/skills.md 输出 9–15）：用户的话、插话、父 Agent 发来的话里有 `$` 标签时，认出 Skill、
- * 现读 `SKILL.md`，写对话事件 `skill`；认不出的写 `skillMissing`，只给界面看。
+ * 现读 `SKILL.md`，写对话事件 `skill`；认不出的写 `skillMissing`，模型看到一条 system-reminder，界面不另外标出。
  *
  * 位置由内核盖章（harness/runtime.md 的位置章）：`input` 引出的写在这一轮的附带内容里、排在用户的话前面，`steer` 引出的排在
  * 那句插话后面。“上一份还在上下文里”记在随压缩清空的 path 片里：回退、切分支跟着走，压缩之后再 `$` 会重新附全文。
@@ -10,7 +10,7 @@ import {createHash} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {conv, defineExtension, ext, slice} from "@notnotype/nb-harness/kernel";
+import {conv, defineExtension, slice} from "@notnotype/nb-harness/kernel";
 import type {AnyExtension} from "@notnotype/nb-harness/kernel/contracts";
 import {promptSkillTokens} from "@notnotype/nb-markdown/prompt-text";
 
@@ -69,6 +69,19 @@ export function renderSkill(data: SkillEventData): string {
     return `${open}\n${data.body.trim()}\n</skill>\n${notes.join("\n")}`;
 }
 
+const MISSING_TEXT: Readonly<Record<SkillMissingReason, string>> = {
+    "not-found": "没有这个 Skill",
+    "not-allowed": "它不在当前 Profile 能用的 Skill 里",
+    "ambiguous": "有不止一个同名的 Skill，要用 ${id} 的写法指定其中一个",
+    "invalid": "这个 Skill 无效（SKILL.md 不合规）",
+    "unreadable": "读不出它的 SKILL.md",
+};
+
+/** 没带上的 `$` 给模型看的样子（skills.md 输出 12）。 */
+export function renderMissing(data: SkillMissingData): string {
+    return `<system-reminder>\n用户写的 $${data.token} 没有作为 Skill 带上：${MISSING_TEXT[data.reason]}。\n</system-reminder>`;
+}
+
 export interface SkillsExtensionOptions {
     readonly catalog: Pick<SkillCatalog, "resolveToken">;
     /** 这个 Profile 的 Skill 白名单（合成之后）。 */
@@ -82,13 +95,14 @@ export function skillsExtension(options: SkillsExtensionOptions): AnyExtension {
         state: {attached: slice.path<Readonly<Record<string, string>>>({}, {resetOnCompaction: true})},
         events: {
             skill: conv<SkillEventData>(),
-            skillMissing: ext<SkillMissingData>(),
+            skillMissing: conv<SkillMissingData>(),
         },
         reduce: {
             skill: (event, {attached}) => (event.data.body === undefined ? undefined : {attached: {...attached, [event.data.id]: hashOf(event.data.body)}}),
         },
         render: {
             skill: (event) => renderSkill(event.data),
+            skillMissing: (event) => renderMissing(event.data),
         },
         on: {
             input: async (event, ctx) => {
