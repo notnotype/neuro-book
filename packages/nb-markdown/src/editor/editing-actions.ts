@@ -39,6 +39,18 @@ const colorMark = (mark: string): EditingAction => ({
 const text = (args: EditingArgs): string => (typeof args.text === "string" ? args.text : "");
 
 /**
+ * 选区里有没有注音（输出 9：有就按下注音按钮、可以移除）：盖住一部分也算，不用 `isActive`，它要整个选区都在注音里。
+ * 光标在一段注音中间时也算。
+ */
+function hasRuby(editor: Editor): boolean {
+    const type = editor.schema.marks.markdownRuby;
+    if (type === undefined) return false;
+    const {selection} = editor.state;
+    if (selection.empty) return type.isInSet(selection.$from.marks()) !== undefined;
+    return selection.ranges.some((range) => editor.state.doc.rangeHasMark(range.$from.pos, range.$to.pos, type));
+}
+
+/**
  * 块类型能不能换。不用 `editor.can()`：Tiptap 的 `toggleList` 与 `setNode` 先 `clearNodes` 再转换，`can()` 下 `clearNodes`
  * 不改文档，后面的转换按没清过的文档判断，从标题换列表时得到假。这里按光标所在的块判断：原样块是原文，表格单元格只放行内内容。
  */
@@ -71,8 +83,13 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
     },
     ruby: {
         run: (editor, args) => editor.chain().focus().setMarkdownRuby(text(args)).run(),
-        active: (editor) => editor.isActive("markdownRuby"),
+        active: hasRuby,
         enabled: (editor) => !editor.state.selection.empty && editor.can().setMarkdownRuby("x"),
+    },
+    // 只盖住一段注音的一部分时整段去掉（`whole-ruby.ts`）；光标在注音中间时去掉这一段。
+    "ruby-remove": {
+        run: (editor) => editor.chain().focus().unsetMark("markdownRuby", {extendEmptyMarkRange: true}).run(),
+        enabled: hasRuby,
     },
     paragraph: {
         run: (editor) => editor.chain().focus().setParagraph().run(),

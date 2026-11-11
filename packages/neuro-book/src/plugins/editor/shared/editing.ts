@@ -32,6 +32,8 @@ export const EDITING_ACTIONS = {
     "text-color": {kind: "format", icon: "i-lucide-baseline", args: "color"},
     highlight: {kind: "format", icon: "i-lucide-highlighter", args: "color"},
     ruby: {kind: "format", icon: "i-lucide-languages", args: "text", needsSelection: true},
+    // 光标在注音中间时也能用，所以不要选区。
+    "ruby-remove": {kind: "format", icon: "i-lucide-trash-2"},
     paragraph: {kind: "block", icon: "i-lucide-pilcrow", keybinding: "Mod+Alt+0"},
     "heading-1": {kind: "block", icon: "i-lucide-heading-1", keybinding: "Mod+Alt+1", format: "formatHeading1"},
     "heading-2": {kind: "block", icon: "i-lucide-heading-2", keybinding: "Mod+Alt+2", format: "formatHeading2"},

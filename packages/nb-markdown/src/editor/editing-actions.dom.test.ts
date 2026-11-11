@@ -121,6 +121,36 @@ describe("编辑动作", () => {
         expect(enabled(editor, "ruby")).toBe(true);
     });
 
+    // “前注音后”：注音盖住第 1、2 个字，ProseMirror 的位置比字的序号多 1。
+    const RUBY = "前<ruby text=\"zhù yīn\">注音</ruby>后\n";
+
+    it("选区里有注音（盖住一部分也算）时注音按下，没有时不按下", () => {
+        const {editor} = open(RUBY);
+        editor.commands.setTextSelection({from: 1, to: 3});
+        expect(active(editor, "ruby")).toBe(true);
+        editor.commands.setTextSelection({from: 1, to: 2});
+        expect(active(editor, "ruby")).toBe(false);
+        editor.commands.setTextSelection(3);
+        expect(active(editor, "ruby")).toBe(true);
+        // 光标在注音的边上不算在注音里。
+        editor.commands.setTextSelection(4);
+        expect(active(editor, "ruby")).toBe(false);
+    });
+
+    it("移除注音：选区盖住注音的一部分、或光标在注音中间，都整段去掉；没有注音时不可用", () => {
+        for (const select of [{from: 1, to: 3}, 3] as const) {
+            const {editor, write} = open(RUBY);
+            editor.commands.setTextSelection(select);
+            expect(enabled(editor, "ruby-remove")).toBe(true);
+            expect(act(editor, "ruby-remove")).toBe(true);
+            expect(write().trim()).toBe("前注音后");
+            expect(enabled(editor, "ruby-remove")).toBe(false);
+        }
+        const {editor} = open("前注音后\n");
+        editor.commands.selectAll();
+        expect(enabled(editor, "ruby-remove")).toBe(false);
+    });
+
     // 菜单上写的快捷键（docs/specs/workbench/markdown-editing.md 的命令表）要真的管用：键位在 Tiptap 里，这里核对两边一致。
     it.each([
         ["bold", {key: "b", ctrlKey: true}],

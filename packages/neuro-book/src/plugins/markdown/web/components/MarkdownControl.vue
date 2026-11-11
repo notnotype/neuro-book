@@ -7,7 +7,7 @@ import {computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, useTempla
 
 import "@notnotype/nb-markdown/markdown.css";
 
-import {createMarkdownEditorExtensions, markdownEditingActions, REFRESH_REFERENCE_LINKS} from "@notnotype/nb-markdown/editor";
+import {createMarkdownEditorExtensions, markdownEditingActions, REFRESH_REFERENCE_LINKS, releaseSelection} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
 import {codecFor} from "@notnotype/nb-markdown/language";
@@ -245,6 +245,8 @@ const leave = (binding: TextEditorBinding): void => {
     }
     const view = stateOf(binding);
     if (view !== null && editor !== null && bound === binding) {
+        // 注音卡片开着时画的选区高亮不随状态存下：卡片随换文档关上（`MarkdownMenus`），换回来时不该还亮着。
+        releaseSelection(editor);
         view.state = editor.state;
         view.scroll = scroller.value?.scrollTop ?? 0;
     }

@@ -146,6 +146,11 @@
     user-select: none;
 }
 
+/* 编辑器里焦点去了卡片的输入框时，正文仍画出选区（`editor/held-selection.ts`），与浏览器画的选区同色。 */
+.nb-markdown .nb-markdown-held-selection {
+    background: var(--selection-bg);
+}
+
 /* 双语对照（输出 13）：原文上方一行弱色的译文。 */
 .nb-markdown .nb-bilingual-block::before {
     content: attr(data-bilingual-text);

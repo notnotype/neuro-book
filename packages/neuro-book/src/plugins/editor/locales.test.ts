@@ -243,6 +243,7 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "commands.nbook.edit.paragraph.title": {"zh-CN": "正文", "en-US": "Paragraph"},
     "commands.nbook.edit.quote.title": {"zh-CN": "引用", "en-US": "Quote"},
     "commands.nbook.edit.ruby.title": {"zh-CN": "注音", "en-US": "Ruby"},
+    "commands.nbook.edit.ruby-remove.title": {"zh-CN": "移除注音", "en-US": "Remove Ruby"},
     "commands.nbook.edit.strike.title": {"zh-CN": "删除线", "en-US": "Strikethrough"},
     "commands.nbook.edit.subscript.title": {"zh-CN": "下标", "en-US": "Subscript"},
     "commands.nbook.edit.superscript.title": {"zh-CN": "上标", "en-US": "Superscript"},

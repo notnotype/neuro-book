@@ -295,6 +295,9 @@
                 "ruby": {
                     "title": "注音"
                 },
+                "ruby-remove": {
+                    "title": "移除注音"
+                },
                 "paragraph": {
                     "title": "正文"
                 },

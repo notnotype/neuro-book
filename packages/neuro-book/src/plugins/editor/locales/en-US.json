@@ -295,6 +295,9 @@
                 "ruby": {
                     "title": "Ruby"
                 },
+                "ruby-remove": {
+                    "title": "Remove Ruby"
+                },
                 "paragraph": {
                     "title": "Paragraph"
                 },
