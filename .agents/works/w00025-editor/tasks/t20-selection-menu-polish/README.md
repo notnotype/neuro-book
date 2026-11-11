@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t20-selection-menu-polish
 status: planned
-updated: 2026-11-10
+updated: 2026-11-11
 ---
 
 # 选区菜单、注音与菜单动效的修正
@@ -32,6 +32,9 @@ updated: 2026-11-10
 2. （同上，`q2-items`）选区菜单最前面加块类型下拉（与工具栏同一个：正文、标题 1–3）。末尾的“⋯”（上标、下标）不加。
 3. （同上，`q3-ruby`）注音用一行卡片：贴在文字下方，外框与 t13 的批注卡片相同，注音直接写在卡片里、没有输入框的框；右边是确定，已有注音时多一个“移除注音”。共用部分照板上写的：选中的文字里有注音时菜单上的注音按钮按下；点它或点注音小字打开修改；写的时候原来的选区保持高亮；回车确定、Esc 取消。
 
+4. （2026-11-11，会话里确认 [plan-2.md](plan-2.md)）双语输入也用这张一行卡片，没有移除按钮；把卡片里的字清空再回车算取消，移除只经“移除注音”按钮。
+5. （同上）新增编辑动作 `ruby-remove`（命令 `nbook.edit.ruby-remove`）与 nb-ui `Input` 的 `variant="bare"`（没有边框、底色与焦点环，t13 的批注卡片也用）。
+
 ## 当前状态
 
 执行位置：`.worktree/w00025-t20-selection-menu-polish`，分支 `feat/w00025-t20-selection-menu-polish`。草稿在 t13 的草稿 worktree `.worktree/w00025-t13-drafts`（`drafts/web/components/selection-menu/`，Lab 组件 `SelectionMenuDraft`），不合并。
@@ -42,7 +45,7 @@ updated: 2026-11-10
 - Spec（主工作区，未提交，合入时一起提交）：`markdown-editing.md` 加输出 26、验收 7 与实现合同；`theme/system.md` 写 Monaco 底色取 `--bg-panel`；待确认清单 t05 第 5 行写了改判结果。
 - 实现审查（Sonnet）已处理：阻断 1（反转映射反转了整个事务，撤销 `**…**` 输入规则时抛错、撤销栈卡住，无注音的文档也会）、重要 1、建议 6；修正在 `e43c383b8`，用例补到 18 例并做了三次变异检查。暗色下源码编辑器当前行与缩进线对比变弱一条接受取舍，四种组合取证时看暗色截图。报告与逐条处理见 [evidences/impl-review-sonnet.txt](evidences/impl-review-sonnet.txt)、[evidences/impl-review-disposition.txt](evidences/impl-review-disposition.txt)。修正后 e2e `markdown-editing`、`markdown-input` 43 例通过；快捷键那条在负载下的偶发记到 t17。
 
-**第二段**：[plan-2.md](plan-2.md) 已写，等开发者确认。
+**第二段**：[plan-2.md](plan-2.md) 开发者 2026-11-11 已确认，实施中。
 
 ## 下一步
 
