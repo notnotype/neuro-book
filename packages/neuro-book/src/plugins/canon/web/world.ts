@@ -266,7 +266,8 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             const result = await call(undefined, limit);
             return () => {
                 if (result.ok) state.value = {data: result.value, error: null, loading: false, items: result.value.items as readonly ListItem<M>[], more: result.value.cursor !== undefined};
-                else state.value = {...state.value, error: result.failure};
+                // 同普通读取：失败也算读过一次（不再是加载占位），读到过的项留着。
+                else state.value = {...state.value, error: result.failure, loading: false};
             };
         };
         const slot: Slot & {list: ShallowRef<ListState<M>>; next(): Promise<void>} = {

@@ -29,6 +29,8 @@ interface FieldRow {
     readonly items?: readonly string[];
     /** 语义档的各句（人物的界面）。 */
     readonly notes?: readonly {readonly where: string; readonly text: string}[];
+    /** 语义档只列了最近的一页时，更早的还有几步：各句前面写“还有更早的 N 句”。 */
+    readonly notesEarlier?: number;
     /** 语义档还没归纳：各句后面写“还没归纳”。 */
     readonly notReduced?: boolean;
 }

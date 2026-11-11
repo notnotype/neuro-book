@@ -101,11 +101,14 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
     };
 }
 
-/** 世界客户端的 `origins` 包成条目页要的取页函数：失败时 reject。 */
-export function originsFetcher(call: (input: {readonly at: TextAddress; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly cursor?: string}) => Promise<{readonly ok: true; readonly value: CanonOutputs["origins"]} | {readonly ok: false; readonly failure: {readonly code: string}}>): EntryPageOptions["fetchOrigins"] {
+/**
+ * 世界客户端的 `origins` 包成条目页要的取页函数：失败时 reject，说明取服务给的 `detail`（没有时为空）。不把失败码给作者看
+ * （author-ui.md 输出 29）；`cursor-stale` 由取页的一方按已读步数重读，不显示。
+ */
+export function originsFetcher(call: (input: {readonly at: TextAddress; readonly position: ReadPosition; readonly mode: "actual" | "planned"; readonly cursor?: string}) => Promise<{readonly ok: true; readonly value: CanonOutputs["origins"]} | {readonly ok: false; readonly failure: {readonly code: string; readonly [detail: string]: unknown}}>): EntryPageOptions["fetchOrigins"] {
     return async (address, position, mode, cursor) => {
         const result = await call({at: address, position, mode, ...(cursor === undefined ? {} : {cursor})});
-        if (!result.ok) throw new Error(result.failure.code);
+        if (!result.ok) throw new Error(typeof result.failure.detail === "string" ? result.failure.detail : "");
         return result.value;
     };
 }

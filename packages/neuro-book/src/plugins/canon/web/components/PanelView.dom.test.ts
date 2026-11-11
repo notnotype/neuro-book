@@ -29,7 +29,7 @@ describe("PanelView", () => {
         }, global: {provide: provideText(port)}});
         mounted.push(wrapper);
         expect(wrapper.get("[data-card='panel.存款']").text()).toBe("存款第 2 章改过900 元");
-        expect(wrapper.get("[data-card='panel.存款']").attributes("aria-selected")).toBe("true");
+        expect(wrapper.get("[data-card='panel.存款']").attributes("aria-pressed")).toBe("true");
         expect(wrapper.get("[data-card='panel.物品']").text()).toBe("随身物品魔杖");
         expect(wrapper.get("h3").text()).toBe("存款的流水");
         expect(wrapper.findAll("[data-origin-row]")).toHaveLength(1);

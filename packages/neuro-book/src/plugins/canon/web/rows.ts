@@ -42,6 +42,8 @@ export interface FieldRow {
     readonly items?: readonly string[];
     /** 语义档：起点与之后记下的每一句（带位置），未归纳时最后写“还没归纳”（输出 13）。 */
     readonly notes?: readonly {readonly where: string; readonly text: string}[];
+    /** 语义档：只列了最近的一页，更早的还有几步没列（写一句“还有更早的 N 句”）。 */
+    readonly notesEarlier?: number;
     readonly notReduced?: boolean;
 }
 

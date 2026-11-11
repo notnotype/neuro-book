@@ -7,6 +7,10 @@
 
 数据分页的字段表界面（[`canon/author-ui.md`](../../../../../../../docs/specs/canon/author-ui.md) 输出 12、13）：没有专门界面的类型用它（通用字段表），canon 给人物（`nbook.canon.person`）交的界面也是它（`semanticNotes`）。经条目页给的 `context`（`ComponentViewContext`）读字段与来历，交给 `FieldTable` 与 `OriginList` 画；展开着哪个字段记在 `context.state.open`。
 
+## 布局与交互
+
+同 `FieldTable`：点值在这一行下面展开来历（`OriginList`），再点收起；来历在世界版本、所选位置或模式变了以后按已读的步数重读。人物的界面（`semanticNotes`）另给语义档的字段读最近一页来历，在值下面列出起点与之后各句，更早的写“还有更早的 N 句”。
+
 ## 数据
 
 ```ts

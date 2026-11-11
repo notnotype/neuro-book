@@ -4,7 +4,7 @@
  * 表达式已经换成算好的 canon 节点。条目 MDX 不许 import、export，节点种类有限，这里自己递归画；认不出的节点画它的子节点或文字。
  * 页面的 h1 是条目名，文字里的标题降一级（`#` 画成 h2）。
  */
-import {defineComponent, h} from "vue";
+import {computed, defineComponent, h} from "vue";
 import type {PropType, VNodeChild} from "vue";
 
 import type {EntryTextBlock, EntryTextNode, TextAddress} from "./entry-text";
@@ -114,6 +114,13 @@ const Block = defineComponent({
     },
 });
 
+/** 来历只画一份：同一个值在几块里都出现时，画在第一个含它的块后面。 */
+const originBlock = computed(() => {
+    const key = props.open;
+    if (key === undefined) return null;
+    return props.blocks.find((block) => !("error" in block) && contains(block.tree, key))?.id ?? null;
+});
+
 const openAddress = (): TextAddress | null => {
     if (props.open === undefined) return null;
     const split = props.open.indexOf("|");
@@ -125,7 +132,7 @@ const openAddress = (): TextAddress | null => {
     <div class="min-w-0 text-[length:var(--text-md)] leading-8 text-[var(--text-main)]" data-entry-text>
         <section v-for="block in props.blocks" :key="block.id">
             <Block :block="block" />
-            <div v-if="props.open !== undefined && !('error' in block) && contains(block.tree, props.open)" class="my-2 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 leading-6">
+            <div v-if="block.id === originBlock" class="my-2 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 leading-6">
                 <slot name="origin" :address="openAddress()!" />
             </div>
         </section>

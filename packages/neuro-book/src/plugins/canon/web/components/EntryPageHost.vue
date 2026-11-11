@@ -81,14 +81,15 @@ const view = computed(() => entry.value?.view ?? null);
 
 const status = computed<EntryPageStatus>(() => {
     // 条目不存在是读成功、`view` 为 null；读取本身失败（还没读到过）是另一回事。读到过以后的失败留着旧内容（输出 26）。
-    if (entry.value === undefined) return (entryRead.value?.error ?? null) !== null ? "failed" : "loading";
+    if (entry.value === undefined) return (entryRead.value?.error ?? null) !== null || (chaptersRead.value?.error ?? null) !== null ? "failed" : "loading";
     if (view.value === null) return "missing";
     return view.value.deleted ? "deleted" : "normal";
 });
 
+// 标签标题与面包屑写缺省位置、实际模式下的名字（输出 6），所以只有读的正是那里时才报；换到别的位置或按计划时不报。
 watch(entry, (read) => {
     const shown = read?.view;
-    if (shown === undefined || shown === null) return;
+    if (shown === undefined || shown === null || state.position !== null || state.planned) return;
     props.onHead({name: shown.name, folder: read!.folder ?? "", ancestors: read!.ancestors ?? []});
 }, {immediate: true});
 
@@ -140,12 +141,14 @@ const marks = computed(() => {
     return result;
 });
 const version = (): number => entry.value?.version ?? 0;
+// 来历按位置算：版本、位置、模式任一变了都重读。
+const originStamp = (): string => `${String(version())}|${JSON.stringify(position.value)}|${mode.value}`;
 const originKeys = computed(() => (tab.value === "text" && state.origin !== null ? [state.origin] : []));
 const origins = useOriginPagesMap(() => originKeys.value, (key) => {
     const split = key.indexOf("|");
     const address = {entry: key.slice(0, split), path: key.slice(split + 1)};
     return (cursor) => props.fetchOrigins(address, position.value, mode.value, cursor);
-}, version);
+}, originStamp);
 const openOrigin = computed(() => (state.origin === null ? undefined : origins.value.get(state.origin)?.state.value));
 const declarationOf = (address: TextAddress): FieldDeclaration | undefined => {
     if (address.entry !== props.id) return undefined;
@@ -189,12 +192,13 @@ const contextFor = (namespace: string): ComponentViewContext => {
     }
     return found;
 };
-const dataView = computed<{readonly component: Component | null; readonly failed: string | null}>(() => {
+/** 数据分页用哪个界面：交付了的专门界面；还在加载时先写“读取中”，不先画通用字段表再整块换掉；没有或失败时用通用字段表。 */
+const dataView = computed<{readonly component: Component | null; readonly loading: boolean; readonly failed: string | null}>(() => {
     const namespace = dataNamespace.value;
-    if (namespace === null) return {component: null, failed: null};
+    if (namespace === null) return {component: null, loading: false, failed: null};
     const slot = props.views.view(view.value!.namespaces[namespace]!.type);
-    if (slot.status === "ready") return {component: slot.component, failed: null};
-    return {component: null, failed: slot.status === "failed" ? slot.reason : null};
+    if (slot.status === "ready") return {component: slot.component, loading: false, failed: null};
+    return {component: null, loading: slot.status === "loading", failed: slot.status === "failed" ? slot.reason : null};
 });
 
 /* ---------- 页头 ---------- */
@@ -243,6 +247,7 @@ const setPosition = (value: string): void => {
                     :remaining="openOrigin.remaining"
                     :loading="openOrigin.loading"
                     :failed="openOrigin.failed"
+                    :reason="openOrigin.reason"
                     @more="origins.get(state.origin!)?.more()"
                     @retry="origins.get(state.origin!)?.retry()"
                     @change="(id: string) => props.open({kind: 'change', id})"
@@ -254,12 +259,14 @@ const setPosition = (value: string): void => {
             :rows="plotRows(plotState?.items ?? [], props.id, labelOfPath, place, text)"
             :remaining="Math.max(0, (plotState?.data?.total ?? 0) - (plotState?.items.length ?? 0))"
             :loading="plotState?.loading ?? true"
+            :failed="(plotState?.error ?? null) !== null"
             @open="(id: string) => props.open({kind: 'change', id})"
             @more="plot.more()"
         />
         <template v-else-if="dataNamespace !== null">
             <p v-if="dataView.failed !== null" role="alert" class="mb-3 text-[length:var(--text-sm)] text-[var(--status-warning)]">{{ text("fields.viewFailed", {reason: dataView.failed}) }}</p>
-            <component :is="dataView.component" v-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
+            <p v-if="dataView.loading" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
+            <component :is="dataView.component" v-else-if="dataView.component !== null" :key="dataNamespace" :context="contextFor(dataNamespace)" />
             <FieldsDataView v-else :key="dataNamespace" :context="contextFor(dataNamespace)" />
         </template>
     </EntryPage>

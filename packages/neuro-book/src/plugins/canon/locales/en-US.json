@@ -73,7 +73,8 @@
         "incomplete": "incomplete",
         "label": "{{label}}: {{value}}",
         "blockFailed": "This block could not be rendered: {{reason}}",
-        "deletedRef": "deleted entry"
+        "deletedRef": "deleted entry",
+        "listSeparator": ", "
     },
     "origin": {
         "caption": "How {{label}} came to be",
@@ -98,7 +99,8 @@
         "empty": "No fields on this tab yet",
         "notReduced": "not summarised yet",
         "anchor": "Starting point: {{value}}",
-        "viewFailed": "The dedicated view did not load; showing the field table: {{reason}}"
+        "viewFailed": "The dedicated view did not load; showing the field table: {{reason}}",
+        "notesMore": "{{count}} earlier notes not shown"
     },
     "panel": {
         "empty": "This panel has nothing yet",

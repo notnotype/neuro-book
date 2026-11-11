@@ -22,7 +22,9 @@ const selected = computed(() => {
     const chosen = context.state.selected;
     return typeof chosen === "string" && cards.value.some((card) => card.path === chosen) ? chosen : cards.value[0]?.path;
 });
-const pages = useOriginPagesMap(() => (selected.value === undefined ? [] : [selected.value]), (path) => (cursor) => context.origins(path.slice(prefix.length), cursor), () => context.version);
+// 版本、位置、模式任一变了都重读（流水按位置算）。
+const stamp = (): string => `${String(context.version)}|${JSON.stringify(context.position)}|${context.mode}`;
+const pages = useOriginPagesMap(() => (selected.value === undefined ? [] : [selected.value]), (path) => (cursor) => context.origins(path.slice(prefix.length), cursor), stamp);
 const ledger = computed(() => (selected.value === undefined ? undefined : pages.value.get(selected.value)?.state.value));
 const declaration = computed(() => context.declarations.find((item) => `${prefix}${item.id}` === selected.value));
 </script>
@@ -35,6 +37,7 @@ const declaration = computed(() => context.declarations.find((item) => `${prefix
         :ledger-remaining="ledger?.remaining ?? 0"
         :ledger-loading="ledger?.loading ?? true"
         :ledger-failed="ledger?.failed ?? false"
+        :ledger-reason="ledger?.reason ?? ''"
         @select="(path: string) => (context.state.selected = path)"
         @more="selected !== undefined && pages.get(selected)?.more()"
         @retry="selected !== undefined && pages.get(selected)?.retry()"

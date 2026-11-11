@@ -3,6 +3,8 @@
  * 条目页的骨架（docs/specs/canon/author-ui.md 输出 6 到 9、27）：页头、几行状态说明、分页条；分页的内容由宿主放进默认插槽。
  * 受控：位置、“按计划”、当前分页都由宿主给，交互时发出新值。
  */
+import {useId} from "vue";
+
 import {Banner, Button, Select, Switch, Tabs} from "@notnotype/nb-ui/components";
 import type {SelectOption, TabsItem} from "@notnotype/nb-ui/components";
 
@@ -43,7 +45,9 @@ defineSlots<{
 }>();
 
 const text = useCanonText();
-const PANEL_ID = "canon-entry-tab-panel";
+// 同一窗口里可能挂着几个条目页（拆分以后），id 要各不相同。
+const PANEL_ID = `canon-entry-panel-${useId()}`;
+const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
 </script>
 
 <template>
@@ -59,7 +63,8 @@ const PANEL_ID = "canon-entry-tab-panel";
             <p class="mt-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.deleted") }}</p>
         </div>
         <template v-else>
-            <header class="sticky top-0 z-[1] border-b border-[var(--divider)] bg-[var(--panel-surface)] px-8 pt-5 max-[480px]:px-4">
+            <!-- 窄屏上页头换成几行，吸顶会占掉大半个视口，只在宽屏吸顶。 -->
+            <header class="z-[1] border-b border-[var(--divider)] bg-[var(--panel-surface)] px-8 pt-5 min-[481px]:sticky min-[481px]:top-0 max-[480px]:px-4">
                 <div class="mx-auto flex max-w-[760px] flex-wrap items-start gap-x-4 gap-y-2">
                     <div class="min-w-0 flex-1 basis-64">
                         <div class="flex flex-wrap items-baseline gap-x-2">
@@ -77,12 +82,12 @@ const PANEL_ID = "canon-entry-tab-panel";
                         </label>
                     </div>
                 </div>
-                <Tabs class="mx-auto mt-3 max-w-[760px]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
+                <Tabs class="mx-auto mt-3 max-w-[760px]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />
             </header>
             <div class="mx-auto max-w-[760px] px-8 py-5 max-[480px]:px-4">
                 <p v-if="props.positionGone" role="status" class="mb-3 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.positionGone") }}</p>
                 <p v-if="props.notAppeared !== ''" class="mb-3 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.notAppeared", {position: props.notAppeared}) }}</p>
-                <div :id="PANEL_ID" role="tabpanel">
+                <div :id="PANEL_ID" role="tabpanel" :aria-labelledby="tabId(props.tab)">
                     <slot />
                 </div>
             </div>

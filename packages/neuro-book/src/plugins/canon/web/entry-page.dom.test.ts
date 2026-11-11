@@ -157,6 +157,7 @@ describe("条目页", () => {
         await waitUntil("页头", () => wrapper.find("h1").exists() && wrapper.find("h1").text() === "哥哥");
         expect(page.title!(brotherId)).toBe("哥哥");
         expect(page.breadcrumbs!(brotherId)?.map((crumb) => crumb.label)).toEqual([{kind: "text", ns: "nbook.canon", key: "views.entries.title"}, "人物", "星瑕", "哥哥"]);
+        expect(page.breadcrumbs!(brotherId)?.[0]?.command).toEqual({id: "nbook.view.open", args: {viewId: "nbook.canon.entries"}});
         expect(page.breadcrumbs!(brotherId)?.[2]?.command).toEqual({id: "nbook.canon.open-entry", args: {id}});
 
         const star2 = await open(id);
@@ -189,6 +190,45 @@ describe("条目页", () => {
         expect(wrapper.find("[data-origin-row] .text-\\[var\\(--status-warning\\)\\]").text()).toBe("估计：书大概三百");
         await wrapper.get("[data-value]").trigger("click");
         expect(wrapper.find("[data-origin-list]").exists()).toBe(false);
+    });
+
+    it("展开着来历时：别处发布以后按已读的步数重读；换位置以后来历跟着换；换位置期间不出加载占位", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        await publish(other.canon, [change(id, "1", "领了工资", 200), change(id, "2", "买了书", -300)]);
+        const {wrapper, state} = await open(id);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists() && valueText(wrapper) === "900");
+        await wrapper.get("[data-value]").trigger("click");
+        await waitUntil("来历", () => originRows(wrapper).length === 3);
+
+        await publish(other.canon, [change(id, "2", "又买了笔", -50)]);
+        await waitUntil("来历跟着更新", () => originRows(wrapper).length === 4);
+        expect(originRows(wrapper)[0]).toBe("第 2 章 又买了笔 作者给的 −50 850 元 改这一笔");
+
+        const seen: string[] = [];
+        const observer = new MutationObserver(() => seen.push(wrapper.text()));
+        observer.observe(wrapper.element, {subtree: true, childList: true, characterData: true});
+        cleanups.push(() => observer.disconnect());
+        state.position = "1:end";
+        await waitUntil("值与来历都换成第 1 章末尾的", () => valueText(wrapper) === "1,200" && originRows(wrapper).length === 2);
+        expect(originRows(wrapper)).toEqual(["第 1 章 领了工资 作者给的 +200 1,200 元 改这一笔", "初值 1,000 元"]);
+        expect(seen.some((shown) => shown.includes("读取中"))).toBe(false);
+    });
+
+    it("标签标题与面包屑写缺省位置上的名字：换位置看到别的名字时，标题不跟着变", async () => {
+        const {other, page, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const renamed = `tmp:${next()}`;
+        await publish(other.canon, [{ref: {kind: "change", id: renamed}, after: {id: renamed, kind: "written", text: "改了名", at: {kind: "chapter", chapter: "2", key: 1}, told: [], involves: [id], lines: [], links: [], status: "active", by: {kind: "author"}, patches: [{op: "set", at: {entry: id, path: "entry.name"}, value: "星瑕（新名）"}]} satisfies StoryChangeDraft}]);
+        const {wrapper, state} = await open(id);
+        await waitUntil("缺省位置上的名字", () => wrapper.find("h1").exists() && wrapper.find("h1").text() === "星瑕（新名）");
+        expect(page.title!(id)).toBe("星瑕（新名）");
+        state.position = "initial";
+        await waitUntil("初值的名字", () => wrapper.find("h1").text() === "星瑕");
+        expect(page.title!(id)).toBe("星瑕（新名）");
+        expect(page.breadcrumbs!(id)?.at(-1)?.label).toBe("星瑕（新名）");
     });
 
     it("来历很长时先列最近 20 步与初值一行，“再显示更早的”接着读", async () => {
@@ -354,5 +394,37 @@ describe("读取次数", () => {
         const reads = counted.calls.slice(before).map((call) => call.method).sort();
         // 树两层、条目页的章表、登记的类型、条目、渲染、情节第一页，加上读取层自己的 status：每个一次，不多读。
         expect(reads).toEqual(["changes", "chapters", "components", "entry", "render", "status", "tree", "tree"]);
+    });
+
+    it("换过的读取不再占着：换到读过的位置、离开文字分页以后，一次发布只重读在用的", async () => {
+        venue = await canonNodeWorld(tmp);
+        const mine = await venue.window("mine");
+        const other = await venue.window("other");
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const counted = countedClient(mine.canon);
+        const world = createCanonWorld(counted.client);
+        cleanups.push(() => world.dispose());
+        const page = createEntryPage({world: () => world, fetchOrigins: originsFetcher((input) => counted.client.call("origins", input)), views: new ComponentViewRegistry(), execute: () => undefined, entriesView: "nbook.canon.entries"});
+        const component = await page.load();
+        const state = reactive(page.initialState!(id));
+        const entry = mount(component, {props: {context: {recent: [], arg: id, state}}, global: {provide: provideText(port)}, attachTo: document.body});
+        cleanups.push(() => entry.unmount());
+        await waitUntil("值", () => entry.find("[data-value]").exists() && valueText(entry) === "1,000");
+
+        // 缺省位置 → 第 1 章开头 → 回到缺省（读取层里还留着结果，一换上就读到了）；再离开文字分页。
+        state.position = "1:start";
+        await waitUntil("第 1 章开头读到", () => counted.calls.some((call) => call.method === "entry" && JSON.stringify(call.input).includes('"edge":"start"')));
+        await waitUntil("第 1 章开头显示出来", () => entry.find("[data-value]").exists());
+        state.position = null;
+        state.tab = "plot";
+        await waitUntil("情节分页", () => entry.find("[data-plot-list]").exists());
+
+        const before = counted.calls.length;
+        await publish(other.canon, [change(id, "2", "买了书", -300)]);
+        await waitUntil("情节更新", () => entry.findAll("[data-change]").length === 1);
+        const reads = counted.calls.slice(before).filter((call) => call.method === "entry" || call.method === "render");
+        expect(reads.map((call) => call.method)).toEqual(["entry"]);
+        expect(JSON.stringify(reads[0]!.input)).toContain('"edge":"end"');
     });
 });

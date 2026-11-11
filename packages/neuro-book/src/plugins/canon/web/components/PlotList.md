@@ -32,6 +32,8 @@ type PlotListProps = {
     remaining?: number;
     /** 默认 false。 */
     loading?: boolean;
+    /** 读取失败：写“没有读出来”，读到过的行留着，世界下一次变化时重读；默认 false。 */
+    failed?: boolean;
 };
 
 type PlotListEmits = {

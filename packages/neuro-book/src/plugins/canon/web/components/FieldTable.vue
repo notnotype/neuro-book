@@ -33,7 +33,7 @@ const text = useCanonText();
                         class="canon-value max-w-full text-left"
                         :class="[row.unknown || row.incomplete ? 'text-[var(--status-warning)]' : 'text-[var(--text-main)]', props.open === row.path ? 'canon-value-open' : '']"
                         :aria-expanded="props.open === row.path"
-                        :aria-label="text('value.label', {label: row.label, value: row.items !== undefined ? row.items.join('、') : row.display})"
+                        :aria-label="text('value.label', {label: row.label, value: row.items !== undefined ? row.items.join(text('value.listSeparator')) : row.display})"
                         @click="emit('value', row.path)"
                     >
                         <template v-if="row.items !== undefined">
@@ -45,7 +45,8 @@ const text = useCanonText();
                 </span>
                 <span v-if="row.mark !== null" class="shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ row.mark }}</span>
             </div>
-            <ol v-if="(row.notes?.length ?? 0) > 0 || row.notReduced" class="m-0 mt-1 list-none pl-32 text-[length:var(--text-xs)] text-[var(--text-secondary)] max-[480px]:pl-0">
+            <ol v-if="(row.notes?.length ?? 0) > 0 || (row.notesEarlier ?? 0) > 0 || row.notReduced" class="m-0 mt-1 list-none pl-32 text-[length:var(--text-xs)] text-[var(--text-secondary)] max-[480px]:pl-0">
+                <li v-if="(row.notesEarlier ?? 0) > 0" class="text-[var(--text-muted)]">{{ text("fields.notesMore", {count: row.notesEarlier ?? 0}) }}</li>
                 <li v-for="(note, index) in row.notes" :key="index"><span class="mr-2 text-[var(--text-muted)]">{{ note.where }}</span>{{ note.text }}</li>
                 <li v-if="row.notReduced" class="text-[var(--text-muted)]">{{ text("fields.notReduced") }}</li>
             </ol>

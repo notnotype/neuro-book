@@ -49,11 +49,11 @@ describe("OriginList", () => {
         expect(wrapper.emitted("more")).toHaveLength(1);
     });
 
-    it("读取失败时只有原因与“重试”；没有行时是“读取中…”", async () => {
-        const failed = list({failed: true, remaining: 3});
-        expect(failed.get("[role='alert']").text()).toContain("来历没有读出来");
-        expect(failed.findAll("[data-origin-row]")).toHaveLength(0);
-        await failed.get("button").trigger("click");
+    it("读取失败时写原因与“重试”，读到过的行留着；没有行时是“读取中…”", async () => {
+        const failed = list({failed: true, reason: "项目实例正在停止"});
+        expect(failed.get("[role='alert']").text()).toContain("来历没有读出来项目实例正在停止");
+        expect(failed.findAll("[data-origin-row]")).toHaveLength(3);
+        await failed.get("[role='alert'] button").trigger("click");
         expect(failed.emitted("retry")).toHaveLength(1);
         expect(list({rows: [], loading: true}).text()).toBe("读取中…");
     });

@@ -73,7 +73,8 @@
         "incomplete": "不完整",
         "label": "{{label}}：{{value}}",
         "blockFailed": "这一块没有渲染出来：{{reason}}",
-        "deletedRef": "已删除的条目"
+        "deletedRef": "已删除的条目",
+        "listSeparator": "、"
     },
     "origin": {
         "caption": "{{label}}是怎么来的",
@@ -98,7 +99,8 @@
         "empty": "这个分页还没有字段",
         "notReduced": "还没归纳",
         "anchor": "起点：{{value}}",
-        "viewFailed": "专门的界面没有加载出来，先用字段表：{{reason}}"
+        "viewFailed": "专门的界面没有加载出来，先用字段表：{{reason}}",
+        "notesMore": "还有更早的 {{count}} 句"
     },
     "panel": {
         "empty": "这个面板还没有内容",

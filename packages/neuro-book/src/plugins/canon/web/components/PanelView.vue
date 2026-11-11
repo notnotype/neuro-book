@@ -15,7 +15,8 @@ const props = withDefaults(defineProps<{
     ledgerRemaining?: number;
     ledgerLoading?: boolean;
     ledgerFailed?: boolean;
-}>(), {selected: undefined, ledger: () => [], ledgerRemaining: 0, ledgerLoading: false, ledgerFailed: false});
+    ledgerReason?: string;
+}>(), {selected: undefined, ledger: () => [], ledgerRemaining: 0, ledgerLoading: false, ledgerFailed: false, ledgerReason: ""});
 
 const emit = defineEmits<{
     (event: "select", path: string): void;
@@ -36,13 +37,12 @@ const selectedCard = (): FieldRow | undefined => props.cards.find((card) => card
 <template>
     <p v-if="props.cards.length === 0" class="py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]" data-panel-view>{{ text("panel.empty") }}</p>
     <div v-else class="flex min-w-0 flex-wrap gap-6 text-[length:var(--text-sm)]" data-panel-view>
-        <div class="flex w-full flex-col gap-2 sm:w-52 sm:shrink-0" role="listbox" :aria-label="text('panel.cards')">
+        <div class="flex w-full flex-col gap-2 sm:w-52 sm:shrink-0" role="group" :aria-label="text('panel.cards')">
             <button
                 v-for="card in props.cards"
                 :key="card.path"
                 type="button"
-                role="option"
-                :aria-selected="props.selected === card.path"
+                :aria-pressed="props.selected === card.path"
                 class="rounded-[var(--radius-control)] border px-3 py-2 text-left"
                 :class="props.selected === card.path ? 'border-[var(--accent-main)]' : 'border-[var(--divider)]'"
                 :data-card="card.path"
@@ -61,7 +61,7 @@ const selectedCard = (): FieldRow | undefined => props.cards.find((card) => card
         <section v-if="selectedCard() !== undefined" class="min-w-64 flex-1 basis-80">
             <h3 class="mb-2 text-[length:var(--text-sm)] font-semibold">{{ text("panel.ledger", {label: selectedCard()!.label}) }}</h3>
             <slot name="record" />
-            <OriginList :rows="props.ledger" :remaining="props.ledgerRemaining" :loading="props.ledgerLoading" :failed="props.ledgerFailed" @more="emit('more')" @retry="emit('retry')" @change="(id: string) => emit('change', id)" />
+            <OriginList :rows="props.ledger" :remaining="props.ledgerRemaining" :loading="props.ledgerLoading" :failed="props.ledgerFailed" :reason="props.ledgerReason" @more="emit('more')" @retry="emit('retry')" @change="(id: string) => emit('change', id)" />
         </section>
     </div>
 </template>

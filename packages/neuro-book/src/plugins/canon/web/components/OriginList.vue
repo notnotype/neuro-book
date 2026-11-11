@@ -12,7 +12,9 @@ const props = withDefaults(defineProps<{
     remaining?: number;
     loading?: boolean;
     failed?: boolean;
-}>(), {caption: "", remaining: 0, loading: false, failed: false});
+    /** 失败时服务给的说明；没有时不写。 */
+    reason?: string;
+}>(), {caption: "", remaining: 0, loading: false, failed: false, reason: ""});
 
 const emit = defineEmits<{
     (event: "more"): void;
@@ -26,23 +28,35 @@ const text = useCanonText();
 <template>
     <div class="min-w-0 text-[length:var(--text-sm)]" data-origin-list>
         <p v-if="props.caption !== ''" class="mb-1 font-semibold text-[var(--text-main)]">{{ props.caption }}</p>
-        <p v-if="props.failed" role="alert" class="flex items-center gap-2 py-1 text-[var(--status-danger)]">
-            {{ text("origin.failed") }}
+        <p v-if="props.failed" role="alert" class="flex flex-wrap items-center gap-2 py-1 text-[var(--status-danger)]">
+            {{ text("origin.failed") }}<span v-if="props.reason !== ''">{{ props.reason }}</span>
             <Button size="sm" variant="ghost" @click="emit('retry')">{{ text("world.retry") }}</Button>
         </p>
-        <p v-else-if="props.loading && props.rows.length === 0" class="py-1 text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
-        <ol v-else class="m-0 list-none p-0">
-            <li v-for="row in props.rows" :key="row.key" class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-t border-[var(--divider)] py-1.5 first:border-t-0" data-origin-row>
-                <span class="w-16 shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ row.where }}</span>
-                <span class="min-w-0 flex-1 basis-48 text-[var(--text-main)]">
-                    {{ row.what }}
-                    <span v-if="row.basis !== undefined" class="block text-[length:var(--text-xs)]" :class="row.basis.estimate ? 'text-[var(--status-warning)]' : 'text-[var(--text-muted)]'">{{ row.basis.text }}</span>
-                </span>
-                <span class="w-20 shrink-0 text-right font-mono text-[var(--text-secondary)]">{{ row.delta ?? "" }}</span>
-                <span class="w-24 shrink-0 text-right font-mono" :class="row.check === 'mismatch' ? 'text-[var(--status-danger)]' : 'text-[var(--text-main)]'">{{ row.result }}</span>
-                <Button v-if="row.change !== undefined" size="sm" variant="ghost" @click="emit('change', row.change)">{{ text("origin.editStep") }}</Button>
-            </li>
-        </ol>
-        <Button v-if="!props.failed && props.remaining > 0" class="mt-1" size="sm" variant="ghost" @click="emit('more')">{{ text("origin.more", {count: props.remaining}) }}</Button>
+        <p v-if="props.loading && props.rows.length === 0" class="py-1 text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
+        <template v-else-if="props.rows.length > 0">
+            <!-- 表头只给读屏与宽屏：窄屏上一行换成两行，表头对不齐，不显示。 -->
+            <div class="flex gap-x-3 pb-1 text-[length:var(--text-xs)] text-[var(--text-muted)] max-[480px]:sr-only">
+                <span class="w-16 shrink-0">{{ text("origin.where") }}</span>
+                <span class="min-w-0 flex-1 basis-48">{{ text("origin.what") }}</span>
+                <span class="w-20 shrink-0 text-right">{{ text("origin.delta") }}</span>
+                <span class="w-24 shrink-0 text-right">{{ text("origin.result") }}</span>
+                <span class="w-[4.5rem] shrink-0" />
+            </div>
+            <ol class="m-0 list-none p-0">
+                <li v-for="row in props.rows" :key="row.key" class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-t border-[var(--divider)] py-1.5" data-origin-row>
+                    <span class="w-16 shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ row.where }}</span>
+                    <span class="min-w-0 flex-1 basis-48 text-[var(--text-main)]">
+                        {{ row.what }}
+                        <span v-if="row.basis !== undefined" class="block text-[length:var(--text-xs)]" :class="row.basis.estimate ? 'text-[var(--status-warning)]' : 'text-[var(--text-muted)]'">{{ row.basis.text }}</span>
+                    </span>
+                    <span class="w-20 shrink-0 text-right font-mono text-[var(--text-secondary)]">{{ row.delta ?? "" }}</span>
+                    <span class="w-24 shrink-0 text-right font-mono" :class="row.check === 'mismatch' ? 'text-[var(--status-danger)]' : 'text-[var(--text-main)]'">{{ row.result }}</span>
+                    <span class="w-[4.5rem] shrink-0 text-right">
+                        <Button v-if="row.change !== undefined" size="sm" variant="ghost" @click="emit('change', row.change)">{{ text("origin.editStep") }}</Button>
+                    </span>
+                </li>
+            </ol>
+        </template>
+        <Button v-if="props.remaining > 0" class="mt-1" size="sm" variant="ghost" @click="emit('more')">{{ text("origin.more", {count: props.remaining}) }}</Button>
     </div>
 </template>
