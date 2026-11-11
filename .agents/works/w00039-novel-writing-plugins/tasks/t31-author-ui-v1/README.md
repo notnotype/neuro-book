@@ -92,10 +92,11 @@ S0（2026-11-10）：计划第三版已提交（2ba5231dd）。Spec 草稿写在
   - 实现中对 Spec 的改动：`author-ui.md` 输入一节的 `ComponentViewContext` 加 `state`、`blocked`、`place`（标签状态要随标签、写入入口要知道能不能写、界面要把安放写成“第 N 章”）；数据分页标题的约定键改成 `componentViews.<本地 id>.title`（同视图与页面）。
   - 修了 S3 的一个错：视图与命令标题的约定键是去掉插件前缀的本地 id（`views.entries.title`），目录里原来写成了完整 id，S3 的测试没测标题。
   - 测量（[`evidences/scale-s4-entry-page.txt`](evidences/scale-s4-entry-page.txt)）：一次别处发布引起的读取，每个在用的读取各一次；1000 章上打开热门条目页的一组读取合计中位 66 毫秒，其中 `entry` 12、`changes` 20、`origins` 35 毫秒超过单次预算的一半，都在内核，加了内核优化片 K-d（排在 S8 之前）。
+  - 前端实现审查（Claude Sonnet，2026-11-11）：20 条（重要 8、建议 12），19 条改了（`96cd270b1`），1 条接受（变更详情的命令 S6 才登记）。要点是读取切换时旧句柄没释放、来历不随位置与模式重读、标签标题随所选位置变。补的测试做了两处变异检查都抓得到。[报告](evidences/impl-review-s4-sonnet.txt)、[处理](evidences/impl-review-s4-resolution.txt)。
   - 已知限制：条目树的选中项还是“最后点过的那个”，没有跟着活动的条目页（要订阅编辑器的活动标签，S8 前补）；“停了再激活换回专门界面”（验收 9 的后一半）运行时没有单独停一个插件的接口，组件测试只测了撤回与加载失败，留给 S8 的 e2e。
 
 ## 下一步
 
 1. 等 `b1-sample-types` 的答复，挪样本到 nb-canon 的子路径、写 `scripts/canon-sample.ts`（S2 剩下的部分）。
-2. S4 的前端实现审查（Sonnet，后台，不阻塞），之后进 S5 写入：开工前在 `plan.md` 补细计划。
+2. S5 写入（细计划已写在 `plan.md` 的“S5 的细计划”）。
 3. K-d 内核读取的性能，S8 之前做。“底部面板默认不显示”的声明等 w00026 t24；提供之前按默认显示做。
