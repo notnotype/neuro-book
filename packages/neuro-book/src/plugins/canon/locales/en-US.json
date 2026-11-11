@@ -49,6 +49,9 @@
         },
         "receipt": {
             "title": "Receipt"
+        },
+        "change": {
+            "title": "Story Change"
         }
     },
     "componentViews": {
@@ -307,5 +310,32 @@
             "reorder": "Chapter reorder"
         },
         "changed": "changed"
+    },
+    "change": {
+        "missing": "This story change was not found",
+        "route": "Writes back to this story change",
+        "patchSaved": "Edit {{label}} in “{{text}}”",
+        "activateSaved": "Put “{{text}}” into effect",
+        "activate": "Put into Effect",
+        "heldConflict": "On hold: conflicts with the setting. {{note}}",
+        "heldUnsure": "On hold: the writer was not sure. {{note}}",
+        "undoneReason": "Why it was undone: {{reason}}",
+        "quotes": "Quotes",
+        "quote": "“{{quote}}”",
+        "openChapter": "Open chapter",
+        "chapterMissing": "The chapter file was not found",
+        "involved": "Entries involved",
+        "patches": "Changes",
+        "noPatches": "This story change changes nothing",
+        "basis": "basis: {{basis}}",
+        "sources": {
+            "chapter": "{{place}} text",
+            "chapterUnknown": "chapter text",
+            "outline": "outline",
+            "seed": "seed",
+            "message": "author's message",
+            "ui": "written in the app",
+            "note": "note"
+        }
     }
 }

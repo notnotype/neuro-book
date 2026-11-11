@@ -71,7 +71,8 @@ function signed(delta: number): string {
     return delta < 0 ? `−${shown}` : `+${shown}`;
 }
 
-function basisRow(basis: unknown, text: CanonBoundText): OriginRow["basis"] {
+/** 一步或一处改动的依据写成一小段；估计的另标出来（用警告色）。没有依据时为 undefined。 */
+export function basisRow(basis: unknown, text: CanonBoundText): OriginRow["basis"] {
     if (typeof basis !== "object" || basis === null) return undefined;
     const given = basis as {kind?: string; quote?: string; note?: string};
     if (given.kind === "quote") return {text: text("origin.basisQuote", {quote: given.quote ?? ""}), estimate: false};

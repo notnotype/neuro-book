@@ -49,6 +49,9 @@
         },
         "receipt": {
             "title": "回执"
+        },
+        "change": {
+            "title": "情节"
         }
     },
     "componentViews": {
@@ -307,5 +310,32 @@
             "reorder": "调整章序"
         },
         "changed": "改了"
+    },
+    "change": {
+        "missing": "找不到这条情节",
+        "route": "会写回这条情节",
+        "patchSaved": "改“{{text}}”里{{label}}那一笔",
+        "activateSaved": "把“{{text}}”改成生效",
+        "activate": "改成生效",
+        "heldConflict": "待定：与设定冲突。{{note}}",
+        "heldUnsure": "待定：写入者没把握。{{note}}",
+        "undoneReason": "撤销的原因：{{reason}}",
+        "quotes": "讲到它的原句",
+        "quote": "“{{quote}}”",
+        "openChapter": "打开这一章",
+        "chapterMissing": "没找到这一章的文件",
+        "involved": "涉及的条目",
+        "patches": "改动",
+        "noPatches": "这条情节没有改什么",
+        "basis": "依据：{{basis}}",
+        "sources": {
+            "chapter": "{{place}}正文",
+            "chapterUnknown": "章节正文",
+            "outline": "细纲",
+            "seed": "种子",
+            "message": "作者的消息",
+            "ui": "界面上写的",
+            "note": "笔记"
+        }
     }
 }

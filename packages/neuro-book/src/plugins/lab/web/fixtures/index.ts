@@ -6,6 +6,7 @@ import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPrev
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
 import type EditorPageBreadcrumbs from "nbook/plugins/editor/web/components/EditorPageBreadcrumbs.vue";
+import type ChangePage from "nbook/plugins/canon/web/components/ChangePage.vue";
 import type ConfirmBar from "nbook/plugins/canon/web/components/ConfirmBar.vue";
 import type EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
 import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
@@ -1594,6 +1595,38 @@ function canonEntryPageFixtures() {
                 ];
             })(),
             load: async () => (await import("./ReceiptPageFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ChangePage>({
+            component: "ChangePage",
+            scenes: (() => {
+                const model = {
+                    text: "被扒手偷了",
+                    place: "第 3 章",
+                    kind: "已写",
+                    status: "active" as const,
+                    statusText: "生效",
+                    heldReason: "",
+                    undoneReason: "",
+                    quotes: [{key: "t1", quote: "她摸了摸口袋，钱包不见了", source: "第 3 章正文", chapter: "3"}, {key: "t2", quote: "被偷了大概三百", source: "细纲", chapter: null}],
+                    involved: [{id: "xingxia", name: "星瑕"}, {id: "pickpocket", name: "扒手"}],
+                    patches: [
+                        {index: 0, line: "星瑕的存款 −300", basis: {text: "估计：大概三百", estimate: true}, editable: true, label: "星瑕的存款"},
+                        {index: 1, line: "星瑕的样子 → 狼狈", editable: false, label: "星瑕的样子"},
+                    ],
+                };
+                const held = {...model, status: "held" as const, statusText: "待定", heldReason: "待定：与设定冲突。第 2 章末尾的存款是 2,700，扣 300 以后和第 3 章正文写的 2,800 对不上"};
+                return [
+                    {id: "active", label: "生效的一条：原句、涉及的条目、改动", input: {props: {status: "normal" as const, model}}},
+                    {id: "active-editing", label: "改那一笔：确认条在顶上", input: {props: {status: "normal" as const, model}}},
+                    {id: "held", label: "待定：写原因与“改成生效”", input: {props: {status: "normal" as const, model: held}}},
+                    {id: "activating", label: "改成生效：预览", input: {props: {status: "normal" as const, model: held, activation: {preview: ["少了 1 条待处理", "星瑕的存款：2,700 → 2,400"], previewing: false, error: "", recheck: false, saving: false, locked: false}}}},
+                    {id: "activation-invalid", label: "改成生效：校验不过", input: {props: {status: "normal" as const, model: held, activation: {preview: null, previewing: false, error: "没有通过检查：quote does not contain 300", recheck: false, saving: false, locked: true}}}},
+                    {id: "blocked", label: "写不了：“改”不可用，章节文件没找到", input: {props: {status: "normal" as const, model, blocked: "第 3 章记账正在写，写完以后才能改", chapterMissing: "3"}}},
+                    {id: "missing", label: "找不到", input: {props: {status: "missing" as const}}},
+                    {id: "active-english", label: "英文界面", input: {props: {status: "normal" as const, model: {...model, text: "Pickpocketed", place: "Chapter 3", kind: "written", statusText: "in effect", quotes: [{key: "t1", quote: "Her wallet was gone", source: "Chapter 3 text", chapter: "3"}], involved: [{id: "xingxia", name: "Xingxia"}], patches: [{index: 0, line: "Xingxia's Savings −300", basis: {text: "estimate: about 300", estimate: true}, editable: true, label: "Xingxia's Savings"}]}}}},
+                ];
+            })(),
+            load: async () => (await import("./ChangePageFixture.vue")).default,
         }),
     ];
 }

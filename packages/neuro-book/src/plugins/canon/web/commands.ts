@@ -15,6 +15,8 @@ export const OPEN_ENTRY_COMMAND = "nbook.canon.open-entry";
 export const OPEN_RECEIPT_COMMAND = "nbook.canon.open-receipt";
 export const OPEN_CHANGE_COMMAND = "nbook.canon.open-change";
 export const NEW_ENTRY_COMMAND = "nbook.canon.new-entry";
+/** 编辑器打开一个文件的命令（workbench/editor.md 的命令表）：变更详情页的“打开这一章”。 */
+export const EDITOR_OPEN_COMMAND = "nbook.editor.open";
 /** 设定视图（命令打开对话框前先显示它）。与 `plugin.ts` 的 `ENTRIES_VIEW_ID` 是同一个，这里写字面量免得成环。 */
 const ENTRIES_VIEW = "nbook.canon.entries";
 /** 条目页、回执页、变更详情页（author-ui.md 输出 6、20、21）。 */

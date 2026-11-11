@@ -2,7 +2,7 @@
  * `nbook.canon` 的浏览器入口：不存世界，按调用方提供世界客户端，以调用方的身份经远程服务转给本窗口绑定的项目实例
  * （docs/specs/canon/project.md 输出 1）。没有绑定项目的窗口调用得到 `no-project`。
  *
- * 作者界面（docs/specs/canon/author-ui.md）也在这里：侧栏视图“设定”、条目页、回执页、数据分页的贡献点 `canon.component-views`
+ * 作者界面（docs/specs/canon/author-ui.md）也在这里：侧栏视图“设定”、条目页、回执页、变更详情页、数据分页的贡献点 `canon.component-views`
  * （canon 自己给人物、面板各交一个界面）、命令，以及挂还原对话框的页面浮层。界面用本入口自己的身份建一份读取层（`world.ts`），
  * 视图、页面或对话框第一次挂上时才建（才订阅世界），窗口停止时释放。视图、页面与命令的实现要在启动时交出，所以入口在启动时
  * 激活。保存后的提示与还原的对话框在窗口里各一份，几种页面共用。
@@ -16,6 +16,7 @@ import type {PropType} from "vue";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
+import {filesKey, formatResource} from "nbook/plugins/files/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {notificationsKey, WORKBENCH_OVERLAYS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {OverlayDeclaration} from "nbook/plugins/workbench/shared/contracts";
@@ -30,7 +31,9 @@ import {componentsPoint} from "../shared/components";
 import {canonClientKey, canonWorldContract} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
 import {createCanonClient} from "./client";
-import {CANON_COMMAND_DECLARATIONS, canonCommands, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, RECEIPT_PAGE} from "./commands";
+import {BINDER_DIR, chapterFileName} from "../shared/binder-files";
+import {createChangePage} from "./change-page";
+import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMMAND, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, RECEIPT_PAGE} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
@@ -55,6 +58,8 @@ const ENTRIES_VIEW: WrittenViewDeclaration = {icon: "i-lucide-book", location: "
 const ENTRY_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-book-open", instances: true, restore: true};
 /** 回执页：每次修订一个标签，刷新后恢复。标题由约定键补（`editorPages.receipt.title`）。 */
 const RECEIPT_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-receipt-text", instances: true, restore: true};
+/** 变更详情页：每条剧情变更一个标签，刷新后恢复。标题由约定键补（`editorPages.change.title`）。 */
+const CHANGE_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-milestone", instances: true, restore: true};
 
 /** canon 自己的两个内置类型的数据分页界面；标题由约定键补（`componentViews.<本地 id>.title`）。 */
 const PERSON_TYPE = "nbook.canon.person";
@@ -84,7 +89,8 @@ export const canonBrowserPlugin: PluginDefinition = {
         activationEvents: ["onStartup"],
         // 命令服务可选：只装世界客户端的窗口（测试场地、别的插件的测试）没有工作台，也没有命令。
         // 通知可选：没有工作台的窗口里保存后的提示只留在页面顶上那一份。
-        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}],
+        // 文件服务可选：变更详情页的“打开这一章”要列活页夹目录找章节文件，没有时找不到。
+        dependencies: [{key: windowProjectKey}, {key: commandServiceKey, required: false}, {key: notificationsKey, required: false}, {key: filesKey, required: false}],
         provides: [canonClientKey],
         receives: [CANON_COMPONENT_VIEWS_POINT],
         remoteDelegates: [canonWorldContract],
@@ -92,6 +98,7 @@ export const canonBrowserPlugin: PluginDefinition = {
             {capability: WORKBENCH_VIEWS_POINT, id: ENTRIES_VIEW_ID, declaration: ENTRIES_VIEW},
             {capability: EDITOR_PAGES_POINT, id: ENTRY_PAGE, declaration: ENTRY_PAGE_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: RECEIPT_PAGE, declaration: RECEIPT_PAGE_DECLARATION},
+            {capability: EDITOR_PAGES_POINT, id: CHANGE_PAGE, declaration: CHANGE_PAGE_DECLARATION},
             {capability: WORKBENCH_OVERLAYS_POINT, id: REVERT_OVERLAY, declaration: REVERT_OVERLAY_DECLARATION},
             {capability: CANON_COMPONENT_VIEWS_POINT, id: PERSON_TYPE, declaration: BUILTIN_VIEW},
             {capability: CANON_COMPONENT_VIEWS_POINT, id: PANEL_TYPE, declaration: BUILTIN_VIEW},
@@ -131,6 +138,17 @@ export const canonBrowserPlugin: PluginDefinition = {
                 entriesView: ENTRIES_VIEW_ID,
             });
             const receiptPage = createReceiptPage({world: worldOf, notices, revert, execute, entriesView: ENTRIES_VIEW_ID, revisionsView: REVISIONS_VIEW_ID});
+            const files = await context.services.resolve(filesKey);
+            // “打开这一章”：章节文件名里带标题，按编号在活页夹目录里找（与项目实例读正文认同一个文件）。
+            const openChapter = async (chapter: string): Promise<boolean> => {
+                if (files.status !== "resolved") return false;
+                const listed = await files.instance.list(formatResource({scheme: "project", path: BINDER_DIR}));
+                const name = listed.ok ? chapterFileName(listed.value.entries.filter((entry) => entry.kind === "file").map((entry) => entry.name), chapter) : undefined;
+                if (name === undefined) return false;
+                execute(EDITOR_OPEN_COMMAND, {address: formatResource({scheme: "project", path: `${BINDER_DIR}/${name}`}), mode: "permanent"});
+                return true;
+            };
+            const changePage = createChangePage({world: worldOf, call, notices, revert, execute, openChapter, entriesView: ENTRIES_VIEW_ID});
             // 还原的对话框：第一次有人要还原时才挂上（才建读取层），之后留着，关的时候有收起的动画。
             const overlay: WorkbenchOverlayImplementation = {
                 load: async () => {
@@ -164,7 +182,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 receivers: {[CANON_COMPONENT_VIEWS_POINT]: views.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view},
-                    [EDITOR_PAGES_POINT]: {[ENTRY_PAGE]: page, [RECEIPT_PAGE]: receiptPage},
+                    [EDITOR_PAGES_POINT]: {[ENTRY_PAGE]: page, [RECEIPT_PAGE]: receiptPage, [CHANGE_PAGE]: changePage},
                     [WORKBENCH_OVERLAYS_POINT]: {[REVERT_OVERLAY]: overlay},
                     [CANON_COMPONENT_VIEWS_POINT]: {
                         [PERSON_TYPE]: componentView(() => import("./components/FieldsDataView.vue"), {semanticNotes: true}),

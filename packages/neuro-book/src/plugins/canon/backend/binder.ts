@@ -15,8 +15,9 @@ import {join} from "node:path";
 
 import {XMLParser, XMLValidator} from "fast-xml-parser";
 
-export const BINDER_DIR = "manuscripts.binder";
-export const BINDER_MANIFEST = "binder.xml";
+import {BINDER_DIR, BINDER_MANIFEST, chapterFileName} from "../shared/binder-files";
+
+export {BINDER_DIR, BINDER_MANIFEST, chapterOfFile} from "../shared/binder-files";
 
 /** 一章里一段起讲的线（canon.worldlines 输出 12）：`from` 是段号，从 1 数。 */
 export interface BinderChapterLine {
@@ -114,9 +115,8 @@ function tagOf(node: OrderedNode): string {
  * 服务自己持有（canon.project 输出 25），所以这里不缓存。
  */
 export function chapterText(projectRoot: string, chapter: string): string | undefined {
-    const prefix = `${chapter.padStart(5, "0")}-`;
     try {
-        const name = readdirSync(join(projectRoot, BINDER_DIR)).find((candidate) => candidate.startsWith(prefix) && candidate.endsWith(".md"));
+        const name = chapterFileName(readdirSync(join(projectRoot, BINDER_DIR)), chapter);
         return name === undefined ? undefined : readFileSync(join(projectRoot, BINDER_DIR, name), "utf8");
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -145,10 +145,4 @@ export function chapterTitles(projectRoot: string): ReadonlyMap<string, string> 
         if (match[1] === id.padStart(5, "0") && !titles.has(id)) titles.set(id, match[2]!);
     }
     return titles;
-}
-
-/** 章节文件名（`00012-标题.md`）对应的章 id（`12`）；不是章节文件时为 null。 */
-export function chapterOfFile(name: string): string | null {
-    const match = /^(\d+)-.*\.md$/u.exec(name);
-    return match === null ? null : String(Number(match[1]));
 }
