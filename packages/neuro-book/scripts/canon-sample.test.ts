@@ -47,7 +47,7 @@ describe("星瑕样本项目", () => {
             const service = await host.ready();
             if ("code" in service) throw new Error(service.code);
             expect(service.status().version).toBe(result.revisions);
-            expect(service.chapters().items.map((chapter) => [chapter.id, chapter.title])).toEqual([["1", "好哥哥真难当"], ["2", "用钱说话"], ["3", "第 3 章"]]);
+            expect(service.chapters().items.map((chapter) => [chapter.id, chapter.title])).toEqual([["1", "好哥哥真难当"], ["2", "用钱说话"], ["3", null]]);
 
             const roots = service.tree(null, undefined, 500);
             if (roots === "cursor-stale") throw new Error(roots);

@@ -34,10 +34,10 @@ const text = useCanonText();
         </p>
         <p v-if="props.loading && props.rows.length === 0" class="py-1 text-[var(--text-muted)]">{{ text("entries.loading") }}</p>
         <template v-else-if="props.rows.length > 0">
-            <!-- 表头只给读屏与宽屏：窄屏上一行换成两行，表头对不齐，不显示。 -->
-            <div class="flex gap-x-3 pb-1 text-[length:var(--text-xs)] text-[var(--text-muted)] max-[480px]:sr-only">
+            <!-- 表头与各行同一套换行规则：容器窄时“变化”“结果”换到第二行，表头也一样。窄屏只留给读屏。 -->
+            <div class="flex flex-wrap gap-x-3 pb-1 text-[length:var(--text-xs)] text-[var(--text-muted)] max-[480px]:sr-only">
                 <span class="w-16 shrink-0">{{ text("origin.where") }}</span>
-                <span class="min-w-0 flex-1 basis-48">{{ text("origin.what") }}</span>
+                <span class="min-w-32 flex-1 basis-48">{{ text("origin.what") }}</span>
                 <span class="w-20 shrink-0 text-right">{{ text("origin.delta") }}</span>
                 <span class="w-24 shrink-0 text-right">{{ text("origin.result") }}</span>
                 <span class="w-[4.5rem] shrink-0" />
@@ -45,7 +45,7 @@ const text = useCanonText();
             <ol class="m-0 list-none p-0">
                 <li v-for="row in props.rows" :key="row.key" class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-t border-[var(--divider)] py-1.5" data-origin-row>
                     <span class="w-16 shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ row.where }}</span>
-                    <span class="min-w-0 flex-1 basis-48 text-[var(--text-main)]">
+                    <span class="min-w-32 flex-1 basis-48 text-[var(--text-main)]">
                         {{ row.what }}
                         <span v-if="row.basis !== undefined" class="block text-[length:var(--text-xs)]" :class="row.basis.estimate ? 'text-[var(--status-warning)]' : 'text-[var(--text-muted)]'">{{ row.basis.text }}</span>
                     </span>

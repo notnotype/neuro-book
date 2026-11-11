@@ -75,8 +75,11 @@ function withoutIdentityExtras(sample: PrototypeSample): PrototypeSample {
     return {...sample, items};
 }
 
-/** 章节文件名里的标题：去掉“第 N 章”前缀；去掉以后什么也不剩时用原来的。 */
-const titleOf = (title: string): string => title.replace(/^第\s*\d+\s*章\s*/u, "") || title;
+/**
+ * 章节文件名里的标题：去掉“第 N 章”前缀。原型的第 3 章没有标题，去掉以后什么也不剩，文件名就是 `00003-.md`：活页夹把空
+ * 标题当没有标题（`chapterTitles`），位置选择只写“第 3 章末尾”。
+ */
+const titleOf = (title: string): string => title.replace(/^第\s*\d+\s*章\s*/u, "");
 
 export async function writeCanonSample(target: string): Promise<CanonSampleResult> {
     await mkdir(target, {recursive: true});
