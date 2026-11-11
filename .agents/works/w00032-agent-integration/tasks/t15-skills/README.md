@@ -101,8 +101,8 @@ t05、t08、t10。
 
 ## 当前状态
 
-讨论完成（开发者 2026-10-30 确认）：五轮决定见上。2026-11-10 开工：实施计划 [`plan.md`](plan.md) 开发者确认（第六轮第 17–21 条）。
+讨论完成（开发者 2026-10-30 确认）：五轮决定见上。2026-11-10 开工：实施计划 [`plan.md`](plan.md) 开发者确认（第六轮第 17–21 条）。2026-11-11：评审板第 1 轮答复记为第 27–32 条，第 2 轮已发布（后台安装的进度与结果、Skill 页对齐、`$` 菜单徽标、确认框定尺寸、原因放进悬停提示）；Spec 已写：新建 [`agent/skills.md`](../../../../../docs/specs/agent/skills.md)（planned，界面部分等第 2 轮定了再补），相关 Spec 补了 planned 条目。
 
 ## 下一步
 
-切片 0：计划设计审查（Opus）与界面静态稿（评审板）并行，写 `agent/skills.md` 与相关 Spec 的改动。之后按计划切片在 worktree `.worktree/w00032-t15-skills`（分支 `feat/w00032-t15-skills`）实施。插件 SDK 的构建在 [t33](../t33-plugin-skills/README.md)。
+第 2 轮答复回来后记决定、补 `skills.md` 的界面条目与 `agent/conversation.md`、`ui/agent-conversation-view.md`。与评审并行：在 worktree `.worktree/w00032-t15-skills`（分支 `feat/w00032-t15-skills`）按计划做切片 1–4（后端）。插件 SDK 的构建在 [t33](../t33-plugin-skills/README.md)。
