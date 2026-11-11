@@ -27,8 +27,15 @@ updated: 2026-11-10
 
 ## 进展
 
-- S1 完成（分支 `feat/w00025-t13-comments-ui` 的 `e298dc5b6`）：`nb-markdown/src/editor/comments.ts`（列出、按指纹找、改意见、去掉、跳转、标出）与 `comment-entry.ts`（进入判断），20 条用例加 5 条纯函数用例；做了变异检查（按类型删、不保序、不核指纹、数值比较各让一条以上用例失败）。写计划时担心的“保存后立刻打字并进撤销步”实测不会发生，计划里的 `closeHistory` 去掉了。
+分支 `feat/w00025-t13-comments-ui`（worktree `.worktree/w00025-t13-comments-ui`），按计划的五个切片实施，六个提交（`e298dc5b6`、`bd53afc16`、`d992fa3e0`、`40bf3af72`、`41818080d`、`bd6e0e064`）：
+
+- S1：`nb-markdown` 的批注数据操作（列出、按指纹找、改意见、去掉、跳转、标出）与浮层“进入”判断，20 条用例加 5 条纯函数用例，变异检查让相应用例失败（按类型删、不保序、不核指纹、数值比较）。写计划时担心的“保存后立刻打字并进撤销步”实测不会发生，计划里的 `closeHistory` 去掉了。
+- S2：`comment` 动作与命令（Ctrl+Alt+M 的键位匹配在 `editor/web/key-event.ts`），改意见与删除是控件内部动作，不是命令。
+- S3：nb-ui `Textarea` 加 `bare` 与自动长高；批注卡片、浮层与“写”的状态机；选区菜单的“批注”按钮、右键的“添加批注”；`MarkdownControl.dom.test.ts` 里 10 条行为用例（变异检查：进入判断、当前批注、打字收起各让一条失败）。
+- S4：页边（`MarkdownCommentMargin`）、开关的本机记录 `editor.comment-margin`、命令 `nbook.editor.toggle-comment-margin`、公开键 `hasComments`/`commentMargin`、标签条上图标加数字的按钮（共享的 `TitleActions.vue`，宽度预算 `titleModelFor`）、控件句柄的 `comments.count`、稿纸让位与场景图隐藏；页边的 5 条行为用例（宽度迟滞、点摘要、待写卡片等，变异检查三处）。
+- S5：`e2e/markdown-comments.e2e.ts` 11 例（真实键盘、鼠标、CDP 输入法、页边位置与宽度变化、只读），Lab 的 `EditorGroup/comments`、`comments-margin` 两个场景；UI 取证四种主题组合（[`evidences/ui-check.txt`](evidences/ui-check.txt)）与 200 条批注的性能（[`evidences/perf-margin.txt`](evidences/perf-margin.txt)：按键到下一帧中位数不变，p90 多约 16ms）。实机 e2e 发现只读正文拿不到焦点，批注层改按浏览器选区判断（计划第 9 节）。
+- 窗口失焦不收起卡片只有组件测试（替换 `document.hasFocus`）；无头 Chrome 里没法造真实的窗口失焦，列为未验证，要看请在有头浏览器里切一下窗口。
 
 ## 下一步
 
-S2：动作、快捷键判断、入口与文字（计划 3.2）。
+收口验证（`markdown-comments`、`markdown-editing`、`editor-area` 三个 e2e 文件）通过后，派 Sonnet 子代理做实现审查，处理完合入 master。

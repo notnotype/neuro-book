@@ -1,4 +1,4 @@
-# t13 实施计划：批注界面（第二稿）
+# t13 实施计划：批注界面（第二稿，实施中按下面“实施中的改动”补正）
 
 第二稿按[第一稿的设计审查](evidences/design-review-1-sonnet.txt)重写（Sonnet 子代理，15 条：阻断 1、重要 10、建议 4；处理见 [disposition](evidences/design-review-1-disposition.txt)）。第一稿的几处假设不成立：用序号当批注身份、却没有“正文被程序改了”的信号；“光标在批注里”写成了状态判断；页边卡片没有浮层的按下保护；`TitleActions.vue` 才是画按钮的地方；“左移页边宽”与阈值的算术对不上；`Textarea` 没有无框变体。
 
@@ -125,3 +125,12 @@ commentEntry(previous, next): ...           // 浮层“进入”的纯函数，
 
 - 不做：全部批注的侧栏列表；键盘走到卡片上的删除（键盘只管添加与改意见，开发者 11-11 确认）；批注的作者、时间、回复。
 - 风险：页边的位置要等排版稳定（字体、图片），观察尺寸与字体加载；`coordsAtPos` 在折行处取起点那一行，批注跨行时卡片对着第一行；注音的行内块（t21）改过行盒，对齐按文字的 `coordsAtPos`，不按段落盒；Ctrl+Alt+M 在 Linux 上可能被输入法或桌面占用，右键与选区菜单是并行入口；批注在列表里的块批注改了意见后，写回会让列表多一个空行（已知行为，Spec 输出 35）；两个窗口开着同一作品时开关是后写者赢，不损坏数据。
+
+## 9. 实施中的改动（2026-11-11，已做完的切片与计划不同的地方）
+
+- 标签条上的“批注 N”按钮画成图标加数字（提示“显示或隐藏批注页边”），没有“批注”二字：条目的 `badge` 至多三个字符（99+），按钮预算由 `titleModelFor` 扣掉多出的 26px（`ui/menus/title-actions.ts`），徽标画在共享的 `TitleActions.vue`（视图标题不受影响）。
+- 只读的正文（`contenteditable=false`）拿不到焦点，批注层用 `document` 的 `selectionchange` 判断浏览器选区还在不在正文里，卡片才留得住（实机 e2e 发现）。
+- 保存之后不需要 `closeHistory`：实测相邻的打字本来就不并进批注的撤销步。
+- Ctrl+Alt+M 的键位匹配放在 `editor/web/key-event.ts`，经 `EditorMenus.matches` 交给控件：`MarkdownControl` 不认识命令服务，键位仍只写在动作目录里一处；`EditorMenus.label` 加了 `{{name}}` 参数（“第 i 条，共 n 条”）。
+- 页边画不画由 `MarkdownControl` 量控件根的宽度：阈值 1032px（版心 + 页边 264 + 空 16 + 两侧各 16），已画出的窄于 1000px 才收起；页边卡片、让位与场景图的处理照 3.4。
+- Lab 加两个场景（`EditorGroup/comments`、`comments-margin`），用于 UI 取证。
