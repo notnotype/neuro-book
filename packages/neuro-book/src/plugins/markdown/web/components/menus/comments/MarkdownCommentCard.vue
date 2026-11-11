@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 批注卡片（同名 .md）：浮层与页边共用，只管显示与发事件。 */
 import {IconButton, Textarea} from "@notnotype/nb-ui/components";
-import {nextTick, ref, useTemplateRef, watch} from "vue";
+import {nextTick, onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
 
 /** 卡片上的文字：宿主按显示语言取好（`menus.label`），卡片不认识翻译端口。 */
 export interface CommentCardLabels {
@@ -31,6 +31,11 @@ const props = defineProps<{
     labels: CommentCardLabels;
     /** 宿主每进入一次“写”加一：已经在写时换到另一条也要重新预填。 */
     session: number;
+    /**
+     * 写着的字由宿主存（卡片在浮层与页边之间换位置时是另一个实例，不能让字跟着丢）：为 null 是这次“写”还没有字，按 `body` 预填；
+     * 有字就用它，不预填。
+     */
+    draft?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -40,6 +45,7 @@ const emit = defineEmits<{
     (event: "next"): void;
     (event: "select"): void;
     (event: "submit", text: string): void;
+    (event: "update:draft", text: string): void;
     (event: "cancel"): void;
     /** 写的时候焦点去了卡片外面。 */
     (event: "dismiss"): void;
@@ -51,13 +57,16 @@ const root = useTemplateRef<HTMLElement>("root");
 // 进入“写”：预填原来的意见，光标在末尾。
 watch(() => [props.mode, props.session] as const, async ([mode]) => {
     if (mode !== "write") return;
-    draft.value = props.body;
+    draft.value = props.draft ?? props.body;
+    emit("update:draft", draft.value);
     await nextTick();
     const field = root.value?.querySelector("textarea");
     if (field === null || field === undefined) return;
     field.focus({preventScroll: true});
     field.setSelectionRange(field.value.length, field.value.length);
 }, {immediate: true, flush: "post"});
+
+watch(draft, (text) => emit("update:draft", text));
 
 /** 空的是取消，不是删除（输出 29）。 */
 function save(): void {
@@ -75,16 +84,24 @@ function onMousedown(event: MouseEvent): void {
 }
 
 /**
- * 写的时候焦点移到卡片外的别处才放弃。窗口失去焦点（切走、点开发者工具）时 `relatedTarget` 也是空的，但文档没有焦点：不算离开，
+ * 写的时候焦点移到卡片外的别处（不是另一张批注卡片）才放弃。窗口失去焦点（切走、点开发者工具）时 `relatedTarget` 也是空的，但文档没有焦点：不算离开，
  * 回来时输入还在，几百字的意见不该因此丢掉。
  */
 function onFocusOut(event: FocusEvent): void {
-    if (props.mode !== "write") return;
+    // 卡片自己被摘掉（页边与浮层之间换位置）时，浏览器可能对拿着焦点的输入补一个 `focusout`：不是用户离开。
+    if (leaving || props.mode !== "write") return;
     const next = event.relatedTarget as Node | null;
     if (next !== null && root.value?.contains(next)) return;
+    // 焦点去了另一张批注卡片（页边与浮层互相切换时，退场动画里的旧卡片还在，新卡片已经抢了焦点）：写还在继续，不是离开。
+    if (next instanceof Element && next.closest("[data-markdown-comment-card]") !== null) return;
     if (next === null && !document.hasFocus()) return;
     emit("dismiss");
 }
+
+let leaving = false;
+onBeforeUnmount(() => {
+    leaving = true;
+});
 
 /** 组字中的回车与 Esc 归输入法；Ctrl+Enter（macOS 上 ⌘Enter）保存，Esc 取消，回车换行。 */
 function onKeydown(event: KeyboardEvent): void {

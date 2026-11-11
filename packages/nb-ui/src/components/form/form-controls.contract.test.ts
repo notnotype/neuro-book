@@ -73,9 +73,50 @@ describe("phase 2 form control contracts", () => {
         expect(bare.classes().filter((name) => name.startsWith("px-") || name.startsWith("py-"))).toEqual([]);
         expect(bare.attributes("aria-invalid")).toBe("true");
         expect(auto.classes()).toContain("resize-none");
-        expect(auto.element.style.height).not.toBe("");
         await bare.setValue("改过");
         expect(bare.emitted("update:modelValue")?.at(-1)).toEqual(["改过"]);
+    });
+
+    // happy-dom 没有排版，`scrollHeight` 恒为 0：用元素上的数据属性喂内容高度，核对夹取的算法（外观与真实高度由 Lab 与 e2e 看）。
+    it("Textarea 的 autosize：高度等于内容高度，至多 maxRows 行（行高为 normal 时按字号估），超出时在里面滚动；border-box 时含边框", async () => {
+        const proto = HTMLTextAreaElement.prototype;
+        const original = Object.getOwnPropertyDescriptor(proto, "scrollHeight");
+        Object.defineProperty(proto, "scrollHeight", {configurable: true, get(this: HTMLElement) {
+            return Number(this.dataset.content ?? 0);
+        }});
+        try {
+            const wrapper = mount(Textarea, {props: {modelValue: "x", autosize: true, maxRows: 3, variant: "bare"}, attrs: {style: "line-height: 20px; padding: 0; box-sizing: content-box", "data-content": "50"}, attachTo: document.body});
+            const element = wrapper.element as HTMLTextAreaElement;
+            await nextTick();
+            expect(element.style.height).toBe("50px");
+            expect(element.style.overflowY).toBe("hidden");
+            element.dataset.content = "200";
+            await wrapper.setProps({modelValue: "很多行"});
+            await nextTick();
+            await nextTick();
+            expect(element.style.height).toBe("60px");
+            expect(element.style.overflowY).toBe("auto");
+            wrapper.unmount();
+            // 行高是 normal：按字号 14px 的 1.2 倍（16.8px）估，3 行约 50px。
+            const normal = mount(Textarea, {props: {modelValue: "x", autosize: true, maxRows: 3, variant: "bare"}, attrs: {style: "font-size: 14px; padding: 0; box-sizing: content-box", "data-content": "200"}, attachTo: document.body});
+            await nextTick();
+            expect(Number.parseFloat((normal.element as HTMLElement).style.height)).toBeCloseTo(50.4, 1);
+            normal.unmount();
+            // border-box：高度含上下边框，上限含内边距与边框。
+            const boxed = mount(Textarea, {props: {modelValue: "x", autosize: true, maxRows: 3, variant: "bare"}, attrs: {style: "line-height: 20px; padding: 4px 0; border-top: 1px solid; border-bottom: 1px solid; box-sizing: border-box", "data-content": "30"}, attachTo: document.body});
+            await nextTick();
+            expect((boxed.element as HTMLElement).style.height).toBe("32px");
+            (boxed.element as HTMLElement).dataset.content = "500";
+            await boxed.setProps({modelValue: "很多"});
+            await nextTick();
+            await nextTick();
+            // 3 行 60 + 内边距 8 + 边框 2。
+            expect((boxed.element as HTMLElement).style.height).toBe("70px");
+            boxed.unmount();
+        } finally {
+            if (original === undefined) Reflect.deleteProperty(proto, "scrollHeight");
+            else Object.defineProperty(proto, "scrollHeight", original);
+        }
     });
 
     it("scopes every native search and number pseudo-element selector to the marker", () => {

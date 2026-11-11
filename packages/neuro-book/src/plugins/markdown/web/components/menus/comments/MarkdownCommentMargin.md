@@ -15,16 +15,20 @@
 
 ## 重排
 
-一帧里多个触发合成一次量（`requestAnimationFrame`）：条目或事务变了、滚动容器与稿纸的尺寸变了（窗口变宽使段落重新折行而总高度不变时靠宽度）、任何一张卡片的高度变了（换了模式、意见变长）、字体加载完。只在页边画出来时才有这个组件，所以不画时不量。`top` 变化有一个很短的过渡，`prefers-reduced-motion` 下没有。
+一帧里多个触发合成一次量（`requestAnimationFrame`）：条目或事务变了、滚动容器与稿纸的尺寸变了（窗口变宽使段落重新折行而总高度不变时靠宽度）、任何一张卡片的高度变了（换了模式、意见变长）、字体加载完。只在页边画出来时才有这个组件，所以不画时不量。位置当帧跟着变，没有过渡；第一次排完之前卡片是藏着的（`visibility: hidden`），不会先画在稿纸顶上再滑下来。换文档之后到第一次重算之前，条目里的位置可能超出新文档：取位置时夹在文档里，不抛错。
 
 ## 数据
 
 ```ts
 interface MarginItem {key: string; info: CommentInfo | null /* null 是待写 */; mode: "view" | "write" | "compact"; anchor: number /* 顶边对着的文档位置 */}
 
-type MarkdownCommentMarginProps = {editor: Editor; scroller: HTMLElement; items: ReadonlyArray<MarginItem>; total: number; readonly: boolean; labels: CommentCardLabels; session: number; version: number};
+type MarkdownCommentMarginProps = {editor: Editor; scroller: HTMLElement; items: ReadonlyArray<MarginItem>; total: number; readonly: boolean; labels: CommentCardLabels; session: number; version: number; draft: string | null /* 写着的字，宿主存 */};
 ```
 
 事件是卡片事件的转发（带上卡片对应的批注）：`edit`、`remove`、`previous`、`next`、`select`、`submit`、`cancel`、`dismiss`。`expose` 一个 `layout()`：立刻排一次。
+
+## 不支持
+
+摘要卡片（没展开的）是鼠标可点的 `role="button"`，键盘够不到；键盘用户用上一条、下一条（Spec 输出 28：键盘只管添加与修改意见）。
 
 `state:local`：每张卡片的 `top` 与页边的左边。`env:global`：`ResizeObserver`（滚动容器、稿纸、每张卡片）、`document.fonts` 的 `loadingdone`，卸载时摘掉。

@@ -9,7 +9,7 @@ export {markdownEditingActions} from "./editing-actions";
 export type {EditingAction, EditingArgs} from "./editing-actions";
 export {commentEntry} from "./comment-entry";
 export type {CommentEntry, CommentEntryEvent} from "./comment-entry";
-export {commentsAt, findComment, gotoComment, listComments, markShownComment, MarkdownShownComment, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody} from "./comments";
+export {commentsAt, findComment, gotoComment, listComments, markShownComment, MarkdownShownComment, matchComment, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody} from "./comments";
 export type {CommentInfo, CommentRef} from "./comments";
 export {holdSelection, releaseSelection} from "./held-selection";
 export {selectRubyAt, selectedRubyText} from "./ruby-text";

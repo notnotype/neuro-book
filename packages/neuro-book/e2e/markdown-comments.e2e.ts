@@ -65,6 +65,9 @@ async function openFile(page: Page, path: string, text: string): Promise<void> {
     await expect(prose(page)).toBeVisible();
 }
 
+/** 等两帧：说“不出现”的断言前先让本该稍后才出现的东西有机会出现，免得它在回归时因为还没到而立即通过。 */
+const settle = (page: Page): Promise<void> => page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
 /** 点到被批注的文字上（波浪线的 `<comment>` 元素）：光标进批注。 */
 async function clickComment(page: Page, text: string, focus = true): Promise<void> {
     await prose(page).locator("comment", {hasText: text}).first().click();
@@ -164,10 +167,12 @@ test.describe("光标进入才弹（验收 13）", () => {
         await page.keyboard.press("Escape");
         await expect(popoverCard(page)).toHaveCount(0);
         await page.keyboard.press("ArrowRight");
+        await settle(page);
         await expect(popoverCard(page)).toHaveCount(0);
         // 在批注中间打字：不弹；之后按方向键仍不弹。
         await page.keyboard.type("字");
         await page.keyboard.press("ArrowLeft");
+        await settle(page);
         await expect(popoverCard(page)).toHaveCount(0);
     });
 
@@ -177,11 +182,14 @@ test.describe("光标进入才弹（验收 13）", () => {
         await expect(popoverCard(page)).toBeVisible();
         const client = await page.context().newCDPSession(page);
         await client.send("Input.imeSetComposition", {text: "ni", selectionStart: 2, selectionEnd: 2});
+        await settle(page);
         await expect(popoverCard(page)).toHaveCount(0);
         await client.send("Input.imeSetComposition", {text: "你", selectionStart: 1, selectionEnd: 1});
+        await settle(page);
         await expect(popoverCard(page)).toHaveCount(0);
         await client.send("Input.insertText", {text: "你"});
         await expect(prose(page)).toContainText("你");
+        await settle(page);
         await expect(popoverCard(page)).toHaveCount(0);
     });
 
@@ -288,5 +296,8 @@ test.describe("只读（验收 16）", () => {
         await expect(popoverCard(page).getByRole("button", {name: "编辑批注"})).toHaveCount(0);
         await expect(popoverCard(page).getByRole("button", {name: "删除批注"})).toHaveCount(0);
         await expect(popoverCard(page).getByRole("button", {name: "下一条批注"})).toBeEnabled();
+        // 只读的正文拿不到焦点，键盘事件不经过编辑器：Esc 也要收起卡片。
+        await page.keyboard.press("Escape");
+        await expect(popoverCard(page)).toHaveCount(0);
     });
 });

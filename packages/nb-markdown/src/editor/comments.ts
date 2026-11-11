@@ -10,7 +10,9 @@
  * - **先后**：起点靠前的在前（块批注的起点是块里第一个文字处，分截的批注按第一截），起点相同时终点靠前的在前，仍相同时块批注在
  *   前（外层），再相同时 `key` 里的数小的在前。不依赖标记集合里的顺序：改意见会重排标记，序号不能因此变。
  * - **只动目标那一条**：两条批注可以盖住同一段（`excludes: ""`），按标记类型 `removeMark`/`unsetMark` 会把它们一起去掉；这里只
- *   按标记实例动手，并把排在目标后面的批注标记按原先后加回，写回的嵌套顺序不变。
+ *   按标记实例动手，并把排在目标后面的批注标记按原先后加回，编辑器里标记集合的顺序不变。已知限制：写回文件时编解码器按它的规则
+ *   排同一段上重叠批注的内外（读入时里层的编号靠前，写出时第一个标记当外层），保存并重新打开后这两条的先后可能互换（不改意见只打字
+ *   也一样，是编解码器既有的行为）；批注靠意见加开头文字认，所以不会因此改错。
  */
 
 import {Extension} from "@tiptap/core";
@@ -153,7 +155,11 @@ export function commentsAt(state: EditorState): CommentInfo[] {
  * 意见或开头文字变了、或有几条指纹相同，都找不到。
  */
 export function findComment(doc: PMNode, ref: CommentRef): CommentInfo | null {
-    const list = listComments(doc);
+    return matchComment(listComments(doc), ref);
+}
+
+/** `findComment` 的规则用在已经排好的一份列表上（页边按它决定哪张卡片展开，两条指纹相同的批注不能一起展开）。 */
+export function matchComment(list: ReadonlyArray<CommentInfo>, ref: CommentRef): CommentInfo | null {
     const same = (info: CommentInfo): boolean => info.body === ref.body && info.quote === ref.quote;
     const at = list[ref.index];
     if (at !== undefined && same(at)) return at;
@@ -214,6 +220,11 @@ export function removeComment(editor: Editor, ref: CommentRef): boolean {
         const $at = state.doc.resolve(at);
         if (!$at.parent.canReplace($at.index(), $at.index() + 1, node.content)) return false;
         tr.replaceWith(at, at + node.nodeSize, node.content);
+        // 整个容器换成它的内容，原来落在里面的光标会被映射到被替换范围的一端；容器的开标记没有了，里面的位置各减 1，后面的各减 2（输出 34：删后光标留在原处）。
+        const {anchor, head} = state.selection;
+        const end = at + node.nodeSize;
+        const shift = (pos: number): number => (pos <= at ? pos : pos < end ? pos - 1 : pos - 2);
+        if (state.selection instanceof TextSelection) tr.setSelection(TextSelection.create(tr.doc, shift(anchor), shift(head)));
     } else {
         inTextNodes(state.doc, info, (range, target) => {
             tr.removeMark(range.from, range.to, target);

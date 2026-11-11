@@ -241,6 +241,19 @@ describe("去掉批注（输出 34）", () => {
         expect(inQuote.save()).toBe("> 丙\n");
     });
 
+    it("删块批注后光标留在原处（字没变，位置随开闭标记平移）；光标在块外时不动", () => {
+        const {editor} = open("前\n\n<comment body=\"块\">\n甲甲甲\n\n乙乙乙\n\n丙丙丙\n</comment>\n\n后\n");
+        const at = find(editor.state.doc, "乙乙乙").from + 1;
+        editor.commands.setTextSelection(at);
+        expect(removeComment(editor, ref(editor, 0))).toBe(true);
+        // 光标原来在“乙乙乙”的第二个字前：解开之后还在那里。
+        expect(editor.state.selection.from).toBe(find(editor.state.doc, "乙乙乙").from + 1);
+        const {editor: outside} = open("前\n\n<comment body=\"块\">\n甲\n</comment>\n\n后\n");
+        outside.commands.setTextSelection(find(outside.state.doc, "后").from + 1);
+        expect(removeComment(outside, ref(outside, 0))).toBe(true);
+        expect(outside.state.selection.from).toBe(find(outside.state.doc, "后").from + 1);
+    });
+
     it("指纹对不上不动文档", () => {
         const {editor} = open("甲<comment body=\"一\">乙</comment>\n");
         expect(removeComment(editor, {...ref(editor, 0), body: "旧"})).toBe(false);

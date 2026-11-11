@@ -154,6 +154,31 @@ describe("焦点", () => {
         outside.remove();
     });
 
+    it("焦点去了另一张批注卡片（页边与浮层互相切换时）不算离开", async () => {
+        const wrapper = card({mode: "write", body: "x", session: 1});
+        await nextTick();
+        const other = document.createElement("div");
+        other.setAttribute("data-markdown-comment-card", "");
+        const field = document.createElement("textarea");
+        other.append(field);
+        document.body.append(other);
+        await wrapper.get("textarea").trigger("focusout", {relatedTarget: field});
+        expect(wrapper.emitted("dismiss")).toBeUndefined();
+        other.remove();
+    });
+
+    it("写的字由宿主存：给了 draft 就用它、不按原意见预填；没给按原意见预填并报告", async () => {
+        const kept = card({mode: "write", body: "原意见", session: 1, draft: "写了一半"});
+        await nextTick();
+        expect((field(kept).element as HTMLTextAreaElement).value).toBe("写了一半");
+        const fresh = card({mode: "write", body: "原意见", session: 1});
+        await nextTick();
+        expect((field(fresh).element as HTMLTextAreaElement).value).toBe("原意见");
+        expect(fresh.emitted("update:draft")?.[0]).toEqual(["原意见"]);
+        await field(fresh).setValue("改了");
+        expect(fresh.emitted("update:draft")?.at(-1)).toEqual(["改了"]);
+    });
+
     it("看的时候焦点离开不发 dismiss", async () => {
         const wrapper = card();
         await wrapper.trigger("focusout", {relatedTarget: null});

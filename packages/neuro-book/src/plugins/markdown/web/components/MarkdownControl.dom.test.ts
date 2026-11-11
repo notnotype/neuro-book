@@ -713,6 +713,24 @@ describe("批注卡片（workbench.markdown-editing 输出 28–35）", () => {
         expect(bodies(editor)).toEqual(["别的批注"]);
     });
 
+    it("“写”着改已有批注时正文被程序改了、前面多出一条批注（序号变了）：按唯一的指纹找到原来那条，保存改的还是它，别的不动（验收 17）", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true});
+        editor.view.focus();
+        await moveTo(editor, find(editor, "乙丙").from + 1);
+        await click("编辑批注");
+        const codec = codecFor(editor.schema, markdownLanguage());
+        editor.commands.setContent(codec.read(`新<comment body="前面新增的">增</comment>${TWO}`).doc.toJSON());
+        await nextTick();
+        await nextTick();
+        const field = card()?.querySelector("textarea") as HTMLTextAreaElement;
+        expect(field).not.toBeNull();
+        field.value = "改好的第一条";
+        field.dispatchEvent(new Event("input", {bubbles: true}));
+        field.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true}));
+        await nextTick();
+        expect(bodies(editor)).toEqual(["前面新增的", "改好的第一条", "第二条"]);
+    });
+
     it("换文档（控件不可见）时卡片与没保存的字都收起", async () => {
         const {editor, wrapper} = await opened(TWO, undefined, undefined, {menus: true});
         editor.view.focus();
@@ -821,7 +839,7 @@ describe("批注页边（workbench.markdown-editing 输出 33）", () => {
         expect(items().map((item) => item.dataset.mode)).toEqual(["compact", "view"]);
         const off = await opened(TWO, undefined, undefined, {menus: true});
         await resize(1100);
-        expect(document.querySelectorAll("[data-markdown-comment-margin]")).toHaveLength(1);
+        expect(off.wrapper.find("[data-markdown-comment-margin]").exists()).toBe(false);
         expect(off.wrapper.get(".markdown-control-root").attributes("data-comment-margin")).toBeUndefined();
     });
 

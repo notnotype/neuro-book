@@ -31,6 +31,8 @@ const props = defineProps<{
     session: number;
     /** 每个事务加一：正文变了，位置要重排。 */
     version: number;
+    /** 写着的字（宿主存，见卡片的 `draft`）。 */
+    draft: string | null;
 }>();
 const emit = defineEmits<{
     (event: "edit", info: CommentInfo): void;
@@ -39,6 +41,7 @@ const emit = defineEmits<{
     (event: "next", info: CommentInfo): void;
     (event: "select", info: CommentInfo): void;
     (event: "submit", text: string): void;
+    (event: "update:draft", text: string): void;
     (event: "cancel"): void;
     (event: "dismiss"): void;
 }>();
@@ -55,7 +58,9 @@ const setElement = (index: number) => (element: unknown): void => {
  * 一个文档位置的顶边（视口坐标）。批注在折叠的提示块里时内容没有盒子，`coordsAtPos` 给全 0：退回它最近的有盒子的祖先，也就是提示块
  * 自己（输出 33）。
  */
-function topOf(editor: Editor, scroller: HTMLElement, pos: number): number {
+function topOf(editor: Editor, scroller: HTMLElement, wanted: number): number {
+    // 换文档之后到第一次重算之前，位置可能超出新文档：夹在文档里，免得 `coordsAtPos` 抛错。
+    const pos = Math.max(0, Math.min(wanted, editor.state.doc.content.size));
     const rect = editor.view.coordsAtPos(pos);
     if (rect.top !== 0 || rect.bottom !== 0 || rect.left !== 0 || rect.right !== 0) return rect.top;
     const {node} = editor.view.domAtPos(pos);
@@ -119,7 +124,7 @@ watch(() => [props.items, props.version, props.session] as const, () => {
 }, {flush: "post"});
 
 defineExpose({
-    /** 立刻排一次（组件测试里没有 rAF 的节奏时用）。 */
+    /** 立刻排一次（组件测试里 rAF 不跑，用它）。 */
     layout,
 });
 </script>
@@ -133,7 +138,7 @@ defineExpose({
             class="markdown-comment-margin__item"
             :class="{'markdown-comment-margin__item--current': item.mode !== 'compact', 'nb-ui-popover-surface': item.mode !== 'compact'}"
             :data-mode="item.mode"
-            :style="{top: `${offsets[index] ?? 0}px`}"
+            :style="offsets[index] === undefined ? {top: '0px', visibility: 'hidden'} : {top: `${offsets[index]}px`}"
         >
             <MarkdownCommentCard
                 :body="item.info?.body ?? ''"
@@ -144,12 +149,14 @@ defineExpose({
                 :readonly="props.readonly"
                 :labels="props.labels"
                 :session="props.session"
+                :draft="props.draft"
                 @edit="item.info !== null && emit('edit', item.info)"
                 @remove="item.info !== null && emit('remove', item.info)"
                 @previous="item.info !== null && emit('previous', item.info)"
                 @next="item.info !== null && emit('next', item.info)"
                 @select="item.info !== null && emit('select', item.info)"
                 @submit="(text) => emit('submit', text)"
+                @update:draft="(text) => emit('update:draft', text)"
                 @cancel="emit('cancel')"
                 @dismiss="emit('dismiss')"
             />
@@ -174,7 +181,6 @@ defineExpose({
     border-radius: var(--radius-control);
     border-left: 2px solid var(--status-warning-border);
     background: color-mix(in srgb, var(--text-main) 5%, var(--bg-panel));
-    transition: top var(--motion-fast) var(--ease-layout);
 }
 
 /* 展开的一条（光标所在的、在写的）用浮层的底与阴影，与浮层里的同一张卡片。 */
@@ -187,9 +193,4 @@ defineExpose({
     width: auto;
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .markdown-comment-margin__item {
-        transition: none;
-    }
-}
 </style>

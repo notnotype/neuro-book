@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 批注的浮层与“写”的状态机（同名 .md）：光标进批注出“看”卡片，加批注与改意见在同一张卡片里“写”。 */
 import {AnchoredPopover} from "@notnotype/nb-ui/components";
-import {commentEntry, commentsAt, findComment, gotoComment, holdSelection, listComments, markShownComment, refOf, releaseSelection} from "@notnotype/nb-markdown/editor";
+import {commentEntry, commentsAt, gotoComment, holdSelection, listComments, markShownComment, matchComment, refOf, releaseSelection} from "@notnotype/nb-markdown/editor";
 import type {CommentInfo, CommentRef} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
 import type {Transaction} from "@tiptap/pm/state";
@@ -44,6 +44,11 @@ const cardOpen = ref(false);
 const writing = shallowRef<{readonly ref: CommentRef | null; readonly session: number} | null>(null);
 /** 点上一条、下一条跳到的那条：紧挨或同起点的批注光标不动，要自己记着“当前”是哪条。 */
 const current = shallowRef<CommentRef | null>(null);
+/**
+ * 写着的字：卡片在浮层与页边之间换位置（控件宽度跨过阈值）时是另一个实例，字存在这里才不丢；null 是这次“写”还没有字，卡片按原意见预填。
+ * 每次进入“写”重置。
+ */
+const draftText = ref<string | null>(null);
 let session = 0;
 
 const list = computed<CommentInfo[]>(() => {
@@ -55,9 +60,8 @@ const at = computed<CommentInfo[]>(() => {
     return props.editor === null ? [] : commentsAt(props.editor.state);
 });
 const writingInfo = computed<CommentInfo | null>(() => {
-    void tick.value;
     const target = writing.value?.ref ?? null;
-    return props.editor === null || target === null ? null : findComment(props.editor.state.doc, target);
+    return target === null ? null : matchComment(list.value, target);
 });
 
 const labels = computed<CommentCardLabels>(() => ({
@@ -85,21 +89,24 @@ const anchor = computed(() => {
     return caretAnchor(editor, props.scroller, first?.block === true ? first.start : undefined);
 });
 
-const sameComment = (info: CommentInfo, target: CommentRef): boolean => info.body === target.body && info.quote === target.quote;
+const sameRef = (left: CommentRef | null, right: CommentRef | null): boolean => left === right || (left !== null && right !== null && left.index === right.index && left.body === right.body && left.quote === right.quote);
 
-/** 光标所在的批注里“当前”的那条：点了跳转的，否则排在前面的；光标不在批注里为 null。 */
-const cursorComment = computed<CommentRef | null>(() => {
+/** 光标所在的批注里“当前”的那条：点了跳转的（在光标处的批注里按序号加指纹找，两条指纹相同的不会一起算），否则排在前面的；光标不在批注里为 null。 */
+const cursorComment = computed<CommentInfo | null>(() => {
     const chosen = current.value;
-    if (chosen !== null && at.value.some((info) => sameComment(info, chosen))) return chosen;
-    const first = at.value[0];
-    return first === undefined ? null : refOf(first);
+    const kept = chosen === null ? null : matchComment(at.value, chosen);
+    return kept ?? at.value[0] ?? null;
 });
 
-/** 正文里标出来的那条（输出 32）：“写”里的、页边里展开的、浮层开着时卡片里排在前面的。 */
+/**
+ * 正文里标出来的那条（输出 32）：“写”里的、页边里展开的、浮层开着时卡片里排在前面的。按内容比较、内容没变就还给上一个对象：
+ * 光标在同一条批注里走一格不该再发一个只含装饰的事务。
+ */
+let lastShown: CommentRef | null = null;
 const shown = computed<CommentRef | null>(() => {
-    if (writing.value !== null) return writing.value.ref;
-    if (props.marginDrawn) return cursorComment.value;
-    return viewOpen.value ? cursorComment.value : null;
+    const next = writing.value !== null ? writing.value.ref : (props.marginDrawn || viewOpen.value) && cursorComment.value !== null ? refOf(cursorComment.value) : null;
+    if (!sameRef(lastShown, next)) lastShown = next;
+    return lastShown;
 });
 
 /**
@@ -109,12 +116,13 @@ const shown = computed<CommentRef | null>(() => {
 const marginItems = computed<MarginItem[]>(() => {
     const editor = props.editor;
     if (!props.marginDrawn || editor === null) return [];
-    const editing = writing.value?.ref ?? null;
+    const editing = writingInfo.value;
     const open = cursorComment.value;
     const items = list.value.map((info): MarginItem => ({
         key: info.identity,
         info,
-        mode: editing !== null && sameComment(info, editing) ? "write" : editing === null && open !== null && sameComment(info, open) ? "view" : "compact",
+        // `at` 与 `list` 是同一个事务里各算一次的，对象不同，序号相同就是同一条。
+        mode: editing !== null && info === editing ? "write" : writing.value === null && open !== null && info.index === open.index ? "view" : "compact",
         anchor: info.start,
     }));
     if (writing.value !== null && writing.value.ref === null) {
@@ -135,15 +143,23 @@ function closeAll(): void {
     cardOpen.value = false;
     pendingOpen = false;
     current.value = null;
-    previousInside = new Set();
+    draftText.value = null;
     if (writing.value !== null) {
         writing.value = null;
         if (props.editor !== null) releaseSelection(props.editor);
     }
     if (props.editor !== null) markShownComment(props.editor, null);
 }
-// 换文档、变只读：卡片对着的批注已经不是那份文档里的（Spec 的“状态与转换”）。
-watch(() => [props.binding, props.readonly] as const, closeAll, {flush: "sync"});
+// 换文档、变只读：卡片对着的批注已经不是那份文档里的（Spec 的“状态与转换”）。换文档只换编辑状态、不产生事务，所以列表要自己重算；
+// “进入”的记忆按换过来的文档此刻光标在哪条批注里重记（不清成空：光标已经在批注里时，在里面走一格不算进入），那要等控件
+// 把状态换好，所以在这一轮更新之后记。
+watch(() => [props.binding, props.readonly] as const, () => {
+    closeAll();
+    tick.value += 1;
+}, {flush: "sync"});
+watch(() => [props.binding, props.readonly] as const, () => {
+    previousInside = props.editor === null ? new Set() : new Set(commentsAt(props.editor.state).map((info) => info.identity));
+}, {flush: "post"});
 watch(() => props.blocked, (blocked) => {
     if (blocked) cardOpen.value = false;
 });
@@ -226,6 +242,11 @@ function onKeyDown(event: KeyboardEvent): void {
     beginEdit(first);
 }
 
+/** 只读的正文拿不到焦点，键盘事件不经过编辑器：Esc 收起卡片要听 `document`（输出 30）。 */
+function onDocumentKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && props.readonly && readingInside.value) cardOpen.value = false;
+}
+
 let detach: (() => void) | null = null;
 watch(() => [props.editor, props.scroller] as const, ([editor, scroller]) => {
     detach?.();
@@ -243,6 +264,7 @@ watch(() => [props.editor, props.scroller] as const, ([editor, scroller]) => {
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
     document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("keydown", onDocumentKeyDown);
     detach = () => {
         editor.off("transaction", onTransaction);
         editor.off("focus", onFocus);
@@ -252,6 +274,7 @@ watch(() => [props.editor, props.scroller] as const, ([editor, scroller]) => {
         window.removeEventListener("pointerup", onPointerUp);
         window.removeEventListener("pointercancel", onPointerUp);
         document.removeEventListener("selectionchange", onSelectionChange);
+        document.removeEventListener("keydown", onDocumentKeyDown);
     };
 }, {immediate: true});
 onBeforeUnmount(() => {
@@ -266,6 +289,7 @@ function beginAdd(): void {
     cardOpen.value = false;
     holdSelection(editor);
     session += 1;
+    draftText.value = null;
     writing.value = {ref: null, session};
 }
 
@@ -273,6 +297,7 @@ function beginEdit(info: CommentInfo): void {
     if (props.editor === null || props.readonly) return;
     cardOpen.value = false;
     session += 1;
+    draftText.value = null;
     writing.value = {ref: refOf(info), session};
 }
 
@@ -280,6 +305,7 @@ function beginEdit(info: CommentInfo): void {
 function endWriting(focus: boolean): void {
     const editor = props.editor;
     writing.value = null;
+    draftText.value = null;
     if (editor === null) return;
     releaseSelection(editor);
     if (focus) editor.view.focus();
@@ -290,8 +316,8 @@ function submit(text: string): void {
     const target = writing.value?.ref ?? null;
     if (editor === null || writing.value === null) return;
     if (target === null) {
-        endWriting(true);
-        props.menus.run("comment", {text});
+        // 经控件句柄同步执行：加不上（选区折了、所在的块不再允许批注）时留在“写”里，字还在，不关成“已保存”（输出 28）。
+        if (props.editing.run("comment", {text})) endWriting(true);
         return;
     }
     const ok = props.editing.run("comment-edit", {...target, text});
@@ -347,6 +373,8 @@ defineExpose({
                 :readonly="false"
                 :labels="labels"
                 :session="writing.session"
+                :draft="draftText"
+                @update:draft="(text) => { draftText = text; }"
                 @submit="submit"
                 @cancel="endWriting(true)"
                 @dismiss="endWriting(false)"
@@ -380,6 +408,8 @@ defineExpose({
             :labels="labels"
             :session="writing?.session ?? 0"
             :version="tick"
+            :draft="draftText"
+            @update:draft="(text) => { draftText = text; }"
             @edit="beginEdit"
             @remove="remove"
             @previous="(info) => step(info, -1)"

@@ -7,7 +7,7 @@ import {computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, useTempla
 
 import "@notnotype/nb-markdown/markdown.css";
 
-import {createMarkdownEditorExtensions, listComments, markdownEditingActions, REFRESH_REFERENCE_LINKS, releaseSelection} from "@notnotype/nb-markdown/editor";
+import {createMarkdownEditorExtensions, listComments, markdownEditingActions, markShownComment, REFRESH_REFERENCE_LINKS, releaseSelection} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
 import {codecFor} from "@notnotype/nb-markdown/language";
@@ -246,8 +246,10 @@ const leave = (binding: TextEditorBinding): void => {
     }
     const view = stateOf(binding);
     if (view !== null && editor !== null && bound === binding) {
-        // 注音卡片开着时画的选区高亮不随状态存下：卡片随换文档关上（`MarkdownMenus`），换回来时不该还亮着。
+        // 注音卡片开着时画的选区高亮、批注卡片开着时标出的那条批注不随状态存下：卡片随换文档关上（`MarkdownMenus`），换回来时不该还亮着。
+        // 控件卸载（拆分、移动标签）时批注层来不及清：编辑器卸载后它已经读不了 `editor.view`，所以在这里一并清。
         releaseSelection(editor);
+        markShownComment(editor, null);
         view.state = editor.state;
         view.scroll = scroller.value?.scrollTop ?? 0;
     }
