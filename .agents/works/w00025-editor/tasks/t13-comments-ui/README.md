@@ -23,8 +23,8 @@ updated: 2026-11-10
 
 ## 当前状态
 
-2026-11-10 设计评审两轮结束（[`artifacts/review/`](artifacts/review/index.html) v2），决定见上面 1–5。2026-11-11 开发者说“做 t13”，写了 Spec（`workbench/markdown-editing.md` 输出 28–35、验收 11–16，`workbench/editor.md` 的控件句柄与标题动作）与[计划第一稿](plan.md)，等开发者看过再提交、过计划审查；未改产品代码。草稿 worktree `.worktree/w00025-t13-drafts`（分支 `w00025-t13/drafts`，不合并），只作样子的参照。第 1 轮“不单独问、按下面做的”六条与这次写计划时定的几处在 [待确认清单](../../pending-confirmations.md)。
+2026-11-10 设计评审两轮结束（[`artifacts/review/`](artifacts/review/index.html) v2），决定见上面 1–5。2026-11-11 开发者说“做 t13”，写了 Spec 与[计划](plan.md)，开发者看过后回“可以”，提交（`4d0873fe2`）。随后计划设计审查（Sonnet 子代理，[报告](evidences/design-review-1-sonnet.txt)、[处理](evidences/design-review-1-disposition.txt)：15 条，阻断 1、重要 10、建议 4，都按成立处理，只有键盘删除保持开发者已确认的“不做”），Spec 与计划按审查改成第二稿；有两处与开发者回“可以”时所见不同（页边开关改存本机记录、窗口失焦不丢意见），写在[待确认清单](../../pending-confirmations.md)并向开发者汇报。草稿 worktree `.worktree/w00025-t13-drafts`（分支 `w00025-t13/drafts`，不合并）只作样子的参照。代码在 worktree `.worktree/w00025-t13-comments-ui`（分支 `feat/w00025-t13-comments-ui`），按计划的五个切片实施。
 
 ## 下一步
 
-开发者看过 Spec 与计划后：提交，派 Sonnet 子代理做计划审查，处理后在新 worktree 上按五个切片实施，收口做一次实现审查。
+按计划做 S1（`nb-markdown` 的批注数据操作与进入判断）。
