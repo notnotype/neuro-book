@@ -146,6 +146,11 @@
                 "open-theme-editor-floating": {
                     "title": "Open Theme Editor in a Floating Window"
                 }
+            },
+            "notifications": {
+                "clear": {
+                    "title": "Clear All Notifications"
+                }
             }
         }
     },
@@ -222,7 +227,19 @@
         "limit": "The layout is too complex for another panel"
     },
     "views": {
-        "resetLocation": "Reset Location"
+        "resetLocation": "Reset Location",
+        "notifications": {
+            "title": "Notifications",
+            "actions": {
+                "nbook": {
+                    "notifications": {
+                        "clear": {
+                            "title": "Clear All"
+                        }
+                    }
+                }
+            }
+        }
     },
     "common": {
         "more": "More",
@@ -292,7 +309,9 @@
             "corrupt": "the record is corrupt",
             "unsupported-version": "unsupported record version",
             "provider-stopped": "storage has stopped"
-        }
+        },
+        "notifications": "Notifications",
+        "notificationsUnread": "Notifications: {{count}} unread"
     },
     "editorArea": {
         "loading": "Loading the editor…",
@@ -331,6 +350,9 @@
         },
         "maximized": {
             "reason": "No panel is maximized"
+        },
+        "hasNotifications": {
+            "reason": "There are no notifications"
         }
     },
     "themes": {
@@ -586,5 +608,17 @@
         "theme-editor": {
             "title": "Theme Editor"
         }
+    },
+    "notificationCenter": {
+        "empty": "No notifications.",
+        "unread": "Unread",
+        "remove": "Remove",
+        "detail": "Details",
+        "detailTitle": "{{title}}: Details",
+        "detailOnly": "Details",
+        "sentAt": "Sent {{time}}"
+    },
+    "time": {
+        "yesterday": "Yesterday"
     }
 }

@@ -1,6 +1,7 @@
 /**
- * 合并推送：触发多少次都只算一次，两次推送之间至少隔 `intervalMs`；算的时候又触发了，算完再推一次。远程的 `treeChanged`、`jobsChanged`
- * 推整份，用它限频（subagents.md 输出 22、jobs.md 输出 9）。
+ * 合并推送：触发多少次都只算一次，两次推送之间至少隔 `intervalMs`；算的时候又触发了，算完再推一次。推整份的远程事件用它限频：
+ * Agent 的 `treeChanged`、`jobsChanged`（subagents.md 输出 22、jobs.md 输出 9），后台任务的 `changed`（workbench/background-tasks.md 输出 9）。
+ * 只用注入的时钟计时，前后端都能用。
  */
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";

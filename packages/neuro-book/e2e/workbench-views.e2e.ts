@@ -410,7 +410,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(aux.locator('[role="tab"]')).toHaveCount(2);
         await moveViaMenu(page, A, "侧栏");
         await expect(aux.locator('[role="tab"]')).toHaveCount(0);
-        await expect(head(page, "panel").locator('[role="tab"]')).toHaveCount(2);
+        // 戊、己与内置的“后台任务”“通知”。
+        await expect(head(page, "panel").locator('[role="tab"]')).toHaveCount(4);
         await expect(head(page, "sidebar").locator('[role="tab"]')).toHaveCount(0);
         await runCommand(page, "切换区域显隐");
         await pick(page, "选中后立即切换", "活动栏");
@@ -867,13 +868,14 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     test("面板标签带变窄时逐级让位：完整 → 截断 → 选中的留标题其余只留图标 → 收进“更多”，选中的始终带标题；从“更多”选中后它回到标签带（输出 20；验收 15）", async ({page}) => {
         await open(page);
-        // 面板里三个标签：戊、己（长标题）与从右栏移来的丁
+        // 面板里五个标签：内置的“后台任务”“通知”，戊、己（长标题）与从右栏移来的丁
         await moveViaMenu(page, D, "面板");
         const band = page.locator('[data-panel-head="panel"] [data-tabs-level]');
         const level = () => band.getAttribute("data-tabs-level");
         const tabs = page.locator('[data-panel-head="panel"] [role="tab"]');
         const selectedTab = page.locator('[data-panel-head="panel"] [role="tab"][aria-selected="true"]');
-        await expect(tabs).toHaveCount(3);
+        const total = 5;
+        await expect(tabs).toHaveCount(total);
         const seen = new Set<string>();
         for (const width of [1920, 1440, 1000, 900, 860, 800, 760, 700, 640, 600]) {
             await page.setViewportSize({width, height: 900});
@@ -886,7 +888,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
                 const more = page.locator('[data-panel-head="panel"] [data-tabs-more]');
                 await expect(more).toBeVisible();
                 const shown = await tabs.count();
-                await expect(more).toContainText(`更多 ${String(3 - shown)}`);
+                await expect(more).toContainText(`更多 ${String(total - shown)}`);
             }
         }
         expect([...seen].sort()).toEqual(["0", "1", "2", "3"]);

@@ -6,7 +6,7 @@
 
 import {afterEach, describe, expect, it} from "bun:test";
 
-import {computed} from "@vue/reactivity";
+import {computed, shallowRef} from "@vue/reactivity";
 import {defineComponent} from "vue";
 import type {Component} from "vue";
 
@@ -37,6 +37,7 @@ function declaration(name: string, order?: number): ViewDeclaration {
 interface Owner {
     registry: ViewRegistry | null;
     context: ActivationContext | null;
+    reports: string[];
     /** 接收者预占某一项时让测试持住串行锁（真实接收者没有 prepare，这里在产品接收者外加一层）。 */
     prepare?: (handle: ContributionHandle<ViewDeclaration, ViewImplementation>) => Promise<void> | void;
 }
@@ -53,7 +54,7 @@ function ownerPlugin(owner: Owner, plugins: () => ReturnType<typeof createWindow
             receives: [WORKBENCH_VIEWS_POINT],
             activate: (context) => {
                 owner.context = context;
-                owner.registry = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins(), context.signal);
+                owner.registry = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins(), context.signal, (message) => owner.reports.push(message));
                 const receiver = owner.registry.receiver();
                 return {receivers: {[WORKBENCH_VIEWS_POINT]: owner.prepare === undefined ? receiver : {...receiver, prepare: owner.prepare}}};
             },
@@ -65,6 +66,7 @@ interface ContributorControl {
     fail: boolean;
     context: ActivationContext | null;
     load: () => Promise<Component>;
+    badge?: () => number | null;
 }
 
 const Sample = defineComponent({name: "SampleView", render: () => null});
@@ -81,7 +83,8 @@ function contributor(id: string, views: ReadonlyArray<string>, control: Contribu
             activate: (context) => {
                 if (control.fail) throw new Error("样例入口按开关激活失败");
                 control.context = context;
-                const implementation: ViewImplementation = {load: () => control.load()};
+                const badge = control.badge;
+                const implementation: ViewImplementation = {load: () => control.load(), ...(badge === undefined ? {} : {badge: () => badge()})};
                 return {contributions: {[WORKBENCH_VIEWS_POINT]: Object.fromEntries(views.map((view) => [view, implementation]))}};
             },
             ...extra,
@@ -90,7 +93,7 @@ function contributor(id: string, views: ReadonlyArray<string>, control: Contribu
 }
 
 async function start(plugins: ReadonlyArray<PluginDefinition>, prepare?: Owner["prepare"]): Promise<{application: Application; registry: ViewRegistry; owner: Owner}> {
-    const owner: Owner = {registry: null, context: null, prepare};
+    const owner: Owner = {registry: null, context: null, reports: [], prepare};
     let application: Application | null = null;
     const feed = createWindowPlugins(() => application?.plugins ?? null, (error) => {
         throw error;
@@ -118,6 +121,33 @@ function control(overrides: Partial<ContributorControl> = {}): ContributorContro
 }
 
 describe("视图注册表", () => {
+    it("视图计数：不加载视图就能读、随贡献方的状态重算；只交回正整数，抛错按没有计数并只记一次诊断（views.md 输出 17）", async () => {
+        const count = shallowRef<number | null>(2);
+        let loads = 0;
+        let broken = false;
+        const {registry, owner} = await start([contributor("test.badge", ["test.badge.view"], control({load: async () => {
+            loads += 1;
+            return Sample;
+        }, badge: () => {
+            if (broken) throw new Error("badge failed");
+            return count.value;
+        }}))]);
+        const shown = computed(() => registry.badge("test.badge.view"));
+        expect(shown.value).toBe(2);
+        count.value = 5;
+        expect(shown.value).toBe(5);
+        for (const value of [0, -1, 2.5, null]) {
+            count.value = value;
+            expect(registry.badge("test.badge.view")).toBeNull();
+        }
+        broken = true;
+        expect(registry.badge("test.badge.view")).toBeNull();
+        expect(registry.badge("test.badge.view")).toBeNull();
+        expect(owner.reports.filter((report) => report.includes("badge()"))).toHaveLength(1);
+        expect(loads).toBe(0);
+        expect(registry.badge("test.missing")).toBeNull();
+    });
+
     it("目录来自已接受的声明：没交付的视图也在目录里；不合规则的声明不进目录", async () => {
         const lazy = contributor("test.lazy", ["test.lazy.one"], control(), {activationEvents: []});
         const wrong = contributor("test.wrong", ["other.view"], control());
