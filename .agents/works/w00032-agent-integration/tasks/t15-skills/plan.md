@@ -159,6 +159,12 @@ Smoke：`packages/neuro-book/e2e/agent-skills.e2e.ts`（场景 2、3、4）。
 - 用户消息不要下面那一行提示；原因放进标签的悬停提示（第 2 轮确认）。标签的悬停提示统一写“Skill：…”（`nb-markdown` 的目录）。
 - Profile 页的“Skill”一节照草稿。
 
+## 界面评审第 2 轮（2026-11-11，README 第 33–37 条）
+
+- 后台安装的进度与结果等工作台的后台任务系统（另开 Task）；t15 的界面几片排在它之后，确认框能关、关掉后安装照常进行。
+- `skillMissing` 改成 `conv` 事件，渲染成给模型的 system-reminder（位置同 `skill`）；界面不标出没带上的 Skill。`UserMessageView.skills` 不做了，`skill.open` 仍扩成 `{name, id?}`（id 从同一轮的 `skill` 事件取）。
+- 确认框几种状态版式相同（没有锁的那句不另起一行），不写“标签已插进输入框”；`$` 菜单徽标列的留白在第 3 轮定。
+
 ## 开发者已定（2026-11-10，README 第 17–21 条）
 
 1. 没声明白名单就没有可用的 Skill；主创声明“全部”，临时帮手不声明。
