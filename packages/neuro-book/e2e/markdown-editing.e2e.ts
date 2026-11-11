@@ -245,6 +245,27 @@ test.describe("选区菜单", () => {
         await expect(selectionMenu(page)).toHaveCount(0);
     });
 
+    test("块类型在最前面：选“标题 2”后这一段变成标题，焦点回正文（输出 6）", async ({page}) => {
+        // 测关闭动画结束后的焦点：配置默认减少动态效果，要开回来。
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await openFile(page, "notes/selection-block.md", "第一段文字\n");
+        await focusFirst(page);
+        await page.keyboard.press("Home");
+        await page.keyboard.press("Shift+End");
+        const trigger = selectionMenu(page).getByRole("button", {name: /块类型/u});
+        await expect(trigger).toHaveAccessibleName("块类型：正文");
+        await trigger.click();
+        // 焦点在下拉里时选区菜单仍算有焦点。
+        await expect(selectionMenu(page)).toBeVisible();
+        await page.getByRole("menuitemcheckbox", {name: "标题 2"}).click();
+        await expect(prose(page).locator("h2")).toHaveText("第一段文字");
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await expect(prose(page)).toBeFocused();
+        await expect(trigger).toHaveAccessibleName("块类型：标题 2");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-block.md")).toBe("## 第一段文字\n");
+    });
+
     test("高亮是拆分按钮：左半边第一次是黄色；色板开着时菜单留着，选了记住（输出 6）", async ({page}) => {
         await openFile(page, "notes/selection-highlight.md", "一二三\n");
         await focusFirst(page);
