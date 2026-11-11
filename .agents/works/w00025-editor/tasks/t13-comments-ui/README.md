@@ -23,8 +23,8 @@ updated: 2026-11-10
 
 ## 当前状态
 
-2026-11-10 设计评审两轮结束（[`artifacts/review/`](artifacts/review/index.html) v2），决定见上面 1–5；未写 Spec 与计划、未改产品代码。草稿 worktree `.worktree/w00025-t13-drafts`（分支 `w00025-t13/drafts`，不合并）。第 1 轮“不单独问、按下面做的”六条在 [待确认清单](../../pending-confirmations.md)。
+2026-11-10 设计评审两轮结束（[`artifacts/review/`](artifacts/review/index.html) v2），决定见上面 1–5。2026-11-11 开发者说“做 t13”，写了 Spec（`workbench/markdown-editing.md` 输出 28–35、验收 11–16，`workbench/editor.md` 的控件句柄与标题动作）与[计划第一稿](plan.md)，等开发者看过再提交、过计划审查；未改产品代码。草稿 worktree `.worktree/w00025-t13-drafts`（分支 `w00025-t13/drafts`，不合并），只作样子的参照。第 1 轮“不单独问、按下面做的”六条与这次写计划时定的几处在 [待确认清单](../../pending-confirmations.md)。
 
 ## 下一步
 
-写 Spec（`workbench/markdown-editing.md` 的批注一节：入口、浮层、页边开关、原地编辑、删除、上一条下一条、只读）与 `plan.md`，过计划审查后实施。
+开发者看过 Spec 与计划后：提交，派 Sonnet 子代理做计划审查，处理后在新 worktree 上按五个切片实施，收口做一次实现审查。

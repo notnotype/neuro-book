@@ -19,7 +19,7 @@ owners:
 
 - 把标签拖出窗口；拖动时按 Ctrl 复制标签；固定标签的紧凑样式；标签条的滚动按钮。
 - 未保存的修改跨页面刷新保留。
-- Markdown 富文本里的批注侧栏、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。工具栏、选区菜单、斜杠菜单、块按钮与正文右键见 [`workbench.markdown-editing`](markdown-editing.md)。
+- Markdown 富文本里的编辑器右侧“全部批注”侧栏列表（批注的添加、查看、修改与页边见 [`workbench.markdown-editing`](markdown-editing.md)）、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。工具栏、选区菜单、斜杠菜单、块按钮与正文右键见 [`workbench.markdown-editing`](markdown-editing.md)。
 - 差异比较界面；跨文件撤销；同一文档在两个组里共享撤销历史。
 - 预读；`project://`、`user://` 之外的方案。
 - [files-explorer 的性能标准](files-explorer.md#打开与切换)在参考机器上的测量另行交付；本 Spec 只规定结构上的保证（输出 7、10）。
@@ -89,7 +89,7 @@ owners:
   }
   ```
 
-  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`，以及可选的 `leave()`（用户的焦点离开了这个视图，输出 63）；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。提供编辑动作的控件（Markdown 富文本）交出 `editing`（[`workbench.markdown-editing`](markdown-editing.md)）。按标题组织的控件（Markdown 富文本）交出 `outline: Readonly<Ref<{binding: string; version: number; items: ReadonlyArray<{id: string; level: number; text: string}>; current: string | null} | null>>` 与 `revealHeading(binding, version, id): "ok" | "stale"`，供面包屑（输出 60）使用：`binding` 是当前绑定的 `token`，正文每变一次 `version` 加一，`id` 按位置区分同名标题；换绑定、没有绑定、卸载时同步为 `null`；`binding` 或 `version` 对不上为 `stale`，不移动光标。
+  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`，以及可选的 `leave()`（用户的焦点离开了这个视图，输出 63）；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。提供编辑动作的控件（Markdown 富文本）交出 `editing`，提供批注页边的交出 `comments: {count: Readonly<Ref<number>>}`（文档里批注的条数；[`workbench.markdown-editing`](markdown-editing.md)）。按标题组织的控件（Markdown 富文本）交出 `outline: Readonly<Ref<{binding: string; version: number; items: ReadonlyArray<{id: string; level: number; text: string}>; current: string | null} | null>>` 与 `revealHeading(binding, version, id): "ok" | "stale"`，供面包屑（输出 60）使用：`binding` 是当前绑定的 `token`，正文每变一次 `version` 加一，`id` 按位置区分同名标题；换绑定、没有绑定、卸载时同步为 `null`；`binding` 或 `version` 对不上为 `stale`，不移动光标。
   控件的寿命：一个控件拿到一份绑定，标签切走、换组都不换绑定，换编辑器时换控件。`visible` 为假时控件隐藏、不可交互，但仍要跟着正文更新：等切回来再追，结算时会造成假冲突。`attach` 的结算回调只交还没交出的输入：正文被别处改了、控件还没跟上时，本地与正文不同不算输入。控件可能被卸载（术语“视图”）：卸载前交出还没交出的输入，把视图状态存进 `binding.slot`、要留的实例存进 `host`，再挂上时接着用；这两个槽只在标签关闭或换编辑器时释放。
 
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
@@ -224,7 +224,7 @@ owners:
     - **恢复**：声明 `restore: true` 的页面刷新后恢复，规则同文件标签（顺序、所在的组、是不是活动标签）。要不要恢复、`arg` 与记着的标题在打开时就抄到标签上，存盘与恢复只看标签自己，不看当时声明在不在：声明晚到或贡献方这次没启动，标签与它的记录都还在。恢复出来的标签先显示记着的标题；声明在而实现还没交付时内容区是“正在加载页面”，交付后自己变成页面；声明不在时说明“这个页面已经不在了”。实现一直不交付时一直是“正在加载页面”（已知限制，不设超时）。
     - **面包屑**：实现可以给 `breadcrumbs(arg)`，返回几段 `{label, command?: {id, args?}}` 或 null（不带参数的页面也可以给）。编辑器响应式地读它；有返回时这个标签在标签条下面有面包屑那一行（输出 60 的位置与缩短规则）：各段从左到右，带命令的段可以点、执行那条命令，没带的段与最后一段（当前页）不可点；没有下拉。键盘：`nbook.editor.focus-breadcrumbs` 对有面包屑的页面标签同样可用，←/→ 在可点的段之间移动，Enter 执行，Escape 回到页面。没给、返回 null 或空、贡献方已经停止时没有这一行。
     - 带参数的页面同样不能拆分、不能固定、不是 preview；`nbook.editor.open` 照旧不接受页面地址。
-34. **编辑区标题**：活动编辑组的标签条右侧是标题动作（别的组不画：编辑器的命令与它们的可用性都按活动组算）：编辑器自己的“向右拆分”（按钮）与“用其它编辑器重新打开”（“⋯”里），之后是别的插件经贡献点 `editor.title` 贡献的项（共同规则见 [`workbench.menus`](menus.md)）。当前文件是这个组的活动标签：是文件时给出它的地址，`context: "resource"` 的项执行时收到 `{address}`；是页面标签或组里没有标签时没有当前文件。按钮（自己的加贡献来的）至多 4 个；编辑组窄时按它的宽度再少，给标签条至少留一个截断标签的宽度（96px），一个按钮也放不下时只剩“⋯”。放不下的按钮回到它所在的节收进“⋯”（编辑器自己的在自己那一节，贡献的在它原来的节）。另一个组成为活动组时，标题动作随之移到那个组；“⋯”打开期间活动组或活动标签变了，菜单关闭、之前的选择不执行。标签多时标签条照旧横向滚动，标题动作不随之滚动。
+34. **编辑区标题**：活动编辑组的标签条右侧是标题动作（别的组不画：编辑器的命令与它们的可用性都按活动组算）：编辑器自己的“向右拆分”（按钮）、活动控件提供批注页边（`comments`）时的“批注 N”开关（按钮，按下态读设置 `markdownCommentMargin`，N 是文档里批注的条数，在“⋯”里时不显示条数；见 [`workbench.markdown-editing`](markdown-editing.md) 输出 33）与“用其它编辑器重新打开”（“⋯”里），之后是别的插件经贡献点 `editor.title` 贡献的项（共同规则见 [`workbench.menus`](menus.md)）。当前文件是这个组的活动标签：是文件时给出它的地址，`context: "resource"` 的项执行时收到 `{address}`；是页面标签或组里没有标签时没有当前文件。按钮（自己的加贡献来的）至多 4 个；编辑组窄时按它的宽度再少，给标签条至少留一个截断标签的宽度（96px），一个按钮也放不下时只剩“⋯”。放不下的按钮回到它所在的节收进“⋯”（编辑器自己的在自己那一节，贡献的在它原来的节）。另一个组成为活动组时，标题动作随之移到那个组；“⋯”打开期间活动组或活动标签变了，菜单关闭、之前的选择不执行。标签多时标签条照旧横向滚动，标题动作不随之滚动。
 
 **打开到哪一组**
 
