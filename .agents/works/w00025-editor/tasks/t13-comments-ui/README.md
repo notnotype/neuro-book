@@ -25,6 +25,10 @@ updated: 2026-11-10
 
 2026-11-10 设计评审两轮结束（[`artifacts/review/`](artifacts/review/index.html) v2），决定见上面 1–5。2026-11-11 开发者说“做 t13”，写了 Spec 与[计划](plan.md)，开发者看过后回“可以”，提交（`4d0873fe2`）。随后计划设计审查（Sonnet 子代理，[报告](evidences/design-review-1-sonnet.txt)、[处理](evidences/design-review-1-disposition.txt)：15 条，阻断 1、重要 10、建议 4，都按成立处理，只有键盘删除保持开发者已确认的“不做”），Spec 与计划按审查改成第二稿；有两处与开发者回“可以”时所见不同（页边开关改存本机记录、窗口失焦不丢意见），写在[待确认清单](../../pending-confirmations.md)并向开发者汇报。草稿 worktree `.worktree/w00025-t13-drafts`（分支 `w00025-t13/drafts`，不合并）只作样子的参照。代码在 worktree `.worktree/w00025-t13-comments-ui`（分支 `feat/w00025-t13-comments-ui`），按计划的五个切片实施。
 
+## 进展
+
+- S1 完成（分支 `feat/w00025-t13-comments-ui` 的 `e298dc5b6`）：`nb-markdown/src/editor/comments.ts`（列出、按指纹找、改意见、去掉、跳转、标出）与 `comment-entry.ts`（进入判断），20 条用例加 5 条纯函数用例；做了变异检查（按类型删、不保序、不核指纹、数值比较各让一条以上用例失败）。写计划时担心的“保存后立刻打字并进撤销步”实测不会发生，计划里的 `closeHistory` 去掉了。
+
 ## 下一步
 
-按计划做 S1（`nb-markdown` 的批注数据操作与进入判断）。
+S2：动作、快捷键判断、入口与文字（计划 3.2）。
