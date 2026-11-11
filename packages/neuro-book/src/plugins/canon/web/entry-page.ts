@@ -17,12 +17,13 @@ import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/contracts";
 
 import type {CanonClient, CanonOutputs, EntryName} from "../shared/contracts";
 import {canonText} from "../shared/text";
-import {OPEN_ENTRY_COMMAND} from "./commands";
+import {OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND} from "./commands";
 import type {ComponentViewRegistry} from "./component-views";
 import type {TextAddress} from "./components/entry-text";
 import type {EditDraft} from "./in-place-edit";
 import type {CanonNotices} from "./notices";
 import type {OriginsPage} from "./origin-pages";
+import type {RevertRequests} from "./revert";
 import {useCanonText} from "./text";
 import type {CanonWorld} from "./world";
 
@@ -63,15 +64,13 @@ export interface EntryPageOptions {
     readonly views: ComponentViewRegistry;
     /** 本窗口的保存后的提示。 */
     readonly notices: CanonNotices;
+    /** 本窗口的还原对话框。 */
+    readonly revert: RevertRequests;
     /** 执行命令（打开条目页、变更详情页）。 */
     readonly execute: (id: string, args: unknown) => void;
     /** 设定视图的 id：面包屑的“设定”显示它。 */
     readonly entriesView: string;
 }
-
-/** 变更详情页与回执页的命令（S6 登记）；在那之前执行它们得到命令服务的“没有这条命令”。 */
-const OPEN_CHANGE_COMMAND = "nbook.canon.open-change";
-const OPEN_RECEIPT_COMMAND = "nbook.canon.open-receipt";
 
 export function createEntryPage(options: EntryPageOptions): EditorPageImplementation<EntryPageState> {
     const heads = reactive(new Map<string, EntryHead>());
@@ -91,7 +90,7 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                         const id = props.context.arg;
                         if (world === null || id === undefined) return h("p", {class: "px-6 py-4 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
                         // 换了参数（不会发生：参数是标签的身份）也按 key 重建，免得宿主里的读取还指着旧条目。
-                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, views: options.views, notices: options.notices, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
+                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, client: {call: options.call}, views: options.views, notices: options.notices, revert: options.revert, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
                     };
                 },
             });

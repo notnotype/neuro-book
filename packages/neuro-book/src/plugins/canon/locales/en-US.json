@@ -6,6 +6,12 @@
         },
         "new-entry": {
             "title": "New entry"
+        },
+        "open-receipt": {
+            "title": "Open Receipt"
+        },
+        "open-change": {
+            "title": "Open Story Change"
         }
     },
     "views": {
@@ -40,6 +46,9 @@
     "editorPages": {
         "entry": {
             "title": "Entry"
+        },
+        "receipt": {
+            "title": "Receipt"
         }
     },
     "componentViews": {
@@ -184,7 +193,8 @@
     "notice": {
         "receipt": "View receipt",
         "close": "Close",
-        "label": "Change just saved"
+        "label": "Change just saved",
+        "undo": "Undo"
     },
     "newEntry": {
         "title": "New entry",
@@ -202,5 +212,100 @@
         "chapterStart": "Start of chapter {{index}}",
         "confirm": "Create",
         "saved": "Created “{{name}}”"
+    },
+    "names": {
+        "address": "{{entry}}'s {{label}}",
+        "someEntry": "an entry",
+        "someChange": "a story change"
+    },
+    "impact": {
+        "value": "{{label}}: {{before}} → {{after}}",
+        "broken": "{{count}} story changes no longer apply"
+    },
+    "revert": {
+        "title": "Revert “{{title}}”?",
+        "titleUnknown": "Revert this change?",
+        "impact": "After reverting:",
+        "dependents": "These later changes depend on it and must be reverted with it:",
+        "moreDependents": "and {{count}} more",
+        "withDependents": "Revert them all",
+        "confirm": "Revert",
+        "notRevertable": "Chapter reorders cannot be reverted",
+        "authorSource": "This change touches decisions, which the author must confirm in person; it cannot be reverted here yet",
+        "notFound": "This change was not found",
+        "untitled": "a change",
+        "saved": "Revert “{{title}}”",
+        "savedWithDependents": "Revert “{{title}}” and {{count}} later changes"
+    },
+    "receipt": {
+        "missing": "This change was not found",
+        "meta": "{{by}} · {{time}} · {{what}}",
+        "revertOf": "Reverts: ",
+        "revert": "Revert This Revision",
+        "dependents": "{{count}} later changes depend on it",
+        "created": "Created",
+        "modified": "Modified",
+        "deleted": "Deleted",
+        "chapters": "Chapter order",
+        "impact": "What followed",
+        "chapterOrder": "Chapter order",
+        "chapterGone": "a deleted chapter",
+        "chapterTitled": "Chapter {{index}}: {{title}}",
+        "revisionsCrumb": "Change History",
+        "absent": "(none)",
+        "complex": "(several values)",
+        "several": "several changes",
+        "reordered": "reordered",
+        "patchSeparator": "; ",
+        "written": "written",
+        "active": "in effect",
+        "kinds": {
+            "check": "a check",
+            "decision": "a decision",
+            "suggestion": "a suggestion"
+        },
+        "fields": {
+            "name": "Name",
+            "summary": "Summary",
+            "aliases": "Aliases",
+            "text": "Main text",
+            "data": "Enabled data",
+            "type": "Kind",
+            "folder": "Group",
+            "order": "Order",
+            "parent": "Placed under",
+            "sameAs": "Another identity of",
+            "appears": "First appears",
+            "deleted": "Deleted",
+            "initBasis": "Basis of initial values",
+            "other": "Other settings",
+            "changeText": "Text",
+            "at": "Placement",
+            "kind": "Written or planned",
+            "status": "Status",
+            "held": "Why it is on hold",
+            "undoneReason": "Why it was undone",
+            "patches": "Changes",
+            "involves": "Entries involved",
+            "told": "Quotes"
+        },
+        "by": {
+            "author": "Author",
+            "agent": "Agent",
+            "task": "Task: {{name}}",
+            "system": "System"
+        },
+        "what": {
+            "opening": "Opening",
+            "plan": "Plan",
+            "bookkeeping": "Bookkeeping",
+            "edit": "Edit",
+            "creative": "Setting change",
+            "resolve": "Resolve",
+            "suggest": "Accepted suggestion",
+            "revert": "Revert",
+            "reorder": "Chapter reorder"
+        },
+        "changed": "changed"
     }
 }

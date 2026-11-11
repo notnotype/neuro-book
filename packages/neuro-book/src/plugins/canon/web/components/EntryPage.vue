@@ -5,10 +5,11 @@
  */
 import {useId} from "vue";
 
-import {Banner, Button, DropdownMenu, IconButton, Select, Switch, Tabs} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton, Select, Switch, Tabs} from "@notnotype/nb-ui/components";
 import type {SelectOption, TabsItem} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
+import WorldBanners from "./WorldBanners.vue";
 
 export type EntryPageStatus = "loading" | "failed" | "missing" | "deleted" | "normal";
 
@@ -27,11 +28,13 @@ const props = withDefaults(defineProps<{
     /** 选过的那一章被删掉了，位置已经回到缺省（输出 7）。 */
     positionGone?: boolean;
     disconnected?: boolean;
+    /** 世界只读的原因（输出 28）；可以写时为空。 */
+    readOnly?: string;
     tabs?: readonly TabsItem[];
     tab?: string;
     /** 页头“更多”里的“删除条目”可用（输出 19）；写不了时不可用。 */
     deletable?: boolean;
-}>(), {deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, tabs: () => [], tab: ""});
+}>(), {deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, readOnly: "", tabs: () => [], tab: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -56,9 +59,7 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
 
 <template>
     <article class="min-h-full" data-entry-page>
-        <Banner v-if="props.disconnected" tone="warning" role="status" class="m-3" :message="text('world.disconnected')">
-            <template #actions><Button size="sm" @click="emit('retry')">{{ text("world.retry") }}</Button></template>
-        </Banner>
+        <WorldBanners :disconnected="props.disconnected" :read-only="props.readOnly" @retry="emit('retry')" />
         <p v-if="props.status === 'loading'" class="px-8 py-6 text-[length:var(--text-sm)] text-[var(--text-muted)]" role="status" aria-busy="true">{{ text("entries.loading") }}</p>
         <p v-else-if="props.status === 'failed'" class="px-8 py-6 text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert">{{ text("world.failed") }}</p>
         <p v-else-if="props.status === 'missing'" class="px-8 py-6 text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.missing") }}</p>

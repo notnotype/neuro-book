@@ -12,13 +12,14 @@
 import {computed, onScopeDispose, shallowRef, watch} from "vue";
 import type {ComputedRef} from "vue";
 
-import {displayText} from "@notnotype/nb-canon/schema";
 import type {FieldDeclaration, FieldState, Placement, ReadPosition} from "@notnotype/nb-canon";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import type {CanonClient, CanonOutputs, Published} from "../shared/contracts";
 import type {ConfirmBarKind, EditIntent} from "./components/confirm-bar";
+import {namespaceField} from "./entry-heads";
 import {failureText} from "./failures";
+import {impactLines} from "./impact";
 import type {CanonBoundText} from "./positions";
 import type {CanonWorld} from "./world";
 
@@ -146,18 +147,13 @@ export function useInPlaceEdit(options: InPlaceEditOptions): InPlaceEdit {
             const change = read.ok ? (read.value.object as {readonly text?: string; readonly at?: Placement} | null) : null;
             routeText = text("edit.routePatch", {place: change?.at === undefined ? "" : options.place(change.at), text: change?.text ?? ""});
         } else routeText = text("edit.routeChange", {position: options.place(route.at)});
-        const impact = result.revision.impact;
-        const lines: string[] = [];
-        if (impact.pendingAdded.length > 0) lines.push(text("edit.pendingAdded", {count: impact.pendingAdded.length}));
-        if (impact.pendingResolved.length > 0) lines.push(text("edit.pendingResolved", {count: impact.pendingResolved.length}));
         const draft = options.draft();
-        for (const value of impact.values) {
-            if (value.at.entry === options.entry && value.at.path === draft?.path) continue;
-            const label = value.at.entry === options.entry ? labelOf(value.at.path) : value.at.path.slice(value.at.path.indexOf(".") + 1);
-            lines.push(text("edit.valueFollows", {label, value: displayText(value.after)}));
-        }
-        if (lines.length === 0) lines.push(text("edit.noImpact"));
-        return {route: routeText, impact: lines};
+        const impact = impactLines(result.revision.impact, {
+            values: "follows",
+            skip: (at) => at.entry === options.entry && at.path === draft?.path,
+            address: (at) => (at.entry === options.entry ? labelOf(at.path) : namespaceField(at.path).field),
+        }, text);
+        return {route: routeText, impact};
     };
 
     const inputOf = (draft: EditDraft): Record<string, unknown> | null => {

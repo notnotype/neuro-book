@@ -12,17 +12,24 @@ import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/contracts";
 import {canonText} from "../shared/text";
 
 export const OPEN_ENTRY_COMMAND = "nbook.canon.open-entry";
+export const OPEN_RECEIPT_COMMAND = "nbook.canon.open-receipt";
+export const OPEN_CHANGE_COMMAND = "nbook.canon.open-change";
 export const NEW_ENTRY_COMMAND = "nbook.canon.new-entry";
 /** 设定视图（命令打开对话框前先显示它）。与 `plugin.ts` 的 `ENTRIES_VIEW_ID` 是同一个，这里写字面量免得成环。 */
 const ENTRIES_VIEW = "nbook.canon.entries";
-/** 条目页（author-ui.md 输出 6 起；页面在第一批的条目页一片登记）。 */
+/** 条目页、回执页、变更详情页（author-ui.md 输出 6、20、21）。 */
 export const ENTRY_PAGE = "nbook.canon.entry";
+export const RECEIPT_PAGE = "nbook.canon.receipt";
+export const CHANGE_PAGE = "nbook.canon.change";
 
-const OPEN_ENTRY_ARGS = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
+const ID_ARGS = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
+const OPEN_RECEIPT_ARGS = Type.Object({revision: Type.String({minLength: 1})}, {additionalProperties: false});
 const NEW_ENTRY_ARGS = Type.Object({parent: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false});
 
 export const CANON_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommandDeclaration>> = {
-    [OPEN_ENTRY_COMMAND]: {category: canonText("commands.category"), description: "Open the entry page of a lore entry by its id; an entry page already open in the window is activated instead of opened twice.", args: OPEN_ENTRY_ARGS, effect: "read"},
+    [OPEN_ENTRY_COMMAND]: {category: canonText("commands.category"), description: "Open the entry page of a lore entry by its id; an entry page already open in the window is activated instead of opened twice.", args: ID_ARGS, effect: "read"},
+    [OPEN_RECEIPT_COMMAND]: {category: canonText("commands.category"), description: "Open the receipt page of one world revision by its id: what it changed, what followed from it, and a way to revert it.", args: OPEN_RECEIPT_ARGS, effect: "read"},
+    [OPEN_CHANGE_COMMAND]: {category: canonText("commands.category"), description: "Open the detail page of one story change by its id: its text, placement, quotes, involved entries and each change it makes.", args: ID_ARGS, effect: "read"},
     // 只打开对话框，写入在作者确认以后；不给 Agent（它新建条目走世界服务的写入）。
     [NEW_ENTRY_COMMAND]: {category: canonText("commands.category"), description: "Show the Lore view and open the new-entry dialog, optionally under a parent entry.", args: NEW_ENTRY_ARGS, effect: "read", expose: {agent: "never"}},
 };
@@ -36,6 +43,12 @@ export function canonCommands(commands: Pick<CommandService, "execute"> | null, 
     return {
         [OPEN_ENTRY_COMMAND]: {
             run: async (args): Promise<CommandResult<unknown>> => (commands === null ? missing : commands.execute(OPEN_PAGE_COMMAND, {id: ENTRY_PAGE, arg: (args as {id: string}).id})),
+        },
+        [OPEN_RECEIPT_COMMAND]: {
+            run: async (args): Promise<CommandResult<unknown>> => (commands === null ? missing : commands.execute(OPEN_PAGE_COMMAND, {id: RECEIPT_PAGE, arg: (args as {revision: string}).revision})),
+        },
+        [OPEN_CHANGE_COMMAND]: {
+            run: async (args): Promise<CommandResult<unknown>> => (commands === null ? missing : commands.execute(OPEN_PAGE_COMMAND, {id: CHANGE_PAGE, arg: (args as {id: string}).id})),
         },
         [NEW_ENTRY_COMMAND]: {
             run: async (args): Promise<CommandResult<unknown>> => {

@@ -6,6 +6,12 @@
         },
         "new-entry": {
             "title": "新建条目"
+        },
+        "open-receipt": {
+            "title": "看回执"
+        },
+        "open-change": {
+            "title": "打开情节"
         }
     },
     "views": {
@@ -40,6 +46,9 @@
     "editorPages": {
         "entry": {
             "title": "条目"
+        },
+        "receipt": {
+            "title": "回执"
         }
     },
     "componentViews": {
@@ -184,7 +193,8 @@
     "notice": {
         "receipt": "看回执",
         "close": "关闭",
-        "label": "刚保存的改动"
+        "label": "刚保存的改动",
+        "undo": "撤销"
     },
     "newEntry": {
         "title": "新建条目",
@@ -202,5 +212,100 @@
         "chapterStart": "第 {{index}} 章开头",
         "confirm": "新建",
         "saved": "新建“{{name}}”"
+    },
+    "names": {
+        "address": "{{entry}}的{{label}}",
+        "someEntry": "一个条目",
+        "someChange": "一条情节"
+    },
+    "impact": {
+        "value": "{{label}}：{{before}} → {{after}}",
+        "broken": "{{count}} 条情节套不上了"
+    },
+    "revert": {
+        "title": "还原“{{title}}”？",
+        "titleUnknown": "还原这次改动？",
+        "impact": "还原以后：",
+        "dependents": "后面这些改动依赖它，要一起还原：",
+        "moreDependents": "还有 {{count}} 次",
+        "withDependents": "连同这些一起还原",
+        "confirm": "还原",
+        "notRevertable": "调整章序的改动不能还原",
+        "authorSource": "这次改动里有对决定的修改，要作者亲自确认，这里还不能还原",
+        "notFound": "找不到这次改动",
+        "untitled": "一次改动",
+        "saved": "还原“{{title}}”",
+        "savedWithDependents": "还原“{{title}}”与之后的 {{count}} 次改动"
+    },
+    "receipt": {
+        "missing": "找不到这次改动",
+        "meta": "{{by}} · {{time}} · {{what}}",
+        "revertOf": "还原的是：",
+        "revert": "还原这次修订",
+        "dependents": "后面有 {{count}} 次改动依赖它",
+        "created": "新建",
+        "modified": "修改",
+        "deleted": "删除",
+        "chapters": "章序",
+        "impact": "带来的变化",
+        "chapterOrder": "章序",
+        "chapterGone": "已删除的一章",
+        "chapterTitled": "第 {{index}} 章：{{title}}",
+        "revisionsCrumb": "改动记录",
+        "absent": "（没有）",
+        "complex": "（一组值）",
+        "several": "改了几处",
+        "reordered": "顺序变了",
+        "patchSeparator": "；",
+        "written": "已写",
+        "active": "生效",
+        "kinds": {
+            "check": "核对点",
+            "decision": "一条决定",
+            "suggestion": "一条建议"
+        },
+        "fields": {
+            "name": "名字",
+            "summary": "简介",
+            "aliases": "别名",
+            "text": "主文字",
+            "data": "启用的数据",
+            "type": "种类",
+            "folder": "分组",
+            "order": "顺序",
+            "parent": "放在谁下面",
+            "sameAs": "是谁的另一个身份",
+            "appears": "出场",
+            "deleted": "已删除",
+            "initBasis": "初值的依据",
+            "other": "别的设置",
+            "changeText": "文字",
+            "at": "安放",
+            "kind": "已写还是计划",
+            "status": "生效状态",
+            "held": "待定的原因",
+            "undoneReason": "撤销的原因",
+            "patches": "改动",
+            "involves": "涉及的条目",
+            "told": "原句"
+        },
+        "by": {
+            "author": "作者",
+            "agent": "Agent",
+            "task": "任务：{{name}}",
+            "system": "系统"
+        },
+        "what": {
+            "opening": "开篇",
+            "plan": "计划",
+            "bookkeeping": "记账",
+            "edit": "编辑",
+            "creative": "改设定",
+            "resolve": "处理待处理",
+            "suggest": "采纳建议",
+            "revert": "还原",
+            "reorder": "调整章序"
+        },
+        "changed": "改了"
     }
 }

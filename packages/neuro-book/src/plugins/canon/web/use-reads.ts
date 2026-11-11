@@ -4,8 +4,8 @@
  * 结束时释放。没释放的读取在每次世界变化后都会被读取层重读，所以句柄一刻也不多留。
  */
 
-import {computed, onScopeDispose, shallowRef, watch} from "vue";
-import type {ComputedRef} from "vue";
+import {computed, effectScope, onScopeDispose, shallowRef, watch} from "vue";
+import type {ComputedRef, EffectScope} from "vue";
 
 import type {CanonInput, CanonMethod, CanonOutputs} from "../shared/contracts";
 import type {CanonWorld, ListHandle, ListMethod, ListState, ReadHandle, ReadState, WriteMethod} from "./world";
@@ -79,4 +79,47 @@ export function useWorldList<M extends ListMethod>(world: CanonWorld, method: M,
         state: computed(() => shown.value?.handle.state.value ?? null),
         more: () => void current.value?.handle.more(),
     };
+}
+
+/**
+ * 一组同一方法的读取，按键各一个（回执页里每个被改的条目一个 `entry`，每条剧情变更一个 `object`）：键还在时它的读取跟着输入
+ * 换（同 `useWorldRead`，换的期间显示旧的），键没了释放它的读取。`inputs` 给出此刻要的键与输入；结果按键查，还没读到的键
+ * 查不到或 `data` 为 undefined。
+ */
+export function useWorldReads<M extends ReadMethod>(world: CanonWorld, method: M, inputs: () => ReadonlyMap<string, CanonInput<M>>): ComputedRef<ReadonlyMap<string, ReadState<CanonOutputs[M]>>> {
+    const reads = shallowRef<ReadonlyMap<string, ComputedRef<ReadState<CanonOutputs[M]> | null>>>(new Map());
+    const scopes = new Map<string, EffectScope>();
+    const sync = (keys: readonly string[]): void => {
+        const next = new Map<string, ComputedRef<ReadState<CanonOutputs[M]> | null>>();
+        for (const [key, scope] of scopes) {
+            if (keys.includes(key)) continue;
+            scope.stop();
+            scopes.delete(key);
+        }
+        for (const key of keys) {
+            const known = reads.value.get(key);
+            if (known !== undefined) {
+                next.set(key, known);
+                continue;
+            }
+            const scope = effectScope(true);
+            const read = scope.run(() => useWorldRead(world, method, () => inputs().get(key) ?? null))!;
+            scopes.set(key, scope);
+            next.set(key, read);
+        }
+        reads.value = next;
+    };
+    watch(() => [...inputs().keys()].join("\u0000"), () => sync([...inputs().keys()]), {immediate: true});
+    onScopeDispose(() => {
+        for (const scope of scopes.values()) scope.stop();
+        scopes.clear();
+    });
+    return computed(() => {
+        const result = new Map<string, ReadState<CanonOutputs[M]>>();
+        for (const [key, read] of reads.value) {
+            const state = read.value;
+            if (state !== null) result.set(key, state);
+        }
+        return result;
+    });
 }

@@ -17,6 +17,7 @@ import type {CanonClient, CanonOutputs} from "../../shared/contracts";
 import type {ComponentViewContext, ComponentViewRegistry} from "../component-views";
 import type {EntryHead, EntryPageState} from "../entry-page";
 import {useInPlaceEdit} from "../in-place-edit";
+import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {useOriginPagesMap} from "../origin-pages";
 import type {OriginsPage} from "../origin-pages";
@@ -25,7 +26,8 @@ import type {ChapterRef} from "../positions";
 import {originRows, plotRows} from "../rows";
 import {useCanonText} from "../text";
 import {useWorldList, useWorldRead} from "../use-reads";
-import {writeBlocked} from "../writable";
+import type {RevertRequests} from "../revert";
+import {readOnlyBanner, writeBlocked} from "../writable";
 import {failureText} from "../failures";
 import type {CanonWorld} from "../world";
 import ConfirmBar from "./ConfirmBar.vue";
@@ -53,6 +55,8 @@ const props = defineProps<{
     views: ComponentViewRegistry;
     /** 本窗口的保存后的提示。 */
     notices: CanonNotices;
+    /** 本窗口的还原对话框（提示里的“撤销”）。 */
+    revert: RevertRequests;
     /** 打开条目页、变更详情页。 */
     open: (ref: {readonly kind: "entry" | "change"; readonly id: string}) => void;
     /** 打开一次修订的回执页。 */
@@ -65,6 +69,8 @@ const text = useCanonText();
 const port = useText();
 const state = props.state;
 const world = props.world;
+// 挂着就是在前台：保存后的提示显示在本页顶上（输出 18）。
+const pageNotice = usePageNotice(props.notices, props.revert);
 
 /* ---------- 章表与位置 ---------- */
 
@@ -182,6 +188,7 @@ const toggleValue = (address: TextAddress): void => {
 
 // 写不了的原因（输出 27、28）；就地改另外只在实际模式下可用（输出 16）。
 const blocked = computed(() => writeBlocked(world));
+const readOnly = computed(() => readOnlyBanner(world));
 const editBlocked = computed(() => (state.planned ? canonText("blocked.planned") : blocked.value));
 const fieldAt = (path: string) => {
     const split = path.indexOf(".");
@@ -323,7 +330,7 @@ const setPosition = (value: string): void => {
 
 <template>
     <div class="min-h-full">
-        <NoticeBar v-if="props.notices.current.value !== null" :title="props.notices.current.value.title" @receipt="props.receipt(props.notices.current.value.revision)" @close="props.notices.dismiss()" />
+        <NoticeBar v-if="props.notices.current.value !== null" :title="props.notices.current.value.title" @receipt="props.receipt(props.notices.current.value.revision)" @undo="pageNotice.undo(props.notices.current.value)" @close="pageNotice.close()" />
         <EntryPage
             :status="status"
             :name="view?.name ?? ''"
@@ -335,6 +342,7 @@ const setPosition = (value: string): void => {
             :not-appeared="notAppeared"
             :position-gone="state.positionGone"
             :disconnected="world.connection.value === 'ended'"
+            :read-only="readOnly === null ? '' : port.t(readOnly)"
             :tabs="tabs"
             :tab="tab"
             :deletable="blocked === null"

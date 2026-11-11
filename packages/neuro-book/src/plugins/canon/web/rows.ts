@@ -169,9 +169,8 @@ export function semanticNotes(page: Pick<CanonOutputs["origins"], "items">, plac
     });
 }
 
-/** 一条补丁对这个条目的改动写成一小段：“存款 −300”“样子 → 哥哥”。 */
-function patchText(patch: StoryChange["patches"][number], labelOf: (path: string) => string): string {
-    const label = labelOf(patch.at.path);
+/** 一条补丁写成一小段：“存款 −300”“样子 → 哥哥”；`label` 是这个地址写成的样子（“存款”或“星瑕的存款”）。 */
+export function patchLine(patch: StoryChange["patches"][number], label: string): string {
     if (patch.op === "add" && typeof patch.value === "number") return `${label} ${signed(patch.value)}`;
     if (patch.op === "set") return `${label} → ${displayText(patch.value)}`;
     return label;
@@ -184,6 +183,6 @@ export function plotRows(items: CanonOutputs["changes"]["items"], entry: string,
         where: place(change.at),
         text: change.text,
         flags: [...(change.kind === "plan" ? ["plan" as const] : []), ...(change.status === "held" ? ["held" as const] : []), ...(change.status === "undone" ? ["undone" as const] : [])],
-        patches: change.patches.filter((patch) => patch.at.entry === entry).map((patch) => patchText(patch, labelOf)),
+        patches: change.patches.filter((patch) => patch.at.entry === entry).map((patch) => patchLine(patch, labelOf(patch.at.path))),
     }));
 }

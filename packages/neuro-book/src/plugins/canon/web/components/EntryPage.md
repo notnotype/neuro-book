@@ -9,7 +9,7 @@
 
 ## 布局与交互
 
-- 断开时最上面一条警告色横幅“世界已断开”与“重试”（`role="status"`），内容留着。
+- 最上面是世界横幅（`WorldBanners`）：断开时“世界已断开”与“重试”，世界只读时写原因（输出 28）；内容留着。
 - 页头：名字（马甲条目后面是“是谁：某某”，某某是链接）、一句话简介；右边是位置选择与“按计划”开关；下面是分页条（左右方向键切换，每个分页项有 id，内容区 `role="tabpanel"` 用 `aria-labelledby` 指向当前分页）。页头与内容列都封顶 760 像素；宽度不够时位置选择换到下一行。视口宽于 480 像素时页头吸顶；更窄时页头换成几行，吸顶会占掉大半个视口，不吸顶。
 - 内容区上方按需有两行说明：“原来选的那一章已经不在了”（`role="status"`）、“在某位置还没出场”。
 - 状态 `loading` 只有一行“读取中…”（`aria-busy`）；`failed`（第一次读取就失败了，例如连不上项目）只有“没有读出来”（`role="alert"`）；`missing` 只有“找不到这个条目”；`deleted` 只有原来的名字与“这个条目已删除”。这四种都没有页头控件与分页。
@@ -36,6 +36,8 @@ type EntryPageProps = {
     notAppeared?: string;
     positionGone?: boolean;
     disconnected?: boolean;
+    /** 世界只读的原因；默认空（可以写）。 */
+    readOnly?: string;
     /** nb-ui `Tabs` 的项。 */
     tabs?: readonly TabsItem[];
     tab?: string;
@@ -48,7 +50,7 @@ type EntryPageProps = {
 
 ## 状态
 
-见上面四种 `status` 与断开。禁用、只读：写入入口不在这里。
+见上面四种 `status`、断开与只读。禁用、只读：写入入口不在这里。
 
 ## 隐藏通道理由
 
