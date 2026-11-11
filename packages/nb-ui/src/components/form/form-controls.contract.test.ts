@@ -42,6 +42,21 @@ describe("phase 2 form control contracts", () => {
         expect(bare.emitted("update:modelValue")?.at(-1)).toEqual(["updated"]);
     });
 
+    // 外框与聚焦光晕都出自表单控件基座 `.nb-ui-control`（styles.css）；happy-dom 不算分层样式，外观在浏览器里看，这里只守来源。
+    it("variant bare 的两个分支都不挂字段外框，出错时仍报给读屏", async () => {
+        const plain = mount(Input, {props: {modelValue: "zhù yīn", variant: "bare", invalid: true}});
+        const decorated = mount(Input, {props: {modelValue: "", variant: "bare", clearable: true}, slots: {suffix: "<span>✓</span>"}});
+        const framed = mount(Input, {props: {modelValue: ""}});
+        expect(framed.classes()).toContain("nb-ui-control");
+        for (const root of [plain, decorated]) {
+            expect(root.classes()).not.toContain("nb-ui-control");
+            expect(root.classes()).not.toContain("border");
+        }
+        expect(plain.get("input").attributes("aria-invalid")).toBe("true");
+        await plain.get("input").setValue("lín xī");
+        expect(plain.emitted("update:modelValue")?.at(-1)).toEqual(["lín xī"]);
+    });
+
     it("scopes every native search and number pseudo-element selector to the marker", () => {
         const css = readFileSync(resolve(import.meta.dirname, "../../styles.css"), "utf8");
         const style = document.createElement("style");

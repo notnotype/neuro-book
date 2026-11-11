@@ -86,6 +86,7 @@ export const formFixtures: LabFixture[] = [
             {id: "readonly", label: "只读", input: {props: {readonly: true}, model: {modelValue: "/home/writer/works/长夜行"}}},
             {id: "disabled", label: "禁用", input: {props: {disabled: true, placeholder: "不可用"}, model: {modelValue: ""}}},
             {id: "prefix", label: "前缀插槽", input: {props: {placeholder: "书名"}, model: {modelValue: "长夜行"}, slots: {prefix: true}}},
+            {id: "bare", label: "无外框（卡片里原地编辑）", input: {props: {variant: "bare", size: "sm", placeholder: "注音"}, model: {modelValue: "lín xī"}}},
         ],
         subject: nbUiSubject("Input"),
     }),
