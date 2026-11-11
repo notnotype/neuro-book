@@ -17,7 +17,7 @@ t15 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–16 条，
 | 问题 | 选用 | 理由与否决 |
 |---|---|---|
 | `SKILL.md` 的 frontmatter | `yaml`（`^2.8.2`，仓库根与 dev-panel 已在用，`neuro-book` 新加依赖） | 标准就是 YAML；手写解析否决 |
-| 提示词里的 `$` 标签 | `nb-markdown` 现有的分词（`prompt-text.ts`），从包的根入口（已是纯 TS，后端已在用）导出取标签的函数 | 草稿里显示成标签的与服务端认出的必须是同一套；服务端另写正则、新开子路径都否决 |
+| 提示词里的 `$` 标签 | `nb-markdown` 现有的分词（`prompt-text.ts`），经新的纯 TS 子路径 `./prompt-text` 交出 `promptSkillTokens` | 草稿里显示成标签的与服务端认出的必须是同一套；服务端另写正则否决。原定从根入口导出，实施时发现包规定根入口只引 `src/` 根上的文件（`boundary.test.ts`），分词在 `src/prompt/` 下：改为子路径，边界测试同样核对它不引 DOM 与编辑内核（2026-11-11） |
 | `bun.lock` | `Bun.JSONC`（带尾逗号，`JSON.parse` 读不了） | 手写去逗号否决 |
 | 装依赖 | 应用自己的 Bun（`process.execPath`，应用与命令行都以 Bun 运行）经 `Bun.spawn` | 第 16 条；`owned-process` 只有旧应用在用 |
 | 同一个 Skill 同时只装一次 | 进程内并入正在跑的那一次（同一个 Promise）；跨进程用 nb-harness 的 `tryLock`（`flock` 与 Windows 的 `LockFileEx`，进程怎么结束都由系统放锁），锁文件放状态根、按 Skill 分文件、建好不删 | 在 Skill 目录 `wx` 建、装完删的锁会在崩溃后留下（审查第 8 条）；`proper-lockfile` 要判旧，否决。`tryLock` 现在只在内核内部，新增公开导出 |
@@ -44,7 +44,7 @@ t15 的设计在 2026-10-30 讨论定稿（[README](README.md) 第 1–16 条，
 
 - 行内代码与围栏代码里的 `$…` 不算标签（编辑器同步改：代码里的 `$HOME` 不再显示成技能小块）；其余规则不变（审查第 5 条）。
 - 花括号写法 `${…}` 放宽：首字符可以是数字，中间可以有 `.`，用来写数字开头的名字与带前缀的 id；不带花括号的 `$name` 仍要字母开头（`$5` 这类价格不受影响，审查第 6 条）。`$` 菜单插入时，`$name` 写不出来或重名的一律插 `${id}`。
-- 取标签的函数从根入口导出，编辑器与服务端共用；先补对照测试再改。
+- 取标签的函数经纯 TS 子路径 `./prompt-text` 交出，编辑器与服务端共用；先补对照测试再改。
 
 ### Profile 的 Skill 白名单（`shared/profile-skills.ts`，新；`shared/points.ts`、`shared/contracts.ts`、`shared/settings.ts`）
 
