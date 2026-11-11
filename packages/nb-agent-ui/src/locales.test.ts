@@ -243,6 +243,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "compactionDetail.restored": {"zh-CN": "放回", "en-US": "Restored"},
     "compactionDetail.kinds.file": {"zh-CN": "文件", "en-US": "File"},
     "compactionDetail.kinds.plan": {"zh-CN": "计划", "en-US": "Plan"},
+    "compactionDetail.kinds.skill": {"zh-CN": "Skill", "en-US": "Skill"},
     "compactionDetail.kinds.log": {"zh-CN": "对话记录", "en-US": "Conversation log"},
     "compactionDetail.truncated": {"zh-CN": "只放回了前一部分", "en-US": "only the first part"},
     "kernel.tool.deniedByUser": {"zh-CN": "已被你拒绝", "en-US": "Denied by you"},
