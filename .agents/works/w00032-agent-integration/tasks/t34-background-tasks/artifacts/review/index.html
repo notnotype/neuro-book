@@ -16,61 +16,42 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 </head>
 <body>
 <h1>t34 后台任务</h1>
-<p>第 1 轮：底部面板里的“后台任务”“通知”两个视图，与状态栏上的入口，共三道题。范围与注意力排序已在会话里定（见页底）。面板按产品里的真实尺寸画：1440×900 的默认布局里，底部面板约 650px 宽、196px 高；隐藏右栏后约 1040px 宽。图里的“导出”“重建全文索引”只是为了演示第二种长任务，不在本 Task 的范围内。不确定进度条是动画，截图停在了开头。</p>
+<p>第 2 轮：按你第 1 轮的备注改了状态栏的样式，只有一道题；空状态的文字已经居中（不用答）。第 1 轮的决定见页底。</p>
 
-<section data-nbdev-question="task-rows" data-nbdev-type="single" data-nbdev-recommend="line">
-  <h2><span class="badge" data-nbdev-skip>待定</span>“后台任务”视图：一行一件，还是两行一件</h2>
-  <div class="row">
-    <div data-nbdev-option="line" data-nbdev-label="A 一行一件（推荐）">
-      <figure><figcaption>A 隐藏右栏时</figcaption><img src="r1/line.webp" alt="每件一行：图标、名字、状态、进度条、时间、按钮、移除，各列上下对齐"></figure>
-      <figure><figcaption>A 默认布局</figcaption><img src="r1/line-narrow.webp" alt="窄时名字与状态被截断"></figure>
-      <p>每件一行，整个列表共用几列：图标、名字、状态、进度条、时间、按钮、移除。默认高度大约能看到 6 件。窄的时候名字和状态会截断，鼠标悬停可看全文；失败的完整原因在“详情”里。状态一列直接写原因或进展，不再重复图标已经表达的“没有成功”“已中断”，所以截断时最先看到的仍是要点。</p>
-    </div>
-    <div data-nbdev-option="card" data-nbdev-label="B 两行一件">
-      <figure><figcaption>B 隐藏右栏时</figcaption><img src="r1/card.webp" alt="每件两行：名字与时间一行，状态一行，在跑的再一条进度条"></figure>
-      <figure><figcaption>B 默认布局</figcaption><img src="r1/card-narrow.webp" alt="默认高度只看得到两件半"></figure>
-      <p>名字和时间一行，状态一行，在跑的下面再加一条进度条。文字不截断，但默认高度只看得到两件半，要滚动或把面板拉高才看得全。</p>
-    </div>
-  </div>
-  <p>两种都一样的部分：在跑的在上、结束的在下，各自新的在前；能取消的有“取消”；失败的有“重试”和“详情”（安装输出），中断的有“重试”；结束的那一行能单独移除，在跑的不能；视图头有“清除已结束”。没有任务时显示一句说明：</p>
-  <figure><figcaption>空的时候</figcaption><img src="r1/empty.webp" alt="没有后台任务。安装 Skill 这类要跑一阵的事会列在这里。"></figure>
-  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
-</section>
-
-<section data-nbdev-question="notifications-view" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>“通知”视图</h2>
-  <div class="row">
-    <div>
-      <figure><figcaption>隐藏右栏时</figcaption><img src="r1/notifications.webp" alt="每条一行：没看过的点、色调图标、标题与正文、时间、动作、移除"></figure>
-    </div>
-    <div>
-      <figure><figcaption>默认布局</figcaption><img src="r1/notifications-narrow.webp" alt="窄时正文截断"></figure>
-    </div>
-  </div>
+<section data-nbdev-question="status-style-r2" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>状态栏：任务条目与铃铛的样式</h2>
+  <figure><figcaption>几种状态（放大两倍）；最后一张是鼠标停在“3 个任务”上</figcaption><img src="r2/status-bar.webp" alt="状态栏右侧：任务条目、铃铛、隐藏面板，几种状态；悬停时的提示每件两行：名字和进度条一行，状态一行"></figure>
+  <p>和第 1 轮比，改了这几处：</p>
   <ul>
-    <li>列出本窗口发过的通知，新的在前；弹出的通知被关掉、或到时间自动消失后，仍然留在这里。</li>
-    <li>每条一行，和任务视图共用同一套列：色调图标；标题和正文（一行，截断后悬停看全文）；时间；原来的动作（重试、详情、打开）；移除。视图头有“全部清除”。</li>
-    <li>没看过的通知，行首有一个点、标题加粗，面板标签上显示条数（“通知 2”）。打开这个视图就算看过。</li>
-    <li>视图开着、看得见时，新通知不再弹出，直接加进列表。</li>
-    <li>只记本窗口的通知，刷新后清空，和现在的通知队列一样长。任务不受影响：任务在服务端登记，刷新后还在。</li>
+    <li>任务条目、铃铛和“隐藏面板”用同一种按钮：一样高、一样的悬停底色，条目之间都是 4px。</li>
+    <li>图标统一为 12px 的同一套线条图标。原来的转圈用的是另一个组件，颜色浅、线条细，和别的图标不搭，换成同一套里的转圈图标，颜色跟文字一样；系统设了减少动画时不转。</li>
+    <li>铃铛本身不变色，有新通知时只在右上角加一个蓝点，蓝点外面一圈状态栏的底色，和铃铛分开。第 1 轮是整个铃铛变蓝。</li>
+    <li>悬停提示用产品里真的提示组件：每件两行，名字和进度条一行，状态一行，名字太长时截断；提示和条目右对齐，不会伸出窗口。第 1 轮是手画的卡片，三列挤在一行。</li>
+    <li>都结束后只留一个图标：有没看过的失败时是红色的失败图标，否则是淡色的任务图标。</li>
   </ul>
   <div data-nbdev-option="accept" data-nbdev-label="可以"></div>
   <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
 </section>
 
-<section data-nbdev-question="status-items" data-nbdev-type="single" data-nbdev-recommend="bell-always">
-  <h2><span class="badge" data-nbdev-skip>待定</span>状态栏：任务条目与通知铃铛</h2>
-  <figure><figcaption>几种状态（放大两倍）；最后一张是鼠标停在“3 个任务”上</figcaption><img src="r1/status-bar.webp" alt="状态栏右侧：任务条目、铃铛、隐藏面板。几种状态：没有任务、一件在跑、几件在跑、都结束有失败、都结束都看过；悬停时列出三件的名字、状态与进度条"></figure>
-  <p><b>任务条目</b>（两种候选都一样）：有任务在跑时显示转圈图标和文字，只有一件写它的名字，几件写“3 个任务”；鼠标停上去，列出每件的名字、状态和进度。都结束后只剩一个图标：有没看过的失败时是红色的失败图标，否则是任务图标。列表清空后条目消失。点它打开“后台任务”。</p>
+<section>
+  <h2><span class="badge" data-nbdev-skip>已改</span>空的时候文字居中</h2>
   <div class="row">
-    <div data-nbdev-option="bell-always" data-nbdev-label="A 铃铛一直在（推荐）">
-      <p><b>A</b>：铃铛一直在“隐藏面板”左边，有没看过的通知时带一个点。位置固定，任何时候点一下就能翻通知；状态栏右边本来就空着。VS Code 也是这样。</p>
-    </div>
-    <div data-nbdev-option="bell-unread" data-nbdev-label="B 有新通知时才出现">
-      <p><b>B</b>：只在有没看过的通知时出现，看过就消失。状态栏更干净，但要翻以前的通知，得打开面板点“通知”标签，或用命令。</p>
-    </div>
+    <div><figure><figcaption>后台任务</figcaption><img src="r2/empty.webp" alt="没有后台任务。安装 Skill 这类要跑一阵的事会列在这里。居中"></figure></div>
+    <div><figure><figcaption>通知</figcaption><img src="r2/notifications-empty.webp" alt="没有通知。居中"></figure></div>
   </div>
-  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>第 1 轮的答复（第 5–7 条）</h2>
+  <ul>
+    <li><b>“后台任务”视图</b>：一行一件，整个列表共用几列；窄的时候名字和状态截断，悬停看全文；空的时候文字居中。</li>
+    <li><b>“通知”视图</b>：照第 1 轮的稿。</li>
+    <li><b>状态栏</b>：铃铛一直在；样式要优化，本轮改了，见上。</li>
+  </ul>
+  <div class="row">
+    <div><figure><figcaption>后台任务（默认布局的宽度）</figcaption><img src="r1/line-narrow.webp" alt="每件一行，各列对齐"></figure></div>
+    <div><figure><figcaption>通知（默认布局的宽度）</figcaption><img src="r1/notifications-narrow.webp" alt="每条一行，没看过的行首一个点"></figure></div>
+  </div>
 </section>
 
 <section>
@@ -79,14 +60,7 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
     <li><b>任务在服务端登记</b>：刷新页面、开几个窗口，看到的都是同一份；服务重启后清空，正在跑的记为“已中断”。</li>
     <li><b>范围</b>：NeuroBook 级的任务，也就是插件发起的长任务（Skill 安装这类）。Agent 的后台命令和后台子代理归 t22。</li>
     <li><b>通知中心和任务列表都做</b>，两者都作为视图放在底部面板里。</li>
-    <li><b>注意力排序</b>：
-      <ul>
-        <li>先看到状态栏上的条目，点开是任务视图。</li>
-        <li>安装输出这类原文收在“详情”里。</li>
-        <li>任务开始时不弹通知，结束时弹：成功的过一会儿自动消失，失败的一直留着。</li>
-        <li>关掉通知不影响任务列表。</li>
-      </ul>
-    </li>
+    <li><b>注意力排序</b>：先看到状态栏上的条目，点开是任务视图；安装输出这类原文收在“详情”里；任务开始时不弹通知，结束时弹，成功的过一会儿自动消失，失败的一直留着；关掉通知不影响任务列表。</li>
   </ul>
   <p class="note">书架页（没有打开作品时）没有状态栏和底部面板，在那里只会弹出通知；打开作品后，任务和通知都能在面板里看到。</p>
 </section>
