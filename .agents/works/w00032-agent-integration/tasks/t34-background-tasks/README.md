@@ -11,7 +11,7 @@ updated: 2026-11-11
 
 给工作台一个通用的后台任务系统：插件登记长任务（标题、进度、能否取消），关掉发起它的对话框任务照常进行，进度与结果有固定的去处（参照 VS Code 的进度服务与通知中心）。第一个使用者是 t15 的 Skill 初始化（t15 第 33 条），t15 的界面几片排在它之后。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：新建 [`workbench/background-tasks`](../../../../../docs/specs/workbench/background-tasks.md)（planned）；[`workbench/notifications`](../../../../../docs/specs/workbench/notifications.md) 输出 13–17、[`ui/workbench-shell`](../../../../../docs/specs/ui/workbench-shell.md) 输出 42–44、[`workbench/views`](../../../../../docs/specs/workbench/views.md) 输出 17（planned）。计划见 [plan.md](plan.md)。
 
 ## 当前状态
 
@@ -55,4 +55,4 @@ updated: 2026-11-11
 
 ## 下一步
 
-写 Spec（新能力“后台任务”，并改 [`workbench/notifications`](../../../../../docs/specs/workbench/notifications.md) 的通知中心与 [`ui/workbench-shell`](../../../../../docs/specs/ui/workbench-shell.md) 的状态栏），再写 `plan.md`，给开发者看过后实施。草稿在 `.worktree/w00032-t34-drafts`（不提交）。
+Spec 与计划开发者 2026-11-11 看过（“可以”，含两处：结束通知的标题就是任务标题；只有失败与已中断的能重试）。下一步：计划交 Opus 审查，处理后按 [plan.md](plan.md) 的五片实施。草稿在 `.worktree/w00032-t34-drafts`（不提交）。
