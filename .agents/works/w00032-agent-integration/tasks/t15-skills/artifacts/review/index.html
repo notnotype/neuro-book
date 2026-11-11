@@ -16,107 +16,76 @@ img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px
 </head>
 <body>
 <h1>t15 Skill</h1>
-<p>第 2 轮：按第 1 轮的答复改了 Skill 页、<code>$</code> 菜单、确认框与用户消息四处，另有一道新题：关掉确认框后，后台安装的进度与结果在哪里看。仍用真实的 nb-ui 组件与主题（亮色），数据是写死的样本。第 1 轮的决定见页底。</p>
+<p>第 3 轮：按第 2 轮的答复改了 <code>$</code> 菜单的徽标列和确认框，各一道题。第 1、2 轮的决定见页底。</p>
 
-<section data-nbdev-question="background-install" data-nbdev-type="single" data-nbdev-recommend="notice">
-  <h2><span class="badge" data-nbdev-skip>待定</span>关掉确认框以后：后台安装的进度与结果</h2>
-  <p>你在第 1 轮的备注里提到“和 VS Code 一样，可能要引入一个后台任务系统”。工作台已经有通知服务，通知能带进度条（确定、不确定两种），能改成成功或失败、带动作与“详情”；还没有通知中心，也没有列出后台任务的入口。应用代码里还没搜到用进度通知的地方，Skill 初始化会是第一个后台跑几分钟、要给用户看进度的操作。</p>
+<section data-nbdev-question="menu-badge-r3" data-nbdev-type="single" data-nbdev-recommend="column">
+  <h2><span class="badge" data-nbdev-skip>待定</span><code>$</code> 菜单：徽标列的留白</h2>
   <div class="row">
-    <div data-nbdev-option="notice" data-nbdev-label="A 先用现有的进度通知（推荐）">
-      <figure><figcaption>A 进度通知：进行中、成功、失败</figcaption><img src="r2/notice.webp" alt="三条通知：正在初始化 epub-export，带不确定进度条；epub-export 初始化好了；epub-export 初始化没有成功，带重试与详情"></figure>
-      <p><b>A</b>：关掉确认框后右下角一条进度通知；装好改成“初始化好了”，按时消失；失败的常驻，带“重试”和“详情”（安装输出）。通知被关掉了，装完照样发结果；Skill 页同时显示“正在初始化”。都用现成的通知服务，不另建系统。VS Code 给扩展的进度接口（withProgress）也有这一种：进度显示在通知里。</p>
-      <p>通知中心与“后台任务”入口记成以后的 Task：等出现第二种长任务（装插件、导出整本书）时再做，那时 Skill 的初始化改过去只动一处调用。</p>
+    <div data-nbdev-option="column" data-nbdev-label="A 收窄的徽标列（推荐）">
+      <figure><figcaption>A 每行留一列，只有一个徽标宽</figcaption><img src="r3/menu-column.webp" alt="徽标列收窄到一个徽标的宽度，徽标靠右；没有徽标的行右边空出一个徽标宽；说明的右端都对齐"></figure>
+      <p>“正在初始化”改成四个字的“初始化中”，与“未初始化”一样宽，徽标列就只留一个徽标的宽度、间距也收小了。说明的右端每行对齐，符合上一轮写进规范的“同一种零件落在同一列”。Skill 页的徽标同样改叫“初始化中”。</p>
     </div>
-    <div data-nbdev-option="task-system" data-nbdev-label="B 先做通用的后台任务系统">
-      <p><b>B</b>：先另开一个 Task，给工作台做“后台任务”：一个统一入口登记长任务（标题、进度、能不能取消），状态栏一个条目显示正在跑几件，点开列出每件的进度与结果；通知关掉了任务也还在列表里。类似 VS Code 的进度服务加通知中心。</p>
-      <p>要写一份新 Spec、做状态栏条目与列表；t15 的界面几片等它做完再接。没有草图，选了再出稿。</p>
+    <div data-nbdev-option="inline" data-nbdev-label="B 不留列，徽标紧跟说明">
+      <figure><figcaption>B 只有带徽标的行才有</figcaption><img src="r3/menu-inline.webp" alt="没有徽标的行说明贴到最右；带徽标的行徽标在最右，说明往左让出一个徽标宽"></figure>
+      <p>没有徽标的行说明贴到最右，右边不再留空；带徽标的行说明往左让出一个徽标宽，所以说明的右端不再全对齐。</p>
     </div>
   </div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
 </section>
 
-<section data-nbdev-question="skills-page-r2" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>设置里的 Skill 页：对齐与说法</h2>
-  <figure><figcaption>状态与按钮各占一列</figcaption><img src="r2/page-full.webp" alt="Skill 页：每行名字与说明在左；未初始化、正在初始化、无效三种徽标落在同一列；初始化按钮一列；打开与展开按钮各一列；两组共用这些列"></figure>
+<section data-nbdev-question="init-dialog-r3" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>确认框：几种状态同一个版式</h2>
+  <div class="row">
+    <div>
+      <figure><figcaption>确认：有锁文件</figcaption><img src="r3/init-plan.webp" alt="一行状态：要装 23 个包，需要联网；中间一块列出直接依赖；两行说明：安装脚本不会运行"></figure>
+      <figure><figcaption>正在安装</figcaption><img src="r3/init-installing.webp" alt="一行状态：正在安装；中间一块是安装输出；说明：关掉也会在后台继续装"></figure>
+    </div>
+    <div>
+      <figure><figcaption>确认：没有锁文件</figcaption><img src="r3/init-no-lock.webp" alt="中间一块与有锁时一样大；会生成锁文件这句放在说明行，黄字"></figure>
+      <figure><figcaption>失败</figcaption><img src="r3/init-failed.webp" alt="一行状态红字：初始化没有成功；中间一块是安装输出；说明行红字写原因"></figure>
+    </div>
+  </div>
+  <p>每种状态都是三块：一行状态、中间一块（确认时是直接依赖，装的时候和失败后是安装输出）、两行说明。三块的位置与大小固定，状态之间只换里面的文字、颜色与按钮。</p>
   <ul>
-    <li>整页共用一张网格：名字与说明、状态、初始化、打开、展开五列，两组也共用，徽标与按钮不再跟着名字长短走。没有这件零件的行，那一格空着。</li>
-    <li>“坏了”改成“无效”；消息上的原因“读不出来”同样改成“无法读取”。</li>
-    <li>对齐和“换状态不变尺寸”已经写进 nb-ui 开发规范（“几何、排版与动效”与自检清单）；口语的规范原本就有，补了“坏了”这个例子。</li>
+    <li>没有锁时的那句移到说明行（黄字），不再挤小中间那块。</li>
+    <li>失败：状态行写“初始化没有成功”，原因写在说明行（红字）。</li>
+    <li>“标签已经插进输入框”这类话都去掉了。装的时候的说明只写“关掉也会在后台继续装”，进度与结果的去处等后台任务系统定。</li>
   </ul>
-  <div data-nbdev-option="accept" data-nbdev-label="可以"></div>
-  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
-</section>
-
-<section data-nbdev-question="menu-badge-r2" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span><code>$</code> 菜单：黄色徽标</h2>
-  <div class="row">
-    <div>
-      <figure><figcaption>打 $</figcaption><img src="r2/menu-list.webp" alt="$ 菜单：说明右对齐；行尾一列徽标：epub-export、lore-check 未初始化，tts-preview 正在初始化，徽标左边对齐"></figure>
-    </div>
-    <div>
-      <figure><figcaption>打 $ep</figcaption><img src="r2/menu-query.webp" alt="筛到 epub-export，行尾一个未初始化徽标"></figure>
-      <figure><figcaption>主创没有可用的 Skill</figcaption><img src="r2/menu-empty.webp" alt="空菜单，与第 1 轮相同"></figure>
-    </div>
-  </div>
-  <p>给 nb-ui 的建议菜单加一个项尾徽标字段（图里是草稿里的原型）。徽标在行尾自成一列、宽度固定：同一个菜单里有一项带徽标，每行都留出这一列，说明的右端因此对齐；和菜单左边图标列的规则一样。没有徽标的菜单（<code>@</code>、<code>/</code>）不受影响。</p>
-  <div data-nbdev-option="accept" data-nbdev-label="可以"></div>
-  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
-</section>
-
-<section data-nbdev-question="init-dialog-r2" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>确认框：几种状态同一个尺寸</h2>
-  <div class="row">
-    <div>
-      <figure><figcaption>确认：有锁文件</figcaption><img src="r2/init-plan.webp" alt="确认框：要装 23 个包；中间一块列出四个直接依赖；底下说明安装脚本不运行；先不初始化、初始化"></figure>
-      <figure><figcaption>正在安装</figcaption><img src="r2/init-installing.webp" alt="同一尺寸：正在安装；中间一块是安装输出的最后几行；说明关掉也会在后台装完；在后台继续装"></figure>
-    </div>
-    <div>
-      <figure><figcaption>确认：没有锁文件</figcaption><img src="r2/init-no-lock.webp" alt="同一尺寸：多一句黄字说会生成锁文件，中间一块相应变矮"></figure>
-      <figure><figcaption>失败</figcaption><img src="r2/init-failed.webp" alt="同一尺寸：红字写失败原因；中间一块是安装输出；关闭、重试"></figure>
-    </div>
-  </div>
-  <p>正文固定高度，四种状态下对话框尺寸不变，按钮行不动。中间一块固定区域吃掉剩下的高度，内容多了在里面滚动：确认时列出要装的直接依赖，装的时候与失败后是安装输出的最后几行。</p>
-  <p>和第 24 条不同的一处：原来定的“输出收起”，改成这块区域一直显示。收起的话固定尺寸下面会空出一块；一直显示，装的时候也能看到它在不在动。</p>
-  <div data-nbdev-option="accept" data-nbdev-label="可以"></div>
-  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
-</section>
-
-<section data-nbdev-question="message-reason-r2" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2><span class="badge" data-nbdev-skip>待定</span>用户消息：没带上的原因放进悬停提示</h2>
-  <div class="row">
-    <div>
-      <figure><figcaption>都带上了</figcaption><img src="r2/msg-ok.webp" alt="消息里一个 style-guide 标签，没有别的标记"></figure>
-      <figure><figcaption>没找到</figcaption><img src="r2/msg-missing.webp" alt="outline-helper 标签灰掉、虚线框；悬停提示：没有带上，找不到这个 Skill"></figure>
-    </div>
-    <div>
-      <figure><figcaption>不在白名单</figcaption><img src="r2/msg-not-allowed.webp" alt="epub-export 标签灰掉；悬停提示：主创可用的 Skill 里没有它，可在 Profile 设置里添加"></figure>
-      <figure><figcaption>重名</figcaption><img src="r2/msg-ambiguous.webp" alt="review 标签灰掉；悬停提示：有两个 review，用 ${user.review} 指定其中一个"></figure>
-    </div>
-  </div>
-  <p>消息下面那一行去掉了。没带上的标签照旧灰掉、改成虚线框，原因放进标签的悬停提示，和上传失败的附件标签一样。图里为了截得到，把提示画成了常显；实际要把指针停在标签上才出现。“无效”“无法读取”两种原因也写在这里。</p>
+  <p class="note">这条原则已写进 nb-ui 开发规范（“几何、排版与动效”与自检清单）和 Skill 的 Spec。</p>
   <div data-nbdev-option="accept" data-nbdev-label="可以"></div>
   <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
 </section>
 
 <section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>第 2 轮的答复（第 33–37 条）</h2>
+  <ul>
+    <li><b>后台安装的进度与结果</b>：先另开一个 Task 做通用的后台任务系统，t15 的界面几片等它。</li>
+    <li><b>Skill 页</b>：整页共用几列，照第 2 轮的稿。</li>
+    <li><b><code>$</code> 菜单</b>：右边空白太多（本轮改了，见上）。</li>
+    <li><b>确认框</b>：几种状态区别不要太大，不写“标签已插进输入框”（本轮改了，见上）；原则写进规范与 Spec。</li>
+    <li><b>没带上的 Skill</b>：界面不提示；改成给模型一条 system-reminder，排在用户的话前面（已经实现）。</li>
+  </ul>
+</section>
+
+<section>
   <h2><span class="badge" data-nbdev-skip>已定</span>第 1 轮的答复（第 27–32 条）</h2>
   <ul>
-    <li><b>Skill 页</b>：徽标与按钮要对齐，“坏了”不够专业（本轮改了，见上）；对齐写进规范。</li>
-    <li><b><code>$</code> 菜单</b>：用黄色徽标（本轮出了样子，见上）。</li>
-    <li><b>确认框</b>：不要因为状态不同换尺寸（本轮改了，见上）；“先不初始化”也把标签插进输入框，照做。</li>
-    <li><b>装的时候</b>：能关掉，在后台继续装；进度与结果放在哪里，见本轮第一题。</li>
-    <li><b>用户消息</b>：不要消息下面那一行带三角形的提示（本轮改了，见上）；标签悬停时统一写“Skill：…”。</li>
-    <li><b>Profile 页的“Skill”一节</b>：照第 1 轮的草稿做。</li>
+    <li><b>Skill 页</b>：徽标与按钮对齐、“坏了”改为“无效”；对齐写进规范。</li>
+    <li><b><code>$</code> 菜单</b>：用黄色徽标。</li>
+    <li><b>确认框</b>：几种状态尺寸不变；“先不初始化”也把标签插进输入框。</li>
+    <li><b>装的时候</b>：能关掉，在后台继续装。</li>
+    <li><b>标签悬停</b>：统一写“Skill：…”。</li>
+    <li><b>Profile 页的“Skill”一节</b>：照第 1 轮的稿。</li>
   </ul>
 </section>
 
 <section>
   <h2><span class="badge" data-nbdev-skip>已定</span>注意力排序（会话里定的，第 22–26 条）</h2>
   <ul>
-    <li><b>Skill 页</b>：按来源分组（我的在前、内置在后）；每行先看名字，状态只在不是“可用”时出现；说明一行截断；“初始化”只在要初始化时出现，“打开”常在；无效的行第二行写原因；许可、兼容性、metadata、外部依赖、位置收在展开里；页头只有“打开 Skill 文件夹”。</li>
-    <li><b><code>$</code> 菜单</b>：名字在前、说明一行，未初始化的在右边标出；最近用过的在前，其余按名字；无效的不列；白名单为空时写一句说明并带去设置的入口。</li>
-    <li><b>确认框</b>：先看要装几个包、要联网，没有锁时才多一句；装的时候显示“正在安装…”；失败写原因并能重试；完成或失败都把标签插进去。</li>
-    <li><b>用户消息</b>：带上了的不另显示；没带上的才在标签上标出。</li>
-    <li><b>Profile 页</b>：与工具、可派的子代理两节同样式，放在它们下面；声明“全部”的列出全部，能去掉，去掉的收在“已去掉”，能加回。</li>
+    <li><b>Skill 页</b>：按来源分组；先看名字，状态只在不是“可用”时出现；“初始化”只在要初始化时出现，“打开”常在；无效的行写原因；细节收在展开里；页头只有“打开 Skill 文件夹”。</li>
+    <li><b><code>$</code> 菜单</b>：名字与一行说明，未初始化的标出；最近用过的在前；无效的不列；白名单为空时一句说明加去设置的入口。</li>
+    <li><b>确认框</b>：先看要装几个包、要联网；没有锁时才多一句；失败写原因并能重试。</li>
+    <li><b>Profile 页</b>：与工具、可派的子代理两节同样式，放在它们下面。</li>
   </ul>
 </section>
 </body>
