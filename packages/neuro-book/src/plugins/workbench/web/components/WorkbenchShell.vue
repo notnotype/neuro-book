@@ -26,7 +26,9 @@ import {DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_M
 import {MOVE_VIEW_COMMAND} from "../commands/view-commands";
 import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
+import {OPEN_VIEW_COMMAND} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
+import {NOTIFICATIONS_VIEW} from "../notifications";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetView, moveTargetsOf, panelTitle, sidebarColumnPanels, titleOnlyPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
@@ -67,6 +69,8 @@ const props = defineProps<{
     /** 标题栏的菜单与搜索、两侧的条目；没有时标题栏只有品牌与项目名。 */
     chrome?: ShellChrome;
     project: string | null;
+    /** 通知中心里没看过的条数（状态栏铃铛的点）；没有通知服务时不给。 */
+    unreadNotifications?: number;
     /** 拖动时画不画落点分区（设置 `nbook.workbench/dropSectors`）；缺省画。 */
     dropSectors?: boolean;
     /** 拖动的手感（设置 `nbook.workbench/dragFeel`）；缺省实时布局。 */
@@ -617,6 +621,8 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :problems="statusProblems"
                         :items="chrome?.statusEntries(resolver) ?? []"
                         @run-item="(id) => chrome?.runItem(id)"
+                        :unread-notifications="unreadNotifications ?? 0"
+                        @open-notifications="run(OPEN_VIEW_COMMAND, {viewId: NOTIFICATIONS_VIEW})"
                         @toggle-panel="run(SET_PART_HIDDEN_COMMAND, {part: 'panel', hidden: panelVisible})"
                         @retry="layout.actions.retry()"
                         @discard="layout.actions.discard()"

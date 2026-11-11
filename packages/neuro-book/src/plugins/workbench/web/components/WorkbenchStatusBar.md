@@ -5,11 +5,11 @@
 
 # WorkbenchStatusBar
 
-工作台底部 22px 的状态栏（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳一输出 11）：左边是当前项目名或“未打开项目”，以及布局记录的问题（读不到时正在用默认布局；修改没保存上时给出原因与重试、放弃）；右边是面板的显示与隐藏按钮。不显示假数据（Git、行列号、通知计数）。文字经注入的翻译端口取。
+工作台底部 22px 的状态栏（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳一输出 11）：左边是当前项目名或“未打开项目”，以及布局记录的问题（读不到时正在用默认布局；修改没保存上时给出原因与重试、放弃）；右边是贡献的条目、通知铃铛（[`workbench/notifications.md`](../../../../../../../docs/specs/workbench/notifications.md) 输出 17）与面板的显示与隐藏按钮。不显示假数据。文字经注入的翻译端口取。
 
 ## 布局
 
-单行，高 22px，左组可收缩、内容过长时截断，右组固定贴右。`390×844` 下项目名先截断，问题提示与按钮保持可点。面取 `--shell-chrome-surface`（缺省 `--bg-panel`），顶部分隔线取 `--shell-chrome-line`（缺省 `--divider`），卡片外壳里两者透明（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38），文字取 `--text-secondary`。按钮几乎填满 22px 的条，焦点画成按钮里面的一圈内嵌焦点线（`focusRing="inset"`）。
+单行，高 22px，左组可收缩、内容过长时截断，右组固定贴右。`390×844` 下项目名先截断，问题提示与按钮保持可点。面取 `--shell-chrome-surface`（缺省 `--bg-panel`），顶部分隔线取 `--shell-chrome-line`（缺省 `--divider`），卡片外壳里两者透明（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38），文字取 `--text-secondary`。按钮几乎填满 22px 的条，焦点画成按钮里面的一圈内嵌焦点线（`focusRing="inset"`）。右组里铃铛与面板按钮之间 4px；铃铛是 12px 的图标，不变色，有没看过的通知时右上角一个 6px 的强调色点，点外圈 1.5px 的状态栏底色把它和铃铛分开。
 
 ## 数据
 
@@ -32,6 +32,10 @@ type Props = {
     panelToggleDisabled?: boolean;
     /** 布局记录的问题；默认无。有修改没保存上的优先显示。 */
     problems?: ReadonlyArray<StatusBarProblem>;
+    /** 贡献的条目；默认无。 */
+    items?: StripEntry[];
+    /** 通知中心里没看过的条数；默认 0。大于 0 时铃铛带点，名称写“通知：N 条没看过”。 */
+    unreadNotifications?: number;
 };
 
 type Emits = {
@@ -39,6 +43,10 @@ type Emits = {
     (event: "toggle-panel"): void;
     (event: "retry", record: string): void;
     (event: "discard", record: string): void;
+    /** 点了有命令的条目。 */
+    (event: "run-item", itemId: string): void;
+    /** 点了铃铛；宿主打开“通知”视图。 */
+    (event: "open-notifications"): void;
 };
 ```
 

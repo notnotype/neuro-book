@@ -62,6 +62,7 @@ import type SkillChip from "nbook/ui/SkillChip.vue";
 import type ThemeEditor from "nbook/plugins/workbench/web/components/theme-editor/ThemeEditor.vue";
 import type ThemeSettingsPage from "nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
+import type WorkbenchNotificationsView from "nbook/plugins/workbench/web/components/WorkbenchNotificationsView.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
 import type WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import type WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
@@ -433,6 +434,19 @@ export const labFixtures: LabFixture[] = [
         })(),
         load: async () => withWorkbenchText(createSubjectFixture<typeof ThemeSettingsPage>((await import("nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue")).default, {events: ["open"], class: "w-full max-w-[720px] p-6"}), ["mine-english"]),
     }),
+    defineLabFixture<typeof WorkbenchNotificationsView>({
+        component: "WorkbenchNotificationsView",
+        scenes: (() => {
+            // 集成场景：真实的通知服务与中心由包装组件建；输入只是占位，场景不读它。
+            const placeholder = {props: {context: {id: "nbook.workbench.notifications", generation: 1, visible: {value: false}, location: {value: "panel" as const}}}};
+            return [
+                {id: "mixed", label: "五条：两条没看过、带动作与详情（右栏隐藏时的宽度）", input: placeholder},
+                {id: "mixed-narrow", label: "默认布局的宽度", input: placeholder},
+                {id: "empty", label: "没有通知", input: placeholder},
+            ];
+        })(),
+        load: async () => withWorkbenchText((await import("./workbench-scene/NotificationsViewFixture.vue")).default),
+    }),
     defineLabFixture<typeof WorkbenchStatusBar>({
         component: "WorkbenchStatusBar",
         scenes: [
@@ -441,6 +455,7 @@ export const labFixtures: LabFixture[] = [
             {id: "unsaved", label: "布局未保存", input: {props: {project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "customizations", kind: "unsaved", code: "unavailable"}]}}},
             {id: "unread", label: "布局未读取", input: {props: {project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "side", kind: "unread", code: "corrupt"}]}}},
             {id: "hidden", label: "面板已隐藏、按钮不可用", input: {props: {project: null, panelHidden: true, panelToggleDisabled: true, problems: []}}},
+            {id: "bell-unread", label: "铃铛：有 2 条没看过的通知", input: {props: {project: "雾港", panelHidden: true, panelToggleDisabled: false, problems: [], unreadNotifications: 2}}},
         ],
         // 场景 `hidden` 一直是英文界面，id 被引用，所以点名。
         load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchStatusBar>((await import("nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue")).default, {events: ["toggle-panel", "retry", "discard"], class: "w-full"}), ["hidden"]),
