@@ -103,6 +103,32 @@ describe("这一轮带上 Skill", () => {
 });
 
 describe("远程", () => {
+    test("输出 18、19：窗口经远程取初始化计划、初始化；装完状态变成可用；不能初始化的得 not-initializable", async () => {
+        const w = await world({"plain": "正文"});
+        const dep = join(w.stateRoot, "..", "local-dep");
+        await mkdir(dep, {recursive: true});
+        await writeFile(join(dep, "package.json"), JSON.stringify({name: "local-dep", version: "1.0.0", main: "index.js"}));
+        await writeFile(join(dep, "index.js"), "module.exports = 1;\n");
+        const directory = join(w.stateRoot, "user", "skills", "epub-export");
+        await mkdir(directory, {recursive: true});
+        await writeFile(join(directory, "package.json"), JSON.stringify({name: "epub-export", private: true, dependencies: {"local-dep": `file:${dep}`}}));
+        await writeFile(join(directory, "SKILL.md"), "---\nname: epub-export\ndescription: 导出\n---\n\n正文\n");
+        const {client} = await w.window("init");
+        const status = async () => {
+            const listed = await client.skills({});
+            return listed.ok ? listed.value.find((entry) => entry.id === "user.epub-export")?.status : undefined;
+        };
+        await waitUntil("新放进来的 Skill 是未初始化", async () => {
+            w.settings.clock.advance(1_000);
+            return (await status()) === "needs-init" || undefined;
+        }, {timeoutMs: 10_000});
+        expect(await client.skillInitPlan({id: "user.epub-export"})).toMatchObject({ok: true, value: {lock: false, dependencies: ["local-dep"]}});
+        expect(await client.initSkill({id: "user.epub-export"})).toMatchObject({ok: false, code: "lock-missing"});
+        expect(await client.initSkill({id: "user.epub-export", resolve: true})).toMatchObject({ok: true});
+        expect(await status()).toBe("ready");
+        expect(await client.initSkill({id: "user.plain"})).toMatchObject({ok: false, code: "not-initializable"});
+    }, 60_000);
+
     test("输出 1、5：启动时已有的 Skill 取得到；放进新的 Skill 后收到 skillsChanged，再取就有它", async () => {
         counter += 1;
         const base = join(tmp, `w${String(counter)}`);

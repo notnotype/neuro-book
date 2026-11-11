@@ -26,6 +26,7 @@ import {jobDirectory, OUTPUT_FILE, readStatus} from "./builtin/shell-background"
 import type {Job, JobCenter} from "./jobs/center";
 import {PushThrottle} from "./push-throttle";
 import type {SkillCatalog} from "./skills/catalog";
+import type {SkillInstaller} from "./skills/install";
 import type {SessionRelations} from "./subagents/relations";
 import {TREE_PUSH_MS, type SubagentTree} from "./subagents/tree";
 
@@ -45,6 +46,7 @@ export interface AgentRemoteOptions {
     readonly clock: RuntimeClock;
     /** Skill 目录（skills.md 输出 1、5）。 */
     readonly skills: Pick<SkillCatalog, "list" | "onChanged">;
+    readonly skillInstaller: Pick<SkillInstaller, "plan" | "init">;
     /** 审批预览（builtin-tools.md 输出 26）：按这个会话的资源权限试算。 */
     readonly previewApproval: (session: ToolSessionContext, tool: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal) => Promise<ApprovalPreview>;
     readonly projectRules: (project: string, signal: AbortSignal) => Promise<Rule[] | "invalid">;
@@ -303,6 +305,15 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
         profiles: (_input, context) => context.ok(service.profiles()),
         toolCatalog: (_input, context) => context.ok(options.profileAdmin.toolCatalog()),
         skills: (_input, context) => context.ok(options.skills.list()),
+        skillInitPlan: async ({id}, context) => {
+            const planned = await options.skillInstaller.plan(id);
+            return planned.ok ? context.ok(planned.plan) : context.fail(planned.code);
+        },
+        initSkill: async ({id, resolve}, context) => {
+            const done = await options.skillInstaller.init(id, {resolve: resolve === true});
+            if (done.ok) return context.ok({});
+            return done.code === "install-failed" ? context.fail("install-failed", {output: done.detail ?? ""}) : context.fail(done.code);
+        },
         createUserProfile: async ({name, description, system}, context) => {
             const created = await options.profileAdmin.createUser(name, {description, system});
             return created.ok ? context.ok({key: created.key, address: created.address}) : context.fail(created.code);

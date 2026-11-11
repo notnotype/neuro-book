@@ -20,7 +20,7 @@ import type {FilePreview} from "@notnotype/nb-harness/kit/shapes";
 import {TASK_ID} from "./contracts";
 import {RulesSchema} from "./permissions";
 import type {ProfileEntry, ToolCatalogEntry} from "./contracts";
-import type {SkillEntry} from "./skills";
+import type {SkillEntry, SkillInitPlan} from "./skills";
 import type {AncestorItem, CommandStatus, JobItem, TreeItem} from "./subagents";
 
 const object = <T>() => Type.Unsafe<T>(Type.Object({}, {additionalProperties: true}));
@@ -240,6 +240,21 @@ const methods = {
     toolCatalog: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly ToolCatalogEntry[]>(Type.Array(Type.Unknown())), effect: "read"},
     /** Skill 目录（skills.md 输出 1）：先订阅 `skillsChanged` 再取。 */
     skills: {input: Type.Object({}, {additionalProperties: false}), output: Type.Unsafe<readonly SkillEntry[]>(Type.Array(Type.Unknown())), effect: "read"},
+    /** 初始化之前给用户确认的内容（skills.md 输出 18）。 */
+    skillInitPlan: {
+        input: Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false}),
+        output: Type.Unsafe<SkillInitPlan>(Type.Object({}, {additionalProperties: true})),
+        effect: "read",
+        errors: errorsOf(["skill-not-found", "not-initializable"] as const),
+    },
+    /** 初始化（skills.md 输出 19–21）：装完才结算；同一个 Skill 已在装时并入那一次。`resolve` 允许没有 bun.lock 时生成它。 */
+    initSkill: {
+        input: Type.Object({id: Type.String({minLength: 1}), resolve: Type.Optional(Type.Boolean())}, {additionalProperties: false}),
+        output: Type.Object({}, {additionalProperties: false}),
+        effect: "write",
+        // `install-failed` 带安装输出的最后几行（确认框的“最后几行输出”）。
+        errors: {...errorsOf(["skill-not-found", "not-initializable", "busy", "lock-missing", "interrupted"] as const), "install-failed": Type.Object({output: Type.String()}, {additionalProperties: false})},
+    },
     /** 骨架里的文字由窗口按界面语言给（contributions.md 输出 18）。 */
     createUserProfile: {
         input: Type.Object({
