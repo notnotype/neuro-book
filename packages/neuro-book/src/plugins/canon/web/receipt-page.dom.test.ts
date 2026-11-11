@@ -22,7 +22,7 @@ import type {CanonClient} from "../shared/contracts";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
 import {pageStandIn} from "../testing/page-stand-in";
-import {person, publish, publishWith} from "../testing/world-fixtures";
+import {nextId, person, publish, publishWith} from "../testing/world-fixtures";
 import {RECEIPT_PAGE} from "./commands";
 import {canonCatalogs} from "./text";
 
@@ -129,12 +129,14 @@ describe("回执页", () => {
         await waitUntil("页顶的提示", () => wrapper.find("[data-notice-bar]").exists());
         expect(wrapper.get("[data-notice-bar]").text()).toContain("还原“改外观”");
 
+        // “撤销”打开对话框，提示先留着（焦点回得去）；还原成功后换成还原的那一条。
         await buttonByText(wrapper, "撤销")!.trigger("click");
-        expect(wrapper.find("[data-notice-bar]").exists()).toBe(false);
         await waitUntil("撤销的预览", () => dialog()?.dataset.phase === "ready");
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("还原“改外观”");
         dialogButton("还原")!.click();
         await waitUntil("对话框关了", () => dialog() === null);
         expect(await look(other.canon, id)).toBe("银发");
+        await waitUntil("换成还原的那一条", () => wrapper.get("[data-notice-bar]").text().includes("还原“还原“改外观””"));
 
         const listed = await other.canon.call("revisions", {limit: 3});
         if (!listed.ok) throw new Error(JSON.stringify(listed.failure));
@@ -162,6 +164,60 @@ describe("回执页", () => {
         await waitUntil("对话框关了", () => dialog() === null);
         expect(await look(other.canon, id)).toBe("黑发");
         expect(wrapper.get("[data-notice-bar]").text()).toContain("还原“改成银发”与之后的 1 次改动");
+    });
+
+    it("对话框开着时别处发布了依赖它的修订：原地换成列出依赖，“连同这些一起还原”以后都回到原样", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const revision = await restyle(other.canon, id, "银发", "改成银发");
+        const wrapper = await open(revision);
+        await waitUntil("回执", () => wrapper.find("[data-receipt-item]").exists());
+        await buttonByText(wrapper, "还原这次修订")!.trigger("click");
+        await waitUntil("没有依赖", () => dialog()?.dataset.phase === "ready");
+
+        await restyle(other.canon, id, "红发", "改成红发");
+        await waitUntil("换成列出依赖", () => dialog()?.dataset.phase === "dependents" && (dialog()?.querySelector("[data-revert-dependents]")?.textContent?.includes("改成红发") ?? false));
+        dialogButton("连同这些一起还原")!.click();
+        await waitUntil("对话框关了", () => dialog() === null);
+        expect(await look(other.canon, id)).toBe("黑发");
+    });
+
+    it("回执与带来的变化写名字、简介、主文字、别名与涉及的条目的显示名，不写字段路径与源文；未归纳的语义档写“还没归纳”", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const brother = person("哥哥");
+        const ids = await publish(other.canon, [star, brother]);
+        const id = ids[star.id]!;
+        const stored = await other.canon.call("object", {ref: {kind: "entry", id}});
+        if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
+        const entry = stored.value.object as Entry;
+        const renamed = await publishWith(other.canon, [{...entry, init: {...entry.init, name: "星瑕二", summary: "新简介", aliases: ["小瑕"], text: [{id: "b1", source: "她很有钱，有 {panel.存款} 元。"}]}}], "改名字");
+        const receipt = await open(renamed.revision);
+        await waitUntil("回执", () => receipt.find("[data-receipt-item]").exists() && receipt.get("[data-receipt-impact]").text().includes("星瑕二"));
+        const fields = [...receipt.get("[data-receipt-section='modify']").element.querySelectorAll("dt")].map((term) => `${term.textContent ?? ""}：${term.nextElementSibling?.textContent?.replace(/\s+/gu, " ").trim() ?? ""}`);
+        expect(fields).toEqual(["别名：（没有） → 小瑕", "名字：星瑕 → 星瑕二", "简介：星瑕的简介 → 新简介", "主文字：改了"]);
+        const impact = receipt.get("[data-receipt-impact]").text();
+        expect(impact).toContain("星瑕二的名字：星瑕 → 星瑕二");
+        expect(impact).toContain("星瑕二的主文字改了");
+        expect(receipt.text()).not.toMatch(/entry\.|text\[|panel\.|init\./u);
+
+        // 一条涉及哥哥的情节，改成也涉及星瑕：“涉及的条目”写两个人的名字。
+        const changeId = `tmp:${nextId()}`;
+        const base = {id: changeId, kind: "written" as const, text: "兄妹见面", at: {kind: "chapter" as const, chapter: "1", key: 1}, told: [], involves: [ids[brother.id]!], lines: [], links: [], status: "active" as const, by: {kind: "author" as const}, patches: []};
+        const changeReal = (await publish(other.canon, [{ref: {kind: "change", id: changeId}, after: base}]))[changeId]!;
+        const involved = await publishWith(other.canon, [{ref: {kind: "change", id: changeReal}, after: {...base, id: changeReal, involves: [ids[brother.id]!, id]}}], "加上星瑕");
+        const second = await open(involved.revision);
+        await waitUntil("涉及的条目", () => second.text().includes("涉及的条目") && second.text().includes("哥哥、星瑕二"));
+        expect(second.text()).not.toContain("一个条目");
+
+        // 语义档记一笔：世界只存起点与条数，带来的变化写“还没归纳”。
+        const noted = await other.canon.call("recordNote", {requestId: `note-${nextId()}`, by: {kind: "author"}, position: {kind: "chapter", chapter: "1", edge: "end"}, at: {entry: id, path: "character.态度"}, text: "被救了一次", read: {value: null, version: involved.version}});
+        if (!noted.ok) throw new Error(JSON.stringify(noted.failure));
+        const third = await open(noted.value.revision);
+        await waitUntil("带来的变化", () => third.find("[data-receipt-impact]").exists() && third.get("[data-receipt-impact]").text().includes("态度"));
+        expect(third.get("[data-receipt-impact]").text()).toContain("还没归纳");
+        expect(third.get("[data-receipt-impact]").text()).not.toContain("notReduced");
     });
 
     it("别的调用方独占写入时“还原这次修订”不可用并写出它申请时给的那句，释放以后恢复", async () => {

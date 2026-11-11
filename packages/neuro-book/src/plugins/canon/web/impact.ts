@@ -3,10 +3,10 @@
  * （docs/specs/canon/author-ui.md 输出 16 的预览、输出 20 的回执、输出 22 的还原）。三处共用这一份写法。
  */
 
-import {displayText} from "@notnotype/nb-canon/schema";
 import type {Impact} from "@notnotype/nb-canon";
 
 import type {CanonBoundText} from "./positions";
+import {shownValue} from "./rows";
 
 export interface ImpactOptions {
     /** 一个地址写成什么（“存款”“星瑕的存款”）。 */
@@ -24,9 +24,14 @@ export function impactLines(impact: Impact, options: ImpactOptions, text: CanonB
     for (const value of impact.values) {
         if (options.skip?.(value.at) === true) continue;
         const label = options.address(value.at);
+        // 主文字的块：值是带字段引用的源文，不写给作者，只说改了。
+        if (value.at.path.startsWith("text[")) {
+            lines.push(text("impact.textChanged", {label}));
+            continue;
+        }
         lines.push(options.values === "follows"
-            ? text("edit.valueFollows", {label, value: displayText(value.after)})
-            : text("impact.value", {label, before: displayText(value.before), after: displayText(value.after)}));
+            ? text("edit.valueFollows", {label, value: shownValue(value.after, text)})
+            : text("impact.value", {label, before: shownValue(value.before, text), after: shownValue(value.after, text)}));
     }
     const broken = impact.broken.length + (impact.brokenOn?.length ?? 0);
     if (broken > 0) lines.push(text("impact.broken", {count: broken}));

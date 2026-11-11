@@ -5,12 +5,11 @@
  * 名字与显示名经调用方给的 `ReceiptLookups` 取（回执页按需读），这里都是纯函数。
  */
 
-import {displayText} from "@notnotype/nb-canon/schema";
 import type {Placement, Revision, StoryChange} from "@notnotype/nb-canon";
 
 import {impactLines} from "./impact";
 import type {CanonBoundText} from "./positions";
-import {patchLine} from "./rows";
+import {patchLine, shownValue} from "./rows";
 
 export interface ReceiptLookups {
     /** 条目在缺省位置上的名字；读不到时为 undefined。 */
@@ -69,8 +68,16 @@ export function receiptEntryIds(revision: Revision): string[] {
         if (op.kind === "chapters") continue;
         if (op.ref.kind === "entry") ids.add(op.ref.id);
         if (op.ref.kind === "change") {
-            const values = op.kind === "modify" ? op.fields.flatMap((field) => [field.before, field.after]) : [op.kind === "create" ? op.after : op.before];
-            for (const value of values) for (const id of mentionedEntries(value)) ids.add(id);
+            if (op.kind !== "modify") for (const id of mentionedEntries(op.kind === "create" ? op.after : op.before)) ids.add(id);
+            else {
+                for (const field of op.fields) {
+                    for (const value of [field.before, field.after]) {
+                        // 涉及的条目是 id 的列表，整个是一个叶子；补丁列表整个是一个叶子。
+                        if (field.path === "involves" && Array.isArray(value)) for (const id of value) if (typeof id === "string") ids.add(id);
+                        if (field.path === "patches" && Array.isArray(value)) for (const patch of value as StoryChange["patches"]) ids.add(patch.at.entry);
+                    }
+                }
+            }
         }
         if (op.kind === "modify" && op.ref.kind === "entry") {
             for (const field of op.fields) {
@@ -87,16 +94,11 @@ export function receiptChangeIds(revision: Revision): string[] {
     return revision.ops.flatMap((op) => (op.kind === "modify" && op.ref.kind === "change" && !op.fields.some((field) => field.path === "text") ? [op.ref.id] : []));
 }
 
-/** 剧情变更（整个或其中一部分）里提到的条目：补丁的地址、涉及的条目。 */
+/** 一整条剧情变更里提到的条目：补丁的地址、涉及的条目。 */
 function mentionedEntries(value: unknown): string[] {
     if (typeof value !== "object" || value === null) return [];
-    const found: string[] = [];
-    const change = value as Partial<StoryChange> & {readonly at?: {readonly entry?: unknown}};
-    if (Array.isArray(value)) for (const item of value) found.push(...mentionedEntries(item));
-    for (const patch of change.patches ?? []) found.push(patch.at.entry);
-    for (const id of change.involves ?? []) found.push(id);
-    if (typeof change.at?.entry === "string") found.push(change.at.entry);
-    return found;
+    const change = value as Partial<StoryChange>;
+    return [...(change.patches ?? []).map((patch) => patch.at.entry), ...(change.involves ?? [])];
 }
 
 const isTombstone = (op: Op): boolean => op.kind === "modify" && op.ref.kind === "entry" && op.fields.some((field) => field.path === "deleted" && field.after === true);
@@ -131,7 +133,7 @@ function itemName(op: ObjectOp, lookups: ReceiptLookups, text: CanonBoundText): 
 /** 一个值写成一小段：不存在写“（没有）”，结构化的值不展开。 */
 function plain(value: unknown, text: CanonBoundText): string {
     if (value === undefined) return text("receipt.absent");
-    if (value === null || typeof value !== "object") return displayText(value);
+    if (value === null || typeof value !== "object" || (value as {notReduced?: unknown}).notReduced === true) return shownValue(value, text);
     if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value.length === 0 ? text("receipt.absent") : value.join(text("value.listSeparator"));
     const labelled = value as {label?: unknown; name?: unknown; source?: unknown};
     if (typeof labelled.label === "string") return labelled.label;
@@ -157,7 +159,8 @@ function entryField(entry: string, path: string, before: unknown, after: unknown
         case "init.name": return both(shown, text("receipt.fields.name"));
         case "init.summary": return both(shown, text("receipt.fields.summary"));
         case "init.aliases": return both(shown, text("receipt.fields.aliases"));
-        case "init.text": return both(shown, text("receipt.fields.text"));
+        // 主文字是带字段引用的源文，不写给作者。
+        case "init.text": return unshown(text("receipt.fields.text"), text);
         case "init.data":
         case "init.components": return unshown(text("receipt.fields.data"), text);
         case "type": return both(shown, text("receipt.fields.type"));
@@ -166,7 +169,7 @@ function entryField(entry: string, path: string, before: unknown, after: unknown
         case "parent": return both((value) => (value === null ? text("newEntry.root") : named(value)), text("receipt.fields.parent"));
         case "sameAs": return both(named, text("receipt.fields.sameAs"));
         case "appears": return both((value) => (value === undefined ? text("newEntry.fromStart") : lookups.place(value as Placement)), text("receipt.fields.appears"));
-        case "deleted": return both((value) => displayText(value === true), text("receipt.fields.deleted"));
+        case "deleted": return both((value) => shownValue(value === true, text), text("receipt.fields.deleted"));
         case "initBasis": return unshown(text("receipt.fields.initBasis"), text);
         default: return unshown(text("receipt.fields.other"), text);
     }
@@ -184,7 +187,7 @@ function changeField(path: string, before: unknown, after: unknown, lookups: Rec
         case "status": return both((value) => text(value === "held" ? "plot.held" : value === "undone" ? "plot.undone" : "receipt.active"), text("receipt.fields.status"));
         case "held": return both((value) => (typeof value === "object" && value !== null ? String((value as {note?: unknown}).note ?? "") : text("receipt.absent")), text("receipt.fields.held"));
         case "undoneReason": return both(shown, text("receipt.fields.undoneReason"));
-        case "patches": return both((value) => (Array.isArray(value) && value.length > 0 ? (value as StoryChange["patches"]).map((patch) => patchLine(patch, lookups.address(patch.at))).join(text("receipt.patchSeparator")) : text("receipt.absent")), text("receipt.fields.patches"));
+        case "patches": return both((value) => (Array.isArray(value) && value.length > 0 ? (value as StoryChange["patches"]).map((patch) => patchLine(patch, lookups.address(patch.at), text)).join(text("receipt.patchSeparator")) : text("receipt.absent")), text("receipt.fields.patches"));
         case "involves": return both((value) => (Array.isArray(value) && value.length > 0 ? (value as string[]).map((id) => lookups.entryName(id) ?? text("names.someEntry")).join(text("value.listSeparator")) : text("receipt.absent")), text("receipt.fields.involves"));
         case "told": return both((value) => (Array.isArray(value) && value.length > 0 ? (value as {quote?: string}[]).map((telling) => telling.quote ?? "").filter((quote) => quote !== "").join(text("value.listSeparator")) || text("receipt.complex") : text("receipt.absent")), text("receipt.fields.told"));
         default: return unshown(text("receipt.fields.other"), text);
@@ -231,10 +234,21 @@ export function actorText(by: Revision["by"], text: CanonBoundText): string {
     return text("receipt.by.system");
 }
 
-/** 修订的种类（`what`）；不认识的种类原样写。 */
+/** 修订的种类（`what`，nb-canon 的 `RevisionWhatSchema`）；不认识的种类写“改动”，不把代码写给作者。 */
+const WHATS: Readonly<Record<string, Parameters<CanonBoundText>[0]>> = {
+    opening: "receipt.what.opening",
+    plan: "receipt.what.plan",
+    bookkeeping: "receipt.what.bookkeeping",
+    edit: "receipt.what.edit",
+    creative: "receipt.what.creative",
+    resolve: "receipt.what.resolve",
+    suggest: "receipt.what.suggest",
+    revert: "receipt.what.revert",
+    reorder: "receipt.what.reorder",
+};
+
 export function whatText(what: string, text: CanonBoundText): string {
-    const known = ["opening", "plan", "bookkeeping", "edit", "creative", "resolve", "suggest", "revert", "reorder"];
-    return known.includes(what) ? text(`receipt.what.${what}` as Parameters<CanonBoundText>[0]) : what;
+    return text(Object.hasOwn(WHATS, what) ? WHATS[what]! : "receipt.what.other");
 }
 
 /** 时间写成本地的“年-月-日 时:分”。 */

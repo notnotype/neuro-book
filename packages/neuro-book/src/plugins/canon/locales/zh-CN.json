@@ -105,7 +105,10 @@
         "label": "{{label}}：{{value}}",
         "blockFailed": "这一块没有渲染出来：{{reason}}",
         "deletedRef": "已删除的条目",
-        "listSeparator": "、"
+        "listSeparator": "、",
+        "yes": "是",
+        "no": "否",
+        "notReduced": "还没归纳（起点：{{anchor}}，之后记了 {{count}} 句）"
     },
     "origin": {
         "caption": "{{label}}是怎么来的",
@@ -223,7 +226,8 @@
     },
     "impact": {
         "value": "{{label}}：{{before}} → {{after}}",
-        "broken": "{{count}} 条情节套不上了"
+        "broken": "{{count}} 条情节套不上了",
+        "textChanged": "{{label}}改了"
     },
     "revert": {
         "title": "还原“{{title}}”？",
@@ -307,7 +311,8 @@
             "resolve": "处理待处理",
             "suggest": "采纳建议",
             "revert": "还原",
-            "reorder": "调整章序"
+            "reorder": "调整章序",
+            "other": "改动"
         },
         "changed": "改了"
     },
@@ -336,6 +341,17 @@
             "message": "作者的消息",
             "ui": "界面上写的",
             "note": "笔记"
-        }
+        },
+        "patchGone": "这一处已经不在了：这条情节刚被改过，关掉再点一次“改”"
+    },
+    "patch": {
+        "anItem": "一项",
+        "added": "{{label}}：加上 {{value}}",
+        "removed": "{{label}}：去掉 {{value}}",
+        "removedItem": "{{label}}：去掉一项",
+        "note": "{{label}}：记“{{text}}”",
+        "blockReplaced": "{{label}}：换了一段",
+        "blockAdded": "{{label}}：加了一段",
+        "blockRemoved": "{{label}}：删了一段"
     }
 }

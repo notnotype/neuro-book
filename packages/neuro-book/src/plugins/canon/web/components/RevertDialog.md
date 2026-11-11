@@ -18,7 +18,7 @@ nb-ui 的 `Dialog`（中号），标题“还原“某次修订”？”（还�
 
 `reason` 在 `ready`、`dependents` 时是世界写不了的原因（独占、只读、断开），这时确认按钮不可用。被拒收的原因（`error`）写在下面（`role="alert"`），结局不明时后面有“再查一次”，发 `recheck`。
 
-事件：确认按钮发 `confirm`；取消、关闭、Escape、点遮罩发 `update:open(false)`（保存中不发、按钮不可用）。
+事件：确认按钮发 `confirm`；取消、关闭、Escape、点遮罩发 `update:open(false)`（保存中不发、按钮不可用）；收起的动画结束发 `closed`（宿主在这之前接着给最后的内容）。
 
 ## 数据
 

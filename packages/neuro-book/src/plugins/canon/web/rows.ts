@@ -59,10 +59,24 @@ export interface PlotRow {
     readonly patches: readonly string[];
 }
 
+/**
+ * 一个值写成给作者看的一小段（回执、带来的变化、补丁、字段表共用）：未知写“未知”，是否写“是”“否”，未归纳的语义档（世界只存
+ * 起点与条数，canon.revisions 输出 6）写“还没归纳”加起点；这几种的字经界面文字给，别的交给内核的 `displayText`。
+ */
+export function shownValue(value: unknown, text: CanonBoundText): string {
+    if (value === null || value === undefined) return text("value.unknown");
+    if (typeof value === "boolean") return text(value ? "value.yes" : "value.no");
+    if (typeof value === "object" && (value as {notReduced?: unknown}).notReduced === true) {
+        const unreduced = value as {anchor?: unknown; events?: unknown};
+        return text("value.notReduced", {anchor: shownValue(unreduced.anchor, text), count: typeof unreduced.events === "number" ? unreduced.events : 0});
+    }
+    return displayText(value);
+}
+
 /** 值的显示：未知、列表交给调用方；数带单位。 */
 export function valueText(value: unknown, declaration: FieldDeclaration | undefined, text: CanonBoundText): string {
     if (value === null || value === undefined) return text("value.unknown");
-    const shown = displayText(value);
+    const shown = shownValue(value, text);
     return declaration?.unit === undefined || typeof value !== "number" ? shown : `${shown} ${declaration.unit}`;
 }
 
@@ -170,11 +184,29 @@ export function semanticNotes(page: Pick<CanonOutputs["origins"], "items">, plac
     });
 }
 
-/** 一条补丁写成一小段：“存款 −300”“样子 → 哥哥”；`label` 是这个地址写成的样子（“存款”或“星瑕的存款”）。 */
-export function patchLine(patch: StoryChange["patches"][number], label: string): string {
-    if (patch.op === "add" && typeof patch.value === "number") return `${label} ${signed(patch.value)}`;
-    if (patch.op === "set") return `${label} → ${displayText(patch.value)}`;
-    return label;
+/**
+ * 一条补丁写成一小段：“存款 −300”“样子 → 哥哥”“态度：记“被救了一次””“别名：加上 小瑕”；`label` 是这个地址写成的样子
+ * （“存款”或“星瑕的存款”）。每种操作一个说法（补丁的形状见 nb-canon 的 `PatchSchema`）。
+ */
+export function patchLine(patch: StoryChange["patches"][number], label: string, text: CanonBoundText): string {
+    const named = (value: unknown): string => {
+        if (typeof value === "string") return value;
+        const item = value as {label?: unknown; name?: unknown} | null;
+        return typeof item?.label === "string" ? item.label : typeof item?.name === "string" ? item.name : text("patch.anItem");
+    };
+    switch (patch.op) {
+        case "add": return typeof patch.value === "number" ? `${label} ${signed(patch.value)}` : text("patch.added", {label, value: shownValue(patch.value, text)});
+        case "set": return `${label} → ${shownValue(patch.value, text)}`;
+        case "note": return text("patch.note", {label, text: typeof patch.value === "string" ? patch.value : shownValue(patch.value, text)});
+        case "listAdd":
+        case "aliasAdd": return text("patch.added", {label, value: named(patch.value)});
+        case "listRemove": return text("patch.removedItem", {label});
+        case "aliasRemove": return text("patch.removed", {label, value: named(patch.value)});
+        case "replaceBlock": return text("patch.blockReplaced", {label});
+        case "addBlock": return text("patch.blockAdded", {label});
+        case "removeBlock": return text("patch.blockRemoved", {label});
+        default: return label;
+    }
 }
 
 /** 情节分页的各行：只写对这个条目的改动；标记按种类与生效状态。 */
@@ -184,6 +216,6 @@ export function plotRows(items: CanonOutputs["changes"]["items"], entry: string,
         where: place(change.at),
         text: change.text,
         flags: [...(change.kind === "plan" ? ["plan" as const] : []), ...(change.status === "held" ? ["held" as const] : []), ...(change.status === "undone" ? ["undone" as const] : [])],
-        patches: change.patches.filter((patch) => patch.at.entry === entry).map((patch) => patchLine(patch, labelOf(patch.at.path))),
+        patches: change.patches.filter((patch) => patch.at.entry === entry).map((patch) => patchLine(patch, labelOf(patch.at.path), text)),
     }));
 }

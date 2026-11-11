@@ -20,6 +20,7 @@ import type {ConfirmBarKind, EditIntent} from "./components/confirm-bar";
 import {namespaceField} from "./entry-heads";
 import {failureText} from "./failures";
 import {impactLines} from "./impact";
+import {parseDecimal} from "./numbers";
 import type {CanonBoundText} from "./positions";
 import type {CanonWorld} from "./world";
 
@@ -94,10 +95,7 @@ const kindOf = (declaration: FieldDeclaration | undefined): ConfirmBarKind => {
 function parsed(value: string | boolean, kind: ConfirmBarKind): unknown {
     if (kind === "boolean") return value === true;
     if (kind !== "number") return String(value);
-    const trimmed = String(value).trim();
-    if (trimmed === "") return undefined;
-    const number = Number(trimmed.replace(/,/gu, ""));
-    return Number.isFinite(number) ? number : undefined;
+    return parseDecimal(String(value));
 }
 
 const draftText = (value: unknown, kind: ConfirmBarKind): string | boolean => {

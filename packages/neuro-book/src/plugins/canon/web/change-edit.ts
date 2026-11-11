@@ -14,16 +14,18 @@ import type {ComputedRef} from "vue";
 import type {StoryChange, WriteRequest} from "@notnotype/nb-canon";
 import type {Text} from "@notnotype/nb-ui/text";
 
-import type {Published} from "../shared/contracts";
+import type {CanonClient, CanonFailure, Published} from "../shared/contracts";
 import {failureText} from "./failures";
+import {editablePatch} from "./change";
 import {impactLines} from "./impact";
+import {parseDecimal} from "./numbers";
 import type {CanonBoundText} from "./positions";
 import type {CanonWorld} from "./world";
-import type {CanonClient, CanonFailure} from "../shared/contracts";
 
 /** 存在标签状态里的那部分。 */
 export type ChangeDraft =
-    | {kind: "patch"; index: number; value: string; base: number; requestId: string}
+    /** `at` 是打开时那一处的地址：换了基准版本以后下标上不再是它（别处删了或重排了补丁），就不再写。 */
+    | {kind: "patch"; index: number; at: {entry: string; path: string}; value: string; base: number; requestId: string}
     | {kind: "activate"; base: number; requestId: string};
 
 export interface ChangeWriteFeedback {
@@ -64,15 +66,13 @@ export interface ChangeWrite {
 }
 
 const PREVIEW_DELAY_MS = 300;
-const newRequestId = (): string => `change-${crypto.randomUUID()}`;
 
-/** 填的数：可以带千位分隔与正负号（含减号 −）；不成形时为 undefined。 */
-function parsedNumber(value: string): number | undefined {
-    const trimmed = value.trim().replace(/,/gu, "").replace(/^−/u, "-");
-    if (trimmed === "") return undefined;
-    const number = Number(trimmed);
-    return Number.isFinite(number) ? number : undefined;
+/** 草稿打开时的那一处还在原来的下标上，而且仍是一处数的改动。 */
+function patchGone(draft: Extract<ChangeDraft, {kind: "patch"}>, change: StoryChange): boolean {
+    const patch = change.patches[draft.index];
+    return patch === undefined || patch.at.entry !== draft.at.entry || patch.at.path !== draft.at.path || !editablePatch(patch);
 }
+const newRequestId = (): string => `change-${crypto.randomUUID()}`;
 
 export function useChangeWrite(options: ChangeWriteOptions): ChangeWrite {
     const {text} = options;
@@ -95,8 +95,8 @@ export function useChangeWrite(options: ChangeWriteOptions): ChangeWrite {
         if (change === null || change === undefined) return null;
         let after: StoryChange;
         if (draft.kind === "patch") {
-            const value = parsedNumber(draft.value);
-            if (change.patches[draft.index] === undefined || value === undefined) return null;
+            const value = parseDecimal(draft.value);
+            if (patchGone(draft, change) || value === undefined) return null;
             after = {...change, patches: change.patches.map((patch, index) => (index === draft.index ? {...patch, value} : patch))};
         } else {
             const {held: _held, ...rest} = change;
@@ -106,6 +106,9 @@ export function useChangeWrite(options: ChangeWriteOptions): ChangeWrite {
     };
 
     const applyFailure = (draft: ChangeDraft, failure: CanonFailure): void => {
+        // 结果回来时作者已经取消或换了一处：这份失败不属于眼前的草稿。
+        const current = options.draft();
+        if (current === null || current.kind !== draft.kind || (current.kind === "patch" && draft.kind === "patch" && current.index !== draft.index)) return;
         const shown = failureText(failure);
         error.value = options.resolve(shown.text);
         recheck.value = shown.recheck;
@@ -169,6 +172,8 @@ export function useChangeWrite(options: ChangeWriteOptions): ChangeWrite {
     });
 
     const reset = (): void => {
+        // 在途的预览作废：取消、保存成功、换一处以后，它的结果不再写回。
+        previewRun += 1;
         preview.value = null;
         error.value = "";
         recheck.value = false;
@@ -202,20 +207,23 @@ export function useChangeWrite(options: ChangeWriteOptions): ChangeWrite {
         feedback: computed(() => {
             if (options.draft() === null) return null;
             const blocked = options.blocked();
+            const draft = options.draft();
+            const change = options.read()?.change;
+            const gone = draft?.kind === "patch" && change !== null && change !== undefined && patchGone(draft, change);
             return {
-                preview: preview.value,
-                previewing: previewing.value,
-                error: blocked !== null ? options.resolve(blocked) : error.value,
+                preview: gone ? null : preview.value,
+                previewing: gone ? false : previewing.value,
+                error: blocked !== null ? options.resolve(blocked) : gone ? text("change.patchGone") : error.value,
                 recheck: recheck.value,
                 saving: saving.value,
-                locked: blocked !== null || invalid.value,
+                locked: blocked !== null || invalid.value || gone,
             };
         }),
         editPatch: (index) => {
             const read = options.read();
             const patch = read?.change?.patches[index];
             if (read === undefined || patch === undefined) return;
-            open({kind: "patch", index, value: String(patch.value), base: read.version, requestId: newRequestId()});
+            open({kind: "patch", index, at: {entry: patch.at.entry, path: patch.at.path}, value: String(patch.value), base: read.version, requestId: newRequestId()});
         },
         activate: () => {
             const read = options.read();

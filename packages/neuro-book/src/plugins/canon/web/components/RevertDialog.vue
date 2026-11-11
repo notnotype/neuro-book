@@ -35,6 +35,8 @@ const emit = defineEmits<{
     (event: "update:open", value: boolean): void;
     (event: "confirm"): void;
     (event: "recheck"): void;
+    /** 关闭的动画结束了（nb-ui `Dialog` 的 `closed`）。 */
+    (event: "closed"): void;
 }>();
 
 const text = useCanonText();
@@ -49,6 +51,7 @@ const confirmable = computed(() => (props.phase === "ready" || props.phase === "
         :busy="props.saving"
         :close-on-request="!props.saving"
         @update:open="(value: boolean) => emit('update:open', value)"
+        @closed="emit('closed')"
     >
         <div class="flex flex-col gap-2 text-[length:var(--text-sm)]" data-revert-dialog :data-phase="props.phase">
             <p v-if="props.phase === 'previewing'" role="status" class="text-[var(--text-muted)]">{{ text("edit.previewing") }}</p>

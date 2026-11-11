@@ -152,6 +152,22 @@ describe("变更详情页", () => {
         await waitUntil("焦点回到“改”", () => document.activeElement?.getAttribute("data-edit-patch") === "0");
     });
 
+    it("每一处改动按操作写出改了什么：记一句、加别名，不只写地址", async () => {
+        const {other, open} = await setup();
+        const {change} = await sample(other.canon, {});
+        const stored = await other.canon.call("object", {ref: {kind: "change", id: change}});
+        if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
+        const found = stored.value.object as StoryChange;
+        const star = found.involves[0]!;
+        await publish(other.canon, [{ref: {kind: "change", id: change}, after: {...found, patches: [
+            {op: "note", at: {entry: star, path: "character.态度"}, value: "被救了一次"},
+            {op: "aliasAdd", at: {entry: star, path: "entry.aliases"}, value: "小瑕"},
+        ]}}]);
+        const {wrapper} = open(change);
+        await waitUntil("改动", () => wrapper.findAll("[data-change-patch]").length === 2 && wrapper.text().includes("星瑕的"));
+        expect(wrapper.findAll("[data-change-patch]").map((row) => words(row.element))).toEqual(["星瑕的现在的态度：记“被救了一次”", "星瑕的别名：加上 小瑕"]);
+    });
+
     it("改了以后校验不过（依据是原文，原文里没有这个数）：写第一条原因，保存不可用", async () => {
         const {other, open} = await setup();
         const {change} = await sample(other.canon, {}, {kind: "quote", quote: "两百块"});

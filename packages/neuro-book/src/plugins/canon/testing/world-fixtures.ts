@@ -12,14 +12,14 @@ let sequence = 0;
 export const nextId = (): string => String(++sequence);
 export const currentSequence = (): number => sequence;
 
-/** 发布一次；条目直接给，别的对象给写入项。返回临时 id 到正式 id 的对照与这次修订的 id。 */
-export async function publishWith(canon: CanonClient, given: ReadonlyArray<Entry | WriteRequest["puts"][number]>, title = "写入"): Promise<{readonly ids: Record<string, string>; readonly revision: string}> {
+/** 发布一次；条目直接给，别的对象给写入项。返回临时 id 到正式 id 的对照、这次修订的 id 与发布后的版本。 */
+export async function publishWith(canon: CanonClient, given: ReadonlyArray<Entry | WriteRequest["puts"][number]>, title = "写入"): Promise<{readonly ids: Record<string, string>; readonly revision: string; readonly version: number}> {
     const puts = given.map((item) => ("init" in item ? {ref: {kind: "entry" as const, id: item.id}, after: item} : item));
     const status = await canon.call("status", {});
     if (!status.ok) throw new Error(JSON.stringify(status.failure));
     const result = await canon.publish({requestId: `req-${nextId()}`, by: {kind: "author"}, what: "edit", title, baseVersion: status.value.version, puts});
     if (!result.ok) throw new Error(JSON.stringify(result.failure));
-    return {ids: {...result.value.ids}, revision: result.value.revision};
+    return {ids: {...result.value.ids}, revision: result.value.revision, version: result.value.version};
 }
 
 export async function publish(canon: CanonClient, given: ReadonlyArray<Entry | WriteRequest["puts"][number]>): Promise<Record<string, string>> {

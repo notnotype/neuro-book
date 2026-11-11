@@ -10,7 +10,7 @@ import type {Placement} from "@notnotype/nb-canon";
 import {useText} from "@notnotype/nb-ui/text-port";
 
 import {canonText} from "../../shared/text";
-import {useEntryHeads} from "../entry-heads";
+import {NAMED_ENTRIES_MAX, useEntryHeads} from "../entry-heads";
 import {usePageNotice} from "../notices";
 import type {CanonNotices} from "../notices";
 import {defaultPosition, placementLabel} from "../positions";
@@ -44,8 +44,6 @@ const world = props.world;
 // 挂着就是在前台：保存后的提示显示在本页顶上（输出 18）。
 const pageNotice = usePageNotice(props.notices, props.revert);
 
-/** 一页里最多为这么多条剧情变更、被还原的修订另读名字（同 `entry-heads.ts` 的理由）。 */
-const NAMED_MAX = 50;
 
 const read = useWorldRead(world, "revision", () => ({id: props.id}));
 const revision = computed(() => read.value?.data?.revision ?? undefined);
@@ -63,9 +61,9 @@ const status = computed<ReceiptPageStatus>(() => {
 });
 
 const heads = useEntryHeads(world, () => (revision.value ? receiptEntryIds(revision.value) : []), () => (chaptersRead.value?.data === undefined ? null : defaultPosition(chapters.value)), text);
-const changes = useWorldReads(world, "object", () => new Map((revision.value ? receiptChangeIds(revision.value) : []).slice(0, NAMED_MAX).map((id) => [id, {ref: {kind: "change" as const, id}}])));
+const changes = useWorldReads(world, "object", () => new Map((revision.value ? receiptChangeIds(revision.value) : []).slice(0, NAMED_ENTRIES_MAX).map((id) => [id, {ref: {kind: "change" as const, id}}])));
 const reverts = computed(() => revision.value?.reverts ?? []);
-const revertedReads = useWorldReads(world, "revision", () => new Map(reverts.value.slice(0, NAMED_MAX).map((id) => [id, {id}])));
+const revertedReads = useWorldReads(world, "revision", () => new Map(reverts.value.slice(0, NAMED_ENTRIES_MAX).map((id) => [id, {id}])));
 
 const lookups: ReceiptLookups = {
     entryName: (id) => heads.name(id),

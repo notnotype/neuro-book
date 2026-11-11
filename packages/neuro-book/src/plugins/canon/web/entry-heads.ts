@@ -12,15 +12,16 @@ import type {CanonBoundText} from "./positions";
 import {useWorldReads} from "./use-reads";
 import type {CanonWorld} from "./world";
 
-/** 一页里最多为这么多个条目读名字；更多的写“一个条目”。一次修订改几百个条目时不为它们发几百个读取。 */
+/** 一页里最多为这么多个对象（条目、剧情变更、修订）另读名字；更多的写“一个条目”这类。一次修订改几百个对象时不为它们发几百个读取。 */
 export const NAMED_ENTRIES_MAX = 50;
 
 export interface EntryHeads {
     /** 条目在缺省位置上的名字；还没读到或读不到时为 undefined。 */
     name(id: string): string | undefined;
-    /** 条目已删除、或世界里没有它。 */
-    gone(id: string): boolean;
-    /** 一个地址的字段显示名（`<命名空间>.<字段>` 起头的路径）；没有声明时是字段名。 */
+    /**
+     * 一个地址的显示名：`<命名空间>.<字段>` 起头的用字段声明（没有声明时是字段名）；条目自己的名字、简介、别名（`entry.name`
+     * 这类）与主文字的块（`text[块]`）用固定的词。地址的写法见 canon.model 的“地址”。
+     */
     label(path: string, entry: string): string;
     /** “星瑕的存款”这样的一句：条目名加字段显示名。 */
     address(at: {readonly entry: string; readonly path: string}): string;
@@ -54,11 +55,13 @@ export function useEntryHeads(world: CanonWorld, ids: () => readonly string[], p
     };
     const heads: EntryHeads = {
         name: (id) => read(id)?.view?.name ?? undefined,
-        gone: (id) => {
-            const found = read(id);
-            return found !== undefined && (found.view === null || found.view.deleted);
+        label: (path, entry) => {
+            if (path.startsWith("text[") || path === "text") return text("receipt.fields.text");
+            if (path === "entry.name") return text("receipt.fields.name");
+            if (path === "entry.summary") return text("receipt.fields.summary");
+            if (path.startsWith("entry.aliases")) return text("receipt.fields.aliases");
+            return declaration(entry, path)?.label ?? namespaceField(path).field;
         },
-        label: (path, entry) => declaration(entry, path)?.label ?? namespaceField(path).field,
         address: (at) => text("names.address", {entry: heads.name(at.entry) ?? text("names.someEntry"), label: heads.label(at.path, at.entry)}),
     };
     return heads;

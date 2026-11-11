@@ -4,7 +4,7 @@
  * `RevertRequests` 给（回执页、保存后的提示、改动记录都往那里放），预览、写入与提示在 `revert.ts`；这里只把带来的变化里的
  * 地址写成“星瑕的存款”（读条目名字与字段显示名），交给 `RevertDialog` 画。
  */
-import {computed} from "vue";
+import {computed, shallowRef, watch} from "vue";
 
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -14,7 +14,7 @@ import {impactLines} from "../impact";
 import type {CanonNotices} from "../notices";
 import {defaultPosition} from "../positions";
 import {useRevert} from "../revert";
-import type {RevertRequests} from "../revert";
+import type {RevertModel, RevertRequests} from "../revert";
 import {useCanonText} from "../text";
 import {useWorldRead} from "../use-reads";
 import type {CanonWorld} from "../world";
@@ -38,9 +38,16 @@ const revert = useRevert({
     revertTitle: (original, dependents) => (dependents > 0 ? text("revert.savedWithDependents", {title: original, count: dependents}) : text("revert.saved", {title: original})),
 });
 const model = computed(() => revert.model.value);
+// 关掉以后对话框还有一段收起的动画：这期间接着显示最后的内容，不清成“正在预览…”；动画结束（`closed`）再清掉，名字的读取
+// 随之释放。
+const last = shallowRef<RevertModel | null>(null);
+watch(model, (now) => {
+    if (now !== null) last.value = now;
+}, {immediate: true});
+const shown = computed(() => model.value ?? last.value);
 
 // 只在对话框开着、有带来的变化要写时才读名字。
-const shownImpact = computed(() => model.value?.impact ?? null);
+const shownImpact = computed(() => shown.value?.impact ?? null);
 const chaptersRead = useWorldRead(props.world, "chapters", () => (shownImpact.value === null ? null : {}));
 const ids = computed(() => [...new Set(shownImpact.value?.values.map((value) => value.at.entry) ?? [])]);
 const heads = useEntryHeads(props.world, () => ids.value, () => (chaptersRead.value?.data === undefined ? null : defaultPosition(chaptersRead.value.data.items)), text);
@@ -51,17 +58,18 @@ const resolved = (value: Parameters<typeof port.t>[0] | null | undefined): strin
 <template>
     <RevertDialog
         :open="model !== null"
-        :title="model?.title ?? ''"
-        :phase="model?.phase ?? 'previewing'"
+        :title="shown?.title ?? ''"
+        :phase="shown?.phase ?? 'previewing'"
         :impact="impact"
-        :dependents="model?.dependents ?? []"
-        :more-dependents="model?.moreDependents ?? 0"
-        :reason="resolved(model?.reason)"
-        :error="resolved(model?.error)"
-        :recheck="model?.recheck ?? false"
-        :saving="model?.saving ?? false"
+        :dependents="shown?.dependents ?? []"
+        :more-dependents="shown?.moreDependents ?? 0"
+        :reason="resolved(shown?.reason)"
+        :error="resolved(shown?.error)"
+        :recheck="shown?.recheck ?? false"
+        :saving="shown?.saving ?? false"
         @update:open="(value: boolean) => !value && revert.close()"
         @confirm="revert.confirm()"
         @recheck="revert.confirm()"
+        @closed="model === null && (last = null)"
     />
 </template>

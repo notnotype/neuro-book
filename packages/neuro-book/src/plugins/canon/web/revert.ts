@@ -3,7 +3,7 @@
  * 同一个对话框。对话框在窗口里一份（本插件交给工作台的页面浮层），哪里打开都一样：`createRevertRequests` 是窗口里那一份“要还原
  * 哪一次”，`useRevert` 是浮层里的对话框背后的状态与写入。
  *
- * 打开时先预览还原请求（canon.revisions 输出 11、12）：
+ * 打开时先预览还原请求（canon.revisions 输出 11、12），对话框开着时世界变了就原地重取：
  * - 没有依赖：写带来的变化，给“还原”；
  * - 有依赖（`has-dependents`）：从新到旧列出依赖它的修订的标题，给“连同这些一起还原”；
  * - 章序调整（`not-revertable`）、补偿里有对决定的修改要作者来源（预览给了 `needed`，或得到 `author-source-required`）：只写原因。
@@ -129,6 +129,48 @@ export function useRevert(options: RevertOptions): Revert {
         return read.ok ? read.value.revision?.title ?? null : null;
     };
 
+    /** 有依赖：从新到旧列出，标题随后读（读之前写“读取中…”）。 */
+    const enterDependents = async (ids: readonly string[], mine: number): Promise<void> => {
+        const listed = ids.slice(0, DEPENDENTS_LISTED);
+        const same = phase.value === "dependents" && JSON.stringify(dependents.value) === JSON.stringify(ids);
+        dependents.value = ids;
+        if (!same) dependentTitles.value = listed.map(() => null);
+        phase.value = "dependents";
+        impact.value = null;
+        reason.value = null;
+        const titles = await Promise.all(listed.map(titleOf));
+        if (mine !== run) return;
+        dependentTitles.value = titles;
+    };
+
+    /** 不能还原、要作者来源、找不到：只写原因。 */
+    const enterBlocked = (failure: CanonFailure): void => {
+        phase.value = "blocked";
+        impact.value = null;
+        reason.value = blockedReason(failure);
+    };
+
+    /** 预览还原请求，按结果换阶段。预览不看请求 id，用的还是打开时定的那个。 */
+    const preview = async (target: RevertTarget, mine: number): Promise<void> => {
+        const result = await call("preview", {request: {revert: target.revision, withDependents: false, requestId, by: {kind: "author"}}});
+        if (mine !== run) return;
+        if (result.ok) {
+            if ((result.value.needed?.length ?? 0) > 0) {
+                enterBlocked({code: "author-source-required"});
+                return;
+            }
+            impact.value = result.value.revision.impact;
+            reason.value = null;
+            phase.value = "ready";
+            return;
+        }
+        if (result.failure.code === "has-dependents" && Array.isArray(result.failure.dependents)) {
+            await enterDependents(result.failure.dependents as string[], mine);
+            return;
+        }
+        enterBlocked(result.failure);
+    };
+
     const start = async (target: RevertTarget): Promise<void> => {
         const mine = ++run;
         reset();
@@ -138,30 +180,7 @@ export function useRevert(options: RevertOptions): Revert {
             if (mine !== run) return;
             title.value = read;
         }
-        const preview = await call("preview", {request: {revert: target.revision, withDependents: false, requestId, by: {kind: "author"}}});
-        if (mine !== run) return;
-        if (preview.ok) {
-            if ((preview.value.needed?.length ?? 0) > 0) {
-                phase.value = "blocked";
-                reason.value = canonText("revert.authorSource");
-                return;
-            }
-            impact.value = preview.value.revision.impact;
-            phase.value = "ready";
-            return;
-        }
-        if (preview.failure.code === "has-dependents" && Array.isArray(preview.failure.dependents)) {
-            const ids = preview.failure.dependents as string[];
-            dependents.value = ids;
-            dependentTitles.value = ids.slice(0, DEPENDENTS_LISTED).map(() => null);
-            phase.value = "dependents";
-            const titles = await Promise.all(ids.slice(0, DEPENDENTS_LISTED).map(titleOf));
-            if (mine !== run) return;
-            dependentTitles.value = titles;
-            return;
-        }
-        phase.value = "blocked";
-        reason.value = blockedReason(preview.failure);
+        await preview(target, mine);
     };
 
     watch(() => requests.target.value, (target) => {
@@ -172,6 +191,14 @@ export function useRevert(options: RevertOptions): Revert {
         }
         void start(target);
     }, {immediate: true});
+
+    // 预览只对它基于的版本有效（author-ui.md“状态与转换”）：对话框开着时世界变了（例如别处发布了依赖它的修订），原地重取，
+    // 不回到“正在预览”。保存中不重取：本窗口这次还原的结果回来之前版本也会变。
+    watch(() => world.status.value.data?.version, () => {
+        const target = requests.target.value;
+        if (target === null || saving.value || phase.value === "previewing") return;
+        void preview(target, ++run);
+    });
 
     const submit = async (): Promise<void> => {
         const target = requests.target.value;
@@ -190,8 +217,18 @@ export function useRevert(options: RevertOptions): Revert {
             options.notices.show({revision: result.value.revision, title: revertTitle});
             return;
         }
+        // 写入时才知道的（预览之后世界变了）：有了依赖转到列出依赖的阶段，不能还原的转到只写原因，要作者再确认一次。
+        if (result.failure.code === "has-dependents" && Array.isArray(result.failure.dependents)) {
+            requestId = newRequestId();
+            await enterDependents(result.failure.dependents as string[], ++run);
+            return;
+        }
+        if (result.failure.code === "not-revertable" || result.failure.code === "author-source-required") {
+            enterBlocked(result.failure);
+            return;
+        }
         const shown = failureText(result.failure);
-        error.value = result.failure.code === "not-revertable" || result.failure.code === "author-source-required" ? blockedReason(result.failure) : shown.text;
+        error.value = shown.text;
         recheck.value = shown.recheck;
         if (!shown.recheck) requestId = newRequestId();
     };

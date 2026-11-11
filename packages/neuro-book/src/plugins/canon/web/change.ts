@@ -90,7 +90,7 @@ export function changeModel(change: StoryChange, lookups: ChangeLookups, text: C
         patches: change.patches.map((patch, index) => {
             const label = lookups.address(patch.at);
             const basis = basisRow(patch.basis, text);
-            return {index, line: patchLine(patch, label), ...(basis === undefined ? {} : {basis}), editable: editablePatch(patch), label};
+            return {index, line: patchLine(patch, label, text), ...(basis === undefined ? {} : {basis}), editable: editablePatch(patch), label};
         }),
     };
 }

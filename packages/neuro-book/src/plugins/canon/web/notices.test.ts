@@ -50,6 +50,13 @@ describe("保存后的提示", () => {
         expect(sent).toEqual([]);
     });
 
+    it("调用方随即要打开条目页（新建条目）时，没有页面挂着也留给那一页，不发工作台通知", () => {
+        const {notices, sent} = recording();
+        notices.show({revision: "r1", title: "新建“魔杖”"}, {page: true});
+        expect(notices.current.value?.revision).toBe("r1");
+        expect(sent).toEqual([]);
+    });
+
     it("窗口里没有工作台通知时，没有页面挂着也留在页面顶上那一份", () => {
         const notices = createNotices();
         notices.show({revision: "r1", title: "改外观"});

@@ -151,7 +151,8 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                 const opened = entry.parent === null ? `folder:${entry.folder}` : entry.parent;
                 if (!state.expanded.value.includes(opened)) state.expanded.value = [...state.expanded.value, opened];
                 state.selected.value = id;
-                create.notices.show({revision: result.value.revision, title});
+                // 条目页随后才挂上（命令、页面按需加载）：提示直接交给它，不按“现在有没有页面挂着”走工作台通知。
+                create.notices.show({revision: result.value.revision, title}, {page: true});
                 options.open(id);
             };
 
