@@ -99,7 +99,7 @@
 - 样本：星瑕样本的 JSON 与转换从 `packages/nb-canon/tests/sample/` 挪到 nb-canon 的子路径 `@notnotype/nb-canon/sample`（不进主入口；S0 先对 `packages/AGENTS.md` 与 `docs/modules/monorepo-boundaries.md` 核对子路径与发布内容的约定，不合就改放 `packages/neuro-book/scripts/` 下、nb-canon 的测试经相对路径读同一份 JSON）。
 - `packages/neuro-book/scripts/canon-sample.ts`：经真实的 `WorldService` 把样本发布到一个目录，生成一部完整的作品（活页夹三章正文加世界日志），开发与 e2e 共用；e2e 的接法照 `e2e/fixtures.ts` 与 `e2e/support/` 的现有做法。
 - 组件测试（`*.dom.test.ts`，Vitest 在 Node 里）：用“技术选型”里那个 Node 侧的场地起真实的世界服务与真实的 `createCanonClient`，界面的读取层接在它上面。resync、ended、独占这些路径由场地真实触发。场地与 canon 的 `bun test` 场地各跑同一组契约用例（订阅、独占、断开后的失败码）。
-- Lab 场景：`scripts/canon-sample.ts` 另出一份“读取结果的录像”（每个场景要的那几次读取的输入与输出），场景用一个只回放的客户端。录像是生成物，入库前由一条测试核对“重新生成后与入库的一致”，世界合同变了它会失败。
+- Lab 场景：组件都是受控的领域视图，场景用手写的 props，不用读取录像（2026-11-11 改，见“S4 的细计划”）。
 
 ### 三、读取层（`plugins/canon/web/world.ts`）
 
@@ -151,6 +151,31 @@
 - **缺省位置**：最新一章末尾；没有章时是初值（`author-ui.md` 输出 7 的“缺省位置”）。宿主读 `chapters` 得到。
 - **入口**：canon 的浏览器入口改成 `onStartup`，在激活时建本窗口的那份读取层（用入口自己的远程访问），交视图 `nbook.canon.entries`（侧栏、`order: 10`、图标 `i-lucide-book`）与命令 `nbook.canon.open-entry`（执行编辑器的 `nbook.editor.openPage`，页面 `nbook.canon.entry`，参数是条目 id）。条目页在 S4 才登记，S3 之间打开得到编辑器的“这个页面已经不在了”。
 - **测试**：`EntryTree.dom.test.ts`（纯组件）；`entries-view.dom.test.ts` 接进程内的真实世界：分组与次级色、展开时才读、“再显示”、别处发布后展开状态保留且内容更新、点了执行打开命令。
+
+#### S4 的细计划（2026-11-11，开工前补）
+
+S4 只做读：页头、位置、分页、文字、来历、通用字段表、人物、面板、情节、贡献点、量读取。“改”按钮、确认条、记一笔的输入都在 S5；S4 的界面不画写入入口。
+
+- **组件按“受控领域视图”拆**（同 `EntryTree`：数据由宿主给，只把点击翻成事件，Lab 场景用手写数据）。原计划“Lab 场景用读取录像回放”改为不用：受控组件不读世界，手写的 props 就是场景；录像只在要在 Lab 里跑读取层时才需要，第一批没有这样的组件。宿主 `.ts` 不引 nb-ui（应用 tsc 没有 DOM 类型），所以页面骨架也是一个 `.vue`：
+  - `EntryPage.vue`：页头（名字、简介、“是谁：某某”、位置选择、“按计划”开关）、未出场一行、“原来选的那一章已经不在了”、断开横幅、分页条，分页内容是默认插槽；状态 `loading | missing | deleted | normal`。
+  - `EntryText.vue`：给作者的渲染（`AuthorBlock[]`）。块是 mdast；条目 MDX 允许 CommonMark 加方言，自己写一个小的递归渲染（段落、标题、列表、引用、强调、行内代码、代码块、链接显示文字、分隔线、换行；别的节点显示它的纯文本），canon 节点：值是按钮（读屏名“显示名：值”），后面是“改过”标记；未知、不完整照输出 10；`canonRef` 是到条目页的链接；出错的块显示纯文本与原因。展开的来历是插槽，紧跟所在块之后。不复用 nb-markdown 的展示器：它收原文、自己解析，接不进已经算好值的语法树。
+  - `OriginList.vue`：来历的一页（`origins` 的 `items` 加 `initial`），从新到旧、初值最后；“再显示更早的（还有 N 步）”；估计的依据警告色带“估计”；变更给出的步行尾“改这一笔”；读取失败写原因与“重试”。条目页的文字分页、通用字段表、人物与面板的流水共用。
+  - `FieldTable.vue`：通用字段表（输出 12），列表字段一行一个元素；值可点，展开的来历是插槽。
+  - `PersonView.vue`、`PanelView.vue`：canon 给 `nbook.canon.person`、`nbook.canon.panel` 交的数据分页界面，收 `{context}`（下面的贡献点）；人物复用 `FieldTable` 再加语义档的起点与之后各句；面板是值卡加流水（来历），390 像素宽上下排。
+  - `PlotList.vue`：情节分页（输出 15）。
+- **“改过”与位置的写法**：`web/positions.ts` 一组纯函数：章表 → 位置选项；读取位置 ↔ 选项值；安放（`Placement`）→“第 N 章”“前史”；`changedAt` → 标记文字。测试用纯单元测试。
+- **贡献点 `canon.component-views`**：点与声明的 schema 在 `shared/component-views.ts`（`implementation: "required"`、`idPrefix: "plugin"`、只收浏览器入口，照 `editor/shared/contracts.ts` 的 `editor.pages`）；实现与 `ComponentViewContext` 的类型在 `web/component-views.ts`（要 Vue 的类型），注册表照 `editor/web/pages.ts`：每次经句柄取实现，句柄撤回后换成通用字段表，换了句柄重新加载。`context` 在 Spec 的形状上补两项（回 S0 改 `author-ui.md` 的输入一节）：`state`（这个分页在标签上的状态，例如面板选中的值卡，切走再回来还在；输出 7 要求它随标签，而界面组件随标签卸载）与 `blocked`（写入入口不可用时的原因，输出 28；没有为 null）。S4 里 `edit`、`record` 先交“写入不可用”（与 `blocked` 同一条路径），S5 换成真的。
+- **页面 `nbook.canon.entry`**（`web/entry-page.ts`）：编辑器页面贡献，`instances: true`、`restore: true`，声明标题是约定键（“条目”）。
+  - `initialState(arg)`：`{position: null, planned: false, tab: null, origin: null, views: {}}`。`position: null` 表示缺省位置，跟着章表走；选过的章被删掉时回到 null 并记一句提示（输出 7）。
+  - 读取（都经读取层、组件挂载时才建、卸载时释放）：`entry`（带 `withChangedAt`）、`chapters`、`components`（分页名的最后一档）；当前分页是文字时 `render`；展开一个值时 `list("origins", …, 20)`；当前分页是情节时 `list("changes", {filter: {entry, before: {position, mode}, order: "desc"}}, 50)`。不在前台的分页不读。
+  - `title(arg)`、`breadcrumbs(arg)`：读本模块的一张响应式表“各条目最近读到的页头”（名字、分组、上级链），由挂着的条目页写入。所以标题与面包屑不另发请求；不在前台的标签用编辑器记着的标题（editor.md 输出 33 已经这样处理）。面包屑：“设定”执行 `nbook.view.open`（视图 `nbook.canon.entries`），上级执行 `nbook.canon.open-entry`，分组与名字不带命令。
+  - 选中项：条目树的选中跟着活动的条目页（宿主订阅编辑器的活动标签；拿不到这个信号就保留 S3 的“最后点过的那个”，记为已知限制）。
+- **测试**：
+  - 组件：上面每个 `.vue` 一份 `*.dom.test.ts`（手写数据），配同名 `.md`、Lab 场景（含 390 像素宽、加载、找不到、已删除、未出场）。
+  - `entry-page.dom.test.ts`：接进程内的真实世界（`canonNodeWorld`），测试里经真实服务发布人物、面板与几笔记账（不等样本）：打开后名字、简介、标题、面包屑；换位置后文字与值卡跟着变；点值才读来历、先 20 步、“再显示”；状态在卸载再挂载后还在、两个条目各有各的；找不到、已删除、未出场；情节从新到旧、总条数；别处发布后原地更新、不出加载占位；断开横幅。
+  - `component-views.dom.test.ts`：照 `editor/web/pages.dom.test.ts` 用真实的贡献接收：有界面用它、撤回后换成通用字段表、再交付换回、加载失败回退并写原因（验收 9）。
+- **量读取**：`entry-page.dom.test.ts` 里用计数包装（同 `entries-view.dom.test.ts`）记下“条目页开着、树展开两层、一次别处发布”引起的读取次数，写进断言的上限并记入 `evidences/`；`scripts/perf/canon-scale.ts` 加“打开热门条目页的一组读取”（`entry` 带 `changedAt`、`render`、`chapters`、`components`、情节第一页、来历第一页），记各自的字节数与耗时。超过单次预算的一半回来改。
+- **审查**：S4 是界面里最大的一片，提交后派一个 Sonnet 做前端实现审查（后台，不阻塞 S5），结论回来单独修。
 
 ### 五、底部面板默认隐藏
 
@@ -226,4 +251,4 @@ K 三片与 E 互不依赖，可以交替做；S2 起依赖它们。每片先写
 - **第一批比第一版大了约三分之一**（内核三片十项加页面标签的状态容器与恢复）。K 与 E 先做，做完界面各片才开工；任何一片发现合同还缺东西，回 S0 补 Spec，不在界面里绕。
 - **底部面板第一次有产品视图**，而且赶上视图容器换模型。S7 开头先放一个空视图跑通布局与外壳 e2e；t24 合入的先后会影响 S7 的基线，开工前看它的状态。
 - **原型组件是同步引擎上的。** 搬过来时每个读取都变成异步，加载中与失败两种状态要逐个补。
-- **Lab 的录像会过时。** 由“重新生成后一致”的测试守着；世界合同一变就要重录。
+- **Lab 场景的手写数据会与世界合同脱节。** 场景数据用组件 props 的类型写，世界合同变了由类型检查与宿主的真实服务测试兜底。

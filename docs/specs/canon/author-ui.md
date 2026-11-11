@@ -84,6 +84,10 @@ interface ComponentViewContext {
     readonly fields: Readonly<Record<string, FieldState>>;
     /** 这个类型的字段声明（canon.components 输出 21），含条目上实例声明的。 */
     readonly declarations: readonly FieldDeclaration[];
+    /** 这个分页在标签上的状态（例如面板选中的值卡）：界面组件随标签卸载，要跨“切走再回来”保留的放在这里，寿命同输出 7。 */
+    readonly state: Record<string, unknown>;
+    /** 写入入口不可用时的原因（输出 28 的只读、独占，输出 27 的断开）；可以写时为 null。 */
+    readonly blocked: Text | null;
     /** 一个地址的来历的一页（canon.model 输出 37），从最近一步往前；`path` 是这个命名空间里的路径。 */
     origins(path: string, cursor?: string): Promise<OriginsPage>;
     /** 让条目页对这个地址打开就地改的确认条（输出 16）；输入控件在确认条里，界面自己不画。 */
