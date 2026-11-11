@@ -1,0 +1,109 @@
+# w00032 t34 后台任务：服务端实现审查报告（Claude Opus 子代理，只读）
+
+审查对象：worktree `.worktree/w00032-t34-background-tasks`，`502e40a03..HEAD` 中服务端与共享部分。按核实顺序追加，末尾汇总。实验文件在 `/tmp/review-t34-impl/scratch-backend/`（经真实场地 `tasksWorld`、真实远程链路，未改 worktree）。基线：`bun test src/plugins/tasks/tasks.test.ts` 16 过 0 败。
+
+## 1. 结构化文字按引用存进清单：发起方之后改动这个对象就绕过校验，整份清单的 `list` 与全部推送一起失败，用户还移不掉这件在跑的任务
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：`packages/neuro-book/src/plugins/tasks/backend/core.ts:91-99`（`normalizeText` 对文字引用与语言映射 `return {ok: true, text: value}`，存的是调用方传进来的那个对象）；用到它的 `startFor`（:209-221）、`report`（:175-177）、`succeed`/`fail`/`cancelled`。
+- **现象**：校验只在登记与更新的那一刻做，之后清单里放的仍是发起方手里的同一个对象。发起方复用这个对象（例如留着一个 `{kind: "text", ns, key, params}` 下次改 `params.count` 再 `report`），在改和下一次 `report` 之间，或者改成不合格的值时，清单内容变了却没有经过 `normalizeText`，也没有 `changed()`。
+- **为什么是问题**：文件头写明的不变量是“进了清单的每一项都要过远程合同的 schema……一件不合格就会让全部窗口收不到推送”，计划审查第 9 条正是为此加的入口校验。按引用存放让这个不变量只在登记那一刻成立。实测后果是全局的：`list` 得 `provider-error`（“返回值不符合合同：/0/message/params/count …”），推送被远程节点按 `payload-invalid` 丢掉（`nb-runtime/src/remote/node.ts:930-938`），所有窗口都收不到任何后续变化；`nbook.tasks` 自己不记任何 `tasks.*` 诊断；这件任务在跑，`remove` 得 `running`，用户无法自救，直到发起方结束它。即使改成合格的值，窗口也要等下一次无关的变化才看到。
+- **如何核实**：`/tmp/review-t34-impl/scratch-backend/probe.test.ts` 的 E1：`start({title: "t", message: msg})` 后订阅，`msg.params.count = true` 再 `report({progress: 10})`，推进时钟 5 个间隔：推送数停在 1，`client.list({})` 得 `{"ok":false,"code":"provider-error",...}`。运行：在 `packages/neuro-book` 下 `bun test /tmp/review-t34-impl/scratch-backend/probe.test.ts`。
+- **建议改法**：`normalizeText` 已经为量大小做了 `JSON.stringify(value)`，直接存 `JSON.parse(json)` 的副本（或 `structuredClone`），一行改动；字面字符串不受影响。这样清单里的值归清单所有，入口校验即终身有效。补一条测试：登记后改动传入的对象，`list` 仍是登记时的值。
+
+## 2. 只校验了文字字段：`detail` 不是字符串时 `fail` 抛错而不是“不起作用、记诊断”；`retry` 不是函数时照样登记成可重试
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`core.ts:106-111`（`normalizeDetail` 直接 `value.trim()`）、`core.ts:190-197`（`fail`）、`core.ts:170-173`（`report` 直接读 `patch.message`）、`core.ts:213-219`（`retry: input.retry` 不查类型）、`core.ts:135`（`retryable` 只看 `!== undefined`）。
+- **现象**：实测（probe.test.ts E2）：`fail({message: "x", detail: 42})` 抛 `TypeError: value.trim is not a function`；`report(undefined)` 抛 `TypeError: ... evaluating 'patch.message'`；`start({title: "t2", retry: true})` 不抛，`fail` 后 `retryable: true`，窗口会显示“重试”，点了只得到一条 `retry-failed` 诊断、旧行被删。
+- **为什么是问题**：Spec“输入与前置条件”写的是“句柄的方法这一次调用不起作用，记诊断”，输出 3 与“时序与寿命”写“调用不起作用、不抛错”；`start` 的输入不合格要同步抛 `TypeError`，`retry` 也是输入的一部分。TS 类型挡住了第一方调用方，影响有限；但 `test.tasks-probe` 就是把 HTTP 正文原样 `as` 进 `fail`（`test-plugins.ts` 的 `case "fail"`），e2e 写错正文时这里会抛进 Hono 而不是按合同忽略。
+- **如何核实**：`bun test /tmp/review-t34-impl/scratch-backend/probe.test.ts`（在 `packages/neuro-book` 下），看 E2 的三行输出。
+- **建议改法**：`startFor` 里 `input.retry !== undefined && typeof input.retry !== "function"` 时抛 `TypeError`；`fail` 里 `failure.detail !== undefined && typeof failure.detail !== "string"` 时走 `textFor` 同样的“记诊断、这次不起作用”；`report`/`fail` 的参数本身不是对象时同样处理。不必为此加测试以外的机制。
+
+## 3. Spec 状态表仍写“已中断可重试”，与决定第 16 条、`retryable` 的定义和实现相反
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：主工作区 `docs/specs/workbench/background-tasks.md:125`（状态表 `| 失败、已中断（可重试） | 用户 retry | 移出 |`）；对照同文件 `retryable` 定义（“已中断的不能重试”）、失败码 `not-retryable`、Task 记录“设计决定”第 16 条；实现 `core.ts:135`、`core.ts:272` 只认 `failed`。
+- **现象**：计划审查后改了 `retryable` 定义与输出 5，状态表这一行没跟着改。
+- **为什么是问题**：状态表是实现与测试照着写的地方之一，读到这一行的人会以为 `interrupted` 能重试，与实现、e2e 断言冲突。
+- **如何核实**：`grep -n "已中断（可重试）" docs/specs/workbench/background-tasks.md`。
+- **建议改法**：改成 `| 失败（可重试） | 用户 retry | 移出（发起方另开新任务） |`。
+
+## 4. 测试没测到的判据：重试的移出顺序与推送、整体关停时订阅以 `provider-stopped` 结束、代理对截断、发起方换代
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/tasks/tasks.test.ts:264-311`（重试）、`:349-375`（输入）、`:377-403`（发起方停止）；计划 `plan.md` 验收映射第 3 条写了“整体关停时订阅以 `provider-stopped` 结束另有一例”，测试文件里没有这一例（`grep -n provider-stopped tasks.test.ts` 无结果）。
+- **现象与要做的变异**（均为推断：按读代码判断这些变异下全部 16 例仍通过，未在 worktree 里改动验证）：
+  1. 重试的“旧行先移出”只用 `list` 断言，`list` 每次现算，看不到中间状态。变异 A：删掉 `core.ts:275` 的 `changed();`。预期全部通过，但 `retry` 回调抛错或不同步 `start` 时，窗口永远收不到旧行已移出的推送（直到下一次无关变化）。变异 B：把 `core.ts:274-275` 两行挪到 `try/catch` 之后。预期全部通过，违反输出 6 的“先移出、再调用”（回调里取 `list` 会看到旧行）。补法：在“retry 抛错”那例里订阅推送，断言推送里旧行消失；在回调里读一次 `w.tasks` 所在场地的 `client.list` 不方便，可改为回调里同步记下 `core` 可见的状态，或者断言“回调同步 start 的新任务与旧行的移出在同一份推送里出现”（Spec“时序与寿命”的原话）。
+  2. 整体关停：没有一例断言订阅以 `provider-stopped` 结束、限频器的计时器被取消。变异 C：删掉 `remote.ts:116` 的 `throttle.close();` 或 `:117` 的 `stop();`。预期全部通过（`afterEach` 关场地时不检查订阅如何结束，监听漏删也观察不到）。补法：订阅后 `w.close()`（或只关 `nbook.tasks` 的作用域），断言订阅的结束原因是 `provider-stopped`、最后一份清单里任务仍是 `running`（Spec 非目标里的已知限制正是这条）。
+  3. 代理对：输入测试只用 BMP 汉字。变异 D：删掉 `core.ts:84`（高代理检查）。预期全部通过。实测正确实现下 `"a" + "😀".repeat(150)` 截成 199 个码元、末位 `0xde00`（probe.test.ts E3），可以直接写成断言。
+  4. 发起方换代：Brief 要求核对“同一调用方换代后旧句柄的调用”。实现靠 `record.released` 与新代次是不同的 `ConsumerIdentity` 对象，读代码是对的，但没有测试：停掉 `owner` 再以同一插件 id 重新激活、用新门面登记，再调旧句柄 `succeed()`，断言旧任务仍是 `interrupted`、新任务不受影响。场地的 `owner()` 现在每次建新插件 id，做这一例要让它接受重复激活。
+- **为什么是问题**：输出 6 的时序与输出 9 的“订阅收口”是这次服务端最容易回归的两处，当前测试对它们没有判别力。
+
+> 第 4 条补充（核实）：上面“推断”的变异已在 worktree 之外的副本（`/tmp/review-t34-impl/scratch-backend/mut/`，`src` 照抄、`node_modules` 软链）里实际跑过：变异 A（删 `core.ts:275`）、B（把 `drop`/`changed` 挪到调用 `retry` 之后）、C1（删 `remote.ts:116`）、C2（删 `remote.ts:117`）、D（删 `core.ts:84`）各自都是 16 过 0 败。副本已还原，`diff -r` 与 worktree 一致。
+
+## 5. `TaskRecord.released` 是多余的状态：`release()` 已把发起方在跑的任务转为结束、清掉 `retry`，`live()` 只看状态就够
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`core.ts:63-64`（字段）、`:157`（`live` 里的 `!record.released`）、`:216`（初值）、`:240-243`（`release` 里的读写）。
+- **现象**：`release(consumer)` 对发起方名下的记录只做两件有效的事：在跑的 `finish(..., "interrupted")`，全部的 `retry = undefined`。之后 `live(record)` 因 `state !== "running"` 已经为假，`retry` 因 `record.retry === undefined` 已经不可用；`released` 不再改变任何可观察结果。它在 `release` 循环里的唯一作用是让第二次 `release` 同一调用方时跳过，而第二次本来也是空操作（只会多一次 `changed()`，运行时每个门面只释放一次，这种调用不会发生）。
+- **为什么是问题**：多一个要和 `state`、`retry` 保持一致的布尔，读者要推演“released 为真但 state 仍是 running”能不能出现（不能）。字段注释“发起方释放后为 true：句柄作废”也让人以为句柄作废靠它，实际靠的是状态转换。
+- **如何核实**：删掉这个字段与 `live` 里的条件、`release` 里的 `|| record.released` 与赋值，`touched` 改为“有在跑的被中断或有 `retry` 被清掉”；`bun test src/plugins/tasks/tasks.test.ts` 应仍 16 过（未实际跑，推断）。
+- **建议改法**：如上删除，`release` 写成：遍历时 `if (record.owner !== consumer) continue; if (record.retry !== undefined) { record.retry = undefined; touched = true; } if (record.state === "running") interrupted.push(record);`，中断非空时同样 `touched = true`。
+
+> 第 5 条补充（核实）：在副本里按“建议改法”删掉 `released` 后实际跑过，16 过 0 败；副本已还原。
+
+## 6. 零碎：量大小的写法、超限诊断的频率、远程方法的样板、计划偏差、测试探针
+
+- **严重程度**：建议；**类别**：代码质量 / 安全与性能 / 文档
+- **位置与现象**：
+  1. `remote.ts:65,72` 与 `core.ts:88,97` 各建一个 `TextEncoder`，用 `utf8.encode(JSON.stringify(x)).length` 量字节，每次都分配整份缓冲。Agent 的同类检查用的是 `plugins/agent/backend/frames.ts` 的 `byteLength`（`Buffer.byteLength`，不分配）。服务端代码可直接用 `Buffer.byteLength(JSON.stringify(x))`。量级：结束的至多 50 件、每件按上限约 4.5 KB，每个订阅每 250 毫秒一次，开销小，改它只为与相邻实现一致。
+  2. 清单超限时，`bounded()` 每次被调用都记一条 `tasks.list-too-large`：每个订阅每 250 毫秒一条，再加每次 `list`。只在在跑的件数极多时发生；与 Agent 的 `tree-too-large` 同一做法，可接受，但若想收敛，只在“未超限 → 超限”翻转时记一次即可。
+  3. `remote.ts:83-98` 四个方法是同一句 `result.ok ? ok(result.value) : fail(result.code, {detail: result.detail})`，抽一个 `answer(result)` 即可；`core.ts` 的 `Outcome` 已经与远程的形状对齐。
+  4. 计划写“`TaskItemSchema` 的字符串字段带 `maxLength`，文字引用要求有 `ns`”（plan.md 关键设计 `shared/contracts.ts` 一条），实现没有加，长度与 `ns` 改在 `core.ts` 入口保证。实现的做法更稳妥（远程节点逐份校验推送，schema 加上限后截短的任何差错都会让整份推送被丢），建议改计划的这句而不是改代码。
+  5. 场地 `testing/world.ts:49` 的发起方插件 id 是 `test.tasks-probe`，与 `server/testing/test-plugins.ts` 的 HTTP 探针同名、定义不同；两者不同时装载，不出错，但查诊断或日志时同名不同物。场地的改名为 `test.tasks-owner` 即可。
+  6. `test-plugins.ts` 的 `POST /:task/:method` 用 `c.req.json(...).catch(() => ({}))` 吞掉所有解析错误：正文写坏的 e2e 会静默地当成空参数（例如 `fail` 的 `message` 变成 `undefined`，走“文字不合格、这次不起作用”），失败原因要绕一圈才查得到。改成正文为空时用 `{}`、非空但解析失败时回 400。
+- **如何核实**：读上述位置。
+
+## 未发现问题的方面
+
+- **按调用方的登记与释放**：门面工厂与释放回调收到同一个冻结的 `ConsumerIdentity`（核对 `nb-runtime/src/services/composition.ts:585-618`：先 `facade.revoke("released")` 再同步调用 `provision.release(facadeTarget, consumer)`，两者之间没有可插入的调用）。释放后旧门面的 `start` 抛 `ServiceRevokedError`；旧句柄靠状态转换失效；换代后新代次是另一个身份对象，与旧记录互不影响。核心全部同步，`release` 与在途的 `report`/`succeed`/`fail` 不会交错：之后到达的调用一律不起作用。`release` 之后 `retry` 回调不会再被调用（`retry` 字段已清，`not-retryable`）。
+- **重试的顶替时序**：`drop` 与 `changed()` 在调用回调之前，回调同步 `start` 时两次 `changed()` 落在同一个合并窗口，推送里不会同时出现新旧两行；回调异步登记时会有一份两行都没有的推送，Spec“时序与寿命”只对同步 `start` 作承诺，符合。抛错与 Promise 失败都记 `tasks.retry-failed`、返回成功、旧行已移出；对在跑、成功、已中断、发起方已停止的任务都得 `not-retryable`，对已移出的得 `unknown-task`，与失败码表一致（状态表那一行的文字除外，见第 3 条）。
+- **截断**：标题 200、进展与原因 500、详情 8000 都按 UTF-16 码元截，`truncate` 在第 `max-1` 位是高代理时退一位，实测不切开代理对（E3）；详情先 `trim` 再截、`truncated` 标记正确；文字引用缺 `ns` 与超过 1 KiB 的判定正确；`params` 里的 `NaN`、`Infinity` 被 `TextSchema` 拒绝（实测 `Value.Check` 为假），不会经 JSON 变成 `null` 再坏掉整份清单。
+- **推送**：订阅时立即排一次推送（延迟 0）；`PushThrottle` 保证两次推送之间至少 250 毫秒；订阅结束（含提供方停止，`ended` 联了 `found.stopSignal`）时取消计时器并退订；超过 512 KiB 时跳过推送、`list` 得 `too-large`。按上限算，结束的 50 件每件至多约 4.5 KB（含 JSON 转义），到不了 512 KiB，Spec 的说法成立。
+- **`PushThrottle` 搬家**：只改了文件位置、引用路径与头注释，逻辑逐字未变；`bunx tsc --noEmit` 无错误；`src/plugins/agent/subagents.test.ts` 27 过 0 败。
+- **上限与清理**：第 51 件结束时 `shift` 掉最早结束的；被丢的记录随后的 `detail`、`retry`、`remove` 得 `unknown-task`，核心同步，不存在“读到一半被丢”。除在跑的（Spec 不设上限）外没有无界增长：订阅监听随订阅退订，门面不在核心里留映射，结束的记录至多 50 件、发起方释放后不再持有它的 `retry` 闭包。
+- **登记**：`manifest.ts`、`server/plugins.ts`、内置名单与名字、命令域词表、`server.test.ts` 的期望都已同步；`test.tasks-probe` 只出现在 `TEST_PLUGIN_IDS`，由测试入口 `server/testing/fixture-entry.ts` 按请求装载，不进产品装配。
+- **常见返工项**：没有按错误文案分支、没有跨包深导入；`retry` 的失败都有诊断，没有静默 `catch`（测试探针的那处见第 6 条第 6 点）。
+
+## 各级数量
+
+- 阻断 0
+- 重要 1（第 1 条：结构化文字按引用存放，改动后整份清单与推送失败）
+- 建议 5（第 2 条句柄输入的非文字字段、第 3 条 Spec 状态表、第 4 条测试缺口与五个存活的变异、第 5 条多余的 `released`、第 6 条零碎）
+
+---
+
+# 处理（主会话，2026-11-11）
+
+审查者：Claude Opus 子代理（`reviewer`，只读），说明 `/tmp/review-t34-impl/brief-backend.md`（仓库外），范围 `502e40a03..3df4e2fab` 的服务端与共享部分。共 6 条：重要 1、建议 5。
+
+1. 成立，改。`normalizeText` 对文字引用与语言映射存 `JSON.parse` 出来的副本（量大小时已经序列化过一次）。补用例“文字引用与语言映射存的是副本”；把实现改回按引用存放，这条用例失败。
+2. 成立，改。`start` 的 `retry` 不是函数时同步抛 `TypeError`；`report`、`fail` 的参数不是对象、`fail` 的 `detail` 不是字符串时，这一次调用不起作用，记 `tasks.invalid-input`。在两条输入用例里补断言；去掉 `retry` 的类型检查，补的断言失败。
+3. 成立，改。master 上 Spec 状态表那一行改成“失败（可重试）”。
+4. 分开处理：
+   - 变异 A：改。“retry 抛错”那条用例订阅推送，断言旧行移出也推到窗口；删掉 `retry` 里的 `changed()`，这条用例失败。
+   - 变异 B：不改。发起方在 `retry` 回调里没有同步读清单的途径，回调里同步登记的新任务与旧行的移出合并在同一次推送里，先后看不出来。
+   - 整体关停：补用例。断言订阅以 `provider-stopped` 结束、`signal` 以 `interrupted` 中止、之后不再推送、最后一份清单里仍是在跑。变异 C1（不关限频器）仍然存活：关停后核心已清空、订阅已结束，多出的那一次计时没有可观察的后果，记为已知，不为它加测试。
+   - 变异 D：补“截短不切开代理对”用例；删掉高位代理检查，这条用例失败。
+   - 发起方换代：不补。读代码已核实（新一代是另一个身份对象），补这一例要让场地支持同一插件重复激活，收益小。
+5. 成立，改。删掉 `TaskRecord.released`：`live()` 只看状态，`release` 清掉 `retry`、中断在跑的，两者有一项发生时推送。19 例全过。
+6. 零碎：
+   - 第 1 点：改，用 `Buffer.byteLength`（核心与远程两处）。
+   - 第 2 点：不改。与 Agent 的 `tree-too-large` 同一做法，只在在跑的任务极多时出现。
+   - 第 3 点：改，四个远程方法共用 `answer(result)`。
+   - 第 4 点：不改代码。上限与 `ns` 在核心入口保证，比放进 schema 稳妥；计划保留作历程，偏差记在 Task README。
+   - 第 5 点：改，场地的发起方改名为 `test.tasks-owner`。
+   - 第 6 点：改，去掉 `.catch(() => ({}))`，正文写坏时请求失败。
+
+验证：`bun test src/plugins/tasks/tasks.test.ts` 19 过；变异 A、B1、D 与 `retry` 类型检查各让一条用例失败，C1 存活（理由见上）；`test:affected` 全过；`typecheck` 过。
