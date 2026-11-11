@@ -134,3 +134,4 @@ commentEntry(previous, next): ...           // 浮层“进入”的纯函数，
 - Ctrl+Alt+M 的键位匹配放在 `editor/web/key-event.ts`，经 `EditorMenus.matches` 交给控件：`MarkdownControl` 不认识命令服务，键位仍只写在动作目录里一处；`EditorMenus.label` 加了 `{{name}}` 参数（“第 i 条，共 n 条”）。
 - 页边画不画由 `MarkdownControl` 量控件根的宽度：阈值 1032px（版心 + 页边 264 + 空 16 + 两侧各 16），已画出的窄于 1000px 才收起；页边卡片、让位与场景图的处理照 3.4。
 - Lab 加两个场景（`EditorGroup/comments`、`comments-margin`），用于 UI 取证。
+- 实现审查（Sonnet，14 条，[报告](evidences/impl-review-1-sonnet.txt)、[处理](evidences/impl-review-1-disposition.txt)）后补的：写着的字存在批注层里（`draftText`），换位置不丢；批注层在换文档时让列表重算并按新文档重记“进入”；页边按序号加指纹（`matchComment`）判断展开与写；删块批注后光标平移；新批注保存走控件句柄、加不上留在“写”；只读的 Esc；页边没有 `top` 过渡、排完之前藏着；`Textarea` 的行高 `normal`、边框与观察器；页边开关记录与页边排布补了测试。
