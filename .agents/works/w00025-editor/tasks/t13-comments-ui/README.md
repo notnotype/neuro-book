@@ -23,7 +23,7 @@ updated: 2026-11-11
 
 ## 当前状态
 
-**已完成，2026-11-11 合入 master**（分支 `feat/w00025-t13-comments-ui` 的 `37df6f3ed`，合并 master 后快进到 `7f4433e2d`，不 push；worktree 与分支留待开发者看过再删）。Spec 输出 28–35 与验收 11–17 实现；两轮 Sonnet 审查（计划 15 条、实现 14 条，[处理记录](evidences/design-review-1-disposition.txt)、[实现审查处理](evidences/impl-review-1-disposition.txt)）都已处理。
+**已完成，2026-11-11 合入 master**（分支 `feat/w00025-t13-comments-ui` 的 `37df6f3ed`，合并 master 后快进到 `7f4433e2d`，不 push；worktree 与分支已删）。Spec 输出 28–35 与验收 11–17 实现；两轮 Sonnet 审查（计划 15 条、实现 14 条，[处理记录](evidences/design-review-1-disposition.txt)、[实现审查处理](evidences/impl-review-1-disposition.txt)）都已处理。
 
 - **在哪里体验**：Component Lab 的 `EditorGroup`：场景“批注：光标进批注出浮层，Ctrl+Alt+M 加批注”与“批注：页边开着（视口够宽时画在稿纸右边）”；产品里在编辑 Markdown 时，标签条右侧的批注开关（鼠标移到编辑区上才显示）。
 - **操作**：选中文字后 Ctrl+Alt+M、选区菜单的“批注”或右键“添加批注”；光标进批注出卡片（上一条、下一条、编辑、删除）；标签条的开关打开页边。
