@@ -112,5 +112,60 @@
         "plan": "计划",
         "held": "待定",
         "undone": "已撤销"
+    },
+    "blocked": {
+        "readOnly": "世界只读：{{reason}}",
+        "unknown": "不确定世界里写进去了什么，先不能写",
+        "busy": "{{holder}}正在写，写完以后才能改",
+        "disconnected": "世界已断开",
+        "planned": "先关掉按计划",
+        "initial": "先选一章"
+    },
+    "failure": {
+        "valueConflict": "这个值刚刚变了",
+        "versionConflict": "这个对象刚被改过",
+        "validation": "没有通过检查：{{reason}}",
+        "resultMismatch": "写完的结果对不上：{{reason}}",
+        "writeFailed": "没有写进去，可以再试一次",
+        "worldLocked": "另一个 NeuroBook 正在用这部作品，稍后再试",
+        "tooLarge": "这次改动太大，分开改",
+        "unknownOutcome": "不确定这次改动有没有写进去",
+        "recheck": "再查一次",
+        "other": "这次改动没有成功",
+        "accumulated": "这个数是几笔累出来的：改其中一笔，或者记一笔",
+        "notDeletable": "不能删除：{{reason}}"
+    },
+    "edit": {
+        "button": "改",
+        "label": "改{{label}}",
+        "heading": "改{{label}}",
+        "intent": "这是",
+        "creative": "改设定",
+        "story": "剧情里变了",
+        "save": "保存",
+        "cancel": "取消",
+        "previewing": "正在预览…",
+        "routeInit": "改初值",
+        "routePatch": "改{{place}}“{{text}}”那一笔",
+        "routeChange": "在{{position}}记一条变更",
+        "pendingAdded": "多了 {{count}} 条待处理",
+        "pendingResolved": "少了 {{count}} 条待处理",
+        "valueFollows": "{{label}}跟着变成 {{value}}",
+        "noImpact": "别的都不变",
+        "unsupported": "这种字段还不能在这里改"
+    },
+    "record": {
+        "heading": "记一笔",
+        "delta": "变化",
+        "text": "发生了什么",
+        "deltaPlaceholder": "+300 或 -200",
+        "textPlaceholder": "比如：领了工资",
+        "submit": "记一笔",
+        "saved": "记了一笔：{{text}}"
+    },
+    "notice": {
+        "receipt": "看回执",
+        "close": "关闭",
+        "label": "刚保存的改动"
     }
 }

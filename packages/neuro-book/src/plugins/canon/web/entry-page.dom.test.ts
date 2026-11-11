@@ -31,6 +31,7 @@ import {ComponentViewRegistry} from "./component-views";
 import EntryTree from "./components/EntryTree.vue";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
 import {createEntryPage, originsFetcher} from "./entry-page";
+import {createNotices} from "./notices";
 import type {EntryPageState} from "./entry-page";
 import {canonCatalogs} from "./text";
 import {createCanonWorld} from "./world";
@@ -378,7 +379,7 @@ describe("读取次数", () => {
         const counted = countedClient(mine.canon);
         const world = createCanonWorld(counted.client);
         cleanups.push(() => world.dispose());
-        const page = createEntryPage({world: () => world, fetchOrigins: originsFetcher((input) => counted.client.call("origins", input)), views: new ComponentViewRegistry(), execute: () => undefined, entriesView: "nbook.canon.entries"});
+        const page = createEntryPage({world: () => world, fetchOrigins: originsFetcher((input) => counted.client.call("origins", input)), call: counted.client.call, views: new ComponentViewRegistry(), notices: createNotices(), execute: () => undefined, entriesView: "nbook.canon.entries"});
         const component = await page.load();
         const state = entriesViewState();
         state.expanded.value = ["folder:人物", id];
@@ -405,7 +406,7 @@ describe("读取次数", () => {
         const counted = countedClient(mine.canon);
         const world = createCanonWorld(counted.client);
         cleanups.push(() => world.dispose());
-        const page = createEntryPage({world: () => world, fetchOrigins: originsFetcher((input) => counted.client.call("origins", input)), views: new ComponentViewRegistry(), execute: () => undefined, entriesView: "nbook.canon.entries"});
+        const page = createEntryPage({world: () => world, fetchOrigins: originsFetcher((input) => counted.client.call("origins", input)), call: counted.client.call, views: new ComponentViewRegistry(), notices: createNotices(), execute: () => undefined, entriesView: "nbook.canon.entries"});
         const component = await page.load();
         const state = reactive(page.initialState!(id));
         const entry = mount(component, {props: {context: {recent: [], arg: id, state}}, global: {provide: provideText(port)}, attachTo: document.body});
@@ -426,5 +427,110 @@ describe("读取次数", () => {
         const reads = counted.calls.slice(before).filter((call) => call.method === "entry" || call.method === "render");
         expect(reads.map((call) => call.method)).toEqual(["entry"]);
         expect(JSON.stringify(reads[0]!.input)).toContain('"edge":"end"');
+    });
+});
+
+describe("写入", () => {
+    /** 点一个字段的“改”，等确认条出来。 */
+    const startEdit = async (wrapper: ReturnType<typeof mount>, path: string) => {
+        await waitUntil(`${path} 的“改”`, () => wrapper.find(`[data-edit="${path}"]`).exists());
+        await wrapper.get(`[data-edit="${path}"]`).trigger("click");
+        await waitUntil("确认条", () => wrapper.find("[data-confirm-bar]").exists());
+        return wrapper.get("[data-confirm-bar]");
+    };
+    const buttonByText = (wrapper: ReturnType<typeof mount>, label: string) => wrapper.findAll("button").find((button) => button.text() === label);
+
+    it("改一个只在初值设过的字段：预览写“改初值”，保存后值变了、顶上有提示、焦点回到“改”；按计划时“改”不可用", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists());
+        state.tab = "data:character";
+
+        const bar = await startEdit(wrapper, "character.外观");
+        expect(document.activeElement?.tagName).toBe("TEXTAREA");
+        await bar.get("textarea").setValue("银发");
+        await waitUntil("预览", () => wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+        await buttonByText(wrapper, "保存")!.trigger("click");
+        await waitUntil("值变了", () => wrapper.get("[data-field='character.外观']").text().includes("银发"));
+        expect(wrapper.find("[data-confirm-bar]").exists()).toBe(false);
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("改外观");
+        await waitUntil("焦点回到“改”", () => document.activeElement?.getAttribute("data-edit") === "character.外观");
+
+        state.planned = true;
+        await waitUntil("按计划时不可用", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") !== undefined);
+        expect(wrapper.get("[data-edit='character.外观']").attributes("title")).toBe("先关掉按计划");
+    });
+
+    it("累出来的数：写“这个数是几笔累出来的”、保存不可用；记一笔精确档以后值卡少了、流水多了一行", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        await publish(other.canon, [change(id, "1", "领了工资", 200), change(id, "2", "买了书", -300)]);
+        const {wrapper, state} = await open(id);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists());
+        state.tab = "data:panel";
+        await waitUntil("流水", () => originRows(wrapper).length === 3);
+
+        const bar = await startEdit(wrapper, "panel.存款");
+        await bar.get("input").setValue("500");
+        await waitUntil("累出来的数", () => wrapper.find("[data-confirm-bar] [role='alert']").exists() && wrapper.get("[data-confirm-bar] [role='alert']").text().includes("这个数是几笔累出来的"));
+        expect(buttonByText(wrapper, "保存")!.attributes("disabled")).toBeDefined();
+        await buttonByText(wrapper, "取消")!.trigger("click");
+
+        const form = wrapper.get("[data-record-form]");
+        const [what, delta] = form.findAll("input");
+        await what!.setValue("捡到钱");
+        await delta!.setValue("-200");
+        await form.trigger("submit");
+        await waitUntil("值卡少了 200", () => wrapper.get("[data-card='panel.存款']").text().includes("700 元"));
+        await waitUntil("流水多了一行", () => originRows(wrapper).length === 4);
+        expect(originRows(wrapper)[0]).toContain("捡到钱");
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("记了一笔：捡到钱");
+        expect((wrapper.get("[data-record-form] input").element as HTMLInputElement).value).toBe("");
+    });
+
+    it("确认条开着时别处改了这个值：写“这个值刚刚变了”，再点保存就以新值为准写进去；切走再回来确认条与填的值还在", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const first = await open(id);
+        await waitUntil("值", () => first.wrapper.find("[data-value]").exists());
+        first.state.tab = "data:character";
+        const bar = await startEdit(first.wrapper, "character.外观");
+        await bar.get("textarea").setValue("银发");
+        await waitUntil("预览", () => first.wrapper.get("[data-confirm-preview]").text().includes("改初值"));
+
+        first.wrapper.unmount();
+        const again = first.remount();
+        await waitUntil("回来以后确认条还在", () => again.find("[data-confirm-bar] textarea").exists());
+        expect((again.get("[data-confirm-bar] textarea").element as HTMLTextAreaElement).value).toBe("银发");
+
+        const stored = await other.canon.call("object", {ref: {kind: "entry", id}});
+        if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
+        const entry = stored.value.object as Entry;
+        await publish(other.canon, [{...entry, init: {...entry.init, data: {...entry.init.data, character: {...entry.init.data.character!, fields: {...entry.init.data.character!.fields, 外观: "红发"}}}}}]);
+        await waitUntil("这个值刚刚变了", () => again.find("[data-confirm-bar] [role='alert']").exists() && again.get("[data-confirm-bar] [role='alert']").text().includes("这个值刚刚变了"));
+        await waitUntil("重新预览", () => again.get("[data-confirm-preview]").text().includes("改初值") && buttonByText(again, "保存")!.attributes("disabled") === undefined);
+        await buttonByText(again, "保存")!.trigger("click");
+        await waitUntil("写进去了", () => again.get("[data-field='character.外观']").text().includes("银发"));
+    });
+
+    it("别的调用方独占写入时“改”不可用，写着它申请时给的那句；它释放以后恢复", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper, state} = await open(id);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists());
+        state.tab = "data:character";
+        await waitUntil("“改”", () => wrapper.find("[data-edit='character.外观']").exists());
+
+        const lease = await other.canon.hold("第 3 章记账");
+        if (!lease.ok) throw new Error(JSON.stringify(lease.failure));
+        await waitUntil("不可用", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") !== undefined);
+        expect(wrapper.get("[data-edit='character.外观']").attributes("title")).toContain("第 3 章记账");
+        await lease.value.release();
+        await waitUntil("恢复", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") === undefined);
     });
 });

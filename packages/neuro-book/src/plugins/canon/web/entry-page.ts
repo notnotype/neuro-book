@@ -15,11 +15,13 @@ import type {ReadPosition} from "@notnotype/nb-canon";
 import type {EditorPageContext, EditorPageCrumb, EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/views";
 
-import type {CanonOutputs, EntryName} from "../shared/contracts";
+import type {CanonClient, CanonOutputs, EntryName} from "../shared/contracts";
 import {canonText} from "../shared/text";
 import {OPEN_ENTRY_COMMAND} from "./commands";
 import type {ComponentViewRegistry} from "./component-views";
 import type {TextAddress} from "./components/entry-text";
+import type {EditDraft} from "./in-place-edit";
+import type {CanonNotices} from "./notices";
 import type {OriginsPage} from "./origin-pages";
 import {useCanonText} from "./text";
 import type {CanonWorld} from "./world";
@@ -37,10 +39,12 @@ export interface EntryPageState {
     positionGone: boolean;
     /** 各数据分页的界面的状态，按命名空间（`ComponentViewContext.state`）。 */
     views: Record<string, Record<string, unknown>>;
+    /** 开着的确认条与填了一半的输入（输出 16）。 */
+    edit: EditDraft | null;
 }
 
 export function entryPageState(): EntryPageState {
-    return {position: null, planned: false, tab: null, origin: null, positionGone: false, views: {}};
+    return {position: null, planned: false, tab: null, origin: null, positionGone: false, views: {}, edit: null};
 }
 
 /** 一个条目最近读到的页头：标签标题与面包屑用。 */
@@ -54,15 +58,20 @@ export interface EntryPageOptions {
     /** 窗口没有绑定项目时为 null。 */
     readonly world: () => CanonWorld | null;
     readonly fetchOrigins: (address: TextAddress, position: ReadPosition, mode: "actual" | "planned", cursor?: string) => Promise<OriginsPage>;
+    /** 世界客户端的读取（预览、读一个对象）。 */
+    readonly call: CanonClient["call"];
     readonly views: ComponentViewRegistry;
+    /** 本窗口的保存后的提示。 */
+    readonly notices: CanonNotices;
     /** 执行命令（打开条目页、变更详情页）。 */
     readonly execute: (id: string, args: unknown) => void;
     /** 设定视图的 id：面包屑的“设定”显示它。 */
     readonly entriesView: string;
 }
 
-/** 变更详情页的命令（S6 登记）；在那之前执行它得到命令服务的“没有这条命令”。 */
+/** 变更详情页与回执页的命令（S6 登记）；在那之前执行它们得到命令服务的“没有这条命令”。 */
 const OPEN_CHANGE_COMMAND = "nbook.canon.open-change";
+const OPEN_RECEIPT_COMMAND = "nbook.canon.open-receipt";
 
 export function createEntryPage(options: EntryPageOptions): EditorPageImplementation<EntryPageState> {
     const heads = reactive(new Map<string, EntryHead>());
@@ -82,7 +91,7 @@ export function createEntryPage(options: EntryPageOptions): EditorPageImplementa
                         const id = props.context.arg;
                         if (world === null || id === undefined) return h("p", {class: "px-6 py-4 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
                         // 换了参数（不会发生：参数是标签的身份）也按 key 重建，免得宿主里的读取还指着旧条目。
-                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, views: options.views, open, onHead: (head: EntryHead) => heads.set(id, head)});
+                        return h(Host, {key: id, id, state: props.context.state, world, fetchOrigins: options.fetchOrigins, call: options.call, views: options.views, notices: options.notices, open, receipt: (revision: string) => options.execute(OPEN_RECEIPT_COMMAND, {revision}), onHead: (head: EntryHead) => heads.set(id, head)});
                     };
                 },
             });

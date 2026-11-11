@@ -12,6 +12,7 @@
 每行左边是显示名（固定宽度），中间是值，右边是标记；列表字段的值是一列元素。值未知或不完整时用警告色，不完整时值后写“不完整”。宽度不够时换行，不横向滚动。
 
 - 单击值按钮（或 Enter、空格）：发 `value`，参数是这个字段的路径；展开着的那一行 `aria-expanded` 为 true，下面是 `origin` 插槽。值按钮的可读名是“显示名：值”。
+- `editing` 时可改的行在值后面有一个常显的“改”（可读名“改某某”，`data-edit` 是字段路径）：发 `edit`；不可用时禁用，悬停提示是原因。值按钮与“改”各是一个 Tab 停靠点，值在前。
 - 一个字段也没有时写“这个分页还没有字段”。
 
 ## 数据
@@ -27,6 +28,8 @@ interface FieldRow {
     readonly mark: string | null;
     /** 列表字段的各元素。 */
     readonly items?: readonly string[];
+    /** 可以就地改（数、文字、选项、是否）。 */
+    readonly editable?: boolean;
     /** 语义档的各句（人物的界面）。 */
     readonly notes?: readonly {readonly where: string; readonly text: string}[];
     /** 语义档只列了最近的一页时，更早的还有几步：各句前面写“还有更早的 N 句”。 */
@@ -39,10 +42,15 @@ type FieldTableProps = {
     rows: readonly FieldRow[];
     /** 展开着来历的字段路径；默认没有。 */
     open?: string;
+    /** 在可改的行（`editable`）上显示“改”；默认 false。 */
+    editing?: boolean;
+    /** “改”不可用的原因：按钮禁用、悬停提示是它；默认空（可用）。 */
+    editReason?: string;
 };
 
 type FieldTableEmits = {
     (event: "value", path: string): void;
+    (event: "edit", path: string): void;
 };
 
 type FieldTableSlots = {
@@ -54,10 +62,6 @@ type FieldTableSlots = {
 ## 状态
 
 - 默认、空数据：如上。加载中、出错、禁用、只读：没有（由宿主处理）。
-
-## 不支持
-
-- “改”按钮与确认条：第一批的写入片做。
 
 ## 隐藏通道理由
 

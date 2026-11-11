@@ -59,4 +59,17 @@ describe("FieldTable", () => {
         mounted.push(empty);
         expect(empty.text()).toBe("这个分页还没有字段");
     });
+
+    it("“改”按钮：只在可改的行上、与值并列；点了发 edit；不可用时禁用并写原因", async () => {
+        const rows = [row("p.存款", "存款", "900 元", {editable: true}), row("p.物品", "随身物品", "", {items: ["魔杖"]})];
+        const wrapper = mount(FieldTable, {props: {rows, editing: true}, global: {provide: provideText(port)}});
+        mounted.push(wrapper);
+        expect(wrapper.findAll("[data-edit]").map((button) => button.attributes("data-edit"))).toEqual(["p.存款"]);
+        expect(wrapper.get("[data-edit='p.存款']").attributes("aria-label")).toBe("改存款");
+        await wrapper.get("[data-edit='p.存款']").trigger("click");
+        expect(wrapper.emitted("edit")).toEqual([["p.存款"]]);
+        await wrapper.setProps({editReason: "先关掉按计划"});
+        expect(wrapper.get("[data-edit='p.存款']").attributes("disabled")).toBeDefined();
+        expect(wrapper.get("[data-edit='p.存款']").attributes("title")).toBe("先关掉按计划");
+    });
 });

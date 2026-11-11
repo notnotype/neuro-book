@@ -12,6 +12,7 @@
 左边一列值卡（显示名、“改过”标记、当前值与单位；列表字段列出各元素），右边是“某某的流水”标题、`record` 插槽（记一笔的输入，写入片做）与流水。容器窄时流水换到值卡下面；视口 390 像素宽时值卡占满一行、流水在下面。
 
 - 单击值卡（或 Enter、空格）：发 `select`（字段路径）；值卡是一组按钮，选中的那张 `aria-pressed` 为 true，用 Tab 在各张之间移动。
+- `editing` 时可改的卡右边有“改”（同 `FieldTable`）：发 `edit`。
 - 流水的“再显示更早的”“重试”“改这一笔”：分别发 `more`、`retry`、`change`。
 - 没有字段时写“这个面板还没有内容”。
 
@@ -30,6 +31,10 @@ type PanelViewProps = {
     ledgerFailed?: boolean;
     /** 流水读取失败时服务给的说明。 */
     ledgerReason?: string;
+    /** 在可改的卡旁显示“改”；默认 false。 */
+    editing?: boolean;
+    /** “改”不可用的原因；默认空。 */
+    editReason?: string;
 };
 
 type PanelViewEmits = {
@@ -37,10 +42,11 @@ type PanelViewEmits = {
     (event: "more"): void;
     (event: "retry"): void;
     (event: "change", id: string): void;
+    (event: "edit", path: string): void;
 };
 
 type PanelViewSlots = {
-    /** 流水上面的输入。 */
+    /** 流水上面的输入（`PanelDataView` 放 `RecordForm`）。 */
     record?(): unknown;
 };
 ```

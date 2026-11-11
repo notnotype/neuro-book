@@ -6,13 +6,16 @@ import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPrev
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
 import type EditorPageBreadcrumbs from "nbook/plugins/editor/web/components/EditorPageBreadcrumbs.vue";
+import type ConfirmBar from "nbook/plugins/canon/web/components/ConfirmBar.vue";
 import type EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
 import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
 import type EntryTree from "nbook/plugins/canon/web/components/EntryTree.vue";
 import type FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
+import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
 import type PlotList from "nbook/plugins/canon/web/components/PlotList.vue";
+import type RecordForm from "nbook/plugins/canon/web/components/RecordForm.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
@@ -1474,6 +1477,38 @@ function canonEntryPageFixtures() {
                 {id: "sample-english", label: "英文界面", input: page},
             ],
             load: async () => (await import("./EntryPageFixture.vue")).default,
+        }),
+        defineLabFixture<typeof ConfirmBar>({
+            component: "ConfirmBar",
+            scenes: [
+                {id: "number", label: "改一个数：预览写回哪里与带来的变化", input: {props: {label: "存款", kind: "number" as const, unit: "元", intents: ["creative" as const, "story" as const], preview: {route: "改第 2 章“领了打工的工资”那一笔", impact: ["少了 1 条待处理", "魔力跟着变成 3,000"]}}, model: {value: "2,800", intent: "creative" as const}}},
+                {id: "accumulated", label: "累出来的数：保存不可用", input: {props: {label: "存款", kind: "number" as const, unit: "元", intents: ["creative" as const, "story" as const], error: "这个数是几笔累出来的：改其中一笔，或者记一笔", locked: true}, model: {value: "500", intent: "creative" as const}}},
+                {id: "text", label: "改文字，只有“改设定”", input: {props: {label: "外观", kind: "text" as const, intents: ["creative" as const], preview: {route: "改初值", impact: ["别的都不变"]}}, model: {value: "银发，左眼下有颗痣", intent: "creative" as const}}},
+                {id: "conflict", label: "这个值刚刚变了", input: {props: {label: "状态", kind: "enum" as const, options: ["入学", "休学", "毕业"], intents: ["creative" as const, "story" as const], preview: {route: "在第 3 章记一条变更", impact: ["别的都不变"]}, error: "这个值刚刚变了"}, model: {value: "休学", intent: "story" as const}}},
+                {id: "unknown", label: "不确定有没有写进去", input: {props: {label: "存款", kind: "number" as const, intents: ["creative" as const], preview: {route: "改初值", impact: []}, error: "不确定这次改动有没有写进去", recheck: true}, model: {value: "800", intent: "creative" as const}}},
+                {id: "number-english", label: "英文界面", input: {props: {label: "Savings", kind: "number" as const, unit: "", intents: ["creative" as const, "story" as const], preview: {route: "Changes the initial value", impact: ["Nothing else changes"]}}, model: {value: "800", intent: "creative" as const}}},
+            ],
+            load: async () => (await import("./ConfirmBarFixture.vue")).default,
+        }),
+        defineLabFixture<typeof RecordForm>({
+            component: "RecordForm",
+            scenes: [
+                {id: "exact", label: "精确档：一句话与变化量", input: {props: {}, model: {text: "领了工资", delta: "+3000"}}},
+                {id: "semantic", label: "语义档：只有一句话", input: {props: {semantic: true}, model: {text: "白灵替她挡了一次", delta: ""}}},
+                {id: "blocked", label: "初值上不能记", input: {props: {blockedReason: "先选一章"}, model: {text: "", delta: ""}}},
+                {id: "failed", label: "上一次没记进去", input: {props: {error: "这个值刚刚变了"}, model: {text: "领了工资", delta: "+3000"}}},
+                {id: "exact-english", label: "英文界面", input: {props: {}, model: {text: "", delta: ""}}},
+            ],
+            load: async () => (await import("./RecordFormFixture.vue")).default,
+        }),
+        defineLabFixture<typeof NoticeBar>({
+            component: "NoticeBar",
+            scenes: [
+                {id: "sample", label: "刚保存了一次就地改", input: {props: {title: "改外观"}}},
+                {id: "long", label: "很长的标题截断", input: {props: {title: "记了一笔：在第三魔法学院门口被一个自称是星瑕远房表哥的人借走了三百块"}}},
+                {id: "sample-english", label: "英文界面", input: {props: {title: "Edit Appearance"}}},
+            ],
+            load: async () => (await import("./NoticeBarFixture.vue")).default,
         }),
     ];
 }

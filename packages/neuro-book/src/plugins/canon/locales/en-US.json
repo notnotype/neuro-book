@@ -112,5 +112,60 @@
         "plan": "plan",
         "held": "on hold",
         "undone": "undone"
+    },
+    "blocked": {
+        "readOnly": "The world is read-only: {{reason}}",
+        "unknown": "Unsure what reached the world; writing is paused",
+        "busy": "{{holder}} is writing; edits resume when it finishes",
+        "disconnected": "The world is disconnected",
+        "planned": "Turn off Include plans first",
+        "initial": "Pick a chapter first"
+    },
+    "failure": {
+        "valueConflict": "This value just changed",
+        "versionConflict": "This object was just changed",
+        "validation": "Did not pass the checks: {{reason}}",
+        "resultMismatch": "The result does not match: {{reason}}",
+        "writeFailed": "Nothing was written; try again",
+        "worldLocked": "Another NeuroBook is using this work; try again later",
+        "tooLarge": "This change is too large; split it",
+        "unknownOutcome": "Not sure whether this change was written",
+        "recheck": "Check again",
+        "other": "This change did not go through",
+        "accumulated": "This number adds up several steps: edit one of them, or record a new one",
+        "notDeletable": "Cannot delete: {{reason}}"
+    },
+    "edit": {
+        "button": "Edit",
+        "label": "Edit {{label}}",
+        "heading": "Edit {{label}}",
+        "intent": "This is",
+        "creative": "a lore fix",
+        "story": "a story change",
+        "save": "Save",
+        "cancel": "Cancel",
+        "previewing": "Previewing…",
+        "routeInit": "Changes the initial value",
+        "routePatch": "Changes the step “{{text}}” in {{place}}",
+        "routeChange": "Records a new change at {{position}}",
+        "pendingAdded": "{{count}} more pending",
+        "pendingResolved": "{{count}} fewer pending",
+        "valueFollows": "{{label}} becomes {{value}}",
+        "noImpact": "Nothing else changes",
+        "unsupported": "This kind of field cannot be edited here yet"
+    },
+    "record": {
+        "heading": "Record",
+        "delta": "Change",
+        "text": "What happened",
+        "deltaPlaceholder": "+300 or -200",
+        "textPlaceholder": "e.g. got paid",
+        "submit": "Record",
+        "saved": "Recorded: {{text}}"
+    },
+    "notice": {
+        "receipt": "View receipt",
+        "close": "Close",
+        "label": "Change just saved"
     }
 }

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {Button} from "@notnotype/nb-ui/components";
+
 import type {FieldRow} from "../rows";
 import {useCanonText} from "../text";
 
@@ -6,11 +8,17 @@ const props = withDefaults(defineProps<{
     rows: readonly FieldRow[];
     /** 展开着来历的那个字段的路径；没有时不写。 */
     open?: string;
-}>(), {open: undefined});
+    /** 显示“改”按钮（可改的行）；默认 false。 */
+    editing?: boolean;
+    /** “改”不可用时的原因（按计划开着、世界只读……）；可用时不写。 */
+    editReason?: string;
+}>(), {open: undefined, editing: false, editReason: ""});
 
 const emit = defineEmits<{
     /** 点了一个值：展开或收起它的来历。 */
     (event: "value", path: string): void;
+    /** 点了“改”。 */
+    (event: "edit", path: string): void;
 }>();
 
 defineSlots<{
@@ -43,6 +51,17 @@ const text = useCanonText();
                     </button>
                     <span v-if="row.incomplete" class="ml-1 text-[length:var(--text-xs)] text-[var(--status-warning)]">{{ text("value.incomplete") }}</span>
                 </span>
+                <!-- 常显、与值按钮并列（输出 16）：悬停才出现的按钮在触屏上找不到。 -->
+                <Button
+                    v-if="props.editing && row.editable"
+                    size="sm"
+                    variant="ghost"
+                    :data-edit="row.path"
+                    :disabled="props.editReason !== ''"
+                    :title="props.editReason !== '' ? props.editReason : undefined"
+                    :aria-label="text('edit.label', {label: row.label})"
+                    @click="emit('edit', row.path)"
+                >{{ text("edit.button") }}</Button>
                 <span v-if="row.mark !== null" class="shrink-0 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ row.mark }}</span>
             </div>
             <ol v-if="(row.notes?.length ?? 0) > 0 || (row.notesEarlier ?? 0) > 0 || row.notReduced" class="m-0 mt-1 list-none pl-32 text-[length:var(--text-xs)] text-[var(--text-secondary)] max-[480px]:pl-0">

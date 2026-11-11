@@ -33,6 +33,7 @@ import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
 import {createEntryPage, originsFetcher} from "./entry-page";
+import {createNotices} from "./notices";
 import {createCanonWorld} from "./world";
 import type {CanonWorld} from "./world";
 
@@ -98,10 +99,13 @@ export const canonBrowserPlugin: PluginDefinition = {
             context.signal.addEventListener("abort", () => world?.dispose(), {once: true});
             const execute = (id: string, args: unknown): void => void commands?.execute(id, args);
             const views = new ComponentViewRegistry();
+            const notices = createNotices();
             const page = createEntryPage({
                 world: worldOf,
                 fetchOrigins: originsFetcher((input) => clientOf().call("origins", input)),
+                call: (method, input) => clientOf().call(method, input),
                 views,
+                notices,
                 execute,
                 entriesView: ENTRIES_VIEW_ID,
             });

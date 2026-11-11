@@ -5,6 +5,8 @@
  */
 import {computed} from "vue";
 
+import {useText} from "@notnotype/nb-ui/text-port";
+
 import type {ComponentViewContext} from "../component-views";
 import {useOriginPagesMap} from "../origin-pages";
 import {fieldRows, isSemantic, originRows, semanticNotes} from "../rows";
@@ -44,13 +46,17 @@ const rows = computed(() => fieldRows(context.namespace, context.fields, context
 }));
 
 const openPages = computed(() => (open.value === null ? undefined : pages.value.get(open.value)));
+// “改”：只在实际模式、写得了时可用；不可用时按钮上写原因（输出 16、28）。
+const port = useText();
+const editReason = computed(() => (context.blocked === null ? "" : port.t(context.blocked)));
+
 const toggle = (path: string): void => {
     open.value = open.value === path ? null : path;
 };
 </script>
 
 <template>
-    <FieldTable :rows="rows" :open="open ?? undefined" @value="toggle">
+    <FieldTable :rows="rows" :open="open ?? undefined" editing :edit-reason="editReason" @value="toggle" @edit="(path: string) => context.edit(fieldOf(path))">
         <template #origin="{path}">
             <OriginList
                 v-if="openPages !== undefined"
