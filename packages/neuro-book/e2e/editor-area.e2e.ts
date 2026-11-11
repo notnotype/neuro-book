@@ -1820,8 +1820,9 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
         // 作品第一次在本窗口打开时欢迎页也自动打开（workbench.bookshelf 输出 20）：只认 a.md 的标签。
         await expect(tabs(page).filter({hasText: "a.md"})).toHaveCount(1);
         const active = page.locator("[data-editor-group-head-active] [data-editor-title-actions]");
-        await expect(active.locator("[data-title-action-key]")).toHaveCount(2);
-        expect(await active.locator("[data-title-action-key], [data-title-actions-more]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-title-action-key") ?? "more"))).toEqual(["own:split-right", "test.menus.editor-md", "more"]);
+        // Markdown 的控件提供批注页边，自己多一个“批注 N”开关（markdown-editing.md 输出 33），排在向右拆分之后。
+        await expect(active.locator("[data-title-action-key]")).toHaveCount(3);
+        expect(await active.locator("[data-title-action-key], [data-title-actions-more]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-title-action-key") ?? "more"))).toEqual(["own:split-right", "own:comment-margin", "test.menus.editor-md", "more"]);
         await active.locator("[data-title-actions-more]").click();
         await expect(page.getByRole("menu").getByRole("menuitem", {name: "用其它编辑器重新打开"})).toBeVisible();
         await page.keyboard.press("Escape");
@@ -1913,7 +1914,7 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
 
         await more.click();
         const menu = page.getByRole("menu");
-        expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["向右拆分编辑器", "用其它编辑器重新打开", "---", "测试编辑区按钮"]);
+        expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["向右拆分编辑器", "显示或隐藏批注页边", "用其它编辑器重新打开", "---", "测试编辑区按钮"]);
         await menu.getByRole("menuitem", {name: "测试编辑区按钮"}).click();
         await expect(page.getByText(`收到 ${JSON.stringify({address: "project://a.md"})}`)).toBeVisible();
     });
