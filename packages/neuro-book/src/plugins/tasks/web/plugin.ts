@@ -62,8 +62,8 @@ const COMMAND_DECLARATIONS = {
     },
 } as const satisfies Readonly<Record<string, WrittenCommandDeclaration>>;
 
-/** 视图第一次放在底部面板，排在“通知”（order 20）之前；标题与动作的标题取约定键。 */
-const TASKS_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-list-checks", location: "panel", order: 10, layout: "fill", actions: [{command: CLEAR_FINISHED_COMMAND, icon: "i-lucide-list-x"}]};
+/** 视图第一次放在底部面板，排在“通知”（order 20）之前；标题与动作的标题取约定键。不因它让底部面板默认显示：经状态栏条目打开。 */
+const TASKS_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-list-checks", location: "panel", order: 10, layout: "fill", revealRegion: false, actions: [{command: CLEAR_FINISHED_COMMAND, icon: "i-lucide-list-x"}]};
 
 /** 右侧、order 大于别的条目，所以紧挨铃铛；priority 60 让它在窄时比 Agent 活动（50）与编辑器条目后收进“更多”。 */
 const STATUS_ITEM_DECLARATION: ItemDeclaration = {title: tasksText("statusItems.status.title"), alignment: "right", order: 1000, priority: 60, command: {id: SHOW_TASKS_COMMAND}, when: {requires: [tasksState.key("nonEmpty")]}};

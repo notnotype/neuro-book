@@ -35,7 +35,7 @@ const context: ViewContext = {id: "nbook.workbench.notifications", generation: 1
 </script>
 
 <template>
-    <div class="notifications-fixture" :style="{width: scene.includes('narrow') ? '648px' : '1040px'}">
+    <div class="notifications-fixture" :style="{width: scene.includes('narrow') ? 'min(648px, 100%)' : 'min(1040px, 100%)'}">
         <WorkbenchNotificationsView :context="context" :center="notifications.center" />
     </div>
 </template>

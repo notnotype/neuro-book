@@ -59,7 +59,7 @@ const context: ViewContext = {id: "nbook.tasks.list", generation: 1, visible: re
     <div v-if="scene.startsWith('hover')" class="tasks-fixture__hover nb-ui-tooltip-surface">
         <TasksHover :store="store" data-lab-subject />
     </div>
-    <div v-else class="tasks-fixture__panel" :style="{width: scene.includes('narrow') ? '648px' : '1040px'}">
+    <div v-else class="tasks-fixture__panel" :style="{width: scene.includes('narrow') ? 'min(648px, 100%)' : 'min(1040px, 100%)'}">
         <TasksView :context="context" :store="store" data-lab-subject />
     </div>
 </template>

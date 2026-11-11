@@ -97,11 +97,11 @@ const NO_IMPLEMENTATION: ActivityBarItemImplementation = Object.freeze({});
 
 /**
  * “通知”视图（docs/specs/workbench/notifications.md 输出 14）：第一次放在底部面板，排在“后台任务”（order 10）之后；标题与
- * “全部清除”的标题取约定键（`views.notifications…`）。视图自己滚动（`fill`）。
+ * “全部清除”的标题取约定键（`views.notifications…`）。视图自己滚动（`fill`）。不因它让底部面板默认显示：经铃铛打开。
  */
 const NOTIFICATIONS_VIEW_CONTRIBUTION = viewContribution({
     id: NOTIFICATIONS_VIEW,
-    declaration: {icon: "i-lucide-bell", location: "panel", order: 20, layout: "fill", actions: [{command: CLEAR_NOTIFICATIONS_COMMAND, icon: "i-lucide-list-x"}]},
+    declaration: {icon: "i-lucide-bell", location: "panel", order: 20, layout: "fill", revealRegion: false, actions: [{command: CLEAR_NOTIFICATIONS_COMMAND, icon: "i-lucide-list-x"}]},
     load: () => import("./components/WorkbenchNotificationsView.vue"),
 });
 
