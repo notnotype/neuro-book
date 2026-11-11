@@ -1,7 +1,7 @@
 /**
  * 一棵树的拖放（docs/specs/ui/workbench-layout.md 输出 24 到 32）：手势是 nb-layout 的拖动会话，落点规则是 `resolveLayoutDrop`，这里读 DOM 给它矩形，把结果换成反馈要画的东西。
  *
- * 拖动源：标签（`data-panel-tab`，工具视图与编辑器标签都是，侧栏这一列的标题也是）、活动栏条目（`data-tool-entry`）、浮动窗的头（标签条空白，或它唯一的标签：整窗移动，输出 39）。树里整块面板不能拖（输出 24）。`data-no-drag` 里的按钮既不起拖也不接收，
+ * 拖动源：标签（`data-panel-tab`，工具视图与编辑器标签都是，侧栏这一列的标题也是）、活动栏里只含一个视图的入口（`data-tool-view`，拖的是那个视图；含几个视图的入口不起拖）、浮动窗的头（标签条空白，或它唯一的标签：整窗移动，输出 39）。树里整块面板不能拖（输出 24）。`data-no-drag` 里的按钮既不起拖也不接收，
  * `data-no-drag-start` 只是不起拖（标签上的关闭按钮：拖动经过时它还在标签条里），被菜单、对话框挡住的不接收。编辑组的标签条写 `data-panel-strip`，它的多行、固定分区由编辑器量（`editorTabs`）。
  *
  * 活动栏上段（`data-tool-band`）是侧栏的标签条：工具视图放上去进 `sidebar`，位置按条目量（输出 22），预览和别的标签条一样。这段不走库的落点规则：条不是面板。
@@ -247,7 +247,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const viewId = viewIdOf(tab);
         if (band !== null && bandRect !== null && contains(bandRect, at.point)) {
             if (viewId === null) return null;
-            const frame = band.querySelector<HTMLElement>(`[data-tool-entry="${escape(viewId)}"]`)?.closest<HTMLElement>(".workbench-tool-strip__frame") ?? null;
+            const frame = band.querySelector<HTMLElement>(`[data-tool-view="${escape(viewId)}"]`)?.closest<HTMLElement>(".workbench-tool-strip__frame") ?? null;
             return frame === null ? null : {frame, bounds: bandRect, vertical: true};
         }
         if (options.titleOnly(at.panel)) return null;
@@ -345,8 +345,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
 
     function measureBar(doc: LayoutDoc): ReadonlyArray<BarEntry> {
         const tabs = new Set(doc.panels[SIDEBAR]?.tabs.map(tabKey));
-        return [...(toolBand()?.querySelectorAll<HTMLElement>("[data-tool-entry]") ?? [])].flatMap((entry) => {
-            const tab = viewKey(entry.dataset.toolEntry ?? "");
+        return [...(toolBand()?.querySelectorAll<HTMLElement>("[data-tool-view]") ?? [])].flatMap((entry) => {
+            const tab = viewKey(entry.dataset.toolView ?? "");
             return tabs.has(tab) ? [{tab, rect: entry.getBoundingClientRect()}] : [];
         });
     }
@@ -698,7 +698,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     }
 
     const fromElement = (element: Element): LayoutSource | null => {
-        const entry = element.closest<HTMLElement>("[data-tool-entry]")?.dataset.toolEntry;
+        const entry = element.closest<HTMLElement>("[data-tool-view]")?.dataset.toolView;
         if (entry !== undefined) return {kind: "tab", tab: viewKey(entry)};
         const tab = element.closest<HTMLElement>("[data-panel-tab]")?.dataset.panelTab;
         // 浮动窗的头：标签条空白，或它唯一的标签，拖的是整个窗；多标签时拖标签是撕下（输出 39）。
@@ -817,8 +817,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             // 焦点要在拖动源本身：标签或条目；面板头里别的控件保留自己的空格。
             // 键盘的来源总是标签：整窗移动有自己的把手（`FloatWindowHandles`）。
             sourceAt: (target) => {
-                if (!target.matches("[data-panel-tab], [data-tool-entry]") || sourceAt(target) === null) return null;
-                const entry = (target as HTMLElement).dataset.toolEntry;
+                if (!target.matches("[data-panel-tab], [data-tool-view]") || sourceAt(target) === null) return null;
+                const entry = (target as HTMLElement).dataset.toolView;
                 return {kind: "tab", tab: entry === undefined ? ((target as HTMLElement).dataset.panelTab as string) : viewKey(entry)};
             },
             regions: (from) => {
@@ -859,7 +859,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             },
             refocus: (source) => {
                 const tab = source.kind === "tab" ? source.tab : "";
-                return root.querySelector<HTMLElement>(`[data-panel-tab="${escape(tab)}"]`) ?? root.querySelector<HTMLElement>(`[data-tool-entry="${escape(viewIdOf(tab) ?? "")}"]`);
+                return root.querySelector<HTMLElement>(`[data-panel-tab="${escape(tab)}"]`) ?? root.querySelector<HTMLElement>(`[data-tool-view="${escape(viewIdOf(tab) ?? "")}"]`);
             },
         },
     });

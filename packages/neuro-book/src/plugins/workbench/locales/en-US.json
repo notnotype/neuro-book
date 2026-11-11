@@ -229,7 +229,10 @@
     "viewContainers": {
         "project": {
             "title": "Project"
-        }
+        },
+        "reset": "Reset",
+        "entryTooltip": "{{name}}: {{views}}",
+        "viewSeparator": ", "
     },
     "common": {
         "more": "More",
@@ -262,9 +265,6 @@
             "rejected": "Can't drop here"
         },
         "moreActions": "More Actions",
-        "frame": {
-            "hide": "Hide"
-        },
         "missing": {
             "view": "The plugin providing this view is not here: {{viewId}}",
             "close": "Close this tab"

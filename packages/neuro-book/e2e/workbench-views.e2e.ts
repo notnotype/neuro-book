@@ -60,7 +60,11 @@ const head = (page: Page, panel: string) => page.locator(`[data-panel-head="${pa
 const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"]`);
 /** 视图所在分节的面板头：区域的锚不进呈现树，分节的头只写它那个视图的标题（输出 20、40），所以按视图找。 */
 const headOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"])`);
-const toolEntry = (page: Page, viewId: string) => page.locator(`[data-tool-entry="${viewId}"]`);
+/**
+ * 活动栏里视图自己那个容器的入口（输出 22、41）：样例视图都没写容器，各是自己的隐式容器 `view:<视图 id>`。视图并进别的容器后
+ * 这个容器没有成员，入口也就没有了。
+ */
+const toolEntry = (page: Page, viewId: string) => page.locator(`[data-tool-entry="view:${viewId}"]`);
 const frame = (page: Page, panel: string, command: string) => head(page, panel).locator(`[data-panel-action="nbook.view.${command}"]`);
 const frameOf = (page: Page, viewId: string, command: string) => headOf(page, viewId).locator(`[data-panel-action="nbook.view.${command}"]`);
 /**
@@ -102,8 +106,8 @@ async function pickExact(page: Page, placeholder: string, label: string): Promis
 }
 
 /**
- * 让侧栏这一列的视图可见并成为当前视图：它不是当前视图时没有标签 DOM（输出 22、23），切换只能点活动栏条目；已经是当前视图
- * 再点条目是隐藏，所以先看按下态。
+ * 让侧栏里视图自己的容器成为当前容器并可见：不是当前容器的分节不显示、没有标题 DOM（输出 42），切换点活动栏的入口；已经是
+ * 当前容器再点入口是隐藏侧栏（输出 22），所以先看按下态。
  */
 async function showView(page: Page, viewId: string): Promise<void> {
     const entry = toolEntry(page, viewId);
@@ -112,12 +116,12 @@ async function showView(page: Page, viewId: string): Promise<void> {
 }
 
 /**
- * 右键视图，在菜单里选目标：移动视图的入口（输出 23），目标名是面板名、“新面板（挨着 X）”或“重置位置”。侧栏这一列的视图
- * 右键活动栏条目（它们不一定有标签 DOM），别处的视图右键标签。
+ * 右键视图所在分节的标题，在菜单里选目标：移动视图的入口（输出 23），目标名是面板名、“新面板（挨着 X）”或“重置位置”。
+ * 活动栏入口的右键菜单是容器的（输出 44），不是视图的。视图自己的容器在侧栏、不是当前容器时分节没有标题 DOM，先切过去。
  */
 async function moveViaMenu(page: Page, viewId: string, target: string): Promise<void> {
-    const source = await toolEntry(page, viewId).count() > 0 ? toolEntry(page, viewId) : tab(page, viewId);
-    await source.click({button: "right"});
+    if (await toolEntry(page, viewId).count() > 0) await showView(page, viewId);
+    await tab(page, viewId).click({button: "right"});
     await page.getByRole("menuitem", {name: target, exact: true}).click();
     await expect(page.getByRole("menu")).toHaveCount(0);
 }
@@ -340,63 +344,121 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(await area.getAttribute("data-instance")).toBe(instance);
     });
 
-    test("活动栏：不可见时点它显示并聚焦，可见时点它隐藏所在的具名面板（不看焦点在哪）；按下态等于有效可见；拖到零时点它按记忆尺寸展开（输出 22；验收 14）", async ({page}) => {
+    test("活动栏：点不是当前容器的入口切到它；点当前容器的入口隐藏侧栏（不看焦点在哪），再点展开；按下态是当前容器且侧栏可见，至多一项；拖到零时点入口展开（输出 22、42；验收 14）", async ({page}) => {
         await open(page);
-        // 活动栏只列侧栏这一列的视图，当前的那个按下。
+        const pressed = page.locator('[data-tool-entry][aria-pressed="true"]');
+        // 侧栏的三个样例视图各是自己的容器：一个容器一项，只有当前容器的那一项按下。
         await expect(toolEntry(page, A)).toHaveAttribute("aria-pressed", "true");
-        for (const viewId of [B, C]) await expect(toolEntry(page, viewId)).toHaveAttribute("aria-pressed", "false");
+        await expect(pressed).toHaveCount(1);
 
-        // 不可见：显示所在面板、激活它。同一块面板里它取代原先激活的标签。
+        // 不是当前容器：切到它。原来那个容器的分节不显示，内容停放、不卸载（输出 42）。
+        await sample(page, A).locator("input").focus();
         await toolEntry(page, B).click();
         await expect(toolEntry(page, B)).toHaveAttribute("aria-pressed", "true");
-        await expect(toolEntry(page, A)).toHaveAttribute("aria-pressed", "false");
+        await expect(pressed).toHaveCount(1);
         await expect(sample(page, B)).toBeVisible();
         await expect(sample(page, A)).toHaveAttribute("data-visible", "false");
-        const width = (await box(page, "sidebar")).width;
+        await parked(page, A);
+        await expect(tab(page, A)).toHaveCount(0);
+        const section = await panelOfTab(page, B);
+        const width = (await box(page, section)).width;
+        // 入口是拖动源，指针按下不取焦点：焦点原来在被切走的甲里，交给新容器的第一个分节（输出 42）。
+        await expect.poll(() => focusedPanelOf(page)).toBe(section);
 
-        // 可见：隐藏所在的具名面板。
-        await expect.poll(() => focusedPanelOf(page)).toBe("sidebar");
+        // 当前容器、侧栏可见：隐藏侧栏。没有按下的入口了；焦点所在的分节看不见了，移到它那个容器的入口（输出 16）。
         await toolEntry(page, B).click();
-        await expect(leaf(page, "sidebar")).toHaveCount(0);
-        await expect(toolEntry(page, B)).toHaveAttribute("aria-pressed", "false");
-        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
-        // 隐藏之后点它：显示回来，按记忆尺寸。
+        await expect(leaf(page, section)).toHaveCount(0);
+        await expect(pressed).toHaveCount(0);
+        await expect(toolEntry(page, B)).toBeFocused();
+        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar).toMatchObject({hidden: true, activeContainer: `view:${B}`});
+        // 隐藏之后点它：显示回来，宽度是原来的。
         await toolEntry(page, B).click();
         await expect(sample(page, B)).toBeVisible();
         await expect(toolEntry(page, B)).toHaveAttribute("aria-pressed", "true");
-        await expect.poll(async () => Math.round((await box(page, "sidebar")).width)).toBe(Math.round(width));
+        await expect.poll(async () => Math.round((await box(page, section)).width)).toBe(Math.round(width));
+        // 焦点留在原处（输出 42）：不被显示出来的分节抢走。
+        await expect(toolEntry(page, B)).toBeFocused();
 
         // 可见但焦点不在里面：照样是隐藏，没有“先聚焦”这一步。
         await sample(page, E).locator("input").focus();
-        await expect.poll(() => focusedPanelOf(page)).toBe("panel");
+        await expect.poll(() => focusedPanelOf(page)).toBe(await panelOfTab(page, E));
         await toolEntry(page, B).click();
-        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        await expect(leaf(page, section)).toHaveCount(0);
+        // 侧栏隐藏着点另一个入口：切过去，同一次写入把侧栏显示出来。
+        await toolEntry(page, A).click();
+        await expect(sample(page, A)).toBeVisible();
+        await expect(toolEntry(page, A)).toHaveAttribute("aria-pressed", "true");
+        await expect(pressed).toHaveCount(1);
+        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar).toMatchObject({activeContainer: `view:${A}`});
+        expect((await saved(page))?.doc.panels.sidebar?.hidden ?? false).toBe(false);
         await toolEntry(page, B).click();
         await expect(sample(page, B)).toBeVisible();
 
-        // 拖到零：内容停放；点另一项显示并按记忆尺寸展开。
-        await sidebarSash(page).focus();
-        await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(0);
+        // 拖到零：内容停放，没有按下的入口；点当前容器的入口是展开，不是隐藏。
+        const toZero = async (): Promise<void> => {
+            await sidebarSash(page).focus();
+            await page.keyboard.press("Enter");
+            await expect.poll(async () => (await box(page, section)).width).toBe(0);
+            await expect(pressed).toHaveCount(0);
+        };
+        await toZero();
         await parked(page, B);
-        await expect(toolEntry(page, B)).toHaveAttribute("aria-pressed", "false");
+        await toolEntry(page, B).click();
+        await expect(sample(page, B)).toBeVisible();
+        await expect(toolEntry(page, B)).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(async () => Math.round((await box(page, section)).width)).toBe(Math.round(width));
+        // 拖到零时点另一个入口：切过去并展开，宽度是原来的。
+        await toZero();
         await toolEntry(page, C).click();
         await expect(sample(page, C)).toBeVisible();
-        await expect.poll(async () => Math.round((await box(page, "sidebar")).width)).toBe(Math.round(width));
         await expect(toolEntry(page, C)).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(async () => Math.round((await box(page, await panelOfTab(page, C))).width)).toBe(Math.round(width));
     });
 
-    test("活动栏只列侧栏这一列的视图，顺序是文档里的标签顺序：移到右栏后不在，移回来又在（输出 22；验收 14）", async ({page}) => {
+    test("切换容器时焦点原来在被切走的分节里：交给新容器的第一个分节；键盘激活入口时焦点留在入口上（输出 42）", async ({page}) => {
+        await open(page);
+        // 焦点在甲的内容里，经命令打开丙：侧栏切到丙的容器，甲的内容停放，焦点进丙的分节，不落到页面上。
+        await sample(page, A).locator("input").focus();
+        await runCommand(page, "打开视图");
+        await pick(page, "选择要打开的视图", "样例丙");
+        await expect(sample(page, C)).toBeVisible();
+        await expect.poll(() => focusedPanelOf(page)).toBe(await panelOfTab(page, C));
+        // 键盘：焦点在入口上按回车，切过去，焦点还在这个入口上。
+        await toolEntry(page, B).focus();
+        await page.keyboard.press("Enter");
+        await expect(sample(page, B)).toBeVisible();
+        await expect(toolEntry(page, B)).toBeFocused();
+    });
+
+    test("活动栏一个容器一项，按入口顺序；只含一个视图的入口写着它的视图；视图并进别的容器后自己的入口消失，那个入口的悬停文字写出两个视图；重置位置后入口回到原来的位置（输出 22、41；验收 14）", async ({page}) => {
         await open(page);
         const entries = () => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
-        expect(await entries()).toEqual([A, B, C]);
+        const containers = (...viewIds: string[]) => viewIds.map((viewId) => `view:${viewId}`);
+        expect(await entries()).toEqual(containers(A, B, C));
+        for (const viewId of [A, B, C]) await expect(toolEntry(page, viewId)).toHaveAttribute("data-tool-view", viewId);
+        // 乙移到右栏：成了那边的容器的分节，自己的容器没有成员，入口消失（输出 41）；右栏的容器不在活动栏里。
         await moveViaMenu(page, B, "右栏");
-        await expect.poll(entries).toEqual([A, C]);
-        await expect(toolEntry(page, B)).toHaveCount(0);
-        // 移回来排在末尾（文档里的标签顺序），不按视图声明的 order 回到原来的位置。
+        await expect.poll(entries).toEqual(containers(A, C));
+        await expect.poll(() => instanceOf(page, B)).toMatchObject({location: "auxiliarybar"});
+        // 乙移进侧栏：成为侧栏当前容器的又一个分节。入口还是两个；当前容器的入口含两个视图，不再写单个视图，悬停文字写出两个视图。
         await moveViaMenu(page, B, "侧栏");
-        await expect.poll(entries).toEqual([A, C, B]);
+        await expect.poll(() => instanceOf(page, B)).toMatchObject({location: "sidebar"});
+        await expect.poll(entries).toEqual(containers(A, C));
+        const current = page.locator('[data-tool-entry][aria-pressed="true"]');
+        await expect(current).toHaveCount(1);
+        expect(await current.getAttribute("data-tool-view")).toBeNull();
+        const host = (await current.getAttribute("data-tool-entry")) === `view:${A}` ? "样例甲" : "样例丙";
+        await expect(current).toHaveAccessibleName(host);
+        // 提示的面里除了看得见的字还有给读屏的一份，所以比“包含”。
+        await current.hover();
+        await expect(page.locator(".nb-ui-tooltip-surface")).toContainText(`${host}：${host}、样例乙`);
+        await page.mouse.move(700, 400);
+        await expect(page.locator(".nb-ui-tooltip-surface")).toHaveCount(0);
+        // 重置位置：乙回到自己的容器。隐式容器的 id 一直留在入口顺序里（输出 41：只有用户拖出来的容器空了才删掉），入口回到原来的位置；侧栏切到它。
+        await moveViaMenu(page, B, "重置位置");
+        await expect.poll(entries).toEqual(containers(A, B, C));
         await expect(toolEntry(page, B)).toHaveAttribute("aria-pressed", "true");
+        await expect(toolEntry(page, B)).toHaveAttribute("data-tool-view", B);
     });
 
     test("侧栏这一列的头只写当前视图的标题：标题的描述说怎么拖，内容的名称是视图标题、不含“拖动”（输出 20、22；验收 14）", async ({page}) => {
@@ -526,32 +588,64 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-panel-count", "4");
         for (const viewId of [A, B, C]) await expect(toolEntry(page, viewId)).toHaveCount(1);
         // 初始位置的视图没有“重置位置”。
-        await toolEntry(page, C).click({button: "right"});
+        await showView(page, C);
+        await tab(page, C).click({button: "right"});
         await expect(page.getByRole("menuitem", {name: "重置位置", exact: true})).toHaveCount(0);
         await page.keyboard.press("Escape");
         await expect(page.getByRole("menu")).toHaveCount(0);
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.tabs.map((item) => item.viewId).sort()).toEqual([A, B, C].sort());
     });
 
-    test("键盘：焦点在活动栏条目上按菜单键打开“移动到”菜单，用键盘选一项移动（输出 23；验收 9、15）", async ({page}) => {
+    test("键盘：焦点在活动栏的入口上按菜单键打开容器的菜单；容器在声明的区域时没有菜单；“重置”把容器搬回声明的区域（输出 16、44；验收 9）", async ({page}) => {
         await open(page);
+        // 容器就在它声明的区域：没有“重置”，一项都没有，菜单不开，焦点不动。
         await toolEntry(page, C).focus();
         await toolEntry(page, C).press("ContextMenu");
-        await expect(page.getByRole("menuitem", {name: "面板", exact: true})).toBeVisible();
-        // 打开时焦点已在第一个可用项上：方向键移到“面板”，回车选中。
-        await page.getByRole("menuitem", {name: "面板", exact: true}).focus();
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await toolEntry(page, C).click({button: "right"});
+        await expect(page.getByRole("menu")).toHaveCount(0);
+
+        // 让右栏的样例丁带着自己的容器进侧栏：区域里一个容器都没有时，移进去的视图在自己的容器里（输出 23）。先把侧栏的三个视图移走。
+        for (const viewId of [A, B, C]) await moveViaMenu(page, viewId, "面板");
+        await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(0);
+        await moveViaMenu(page, D, "侧栏");
+        await expect.poll(() => instanceOf(page, D)).toMatchObject({location: "sidebar"});
+        await expect(toolEntry(page, D)).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.activeContainer).toBe(`view:${D}`);
+
+        // 菜单键：菜单里只有“重置”。Escape 关闭，焦点回到入口。
+        await toolEntry(page, D).focus();
+        await toolEntry(page, D).press("ContextMenu");
+        await expect(page.getByRole("menu").getByRole("menuitem")).toHaveCount(1);
+        await expect(page.getByRole("menuitem", {name: "重置", exact: true})).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await expect(toolEntry(page, D)).toBeFocused();
+
+        // 回车选“重置”：整个容器搬回右栏，右栏显示并切到它；侧栏没有容器了，隐藏，活动栏没有入口。
+        await toolEntry(page, D).press("ContextMenu");
+        await expect(page.getByRole("menuitem", {name: "重置", exact: true})).toBeVisible();
+        await page.getByRole("menuitem", {name: "重置", exact: true}).focus();
         await page.keyboard.press("Enter");
-        await expect(head(page, "panel").locator(`[data-panel-tab="view:${C}"]`)).toBeVisible();
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await expect.poll(() => instanceOf(page, D)).toMatchObject({location: "auxiliarybar"});
+        await expect(sample(page, D)).toBeVisible();
+        await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(0);
+        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
+        expect((await saved(page))?.doc.panels.auxiliarybar).toMatchObject({activeContainer: `view:${D}`});
+        // 打开菜单的入口不在了：焦点到这个容器第一个分节的标题，不落到页面上（输出 16）。
+        await expect(tab(page, D)).toBeFocused();
     });
 
-    test("键盘：菜单键打开的“移动到”菜单按 Escape 关闭，焦点回到打开它的条目，不落到页面上（输出 16、23）", async ({page}) => {
+    test("键盘：分节标题上按菜单键打开“移动到”菜单，按 Escape 关闭，焦点回到标题，不落到页面上（输出 16、20、23）", async ({page}) => {
         await open(page);
-        await toolEntry(page, C).focus();
-        await toolEntry(page, C).press("ContextMenu");
+        await showView(page, C);
+        await tab(page, C).focus();
+        await tab(page, C).press("ContextMenu");
         await expect(page.getByRole("menu")).toBeVisible();
         await page.keyboard.press("Escape");
         await expect(page.getByRole("menu")).toHaveCount(0);
-        await expect(toolEntry(page, C)).toBeFocused();
+        await expect(tab(page, C)).toBeFocused();
     });
 
     test("命令面板的移动视图：先选视图、再选目标；取消任一步不写（输出 35）", async ({page}) => {
@@ -942,35 +1036,34 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(selectedTab).toContainText(name.slice(0, 2));
     });
 
-    test("活动栏放不下时，末尾的条目收进底部的“更多”，有效可见的总在外面；从“更多”选中后它回到活动栏（输出 22；验收 14）", async ({page}) => {
+    test("活动栏放不下时，排在后面的入口收进底部的“更多”，当前容器的入口总在外面；从“更多”选中后它回到活动栏（输出 22；验收 14）", async ({page}) => {
         await open(page);
-        // 活动栏只列侧栏这一列：把另外三个视图也搬进侧栏，凑够六个条目。
-        for (const viewId of [D, E, F]) await moveViaMenu(page, viewId, "侧栏");
-        const entries = page.locator("[data-tool-entry]");
-        await expect(entries).toHaveCount(6);
+        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        await expect(entries).toHaveCount(3);
         await expect(page.locator("[data-tool-more]")).toHaveCount(0);
-        // 侧栏里当前的视图（最后搬进来的己）按下，其余没有。
-        const pressed = page.locator('[data-tool-entry][aria-pressed="true"]');
-        await expect(pressed).toHaveCount(1);
-        const current = (await pressed.getAttribute("data-tool-entry"))!;
-        // 340 高：活动栏放得下三个条目加“更多”，有效可见的那一个在外面，其余收进去。
-        await page.setViewportSize({width: 1440, height: 340});
+        // 当前容器换成入口顺序里最后一个：按先后收的话它最先被收走。
+        await showView(page, C);
+        // 280 高：活动栏只放得下一个入口加“更多”。当前容器的那一个在外面，排在它前面的两个收进去。
+        await page.setViewportSize({width: 1440, height: 280});
         const more = page.locator("[data-tool-more]");
         await expect(more).toBeVisible();
-        await expect.poll(() => entries.count()).toBeLessThan(6);
+        await expect.poll(() => entries.count()).toBeLessThan(3);
         const shown = await entries.count();
-        await expect(toolEntry(page, current)).toBeVisible();
-        // 条目与“更多”都在活动栏里，不滚动
+        await expect(toolEntry(page, C)).toBeVisible();
+        await expect(toolEntry(page, C)).toHaveAttribute("aria-pressed", "true");
+        // 入口与“更多”都在活动栏里，不滚动。
         const strip = await page.locator(".workbench-tool-strip__entries").evaluate((element) => ({scroll: element.scrollHeight, client: element.clientHeight}));
         expect(strip.scroll).toBeLessThanOrEqual(strip.client);
         await more.click();
         const menu = page.getByRole("menu").getByRole("menuitem");
-        await expect(menu).toHaveCount(6 - shown);
+        await expect(menu).toHaveCount(3 - shown);
         const picked = (await menu.last().innerText()).trim();
         await menu.last().click();
-        // 选中的视图显示出来，按下，回到活动栏外面一层。
+        // 选中的容器成为当前容器，它的入口回到活动栏外面一层；原来的当前容器让出位置。
         const entry = page.locator("[data-tool-entry]").and(page.getByRole("button", {name: picked, exact: true}));
         await expect(entry).toHaveAttribute("aria-pressed", "true");
+        await expect(toolEntry(page, C)).toHaveCount(0);
+        await expect(entries).toHaveCount(shown);
     });
 
     test("focusedPart：焦点进到侧栏、面板时随之变化，焦点移到外壳之外的命令面板时保持（输出 36）", async ({page}) => {

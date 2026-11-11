@@ -5,8 +5,8 @@
  * 活动栏、“移动到”菜单读的是这里的同一个结果。
  */
 
-import {isContainerAnchor, regionNodeOf, setActiveContainer, setContainerEntries, setPanelHidden, treeLeaves} from "@notnotype/nb-layout";
-import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, PanelName} from "@notnotype/nb-layout";
+import {findTreeNode, isContainerAnchor, movePanelToEdge, REGION_ORIENTATION, regionNodeOf, setActiveContainer, setContainerEntries, setPanelCollapsed, setPanelHidden, setSiblingShares, treeLeaves} from "@notnotype/nb-layout";
+import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutPolicy, LayoutResult, PanelName} from "@notnotype/nb-layout";
 
 import {CUSTOM_CONTAINER_PREFIX, IMPLICIT_CONTAINER_PREFIX, VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewContainerDeclaration, ViewDeclaration, ViewLocation} from "../../shared/views";
@@ -135,6 +135,81 @@ export function sectionLanding(doc: LayoutDoc, region: PanelName, container: str
     if (hit === null || anchor === undefined || !isContainerAnchor(anchor)) return null;
     const last = regionSections(doc, region).filter((section) => section.container === container).at(-1);
     return {kind: "split", panel: last?.panel ?? hit.anchor, edge: AFTER_EDGE[region]};
+}
+
+/**
+ * 容器声明的区域（输出 44 的“重置”）：声明的容器看容器的 `location`，隐式容器看它那个视图的。用户拖出来的容器没有声明的区域；
+ * 声明不在了的（容器的声明、隐式容器那个视图的声明）也没有，是 null。
+ */
+export function containerHomeRegion(container: string, views: ViewCatalog, containers: ContainerCatalog): ViewLocation | null {
+    const declared = containers.get(container);
+    if (declared !== undefined) return declared.location;
+    return container.startsWith(IMPLICIT_CONTAINER_PREFIX) ? (views.get(container.slice(IMPLICIT_CONTAINER_PREFIX.length))?.location ?? null) : null;
+}
+
+/** 入口的右键菜单里有没有“重置”（输出 44）：容器有声明的区域，此刻不在那里。 */
+export function canResetContainer(doc: LayoutDoc, container: string, views: ViewCatalog, containers: ContainerCatalog): boolean {
+    const home = containerHomeRegion(container, views, containers);
+    const here = containerRegion(doc, container);
+    return home !== null && here !== null && here !== home;
+}
+
+/**
+ * 把整个容器搬到另一个区域（输出 44 的“移到”“重置”）：分节的先后、彼此的大小、收成标题行都带着，入口排到目标区域入口顺序的最后，
+ * 目标区域显示（清掉隐藏与拖到零）并切到它。来源区域的当前容器换谁、空了要不要隐藏由 `settleContainers` 收尾，调用方提交时过它。
+ *
+ * - 大小：各分节沿区域方向的意图之比不变。来源与目标方向不同（侧栏、右栏是一列，底部面板是一排）时原来的高度之比没有对应，平分。
+ * - 收成标题行：只带进一列的区域；底部面板的分节不折叠，搬进去就是展开的。
+ *
+ * 容器已经在目标区域时返回原对象。中间哪一步被库拒绝，整个动作失败，文档不变。
+ */
+export function moveContainerTo(doc: LayoutDoc, container: string, to: PanelName, policy: LayoutPolicy): LayoutResult {
+    const from = containerRegion(doc, container);
+    if (from === null) return {ok: false, code: "not-found", detail: `容器 ${container}`};
+    if (from === to) return {ok: true, doc};
+    const members = regionSections(doc, from).filter((section) => section.container === container).map((section) => section.panel);
+    const sameAxis = REGION_ORIENTATION[from] === REGION_ORIENTATION[to];
+    const main = REGION_ORIENTATION[from] === "vertical" ? "height" : "width";
+    // 意图取搬之前的：收成标题行的分节，意图就是它展开时的尺寸（`rebaseIntents` 不写收起的面板）。
+    const shares = members.map((panel) => ({node: panel, share: sameAxis ? (findTreeNode(doc.tree.root, panel)?.node.size[main] ?? 0) : 1}));
+    const collapsed = REGION_ORIENTATION[to] === "vertical" ? members.filter((panel) => doc.panels[panel]?.collapsed === true) : [];
+
+    let next = doc;
+    for (const panel of members) {
+        const target = sectionLanding(next, to, container);
+        if (target === null) return {ok: false, code: "not-found", detail: `区域 ${to}`};
+        const moved = movePanelToEdge(next, {panel, target, container}, policy);
+        if (!moved.ok) return moved;
+        next = moved.doc;
+    }
+    // 外缘放置每次从前一块取一半，连放几块之后的比例和搬之前无关：按搬之前的重分它们合占的那一份。只有一个分节时没有比例可言。
+    if (members.length > 1) {
+        const shared = setSiblingShares(next, shares);
+        if (!shared.ok) return shared;
+        next = shared.doc;
+    }
+    // 外缘放置会展开搬的面板。趁容器还没显示写回去：显示着的唯一一个分节收不成标题行（`sectionCollapseBlock`），记录里的意图却要留着。
+    for (const panel of collapsed) {
+        const folded = setPanelCollapsed(next, panel, true);
+        if (!folded.ok) return folded;
+        next = folded.doc;
+    }
+    // 先归整，入口顺序里才有它；声明的容器与隐式容器以前来过这个区域时 id 还留在原来的位置，这里挪到最后。
+    next = settleContainers(next);
+    const anchor = regionAnchor(next, to);
+    if (anchor === null) return {ok: false, code: "not-found", detail: `区域 ${to}`};
+    const entries = next.panels[anchor]?.entries ?? [];
+    const steps = [
+        (current: LayoutDoc) => setContainerEntries(current, anchor, [...entries.filter((id) => id !== container), container]),
+        (current: LayoutDoc) => setPanelHidden(current, anchor, false),
+        (current: LayoutDoc) => setActiveContainer(current, anchor, container),
+    ];
+    for (const step of steps) {
+        const result = step(next);
+        if (!result.ok) return result;
+        next = result.doc;
+    }
+    return {ok: true, doc: next};
 }
 
 /** 当前容器没有成员了换到谁（输出 43）：入口顺序里它前面最近的有成员的，前面没有就后面最近的；原来就没有当前容器时是第一个有成员的。 */

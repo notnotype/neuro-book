@@ -380,8 +380,16 @@ export const labFixtures: LabFixture[] = [
         events: ["select", "run-item"],
         class: "h-full",
         scenes: (() => {
-            const entry = (id: string, label: string, icon: string, pressed: boolean) => ({id, label, icon, pressed});
-            const entries = [entry("files", "资源管理器", "i-lucide-files", true), entry("search", "搜索", "i-lucide-search", false), entry("outline", "大纲", "i-lucide-list-tree", false), entry("chat", "对话", "i-lucide-message-square", true)];
+            // 只含一个视图的容器：入口就是这个视图的，能拖。
+            const entry = (viewId: string, label: string, icon: string, current: boolean) => ({id: `view:${viewId}`, label, icon, tooltip: label, viewId, current, pressed: current});
+            const entries = [
+                // 声明的容器，含两个视图：悬停文字写出它们，不起拖。
+                {id: "nbook.workbench.project", label: "项目", icon: "i-lucide-folder-kanban", tooltip: "项目：会话、资源管理器", viewId: null, current: true, pressed: true},
+                entry("search", "搜索", "i-lucide-search", false),
+                entry("outline", "大纲", "i-lucide-list-tree", false),
+                // 成员视图的声明不在：名称是视图 id，没有图标可取，画占位图标。
+                {id: "view:example.gone", label: "example.gone", icon: null, tooltip: "example.gone", viewId: "example.gone", current: false, pressed: false},
+            ];
             const items = [
                 {id: "profile", title: "个人资料尚未开放", icon: "i-lucide-user", interactive: false, pressed: null, disabledReason: null},
                 {id: "settings", title: "设置", icon: "i-lucide-settings", interactive: true, pressed: true, disabledReason: null},
@@ -389,9 +397,9 @@ export const labFixtures: LabFixture[] = [
             ];
             const base = {label: "活动栏", moreLabel: "更多"};
             return [
-                {id: "default", label: "两个视图同时按下，底段全局项", input: {props: {...base, entries, items}}},
-                {id: "many", label: "视图多：放不下时后面的收进“更多”，按下的总在外面", input: {props: {...base, entries: [...Array.from({length: 24}, (_, index) => entry(`v${String(index)}`, `视图 ${String(index)}`, "i-lucide-square", false)), entry("last", "排在最后的可见视图", "i-lucide-star", true)], items}}},
-                {id: "empty", label: "没有视图", input: {props: {...base, entries: [], items}}},
+                {id: "default", label: "一个容器一个入口：当前容器按下，声明不在的画占位图标，底段全局项", input: {props: {...base, entries, items}}},
+                {id: "many", label: "容器多：放不下时后面的收进“更多”，当前容器的总在外面", input: {props: {...base, entries: [...Array.from({length: 24}, (_, index) => entry(`v${String(index)}`, `视图 ${String(index)}`, "i-lucide-square", false)), entry("last", "排在最后的当前容器", "i-lucide-star", true)], items}}},
+                {id: "empty", label: "侧栏里没有容器", input: {props: {...base, entries: [], items}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),

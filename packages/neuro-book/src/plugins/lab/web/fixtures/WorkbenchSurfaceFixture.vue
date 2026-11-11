@@ -1,24 +1,26 @@
 <script setup lang="ts">
 /**
- * WorkbenchSurface 的场景（docs/specs/ui/workbench-layout.md，断言在 e2e/lab-workbench-surface.e2e.ts）。夹具自己扮演工作台：`侧栏(A | B) | (编辑组 g0 | g1) | 右栏(C | D)`，
- * 文档、呈现树、有效可见、活动栏条目都用产品的纯函数算（`state/`），只是不存盘、不接命令系统。按钮做拖放会提交的那些结构变化；真实的拖动手势在外壳切换时接上。
+ * WorkbenchSurface 的场景（docs/specs/ui/workbench-layout.md，断言在 e2e/lab-workbench-surface.e2e.ts）。夹具自己扮演工作台：`侧栏 | (编辑组 g0 | g1) | 右栏`，下面是底部面板。
+ * 五个视图都没写容器，各是自己的隐式容器（`view:a` 到 `view:e`）：侧栏有 A（当前）、B 两个容器，右栏有 C（当前）、D，底部面板有 E。一个区域只显示当前容器的分节，活动栏一个容器一个入口。
+ * 文档、呈现树、有效可见、活动栏的入口与点了做什么都用产品的纯函数算（`state/`），只是不存盘、不接命令系统。按钮做拖放与菜单会提交的那些结构变化；真实的拖动手势在外壳切换时接上。
  */
 import {
     activateTab,
     edgeTargetOf,
+    isSectionCollapsed,
     moveTabToEdge,
-    moveTabToStrip,
     openPanelAtEdge,
     presentationCollapse,
     projectLayoutDoc,
     rebaseIntents,
+    setActiveContainer,
     setPanelCollapsed,
     setPanelHidden,
     tabKey,
 } from "@notnotype/nb-layout";
-import type {GridExtent, LayoutDoc, LayoutResult} from "@notnotype/nb-layout";
+import type {GridExtent, LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-layout";
 import {IconButton} from "@notnotype/nb-ui/components";
-import {computed, nextTick, ref, shallowRef} from "vue";
+import {computed, ref, shallowRef} from "vue";
 
 import WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
 import type {PanelFrameAction, PanelHeadTab} from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
@@ -27,7 +29,8 @@ import WorkbenchToolStrip from "nbook/plugins/workbench/web/components/Workbench
 import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import {collapseOrder, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
-import {effectiveVisibleTabs, sidebarColumnPanels, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
+import {implicitContainerOf, moveContainerTo, sectionLanding, settleContainers} from "nbook/plugins/workbench/web/state/containers";
+import {containerEntries, effectiveVisibleTabs, sidebarVisible, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
 import type {ViewCatalog} from "nbook/plugins/workbench/web/views/registry";
 
 import type {LabFixtureProps} from "../lab-subject";
@@ -71,30 +74,41 @@ const collapse = computed(() => (extent.value === null ? {removed: new Set<strin
 const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value, removed: collapse.value.removed, squeezed: collapse.value.squeezed})));
 const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value}));
 
-/** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8），和产品的 store 同一个次序。 */
+/** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8），之后把锚归整到和分节一致（输出 41、43），和产品的 store 同一个次序。库拒绝时文档不变。 */
 function commit(operation: (current: LayoutDoc) => LayoutResult): void {
     const base = rebaseIntents(doc.value, presented.value, projection.value.collapsedTo);
-    doc.value = unwrap(operation(base), doc.value);
+    const result = operation(base);
+    if (result.ok) doc.value = settleContainers(result.doc);
+}
+
+/** 区域显示并切到这个容器（输出 42）。 */
+function showContainer(current: LayoutDoc, region: PanelName, container: string): LayoutResult {
+    const shown = setPanelHidden(settleContainers(current), region, false);
+    return shown.ok ? setActiveContainer(shown.doc, region, container) : shown;
 }
 
 function onGestureCommit(sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void {
-    // 先改收起状态再写回意图，和产品的 store 同一个次序：收起的面板呈现尺寸不是意图。
+    // 先改收起状态再写回意图，和产品的 store 同一个次序：收起的面板呈现尺寸不是意图。区域拖到零报的是代表区域的那个节点，状态记在锚上（输出 11）。
     let next = doc.value;
-    for (const [id, value] of Object.entries(collapsed)) next = unwrap(setPanelCollapsed(next, id, value), next);
+    for (const [id, value] of Object.entries(collapsed)) next = unwrap(setPanelCollapsed(next, projection.value.regionAnchors.get(id) ?? id, value), next);
     doc.value = rebaseIntents(next, sizes, projection.value.collapsedTo);
 }
 
-const moveTo = (tab: string, panel: string, edge: "left" | "right" | "top" | "bottom") => (current: LayoutDoc): LayoutResult => {
-    const target = edgeTargetOf(current, panel, edge);
-    return target === null ? {ok: false, code: "not-found", detail: panel} : moveTabToEdge(current, {tab, target}, POLICY);
+/** 把视图放成 `region` 里 `container` 的最后一个分节，区域显示并切到这个容器（输出 23 的“移进一个容器”）。 */
+const intoContainer = (viewId: string, region: PanelName, container: string) => (current: LayoutDoc): LayoutResult => {
+    const target = sectionLanding(current, region, container);
+    if (target === null) return {ok: false, code: "not-found", detail: region};
+    const moved = moveTabToEdge(current, {tab: `view:${viewId}`, target, container}, POLICY);
+    return moved.ok ? showContainer(moved.doc, region, container) : moved;
 };
 
 const ACTIONS: Readonly<Record<string, () => void>> = {
-    "a-to-right": () => commit((current) => moveTabToStrip(current, {tab: "view:a", panel: "auxiliarybar", index: 1}, POLICY)),
-    "a-back": () => commit((current) => moveTabToStrip(current, {tab: "view:a", panel: "sidebar", index: 0}, POLICY)),
-    // 无名面板只能挨着工具面板（骨架，输出 1）：挨着 `panel` 的右边，进面板这一排。
-    "c-to-new-panel": () => commit(moveTo("view:c", "panel", "right")),
-    "d-below-b": () => commit(moveTo("view:d", "sidebar", "bottom")),
+    // 整个容器搬到另一个区域（输出 44）：入口从活动栏消失，搬回来排在入口顺序最后。
+    "a-to-right": () => commit((current) => moveContainerTo(current, implicitContainerOf("a"), "auxiliarybar", POLICY)),
+    "a-back": () => commit((current) => moveContainerTo(current, implicitContainerOf("a"), "sidebar", POLICY)),
+    // 视图换容器：C 成为底部面板里 E 那个容器的又一个分节；D 成为侧栏里 B 那个容器的又一个分节。
+    "c-to-new-panel": () => commit(intoContainer("c", "panel", implicitContainerOf("e"))),
+    "d-below-b": () => commit(intoContainer("d", "sidebar", implicitContainerOf("b"))),
 };
 
 function headTabs(panelId: string): PanelHeadTab[] {
@@ -104,12 +118,11 @@ function headTabs(panelId: string): PanelHeadTab[] {
     });
 }
 
+/** 头都是分节的：隐藏的是整个区域，记在锚上，锚没有头，所以没有“隐藏”按钮。收不成标题行的分节（底部面板的、区域唯一显示的）点“收起”被库拒绝，文档不变。 */
 function frameActions(panelId: string): PanelFrameAction[] {
-    const panel = doc.value.panels[panelId];
     return [
-        {id: "collapse", label: "收起", icon: "i-lucide-chevrons-down", disabled: false, pressed: panel?.collapsed === true},
+        {id: "collapse", label: "收起", icon: "i-lucide-chevrons-down", disabled: false, pressed: isSectionCollapsed(doc.value, panelId)},
         {id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false, pressed: maximized.value === panelId},
-        ...(panel?.name === undefined ? [] : [{id: "hide", label: "隐藏", icon: "i-lucide-x", disabled: false}]),
     ];
 }
 
@@ -119,37 +132,31 @@ function runFrame(panelId: string, action: string): void {
         return;
     }
     if (maximized.value === panelId) maximized.value = null;
-    if (action === "hide") commit((current) => setPanelHidden(current, panelId, true));
-    if (action === "collapse") commit((current) => setPanelCollapsed(current, panelId, current.panels[panelId]?.collapsed !== true));
+    if (action === "collapse") commit((current) => setPanelCollapsed(current, panelId, !isSectionCollapsed(current, panelId)));
 }
 
-const entries = computed<ToolStripEntry[]>(() => {
-    const inColumn = new Set(sidebarColumnPanels(doc.value).flatMap((panel) => doc.value.panels[panel]?.tabs.map((tab) => tabKey(tab)) ?? []));
-    return VIEWS.filter(({id}) => inColumn.has(`view:${id}`)).map(({id, label, icon}) => ({id, label, icon, pressed: visible.value.has(`view:${id}`)}));
-});
+const sidebarShowing = computed(() => sidebarVisible(doc.value, {removed: collapse.value.removed, maximized: maximized.value}, visible.value));
+
+/** 一个容器一个入口（输出 22、41）；这里的容器都只含一个视图时入口就是那个视图的，D 并进 B 的容器后那个入口含两个视图。 */
+const entries = computed<ToolStripEntry[]>(() => containerEntries(doc.value, CATALOG).map((entry) => {
+    const titles = entry.views.map((viewId) => VIEWS.find((item) => item.id === viewId)?.label ?? viewId);
+    const label = typeof entry.label.title === "string" ? entry.label.title : entry.id;
+    return {id: entry.id, label, icon: entry.label.icon, tooltip: titles.length === 1 ? label : `${label}：${titles.join("、")}`, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && sidebarShowing.value};
+}));
 
 const STRIP_ITEMS: ReadonlyArray<ToolStripItem> = [
     {id: "profile", title: "个人资料尚未开放", icon: "i-lucide-user", interactive: false, pressed: null, disabledReason: null},
     {id: "settings", title: "设置", icon: "i-lucide-settings", interactive: true, pressed: false, disabledReason: null},
 ];
 
-function focusView(viewId: string): void {
-    void nextTick(() => document.querySelector<HTMLElement>(`[data-content="view:${viewId}"] [data-structure-first]`)?.focus());
-}
-
-function selectEntry(viewId: string): void {
-    const intent = toolEntryIntent(doc.value, viewId, {visible: visible.value});
-    if (intent.kind === "none") return;
-    const {panel} = intent;
-    if (intent.kind === "reveal") {
+/** 点入口（输出 22）：和产品的外壳用同一个判定。焦点的去向是外壳的事，夹具不管。 */
+function selectEntry(container: string): void {
+    const intent = toolEntryIntent(doc.value, container, {sidebarVisible: sidebarShowing.value});
+    if (intent.kind === "show") {
         maximized.value = null;
-        commit((current) => {
-            const shown = setPanelHidden(current, panel, false);
-            return shown.ok ? activateTab(shown.doc, `view:${viewId}`) : shown;
-        });
-        focusView(viewId);
-    } else if (intent.kind === "hide") commit((current) => setPanelHidden(current, panel, true));
-    else commit((current) => setPanelCollapsed(current, panel, true));
+        commit((current) => showContainer(current, "sidebar", intent.container));
+    }
+    if (intent.kind === "hide") commit((current) => setPanelHidden(current, "sidebar", true));
 }
 
 const labelOf = (key: string): string => key.slice(key.indexOf(":") + 1);

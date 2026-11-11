@@ -12,7 +12,7 @@
 外壳根占满页面（父级给它确定的宽高），底色是主题的 `--shell-ground`（卡片主题里是窗体底；平铺的主题没有这个变量，用面板底色），字体 `--font-ui`。
 
 - 标题栏：固定 36px，在树之外（[`WorkbenchTitleBar`](WorkbenchTitleBar.md)）。
-- 活动栏：[`WorkbenchToolStrip`](WorkbenchToolStrip.md)，上段是全部工具视图，底段是 `chrome` 给的全局项。
+- 活动栏：[`WorkbenchToolStrip`](WorkbenchToolStrip.md)，上段一项一个侧栏里的视图容器（`containerEntries`；Spec 输出 22、41），底段是 `chrome` 给的全局项。
 - 工具面板：[`WorkbenchPanelHead`](WorkbenchPanelHead.md) 加视图内容（[`WorkbenchViewFrame`](WorkbenchViewFrame.md)）。视图动作由共享组件 [`TitleActions`](../../../../ui/menus/TitleActions.md) 画在面板头，按面板宽度算放几个按钮，其余收进“⋯”：一个截断的标签、其余只留图标的宽度总要留给标签带。
 - 编辑区：树里每块 `role: "editor"` 的面板是 `editorArea` 提供者的一个组组件（属性 `panelId`、`context: {visible}`，别的面板最大化盖住它时 `visible` 为假），提供者的区级组件在外壳根上挂一次，交出标签的拖动；提供者换了才重挂。没有提供者时编辑组里是欢迎文字，那块面板有标签时写不可用的原因。
 - 状态栏：[`WorkbenchStatusBar`](WorkbenchStatusBar.md)。
@@ -20,12 +20,12 @@
 ## 交互
 
 - 拖动边界的结果交给 store 的 `commitGesture`，布局发布的尺寸交给 `acceptPresented`；记录读完之前边界不能拖。
-- 面板头的框架按钮执行命令（`set-panel-collapsed`、`toggle-panel-maximized`、`set-part-hidden`），可用与原因取命令系统的可用性。收起按钮只给上下排的面板；带容器的区域里，底部面板的分节与区域此刻唯一显示的分节没有（`sectionCollapseBlock`），按下状态问 `isSectionCollapsed`。标签的右键或菜单键开“移动到”：别的工具面板、“新面板（挨着 X）”、“重置位置”，视图所在面板、交付状态或代际一变菜单就关。
-- 活动栏只列侧栏这一列的视图。条目按 `toolEntryIntent`：不可见显示并聚焦，可见隐藏（无名面板收起）。右键或菜单键同标签。
+- 面板头的框架按钮执行命令（`set-panel-collapsed`、`toggle-panel-maximized`）；面板头上没有隐藏按钮，区域的显隐在活动栏入口、状态栏与命令上，可用与原因取命令系统的可用性。收起按钮只给上下排的面板；带容器的区域里，底部面板的分节与区域此刻唯一显示的分节没有（`sectionCollapseBlock`），按下状态问 `isSectionCollapsed`。标签的右键或菜单键开“移动到”：别的工具面板、“新面板（挨着 X）”、“重置位置”，视图所在面板、交付状态或代际一变菜单就关。
+- 活动栏的入口按 `toolEntryIntent`（Spec 输出 22）：不是当前容器就切到它（store 的 `showContainer`，侧栏隐藏或拖到零时同时展开）；是当前容器时，侧栏可见就隐藏侧栏，不可见就展开。按下态是“当前容器且侧栏可见”（`sidebarVisible`），至多一项。入口的右键或菜单键开容器的菜单（Spec 输出 44）：这一步只有“重置”（store 的 `moveContainer`，搬回声明的区域），容器已经在声明的区域、或是用户拖出来的容器时没有菜单项，菜单不开。
 - 状态栏的面板按钮执行 `set-part-hidden`；重试、放弃转给 store。
-- 内容被停放时焦点还在里面：移到同一面板看得见的标签，面板看不见时移到活动栏条目，都没有时外壳根；焦点在外壳之外时不抢。
+- 焦点所在的面板看不见了（内容被停放，或整块面板不显示了：切走容器、隐藏区域、搬走）而焦点因此丢了：按 `focusLandings` 的先后找第一个看得见的落点，同一面板头上的标签、切走容器时新容器的第一个分节、活动栏里它那个容器的入口，都没有时外壳根（Spec 输出 16、42）。焦点没丢（比如还在刚按的活动栏入口上）或在外壳之外时不动。
 - F6 由 `attachPaneFocus` 接到命令，调表面的 `moveFocus`。
-- 拖放的来源是视图标签、侧栏这一列的标题、活动栏条目与编辑器标签，规则见 `layout-drag.ts` 与 Spec 的“拖动”。树里整块面板不能拖；浮动窗能整窗拖，头的空白处或它唯一的标签（Spec 输出 39）。外壳根登记 `WORKBENCH_FILE_DROP`：资源树的文件出树后问这里，判定与反馈同一份，提交归编辑器。实时布局的预览（Spec 输出 38）：长出新块时那一块是空位，不画头；并入时目标不动，盖一层 `--layout-merge-*`，别人的标签条上再加一条插入线。
+- 拖放的来源是视图标签、分节的标题、活动栏里只含一个视图的入口与编辑器标签，规则见 `layout-drag.ts` 与 Spec 的“拖动”。树里整块面板不能拖；浮动窗能整窗拖，头的空白处或它唯一的标签（Spec 输出 39）。外壳根登记 `WORKBENCH_FILE_DROP`：资源树的文件出树后问这里，判定与反馈同一份，提交归编辑器。实时布局的预览（Spec 输出 38）：长出新块时那一块是空位，不画头；并入时目标不动，盖一层 `--layout-merge-*`，别人的标签条上再加一条插入线。
 
 ## 数据
 

@@ -5,7 +5,7 @@
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
-import {findTab, findTreeNode, isFloating, isSectionCollapsed, layoutDropKey, regionOf, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridExtent, LayoutDoc, LayoutSource} from "@notnotype/nb-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
@@ -27,7 +27,9 @@ import {MOVE_VIEW_COMMAND} from "../commands/view-commands";
 import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import type {LayoutDocStore} from "../state/layout-doc-store";
-import {canResetView, moveTargetsOf, panelTitle, sidebarColumnPanels, titleOnlyPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
+import {canResetContainer, containerHomeRegion, containerRegion, regionContainers, viewSection} from "../state/containers";
+import {canResetView, containerEntries, focusLandings, moveTargetsOf, panelTitle, sidebarVisible, titleOnlyPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
+import type {FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
 import type {PaneFocusMover} from "../commands/pane-focus-commands";
@@ -47,7 +49,7 @@ import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
 import WorkbenchToolStrip from "./WorkbenchToolStrip.vue";
-import type {ToolStripItem} from "./WorkbenchToolStrip.vue";
+import type {ToolStripEntry, ToolStripItem} from "./WorkbenchToolStrip.vue";
 import WorkbenchViewFrame from "./WorkbenchViewFrame.vue";
 import type {ShellChrome, ViewInstanceRef} from "../titlebar/titlebar-source";
 import {SET_PART_HIDDEN_COMMAND} from "../commands/part-commands";
@@ -176,8 +178,8 @@ const HEAD_PADDING_PX = 20;
 const collapsibleHere = (panelId: string): boolean => findTreeNode(renderedDoc.value.tree.root, panelId)?.parent?.orientation === "vertical" && sectionCollapseBlock(renderedDoc.value, panelId) === null;
 function headReserved(panelId: string): number {
     const panel = renderedDoc.value.panels[panelId];
-    // 浮动窗只有“回到停靠”；树里是最大化、浮动，加上收起与隐藏。
-    const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2 + (collapsibleHere(panelId) ? 1 : 0) + (panel?.name === undefined ? 0 : 1);
+    // 浮动窗只有“回到停靠”；树里是最大化、浮动，加上收起。
+    const frames = isFloating(renderedDoc.value, panelId) ? 1 : 2 + (collapsibleHere(panelId) ? 1 : 0);
     const others = titleOnlyPanelIds.value.has(panelId) ? 0 : Math.max(0, (panel?.tabs.length ?? 1) - 1);
     return TAB_TRUNCATED_PX + TAB_ICON_PX * others + FRAME_BUTTON_PX * frames + HEAD_PADDING_PX;
 }
@@ -216,7 +218,10 @@ function editorFrameActions(panelId: string): ReadonlyArray<PanelFrameControl> {
     return isFloating(renderedDoc.value, panelId) ? [{id: DOCK_COMMAND, icon: DOCK_ICON, label: message("commands.nbook.view.dock.title"), run: () => run(DOCK_COMMAND, {panelId})}] : [];
 }
 
-/** 框架按钮（输出 20）：可用性问命令系统；先读布局状态，让按钮随它重新求值（命令系统的可用性变化不通知）。 */
+/**
+ * 框架按钮（输出 20）：可用性问命令系统；先读布局状态，让按钮随它重新求值（命令系统的可用性变化不通知）。
+ * 没有“隐藏”：能隐藏的是区域，记在锚上，锚没有头；画头的工具面板是分节或浮动窗。
+ */
 function frameActionsOf(panelId: string): PanelFrameAction[] {
     const panel = renderedDoc.value.panels[panelId];
     void [state.value.ready, state.value.maximized];
@@ -231,20 +236,7 @@ function frameActionsOf(panelId: string): PanelFrameAction[] {
         ...(floatable ? [describe(FLOAT_COMMAND, "i-lucide-picture-in-picture-2", "commands.nbook.view.float.title")] : []),
         ...(collapsibleHere(panelId) ? [describe(SET_PANEL_COLLAPSED_COMMAND, "i-lucide-chevrons-down", "commands.nbook.view.set-panel-collapsed.title", isSectionCollapsed(renderedDoc.value, panelId))] : []),
         describe(TOGGLE_PANEL_MAXIMIZED_COMMAND, "i-lucide-maximize-2", "commands.nbook.view.toggle-panel-maximized.title", state.value.maximized === panelId),
-        // 无名面板没有隐藏按钮。
-        ...(panel?.name === undefined ? [] : [describe(SET_PART_HIDDEN_COMMAND, "i-lucide-x", "shell.frame.hide")]),
     ];
-}
-
-function runFrameAction(panelId: string, action: string): void {
-    if (action !== SET_PART_HIDDEN_COMMAND) {
-        run(action, {panelId});
-        return;
-    }
-    // 按钮随面板一起没了：焦点按内容停放的规则走，键盘用户不掉到 body。
-    const active = doc.value.panels[panelId]?.active ?? null;
-    run(action, {part: doc.value.panels[panelId]?.name, hidden: true});
-    if (active !== null) onContentParked(active);
 }
 
 /** 面板头的动作区是活动视图的；没有动作的面板不在表里。 */
@@ -269,14 +261,14 @@ watch(() => (moveMenu.value === null ? null : viewIdentity(moveMenu.value.viewId
     if (moveMenu.value !== null && identity !== moveMenu.value.identity) moveMenu.value = null;
 });
 
-/** 键盘关掉或选完之后，焦点回到打开它的标签（选完时标签可能已经在别的面板）；点到外面时焦点归点到的地方。 */
+/** 键盘关掉或选完之后，焦点回到打开它的标签（选完时标签可能已经在别的面板）；标签不在界面上时回活动栏里它那个容器的入口。点到外面时焦点归点到的地方。 */
 function closeMoveMenu(reason: ContextMenuCloseReason): void {
     const opened = moveMenu.value;
     moveMenu.value = null;
     if (opened === null || reason === "outside") return;
     void nextTick(() => {
         const root = hostEl.value;
-        (root?.querySelector<HTMLElement>(`[data-panel-tab="${CSS.escape(viewKey(opened.viewId))}"]`) ?? root?.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(opened.viewId)}"]`))?.focus({preventScroll: true});
+        (root?.querySelector<HTMLElement>(`[data-panel-tab="${CSS.escape(viewKey(opened.viewId))}"]`) ?? root?.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(viewSection(doc.value, opened.viewId)?.container ?? "")}"]`))?.focus({preventScroll: true});
     });
 }
 
@@ -297,44 +289,71 @@ const moveMenuItems = computed((): ContextMenuItem[] => {
 
 // ── 活动栏 ────────────────────────────────────────────────────────────────
 
-/** 侧栏这一列的视图，按文档的顺序（输出 22）。标题与图标同面板头的标签：声明消失的视图也有条目，点了能看到占位。 */
-const toolEntries = computed(() => sidebarColumnPanels(renderedDoc.value).flatMap((panelId) => tabsIn(renderedDoc.value, panelId)).flatMap((tab) => {
-    const id = viewIdOf(tab.id);
-    return id === null ? [] : [{id, label: tab.label, icon: tab.icon, pressed: visibleViews.value.has(id)}];
+/** 活动栏说的“侧栏可见”（输出 22）：入口的按下态与点了做什么都问它。 */
+const sidebarShowing = computed(() => sidebarVisible(doc.value, {removed: state.value.collapse.removed, maximized: state.value.maximized}, state.value.visibleTabs as ReadonlySet<string>));
+
+/** 视图的标题；声明消失的视图写它的 id，和面板头的标签一样（输出 4）。 */
+const viewTitle = (viewId: string): string => {
+    const declaration = catalog.value.get(viewId);
+    return declaration === undefined ? viewId : text(declaration.title);
+};
+
+/** 上段的入口：侧栏里的容器，按入口顺序（输出 22、41）。成员是声明消失的视图时照样有入口，点了能看到占位。 */
+const toolEntries = computed((): ToolStripEntry[] => containerEntries(renderedDoc.value, catalog.value, state.value.containers).map((entry) => {
+    const label = text(entry.label.title);
+    const views = entry.views.map(viewTitle);
+    // 容器的名称就是它唯一那个视图的标题时，悬停文字不把同一个词写两遍。
+    const tooltip = views.length === 1 && views[0] === label ? label : message("viewContainers.entryTooltip", {name: label, views: views.join(message("viewContainers.viewSeparator"))});
+    return {id: entry.id, label, icon: entry.label.icon, tooltip, viewId: entry.views.length === 1 ? (entry.views[0] ?? null) : null, current: entry.current, pressed: entry.current && sidebarShowing.value};
 }));
 
 const stripItems = computed<ToolStripItem[]>(() => (props.chrome?.activityEntries(resolver) ?? []).map((item) => ({id: item.id, title: item.title, icon: item.icon, interactive: item.command !== null, pressed: item.pressed, disabledReason: item.disabledReason})));
 
 const hostEl = ref<HTMLElement | null>(null);
 
-/** 焦点给视图：里面第一个能聚焦的；还没加载出来时给它的标签（输出 22）。 */
-function focusView(viewId: string): void {
+/** 点入口（输出 22）。焦点不在这里管：鼠标点不抢焦点，原处看不见了由下面“焦点”一节的规则接走（输出 42）。 */
+function selectEntry(container: string): void {
+    const intent = toolEntryIntent(doc.value, container, {sidebarVisible: sidebarShowing.value});
+    if (intent.kind === "show") props.layout.actions.showContainer(intent.container);
+    if (intent.kind === "hide") run(SET_PART_HIDDEN_COMMAND, {part: "sidebar", hidden: true});
+}
+
+// ── 入口的右键菜单 ────────────────────────────────────────────────────────
+
+const containerMenu = shallowRef<{readonly container: string; readonly x: number; readonly y: number} | null>(null);
+
+/** 容器的菜单（输出 44）。现在只有“重置”：容器有声明的区域、此刻不在那里时才有这一项。 */
+function containerMenuItemsOf(container: string): ContextMenuItem[] {
+    const home = containerHomeRegion(container, catalog.value, state.value.containers);
+    if (home === null || !canResetContainer(doc.value, container, catalog.value, state.value.containers)) return [];
+    return [{label: message("viewContainers.reset"), action: () => props.layout.actions.moveContainer(container, home)}];
+}
+
+const containerMenuItems = computed(() => (containerMenu.value === null ? [] : containerMenuItemsOf(containerMenu.value.container)));
+
+/** 一项都没有时不开：空菜单只会吃掉一次按键。 */
+function openContainerMenu(container: string, at: {readonly x: number; readonly y: number}): void {
+    if (containerMenuItemsOf(container).length > 0) containerMenu.value = {container, ...at};
+}
+
+// 开着的时候菜单项没了（容器被别的途径搬回去了、成员走光了）：关掉，不留一个空菜单。
+watch(() => containerMenu.value !== null && containerMenuItems.value.length === 0, (stale) => {
+    if (stale) containerMenu.value = null;
+});
+
+/** 键盘关掉或选完之后，焦点回到打开它的入口；容器搬出侧栏后入口不在了，去它第一个分节的标题。点到外面时焦点归点到的地方。 */
+function closeContainerMenu(reason: ContextMenuCloseReason): void {
+    const opened = containerMenu.value;
+    containerMenu.value = null;
+    if (opened === null || reason === "outside") return;
     void nextTick(() => {
         const root = hostEl.value;
         if (root === null) return;
-        const content = root.querySelector(`[data-content="${CSS.escape(viewKey(viewId))}"]`);
-        const inner = content?.querySelector<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])");
-        const tab = root.querySelector<HTMLElement>(`[data-panel-tab="${CSS.escape(viewKey(viewId))}"]`);
-        (inner ?? tab)?.focus({preventScroll: true});
+        const region = containerRegion(doc.value, opened.container);
+        const first = region === null ? undefined : regionContainers(doc.value, region).find((container) => container.id === opened.container)?.sections[0];
+        const candidates = [landingElement(root, {kind: "entry", container: opened.container}), first === undefined ? null : landingElement(root, {kind: "tab", panel: first})];
+        candidates.find(reachable)?.focus({preventScroll: true});
     });
-}
-
-function selectEntry(viewId: string): void {
-    const intent = toolEntryIntent(doc.value, viewId, {visible: state.value.visibleTabs as ReadonlySet<string>});
-    switch (intent.kind) {
-        case "reveal":
-            props.layout.actions.revealView(viewId);
-            focusView(viewId);
-            return;
-        case "hide":
-            run(SET_PART_HIDDEN_COMMAND, {part: regionOf(doc.value, intent.panel), hidden: true});
-            return;
-        case "collapse":
-            props.layout.actions.setCollapsed(intent.panel, true);
-            return;
-        case "none":
-            return;
-    }
 }
 
 // ── 标题栏与状态栏 ────────────────────────────────────────────────────────
@@ -358,24 +377,55 @@ const statusProblems = computed(() => state.value.problems.map((problem) => ({re
 
 const surface = useTemplateRef<InstanceType<typeof WorkbenchSurface>>("surface");
 
+const FOCUSABLE = "a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+/** 在界面上、能接焦点：画出来了，也不在停放的内容里。 */
+const reachable = (element: HTMLElement | null | undefined): element is HTMLElement => element != null && element.offsetParent !== null && element.closest("[inert]") === null;
+
+/** 落点在界面上对应的元素；不保证看得见，调用方用 `reachable` 筛。 */
+function landingElement(root: HTMLElement, landing: FocusLanding): HTMLElement | null {
+    if (landing.kind === "entry") return root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(landing.container)}"]`);
+    const tab = root.querySelector<HTMLElement>(`[data-panel-head="${CSS.escape(landing.panel)}"] [data-panel-tab][tabindex="0"]`);
+    if (landing.kind === "tab") return tab;
+    // 切到的分节：里面第一个能聚焦的；内容还没加载出来、或它收成了标题行时给它的标题。
+    const key = doc.value.panels[landing.panel]?.active ?? null;
+    const inner = key === null ? null : root.querySelector(`[data-content="${CSS.escape(key)}"]`)?.querySelector<HTMLElement>(FOCUSABLE);
+    return reachable(inner) ? inner : tab;
+}
+
 /**
- * 焦点所在的内容或面板头不可见了（输出 16）：同一面板看得见的标签，面板看不见时活动栏里这个视图的条目，都没有时外壳根；编辑器的内容没有所属的活动栏条目，去活动编辑组的活动标签。焦点已经去了别处（菜单、对话框、别的面板）时不抢。
+ * 焦点所在的内容或面板头看不见了（输出 16、42）：`candidates` 按先后给落点，取第一个接得住焦点的，都没有时外壳根。焦点已经去了别处（菜单、对话框、别的面板、活动栏的入口）时不抢。
  * 判断焦点丢了要等渲染之后：面板头被移走时焦点回到 body，内容停放时焦点还在 `inert` 的元素上。
  */
-function onContentParked(key: string): void {
+function recoverFocus(candidates: (root: HTMLElement) => ReadonlyArray<HTMLElement | null>): void {
     void nextTick(() => {
         const root = hostEl.value;
         if (root === null) return;
         const active = root.ownerDocument.activeElement;
         if (active !== null && active !== root.ownerDocument.body && active.closest("[inert]") === null) return;
-        const viewId = viewIdOf(key);
-        const panel = viewId === null ? null : panelOfView(viewId);
-        const head = viewId === null ? "[data-editor-group-head-active]" : panel === null ? null : `[data-panel-head="${CSS.escape(panel)}"]`;
-        const tab = head === null ? null : root.querySelector<HTMLElement>(`${head} [data-panel-tab][tabindex="0"]`);
-        const entry = viewId === null ? null : root.querySelector<HTMLElement>(`[data-tool-entry="${CSS.escape(viewId)}"]`);
-        (tab !== null && tab.offsetParent !== null && tab.closest("[inert]") === null ? tab : (entry ?? root)).focus({preventScroll: true});
+        (candidates(root).find(reachable) ?? root).focus({preventScroll: true});
     });
 }
+
+/** 工具面板的落点按 `focusLandings`：同一面板看得见的标签，切走容器后新容器的第一个分节，活动栏里它那个容器的入口。 */
+const panelLandings = (panel: string) => (root: HTMLElement): ReadonlyArray<HTMLElement | null> => focusLandings(doc.value, panel).map((landing) => landingElement(root, landing));
+
+/** 内容被停放时焦点在里面（表面报上来的）。编辑器的内容没有所属的活动栏入口，去活动编辑组的活动标签。 */
+function onContentParked(key: string): void {
+    const viewId = viewIdOf(key);
+    if (viewId === null) {
+        recoverFocus((root) => [root.querySelector<HTMLElement>('[data-editor-group-head-active] [data-panel-tab][tabindex="0"]')]);
+        return;
+    }
+    recoverFocus(panelLandings(panelOfView(viewId) ?? ""));
+}
+
+// 面板头里的焦点没有人报：头随面板一起从界面上拿走，不是停放。所以这里不看是哪个按钮、哪条命令、哪个快捷键改的文档，只问“焦点所在的面板还显示吗”。
+// `focusedPanel` 是表面按焦点事件记的；文档刚变、界面还没重画，它指的还是焦点原来所在的面板。
+watch(doc, (next) => {
+    const panel = state.value.focusedPanel;
+    if (panel !== null && next.panels[panel] !== undefined && !isPanelShown(next, panel)) recoverFocus(panelLandings(panel));
+});
 
 let detachPaneFocus: (() => void) | undefined;
 onMounted(() => {
@@ -504,8 +554,11 @@ const cardTitle = computed(() => (dragSource.value === null ? null : ghostOf(dra
 const wantsGhost = computed(() => dragView.value.ghost);
 /** 拖影的身份；位置经 `moveGhost` 写。 */
 const dragGhost = computed(() => (dragSource.value === null || !wantsGhost.value ? null : ghostOf(dragSource.value)));
-/** 正被拖着、活动栏上留着位置的条目。 */
-const toolPlaceholder = computed(() => (dragPlaceholder.value === null ? null : viewIdOf(dragPlaceholder.value)));
+/** 正被拖着、活动栏上留着位置的入口：只含被拖视图的那个容器的。 */
+const toolPlaceholder = computed(() => {
+    const viewId = dragPlaceholder.value === null ? null : viewIdOf(dragPlaceholder.value);
+    return viewId === null ? null : (toolEntries.value.find((entry) => entry.viewId === viewId)?.id ?? null);
+});
 /** 并入的盖层：矩形按预览算，来源收起时目标会动，盖层跟着过渡。 */
 const mergeRect = computed(() => {
     const panel = mergeTarget.value;
@@ -603,7 +656,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :drag-hint="message('shell.drag.hint')"
                         @select="selectEntry"
                         @run-item="(id) => chrome?.runItem(id)"
-                        @context-menu="(id, at) => openMoveMenu(viewKey(id), at)"
+                        @context-menu="openContainerMenu"
                     />
                 </template>
                 <template #statusbar>
@@ -637,7 +690,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :frame-actions="frameActionsOf(panelId)"
                         @activate="(key) => layout.actions.activate(key)"
                         @reorder="(key, delta) => layout.actions.reorderTab(key, delta)"
-                        @action="(action) => runFrameAction(panelId, action)"
+                        @action="(action) => run(action, {panelId})"
                         @context-menu="openMoveMenu"
                     >
                         <template v-if="headActions.has(panelId)" #actions>
@@ -695,6 +748,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
         </div>
         <component :is="editorArea.host" v-if="editorArea !== null" :key="editorArea.id" :attach-tab-drag="attachEditorDrag" />
         <ContextMenu :open="moveMenu !== null" :x="moveMenu?.x ?? 0" :y="moveMenu?.y ?? 0" :items="moveMenuItems" @request-close="closeMoveMenu" />
+        <ContextMenu :open="containerMenu !== null" :x="containerMenu?.x ?? 0" :y="containerMenu?.y ?? 0" :items="containerMenuItems" @request-close="closeContainerMenu" />
         <WorkbenchDragFeedback ref="feedback" :ghost="dragGhost" :preview="feedbackPreview" :label="feedbackLabel" :kind="feedbackKind" :sectors="feedbackSectors" :sector-labels="sectorLabels" :live-status="liveLabel" />
     </div>
 </template>

@@ -229,7 +229,10 @@
     "viewContainers": {
         "project": {
             "title": "项目"
-        }
+        },
+        "reset": "重置",
+        "entryTooltip": "{{name}}：{{views}}",
+        "viewSeparator": "、"
     },
     "common": {
         "more": "更多",
@@ -262,9 +265,6 @@
             "rejected": "不能放在这里"
         },
         "moreActions": "更多操作",
-        "frame": {
-            "hide": "隐藏"
-        },
         "missing": {
             "view": "提供这个视图的插件现在不在：{{viewId}}",
             "close": "关闭这个标签"

@@ -1,16 +1,16 @@
 /**
- * 由文档算出这一刻怎么呈现（docs/specs/ui/workbench-layout.md“渲染”“面板头与活动栏”）：内容项、有效可见、活动栏条目点了做什么。纯模块，不碰 DOM 与记录。
+ * 由文档算出这一刻怎么呈现（docs/specs/ui/workbench-layout.md“渲染”“面板头与活动栏”）：内容项、有效可见、活动栏列哪些入口与点了做什么、焦点丢了去哪。纯模块，不碰 DOM 与记录。
  */
 
-import {findTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridContentInput, GridExtent, LayoutDoc, PanelRecord} from "@notnotype/nb-layout";
+import {findTab, isFloating, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import type {GridContentInput, GridExtent, LayoutDoc, PanelName, PanelRecord} from "@notnotype/nb-layout";
 
 import type {DisplayText} from "nbook/shared/localized-text";
 
 import {workbenchText} from "../../shared/text";
 import type {ViewCatalog} from "../views/registry";
-import {NO_CONTAINERS, viewHome, viewSection} from "./containers";
-import type {ContainerCatalog} from "./containers";
+import {containerLabel, NO_CONTAINERS, regionAnchor, regionContainers, regionSections, viewHome, viewSection} from "./containers";
+import type {ContainerCatalog, ContainerLabel} from "./containers";
 import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
 
 const VIEW_KEY_PREFIX = "view:";
@@ -68,40 +68,94 @@ export function effectiveVisibleTabs(doc: LayoutDoc, facts: VisibilityFacts): Re
     return visible;
 }
 
-/** 活动栏条目点了做什么（输出 22）：不可见就显示，可见就隐藏它所在的区域；不在区域里的面板没有隐藏，是收起。 */
+/**
+ * 区域此刻占不占地方（输出 36）：区域隐藏、拖到零、被最大化盖住、显示着的分节都放不下被收走，都不算；分节收成标题行算。
+ * 隐藏与拖到零记在锚上；别的都按区域里显示着的分节问：锚自己不进呈现树。
+ */
+export function regionOccupied(doc: LayoutDoc, region: PanelName, facts: Pick<VisibilityFacts, "removed" | "maximized">): boolean {
+    const anchor = doc.panels[regionAnchor(doc, region) ?? ""];
+    if (anchor === undefined || anchor.hidden === true || anchor.collapsed === true) return false;
+    const shown = regionSections(doc, region).map((section) => section.panel).filter((id) => isPanelShown(doc, id));
+    if (facts.maximized !== null) return shown.includes(facts.maximized);
+    return shown.some((id) => !facts.removed.has(id));
+}
+
+/**
+ * 活动栏说的“侧栏可见”（输出 22 的按下态与点击）：侧栏占着地方，或者正从零拉回来。后一种文档里还记着拖到零，
+ * 内容却已经按拖动中的几何可见了（输出 12、17），入口跟着内容走，不等松手。
+ */
+export function sidebarVisible(doc: LayoutDoc, facts: Pick<VisibilityFacts, "removed" | "maximized">, visible: ReadonlySet<string>): boolean {
+    return regionOccupied(doc, "sidebar", facts) || regionSections(doc, "sidebar").some((section) => section.viewId !== null && visible.has(viewKey(section.viewId)));
+}
+
+/** 活动栏的一个入口（输出 22、41）：侧栏里一个有成员的容器。 */
+export interface ContainerEntry {
+    /** 容器 id。 */
+    readonly id: string;
+    readonly label: ContainerLabel;
+    /** 成员视图，按分节的先后；声明不在的也在里面。 */
+    readonly views: ReadonlyArray<string>;
+    /** 是不是侧栏的当前容器。 */
+    readonly current: boolean;
+}
+
+/** 活动栏上段列什么（输出 22）：侧栏里有成员的容器，按入口顺序。搬到右栏、底部面板的容器不在这里。 */
+export function containerEntries(doc: LayoutDoc, views: ViewCatalog, containers: ContainerCatalog = NO_CONTAINERS): ReadonlyArray<ContainerEntry> {
+    const current = doc.panels[regionAnchor(doc, "sidebar") ?? ""]?.activeContainer ?? null;
+    return regionContainers(doc, "sidebar").flatMap((container): ContainerEntry[] => {
+        const label = containerLabel(container, views, containers);
+        return label === null ? [] : [{id: container.id, label, views: container.views, current: container.id === current}];
+    });
+}
+
+/**
+ * 活动栏入口点了做什么（输出 22）：不是当前容器就切到它，侧栏隐藏或拖到零时同一次写入展开；是当前容器时，侧栏可见就隐藏侧栏，不可见就展开。
+ * 所以只有两种动作：`show` 是“侧栏显示并切到这个容器”，`hide` 是隐藏侧栏。容器不在侧栏里（没有成员、在别的区域）时什么都不做。
+ */
 export type ToolEntryIntent =
-    | {readonly kind: "reveal" | "hide" | "collapse"; readonly panel: string}
+    | {readonly kind: "show"; readonly container: string}
+    | {readonly kind: "hide"}
     | {readonly kind: "none"};
 
-export function toolEntryIntent(doc: LayoutDoc, viewId: string, facts: {readonly visible: ReadonlySet<string>}): ToolEntryIntent {
-    const key = tabKey({kind: "view", viewId});
-    for (const [id, panel] of Object.entries(doc.panels)) {
-        if (!panel.tabs.some((tab) => tabKey(tab) === key)) continue;
-        if (!facts.visible.has(key)) return {kind: "reveal", panel: id};
-        return {kind: regionOf(doc, id) === null ? "collapse" : "hide", panel: id};
-    }
-    return {kind: "none"};
+export function toolEntryIntent(doc: LayoutDoc, container: string, facts: {readonly sidebarVisible: boolean}): ToolEntryIntent {
+    const entry = regionContainers(doc, "sidebar").find((candidate) => candidate.id === container);
+    if (entry === undefined) return {kind: "none"};
+    const current = doc.panels[regionAnchor(doc, "sidebar") ?? ""]?.activeContainer === container;
+    return current && facts.sidebarVisible ? {kind: "hide"} : {kind: "show", container};
 }
 
 /**
- * 侧栏这个区域里装着视图的面板，按树序（输出 22）：活动栏只列这里的视图，这些面板的头只写标题。侧栏的锚不在里面：它没有标签、不进呈现树。
- * 各个容器的分节都在里面，不只当前容器的。
- */
-export function sidebarColumnPanels(doc: LayoutDoc): ReadonlyArray<string> {
-    const hit = regionNodeOf(doc, "sidebar");
-    if (hit === null) return [];
-    const anchor = doc.panels[hit.anchor];
-    const isAnchor = anchor !== undefined && isContainerAnchor(anchor);
-    return treeLeaves(hit.node).map((leaf) => leaf.id).filter((id) => !(isAnchor && id === hit.anchor));
-}
-
-/**
- * 头只写标题的面板（输出 20）：侧栏这一列（切视图靠活动栏），别的工具面板、工具视图的浮动窗只有一个标签时。活动栏隐藏时侧栏这一列也按标签数：不然切不了视图。
+ * 头只写标题的面板（输出 20）：只有一个标签的工具面板。区域里的分节恰一个标签（输出 40），所以都在里面；几个标签的只有工具视图的浮动窗。
  * 按已提交的文档算：拖动中来源少了一个标签，头不跟着变。预览里新长出来的块不在这里，它不画头。
  */
 export function titleOnlyPanels(doc: LayoutDoc): ReadonlySet<string> {
-    const column = doc.hiddenBars.includes("activitybar") ? [] : sidebarColumnPanels(doc);
-    return new Set([...column, ...Object.entries(doc.panels).flatMap(([id, panel]) => (panel.role === "tool" && panel.tabs.length <= 1 ? [id] : []))]);
+    return new Set(Object.entries(doc.panels).flatMap(([id, panel]) => (panel.role === "tool" && panel.tabs.length <= 1 ? [id] : [])));
+}
+
+/**
+ * 焦点所在的内容或面板头看不见之后焦点去哪（输出 16、42），按先后试：调用方取第一个在界面上找得到的，都找不到时去外壳根。
+ *
+ * - `tab`：面板还显示着，只是内容被停放（收成标题行、被最大化盖住），去它头上的标签。
+ * - `section`：面板不显示了，区域还显示着、只是切走了容器，去新容器的第一个分节（输出 42）。
+ * - `entry`：面板在侧栏里，去活动栏上它那个容器的入口；别的区域的容器没有入口。
+ */
+export type FocusLanding =
+    | {readonly kind: "tab" | "section"; readonly panel: string}
+    | {readonly kind: "entry"; readonly container: string};
+
+export function focusLandings(doc: LayoutDoc, panelId: string): ReadonlyArray<FocusLanding> {
+    const panel = doc.panels[panelId];
+    if (panel === undefined) return [];
+    const shown = isPanelShown(doc, panelId);
+    const landings: FocusLanding[] = shown ? [{kind: "tab", panel: panelId}] : [];
+    const region = regionOf(doc, panelId);
+    const anchor = region === null ? undefined : doc.panels[regionAnchor(doc, region) ?? ""];
+    if (region === null || anchor === undefined || panel.container === undefined) return landings;
+    const current = anchor.activeContainer ?? null;
+    const first = shown || anchor.hidden === true || current === null || current === panel.container ? undefined : regionContainers(doc, region).find((container) => container.id === current)?.sections[0];
+    if (first !== undefined) landings.push({kind: "section", panel: first});
+    if (region === "sidebar") landings.push({kind: "entry", container: panel.container});
+    return landings;
 }
 
 /** 标签与它控制的内容互相引用的 DOM id：标签在面板头（外框里），内容在内容层，两边各算出同一个。 */

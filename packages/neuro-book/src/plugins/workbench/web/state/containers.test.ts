@@ -3,12 +3,12 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {floatTab, moveTabToEdge, openPanelAtEdge, removeTab, setActiveContainer, setPanelCollapsed, setPanelHidden, validateLayoutDoc} from "@notnotype/nb-layout";
+import {floatTab, isPanelShown, isSectionCollapsed, moveTabToEdge, openPanelAtEdge, removeTab, setActiveContainer, setPanelCollapsed, setPanelHidden, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutResult, PanelName} from "@notnotype/nb-layout";
 
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import type {ViewCatalog} from "../views/registry";
-import {containerLabel, containerRegion, regionContainers, sectionLanding, settleContainers, unresolvedContainerRefs, viewHome, viewSection} from "./containers";
+import {canResetContainer, containerHomeRegion, containerLabel, containerRegion, moveContainerTo, regionContainers, sectionLanding, settleContainers, unresolvedContainerRefs, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc} from "./default-tree";
 import {createLayoutPolicy} from "./layout-constraints";
@@ -205,6 +205,111 @@ describe("结构操作之后的归整（输出 41、43）", () => {
         const zeroed = must(setPanelCollapsed(doc(), "sidebar", true));
         const emptied = close(close(zeroed, "files"), "sessions");
         expect(emptied.panels.sidebar?.collapsed).toBeUndefined();
+    });
+});
+
+describe("整个容器搬到另一个区域（输出 44）", () => {
+    const sectionOf = (current: LayoutDoc, viewId: string): string => {
+        const section = viewSection(current, viewId);
+        if (section === null) throw new Error(`${viewId} 不在区域里`);
+        return section.panel;
+    };
+    const axisOf = (current: LayoutDoc, viewId: string, axis: "width" | "height"): number => (sizeOf(current, sectionOf(current, viewId)) as {width: number; height: number})[axis];
+    /** “项目”容器三个分节（文件、会话、搜索），高度之比 1:3:4，会话收成标题行。 */
+    const prepared = (): LayoutDoc => {
+        const three = place(doc(), "search", "sidebar", PROJECT);
+        const shared = must(setSiblingShares(three, [{node: sectionOf(three, "files"), share: 1}, {node: sectionOf(three, "sessions"), share: 3}, {node: sectionOf(three, "search"), share: 4}]));
+        return must(setPanelCollapsed(shared, sectionOf(shared, "sessions"), true));
+    };
+    const move = (current: LayoutDoc, container: string, region: PanelName): LayoutDoc => settleContainers(must(moveContainerTo(current, container, region, POLICY)));
+
+    it("搬到右栏：分节的先后、高度之比、收成标题行都带着；入口排到右栏入口顺序的最后，右栏切到它", () => {
+        const before = prepared();
+        const moved = move(before, PROJECT, "auxiliarybar");
+        expect(regionContainers(moved, "auxiliarybar").map((container) => [container.id, container.views])).toEqual([["view:chat", ["chat"]], [PROJECT, ["files", "sessions", "search"]]]);
+        expect(moved.panels.auxiliarybar).toMatchObject({entries: ["view:chat", PROJECT], activeContainer: PROJECT});
+        const heights = ["files", "sessions", "search"].map((viewId) => axisOf(moved, viewId, "height"));
+        expect((heights[1] as number) / (heights[0] as number)).toBeCloseTo(3, 5);
+        expect((heights[2] as number) / (heights[0] as number)).toBeCloseTo(4, 5);
+        expect(["files", "sessions", "search"].map((viewId) => isSectionCollapsed(moved, sectionOf(moved, viewId)))).toEqual([false, true, false]);
+        // 分节还是原来那几块面板：内容跟着面板走，不重建。
+        expect(["files", "sessions", "search"].map((viewId) => sectionOf(moved, viewId))).toEqual(["files", "sessions", "search"].map((viewId) => sectionOf(before, viewId)));
+        expect(validateLayoutDoc(moved).ok).toBe(true);
+    });
+
+    it("来源区域：切到入口顺序里相邻的容器；别的容器的分节尺寸不变；声明的容器的入口位置留着", () => {
+        const before = prepared();
+        const ghost = sizeOf(before, sectionOf(before, "ghost"));
+        const moved = move(before, PROJECT, "auxiliarybar");
+        expect(idsIn(moved, "sidebar")).toEqual(["view:ghost"]);
+        expect(moved.panels.sidebar).toMatchObject({entries: [PROJECT, "view:search", "view:ghost"], activeContainer: "view:ghost"});
+        expect(sizeOf(moved, sectionOf(moved, "ghost"))).toEqual(ghost);
+    });
+
+    it("目标区域隐藏着、拖到零：同一次显示出来", () => {
+        const hidden = must(setPanelHidden(prepared(), "auxiliarybar", true));
+        const fromHidden = move(hidden, PROJECT, "auxiliarybar");
+        expect(fromHidden.panels.auxiliarybar?.hidden).toBeUndefined();
+        expect(isPanelShown(fromHidden, sectionOf(fromHidden, "files"))).toBe(true);
+        const zeroed = must(setPanelCollapsed(prepared(), "auxiliarybar", true));
+        expect(move(zeroed, PROJECT, "auxiliarybar").panels.auxiliarybar?.collapsed).toBeUndefined();
+    });
+
+    it("搬进底部面板：方向变了，分节平分；收成标题行的展开（底部面板的分节不折叠）", () => {
+        const moved = move(prepared(), PROJECT, "panel");
+        expect(regionContainers(moved, "panel").map((container) => [container.id, container.views])).toEqual([[PROJECT, ["files", "sessions", "search"]]]);
+        expect(moved.panels.panel).toMatchObject({entries: [PROJECT], activeContainer: PROJECT});
+        expect(moved.panels.panel?.hidden).toBeUndefined();
+        const widths = ["files", "sessions", "search"].map((viewId) => axisOf(moved, viewId, "width"));
+        expect((widths[1] as number) / (widths[0] as number)).toBeCloseTo(1, 5);
+        expect((widths[2] as number) / (widths[0] as number)).toBeCloseTo(1, 5);
+        expect(moved.panels[sectionOf(moved, "sessions")]?.collapsed).toBeUndefined();
+    });
+
+    it("搬回待过的区域：入口不回原来的位置，排到入口顺序的最后；比例与收成标题行还在", () => {
+        const back = move(move(prepared(), PROJECT, "auxiliarybar"), PROJECT, "sidebar");
+        expect(back.panels.sidebar).toMatchObject({entries: ["view:search", "view:ghost", PROJECT], activeContainer: PROJECT});
+        expect(idsIn(back, "sidebar")).toEqual(["view:ghost", PROJECT]);
+        expect(axisOf(back, "sessions", "height") / axisOf(back, "files", "height")).toBeCloseTo(3, 5);
+        expect(isSectionCollapsed(back, sectionOf(back, "sessions"))).toBe(true);
+        expect(back.panels.auxiliarybar).toMatchObject({activeContainer: "view:chat"});
+    });
+
+    it("只含一个分节的容器：搬过去就是那一个分节，记录里的收起意图带着（它独自显示时按没收起算）", () => {
+        const folded: LayoutDoc = {...doc(), panels: {...doc().panels, [sectionOf(doc(), "search")]: {...doc().panels[sectionOf(doc(), "search")] as LayoutDoc["panels"][string], collapsed: true}}};
+        const moved = move(folded, "view:search", "auxiliarybar");
+        expect(moved.panels.auxiliarybar).toMatchObject({entries: ["view:chat", "view:search"], activeContainer: "view:search"});
+        expect(moved.panels[sectionOf(moved, "search")]?.collapsed).toBe(true);
+        expect(isSectionCollapsed(moved, sectionOf(moved, "search"))).toBe(false);
+    });
+
+    it("容器已经在那个区域：原对象；容器没有成员：not-found", () => {
+        const current = doc();
+        expect(must(moveContainerTo(current, PROJECT, "sidebar", POLICY))).toBe(current);
+        expect(moveContainerTo(current, "custom:nobody", "panel", POLICY)).toMatchObject({ok: false, code: "not-found"});
+    });
+});
+
+describe("容器声明的区域与“重置”（输出 44）", () => {
+    it("声明的容器看容器的 location，隐式容器看它那个视图的；用户拖出来的容器、声明不在了的都没有", () => {
+        expect(containerHomeRegion(PROJECT, VIEWS, CONTAINERS)).toBe("sidebar");
+        expect(containerHomeRegion("view:chat", VIEWS, CONTAINERS)).toBe("auxiliarybar");
+        // 会话写了容器，它的隐式容器只在“声明的容器被别处占着”时才用得上；声明的区域照样看视图自己写的。
+        expect(containerHomeRegion("view:sessions", VIEWS, CONTAINERS)).toBe("panel");
+        expect(containerHomeRegion("custom:one", VIEWS, CONTAINERS)).toBeNull();
+        expect(containerHomeRegion(PROJECT, VIEWS, new Map())).toBeNull();
+        expect(containerHomeRegion("view:gone", VIEWS, CONTAINERS)).toBeNull();
+    });
+
+    it("容器不在声明的区域时才有“重置”；已经在那里、没有声明的区域、没有成员时都没有", () => {
+        const current = doc();
+        expect(canResetContainer(current, PROJECT, VIEWS, CONTAINERS)).toBe(false);
+        const away = settleContainers(must(moveContainerTo(current, PROJECT, "auxiliarybar", POLICY)));
+        expect(canResetContainer(away, PROJECT, VIEWS, CONTAINERS)).toBe(true);
+        expect(canResetContainer(away, "view:chat", VIEWS, CONTAINERS)).toBe(false);
+        const custom = place(current, "sessions", "panel", "custom:one");
+        expect(canResetContainer(custom, "custom:one", VIEWS, CONTAINERS)).toBe(false);
+        expect(canResetContainer(current, "view:nobody", VIEWS, CONTAINERS)).toBe(false);
     });
 });
 

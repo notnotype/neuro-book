@@ -385,7 +385,6 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "settings.dropSplit.choices.shared.title": {"zh-CN": "同方向的窗口一起分", "en-US": "Share with windows in the same direction"},
     "settings.dropSectors.title": {"zh-CN": "落点分区", "en-US": "Drop sectors"},
     "settings.dropSectors.description": {"zh-CN": "拖动视图或标签到面板上时，画出上下左右中能放的位置", "en-US": "When dragging a view or tab over a panel, show the places it can go"},
-    "shell.frame.hide": {"zh-CN": "隐藏", "en-US": "Hide"},
     "shell.editorUnavailable": {"zh-CN": "编辑器现在不可用：提供它的插件不在，标签都还在，它回来后恢复。", "en-US": "The editor is unavailable: the plugin providing it is not here. Your tabs are kept and come back when it returns."},
     "shell.missing.view": {"zh-CN": "提供这个视图的插件现在不在：{viewId}", "en-US": "The plugin providing this view is not here: {viewId}"},
     "shell.missing.close": {"zh-CN": "关闭这个标签", "en-US": "Close this tab"},
@@ -394,6 +393,9 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "state.maximized.reason": {"zh-CN": "没有最大化的面板", "en-US": "No panel is maximized"},
     // w00026 t24：工作台声明的视图容器（docs/specs/workbench/views.md 输出 15）。
     "viewContainers.project.title": {"zh-CN": "项目", "en-US": "Project"},
+    "viewContainers.reset": {"zh-CN": "重置", "en-US": "Reset"},
+    "viewContainers.entryTooltip": {"zh-CN": "{name}：{views}", "en-US": "{name}: {views}"},
+    "viewContainers.viewSeparator": {"zh-CN": "、", "en-US": ", "},
     // w00026 t24：收不成标题行的分节（docs/specs/ui/workbench-layout.md 输出 11、20）。
     "panelCommands.rowSectionCollapse": {"zh-CN": "底部面板里的视图不能收起", "en-US": "A view in the bottom panel cannot be collapsed"},
     "panelCommands.loneSectionCollapse": {"zh-CN": "这里只显示这一个视图，不能收起", "en-US": "The only view shown here cannot be collapsed"},

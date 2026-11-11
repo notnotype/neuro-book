@@ -1,19 +1,32 @@
 <script setup lang="ts">
 /**
- * 活动栏（同名 .md）：上段列侧栏这一列的视图；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
+ * 活动栏（同名 .md）：上段列侧栏的容器，一个容器一个入口；底段是贡献来的全局项。点了只发 `select` 或 `run-item`，做什么由宿主定。
  */
 import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
 
+/** 上段的一个入口：侧栏里的一个容器（docs/specs/ui/workbench-layout.md 输出 22、41）。 */
 export interface ToolStripEntry {
+    /** 容器 id。 */
     readonly id: string;
+    /** 容器的名称：可访问名称，也是“更多”菜单里的文字。 */
     readonly label: string;
-    readonly icon: string;
-    /** 视图有效可见（docs/specs/ui/workbench-layout.md 输出 17）。 */
+    /** 成员视图的声明都不在时没有图标可取，是 null：画中性的占位图标。 */
+    readonly icon: string | null;
+    /** 悬停文字：写出容器里的各个视图。 */
+    readonly tooltip: string;
+    /** 只含一个视图的容器是那个视图的 id：拖这个入口就是拖这个视图。含几个视图的是 null，不起拖。 */
+    readonly viewId: string | null;
+    /** 侧栏的当前容器：放不下时它总在外面。 */
+    readonly current: boolean;
+    /** 当前容器且侧栏可见；至多一项。 */
     readonly pressed: boolean;
 }
+
+/** 没有图标可取的入口画它：和声明不在的视图的标签同一个。 */
+const PLACEHOLDER_ICON = "i-lucide-circle-help";
 
 /** 底段的一个全局项（`workbench.activitybar-items`）。 */
 export interface ToolStripItem {
@@ -34,16 +47,16 @@ const props = withDefaults(defineProps<{
     moreLabel: string;
     entries: ReadonlyArray<ToolStripEntry>;
     items?: ReadonlyArray<ToolStripItem>;
-    /** 条目的可访问描述：怎么拿起拖动。 */
+    /** 能拖的入口（只含一个视图的）的可访问描述：怎么拿起拖动。 */
     dragHint?: string;
-    /** 这个条目留着盒子、看不见：它正被拖着（实时布局），别的条目让出它的位置。 */
+    /** 这个入口留着盒子、看不见：它正被拖着（实时布局），别的入口让出它的位置。 */
     placeholder?: string | null;
 }>(), {items: () => [], dragHint: "", placeholder: null});
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
     (event: "run-item", id: string): void;
-    /** 条目的右键菜单（键盘是菜单键）；坐标是视口坐标。 */
+    /** 入口的右键菜单（键盘是菜单键）；坐标是视口坐标。 */
     (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
 }>();
 
@@ -58,7 +71,7 @@ function onEntryContextMenu(id: string, event: MouseEvent): void {
     emit("context-menu", id, {x: event.clientX, y: event.clientY});
 }
 
-/** 放不下时排在后面的收进“更多”，有效可见的总在外面（输出 22）。量不到条目区（还没挂上）时全部摆出来，条目区自己纵向滚动兜底。 */
+/** 放不下时排在后面的收进“更多”，当前容器的入口总在外面（输出 22）。量不到条目区（还没挂上）时全部摆出来，条目区自己纵向滚动兜底。 */
 const bandEl = ref<HTMLElement | null>(null);
 const available = ref<number | null>(null);
 const ITEM_PX = 38;
@@ -84,10 +97,10 @@ const strip = computed(() => {
     const room = available.value;
     if (room === null || bandEl.value === null) return {shown: props.entries.map((entry) => entry.id), hidden: [] as string[]};
     const gap = Number.parseFloat(getComputedStyle(bandEl.value).rowGap) || 0;
-    return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.pressed ? 1 : 0, width: ITEM_PX})), room, ITEM_PX, gap);
+    return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: ITEM_PX})), room, ITEM_PX, gap);
 });
 const shownEntries = computed(() => props.entries.filter((entry) => strip.value.shown.includes(entry.id)));
-const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon})));
+const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
 </script>
 
 <template>
@@ -96,14 +109,15 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
             <!-- 换位时滑过去，只在拖动中开。条目外面要有一层元素：`Tooltip` 的根是 Fragment，`TransitionGroup` 记不到它的位置。 -->
             <TransitionGroup tag="div" class="workbench-tool-strip__list" :css="false" :move-class="placeholder !== null ? 'workbench-tool-strip__frame--moving' : 'workbench-tool-strip__frame--still'">
                 <div v-for="entry in shownEntries" :key="entry.id" class="workbench-tool-strip__frame" :class="{'workbench-tool-strip__frame--placeholder': entry.id === placeholder}" :aria-hidden="entry.id === placeholder ? 'true' : undefined">
-                    <Tooltip :text="entry.label" side="right">
+                    <Tooltip :text="entry.tooltip" side="right">
                         <IconButton
                             size="lg"
-                            :icon-class="entry.icon"
+                            :icon-class="entry.icon ?? PLACEHOLDER_ICON"
                             :aria-label="entry.label"
                             :aria-pressed="entry.pressed"
-                            :aria-description="dragHint === '' ? undefined : dragHint"
+                            :aria-description="dragHint === '' || entry.viewId === null ? undefined : dragHint"
                             :data-tool-entry="entry.id"
+                            :data-tool-view="entry.viewId ?? undefined"
                             class="workbench-tool-strip__item"
                             :class="{'workbench-tool-strip__item--active': entry.pressed}"
                             @mousedown.prevent

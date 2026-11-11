@@ -7,6 +7,7 @@
  *
  * 尺寸意图统一是 CSS px，只有一条写入路径：`rebaseIntents` 把呈现尺寸写回。手势落账后和结构操作之前都走它，不读 `grid.serialize()`：那里的 `weight` 是反解出来的比例，
  * 不是 px。所以展平不用换算单位，`fixed` 与 `weight` 之间切换也不用。收起的面板和呈现为零的轴不写，那就是它展开时的尺寸。
+ * 例外只有 `setSiblingShares`：结构操作把一组面板搬到别处之后，按搬之前的比例重分它们在新位置合占的那一份，不引入新的单位。
  *
  * 文档放在 `shallowRef` 里：操作用 `structuredClone` 复制，Vue 的响应式代理会让它抛错。
  */
@@ -440,6 +441,32 @@ export function rebaseIntents(doc: LayoutDoc, sizes: Readonly<Record<string, Gri
         return {...node, size: nextSize, children: children.map((child, index) => (away(node.children[index] as GridSnapshotNode) ? child : {...child, size: {...child.size, [main]: child.size[main] * scale}}))};
     };
     return {...doc, tree: {...doc.tree, root: write(doc.tree.root)}};
+}
+
+/**
+ * 按给定的比例重分一组兄弟节点合占的主轴意图：它们的和不变，彼此之比换成 `share` 之比；别的兄弟与交叉轴不动。
+ *
+ * 给“搬一组面板还要保住彼此比例”用：外缘放置每次从落点那块取一半（`placeLeaf`），连放几块之后的比例是 1/2、1/4、1/4 这样的，和搬之前无关。
+ * 这些节点必须是同一个分支的子节点，否则“合占的那一份”没有定义。只改意图、形状不变，所以不经 `finish`：那里按形状判“和现状一样”，会把结果丢掉。
+ */
+export function setSiblingShares(doc: LayoutDoc, shares: ReadonlyArray<{readonly node: string; readonly share: number}>): LayoutResult {
+    if (shares.length === 0) return {ok: true, doc};
+    if (shares.some((item) => !Number.isFinite(item.share) || item.share <= 0)) return failure("rejected", "比例要是正的有限数");
+    if (new Set(shares.map((item) => item.node)).size !== shares.length) return failure("rejected", "同一个节点给了两次比例");
+    const hits = shares.map((item) => findTreeNode(doc.tree.root, item.node));
+    const parent = hits[0]?.parent ?? null;
+    if (parent === null || hits.some((hit) => hit === null || hit.parent !== parent)) return failure("rejected", "这些节点不是同一个分支的子节点");
+    const main = axisOf(parent.orientation);
+    const total = hits.reduce((sum, hit) => sum + (hit as TreeHit).node.size[main], 0);
+    const weight = shares.reduce((sum, item) => sum + item.share, 0);
+    if (total <= 0) return failure("rejected", "这些节点合占的主轴意图是零，没有可分的");
+    const shareOf = new Map(shares.map((item) => [item.node, item.share]));
+    const resize = (child: GridSnapshotNode): GridSnapshotNode => {
+        const share = shareOf.get(child.id);
+        return share === undefined ? child : {...child, size: {...child.size, [main]: total * share / weight}};
+    };
+    const write = (node: GridSnapshotNode): GridSnapshotNode => (node.kind === "leaf" ? node : {...node, children: node.children.map(node.id === parent.id ? resize : write)});
+    return {ok: true, doc: {...doc, tree: {...doc.tree, root: write(doc.tree.root)}}};
 }
 
 // ── 标签 ──

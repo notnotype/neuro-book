@@ -23,9 +23,8 @@ import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 
 import type {QuickPick, QuickPickRequest, QuickPickResult} from "../../shared/contracts";
 import type {ViewDeclaration, ViewLocation} from "../../shared/views";
-import {regionContainers, viewSection} from "../state/containers";
+import {regionContainers, regionSections, viewSection} from "../state/containers";
 import type {LayoutDocStore} from "../state/layout-doc-store";
-import {sidebarColumnPanels} from "../state/layout-present";
 import {workbenchStateBindings} from "../state/public-state";
 import {openLayoutDoc} from "../testing/layout-doc";
 import type {ViewCatalog} from "../views/registry";
@@ -200,7 +199,7 @@ describe("移动视图", () => {
         const alone = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.b"} : {kind: "item", id: `new:${placeOf(store, "test.a").panel}`}));
         expect(await run(store, alone, {})).toEqual({ok: true, value: null});
         expect(placeOf(store, "test.b")).toEqual({region: "sidebar", container: "view:test.a", panel: created});
-        expect(sidebarColumnPanels(store.actions.document())).toContain(created);
+        expect(regionSections(store.actions.document(), "sidebar").map((section) => section.panel)).toContain(created);
         // 区域的最后一个分节搬走：区域隐藏，锚留在骨架上。
         const last = picker((_request, index) => (index === 0 ? {kind: "item", id: "test.c"} : {kind: "item", id: `new:${placeOf(store, "test.a").panel}`}));
         expect(await run(store, last, {})).toEqual({ok: true, value: null});

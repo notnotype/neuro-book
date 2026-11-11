@@ -7,10 +7,11 @@ import {Database} from "bun:sqlite";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
+import {effect} from "@vue/reactivity";
 import type {DeepReadonly} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {barRef, GRID_SNAPSHOT_VERSION, insertTab, moveTabToEdge, panelRef, regionNodeOf, removeTab, validateLayoutDoc} from "@notnotype/nb-layout";
+import {barRef, GRID_SNAPSHOT_VERSION, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, panelRef, regionNodeOf, removeTab, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutResult, PanelName, TabRef} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -21,13 +22,13 @@ import {defineRecord} from "nbook/shared/storage";
 import type {RecordDefinition, StorageService} from "nbook/shared/storage";
 
 import {BUSY_LAYOUT_CATALOG, openLayoutDoc} from "../testing/layout-doc";
-import {regionContainers, viewSection} from "./containers";
+import {regionContainers, regionSections, viewSection} from "./containers";
+import type {ContainerCatalog} from "./containers";
 import {PANEL_HEAD_HEIGHT} from "./layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 import {createLayoutPolicy} from "./layout-constraints";
 import type {LayoutDocStore} from "./layout-doc-store";
 import {fitsSkeleton, INITIAL_EDITOR_PANEL} from "./default-tree";
-import {sidebarColumnPanels} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 
 const PLUGIN = "nbook.workbench";
@@ -365,7 +366,7 @@ describe("损坏与失败", () => {
         const {store} = await openLayoutDoc(w, "a", "c");
         const inSide = store.actions.moveView("test.panel", {newPanelNextTo: sectionOf(store, "test.side")});
         if (!inSide.ok) throw new Error(inSide.detail);
-        expect(sidebarColumnPanels(store.actions.document())).toHaveLength(2);
+        expect(regionSections(store.actions.document(), "sidebar")).toHaveLength(2);
         expect(containersIn(store.actions.document(), "sidebar")).toEqual([["view:test.side", ["test.side", "test.panel"]]]);
         expect(store.actions.document().panels.panel).toMatchObject({hidden: true, activeContainer: null});
         expect(fitsSkeleton(store.actions.document())).toBe(true);
@@ -736,6 +737,178 @@ describe("呈现事实", () => {
         expect(result.ok).toBe(true);
         expect(store.state.doc).toBe(before);
         expect(store.state.field.queue).toBe(0);
+    });
+});
+
+describe("视图容器：切换与搬动（输出 22、42、44）", () => {
+    const declared = (name: string, location: "sidebar" | "auxiliarybar" | "panel", container?: string) => ({title: {"zh-CN": name, "en-US": name}, icon: `i-${name}`, location, layout: "scroll" as const, ...(container === undefined ? {} : {container})});
+    const GROUP = "test.group";
+    /** 侧栏：声明的容器“项目”装三个视图，另有一个视图在自己的容器里；右栏、底部面板各一个视图。 */
+    const VIEWS: ViewCatalog = new Map([
+        ["test.s1", declared("S1", "sidebar", GROUP)], ["test.s2", declared("S2", "sidebar", GROUP)], ["test.s3", declared("S3", "sidebar", GROUP)],
+        ["test.s4", declared("S4", "sidebar")], ["test.x1", declared("X1", "auxiliarybar")], ["test.p1", declared("P1", "panel")],
+    ]);
+    const GROUPS: ContainerCatalog = new Map([[GROUP, {title: {"zh-CN": "项目", "en-US": "Project"}, icon: "i-group", location: "sidebar", order: -1}]]);
+    const open = async () => {
+        const w = await world();
+        const opened = await openLayoutDoc(w, "a", "c", false, new Map());
+        // 容器声明要先于视图目录交进来（见 `acceptViewContainers`）。
+        opened.store.actions.acceptViewContainers(GROUPS);
+        opened.store.actions.acceptViewCatalog(VIEWS);
+        return opened;
+    };
+    const anchorOf = (store: LayoutDocStore, region: PanelName) => store.actions.document().panels[region];
+    /** 从现在起文档提交了几次：一次动作只该让看文档的地方重算一次。 */
+    const countCommits = (store: LayoutDocStore): {readonly count: () => number; readonly stop: () => void} => {
+        let commits = -1;
+        const runner = effect(() => {
+            void store.state.doc;
+            commits += 1;
+        });
+        return {count: () => commits, stop: () => runner.effect.stop()};
+    };
+    /** 三个分节的主轴意图调成 1：2：3。 */
+    const shareOut = (store: LayoutDocStore, sections: ReadonlyArray<string>) => {
+        const result = store.actions.apply((doc) => setSiblingShares(doc, sections.map((node, index) => ({node, share: index + 1}))));
+        if (!result.ok) throw new Error(result.detail);
+    };
+
+    it("默认：侧栏两个容器，声明的容器装着它的三个视图，是当前容器", async () => {
+        const {store} = await open();
+        expect(containersIn(store.actions.document(), "sidebar")).toEqual([[GROUP, ["test.s1", "test.s2", "test.s3"]], ["view:test.s4", ["test.s4"]]]);
+        expect(anchorOf(store, "sidebar")).toMatchObject({activeContainer: GROUP});
+    });
+
+    it("让容器看得见：切到它，一次提交；分节的先后、大小、收成标题行都不动；已经看得见时零写入", async () => {
+        const {store} = await open();
+        const sections = ["test.s1", "test.s2", "test.s3"].map((id) => sectionOf(store, id));
+        shareOut(store, sections);
+        expect(store.actions.setCollapsed(sections[1] ?? "", true).ok).toBe(true);
+        const heights = () => sections.map((id) => sizeIn(store.actions.document(), id).height);
+        const before = heights();
+        const tree = store.actions.document().tree;
+        // 呈现尺寸和意图不成比例（例如被别的约束夹过）：切换不把它写回，尺寸意图一个都不动（输出 8、42）。
+        store.actions.acceptPresented({[sections[0] ?? ""]: {width: 0, height: 50}, [sections[2] ?? ""]: {width: 0, height: 700}});
+        const commits = countCommits(store);
+        expect(store.actions.showContainer("view:test.s4").ok).toBe(true);
+        expect(store.actions.document().tree).toEqual(tree);
+        expect(commits.count()).toBe(1);
+        expect(anchorOf(store, "sidebar")).toMatchObject({activeContainer: "view:test.s4"});
+        expect(isPanelShown(store.actions.document(), sectionOf(store, "test.s4"))).toBe(true);
+        expect(sections.some((id) => isPanelShown(store.actions.document(), id))).toBe(false);
+        // 切回来：三个分节还是原来的先后与大小，第二个还收着。
+        expect(store.actions.showContainer(GROUP).ok).toBe(true);
+        expect(containersIn(store.actions.document(), "sidebar")).toEqual([[GROUP, ["test.s1", "test.s2", "test.s3"]], ["view:test.s4", ["test.s4"]]]);
+        expect(heights()).toEqual(before);
+        expect(store.actions.document().tree).toEqual(tree);
+        expect(sections.map((id) => isSectionCollapsed(store.actions.document(), id))).toEqual([false, true, false]);
+        const same = store.actions.document();
+        expect(store.actions.showContainer(GROUP).ok).toBe(true);
+        expect(store.actions.document()).toBe(same);
+        expect(commits.count()).toBe(2);
+        commits.stop();
+        expect(store.actions.showContainer("custom:nobody")).toMatchObject({ok: false, code: "not-found"});
+    });
+
+    it("让容器看得见：侧栏隐藏着、拖到零时同时展开，当前容器也一样", async () => {
+        const {store} = await open();
+        store.actions.setPartHidden("sidebar", true);
+        expect(store.actions.partVisible("sidebar")).toBe(false);
+        expect(store.actions.showContainer(GROUP).ok).toBe(true);
+        expect(store.actions.partVisible("sidebar")).toBe(true);
+        store.actions.setCollapsed("sidebar", true);
+        expect(store.actions.partVisible("sidebar")).toBe(false);
+        const commits = countCommits(store);
+        expect(store.actions.showContainer("view:test.s4").ok).toBe(true);
+        expect(commits.count()).toBe(1);
+        commits.stop();
+        expect(store.actions.partVisible("sidebar")).toBe(true);
+        expect(anchorOf(store, "sidebar")).toMatchObject({activeContainer: "view:test.s4"});
+        expect(anchorOf(store, "sidebar")?.collapsed).toBeUndefined();
+    });
+
+    it("让容器看得见：别的面板最大化着就退出，最大化的是这个容器的分节时不退", async () => {
+        const {store} = await open();
+        const aux = sectionOf(store, "test.x1");
+        expect(store.actions.toggleMaximized(aux)).toBe(true);
+        expect(store.actions.partVisible("sidebar")).toBe(false);
+        expect(store.actions.showContainer(GROUP).ok).toBe(true);
+        expect(store.state.maximized).toBeNull();
+        expect(store.actions.partVisible("sidebar")).toBe(true);
+        const first = sectionOf(store, "test.s1");
+        expect(store.actions.toggleMaximized(first)).toBe(true);
+        expect(store.actions.showContainer(GROUP).ok).toBe(true);
+        expect(store.state.maximized).toBe(first);
+    });
+
+    it("搬容器：分节的先后、彼此的比例、收成标题行都带着；排到目标区域最后并成为当前容器；原区域换相邻的；一次提交并立刻存", async () => {
+        const {store, storage} = await open();
+        const sections = ["test.s1", "test.s2", "test.s3"].map((id) => sectionOf(store, id));
+        const [first, second, third] = sections as [string, string, string];
+        shareOut(store, sections);
+        expect(store.actions.setCollapsed(second, true).ok).toBe(true);
+        const commits = countCommits(store);
+        expect(store.actions.moveContainer(GROUP, "auxiliarybar").ok).toBe(true);
+        expect(commits.count()).toBe(1);
+        commits.stop();
+        const doc = store.actions.document();
+        expect(containersIn(doc, "auxiliarybar")).toEqual([["view:test.x1", ["test.x1"]], [GROUP, ["test.s1", "test.s2", "test.s3"]]]);
+        expect(anchorOf(store, "auxiliarybar")).toMatchObject({activeContainer: GROUP});
+        expect(containersIn(doc, "sidebar")).toEqual([["view:test.s4", ["test.s4"]]]);
+        expect(anchorOf(store, "sidebar")).toMatchObject({activeContainer: "view:test.s4"});
+        expect(anchorOf(store, "sidebar")?.hidden).toBeUndefined();
+        expect(sizeIn(doc, second).height / sizeIn(doc, first).height).toBeCloseTo(2, 5);
+        expect(sizeIn(doc, third).height / sizeIn(doc, first).height).toBeCloseTo(3, 5);
+        expect(sections.map((id) => isSectionCollapsed(doc, id))).toEqual([false, true, false]);
+        expect(fitsSkeleton(doc)).toBe(true);
+        await settled(store);
+        const saved = await savedDoc(storage, USER);
+        expect(containersIn(saved, "auxiliarybar")).toEqual([["view:test.x1", ["test.x1"]], [GROUP, ["test.s1", "test.s2", "test.s3"]]]);
+        expect(saved.panels.auxiliarybar).toMatchObject({activeContainer: GROUP});
+    });
+
+    it("搬进底部面板：方向变了，分节平分，收成标题行的展开；搬回侧栏排到最后，还是当前容器", async () => {
+        const {store} = await open();
+        const sections = ["test.s1", "test.s2", "test.s3"].map((id) => sectionOf(store, id));
+        const [first, second, third] = sections as [string, string, string];
+        shareOut(store, sections);
+        expect(store.actions.setCollapsed(second, true).ok).toBe(true);
+        expect(store.actions.moveContainer(GROUP, "panel").ok).toBe(true);
+        const doc = store.actions.document();
+        expect(containersIn(doc, "panel")).toEqual([["view:test.p1", ["test.p1"]], [GROUP, ["test.s1", "test.s2", "test.s3"]]]);
+        expect(anchorOf(store, "panel")).toMatchObject({activeContainer: GROUP});
+        expect(sections.map((id) => isSectionCollapsed(doc, id))).toEqual([false, false, false]);
+        expect(doc.panels[second]?.collapsed).toBeUndefined();
+        expect(sizeIn(doc, second).width / sizeIn(doc, first).width).toBeCloseTo(1, 5);
+        expect(sizeIn(doc, third).width / sizeIn(doc, first).width).toBeCloseTo(1, 5);
+
+        expect(store.actions.moveContainer(GROUP, "sidebar").ok).toBe(true);
+        expect(containersIn(store.actions.document(), "sidebar")).toEqual([["view:test.s4", ["test.s4"]], [GROUP, ["test.s1", "test.s2", "test.s3"]]]);
+        expect(anchorOf(store, "sidebar")).toMatchObject({activeContainer: GROUP});
+        expect(anchorOf(store, "panel")).toMatchObject({activeContainer: "view:test.p1"});
+    });
+
+    it("搬容器：目标区域隐藏着、拖到零就展开；搬走区域最后一个容器，区域隐藏；已经在那里零写入；没有成员的容器是 not-found", async () => {
+        const {store} = await open();
+        store.actions.setPartHidden("auxiliarybar", true);
+        expect(store.actions.moveContainer("view:test.s4", "auxiliarybar").ok).toBe(true);
+        expect(store.actions.partVisible("auxiliarybar")).toBe(true);
+        expect(anchorOf(store, "auxiliarybar")).toMatchObject({activeContainer: "view:test.s4"});
+        store.actions.setCollapsed("panel", true);
+        expect(store.actions.moveContainer("view:test.s4", "panel").ok).toBe(true);
+        expect(store.actions.partVisible("panel")).toBe(true);
+        expect(anchorOf(store, "panel")?.collapsed).toBeUndefined();
+
+        expect(store.actions.moveContainer("view:test.x1", "sidebar").ok).toBe(true);
+        expect(containersIn(store.actions.document(), "auxiliarybar")).toEqual([]);
+        expect(anchorOf(store, "auxiliarybar")).toMatchObject({hidden: true, activeContainer: null});
+        expect(anchorOf(store, "sidebar")).toMatchObject({activeContainer: "view:test.x1"});
+
+        const same = store.actions.document();
+        expect(store.actions.moveContainer("view:test.x1", "sidebar").ok).toBe(true);
+        expect(store.actions.document()).toBe(same);
+        expect(store.actions.moveContainer("custom:nobody", "panel")).toMatchObject({ok: false, code: "not-found"});
+        expect(store.actions.document()).toBe(same);
     });
 });
 

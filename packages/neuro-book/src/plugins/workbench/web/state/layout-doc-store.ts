@@ -17,11 +17,11 @@ import {editorTabIdOf} from "../../shared/editor-panels";
 import type {EditorTabDrag} from "../contracts";
 import type {ViewCatalog} from "../views/registry";
 import {CUSTOM_CONTAINER_PREFIX, VIEW_LOCATIONS} from "../../shared/views";
-import {containerRegion, implicitContainerOf, NO_CONTAINERS, regionAnchor, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
+import {containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
 import {collapseOrder, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, newPanelEdgeTarget, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
-import {effectiveVisibleTabs} from "./layout-present";
+import {effectiveVisibleTabs, regionOccupied} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
 
@@ -209,8 +209,12 @@ function defineLayoutDocStore(bound: boolean) {
             return new Set([...fixedNodesOf(projection.value.input)].filter((id) => same(presented.value[id], sizes[id])));
         }
 
-        function apply(operation: (current: LayoutDoc) => LayoutResult, options: {readonly flush?: boolean} = {}): LayoutResult {
-            const base = rebased();
+        /**
+         * `rebase: false` 给不动树的操作（切换容器、让视图看得见）：切换不改任何尺寸意图（输出 42）。写回意图时有收起兄弟的分支按比例换算，
+         * 呈现与意图一样也会差在浮点的末位，切换几次记录就变了。
+         */
+        function apply(operation: (current: LayoutDoc) => LayoutResult, options: {readonly flush?: boolean; readonly rebase?: boolean} = {}): LayoutResult {
+            const base = options.rebase === false ? doc.value : rebased();
             const result = operation(base);
             if (!result.ok) {
                 if (result.code === "limit-exceeded") structureFailure.value = result.detail;
@@ -454,7 +458,7 @@ function defineLayoutDocStore(bound: boolean) {
                         const shown = region === null || container === undefined ? {ok: true as const, doc: current} : showContainer(current, region, container);
                         const expanded = shown.ok ? setPanelCollapsed(shown.doc, hit.panel, false) : shown;
                         return expanded.ok ? activateTab(expanded.doc, key) : expanded;
-                    }, {flush: true});
+                    }, {flush: true, rebase: false});
                 },
                 /**
                  * “移动到”（输出 23）：放到一块面板的标签末尾，或挨着一块工具面板开新面板：这一列放下面，这一排放右边。
@@ -498,6 +502,21 @@ function defineLayoutDocStore(bound: boolean) {
                     const home = homeOf(current, viewId);
                     return placeInContainer(current, tabKey({kind: "view", viewId}), home.region, home.container);
                 }, {flush: true}),
+                /**
+                 * 让容器看得见（输出 22 的点入口、输出 42）：它所在的区域显示（清掉隐藏与拖到零）并切到它，一次提交；分节的先后、大小、收成标题行都不动。
+                 * 已经是这样时零写入。最大化着的面板不是这个容器的分节时退出最大化：不然切过去了也被盖着。
+                 */
+                showContainer: (container: string): LayoutResult => {
+                    if (maximized.value !== null && doc.value.panels[maximized.value]?.container !== container) maximized.value = null;
+                    return apply((current) => {
+                        const region = containerRegion(current, container);
+                        return region === null ? notFound(container) : showContainer(current, region, container);
+                    }, {rebase: false});
+                },
+                /**
+                 * 把整个容器搬到另一个区域（输出 44 的“移到”“重置”），一次提交；带着什么、目标区域怎么变见 `moveContainerTo`。容器已经在那里时零写入。
+                 */
+                moveContainer: (container: string, region: PanelName): LayoutResult => apply((current) => moveContainerTo(current, container, region, policy), {flush: true}),
                 /** 最大化（输出 13）：只在内存；再点同一块退出。 */
                 toggleMaximized: (panel: string): boolean => {
                     // 浮动窗不可最大化：它不在树里，盖不了别的面板。区域的锚也不行：区域里最大化的是一个分节（输出 13）。
@@ -506,19 +525,11 @@ function defineLayoutDocStore(bound: boolean) {
                     maximized.value = maximized.value === panel ? null : panel;
                     return true;
                 },
-                /**
-                 * 区域或条此刻占不占地方（输出 36）：区域隐藏、拖到零、被最大化盖住、显示着的分节都放不下被收走，都不算；分节收成标题行算。
-                 * 隐藏与拖到零记在锚上；别的都按区域里显示着的分节问：锚自己不进呈现树。
-                 */
+                /** 区域或条此刻占不占地方（输出 36）；区域的判定见 `regionOccupied`。 */
                 partVisible: (part: LayoutPart): boolean => {
                     const current = doc.value;
                     if (part === "activitybar" || part === "statusbar") return !current.hiddenBars.includes(part);
-                    const anchorId = regionAnchor(current, part);
-                    const anchor = anchorId === null ? undefined : current.panels[anchorId];
-                    if (anchor === undefined || anchor.hidden === true || anchor.collapsed === true) return false;
-                    const shown = regionSections(current, part).map((section) => section.panel).filter((id) => isPanelShown(current, id));
-                    if (effectiveMaximized.value !== null) return shown.includes(effectiveMaximized.value);
-                    return shown.some((id) => !collapse.value.removed.has(id));
+                    return regionOccupied(current, part, {removed: collapse.value.removed, maximized: effectiveMaximized.value});
                 },
                 save,
                 retry: async (): Promise<string> => {

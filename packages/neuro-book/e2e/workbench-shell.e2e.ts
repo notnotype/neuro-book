@@ -61,6 +61,8 @@ const leafRects = (page: Page): Promise<Record<string, number[]>> => page.evalua
 const SESSIONS = "nbook.agent.sessions";
 const EXPLORER = "nbook.explorer";
 const CONVERSATION = "nbook.agent.conversation";
+/** 内置容器“项目”：会话与资源管理器声明在它里面，活动栏上是一个入口（输出 22、41）。 */
+const PROJECT_CONTAINER = "nbook.workbench.project";
 
 const content = (page: Page, view: string) => page.locator(`[data-content="view:${view}"]`);
 /**
@@ -99,12 +101,11 @@ const parked = (page: Page, selector: string) => expect(page.locator(selector)).
 const unparked = (page: Page, selector: string) => expect(page.locator(selector)).not.toHaveAttribute("inert", "");
 
 /**
- * 右键视图，在菜单里选目标面板：移动视图的入口（输出 23），目标名是面板名或“新面板（挨着 X）”。侧栏这一列的视图右键活动栏条目
- * （不是当前视图的标签没有 DOM，输出 22），别处的视图右键标签。
+ * 右键视图所在分节的标题，在菜单里选目标面板：移动视图的入口（输出 23），目标名是面板名或“新面板（挨着 X）”。活动栏入口的
+ * 右键菜单是容器的（输出 44），不是视图的。
  */
 async function moveViaMenu(page: Page, view: string, target: string): Promise<void> {
-    const entry = page.locator(`[data-tool-entry="${view}"]`);
-    await (await entry.count() > 0 ? entry : page.locator(`[data-panel-tab="view:${view}"]`)).click({button: "right"});
+    await page.locator(`[data-panel-tab="view:${view}"]`).click({button: "right"});
     await page.getByRole("menuitem", {name: target, exact: true}).click();
 }
 
@@ -254,11 +255,11 @@ test.describe("产品页", () => {
         await expect(leaf(page, sessions)).toHaveCount(0);
         await expect(page.locator(".workbench-shell-host")).toBeFocused();
 
-        // 焦点在侧栏分节的头里时隐藏侧栏：头随侧栏隐藏，侧栏里的视图有活动栏条目，焦点移到它的条目。
+        // 焦点在侧栏分节的头里时隐藏侧栏：头随侧栏隐藏，焦点移到活动栏里这个分节所在容器（“项目”）的入口（输出 16）。
         await frame(page, EXPLORER, "toggle-panel-maximized").focus();
         await regionToggle(page, "sidebar").evaluate((button) => (button as HTMLElement).click());
         await expect(leaf(page, explorer)).toHaveCount(0);
-        await expect(page.locator('[data-tool-entry="nbook.explorer"]')).toBeFocused();
+        await expect(page.locator(`[data-tool-entry="${PROJECT_CONTAINER}"]`)).toBeFocused();
     });
 
     test("拖动边界：一次手势只提交一次；越界停住、刷新恢复；键盘步长、Home/End；Escape 与拖动中改窗口零写入；拖到零留 1px，指针拉回与 Enter 恢复（输出 8、9、11、12；验收 5）", async ({page}) => {
@@ -683,7 +684,10 @@ test.describe("Lab", () => {
             element.scrollTop = 300;
         });
         const act = (name: string) => page.locator(`[data-surface-action="${name}"]`).click();
-        const head = (panel: string, action: string) => page.locator(`[data-panel-head="${panel}"] [data-panel-action="${action}"]`);
+        // 夹具的五个视图各是自己的容器：分节的头按它那个视图找，活动栏的入口按容器 id。
+        const head = (view: string, action: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"]) [data-panel-action="${action}"]`);
+        const entry = (view: string) => page.locator(`[data-tool-entry="view:${view}"]`);
+        const left = async (selector: string): Promise<number> => (await page.locator(selector).boundingBox())?.x ?? Number.NaN;
         const settled = async (visible: boolean): Promise<void> => {
             expect(await instances()).toEqual(before);
             await expect(input).toHaveValue("草稿");
@@ -693,28 +697,29 @@ test.describe("Lab", () => {
             }
         };
 
-        // 并进右栏再回侧栏。
+        // A 的容器整个搬到右栏再搬回侧栏（输出 44）：搬过去右栏切到它，它在编辑组右边，活动栏没有它的入口；搬回来入口回来、是当前容器。
         await act("a-to-right");
-        await page.locator("[data-panel-tab='view:a']").click();
-        await expect(page.locator(a)).toHaveAttribute("data-content-leaf", "auxiliarybar");
+        await expect(entry("a")).toHaveCount(0);
+        await expect.poll(async () => (await left(a)) > (await left("[data-leaf='g1']"))).toBe(true);
         await settled(true);
         await act("a-back");
-        await page.locator("[data-panel-tab='view:a']").click();
-        await expect(page.locator(a)).toHaveAttribute("data-content-leaf", "sidebar");
+        await expect(entry("a")).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(async () => (await left(a)) < (await left("[data-leaf='g0']"))).toBe(true);
         await settled(true);
 
-        // 最大化别的面板：A 被盖住（内容停放，读不到滚动位置），还原后回来。
-        await head("auxiliarybar", "maximize").click();
+        // 最大化别的面板：A 被盖住（内容停放，读不到滚动位置），还原后回来。A 的容器搬走后，右栏切到入口顺序里它前面的那个容器（输出 43）：D。
+        await expect(head("d", "maximize")).toBeVisible();
+        await head("d", "maximize").click();
         await expect(page.locator(a)).toBeHidden();
         await settled(false);
-        await head("auxiliarybar", "maximize").click();
+        await head("d", "maximize").click();
         await settled(true);
 
-        // 隐藏侧栏再从活动栏条目显示。
-        await head("sidebar", "hide").click();
+        // 点当前容器的入口隐藏侧栏，再点它显示（输出 22）。
+        await entry("a").click();
         await expect(page.locator(a)).toBeHidden();
         await settled(false);
-        await page.locator('[data-tool-entry="a"]').click();
+        await entry("a").click();
         await settled(true);
 
         // 画布窄到放不下：右栏先收走，再收侧栏（A 随之不可见）；画布变回宽，两者回来。画布宽度靠拖舞台右缘的把手改。
@@ -735,8 +740,12 @@ test.describe("Lab", () => {
         const visibleTabs = async () => ((await fixture.getAttribute("data-visible-tabs")) ?? "").split(" ").filter((tab) => tab !== "");
         const wide = await visibleTabs();
         expect(wide).toContain("view:a");
+        const auxiliary = await page.locator('[data-content="view:d"]').getAttribute("data-content-leaf");
+        expect(auxiliary).not.toBeNull();
+        // 焦点所在的面板最后收（输出 10）。点入口不把焦点带进分节（输出 42），上面最后聚焦的是右栏的头：把焦点放回 A 里，收的先后才是右栏、侧栏。
+        await input.focus();
         await resizeTo(720);
-        await expect(page.locator("[data-leaf='auxiliarybar']")).toHaveCount(0);
+        await expect(page.locator(`[data-leaf="${auxiliary}"]`)).toHaveCount(0);
         expect(await visibleTabs()).toContain("view:a");
         await settled(true);
         await resizeTo(520);
@@ -744,7 +753,7 @@ test.describe("Lab", () => {
         await settled(false);
         await resizeTo(1396);
         await expect.poll(visibleTabs).toEqual(wide);
-        await expect(page.locator("[data-leaf='auxiliarybar']")).toHaveCount(1);
+        await expect(page.locator(`[data-leaf="${auxiliary}"]`)).toHaveCount(1);
         await settled(true);
     });
 

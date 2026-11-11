@@ -37,6 +37,7 @@ import {
     setFloatRect,
     setPanelCollapsed,
     setPanelHidden,
+    setSiblingShares,
     showPanelAndInsert,
     splitIntoSections,
     stripDynamicTabs,
@@ -127,6 +128,57 @@ describe("意图", () => {
         const rebased = rebaseIntents(doc, {a: {width: 0, height: 100}, b: {width: 321, height: 100}});
         expect(sizeOf(rebased.tree.root, "a")).toEqual({width: 500, height: 100});
         expect(sizeOf(rebased.tree.root, "b")).toEqual({width: 321, height: 100});
+    });
+
+    describe("按比例重分一组兄弟（setSiblingShares）", () => {
+        const heights = (doc: LayoutDoc, ids: ReadonlyArray<string>): number[] => ids.map((id) => sizeOf(doc.tree.root, id).height);
+
+        it("这几块合占的主轴意图不变，彼此之比换成给定的；别的兄弟、交叉轴、文档的其余部分不动", () => {
+            // 四块各 150 高、500 宽：只重分 b、c、d 合占的 450。
+            const doc = docOf(H([V(["a", "b", "c", "d"], "col"), "e"]));
+            const next = okDoc(setSiblingShares(doc, [{node: "b", share: 1}, {node: "c", share: 3}, {node: "d", share: 5}]));
+            expect(heights(next, ["a", "b", "c", "d"])).toEqual([150, 50, 150, 250]);
+            expect(["a", "b", "c", "d", "e"].map((id) => sizeOf(next.tree.root, id).width)).toEqual([500, 500, 500, 500, 500]);
+            expect(shape(next)).toBe(shape(doc));
+            expect(next.panels).toEqual(doc.panels);
+        });
+
+        it("用在外缘放置之后：连放两块得到的一半、四分之一，按搬之前的比例重分回来", () => {
+            const doc = docOf(H([V(["a", "b"], "col"), V(["x", "y", "z"], "from"), "e"]));
+            const first = okDoc(movePanelToEdge(doc, {panel: "x", target: edge(doc, "b", "bottom")}, testPolicy()));
+            const second = okDoc(movePanelToEdge(first, {panel: "y", target: edge(first, "x", "bottom")}, testPolicy()));
+            const total = heights(second, ["x", "y"]).reduce((sum, value) => sum + value, 0);
+            const next = okDoc(setSiblingShares(second, [{node: "x", share: 3}, {node: "y", share: 1}]));
+            expect(heights(next, ["x", "y"])).toEqual([total * 3 / 4, total / 4]);
+            expect(heights(next, ["a", "b"])).toEqual(heights(second, ["a", "b"]));
+        });
+
+        it("分支也能当其中一块：它的主轴意图按比例写，里面的子节点不动", () => {
+            const doc = docOf(V(["a", H(["b", "c"], "row"), "e"]));
+            const next = okDoc(setSiblingShares(doc, [{node: "a", share: 1}, {node: "row", share: 3}]));
+            expect(heights(next, ["a", "row"])).toEqual([100, 300]);
+            expect(sizeOf(next.tree.root, "b")).toEqual(sizeOf(doc.tree.root, "b"));
+        });
+
+        it("不是同一个分支的子节点、节点不在树里、比例不是正的有限数、同一个节点给两次：拒绝，文档不变", () => {
+            const doc = docOf(H([V(["a", "b"], "col"), "e"]));
+            const rejected = (shares: ReadonlyArray<{node: string; share: number}>) => {
+                const result = setSiblingShares(doc, shares);
+                return result.ok ? "ok" : result.code;
+            };
+            expect(rejected([{node: "a", share: 1}, {node: "e", share: 1}])).toBe("rejected");
+            expect(rejected([{node: "a", share: 1}, {node: "nope", share: 1}])).toBe("rejected");
+            expect(rejected([{node: "a", share: 0}, {node: "b", share: 1}])).toBe("rejected");
+            expect(rejected([{node: "a", share: Number.NaN}, {node: "b", share: 1}])).toBe("rejected");
+            expect(rejected([{node: "a", share: 1}, {node: "a", share: 1}])).toBe("rejected");
+            // 根没有父分支，没有“兄弟”可言。
+            expect(rejected([{node: doc.tree.root.id, share: 1}])).toBe("rejected");
+        });
+
+        it("一项都不给：原样返回", () => {
+            const doc = docOf(H(["a", "e"]));
+            expect(okDoc(setSiblingShares(doc, []))).toBe(doc);
+        });
     });
 });
 
