@@ -464,8 +464,8 @@ export const labFixtures: LabFixture[] = [
             return [
                 {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部"}}},
                 {id: "no-project", label: "没有项目", input: {props: {...base, project: null}}},
-                {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
-                {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
+                {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
+                {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
             ];
         })(),
         // 场景 `long` 一直是英文界面，id 被 e2e 引用，所以点名。
@@ -474,10 +474,13 @@ export const labFixtures: LabFixture[] = [
     defineLabFixture<typeof WorkbenchItemStrip>({
         component: "WorkbenchItemStrip",
         scenes: (() => {
-            const entry = (id: string, text: string, extra: {title?: string; order?: number; priority?: number; command?: boolean; state?: "normal" | "warning" | "error"; disabledReason?: string; tooltip?: string} = {}) => ({
+            type Extra = {title?: string; order?: number; priority?: number; command?: boolean; state?: "normal" | "warning" | "error"; disabledReason?: string; tooltip?: string; icon?: {name: string; spin: boolean; muted: boolean}};
+            const entry = (id: string, text: string, extra: Extra = {}) => ({
                 id, text, title: extra.title ?? text, alignment: "right" as const, order: extra.order ?? 0, priority: extra.priority ?? 0,
                 command: extra.command === true ? {id: "nbook.editor.save-all", args: {}} : null,
                 tooltip: extra.tooltip ?? null, state: extra.state ?? "normal", disabledReason: extra.disabledReason ?? null,
+                // 悬停内容带加载函数，不是场景能写的数据；它由 WorkbenchItemStrip.dom.test.ts 测。
+                icon: extra.icon ?? null, hover: null,
             });
             const editor = [
                 entry("nbook.editor.unsaved", "未保存 3 个", {title: "未保存的文档", order: 10, priority: 30, command: true, state: "warning", tooltip: "第一章.md、第二章.md、设定.md"}),
@@ -490,6 +493,11 @@ export const labFixtures: LabFixture[] = [
                     entry("test.items.failed", "保存失败 1 个", {order: 1, priority: 5, command: true, state: "error", tooltip: "第一章.md：磁盘已满"}),
                     entry("test.items.disabled", "全部保存", {order: 2, priority: 5, command: true, disabledReason: "没有需要保存的文档"}),
                     entry("test.items.long", "一段相当长的条目文字，用来看看三百二十像素的上限与省略号在状态栏里是什么样子", {order: 3, priority: 1}),
+                ]}}},
+                {id: "icons", label: "图标：转圈加文字、只有图标（淡色与出错）", input: {props: {itemHeight: 20, align: "end", entries: [
+                    entry("test.items.running", "3 个任务", {title: "后台任务", order: 1, priority: 5, command: true, icon: {name: "i-lucide-loader-circle", spin: true, muted: false}}),
+                    entry("test.items.idle", "", {title: "后台任务", order: 2, priority: 5, command: true, icon: {name: "i-lucide-list-checks", spin: false, muted: true}}),
+                    entry("test.items.failed-icon", "", {title: "后台任务：1 个没有成功", order: 3, priority: 5, command: true, state: "error", icon: {name: "i-lucide-circle-x", spin: false, muted: false}}),
                 ]}}},
                 {id: "many", label: "放不下时收进“更多”", input: {props: {itemHeight: 20, align: "end", entries: Array.from({length: 14}, (_, index) => entry(`test.items.n${String(index)}`, `条目 ${String(index + 1)} · 一些文字`, {order: index, priority: index % 4, command: index % 3 === 0}))}}},
             ];

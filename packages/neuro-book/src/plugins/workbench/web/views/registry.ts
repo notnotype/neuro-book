@@ -46,6 +46,8 @@ export interface ViewSource {
     delivery(viewId: string): ViewDelivery;
     load(viewId: string): Promise<ViewLoad>;
     retry(viewId: string): Promise<WindowPluginRetry>;
+    /** 标题后的计数（views.md 输出 17），响应式；Lab 的局部实现可以不给。 */
+    badge?(viewId: string): number | null;
 }
 
 function entryReason(state: EntryState): string {
@@ -70,11 +72,15 @@ export class ViewRegistry implements ViewSource {
     readonly #plugins: WindowPlugins | null;
     readonly #handles = new Map<string, ViewHandle>();
     readonly #revoked = new Map<string, RevokeReason>();
+    readonly #report: (message: string) => void;
+    /** `badge()` 抛过错的句柄：同一个句柄只记一次诊断。 */
+    readonly #badgeReported = new WeakSet<ViewHandle>();
     /** 交付状态的响应式版本号：句柄或入口状态变了就加一，读交付状态的 computed 因此重算。 */
     readonly #version = shallowRef(0);
     #stopped = false;
 
-    constructor(declarations: ReadonlyArray<ContributionDescriptor<ViewDeclaration>>, plugins: WindowPlugins | null, signal: AbortSignal) {
+    constructor(declarations: ReadonlyArray<ContributionDescriptor<ViewDeclaration>>, plugins: WindowPlugins | null, signal: AbortSignal, report: (message: string) => void = () => undefined) {
+        this.#report = report;
         this.catalog = new Map(declarations.map((descriptor) => [descriptor.id, catalogDeclaration(descriptor)]));
         this.#owners = new Map(declarations.map((descriptor) => [descriptor.id, {plugin: descriptor.plugin, entry: descriptor.entry}]));
         this.#plugins = plugins;
@@ -101,6 +107,23 @@ export class ViewRegistry implements ViewSource {
         if (revoked !== undefined) return {kind: "entry-stopped", reason: revoked};
         if (state?.status === "stopping" || state?.status === "closed") return {kind: "entry-stopped", reason: "stopped"};
         return {kind: "declared"};
+    }
+
+    /** 读贡献方的 `badge()`，不加载视图；正整数才交回，抛错按没有计数并记一次诊断。 */
+    badge(viewId: string): number | null {
+        void this.#version.value;
+        const handle = this.#handles.get(viewId);
+        if (handle === undefined || !handle.published || this.#stopped) return null;
+        try {
+            const count = handle.implementation().badge?.() ?? null;
+            return typeof count === "number" && Number.isInteger(count) && count > 0 ? count : null;
+        } catch (error) {
+            if (!this.#badgeReported.has(handle)) {
+                this.#badgeReported.add(handle);
+                this.#report(`view ${viewId}: badge() failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+            return null;
+        }
     }
 
     receiver(): ContributionReceiver<ViewDeclaration, ViewImplementation> {

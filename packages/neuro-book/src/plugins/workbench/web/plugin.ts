@@ -163,7 +163,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const chrome = createShellChrome({commands, state: stateService, statusItems, titleItems, activityItems, titlebarMenu, viewTitle, platform: currentKeyPlatform(), signal: context.signal});
             const overlays = new OverlaySlot(context.signal);
             const OverlayHost = createOverlayHost(overlays, (message) => diagnostics.record({level: "warn", event: "workbench.overlays", message, source: {plugin: descriptor.id}}));
-            const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal);
+            const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal, (message) => diagnostics.record({level: "warn", event: "workbench.views", message, source: {plugin: descriptor.id}}));
             let editorSaveGate: EditorSaveGate | null = null;
             const layout = createLayoutHost(() => {
                 const store = layoutDocStoreFor(project !== null).create(context, {storage, diagnostics});

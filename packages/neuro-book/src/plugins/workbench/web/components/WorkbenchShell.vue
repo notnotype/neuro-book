@@ -205,7 +205,12 @@ function tabsIn(source: LayoutDoc, panelId: string): PanelHeadTab[] {
 }
 
 const titleOnlyPanelIds = computed(() => titleOnlyPanels(doc.value));
-const headTabs = (panelId: string): PanelHeadTab[] => tabsIn(renderedDoc.value, panelId);
+/** 面板头的标签在标题后接视图的计数（views 输出 17）；活动栏的入口不接，所以只在这里加。 */
+const headTabs = (panelId: string): PanelHeadTab[] => tabsIn(renderedDoc.value, panelId).map((tab) => {
+    const viewId = viewIdOf(tab.id);
+    const count = viewId === null ? null : props.views.badge?.(viewId) ?? null;
+    return count === null ? tab : {...tab, label: `${tab.label} ${String(count)}`};
+});
 
 const DOCK_ICON = "i-lucide-panel-top";
 
