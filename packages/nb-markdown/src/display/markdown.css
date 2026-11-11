@@ -146,7 +146,11 @@
     user-select: none;
 }
 
-/* 编辑器里焦点去了卡片的输入框时，正文仍画出选区（`editor/held-selection.ts`），与浏览器画的选区同色。 */
+/*
+ * 选区用主题的选区色（docs/specs/theme/system.md）。编辑器里焦点去了卡片的输入框时，正文自己画出选区
+ * （`editor/held-selection.ts`）；两条同色，焦点进出卡片时选区看起来没变。
+ */
+.nb-markdown ::selection,
 .nb-markdown .nb-markdown-held-selection {
     background: var(--selection-bg);
 }

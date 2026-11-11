@@ -345,7 +345,7 @@ test.describe("选区菜单", () => {
         await expect(input).toHaveValue("");
         // 新加注音没有移除按钮。
         await expect(page.locator("[data-markdown-text-prompt]").getByRole("button")).toHaveCount(1);
-        // 焦点在卡片里，浏览器不画正文的选区：正文自己画，与选区同色。
+        // 焦点在卡片里，浏览器不画正文的选区：正文自己画，与浏览器画的选区同是主题的选区色。
         const held = prose(page).locator(".nb-markdown-held-selection");
         await expect(held).toHaveText("汉字");
         const colors = await held.evaluate((element) => {
@@ -354,9 +354,9 @@ test.describe("选区菜单", () => {
             document.body.append(probe);
             const expected = getComputedStyle(probe).backgroundColor;
             probe.remove();
-            return {actual: getComputedStyle(element).backgroundColor, expected};
+            return {held: getComputedStyle(element).backgroundColor, native: getComputedStyle(element, "::selection").backgroundColor, expected};
         });
-        expect(colors.actual).toBe(colors.expected);
+        expect(colors).toEqual({held: colors.expected, native: colors.expected, expected: colors.expected});
         await input.fill("hàn zì");
         await page.keyboard.press("Enter");
         await expect(held).toHaveCount(0);
