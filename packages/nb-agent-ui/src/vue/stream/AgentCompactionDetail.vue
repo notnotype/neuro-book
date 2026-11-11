@@ -29,7 +29,7 @@ const cost = computed(() => {
     if (model === null) return null;
     return model.cost === null ? t("compactionDetail.costUnknown") : formatCost(model.cost, props.currency);
 });
-const kind = (value: "file" | "plan" | "log"): string => t(`compactionDetail.kinds.${value}`);
+const kind = (value: "file" | "plan" | "log" | "skill"): string => t(`compactionDetail.kinds.${value}`);
 </script>
 
 <template>

@@ -485,6 +485,7 @@ export default {
             file: "File",
             plan: "Plan",
             log: "Conversation log",
+            skill: "Skill",
         },
         truncated: "only the first part",
     },

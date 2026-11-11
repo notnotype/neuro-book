@@ -476,6 +476,7 @@ export default {
             file: "文件",
             plan: "计划",
             log: "对话记录",
+            skill: "Skill",
         },
         truncated: "只放回了前一部分",
     },
