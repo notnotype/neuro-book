@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import {computed} from "vue";
+import {computed, shallowRef} from "vue";
 
-import {Banner, Button, Tree} from "@notnotype/nb-ui/components";
+import {Banner, Button, ContextMenu, Tree} from "@notnotype/nb-ui/components";
 import type {GenericTreeNode} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
@@ -12,6 +12,8 @@ const props = defineProps<{
     expanded: readonly string[];
     selected?: string;
     disconnected?: boolean;
+    /** 有右键菜单“在它下面新建”；默认 false。 */
+    creatable?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -19,6 +21,8 @@ const emit = defineEmits<{
     (event: "update:expanded", value: string[]): void;
     (event: "more", parent: string | null): void;
     (event: "retry"): void;
+    /** 右键菜单里的“在它下面新建”；`parent` 为 null 是在根这一层（空白处右键）。只在宿主接了它时有菜单。 */
+    (event: "create", parent: string | null): void;
 }>();
 
 const text = useCanonText();
@@ -96,10 +100,29 @@ function select(node: GenericTreeNode): void {
     if (node.id.startsWith(FOLDER) || node.id.startsWith(LOADING)) return;
     emit("open", node.id);
 }
+
+/* 右键菜单（输出 4、5）：右键一行、或焦点在一行上按菜单键与 Shift+F10。分组、“再显示”“读取中”这几种行不是条目，按空白处算。 */
+const menu = shallowRef<{x: number; y: number; parent: string | null} | null>(null);
+const rowIdOf = (target: EventTarget | null): string | null => {
+    const id = (target instanceof Element ? target.closest("[data-tree-id]") : null)?.getAttribute("data-tree-id") ?? null;
+    return id === null || id.startsWith(FOLDER) || id.startsWith(MORE) || id.startsWith(LOADING) ? null : id;
+};
+const openMenu = (event: MouseEvent): void => {
+    event.preventDefault();
+    menu.value = {x: event.clientX, y: event.clientY, parent: rowIdOf(event.target)};
+};
+const onKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
+    event.preventDefault();
+    const row = event.target instanceof Element ? event.target.closest("[data-tree-id]") : null;
+    const box = row?.getBoundingClientRect();
+    menu.value = {x: box?.left ?? 0, y: box?.bottom ?? 0, parent: rowIdOf(event.target)};
+};
+const menuItems = computed(() => [{label: text("entries.createUnder"), iconClass: "i-lucide-plus", action: () => emit("create", menu.value?.parent ?? null)}]);
 </script>
 
 <template>
-    <div class="min-w-0">
+    <div class="min-w-0" @contextmenu="props.creatable && openMenu($event)" @keydown="props.creatable && onKeydown($event)">
         <Banner v-if="props.disconnected" tone="warning" role="status" class="m-2" :message="text('world.disconnected')">
             <template #actions><Button size="sm" @click="emit('retry')">{{ text("world.retry") }}</Button></template>
         </Banner>
@@ -117,5 +140,6 @@ function select(node: GenericTreeNode): void {
         >
             <template #suffix="{node}">{{ notes.get(node.id) ?? "" }}</template>
         </Tree>
+        <ContextMenu v-if="menu !== null" :open="true" :x="menu.x" :y="menu.y" :items="menuItems" @request-close="menu = null" />
     </div>
 </template>

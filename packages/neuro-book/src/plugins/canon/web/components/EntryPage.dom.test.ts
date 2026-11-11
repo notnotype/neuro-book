@@ -50,6 +50,7 @@ describe("EntryPage", () => {
         expect(wrapper.emitted("update:tab")).toEqual([["plot"]]);
         await wrapper.get("[role='switch']").trigger("click");
         expect(wrapper.emitted("update:planned")).toEqual([[true]]);
+        expect(wrapper.find("button[aria-label='更多']").exists()).toBe(true);
     });
 
     it("读取中、读取失败、找不到、已删除各只有一句，没有页头控件与分页", () => {

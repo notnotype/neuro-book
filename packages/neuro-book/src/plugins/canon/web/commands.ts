@@ -7,28 +7,42 @@ import {Type} from "typebox";
 
 import type {CommandImplementation, CommandResult, CommandService, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {OPEN_PAGE_COMMAND} from "nbook/plugins/editor/shared/contracts";
+import {OPEN_VIEW_COMMAND} from "nbook/plugins/workbench/shared/views";
 
 import {canonText} from "../shared/text";
 
 export const OPEN_ENTRY_COMMAND = "nbook.canon.open-entry";
+export const NEW_ENTRY_COMMAND = "nbook.canon.new-entry";
+/** 设定视图（命令打开对话框前先显示它）。与 `plugin.ts` 的 `ENTRIES_VIEW_ID` 是同一个，这里写字面量免得成环。 */
+const ENTRIES_VIEW = "nbook.canon.entries";
 /** 条目页（author-ui.md 输出 6 起；页面在第一批的条目页一片登记）。 */
 export const ENTRY_PAGE = "nbook.canon.entry";
 
 const OPEN_ENTRY_ARGS = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
+const NEW_ENTRY_ARGS = Type.Object({parent: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false});
 
 export const CANON_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommandDeclaration>> = {
     [OPEN_ENTRY_COMMAND]: {category: canonText("commands.category"), description: "Open the entry page of a lore entry by its id; an entry page already open in the window is activated instead of opened twice.", args: OPEN_ENTRY_ARGS, effect: "read"},
+    // 只打开对话框，写入在作者确认以后；不给 Agent（它新建条目走世界服务的写入）。
+    [NEW_ENTRY_COMMAND]: {category: canonText("commands.category"), description: "Show the Lore view and open the new-entry dialog, optionally under a parent entry.", args: NEW_ENTRY_ARGS, effect: "read", expose: {agent: "never"}},
 };
 
 /**
  * `commands` 为 null 时（窗口里没有命令服务，只在只装世界客户端的测试窗口里）命令照样登记，执行得到 `unavailable`：声明了的
  * 贡献必须交实现。
  */
-export function canonCommands(commands: Pick<CommandService, "execute"> | null): Record<string, CommandImplementation> {
+export function canonCommands(commands: Pick<CommandService, "execute"> | null, newEntry: (parent: string | null) => void): Record<string, CommandImplementation> {
     const missing: CommandResult<unknown> = {ok: false, code: "unavailable", reason: "no command service in this window"};
     return {
         [OPEN_ENTRY_COMMAND]: {
             run: async (args): Promise<CommandResult<unknown>> => (commands === null ? missing : commands.execute(OPEN_PAGE_COMMAND, {id: ENTRY_PAGE, arg: (args as {id: string}).id})),
+        },
+        [NEW_ENTRY_COMMAND]: {
+            run: async (args): Promise<CommandResult<unknown>> => {
+                if (commands === null) return missing;
+                newEntry((args as {parent?: string}).parent ?? null);
+                return commands.execute(OPEN_VIEW_COMMAND, {viewId: ENTRIES_VIEW});
+            },
         },
     };
 }

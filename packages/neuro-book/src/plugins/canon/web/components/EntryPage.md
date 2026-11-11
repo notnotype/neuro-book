@@ -14,7 +14,9 @@
 - 内容区上方按需有两行说明：“原来选的那一章已经不在了”（`role="status"`）、“在某位置还没出场”。
 - 状态 `loading` 只有一行“读取中…”（`aria-busy`）；`failed`（第一次读取就失败了，例如连不上项目）只有“没有读出来”（`role="alert"`）；`missing` 只有“找不到这个条目”；`deleted` 只有原来的名字与“这个条目已删除”。这四种都没有页头控件与分页。
 
-事件：选位置发 `update:position`，拨开关发 `update:planned`，切分页发 `update:tab`，点“是谁”的链接发 `open-entry`，点“重试”发 `retry`。
+- 位置与开关后面是“更多”（只有图标的按钮，可读名“更多”），里面有“删除条目”（危险色；`deletable` 为 false 时不可用）。
+
+事件：选位置发 `update:position`，拨开关发 `update:planned`，切分页发 `update:tab`，点“是谁”的链接发 `open-entry`，点“重试”发 `retry`，选“删除条目”发 `delete`（确认对话框在宿主里）。
 
 ## 数据
 
@@ -37,6 +39,8 @@ type EntryPageProps = {
     /** nb-ui `Tabs` 的项。 */
     tabs?: readonly TabsItem[];
     tab?: string;
+    /** “删除条目”可用；默认 false。 */
+    deletable?: boolean;
 };
 ```
 

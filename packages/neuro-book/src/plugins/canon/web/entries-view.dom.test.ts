@@ -19,8 +19,10 @@ import {countedClient} from "../testing/counted-client";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
 import EntryTree from "./components/EntryTree.vue";
-import {createEntriesViewHost, entriesViewState} from "./entries-view";
+import NewEntryDialog from "./components/NewEntryDialog.vue";
+import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
 import type {EntriesViewState} from "./entries-view";
+import {createNotices} from "./notices";
 import {canonCatalogs} from "./text";
 import {createCanonWorld} from "./world";
 import type {CanonWorld} from "./world";
@@ -68,7 +70,8 @@ async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; stat
     cleanups.push(() => world.dispose());
     const state = entriesViewState();
     const opened: string[] = [];
-    const host = createEntriesViewHost(EntryTree, {world, state, open: (id) => opened.push(id)});
+    const notices = createNotices();
+    const host = createEntriesViewHost(EntryTree, {world, state, open: (id) => opened.push(id), create: {dialog: NewEntryDialog, call: client.call, notices}});
     return {
         world, other, state, opened, parents,
         view: () => {
@@ -132,5 +135,42 @@ describe("设定视图", () => {
         const wrapper = mount(host, {global: {provide: provideText(port)}});
         cleanups.push(() => wrapper.unmount());
         expect(wrapper.text()).toBe("打开作品后可用");
+    });
+
+    it("新建条目：在“星瑕”下面建一个启用面板的物品，树里出现它、打开它的条目页；名字为空时“新建”不可用", async () => {
+        const {other, state, opened, view} = await setup();
+        const star = person("星瑕");
+        const ids = await publish(other.canon, [star]);
+        const starId = ids[star.id]!;
+        state.expanded.value = ["folder:人物"];
+        const wrapper = view();
+        await waitUntil("条目出现", () => rowTexts(wrapper).includes("星瑕"));
+
+        startNewEntry(state, starId);
+        await waitUntil("对话框", () => document.body.querySelector("[data-new-entry]") !== null);
+        const dialog = (): Element => document.body.querySelector("[role='dialog']")!;
+        const create = (): HTMLButtonElement => [...dialog().querySelectorAll("button")].find((button) => button.textContent?.trim() === "新建")!;
+        expect(create().disabled).toBe(true);
+        const [name, kind] = [...dialog().querySelectorAll("input")] as HTMLInputElement[];
+        const type = (input: HTMLInputElement, value: string): void => {
+            input.value = value;
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+        // 一个控件一次：对话框是受控的，每次改动以宿主写回的草稿为准，同一拍里连改两个控件后一个会盖掉前一个。
+        type(name!, "魔杖");
+        await waitUntil("名字写进草稿", () => state.creating.value?.name === "魔杖");
+        type(kind!, "物品");
+        await waitUntil("登记的类型", () => dialog().textContent?.includes("面板") ?? false);
+        const panel = [...dialog().querySelectorAll("label")].find((label) => label.textContent?.includes("面板"))!;
+        panel.click();
+        await waitUntil("“新建”可用", () => !create().disabled);
+        create().click();
+
+        await waitUntil("打开了它的条目页", () => opened.length === 1);
+        await waitUntil("树里出现在星瑕下面", () => rowTexts(wrapper).join("|") === "人物|星瑕|魔杖");
+        expect(state.creating.value).toBeNull();
+        const stored = await other.canon.call("object", {ref: {kind: "entry", id: opened[0]!}});
+        if (!stored.ok) throw new Error(JSON.stringify(stored.failure));
+        expect(stored.value.object).toMatchObject({type: "物品", folder: "物品", parent: starId, init: {name: "魔杖", data: {panel: {type: "nbook.canon.panel", enabled: true}}}});
     });
 });

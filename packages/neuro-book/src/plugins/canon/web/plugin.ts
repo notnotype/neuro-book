@@ -28,10 +28,10 @@ import {componentsPoint} from "../shared/components";
 import {canonClientKey, canonWorldContract} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
 import {createCanonClient} from "./client";
-import {CANON_COMMAND_DECLARATIONS, canonCommands, ENTRY_PAGE, OPEN_ENTRY_COMMAND} from "./commands";
+import {CANON_COMMAND_DECLARATIONS, canonCommands, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_ENTRY_COMMAND} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
-import {createEntriesViewHost, entriesViewState} from "./entries-view";
+import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
 import {createEntryPage, originsFetcher} from "./entry-page";
 import {createNotices} from "./notices";
 import {createCanonWorld} from "./world";
@@ -40,7 +40,7 @@ import type {CanonWorld} from "./world";
 export const ENTRIES_VIEW_ID = "nbook.canon.entries";
 
 /** author-ui.md 的“输入与前置条件”：侧栏，排在文件资源管理器（`order: 0`）之后。标题由约定键补（`views.<id>.title`）。 */
-const ENTRIES_VIEW: WrittenViewDeclaration = {icon: "i-lucide-book", location: "sidebar", order: 10, layout: "fill"};
+const ENTRIES_VIEW: WrittenViewDeclaration = {icon: "i-lucide-book", location: "sidebar", order: 10, layout: "fill", actions: [{command: NEW_ENTRY_COMMAND, icon: "i-lucide-plus"}]};
 
 /** 条目页：每个条目一个标签，刷新后恢复（author-ui.md 的“输入与前置条件”）。标题由约定键补（`editorPages.entry.title`）。 */
 const ENTRY_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-book-open", instances: true, restore: true};
@@ -115,6 +115,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                     world: worldOf(),
                     state,
                     open: (id) => execute(OPEN_ENTRY_COMMAND, {id}),
+                    create: {dialog: (await import("./components/NewEntryDialog.vue")).default, call: (method, input) => clientOf().call(method, input), notices},
                 }),
             };
             return {
@@ -127,7 +128,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                         [PERSON_TYPE]: componentView(() => import("./components/FieldsDataView.vue"), {semanticNotes: true}),
                         [PANEL_TYPE]: componentView(() => import("./components/PanelDataView.vue")),
                     },
-                    [COMMANDS_POINT]: canonCommands(commands),
+                    [COMMANDS_POINT]: canonCommands(commands, (parent) => startNewEntry(state, parent)),
                 },
             };
         },

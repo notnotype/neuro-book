@@ -35,7 +35,8 @@ export function failureText(failure: CanonFailure): FailureText {
         case "unknown-outcome": return {text: canonText("failure.unknownOutcome"), recheck: true};
         case "world-read-only": return plain(canonText("blocked.readOnly", {reason: typeof failure.reason === "string" ? failure.reason : ""}));
         case "busy": return plain(canonText("blocked.busy", {holder: typeof failure.holder === "string" ? failure.holder : ""}));
-        case "not-deletable": return plain(canonText("failure.notDeletable", {reason: firstProblem(failure)}));
+        // `not-deletable` 只在给条目、剧情变更 `after: null` 时出现（canon.revisions 输出 20）；界面删除条目写墓碑，碰不到它，
+        // 万一出现按“别的失败”。
         default: return plain(canonText("failure.other"));
     }
 }

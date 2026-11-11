@@ -5,7 +5,7 @@
  */
 import {useId} from "vue";
 
-import {Banner, Button, Select, Switch, Tabs} from "@notnotype/nb-ui/components";
+import {Banner, Button, DropdownMenu, IconButton, Select, Switch, Tabs} from "@notnotype/nb-ui/components";
 import type {SelectOption, TabsItem} from "@notnotype/nb-ui/components";
 
 import {useCanonText} from "../text";
@@ -29,7 +29,9 @@ const props = withDefaults(defineProps<{
     disconnected?: boolean;
     tabs?: readonly TabsItem[];
     tab?: string;
-}>(), {name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, tabs: () => [], tab: ""});
+    /** 页头“更多”里的“删除条目”可用（输出 19）；写不了时不可用。 */
+    deletable?: boolean;
+}>(), {deletable: false, name: "", summary: "", sameAs: null, positions: () => [], position: "", planned: false, notAppeared: "", positionGone: false, disconnected: false, tabs: () => [], tab: ""});
 
 const emit = defineEmits<{
     (event: "update:position", value: string): void;
@@ -37,6 +39,8 @@ const emit = defineEmits<{
     (event: "update:tab", value: string): void;
     (event: "open-entry", id: string): void;
     (event: "retry"): void;
+    /** 选了“更多”里的“删除条目”。 */
+    (event: "delete"): void;
 }>();
 
 defineSlots<{
@@ -80,6 +84,9 @@ const tabId = (value: string): string => `${PANEL_ID}-tab-${value}`;
                         <label class="flex items-center gap-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)]">
                             <Switch size="sm" :model-value="props.planned" :aria-label="text('entry.planned')" @update:model-value="(value: boolean) => emit('update:planned', value)" />{{ text("entry.planned") }}
                         </label>
+                        <DropdownMenu align="end" :items="[{id: 'delete', label: text('entry.delete'), iconClass: 'i-lucide-trash-2', tone: 'danger', disabled: !props.deletable}]" @select="(id: string) => id === 'delete' && emit('delete')">
+                            <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text('entry.more')" :title="text('entry.more')" />
+                        </DropdownMenu>
                     </div>
                 </div>
                 <Tabs class="mx-auto mt-3 max-w-[760px]" size="sm" :baseline="false" :aria-label="text('entry.tabs.label')" :items="props.tabs.map((item) => ({...item, id: tabId(item.value), controls: PANEL_ID}))" :model-value="props.tab" @update:model-value="(value: string) => emit('update:tab', value)" />

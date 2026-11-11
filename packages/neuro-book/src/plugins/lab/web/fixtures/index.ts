@@ -11,6 +11,7 @@ import type EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
 import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
 import type EntryTree from "nbook/plugins/canon/web/components/EntryTree.vue";
 import type FieldTable from "nbook/plugins/canon/web/components/FieldTable.vue";
+import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDialog.vue";
 import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
@@ -1509,6 +1510,20 @@ function canonEntryPageFixtures() {
                 {id: "sample-english", label: "英文界面", input: {props: {title: "Edit Appearance"}}},
             ],
             load: async () => (await import("./NoticeBarFixture.vue")).default,
+        }),
+        defineLabFixture<typeof NewEntryDialog>({
+            component: "NewEntryDialog",
+            scenes: (() => {
+                const draft = {name: "", kind: "", folder: "", folderTouched: false, parent: null as string | null, types: [] as string[], sameAs: null as string | null, appears: null as string | null};
+                const options = {kinds: ["人物", "地点", "组织"], entries: [{id: "xingxia", name: "星瑕"}, {id: "academy", name: "第三魔法学院"}], types: [{id: "nbook.canon.person", label: "人物"}, {id: "nbook.canon.panel", label: "面板"}], chapters: [{id: "1", index: 1}, {id: "2", index: 2}]};
+                return [
+                    {id: "empty", label: "空的：名字为空时不能新建", input: {props: options, model: {open: true, draft}}},
+                    {id: "filled", label: "在星瑕下面建一个物品，启用面板", input: {props: options, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", folder: "物品", parent: "xingxia", types: ["nbook.canon.panel"]}}}},
+                    {id: "failed", label: "没建成", input: {props: {...options, error: "这次改动没有成功"}, model: {open: true, draft: {...draft, name: "魔杖", kind: "物品", folder: "物品"}}}},
+                    {id: "empty-english", label: "英文界面", input: {props: options, model: {open: true, draft}}},
+                ];
+            })(),
+            load: async () => (await import("./NewEntryDialogFixture.vue")).default,
         }),
     ];
 }

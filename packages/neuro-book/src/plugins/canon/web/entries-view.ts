@@ -1,6 +1,7 @@
 /**
  * “设定”视图的宿主（docs/specs/canon/author-ui.md 输出 1 到 3、5、27）：把读取层读到的条目树折成 `EntryTree` 的 props，把树的
- * 事件翻成读取与命令。展开了哪些、选中哪个记在窗口里（`EntriesViewState`），视图卸载再挂上时还在。
+ * 事件翻成读取与命令。展开了哪些、选中哪个、新建条目的对话框开着没有记在窗口里（`EntriesViewState`），视图卸载再挂上时还在。
+ * 新建条目（输出 4）也在这里：命令 `nbook.canon.new-entry`、标题栏的“新建条目”与树项的右键菜单都只是打开对话框。
  *
  * 读取：根这一层与每个展开的条目各一个分页读取（`tree`，带缺省位置），展开时才读那一层；树跟着世界变由读取层保证（输出 3）。
  * 缺省位置跟着章表变：最新一章末尾，没有章时是初值（canon.model 输出 21）。用渲染函数写，同资源管理器的视图宿主。
@@ -9,7 +10,15 @@
 import {computed, defineComponent, h, onBeforeUnmount, shallowRef, watch} from "vue";
 import type {Component, ShallowRef} from "vue";
 
+import type {ComponentType} from "@notnotype/nb-canon";
+import {useText} from "@notnotype/nb-ui/text-port";
+
+import type {CanonClient} from "../shared/contracts";
 import type {EntryTreeItem, EntryTreeLayer} from "./components/entry-tree";
+import {failureText} from "./failures";
+import {buildNewEntry, emptyDraft} from "./new-entry";
+import type {NewEntryDraft} from "./new-entry";
+import type {CanonNotices} from "./notices";
 import {defaultPosition} from "./positions";
 import {useCanonText} from "./text";
 import type {CanonWorld, ListHandle} from "./world";
@@ -23,10 +32,12 @@ export interface EntriesViewState {
     readonly expanded: ShallowRef<readonly string[]>;
     /** 最后打开的条目；不在树里了就不显示选中。 */
     readonly selected: ShallowRef<string | undefined>;
+    /** 开着的新建条目对话框里填的东西；关着时为 null。 */
+    readonly creating: ShallowRef<NewEntryDraft | null>;
 }
 
 export function entriesViewState(): EntriesViewState {
-    return {expanded: shallowRef([]), selected: shallowRef(undefined)};
+    return {expanded: shallowRef([]), selected: shallowRef(undefined), creating: shallowRef(null)};
 }
 
 export interface EntriesViewHostOptions {
@@ -35,6 +46,17 @@ export interface EntriesViewHostOptions {
     readonly state: EntriesViewState;
     /** 打开条目页（命令 `nbook.canon.open-entry`）。 */
     readonly open: (id: string) => void;
+    /** 新建条目：对话框组件、世界客户端的读取与本窗口的提示。不给时没有新建（只测树的场景）。 */
+    readonly create?: {
+        readonly dialog: Component;
+        readonly call: CanonClient["call"];
+        readonly notices: CanonNotices;
+    };
+}
+
+/** 打开新建条目的对话框（命令与右键菜单用）。 */
+export function startNewEntry(state: EntriesViewState, parent: string | null): void {
+    state.creating.value = emptyDraft(parent);
 }
 
 export function createEntriesViewHost(tree: Component, options: EntriesViewHostOptions): Component {
@@ -42,6 +64,7 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
         name: "EntriesViewHost",
         setup() {
             const text = useCanonText();
+            const port = useText();
             const {world, state} = options;
             if (world === null) return () => h("p", {class: "px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
 
@@ -86,6 +109,52 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                 return id !== undefined && Object.values(layers.value).some((layer) => layer.items.some((item) => item.id === id)) ? id : undefined;
             });
 
+            /* ---------- 新建条目 ---------- */
+
+            const create = options.create;
+            // 对话框开着时才读登记的类型；关上就释放。
+            let componentsRead: ReturnType<typeof world.read<"components">> | null = null;
+            const components = shallowRef<readonly ComponentType[]>([]);
+            watch(() => state.creating.value !== null, (open) => {
+                if (open && create !== undefined && componentsRead === null) {
+                    componentsRead = world.read("components", {});
+                    watch(componentsRead.state, (read) => {
+                        components.value = read.data?.items ?? [];
+                    }, {immediate: true});
+                } else if (!open && componentsRead !== null) {
+                    componentsRead.release();
+                    componentsRead = null;
+                }
+            }, {immediate: true});
+            onBeforeUnmount(() => componentsRead?.release());
+            const saving = shallowRef(false);
+            const error = shallowRef("");
+            /** 已读到的条目：放在谁下面、另一个身份的候选，以及用过的种类。 */
+            const known = computed(() => [...handles.value.values()].flatMap((held) => held.list.state.value.items).filter((item) => !item.deleted));
+            const confirm = async (): Promise<void> => {
+                const draft = state.creating.value;
+                const baseVersion = world.status.value.data?.version;
+                if (create === undefined || draft === null || saving.value || baseVersion === undefined) return;
+                saving.value = true;
+                error.value = "";
+                const entry = await buildNewEntry(create.call, draft, components.value);
+                const title = text("newEntry.saved", {name: entry.init.name});
+                const result = await world.write("publish", {request: {requestId: `new-entry-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", title, baseVersion, puts: [{ref: {kind: "entry", id: entry.id}, after: entry}]}});
+                saving.value = false;
+                if (!result.ok) {
+                    error.value = port.t(failureText(result.failure).text);
+                    return;
+                }
+                const id = result.value.ids[entry.id] ?? entry.id;
+                state.creating.value = null;
+                // 树里看得见它：展开它的上级（根下是它的分组）。
+                const opened = entry.parent === null ? `folder:${entry.folder}` : entry.parent;
+                if (!state.expanded.value.includes(opened)) state.expanded.value = [...state.expanded.value, opened];
+                state.selected.value = id;
+                create.notices.show({revision: result.value.revision, title});
+                options.open(id);
+            };
+
             return () => h("div", {class: "flex min-h-0 flex-col"}, [
                 h(tree, {
                     layers: layers.value,
@@ -101,6 +170,24 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                         state.selected.value = id;
                         options.open(id);
                     },
+                    ...(create === undefined ? {} : {creatable: true, onCreate: (parent: string | null) => startNewEntry(state, parent)}),
+                }),
+                create === undefined || state.creating.value === null ? null : h(create.dialog, {
+                    open: true,
+                    draft: state.creating.value,
+                    kinds: [...new Set(known.value.map((item) => item.type).filter((kind) => kind !== ""))],
+                    entries: known.value.map((item) => ({id: item.id, name: item.nameAt ?? item.name})),
+                    types: components.value.map((type) => ({id: type.id, label: type.label})),
+                    chapters: chapters.state.value.data?.items ?? [],
+                    saving: saving.value,
+                    error: error.value,
+                    "onUpdate:draft": (draft: NewEntryDraft) => {
+                        state.creating.value = draft;
+                    },
+                    "onUpdate:open": (open: boolean) => {
+                        if (!open && !saving.value) state.creating.value = null;
+                    },
+                    onConfirm: () => void confirm(),
                 }),
             ]);
         },

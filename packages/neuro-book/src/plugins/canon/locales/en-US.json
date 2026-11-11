@@ -3,11 +3,23 @@
         "category": "Lore",
         "open-entry": {
             "title": "Open Entry"
+        },
+        "new-entry": {
+            "title": "New entry"
         }
     },
     "views": {
         "entries": {
-            "title": "Lore"
+            "title": "Lore",
+            "actions": {
+                "nbook": {
+                    "canon": {
+                        "new-entry": {
+                            "title": "New entry"
+                        }
+                    }
+                }
+            }
         }
     },
     "world": {
@@ -22,7 +34,8 @@
         "unappeared": "not yet on stage",
         "deleted": "deleted",
         "more": "Show more ({{count}} left)",
-        "loading": "Reading…"
+        "loading": "Reading…",
+        "createUnder": "New entry under it"
     },
     "editorPages": {
         "entry": {
@@ -50,7 +63,13 @@
             "text": "Text",
             "plot": "Plot"
         },
-        "writeUnavailable": "Cannot write here yet"
+        "writeUnavailable": "Cannot write here yet",
+        "more": "More",
+        "delete": "Delete entry",
+        "deleteTitle": "Delete “{{name}}”?",
+        "deleteDescription": "Places that refer to it will show “deleted entry”; you can restore it from the change history.",
+        "deleteConfirm": "Delete",
+        "deleteSaved": "Deleted “{{name}}”"
     },
     "position": {
         "initial": "Initial",
@@ -132,8 +151,7 @@
         "unknownOutcome": "Not sure whether this change was written",
         "recheck": "Check again",
         "other": "This change did not go through",
-        "accumulated": "This number adds up several steps: edit one of them, or record a new one",
-        "notDeletable": "Cannot delete: {{reason}}"
+        "accumulated": "This number adds up several steps: edit one of them, or record a new one"
     },
     "edit": {
         "button": "Edit",
@@ -167,5 +185,22 @@
         "receipt": "View receipt",
         "close": "Close",
         "label": "Change just saved"
+    },
+    "newEntry": {
+        "title": "New entry",
+        "name": "Name",
+        "kind": "Kind",
+        "kindPlaceholder": "e.g. character, place, item",
+        "folder": "Group",
+        "parent": "Put it under",
+        "root": "Top level",
+        "types": "Data to enable",
+        "sameAs": "Another identity of",
+        "none": "None",
+        "appears": "First appears",
+        "fromStart": "From the start",
+        "chapterStart": "Start of chapter {{index}}",
+        "confirm": "Create",
+        "saved": "Created “{{name}}”"
     }
 }

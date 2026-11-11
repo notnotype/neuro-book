@@ -14,6 +14,7 @@
 - 单击条目行：发 `open`（同一次点击，有子条目的行也会切换展开，这是 `Tree` 的行为）；Enter 同样。
 - 单击“再显示”行：发 `more`，参数是那一层的父条目（根是 `null`）。
 - 方向键、Home、End 与按字母跳转由 `Tree` 处理。
+- `creatable` 时有右键菜单（nb-ui `ContextMenu`）“在它下面新建”：右键一行，或焦点在一行上按菜单键、Shift+F10；选了发 `create`，参数是那一行的条目（分组、“再显示”“读取中”与空白处是 `null`，即根这一层）。
 - 根这一层正在读、还一项都没有时，只显示一行“读取中…”；读到了但一项也没有时显示“还没有条目”。
 
 宽度 390 像素时结构不变，名字截断，“未出场”这类说明保留。
@@ -51,6 +52,8 @@ type EntryTreeProps = {
     selected?: string;
     /** 世界已断开（订阅被提供方结束）：树上面一条横幅“世界已断开”与“重试”，树留着。默认 false。 */
     disconnected?: boolean;
+    /** 有右键菜单“在它下面新建”。默认 false。 */
+    creatable?: boolean;
 };
 
 type EntryTreeEmits = {
@@ -62,6 +65,8 @@ type EntryTreeEmits = {
     (event: "more", parent: string | null): void;
     /** 点了横幅上的“重试”。 */
     (event: "retry"): void;
+    /** 右键菜单里的“在它下面新建”；`parent` 为 null 是根这一层。 */
+    (event: "create", parent: string | null): void;
 };
 ```
 
@@ -77,7 +82,7 @@ type EntryTreeEmits = {
 
 ## 不支持
 
-- 右键菜单与新建条目（第一批的写入片做）、拖动排序、搜索、多选。
+- 拖动排序、搜索、多选。
 - 图标：条目的种类不画图标。
 
 ## 隐藏通道理由

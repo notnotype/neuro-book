@@ -4,10 +4,11 @@
  * `EntryPage` 与各分页的组件画。只读当前分页要的：文字分页读渲染，情节分页读变更，数据分页的界面经 `context` 自己读；展开一个
  * 值时才读它的来历。
  */
-import {computed, nextTick, watch} from "vue";
+import {computed, nextTick, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
-import type {FieldDeclaration, Placement, ReadPosition} from "@notnotype/nb-canon";
+import type {Entry, FieldDeclaration, Placement, ReadPosition} from "@notnotype/nb-canon";
+import {Dialog} from "@notnotype/nb-ui/components";
 import type {Text} from "@notnotype/nb-ui/text";
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -233,6 +234,37 @@ const record = async (path: string, input: {readonly text: string; readonly delt
     return {ok: true};
 };
 
+/**
+ * 删除条目（输出 19）：读出存下的条目，发布加了墓碑的版本。对话框在结果回来前不关、按钮不可用；失败时原因写在对话框里。
+ * 成功后标签留着，按输出 8 显示已删除。
+ */
+const deleteOpen = shallowRef(false);
+const deleting = shallowRef(false);
+const deleteError = shallowRef("");
+const confirmDelete = async (): Promise<void> => {
+    if (deleting.value) return;
+    deleting.value = true;
+    deleteError.value = "";
+    const name = view.value?.name ?? "";
+    const stored = await props.call("object", {ref: {kind: "entry", id: props.id}});
+    const entryNow = stored.ok ? (stored.value.object as Entry | null) : null;
+    const baseVersion = world.status.value.data?.version;
+    if (entryNow === null || baseVersion === undefined) {
+        deleting.value = false;
+        deleteError.value = port.t(failureText(stored.ok ? {code: "version-conflict"} : stored.failure).text);
+        return;
+    }
+    const title = text("entry.deleteSaved", {name});
+    const result = await world.write("publish", {request: {requestId: `delete-${crypto.randomUUID()}`, by: {kind: "author"}, what: "edit", title, baseVersion, puts: [{ref: {kind: "entry", id: props.id}, after: {...entryNow, deleted: true}}]}});
+    deleting.value = false;
+    if (!result.ok) {
+        deleteError.value = port.t(failureText(result.failure).text);
+        return;
+    }
+    deleteOpen.value = false;
+    props.notices.show({revision: result.value.revision, title});
+};
+
 const editHere = computed(() => {
     const draft = state.edit;
     return draft !== null && dataNamespace.value !== null && draft.path.startsWith(`${dataNamespace.value}.`);
@@ -302,11 +334,13 @@ const setPosition = (value: string): void => {
             :disconnected="world.connection.value === 'ended'"
             :tabs="tabs"
             :tab="tab"
+            :deletable="blocked === null"
             @update:position="setPosition"
             @update:planned="(value: boolean) => (state.planned = value)"
             @update:tab="(value: string) => (state.tab = value)"
             @open-entry="(id: string) => props.open({kind: 'entry', id})"
             @retry="world.retry()"
+            @delete="deleteOpen = true; deleteError = ''"
         >
             <EntryText
                 v-if="tab === 'text'"
@@ -357,5 +391,19 @@ const setPosition = (value: string): void => {
                 <FieldsDataView v-else :key="dataNamespace" :context="contextFor(dataNamespace)" />
             </template>
         </EntryPage>
+        <Dialog
+            :open="deleteOpen"
+            size="sm"
+            :title="text('entry.deleteTitle', {name: view?.name ?? ''})"
+            show-cancel
+            :confirm-label="text('entry.deleteConfirm')"
+            :busy="deleting"
+            :close-on-request="!deleting"
+            @update:open="(value: boolean) => (deleteOpen = value)"
+            @confirm="confirmDelete()"
+        >
+            <p class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">{{ text("entry.deleteDescription") }}</p>
+            <p v-if="deleteError !== ''" role="alert" class="mt-2 text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ deleteError }}</p>
+        </Dialog>
     </div>
 </template>

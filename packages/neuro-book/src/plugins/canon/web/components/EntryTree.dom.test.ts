@@ -91,4 +91,24 @@ describe("EntryTree", () => {
         expect(row("b").attributes("aria-selected")).toBe("true");
         expect(row("a").attributes("aria-selected")).toBe("false");
     });
+
+    it("creatable 时右键一行有“在它下面新建”，选了发 create（右键分组是根这一层）；不是 creatable 时没有菜单", async () => {
+        const plain = tree({"": layer([item("a", "星瑕", {folder: "人物"})])}, ["folder:人物"]);
+        await plain.row("a").trigger("contextmenu");
+        expect(document.body.textContent).not.toContain("在它下面新建");
+        plain.wrapper.unmount();
+
+        const wrapper = mount(EntryTree, {props: {layers: {"": layer([item("a", "星瑕", {folder: "人物"})])}, expanded: ["folder:人物"], creatable: true}, global: {provide: provideText(port)}, attachTo: document.body});
+        mounted.push(wrapper);
+        const choose = async (id: string): Promise<void> => {
+            await wrapper.get(`[data-tree-id="${id}"]`).trigger("contextmenu");
+            await wrapper.vm.$nextTick();
+            const entry = [...document.body.querySelectorAll("[role='menuitem']")].find((node) => node.textContent?.includes("在它下面新建")) as HTMLElement;
+            entry.click();
+            await wrapper.vm.$nextTick();
+        };
+        await choose("a");
+        await choose("folder:人物");
+        expect(wrapper.emitted("create")).toEqual([["a"], [null]]);
+    });
 });

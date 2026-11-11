@@ -3,11 +3,23 @@
         "category": "设定",
         "open-entry": {
             "title": "打开条目"
+        },
+        "new-entry": {
+            "title": "新建条目"
         }
     },
     "views": {
         "entries": {
-            "title": "设定"
+            "title": "设定",
+            "actions": {
+                "nbook": {
+                    "canon": {
+                        "new-entry": {
+                            "title": "新建条目"
+                        }
+                    }
+                }
+            }
         }
     },
     "world": {
@@ -22,7 +34,8 @@
         "unappeared": "未出场",
         "deleted": "已删除",
         "more": "再显示（还有 {{count}} 项）",
-        "loading": "读取中…"
+        "loading": "读取中…",
+        "createUnder": "在它下面新建"
     },
     "editorPages": {
         "entry": {
@@ -50,7 +63,13 @@
             "text": "文字",
             "plot": "情节"
         },
-        "writeUnavailable": "这里还不能写"
+        "writeUnavailable": "这里还不能写",
+        "more": "更多",
+        "delete": "删除条目",
+        "deleteTitle": "删除“{{name}}”？",
+        "deleteDescription": "删除以后，引用它的地方会显示“已删除的条目”；可以在改动记录里还原。",
+        "deleteConfirm": "删除",
+        "deleteSaved": "删除“{{name}}”"
     },
     "position": {
         "initial": "初值",
@@ -132,8 +151,7 @@
         "unknownOutcome": "不确定这次改动有没有写进去",
         "recheck": "再查一次",
         "other": "这次改动没有成功",
-        "accumulated": "这个数是几笔累出来的：改其中一笔，或者记一笔",
-        "notDeletable": "不能删除：{{reason}}"
+        "accumulated": "这个数是几笔累出来的：改其中一笔，或者记一笔"
     },
     "edit": {
         "button": "改",
@@ -167,5 +185,22 @@
         "receipt": "看回执",
         "close": "关闭",
         "label": "刚保存的改动"
+    },
+    "newEntry": {
+        "title": "新建条目",
+        "name": "名字",
+        "kind": "种类",
+        "kindPlaceholder": "比如：人物、地点、物品",
+        "folder": "分组",
+        "parent": "放在谁下面",
+        "root": "最上面一层",
+        "types": "启用哪些数据",
+        "sameAs": "它是谁的另一个身份",
+        "none": "不是",
+        "appears": "从哪里出场",
+        "fromStart": "一开始就在",
+        "chapterStart": "第 {{index}} 章开头",
+        "confirm": "新建",
+        "saved": "新建“{{name}}”"
     }
 }

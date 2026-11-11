@@ -28,6 +28,7 @@ import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
 import {ENTRY_PAGE} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
+import EntryPage from "./components/EntryPage.vue";
 import EntryTree from "./components/EntryTree.vue";
 import {createEntriesViewHost, entriesViewState} from "./entries-view";
 import {createEntryPage, originsFetcher} from "./entry-page";
@@ -532,5 +533,20 @@ describe("写入", () => {
         expect(wrapper.get("[data-edit='character.外观']").attributes("title")).toContain("第 3 章记账");
         await lease.value.release();
         await waitUntil("恢复", () => wrapper.get("[data-edit='character.外观']").attributes("disabled") === undefined);
+    });
+
+    it("删除条目：确认以后标签留着、显示“这个条目已删除”，顶上有提示", async () => {
+        const {other, open} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const {wrapper} = await open(id);
+        await waitUntil("值", () => wrapper.find("[data-value]").exists());
+        // “更多”是浮层菜单（经 Teleport），这里直接发页头的 delete 事件，确认对话框照常走。
+        wrapper.findComponent(EntryPage).vm.$emit("delete");
+        await waitUntil("确认对话框", () => document.body.textContent?.includes("删除“星瑕”？") ?? false);
+        const confirm = [...document.body.querySelectorAll("button")].find((button) => button.textContent?.trim() === "删除")!;
+        confirm.click();
+        await waitUntil("已删除", () => wrapper.text().includes("这个条目已删除"));
+        expect(wrapper.get("[data-notice-bar]").text()).toContain("删除“星瑕”");
     });
 });
