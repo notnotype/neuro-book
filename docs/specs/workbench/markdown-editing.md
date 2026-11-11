@@ -110,6 +110,7 @@ interface EditorEditing {
 24. **命令面板**：不带参数的编辑命令在 Markdown 编辑器活动时可选，条件不满足时不列出；执行结果与点按钮相同。
 25. **贡献的项**：显示与可用规则同 [`workbench.menus`](menus.md)；点了以后命令收到 `{address}`。
 26. **注音是一个整体**：加上或去掉格式（粗体、斜体、删除线、行内代码、文字颜色、高亮、上标、下标、链接、批注、清除格式，以及设新注音、去掉注音）时，只盖住一段注音的一部分，就连整段注音一起改，不把注音切成两段；不管是从按钮、菜单、快捷键还是 `**…**` 这类输入规则来的，都一样，与原来的改动在同一个撤销步里。行内代码排斥注音：盖住注音的一部分时整段注音变成代码。拖选经过注音时注音的小字不画成选中，复制出来的文字也不带它。已知限制：在注音中间带着存下的格式打字、往注音中间粘贴带格式的文字，注音照旧被切开。
+27. **含注音的行里的行首行尾**：Home、End 与 Shift+Home、Shift+End 在含注音的行里到这一行真正的行首、行尾（折行的段落里是这一行，不是整段），行尾的光标画在这一行的末尾，不跑到下一行行首。编辑器里的注音画成行内块、读音在基底上方居中，排版与原生的注音相近。已知限制：注音的基底很长（整句）时，整个注音块掉到下一行，不再跟着折行；注音通常只给词。只读显示不受影响。
 
 ## 状态与转换
 
@@ -154,6 +155,7 @@ interface EditorEditing {
 7. Given 段落“前文注音后文”，“注音”两字带注音，When 用鼠标从两字中间拖到“后”之后，Then 选中的文字里没有注音的小字；When 按 Ctrl+B 并保存，Then 文件里是一个注音，粗体盖住整段注音与“后”。
 8. Given 段落里一段带注音的文字，When 点注音的小字，Then 卡片预填原来的注音、正文里整段注音画成选中、选区菜单不显示；When 把卡片里的字清空再回车，Then 注音不变；When 再打开并点“移除注音”，Then 保存后文件里没有这个注音。
 9. Given 第一次用，When 选中文字点工具栏文字颜色的左半边，Then 文字是红色；When 用箭头打开色板，Then 选区菜单不显示；When 选蓝色、刷新页面、在另一份文档里选中文字点左半边，Then 文字是蓝色。
+10. Given 一行的段落“前林汐后，一行。”（“林汐”带注音）与一个折成几行、第一行里有注音的长段落，When 在每一行里按 Home 再按 Shift+End，Then 选中的正好是这一行的字（不含注音的小字）；When 再按 End 与 Shift+Home，Then 选中的仍是这一行。
 
 Smoke：`e2e/markdown-editing.e2e.ts`。
 
@@ -166,6 +168,7 @@ Smoke：`e2e/markdown-editing.e2e.ts`。
 - 不变量：内置菜单读自己控件的 `editing`，公开键只服务命令的 `when`、贡献项与命令面板，拆分后互不带偏（`markdown-editing.e2e.ts` 的“拆分后”）。
 - 不变量：块菜单的动作从选区反推块，容器与原子块用节点选区（`block-actions.dom.test.ts`）；拖动结束自己清 `view.dragging`（`markdown-editing.e2e.ts` 的拖动用例）。
 - 不变量：注音整体（输出 26）在注音语法自己的 ProseMirror 插件里补，按加标记、去标记的步认，不在各个命令上补：格式的入口有编辑动作、编辑内核自带的快捷键与输入规则，最后都落成这两种步（`nb-markdown/src/language/syntax/ruby/whole-ruby.ts`，`whole-ruby.dom.test.ts`）。
+- 不变量：编辑器里的注音不用原生的 `display: ruby`（`nb-markdown/src/display/markdown.css` 的 `.nb-markdown.ProseMirror ruby`，`markdown-editing.e2e.ts` 的“含注音的行里”）：Chrome 把一行里最后一个注音的末尾当成行尾，Home、End 到不了真正的行首行尾（在没有 ProseMirror 的普通 contenteditable 里同样复现）。试过的别的办法：用脚本算行尾不行，折行处的一个文档位置既是上一行行尾又是下一行行首，程序设置的光标画在下一行行首；`display: flex`、`grid` 会把基底挤到读音下面一行，排版走样。
 - 不变量：卡片开着时“原来的选区仍画着”用 ProseMirror 装饰画（`nb-markdown/src/editor/held-selection.ts`），不靠 DOM 选区：焦点进了输入框，浏览器就不画正文的选区。装饰随编辑映射，不进撤销历史；`MarkdownControl` 换文档、存下 `EditorState` 之前先清掉，免得切回来时还画着（`held-selection.dom.test.ts`；换文档的那一条在 `MarkdownControl.dom.test.ts` 的“换到别的文档再换回来”）。
 - 不变量：选区菜单自己打开的一层（色板、块类型下拉）带 `data-markdown-menu-layer`，菜单按焦点在不在这一层里判断“焦点在菜单里”；工具栏打开的同一组件不带这个标记（`MarkdownColorButton`、`MarkdownBlockTypeMenu` 的 `inSelectionMenu`）。块类型下拉与颜色按钮由工具栏与选区菜单共用一份组件。
 - 颜色记录 `markdown.colors` 由 `markdown/web/colors.ts` 定义，插件激活时按可选依赖取存储服务，取不到用只在内存里的一份；组件经注入取用。卡片里的输入框是 nb-ui `Input` 的 `variant="bare"`。
