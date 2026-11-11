@@ -46,6 +46,11 @@ function splitFrontmatter(text: string): {readonly yaml: string; readonly body: 
     return {yaml: normalized.slice(4, close + 1), body: after < 0 ? "" : normalized.slice(after + 1)};
 }
 
+/** `SKILL.md` 的正文（frontmatter 之后的部分）；没有 frontmatter 时是全文。带上与放回时用。 */
+export function splitSkillFile(text: string): {readonly body: string} {
+    return {body: splitFrontmatter(text)?.body ?? text};
+}
+
 /**
  * 读 `directory`（文件夹名 `folder`）下的 Skill 包。无效的交回原因；可选字段不合规的忽略那个字段，名字列在 `ignored` 里，
  * 由调用方写诊断。

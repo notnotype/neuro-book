@@ -1,30 +1,105 @@
 /**
- * Skill 目录经真实应用与窗口远程（docs/specs/agent/skills.md 输出 1、5）：插件启动时扫好目录，窗口先订阅 `skillsChanged`
- * 再取 `skills`。
+ * Skill 经真实应用（docs/specs/agent/skills.md）：目录经窗口远程（输出 1、5）；`$` 带上 Skill 经真实内核与本机假端点，看模型
+ * 收到的请求（输出 9–12，场景 2、3、8）。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {MAIN_PROFILE} from "./shared/contracts";
+import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
+import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
 import type {AgentWorld} from "./testing/world";
 
 let tmp = "";
 let counter = 0;
 const worlds: AgentWorld[] = [];
+let endpoint: FakeEndpoint;
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-agent", "skills");
+    endpoint = fakeEndpoint();
 });
 afterEach(async () => {
+    endpoint.reset();
     for (const world of worlds.splice(0)) await world.close();
 });
 afterAll(async () => {
+    endpoint.stop();
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+});
+
+let commands = 0;
+const cid = () => `s-${String((commands += 1))}`;
+
+/** 在状态根的 `user/skills/` 里放 Skill，再起场地。 */
+async function world(skills: Readonly<Record<string, string>>, settings: Readonly<Record<string, unknown>> = {}): Promise<AgentWorld> {
+    counter += 1;
+    const base = join(tmp, `w${String(counter)}`);
+    for (const [name, body] of Object.entries(skills)) {
+        const directory = join(base, "state", "user", "skills", name);
+        await mkdir(directory, {recursive: true});
+        await writeFile(join(directory, "SKILL.md"), `---\nname: ${name}\ndescription: ${name} 的说明\n---\n\n${body}\n`);
+    }
+    const w = await agentWorld(base, {userSettings: {...localModelSettings(endpoint.baseUrl), ...settings}});
+    worlds.push(w);
+    return w;
+}
+
+const textOf = (content: unknown): string => (typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => (typeof part === "object" && part !== null && "text" in part ? String(part.text) : "")).join("") : "");
+
+/** 发一句话，交回模型收到的最后一条用户消息的文字。 */
+async function ask(session: SessionApi, text: string): Promise<string> {
+    const sent = endpoint.requests.length;
+    endpoint.script("好");
+    const result = await session.send({commandId: cid(), input: {text}});
+    if (!result.ok || result.value.runId === null) throw new Error(`send failed: ${JSON.stringify(result)}`);
+    await session.waitRun(result.value.runId);
+    const users = endpoint.requests[sent]!.messages.filter((message) => message.role === "user");
+    return textOf(users.at(-1)?.content);
+}
+
+const missingOf = async (session: SessionApi) => (await session.log({afterSeq: 0})).events.filter((event) => event.type.endsWith("skillMissing")).map((event) => event.data);
+
+describe("这一轮带上 Skill", () => {
+    test("场景 2、8：主创 $ 一个 Skill，正文在用户的话前面、带文件地址的说明；没改过再 $ 只带见前文；改了之后带新的", async () => {
+        const w = await world({"style-guide": "第一版：人称用第一人称。"});
+        const created = await w.service.create({profile: MAIN_PROFILE});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+
+        const first = await ask(session, "用 $style-guide 改写第六章");
+        const skill = first.indexOf('<skill id="user.style-guide" name="style-guide" location="skills://user.style-guide/SKILL.md">');
+        expect(skill).toBeGreaterThanOrEqual(0);
+        expect(first.indexOf("第一版：人称用第一人称。")).toBeGreaterThan(skill);
+        expect(first.indexOf("用 $style-guide 改写第六章")).toBeGreaterThan(first.indexOf("</skill>"));
+        expect(first).toContain("skills://user.style-guide/");
+
+        const second = await ask(session, "再用 $style-guide 改第七章");
+        expect(second).toContain("Skill「style-guide」见前文。");
+        expect(second).not.toContain("第一版");
+
+        await writeFile(join(w.stateRoot, "user", "skills", "style-guide", "SKILL.md"), "---\nname: style-guide\ndescription: 说明\n---\n\n第二版：人称用第三人称。\n");
+        const third = await ask(session, "$style-guide 第八章");
+        expect(third).toContain("第二版：人称用第三人称。");
+        expect(await missingOf(session)).toEqual([]);
+    }, 30_000);
+
+    test("场景 3、7：不存在的、用户在 Profile 设置里去掉的都不带正文，各写原因；行内代码里的 $HOME 不算标签", async () => {
+        const w = await world({"style-guide": "正文甲。"}, {"nbook.agent/profileSettings": {[MAIN_PROFILE]: {skills: {added: [], removed: ["user.style-guide"]}}}});
+        const created = await w.service.create({profile: MAIN_PROFILE});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        const text = await ask(session, "用 $nothing 和 $style-guide，跑 `echo $HOME`");
+        expect(text).not.toContain("<skill");
+        expect(await missingOf(session)).toEqual([{token: "nothing", reason: "not-found"}, {token: "style-guide", reason: "not-allowed"}]);
+    }, 30_000);
 });
 
 describe("远程", () => {
