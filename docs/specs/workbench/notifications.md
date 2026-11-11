@@ -17,6 +17,7 @@ owners:
 
 - 活动栏角标、系统通知、标签页标题计数、勿扰模式：以后另定。
 - 通知中心只记本窗口的通知，刷新页面后清空（输出 13）。
+- 发出方的入口停止后，中心里它发过的通知仍带着动作，点了不起作用、记诊断（已知限制）。
 - 持续存在的连接状态横幅：组件 `Banner` 已在 nb-ui，第一个使用者随浏览器宿主的断线重连另定。
 - 跨窗口的通知：每个窗口一份队列，别的窗口看不到。
 
@@ -40,6 +41,7 @@ owners:
       progress?: number | null;                           // 0 到 100；null 不确定进度；不给就没有进度条
       sticky?: boolean;                                   // 常驻；缺省 error、带动作与带详情的常驻
       detail?: string;                                    // 开发诊断原文；不翻译，必须已脱敏
+      detailTruncated?: boolean;                          // （planned）发出方已经截过原文时给 true，对话框照样注明已截断
   }
   interface NotificationHandle { id: string; update(patch: Partial<NotificationInput>): void; dismiss(): void }
   interface Notifications { notify(input: NotificationInput): NotificationHandle }
@@ -65,15 +67,15 @@ owners:
 12. **上限与折叠。** 视口最多显示最新 4 条，更早的折起来，整列最上面一个“还有 n 条较早的通知”小条；点它展开全部（列表在视口里纵向滚动，滚到最新一条），再点收起；总数回到 4 条以内时自动收起。折叠只按时间，不区分常驻与限时；折起来的限时通知照常到时消失，用户展开时它可能已经不在。
 13. （planned）**通知中心。** 本窗口发出的每条通知同时记进通知中心，与右下角弹出的那一份是同一条：
     - 新的在前，至多 100 条，多了丢最早的；与队列同寿（入口停止时清空，页面切换不清空，刷新页面就是新的窗口）。
-    - 用户关掉、到时消失的通知留在中心；发出方 `dismiss` 的同时从中心移除；`update` 同时改中心里的那一条。
+    - 用户关掉、到时消失的通知留在中心；点动作（在弹出处或中心里）执行后，从中心与弹出的队列一起移除；发出方 `dismiss` 的同时从中心移除；`update` 同时改中心里的那一条。
     - 每条记下发出的时刻。
 14. （planned）**“通知”视图。** `nbook.workbench` 贡献的视图，第一次放在底部面板，排在“后台任务”（[workbench.background-tasks](background-tasks.md)）之后，显示通知中心。
     - 每条一行，整个列表共用几列：没看过的点、色调图标、标题与正文（同一行，正文淡一档；放不下时截断，悬停看全文）、时间（规则同 [workbench.background-tasks](background-tasks.md) 输出 10）、动作与“详情”（有时才有）、移除。没看过的标题加粗。
     - 点动作执行 `run`，并把这条从中心与弹出的队列里一起移除（`run` 抛错同输出 4）；点“详情”打开输出 11 的对话框；点移除只从中心移除。
     - 视图头的动作“全部清除”：中心为空时不可用。
     - 中心为空时视图中间一句“没有通知。”
-15. （planned）**看过。** 通知记进中心时是没看过的；“通知”视图在本窗口有效可见时，中心里的都算看过。视图标签上写没看过的条数（“通知 2”，[workbench.views](views.md) 输出 17），为 0 时只写“通知”。
-16. （planned）**视图开着时不弹出。** “通知”视图有效可见时，新的通知只记进中心（算看过），不进右下角弹出的队列；视图不可见以后发出的照常弹出。
+15. （planned）**看过。** 通知记进中心时是没看过的；“通知”视图在本窗口有效可见、并且页面在前台（不是浏览器的后台标签页）时，中心里的都算看过。视图标签上写没看过的条数（“通知 2”，[workbench.views](views.md) 输出 17），为 0 时只写“通知”。
+16. （planned）**视图开着时不弹出。** “通知”视图有效可见、并且页面在前台时，新的通知只记进中心（算看过），不进右下角弹出的队列；视图不可见、页面在后台、视图卸载（例如去了书架页）以后发出的照常弹出。
 17. （planned）**铃铛。** 工作台页面的状态栏右侧固定区，在“显示面板”左边（[ui.workbench-shell](../ui/workbench-shell.md) 输出 44），一直在：
     - 12px 的铃铛图标，与“显示面板”同一种按钮；有没看过的通知时右上角一个强调色的小点，铃铛本身不变色。
     - 悬停提示与可访问名称：没有没看过的时“通知”，有时“通知：N 条没看过”。
@@ -91,7 +93,7 @@ owners:
 | 显示中 | 点动作、点关闭、`dismiss` | 移除 |
 | 任一 | 入口停止 | 移除 |
 | 显示中 | 用户关掉、到时（planned） | 从弹出的队列移除，通知中心里留着 |
-| 在通知中心 | 发出方 `dismiss`、在中心点动作（planned） | 从中心与弹出的队列一起移除 |
+| 任一 | 发出方 `dismiss`、点动作（在弹出处或中心里）（planned） | 从中心与弹出的队列一起移除 |
 | 在通知中心 | 在中心点移除、“全部清除”、超过 100 条（planned） | 只从中心移除 |
 
 时序与寿命：句柄在通知移除后仍可调用，调用无效果；`run` 在视口的点击处理里同步调用。
@@ -113,7 +115,7 @@ owners:
 ## 边界与兼容
 
 - 公开接口：`notificationsKey`、`Notifications`、`NotificationInput`、`NotificationHandle`（`nbook/plugins/workbench/shared/contracts`）。
-- （planned）视图 `nbook.workbench.notifications`；命令 `nbook.workbench.clear-notifications`（视图头的“全部清除”，不对 Agent 开放）。发出方的服务合同不变。
+- （planned）视图 `nbook.workbench.notifications`；命令 `nbook.notifications.clear`（视图头的“全部清除”，不对 Agent 开放）。发出方的服务合同只多一个可选字段 `detailTruncated`。
 - nb-ui 侧：`createNotificationQueue`、`hasNotificationDetail`、`NOTIFICATION_DETAIL_MAX_CHARS`、`NotificationStack` 的 `queue` 与 `maxVisible`、`Notification` 的 `progress` 与 `hasDetail`、`DetailDialog`、`CopyButton`、`Banner`（`@notnotype/nb-ui`）。
 - 信任边界：文字与详情原文按纯文本渲染，不解释 HTML；详情原文不脱敏，由发出方保证已脱敏。
 - `Notification` 的动作从正文右侧一列挪到正文下一行，是 nb-ui 公开组件的外观变化（插件作者经 SDK 用到它时外观随之变）。
@@ -129,7 +131,7 @@ owners:
 6. Given 六条常驻通知，Then 只显示最新 4 条与“还有 2 条较早的通知”；When 点它，Then 六条全部显示、小条变“收起”；When 移除两条，Then 小条消失。
 7. Given 对话框打开，When 那条通知被移除，Then 对话框仍显示原文；When 关闭，Then 焦点在视口根上。
 8. （planned）Given 工作台页与三条通知（一条被用户关掉、一条到时消失、一条还在弹出），When 打开“通知”视图，Then 三条都在、新的在前，标签上的条数与铃铛的点随之消失；When 视图开着时再发一条，Then 它不弹出、直接出现在列表最上面。
-9. （planned）Given 中心里一条带“重试”的通知，When 在中心点“重试”，Then `run` 执行，这条从中心与弹出的队列里一起消失；Given 发出方对另一条 `dismiss`，Then 中心里也没有它了。
+9. （planned）Given 中心里一条带“重试”的通知，When 在中心点“重试”，Then `run` 执行，这条从中心与弹出的队列里一起消失；Given 另一条带动作的通知还在弹出，When 在弹出处点动作，Then 中心里也没有它了；Given 发出方对第三条 `dismiss`，Then 中心里也没有它了。Given “通知”视图开着，When 离开工作台页去书架页再发一条，Then 它照常弹出。
 10. （planned）Given 101 条通知，Then 中心只留最新的 100 条；When 刷新页面，Then 中心为空。
 
 Smoke：`notifications.dom.test.ts`（真实队列与视口、宿主翻译引擎，验收 3、4，验收 5 的常驻规则）；`NotificationStack.test.ts`（验收 5 的对话框与焦点、6、7）；`e2e/lab-nb-ui.e2e.ts` 的“通知的‘详情’”（验收 5 的真实浏览器复制，含没有剪贴板 API 的退路）；`shelf-page.test.ts` 的刷新失败一组（验收 1）；`mount.dom.test.ts`（验收 2：真实窗口、内核与工作台插件，经路由导航换页面。产品里还没有站内去 `/workbench` 的入口，真实浏览器的验收等入口出现时补）；Lab 场景 `NotificationStack`、`Notification`（进度）、`Banner`。
