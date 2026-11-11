@@ -3,9 +3,11 @@
  * 审批与提问向导共用的外框（见同名 `.md`）：标题行、内部滚动的内容区、底部的按钮。磨砂表面与其它浮层相同，用浮层外框类，
  * 所以这里不写模糊（packages/nb-ui/docs/ui-development-spec.md 的浮层表）。
  */
+import {computed, inject} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
 
 import {useAgentText} from "../host";
+import {dockFrameKey} from "./dock-frame";
 
 const props = defineProps<{
     icon: string;
@@ -23,17 +25,30 @@ const props = defineProps<{
 const emit = defineEmits<{collapse: []}>();
 
 const {t} = useAgentText();
+
+/** 在停靠区里：标题行换成停靠区的（来源、计数、上一个与下一个、打开子会话），面换成停靠的轻阴影与输入框的圆角。 */
+const dock = inject(dockFrameKey, null);
+const docked = computed(() => dock?.value ?? null);
+const icon = computed(() => docked.value?.source?.icon ?? props.icon);
+const title = computed(() => (docked.value?.source === undefined ? props.title : t("dock.fromSubagent", {name: docked.value.source.name, what: props.title})));
+/** 停靠区里两个计数都写：第几个事项、这个事项的第几题（提问有几题时）。 */
+const count = computed(() => (docked.value === null ? props.count : [docked.value.count, props.count].filter((part) => part !== undefined && part !== "").join(" · ") || undefined));
 </script>
 
 <template>
-    <div class="acv-wizard-frame nb-ui-popover-surface" :class="{'is-large': props.large}">
+    <div class="acv-wizard-frame nb-ui-popover-surface" :class="{'is-large': props.large, 'is-docked': docked !== null}">
         <div class="acv-wizard-frame__scroll">
         <div class="acv-wizard-frame__head">
-            <span :class="[props.icon, 'acv-wizard-frame__icon']" aria-hidden="true" />
-            <span class="acv-wizard-frame__title">{{ props.title }}</span>
+            <span :class="[icon, 'acv-wizard-frame__icon']" aria-hidden="true" />
+            <span class="acv-wizard-frame__title" :title="title">{{ title }}</span>
             <code v-if="props.detail" class="acv-wizard-frame__detail" :title="props.detail">{{ props.detail }}</code>
             <span class="acv-wizard-frame__spacer" />
-            <span v-if="props.count" class="acv-wizard-frame__count" data-wizard-count>{{ props.count }}</span>
+            <span v-if="count" class="acv-wizard-frame__count" data-wizard-count>{{ count }}</span>
+            <template v-if="docked !== null && docked.count !== undefined">
+                <IconButton icon-class="i-lucide-chevron-left" size="sm" :disabled="docked.previous === undefined" :title="t('wizard.previousItem')" :aria-label="t('wizard.previousItem')" data-dock-step="previous" @click="docked.previous?.()" />
+                <IconButton icon-class="i-lucide-chevron-right" size="sm" :disabled="docked.next === undefined" :title="t('wizard.nextItem')" :aria-label="t('wizard.nextItem')" data-dock-step="next" @click="docked.next?.()" />
+            </template>
+            <IconButton v-if="docked?.open" icon-class="i-lucide-square-arrow-out-up-right" size="sm" :title="t('dock.openSession')" :aria-label="t('dock.openSession')" data-dock-open @click="docked.open()" />
             <IconButton icon-class="i-lucide-chevron-down" size="sm" :title="t('wizard.collapse')" :aria-label="t('wizard.collapse')" data-wizard-collapse @click="emit('collapse')" />
         </div>
         <div class="acv-wizard-frame__body" :class="{'is-tall': props.tall}">
@@ -84,9 +99,23 @@ const {t} = useAgentText();
     color: var(--accent-text);
 }
 
+/* 标题放不下时省略号截断，计数与按钮固定在右边（Spec“输入框与待处理区”）。 */
 .acv-wizard-frame__title {
-    flex-shrink: 0;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
     font-weight: var(--weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 停靠的面不用浮层的阴影档、圆角同输入框（design-language.md“停靠的面不用浮层的阴影档”）。 */
+.acv-wizard-frame.is-docked {
+    /* 限高在停靠区上（视图高度的 40%），外框跟着收缩，里面那层滚动。 */
+    max-height: none;
+    min-height: 0;
+    border-radius: var(--radius-panel);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-color) 10%, transparent);
 }
 
 .acv-wizard-frame__detail {

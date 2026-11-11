@@ -6,7 +6,7 @@
  */
 import {CollapsibleCard, CollapsibleRow} from "@notnotype/nb-ui/components";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
-import type {AgentViewRegistry, ToolRendererEntry} from "../../registry";
+import {presentationOf, type AgentViewRegistry, type ToolRendererEntry} from "../../registry";
 import type {ChainBlock, ToolStep, TurnStatus} from "../../conversation-turns";
 import {describeChain} from "../../process-summary";
 import {toolCallPhase} from "../../tool-status";
@@ -130,7 +130,7 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                     </template>
                 </template>
                 <CollapsibleCard
-                    v-else-if="entry.kind === 'tool' && rendererOf(entry).presentation === 'card'"
+                    v-else-if="entry.kind === 'tool' && presentationOf(rendererOf(entry), entry.call) === 'card'"
                     :running-label="t('turn.running')"
                     :icon="rendererOf(entry).icon"
                     :title="text(rendererOf(entry).label)"

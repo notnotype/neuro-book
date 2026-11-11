@@ -70,7 +70,7 @@ export function rewindCommand(host: CommandHost, args: CommandMap["rewind"]["arg
         const intercepted = await interceptInput(host, args.resend);
         if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
         const inputId = core.newId();
-        const queued: EventDraft = {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, "followup")};
+        const queued: EventDraft = {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, "followup", {kind: "user"})};
         const paused = core.pathState(leaf).kernel.run;
         if (paused !== null) return {value: {leaf, inputId, runId: paused.runId}, drafts: [...intercepted.failed, moved, queued], launch: paused.runId};
         const runId = core.newId();

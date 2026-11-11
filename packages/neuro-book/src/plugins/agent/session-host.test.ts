@@ -26,6 +26,7 @@ import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
 import type {AgentWorld, SessionsClient} from "./testing/world";
 import {createAgentActivity} from "./web/activity";
+import {createSessionList} from "./web/session-list";
 import {createSessionHost, displayToolName, RELEASE_DELAY_MS} from "./web/session-host";
 import type {SessionHost, SessionHostDeps} from "./web/session-host";
 
@@ -414,6 +415,14 @@ describe("审批与提问（输出 10–14）", () => {
         await until("重新打开", () => approvals(h.ctx()).length === 1);
         expect(h.ctx().wizardState).toEqual({collapsed: true, step: 1});
         back();
+        // 按会话存：切到别的会话再切回来还在；别的会话不带过去。
+        const here = h.ctx().session!.id;
+        const other = await h.host.create(MAIN_PROFILE);
+        expect(h.ctx().wizardState).toBeUndefined();
+        await h.host.open(here);
+        await until("切回来", () => approvals(h.ctx()).length === 1);
+        expect(h.ctx().wizardState).toEqual({collapsed: true, step: 1});
+        expect(other).not.toBeNull();
 
         h.host.act({type: "input.submit", batchKey: approvals(h.ctx())[0]!.id, resolutions: {kind: "approval", decision: "allow"}});
         await until("这一批答完", () => h.ctx().wizardState === undefined);
@@ -1416,4 +1425,85 @@ describe("手动压缩（输出 20）", () => {
         await idle(h);
         await until("说明收掉", () => h.ctx().composer.notice === undefined);
     }, 40_000);
+});
+
+describe("子代理（w00032 t14）", () => {
+    test("工具名：nbook.agent 的子代理与任务工具显式映射，别的插件的同名工具不认", () => {
+        expect(["nbook.agent.spawn", "nbook.agent.send", "nbook.agent.answer", "nbook.agent.wait", "nbook.agent.kill", "nbook.agent.jobs"].map(displayToolName)).toEqual(["agent_spawn", "agent_send", "agent_answer", "agent.wait", "agent.kill", "agent.jobs"]);
+        expect(displayToolName("other.plugin.wait")).toBe("wait");
+    });
+
+    test("后代的审批进停靠区、标来源、取预览，按事项所在的会话应答；进行中的调用在 activeCalls；子会话的顶栏有路径、父 Agent 的话标作者", async () => {
+        const w = await world();
+        const h = await harness(w);
+        const parent = await h.host.create(MAIN_PROFILE);
+        expect(parent).not.toBeNull();
+        endpoint.scriptFor("改人物卡", {tool: "write", args: {path: "user://a.md", content: "新的人物卡"}}, "改好了");
+        endpoint.script({tool: "agent_spawn", args: {profile: "nbook.agent.adhoc", prompt: "改人物卡", initial: {role: "设定核对员"}, async: true}}, "派出去了");
+        h.host.act({type: "composer.submit", text: "派一个", delivery: "prompt"});
+        const docked = () => {
+            w.settings.clock.advance(250);
+            return approvals(h.ctx()).find((item) => item.source !== undefined);
+        };
+        await until("子会话的审批进停靠区", () => docked() !== undefined);
+        expect(docked()!.source).toMatchObject({name: "改人物卡", icon: "i-lucide-bot"});
+        await until("取到预览", () => docked()?.preview.state === "ready");
+        expect(h.ctx().activeCalls).toHaveLength(1);
+        // 停靠区的界面状态同向导：归还超过 30 秒再借回还在。
+        const dockState = {collapsed: true, index: 0, wizard: {collapsed: false, step: 0, approvals: {}, notes: {}, answers: {}}};
+        h.host.act({type: "dock.state", state: dockState});
+        const give = h.host.borrow();
+        give();
+        w.settings.clock.advance(RELEASE_DELAY_MS + 1);
+        const back = h.host.borrow();
+        await until("重新打开", () => docked() !== undefined);
+        expect(h.ctx().dockState).toEqual(dockState);
+        back();
+        // 停靠的事项不替换输入框：阻塞的只有这个会话自己的同步事项。
+        expect(h.ctx().pendingInputs.filter((item) => item.source === undefined && item.async !== true)).toEqual([]);
+        const item = docked()!;
+        const child = item.source!.sessionId;
+        h.host.act({type: "input.submit", batchKey: item.id, resolutions: {kind: "approval", decision: "allow"}, sessionId: child});
+        await until("子会话跑完", () => {
+            w.settings.clock.advance(250);
+            return h.ctx().pendingInputs.length === 0 && (h.ctx().activeCalls ?? []).length === 0;
+        });
+        expect(await readFile(join(w.stateRoot, "user", "a.md"), "utf8")).toBe("新的人物卡");
+
+        await h.host.open(child);
+        await until("顶栏路径", () => h.ctx().session?.path?.[0]?.id === parent);
+        const first = h.ctx().messages.find((message) => message.kind === "user");
+        expect(first?.kind === "user" && first.author).toMatchObject({icon: "i-lucide-feather"});
+        // 父 Agent 发来的话不是用户说的：上方向键翻不到。
+        expect(h.ctx().composer.recall).not.toContain("改人物卡");
+    });
+
+    test("会话面板：子会话带父会话、父会话带个数；搜索命中子会话时上级弱化列出；状态栏按会话树数运行中", async () => {
+        const w = await world();
+        const h = await harness(w);
+        const parent = await h.host.create(MAIN_PROFILE);
+        endpoint.scriptFor("慢慢查一遍", "查完了");
+        const held = endpoint.holdFor("慢慢查一遍");
+        endpoint.script({tool: "agent_spawn", args: {profile: "nbook.agent.adhoc", prompt: "慢慢查一遍", initial: {role: "核对员"}, async: true}}, "派了");
+        h.host.act({type: "composer.submit", text: "派", delivery: "prompt"});
+        await held.arrived;
+        await idle(h);
+        const controller = new AbortController();
+        const activity = createAgentActivity(h.client, (message) => {
+            throw new Error(message);
+        });
+        await activity.start(controller.signal);
+        await until("子会话在跑", () => activity.running.value === 1);
+        expect(activity.items.value).toEqual([expect.objectContaining({state: "running", root: parent})]);
+
+        const list = createSessionList({remote: h.client, project: null, profileEntries: () => [], activity: () => activity.items.value, failed: (code) => code, now: () => 0});
+        await list.refresh();
+        const child = list.items.value.find((item) => item.parentId === parent);
+        expect(child).toMatchObject({title: "慢慢查一遍", status: "running"});
+        expect(list.items.value.find((item) => item.id === parent)).toMatchObject({childCount: 1});
+        list.query.value = "慢慢查";
+        expect(Object.fromEntries(list.items.value.map((item) => [item.id, item.dimmed === true]))).toEqual({[child!.id]: false, [parent!]: true});
+        held.release();
+        controller.abort();
+    });
 });

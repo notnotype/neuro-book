@@ -342,26 +342,30 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             // 组件与渲染组件用到时才加载（nb-agent-ui 的 Vue 层不小）。
             const loadVue = async () => {
-                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: SessionPanelHost}, {default: AgentFormRenderer}] = await Promise.all([
+                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: SessionPanelHost}, {default: AgentFormRenderer}, {default: SubagentCard}, {default: BackgroundCommandCard}, {subagentContribution}] = await Promise.all([
                     import("@notnotype/nb-agent-ui/vue"),
                     import("@notnotype/nb-agent-ui"),
                     import("./ConversationHost.vue"),
                     import("./SessionPanelHost.vue"),
                     import("./form-renderer.vue"),
+                    import("./components/SubagentCard.vue"),
+                    import("./components/BackgroundCommandCard.vue"),
+                    import("./subagent-renderers"),
                 ]);
-                return {builtinContributions, createAgentViewRegistry, ConversationHost, SessionPanelHost, AgentFormRenderer};
+                return {builtinContributions, createAgentViewRegistry, ConversationHost, SessionPanelHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution};
             };
             let vue: ReturnType<typeof loadVue> | null = null;
             const vueOnce = () => (vue ??= loadVue());
 
             const conversationComponent = async (position: "view" | "page"): Promise<Component> => {
                 ensureStarted();
-                const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer} = await vueOnce();
+                const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution} = await vueOnce();
                 const markdown = await context.services.resolve(markdownKey);
                 const components = markdown.status === "resolved" ? markdown.instance.components : null;
-                const registry = createAgentViewRegistry(builtinContributions);
+                const registry = createAgentViewRegistry([...builtinContributions, subagentContribution({card: SubagentCard})]);
                 const renderers = {
                     form: markRaw(AgentFormRenderer),
+                    backgroundCommand: markRaw(BackgroundCommandCard),
                     ...(components === null ? {} : {markdown: markRaw(components.MarkdownDisplay), promptEditor: markRaw(components.PromptEditor), promptTextView: markRaw(components.PromptTextView)}),
                 };
                 const labels = panelLabels();

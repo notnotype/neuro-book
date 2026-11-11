@@ -486,6 +486,24 @@ describe("ask", () => {
         return {id, finish};
     }
 
+    test("输出 28：async 时问题留着、工具立即返回、运行接着跑；用户的回答作为一条输入进来", async () => {
+        const w = await world();
+        const {session} = await open(w, ASK_FORM);
+        endpoint.script({tool: "ask", args: {questions: QUESTIONS.slice(0, 1), async: true}}, "先接着写");
+        const sent = await session.send({commandId: cid(), input: {text: "问"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error(`send failed: ${JSON.stringify(sent)}`);
+        expect((await session.waitRun(sent.value.runId)).text).toBe("先接着写");
+        const path = await session.path();
+        expect((path.filter((event) => event.type === "toolResult").at(-1)!.data as unknown as Result).text).toContain("问题已提出");
+        const requested = path.find((event) => event.type === "interactionRequested")!.data as unknown as {id: string; async: boolean};
+        expect(requested.async).toBe(true);
+        endpoint.script("知道了，主角叫林舟");
+        const answered = await session.resolve({commandId: cid(), id: requested.id, decision: "answer", answer: {text: "林舟"}});
+        if (!answered.ok || answered.value.runId === undefined) throw new Error(`resolve failed: ${JSON.stringify(answered)}`);
+        expect((await session.waitRun(answered.value.runId)).text).toBe("知道了，主角叫林舟");
+        expect((await session.path()).some((event) => event.type === "input" && (event.data as {text: string}).text.includes("林舟"))).toBe(true);
+    });
+
     test("输出 23：选项、其它、表单的回答回到模型；结构化的值在 details；请求带全部问题", async () => {
         const w = await world();
         const {session} = await open(w, ASK_FORM);

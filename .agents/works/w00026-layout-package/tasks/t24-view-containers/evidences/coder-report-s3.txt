@@ -1,0 +1,47 @@
+w00026 t24 切片 3：活动栏按容器列入口 —— 交付报告（边做边追加）
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（基于 b462eb722，未提交）
+
+== 0. 设计决定（动手前写下，后面按实际修订）==
+- nb-layout 新原语（暂名）setSiblingShares(doc, shares: [{node, share}]) -> LayoutResult：同一分支的若干子节点，主轴意图之和不变、彼此比例换成给定的；不走 finish（finish 不比尺寸意图）。
+- store 新动作 showContainer(container) 与 moveContainer(container, region)：后者在一次 apply 里搬全部分节（sectionLanding 逐个 movePanelToEdge）、重写比例（方向变了平分）、纵向目标恢复收成标题行、入口排到目标 entries 最后、切当前容器并展开。
+- 点击判定 toolEntryIntent(doc, container, {sidebarVisible}) -> show | hide | none；"collapse" 删。
+- 焦点落点一个函数：同面板可见标签 -> 区域仍显示时当前容器第一个分节 -> 活动栏里它容器的入口（仅侧栏）-> 外壳根；onContentParked 与新 watcher 共用。
+- 打算删：titleOnlyPanels 里侧栏列那一支、runFrameAction 的隐藏分支（确认走不到后）。
+
+== 进度（产品代码已写完，待补测试与 e2e）==
+已改（未提交）：
+- packages/nb-layout/src/layout-doc.ts：新原语 setSiblingShares；layout-doc.test.ts 加 5 条单测（142 过）。
+- workbench/web/state/containers.ts：containerHomeRegion、canResetContainer、moveContainerTo。
+- workbench/web/state/layout-present.ts：regionOccupied、sidebarVisible、containerEntries、toolEntryIntent（按容器）、focusLandings；titleOnlyPanels 简化；删 sidebarColumnPanels。
+- workbench/web/state/layout-doc-store.ts：actions.showContainer、actions.moveContainer；partVisible 改为调 regionOccupied。
+- workbench/web/components/WorkbenchToolStrip.vue/.md、WorkbenchShell.vue；locales 加 viewContainers.reset/entryTooltip/viewSeparator、删 shell.frame.hide。
+- lab/web/fixtures/WorkbenchSurfaceFixture.vue、fixtures/index.ts（活动栏独立场景）。
+待做：layout-drag.ts 的 data-tool-view；单测；WorkbenchShell.md；e2e。
+
+进度 2（单测与拖动源已完成，待 e2e）
+- 单测：layout-present.test.ts（containerEntries、toolEntryIntent、sidebarVisible、titleOnlyPanels、focusLandings）、layout-doc-store.test.ts（showContainer 4 条、moveContainer 3 条）、containers.test.ts（moveContainerTo、containerHomeRegion、canResetContainer）、nb-layout layout-doc.test.ts（setSiblingShares 5 条）。view-commands.test.ts 只换掉 sidebarColumnPanels。
+- layout-drag.ts：读入口当视图 id 的 5 处改读 data-tool-view；barDrop 未动。
+- WorkbenchShell.md 已更新。
+- vue-tsc web / browser-test 通过；bun test src/plugins/workbench src/plugins/lab 547 过；nb-layout bun test src 522 过。
+
+== 主 Agent 收尾（编码者 00:45 前后因 Fable 额度停下；之后主会话接手，开发者 2026-11-11 要求本次不用 Fable）==
+- 验收 24 的 e2e 失败（记录里样例甲的高度意图 470.31985731272295 → 470.319857312723）是产品问题：每次结构操作前 apply 先 rebaseIntents，
+  有收起兄弟的分支按比例换算 x * (y / x)，呈现与意图一样也差在末位。Spec 输出 8、42：切换容器不改任何尺寸意图。
+  改法：layout-doc-store.ts 的 apply 加选项 rebase: false，给不动树的两个动作：showContainer（点入口）、revealView（nbook.view.open）。
+  单元测试：layout-doc-store.test.ts“让容器看得见：切到它……”补“呈现尺寸与意图不成比例时切换不写回，文档树前后相同”两处断言；
+  去掉修正时这条失败（第 794 行），恢复后通过。
+- 验收 30 的 e2e：作品第一次打开时欢迎页自动打开（workbench.bookshelf 输出 20），先关掉它再取记录，编辑组里只开着两个文件
+  （页面标签留在记录里时，恢复时编辑器把它从布局里拿掉，那是一次布局改动，诊断随之消失）；改布局之后等的是新记录的
+  activeContainer，不是右栏的 hidden（旧记录里右栏本来就隐藏着，等它会立刻返回旧记录）。
+- 还按入口 id 取视图的两份 e2e：plugin-authoring.e2e.ts（模板视图的入口是 view:<id>，内置的用“项目”容器）、plugin-code.e2e.ts（view:example.focus.panel）。
+
+验证（主 Agent 自跑，2026-11-11）
+- vue-tsc web、browser-test 通过；bun test src/plugins/workbench src/plugins/lab 547 过；nb-layout bun run test、typecheck 通过。
+- 三份产物重建后 e2e：workbench-containers、workbench-views、workbench-shell、plugin-authoring、plugin-code、plugins 六个文件 62 条，
+  52 过 10 败（开跑时负载 11.5）；随后单独重跑 containers:309（改测试后）过、shell:670（Lab）过。
+- 还失败的 8 条都在切片 2 报告 5.2 的清单里、归属不变：
+  workbench-views 555、651、692（“移动到”、命令面板移动、实例保留）→ 切片 5；836（主题颜色，用了区域名选择器与标签带）→ 切片 5 收口；
+  998、1084、1101（标签带）→ 切片 4 第 7 条；plugins.e2e.ts:78 与本 Task 无关（4d73e28ef 起）。
+- 基线 14 条失败里本片修好 5 条：shell 186，views 343、389、536、945。
+- 留给切片 4：workbench-dnd、workbench-live-drag、workbench-drag-cost、editor-area、lab-workbench-surface 里按视图 id 取入口的选择器
+  （editor-area 第 1064 行经入口右键菜单把资源管理器移进面板，入口菜单现在只有“重置”，要改成经分节标题的“移动到”）。

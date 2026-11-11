@@ -22,8 +22,11 @@ import type {AssistantMessageView, CompactionView, ContentBlockView, JsonValue, 
 
 export type KernelTranscriptProblem = {readonly source: string; readonly reason: string};
 
-/** 等用户的一个事项。`request` 是内核事件里的原文：审批是 `{tool, args, effect, reason?}`，提问是工具给的 `{question, data}`。 */
-export type KernelPending = {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: JsonValue};
+/**
+ * 等用户的一个事项。`request` 是内核事件里的原文：审批是 `{tool, args, effect, reason?}`，提问是工具给的 `{question, data}`。
+ * `async`：异步提问，不让运行停下，进停靠区（docs/specs/ui/agent-conversation-view.md“输入框与待处理区”）。
+ */
+export type KernelPending = {readonly id: string; readonly callId: string; readonly kind: "approval" | "question"; readonly request: JsonValue; readonly async?: true};
 
 export type KernelQueued = {readonly id: string; readonly mode: "steer" | "followup"; readonly text: string};
 
@@ -221,7 +224,14 @@ type LiveCall = {readonly id: string; readonly name: string; args: string};
 type Live = {request: number; next: number; text: string; thinking: string; calls: LiveCall[]; broken: boolean};
 type Optimistic = {readonly commandId: string; view: UserMessageView};
 
-export function createKernelTranscript(options: {readonly toolName?: (id: string) => string} = {}): KernelTranscript {
+/** 别的会话以自己的身份发来的话的发出者（`input`、`steer` 事件的 `by`，harness/runtime.md 输出 85）。 */
+export type KernelIssuer = {readonly kind: "session"; readonly id: string};
+
+/**
+ * `toolName`：工具 id 换成界面认的名字。`authorOf`：路径上 `by` 是别的会话的那些话（父 Agent 发给子代理的）用谁的头像与名称；
+ * 不给时都画成用户。
+ */
+export function createKernelTranscript(options: {readonly toolName?: (id: string) => string; readonly authorOf?: (by: KernelIssuer) => UserMessageView["author"]} = {}): KernelTranscript {
     const toolName = options.toolName ?? ((id: string) => id);
     const problems: KernelTranscriptProblem[] = [];
     const problem = (source: string, reason: string): void => void problems.push({source, reason});
@@ -351,7 +361,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                 const text = stringField(data, "text") ?? "";
                 // 带范围的附件文字里已经有它的标签，气泡按标签显示，不再单列一块。
                 const attachments = Array.isArray(data.attachments) ? data.attachments.flatMap((item): ContentBlockView[] => (isRecord(item) && typeof item.uri === "string" && typeof item.from !== "number" ? [{kind: "attachment", locator: item.uri, name: item.uri.slice(item.uri.lastIndexOf("/") + 1), mimeType: item.kind === "image" ? "image/*" : "", bytes: 0}] : [])) : [];
-                logged.push({kind: "user", id, timestamp: at, intent: type === "steer" ? "steer" : "normal", blocks: [...(text === "" ? [] : [{kind: "text" as const, text}]), ...attachments], contentOmitted: false});
+                const by = isRecord(data.by) && data.by.kind === "session" && typeof data.by.id === "string" ? {kind: "session" as const, id: data.by.id} : null;
+                const author = by === null ? undefined : options.authorOf?.(by);
+                logged.push({kind: "user", id, timestamp: at, intent: type === "steer" ? "steer" : "normal", blocks: [...(text === "" ? [] : [{kind: "text" as const, text}]), ...attachments], contentOmitted: false, ...(author === undefined ? {} : {author})});
                 return;
             }
             case "assistant": {
@@ -366,8 +378,9 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             }
             case "toolStarted": {
                 const callId = stringField(data, "callId");
-                // 实际执行的参数：拦截可能改过。
-                if (callId !== null && data.args !== undefined) updateCall(callId, (call) => ({...call, args: toJsonValue(data.args)}));
+                const invocation = stringField(data, "invocation");
+                // 实际执行的参数：拦截可能改过。`invocation` 是这次调用的唯一身份，宿主跨回复认调用用它（harness/runtime.md 输出 87）。
+                if (callId !== null) updateCall(callId, (call) => ({...call, ...(data.args === undefined ? {} : {args: toJsonValue(data.args)}), ...(invocation === null ? {} : {invocation})}));
                 return;
             }
             case "toolResult": {
@@ -463,8 +476,7 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
                     problem(source, "事项缺 id、callId 或 kind");
                     return;
                 }
-                // 异步提问不让运行停下，第一版不进向导（conversation.md 的不承诺）。
-                if (data.async !== true) pending = [...pending, {id: interaction, callId, kind, request: toJsonValue(data.request)}];
+                pending = [...pending, {id: interaction, callId, kind, request: toJsonValue(data.request), ...(data.async === true ? {async: true as const} : {})}];
                 return;
             }
             case "interactionResolved":

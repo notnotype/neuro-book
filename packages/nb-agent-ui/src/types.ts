@@ -58,6 +58,8 @@ export type ToolCallView = {
     error?: string;
     /** 状态的说明，例如“你拒绝了”；适配器给的是本包目录的引用。 */
     note?: Text;
+    /** 这次调用的唯一身份（harness 适配器从 `toolStarted` 取）；调用 id 只在同一条回复里不重复，宿主跨回复认调用用它。 */
+    invocation?: string;
 };
 
 export type UserMessageView = {
@@ -71,6 +73,8 @@ export type UserMessageView = {
     contentOmitted: boolean;
     /** 仅尚未确认送达的乐观消息有值。 */
     delivery?: "pending" | "unknown";
+    /** 别的会话以自己的身份发来的话（派子代理的父 Agent）：头像与名称用它；缺省是用户。 */
+    author?: {label: Text; icon: string};
 };
 
 /**
@@ -164,6 +168,11 @@ export type SessionView = {
     archived: boolean;
     /** 后台摘要生成状态。 */
     summaryState: "idle" | "running" | "failed";
+    /**
+     * 子会话的祖先，从根会话到父会话；不是子会话时不给。顶栏据此画面包屑，点祖先发 `session.select`。`title` 为 `null`
+     * 的段写“未知会话”（祖先读不到），空字符串写“未命名会话”（读到了、还没有标题）。
+     */
+    path?: Array<{id: string; title: string | null; icon?: string}>;
 };
 
 export type AvailabilityStatus = "ready" | "loading" | "empty" | "unselected" | "archived" | "profile-unavailable" | "load-error";
@@ -251,8 +260,17 @@ export type ApprovalPreviewView =
     | {state: "failed"}
     | {state: "ready"; files: Array<{address: string; kind: "diff"; before: string; after: string} | {address: string; kind: "too-large"; bytes: number} | {address: string; kind: "failed"; code: string}>};
 
+/**
+ * 待处理事项的公共字段。带 `source` 的来自后代会话（子代理的审批、提问、模式切换请求），`async` 的是异步提问；这两种进停靠区，
+ * 不替换输入框，其余是阻塞的（docs/specs/ui/agent-conversation-view.md“输入框与待处理区”）。
+ */
+export type PendingInputCommon = {
+    source?: {sessionId: string; name: string; icon: string};
+    async?: true;
+};
+
 /** 一个等批准的工具调用。`tool` 是显示给用户的工具名，也按它选怎么画（`edit`、`write` 看预览，`shell` 看命令，别的看参数）。 */
-export type PendingApprovalView = {
+export type PendingApprovalView = PendingInputCommon & {
     kind: "approval";
     /** 事项 id；提交时放在 `input.submit` 的 `batchKey` 里。 */
     id: string;
@@ -266,25 +284,29 @@ export type PendingApprovalView = {
 };
 
 /** 一次提问：一个工具调用里 1 到 4 题。 */
-export type PendingQuestionsView = {
+export type PendingQuestionsView = PendingInputCommon & {
     kind: "question";
     id: string;
     toolCallId: string;
     questions: PendingQuestionView[];
 };
 
-/** 等用户的事项。一条回复的审批是一批，都在这里，向导一步一个。 */
 /** 模型申请切换 Agent 模式（`switch_mode`）。`plan` 是退出计划模式时要批准的计划全文。 */
-export type PendingModeSwitchView = {
+export type PendingModeSwitchView = PendingInputCommon & {
     kind: "mode-switch";
     id: string;
     toolCallId: string;
     fromLabel: string;
     toLabel: string;
     plan?: string;
-    approval: {options: ComposerApprovalOption[]; value: string};
+    /**
+     * 批准计划时可以顺带改的审批模式，`value` 是那个会话现在的模式。宿主不知道时不给（后代会话的请求）：向导不画这一栏，
+     * 批准时也不改模式。
+     */
+    approval?: {options: ComposerApprovalOption[]; value: string};
 };
 
+/** 等用户的事项。一条回复的审批是一批，都在这里，向导一步一个。 */
 export type PendingInputView = PendingApprovalView | PendingQuestionsView | PendingModeSwitchView;
 
 export type WorkflowView = {
@@ -467,6 +489,13 @@ export type AgentConversationContext = {
     stopRequestedAt?: number;
     /** 向导的界面状态，向导经 `wizard.state` 交出来，宿主原样放回：编辑区页面切标签会卸载，切回来答案还在。 */
     wizardState?: JsonValue;
+    /** 停靠区的界面状态（展开与否、看到第几个、各事项填了一半的答案），经 `dock.state` 交出、宿主原样放回；与 `wizardState` 分开。 */
+    dockState?: JsonValue;
+    /**
+     * 进行中的调用的 `invocation`（后台子代理、后台命令）：含这些调用的轮次不自动收起，卡片的进度留在眼前。宿主算，集合没变就
+     * 不换引用。
+     */
+    activeCalls?: readonly string[];
     /** 按工具调用 id 索引。 */
     workflows: {[toolCallId: string]: WorkflowView};
     workspaceChanges: WorkspaceChangesView;
@@ -556,9 +585,16 @@ export type BuiltinAgentViewAction =
     | {type: "model.manage"}
     | {type: "runtime.reset"}
     // 提问
-    | {type: "input.submit"; batchKey: string; resolutions: InputResolution}
+    | {
+        type: "input.submit";
+        batchKey: string;
+        resolutions: InputResolution;
+        /** 事项所在的会话；带 `source` 的事项（后代会话的）提交时有。 */
+        sessionId?: string;
+    }
     | {type: "input.cancelRun"}
     | {type: "wizard.state"; state: JsonValue}
+    | {type: "dock.state"; state: JsonValue}
     | {type: "run.continue"}
     | {type: "queued.edit"; id: string}
     | {type: "queued.remove"; id: string}
@@ -617,6 +653,14 @@ export type AgentSessionListItem = {
     archived?: boolean;
     /** 需要注意的一句，提醒色另起一行，例如“读到 38.12，早于你现在的位置”；图标缺省 i-lucide-circle-alert。 */
     note?: {text: string; icon?: string};
+    /** 会话面板：父会话的 id。父会话也在条目里时，这一行挂在它下面；父会话不在条目里的不列出。 */
+    parentId?: string;
+    /** 会话面板：它的子会话个数（宿主按未过滤的会话算），父会话行写“N 个子代理”。 */
+    childCount?: number;
+    /** 会话面板：它有后代在等用户（宿主按未过滤的会话算）；收起时写“子代理等你处理”。 */
+    childWaiting?: boolean;
+    /** 会话面板：它本身不符合筛选，只因为后代符合才列出（弱化显示，读屏说明它是上级）。 */
+    dimmed?: boolean;
 };
 
 export type AgentSessionListState = "ready" | "loading" | "error";

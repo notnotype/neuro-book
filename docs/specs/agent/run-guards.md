@@ -38,9 +38,9 @@ owners:
 | `nbook.agent/maxCost` | 0 | 不小于 0，美元 | 费用上限 |
 | `nbook.models/streamFirstEventTimeoutSeconds` | 300 | 整数 0–3600 | 等第一个事件的时限 |
 | `nbook.models/streamIdleTimeoutSeconds` | 300 | 整数 0–3600 | 流中途没有事件的时限 |
-| `nbook.agent/subagentDepth` | 3 | 整数 1–5 | 子代理最深几层（planned，[`subagents.md`](subagents.md)） |
-| `nbook.agent/subagentsPerSession` | 8 | 整数 1–16 | 一个会话同时在跑的子代理（planned，同上） |
-| `nbook.agent/backgroundJobs` | 16 | 整数 1–32 | 任务中心同时在跑的任务（planned，[`jobs.md`](jobs.md)） |
+| `nbook.agent/subagentDepth` | 3 | 整数 1–5 | 子代理最深几层（[`subagents.md`](subagents.md)） |
+| `nbook.agent/subagentsPerSession` | 8 | 整数 1–16 | 一个会话同时在跑的子代理（同上） |
+| `nbook.agent/backgroundJobs` | 16 | 整数 1–32 | 任务中心同时在跑的任务（[`jobs.md`](jobs.md)） |
 
 ## 输出与可观察行为
 
@@ -65,8 +65,8 @@ owners:
 11. 回退与切分支后，计数与停止状态跟着新叶子走。
 12. 预览不被拦。
 
-13. 费用按会话树算（planned）：告警与上限比的是整棵会话树的累计——根会话与它所有后代之和（[`subagents.md`](subagents.md)），关着的会话取会话索引的花费（[`harness/session.md`](../harness/session.md) 输出 22），打开着的取它此刻的累计；fork 出来的会话照常计入，它复制来的用量会与来源会话重复计算（偏紧，不另扣除）。树里任何一个会话到上限，它的下一次模型请求都不发，以 `cost-limit` 收口。告警按会话记：每个会话看到的是树的累计，过线时各写一次。几个会话同时在发请求时，超出上限的至多是同时在途的请求。
-14. `wait` 的重复调用（planned）：`wait`（[`jobs.md`](jobs.md)）交回的结果与上一条回复里的不同时不算重复、也不清计数；相同时照常计数。
+13. 费用按会话树算：告警与上限比的是整棵会话树的累计——根会话与它所有后代之和（[`subagents.md`](subagents.md)），关着的会话取会话索引的花费（[`harness/session.md`](../harness/session.md) 输出 22），打开着的取它此刻的累计；fork 出来的会话照常计入，它复制来的用量会与来源会话重复计算（偏紧，不另扣除）。树里任何一个会话到上限，它的下一次模型请求都不发，以 `cost-limit` 收口。告警按会话记：每个会话看到的是树的累计，过线时各写一次。几个会话同时在发请求时，超出上限的至多是同时在途的请求。
+14. `wait` 的重复调用：`wait`（[`jobs.md`](jobs.md)）交回的结果与上一条回复里的不同时不算重复、也不清计数；相同时照常计数。
 
 ## 状态与转换
 
@@ -99,7 +99,7 @@ Smoke：`packages/neuro-book/src/plugins/agent/run-guards.llm.test.ts`（`test:l
 
 ## 实现合同
 
-- **公开入口**：扩展 id `nbook.agent.cost-guard`、`nbook.agent.loop-guard`（经 `agent.extensions` 贡献），扩展本身由 `@notnotype/nb-harness/kit/guards` 的 `costGuard`、`loopGuard` 按宿主给的 id 与设置建出；设置项见“输入与前置条件”；事件类型 `<扩展 id>/<名字>`。
+- **公开入口**：扩展 id `nbook.agent.cost-guard`、`nbook.agent.loop-guard`（经 `agent.extensions` 贡献），扩展本身由 `@notnotype/nb-harness/kit/guards` 的 `costGuard`、`loopGuard` 按宿主给的 id 与设置建出：费用按会话树算（输出 13）由 `nbook.agent` 经 `costGuard` 的 `scope` 给出树的累计（`backend/subagents/tree-spend.ts`），`wait` 不算重复（输出 14）经 `loopGuard` 的 `waits` 给出工具 id；设置项见“输入与前置条件”；事件类型 `<扩展 id>/<名字>`。
 - **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这两个扩展；费用累计读内核的 `ctx.spend`（[`harness/runtime.md`](../harness/runtime.md) 输出 70），重发由内核做，`nbook.agent` 只交次数；两个超时设置属于 `nbook.models`，只是显示在这里的分区。
 - **关键不变量**：
   - 累计数在内核、按全部日志事件算，扩展不另记：旧会话打开时费用就是对的（nb-harness 的 `kit/guards/guards.test.ts`“验收 2”）。

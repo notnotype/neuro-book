@@ -11,13 +11,14 @@
  */
 
 import {replyText} from "../api/index.js";
-import type {ApproveHook, EventData, JsonValue, KernelEvents, ModelCaller, ModelInfoLookup, ModelInfo, ModelPort, ReplyEvent, Resources, RetryPolicy, RetryWait, ToolDeclaration, ToolInfo, UserInput} from "../api/index.js";
+import type {ApproveHook, EventData, Issuer, JsonValue, KernelEvents, ModelCaller, ModelInfoLookup, ModelInfo, ModelPort, ReplyEvent, Resources, RetryPolicy, RetryWait, ToolDeclaration, ToolInfo, UserInput} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {LogBrokenError} from "../dispatch/core.js";
 import {writeAndReact, type ReactHost} from "../dispatch/reactions.js";
 import type {ViewEnvironment} from "../extension/ctx.js";
 import {computeRequest} from "../view/request.js";
 import {failureDrafts} from "./chain.js";
+import {byField} from "./input.js";
 import {callModel, modelCaller, type ModelCallHost} from "./model-call.js";
 import type {Interactions} from "./interaction.js";
 import {backoffDelay, EMPTY_REPLY_RETRIES, isEmptyReply, NO_RETRY, retryDelay} from "./retry.js";
@@ -64,12 +65,12 @@ export interface RunCompaction {
 }
 
 /** 取走一条输入开新的一轮：`inputConsumed`、`turnStarted`、`input` 同批（提案第 2 节“写入批”）。 */
-export function takeInputDrafts(inputId: string, input: UserInput, turnId: string): EventDraft[] {
+export function takeInputDrafts(inputId: string, input: UserInput, turnId: string, by?: Issuer): EventDraft[] {
     const {text, payload, attachments} = input;
     return [
         {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: inputId}},
         ctrl("turnStarted", {turnId, inputId}),
-        {type: "input", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: inputId} as JsonValue},
+        {type: "input", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: inputId, ...byField(by)} as JsonValue},
     ];
 }
 
@@ -79,7 +80,7 @@ export function takeSteerDrafts(core: SessionCore): EventDraft[] {
         const {text, payload, attachments} = item.input;
         return [
             {type: "inputConsumed", kind: "ctrl", scope: "session", data: {id: item.id}},
-            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id} as JsonValue},
+            {type: "steer", kind: "conv", scope: "path", data: {text, ...(payload === undefined ? {} : {payload: payload as JsonValue}), ...(attachments === undefined ? {} : {attachments: attachments as unknown as JsonValue}), queued: item.id, ...byField(item.by)} as JsonValue},
         ];
     });
 }
@@ -199,7 +200,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
         if (core.leafState.kernel.history.current === null) {
             const next = core.session.kernel.buffer[0];
             if (next === undefined) return await end("completed", {reason: "completed"});
-            await write(takeInputDrafts(next.id, next.input, core.newId()));
+            await write(takeInputDrafts(next.id, next.input, core.newId(), next.by));
         }
         for (;;) {
             if (signal.aborted) return await end("aborted", {reason: "aborted"});
@@ -379,7 +380,7 @@ export async function runLoop(host: RunHost, run: ActiveRun): Promise<void> {
             const turnEnded = turn === null ? [] : [ctrl("turnEnded", {turnId: turn.id, reason: "completed"})];
             const followup = core.session.kernel.buffer.find((item) => item.mode === "followup");
             if (followup === undefined) return await write([...turnEnded, ctrl("runEnded", {runId: run.runId, reason: "completed"})]).then(() => undefined);
-            await write([...turnEnded, ...takeInputDrafts(followup.id, followup.input, core.newId())]);
+            await write([...turnEnded, ...takeInputDrafts(followup.id, followup.input, core.newId(), followup.by)]);
         }
     } catch (error) {
         if (error instanceof LogBrokenError) throw error;

@@ -1,6 +1,9 @@
 /** 会话列表用的索引 `index.json`：由事件算出，只是缓存；与日志对不上时按日志重建（session.md 输出 19）。 */
 
-import type {LogEvent, SessionHeader, SessionIndexEntry} from "../api/index.js";
+import type {IndexedRun, LogEvent, SessionHeader, SessionIndexEntry, Usage} from "../api/index.js";
+
+/** 索引留几次运行的收口：子代理卡片按 `runId` 找终态用，不必保留全部。 */
+const INDEXED_RUNS = 20;
 
 export function emptyIndex(header: SessionHeader): SessionIndexEntry {
     return {
@@ -11,6 +14,10 @@ export function emptyIndex(header: SessionHeader): SessionIndexEntry {
         description: null,
         archived: false,
         background: header.background === true,
+        ...(header.caller === undefined ? {} : {caller: header.caller}),
+        ...(header.origin === undefined ? {} : {origin: header.origin.session}),
+        spend: {cost: 0, unpriced: 0},
+        runs: [],
         createdAt: header.createdAt,
         lastActivityAt: header.createdAt,
         turns: 0,
@@ -24,6 +31,8 @@ export function advanceIndex(index: SessionIndexEntry, events: readonly LogEvent
         const data = event.data as Record<string, unknown>;
         next = {
             ...next,
+            ...spendAfter(next, event),
+            ...runsAfter(next, event),
             title: event.type === "titleChanged" ? (data.title as string) : next.title,
             description: event.type === "descriptionChanged" ? (data.description as string) : next.description,
             archived: event.type === "archived" ? (data.archived as boolean) : next.archived,
@@ -34,6 +43,25 @@ export function advanceIndex(index: SessionIndexEntry, events: readonly LogEvent
     }
     return next;
 }
+
+/** 花费与快照的 `ctx.spend` 同一口径：这三种事件的 `usage`，单价未知的计数（runtime.md 输出 70）。 */
+function spendAfter(index: SessionIndexEntry, event: LogEvent): Pick<SessionIndexEntry, "spend"> | null {
+    if (event.type !== "assistant" && event.type !== "modelEnded" && event.type !== "modelFailed") return null;
+    const usage = (event.data as {usage?: Usage}).usage;
+    if (usage === undefined) return null;
+    const spend = index.spend ?? {cost: 0, unpriced: 0};
+    return {spend: {cost: spend.cost + (usage.cost ?? 0), unpriced: spend.unpriced + (usage.cost === null ? 1 : 0)}};
+}
+
+function runsAfter(index: SessionIndexEntry, event: LogEvent): Pick<SessionIndexEntry, "runs"> | null {
+    if (event.type !== "runEnded") return null;
+    const data = event.data as {runId: string; reason: string};
+    const run: IndexedRun = {runId: data.runId, reason: data.reason, endedAt: event.at};
+    return {runs: [...(index.runs ?? []), run].slice(-INDEXED_RUNS)};
+}
+
+/** 这份索引是加 `spend`、`runs` 之前写的：打开会话时按日志重建。 */
+export const predatesRunIndex = (index: SessionIndexEntry): boolean => index.spend === undefined || index.runs === undefined;
 
 export function parseIndex(bytes: Uint8Array | null): SessionIndexEntry | null {
     if (bytes === null) return null;

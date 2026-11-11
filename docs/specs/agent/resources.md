@@ -70,9 +70,10 @@ owners:
 10. **写入接口的会话绑定版**：资源视图是写入接口（[`workspace.resources`](../workspace/resources.md) 的“写入接口”）按会话绑定的版本：方法、参数、结果与失败码都同写入接口，改写与分类照第 1、2 条；只有写与文件操作按第 4 条判权限，读与列出按方案的读授权（读别的会话的 `session.jsonl`、`docs://` 与虚拟根照旧可以）；来源记为该会话；不另有一套方法。`call(ctx, {title?, note?})` 交回绑定一次工具调用的门面：来源另带这次调用的条目 id，工具调用的 `signal` 合进每次调用，这次调用里的写入与文件操作自动成一个操作分组，标题缺省为工具 id，工具可以给。
 11. **宿主写全文**：`artifacts/` 只有宿主能写。工具工厂的 `services.artifacts.save(label, write)` 以宿主身份（来源是 `nbook.agent`，不代表会话）在这个会话的 `artifacts/` 下新建一份全文：文件名由它生成（`<label>-<uuid>.log`），写入函数正常结束即提交，交回全局地址；`label` 只收单段、不含路径分隔符，否则 `invalid-address`。它不收工具调用的取消信号，入口停止时才丢弃。
 
-12. `home/jobs/` 只有宿主能写（planned）：后台命令的输出（[`jobs.md`](jobs.md) 输出 7）写在这里，Agent 经资源视图写 `jobs/` 下得 `permission-denied`，读照常。
-13. `sessions://` 的根先列有关的会话（planned）：读它的会话的父会话、子会话、兄弟会话排在前面，各带状态（运行中、等用户、空闲），子会话另列派它的调用 id（子会话的标题是 `name` 或 `prompt` 的开头）；状态不靠打开会话取得；之后按最近使用，合计仍至多 200 个，不重复，不列后台会话。
-14. `profiles://` 的根每项多一列“可派”或“不可派”（planned）：按读它的会话的 Profile 的白名单（[`subagents.md`](subagents.md)）。
+12. `home/jobs/` 只有宿主能写：后台命令的输出（[`jobs.md`](jobs.md) 输出 7）写在这里，Agent 经资源视图写 `jobs/` 下得 `permission-denied`，读照常。
+13. `sessions://` 的根先列有关的会话：读它的会话的父会话、子会话、兄弟会话排在前面，各带状态（运行中、等用户、空闲），子会话另列派它的调用 id（子会话的标题是 `name` 或 `prompt` 的开头）；状态不靠打开会话取得；之后按最近使用，合计仍至多 200 个，不重复，不列后台会话。
+14. `profiles://` 的根每项多一列“可派”或“不可派”：按读它的会话的 Profile 的白名单（[`subagents.md`](subagents.md)）。
+15. `skills://` 的根列出 Skill 目录，挂载点 `<Skill id>` 是那个 Skill 的目录：能读、能列、能取真实路径，Agent 不可写；根与挂载点的细则见 [`skills.md`](skills.md) 输出 23、24。上表 `skills://` 一行随之改为这条。（planned）
 
 ## 状态与转换
 

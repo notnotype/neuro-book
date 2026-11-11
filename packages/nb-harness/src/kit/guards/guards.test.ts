@@ -13,9 +13,8 @@ import type {LogEvent, RunResult} from "../../kernel/contracts.js";
 import {createTestSession} from "../../kernel/testing/index.js";
 import type {TestSession} from "../../kernel/testing/index.js";
 
-import {costGuard, type CostLimits} from "./cost-guard.js";
+import {costGuard, type CostLimits, type SpendScope, type SpendTotal} from "./cost-guard.js";
 import {loopGuard} from "./loop-guard.js";
-
 
 let commands = 0;
 const id = () => `g-${(commands += 1)}`;
@@ -115,6 +114,30 @@ describe("费用", () => {
         expect(after.model.requests).toHaveLength(0);
     });
 
+    test("输出 13：给了 scope 时比范围的累计：同一范围里别的会话花的也算，到上限范围里的会话都不再发；范围外的不受影响", async () => {
+        // 宿主的范围是会话树（neuro-book 的 TreeSpend，在 agent 的 subagents.test.ts 里测）；这里只用 scope 的合同：两个会话一个范围。
+        const spent = new Map<string, SpendTotal>();
+        const members = new Set<string>();
+        const scope: SpendScope = {
+            record: (sessionId, spend) => void spent.set(sessionId, spend),
+            total: (sessionId) => (members.has(sessionId) ? [...members] : [sessionId]).reduce((sum, member) => ({cost: sum.cost + (spent.get(member)?.cost ?? 0), unpriced: sum.unpriced + (spent.get(member)?.unpriced ?? 0)}), {cost: 0, unpriced: 0}),
+        };
+        const guard = costGuard({id: COST, limits: () => ({warnCost: 0, maxCost: 2}), scope});
+        await using parent = await createTestSession({extensions: [{extension: guard, plugin: "kit"}]});
+        await using child = await createTestSession({extensions: [{extension: guard, plugin: "kit"}]});
+        await using other = await createTestSession({extensions: [{extension: guard, plugin: "kit"}]});
+        members.add(parent.id).add(child.id);
+        parent.model.script({text: "一", usage: {cost: 1}});
+        await parent.say("一");
+        child.model.script({text: "二", usage: {cost: 1}});
+        await child.say("二");
+        expect((await parent.say("三")).result).toMatchObject({error: {code: "cost-limit"}});
+        expect((await child.say("四")).result).toMatchObject({error: {code: "cost-limit"}});
+        expect(parent.model.requests).toHaveLength(1);
+        other.model.script({text: "五", usage: {cost: 1}});
+        expect((await other.say("五")).result.text).toBe("五");
+    });
+
     test("验收 1：一次失败之后，上限恰好被它的费用用完，不再重发", async () => {
         const session = await createTestSession({retry: () => ({maxRetries: 10}), extensions: [{extension: costGuard({id: COST, limits: () => ({warnCost: 0, maxCost: 1})}), plugin: "kit"}]});
         await using _ = session;
@@ -186,6 +209,23 @@ describe("重复调用", () => {
         expect(report.result.text).toBe("好了");
         expect(texts(report.events, `${LOOP}/redirected`)).toHaveLength(3);
         expect(texts(report.events, `${LOOP}/stopped`)).toHaveLength(0);
+    });
+
+    test("输出 14：wait 交回的结果在变时反复等不算重复；结果相同照常计数", async () => {
+        let polls = 0;
+        // 真实的 `wait` 文字里带已等的秒数，每次都不同；比的是 `details`。
+        const waitSession = (details: () => object) => createTestSession({tools: [{id: "lab.wait", execute: () => ({text: `等了 ${String((polls += 1))} 秒`, details: details() as never})}], extensions: [{extension: loopGuard({id: LOOP, threshold: () => 3, waits: new Set(["lab.wait"])}), plugin: "kit"}]});
+        const waits = (times: number) => Array.from({length: times}, () => ({tools: [{tool: "lab.wait", args: {}}]}));
+        await using changing = await waitSession(() => ({jobs: [{jobId: `job-${String(polls)}`, state: "completed"}]}));
+        changing.model.script(...waits(8), "好了");
+        const report = await changing.say("开始");
+        expect(report.result.text).toBe("好了");
+        expect(texts(report.events, `${LOOP}/redirected`)).toHaveLength(0);
+
+        await using same = await waitSession(() => ({jobs: [{jobId: "job-1", state: "running"}]}));
+        // 第一次重复没有更早的结果可比，算不同、不计数；之后与普通调用一样，提醒后再到阈值才停。
+        same.model.script(...waits(7), "不该发到这里");
+        expect((await same.say("开始")).result).toMatchObject({error: {code: "tool-call-loop"}});
     });
 
     test("输出 9：中途换了调用，先提醒不停", async () => {

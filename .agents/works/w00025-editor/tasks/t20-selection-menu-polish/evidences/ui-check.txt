@@ -1,0 +1,43 @@
+w00025 t20 UI 取证（nb-ui 共享组件那一档：nbook/macos × light/dark，外加 390px 窗口）
+2026-11-11，开发服务 `nbdev dev start --sample`（worktree w00025-t20-selection-menu-polish，提交 a8dc86fda 之上），本机 Chrome 无头。
+入口：Lab `EditorGroup/dialect`（Markdown，带注音、文字颜色、高亮）、`EditorGroup/recycle`（源码编辑器里的 JSON）、`Input/bare`。
+脚本与原始数据在本地 .local/agent/works/w00025-editor/tasks/t20-selection-menu-polish/（probe.mjs、probe-out.json、probe-monaco.json），截图在同目录 shots/ui-20261111T110827/。
+
+四种组合都没有页面错误与控制台警告。下面的值四种组合一致的只写一次；不同的分别写。
+
+选区菜单（Home、Shift+End 选中含注音的一行）
+- 外框：`nb-ui-popover-surface nb-ui-popover-motion`，入场动画 nb-popover-in 0.09s cubic-bezier(0.23, 1, 0.32, 1)（--ease-layout）。圆角 nbook 10px、macos 18px，与同一主题的别的弹层一致。
+- 宽 371px、高 36px。
+- 块类型按钮：76×26，文字“正文”，aria-label“块类型：正文”；字号 nbook 14px、macos 13px（--text-sm）；悬停底色 = --bg-hover 解析值（亮 rgb(231,226,216)，暗 rgb(58,53,48)）。
+- 颜色色条：14×3，文字颜色 rgb(239,68,68)（红，缺省），高亮 rgb(254,249,195)（黄，缺省），高亮色条有 1px 内描边（--text-main 18%），暗色下也看得见边。
+- 拆分按钮的箭头：14×26，悬停底色与旁边 IconButton 的悬停底色逐字相同（亮 --text-main 15%，暗同）。圆角 nbook 6px、macos 10px，跟 --radius-control。
+- 注音按钮：选区盖住注音时 aria-pressed=true，图标色为强调色（亮 rgb(0,96,223)，暗 rgb(94,176,255)），与粗体按下的写法相同。
+- 块类型下拉打开后选区菜单仍显示；四项“正文、标题 1、标题 2、标题 3”，当前项打勾；下拉外框同 nb-ui 菜单（nbook 8px、macos 12px 圆角）。
+
+注音卡片（点注音小字“hàn zì”）
+- 外框与选区菜单同一种弹层（同上：边框、阴影、圆角、入场动画）；卡片 194×34（macos 194×32），在注音下方 8px。
+- 里层：左内距 10px、右内距 4px、间距 2px。
+- 输入框（Input variant="bare"，size sm）：边框 0、底色透明、box-shadow none、outline none；字号 nbook 12px、macos 11px；值“hàn zì”，有焦点。
+- 按钮：“移除注音”“确定”。选区菜单不显示。
+- 正文里画着的选区：`.nb-markdown-held-selection` 盖住“汉字”，底色 = --selection-bg（nbook 亮 rgba(0,122,255,0.22)，暗 rgba(10,132,255,0.34)）。
+- Esc 之后卡片与画着的选区都没有了。
+
+正文选区的颜色（取证时发现，已修，8160dd749）
+- 修之前浏览器画的选区是缺省颜色（`getComputedStyle(…, "::selection")` 底色 rgba(0,0,0,0)，截图里是系统的深蓝），卡片一开就变成 --selection-bg 的浅蓝，看起来换了一种状态；theme/system.md 第 66 行要求文本选区用 --selection-bg。改成 `.nb-markdown ::selection` 用 --selection-bg，e2e“注音：选区菜单里打开卡片…”加了断言（修之前这条断言失败：native 为 rgba(0,0,0,0)）。
+
+nb-ui Input 的 bare（Lab `Input/bare`，有焦点）
+- 输入框与外层：边框 0、底色透明、box-shadow none、outline none；左内距 0；高 nbook 28px、macos 26px。
+
+源码编辑器（第一段审查第 5 条：暗色下当前行与缩进线变弱，接受取舍，取证时看）
+- 编辑器底色 = --bg-panel（亮 rgb(255,252,245)，暗 rgb(45,41,37)）。
+- 当前行底色 = --bg-hover；缩进线 亮 rgb(195,188,176)、暗 rgb(80,74,67)。
+- 对比度（WCAG 公式）：
+  - 暗：当前行对底色 1.19（改底色前在 --bg-main 上 1.38）；缩进线 1.65（改前 1.92）。
+  - 亮：当前行 1.26（改前 1.06）；缩进线 1.84（改前 1.54）。
+- 参照：VS Code 缺省暗色 Dark+ 的当前行边框 #282828 对 #1e1e1e 约 1.13，缩进线 #404040 约 1.6。暗色截图（nbook 暗）里当前行与缩进线都看得出。维持接受取舍。
+
+390px 窗口（nbook 亮）
+- 选区菜单 x=8、宽 371，右缘 379 ≤ 390；注音卡片 x=79、宽 194，都在窗口里。
+
+取证时发现、不属于本 Task 的问题
+- 一行里有注音时，按 End 光标停在注音后面，不到行尾（Shift+End 同样只选到注音）。master（t05 合入后的 dba40bca4）上同样如此，区别只是 master 的 DOM 选区带着注音小字。推断是 Chrome 在 contenteditable=false 的 <rt> 后面的光标移动，待另建 Task 查。

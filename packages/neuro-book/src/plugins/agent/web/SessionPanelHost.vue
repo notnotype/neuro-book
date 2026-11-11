@@ -74,6 +74,8 @@ function confirmRename(): void {
         :show-archived="props.store.showArchived.value"
         :loading="props.store.loading.value"
         :error="props.store.error.value"
+        :expanded="props.store.expanded.value"
+        @update:expanded="props.store.expanded.value = $event"
         @action="onAction"
         @update:query="props.store.query.value = $event"
         @update:scope="props.store.setScope($event)"

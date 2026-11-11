@@ -62,8 +62,9 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 12. 生成失败（模型失败、运行没有以 `yield` 收尾）写诊断 `session-meta-failed`，不改标题和说明。第一轮的生成在下一轮结束时再试；压缩后的更新等下一次压缩，压缩失败不会变成生成标题。同一个前台会话同时只生成一次，后到的触发排在后面，轮到时按当时的状态重新判断。
 13. 标题和说明都由服务端写，模型的输出只进这两个字段。对话内容在给模型的输入里标明是材料、不是指令。
 
-14. adhoc（planned）：key `nbook.agent.adhoc`，名字“临时帮手”。初始输入 `{role: string}`（父 Agent 写的角色），任务从 `agent_spawn` 的 `prompt` 来；必需工具 read、write、grep、glob，可选 edit、shell 与任务中心的 wait、kill、jobs（`shell` 能转后台，没有这三个它起的后台命令取不到结果、停不掉），不带 todo 与子代理工具；装 Agent 模式扩展（[`modes.md`](modes.md) 输出 14）；`defaultTools: false`；不进新建会话的菜单。提示词照提示词规范，按 `role` 定身份，写明结果交给派它的 Agent。没有结果 schema，派发方给了 `outputSchema` 时按它交回（[`subagents.md`](subagents.md) 输出 2）。
-15. 主创派子代理（planned）：主创加上子代理与任务中心的工具（`agent_spawn`、`agent_send`、`agent_answer`、`wait`、`kill`、`jobs`），声明 `agents: {allowed: ["nbook.agent.adhoc"], recommended: ["nbook.agent.adhoc"]}`，提示词加一句什么时候派、派了怎样用结果；升 Profile 版本。
+14. adhoc：key `nbook.agent.adhoc`，名字“临时帮手”。初始输入 `{role: string}`（父 Agent 写的角色），任务从 `agent_spawn` 的 `prompt` 来；必需工具 read、write、grep、glob，可选 edit、shell 与任务中心的 wait、kill、jobs（`shell` 能转后台，没有这三个它起的后台命令取不到结果、停不掉），不带 todo 与子代理工具；装 Agent 模式扩展（[`modes.md`](modes.md) 输出 14）；`defaultTools: false`；不进新建会话的菜单。提示词照提示词规范，按 `role` 定身份，写明结果交给派它的 Agent。没有结果 schema，派发方给了 `outputSchema` 时按它交回（[`subagents.md`](subagents.md) 输出 2）。
+15. 主创派子代理：主创加上子代理与任务中心的工具（`agent_spawn`、`agent_send`、`agent_answer`、`wait`、`kill`、`jobs`），声明 `agents: {allowed: ["nbook.agent.adhoc"], recommended: ["nbook.agent.adhoc"]}`，提示词加一句什么时候派、派了怎样用结果；升 Profile 版本。
+16. 主创声明 `skills: {allowed: "all"}`：放进 `user://skills/` 的 Skill 马上能 `$`；临时帮手不声明 Skill（[`skills.md`](skills.md)）。（planned）
 
 ## 状态与转换
 

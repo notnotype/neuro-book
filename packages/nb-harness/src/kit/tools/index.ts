@@ -10,6 +10,7 @@ import {hashlineDeclaration, hashlineTool, replaceDeclaration, replaceTool} from
 import {readDeclaration, readTool} from "./read.js";
 import {globDeclaration, globTool, grepDeclaration, grepTool} from "./search.js";
 import {shellDeclaration, shellTool} from "./shell.js";
+import type {ShellBackground} from "./shell.js";
 import type {SessionEditStores} from "./snapshot.js";
 import type {BuiltinToolTexts, KitToolDeclaration, KitToolImplementation} from "./types.js";
 import {writeDeclaration, writeTool} from "./write.js";
@@ -24,11 +25,13 @@ export {runGlob, runGrep} from "./search.js";
 export {SessionEditStores} from "./snapshot.js";
 export type {BuiltinToolTexts, KitToolDeclaration, KitToolImplementation} from "./types.js";
 export type {AskAnswer, AskQuestion} from "./ask.js";
+export type {PreparedCommand, ShellBackground} from "./shell.js";
+export {capLine, capLines, headAndTail, LINE_BYTES, lineCount, OUTPUT_LIMIT, PART_BYTES, PART_LINES, WINDOW_BYTES, WINDOW_LINES} from "./shell-window.js";
 
 export type BuiltinToolName = "read" | "write" | "edit" | "editReplace" | "grep" | "glob" | "shell" | "ask" | "askForm";
 
-/** 声明：纯数据，宿主在清单里静态登记用。 */
-export function builtinDeclarations(texts: BuiltinToolTexts): Readonly<Record<BuiltinToolName, KitToolDeclaration>> {
+/** 声明：纯数据，宿主在清单里静态登记用。`shellBackground` 为真时 `shell` 多一个 `async`（宿主要同时给 `builtinTools` 后台的实现）。 */
+export function builtinDeclarations(texts: BuiltinToolTexts, options: {readonly shellBackground?: boolean} = {}): Readonly<Record<BuiltinToolName, KitToolDeclaration>> {
     return {
         read: readDeclaration(texts.pathParameter),
         write: writeDeclaration(texts.pathParameter),
@@ -36,15 +39,18 @@ export function builtinDeclarations(texts: BuiltinToolTexts): Readonly<Record<Bu
         editReplace: replaceDeclaration(texts.editNote),
         grep: grepDeclaration,
         glob: globDeclaration,
-        shell: shellDeclaration(texts.shell),
+        shell: shellDeclaration(texts.shell, {background: options.shellBackground === true}),
         ask: askDeclaration,
         askForm: askFormDeclaration,
     };
 }
 
-/** 实现：每次激活一套，行锚快照跟着这一代；审批预览与压缩后的放回要读同一份快照，由宿主建好 `stores` 传进来。`dialects` 给 `shell` 求等级。 */
-export function builtinTools(options: {readonly stores: SessionEditStores; readonly dialects: Dialects}): Readonly<Record<BuiltinToolName, KitToolImplementation>> {
-    const {stores, dialects} = options;
+/**
+ * 实现：每次激活一套，行锚快照跟着这一代；审批预览与压缩后的放回要读同一份快照，由宿主建好 `stores` 传进来。`dialects` 给 `shell` 求等级；
+ * `shellBackground` 是 `shell` 转后台的实现，不给时 `async` 不生效。
+ */
+export function builtinTools(options: {readonly stores: SessionEditStores; readonly dialects: Dialects; readonly shellBackground?: ShellBackground}): Readonly<Record<BuiltinToolName, KitToolImplementation>> {
+    const {stores, dialects, shellBackground} = options;
     return {
         read: readTool(stores),
         write: writeTool(stores),
@@ -52,7 +58,7 @@ export function builtinTools(options: {readonly stores: SessionEditStores; reado
         editReplace: replaceTool(stores),
         grep: grepTool,
         glob: globTool,
-        shell: shellTool(dialects),
+        shell: shellTool(dialects, shellBackground),
         // 两条贡献给模型的名字相同、实现相同，只有声明不同（有没有 form）。
         ask: askTool,
         askForm: askTool,

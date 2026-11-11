@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00025-editor",
+    "taskId": "t20-selection-menu-polish",
+    "artifactId": "review",
+    "ackId": "20261110T121404367Z-9e585524",
+    "answers": [
+        "20261110T121332470Z-a98221de"
+    ],
+    "through": "20261110T121332470Z-a98221de",
+    "included": [
+        ".agents/works/w00025-editor/tasks/t20-selection-menu-polish/README.md"
+    ],
+    "ackedAt": "2026-11-10T12:14:04.367Z"
+}

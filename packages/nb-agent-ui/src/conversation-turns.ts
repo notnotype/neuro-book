@@ -26,6 +26,7 @@ import type {
     UserMessageView,
 } from "./types";
 import type {AgentViewRegistry, FileChangeView, ToolEffects, ToolRendererEntry} from "./registry";
+import {presentationOf} from "./registry";
 import {agentRef} from "./text";
 import {toolCallPhase} from "./tool-status";
 
@@ -391,7 +392,7 @@ function buildBlocks(
                     // 运行已结束却仍在写的（宿主没把它标成出错）同样算退回，不留一张永远在写的卡片。
                     const phase = toolCallPhase(call.status);
                     const rejectedOutcome = renderer.outcome === true && (phase === "error" || (finished && phase === "running"));
-                    if (renderer.presentation === "node" && !rejectedOutcome) {
+                    if (presentationOf(renderer, call) === "node" && !rejectedOutcome) {
                         flush();
                         blocks.push({kind: "node", id: call.id, step});
                     } else {
@@ -661,6 +662,22 @@ function mergeChange(previous: FileChangeView, next: FileChangeView): FileChange
  * 可收起轮次的默认展开状态（用户没有手动操作过时）：最新一轮出错或被停止时展开，方便看清停在哪；其余收起。
  * 运行中与等待回答的轮次不可收起，不经过这里。
  */
-export function defaultTurnExpanded(turn: ConversationTurn, isLatest: boolean): boolean {
-    return isLatest && (turn.status === "error" || turn.status === "stopped");
+export function defaultTurnExpanded(turn: ConversationTurn, isLatest: boolean, activeCalls?: ReadonlySet<string>): boolean {
+    return (isLatest && (turn.status === "error" || turn.status === "stopped")) || (activeCalls !== undefined && hasActiveCall(turn, activeCalls));
+}
+
+/**
+ * 这一轮里有没有进行中的调用（ctx `activeCalls`，后台子代理与后台命令）：这一轮回复完了，它们还在跑，卡片的进度要留在眼前，
+ * 所以不自动收起；用户手动收起照常。
+ */
+export function hasActiveCall(turn: ConversationTurn, activeCalls: ReadonlySet<string>): boolean {
+    if (activeCalls.size === 0) return false;
+    return turn.blocks.some((block) => {
+        if (block.kind === "node") return block.step.call.invocation !== undefined && activeCalls.has(block.step.call.invocation);
+        if (block.kind !== "chain") return false;
+        return block.entries.some((entry) => {
+            const calls = entry.kind === "tool" ? [entry.call] : entry.kind === "toolGroup" ? entry.tools.map((tool) => tool.call) : [];
+            return calls.some((call) => call.invocation !== undefined && activeCalls.has(call.invocation));
+        });
+    });
 }

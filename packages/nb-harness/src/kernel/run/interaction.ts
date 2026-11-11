@@ -133,7 +133,7 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
             if (!intercepted.ok) return {fail: "input-rejected", detail: intercepted.rejection};
             const inputId = core.newId();
             const running = !control.idle;
-            drafts.push(...intercepted.failed, {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, running ? "steer" : "followup")});
+            drafts.push(...intercepted.failed, {type: "inputQueued", kind: "ctrl", scope: "session", data: queuedData(inputId, intercepted, running ? "steer" : "followup", issuer)});
             if (!running) {
                 const problem = startProblem(host);
                 if (problem === null) {
@@ -141,7 +141,7 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
                     if (paused !== null) launch = paused;
                     else {
                         launch = core.newId();
-                        drafts.push({type: "runStarted", kind: "ctrl", scope: "path", data: {runId: launch, kind: "chat"}}, ...takeInputDrafts(inputId, intercepted.input, core.newId()));
+                        drafts.push({type: "runStarted", kind: "ctrl", scope: "path", data: {runId: launch, kind: "chat"}}, ...takeInputDrafts(inputId, intercepted.input, core.newId(), issuer));
                     }
                 }
             }
@@ -153,7 +153,9 @@ export async function resolveCommand(host: CommandHost & {interactions: Interact
             if (claimed === undefined) return {fail: "already-answered", detail: {by: "kernel", decision: "aborted"}};
         }
         const wake = claimed;
-        return {value: {}, drafts, ...(launch === undefined ? {} : {launch}), written: async () => {
+        // 接着跑的运行：同步事项叫醒的是在跑的那次；异步回答插进在跑的那次，或开、续一次（runtime.md 输出 88）。
+        const runId = launch ?? control.active?.runId;
+        return {value: runId === undefined ? {} : {runId}, drafts, ...(launch === undefined ? {} : {launch}), written: async () => {
             claimed = undefined;
             wake?.(resolution);
         }};

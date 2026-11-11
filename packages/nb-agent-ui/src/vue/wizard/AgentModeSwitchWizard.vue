@@ -26,16 +26,16 @@ const emit = defineEmits<{
 const {t, text} = useAgentText();
 
 const hasPlan = computed(() => props.item.plan !== undefined);
+/** 批准计划时才问审批模式；宿主没给当前模式（后代会话的请求）就不问，免得把猜的值当成“不变”。 */
+const approval = computed(() => (hasPlan.value ? props.item.approval : undefined));
 const note = computed(() => props.state.notes[props.item.id] ?? "");
 const noted = computed(() => note.value.trim() !== "");
 /** 默认保持当前审批模式，不替用户放宽（开发者 2026-11-06 定）。 */
-const approvalMode = computed(() => props.state.modeSwitch?.[props.item.id]?.approvalMode ?? props.item.approval.value);
-const approvalOptions = computed(() => props.item.approval.options.map((option) => ({value: option.key, label: text(option.label), title: text(option.description)})));
-const selectedDescription = computed(() => {
-    const option = props.item.approval.options.find((item) => item.key === approvalMode.value);
-    return option === undefined ? "" : text(option.description);
-});
-const yolo = computed(() => props.item.approval.options.find((item) => item.key === approvalMode.value)?.danger === true);
+const approvalMode = computed(() => props.state.modeSwitch?.[props.item.id]?.approvalMode ?? approval.value?.value ?? "");
+const approvalOptions = computed(() => (approval.value?.options ?? []).map((option) => ({value: option.key, label: text(option.label), title: text(option.description)})));
+const selectedOption = computed(() => approval.value?.options.find((item) => item.key === approvalMode.value));
+const selectedDescription = computed(() => (selectedOption.value === undefined ? "" : text(selectedOption.value.description)));
+const yolo = computed(() => selectedOption.value?.danger === true);
 
 function setNote(value: string): void {
     emit("update:state", {...props.state, notes: {...props.state.notes, [props.item.id]: value}});
@@ -44,7 +44,7 @@ function setApproval(value: string): void {
     emit("update:state", {...props.state, modeSwitch: {...props.state.modeSwitch, [props.item.id]: {approvalMode: value}}});
 }
 function approve(): void {
-    emit("answer", {approved: true, ...(hasPlan.value && approvalMode.value !== props.item.approval.value ? {approvalMode: approvalMode.value} : {})});
+    emit("answer", {approved: true, ...(approval.value !== undefined && approvalMode.value !== approval.value.value ? {approvalMode: approvalMode.value} : {})});
 }
 function decline(): void {
     const trimmed = note.value.trim();
@@ -66,7 +66,7 @@ function decline(): void {
         </div>
         <p v-else class="acv-mode-switch__line">{{ t("wizard.modeSwitch.line", {from: props.item.fromLabel, to: props.item.toLabel}) }}</p>
         <template #foot>
-            <div v-if="hasPlan" class="acv-mode-switch__approval">
+            <div v-if="approval !== undefined" class="acv-mode-switch__approval">
                 <span class="acv-mode-switch__label">{{ t("wizard.modeSwitch.approvalLabel") }}</span>
                 <SegmentedControl :model-value="approvalMode" :options="approvalOptions" size="sm" data-mode-switch-approval @update:model-value="setApproval(String($event))" />
                 <small class="acv-mode-switch__hint" :class="{'is-danger': yolo}">{{ selectedDescription }}</small>

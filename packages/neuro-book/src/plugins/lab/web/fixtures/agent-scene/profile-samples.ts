@@ -69,11 +69,24 @@ const MISSING_TOOLS: ProfileToolsField = {
     modified: false,
     candidates: CANDIDATES,
 };
+/** “可派的子代理”一行：`effect` 一列写“推荐”“我加的”。 */
+const agentRow = (id: string, name: string, effect: string, summary: string, gone = false): ProfileToolRow => ({id, name, effect, danger: false, summary, detail: summary, required: false, gone});
+/** 主创的“可派的子代理”（w00032 t14）：声明推荐的临时帮手、用户加的设定核对、一个已删除的。 */
+const WRITER_AGENTS: ProfileToolsField = {
+    groups: [
+        {id: "nbook.agent", provider: "内置", tools: [agentRow("nbook.agent.adhoc", "临时帮手", "推荐", "按派它的 Agent 写的角色做一件事：读、查、写都行，做完把结果交回。")]},
+        {id: "user", provider: "我的 Profile", tools: [agentRow("user.lore-check", "设定核对", "我加的", "只读全书，找设定与前文的矛盾，列出来但不改。")]},
+        {id: "gone", provider: "已删除或不可用", tools: [agentRow("user.old-review", "user.old-review", "我加的", "已删除或不可用", true)]},
+    ],
+    count: 3,
+    modified: true,
+    candidates: [{id: "plot", provider: "剧情图谱", tools: [{...agentRow("plot.qa", "剧情问答", "", "回答关于这本书剧情的问题，答案带出处。"), providerName: "plot.qa", blocked: false}]}],
+};
 export const SAMPLE_WRITER_TOOLS = WRITER_TOOLS;
 export const SAMPLE_TOOL_CANDIDATES = CANDIDATES;
 
 export const SAMPLE_PROFILES: readonly ProfileView[] = [
-    {key: "nbook.agent.main", name: "写作助手", description: "和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。", icon: "i-lucide-feather", source: "内置", statusText: null, hidden: false, user: false, notice: null, model: model(), approval: approval(), tools: WRITER_TOOLS},
+    {key: "nbook.agent.main", name: "写作助手", description: "和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。", icon: "i-lucide-feather", source: "内置", statusText: null, hidden: false, user: false, notice: null, model: model(), approval: approval(), tools: WRITER_TOOLS, agents: WRITER_AGENTS},
     {
         key: "user.lore-check",
         name: "设定核对",
@@ -87,6 +100,7 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         model: model({value: "deepseek/deepseek-flash", hint: "这个模型不支持看图", warning: true}),
         approval: approval({value: "auto", hint: "模型先判断，判不了再问你；模型可能漏判"}),
         tools: LORE_TOOLS,
+        agents: null,
     },
     {
         key: "user.draft-review",
@@ -101,6 +115,7 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         model: model(),
         approval: approval(),
         tools: null,
+        agents: null,
     },
     {
         key: "plot.qa",
@@ -115,6 +130,7 @@ export const SAMPLE_PROFILES: readonly ProfileView[] = [
         model: model(),
         approval: approval(),
         tools: MISSING_TOOLS,
+        agents: null,
     },
-    {key: "nbook.agent.session-title", name: "会话标题", description: "给一段对话起标题，并写一句说明。", icon: "i-lucide-heading", source: "内置", statusText: null, hidden: true, user: false, notice: null, model: model({hint: "跟随默认时用“微型”角色"}), approval: null, tools: null},
+    {key: "nbook.agent.session-title", name: "会话标题", description: "给一段对话起标题，并写一句说明。", icon: "i-lucide-heading", source: "内置", statusText: null, hidden: true, user: false, notice: null, model: model({hint: "跟随默认时用“微型”角色"}), approval: null, tools: null, agents: null},
 ];

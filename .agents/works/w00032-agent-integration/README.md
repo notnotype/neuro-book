@@ -62,6 +62,10 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-09 | t05 完成并合入：Profile 设置页（列表、模型与审批、按提供者分组的工具绑定、用户级 Profile 的新建打开删除、能力缺口提示）；前后端实现审查各一次；`agent/profile-settings.md` 晋升 `implemented`（[t05](tasks/t05-profile/README.md)） |
 | 2026-11-09 | t14 只做多 Agent，Workflow 在 t24；先出界面静态稿评审，定了再前后端一起实施、一次合入；shell 的 `async` 也在 t14 做（[t14](tasks/t14-multi-agent/README.md)） |
 | 2026-11-10 | t32 完成并合入：落在 `nbook.agent` 里的通用部分补回 nb-harness 的宿主套件 `src/kit/`（文件访问接口 `SessionFiles` 与本机参考实现、内置工具、审批判定与审批模型、压缩方法与放回、运行守卫、会话句柄表与标题生成），NeuroBook 改为经它装配、行为不变；nb-form 的 Vue 一侧改为可选 peer；`harness/host-kit.md` 待晋升；删旧 `src/tools/` 记进 [t31](tasks/t31-nb-story-new-kernel/README.md)（[t32](tasks/t32-harness-backfill/README.md)） |
+| 2026-11-10 | t14 合入：子代理工具与任务中心、`shell` 与 `ask` 的 `async`、子树与任务的远程、停靠区与子代理卡片、会话面板的子会话、“可派的子代理”一节；前后端实现审查各一次；合入前并进 t32 的宿主套件（守卫、`shell`、句柄表加可选钩子）。待开发者批准 `subagents.md`、`jobs.md` 等的晋升，并定 planned 条目里没做的几处去留（[t14](tasks/t14-multi-agent/README.md)） |
+| 2026-11-10 | 开发者批准 t14 的 Spec 晋升：`agent/subagents.md`、`agent/jobs.md` 改为 `implemented`，其余 Spec 里 t14 的条目去掉 planned；没做的五处由我判断，改 Spec 跟现在的行为走，卡片写注册表的工具名记进 t29；t14 完成。接着做 t15（[t14](tasks/t14-multi-agent/README.md)） |
+| 2026-11-10 | t15 开工，实施计划开发者确认：没声明白名单就没有可用的 Skill、主创声明全部；父 Agent 的 `$x` 也算触发；`nbook skill init` 离线可用；插件的 Skill 与 SDK 构建拆到 [t33](tasks/t33-plugin-skills/README.md)；先出一轮界面静态稿（[t15](tasks/t15-skills/README.md)） |
+| 2026-11-11 | t15 评审两轮：后台安装的进度与结果由新建的 [t34](tasks/t34-background-tasks/README.md)（工作台的后台任务）承担，t15 的界面几片排在它之后；没带上的 `$` 改为给模型的 system-reminder；t15 切片 1–4 的后端已在分支上（[t15](tasks/t15-skills/README.md)） |
 
 ## 待确认
 

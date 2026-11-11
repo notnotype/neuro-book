@@ -12,12 +12,14 @@ import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {Compile} from "typebox/compile";
 
+import {describeDiagnosticError, MAX_STRING_LENGTH, redactText} from "@notnotype/nb-runtime/diagnostics";
 import {isText} from "@notnotype/nb-ui/text";
 import type {Text} from "@notnotype/nb-ui/text";
 
 import {evaluateContextWhen} from "./context-keys";
 import type {ContextKeySource} from "./context-keys";
 import {CommandDeclarationSchema} from "./contracts";
+import {commandsMessage} from "./text";
 import type {
     AgentMode,
     CommandDeclaration,
@@ -262,7 +264,7 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
 
         get(id) {
             const resolution = resolve(id);
-            return resolution === null ? {ok: false, code: "unknown-command", reason: `未登记的命令：${id}`} : {ok: true, value: resolution.entry.metadata};
+            return resolution === null ? {ok: false, code: "unknown-command", reason: commandsMessage("failures.unknownCommand", {id})} : {ok: true, value: resolution.entry.metadata};
         },
 
         list() {
@@ -271,7 +273,7 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
 
         isEnabled(id) {
             const resolution = resolve(id);
-            if (resolution === null) return {ok: false, code: "unknown-command", reason: `未登记的命令：${id}`};
+            if (resolution === null) return {ok: false, code: "unknown-command", reason: commandsMessage("failures.unknownCommand", {id})};
             const available = availability(resolution.entry);
             return available.ok ? {ok: true, value: true} : {ok: false, code: "unavailable", reason: available.reason};
         },
@@ -299,34 +301,36 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
                 }
                 return result;
             };
-            const fail = (code: CommandFailureCode, reason: Text): CommandResult<unknown> => finish({ok: false, code, reason});
+            const fail = (code: CommandFailureCode, reason: Text, detail?: string): CommandResult<unknown> => finish({ok: false, code, reason, ...(detail === undefined ? {} : {detail})});
+            // 处理函数与确认通道抛出的异常：原因是固定的一句，异常的名称与 message 脱敏后进详情。
+            const crashed = (error: unknown): CommandResult<unknown> => fail("execution-error", commandsMessage("failures.executionError"), describeDiagnosticError(error));
 
             try {
                 const resolution = resolve(id);
-                if (resolution === null) return fail("unknown-command", `未登记的命令：${id}`);
+                if (resolution === null) return fail("unknown-command", commandsMessage("failures.unknownCommand", {id}));
                 canonicalId = resolution.canonicalId;
                 const {entry} = resolution;
                 const declaration = entry.metadata;
                 const agentCall = invocation.source === "agent";
                 const exposure = effectiveAgentExposure(declaration.expose);
 
-                if (agentCall && exposure === "never") return fail("not-exposed", `命令未对 Agent 开放：${canonicalId}`);
+                if (agentCall && exposure === "never") return fail("not-exposed", commandsMessage("failures.notExposed", {id: canonicalId}));
 
                 // 只有省略参数才归一成 {}；null 与其它非对象一律校验失败。
                 const resolvedArgs: unknown = args === undefined ? {} : args;
                 auditedArgs = resolvedArgs;
-                if (!Value.Check(declaration.args, resolvedArgs)) return fail("invalid-args", `参数校验失败：${argumentErrors(declaration.args, resolvedArgs)}`);
+                if (!Value.Check(declaration.args, resolvedArgs)) return fail("invalid-args", commandsMessage("failures.invalidArgs", {problems: argumentErrors(declaration.args, resolvedArgs)}));
 
                 const available = availability(entry);
                 if (!available.ok) return fail("unavailable", available.reason);
 
                 const writes = agentCall && (declaration.effect === "write" || declaration.expose?.hints?.destructive === true);
                 const modeBefore = writes ? isReadOnlyMode() : null;
-                if (modeBefore !== null) return fail("read-only", `只读模式（${modeBefore}）拒绝写入类的 Agent 调用：${canonicalId}`);
+                if (modeBefore !== null) return fail("read-only", commandsMessage("failures.readOnly", {mode: modeBefore, id: canonicalId}));
 
                 let runArgs: unknown = resolvedArgs;
                 if (invocation.source === "agent" && exposure === "confirm") {
-                    if (options.confirm === undefined) return fail("confirmation-required", `命令需要确认，但没有确认通道：${canonicalId}`);
+                    if (options.confirm === undefined) return fail("confirmation-required", commandsMessage("failures.noConfirmation", {id: canonicalId}));
                     const confirmed = snapshot(resolvedArgs);
                     const request: CommandConfirmationRequest = {command: declaration, args: snapshot(confirmed), callerId: invocation.callerId};
                     auditedArgs = request.args;
@@ -334,15 +338,15 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
                     try {
                         approved = await options.confirm(request);
                     } catch (error) {
-                        return fail("execution-error", asError(error).message);
+                        return crashed(error);
                     }
-                    if (!approved) return fail("denied", `用户拒绝了命令：${canonicalId}`);
+                    if (!approved) return fail("denied", commandsMessage("failures.denied", {id: canonicalId}));
                     // 等待期间条目、when 与只读模式都可能变了：批准不等于放行旧请求。
-                    if (entries.get(canonicalId) !== entry) return fail("stale-target", `命令在确认期间被替换：${canonicalId}`);
+                    if (entries.get(canonicalId) !== entry) return fail("stale-target", commandsMessage("failures.replaced", {id: canonicalId}));
                     const recheck = availability(entry);
                     if (!recheck.ok) return fail("unavailable", recheck.reason);
                     const modeAfter = writes ? isReadOnlyMode() : null;
-                    if (modeAfter !== null) return fail("read-only", `只读模式（${modeAfter}）拒绝写入类的 Agent 调用：${canonicalId}`);
+                    if (modeAfter !== null) return fail("read-only", commandsMessage("failures.readOnly", {mode: modeAfter, id: canonicalId}));
                     runArgs = snapshot(confirmed);
                     auditedArgs = runArgs;
                 }
@@ -351,18 +355,20 @@ export function createCommandRegistry(options: CommandRegistryOptions): CommandR
                 try {
                     result = await entry.definition.run(runArgs);
                 } catch (error) {
-                    return fail("execution-error", asError(error).message);
+                    return crashed(error);
                 }
                 if (result === null || typeof result !== "object" || typeof (result as {ok?: unknown}).ok !== "boolean") {
-                    return fail("execution-error", `命令没有返回结构化结果：${canonicalId}`);
+                    return fail("execution-error", commandsMessage("failures.noResult", {id: canonicalId}));
                 }
-                const settled = result as {ok: boolean; value?: unknown; code?: unknown; reason?: unknown};
+                const settled = result as {ok: boolean; value?: unknown; code?: unknown; reason?: unknown; detail?: unknown};
                 if (settled.ok) return finish({ok: true, value: settled.value === undefined ? null : settled.value});
                 const code = typeof settled.code === "string" && FAILURE_CODES.includes(settled.code) ? settled.code as CommandFailureCode : "execution-error";
                 // 命令返回的原因是文字值时原样交出，文字引用由显示的一方翻；别的值转成字符串。
-                return fail(code, isText(settled.reason) ? settled.reason : String(settled.reason));
+                // 详情是给人复制的诊断原文：只收字符串，脱敏并截到诊断字符串的上限（docs/specs/workbench/commands.md 的“结果合同”）。
+                const detail = typeof settled.detail === "string" ? redactText(settled.detail, MAX_STRING_LENGTH) : undefined;
+                return fail(code, isText(settled.reason) ? settled.reason : String(settled.reason), detail);
             } catch (error) {
-                return fail("execution-error", asError(error).message);
+                return crashed(error);
             }
         },
 

@@ -37,6 +37,8 @@ import type ProviderRail from "nbook/plugins/models/web/components/ProviderRail.
 import type PermissionRulesPage from "nbook/plugins/agent/web/components/PermissionRulesPage.vue";
 import type ProfileDetail from "nbook/plugins/agent/web/components/ProfileDetail.vue";
 import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue";
+import type BackgroundCommandCard from "nbook/plugins/agent/web/components/BackgroundCommandCard.vue";
+import type SubagentCard from "nbook/plugins/agent/web/components/SubagentCard.vue";
 import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
 import type ProfileSettingsPage from "nbook/plugins/agent/web/components/ProfileSettingsPage.vue";
 import type ProfileToolsSection from "nbook/plugins/agent/web/components/ProfileToolsSection.vue";
@@ -86,6 +88,7 @@ import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
 import {withAgentPageText} from "./agent-scene/agent-page-text";
 import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./agent-scene/profile-samples";
+import {CARD_SAMPLES, COMMAND_SAMPLES, sampleProps} from "./agent-scene/subagent-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
@@ -1038,6 +1041,16 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面：有必需工具", input: {props: {state: "ready", profiles: SAMPLE_PROFILES, initial: "nbook.agent.main"}}},
             ],
             load: async () => withAgentPageText((await import("./agent-scene/ProfileSettingsFixture.vue")).default),
+        }),
+        defineLabFixture<typeof SubagentCard>({
+            component: "SubagentCard",
+            scenes: ([["running", "运行中：最近一步、次数与用时"], ["question", "在问父 Agent"], ["waiting", "等你批准"], ["done", "完成：点开看结果全文"], ["failed", "出错"], ["dispatch-failed", "没派出去"], ["background", "后台、名字很长"], ["unknown", "进程崩溃后：状态未知"], ["running-narrow", "390px 宽"], ["background-narrow", "390px 宽、名字很长"]] as const).map(([id, label]) => ({id, label, input: {props: sampleProps(CARD_SAMPLES[id.replace(/-narrow$/u, "")]!)}})),
+            load: async () => withAgentPageText((await import("./agent-scene/SubagentCardFixture.vue")).default),
+        }),
+        defineLabFixture<typeof BackgroundCommandCard>({
+            component: "BackgroundCommandCard",
+            scenes: ([["command-running", "运行中：最后一行、停止"], ["command-done", "完成：退出码与行数"], ["command-failed", "失败"], ["command-restarted", "任务已移出：从 status.json 读"], ["command-running-narrow", "390px 宽"]] as const).map(([id, label]) => ({id, label, input: {props: sampleProps(COMMAND_SAMPLES[id.replace(/^command-/u, "").replace(/-narrow$/u, "")]!)}})),
+            load: async () => withAgentPageText((await import("./agent-scene/SubagentCardFixture.vue")).default),
         }),
         defineLabFixture<typeof ProfileRail>({
             component: "ProfileRail",
