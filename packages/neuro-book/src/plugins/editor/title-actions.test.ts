@@ -118,7 +118,7 @@ describe("批注页边的开关（markdown-editing.md 输出 33）", () => {
         const titles = createEditorTitleActions({
             area: () => ({groups, activeHandle} as never),
             commands,
-            state: {read: (key) => (key === "nbook.editor/commentMargin" ? {status: "ready", value: margin.value} : {status: "undeclared"})} as never,
+            state: {read: (key: string) => (key === "nbook.editor/commentMargin" ? {status: "ready", value: margin.value} : {status: "undeclared"})} as never,
             items: () => [],
             platform: "other",
         });

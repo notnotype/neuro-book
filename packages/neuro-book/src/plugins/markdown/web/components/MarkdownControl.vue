@@ -7,7 +7,7 @@ import {computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, useTempla
 
 import "@notnotype/nb-markdown/markdown.css";
 
-import {createMarkdownEditorExtensions, markdownEditingActions, REFRESH_REFERENCE_LINKS, releaseSelection} from "@notnotype/nb-markdown/editor";
+import {createMarkdownEditorExtensions, listComments, markdownEditingActions, REFRESH_REFERENCE_LINKS, releaseSelection} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
 import {codecFor} from "@notnotype/nb-markdown/language";
@@ -19,6 +19,7 @@ import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {NBOOK_IMAGE_MISSING, nbookChips} from "../host";
+import {MARGIN_GAP, MARGIN_WIDTH} from "./menus/comments/margin-layout";
 import {languageFor} from "../language-registry";
 import MarkdownMenus from "./menus/MarkdownMenus.vue";
 import MarkdownToolbar from "./menus/MarkdownToolbar.vue";
@@ -351,8 +352,42 @@ const editing: EditorEditing = {
     }),
 };
 
+/**
+ * 批注页边（docs/specs/workbench/markdown-editing.md 输出 33）：开关开着、控件够宽才画。宽度量 `.markdown-control-root`（已是
+ * `container-type: inline-size`，不含滚动条：页边的卡片把短文档撑出滚动条时宽度不会因此少一截而来回闪）；出现与消失用两个阈值
+ * （迟滞），临界宽度附近不闪。阈值是稿纸的版心加页边加两侧最小留白：版心取 `--markdown-measure`，页边宽与空见 `MarkdownCommentMargin`。
+ */
+const MARGIN_SPACE = MARGIN_WIDTH + MARGIN_GAP;
+const MARGIN_SIDE_MIN = 32;
+const MARGIN_HIDE_SLACK = 32;
+const shell = ref<HTMLElement | null>(null);
+const wide = ref(false);
+let measure = 720;
+let shellObserver: ResizeObserver | null = null;
+function updateWide(width: number): void {
+    const appear = measure + MARGIN_SPACE + MARGIN_SIDE_MIN;
+    wide.value = wide.value ? width >= appear - MARGIN_HIDE_SLACK : width >= appear;
+}
+const marginDrawn = computed(() => menus !== null && props.visible && menus.commentMargin.value && wide.value);
+watch(shell, (element) => {
+    shellObserver?.disconnect();
+    shellObserver = null;
+    if (element === null || typeof ResizeObserver !== "function") return;
+    const parsed = Number.parseFloat(getComputedStyle(element).getPropertyValue("--markdown-measure"));
+    if (Number.isFinite(parsed)) measure = parsed;
+    shellObserver = new ResizeObserver((entries) => updateWide(entries[0]?.contentRect.width ?? element.clientWidth));
+    shellObserver.observe(element);
+    updateWide(element.clientWidth);
+}, {flush: "post"});
+onBeforeUnmount(() => shellObserver?.disconnect());
+
 const handle: EditorControlHandle = {
     editing,
+    // 没有菜单层（Lab、组件测试不经插件挂控件）就没有页边，也不交出批注条数（编辑区标题的“批注 N”据此出现）。
+    ...(menus === null ? {} : {comments: {count: computed(() => {
+        void editingVersion.value;
+        return editor === null ? 0 : listComments(editor.state.doc).length;
+    })}}),
     outline,
     revealHeading,
     focus: () => editor?.commands.focus(),
@@ -465,16 +500,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="markdown-control-root relative flex h-full w-full flex-col">
+    <div ref="shell" class="markdown-control-root relative flex h-full w-full flex-col" :data-comment-margin="marginDrawn ? '' : undefined">
         <Teleport :to="toolbarTarget" :disabled="toolbarTarget === null">
             <MarkdownToolbar v-if="menus !== null && menus.toolbarVisible.value && (toolbarTarget === null || props.visible)" :editing="editing" :menus="menus" :readonly="props.readonly" @prompt="(action) => menuLayer?.prompt(action)" @refocus="currentEditor?.commands.focus()" />
         </Teleport>
         <div class="markdown-control__margin markdown-control__margin--left" aria-hidden="true" data-markdown-margin="left"></div>
         <div class="markdown-control__margin markdown-control__margin--right" aria-hidden="true" data-markdown-margin="right"></div>
-        <div ref="scroller" class="relative min-h-0 w-full flex-1 overflow-auto" data-editor-control="markdown">
+        <div ref="scroller" class="relative min-h-0 w-full flex-1 overflow-auto" :style="marginDrawn ? {paddingInlineEnd: `${MARGIN_WIDTH + MARGIN_GAP}px`} : undefined" data-editor-control="markdown">
             <div ref="root" class="markdown-control"></div>
         </div>
-        <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" />
+        <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" :margin-drawn="marginDrawn" />
     </div>
 </template>
 
@@ -534,6 +569,11 @@ onBeforeUnmount(() => {
     :global([data-nb-skin-scene] .markdown-control__margin) {
         display: none;
     }
+}
+
+/* 页边画出来时版心左移、右边是批注卡片：场景图会压在正文与卡片底下，不画（正文底下始终是干净的面，theme/skins.md 输出 5）。 */
+:global([data-nb-skin-scene] .markdown-control-root[data-comment-margin] .markdown-control__margin) {
+    display: none;
 }
 
 @media (prefers-contrast: more), (forced-colors: active) {

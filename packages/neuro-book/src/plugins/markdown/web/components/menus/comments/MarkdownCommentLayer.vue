@@ -12,6 +12,8 @@ import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contr
 import {caretAnchor, selectionAnchor} from "../selection-anchor";
 import MarkdownCommentCard from "./MarkdownCommentCard.vue";
 import type {CommentCardLabels} from "./MarkdownCommentCard.vue";
+import MarkdownCommentMargin from "./MarkdownCommentMargin.vue";
+import type {MarginItem} from "./MarkdownCommentMargin.vue";
 
 const props = defineProps<{
     editor: Editor | null;
@@ -23,6 +25,8 @@ const props = defineProps<{
     binding: string | null;
     /** 别的弹层（注音与双语卡片、右键菜单）开着：不弹。 */
     blocked: boolean;
+    /** 页边此刻画得出来（开关开着、控件够宽，`MarkdownControl` 算出）：卡片在页边里，不出浮层（输出 33）。 */
+    marginDrawn: boolean;
 }>();
 const emit = defineEmits<{(event: "writing", writing: boolean): void}>();
 
@@ -63,8 +67,8 @@ const labels = computed<CommentCardLabels>(() => ({
     body: props.menus.label("commentBody"),
 }));
 
-const viewOpen = computed(() => cardOpen.value && focused.value && at.value.length > 0 && !props.blocked && writing.value === null);
-const popoverOpen = computed(() => viewOpen.value || writing.value !== null);
+const viewOpen = computed(() => !props.marginDrawn && cardOpen.value && focused.value && at.value.length > 0 && !props.blocked && writing.value === null);
+const popoverOpen = computed(() => viewOpen.value || (writing.value !== null && !props.marginDrawn));
 
 /** 新批注贴选区（同注音卡片）；已有的贴光标所在行，块批注贴块里第一个文字处（输出 30）。 */
 const anchor = computed(() => {
@@ -77,14 +81,42 @@ const anchor = computed(() => {
 
 const sameComment = (info: CommentInfo, target: CommentRef): boolean => info.body === target.body && info.quote === target.quote;
 
-/** 正文里标出来的那条（输出 32）：“写”里的、点了跳转的、否则卡片里排在前面的。 */
-const shown = computed<CommentRef | null>(() => {
-    if (writing.value !== null) return writing.value.ref;
-    if (!viewOpen.value) return null;
+/** 光标所在的批注里“当前”的那条：点了跳转的，否则排在前面的；光标不在批注里为 null。 */
+const cursorComment = computed<CommentRef | null>(() => {
     const chosen = current.value;
     if (chosen !== null && at.value.some((info) => sameComment(info, chosen))) return chosen;
     const first = at.value[0];
     return first === undefined ? null : refOf(first);
+});
+
+/** 正文里标出来的那条（输出 32）：“写”里的、页边里展开的、浮层开着时卡片里排在前面的。 */
+const shown = computed<CommentRef | null>(() => {
+    if (writing.value !== null) return writing.value.ref;
+    if (props.marginDrawn) return cursorComment.value;
+    return viewOpen.value ? cursorComment.value : null;
+});
+
+/**
+ * 页边里的卡片（输出 33）：每条批注一张，写着的与光标所在的那条展开，其余是摘要；还不在文档里的新批注作为一张待写的卡片，
+ * 按选区起点插进去。
+ */
+const marginItems = computed<MarginItem[]>(() => {
+    const editor = props.editor;
+    if (!props.marginDrawn || editor === null) return [];
+    const editing = writing.value?.ref ?? null;
+    const open = cursorComment.value;
+    const items = list.value.map((info): MarginItem => ({
+        key: info.identity,
+        info,
+        mode: editing !== null && sameComment(info, editing) ? "write" : editing === null && open !== null && sameComment(info, open) ? "view" : "compact",
+        anchor: info.start,
+    }));
+    if (writing.value !== null && writing.value.ref === null) {
+        const anchor = editor.state.selection.from;
+        const index = items.findIndex((item) => (item.info as CommentInfo).start > anchor);
+        items.splice(index < 0 ? items.length : index, 0, {key: "pending", info: null, mode: "write", anchor});
+    }
+    return items;
 });
 // 标出是一个事务，不在 `transaction` 事件的调用栈里发；`post` 让它在这一轮更新之后。
 watch(shown, (target) => {
@@ -263,6 +295,16 @@ function remove(info: CommentInfo): void {
     cardOpen.value = commentsAt(editor.state).length > 0;
 }
 
+/** 点页边里的摘要：这条成为当前批注，光标移过去、展开。正在写别的一条时先放下它（点卡片不夺焦，不会自己发 `dismiss`）。 */
+function select(info: CommentInfo): void {
+    const editor = props.editor;
+    if (editor === null) return;
+    if (writing.value !== null) endWriting(false);
+    gotoComment(editor, refOf(info));
+    editor.view.focus();
+    current.value = refOf(info);
+}
+
 function step(info: CommentInfo, direction: -1 | 1): void {
     const editor = props.editor;
     const target = list.value[info.index + direction];
@@ -314,6 +356,26 @@ defineExpose({
             </template>
         </div>
     </AnchoredPopover>
+    <Teleport v-if="props.marginDrawn && props.editor !== null && props.scroller !== null" :to="props.scroller">
+        <MarkdownCommentMargin
+            :editor="props.editor"
+            :scroller="props.scroller"
+            :items="marginItems"
+            :total="list.length"
+            :readonly="props.readonly"
+            :labels="labels"
+            :session="writing?.session ?? 0"
+            :version="tick"
+            @edit="beginEdit"
+            @remove="remove"
+            @previous="(info) => step(info, -1)"
+            @next="(info) => step(info, 1)"
+            @select="select"
+            @submit="submit"
+            @cancel="endWriting(true)"
+            @dismiss="endWriting(false)"
+        />
+    </Teleport>
 </template>
 
 <style scoped>

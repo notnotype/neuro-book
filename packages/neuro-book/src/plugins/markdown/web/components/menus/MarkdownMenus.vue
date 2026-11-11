@@ -21,6 +21,8 @@ const props = defineProps<{
     menus: EditorMenus;
     readonly: boolean;
     binding: string | null;
+    /** 批注页边此刻画得出来（输出 33）：`MarkdownControl` 按开关与宽度算好。 */
+    marginDrawn: boolean;
 }>();
 
 const prompting = ref<"ruby" | "bilingual" | null>(null);
@@ -166,6 +168,7 @@ defineExpose({
         :readonly="props.readonly"
         :binding="props.binding"
         :blocked="prompting !== null || contextOpen"
+        :margin-drawn="props.marginDrawn"
         @writing="(writing) => { commentWriting = writing; }"
     />
     <MarkdownTextPrompt
