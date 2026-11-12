@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, flyingContents, followingLeaves, grownRect, leavingPlacements, placementMoved, settleFloatMoves, stableOrder} from "./grid-motion";
+import {enteringRects, flyingContents, followingLeaves, grownRect, leavingPlacements, placementMoved, rightAnchored, settleFloatMoves, stableOrder} from "./grid-motion";
 import {floatPlacements, layerItems, placeContents, placeGrid} from "./grid-rects";
 import type {GridLayerItem} from "./grid-rects";
 import type {GridNodeInput} from "./grid-types";
@@ -175,6 +175,46 @@ describe("离开的叶留着缩回去（输出“过渡”）", () => {
     it("拿起内容拖动中：一个都不留", () => {
         const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
         expect(leavingPlacements(frameOf(branch(leaf("a"), leaf("c")), ALL), before, true)).toEqual([]);
+    });
+});
+
+describe("过渡中内容贴着外框的右边（输出“过渡”）", () => {
+    const branch = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "horizontal", children});
+    const column = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "col", orientation: "vertical", size: {width: 300, height: 300}, children});
+    const frameOf = (root: GridNodeInput<string>): GridLayerItem<string>[] => {
+        const {node, layout} = grid(root, 4, {width: 1000, height: 300});
+        const items = placeGrid(node, layout, {width: 1000, height: 300}, 1).items;
+        return layerItems(items, placeContents(items, ["b1", "b2", "e", "r"].map((id) => ({key: id, leaf: id, insetTop: 32, active: true})), 1));
+    };
+    /** 同 `decideMotion` 的组合。 */
+    const anchorsOf = (after: GridLayerItem<string>[], before: GridLayerItem<string>[]) => {
+        const entering = enteringRects(after, before);
+        const following = followingLeaves(after, before);
+        const flying = flyingContents(after, before);
+        return rightAnchored({items: after, previous: before, entering, following, flying, leaving: leavingPlacements(after, before, false)});
+    };
+    const SIDE = ["leaf:b1", "leaf:b2", "content:b1", "content:b2"];
+
+    it("在分支起点一头展开、缩回那一头（侧栏）：外框只有右边在动，列里的叶与内容都贴右边，整块平移进出；被推开的兄弟跟外框，不贴", () => {
+        const hidden = frameOf(branch(leaf("e", 700), leaf("r", 296)));
+        const shown = frameOf(branch(column(leaf("b1"), leaf("b2")), leaf("e", 396), leaf("r", 296)));
+        expect([...anchorsOf(shown, hidden)].sort()).toEqual([...SIDE].sort());
+        expect([...anchorsOf(hidden, shown)].sort()).toEqual([...SIDE].sort());
+    });
+
+    it("在分支终点一头长出来、缩回那一头（右栏）：近的那条边在动，贴起点本来就跟着它走，不记", () => {
+        const hidden = frameOf(branch(leaf("b1"), leaf("e")));
+        const shown = frameOf(branch(leaf("b1"), leaf("e"), leaf("r")));
+        expect([...anchorsOf(shown, hidden)]).toEqual([]);
+        expect([...anchorsOf(hidden, shown)]).toEqual([]);
+    });
+
+    it("纵向不贴：从上边长出来时内容的裁切框上边比叶低一个面板头，贴下边会在面板头下面露出一条空白", () => {
+        const stack = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "vertical", children});
+        const below = frameOf(stack(leaf("e", 1000, 300)));
+        const split = frameOf(stack(leaf("b1", 1000, 100), leaf("e", 1000, 196)));
+        expect(enteringRects(split, below).get("leaf:b1")).toMatchObject({y: 0, height: 0});
+        expect([...anchorsOf(split, below)]).toEqual([]);
     });
 });
 

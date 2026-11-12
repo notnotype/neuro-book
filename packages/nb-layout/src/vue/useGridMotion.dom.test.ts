@@ -24,6 +24,13 @@ function items(widths: number[], extent = {width: 700, height: 300}): GridPlacem
 
 const EXTENT = {width: 700, height: 300};
 
+/** 指定 id 的一行叶（宽度按给的分）。 */
+function row(entries: Array<[string, number]>): GridPlacementItem<unknown>[] {
+    const root: GridNodeInput<string> = {kind: "branch", id: "root", orientation: "horizontal", children: entries.map(([id, width]) => leaf(id, width))};
+    const grid = createGrid<string>(root, {sashSize: 1});
+    return [...placeGrid(grid.root()!, grid.layout(EXTENT), EXTENT, 1).items];
+}
+
 function frame(over: Partial<GridMotionFrame> & Pick<GridMotionFrame, "items">): GridMotionFrame {
     return {previous: null, rootSize: EXTENT, extent: EXTENT, dpr: 1, previewing: false, ...over};
 }
@@ -161,6 +168,19 @@ describe("过渡中内容跟外框的叶", () => {
         motion.stop();
         motion.update(frame({items: split, previous: again}));
         expect(followingOf(motion)).toEqual(["leaf:l0", "leaf:l1", "leaf:l2", "leaf:l3"]);
+    });
+
+    it("贴着右边的项：过渡中又来一次变化、这一轮它没动时接着贴（外框还在走上一轮的过渡）；结束后清空", () => {
+        const {motion, base} = started();
+        // 最前面多出一块：它从左边长出来，内容贴着在动的右边。
+        const shown = row([["s", 100], ["l0", 299], ["l1", 149], ["l2", 149]]);
+        motion.update(frame({items: shown, previous: base}));
+        expect(motion.anchoredRight.value.has("leaf:s")).toBe(true);
+        const again = row([["s", 100], ["l0", 199], ["l1", 249], ["l2", 149]]);
+        motion.update(frame({items: again, previous: shown}));
+        expect(motion.anchoredRight.value.has("leaf:s")).toBe(true);
+        motion.stop();
+        expect(motion.anchoredRight.value.size).toBe(0);
     });
 
     it("容差之内的第二次发布不改名单", () => {

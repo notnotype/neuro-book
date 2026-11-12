@@ -189,15 +189,19 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const explorer = await sectionOf(page, EXPLORER);
         /** 在页面里点一下，逐帧量这一节的外框与内容，直到网格的过渡结束。只记内容看得见的帧。 */
         const framesAfter = (selector: string) => page.evaluate(async ({selector, leafId}) => {
-            const rows: Array<{frameLeft: number; frameRight: number; frameWidth: number; frameTop: number; frameBottom: number; frameHeight: number; contentLeft: number; contentRight: number; contentTop: number; contentBottom: number}> = [];
+            const rows: Array<{frameLeft: number; frameRight: number; frameWidth: number; frameTop: number; frameBottom: number; frameHeight: number; contentLeft: number; contentRight: number; contentTop: number; contentBottom: number; headRight: number; bodyRight: number}> = [];
             document.querySelector<HTMLElement>(selector)!.click();
             for (let frame = 0; frame < 90; frame += 1) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
-                const leaf = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`)?.getBoundingClientRect();
+                const frameEl = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`);
+                const leaf = frameEl?.getBoundingClientRect();
                 const content = document.querySelector<HTMLElement>("[data-content=\"view:nbook.explorer\"]");
-                if (leaf !== undefined && content !== null && getComputedStyle(content).visibility === "visible") {
+                if (frameEl != null && leaf !== undefined && content !== null && getComputedStyle(content).visibility === "visible") {
                     const rect = content.getBoundingClientRect();
-                    rows.push({frameLeft: leaf.left, frameRight: leaf.right, frameWidth: leaf.width, frameTop: leaf.top, frameBottom: leaf.bottom, frameHeight: leaf.height, contentLeft: rect.left, contentRight: rect.right, contentTop: rect.top, contentBottom: rect.bottom});
+                    // 外框、内容外层是裁切框；面板头与内容体是里面最终尺寸的那层，看得见的东西跟着它走。
+                    const head = frameEl.querySelector(":scope > [data-leaf-content]")!.getBoundingClientRect();
+                    const body = content.querySelector(":scope > .nb-grid-content__body")!.getBoundingClientRect();
+                    rows.push({frameLeft: leaf.left, frameRight: leaf.right, frameWidth: leaf.width, frameTop: leaf.top, frameBottom: leaf.bottom, frameHeight: leaf.height, contentLeft: rect.left, contentRight: rect.right, contentTop: rect.top, contentBottom: rect.bottom, headRight: head.right, bodyRight: body.right});
                 }
                 if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
             }
@@ -222,6 +226,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`), "frameHeight");
 
         // 点当前容器的入口隐藏侧栏：整列留着、作为一块缩回活动栏边上，每一帧全高、左边不动，内容被外框裁着；过渡结束才摘掉。
+        // 面板头与内容贴着外框在动的右边，整块往左平移出去，不是停在原地被外框像幕布一样盖上。
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
         const hiding = await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`);
         const start = hiding[0]!;
@@ -231,6 +236,8 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             expect(row.frameLeft).toBeCloseTo(start.frameLeft, 0);
             expect(row.contentLeft).toBeGreaterThanOrEqual(row.frameLeft - 1);
             expect(row.contentRight).toBeLessThanOrEqual(row.frameRight + 1);
+            expect(row.headRight).toBeCloseTo(row.frameRight, 0);
+            expect(row.bodyRight).toBeCloseTo(row.frameRight, 0);
         }
         await expect(leaf(page, explorer)).toHaveCount(0);
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
@@ -240,10 +247,13 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const showing = await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`);
         expectInside(showing, "frameWidth");
         // 整列作为一块横着长：每一帧都是全高、左边贴着活动栏，不是列里的几节各自竖着长（那样整列一开始就是全宽，压在还没让开的编辑区上）。
+        // 面板头与内容贴着外框的右边，整块从左边平移进来。
         const settled = showing.at(-1)!;
         for (const row of showing) {
             expect(row.frameHeight).toBeCloseTo(settled.frameHeight, 0);
             expect(row.frameLeft).toBeCloseTo(settled.frameLeft, 0);
+            expect(row.headRight).toBeCloseTo(row.frameRight, 0);
+            expect(row.bodyRight).toBeCloseTo(row.frameRight, 0);
         }
     });
 

@@ -259,6 +259,41 @@ export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, pre
     return result;
 }
 
+/**
+ * 过渡中内容贴着外框右边的项（docs/specs/ui/nested-grid.md 的“过渡”）。只看内容不跟外框的叶（新叶、从零出来的、留着缩回去的）和它们的内容项：
+ * 内容是最终尺寸，外框只有右边在动时（从左边长出来、缩向左边）贴着右边，整块跟着平移进出，不是被外框像幕布一样拉开、盖上。左边在动时
+ * （从右边长出来、缩向右边）贴左边本来就跟着它走，两条边都动的也贴左边，都不用记。
+ *
+ * 只管横向：内容项的矩形是叶减去面板头，左右与叶相同，贴右边时面板头与内容一起走；纵向它的上边比叶低一个面板头，从上边长出来时贴下边，
+ * 内容的裁切框上边跟着叶的上边往下挪一个面板头，中间露出一条空白。所以纵向照旧贴上边：从上边长出来的（往上拆分、切换容器时换上来的第一节）仍像幕布那样拉开。
+ *
+ * 内容项随它的叶。换了叶、正飞过去的内容项不随：它从旧矩形整块飞过来。
+ */
+export function rightAnchored(input: {
+    readonly items: ReadonlyArray<GridLayerItem<unknown>>;
+    readonly previous: ReadonlyArray<GridLayerItem<unknown>>;
+    readonly entering: ReadonlyMap<string, GridRect>;
+    readonly following: ReadonlySet<string>;
+    readonly flying: ReadonlySet<string>;
+    readonly leaving: ReadonlyArray<GridLayerItem<unknown>>;
+}): ReadonlySet<string> {
+    const before = new Map(input.previous.map((item) => [item.key, rectOf(item)]));
+    const near = (left: number, right: number): boolean => Math.abs(left - right) <= MOTION_TOLERANCE_PX;
+    /** 左边不动、右边在动。 */
+    const rightMoves = (from: GridRect, to: GridRect): boolean => near(from.x, to.x) && !near(from.x + from.width, to.x + to.width);
+    const anchored = new Set<string>();
+    // 留着缩回去的叶的终点是它缩成的那条线，起点是上一帧的矩形。
+    for (const item of [...input.items, ...input.leaving]) {
+        if (item.kind !== "leaf" || input.following.has(item.key)) continue;
+        const from = input.entering.get(item.key) ?? before.get(item.key);
+        if (from != null && rightMoves(from, item.rect)) anchored.add(item.key);
+    }
+    for (const item of input.items) {
+        if (item.kind === "content" && !input.following.has(item.key) && !input.flying.has(item.key) && anchored.has(`leaf:${item.leaf}`)) anchored.add(item.key);
+    }
+    return anchored;
+}
+
 
 /**
  * 渲染序列：已有的保持相对次序，新的紧接在树序里排在它前面的已有项之后。Vue 带 key 的 `v-for` 在中间插入不搬已有节点，只有

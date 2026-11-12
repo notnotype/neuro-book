@@ -110,7 +110,7 @@ const snapHost = useSashSnap();
 const parking = useLeafParking();
 const {parked} = parking;
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()});
-const {moving, growing, following, flying} = motion;
+const {moving, growing, following, flying, anchoredRight} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 的“过渡”）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.map((item) => item.node.id)));
 
@@ -451,7 +451,7 @@ function placeLifted(rect: GridRect): void {
 }
 
 /**
- * 拖动中的窗相对记录里的矩形挪了多少（`null` 回到原处）。写在 `translate` 属性上，和 Vue 管的 `transform` 互不相干，重渲染不跳；放下时宿主发布新矩形，同一拍调 `null`。
+ * 拖动中的窗相对记录里的矩形挪了多少（`null` 回到原处）。写在 `translate` 属性上，和 Vue 管的 `left`/`top` 互不相干，重渲染不跳；放下时宿主发布新矩形，同一拍调 `null`。
  * 窗的外框、每个标签的内容、手柄都是网格根的直接子元素，一起挪。
  */
 function placeFloat(id: string, offset: {readonly x: number; readonly y: number} | null): void {
@@ -484,6 +484,7 @@ defineExpose({
                 :data-float="floatAt.has(item.node.id) ? '' : undefined"
                 :data-float-gesture="floatGestures.get(item.node.id)"
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
+                :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
                 :inert="obscuredLeaves.has(item.node.id) || leavingLeaves.has(item.node.id)"
                 :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...floatLayer(item.node.id, 0)}"
             >
@@ -504,6 +505,7 @@ defineExpose({
                 :data-float="floatAt.has(item.leaf) ? '' : undefined"
                 :data-float-gesture="floatGestures.get(item.leaf)"
                 :data-leaving="leavingLeaves.has(item.leaf) ? '' : undefined"
+                :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
                 :inert="contentLayer.isParked(item)"
                 :style="{...contentLayer.frameStyle(item), ...(contentLayer.isLifted(item) ? {} : floatLayer(item.leaf, 1))}"
             >
@@ -648,5 +650,16 @@ defineExpose({
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+}
+
+/*
+ * 过渡中内容贴着外框的右边（`rightAnchored`）：整块跟着右边平移进出。内层是最终尺寸，比外框宽的部分在左边被裁掉；
+ * 过渡结束标记就摘了，那时外框等于内层，贴哪边都一样，不跳。
+ */
+.nb-grid-frame[data-anchor-right] > .nb-grid-leaf,
+.nb-grid-content[data-anchor-right] > .nb-grid-content__body {
+    position: absolute;
+    top: 0;
+    right: 0;
 }
 </style>
