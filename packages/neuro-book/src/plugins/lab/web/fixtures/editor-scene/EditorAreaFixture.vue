@@ -147,6 +147,35 @@ const COMMENT_OVERLAP = [
     "",
 ].join("\n");
 
+/** 页边的槽位场景（输出 33）：短段加短批注、下一段有无批注、同一段三条批注、一行的标题与紧挨的列表项、很长的段落加很长的批注、表格里同一行两条批注。 */
+const COMMENT_SLOTS = [
+    "# 页边的槽位",
+    "",
+    "这一段只有一条短批注，下一段没有批注，所以它可以长到两倍段高。<comment body=\"一句话。\">这一句有批注</comment>",
+    "",
+    "这一段没有批注，上面那条批注可以借它的地方。",
+    "",
+    "这一段有批注，紧接着的下一段也有批注，所以它不能借别人的地方，意见太长时在末尾省略。<comment body=\"这条意见比较长：它在页边里最多放到这一段那么高，放不下的部分在末尾省略，点卡片可以展开看全文。这条意见比较长：它在页边里最多放到这一段那么高。\">这里有批注</comment>",
+    "",
+    "<comment body=\"这一段有三条批注，合用一个槽位。\">第一条</comment>、<comment body=\"第二条：用右上角的 ‹ › 在同一段的批注之间切换。\">第二条</comment>、<comment body=\"第三条。\">第三条</comment>在同一段里。",
+    "",
+    "## 一行的标题<comment body=\"一行的短段也放得下一行意见。\">有批注</comment>",
+    "",
+    "- 紧挨着的列表项<comment body=\"列表项一\">甲</comment>",
+    "- 列表项之间没有间距<comment body=\"列表项二\">乙</comment>",
+    "- 第三项<comment body=\"列表项三\">丙</comment>",
+    "",
+    "这一段很长很长：灯塔的光一圈一圈扫过海面，雾被它撕开又合上，码头上的缆绳在潮水里一松一紧，远处的货轮拉了一声长笛，像是在催促什么，又像是在告别什么。林汐站在桩子旁边，听着木板在脚下吱呀作响，想起很多年前也是这样的夜晚。<comment body=\"这条意见很长，用来看很高的段落配很长的意见是什么样子：第一，这一段已经很高了，页边里的卡片最小高度封顶，不会拖出一张和整段一样高的空卡；第二，意见比卡片放得下的行数长时在末尾省略；第三，点卡片展开，卡片在原地向下长到全文，浮在后面的槽位上面；第四，展开时别的卡片一动不动。\">想起很多年前</comment>也是这样的夜晚。",
+    "",
+    "| 时间 | 事件 |",
+    "| --- | --- |",
+    "| 凌晨<comment body=\"表格按行算一段。\">四点</comment> | 灯熄<comment body=\"同一行的另一个格子，并进同一个槽位。\">了</comment> |",
+    "| 清晨 | 雾散 |",
+    "",
+    "最后一段没有批注。",
+    "",
+].join("\n");
+
 const memory = createMemoryFiles({
     project: [
         ["chapters/第一章.md", "# 第一章\n\n天色将晚，她推开了门。\n"],
@@ -155,6 +184,7 @@ const memory = createMemoryFiles({
         ["chapters/方言.md", DIALECT],
         ["chapters/批注.md", COMMENTS],
         ["chapters/批注-重叠.md", COMMENT_OVERLAP],
+        ["chapters/批注-槽位.md", COMMENT_SLOTS],
     ],
     user: [],
 });
@@ -177,6 +207,8 @@ if (props.scene === "dialect") {
     area.open("project://chapters/批注.md", {mode: "permanent"});
 } else if (props.scene === "comments-overlap") {
     area.open("project://chapters/批注-重叠.md", {mode: "permanent"});
+} else if (props.scene === "comments-slots") {
+    area.open("project://chapters/批注-槽位.md", {mode: "permanent"});
 } else if (props.scene !== "empty") {
     area.open("project://chapters/第一章.md", {mode: "permanent"});
     area.open("project://chapters/第二章.md", {mode: "preview"});
@@ -209,7 +241,7 @@ provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, (
 // 图片地址：内存适配器没有字节路由，作品里的 png 一律给一张画出来的图。
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#7287fd"/><text x="240" y="145" font-size="30" text-anchor="middle" fill="white">封面</text></svg>')}`;
 provide(markdownAssetsKey, createAssetUrls({rawUrl: (address) => (address.endsWith(".png") ? PICTURE : null), watch: () => () => undefined}));
-provide(editorMenusKey, createLabEditorMenus(area, text, {commentMargin: props.scene === "comments-margin"}));
+provide(editorMenusKey, createLabEditorMenus(area, text, {commentMargin: props.scene === "comments-margin" || props.scene === "comments-slots"}));
 const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/markdown/web/components/MarkdownControl.vue"));
 /** 只有内置的两个编辑器，组件直接给出（产品里由编辑器的登记表给出，`editor-registry.ts`）。 */
 const controls: Readonly<Record<string, Component>> = {[CODE_EDITOR]: MonacoControl, [MARKDOWN_EDITOR]: MarkdownControl};
