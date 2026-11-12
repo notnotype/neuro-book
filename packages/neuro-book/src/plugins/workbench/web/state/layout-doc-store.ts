@@ -18,7 +18,7 @@ import type {EditorTabDrag} from "../contracts";
 import {applyEntryDrop, isEntryAction} from "../entry-drop";
 import type {WorkbenchDragSource, WorkbenchDropAction} from "../entry-drop";
 import type {ViewCatalog} from "../views/registry";
-import {CUSTOM_CONTAINER_PREFIX} from "../../shared/views";
+import {CUSTOM_CONTAINER_PREFIX, IMPLICIT_CONTAINER_PREFIX} from "../../shared/views";
 import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionContainers, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
@@ -254,8 +254,27 @@ function defineLayoutDocStore(bound: boolean) {
         }
 
         /**
+         * 让容器看得见，一次提交（store 的 `showContainer` 动作；`moveView` 放到它自己身后也是这件事）：不写回尺寸意图（输出 42），
+         * 最大化着的面板不是这个容器的分节时退出，不然切过去了也被盖着。
+         */
+        function revealContainer(container: string): LayoutResult {
+            if (maximized.value !== null && doc.value.panels[maximized.value]?.container !== container) maximized.value = null;
+            return apply((current) => {
+                const region = containerRegion(current, container);
+                return region === null ? notFound(container) : showContainer(current, region, container);
+            }, {rebase: false});
+        }
+
+        /**
          * 视图按此刻的声明该回哪（“重置位置”、浮动窗回到停靠）：它的容器此刻在哪个区域就去哪，容器没有成员时去声明的区域。声明不在的视图回侧栏，进自己的隐式容器。
          */
+        /** 没有成员的容器按声明该在哪个区域（`moveView`）：隐式容器 `view:<视图>` 只在那个视图没写别的容器时才有声明（输出 41）。 */
+        function declaredRegion(container: string): PanelName | null {
+            const owner = container.startsWith(IMPLICIT_CONTAINER_PREFIX) ? container.slice(IMPLICIT_CONTAINER_PREFIX.length) : null;
+            if (owner !== null && viewHome(owner, catalog.value, containers.value)?.container !== container) return null;
+            return containerHomeRegion(container, catalog.value, containers.value);
+        }
+
         function homeOf(current: LayoutDoc, viewId: string): {readonly region: PanelName; readonly container: string} {
             const home = viewHome(viewId, catalog.value, containers.value) ?? {container: implicitContainerOf(viewId), location: "sidebar" as const};
             return {region: containerRegion(current, home.container) ?? home.location, container: home.container};
@@ -483,33 +502,31 @@ function defineLayoutDocStore(bound: boolean) {
                  * （`sectionLanding`：从前一个分节取一半，不跟 `dropSplit` 走），目标区域显示并切到这个容器；来源容器空了由 `apply` 里的 `settleContainers` 归整（输出 43）。
                  *
                  * 容器在哪个区域：有成员时是成员所在的区域；没有成员时是它声明的区域（声明的容器、隐式容器，这就是“重置位置”回到没有成员的容器的路）。
-                 * 两样都没有（含已经不存在的 `custom:`）是 `not-found`：不凭空建出一个调用方点名的容器。新容器的 id 只在这里生成。
-                 * 视图已经是目标容器最后一个分节时不搬，只让容器看得见，已经看得见时零写入：放到它自己后面不是一个落点。
+                 * 隐式容器只属于没写 `container` 的那个视图：它写了别的容器时，`view:<它>` 既没有成员也没有声明。两样都没有（含已经不存在的 `custom:`）
+                 * 是 `not-found`：不凭空建出一个调用方点名的容器。新容器的 id 只在这里生成。
+                 * 视图已经是目标容器最后一个分节时不搬：放到它自己后面不是一个落点，这就是点它的入口（`revealContainer`），已经看得见时零写入。
                  */
-                moveView: (viewId: string, target: MoveViewTarget): LayoutResult => apply((current) => {
+                moveView: (viewId: string, target: MoveViewTarget): LayoutResult => {
                     if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", detail: viewId};
-                    const key = tabKey({kind: "view", viewId});
-                    if (findTab(current, key) === null) return notFound(key);
-                    if ("newContainerIn" in target) return placeInContainer(current, key, target.newContainerIn, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
-                    const {container} = target;
-                    const region = containerRegion(current, container) ?? containerHomeRegion(container, catalog.value, containers.value);
-                    if (region === null) return notFound(container);
-                    const here = viewSection(current, viewId);
-                    const last = regionSections(current, region).filter((section) => section.container === container).at(-1);
-                    if (here?.container === container && last?.viewId === viewId) return showContainer(current, region, container);
-                    return placeInContainer(current, key, region, container);
-                }, {flush: true}),
+                    if ("container" in target) {
+                        const region = containerRegion(doc.value, target.container);
+                        const last = region === null ? undefined : regionSections(doc.value, region).filter((section) => section.container === target.container).at(-1);
+                        if (last?.viewId === viewId) return revealContainer(target.container);
+                    }
+                    return apply((current) => {
+                        const key = tabKey({kind: "view", viewId});
+                        if (findTab(current, key) === null) return notFound(key);
+                        if ("newContainerIn" in target) return placeInContainer(current, key, target.newContainerIn, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
+                        const {container} = target;
+                        const region = containerRegion(current, container) ?? declaredRegion(container);
+                        return region === null ? notFound(container) : placeInContainer(current, key, region, container);
+                    }, {flush: true});
+                },
                 /**
                  * 让容器看得见（输出 22 的点入口、输出 42）：它所在的区域显示（清掉隐藏与拖到零）并切到它，一次提交；分节的先后、大小、收成标题行都不动。
-                 * 已经是这样时零写入。最大化着的面板不是这个容器的分节时退出最大化：不然切过去了也被盖着。
+                 * 已经是这样时零写入。
                  */
-                showContainer: (container: string): LayoutResult => {
-                    if (maximized.value !== null && doc.value.panels[maximized.value]?.container !== container) maximized.value = null;
-                    return apply((current) => {
-                        const region = containerRegion(current, container);
-                        return region === null ? notFound(container) : showContainer(current, region, container);
-                    }, {rebase: false});
-                },
+                showContainer: revealContainer,
                 /**
                  * 把整个容器搬到另一个区域（输出 44 的“移到”“重置”），一次提交；带着什么、目标区域怎么变见 `moveContainerTo`。容器已经在那里时零写入。
                  */

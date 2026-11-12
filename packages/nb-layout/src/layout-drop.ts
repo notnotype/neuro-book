@@ -333,7 +333,7 @@ export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPa
     return sectors.length === 0 ? null : sectors;
 }
 
-/** 分节上的分区：前后两块，按正文的中线分，和 `sectionHalf` 同一条线；标题行不在正文里，不画（它算前半）。 */
+/** 分节上的分区：前后两块，按正文的中线分，和 `sectionHalf` 同一条线；标题行不在正文里，不画，它归哪一半见 `sectionHalf`。 */
 function sectionSectors(input: LayoutDropInput, panelId: string, panel: PanelRecord, tabs: ReadonlyArray<TabRef>, region: PanelName): ReadonlyArray<LayoutDropSector> | null {
     if (!input.policy.accepts(tabs, panel, "edge")) return null;
     const vertical = REGION_ORIENTATION[region] === "vertical";

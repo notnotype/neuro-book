@@ -1141,9 +1141,9 @@ export function setBarHidden(doc: LayoutDoc, bar: LayoutBar, hidden: boolean): L
 }
 
 /**
- * 活动栏放进隐藏的侧栏：一次写入显示面板并接收，不经过“显示了但还是空的”的中间态。`index` 缺省插到最后；标签本来就在这块面板里时只显示并激活，不重排（侧栏拖到零时，活动栏条目拖回活动栏）。
+ * 放进隐藏的面板：一次写入显示面板并接收，不经过“显示了但还是空的”的中间态。`index` 缺省插到最后；标签本来就在这块面板里时只显示并激活，不重排（面板拖到零时把它的标签放回去）。
  *
- * 只给不用容器的面板用。带容器的区域里显隐记在锚上，分节不接收标签：目标是锚或分节时拒绝，不留“成功了但区域还隐藏着”的结果。
+ * 只给不用容器的面板用，工作台不用它。带容器的区域里显隐记在锚上，分节不接收标签：目标是锚或分节时拒绝，不留“成功了但区域还隐藏着”的结果。
  * 带容器的区域用 `setPanelHidden(锚, false)` 加 `openPanelAtEdge`。
  */
 export function showPanelAndInsert(doc: LayoutDoc, input: {readonly panel: string; readonly source: LayoutSource; readonly index?: number}, policy: LayoutPolicy): LayoutResult {

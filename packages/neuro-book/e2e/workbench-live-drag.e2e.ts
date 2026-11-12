@@ -719,6 +719,39 @@ test.describe("实时布局", () => {
         await expect(page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`)).toHaveAttribute("aria-pressed", "true");
     });
 
+    test("来源收起之后再回到活动栏、停在别的入口上：来源不画回来，高亮的就是指针下那个；松手并进它（输出 38、45）", async ({page}) => {
+        await open(page);
+        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        const count = await entries.count();
+        expect(count).toBeGreaterThan(2);
+        const firstId = (await entries.nth(0).getAttribute("data-tool-entry")) ?? "";
+        const secondId = (await entries.nth(1).getAttribute("data-tool-entry")) ?? "";
+        // 第一个入口是侧栏当前容器唯一的视图：拖它就是拖这个视图。
+        const source = await sectionOf(page, (await entries.nth(0).getAttribute("data-tool-view")) ?? "");
+        const writes = await writesOf(page);
+        await lift(page, entries.first());
+        // 先停到右栏那一节的后半：来源收起，它的入口没了、下面的入口上移（预览里它那一节摆在右栏，分节换区域时 id 不变）。
+        const away = await inLeaf(page, await sectionOf(page, AUXILIARY_VIEW), {x: 0.5, y: 0.8});
+        await page.mouse.move(away.x, away.y, {steps: 8});
+        await expect(entries).toHaveCount(count - 1);
+        // 收起之后再量第二个入口，停到它中间。
+        const second = await page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`).boundingBox();
+        if (second === null) throw new Error("没有第二个入口");
+        const over = {x: second.x + second.width / 2, y: second.y + second.height / 2};
+        await page.mouse.move(over.x, over.y, {steps: 8});
+        const merged = page.locator(`[data-tool-band] [data-tool-entry="${secondId}"][data-tool-merge]`);
+        await expect(merged).toHaveCount(1);
+        await expect(entries).toHaveCount(count - 1);
+        await expect(leaf(page, source)).toHaveCount(0);
+        const box = await merged.boundingBox();
+        expect(box !== null && box.y <= over.y && over.y <= box.y + box.height).toBe(true);
+        expect(await writesOf(page)).toBe(writes);
+        await page.mouse.up();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        await expect(page.locator(`[data-tool-band] [data-tool-entry="${firstId}"]`)).toHaveCount(0);
+        await expect(page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`)).toHaveAttribute("aria-pressed", "true");
+    });
+
     test("中途窗口变了：整场取消", async ({page}) => {
         await open(page);
         // 右栏的丁放到底部面板戊那一节的后半。

@@ -21,7 +21,7 @@ import type {Page} from "@playwright/test";
 import {panelRef} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {SAMPLE_VIEWS_SWITCHES} from "nbook/shared/testing/sample-views-contract";
+import {SAMPLE_VIEWS_RUN_EVENT, SAMPLE_VIEWS_SWITCHES} from "nbook/shared/testing/sample-views-contract";
 
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 
@@ -1268,6 +1268,18 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, D)).toBeVisible();
         await expect(page.getByRole("menu")).toHaveCount(0);
         expect(await revisionOf(page)).toBe(before);
+    });
+
+    test("“移动到”菜单打开时视图换了容器（分节还是同一块面板，id 不变）：菜单关闭（输出 23）", async ({page}) => {
+        await open(page);
+        const section = await panelOfTab(page, D);
+        await tab(page, D).click({button: "right"});
+        await expect(page.getByRole("menu")).toBeVisible();
+        // 菜单开着时经测试外壳执行命令（不移开焦点、不关菜单）：丁移进戊的容器。
+        await page.evaluate(({name, detail}) => window.dispatchEvent(new CustomEvent(name, {detail})), {name: SAMPLE_VIEWS_RUN_EVENT, detail: {command: "nbook.view.move-view", args: {viewId: D, container: `view:${E}`}}});
+        await expect.poll(() => instanceOf(page, D)).toMatchObject({location: "panel"});
+        expect(await panelOfTab(page, D)).toBe(section);
+        await expect(page.getByRole("menu")).toHaveCount(0);
     });
 });
 

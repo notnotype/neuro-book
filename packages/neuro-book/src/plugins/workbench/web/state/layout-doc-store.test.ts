@@ -862,6 +862,30 @@ describe("视图容器：切换与搬动（输出 22、42、44）", () => {
         expect(store.actions.showContainer("custom:nobody")).toMatchObject({ok: false, code: "not-found"});
     });
 
+    it("移进视图自己的容器、它已经是最后一节：就是点它的入口，只切过去，尺寸意图一个都不动；盖着的最大化退出（输出 23、42）", async () => {
+        const {store} = await open();
+        const sections = ["test.s1", "test.s2", "test.s3"].map((id) => sectionOf(store, id));
+        shareOut(store, sections);
+        // 呈现尺寸和意图不成比例：搬动会先写回意图，放到自己身后不是搬动，不写回。
+        store.actions.acceptPresented({[sections[0] ?? ""]: {width: 0, height: 50}, [sections[2] ?? ""]: {width: 0, height: 700}});
+        expect(store.actions.showContainer("view:test.s4").ok).toBe(true);
+        const tree = store.actions.document().tree;
+        const aux = sectionOf(store, "test.x1");
+        expect(store.actions.toggleMaximized(aux)).toBe(true);
+        expect(store.actions.moveView("test.s3", {container: GROUP}).ok).toBe(true);
+        expect(anchorOf(store, "sidebar")).toMatchObject({activeContainer: GROUP});
+        expect(store.actions.document().tree).toEqual(tree);
+        expect(store.state.maximized).toBeNull();
+    });
+
+    it("移进一个写了别的容器的视图的隐式容器：view:<它> 既没有成员也没有声明，not-found，零写入（输出 41；commands.md 的 move-view）", async () => {
+        const {store} = await open();
+        const before = store.actions.document();
+        expect(store.actions.moveView("test.x1", {container: "view:test.s1"})).toMatchObject({ok: false, code: "not-found"});
+        expect(store.actions.document()).toBe(before);
+        expect(store.state.field.queue).toBe(0);
+    });
+
     it("让容器看得见：侧栏隐藏着、拖到零时同时展开，当前容器也一样", async () => {
         const {store} = await open();
         store.actions.setPartHidden("sidebar", true);

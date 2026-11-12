@@ -1092,7 +1092,7 @@ test("编辑器标签的落点（docs/specs/ui/workbench-layout.md 输出 25、2
     });
     await expect(groups).toHaveCount(1);
 
-    // 把资源管理器移进底部面板的新容器（右键分节标题的“移动到”，输出 23；底部面板默认没有容器）：编辑组的下面挨着面板。
+    // 把资源管理器移进底部面板的新容器（右键分节标题的“移动到”，输出 23；底部面板默认隐藏，里面只有不让区域显示的通知、后台任务，views.md 输出 18）：编辑组的下面挨着面板。
     await explorer.click({button: "right"});
     await page.getByRole("menu").getByRole("menuitem", {name: "新容器（底部面板）", exact: true}).click();
     await expect(page.getByRole("menu")).toHaveCount(0);

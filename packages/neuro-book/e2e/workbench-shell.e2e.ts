@@ -174,8 +174,8 @@ test.describe("产品页", () => {
     }
 
     /**
-     * 把会话移进底部面板的新容器，等这次写入落盘：底部面板默认没有容器，要看它得先放一个视图进去（输出 23：区域里原来一个容器都
-     * 没有时，新容器的同一次写入把它显示出来）。返回这个分节的面板 id。
+     * 把会话移进底部面板的新容器，等这次写入落盘：底部面板默认隐藏（里面只有不让区域显示的通知、后台任务，views.md 输出 18），
+     * 要看它得先放一个视图进去（输出 23：新容器的同一次写入把区域显示出来、切到它）。返回这个分节的面板 id。
      */
     async function sessionsToPanel(page: Page): Promise<string> {
         await moveViaMenu(page, SESSIONS, "新容器（底部面板）");
@@ -535,7 +535,7 @@ test.describe("产品页", () => {
 
     test("放不下时只改呈现：窄到最小值时先压工具面板，再按右栏、面板、侧栏的顺序收走并给诊断，最后才压编辑组；文档不变，放大后回到原样（输出 6、10；验收 6）", async ({page}) => {
         await open(page);
-        // 底部面板默认没有容器：先放一个视图进去，三个区域才都有分节可收。
+        // 底部面板默认隐藏：先放一个视图进去，三个区域才都有分节可收。
         const panel = await sessionsToPanel(page);
         const [side, aux] = [await sectionOf(page, EXPLORER), await sectionOf(page, CONVERSATION)];
         const original = await leafRects(page);
@@ -598,7 +598,7 @@ test.describe("产品页", () => {
         await open(a);
         await open(b);
         const [side, aux] = [await sectionOf(a, EXPLORER), await sectionOf(a, CONVERSATION)];
-        // a 先拉宽侧栏并保存；b 随后隐藏右栏并保存（底部面板默认没有容器，本来就隐藏着）。
+        // a 先拉宽侧栏并保存；b 随后隐藏右栏并保存（底部面板默认就隐藏着）。
         await sidebarSash(a).focus();
         await a.keyboard.press("ArrowRight");
         await expect.poll(async () => (await box(a, side)).width).toBe(350);

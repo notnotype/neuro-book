@@ -483,7 +483,7 @@ test.describe("产品页：拖放", () => {
         await expect(leaf(page, delta)).toHaveCount(0);
         await tab(page, E).focus();
         await page.keyboard.press("Space");
-        // 走遍区域与位置：分节的位置里要有前后两半（`edge`），隐藏的右栏不在里面。
+        // 走遍区域与位置：分节的位置里要有前后两半（`edge`）。隐藏的右栏没有呈现，量不出位置，不是键盘的区域；走完、取消后它还隐藏着。
         const kinds = new Set<string>();
         for (let region = 0; region < 6; region += 1) {
             await page.keyboard.press("Tab");
@@ -493,7 +493,6 @@ test.describe("产品页：拖放", () => {
             }
         }
         expect(kinds.has("edge")).toBe(true);
-        expect(kinds.has("reveal")).toBe(false);
         await page.keyboard.press("Escape");
         await expect(ghost(page)).toHaveCount(0);
         await expect(leaf(page, delta)).toHaveCount(0);
@@ -529,6 +528,27 @@ test.describe("产品页：拖放", () => {
         const [beta, collapsed] = [(await leaf(page, await sectionOf(page, B)).boundingBox())!, (await leaf(page, alpha).boundingBox())!];
         expect(beta.y).toBeLessThan(collapsed.y);
         expect(collapsed.height).toBe(32);
+
+        // 键盘：键盘的区域一节一个，按树序（乙、甲、丁）。收着的甲只有“前”一个停靠点，在它上面 Enter，戊落在乙和甲之间（输出 31）；
+        // 停靠点不能借正文外缘的点，收着的正文是零高，往里 2px 已经是下一节。
+        const column = {left: collapsed.x, right: collapsed.x + collapsed.width};
+        const inColumn = (): Promise<boolean> => page.evaluate(async ({left, right}) => {
+            await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+            const shown = [...document.querySelectorAll("[data-drop-feedback-area], [data-drop-feedback-line]")].map((element) => element.getBoundingClientRect()).find((rect) => rect.width > 0 || rect.height > 0);
+            return shown !== undefined && shown.left + shown.width / 2 >= left && shown.left + shown.width / 2 <= right;
+        }, column);
+        await tab(page, E).focus();
+        await page.keyboard.press("Space");
+        await expect(ghost(page)).toBeVisible();
+        for (let region = 0; region < 8 && !(await inColumn()); region += 1) await page.keyboard.press("Tab");
+        await page.keyboard.press("Tab");
+        await page.keyboard.press("Enter");
+        await expect(ghost(page)).toHaveCount(0);
+        await expect.poll(() => regionOf(page, E)).toBe("sidebar");
+        const [above, placed, still] = [(await leaf(page, await sectionOf(page, B)).boundingBox())!, (await leaf(page, await sectionOf(page, E)).boundingBox())!, (await leaf(page, alpha).boundingBox())!];
+        expect(placed.y).toBeGreaterThan(above.y);
+        expect(placed.y).toBeLessThan(still.y);
+        expect(still.height).toBe(32);
     });
 
     test("标签并入另一个浮动窗：内容从旧窗滑到新窗，矩形严格在新旧之间，两个窗都不动，实例、输入保留（输出 15；验收 1）", async ({page}) => {
@@ -1248,7 +1268,7 @@ test.describe("产品页：拖放", () => {
                     return document.querySelector("[data-drop-kind]")?.getAttribute("data-drop-kind") ?? "";
                 });
                 seen = kind === "edge";
-                if (["strip", "reveal", "new-container", "join-container", "move-entry"].includes(kind)) await expect(sectors(page)).toHaveCount(0);
+                if (["strip", "new-container", "join-container", "move-entry"].includes(kind)) await expect(sectors(page)).toHaveCount(0);
             }
             expect(seen).toBe(true);
             await expect(sectors(page)).toHaveCount(1);

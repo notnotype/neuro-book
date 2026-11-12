@@ -170,6 +170,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     let frozen: {readonly geometry: DragGeometry; readonly strips: ReadonlyMap<string, TabStripSnapshot>; readonly bar: ReadonlyArray<BarEntryRect>} | null = null;
     /** 这一场新建容器要用的 id（输出 45）：拿起时定，落点每帧比较，判定一次换一个的话落点永远不稳定。 */
     let newContainer = "";
+    /** 这一场来源已经收起（`collapseSource`）：之后判定用的是收起后的几何，预览也不能再把来源摆回来。拿起时清掉。 */
+    let sourceCollapsed = false;
     /** 这一场是整窗拖动：抓住的点相对窗的偏移；窗拿起时呈现的位置与大小（夹位置用）；记录里的大小（提交用：夹取不写回）。 */
     let windowDrag: {readonly panel: string; readonly grab: GridDropPoint; readonly origin: GridDropPoint; readonly from: GridDropPoint; readonly shown: GridExtent; readonly size: GridExtent} | null = null;
 
@@ -200,7 +202,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 return result.ok ? result.doc : null;
             }
             // 入口上的并入，来源是侧栏里一个容器唯一的视图：活动栏是它自己的入口条，来源不收起（`homeStripOf`），预览也不拿掉它，入口都不动，只高亮目标。
-            if (action.kind === "join-container" && soleSidebarContainer(doc, source) !== null) return doc;
+            // 已经在别处收起过就不行：判定的入口已经上移，已提交的文档会把来源的入口和分节画回来，高亮的入口就不在指针下了。
+            if (action.kind === "join-container" && !sourceCollapsed && soleSidebarContainer(doc, source) !== null) return doc;
             // 预览不摆真实结果的落点（输出 38）。浮动：窗此刻就是跟手的卡片。中央：目标不动，只盖一层；放下才换标签。这两种都是来源收起，内容靠拿起留着。
             if (action.kind === "float" || action.kind === "center" || action.kind === "join-container") {
                 const result = removeTab(doc, source.tab);
@@ -217,6 +220,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             const result = removeTab(options.doc(), source.tab);
             if (!result.ok || frozen === null) return;
             frozen = collapsed(frozen, options.doc(), result.doc, source);
+            sourceCollapsed = true;
             // 预览缓存里并入的矩形是按旧几何算的。
             previews.clear();
             // 照 Trellis：指针再动才按收起后的布局重判。收起时指针下的落点留着，松手（按指针下重判）还是屏幕上这个。
@@ -704,6 +708,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const {target} = action;
         if (target.kind === "between") return null;
         const {edge} = target;
+        // 收成标题行的分节正文是零高，正文上沿往里 2px 已经落到下一节：它的前半就是标题行（nb-layout 的 `sectionHalf`），停靠点取标题行中心。
+        if (edge === "top" && body.bottom <= body.top && geometry.strip !== null) return centerOf(geometry.strip);
         const inset = 2;
         if (edge === "left") return {x: body.left + inset, y: center.y};
         if (edge === "right") return {x: body.right - inset, y: center.y};
@@ -800,6 +806,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             shownDrop = null;
             shownDropKey = "";
             frozen = null;
+            sourceCollapsed = false;
             windowDrag = null;
             newContainer = `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`;
             // 拖含几个视图的入口是落点指示，不走实时布局（输出 38、46）。
