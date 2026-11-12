@@ -237,7 +237,6 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "shell.welcome.withProject": {"zh-CN": "工作台已就绪。当前项目：{name}", "en-US": "The workbench is ready. Current project: {name}"},
     "shell.activityBar": {"zh-CN": "活动栏", "en-US": "Activity Bar"},
     "shell.drag.hint": {"zh-CN": "按空格拿起并拖动", "en-US": "Press Space to pick up and drag"},
-    "shell.drop.reveal": {"zh-CN": "放到{part}", "en-US": "Show in {part}"},
     "shell.moreActions": {"zh-CN": "更多操作", "en-US": "More Actions"},
     "viewFrame.declared": {"zh-CN": "正在等待视图所属的插件启动", "en-US": "Waiting for the view's plugin to start"},
     "viewFrame.blocked": {"zh-CN": "视图所属的插件无法启动：{reason}", "en-US": "The view's plugin cannot start: {reason}"},

@@ -225,7 +225,7 @@ async function open(page: Page): Promise<void> {
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(page.locator("[data-editor-group]").first()).toBeVisible();
     // 侧栏的“项目”容器是会话、资源管理器两个分节，各占一半高（docs/specs/ui/workbench-layout.md 输出 4）：这个作品的文件
-    // 半高放不下，行要滚动才看得见，点行时滚动会让点击落到别的行上。这里不看会话，把它收成标题行，资源树占这一列。
+    // 半高放不下，资源树只渲染视口附近的行，下面的行不在页面上，按行定位就找不到。这里不看会话，把它收成标题行，资源树占这一列。
     const sessions = page.locator("[data-panel-head]:has([data-panel-tab=\"view:nbook.agent.sessions\"]) [data-panel-action=\"nbook.view.set-panel-collapsed\"]");
     if (await sessions.getAttribute("aria-pressed") !== "true") await sessions.click();
     if (await item(page, "project://notes").getAttribute("aria-expanded") !== "true") await item(page, "project://notes").click();

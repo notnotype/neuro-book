@@ -252,8 +252,9 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
     color: var(--skin-activitybar-active, var(--accent-text));
 }
 
-/* 并入的高亮：和面板并入的盖层同一种填充与描边（`--layout-merge-*`），压在按下的样子上面。 */
-.workbench-tool-strip .workbench-tool-strip__item--merge {
+/* 并入的高亮：和面板并入的盖层同一种填充与描边（`--layout-merge-*`），压在按下与悬停的样子上面：拖动中指针就停在这个入口上。 */
+.workbench-tool-strip .workbench-tool-strip__item--merge,
+.workbench-tool-strip .workbench-tool-strip__item--merge:hover {
     background: var(--layout-merge-fill);
     box-shadow: inset 0 0 0 var(--layout-merge-border-width) var(--layout-merge-border);
 }

@@ -6,7 +6,7 @@
  * 不在这里的：
  * - 活动栏入口的点击、按下态、溢出、右键菜单与键盘：`workbench-views.e2e.ts`；
  * - 搬容器带着什么、入口顺序、一次提交：`state/containers.test.ts`、`state/layout-doc-store.test.ts`；
- * - 入口条上落点的判定（入口上、入口之间、原处）与键盘停靠点：`web/entry-drop.test.ts`；拖含几个视图的入口换序：`workbench-dnd.e2e.ts`。
+ * - 入口条上落点的判定（入口上、入口之间、原处）与键盘停靠点的位置：`web/entry-drop.test.ts`。
  */
 
 import {randomUUID} from "node:crypto";
@@ -369,6 +369,64 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         expect(record.panels[await sectionOf(page, EXPLORER)]?.container).toBe(created);
     });
 
+    test("拖含几个视图的入口：分节、编辑组、状态栏上都没有落点，松手零写入、不开窗；只能在活动栏里换序，显隐与当前容器不变；键盘同样（验收 14；输出 46）", async ({page}) => {
+        await open(page);
+        const before = await entryIds(page);
+        expect(before.slice(0, 3)).toEqual([PROJECT_CONTAINER, `view:${A}`, `view:${B}`]);
+        const writes = await writesOf(page);
+        const project = entry(page, PROJECT_CONTAINER);
+        // “项目”有会话、资源管理器两个视图，入口不是哪个视图的拖动源。
+        await expect(project).not.toHaveAttribute("data-tool-view");
+        const dropKind = page.locator("[data-drag-feedback][data-drop-kind]");
+        const nothingShown = async (): Promise<void> => {
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            await expect(dropKind).toHaveCount(0);
+            await expect(page.locator("html")).not.toHaveAttribute("data-drop-rejected", "");
+        };
+        const from = await centerOf(project);
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(from.x + 10, from.y + 10, {steps: 2});
+        await expect(page.locator("html")).toHaveAttribute("data-workbench-dragging", "");
+        // 这一场是落点指示，不走实时布局（输出 38）。
+        await expect(surface(page)).toHaveAttribute("data-drag-feel", "indicator");
+        for (const target of [content(page, CONVERSATION), leaf(page, "g0"), page.locator("[data-leaf=\"statusbar\"]")]) {
+            const at = await centerOf(target);
+            await page.mouse.move(at.x, at.y, {steps: 6});
+            await nothingShown();
+        }
+        await page.mouse.up();
+        await expect(page.locator("html")).not.toHaveAttribute("data-workbench-dragging", "");
+        await expect(page.locator("[data-leaf][data-float]")).toHaveCount(0);
+        expect(await writesOf(page)).toBe(writes);
+
+        // 在活动栏里换到样例乙后面：入口顺序变了，侧栏还显示“项目”，入口仍按下。
+        const gap = await between(page, `view:${B}`, before[3] ?? `view:${B}`);
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(from.x + 10, from.y + 10, {steps: 2});
+        await page.mouse.move(gap.x, gap.y, {steps: 8});
+        await expect(dropKind).toHaveAttribute("data-drop-kind", "move-entry");
+        await page.mouse.up();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        await expect.poll(() => entryIds(page)).toEqual([`view:${A}`, `view:${B}`, PROJECT_CONTAINER, ...before.slice(3)]);
+        await expect(project).toHaveAttribute("aria-pressed", "true");
+        await expect(tab(page, SESSIONS)).toBeVisible();
+
+        // 键盘：空格拿起，只有入口之间能停，Enter 放下，焦点回到入口。
+        await project.focus();
+        await page.keyboard.press("Space");
+        await expect(page.locator("html")).toHaveAttribute("data-workbench-dragging", "");
+        await page.keyboard.press("ArrowUp");
+        await page.keyboard.press("ArrowUp");
+        await expect(dropKind).toHaveAttribute("data-drop-kind", "move-entry");
+        await page.keyboard.press("Enter");
+        await expect.poll(() => writesOf(page)).toBe(writes + 2);
+        expect((await entryIds(page)).indexOf(PROJECT_CONTAINER)).toBeLessThan(2);
+        await expect(project).toBeFocused();
+        await expect(project).toHaveAttribute("aria-pressed", "true");
+    });
+
     test("拖到一个入口上：这个入口高亮，侧栏不切；放下侧栏切到那个容器，视图是它最后一个分节（验收 26）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
@@ -409,9 +467,12 @@ test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32�
         await expect(tab(page, SESSIONS)).toHaveCount(0);
         await expect(tab(page, B)).toHaveCount(0);
         // 来源收起之后活动栏照样是落点（输出 38：判定按收起后的布局）：回到两个入口之间，空位里出现它的入口。
+        // 这是它自己原来的空位，放回原处（输出 28、45）：预览是已提交的样子，入口按下、侧栏又是它。
         const gap = await between(page, PROJECT_CONTAINER, `view:${B}`);
         await page.mouse.move(gap.x, gap.y, {steps: 6});
         await expect(page.locator(`[data-tool-band] [data-tool-view="${A}"]`)).toHaveCount(1);
+        await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator("[data-drag-live-status]")).toHaveText("原位");
         expect(await writesOf(page)).toBe(writes);
         await page.keyboard.press("Escape");
         await page.mouse.up();

@@ -259,7 +259,6 @@
                 "top": "Top",
                 "bottom": "Bottom"
             },
-            "reveal": "Show in {{part}}",
             "addTab": "Add as a tab",
             "insert": "Place here",
             "between": "Place between the two",

@@ -222,6 +222,24 @@ test.describe("活动栏", () => {
         await expect(entry(page, "a")).toHaveAttribute("aria-pressed", "false");
     });
 
+    test("放到活动栏：入口最后新建一个只含它的用户容器，入口上并进那个容器；都切过去，空了的用户容器入口消失（输出 41、45）", async ({page}) => {
+        await open(page);
+        const ids = () => page.locator("[data-tool-entry]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-tool-entry")));
+        expect(await ids()).toEqual(["view:a", "view:b"]);
+        // 右栏的 D 放到入口最后：多一个入口，侧栏切到它。
+        await act(page, "d-new-entry");
+        await expect.poll(ids).toEqual(["view:a", "view:b", "custom:lab"]);
+        await expect(page.locator("[data-tool-entry='custom:lab']")).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator("[data-content='view:d']")).toBeVisible();
+        // D 再放到 A 的入口上：成为 A 的最后一个分节，侧栏切到 A，只含它的用户容器没了。
+        await act(page, "d-into-a");
+        await expect.poll(ids).toEqual(["view:a", "view:b"]);
+        await expect(entry(page, "a")).toHaveAttribute("aria-pressed", "true");
+        await expect(page.locator("[data-content='view:a']")).toBeVisible();
+        await expect(page.locator("[data-content='view:d']")).toBeVisible();
+        expect((await rectOf(page, "[data-content='view:d']")).y).toBeGreaterThan((await rectOf(page, "[data-content='view:a']")).y);
+    });
+
     test("不是当前容器：切到它并显示；是当前容器且侧栏可见：隐藏侧栏，不看焦点在哪（输出 22、42）", async ({page}) => {
         await open(page);
         await entry(page, "b").click();

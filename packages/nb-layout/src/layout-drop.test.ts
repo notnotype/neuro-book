@@ -3,7 +3,7 @@ import {describe, expect, it} from "bun:test";
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
 import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, resolveLayoutDrop} from "./layout-drop";
 import type {LayoutDropAction, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId, LayoutDropSource} from "./layout-drop";
-import {edgeTargetOf} from "./layout-doc";
+import {edgeTargetOf, setPanelCollapsed} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutSource} from "./layout-doc";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridDropRect} from "./grid-drop";
@@ -483,7 +483,6 @@ describe("文档里还没有的标签（资源树拖来的文件）", () => {
         expect(previewEdgeDrop(doc, FILE, action, testPolicy(), PROJECTION_FOR_FILE, {width: 900, height: 600}, 1)).not.toBeNull();
         const floated = applyLayoutDrop(doc, FILE, {kind: "float", rect: {x: 0, y: 0, width: 300, height: 200}}, testPolicy());
         expect(floated.ok && floated.doc.floats).toHaveLength(1);
-        expect(applyLayoutDrop(doc, FILE, {kind: "reveal", panel: "a"}, testPolicy()).ok).toBe(false);
     });
 });
 
@@ -522,8 +521,9 @@ describe("分节的落点", () => {
         expect(at(298, 250)).toEqual(split("s1", "bottom"));
     });
 
-    it("底部面板的分节左右分两半，整条标题行算前半", () => {
-        expect(at(400, 610)).toEqual(split("p1", "left"));
+    it("底部面板的分节左右分两半，标题行也按同一条竖线分", () => {
+        expect(at(100, 610)).toEqual(split("p1", "left"));
+        expect(at(400, 610)).toEqual(split("p1", "right"));
         expect(at(100, 700)).toEqual(split("p1", "left"));
         expect(at(400, 700)).toEqual(split("p1", "right"));
         expect(at(250, 895)).toEqual(split("p1", "right"));
@@ -573,6 +573,11 @@ describe("分节的落点", () => {
         expect(of("sidebar")).toEqual([]);
         // 不是分节的照旧四条边都是位置。
         expect(of("ea")).toHaveLength(4);
+        // 收成标题行的分节只有前一个位置：指针那边它整块都是前半。
+        const folded = setPanelCollapsed(sections(), "s2", true);
+        if (!folded.ok) throw new Error(folded.detail);
+        const foldedCandidates = enumerateDropCandidates({doc: folded.doc, source: {kind: "tab", tab: "view:p1"}, policy: anyEdge, stripIndexes: () => [0, 1]});
+        expect(foldedCandidates.filter((candidate) => candidate.region === "s2").map((candidate) => candidate.action)).toEqual([split("s2", "top")]);
     });
 
     it("提交：插在这一节前面或后面，成新分节，归属是区域的当前容器", () => {

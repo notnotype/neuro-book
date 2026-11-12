@@ -13,7 +13,7 @@ import type {GridDropPoint, GridDropRect, GridRect, LayoutDoc, LiveDropCandidate
 import {readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {dropStripOf, workbenchDropKey} from "./entry-drop";
+import {dropStripOf, homeStripOf, workbenchDropKey} from "./entry-drop";
 import type {WorkbenchDropAction} from "./entry-drop";
 import type {LayoutDragDrop, LayoutTabSource} from "./layout-drag";
 
@@ -179,8 +179,8 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         state = stepLiveDrop(state, {now, candidate: offered === null ? null : candidateOf(offered, from)});
         if (state.preview === before) return false;
         const {preview} = state;
-        // 落到别处才收起来源：自己的标签条里换序、放回原处都还没离开。
-        const elsewhere = preview.kind === "source-removed" || (preview.kind === "candidate" && offered !== null && !offered.inPlace && !isHome(from, stripOf(offered.action)));
+        // 落到别处才收起来源：自己的标签条里换序、放回原处都还没离开（活动栏是自己的入口条时，停在别的入口上也是，`homeStripOf`）。
+        const elsewhere = preview.kind === "source-removed" || (preview.kind === "candidate" && offered !== null && !offered.inPlace && !isHome(from, homeStripOf(offered.action)));
         if (elsewhere && !collapsed) {
             collapsed = true;
             host.collapseSource(from, preview.kind === "candidate" ? offered : null);

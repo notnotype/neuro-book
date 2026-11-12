@@ -8,7 +8,7 @@
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import {placeGrid} from "./grid-rects";
 import {createGrid} from "./grid";
-import {edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, REGION_ORIENTATION, sectionRegionOf, setFloatRect, showPanelAndInsert, tabKey, treeLeaves} from "./layout-doc";
+import {edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isNodeShown, isSectionCollapsed, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, REGION_ORIENTATION, sectionRegionOf, setFloatRect, tabKey, treeLeaves} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelName, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
@@ -24,12 +24,10 @@ const SEAM_PX = 4;
 export const LAYOUT_SEAM_HIT_PX = 6;
 
 export type LayoutDropAction =
-    /** `activate: false` 只换位置（活动栏里换序）。缺省成为活动标签。 */
+    /** `activate: false` 只换位置，不改活动标签。缺省成为活动标签。 */
     | {readonly kind: "strip"; readonly panel: string; readonly index: number; readonly activate?: boolean}
     | {readonly kind: "center"; readonly panel: string}
     | {readonly kind: "edge"; readonly target: LayoutEdgeTarget}
-    /** 显示这块面板并接收（活动栏放进隐藏的侧栏，输出 22）。`index` 缺省插到最后。 */
-    | {readonly kind: "reveal"; readonly panel: string; readonly index?: number}
     /** 浮动：标签浮出来，整个浮动窗是移动。矩形每帧变，比较落点时只看种类（`layoutDropKey`）。 */
     | {readonly kind: "float"; readonly rect: LayoutFloatRect};
 
@@ -100,7 +98,8 @@ const halvesRegion = (input: Pick<LayoutDropInput, "doc" | "noCenter">, panel: s
 const sectionEdges = (region: PanelName): readonly [LayoutEdge, LayoutEdge] => (REGION_ORIENTATION[region] === "vertical" ? ["top", "bottom"] : ["left", "right"]);
 
 /**
- * 分节的落点（docs/specs/ui/workbench-layout.md 输出 25 第 7 行）：标题行算前半，正文按自己的中线分前后两半，落在哪半就在它前面或后面插一个新分节。没有外缘窄带、没有中央。
+ * 分节的落点（docs/specs/ui/workbench-layout.md 输出 25 第 7 行）：正文按自己的中线分前后两半，落在哪半就在它前面或后面插一个新分节。没有外缘窄带、没有中央。
+ * 上下分的区域（侧栏、右栏）里标题行在分节的前端，算前半；左右分的区域（底部面板）里标题行横跨两半，和正文按同一条竖线分。
  * 正文按自己的中线分而不是按整块（标题行加正文）分：分区画在正文上（`layoutDropSectors`），两边要同一条线。收成标题行的分节正文零面积，整块都是前半。
  * 新分节的归属不在这里点名：落在显示着的分节旁边，它的容器就是区域的当前容器，库按当前容器写（`settleLanding`）。
  */
@@ -108,7 +107,7 @@ function sectionHalf(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, 
     if (!input.policy.accepts(tabs, panel, "edge")) return null;
     const {body} = geometry;
     const vertical = REGION_ORIENTATION[region] === "vertical";
-    const back = !onStrip(geometry, input.point) && hasArea(body) && (vertical ? input.point.y >= (body.top + body.bottom) / 2 : input.point.x >= (body.left + body.right) / 2);
+    const back = hasArea(body) && (vertical ? !onStrip(geometry, input.point) && input.point.y >= (body.top + body.bottom) / 2 : input.point.x >= (body.left + body.right) / 2);
     const [before, after] = sectionEdges(region);
     const target = edgeTargetFor(input.policy, input.doc, tabs, geometry.id, back ? after : before);
     return target === null ? null : {kind: "edge", target};
@@ -361,8 +360,6 @@ function applyNewTab(doc: LayoutDoc, tab: TabRef, action: LayoutDropAction, poli
             return openPanelAtEdge(doc, {id: policy.newId("panel"), panel, target: action.target}, policy);
         case "float":
             return openFloatPanel(doc, {id: policy.newId("panel"), panel, rect: action.rect});
-        case "reveal":
-            return {ok: false, code: "rejected", detail: "新标签不显示隐藏的面板"};
     }
 }
 
@@ -384,8 +381,6 @@ export function applyLayoutDrop(doc: LayoutDoc, source: LayoutDropSource, action
         case "edge":
             if (source.kind === "tab") return moveTabToEdge(doc, {tab: source.tab, target: action.target}, policy);
             return movePanelToEdge(doc, {panel: source.panel, target: action.target}, policy);
-        case "reveal":
-            return showPanelAndInsert(doc, {panel: action.panel, source, ...(action.index === undefined ? {} : {index: action.index})}, policy);
         case "float":
             return source.kind === "tab" ? floatTab(doc, {tab: source.tab, rect: action.rect}, policy) : setFloatRect(doc, {panel: source.panel, rect: action.rect});
     }
@@ -443,8 +438,6 @@ function isInPlace(doc: LayoutDoc, source: LayoutSource, action: LayoutDropActio
             return found !== null ? found.panel === action.panel : source.kind === "panel" && source.panel === action.panel;
         case "edge":
             return whole !== null && edgeTargetTouches(doc, action.target, whole);
-        case "reveal":
-            return false;
         case "float":
             return false;
     }
@@ -475,11 +468,12 @@ export function enumerateDropCandidates(input: {
     for (const leaf of treeLeaves(doc.tree.root)) {
         const panel = doc.panels[leaf.id];
         if (panel === undefined || !isNodeShown(doc, leaf)) continue;
-        // 分节上只有前后两个位置（输出 31），和指针的两半同一套（`sectionHalf`）。
+        // 分节上只有前后两个位置（输出 31），和指针的两半同一套（`sectionHalf`）：收成标题行的分节正文零面积，整块都是前半，只有前一个位置。
         const region = sectionRegionOf(doc, leaf.id);
         if (region !== null) {
             if (!policy.accepts(tabs, panel, "edge")) continue;
-            for (const edge of sectionEdges(region)) {
+            const edges = sectionEdges(region);
+            for (const edge of isSectionCollapsed(doc, leaf.id) ? edges.slice(0, 1) : edges) {
                 const target = edgeTargetFor(policy, doc, tabs, leaf.id, edge);
                 if (target !== null) add(leaf.id, {kind: "edge", target});
             }

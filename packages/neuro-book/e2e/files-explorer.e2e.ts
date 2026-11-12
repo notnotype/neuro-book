@@ -136,7 +136,8 @@ async function open(page: Page, bound = true): Promise<void> {
     await page.goto(new URL(bound ? "/?project=book" : "/workbench", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(tree(page)).toBeVisible();
-    // 会话、资源管理器两个分节各占一半高：这里不看会话，把它收成标题行，资源树占这一列（同 editor-area.e2e.ts 的 open），行不用滚动才看得见。
+    // 会话、资源管理器两个分节各占一半高：资源树只渲染视口附近的行，半高时下面的行不在页面上，按行定位就找不到（同 editor-area.e2e.ts 的 open）。
+    // 这里不看会话，把它收成标题行，资源树占这一列。
     const sessions = page.locator("[data-panel-head]:has([data-panel-tab=\"view:nbook.agent.sessions\"]) [data-panel-action=\"nbook.view.set-panel-collapsed\"]");
     if (await sessions.count() > 0 && await sessions.getAttribute("aria-pressed") !== "true") await sessions.click();
     // 标题动作放不下的收进“⋯”（ui/workbench-layout.md 输出 20）。这里测的是动作本身，把侧栏拉到五个都放得下。
@@ -263,8 +264,10 @@ test("大目录：只渲染视口附近的行；键盘走到末尾，焦点行�
 
     // 焦点在顶上，滚到中段；外部在前面插入一项：阅读位置不动，不被拉回焦点行。
     await item(page, "project://big/file-0000.md").click();
+    // 第 200 个文件滚到视口中间：大目录前面只有一两行，按行高算，不写死像素（树的高度随侧栏里的分节变）。
     await tree(page).evaluate((element) => {
-        element.scrollTop = 5200;
+        const row = element.querySelector<HTMLElement>("[data-explorer-row]")!;
+        element.scrollTop = 202 * row.getBoundingClientRect().height - element.clientHeight / 2;
     });
     const middle = item(page, "project://big/file-0200.md");
     await expect(middle).toBeInViewport();
@@ -287,6 +290,21 @@ test("大目录：只渲染视口附近的行；键盘走到末尾，焦点行�
     await page.evaluate(() => document.documentElement.style.removeProperty("--control-h-sm"));
     await expect.poll(async () => (await middle.boundingBox())?.height).toBe(height);
     await expect.poll(async () => Math.abs(await anchorTop() - anchored)).toBeLessThan(1.5);
+
+    // 视口下面、已经渲染出来的行：先把它滚进来再双击（自动化测试点行之前就这样做，滚动事件下一帧才到），打开的就是这一行，树不被滚回旧位置。
+    await tree(page).evaluate((element) => {
+        element.scrollTop = 0;
+    });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    for (let round = 0; round < 3; round += 1) {
+        const below = await tree(page).evaluate((element) => {
+            const bottom = element.getBoundingClientRect().bottom;
+            return [...element.querySelectorAll<HTMLElement>("[data-explorer-row^=\"project://big/\"]")].find((row) => row.getBoundingClientRect().top >= bottom)?.dataset.explorerRow ?? null;
+        });
+        if (below === null) throw new Error("视口下面没有渲染出来的行");
+        await item(page, below).dblclick();
+        await expect(page.locator("[data-editor-tab][aria-selected=\"true\"]")).toHaveAttribute("title", below);
+    }
 
     await page.locator("[data-title-action=\"nbook.files.collapse-all\"]").click();
     await expect(item(page, "project://big/file-0000.md")).toHaveCount(0);
@@ -1022,6 +1040,11 @@ test.describe("触摸（docs/specs/ui/layout-drag.md 验收 5）", () => {
         await expect(item(page, "project://plain/touch-drop.md")).toBeVisible();
         await barrier(page, "plain");
         await expect(page.locator("[data-explorer-tree]")).not.toHaveAttribute("data-motion");
+        // 前面的用例往 plain 里写过屏障文件，这一行可能排到了资源树的视口下面：行还渲染着，触点却落在树外。先把它滚进来。
+        const source = item(page, "project://plain/touch-drop.md");
+        await source.scrollIntoViewIfNeeded();
+        await expect(source).toBeInViewport({ratio: 1});
+        await expect(item(page, "project://drags")).toBeInViewport({ratio: 1});
         const from = await center(page, "project://plain/touch-drop.md");
         const to = await center(page, "project://drags");
         const cdp = await page.context().newCDPSession(page);

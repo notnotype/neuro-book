@@ -656,11 +656,12 @@ test.describe("产品页：拖放", () => {
         await page.keyboard.press("Escape");
         await expect(ghost(page)).toHaveCount(0);
 
-        // 面板这一排只左右分：左半是前、右半是后；标题行在右半边也算前半（这一节高 200，标题行是上面 32px）。
+        // 面板这一排只左右分：左半是前、右半是后；标题行横跨两半，也按同一条竖线分（这一节高 200，标题行是上面 32px）。
         const omega = await sectionOf(page, E);
         await dragTo(page, entry(page, C), await inLeaf(page, omega, {x: 0.3, y: 0.3}));
         await expectHalf(omega, {x: 0.3, y: 0.3}, "x", "front");
-        await expectHalf(omega, {x: 0.8, y: 0.06}, "x", "front");
+        await expectHalf(omega, {x: 0.8, y: 0.06}, "x", "back");
+        await expectHalf(omega, {x: 0.2, y: 0.06}, "x", "front");
         await expectHalf(omega, {x: 0.7, y: 0.3}, "x", "back");
         await expectHalf(omega, {x: 0.97, y: 0.9}, "x", "back");
         await page.keyboard.press("Escape");

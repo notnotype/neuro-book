@@ -259,7 +259,6 @@
                 "top": "上方",
                 "bottom": "下方"
             },
-            "reveal": "放到{{part}}",
             "addTab": "添加为标签",
             "insert": "放在这里",
             "between": "放到两块之间",

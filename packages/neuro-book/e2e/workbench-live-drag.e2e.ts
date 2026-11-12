@@ -690,6 +690,35 @@ test.describe("实时布局", () => {
         await page.mouse.up();
     });
 
+    test("活动栏里慢慢经过邻居入口：停在它上面它高亮、就在指针下，入口不动、来源不收起；松手并进那个容器（输出 38、45）", async ({page}) => {
+        await open(page);
+        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        expect(await entries.count()).toBeGreaterThan(2);
+        const firstId = (await entries.nth(0).getAttribute("data-tool-entry")) ?? "";
+        const secondId = (await entries.nth(1).getAttribute("data-tool-entry")) ?? "";
+        const before = await Promise.all([0, 1, 2].map((index) => entries.nth(index).boundingBox()));
+        const second = before[1];
+        if (second === null || second === undefined) throw new Error("没有第二个入口");
+        const writes = await writesOf(page);
+        // 第一个入口是侧栏当前容器唯一的视图：活动栏是它自己的入口条。
+        await lift(page, entries.first());
+        const over = {x: second.x + second.width / 2, y: second.y + second.height / 2};
+        await page.mouse.move(over.x, over.y, {steps: 8});
+        const merged = page.locator(`[data-tool-band] [data-tool-entry="${secondId}"][data-tool-merge]`);
+        await expect(merged).toHaveCount(1);
+        // 来源没收起：它的入口还在，入口都没挪，高亮的就是指针下面那个。
+        await expect(entries).toHaveCount(before.length);
+        for (const [index, box] of before.entries()) expect((await entries.nth(index).boundingBox())?.y).toBe(box?.y);
+        const box = await merged.boundingBox();
+        expect(box !== null && box.y <= over.y && over.y <= box.y + box.height).toBe(true);
+        expect(await writesOf(page)).toBe(writes);
+        await page.mouse.up();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        // 并进第二个容器：第一个入口跟着它唯一的视图走了，侧栏切到第二个容器。
+        await expect(page.locator(`[data-tool-band] [data-tool-entry="${firstId}"]`)).toHaveCount(0);
+        await expect(page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`)).toHaveAttribute("aria-pressed", "true");
+    });
+
     test("中途窗口变了：整场取消", async ({page}) => {
         await open(page);
         // 右栏的丁放到底部面板戊那一节的后半。

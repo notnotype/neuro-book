@@ -129,6 +129,20 @@ test.describe("应用内浮动", () => {
         }
     }
 
+    /** 记录里这个视图所在分节的归属（输出 40）；还没写到记录里时为 null。 */
+    async function savedContainerOf(page: Page, viewId: string): Promise<string | null> {
+        const client = await page.evaluate((key) => localStorage.getItem(key), CLIENT_IDENTITY_KEY);
+        const db = new DatabaseSync(join(tmp, "state", "storage", "user.sqlite"));
+        try {
+            const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.workbench' AND key = 'workbench.layout' AND client = ?1").get(client) as {value: string} | undefined;
+            if (row === undefined) return null;
+            const panels = (JSON.parse(row.value) as {doc: {panels: Record<string, {readonly tabs: ReadonlyArray<{readonly viewId?: string}>; readonly container?: string}>}}).doc.panels;
+            return Object.values(panels).find((panel) => panel.tabs.some((item) => item.viewId === viewId))?.container ?? null;
+        } finally {
+            db.close();
+        }
+    }
+
     async function open(page: Page): Promise<void> {
         await page.goto(new URL("/workbench", server.url).href);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
@@ -346,9 +360,10 @@ test.describe("应用内浮动", () => {
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "edge");
         await page.mouse.up();
         await expect(windows(page)).toHaveCount(0);
-        // 在右栏：和丁那一节同一列，在它下面。
+        // 在右栏：和丁那一节同一列，在它下面；归右栏的当前容器（丁的隐式容器，输出 39）。
         await expect.poll(async () => (await boxOf(page, await sectionOf(page, E))).x).toBeCloseTo((await boxOf(page, delta)).x, 0);
         expect((await boxOf(page, await sectionOf(page, E))).y).toBeGreaterThan((await boxOf(page, delta)).y);
+        await expect.poll(() => savedContainerOf(page, E)).toBe(`view:${D}`);
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
     });
 
@@ -387,8 +402,9 @@ test.describe("应用内浮动", () => {
         expect(actions).toEqual(["nbook.view.dock"]);
         await head(page, panel).locator("[data-panel-action=\"nbook.view.dock\"]").click();
         await expect(windows(page)).toHaveCount(0);
-        // 回声明的位置：底部面板，在编辑组下面。
+        // 回声明的位置：底部面板，在编辑组下面；戊没写容器，回它自己的隐式容器（输出 39）。
         expect((await boxOf(page, await sectionOf(page, E))).y).toBeGreaterThan((await boxOf(page, "g0")).y);
+        await expect.poll(() => savedContainerOf(page, E)).toBe(`view:${E}`);
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
     });
 

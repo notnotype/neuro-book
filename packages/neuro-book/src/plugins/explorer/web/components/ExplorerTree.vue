@@ -115,10 +115,21 @@ const activeDescendant = computed(() => (focusIndex.value < 0 ? undefined : domI
 
 /** 滚动锚点：首个可见行与行内偏移。行变了时按它还原阅读位置。 */
 let anchor: {id: string; offset: number} | null = null;
-const remember = (): void => {
+const remember = (rows: ReadonlyArray<Row> = props.rows): void => {
     const index = Math.floor(scrollTop.value / rowHeight.value);
-    const row = props.rows[index];
+    const row = rows[index];
     anchor = row === undefined ? null : {id: row.id, offset: scrollTop.value - index * rowHeight.value};
+};
+
+/**
+ * 用滚动位置之前先从元素读一次：滚动事件下一帧才到，程序刚滚过（`scrollIntoView`、自动化测试点一行之前先把它滚进来）而事件还没来时，
+ * 按上一次事件的值去“滚入焦点行”或“还原锚点”，会把树滚回旧位置，点击的第二下落到别的行上。`rows` 是锚点要对照的那一份（行变了时是变之前的）。
+ */
+const syncScroll = (rows: ReadonlyArray<Row>): void => {
+    const element = root.value;
+    if (element === null || element.clientHeight === 0 || Math.abs(element.scrollTop - scrollTop.value) <= 0.5) return;
+    scrollTop.value = element.scrollTop;
+    remember(rows);
 };
 
 const setScroll = (top: number): void => {
@@ -127,7 +138,8 @@ const setScroll = (top: number): void => {
     if (element !== null && Math.abs(element.scrollTop - top) > 0.5) element.scrollTop = top;
 };
 
-watch(() => props.rows, (rows) => {
+watch(() => props.rows, (rows, previous) => {
+    syncScroll(previous);
     let top = scrollTop.value;
     if (anchor !== null) {
         const index = rows.findIndex((row) => row.id === anchor?.id);
@@ -161,6 +173,7 @@ watch(rowHeight, (height, previous) => {
 const reveal = (id: string | null | undefined): void => {
     if (id == null) return;
     void nextTick(() => {
+        syncScroll(props.rows);
         const index = props.rows.findIndex((row) => row.id === id);
         if (index < 0) return;
         setScroll(revealTop(index, rowHeight.value, viewport.value, scrollTop.value));

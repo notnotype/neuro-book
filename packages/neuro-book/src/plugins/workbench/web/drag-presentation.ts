@@ -72,7 +72,6 @@ export function presentDrag(input: DragPresentationInput): DragPresentation {
     const sectors = drop?.sectors ?? null;
     // 卡片收回、指针在标签条上（活动栏的入口之间也是）：被拖的标签自己在条里跟手（`placeSorted`），不要拖影。
     const sorting = liveTab !== null && !lifted && drop !== null && dropStripOf(drop.action) !== null;
-    const joining = live ? shownAction : drop === null || drop.inPlace ? null : drop.action;
     return {
         placeholder: liveTab,
         ghost: source !== null && !lifted && !sorting,
@@ -80,7 +79,7 @@ export function presentDrag(input: DragPresentationInput): DragPresentation {
         slotPanel: shownAction?.kind === "edge" || (lifted && landing !== null && rendered.panels[landing]?.tabs.length === 1) ? landing : null,
         // 中央的预览把来源摘掉了，目标里没有它；来源本来就在这块是放回原处，不是并入。
         mergeTarget: liveTab !== null && shownAction?.kind === "center" && landing !== shownAction.panel ? shownAction.panel : null,
-        mergeEntry: live && joining?.kind === "join-container" ? joining.container : null,
+        mergeEntry: live && shownAction?.kind === "join-container" ? shownAction.container : null,
         feedbackSectors: live ? null : sectors,
         feedback: feedbackOf(input),
     };

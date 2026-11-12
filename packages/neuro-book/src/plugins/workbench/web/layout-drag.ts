@@ -199,6 +199,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 const result = applyEntryDrop(doc, source, action, options.policy(), {commit: false});
                 return result.ok ? result.doc : null;
             }
+            // 入口上的并入，来源是侧栏里一个容器唯一的视图：活动栏是它自己的入口条，来源不收起（`homeStripOf`），预览也不拿掉它，入口都不动，只高亮目标。
+            if (action.kind === "join-container" && soleSidebarContainer(doc, source) !== null) return doc;
             // 预览不摆真实结果的落点（输出 38）。浮动：窗此刻就是跟手的卡片。中央：目标不动，只盖一层；放下才换标签。这两种都是来源收起，内容靠拿起留着。
             if (action.kind === "float" || action.kind === "center" || action.kind === "join-container") {
                 const result = removeTab(doc, source.tab);
@@ -221,7 +223,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             held = {point: session.state.value?.point ?? null, drop};
         },
         homeOf: (source) => findTab(options.doc(), source.tab)?.panel ?? null,
-        // 侧栏里一个容器唯一的视图：活动栏就是它自己的入口条，在里面换位不收起来源（输出 45）。
+        // 侧栏里一个容器唯一的视图：活动栏就是它自己的入口条，在里面换位、停在别的入口上都不收起来源（输出 45）。
         isHomeStrip: (source, strip) => strip === findTab(options.doc(), source.tab)?.panel || (strip === BAR_STRIP && soleSidebarContainer(options.doc(), source) !== null),
         show: (doc) => options.showPreview(doc),
         panelRect: (panel) => {
@@ -410,8 +412,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                 return none;
             case "center":
                 return {...none, areaRect: panels.find((geometry) => geometry.id === action.panel)?.body ?? null};
-            case "reveal":
-                return none;
             case "edge": {
                 const extent = options.extent();
                 if (extent === null) return none;
@@ -684,7 +684,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     /** 这个落点放回 `dropAt` 能算出它的那个点（键盘用）。 */
     function pointOfCandidate(candidate: LayoutDropCandidate, doc: LayoutDoc, panels: ReadonlyArray<LayoutDropPanelGeometry>): GridDropPoint | null {
         const {action} = candidate;
-        if (action.kind === "reveal" || action.kind === "float") return null;
+        if (action.kind === "float") return null;
         if (action.kind === "edge" && action.target.kind === "between") {
             const {before, after} = action.target;
             const seam = layoutSeamsOf(doc, panels).find((item) => item.before === before && item.after === after);

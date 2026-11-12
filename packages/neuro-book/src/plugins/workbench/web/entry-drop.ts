@@ -50,9 +50,16 @@ export const workbenchDropKey = (action: WorkbenchDropAction): string => (isEntr
  * 入口上不吸收（并入，入口高亮），和中央一样。
  */
 export function dropStripOf(action: WorkbenchDropAction): string | null {
-    if (action.kind === "strip" || action.kind === "reveal") return action.panel;
+    if (action.kind === "strip") return action.panel;
     return action.kind === "new-container" || action.kind === "move-entry" ? BAR_STRIP : null;
 }
+
+/**
+ * 这个落点在哪条标签条上，用来问“是不是来源自己的标签条”（实时布局：在自己的标签条里不收起来源）；不在标签条上为 null。
+ * 和 `dropStripOf` 只差在入口上的并入：并入不吸收来源，但它也在活动栏上。来源是侧栏里一个容器唯一的视图时活动栏是它自己的入口条（输出 45），
+ * 停在别的入口上也不算离开：收起来源的话它的入口跟着没了，下面的入口上移，被高亮的那个就滑离了指针。
+ */
+export const homeStripOf = (action: WorkbenchDropAction): string | null => (isEntryAction(action) ? BAR_STRIP : dropStripOf(action));
 
 /** 量到的一个入口，从上到下。 */
 export interface BarEntryRect {

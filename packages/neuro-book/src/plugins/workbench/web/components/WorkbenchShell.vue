@@ -590,7 +590,6 @@ function dropLabel(drop: LayoutDragDrop): string {
     if (action.kind === "new-container") return message("shell.drop.newContainer");
     if (action.kind === "move-entry") return message("shell.drop.insert");
     if (action.kind === "join-container") return message("shell.drop.joinContainer", {part: toolEntries.value.find((entry) => entry.id === action.container)?.label ?? action.container});
-    if (action.kind === "reveal") return message("shell.drop.reveal", {part: text(panelTitle(doc.value, catalog.value, action.panel))});
     if (action.kind === "strip") return message("shell.drop.insert");
     if (action.kind === "center") return message("shell.drop.addTab");
     if (action.kind === "float") return message("shell.drop.float");
