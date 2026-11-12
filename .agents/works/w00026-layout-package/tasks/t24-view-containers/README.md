@@ -90,4 +90,11 @@ Spec 的条目级 planned 合同已提交（`workbench-layout`、`views`、`nest
   - 收尾时修了一处产品问题：每次结构操作前写回意图时，按比例换算有浮点误差，切换容器后记录里的尺寸意图会差在末位。现在切换容器与 `nbook.view.open` 不写回意图（Spec 输出 8、42）。
   - 主 Agent 自跑：两份 `vue-tsc`、工作台与 Lab 547 项、nb-layout 测试与类型检查通过。e2e 跑了 `workbench-containers`、`workbench-views`、`workbench-shell`、`plugin-authoring`、`plugin-code`、`plugins` 共 62 条，52 过；失败的 10 条里有 2 条单独重跑后通过。仍失败的 8 条都在切片 2 留下的清单里，归属不变：“移动到”与主题颜色共 4 条归切片 5，标签条 3 条归切片 4，`plugins:78` 与本 Task 无关。基线 14 条失败里本片修好 5 条。
   - 留给切片 4：`workbench-dnd`、`workbench-live-drag`、`workbench-drag-cost`、`editor-area`、`lab-workbench-surface` 里按视图 id 取入口的选择器。`editor-area` 原来经入口的右键菜单移动资源管理器，要改成经分节标题的“移动到”。
-- 切片 4（拖动）派 Opus 编码（开发者 2026-11-11 要求不用 Fable），说明见计划切片 4。
+- 切片 4（拖动）已提交（`c9cb5ceb5`）。编码派 Opus（开发者 2026-11-11 要求不用 Fable），中途两次撞 5 小时额度，额度恢复后续跑做完；交付报告 [`evidences/coder-report-s4.txt`](evidences/coder-report-s4.txt)。
+  - 分节按前后两半落（侧栏、右栏上下，底部面板左右），判定、分区、键盘候选三处同一个判定；整窗拖动经过分节仍走窄带。
+  - 活动栏上段（新模块 `web/entry-drop.ts`）：入口之间新建 `custom:` 容器，来源是它容器唯一的视图时只换序；入口中间一半算入口上，放下并入那个容器。含几个视图的入口只能在入口条里换序。预览不切容器，放下才显示侧栏并切过去。旧的 `barDrop` 删除。
+  - 结构键加各区域的当前容器（输出 32）；多标签浮动窗经“移动到”的“浮动”再拖标题进窗搭出，views 的三条标签条用例改在它上面测；Lab 加两个按钮，和拖到活动栏放下走同一个函数。
+  - 测试插件加一个页面事件执行命令（只在测试外壳里），给验收 32 在拖动进行中执行 `nbook.view.open`。
+  - 范围外一处：分节标题的焦点光晕改内描（外层 `overflow: hidden` 会裁掉），主 Agent 认可。
+  - 主 Agent 自跑：两份 `vue-tsc`、工作台与 Lab 562 项、nb-layout 530 + 188 项、`governance:check` 通过；e2e 两轮共 10 个文件 210 条，202 过。失败的 8 条：`live-drag:394` 是测试先于视图挂完就数实例（旧问题，负载下暴露），改成先等三个看得见的视图再数，连跑 3 次过；`editor-area:1374`、`files-explorer:1018` 单独各跑 2 次都过（负载 5 左右）；其余 5 条归切片 5：`dnd:836`，`views:579`、`675`、`716`（“移动到”菜单的目标、命令面板的移动、实例保留），`views:860`（主题颜色，还在用旧的固定面板选择器）。
+  - 编码者自定、Spec 没写到的几处：入口上并入的范围取入口高度的一半，提示文字“单独成一个入口”“并入{名称}”，键盘拿起浮动窗里唯一的标签时多查一次 `movable`。交实现审查一并看。
