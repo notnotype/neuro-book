@@ -2,7 +2,7 @@
 /** 块按钮与块菜单（同名 .md）。 */
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem} from "@notnotype/nb-ui/components";
-import {blockAt, canConvertTo, insertSlashBlock, selectBlock, selectBlockText, selectWholeBlock} from "@notnotype/nb-markdown/editor";
+import {blockAt, blockTextRange, canConvertTo, insertSlashBlock, selectBlock, selectBlockText, selectWholeBlock} from "@notnotype/nb-markdown/editor";
 import type {BlockTarget} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
 import {computed, nextTick, onBeforeUnmount, ref, shallowRef, watch} from "vue";
@@ -197,9 +197,11 @@ const CONVERT: ReadonlyArray<EditingActionId> = ["paragraph", "heading-1", "head
 /** 块类型的分节：基本｜列表｜块。 */
 const CONVERT_BREAKS: ReadonlySet<EditingActionId> = new Set(["bullet-list", "quote"]);
 
+let focusHandedToCard = false;
+
 /** 块菜单的“批注”（输出 28）：文字块选中自己的文字走选区上的“写”，别的块按位置整块批注；空块、包不进批注块的块置灰。 */
 function commentable(block: BlockTarget): boolean {
-    if (block.kind === "text" || block.kind === "list-item") return (block.kind === "text" ? block.node : block.node.firstChild)?.textContent.trim() !== "" && props.editing.enabled("comment");
+    if (block.kind === "text" || block.kind === "list-item") return blockTextRange(block) !== null;
     return props.editing.enabled("comment-block", {pos: block.pos});
 }
 
@@ -207,10 +209,13 @@ function comment(block: BlockTarget): void {
     const editor = props.editor;
     if (editor === null) return;
     if (block.kind === "text" || block.kind === "list-item") {
-        if (selectBlockText(editor, block)) emit("comment", null);
-        return;
+        if (!selectBlockText(editor, block)) return;
+        emit("comment", null);
+    } else {
+        emit("comment", block.pos);
     }
-    emit("comment", block.pos);
+    // 卡片的输入框已经拿了焦点：菜单关上时不再把焦点还给正文（`onRequestClose`），否则卡片以为用户走开了，把写着的卡片放弃。
+    focusHandedToCard = true;
 }
 
 function convert(action: EditingActionId): void {
@@ -279,7 +284,8 @@ const items = computed<ContextMenuItem[]>(() => {
 });
 
 function onRequestClose(reason: string): void {
-    if (reason !== "outside") props.editor?.commands.focus();
+    if (reason !== "outside" && !focusHandedToCard) props.editor?.commands.focus();
+    focusHandedToCard = false;
     menuTarget.value = null;
     hovered.value = null;
 }

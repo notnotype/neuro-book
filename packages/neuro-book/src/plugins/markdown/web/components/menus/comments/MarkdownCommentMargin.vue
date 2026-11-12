@@ -231,21 +231,23 @@ defineExpose({
 
 /*
  * 卡片：非当前的用淡底，当前的与写着的用浮层的底、描边与阴影；两种都带同宽的描边（透明或实色），切换时外框不变，没有左边框
- * 一类的侧边色条。位置落下之前（`data-ready` 之前）藏着，也没有过渡；落下之后显示，入场一次，`top` 变了才滑动。
+ * 一类的侧边色条。位置落下之前（`data-ready` 之前）透明、不接收指针，也没有过渡；落下之后显示，入场一次，`top` 变了才滑动。
  */
 .markdown-comment-margin__item {
     position: absolute;
     left: 0;
     right: 0;
-    visibility: hidden;
-    pointer-events: auto;
+    /* 不用 `visibility: hidden`：隐藏的元素拿不到焦点，待写的卡片一出来就要把焦点给输入框。 */
+    opacity: 0;
+    pointer-events: none;
     border: var(--border-w) solid transparent;
     border-radius: var(--radius-panel);
     background: color-mix(in srgb, var(--text-main) 5%, var(--bg-panel));
 }
 
 .markdown-comment-margin__item[data-ready] {
-    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
     animation: markdown-comment-card-in var(--motion-move) var(--ease-layout) backwards;
     transition: top var(--motion-move) var(--ease-layout),
         background-color var(--motion-fast) var(--ease-layout),
@@ -272,7 +274,7 @@ defineExpose({
     transition: opacity var(--motion-fast) var(--ease-dialog-leave);
 }
 
-.markdown-comment-card-leave-to {
+.markdown-comment-margin__item[data-ready].markdown-comment-card-leave-to {
     opacity: 0;
 }
 

@@ -6,7 +6,7 @@ import {Editor} from "@tiptap/core";
 import {undoDepth} from "@tiptap/pm/history";
 import {Fragment, Slice} from "@tiptap/pm/model";
 import type {Node as PMNode} from "@tiptap/pm/model";
-import {EditorState} from "@tiptap/pm/state";
+import {EditorState, TextSelection} from "@tiptap/pm/state";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {codecFor, defaultMarkdownLanguage} from "../language";
@@ -371,6 +371,31 @@ describe("替换批注文字时批注不丢（输出 36）", () => {
         expect(save()).toContain("盯");
         editor.commands.undo();
         expect(editor.state.doc.eq(original)).toBe(true);
+    });
+
+    it("一个字一个字打新句子：选中整句后第一个字替换选区，接着打的字也在批注里；光标挪开再回来就不续了", () => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.from, range.to, "新");
+        replace(editor, range.from + 1, range.from + 1, "句");
+        replace(editor, range.from + 2, range.from + 2, "子");
+        expect(listComments(editor.state.doc).map((info) => [info.body, info.quote])).toEqual([["节奏", "新句子"]]);
+        expect(save()).toBe("她抬头<comment body=\"节奏\">新句子</comment>，转身。\n");
+        // 光标挪到别处再回到批注末尾：这里是普通的批注末尾，打字在批注外。
+        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 1)));
+        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, range.from + 3)));
+        replace(editor, range.from + 3, range.from + 3, "X");
+        expect(save()).toBe("她抬头<comment body=\"节奏\">新句子</comment>X，转身。\n");
+    });
+
+    it("续写只认紧接着刚换进来的文字的末尾：在别处打字、撤销之后都不续", () => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.from, range.to, "新");
+        // 在别处插入一个字（文档改了）：续断了，哪怕接着又回到批注末尾打字。
+        replace(editor, 1, 1, "前");
+        replace(editor, range.from + 2, range.from + 2, "X");
+        expect(save()).toBe("前她抬头<comment body=\"节奏\">新</comment>X，转身。\n");
     });
 
     it("换进来的文字自己带着别的批注时，不再替它继承被换掉的那一条", () => {
