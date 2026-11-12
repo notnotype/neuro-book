@@ -16,6 +16,14 @@ export interface GridRect {
     readonly height: number;
 }
 
+/** 叶在树里的一层：这一层的节点（叶自己或它的一个祖先）、它所在分支的主轴、它前后的兄弟。 */
+export interface GridPathStep {
+    readonly id: string;
+    readonly axis: GridAxis;
+    readonly before: string | null;
+    readonly after: string | null;
+}
+
 /** 分隔线在长轴两端挨着的外层分隔线（`<分支 id>:<序号>`）；挨着的是 grid 外缘或自由端时为 null。 */
 export interface GridSashEnds {
     readonly start: string | null;
@@ -29,6 +37,8 @@ export interface GridLeafPlacement<R> {
     readonly rect: GridRect;
     /** 新出现时不动的那条边：另一条边跟着让位的兄弟走。根上的叶没有兄弟，为 null。 */
     readonly grow: {readonly axis: GridAxis; readonly edge: "start" | "end"} | null;
+    /** 从根往下到这块叶的每一层（不含根）：整棵子树一起出现时按最外层新出现的那个节点长（`enteringRects`）。浮动窗为空。 */
+    readonly path: ReadonlyArray<GridPathStep>;
     /** 不在树里的叶（`floatPlacements`）：矩形由宿主给。 */
     readonly float?: boolean;
 }
@@ -102,6 +112,7 @@ export function floatPlacements(floats: ReadonlyArray<GridFloatInput>): GridPlac
         node: {kind: "leaf", id, ref: id, size: {width: rect.width, height: rect.height}, minimumSize: {width: 0, height: 0}, maximumSize: {width: Number.POSITIVE_INFINITY, height: Number.POSITIVE_INFINITY}, sizing: "weight" as const},
         rect,
         grow: null,
+        path: [],
         float: true,
     }));
 }
@@ -204,15 +215,15 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
     const items: Array<GridPlacementItem<R>> = [];
     const toRect = (left: number, top: number, right: number, bottom: number): GridRect => ({x: left / scale, y: top / scale, width: (right - left) / scale, height: (bottom - top) / scale});
 
-    const place = (current: GridNode<R>, box: DeviceBox, edges: BranchEdges, grow: GridLeafPlacement<R>["grow"]): void => {
+    const place = (current: GridNode<R>, box: DeviceBox, edges: BranchEdges, grow: GridLeafPlacement<R>["grow"], path: ReadonlyArray<GridPathStep>): void => {
         if (current.kind === "leaf") {
-            items.push({kind: "leaf", key: `leaf:${current.id}`, node: current, rect: toRect(box.left, box.top, box.right, box.bottom), grow});
+            items.push({kind: "leaf", key: `leaf:${current.id}`, node: current, rect: toRect(box.left, box.top, box.right, box.bottom), grow, path});
             return;
         }
-        placeBranch(current, box, edges);
+        placeBranch(current, box, edges, path);
     };
 
-    const placeBranch = (branch: GridBranch<R>, box: DeviceBox, edges: BranchEdges): void => {
+    const placeBranch = (branch: GridBranch<R>, box: DeviceBox, edges: BranchEdges, path: ReadonlyArray<GridPathStep>): void => {
         const horizontal = branch.orientation === "horizontal";
         const axis: GridAxis = horizontal ? "width" : "height";
         const sashes = layout.sashSizes[branch.id] ?? [];
@@ -252,7 +263,8 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
                 ? {left: position, right: end, top: box.top, bottom: box.bottom, idealLeft: ideal, idealTop: box.idealTop}
                 : {left: box.left, right: box.right, top: position, bottom: end, idealLeft: box.idealLeft, idealTop: ideal};
             // 第一块让后面的兄弟往后退，起点不动；其余的让前面的兄弟往前退，终点不动。反过来中间会露出一块空白。
-            place(child, childBox, childEdges(index), {axis, edge: index === 0 ? "start" : "end"});
+            const step: GridPathStep = {id: child.id, axis, before: children[index - 1]?.id ?? null, after: children[index + 1]?.id ?? null};
+            place(child, childBox, childEdges(index), {axis, edge: index === 0 ? "start" : "end"}, [...path, step]);
             if (isLast) return;
 
             const next = children[index + 1] as GridNode<R>;
@@ -281,6 +293,6 @@ export function placeGrid<R>(node: GridNode<R>, layout: GridLayoutResult, extent
 
     const width = Math.round(clean(extent.width) * scale);
     const height = Math.round(clean(extent.height) * scale);
-    place(node, {left: 0, top: 0, right: width, bottom: height, idealLeft: 0, idealTop: 0}, NO_EDGES, null);
+    place(node, {left: 0, top: 0, right: width, bottom: height, idealLeft: 0, idealTop: 0}, NO_EDGES, null, []);
     return {items};
 }

@@ -77,6 +77,51 @@ describe("新出现的项从哪里开始", () => {
         const items = placeOf(branch(leaf("a"), leaf("b")));
         expect(enteringRects(items, items).size).toBe(0);
     });
+
+    const column = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "col", orientation: "vertical", children});
+    const leafRect = (items: ReturnType<typeof placeOf>, id: string) => {
+        const found = items.find((item) => item.kind === "leaf" && item.node.id === id);
+        if (found === undefined) throw new Error(`没有叶 ${id}`);
+        return found.rect;
+    };
+
+    it("整列一起出现（区域展开）：列里的几节与分隔线作为一块，从上一帧两个兄弟之间的缝横着长出来，一开始就是全高", () => {
+        const before = placeOf(branch(leaf("a"), leaf("c")));
+        const after = placeOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")));
+        const seam = before.find((item) => item.kind === "sash");
+        if (seam?.kind !== "sash") throw new Error("没有缝");
+        const at = seam.rect.x + seam.size;
+        const entering = enteringRects(after, before);
+        for (const id of ["b1", "b2"]) expect(entering.get(`leaf:${id}`)).toEqual({...leafRect(after, id), x: at, width: 0});
+        const inner = after.find((item) => item.kind === "sash" && item.branch.id === "col");
+        if (inner === undefined) throw new Error("列里没有分隔线");
+        expect(entering.get(inner.key)).toEqual({...inner.rect, x: at, width: 0});
+    });
+
+    it("列上一帧就在（切换侧栏的容器）：换上来的几节各自在列里竖着长", () => {
+        const before = placeOf(branch(leaf("a"), column(leaf("x1"), leaf("x2")), leaf("c")));
+        const after = placeOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")));
+        const entering = enteringRects(after, before);
+        expect(entering.get("leaf:b1")).toEqual({...leafRect(after, "b1"), height: 0});
+        const b2 = leafRect(after, "b2");
+        expect(entering.get("leaf:b2")).toEqual({...b2, y: b2.y + b2.height, height: 0});
+    });
+
+    it("一节换成一列（切换侧栏的容器）：新列顶替了原来的位置，不是新开的缝；换上来的几节各自在列里竖着长", () => {
+        const before = placeOf(branch(leaf("a"), leaf("x"), leaf("c")));
+        const after = placeOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")));
+        const entering = enteringRects(after, before);
+        expect(entering.get("leaf:b1")).toEqual({...leafRect(after, "b1"), height: 0});
+        const b2 = leafRect(after, "b2");
+        expect(entering.get("leaf:b2")).toEqual({...b2, y: b2.y + b2.height, height: 0});
+    });
+
+    it("拆分时包住旧叶的新分支不算新子树：新叶从旧叶那边长出来", () => {
+        const before = placeOf(branch(leaf("a"), leaf("b")));
+        const after = placeOf(branch(leaf("a"), column(leaf("b"), leaf("d"))));
+        const d = leafRect(after, "d");
+        expect(enteringRects(after, before).get("leaf:d")).toEqual({...d, y: d.y + d.height, height: 0});
+    });
 });
 
 describe("过渡中内容跟着外框的叶", () => {

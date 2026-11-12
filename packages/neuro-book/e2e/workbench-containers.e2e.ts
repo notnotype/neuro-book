@@ -183,13 +183,13 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(after.panels[upper]?.collapsed ?? false).toBe(false);
     });
 
-    test("切回容器、侧栏从隐藏到显示：停放过的内容跟着外框一起长出来，每一帧都不超出外框（ui/nested-grid 的内容层）", async ({page}) => {
+    test("切回容器、侧栏从隐藏到显示：停放过的内容跟着外框一起长出来，每一帧都不超出外框；侧栏显示时整列从活动栏边上横着长出来（ui/nested-grid 的内容层与过渡）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const explorer = await sectionOf(page, EXPLORER);
         /** 在页面里点一下，逐帧量这一节的外框与内容，直到网格的过渡结束。只记内容看得见的帧。 */
         const framesAfter = (selector: string) => page.evaluate(async ({selector, leafId}) => {
-            const rows: Array<{frameTop: number; frameBottom: number; frameHeight: number; contentTop: number; contentBottom: number}> = [];
+            const rows: Array<{frameLeft: number; frameRight: number; frameWidth: number; frameTop: number; frameBottom: number; frameHeight: number; contentLeft: number; contentRight: number; contentTop: number; contentBottom: number}> = [];
             document.querySelector<HTMLElement>(selector)!.click();
             for (let frame = 0; frame < 90; frame += 1) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -197,19 +197,21 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
                 const content = document.querySelector<HTMLElement>("[data-content=\"view:nbook.explorer\"]");
                 if (leaf !== undefined && content !== null && getComputedStyle(content).visibility === "visible") {
                     const rect = content.getBoundingClientRect();
-                    rows.push({frameTop: leaf.top, frameBottom: leaf.bottom, frameHeight: leaf.height, contentTop: rect.top, contentBottom: rect.bottom});
+                    rows.push({frameLeft: leaf.left, frameRight: leaf.right, frameWidth: leaf.width, frameTop: leaf.top, frameBottom: leaf.bottom, frameHeight: leaf.height, contentLeft: rect.left, contentRight: rect.right, contentTop: rect.top, contentBottom: rect.bottom});
                 }
                 if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
             }
             return rows;
         }, {selector, leafId: explorer});
-        const expectInside = (rows: Awaited<ReturnType<typeof framesAfter>>) => {
-            const final = rows.at(-1)?.frameHeight ?? 0;
+        const expectInside = (rows: Awaited<ReturnType<typeof framesAfter>>, grows: "frameHeight" | "frameWidth") => {
+            const final = rows.at(-1)?.[grows] ?? 0;
             // 确实量到了过渡中间的帧，不是一下子到终点。
-            expect(rows.some((row) => row.frameHeight < final - 50)).toBe(true);
+            expect(rows.some((row) => row[grows] < final - 50)).toBe(true);
             for (const row of rows) {
                 expect(row.contentTop).toBeGreaterThanOrEqual(row.frameTop - 1);
                 expect(row.contentBottom).toBeLessThanOrEqual(row.frameBottom + 1);
+                expect(row.contentLeft).toBeGreaterThanOrEqual(row.frameLeft - 1);
+                expect(row.contentRight).toBeLessThanOrEqual(row.frameRight + 1);
             }
         };
 
@@ -217,14 +219,21 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await entry(page, `view:${A}`).click();
         await expect(leaf(page, explorer)).toHaveCount(0);
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
-        expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`));
+        expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`), "frameHeight");
 
         // 点当前容器的入口隐藏侧栏，再点一次显示。
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
         await entry(page, PROJECT_CONTAINER).click();
         await expect(leaf(page, explorer)).toHaveCount(0);
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
-        expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`));
+        const showing = await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`);
+        expectInside(showing, "frameWidth");
+        // 整列作为一块横着长：每一帧都是全高、左边贴着活动栏，不是列里的几节各自竖着长（那样整列一开始就是全宽，压在还没让开的编辑区上）。
+        const settled = showing.at(-1)!;
+        for (const row of showing) {
+            expect(row.frameHeight).toBeCloseTo(settled.frameHeight, 0);
+            expect(row.frameLeft).toBeCloseTo(settled.frameLeft, 0);
+        }
     });
 
     test("打开视图命令：切到视图所在的容器；区域拖到零或隐藏着时同一次写入展开（输出 35；views.md 输出 14）", async ({page}) => {
