@@ -262,6 +262,47 @@ test.describe("产品页", () => {
         await expect(page.locator(`[data-tool-entry="${PROJECT_CONTAINER}"]`)).toBeFocused();
     });
 
+    test("右栏拖空后还能打开：唯一的视图移走，右栏隐藏；开关打开空右栏、写着提示，开关能再关掉；把视图拖进去，整个容器搬过去；再移走，右栏随之隐藏（输出 11、36、43、45；ADR 0050）", async ({page}) => {
+        await open(page);
+        const toggle = regionToggle(page, "auxiliarybar");
+        await moveViaMenu(page, CONVERSATION, "新容器（侧栏）");
+        await expect(toggle).toHaveAttribute("aria-pressed", "false");
+        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
+        const containerOf = async (): Promise<string | null> => (await saved(page))?.doc.panels[await sectionOf(page, CONVERSATION)]?.container ?? null;
+        await expect.poll(containerOf).toMatch(/^custom:/u);
+        const container = await containerOf();
+
+        // 打开：一块空面板，没有头，正中一句提示；开关是按下的，再点一次关掉。
+        await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-pressed", "true");
+        const empty = page.locator("[data-empty-region]");
+        await expect(empty).toHaveText("把视图拖到这里");
+        await expect(leaf(page, "auxiliarybar").locator("[data-panel-head]")).toHaveCount(0);
+        await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-pressed", "false");
+        await expect(empty).toHaveCount(0);
+        await toggle.click();
+        await expect(empty).toBeVisible();
+
+        // 把对话拖进去：整块一个落点；对话是它容器唯一的视图，整个容器搬过去，id 不变（输出 45）。
+        const from = (await headOf(page, CONVERSATION).locator("[data-panel-tab]").boundingBox())!;
+        const target = (await leaf(page, "auxiliarybar").boundingBox())!;
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 12, from.y + from.height / 2 + 12, {steps: 3});
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height / 3, {steps: 8});
+        await expect(page.locator("[data-drop-feedback-label]")).toHaveText("放在这里");
+        await page.mouse.up();
+        await expect(empty).toHaveCount(0);
+        await expect(content(page, CONVERSATION)).toBeVisible();
+        await expect.poll(async () => (await saved(page))?.doc.panels.auxiliarybar?.activeContainer).toBe(container);
+
+        // 再移走：这一次把右栏拖空了，右栏随之隐藏。
+        await moveViaMenu(page, CONVERSATION, "新容器（侧栏）");
+        await expect(toggle).toHaveAttribute("aria-pressed", "false");
+        await expect.poll(async () => (await saved(page))?.doc.panels.auxiliarybar?.hidden).toBe(true);
+    });
+
     test("拖动边界：一次手势只提交一次；越界停住、刷新恢复；键盘步长、Home/End；Escape 与拖动中改窗口零写入；拖到零留 1px，指针拉回与 Enter 恢复（输出 8、9、11、12；验收 5）", async ({page}) => {
         await open(page);
         // 侧栏的宽量它的一个分节：两个分节同宽，就是区域的宽。

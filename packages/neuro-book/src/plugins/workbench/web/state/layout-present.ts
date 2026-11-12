@@ -70,13 +70,14 @@ export function effectiveVisibleTabs(doc: LayoutDoc, facts: VisibilityFacts): Re
 }
 
 /**
- * 区域此刻占不占地方（输出 36）：区域隐藏、拖到零、被最大化盖住、显示着的分节都放不下被收走，都不算；分节收成标题行算。
- * 隐藏与拖到零记在锚上；别的都按区域里显示着的分节问：锚自己不进呈现树。
+ * 区域此刻占不占地方（输出 36）：区域隐藏、拖到零、被最大化盖住、显示着的东西都放不下被收走，都不算；分节收成标题行算，打开着的空区域（锚画成的空面板，ADR 0050）也算。
+ * 隐藏与拖到零记在锚上；别的按区域里显示着的面板问：有分节时锚不显示，空着时只有锚显示。
  */
 export function regionOccupied(doc: LayoutDoc, region: PanelName, facts: Pick<VisibilityFacts, "removed" | "maximized">): boolean {
-    const anchor = doc.panels[regionAnchor(doc, region) ?? ""];
-    if (anchor === undefined || anchor.hidden === true || anchor.collapsed === true) return false;
-    const shown = regionSections(doc, region).map((section) => section.panel).filter((id) => isPanelShown(doc, id));
+    const anchorId = regionAnchor(doc, region);
+    const anchor = doc.panels[anchorId ?? ""];
+    if (anchorId === null || anchor === undefined || anchor.hidden === true || anchor.collapsed === true) return false;
+    const shown = [...regionSections(doc, region).map((section) => section.panel), anchorId].filter((id) => isPanelShown(doc, id));
     if (facts.maximized !== null) return shown.includes(facts.maximized);
     return shown.some((id) => !facts.removed.has(id));
 }

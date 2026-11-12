@@ -38,9 +38,9 @@ export interface LayoutProjection {
     /** 呈现里塌陷掉的文档分支 → 代表它的节点。 */
     readonly collapsedTo: ReadonlyMap<string, string>;
     /**
-     * 呈现树里代表一个带容器的区域的节点 → 这个区域的锚（面板 id）。节点是当前容器那一列（排）的分支；只显示一个分节时分支塌陷，就是那个分节的叶。
-     * 这个节点上的收起是整个区域拖到零：手势报告它收起或展开时，宿主要写到锚的 `collapsed` 上，不写到这个节点同名的面板上。
-     * 区域没有显示着的分节时不在里面；不用容器的文档里是空的。
+     * 呈现树里代表一个带容器的区域的节点 → 这个区域的锚（面板 id）。节点是当前容器那一列（排）的分支；只显示一个分节时分支塌陷，就是那个分节的叶；
+     * 区域空着、打开着时是锚自己这片叶（ADR 0050）。这个节点上的收起是整个区域拖到零：手势报告它收起或展开时，宿主要写到锚的 `collapsed` 上，
+     * 不写到这个节点同名的面板上。区域隐藏着时不在里面；不用容器的文档里是空的。
      */
     readonly regionAnchors: ReadonlyMap<string, string>;
 }
@@ -145,7 +145,8 @@ export function projectLayoutDoc(doc: LayoutDoc, options: LayoutProjectionOption
         const panel = doc.panels[node.id];
         if (panel === undefined || !isPanelShown(doc, node.id) || options.removed?.has(node.id) === true) return null;
         const {minimumSize, maximumSize} = options.constraints(node.id, panel);
-        return {kind: "leaf", id: node.id, ref: node.ref, size: {...node.size}, minimumSize, maximumSize};
+        // 空区域里锚自己就是区域的节点（ADR 0050）：同分支一样登记，拖到零才读得到锚上的 `collapsed`。
+        return presentedAs(node, {kind: "leaf", id: node.id, ref: node.ref, size: {...node.size}, minimumSize, maximumSize});
     };
 
     const input = project(doc.tree.root, null);

@@ -177,6 +177,16 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     let frozen: FrozenGeometry | null = null;
     /** 这一场新建容器要用的 id（输出 45）：拿起时定，落点每帧比较，判定一次换一个的话落点永远不稳定。 */
     let newContainer = "";
+    /**
+     * 放进空区域时归哪个容器（ADR 0050 决策 2）：来源是它容器唯一的成员时整个容器搬过去，id 不变（同输出 44 的“移到”、输出 45 的“只换位置”）；
+     * 否则是这一场的新容器，和活动栏入口之间新建的是同一个 id。
+     */
+    const emptyRegionContainer = (doc: LayoutDoc, source: LayoutTabSource): string => {
+        const hit = findTab(doc, source.tab);
+        const container = hit === null ? undefined : doc.panels[hit.panel]?.container;
+        if (container === undefined) return newContainer;
+        return Object.values(doc.panels).filter((panel) => panel.container === container).length === 1 ? container : newContainer;
+    };
     /** 来源此刻收起着（`collapseSource`）：判定用的是收起后的几何，预览不能把来源摆回来。展开（`expandSource`）、拿起时清掉。 */
     let sourceCollapsed = false;
     /** 收起前的判定几何：回到原处展开时换回它（输出 38）。 */
@@ -645,7 +655,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const {panels} = seen;
         // 键盘的区域是明确选的：别的窗盖着的落点也要能选。
         const floats = region === null ? seen.floats : seen.floats.filter((item) => item.id === region.id);
-        const input: LayoutDropInput = {doc, source, point, panels, floats, excluded: seen.excluded, policy: options.policy()};
+        const input: LayoutDropInput = {doc, source, point, panels, floats, excluded: seen.excluded, policy: options.policy(), newContainer: emptyRegionContainer(doc, source)};
         const kept = live.stickyDrop(point);
         if (kept !== null) return withSectors(kept, input);
         const resolved = resolveLayoutDrop(input);
@@ -911,6 +921,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
                     policy: options.policy(),
                     stripIndexes: (panel) => stripStopsOf(doc, panel).map((stop) => stop.index),
                     seams: layoutSeamsOf(doc, geometry(doc).panels),
+                    newContainer: emptyRegionContainer(doc, source),
                 });
                 const byRegion = new Map<string, LayoutDropCandidate[]>();
                 for (const candidate of candidates) byRegion.set(candidate.region, [...(byRegion.get(candidate.region) ?? []), candidate]);

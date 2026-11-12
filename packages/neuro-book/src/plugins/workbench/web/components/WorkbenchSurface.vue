@@ -2,7 +2,7 @@
 /**
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
-import {createGrid, isPanelShown, regionNodeOf, treeLeaves} from "@notnotype/nb-layout";
+import {createGrid, isContainerAnchor, isPanelShown, regionNodeOf, treeLeaves} from "@notnotype/nb-layout";
 import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridNodeInput, GridRect, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
@@ -61,6 +61,8 @@ defineSlots<{
     statusbar?(): unknown;
     /** 面板的头，工具面板与编辑组都在这里。`idPrefix` 交给 `WorkbenchPanelHead`，标签和内容才对得上。 */
     head?(props: {panelId: string; idPrefix: string}): unknown;
+    /** 打开着的空区域（区域的锚进了呈现树，ADR 0050）：整块卡片里画什么，没有头。 */
+    "empty-region"?(props: {panelId: string}): unknown;
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
     /** 拿起的内容项的头。 */
     "lifted-head"?(props: {contentKey: string}): unknown;
@@ -154,6 +156,12 @@ const contents = computed(() => {
 const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: props.maximized, exclude: BARS}));
 
 const roleOf = (id: string): "tool" | "editor" | null => props.doc.panels[id]?.role ?? null;
+
+/** 呈现里的区域的锚就是打开着的空区域（ADR 0050）：有分节时锚不进呈现树。它没有头，画宿主给的提示。 */
+const isEmptyRegion = (id: string): boolean => {
+    const panel = props.doc.panels[id];
+    return panel !== undefined && isContainerAnchor(panel);
+};
 
 /**
  * 侧栏与右栏下角的场景图画在哪块卡片上（docs/specs/theme/skins.md 输出 6）：图跟着区域走，不跟着视图走。区域的锚不进呈现树，所以取区域里显示着的最后一块，
@@ -305,6 +313,7 @@ defineExpose({
                             <div v-if="roleOf(node.id) === 'editor'" v-editor-head class="workbench-surface__editor-head" :data-surface-head="node.id">
                                 <slot name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
                             </div>
+                            <slot v-else-if="isEmptyRegion(node.id)" name="empty-region" :panel-id="node.id"></slot>
                             <slot v-else-if="roleOf(node.id) === 'tool'" name="head" :panel-id="node.id" :id-prefix="idPrefix"></slot>
                         </template>
                     </div>

@@ -249,6 +249,26 @@ describe("带容器的区域", () => {
         expect(layout.issues).toEqual([]);
     });
 
+    it("空区域打开着（ADR 0050）：锚这片叶进呈现树、就是区域的节点；拖到零读锚的记录，右栏是 0 宽，空的底部面板是 0 高（不是标题行高）", () => {
+        const EMPTY = {tabs: [], active: null, entries: [], activeContainer: null};
+        const opened = solve(regions({auxiliarybar: EMPTY}), EXTENT);
+        expect(shapeOfInput(opened.projection.input)).toBe("V[H[activitybar,V[s1,s2],V[ea,H[p1,p2]],auxiliarybar],statusbar]");
+        expect(opened.projection.regionAnchors.get("auxiliarybar")).toBe("auxiliarybar");
+        expect(opened.layout.sizes.auxiliarybar?.width).toBeGreaterThan(0);
+        const zero = solve(regions({auxiliarybar: {...EMPTY, collapsed: true}}), EXTENT);
+        expect(zero.layout.sizes.auxiliarybar?.width).toBe(0);
+
+        const bottom = docOf(V([H(["activitybar", V(["sidebar", "s1"], "side"), V(["ea", "panel"], "center"), "auxiliarybar"], "body"), "statusbar"], "root"), {
+            ...ANCHORS,
+            s1: {container: "A"},
+            panel: {...EMPTY, collapsed: true},
+        });
+        const bottomZero = solve(bottom, EXTENT);
+        expect(bottomZero.projection.regionAnchors.get("panel")).toBe("panel");
+        expect(bottomZero.layout.sizes.panel?.height).toBe(0);
+        expect(bottomZero.layout.issues).toEqual([]);
+    });
+
     it("区域拖到零配在那一列的分支上：整列宽度为 0，编辑区吸收，分节之间的高度照旧；分节自己只收成标题行", () => {
         const open = solve(regions(), EXTENT);
         const zero = solve(regions({sidebar: {...ANCHORS.sidebar, collapsed: true}}), EXTENT);

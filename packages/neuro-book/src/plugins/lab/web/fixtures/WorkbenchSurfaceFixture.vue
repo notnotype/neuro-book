@@ -207,6 +207,9 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
                 <template #statusbar>
                     <div class="workbench-surface-fixture__status">状态栏</div>
                 </template>
+                <template #empty-region>
+                    <div class="workbench-surface-fixture__empty" data-empty-region>把视图拖到这里</div>
+                </template>
                 <template #head="{panelId, idPrefix}">
                     <WorkbenchPanelHead
                         :panel-id="panelId"
@@ -267,6 +270,18 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
     --shell-seam: transparent;
     --shell-join-divider: var(--divider);
     background: var(--bg-subtle);
+}
+
+/* 打开着的空区域（ADR 0050）：同产品外壳，正中一句提示。 */
+.workbench-surface-fixture__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    pointer-events: none;
 }
 
 .workbench-surface-fixture__status {

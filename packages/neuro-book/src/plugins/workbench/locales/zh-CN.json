@@ -286,6 +286,7 @@
             "joinContainer": "并入{{part}}",
             "rejected": "不能放在这里"
         },
+        "emptyRegion": "把视图拖到这里",
         "moreActions": "更多操作",
         "missing": {
             "view": "提供这个视图的插件现在不在：{{viewId}}",

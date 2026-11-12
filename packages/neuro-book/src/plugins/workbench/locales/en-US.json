@@ -286,6 +286,7 @@
             "joinContainer": "Add to {{part}}",
             "rejected": "Can't drop here"
         },
+        "emptyRegion": "Drag a view here",
         "moreActions": "More Actions",
         "missing": {
             "view": "The plugin providing this view is not here: {{viewId}}",

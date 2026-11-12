@@ -435,17 +435,24 @@ describe("损坏与失败", () => {
         expect(store.state.field.queue).toBe(0);
     });
 
-    it("空区域点“显示”：锚提交时又会被归整成隐藏，结果和现在一样，零写入，最大化不退出（输出 11、43）", async () => {
+    it("空区域点“显示”：打开成一块空面板，写一次、算可见（开关能再关掉），存下来；拖走区域最后一节时区域随之隐藏（输出 11、36、43；ADR 0050）", async () => {
         const w = await world();
-        const {store} = await openLayoutDoc(w, "a", "c", false, new Map([...BUSY_LAYOUT_CATALOG].filter(([id]) => id !== "test.panel")));
-        const side = sectionOf(store, "test.side");
-        expect(store.actions.toggleMaximized(side)).toBe(true);
-        const before = store.actions.document();
-        expect(store.actions.setPartHidden("panel", false).ok).toBe(true);
-        expect(store.actions.document()).toBe(before);
-        expect(store.state.field.queue).toBe(0);
+        const {store, storage} = await openLayoutDoc(w, "a", "c", false, new Map([...BUSY_LAYOUT_CATALOG].filter(([id]) => id !== "test.panel")));
         expect(store.actions.partVisible("panel")).toBe(false);
-        expect(store.state.maximized).toBe(side);
+        expect(store.actions.setPartHidden("panel", false).ok).toBe(true);
+        expect(store.actions.partVisible("panel")).toBe(true);
+        expect(isPanelShown(store.actions.document(), "panel")).toBe(true);
+        await waitUntil("打开的空区域写下来", async () => (await read(storage, USER)) !== "missing");
+        expect((await savedDoc(storage, USER)).panels.panel?.hidden).toBeUndefined();
+        expect(store.actions.setPartHidden("panel", true).ok).toBe(true);
+        expect(store.actions.partVisible("panel")).toBe(false);
+
+        // 放进一节再移走：这一次把区域拖空了，区域随之隐藏。
+        expect(store.actions.setPartHidden("panel", false).ok).toBe(true);
+        expect(store.actions.moveView("test.aux", {newContainerIn: "panel"}).ok).toBe(true);
+        expect(isPanelShown(store.actions.document(), "panel")).toBe(false);
+        expect(store.actions.moveView("test.aux", {container: "view:test.aux"}).ok).toBe(true);
+        expect(store.actions.document().panels.panel?.hidden).toBe(true);
     });
 
     it("标签换一位：活动标签不变，到头了不动（输出 20）", async () => {

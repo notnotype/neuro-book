@@ -70,6 +70,8 @@ type Slots = {
     statusbar?(): unknown;
     /** 面板的头：工具面板放 `WorkbenchPanelHead`，编辑组放编辑器给的头（可以什么都不放，内容占满）。 */
     head?(props: {panelId: string; idPrefix: string}): unknown;
+    /** 打开着的空区域：区域的锚只在区域里一个分节都没有时进呈现树（ADR 0050），这时卡片里画它，不画头。 */
+    "empty-region"?(props: {panelId: string}): unknown;
     /** 内容项。工具视图的 `contentKey` 是 `view:<id>`，编辑器标签是 `tab:<id>`，空的编辑组是 `editor:<面板 id>`；挪到别的面板时实例不重建。 */
     content?(props: {contentKey: string; panelId: string; active: boolean}): unknown;
     /** 拿起的内容项上面那一条头。 */

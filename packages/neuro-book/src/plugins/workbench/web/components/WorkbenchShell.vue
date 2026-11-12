@@ -602,6 +602,8 @@ function dropLabel(drop: LayoutDragDrop): string {
     if (action.kind === "strip") return message("shell.drop.insert");
     if (action.kind === "center") return message("shell.drop.addTab");
     if (action.kind === "float") return message("shell.drop.float");
+    // 带容器的外缘落点只有放进空区域这一种（ADR 0050）：整块一个落点，不说拆到哪一边。
+    if (action.container !== undefined) return message("shell.drop.insert");
     return message(action.target.kind === "between" ? "shell.drop.between" : "shell.drop.split");
 }
 
@@ -610,6 +612,7 @@ const sectorLabels = computed(() => ({
     right: message("shell.drop.sector.right"),
     top: message("shell.drop.sector.top"),
     bottom: message("shell.drop.sector.bottom"),
+    whole: message("shell.drop.insert"),
     center: message("shell.drop.addTab"),
 }));
 
@@ -696,6 +699,9 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         @retry="layout.actions.retry()"
                         @discard="layout.actions.discard()"
                     />
+                </template>
+                <template #empty-region>
+                    <div class="workbench-shell__empty-region" data-empty-region>{{ message("shell.emptyRegion") }}</div>
                 </template>
                 <template #head="{panelId, idPrefix}">
                     <template v-if="renderedDoc.panels[panelId]?.role === 'editor'">
@@ -918,6 +924,20 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
 
 .workbench-shell__missing-close {
     color: var(--accent-text);
+}
+
+/* 打开着的空区域（ADR 0050）：整块卡片里正中一句提示，没有头；整块是落点，提示不接指针。 */
+.workbench-shell__empty-region {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: var(--space-3);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    text-align: center;
+    pointer-events: none;
 }
 
 .workbench-shell__welcome {

@@ -216,11 +216,17 @@ export function regionNodeOf(doc: LayoutDoc, region: PanelName): {readonly ancho
     return {anchor: anchor.id, node: hit.parent !== null && hit.parent.orientation === REGION_ORIENTATION[region] ? hit.parent : hit.node};
 }
 
+/** 区域里有没有分节（锚以外带归属的面板）。没有时锚就是这块区域：显示着就画成一块空面板（ADR 0050）。 */
+export function regionHasSections(doc: LayoutDoc, region: PanelName): boolean {
+    const hit = regionNodeOf(doc, region);
+    return hit !== null && treeLeaves(hit.node).some((leaf) => leaf.id !== hit.anchor && doc.panels[leaf.id]?.container !== undefined);
+}
+
 /**
  * 这块面板此刻显示不显示：“面板看不看得见”只有这一个判定，别处不直接读 `hidden`、`container`（ADR 0046 决策 3）。
  * 不管放不放得下、有没有被最大化盖住：那些是呈现的事。
  *
- * - 区域的锚不显示：它只记区域的状态，永远不进呈现树。
+ * - 区域的锚只在区域里一个分节都没有时显示，那时它就是这块空区域（ADR 0050）；有分节时它只记区域的状态，不进呈现树。
  * - 分节（有 `container`）另要所在区域没隐藏、区域的当前容器是它的容器。区域的隐藏直接读锚的 `hidden`，不问“锚显示不显示”：锚自己永远不显示。
  * - 有 `container` 却不在带容器的区域里（不在任何区域里，或区域的具名面板是一块普通面板、不是锚）：归属不起作用，照常显示。“区域用不用容器”和写入路径问的是同一个
  *   `containerAnchorOf`；结构操作不会留下这种记录，这里只是不让它变成找不回来的面板（没有锚就没有能让它显示的操作）。
@@ -228,7 +234,7 @@ export function regionNodeOf(doc: LayoutDoc, region: PanelName): {readonly ancho
 export function isPanelShown(doc: LayoutDoc, panelId: string): boolean {
     const panel = doc.panels[panelId];
     if (panel === undefined || panel.hidden === true) return false;
-    if (panel.name !== undefined) return !isContainerAnchor(panel);
+    if (panel.name !== undefined) return !isContainerAnchor(panel) || !regionHasSections(doc, panel.name);
     if (panel.container === undefined) return true;
     const anchor = containerAnchorOf(doc, panelId);
     if (anchor === null) return true;
@@ -411,9 +417,23 @@ function expandWhereAxisChanged(original: LayoutDoc, next: MutableDoc): void {
     }
 }
 
+/**
+ * 这一次操作把区域拖空了（原来有分节、现在没有）就隐藏它的锚：拖走区域最后一个视图，区域收起（ADR 0050 决策 3）。用户打开的空区域没有“拖空”这一步，不动它。
+ * 放在每个结构操作的出口：提交、预览、判定几何都经过这里，拖空的区域在哪份文档里都一样收起。同一次操作先拖空又放回同一区域的复合操作要自己显示区域。
+ */
+function hideEmptiedRegions(original: LayoutDoc, next: MutableDoc): void {
+    const doc = asDoc(next);
+    for (const region of Object.keys(REGION_ORIENTATION) as PanelName[]) {
+        const anchor = anchorOf(doc, region);
+        if (anchor === null || !isContainerAnchor(anchor.panel) || anchor.panel.hidden === true) continue;
+        if (regionHasSections(original, region) && !regionHasSections(doc, region)) next.panels[anchor.id] = {...anchor.panel, hidden: true};
+    }
+}
+
 /** 出口：过规范形、查规模；结果和现状一样时返回原对象。 */
 function finish(original: LayoutDoc, next: MutableDoc): LayoutResult {
     next.tree.root = normalizeTree(next.tree.root, (node) => countsInShare(asDoc(next), node));
+    hideEmptiedRegions(original, next);
     expandWhereAxisChanged(original, next);
     const scale = countScale(next.tree.root);
     if (scale.nodes > GRID_MAX_NODES || scale.depth > GRID_MAX_DEPTH) return failure("limit-exceeded", `节点 ${String(scale.nodes)} 个、深度 ${String(scale.depth)} 层`);
@@ -622,6 +642,12 @@ function settleLanding(next: MutableDoc, id: string, wanted: string | undefined,
     const container = wanted ?? anchor.activeContainer ?? null;
     if (container === null) return "区域没有当前容器，要指定放进哪个容器";
     next.panels[id] = {...panel, container};
+    // 区域没有当前容器（空区域）：落进来的容器就是当前容器，排进入口顺序，不然这一节哪个容器都不显示它。这不是切换当前容器：没有从哪个容器切走（ADR 0050 决策 4）。
+    const located = anchor.name === undefined ? null : anchorOf(asDoc(next), anchor.name);
+    if ((anchor.activeContainer ?? null) === null && located !== null) {
+        const entries = anchor.entries ?? [];
+        next.panels[located.id] = {...anchor, entries: entries.includes(container) ? entries : [...entries, container], activeContainer: container};
+    }
     return splitPanelInPlace(next, id, () => policy.newId("panel"));
 }
 
