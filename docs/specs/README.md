@@ -188,7 +188,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：案头（统计、最近写到、看板娘）、卡片与列表、封面、新建与打开已有作品、修改信息与移出书架、新鲜度与刷新 |
-| 工作台通知 | [`workbench/notifications.md`](workbench/notifications.md) | 提示的三个去处、本窗口的通知服务与右下角视口、常驻与时长、进度与动作 |
+| 工作台通知 | [`workbench/notifications.md`](workbench/notifications.md) | 提示的三个去处、本窗口的通知服务与右下角视口、常驻与时长、进度与动作、通知中心与铃铛 |
+| 后台任务 | [`workbench/background-tasks.md`](workbench/background-tasks.md) | 插件服务端登记的长任务：句柄、取消与重试、发起方停止时中断、内存里的清单与上限、远程与推送，底部面板的“后台任务”视图、状态栏条目与结束时的通知 |
 | 公开状态 | [`state/public-state.md`](state/public-state.md) | 公开键的声明与校验、激活时绑定与停止时撤回、本实例内的同步读取与未就绪、响应式失效 |
 | 插件状态 store | [`state/store.md`](state/store.md) | `defineStore` 的 setup 写法、只读视图与 action、持久化字段的已确认值与显示、保存队列、停止时的结算 |
 | 主题皮肤 | [`theme/skins.md`](theme/skins.md) | 插件提供的整套外观：配色、字体、活动栏与场景图在各位置的裁切，主题列表与退回 |
@@ -249,7 +250,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 | Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
 | Agent Skill | [`agent/skills.md`](agent/skills.md) | Skill 包与目录、无效的隔离、就绪与初始化（三个入口、锁、标记）、认 `$` 标签与白名单、这一轮带上与压缩后放回、`skills://`、命令行 |
-| 后台任务 | [`workbench/background-tasks.md`](workbench/background-tasks.md) | 插件服务端登记的长任务：句柄、取消与重试、发起方停止时中断、内存里的清单与上限、远程与推送，底部面板的“后台任务”视图、状态栏条目与结束时的通知 |
 | Harness 会话 | [`harness/session.md`](harness/session.md) | 新内核的会话日志：会话目录与 JSONL、写入批、大块内容、锁、修复与校验、恢复、指令幂等、索引与 fork |
 | Harness 扩展 | [`harness/extensions.md`](harness/extensions.md) | 新内核的扩展（骨架）：定义与装配、id 规则、片与归约、反应与写入批、`mount`、各入口读的状态、插件装卸 |
 | Harness 视图 | [`harness/profile.md`](harness/profile.md) | 新内核由状态算请求：模板节点与文字拼法、缺省布局、轮的渲染与 `render`、纯函数提交与提交缓存、槽、请求校验、块的来源、开发检查 |
