@@ -68,7 +68,12 @@ updated: 2026-11-12
     - 证据：4 倍降速逐帧录屏，侧栏、右栏、底部面板的收起与展开，拆分出来的新编辑组，每一帧角都是圆的、缝都在；相连时隐藏的每一帧两张卡片连着。
     - 测试：e2e `workbench-containers` 侧栏显示与底部面板显示逐帧按命中看缝与角（去掉 `leafShape` 时两条失败）；新增相连隐藏、显示一条（去掉保持相连时失败）。
     - 验证：nb-layout 551 + 190 项、类型检查通过（neuro-book 测试那份仍只有 `MarkdownToolbar.dom.test.ts` 一处，分支起点就有）。e2e：尖角那片跑 `workbench-containers`、`lab-grid-structure`、`workbench-live-drag`、`workbench-dnd`、`workbench-float`、`workbench-shell`、`workbench-views` 149 条，147 过：`workbench-float:295`（已知偶发）与 `lab-grid-structure:61`（拆分后滚动位置，单独各 3 次都过，原因没查清，Lab 不用 `leafShape`）；`editor-area` 52 条 50 过，失败的是已知的 1265、2050。相连那片跑 `workbench-containers`、`workbench-shell`、`workbench-live-drag`、`workbench-dnd` 90 条全过。
+  - 实现审查（Sonnet，经 `claude` 命令行：Agent 子代理的别名被环境变量映射到不存在的模型）：范围 `d20aa3e0b..76d1cb3b8`，阻断 0、重要 1、建议 7，报告与逐条处理见 [`evidences/impl-review-a2.txt`](evidences/impl-review-a2.txt)。修正已提交（`babde9151`）：
+    - 第 1 条（过渡中反向先跳到终点）不成立：真实浏览器里记外框每一次样式改写，中途重开时写的起点正是它在走的过渡的终点，不打断过渡，下一次写新终点时从当前位置反向；前提写进 `useGridMotion` 的 `start()`。
+    - 第 2 条成立：侧栏缩到一半时显示底部面板，侧栏当场没了。`decideMotion` 把上一轮没缩完的叶接着留着；过渡中切到减少动效时直接到终点。
+    - 第 3、7、8 条成立已改（拖动不把缩回去的外框当落点、宿主清掉用不上的卡片记录、Spec 的 `transform` 说法与样式注释）；第 4 条（相邻两块同时离开都不留）按 Spec 的条件本来就不留，不改；第 5、6 条照做。
+    - 验证：nb-layout 551 + 192 项、类型检查通过；单元两条与 e2e 一段各做变异（去掉接着留着、去掉 `stop()` 时失败）；e2e 工作台 5 个文件（`workbench-containers`、`-live-drag`、`-dnd`、`-float`、`-shell`）104 条、Lab 4 个文件（`lab-grid-panels`、`-grid-structure`、`-nested-grid`、`-workbench-surface`）62 条全过。
 
 ## 下一步
 
-动画 2 已定（开发者 2026-11-12：“动画没问题”，圆角与相连按甲做）。派实现审查（Sonnet，范围 `d20aa3e0b..HEAD`），处理完做动画 3（视图变成浮动窗）。
+动画 3（视图变成浮动窗）：先看现状、定方案，给开发者看后再做。
