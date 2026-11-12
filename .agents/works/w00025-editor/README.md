@@ -26,5 +26,6 @@ t02 之后的 Task 叠在一条线上：t03 从 t02 的分支 `feat/w00025-t02-e
 - 照推荐先做、等追认的决定：[待确认清单](pending-confirmations.md)。
 - 2026-11-10 开发者试用 t04、t05 后提了选区菜单、注音、菜单动效与源码编辑器底色的问题，建 [t20](tasks/t20-selection-menu-polish/README.md)：要看外观的三项出静态稿评审，其余直接修。开发者在场，这一段不按 autonomous-delivery 推进。2026-11-11 两段都做完、审查处理完，合入 master（`ad53fd721`）。取证时发现的“含注音的行里 End 到不了行尾”另建 [t21](tasks/t21-end-key-after-ruby/README.md)，同日修好合入（`df63a2cbe`）。
 - 2026-11-11 开发者说“做 t13”：写了 Spec（`workbench/markdown-editing.md` 输出 28–35）与计划，计划与实现各过一轮 Sonnet 审查，同日实现完成合入 master（`7f4433e2d`，不 push）：批注的浮层、写意见的卡片、页边与标签条上的开关。见 [t13](tasks/t13-comments-ui/README.md)。
+- 2026-11-12 开发者试用 t13 后提了批注界面的五条反馈（浮层位置、重叠波浪线、点击不该弹卡片、页边样式与动画、块批注样式与入口）和“编辑批注内的文字”的核对，建 [t22](tasks/t22-comments-feedback/README.md)，开发者在场，方案会话里确认。
 - t02 到 t19 的状态以各 Task README 与 `nbdev status --work w00025` 为准；t19 已撤销，由 [w00041](../w00041-themes-and-backgrounds/README.md) 重做。
 
