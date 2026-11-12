@@ -183,7 +183,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(after.panels[upper]?.collapsed ?? false).toBe(false);
     });
 
-    test("切回容器、侧栏从隐藏到显示：停放过的内容跟着外框一起长出来，每一帧都不超出外框；侧栏显示时整列从活动栏边上横着长出来（ui/nested-grid 的内容层与过渡）", async ({page}) => {
+    test("切回容器、侧栏从隐藏到显示：停放过的内容跟着外框一起长出来，每一帧都不超出外框；侧栏显示时整列从活动栏边上横着长出来，隐藏时整列留着缩回去（ui/nested-grid 的内容层与过渡）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const explorer = await sectionOf(page, EXPLORER);
@@ -221,11 +221,22 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
         expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`), "frameHeight");
 
-        // 点当前容器的入口隐藏侧栏，再点一次显示。
+        // 点当前容器的入口隐藏侧栏：整列留着、作为一块缩回活动栏边上，每一帧全高、左边不动，内容被外框裁着；过渡结束才摘掉。
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
-        await entry(page, PROJECT_CONTAINER).click();
+        const hiding = await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`);
+        const start = hiding[0]!;
+        expect(hiding.some((row) => row.frameWidth > 50 && row.frameWidth < start.frameWidth - 50)).toBe(true);
+        for (const row of hiding) {
+            expect(row.frameHeight).toBeCloseTo(start.frameHeight, 0);
+            expect(row.frameLeft).toBeCloseTo(start.frameLeft, 0);
+            expect(row.contentLeft).toBeGreaterThanOrEqual(row.frameLeft - 1);
+            expect(row.contentRight).toBeLessThanOrEqual(row.frameRight + 1);
+        }
         await expect(leaf(page, explorer)).toHaveCount(0);
         await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        await expect(content(page, EXPLORER)).toBeHidden();
+
+        // 再点一次显示。
         const showing = await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`);
         expectInside(showing, "frameWidth");
         // 整列作为一块横着长：每一帧都是全高、左边贴着活动栏，不是列里的几节各自竖着长（那样整列一开始就是全宽，压在还没让开的编辑区上）。
@@ -234,6 +245,55 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             expect(row.frameHeight).toBeCloseTo(settled.frameHeight, 0);
             expect(row.frameLeft).toBeCloseTo(settled.frameLeft, 0);
         }
+    });
+
+    test("隐藏侧栏时缩回去的那段：焦点在侧栏里马上交出去；缩到一半又显示、长到一半又隐藏都停在对的样子，不留残影；减少动态效果时同一帧就没了（ui/nested-grid 的过渡）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const explorer = await sectionOf(page, EXPLORER);
+        const run = (command: string, args: Record<string, unknown>) => page.evaluate(({name, detail}) => window.dispatchEvent(new CustomEvent(name, {detail})), {name: SAMPLE_VIEWS_RUN_EVENT, detail: {command, args}});
+        const leaving = page.locator("[data-workbench-surface] [data-leaving]");
+        const settled = async () => {
+            await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+            await expect(leaving).toHaveCount(0);
+        };
+
+        // 焦点在资源管理器里，用命令隐藏侧栏：缩回去的这段它不可交互，焦点马上交出去，不留在里面。
+        await content(page, EXPLORER).locator("[role=\"treeitem\"]").first().click();
+        await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-content=\"view:nbook.explorer\"]") != null)).toBe(true);
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: true});
+        await expect(leaving.first()).toBeAttached();
+        expect(await page.evaluate(() => document.activeElement?.closest("[data-content=\"view:nbook.explorer\"]") ?? null)).toBeNull();
+        await settled();
+        await expect(leaf(page, explorer)).toHaveCount(0);
+
+        // 长到一半又隐藏：停在隐藏，没有留着的叶。
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: false});
+        await expect(leaf(page, explorer)).toHaveCount(1);
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: true});
+        await settled();
+        await expect(leaf(page, explorer)).toHaveCount(0);
+
+        // 缩到一半又显示：停在显示，宽度回到原样，内容看得见。
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: false});
+        await settled();
+        const width = (await box(page, explorer)).width;
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: true});
+        await expect(leaving.first()).toBeAttached();
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: false});
+        await settled();
+        expect((await box(page, explorer)).width).toBeCloseTo(width, 0);
+        await expect(content(page, EXPLORER)).toBeVisible();
+
+        // 减少动态效果：没有过渡，隐藏那一帧叶就没了，也不留着。
+        await page.emulateMedia({reducedMotion: "reduce"});
+        const after = await page.evaluate(async ({name, leafId}) => {
+            window.dispatchEvent(new CustomEvent(name, {detail: {command: "nbook.view.set-part-hidden", args: {part: "sidebar", hidden: true}}}));
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            return {leaf: document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`) !== null, leaving: document.querySelector("[data-workbench-surface] [data-leaving]") !== null};
+        }, {name: SAMPLE_VIEWS_RUN_EVENT, leafId: explorer});
+        expect(after).toEqual({leaf: false, leaving: false});
     });
 
     test("打开视图命令：切到视图所在的容器；区域拖到零或隐藏着时同一次写入展开（输出 35；views.md 输出 14）", async ({page}) => {

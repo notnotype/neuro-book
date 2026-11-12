@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, flyingContents, followingLeaves, grownRect, placementMoved, settleFloatMoves, stableOrder} from "./grid-motion";
+import {enteringRects, flyingContents, followingLeaves, grownRect, leavingPlacements, placementMoved, settleFloatMoves, stableOrder} from "./grid-motion";
 import {floatPlacements, layerItems, placeContents, placeGrid} from "./grid-rects";
 import type {GridLayerItem} from "./grid-rects";
 import type {GridNodeInput} from "./grid-types";
@@ -121,6 +121,60 @@ describe("新出现的项从哪里开始", () => {
         const after = placeOf(branch(leaf("a"), column(leaf("b"), leaf("d"))));
         const d = leafRect(after, "d");
         expect(enteringRects(after, before).get("leaf:d")).toEqual({...d, y: d.y + d.height, height: 0});
+    });
+});
+
+describe("离开的叶留着缩回去（输出“过渡”）", () => {
+    const branch = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "root", orientation: "horizontal", children});
+    const column = (...children: GridNodeInput<string>[]): GridNodeInput<string> => ({kind: "branch", id: "col", orientation: "vertical", children});
+    /** 摆好的叶、分隔线，加上 `mounted` 里每块叶一个内容项（叶不在这一帧里时它停放着）。 */
+    const frameOf = (root: GridNodeInput<string>, mounted: string[]): GridLayerItem<string>[] => {
+        const {node, layout} = grid(root, 4, {width: 1000, height: 300});
+        const items = placeGrid(node, layout, {width: 1000, height: 300}, 1).items;
+        return layerItems(items, placeContents(items, mounted.map((id) => ({key: id, leaf: id, insetTop: 0, active: true})), 1));
+    };
+    const leafRect = (items: GridLayerItem<string>[], id: string) => {
+        const found = items.find((item) => item.kind === "leaf" && item.node.id === id);
+        if (found?.kind !== "leaf") throw new Error(`没有叶 ${id}`);
+        return found.rect;
+    };
+    const ALL = ["a", "b1", "b2", "c", "x", "x1", "x2"];
+
+    it("整列离开（区域隐藏）：列里的几节作为一块留着，缩回这一帧两个兄弟相接的那道缝，一直是全高", () => {
+        const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
+        const after = frameOf(branch(leaf("a"), leaf("c")), ALL);
+        const seam = after.find((item) => item.kind === "sash");
+        if (seam?.kind !== "sash") throw new Error("没有缝");
+        const leaving = leavingPlacements(after, before, false);
+        expect(leaving.map((item) => item.node.id)).toEqual(["b1", "b2"]);
+        for (const item of leaving) {
+            expect(item.leaving).toBe(true);
+            expect(item.rect).toEqual({...leafRect(before, item.node.id), x: seam.rect.x + seam.size, width: 0});
+        }
+    });
+
+    it("在分支一头、挨着的兄弟这一帧到了头：缩向那一头", () => {
+        const before = frameOf(branch(leaf("a"), leaf("b1"), leaf("c")), ALL);
+        const after = frameOf(branch(leaf("a"), leaf("b1")), ALL);
+        const c = leafRect(before, "c");
+        expect(leavingPlacements(after, before, false).map((item) => item.rect)).toEqual([{...c, x: c.x + c.width, width: 0}]);
+    });
+
+    it("内容卸了（关掉，不是隐藏）：照旧立即消失", () => {
+        const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
+        expect(leavingPlacements(frameOf(branch(leaf("a"), leaf("c")), ["a", "c"]), before, false)).toEqual([]);
+    });
+
+    it("兄弟没合拢（切换容器：列还在、几节全换了；一节换成一列）：照旧立即消失，不和长出来的叠在一起", () => {
+        const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
+        expect(leavingPlacements(frameOf(branch(leaf("a"), column(leaf("x1"), leaf("x2")), leaf("c")), ALL), before, false)).toEqual([]);
+        const single = frameOf(branch(leaf("a"), leaf("x"), leaf("c")), ALL);
+        expect(leavingPlacements(frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL), single, false)).toEqual([]);
+    });
+
+    it("拿起内容拖动中：一个都不留", () => {
+        const before = frameOf(branch(leaf("a"), column(leaf("b1"), leaf("b2")), leaf("c")), ALL);
+        expect(leavingPlacements(frameOf(branch(leaf("a"), leaf("c")), ALL), before, true)).toEqual([]);
     });
 });
 

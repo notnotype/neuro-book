@@ -30,6 +30,8 @@ export function useContentLayer(options: {
     readonly measured: () => boolean;
     /** 被最大化的面板盖住的叶。 */
     readonly obscuredLeaves: () => ReadonlySet<string>;
+    /** 离开了、在过渡里留着缩回去的叶：它的内容停放着，但过渡结束前还看得见。 */
+    readonly leavingLeaves: () => ReadonlySet<string>;
     /** 过渡进行中。 */
     readonly moving: () => boolean;
     /** 这个内容项此刻含焦点吗。 */
@@ -83,8 +85,8 @@ export function useContentLayer(options: {
         // 矩形平时由 `placeLifted` 直接写在元素上；Vue 的样式补丁会写回这里的每个键，所以这里给的要是最新的。
         if (isLifted(item)) return gridRectStyle(options.liftedRect());
         const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
-        // 被盖住的内容马上不可交互，但过渡结束才隐藏：最大化的面板还没长过来时它们要还在。
-        const showing = item.active && options.moving() && options.obscuredLeaves().has(item.leaf);
+        // 被盖住的内容马上不可交互，但过渡结束才隐藏：最大化的面板还没长过来时它们要还在。缩回去的叶里的内容同样，外框裁着它缩到零。
+        const showing = item.active && options.moving() && (options.obscuredLeaves().has(item.leaf) || options.leavingLeaves().has(item.leaf));
         return {...gridRectStyle(rect), ...(isParked(item) && !showing ? {visibility: "hidden"} : {})};
     }
 

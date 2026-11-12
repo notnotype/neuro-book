@@ -39,6 +39,8 @@ export interface GridLeafPlacement<R> {
     readonly grow: {readonly axis: GridAxis; readonly edge: "start" | "end"} | null;
     /** 从根往下到这块叶的每一层（不含根）：整棵子树一起出现时按最外层新出现的那个节点长（`enteringRects`）。浮动窗为空。 */
     readonly path: ReadonlyArray<GridPathStep>;
+    /** 已经离开、在过渡里留着缩回去的叶（`leavingPlacements`）：矩形是它缩到的终点，过渡结束就摘掉。 */
+    readonly leaving?: true;
     /** 不在树里的叶（`floatPlacements`）：矩形由宿主给。 */
     readonly float?: boolean;
 }

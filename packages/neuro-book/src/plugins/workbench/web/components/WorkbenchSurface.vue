@@ -33,9 +33,11 @@ const props = withDefaults(defineProps<{
     slotPanel?: string | null;
     /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不能卸载。矩形由 `placeLifted` 写。 */
     lifted?: {readonly key: string; readonly home: string | null} | null;
+    /** 拖动进行中：网格不留着离开的叶缩回去（`NestedGrid` 的 `dragging`）。 */
+    dragging?: boolean;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
     floats?: ReadonlyArray<GridFloatInput>;
-}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, floats: () => []});
+}>(), {maximized: null, disabled: false, titleOnlyPanels: () => new Set<string>(), slotPanel: null, lifted: null, dragging: false, floats: () => []});
 
 const emit = defineEmits<{
     (event: "extent", extent: GridExtent | null): void;
@@ -186,14 +188,34 @@ const cards = computed<Readonly<Record<string, CardEdges>>>(() => {
     return props.maximized === null ? computedCards : maximizedCardEdges(computedCards, props.maximized, ACTIVITY_BAR);
 });
 
+/**
+ * 离开的节点（隐藏的侧栏）在过渡里留着缩回去时已经不在呈现里（docs/specs/ui/nested-grid.md 的“过渡”）：卡片四边、相连与场景图沿用它
+ * 最后一次呈现时的，不然缩回去的第一帧卡片就少了外边距、换了圆角。只记呈现着的叶，回到呈现里就用新算的。
+ */
+const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind === "leaf" ? [node.id] : node.children.flatMap(leafIdsOf));
+const presentedLeaves = computed(() => new Set(leafIdsOf(props.projection.input)));
+const lastPresented = {cards: new Map<string, CardEdges>(), scene: new Map<string, PanelName>()};
+watch([cards, sceneCorners, presentedLeaves], ([nextCards, nextScene, presented]) => {
+    for (const id of presented) {
+        const edges = nextCards[id];
+        if (edges === undefined) lastPresented.cards.delete(id);
+        else lastPresented.cards.set(id, edges);
+        const scene = nextScene.get(id);
+        if (scene === undefined) lastPresented.scene.delete(id);
+        else lastPresented.scene.set(id, scene);
+    }
+}, {immediate: true, flush: "sync"});
+const cardOf = (id: string): CardEdges | undefined => (presentedLeaves.value.has(id) ? cards.value[id] : lastPresented.cards.get(id));
+const sceneOf = (id: string): PanelName | undefined => (presentedLeaves.value.has(id) ? sceneCorners.value.get(id) : lastPresented.scene.get(id));
+
 function insetOf(id: string): Record<string, string> {
-    const edges = cards.value[id];
+    const edges = cardOf(id);
     return edges === undefined ? {} : {padding: [edges.top, edges.right, edges.bottom, edges.left].map(cardInset).join(" ")};
 }
 
 /** 活动栏与工具面板相连时，相接的一侧不圆、不留缝（活动栏是 start，面板是 end）。 */
 function joinOf(id: string): "start" | "end" | undefined {
-    const edges = cards.value[id];
+    const edges = cardOf(id);
     if (edges?.right.kind === "joined") return "start";
     if (edges?.left.kind === "joined") return "end";
     return undefined;
@@ -285,6 +307,7 @@ defineExpose({
             :on-gesture-commit="host.onGestureCommit"
             :contents="contents"
             :lifted="lifted"
+            :dragging="dragging"
             :floats="floats"
             :maximized="maximizedLeaf"
             :sash-kind="sashKind"
@@ -304,7 +327,7 @@ defineExpose({
                         :data-shell-join="joinOf(node.id)"
                         :data-shell-slot="node.id === slotPanel ? '' : undefined"
                         :data-panel-role="roleOf(node.id) ?? undefined"
-                        :data-panel-name="sceneCorners.get(node.id)"
+                        :data-panel-name="sceneOf(node.id)"
                         :data-hover-actions-scope="roleOf(node.id) === null ? undefined : ''"
                         :data-hover-actions-active="actionsShownOn(node.id) ? '' : undefined"
                     >

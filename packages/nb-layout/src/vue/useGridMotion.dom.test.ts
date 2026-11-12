@@ -37,6 +37,16 @@ function warmed(): {memory: GridMotionMemory; base: GridPlacementItem<unknown>[]
 }
 
 describe("decideMotion", () => {
+    it("留着缩回去的叶加上、摘掉都不算布局变化：不然摘掉时又判成离开，停不下来", () => {
+        const {memory} = warmed();
+        const settled = items([350, 350]);
+        const gone = items([300, 200, 200]).find((item) => item.kind === "leaf" && item.node.id === "l2");
+        if (gone?.kind !== "leaf") throw new Error("没有叶 l2");
+        const held = [...settled, {...gone, rect: {...gone.rect, width: 0}, leaving: true as const}];
+        expect(decideMotion(frame({items: held, previous: settled}), memory).kind).toBe("none");
+        expect(decideMotion(frame({items: settled, previous: held}), memory).kind).toBe("none");
+    });
+
     it("第一次有真实布局：不过渡", () => {
         const memory = EMPTY_GRID_MOTION_MEMORY();
         expect(decideMotion(frame({items: items([300, 200, 200]), previous: items([0, 0, 0])}), memory).kind).toBe("none");

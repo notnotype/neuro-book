@@ -654,6 +654,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :doc="renderedDoc"
                 :projection="layout.actions.renderedPresentation()"
                 :lifted="liftedCard"
+                :dragging="dragSource !== null"
                 :floats="layout.actions.floats()"
                 :data-drag-feel="drag?.live.active.value === true ? 'live' : 'indicator'"
                 :data-live-preview="drag?.live.previewKey.value ?? 'none'"

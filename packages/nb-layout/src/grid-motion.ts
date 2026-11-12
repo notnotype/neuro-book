@@ -3,7 +3,7 @@
  * 要不要动、新出现的项从哪里开始。纯函数，不碰 DOM。消费者是 `useRenderOrder`、`useGridMotion`。
  */
 
-import type {GridLayerItem, GridLeafPlacement, GridPathStep, GridRect} from "./grid-rects";
+import type {GridLayerItem, GridLeafPlacement, GridPathStep, GridPlacementItem, GridRect} from "./grid-rects";
 import type {GridAxis} from "./grid-types";
 
 /** 新叶第一帧的矩形：主轴宽度为 0，贴在不动的那条边上；内容已经是最终尺寸，外框长出来时露出它。 */
@@ -104,6 +104,8 @@ export function flyingContents(items: ReadonlyArray<GridLayerItem<unknown>>, pre
     return flying;
 }
 
+type LeafItem<R> = Extract<GridPlacementItem<R>, {readonly kind: "leaf"}>;
+
 /** 整棵新子树一起长时的起点：沿 `axis` 压成零，压在 `at` 这条线上，另一个方向保持终点。 */
 interface Collapse {
     readonly axis: GridAxis;
@@ -199,6 +201,62 @@ export function enteringRects(items: ReadonlyArray<GridLayerItem<unknown>>, prev
         else if (afterLeaf !== undefined) entering.set(item.key, position(afterLeaf, -item.size));
     }
     return entering;
+}
+
+/**
+ * 离开的叶里要在过渡里留着缩回去的那些（docs/specs/ui/nested-grid.md 的“过渡”）：上一帧的叶，矩形换成缩到的终点，带 `leaving`。
+ * 与 `enteringRects` 对称：从根往下找第一个这一帧没有、下面也没有留下的叶的节点，它和它下面的叶作为一块，沿它在父分支里的主轴缩回
+ * 这一帧它前后兄弟相接的那道缝；它在分支一头、挨着的兄弟这一帧到了那一头时，缩向那一头。
+ *
+ * 只留这一种，其余照旧立即消失：兄弟没有合拢的（被顶替：切换容器时旧的几节缩、新的几节长，会叠在同一块地方）；下面一个挂着的内容项
+ * 都没有的（关掉的编辑组，内容已经卸了，留着只是一张空卡片）。拖动中（`holding`：拿起了内容，或宿主说拖动在进行，例如视图被活动栏吸收、内容没拿起）
+ * 一个都不留：来源的叶离开是拖动的一部分，留着的外框会被命中判定撞上，放下时又从缩回去的半路飞过来。
+ */
+export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, previous: ReadonlyArray<GridLayerItem<R>>, holding: boolean): Array<LeafItem<R>> {
+    if (holding) return [];
+    const present = new Set(items.map((item) => item.key));
+    const sashes = items.filter((item) => item.kind === "sash");
+    const oldLeaves = previous.filter((item) => item.kind === "leaf");
+    /** 这一帧的节点。 */
+    const now = new Set(items.flatMap((item) => (item.kind === "leaf" ? [item.node.id, ...item.path.map((step) => step.id)] : [])));
+    /** 这一帧还在的节点，以及上一帧下面有留下的叶的节点：都不算离开的子树，要往下找。 */
+    const staying = new Set([...now, ...oldLeaves.filter((item) => present.has(item.key)).flatMap((item) => item.path.map((step) => step.id))]);
+    /** 内容项还挂着的叶：停放（区域隐藏），不是卸掉（关掉）。 */
+    const mounted = new Set(items.flatMap((item) => (item.kind === "content" ? [item.leaf] : [])));
+    const seamNow = (step: GridPathStep) => sashes.find((sash) => sash.before === step.before && sash.after === step.after);
+    /** 它离开后兄弟合拢了：前后的兄弟这一帧相接；或它在一头，挨着的兄弟还在、这一帧到了那一头。 */
+    const closesUp = (step: GridPathStep): boolean => {
+        if (seamNow(step) !== undefined) return true;
+        if (step.after === null && step.before !== null) return now.has(step.before) && !sashes.some((sash) => sash.before === step.before);
+        if (step.before === null && step.after !== null) return now.has(step.after) && !sashes.some((sash) => sash.after === step.after);
+        return false;
+    };
+
+    /** 离开的子树（最外层节点的 id）到它下面离开的叶。 */
+    const groups = new Map<string, {step: GridPathStep; leaves: Array<LeafItem<R>>}>();
+    for (const item of oldLeaves) {
+        if (present.has(item.key) || item.leaving === true) continue;
+        const top = item.path.find((step) => !staying.has(step.id));
+        if (top === undefined || !closesUp(top)) continue;
+        const group = groups.get(top.id) ?? {step: top, leaves: []};
+        group.leaves.push(item);
+        groups.set(top.id, group);
+    }
+    const result: Array<LeafItem<R>> = [];
+    for (const {step, leaves} of groups.values()) {
+        if (!leaves.some((leaf) => mounted.has(leaf.node.id))) continue;
+        const seam = seamNow(step);
+        let at: number;
+        if (seam !== undefined) {
+            at = step.axis === "width" ? seam.rect.x + seam.size : seam.rect.y + seam.size;
+        } else {
+            const rect = leaves.map((leaf) => leaf.rect).reduce(unionRect);
+            const edge = grownRect(rect, {axis: step.axis, edge: step.before === null ? "start" : "end"});
+            at = step.axis === "width" ? edge.x : edge.y;
+        }
+        for (const leaf of leaves) result.push({...leaf, rect: collapsed(leaf.rect, {axis: step.axis, at}), leaving: true});
+    }
+    return result;
 }
 
 

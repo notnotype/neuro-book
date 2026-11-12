@@ -39,6 +39,8 @@ type Props = {
     maximized?: string | null;
     /** 拿起的内容项（实时布局），`home` 是它已提交时所在的面板：预览把来源摘掉时内容也不卸载。矩形不走属性，由 `placeLifted` 写。 */
     lifted?: {key: string; home: string | null} | null;
+    /** 拖动进行中（外壳在拖动会话里）：转给 NestedGrid 的 `dragging`，离开的叶不留着缩回去。 */
+    dragging?: boolean;
     /** 实时布局预览里的空位：这块什么都不画，露出窗体底。 */
     slotPanel?: string | null;
     /** 画出来的浮动窗：矩形已夹取，拖动中是预览。 */
