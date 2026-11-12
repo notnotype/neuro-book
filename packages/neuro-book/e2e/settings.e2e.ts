@@ -239,7 +239,7 @@ async function pressOpenSettings(page: Page): Promise<void> {
 /** 设置窗口的面：`data-settings-window` 是面板里的内容。 */
 const settingsSurface = (page: Page) => page.locator("[data-dialog-surface]:has([data-settings-window])");
 
-test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开、比终点更靠近齿轮；减少动态效果时第一帧就是终点", async ({page}) => {
+test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开（页面载入后第一次打开也是），关闭时看得见它收回去；减少动态效果时第一帧就是终点", async ({page}) => {
     await page.setViewportSize({width: 1600, height: 900});
     await page.emulateMedia({reducedMotion: "no-preference"});
     await open(page, "/?project=book");
@@ -265,7 +265,10 @@ test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开、比�
     });
     const distance = (point: {x: number; y: number}): number => Math.hypot(point.x - gearCenter.x, point.y - gearCenter.y);
     expect(run.duration).toBe(4000);
-    expect(distance(run.start)).toBeLessThan(distance(run.end));
+    // 起点的中心在“终点中心指向齿轮”这段距离的 85% 处（Dialog.md 的“从触发点展开”）。这是页面载入后第一次打开：
+    // 窗口这时才第一次居中，起点量早了会量到居中之前的位置，偏出几百像素。
+    expect(run.start.x).toBeCloseTo(run.end.x + (gearCenter.x - run.end.x) * 0.85, -1);
+    expect(run.start.y).toBeCloseTo(run.end.y + (gearCenter.y - run.end.y) * 0.85, -1);
     expect(run.start.width).toBeLessThan(run.end.width * 0.5);
 
     // 关闭：朝齿轮收回去，时长看得出来。
@@ -275,15 +278,17 @@ test("点活动栏齿轮打开设置窗口：面从齿轮的方向展开、比�
         if (animation === undefined) throw new Error("退场动画不存在");
         const duration = animation.effect?.getTiming().duration;
         animation.pause();
-        // 走到一半还看得清：收回是先慢后快，不是一按就没了。
+        // 走到一半还看得清：收回是先慢后快，不是一按就没了。光看不透明度不够，面板在退场时被藏起来（visibility）也是一按就没了。
         animation.currentTime = Number(duration) / 2;
         const halfway = Number(getComputedStyle(surface).opacity);
+        const visibility = getComputedStyle(surface).visibility;
         animation.currentTime = Number(duration) - 1;
         const rect = surface.getBoundingClientRect();
         animation.finish();
-        return {duration, halfway, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width};
+        return {duration, halfway, visibility, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width};
     });
     expect(leaving.duration).toBe(3000);
+    expect(leaving.visibility).toBe("visible");
     expect(leaving.halfway).toBeGreaterThan(0.6);
     expect(distance(leaving)).toBeLessThan(distance(run.end));
     expect(leaving.width).toBeLessThan(run.end.width * 0.5);

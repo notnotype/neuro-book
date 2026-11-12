@@ -281,15 +281,17 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
     // 打开时居中：量一次实际尺寸，按容器居中；量不到就用 64px 顶距。看的是面板元素而不只是“打开”：传送到 body 时
     // reka 的 Teleport 自己挂载后才渲染内容，第一次就打开的窗口面板比“打开”晚一拍出现。渲染之后才运行，量的是挂好的面板。
     watch(() => (options.open() ? options.windowRef.value : null), (element) => {
-        if (element === null) {
-            positioned.value = false;
-            return;
-        }
+        if (element === null) return;
         resolvePortal();
         placedByUser = false;
         center();
         positioned.value = true;
     }, {immediate: true, flush: "post"});
+    // 面板卸掉才算没定位，下次打开居中之前先藏着。不能在“关闭”那一刻就藏：关闭后面板还在播收回的退场动画，
+    // 藏了就只看得见窗口一下子没了（2026-11-12 之前一直如此）。
+    watch(() => options.windowRef.value, (element) => {
+        if (element === null) positioned.value = false;
+    }, {flush: "post"});
 
     function center(): void {
         const size = measured();
