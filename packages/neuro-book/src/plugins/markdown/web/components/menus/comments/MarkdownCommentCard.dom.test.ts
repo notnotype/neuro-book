@@ -50,7 +50,7 @@ describe("看", () => {
         expect(button(wrapper, "下一条").attributes("disabled")).toBeUndefined();
     });
 
-    it("页边里：不是当前的卡片点一下发 select（点按钮不发），当前的不发；意见只显示 3 行，当前的放开", async () => {
+    it("页边里：没展开的卡片点一下发 select（点按钮不发），展开的不发；意见按宿主给的行数限，展开的放开；浮层里不限", async () => {
         const idle = card({variant: "margin"});
         expect(idle.get("[data-markdown-comment-body]").classes()).toContain("markdown-comment-card__body--clamped");
         await idle.get("[data-markdown-comment-body]").trigger("click");
@@ -58,21 +58,51 @@ describe("看", () => {
         await button(idle, "编辑").trigger("click");
         expect(idle.emitted("select")).toHaveLength(1);
         expect(idle.emitted("edit")).toHaveLength(1);
+        // 当前（光标在这条里）但没展开：仍限行，点一下展开。
         const current = card({variant: "margin", current: true});
-        expect(current.get("[data-markdown-comment-body]").classes()).not.toContain("markdown-comment-card__body--clamped");
+        expect(current.get("[data-markdown-comment-body]").classes()).toContain("markdown-comment-card__body--clamped");
         await current.get("[data-markdown-comment-body]").trigger("click");
-        expect(current.emitted("select")).toBeUndefined();
+        expect(current.emitted("select")).toHaveLength(1);
+        const expanded = card({variant: "margin", current: true, expanded: true});
+        expect(expanded.get("[data-markdown-comment-body]").classes()).not.toContain("markdown-comment-card__body--clamped");
+        await expanded.get("[data-markdown-comment-body]").trigger("click");
+        expect(expanded.emitted("select")).toBeUndefined();
         const float = card();
         expect(float.get("[data-markdown-comment-body]").classes()).not.toContain("markdown-comment-card__body--clamped");
         await float.get("[data-markdown-comment-body]").trigger("click");
         expect(float.emitted("select")).toBeUndefined();
     });
 
-    it("几种状态的版式相同：看、写、页边里的不同状态都是意见区加一个底行，底行零件在页边里只是显隐", () => {
-        const shapes = [card(), card({variant: "margin"}), card({variant: "margin", current: true}), card({mode: "write", body: "x", session: 1})].map((wrapper) => wrapper.element.children.length + ":" + (wrapper.element.lastElementChild?.className ?? ""));
+    it("浮层里看、写都是意见区加一个底行；页边里看没有底行与计数，编辑、删除浮在右上角（按钮照样在 DOM 里，显隐靠样式）", () => {
+        const shapes = [card(), card({mode: "write", body: "x", session: 1})].map((wrapper) => wrapper.element.children.length + ":" + (wrapper.element.lastElementChild?.className ?? ""));
         expect(new Set(shapes).size).toBe(1);
-        // 页边里不是当前的卡片按钮照样在 DOM 里（占位），显隐靠样式；点按钮的行为见上一条。
-        expect(card({variant: "margin"}).findAll("button")).toHaveLength(4);
+        const margin = card({variant: "margin"});
+        expect(margin.find(".markdown-comment-card__footer").exists()).toBe(false);
+        expect(margin.find("[data-markdown-comment-counter]").exists()).toBe(false);
+        expect(margin.get(".markdown-comment-card__overlay").findAll("button").map((item) => item.attributes("aria-label"))).toEqual(["编辑", "删除"]);
+        // 页边里写：和浮层里一样，下面一行是取消、保存。
+        expect(card({variant: "margin", mode: "write", current: true, expanded: true, body: "x", session: 1}).find(".markdown-comment-card__footer").exists()).toBe(true);
+    });
+
+    it("页边里同一段有几条批注：右上角 `‹ 2/3 ›`，箭头发 previous、next，到头置灰；意见开头放一个占位让位；只读时没有编辑与删除、仍有箭头", async () => {
+        const wrapper = card({variant: "margin", pager: {index: 1, count: 3}});
+        expect(wrapper.get("[data-markdown-comment-pager]").text()).toBe("2/3");
+        expect(wrapper.find(".markdown-comment-card__reserve").exists()).toBe(true);
+        await button(wrapper, "上一条").trigger("click");
+        await button(wrapper, "下一条").trigger("click");
+        expect(wrapper.emitted("previous")).toHaveLength(1);
+        expect(wrapper.emitted("next")).toHaveLength(1);
+        expect(wrapper.emitted("select")).toBeUndefined();
+        const first = card({variant: "margin", pager: {index: 0, count: 2}, readonly: true});
+        expect(button(first, "上一条").attributes("disabled")).toBeDefined();
+        expect(button(first, "下一条").attributes("disabled")).toBeUndefined();
+        expect(first.find('button[aria-label="编辑"]').exists()).toBe(false);
+        const last = card({variant: "margin", pager: {index: 1, count: 2}});
+        expect(button(last, "下一条").attributes("disabled")).toBeDefined();
+        // 只有一条批注的槽位没有箭头与占位。
+        const single = card({variant: "margin"});
+        expect(single.find("[data-markdown-comment-pager]").exists()).toBe(false);
+        expect(single.find(".markdown-comment-card__reserve").exists()).toBe(false);
     });
 });
 

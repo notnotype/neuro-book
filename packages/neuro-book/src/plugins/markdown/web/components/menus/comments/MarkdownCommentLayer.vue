@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 批注的浮层与“写”的状态机（同名 .md）：按住 Ctrl 悬停或点击、点批注末尾的小符号出“看”卡片，加批注与改意见在同一张卡片里“写”。 */
 import {AnchoredPopover} from "@notnotype/nb-ui/components";
-import {commentsAt, commentsAtPos, commentsEndingAt, gotoComment, holdBlock, holdSelection, listComments, markShownComment, matchComment, refOf, releaseSelection} from "@notnotype/nb-markdown/editor";
+import {commentsAt, commentsAtPos, commentsEndingAt, gotoComment, holdBlock, holdSelection, listComments, markShownComment, matchComment, nextTerritory, refOf, releaseSelection, territoryAt, territoryOf} from "@notnotype/nb-markdown/editor";
 import type {CommentInfo, CommentRef} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
@@ -14,7 +14,7 @@ import {blockAnchor, commentLineAnchor, selectionAnchor} from "../selection-anch
 import MarkdownCommentCard from "./MarkdownCommentCard.vue";
 import type {CommentCardLabels} from "./MarkdownCommentCard.vue";
 import MarkdownCommentMargin from "./MarkdownCommentMargin.vue";
-import type {MarginItem} from "./MarkdownCommentMargin.vue";
+import type {MarginSlot} from "./MarkdownCommentMargin.vue";
 
 const props = withDefaults(defineProps<{
     editor: Editor | null;
@@ -62,6 +62,8 @@ const writing = shallowRef<{
 } | null>(null);
 /** 点上一条、下一条、页边的卡片跳到的那条：紧挨或同起点的批注光标不动，要自己记着“当前”是哪条。 */
 const current = shallowRef<CommentRef | null>(null);
+/** 页边里点了卡片展开的那条（输出 33）：和 `current` 一样，下一个改了文档或选区的事务就清掉，光标走动、打字时卡片收回。 */
+const expanded = shallowRef<CommentRef | null>(null);
 /**
  * 写着的字：卡片在浮层与页边之间换位置（控件宽度跨过阈值）时是另一个实例，字存在这里才不丢；null 是这次“写”还没有字，卡片按原意见预填。
  * 每次进入“写”重置。
@@ -157,47 +159,76 @@ const shown = computed<CommentRef | null>(() => {
     return lastShown;
 });
 
-/**
- * 页边里的卡片（输出 33）：每条批注一张，写着的在写，光标所在的是当前批注，其余是 idle；还不在文档里的新批注作为一张待写的卡片，
- * 按选区起点（整块批注按块的位置）插进去。
- */
-const marginItems = computed<MarginItem[]>(() => {
-    const editor = props.editor;
-    if (!props.marginDrawn || editor === null) return [];
-    const editing = writingInfo.value;
-    const open = cursorComment.value;
-    const keys = new Map<number, string>();
-    const items = list.value.map((info): MarginItem => ({
-        key: marginKey(info, keys),
-        info,
-        // `cursorAt` 与 `list` 是同一个事务里各算一次的，对象不同，序号相同就是同一条。
-        mode: editing !== null && info === editing ? "write" : writing.value === null && open !== null && info.index === open.index ? "current" : "idle",
-        anchor: info.start,
-    }));
-    const target = writing.value;
-    if (target !== null && target.ref === null) {
-        const at = target.block === null ? editor.state.selection.from : target.block.pos;
-        const index = items.findIndex((item) => (item.info as CommentInfo).start > at);
-        items.splice(index < 0 ? items.length : index, 0, {key: "pending", info: null, mode: "write", anchor: at});
-    }
-    blockKeys = keys;
-    return items;
-});
+/** 槽位里显示哪一条的记忆：光标走开之后这一段仍显示上次看的那条。按内容记（序号随增减变）。 */
+const activeMemory = new Map<string, {readonly body: string; readonly quote: string}>();
 
 /**
- * 页边卡片的 key 要跨事务稳定：位置过渡、入场动画与“排好才显示”都按 key 记，key 一变整张卡片重建、重新入场。行内批注的 `identity` 是标记的
- * `key`，稳定；块批注的 `identity` 带着块的位置，块前面每打一个字就变。所以块批注的 key 自己记：位置经每个事务映射后沿用原来的，
- * 新出现的块批注取新的。
+ * 槽位的 key 要跨事务稳定：位置过渡、入场动画与“排好才显示”都按 key 记，key 一变整个槽位重建、重新入场。槽位的身份是这一段的起点位置，
+ * 前面每打一个字就变，所以层里自己记：位置经每个事务映射后沿用原来的 key，新出现的段取新的；同一段里增减批注不改 key。
  */
-let blockKeys = new Map<number, string>();
-let blockKeySeed = 0;
-function marginKey(info: CommentInfo, next: Map<number, string>): string {
-    if (!info.block) return info.identity;
-    const at = (info.segments[0] as {from: number}).from;
-    const key = blockKeys.get(at) ?? `block-${(blockKeySeed += 1)}`;
-    next.set(at, key);
+let slotKeys = new Map<number, string>();
+let slotKeySeed = 0;
+function slotKey(anchor: number, next: Map<number, string>): string {
+    const key = slotKeys.get(anchor) ?? `slot-${(slotKeySeed += 1)}`;
+    next.set(anchor, key);
     return key;
 }
+
+/**
+ * 页边里的槽位（输出 33）：按段分组，一段一个，同一段的几条批注合用。写着的那一段在写，光标所在的那一段是当前，其余是 idle；槽位里显示
+ * 写着的、光标所在的、上次看的（`activeMemory`）、第一条，依次取第一个有的。还不在文档里的新批注是一个单独的待写槽位，锚在选区起点（整块批注
+ * 是块的位置）所在的段，不和这一段已有的批注合用。
+ */
+const marginSlots = computed<MarginSlot[]>(() => {
+    const editor = props.editor;
+    if (!props.marginDrawn || editor === null) return [];
+    const doc = editor.state.doc;
+    const editing = writingInfo.value;
+    const open = writing.value === null ? cursorComment.value : null;
+    const groups = new Map<number, CommentInfo[]>();
+    for (const info of list.value) {
+        const anchor = territoryOf(doc, info);
+        const group = groups.get(anchor);
+        if (group === undefined) groups.set(anchor, [info]);
+        else group.push(info);
+    }
+    const keys = new Map<number, string>();
+    const slots = [...groups].sort(([left], [right]) => left - right).map(([anchor, infos]): MarginSlot => {
+        const key = slotKey(anchor, keys);
+        // `cursorAt` 与 `list` 是同一个事务里各算一次的，对象不同，序号相同就是同一条。
+        const writingAt = editing === null ? -1 : infos.indexOf(editing);
+        const currentAt = open === null ? -1 : infos.findIndex((info) => info.index === open.index);
+        const remembered = activeMemory.get(key);
+        const rememberedAt = remembered === undefined ? -1 : infos.findIndex((info) => info.body === remembered.body && info.quote === remembered.quote);
+        const active = writingAt >= 0 ? writingAt : currentAt >= 0 ? currentAt : Math.max(0, rememberedAt);
+        const mode = writingAt >= 0 ? "write" : currentAt >= 0 ? "current" : "idle";
+        const next = nextTerritory(doc, anchor);
+        return {
+            key,
+            anchor,
+            next,
+            nextCommented: next !== null && groups.has(next),
+            infos,
+            active,
+            mode,
+            expanded: mode === "write" || (mode === "current" && expanded.value !== null && sameRef(expanded.value, refOf(infos[active] as CommentInfo))),
+        };
+    });
+    const target = writing.value;
+    if (target !== null && target.ref === null) {
+        const anchor = territoryAt(doc, target.block === null ? editor.state.selection.from : target.block.pos);
+        const next = nextTerritory(doc, anchor);
+        slots.push({key: "pending", anchor, next, nextCommented: next !== null && groups.has(next), infos: [], active: 0, mode: "write", expanded: true});
+    }
+    slotKeys = keys;
+    return slots;
+});
+watch(marginSlots, (slots) => {
+    for (const slot of slots) {
+        const info = slot.mode === "idle" ? undefined : slot.infos[slot.active];
+        if (info !== undefined) activeMemory.set(slot.key, {body: info.body, quote: info.quote});
+    }
+}, {flush: "sync"});
 // 标出是一个事务，不在 `transaction` 事件的调用栈里发；`post` 让它在这一轮更新之后。
 watch(shown, (target) => {
     if (props.editor !== null) markShownComment(props.editor, target);
@@ -357,6 +388,8 @@ const onCardLeave = (): void => {
 function closeAll(): void {
     closeView(false);
     current.value = null;
+    expanded.value = null;
+    activeMemory.clear();
     draftText.value = null;
     if (writing.value !== null) {
         writing.value = null;
@@ -384,11 +417,13 @@ watch(writingInfo, (info) => {
 function onTransaction({transaction}: {transaction: Transaction}): void {
     const editor = props.editor;
     if (editor === null || (!transaction.docChanged && !transaction.selectionSet)) return;
+    // 先映射槽位的位置、再通知列表重算：`marginSlots` 有同步的观察者，`tick` 一变它就按 `slotKeys` 重算。
+    if (transaction.docChanged) slotKeys = new Map([...slotKeys].map(([at, key]) => [transaction.mapping.map(at), key]));
     tick.value += 1;
-    if (transaction.docChanged) blockKeys = new Map([...blockKeys].map(([at, key]) => [transaction.mapping.map(at), key]));
     const typed = transaction.docChanged && transaction.getMeta("addToHistory") !== false;
     if (typed || !editor.state.selection.empty) closeView(true);
     if (writing.value === null) current.value = null;
+    expanded.value = null;
 }
 
 /** Ctrl+Alt+M（输出 28）：有选区加批注，光标在批注里改这条的意见。 */
@@ -412,8 +447,10 @@ function onKeyDown(event: KeyboardEvent): void {
  * 位置用最后一次 `pointermove` 的。
  */
 function onDocumentKeyDown(event: KeyboardEvent): void {
-    if (event.key === "Escape" && viewing.value !== null) closeView(true);
-    else if ((event.key === "Control" || event.key === "Meta") && overComment !== null) openAtPointer(false);
+    if (event.key === "Escape" && (viewing.value !== null || expanded.value !== null)) {
+        closeView(true);
+        expanded.value = null;
+    } else if ((event.key === "Control" || event.key === "Meta") && overComment !== null) openAtPointer(false);
 }
 
 let detach: (() => void) | null = null;
@@ -525,14 +562,18 @@ function remove(info: CommentInfo): void {
     closeView(false);
 }
 
-/** 点页边里的卡片：这条成为当前批注，光标移过去。正在写别的一条时先放下它（点卡片不夺焦，不会自己发 `dismiss`）。 */
-function select(info: CommentInfo): void {
+/**
+ * 点页边里的卡片或同一段里的箭头：这条成为当前批注，光标移过去（已经在这一条里就不挪）；`expand` 为真（点卡片的空白）时展开。
+ * 正在写别的一条时先放下它（点卡片不夺焦，不会自己发 `dismiss`）。先挪光标、再记下当前与展开：挪光标的事务会把它们清掉。
+ */
+function select(info: CommentInfo, expand: boolean): void {
     const editor = props.editor;
     if (editor === null) return;
     if (writing.value !== null) endWriting(false);
-    gotoComment(editor, refOf(info));
+    if (cursorComment.value?.index !== info.index) gotoComment(editor, refOf(info));
     editor.view.focus();
     current.value = refOf(info);
+    expanded.value = expand ? refOf(info) : null;
 }
 
 function step(info: CommentInfo, direction: -1 | 1): void {
@@ -597,7 +638,7 @@ defineExpose({
                 v-if="props.marginDrawn"
                 :editor="props.editor"
                 :scroller="props.scroller"
-                :items="marginItems"
+                :slots="marginSlots"
                 :total="list.length"
                 :readonly="props.readonly"
                 :labels="labels"
@@ -607,8 +648,6 @@ defineExpose({
                 @update:draft="(text) => { draftText = text; }"
                 @edit="(info) => beginEdit(info, info.start)"
                 @remove="remove"
-                @previous="(info) => step(info, -1)"
-                @next="(info) => step(info, 1)"
                 @select="select"
                 @submit="submit"
                 @cancel="endWriting(true)"

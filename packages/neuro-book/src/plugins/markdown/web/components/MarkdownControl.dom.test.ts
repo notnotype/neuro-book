@@ -765,7 +765,8 @@ describe("批注卡片（workbench.markdown-editing 输出 28–35）", () => {
 
 /** 批注页边（workbench.markdown-editing 输出 33）：宽度来自 ResizeObserver，happy-dom 没有排版，用可控的假观察者喂宽度。 */
 describe("批注页边（workbench.markdown-editing 输出 33）", () => {
-    const TWO = "甲<comment body=\"第一条\">乙丙</comment>丁戊<comment body=\"第二条\">己庚</comment>辛\n";
+    /** 页边按段排槽位：两条批注在两段里，各一个槽位。 */
+    const TWO = "甲<comment body=\"第一条\">乙丙</comment>丁\n\n戊<comment body=\"第二条\">己庚</comment>辛\n";
     type Observer = {readonly callback: ResizeObserverCallback; readonly targets: Element[]};
     const observers: Observer[] = [];
     const original = globalThis.ResizeObserver;
@@ -823,7 +824,7 @@ describe("批注页边（workbench.markdown-editing 输出 33）", () => {
         target.dispatchEvent(new MouseEvent("pointermove", {bubbles: true, clientX: 5, clientY: 5, ...init}));
     };
 
-    it("开关开着、控件够宽才画：稿纸让位、每条批注一张卡片，光标所在的是当前批注、其余不是，浮层不出", async () => {
+    it("开关开着、控件够宽才画：稿纸让位、每段一个槽位，光标所在的是当前批注、其余不是，浮层不出", async () => {
         const {editor, wrapper} = await opened(TWO, undefined, undefined, {menus: true, margin: true});
         await resize(1100);
         expect(margin()).not.toBeNull();
@@ -836,7 +837,8 @@ describe("批注页边（workbench.markdown-editing 输出 33）", () => {
         await nextTick();
         expect(items().map((item) => item.dataset.mode)).toEqual(["idle", "current"]);
         expect(items()[1]?.textContent).toContain("第二条");
-        expect(items()[1]?.textContent).toContain("第 2 条，共 2 条");
+        // 页边里没有“第 i 条，共 n 条”（页边本身就是总览）。
+        expect(items()[1]?.textContent).not.toContain("共 2 条");
         expect(popover()).toBeNull();
         expect(editor.view.dom.querySelector(".nb-comment-current")?.textContent).toBe("己庚");
     });
@@ -870,18 +872,18 @@ describe("批注页边（workbench.markdown-editing 输出 33）", () => {
         expect(off.wrapper.get(".markdown-control-root").attributes("data-comment-margin")).toBeUndefined();
     });
 
-    it("加批注的“写”卡片在页边里：按选区起点排进列表，保存后成为一条", async () => {
+    it("加批注的“写”卡片在页边里：是一个待写的槽位，保存后成为一条并进这一段的槽位", async () => {
         const {editor} = await opened(TWO, undefined, undefined, {menus: true, margin: true});
         await resize(1100);
         editor.view.focus();
-        editor.commands.setTextSelection(find(editor, "丁戊"));
+        editor.commands.setTextSelection(find(editor, "丁"));
         await nextTick();
         editor.view.dom.dispatchEvent(keyEvent({code: "KeyM", key: "m", ctrlKey: true, altKey: true}));
         await nextTick();
         await nextTick();
-        expect(items().map((item) => item.dataset.mode)).toEqual(["idle", "write", "idle"]);
+        expect(items().map((item) => item.dataset.mode)).toEqual(["idle", "idle", "write"]);
         expect(popover()).toBeNull();
-        const field = items()[1]?.querySelector("textarea") as HTMLTextAreaElement;
+        const field = items()[2]?.querySelector("textarea") as HTMLTextAreaElement;
         field.value = "新的";
         field.dispatchEvent(new Event("input", {bubbles: true}));
         field.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true}));
@@ -889,7 +891,9 @@ describe("批注页边（workbench.markdown-editing 输出 33）", () => {
         await nextTick();
         await nextTick();
         expect(listComments(editor.state.doc).map((info) => info.body)).toEqual(["第一条", "新的", "第二条"]);
-        expect(items()).toHaveLength(3);
+        // 新批注与第一条在同一段：两个槽位，第一段的有 `1/2`。
+        expect(items()).toHaveLength(2);
+        expect(items()[0]?.querySelector("[data-markdown-comment-pager]")?.textContent).toBe("1/2");
     });
 
     it("控件交出批注条数（编辑区标题的“批注 N”读它），随增删当场变；没有菜单层时不交出", async () => {

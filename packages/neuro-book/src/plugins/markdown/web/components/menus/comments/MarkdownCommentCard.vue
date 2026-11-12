@@ -26,10 +26,17 @@ const props = defineProps<{
     total: number;
     mode: "view" | "write";
     readonly: boolean;
-    /** 摆在浮层里还是页边里，缺省浮层。页边里意见最多显示 3 行，底行的按钮只在当前、悬停或有焦点时显现；点不是当前的卡片发 `select`。 */
+    /**
+     * 摆在浮层里还是页边里，缺省浮层。页边里没有底行：编辑、删除按钮在当前、悬停或有焦点时浮在右上角，意见的行数由宿主的 CSS 变量
+     * `--markdown-comment-lines` 限；点不是展开的卡片发 `select`。
+     */
     variant?: "float" | "margin";
-    /** 页边里这条是当前批注（光标所在的、写着的）：按钮显现、意见放开行数。 */
+    /** 页边里这条是当前批注（光标所在的、写着的）：编辑、删除按钮显现。 */
     current?: boolean;
+    /** 页边里这张卡片展开了（点了卡片，或在写）：意见放开行数。 */
+    expanded?: boolean;
+    /** 页边里同一段有几条批注：右上角 `‹ 1/3 ›`，箭头发 `previous`、`next`（同一段里切换）。`index` 从 0 起。 */
+    pager?: {readonly index: number; readonly count: number};
     labels: CommentCardLabels;
     /** 宿主每进入一次“写”加一：已经在写时换到另一条也要重新预填。 */
     session: number;
@@ -54,8 +61,9 @@ const emit = defineEmits<{
 }>();
 
 const draft = ref("");
-/** 页边里不是当前的卡片：意见只显示 3 行。当前的与浮层里的放开到约 12 行。 */
-const clamped = computed(() => props.variant === "margin" && props.current !== true);
+/** 页边里没展开的卡片：意见按宿主给的行数限。展开的与浮层里的放开到约 12 行。 */
+const clamped = computed(() => props.variant === "margin" && props.expanded !== true);
+const isMargin = computed(() => props.variant === "margin");
 const root = useTemplateRef<HTMLElement>("root");
 
 // 进入“写”：预填原来的意见，光标在末尾。
@@ -87,9 +95,9 @@ function onMousedown(event: MouseEvent): void {
     event.preventDefault();
 }
 
-/** 页边里点不是当前的卡片（按钮除外）：这条成为当前批注。 */
+/** 页边里点没展开的卡片（按钮除外）：这条成为当前批注并展开。 */
 function onClick(event: MouseEvent): void {
-    if (props.variant !== "margin" || props.current === true || props.mode !== "view") return;
+    if (props.variant !== "margin" || props.expanded === true || props.mode !== "view") return;
     if (event.target instanceof Element && event.target.closest("button") !== null) return;
     emit("select");
 }
@@ -136,14 +144,26 @@ function onKeydown(event: KeyboardEvent): void {
         :data-mode="props.mode"
         :data-variant="props.variant ?? 'float'"
         :data-current="props.current === true ? '' : undefined"
+        :data-expanded="props.expanded === true ? '' : undefined"
         @mousedown="onMousedown"
         @click="onClick"
         @focusout="onFocusOut"
         @keydown="onKeydown"
     >
         <template v-if="props.mode === 'view'">
-            <p class="markdown-comment-card__body" :class="{'markdown-comment-card__body--empty': props.body === '', 'markdown-comment-card__body--clamped': clamped}" data-markdown-comment-body>{{ props.body === "" ? props.labels.empty : props.body }}</p>
-            <div class="markdown-comment-card__footer">
+            <p class="markdown-comment-card__body" :class="{'markdown-comment-card__body--empty': props.body === '', 'markdown-comment-card__body--clamped': clamped}" data-markdown-comment-body><span v-if="props.pager !== undefined && isMargin" class="markdown-comment-card__reserve" aria-hidden="true" />{{ props.body === "" ? props.labels.empty : props.body }}</p>
+            <div v-if="isMargin" class="markdown-comment-card__overlay" data-markdown-comment-controls>
+                <div v-if="!props.readonly" class="markdown-comment-card__actions">
+                    <IconButton size="xs" icon-class="i-lucide-pencil" :title="props.labels.edit" :aria-label="props.labels.edit" @click="emit('edit')" />
+                    <IconButton size="xs" icon-class="i-lucide-trash-2" :title="props.labels.remove" :aria-label="props.labels.remove" @click="emit('remove')" />
+                </div>
+                <div v-if="props.pager !== undefined" class="markdown-comment-card__pager" data-markdown-comment-pager>
+                    <IconButton size="xs" icon-class="i-lucide-chevron-left" :title="props.labels.previous" :aria-label="props.labels.previous" :disabled="props.pager.index <= 0" @click="emit('previous')" />
+                    <span class="markdown-comment-card__pager-count">{{ props.pager.index + 1 }}/{{ props.pager.count }}</span>
+                    <IconButton size="xs" icon-class="i-lucide-chevron-right" :title="props.labels.next" :aria-label="props.labels.next" :disabled="props.pager.index >= props.pager.count - 1" @click="emit('next')" />
+                </div>
+            </div>
+            <div v-else class="markdown-comment-card__footer">
                 <span class="markdown-comment-card__counter" data-markdown-comment-counter>{{ props.labels.counter(props.index + 1, props.total) }}</span>
                 <div class="markdown-comment-card__controls" data-markdown-comment-controls>
                     <IconButton size="xs" icon-class="i-lucide-chevron-up" :title="props.labels.previous" :aria-label="props.labels.previous" :disabled="props.index <= 0" @click="emit('previous')" />
@@ -173,7 +193,7 @@ function onKeydown(event: KeyboardEvent): void {
 /*
  * 卡片本身的外观是浮层（`AnchoredPopover`）给的；页边里的卡片自己画底色与边（`MarkdownCommentMargin.vue`）。这里只管里面：
  * “看”的文字与“写”的输入字体、字号、行距一样，点“编辑”时文字不重排；意见区最高约 12 行再滚动（输出 29）。
- * 状态之间外框与版式不变（ui-development-spec 第 3 节第 4 条）：意见区加一个固定高度的底行，底行的按钮在页边里只是显隐。
+ * 浮层里状态之间外框与版式不变（ui-development-spec 第 3 节第 4 条）：意见区加一个固定高度的底行。页边里没有底行，按钮浮在右上角，只是显隐。
  */
 .markdown-comment-card {
     display: flex;
@@ -188,11 +208,13 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 .markdown-comment-card[data-variant="margin"] {
+    position: relative;
     width: auto;
+    padding: 6px 10px 6px 12px;
 }
 
-/* 页边里不是当前的卡片可以点：点了成为当前批注。 */
-.markdown-comment-card[data-variant="margin"]:not([data-current]):not([data-mode="write"]) {
+/* 页边里没展开的卡片可以点：点了成为当前批注并展开。 */
+.markdown-comment-card[data-variant="margin"]:not([data-expanded]):not([data-mode="write"]) {
     cursor: pointer;
 }
 
@@ -211,8 +233,8 @@ function onKeydown(event: KeyboardEvent): void {
 .markdown-comment-card__body--clamped {
     display: -webkit-box;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
+    -webkit-line-clamp: var(--markdown-comment-lines, 3);
+    line-clamp: var(--markdown-comment-lines, 3);
     overflow: hidden;
     max-height: none;
 }
@@ -245,11 +267,52 @@ function onKeydown(event: KeyboardEvent): void {
     transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
+/* 页边：同一段有几条批注时，右上角常显的 `‹ 1/3 ›` 占一行的位置，意见的第一行绕开它（占位是浮动的，只占第一行高）。 */
+.markdown-comment-card__reserve {
+    float: right;
+    width: 72px;
+    height: 1.55em;
+}
+
+/* 页边：右上角浮着的控件，不占位。 */
+.markdown-comment-card__overlay {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.markdown-comment-card__pager {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.markdown-comment-card__pager-count {
+    min-width: 2.4em;
+    text-align: center;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
 /*
- * 页边里不是当前的卡片、指针没停在上面、焦点也不在里面时按钮不画，但占着位置（外框不变）。`visibility` 等淡出结束才切，
- * 显现时立刻切（`visibility` 的过渡是离散的）。键盘焦点进来（`:focus-within`）时显现，按钮才点得到。
+ * 编辑、删除只在当前的卡片、指针停在卡片上、焦点在里面时画：背景用卡片面的底色（页边设的 `--markdown-comment-surface`），盖住一点文字。
+ * `visibility` 等淡出结束才切，显现时立刻切（`visibility` 的过渡是离散的）；键盘焦点进来（`:focus-within`）时显现，按钮才点得到。
  */
-.markdown-comment-card[data-variant="margin"]:not([data-current]):not(:hover):not(:focus-within) .markdown-comment-card__controls {
+.markdown-comment-card__actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    border-radius: var(--radius-control);
+    background: var(--markdown-comment-surface, transparent);
+    opacity: 1;
+    transition: opacity var(--motion-fast) var(--ease-layout);
+}
+
+.markdown-comment-card:not([data-current]):not(:hover):not(:focus-within) .markdown-comment-card__actions {
     opacity: 0;
     visibility: hidden;
     transition: opacity var(--motion-fast) var(--ease-layout), visibility 0s linear var(--motion-fast);

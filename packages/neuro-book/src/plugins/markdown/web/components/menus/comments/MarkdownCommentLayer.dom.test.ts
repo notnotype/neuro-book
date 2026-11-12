@@ -51,6 +51,17 @@ function harness(markdown: string, props: {readonly?: boolean; blocked?: boolean
     document.body.append(scroller);
     const editor = new Editor({element, extensions: [...language.extensions, MarkdownShownComment, MarkdownCommentMarkers.configure({label: "marker"})]});
     editor.view.updateState(stateOf(editor, markdown));
+    // happy-dom 没有排版：页边量各段的盒子（`view.nodeDOM`）时给每段一个有高度的盒子，槽位才排得出位置、才会显示。
+    const boxes = new Map<number, HTMLElement>();
+    editor.view.nodeDOM = (pos: number) => {
+        const known = boxes.get(pos);
+        if (known !== undefined) return known;
+        const dom = document.createElement("div");
+        dom.getBoundingClientRect = () => ({top: pos * 10, bottom: pos * 10 + 30, height: 30, left: 0, right: 0, width: 0, x: 0, y: pos * 10, toJSON: () => ({})}) as DOMRect;
+        scroller.append(dom);
+        boxes.set(pos, dom);
+        return dom;
+    };
     const editing: EditorEditing = {
         run: (action, args = {}) => {
             const implementation = markdownEditingActions[action];
@@ -444,10 +455,11 @@ describe("写（输出 28、29）", () => {
 });
 
 describe("换文档（状态与转换）", () => {
-    it("页边开着换到别的文档：卡片按新文档重排，不对着旧文档的位置", async () => {
+    it("页边开着换到别的文档：槽位按新文档重排，不对着旧文档的位置", async () => {
         const {editor, wrapper} = harness(TWO, {marginDrawn: true});
         await nextTick();
-        expect(marginItems()).toHaveLength(2);
+        // 两条批注在同一段：一个槽位。
+        expect(marginItems()).toHaveLength(1);
         // 换成另一份没有批注的文档（只换编辑状态，不产生事务）。
         editor.view.updateState(stateOf(editor, "丙\n"));
         await wrapper.setProps({binding: "b"});
@@ -465,9 +477,14 @@ describe("换文档（状态与转换）", () => {
     });
 });
 
+const THREE_PARAGRAPHS = "甲<comment body=\"改\">的</comment>\n\n乙丙<comment body=\"改\">的</comment>\n\n丁<comment body=\"别\">戊</comment>\n";
+
+/** 页边里各槽位显示的意见与同一段的 `1/3`（没有为 null）。 */
+const shown = (): Array<[string | undefined, string | null]> => marginItems().map((item) => [item.querySelector("[data-markdown-comment-body]")?.textContent ?? undefined, item.querySelector("[data-markdown-comment-pager]")?.textContent ?? null]);
+
 describe("页边（输出 33）", () => {
-    it("两条意见与开头文字都相同的批注：光标进其中一条只有这一条是当前，点编辑只有一张卡片进入“写”", async () => {
-        const {editor} = harness("甲<comment body=\"改\">的</comment>乙丙<comment body=\"改\">的</comment>丁<comment body=\"别\">戊</comment>\n", {marginDrawn: true});
+    it("两条意见与开头文字都相同的批注：光标进其中一条只有这一条所在的槽位是当前，点编辑只有一个槽位进入“写”", async () => {
+        const {editor} = harness(THREE_PARAGRAPHS, {marginDrawn: true});
         await nextTick();
         editor.commands.setTextSelection(find(editor, "的").from + 1);
         await nextTick();
@@ -478,6 +495,67 @@ describe("页边（输出 33）", () => {
         await nextTick();
         expect(marginItems().map((item) => item.dataset.mode)).toEqual(["write", "idle", "idle"]);
         expect(document.querySelectorAll("[data-markdown-comment-margin] textarea")).toHaveLength(1);
+    });
+
+    it("同一段几条批注合用一个槽位：光标走进哪一条就显示哪一条，光标走开之后仍显示上次看的那一条", async () => {
+        const {editor} = harness(TWO, {marginDrawn: true});
+        await nextTick();
+        expect(marginItems()).toHaveLength(1);
+        expect(shown()).toEqual([["第一条", "1/2"]]);
+        editor.commands.setTextSelection(find(editor, "己庚").from + 1);
+        await nextTick();
+        await nextTick();
+        expect(shown()).toEqual([["第二条", "2/2"]]);
+        expect(marginItems()[0]?.dataset.mode).toBe("current");
+        // 辛在第二条批注紧后面：光标在批注两端也算在里面，要走到辛的后面才算离开。
+        editor.commands.setTextSelection(find(editor, "辛").from + 1);
+        await nextTick();
+        await nextTick();
+        expect(marginItems()[0]?.dataset.mode).toBe("idle");
+        expect(shown()).toEqual([["第二条", "2/2"]]);
+    });
+
+    it("点同一段里的箭头：光标到那条批注开头、它成为当前，不展开；点卡片空白才展开，光标走动与 Esc 收回", async () => {
+        const {editor} = harness(TWO, {marginDrawn: true});
+        await nextTick();
+        (marginItems()[0]?.querySelector('[aria-label="commentNext"]') as HTMLElement).click();
+        await nextTick();
+        await nextTick();
+        expect(editor.state.selection.from).toBe(find(editor, "己庚").from);
+        expect(shown()).toEqual([["第二条", "2/2"]]);
+        expect(marginItems()[0]?.dataset.mode).toBe("current");
+        expect(marginItems()[0]?.hasAttribute("data-expanded")).toBe(false);
+        (marginItems()[0]?.querySelector("[data-markdown-comment-body]") as HTMLElement).click();
+        await nextTick();
+        await nextTick();
+        expect(marginItems()[0]?.hasAttribute("data-expanded")).toBe(true);
+        // 光标在这条里走一格：展开收回，仍是当前。
+        editor.commands.setTextSelection(find(editor, "己庚").from + 1);
+        await nextTick();
+        await nextTick();
+        expect(marginItems()[0]?.hasAttribute("data-expanded")).toBe(false);
+        expect(marginItems()[0]?.dataset.mode).toBe("current");
+        (marginItems()[0]?.querySelector("[data-markdown-comment-body]") as HTMLElement).click();
+        await nextTick();
+        await nextTick();
+        expect(marginItems()[0]?.hasAttribute("data-expanded")).toBe(true);
+        keyDown(document, {key: "Escape"});
+        await nextTick();
+        expect(marginItems()[0]?.hasAttribute("data-expanded")).toBe(false);
+    });
+
+    it("加批注的“写”卡片是一个单独的待写槽位，不和这一段已有的批注合用；保存后并进这一段的槽位", async () => {
+        const {editor} = harness("甲乙丙丁\n\n戊己<comment body=\"旧\">庚</comment>\n", {marginDrawn: true});
+        editor.commands.setTextSelection(find(editor, "乙丙"));
+        keyDown(editor.view.dom, {code: "KeyM", key: "m", ctrlKey: true, altKey: true});
+        await nextTick();
+        await nextTick();
+        expect(marginItems().map((item) => item.dataset.mode)).toEqual(["idle", "write"]);
+        await type(document.querySelector("[data-markdown-comment-margin]") as ParentNode, "新意见");
+        keyDown(document.querySelector("[data-markdown-comment-margin] textarea") as HTMLElement, {key: "Enter", ctrlKey: true});
+        await vi.waitFor(() => expect(listComments(editor.state.doc).map((info) => info.body)).toEqual(["新意见", "旧"]));
+        await nextTick();
+        expect(marginItems().map((item) => item.dataset.mode)).toEqual(["idle", "idle"]);
     });
 
     it("写着的字在控件宽度跨过阈值（页边与浮层互相切换）时不丢", async () => {
@@ -497,22 +575,25 @@ describe("页边（输出 33）", () => {
         expect((document.querySelector("[data-markdown-comment-margin] textarea") as HTMLTextAreaElement).value).toBe("写了很久的意见");
     });
 
-    it("块批注的卡片跨事务不重建：它前面打字、块的位置变了，页边里还是同一张卡片（重建会丢掉已显示的状态、重放入场动画）", async () => {
-        const {editor} = harness("前文\n\n<comment body=\"块\">\n\n正文一\n\n正文二\n\n</comment>\n\n后文\n", {marginDrawn: true});
+    it("块批注的槽位跨事务不重建：它前面打字、块的位置变了，页边里还是同一个槽位（重建会丢掉已显示的状态、重放入场动画）；同一段里增减批注也不重建", async () => {
+        const {editor} = harness("前文\n\n<comment body=\"块\">\n\n正文一\n\n正文二\n\n</comment>\n\n后文<comment body=\"尾\">尾</comment>\n", {marginDrawn: true});
         await vi.waitFor(() => expect(marginItems()[0]?.hasAttribute("data-ready")).toBe(true));
-        const card = marginItems()[0];
+        const slot = marginItems()[0];
         for (let index = 0; index < 3; index += 1) {
             editor.view.dispatch(editor.state.tr.insertText("字", find(editor, "前文").from));
             await nextTick();
             await nextTick();
         }
-        expect(marginItems()).toHaveLength(1);
-        expect(marginItems()[0]).toBe(card);
-        expect(card?.hasAttribute("data-ready")).toBe(true);
-        // 新加的块批注是另一张卡片。
-        editor.view.dispatch(editor.state.tr.insertText("字", find(editor, "后文").from));
+        expect(marginItems()).toHaveLength(2);
+        expect(marginItems()[0]).toBe(slot);
+        expect(slot?.hasAttribute("data-ready")).toBe(true);
+        // 同一段里再加一条批注：槽位还是那一个，多了一个切换。
+        const tail = find(editor, "后文");
+        editor.view.dispatch(editor.state.tr.addMark(tail.from, tail.from + 1, editor.schema.marks.comment?.create({body: "又", id: null, key: "knew"}) ?? (() => { throw new Error("没有批注标记"); })()));
         await nextTick();
-        expect(marginItems()[0]).toBe(card);
+        await nextTick();
+        expect(marginItems()[0]).toBe(slot);
+        expect(marginItems()[1]?.querySelector("[data-markdown-comment-pager]")?.textContent).toBe("1/2");
     });
 
     it("光标在同一条批注里走动不重复标出：每次选区变化只有一个事务", async () => {
