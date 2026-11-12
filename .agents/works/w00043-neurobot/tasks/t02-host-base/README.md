@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t02-host-base
-status: active
-updated: 2026-11-10
+status: done
+updated: 2026-11-12
 ---
 
 # 把两端宿主的通用部分与模型服务抽成包
