@@ -8,9 +8,9 @@ import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {lock} from "@notnotype/nb-file-lock";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {lock} from "proper-lockfile";
 
 import {acmeAt, ACME_PROFILE} from "../testing/profile";
 import {createPluginInventory} from "./inventory";

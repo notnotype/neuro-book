@@ -8,12 +8,12 @@
 
 import {dirname} from "node:path";
 
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
-import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {clockKey, userDirectoriesKey} from "nbook/shared/host";

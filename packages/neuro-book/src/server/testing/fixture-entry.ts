@@ -21,13 +21,12 @@ import {prepareInstalledPlugins, safeModeOf} from "nbook/plugin-platform/backend
 import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import {definitionAt, pluginsAt, productPlugins, thirdPartyDefinition} from "nbook/manifest";
 import {readServerConfig} from "nbook/server/config";
-import {claimStateRoot} from "nbook/server/instance";
+import {claimNeuroBook} from "nbook/server/instance";
 import {claimReport, reportClaimFailure} from "nbook/server/process";
 import {devSampleEnabled, startDevSample} from "nbook/server/dev/sample";
 import {serverPlugin} from "nbook/server/plugins";
 import {startServer} from "nbook/server/start";
 import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
-import {PRODUCT_VERSION} from "nbook/shared/product";
 import type {DevTask, StartServerOptions} from "nbook/server/start";
 import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 import {testMenusDescriptor} from "nbook/shared/testing/menus-contract";
@@ -68,7 +67,7 @@ function sampleTask(): StartServerOptions["devTask"] {
 // 参数错误（样例缺目录）在认领之前就报出来。
 const devTask = sampleTask();
 // 与产品入口一样先认领状态根：e2e 与宿主合同测试起的服务端同样受“一个状态根一个实例”约束。
-const claimed = await claimStateRoot({stateRoot: config.stateRoot, kind: "fixture", version: PRODUCT_VERSION, report: claimReport});
+const claimed = await claimNeuroBook({stateRoot: config.stateRoot, kind: "fixture", report: claimReport});
 if (!claimed.ok) {
     reportClaimFailure(claimed, config.stateRoot);
     process.exit(1);

@@ -14,7 +14,8 @@ import {join} from "node:path";
 import type {Hono} from "hono";
 import {bodyLimit} from "hono/body-limit";
 
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
+
 import {sniffImageType} from "nbook/shared/image-type";
 import type {RasterImageType} from "nbook/shared/image-type";
 

@@ -10,7 +10,8 @@ import {access, lstat, mkdir, open, readFile, realpath, rmdir, stat, unlink, wri
 import {homedir} from "node:os";
 import {dirname, join, resolve, sep} from "node:path";
 
-import {describe, replaceLocked} from "nbook/backend/locked-replace";
+import {describe, replaceLocked} from "@notnotype/nb-file-lock";
+
 import {PROJECT_COLOR_PATTERN, PROJECT_DESCRIPTION_MAX_LENGTH, PROJECT_ID_PATTERN, PROJECT_TITLE_MAX_LENGTH} from "nbook/plugins/projects/shared/contracts";
 import {normalizeProjectCoverPath} from "nbook/plugins/projects/shared/cover";
 import {projectDirectoryName} from "nbook/plugins/projects/shared/directory-name";
@@ -246,7 +247,7 @@ const isReadOnly = (error: unknown): boolean => code(error) === "EACCES" || code
 
 /**
  * 修改作品信息（输出第 13 条）：只改 `patch` 给出的字段，`null` 清除、省略不动，保留 `schema`、`id` 与不认识的字段。
- * 经 `.nbook/locks/project.json.lock` 加锁替换（`nbook/backend/locked-replace`）：锁内按当前字节解析并核对文件里的 id
+ * 经 `.nbook/locks/project.json.lock` 加锁替换（`@notnotype/nb-file-lock`）：锁内按当前字节解析并核对文件里的 id
  * 是 `expectedId`，所以两个进程分别改不同字段时都保留。失败码不含 `unknown-project`、`registry-invalid`，它们由查登记表的
  * 调用方给出。`report` 收替换收尾时的次要错误（释放锁、删临时文件），事件名已带 `project.identity.` 前缀。
  */

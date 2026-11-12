@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import type {SnapshotProvider} from "@notnotype/nb-models/contract";
 import {IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 
-import type {SnapshotProvider} from "../../shared/contracts";
 import type {CheckState} from "../models-store";
 import {checkKey} from "../models-store";
 import {tokensText, useModelsText} from "../text";

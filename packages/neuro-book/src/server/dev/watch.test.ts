@@ -24,7 +24,7 @@ afterAll(async () => {
 
 describe("后端文件监视", () => {
     it("后端代码、共用合同与插件描述触发重启；前端、测试、测试支持、监督进程自身与非代码文件不触发", () => {
-        for (const path of ["server/start.ts", "plugins/http/backend/dispatch.ts", "plugins/workbench/plugin.ts", "shared/browser-bootstrap.ts", "manifest.ts", "lifecycle/scope.ts", "data/table.json"]) {
+        for (const path of ["server/start.ts", "plugins/files/backend/raw-route.ts", "plugins/workbench/plugin.ts", "shared/browser-bootstrap.ts", "manifest.ts", "lifecycle/scope.ts", "data/table.json"]) {
             expect(isBackendFile(path)).toBe(true);
         }
         for (const path of ["web/App.vue", "web/host/window.ts", "plugins/workbench/web/plugin.ts", "server/start.test.ts", "server/testing/fixture-entry.ts", "server/dev/run.ts", "ui/theme/install-theme-packs.ts", "README.md", "server/.start.ts.swp"]) {
@@ -33,7 +33,7 @@ describe("后端文件监视", () => {
     });
 
     it("监视本包 src 与后端用到的 workspace 包源码", () => {
-        expect(backendWatchRoots(PACKAGE_ROOT)).toEqual([join(PACKAGE_ROOT, "src"), resolve(PACKAGE_ROOT, "../nb-canon/src"), resolve(PACKAGE_ROOT, "../nb-form/src"), resolve(PACKAGE_ROOT, "../nb-harness/src"), resolve(PACKAGE_ROOT, "../nb-markdown/src"), resolve(PACKAGE_ROOT, "../nb-runtime/src"), resolve(PACKAGE_ROOT, "../nb-time/src")]);
+        expect(backendWatchRoots(PACKAGE_ROOT)).toEqual([join(PACKAGE_ROOT, "src"), resolve(PACKAGE_ROOT, "../nb-canon/src"), resolve(PACKAGE_ROOT, "../nb-file-lock/src"), resolve(PACKAGE_ROOT, "../nb-form/src"), resolve(PACKAGE_ROOT, "../nb-harness/src"), resolve(PACKAGE_ROOT, "../nb-host/src"), resolve(PACKAGE_ROOT, "../nb-markdown/src"), resolve(PACKAGE_ROOT, "../nb-models/src"), resolve(PACKAGE_ROOT, "../nb-runtime/src"), resolve(PACKAGE_ROOT, "../nb-time/src")]);
     });
 
     it("递归监视：嵌套目录、新建的子目录与改名保存都报出后端文件，前端文件不报", async () => {

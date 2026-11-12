@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import type {SnapshotModel} from "@notnotype/nb-models/contract";
 import {Button, IconButton, Popover, Switch, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref} from "vue";
 
-import type {SnapshotModel} from "../../shared/contracts";
 import type {CheckState} from "../models-store";
 import {priceText, tokensText, useModelsText} from "../text";
 import CapabilityIcons from "./CapabilityIcons.vue";

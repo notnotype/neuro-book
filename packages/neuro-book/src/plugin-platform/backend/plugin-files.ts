@@ -11,11 +11,11 @@
 import {lstat} from "node:fs/promises";
 import {join} from "node:path";
 
+import {errno} from "@notnotype/nb-file-lock";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {catalogFile} from "@notnotype/nb-runtime/plugin-manifest";
 import type {ManifestFormat} from "@notnotype/nb-runtime/plugin-manifest";
 
-import {errno} from "nbook/backend/locked-replace";
 import {parsePluginCatalogPath, parsePluginFilePath} from "nbook/plugin-platform/shared/plugin-files";
 
 import {manifestOfInstalled} from "./installed";

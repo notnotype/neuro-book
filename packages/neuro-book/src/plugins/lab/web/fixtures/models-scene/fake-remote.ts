@@ -4,11 +4,11 @@
  * 检测与拉取不发请求，给固定的结果；`failWrites` 打开时所有写方法以 `settings-unavailable` 失败（看窗口通知）。
  */
 
+import {providerIdFor, referenceOf} from "@notnotype/nb-models/config";
+import type {ModelConfig} from "@notnotype/nb-models/config";
+import type {CheckResult, KeyStatus, ModelsSnapshot, SnapshotModel, SnapshotProvider} from "@notnotype/nb-models/contract";
 import type {RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
-import type {CheckResult, KeyStatus, ModelsSnapshot, SnapshotModel, SnapshotProvider} from "nbook/plugins/models/shared/contracts";
-import {providerIdFor, referenceOf} from "nbook/plugins/models/shared/rules";
-import type {ModelConfig} from "nbook/plugins/models/shared/settings";
 import type {ModelsRemote} from "nbook/plugins/models/web/models-store";
 
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, sampleModel} from "./sample";

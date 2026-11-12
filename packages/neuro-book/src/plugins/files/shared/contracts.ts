@@ -6,14 +6,13 @@
  * `filesKey` 按资源地址取用，不直接调用合同。写入来源由提供者按内核填写的调用方身份确定，输入里没有来源字段。
  */
 
+import {RPC_MAX_MESSAGE_BYTES} from "@notnotype/nb-host/socket";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import type {RemoteCause, RemoteFailureCode} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
-
-import {RPC_MAX_MESSAGE_BYTES} from "nbook/shared/rpc-socket";
 
 import {FILES_FAILURES} from "./failures";
 import type {FilesFailureCode} from "./failures";

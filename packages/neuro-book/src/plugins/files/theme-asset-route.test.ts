@@ -7,24 +7,23 @@ import {createHash} from "node:crypto";
 import {chmod, mkdir, readdir, readFile, rm, stat, symlink, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
+import {createDispatcher, HttpAdmission, RouteTable, validateRouteContribution} from "@notnotype/nb-host/testing";
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Hono} from "hono";
 
 import {definitionAt} from "nbook/manifest";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {killSpawnedProjects, projectHarness} from "nbook/server/testing/projects";
-import {HttpAdmission} from "nbook/plugins/http/backend/admission";
-import {createDispatcher, RouteTable, validateRouteContribution} from "nbook/plugins/http/backend/dispatch";
-import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 
 import {filesBackendPlugin} from "./backend/plugin";
 import {descriptor} from "./plugin";
 import {THEME_ASSET_MAX_BYTES, THEME_ASSET_SWEEP_MAX_BYTES, THEME_ASSET_SWEEP_MAX_NAMES, THEME_ICON_MAX_BYTES} from "./shared/contracts";
 import type {BatchResult, ThemeAssetSweepResult, ThemeAssetSweepStats} from "./shared/contracts";
 import type {ServerFilesResult} from "./shared/workspace-files";
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {addThemeAssetRoutes} from "./backend/theme-asset-route";
 import {ThemeAssetGuard} from "./backend/theme-asset-common";
 import {LEDGER_POINT} from "./shared/ledger";
@@ -66,7 +65,7 @@ async function scene() {
             ledger.push(entry);
         }}}}})})]},
     ]});
-    const admission = new HttpAdmission();
+    const admission = new HttpAdmission({productName: "NeuroBook"});
     admission.ready();
     harnesses.push({stop: async () => {
         await admission.drain();

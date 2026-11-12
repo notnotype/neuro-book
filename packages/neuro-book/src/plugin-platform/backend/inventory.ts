@@ -13,12 +13,12 @@ import {randomUUID} from "node:crypto";
 import {lstat, mkdir, realpath, rename, rm, stat} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
+import {errno, holdLock} from "@notnotype/nb-file-lock";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import {errno, holdLock} from "nbook/backend/locked-replace";
 import type {InstallFailureCode, InstallPreview, ManageFailureCode, PendingChange, PluginFailureCode, PluginList, PluginListEntry, PluginListItem, PluginProblem} from "nbook/plugin-platform/shared/types";
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {compareVersions, engineAccepts} from "nbook/plugin-platform/shared/versions";

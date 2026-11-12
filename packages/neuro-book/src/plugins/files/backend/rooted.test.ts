@@ -10,9 +10,8 @@ import {createHash} from "node:crypto";
 import {chmod, lstat, mkdir, readdir, readFile, readlink, rename, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import type {CurrentFile, ReplaceDecision} from "@notnotype/nb-file-lock";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-
-import type {CurrentFile, ReplaceDecision} from "nbook/backend/locked-replace";
 
 import {openRoot} from "./rooted";
 import type {RootedFailure, RootedRoot} from "./rooted";

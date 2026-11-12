@@ -10,19 +10,19 @@ import {EventEmitter} from "node:events";
 import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {createSocketLink, RPC_MAX_MESSAGE_BYTES} from "@notnotype/nb-host/socket";
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createApplication} from "nbook/application";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {manifestServerPlugins} from "nbook/server/plugins";
 import {startClaimedServer} from "nbook/server/testing/claimed-server";
 import type {RunningServer} from "nbook/server/start";
 import {windowProjectKey} from "nbook/shared/projects";
-import {createSocketLink, RPC_MAX_MESSAGE_BYTES} from "nbook/shared/rpc-socket";
 
 import {encodedTextBytes, TEXT_BUDGET_BYTES} from "./shared/contracts";
 import type {FilesService} from "./shared/contracts";

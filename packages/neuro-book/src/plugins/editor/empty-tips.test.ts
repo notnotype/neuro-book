@@ -10,6 +10,7 @@ import {rm} from "node:fs/promises";
 import {ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -19,7 +20,6 @@ import {createApplication} from "nbook/application";
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";

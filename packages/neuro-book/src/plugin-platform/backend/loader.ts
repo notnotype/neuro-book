@@ -24,10 +24,10 @@ import {builtinModules} from "node:module";
 import {readFile, realpath, stat} from "node:fs/promises";
 import {dirname, extname, join, relative, sep} from "node:path";
 
+import {errno} from "@notnotype/nb-file-lock";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {errno} from "nbook/backend/locked-replace";
 import {thirdPartyDefinitionsFor} from "nbook/plugin-platform/shared/definitions";
 import type {EntryLoader, ThirdPartySource} from "nbook/plugin-platform/shared/definitions";
 import {ModuleNotShared, PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
