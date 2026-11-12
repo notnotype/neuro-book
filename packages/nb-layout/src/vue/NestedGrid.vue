@@ -424,8 +424,8 @@ function placeFloat(id: string, offset: {readonly x: number; readonly y: number}
 }
 
 defineExpose({
-    /** 进行中的过渡直接到终点：宿主马上要量矩形（拖动拿起）。 */
-    settleMotion: (): void => motion.stop(),
+    /** 进行中的过渡直接到终点：宿主马上要量矩形（拖动拿起），或要找按下处的元素（`createDragSession` 的 `settleMotion`）。真有过渡在走时返回真。 */
+    settleMotion: (): boolean => motion.stop(),
     placeLifted,
     placeFloat,
 });

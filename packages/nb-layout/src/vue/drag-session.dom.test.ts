@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import type {DragEnd} from "../drag-gesture";
 import {createDragSession} from "./drag-session";
-import type {DragKeyboardOptions, DragQuery, DragSession} from "./drag-session";
+import type {DragKeyboardOptions, DragQuery, DragSession, DragSessionOptions} from "./drag-session";
 
 /**
  * 会话的 DOM 适配里 happy-dom 看得到的部分（docs/specs/ui/layout-drag.md）：按下的归属、遮挡、取消的来源、按键拦截。
@@ -25,7 +25,7 @@ function pointer(type: string, init: PointerEventInit = {}): PointerEvent {
     return new PointerEvent(type, {bubbles: true, cancelable: true, composed: true, pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, ...init});
 }
 
-function start(options: {readonly keyboard?: DragKeyboardOptions<string, string>} = {}): void {
+function start(options: Partial<Pick<DragSessionOptions<string, Drop, string>, "keyboard" | "settleMotion">> = {}): void {
     session = createDragSession<string, Drop, string>({
         root,
         sourceAt: (target) => (target.closest("[data-source]") === null ? null : "row"),
@@ -69,6 +69,28 @@ describe("输出 2、3：按下与拿起", () => {
         grab();
         expect(session.state.value).toMatchObject({source: "row", point: {x: 10, y: 0}, drop: {key: "a"}, keyboard: false});
         expect(root.hasPointerCapture(1)).toBe(true);
+    });
+
+    it("按下时布局还在过渡：先走到终点，再按坐标找按到的元素（刚放下的面板还在飞，指针下是别的东西）", () => {
+        const field = root.querySelector("#field") as HTMLElement;
+        let settled = 0;
+        // 按下那一刻指针下是输入框；过渡走到终点后，这一点上是来源。
+        Object.assign(document, {elementFromPoint: () => source});
+        start({settleMotion: () => {
+            settled += 1;
+            return true;
+        }});
+        grab(field);
+        expect(settled).toBe(1);
+        expect(session.state.value).toMatchObject({source: "row"});
+    });
+
+    it("没有过渡在走时照旧用按下的元素", () => {
+        const field = root.querySelector("#field") as HTMLElement;
+        Object.assign(document, {elementFromPoint: () => source});
+        start({settleMotion: () => false});
+        grab(field);
+        expect(session.state.value).toBeNull();
     });
 
     it("内层停止传播的按下不起拖（分隔线的命中带）", () => {

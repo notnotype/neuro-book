@@ -25,6 +25,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
     const shown: Array<LayoutDoc | null> = [];
     const placed: GridRect[] = [];
     const collapses: string[] = [];
+    const expansions: string[] = [];
     const sorted: Array<string | null> = [];
     const live = createLiveDrag({
         requestFrame: (run) => {
@@ -45,6 +46,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
         candidateDoc: () => DOC,
         sourceRemovedDoc: () => REMOVED,
         collapseSource: (from) => collapses.push(from.tab),
+        expandSource: (from) => expansions.push(from.tab),
         homeOf: () => "home",
         isHomeStrip: (_from, strip) => strip === "home",
         show: (doc) => shown.push(doc),
@@ -56,11 +58,11 @@ function setup(over: Partial<LiveDragHost> = {}) {
         scheduled = null;
         run?.(now);
     };
-    return {live, frame, shown, placed, collapses, sorted};
+    return {live, frame, shown, placed, collapses, expansions, sorted};
 }
 
 describe("createLiveDrag", () => {
-    it("来源只在第一次落到别处时收起一次：自己的标签条、放回原处不收；离开再回来也不再展开", () => {
+    it("来源落到别处时收起：自己的标签条、放回原处不收；收起着时没有落点再回来，不重复收起", () => {
         const t = setup();
         t.live.begin(SOURCE, {x: 100, y: 10});
         t.live.offer(strip("home", 1));
@@ -97,20 +99,40 @@ describe("createLiveDrag", () => {
         expect(t.live.card.value).toBeNull();
     });
 
-    it("来源收起之后，摆不出来的候选（原位、编辑器会合并）仍是来源收起的样子，不把来源又摆回去；自己标签条里的排序是已提交的样子", () => {
+    it("来源收起之后回到原处（原位）：展开回原位，预览是已提交的样子；再落到别处又收起（输出 38）", () => {
         const t = setup({candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC)});
         t.live.begin(SOURCE, {x: 700, y: 400});
         t.live.offer(CENTER);
         t.frame();
         t.frame(200);
         expect(t.collapses).toEqual([SOURCE.tab]);
-        t.live.offer(dropOf({kind: "edge", target: {kind: "split", panel: "other", edge: "left"}}, true));
+        t.live.offer(dropOf({kind: "edge", target: {kind: "split", panel: "home", edge: "top"}}, true));
         t.frame();
         t.frame(200);
-        expect(t.shown.at(-1)).toBe(REMOVED);
+        expect(t.expansions).toEqual([SOURCE.tab]);
+        expect(t.shown.at(-1)).toBeNull();
+        t.live.offer(CENTER);
+        t.frame();
+        t.frame(200);
+        expect(t.collapses).toEqual([SOURCE.tab, SOURCE.tab]);
+        // 自己标签条里的原位同样是展开。
         t.live.offer(dropOf({kind: "strip", panel: "home", index: 0}, true));
         t.frame();
+        expect(t.expansions).toEqual([SOURCE.tab, SOURCE.tab]);
         expect(t.shown.at(-1)).toBeNull();
+    });
+
+    it("来源收起之后，摆不出来的别处（编辑器会合并或拒绝）仍是来源收起的样子，不展开", () => {
+        const t = setup({candidateDoc: (_from, drop) => (drop.action.kind === "center" ? DOC : null)});
+        t.live.begin(SOURCE, {x: 700, y: 400});
+        t.live.offer(CENTER);
+        t.frame();
+        t.frame(200);
+        t.live.offer(dropOf({kind: "edge", target: {kind: "split", panel: "other", edge: "left"}}));
+        t.frame();
+        t.frame(200);
+        expect(t.expansions).toEqual([]);
+        expect(t.shown.at(-1)).toBe(REMOVED);
     });
 
     it("卡片收回、指针在标签条上时，被拖的标签在吸收它的那条里排序；离开要卡片时放回", () => {

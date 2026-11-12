@@ -184,7 +184,7 @@ test.describe("实时布局", () => {
         expect(await widthOf(page, omega)).toBeCloseTo(previewWidth, 0);
     });
 
-    test("来源是那块面板最后一个视图：落到别处时它收起，指针回到原处也不再展开；Esc 回原样（输出 38）", async ({page}) => {
+    test("来源是那块面板最后一个视图：落到别处时它收起；它原来的位置这时是编辑组，回去不是原位、不展开；Esc 回原样（输出 38）", async ({page}) => {
         await open(page);
         const delta = await sectionOf(page, AUXILIARY_VIEW);
         expect(await headTabsOf(page, delta)).toEqual([`view:${AUXILIARY_VIEW}`]);
@@ -210,6 +210,53 @@ test.describe("实时布局", () => {
         await page.keyboard.press("Escape");
         await page.mouse.up();
         await expect.poll(() => auxiliaryWidth(page)).toBeGreaterThan(100);
+        expect(await writesOf(page)).toBe(writes);
+    });
+
+    test("同一个容器里拖走前一节再回到原处：来源展开回原位、后一节让出位置，松手不写；取消后邻居还在滑回原位时马上按它的标题，照常拿起它（输出 38；ui/layout-drag 输出 2）", async ({page}) => {
+        await open(page);
+        const [A, B] = ["test.sample-views.alpha", "test.sample-views.beta"];
+        // 搭一个两节的容器：乙移进甲的容器，排在甲后面（输出 23）。
+        await page.locator(`[data-tool-entry="view:${B}"]`).click();
+        await tab(page, B).click({button: "right"});
+        await page.getByRole("menu").getByRole("menuitem", {name: "样例甲", exact: true}).click();
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        const [alpha, beta] = [await sectionOf(page, A), await sectionOf(page, B)];
+        await expect(leaf(page, beta)).toHaveCount(1);
+        await settled(page);
+        const [alphaBox, betaBox] = [(await leaf(page, alpha).boundingBox())!, (await leaf(page, beta).boundingBox())!];
+        const betaHead = await centerOf(tab(page, B));
+        const writes = await writesOf(page);
+
+        await lift(page, tab(page, A));
+        // 先落到别处（右栏丁那一节的后半）：来源收起，乙占满这一列。
+        const away = await inLeaf(page, await sectionOf(page, AUXILIARY_VIEW), {x: 0.5, y: 0.8});
+        await page.mouse.move(away.x, away.y, {steps: 8});
+        await expect.poll(async () => (await leaf(page, beta).boundingBox())?.y).toBeLessThan(alphaBox.y + 2);
+        // 回到原处：来源展开回原位，乙让回原来的位置；这是原位，不是落点。
+        await page.mouse.move(alphaBox.x + alphaBox.width / 2, alphaBox.y + alphaBox.height / 2, {steps: 8});
+        await expect(surface(page)).toHaveAttribute("data-live-preview", "in-place");
+        await expect.poll(async () => Math.round((await leaf(page, beta).boundingBox())?.y ?? 0)).toBe(Math.round(betaBox.y));
+        await expect(leaf(page, alpha)).toHaveCount(1);
+        await page.mouse.up();
+        await expect(page.locator("[data-workbench-dragging]")).toHaveCount(0);
+        expect(await writesOf(page)).toBe(writes);
+
+        // 再拖走甲、乙占满这一列，然后取消：乙从上面滑回原位。它还在滑的时候马上按乙的标题原来的位置：按下先走到终点，拿起的是乙。
+        await lift(page, tab(page, A));
+        await page.mouse.move(away.x, away.y, {steps: 8});
+        await expect.poll(async () => (await leaf(page, beta).boundingBox())?.y).toBeLessThan(alphaBox.y + 2);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await page.mouse.move(betaHead.x, betaHead.y);
+        const sliding = await page.evaluate(() => document.querySelector("[data-workbench-surface] [data-moving]") !== null);
+        await page.mouse.down();
+        await page.mouse.move(betaHead.x + 10, betaHead.y + 10, {steps: 2});
+        expect(sliding).toBe(true);
+        await expect(surface(page)).toHaveAttribute("data-drag-feel", "live");
+        await expect(page.locator(`[data-lifted][data-content="view:${B}"]`)).toHaveCount(1);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
         expect(await writesOf(page)).toBe(writes);
     });
 

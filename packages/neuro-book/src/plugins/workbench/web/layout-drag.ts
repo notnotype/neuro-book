@@ -86,8 +86,8 @@ export interface LayoutDragOptions {
     feel(): "live" | "indicator";
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）。 */
     cardShrink(): "strip" | "panel";
-    /** 把进行中的过渡直接送到终点：拿起后要量矩形。 */
-    settleMotion(): void;
+    /** 把进行中的过渡直接送到终点：拿起后要量矩形，按下时要找指针下的元素。真有过渡在走时返回真。 */
+    settleMotion(): boolean;
     /** 摆预览；null 回到已提交的布局。 */
     showPreview(doc: LayoutDoc | null): void;
     /** 写拿起的内容项的矩形（相对网格根）。跟手的东西直接写元素，不走渲染。 */
@@ -159,6 +159,13 @@ const FILE_SOURCE: LayoutDropSource = {kind: "new", tab: {kind: "tab", type: EDI
 /** 按整数比：亚像素的抖动不算容器变了。 */
 const extentKey = (extent: GridExtent | null): string => (extent === null ? "" : `${String(Math.round(extent.width))}x${String(Math.round(extent.height))}`);
 
+/** 实时布局判定用的矩形（`frozen`）：拿起后量一次，收起与展开来源时换一份。 */
+interface FrozenGeometry {
+    readonly geometry: DragGeometry;
+    readonly strips: ReadonlyMap<string, TabStripSnapshot>;
+    readonly bar: ReadonlyArray<BarEntryRect>;
+}
+
 export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const {root} = options;
     const surface = (): HTMLElement | null => root.querySelector("[data-workbench-surface]");
@@ -167,11 +174,13 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     /** 预览是按这份文档算的：一场拖动中文档被命令改了（快捷键移动视图），缓存作废。 */
     let previewsOf: LayoutDoc | null = null;
     /** 实时布局判定用的矩形：拿起后第一次判定时量。之后邻居在让位，读 DOM 的话预览会把自己换掉。落点指示每次现量（`geometry`）。 */
-    let frozen: {readonly geometry: DragGeometry; readonly strips: ReadonlyMap<string, TabStripSnapshot>; readonly bar: ReadonlyArray<BarEntryRect>} | null = null;
+    let frozen: FrozenGeometry | null = null;
     /** 这一场新建容器要用的 id（输出 45）：拿起时定，落点每帧比较，判定一次换一个的话落点永远不稳定。 */
     let newContainer = "";
-    /** 这一场来源已经收起（`collapseSource`）：之后判定用的是收起后的几何，预览也不能再把来源摆回来。拿起时清掉。 */
+    /** 来源此刻收起着（`collapseSource`）：判定用的是收起后的几何，预览不能把来源摆回来。展开（`expandSource`）、拿起时清掉。 */
     let sourceCollapsed = false;
+    /** 收起前的判定几何：回到原处展开时换回它（输出 38）。 */
+    let beforeCollapse: FrozenGeometry | null = null;
     /** 这一场是整窗拖动：抓住的点相对窗的偏移；窗拿起时呈现的位置与大小（夹位置用）；记录里的大小（提交用：夹取不写回）。 */
     let windowDrag: {readonly panel: string; readonly grab: GridDropPoint; readonly origin: GridDropPoint; readonly from: GridDropPoint; readonly shown: GridExtent; readonly size: GridExtent} | null = null;
 
@@ -219,11 +228,21 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         collapseSource: (source, drop) => {
             const result = removeTab(options.doc(), source.tab);
             if (!result.ok || frozen === null) return;
+            beforeCollapse = frozen;
             frozen = collapsed(frozen, options.doc(), result.doc, source);
             sourceCollapsed = true;
             // 预览缓存里并入的矩形是按旧几何算的。
             previews.clear();
             // 照 Trellis：指针再动才按收起后的布局重判。收起时指针下的落点留着，松手（按指针下重判）还是屏幕上这个。
+            held = {point: session.state.value?.point ?? null, drop};
+        },
+        expandSource: (_source, drop) => {
+            if (beforeCollapse === null) return;
+            frozen = beforeCollapse;
+            beforeCollapse = null;
+            sourceCollapsed = false;
+            previews.clear();
+            // 同收起：指针再动才按拿起时的布局重判，这之前松手还是屏幕上的原位。
             held = {point: session.state.value?.point ?? null, drop};
         },
         homeOf: (source) => findTab(options.doc(), source.tab)?.panel ?? null,
@@ -481,10 +500,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
 
     /**
      * 来源收起之后判定用的几何（输出 38）：按收起后的文档算每块面板挪到哪，不读 DOM，预览怎么摆都不变，判定和预览不会互相牵着来回换。
-     * 拿起时量的卡片、头、标签条和面板之间的内外边距不变，所以每块面板按它在两份文档里的矩形差平移、伸缩。收起后不在的面板（来源是它最后一个标签）不再是落点，
-     * 来源不会因为指针回到原处又展开。
+     * 拿起时量的卡片、头、标签条和面板之间的内外边距不变，所以每块面板按它在两份文档里的矩形差平移、伸缩。收起后不在的面板（来源是它最后一个标签）不再是落点；
+     * 回到原处时 `expandSource` 换回拿起时的几何。
      */
-    function collapsed(kept: NonNullable<typeof frozen>, doc: LayoutDoc, base: LayoutDoc, source: LayoutTabSource): NonNullable<typeof frozen> {
+    function collapsed(kept: FrozenGeometry, doc: LayoutDoc, base: LayoutDoc, source: LayoutTabSource): FrozenGeometry {
         const extent = options.extent();
         if (extent === null) return kept;
         const ids = treeLeaves(doc.tree.root).map((leaf) => leaf.id);
@@ -799,6 +818,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const session = createDragSession<WorkbenchDragSource, LayoutDragDrop, KeyboardRegion>({
         root,
         sourceAt,
+        // 刚放下、刚切换容器时外框还在飞：按下先走到终点，拿起的才是指针下那个（不然松手后马上再拖会落空）。
+        settleMotion: () => options.settleMotion(),
         activate: (source, keyboard, at) => {
             previews.clear();
             sortGrab = null;
@@ -806,6 +827,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             shownDrop = null;
             shownDropKey = "";
             frozen = null;
+            beforeCollapse = null;
             sourceCollapsed = false;
             windowDrag = null;
             newContainer = `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`;
@@ -861,6 +883,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             // 放下、取消、中止都经过这里，并且先于提交：撤预览和提交在同一个同步段，不闪。
             live.end();
             frozen = null;
+            beforeCollapse = null;
             if (windowDrag !== null) options.placeFloat(windowDrag.panel, null);
             windowDrag = null;
             options.markFloatMove(null);

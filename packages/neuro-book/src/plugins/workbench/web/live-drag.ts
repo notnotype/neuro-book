@@ -3,7 +3,8 @@
  *
  * 一帧的顺序固定：先让手势判定（读 DOM），再换预览，最后写卡片。写在读前面的话，判定里的 `elementsFromPoint` 每帧要强制重算一次样式。卡片的矩形每帧变，直接写在元素上，不进响应式；响应式的东西一场只变几次到几十次。
  *
- * 判定的几何照 Trellis：拿起时量一份；第一次落到别处时来源收起，之后按收起后的布局判（`collapseSource`），来源不再展开，预览怎么摆判定都不跟着变。
+ * 判定的几何：拿起时量一份；第一次落到别处时来源收起，之后按收起后的布局判（`collapseSource`），预览怎么摆判定都不跟着变。回到原处（放下去是原样）时来源展开，
+ * 判定换回拿起时的那份（`expandSource`）；再落到别处又收起（输出 38）。
  *
  * 预览只是一份给渲染用的文档（store 的 `setLivePreview`），不写记录，不改可见性。撤预览由 `end` 做：手势的收场顺序里它先于提交，同一个同步段不渲染，不闪。
  */
@@ -50,8 +51,10 @@ export interface LiveDragHost {
     candidateDoc(source: LayoutTabSource, drop: LayoutDragDrop): LayoutDoc | null;
     /** 摘掉来源后的文档。 */
     sourceRemovedDoc(source: LayoutTabSource): LayoutDoc | null;
-    /** 来源收起了：之后按收起后的布局判定（输出 38）。一场至多一次，收起就不再展开。`drop` 是收起时屏幕上的落点（来源收起的预览是 null），指针再动之前一直是它。 */
+    /** 来源收起了：之后按收起后的布局判定（输出 38）。`drop` 是收起时屏幕上的落点（来源收起的预览是 null），指针再动之前一直是它。 */
     collapseSource(source: LayoutTabSource, drop: LayoutDragDrop | null): void;
+    /** 回到原处，来源展开回原位：判定换回拿起时的布局（输出 38）。`drop` 是这一刻屏幕上的落点（原位），指针再动之前一直是它。 */
+    expandSource(source: LayoutTabSource, drop: LayoutDragDrop): void;
     /** 来源在已提交的文档里所在的面板。 */
     homeOf(source: LayoutTabSource): string | null;
     /**
@@ -107,7 +110,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     let homeRect: GridDropRect | null | undefined;
     /** 已经吸收来源的标签条是哪块面板的：预览摆着它（或它本来就在那里）。 */
     let absorbedIn: string | null = null;
-    /** 来源已经收起：第一次摆别处的落点（或来源收起的预览）时收起，这一场不再展开。 */
+    /** 来源此刻收起着：摆别处的落点（或来源收起的预览）时收起，回到原处时展开。 */
     let collapsed = false;
     let lastFrame = 0;
     let state: LiveDropState = initialLiveDrop(0);
@@ -185,6 +188,11 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             collapsed = true;
             host.collapseSource(from, preview.kind === "candidate" ? offered : null);
         }
+        // 回到原处（放下去是原样）：来源展开回原位，判定换回拿起时的布局，预览就是已提交的样子（输出 38）。
+        if (collapsed && preview.kind === "candidate" && offered !== null && offered.inPlace) {
+            collapsed = false;
+            host.expandSource(from, offered);
+        }
         if (preview.kind === "candidate") {
             shown = offered;
             previewKey.value = preview.key;
@@ -192,10 +200,8 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             // 摆不出来（原位、编辑器会合并或拒绝）就没有预览，盖层看它。
             shownAction.value = doc === null ? null : (offered?.action ?? null);
             absorbedIn = offered !== null && (offered.inPlace || doc !== null) ? stripOf(offered.action) : null;
-            // 来源收起之后，摆不出来的（原位、编辑器会合并）仍是来源收起的样子：已提交的文档里来源还在原处，换回它就是又展开。
-            // 只有在自己的标签条里排序是已提交的样子：那块面板还在，来源就在它的标签条里。
-            const sorting = offered !== null && offered.inPlace && stripOf(offered.action) !== null;
-            host.show(doc ?? (collapsed && !sorting ? host.sourceRemovedDoc(from) : null));
+            // 来源收起着时，摆不出来的（编辑器会合并或拒绝）仍是来源收起的样子：已提交的文档里来源还在原处，换回它就是又展开。原位走上面的展开。
+            host.show(doc ?? (collapsed ? host.sourceRemovedDoc(from) : null));
         } else if (preview.kind === "source-removed") {
             shown = null;
             previewKey.value = "source-removed";

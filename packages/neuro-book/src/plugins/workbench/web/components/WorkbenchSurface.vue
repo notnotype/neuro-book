@@ -245,7 +245,7 @@ const actionsShownOn = (panel: string): boolean => pointerPanel.value === panel 
 
 defineExpose({
     /** 进行中的过渡直接到终点（拖动拿起后要量矩形）。 */
-    settleMotion: (): void => gridEl.value?.settleMotion(),
+    settleMotion: (): boolean => gridEl.value?.settleMotion() ?? false,
     /** 写拿起的内容项的矩形：跟手，不走渲染。 */
     placeLifted: (rect: GridRect): void => gridEl.value?.placeLifted(rect),
     /** 拖动中挪窗：跟手，不走渲染。`null` 回到原处。 */

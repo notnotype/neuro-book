@@ -81,8 +81,8 @@ type Slots = {
 };
 
 type Expose = {
-    /** 进行中的过渡直接到终点（拖动拿起后要量矩形）。 */
-    settleMotion(): void;
+    /** 进行中的过渡直接到终点（拖动拿起后要量矩形、按下时要找指针下的元素）；真有过渡在走时返回 true。 */
+    settleMotion(): boolean;
     /** 写拿起的内容项的矩形（相对网格根）：跟手，不走渲染。 */
     placeLifted(rect: GridRect): void;
     /** 拖动中挪窗；`null` 回到原处。跟手，不走渲染。 */

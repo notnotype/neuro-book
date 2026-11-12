@@ -474,7 +474,7 @@ onMounted(() => {
         sectors: () => props.dropSectors !== false,
         feel: () => props.dragFeel ?? "live",
         cardShrink: () => props.dragCardShrink ?? "strip",
-        settleMotion: () => surface.value?.settleMotion(),
+        settleMotion: () => surface.value?.settleMotion() ?? false,
         showPreview: (next) => props.layout.actions.setLivePreview(next),
         placeCard: (rect) => surface.value?.placeLifted(rect),
         moveGhost: (point) => feedback.value?.moveGhost(point),
