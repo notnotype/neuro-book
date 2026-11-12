@@ -287,7 +287,7 @@ describe("包内依赖方向", () => {
             use("../plugin-sdk/examples/plugins/notes/web/plugin.ts", "../shared/contracts"),
             use("plugins/files/backend/rooted.ts", "@notnotype/nb-file-lock"),
             use("plugins/files/shared/contracts.ts", "@notnotype/nb-host/socket"),
-            use("web/host/connection.ts", "@notnotype/nb-host/socket"),
+            use("web/host/connection.ts", "@notnotype/nb-host/web"),
             use("server/start.ts", "@notnotype/nb-host/socket"),
         ])).toEqual([]);
 

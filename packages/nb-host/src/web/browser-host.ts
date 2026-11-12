@@ -6,10 +6,9 @@
  * 同一页面的多个实例按 instanceId 隔离；释放一个实例不向服务端发送全局停止。
  */
 
-import {createInstanceTable, stopTimeout} from "@notnotype/nb-runtime/application";
+import {createApplication, createInstanceTable, stopTimeout} from "@notnotype/nb-runtime/application";
 import type {Application, ApplicationManifest, EmergencyReport, StopResult} from "@notnotype/nb-runtime/application";
-
-import {createApplication} from "nbook/application";
+import type {PluginPlatform} from "@notnotype/nb-runtime/plugins";
 
 /** 适配器需要的最小页面事件接口；浏览器里传 `window`。 */
 export interface PageLifecycleTarget {
@@ -21,7 +20,10 @@ export interface BrowserHostOptions {
     readonly instanceId: string;
     /** 客户端身份（`client-identity.ts`）：进入实例身份，本窗口插件的调用方身份都带它（runtime.services 输出第 11 条）。 */
     readonly client?: string;
-    readonly manifest: ApplicationManifest;
+    /** 清单不带平台档案：档案由下面的 `platform` 给，放在清单之后，清单覆盖不了它。 */
+    readonly manifest: Omit<ApplicationManifest, "platform">;
+    /** 应用的平台档案，必填：漏传时内置插件不在自己 id 之下的贡献会被拒，界面少东西却没有类型错误。 */
+    readonly platform: PluginPlatform;
     readonly page: PageLifecycleTarget;
     readonly emergency: (report: EmergencyReport) => void;
     /** 显式销毁的有界等待（毫秒），超时后停止结算为 `incomplete(deadline)`；缺省不设界。 */
@@ -56,7 +58,7 @@ class BrowserHostImpl implements BrowserHost {
                 stopDeadline: options.stopTimeoutMs === undefined ? undefined : stopTimeout(options.stopTimeoutMs),
                 emergency: options.emergency,
             },
-            options.manifest,
+            {...options.manifest, platform: options.platform},
         );
         // 无论由销毁、卸载还是启动失败触发，停止结算后都移除监听，之后的页面事件不再触碰该实例。
         void this.application.stopped.then(() => this.#detach());

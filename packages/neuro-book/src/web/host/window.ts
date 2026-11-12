@@ -10,7 +10,8 @@
  * 不依赖 Vue 与 DOM：连接对象、页面事件目标、console 与时钟由装配方传入，界面经 `onChange` 订阅状态。
  */
 
-import type {DiagnosticsConsole} from "@notnotype/nb-host/web";
+import {BrowserRuntimeHost, ConnectionError, createRemoteSession} from "@notnotype/nb-host/web";
+import type {BrowserHost, DiagnosticsConsole, PageLifecycleTarget, RemoteSession, RpcEndpoint} from "@notnotype/nb-host/web";
 import type {StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticInput, DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -24,7 +25,7 @@ import {Value} from "typebox/value";
 
 import {definitionAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
-import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
+import {manifestFormat, NEUROBOOK_PLATFORM, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {thirdPartyDefinitionsFor} from "nbook/plugin-platform/shared/definitions";
 import {pluginCatalogUrl, pluginFileUrl} from "nbook/plugin-platform/shared/plugin-files";
 import type {PluginProblem} from "nbook/plugin-platform/shared/types";
@@ -48,14 +49,10 @@ import type {WindowProject} from "nbook/shared/projects";
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins, isBrowserHostPlugin} from "../plugins";
 import {builtinPluginAssets, builtinPluginCatalogs} from "../plugins";
 import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext, BuiltinCatalogs} from "../plugins";
-import {BrowserRuntimeHost} from "./browser-host";
-import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
-import {ConnectionError} from "./connection";
-import type {Connection, RpcEndpoint} from "./connection";
-import {createRemoteSession} from "./remote-session";
+import type {Connection} from "./connection";
+import {refreshEndpoint} from "./endpoint-refresh";
 import {createHostTextEngine} from "./text-engine";
 import {createWindowPlugins} from "./window-plugins";
-import type {RemoteSession} from "./remote-session";
 
 /** `connection-failed` 与 `project-unavailable` 可以原地重试；其余要刷新页面。 */
 export type WindowFailure = "connection-failed" | "project-unavailable" | "incompatible" | "startup-failed" | "server-restarted" | "project-gone";
@@ -212,7 +209,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             observer: {diagnosticRecorded: (diagnostic) => store.record({level: "warn", event: `remote.${diagnostic.reason}`, message: "远程服务诊断", data: diagnostic})},
         });
         const current = createRemoteSession({
-            connection: options.connection,
+            openRemote: (target) => options.connection.openRemote(target),
+            refreshEndpoint: (signal) => refreshEndpoint(options.connection, signal),
             node,
             clock,
             onState: (next, reason) => {
@@ -281,6 +279,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             host = adapter.start({
                 instanceId,
                 client: clientIdentity,
+                platform: NEUROBOOK_PLATFORM,
                 page: options.page,
                 emergency: recordingEmergency(store, (report) => {
                     Reflect.apply(options.console.error, options.console, [JSON.stringify({emergency: report})]);

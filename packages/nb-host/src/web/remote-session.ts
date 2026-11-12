@@ -1,18 +1,15 @@
 /**
  * 窗口与服务端之间的远程服务链路：首连，以及断线后的退避重连（runtime.browser-host 的“断线与重连”）。
  *
- * 每次重连先重新取引导：服务端重启后 RPC 端口可能变了。连回同一服务端进程（绑定了项目时还是同一项目代次）时
- * 内核节点重建订阅并调用 `onResync`；服务端已换进程、绑定的项目代次已结束或 wire 版本不一致时停止重连，由窗口
- * 要求刷新。退避按注入时钟计时。
+ * 每次重连先经应用的 `refreshEndpoint` 重新取端点：服务端重启后 RPC 端口可能变了。连回同一服务端进程（绑定了项目时还是
+ * 同一项目代次）时内核节点重建订阅并调用 `onResync`；服务端已换进程、绑定的项目代次已结束、wire 版本不一致，或应用判定
+ * 不兼容时停止重连，由应用丢弃这个窗口实例重建。退避按注入时钟计时。
  */
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RemoteLink, RemoteNode} from "@notnotype/nb-runtime/remote";
-import {Value} from "typebox/value";
 
-import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
-
-import type {Connection, RpcEndpoint} from "./connection";
+import type {RpcEndpoint} from "./rpc-socket";
 
 /** 断线后第 1–5 次重连前的等待；之后每次等 `STEADY_RETRY_MS`。 */
 const RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000];
@@ -24,8 +21,18 @@ export type RemoteSessionState = "online" | "offline" | "server-restarted" | "pr
 /** 首连失败：`project-unavailable` 是握手时打不开要绑定的项目，与连接失败一样可以原地重试。 */
 export type FirstConnectResult = {readonly ok: true} | {readonly ok: false; readonly failure: "connection-failed" | "incompatible" | "project-unavailable"; readonly reason: string};
 
+/**
+ * 一次重取端点的结果：端点、应用判定的不兼容（终态，原因由应用写），或这次没取到、下一次再试（原因交 `onRetryFailed`）。
+ */
+export type EndpointRefresh = RpcEndpoint | {readonly incompatible: string} | {readonly retry: string};
+
 export interface RemoteSessionOptions {
-    readonly connection: Connection;
+    /** 打开 RPC 端口的链路；没能打开时拒绝。浏览器里是绑定了页面地址的 `openRpcSocket`。 */
+    readonly openRemote: (endpoint: RpcEndpoint) => Promise<RemoteLink>;
+    /**
+     * 应用实现：取引导、核协议版本与结构。不得抛错；中止或失败交回 `retry`。`close()` 时 `signal` 中止，之后的结果被丢弃。
+     */
+    readonly refreshEndpoint: (signal: AbortSignal) => Promise<EndpointRefresh>;
     readonly node: RemoteNode;
     readonly clock: RuntimeClock;
     /** 首连成功之后的状态变化；每次变化调用一次。 */
@@ -50,11 +57,13 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
     let link: RemoteLink | null = null;
     let retries = 0;
     let cancelRetry: () => void = () => undefined;
+    /** 在途的重取端点；`close()` 中止它。 */
+    let refreshing: AbortController | null = null;
 
     const connectOnce = async (endpoint: RpcEndpoint): Promise<Attempt> => {
         let opened: RemoteLink;
         try {
-            opened = await options.connection.openRemote(endpoint);
+            opened = await options.openRemote(endpoint);
         } catch (error) {
             return {kind: "failed", reason: describe(error)};
         }
@@ -99,7 +108,8 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
         retries += 1;
         cancelRetry = options.clock.schedule(() => {
             void retry().catch((error: unknown) => {
-                // 重连里的意外异常同样按一次失败处理，记下原因后继续退避。
+                // 重连里的意外异常（例如 refreshEndpoint 违约抛错）同样按一次失败处理，记下原因后继续退避；关闭之后不再记。
+                if (closed) return;
                 options.onRetryFailed?.(`重连出错：${describe(error)}`);
                 scheduleRetry();
             });
@@ -108,17 +118,26 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
 
     const retry = async (): Promise<void> => {
         if (closed) return;
-        const endpoint = await refreshEndpoint();
+        const controller = new AbortController();
+        refreshing = controller;
+        let refreshed: EndpointRefresh;
+        try {
+            refreshed = await options.refreshEndpoint(controller.signal);
+        } finally {
+            if (refreshing === controller) refreshing = null;
+        }
         if (closed) return;
-        if (endpoint === "incompatible") {
-            options.onState("incompatible", `服务端的引导协议版本已不是 ${String(BROWSER_PROTOCOL_VERSION)}`);
+        if ("incompatible" in refreshed) {
+            options.onState("incompatible", refreshed.incompatible);
             return;
         }
-        if (endpoint === null) {
+        if ("retry" in refreshed) {
+            // 服务端暂时不可达（正在重启、网络中断）或响应不对，正是重连要等的情况，下一次再取。
+            options.onRetryFailed?.(refreshed.retry);
             scheduleRetry();
             return;
         }
-        const attempt = await connectOnce(endpoint);
+        const attempt = await connectOnce(refreshed);
         if (closed) return;
         switch (attempt.kind) {
             case "online":
@@ -137,23 +156,6 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
                 scheduleRetry();
                 return;
         }
-    };
-
-    /** 重新取引导，读出 RPC 端点；服务端还没起来或响应不对时返回 null，下一次再试。 */
-    const refreshEndpoint = async (): Promise<RpcEndpoint | "incompatible" | null> => {
-        let raw: unknown;
-        try {
-            raw = await options.connection.bootstrap();
-        } catch (error) {
-            // 服务端暂时不可达（正在重启、网络中断）正是重连要等的情况，下一次再取。
-            options.onRetryFailed?.(describe(error));
-            return null;
-        }
-        const version = declaredProtocolVersion(raw);
-        if (version !== null && version !== BROWSER_PROTOCOL_VERSION) return "incompatible";
-        if (Value.Check(BrowserBootstrapSchema, raw)) return raw.rpc;
-        options.onRetryFailed?.("引导响应的结构不符合协议");
-        return null;
     };
 
     return {
@@ -178,6 +180,8 @@ export function createRemoteSession(options: RemoteSessionOptions): RemoteSessio
             if (closed) return;
             closed = true;
             cancelRetry();
+            refreshing?.abort();
+            refreshing = null;
             link?.close();
             link = null;
         },
