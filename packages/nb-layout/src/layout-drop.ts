@@ -8,8 +8,8 @@
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import {placeGrid} from "./grid-rects";
 import {createGrid} from "./grid";
-import {edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, setFloatRect, showPanelAndInsert, tabKey, treeLeaves} from "./layout-doc";
-import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelRecord, TabRef} from "./layout-doc";
+import {edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isNodeShown, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, REGION_ORIENTATION, sectionRegionOf, setFloatRect, showPanelAndInsert, tabKey, treeLeaves} from "./layout-doc";
+import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelName, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridExtent, GridOrientation, GridSnapshotNode} from "./grid-types";
@@ -85,10 +85,42 @@ export function sourceTabs(doc: LayoutDoc, source: LayoutDropSource): ReadonlyAr
     return found === null ? [] : [found.tab];
 }
 
-function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, panel: PanelRecord, tabs: ReadonlyArray<TabRef>): LayoutDropAction | null {
-    // 交界那一行算正文：标签条要真的在里面，或者指针在缝上且离标签条更近。
+/** 交界那一行算正文：标签条要真的在里面，或者指针在缝上且离标签条更近。 */
+const onStrip = (geometry: LayoutDropPanelGeometry, point: GridDropPoint): boolean => {
     const strip = geometry.strip;
-    if (strip !== null && (contains(strip, input.point) || (!contains(geometry.body, input.point) && distanceTo(strip, input.point) < distanceTo(geometry.body, input.point)))) {
+    return strip !== null && (contains(strip, point) || (!contains(geometry.body, point) && distanceTo(strip, point) < distanceTo(geometry.body, point)));
+};
+
+/**
+ * 分节按前后两半判的那几种拖动；不是时 null。整窗拖动不按两半：窗停靠到分节上只有缝与沿区域方向两端的窄带（输出 39），走原来的窄带规则，标题行也不是插入位。
+ */
+const halvesRegion = (input: Pick<LayoutDropInput, "doc" | "noCenter">, panel: string): PanelName | null => (input.noCenter === true ? null : sectionRegionOf(input.doc, panel));
+
+/** 分节的前、后两半各是哪条边：沿区域的方向（侧栏、右栏是上下，底部面板是左右）。 */
+const sectionEdges = (region: PanelName): readonly [LayoutEdge, LayoutEdge] => (REGION_ORIENTATION[region] === "vertical" ? ["top", "bottom"] : ["left", "right"]);
+
+/**
+ * 分节的落点（docs/specs/ui/workbench-layout.md 输出 25 第 7 行）：标题行算前半，正文按自己的中线分前后两半，落在哪半就在它前面或后面插一个新分节。没有外缘窄带、没有中央。
+ * 正文按自己的中线分而不是按整块（标题行加正文）分：分区画在正文上（`layoutDropSectors`），两边要同一条线。收成标题行的分节正文零面积，整块都是前半。
+ * 新分节的归属不在这里点名：落在显示着的分节旁边，它的容器就是区域的当前容器，库按当前容器写（`settleLanding`）。
+ */
+function sectionHalf(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, panel: PanelRecord, tabs: ReadonlyArray<TabRef>, region: PanelName): LayoutDropAction | null {
+    if (!input.policy.accepts(tabs, panel, "edge")) return null;
+    const {body} = geometry;
+    const vertical = REGION_ORIENTATION[region] === "vertical";
+    const back = !onStrip(geometry, input.point) && hasArea(body) && (vertical ? input.point.y >= (body.top + body.bottom) / 2 : input.point.x >= (body.left + body.right) / 2);
+    const [before, after] = sectionEdges(region);
+    const target = edgeTargetFor(input.policy, input.doc, tabs, geometry.id, back ? after : before);
+    return target === null ? null : {kind: "edge", target};
+}
+
+function resolveInPanel(input: LayoutDropInput, geometry: LayoutDropPanelGeometry, panel: PanelRecord, tabs: ReadonlyArray<TabRef>): LayoutDropAction | null {
+    const region = halvesRegion(input, geometry.id);
+    if (region !== null) return sectionHalf(input, geometry, panel, tabs, region);
+    const strip = geometry.strip;
+    // 整窗拖动经过分节：分节没有标签条（输出 39），标题行按正文的上沿判。
+    const stripTarget = strip !== null && !(input.noCenter === true && sectionRegionOf(input.doc, geometry.id) !== null);
+    if (stripTarget && onStrip(geometry, input.point)) {
         if (!input.policy.accepts(tabs, panel, "strip")) return null;
         return {kind: "strip", panel: geometry.id, index: geometry.insertionAt?.(input.point) ?? panel.tabs.length};
     }
@@ -271,6 +303,8 @@ export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPa
     const panel = input.doc.panels[geometry.id];
     if (panel === undefined || !hasArea(geometry.body)) return null;
     const tabs = sourceTabs(input.doc, input.source);
+    const region = halvesRegion(input, geometry.id);
+    if (region !== null) return sectionSectors(input, geometry.id, panel, tabs, region);
     const centerAction: LayoutDropAction = {kind: "center", panel: geometry.id};
     const takesCenter = input.noCenter !== true && input.policy.accepts(tabs, panel, "center");
     if (panel.tabs.length === 0 && takesCenter) return [{id: "center", points: [[0, 0], [1, 0], [1, 1], [0, 1]], action: centerAction}];
@@ -297,6 +331,21 @@ export function layoutDropSectors(input: LayoutDropInput, geometry: LayoutDropPa
         const [x0, x1, y0, y1] = [left || banded ? near : 0, right || banded ? far : 1, top || banded ? near : 0, bottom || banded ? far : 1];
         sectors.push({id: "center", points: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], action: centerAction});
     }
+    return sectors.length === 0 ? null : sectors;
+}
+
+/** 分节上的分区：前后两块，按正文的中线分，和 `sectionHalf` 同一条线；标题行不在正文里，不画（它算前半）。 */
+function sectionSectors(input: LayoutDropInput, panelId: string, panel: PanelRecord, tabs: ReadonlyArray<TabRef>, region: PanelName): ReadonlyArray<LayoutDropSector> | null {
+    if (!input.policy.accepts(tabs, panel, "edge")) return null;
+    const vertical = REGION_ORIENTATION[region] === "vertical";
+    const [before, after] = sectionEdges(region);
+    const halves: ReadonlyArray<readonly [LayoutEdge, ReadonlyArray<readonly [number, number]>]> = vertical
+        ? [[before, [[0, 0], [1, 0], [1, 0.5], [0, 0.5]]], [after, [[0, 0.5], [1, 0.5], [1, 1], [0, 1]]]]
+        : [[before, [[0, 0], [0.5, 0], [0.5, 1], [0, 1]]], [after, [[0.5, 0], [1, 0], [1, 1], [0.5, 1]]]];
+    const sectors = halves.flatMap(([edge, points]): LayoutDropSector[] => {
+        const target = edgeTargetFor(input.policy, input.doc, tabs, panelId, edge);
+        return target === null ? [] : [{id: edge, points, action: {kind: "edge", target}}];
+    });
     return sectors.length === 0 ? null : sectors;
 }
 
@@ -426,6 +475,16 @@ export function enumerateDropCandidates(input: {
     for (const leaf of treeLeaves(doc.tree.root)) {
         const panel = doc.panels[leaf.id];
         if (panel === undefined || !isNodeShown(doc, leaf)) continue;
+        // 分节上只有前后两个位置（输出 31），和指针的两半同一套（`sectionHalf`）。
+        const region = sectionRegionOf(doc, leaf.id);
+        if (region !== null) {
+            if (!policy.accepts(tabs, panel, "edge")) continue;
+            for (const edge of sectionEdges(region)) {
+                const target = edgeTargetFor(policy, doc, tabs, leaf.id, edge);
+                if (target !== null) add(leaf.id, {kind: "edge", target});
+            }
+            continue;
+        }
         if (policy.accepts(tabs, panel, "strip")) for (const index of input.stripIndexes(leaf.id)) add(leaf.id, {kind: "strip", panel: leaf.id, index});
         if (policy.accepts(tabs, panel, "center")) add(leaf.id, {kind: "center", panel: leaf.id});
         // 接受中央的空面板整块都是中央（`resolveInPanel`）：边上没有另外的落点。

@@ -134,7 +134,8 @@ test.describe("拖动的每帧开销", () => {
         test.setTimeout(120_000);
         await page.emulateMedia({reducedMotion: "no-preference"});
         const cdp = await openBook(page);
-        await lift(page, page.locator("[data-panel-head='sidebar'] [data-panel-tab]").first());
+        // 侧栏是“项目”容器的分节，拖资源管理器那一节的标题。
+        await lift(page, page.locator("[data-panel-tab=\"view:nbook.explorer\"]"));
         const body = await page.locator("[data-editor-group-active]").boundingBox();
         if (body === null) throw new Error("没有编辑组");
         const at = {x: body.x + body.width * 0.5, y: body.y + body.height * 0.5};

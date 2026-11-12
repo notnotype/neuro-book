@@ -6,7 +6,7 @@ import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 import {findTab, findTreeNode, isFloating, isPanelShown, isSectionCollapsed, layoutDropKey, regionOf, sectionCollapseBlock, tabKey, treeLeaves} from "@notnotype/nb-layout";
-import type {GridExtent, LayoutDoc, LayoutSource} from "@notnotype/nb-layout";
+import type {GridExtent, LayoutDoc} from "@notnotype/nb-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
@@ -36,6 +36,7 @@ import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {presentDrag} from "../drag-presentation";
 import {createLayoutDrag} from "../layout-drag";
 import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
+import type {WorkbenchDragSource} from "../entry-drop";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
 import type {EditorAreaContext, EditorTabDrag, PanelFrameControl} from "../contracts";
@@ -502,9 +503,13 @@ const fileDropHost: WorkbenchFileDropHost = {
 };
 useDropTarget(hostEl, [WORKBENCH_FILE_DROP], () => fileDropHost);
 
-function ghostOf(source: LayoutSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
+function ghostOf(source: WorkbenchDragSource): {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null {
     // 整窗本身就在跟手，没有拖影。
     if (source.kind === "panel") return null;
+    if (source.kind === "container") {
+        const entry = toolEntries.value.find((item) => item.id === source.container);
+        return entry === undefined ? null : {label: entry.label, ...(entry.icon === null ? {} : {icon: entry.icon})};
+    }
     const editorTab = editorTabIdOf(source.tab);
     if (editorTab !== null) return editorTabs.value?.ghost(editorTab) ?? null;
     const viewId = viewIdOf(source.tab);
@@ -529,10 +534,11 @@ const dragView = computed(() => presentDrag({
 const dragPlaceholder = computed(() => dragView.value.placeholder);
 const dragSlotPanel = computed(() => dragView.value.slotPanel);
 const mergeTarget = computed(() => dragView.value.mergeTarget);
+const mergeEntry = computed(() => dragView.value.mergeEntry);
 const feedbackSectors = computed(() => dragView.value.feedbackSectors);
 const feedbackPreview = computed(() => {
     const {preview} = dragView.value.feedback;
-    return preview === null ? null : {...preview, entryRect: null};
+    return preview === null ? null : {...preview, entryRect: preview.entryRect ?? null};
 });
 const feedbackKind = computed(() => dragView.value.feedback.kind);
 const feedbackLabel = computed(() => {
@@ -576,6 +582,9 @@ const slotStyle = computed(() => {
 function dropLabel(drop: LayoutDragDrop): string {
     if (drop.inPlace) return message("shell.drop.inPlace");
     const {action} = drop;
+    if (action.kind === "new-container") return message("shell.drop.newContainer");
+    if (action.kind === "move-entry") return message("shell.drop.insert");
+    if (action.kind === "join-container") return message("shell.drop.joinContainer", {part: toolEntries.value.find((entry) => entry.id === action.container)?.label ?? action.container});
     if (action.kind === "reveal") return message("shell.drop.reveal", {part: text(panelTitle(doc.value, catalog.value, action.panel))});
     if (action.kind === "strip") return message("shell.drop.insert");
     if (action.kind === "center") return message("shell.drop.addTab");
@@ -652,6 +661,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :more-label="message('common.more')"
                         :entries="toolEntries"
                         :placeholder="toolPlaceholder"
+                        :highlighted="mergeEntry"
                         :items="stripItems"
                         :drag-hint="message('shell.drag.hint')"
                         @select="selectEntry"

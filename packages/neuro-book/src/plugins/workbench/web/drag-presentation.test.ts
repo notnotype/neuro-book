@@ -2,9 +2,10 @@
 
 import {describe, expect, it} from "bun:test";
 
-import type {LayoutDoc, LayoutDropAction} from "@notnotype/nb-layout";
+import type {LayoutDoc} from "@notnotype/nb-layout";
 
 import {presentDrag} from "./drag-presentation";
+import type {WorkbenchDropAction} from "./entry-drop";
 import type {DragPresentationInput} from "./drag-presentation";
 import type {LayoutDragDrop} from "./layout-drag";
 import {defaultLayoutDoc} from "./state/default-tree";
@@ -14,7 +15,7 @@ const base = defaultLayoutDoc(new Map());
 /** 来源在侧栏。 */
 const doc: LayoutDoc = {...base, panels: {...base.panels, sidebar: {role: "tool", name: "sidebar", tabs: [{kind: "view", viewId: "nbook.explorer"}], active: TAB}}};
 const preview = {areaRect: null, indicator: null, orientation: "horizontal" as const};
-const dropOf = (action: LayoutDropAction, inPlace = false): LayoutDragDrop => ({action, inPlace, preview});
+const dropOf = (action: WorkbenchDropAction, inPlace = false): LayoutDragDrop => ({action, inPlace, preview});
 const input = (over: Partial<DragPresentationInput> = {}): DragPresentationInput => ({live: true, source: {kind: "tab", tab: TAB}, drop: null, lifted: false, shownAction: null, rendered: doc, rejected: false, ...over});
 
 describe("presentDrag", () => {
@@ -36,6 +37,17 @@ describe("presentDrag", () => {
         expect(presentDrag(input({drop: onStrip, lifted: true})).ghost).toBe(false);
         expect(presentDrag(input({drop: onStrip, live: false})).ghost).toBe(true);
         expect(presentDrag(input({drop: dropOf({kind: "center", panel: "auxiliarybar"})})).ghost).toBe(true);
+        // 活动栏的入口之间也是标签条；入口上（并入）不是。
+        expect(presentDrag(input({drop: dropOf({kind: "new-container", container: "custom:a", before: null})})).ghost).toBe(false);
+        expect(presentDrag(input({drop: dropOf({kind: "join-container", container: "view:b"})})).ghost).toBe(true);
+    });
+
+    it("并入活动栏的入口：实时布局按已显示的落点高亮；落点指示由反馈层框出入口，外壳不再盖一层", () => {
+        const join: WorkbenchDropAction = {kind: "join-container", container: "view:b"};
+        expect(presentDrag(input({shownAction: join})).mergeEntry).toBe("view:b");
+        expect(presentDrag(input({drop: dropOf(join)})).mergeEntry).toBeNull();
+        expect(presentDrag(input({live: false, drop: dropOf(join)})).mergeEntry).toBeNull();
+        expect(presentDrag(input({live: false, source: {kind: "container", container: "c"}, drop: dropOf({kind: "move-entry", container: "c", before: null})})).mergeEntry).toBeNull();
     });
 
     it("拿起的是面板唯一的标签：那块面板是空位，头不留在原地；面板里还有别的标签时不是", () => {
@@ -46,14 +58,14 @@ describe("presentDrag", () => {
     });
 
     it("长出新块时，来源落进去的那块是空位", () => {
-        const action: LayoutDropAction = {kind: "edge", target: {kind: "split", panel: "panel", edge: "right"}};
+        const action: WorkbenchDropAction = {kind: "edge", target: {kind: "split", panel: "panel", edge: "right"}};
         expect(presentDrag(input({shownAction: action})).slotPanel).toBe("sidebar");
     });
 
     it("中央并入：目标盖一层；放回来源自己那块不算并入", () => {
-        const other: LayoutDropAction = {kind: "center", panel: "auxiliarybar"};
+        const other: WorkbenchDropAction = {kind: "center", panel: "auxiliarybar"};
         expect(presentDrag(input({shownAction: other})).mergeTarget).toBe("auxiliarybar");
-        const own: LayoutDropAction = {kind: "center", panel: "sidebar"};
+        const own: WorkbenchDropAction = {kind: "center", panel: "sidebar"};
         expect(presentDrag(input({shownAction: own})).mergeTarget).toBeNull();
     });
 

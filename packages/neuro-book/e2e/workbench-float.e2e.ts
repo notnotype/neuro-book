@@ -12,10 +12,12 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 import {SHELL_PANEL_MIN_WIDTH} from "nbook/plugins/workbench/web/shell/sizes";
+import {SAMPLE_VIEWS_RUN_EVENT} from "nbook/shared/testing/sample-views-contract";
 
 import {startProbeServer} from "./fixtures";
 import type {ProbeServer} from "./fixtures";
 
+const A = "test.sample-views.alpha";
 const D = "test.sample-views.delta";
 const E = "test.sample-views.omega";
 const NOT_FLOATABLE = "test.sample-views.zeta";
@@ -31,6 +33,15 @@ const label = (page: Page) => page.locator("[data-drop-feedback-label]");
 const content = (page: Page, viewId: string) => page.locator(`[data-content="view:${viewId}"]`);
 const head = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"]`);
 const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);
+/**
+ * 视图所在的块：每个样例视图没写容器，是自己的隐式容器里唯一的分节（docs/specs/ui/workbench-layout.md 输出 40、41），分节的 id 是布局起的；
+ * 内容项上写着它所在的叶。侧栏显示甲、右栏显示丁、底部面板显示戊。
+ */
+async function sectionOf(page: Page, viewId: string): Promise<string> {
+    const id = await content(page, viewId).getAttribute("data-content-leaf");
+    if (id === null) throw new Error(`${viewId} 不在任何面板里`);
+    return id;
+}
 
 async function centerOf(locator: Locator): Promise<{x: number; y: number}> {
     const found = await locator.boundingBox();
@@ -164,6 +175,7 @@ test.describe("应用内浮动", () => {
     test("面板上被拒绝：工具视图在编辑组上，没有反馈、光标是禁止、读屏写原因；松手取消，不开窗、不写", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
+        const home = await sectionOf(page, E);
         await dragTo(page, tab(page, E), await inLeaf(page, "g0", {x: 0.5, y: 0.5}));
         await noFeedback(page);
         await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
@@ -193,29 +205,36 @@ test.describe("应用内浮动", () => {
         await expect(ghost(page)).toHaveCount(0);
         await expect(page.locator("html")).not.toHaveAttribute("data-drop-rejected", "");
         await expect(windows(page)).toHaveCount(0);
-        expect(await panelOfTab(page, E)).toBe("panel");
+        expect(await panelOfTab(page, E)).toBe(home);
         expect(await writesOf(page)).toBe(writes);
     });
 
     test("不浮动的情形：视图声明不许、按钮区、Esc；都不开窗、不写", async ({page}) => {
         await open(page);
+        // 己声明不许浮动；它是底部面板里另一个容器唯一的分节，先用“打开视图”把底部面板切过去（输出 42，一次写入）。
+        const opened = await writesOf(page);
+        await page.evaluate(({name, view}) => window.dispatchEvent(new CustomEvent(name, {detail: {command: "nbook.view.open", args: {viewId: view}}})), {name: SAMPLE_VIEWS_RUN_EVENT, view: NOT_FLOATABLE});
+        await expect(tab(page, NOT_FLOATABLE)).toBeVisible();
+        await expect.poll(() => writesOf(page)).toBe(opened + 1);
         const writes = await writesOf(page);
+        const home = await sectionOf(page, NOT_FLOATABLE);
         const center = await offPanels(page);
-        // 面板里两个标签，己声明不许浮动。按下不切标签，拖不起来也不写。
+        // 拖不起来也不写。
         await dragTo(page, tab(page, NOT_FLOATABLE), center);
         await expect(ghost(page)).toBeVisible();
         await noFeedback(page);
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
-        expect(await panelOfTab(page, NOT_FLOATABLE)).toBe("panel");
+        expect(await panelOfTab(page, NOT_FLOATABLE)).toBe(home);
 
-        await dragTo(page, tab(page, E), await centerOf(head(page, "panel").locator("[data-panel-action=\"nbook.view.toggle-panel-maximized\"]")));
+        // 按钮区：丁拖到底部面板那一节头上的“最大化”上。
+        await dragTo(page, tab(page, D), await centerOf(head(page, home).locator("[data-panel-action=\"nbook.view.toggle-panel-maximized\"]")));
         await expect(ghost(page)).toBeVisible();
         await noFeedback(page);
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
 
-        await dragTo(page, tab(page, E), center);
+        await dragTo(page, tab(page, D), center);
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "float");
         await page.keyboard.press("Escape");
         await page.mouse.up();
@@ -236,7 +255,7 @@ test.describe("应用内浮动", () => {
         const from = await press(page, tab(page, E));
         // 整窗本身就在跟手，没有拖影。
         await expect(ghost(page)).toHaveCount(0);
-        const over = await inLeaf(page, "sidebar", {x: 0.5, y: 0.5});
+        const over = await inLeaf(page, await sectionOf(page, A), {x: 0.5, y: 0.5});
         await page.mouse.move(over.x, over.y, {steps: 4});
         const moved = await boxOf(page, panel);
         expect(moved.x).toBeCloseTo(start.x + over.x - from.x, 0);
@@ -299,12 +318,13 @@ test.describe("应用内浮动", () => {
         const panel = await floatOut(page, E);
         const node = await content(page, E).elementHandle();
 
-        // 侧栏这一列上下分：下缘 20% 处超过 14%，不算窄带。
+        // 侧栏这一列上下分：甲那一节下缘 20% 处超过 14%，不算窄带（整窗拖动到分节上只有沿区域方向两端的窄带与缝，输出 39；验收 23）。
+        const alpha = await sectionOf(page, A);
         await press(page, tab(page, E));
-        const notBand = await inLeaf(page, "sidebar", {x: 0.5, y: 0.8});
+        const notBand = await inLeaf(page, alpha, {x: 0.5, y: 0.8});
         await page.mouse.move(notBand.x, notBand.y, {steps: 4});
         await expect(feedback(page).and(page.locator("[data-drop-kind=\"edge\"]"))).toHaveCount(0);
-        const band = await inLeaf(page, "sidebar", {x: 0.5, y: 0.95});
+        const band = await inLeaf(page, alpha, {x: 0.5, y: 0.95});
         await page.mouse.move(band.x, band.y, {steps: 2});
         await expect(feedback(page)).toHaveAttribute("data-drop-kind", "edge");
         await page.mouse.up();
@@ -312,14 +332,23 @@ test.describe("应用内浮动", () => {
         expect(await panelOfTab(page, E)).toBe(panel);
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
 
-        // 再浮出来，并到右栏：它只有一个视图，头只写标题，没有插入位，等于中央（输出 20、25 第 4 行）。
+        // 再浮出来，回到右栏：分节没有标签条，经过分节中央继续浮着；到这一节下缘的窄带才停靠，成为右栏的一个分节（输出 39；验收 23）。
+        // 分节的头落在上缘 14% 窄带里，经过它就是停靠点，所以“继续浮着”取正文中央。
         await floatOut(page, E, {x: 0.5, y: 0.3});
-        const strip = await page.locator("[data-panel-band=\"auxiliarybar\"]").boundingBox();
-        await dragTo(page, tab(page, E), {x: strip!.x + strip!.width - 10, y: strip!.y + strip!.height / 2});
-        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "center");
+        const delta = await sectionOf(page, D);
+        await press(page, tab(page, E));
+        const middle = await inLeaf(page, delta, {x: 0.5, y: 0.5});
+        await page.mouse.move(middle.x, middle.y, {steps: 4});
+        // 继续浮着时窗就是反馈，没有落点指示。
+        await noFeedback(page);
+        const auxBand = await inLeaf(page, delta, {x: 0.5, y: 0.95});
+        await page.mouse.move(auxBand.x, auxBand.y, {steps: 4});
+        await expect(feedback(page)).toHaveAttribute("data-drop-kind", "edge");
         await page.mouse.up();
         await expect(windows(page)).toHaveCount(0);
-        expect(await panelOfTab(page, E)).toBe("auxiliarybar");
+        // 在右栏：和丁那一节同一列，在它下面。
+        await expect.poll(async () => (await boxOf(page, await sectionOf(page, E))).x).toBeCloseTo((await boxOf(page, delta)).x, 0);
+        expect((await boxOf(page, await sectionOf(page, E))).y).toBeGreaterThan((await boxOf(page, delta)).y);
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
     });
 
@@ -350,14 +379,16 @@ test.describe("应用内浮动", () => {
     test("框架按钮：树里的工具面板能浮动，浮动窗只有回到停靠，回声明的位置，内容是同一个节点", async ({page}) => {
         await open(page);
         const node = await content(page, E).elementHandle();
-        await head(page, "panel").locator("[data-panel-action=\"nbook.view.float\"]").click();
+        const home = await sectionOf(page, E);
+        await head(page, home).locator("[data-panel-action=\"nbook.view.float\"]").click();
         await expect(windows(page)).toHaveCount(1);
         const panel = await panelOfTab(page, E);
         const actions = await head(page, panel).locator("[data-panel-action]").evaluateAll((elements) => elements.map((element) => element.getAttribute("data-panel-action")));
         expect(actions).toEqual(["nbook.view.dock"]);
         await head(page, panel).locator("[data-panel-action=\"nbook.view.dock\"]").click();
         await expect(windows(page)).toHaveCount(0);
-        expect(await panelOfTab(page, E)).toBe("panel");
+        // 回声明的位置：底部面板，在编辑组下面。
+        expect((await boxOf(page, await sectionOf(page, E))).y).toBeGreaterThan((await boxOf(page, "g0")).y);
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
     });
 
@@ -453,11 +484,12 @@ test.describe("应用内浮动", () => {
         await expect.poll(() => writesOf(page)).toBe(raised + 1);
 
         // 树里的面板最大化：别的面板被盖住，窗还在上面，能用。
-        await head(page, "sidebar").locator("[data-panel-action=\"nbook.view.toggle-panel-maximized\"]").click();
+        const alpha = await sectionOf(page, A);
+        await head(page, alpha).locator("[data-panel-action=\"nbook.view.toggle-panel-maximized\"]").click();
         await expect(windows(page)).toHaveCount(2);
         expect(await leaf(page, first).evaluate((element) => element.hasAttribute("inert"))).toBe(false);
         await expect(content(page, E)).toBeVisible();
-        expect(await leaf(page, first).evaluate((element) => Number(getComputedStyle(element).zIndex))).toBeGreaterThan(await leaf(page, "sidebar").evaluate((element) => Number(getComputedStyle(element).zIndex) || 0));
+        expect(await leaf(page, first).evaluate((element) => Number(getComputedStyle(element).zIndex))).toBeGreaterThan(await leaf(page, alpha).evaluate((element) => Number(getComputedStyle(element).zIndex) || 0));
     });
 
     test("键盘：区域里有“浮动”；拿起窗里的标签停在原位，Enter 不动；可以回到树里；F6 经过窗", async ({page}) => {

@@ -262,6 +262,8 @@
             "split": "Split to this side",
             "inPlace": "In place",
             "float": "Open floating",
+            "newContainer": "Give it its own entry",
+            "joinContainer": "Add to {{part}}",
             "rejected": "Can't drop here"
         },
         "moreActions": "More Actions",

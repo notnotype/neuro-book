@@ -121,20 +121,33 @@ const item = (page: Page, address: string) => page.locator(`[data-explorer-row="
 
 const WIDE_SIDEBAR = 400;
 
+/** 资源管理器那一节的头：侧栏是“项目”容器的会话、资源管理器两个分节（docs/specs/ui/workbench-layout.md 输出 4、40），分节的 id 是布局起的。 */
+const explorerHead = (page: Page) => page.locator("[data-panel-head]:has([data-panel-tab=\"view:nbook.explorer\"])");
+
+/** 资源管理器所在分节的叶：内容项上写着它所在的叶。 */
+async function explorerLeaf(page: Page): Promise<Locator> {
+    const id = await page.locator("[data-content=\"view:nbook.explorer\"]").getAttribute("data-content-leaf");
+    if (id === null) throw new Error("资源管理器不在任何面板里");
+    return page.locator(`[data-leaf="${id}"]`);
+}
+
 async function open(page: Page, bound = true): Promise<void> {
     // 没有项目的 `/` 是书架页；外壳（含资源管理器）在 `/workbench`。
     await page.goto(new URL(bound ? "/?project=book" : "/workbench", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(tree(page)).toBeVisible();
+    // 会话、资源管理器两个分节各占一半高：这里不看会话，把它收成标题行，资源树占这一列（同 editor-area.e2e.ts 的 open），行不用滚动才看得见。
+    const sessions = page.locator("[data-panel-head]:has([data-panel-tab=\"view:nbook.agent.sessions\"]) [data-panel-action=\"nbook.view.set-panel-collapsed\"]");
+    if (await sessions.count() > 0 && await sessions.getAttribute("aria-pressed") !== "true") await sessions.click();
     // 标题动作放不下的收进“⋯”（ui/workbench-layout.md 输出 20）。这里测的是动作本身，把侧栏拉到五个都放得下。
-    const sidebar = await page.locator('[data-leaf="sidebar"]').boundingBox();
+    const sidebar = await (await explorerLeaf(page)).boundingBox();
     if (sidebar !== null && sidebar.width < WIDE_SIDEBAR) {
         const edge = {x: sidebar.x + sidebar.width, y: sidebar.y + 100};
         await page.mouse.move(edge.x, edge.y);
         await page.mouse.down();
         await page.mouse.move(edge.x + WIDE_SIDEBAR - sidebar.width, edge.y, {steps: 3});
         await page.mouse.up();
-        await expect(page.locator('[data-panel-head="sidebar"] [data-title-action]')).toHaveCount(5);
+        await expect(explorerHead(page).locator("[data-title-action]")).toHaveCount(5);
     }
 }
 
@@ -143,7 +156,7 @@ test("项目根是作品名、标题行五个动作；展开时新行滑下淡�
     await open(page);
     // 作品没有书名：项目根显示目录原名。
     await expect(item(page, "project://").locator("[data-explorer-label]")).toHaveText("Book");
-    const actions = page.locator('[data-panel-head="sidebar"] [data-title-action]');
+    const actions = explorerHead(page).locator("[data-title-action]");
     await expect(actions).toHaveCount(5);
     for (const box of await actions.evaluateAll((buttons) => buttons.map((button) => [button.getBoundingClientRect().width, button.getBoundingClientRect().height]))) expect(box).toEqual([24, 24]);
     await expect(page.locator("[data-explorer-view] [role=toolbar]")).toHaveCount(0);
@@ -892,7 +905,7 @@ test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md �
     await page.mouse.up();
     await expect(groups).toHaveCount(2);
 
-    // 没有落点（这个场地只有资源管理器一个工具面板，用状态栏）：浮动打开。
+    // 没有落点（用状态栏）：浮动打开。
     const statusBar = (await page.locator("[data-leaf=\"statusbar\"]").boundingBox())!;
     const nowhere = {x: statusBar.x + statusBar.width / 2, y: statusBar.y + statusBar.height / 2};
     await dragRow(page, "project://plain/drop-two.md", nowhere);
@@ -903,7 +916,7 @@ test("文件拖出树走工作台的落点（docs/specs/ui/workbench-layout.md �
     await expect(openedLabel(page.locator(`[data-editor-group-head="${await windows.getAttribute("data-leaf")}"]`))).toHaveText("drop-two.md");
 
     // 树所在的面板里（面板头）：取消，不开窗。
-    const sidebarHead = (await page.locator("[data-panel-head=\"sidebar\"]").boundingBox())!;
+    const sidebarHead = (await explorerHead(page).boundingBox())!;
     await dragRow(page, "project://plain/a.md", {x: sidebarHead.x + 20, y: sidebarHead.y + sidebarHead.height / 2});
     await expect(page.locator("[data-drop-kind]:not([data-drop-kind=\"\"])")).toHaveCount(0);
     await page.mouse.up();

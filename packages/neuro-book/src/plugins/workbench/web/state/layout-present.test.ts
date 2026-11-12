@@ -99,6 +99,17 @@ describe("浮动窗", () => {
         expect(moved.ok && layoutStructureKey(moved.doc)).toBe(layoutStructureKey(current));
     });
 
+    test("结构键含各区域的当前容器（输出 32）：命令切走容器，拖动就取消；只是拖到零、隐藏不算", () => {
+        const base = doc();
+        const anchor = Object.keys(base.panels).find((id) => base.panels[id]?.name === "sidebar") ?? "";
+        const switched = setActiveContainer(base, anchor, "view:outline");
+        expect(switched.ok && layoutStructureKey(switched.doc)).not.toBe(layoutStructureKey(base));
+        const folded = setPanelCollapsed(base, anchor, true);
+        expect(folded.ok && layoutStructureKey(folded.doc)).toBe(layoutStructureKey(base));
+        const hidden = setPanelHidden(base, anchor, true);
+        expect(hidden.ok && layoutStructureKey(hidden.doc)).toBe(layoutStructureKey(base));
+    });
+
     test("浮动的编辑组写“浮动编辑区”，不写序号；树里的序号不算它", () => {
         const base = doc();
         const withTabs: LayoutDoc = {...base, panels: {...base.panels, g0: {role: "editor", tabs: [{kind: "tab", type: "editor", tabId: "x"}, {kind: "tab", type: "editor", tabId: "y"}], active: "tab:x"}}};

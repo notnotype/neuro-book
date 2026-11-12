@@ -217,8 +217,12 @@ export const viewKey = (viewId: string): string => tabKey({kind: "view", viewId}
 /** 视图 id；不是视图的标签键是 null。 */
 export const viewIdOf = (key: string): string | null => (key.startsWith(VIEW_KEY_PREFIX) ? key.slice(VIEW_KEY_PREFIX.length) : null);
 
-/** 拖动的结构键（输出 32）：树的拓扑和标签集合。尺寸、活动标签变了不算。 */
+/**
+ * 拖动的结构键（输出 32）：树的拓扑、标签集合与各区域的当前容器。尺寸、活动标签变了不算。
+ * 当前容器在里面：判定的几何是拿起时量的（ADR 0046 决策 5），命令切走容器之后看得见的分节换了，旧几何指着的已经不是屏幕上的东西。
+ */
 export function layoutStructureKey(doc: LayoutDoc): string {
     const shape = (node: LayoutDoc["tree"]["root"]): unknown => (node.kind === "leaf" ? node.id : [node.id, node.children.map(shape)]);
-    return JSON.stringify([shape(doc.tree.root), doc.floats.map((float) => float.panel).sort(), Object.values(doc.panels).flatMap((panel) => panel.tabs.map(tabKey)).sort()]);
+    const active = Object.values(doc.panels).flatMap((panel) => (panel.name === undefined || panel.entries === undefined ? [] : [[panel.name, panel.activeContainer ?? null]])).sort();
+    return JSON.stringify([shape(doc.tree.root), doc.floats.map((float) => float.panel).sort(), Object.values(doc.panels).flatMap((panel) => panel.tabs.map(tabKey)).sort(), active]);
 }

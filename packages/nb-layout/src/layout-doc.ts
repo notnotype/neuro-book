@@ -263,6 +263,15 @@ export function sectionCollapseBlock(doc: LayoutDoc, panelId: string): SectionCo
 }
 
 /**
+ * 这块面板是带容器的区域里的分节时是它的区域，否则是 null（锚、普通面板、浮动窗、带着残留归属却不在带容器的区域里的）。
+ * 落点按分节另判（docs/specs/ui/workbench-layout.md 输出 25 第 7 行）：判定、分区、键盘候选都问这一个函数，和写入路径的“用不用容器”同一个条件。
+ */
+export function sectionRegionOf(doc: LayoutDoc, panelId: string): PanelName | null {
+    if (doc.panels[panelId]?.container === undefined || containerAnchorOf(doc, panelId) === null) return null;
+    return regionOf(doc, panelId);
+}
+
+/**
  * 这块面板此刻是不是收起着：“收没收起”只有这一个判定，别处不直接读分节的 `collapsed`，和 `isPanelShown` 之于 `hidden` 一样。
  *
  * 记录里的 `collapsed` 是用户的意图，留着；此刻收不成标题行的分节（`sectionCollapseBlock`）按没收起算，区域里又显示两个以上分节时它重新起作用（输出 11）。

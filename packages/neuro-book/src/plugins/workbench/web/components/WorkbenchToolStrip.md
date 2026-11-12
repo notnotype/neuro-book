@@ -15,7 +15,7 @@
 
 - 点入口发 `select(id)`，收在“更多”里的也一样。鼠标点不抢焦点：切容器、隐藏侧栏时焦点留在原处，原处看不见了去哪由宿主定。入口的 `aria-pressed` 是“当前容器且侧栏可见”，至多一项。
 - 入口的可访问名称是容器的名称，悬停文字写出容器里的各个视图；没有图标可取（`icon` 是 null）时画中性的占位图标。
-- 组件给每个入口写 `data-tool-entry`（容器 id）。只含一个视图的入口另写 `data-tool-view`（视图 id）：它是拖动源，拖它就是拖这个视图，可访问描述写怎么拿起；含几个视图的入口没有这个标记，不起拖。条目区写 `data-tool-band`，它是工具视图的落点，判定与插入线由宿主的拖动做。实时布局下活动栏和别的标签条一样吸收来源：`placeholder` 这个入口留着盒子、看不见，别的入口滑开（`--motion-move`，只在拖动中开）。
+- 组件给每个入口写 `data-tool-entry`（容器 id）。每个入口都是拖动源，可访问描述写怎么拿起（输出 46）：只含一个视图的入口另写 `data-tool-view`（视图 id），拖它就是拖这个视图；含几个视图的入口没有这个标记，宿主让它只在入口条里换序。条目区写 `data-tool-band`，它是工具视图的落点（输出 45），判定与插入线由宿主的拖动做。指针落在一个入口上（放下会并入这个容器）时，宿主经 `highlighted` 让这个入口盖一层并入的高亮，样子同面板的并入盖层（`--layout-merge-fill` 的底、`--layout-merge-border` 的内描边），入口写 `data-tool-merge`。实时布局下活动栏和别的标签条一样吸收来源：`placeholder` 这个入口留着盒子、看不见，别的入口滑开（`--motion-move`，只在拖动中开）。
 - 入口的右键或菜单键发 `context-menu`（容器的菜单由宿主开，没有菜单项时宿主不开）。菜单键时坐标是入口右上角。
 - 底段有命令的条目点了发 `run-item(id)`；不可用时停用，原因写在原生 `title`（停用的按钮不触发悬停提示组件）。声明了切换状态的带 `aria-pressed`。
 - 底段的占位不可聚焦、不可点，读屏读作一张带标题的图。
@@ -33,7 +33,7 @@ type ToolStripEntry = {
     icon: string | null;
     /** 悬停文字：容器里的各个视图，已按当前语言拼好。 */
     tooltip: string;
-    /** 只含一个视图的容器是那个视图的 id；含几个视图的是 null。 */
+    /** 只含一个视图的容器是那个视图的 id；含几个视图的是 null（拖它只换序）。 */
     viewId: string | null;
     /** 侧栏的当前容器。 */
     current: boolean;
@@ -62,10 +62,12 @@ type Props = {
     entries: ReadonlyArray<ToolStripEntry>;
     /** 底段；默认无。 */
     items?: ReadonlyArray<ToolStripItem>;
-    /** 能拖的入口（只含一个视图的）的可访问描述；默认不写。 */
+    /** 入口的可访问描述（每个入口都能拖）；默认不写。 */
     dragHint?: string;
     /** 这个入口（容器 id）留着盒子、看不见：它正被拖着（实时布局）。宿主在这里排序时会把它显示出来、写 `translate` 让它竖着跟手，所以它不参与换位过渡。 */
     placeholder?: string | null;
+    /** 这个入口（容器 id）盖一层并入的高亮；默认没有。 */
+    highlighted?: string | null;
 };
 
 type Emits = {

@@ -8,13 +8,15 @@
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
 import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, fixedNodesOf, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
-import type {GridExtent, GridFloatInput, LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, LayoutSource, PanelName} from "@notnotype/nb-layout";
+import type {GridExtent, GridFloatInput, LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, PanelName} from "@notnotype/nb-layout";
 
 import {defineStore} from "nbook/shared/store/store";
 
 import type {EditorSaveGate} from "../../shared/contracts";
 import {editorTabIdOf} from "../../shared/editor-panels";
 import type {EditorTabDrag} from "../contracts";
+import {applyEntryDrop, isEntryAction} from "../entry-drop";
+import type {WorkbenchDragSource, WorkbenchDropAction} from "../entry-drop";
 import type {ViewCatalog} from "../views/registry";
 import {CUSTOM_CONTAINER_PREFIX, VIEW_LOCATIONS} from "../../shared/views";
 import {containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
@@ -302,7 +304,14 @@ function defineLayoutDocStore(bound: boolean) {
                 /**
                  * 提交一个落点：编辑器的标签要走编辑器区（`EditorTabDrag`），工具视图与只改矩形直接改布局。外壳的拖动和命令都经这里。
                  */
-                commitDrop: (source: LayoutSource, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void => {
+                commitDrop: (source: WorkbenchDragSource, action: WorkbenchDropAction, part: string | undefined, keyboard: boolean): void => {
+                    // 活动栏上段的落点（输出 45、46）：容器层面的操作，编辑器的标签放不到这里。换序不动树，不写回尺寸意图。
+                    if (isEntryAction(action)) {
+                        apply((current) => applyEntryDrop(current, source, action, policy, {commit: true}), {flush: true, rebase: action.kind !== "move-entry"});
+                        return;
+                    }
+                    // 含几个视图的入口只有入口之间这一种落点（输出 46），上面已经处理。
+                    if (source.kind === "container") return;
                     if (source.kind === "tab") {
                         const editorTab = editorTabIdOf(source.tab);
                         if (editorTab !== null) {

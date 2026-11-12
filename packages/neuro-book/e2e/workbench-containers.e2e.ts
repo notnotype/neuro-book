@@ -1,12 +1,12 @@
 /**
- * 视图容器在真实 Chrome 中的验收（docs/specs/ui/workbench-layout.md 输出 22、41、42，验收 24、28、30）：切换容器、区域拖到零之后点入口、
- * 有容器之前存的记录回落。生产构建的后端与前端；侧栏除了内置容器“项目”（会话、资源管理器两个分节），再用测试插件
+ * 视图容器在真实 Chrome 中的验收（docs/specs/ui/workbench-layout.md 输出 22、41、42、43、45，验收 24、25、26、28、29、30、32）：切换容器、
+ * 区域拖到零之后点入口、拖到活动栏（新建容器、并入）、当前容器拖空、拖动中容器被命令切走、有容器之前存的记录回落。生产构建的后端与前端；侧栏除了内置容器“项目”（会话、资源管理器两个分节），再用测试插件
  * `test.sample-views` 的样例视图当别的容器（它们没写容器，各是自己的隐式容器）。等页面上可观察的变化，不按时长等待。
  *
  * 不在这里的：
  * - 活动栏入口的点击、按下态、溢出、右键菜单与键盘：`workbench-views.e2e.ts`；
  * - 搬容器带着什么、入口顺序、一次提交：`state/containers.test.ts`、`state/layout-doc-store.test.ts`；
- * - 拖入口、入口条上的落点（输出 45、46）：还没做（w00026 t24 切片 4）。
+ * - 入口条上落点的判定（入口上、入口之间、原处）与键盘停靠点：`web/entry-drop.test.ts`；拖含几个视图的入口换序：`workbench-dnd.e2e.ts`。
  */
 
 import {randomUUID} from "node:crypto";
@@ -21,6 +21,7 @@ import type {GridSnapshotNode, LayoutDoc} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
+import {SAMPLE_VIEWS_RUN_EVENT} from "nbook/shared/testing/sample-views-contract";
 
 import {startProbeServer, startProductServer} from "./fixtures";
 import type {ProbeServer, ProductServer} from "./fixtures";
@@ -233,6 +234,199 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect.poll(async () => (await saved(page))?.panels.sidebar).toMatchObject({activeContainer: `view:${A}`});
         expect((await saved(page))?.panels.sidebar?.collapsed ?? false).toBe(false);
         expect((await saved(page))?.panels[single]?.collapsed ?? false).toBe(false);
+    });
+});
+
+test.describe("拖到活动栏与当前容器拖空（验收 25、26、29、32；输出 38、43、45）", () => {
+    let tmp = "";
+    let server: ProbeServer;
+
+    test.beforeAll(async () => {
+        tmp = await createTestTmpRoot("neuro-book-e2e", "workbench-containers-drag");
+        await mkdir(join(tmp, "state"), {recursive: true});
+        server = await startProbeServer(join(tmp, "state"), {env: {NBOOK_TEST_PLUGINS: "test.sample-views", NBOOK_EXCLUDE_PLUGINS: "nbook.editor"}});
+    });
+
+    test.afterAll(async () => {
+        expect(await server.stop()).toBe(0);
+        if (tmp !== "") await rm(tmp, {recursive: true, force: true});
+    });
+
+    test.use({viewport: {width: 1440, height: 900}});
+
+    const database = (): string => join(tmp, "state", "storage", "user.sqlite");
+    const saved = async (page: Page): Promise<LayoutDoc | null> => (await savedIn(page, database()))?.doc ?? null;
+    const sample = (page: Page, view: string) => page.locator(`[data-sample-view="${view}"]`);
+    const surface = (page: Page) => page.locator("[data-workbench-surface]");
+    /** 活动栏上段的入口，从上到下；用户容器的 id 是随机的，写成 `custom`。 */
+    const entryIds = (page: Page): Promise<string[]> => page.locator("[data-tool-band] [data-tool-entry]").evaluateAll((elements) => elements.map((element) => {
+        const id = element.getAttribute("data-tool-entry") ?? "";
+        return id.startsWith("custom:") ? "custom" : id;
+    }));
+
+    /** 本页客户端对 `workbench.layout` 的写入次数（同 `workbench-live-drag.e2e.ts`）。 */
+    async function writesOf(page: Page): Promise<number> {
+        const client = await page.evaluate((key) => localStorage.getItem(key), CLIENT_IDENTITY_KEY);
+        const db = new DatabaseSync(database());
+        try {
+            db.exec("CREATE TABLE IF NOT EXISTS layout_writes (client TEXT)");
+            db.exec(`CREATE TRIGGER IF NOT EXISTS count_layout_insert AFTER INSERT ON records WHEN NEW.owner = 'nbook.workbench' AND NEW.key = 'workbench.layout' BEGIN INSERT INTO layout_writes VALUES (NEW.client); END`);
+            db.exec(`CREATE TRIGGER IF NOT EXISTS count_layout_update AFTER UPDATE ON records WHEN NEW.owner = 'nbook.workbench' AND NEW.key = 'workbench.layout' BEGIN INSERT INTO layout_writes VALUES (NEW.client); END`);
+            return (db.prepare("SELECT count(*) AS n FROM layout_writes WHERE client = ?1").get(client) as {n: number}).n;
+        } finally {
+            db.close();
+        }
+    }
+
+    /** 实时布局：应用的 Playwright 配置缺省减少动态效果，那时一律落点指示，这里开回来。 */
+    async function open(page: Page): Promise<void> {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await page.goto(new URL("/workbench", server.url).href);
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        await expect(page.locator("[data-shell-focus-target=\"panel-toggle\"]")).toBeEnabled();
+        await expect(entry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
+    }
+
+    async function centerOf(locator: ReturnType<Page["locator"]>): Promise<{x: number; y: number}> {
+        const found = await locator.boundingBox();
+        if (found === null) throw new Error("没有矩形");
+        return {x: found.x + found.width / 2, y: found.y + found.height / 2};
+    }
+
+    /** 按下、过门槛，拖动进行中，由调用方决定松手还是取消。 */
+    async function lift(page: Page, source: ReturnType<Page["locator"]>): Promise<void> {
+        const from = await centerOf(source);
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(from.x + 10, from.y + 10, {steps: 2});
+        await expect(surface(page)).toHaveAttribute("data-drag-feel", "live");
+    }
+
+    /** 两个入口之间的间距中点。 */
+    async function between(page: Page, upper: string, lower: string): Promise<{x: number; y: number}> {
+        const [top, bottom] = [await entry(page, upper).boundingBox(), await entry(page, lower).boundingBox()];
+        if (top === null || bottom === null) throw new Error("没有入口");
+        return {x: top.x + top.width / 2, y: (top.y + top.height + bottom.y) / 2};
+    }
+
+    test("拖到两个入口之间：入口滑开留出位置，侧栏还是原来的容器，零写入；放下多一个只含它的入口，侧栏切到它，写一次（验收 25）", async ({page}) => {
+        await open(page);
+        const before = await entryIds(page);
+        expect(before.slice(0, 3)).toEqual([PROJECT_CONTAINER, `view:${A}`, `view:${B}`]);
+        const writes = await writesOf(page);
+        const gap = await between(page, `view:${A}`, `view:${B}`);
+        await lift(page, tab(page, EXPLORER));
+        await page.mouse.move(gap.x, gap.y, {steps: 8});
+        // 预览：被拖的视图在空位上显示成一个入口，别的入口让开；侧栏显示的还是“项目”。
+        const placed = page.locator(`[data-tool-band] [data-tool-view="${EXPLORER}"]`);
+        await expect(placed).toHaveCount(1);
+        await expect.poll(() => entryIds(page)).toEqual([PROJECT_CONTAINER, `view:${A}`, "custom", ...before.slice(2)]);
+        await expect.poll(() => placed.evaluate((element) => getComputedStyle(element.closest(".workbench-tool-strip__frame") as Element).visibility)).toBe("visible");
+        await expect(entry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
+        await expect(tab(page, SESSIONS)).toBeVisible();
+        expect(await writesOf(page)).toBe(writes);
+
+        await page.mouse.up();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        await expect.poll(() => entryIds(page)).toEqual([PROJECT_CONTAINER, `view:${A}`, "custom", ...before.slice(2)]);
+        await expect(placed).toHaveAttribute("aria-pressed", "true");
+        await expect(content(page, EXPLORER)).toBeVisible();
+        await expect(tab(page, SESSIONS)).toHaveCount(0);
+        const record = (await saved(page))!;
+        const created = record.panels.sidebar?.activeContainer ?? "";
+        expect(created).toMatch(/^custom:/u);
+        expect(record.panels[await sectionOf(page, EXPLORER)]?.container).toBe(created);
+    });
+
+    test("拖到一个入口上：这个入口高亮，侧栏不切；放下侧栏切到那个容器，视图是它最后一个分节（验收 26）", async ({page}) => {
+        await open(page);
+        const writes = await writesOf(page);
+        await lift(page, tab(page, EXPLORER));
+        const target = await centerOf(entry(page, `view:${A}`));
+        await page.mouse.move(target.x, target.y, {steps: 8});
+        await expect(entry(page, `view:${A}`)).toHaveAttribute("data-tool-merge", "");
+        await expect(page.locator("[data-tool-merge]")).toHaveCount(1);
+        await expect(entry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
+        await expect(tab(page, SESSIONS)).toBeVisible();
+        expect(await writesOf(page)).toBe(writes);
+
+        await page.mouse.up();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        await expect(page.locator("[data-tool-merge]")).toHaveCount(0);
+        await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
+        await expect(sample(page, A)).toBeVisible();
+        await expect(content(page, EXPLORER)).toBeVisible();
+        const [upper, lower] = [await sectionOf(page, A), await sectionOf(page, EXPLORER)];
+        expect((await box(page, upper)).y).toBeLessThan((await box(page, lower)).y);
+        expect((await saved(page))?.panels[lower]?.container).toBe(`view:${A}`);
+    });
+
+    test("当前容器只有一个视图、把它拖向右栏：预览里侧栏是空的、没有切到别的容器，活动栏仍接得住；Escape 原样、零写入；放下侧栏切到入口顺序上相邻的容器（验收 29；输出 38、43）", async ({page}) => {
+        await open(page);
+        await entry(page, `view:${A}`).click();
+        await expect(sample(page, A)).toBeVisible();
+        await expect.poll(async () => (await saved(page))?.panels.sidebar?.activeContainer).toBe(`view:${A}`);
+        const writes = await writesOf(page);
+        const right = await box(page, await sectionOf(page, CONVERSATION));
+        const below = {x: right.x + right.width / 2, y: right.y + right.height * 0.8};
+
+        await lift(page, tab(page, A));
+        await page.mouse.move(below.x, below.y, {steps: 8});
+        await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
+        // 侧栏空着：样例甲拿走了，也没有换成“项目”或样例乙。
+        await expect(page.locator("[data-tool-entry][aria-pressed=\"true\"]")).toHaveCount(0);
+        await expect(tab(page, SESSIONS)).toHaveCount(0);
+        await expect(tab(page, B)).toHaveCount(0);
+        // 来源收起之后活动栏照样是落点（输出 38：判定按收起后的布局）：回到两个入口之间，空位里出现它的入口。
+        const gap = await between(page, PROJECT_CONTAINER, `view:${B}`);
+        await page.mouse.move(gap.x, gap.y, {steps: 6});
+        await expect(page.locator(`[data-tool-band] [data-tool-view="${A}"]`)).toHaveCount(1);
+        expect(await writesOf(page)).toBe(writes);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
+        await expect(sample(page, A)).toBeVisible();
+        expect(await writesOf(page)).toBe(writes);
+
+        await lift(page, tab(page, A));
+        await page.mouse.move(below.x, below.y, {steps: 8});
+        await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
+        await page.mouse.up();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        // 样例甲的容器搬空了：侧栏切到入口顺序里它前面的“项目”（输出 43）。
+        await expect(entry(page, PROJECT_CONTAINER)).toHaveAttribute("aria-pressed", "true");
+        await expect(tab(page, SESSIONS)).toBeVisible();
+        await expect(entry(page, `view:${A}`)).toHaveCount(0);
+        await expect(sample(page, A)).toBeVisible();
+        // 内容飞到结果、列宽跟着重排时矩形还在变：等它停在右栏。
+        await expect.poll(async () => (await box(page, await sectionOf(page, A))).x).toBeGreaterThan(right.x - 1);
+    });
+
+    test("拖动中用命令打开另一个容器里的视图：这一场取消、拖动本身零写入，侧栏切到命令指定的容器（验收 32）", async ({page}) => {
+        await open(page);
+        const home = await sectionOf(page, EXPLORER);
+        const writes = await writesOf(page);
+        const right = await box(page, await sectionOf(page, CONVERSATION));
+        await lift(page, tab(page, EXPLORER));
+        await page.mouse.move(right.x + right.width / 2, right.y + right.height * 0.8, {steps: 8});
+        await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
+        await page.evaluate(({name, view}) => window.dispatchEvent(new CustomEvent(name, {detail: {command: "nbook.view.open", args: {viewId: view}}})), {name: SAMPLE_VIEWS_RUN_EVENT, view: B});
+        // 命令已经提交；屏幕上还是这一场的预览，指针动之前不重判（入口的按下态读的是预览），所以这里看记录，不看入口。
+        await expect.poll(async () => (await saved(page))?.panels.sidebar?.activeContainer).toBe(`view:${B}`);
+        // 指针一动就判定（同 `workbench-live-drag.e2e.ts` 的“中途窗口变了”）：判定时比结构键，变了整场取消。
+        const point = {x: right.x + right.width / 2, y: right.y + right.height * 0.8};
+        await page.mouse.move(point.x - 2, point.y);
+        await page.mouse.move(point.x - 4, point.y);
+        await expect(surface(page)).toHaveAttribute("data-drag-feel", "indicator");
+        await expect(surface(page)).toHaveAttribute("data-live-preview", "none");
+        await page.mouse.up();
+        await expect(entry(page, `view:${B}`)).toHaveAttribute("aria-pressed", "true");
+        // 只有命令切换容器那一次写入；资源管理器还在“项目”里原来那一节。
+        await expect.poll(async () => (await saved(page))?.panels.sidebar?.activeContainer).toBe(`view:${B}`);
+        expect(await writesOf(page)).toBe(writes + 1);
+        const record = (await saved(page))!;
+        expect(record.panels[home]?.tabs).toEqual([{kind: "view", viewId: EXPLORER}]);
+        expect(record.panels[home]?.container).toBe(PROJECT_CONTAINER);
     });
 });
 

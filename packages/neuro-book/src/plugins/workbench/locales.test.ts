@@ -399,6 +399,9 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     // w00026 t24：收不成标题行的分节（docs/specs/ui/workbench-layout.md 输出 11、20）。
     "panelCommands.rowSectionCollapse": {"zh-CN": "底部面板里的视图不能收起", "en-US": "A view in the bottom panel cannot be collapsed"},
     "panelCommands.loneSectionCollapse": {"zh-CN": "这里只显示这一个视图，不能收起", "en-US": "The only view shown here cannot be collapsed"},
+    // w00026 t24 切片 4：活动栏上段的落点（docs/specs/ui/workbench-layout.md 输出 45）。
+    "shell.drop.newContainer": {"zh-CN": "单独成一个入口", "en-US": "Give it its own entry"},
+    "shell.drop.joinContainer": {"zh-CN": "并入{part}", "en-US": "Add to {part}"},
 };
 
 /**

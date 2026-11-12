@@ -17,7 +17,7 @@ export interface ToolStripEntry {
     readonly icon: string | null;
     /** 悬停文字：写出容器里的各个视图。 */
     readonly tooltip: string;
-    /** 只含一个视图的容器是那个视图的 id：拖这个入口就是拖这个视图。含几个视图的是 null，不起拖。 */
+    /** 只含一个视图的容器是那个视图的 id：拖这个入口就是拖这个视图。含几个视图的是 null：拖它只在活动栏里换序（输出 46）。 */
     readonly viewId: string | null;
     /** 侧栏的当前容器：放不下时它总在外面。 */
     readonly current: boolean;
@@ -47,11 +47,13 @@ const props = withDefaults(defineProps<{
     moreLabel: string;
     entries: ReadonlyArray<ToolStripEntry>;
     items?: ReadonlyArray<ToolStripItem>;
-    /** 能拖的入口（只含一个视图的）的可访问描述：怎么拿起拖动。 */
+    /** 入口的可访问描述：怎么拿起拖动。每个入口都能拖。 */
     dragHint?: string;
     /** 这个入口留着盒子、看不见：它正被拖着（实时布局），别的入口让出它的位置。 */
     placeholder?: string | null;
-}>(), {items: () => [], dragHint: "", placeholder: null});
+    /** 这个入口盖一层并入的高亮：拖着的视图放下会并进这个容器（输出 45）。 */
+    highlighted?: string | null;
+}>(), {items: () => [], dragHint: "", placeholder: null, highlighted: null});
 
 const emit = defineEmits<{
     (event: "select", id: string): void;
@@ -115,11 +117,12 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
                             :icon-class="entry.icon ?? PLACEHOLDER_ICON"
                             :aria-label="entry.label"
                             :aria-pressed="entry.pressed"
-                            :aria-description="dragHint === '' || entry.viewId === null ? undefined : dragHint"
+                            :aria-description="dragHint === '' ? undefined : dragHint"
                             :data-tool-entry="entry.id"
                             :data-tool-view="entry.viewId ?? undefined"
                             class="workbench-tool-strip__item"
-                            :class="{'workbench-tool-strip__item--active': entry.pressed}"
+                            :class="{'workbench-tool-strip__item--active': entry.pressed, 'workbench-tool-strip__item--merge': entry.id === highlighted}"
+                            :data-tool-merge="entry.id === highlighted ? '' : undefined"
                             @mousedown.prevent
                             @click="emit('select', entry.id)"
                             @contextmenu="onEntryContextMenu(entry.id, $event)"
@@ -247,6 +250,12 @@ const moreItems = computed(() => props.entries.filter((entry) => strip.value.hid
 .workbench-tool-strip .workbench-tool-strip__item--active {
     background: var(--skin-activitybar-hover, var(--bg-hover));
     color: var(--skin-activitybar-active, var(--accent-text));
+}
+
+/* 并入的高亮：和面板并入的盖层同一种填充与描边（`--layout-merge-*`），压在按下的样子上面。 */
+.workbench-tool-strip .workbench-tool-strip__item--merge {
+    background: var(--layout-merge-fill);
+    box-shadow: inset 0 0 0 var(--layout-merge-border-width) var(--layout-merge-border);
 }
 
 /* 底段的切换按钮按下（例如设置窗口开着）：灰底、正文色，不用强调色；强调色只给上段的视图。 */

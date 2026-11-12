@@ -262,6 +262,8 @@
             "split": "拆到这一边",
             "inPlace": "原位",
             "float": "浮动打开",
+            "newContainer": "单独成一个入口",
+            "joinContainer": "并入{{part}}",
             "rejected": "不能放在这里"
         },
         "moreActions": "更多操作",

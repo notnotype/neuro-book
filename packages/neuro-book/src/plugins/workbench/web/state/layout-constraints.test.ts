@@ -214,7 +214,7 @@ describe("落点分区与判定一致（docs/specs/ui/workbench-layout.md“落�
     };
 
     for (const [name, source, expected] of [
-        ["工具视图", {kind: "tab" as const, tab: "view:a"}, {a: ["bottom", "center", "top"], b: ["bottom", "center", "top"], c: ["center", "left", "right"]}],
+        ["工具视图", {kind: "tab" as const, tab: "view:a"}, {a: ["bottom", "top"], b: ["bottom", "top"], c: ["left", "right"]}],
         ["编辑器标签", {kind: "tab" as const, tab: "tab:u"}, {g0: ["bottom", "center", "left", "right", "top"]}],
     ] as const) {
         it(`${name}：每块面板的分区符合骨架，整数网格上判定就是点所在那一块`, () => {
@@ -242,7 +242,7 @@ describe("落点分区与判定一致（docs/specs/ui/workbench-layout.md“落�
         });
     }
 
-    it("工具面板不分的那两条边上没有落点，不算并入；编辑组四条边都分（开发者 2026-11-09 定）", () => {
+    it("分节沿区域的方向分前后两半，靠另外两条边也按两半算，哪里都不是并入（输出 25，验收 10）；编辑组四条边都分（开发者 2026-11-09 定）", () => {
         const {doc, panels} = scene();
         const base = {doc, panels, policy: createLayoutPolicy()};
         const at = (viewOrPanel: string, rx: number, ry: number) => {
@@ -252,11 +252,13 @@ describe("落点分区与判定一致（docs/specs/ui/workbench-layout.md“落�
             return {x: body.left + (body.right - body.left) * rx, y: body.top + (body.bottom - body.top) * ry};
         };
         const view = {kind: "tab" as const, tab: "view:a"};
-        expect(resolveLayoutDrop({...base, source: view, point: at("b", 0.05, 0.5)})).toBeNull();
-        expect(resolveLayoutDrop({...base, source: view, point: at("b", 0.95, 0.5)})).toBeNull();
-        expect(resolveLayoutDrop({...base, source: view, point: at("c", 0.5, 0.05)})).toBeNull();
-        expect(resolveLayoutDrop({...base, source: view, point: at("b", 0.5, 0.5)})).toEqual({kind: "center", panel: panelOf(doc, "b")});
-        expect(resolveLayoutDrop({...base, source: view, point: at("b", 0.05, 0.05)})?.kind).toBe("edge");
+        const edgeOf = (point: {readonly x: number; readonly y: number}) => {
+            const action = resolveLayoutDrop({...base, source: view, point});
+            return action?.kind === "edge" && action.target.kind !== "between" ? action.target.edge : action?.kind;
+        };
+        expect([edgeOf(at("b", 0.05, 0.3)), edgeOf(at("b", 0.95, 0.3)), edgeOf(at("b", 0.5, 0.3))]).toEqual(["top", "top", "top"]);
+        expect([edgeOf(at("b", 0.05, 0.7)), edgeOf(at("b", 0.95, 0.7)), edgeOf(at("b", 0.5, 0.7))]).toEqual(["bottom", "bottom", "bottom"]);
+        expect([edgeOf(at("c", 0.3, 0.05)), edgeOf(at("c", 0.7, 0.05))]).toEqual(["left", "right"]);
         expect(resolveLayoutDrop({...base, source: {kind: "tab", tab: "tab:u"}, point: at("g0", 0.05, 0.5)})?.kind).toBe("edge");
     });
 });

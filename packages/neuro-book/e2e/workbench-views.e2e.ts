@@ -133,6 +133,30 @@ async function instanceOf(page: Page, viewId: string): Promise<{instance: string
 /** 标签所在面板的 id（面板头上写着）。分节的 id 是布局起的（输出 40），要用它时按视图取。 */
 const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);
 
+/**
+ * 搭一个三个标签的浮动窗（戊、丁、己，按这个先后）并返回它的面板 id。区域里的分节只写标题，带标签条的只剩浮动窗（输出 20、39）：
+ * 标签带的用例在它上面测。戊经“移动到”的“浮动”出来，丁、己的标题拖到窗的正文上是添加为标签（输出 25 第 0 行）。
+ */
+async function floatWithTabs(page: Page): Promise<string> {
+    await moveViaMenu(page, E, "浮动");
+    const window = page.locator(`${LEAF}[data-float]`);
+    await expect(window).toHaveCount(1);
+    for (const viewId of [D, F]) {
+        const target = await window.boundingBox();
+        const from = await tab(page, viewId).boundingBox();
+        if (target === null || from === null) throw new Error("没有浮动窗或标题");
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2 + 10, {steps: 2});
+        await page.mouse.move(target.x + target.width / 2, target.y + target.height * 0.6, {steps: 8});
+        await page.mouse.up();
+        await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
+    }
+    const id = await panelOfTab(page, E);
+    await expect(head(page, id).locator("[data-panel-tab]")).toHaveCount(3);
+    return id;
+}
+
 /** 焦点此刻在哪块面板里：外框（面板头）或内容项都指回面板 id；不在任何面板里是 null。 */
 const focusedPanelOf = (page: Page): Promise<string | null> => page.evaluate(() => {
     const owner = document.activeElement?.closest<HTMLElement>("[data-content-leaf], [data-leaf]");
@@ -995,29 +1019,39 @@ test.describe("产品页：测试插件贡献的视图", () => {
         }
     });
 
-    test("面板标签带变窄时逐级让位：完整 → 截断 → 选中的留标题其余只留图标 → 收进“更多”，选中的始终带标题；从“更多”选中后它回到标签带（输出 20；验收 15）", async ({page}) => {
+    test("标签带变窄时逐级让位：完整 → 截断 → 选中的留标题其余只留图标 → 收进“更多”，选中的始终带标题；从“更多”选中后它回到标签带（输出 20；验收 15）", async ({page}) => {
         await open(page);
-        // 面板里三个标签：戊、己（长标题）与从右栏移来的丁
-        await moveViaMenu(page, D, "面板");
-        const band = page.locator('[data-panel-head="panel"] [data-tabs-level]');
+        // 带标签条的只剩浮动窗：三个标签，戊、丁与己（长标题）。窗的宽不随视口变，用右下角的手柄改它（输出 39 的“键盘”）。
+        const window = await floatWithTabs(page);
+        const band = page.locator(`[data-panel-head="${window}"] [data-tabs-level]`);
         const level = () => band.getAttribute("data-tabs-level");
-        const tabs = page.locator('[data-panel-head="panel"] [role="tab"]');
-        const selectedTab = page.locator('[data-panel-head="panel"] [role="tab"][aria-selected="true"]');
+        const tabs = page.locator(`[data-panel-head="${window}"] [role="tab"]`);
+        const selectedTab = page.locator(`[data-panel-head="${window}"] [role="tab"][aria-selected="true"]`);
         await expect(tabs).toHaveCount(3);
+        const resize = page.locator(`[data-float-handle="bottom-right"]`);
+        const widthOf = async (): Promise<number> => (await leaf(page, window).boundingBox())?.width ?? 0;
+        // 先放宽到头（窗不大于树区域），再每次窄 10px，直到收进“更多”。
+        await resize.focus();
+        for (let step = 0; step < 60; step += 1) await page.keyboard.press("ArrowRight");
         const seen = new Set<string>();
-        for (const width of [1920, 1440, 1000, 900, 860, 800, 760, 700, 640, 600]) {
-            await page.setViewportSize({width, height: 900});
+        for (let step = 0; step < 120 && !seen.has("3"); step += 1) {
             await expect.poll(async () => (await band.boundingBox())?.width ?? 0).toBeGreaterThan(0);
             const current = (await level())!;
             seen.add(current);
             // 选中的始终带标题
             expect((await selectedTab.innerText()).trim().length).toBeGreaterThan(0);
             if (current === "3") {
-                const more = page.locator('[data-panel-head="panel"] [data-tabs-more]');
+                const more = page.locator(`[data-panel-head="${window}"] [data-tabs-more]`);
                 await expect(more).toBeVisible();
                 const shown = await tabs.count();
                 await expect(more).toContainText(`更多 ${String(3 - shown)}`);
+                break;
             }
+            // 窄到最小尺寸还没收进“更多”的话，这里等不到变窄。
+            const width = await widthOf();
+            await resize.focus();
+            await page.keyboard.press("ArrowLeft");
+            await expect.poll(widthOf).toBeLessThan(width);
         }
         expect([...seen].sort()).toEqual(["0", "1", "2", "3"]);
         // 最窄时键盘移到收起来的标签：它被选中、换到标签带里，焦点落在它身上
@@ -1029,7 +1063,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
             await expect(selectedTab).toBeFocused();
         }
         // 最窄时从“更多”选一个收起来的：它被选中，回到标签带（收起来的换成别的）
-        await page.locator('[data-panel-head="panel"] [data-tabs-more]').click();
+        await page.locator(`[data-panel-head="${window}"] [data-tabs-more]`).click();
         const hiddenOne = page.getByRole("menu").getByRole("menuitem").first();
         const name = (await hiddenOne.innerText()).trim();
         await hiddenOne.click();
@@ -1083,11 +1117,13 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     test("标签带：Alt 加方向键换一位，活动标签不变，焦点还在它上面；到头了不动（输出 20）", async ({page}) => {
         await open(page);
-        const order = (): Promise<string[]> => head(page, "panel").locator("[data-panel-tab]").evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.panelTab ?? ""));
+        // 带标签条的只剩浮动窗（输出 20、39）。
+        const window = await floatWithTabs(page);
+        const order = (): Promise<string[]> => head(page, window).locator("[data-panel-tab]").evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.panelTab ?? ""));
         const before = await order();
         expect(before.length).toBeGreaterThan(1);
         const first = before[0]!;
-        const firstTab = page.locator(`[data-panel-head="panel"] [data-panel-tab="${first}"]`);
+        const firstTab = page.locator(`[data-panel-head="${window}"] [data-panel-tab="${first}"]`);
         await firstTab.click();
         await firstTab.focus();
         await page.keyboard.press("Alt+ArrowLeft");
@@ -1098,28 +1134,38 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(firstTab).toHaveAttribute("aria-selected", "true");
     });
 
-    test("标签带：标签与内容互相关联；长标题标签与三个框架按钮在 840 宽下都完整可点；方向键切换面板的标签（输出 20）", async ({page}) => {
+    test("标签带：标签与内容互相关联；长标题标签与框架按钮在 840 宽下都完整可点；方向键切换标签（输出 20）", async ({page}) => {
         await page.setViewportSize({width: 840, height: 900});
         await open(page);
-        const omega = page.getByRole("tab", {name: "样例戊"});
-        const panelId = await omega.getAttribute("aria-controls");
-        expect(panelId).not.toBeNull();
-        // 标签在面板头（外框里），它控制的内容在内容层：两边靠 DOM id 对上。
-        const content = page.locator(`[id="${panelId!}"]`);
-        await expect(content).toHaveAttribute("role", "tabpanel");
-        await expect(content).toHaveAttribute("aria-labelledby", (await omega.getAttribute("id"))!);
         // 每个可点的东西：中心点命中的就是它自己。
         const hitsItself = (selector: string) => page.locator(selector).first().evaluate((element) => {
             const rect = element.getBoundingClientRect();
             const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
             return rect.width > 0 && hit !== null && (hit === element || element.contains(hit));
         });
-        await expect.poll(() => hitsItself(`[data-panel-head="panel"] [data-panel-tab="view:${E}"]`)).toBe(true);
-        for (const action of ["set-panel-collapsed", "toggle-panel-maximized", "set-part-hidden"]) {
-            expect(await hitsItself(`[data-panel-head="panel"] [data-panel-action="nbook.view.${action}"]`), action).toBe(true);
+        // 底部面板的分节只写标题：框架按钮是“浮动”与“最大化”，分节不折叠、没有隐藏（隐藏是区域的事），都在头上完整可点。
+        const omegaHead = `[data-panel-head]:has([data-panel-tab="view:${E}"])`;
+        await expect.poll(() => hitsItself(`${omegaHead} [data-panel-tab="view:${E}"]`)).toBe(true);
+        for (const action of ["float", "toggle-panel-maximized"]) {
+            expect(await hitsItself(`${omegaHead} [data-panel-action="nbook.view.${action}"]`), action).toBe(true);
         }
+        // 标签带只在浮动窗上（输出 20、39）：戊、丁、己三个标签，框架按钮只有“回到停靠”。
+        const window = await floatWithTabs(page);
+        const omega = page.getByRole("tab", {name: "样例戊"});
+        await omega.click();
+        const panelId = await omega.getAttribute("aria-controls");
+        expect(panelId).not.toBeNull();
+        // 标签在面板头（外框里），它控制的内容在内容层：两边靠 DOM id 对上。
+        const content = page.locator(`[id="${panelId!}"]`);
+        await expect(content).toHaveAttribute("role", "tabpanel");
+        await expect(content).toHaveAttribute("aria-labelledby", (await omega.getAttribute("id"))!);
+        await expect.poll(() => hitsItself(`[data-panel-head="${window}"] [data-panel-tab="view:${E}"]`)).toBe(true);
+        expect(await hitsItself(`[data-panel-head="${window}"] [data-panel-action="nbook.view.dock"]`), "dock").toBe(true);
         expect(await omega.evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(0);
         await omega.focus();
+        // 窗里是戊、丁、己：往右两下到长标题的己。
+        await page.keyboard.press("ArrowRight");
+        await expect(page.getByRole("tab", {name: "样例丁"})).toBeFocused();
         await page.keyboard.press("ArrowRight");
         await expect(page.getByRole("tab", {name: /^样例己/u})).toBeFocused();
         await expect(sample(page, F)).toBeVisible();

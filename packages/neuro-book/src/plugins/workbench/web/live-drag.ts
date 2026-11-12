@@ -8,11 +8,13 @@
  * 预览只是一份给渲染用的文档（store 的 `setLivePreview`），不写记录，不改可见性。撤预览由 `end` 做：手势的收场顺序里它先于提交，同一个同步段不渲染，不闪。
  */
 
-import {initialLiveDrop, insideShownSlot, layoutDropKey, stepLiveDrop} from "@notnotype/nb-layout";
-import type {GridDropPoint, GridDropRect, GridRect, LayoutDoc, LayoutDropAction, LiveDropCandidate, LiveDropState} from "@notnotype/nb-layout";
+import {initialLiveDrop, insideShownSlot, stepLiveDrop} from "@notnotype/nb-layout";
+import type {GridDropPoint, GridDropRect, GridRect, LayoutDoc, LiveDropCandidate, LiveDropState} from "@notnotype/nb-layout";
 import {readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
 
+import {dropStripOf, workbenchDropKey} from "./entry-drop";
+import type {WorkbenchDropAction} from "./entry-drop";
 import type {LayoutDragDrop, LayoutTabSource} from "./layout-drag";
 
 /** 卡片缩到这么大（和原大小取较小者）。 */
@@ -52,6 +54,11 @@ export interface LiveDragHost {
     collapseSource(source: LayoutTabSource, drop: LayoutDragDrop | null): void;
     /** 来源在已提交的文档里所在的面板。 */
     homeOf(source: LayoutTabSource): string | null;
+    /**
+     * 这条标签条是不是来源自己的：它所在面板的，或者来源是侧栏里一个容器唯一的视图时的活动栏（输出 45：入口之间只是给它的容器换位置）。
+     * 在自己的标签条里跟手、不收起来源。
+     */
+    isHomeStrip(source: LayoutTabSource, strip: string): boolean;
     show(doc: LayoutDoc | null): void;
 }
 
@@ -65,7 +72,7 @@ export interface LiveDrag {
     /** 已显示的空位（相对网格根）；没有新面板时为 null。 */
     readonly slot: Readonly<Ref<GridRect | null>>;
     /** 已显示的落点动作；预览的是别的（来源收起、没有、摆不出来）时为 null。 */
-    readonly shownAction: Readonly<Ref<LayoutDropAction | null>>;
+    readonly shownAction: Readonly<Ref<WorkbenchDropAction | null>>;
     /** 网格根的左上角（视口坐标），这一场拿起时读的。 */
     origin(): {readonly x: number; readonly y: number};
     begin(source: LayoutTabSource, point: GridDropPoint | null): void;
@@ -77,17 +84,17 @@ export interface LiveDrag {
 }
 
 const clampUnit = (value: number): number => Math.min(1, Math.max(0, value));
-/** 落在哪块面板的标签条上（活动栏是侧栏的标签条）；不是标签条为 null。 */
-const stripOf = ({kind, ...action}: LayoutDropAction): string | null => (kind === "strip" || kind === "reveal" ? (action as {readonly panel: string}).panel : null);
+/** 落在哪条标签条上（活动栏的入口之间也是一条）；不是标签条为 null。 */
+const stripOf = dropStripOf;
 /** 原位的落点结果都一样，键也一样；只有标签条里的原位分开：来源收起之后它是排序（已提交的样子），别的原位是来源收起的样子。 */
-const keyOf = (drop: LayoutDragDrop): string => (drop.inPlace ? (stripOf(drop.action) === null ? "in-place" : "in-place-strip") : JSON.stringify([layoutDropKey(drop.action), drop.part ?? null]));
+const keyOf = (drop: LayoutDragDrop): string => (drop.inPlace ? (stripOf(drop.action) === null ? "in-place" : "in-place-strip") : JSON.stringify([workbenchDropKey(drop.action), drop.part ?? null]));
 
 export function createLiveDrag(host: LiveDragHost): LiveDrag {
     const active = shallowRef(false);
     const previewKey = shallowRef("none");
     const card = shallowRef<{readonly key: string} | null>(null);
     const slot = shallowRef<GridRect | null>(null);
-    const shownAction = shallowRef<LayoutDropAction | null>(null);
+    const shownAction = shallowRef<WorkbenchDropAction | null>(null);
     let source: LayoutTabSource | null = null;
     let pointer: GridDropPoint | null = null;
     let origin: {readonly x: number; readonly y: number} = {x: 0, y: 0};
@@ -112,7 +119,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         const {action} = drop;
         // 自己的标签条、已经吸收它的那条要跟手。第一次进别的标签条和别的落点一样等稳定：路过不闪，也不会路过活动栏就把隐藏的侧栏弹出来。
         const strip = stripOf(action);
-        const immediate = strip !== null && (strip === host.homeOf(from) || strip === absorbedIn);
+        const immediate = strip !== null && (host.isHomeStrip(from, strip) || strip === absorbedIn);
         // 只有长出新面板的落点有空位：并进已有面板时空位就是它的整块正文，粘住了它自己的外缘就选不到了。
         const grows = !drop.inPlace && action.kind === "edge";
         return {key: keyOf(drop), immediate, slot: grows ? drop.preview.areaRect : null};
@@ -160,6 +167,8 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         host.placeCard(rect);
     }
 
+    const isHome = (from: LayoutTabSource, strip: string | null): boolean => strip !== null && host.isHomeStrip(from, strip);
+
     /** 候选稳定了就换预览；换了返回真。 */
     function stepPreview(from: LayoutTabSource, now: number): boolean {
         if (!started) {
@@ -171,7 +180,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         if (state.preview === before) return false;
         const {preview} = state;
         // 落到别处才收起来源：自己的标签条里换序、放回原处都还没离开。
-        const elsewhere = preview.kind === "source-removed" || (preview.kind === "candidate" && offered !== null && !offered.inPlace && stripOf(offered.action) !== host.homeOf(from));
+        const elsewhere = preview.kind === "source-removed" || (preview.kind === "candidate" && offered !== null && !offered.inPlace && !isHome(from, stripOf(offered.action)));
         if (elsewhere && !collapsed) {
             collapsed = true;
             host.collapseSource(from, preview.kind === "candidate" ? offered : null);

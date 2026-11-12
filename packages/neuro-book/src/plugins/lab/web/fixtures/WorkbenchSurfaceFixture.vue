@@ -30,8 +30,10 @@ import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/co
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "nbook/plugins/workbench/web/state/default-tree";
 import {collapseOrder, createLayoutPolicy, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
 import {implicitContainerOf, moveContainerTo, sectionLanding, settleContainers} from "nbook/plugins/workbench/web/state/containers";
-import {containerEntries, effectiveVisibleTabs, sidebarVisible, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
+import {containerEntries, effectiveVisibleTabs, sidebarVisible, titleOnlyPanels, toolEntryIntent} from "nbook/plugins/workbench/web/state/layout-present";
 import type {ViewCatalog} from "nbook/plugins/workbench/web/views/registry";
+import {applyEntryDrop} from "nbook/plugins/workbench/web/entry-drop";
+import {CUSTOM_CONTAINER_PREFIX} from "nbook/plugins/workbench/shared/views";
 
 import type {LabFixtureProps} from "../lab-subject";
 import GridStructureLeaf from "./nb-layout/GridStructureLeaf.vue";
@@ -72,6 +74,8 @@ const surface = ref<InstanceType<typeof WorkbenchSurface> | null>(null);
 const options = computed(() => layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value}));
 const collapse = computed(() => (extent.value === null ? {removed: new Set<string>(), squeezed: false} : presentationCollapse(doc.value, extent.value, {...options.value, order: collapseOrder(doc.value), focused: focusedPanel.value})));
 const projection = computed(() => projectLayoutDoc(doc.value, layoutProjectionOptions({doc: doc.value, catalog: CATALOG, viewportWidth: extent.value?.width ?? 0, cardGap: cardGap.value, removed: collapse.value.removed, squeezed: collapse.value.squeezed})));
+/** 分节的头只写标题（输出 20），内容是以标题命名的 region：和外壳用同一个判定。 */
+const titleOnly = computed(() => titleOnlyPanels(doc.value));
 const visible = computed(() => effectiveVisibleTabs(doc.value, {sizes: presented.value, preview: preview.value, removed: collapse.value.removed, maximized: maximized.value}));
 
 /** 结构操作之前把呈现尺寸写回意图（workbench-layout 输出 8），之后把锚归整到和分节一致（输出 41、43），和产品的 store 同一个次序。库拒绝时文档不变。 */
@@ -109,6 +113,9 @@ const ACTIONS: Readonly<Record<string, () => void>> = {
     // 视图换容器：C 成为底部面板里 E 那个容器的又一个分节；D 成为侧栏里 B 那个容器的又一个分节。
     "c-to-new-panel": () => commit(intoContainer("c", "panel", implicitContainerOf("e"))),
     "d-below-b": () => commit(intoContainer("d", "sidebar", implicitContainerOf("b"))),
+    // 活动栏上段的落点（输出 45），和拖到那里放下是同一个函数：D 放到入口最后，新建一个只含它的用户容器；D 放到 A 的入口上，成为 A 的最后一个分节。都切过去。
+    "d-new-entry": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "new-container", container: `${CUSTOM_CONTAINER_PREFIX}lab`, before: null}, POLICY, {commit: true})),
+    "d-into-a": () => commit((current) => applyEntryDrop(current, {kind: "tab", tab: "view:d"}, {kind: "join-container", container: implicitContainerOf("a")}, POLICY, {commit: true})),
 };
 
 function headTabs(panelId: string): PanelHeadTab[] {
@@ -185,6 +192,7 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
                 :doc="doc"
                 :projection="projection"
                 :maximized="maximized"
+                :title-only-panels="titleOnly"
                 context-key="lab:surface"
                 @extent="(next) => (extent = next)"
                 @card-gap="(gap) => (cardGap = gap)"
@@ -207,6 +215,7 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
                         :active="doc.panels[panelId]?.active ?? null"
                         more-label="更多"
                         :id-prefix="idPrefix"
+                        :title-only="titleOnly.has(panelId)"
                         :frame-actions="frameActions(panelId)"
                         @activate="(key) => commit((current) => activateTab(current, key))"
                         @action="(action) => runFrame(panelId, action)"
