@@ -143,3 +143,12 @@
 
 - 模板：根 `AGENTS.md` 的核心规则加“除只读问答外，动手前先找到或新建 Work 与 Task；调研、过程产物与证据写进 Task 或 Work 目录，不写进宿主自带的工作目录；宿主约定与本仓库冲突时以本仓库为准”；`.agents/works/README.md` 加 Work 层 `research/` 与“宿主工作目录不是记录”；领号补 PowerShell 写法（在 pc-notype 的临时仓库实测，能取到只在另一条分支上的编号）。
 - 建议：NeuroBook 根 `AGENTS.md` 的核心规则补同样一条；`.agents/works/README.md` 的目录树补 `research/`。
+
+### 18. 没有写提案的 Skill，流程顺序与实际做法不符
+
+开发者的习惯是 proposal → spec → task → plan。NeuroBook 有写 Spec、写计划、审查的 Skill，没有写提案的：何时要提案、八节结构与生效规则在 `docs/proposals/README.md`，但“写之前调研什么、怎么和开发者定方向、审查意见怎么分类处理、接受后做什么”只存在于实际的 Task 里（w00043 t01：调研三份笔记放 Work 的 `research/`，提案审了两轮，审查意见分 A 照改、B 下放 Spec、C 交开发者、D 不改四类，三稿后交开发者）。
+
+同时，`docs/README.md` 的“生命周期与维护”与 `docs/proposals/README.md` 都写“提案 accepted 后创建 Work 与 Task”，而实际上提案本身就在一个方向 Task 里写（w00043 t01-direction）。按字面，写提案这段工作没有 Task 可挂，调研与审查报告无处可记。
+
+- 模板：新增 `writing-proposals`（方向 Task → 调研 → 讨论方向 → 写提案 → 设计审查与四类处理 → 开发者接受 → ADR 与 planned Spec → 实现 Task），把 w00043 t01 的做法写成步骤；`docs/README.md` 的流程改成“方向 Task：调研 → 讨论 → 提案 → 审查 → 接受 → planned Spec → 实现 Task → plan”，`docs/proposals/README.md` 写明提案在方向 Task 下写、接受后建的是实现 Task。
+- 建议：NeuroBook 补同样的 Skill，并改正流程描述：`docs/README.md` 第 12 行与第 52 行、`docs/proposals/README.md` 第 107 行写的是接受后“创建或复用 Work 与 Task”；`docs/specs/README.md` 第 312 行写的是“创建 Work 与实现 Task”，与实际一致，不用改。可以并入 [t02](../t02-template-as-upstream/README.md)：模板成为上游后直接取用。
