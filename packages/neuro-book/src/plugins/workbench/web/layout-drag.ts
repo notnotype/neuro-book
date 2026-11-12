@@ -345,8 +345,10 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const stripOf = (panel: string): Element | null => root.querySelector(`[data-panel-strip="${escape(panel)}"] [data-tab-strip]`);
 
     function geometryOf(doc: LayoutDoc, id: string): LayoutDropPanelGeometry | null {
-        // 拖到零的面板，卡片还停在最后的非零尺寸（内容不重排），量的是外框。
-        if (rectOf(root.querySelector(`[data-leaf="${escape(id)}"]`)) === null) return null;
+        // 拖到零的面板，卡片还停在最后的非零尺寸（内容不重排），量的是外框。隐藏的面板没有外框；刚隐藏、还在过渡里缩回去的（`data-leaving`）
+        // 外框还在，也不算：它已经不在布局里，不是落点（docs/specs/ui/nested-grid.md 的“过渡”）。
+        const frame = root.querySelector(`[data-leaf="${escape(id)}"]`);
+        if (rectOf(frame) === null || frame?.hasAttribute("data-leaving") === true) return null;
         const card = rectOf(root.querySelector(`[data-shell-card="${escape(id)}"]`));
         if (card === null) return null;
         // 工具面板整个头都算标签条（动作区经 `data-no-drag` 不接收）；编辑组的头里还有提示条，只有标签条那一行算，头以下是正文。

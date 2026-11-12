@@ -206,6 +206,15 @@ watch([cards, sceneCorners, presentedLeaves], ([nextCards, nextScene, presented]
     }
 }, {immediate: true, flush: "sync"});
 /**
+ * 不在呈现里、也不在缩回去的叶，最后一次的记录用不上了：编辑组每次拆分都是新 id，不清就一直长。等 `NestedGrid` 判完过渡再清（`post`）：
+ * 刚离开、要留着缩回去的那块这时已经在 `leavingLeaves` 里，它缩回去的这段还要用记录。
+ */
+watch([presentedLeaves, () => gridEl.value?.leavingLeaves], ([presented, leaving]) => {
+    for (const records of [lastPresented.cards, lastPresented.scene]) {
+        for (const id of records.keys()) if (!presented.has(id) && leaving?.has(id) !== true) records.delete(id);
+    }
+}, {flush: "post"});
+/**
  * 和活动栏相连的工具面板隐藏、在过渡里留着缩回去时（docs/specs/ui/workbench-layout.md 输出 19），活动栏照旧相连：两张卡片作为一张缩回去，面板摘掉后
  * 活动栏才断开。按呈现算的话活动栏第一帧就断开了，而缩回去的面板还是相连的样子，贴着它的那边是直的。相连只在活动栏和它右边的工具面板之间，
  * 所以离开的叶最后一次呈现时左边相连，就是和活动栏连着。

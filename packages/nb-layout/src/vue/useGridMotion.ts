@@ -95,12 +95,15 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const flying = flyingContents(frame.items, frame.previous);
     const leaving = leavingPlacements(frame.items, frame.previous, frame.holding === true);
     const kept = keptSizeStarts({items: frame.items, previous: frame.previous, entering, following, leaving});
+    // 上一轮还在缩回去的叶（`input.items` 里带 `leaving` 的）：这一轮又有别的变化时接着留着缩完，不然它缩到一半就没了。回到树里的、这一轮重新判成离开的不算。
+    const present = new Set([...frame.items, ...leaving].map((item) => item.key));
+    const still = input.items.filter((item): item is GridLeavingItem => item.kind === "leaf" && item.leaving === true && !present.has(item.key));
     return {
         kind: "move",
         entering: new Map([...entering, ...kept]),
         following,
         flying,
-        leaving,
+        leaving: [...still, ...leaving],
         keptSize: new Set(kept.keys()),
         rightAnchored: rightAnchored({items: frame.items, leaving, starts: kept, following, flying}),
     };
@@ -168,11 +171,13 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         inRound = true;
         moving.value = true;
         flying.value = new Set([...(flying.value), ...move.flying]);
-        // 上一轮还在缩的叶这一轮没再判成离开（例如又显示回来了）就不留了：它要么回到树里，要么已经缩到了头。
+        // `move.leaving` 里有上一轮还没缩完的（`decideMotion` 接着留）；不在里面的是又回到了树里。
         leaving.value = move.leaving;
         timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
         const entering = move.entering;
         if (entering.size === 0) return;
+        // 过渡中又来一次变化时，已经画着的项的起点是上一帧的矩形，也就是上一轮的终点，正是它此刻在走的那次过渡的终点：样式写回这个值不打断那次过渡
+        // （CSS 过渡里终点没变就接着走），下一帧写新终点时从此刻的位置反向，不跳。所以不用读 DOM 取当前位置；起点不再是上一轮的终点时这条就不成立了。
         growing.value = entering;
         // 先让第一帧的矩形进到样式里（强制一次布局），再写终点：否则浏览器把两次改动并成一次，过渡不启动。
         void nextTick(() => {
@@ -192,6 +197,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
         if (duration > 0) start(duration, decision);
+        // 过渡中切到了减少动态效果：不开新一轮，进行中的直接到终点，留着缩回去的叶也摘掉（不然它和回到树里的同一块叶一起画）。
+        else stop();
     }
 
     /**

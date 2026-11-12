@@ -54,6 +54,21 @@ describe("decideMotion", () => {
         expect(decideMotion(frame({items: settled, previous: held}), memory).kind).toBe("none");
     });
 
+    it("留着缩回去的叶，过渡中又来一次别的变化：接着留着缩完，不是缩到一半就没了；又回到树里的不再留", () => {
+        const {memory} = warmed();
+        const gone = items([300, 200, 200]).find((item) => item.kind === "leaf" && item.node.id === "l2");
+        if (gone?.kind !== "leaf") throw new Error("没有叶 l2");
+        const held = {...gone, rect: {...gone.rect, width: 0}, leaving: true as const};
+        const hidden = items([350, 350]);
+        // 别的两块又变了一次（例如接着隐藏另一个区域），l2 还在缩。
+        const moved = items([250, 450]);
+        const again = decideMotion(frame({items: [...moved, held], previous: [...hidden, held]}), memory);
+        expect(again.kind === "move" ? again.leaving.map((item) => item.key) : again.kind).toEqual(["leaf:l2"]);
+        // 又显示回来：树里有 l2 了。
+        const shown = decideMotion(frame({items: [...items([300, 200, 200]), held], previous: [...moved, held]}), memory);
+        expect(shown.kind === "move" ? shown.leaving : shown.kind).toEqual([]);
+    });
+
     it("第一次有真实布局：不过渡", () => {
         const memory = EMPTY_GRID_MOTION_MEMORY();
         expect(decideMotion(frame({items: items([300, 200, 200]), previous: items([0, 0, 0])}), memory).kind).toBe("none");
@@ -127,8 +142,7 @@ describe("过渡中内容跟外框的叶", () => {
     });
 
     /** 挂一个带令牌的根，喂第一帧。 */
-    function started(duration = "470ms") {
-        const root = document.createElement("div");
+    function started(duration = "470ms", root = document.createElement("div")) {
         root.style.setProperty("--motion-layout", duration);
         document.body.append(root);
         let motion!: ReturnType<typeof useGridMotion>;
@@ -217,6 +231,18 @@ describe("过渡中内容跟外框的叶", () => {
         const {motion} = started("0ms");
         motion.land("leaf:l0");
         expect(motion.moving.value).toBe(false);
+    });
+
+    it("过渡中切到减少动态效果、又来一次变化：不开新一轮，进行中的直接到终点、名单清空", () => {
+        const root = document.createElement("div");
+        const {motion, base} = started("470ms", root);
+        const split = items([200, 200, 150, 150]);
+        motion.update(frame({items: split, previous: base}));
+        expect(motion.moving.value).toBe(true);
+        root.style.setProperty("--motion-layout", "0ms");
+        motion.update(frame({items: items([100, 300, 150, 150]), previous: split}));
+        expect(motion.moving.value).toBe(false);
+        expect([followingOf(motion), [...motion.keptSize.value], motion.leaving.value]).toEqual([[], [], []]);
     });
 
     it("减少动态效果（令牌为零）：没有过渡，内容直接是最终尺寸", () => {

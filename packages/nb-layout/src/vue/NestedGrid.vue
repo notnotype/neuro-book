@@ -674,10 +674,6 @@ defineExpose({
 }
 
 /*
- * 过渡中内容贴着外框的右边（`rightAnchored`）：整块跟着右边平移进出。内层是最终尺寸，比外框宽的部分在左边被裁掉；
- * 过渡结束标记就摘了，那时外框等于内层，贴哪边都一样，不跳。
- */
-/*
  * 过渡中按叶的矩形摆的内容（`byLeafRect`）：外层和外框同一个矩形，内容体往下挪一个面板头，外层的上边跟着外框的上边走，内容一直紧贴面板头下面。
  * 挪用相对定位，不用内边距：内边距会把比面板头还矮的外层撑高，外层伸出外框。面板头那一条由外层的 `clip-path` 裁掉（内联，见 `useContentLayer`）。
  * 写在贴右边的规则前面，两者都有时内容体是绝对定位，上边另给。
@@ -687,6 +683,10 @@ defineExpose({
     top: var(--nb-grid-inset);
 }
 
+/*
+ * 过渡中内容贴着外框的右边（`rightAnchored`）：整块跟着右边平移进出。内层是最终尺寸，比外框宽的部分在左边被裁掉；
+ * 过渡结束标记就摘了，那时外框等于内层，贴哪边都一样，不跳。
+ */
 .nb-grid-frame[data-anchor-right] > .nb-grid-leaf,
 .nb-grid-content[data-anchor-right] > .nb-grid-content__body {
     position: absolute;

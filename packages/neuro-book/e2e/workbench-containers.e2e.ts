@@ -416,6 +416,26 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect((await box(page, explorer)).width).toBeCloseTo(width, 0);
         await expect(content(page, EXPLORER)).toBeVisible();
 
+        // 缩到一半又有别的布局变化（显示底部面板）：侧栏接着缩完，不是当场没了。
+        await run("nbook.view.set-part-hidden", {part: "panel", hidden: true});
+        await settled();
+        const during = await page.evaluate(async ({name, leafId}) => {
+            const fire = (part: string, hidden: boolean) => window.dispatchEvent(new CustomEvent(name, {detail: {command: "nbook.view.set-part-hidden", args: {part, hidden}}}));
+            const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const shrinking = () => document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"][data-leaving]`) !== null;
+            fire("sidebar", true);
+            await frames();
+            const before = shrinking();
+            fire("panel", false);
+            await frames();
+            return {before, after: shrinking()};
+        }, {name: SAMPLE_VIEWS_RUN_EVENT, leafId: explorer});
+        expect(during).toEqual({before: true, after: true});
+        await settled();
+        await expect(leaf(page, explorer)).toHaveCount(0);
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: false});
+        await settled();
+
         // 减少动态效果：没有过渡，隐藏那一帧叶就没了，也不留着。
         await page.emulateMedia({reducedMotion: "reduce"});
         const after = await page.evaluate(async ({name, leafId}) => {
