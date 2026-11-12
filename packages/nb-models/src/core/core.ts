@@ -1,28 +1,29 @@
 /**
- * `nbook.models` 服务端的核心（docs/specs/models/service.md）：快照、串行写入、模型端口与给设置页的远程实现。入口
- * （`plugin.ts`）只负责打开凭据库、取依赖与登记清理。
+ * 模型服务的核心（docs/specs/models/service.md）：快照、串行写入、模型端口与给设置页的远程实现。应用的插件入口打开凭据库、
+ * 把自己的设置服务适配成 `ModelsConfigStore`，再建核心、用自己的服务键与合同 id 交出 `service` 与 `remote`。
  *
  * 两条贯穿全文件的约束：
- * - 所有写入（两个设置项、凭据库）排进同一个串行队列 `queue`；设置项每次“读本层当前值 → 合并 → 带 `expect` 写回”，
- *   冲突就重读重来（输出 6）。快照的失效也在这条队列之外即时发生：设置的订阅与凭据库的变化通知都只把缓存作废。
- * - `resolve` 同步，读的是缓存的快照与按引用缓存的解析结果；缓存在设置或凭据变化时整体作废（输出 7）。
+ * - 所有写入（两个配置项、凭据库）排进同一个串行队列 `queue`；配置项每次“读本层当前值 → 合并 → 带 `expect` 写回”，
+ *   冲突就重读重来（输出 6）。快照的失效也在这条队列之外即时发生：配置的订阅与凭据库的变化通知都只把缓存作废。
+ * - `resolve` 同步，读的是缓存的快照与按引用缓存的解析结果；缓存在配置或凭据变化时整体作废（输出 7）。
  */
-
-import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
-import {eventSource} from "@notnotype/nb-runtime/remote";
-import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 
 import type {ModelPort, ModelQuery, ModelRequest, ModelResolution} from "@notnotype/nb-harness/kernel/contracts";
 import {buildResolution, discoverModels, envRefName, envValue, listCatalog, requestAuth} from "@notnotype/nb-harness/models";
 import type {CatalogModel, CredentialStore, KeyAccess, ModelTarget, ProviderTarget, StartupEnv} from "@notnotype/nb-harness/models";
-import {BUILTIN_ROLES, compactionTrigger, DEFAULT_ROLES, effectiveCompaction, missingContextWindow, providerIdFor, referenceOf, roleOfReference, rolesUsing, seriesOf, splitReference} from "@notnotype/nb-models/config";
-import type {ModelConfig, ProviderConfig, RoleConfig, RolesConfig} from "@notnotype/nb-models/config";
-import type {CheckResult, KeyStatus, ModelsService, ModelsSnapshot, ProfileModelDefaults, RoleStatus, SnapshotModel, SnapshotProvider} from "@notnotype/nb-models/contract";
+import {eventSource} from "@notnotype/nb-runtime/remote";
+import type {RemoteImplementation, RemoteOutcome} from "@notnotype/nb-runtime/remote";
+import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
-import type {SettingDefinition, SettingsService, SettingWriteResult} from "nbook/shared/settings";
-
-import type {modelsSettingsContract} from "../shared/contracts";
-import {modelsSettings} from "../shared/settings";
+import {compactionTrigger, effectiveCompaction} from "../config/compaction";
+import {missingContextWindow, providerIdFor, referenceOf, roleOfReference, rolesUsing, seriesOf, splitReference} from "../config/rules";
+import {BUILTIN_ROLES, DEFAULT_ROLES, MODEL_ROLE_IDS} from "../config/shapes";
+import type {ModelConfig, ProviderConfig, RoleConfig, RolesConfig} from "../config/shapes";
+import type {ModelsService, ProfileModelDefaults} from "../contract/service";
+import type {ModelsSettingsContract} from "../contract/settings-spec";
+import type {CheckResult, KeyStatus, ModelsSnapshot, RoleStatus, SnapshotModel, SnapshotProvider} from "../contract/shapes";
+import {chooseModel} from "./choice";
+import type {ConfigKey, ConfigSlot, ModelsConfigStore, SlotWriteResult} from "./store";
 
 /** 冲突后重读重来的次数（输出 6）。 */
 const WRITE_ATTEMPTS = 3;
@@ -37,43 +38,43 @@ const CHECK_TIMEOUT_MS = 30_000;
 const CHECK_CONCURRENCY = 4;
 
 export interface ModelsCoreDeps {
-    readonly settings: SettingsService;
+    readonly config: ModelsConfigStore;
     readonly credentials: CredentialStore;
     readonly env: StartupEnv;
+    /** 诊断；事件名是 `models.catalog.missing` 与 `models.credentials.failed`。 */
     readonly record: (level: "info" | "warn", event: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
 export interface ModelsCore {
     readonly service: ModelsService;
-    remote(consumer: ConsumerIdentity): RemoteImplementation<typeof modelsSettingsContract>;
+    remote(consumer: ConsumerIdentity): RemoteImplementation<ModelsSettingsContract>;
     /** 等队列里已接纳的写入走完，摘掉订阅；凭据库由入口关。 */
     close(): Promise<void>;
 }
 
-/** 写入一步的结果：业务失败按远程合同的码交回。 */
-type Failure = {readonly ok: false; readonly code: string; readonly detail: unknown};
+type Methods = ModelsSettingsContract["methods"];
+/** 合同里各方法声明过的业务失败（失败码表随合同定义在 `contract/settings-spec.ts`）；写入的每一步交回其中一种。 */
+type Failure = {[Name in keyof Methods]: Exclude<RemoteOutcome<Methods[Name]>, {readonly ok: true}>}[keyof Methods];
 type Step<T> = {readonly ok: true; readonly value: T} | Failure;
-const failure = (code: string, detail: string, extra: Record<string, unknown> = {}): Failure => ({ok: false, code, detail: {detail, ...extra}});
+/** 详情是 `{detail}` 加上这个码要的别的字段；码只能是合同里有的，详情的形状由远程层按合同核对。 */
+const failure = (code: Failure["code"], detail: string, extra: Record<string, unknown> = {}): Failure => ({ok: false, code, detail: {detail, ...extra}}) as Failure;
 const BUILTIN = new Set(BUILTIN_ROLES.map((role) => role.id));
 /**
- * 把写入步骤的业务失败原样交给远程实现：每个步骤只产生它所在方法在合同里声明过的码（`mutate` 的设置失败映射、各方法自己的
- * 码），类型系统表达不出“这一步只会产生这几种码”，在这一处断言。
+ * 把写入步骤的业务失败原样交给远程实现：每个步骤只产生它所在方法在合同里声明过的码（`mutate` 的配置失败映射、各方法自己的
+ * 码），类型系统表达不出“这一步属于哪个方法”，在这一处断言。
  */
 const relay = (step: Failure): never => step as never;
 
 export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
-    const {settings, credentials, env} = deps;
-    const providersSetting = modelsSettings.settings.providers;
-    const rolesSetting = modelsSettings.settings.roles;
-    const providers = (): readonly ProviderConfig[] => settings.get(providersSetting) as readonly ProviderConfig[];
-    const roles = (): readonly RoleConfig[] => (settings.get(rolesSetting) as RolesConfig).items;
+    const {config, credentials, env} = deps;
+    const providers = (): readonly ProviderConfig[] => config.providers.read();
+    const roles = (): readonly RoleConfig[] => config.roles.read().items;
     const access: KeyAccess = {stored: (provider) => credentials.get(provider), env};
     /** 重发归内核（docs/specs/models/service.md 输出 16），所以 HTTP 只发一次。每次请求现读。 */
-    const transport = () => ({
-        firstEventTimeoutMs: settings.get(modelsSettings.settings.streamFirstEventTimeoutSeconds) * 1000,
-        idleTimeoutMs: settings.get(modelsSettings.settings.streamIdleTimeoutSeconds) * 1000,
-        maxHttpAttempts: 1,
-    });
+    const transport = () => {
+        const stream = config.stream();
+        return {firstEventTimeoutMs: stream.firstEventTimeoutSeconds * 1000, idleTimeoutMs: stream.idleTimeoutSeconds * 1000, maxHttpAttempts: 1};
+    };
 
     // ---- 目录（OMP 内置，进程内不变） ----
     const catalog = new Map(listCatalog().map((provider) => [provider.id, provider]));
@@ -92,9 +93,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         for (const listener of [...listeners]) listener();
         changed.emit(next);
     };
-    const offSettings = settings.onDidChange((keys) => {
-        if (keys.has(providersSetting.key) || keys.has(rolesSetting.key) || keys.has(modelsSettings.settings.compaction.key)) invalidate();
-    });
+    const offConfig = config.onChange(invalidate);
     const offCredentials = credentials.onChange(invalidate);
 
     const targetOf = (provider: ProviderConfig): ProviderTarget => ({
@@ -114,7 +113,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         ...(model.vision === undefined ? {} : {vision: model.vision}),
         ...(model.reasoning === undefined ? {} : {reasoning: model.reasoning}),
         // 触发点要等窗口知道了才算得出；全局设置每次现读，设置改了从下一次解析起生效。
-        compactAtFor: (contextWindow) => compactionTrigger(effectiveCompaction(model, settings.get(modelsSettings.settings.compaction)), contextWindow),
+        compactAtFor: (contextWindow) => compactionTrigger(effectiveCompaction(model, config.compaction()), contextWindow),
         ...(model.price === undefined ? {} : {price: model.price}),
         ...(model.headers === undefined ? {} : {headers: model.headers}),
     });
@@ -214,9 +213,9 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     }
 
     /** 等这个键的下一次变化，最多 `CATCH_UP_MS`。 */
-    const changeOf = (key: string): Promise<void> => new Promise((resolve) => {
+    const changeOf = (key: ConfigKey): Promise<void> => new Promise((resolve) => {
         const timer = setTimeout(done, CATCH_UP_MS);
-        const off = settings.onDidChange((keys) => {
+        const off = config.onChange((keys) => {
             if (keys.has(key)) done();
         });
         function done(): void {
@@ -238,27 +237,28 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
      * 读本层当前值、合并、带 `expect` 写回；`conflict`（期间别处写过文件）就重读重来（输出 6）。`transform` 拿到的是用户层
      * 的值（没有时是缺省值），交回下一份值或业务失败。
      */
-    async function mutate<V, R>(setting: SettingDefinition<V>, fallback: V, transform: (current: V) => Step<{next: V; result: R}>): Promise<Step<R>> {
+    async function mutate<V, R>(key: ConfigKey, slot: ConfigSlot<V>, fallback: V, transform: (current: V) => Step<{next: V; result: R}>): Promise<Step<R>> {
         for (let attempt = 1; attempt <= WRITE_ATTEMPTS; attempt += 1) {
-            const user = settings.inspect(setting).user;
-            if (user.status === "unavailable" || user.status === "invalid" || user.status === "absent") return failure("settings-unavailable", "the user settings layer is not writable", {code: user.status === "invalid" ? "layer-invalid" : "unavailable"});
-            // 读到的值深冻结，合并要改它：取一份可改的拷贝（结构化克隆后去掉只读标记是安全的）。
-            const current = user.value === undefined ? fallback : (structuredClone(user.value) as V);
+            const layer = slot.editable();
+            if (layer.status !== "ok") return failure("settings-unavailable", "the user settings layer is not writable", {code: layer.status === "invalid" ? "layer-invalid" : "unavailable"});
+            // 读到的值可能是冻结的，合并要改它：取一份可改的拷贝。
+            const current = layer.value === undefined ? fallback : structuredClone(layer.value);
             const step = transform(current);
             if (!step.ok) return step;
-            const written: SettingWriteResult = await settings.update(setting, step.value.next, {expect: {value: user.value}});
+            const written: SlotWriteResult = await slot.write(step.value.next, {value: layer.value});
             if (written.ok) return {ok: true, value: step.value.result};
             if (written.code === "conflict") {
-                await changeOf(setting.key);
+                await changeOf(key);
                 continue;
             }
-            if (written.code === "invalid-value") return failure("invalid-value", written.detail);
-            return failure("settings-unavailable", written.detail, {code: written.code});
+            const detail = written.detail ?? "";
+            if (written.code === "invalid-value") return failure("invalid-value", detail);
+            return failure("settings-unavailable", detail, {code: written.code});
         }
         return failure("write-conflict", "the settings kept changing while writing");
     }
-    const editProviders = <R>(transform: (list: ProviderConfig[]) => Step<{next: ProviderConfig[]; result: R}>) => mutate<ProviderConfig[], R>(providersSetting as SettingDefinition<ProviderConfig[]>, [], transform);
-    const editRoles = <R>(transform: (value: RolesConfig) => Step<{next: RolesConfig; result: R}>) => mutate<RolesConfig, R>(rolesSetting as SettingDefinition<RolesConfig>, structuredClone(DEFAULT_ROLES), transform);
+    const editProviders = <R>(transform: (list: ProviderConfig[]) => Step<{next: ProviderConfig[]; result: R}>) => mutate<ProviderConfig[], R>("providers", config.providers, [], transform);
+    const editRoles = <R>(transform: (value: RolesConfig) => Step<{next: RolesConfig; result: R}>) => mutate<RolesConfig, R>("roles", config.roles, structuredClone(DEFAULT_ROLES), transform);
     const unknownProvider = (id: string): Failure => failure("unknown-provider", `no provider ${id}`);
     /** 删掉服务商或模型之后，绑着它们的角色解除绑定（变成未绑定，而不是指向不存在的模型）。 */
     const unbind = (provider: string, models?: readonly string[]): Promise<Step<null>> =>
@@ -337,13 +337,10 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
     const service: ModelsService = {
         port: (profileDefaults?: (profile: string) => ProfileModelDefaults): ModelPort => ({
             resolve: (query: ModelQuery): ModelResolution => {
-                if (query.role !== undefined) return resolveRole(query.role);
-                if (query.purpose === "compaction") return resolveRole("compaction");
-                if (query.purpose === "approval") return resolveRole("fast");
-                if (query.settings.model !== null) return resolveSelection(query.settings.model);
-                const defaults = profileDefaults?.(query.profile) ?? {};
-                if (defaults.model !== undefined) return resolveReference(defaults.model);
-                return resolveRole(defaults.role ?? "main");
+                const choice = chooseModel(query, profileDefaults);
+                if ("role" in choice) return resolveRole(choice.role);
+                if ("selection" in choice) return resolveSelection(choice.selection);
+                return resolveReference(choice.reference);
             },
         }),
         snapshot,
@@ -353,7 +350,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         },
     };
 
-    const remote = (_consumer: ConsumerIdentity): RemoteImplementation<typeof modelsSettingsContract> => ({
+    const remote = (_consumer: ConsumerIdentity): RemoteImplementation<ModelsSettingsContract> => ({
         methods: {
             catalogProviders: (_input, ctx) => ctx.ok([...catalog.values()].map((provider) => ({id: provider.id, name: provider.name, access: provider.access, added: providers().some((item) => item.id === provider.id)}))),
             catalogModels: (input, ctx) => {
@@ -436,10 +433,10 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
                 const step = await editRoles<null>((value) => {
                     const role = value.items.find((item) => item.id === input.id);
                     if (role === undefined) return failure("unknown-role", `no role ${input.id}`);
-                    const compaction = value.items.find((item) => item.id === "compaction");
+                    const compaction = value.items.find((item) => item.id === MODEL_ROLE_IDS.compaction);
                     // 第一次绑快速档而压缩还没绑：压缩跟着它（输出 14）。
-                    const seedCompaction = input.id === "fast" && role.model === null && compaction !== undefined && compaction.model === null && input.model !== null;
-                    const items = value.items.map((item) => (item.id === input.id ? {...item, model: input.model} : seedCompaction && item.id === "compaction" ? {...item, model: input.model} : item));
+                    const seedCompaction = input.id === MODEL_ROLE_IDS.fast && role.model === null && compaction !== undefined && compaction.model === null && input.model !== null;
+                    const items = value.items.map((item) => (item.id === input.id ? {...item, model: input.model} : seedCompaction && item.id === MODEL_ROLE_IDS.compaction ? {...item, model: input.model} : item));
                     return {ok: true, value: {next: {items}, result: null}};
                 });
                 return step.ok ? ctx.ok(null) : relay(step);
@@ -544,7 +541,7 @@ export function createModelsCore(deps: ModelsCoreDeps): ModelsCore {
         service,
         remote,
         close: async () => {
-            offSettings();
+            offConfig();
             offCredentials();
             listeners.clear();
             await tail;

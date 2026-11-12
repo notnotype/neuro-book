@@ -10,7 +10,9 @@
     },
     "exports": {
         "./config": "./src/config/index.ts",
-        "./contract": "./src/contract/index.ts"
+        "./contract": "./src/contract/index.ts",
+        "./core": "./src/core/index.ts",
+        "./testing": "./src/testing/index.ts"
     },
     "scripts": {
         "test": "bun test",

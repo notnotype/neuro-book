@@ -4,6 +4,7 @@
  *   的 `kernel/contracts` 与 nb-runtime 的 `remote`；不许 `node:`、`bun` 这类平台模块。`config/` 只引用自己，`contract/` 只引用
  *   `config/` 与自己。
  * - 不取 nb-harness 的根入口与 `kernel`：它们值导出 OMP 的适配器，会把整套内核带进来。
+ * - 产品代码不引用 `testing/`（测试支持只给测试）。
  * - `package.json` 的 `exports` 只列存在的文件。
  * 测试文件不受前两条限制。每条规则都带一个反例，证明规则能拦下违规。
  */
@@ -71,6 +72,7 @@ function violationsOf(uses: readonly ImportUse[]): string[] {
         if (isTest(use.file)) continue;
         const where = `${use.file} → ${use.specifier}`;
         if (HARNESS_HEAVY.test(use.specifier) && !use.typeOnly) found.push(`不取 nb-harness 的根入口与 kernel：${where}`);
+        if (use.specifier.startsWith(".") && top(use.file) !== "testing" && top(relative(SRC, resolve(SRC, dirname(use.file), use.specifier))) === "testing") found.push(`产品代码引用了测试支持：${where}`);
         const allowedDirs = BROWSER_DIRS[top(use.file)];
         if (allowedDirs === undefined) continue;
         if (use.specifier.startsWith(".")) {
@@ -104,6 +106,7 @@ describe("nb-models 的边界", () => {
             use("contract/shapes.ts", "../core/models"),
             use("core/models.ts", "@notnotype/nb-harness"),
             use("core/models.ts", "@notnotype/nb-harness/kernel"),
+            use("core/core.ts", "../testing/memory-store"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
@@ -115,6 +118,8 @@ describe("nb-models 的边界", () => {
             use("core/models.ts", "@notnotype/nb-harness/models"),
             use("core/models.ts", "@notnotype/nb-harness/kernel", true),
             use("config/roles.test.ts", "typebox/value"),
+            use("core/core.test.ts", "../testing/memory-store"),
+            use("testing/store-contract.ts", "../core/store"),
         ])).toEqual([]);
     });
 });
