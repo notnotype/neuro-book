@@ -586,6 +586,11 @@ onBeforeUnmount(() => {
     display: none;
 }
 
+/* 页边画出来时批注末尾的小符号不画（docs/specs/workbench/markdown-editing.md 输出 38）：页边就是总览。 */
+:global(.markdown-control-root[data-comment-margin] .nb-comment-marker) {
+    display: none;
+}
+
 @media (prefers-contrast: more), (forced-colors: active) {
     :global([data-nb-skin-scene] .markdown-control__margin) {
         display: none;

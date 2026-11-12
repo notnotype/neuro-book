@@ -1,7 +1,7 @@
 <script setup lang="ts">
-/** 批注的浮层与“写”的状态机（同名 .md）：鼠标停在批注上出“看”卡片，加批注与改意见在同一张卡片里“写”。 */
+/** 批注的浮层与“写”的状态机（同名 .md）：按住 Ctrl 悬停或点击、点批注末尾的小符号出“看”卡片，加批注与改意见在同一张卡片里“写”。 */
 import {AnchoredPopover} from "@notnotype/nb-ui/components";
-import {commentsAt, commentsAtPos, gotoComment, holdBlock, holdSelection, listComments, markShownComment, matchComment, refOf, releaseSelection} from "@notnotype/nb-markdown/editor";
+import {commentsAt, commentsAtPos, commentsEndingAt, gotoComment, holdBlock, holdSelection, listComments, markShownComment, matchComment, refOf, releaseSelection} from "@notnotype/nb-markdown/editor";
 import type {CommentInfo, CommentRef} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
@@ -28,17 +28,26 @@ const props = withDefaults(defineProps<{
     blocked: boolean;
     /** 页边此刻画得出来（开关开着、控件够宽，`MarkdownControl` 算出）：卡片在页边里，不出浮层（输出 33）。 */
     marginDrawn: boolean;
-    /** 鼠标停在批注上多久（毫秒）弹卡片；测试传小值，不用假计时器。 */
-    hoverDelay?: number;
-    /** 指针离开批注文字、又没进卡片多久（毫秒）收起。 */
+    /** 按住 Ctrl 悬停出来的卡片：指针离开批注文字、又没进卡片多久（毫秒）收起；测试传小值，不用假计时器。 */
     closeDelay?: number;
-}>(), {hoverDelay: 400, closeDelay: 250});
+}>(), {closeDelay: 250});
 const emit = defineEmits<{(event: "writing", writing: boolean): void}>();
 
 /** 每次选区或文档变化加一：列表与光标处的批注都是现算的，不缓存（缓存会让卡片上的序号对着旧文档）。 */
 const tick = ref(0);
-/** 悬停（或上一条、下一条跳转）打开的“看”卡片对着哪个位置；null 是没开。 */
-const viewing = shallowRef<{readonly pos: number} | null>(null);
+/**
+ * “看”卡片对着哪里；null 是没开。`ending` 为真是点小符号打开的：`pos` 是符号的位置，卡片里是在这里结束的批注；否则 `pos` 是指针所在
+ * 的位置，卡片里是盖着它的批注。`pinned` 为真是点开的（点符号、按住 Ctrl 点击）：指针离开不收，按 Ctrl 悬停出来的离开会收。
+ */
+interface ViewTarget {
+    readonly pos: number;
+    readonly ending: boolean;
+    readonly pinned: boolean;
+}
+const viewing = shallowRef<ViewTarget | null>(null);
+const infosOf = (doc: PMNode, target: ViewTarget): CommentInfo[] => (target.ending ? commentsEndingAt(doc, target.pos) : commentsAtPos(doc, target.pos));
+/** 卡片对的是哪一行：符号在批注最后一个字之后，行取那个字所在的行（符号单独折到下一行时也不跟着去）。 */
+const viewLine = (target: ViewTarget | null): number | null => (target === null ? null : target.ending ? Math.max(0, target.pos - 1) : target.pos);
 /**
  * 正在“写”：`ref` 为 null 是还不在文档里的新批注（`block` 有值时是块菜单加的整块批注，没有就是选区上的）；`at` 是改已有批注时卡片对着的
  * 位置（打开时悬停的位置或光标）。
@@ -48,6 +57,8 @@ const writing = shallowRef<{
     readonly block: {readonly pos: number; readonly node: PMNode} | null;
     readonly session: number;
     readonly at: number | null;
+    /** 从“看”的卡片进的“写”：保存后回到那张卡片（同一个位置、同样点开与否）。 */
+    readonly back: ViewTarget | null;
 } | null>(null);
 /** 点上一条、下一条、页边的卡片跳到的那条：紧挨或同起点的批注光标不动，要自己记着“当前”是哪条。 */
 const current = shallowRef<CommentRef | null>(null);
@@ -67,11 +78,11 @@ const cursorAt = computed<CommentInfo[]>(() => {
     void tick.value;
     return props.editor === null ? [] : commentsAt(props.editor.state);
 });
-/** 悬停卡片对着的位置上的批注（重叠的几条按先后排）。 */
+/** “看”的卡片里的批注（重叠的几条按先后排）。 */
 const viewAt = computed<CommentInfo[]>(() => {
     void tick.value;
     const target = viewing.value;
-    return props.editor === null || target === null ? [] : commentsAtPos(props.editor.state.doc, target.pos);
+    return props.editor === null || target === null ? [] : infosOf(props.editor.state.doc, target);
 });
 const writingInfo = computed<CommentInfo | null>(() => {
     const target = writing.value?.ref ?? null;
@@ -113,7 +124,7 @@ const anchor = computed(() => {
     return commentLineAnchor(
         editor,
         props.scroller,
-        () => target?.at ?? viewing.value?.pos ?? editor.state.selection.head,
+        () => target?.at ?? viewLine(viewing.value) ?? editor.state.selection.head,
         () => (target !== null ? writingInfo.value?.segments ?? [] : viewAt.value.flatMap((info) => info.segments)),
     );
 });
@@ -194,26 +205,24 @@ watch(shown, (target) => {
 
 watch(() => writing.value !== null, (now) => emit("writing", now), {flush: "sync"});
 
-// ---- 悬停（输出 30）----
+// ---- 打开与收起（输出 30）----
 
-let openTimer = 0;
+/** 只有收起用计时：按 Ctrl 悬停出来的卡片，指针离开后等一下再收。 */
 let closeTimer = 0;
 /** 指针此刻在哪个批注元素上；不在批注上为 null。 */
 let overComment: Element | null = null;
 /** 指针停在卡片上：卡片是传送出去的，指针在卡片上时滚动容器收不到 `pointermove`，靠卡片自己的 `pointerenter`、`pointerleave`。 */
 let overCard = false;
-/** 这一次悬停已经被收起（点击、输入、Esc）：指针离开批注文字之前不再弹。 */
+/** 这一次悬停已经被收起（点击、输入、Esc）：指针离开批注文字之前不再弹。点击与点符号是明确的要求，不受它限制。 */
 let suppressed = false;
 let pointer = {x: 0, y: 0};
 
 function clearTimers(): void {
-    window.clearTimeout(openTimer);
     window.clearTimeout(closeTimer);
-    openTimer = 0;
     closeTimer = 0;
 }
 
-/** 收起悬停的卡片。`suppress`：这次悬停不再弹（指针不在批注上时没有这回事）。 */
+/** 收起“看”的卡片。`suppress`：这次悬停不再弹（指针不在批注上时没有这回事）。 */
 function closeView(suppress: boolean): void {
     clearTimers();
     overCard = false;
@@ -222,12 +231,16 @@ function closeView(suppress: boolean): void {
 }
 
 function scheduleClose(): void {
-    if (viewing.value === null || overCard || closeTimer !== 0) return;
+    const open = viewing.value;
+    if (open === null || open.pinned || overCard || closeTimer !== 0) return;
     closeTimer = window.setTimeout(() => {
         closeTimer = 0;
         if (!overCard) closeView(false);
     }, props.closeDelay);
 }
+
+/** 按住 Ctrl（macOS 上 ⌘ 也行；Ctrl 加点击在 macOS 上是右键，所以那里用 ⌘）：看批注，不是编辑。 */
+const peeking = (event: {readonly ctrlKey: boolean; readonly metaKey: boolean}): boolean => event.ctrlKey || event.metaKey;
 
 /** 指针下的批注元素：行内批注是 `comment`，块批注是 `.nb-comment-block`；只认编辑器里的。 */
 function commentElement(target: EventTarget | null): Element | null {
@@ -235,57 +248,100 @@ function commentElement(target: EventTarget | null): Element | null {
     return element !== null && props.editor !== null && props.editor.view.dom.contains(element) ? element : null;
 }
 
-/** 到点了：按指针坐标取位置，位置上有批注就开卡片。取不到坐标（没有布局）或坐标落在批注外时用元素自己的位置。 */
-function openAtPointer(): void {
-    openTimer = 0;
+/** 指针下的小符号（`MarkdownCommentMarkers`）；只认编辑器里的。 */
+function markerElement(target: EventTarget | null): Element | null {
+    const element = target instanceof Element ? target.closest("[data-comment-marker]") : null;
+    return element !== null && props.editor !== null && props.editor.view.dom.contains(element) ? element : null;
+}
+
+/**
+ * 按指针坐标取位置，位置上有批注就开卡片。取不到坐标（没有布局）或坐标落在批注外时用元素自己的位置。`pinned` 是点开的。
+ * 同一条（或同一组重叠的）批注已经开着时卡片留在原处，不跟着指针跳；点开的把开着的悬停卡片升成“点开的”。
+ */
+function openAtPointer(pinned: boolean): void {
     const editor = props.editor;
     const element = overComment;
-    if (editor === null || element === null || suppressed || props.blocked || props.marginDrawn || writing.value !== null) return;
+    if (editor === null || element === null || props.blocked || props.marginDrawn || writing.value !== null || (suppressed && !pinned)) return;
     let pos = editor.view.posAtCoords({left: pointer.x, top: pointer.y})?.pos ?? -1;
     if (pos < 0 || commentsAtPos(editor.state.doc, pos).length === 0) pos = editor.view.posAtDOM(element, 0);
     const infos = commentsAtPos(editor.state.doc, pos);
     if (infos.length === 0) return;
-    // 指针在同一条（或同一组重叠的）批注的别的一段上：卡片留在原处，不跟着指针跳。
-    const open = viewing.value === null ? [] : commentsAtPos(editor.state.doc, viewing.value.pos);
-    if (open.length === infos.length && open.every((info, index) => info.identity === (infos[index] as CommentInfo).identity)) return;
-    viewing.value = {pos};
+    const open = viewing.value;
+    const opened = open === null || open.ending ? [] : commentsAtPos(editor.state.doc, open.pos);
+    if (open !== null && opened.length === infos.length && opened.every((info, index) => info.identity === (infos[index] as CommentInfo).identity)) {
+        if (pinned && !open.pinned) viewing.value = {...open, pinned: true};
+        return;
+    }
+    viewing.value = {pos, ending: false, pinned};
+}
+
+/** 点符号：开在这里结束的那几条，再点同一个符号收起。 */
+function toggleMarker(marker: Element): void {
+    const editor = props.editor;
+    if (editor === null || props.blocked || props.marginDrawn || writing.value !== null) return;
+    const pos = editor.view.posAtDOM(marker, 0);
+    if (commentsEndingAt(editor.state.doc, pos).length === 0) return;
+    const open = viewing.value;
+    if (open !== null && open.ending && open.pos === pos) closeView(false);
+    else viewing.value = {pos, ending: true, pinned: true};
 }
 
 function onPointerMove(event: PointerEvent): void {
-    // 触屏没有悬停（已知限制，用页边）。
+    // 触屏没有悬停也没有 Ctrl：点小符号。
     if (event.pointerType === "touch") return;
     pointer = {x: event.clientX, y: event.clientY};
     const element = commentElement(event.target);
-    if (element === overComment) {
-        // 键盘改完意见回到“看”的卡片（指针一直不在批注上）：指针动了才开始收。
-        if (element === null) scheduleClose();
-        return;
+    if (element !== overComment) {
+        overComment = element;
+        if (element === null) suppressed = false;
     }
-    overComment = element;
-    window.clearTimeout(openTimer);
-    openTimer = 0;
     if (element === null) {
-        suppressed = false;
         scheduleClose();
         return;
     }
     window.clearTimeout(closeTimer);
     closeTimer = 0;
-    if (suppressed || props.blocked || props.marginDrawn || writing.value !== null) return;
-    openTimer = window.setTimeout(openAtPointer, props.hoverDelay);
+    if (peeking(event)) openAtPointer(false);
 }
 
 function onPointerLeave(): void {
     overComment = null;
     suppressed = false;
-    window.clearTimeout(openTimer);
-    openTimer = 0;
     scheduleClose();
 }
 
-/** 在正文里按下：要编辑了，卡片收起、这一次悬停不再弹。 */
-function onPointerDown(): void {
+/** 点符号与按住 Ctrl 点批注文字是“看”：不移动光标、不夺焦，也不让 ProseMirror 把 Ctrl 加点击当成“选中整个块”。捕获阶段先于它处理。 */
+function onMouseDown(event: MouseEvent): void {
+    if (event.button !== 0) return;
+    if (markerElement(event.target) !== null || (peeking(event) && commentElement(event.target) !== null)) event.preventDefault();
+}
+
+function onClick(event: MouseEvent): void {
+    if (event.button !== 0) return;
+    const marker = markerElement(event.target);
+    if (marker !== null) {
+        toggleMarker(marker);
+        return;
+    }
+    const element = peeking(event) ? commentElement(event.target) : null;
+    if (element === null) return;
+    pointer = {x: event.clientX, y: event.clientY};
+    overComment = element;
+    openAtPointer(true);
+}
+
+/** 在正文里按下：要编辑了，卡片收起、这一次悬停不再弹。符号与按住 Ctrl 的点击是“看”，由 `click` 处理。 */
+function onPointerDown(event: PointerEvent): void {
+    if (markerElement(event.target) !== null || (peeking(event) && commentElement(event.target) !== null)) return;
     closeView(true);
+}
+
+/** 点开的卡片：在卡片与正文之外按下（别的面板、工具栏）也收起；正文里的按下由 `onPointerDown` 处理。 */
+function onDocumentPointerDown(event: PointerEvent): void {
+    const target = event.target;
+    if (viewing.value?.pinned !== true || !(target instanceof Element)) return;
+    if (target.closest("[data-markdown-comment-layer]") !== null || props.scroller?.contains(target) === true) return;
+    closeView(false);
 }
 
 const onCardEnter = (): void => {
@@ -351,9 +407,13 @@ function onKeyDown(event: KeyboardEvent): void {
     beginEdit(first, editor.state.selection.head);
 }
 
-/** Esc 收起悬停的卡片：听 `document`，只读的正文拿不到焦点，鼠标停着时焦点也常在别处。 */
+/**
+ * Esc 收起“看”的卡片：听 `document`，只读的正文拿不到焦点，鼠标停着时焦点也常在别处。先把指针停在批注上、再按下 Ctrl（⌘）同样弹，
+ * 位置用最后一次 `pointermove` 的。
+ */
 function onDocumentKeyDown(event: KeyboardEvent): void {
     if (event.key === "Escape" && viewing.value !== null) closeView(true);
+    else if ((event.key === "Control" || event.key === "Meta") && overComment !== null) openAtPointer(false);
 }
 
 let detach: (() => void) | null = null;
@@ -368,14 +428,20 @@ watch(() => [props.editor, props.scroller] as const, ([editor, scroller]) => {
     scroller?.addEventListener("pointermove", onPointerMove);
     scroller?.addEventListener("pointerleave", onPointerLeave);
     scroller?.addEventListener("pointerdown", onPointerDown);
+    scroller?.addEventListener("mousedown", onMouseDown, true);
+    scroller?.addEventListener("click", onClick);
     document.addEventListener("keydown", onDocumentKeyDown);
+    document.addEventListener("pointerdown", onDocumentPointerDown);
     detach = () => {
         editor.off("transaction", onTransaction);
         dom.removeEventListener("keydown", onKeyDown);
         scroller?.removeEventListener("pointermove", onPointerMove);
         scroller?.removeEventListener("pointerleave", onPointerLeave);
         scroller?.removeEventListener("pointerdown", onPointerDown);
+        scroller?.removeEventListener("mousedown", onMouseDown, true);
+        scroller?.removeEventListener("click", onClick);
         document.removeEventListener("keydown", onDocumentKeyDown);
+        document.removeEventListener("pointerdown", onDocumentPointerDown);
         clearTimers();
     };
 }, {immediate: true});
@@ -392,7 +458,7 @@ function beginAdd(): void {
     holdSelection(editor);
     session += 1;
     draftText.value = null;
-    writing.value = {ref: null, block: null, session, at: null};
+    writing.value = {ref: null, block: null, session, at: null, back: null};
 }
 
 /** 块菜单给整块加批注（输出 28）：这一块整个画成选中，保存时按块的位置包进块批注。 */
@@ -404,18 +470,24 @@ function beginAddBlock(pos: number): void {
     holdBlock(editor, pos);
     session += 1;
     draftText.value = null;
-    writing.value = {ref: null, block: {pos, node}, session, at: null};
+    writing.value = {ref: null, block: {pos, node}, session, at: null, back: null};
 }
 
-/** 改这条批注的意见；`at` 是卡片贴的位置，由入口给：悬停卡片上的编辑按钮是悬停处，Ctrl+Alt+M 是光标，页边里的编辑是这条批注的开头。 */
-function beginEdit(info: CommentInfo, at: number): void {
+/**
+ * 改这条批注的意见；`at` 是卡片贴的位置，由入口给：“看”的卡片上的编辑按钮是它对着的那一行，Ctrl+Alt+M 是光标，页边里的编辑是这条批注的开头。
+ * 从“看”的卡片进来时记下它（`back`），保存后回到同一张。
+ */
+function beginEdit(info: CommentInfo, at: number, back: ViewTarget | null = null): void {
     const editor = props.editor;
     if (editor === null || props.readonly) return;
     closeView(false);
     session += 1;
     draftText.value = null;
-    writing.value = {ref: refOf(info), block: null, session, at};
+    writing.value = {ref: refOf(info), block: null, session, at, back};
 }
+
+/** “看”的卡片上点编辑。 */
+const editFromView = (info: CommentInfo): void => beginEdit(info, viewLine(viewing.value) ?? info.start, viewing.value);
 
 /** 结束“写”。`focus` 为真时焦点回正文（保存、取消）；焦点自己去了别处（`dismiss`）不抢回。 */
 function endWriting(focus: boolean): void {
@@ -441,7 +513,8 @@ function submit(text: string): void {
     const ok = props.editing.run("comment-edit", {...target.ref, text});
     endWriting(true);
     // 保存后回到“看”（输出 29）：卡片留在改的那一处；页边画着时卡片在页边里，没有浮层。没保存成（批注已经被别处改掉）就收起。
-    if (ok && target.at !== null && !props.marginDrawn && commentsAtPos(editor.state.doc, target.at).length > 0) viewing.value = {pos: target.at};
+    const back = target.back ?? (target.at === null ? null : {pos: target.at, ending: false, pinned: false});
+    if (ok && back !== null && !props.marginDrawn && infosOf(editor.state.doc, back).length > 0) viewing.value = back;
 }
 
 function remove(info: CommentInfo): void {
@@ -469,8 +542,8 @@ function step(info: CommentInfo, direction: -1 | 1): void {
     gotoComment(editor, refOf(target));
     editor.view.focus();
     current.value = refOf(target);
-    // 浮层的卡片跟到目标批注开头那一行；页边里只是当前批注换了。
-    if (viewing.value !== null) viewing.value = {pos: target.start};
+    // 浮层的卡片跟到目标批注开头那一行（点开与否不变）；页边里只是当前批注换了。
+    if (viewing.value !== null) viewing.value = {pos: target.start, ending: false, pinned: viewing.value.pinned};
 }
 
 defineExpose({
@@ -510,7 +583,7 @@ defineExpose({
                     :readonly="props.readonly"
                     :labels="labels"
                     :session="0"
-                    @edit="beginEdit(info, viewing?.pos ?? info.start)"
+                    @edit="editFromView(info)"
                     @remove="remove(info)"
                     @previous="step(info, -1)"
                     @next="step(info, 1)"

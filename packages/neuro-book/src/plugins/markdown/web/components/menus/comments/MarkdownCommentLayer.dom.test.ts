@@ -1,10 +1,10 @@
 /**
- * 批注层（docs/specs/workbench/markdown-editing.md 输出 28–33）：真实的 Tiptap 编辑器与真实的动作实现，单独挂批注层，直接控制它的属性
- * （别的弹层开着、页边画不画、换文档、只读）。悬停的计时用属性传小值，不用假计时器；位置与对齐要真实布局，在 e2e 里看。控件整体的流程在
+ * 批注层（docs/specs/workbench/markdown-editing.md 输出 28–33、38）：真实的 Tiptap 编辑器与真实的动作实现，单独挂批注层，直接控制它的属性
+ * （别的弹层开着、页边画不画、换文档、只读）。收起的计时用属性传小值，不用假计时器；位置与对齐要真实布局，在 e2e 里看。控件整体的流程在
  * `MarkdownControl.dom.test.ts`。
  */
 import {codecFor, defaultMarkdownLanguage} from "@notnotype/nb-markdown/language";
-import {listComments, markdownEditingActions, MarkdownShownComment} from "@notnotype/nb-markdown/editor";
+import {listComments, markdownEditingActions, MarkdownCommentMarkers, MarkdownShownComment} from "@notnotype/nb-markdown/editor";
 import {Editor} from "@tiptap/core";
 import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
@@ -40,7 +40,7 @@ function stateOf(editor: Editor, markdown: string): EditorState {
     return EditorState.create({doc: read.doc, plugins: editor.state.plugins});
 }
 
-/** 悬停的计时：打开 10 毫秒，收起 10 毫秒，足够快，又不是同步的（同步的话“移开再回来”的竞态测不出来）。 */
+/** 收起的计时：10 毫秒，足够快，又不是同步的（同步的话“移开再回来”的竞态测不出来）。 */
 const DELAY = 10;
 
 /** 批注层要的最小宿主：编辑器、滚动容器、动作（真实实现）与菜单（文字取键名，键位用真实的匹配）。 */
@@ -49,7 +49,7 @@ function harness(markdown: string, props: {readonly?: boolean; blocked?: boolean
     const element = document.createElement("div");
     scroller.append(element);
     document.body.append(scroller);
-    const editor = new Editor({element, extensions: [...language.extensions, MarkdownShownComment]});
+    const editor = new Editor({element, extensions: [...language.extensions, MarkdownShownComment, MarkdownCommentMarkers.configure({label: "marker"})]});
     editor.view.updateState(stateOf(editor, markdown));
     const editing: EditorEditing = {
         run: (action, args = {}) => {
@@ -66,7 +66,7 @@ function harness(markdown: string, props: {readonly?: boolean; blocked?: boolean
         run: () => undefined,
     } as unknown as EditorMenus;
     const wrapper = mount(MarkdownCommentLayer, {
-        props: {editor: markRaw(editor), scroller, editing, menus, readonly: props.readonly ?? false, binding: "a", blocked: props.blocked ?? false, marginDrawn: props.marginDrawn ?? false, hoverDelay: DELAY, closeDelay: DELAY},
+        props: {editor: markRaw(editor), scroller, editing, menus, readonly: props.readonly ?? false, binding: "a", blocked: props.blocked ?? false, marginDrawn: props.marginDrawn ?? false, closeDelay: DELAY},
         attachTo: document.body,
     });
     cleanups.push(() => {
@@ -100,50 +100,92 @@ const commentElement = (editor: Editor, text: string): HTMLElement => {
     if (found === undefined) throw new Error(`没有批注元素含 ${text}`);
     return found;
 };
-const moveOver = (target: Element): void => {
-    target.dispatchEvent(new MouseEvent("pointermove", {bubbles: true, clientX: 5, clientY: 5}));
+const moveOver = (target: Element, init: MouseEventInit = {}): void => {
+    target.dispatchEvent(new MouseEvent("pointermove", {bubbles: true, clientX: 5, clientY: 5, ...init}));
 };
-/** 指针停在这段批注上，卡片弹出来。 */
-const hoverOpen = async (editor: Editor, text: string): Promise<void> => {
-    moveOver(commentElement(editor, text));
+/** 按住 Ctrl 把指针停在这段批注上，卡片弹出来（悬停的）。 */
+const peekOpen = async (editor: Editor, text: string): Promise<void> => {
+    moveOver(commentElement(editor, text), {ctrlKey: true});
     await vi.waitFor(() => expect(popover()).not.toBeNull());
 };
-/** 断言“没有弹出来”：悬停的计时是 `DELAY`，等过它的几倍再看；没有别的可观察信号能说明一个没发生的事。 */
+/** 按住 Ctrl 点这段批注，卡片弹出来（点开的）。 */
+const ctrlClick = async (editor: Editor, text: string): Promise<void> => {
+    const target = commentElement(editor, text);
+    moveOver(target, {ctrlKey: true});
+    target.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, ctrlKey: true, clientX: 5, clientY: 5}));
+    await vi.waitFor(() => expect(popover()).not.toBeNull());
+};
+/** 批注末尾的第 n 个小符号。 */
+const marker = (editor: Editor, index = 0): HTMLElement => {
+    const found = editor.view.dom.querySelectorAll<HTMLElement>("[data-comment-marker]")[index];
+    if (found === undefined) throw new Error(`没有第 ${index} 个符号`);
+    return found;
+};
+/** 点符号；`mousedown` 的默认动作被取消了才算（否则浏览器会把光标移过去）。 */
+const clickMarker = (editor: Editor, index = 0): boolean => {
+    const target = marker(editor, index);
+    const down = new MouseEvent("mousedown", {bubbles: true, cancelable: true});
+    target.dispatchEvent(down);
+    target.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
+    return down.defaultPrevented;
+};
+/** 断言“没有弹出来”：状态是同步的、卡片的渲染要几个 tick，没有别的可观察信号能说明一个没发生的事；等一小会儿再看。 */
 const settle = async (): Promise<void> => {
-    // test-lint-allow fixed-wait: 断言“没有弹出来”，悬停计时是 10 毫秒，等过它的几倍再看
-    await new Promise((resolve) => setTimeout(resolve, 8 * DELAY));
+    // test-lint-allow fixed-wait: 断言“没有弹出来”，没有可等的信号，等过渲染的几个 tick 再看
+    await new Promise((resolve) => setTimeout(resolve, 60));
 };
 const leaveComments = (editor: Editor): void => {
     // 指针移到正文里没有批注的地方。
     moveOver(editor.view.dom.querySelector("p") as Element);
 };
 
-describe("悬停出卡片（输出 30）", () => {
-    it("鼠标停在批注上弹出“看”卡片，写着意见与“第 i 条，共 n 条”；停在没有批注的字上不弹", async () => {
+describe("打开与收起（输出 30、38）", () => {
+    it("按住 Ctrl 把鼠标停在批注上立刻弹出“看”卡片，写着意见与“第 i 条，共 n 条”；不按 Ctrl 的悬停与停在没有批注的字上不弹", async () => {
         const {editor} = harness(TWO);
         leaveComments(editor);
+        moveOver(commentElement(editor, "乙丙"));
         await settle();
         expect(popover()).toBeNull();
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         expect(popover()?.textContent).toContain("第一条");
         expect(popover()?.textContent).toContain("commentCounter");
         expect(popover()?.textContent).toContain('"i":1');
     });
 
-    it("光标走进批注（点击、方向键）不弹，在批注里打字也不弹", async () => {
+    it("先把指针停在批注上、再按下 Ctrl（或 ⌘）同样弹；松开不收", async () => {
+        const {editor} = harness(TWO);
+        moveOver(commentElement(editor, "乙丙"));
+        await settle();
+        expect(popover()).toBeNull();
+        keyDown(document, {key: "Control", ctrlKey: true});
+        await vi.waitFor(() => expect(popover()?.textContent).toContain("第一条"));
+        document.dispatchEvent(new KeyboardEvent("keyup", {key: "Control", bubbles: true}));
+        await settle();
+        expect(popover()).not.toBeNull();
+        leaveComments(editor);
+        await vi.waitFor(() => expect(popover()).toBeNull());
+        moveOver(commentElement(editor, "己庚"));
+        keyDown(document, {key: "Meta", metaKey: true});
+        await vi.waitFor(() => expect(popover()?.textContent).toContain("第二条"));
+    });
+
+    it("光标走进批注（点击、方向键）、没按 Ctrl 的点击、在批注里打字都不弹", async () => {
         const {editor} = harness(TWO);
         editor.commands.setTextSelection(find(editor, "乙丙").from + 1);
         await nextTick();
         editor.commands.setTextSelection(find(editor, "乙丙").from + 2);
         editor.view.dispatch(editor.state.tr.insertText("字", find(editor, "乙丙").from + 1));
+        const target = commentElement(editor, "己庚");
+        moveOver(target);
+        target.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, clientX: 5, clientY: 5}));
         await settle();
         expect(popover()).toBeNull();
     });
 
-    it("指针换到另一条批注上，过了计时卡片换成它；指针离开批注与卡片后收起", async () => {
+    it("按 Ctrl 悬停出来的卡片：指针换到另一条批注上卡片换成它；指针离开批注与卡片后收起", async () => {
         const {editor} = harness(TWO);
-        await hoverOpen(editor, "乙丙");
-        moveOver(commentElement(editor, "己庚"));
+        await peekOpen(editor, "乙丙");
+        moveOver(commentElement(editor, "己庚"), {ctrlKey: true});
         await vi.waitFor(() => expect(popover()?.textContent).toContain("第二条"));
         expect(popover()?.textContent).not.toContain("第一条");
         leaveComments(editor);
@@ -152,7 +194,7 @@ describe("悬停出卡片（输出 30）", () => {
 
     it("指针移向卡片：经过空白（离开批注）时不收，进了卡片就留着，从卡片出来才收", async () => {
         const {editor} = harness(TWO);
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         leaveComments(editor);
         // 收起的计时已经起了，指针这时进到卡片上。
         (popover() as HTMLElement).dispatchEvent(new Event("pointerenter"));
@@ -165,48 +207,67 @@ describe("悬停出卡片（输出 30）", () => {
     it("在正文里按下鼠标、输入、Esc 收起；同一次悬停不再弹，指针离开批注再回来才弹", async () => {
         const {editor, scroller} = harness(TWO);
         const target = commentElement(editor, "乙丙");
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         scroller.dispatchEvent(new Event("pointerdown", {bubbles: true}));
         await vi.waitFor(() => expect(popover()).toBeNull());
-        // 点击以后指针还在这条批注上：再动一动（落在同一个元素上）不弹。
-        moveOver(target);
+        // 点击以后指针还在这条批注上、Ctrl 也按着：再动一动（落在同一个元素上）不弹。
+        moveOver(target, {ctrlKey: true});
         await settle();
         expect(popover()).toBeNull();
         // 离开再回来：弹。
         leaveComments(editor);
-        moveOver(target);
+        moveOver(target, {ctrlKey: true});
         await vi.waitFor(() => expect(popover()?.textContent).toContain("第一条"));
         // 输入：收起，同一次悬停不再弹。
         editor.view.dispatch(editor.state.tr.insertText("字", find(editor, "辛").from));
         await vi.waitFor(() => expect(popover()).toBeNull());
-        moveOver(target);
+        moveOver(target, {ctrlKey: true});
         await settle();
         expect(popover()).toBeNull();
         leaveComments(editor);
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         keyDown(document, {key: "Escape"});
         await vi.waitFor(() => expect(popover()).toBeNull());
-        moveOver(target);
+        moveOver(target, {ctrlKey: true});
         await settle();
         expect(popover()).toBeNull();
     });
 
-    it("点击收起之后指针直接移到另一条批注上（输入重画元素时指针不动也是新元素）：同一次悬停不再弹；离开批注再回来才弹", async () => {
+    it("收起之后指针直接移到另一条批注上：同一次悬停不再弹；离开批注再回来才弹", async () => {
         const {editor, scroller} = harness(TWO);
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         scroller.dispatchEvent(new Event("pointerdown", {bubbles: true}));
         await vi.waitFor(() => expect(popover()).toBeNull());
-        moveOver(commentElement(editor, "己庚"));
+        moveOver(commentElement(editor, "己庚"), {ctrlKey: true});
         await settle();
         expect(popover()).toBeNull();
         leaveComments(editor);
-        moveOver(commentElement(editor, "己庚"));
+        moveOver(commentElement(editor, "己庚"), {ctrlKey: true});
         await vi.waitFor(() => expect(popover()?.textContent).toContain("第二条"));
+    });
+
+    it("按住 Ctrl 点批注文字：弹出点开的卡片，光标不动、浏览器的默认动作被取消；指针离开也不收，Esc 收起", async () => {
+        const {editor} = harness(TWO);
+        const before = editor.state.selection.from;
+        const target = commentElement(editor, "乙丙");
+        const plain = new MouseEvent("mousedown", {bubbles: true, cancelable: true});
+        target.dispatchEvent(plain);
+        expect(plain.defaultPrevented).toBe(false);
+        const held = new MouseEvent("mousedown", {bubbles: true, cancelable: true, ctrlKey: true});
+        target.dispatchEvent(held);
+        expect(held.defaultPrevented).toBe(true);
+        await ctrlClick(editor, "乙丙");
+        expect(editor.state.selection.from).toBe(before);
+        leaveComments(editor);
+        await settle();
+        expect(popover()?.textContent).toContain("第一条");
+        keyDown(document, {key: "Escape"});
+        await vi.waitFor(() => expect(popover()).toBeNull());
     });
 
     it("程序改的文档（不进历史：重载、写回回填）不收起开着的卡片，选区不空时收起", async () => {
         const {editor} = harness(TWO);
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         editor.view.dispatch(editor.state.tr.insertText("新", find(editor, "辛").from).setMeta("addToHistory", false));
         await settle();
         expect(popover()?.textContent).toContain("第一条");
@@ -216,47 +277,113 @@ describe("悬停出卡片（输出 30）", () => {
 
     it("注音、双语卡片或右键菜单开着（blocked）、页边画着时不弹，写着时不弹；放开后才弹", async () => {
         const {editor, wrapper} = harness(TWO, {blocked: true});
-        moveOver(commentElement(editor, "乙丙"));
+        moveOver(commentElement(editor, "乙丙"), {ctrlKey: true});
+        clickMarker(editor);
         await settle();
         expect(popover()).toBeNull();
         await wrapper.setProps({blocked: false, marginDrawn: true});
         leaveComments(editor);
-        moveOver(commentElement(editor, "乙丙"));
+        moveOver(commentElement(editor, "乙丙"), {ctrlKey: true});
+        clickMarker(editor);
         await settle();
         expect(popover()).toBeNull();
         await wrapper.setProps({marginDrawn: false});
         leaveComments(editor);
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
     });
 
     it("重叠的几条在一张卡片里上下排，每条各有序号", async () => {
         const {editor} = harness("甲<comment body=\"外\">乙<comment body=\"内\">丙</comment></comment>丁\n");
-        await hoverOpen(editor, "丙");
+        await peekOpen(editor, "丙");
         expect([...(popover()?.querySelectorAll("[data-markdown-comment-body]") ?? [])].map((body) => body.textContent)).toEqual(["外", "内"]);
     });
 
     it("只读文档：没有焦点也弹，没有编辑与删除；Esc 收起", async () => {
         const {editor} = harness(TWO, {readonly: true});
         editor.view.dom.blur();
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         expect(popover()?.querySelector('[aria-label="commentEdit"]')).toBeNull();
         keyDown(document, {key: "Escape"});
         await vi.waitFor(() => expect(popover()).toBeNull());
+        clickMarker(editor, 1);
+        await vi.waitFor(() => expect(popover()?.textContent).toContain("第二条"));
     });
 
-    it("上一条、下一条：光标到目标批注开头，卡片留着并换成它", async () => {
+    it("上一条、下一条：光标到目标批注开头，卡片留着并换成它；点开的仍是点开的", async () => {
         const {editor} = harness(TWO);
-        await hoverOpen(editor, "乙丙");
+        clickMarker(editor, 0);
+        await vi.waitFor(() => expect(popover()).not.toBeNull());
         (popover()?.querySelector('[aria-label="commentNext"]') as HTMLElement).click();
         await vi.waitFor(() => expect(popover()?.textContent).toContain("第二条"));
         expect(editor.state.selection.from).toBe(find(editor, "己庚").from);
+        leaveComments(editor);
+        await settle();
+        expect(popover()?.textContent).toContain("第二条");
+    });
+
+    describe("小符号", () => {
+        it("点符号弹出在这里结束的批注，光标与焦点不动、mousedown 的默认动作被取消；指针离开不收；再点同一个符号收起", async () => {
+            const {editor} = harness(TWO);
+            const before = editor.state.selection.from;
+            expect(clickMarker(editor, 1)).toBe(true);
+            await vi.waitFor(() => expect(popover()?.textContent).toContain("第二条"));
+            expect(popover()?.textContent).not.toContain("第一条");
+            expect(editor.state.selection.from).toBe(before);
+            leaveComments(editor);
+            await settle();
+            expect(popover()).not.toBeNull();
+            clickMarker(editor, 1);
+            await vi.waitFor(() => expect(popover()).toBeNull());
+        });
+
+        it("点另一个符号换成它；两条结束在同一处的批注合成一个符号，卡片里是这两条，不含只是盖过这里的", async () => {
+            const {editor} = harness("甲<comment body=\"长\">乙<comment body=\"短\">丙</comment></comment>丁<comment body=\"后\">戊</comment>\n");
+            expect(editor.view.dom.querySelectorAll("[data-comment-marker]")).toHaveLength(2);
+            clickMarker(editor, 0);
+            await vi.waitFor(() => expect([...(popover()?.querySelectorAll("[data-markdown-comment-body]") ?? [])].map((body) => body.textContent)).toEqual(["长", "短"]));
+            clickMarker(editor, 1);
+            await vi.waitFor(() => expect([...(popover()?.querySelectorAll("[data-markdown-comment-body]") ?? [])].map((body) => body.textContent)).toEqual(["后"]));
+        });
+
+        it("点开的卡片：点正文别处、卡片与正文之外的地方、输入、Esc 收起；点卡片里不收", async () => {
+            const {editor} = harness(TWO);
+            clickMarker(editor, 0);
+            await vi.waitFor(() => expect(popover()).not.toBeNull());
+            (popover() as HTMLElement).dispatchEvent(new Event("pointerdown", {bubbles: true}));
+            await settle();
+            expect(popover()).not.toBeNull();
+            document.body.dispatchEvent(new Event("pointerdown", {bubbles: true}));
+            await vi.waitFor(() => expect(popover()).toBeNull());
+            clickMarker(editor, 0);
+            await vi.waitFor(() => expect(popover()).not.toBeNull());
+            editor.view.dom.dispatchEvent(new Event("pointerdown", {bubbles: true}));
+            await vi.waitFor(() => expect(popover()).toBeNull());
+            clickMarker(editor, 0);
+            await vi.waitFor(() => expect(popover()).not.toBeNull());
+            editor.view.dispatch(editor.state.tr.insertText("字", find(editor, "辛").from));
+            await vi.waitFor(() => expect(popover()).toBeNull());
+        });
+
+        it("从点开的卡片点编辑、保存：回到同一张卡片，仍是点开的", async () => {
+            const {editor} = harness(TWO);
+            clickMarker(editor, 0);
+            await vi.waitFor(() => expect(popover()).not.toBeNull());
+            (popover()?.querySelector('[aria-label="commentEdit"]') as HTMLElement).click();
+            await vi.waitFor(() => expect(popover()?.querySelector("textarea")).not.toBeNull());
+            await type(popover() as ParentNode, "符号处改的意见");
+            keyDown(popover()?.querySelector("textarea") as HTMLElement, {key: "Enter", ctrlKey: true});
+            await vi.waitFor(() => expect(popover()?.textContent).toContain("符号处改的意见"));
+            leaveComments(editor);
+            await settle();
+            expect(popover()?.textContent).toContain("符号处改的意见");
+        });
     });
 });
 
 describe("写（输出 28、29）", () => {
     it("悬停卡片上点编辑：同一张浮层变成“写”；保存后回到“看”，意见换了", async () => {
         const {editor} = harness(TWO);
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         (popover()?.querySelector('[aria-label="commentEdit"]') as HTMLElement).click();
         await vi.waitFor(() => expect(popover()?.querySelector("textarea")).not.toBeNull());
         expect((popover()?.querySelector("textarea") as HTMLTextAreaElement).value).toBe("第一条");
@@ -269,7 +396,7 @@ describe("写（输出 28、29）", () => {
 
     it("鼠标停在批注 A 上、光标在批注 B 里按 Ctrl+Alt+M：改的是 B，保存后回到“看”的卡片对着 B，不是 A", async () => {
         const {editor} = harness(TWO);
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         editor.commands.setTextSelection(find(editor, "己庚").from + 1);
         keyDown(editor.view.dom, {code: "KeyM", key: "m", ctrlKey: true, altKey: true});
         await vi.waitFor(() => expect(popover()?.querySelector("textarea")).not.toBeNull());
@@ -331,7 +458,7 @@ describe("换文档（状态与转换）", () => {
 
     it("浮层开着时换文档：卡片收起，写着的字放弃", async () => {
         const {editor, wrapper} = harness(TWO);
-        await hoverOpen(editor, "乙丙");
+        await peekOpen(editor, "乙丙");
         editor.view.updateState(stateOf(editor, TWO));
         await wrapper.setProps({binding: "b"});
         await vi.waitFor(() => expect(popover()).toBeNull());

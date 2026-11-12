@@ -549,12 +549,12 @@ describe("批注卡片（workbench.markdown-editing 输出 28–35）", () => {
         if (found === undefined) throw new Error(`没有批注元素含 ${text}`);
         return found;
     };
-    const moveOver = (target: Element): void => {
-        target.dispatchEvent(new MouseEvent("pointermove", {bubbles: true, clientX: 5, clientY: 5}));
+    const moveOver = (target: Element, init: MouseEventInit = {}): void => {
+        target.dispatchEvent(new MouseEvent("pointermove", {bubbles: true, clientX: 5, clientY: 5, ...init}));
     };
-    /** 指针停在这段批注上，等卡片弹出来（悬停的计时是真实的 400 毫秒，输出 30）。 */
+    /** 按住 Ctrl 把指针停在这段批注上，等卡片弹出来（输出 30）。 */
     const hover = async (editor: Editor, text: string): Promise<void> => {
-        moveOver(commentElement(editor, text));
+        moveOver(commentElement(editor, text), {ctrlKey: true});
         await vi.waitFor(() => expect(card()).not.toBeNull(), {timeout: 3000});
     };
     /** 指针移到正文里没有批注的地方，等卡片收起（250 毫秒后）。 */
@@ -579,10 +579,13 @@ describe("批注卡片（workbench.markdown-editing 输出 28–35）", () => {
     };
     const bodies = (editor: Editor): string[] => listComments(editor.state.doc).map((info) => info.body);
 
-    it("鼠标停在批注上出卡片，写着意见与“第 i 条，共 n 条”；移开就收起；光标走进批注不弹", async () => {
+    it("按住 Ctrl 把鼠标停在批注上出卡片，写着意见与“第 i 条，共 n 条”；移开就收起；不按 Ctrl 的悬停与光标走进批注不弹", async () => {
         const {editor} = await opened(TWO, undefined, undefined, {menus: true});
         editor.view.focus();
         await moveTo(editor, find(editor, "乙丙").from + 1);
+        expect(card()).toBeNull();
+        moveOver(commentElement(editor, "己庚"));
+        await nextTick();
         expect(card()).toBeNull();
         await hover(editor, "乙丙");
         expect(cardText()).toContain("第一条");
@@ -601,7 +604,7 @@ describe("批注卡片（workbench.markdown-editing 输出 28–35）", () => {
         document.dispatchEvent(keyEvent({key: "Escape"}));
         await nextTick();
         expect(card()).toBeNull();
-        moveOver(target);
+        moveOver(target, {ctrlKey: true});
         await moveTo(editor, find(editor, "乙丙").from + 1);
         expect(card()).toBeNull();
         moveOver(editor.view.dom.querySelector("p") as Element);
@@ -816,8 +819,8 @@ describe("批注页边（workbench.markdown-editing 输出 33）", () => {
         if (found === undefined) throw new Error(`没有批注元素含 ${text}`);
         return found;
     };
-    const moveOver = (target: Element): void => {
-        target.dispatchEvent(new MouseEvent("pointermove", {bubbles: true, clientX: 5, clientY: 5}));
+    const moveOver = (target: Element, init: MouseEventInit = {}): void => {
+        target.dispatchEvent(new MouseEvent("pointermove", {bubbles: true, clientX: 5, clientY: 5, ...init}));
     };
 
     it("开关开着、控件够宽才画：稿纸让位、每条批注一张卡片，光标所在的是当前批注、其余不是，浮层不出", async () => {
@@ -849,7 +852,7 @@ describe("批注页边（workbench.markdown-editing 输出 33）", () => {
         await resize(990);
         expect(margin()).toBeNull();
         editor.view.focus();
-        moveOver(commentElement(editor, "乙丙"));
+        moveOver(commentElement(editor, "乙丙"), {ctrlKey: true});
         await vi.waitFor(() => expect(popover()?.textContent).toContain("第一条"), {timeout: 3000});
     });
 
