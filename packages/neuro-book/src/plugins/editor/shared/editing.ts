@@ -34,7 +34,7 @@ export const EDITING_ACTIONS = {
     ruby: {kind: "format", icon: "i-lucide-languages", args: "text", needsSelection: true},
     // 光标在注音中间时也能用，所以不要选区。
     "ruby-remove": {kind: "format", icon: "i-lucide-trash-2"},
-    // 快捷键打开批注卡片，不是直接执行（docs/specs/workbench/markdown-editing.md 输出 28）；改意见与删除是控件内部动作，不在目录里。
+    // 快捷键打开批注卡片，不是直接执行（docs/specs/workbench/markdown-editing.md 输出 28）；改意见、删除与块菜单的整块批注（`comment-block`）是控件内部动作，不在目录里。
     comment: {kind: "format", icon: "i-lucide-message-square-plus", keybinding: "Mod+Alt+M", args: "text", needsSelection: true},
     paragraph: {kind: "block", icon: "i-lucide-pilcrow", keybinding: "Mod+Alt+0"},
     "heading-1": {kind: "block", icon: "i-lucide-heading-1", keybinding: "Mod+Alt+1", format: "formatHeading1"},
@@ -66,6 +66,7 @@ export interface EditorEditing {
     /** 这一刻做不了（不可用、只读）时返回 false，文档不变。 */
     run(action: string, args?: Readonly<Record<string, unknown>>): boolean;
     active(action: string): boolean;
-    enabled(action: string): boolean;
+    /** `args` 给带位置的内部动作用（块菜单的 `comment-block` 问某一块能不能加批注）；不带时按当前选区。 */
+    enabled(action: string, args?: Readonly<Record<string, unknown>>): boolean;
     readonly hasSelection: Readonly<Ref<boolean>>;
 }

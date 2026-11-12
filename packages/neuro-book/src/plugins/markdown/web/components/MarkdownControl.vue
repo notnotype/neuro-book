@@ -344,9 +344,9 @@ const editing: EditorEditing = {
         void editingVersion.value;
         return editor !== null && markdownEditingActions[action]?.active?.(editor) === true;
     },
-    enabled: (action) => {
+    enabled: (action, args = {}) => {
         void editingVersion.value;
-        return editor !== null && !props.readonly && markdownEditingActions[action]?.enabled(editor, {}) === true;
+        return editor !== null && !props.readonly && markdownEditingActions[action]?.enabled(editor, args) === true;
     },
     hasSelection: computed(() => {
         void editingVersion.value;
@@ -508,7 +508,7 @@ onBeforeUnmount(() => {
         </Teleport>
         <div class="markdown-control__margin markdown-control__margin--left" aria-hidden="true" data-markdown-margin="left"></div>
         <div class="markdown-control__margin markdown-control__margin--right" aria-hidden="true" data-markdown-margin="right"></div>
-        <div ref="scroller" class="relative min-h-0 w-full flex-1 overflow-auto" :style="marginDrawn ? {paddingInlineEnd: `${MARGIN_WIDTH + MARGIN_GAP}px`} : undefined" data-editor-control="markdown">
+        <div ref="scroller" class="markdown-control__scroller relative min-h-0 w-full flex-1 overflow-auto" :style="marginDrawn ? {paddingInlineEnd: `${MARGIN_WIDTH + MARGIN_GAP}px`} : undefined" data-editor-control="markdown">
             <div ref="root" class="markdown-control"></div>
         </div>
         <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" :margin-drawn="marginDrawn" />
@@ -536,6 +536,14 @@ onBeforeUnmount(() => {
  */
 .markdown-control-root {
     container-type: inline-size;
+}
+
+/*
+ * 开关批注页边时稿纸平移：滚动容器的右内边距过渡，稿纸（宽度被版心上限卡住，居中）跟着挪，中途不会重新折行。页边的卡片在这段
+ * 时间里每帧重排，跟着稿纸走（`MarkdownCommentMargin`）。
+ */
+.markdown-control__scroller {
+    transition: padding-inline-end var(--motion-layout) var(--ease-layout);
 }
 
 .markdown-control__margin {

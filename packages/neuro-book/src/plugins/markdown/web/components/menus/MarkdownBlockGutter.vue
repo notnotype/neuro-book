@@ -2,7 +2,7 @@
 /** 块按钮与块菜单（同名 .md）。 */
 import {ContextMenu} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem} from "@notnotype/nb-ui/components";
-import {blockAt, canConvertTo, insertSlashBlock, selectBlock, selectWholeBlock} from "@notnotype/nb-markdown/editor";
+import {blockAt, canConvertTo, insertSlashBlock, selectBlock, selectBlockText, selectWholeBlock} from "@notnotype/nb-markdown/editor";
 import type {BlockTarget} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
 import {computed, nextTick, onBeforeUnmount, ref, shallowRef, watch} from "vue";
@@ -13,7 +13,11 @@ import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/ed
 import {copyOrCut} from "./clipboard";
 
 const props = defineProps<{editor: Editor | null; scroller: HTMLElement | null; editing: EditorEditing; menus: EditorMenus; readonly: boolean; binding: string | null}>();
-const emit = defineEmits<{(event: "inserted", pos: number): void}>();
+const emit = defineEmits<{
+    (event: "inserted", pos: number): void;
+    /** 块菜单的“批注”：`block` 为 null 是文字块（已经选中它自己的文字），否则是整块批注的块位置。 */
+    (event: "comment", block: number | null): void;
+}>();
 
 /** 按钮组 22 + 1 + 18 宽、24 高；右缘离正文 14px（决定 9）。 */
 const GROUP_WIDTH = 41;
@@ -193,6 +197,22 @@ const CONVERT: ReadonlyArray<EditingActionId> = ["paragraph", "heading-1", "head
 /** 块类型的分节：基本｜列表｜块。 */
 const CONVERT_BREAKS: ReadonlySet<EditingActionId> = new Set(["bullet-list", "quote"]);
 
+/** 块菜单的“批注”（输出 28）：文字块选中自己的文字走选区上的“写”，别的块按位置整块批注；空块、包不进批注块的块置灰。 */
+function commentable(block: BlockTarget): boolean {
+    if (block.kind === "text" || block.kind === "list-item") return (block.kind === "text" ? block.node : block.node.firstChild)?.textContent.trim() !== "" && props.editing.enabled("comment");
+    return props.editing.enabled("comment-block", {pos: block.pos});
+}
+
+function comment(block: BlockTarget): void {
+    const editor = props.editor;
+    if (editor === null) return;
+    if (block.kind === "text" || block.kind === "list-item") {
+        if (selectBlockText(editor, block)) emit("comment", null);
+        return;
+    }
+    emit("comment", block.pos);
+}
+
 function convert(action: EditingActionId): void {
     // 列表项与容器转“正文”是解开，别的类型走工具栏同一条命令。
     const kind = target.value?.kind;
@@ -231,6 +251,14 @@ const items = computed<ContextMenuItem[]>(() => {
     }));
     return [
         {label: props.menus.label("convert"), iconClass: "i-lucide-repeat", children},
+        {
+            label: props.menus.title("comment"),
+            iconClass: EDITING_ACTIONS.comment.icon,
+            disabled: target.value === null || !commentable(target.value),
+            action: () => {
+                if (target.value !== null) comment(target.value);
+            },
+        },
         {separator: true},
         action("block-duplicate"),
         {

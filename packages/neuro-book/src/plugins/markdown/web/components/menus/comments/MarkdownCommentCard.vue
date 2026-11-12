@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 批注卡片（同名 .md）：浮层与页边共用，只管显示与发事件。 */
 import {IconButton, Textarea} from "@notnotype/nb-ui/components";
-import {nextTick, onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
 
 /** 卡片上的文字：宿主按显示语言取好（`menus.label`），卡片不认识翻译端口。 */
 export interface CommentCardLabels {
@@ -26,8 +26,10 @@ const props = defineProps<{
     total: number;
     mode: "view" | "write";
     readonly: boolean;
-    /** 页边里没有展开的摘要：只有意见的前两行，点它发 `select`。 */
-    compact?: boolean;
+    /** 摆在浮层里还是页边里，缺省浮层。页边里意见最多显示 3 行，底行的按钮只在当前、悬停或有焦点时显现；点不是当前的卡片发 `select`。 */
+    variant?: "float" | "margin";
+    /** 页边里这条是当前批注（光标所在的、写着的）：按钮显现、意见放开行数。 */
+    current?: boolean;
     labels: CommentCardLabels;
     /** 宿主每进入一次“写”加一：已经在写时换到另一条也要重新预填。 */
     session: number;
@@ -52,6 +54,8 @@ const emit = defineEmits<{
 }>();
 
 const draft = ref("");
+/** 页边里不是当前的卡片：意见只显示 3 行。当前的与浮层里的放开到约 12 行。 */
+const clamped = computed(() => props.variant === "margin" && props.current !== true);
 const root = useTemplateRef<HTMLElement>("root");
 
 // 进入“写”：预填原来的意见，光标在末尾。
@@ -81,6 +85,13 @@ function save(): void {
 function onMousedown(event: MouseEvent): void {
     if (event.target instanceof Element && event.target.closest("textarea, input") !== null) return;
     event.preventDefault();
+}
+
+/** 页边里点不是当前的卡片（按钮除外）：这条成为当前批注。 */
+function onClick(event: MouseEvent): void {
+    if (props.variant !== "margin" || props.current === true || props.mode !== "view") return;
+    if (event.target instanceof Element && event.target.closest("button") !== null) return;
+    emit("select");
 }
 
 /**
@@ -121,35 +132,38 @@ function onKeydown(event: KeyboardEvent): void {
     <div
         ref="root"
         class="markdown-comment-card"
-        :class="{'markdown-comment-card--compact': props.compact === true}"
         data-markdown-comment-card
         :data-mode="props.mode"
-        :role="props.compact === true ? 'button' : undefined"
-        :tabindex="props.compact === true ? -1 : undefined"
+        :data-variant="props.variant ?? 'float'"
+        :data-current="props.current === true ? '' : undefined"
         @mousedown="onMousedown"
-        @click="props.compact === true && emit('select')"
+        @click="onClick"
         @focusout="onFocusOut"
         @keydown="onKeydown"
     >
         <template v-if="props.mode === 'view'">
-            <p class="markdown-comment-card__body" :class="{'markdown-comment-card__body--empty': props.body === ''}" data-markdown-comment-body>{{ props.body === "" ? props.labels.empty : props.body }}</p>
-            <div v-if="props.compact !== true" class="markdown-comment-card__footer">
+            <p class="markdown-comment-card__body" :class="{'markdown-comment-card__body--empty': props.body === '', 'markdown-comment-card__body--clamped': clamped}" data-markdown-comment-body>{{ props.body === "" ? props.labels.empty : props.body }}</p>
+            <div class="markdown-comment-card__footer">
                 <span class="markdown-comment-card__counter" data-markdown-comment-counter>{{ props.labels.counter(props.index + 1, props.total) }}</span>
-                <IconButton size="xs" icon-class="i-lucide-chevron-up" :title="props.labels.previous" :aria-label="props.labels.previous" :disabled="props.index <= 0" @click="emit('previous')" />
-                <IconButton size="xs" icon-class="i-lucide-chevron-down" :title="props.labels.next" :aria-label="props.labels.next" :disabled="props.index >= props.total - 1" @click="emit('next')" />
-                <span class="flex-1" />
-                <template v-if="!props.readonly">
-                    <IconButton size="xs" icon-class="i-lucide-pencil" :title="props.labels.edit" :aria-label="props.labels.edit" @click="emit('edit')" />
-                    <IconButton size="xs" icon-class="i-lucide-trash-2" :title="props.labels.remove" :aria-label="props.labels.remove" @click="emit('remove')" />
-                </template>
+                <div class="markdown-comment-card__controls" data-markdown-comment-controls>
+                    <IconButton size="xs" icon-class="i-lucide-chevron-up" :title="props.labels.previous" :aria-label="props.labels.previous" :disabled="props.index <= 0" @click="emit('previous')" />
+                    <IconButton size="xs" icon-class="i-lucide-chevron-down" :title="props.labels.next" :aria-label="props.labels.next" :disabled="props.index >= props.total - 1" @click="emit('next')" />
+                    <span class="flex-1" />
+                    <template v-if="!props.readonly">
+                        <IconButton size="xs" icon-class="i-lucide-pencil" :title="props.labels.edit" :aria-label="props.labels.edit" @click="emit('edit')" />
+                        <IconButton size="xs" icon-class="i-lucide-trash-2" :title="props.labels.remove" :aria-label="props.labels.remove" @click="emit('remove')" />
+                    </template>
+                </div>
             </div>
         </template>
         <template v-else>
             <Textarea v-model="draft" variant="bare" autosize :max-rows="12" :rows="1" class="markdown-comment-card__field" :aria-label="props.labels.body" />
             <div class="markdown-comment-card__footer">
-                <span class="flex-1" />
-                <IconButton size="xs" icon-class="i-lucide-x" :title="props.labels.cancel" :aria-label="props.labels.cancel" @click="emit('cancel')" />
-                <IconButton size="xs" icon-class="i-lucide-check" :title="props.labels.save" :aria-label="props.labels.save" @click="save" />
+                <div class="markdown-comment-card__controls">
+                    <span class="flex-1" />
+                    <IconButton size="xs" icon-class="i-lucide-x" :title="props.labels.cancel" :aria-label="props.labels.cancel" @click="emit('cancel')" />
+                    <IconButton size="xs" icon-class="i-lucide-check" :title="props.labels.save" :aria-label="props.labels.save" @click="save" />
+                </div>
             </div>
         </template>
     </div>
@@ -159,6 +173,7 @@ function onKeydown(event: KeyboardEvent): void {
 /*
  * 卡片本身的外观是浮层（`AnchoredPopover`）给的；页边里的卡片自己画底色与边（`MarkdownCommentMargin.vue`）。这里只管里面：
  * “看”的文字与“写”的输入字体、字号、行距一样，点“编辑”时文字不重排；意见区最高约 12 行再滚动（输出 29）。
+ * 状态之间外框与版式不变（ui-development-spec 第 3 节第 4 条）：意见区加一个固定高度的底行，底行的按钮在页边里只是显隐。
  */
 .markdown-comment-card {
     display: flex;
@@ -172,6 +187,15 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text-main);
 }
 
+.markdown-comment-card[data-variant="margin"] {
+    width: auto;
+}
+
+/* 页边里不是当前的卡片可以点：点了成为当前批注。 */
+.markdown-comment-card[data-variant="margin"]:not([data-current]):not([data-mode="write"]) {
+    cursor: pointer;
+}
+
 .markdown-comment-card__body {
     margin: 0;
     max-height: calc(12 * 1.55em);
@@ -182,6 +206,15 @@ function onKeydown(event: KeyboardEvent): void {
 
 .markdown-comment-card__body--empty {
     color: var(--text-muted);
+}
+
+.markdown-comment-card__body--clamped {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+    max-height: none;
 }
 
 .markdown-comment-card :deep(.markdown-comment-card__field) {
@@ -203,18 +236,22 @@ function onKeydown(event: KeyboardEvent): void {
     font-variant-numeric: tabular-nums;
 }
 
-.markdown-comment-card--compact {
-    width: auto;
-    padding: 6px 10px;
-    cursor: pointer;
+.markdown-comment-card__controls {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 2px;
+    opacity: 1;
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
-.markdown-comment-card--compact .markdown-comment-card__body {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    overflow: hidden;
-    max-height: none;
+/*
+ * 页边里不是当前的卡片、指针没停在上面、焦点也不在里面时按钮不画，但占着位置（外框不变）。`visibility` 等淡出结束才切，
+ * 显现时立刻切（`visibility` 的过渡是离散的）。键盘焦点进来（`:focus-within`）时显现，按钮才点得到。
+ */
+.markdown-comment-card[data-variant="margin"]:not([data-current]):not(:hover):not(:focus-within) .markdown-comment-card__controls {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--motion-fast) var(--ease-layout), visibility 0s linear var(--motion-fast);
 }
 </style>

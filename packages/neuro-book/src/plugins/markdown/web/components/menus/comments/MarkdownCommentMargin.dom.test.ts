@@ -9,7 +9,7 @@ import {Editor} from "@tiptap/core";
 import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 import {markRaw, nextTick} from "vue";
 
 import MarkdownCommentMargin from "./MarkdownCommentMargin.vue";
@@ -45,7 +45,7 @@ function setup(markdown: string) {
     return {editor, scroller, infos: listComments(editor.state.doc)};
 }
 
-const items = (infos: ReadonlyArray<CommentInfo>, modes: ReadonlyArray<MarginItem["mode"]> = []): MarginItem[] => infos.map((info, index) => ({key: info.identity, info, mode: modes[index] ?? "compact", anchor: info.start}));
+const items = (infos: ReadonlyArray<CommentInfo>, modes: ReadonlyArray<MarginItem["mode"]> = []): MarginItem[] => infos.map((info, index) => ({key: info.identity, info, mode: modes[index] ?? "idle", anchor: info.start}));
 
 function mountMargin(editor: Editor, scroller: HTMLElement, list: MarginItem[], total = list.length): VueWrapper {
     const wrapper = mount(MarkdownCommentMargin, {props: {editor: markRaw(editor), scroller, items: list, total, readonly: false, labels, session: 0, version: 0, draft: null}, attachTo: document.body});
@@ -70,14 +70,14 @@ describe("排布", () => {
         expect(third as number).toBeGreaterThan((second as number) + 40);
     });
 
-    it("展开的与摘要的混排；待写的新批注（info 为 null）按它的位置排进去", async () => {
+    it("当前的与其余的混排；待写的新批注（info 为 null）按它的位置排进去", async () => {
         const {editor, scroller, infos} = setup("<comment body=\"甲\">一二</comment>三四五六七八九十\n\n<comment body=\"乙\">十一</comment>\n");
-        const list = items(infos, ["compact", "view"]);
+        const list = items(infos, ["idle", "current"]);
         list.splice(1, 0, {key: "pending", info: null, mode: "write", anchor: (infos[0] as CommentInfo).start + 4});
         const wrapper = mountMargin(editor, scroller, list, infos.length);
         (wrapper.vm as unknown as {layout: () => void}).layout();
         await nextTick();
-        expect(wrapper.findAll(".markdown-comment-margin__item").map((item) => item.attributes("data-mode"))).toEqual(["compact", "write", "view"]);
+        expect(wrapper.findAll(".markdown-comment-margin__item").map((item) => item.attributes("data-mode"))).toEqual(["idle", "write", "current"]);
         const ordered = tops(wrapper);
         expect([...ordered].sort((a, b) => a - b)).toEqual(ordered);
         expect(wrapper.find('.markdown-comment-margin__item[data-mode="write"] textarea').exists()).toBe(true);
@@ -111,16 +111,31 @@ describe("排布", () => {
         expect(seen.every((pos) => pos <= editor.state.doc.content.size)).toBe(true);
     });
 
-    it("排完之前卡片先藏着（不从顶上滑下来）；事件带着卡片对应的批注转发", async () => {
+    it("新卡片排好位置之前没有 data-ready（藏着、没有过渡），位置落下后下一帧才有；事件带着卡片对应的批注转发", async () => {
         const {editor, scroller, infos} = setup("<comment body=\"甲\">一二</comment>\n");
-        const wrapper = mountMargin(editor, scroller, items(infos, ["view"]));
-        expect((wrapper.find(".markdown-comment-margin__item").element as HTMLElement).style.visibility).toBe("hidden");
+        const wrapper = mountMargin(editor, scroller, items(infos, ["current"]));
+        expect(wrapper.find(".markdown-comment-margin__item").attributes("data-ready")).toBeUndefined();
         (wrapper.vm as unknown as {layout: () => void}).layout();
-        await nextTick();
-        expect((wrapper.find(".markdown-comment-margin__item").element as HTMLElement).style.visibility).toBe("");
+        await vi.waitFor(() => expect(wrapper.find(".markdown-comment-margin__item").attributes("data-ready")).toBeDefined());
         await wrapper.get('[aria-label="编辑"]').trigger("click");
         await wrapper.get('[aria-label="下"]').trigger("click");
         expect(wrapper.emitted("edit")?.[0]).toEqual([infos[0]]);
         expect(wrapper.emitted("next")).toBeUndefined();
+    });
+
+    it("位置按卡片记，不按下标：中间插进一张新卡片时，已有的卡片不会先拿到邻居的旧位置（位置过渡会让它滑向邻居再折回）", async () => {
+        const {editor, scroller, infos} = setup("<comment body=\"甲\">一二</comment>\n\n三四五六七八九十\n\n<comment body=\"乙\">十一</comment>\n");
+        const wrapper = mountMargin(editor, scroller, items(infos));
+        (wrapper.vm as unknown as {layout: () => void}).layout();
+        await nextTick();
+        const before = tops(wrapper);
+        const list = items(infos);
+        list.splice(1, 0, {key: "pending", info: null, mode: "write", anchor: (infos[0] as CommentInfo).start + 6});
+        await wrapper.setProps({items: list});
+        const after = tops(wrapper);
+        // 新卡片还没排：在 0，没有 data-ready；原来两张的位置一个像素没动。
+        expect(after[0]).toBe(before[0]);
+        expect(after[2]).toBe(before[1]);
+        expect(wrapper.findAll(".markdown-comment-margin__item")[1]?.attributes("data-ready")).toBeUndefined();
     });
 });

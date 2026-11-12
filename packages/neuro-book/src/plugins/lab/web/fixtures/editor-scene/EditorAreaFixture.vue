@@ -118,6 +118,34 @@ const COMMENTS = [
     "",
 ].join("\n");
 
+/** 批注的显示场景（输出 37）：重叠两层、三层，块批注里套行内批注，块批注盖着表格。 */
+const COMMENT_OVERLAP = [
+    "# 重叠与块批注的显示",
+    "",
+    "两条批注盖住同一段：<comment body=\"外层\"><comment body=\"内层\">同一段文字</comment>被外层盖着</comment>。",
+    "",
+    "三层：<comment body=\"一\"><comment body=\"二\">她看了<comment body=\"三\">他一眼</comment>，没说话</comment>，转身</comment>走了。",
+    "",
+    "<comment body=\"整段的意见\">",
+    "",
+    "块批注里的第一段，<comment body=\"其中一句\">这一句另有批注</comment>。",
+    "",
+    "块批注里的第二段，样式与没有批注的段落一样，没有边框也没有缩进。",
+    "",
+    "</comment>",
+    "",
+    "<comment body=\"这张表要改\">",
+    "",
+    "| 时间 | 事件 |",
+    "| --- | --- |",
+    "| 凌晨四点 | 灯熄 |",
+    "",
+    "</comment>",
+    "",
+    "最后一段没有批注，用来对照左缘。",
+    "",
+].join("\n");
+
 const memory = createMemoryFiles({
     project: [
         ["chapters/第一章.md", "# 第一章\n\n天色将晚，她推开了门。\n"],
@@ -125,6 +153,7 @@ const memory = createMemoryFiles({
         ["notes/设定.json", "{\n  \"城市\": \"临川\"\n}\n"],
         ["chapters/方言.md", DIALECT],
         ["chapters/批注.md", COMMENTS],
+        ["chapters/批注-重叠.md", COMMENT_OVERLAP],
     ],
     user: [],
 });
@@ -145,6 +174,8 @@ if (props.scene === "dialect") {
     area.open("project://chapters/方言.md", {mode: "permanent"});
 } else if (props.scene === "comments" || props.scene === "comments-margin") {
     area.open("project://chapters/批注.md", {mode: "permanent"});
+} else if (props.scene === "comments-overlap") {
+    area.open("project://chapters/批注-重叠.md", {mode: "permanent"});
 } else if (props.scene !== "empty") {
     area.open("project://chapters/第一章.md", {mode: "permanent"});
     area.open("project://chapters/第二章.md", {mode: "preview"});

@@ -16,6 +16,6 @@ Markdown 控件的菜单层（[`workbench/markdown-editing.md`](../../../../../.
 
 ## 批注（输出 28–35）
 
-批注的浮层、“写”的状态与 Ctrl+Alt+M 由 `comments/MarkdownCommentLayer`（同目录 `comments/`）负责，这一层只做两件事：选区菜单的“批注”按钮与右键菜单的“添加批注”调它的 `beginAdd`；注音与双语卡片开着、右键菜单开着时告诉它“不弹”（`blocked`），批注在“写”时让选区菜单不显示（`suspended`）。
+批注的浮层、“写”的状态与 Ctrl+Alt+M 由 `comments/MarkdownCommentLayer`（同目录 `comments/`）负责，这一层只做两件事：选区菜单的“批注”按钮、右键菜单的“添加批注”调它的 `beginAdd`，块菜单的“批注”调 `beginAddBlock`（文字块先选中自己的文字，再同 `beginAdd`）；注音与双语卡片开着、右键菜单开着时告诉它“不弹”（`blocked`），批注在“写”时让选区菜单不显示（`suspended`）。
 
 `state:local`：正在写注音还是双语、卡片的预填与有没有移除；批注是否在“写”、右键菜单是否开着。

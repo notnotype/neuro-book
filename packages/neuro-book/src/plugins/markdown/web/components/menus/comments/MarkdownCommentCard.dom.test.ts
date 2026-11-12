@@ -50,11 +50,29 @@ describe("看", () => {
         expect(button(wrapper, "下一条").attributes("disabled")).toBeUndefined();
     });
 
-    it("摘要：只有意见，没有按钮，点它发 select", async () => {
-        const wrapper = card({compact: true});
-        expect(wrapper.findAll("button")).toHaveLength(0);
-        await wrapper.trigger("click");
-        expect(wrapper.emitted("select")).toHaveLength(1);
+    it("页边里：不是当前的卡片点一下发 select（点按钮不发），当前的不发；意见只显示 3 行，当前的放开", async () => {
+        const idle = card({variant: "margin"});
+        expect(idle.get("[data-markdown-comment-body]").classes()).toContain("markdown-comment-card__body--clamped");
+        await idle.get("[data-markdown-comment-body]").trigger("click");
+        expect(idle.emitted("select")).toHaveLength(1);
+        await button(idle, "编辑").trigger("click");
+        expect(idle.emitted("select")).toHaveLength(1);
+        expect(idle.emitted("edit")).toHaveLength(1);
+        const current = card({variant: "margin", current: true});
+        expect(current.get("[data-markdown-comment-body]").classes()).not.toContain("markdown-comment-card__body--clamped");
+        await current.get("[data-markdown-comment-body]").trigger("click");
+        expect(current.emitted("select")).toBeUndefined();
+        const float = card();
+        expect(float.get("[data-markdown-comment-body]").classes()).not.toContain("markdown-comment-card__body--clamped");
+        await float.get("[data-markdown-comment-body]").trigger("click");
+        expect(float.emitted("select")).toBeUndefined();
+    });
+
+    it("几种状态的版式相同：看、写、页边里的不同状态都是意见区加一个底行，底行零件在页边里只是显隐", () => {
+        const shapes = [card(), card({variant: "margin"}), card({variant: "margin", current: true}), card({mode: "write", body: "x", session: 1})].map((wrapper) => wrapper.element.children.length + ":" + (wrapper.element.lastElementChild?.className ?? ""));
+        expect(new Set(shapes).size).toBe(1);
+        // 页边里不是当前的卡片按钮照样在 DOM 里（占位），显隐靠样式；点按钮的行为见上一条。
+        expect(card({variant: "margin"}).findAll("button")).toHaveLength(4);
     });
 });
 

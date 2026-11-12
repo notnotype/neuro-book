@@ -2,7 +2,7 @@
 /** 批注页边（同名 .md）：稿纸右边按段落顶边排的一列卡片，与稿纸同在滚动容器里，随正文一起滚。 */
 import type {CommentInfo} from "@notnotype/nb-markdown/editor";
 import type {Editor} from "@tiptap/core";
-import {onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
 import MarkdownCommentCard from "./MarkdownCommentCard.vue";
 import type {CommentCardLabels} from "./MarkdownCommentCard.vue";
@@ -12,8 +12,9 @@ import {MARGIN_GAP, MARGIN_WIDTH} from "./margin-layout";
 export interface MarginItem {
     readonly key: string;
     readonly info: CommentInfo | null;
-    readonly mode: "view" | "write" | "compact";
-    /** 卡片顶边对着的文档位置：批注第一行，待写的是选区起点。 */
+    /** `current` 是光标所在的那条（按钮显现、意见放开行数），`write` 在写，`idle` 其余。 */
+    readonly mode: "current" | "write" | "idle";
+    /** 卡片顶边对着的文档位置：批注第一行，待写的是选区起点（整块批注是块的位置）。 */
     readonly anchor: number;
 }
 
@@ -46,12 +47,18 @@ const emit = defineEmits<{
     (event: "dismiss"): void;
 }>();
 
-const offsets = ref<number[]>([]);
+/**
+ * 每张卡片的 `top`，按卡片的 `key` 记：卡片增减时下标会变，按下标记的话还没重排的那一帧里卡片会拿到邻居的旧位置，加上位置过渡就
+ * 是先滑向邻居再折回来。没有位置的卡片（新来的）藏着，排好之后才显示。
+ */
+const offsets = shallowRef<ReadonlyMap<string, number>>(new Map());
+/** 位置落下之后的下一帧才显示的卡片：带着入场动画出现，位置过渡也只对它们开（见 `<style>`），所以第一次排位置不会滑动。 */
+const ready = shallowRef<ReadonlySet<string>>(new Set());
 const left = ref(0);
-const elements = new Map<number, HTMLElement>();
-const setElement = (index: number) => (element: unknown): void => {
-    if (element instanceof HTMLElement) elements.set(index, element);
-    else elements.delete(index);
+const elements = new Map<string, HTMLElement>();
+const setElement = (key: string) => (element: unknown): void => {
+    if (element instanceof HTMLElement) elements.set(key, element);
+    else elements.delete(key);
 };
 
 /**
@@ -77,12 +84,15 @@ function layout(): void {
     const paper = scroller.querySelector<HTMLElement>(".markdown-control");
     left.value = paper === null ? 0 : Math.round(paper.getBoundingClientRect().right - base.left + scroller.scrollLeft + MARGIN_GAP);
     let bottom = Number.NEGATIVE_INFINITY;
-    const next = props.items.map((item, index) => {
+    const next = new Map<string, number>();
+    for (const item of props.items) {
         const y = Math.max(Math.round(topOf(editor, scroller, item.anchor) - base.top + scroller.scrollTop), bottom + ITEM_GAP);
-        bottom = y + (elements.get(index)?.offsetHeight ?? 0);
-        return y;
-    });
-    if (next.length !== offsets.value.length || next.some((value, index) => value !== offsets.value[index])) offsets.value = next;
+        bottom = y + (elements.get(item.key)?.offsetHeight ?? 0);
+        next.set(item.key, y);
+    }
+    const before = offsets.value;
+    if (next.size !== before.size || [...next].some(([key, value]) => before.get(key) !== value)) offsets.value = next;
+    promote();
 }
 
 // 一帧里多个触发合成一次量。
@@ -93,6 +103,43 @@ function schedule(): void {
         frame = 0;
         layout();
     });
+}
+
+/** 位置已经落下的卡片，下一帧起显示：那时它们的 `top` 不再变，位置过渡不会从旧值滑过来。 */
+let promoting = 0;
+function promote(): void {
+    if (promoting !== 0) return;
+    promoting = requestAnimationFrame(() => {
+        promoting = 0;
+        const keys = props.items.filter((item) => offsets.value.has(item.key)).map((item) => item.key);
+        if (keys.length !== ready.value.size || keys.some((key) => !ready.value.has(key))) ready.value = new Set(keys);
+    });
+}
+
+/**
+ * 稿纸在 `padding-inline-end` 的过渡里平移时（开关页边，`MarkdownControl`）它的右缘每帧都在动，页边要跟着：过渡进行中每帧重排一次。
+ * 观察者看不到这种位置变化（尺寸没变）。
+ */
+let paperTransitions = 0;
+let following = 0;
+function follow(): void {
+    if (following !== 0) return;
+    following = requestAnimationFrame(() => {
+        following = 0;
+        layout();
+        if (paperTransitions > 0) follow();
+    });
+}
+const isPaperTransition = (event: TransitionEvent): boolean => event.target === props.scroller && event.propertyName.startsWith("padding");
+function onPaperRun(event: TransitionEvent): void {
+    if (!isPaperTransition(event)) return;
+    paperTransitions += 1;
+    follow();
+}
+function onPaperEnd(event: TransitionEvent): void {
+    if (!isPaperTransition(event)) return;
+    paperTransitions = Math.max(0, paperTransitions - 1);
+    schedule();
 }
 
 let observer: ResizeObserver | null = null;
@@ -107,6 +154,9 @@ function observeAll(): void {
 }
 onMounted(() => {
     schedule();
+    props.scroller.addEventListener("transitionrun", onPaperRun);
+    props.scroller.addEventListener("transitionend", onPaperEnd);
+    props.scroller.addEventListener("transitioncancel", onPaperEnd);
     if (typeof ResizeObserver === "undefined") return;
     observer = new ResizeObserver(schedule);
     observeAll();
@@ -116,7 +166,10 @@ document.fonts?.addEventListener("loadingdone", schedule);
 onBeforeUnmount(() => {
     observer?.disconnect();
     document.fonts?.removeEventListener("loadingdone", schedule);
-    if (frame !== 0) cancelAnimationFrame(frame);
+    props.scroller.removeEventListener("transitionrun", onPaperRun);
+    props.scroller.removeEventListener("transitionend", onPaperEnd);
+    props.scroller.removeEventListener("transitioncancel", onPaperEnd);
+    for (const handle of [frame, promoting, following]) if (handle !== 0) cancelAnimationFrame(handle);
 });
 watch(() => [props.items, props.version, props.session] as const, () => {
     schedule();
@@ -131,36 +184,40 @@ defineExpose({
 
 <template>
     <div class="markdown-comment-margin" data-markdown-comment-margin :style="{left: `${left}px`, width: `${MARGIN_WIDTH}px`}">
-        <div
-            v-for="(item, index) in props.items"
-            :key="item.key"
-            :ref="setElement(index)"
-            class="markdown-comment-margin__item"
-            :class="{'markdown-comment-margin__item--current': item.mode !== 'compact', 'nb-ui-popover-surface': item.mode !== 'compact'}"
-            :data-mode="item.mode"
-            :style="offsets[index] === undefined ? {top: '0px', visibility: 'hidden'} : {top: `${offsets[index]}px`}"
-        >
-            <MarkdownCommentCard
-                :body="item.info?.body ?? ''"
-                :index="item.info?.index ?? props.total"
-                :total="item.info === null ? props.total + 1 : props.total"
-                :mode="item.mode === 'write' ? 'write' : 'view'"
-                :compact="item.mode === 'compact'"
-                :readonly="props.readonly"
-                :labels="props.labels"
-                :session="props.session"
-                :draft="props.draft"
-                @edit="item.info !== null && emit('edit', item.info)"
-                @remove="item.info !== null && emit('remove', item.info)"
-                @previous="item.info !== null && emit('previous', item.info)"
-                @next="item.info !== null && emit('next', item.info)"
-                @select="item.info !== null && emit('select', item.info)"
-                @submit="(text) => emit('submit', text)"
-                @update:draft="(text) => emit('update:draft', text)"
-                @cancel="emit('cancel')"
-                @dismiss="emit('dismiss')"
-            />
-        </div>
+        <TransitionGroup name="markdown-comment-card" tag="div">
+            <div
+                v-for="item in props.items"
+                :key="item.key"
+                :ref="setElement(item.key)"
+                class="markdown-comment-margin__item"
+                :class="{'markdown-comment-margin__item--current': item.mode !== 'idle'}"
+                :data-mode="item.mode"
+                :data-ready="ready.has(item.key) ? '' : undefined"
+                :style="{top: `${offsets.get(item.key) ?? 0}px`}"
+            >
+                <MarkdownCommentCard
+                    variant="margin"
+                    :current="item.mode !== 'idle'"
+                    :body="item.info?.body ?? ''"
+                    :index="item.info?.index ?? props.total"
+                    :total="item.info === null ? props.total + 1 : props.total"
+                    :mode="item.mode === 'write' ? 'write' : 'view'"
+                    :readonly="props.readonly"
+                    :labels="props.labels"
+                    :session="props.session"
+                    :draft="props.draft"
+                    @edit="item.info !== null && emit('edit', item.info)"
+                    @remove="item.info !== null && emit('remove', item.info)"
+                    @previous="item.info !== null && emit('previous', item.info)"
+                    @next="item.info !== null && emit('next', item.info)"
+                    @select="item.info !== null && emit('select', item.info)"
+                    @submit="(text) => emit('submit', text)"
+                    @update:draft="(text) => emit('update:draft', text)"
+                    @cancel="emit('cancel')"
+                    @dismiss="emit('dismiss')"
+                />
+            </div>
+        </TransitionGroup>
     </div>
 </template>
 
@@ -172,25 +229,63 @@ defineExpose({
     pointer-events: none;
 }
 
+/*
+ * 卡片：非当前的用淡底，当前的与写着的用浮层的底、描边与阴影；两种都带同宽的描边（透明或实色），切换时外框不变，没有左边框
+ * 一类的侧边色条。位置落下之前（`data-ready` 之前）藏着，也没有过渡；落下之后显示，入场一次，`top` 变了才滑动。
+ */
 .markdown-comment-margin__item {
     position: absolute;
     left: 0;
     right: 0;
+    visibility: hidden;
     pointer-events: auto;
-    overflow: hidden;
-    border-radius: var(--radius-control);
-    border-left: 2px solid var(--status-warning-border);
+    border: var(--border-w) solid transparent;
+    border-radius: var(--radius-panel);
     background: color-mix(in srgb, var(--text-main) 5%, var(--bg-panel));
 }
 
-/* 展开的一条（光标所在的、在写的）用浮层的底与阴影，与浮层里的同一张卡片。 */
+.markdown-comment-margin__item[data-ready] {
+    visibility: visible;
+    animation: markdown-comment-card-in var(--motion-move) var(--ease-layout) backwards;
+    transition: top var(--motion-move) var(--ease-layout),
+        background-color var(--motion-fast) var(--ease-layout),
+        border-color var(--motion-fast) var(--ease-layout),
+        box-shadow var(--motion-fast) var(--ease-layout);
+}
+
 .markdown-comment-margin__item--current {
+    border-color: var(--panel-outline);
     background: var(--overlay-surface);
-    border-left-color: var(--status-warning);
+    box-shadow: var(--elevation-popover);
+}
+
+@keyframes markdown-comment-card-in {
+    from {
+        opacity: 0;
+        transform: translateX(8px);
+    }
+}
+
+/* 卡片移除时淡出；绝对定位，不挤别的卡片。 */
+.markdown-comment-card-leave-active {
+    pointer-events: none;
+    transition: opacity var(--motion-fast) var(--ease-dialog-leave);
+}
+
+.markdown-comment-card-leave-to {
+    opacity: 0;
+}
+
+/* 整个页边移除时（关开关、控件变窄）淡出；`MarkdownCommentLayer` 用 `<Transition name="markdown-comment-margin">` 包着它。 */
+.markdown-comment-margin-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-dialog-leave);
+}
+
+.markdown-comment-margin-leave-to {
+    opacity: 0;
 }
 
 .markdown-comment-margin :deep(.markdown-comment-card) {
     width: auto;
 }
-
 </style>
