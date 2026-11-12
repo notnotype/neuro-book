@@ -183,6 +183,50 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(after.panels[upper]?.collapsed ?? false).toBe(false);
     });
 
+    test("切回容器、侧栏从隐藏到显示：停放过的内容跟着外框一起长出来，每一帧都不超出外框（ui/nested-grid 的内容层）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const explorer = await sectionOf(page, EXPLORER);
+        /** 在页面里点一下，逐帧量这一节的外框与内容，直到网格的过渡结束。只记内容看得见的帧。 */
+        const framesAfter = (selector: string) => page.evaluate(async ({selector, leafId}) => {
+            const rows: Array<{frameTop: number; frameBottom: number; frameHeight: number; contentTop: number; contentBottom: number}> = [];
+            document.querySelector<HTMLElement>(selector)!.click();
+            for (let frame = 0; frame < 90; frame += 1) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                const leaf = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`)?.getBoundingClientRect();
+                const content = document.querySelector<HTMLElement>("[data-content=\"view:nbook.explorer\"]");
+                if (leaf !== undefined && content !== null && getComputedStyle(content).visibility === "visible") {
+                    const rect = content.getBoundingClientRect();
+                    rows.push({frameTop: leaf.top, frameBottom: leaf.bottom, frameHeight: leaf.height, contentTop: rect.top, contentBottom: rect.bottom});
+                }
+                if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
+            }
+            return rows;
+        }, {selector, leafId: explorer});
+        const expectInside = (rows: Awaited<ReturnType<typeof framesAfter>>) => {
+            const final = rows.at(-1)?.frameHeight ?? 0;
+            // 确实量到了过渡中间的帧，不是一下子到终点。
+            expect(rows.some((row) => row.frameHeight < final - 50)).toBe(true);
+            for (const row of rows) {
+                expect(row.contentTop).toBeGreaterThanOrEqual(row.frameTop - 1);
+                expect(row.contentBottom).toBeLessThanOrEqual(row.frameBottom + 1);
+            }
+        };
+
+        // 切到样例甲的容器，再切回“项目”。
+        await entry(page, `view:${A}`).click();
+        await expect(leaf(page, explorer)).toHaveCount(0);
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`));
+
+        // 点当前容器的入口隐藏侧栏，再点一次显示。
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        await entry(page, PROJECT_CONTAINER).click();
+        await expect(leaf(page, explorer)).toHaveCount(0);
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`));
+    });
+
     test("打开视图命令：切到视图所在的容器；区域拖到零或隐藏着时同一次写入展开（输出 35；views.md 输出 14）", async ({page}) => {
         await open(page);
         const run = (command: string, args: Record<string, unknown>) => page.evaluate(({name, detail}) => window.dispatchEvent(new CustomEvent(name, {detail})), {name: SAMPLE_VIEWS_RUN_EVENT, detail: {command, args}});

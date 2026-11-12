@@ -107,9 +107,13 @@ export function enteringRects(items: ReadonlyArray<GridLayerItem<unknown>>, prev
     for (const item of items) {
         if (item.kind === "leaf" && !known.has(item.key)) entering.set(item.key, grownRect(item.rect, item.grow));
     }
-    // 新内容项跟着它的新叶从边上长出来。换了叶的内容项不在这里：它有上一帧，从旧矩形飞过来。
+    // 新内容项、上一帧停放着的内容项（叶不在呈现里，或是切走的标签）跟着它的新叶从边上长出来：停放的内容早就挂着，不跟的话一显示就整块在终点，
+    // 外框还在长（切回容器、区域展开）。上一帧显示着、换了叶的内容项不在这里：它从旧矩形飞过来。
+    const before = new Map(previous.map((item) => [item.key, item]));
     for (const item of items) {
-        if (item.kind !== "content" || known.has(item.key) || item.rect === null) continue;
+        if (item.kind !== "content" || item.rect === null) continue;
+        const old = before.get(item.key);
+        if (old !== undefined && old.kind === "content" && old.active && old.rect !== null) continue;
         const leaf = entering.get(`leaf:${item.leaf}`);
         if (leaf !== undefined) entering.set(item.key, {x: leaf.x, y: leaf.y + Math.min(item.insetTop, leaf.height), width: leaf.width, height: Math.max(0, leaf.height - item.insetTop)});
     }

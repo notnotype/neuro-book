@@ -188,6 +188,20 @@ describe("内容项的过渡（输出“内容层”）", () => {
         expect(followingLeaves(after, before).has("content:x")).toBe(true);
     });
 
+    it("停放过的内容随它刚长出来的叶一起长（切回容器、区域展开）：它早就挂着，不跟的话一显示就整块在终点，外框还在长", () => {
+        // 叶 n 不在上一帧的呈现里，它的内容 y 停放着（没有矩形）。
+        const before = layers({a: 1000}, [{key: "x", leaf: "a"}, {key: "y", leaf: "n"}]);
+        const after = layers({a: 500, n: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "n"}]);
+        const entering = enteringRects(after, before).get("content:y");
+        expect(entering?.width).toBe(0);
+        expect(entering?.y).toBe(32);
+        expect(followingLeaves(after, before).has("content:y")).toBe(false);
+        // 叶没有新长出来（同一块叶里切标签）就不从边上长。
+        const tabs = layers({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "a", active: false}]);
+        const switched = layers({a: 500, b: 500}, [{key: "x", leaf: "a", active: false}, {key: "y", leaf: "a"}]);
+        expect(enteringRects(switched, tabs).has("content:y")).toBe(false);
+    });
+
     it("换了叶的内容不算新项：它有上一帧，从旧矩形飞过来", () => {
         const before = layers({a: 500, b: 500}, [{key: "x", leaf: "a"}]);
         const after = layers({a: 250, b: 250, n: 500}, [{key: "x", leaf: "n"}]);

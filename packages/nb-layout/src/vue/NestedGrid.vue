@@ -12,7 +12,7 @@
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
-import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
 import {settleFloatMoves} from "../grid-motion";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
@@ -211,6 +211,15 @@ function sashProps(sash: GridSashPlacement<unknown>) {
         ariaNow: Math.round(nowPx),
         ariaValueText: panel?.collapse?.collapsed === true ? text("splitter.collapsed") : text("splitter.pixels", {size: Math.round(nowPx)}),
     };
+}
+
+/**
+ * 内容项带不带过渡标记。用着起点矩形（`growing`：停放过的内容随新叶长出来）的那一次渲染不带：它是早就挂着的元素，带着过渡写起点，浏览器就开始一段
+ * 从停放时的矩形到起点的过渡，紧接着写终点时这段过渡就地反向取消，看起来是一下子到终点。起点立即生效，下一次写终点时再带上，过渡才从起点开始。
+ * 新出现的元素没有上一帧的样式，带不带都一样。
+ */
+function contentMoving(item: GridContentPlacement): boolean {
+    return moving.value && item.active && !contentLayer.isLifted(item) && !growing.value.has(item.key);
 }
 
 function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> {
@@ -424,8 +433,8 @@ function placeFloat(id: string, offset: {readonly x: number; readonly y: number}
 }
 
 defineExpose({
-    /** 进行中的过渡直接到终点：宿主马上要量矩形（拖动拿起），或要找按下处的元素（`createDragSession` 的 `settleMotion`）。真有过渡在走时返回真。 */
-    settleMotion: (): boolean => motion.stop(),
+    /** 进行中的过渡直接到终点：宿主马上要量矩形（拖动拿起）。 */
+    settleMotion: (): void => motion.stop(),
     placeLifted,
     placeFloat,
 });
@@ -458,7 +467,7 @@ defineExpose({
                 class="nb-grid-content"
                 :data-content="item.contentKey"
                 :data-content-leaf="item.leaf"
-                :data-moving="moving && item.active && !contentLayer.isLifted(item) ? '' : undefined"
+                :data-moving="contentMoving(item) ? '' : undefined"
                 :data-flying="flying.has(item.key) || raisedLeaf === item.leaf ? '' : undefined"
                 :data-lifted="contentLayer.isLifted(item) ? '' : undefined"
                 :data-float="floatAt.has(item.leaf) ? '' : undefined"

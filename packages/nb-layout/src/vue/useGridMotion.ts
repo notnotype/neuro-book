@@ -99,11 +99,10 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         }
     }
 
-    /** 进行中的过渡直接走到终点；真有过渡在走时返回真。 */
-    function stop(): boolean {
+    function stop(): void {
         if (timer !== null) clearTimeout(timer);
         timer = null;
-        if (!moving.value) return false;
+        if (!moving.value) return;
         finishTransitions();
         moving.value = false;
         inRound = false;
@@ -113,7 +112,6 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         flying.value = new Set();
         // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
         options.onSettled();
-        return true;
     }
 
     function start(durationMs: number, entering: ReadonlyMap<string, GridRect>, nextFollowing: ReadonlySet<string>, nextFlying: ReadonlySet<string>): void {

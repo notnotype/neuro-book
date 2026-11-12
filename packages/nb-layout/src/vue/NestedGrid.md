@@ -24,7 +24,7 @@
 
 分隔线可聚焦。与主轴同向的方向键每次调整 10px，Shift 调整 1px；Home / End 跳到可行范围端点，Enter 切换相邻可收起面板。键盘按键抬起时结束该手势。Escape、pointercancel、窗口失焦、上下文变化和卸载会取消，不结算旧基线；分隔线失去焦点时结束键盘会话。禁用时不启动手势。沿自己长度方向为零的分隔线（收起为零的分支里，叶之间的那些）按不可交互处理：不可聚焦、不进指针命中、键盘不调整，分支展开后恢复。数据、约束、上下文或 revision 变化会使现有手势失效。点击非分隔区域不由渲染器处理；焦点不被组件搬移。
 
-`lifted`（`{key}`）拿起一个内容项（实时布局）：不按叶摆放，不接指针，内层保持拿起时的尺寸；变成 null 时飞回它的叶；落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框和窗的手柄也从卡片的矩形一起长到终点。矩形（相对网格根）由 expose 的 `placeLifted(rect)` 直接写在元素上，不走属性：跟手的东西每帧都变，走属性的话这个组件和每块叶的插槽都要跟着重跑。整窗拖动同样：expose 的 `placeFloat(id, offset)` 把窗的外框、内容、手柄一起挪（写 `translate`），`null` 回到原处，`floats` 属性整场不变。插槽 `lifted-head` 是它上面那一条头，`overlay` 是盖在分隔线之上、拿起的内容之下的一层（不接指针）。暴露 `settleMotion()`：进行中的过渡直接到终点，真有过渡在走时返回 `true`；宿主马上要量矩形、或按下时要找指针下的元素（交给 `createDragSession` 的 `settleMotion`）时用。卡片的圆角与投影走 `--layout-card-radius`、`--layout-card-shadow`。
+`lifted`（`{key}`）拿起一个内容项（实时布局）：不按叶摆放，不接指针，内层保持拿起时的尺寸；变成 null 时飞回它的叶；落进的是这次才出现的叶（拖出来的浮动窗）时，叶的外框和窗的手柄也从卡片的矩形一起长到终点。矩形（相对网格根）由 expose 的 `placeLifted(rect)` 直接写在元素上，不走属性：跟手的东西每帧都变，走属性的话这个组件和每块叶的插槽都要跟着重跑。整窗拖动同样：expose 的 `placeFloat(id, offset)` 把窗的外框、内容、手柄一起挪（写 `translate`），`null` 回到原处，`floats` 属性整场不变。插槽 `lifted-head` 是它上面那一条头，`overlay` 是盖在分隔线之上、拿起的内容之下的一层（不接指针）。暴露 `settleMotion()`：进行中的过渡直接到终点，宿主马上要量矩形时用。卡片的圆角与投影走 `--layout-card-radius`、`--layout-card-shadow`。
 
 `floats`（`{id, rect, moving?}`）是浮动窗（[Spec](../../../../docs/specs/ui/nested-grid.md)“浮动窗”）：不在树里的叶，排在树后面，后面的压在前面的上面。内容项照常归属它。只有矩形变了不过渡。插槽 `float-chrome` 放手柄（[`FloatWindowHandles`](FloatWindowHandles.md)）：网格根的直接子元素，叠在窗的内容上面，外层不接指针。
 
@@ -128,7 +128,7 @@ type NestedGridSlots = {
 };
 ```
 
-Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 三个方法：`settleMotion()` 把进行中的过渡直接送到终点（返回有没有过渡在走），`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少。未声明 attrs 按 Vue 单根行为落到外层承载 div，不透传到递归 Splitter 或叶容器。
+Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 三个方法：`settleMotion()` 把进行中的过渡直接送到终点，`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少。未声明 attrs 按 Vue 单根行为落到外层承载 div，不透传到递归 Splitter 或叶容器。
 
 ## 状态与边界
 

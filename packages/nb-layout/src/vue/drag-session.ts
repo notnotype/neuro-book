@@ -39,11 +39,6 @@ export interface DragSessionOptions<S, D, R> {
     readonly root: HTMLElement;
     /** 按下处的来源；null 不起拖。 */
     sourceAt(target: Element): S | null;
-    /**
-     * 按下时先让进行中的布局过渡走到终点；真停下了过渡返回真，会话按坐标重新找按到的元素再交给 `sourceAt`。刚放下、刚切换时元素还在飞，
-     * 指针下是别的东西，不这样就拿不起刚放下的那个。缺省没有过渡。
-     */
-    settleMotion?(): boolean;
     /** 过了门槛：宿主冻结它要的东西；返回 false 不起拖。`at` 是指针的位置，键盘拖动是 null。 */
     activate?(source: S, keyboard: boolean, at: DragActivation | null): boolean;
     /** 放下时提交此刻判定的动作，不要求与最后显示的相同（实时布局）。缺省假。 */
@@ -281,8 +276,7 @@ export function createDragSession<S, D, R = never>(options: DragSessionOptions<S
     /** 冒泡阶段接收：内层先处理并停止传播的按下（分隔线的命中带）不起拖。 */
     function onPointerDown(event: PointerEvent): void {
         if (!gesture.idle || event.button !== 0 || !event.isPrimary || !(event.target instanceof Element)) return;
-        const settled = options.settleMotion?.() === true ? root.ownerDocument.elementFromPoint(event.clientX, event.clientY) : null;
-        const source = options.sourceAt(settled ?? event.target);
+        const source = options.sourceAt(event.target);
         if (source === null) return;
         gesture.press({pointerId: event.pointerId, pointerType: event.pointerType, point: {x: event.clientX, y: event.clientY}, source});
     }

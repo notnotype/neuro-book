@@ -213,7 +213,7 @@ test.describe("实时布局", () => {
         expect(await writesOf(page)).toBe(writes);
     });
 
-    test("同一个容器里拖走前一节再回到原处：来源展开回原位、后一节让出位置，松手不写；取消后邻居还在滑回原位时马上按它的标题，照常拿起它（输出 38；ui/layout-drag 输出 2）", async ({page}) => {
+    test("同一个容器里拖走前一节再回到原处：来源展开回原位、后一节让出位置，松手不写；松手后马上再按，照常拿起（输出 38）", async ({page}) => {
         await open(page);
         const [A, B] = ["test.sample-views.alpha", "test.sample-views.beta"];
         // 搭一个两节的容器：乙移进甲的容器，排在甲后面（输出 23）。
@@ -225,7 +225,7 @@ test.describe("实时布局", () => {
         await expect(leaf(page, beta)).toHaveCount(1);
         await settled(page);
         const [alphaBox, betaBox] = [(await leaf(page, alpha).boundingBox())!, (await leaf(page, beta).boundingBox())!];
-        const betaHead = await centerOf(tab(page, B));
+        const head = await centerOf(tab(page, A));
         const writes = await writesOf(page);
 
         await lift(page, tab(page, A));
@@ -238,23 +238,15 @@ test.describe("实时布局", () => {
         await expect(surface(page)).toHaveAttribute("data-live-preview", "in-place");
         await expect.poll(async () => Math.round((await leaf(page, beta).boundingBox())?.y ?? 0)).toBe(Math.round(betaBox.y));
         await expect(leaf(page, alpha)).toHaveCount(1);
-        await page.mouse.up();
-        await expect(page.locator("[data-workbench-dragging]")).toHaveCount(0);
-        expect(await writesOf(page)).toBe(writes);
 
-        // 再拖走甲、乙占满这一列，然后取消：乙从上面滑回原位。它还在滑的时候马上按乙的标题原来的位置：按下先走到终点，拿起的是乙。
-        await lift(page, tab(page, A));
+        // 松手后马上在甲的标题上再按（开发者 2026-11-12 的步骤）：回到原处时已经展开，松手时甲的外框就在原位，照常拿起。
+        await page.mouse.up();
+        await page.mouse.move(head.x, head.y);
+        await page.mouse.down();
+        await page.mouse.move(head.x + 10, head.y + 10, {steps: 2});
+        await expect(surface(page)).toHaveAttribute("data-drag-feel", "live");
         await page.mouse.move(away.x, away.y, {steps: 8});
         await expect.poll(async () => (await leaf(page, beta).boundingBox())?.y).toBeLessThan(alphaBox.y + 2);
-        await page.keyboard.press("Escape");
-        await page.mouse.up();
-        await page.mouse.move(betaHead.x, betaHead.y);
-        const sliding = await page.evaluate(() => document.querySelector("[data-workbench-surface] [data-moving]") !== null);
-        await page.mouse.down();
-        await page.mouse.move(betaHead.x + 10, betaHead.y + 10, {steps: 2});
-        expect(sliding).toBe(true);
-        await expect(surface(page)).toHaveAttribute("data-drag-feel", "live");
-        await expect(page.locator(`[data-lifted][data-content="view:${B}"]`)).toHaveCount(1);
         await page.keyboard.press("Escape");
         await page.mouse.up();
         expect(await writesOf(page)).toBe(writes);

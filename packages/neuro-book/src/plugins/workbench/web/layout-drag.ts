@@ -86,8 +86,8 @@ export interface LayoutDragOptions {
     feel(): "live" | "indicator";
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）。 */
     cardShrink(): "strip" | "panel";
-    /** 把进行中的过渡直接送到终点：拿起后要量矩形，按下时要找指针下的元素。真有过渡在走时返回真。 */
-    settleMotion(): boolean;
+    /** 把进行中的过渡直接送到终点：拿起后要量矩形。 */
+    settleMotion(): void;
     /** 摆预览；null 回到已提交的布局。 */
     showPreview(doc: LayoutDoc | null): void;
     /** 写拿起的内容项的矩形（相对网格根）。跟手的东西直接写元素，不走渲染。 */
@@ -818,8 +818,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const session = createDragSession<WorkbenchDragSource, LayoutDragDrop, KeyboardRegion>({
         root,
         sourceAt,
-        // 刚放下、刚切换容器时外框还在飞：按下先走到终点，拿起的才是指针下那个（不然松手后马上再拖会落空）。
-        settleMotion: () => options.settleMotion(),
         activate: (source, keyboard, at) => {
             previews.clear();
             sortGrab = null;
