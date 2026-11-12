@@ -58,6 +58,26 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 - 与计划的偏差（第 7 片）：`./contract` 分成 `shapes.ts`、`settings-spec.ts`、`service.ts` 三个文件；计划的改导入清单漏了 `models/models.llm.test.ts`（从插件根目录导入 `./shared/rules`），类型检查发现后补上；应用多了一个 workspace 依赖，`server/dev/watch.test.ts` 的监视目录期望随之加一项。
 - 第 8 片（nb-models 的 `./core`、`./testing`）已提交：`core.ts` 用 `git mv` 搬进包，设置服务换成 `ModelsConfigStore`，写入步骤的失败类型由合同的失败码表推出（码写错是类型错误），`relay` 只剩“属于哪个方法”这一处断言；`chooseModel` 抽成纯函数，`setRole` 的“压缩跟着快速档”改用 `MODEL_ROLE_IDS`。应用 `backend/settings-store.ts` 把设置服务适配成存储，`settings-store.test.ts` 以 `nbook.models` 的身份在真实设置场地上跑存储合同（用户层 `invalid` 由坏 JSON 造出；`unavailable` 这个场地做不出来，只由内存实现核对）。验证：nb-models 34 条与两份类型检查；应用类型检查（只剩 master 上那条）、`src/plugins/models`、`src/plugins/agent/backend`、`src/plugins/plot`、架构测试 359 条；变异：去掉 `chooseModel` 的压缩、审批两步，`choice.test.ts` 各有一条失败（输出待第 9 片存进 `evidences/`）。
 - 与计划的偏差（第 8 片）：存储合同多写了一条“只通知订阅之后的变化、不在 `onChange` 返回之前回调”（核心的 `changeOf` 依赖它；测试替身起初同步回调，核心报 `off` 未初始化）；`conflict` 允许带说明（设置服务带）。内存实现分“磁盘”与“视图”两份、别处的写入要 `catchUp()` 才看见，这样核心撞上 `conflict` 的时刻不靠计时器也能测；合同函数多一个参数 `layerStates`（夹具做得出来的坏状态）。
+- 第 9 片的合入前清单（干净克隆 `/tmp/w43-clean`，先在 94cca8703、修正后在 9d3bb0189 各跑一次）：`bun run build`（含 `check:dist`）、`build:sdk`（`dist/plugin-sdk` 里没有三个新包）、`smoke:server` S1–S10 全过；`validate-proper-lockfile-patch.ts` 通过；`docs:check` 只报主工作区 Spec 里 15 条指向搬走文件的链接（`models/service.md` 1 条、`runtime/browser-host.md` 4 条、`runtime/diagnostics.md` 5 条、`runtime/server-host.md` 5 条），合入后改；计划列的 9 项变异都被测试拦下（[evidences/mutations.txt](evidences/mutations.txt)）。
+
+### 实现审查（第 1 到 8 片，2026-11-12）
+
+后端 Opus、前端 Sonnet 各审一份（本会话开发者定审查不用 omp、改用 Opus），对象 `4044fc4d7..94cca8703`，报告 [evidences/impl-review-r1-backend-opus.txt](evidences/impl-review-r1-backend-opus.txt)、[evidences/impl-review-r1-frontend-sonnet.txt](evidences/impl-review-r1-frontend-sonnet.txt)。后端：阻断 0、重要 2、建议 3；前端：阻断 0、重要 0、建议 5、基线 1。修正在 9d3bb0189。
+
+| 条目 | 结论 | 处理 |
+|---|---|---|
+| 后端 1 宿主插件与宿主接口在装配的 try 外构造，抛错时 RPC 不关、认领不放、没有致命诊断 | 成立，是搬家带来的回归 | 移进 try；`start.test.ts` 加“宿主接口路径重复”装配失败用例（未修的代码上失败） |
+| 后端 2 认领字段核对在放行 HTTP 之后抛错，服务半启动 | 成立（核对是本 Task 新加的） | 先发布、再放行，同一个同步段；发布不了按启动失败（503、致命诊断、有序停止、退出码 1）；`readyInfo` 抛错同路径；加用例（未修的代码上失败） |
+| 后端 3 `activeRequests` 只给测试用；`./testing` 转出产品类 | 部分成立：应用的“产品代码不引用 testing”规则已按路径段拦下 `@notnotype/nb-host/testing`（前端审查核实） | 接受取舍：`activeRequests` 是一次只读观察，换成别的观察方式要改三条用例的写法，收益小；nb-host 内部补了同类规则（见前端 5） |
+| 后端 4 只查了 `proper-lockfile` 的声明，没查源码导入 | 成立 | 应用架构测试、nb-host 与 nb-models 的边界测试各加“不直接导入 `proper-lockfile`”，带反例 |
+| 后端 5 诊断插件 id 写了两份 | 成立 | 必需插件的 id 取自宿主插件本身，删去 `start.ts` 的常量 |
+| 后端基线：扩展 `attach` 抛错时运行实例无人收口 | base 上就有 | 不改：应用的装配者在 `attach` 没完成时自己也会抛，单在包里兜住还不够，要先定“运行实例已建之后的装配失败”怎么交回，留作已知问题 |
+| 前端 1 运行位置表 `nb-models/core` 没有反例，`neutral` 行不参与判定 | 成立 | 补反例；表注释写明 `neutral` 与没登记的判定相同、列出来是为了登记时想过运行位置 |
+| 前端 2 身份测试的替身依据说过头，真实 `localStorage` 的用例没了 | 成立 | 应用加 `src/web/host/client-identity.dom.test.ts`（happy-dom 的真实存储与 `nbook.client-identity`）；nb-host 测试的头注释照实写 |
+| 前端 3 `close()` 后违约抛错不再记那一行没有测试；负向断言靠 `setImmediate` | (a) 成立；(b) 不改 | 加“违约抛错”用例（去掉那一行时失败）；`setImmediate` 是排空微任务、不是按时长等，注释写明 |
+| 前端 4 退避的 8 秒、稳态 10 秒没有测试（基线） | 成立，便宜 | 补用例；成功后清零已由应用 `window.test.ts`“再断一次仍是 0.5 秒”覆盖 |
+| 前端 5 nb-host 拦不住产品代码引用 `testing/` | 成立 | 补规则与反例 |
+| 前端 6 应用 `client-identity.ts` 是单调用的包装 | 成立 | 只留键，`boot.ts` 直接调 nb-host 的函数 |
 
 ### 计划第一稿的处理
 

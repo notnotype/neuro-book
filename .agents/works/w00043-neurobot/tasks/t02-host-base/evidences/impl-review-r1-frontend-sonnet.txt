@@ -1,0 +1,63 @@
+# w00043 t02 前端实现审查报告
+加载版本：94cca8703（审查前后 `git rev-parse HEAD` 均为该提交）。范围：nb-host 的 web/、shared/socket.ts，应用 web/host 与导入改动，nb-models 的 config/、contract/，应用 architecture.test.ts 的运行位置表。
+运行过的验证：nb-host `bun test src/web src/architecture.test.ts`（25 过）、nb-models `bun test src/boundary.test.ts src/config src/contract src/app-neutral.test.ts`（12 过）、应用 `bun test src/architecture.test.ts src/web/host/endpoint-refresh.test.ts`（13 过）、`vitest run src/web src/plugins/models src/plugins/settings`（119 过）、两包 `bun run typecheck`（无错）、应用 `bun run typecheck`（只有已知的 MarkdownToolbar.dom.test.ts 一条）。变异实验都在 /tmp/review-w43t02-impl/scratch/ 的副本里做，仓库文件未动。
+
+### 1. 应用 `PACKAGE_SIDES` 里 `nb-models/core` 没有反例，四条 `neutral` 行不起作用
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/neuro-book/src/architecture.test.ts:85-99（表与 `packageSide`）、:271-275 与 :291-294（新加的反例与正例）
+- **现象**：表里 8 行，其中 `nb-host/socket`、`nb-host/http/contracts`、`nb-models/config`、`nb-models/contract` 四行标 `neutral`，而 `violationsOf` 只读 `side === "backend"` 与 `side === "web"`，`neutral` 与“没登记”的结果相同，这四行是文档，不是规则。会起作用的 `backend`/`web` 四行里，`nb-file-lock`、`nb-host/server`、`nb-host/web` 各有反例，`nb-models/core` 没有反例。
+- **为什么是问题**：“反例是否覆盖每条规则”是这次要求的判据。`nb-models/core` 一旦被写错成 `neutral` 或被误删，前端引它（会把整个服务核心带进浏览器）就拦不住，而现有用例全部照过。
+- **如何核实**：把 /tmp/review-w43t02-impl/scratch/arch/a.test.ts（架构测试的副本，SRC 指回真实 src）里 `nb-models/core` 的 side 改成 `neutral`，“前后端、共用代码与插件之间只按目录约定引用”仍然通过（该文件里唯一失败的是 `import.meta.path` 相关的另一条，与改动无关，是副本路径造成的）。
+- **建议改法**：加一条反例 `use("web/host/window.ts", "@notnotype/nb-models/core")`（期望 1 条违规）；`neutral` 行要么删掉并在表注释里写“没登记的与 neutral 同”，要么让规则真的用它（例如 neutral 包允许出现在三个位置）。
+
+### 2. 客户端身份测试的“替身与真实存储对过契约”的依据说过头
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-host/src/web/client-identity.test.ts:2-5；packages/neuro-book/e2e/lab.e2e.ts:112
+- **现象**：测试头注释写“替身与真实 `localStorage` 的契约由应用 `e2e/lab.e2e.ts` 读本地存储里身份的那条用例核对”。lab.e2e.ts:112 实际只断言 `localStorage` 的键集合等于 `["nbook.client-identity", "nbook.host-appearance"]`，没有读值、没有核对值通过 `VALID`、没有刷新后读到同一值。base 上的 `client-identity.dom.test.ts` 用 happy-dom 的真实 `localStorage` 测了“第一次生成并存进、之后读到同一个值”与“值被写坏重新生成”，现在这两条只在 `Map` 替身上测。
+- **为什么是问题**：搬走的是“与真实 Storage 的接口一致”这条证据本身。`Map` 与 `Storage` 的差别（`setItem` 把值转字符串、`getItem` 对缺失返回 null、写入会触发配额错误）里，只有“缺失返回 null”靠替身恰好与真实相同；其余没有任何测试对过。应用里 `CLIENT_IDENTITY_KEY` 与那行包装（应用 `client-identity.ts`）也没有直接测试，只有 lab.e2e 的键名断言兜着，是键名不被改动的唯一防线。
+- **如何核实**：读 lab.e2e.ts:112 附近；`git show 4044fc4d7:packages/neuro-book/src/web/host/client-identity.dom.test.ts` 对比。
+- **建议改法**：二选一。(a) 保留一份应用侧的 `*.dom.test.ts`，用 happy-dom 真实 `localStorage` 测应用的 `readClientIdentity`（顺带钉住键 `nbook.client-identity` 与“同值跨启动不变”）；(b) 改注释，如实写“替身只依赖 `getItem` 缺失返回 null 与 `setItem` 存字符串；真实存储的读写由 e2e 间接覆盖”，并把 lab.e2e 那条用例加上读值与刷新后同值的断言。(a) 更便宜，也不依赖要跑 e2e。
+
+### 3. 远程会话测试：`close()` 之后不再记失败那行新增代码没有测试，负向断言靠固定等一轮宏任务
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-host/src/web/remote-session.ts:110-114（`scheduleRetry` 的 catch 里 `if (closed) return;`）；packages/nb-host/src/web/remote-session.test.ts:176-181
+- **现象**：(a) 删掉 catch 里的 `if (closed) return;`，三条测试照过（副本实验，3 pass）。这一行是本次新增的（base 只有记录并重排），目的是“refreshEndpoint 违约抛错且窗口已关时不再记、不再排下一次”；测试里的 `refreshEndpoint` 替身从不抛错，这条分支没被走到。(b) 第三条用例的负向断言用 `await new Promise((resolve) => setImmediate(resolve))` 固定等一轮宏任务再断言“没记失败、没排下一次”。我在副本里删掉 retry() 里 refresh 之后的 `if (closed) return;`，这条用例能失败，所以这一轮等待在目前的实现下够用；但它是“等一段时间后看没有发生”的写法，测试规范要求等可观察的状态。
+- **为什么是问题**：(a) 违约抛错那条路径的 `closed` 保护没有验证，改坏了看不出来；(b) 属于 `docs/testing/README.md`“测试写法”里不按固定时长等待的约束的边缘情形。
+- **如何核实**：副本 /tmp/review-w43t02-impl/scratch/m/src/web/remote-session.ts，按上面两处各删一行跑 `bun test src/web/remote-session.test.ts`。
+- **建议改法**：(a) 加一条用例：替身 `refreshEndpoint` 返回一个由测试控制的 promise，`close()` 之后让它 reject，等该 promise 的 settle 之后（`await view.session.close(); await settled`，settled 由测试持有）断言无失败记录；(b) 用同一个由测试持有的 promise 当“这次重取已处理完”的信号，取代 `setImmediate`。
+
+### 4. 基线问题（base 上就有，不算这次回归）：退避表后两档、稳态 10 秒、成功后 `retries` 清零都没有测试
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-host/src/web/remote-session.ts:15-16、:140（`retries = 0`）；base 的 packages/neuro-book/src/web/host/remote-session.test.ts 同样只测到 4000
+- **现象**：把 `RETRY_DELAYS_MS` 的 8000 改成 1、`STEADY_RETRY_MS` 改成 1、删掉 `retries = 0`，三条测试全过（副本实验）。base 的那条测试也只到 0.5/1/2/4 秒。搬家本身没有改退避表（逐值对照 base 相同），所以这不是回归；只是包的 README 把“0.5、1、2、4、8 秒，之后每 10 秒”写成包的行为，而测试没钉。
+- **建议改法**：`ManualClock` 已经在用，补一条“连续失败 6 次以上：第 5 次等 8 秒，之后每次等 10 秒；连上之后再断线，从 0.5 秒重新开始”的用例成本很低。可留到下一次动这个文件时做。
+
+### 5. nb-host 的边界测试拦不住 `web/`、`shared/` 的非测试文件引 `../testing/`
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/nb-host/src/architecture.test.ts:108-123（`violationsOf`）
+- **现象**：浏览器侧规则只检查相对导入的目标是不是 `server/`、`http/`；`testing/` 里有 `claim-child.ts`、`tcp-proxy.ts`、`acme.ts` 这类用 Node/Bun API 的文件，从 `web/` 或 `shared/` 的非测试文件 `import "../testing/…"` 不会被报。nb-models 的边界测试对 `testing` 有单独一条规则，nb-host 的没有，两包做法不一致。
+- **为什么是问题**：`web/` 要进浏览器，被拦的原因应该写在测试里，不靠白名单碰巧：相对导入不属于“包导入白名单”，这条路径是真空。目前没有违规（我核对了所有 web/、shared/ 非测试文件的导入），是预防性缺口。
+- **建议改法**：加一条“非测试源码不引用 `testing/`（`testing/` 自己除外）”，配一条反例，与 nb-models 的 `产品代码引用了测试支持` 对齐。
+
+### 6. 应用 `client-identity.ts` 是带别名导入的单调用包装
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：packages/neuro-book/src/web/host/client-identity.ts:6-13
+- **现象**：文件只为了把键 `nbook.client-identity` 绑进 `readClientIdentity(storage)` 这一个调用，导入时还要给包里同名的函数起别名 `readHostClientIdentity`，同一个名字在应用里指两个签名不同的函数。唯一的调用方是 boot.ts:37。
+- **为什么是问题**：不构成错误。计划里写明保留包装的理由是 e2e 的 8 个文件从这里取 `CLIENT_IDENTITY_KEY`（这个常量本来就要留在这个文件里）；包装函数本身不需要，boot.ts 可以直接 `readClientIdentity(CLIENT_IDENTITY_KEY, () => window.localStorage)`，既省掉别名，也让键在调用点可见。
+- **建议改法**：保留常量，删包装函数，boot.ts 改成直接调包里的函数。收益小，随手可做，不改也不影响正确性。
+
+## 未发现问题的方面（均已对照 base 或实验核对）
+- 重点 1：`remote-session.ts` 与 base 逐段对照，退避表、终态、首连结果形状相同；`onRetryFailed` 的时机只有一处变化：结构不符与取引导失败原来在 `closed` 判断之前调，现在在之后，窗口关闭后不再记，是改进。`close()` 之后不再回调 `onState`、不再排下一次（删掉 retry() 里 refresh 之后的 `closed` 判断，第三条用例失败，证明有测试守着）。应用 `endpoint-refresh.ts` 与 base 的 `refreshEndpoint` 判定逐条相同：版本不同为 `incompatible`（先于结构校验）、结构不符与取引导失败为 `retry`、原因文字相同，`signal` 中止也交回 `retry` 不抛错；5 条直接用例覆盖。
+- 重点 2：`browser-host.ts` 里 `{...manifest, platform}` 档案放后面，覆盖用例有效；`createBrowserWindow` 是 `BrowserRuntimeHost.start` 唯一的应用侧调用方且传了 `NEUROBOOK_PLATFORM`；全仓库搜 `BrowserRuntimeHost` 只有 window.ts 与 nb-host 自己的测试，没有漏传的调用方。Lab、markdown 测试宿主走 `nbook/application` 的 `createApplication`，档案由那里补，不经这条路径。
+- 重点 3：`rpcSocketUrl`/`openRpcSocket` 与 base `openRemote` 逐行等价（协议换算、端口、路径、打开前关闭只拒绝一次、`link.closed()` 在 close 事件里调一次）；地址拼不出来由原来的“创建连接对象时抛”变成“进 try，以 `ConnectionError` 拒绝”，有测试。应用里 `ConnectionError` 只剩 nb-host 一份，`window.ts:440` 与 `mount.dom.test.ts` 都从 `@notnotype/nb-host/web` 取同一个类，`connection.ts` 也是。
+- 重点 4：键由应用给，NeuroBook 仍是 `nbook.client-identity`（lab.e2e.ts:112 有字面量）；包里的校验正则、不可用与写不进的分支与 base 逐行相同。证据强度问题见第 2 条。
+- 重点 5：nb-host `web/`、`shared/` 与 nb-models `config/`、`contract/` 的实际导入都在白名单内（我逐文件列了导入）；两个包的 `tsconfig.browser.json` 用 `types: []` 且 typecheck 通过，所以也没有 Node/Bun 全局类型混进来；`nb-harness/kit/shapes` 只导入 typebox。新浏览器代码只引 typebox（已在 `optimizeDeps.include`）与 nb-runtime 子路径，不需要改 vite.config.ts，核对属实。nb-models 边界测试的 9 条反例各自对应一条规则。nb-host 的边界测试反例覆盖其每条规则（第 5 条是规则之外的缺口）。
+- 重点 6：`models/shared/contracts.ts` 转出的名字别的插件都用得上（`modelsKey`、`ModelsService`、`ModelsSnapshot`、`SnapshotModel/Provider/Role`、`hasCredentials`、`roleOfReference`、`roleReference`、`builtinRoleNameKey`、`modelsText`；agent、plot、settings、lab 的引用方应用 typecheck 通过）。合同 id `nbook.models/settings`、`version: 1`、`provider: "server"`、`callers: ["browser"]` 不变；方法表与事件表与 base 逐字对照（diff 只剩被搬到 shapes.ts 的 schema 与新增的注释）；配置形状（含 `Price` 的 `minimum: 0`、`PROVIDER_ID` 正则、内置角色表）逐行相同。
+- 搜过全仓库，旧路径（`shared/rpc-socket`、`web/host/remote-session`、`plugins/diagnostics/web/*`、`console-exporter` 的旧导入）没有残留引用。
+
+## 未能做、请主 Agent 补的验证（本审查不跑 e2e 与构建）
+- `e2e/lab.e2e.ts`（计划写明合入前要跑，是替身依据）、`e2e/rpc.e2e.ts`、`e2e/browser-host.e2e.ts`，以及 `bun run build:web` 与开发模式页面加载（核对没有因新包触发 Vite 重新预构建）。从代码推断没有问题，未验证。
+
+## 数量
+阻断 0；重要 0；建议 5（第 1、2、3、5、6 条）；基线问题 1（第 4 条，建议级，不算回归）。
+有效发现的编号：1、2、3、5、6（另有基线 4）
