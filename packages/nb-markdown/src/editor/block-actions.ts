@@ -73,6 +73,21 @@ export function selectBlock(editor: Editor, target: BlockTarget): void {
     view.dispatch(state.tr.setSelection(selection));
 }
 
+/**
+ * 块菜单的“批注”（docs/specs/workbench/markdown-editing.md 输出 28）里文字块的那一半：段落、标题选中它自己的文字，列表项选中它的第
+ * 一段（不含子项），之后走选区上加批注的路径，写成行内批注。没有文字（空块、只有空白）或不是文字块时返回 false。别的块（代码块、
+ * 容器、表格、分割线、原样块）不靠选区：表格的节点选区会被表格插件换成单元格选区，整块包进块批注按位置做（`addBlockComment`）。
+ */
+export function selectBlockText(editor: Editor, target: BlockTarget): boolean {
+    if (target.kind !== "text" && target.kind !== "list-item") return false;
+    const {state, view} = editor;
+    const textblock = target.kind === "text" ? target.node : target.node.firstChild;
+    if (textblock === null || !textblock.isTextblock || textblock.textContent.trim() === "") return false;
+    const from = target.pos + (target.kind === "text" ? 1 : 2);
+    view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, from, from + textblock.content.size)));
+    return true;
+}
+
 /** 整块选中：拖动与“复制”用。 */
 export function selectWholeBlock(editor: Editor, target: BlockTarget): void {
     editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, target.pos)));

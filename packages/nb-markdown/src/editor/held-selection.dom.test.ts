@@ -4,7 +4,8 @@ import {undoDepth} from "@tiptap/pm/history";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {codecFor, defaultMarkdownLanguage} from "../language";
-import {HELD_SELECTION_CLASS, holdSelection, MarkdownHeldSelection, releaseSelection} from "./held-selection";
+import {blockAt} from "./block-actions";
+import {HELD_SELECTION_CLASS, holdBlock, holdSelection, MarkdownHeldSelection, releaseSelection} from "./held-selection";
 
 const editors: Editor[] = [];
 afterEach(() => {
@@ -35,6 +36,17 @@ describe("保持选区高亮", () => {
         expect(held(editor)).toEqual(["缆绳"]);
         releaseSelection(editor);
         expect(held(editor)).toEqual([]);
+    });
+
+    it("整块画成高亮（块菜单的批注）：分割线这样的原子块也看得出，撤掉后不再画，位置上没有块时不画", () => {
+        const editor = open("上\n\n---\n\n下\n");
+        const rule = [...Array(editor.state.doc.content.size).keys()].map((position) => blockAt(editor.state.doc, position)).find((target) => target?.node.type.name === "horizontalRule");
+        if (rule === undefined || rule === null) throw new Error("没有找到分割线");
+        expect(holdBlock(editor, rule.pos)).toBe(true);
+        expect([...editor.view.dom.querySelectorAll(`.${HELD_SELECTION_CLASS}`)].map((element) => element.tagName)).toEqual(["HR"]);
+        releaseSelection(editor);
+        expect(held(editor)).toEqual([]);
+        expect(holdBlock(editor, 2)).toBe(false);
     });
 
     it("选区是空的时不画", () => {

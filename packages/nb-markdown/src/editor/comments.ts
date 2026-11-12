@@ -17,9 +17,10 @@
 
 import {Extension} from "@tiptap/core";
 import type {Editor} from "@tiptap/core";
-import type {Mark, Node as PMNode} from "@tiptap/pm/model";
+import type {Mark, Node as PMNode, NodeRange} from "@tiptap/pm/model";
 import {Plugin, PluginKey, TextSelection} from "@tiptap/pm/state";
 import type {EditorState} from "@tiptap/pm/state";
+import {findWrapping} from "@tiptap/pm/transform";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 
 interface Range {
@@ -145,9 +146,12 @@ export function listComments(doc: PMNode): CommentInfo[] {
  */
 export function commentsAt(state: EditorState): CommentInfo[] {
     const {selection} = state;
-    if (!selection.empty) return [];
-    const pos = selection.from;
-    return listComments(state.doc).filter((info) => info.segments.some((segment) => (info.block ? pos > segment.from && pos < segment.to : pos >= segment.from && pos <= segment.to)));
+    return selection.empty ? commentsAtPos(state.doc, selection.from) : [];
+}
+
+/** 某个位置上的批注（悬停，输出 30）：判断同 `commentsAt`，不看选区。重叠的几条按先后排。 */
+export function commentsAtPos(doc: PMNode, pos: number): CommentInfo[] {
+    return listComments(doc).filter((info) => info.segments.some((segment) => (info.block ? pos > segment.from && pos < segment.to : pos >= segment.from && pos <= segment.to)));
 }
 
 /**
@@ -231,6 +235,31 @@ export function removeComment(editor: Editor, ref: CommentRef): boolean {
         });
     }
     editor.view.dispatch(tr);
+    return true;
+}
+
+/** 把这一块包进批注块要的范围与包装；位置上没有块、批注块放不进它的父级时为 null。 */
+function wrapBlock(doc: PMNode, pos: number, body: string): {readonly range: NodeRange; readonly wrapping: NonNullable<ReturnType<typeof findWrapping>>} | null {
+    // 位置可能是卡片显示之后文档变短之前记下的：`nodeAt` 对文档外的位置抛错。
+    const node = pos > doc.content.size ? null : doc.nodeAt(pos);
+    const type = doc.type.schema.nodes.commentBlock;
+    if (node === null || !node.isBlock || type === undefined) return null;
+    const range = doc.resolve(pos).blockRange(doc.resolve(pos + node.nodeSize));
+    const wrapping = range === null ? null : findWrapping(range, type, {body, id: null});
+    return range === null || wrapping === null ? null : {range, wrapping};
+}
+
+/**
+ * 这一块能不能包进块批注（输出 28：块菜单给代码块、引用、表格、分割线等整块加批注）。按位置，不看选区：表格的节点选区会被表格插件
+ * 换成单元格选区，靠选区做不稳。
+ */
+export const canCommentBlockAt = (doc: PMNode, pos: number): boolean => wrapBlock(doc, pos, "") !== null;
+
+/** 把这一块整个包进一条块批注（输出 28）。包不进去或意见为空返回 false，文档不变。 */
+export function addBlockComment(editor: Editor, pos: number, body: string): boolean {
+    const found = body === "" ? null : wrapBlock(editor.state.doc, pos, body);
+    if (found === null) return false;
+    editor.view.dispatch(editor.state.tr.wrap(found.range, found.wrapping));
     return true;
 }
 

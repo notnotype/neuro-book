@@ -21,7 +21,8 @@ import {Fragment, Slice} from "@tiptap/pm/model";
 import {Mark as PMMark} from "@tiptap/pm/model";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {Plugin, PluginKey} from "@tiptap/pm/state";
-import {findWrapping} from "@tiptap/pm/transform";
+import type {EditorState, Transaction} from "@tiptap/pm/state";
+import {findWrapping, ReplaceStep} from "@tiptap/pm/transform";
 import type {MarkedExtension, Token, Tokens} from "marked";
 
 import {escapeAttribute} from "../../../markdown-dialect";
@@ -38,7 +39,7 @@ declare module "@tiptap/core" {
             unsetComment: () => ReturnType;
             /**
              * 给选区加一条批注（输出 11 的“新建”）：选区正好是连续的几个完整块（不止一个）时写成块批注；只在一段里时是行内
-             * 批注；其余（跨段、起止在段中间）是分截批注，写回时分配 `id`。选区为空时不做。
+             * 批注；其余（跨段、起止在段中间）是分截批注，写回时分配 `id`。选区为空时不做。节点选区（块菜单选中的整块）包进块批注。
              */
             addComment: (body: string) => ReturnType;
         };
@@ -52,6 +53,10 @@ declare module "@tiptap/core" {
 let keys = 0;
 /** 新的 `key`：只在这个页面里唯一即可，不写进文件。 */
 export const newCommentKey = (): string => `k${(keys += 1).toString(36)}`;
+
+const isCommentMark = (mark: PMMark): boolean => mark.type.name === "comment";
+/** 不用 `Mark.isInSet`：它找不到时返回的不是 `undefined`，类型声明与实际对不上。 */
+const hasMark = (set: ReadonlyArray<PMMark>, mark: PMMark): boolean => set.some((other) => other.eq(mark));
 
 /** 文档里用过的批注 `id`（行内与块）。 */
 function usedIds(doc: PMNode): Set<string> {
@@ -97,6 +102,49 @@ function pastedComments(slice: Slice, doc: PMNode): Slice {
         return Fragment.from(children);
     };
     return new Slice(remap(slice.content), slice.openStart, slice.openEnd);
+}
+
+/**
+ * 替换批注文字时批注不丢（docs/specs/workbench/markdown-editing.md 输出 36）：被替换掉的字全在同一条（或几条重叠的）批注里时，
+ * 换进来的字补上这些批注标记。批注标记是 `inclusive: false`，选中整句打字时 ProseMirror 按“光标处的标记”给新字的标记，
+ * 末尾那一端的批注不带过来，整句替换就把批注丢了（意见也没了）。
+ *
+ * 在 `appendTransaction` 里按替换步认，不在输入的入口上补：打字、输入法组字、粘贴、程序替换选区（例如行内 AI 改写）最后都落成
+ * 这样的一步，补在一处；补的标记与替换在同一个撤销步里（ProseMirror 把追加的事务并进原事务）。只认“同一个文本块里、被换掉的
+ * 每一段文字都带这条批注、换进来的是一段行内文字”的替换：整块的替换（外部重载、整块粘贴）、跨出批注的选区、纯删除都不补。
+ * 换进来的字自己带着别的批注时（从别处复制的批注）不替它继承。
+ */
+function inheritComments(transactions: ReadonlyArray<Transaction>, state: EditorState): Transaction | null {
+    let appended: Transaction | null = null;
+    transactions.forEach((tr, trIndex) => {
+        if (!tr.docChanged) return;
+        tr.steps.forEach((step, index) => {
+            if (!(step instanceof ReplaceStep) || step.from >= step.to || step.slice.size === 0) return;
+            const {from, to, slice} = step;
+            const old = tr.docs[index] as PMNode;
+            if (!old.resolve(from).sameParent(old.resolve(to)) || !old.resolve(from).parent.inlineContent) return;
+            const inserted: PMNode[] = [];
+            slice.content.forEach((node) => inserted.push(node));
+            if (!inserted.every((node) => node.isText)) return;
+            // 被换掉的每一段文字都带着的批注标记。
+            const perText: PMMark[][] = [];
+            old.nodesBetween(from, to, (node) => {
+                if (node.isText) perText.push(node.marks.filter(isCommentMark));
+                return !node.isText;
+            });
+            const marks = (perText[0] ?? []).filter((mark) => perText.every((here) => hasMark(here, mark)));
+            if (marks.length === 0 || inserted.some((node) => node.marks.some((mark) => isCommentMark(mark) && !hasMark(marks, mark)))) return;
+            // 换进来的这一段在最终文档里的位置：映射过这一步之后的所有步。不用 `Mapping.appendMapping` 拼：它把切片底下的全部映射都追加进来，
+            // 不管切片的范围。
+            const mapLater = (pos: number, assoc: -1 | 1): number => transactions.slice(trIndex + 1).reduce((mapped, next) => next.mapping.map(mapped, assoc), tr.mapping.slice(index + 1).map(pos, assoc));
+            const start = mapLater(from, 1);
+            const end = mapLater(from + slice.size, -1);
+            if (start >= end) return;
+            appended ??= state.tr;
+            for (const mark of marks) appended.addMark(start, end, mark);
+        });
+    });
+    return appended;
 }
 
 export const Comment = Mark.create({
@@ -148,7 +196,10 @@ export const Comment = Mark.create({
         };
     },
     addProseMirrorPlugins() {
-        return [new Plugin({key: new PluginKey("nb-comment-paste"), props: {transformPasted: (slice, view) => pastedComments(slice, view.state.doc)}})];
+        return [
+            new Plugin({key: new PluginKey("nb-comment-paste"), props: {transformPasted: (slice, view) => pastedComments(slice, view.state.doc)}}),
+            new Plugin({key: new PluginKey("nb-comment-inherit"), appendTransaction: (transactions, _before, after) => inheritComments(transactions, after)}),
+        ];
     },
 });
 

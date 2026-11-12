@@ -4,13 +4,14 @@
  */
 import {Editor} from "@tiptap/core";
 import {undoDepth} from "@tiptap/pm/history";
+import {Fragment, Slice} from "@tiptap/pm/model";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState} from "@tiptap/pm/state";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {codecFor, defaultMarkdownLanguage} from "../language";
 import type {SourceMap} from "../language";
-import {commentsAt, findComment, gotoComment, listComments, markShownComment, MarkdownShownComment, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody} from "./comments";
+import {commentsAt, commentsAtPos, findComment, gotoComment, listComments, markShownComment, MarkdownShownComment, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody} from "./comments";
 
 const language = defaultMarkdownLanguage();
 const editors: Editor[] = [];
@@ -121,6 +122,26 @@ describe("光标处的批注（输出 30）", () => {
         expect(commentsAt(editor.state).map((info) => info.body)).toEqual(["块"]);
         editor.commands.setTextSelection(find(editor.state.doc, "甲乙"));
         expect(commentsAt(editor.state)).toEqual([]);
+    });
+});
+
+describe("某个位置上的批注（输出 30 的悬停）", () => {
+    it("行内批注：文字上与紧挨两端都算，不看选区；离开一格就不算", () => {
+        const {editor} = open("甲<comment body=\"一\">乙丙</comment>丁\n");
+        const {from, to} = find(editor.state.doc, "乙丙");
+        expect(commentsAtPos(editor.state.doc, from).map((info) => info.body)).toEqual(["一"]);
+        expect(commentsAtPos(editor.state.doc, from + 1).map((info) => info.body)).toEqual(["一"]);
+        expect(commentsAtPos(editor.state.doc, to).map((info) => info.body)).toEqual(["一"]);
+        expect(commentsAtPos(editor.state.doc, from - 1)).toEqual([]);
+        expect(commentsAtPos(editor.state.doc, to + 1)).toEqual([]);
+    });
+
+    it("块批注：块里任何一处；重叠的几条一起返回，先后同 listComments", () => {
+        const {editor} = open("<comment body=\"块\">\n戊己\n</comment>\n\n甲<comment body=\"外\">乙<comment body=\"内\">丙</comment></comment>\n");
+        const block = find(editor.state.doc, "戊己");
+        expect(commentsAtPos(editor.state.doc, block.from + 1).map((info) => info.body)).toEqual(["块"]);
+        const inner = find(editor.state.doc, "丙");
+        expect(commentsAtPos(editor.state.doc, inner.from + 1).map((info) => info.body)).toEqual(["外", "内"]);
     });
 });
 
@@ -294,5 +315,82 @@ describe("当前批注的标出（输出 32）", () => {
         markShownComment(editor, null);
         expect(undoDepth(editor.state)).toBe(depth);
         expect(save()).toBe(before);
+    });
+});
+
+describe("替换批注文字时批注不丢（输出 36）", () => {
+    const SOURCE = "她抬头<comment body=\"节奏\">看了他一眼</comment>，转身。\n";
+    /** 选中 `from`–`to` 再打字：ProseMirror 处理这件事的那一步就是 `tr.insertText(text, from, to)`；真实的按键与输入法在 e2e 里走。 */
+    const replace = (editor: Editor, from: number, to: number, text: string): void => {
+        editor.view.dispatch(editor.state.tr.insertText(text, from, to));
+    };
+
+    it.each([
+        ["整句", 0, 5, "换成别的", "换成别的"],
+        ["后一半", 2, 5, "看", "看了看"],
+        ["前一半", 0, 2, "盯着", "盯着他一眼"],
+        ["中间", 1, 4, "X", "看X眼"],
+    ])("%s被换掉后新字仍在这条批注里，意见不变", (_name, start, end, text, shown) => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.from + start, range.from + end, text);
+        expect(listComments(editor.state.doc).map((info) => [info.body, info.quote])).toEqual([["节奏", shown]]);
+        expect(save()).toBe(`她抬头<comment body="节奏">${shown}</comment>，转身。\n`);
+    });
+
+    it("盖住了批注以外的字时不继承：选区从批注里一直选到批注后面", () => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.from + 3, range.to + 1, "X");
+        expect(save()).toBe("她抬头<comment body=\"节奏\">看了他</comment>X转身。\n");
+        const before = open(SOURCE);
+        const again = find(before.editor.state.doc, "看了他一眼");
+        replace(before.editor, again.from - 1, again.from + 2, "X");
+        expect(before.save()).toBe("她抬X<comment body=\"节奏\">他一眼</comment>，转身。\n");
+    });
+
+    it("只在两端打字、删除都不适用：新字在批注外，删光就没了", () => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.to, range.to, "X");
+        expect(save()).toBe("她抬头<comment body=\"节奏\">看了他一眼</comment>X，转身。\n");
+        const removed = open(SOURCE);
+        const all = find(removed.editor.state.doc, "看了他一眼");
+        removed.editor.view.dispatch(removed.editor.state.tr.delete(all.from, all.to));
+        expect(listComments(removed.editor.state.doc)).toEqual([]);
+    });
+
+    it("盖住同一句的两条批注都继承，替换是一个撤销步，Ctrl+Z 回到原样", () => {
+        const {editor, save} = open("她<comment body=\"外\"><comment body=\"内\">看了他</comment>一眼</comment>。\n");
+        const range = find(editor.state.doc, "看了他");
+        const original = editor.state.doc;
+        const depth = undoDepth(editor.state);
+        replace(editor, range.from, range.to, "盯");
+        expect(listComments(editor.state.doc).map((info) => [info.body, info.quote])).toEqual([["内", "盯"], ["外", "盯一眼"]]);
+        expect(undoDepth(editor.state)).toBe(depth + 1);
+        expect(save()).toContain("盯");
+        editor.commands.undo();
+        expect(editor.state.doc.eq(original)).toBe(true);
+    });
+
+    it("换进来的文字自己带着别的批注时，不再替它继承被换掉的那一条", () => {
+        const {editor} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        const other = editor.schema.marks.comment?.create({body: "别人的", id: null, key: "kother"});
+        if (other === undefined) throw new Error("没有批注标记");
+        const slice = new Slice(Fragment.from(editor.schema.text("别人的字", [other])), 0, 0);
+        editor.view.dispatch(editor.state.tr.replaceRange(range.from, range.to, slice));
+        expect(listComments(editor.state.doc).map((info) => info.body)).toEqual(["别人的"]);
+    });
+
+    it("换进来的是整块内容（几段）时不继承", () => {
+        const {editor} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        const {paragraph} = editor.schema.nodes;
+        if (paragraph === undefined) throw new Error("没有段落");
+        const two = Fragment.from([paragraph.create(null, editor.schema.text("甲")), paragraph.create(null, editor.schema.text("乙"))]);
+        editor.view.dispatch(editor.state.tr.replaceRange(range.from, range.to, new Slice(two, 1, 1)));
+        expect(listComments(editor.state.doc)).toEqual([]);
+        expect(editor.state.doc.textContent).toContain("乙");
     });
 });

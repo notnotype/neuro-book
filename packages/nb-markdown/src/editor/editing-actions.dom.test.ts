@@ -1,8 +1,11 @@
 /** 编辑动作（docs/specs/workbench/markdown-editing.md）：真实语言与真实 Tiptap，按键走 ProseMirror 的 keymap。 */
 import {Editor} from "@tiptap/core";
+import {closeHistory} from "@tiptap/pm/history";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {codecFor, defaultMarkdownLanguage} from "../language";
+import {blockAt, selectBlockText} from "./block-actions";
+import {listComments} from "./comments";
 import {markdownEditingActions} from "./editing-actions";
 
 const editors: Editor[] = [];
@@ -225,5 +228,68 @@ describe("批注（输出 28、29、34、35）", () => {
         expect(act(editor, "comment-delete", ref)).toBe(false);
         expect(act(editor, "comment-delete", {...ref, body: "新"})).toBe(true);
         expect(write().trim()).toBe("甲乙丙");
+    });
+});
+
+describe("块菜单的批注（输出 28）", () => {
+    /** 点块菜单的“批注”：文字块（段落、标题、列表项）选中自己的文字再走选区上加批注的动作，别的块按位置整块包起来。 */
+    const comment = (editor: Editor, position: number, text: string): boolean => {
+        const target = blockAt(editor.state.doc, position);
+        if (target === null) return false;
+        if (target.kind === "text" || target.kind === "list-item") return selectBlockText(editor, target) && enabled(editor, "comment") && act(editor, "comment", {text});
+        return markdownEditingActions["comment-block"]?.enabled(editor, {pos: target.pos}) === true && act(editor, "comment-block", {pos: target.pos, text});
+    };
+    /** 写回再读回：块批注与行内批注都读得回来，而且只有一条。 */
+    const reopened = (write: () => string): ReturnType<typeof listComments> => listComments(open(write()).editor.state.doc);
+
+    it("段落、标题与列表项：给这一块自己的文字加一条行内批注，写回读回仍是一条", () => {
+        const paragraph = open("甲乙\n\n丙\n");
+        expect(comment(paragraph.editor, 1, "意见")).toBe(true);
+        expect(paragraph.write()).toBe("<comment body=\"意见\">甲乙</comment>\n\n丙\n");
+        expect(reopened(paragraph.write).map((info) => [info.block, info.body, info.quote])).toEqual([[false, "意见", "甲乙"]]);
+        const heading = open("## 标题\n");
+        expect(comment(heading.editor, 1, "意见")).toBe(true);
+        expect(heading.write()).toContain("<comment body=\"意见\">标题</comment>");
+        const flat = open("- 甲\n- 乙\n");
+        expect(comment(flat.editor, 3, "意见")).toBe(true);
+        expect(flat.write()).toBe("- <comment body=\"意见\">甲</comment>\n- 乙\n");
+        // 带子项的列表项只算这一项自己的第一段，不含子项（写回时这个列表整块重写，项之间可能多一个空行，见输出 35 的已知行为）。
+        const nested = open("- 甲\n  - 乙\n- 丙\n");
+        expect(comment(nested.editor, 3, "意见")).toBe(true);
+        expect(listComments(nested.editor.state.doc).map((info) => info.quote)).toEqual(["甲"]);
+    });
+
+    it("空的文字块不能加：选不出文字", () => {
+        const {editor} = open("甲\n\n\n\n丙\n");
+        const empty = blockAt(editor.state.doc, 3);
+        expect(empty?.node.content.size).toBe(0);
+        expect(empty !== null && selectBlockText(editor, empty)).toBe(false);
+    });
+
+    it.each([
+        ["代码块", "```\ncode\n```\n"],
+        ["引用", "> 引文\n> 第二行\n"],
+        ["表格", "| 甲 | 乙 |\n| --- | --- |\n| 1 | 2 |\n"],
+        ["分割线", "上\n\n---\n\n下\n"],
+    ])("%s：整块包进一条块批注，写回读回仍是一条，撤销一步回到没有批注", (_name, source) => {
+        const {editor, write} = open(source);
+        editor.view.dispatch(closeHistory(editor.state.tr));
+        const original = editor.state.doc;
+        const block = [...Array(editor.state.doc.content.size).keys()].map((position) => blockAt(editor.state.doc, position)).find((target) => target !== null && target.kind !== "text");
+        if (block === undefined || block === null) throw new Error("没有找到这一块");
+        expect(comment(editor, block.pos, "整块的意见")).toBe(true);
+        expect(listComments(editor.state.doc).map((info) => [info.block, info.body])).toEqual([[true, "整块的意见"]]);
+        expect(reopened(write).map((info) => [info.block, info.body])).toEqual([[true, "整块的意见"]]);
+        editor.commands.undo();
+        expect(editor.state.doc.eq(original)).toBe(true);
+    });
+
+    it("意见去掉空白后为空不加，文档不变；位置上没有块时不可用也不执行", () => {
+        const {editor} = open("```\ncode\n```\n");
+        expect(act(editor, "comment-block", {pos: 0, text: "  "})).toBe(false);
+        expect(listComments(editor.state.doc)).toEqual([]);
+        expect(markdownEditingActions["comment-block"]?.enabled(editor, {pos: 999})).toBe(false);
+        expect(markdownEditingActions["comment-block"]?.enabled(editor, {pos: "0"})).toBe(false);
+        expect(act(editor, "comment-block", {pos: 999, text: "x"})).toBe(false);
     });
 });

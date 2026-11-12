@@ -121,7 +121,13 @@
     text-decoration: underline;
 }
 
-/* 批注（方言 Spec 输出 11）：被批注的正文带波浪线；块批注另在左侧画一条虚线标出范围。意见在卡片里（输出 28–35）。 */
+/*
+ * 批注（方言 Spec 输出 11，编辑器的显示见 docs/specs/workbench/markdown-editing.md 输出 37）：被批注的正文带波浪线，行内、分截与块批注
+ * 一样，块批注没有边框与缩进。意见在卡片里（输出 28–35）。
+ *
+ * 一段文字上叠着几条批注时，每条批注是一层嵌套的元素，各画各的下划线：不错开的话几条线重合，看起来只有一条。第 2、3 层依次往下挪
+ * （每个嵌套的元素用自己的 `text-underline-offset`，Chrome 里实测各画各的）。块批注与行内批注、块批注与块批注的嵌套同样算一层。
+ */
 .nb-markdown comment,
 .nb-markdown .nb-comment-block {
     text-decoration: underline wavy var(--status-warning);
@@ -129,9 +135,22 @@
     text-underline-offset: 0.3em;
 }
 
-.nb-markdown .nb-comment-block {
-    border-left: 2px dashed var(--status-warning-border);
-    padding-left: 1em;
+.nb-markdown comment comment,
+.nb-markdown .nb-comment-block comment,
+.nb-markdown comment .nb-comment-block,
+.nb-markdown .nb-comment-block .nb-comment-block {
+    text-underline-offset: 0.6em;
+}
+
+.nb-markdown comment comment comment,
+.nb-markdown .nb-comment-block comment comment,
+.nb-markdown comment .nb-comment-block comment,
+.nb-markdown comment comment .nb-comment-block,
+.nb-markdown .nb-comment-block .nb-comment-block comment,
+.nb-markdown .nb-comment-block comment .nb-comment-block,
+.nb-markdown comment .nb-comment-block .nb-comment-block,
+.nb-markdown .nb-comment-block .nb-comment-block .nb-comment-block {
+    text-underline-offset: 0.9em;
 }
 
 /* 正在看的那条批注（卡片开着时，docs/specs/workbench/markdown-editing.md 输出 32）：波浪线之外加一层批注色的淡底。 */
