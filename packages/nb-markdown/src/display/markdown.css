@@ -135,6 +135,11 @@
     text-underline-offset: 0.3em;
 }
 
+/* 块批注里的块之间留与顶层同样的间隔（顶层的间隔只给直接子元素，见文件开头）。 */
+.nb-markdown .nb-comment-block > * + * {
+    margin-top: var(--markdown-block-gap, 0.75em);
+}
+
 .nb-markdown comment comment,
 .nb-markdown .nb-comment-block comment,
 .nb-markdown comment .nb-comment-block,

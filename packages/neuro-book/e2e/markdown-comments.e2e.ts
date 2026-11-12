@@ -86,6 +86,15 @@ const waitPastHover = (page: Page): Promise<void> =>
     // test-lint-allow fixed-wait: 断言“没有弹出来”，悬停计时是 400 毫秒，等过它再看
     page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 700)));
 
+/**
+ * 等浏览器的选区是 `length` 个字、编辑器也跟上了：ProseMirror 经 `selectionchange` 异步同步选区，按键之后立刻按快捷键或粘贴，它可能还停在上一个字
+ * （机器忙时漏选最后一个字）。
+ */
+async function syncedSelection(page: Page, length: number): Promise<void> {
+    await expect.poll(() => page.evaluate(() => window.getSelection()?.toString().length ?? 0)).toBe(length);
+    await settle(page);
+}
+
 /** 选中第一段里的第 `from` 到 `to` 个字：Home 之后按键，鼠标选区会受选区菜单与行内元素干扰。 */
 async function selectInFirstParagraph(page: Page, from: number, to: number): Promise<void> {
     await prose(page).locator("p").first().click();
@@ -93,6 +102,7 @@ async function selectInFirstParagraph(page: Page, from: number, to: number): Pro
     await page.keyboard.press("Home");
     for (let index = 0; index < from; index += 1) await page.keyboard.press("ArrowRight");
     for (let index = from; index < to; index += 1) await page.keyboard.press("Shift+ArrowRight");
+    await syncedSelection(page, to - from);
 }
 
 const TWO = "甲乙丙丁戊己庚辛\n\n壬<comment body=\"第一条\">癸子丑</comment>寅卯辰巳午<comment body=\"第二条\">未申酉</comment>戌亥\n";
@@ -301,6 +311,7 @@ test.describe("替换批注文字（验收 18）", () => {
         await page.keyboard.press("Home");
         for (let index = 0; index < 3 + from; index += 1) await page.keyboard.press("ArrowRight");
         for (let index = from; index < to; index += 1) await page.keyboard.press("Shift+ArrowRight");
+        await syncedSelection(page, to - from);
     }
 
     test("真实的按键：选中整句批注文字再打字，新字仍在批注里，意见不丢；撤销一步回来", async ({page}) => {
@@ -333,6 +344,7 @@ test.describe("替换批注文字（验收 18）", () => {
         await page.keyboard.press("Home");
         for (let index = 0; index < 3 + 3; index += 1) await page.keyboard.press("ArrowRight");
         for (let index = 0; index < 4; index += 1) await page.keyboard.press("Shift+ArrowRight");
+        await syncedSelection(page, 4);
         await page.keyboard.type("z");
         await expect(prose(page).locator("comment")).toHaveText("看了他");
     });
@@ -610,6 +622,14 @@ test.describe("批注的显示（验收 20）", () => {
         const plain = await prose(page).locator("p", {hasText: "没有批注的段落"}).boundingBox();
         if (inside === null || plain === null) throw new Error("取不到位置");
         expect(Math.abs(inside.x - plain.x)).toBeLessThanOrEqual(1);
+        // 块批注里段落之间的间隔与顶层段落之间的一样。
+        const gaps = await prose(page).evaluate((root) => {
+            const gap = (upper: Element, lower: Element): number => lower.getBoundingClientRect().top - upper.getBoundingClientRect().bottom;
+            const top = [...root.children].filter((element) => element.tagName === "P");
+            const inner = [...(root.querySelector(".nb-comment-block")?.children ?? [])];
+            return {topLevel: gap(top[0] as Element, top[1] as Element), inBlock: gap(inner[0] as Element, inner[1] as Element)};
+        });
+        expect(Math.abs(gaps.inBlock - gaps.topLevel)).toBeLessThanOrEqual(1);
     });
 });
 
