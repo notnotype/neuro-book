@@ -40,7 +40,6 @@ type ExtraInfo<E extends TProperties> = Parameters<StateRootClaim<E>["publish"]>
 /** 服务端进程的实例 id。 */
 export const SERVER_INSTANCE_ID = "server";
 /** 内核自带的诊断插件的 id。 */
-const DIAGNOSTICS_PLUGIN_ID = "runtime.diagnostics";
 /** RPC 排空的上限与 HTTP 相同：两者并行，停止序列的这一步最多等这么久。 */
 const RPC_DRAIN_LIMIT_MS = HTTP_DRAIN_LIMIT_MS;
 
@@ -164,8 +163,8 @@ export interface HostServer {
  * `stopped` 是启动中被请求停止。
  */
 export class ServerStartupError extends Error {
-    constructor(message: string, readonly status: Exclude<StartupResult["status"], "available">, readonly failures: ReadonlyArray<StartupFailure>) {
-        super(message);
+    constructor(message: string, readonly status: Exclude<StartupResult["status"], "available">, readonly failures: ReadonlyArray<StartupFailure>, options?: ErrorOptions) {
+        super(message, options);
         this.name = "ServerStartupError";
     }
 }
@@ -288,26 +287,28 @@ export function startHostServer<E extends TProperties>(options: HostServerOption
     options.onRpcListening?.(rpc.url);
 
     const rpcInfo = {port: rpc.port, path: RPC_PATH};
-    const hostPlugins = {
-        diagnostics: createServerDiagnosticsPlugin({store, exporter: {directory: options.logDirectory}}),
-        http: createHttpPlugin({
-            id: options.http.id,
-            admission,
-            host: options.listen.host,
-            port: httpPort,
-            onListening: (address) => {
-                url = address;
-                options.onListening?.(address);
-            },
-            allowOrigin,
-            hostRoutes: options.http.hostRoutes?.({store, rpc: rpcInfo}) ?? [],
-            staticRoot: options.http.staticRoot,
-        }),
-    };
-    const context: HostPluginContext = {store, rpc: rpcInfo, listen: {host: options.listen.host, port: httpPort, rpcPort: rpc.port}, hostPlugins};
+    let hostPlugins: HostPluginContext["hostPlugins"];
     let plugins: ReadonlyArray<PluginDefinition>;
     let capabilities: ApplicationManifest["capabilities"];
     try {
+        // 宿主插件也在这里建：应用给的宿主接口可能抛错（例如两个接口的路径相同），与应用的插件表同样按装配失败收口。
+        hostPlugins = {
+            diagnostics: createServerDiagnosticsPlugin({store, exporter: {directory: options.logDirectory}}),
+            http: createHttpPlugin({
+                id: options.http.id,
+                admission,
+                host: options.listen.host,
+                port: httpPort,
+                onListening: (address) => {
+                    url = address;
+                    options.onListening?.(address);
+                },
+                allowOrigin,
+                hostRoutes: options.http.hostRoutes?.({store, rpc: rpcInfo}) ?? [],
+                staticRoot: options.http.staticRoot,
+            }),
+        };
+        const context: HostPluginContext = {store, rpc: rpcInfo, listen: {host: options.listen.host, port: httpPort, rpcPort: rpc.port}, hostPlugins};
         plugins = options.plugins(context);
         assertHostPlugins(plugins, hostPlugins);
         capabilities = options.capabilities?.(context);
@@ -317,8 +318,8 @@ export function startHostServer<E extends TProperties>(options: HostServerOption
         return assemblyFailed("后端插件装配失败", error);
     }
     const required = new Set(options.requiredPlugins?.(plugins) ?? plugins.map((plugin) => plugin.id));
-    required.add(DIAGNOSTICS_PLUGIN_ID);
-    required.add(options.http.id);
+    required.add(hostPlugins.diagnostics.id);
+    required.add(hostPlugins.http.id);
 
     const clock: DrainClock = options.clock ?? {schedule: (task, milliseconds) => {
         const timer = setTimeout(task, milliseconds);
@@ -394,8 +395,18 @@ export function startHostServer<E extends TProperties>(options: HostServerOption
 
     const ready = host.application.startup.then((startup) => {
         if (startup.status === "available") {
+            // 先发布认领应答、再放行 HTTP，两步在同一个同步段里，外面看不到中间状态。应用给的字段（`readyInfo` 抛错或不合档案）
+            // 发布不了时按启动失败处理：不放行、写致命诊断、有序停止，退出码 1；否则会出现页面照常服务、应答却停在 starting。
+            try {
+                options.claim.publish({url, rpcUrl: rpc.url, extra: options.readyInfo()});
+            } catch (cause) {
+                const error = new ServerStartupError("后端启动失败（failed）：认领应答发布失败", "failed", [], {cause});
+                fatalSeen = true;
+                reportStartupFailure(error);
+                void host.requestStop("claim-publish-failed");
+                throw error;
+            }
             admission.ready();
-            options.claim.publish({url, rpcUrl: rpc.url, extra: options.readyInfo()});
             // 运行实例在停止请求之后才报告可用时（启动中请求停止），不再启动扩展的就绪步骤。
             if (!stopBegun) for (const extension of extensions) extension.ready?.();
             return;

@@ -182,4 +182,54 @@ describe("远程服务链路的退避重连", () => {
         expect(view.failures).toEqual([]);
         expect(view.states.map((entry) => entry.state)).toEqual(["offline"]);
     });
+
+    it("重取端点违约抛错：按一次失败记下原因、照常退避；关闭之后才抛的不再记", async () => {
+        const server = await serve();
+        const aborted: Array<Promise<EndpointRefresh>> = [];
+        let mode: "throw" | "throw-on-abort" = "throw";
+        const view = windowSession(async (signal) => {
+            if (mode === "throw") throw new Error("应用的实现出错");
+            const {promise, reject} = Promise.withResolvers<EndpointRefresh>();
+            signal.addEventListener("abort", () => reject(new Error("中止时抛错")));
+            aborted.push(promise);
+            return promise;
+        });
+        expect(await view.session.start(endpointOf(server))).toEqual({ok: true});
+        await stop(server);
+        await waitUntil("链路断开后转为离线", () => view.states.at(-1)?.state === "offline");
+
+        view.clock.advance(500);
+        await waitUntil("第 1 次重连失败", () => view.failures.length === 1);
+        expect(view.failures).toEqual(["重连出错：应用的实现出错"]);
+
+        mode = "throw-on-abort";
+        view.clock.advance(1000);
+        await waitUntil("开始第 2 次重取端点", () => aborted.length === 1);
+        view.session.close();
+        await aborted[0]!.catch(() => undefined);
+        // 抛错之后的处理都在微任务里；等一轮宏任务让它走完，再看有没有记失败或排下一次。
+        await new Promise((resolve) => setImmediate(resolve));
+        view.clock.advance(60_000);
+        expect(view.failures).toEqual(["重连出错：应用的实现出错"]);
+        expect(aborted).toHaveLength(1);
+    });
+
+    it("一直连不上：前五次分别等 0.5、1、2、4、8 秒，之后每次等 10 秒", async () => {
+        const server = await serve();
+        let refreshes = 0;
+        const view = windowSession(async () => {
+            refreshes += 1;
+            return {retry: "服务端不在"};
+        });
+        expect(await view.session.start(endpointOf(server))).toEqual({ok: true});
+        await stop(server);
+        await waitUntil("链路断开后转为离线", () => view.states.at(-1)?.state === "offline");
+
+        for (const [index, delay] of [500, 1000, 2000, 4000, 8000, 10_000, 10_000].entries()) {
+            view.clock.advance(delay - 1);
+            expect(refreshes).toBe(index);
+            view.clock.advance(1);
+            await waitUntil(`第 ${String(index + 1)} 次重连失败`, () => view.failures.length === index + 1);
+        }
+    });
 });

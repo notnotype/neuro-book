@@ -11,13 +11,14 @@ import "./styles.css";
 import {watchEffect} from "vue";
 import {createWebHistory} from "vue-router";
 
+import {readClientIdentity} from "@notnotype/nb-host/web";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {PluginDescriptor} from "nbook/manifest";
 import type {WindowNavigation} from "nbook/shared/host";
 
 import {rememberDocumentAppearance} from "./host/appearance-hint";
-import {readClientIdentity} from "./host/client-identity";
+import {CLIENT_IDENTITY_KEY} from "./host/client-identity";
 import {createConnection} from "./host/connection";
 import {readLocaleHint, writeLocaleHint} from "./host/locale-hint";
 import {createHostTextEngine} from "./host/text-engine";
@@ -34,7 +35,7 @@ export interface WindowUiBoot {
 export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     const container = document.querySelector("#app");
     if (container === null) throw new Error("index.html 缺少 #app");
-    const clientIdentity = readClientIdentity(() => window.localStorage);
+    const clientIdentity = readClientIdentity(CLIENT_IDENTITY_KEY, () => window.localStorage);
     if (clientIdentity.problem !== null) console.warn(`[nbook] ${clientIdentity.problem}；客户端身份只在本页有效`);
     // 页面存活期间一直记录，不停止：下一次打开时加载页的第一帧用这里记下的明暗与颜色。
     rememberDocumentAppearance({root: document.documentElement, storage: () => window.localStorage, warn: (message) => console.warn(`[nbook] ${message}`)});

@@ -6,6 +6,8 @@
  * - `shared/http-contracts.ts` 是路由合同，没有任何运行时导入。
  * - 服务端（`server/`、`http/`）与浏览器（`web/`）互不引用；`shared/` 不引用任何一侧。
  * - 内核的 `createApplication` 只由两个宿主适配器导入（`web/browser-host.ts`、`server/host.ts`）：它们负责把平台档案放进清单。
+ * - 非测试源码不引用 `testing/`（`testing/` 自己除外）：测试支持用 Node 与 Bun 的 API，也不该进产品。
+ * - 不直接导入 `proper-lockfile`：锁与它的过期参数只经 `@notnotype/nb-file-lock` 取，共用一把锁的进程参数才一致。
  * - `package.json` 的 `exports` 只列存在的文件。
  * 测试文件不受浏览器侧白名单、两侧互不引用与 `createApplication` 三条限制：它们要在同一进程里起真实的服务端。
  * 每条规则都带一个反例，证明规则能拦下违规。
@@ -93,6 +95,8 @@ function violationsOf(uses: readonly ImportUse[]): string[] {
             if (browser && (top(target) === "server" || top(target) === "http")) found.push(`浏览器侧或共用代码引用了服务端：${where}`);
             if (from === "shared" && top(target) === "web") found.push(`共用代码引用了浏览器侧：${where}`);
         }
+        if (target !== null && !isTest(use.file) && from !== "testing" && top(target) === "testing") found.push(`产品代码引用了测试支持：${where}`);
+        if (use.specifier === "proper-lockfile" || use.specifier.startsWith("proper-lockfile/")) found.push(`锁只经 @notnotype/nb-file-lock 取：${where}`);
         if (use.specifier === "@notnotype/nb-runtime/application" && !use.typeOnly && (use.names === null || use.names.includes("createApplication")) && !KERNEL_CREATE_USERS.includes(use.file) && !isTest(use.file)) {
             found.push(`内核的 createApplication 只由两个宿主适配器导入：${where}`);
         }
@@ -138,6 +142,9 @@ describe("nb-host 的边界", () => {
             use("shared/socket.ts", "../http/dispatch"),
             use("shared/socket.ts", "../web/rpc-socket"),
             use("server/start.ts", "@notnotype/nb-runtime/application", false, ["createApplication"]),
+            use("web/remote-session.ts", "../testing/acme"),
+            use("server/claim.ts", "../testing/claim-child"),
+            use("server/claim.ts", "proper-lockfile"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
@@ -149,6 +156,8 @@ describe("nb-host 的边界", () => {
             use("server/start.ts", "hono"),
             use("web/remote-session.test.ts", "../server/start"),
             use("server/start.test.ts", "@notnotype/neuro-book-test-support/tmp"),
+            use("server/start.test.ts", "../testing/acme"),
+            use("testing/claim-child.ts", "../server/claim"),
         ])).toEqual([]);
     });
 });

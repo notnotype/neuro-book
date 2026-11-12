@@ -1,7 +1,7 @@
 /**
  * 客户端身份（runtime.browser-host 术语）：存储替身是 `Map` 上的 `getItem`、`setItem`；存储不可用用“取存储本身就抛
- * `SecurityError`”表示，与浏览器在禁用站点数据时访问 `localStorage` 的行为一致。替身与真实 `localStorage` 的契约由应用
- * `e2e/lab.e2e.ts` 读本地存储里身份的那条用例核对。
+ * `SecurityError`”表示，与浏览器在禁用站点数据时访问 `localStorage` 的行为一致。替身只依赖“没有的键 `getItem` 交回 null、
+ * `setItem` 存字符串”；在真实 `localStorage` 上的读写由应用的 `src/web/host/client-identity.dom.test.ts`（happy-dom）核对。
  */
 
 import {describe, expect, it} from "bun:test";

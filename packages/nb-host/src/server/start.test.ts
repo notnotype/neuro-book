@@ -157,6 +157,22 @@ describe("宿主插件核对", () => {
         });
     }
 
+    it("应用给的宿主接口建不起来（两个接口路径相同）：装配失败，写致命诊断、放下认领，RPC 端口已关", async () => {
+        const {root, claim} = await claimed();
+        const fatal: string[] = [];
+        let rpcUrl = "";
+        const route = {method: "GET", path: "/acme", handle: () => new Response("ok")} as const;
+        expect(() => startHostServer({
+            product: {name: "Acme"}, platform: PLATFORM, listen: {host: "127.0.0.1", port: 0, rpcPort: 0, shiftPorts: false, allowedOrigins: []},
+            logDirectory: join(root, "logs"), claim, http: {id: "acme.http", staticRoot: null, hostRoutes: () => [route, route]}, plugins: hostOnly, readyInfo: () => ({modules: {count: 0}}),
+            process: new EventEmitter(), signals: [], stopInput: null, writeFatal: (line) => void fatal.push(line), onRpcListening: (url) => void (rpcUrl = url),
+        })).toThrow(ServerAssemblyError);
+        expect(fatal.join("")).toContain("runtime.startup.failed");
+        await waitUntil("认领已放下", async () => (await queryInstance(root, ACME_CLAIM)).state === "none");
+        expect(rpcUrl).not.toBe("");
+        await expect(upgradeStatus(Number(new URL(rpcUrl).port))).rejects.toThrow();
+    });
+
     it("监听地址不在回环上：任何监听之前就装配失败，认领已放下", async () => {
         const {root, claim} = await claimed();
         const fatal: string[] = [];
@@ -239,6 +255,22 @@ describe("启动失败", () => {
         expect(await response.json()).toMatchObject({error: {code: "startup-failed", message: "Acme 启动失败。"}});
         expect((await server.stopped).exitCode).toBe(1);
         expect(fatal.join("")).toContain("runtime.startup.causes");
+    });
+
+    it("应用给的认领字段不合档案：按启动失败处理，等待中的请求得到 503，写致命诊断，以 1 退出，认领放下", async () => {
+        const hold = Promise.withResolvers<void>();
+        const listening = Promise.withResolvers<string>();
+        // 类型挡不住的不合：档案要整数。
+        const {server, fatal, root} = await start({plugins: (context) => [...hostOnly(context), slowPlugin(hold.promise)], readyInfo: () => ({modules: {count: 1.5}}), onListening: listening.resolve});
+        const rejected = server.ready.then(() => null, (error: unknown) => error);
+        const waiting = fetch(`${await listening.promise}api/runtime/health`);
+        await waitUntil("请求进入等待就绪", () => server.activeRequests === 1);
+        hold.resolve();
+        expect(await rejected).toMatchObject({name: "ServerStartupError", status: "failed"});
+        expect((await waiting).status).toBe(503);
+        expect(fatal.join("")).toContain("runtime.startup.failed");
+        expect((await server.stopped).exitCode).toBe(1);
+        expect(await queryInstance(root, ACME_CLAIM)).toMatchObject({state: "none"});
     });
 });
 

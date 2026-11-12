@@ -5,6 +5,7 @@
  *   `config/` 与自己。
  * - 不取 nb-harness 的根入口与 `kernel`：它们值导出 OMP 的适配器，会把整套内核带进来。
  * - 产品代码不引用 `testing/`（测试支持只给测试）。
+ * - 不直接导入 `proper-lockfile`：锁与它的过期参数只经 `@notnotype/nb-file-lock` 取。
  * - `package.json` 的 `exports` 只列存在的文件。
  * 测试文件不受前两条限制。每条规则都带一个反例，证明规则能拦下违规。
  */
@@ -69,8 +70,9 @@ const top = (path: string): string => path.split("/")[0] ?? "";
 function violationsOf(uses: readonly ImportUse[]): string[] {
     const found: string[] = [];
     for (const use of uses) {
-        if (isTest(use.file)) continue;
         const where = `${use.file} → ${use.specifier}`;
+        if (use.specifier === "proper-lockfile" || use.specifier.startsWith("proper-lockfile/")) found.push(`锁只经 @notnotype/nb-file-lock 取：${where}`);
+        if (isTest(use.file)) continue;
         if (HARNESS_HEAVY.test(use.specifier) && !use.typeOnly) found.push(`不取 nb-harness 的根入口与 kernel：${where}`);
         if (use.specifier.startsWith(".") && top(use.file) !== "testing" && top(relative(SRC, resolve(SRC, dirname(use.file), use.specifier))) === "testing") found.push(`产品代码引用了测试支持：${where}`);
         const allowedDirs = BROWSER_DIRS[top(use.file)];
@@ -107,6 +109,7 @@ describe("nb-models 的边界", () => {
             use("core/models.ts", "@notnotype/nb-harness"),
             use("core/models.ts", "@notnotype/nb-harness/kernel"),
             use("core/core.ts", "../testing/memory-store"),
+            use("core/core.test.ts", "proper-lockfile"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
