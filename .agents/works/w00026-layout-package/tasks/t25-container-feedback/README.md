@@ -26,6 +26,9 @@ updated: 2026-11-12
   - 验证：工作台与 Lab 570 项、nb-layout 531 + 190 项、两份类型检查通过；e2e `workbench-containers`、`workbench-views`、`workbench-shell`、`workbench-live-drag`、`workbench-float`、`workbench-dnd`、`lab-workbench-surface` 149 条在撤回前 148 过（失败的就是被撤回那项弄坏的 `float:295`），撤回后重跑 `workbench-live-drag`、`workbench-float` 与新用例 38 条全过。
   - 复现时注意：e2e 默认减少动效，拖动一律是落点指示；量实时布局与过渡要先 `emulateMedia({reducedMotion: "no-preference"})`。
 
+- 第 3 片（空区域能打开）：设计写进 [`plan.md`](plan.md)，ADR 0050 草稿在主工作区（未提交），Opus 设计审查在后台跑，处理结论后再实施。
+- 动画 1（设置窗口的关闭）：测试环境里量到的是——点齿轮打开时窗口从齿轮长出来约 250ms，再点齿轮关闭缩回齿轮约 240ms（`1e9b5418a` 已做“从触发点展开、朝同一方向收回”）；没有来处时（快捷键、命令面板、刷新后恢复）关闭只有 `--motion-fast` 90ms 的淡出，打开却约 200ms。复现不出开发者说的“瞬间收起”，已在开发服务（端口 4317，worktree 的第 1、2 片）上请开发者对比，确认是哪种情形再改。
+
 ## 下一步
 
 第 3 片：空区域能打开（先写 ADR、派设计审查）。之后动画逐个做、逐个给开发者看。
