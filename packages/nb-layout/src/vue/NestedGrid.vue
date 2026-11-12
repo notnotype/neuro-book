@@ -12,13 +12,13 @@
  */
 import {computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, useId, watch} from "vue";
 import {createGridGestureSession, type GridBranchChange, type GridGestureCommit, type GridGesturePreview} from "../grid-gesture";
-import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridRect, type GridSashPlacement} from "../grid-rects";
+import {floatPlacements, layerItems, maximizePlacement, placeGrid, type GridContentInput, type GridContentPlacement, type GridFloatInput, type GridLayerItem, type GridLeafPlacement, type GridLeafShape, type GridRect, type GridSashPlacement} from "../grid-rects";
 import {settleFloatMoves} from "../grid-motion";
 import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {useLayoutText} from "./text";
-import {gridRectStyle, liftedRectStyle, useContentLayer} from "./useContentLayer";
+import {gridRectStyle, leafShapeClip, liftedRectStyle, useContentLayer} from "./useContentLayer";
 import {useDevicePixelRatio} from "./useDevicePixelRatio";
 import {useGridMotion} from "./useGridMotion";
 import {useLeafParking} from "./useLeafParking";
@@ -57,6 +57,11 @@ const props = withDefaults(defineProps<{
     floats?: ReadonlyArray<GridFloatInput>;
     /** 分隔线的种类，写到 `data-sash-kind`，宿主据此给不同的线不同的颜色（`--nb-splitter-seam`）。`before`、`after` 是线两侧节点的 id。 */
     sashKind?: ((sash: {readonly branch: string; readonly before: string; readonly after: string}) => string | undefined) | undefined;
+    /**
+     * 宿主在叶的外框里画成的卡片（`GridLeafShape`）。过渡中外框露出、盖住保持尺寸的内层时，外框与内容外层按它裁，露出来的一截始终是一张完整的卡片；
+     * 不给时按外框的矩形裁。
+     */
+    leafShape?: ((leaf: string) => GridLeafShape | undefined) | undefined;
 }>(), {
     disabled: false,
     contextKey: "",
@@ -68,6 +73,7 @@ const props = withDefaults(defineProps<{
     dragging: false,
     floats: () => [],
     sashKind: undefined,
+    leafShape: undefined,
 });
 
 const emit = defineEmits<{
@@ -143,6 +149,15 @@ function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
     const at = floatAt.value.get(leaf);
     return at === undefined ? {} : {zIndex: String(FLOAT_Z_BASE + at * 3 + part)};
 }
+/** 叶的卡片形状（`leafShape`）。浮动窗不按它裁：窗的投影画在外框自身，外框一裁就没了。 */
+function shapeOf(leaf: string): GridLeafShape | undefined {
+    return floatAt.value.has(leaf) ? undefined : props.leafShape?.(leaf);
+}
+/** 过渡中外框露出、盖住保持尺寸的内层（`keptSize` 的叶）：外框按卡片裁（`leafShapeClip`）；别的叶内层跟着外框，外框自己的矩形就是卡片的边。 */
+function frameClip(item: GridLeafPlacement<unknown>): Record<string, string> {
+    const shape = keptSize.value.has(item.key) ? shapeOf(item.node.id) : undefined;
+    return shape === undefined ? {} : {clipPath: leafShapeClip(shape)};
+}
 /** 最大化期间没有分隔线可拖。 */
 const gesturesDisabled = computed(() => props.disabled || props.maximized != null);
 /** 压在别的面板上面的那块叶：还原的过渡结束之前它还要在上面。 */
@@ -161,6 +176,7 @@ const contentLayer = useContentLayer({
     following,
     flying,
     keptSize,
+    shape: shapeOf,
     previewing: () => preview.value !== null,
     measured: () => placementExtent.value.width > 0 && placementExtent.value.height > 0,
     obscuredLeaves: () => obscuredLeaves.value,
@@ -488,7 +504,7 @@ defineExpose({
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
                 :inert="obscuredLeaves.has(item.node.id) || leavingLeaves.has(item.node.id)"
-                :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...floatLayer(item.node.id, 0)}"
+                :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...frameClip(item), ...floatLayer(item.node.id, 0)}"
             >
                 <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">
                     <slot name="leaf" :node="item.node"></slot>
@@ -661,13 +677,9 @@ defineExpose({
  */
 /*
  * 过渡中按叶的矩形摆的内容（`byLeafRect`）：外层和外框同一个矩形，内容体往下挪一个面板头，外层的上边跟着外框的上边走，内容一直紧贴面板头下面。
- * 挪用相对定位，不用内边距：内边距会把比面板头还矮的外层撑高，外层伸出外框。面板头那一条用 `clip-path` 裁掉：外层盖在面板头上面，
- * 不裁的话面板头点不到（`clip-path` 也挡命中）。写在贴右边的规则前面，两者都有时内容体是绝对定位，上边另给。
+ * 挪用相对定位，不用内边距：内边距会把比面板头还矮的外层撑高，外层伸出外框。面板头那一条由外层的 `clip-path` 裁掉（内联，见 `useContentLayer`）。
+ * 写在贴右边的规则前面，两者都有时内容体是绝对定位，上边另给。
  */
-.nb-grid-content[data-by-leaf] {
-    clip-path: inset(var(--nb-grid-inset) 0 0 0);
-}
-
 .nb-grid-content[data-by-leaf] > .nb-grid-content__body {
     position: relative;
     top: var(--nb-grid-inset);

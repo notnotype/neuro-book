@@ -189,7 +189,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const explorer = await sectionOf(page, EXPLORER);
         /** 在页面里点一下，逐帧量这一节的外框与内容，直到网格的过渡结束。只记内容看得见的帧。 */
         const framesAfter = (selector: string) => page.evaluate(async ({selector, leafId}) => {
-            const rows: Array<{frameLeft: number; frameRight: number; frameWidth: number; frameTop: number; frameBottom: number; frameHeight: number; contentLeft: number; contentRight: number; contentTop: number; contentBottom: number; headRight: number; bodyRight: number}> = [];
+            const rows: Array<{frameLeft: number; frameRight: number; frameWidth: number; frameTop: number; frameBottom: number; frameHeight: number; contentLeft: number; contentRight: number; contentTop: number; contentBottom: number; headRight: number; bodyRight: number; gapHit: boolean; cornerHit: boolean; innerHit: boolean}> = [];
             document.querySelector<HTMLElement>(selector)!.click();
             for (let frame = 0; frame < 90; frame += 1) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -201,7 +201,23 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
                     // 外框、内容外层是裁切框；面板头与内容体是里面最终尺寸的那层，看得见的东西跟着它走。
                     const head = frameEl.querySelector(":scope > [data-leaf-content]")!.getBoundingClientRect();
                     const body = content.querySelector(":scope > .nb-grid-content__body")!.getBoundingClientRect();
-                    rows.push({frameLeft: leaf.left, frameRight: leaf.right, frameWidth: leaf.width, frameTop: leaf.top, frameBottom: leaf.bottom, frameHeight: leaf.height, contentLeft: rect.left, contentRight: rect.right, contentTop: rect.top, contentBottom: rect.bottom, headRight: head.right, bodyRight: body.right});
+                    // 露出来的那一截是不是一张完整的卡片：按命中看（裁切也挡命中）。卡片看得见的左上角是外框的左上角加卡片的内边距。
+                    const card = frameEl.querySelector<HTMLElement>("[data-shell-card]")!;
+                    const pad = getComputedStyle(card.parentElement!);
+                    const radius = Number.parseFloat(getComputedStyle(card).borderTopLeftRadius);
+                    const cardLeft = leaf.left + Number.parseFloat(pad.paddingLeft);
+                    const cardTop = leaf.top + Number.parseFloat(pad.paddingTop);
+                    const inLeaf = (x: number, y: number): boolean => {
+                        const hit = document.elementFromPoint(x, y);
+                        return hit !== null && (frameEl.contains(hit) || hit.closest(`[data-content-leaf="${leafId}"]`) !== null);
+                    };
+                    rows.push({
+                        frameLeft: leaf.left, frameRight: leaf.right, frameWidth: leaf.width, frameTop: leaf.top, frameBottom: leaf.bottom, frameHeight: leaf.height,
+                        contentLeft: rect.left, contentRight: rect.right, contentTop: rect.top, contentBottom: rect.bottom, headRight: head.right, bodyRight: body.right,
+                        gapHit: inLeaf((leaf.left + cardLeft) / 2, leaf.top + leaf.height / 2),
+                        cornerHit: inLeaf(cardLeft + 1, cardTop + 1),
+                        innerHit: inLeaf(cardLeft + radius, cardTop + radius),
+                    });
                 }
                 if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
             }
@@ -255,6 +271,10 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
             expect(row.headRight).toBeCloseTo(row.frameRight, 0);
             expect(row.bodyRight).toBeCloseTo(row.frameRight, 0);
         }
+        // 露出来的一截始终是一张完整的卡片：和活动栏之间的缝还在，左上角是圆的（按外框的直角矩形裁时，卡片在左边被直着切掉，缝没了、角是尖的）。
+        const middle = showing.filter((row) => row.frameWidth > 60 && row.frameWidth < settled.frameWidth - 1);
+        expect(middle.length).toBeGreaterThan(0);
+        for (const row of middle) expect([row.gapHit, row.cornerHit, row.innerHit]).toEqual([false, false, true]);
     });
 
     test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时留着、过渡结束才摘掉；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {
@@ -273,7 +293,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         });
         /** 点一下开关，逐帧量这一节的外框与内容体，直到网格的过渡结束。只记外框还在、内容看得见的帧。 */
         const film = () => page.evaluate(async (target) => {
-            const rows: Array<{frameTop: number; frameBottom: number; frameHeight: number; bodyTop: number; leaving: boolean}> = [];
+            const rows: Array<{frameTop: number; frameBottom: number; frameHeight: number; bodyTop: number; leaving: boolean; bottomGapHit: boolean}> = [];
             document.querySelector<HTMLElement>('[data-titlebar-layout="panel"]')!.click();
             for (let frame = 0; frame < 90; frame += 1) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -282,7 +302,11 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
                 if (frameEl !== null && content !== null && getComputedStyle(content).visibility === "visible") {
                     const rect = frameEl.getBoundingClientRect();
                     const body = content.querySelector(":scope > .nb-grid-content__body")!.getBoundingClientRect();
-                    rows.push({frameTop: rect.top, frameBottom: rect.bottom, frameHeight: rect.height, bodyTop: body.top, leaving: frameEl.hasAttribute("data-leaving")});
+                    // 卡片下边的缝里那一点不属于这块叶（裁切也挡命中）：按外框的直角矩形裁时，内容一直画到外框的下边，缝没了、两个下角是尖的。
+                    const padBottom = Number.parseFloat(getComputedStyle(frameEl.querySelector<HTMLElement>("[data-shell-card]")!.parentElement!).paddingBottom);
+                    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.bottom - padBottom / 2);
+                    const bottomGapHit = hit !== null && (frameEl.contains(hit) || hit.closest(`[data-content-leaf="${target.leaf}"]`) !== null);
+                    rows.push({frameTop: rect.top, frameBottom: rect.bottom, frameHeight: rect.height, bodyTop: body.top, leaving: frameEl.hasAttribute("data-leaving"), bottomGapHit});
                 }
                 if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
             }
@@ -309,11 +333,12 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(moving).toHaveCount(0);
         await expect(page.locator(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${target.leaf}"]`)).toHaveCount(0);
 
-        // 显示：从底边长上来。
+        // 显示：从底边长上来。下边的缝一直在。
         const showing = await film();
         const final = showing.at(-1)!.frameHeight;
         expect(showing.some((row) => row.frameHeight > 20 && row.frameHeight < final - 20)).toBe(true);
         expectSliding(showing);
+        for (const row of showing.filter((row) => row.frameHeight > 20 && row.frameHeight < final - 1)) expect(row.bottomGapHit).toBe(false);
     });
 
     test("隐藏侧栏时缩回去的那段：焦点在侧栏里马上交出去；缩到一半又显示、长到一半又隐藏都停在对的样子，不留残影；减少动态效果时同一帧就没了（ui/nested-grid 的过渡）", async ({page}) => {

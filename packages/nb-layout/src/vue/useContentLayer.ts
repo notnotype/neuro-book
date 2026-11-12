@@ -8,7 +8,7 @@ import {computed, shallowRef} from "vue";
 import type {Ref} from "vue";
 
 import {placeContents} from "../grid-rects";
-import type {GridContentInput, GridContentPlacement, GridPlacementItem, GridRect} from "../grid-rects";
+import type {GridContentInput, GridContentPlacement, GridLeafShape, GridPlacementItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 
 /**
@@ -24,6 +24,14 @@ export function liftedRectStyle(rect: GridRect): Record<string, string> {
     return {left: "0px", top: "0px", transform: `translate(${rect.x}px, ${rect.y}px)`, width: `${rect.width}px`, height: `${rect.height}px`};
 }
 
+/**
+ * 过渡中外框露出、盖住保持尺寸的内层时（`keptSizeStarts` 的叶），外框按宿主画的卡片裁：露出来的一截始终是一张完整的卡片，不动的那边也留着缝、
+ * 角也是圆的。按外框自己的直角矩形裁时，卡片在那边被直着切掉，缝没了、角是尖的。裁切是外框自身的，每一帧按外框此刻的盒算，不另带过渡。
+ */
+export function leafShapeClip(shape: GridLeafShape): string {
+    return `inset(${shape.inset.join(" ")} round ${shape.radius.join(" ")})`;
+}
+
 const hasSize = (rect: GridRect): boolean => rect.width > 0 && rect.height > 0;
 
 export function useContentLayer(options: {
@@ -37,6 +45,8 @@ export function useContentLayer(options: {
     readonly flying: Readonly<Ref<ReadonlySet<string>>>;
     /** 这一轮内容不跟外框的叶（`keptSizeStarts`）：它们的内容按叶的矩形摆。 */
     readonly keptSize: Readonly<Ref<ReadonlySet<string>>>;
+    /** 叶在外框里画成的卡片（`GridLeafShape`）；没有时按叶的矩形裁。 */
+    readonly shape: (leaf: string) => GridLeafShape | undefined;
     /** 手势预览进行中：预览不会把内容停放，往零拖时要等落账。 */
     readonly previewing: () => boolean;
     /** 量到容器了吗。第一帧还没量到时矩形都是零，这不算停放：那时加 `inert` 会让 `onMounted` 里的 `focus()` 静默失败。 */
@@ -102,6 +112,18 @@ export function useContentLayer(options: {
         return item.leafRect !== null && options.keptSize.value.has(`leaf:${item.leaf}`) && !isLifted(item) && !options.following.value.has(item.key) && !options.flying.value.has(item.key);
     }
 
+    /**
+     * 按叶摆的外层裁掉面板头那一条：外层盖在面板头上面，不裁的话面板头点不到（`clip-path` 也挡命中）。另外三边按卡片裁（`leafShapeClip`），
+     * 只圆下面两个角：上边接着面板头。
+     */
+    function byLeafClip(item: GridContentPlacement): string {
+        const shape = options.shape(item.leaf);
+        if (shape === undefined) return `inset(${item.insetTop}px 0 0 0)`;
+        const [, right, bottom, left] = shape.inset;
+        const [, , bottomRight, bottomLeft] = shape.radius;
+        return `inset(${item.insetTop}px ${right} ${bottom} ${left} round 0 0 ${bottomRight} ${bottomLeft})`;
+    }
+
     /** 这个内容项的第一帧矩形记在 `growing` 的哪个键下：按叶的矩形摆的用它的叶的，其余（落地的卡片）用自己的。 */
     function startKey(item: GridContentPlacement): string {
         return byLeafRect(item) ? `leaf:${item.leaf}` : item.key;
@@ -115,7 +137,7 @@ export function useContentLayer(options: {
         const hidden: Record<string, string> = isParked(item) && !showing ? {visibility: "hidden"} : {};
         if (byLeafRect(item)) {
             const rect = options.growing.value.get(startKey(item)) ?? (item.leafRect as GridRect);
-            return {...gridRectStyle(rect), "--nb-grid-inset": `${item.insetTop}px`, ...hidden};
+            return {...gridRectStyle(rect), "--nb-grid-inset": `${item.insetTop}px`, clipPath: byLeafClip(item), ...hidden};
         }
         const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
         return {...gridRectStyle(rect), ...hidden};

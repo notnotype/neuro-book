@@ -78,6 +78,15 @@ export interface GridContentInput {
     readonly active: boolean;
 }
 
+/**
+ * 宿主在叶的外框里画成的卡片：相对外框四边的内缩（上、右、下、左）与四个角的圆角（左上、右上、右下、左下），都是 CSS 长度。
+ * 过渡中外框露出、盖住保持尺寸的内层时按它裁（docs/specs/ui/nested-grid.md 的“过渡”）。
+ */
+export interface GridLeafShape {
+    readonly inset: readonly [string, string, string, string];
+    readonly radius: readonly [string, string, string, string];
+}
+
 export interface GridContentPlacement {
     readonly kind: "content";
     /** 渲染序列里的身份。 */

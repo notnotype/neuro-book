@@ -3,7 +3,7 @@
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
 import {createGrid, isContainerAnchor, isPanelShown, regionNodeOf, treeLeaves} from "@notnotype/nb-layout";
-import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridNodeInput, GridRect, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
+import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
@@ -221,6 +221,20 @@ function joinOf(id: string): "start" | "end" | undefined {
     return undefined;
 }
 
+/**
+ * 卡片在外框里的形状（NestedGrid 的 `leafShape`）：过渡中外框露出、盖住保持尺寸的面板时按它裁，露出来的一截是一张完整的卡片。
+ * 和 `insetOf`、`joinOf` 同一来源，离开的叶用最后一次呈现的；相连的一侧不圆。圆角按物理方向给（工作台只有从左到右）。
+ */
+function shapeOf(id: string): GridLeafShape | undefined {
+    const edges = cardOf(id);
+    if (edges === undefined || PLAIN.has(id)) return undefined;
+    const round = "var(--shell-card-radius, 0px)";
+    const join = joinOf(id);
+    const left = join === "end" ? "0px" : round;
+    const right = join === "start" ? "0px" : round;
+    return {inset: [cardInset(edges.top), cardInset(edges.right), cardInset(edges.bottom), cardInset(edges.left)], radius: [left, right, right, left]};
+}
+
 function findBranch(node: GridNodeInput<string>, id: string): GridBranchInput<string> | null {
     if (node.kind === "leaf") return null;
     if (node.id === id) return node;
@@ -311,6 +325,7 @@ defineExpose({
             :floats="floats"
             :maximized="maximizedLeaf"
             :sash-kind="sashKind"
+            :leaf-shape="shapeOf"
             @gesture-update="onGesturePreview"
             @gesture-end="onGestureSettled"
             @gesture-cancel="onGestureSettled"
