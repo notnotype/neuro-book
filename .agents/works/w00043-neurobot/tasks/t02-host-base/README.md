@@ -136,3 +136,11 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 ## 下一步
 
 第 0 片已做（2026-11-10）：[ADR 0045](../../../../../docs/adr/0045-shared-host-packages-for-second-app.md) 记三个新包与 ADR 0030 决策 2 的修订，索引已补注。2026-11-10 开发者听过三个包与对 nb-harness、`nbook.agent` 的影响后答“可以”，开工：worktree `.worktree/w00043-neurobot`（分支 `feat/w00043-neurobot`），代码由主会话写，从第 1 片做起。
+
+2026-11-12 合入 master（afe0ddc9f）。合入前在 9d3bb0189 上：`test:affected --since master --package nb-file-lock --with-consumers --typecheck`（选中 nb-file-lock、nb-host、neuro-book；`bun.lock` 只多了三个工作区包的条目，整仓全选不必要）：nb-file-lock 5、nb-host 102、应用 `test:bun` 2815、`test:vitest` 561 全过，失败只有应用类型检查里 master 上已有的那一条；nb-models 修正后单独跑过 34 条与两份类型检查；干净克隆里 `build`、`check:dist`、`smoke:server` S1–S10 全过；e2e 7 个文件（`rpc`、`browser-host`、`projects`、`dev`、`app-package`、`lab`、`models`）53 条全过。合入后主工作区 `bun install`，紧接着提交 Spec 与文档：`runtime/server-host.md`、`browser-host.md`、`diagnostics.md`、`application.md`、`cli.md`、`models/service.md` 的 owners、实现合同与证据（行为合同不变）、`docs/modules/monorepo-boundaries.md` 三个包与“新应用”一行、`packages/AGENTS.md`、根 `AGENTS.md` 的结构树、`docs/standards/code/common.md` 的样例路径；`docs:check` 没有失败。
+
+留下的：
+
+- 扩展 `attach` 抛错时运行实例无人收口（base 上就有，见“实现审查”）；
+- 应用类型检查里 `MarkdownToolbar.dom.test.ts` 的替身缺 `matches`、`commentMargin`，是 master 上已有的（w00025），本 Task 没改；
+- `models.llm.test.ts` 没跑（真实模型，计划写明本 Task 不跑）。
