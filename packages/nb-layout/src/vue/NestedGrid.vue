@@ -110,7 +110,7 @@ const snapHost = useSashSnap();
 const parking = useLeafParking();
 const {parked} = parking;
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()});
-const {moving, growing, following, flying, anchoredRight} = motion;
+const {moving, growing, following, flying, keptSize, anchoredRight} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 的“过渡”）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.map((item) => item.node.id)));
 
@@ -159,6 +159,8 @@ const contentLayer = useContentLayer({
     parkedLeaves: parked,
     growing,
     following,
+    flying,
+    keptSize,
     previewing: () => preview.value !== null,
     measured: () => placementExtent.value.width > 0 && placementExtent.value.height > 0,
     obscuredLeaves: () => obscuredLeaves.value,
@@ -223,12 +225,12 @@ function sashProps(sash: GridSashPlacement<unknown>) {
 }
 
 /**
- * 内容项带不带过渡标记。用着起点矩形（`growing`：停放过的内容随新叶长出来）的那一次渲染不带：它是早就挂着的元素，带着过渡写起点，浏览器就开始一段
- * 从停放时的矩形到起点的过渡，紧接着写终点时这段过渡就地反向取消，看起来是一下子到终点。起点立即生效，下一次写终点时再带上，过渡才从起点开始。
- * 新出现的元素没有上一帧的样式，带不带都一样。
+ * 内容项带不带过渡标记。用着起点矩形（`growing`，键见 `startKey`：停放过的内容随新叶长出来、换成按叶的矩形摆的那一帧、落地的卡片）的那一次渲染不带：
+ * 它是早就挂着的元素，带着过渡写起点，浏览器就开始一段从停放时的矩形到起点的过渡，紧接着写终点时这段过渡就地反向取消，看起来是一下子到终点。
+ * 起点立即生效，下一次写终点时再带上，过渡才从起点开始。新出现的元素没有上一帧的样式，带不带都一样。
  */
 function contentMoving(item: GridContentPlacement): boolean {
-    return moving.value && item.active && !contentLayer.isLifted(item) && !growing.value.has(item.key);
+    return moving.value && item.active && !contentLayer.isLifted(item) && !growing.value.has(contentLayer.startKey(item));
 }
 
 /**
@@ -506,6 +508,7 @@ defineExpose({
                 :data-float-gesture="floatGestures.get(item.leaf)"
                 :data-leaving="leavingLeaves.has(item.leaf) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
+                :data-by-leaf="contentLayer.byLeafRect(item) ? '' : undefined"
                 :inert="contentLayer.isParked(item)"
                 :style="{...contentLayer.frameStyle(item), ...(contentLayer.isLifted(item) ? {} : floatLayer(item.leaf, 1))}"
             >
@@ -656,10 +659,28 @@ defineExpose({
  * 过渡中内容贴着外框的右边（`rightAnchored`）：整块跟着右边平移进出。内层是最终尺寸，比外框宽的部分在左边被裁掉；
  * 过渡结束标记就摘了，那时外框等于内层，贴哪边都一样，不跳。
  */
+/*
+ * 过渡中按叶的矩形摆的内容（`byLeafRect`）：外层和外框同一个矩形，内容体往下挪一个面板头，外层的上边跟着外框的上边走，内容一直紧贴面板头下面。
+ * 挪用相对定位，不用内边距：内边距会把比面板头还矮的外层撑高，外层伸出外框。面板头那一条用 `clip-path` 裁掉：外层盖在面板头上面，
+ * 不裁的话面板头点不到（`clip-path` 也挡命中）。写在贴右边的规则前面，两者都有时内容体是绝对定位，上边另给。
+ */
+.nb-grid-content[data-by-leaf] {
+    clip-path: inset(var(--nb-grid-inset) 0 0 0);
+}
+
+.nb-grid-content[data-by-leaf] > .nb-grid-content__body {
+    position: relative;
+    top: var(--nb-grid-inset);
+}
+
 .nb-grid-frame[data-anchor-right] > .nb-grid-leaf,
 .nb-grid-content[data-anchor-right] > .nb-grid-content__body {
     position: absolute;
     top: 0;
     right: 0;
+}
+
+.nb-grid-content[data-by-leaf][data-anchor-right] > .nb-grid-content__body {
+    top: var(--nb-grid-inset);
 }
 </style>

@@ -170,16 +170,19 @@ describe("过渡中内容跟外框的叶", () => {
         expect(followingOf(motion)).toEqual(["leaf:l0", "leaf:l1", "leaf:l2", "leaf:l3"]);
     });
 
-    it("贴着右边的项：过渡中又来一次变化、这一轮它没动时接着贴（外框还在走上一轮的过渡）；结束后清空", () => {
+    it("内容不跟外框、贴着右边的叶：过渡中又来一次变化、这一轮它没动时接着按叶的矩形摆、接着贴（外框还在走上一轮的过渡）；结束后清空", () => {
         const {motion, base} = started();
         // 最前面多出一块：它从左边长出来，内容贴着在动的右边。
         const shown = row([["s", 100], ["l0", 299], ["l1", 149], ["l2", 149]]);
         motion.update(frame({items: shown, previous: base}));
+        expect(motion.keptSize.value.has("leaf:s")).toBe(true);
         expect(motion.anchoredRight.value.has("leaf:s")).toBe(true);
         const again = row([["s", 100], ["l0", 199], ["l1", 249], ["l2", 149]]);
         motion.update(frame({items: again, previous: shown}));
+        expect(motion.keptSize.value.has("leaf:s")).toBe(true);
         expect(motion.anchoredRight.value.has("leaf:s")).toBe(true);
         motion.stop();
+        expect(motion.keptSize.value.size).toBe(0);
         expect(motion.anchoredRight.value.size).toBe(0);
     });
 

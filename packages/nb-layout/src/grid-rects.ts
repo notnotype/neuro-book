@@ -88,6 +88,8 @@ export interface GridContentPlacement {
     readonly active: boolean;
     /** 所属的叶不在这次的呈现里时为 null（叶被隐藏、文档与树的发布不同步的瞬间）：按停放处理。 */
     readonly rect: GridRect | null;
+    /** 所属的叶的矩形（含面板头），找不到叶时为 null。过渡中叶从零长出来、缩到零时内容按它摆（见 `NestedGrid` 的内容层）。 */
+    readonly leafRect: GridRect | null;
 }
 
 /** 渲染层的一项：叶、分隔线或内容。 */
@@ -142,6 +144,7 @@ export function placeContents<R>(items: ReadonlyArray<GridPlacementItem<R>>, con
             insetTop: inset,
             active: content.active,
             rect: leaf === undefined ? null : {x: leaf.x, y: leaf.y + Math.min(inset, leaf.height), width: leaf.width, height: Math.max(0, leaf.height - inset)},
+            leafRect: leaf ?? null,
         };
     });
 }

@@ -257,6 +257,65 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         }
     });
 
+    test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时留着、过渡结束才摘掉；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const toggle = page.locator('[data-titlebar-layout="panel"]');
+        const moving = page.locator("[data-workbench-surface] [data-moving]");
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-pressed", "true");
+        await expect(moving).toHaveCount(0);
+        // 底部面板那一节：显示着的内容里最靠下的那块。
+        const target = await page.evaluate(() => {
+            const contents = [...document.querySelectorAll<HTMLElement>("[data-workbench-surface] > [data-grid-scope] > [data-content]")].filter((element) => getComputedStyle(element).visibility === "visible");
+            const lowest = contents.sort((left, right) => right.getBoundingClientRect().top - left.getBoundingClientRect().top)[0]!;
+            return {content: lowest.dataset.content!, leaf: lowest.dataset.contentLeaf!};
+        });
+        /** 点一下开关，逐帧量这一节的外框与内容体，直到网格的过渡结束。只记外框还在、内容看得见的帧。 */
+        const film = () => page.evaluate(async (target) => {
+            const rows: Array<{frameTop: number; frameBottom: number; frameHeight: number; bodyTop: number; leaving: boolean}> = [];
+            document.querySelector<HTMLElement>('[data-titlebar-layout="panel"]')!.click();
+            for (let frame = 0; frame < 90; frame += 1) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                const frameEl = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${target.leaf}"]`);
+                const content = document.querySelector<HTMLElement>(`[data-workbench-surface] > [data-grid-scope] > [data-content="${CSS.escape(target.content)}"]`);
+                if (frameEl !== null && content !== null && getComputedStyle(content).visibility === "visible") {
+                    const rect = frameEl.getBoundingClientRect();
+                    const body = content.querySelector(":scope > .nb-grid-content__body")!.getBoundingClientRect();
+                    rows.push({frameTop: rect.top, frameBottom: rect.bottom, frameHeight: rect.height, bodyTop: body.top, leaving: frameEl.hasAttribute("data-leaving")});
+                }
+                if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
+            }
+            return rows;
+        }, target);
+        const inset = await page.evaluate((target) => {
+            const frame = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${target.leaf}"]`)!.getBoundingClientRect();
+            return document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-content="${CSS.escape(target.content)}"]`)!.getBoundingClientRect().top - frame.top;
+        }, target);
+        expect(inset).toBeGreaterThan(0);
+        /** 下边不动；内容体的上边一直是外框的上边加面板头（按内容自己的矩形过渡时会落后，最多压住面板头一整条）。 */
+        const expectSliding = (rows: Awaited<ReturnType<typeof film>>) => {
+            const bottom = rows[0]!.frameBottom;
+            for (const row of rows) {
+                expect(row.frameBottom).toBeCloseTo(bottom, 0);
+                expect(row.bodyTop - row.frameTop).toBeCloseTo(inset, 0);
+            }
+        };
+
+        // 隐藏：留着缩下去，确实量到了中间的帧；结束后叶没了。
+        const hiding = await film();
+        expect(hiding.some((row) => row.leaving && row.frameHeight > 20 && row.frameHeight < hiding[0]!.frameHeight - 20)).toBe(true);
+        expectSliding(hiding);
+        await expect(moving).toHaveCount(0);
+        await expect(page.locator(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${target.leaf}"]`)).toHaveCount(0);
+
+        // 显示：从底边长上来。
+        const showing = await film();
+        const final = showing.at(-1)!.frameHeight;
+        expect(showing.some((row) => row.frameHeight > 20 && row.frameHeight < final - 20)).toBe(true);
+        expectSliding(showing);
+    });
+
     test("隐藏侧栏时缩回去的那段：焦点在侧栏里马上交出去；缩到一半又显示、长到一半又隐藏都停在对的样子，不留残影；减少动态效果时同一帧就没了（ui/nested-grid 的过渡）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
@@ -385,8 +444,11 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => (await box(page, single)).width).toBe(width);
         expect((await box(page, single)).height).toBeGreaterThan(32);
-        await expect.poll(async () => (await saved(page))?.panels.sidebar).toMatchObject({activeContainer: `view:${A}`});
-        expect((await saved(page))?.panels.sidebar?.collapsed ?? false).toBe(false);
+        // 两个条件一起等：按 Enter 收起时立刻存过一份“当前容器是甲、收起”，之后两次点入口合并着存，只等当前容器会被那份旧记录直接满足。
+        await expect.poll(async () => {
+            const sidebar = (await saved(page))?.panels.sidebar;
+            return {activeContainer: sidebar?.activeContainer, collapsed: sidebar?.collapsed ?? false};
+        }).toEqual({activeContainer: `view:${A}`, collapsed: false});
         expect((await saved(page))?.panels[single]?.collapsed ?? false).toBe(false);
     });
 });

@@ -9,7 +9,7 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, flyingContents, followingLeaves, leavingPlacements, placementMoved, rightAnchored} from "../grid-motion";
+import {enteringRects, flyingContents, followingLeaves, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored} from "../grid-motion";
 import type {GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
@@ -49,13 +49,14 @@ export type GridMotionDecision =
     | {readonly kind: "stop"}
     | GridMotionMove;
 
-/** 要过渡：新项第一帧的矩形、内容跟外框的项、压在上面飞的项、留着缩回去的叶、内容贴外框右边的项。 */
+/** 要过渡：第一帧的矩形（新项与内容不跟外框的叶）、内容跟外框的项、压在上面飞的项、留着缩回去的叶、内容不跟外框的叶、内容贴外框右边的项。 */
 export interface GridMotionMove {
     readonly kind: "move";
     readonly entering: ReadonlyMap<string, GridRect>;
     readonly following: ReadonlySet<string>;
     readonly flying: ReadonlySet<string>;
     readonly leaving: ReadonlyArray<GridLeavingItem>;
+    readonly keptSize: ReadonlySet<string>;
     readonly rightAnchored: ReadonlySet<string>;
 }
 
@@ -93,7 +94,16 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     const following = followingLeaves(frame.items, frame.previous);
     const flying = flyingContents(frame.items, frame.previous);
     const leaving = leavingPlacements(frame.items, frame.previous, frame.holding === true);
-    return {kind: "move", entering, following, flying, leaving, rightAnchored: rightAnchored({items: frame.items, previous: frame.previous, entering, following, flying, leaving})};
+    const kept = keptSizeStarts({items: frame.items, previous: frame.previous, entering, following, leaving});
+    return {
+        kind: "move",
+        entering: new Map([...entering, ...kept]),
+        following,
+        flying,
+        leaving,
+        keptSize: new Set(kept.keys()),
+        rightAnchored: rightAnchored({items: frame.items, leaving, starts: kept, following, flying}),
+    };
 }
 
 export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement | null>>; readonly onSettled: () => void}) {
@@ -106,6 +116,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     const flying = shallowRef<ReadonlySet<string>>(new Set());
     /** 离开了、在这一轮过渡里留着缩回去的叶；过渡结束（`stop`）就摘掉。 */
     const leaving = shallowRef<ReadonlyArray<GridLeavingItem>>([]);
+    /** 内容不跟外框的叶（`keptSizeStarts`）：它们的内容按叶的矩形摆；只在过渡中有。 */
+    const keptSize = shallowRef<ReadonlySet<string>>(new Set());
     /** 内容贴外框右边的项（`rightAnchored`）；只在过渡中有。 */
     const anchoredRight = shallowRef<ReadonlySet<string>>(new Set());
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -138,6 +150,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         following.value = new Set();
         flying.value = new Set();
         leaving.value = [];
+        keptSize.value = new Set();
         anchoredRight.value = new Set();
         // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
         options.onSettled();
@@ -148,8 +161,10 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         // 过渡中又来一次变化：上一轮保持最终尺寸的叶（新叶、从零出来的）继续保持，否则内容会被压到外框此刻的宽度，再跟着长回去。
         const follow = [...move.following].filter((key) => !landing.has(key));
         following.value = new Set(inRound ? follow.filter((key) => following.value.has(key)) : follow);
-        // 继续保持最终尺寸的也继续贴着右边：这一轮它可能没动（不在这一轮的名单里），外框还在走上一轮的过渡。
-        anchoredRight.value = new Set([...(inRound ? [...anchoredRight.value].filter((key) => !following.value.has(key)) : []), ...move.rightAnchored]);
+        // 继续保持最终尺寸的叶接着按叶的矩形摆、接着贴右边：这一轮它可能没动（不在这一轮的名单里），外框还在走上一轮的过渡。
+        const carried = (list: ReadonlySet<string>): string[] => (inRound ? [...list].filter((key) => !following.value.has(key)) : []);
+        keptSize.value = new Set([...carried(keptSize.value), ...move.keptSize]);
+        anchoredRight.value = new Set([...carried(anchoredRight.value), ...move.rightAnchored]);
         inRound = true;
         moving.value = true;
         flying.value = new Set([...(flying.value), ...move.flying]);
@@ -213,6 +228,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         following,
         flying,
         leaving,
+        keptSize,
         anchoredRight,
         update,
         land,

@@ -65,7 +65,7 @@ export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, prev
     return items.map((item) => {
         const old = before.get(item.key);
         if (item.kind === "leaf" && old?.kind === "leaf" && stayed.has(item.node.id)) return {...item, rect: old.rect};
-        if (item.kind === "content" && old?.kind === "content" && old.leaf === item.leaf && stayed.has(item.leaf)) return {...item, rect: old.rect};
+        if (item.kind === "content" && old?.kind === "content" && old.leaf === item.leaf && stayed.has(item.leaf)) return {...item, rect: old.rect, leafRect: old.leafRect};
         return item;
     });
 }
@@ -116,16 +116,43 @@ function collapsed(rect: GridRect, collapse: Collapse): GridRect {
     return collapse.axis === "width" ? {...rect, x: collapse.at, width: 0} : {...rect, y: collapse.at, height: 0};
 }
 
+/** 每个节点（叶与分支）的矩形：它下面的叶的外接矩形。 */
+function nodeRectsOf(items: ReadonlyArray<GridLayerItem<unknown>>): Map<string, GridRect> {
+    const rects = new Map<string, GridRect>();
+    for (const item of items) {
+        if (item.kind !== "leaf") continue;
+        for (const id of [item.node.id, ...item.path.map((step) => step.id)]) {
+            const rect = rects.get(id);
+            rects.set(id, rect === undefined ? item.rect : unionRect(rect, item.rect));
+        }
+    }
+    return rects;
+}
+
+const startOf = (rect: GridRect, axis: GridAxis): number => (axis === "width" ? rect.x : rect.y);
+const endOf = (rect: GridRect, axis: GridAxis): number => (axis === "width" ? rect.x + rect.width : rect.y + rect.height);
+
+/**
+ * 分支一头的节点（`step` 只有一个兄弟）和那个兄弟在 `axis` 上是不是一头挨着另一头的边：兄弟的矩形 `neighbor` 伸到了 `rect` 远的那条边。
+ * 按矩形判，不按分隔线：节点出现、消失时它所在的分支可能被建出来或摊平（底部面板和编辑区的纵向分支，只剩编辑区时摊进横向那一行），
+ * 兄弟换了分支，它在新分支里挨着谁和这里无关。
+ */
+function reachesEnd(step: GridPathStep, neighbor: GridRect | undefined, rect: GridRect): boolean {
+    if (neighbor === undefined) return false;
+    if (step.after === null) return endOf(neighbor, step.axis) >= endOf(rect, step.axis) - MOTION_TOLERANCE_PX;
+    return startOf(neighbor, step.axis) <= startOf(rect, step.axis) + MOTION_TOLERANCE_PX;
+}
+
 /**
  * 新出现的项第一帧的矩形（`key` 到矩形），过渡从这里开始。
  *
  * 新叶按“最外层的新子树”长：从根往下找第一个新开出来的节点（上一帧没有、下面也没有一块旧叶、也不是顶替了上一帧同一个位置上的
- * 别的节点），它和它下面的叶、分隔线、内容作为一块，沿它在父分支里的主轴从零长出来，另一个方向一开始就是终点。所以区域展开时
+ * 别的节点），它和它下面的叶、分隔线作为一块，沿它在父分支里的主轴从零长出来，另一个方向一开始就是终点。所以区域展开时
  * 整列从挨着的兄弟之间横着长出来，列里的几节不各自竖着长（各自竖着长时整列一开始就是全宽，压在还没让开的编辑区上）。
  * 往下找的几种情形：拆分时包住旧叶的新分支下面有旧叶，新叶照旧从旧叶那边长；切换侧栏的容器时整列上一帧就在，或者一节换成一列
  * （顶替），换上来的几节各自在原来的位置里长。
  * 从哪条线长：上一帧它前后的兄弟挨着，就从那道缝（另一条边跟着让位的那一个走，不管让位的是前面的还是后面的）；否则不动的那条边
- * 按 `grownRect`：第一块的起点、其余的终点。
+ * 按 `grownRect`：第一块的起点、其余的终点。新叶里的内容项不在这里：它按叶的矩形摆，起点就是叶的（`keptSizeStarts`）。
  *
  * 分隔线的身份是前后节点，结构一变就是新元素，没有上一帧可接：新子树里面的跟着子树压成零；挨着同一个节点的旧分隔线在哪就从哪出发；
  * 否则从挨着的新叶的起点出发，这样线跟着外框的边走，不会一开始就压在内容上。
@@ -139,18 +166,21 @@ export function enteringRects(items: ReadonlyArray<GridLayerItem<unknown>>, prev
     /** 上一帧就在的节点，以及下面还有旧叶的节点。 */
     const settled = new Set([...previous, ...leaves.filter((item) => known.has(item.key))].flatMap((item) => (item.kind === "leaf" ? item.path.map((step) => step.id) : [])));
     const seamBetween = (step: GridPathStep) => oldSashes.find((sash) => sash.before === step.before && sash.after === step.after);
-    /** 上一帧这两个兄弟之间夹着别的节点：它顶替了那个位置，不是新开出来的缝。分支一头的节点只看另一头。 */
-    const replaces = (step: GridPathStep): boolean => (step.before !== null || step.after !== null) && seamBetween(step) === undefined
-        && (step.before === null || oldSashes.some((sash) => sash.before === step.before))
-        && (step.after === null || oldSashes.some((sash) => sash.after === step.after));
-    /** 节点的终点矩形：它下面的叶的外接矩形。 */
-    const nodeRects = new Map<string, GridRect>();
-    for (const item of leaves) {
-        for (const step of item.path) {
-            const rect = nodeRects.get(step.id);
-            nodeRects.set(step.id, rect === undefined ? item.rect : unionRect(rect, item.rect));
+    /** 节点的终点矩形与上一帧的矩形。 */
+    const nodeRects = nodeRectsOf(leaves);
+    const oldNodeRects = nodeRectsOf(previous);
+    /**
+     * 它顶替了上一帧同一个位置上的别的节点，不是新开出来的：两头都有兄弟时，上一帧两个兄弟之间夹着别的节点（没有直接相接的缝）；
+     * 在分支一头时，挨着的兄弟上一帧没伸到它现在的远边（那里本来有别的东西）。兄弟上一帧不在的不算。
+     */
+    const replaces = (step: GridPathStep): boolean => {
+        if (step.before === null && step.after === null) return false;
+        if (step.before !== null && step.after !== null) {
+            return seamBetween(step) === undefined && oldSashes.some((sash) => sash.before === step.before) && oldSashes.some((sash) => sash.after === step.after);
         }
-    }
+        const neighbor = oldNodeRects.get((step.before ?? step.after) as string);
+        return neighbor !== undefined && !reachesEnd(step, neighbor, nodeRects.get(step.id) as GridRect);
+    };
     /** 新子树里的节点（子树的根与它下面的分支、叶）到它们共同的起点。 */
     const collapseOf = new Map<string, Collapse>();
     const seamOf = (step: GridPathStep): Collapse => {
@@ -171,16 +201,6 @@ export function enteringRects(items: ReadonlyArray<GridLayerItem<unknown>>, prev
         const collapse = collapseOf.get(root.id) ?? seamOf(root);
         for (const step of item.path.slice(top)) collapseOf.set(step.id, collapse);
         entering.set(item.key, collapsed(item.rect, collapse));
-    }
-    // 新内容项、上一帧停放着的内容项（叶不在呈现里，或是切走的标签）跟着它的新叶从边上长出来：停放的内容早就挂着，不跟的话一显示就整块在终点，
-    // 外框还在长（切回容器、区域展开）。上一帧显示着、换了叶的内容项不在这里：它从旧矩形飞过来。
-    const before = new Map(previous.map((item) => [item.key, item]));
-    for (const item of items) {
-        if (item.kind !== "content" || item.rect === null) continue;
-        const old = before.get(item.key);
-        if (old !== undefined && old.kind === "content" && old.active && old.rect !== null) continue;
-        const leaf = entering.get(`leaf:${item.leaf}`);
-        if (leaf !== undefined) entering.set(item.key, {x: leaf.x, y: leaf.y + Math.min(item.insetTop, leaf.height), width: leaf.width, height: Math.max(0, leaf.height - item.insetTop)});
     }
     for (const item of items) {
         if (item.kind !== "sash" || known.has(item.key)) continue;
@@ -224,12 +244,13 @@ export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, pre
     /** 内容项还挂着的叶：停放（区域隐藏），不是卸掉（关掉）。 */
     const mounted = new Set(items.flatMap((item) => (item.kind === "content" ? [item.leaf] : [])));
     const seamNow = (step: GridPathStep) => sashes.find((sash) => sash.before === step.before && sash.after === step.after);
-    /** 它离开后兄弟合拢了：前后的兄弟这一帧相接；或它在一头，挨着的兄弟还在、这一帧到了那一头。 */
+    const nowRects = nodeRectsOf(items);
+    const oldRects = nodeRectsOf(previous);
+    /** 它离开后兄弟合拢了：前后的兄弟这一帧相接；或它在一头，挨着的兄弟这一帧伸到了它原来的远边。 */
     const closesUp = (step: GridPathStep): boolean => {
         if (seamNow(step) !== undefined) return true;
-        if (step.after === null && step.before !== null) return now.has(step.before) && !sashes.some((sash) => sash.before === step.before);
-        if (step.before === null && step.after !== null) return now.has(step.after) && !sashes.some((sash) => sash.after === step.after);
-        return false;
+        if ((step.before === null) === (step.after === null)) return false;
+        return reachesEnd(step, nowRects.get((step.before ?? step.after) as string), oldRects.get(step.id) as GridRect);
     };
 
     /** 离开的子树（最外层节点的 id）到它下面离开的叶。 */
@@ -260,33 +281,56 @@ export function leavingPlacements<R>(items: ReadonlyArray<GridLayerItem<R>>, pre
 }
 
 /**
- * 过渡中内容贴着外框右边的项（docs/specs/ui/nested-grid.md 的“过渡”）。只看内容不跟外框的叶（新叶、从零出来的、留着缩回去的）和它们的内容项：
- * 内容是最终尺寸，外框只有右边在动时（从左边长出来、缩向左边）贴着右边，整块跟着平移进出，不是被外框像幕布一样拉开、盖上。左边在动时
- * （从右边长出来、缩向右边）贴左边本来就跟着它走，两条边都动的也贴左边，都不用记。
+ * 这一轮内容不跟外框的叶（新叶、从零出来的、降到零的、留着缩回去的）和它们第一帧的矩形（`key` 到矩形）。
  *
- * 只管横向：内容项的矩形是叶减去面板头，左右与叶相同，贴右边时面板头与内容一起走；纵向它的上边比叶低一个面板头，从上边长出来时贴下边，
- * 内容的裁切框上边跟着叶的上边往下挪一个面板头，中间露出一条空白。所以纵向照旧贴上边：从上边长出来的（往上拆分、切换容器时换上来的第一节）仍像幕布那样拉开。
+ * 这些叶的内容项按叶的矩形摆，内容体往下挪一个面板头（`NestedGrid` 的内容层）：内容外层的上边就是外框的上边，叶从零长出来、缩到零时
+ * 内容也一直紧贴面板头下面。按内容自己的矩形（叶减去面板头）过渡不行：叶比面板头矮时那个矩形贴在叶的底边，两头之间线性插值，
+ * 上边比外框慢一个面板头，内容先压住面板头再追上去。
+ * 换成这种摆法的那一帧不能带过渡，否则内容体一下子挪下去、外层的上边慢慢走，内容先掉一个面板头再飘回来。所以每块都要有起点：
+ * 新叶是 `enteringRects` 的起点，别的是上一帧的矩形（外框画在原处，没有变化）。
+ */
+export function keptSizeStarts(input: {
+    readonly items: ReadonlyArray<GridLayerItem<unknown>>;
+    readonly previous: ReadonlyArray<GridLayerItem<unknown>>;
+    readonly entering: ReadonlyMap<string, GridRect>;
+    readonly following: ReadonlySet<string>;
+    readonly leaving: ReadonlyArray<GridLayerItem<unknown>>;
+}): ReadonlyMap<string, GridRect> {
+    const before = new Map(input.previous.map((item) => [item.key, rectOf(item)]));
+    const starts = new Map<string, GridRect>();
+    // 留着缩回去的叶的起点是上一帧的矩形，终点是它缩成的那条线。
+    for (const item of [...input.items, ...input.leaving]) {
+        if (item.kind !== "leaf" || input.following.has(item.key)) continue;
+        const from = input.entering.get(item.key) ?? before.get(item.key);
+        if (from != null) starts.set(item.key, from);
+    }
+    return starts;
+}
+
+/**
+ * 过渡中内容贴着外框右边的项（docs/specs/ui/nested-grid.md 的“过渡”）：`keptSizeStarts` 里的叶和它们的内容项，外框只有右边在动时
+ * （从左边长出来、缩向左边）贴着右边，整块跟着平移进出，不是被外框像幕布一样拉开、盖上。左边在动时（从右边长出来、缩向右边）贴左边
+ * 本来就跟着它走，两条边都动的也贴左边，都不用记。
+ *
+ * 只管横向。纵向贴下边要在面板头那一条里也画内容（叶从上边长出来、比内容矮的时候），而那一条要裁掉才不挡面板头的指针；切换容器时
+ * 换上来的第一节、往上拆分照旧从上往下露出来，留给切换容器的动画一起定。
  *
  * 内容项随它的叶。换了叶、正飞过去的内容项不随：它从旧矩形整块飞过来。
  */
 export function rightAnchored(input: {
     readonly items: ReadonlyArray<GridLayerItem<unknown>>;
-    readonly previous: ReadonlyArray<GridLayerItem<unknown>>;
-    readonly entering: ReadonlyMap<string, GridRect>;
+    readonly leaving: ReadonlyArray<GridLayerItem<unknown>>;
+    readonly starts: ReadonlyMap<string, GridRect>;
     readonly following: ReadonlySet<string>;
     readonly flying: ReadonlySet<string>;
-    readonly leaving: ReadonlyArray<GridLayerItem<unknown>>;
 }): ReadonlySet<string> {
-    const before = new Map(input.previous.map((item) => [item.key, rectOf(item)]));
     const near = (left: number, right: number): boolean => Math.abs(left - right) <= MOTION_TOLERANCE_PX;
     /** 左边不动、右边在动。 */
     const rightMoves = (from: GridRect, to: GridRect): boolean => near(from.x, to.x) && !near(from.x + from.width, to.x + to.width);
     const anchored = new Set<string>();
-    // 留着缩回去的叶的终点是它缩成的那条线，起点是上一帧的矩形。
     for (const item of [...input.items, ...input.leaving]) {
-        if (item.kind !== "leaf" || input.following.has(item.key)) continue;
-        const from = input.entering.get(item.key) ?? before.get(item.key);
-        if (from != null && rightMoves(from, item.rect)) anchored.add(item.key);
+        const from = item.kind === "leaf" ? input.starts.get(item.key) : undefined;
+        if (from !== undefined && rightMoves(from, item.rect as GridRect)) anchored.add(item.key);
     }
     for (const item of input.items) {
         if (item.kind === "content" && !input.following.has(item.key) && !input.flying.has(item.key) && anchored.has(`leaf:${item.leaf}`)) anchored.add(item.key);

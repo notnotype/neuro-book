@@ -33,6 +33,10 @@ export function useContentLayer(options: {
     readonly parkedLeaves: Readonly<Ref<ReadonlySet<string>>>;
     readonly growing: Readonly<Ref<ReadonlyMap<string, GridRect>>>;
     readonly following: Readonly<Ref<ReadonlySet<string>>>;
+    /** 正飞过别的面板的内容项。 */
+    readonly flying: Readonly<Ref<ReadonlySet<string>>>;
+    /** 这一轮内容不跟外框的叶（`keptSizeStarts`）：它们的内容按叶的矩形摆。 */
+    readonly keptSize: Readonly<Ref<ReadonlySet<string>>>;
     /** 手势预览进行中：预览不会把内容停放，往零拖时要等落账。 */
     readonly previewing: () => boolean;
     /** 量到容器了吗。第一帧还没量到时矩形都是零，这不算停放：那时加 `inert` 会让 `onMounted` 里的 `focus()` 静默失败。 */
@@ -90,13 +94,31 @@ export function useContentLayer(options: {
         }
     }
 
+    /**
+     * 过渡中按叶的矩形摆（内容体往下挪一个面板头，`--nb-grid-inset`）：它的叶这一轮内容不跟外框，叶从零长出来、缩到零时外层的上边就是外框的上边，
+     * 内容一直紧贴面板头下面（为什么不按内容自己的矩形见 `keptSizeStarts`）。正飞过去的、拿起的、自己跟外框的不算。
+     */
+    function byLeafRect(item: GridContentPlacement): boolean {
+        return item.leafRect !== null && options.keptSize.value.has(`leaf:${item.leaf}`) && !isLifted(item) && !options.following.value.has(item.key) && !options.flying.value.has(item.key);
+    }
+
+    /** 这个内容项的第一帧矩形记在 `growing` 的哪个键下：按叶的矩形摆的用它的叶的，其余（落地的卡片）用自己的。 */
+    function startKey(item: GridContentPlacement): string {
+        return byLeafRect(item) ? `leaf:${item.leaf}` : item.key;
+    }
+
     function frameStyle(item: GridContentPlacement): Record<string, string> {
         // 矩形平时由 `placeLifted` 直接写在元素上；Vue 的样式补丁会写回这里的每个键，所以这里给的要是最新的。
         if (isLifted(item)) return liftedRectStyle(options.liftedRect());
-        const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
         // 被盖住的内容马上不可交互，但过渡结束才隐藏：最大化的面板还没长过来时它们要还在。缩回去的叶里的内容同样，外框裁着它缩到零。
         const showing = item.active && options.moving() && (options.obscuredLeaves().has(item.leaf) || options.leavingLeaves().has(item.leaf));
-        return {...gridRectStyle(rect), ...(isParked(item) && !showing ? {visibility: "hidden"} : {})};
+        const hidden: Record<string, string> = isParked(item) && !showing ? {visibility: "hidden"} : {};
+        if (byLeafRect(item)) {
+            const rect = options.growing.value.get(startKey(item)) ?? (item.leafRect as GridRect);
+            return {...gridRectStyle(rect), "--nb-grid-inset": `${item.insetTop}px`, ...hidden};
+        }
+        const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
+        return {...gridRectStyle(rect), ...hidden};
     }
 
     /** 跟外框的是 100%；否则是最终尺寸，停放时是最后的非零尺寸。 */
@@ -111,5 +133,5 @@ export function useContentLayer(options: {
         return {width: `${size.width}px`, height: `${size.height}px`};
     }
 
-    return {placements, isParked, isLifted, update, frameStyle, bodyStyle};
+    return {placements, isParked, isLifted, byLeafRect, startKey, update, frameStyle, bodyStyle};
 }
