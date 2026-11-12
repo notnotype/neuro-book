@@ -405,7 +405,7 @@ test.describe("页边（验收 15）", () => {
         // 两条在同一行：第二张卡片被第一张推到下面，不是叠在同一高度。
         expect(Math.abs(second.y - first.y)).toBeLessThan(6);
         // 光标进批注：不出浮层，这一条是当前批注；各张卡片的外框尺寸不变（意见不超过 3 行），按钮占位不变，没有左边框一类的侧边色条（输出 33）。
-        const sizes = async (): Promise<Array<[number, number]>> => marginItems(page).evaluateAll((elements) => elements.map((element) => [element.offsetWidth, element.offsetHeight] as [number, number]));
+        const sizes = async (): Promise<Array<[number, number]>> => marginItems(page).evaluateAll((elements) => elements.map((element) => [(element as HTMLElement).offsetWidth, (element as HTMLElement).offsetHeight] as [number, number]));
         const idleSizes = await sizes();
         const controls = async (): Promise<number[]> => marginItems(page).evaluateAll((elements) => elements.map((element) => (element.querySelector("[data-markdown-comment-controls]") as HTMLElement).getBoundingClientRect().height));
         const idleControls = await controls();
@@ -478,6 +478,34 @@ test.describe("页边（验收 15）", () => {
     });
 });
 
+test.describe("页边里的整块批注（验收 19）", () => {
+    test("页边画着时块菜单给表格加批注：待写的卡片顶边对着这一块，保存后成为一条", async ({page}) => {
+        await openFile(page, "notes/margin-block.md", "前文<comment body=\"已有的\">一句</comment>\n\n| 甲 | 乙 |\n| --- | --- |\n| 1 | 2 |\n\n后文\n");
+        await activeHead(page).hover();
+        await marginSwitch(page).click();
+        await expect(marginItems(page)).toHaveCount(1);
+        const gutter = activeGroup(page).locator("[data-markdown-gutter]");
+        await prose(page).getByText("甲", {exact: false}).first().hover();
+        await expect(gutter).toBeVisible();
+        await gutter.getByRole("button", {name: "块菜单"}).click();
+        await page.getByRole("menuitem", {name: /批注/}).click();
+        await expect(marginItems(page)).toHaveCount(2);
+        const pending = marginItems(page).filter({has: page.locator("textarea")});
+        await expect(pending.locator("textarea")).toBeFocused();
+        const table = await prose(page).locator("table").first().boundingBox();
+        const card = await pending.boundingBox();
+        if (table === null || card === null) throw new Error("取不到位置");
+        // 待写的卡片顶边对着这一块的顶（差不超过一行）。
+        expect(Math.abs(card.y - table.y)).toBeLessThanOrEqual(34);
+        await page.keyboard.type("表格的意见");
+        await page.keyboard.press("Control+Enter");
+        await expect(prose(page).locator(".nb-comment-block")).toHaveCount(1);
+        await expect(marginItems(page)).toHaveCount(2);
+        await activeHead(page).hover();
+        await marginSwitch(page).click();
+    });
+});
+
 test.describe("页边的动画（验收 15）", () => {
     // 默认减少动态效果（应用的 playwright 配置）：测动画的用例开回来。
     test.beforeEach(async ({page}) => {
@@ -540,6 +568,30 @@ test.describe("页边的动画（验收 15）", () => {
         await activeHead(page).hover();
         await marginSwitch(page).click();
         await expect(marginItems(page)).toHaveCount(0);
+    });
+
+    test("删一条批注：它的卡片淡出（透明度经过中间值），不是一下子没有", async ({page}) => {
+        await openFile(page, "notes/motion-leave.md", TWO);
+        await activeHead(page).hover();
+        await marginSwitch(page).click();
+        await expect(marginItems(page)).toHaveCount(2);
+        // 点批注：它成为当前，卡片上的按钮显现。
+        await clickComment(page, "未申酉");
+        await expect(marginItems(page).nth(1).locator("[data-markdown-comment-controls]")).toBeVisible();
+        const sampling = marginItems(page).nth(1).evaluate((element) => new Promise<number[]>((resolve) => {
+            const seen: number[] = [];
+            const started = performance.now();
+            const tick = (): void => {
+                seen.push(Number.parseFloat(getComputedStyle(element).opacity));
+                if (element.isConnected && performance.now() - started < 3000) requestAnimationFrame(tick);
+                else resolve(seen);
+            };
+            requestAnimationFrame(tick);
+        }));
+        await marginItems(page).nth(1).getByRole("button", {name: "删除批注"}).click();
+        const seen = await sampling;
+        expect(seen.some((value) => value > 0.05 && value < 0.95)).toBe(true);
+        await expect(marginItems(page)).toHaveCount(1);
     });
 
     test("新增一条批注：别的卡片滑到新位置（top 在过渡中），换文档与首次打开时卡片不从顶上滑下来", async ({page}) => {

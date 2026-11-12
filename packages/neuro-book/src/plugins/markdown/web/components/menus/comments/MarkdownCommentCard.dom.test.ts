@@ -1,4 +1,4 @@
-/** 批注卡片（docs/specs/workbench/markdown-editing.md 输出 29）：看、写、只读、摘要，按下不夺焦、窗口失焦不丢字。 */
+/** 批注卡片（docs/specs/workbench/markdown-editing.md 输出 29）：看、写、只读、页边里的几种状态，按下不夺焦、窗口失焦不丢字。 */
 import {mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";

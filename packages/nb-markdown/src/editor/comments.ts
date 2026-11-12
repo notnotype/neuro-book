@@ -40,7 +40,7 @@ export interface CommentInfo {
     readonly end: number;
     /** 各截的范围；块批注是整个节点（含两端）。 */
     readonly segments: ReadonlyArray<Readonly<Range>>;
-    /** 身份：标记的 `key`，块批注是 `b` 加位置。只用来判断“进入了哪条批注”（`commentEntry`），换文档、改动之后不保证稳定。 */
+    /** 身份：标记的 `key`，块批注是 `b` 加位置。同一个事务里区分各条批注（卡片的 `v-for`），块批注的位置一变它就变，所以不能当跨事务稳定的 key（页边卡片的 key 见 `MarkdownCommentLayer`）。 */
     readonly identity: string;
     /** 同一条的各截的分组键（标记的 `key`；没有 `key` 的退回 `id` 加意见）；块批注为 null。 */
     readonly group: string | null;

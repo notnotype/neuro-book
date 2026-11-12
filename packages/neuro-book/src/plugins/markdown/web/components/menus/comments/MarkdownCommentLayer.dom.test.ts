@@ -191,6 +191,19 @@ describe("悬停出卡片（输出 30）", () => {
         expect(popover()).toBeNull();
     });
 
+    it("点击收起之后指针直接移到另一条批注上（输入重画元素时指针不动也是新元素）：同一次悬停不再弹；离开批注再回来才弹", async () => {
+        const {editor, scroller} = harness(TWO);
+        await hoverOpen(editor, "乙丙");
+        scroller.dispatchEvent(new Event("pointerdown", {bubbles: true}));
+        await vi.waitFor(() => expect(popover()).toBeNull());
+        moveOver(commentElement(editor, "己庚"));
+        await settle();
+        expect(popover()).toBeNull();
+        leaveComments(editor);
+        moveOver(commentElement(editor, "己庚"));
+        await vi.waitFor(() => expect(popover()?.textContent).toContain("第二条"));
+    });
+
     it("程序改的文档（不进历史：重载、写回回填）不收起开着的卡片，选区不空时收起", async () => {
         const {editor} = harness(TWO);
         await hoverOpen(editor, "乙丙");
@@ -252,6 +265,19 @@ describe("写（输出 28、29）", () => {
         await vi.waitFor(() => expect(popover()?.textContent).toContain("改过的意见"));
         expect(listComments(editor.state.doc).map((info) => info.body)).toEqual(["改过的意见", "第二条"]);
         expect(popover()?.querySelector("textarea")).toBeNull();
+    });
+
+    it("鼠标停在批注 A 上、光标在批注 B 里按 Ctrl+Alt+M：改的是 B，保存后回到“看”的卡片对着 B，不是 A", async () => {
+        const {editor} = harness(TWO);
+        await hoverOpen(editor, "乙丙");
+        editor.commands.setTextSelection(find(editor, "己庚").from + 1);
+        keyDown(editor.view.dom, {code: "KeyM", key: "m", ctrlKey: true, altKey: true});
+        await vi.waitFor(() => expect(popover()?.querySelector("textarea")).not.toBeNull());
+        expect((popover()?.querySelector("textarea") as HTMLTextAreaElement).value).toBe("第二条");
+        await type(popover() as ParentNode, "改的是第二条");
+        keyDown(popover()?.querySelector("textarea") as HTMLElement, {key: "Enter", ctrlKey: true});
+        await vi.waitFor(() => expect(popover()?.textContent).toContain("改的是第二条"));
+        expect(popover()?.textContent).not.toContain("第一条");
     });
 
     it("光标在批注里按 Ctrl+Alt+M 直接进“写”，取消后收起", async () => {
@@ -342,6 +368,24 @@ describe("页边（输出 33）", () => {
         await wrapper.setProps({marginDrawn: true});
         for (let index = 0; index < 6; index += 1) await nextTick();
         expect((document.querySelector("[data-markdown-comment-margin] textarea") as HTMLTextAreaElement).value).toBe("写了很久的意见");
+    });
+
+    it("块批注的卡片跨事务不重建：它前面打字、块的位置变了，页边里还是同一张卡片（重建会丢掉已显示的状态、重放入场动画）", async () => {
+        const {editor} = harness("前文\n\n<comment body=\"块\">\n\n正文一\n\n正文二\n\n</comment>\n\n后文\n", {marginDrawn: true});
+        await vi.waitFor(() => expect(marginItems()[0]?.hasAttribute("data-ready")).toBe(true));
+        const card = marginItems()[0];
+        for (let index = 0; index < 3; index += 1) {
+            editor.view.dispatch(editor.state.tr.insertText("字", find(editor, "前文").from));
+            await nextTick();
+            await nextTick();
+        }
+        expect(marginItems()).toHaveLength(1);
+        expect(marginItems()[0]).toBe(card);
+        expect(card?.hasAttribute("data-ready")).toBe(true);
+        // 新加的块批注是另一张卡片。
+        editor.view.dispatch(editor.state.tr.insertText("字", find(editor, "后文").from));
+        await nextTick();
+        expect(marginItems()[0]).toBe(card);
     });
 
     it("光标在同一条批注里走动不重复标出：每次选区变化只有一个事务", async () => {

@@ -269,7 +269,8 @@ defineExpose({
 }
 
 /* 卡片移除时淡出；绝对定位，不挤别的卡片。 */
-.markdown-comment-card-leave-active {
+/* 特异性要不低于 `[data-ready]` 上的 `transition`，否则整条盖掉，淡出没有动画。 */
+.markdown-comment-margin__item[data-ready].markdown-comment-card-leave-active {
     pointer-events: none;
     transition: opacity var(--motion-fast) var(--ease-dialog-leave);
 }

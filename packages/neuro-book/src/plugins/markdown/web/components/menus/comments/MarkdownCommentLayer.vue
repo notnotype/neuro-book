@@ -155,8 +155,9 @@ const marginItems = computed<MarginItem[]>(() => {
     if (!props.marginDrawn || editor === null) return [];
     const editing = writingInfo.value;
     const open = cursorComment.value;
+    const keys = new Map<number, string>();
     const items = list.value.map((info): MarginItem => ({
-        key: info.identity,
+        key: marginKey(info, keys),
         info,
         // `cursorAt` 与 `list` 是同一个事务里各算一次的，对象不同，序号相同就是同一条。
         mode: editing !== null && info === editing ? "write" : writing.value === null && open !== null && info.index === open.index ? "current" : "idle",
@@ -168,8 +169,24 @@ const marginItems = computed<MarginItem[]>(() => {
         const index = items.findIndex((item) => (item.info as CommentInfo).start > at);
         items.splice(index < 0 ? items.length : index, 0, {key: "pending", info: null, mode: "write", anchor: at});
     }
+    blockKeys = keys;
     return items;
 });
+
+/**
+ * 页边卡片的 key 要跨事务稳定：位置过渡、入场动画与“排好才显示”都按 key 记，key 一变整张卡片重建、重新入场。行内批注的 `identity` 是标记的
+ * `key`，稳定；块批注的 `identity` 带着块的位置，块前面每打一个字就变。所以块批注的 key 自己记：位置经每个事务映射后沿用原来的，
+ * 新出现的块批注取新的。
+ */
+let blockKeys = new Map<number, string>();
+let blockKeySeed = 0;
+function marginKey(info: CommentInfo, next: Map<number, string>): string {
+    if (!info.block) return info.identity;
+    const at = (info.segments[0] as {from: number}).from;
+    const key = blockKeys.get(at) ?? `block-${(blockKeySeed += 1)}`;
+    next.set(at, key);
+    return key;
+}
 // 标出是一个事务，不在 `transaction` 事件的调用栈里发；`post` 让它在这一轮更新之后。
 watch(shown, (target) => {
     if (props.editor !== null) markShownComment(props.editor, target);
@@ -312,6 +329,7 @@ function onTransaction({transaction}: {transaction: Transaction}): void {
     const editor = props.editor;
     if (editor === null || (!transaction.docChanged && !transaction.selectionSet)) return;
     tick.value += 1;
+    if (transaction.docChanged) blockKeys = new Map([...blockKeys].map(([at, key]) => [transaction.mapping.map(at), key]));
     const typed = transaction.docChanged && transaction.getMeta("addToHistory") !== false;
     if (typed || !editor.state.selection.empty) closeView(true);
     if (writing.value === null) current.value = null;
@@ -330,7 +348,7 @@ function onKeyDown(event: KeyboardEvent): void {
     const first = cursorAt.value[0];
     if (first === undefined) return;
     event.preventDefault();
-    beginEdit(first);
+    beginEdit(first, editor.state.selection.head);
 }
 
 /** Esc 收起悬停的卡片：听 `document`，只读的正文拿不到焦点，鼠标停着时焦点也常在别处。 */
@@ -389,10 +407,10 @@ function beginAddBlock(pos: number): void {
     writing.value = {ref: null, block: {pos, node}, session, at: null};
 }
 
-function beginEdit(info: CommentInfo): void {
+/** 改这条批注的意见；`at` 是卡片贴的位置，由入口给：悬停卡片上的编辑按钮是悬停处，Ctrl+Alt+M 是光标，页边里的编辑是这条批注的开头。 */
+function beginEdit(info: CommentInfo, at: number): void {
     const editor = props.editor;
     if (editor === null || props.readonly) return;
-    const at = viewing.value?.pos ?? editor.state.selection.head;
     closeView(false);
     session += 1;
     draftText.value = null;
@@ -492,7 +510,7 @@ defineExpose({
                     :readonly="props.readonly"
                     :labels="labels"
                     :session="0"
-                    @edit="beginEdit(info)"
+                    @edit="beginEdit(info, viewing?.pos ?? info.start)"
                     @remove="remove(info)"
                     @previous="step(info, -1)"
                     @next="step(info, 1)"
@@ -514,7 +532,7 @@ defineExpose({
                 :version="tick"
                 :draft="draftText"
                 @update:draft="(text) => { draftText = text; }"
-                @edit="beginEdit"
+                @edit="(info) => beginEdit(info, info.start)"
                 @remove="remove"
                 @previous="(info) => step(info, -1)"
                 @next="(info) => step(info, 1)"
