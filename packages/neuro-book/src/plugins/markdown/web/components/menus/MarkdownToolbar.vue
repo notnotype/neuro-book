@@ -7,6 +7,9 @@ import {computed, onBeforeUnmount, onMounted, ref, useTemplateRef} from "vue";
 import {EDITING_ACTIONS, EDITOR_TOOLBAR_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
+import {useMarkdownColors} from "../../colors";
+import {blockMenuItems} from "./block-menu";
+import MarkdownBlockTypeMenu from "./MarkdownBlockTypeMenu.vue";
 import MarkdownColorButton from "./MarkdownColorButton.vue";
 import {HIGHLIGHT_COLORS, LINK_COMMAND, TEXT_COLORS} from "./palette";
 import type {PaletteColor} from "./palette";
@@ -14,9 +17,11 @@ import type {PaletteColor} from "./palette";
 const props = defineProps<{editing: EditorEditing; menus: EditorMenus; readonly: boolean}>();
 const emit = defineEmits<{(event: "prompt", action: "ruby" | "bilingual"): void; (event: "refocus"): void}>();
 
-/** 版面用的定值：`IconButton` 的 `sm` 是 26px，按钮之间 gap 2px，分隔线连两侧 9px，“⋯”占一个按钮。 */
+const remembered = useMarkdownColors();
+
+/** 版面用的定值：`IconButton` 的 `sm` 是 26px，按钮之间 gap 2px，分隔线连两侧 9px，“⋯”占一个按钮；颜色按钮多一个 14px 的箭头。 */
 const BUTTON = 28;
-const COLOR = 28;
+const COLOR = 42;
 const BLOCK = 78;
 const ALIGN = 42;
 const SEPARATOR = 11;
@@ -99,17 +104,6 @@ const fit = computed(() => {
     return {visible, hidden: items.value.slice(count)};
 });
 
-const blockActions: ReadonlyArray<EditingActionId> = ["paragraph", "heading-1", "heading-2", "heading-3"];
-const currentBlock = computed(() => blockActions.find((id) => props.editing.active(id)) ?? "paragraph");
-const blockMenu = computed<DropdownMenuItemData[]>(() => blockActions.map((id) => ({
-    id,
-    label: props.menus.title(id),
-    iconClass: EDITING_ACTIONS[id].icon,
-    type: "checkbox",
-    checked: currentBlock.value === id,
-    disabled: props.readonly || !props.editing.enabled(id),
-})));
-
 const ALIGNS = ["left", "center", "right", "justify"] as const;
 const alignMenu = computed<DropdownMenuItemData[]>(() => ALIGNS.map((value) => ({
     id: value,
@@ -132,7 +126,7 @@ const moreMenu = computed<DropdownMenuItemData[]>(() => {
         switch (item.kind) {
             case "action": return [itemOf(item.action)];
             case "command": return [{id: `command:${item.command}`, label: item.title, iconClass: item.icon, disabled: props.readonly || !item.enabled}];
-            case "block": return blockMenu.value;
+            case "block": return blockMenuItems(props.editing, props.menus, props.readonly);
             case "align": return alignMenu.value.map((entry) => ({...entry, id: `align:${entry.id}`}));
             case "color": return [{
                 id: item.action,
@@ -164,10 +158,6 @@ const dropdownProps = {
         afterSelect = null;
     },
 };
-function onBlockSelect(id: string): void {
-    afterSelect = "refocus";
-    props.menus.run(id as EditingActionId);
-}
 function onAlignSelect(value: string): void {
     afterSelect = "refocus";
     props.menus.run("align", {value});
@@ -181,6 +171,8 @@ function onMore(id: string): void {
     else if (id.startsWith("color:")) {
         const [, action, color] = id.split(":") as [string, "text-color" | "highlight", string];
         props.menus.run(action, {color: color === "" ? null : color});
+        // 与颜色按钮的色板一样记住，宽了以后按钮上是这次的颜色。
+        if (color !== "") remembered.remember(action, color);
     }
     else if (id === "ruby" || id === "bilingual") emit("prompt", id);
     else props.menus.run(id as EditingActionId);
@@ -224,12 +216,7 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
                     :disabled="props.readonly || !item.enabled"
                     @click="props.menus.execute(item.command)"
                 />
-                <DropdownMenu v-else-if="item.kind === 'block'" :items="blockMenu" :content-props="dropdownProps" @select="onBlockSelect">
-                    <button type="button" class="markdown-toolbar__block nb-ui-focus-ring" :disabled="props.readonly" :title="props.menus.label('blockType')" :aria-label="`${props.menus.label('blockType')}：${props.menus.title(currentBlock)}`">
-                        <span class="truncate">{{ props.menus.title(currentBlock) }}</span>
-                        <span class="i-lucide-chevron-down h-3 w-3 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" />
-                    </button>
-                </DropdownMenu>
+                <MarkdownBlockTypeMenu v-else-if="item.kind === 'block'" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" @refocus="emit('refocus')" />
                 <MarkdownColorButton v-else-if="item.kind === 'color'" :action="item.action" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" />
                 <DropdownMenu v-else-if="item.kind === 'align'" :items="alignMenu" :content-props="dropdownProps" @select="onAlignSelect">
                     <button type="button" class="markdown-toolbar__align nb-ui-focus-ring" :disabled="props.readonly || !props.editing.enabled('align')" :title="props.menus.title('align')" :aria-label="props.menus.title('align')">
@@ -298,7 +285,6 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
     overflow: hidden;
 }
 
-.markdown-toolbar__block,
 .markdown-toolbar__align {
     display: inline-flex;
     flex-shrink: 0;
@@ -311,24 +297,16 @@ const colors = (id: "text-color" | "highlight"): ReadonlyArray<PaletteColor> => 
     transition: background-color var(--motion-fast) var(--ease-layout);
 }
 
-.markdown-toolbar__block {
-    width: 76px;
-    justify-content: space-between;
-    padding-inline: 8px;
-}
-
 .markdown-toolbar__align {
     width: 40px;
     justify-content: center;
     color: var(--text-secondary);
 }
 
-.markdown-toolbar__block:not(:disabled):hover,
 .markdown-toolbar__align:not(:disabled):hover {
     background: var(--bg-hover);
 }
 
-.markdown-toolbar__block:disabled,
 .markdown-toolbar__align:disabled {
     cursor: not-allowed;
     opacity: 0.4;

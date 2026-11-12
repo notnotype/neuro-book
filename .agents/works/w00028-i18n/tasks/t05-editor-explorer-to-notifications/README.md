@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t05-editor-explorer-to-notifications
 status: planned
-updated: 2026-11-07
+updated: 2026-11-10
 ---
 
 # 编辑器与资源管理器的失败与状态改走通知
@@ -14,7 +14,7 @@ updated: 2026-11-07
 - **编辑器**（`packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue` 的 `banner`）：去掉顶部横幅行。保存失败、文件被外部改动、编辑冲突、文件被删除、格式无法表示、未决状态、会话结束都改成与文档状态绑定的常驻通知（带原横幅上的动作：重载、覆盖、采用当前、保留视图、定位），状态消失时通知跟着移除，切换与关闭标签时随文档增减；标签上“保存失败”换警告图标，“有改动未保存”仍是小圆点。
 - **资源管理器**（`explorer/web/components/ExplorerFeedback.vue`）：单行的 `notice` 改发通知；批量进行中、逐项结果、结果未知（要重查或放弃）这几块带持续状态与列表，是否一并迁，开工时按它们的形状定。
 - **外部改动与冲突的解决方式**：开发者提到“diff 解决”。现在只有“重载”“覆盖”两个动作；改成按差异逐块解决是新功能，要先做设计（评审板），不在本 Task 默认范围内，开工时与开发者再确认。
-- 失败原因里的开发诊断原文走 t04 的详情载体；原文由谁产出（错误码与参数）属于 [w00031 t03](../../../w00031-language-policy/tasks/t03-failure-projection/README.md)。
+- 失败原因里的开发诊断原文走 t04 的详情载体；错误码与参数由 [w00031 t06](../../../w00031-language-policy/tasks/t06-editor-files-failures/README.md) 产出（2026-11-10 从 w00031 t03 拆出），本 Task 排在它之后，两者共用“编辑器保存与关闭的失败码”合同。
 
 依据：[t04 README 的设计决定](../t04-failure-details/README.md)、评审板截图 `editor-failure`、`explorer-failure`。
 

@@ -1,0 +1,173 @@
+审查对象：w00039 t31 内核补口八项（canon 四份 Spec 的未提交 planned 条目、plan.md“零、内核补口”）。审查者：Claude Opus（只读）。
+
+### 1. revisions 输出 18 末句的 planned 说明与事实相反：写入请求不带 key 早已可以，测试也覆盖了
+严重程度：重要
+类别：文档 / 规范
+位置：docs/specs/canon/revisions.md 输出 18 末句（新加）；plan.md K8“顺带把输出 18 与 schema 里排序键必填的不一致定下来”
+现象：新加的话是“写入请求里章内安放不带 key 时按上面的规则算（planned：现在的写入请求必须带 key，只有就地改与记一笔由程序算）”。实际上内核在 world/world.ts:459 只用 WriteRequestSchema 校验请求，其中 puts[].after 是 Type.Unknown()（core/schema.ts:369），key 由 fillDefaults（world.ts:1157-1160，changeKey + tailKeys）在对象 schema 校验（world.ts:527）之前补上；核对点同样（world.ts:1193-1197）。远程合同 shared/contracts.ts 的 publish 也用同一个 WriteRequestSchema。PlacementSchema 里 key 必填（core/schema.ts:18）只约束“存下来的对象”，不是请求。
+为什么是问题：把已实现的行为标成 planned，会让 K-c 的实现者去“实现”一个已有的行为（可能另写一套算键逻辑，与 tailKeys 分叉），也让 K8 背了一个不存在的“不一致”；输出 18 原文本来就写着“写入请求没给排序键时，程序按……算”，新加的这句与它重复。
+如何核实：cd packages/nb-canon && bun test tests/revisions.test.ts -t '没给'：7 pass，其中“没给排序键时按讲述的原句在本章第一次出现的位置算”（revisions.test.ts:262）与“没给键、没有正文讲述：排在本章最后；空章从 0 起；同一请求里按写的先后”（:503）直接 delete draft.at.key 后 publish 成功。
+建议改法：删掉输出 18 新加的末句；plan.md K8 去掉“顺带定下来”这半句。若担心 model.md 输出 4“写入时给定”被读成“必须由写入者给”，改成“写入时定下（写入者给，或按 revisions 输出 18 算）”即可，不标 planned。
+
+### 2. origins（model 输出 37）不分页，在规模夹具上一个常出场字段的来历就超过远程预算，“每步带安放与文字”之后必然 too-large
+严重程度：阻断
+类别：安全与性能 / 正确性
+位置：docs/specs/canon/model.md 输出 37；project.md 方法表 `origins`（planned）；plan.md K5
+现象：按 nb-canon 的 scripts/scale.ts 同形状（1000 章，常出场条目之间每章 15 笔转账）建引擎，读 hot[0] 的 panel.存款 在最后一章末尾的来历：8001 步，JSON 515,571 字节（现在的形状）。按输出 37 给每个 patch 步加上变更的安放 `at` 与文字 `text`：文字用样本里的“情节”两字时 917,929 字节（预算 983,040），文字换成一句 25 个汉字的普通描述时 1,349,929 字节，超出预算 37%。remote.ts 对非列表结果走 `within`，超了直接回 `too-large`（remote.ts:33-35），没有分页可退。
+为什么是问题：author-ui 输出 10、“点值看来历”“流水”恰恰最常点主角的数值字段；照字面实现，写到中后期的作品里这个按钮对主角恒失败。现有的 `entry(withOrigins)` 也有同样问题（只差没有文字），一个条目两个这样的字段就超预算，K5 把它放大了。
+如何核实：/tmp/review-w00039-t31-design2/opus/origins-cost.ts（复制 scale.ts 的 build，绝对路径导入 nb-canon 源码），`bun run origins-cost.ts` 输出 stepsOn存款AtLast=8001、bytes存款Origins=515571、enrichedUtf8=917929、realisticUtf8=1349929、budget=983040。
+建议改法：origins 定成列表方法：按步分页（游标同输出 19，`desc` 从最近一步往前），页带总步数；或只给最近 N 步加“更早还有 M 步”。初值一步与语义档的 reduce 一步放在页外的固定字段里。author-ui 的来历面板按页读。
+
+### 3. changedAt（project 输出 32）若照“来历的最后一步”算，entry 的读取从 0.24 毫秒变成几十毫秒，破输出 14 的 20 毫秒预算
+严重程度：重要
+类别：安全与性能
+位置：docs/specs/canon/project.md 输出 32；plan.md K5“entry 的每个字段状态加最近一次改它的安放”
+现象：输出 32 让 `entry` 无条件地给每个字段带 changedAt。现成的最近数据来源是 engine.origins（incremental.ts:412-457）：每个地址从初值 structuredClone 起把这个条目的整条时间线重放一遍，每个相关补丁再 structuredClone 一次结果。同一实验里，随机位置读常出场条目：只读 entry 中位数 0.24 毫秒；entry 加 4 个字段的 origins 中位数 36 到 47 毫秒；在最后一章末尾读 4 个字段的 origins 中位数 76 到 114 毫秒（机器负载 6 到 12，绝对值偏大，但比值约 150 到 200 倍）。project.md 输出 14 的预算是“随机读一个条目（实际模式，不要来历）中位数 20 毫秒以内”，输出 32 让“不要来历”的读取也付这笔。
+为什么是问题：K-b 照最省事的做法（复用 origins 取最后一个 patch 步）就会破预算，且这个成本在 author-ui 的每个条目页、每次换位置都付。
+如何核实：同上脚本的 plainMedian 与 entryPlus4OriginsMedian、last4OriginsMedian。
+建议改法：Spec 不变，但在 K-b 的计划与实现合同里写死算法：在 foldAtPoint 已经走过的那遍时间线里顺手记每个地址（含祖先地址）最后一次被生效补丁碰到的变更，一遍 O(事件数)，不复制值；两个引擎各实现一次并进差分测试。或者把 changedAt 改成 entry 的可选参数（像 withOrigins），只有条目页要时才算，并在输出 14 加一行带它时的预算。规模脚本加一项“带 changedAt 的随机读”。
+
+（第 3 条补充：incremental 的 entry 不是整条重放，而是 foldAtPoint 从检查点 foldThrough（incremental.ts:705-718），所以“顺手记”要进快照。更省的做法：拿到 count 之后，从 timeline.items[count-1] 往前扫，对每个字段用 addressesOverlap 找第一条 applied 的 change 事件，不复制值；只在初值设过的字段要扫到头，约 8000 项的比较，量级在毫秒以下到一两毫秒。reference 引擎同样倒扫事件序列。）
+
+### 4. changedAt 进带视图令牌的 entry，会经剧情插件的按视角视图原样漏出被遮住的字段的改动时间与变更 id
+严重程度：重要
+类别：安全与性能 / 不变量
+位置：docs/specs/canon/project.md 输出 32“（含带视图令牌的条目读取）”；packages/neuro-book/src/plugins/plot/core/viewpoint.ts:133-149（#filterEntry）
+现象：剧情插件按视角过滤条目时，对每个字段写的是 `fields[fieldId] = {...state, value: this.#maskValue(...)}`，只换 value，FieldState 上的其它属性原样展开。输出 32 给 FieldState 加 changedAt（变更 id 与安放）后，指向 V 读不到的知识点、被换成占位的引用字段（例如目标的“隐秘”、知情列表行），照样带出“哪条变更、在第几章第几个键改过它”。plot/knowledge.md 输出 9 对视图只给“经历”里 V 在场的变更 id、并拒绝剧情变更列表，changedAt 给了 V 不该知道的变更 id 与时间。
+为什么是问题：内核 Spec 说视图“不按知情过滤内容”，过滤在插件那一层；新字段用展开的写法自动穿过插件的过滤，作者与实现者都不会想到要改 viewpoint.ts，计划的 K-b 允许改动范围里也没有剧情插件。
+如何核实：读 viewpoint.ts:143-145；对照 plot/knowledge.md:61-66 列出的“读一个条目”可给的内容（不含变更 id 与安放）。
+建议改法：二选一，都简单：(a) 输出 32 改成带视图令牌的 entry 不给 changedAt（与 `upcoming: []` 同样处理，内核在 viewed().entry 里去掉）；(b) 保留，但 plot/knowledge.md 输出 9 写明被遮住的字段去掉 changedAt，并把 viewpoint.ts 列进 K-b 的文件与测试。author-ui 是作者读，不带令牌，(a) 不影响界面。
+
+### 5. changedAt 的定义在几种情况下不唯一：子线上带过去的值、套不上的补丁、核对点给的起点
+严重程度：重要
+类别：正确性 / 文档
+位置：docs/specs/canon/project.md 输出 32；model.md 输出 37“带过去的一步照旧”
+现象：
+- 子线：带过去的值在引擎里是一条合成变更，id 就是分叉那条变更的 id、安放是切口（lines/set.ts:210-213，service/reads.ts:203-207 才把它换成 carried 步）。照“最近一条改过这个地址的生效变更”算，子线上每个被带过去的字段的 changedAt 都是“分叉那条、切口那章”，哪怕值在父线上几百章前就定了；而那条分叉变更存下来的 patches 里并没有这个地址。
+- 补丁没套上：两个引擎的来历只在整条变更 `applied` 为假时跳过（incremental.ts:430、reference.ts:271-272），变更套上了而其中这个补丁 notApplicable（命名空间停用、类型不在）时照样记一步；照来历算的 changedAt 会指向一条并没有改动这个值的变更。
+- 核对点作为语义档的起点（anchor）改了值，但不是剧情变更，changedAt 不算它；界面会在“第 30 章核对改成了 X”之后仍写“第 12 章改过”。
+为什么是问题：两个引擎要给出相同结果、差分测试要覆盖，定义有歧义时两边各自猜，差分测试未必能发现（两边都复用同一个 origins 时一起错）；界面“第 N 章改过”在子线上会集体指向切口，误导作者。
+如何核实：读上述行；子线情形可在 tests/ 的世界线样本上读子线 entry，看 origins 里 patch 步的 change 是否等于 fork 变更 id。
+建议改法：输出 32 补三句：子线上带过去而本线没再改过的，changedAt 取 carried 步的 `{line, change}`（原线上那条），不取分叉；只算这个补丁本身套上了的；核对点给起点的不算（或明写“核对点给起点时为空”）。都是一行规则，不加机制。
+
+### 6. chapters、components 说“带世界版本”，但章表与登记变化时版本不动、也没有任何事件，按版本缓存的读取层永远读不到新的
+严重程度：重要
+类别：正确性 / 不变量
+位置：project.md 输出 28（chapters）；components.md 输出 21（components）；plan.md K3“章序变了随 changed 事件失效”、“三、读取层”（按 version 与 changed 事件重读）
+现象：
+- 登记变化：WorldService.setRegistries（service.ts:1054-1062）只 withOptions 换登记，不加版本、不发事件。components.md 输出 21 自己写了“登记变了（插件启用或停用）以后重读得到新的”，但调用方没有任何信号知道该重读。
+- 章讲的线变了而章序没变：setChapters（service.ts:996-1009）里 World.reorder 只比 order.ids（world.ts:633），只改 `<segment>` 或章的 line 时不发修订、不加版本、不发事件；输出 28 的章表里却含“各段讲的线”。
+- 世界只读时宿主给新章序：同样只 withOptions，不发修订（project.md 输出 9 自己就这么规定），输出 28 又说此时 chapters 返回新章序，版本不变。
+- 章标题：binder.ts 现在不读 `<chapter title>`（只取 id 与线，binder.ts:96-103），改标题只动 binder.xml，onBinderChange 对 binder.xml 认不出章号直接 return（world-host.ts:186-191），不发 textChanged；剧情插件随后同步文件名才会触发那一章的 textChanged，这是间接且依赖另一个插件的时序。
+为什么是问题：plan 的读取层“同一个 (method, input) 在同一个版本里只发一次”，以上四种变化都不改版本，界面会一直显示旧章表、旧的段线、旧的可选类型；位置选择器里的“第 N 章”与条目页按新章序算出的值对不上，正是 brief 第 7 点担心的那种不一致。
+如何核实：读上述行；在 nb-canon 的 service.test.ts 里对一个打开的服务调 setRegistries 或 setChapters（同章序、换段线），订阅事件，确认没有任何事件、status().version 不变。
+建议改法：输出 28、21 的结果改成“带读取戳（输出 19：版本、正文快照摘要、读取输入摘要）”，并加一个事件（例如 `inputChanged`，或把现有 `textChanged` 扩成“读取输入变了，版本不变”），在 setRegistries、setChapters 不发修订时、setTime、reportDataVersion 时发；读取层按读取输入摘要而不是版本去重。章标题要进 chapters，就得写明宿主从 binder.xml 的 `title` 读、title 变了算哪种输入变化（不进 model 输出 36 的摘要时，至少要发上面那个事件）。
+
+### 7. recordNote 的失败码 type-mismatch 不是顶层失败码；“一句发生了什么”与事件文字的关系没写
+严重程度：建议
+类别：规范 / 文档
+位置：revisions.md 输出 23
+现象：type-mismatch 在现有失败表里只是 validation-failed 的一个细项（revisions.md:136；WriteFailure 只有 7 种顶层码，world.ts:114-123；EditFailure 另加 7 种，edits.ts:29-38）。输出 23 写“字段不是语义档时拒收（type-mismatch）”，与同条里 value-conflict、field-unavailable、intent-not-allowed 这些顶层码并列，读起来是新顶层码。另外只说“文字是这句话，带一个给这个字段的事件”，没说事件（note 补丁的 value）是不是同一句。
+为什么是问题：实现者会二选一猜；界面的失败文案按顶层码分支。
+如何核实：grep 失败表 revisions.md:134-150。
+建议改法：写成“validation-failed，细项 type-mismatch”，与 edits.ts:84 记一笔的 number-out-of-range 同形；写明 note 的 value 与变更 text 是同一句。
+
+### 8. 就地改与记一笔重发同一请求 id 得到 value-conflict，不是第一次的结果；recordNote 照 editInPlace 的路子写会继承这个错
+严重程度：重要
+类别：正确性 / 不变量
+位置：packages/nb-canon/src/world/edits.ts:63-72（先比读到的值、后进 publish）；revisions.md 输出 16、23；project.md 验收 7
+现象：editInPlace 先在当前世界上重算值并与 read.value 比较，再合成写入请求交给 publish；请求 id 的去重在 publish 里（world.ts:463-467）。第一次已经发布以后重发同一个输入：值已经是新值，与 read.value 不同，直接回 value-conflict，根本走不到去重。即使走到，合成出的请求也随世界变（键、baseVersion 之外的内容），摘要对不上会变成 request-id-reused。recordDelta 同样。
+为什么是问题：输出 16 承诺“带同一个 requestId 的写入请求……再次提交时返回第一次的结果”，断线重试（验收 7、revisions 验收 6）对就地改与记一笔不成立；输出 23 的 recordNote 若按 recordDelta 的样子包一层 editInPlace，原样继承。previewEdit 的“同样的输入写入”也依赖请求 id 语义清楚（见第 9 条）。
+如何核实：/tmp/review-w00039-t31-design2/opus/retry.test.ts（在 nb-canon 包目录 `bun test /tmp/review-w00039-t31-design2/opus/retry.test.ts`）：对样本世界 editInPlace 一次成功后，在新世界上用同一输入再调，输出 `retry after success: {"code":"value-conflict","current":41000}`；recordDelta 同样输出 `{"code":"value-conflict","current":41500}`。
+建议改法：editInPlace、recordDelta、recordNote 开头先查 world.requested(requestId)：有的话按这次输入本身（不是合成的请求）的摘要比，相同返回第一次的结果，不同回 request-id-reused；发布时用 publish 的 requestDigest 参数存输入的摘要（writeBack 与 revert 已经这样做，world.ts:322-339）。K-c 里顺手改，加一条重试用例。
+
+### 9. previewEdit：请求 id 已用过时预览返回什么没定；route 的三种盖不住输出 8 表里两行 planned 的路由
+严重程度：建议
+类别：规范 / 正确性
+位置：revisions.md 输出 22
+现象：
+- 预览走的是同一个 editInPlace 的计算（plan 的意思），编辑结果里的修订 id、新对象 id 由 allocator 按世界确定地发，时间不进操作与带来的变化，所以同一世界上预览与写入逐字相同是成立的（实验：同一世界上两次 editInPlace，ops 与 impact 的 JSON 完全相同，retry.test.ts 第三行输出 `ops equal: true impact equal: true`）。但请求 id 已经发布过时，publish 会返回第一次的修订并标 repeated（world.ts:463-467），预览就会把旧修订当成“预览的修订”交出去，route 却按当前世界算；摘要不同又会回 request-id-reused。输出 22 只说“预览不记请求 id”，没说预览看不看已有的请求 id。
+- route 只有 init、patch、change 三种。输出 8 表里“起点由核对点给出时改那个核对点（planned）”一旦实现，路由到的是核对点，三种都装不下；“增元素带的值改那个补丁（planned）”能装进 patch，但 change 的补丁是哪一个没说（同一条变更里可能有多个补丁碰到这个地址）。
+为什么是问题：前者让界面的确认条显示一份与写入无关的旧修订；后者让 route 的形状在下一次补口时要破坏性地改。
+如何核实：读 world.ts:463-467、edits.ts:113-128。
+建议改法：输出 22 加一句“预览忽略请求 id 的去重（按没用过算）”；route 的 patch 带上补丁下标 `{kind: "patch", change, patch}`，并说明 route 是可扩展的联合，planned 的核对点路由将来加 `{kind: "check", check}`。
+
+### 10. 语义档的“读到的值”含归纳文字，归纳在读与写之间落地时 recordNote 与 previewEdit 后的写入会无故 value-conflict
+严重程度：建议（产品现在没接小模型，潜在）
+类别：正确性
+位置：revisions.md 输出 22“同一份读取输入上……逐字相同（语义档的归纳文字除外）”、输出 23“读到的值与此刻不同时拒收”；engine/views.ts:118-123；service.ts:1126-1180
+现象：语义档字段的值是归纳缓存命中时的那句归纳，没命中时是“起点；之后：……”。归纳在后台补算，落地只发 `reduced`，不改版本，也不在 model 输出 36 的读取输入里。作者读到“冷淡；之后：A”，预览成功；归纳此时落地，值变成归纳句；写入时 editInPlace 比 read.value 不等，回 value-conflict。输出 22 的“除外”只豁免了带来的变化里的文字，没豁免读到的值的比较。
+为什么是问题：recordNote 专门写语义档，每记一笔就会排一次归纳（service.ts:1142-1154），接上小模型后连续记两笔的第二笔大概率撞上。现在 world-host.ts 没传 reducer，所以只是潜在。
+如何核实：读上述行；world-host.ts:223-241 的 ports 里没有 reducer。
+建议改法：语义档的 read 比较改成比起点与事件（FieldState.unreduced 已经有 anchor 与事件条数，可以比 `{anchor, events}`，或比来历的 reduce 步），不比展示文字；在输出 19 或 23 写一句。或者记为已知限制，等接小模型时再改。
+
+### 11. project.md 验收 10 与样本对不上，照字面写不出能过的测试
+严重程度：重要
+类别：测试
+位置：docs/specs/canon/project.md 验收 10（planned）；样本 packages/nb-canon/tests/sample/xingxia-prototype.json（plan 定为界面与 e2e 共用的那份）
+现象：
+- “tree 在第 1 章开头读根这一层……马甲‘哥哥’的 sameAs 是星瑕”：样本里“哥哥”（id brother）的 parent 是 xingxia（json 第 237-240 行），不在根这一层；author-ui 场景 1 也写“树里‘哥哥’在‘星瑕’下面”。根这一层读不到它。
+- “entry 读星瑕第 2 章末尾，存款的 changedAt 是第 2 章订蛋糕那条变更”：样本最后一步（items[10]）“记一笔：工资到账，三千左右”在 ch2、key 1010 记了一条改存款的变更 u29，晚于订蛋糕（c15，key 20）。全部发布后第 2 章末尾的 changedAt 是 u29。
+- “revision 读第 2 章记账那次修订，操作里有每个对象的改前改后”：那次修订新建了 c14 到 c18 等对象，create 操作只有 after（core/schema.ts:292），没有改前。
+为什么是问题：K-a、K-b 的合同测试照验收写，要么失败，要么实现者改测试去迁就，验收就失去判据作用。
+如何核实：python3 读样本 items[5]、items[10] 与 brother 条目（本次审查已读，见上）。
+建议改法：tree 那句改成“读星瑕下面这一层，‘哥哥’的 sameAs 是星瑕”；changedAt 那句改成读第 2 章 key 1010 之前不可表达，改成“读第 1 章末尾，存款没有 changedAt（只在初值或前史设过时给前史那条）”或“第 2 章末尾是工资到账那条”；revision 那句改成“新建的对象有改后、改过的计划有改前改后”。
+
+### 12. Spec 写法：方法表后半截不成表、输出 24 没跟着列新方法、新参数没说进游标
+严重程度：建议
+类别：规范 / 文档
+位置：docs/specs/canon/project.md 第 71 行起的方法表；输出 24；输出 19
+现象：
+- 方法表在第 69 行后被一段正文“读取位置都可以带线……”打断（第 71 行），之后的行没有表头与分隔行，又紧贴段落，Markdown 里渲染成一段带竖线的文字。新加的 revision、chapters、origins、components、previewEdit、recordNote 都落在这半截里。这是原有的问题，这次加行放大了它。
+- 输出 24 显式列了带令牌时允许与拒绝的方法；新方法里只有 chapters（输出 28）与 revision（输出 29）自己写了，origins、components、previewEdit、recordNote 没写。remote.ts 的写法是“没列进允许清单的一律 denied”，所以 origins 带令牌会被拒——若这是意图，应写进输出 24；“写入与预览一律 view-denied”覆盖 previewEdit、recordNote，但最好点名。
+- 输出 31 的 `order: desc` 与 `before`、输出 30 的位置与模式，都改变列表的内容或顺序；`#page` 的游标参数是 `{method, ...filter}`（service.ts:791、754），order 若不放进 filter、tree 的位置与模式若不进参数，换顺序或换位置拿旧游标续读不会 cursor-stale，而是悄悄错页。输出 19 已有一般规则，但新参数在 filter 之外时容易漏。
+- 输出 31 的 before 用的是哪条线没写：位置可以带线，`worldline` 也是参数；“已经算进去”应按位置的线（不写线时按那一章讲的线，输出 12），并隐含只列那条线视图里的。
+如何核实：读 project.md:69-92；service.ts:754、791。
+建议改法：把第 71 行那段挪到表后；输出 24 补一句列出 origins（拒或夹到上限）、components（允许，登记不涉及位置）；输出 30、31 各加半句“这些参数属于游标的读取参数”；输出 31 写“before 按它的位置的线算”。
+
+### 13. tree 的 remaining 与 author-ui 的“已删除的只在有子条目时列出”冲突；hasChildren 把已删除的子条目也算进去
+严重程度：建议
+类别：正确性
+位置：project.md 输出 30；author-ui.md 输出 2；service.ts:750-760
+现象：输出 30 规定已删除的条目照常列出、remaining 是这一层之后还有几项；author-ui 输出 2 要求已删除而没有子条目的不列，并显示“再显示（还有 N 项）”。界面只能在拿到页以后自己滤掉，N 用的是内核的 remaining，会多算被滤掉的墓碑；一页 50 项可能滤剩很少甚至空页。hasChildren 现在是“有任何 parent 指向它的条目”（含已删除的），只挂着已删除叶子的条目会显示可展开、展开后空。
+为什么是问题：界面上的数字与实际能看到的项对不上，不是大事，但这是合同层能一句话定下的。
+如何核实：读 service.ts:752-758。
+建议改法：输出 30 让 tree 按 model 输出 23 的规则自己决定列不列（已删除且没有未删除子孙的不列），remaining 与 hasChildren 都按这个规则数；或界面改成不显示 N。
+
+### 14. revision 与改动记录给不出“需要作者来源”这个不能还原的原因，界面输出 22 要它
+严重程度：建议
+类别：规范
+位置：project.md 输出 29（“能不能还原与原因（同一 Spec 输出 14）”）；revisions.md 输出 14；author-ui.md 输出 22；service.ts:852-853
+现象：revertable 现在只有 not-revertable（章序调整）与 has-dependents 两种原因。author-ui 输出 22 要求“需要作者来源的（修订里有对决定的修改）”时按钮不可用并写原因；这个判定要算补偿（World.#revertPlan 的 needed），内核在 revision 与 revisions 里都不给。界面要么对每条修订调一次还原预览（改动记录一页 20 条就是 20 次补偿计算），要么自己看 ops 里有没有 decision 猜（猜得不准：只有补偿后与改前不同且需要来源的才要）。
+如何核实：读 world.ts:361-389 与 service.ts:852-853。
+建议改法：输出 29 的结果另带 `needsAuthorSource: boolean`（按 #revertPlan 的 needed 是否非空，只对这一条算）；改动记录列表不带，界面在列表里不预先判断、点了再预览。或在 author-ui 侧改成“点了预览以后才告诉不能还原”。
+
+### 15. previewEdit“返回与写入相同的失败”只对世界层成立；服务层的失败预览给不出；origins“空结果”不要做进引擎
+严重程度：建议
+类别：规范 / 正确性
+位置：revisions.md 输出 22；model.md 输出 37 末句
+现象：
+- 写入的失败有一部分出在服务的 #write（service.ts:913-918）：stopping、world-read-only、write-unknown、busy（别人持有独占）、exclusive-lost。previewEdit 不带独占令牌、也不排队，照现有 preview（service.ts:872-876）的做法会在这些情况下预览成功，随后写入失败。输出 22 的“会被拒收的输入返回与写入相同的失败”读起来包括它们。
+- 输出 37“条目不存在、路径不是声明过的地址时结果是空的”：现在两个引擎对未声明的路径返回只有初值一步的来历（incremental.ts:413-421、reference.ts:254-261），editInPlace 与 laterRecords 都直接用 Engine.origins，并对结果取 `steps.at(-1)!`（edits.ts:105-106）。若把“空”做进引擎，editInPlace 在某些没被前面拦下的路径上会拿到 undefined 而抛错。
+如何核实：读上述行。
+建议改法：输出 22 写成“世界层的拒收（输出 8、9、23 与写入校验）与写入相同；只读、独占等服务层状态不在预览里判断，界面按 status 与租约另行处理”（author-ui 输出 28 已经这样做）。输出 37 的“空”在服务的 origins 方法里判断（条目不存在或 parsePath 不认、字段没有声明时返回空），引擎不变。
+
+未发现问题的方面
+- previewEdit 在同一世界上的确定性：新对象 id、修订 id 由 allocator 按世界确定地发（world.ts:470-477、595），剧情变化的排序键 keyAt 只看线视图里的记录（edits.ts:54-61），时间不进操作与带来的变化。实验里同一世界两次 editInPlace 的 ops 与 impact 逐字相同。仔细检查后没有发现问题（请求 id 那一点见第 9 条）。
+- 章序未发布时 chapters 返回新章序：其它读取全部按 world.options.order 算（recordedChapters 只用于判断要不要发章序调整，world.ts:632），返回新章序与“按世界里记下的章序算的东西”没有对不上的地方。仔细检查后没有发现问题（失效信号见第 6 条）。
+- revision 带视图令牌拒绝：够用。plot 的按视角视图本来就拒绝改动记录，作者与主 Agent 不带令牌，`object` 同样能读到全文，revision 没有多漏东西。
+- components 的“声明原样”：ComponentType 的字段声明经 TypeBox 校验，是纯 JSON，agentView 等是字符串，可以原样过远程合同；实例声明的字段存在条目初值的 `declared`（core/schema.ts:106），数据来源有。
+- tree 的计算量：一层 50 项各读一次 entry，规模夹具上单次约 0.24 毫秒，合计十几毫秒；按计划模式第一次读受输出 14 的 1 秒预算约束，已有。
+- changes 的 total 与 before：listChanges 本来就先筛全部再分页（reads.ts:385-398），total 不另付；before 可以用 Engine.eventKey 与 plannedAt 按模式判断，与 model 输出 5 的“之前”同一套先后（含已写章上的计划按“章序加 0.5”）。
+- recordNote 的补丁形状：note 补丁的值是字符串，数的依据校验只对数值且非 note 的补丁（world.ts:1400），非叙述的变更不要求讲述；与现有校验不冲突。排序键与就地改同一个 keyAt，核对点的键也在它的取值范围里，是同一套。
+- 编号只在末尾追加、新条目末尾标 planned、失败码都在已有失败表里：符合 docs/specs/README.md（第 7、12 条另有两处写法问题）。
+
+对待确认项的判断
+- brief 第 3 点“写入请求不带 key 时按规则算（planned）该不该现在写”：不该。内核早已支持，是已实现行为，删掉这句（第 1 条）。
+- plan.md 第 63 行“与设定冲突的待定变更，在变更详情页改它的生效状态要不要做”：内核已经支持（revisions.md 输出 17；revisions.test.ts:205-208 把 held 改成 active 按新写的生效变更完整校验，不过就整次拒收），界面用 object 取原样、改 status、preview、publish 即可，不需要新的内核补口；可以做。
+- origins 与 entry(withOrigins) 是否合并：功能重叠，但 withOrigins 是已实现合同、Agent 可能在用，不必删；界面只用 origins。两者都有第 2 条的体积问题，withOrigins 至少应在 Spec 写明超预算时 too-large。
+- changedAt 能否由已有字段推出：能由来历推出，但代价见第 3 条，保留这一项，按倒扫时间线实现。
+- 八项里可以不要的：plan K7 的“entry 的每个命名空间带类型 id”已经有了（NamespaceView.type，engine/types.ts:67）；K4 的“是否已删除、有没有子项”也已经有（service.ts:757）。
+
+各级数量：阻断 1（第 2 条），重要 7（第 1、3、4、5、6、8、11 条），建议 7（第 7、9、10、12、13、14、15 条）；共 15 条。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15

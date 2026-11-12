@@ -59,7 +59,278 @@ ol.week li { margin: 2px 0; }
 <p>界面上不出现记录 id、Component、字段路径（提案第 8 节“入口与用词”），所以草稿里把提案的几个词换成了作者的说法：初值 → 开局，讲述 → 讲到的地方，补丁 → 改了什么，生效位置 → 什么时候。</p>
 </div>
 
-<div class="round">第一批（设定侧）· 审查以后要定的 2 题</div>
+<div class="round">第一批（设定侧）实施中 · 星瑕样本项目用什么类型</div>
+
+<section class="s">
+<h2>样本的类型和应用内置的对不上 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>第一批要有一个脚本生成“星瑕样本项目”，开发和 e2e 都打开它。样本来自 t16 原型，用的是原型自己定的四种数据：人物（身体、现在的样子、原身外观、性格、现在的态度）、面板（魔力、魔力上限、存款、今天还能回溯、随身物品）、身份、剧情线。</p>
+<p>应用里的数据种类只能由插件登记。现在内置的只有两种，字段是临时的（完整清单留给 t10）：人物（外观、状态、现在的态度）和面板（字段由每个条目自己加）。条目页上人物、面板的专门界面（你在第 7 版定的）挂在这两个内置种类上。</p>
+<p>样本里真正被剧情改动的：存款 8 次、现在的样子 5 次、外观 3 次、态度 2 次、身体、魔力、随身物品各 1 次。身份、剧情线只有开局的值，没有改动。</p>
+</section>
+
+<section class="q" data-nbdev-question="b1-sample-types" data-nbdev-type="single" data-nbdev-recommend="map-builtin">
+<h2>样本项目里的数据用哪种类型 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="map-builtin"><h3>换成内置类型，内置人物补上样本要的字段</h3><p>面板的五个字段成为每个条目自己加的字段（内置面板本来就这样用）。内置人物加上“身体”“现在的样子”“性格”三个字段，都做成文字而不是选项（“原身、哥哥、魔法少女”这类选项是这本书专有的，不该进内置）。身份、剧情线不带进样本（剧情线是第二批剧情侧的事）。样本里人物、面板的专门界面都看得到；内置人物多三个临时字段，t10 定完整清单时再整理。</p></div>
+<div class="opt" data-nbdev-option="map-lossy"><h3>换成内置类型，内置人物不动</h3><p>样本里内置人物没有的字段丢掉，或者写进条目的文字里。“马甲换样子”这条故事线在界面上看不到随章变化。</p></div>
+<div class="opt" data-nbdev-option="sample-plugin"><h3>原样保留四种类型，另装一个只给样本用的插件登记它们</h3><p>样本最完整；但人物、面板的专门界面挂在内置类型上，样本里看不到它们，只显示通用的字段表；还要多维护一个开发用插件。</p></div>
+</div>
+<div class="rec-note"><b>推荐：换成内置类型，内置人物补上三个字段。</b></div>
+</section>
+
+<div class="round">不改 Profile 也能控制写手的上下文 · 方案</div>
+
+<section class="s">
+<h2>把写手的上下文分成两层 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>你的问题：大多数用户用的是别人写的写手 Profile（社区分享的，或 NeuroBook 自带的），他们想在“写战斗场景时带上某段写作提示词”这类事上自己说了算，又不想去改 Profile。旧应用里 Profile 自带表单选项，你觉得不够。</p>
+<p>不够的原因是：表单里有什么选项由 Profile 作者决定，用户只能在他留的口子里选。我的建议是把上下文分成两层，各有各的主人：</p>
+<table>
+<tr><th>层</th><th>谁说了算</th><th>里面是什么</th></tr>
+<tr><td>Profile 层</td><td>Profile 的作者</td><td>系统提示词，和它自己的表单选项（旧应用那种，保留）</td></tr>
+<tr><td>作品层</td><td>写这本书的人</td><td>NeuroBook 按作品里的文件拼出来的几块：写作提示词、稳定的设定、前情、这一章。换哪个 Profile 都会收到</td></tr>
+</table>
+<p>Profile 不用知道作品层里写了什么，只决定这几块放在哪；不写就按缺省的顺序全带上（上一节那张五块的表）。所以社区的 Profile 不用为每个用户留口子，用户的东西一定进得去。</p>
+</section>
+
+<section class="s">
+<h2>作品层里加一种东西：写作提示词卡 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>一张卡就是作品里的一个文件，例如“写作提示词/战斗.md”：正文是提示词，文件开头写它什么时候带上。</p>
+<table>
+<tr><th>什么时候带上</th><th>例子</th></tr>
+<tr><td>总是带</td><td>文风提示词、稳定的设定</td></tr>
+<tr><td>按场景</td><td>这一章的细纲里有一条计划标了“战斗”，标着“战斗”的卡就带上</td></tr>
+<tr><td>这一章手动勾</td><td>这一章想试试“多写心理活动”</td></tr>
+</table>
+<ul>
+<li><b>看得见、改得了</b>：工作单“细纲”一步的“写手还会拿到”里，列出这一章带上了哪几张卡、为什么带上（例如“因为这一章有战斗”），可以临时去掉或加上。</li>
+<li><b>一套机制</b>：文风的三个文件、稳定的设定都是“总是带”的卡，放在同一个文件夹里。检查用的提示词（文风检查、“再查一项”里自己写的那一句）是同一种文件，只是标着“写完以后用”。</li>
+<li><b>能分享</b>：卡就是文件，可以随作品带走，也可以从别人那里拿一套过来。</li>
+<li><b>场景怎么标</b>：场景类型（战斗、日常、感情戏……）是你自己定的一组词。在“细纲”一步给每条计划选；Agent 提计划、记账时也可以标。</li>
+</ul>
+<p>这一版不做“出现某个关键词就自动带上”（酒馆世界书那种）：写手拿上下文的时候正文还没写，关键词只能去对细纲，容易带错；真有需要以后再加。</p>
+</section>
+
+<section class="q" data-nbdev-question="p-layers" data-nbdev-type="single" data-nbdev-recommend="two-layers">
+<h2>两层这个方向对不对 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="two-layers"><h3>对：作品层由 NeuroBook 拼，Profile 只管自己的系统提示词与选项</h3><p>用户换 Profile 不丢自己的文风、设定与提示词卡。代价是写手 Profile 的写法要有一份约定（留出这几块的位置），自带的 Profile 先照做。</p></div>
+<div class="opt" data-nbdev-option="profile-form"><h3>还是放在 Profile 里，把表单机制做强</h3><p>例如让 Profile 的表单能加“按场景注入的提示词”这种栏。灵活度看 Profile 作者，换一个 Profile 就要重填。</p></div>
+<div class="opt" data-nbdev-option="other"><h3>都不是</h3><p>在备注里写你的想法。</p></div>
+</div>
+<div class="rec-note"><b>推荐：两层。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="p-trigger" data-nbdev-type="multi" data-nbdev-recommend="always,scene,manual">
+<h2>提示词卡第一版做哪几种“什么时候带上” <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="always"><h3>总是带</h3><p>文风、稳定的设定靠它。</p></div>
+<div class="opt rec" data-nbdev-option="scene"><h3>按场景</h3><p>你举的“战斗场景”靠它。要先有“场景类型”这组词和给计划标场景的入口。</p></div>
+<div class="opt rec" data-nbdev-option="manual"><h3>这一章手动勾</h3><p>最简单，也是另外两种的兜底。</p></div>
+<div class="opt" data-nbdev-option="keyword"><h3>按关键词</h3><p>细纲里出现某个词就带上。容易带错，不推荐第一版做。</p></div>
+</div>
+<div class="rec-note"><b>推荐：前三种。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="p-notes" data-nbdev-type="text">
+<h2>这个方案还缺什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>定了以后写进任务 t36（写手上下文与分级摘要），和摘要一起出计划。</p>
+</section>
+
+<div class="round">前情与文风 · S 摘要的方案（已定）</div>
+
+<section class="s">
+<h2>方案：范围摘要两两合并 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>你的要求：L 摘要管一章（三级，探索时的提示词我读了：L1 不超过原文一半，L2 约三分之一，L3 两三百字）；S 摘要管一个范围，把几乎无限的前文压到固定的长度，越远记得越粗，参数可调。</p>
+<p><b>做法。</b>每满 10 章，用小模型把这 10 章的 L2 合成一段范围摘要（约 400 字）。相邻两段同样大小的范围摘要再合成一段更粗的，字数不变、管的章数翻倍：20 章、40 章、80 章……给写手时，用最少的几段把“很久以前”盖满，最远的用最大的段。不满 10 章的零头由每章的 L3 顶着。</p>
+<p>例：写第 152 章，按你给的阶梯（原文 2 章、L1 3 章、L2 4 章、L3 至少 11 章）：</p>
+<table style="width:100%;border-collapse:collapse;table-layout:fixed"><tr><td style="width:30%;background:#e8e8e8;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>第 1–80 章</b><br>一段，约 400 字</td><td style="width:17%;background:#dedede;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>第 81–120 章</b><br>一段，约 400 字</td><td style="width:8%;background:#d4d4d4;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>121–130</b><br>一段</td><td style="width:13%;background:#fff3c4;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>131–142</b><br>每章 L3</td><td style="width:8%;background:#ffe9a0;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>143–146</b><br>每章 L2</td><td style="width:8%;background:#ffdf7a;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>147–149</b><br>每章 L1</td><td style="width:10%;background:#ffd24d;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>150–151</b><br>原文</td><td style="width:6%;background:#fff;border:1px solid #999;padding:6px 4px;text-align:center;font-size:12px"><b>152</b><br>要写的</td></tr></table>
+<p>左边三段灰的就是 S 摘要：131 章只用了三段、约 1200 字。因为每段字数一样而管的章数越远越多，自然就是“越远越粗”。</p>
+<table>
+<tr><th>书的长度</th><th>S 摘要最多几段</th><th>约多少字</th></tr>
+<tr><td>100 章</td><td>3 段</td><td>1200</td></tr>
+<tr><td>1000 章</td><td>7 段</td><td>2800</td></tr>
+<tr><td>3000 章</td><td>9 段</td><td>3600</td></tr>
+</table>
+<p><b>为什么不用“一份摘要每章滚着改”当 S 摘要。</b>滚着改的那种每章都把旧摘要再压一遍，细节一轮轮丢、错了会一直带下去；改了前面某一章就得从那一章起全部重做；而且它每章都变，吃不到缓存。两两合并的每一段只做一次，改了某一章只重做盖着它的那几段（1000 章的书最多 7 段），S 这一部分每 10 章才变一次。</p>
+<p><b>可调的参数</b>（缺省值在括号里）：原文几章（2）、L1 几章（3）、L2 几章（4）、L3 至少几章（11）、多少章合一段（10）、每段多少字（400）。再给两三个现成的档：省（原文 1、L1 2、L2 3、L3 10）、标准（上面这组，3000 字一章时前情约两万字）、宽。</p>
+<p><b>几条规则。</b></p>
+<ul>
+<li>摘要只从正文做，不给摘要的模型看设定里的真相。所以摘要里只有读者读到过的东西，不会把写手不该知道的秘密带进去。</li>
+<li>每份摘要记着它是从哪一版正文做的。正文改了，那一章的三级摘要和盖着它的范围摘要标成“过期”，工作单上能看到、点了重做；重做之前先用旧的。</li>
+<li>在中间插章、调章序会让后面的范围摘要全部过期（每 10 章一段的边界挪了）。1000 章重做约 100 次小模型调用，可以接受，记为已知的代价。</li>
+<li>三级 L 摘要逐级转：正文 → L1 → L2 → L3（你说的“详细的可以转成粗略的”）。开工前先用探索时那一章对比一次“逐级转”和“各自从正文做”，差别大就改回各自从正文做。</li>
+</ul>
+</section>
+
+<section class="s">
+<h2>写手上下文的排法 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>照你写的五块来，我补了每块从哪来、缓存断在哪：</p>
+<table>
+<tr><th>块</th><th>内容</th><th>从哪来</th><th>多久变一次</th></tr>
+<tr><td>1 系统</td><td>NeuroBook 的系统提示词、你加的额外指令</td><td>内置加设置</td><td>基本不变</td></tr>
+<tr><td>2 写作提示词</td><td>文风提示词、参考正文（可空）、文风检查提示词（开卷）</td><td>作品里的三个文件</td><td>你改的时候</td></tr>
+<tr><td>3 稳定的设定</td><td>这本书是什么、题材、受众、基础世界观、核心设定</td><td>作品里的一个文件，你写</td><td>你改的时候</td></tr>
+<tr><td colspan="4" style="text-align:center;color:#888">以上跨章都能吃到缓存</td></tr>
+<tr><td>4 前情</td><td>从远到近：S 摘要、L3、L2、L1、最近两章原文；最后是滚动摘要</td><td>写完一章后小模型做好存着</td><td>S 每 10 章变；别的每章往前挪一格</td></tr>
+<tr><td>5 这一章</td><td>写作指令、细纲，以及现在已有的本章计划、这一场的秘密、在场的人、称谓、伏笔等</td><td>工作单的“细纲”一步</td><td>每章</td></tr>
+</table>
+<ul>
+<li>第 4 块从远到近排，S 摘要在最前，所以连着 10 章这一段也能吃到缓存；同一章里重写、写完以后的文风检查，前四块全部命中。</li>
+<li>文风检查就是“写完以后”里的一项检查：一份提示词文件就是一项检查。上一轮的“再查一项”里自己写的那一句，存成文件以后就成了每章都跑的检查，这也回答了“检查要不要可扩展”。</li>
+<li>第 3 块是你手写的文件，程序不替你遮秘密；我会让它在交给写手前按现有的保密规则扫一遍，里面出现了绝密设定的名字就在工作单上提醒。</li>
+</ul>
+</section>
+
+<section class="q" data-nbdev-question="s-scheme" data-nbdev-type="single" data-nbdev-recommend="merge">
+<h2>S 摘要用哪种做法 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="merge"><h3>两两合并（上面的方案）</h3><p>每 10 章一段，相邻两段再合；字数随书的长度只慢慢涨（1000 章约 2800 字）。</p></div>
+<div class="opt" data-nbdev-option="volume"><h3>按卷</h3><p>一卷一段摘要，卷里再按 10 章分段。读起来最顺，但要你把章分好卷，卷的大小不一样时“越远越粗”不成立，很长的书段数一直涨。</p></div>
+<div class="opt" data-nbdev-option="rolling"><h3>只要一份滚着改的</h3><p>长度固定、最简单，缺点见上面。</p></div>
+</div>
+<div class="rec-note"><b>推荐：两两合并。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="s-rolling" data-nbdev-type="single" data-nbdev-recommend="reset">
+<h2>“滚动摘要”怎么做 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>你列的第 4 块里另有一份“到目前为止的滚动摘要”，用来快速告诉模型现在的局面。它和 S 摘要分工不同：S 是按范围留下因果，滚动摘要是一段固定 300 字左右的“故事到现在”。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="reset"><h3>每章滚一次，每 10 章从头对一次</h3><p>平时用“上一份加这一章的 L3”更新；每满 10 章，改成从 S 摘要和最近几章的 L3 重新写一份，免得越滚越偏。</p></div>
+<div class="opt" data-nbdev-option="pure"><h3>一直滚</h3><p>不重对。最省，会慢慢偏。</p></div>
+<div class="opt" data-nbdev-option="none"><h3>先不要</h3><p>S 摘要加阶梯已经盖住全部前文；等真写起来觉得缺再加。</p></div>
+</div>
+<div class="rec-note"><b>推荐：每 10 章对一次。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="s-stable" data-nbdev-type="single" data-nbdev-recommend="file">
+<h2>“稳定的设定”从哪来 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="file"><h3>作品里的一个文件，你写</h3><p>例如“设定/总纲.md”。内容你说了算，改得少，缓存稳。</p></div>
+<div class="opt" data-nbdev-option="entries"><h3>从条目里挑</h3><p>在条目上标“核心设定”，程序把它们的文字拼起来。和设定库不会两处不一致，但条目一改这一块就变，缓存常失效。</p></div>
+<div class="opt" data-nbdev-option="both"><h3>文件为主，另可以点名带几个条目</h3><p>两种都做。</p></div>
+</div>
+<div class="rec-note"><b>推荐：文件。</b>现在每章已经会按场景带上“涉及条目的样子”，核心设定再从条目拼一遍会重复。</div>
+</section>
+
+<section class="q" data-nbdev-question="s-notes" data-nbdev-type="text">
+<h2>这套方案还有哪里不对 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>文风按你写的三个部分做成作品里的三个文件（文风提示词、参考正文、文风检查提示词），上一版“文风从哪里来”那一题不再问。你定了以后我建一个后端任务：章的三级摘要、范围摘要、滚动摘要、写手上下文的新排法，Spec 改 <code>plot/brief.md</code>；界面上工作单的“细纲”一步相应改。</p>
+</section>
+
+<div class="round">第一批（设定侧）· Spec（已批准）</div>
+
+<section class="q" data-nbdev-question="b1-spec-approve" data-nbdev-type="single" data-nbdev-recommend="approve">
+<h2>第一批的 Spec 可以定下来开工吗 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>第一批（条目树、条目页、就地改与记一笔、回执与还原、待处理、改动记录、状态栏）的 Spec 草稿写完了，分两路又审了一轮：内核的补口 15 条、界面与编辑器 18 条，33 条核实后都成立，已经改进 Spec 与计划（处理记录在 Task t31 的 <code>evidences/design-review-r2-resolution.txt</code>）。这一轮没有推翻方向的发现，我不打算再审第三轮。批准以后 Spec 提交为“计划中”，我从内核补口开工。</p>
+<p>审查以后变了的、你可能在意的几处：</p>
+<table>
+<tr><th>事</th><th>现在怎么定的</th></tr>
+<tr><td>点一个数看来历</td><td>先列最近 20 步，可以接着往前翻。主角的存款写到后期有几千步，一次全读会超过单次读取的上限</td></tr>
+<tr><td>内核要补的</td><td>从八项变成十项：多了“断线重试时不重复写、也不误报冲突”（现有的缺陷）和“章表或数据类型变了时通知界面”</td></tr>
+<tr><td>“改这一笔”</td><td>在那条情节的详情页里改；和设定冲突而待定的情节，也在那一页“改成生效”</td></tr>
+<tr><td>填了一半去看别的条目</td><td>切回来时填的内容还在（原来会丢）</td></tr>
+<tr><td>刷新以后的标签</td><td>没点开的条目标签也显示名字（原来会显示成“条目”）</td></tr>
+<tr><td>在“改动记录”里还原</td><td>编辑区开着正文时，结果用右下角的通知告诉你，通知上有“看回执”“撤销”</td></tr>
+<tr><td>就地改的输入框</td><td>在分页顶上的确认条里，不在值的原位。人物、面板这两个专门界面和通用的字段表用同一种确认条</td></tr>
+</table>
+<p>第一批不做、记成已知限制的：待处理里“按正文改设定”这类一键处理；改过“决定”的修订不能在界面上还原（点了会写明原因）；两个同名条目的标签标题相同、分不开；面包屑（见下面第 6 轮的题）。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="approve"><h3>批准，开工</h3><p>Spec 提交为“计划中”，按计划从内核补口与编辑器的页面标签做起。</p></div>
+<div class="opt" data-nbdev-option="hold"><h3>先不批，我有要改的</h3><p>把要改的写在这一题的备注里；我改完再请你看。</p></div>
+</div>
+<div class="rec-note"><b>推荐：批准。</b></div>
+</section>
+
+<div class="round">第 6 轮 · 剧情侧：按你的六条意见改</div>
+
+<section class="s">
+<h2>这一轮改了什么 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>9 张图，都是在第 5 轮上改的；外壳仍是画的示意，画布 1440×900，亮色。对着你的六条：</p>
+<ul>
+<li><b>第 1 条，左侧四个图标</b>：见下面“左侧四个图标”。</li>
+<li><b>第 2 条，三步的视觉</b>：工作单顶上换成一条三步的导轨，每步有序号、名字和一句现在的情况；做完的是对勾，要你看的那一步字是黄色。每一步的内容分成有框的几块，主操作固定在页面底部（图 1、2）。</li>
+<li><b>第 3 条，写了很多章以后改设定</b>：图 5、6。</li>
+<li><b>第 4 条，中间一步叫“细纲”，上下文加文风与前情</b>：图 2。</li>
+<li><b>第 5 条，检查能不能扩展</b>：“查了什么”改成一行一种检查，最后一行是“再查一项”（图 1、3、4）。</li>
+<li><b>第 6 条，面包屑</b>：每一页标签条下面都画上了（图 7、8）。</li>
+</ul>
+</section>
+
+<section class="s">
+<h2>左侧四个图标 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<figure><img src="r6/s09-icons.webp" alt="左侧四个图标的标注" style="max-width:600px"><figcaption>粉色的字是标注，界面上没有。1 文件：现有的资源管理器。2 设定：第一批的条目树。3 剧情：这一批的内容（这几章、几张表、剧情线）。4 搜索。点哪个，左边那一栏就换成哪个；鼠标停在图标上会显示名字。</figcaption></figure>
+</section>
+
+<section class="s" id="s01"><h2>1 第 3 章的工作单 · 开写前</h2><figure><img src="r6/s01-before.webp" alt="开写前"><figcaption>顶上是三步：现在在第一步，有 3 件事要先看；细纲已经写好；第三步还没到。“查了什么”一行一种检查，带各自查出几件。底部固定着“下一步”。</figcaption></figure></section>
+<section class="s" id="s02"><h2>2 第 3 章的工作单 · 细纲</h2><figure><img src="r6/s02-outline.webp" alt="细纲"><figcaption>主体是细纲（作品里的文件，点了打开编辑）、对写手的要求、这一章打算写的。下面“写手还会拿到”是程序另外拼给写手的：文风与前情是这一轮新加的两段，各有“换”“改”；保密的事、在场的人这些点开看。底部是“交给写手”与“我自己写”；开写前的事没看完时旁边提醒一句。</figcaption></figure></section>
+<section class="s" id="s03"><h2>3 第 2 章的工作单 · 写完以后</h2><figure><img src="r6/s03-after.webp" alt="写完以后"><figcaption>要你看的两处在上面；“查了什么”里对应的两种检查是黄色，别的写“没有问题”。</figcaption></figure></section>
+<section class="s" id="s04"><h2>4 再查一项</h2><figure><img src="r6/s04-adding.webp" alt="再查一项"><figcaption>点“再查一项”：写一句要专门看什么，或者点下面已有的几种。查出来的结果和别的检查一样是卡片，“查了什么”里多一行、标着“你加的”。</figcaption></figure></section>
+<section class="s" id="s05"><h2>5 写到第 40 章改设定 · 那次改动的回执</h2><figure><img src="r6/s05-ripple-receipt.webp" alt="改设定的回执"><figcaption>把“认知滤镜骗不过镜头”改成“也骗得过”以后，回执按要你动手的程度分三块：有句子是照旧设定写的（3 章 4 句，每章一行，点了进它的工作单）、还没写的计划靠旧设定才成立、检查结果过期的 27 章。左边“这几章”里，被牵连的章后面也标着。</figcaption></figure></section>
+<section class="s" id="s06"><h2>6 被牵连的第 30 章的工作单</h2><figure><img src="r6/s06-ripple-chapter.webp" alt="被牵连的章"><figcaption>“写完以后”多一块“后来的改动牵连到这一章”：哪次改动、哪一句、改正文还是不用改。下面明说检查结果过期，重查要花多少额度；以前已经处理的不受影响。</figcaption></figure></section>
+<section class="s" id="s07"><h2>7 谁知道什么（带面包屑）</h2><figure><img src="r6/s07-who.webp" alt="谁知道什么"><figcaption>标签条下面一行是面包屑：剧情 › 谁知道什么。</figcaption></figure></section>
+<section class="s" id="s08"><h2>8 一条秘密的条目页（带面包屑）</h2><figure><img src="r6/s08-secret.webp" alt="秘密的条目页"><figcaption>秘密是条目，它的面包屑写的是它在哪：设定 › 秘密 › 关于星瑕 › 名字，不是“从哪一页点过来的”。</figcaption></figure></section>
+
+<section class="q" data-nbdev-question="r6-outline-step" data-nbdev-type="single" data-nbdev-recommend="as-drawn">
+<h2>中间一步“细纲”放这些东西对不对 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>图 2。我的理解是：这一步的主体是细纲、对写手的要求和这一章打算写的；“写手还会拿到什么”收在这一步下面当预览，不再单独占一步。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="as-drawn"><h3>就按图 2</h3><p>细纲、要求、计划在上，写手还会拿到的在下，底部交给写手。</p></div>
+<div class="opt" data-nbdev-option="outline-only"><h3>这一步只放细纲、要求和计划</h3><p>“写手还会拿到”不常驻，点“交给写手”时再弹出来给你过目。页面短，但平时看不到文风、前情给了什么。</p></div>
+<div class="opt" data-nbdev-option="other"><h3>都不对</h3><p>在备注里写你想要的。</p></div>
+</div>
+<div class="rec-note"><b>推荐：按图 2。</b>文风和前情是你点名要的，常驻在这一步里随时能改。</div>
+</section>
+
+<section class="q" data-nbdev-question="r6-recap" data-nbdev-type="single" data-nbdev-recommend="summary-tail">
+<h2>“前情”缺省给写手什么 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>现在程序只给“上一章最后 600 字”。要加前情，得先有每章的摘要：我打算在写完一章记账时让 Agent 顺手写一段（两三百字），你可以改。这是后端的新工作，会单开一个任务。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="summary-tail"><h3>前面几章的摘要，加上一章最后 600 字原文</h3><p>缺省取最近 3 章的摘要（书长了以后更早的用卷的摘要）。原文只留结尾，保证衔接。每章可以在工作单里改取哪些。</p></div>
+<div class="opt" data-nbdev-option="prev-full"><h3>上一章全文，加更早几章的摘要</h3><p>衔接和口吻最稳，但每章多给三千字左右，写手的额度明显变多。</p></div>
+<div class="opt" data-nbdev-option="summary-only"><h3>只给摘要，不给原文</h3><p>最省，但上一章结尾的语气、最后一句接不上。</p></div>
+</div>
+<div class="rec-note"><b>推荐：摘要加上一章结尾。</b></div>
+</section>
+
+
+<section class="q" data-nbdev-question="r6-ripple" data-nbdev-type="single" data-nbdev-recommend="list">
+<h2>写了很多章以后改设定：这样处理行不行 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>图 5、6。回执列出牵连到的章，被牵连的章的工作单里多一块。现在后端能算出来的是：哪些句子是照旧设定写的（记账时链到这条设定的那些句子）、哪些还没写的计划靠旧设定才成立、哪些章的检查结果过期。算不出来的：正文里没被记账链到设定的句子（要靠重查才发现）。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="list"><h3>就按图：列出来，一章一章处理与重查</h3><p>重查在各章的工作单里点，花多少额度当场写明。27 章都要重查时要点 27 次。</p></div>
+<div class="opt" data-nbdev-option="batch"><h3>另加“重查这几章”</h3><p>回执上可以勾几章一起重查，先显示预计的额度再确认。要后端加排队与进度，多一块工作。</p></div>
+</div>
+<div class="rec-note"><b>推荐：先按图。</b>大多数改动牵连的是几句话，不是几十章都要重查；批量重查等真用到再加。</div>
+</section>
+
+<section class="q" data-nbdev-question="r6-checks" data-nbdev-type="single" data-nbdev-recommend="row">
+<h2>“再查一项”这样画行不行 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>图 3、4。界面上每种检查是一行，结果都是同样的卡片，所以以后多一种检查不用改界面。已有的几种（别的插件登记的也算）可以直接点；“自己写一句要查什么”后端现在还没有，要加。不做“保存一套自己的检查”这类框架，等这个功能定了再说。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="row"><h3>就按图</h3><p>开写前、写完以后各有“再查一项”，可以点已有的，也可以自己写一句。</p></div>
+<div class="opt" data-nbdev-option="registered-only"><h3>先只能点已有的</h3><p>不做“自己写一句”，后端不用加东西。</p></div>
+<div class="opt" data-nbdev-option="none"><h3>先不要“再查一项”</h3><p>只把检查一行一种列出来。</p></div>
+</div>
+<div class="rec-note"><b>推荐：按图。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="r6-breadcrumb" data-nbdev-type="single" data-nbdev-recommend="later">
+<h2>面包屑什么时候做 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>图 7、8。上次我建议“要，第一批就加”。第一批的设计审查指出它比我想的贵：现在的面包屑组件、键盘操作都只认文件，要加一种“点了执行命令”的段；条目的面包屑要读出它的整条上级。所以我改了建议。画法上，面包屑写的是“这一页在哪”，不是“从哪一页点过来的”。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="later"><h3>第一批不做，和剧情侧一起做</h3><p>第一批的条目页在名字上面写一行“分组 › 上级”（上级能点），够用。等剧情侧这几种页面定了，一次把页面的面包屑做对。</p></div>
+<div class="opt" data-nbdev-option="now"><h3>第一批就做</h3><p>条目页、回执页、变更详情页先有面包屑。第一批多一块编辑器的改动。</p></div>
+<div class="opt" data-nbdev-option="none"><h3>不要面包屑</h3><p>靠左边一栏的高亮和标签标题就够了。</p></div>
+</div>
+<div class="rec-note"><b>推荐：和剧情侧一起做。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="r6-screens" data-nbdev-type="text">
+<h2>这 8 张图里，哪一张还不对 <span class="badge done" data-nbdev-skip>已定</span></h2>
+<p>可以只写图号加一句话。下面第 5 轮的两题（看哪条线、时间线怎么排）也还等你答。</p>
+</section>
+
+<div class="round">第一批（设定侧）· 审查以后定的 2 题（已定）</div>
 
 <section class="s">
 <h2>背景 <span class="badge info" data-nbdev-skip>说明</span></h2>
@@ -67,7 +338,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="b1-kernel-gaps" data-nbdev-type="single" data-nbdev-recommend="fill">
-<h2>界面要用、内核现在给不出的东西，补还是砍 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>界面要用、内核现在给不出的东西，补还是砍 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>我的计划把内核的读写接口当成现成的。审查逐条对过以后，第一批界面要用而现在读不到、写不了的有这些：</p>
 <table>
 <tr><th>界面上的东西</th><th>现在缺什么</th></tr>
@@ -89,7 +360,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="b1-panel-default-owner" data-nbdev-type="single" data-nbdev-recommend="t24">
-<h2>“底部面板默认隐藏”由谁来加 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>“底部面板默认隐藏”由谁来加 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>你定了底部面板默认隐藏。工作台正在换成“视图容器”的新模型（另一个会话在做，w00026 t24，提案已接受），新规则是“有容器的区域默认显示”，里面没有“默认隐藏”的写法。那两份 Spec 正在被那边改，我没有动。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="t24"><h3>让 t24 顺手加</h3><p>在容器的声明里加一项“不让所在的区域默认显示”。它正在改这块合同，加在一起最省事；需要你转告那边。</p></div>
@@ -118,7 +389,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="r5-line-scope" data-nbdev-type="single" data-nbdev-recommend="global">
-<h2>“看哪条线”是整个窗口一个，还是每页各选各的 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>“看哪条线”是整个窗口一个，还是每页各选各的 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>图上两种都画了：每页页头有一个选线的下拉，状态栏右边也写着“在看：主线”。实施时只留一种。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="global"><h3>整个窗口一个</h3><p>在状态栏切换，所有页面一起跟着变，页头只写一行“在看：回溯以后”。写回溯以后那几章时切过去，写完切回来。要对照两条线时开两个窗口。</p></div>
@@ -128,7 +399,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="r5-timeline" data-nbdev-type="single" data-nbdev-recommend="grid">
-<h2>时间线这样排行不行 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>时间线这样排行不行 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>图 11：列是故事里的时间段（“十年前”“周三”这种说法照原样），行可以换成一条线一行、一个人一行，或者按讲的先后排；每件事标着“在哪一章讲的”，所以回忆排在它发生的那一格。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="grid"><h3>就按这个格子做</h3><p>同一周的两条视角线是两行，回溯是另一行，回忆在它发生的那一列。时间段多了以后列可以按卷折起来。要在 nb-ui 里新做一个格子组件。</p></div>
@@ -137,10 +408,6 @@ ol.week li { margin: 2px 0; }
 <div class="rec-note"><b>推荐：格子。</b>时间线要回答的就是“同一时刻别处在发生什么”，列表答不了。</div>
 </section>
 
-<section class="q" data-nbdev-question="r5-screens" data-nbdev-type="text">
-<h2>13 张图里，哪一张还不对 <span class="badge todo" data-nbdev-skip>待定</span></h2>
-<p>可以只写图号加一句话。没有意见的话，我就按这一轮写第二批的 Spec 与计划。</p>
-</section>
 
 <section class="s" id="r01"><h2>1 第 3 章的工作单 · 开写前</h2><figure><img src="r5/r01-before.webp" alt="开写前"><figcaption>最上面一句话回答能不能动笔。三件要先看的事是同一种卡：一个该定的决定、两处对不上。下面是对写手的要求、细纲（文件，点了打开）、这一章打算写的。</figcaption></figure></section>
 <section class="s" id="r02"><h2>2 定一个到期的决定</h2><figure><img src="r5/r02-decide.webp" alt="定一个决定"><figcaption>点“现在定”，底部面板打开“决定”：左边是全部决定（还没定的在前），右边填怎么定、为什么、在哪一章之前谁不能知道。推迟、放弃、新记一件要定的事也在这里。</figcaption></figure></section>

@@ -73,6 +73,27 @@ export function writeNavWidth(value: number): void {
     write("nav-width", String(Math.round(value)));
 }
 
+/** 产物页答题栏的宽度（t23，用户拖出来的，CSS px）：缺省 384（24rem）；读到的不是正数时按缺省。夹在上下限之内由页面做。 */
+export const ANSWER_PANEL_WIDTH_DEFAULT = 384;
+
+export function readAnswerPanelWidth(): number {
+    const value = Number(read("answer-panel-width"));
+    return Number.isFinite(value) && value > 0 ? value : ANSWER_PANEL_WIDTH_DEFAULT;
+}
+
+export function writeAnswerPanelWidth(value: number): void {
+    write("answer-panel-width", String(Math.round(value)));
+}
+
+/** 产物页答题栏是否收起（t23）：收起时页面下面一条提交栏。 */
+export function readAnswerPanelCollapsed(): boolean {
+    return read("answer-panel-collapsed") === "true";
+}
+
+export function writeAnswerPanelCollapsed(value: boolean): void {
+    write("answer-panel-collapsed", String(value));
+}
+
 /** 左栏是否收起（决定点 8：完全收起，顶栏左侧给展开按钮）。 */
 export function readNavCollapsed(): boolean {
     return read("nav-collapsed") === "true";

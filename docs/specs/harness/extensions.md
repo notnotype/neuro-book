@@ -112,7 +112,7 @@ helper：
 29. `reminder({every?, watch?, text})`：在每轮开头（`turnStarted`）判断：第一次、`watch` 的值变了、或距上次提醒满 `every` 轮时调用 `text`，返回文字就写一条自己的对话事件 `reminder`；返回 null 不写，但记下这次的值。记录在它自己的 path 片里，压缩时清空（压缩后再提醒一次），回退时跟着回去。`watch` 返回不能被 JSON 如实表示的值（例如 `Set`）时这一轮不提醒，写 `handler-threw` 诊断。
 30. `opening({load})`：会话创建时与每次压缩之后调用 `load`，丢掉空的部分，存进自己的 path 片，交给共用的稳定槽 `opening`（各部分之间空一行）。
 
-31. 视图与拦截的上下文带会话（planned）：槽的 `value`、`prompt` 等拿到的视图 `ctx` 与拦截的 `ctx` 都有 `session`（`{sessionId, profile, project?, background?}`），与反应的 `ctx.session` 是同一份；不带会话的单次请求（`complete`）没有。扩展对象被所有会话共用时，靠它按会话或 Profile 取外部数据。
+31. 视图与拦截的上下文带会话：槽的 `value`、`prompt` 等拿到的视图 `ctx` 与拦截的 `ctx` 都有 `session`（`{sessionId, profile, project?, background?}`），与反应的 `ctx.session` 是同一份；不带会话的单次请求（`complete`）没有。扩展对象被所有会话共用时，靠它按会话或 Profile 取外部数据。
 
 ## 状态与转换
 

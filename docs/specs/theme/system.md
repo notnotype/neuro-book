@@ -64,7 +64,7 @@ NeuroBook 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / �
 - 禁止新增 Tailwind 调色板类和 `dark:` 变体。
 - 禁止直接写固定 hex / rgba 作为业务颜色；测试、外部资产预览和分类色板定义除外。
 - 阴影使用 `--shadow-color` 或 `--elevation-*`，文本选区使用 `--selection-bg`。
-- Monaco 主题按会话的 `appearance` 选择 light/dark 基底，颜色从宿主的计算样式读（底色、前景、选区、缩进线读配色与角色变量，语法着色读 `--syntax-*`），换算成编辑内核认的十六进制；`color-mix(...)`、`rgba(...)` 这些写法都认（[`workbench/editor.md`](../workbench/editor.md) 输出 65）。
+- Monaco 主题按会话的 `appearance` 选择 light/dark 基底，颜色从宿主的计算样式读（底色、前景、选区、缩进线读配色与角色变量，语法着色读 `--syntax-*`），换算成编辑内核认的十六进制；底色是 `--bg-panel`，与 Markdown 稿纸同一档（开发者 2026-11-10 定；编辑内核要不透明的颜色，所以读配色变量、不读面变量 `--panel-surface`，主题把编辑组的面改成别的颜色时源码编辑器不跟）；`color-mix(...)`、`rgba(...)` 这些写法都认（[`workbench/editor.md`](../workbench/editor.md) 输出 65）。
 
 ## 状态语义
 

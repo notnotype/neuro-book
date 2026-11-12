@@ -54,5 +54,18 @@
     "notFound": {
         "title": "Page Not Found",
         "home": "Back to Workbench"
-    }
+    },
+    "errors": {
+        "invalid-input": "The request was not valid",
+        "denied": "Not allowed to do this",
+        "target-gone": "The target window or instance is gone",
+        "unavailable": "The server is temporarily unavailable",
+        "not-provided": "The server does not provide this feature",
+        "version-changed": "The page and the server are out of sync; reload the page",
+        "timeout": "The server did not answer in time",
+        "cancelled": "The operation was cancelled",
+        "unknown-outcome": "It is unknown whether the operation completed; check before retrying",
+        "provider-error": "The server failed while handling the request"
+    },
+    "unknownResult": "Received an unrecognized result ({{code}})"
 }

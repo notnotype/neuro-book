@@ -29,6 +29,8 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 
 **e2e 里操作 Monaco。** 点正文按编辑器的外框（`.monaco-editor`）定位，不按 `.view-lines`：它随滚动整体平移，按它的位置点会点到可见区外面，Playwright 报 `html intercepts pointer events`。Monaco 把空格画成不换行空格（`\u00a0`），按文字找 token 或读一行的文字时两种空格都要认（w00025 t05）。
 
+**测“换文档”的组件测试，由父组件持有当前绑定。** 组件的属性里带 `ref`（例如编辑器区交给控件的文档绑定）时，`@vue/test-utils` 把这个属性另存，`setProps` 改不到，测试会一直停在第一份文档上、断言照样跑完。像真实的父组件（`EditorGroup`）那样，用一个渲染函数组件持有当前绑定的 `shallowRef`，改它再等 `nextTick`（w00025 t20）。
+
 **e2e 量几何先等它稳定，判断消失不等元素出现。** 有过渡动画的布局（收起、展开、拖放收尾）在动画中途量到的矩形会把指针放到别处：先等可观察的终态（例如收起的分节缩到 32px）再取矩形。判断元素消失用 `toHaveCount(0)` 或在页面里直接读，不用 `locator.boundingBox()`：它会一直等元素出现，元素不在时等到超时。
 
 **e2e 默认减少动态效果。** 应用的 `playwright.config.ts` 设了 `reducedMotion: "reduce"`：约 113 个用例在程序开关后马上量几何，470ms 的外框过渡会让它们量到中间值。测动画，或测动画窗口里的竞态（退场中点击、关闭动画结束后的焦点）的用例，开头写 `page.emulateMedia({reducedMotion: "no-preference"})` 开回来，否则时长令牌是 0，用例还是绿的，但不再覆盖要防的东西。
@@ -93,7 +95,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 - `--typecheck` 同时跑类型检查，`--dry-run` 只列出选中项和原因。
 - 旧应用不参加；准备退役的 `llmlint` 选中了也不跑，在跳过里写明理由。
 
-包内再缩小到文件时，在包目录把测试文件路径传给 `bun run test <路径>`。
+包内再缩小到文件时，在包目录把测试文件路径传给 `bun run test <路径>`。在命令行给 `bun test` 传 `--path-ignore-patterns` 会盖掉 bunfig 里的同名设置（例如排除 DOM 测试的那条）；只想缩小范围时直接传测试路径。
 
 ## 真实模型测试
 

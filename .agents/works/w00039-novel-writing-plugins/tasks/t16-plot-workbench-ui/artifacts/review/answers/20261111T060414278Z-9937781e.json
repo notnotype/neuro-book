@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t16-plot-workbench-ui",
+    "artifactId": "review",
+    "answerId": "20261111T060414278Z-9937781e",
+    "artifactVersion": 13,
+    "contentHash": "82f501efc144ef5e625e43669e031d32c8ea921ea1987581bfe2d1c54d184a5a",
+    "submittedAt": "2026-11-11T06:04:13.546Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "s-notes": "关于：不改 Profile 也能控制写手的上下文 · 方案。这个我觉得先搁置不做。\n包括之前文风存哪里。都先存配置。\n---\n因为我发现这个设计得需要跑通完整的小说创作闭环，那个时候 writer profile 的实现也定好了，才好开始优化\n---\n",
+        "p-layers": "other",
+        "b1-sample-types": "map-builtin"
+    },
+    "comments": {},
+    "note": "再补一个问题：NeuroBook 要做成不依赖 AI 也能使用。目前小说创作插件这里是按照强依赖 AI 来设计的。可能需要改。\n\n不依赖 AI 的几级程度：\n- 自己写文，但是 AI 还是帮整理设定，检查（小说插件），讨论等\n- 自己写文，自己写设定，AI 不读书（不用 nb-canon），但是AI进行逻辑，科学上的检查\n- 不用一切 AI 功能也能用"
+}

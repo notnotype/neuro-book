@@ -1,0 +1,17 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t16-plot-workbench-ui",
+    "artifactId": "review",
+    "ackId": "20261110T130241958Z-b8f7e19a",
+    "answers": [
+        "20261110T130040745Z-de441fef"
+    ],
+    "through": "20261110T130040745Z-de441fef",
+    "included": [
+        ".agents/works/w00039-novel-writing-plugins/tasks/t16-plot-workbench-ui/README.md",
+        ".agents/works/w00039-novel-writing-plugins/README.md",
+        ".agents/works/w00039-novel-writing-plugins/tasks/t36-writer-context-summaries/README.md"
+    ],
+    "ackedAt": "2026-11-10T13:02:41.958Z"
+}

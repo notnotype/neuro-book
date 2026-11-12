@@ -1,0 +1,67 @@
+### 1. 把详情放在原因后面，合法长原因会使诊断记录完全丢失详情
+
+- 严重程度：重要；类别：正确性、可诊断性。
+- 位置：`packages/neuro-book/src/plugins/workbench/web/commands/failure-notice.ts:38-40`；实际记录出口为 `packages/neuro-book/src/plugins/workbench/web/plugin.ts:141-142`。
+- 现象：命令主动返回 3980 字符的合法字符串 `reason` 与 `detail: "DISTINCT_DIAGNOSTIC token=abc"`，经真实快捷键分发器执行后，通知有脱敏详情，但 `workbench.commands` 诊断里一个详情字符也没有；记录只剩原因与截断标记。
+- 为什么是问题：本次新加的 `failureDiagnostic` 把命令 id、码、完整原因、详情串成一个 `Error.message`；产品只记录该 message，不带结构化 data/error。诊断 store 的默认消息预算是 4000，前缀加原因先占满预算，主动返回失败又没有 `commands.run-failed` 那条异常诊断，因此详情没有第二个记录来源。这是本次承诺保留的详情链路缺口，不是要求扩大诊断预算；base 没有这条新增详情链路。
+- 如何核实：从被审 worktree 执行 `bun --tsconfig-override /tmp/w31t03-impl/lab/tsconfig.json /tmp/w31t03-impl/lab/runtime.ts`。真实 `createKeymapDispatcher -> registry.execute -> report/notify -> createDiagnosticsStore` 输出：`reasonLength:3980`、通知详情 `DISTINCT_DIAGNOSTIC token=[REDACTED]`、`recordHasDetail:false`、`recordLength:4024`（含截断标记）。未伪造结果或跳过命令执行。
+- 建议改法：按计划“记诊断时写码与 detail，不再把原因拼进 Error”，把码及有界详情放进诊断结构化字段，消息只保留简短标识；如保留 Error 适配层，至少先安排详情并给原因独立预算。补一条主动返回失败、长原因仍可查询诊断详情的真实路径用例。
+
+### 2. 主动返回详情的脱敏与长度上限没有测试保护，去掉整个处理仍全绿
+
+- 严重程度：建议；类别：测试、安全与性能。
+- 位置：`packages/neuro-book/src/plugins/commands/shared/registry.test.ts:320-336`；对应处理为 `registry.ts:368`。
+- 现象：新增测试只给主动返回分支 `detail: "raw"`，检查是否保留；敏感值只测试“抛异常”的另一条分支。把主动返回分支的 `redactText(settled.detail, MAX_STRING_LENGTH)` 替换成 `settled.detail` 后，完整 registry 测试仍是 **29 pass、0 fail、165 次断言**。
+- 为什么是问题：通知载体按合同不脱敏，直接显示和复制收到的详情。主动返回分支是这次才新增的独立入口，不能靠异常分支使用 `describeDiagnosticError` 的测试保护；移除这里的脱敏会将 `token=abc` 原样送往通知，移除上限则会让执行结果及审计携带无界字符串。当前实现这两步存在，但缺少可防回归的行为断言；不是声称当前路径已泄密。验收 21 的字面样本 `raw` 被覆盖，不等于结果合同里的安全及上限已被覆盖。
+- 如何核实：只在 `/tmp/w31t03-impl/lab/` 复制 registry 实现与原测试，修正导入到被审源码，不改任何断言；变异文件 `registry-no-return-redact.ts` 仅去掉上述脱敏/截断表达式。执行 `bun test --tsconfig-override /tmp/w31t03-impl/lab/tsconfig.json /tmp/w31t03-impl/lab/registry-return-redact.test.ts` 得到上述 29/0 结果。
+- 建议改法：在该行为用例给主动返回详情加入 `token=abc` 和超过 4000 字符的负载，分别核对调用方、审计和通知拿到的是已脱敏、有界字符串。再做两次独立变异（只去脱敏、只去上限），确认对应断言各自失败。
+
+### 3. 命令的第三套插值器不遵守目录检查允许的语法与参数整理合同
+
+- 严重程度：建议；类别：正确性、代码质量。
+- 位置：`packages/neuro-book/src/plugins/commands/shared/text.ts:20-22`；目录允许语法在 `scripts/ci/message-catalogs.ts:74-79`。
+- 现象：合法目录模板 `未登记的命令：{{ id }}` 在现有 `catalogFailures` 中返回空问题列表，真实宿主引擎输出 `未登记的命令：example.foo.go`，命令 helper 却原样留下 `{{ id }}`。此外，现有模板传入 501 字符 id，宿主会按 500 字符参数上限截断并上报 `param-truncated`，helper 不截断、不上报，两者结果不同。
+- 为什么是问题：新增 helper 的正则只认无空格 `{{name}}`，但目录机制允许两侧空白及 `number` 格式；注释声称格式由目录检查核对，检查器实际不会阻止 helper 不会解析的合法目录。总则第 24–25 行及 i18n 输出 3、6 也把既有参数整理作为共用机制。当前 9 个模板没有空格，普通短参数暂不受影响；这是新增旁路导致目录合法修改就破坏命令原因的维护缺口，不是要求改远程合同或给服务器装窗口引擎。base 没有这套手写插值器。
+- 如何核实：`bun --tsconfig-override /tmp/w31t03-impl/lab/tsconfig.json /tmp/w31t03-impl/lab/catalog-syntax.ts`，只在 lab 放合法目录和未改函数体的 helper 副本，输出 `CHECK []`、`HOST 未登记的命令：example.foo.go`、`COMMAND ...{{ id }}...`。`probe.ts` 对实际目录比较 501 字符输入也得到 `equal:false`；`{{x}}`、`{{id}}`、`$&`、`$1`、`$$` 已实测一致，不是这些字符的 bug。
+- 建议改法：复用平台中立的最小翻译实现，按指定语言先解析目录再交语言映射，或抽取两端共用的插值/参数整理函数；不用再维护第三种语义。增加真实库对同一合法模板、空白、number、500/501 长度和嵌套花括号参数的比较用例。
+
+## 补充核实记录
+
+- 第 2 条已补做独立变异：只把主动返回分支改成 `settled.detail.slice(0, MAX_STRING_LENGTH)`（保留上限、去脱敏），以及只改成 `redactText(settled.detail, Number.MAX_SAFE_INTEGER)`（保留脱敏、去上限）。各自都是 29 pass、0 fail、165 次断言。可复现命令：`bun test --tsconfig-override /tmp/w31t03-impl/lab/tsconfig.json /tmp/w31t03-impl/lab/registry-mutant-redaction.test.ts /tmp/w31t03-impl/lab/registry-mutant-limit.test.ts`，合计 58 pass、0 fail、330 次断言。较早的 `registry-no-return-redact.ts` 由独立变异复用，不再是首轮“整段移除”的保存副本；复现独立变异请使用本段两个固定文件。
+- 对照变异确实能被抓住：仅去异常脱敏，`registry-mutant-throw.test.ts` 在第 333 行 `not.toContain("abc")` 失败（28 pass、1 fail）；仅去通知 `detail` 透传，原 `WorkbenchCommandHost.dom.test.ts` 验收 21 用例在第 139 行失败。后者用 `/tmp/w31t03-impl/lab/vitest-no-detail.config.ts` 的 transform 做内存变异，没有改仓库源码。
+
+## 未发现问题的方面
+
+- 被审 HEAD 是 `5c4e2721368971658d11b7dc38d45af888f1590d`，已完整读取 `git diff b7ac47ea3..HEAD`；计划及 Spec 读的是主工作区现行版本。共享依赖确实来自主工作区；对 `nb-runtime/src/diagnostics`、`nb-ui/src/text`、`nb-runtime/src/remote/protocol.ts` 分别执行 `git diff --no-index`，与被审 worktree 无差异。未把其他版本的共享依赖行为当作本提交证据。
+- 跨实例原因：真实 `settingsWorld` 中服务端以 Agent 身份调用窗口命令；中文得到 `命令执行出错`，更新 `localeSetting` 为 en-US 后得到 `The command failed while running`，未知命令得到 `Unknown command: missing`。线上 reason 为字符串、没有 detail；同一窗口本地结果为双语语言映射，detail 为 `Error: token=[REDACTED] boom`。两个实例最后均 closed。实验入口 `/tmp/w31t03-impl/lab/remote.ts`；没有调用真实模型。
+- 命令服务包装、面板和快捷键把本地失败对象原样交下游，新增交叉类型没有查到消费方重组导致本次新增 detail 丢失；远程提供方刻意只交 code/reason，符合已确认范围。既有编辑器动作转换、项目未知码拼原文不计为本次问题。
+- `codeText` 使用 `Object.hasOwn`，原型名 `toString` 不当成业务码；拥有者命名空间不串。10 个路由码、两份宿主目录、类型表、目录检查登记一致。`failure-text.test.ts` 按权威 `REMOTE_FAILURE_CODES` 核对源目录与英文目录；检查器再核对自己的照抄集合与源目录。新增/删除权威码而不一起改目录会使前者失败，只改目录而不改登记集合会使后者失败，未发现该闭环会静默放过所要求的码表漂移。
+- 当前短详情路径已脱敏；产品诊断 store 再统一脱敏并按预算截断，没有发现本次把 `token=abc` 写进界面详情或诊断。第 1 条是长原因使详情缺失，不是秘密泄漏。
+- `{{x}}`、`{{id}}`、`$&`、`$1`、`$$` 参数与真实宿主引擎实测一致，回调 replacement 没有把 `$` 当替换表达式，也不重复解析参数里的花括号。第 3 条仅指合法占位语法和参数上限分叉。
+
+## 已执行验证
+
+- 从 `packages/neuro-book` 运行 `bun test ./src/plugins/commands/shared/registry.test.ts ./src/plugins/commands/shared/plugin.test.ts ./src/plugins/commands/shared/remote.test.ts ./src/plugins/workbench/web/commands/keymap.test.ts ./src/web/failure-text.test.ts ./src/plugins/projects/locales.test.ts ./src/plugins/plugins/locales.test.ts`：71 pass、0 fail、940 次断言。
+- 根目录 `bun test ./scripts/ci/message-catalogs.test.ts`：10 pass、0 fail。
+- `bun run test:vitest --config /tmp/w31t03-impl/lab/vitest.config.ts src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts src/plugins/plugins/web/components/PluginsPage.dom.test.ts`：24 pass、0 fail。原配置在 detached worktree 使用主工作区依赖时，setup 的 `/@fs/.../neuro-book-test-support/src/vitest.ts` 加载失败；仓库外配置仅补 fs.allow、inline workspace 依赖和外置 cacheDir，未修改实现或测试。第一次仓库外配置缺 module 声明导致 ESM default 导入错误，补 lab/package.json 的 type=module 后通过。
+- `bun x tsc --noEmit`：退出 0、无诊断（82.33 秒）。
+- 未运行 e2e、开发服务、真实模型调用。所有实验文件只在 `/tmp/w31t03-impl/lab/`，未安装依赖；报告只追加。
+
+- 浏览器及组件消费方类型检查：从 `packages/neuro-book` 执行 `bun x vue-tsc --noEmit -p tsconfig.web.json && bun x vue-tsc --noEmit -p tsconfig.browser-test.json`，两项均退出 0、无诊断（合计 130.24 秒）。
+- 第 3 条依据定位更正：参数上限复用的依据为计划“现状重核”表第 24–25 行，以及 `ui/i18n.md` 输出 3、6；不是“总则”内的第 24–25 行。问题事实与建议不变。
+
+## 数量
+
+阻断：0；重要：1（第 1 条）；建议：2（第 2、3 条）；合计：3。
+
+有效发现编号：1、2、3。
+
+## 处理（主会话，2026-11-10）
+
+被审提交 5c4e27213；修正提交 912d57c9f，合入 master 9702d9414。三条都核实成立，按“成立，要改”处理：
+
+1. 成立，要改。`failureDiagnostic` 有诊断原文时把原文排在原因前面（`Command <id> failed (<code>): <detail>; reason: <reason>`），诊断按条截断时先丢的是原因，用户在通知里看得到原因。WorkbenchCommandHost.dom.test 的面板崩溃用例改为断言整条诊断（原文在前）。没有改成结构化诊断字段：两个入口的 `report` 只收 Error，换形状要改宿主的诊断接口，收益只在原因超长这一种窄场景。
+2. 成立，要改。registry.test 的“失败的详情”用例加一条主动返回 `token=abc` 加 4000 字符负载的失败，断言详情已脱敏（`token=[REDACTED]` 开头）且按诊断字符串上限截断（`[truncated 17 chars]` 结尾）。变异核对：把 `redactText(settled.detail, MAX_STRING_LENGTH)` 换回 `settled.detail`，该用例失败（28 pass、1 fail）。
+3. 成立，要改。`commands/shared/text.ts` 不再手写插值，改用 nb-ui 的最小翻译实现（`@notnotype/nb-ui/text/minimal`，窗口的 `shared/window-text.ts` 也用它）按两种语言各翻一遍，占位写法（含空白与 `number`）与参数整理（500 字符上限）与窗口引擎一致。
+
+验证（合入 master 后的分支上）：`test:affected --since master` Bun 2828 pass、0 fail，Vitest 495 + 137 pass；目录检查通过；`tsc`、`vue-tsc`（web 与 browser-test）退出 0。commands.e2e 未重跑：修正只改诊断文字的顺序与原因的生成方式，现有目录下原因文字不变，e2e 不断言诊断。

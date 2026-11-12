@@ -15,6 +15,10 @@
  *   转给该项目的探针，由项目入口直用 Storage。`GET /commands/<窗口实例 id>` 与 `POST /commands/<窗口实例 id>/<命令 id>`
  *   经 `nbook.commands/remote` 列出与执行那个窗口里的命令。入口关闭时打印一行。同进程测试可传入自己的状态对象直接读写。项目入口见
  *   `src/project/testing/probe-plugin.ts`。
+ * - `test.tasks-probe`：后台任务的发起方（docs/specs/workbench/background-tasks.md 的 e2e）。依赖 `nbook.tasks/tasks`，挂控制路由：
+ *   `POST /start`（正文 `{title, message?, progress?, cancellable?, retry?}`，交回 `{id}`；`retry: true` 时重试另开一件同名任务）、
+ *   `POST /<id>/report|succeed|fail|cancelled`（正文分别是句柄方法的参数）、`GET /<id>/signal`（`{aborted, reason}`）、
+ *   `GET /last`（最近一次登记的任务 id，含重试登记的）。
  */
 
 import {Hono} from "hono";
@@ -30,8 +34,10 @@ import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {PROBE_RECORD_NAMES, probeStorage} from "nbook/shared/testing/probe-storage";
 import type {ProbeRecordName} from "nbook/shared/testing/probe-storage";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
+import {tasksKey} from "nbook/plugins/tasks/shared/contracts";
+import type {TaskHandle} from "nbook/plugins/tasks/shared/contracts";
 
-export const TEST_PLUGIN_IDS = ["test.slow", "test.fail-activate", "test.fail-close", "test.throw-later", "test.remote-probe"] as const;
+export const TEST_PLUGIN_IDS = ["test.slow", "test.fail-activate", "test.fail-close", "test.throw-later", "test.remote-probe", "test.tasks-probe"] as const;
 export type TestPluginId = typeof TEST_PLUGIN_IDS[number];
 
 /** 先发 `started\n`，`until` 完成后发 `last` 并结束正文。 */
@@ -198,8 +204,73 @@ export function createRemoteProbePlugin(state: RemoteProbeState = newRemoteProbe
     };
 }
 
+/** `POST /start` 的正文。 */
+interface StartBody {
+    readonly title: string;
+    readonly message?: string;
+    readonly progress?: number | null;
+    readonly cancellable?: boolean;
+    readonly retry?: boolean;
+}
+
+/** 后台任务的发起方：经控制路由登记与推进任务（见文件头）。 */
+function createTasksProbePlugin(): PluginDefinition {
+    const id = "test.tasks-probe";
+    return {
+        id,
+        entries: [defineEntry({
+            id: "server",
+            location: "server",
+            activationEvents: ["onStartup"],
+            dependencies: [{key: tasksKey}],
+            contributions: [{capability: HTTP_ROUTES_POINT, id, declaration: {}}],
+            activate: (context) => {
+                const tasks = context.services.require(tasksKey);
+                const handles = new Map<string, TaskHandle>();
+                let last: string | null = null;
+                const start = (body: StartBody): TaskHandle => {
+                    const handle = tasks.start({
+                        title: body.title,
+                        ...(body.message === undefined ? {} : {message: body.message}),
+                        ...(body.progress === undefined ? {} : {progress: body.progress}),
+                        ...(body.cancellable === undefined ? {} : {cancellable: body.cancellable}),
+                        ...(body.retry === true ? {retry: () => void start({title: body.title})} : {}),
+                    });
+                    handles.set(handle.id, handle);
+                    last = handle.id;
+                    return handle;
+                };
+                const routes = new Hono<{Bindings: HttpRouteEnv}>()
+                    .post("/start", async (c) => c.json({id: start(await c.req.json<StartBody>()).id}))
+                    .get("/last", (c) => c.json({id: last}))
+                    .get("/:task/signal", (c) => {
+                        const handle = handles.get(c.req.param("task"));
+                        return handle === undefined ? c.json({error: "unknown task"}, 404) : c.json({aborted: handle.signal.aborted, reason: handle.signal.aborted ? String(handle.signal.reason) : null});
+                    })
+                    .post("/:task/:method", async (c) => {
+                        const handle = handles.get(c.req.param("task"));
+                        if (handle === undefined) return c.json({error: "unknown task"}, 404);
+                        // 正文必须是 JSON（e2e 至少发 `{}`）：写坏的正文让请求失败，而不是静默当成空参数。
+                        const body = await c.req.json<Record<string, never>>();
+                        switch (c.req.param("method")) {
+                            case "report": handle.report(body); break;
+                            case "succeed": handle.succeed((body as {message?: string}).message); break;
+                            case "fail": handle.fail(body as unknown as {message: string; detail?: string}); break;
+                            case "cancelled": handle.cancelled((body as {message?: string}).message); break;
+                            default: return c.json({error: "unknown method"}, 404);
+                        }
+                        return c.json({ok: true});
+                    });
+                return {contributions: {[HTTP_ROUTES_POINT]: {[id]: routes}}};
+            },
+        })],
+    };
+}
+
 export function createTestPlugin(id: TestPluginId, hold?: Promise<void>): PluginDefinition {
     switch (id) {
+        case "test.tasks-probe":
+            return createTasksProbePlugin();
         case "test.remote-probe":
             return createRemoteProbePlugin();
         case "test.slow":

@@ -7,6 +7,8 @@ import {fakeEndpoint} from "nbook/plugins/agent/testing/endpoint";
 
 const endpoint = fakeEndpoint();
 let hold: ReturnType<typeof endpoint.hold> | null = null;
+/** 按会话的挂起（子代理的请求）：键是第一条用户消息里的标记。 */
+const routeHolds = new Map<string, ReturnType<typeof endpoint.holdFor>>();
 const control = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -17,6 +19,27 @@ const control = Bun.serve({
             return Response.json({ok: true});
         }
         if (path === "/requests") return Response.json(endpoint.requests);
+        if (path === "/scriptFor") {
+            const {text, replies} = await request.json() as {text: string; replies: never[]};
+            endpoint.scriptFor(text, ...replies);
+            return Response.json({ok: true});
+        }
+        if (path === "/holdFor") {
+            const {text, nth} = await request.json() as {text: string; nth?: number};
+            routeHolds.set(text, endpoint.holdFor(text, nth));
+            return Response.json({ok: true});
+        }
+        if (path === "/holdFor/arrived") {
+            const {text} = await request.json() as {text: string};
+            await routeHolds.get(text)?.arrived;
+            return Response.json({ok: true});
+        }
+        if (path === "/holdFor/release") {
+            const {text} = await request.json() as {text: string};
+            routeHolds.get(text)?.release();
+            routeHolds.delete(text);
+            return Response.json({ok: true});
+        }
         if (path === "/hold") {
             hold = endpoint.hold();
             return Response.json({ok: true});

@@ -45,7 +45,8 @@
 ### 活动栏：`components/WorkbenchToolStrip.vue`、`WorkbenchShell.vue`
 
 - 条目是容器：点击规则同提案第 3 节；右键菜单是容器的（移到右栏或底部面板在第二步才有意义，第一步只有“重置”）；“更多”溢出照旧。
-- 命令“切换侧栏容器”（活动栏隐藏时用）。
+- 活动栏隐藏时切换侧栏容器只经 `nbook.view.open`（Spec 定稿时定，不另加命令）。
+- 搬整个容器做成 store 的一个动作，第一步的“重置”与第二步的“移到”共用：分节的先后、比例、收成标题行都带着。
 
 ### 拖动：`web/layout-drag.ts`、`live-drag.ts`
 

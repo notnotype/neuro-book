@@ -45,3 +45,12 @@ export function argNumber(call: ToolCallView, key: string): number | null {
     const value = args[key];
     return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
+
+export function argBoolean(call: ToolCallView, key: string): boolean | null {
+    const args = call.args;
+    if (args === null || typeof args !== "object" || Array.isArray(args)) {
+        return null;
+    }
+    const value = args[key];
+    return typeof value === "boolean" ? value : null;
+}

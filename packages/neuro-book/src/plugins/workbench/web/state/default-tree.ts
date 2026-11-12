@@ -95,8 +95,10 @@ export function fitsSkeleton(doc: LayoutDoc): boolean {
 export function defaultLayoutDoc(catalog: ViewCatalog): LayoutDoc {
     const empty: LayoutDoc = {version: 1, tree: emptyTree(), panels: emptyPanels(), floats: [], hiddenBars: [], currentEditor: INITIAL_EDITOR_PANEL};
     const filled = reconcileViews(empty, catalog);
+    // 有视图的具名面板显示；只有声明了 `revealRegion: false` 的视图（后台任务、通知）时保持隐藏（views.md 输出 18）。
+    const reveals = (panel: PanelRecord): boolean => panel.tabs.some((tab) => tab.kind !== "view" || catalog.get(tab.viewId)?.revealRegion !== false);
     const panels = Object.fromEntries(Object.entries(filled.panels).map(([id, panel]) => {
-        if (panel.name === undefined || panel.tabs.length === 0) return [id, panel];
+        if (panel.name === undefined || !reveals(panel)) return [id, panel];
         const {hidden: _hidden, ...shown} = panel;
         return [id, shown];
     }));

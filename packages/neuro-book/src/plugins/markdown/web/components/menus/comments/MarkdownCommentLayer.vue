@@ -1,0 +1,435 @@
+<script setup lang="ts">
+/** 批注的浮层与“写”的状态机（同名 .md）：光标进批注出“看”卡片，加批注与改意见在同一张卡片里“写”。 */
+import {AnchoredPopover} from "@notnotype/nb-ui/components";
+import {commentEntry, commentsAt, gotoComment, holdSelection, listComments, markShownComment, matchComment, refOf, releaseSelection} from "@notnotype/nb-markdown/editor";
+import type {CommentInfo, CommentRef} from "@notnotype/nb-markdown/editor";
+import type {Editor} from "@tiptap/core";
+import type {Transaction} from "@tiptap/pm/state";
+import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
+
+import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
+
+import {caretAnchor, selectionAnchor} from "../selection-anchor";
+import MarkdownCommentCard from "./MarkdownCommentCard.vue";
+import type {CommentCardLabels} from "./MarkdownCommentCard.vue";
+import MarkdownCommentMargin from "./MarkdownCommentMargin.vue";
+import type {MarginItem} from "./MarkdownCommentMargin.vue";
+
+const props = defineProps<{
+    editor: Editor | null;
+    scroller: HTMLElement | null;
+    editing: EditorEditing;
+    menus: EditorMenus;
+    readonly: boolean;
+    /** 换文档时变：卡片与没保存的字都作废。 */
+    binding: string | null;
+    /** 别的弹层（注音与双语卡片、右键菜单）开着：不弹。 */
+    blocked: boolean;
+    /** 页边此刻画得出来（开关开着、控件够宽，`MarkdownControl` 算出）：卡片在页边里，不出浮层（输出 33）。 */
+    marginDrawn: boolean;
+}>();
+const emit = defineEmits<{(event: "writing", writing: boolean): void}>();
+
+/** 每次选区或文档变化加一：列表与光标处的批注都是现算的，不缓存（缓存会让卡片上的序号对着旧文档）。 */
+const tick = ref(0);
+const focused = ref(false);
+/**
+ * 只读的正文（`contenteditable="false"`）拿不到焦点，`focus`、`blur` 都不来；这时用浏览器的选区在不在正文里判断“眼睛还在这里”
+ * （输出 30：只读文档也出卡片）。可写时不用。
+ */
+const readingInside = ref(false);
+/** 光标进了批注、卡片开着（“看”）。 */
+const cardOpen = ref(false);
+/** 正在“写”：`ref` 为 null 是还不在文档里的新批注。 */
+const writing = shallowRef<{readonly ref: CommentRef | null; readonly session: number} | null>(null);
+/** 点上一条、下一条跳到的那条：紧挨或同起点的批注光标不动，要自己记着“当前”是哪条。 */
+const current = shallowRef<CommentRef | null>(null);
+/**
+ * 写着的字：卡片在浮层与页边之间换位置（控件宽度跨过阈值）时是另一个实例，字存在这里才不丢；null 是这次“写”还没有字，卡片按原意见预填。
+ * 每次进入“写”重置。
+ */
+const draftText = ref<string | null>(null);
+let session = 0;
+
+const list = computed<CommentInfo[]>(() => {
+    void tick.value;
+    return props.editor === null ? [] : listComments(props.editor.state.doc);
+});
+const at = computed<CommentInfo[]>(() => {
+    void tick.value;
+    return props.editor === null ? [] : commentsAt(props.editor.state);
+});
+const writingInfo = computed<CommentInfo | null>(() => {
+    const target = writing.value?.ref ?? null;
+    return target === null ? null : matchComment(list.value, target);
+});
+
+const labels = computed<CommentCardLabels>(() => ({
+    empty: props.menus.label("commentEmpty"),
+    counter: (index, total) => props.menus.label("commentCounter", {i: index, n: total}),
+    previous: props.menus.label("commentPrevious"),
+    next: props.menus.label("commentNext"),
+    edit: props.menus.label("commentEdit"),
+    remove: props.menus.label("commentRemove"),
+    save: props.menus.label("commentSave"),
+    cancel: props.menus.label("commentCancel"),
+    body: props.menus.label("commentBody"),
+}));
+
+const attending = computed(() => focused.value || (props.readonly && readingInside.value));
+const viewOpen = computed(() => !props.marginDrawn && cardOpen.value && attending.value && at.value.length > 0 && !props.blocked && writing.value === null);
+const popoverOpen = computed(() => viewOpen.value || (writing.value !== null && !props.marginDrawn));
+
+/** 新批注贴选区（同注音卡片）；已有的贴光标所在行，块批注贴块里第一个文字处（输出 30）。 */
+const anchor = computed(() => {
+    const editor = props.editor;
+    if (editor === null) return null;
+    if (writing.value !== null && writing.value.ref === null) return selectionAnchor(editor, props.scroller);
+    const first = at.value[0];
+    return caretAnchor(editor, props.scroller, first?.block === true ? first.start : undefined);
+});
+
+const sameRef = (left: CommentRef | null, right: CommentRef | null): boolean => left === right || (left !== null && right !== null && left.index === right.index && left.body === right.body && left.quote === right.quote);
+
+/** 光标所在的批注里“当前”的那条：点了跳转的（在光标处的批注里按序号加指纹找，两条指纹相同的不会一起算），否则排在前面的；光标不在批注里为 null。 */
+const cursorComment = computed<CommentInfo | null>(() => {
+    const chosen = current.value;
+    const kept = chosen === null ? null : matchComment(at.value, chosen);
+    return kept ?? at.value[0] ?? null;
+});
+
+/**
+ * 正文里标出来的那条（输出 32）：“写”里的、页边里展开的、浮层开着时卡片里排在前面的。按内容比较、内容没变就还给上一个对象：
+ * 光标在同一条批注里走一格不该再发一个只含装饰的事务。
+ */
+let lastShown: CommentRef | null = null;
+const shown = computed<CommentRef | null>(() => {
+    const next = writing.value !== null ? writing.value.ref : (props.marginDrawn || viewOpen.value) && cursorComment.value !== null ? refOf(cursorComment.value) : null;
+    if (!sameRef(lastShown, next)) lastShown = next;
+    return lastShown;
+});
+
+/**
+ * 页边里的卡片（输出 33）：每条批注一张，写着的与光标所在的那条展开，其余是摘要；还不在文档里的新批注作为一张待写的卡片，
+ * 按选区起点插进去。
+ */
+const marginItems = computed<MarginItem[]>(() => {
+    const editor = props.editor;
+    if (!props.marginDrawn || editor === null) return [];
+    const editing = writingInfo.value;
+    const open = cursorComment.value;
+    const items = list.value.map((info): MarginItem => ({
+        key: info.identity,
+        info,
+        // `at` 与 `list` 是同一个事务里各算一次的，对象不同，序号相同就是同一条。
+        mode: editing !== null && info === editing ? "write" : writing.value === null && open !== null && info.index === open.index ? "view" : "compact",
+        anchor: info.start,
+    }));
+    if (writing.value !== null && writing.value.ref === null) {
+        const anchor = editor.state.selection.from;
+        const index = items.findIndex((item) => (item.info as CommentInfo).start > anchor);
+        items.splice(index < 0 ? items.length : index, 0, {key: "pending", info: null, mode: "write", anchor});
+    }
+    return items;
+});
+// 标出是一个事务，不在 `transaction` 事件的调用栈里发；`post` 让它在这一轮更新之后。
+watch(shown, (target) => {
+    if (props.editor !== null) markShownComment(props.editor, target);
+}, {flush: "post"});
+
+watch(() => writing.value !== null, (now) => emit("writing", now), {flush: "sync"});
+
+function closeAll(): void {
+    cardOpen.value = false;
+    pendingOpen = false;
+    current.value = null;
+    draftText.value = null;
+    if (writing.value !== null) {
+        writing.value = null;
+        if (props.editor !== null) releaseSelection(props.editor);
+    }
+    if (props.editor !== null) markShownComment(props.editor, null);
+}
+// 换文档、变只读：卡片对着的批注已经不是那份文档里的（Spec 的“状态与转换”）。换文档只换编辑状态、不产生事务，所以列表要自己重算；
+// “进入”的记忆按换过来的文档此刻光标在哪条批注里重记（不清成空：光标已经在批注里时，在里面走一格不算进入），那要等控件
+// 把状态换好，所以在这一轮更新之后记。
+watch(() => [props.binding, props.readonly] as const, () => {
+    closeAll();
+    tick.value += 1;
+}, {flush: "sync"});
+watch(() => [props.binding, props.readonly] as const, () => {
+    previousInside = props.editor === null ? new Set() : new Set(commentsAt(props.editor.state).map((info) => info.identity));
+}, {flush: "post"});
+watch(() => props.blocked, (blocked) => {
+    if (blocked) cardOpen.value = false;
+});
+// 正文被程序改了（外部重载）：“写”对着的批注按指纹找不到了就收起，不拿旧序号去改。
+watch(writingInfo, (info) => {
+    if (writing.value !== null && writing.value.ref !== null && info === null) endWriting(false);
+});
+
+let previousInside: ReadonlySet<string> = new Set();
+let pendingOpen = false;
+let pointerDown = false;
+
+/**
+ * 光标“进入”批注才弹（输出 30，判断在 `commentEntry`）。只看改了文档或选区的事务；程序改的文档（重载、写回回填，不进历史）既不算输入，
+ * 也不算走进来，只记下此刻光标处有哪些批注。
+ */
+function onTransaction({transaction}: {transaction: Transaction}): void {
+    const editor = props.editor;
+    if (editor === null || (!transaction.docChanged && !transaction.selectionSet)) return;
+    tick.value += 1;
+    const typed = transaction.docChanged && transaction.getMeta("addToHistory") !== false;
+    const result = commentEntry(previousInside, {
+        inside: commentsAt(editor.state).map((info) => info.identity),
+        selectionEmpty: editor.state.selection.empty,
+        docChanged: typed,
+        composing: editor.view.composing,
+    });
+    previousInside = result.inside;
+    if ((transaction.docChanged && !typed) || writing.value !== null) return;
+    current.value = null;
+    if (result.close) {
+        cardOpen.value = false;
+        pendingOpen = false;
+    } else if (result.open) {
+        // 鼠标点进来时指针还没松开：松开再弹（拖选不弹）。
+        if (pointerDown) pendingOpen = true;
+        else cardOpen.value = true;
+    }
+}
+const onFocus = (): void => {
+    focused.value = true;
+};
+const onBlur = (): void => {
+    focused.value = false;
+};
+const onSelectionChange = (): void => {
+    const editor = props.editor;
+    if (editor === null || !props.readonly) return;
+    const anchor = document.getSelection()?.anchorNode ?? null;
+    readingInside.value = anchor !== null && editor.view.dom.contains(anchor);
+};
+const onPointerDown = (): void => {
+    pointerDown = true;
+};
+const onPointerUp = (): void => {
+    pointerDown = false;
+    if (!pendingOpen) return;
+    pendingOpen = false;
+    cardOpen.value = props.editor !== null && commentsAt(props.editor.state).length > 0;
+};
+
+/** Ctrl+Alt+M（输出 28）：有选区加批注，光标在批注里改这条的意见；Esc 收起“看”的卡片。 */
+function onKeyDown(event: KeyboardEvent): void {
+    const editor = props.editor;
+    if (editor === null) return;
+    if (event.key === "Escape") {
+        cardOpen.value = false;
+        return;
+    }
+    if (props.readonly || !props.menus.matches("comment", event)) return;
+    if (!editor.state.selection.empty) {
+        if (!props.editing.enabled("comment")) return;
+        event.preventDefault();
+        beginAdd();
+        return;
+    }
+    const first = commentsAt(editor.state)[0];
+    if (first === undefined) return;
+    event.preventDefault();
+    beginEdit(first);
+}
+
+/** 只读的正文拿不到焦点，键盘事件不经过编辑器：Esc 收起卡片要听 `document`（输出 30）。 */
+function onDocumentKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && props.readonly && readingInside.value) cardOpen.value = false;
+}
+
+let detach: (() => void) | null = null;
+watch(() => [props.editor, props.scroller] as const, ([editor, scroller]) => {
+    detach?.();
+    detach = null;
+    if (editor === null) return;
+    previousInside = new Set(commentsAt(editor.state).map((info) => info.identity));
+    focused.value = editor.view.hasFocus();
+    editor.on("transaction", onTransaction);
+    editor.on("focus", onFocus);
+    editor.on("blur", onBlur);
+    // 先取下 DOM：卸载时编辑器已经 `unmount`，再读 `editor.view` 会抛。
+    const dom = editor.view.dom;
+    dom.addEventListener("keydown", onKeyDown);
+    scroller?.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    document.addEventListener("selectionchange", onSelectionChange);
+    document.addEventListener("keydown", onDocumentKeyDown);
+    detach = () => {
+        editor.off("transaction", onTransaction);
+        editor.off("focus", onFocus);
+        editor.off("blur", onBlur);
+        dom.removeEventListener("keydown", onKeyDown);
+        scroller?.removeEventListener("pointerdown", onPointerDown);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerUp);
+        document.removeEventListener("selectionchange", onSelectionChange);
+        document.removeEventListener("keydown", onDocumentKeyDown);
+    };
+}, {immediate: true});
+onBeforeUnmount(() => {
+    detach?.();
+    if (props.editor !== null && !props.editor.isDestroyed) closeAll();
+});
+
+/** 在选区上加批注：卡片开着时原选区仍画成选中（同输出 9）。 */
+function beginAdd(): void {
+    const editor = props.editor;
+    if (editor === null || props.readonly || !props.editing.enabled("comment")) return;
+    cardOpen.value = false;
+    holdSelection(editor);
+    session += 1;
+    draftText.value = null;
+    writing.value = {ref: null, session};
+}
+
+function beginEdit(info: CommentInfo): void {
+    if (props.editor === null || props.readonly) return;
+    cardOpen.value = false;
+    session += 1;
+    draftText.value = null;
+    writing.value = {ref: refOf(info), session};
+}
+
+/** 结束“写”。`focus` 为真时焦点回正文（保存、取消）；焦点自己去了别处（`dismiss`）不抢回。 */
+function endWriting(focus: boolean): void {
+    const editor = props.editor;
+    writing.value = null;
+    draftText.value = null;
+    if (editor === null) return;
+    releaseSelection(editor);
+    if (focus) editor.view.focus();
+}
+
+function submit(text: string): void {
+    const editor = props.editor;
+    const target = writing.value?.ref ?? null;
+    if (editor === null || writing.value === null) return;
+    if (target === null) {
+        // 经控件句柄同步执行：加不上（选区折了、所在的块不再允许批注）时留在“写”里，字还在，不关成“已保存”（输出 28）。
+        if (props.editing.run("comment", {text})) endWriting(true);
+        return;
+    }
+    const ok = props.editing.run("comment-edit", {...target, text});
+    endWriting(true);
+    // 保存后回到“看”；没保存成（批注已经被别处改掉）就收起。
+    cardOpen.value = ok && commentsAt(editor.state).length > 0;
+}
+
+function remove(info: CommentInfo): void {
+    const editor = props.editor;
+    if (editor === null) return;
+    props.editing.run("comment-delete", {...refOf(info)});
+    editor.view.focus();
+    // 删后光标仍在别的批注里就出那一条，否则收起。
+    cardOpen.value = commentsAt(editor.state).length > 0;
+}
+
+/** 点页边里的摘要：这条成为当前批注，光标移过去、展开。正在写别的一条时先放下它（点卡片不夺焦，不会自己发 `dismiss`）。 */
+function select(info: CommentInfo): void {
+    const editor = props.editor;
+    if (editor === null) return;
+    if (writing.value !== null) endWriting(false);
+    gotoComment(editor, refOf(info));
+    editor.view.focus();
+    current.value = refOf(info);
+}
+
+function step(info: CommentInfo, direction: -1 | 1): void {
+    const editor = props.editor;
+    const target = list.value[info.index + direction];
+    if (editor === null || target === undefined) return;
+    gotoComment(editor, refOf(target));
+    editor.view.focus();
+    current.value = refOf(target);
+    cardOpen.value = true;
+}
+
+defineExpose({
+    /** 选区菜单的“批注”按钮、右键菜单的“添加批注”。 */
+    beginAdd,
+});
+</script>
+
+<template>
+    <AnchoredPopover :open="popoverOpen" :anchor="anchor" side="bottom">
+        <div class="markdown-comment-stack" data-markdown-comment-layer>
+            <MarkdownCommentCard
+                v-if="writing !== null"
+                mode="write"
+                :body="writingInfo?.body ?? ''"
+                :index="writingInfo?.index ?? list.length"
+                :total="writingInfo === null ? list.length + 1 : list.length"
+                :readonly="false"
+                :labels="labels"
+                :session="writing.session"
+                :draft="draftText"
+                @update:draft="(text) => { draftText = text; }"
+                @submit="submit"
+                @cancel="endWriting(true)"
+                @dismiss="endWriting(false)"
+            />
+            <template v-else>
+                <MarkdownCommentCard
+                    v-for="info in at"
+                    :key="info.identity"
+                    mode="view"
+                    :body="info.body"
+                    :index="info.index"
+                    :total="list.length"
+                    :readonly="props.readonly"
+                    :labels="labels"
+                    :session="0"
+                    @edit="beginEdit(info)"
+                    @remove="remove(info)"
+                    @previous="step(info, -1)"
+                    @next="step(info, 1)"
+                />
+            </template>
+        </div>
+    </AnchoredPopover>
+    <Teleport v-if="props.marginDrawn && props.editor !== null && props.scroller !== null" :to="props.scroller">
+        <MarkdownCommentMargin
+            :editor="props.editor"
+            :scroller="props.scroller"
+            :items="marginItems"
+            :total="list.length"
+            :readonly="props.readonly"
+            :labels="labels"
+            :session="writing?.session ?? 0"
+            :version="tick"
+            :draft="draftText"
+            @update:draft="(text) => { draftText = text; }"
+            @edit="beginEdit"
+            @remove="remove"
+            @previous="(info) => step(info, -1)"
+            @next="(info) => step(info, 1)"
+            @select="select"
+            @submit="submit"
+            @cancel="endWriting(true)"
+            @dismiss="endWriting(false)"
+        />
+    </Teleport>
+</template>
+
+<style scoped>
+.markdown-comment-stack {
+    display: flex;
+    flex-direction: column;
+}
+
+/* 重叠的几条：一张浮层里上下排，中间一条分隔线。 */
+.markdown-comment-stack > :deep(* + *) {
+    border-top: 1px solid var(--divider);
+}
+</style>

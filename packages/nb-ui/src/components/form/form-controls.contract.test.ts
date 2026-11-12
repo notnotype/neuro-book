@@ -7,6 +7,7 @@ import Checkbox from "./Checkbox.vue";
 import Input from "./Input.vue";
 import NumberInput from "./NumberInput.vue";
 import Select from "../popup/Select.vue";
+import Textarea from "./Textarea.vue";
 
 describe("phase 2 form control contracts", () => {
     it("keeps Input numeric attributes, prefix slot and focus event", async () => {
@@ -40,6 +41,82 @@ describe("phase 2 form control contracts", () => {
         expect(wrapped.get("input").classes()).toContain("nb-ui-native-input");
         await bare.get("input").setValue("updated");
         expect(bare.emitted("update:modelValue")?.at(-1)).toEqual(["updated"]);
+    });
+
+    // 外框与聚焦光晕都出自表单控件基座 `.nb-ui-control`（styles.css）；happy-dom 不算分层样式，外观在浏览器里看，这里只守来源。
+    it("variant bare 的两个分支都不挂字段外框、没有左右内边距（文字与容器的内边距对齐），出错时仍报给读屏", async () => {
+        const plain = mount(Input, {props: {modelValue: "zhù yīn", variant: "bare", invalid: true}});
+        const small = mount(Input, {props: {modelValue: "", variant: "bare", size: "sm"}});
+        const decorated = mount(Input, {props: {modelValue: "", variant: "bare", clearable: true}, slots: {suffix: "<span>✓</span>"}});
+        const framed = mount(Input, {props: {modelValue: ""}});
+        expect(framed.classes()).toContain("nb-ui-control");
+        expect(framed.classes()).toContain("nb-ui-control-px");
+        for (const root of [plain, small, decorated]) {
+            expect(root.classes()).not.toContain("nb-ui-control");
+            expect(root.classes()).not.toContain("border");
+            expect(root.classes().filter((name) => name === "nb-ui-control-px" || name.startsWith("px-"))).toEqual([]);
+        }
+        expect(plain.get("input").attributes("aria-invalid")).toBe("true");
+        await plain.get("input").setValue("lín xī");
+        expect(plain.emitted("update:modelValue")?.at(-1)).toEqual(["lín xī"]);
+    });
+
+    // 高度怎么随内容变要在浏览器里看（happy-dom 没有排版，`scrollHeight` 恒为 0）；这里守来源：外框与拖拽把手、值的往返。
+    it("Textarea 的 variant bare 不挂字段外框与内边距、不可拖拽缩放；autosize 也去掉拖拽把手并把高度交给内容", async () => {
+        const framed = mount(Textarea, {props: {modelValue: "一"}});
+        const bare = mount(Textarea, {props: {modelValue: "二", variant: "bare", invalid: true}});
+        const auto = mount(Textarea, {props: {modelValue: "三", autosize: true}});
+        expect(framed.classes()).toEqual(expect.arrayContaining(["nb-ui-control", "border", "resize-y"]));
+        expect(bare.classes()).not.toContain("nb-ui-control");
+        expect(bare.classes()).not.toContain("border");
+        expect(bare.classes()).toContain("resize-none");
+        expect(bare.classes().filter((name) => name.startsWith("px-") || name.startsWith("py-"))).toEqual([]);
+        expect(bare.attributes("aria-invalid")).toBe("true");
+        expect(auto.classes()).toContain("resize-none");
+        await bare.setValue("改过");
+        expect(bare.emitted("update:modelValue")?.at(-1)).toEqual(["改过"]);
+    });
+
+    // happy-dom 没有排版，`scrollHeight` 恒为 0：用元素上的数据属性喂内容高度，核对夹取的算法（外观与真实高度由 Lab 与 e2e 看）。
+    it("Textarea 的 autosize：高度等于内容高度，至多 maxRows 行（行高为 normal 时按字号估），超出时在里面滚动；border-box 时含边框", async () => {
+        const proto = HTMLTextAreaElement.prototype;
+        const original = Object.getOwnPropertyDescriptor(proto, "scrollHeight");
+        Object.defineProperty(proto, "scrollHeight", {configurable: true, get(this: HTMLElement) {
+            return Number(this.dataset.content ?? 0);
+        }});
+        try {
+            const wrapper = mount(Textarea, {props: {modelValue: "x", autosize: true, maxRows: 3, variant: "bare"}, attrs: {style: "line-height: 20px; padding: 0; box-sizing: content-box", "data-content": "50"}, attachTo: document.body});
+            const element = wrapper.element as HTMLTextAreaElement;
+            await nextTick();
+            expect(element.style.height).toBe("50px");
+            expect(element.style.overflowY).toBe("hidden");
+            element.dataset.content = "200";
+            await wrapper.setProps({modelValue: "很多行"});
+            await nextTick();
+            await nextTick();
+            expect(element.style.height).toBe("60px");
+            expect(element.style.overflowY).toBe("auto");
+            wrapper.unmount();
+            // 行高是 normal：按字号 14px 的 1.2 倍（16.8px）估，3 行约 50px。
+            const normal = mount(Textarea, {props: {modelValue: "x", autosize: true, maxRows: 3, variant: "bare"}, attrs: {style: "font-size: 14px; padding: 0; box-sizing: content-box", "data-content": "200"}, attachTo: document.body});
+            await nextTick();
+            expect(Number.parseFloat((normal.element as HTMLElement).style.height)).toBeCloseTo(50.4, 1);
+            normal.unmount();
+            // border-box：高度含上下边框，上限含内边距与边框。
+            const boxed = mount(Textarea, {props: {modelValue: "x", autosize: true, maxRows: 3, variant: "bare"}, attrs: {style: "line-height: 20px; padding: 4px 0; border-top: 1px solid; border-bottom: 1px solid; box-sizing: border-box", "data-content": "30"}, attachTo: document.body});
+            await nextTick();
+            expect((boxed.element as HTMLElement).style.height).toBe("32px");
+            (boxed.element as HTMLElement).dataset.content = "500";
+            await boxed.setProps({modelValue: "很多"});
+            await nextTick();
+            await nextTick();
+            // 3 行 60 + 内边距 8 + 边框 2。
+            expect((boxed.element as HTMLElement).style.height).toBe("70px");
+            boxed.unmount();
+        } finally {
+            if (original === undefined) Reflect.deleteProperty(proto, "scrollHeight");
+            else Object.defineProperty(proto, "scrollHeight", original);
+        }
     });
 
     it("scopes every native search and number pseudo-element selector to the marker", () => {

@@ -5,13 +5,14 @@ import {computed, ref, shallowRef, watch} from "vue";
 import type {ProfileToolCandidate, ProfileToolCandidateGroup, ToolChange} from "../profile-view";
 import {useAgentPageText} from "../text";
 
-/** “添加工具”对话框（同名 .md）。 */
+/** “添加工具”对话框（同名 .md）；`kind` 为 `agents` 时是“添加可派的子代理”，候选是 Profile。 */
 const props = withDefaults(defineProps<{
     open: boolean;
     candidates: readonly ProfileToolCandidateGroup[];
     busy?: boolean;
     status?: string;
-}>(), {busy: false, status: ""});
+    kind?: "tools" | "agents";
+}>(), {busy: false, status: "", kind: "tools"});
 
 const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
@@ -19,6 +20,9 @@ const emit = defineEmits<{
 }>();
 
 const text = useAgentPageText();
+/** 返回类型列出两种对话框的全部键：哪一种缺了键，类型检查就报。 */
+type DialogText = "add.title" | "add.done" | "add.search" | "add.empty" | "add.noMatch" | "add.blocked" | "add.replaces" | "add.join" | "add.unjoin";
+const key = (rest: DialogText): `profiles.${"tools" | "agents"}.${DialogText}` => `profiles.${props.kind}.${rest}`;
 const query = ref("");
 const picked = ref(new Set<string>());
 /** 打开时定下：开着的时候目录变了不刷新，用户正在看的行不跳。 */
@@ -64,9 +68,9 @@ function done(): void {
     <Dialog
         :open="open"
         size="md"
-        :title="text('profiles.tools.add.title')"
+        :title="text(key('add.title'))"
         closable
-        :confirm-label="text('profiles.tools.add.done')"
+        :confirm-label="text(key('add.done'))"
         :busy="busy"
         :status="status"
         data-profile-add-tools
@@ -74,9 +78,9 @@ function done(): void {
         @confirm="done"
     >
         <div class="add-tools">
-            <Input v-model="query" size="sm" icon-class="i-lucide-search" :placeholder="text('profiles.tools.add.search')" :aria-label="text('profiles.tools.add.search')" />
-            <p v-if="all.length === 0" class="add-tools__muted">{{ text("profiles.tools.add.empty") }}</p>
-            <p v-else-if="groups.length === 0" class="add-tools__muted">{{ text("profiles.tools.add.noMatch") }}</p>
+            <Input v-model="query" size="sm" icon-class="i-lucide-search" :placeholder="text(key('add.search'))" :aria-label="text(key('add.search'))" />
+            <p v-if="all.length === 0" class="add-tools__muted">{{ text(key('add.empty')) }}</p>
+            <p v-else-if="groups.length === 0" class="add-tools__muted">{{ text(key('add.noMatch')) }}</p>
             <div v-else class="add-tools__list">
                 <section v-for="group in groups" :key="group.id">
                     <h4 class="add-tools__group">{{ group.provider }}<span>{{ group.tools.length }}</span></h4>
@@ -84,17 +88,17 @@ function done(): void {
                         <li v-for="tool in group.tools" :key="tool.id" class="add-tools__row" :data-add-tool="tool.id">
                             <div class="add-tools__text">
                                 <div class="add-tools__name"><code>{{ tool.name }}</code><span :class="{'is-danger': tool.danger}">{{ tool.effect }}</span></div>
-                                <Tooltip :text="tool.blocked ? text('profiles.tools.add.blocked') : tool.detail">
+                                <Tooltip :text="tool.blocked ? text(key('add.blocked')) : tool.detail">
                                     <div class="add-tools__summary" tabindex="0">
-                                        <template v-if="tool.blocked">{{ text("profiles.tools.add.blocked") }}</template>
-                                        <template v-else>{{ tool.summary }}<span v-if="tool.replaces !== undefined" class="add-tools__replaces" data-add-tool-replaces> {{ text("profiles.tools.add.replaces") }}</span></template>
+                                        <template v-if="tool.blocked">{{ text(key('add.blocked')) }}</template>
+                                        <template v-else>{{ tool.summary }}<span v-if="tool.replaces !== undefined" class="add-tools__replaces" data-add-tool-replaces> {{ text(key('add.replaces')) }}</span></template>
                                     </div>
                                 </Tooltip>
                             </div>
                             <IconButton
                                 size="xs"
                                 :icon-class="picked.has(tool.id) ? 'i-lucide-minus' : 'i-lucide-plus'"
-                                :aria-label="text(picked.has(tool.id) ? 'profiles.tools.add.unjoin' : 'profiles.tools.add.join', {name: tool.name, id: tool.id})"
+                                :aria-label="text(key(picked.has(tool.id) ? 'add.unjoin' : 'add.join'), {name: tool.name, id: tool.id})"
                                 :disabled="tool.blocked || busy"
                                 data-add-tool-toggle
                                 @click="toggle(tool)"

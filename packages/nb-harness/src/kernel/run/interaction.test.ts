@@ -391,3 +391,78 @@ describe("结算", () => {
         expect((await session.raw.waitRun((last.data as {runId: string}).runId)).text).toBe("知道主角了");
     });
 });
+
+describe("会话之间的输入与交回的运行", () => {
+    const parent = {kind: "session", id: "parent"} as const;
+    /** 全部事件：`inputQueued` 是 session 事件，不在路径上。 */
+    const allEvents = async (session: TestSession) => (await session.raw.log({afterSeq: 0, limit: 10_000})).events;
+
+    test("输出 85：会话以自己的身份发的话，缓冲区与路径上的事件都记 by；用户发的不记", async () => {
+        await using session = await createTestSession({caller: {kind: "session", id: "parent", callId: "c1"}});
+        session.model.script("收到", "也收到");
+        const sent = await session.raw.as(parent).send({commandId: id(), input: {text: "查一下第三章"}});
+        if (!sent.ok || sent.value.runId === null) throw new Error("send did not start a run");
+        await session.raw.waitRun(sent.value.runId);
+        await session.say("我自己也说一句");
+        const events = await allEvents(session);
+        expect(dataOf(events, "inputQueued").map((data) => data.by)).toEqual([parent, undefined]);
+        expect(dataOf(events, "input").map((data) => data.by)).toEqual([parent, undefined]);
+    });
+
+    test("输出 85：只入队的话之后由 start 开运行，路径上的 input 仍记发出者", async () => {
+        await using session = await createTestSession({caller: {kind: "session", id: "parent", callId: "c1"}});
+        session.model.script("收到");
+        expect(await session.raw.as(parent).enqueue({commandId: id(), input: {text: "排在后面的话"}, mode: "followup"})).toMatchObject({ok: true});
+        const started = await session.raw.start({commandId: id()});
+        if (!started.ok) throw new Error(started.code);
+        await session.raw.waitRun(started.value.runId);
+        expect(dataOf(await session.events(), "input").map((data) => [data.text, data.by])).toEqual([["排在后面的话", parent]]);
+    });
+
+    test("输出 85、88：插进在跑的运行时交回它的 runId，插话带着 by 送达", async () => {
+        const release = gate();
+        const started = gate();
+        const slow: TestTool = {id: "lab.slow", concurrency: "shared", execute: async () => {
+            started.open();
+            await release.promise;
+            return "读完了";
+        }};
+        await using session = await createTestSession({tools: [slow]});
+        session.model.script({tools: [{tool: "lab.slow"}]}, "照做了");
+        const runId = await sendRaw(session, "读一下");
+        await started.promise;
+        const sent = await session.raw.as(parent).send({commandId: id(), input: {text: "顺便看第五章"}, mode: "steer"});
+        expect(sent).toMatchObject({ok: true, value: {runId: null, currentRunId: runId}});
+        const queued = await session.raw.as(parent).enqueue({commandId: id(), input: {text: "之后再说"}, mode: "followup"});
+        expect(queued).toMatchObject({ok: true, value: {currentRunId: runId}});
+        release.open();
+        await session.raw.waitRun(runId);
+        expect(dataOf(await session.events(), "steer").map((data) => [data.text, data.by])).toEqual([["顺便看第五章", parent]]);
+    });
+
+    test("输出 88：应答同步提问交回被叫醒的运行；空闲时应答异步提问交回它开的运行", async () => {
+        const asker: TestTool = {id: "lab.ask", execute: async (_args, context) => {
+            const answer = await context.ask!({question: "叫什么？"});
+            return answer.kind === "answer" ? answer.text : "没答";
+        }};
+        const later: TestTool = {id: "lab.later", execute: async (_args, context) => {
+            await context.ask!({question: "要几章？"}, {async: true});
+            return "先接着做";
+        }};
+        await using session = await createTestSession({tools: [asker, later], questions: "caller", caller: {kind: "session", id: "parent", callId: "c1"}});
+        session.model.script({tools: [{tool: "lab.ask"}]}, "好", {tools: [{tool: "lab.later"}]}, "先写着", "收到");
+        const runId = await sendRaw(session, "问我");
+        const [question] = await waitingFor(session, 1);
+        expect(await session.raw.as(parent).resolve({commandId: id(), id: question!.id, decision: "answer", answer: {text: "林舟"}})).toMatchObject({ok: true, value: {runId}});
+        await session.raw.waitRun(runId);
+
+        const second = await sendRaw(session, "再来");
+        await session.raw.waitRun(second);
+        const asked = dataOf<{id: string}>(await session.events(), "interactionRequested").at(-1)!;
+        const answered = await session.raw.as(parent).resolve({commandId: id(), id: asked.id, decision: "answer", answer: {text: "三章"}});
+        if (!answered.ok || answered.value.runId === undefined) throw new Error("the answer did not start a run");
+        expect(answered.value.runId).not.toBe(second);
+        await session.raw.waitRun(answered.value.runId);
+        expect(dataOf(await session.events(), "input").at(-1)).toMatchObject({text: "三章", by: parent});
+    });
+});

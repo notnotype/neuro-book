@@ -484,10 +484,10 @@ test.describe("产品页", () => {
         const fullyVisible = async (): Promise<boolean> => {
             const panel = await box(page, "panel");
             const buttons = await page.locator('[data-panel-head="panel"] [data-panel-action]').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect()).map((rect) => ({x: rect.x, width: rect.width})));
-            return buttons.length === 3 && buttons.every((button) => button.width > 0 && button.x >= panel.x - 0.5 && button.x + button.width <= panel.x + panel.width + 0.5);
+            return buttons.length === 4 && buttons.every((button) => button.width > 0 && button.x >= panel.x - 0.5 && button.x + button.width <= panel.x + panel.width + 0.5);
         };
 
-        // 840 宽：工具面板压到最小值以上，编辑组不小于 220，三个框架按钮完整可见。
+        // 840 宽：工具面板压到最小值以上，编辑组不小于 220，四个框架按钮完整可见（面板里是内置的“后台任务”与“通知”，当前视图能浮动，所以有“浮动”）。
         await page.setViewportSize({width: 840, height: 900});
         await expect.poll(async () => (await box(page, "g0")).width).toBeGreaterThanOrEqual(220);
         expect((await box(page, "sidebar")).width).toBeGreaterThanOrEqual(160);
@@ -575,7 +575,8 @@ test.describe("产品页", () => {
             return [
                 ...read("[data-workbench-shell]", {"background-color": "--shell-ground", "color": "--text-main", "font-family": "--font-ui"}),
                 ...read('[data-shell-card="sidebar"]', {"background-color": "--panel-surface"}),
-                ...read('[data-panel-head="panel"] h2', {"color": "--text-secondary"}),
+                // 只写标题的面板头：右栏只有对话一个视图（底部面板有两个标签，画的是标签带）。
+                ...read('[data-panel-head="auxiliarybar"] h2', {"color": "--text-secondary"}),
                 ...read("[data-workbench-status-bar]", {"background-color": "--shell-chrome-surface", "border-top-color": "--shell-chrome-line", "color": "--text-secondary"}),
             ];
         });

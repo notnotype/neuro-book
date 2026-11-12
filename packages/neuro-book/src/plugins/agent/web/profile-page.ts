@@ -22,7 +22,8 @@ import type {ProfileSetting, ToolBinding} from "../shared/settings";
 import {changeToolBinding, userProfileAddress, withToolBinding} from "../shared/profile-tools";
 import type {ToolChange} from "../shared/profile-tools";
 import {agentText} from "../shared/text";
-import {withApprovalChoice, withModelChoice} from "./profile-edits";
+import {withAgentsChoice, withApprovalChoice, withModelChoice} from "./profile-edits";
+import {changeAgentsBinding} from "../shared/profile-agents";
 import {profileViews, toolChangeContext} from "./profile-view";
 import {createSettingWriter} from "./setting-writes";
 import type {SettingWriter} from "./setting-writes";
@@ -164,6 +165,12 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                 return bindingEdits.apply((current) => withToolBinding(current, key, changeToolBinding(current[key], requirements, defaultForAll, change)));
             };
 
+            /** 白名单的改动按写的那一刻的声明换算：加声明里有的就是撤销“去掉”（profile-settings.md 输出 25）。 */
+            const changeAgents = (key: string, change: ToolChange): Promise<SettingWriteResult> => {
+                const declared = entries.value.find((candidate) => candidate.key === key)?.agents?.allowed ?? [];
+                return settingEdits.apply((current) => withAgentsChoice(current, key, changeAgentsBinding(current[key]?.agents, declared, change)));
+            };
+
             return () => h(component, {
                 state: state.value,
                 profiles: views.value,
@@ -176,6 +183,12 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                 onApproval: (key: string, value: string) => void settingEdits.apply((current) => withApprovalChoice(current, key, value)).then(reportIfFailed),
                 onRemoveTool: (key: string, id: string) => void changeTools(key, {remove: [id]}).then(reportIfFailed),
                 onRestoreTools: (key: string) => void bindingEdits.apply((current) => withToolBinding(current, key, undefined)).then(reportIfFailed),
+                onRemoveAgent: (key: string, id: string) => void changeAgents(key, {remove: [id]}).then(reportIfFailed),
+                onRestoreAgents: (key: string) => void settingEdits.apply((current) => withAgentsChoice(current, key, undefined)).then(reportIfFailed),
+                addAgents: async (key: string, change: ToolChange): Promise<string | null> => {
+                    const result = await changeAgents(key, change);
+                    return result.ok ? null : settingsFailureText(result.code, result.detail, deps.text);
+                },
                 // 对话框自己显示失败，留在原地；不走窗口通知。
                 addTools: async (key: string, change: ToolChange): Promise<string | null> => {
                     const result = await changeTools(key, change);

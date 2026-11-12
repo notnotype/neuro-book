@@ -181,9 +181,19 @@ describe("面板服务（场景）", () => {
         expect(`${page.protocol}//${page.host}`).toBe(panel.server.artifactUrl);
         const html = await fetch(page);
         expect([html.status, html.headers.get("access-control-allow-origin"), html.headers.get("content-security-policy")?.startsWith("sandbox allow-scripts allow-forms allow-popups")]).toEqual([200, "*", true]);
-        expect(await html.text()).toContain("data-nbdev-question");
         const prefix = page.pathname.split("/")[2]!;
         const origin = panel.server.artifactUrl;
+        // HTML 回应在 </body> 前插了答题脚本（t23）；磁盘上的页面不变，长度按插过的算，HEAD 一样；脚本在保留路径下、是转译好的 JS。
+        const served = await html.text();
+        const onDisk = await Bun.file(join(fixture.main, ".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/index.html")).text();
+        const bridgeTag = `<script src="/a/${prefix}/_nbdev/answer-bridge.js" defer></script>`;
+        expect([served.includes("data-nbdev-question"), served.includes(bridgeTag), onDisk.includes("answer-bridge"), served.replace(`${bridgeTag}\n`, "") === onDisk || served.replace(`\n${bridgeTag}\n`, "") === onDisk]).toEqual([true, true, false, true]);
+        const head = await fetch(page, {method: "HEAD"});
+        expect(Number(head.headers.get("content-length"))).toBe(new TextEncoder().encode(served).length);
+        const bridge = await fetch(`${origin}/a/${prefix}/_nbdev/answer-bridge.js`);
+        const bridgeText = await bridge.text();
+        expect([bridge.status, bridge.headers.get("content-type"), bridge.headers.get("content-security-policy")?.startsWith("sandbox allow-scripts"), bridgeText.includes("nbdev:ready"), /\bimport\b/.test(bridgeText)]).toEqual([200, "text/javascript; charset=utf-8", true, true, false]);
+        expect((await fetch(`${origin}/a/wrong-prefix/_nbdev/answer-bridge.js`)).status).toBe(404);
         expect((await fetch(`${origin}/a/${prefix}/main/.agents/works/w00002-alpha/tasks/t01-board/artifacts/review/shot.png`)).status).toBe(200);
         for (const path of [`/a/${prefix}/main/package.json`, `/a/${prefix}/main/.gitignore`, `/a/wrong-prefix/main/.agents/works/w00002-alpha/README.md`, `/a/${prefix}/_nbdev/x.js`, `/a/${prefix}/nope/.agents/works/w00002-alpha/README.md`]) {
             expect([path, (await fetch(`${origin}${path}`)).status]).toEqual([path, 404]);

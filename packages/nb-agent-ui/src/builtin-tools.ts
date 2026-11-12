@@ -8,7 +8,7 @@ import type {ToolCallView} from "./types";
 import type {ToolEffects, ToolRendererEntry} from "./registry";
 import {TASK_TOOL_NAMES} from "./task-list";
 import {agentRef} from "./text";
-import {argArray, argString, countLines, objectString} from "./tool-args";
+import {argArray, argBoolean, argString, countLines, objectString} from "./tool-args";
 import type {CodeLine} from "./tool-detail-lines";
 import {splitLines, textLines} from "./tool-detail-lines";
 import {editInputChanges, parsePatchChanges, patchLine} from "./tool-formats";
@@ -171,6 +171,8 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
     {
         id: "request_user_input", toolNames: ["request_user_input", "ask"], category: "interact", icon: "i-lucide-message-circle-question",
         label: agentRef("tool.requestUserInput"), summary: firstQuestion, presentation: "node",
+        // 不用马上答的提问（`async`）在停靠区里答，消息流里只留过程里的一行，不再画一张同样的提问卡。
+        presentationOf: (call) => (argBoolean(call, "async") === true ? "line" : "node"),
     },
     {
         id: "switch_mode", toolNames: ["switch_mode"], category: "interact", icon: "i-lucide-toggle-right",
@@ -188,6 +190,8 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
     {
         id: "bash", toolNames: ["bash", "shell"], category: "other", icon: "i-lucide-terminal",
         label: agentRef("tool.bash"), summary: (call) => argString(call, "command"), presentation: "card",
+        // 转后台的命令（`async`）是常显的节点：回复完了它还在跑，进度要留在眼前（Spec“注册表”的 presentationOf）。
+        presentationOf: (call) => (argBoolean(call, "async") === true ? "node" : "card"), hostNode: "backgroundCommand",
     },
     {
         id: "execute_sql", toolNames: ["execute_sql"], category: "other", icon: "i-lucide-database",

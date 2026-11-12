@@ -1,0 +1,267 @@
+# w00032 t15 实施计划设计审查（Claude Opus，只读）
+
+审查对象：`.agents/works/w00032-agent-integration/tasks/t15-skills/plan.md`（2026-11-10 版）。按核实顺序追加，最后汇总排序与数量。
+
+---
+
+## 1. 重要：`steer` 时 Skill 正文排在用户的话之后，不满足第 11 条与 runtime.md 输出 14
+
+- 类别：依赖的机制（时序）／与已定设计一致
+- 位置：计划“这一轮带上 Skill”第 2 点（“写在反应里，所以位置章自然是……这一步之后（`steer`），排在用户的话前面”）
+- 现象：`steer` 由 `takeSteerDrafts`（`packages/nb-harness/src/kernel/run/loop.ts:78-86`）在边界写下，位置章按 `positionFor`（`kernel/dispatch/core.ts:47-52`）是 `after-step`。扩展在 `steer` 的反应里 emit 的 `skill` 是之后的写入批，位置章同样是 `after-step`，归约进同一步的 `after` 数组、排在 `steer` 之后（`kernel/state/history.ts:86`）。渲染时 `format.step` 是 `format.user(...step.after)`（`kernel/view/format.ts:151`），按 `after` 的顺序拼：先用户的 steer 文字，再 Skill 正文。
+- 为什么是问题：计划声称“排在用户的话前面”，只有 `input`（`turnStarted` 与 `input` 同批，反应时这一轮还没有步，章为 `attachment`，`format.turn` 把 `attachments` 放在 `input` 前）成立；`steer`、以及运行中由异步提问的回答转成的 steer（runtime.md 输出 42）都相反。验收场景 2 只测了 `input`，测不出来。另外，steer 若在这一轮第一次请求之前被取走（还没有步），`steer` 本身就成了 `attachment`、排在 `input` 之前，Skill 也在 `input` 之前——顺序随时机变。
+- 如何核实：读上面三处代码；用真实内核在第一次回复后 `send({mode: "steer"})` 一条带 `$x` 的话，`preview()` 看最后一条 user 消息的块顺序。
+- 建议改法：二选一并写进 `skills.md`：(a) 接受“steer 时 Skill 在这句话之后”，改第 11 条的表述并告诉开发者；(b) 给 `skill` 事件的渲染做成合并到它的 `cause`（同一条 user 消息里，Skill 块在前），需要扩展能影响 `format.user` 的块顺序，内核现在没有这能力——要么在内核加“附在某条事件之前”的位置，要么改用输入拦截（见第 2 条）。无论选哪个，验收场景 2 加一条 steer 的用例。
+
+## 2. 重要：反应失败时整批丢弃，Skill 与 `skillMissing` 一起没了，用户看不出来
+
+- 类别：遗漏（失败路径）
+- 位置：计划“这一轮带上 Skill”第 2、3 点；切片 3
+- 现象：一个 `input` 的处理函数要现读 N 个 `SKILL.md` 再一次 emit。内核对处理函数的失败是整批处理：抛错、超时（缺省 30 秒，`HANDLER_TIMEOUT_MS`，`kernel/dispatch/reactions.ts:21`）、运行中止、输出不合声明（例如 `body` 里有不能被 JSON 如实表示的东西）时，这个扩展这次的全部 emit 都丢弃，只写 `extensionFailed` 与诊断（`reactions.ts:66-76`，extensions.md 输出 13、16、18）。计划只为“认不出、读不了”写 `skillMissing`，没说处理函数内部怎样收住错误。
+- 为什么是问题：(1) 任何一个 Skill 读出错若没在函数内逐个收住，就连同其它已读好的 Skill 一起丢；(2) 超时、`invalid-output` 时连 `skillMissing` 也写不出，界面的 `UserMessageView.skills` 按 `skill`、`skillMissing` 取，结果是空的；而用户消息正文里的 `$name` 仍被渲染成技能标签（草稿里就是标签），用户会以为带上了。模型那边这一轮照常请求，没有任何提示。
+- 如何核实：读 `reactions.ts` 的 `reactTo`、`runHandler`；用一个读文件时抛错的假 Skill 跑真实内核，看日志只有 `extensionFailed`。
+- 建议改法：计划写明：每个标签单独 try/catch，读失败写 `skillMissing{reason: "unreadable"}`；读文件带 `ctx.signal`；适配器在同一轮里看到 `nbook.agent.skills` 的 `extensionFailed` 时，给消息上的每个 `$` 标签标“没能带上”（新增 reason，例如 `failed`），并补一条验收（读失败、超时各一）。正文上限 20,000 token 时，单条事件的大小也要在 Spec 写清楚（见第 9 条）。
+
+## 3. 重要：Skill 放回的 2.5 万另算、不看窗口，64k 及以下的模型压缩后仍超触发点，会每个边界反复压缩
+
+- 类别：接口与合同／与既有约定冲突
+- 位置：计划“压缩之后放回 Skill”；README 第 11 条；`docs/specs/agent/compaction.md` 输出 4、10
+- 现象：套件的放回按 `min(20,000, 窗口 × 25%)` 收预算（`packages/nb-harness/src/kit/compaction/restore.ts:17-20, 82`），正是为了“小窗口的模型放不下两万”。计划给 Skill 另算一份固定的 25,000，不按窗口收。内核在每个边界按 `tokensAfter + 之后新增的对话事件` 估算（`kernel/compaction/compact.ts:70-80`），放回的 `notice` 也算进去；触发点是“窗口 − max(15%, 16,384)”（runtime.md 输出 46）。
+- 数字：64k 窗口：触发点 ≈ 65,536 − 16,384 = 49,152；压缩后 = 摘要（inplace 上限 16,384）+ 保留 min(20k, 16k) + 文件计划 16,384 + Skill 25,000 ≈ 57k 起，已超触发点 → 下一个边界再压缩、再放回同样的 Skill，循环到每一步都先调一次摘要模型。32k 窗口：触发点 16,384，单 Skill 放回 5,000 已占三成，五个 Skill 的放回本身就超过触发点。
+- 为什么是问题：第 11 条“照 Claude Code”的数字是在 200k 窗口下定的；照抄成固定值会破坏 compaction.md 已有的“合计不超过窗口 25%”这条不变量，而且失败表现（反复压缩、费用翻倍）不报错，难察觉。另外：内核在 `restore` 抛错时整个放回作废（`compact.ts:233-238`，“nothing is restored”），计划的包装层若让 Skill 的读错外抛，会连文件与计划的放回一起丢。
+- 如何核实：读上面几处；在真实内核上用 64k 窗口的假模型、放回 5 个 5k 的 Skill，看下一个边界是否再次写 `compaction`。
+- 建议改法：Skill 预算写成 `min(25,000, 窗口 × 某比例)`，并与文件、计划的合计一起封顶（例如 Skill 与文件共用 `窗口 × 35%`，或文件先放、Skill 用剩余预算）；在 `skills.md` 与 compaction.md 写清口径，向开发者说明这是对第 11 条数字的收窄。包装层逐个 Skill 收错误、写 `restore-skipped`，不外抛。验收场景 6 加一条小窗口用例（例如 32k 窗口只放得下一个）。
+
+## 4. 重要：放回不区分“还留在上下文里的 Skill”，这一轮里用过的 Skill 压缩后会出现两份；而放回拿不到切点
+
+- 类别：遗漏（边界）／依赖的机制
+- 位置：计划“压缩之后放回 Skill”（“从压缩前的路径里找 `skill` 事件，最近的在前”）
+- 现象：压缩的归约在切点落在进行中的这一轮时“输入与附带内容留着”，`firstKeptEntryId` 为 null 时也只清掉步、保留 `current.attachments`（`kernel/state/history.ts:107-118`，runtime.md 输出 49）。`$x` 的 `skill` 事件正是这一轮的附带内容，所以“用户 `$x` 之后 Agent 一口气做了很多步、中途溢出或超阈值压缩”这个最常见的场景里，Skill 正文仍在请求里，放回又加一份（每个至多 5,000）。保留窗口内的已提交轮里的 `skill` 同理。
+- 进一步：放回的参数 `CompactionRestoreArgs` 只有 `signal`、`method`、`replacement`、`path`、`contextWindow`（`kernel/api/host.ts:458-467`），没有 `firstKeptEntryId`，包装层无从判断哪些 `skill` 事件被保留。“不改套件”的前提下也做不到，要改内核的接口。
+- 为什么是问题：重复内容直接放大第 3 条的预算问题；对模型来说同一份说明出现两次也是噪声。文件放回现在也有同样的重复，但文件每次读的是现行内容、而 Skill 正文在附带内容里是当时的快照，两份可能不同（第 15 条允许正文中途被改），模型看到两个版本。
+- 如何核实：读 `compacted()` 与 `CompactionRestoreArgs`；真实内核：一轮内 `$x` 后多步工具调用，手动 `compact`，`preview()` 看 Skill 正文出现次数。
+- 建议改法：内核在 `CompactionRestoreArgs` 加 `firstKeptEntryId`（或直接给“压缩后仍在的事件 id 集合”），包装层跳过仍在上下文里的 `skill` 事件；这是内核合同改动（runtime.md 输出 48），计划要列进 Spec 改动与切片 3。
+
+## 5. 重要：服务端照搬编辑器的 `$` 分词，行内代码与 shell 变量都会被当成 Skill；父 Agent 的话里尤其多
+
+- 类别：别扭与反常之处／遗漏（异常输入）
+- 位置：计划“这一轮带上 Skill”第 1 点、“对话视图与输入框分词”、验收场景 3；README 第 18 条
+- 现象：`SKILL_TOKEN_PATTERN`（`packages/nb-markdown/src/prompt/prompt-text.ts:97`）只排除围栏代码块（`fenceTest` 只看围栏行，`link-syntax.ts:245-256`），不排除行内代码。实测（`/tmp/review-w00032-t15-plan/exp/tok.ts`，直接调 `parsePromptText`）：
+  - ``运行 `echo $HOME` 看看`` → `skill:HOME`
+  - `for f in $files; do` → `skill:files`
+  - `价格 $5 和 ${price}` → `skill:price`
+  - 计划放开 `.` 之后，`${user.name}` 这类模板文字也会成为标签（现在不是）。
+- 为什么是问题：编辑器里误认只是显示成一个小块；服务端误认会 (1) 给每个 `$变量` 写 `skillMissing{not-found}`，用户消息上标“没找到”；(2) 变量名恰好等于某个 Skill 的 `name`（`$review`、`$test`、`$build` 这类常见词）时直接把那个 Skill 的正文带进请求。第 18 条让父 Agent 发给子代理的话也算触发，而模型写给子代理的任务说明里 shell 片段、`$ARGUMENTS`、`${var}` 很常见，误触发与噪声会集中出现在子会话里，且没有人在场看到。
+- 如何核实：跑上面的脚本（`bun run /tmp/review-w00032-t15-plan/exp/tok.ts`）。
+- 建议改法：(a) 共用分词时把行内代码段也排除（编辑器同步改，属于 `ui/prompt-editor.md` 的行为变化，要写进 Spec 与对照测试）；(b) `not-found` 只在界面的草稿阶段提示，发送后不写 `skillMissing{not-found}`（或只在用户发出的话上写，父 Agent 的不写）；`not-allowed` 保留。(c) 对父 Agent 的话至少要求花括号写法 `${id}` 才算，或在计划里写明这个风险并请开发者确认第 18 条的“不特殊处理”包括误触发。
+
+## 6. 建议：`name` 的校验允许数字开头，但 `$` 写法认不出数字开头的名字
+
+- 类别：接口与合同
+- 位置：计划“Skill 包与目录”第 1 点（`name` “1–64 个小写字母、数字、连字符”）；“对话视图与输入框分词”
+- 现象：`SKILL_TOKEN_PATTERN` 的首字符是 `[\p{L}_-]`（`prompt-text.ts:97`），`$3d-model`、`${3d-model}` 都不是标签（实测同上脚本：`$3d-model 试试` → 无标签）。计划的 `name` 校验没禁止数字开头，Agent Skills 标准也允许（只禁连字符开头、结尾与连续连字符）。
+- 为什么是问题：这样的 Skill 能通过校验、出现在 `$` 菜单里，插入 `$3d-model ` 之后既不显示成标签、服务端也认不出，静默不带。计划也没写标准里“不能以连字符开头或结尾、不能有连续连字符”这几条，而正则允许 `-` 开头。
+- 如何核实：同第 5 条的脚本。
+- 建议改法：`skills.md` 的 `name` 规则写全标准的约束，并二选一：校验时拒绝数字开头（标为 `broken`，原因写清），或把正则首字符放宽到数字（价格 `$5` 会受影响，要在对照测试里看）。菜单插入时对认不出的名字一律用 `${id}`。
+
+## 7. 重要：监视方案自相矛盾——递归监视跳不过 `node_modules`，跳过了又看不到命令行写的标记
+
+- 类别：依赖的机制／跨进程
+- 位置：技术选型“监视 `user://skills/`”；“Skill 包与目录”的“目录变化”；“初始化”最后一点；“不做与风险”；README 第 19 条
+- 现象：
+  1. 计划说用 `node:fs` 的递归 `watch`，“同 `ProfileBundles` 的做法”。但 `ProfileBundles` 是逐个目录的非递归监视（`agent/backend/profile-bundles.ts:313-326`，`watch(directory, cb)` 不带 `recursive`），先例并不是递归。
+  2. 递归监视在 Linux 上要给每个子目录登记一个 inotify watch；“跳过 `node_modules`”只能在回调里丢弃事件，挂上的 watch 一个不少。一个装了依赖的 Skill 的 `node_modules` 常有上千个目录，几个 Skill 就能吃掉可观的 `fs.inotify.max_user_watches`，与应用其它监视（文件服务、Profile）共享这个上限；`bun install` 写几千个文件时回调风暴也照样发生（只是被防抖吞掉）。
+  3. 标记在 `node_modules/.nbook-skill-deps.json`（第 8 条）。第 19 条要求“应用经监视看到”命令行装完的结果；若监视真的忽略 `node_modules` 下的事件，应用就看不到标记写下。现在能成立只靠一个没写出来的巧合：命令行装完删锁文件，锁在 Skill 根目录，删锁触发了重扫。
+- 为什么是问题：照字面实现会得到要么“开销大”、要么“看不到命令行结果”的监视；跨进程的状态同步不能靠副作用。
+- 如何核实：读 `profile-bundles.ts` 的 `#watchDirectory`；在 `/tmp` 下建一个带几千个子目录的 `node_modules`，`watch(root, {recursive: true})` 后看 `/proc/<pid>/fdinfo` 里 inotify 条数。
+- 建议改法：非递归监视 `user://skills/` 根、每个 Skill 目录本身（`SKILL.md`、`package.json`、`bun.lock`、锁文件都在这一层），标记的变化用“锁文件删除”或“`node_modules` 目录本身的出现与修改时间”触发该 Skill 的重读，并在 Spec 写明这是同步通道。Skill 的子目录（`scripts/` 等）变了不影响目录与就绪状态，不必监视。改计划的“同 ProfileBundles”表述。
+
+## 8. 重要：`wx` 建、装完删的锁文件没有残留处理，进程崩溃后这个 Skill 永远 `busy`；仓库里已有两种能用的锁
+
+- 类别：遗漏（失败路径、跨进程）／被破坏的既有约定
+- 位置：技术选型“同一个 Skill 同时只装一次”；“初始化”第 2 点；README 第 19 条
+- 现象：锁是“Skill 目录里 `wx` 建、装完删”。命令行被 Ctrl-C 打断（`bun install` 跑 10 分钟时限内用户很可能按）、应用被 SIGKILL、断电、10 分钟时限截停时子进程或父进程没走到删除，锁就留着；之后三个入口都得 `busy`，计划没写怎样判旧、谁回收、用户怎么解。
+- 仓库已有两种锁：
+  - `nb-harness` 的 `kernel/log/flock.ts`：进程级独占锁，“进程怎么结束锁都会被操作系统放掉，所以没有判旧再回收的竞争”，Linux、macOS、Windows 都实现了（会话日志在用）。
+  - 应用的 `src/backend/locked-replace.ts` 用 `proper-lockfile`（有刷新与 `LOCK_STALE_MS` 判旧），并写明约定：锁放哪里由调用方定，“Files 放进控制目录，免得出现在用户的目录里”。
+- 为什么是问题：残留锁是这个设计里最可能真实发生的失败，且“装依赖”恰是用户常中断的长操作；锁放在 `user://skills/<name>/` 里还会出现在用户的文件树里、被复制或打包进 zip 带到别处（第 9 条的“从文件夹、zip 复制进来”）。技术选型表把方案写成“另起锁服务否决”，没比较这两个现成做法。
+- 如何核实：读上面两个文件；模拟：建锁后 `kill -9` 命令行进程，再跑一次 `init`。
+- 建议改法：用 `flock` 式的操作系统锁（崩溃自动放），锁文件放状态根下按 Skill id 分文件（不进用户目录，也不随删 `node_modules` 消失）；若坚持放在 Skill 目录，至少写入 `{pid, host, startedAt}` 并按“进程不在或超过时限”判旧回收，并在 Spec 写明。验收场景 5 加“崩溃后再装能成功”。注意 `flock` 的锁文件“建好就不要删”，与“装完删”的做法互斥，要二选一。
+
+## 9. 重要：`skills://<id>/` “挂到它的真实目录”在现有挂载合同里做不到，需要改 `nbook.files` 的方案接口
+
+- 类别：依赖的机制真的存在／接口与合同
+- 位置：计划“资源地址 `skills://`”第 2 点；Spec 改动只列了 `agent/resources.md`
+- 现象：Agent 的方案都是声明式挂载 `MountedSchemeSpec`：只有一个 `container`，挂载点固定是 `<container>/<挂载点名>/`（`plugins/files/shared/schemes.ts:62-75`）。打开时“核对容器与挂载点都是真实目录（不是链接）”（`plugins/files/backend/mounted.ts:289-296`），所以也不能在容器里放指向各来源的符号链接。Skill 的三个来源在不同的根下：内置在应用的 `dist/skills/`，用户的在 `<状态根>/user/skills/<name>/`，插件的在插件安装目录（t33）。现在的 `skills` 方案 `container` 还是借用的 `sessionsRoot`（`agent/backend/schemes.ts:146-152`）。
+- 为什么是问题：计划没有给出 id 到目录的映射方式，照字面实现时要么改 `nbook.files` 的方案合同（让 `mount` 返回自己的绝对路径，或允许多容器），要么把 Skill 复制进一个容器（与“正文现读”“用户经 `user://skills/` 改”冲突）。这是跨插件合同，影响 `workspace/resources.md` 或 files 的 Spec，计划的 Spec 清单与切片 1 都没列；后面切片照字面写会返工。另一个细节：`user.<name>` 的 `skills://` 与 `user://skills/<name>/` 是同一个目录的两个地址，行锚、文件监视与权限要按哪个算，也要写明。
+- 如何核实：读上面两处；试着写 `mount("user.x")` 指向 `<状态根>/user/skills/x`，接口里没有位置可填。
+- 建议改法：切片 1 之前先定挂载方式并写进 Spec：推荐给 `MountDeclaration` 加可选的 `path`（注册方给出的真实目录，仍须是真实目录、不是链接），由 `nbook.files` 照常核对；或按来源拆成多个容器、挂载点名去掉来源前缀。不管哪种，都在计划的 Spec 改动里列出 files 一侧的合同。
+
+## 10. 重要：`skills://` 没有 `realPath` 能力，模型在 shell 里用不了 Skill 的脚本
+
+- 类别：依赖的机制真的存在／遗漏
+- 位置：计划“资源地址 `skills://`”；“这一轮带上 Skill”的渲染末尾一句（“这个 Skill 的文件在 skills://<id>/，按正文的说明使用”）
+- 现象：shell 工具执行前把命令里的资源地址换成本机路径：`replaceAddresses` → `locate` → `files.readPath`（`packages/nb-harness/src/kit/tools/shell.ts:151-192`），应用这一侧 `readPath` 对挂载方案走的是 `realPath` 操作（`plugins/files/backend/workspace-files.ts:120-131`，`mounted.ts:164`），要求方案声明 `realPath` 能力。现在的 `skills` 方案只有 `["read", "list"]`（`agent/backend/schemes.ts:146-148`），计划只说“挂到真实目录、Agent 只读”，没提加 `realPath`。
+- 为什么是问题：带 `package.json` 的 Skill 存在的意义是让模型跑 `bun skills://user.x/scripts/foo.ts`；没有 `realPath`，这条命令在执行前就以 `unsupported-capability` 失败。初始化做好了、状态是 `ready`，脚本却跑不起来。内置与插件的 Skill 只有 `skills://` 一个地址，没有绕路。验收场景都没有“模型真的跑一次 Skill 的脚本”。
+- 如何核实：读上述三处；或在现有 `docs://`（有 `realPath`）与 `skills://` 上各跑一次带地址的 shell 命令比较。
+- 建议改法：`skills` 方案加 `realPath`（`mount` 返回 `create: false`，免得 `realPath` 触发建目录，见 `mounted.ts:35` 的 `MATERIALIZES`），`authorize` 对写操作拒绝；`resources.md` 写明；验收加一条：`$` 一个带依赖的 Skill 后，模型经 shell 运行它的脚本并成功导入依赖（真实运行时，本机假端点按脚本给出工具调用）。另在渲染文字里说明脚本的工作目录不是 Skill 目录（相对路径要按 Skill 目录写），这是别家 Skill 最常见的坑。
+
+## 11. 建议：按 `name` 认标签的规则与验收场景 7 相互矛盾，重名时的结果也没定
+
+- 类别：接口与合同
+- 位置：计划“这一轮带上 Skill”第 1 点（“认不出再在当前 Profile 的白名单里按 `name` 认（唯一才算）”）；`skillMissing.reason`；验收场景 3、7
+- 现象：按字面，`$name` 只在白名单里找；不在白名单里的 Skill 用名字写时找不到，结果是 `not-found`。但验收场景 7 要求“打它的名字得‘不在白名单’”，要得到 `not-allowed` 就得在整个目录里按名字找。另外，白名单里两个同名 Skill（`user.review` 与某插件的 `review`）时，手打的 `$review` “不唯一不算”，算哪个 `reason` 没写；`reason` 只有 `not-found | not-allowed | unreadable`。
+- 为什么是问题：实现者只能二选一，测试与 Spec 会各写各的；重名在第 13 条下是允许的常态（不做同名覆盖），手打名字很常见。
+- 如何核实：对照计划两处文字。
+- 建议改法：写成：先按 id；再在整个目录按 `name`，唯一且在白名单 → 带上，唯一但不在白名单 → `not-allowed`，多个 → 新增 `reason: "ambiguous"`（界面提示改用 `${id}`），没有 → `not-found`。`name` 匹配是否区分大小写也写明（`SKILL_TOKEN_PATTERN` 认大写，`name` 只许小写）。
+
+## 12. 建议：来源要按目录条目的 `source` 判定，不能按 id 前缀；插件的发布者可以就叫 `user` 或 `builtin`
+
+- 类别：接口与合同
+- 位置：计划“Skill 包与目录”的来源与 id；“Agent 插件的浏览器端”的 `skill.open`（“用户的 Skill 打开 `user://skills/<name>/SKILL.md`”）；“命令行”（`<id>` 可写 `user.<name>` 或 `<name>`）；“初始化”的 `not-initializable`
+- 现象：插件 id 是“发布者.名字”两段（`nb-runtime/src/plugin-manifest/schema.ts:18-33`），平台只保留 `nbook`；`agent/backend/profiles.ts` 的 `#fromPlugin` 注释已经写明“发布者 `user` 的插件也能贡献 `user.` 开头的 key”，所以按登记判定、不只看前缀。Skill 的 id 用同样的前缀方案：插件 `user.kit` 的 Skill `x` 是 `user.kit.x`。计划在 `skill.open`、命令行、`not-initializable` 几处写的都是“用户的 Skill”，没说怎样判定。
+- 为什么是问题：按前缀判定时，`user.kit.x` 会被当作用户的 Skill，打开 `user://skills/kit.x/`（不存在）、或被允许初始化（第 7 条说插件的 Skill 不初始化）。t33 接上插件来源时才会暴露。
+- 如何核实：读 `profiles.ts` 的 `#fromPlugin` 注释与插件 id 规则。
+- 建议改法：Spec 写明“来源以目录条目的 `source` 为准”，浏览器端与命令行只经 `list()`/`resolve()` 拿来源；命令行的 `<name>` 简写只在 `source: "user"` 的条目里找。
+
+## 13. 建议：初始化模块的几处细节没写，照字面实现会出小错
+
+- 类别：接口与合同／遗漏
+- 位置：计划“Skill 包与目录”的就绪状态；“初始化”；技术选型“装依赖”“同一个 Skill 同时只装一次”
+- 现象与改法（逐项）：
+  1. `planInit` 要数 `bun.lock` 里的包数，但 `bun.lock` 带尾逗号，`JSON.parse` 读不了（实测仓库根的 `bun.lock`：`JSON Parse error: Property name must be a string literal`）。技术选型表没列解析方式。Bun 1.4.4 有 `Bun.JSONC`，写进选型；读不了时 `planInit` 的包数写“未知”而不是失败。
+  2. `resolve: true` 时锁是 `bun install` 生成的，标记的 `inputs` 必须在安装之后按现状重算；在安装前算就会和现状永远对不上、一装完又是 `needs-init`。计划没写时机。
+  3. 进程内是“排队”、跨进程是 `busy`：同一个应用里两个会话同时 `$` 同一个未初始化的 Skill 并都确认，按“排队”会接连跑两次 `bun install`。改成进程内并入正在跑的那一次（同一个 Promise），跨进程才得 `busy`。
+  4. `initializing` 只在本进程知道。命令行在装时，应用看到的仍是 `needs-init`，用户在设置页再点“初始化”才得 `busy`。用操作系统锁时（见第 8 条）应用可以试锁判出“别的进程在装”，状态写 `initializing`。
+  5. 标记的 `platform` 只记操作系统；同一份 `user://skills/` 在 x64 与 arm64 之间同步（macOS 迁移、同步盘）时原生依赖不能用，建议记 `platform-arch`。
+  6. `--ignore-scripts`（第 16 条已定）让需要安装脚本的包（`sharp`、`esbuild` 这类）装完状态是 `ready` 但运行时报错。`planInit` 可以用 `bun pm untrusted` 或锁里的信息列出“这些包的安装脚本不会运行”，至少在 Spec 写成已知限制。`inputs` 里算 `trustedDependencies` 与 `--ignore-scripts` 下它不起作用也不一致，可以去掉或写明理由。
+  7. 只有 `bun.lockb`（旧二进制锁）或 `package-lock.json` 的 Skill 怎么处理没写；Bun 遇到它们会迁移或照用，与“没有 `bun.lock` 要 `resolve`”的判断不一致。
+- 如何核实：`bun -e 'JSON.parse(await Bun.file("bun.lock").text())'`；其余对照计划文字。
+
+## 14. 建议：对话视图的适配器会丢掉 `restored` 里的 `skill`，压缩详情与上下文用量都少算
+
+- 类别：遗漏（兼容）
+- 位置：计划“对话视图与输入框分词”只列了 `UserMessageView.skills`；Spec 改动里 `ui/agent-conversation-view.md` 只列了 `UserMessageView.skills` 与菜单为空
+- 现象：`nb-agent-ui` 的类型把 `restored.kind` 写死为 `"file" | "plan" | "log"`（`packages/nb-agent-ui/src/types.ts:129`），适配器只收这三种、别的丢弃（`kernel-transcript.ts:166-171`）。压缩后的上下文用量是 `tokensAfter + Σ restored.tokens`（`kernel-transcript.ts:460`，`AgentCompactionDetail.vue:26`）。
+- 为什么是问题：加了 `kind: "skill"` 之后，压缩详情里看不到放回了哪些 Skill，界面显示的压缩后用量少算最多 25,000 token（正是第 3 条担心的那部分），用户据此判断“压缩后还剩多少”会偏乐观。
+- 如何核实：读上面两处。
+- 建议改法：切片 3 加：`CompactionView.restored.kind` 加 `skill`、适配器收它、`compactionDetail` 加文案与 Lab 场景；`ui/agent-conversation-view.md` 的压缩详情一节同步。
+
+## 15. 建议：`skill.open` 的载荷只有 `name`，计划按 id 打开但没写怎样从 `name` 得到 id
+
+- 类别：接口与合同
+- 位置：计划“Agent 插件的浏览器端”的 `skill.open`；`docs/specs/ui/agent-conversation-view.md:302, 366`（`skill.open {name}`）
+- 现象：视图发出的事件是 `skill.open {name}`，`name` 是标签上的文字（`$review` 是 `review`，`${user.review}` 是 `user.review`）。计划说“用户的 Skill 打开 `user://skills/<name>/SKILL.md`，其余打开 `skills://<id>/SKILL.md`”，没写宿主按什么规则把标签文字解析成目录条目；同名时打开哪一个也没写。已发送的消息上，点标签时目录可能已经变了（Skill 被删、改名、多了同名的），按当前目录重新解析可能打开另一个 Skill。
+- 为什么是问题：与第 11 条同一个解析规则，草稿、发送、点开三处要一致，否则“点开的”与“带上的”不是同一个。
+- 建议改法：草稿里按第 11 条的规则解析；已发送的消息优先用同一轮 `skill` 事件里的 `id` 打开（适配器把 `UserMessageView.skills` 的 id 对上标签），不存在了就提示“这个 Skill 已不在”；`ui/agent-conversation-view.md` 写明，或把事件载荷扩成 `{name, id?}`。
+
+## 16. 建议：`nb-markdown` 已有纯 TS 的根入口，新开子路径与包的边界文档不一致
+
+- 类别：别扭与反常之处／被破坏的既有约定
+- 位置：技术选型“提示词里的 `$` 标签”；“对话视图与输入框分词”（“新开纯 TS 子路径（例如 `./prompt/syntax`）”）
+- 现象：`@notnotype/nb-markdown` 的根入口 `.` 就是“纯 TS 入口：不引 DOM 与编辑内核，浏览器与后端都能用”（`packages/nb-markdown/src/index.ts:1-4`），应用后端已经经它算字数（`plugins/markdown/shared/word-count.ts`）；`docs/modules/monorepo-boundaries.md:20` 把包的入口逐个登记，纯 TS 的只有 `.`。`prompt-text.ts` 的依赖（`link-syntax`、`targets`、`prompt-selection`、`prompt-editor.types`）都没有 import，确认是纯 TS，放进根入口没有障碍。
+- 为什么是问题：多一个子路径就多一处 `exports`、边界文档、发布清单要同步（nb-markdown 按 ADR 0029 发布源码到 npm），计划的 Spec 与文档改动里也没列 `monorepo-boundaries.md`。
+- 建议改法：把取 `$` 标签的函数从根入口导出（或说明为什么要单独的子路径并补登记到边界文档与包的 README）；对照测试按计划先补。
+
+## 17. 建议：资源释放没写；验收场景 5 照字面写不成稳定的测试
+
+- 类别：遗漏（资源释放）／验收映射
+- 位置：计划“初始化”；“Skill 包与目录”的监视；验收场景 5；“验证”
+- 现象：
+  1. 应用停止或 Agent 插件停用时，正在跑的 `bun install` 子进程怎么办没写（等完、杀掉、写不写 `error`、锁怎么放）；命令行收到 Ctrl-C 时要杀子进程、放锁、写 `error`，也没写。监视器在插件停止时关闭、防抖定时器取消也没写（`ProfileBundles` 有 `#stopping` 与 `close()` 的先例，`profile-bundles.ts:116-126`）。
+  2. 验收场景 5“命令行与设置页同时装同一个：只有一个在装，另一个得 `busy`”：测试夹具只用 `file:` 依赖或空依赖（计划“验证”），真实 `bun install` 几十毫秒就完，“同时”要靠时序碰巧，测试会时过时不过。
+- 为什么是问题：这些是跨进程设计里最容易留下孤儿进程与残留锁的地方（第 8 条），计划的切片 4 只写了“真跑 bun install、命令行测试”。
+- 建议改法：Spec 写明停止时的处理（建议：杀子进程、写 `error: "interrupted"`、放锁）；验收 5 改成“锁被另一个进程持有时，另一入口得 `busy`；持有者退出（含被杀）后能再装”，测试里起一个子进程拿住锁、再调 `init`，不靠两个安装恰好重叠。
+
+## 18. 建议（推断，未验证）：Bun 的自动安装可能让“未初始化”的 Skill 脚本照样联网跑起来，绕过初始化前的确认
+
+- 类别：对照参照／遗漏
+- 位置：计划“这一轮带上 Skill”第 3 点（“未就绪的照样带上正文……脚本跑不了时模型会看到报错”）；README 第 16 条（开始前列出包数、要联网）
+- 现象：调研 `research/2026-10-30-skill-survey.md` 第 3 节记了 Bun 的行为：“没有 `node_modules` 时按 `import` 自动从 npm 拉包（全局缓存）”。`user://skills/<name>/` 在状态根下，上层通常没有 `node_modules`，未初始化的 Skill 被模型用 `bun` 运行时，可能不报错而是按 `package.json` 的范围（不按锁）现场联网取包。
+- 为什么是问题：计划假设“未就绪 = 脚本跑不了、模型看到报错”，若 Bun 自动安装生效，就变成“未经第 16 条的确认就联网装了别的版本”，而且状态仍显示 `needs-init`。是否触发取决于 Bun 按入口文件目录还是工作目录找 `node_modules`、以及有没有 `bunfig.toml` 的 `install.auto` 设置，我没有实测。
+- 如何核实：建一个只有 `package.json`（依赖一个小包）、没有 `node_modules` 的目录，在别的工作目录 `bun <该目录>/script.ts`，看是否联网成功。
+- 建议改法：实测后二选一写进 `skills.md`：接受（写成已知行为），或初始化前在 Skill 目录放 `bunfig.toml`／运行时加 `--no-install`（模型的 shell 命令不受控制，只能写进渲染给模型的说明里）。
+
+## 19. 建议：同一个 Skill 在一个会话里反复 `$`，每次都把全文再附一份；预览也看不到将要带上的 Skill
+
+- 类别：别扭与反常之处
+- 位置：计划“这一轮带上 Skill”
+- 现象：每次 `$x` 都写一条带全文（至多 20,000 token）的 `skill` 事件，同一会话里第二次、第三次 `$x` 时前一份通常还在上下文里。日志侧有内容寻址的大块存储（`kernel/log/codec.ts` 的 `BLOB_THRESHOLD`），落盘不重复，但请求里会重复。另外 `preview()` 只投影“下一个边界确定会取走的输入”（runtime.md 输出 55），不跑反应，排队中带 `$` 的话在“看上下文”里看不到 Skill 正文。
+- 为什么是问题：写作场景里用户可能每轮都 `$` 同一个文风 Skill，二十轮就是二十份；与第 3 条的窗口问题叠加。
+- 建议改法：正文与上一次带上的相同、且那一份还在当前上下文里（没被压缩切掉）时，只写一条短的“已加载，见前文”的 `skill` 事件（`body` 省略、带 `sameAs` 指向前一条），界面照样显示标签；预览的限制写进 Spec 的已知限制。若开发者要的就是“每次都完整附上”，在 Spec 写明。
+
+## 勘误
+
+第 2 条末尾“单条事件的大小也要在 Spec 写清楚（见第 9 条）”作废：日志对大字符串有内容寻址的大块存储（`kernel/log/codec.ts`），20,000 token 的正文落盘没有问题；第 9 条讲的是挂载，与此无关。
+
+## 20. 重要：第 4 条的“系统程序只检测、只报告”在计划里没有对应；Python 的检测漏了 README 提到的脚本内联依赖
+
+- 类别：与已定设计一致（悄悄缩小了已定项）
+- 位置：计划“Skill 包与目录”的就绪状态（只认 `pyproject.toml`、`requirements.txt`、`uv.lock`）；“不做”只写了“Python 与系统程序的安装”
+- 现象：README 第 4 条：“Python（uv、虚拟环境）与系统程序只检测、只报告”。计划只给 Python 写了检测（三种文件），系统程序（`ffmpeg`、`pandoc`、`git` 这类）没有任何检测或报告；“不做”里写的是“安装”不做，没说检测也不做。README“要讨论的问题”与第 4 条都提到 uv 用脚本内联依赖（PEP 723 的 `# /// script` 块），这种 Skill 没有上面三种文件，按计划不会标“要自己装 Python 依赖”。
+- 为什么是问题：这是对已定项的缩小，没有交开发者确认；用户看到 `ready` 的 Skill，跑起来才发现缺 `uv` 或系统程序。
+- 如何核实：对照 README 第 4 条与计划全文（`grep -n "系统程序\|/// script" plan.md` 只命中“不做”一行）。
+- 建议改法：二选一并请开发者确认：(a) 系统程序第一版只展示 `compatibility` 字段的原文（标准里本来就是写环境要求的地方），Python 检测加上 `scripts/` 下带 `# /// script` 的 `.py` 文件，并检测 `uv` 是否在 PATH；(b) 明确把“系统程序的检测”移出本 Task，写进“不做”并改 README。
+
+## 21. 建议：“Agent 经命令行初始化”（第 5 条）依赖 Agent 的 shell 里能找到 `nbook`，计划没核实也没有验收
+
+- 类别：依赖的机制真的存在／验收映射
+- 位置：计划“命令行”；README 第 5 条；`.agents/works/w00035-nbook-cli/README.md` 第 1、6 条
+- 现象：Agent 的 shell 工具只在进程环境上加布局给的变量（`nb-harness/src/kit/tools/shell.ts:217-223`），在 `packages/neuro-book/src` 里没搜到把 `nbook` 放进 PATH 或告诉 Agent 命令位置的代码。应用用 `bun dist/server/main.js`、开发时 `bun src/server/development-main.ts` 起的时候，PATH 里多半没有 `nbook`；w00035 的 t01（含“应用内 Agent 怎样知道并使用它”）还没开工。状态根靠服务端进程环境里的 `NBOOK_STATE_ROOT`（`cli/start.ts:128`）传给子进程，这一点成立。
+- 为什么是问题：第 5 条的三个入口之一在开发与常见的启动方式下可能用不了，而计划的验收与 e2e 都没覆盖“Agent 执行 `nbook skill init`”。
+- 建议改法：计划写明这条依赖 w00035 t01，本 Task 只保证命令行本身；或在 shell 环境里给出 `nbook` 的绝对路径（例如 `NBOOK_CLI`）并在提示词或 `docs://` 里说明。至少列进“未验证边界”。
+
+## 22. 建议：`user://skills/` 下的几种常见异常目录没定：没有 `SKILL.md`、解压多套一层、符号链接
+
+- 类别：遗漏（异常输入）
+- 位置：计划“Skill 包与目录”的坏掉的（只列了 frontmatter 读不懂、必填缺、`name` 与目录名不符）
+- 现象与改法：
+  1. 目录里没有 `SKILL.md`（例如 zip 解压成 `user://skills/foo/foo/SKILL.md`，这是从 zip 复制进来时最常见的样子，第 9 条明确支持“从文件夹、zip 复制进来”）：是忽略还是列成 `broken`？建议列成 `broken`，原因写“没有 SKILL.md”，下一层有的提示“可能多套了一层目录”。
+  2. 用户把 `~/.claude/skills/x` 符号链接进 `user://skills/`（第 10 条不做额外目录，用户自然会这样绕）：目录服务用 `node:fs` 读会跟随链接、列为可用；但 `skills://` 的挂载点要求是真实目录而不是链接（`plugins/files/backend/mounted.ts:292-296`），`user://` 的文件服务对链接也有自己的规则。两边对同一个 Skill 的判断会不一致（菜单里能选、正文能带上，模型却读不了它的文件）。建议定一个规则（例如链接按 `broken` 处理并说明，或解析到真实目录后同样核对），写进 Spec。
+  3. 可选字段不合规（`description` 超长、`metadata` 的值不是字符串、`compatibility` 超 500 字）算 `broken` 还是忽略该字段，计划没写；建议只忽略该字段并写诊断，不让整个 Skill 不可用（标准实现多半如此）。
+
+---
+
+## 按影响排序
+
+| 序 | 条 | 严重程度 | 一句话 |
+|---|---|---|---|
+| 1 | 9 | 重要 | `skills://<id>/` 挂到各来源的真实目录，现有挂载合同（单一容器、挂载点不能是链接）做不到，要改 `nbook.files` 合同 |
+| 2 | 10 | 重要 | `skills://` 没有 `realPath`，模型在 shell 里跑不了 Skill 脚本，初始化等于白做 |
+| 3 | 3 | 重要 | Skill 放回固定 2.5 万不按窗口收，64k 以下模型压缩后仍超触发点、每个边界反复压缩；包装层外抛错误会让文件放回一起作废 |
+| 4 | 1 | 重要 | `steer` 时 Skill 正文排在用户的话之后，与第 11 条、runtime.md 输出 14 相反 |
+| 5 | 8 | 重要 | `wx` 锁没有残留处理，崩溃或 Ctrl-C 后永远 `busy`；仓库已有 `flock` 与 `proper-lockfile`，且约定锁不进用户目录 |
+| 6 | 5 | 重要 | 服务端照搬编辑器分词，行内代码、shell 变量都算 `$` 标签；父 Agent 的话里误触发与“没找到”噪声集中 |
+| 7 | 2 | 重要 | 反应失败整批丢弃，Skill 与 `skillMissing` 一起没了，界面看不出 |
+| 8 | 7 | 重要 | 递归监视跳不过 `node_modules`；真跳过又看不到命令行写的标记，现在只靠删锁的副作用 |
+| 9 | 4 | 重要 | 这一轮里用过的 Skill 压缩后仍在上下文里，放回再加一份；放回参数里没有切点，判断不了 |
+| 10 | 20 | 重要 | 第 4 条的“系统程序只检测、只报告”没有对应；PEP 723 内联依赖的 Python 脚本检测不到 |
+| 11 | 13 | 建议 | 初始化细节：`bun.lock` 要 JSONC 解析、`inputs` 装后重算、进程内应并入而非排队、跨进程的 `initializing`、`platform` 加 arch、`--ignore-scripts` 的已知限制、`bun.lockb`／`package-lock.json` |
+| 12 | 17 | 建议 | 停止时子进程、锁、监视器的释放没写；验收 5 靠时序碰巧 |
+| 13 | 11 | 建议 | 按 `name` 认的规则与验收 7 矛盾；重名时的 `reason` 没定 |
+| 14 | 12 | 建议 | 来源按 `source` 判定，不按 `user.` 前缀（插件发布者可以叫 `user`） |
+| 15 | 14 | 建议 | 适配器丢弃 `restored.kind: "skill"`，压缩后用量少算 |
+| 16 | 15 | 建议 | `skill.open {name}` 到 id 的解析没写；已发送消息应按事件里的 id 打开 |
+| 17 | 18 | 建议 | （推断）Bun 自动安装可能让未初始化的脚本联网跑起来，绕过确认 |
+| 18 | 19 | 建议 | 同一 Skill 反复 `$` 每次全文再附；预览看不到将带上的 Skill |
+| 19 | 22 | 建议 | 没有 `SKILL.md`、解压多套一层、符号链接、可选字段不合规的处理没定 |
+| 20 | 21 | 建议 | “Agent 经命令行初始化”依赖 shell 里找得到 `nbook`，没核实、没验收 |
+| 21 | 6 | 建议 | `name` 允许数字开头，但 `$` 写法认不出 |
+| 22 | 16 | 建议 | `nb-markdown` 根入口已是纯 TS，新开子路径与边界文档不一致 |
+
+## 未发现问题的方面
+
+- `input` 的时机：空闲时 `send` 的受理批是 `…turnStarted, input, commandAccepted`，排队的 `followup` 由 `takeInputDrafts` 与 `turnStarted` 同批写下（`run/loop.ts:67-75, 381-383`）；反应在同一个队列项里写，位置章是 `attachment`，`format.turn` 把附带内容排在 `input` 前；受理（`accept` 里的 `writeAndReact`）与运行循环的 `write` 都等反应完成后才算请求。`input` 这一路计划的判断成立。
+- 反应链层数：`input`、`steer` 是根（深度 0），`skill` 在第 1 层，离上限 3 层很远。
+- `prompt-text.ts` 的依赖（`link-syntax`、`targets`、`prompt-selection`、`prompt-editor.types`）都没有 import，纯 TS，已在 Bun 下直接跑通（`/tmp/review-w00032-t15-plan/exp/tok.ts`）。
+- `process.execPath`：应用以 `bun dist/server/main.js`、开发时 `bun src/server/...`、命令行以 `#!/usr/bin/env bun` 运行，没有编译成单文件，`process.execPath` 就是 Bun。
+- 命令行找状态根：`resolveStateRoot`（`--state-root` > `NBOOK_STATE_ROOT` > 平台缺省）已有，用户目录是 `<状态根>/user/`，离线能定位 `user://skills/`；应用起服务时把 `NBOOK_STATE_ROOT` 放进进程环境。
+- 白名单的 `{added, removed}` 换算能照搬 `profile-agents.ts` 与 `changeAgentsBinding`；`ProfileToolsSection` 已经按 `kind` 切文案，`agentsField` 的“已删除或不可用”一行可直接对应。声明 `"all"` 时只要把 `declared` 取成当前目录的 id 列表即可套上。
+- 正文进日志的大小：日志有内容寻址的大块存储，20,000 token 的正文落盘没有问题。
+- README 第 1–3、6–19、21 条在计划里都有对应（第 4 条见第 20 条，第 5 条见第 21 条，第 11 条见第 1、3 条）。
+
+## 数量
+
+阻断 0，重要 10（第 1、2、3、4、5、7、8、9、10、20 条），建议 12（第 6、11–19、21、22 条），合计 22。
+
+勘误：“未发现问题的方面”最后一条应为“README 第 1–3、6–21 条在计划里都有对应”（第 20 条拆到 t33 也有对应）。

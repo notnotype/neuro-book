@@ -1,0 +1,27 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00039-novel-writing-plugins",
+    "taskId": "t16-plot-workbench-ui",
+    "artifactId": "review",
+    "answerId": "20261110T120941062Z-164102cd",
+    "artifactVersion": 10,
+    "contentHash": "d841554c3467d0537ebdc264c2c235c06bed00d522107d1586fc7b89eab7e2d7",
+    "submittedAt": "2026-11-10T12:09:39.399Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r5-timeline": "grid",
+        "b1-spec-approve": "approve",
+        "r6-outline-step": "as-drawn",
+        "r6-recap": "summary-tail",
+        "r6-checks": "row",
+        "r6-breadcrumb": "now",
+        "r6-screens": "文风和前情这里我这里展开说一下：\n\n## 文风\n\n文风可以分为这几个部分：\n- 文风提示词\n- 参考正文（可选，通常保持空，文风提示词里用例句即可）\n- 文风检查提示词（可以包含反例，AI 经常犯的注意事项，写作完成后用这个文风检查提示词进行一次检查，当然写作者也可以看到这个文风检查提示词，我们这是 “开卷考试”）\n\n## 前情\n\n我记得我们这里是是有好几层摘要的\n探索的时候我研究过三级摘要等级，这个后续项目可能用，可以进 spec。在这里，还有他们的提示词：.worktree/w00005-novel-understanding-spike/.agents/works/w00005-novel-understanding-spike/tasks/t01-novel-understanding-spike/evidences\n（当然，我觉得，详细等级的摘要可以转换成粗略等级的摘要）\n写完一章后应该可以用小模型抽取出这三级的摘要。后续可能有用\nL 摘要适用于摘要一章的，这里我觉得还可以再引入 S（scale） 摘要，是用于摘要范围的。\nS 摘要的目的是把几乎无限上下文压缩到固定（可接受）的长度。\n例如：\n-20 章 到 -10 章（本章）直接用 L3 摘要注入\n-9 到 -6 用 L2 摘要注入\n-5 到 -3 用 L1 摘要注入\n-2 到 -1 直接注入原文\n那么 1 章到 -21 章则是 S 摘要负责的地方\nS 摘要应该提供参数可选，应该遵守越远的剧情记得越粗这个规则（具体怎么做 S 摘要，你给我一个方案）\n\n我觉得写作者的上下文应该包含这些：\n\n```\n<system>\n系统提示词，通常是 NeuroBook 提供\n用户添加的额外指令\n</system>\n<user>\n写作提示词：\n  - 文风\n  - 例句\n  - 检查\n  - ……\n</user>\n<user>\n稳定的设定：这部分设定是稳定的，例如交代这本书是什么，什么题材，受众。基础世界观，核心设定\n</user>\n（以上都是能吃到缓存的稳定 token）\n<user>\nS 摘要\nL 摘要\n原文\n（到目前为止的）滚动摘要（用于快速告诉模型到现在发生了什么）\n</user>\n<user>\n写作指令。细纲\n</user>\n\n```\n\n\n\n\n\n"
+    },
+    "comments": {
+        "r6-recap": "并且可以配置。我记得是多种等级的摘要的。"
+    },
+    "note": null
+}

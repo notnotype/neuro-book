@@ -1,0 +1,13 @@
+{
+    "failures": {
+        "unknownCommand": "Unknown command: {{id}}",
+        "notExposed": "The command is not available to the Agent: {{id}}",
+        "invalidArgs": "Invalid arguments: {{problems}}",
+        "readOnly": "Read-only mode ({{mode}}) refuses writing Agent calls: {{id}}",
+        "noConfirmation": "The command needs confirmation, but there is no way to confirm: {{id}}",
+        "denied": "The user declined the command: {{id}}",
+        "replaced": "The command was replaced while waiting for confirmation: {{id}}",
+        "noResult": "The command did not return a structured result: {{id}}",
+        "executionError": "The command failed while running"
+    }
+}

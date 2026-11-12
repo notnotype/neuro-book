@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import {Badge, Button, Field, Textarea} from "@notnotype/nb-ui/components";
+import {Badge, Button, Field, IconButton, Textarea} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {controlCharProblem} from "../../core/text-rules.js";
 import {validateAnswerValue} from "../../core/questions.js";
-import {answerText, editingValue, groupQuestions, isBlankAnswer, isNewQuestion, staleText, submittedValue, type AnswerDraft} from "../host/answers.js";
+import {answerText, chosenQuestions, editingValue, groupQuestions, isNewQuestion, setDraftValue, staleText, submittedValue, type AnswerDraft} from "../host/answers.js";
 import {relativeTime} from "../host/format.js";
 import type {QuestionState} from "../host/types.js";
 import QuestionControl from "./QuestionControl.vue";
@@ -23,8 +23,18 @@ const props = defineProps<{
     disabledReason: string | null;
     /** 服务端按题号退回的错误。 */
     errors: Record<string, string>;
+    /** 旁边的评审板页面里有答题控件（t23）：页面上有元素的题给“在页面里看”，点了发 `reveal`。 */
+    revealable?: boolean;
 }>();
-const emit = defineEmits<{submit: [answer: {values: Record<string, unknown>; comments: Record<string, string>; note: string | null}]}>();
+const emit = defineEmits<{
+    submit: [answer: {values: Record<string, unknown>; comments: Record<string, string>; note: string | null}];
+    /** 点了“在页面里看”：宿主让页面滚到这道题。 */
+    reveal: [id: string];
+}>();
+/** 页面上有这道题的元素：页面标记登记的、属于这一版页面的题（`ask` 登记的题页面上没有）。 */
+const onPage = (state: QuestionState) => props.revealable === true && state.question.origin === "markup" && state.question.page !== null;
+/** 这道题现在的取值是在页面里填的（侧栏里没再改过）。 */
+const fromPage = (state: QuestionState) => draft.value.fromPage[state.question.id] === true && touched.value[state.question.id] === true;
 
 /** 这块评审还没交的填写：受控，每次改动都整份换掉（宿主据此存进本机）。 */
 const draft = defineModel<AnswerDraft>("draft", {required: true});
@@ -37,9 +47,9 @@ const commenting = computed(() => draft.value.commenting);
 const editing = computed(() => draft.value.editing);
 const note = computed({get: () => draft.value.note, set: (text: string) => (draft.value = {...draft.value, note: text})});
 
-/** 取值照存（文本框里的空白仍显示），清空了的不算改过、不交。 */
+/** 侧栏里改了取值：清空了的不算改过、不交；去掉“页面里填的”标记。 */
 function set(id: string, value: unknown): void {
-    draft.value = {...draft.value, values: {...values.value, [id]: value}, touched: {...touched.value, [id]: !isBlankAnswer(value)}};
+    draft.value = setDraftValue(draft.value, id, value, false);
 }
 function setComment(id: string, text: string): void {
     draft.value = {...draft.value, comments: {...comments.value, [id]: text}};
@@ -57,13 +67,13 @@ function startEdit(state: QuestionState): void {
 function cancelEdit(state: QuestionState): void {
     const id = state.question.id;
     const without = <T,>(record: Record<string, T>) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== id));
-    draft.value = {...draft.value, values: without(values.value), touched: without(touched.value), comments: without(comments.value), commenting: without(commenting.value), editing: without(editing.value)};
+    draft.value = {...draft.value, values: without(values.value), touched: without(touched.value), comments: without(comments.value), commenting: without(commenting.value), editing: without(editing.value), fromPage: without(draft.value.fromPage)};
 }
 
 /** 能交的题：待答的，加上点了“改答”的已答题。 */
 const editable = computed(() => [...groups.value.pending, ...groups.value.answered.filter((state) => editing.value[state.question.id])]);
 /** 只交改过的题（含新填的）与写了说明的题。 */
-const chosen = computed(() => editable.value.filter((state) => touched.value[state.question.id] || (comments.value[state.question.id] ?? "").trim() !== ""));
+const chosen = computed(() => chosenQuestions(props.questions, draft.value));
 const problems = computed(() => {
     const found: Record<string, string> = {};
     for (const state of chosen.value) {
@@ -110,6 +120,8 @@ function submit(): void {
                     <span class="font-medium">{{ state.question.label }}</span>
                     <Badge v-if="isNewQuestion(state.question, latestVersion)" tone="accent" variant="soft" size="sm">新</Badge>
                     <Badge v-if="state.question.required" tone="warning" variant="soft" size="sm">必答</Badge>
+                    <Badge v-if="fromPage(state)" tone="accent" variant="outline" size="sm" icon-class="i-lucide-mouse-pointer-click">页面里填的</Badge>
+                    <IconButton v-if="onPage(state)" size="xs" icon-class="i-lucide-locate" :aria-label="`在页面里看：${state.question.label}`" title="在页面里看这道题" @click="emit('reveal', state.question.id)" />
                 </legend>
                 <p v-if="state.question.about" class="nbdev-note">关于 {{ state.question.about }}</p>
                 <p v-if="state.stale" class="nbdev-hint nbdev-hint-warn">{{ staleText(state) }}</p>
@@ -131,6 +143,7 @@ function submit(): void {
                 <legend class="flex flex-wrap items-center gap-1.5 pb-1">
                     <span class="font-medium">{{ state.question.label }}</span>
                     <Badge v-if="isNewQuestion(state.question, latestVersion)" tone="accent" variant="soft" size="sm">新</Badge>
+                    <IconButton v-if="onPage(state)" size="xs" icon-class="i-lucide-locate" :aria-label="`在页面里看：${state.question.label}`" title="在页面里看这道题" @click="emit('reveal', state.question.id)" />
                 </legend>
                 <template v-if="editing[state.question.id]">
                     <QuestionControl :question="state.question" :model-value="values[state.question.id]" @update:model-value="(value) => set(state.question.id, value)" />

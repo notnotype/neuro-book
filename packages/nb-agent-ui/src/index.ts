@@ -10,7 +10,7 @@ export type {
     AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentViewMode, AssistantMessageStatus,
     AgentSessionListItem, AgentSessionListState, ApprovalPreviewView, AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
     SessionPanelFilter, ComposerApprovalOption, ComposerModelView, ComposerModeView, ComposerRoleView, SessionTreeView, ContextInspectionView, SystemPromptView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
-    InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingApprovalView, PendingInputView, PendingQuestionsView,
+    InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingApprovalView, PendingInputCommon, PendingInputView, PendingQuestionsView,
     PendingModeSwitchView,
     CompactionView, PendingQuestionView, PluginAgentViewAction,
     RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
@@ -28,7 +28,7 @@ export type {
     ExtensionPointEntries, FileChangeView, HeaderActionEntry, RegistryConflict, MessageActionEntry, MessageActionTarget, PanelEntry, RegistryEntryBase, RoleEntry,
     StatusItemEntry, ToolbarButtonEntry, ToolCategory, ToolComponentProps, ToolEffects, ToolRendererEntry, HostComponentContext, HostComponentEmits, TrayItemEntry,
 } from "./registry";
-export {argArray, argNumber, argString, countLines, objectString} from "./tool-args";
+export {argArray, argBoolean, argNumber, argString, countLines, objectString} from "./tool-args";
 export type {CodeLine} from "./tool-detail-lines";
 // 文字值的类型在 nb-ui 的纯数据层；视图合同的文字字段都是 `Text`，转出来给宿主写类型时用。
 export type {LocaleMap, Text, TextRef} from "@notnotype/nb-ui/text";
@@ -40,7 +40,7 @@ export {createAgentContext} from "./context";
 export type {AgentContextPatch} from "./context";
 export {createHarnessTranscript, logSeqOf} from "./harness";
 export {createKernelTranscript} from "./kernel-transcript";
-export type {KernelAnchor, KernelMeta, KernelPending, KernelQueued, KernelRun, KernelTranscript, KernelTranscriptProblem, KernelUsage} from "./kernel-transcript";
+export type {KernelAnchor, KernelIssuer, KernelMeta, KernelPending, KernelQueued, KernelRun, KernelTranscript, KernelTranscriptProblem, KernelUsage} from "./kernel-transcript";
 export type {HarnessTranscript, TranscriptProblem} from "./harness";
 export {catalogRef, providerSelectable} from "./model-catalog";
 export type {CatalogAccess, CatalogModelView, CatalogProviderView} from "./model-catalog";

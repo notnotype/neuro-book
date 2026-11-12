@@ -108,10 +108,6 @@
         "identity-invalid": "作品的身份文件无法读取",
         "identity-conflict": "作品目录里的身份与登记不一致"
     },
-    "remoteErrors": {
-        "version-changed": "页面与服务端的版本不一致，请刷新页面",
-        "unavailable": "服务端暂时不可用"
-    },
     "format": {
         "words_other": "{{count, number}} 字",
         "wordsTenThousand": "{{amount}} 万字",

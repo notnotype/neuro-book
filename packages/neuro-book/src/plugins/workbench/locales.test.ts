@@ -392,6 +392,21 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "state.nonPhone.reason": {"zh-CN": "手机呈现下不可用", "en-US": "Not available in the phone layout"},
     "state.hasCurrentPanel.reason": {"zh-CN": "还没有面板获得过焦点", "en-US": "No panel has had focus yet"},
     "state.maximized.reason": {"zh-CN": "没有最大化的面板", "en-US": "No panel is maximized"},
+    // 通知中心与铃铛（docs/specs/workbench/notifications.md 输出 13 到 17）。
+    "commands.nbook.notifications.clear.title": {"zh-CN": "清除全部通知", "en-US": "Clear All Notifications"},
+    "views.notifications.title": {"zh-CN": "通知", "en-US": "Notifications"},
+    "views.notifications.actions.nbook.notifications.clear.title": {"zh-CN": "全部清除", "en-US": "Clear All"},
+    "state.hasNotifications.reason": {"zh-CN": "通知中心是空的", "en-US": "There are no notifications"},
+    "statusBar.notifications": {"zh-CN": "通知", "en-US": "Notifications"},
+    "statusBar.notificationsUnread": {"zh-CN": "通知：{count} 条没看过", "en-US": "Notifications: {count} unread"},
+    "notificationCenter.empty": {"zh-CN": "没有通知。", "en-US": "No notifications."},
+    "notificationCenter.unread": {"zh-CN": "没看过", "en-US": "Unread"},
+    "notificationCenter.remove": {"zh-CN": "移除", "en-US": "Remove"},
+    "notificationCenter.detail": {"zh-CN": "详情", "en-US": "Details"},
+    "notificationCenter.detailTitle": {"zh-CN": "{title}：详情", "en-US": "{title}: Details"},
+    "notificationCenter.detailOnly": {"zh-CN": "详情", "en-US": "Details"},
+    "notificationCenter.sentAt": {"zh-CN": "发出于 {time}", "en-US": "Sent {time}"},
+    "time.yesterday": {"zh-CN": "昨天", "en-US": "Yesterday"},
 };
 
 /**

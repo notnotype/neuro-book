@@ -1,0 +1,204 @@
+# 实现审查 w00039 t31 S4（提交 5a9e05e59）报告
+
+### 1. 展开着来历时换位置或切“按计划”，来历列表不重读，留着旧位置的步骤
+严重程度：重要
+类别：正确性
+位置：`packages/neuro-book/src/plugins/canon/web/components/EntryPageHost.vue:155`（`const version = ...`、`useOriginPagesMap(..., version)`）与 `web/origin-pages.ts:61`（`watch(version, ...)`）
+现象：来历列表只在 `version()`（`entry.value?.version`，世界版本）变了时重读。取页函数虽然在调用时读 `position.value`、`mode.value`，但换位置或“按计划”不改世界版本，所以 `useOriginPages` 不重新取，也不重建（`originKeys` 只是 `[state.origin]`，键里没有位置与模式）。
+为什么是问题：Spec 输出 7 说位置是页的状态、输出 11 的来历是“所选位置上的来历”，`origins` 读取本身带 `position` 与 `mode`（`fetchOrigins(address, position, mode, cursor)`）。位置换了，值已经是新位置上的，来历还是旧位置上的，两者矛盾；更糟的是后续“再显示更早的”会用新位置的 position 配旧位置的游标。
+如何核实：在 /tmp 里复制 entry-page.dom.test.ts 的搭建，造两章两笔变更（第 1 章 +200，第 2 章 −300），点值展开来历，再 `state.position = "1:end"`：值从 900 变 1,200，来历行仍是三行（含“第 2 章 买了书 −300 900 元”）；再 `state.planned = true`，同样不变（实验文件 /tmp/review-w00039-t31-impl-s4/exp/pos.dom.test.ts，输出 BEFORE/AFTER）。现有测试没有覆盖“展开着来历时换位置”，也没有覆盖“版本变了按已读步数重读”。
+建议改法：让 `useOriginPagesMap` 的重读触发源包含位置与模式（例如 `version` 参数换成返回 `${version}|${位置键}|${mode}` 的失效键函数），或把位置与模式放进 `originKeys` 的键，换位置时按作用域重建；补一条“展开着来历换位置”的测试。
+
+### 2. 换到已缓存的读取时旧句柄不释放，每次世界变化多读一次，直到下一次换或页面卸载
+严重程度：重要
+类别：不变量（资源释放）
+位置：`packages/neuro-book/src/plugins/canon/web/use-reads.ts:34-37`（第二个 `watch`，只在 `loading` 变成 `false` 时 `dropPrevious`）
+现象：换输入时 `previous = 旧的 current`，新的 `current` 如果命中读取层里还留着的缓存槽（`KEEP_UNUSED` 保留的、读过的），它的 `loading` 一开始就是 `false`。第二个 watch 监视的是 `current.handle.state.value.loading`，旧值 `false`、新值 `false`，回调不触发，`dropPrevious` 永远没被调用，旧句柄一直占着槽（`users` 不为 0）。
+为什么是问题：占着的槽在每次世界变化后都被 `run()` 当作“有人用”重读，这与计划里“每个在用的读取各一次”的量读取目标相悖，且热门条目的 `entry`、`render` 读取是最贵的那几个（计划 K-d）。位置在两个读过的位置间来回切（初值与最新章末这类最常见的切法）就会触发；只在下一次换输入或页面卸载时才释放。
+如何核实：/tmp 下用假客户端实验（/tmp/review-w00039-t31-impl-s4/exp/switch.ts，bun 运行）：`useWorldRead` 输入 A→B→C 等 C 读到，再换回已缓存的 A；然后触发 `resync` 事件，读取记录里除了 A 还有 C：`reads after resync: [entry A, entry C]`，C 本应已释放。
+建议改法：换读取时若新 `current` 此刻已经不在加载（`loading === false`），立刻 `dropPrevious()`；或把 watch 的源改成 `current` 本身与它的 `loading` 一起（`[current, loading]`），换句柄时也判断一次。补一条测试：换到已缓存的输入后只有新输入的读取在重读。
+
+### 3. 旧的还没换成新的读到就再换一次输入：直接丢掉仍在显示的旧内容，页面闪成加载占位
+严重程度：建议
+类别：正确性
+位置：`packages/neuro-book/src/plugins/canon/web/use-reads.ts:27-31`
+现象：`watch` 回调第一行先 `dropPrevious()`，随后因当前（第二个）读取还在加载而把它释放，`previous` 为 null。此时屏幕上显示的恰好是 `previous`（A，已读到的内容）。连续两次换（A→B→C，B 在 C 之前没读到）后显示变成 C 的加载占位。
+为什么是问题：文件头注释和 Spec 输出 26 的意图是换位置时页面不闪成加载占位；快速拖动位置选择（键盘上下方向键切位置）正是会连续换的场景。代码里“当前的还没读到就被换掉，它不值得留着显示”的理由对 B 成立，但把 A 一起丢掉就不成立。
+如何核实：同 switch.ts：A 读到，换 B（慢），再换 C：`after B->C (C loading), shown: undefined loading true`，A 的内容没了。
+建议改法：只在 `current` 已读到时才 `previous = current`；`current` 还在加载时保留原来的 `previous`（只释放 `current`），不在回调第一行无条件 `dropPrevious()`。
+
+### 4. 换位置后新的列表读取失败：一直显示旧位置的列表，没有任何错误，且不会释放
+严重程度：重要
+类别：正确性
+位置：`packages/neuro-book/src/plugins/canon/web/use-reads.ts:34-41`（依赖 `loading` 变成 `false`）与 `web/world.ts:269`（`fromStart` 失败只写 `error`，不写 `loading: false`；这是 base 上就有的）；调用处 `EntryPageHost.vue:107`（情节分页）
+现象：列表读取第一次就失败时，`ListState.loading` 一直是 `true`（world.ts 的 `fromStart` 失败分支 `state.value = {...state.value, error: result.failure}`）。`useSwitching` 认为“新的还没读到”，永远显示 `previous`（旧位置、旧模式下的列表），`error` 看不到，旧句柄也永远不释放。
+为什么是问题：作者换到新位置后，情节分页显示的是旧位置的变更并当成新位置的结果；这是静默地给错的内容，而不是报错。`PlotList` 对读不到的情形也没有失败态（只有 `loading`），所以连“读取中…”之外的提示都没有。base 的 `loading` 不会因失败变 false 是 S2 的约定（`ReadState.loading` 注释“还没有读到过”），但 S4 新增的换读取语义依赖了它，是这次引入的回归路径。
+如何核实：/tmp 实验 list.ts：`useWorldList` 输入 A 读到，换 B（客户端对 B 返回失败）：`B failed; shown: ["A"] loading false error null`，显示的是 A 的列表且没有 error。
+建议改法：二选一：world.ts 的列表失败分支同普通读取一样写 `loading: false`；或 `useSwitching` 把“失败”也当作读完（看 `error !== null`），这样旧的释放，当前的失败态显示出来；`PlotList` 补失败态（带重试）。
+
+### 5. 来历读取失败时原因被丢掉：界面只写固定的“来历没有读出来”，catch 里没有任何诊断
+严重程度：重要
+类别：正确性（违反 Spec）与代码质量
+位置：`web/origin-pages.ts:80-82`（`reload` 的 `catch {}`）、`:109-113`（`more` 的失败分支）；`web/entry-page.ts:105-108`（`originsFetcher` 把失败码包成 `Error`）；`components/OriginList.vue`（`origin.failed` 固定文字）；`locales/zh-CN.json` 的 `origin.failed`
+现象：`fetchOrigins` 失败时 reject，`useOriginPages` 的 `catch {}` 不取错误、不记诊断，只把 `failed` 置为 true。`OriginPagesState` 没有 `reason` 字段，`OriginList` 只有布尔 `failed`，界面写的是固定的一句。
+为什么是问题：Spec 输出 11 明写“来历读取失败时，展开处写原因与‘重试’”；Spec 的失败表对 `cursor-stale` 以外的码都要按输出 29 的“别的失败：写服务给的说明”。不按错误文案分支是对的，但把错误整个吞掉违反项目里“不用静默的 `catch` 吞掉错误，至少写一条诊断”的约定；作者看不到为什么读不出来（例如实例停止、`chapter-not-found`、断线）。面板的流水（`PanelView`）用同一个 `useOriginPages`，同样看不到原因。
+如何核实：读 `origin-pages.ts` 的 `catch` 与 `OriginPagesState`；`grep -n "reason" web/origin-pages.ts` 没有结果。
+建议改法：`OriginPagesState` 增加 `failure?: string`（取自错误），`OriginList` 在“来历没有读出来”后写出原因；`more` 的失败分支在重读也失败时同样写出。
+
+### 6. 同一个值在文字里出现多次时，来历在每个含它的块后面各画一份
+严重程度：建议
+类别：正确性
+位置：`components/EntryText.vue:131-134`（模板 `v-for block` 里的 `contains(block.tree, props.open)`）
+现象：展开着的值的来历在“含有这个值的每一块”后面各画一次；条目文字里同一个字段（例如 `{panel.存款}` 在两段里都用到）出现几次，就有几份 `OriginList`、几份“再显示更早的”按钮；这几个出现处的按钮都带 `aria-expanded="true"`。
+为什么是问题：Spec 输出 11 是“在它下面展开它的来历”，同一时间只展开一个；多份来历让页面变长、读屏重复读，且“再显示更早的”按钮重复。
+如何核实：看模板与 `contains` 的实现，没有“只在第一个含它的块”的限制；（未跑实验，从代码推断）。
+建议改法：宿主按 `props.blocks` 先算出第一个含它的块的下标，只在那一块后面插槽一次；或展开的是被点的那一处（用块 id 加出现序号当键）。
+
+### 7. 数据分页的两个专门界面同样不随位置、模式重读：面板的流水与人物的语义档各句停在旧位置
+严重程度：重要
+类别：正确性
+位置：`components/FieldsDataView.vue:34`（`useOriginPagesMap(..., () => context.version)`）、`components/PanelDataView.vue:27`
+现象：与第 1 条同根。`context.origins(path, cursor)` 在调用时读 `position.value`、`mode.value`，但两个界面传给 `useOriginPagesMap` 的失效源只有 `context.version`。换位置或“按计划”时，值卡（`fields`）已是新位置的值，流水与人物的“起点与之后记下的每一句”仍是旧位置的。面板的 `selected` 在换位置时不变，键不变，也不会重建。
+为什么是问题：Spec 输出 14 的流水“就是它的来历”，输出 13 的各句“带位置”，和值卡并排显示一个不一致的画面（值是第 1 章末尾的 1,200，流水最上面一行却是第 2 章的 900）。
+如何核实：从代码推断，与第 1 条的实验同一条路径（`useOriginPages` 只 watch `version`，没有对位置与模式的依赖）；没有对应测试：`entry-page.dom.test.ts` 里面板的流水只在打开分页时断言一次。
+建议改法：同第 1 条；`ComponentViewContext` 另给一个能反映位置、模式、版本三者的失效键（例如 `context.revision: string`），界面用它，免得每个第三方界面都漏掉位置。
+
+### 8. 标签标题与面包屑跟着所选位置变，Spec 要的是缺省位置上的名字
+严重程度：重要
+类别：正确性（违反 Spec）
+位置：`components/EntryPageHost.vue:99-103`（`watch(entry, ... props.onHead(...))`）；`web/entry-page.ts:80-103`（`title`、`breadcrumbs` 读 `heads`）
+现象：宿主在每次 `entry` 读取结果变化时报页头，`entry` 是按所选位置与模式读的（`position.value`、`mode.value`），`view.name` 与 `ancestors` 里各级的名字都是那个位置上折出来的（`canon.project` 输出 33：“每级是条目的 id 与它在这个位置上的名字”）。作者把位置换到“初值”或开“按计划”，标签标题与面包屑里的名字就换成那个位置上的名字。
+为什么是问题：Spec 输出 6：“标签标题是条目在缺省位置上的名字……面包屑写的是这个条目在哪，不随从哪里点过来而变”；条目树（S3）显示的也是缺省位置上的名字（`nameAt`）。条目在某章被改过名时，树、标签、页头三处在不同位置下名字不一致，且标题随下拉选择来回变；刷新后恢复的标签标题又是记下的那个。
+如何核实：从代码推断（`entry` 读取的输入含 `position: position.value`；`onHead` 无条件调用）。测试只用不改名的条目，没有覆盖。
+建议改法：只在 `state.position === null && !state.planned`（缺省位置、实际模式）时报页头；或页头另读一个缺省位置的 `entry`（代价是多一个读取，不值得）。补一条“改名的条目换位置后标签标题不变”的测试。
+
+### 9. 章表读取失败时条目页永远停在“读取中…”，没有失败态也没有重试
+严重程度：建议
+类别：正确性
+位置：`components/EntryPageHost.vue:57-71`（`chaptersKnown` 作为 `entry`、`render`、`changes` 读取的前置，`status` 只看 `entryRead` 的错误）
+现象：章表 `chapters` 读失败（`data` 仍是 `undefined`、`error` 有值）时，`entry` 读取的输入一直是 `null`，`entryRead.value` 为 `null`，`status` 判成 `loading`，页面显示 `aria-busy` 的“读取中…”，不会变成失败。
+为什么是问题：读取层的约定是第一次读取期间显示加载占位、失败显示失败；这里失败被吞成永远加载，作者既看不到原因也没有重试入口（断开时的“重试”横幅只在 `connection === "ended"` 时出现）。
+如何核实：从代码推断：`status` 里 `entry.value === undefined` 时只看 `entryRead.value?.error`，章表的 `error` 没参与。
+建议改法：`status` 在章表读取失败（`chaptersRead.value?.error` 且无数据）时也是 `failed`，并给“重试”。
+
+### 10. “改这一笔”与情节行的点击在 S4 里是死按钮，命令的结果被丢掉
+严重程度：建议
+类别：代码质量 / 不变量
+位置：`web/entry-page.ts:70-73`（`OPEN_CHANGE_COMMAND`、`open`）、`web/plugin.ts:97`（`execute: (id, args) => void commands?.execute(id, args)`）
+现象：来历里每个由变更给出的行都有可点的“改这一笔”，情节分页每一行文字也是可点的按钮，点了执行 `nbook.canon.open-change`，该命令到 S6 才登记。命令服务给回 `{ok: false}`，`execute` 包装用 `void` 丢掉结果；没有日志，也没有界面反应。`commands` 为 null 时同样静默。
+为什么是问题：计划说 S4 不画写入入口，但这些是读入口，画出来而点了无反应；同一路径还吞掉 `nbook.canon.open-entry` 的真实失败（编辑器拒收、页面已撤回等），出问题时无从诊断。代码里的注释写明了“得到命令服务的‘没有这条命令’”，但没人看到它。
+如何核实：读 `plugin.ts` 的 `execute`；`grep -n "open-change" -r src/plugins` 只有 `entry-page.ts` 一处。
+建议改法：S4 里让变更入口不可点（`PlotList`、`OriginList` 只在传了“可打开”时才画按钮），S6 登记命令后再放开；或至少 `execute` 对失败结果写一条诊断。
+
+### 11. 切到别的分页后，文字分页的 `render` 读取仍被占着、每次世界变化继续重读
+严重程度：重要
+类别：不变量（资源释放）、测试
+位置：`web/use-reads.ts:25-37`；调用处 `components/EntryPageHost.vue:127`（`renderRead` 在 `tab.value !== "text"` 时输入为 null）
+现象：输入变成 null 时，`watch` 把读到的 `current` 挪到 `previous`、`current` 置 null；第二个 watch 看的是 `current.value?.handle.state.value.loading`（此时是 `undefined`），不等于 `false`，`dropPrevious` 不会调。于是离开“文字”分页后，那份 `render` 读取的句柄一直占着，直到下一次换输入（切回文字分页并换了位置）或页面卸载。
+为什么是问题：宿主文档与文件头都说“只读当前分页要的”；`render` 是条目页里最贵的读取之一。离开文字分页以后每次世界发布仍多读一次 `render`（`run()` 对 `users > 0` 的槽重读）。同样适用于所有“按条件才读”的用法。
+如何核实：/tmp 实验 nullkey.ts：`useWorldRead` 输入先有后 null，再触发 `resync`：`reads after resync while input is null: [status, render]`，render 还在被读。现有的“读取次数”测试只覆盖文字分页在前台的情形，没有离开文字分页的一组。
+建议改法：同第 2 条：换读取时只要新的 `current` 为 null 或已读到，就立刻 `dropPrevious()`；`previous` 只在“新的正在加载”这一段存在。
+
+### 12. 分页条与面板值卡的 ARIA 关系不完整
+严重程度：建议
+类别：可访问性
+位置：`components/EntryPage.vue:49,74`（`PANEL_ID`、`role="tabpanel"`）；`components/PanelView.vue:38-52`（`role="listbox"`/`option`）
+现象：
+- 分页条：`Tabs` 的合同是消费方给每个分页项 `id`，并在面板上写 `aria-labelledby`（`nb-ui/src/components/controls/Tabs.vue:19-22`）。这里给了 `controls: PANEL_ID`，但没给分页项 `id`，面板也没有 `aria-labelledby`，所以面板没有可读的名字、`aria-controls` 与标签之间没有反向关联；面板 id 是模块级常量 `canon-entry-tab-panel`，编辑区有多个组（分屏）时，两个条目页同时可见会出现重复 id。
+- 面板值卡：声明成 `role="listbox"` 加 `role="option"`，但每张卡是一个独立的可 Tab 到的 `<button>`，没有方向键移动与 roving tabindex。listbox 的语义让读屏用户期待方向键，而实际要用 Tab 逐张走。
+为什么是问题：Spec 输出 30 要求分页用左右方向键切换、值与按钮可读；声明的角色与行为不符比不声明更误导。
+如何核实：读两个模板；没有相应的组件测试（`EntryPage.dom.test.ts`、`PanelView.dom.test.ts` 只断言文字与 `aria-selected`）。
+建议改法：分页项给 `id`（带实例唯一前缀，例如用 `useId()`）、面板写 `aria-labelledby` 指向当前分页项；值卡去掉 listbox/option 角色，改成一组带 `aria-pressed`（或 `aria-current`）的按钮，或补方向键与 roving tabindex。
+
+### 13. 来历各列没有表头，`origin.where/what/delta/result` 四个文字键没人用
+严重程度：建议
+类别：可访问性 / 代码质量
+位置：`components/OriginList.vue`；`locales/zh-CN.json:90-93`（及 en-US 对应）
+现象：Spec 输出 14 写流水“列为位置、发生了什么、变化、结果”。目录里加了四个键，但 `OriginList`（流水与来历共用）没有表头、行里的各列也没有可读的标签；这四个键在 `web/`、`shared/` 里没有任何引用。一行读出来是“第 2 章 买了书 −300 900 元”，读屏用户听不出哪个数是变化量、哪个是结果。
+为什么是问题：死键说明本来打算画列头而漏了；变化量与结果是两个并排的数，只靠位置区分。
+如何核实：`grep -rn "origin.where\|origin.delta" web/` 无结果。
+建议改法：给每个数用 `aria-label`（“变化：−300”“结果：900 元”）或在流水里画一行表头，用上这四个键；不用就删。
+
+### 14. 测试没有覆盖本片最难的几条行为（变异检查：两处改动测试全部仍通过）
+严重程度：重要
+类别：测试
+位置：`web/entry-page.dom.test.ts`、`web/component-views.dom.test.ts`；对应实现 `web/origin-pages.ts:61`、`web/use-reads.ts:40`
+现象：做了两次变异检查（改完都已还原，`git status` 为空）：
+- 把 `origin-pages.ts` 的 `watch(version, ...)` 改成 `watch(() => 0, ...)`（版本变了不再重读来历）：`entry-page.dom.test.ts` 9 条全过。“版本变了按已读步数从头重读”“翻页失败退回重读”“晚到结果作废”没有任何用例，而这是 `origin-pages.ts` 头注释写明的核心行为（Spec 输出 26、验收 7）。
+- 把 `use-reads.ts` 的 `shown` 改成总是 `current`（取消“旧的接着显示”）：`entry-page.dom.test.ts` 与 `entries-view.dom.test.ts` 13 条全过。“换位置时不闪加载占位”在测试里只是等读到之后才断言 `not.toContain("读取中")`，断言在重读完成之后，没有测到过程中。
+另外没有测试的：展开着来历时换位置（第 1、7 条）、离开文字分页后读取被释放（第 11 条）、换到已缓存位置（第 2 条）、专门界面撤回后条目页换成通用字段表并在重新激活后换回（计划把它列在 `component-views.dom.test.ts` 里；README 的已知限制只说“停了再激活换回”留给 e2e，但“撤回后页面换成字段表”并不需要停插件，应有页面级用例）、面包屑“设定”的命令参数 `{viewId}`（测试只断言了上级的命令）、`OPEN_CHANGE_COMMAND`。
+为什么是问题：这几条正是第 1、2、7、11 条这类缺陷能漏过去的原因。
+如何核实：见上，命令：把目标行改掉后 `bunx vitest run src/plugins/canon/web/entry-page.dom.test.ts`，两次都是 `Tests 9 passed (9)`；已用备份文件还原。
+建议改法：用真实世界补用例：展开来历后另一窗口发布，断言来历的行数与内容更新（按已读步数）；展开来历后换位置，断言来历跟着换；换位置期间每次 DOM 变化都不出“读取中”（照“别处发布以后原地更新”的 MutationObserver 写法）；`use-reads` 可以单独对 `createCanonWorld` 加假客户端测（本文 /tmp 里的 switch.ts、nullkey.ts 可作样子，假客户端对读取与订阅只返回固定结果）。
+
+### 15. 专门界面还在加载时先画通用字段表，加载完再整块换掉
+严重程度：建议
+类别：正确性（体验）
+位置：`components/EntryPageHost.vue:178-184`（`dataView` 在 `slot.status === "loading"` 时返回 `{component: null, failed: null}`，模板落到 `v-else` 的 `FieldsDataView`）
+现象：第一次点开数据分页时，该类型的界面组件还没加载完（`status: "loading"`），页面先画通用字段表，随后换成专门界面：面板先是字段表，再换成值卡与流水；人物先没有语义档各句，再有。两个组件是不同的 vnode，整块卸载重挂，`useOriginPagesMap` 在两边各建一次、各发一轮来历读取。
+为什么是问题：Spec 输出 12 说“没有、贡献方已停止或组件加载失败时用通用字段表”，没有说加载中也用；加载中是一个独立的状态（`ComponentViewSlot` 里有 `loading`），闪一下不对的界面还白发读取。
+如何核实：从代码推断（`dataView` 只区分 `ready` 与 `failed`）。
+建议改法：`loading` 时显示一句“读取中…”占位（或什么也不画），`ready` 才画专门界面。
+
+### 16. 语义档的各句只用第一页：超过 20 步时起点与更早的句子被静默截掉
+严重程度：建议
+类别：正确性
+位置：`components/FieldsDataView.vue:36-39`（`semanticNotes(notes, ...)`，`notes` 是 `OriginPagesState`）；`web/rows.ts:155-162`
+现象：人物界面对每个语义档字段读一份来历，只取已读到的各页（只有第一页，约 20 步），反转后列出“起点”与各句。语义档字段会逐步累积记下的句子，超过 20 步后，最旧的起点（`anchor` 核对点）与更早的句子读不到，也没有“再显示更早的”，界面上看不出被截。
+为什么是问题：Spec 输出 13 要“依次列出起点与之后记下的每一句”；缺的恰好是起点。
+如何核实：从代码推断：`semanticNotes` 只看 `page.items`，`FieldsDataView` 没有对语义字段调 `more()`，也不读 `remaining`。
+建议改法：对语义字段读到读完（`cursor` 空）再列，或列出已读的并在末尾给“再显示更早的”；至少在 `remaining > 0` 时显示“还有 N 步更早的”。
+
+### 17. 界面里残留写死的中文标点
+严重程度：建议
+类别：代码质量（国际化）
+位置：`components/FieldTable.vue:33`（`row.items.join('、')`）
+现象：列表字段的值按钮的可读名用中文顿号拼接各元素，不经目录；英文界面读屏读成“Items: A、B、C”。
+为什么是问题：Spec 输出 31“界面文字都经界面文字机制给出”；分隔符属于语言相关的文字。目录里没有对应键。
+如何核实：`grep -n "、" components/*.vue`。
+建议改法：用 `Intl.ListFormat(locale)` 或在目录里加一个列表分隔键。
+
+### 18. 宿主与两个数据分页界面的文档没写布局、交互、状态
+严重程度：建议
+类别：文档
+位置：`components/EntryPageHost.md`、`FieldsDataView.md`、`PanelDataView.md`
+现象：`components.md` 规定“宿主”一档“必须写全”布局、交互、数据、状态、不支持各节；`EntryPageHost.md` 只有开头一段、数据与隐藏通道理由，没有布局、交互（切分页、位置变化、焦点）、状态（读取中、失败、找不到、已删除、断开）与不支持（没有写入入口）。两个数据分页界面也没有状态节外的交互说明（`PanelDataView.md` 没有状态节）。`OriginList.md` 写“出错：原因与重试”，实现只写固定的一句（第 5 条）。
+为什么是问题：文档是需求书，写这些组件换一套写法要能做出同样行为；`EntryPageHost` 连 Lab 都不进，文档是唯一说明。
+如何核实：读三份 `.md`。
+建议改法：补全各节；并修正 `OriginList.md` 与实现的差。
+
+### 19. 后台重读来历失败时，已展开的几十步整块换成一行“来历没有读出来”
+严重程度：建议
+类别：正确性
+位置：`web/origin-pages.ts:80-82`（`catch` 里 `{...state.value, loading: false, failed: true}` 保留了 `items`）；`components/OriginList.vue:35-40`（`failed` 时不画 `<ol>`）
+现象：世界版本变了触发的后台重读（或翻页失败后的退回重读）失败时，状态里仍留着旧的行，但 `OriginList` 在 `failed` 时只画错误一行，已展开的各步全部消失。
+为什么是问题：Spec 输出 26 要求重读期间保留旧内容，输出 27“已显示的内容留着”；一次瞬时失败就让作者展开了很久的来历消失，要点“重试”从头读到原来的步数。
+如何核实：读 `OriginList` 的模板分支：`v-if failed` → `v-else-if loading` → `v-else <ol>`。
+建议改法：有行时仍画行，错误与“重试”画在行上面或下面；只有一行都没有时才只画错误。
+
+### 20. 页头整块 sticky，窄屏下页头可占掉半个视口
+严重程度：建议
+类别：UI（未验证）
+位置：`components/EntryPage.vue:57`（`<header class="sticky top-0 z-[1] ...">`）
+现象：名字、简介、位置选择、“按计划”、分页条整块吸顶；Spec 输出 32 要求 390 像素宽时页头换行、位置选择独占一行，换行后页头（名字一行、简介若干行、位置、开关、分页条）高度可到 200 多像素，简介较长时更多，而且吸顶，内容区只剩一半。Spec 只要求确认条吸顶，没有要求整个页头吸顶。
+为什么是问题：窄屏正文可读区被页头占用；也没有 Lab 的 390 场景（`index.ts` 里 `EntryPage` 场景都没有窄屏预设说明）验证，本次不跑 e2e，没有取证。
+如何核实：未验证（不跑 e2e 与开发服务）；从模板推断。
+建议改法：只让分页条吸顶，或窄屏（`max-[480px]`）下页头不吸顶；出截图证据。
+
+## 未发现问题的方面
+
+- `use-reads.ts` 读取失败路径：普通读取（`read`）失败时 `loading` 会变 false，旧的会释放，当前的失败态显示；问题只在列表读取（第 4 条）。
+- `origin-pages.ts` 的 `run` 号：重读被更新的一次重读顶掉、作用域结束后晚到的结果都被丢弃；`more` 在途时被版本重读顶掉也正确（只是多一次请求）。`useOriginPagesMap` 的 key 增删与作用域停止没有发现泄漏。
+- `originRows` 的变化量：没读完时不拿初值算、读完才算，边界（最早一步、核对点跳过）正确，测试里也有对应断言。
+- 标签状态所有权：`state` 来自编辑器的 `reactive` 对象，`state.views[namespace]` 在 `watch(immediate)` 里先补、在渲染前执行；`contextFor` 缓存的 `context.state` 是同一个代理对象，换位置不重建。
+- 注册表：撤回只在句柄是当前那一个时才移除；换句柄会重新加载；加载失败按句柄缓存；`canon` 既定义、接收又贡献同一个点在真实激活里工作（测试里面板的值卡由专门界面画出来）。
+- 样式 token：用到的 `--bg-subtle`、`--bg-hover`、`--radius-control`、`--focus-ring`、`--panel-surface`、`--divider`、`--status-*`、`--text-*` 等在 nb-ui 的 `tokens.css`、`theme.css` 或 colorway 合同里都存在。
+- 界面文字：`zh-CN.json` 与 `en-US.json` 的键集与占位符一致（70 个键，无差异）；`.vue`/`.ts` 里除一处诊断详情外没有写死的中文（见第 17 条的标点）。
+- 类型检查：`bun run typecheck` 退出码 0；`bunx vitest run src/plugins/canon/web` 11 个文件 47 条全部通过。
+- 刷新后标题：`title`/`breadcrumbs` 读的是 `createEntryPage` 里每个页面实例各自的响应式表，不是模块级共享；没挂载过的条目返回 null，编辑器退回记着的标题（与 Spec 一致）。
+
+## 数量
+
+阻断 0；重要 8（第 1、2、4、5、7、8、11、14 条）；建议 12（第 3、6、9、10、12、13、15、16、17、18、19、20 条）；撤回 0。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20

@@ -102,7 +102,7 @@ owners:
 
 46. 每个边界在取走 steer 之后估算上下文：上一次回复的用量（服务商给了 `totalTokens` 用它，否则 `input + cacheRead + cacheWrite + output`；它之后压缩过的，取压缩的 `tokensAfter`）加之后路径上新增的对话事件（按 UTF-8 字节数每 3 字节一个 token 估算，被省略的条目按占位算）。超过触发点（模型端口给了 `compactAt` 用它，否则模型窗口 − max(窗口的 15%, 16,384)（预留量最多取窗口的一半，小窗口的模型不会算出负数）；两者都没有时不按阈值压缩）时先压缩再算请求；Profile 写 `compaction: false` 时不压缩。压缩失败只诊断 `compaction-failed`，请求照发。
 47. 方法按 Profile 的 `compaction.onThreshold` 或 `onOverflow` 依次调用，没写时取 `SessionEnv.compaction.order`，都没有时这次压缩失败；内核不认识任何方法名，实现取自 `SessionEnv.compaction.methods`，没有的算失败。手动压缩用 `onThreshold`。每个方法经压缩拦截链（出错时跳过这一层）；它拿到的 `CompactionJob` 带原因（`threshold`、`overflow`、`manual`）、压缩前的请求（`purpose: "compaction"`，和对话请求同一算法：会话的模型与推理档，跳过本次运行已撤回的扩展）、合法切点（对话里还在的每一轮的 `turnStarted`，与进行中这一轮每一步的回复，各带保留下来的 token 估算）、压缩前的 token 估算、要求（Profile 的 `compaction.require` 加 `compact` 的要求）、`model`（发出的请求 `purpose: "compaction"`，经模型拦截链，写 `modelStarted`、`modelEnded`；选项 `sessionModel: true` 时按对话请求解析模型，记录的用途不变）与 `modelInfo`（同样的选项，交回这次会用的模型的窗口与输出上限，解析不到是 null）。方法交回 `{failed}`，或结果不合格（不是对象、缺字段、`method` 不是真正调用的那个、切点不在合法切点里、省略的条目不在对话里或占位为空、token 不是有限的非负数、`details` 不是 JSON，诊断 `compaction-invalid`）时换下一个；全部失败时不写压缩事件。压缩前的请求算不出来时（Profile 出错、请求不合格）这次压缩直接失败，不拿空请求去压缩。切点的保留量与压缩前的估算里，被省略的条目按占位算。
-48. 有一个方法成功时，同一个写入批里写 `compaction{method, firstKeptEntryId, replacement, omitted, tokensBefore, tokensAfter, details?, restored?}` 与放回的内容：`SessionEnv.compaction.restore(context, {signal, method, replacement, path, contextWindow})` 交回 `{notices, restored?}`，`notices` 的每一段写一条 `notice{code: "restored"}`（位置章按写入时的轮），`restored` 进压缩事件，不进请求。`path` 是压缩前的路径。
+48. 有一个方法成功时，同一个写入批里写 `compaction{method, firstKeptEntryId, replacement, omitted, tokensBefore, tokensAfter, details?, restored?}` 与放回的内容：`SessionEnv.compaction.restore(context, {signal, method, replacement, path, contextWindow})` 交回 `{notices, restored?}`，`notices` 的每一段写一条 `notice{code: "restored"}`（位置章按写入时的轮），`restored` 进压缩事件，不进请求。`path` 是压缩前的路径。放回参数另有 `kept(entryId)`：这条事件在压缩之后是否仍在上下文里，宿主用它跳过仍在上下文里的内容、不放第二份（[`agent/skills.md`](../agent/skills.md) 输出 16）。
 49. 压缩之后的对话：切点之前的已提交轮去掉，摘要（来源 `{kind: "summary", compactionId}`）排在剩下的已提交轮前面（`<History last>` 只要最近几轮时不放摘要）；切点在进行中这一轮里时，这一轮的输入与附带内容留着，切点之前的步去掉；`firstKeptEntryId` 为 null 时已提交的轮与进行中这一轮的步都去掉；`replacement` 为 null 时留着上一次的摘要。`omitted` 的条目渲染成占位（消息与工具调用照样在），含有它们的已提交轮重新渲染一次。写了 `resetOnCompaction` 的片回到初始值，`opening()` 重读开场。回退到压缩之前时路径上没有它，对话就是压缩前的。
 50. 模型失败、类别是 `context_overflow` 时：写下这次的 `modelFailed`，按溢出的顺序压缩，成功就把请求再发一次（新的 `modelStarted`）；每次请求最多重发一次，压缩失败或再次溢出时运行以 `error{kind: "context_overflow"}` 收口。
 51. 压缩中被中止（方法返回前后、写入之前）不写压缩事件，运行以 `aborted` 收口；方法、压缩拦截或放回内容的回调不理会中止信号时内核不再等它们，之后它们的写入被拒绝。
@@ -149,10 +149,10 @@ owners:
 83. 摘要（`replacement` 不是 null 的压缩）之前写下的用户消息，图片换成一行文字（名字、尺寸、地址，要看可以 `read`），当前这一轮的输入也算：不然同一轮的图撑爆窗口时，摘要写好了，重发还是原来那些图。事件没变，回退到压缩之前恢复原样。
 84. 一次请求的图片（`imageRef` 与 `image`）超过 100 张时，从最旧的起换成一行文字。在拦截链的最里面做，拦截层加的图也算，`modelCaller` 的请求也走；`preview` 同样处理。不按服务商分。超过之后每多一张新图，请求从被换掉的那张起变化，那之后的提示词缓存失效（接受）；只聊文字时集合不变，不失效。
 
-85. 输入记下发出者（planned）：`send`、`enqueue` 经 `as(issuer)` 以会话的身份发出时，`inputQueued` 与之后路径上的 `input`、`steer` 都写 `by: {kind: "session", id}`；用户发的不写 `by`，读作用户（旧日志同样）。异步提问的回答进缓冲区时，`by` 是应答者，用户应答同样不写。`by` 不进给模型的请求。
+85. 输入记下发出者：`send`、`enqueue` 经 `as(issuer)` 以会话的身份发出时，`inputQueued` 与之后路径上的 `input`、`steer` 都写 `by: {kind: "session", id}`；用户发的不写 `by`，读作用户（旧日志同样）。异步提问的回答进缓冲区时，`by` 是应答者，用户应答同样不写。`by` 不进给模型的请求。
 86. （已删除）
-87. 调用的唯一身份（planned）：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
-88. 指令交回运行（planned）：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给。
+87. 调用的唯一身份：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
+88. 指令交回运行：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给。
 
 ## 状态与转换
 

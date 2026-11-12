@@ -64,4 +64,18 @@ describe("TitleActions", () => {
         await wrapper.setProps({model: {buttons: model.buttons, menu: []}});
         expect(wrapper.find("[data-title-actions-more]").exists()).toBe(false);
     });
+
+    it("有 badge 的按钮在图标后面画数字、带 badged 样式；收进“⋯”的项不画数字（视图标题不受影响）", async () => {
+        const badged = {...entry("own:comments", "显示或隐藏批注页边", {pressed: true}), badge: "12"};
+        const wrapper = mount(TitleActions, {props: {model: {buttons: [entry("own:0", "刷新"), badged], menu: [[{...badged, key: "own:menu-comments"}]]}, identity: "a", moreLabel: "更多操作"}, attachTo: document.body});
+        wrappers.push(wrapper);
+        const button = wrapper.get('[data-title-action-key="own:comments"]');
+        expect(button.text()).toBe("12");
+        expect(button.classes()).toContain("title-actions__badged");
+        expect(button.attributes("aria-pressed")).toBe("true");
+        expect(wrapper.get('[data-title-action-key="own:0"]').text()).toBe("");
+        expect(wrapper.get('[data-title-action-key="own:0"]').classes()).not.toContain("title-actions__badged");
+        await openMore(wrapper);
+        expect(all().map((item) => item.textContent?.trim())).toEqual(["显示或隐藏批注页边"]);
+    });
 });

@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.jobs
 owners:
   - nbook.agent
@@ -107,6 +107,19 @@ Agent 的工具启动的、要跑一阵的事——子代理运行（[`subagents
 
 Smoke：`packages/neuro-book/e2e/agent-subagents.e2e.ts`。
 
+## 实现合同
+
+- **公开入口**：工具 id `nbook.agent.wait`、`nbook.agent.kill`、`nbook.agent.jobs`（给模型的名字是 `wait`、`kill`、`jobs`）与 `nbook.agent.shell` 的 `async`；输出文件 `sessions://<会话>/home/jobs/<任务 id>/output.log` 与同目录的 `status.json`；远程 `jobs`、`jobsChanged`、`jobTail`、`jobStatuses`、`killJob`。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有任务中心（只在内存）；后台命令经 nb-harness 宿主套件 `shell` 的 `ShellBackground` 钩子接进来，输出窗口的截法与前台 `shell` 共用套件的那一份（[`builtin-tools.md`](builtin-tools.md)）。
+- **关键不变量**：
+  - 登记是同步占位；插件停止时任务中心先关门，之后一律 `unavailable`，再把在跑的后台命令按 `interrupted` 收口（`jobs.test.ts`“停止与提前交回”“输出 8”）。
+  - 前台以中止交回的任务视同取过，收口后直接移出，`wait` 不再交回它（`jobs.test.ts`“输出 6”）。
+  - 已结束、没取过的任务每个会话至多留 32 个，先丢最早结束的（`jobs.test.ts`“kill 与寿命”）。
+  - 后台命令的输出边跑边写文件，内存只留最后一段，结果等 `wait` 时才从文件读（`jobs.test.ts`“后台命令”）。
+
 ## 证据
 
-- 批准依据：w00032 t14 的决定与开发者 2026-11-10 确认的计划（`.agents/works/w00032-agent-integration/tasks/t14-multi-agent/plan.md`）。
+- 批准依据：[w00032 t14](../../../.agents/works/w00032-agent-integration/tasks/t14-multi-agent/README.md) 的决定与[计划](../../../.agents/works/w00032-agent-integration/tasks/t14-multi-agent/plan.md)；开发者 2026-11-10 确认计划，同日批准晋升为 `implemented`。
+- 实现入口：[`backend/jobs/center.ts`](../../../packages/neuro-book/src/plugins/agent/backend/jobs/center.ts)、[`tools.ts`](../../../packages/neuro-book/src/plugins/agent/backend/jobs/tools.ts)、[`steer.ts`](../../../packages/neuro-book/src/plugins/agent/backend/jobs/steer.ts)、[`backend/builtin/shell-background.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/shell-background.ts)
+- 合同测试：[`jobs.test.ts`](../../../packages/neuro-book/src/plugins/agent/jobs.test.ts)（真实内核、真实 brush）、[`subagents.test.ts`](../../../packages/neuro-book/src/plugins/agent/subagents.test.ts)（“jobs.md 输出 9–11”）
+- Smoke：[`agent-subagents.e2e.ts`](../../../packages/neuro-book/e2e/agent-subagents.e2e.ts)
