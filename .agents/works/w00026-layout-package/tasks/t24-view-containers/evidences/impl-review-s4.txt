@@ -1,0 +1,167 @@
+# w00026 t24 切片 4 实现审查（b9e276420..c9cb5ceb5）
+
+审查者：Claude Opus 子代理，只读。审查 worktree 固定在 c9cb5ceb5；单元测试在 w00026-t24-view-containers（HEAD c9cb5ceb5、干净）里跑。
+
+### 1. 单视图入口在活动栏里换序，要穿过邻居入口中间那一半（并入区）：停 150ms 就收起来源；收起后回到空位，预览又把来源的分节摆回来，和判定的几何对不上
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/workbench/web/entry-drop.ts:75-85（`barSpotAt`）、:106-112（`entryDropAt`）；layout-drag.ts:225（`isHomeStrip`）、:195-199（`previewDoc` 的 move-entry 分支）、:516-529（`barAfterCollapse`）；live-drag.ts:183（`elsewhere`）、:198
+- **现象**（从代码推断，未在真实运行时复现）：侧栏里容器 A 只有视图 a，实时布局下拖 A 的入口（或 a 的分节标题）往下挪过邻居 B。判定用拿起时冻结的 `frozen.bar`，B 原来位置的中间一半永远是 `join-container`（`BAR_ENTRY_CORE = 0.5`），所以从“A 与 B 之间”到“B 与 C 之间”必须经过“B 上”。
+  1. 指针在 B 的中间停够 150ms：候选稳定，`join-container` 不是标签条，`isHome` 为假，`elsewhere` 为真，`collapseSource` 收起来源（这一场不再展开）。A 是当前容器时预览里侧栏变空，`barAfterCollapse` 把 A 的入口从判定几何里删掉。
+  2. 指针接着到 B、C 之间：`entryDropAt` 按已提交的文档算，`soleSidebarContainer` 仍是 A，得到 `move-entry`；`isHomeStrip` 也按已提交文档判为真，所以马上换预览。`previewDoc` 的 move-entry 分支是 `applyEntryDrop(已提交文档, commit:false)`，只改入口顺序，a 的分节仍在侧栏里。live-drag.ts:198 只在 `doc` 为 null 时才用 `sourceRemovedDoc`，于是预览里侧栏又出现 a 那一节。
+  3. 判定几何是收起后的（a 那一节不在 `frozen.geometry.panels` 里），屏幕上却画着它。这违反输出 38“这一场不再展开：收起后不在的面板不是落点”，也让判定与屏幕错位。
+  另外，就算没收起：move-entry 的预览里 B 已经滑到 A 原来的位置，判定却还按 B 原来的位置判“B 上”。高亮落在已经滑走的 B 上，指针下面画的是 A 自己的占位入口，高亮和指针对不上。
+- **为什么是问题**：开发者 11-10 定“侧栏里单视图容器的入口在活动栏里拖动只换位置、容器不变”（Task README）。换序是这种入口最常见的拖法，可现在每次挪过一个邻居都要穿过一段并入区，慢一点就收起来源，侧栏先变空再弹回来。普通标签条全是插入位，冻结几何和排序后的样子能对上；入口条一半是插入位、一半是并入区，排序一动就对不上。
+- **如何核实**：写一条 e2e，用默认布局加一个只有一个视图的侧栏容器（例如把对话放进侧栏的新容器），实时布局下拖它的入口往下慢慢挪过“项目”的入口：每 5px 走一步，在“项目”入口中间停 300ms，然后到它下面的空位。断言：侧栏里分节的数目在拖动中不应先变 0 再变 1；入口高亮（`[data-tool-merge]`）出现时，高亮的那个入口矩形应包含指针。
+- **建议改法**（取部件最少的一种，交主 Agent 选）：(a) 来源是侧栏里某个容器唯一的视图（`soleSidebarContainer` 非空）时，活动栏上只判空位（`barSpotAt` 传 `entries: false`），和含几个视图的入口同一条路。代价是这种视图不能经活动栏并进别的容器，只能拖到分节上，要先问开发者，因为输出 45 写的是“工具视图”都能落在入口上。(b) 保留并入，但并入区不收起来源：`isHomeStrip` 对 BAR_STRIP 的 join 也算自己的标签条，并入的预览不做 `removeTab`，盖高亮就够了。(c) 至少让收起之后 move-entry 的预览从 `sourceRemovedDoc` 起算，侧栏不弹回来。
+
+### 2. 验收 29 的 e2e 恰好走到第 1 条的状态：收起后回到活动栏，侧栏又弹出来，可它只断言了入口在
+- **严重程度**：重要；**类别**：测试（同时是第 1 条的直接证据）
+- **位置**：packages/neuro-book/e2e/workbench-containers.e2e.ts，验收 29 那条用例的中段（“来源收起之后活动栏照样是落点……回到两个入口之间，空位里出现它的入口”）；live-drag.ts:194-198
+- **现象**：样例甲是当前容器 view:A 唯一的视图。用例拖甲到右栏，来源收起，侧栏变空；然后回到“项目”与样例乙之间的空位。在已提交的文档里，甲本来就排在这两个之间：`entryDropAt` 给出 `move-entry(view:A, before view:B)`，`applyEntryDrop` 判为原处（inPlace）。live-drag.ts:196 对“标签条里的原位”把 `sorting` 记为真，`host.show(null)` 回到已提交的文档，所以甲那一节回到侧栏，入口也重新按下。用例只断言 `[data-tool-view=A]` 数为 1（已提交的文档里本来就有），没断言此刻侧栏仍是空的、没有按下的入口。
+- **为什么是问题**：输出 38 写的是“这一场不再展开：收起后不在的面板不是落点，指针回到它原来的位置不会让它又出现”，输出 43 写的是“拖动的预览里不切”。这条用例本该守住这一点，现在却在违反它的状态上通过。live-drag.ts:194-195 的注释说只有“那块面板还在”时排序才是已提交的样子，可侧栏里唯一的分节作来源时，那块面板已经收起了。
+- **如何核实**：在这条用例 `await expect(page.locator(\`[data-tool-band] [data-tool-view="${A}"]\`)).toHaveCount(1);` 之后加两句：`await expect(page.locator("[data-tool-entry][aria-pressed=\"true\"]")).toHaveCount(0);`、`await expect(sample(page, A)).toBeHidden()`（或断言甲那一节不在侧栏的矩形里）。按代码推断，这两句会失败。
+- **建议改法**：产品侧见第 1 条。测试侧把上面两句加进去，作为输出 38“这一场不再展开”在活动栏上的判据。
+
+### 3. 第 1、2 条收窄与状态机实验（第 1、2 条按本条读）
+- **严重程度**：重要（取代第 1、2 条的严重程度描述）；**类别**：正确性
+- **收窄**：输出 38 在这个组合上自己有两句相撞：“标签条上”一段说预览是放下的真实结果，侧栏显示原来的当前容器；“判定的布局”一段说这一场不再展开。来源是当前容器唯一的视图时，原来的当前容器就是它自己，所以侧栏此刻该空还是该显示，Spec 没有定论，要交开发者定。第 1、2 条里“违反输出 38 不再展开”的说法撤回。站得住、不依赖这处措辞的是：**判定几何与屏幕不一致**。收起后 `frozen.bar` 已经删掉来源的入口、下面的入口上移（`barAfterCollapse`），`frozen.geometry.panels` 也删掉了来源那一节；而原处（`show(null)`）与 move-entry 的预览（`applyEntryDrop(已提交文档)`）又把入口和分节画了回去。此后指针停在屏幕上某个入口上，判定按的是上移后的坐标，高亮或放下落到的入口可能不是屏幕上指针下的那个；侧栏那一列的判定也按没有那一节的布局走。
+- **实验**（绕过 DOM 与真实运行时：直接驱动 `createLiveDrag`，候选与时序手写，不代表真实指针轨迹）：`/tmp/review-w00026-t24-s4/exp/live-collapse.test.ts`，在 w00026-t24-view-containers（HEAD c9cb5ceb5、干净）的 packages/neuro-book 下 `bun test` 通过。宿主照 layout-drag 的写法：`isHomeStrip` 认 BAR_STRIP，`candidateDoc` 对原处返回 null。结果：给 `join-container` 并等 200ms，`collapseSource` 被调 1 次；接着给原处的 `move-entry`，最后一次 `show` 收到 null，即已提交的文档；再给非原处的 `move-entry`，`show` 收到候选文档，按 layout-drag:195-199，这份文档由已提交的文档算出，来源仍在。
+- **如何在真实运行时核实**：按第 1 条的 e2e 设想（单视图入口慢速挪过邻居、在邻居中间停 300ms），或第 2 条的验收 29 用例。断言改成：收起之后，指针放到屏幕上某个入口的中心，`[data-tool-merge]` 的那个入口矩形包含指针；放下后并进的就是那个入口的容器。
+- **建议改法**：同第 1 条。另外，侧栏在这个状态下该空还是该显示，写进 Spec 输出 38 或 45，交开发者定。
+
+### 4. `reveal` 落点已经没有构造者，本片新写的 `dropStripOf` 还在处理它；外壳、键盘、编辑器、locale 里都留着死分支
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：entry-drop.ts:53（`dropStripOf` 的 `action.kind === "reveal"`，本片新写）；layout-drag.ts:687（`pointOfCandidate`）；WorkbenchShell.vue:588（`dropLabel` 的 reveal 分支）；locales zh-CN/en-US 的 `shell.drop.reveal` 与 locales.test.ts:240；editor/web/tab-drag.ts:122；nb-layout/src/layout-drop.ts:32、364、387、446
+- **现象**：base 上唯一构造 `{kind: "reveal"}` 的地方是 `barDrop`（base layout-drag.ts:367），本片把它删了。grep 非测试代码，`kind: "reveal"` 只剩 layout-drop.ts:32 的类型定义；剩下的都是消费分支。本片在新模块里还写了 `dropStripOf` 的 reveal 分支，把一个已经不会出现的动作当成标签条。
+- **为什么是问题**：读者会以为活动栏还有“放进并显示隐藏面板”这条路径，可第 3 条那类问题要靠读懂这些分支才能判断。界面上的“放到{part}”文案也成了不会出现的字。
+- **如何核实**：`grep -rn 'kind: "reveal"' packages/nb-layout/src packages/neuro-book/src`，非测试代码只命中类型定义一处。
+- **建议改法**：从 `LayoutDropAction` 删掉 `reveal`，跟着删掉库里三个 case、工作台三处分支、编辑器 tab-drag 的 case、locale 键与 ADDED 登记，以及 layout-drop.test.ts:486 那条。删不了的话，至少别在新写的 `dropStripOf` 里认它。注意：动 nb-layout 的公开类型属于跨包改动，可以另开一个小提交。
+
+### 5. dnd 两条用例删掉的“移动到”尾段没记进切片 5 的清单：输出 23 的“不跟 dropSplit 走”和“放进隐藏区域用移动到”现在没有任何 e2e
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/neuro-book/e2e/workbench-dnd.e2e.ts，“隐藏的区域不是落点……”（原标题“……要放进隐藏的面板用‘移动到’”），“放到分节的前后两半时这一列都让”（原标题“……‘移动到’的新面板不跟设置走”）
+- **现象**：两条用例的尾段被删了。一段是右键“移动到 → 右栏”把视图放进隐藏的右栏；另一段是在 `dropSplit: shared` 下，“移动到”的新面板只从相邻的块取，最下面那块高度不变。标题也跟着改了。交付报告写了“菜单目标属于切片 5”，但 Task README 的切片 5 交接（第 99 行列的 dnd:836、views:579/675/716/860）和报告的“留给切片 5”都只列了仍失败的用例，没有这两段删掉的断言。grep `dropSplit`，e2e 里只剩这条改过的用例，单元测试里也没有“移进容器不跟 dropSplit 走”的断言（default-tree.test.ts 只是随机切换两种分法，layout-constraints.test.ts:150 测的是外缘落点）。
+- **为什么是问题**：输出 23 写明“移进一个容器是成为它最后一个分节，从相邻的分节取空间，不跟设置 `dropSplit` 走”，验收 8 写的是放进隐藏的右栏。切片 5 重做“移动到”时，没有失败的用例提醒，这两条判据就会被漏掉。
+- **如何核实**：`git show b9e276420:packages/neuro-book/e2e/workbench-dnd.e2e.ts | grep -n '新面板（挨着侧栏）\|menuitem", {name: "右栏"'`，对照 head 上已经没有这两段；再 `grep -rn dropSplit packages/neuro-book/e2e packages/neuro-book/src --include='*.test.ts'`。
+- **建议改法**：在 Task README 切片 5 的交接里补一行，写明这两段判据（输出 23 的 dropSplit、验收 8 的隐藏区域）要在切片 5 的“移动到”用例里恢复。或者先用 `test.fixme` 留住原断言，不要直接删掉。
+
+### 6. editor-area 与 files-explorer 的 open() 把“会话”收成标题行来躲开“点行点到别的行”，失败的根因没查
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/neuro-book/e2e/editor-area.e2e.ts:227-230；packages/neuro-book/e2e/files-explorer.e2e.ts:140-142
+- **现象**：交付报告进度 5 记了 15 条失败，都是“点资源树的行点到了别的行，或行还不在”，归因是“半高放不下要滚动”。改法是准备步骤里把会话收起来，让资源树占满一列。资源树是虚拟列表（ExplorerTree.vue 的 `renderedRows`、`setScroll`，第 84-135 行），“点了 A 行、命中 B 行”通常是按下或聚焦触发滚动，造成按下与松开不在同一行。这在用户那边也会发生，例如窗口矮、点最底下露出一半的行。报告没给出这一机制的证据，也没在 base 上对照：base 上资源树占整列，同样的点击矮窗口里会不会错行没有确认。
+- **为什么是问题**：测试改成在一个更宽松的环境里跑，原来暴露的现象（不论是产品问题还是测试写法问题）就没人跟了。默认布局把资源树变成半高，这个场景对用户是常态，不是边角。
+- **如何核实**：在 head 上不收起会话，单跑 editor-area 里一条失败过的用例（如报告列的 852），加 `--trace on` 看失败那次点击前后 `[data-explorer-tree]` 的 `scrollTop` 有没有在 mousedown 与 mouseup 之间变化。变了是产品问题；没变而是 Playwright 点在滚动中的元素上，就是测试写法问题（应等行稳定再点）。
+- **建议改法**：先按上面的办法定性。是产品问题就记进 followups（不属于本片回归）；是测试问题就把“等行稳定再点”写进这两个文件的 `item` 帮手，不靠改变布局躲开。
+
+### 7. 底部面板（左右分）的分节：标题行整行算前半（左），指针在标题行右端也插到左边；Spec 的两处说法对这个情形没对齐，实现与 e2e 按字面锁死了
+- **严重程度**：建议；**类别**：文档
+- **位置**：packages/nb-layout/src/layout-drop.ts，`sectionHalf`（`back = !onStrip(...) && ...`）；packages/neuro-book/e2e/workbench-dnd.e2e.ts:663（`expectHalf(omega, {x: 0.8, y: 0.06}, "x", "front")`）
+- **现象**：`sectionHalf` 对标题行一律返回前半，不看区域方向。侧栏、右栏（上下分）的标题行在分节顶上，算前半，符合直觉。底部面板（左右分）的标题行横跨整个分节宽，指针在标题行右端时，放下却在这一节左边插一节。落点分区只画在正文上，这时高亮的是左半，指针却在右半的上方。
+- **为什么是问题**：输出 25 第 7 行写的是“标题行算前半”，没分方向；验收 10 对底部面板只说“靠上缘时仍按左右两半算”。在一排里，“前半”是左半，标题行却不在左边，两句合起来，底部面板分节的标题行该怎么判没有说清。现在的写法是按字面实现，e2e 第 663 行把“标题行 x=0.8 是前半”锁成了期望，以后想改就得改测试。
+- **如何核实**：读 layout-drop.ts 的 `sectionHalf` 与 dnd.e2e.ts:663 的断言。
+- **建议改法**：交开发者定一句：左右分的区域里，标题行是按指针的横坐标分两半，还是整行算前半。前者只要把 `back` 改成横向区域不看 `onStrip`，与分区同一条中线。定了之后写进输出 25 第 7 行。
+
+### 8. 指针在活动栏上每动一下都整套跑一遍 `applyEntryDrop(commit:true)`，只为判原处；没有按落点缓存
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：layout-drag.ts，`entryDrop`（`const result = applyEntryDrop(doc, source, action, options.policy(), {commit: true})`）；预览另在 `candidateDoc` 里再算一次 `commit:false`
+- **现象**：库的落点有 `previews` 缓存（按动作键），活动栏这段注释写明“不进预览缓存，每次按入口判”。可落点在一个空位或入口上停着时，动作键不变，每次指针移动仍然要把 `moveTabToEdge`、`setContainerEntries`、`setPanelHidden`、`setActiveContainer`、`sameLayoutShape` 全跑一遍，而且每一步都复制文档。实验（绕过浏览器：Bun 里对 5 个视图的默认文档直接调用，热身后取均值，`/tmp/review-w00026-t24-s4/exp/entry-perf.test.ts`）：new-container 每次约 0.27ms，join 约 0.22ms；`soleSidebarContainer` 约 0.004ms，可以忽略。成本随文档大小增长：Spec“副作用与数据”给的上限是 16 组、每组 200 个标签，约 250KB，这时每次复制会贵得多，浏览器里也比 Bun 慢。
+- **为什么是问题**：输出 38 的“开销”按帧算，限制的是样式重算与布局，不管脚本时间，所以 drag-cost 的 5 条用例测不到这一项。指针停在活动栏上时，每一帧都在做同样的结构计算。
+- **如何核实**：跑上面的实验文件；或在 drag-cost 里加一条“指针在活动栏两个入口之间慢移”的场景，用 Performance 面板看每帧的脚本时间。
+- **建议改法**：`entryDrop` 按 `workbenchDropKey(action)` 缓存这一场的结果（inPlace 与 doc），文档变了（`previewsOf`）就作废，和 `previews` 同一套。也可以让 `candidateDoc` 直接复用这份结果，省掉第二次计算。
+
+### 9. `presentDrag` 的 `joining` 有一半是死代码：落点指示那一支算出来从不被读
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：packages/neuro-book/src/plugins/workbench/web/drag-presentation.ts:75、83
+- **现象**：`const joining = live ? shownAction : drop === null || drop.inPlace ? null : drop.action;` 之后，唯一的读者是 `mergeEntry: live && joining?.kind === "join-container" ? ... : null`。`live` 为假时 `mergeEntry` 恒为 null，所以三元式的后一支（落点指示下按此刻的非原处落点）永远用不到。交付报告的“进度 2”写过“落点指示按此刻非原处的 join”，后来改成只在实时布局里给（报告第 92 行），这一支留下了。
+- **为什么是问题**：读者会以为落点指示下也有外壳的并入高亮。改回去的时候又要推一遍两种模式的分工。
+- **如何核实**：读这两行；drag-presentation.test.ts 里 `live: false` 的两条期望 `mergeEntry` 都是 null。
+- **建议改法**：`mergeEntry: live && shownAction?.kind === "join-container" ? shownAction.container : null`，删掉 `joining`。
+
+### 10. 几处迁移后的断言只看位置，不看归属；Lab 新加的两个按钮没有用例
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/neuro-book/e2e/workbench-float.e2e.ts：“框架按钮……回声明的位置”（只断言 `sectionOf(E).y > g0.y`）、“窗回到树里”第二段（只断言戊与丁同列、在丁下面）；packages/neuro-book/src/plugins/lab/web/fixtures/WorkbenchSurfaceFixture.vue:117-118（`d-new-entry`、`d-into-a`）
+- **现象**：
+  1. 原来断言面板 id 是 `"panel"`、`"auxiliarybar"`。具名面板成了锚以后这些 id 没有意义，迁移改成了几何断言。输出 39 的判据是“工具视图各回它声明的容器（没声明的是它的隐式容器），成为最后一个分节”“每个标签成一个分节……归区域的当前容器”。几何断言测不出归属写错：放进了别的容器，或者分节没写 `container`。fitsSkeleton 会拒绝后一种，前一种它拦不住。
+  2. 交付报告说 Lab 的两个按钮“和拖到活动栏放下走同一个函数”，可 `grep -rn 'd-new-entry\|d-into-a' packages/neuro-book/e2e` 没有命中，lab-workbench-surface.e2e.ts 里没有点它们的用例。
+- **为什么是问题**：两个浮动用例迁移之后，判据比 Spec 弱了一档，归属写错的回归（例如落点的 `wanted` 传错）在这里不会失败。Lab 按钮是给开发者看的入口，没人点的话，产品改了之后它悄悄坏掉也不会被发现。
+- **如何核实**：在 float 的两段末尾各读一次记录（同文件已有 `writesOf` 与数据库读法，或者照 workbench-containers 的 `saved(page)`）：`panels[section].container` 应是 `view:test.sample-views.omega`；第二段应是右栏的当前容器。Lab：加一条点 `d-new-entry` 再点 `d-into-a` 的用例，断言入口数与 `aria-pressed`。
+- **建议改法**：照上面补断言。Lab 的两个按钮要么补用例，要么不加。
+
+### 11. 第 1 条的现成复现：live-drag 的“活动栏里换序”能过，是因为 6 步就穿过了邻居的并入区，不到 150ms
+- **严重程度**：重要（第 1 条的真实运行时复现办法，也是测试缺口）；**类别**：测试
+- **位置**：packages/neuro-book/e2e/workbench-live-drag.e2e.ts:663（“活动栏里换序：别的图标滑开……没有拖影”，本片没改它）
+- **现象**：用例从第一个入口拿起，`mouse.move(second.x + w/2, second.y + second.height - 2, {steps: 6})`，终点在第二个入口的下四分之一，是空位。路上要穿过第二个入口的中间一半，那里是 `join-container`。6 步之内不会在那里停够 150ms，所以候选没稳定、没收起来源，`[data-lifted]` 为 0。真实用户换序时慢一点就会停够。
+- **为什么是问题**：同一个手势慢做和快做结果不同。这条用例只测了快做的那一种，第 1 条描述的路径（并入区停够时间就收起来源、拿起卡片、判定几何与屏幕错位）没有任何用例覆盖。
+- **如何核实**：在这条用例里，把那一步拆成两段：先 `mouse.move` 到第二个入口的中心（`steps: 4`），`await page.waitForTimeout(300)`（只为复现，不进正式用例；正式用例应等 `[data-tool-merge]` 出现），再到 `second.y + second.height - 2`。按第 1、3 条推断：第一段之后 `[data-lifted]` 为 1，第二个入口带 `data-tool-merge`；第二段之后侧栏的分节先没了，又在预览里回来（第一个入口是当前容器时）。
+- **建议改法**：产品侧按第 1 条改；改完把上面这条“慢速经过邻居”的用例写成正式用例，等可观察状态，不用固定时长。
+
+### 12. 收成标题行的分节：键盘候选仍列“前、后”两个，和指针的“整块都是前半”不是同一个判定；“后”的停靠点会解析成前半，“前”的停靠点落到缝或下一节
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/nb-layout/src/layout-drop.ts，`enumerateDropCandidates` 的分节分支（`for (const edge of sectionEdges(region))`）；packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:701-711（`pointOfCandidate` 的外缘点：`body.top + 2` / `body.bottom - 2`）
+- **现象**（从代码推断，未在真实运行时验证）：`sectionHalf` 对正文零面积的分节整块返回前半（输出 25 第 7 行），`layoutDropSectors` 对零面积直接返回 null。可是 `enumerateDropCandidates` 不看收起，照样给前、后两个候选。键盘停靠点由 `pointOfCandidate` 换成点，再交给指针规则（`dropAt`）解析：
+  - “后”（top/bottom 里的 bottom）的点是 `(cx, body.bottom - 2)`。正文零高时，这个点在标题行里，`onStrip` 为真，解析成前半，和“前”重复。
+  - “前”的点是 `(cx, body.top + 2)`，在标题行下沿往下 2px。下面有分节时，离缝的中线在 6px 内，解析成缝（`between`）；收起的分节在区域最下面时，这个点出了区域。
+  所以键盘在一块收起的分节上走两步，得到的是“前半”和“缝或别处”，不是 Spec 输出 31 写的“分节上是前、后两个位置”，也不是指针那边的“整块前半”。
+- **为什么是问题**：重点 2 要求判定、分区、键盘候选三处同一个判定。现在只有两处一致，第三处多出一个不可能出现的“后”，停靠点的提示又与候选不一致。layout-drop.test.ts 新加的键盘用例（“每个分节只有前后两个位置”）只测了展开的分节。
+- **如何核实**：在 layout-drop.test.ts 的“分节的落点”那组里，用 `folded`（同文件“收成标题行的分节整块是前半”里的那份）调 `enumerateDropCandidates`。按代码推断，s1 会列出 top 与 bottom 两个；期望应只有 top（或者两者都不列，看原处判定）。真实运行时：dnd 里把一节收成标题行，用键盘拿起别的视图，Tab 到那一列，逐个方向键读 `data-drop-kind` 与提示。
+- **建议改法**：让 `enumerateDropCandidates` 与 `sectionHalf` 同用一个“这一节此刻有哪几半”的函数：正文零面积（或分节 `isSectionCollapsed`）时只有前半。库里拿不到几何的话，用 `isSectionCollapsed(doc, leaf.id)` 判。
+- **补充核实（第 12 条）**：`/tmp/review-w00026-t24-s4/exp/layout-drop-collapsed.test.ts` 复制了 layout-drop.test.ts，导入改成绝对路径，在“分节的落点”那组里加了一条 REVIEW 用例：对 `sections()` 用 `setPanelCollapsed(s2, true)`，再以 p1 为来源调 `enumerateDropCandidates`。在 w00026-t24-view-containers/packages/nb-layout 下 `bun test ... -t REVIEW` 通过，打印出 `isSectionCollapsed=true`，s2 的候选是 `[split s2 top, split s2 bottom]`。库层的候选确实没管收起。停靠点换算（layout-drag 的 `pointOfCandidate`）那半段仍是从代码推断。
+
+### 环境说明（不是发现）
+- 开审时 w00026-t24-view-containers 的 HEAD 是 c9cb5ceb5，`status --short` 为空。审到后半段再看，里面多了 16 个未提交的修改，是切片 5 的编码者在同一个 worktree 里并行改的（Task README 第 102 行）。
+- 我的实验用到的产品文件是 entry-drop.ts、live-drag.ts、containers.ts、default-tree.ts 与 nb-layout/src。核对过，这些都还是 c9cb5ceb5 的内容。layout-constraints.ts 只删了一个没人用的导出 `newPanelEdgeTarget`，不影响 `createLayoutPolicy`。所以第 3、8、12 条的实验结论对 c9cb5ceb5 成立。
+- 之后跑的单元测试有 5 个文件：entry-drop、live-drag、drag-presentation、layout-present、layout-constraints，83 过；另跑 nb-layout 的 layout-drop，63 过。其中 layout-present.test.ts 与 layout-constraints.test.ts 已被切片 5 改过，这一轮结果不能当作 c9cb5ceb5 的证据，以交付报告与主 Agent 自跑的为准。
+
+## 未发现问题的方面
+- `applyEntryDrop` 提交之后经 store `apply` 归整（`settleContainers`）的结果。实验 `/tmp/review-w00026-t24-s4/exp/entry-settle.test.ts` 直接调纯函数，没经过 store。看了四种情形，都符合输出 41 到 46：用户容器的唯一视图并进别的容器后，`custom:` id 从入口顺序删掉；声明的、隐式容器空了 id 留着；右栏唯一的视图拖到侧栏空位新建，右栏的当前容器变 null 并隐藏；并入时侧栏切到目标。move-entry 走 `rebase: false`，join、new 走写回意图，与输出 8、42 一致。
+- 原处判定：move-entry 比的是看得见的入口顺序（锚里夹着的空容器不影响）；join 到来源自己唯一视图的入口返回原文档；来源已是目标容器最后一节且容器是当前的，也返回原文档。
+- `newContainer` 每场在 `activate` 生成一次，`workbenchDropKey` 带着它，落点逐帧稳定。
+- `layoutStructureKey` 加当前容器：grep `setActiveContainer`、`showContainer`、`revealView` 的全部调用方，拖动中能改当前容器的只有命令（`nbook.view.open` 等）与提交。`reconcileViews` 改当前容器时标签集合同时变，本来就取消。焦点恢复不写文档。没有找到误取消的路径。
+- `ContainerSource` 不会进 `homeOf`、`collapseSource`、`isHomeStrip`（`activate` 对它提前返回，不调 `live.begin`）。`refocus`、`start`、`ghostOf`、`commitDrop` 都处理了它；`containerDrop` 别处返回 null，不算被拒绝、不开窗，符合输出 46。
+- 整窗拖动经过活动栏继续浮着（`windowDrop` 不再判活动栏）；整窗经过分节走 14% 窄带、标题行不是插入位，和 float 316 的期望一致。
+- 键盘 `sourceAt` 对独占浮动窗的标签多查 `movable`：比 base 严，但与指针拖多标签窗里标签时的检查一致，不算回归。
+- 测试插件的 `SAMPLE_VIEWS_RUN_EVENT` 只由 `src/web/testing/e2e-main.ts` 引入；监听器登记在 `context.scope` 里随作用域释放；失败与异常各写一条诊断，没有吞掉。
+- `--layout-merge-*` 在 nb-ui tokens.css 的全局作用域定义，活动栏能解析到。拖动中根元素持有指针捕获，入口不会同时处于 `:hover`，并入高亮不会被悬停样式盖掉。
+- `WorkbenchPanelHead.vue` 的焦点光晕改内描：理由成立（外层 `h2` 是 `overflow: hidden`），和标签一致。
+- e2e 用例条数前后一致，没有整条删掉或 skip 的。期望改动逐条对过交付报告与 Spec，除第 5、6、10 条外都有 Spec 依据。dnd 的“缝上”仍用非原处的 `edge` 断言“缝上的视图归侧栏”，editor-area 1039 改成 noop 不影响这条判据的覆盖。
+
+## 各级数量
+- 阻断 0
+- 重要 4：第 1、2、3、11 条。同一个根因：单视图入口在活动栏里换序时会穿过并入区；收起之后判定几何与屏幕不一致。第 1、2 条按第 3 条收窄。
+- 建议 8：第 4、5、6、7、8、9、10、12 条
+
+有效发现：1（按 3 收窄）、2（按 3 收窄）、3、4、5、6、7、8、9、10、11、12
+
+### 13. 含几个视图的入口（ContainerSource）没有任何 e2e 拖过它；containers 文件头说在 dnd 里，dnd 的场地里根本没有这种入口
+- **严重程度**：重要；**类别**：测试
+- **位置**：packages/neuro-book/e2e/workbench-containers.e2e.ts:9（“拖含几个视图的入口换序：`workbench-dnd.e2e.ts`”）；workbench-dnd.e2e.ts:159（`NBOOK_EXCLUDE_PLUGINS: "nbook.explorer,nbook.editor,nbook.agent"`）
+- **现象**：dnd 与 live-drag 两个场地都排除了资源管理器与会话插件，内置容器“项目”没有成员；样例视图都是自己的隐式容器，活动栏上全是单视图入口。grep 全部 e2e 里的 `dragTo(page, entry`、`lift(page, entry`、`dropAt(page, entry`，拖的都是单视图入口（B、C）。“含几个视图”只出现在 lab-workbench-surface:243，那条测的是悬停文字，不拖。layout-drag 里只服务多视图入口的整条 DOM 路径都没在浏览器里跑过：`fromElement` 返回 container、`containerDrop`、`barSpotAt(entries:false)`、键盘区域 `entries: false` 与停靠点、`refocus` 的 `[data-tool-entry]` 分支、`ghostOf` 的容器分支、“别处没有落点、不开窗、不算被拒绝”。覆盖它们的只有 entry-drop.test.ts 的纯函数用例。
+- **为什么是问题**：验收 14 明确要求：“把含两个视图的入口拖到右栏的分节上、编辑组上、状态栏上，Then 都没有落点，松手零写入、不开窗；When 在活动栏里拖它换序，Then 入口顺序变了，侧栏的显隐与当前容器不变”。计划切片 4 也写了“e2e 补全提案的九条场景”。文件头的说明与事实不符，读者会以为已经覆盖。
+- **如何核实**：`grep -rn 'dragTo(page, entry\|lift(page, entry\|dropAt(page, entry' packages/neuro-book/e2e`，看每处拖的入口是不是单视图；再看 dnd 与 live-drag 的 `startProbeServer` 环境变量。
+- **建议改法**：在 workbench-containers.e2e.ts 的场地补一条（它没排除资源管理器与会话，“项目”有两个分节）。指针拖“项目”入口：经过右栏分节、编辑组、状态栏都没有反馈、光标不是禁止，松手零写入、没有窗；在活动栏里换序，入口顺序变、`aria-pressed` 与侧栏可见性不变，写一次。键盘：空格拿起，Tab 不离开活动栏，方向键只有空位，Enter 换序，焦点回到“项目”入口。改掉文件头那句说明。
+
+### 14. 对“未发现问题的方面”两条的更正
+- **并入高亮与 `:hover`（撤回原结论，改为未验证）**：原文“入口不会同时处于 `:hover`”是凭对 Chrome 指针捕获行为的印象写的，没有验证。按样式，`.workbench-tool-strip .workbench-tool-strip__item:hover`（两个类加一个伪类）优先级高于 `.workbench-tool-strip .workbench-tool-strip__item--merge`（两个类）。实时布局下指针一定在被高亮的入口上，所以一旦 `:hover` 生效，并入的底色就被悬停底色盖掉，只剩内描边，而且这是常态。交主 Agent 核：在 workbench-containers 验收 26 那条用例里，读 `[data-tool-merge]` 入口的 `getComputedStyle(...).backgroundColor`，和同页 `--layout-merge-fill` 的解析值比（可以临时建一个元素，把背景设成这个变量，读回）。不一致就给并入规则加上 `:hover` 的同等优先级，例如 `.workbench-tool-strip .workbench-tool-strip__item--merge, .workbench-tool-strip .workbench-tool-strip__item--merge:hover`。严重程度：建议，待核。
+- **e2e 期望改动“逐条对过”说得过头，收窄**：实际读到的范围是：七个文件的用例标题前后对比；dnd.diff 的约 890–960、1120–1180 行，另加“缝上”“侧栏隐藏时”“换序”三条用例的全文；live-drag diff 的约 420–520 行与“活动栏里换序”全文；containers 的新 describe 全文；editor-area、files-explorer 的 diff 全文；float diff 的前约 200 行；views diff 的前约 260 行；lab-workbench-surface 的删增行。titlebar、drag-cost 没看。dnd.diff 删掉的 119 行 `expect` 没有逐条对它们的接替断言。所以除第 5、6、10、13 条之外的 e2e 改动，结论只能写“抽查未见放宽”，不是“逐条对过”。
+- **补核第 4 条**：在审查 worktree 里对 nb-layout/src 与 neuro-book/src 跑了一次不截断的 `grep -rn '"reveal"'`。和落点有关的只有类型定义与消费分支：layout-drop.ts:364、387、446，tab-drag.ts:122，layout-drag.ts:413、687，WorkbenchShell.vue:588，entry-drop.ts:53。没有构造它的地方，第 4 条成立。第 4 条“位置”里漏了 layout-drag.ts:413。
+- **补核第 5 条**：workbench-views.e2e.ts 的“移动到”用例（579、664、675、1195）里，没有放进隐藏区域的；第 5 条成立。
+
+## 没审到的维度
+- 维度 3（对照参照）：拖影、光标、插入线、读屏文字没有逐项和同应用里的同类交互列对照表。只核了入口的落点文字（“单独成一个入口”“并入{名称}”“放在这里”）与 entryRect 形状。
+- 维度 8：`packages/nb-ui/docs/ui-development-spec.md` 的开发后自检与易错清单没读；明暗两态的对比没有截图核对。
+- 没跑 e2e、没开开发服务。第 1、3、11、13、14 条中依赖浏览器的部分都要主 Agent 跑。
+
+## 交给主 Agent 的实验与命令
+- 实验文件都在 `/tmp/review-w00026-t24-s4/exp/`，按绝对路径导入 `.worktree/w00026-t24-view-containers` 里的源码。那个 worktree 现在有切片 5 未提交的修改，之后重跑测到的是切片 5 的代码，不是 c9cb5ceb5。
+  - `live-collapse.test.ts`（第 3 条）：`cd .../w00026-t24-view-containers/packages/neuro-book && bun test /tmp/review-w00026-t24-s4/exp/live-collapse.test.ts`
+  - `entry-settle.test.ts`（“未发现问题”里归整的四种情形）：同目录，`bun test /tmp/review-w00026-t24-s4/exp/entry-settle.test.ts`
+  - `entry-perf.test.ts`（第 8 条）：同目录，`bun test /tmp/review-w00026-t24-s4/exp/entry-perf.test.ts`
+  - `layout-drop-collapsed.test.ts`（第 12 条）：`cd .../w00026-t24-view-containers/packages/nb-layout && bun test /tmp/review-w00026-t24-s4/exp/layout-drop-collapsed.test.ts -t REVIEW`
+- 第 1、3 条的真实运行时复现：按第 11 条改 workbench-live-drag.e2e.ts:663 的移动，分两段走，中间等 `[data-tool-merge]` 出现，或复现用 300ms。
+
+## 各级数量（取代上面那份）
+- 阻断 0
+- 重要 5：第 1、2、3、11 条是同一个产品问题加测试缺口，以第 3 条为准，在真实运行时还没复现，**待复现；复现不了降为建议**。另一条是第 13 条（多视图入口没有 e2e）。
+- 建议 9：第 4、5、6、7、8、9、10、12 条，以及第 14 条的并入高亮（待核）
+
+有效发现：1（按 3 收窄）、2（按 3 收窄）、3、4、5、6、7、8、9、10、11、12、13、14（并入高亮一项）
