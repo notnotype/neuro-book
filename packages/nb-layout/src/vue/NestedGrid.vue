@@ -485,6 +485,8 @@ defineExpose({
     settleMotion: (): void => motion.stop(),
     placeLifted,
     placeFloat,
+    /** 离开了、在过渡里留着缩回去的叶（节点 id）：已经不在 `node` 里，但还画着；宿主按它们还在来画挨着的东西（相连的卡片）。过渡结束就空了。 */
+    leavingLeaves,
 });
 </script>
 

@@ -205,7 +205,17 @@ watch([cards, sceneCorners, presentedLeaves], ([nextCards, nextScene, presented]
         else lastPresented.scene.set(id, scene);
     }
 }, {immediate: true, flush: "sync"});
-const cardOf = (id: string): CardEdges | undefined => (presentedLeaves.value.has(id) ? cards.value[id] : lastPresented.cards.get(id));
+/**
+ * 和活动栏相连的工具面板隐藏、在过渡里留着缩回去时（docs/specs/ui/workbench-layout.md 输出 19），活动栏照旧相连：两张卡片作为一张缩回去，面板摘掉后
+ * 活动栏才断开。按呈现算的话活动栏第一帧就断开了，而缩回去的面板还是相连的样子，贴着它的那边是直的。相连只在活动栏和它右边的工具面板之间，
+ * 所以离开的叶最后一次呈现时左边相连，就是和活动栏连着。
+ */
+const barJoinHeld = computed(() => [...(gridEl.value?.leavingLeaves ?? [])].some((id) => !presentedLeaves.value.has(id) && lastPresented.cards.get(id)?.left.kind === "joined"));
+function cardOf(id: string): CardEdges | undefined {
+    if (!presentedLeaves.value.has(id)) return lastPresented.cards.get(id);
+    const card = cards.value[id];
+    return id === ACTIVITY_BAR && card !== undefined && barJoinHeld.value ? {...card, right: {kind: "joined"}} : card;
+}
 const sceneOf = (id: string): PanelName | undefined => (presentedLeaves.value.has(id) ? sceneCorners.value.get(id) : lastPresented.scene.get(id));
 
 function insetOf(id: string): Record<string, string> {

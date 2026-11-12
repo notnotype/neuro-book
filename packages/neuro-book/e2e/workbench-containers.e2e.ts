@@ -277,6 +277,43 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         for (const row of middle) expect([row.gapHit, row.cornerHit, row.innerHit]).toEqual([false, false, true]);
     });
 
+    test("活动栏与只有一节的侧栏相连：隐藏侧栏时两张卡片一直连着缩回去，这一节摘掉后活动栏才断开；显示时一开始就相连（ui/workbench-layout 输出 19）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const moving = page.locator("[data-workbench-surface] [data-moving]");
+        const bar = page.locator('[data-shell-card="activitybar"]');
+        await entry(page, `view:${A}`).click();
+        await expect(moving).toHaveCount(0);
+        const section = await sectionOf(page, A);
+        await expect(bar).toHaveAttribute("data-shell-join", "start");
+        await expect(page.locator(`[data-shell-card="${section}"]`)).toHaveAttribute("data-shell-join", "end");
+        /** 点一下入口，逐帧记这一节的外框还在不在、活动栏相连没有，直到网格的过渡结束。 */
+        const film = () => page.evaluate(async ({selector, leafId}) => {
+            const rows: Array<{present: boolean; barJoin: string | null}> = [];
+            document.querySelector<HTMLElement>(selector)!.click();
+            for (let frame = 0; frame < 90; frame += 1) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                const present = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`) !== null;
+                rows.push({present, barJoin: document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!.dataset.shellJoin ?? null});
+                if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
+            }
+            return rows;
+        }, {selector: `[data-tool-entry="view:${A}"]`, leafId: section});
+
+        // 隐藏：这一节留着缩回去的每一帧，活动栏都还相连（按呈现算的话第一帧就断开了，缩回去的那节贴着它的一边却是直的）；摘掉之后才断开。
+        const hiding = await film();
+        expect(hiding.filter((row) => row.present).length).toBeGreaterThan(2);
+        for (const row of hiding.filter((row) => row.present)) expect(row.barJoin).toBe("start");
+        await expect(moving).toHaveCount(0);
+        await expect(leaf(page, section)).toHaveCount(0);
+        expect(await bar.getAttribute("data-shell-join")).toBeNull();
+
+        // 显示：长出来的每一帧都相连。
+        const showing = await film();
+        expect(showing.filter((row) => row.present).length).toBeGreaterThan(2);
+        for (const row of showing.filter((row) => row.present)) expect(row.barJoin).toBe("start");
+    });
+
     test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时留着、过渡结束才摘掉；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
