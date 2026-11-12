@@ -87,10 +87,10 @@ async function openSettings(page: Page, section: string): Promise<void> {
 }
 
 /**
- * 显示模板的视图。活动栏条目点一下已经可见的视图会隐藏它（输出 22），所以只在它没按下时点。
+ * 显示模板的视图。它没写容器，入口是它的隐式容器 `view:<视图 id>`；点当前容器的入口会隐藏侧栏（输出 22），所以只在它没按下时点。
  */
 async function showView(page: Page): Promise<void> {
-    const container = page.locator(`[data-tool-entry='${VIEW.slice("view:".length)}']`);
+    const container = page.locator(`[data-tool-entry='${VIEW}']`);
     await expect(container).toBeVisible();
     if ((await container.getAttribute("aria-pressed")) !== "true") await container.click();
     await expect(container).toHaveAttribute("aria-pressed", "true");
@@ -145,9 +145,9 @@ test("仓库外 create、build 的插件：安装、重启后视图显示设置�
     await expect(pluginRow(page).locator("[data-plugin-pending='disable']")).toBeVisible();
     await restart(page);
     await openWorkbench(page);
-    // 先有一条肯定的判据：活动栏已经画出内置的资源管理器，模板视图的容器才算真的没有。
-    await expect(page.locator("[data-tool-entry='nbook.explorer']")).toBeVisible();
-    await expect(page.locator(`[data-tool-entry='${VIEW.slice("view:".length)}']`)).toHaveCount(0);
+    // 先有一条肯定的判据：活动栏已经画出内置容器“项目”的入口，模板视图的容器才算真的没有。
+    await expect(page.locator("[data-tool-entry='nbook.workbench.project']")).toBeVisible();
+    await expect(page.locator(`[data-tool-entry='${VIEW}']`)).toHaveCount(0);
     await openSettings(page, "nbook.plugins.installed");
     await expect(pluginRow(page)).toBeVisible();
     await expect(pluginRow(page).locator("[data-plugin-pending]")).toHaveCount(0);

@@ -71,6 +71,11 @@ export const ViewDeclarationSchema = Type.Object({
      */
     revealRegion: Type.Optional(Type.Boolean()),
     actions: Type.Optional(Type.Array(ViewActionSchema, {maxItems: VIEW_ACTIONS_MAX})),
+    /**
+     * 所属容器的 id（docs/specs/workbench/views.md 输出 16），可以是别的插件声明的。只在视图第一次放进布局时用；指向的容器没有已接受的声明时
+     * 视图落回自己的隐式容器，所以这里不核对它存不存在。
+     */
+    container: Type.Optional(Type.String({pattern: "\\S"})),
 }, {additionalProperties: false});
 
 /** 声明是登记后不再改的数据；布局 store 的状态把目录变成深只读，类型就按深只读写，两边一致。 */
@@ -121,3 +126,45 @@ const completeViewDeclaration = conventionCompleter({
 
 /** `workbench.views` 贡献点：插件与测试都用这一份定义。 */
 export const viewsPoint: ContributionPointDefinition = {id: WORKBENCH_VIEWS_POINT, implementation: "required", idPrefix: "plugin", complete: completeViewDeclaration, validate: validateViewContribution};
+
+/** 视图容器贡献点 `workbench.viewContainers`（docs/specs/workbench/views.md 输出 15）：只有声明，没有实现；贡献 id 就是容器 id。 */
+export const WORKBENCH_VIEW_CONTAINERS_POINT = "workbench.viewContainers";
+
+/**
+ * 留给工作台的容器 id 前缀（docs/specs/ui/workbench-layout.md 输出 41）：隐式容器是 `view:<视图 id>`，用户拖出来的是 `custom:<UUID>`。
+ * 三类 id 互不重叠靠的是声明的容器不许用这两个前缀。
+ */
+export const IMPLICIT_CONTAINER_PREFIX = "view:";
+export const CUSTOM_CONTAINER_PREFIX = "custom:";
+
+/** 工作台内置的侧栏容器“项目”的 id：资源管理器与会话的声明写 `container` 指向它。声明在 `../plugin.ts`。 */
+export const PROJECT_VIEW_CONTAINER = "nbook.workbench.project";
+
+export const ViewContainerDeclarationSchema = Type.Object({
+    title: TextSchema,
+    icon: Type.String({pattern: "\\S"}),
+    location: Type.Union([Type.Literal("sidebar"), Type.Literal("auxiliarybar"), Type.Literal("panel")]),
+    order: Type.Optional(Type.Number({minimum: -1_000_000, maximum: 1_000_000})),
+}, {additionalProperties: false});
+
+export type ViewContainerDeclaration = DeepReadonly<Static<typeof ViewContainerDeclarationSchema>>;
+
+/**
+ * `workbench.viewContainers` 的登记校验。保留前缀单独判一次：id 的写法（`VIEW_ID`）本来就不收冒号，单独判是为了让被拒的原因写明前缀是留给谁的。
+ */
+export function validateViewContainerContribution(descriptor: ContributionDescriptor): string | null {
+    const id = descriptor.id;
+    if (id.startsWith(IMPLICIT_CONTAINER_PREFIX) || id.startsWith(CUSTOM_CONTAINER_PREFIX)) return `容器 id 不得以 ${IMPLICIT_CONTAINER_PREFIX}、${CUSTOM_CONTAINER_PREFIX} 开头（留给隐式容器与用户拖出来的容器）：${id}`;
+    if (id.length > VIEW_ID_MAX_LENGTH || !VIEW_ID.test(id)) return `容器 id 必须是点分的小写段、至多 ${VIEW_ID_MAX_LENGTH} 个字符：${id}`;
+    if (!Value.Check(ViewContainerDeclarationSchema, descriptor.declaration)) {
+        const first = [...Value.Errors(ViewContainerDeclarationSchema, descriptor.declaration)][0];
+        return `容器 ${id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
+    }
+    return null;
+}
+
+/**
+ * `workbench.viewContainers` 贡献点：插件与测试都用这一份定义。顶层声明式（同 `workbench.themes`）：不写入口的插件也能声明容器，
+ * 工作台的浏览器入口激活时读已接受的全部声明。
+ */
+export const viewContainersPoint: ContributionPointDefinition = {id: WORKBENCH_VIEW_CONTAINERS_POINT, implementation: "none", idPrefix: "plugin", validate: validateViewContainerContribution};

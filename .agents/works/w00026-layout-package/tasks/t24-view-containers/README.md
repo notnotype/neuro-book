@@ -123,4 +123,29 @@ Spec 的条目级 planned 合同已提交（`workbench-layout`、`views`、`nest
     - 恢复后重跑 `files-explorer`、`editor-area`、`workbench-live-drag` 与 `float:295`，97 条里 96 过。
     - 剩下的是 `files-explorer` 的触摸拖动：单独跑能过，整份文件跑则三次都失败（切片 4 时也有一次）。探针显示要拖的行在 y=674，资源树视口的下缘是 663.5：前面的用例往同一个目录写了文件，把这一行挤到视口下面，它还渲染着，触点却落在会话分节的标题上。用例改为先把这一行滚进视口，整份文件 23 条全过。
     - 变异检查：在资源树恢复成原来高度的情况下拿掉 `syncScroll`，大目录用例双击 file-0019，打开的却是 file-0009。
-- 收口：切片 5 与上面的修正（`c9cb5ceb5..6486f87cf`）的实现审查派 Opus，在后台跑；`test:affected --since master --typecheck` 同时在跑。处理完再合入。
+- 收口实现审查（Opus，范围 `c9cb5ceb5..6486f87cf`，[`evidences/impl-review-final.txt`](evidences/impl-review-final.txt)）：建议 7 条。第 1 条审查者按代码和状态机实验判为重要，因为实验绕过了真实运行时降一级；主 Agent 在真实浏览器里复现后按重要处理。逐条：
+  - 第 1 条（来源收起之后再停到别的入口上，并入的预览按已提交的文档画，来源的入口和分节又画回来，高亮的入口被挤离指针）：成立，是上一轮修正引入的。真实浏览器复现：活动栏入口从 2 个回到 3 个。改：拖动记下本场来源是否已经收起，收起过的照旧拿掉来源再高亮。加 e2e“来源收起之后再回到活动栏、停在别的入口上”，修之前失败。收起之后落在别的空位那一种（预览是放下的真实结果），并进待确认清单已接受的那一行。
+  - 第 2 条（收成标题行的分节，键盘停靠点算在正文外 2px，落到下一节）：成立，停靠点改取标题行中心。“收成标题行的分节”那条 e2e 补上键盘：在收着的那一节上 Enter，新分节落在它前面；去掉修正时落到它后面。
+  - 第 3 条（`{container: "view:X"}` 在 X 写了别的容器时也算有声明，凭空建出一个容器）：成立，按审查收窄后的改法只改 `moveView`：隐式容器只在那个视图没写别的容器时才算有声明，否则 `not-found`。补 store 测试，旧代码上失败。
+  - 第 4 条（移到自己容器的最后一节时，写回尺寸意图、不退出最大化）：成立。这条分支改用和点入口同一个函数（`revealContainer`），store 的 `showContainer` 动作也用它。补 store 测试，旧代码上失败。
+  - 第 5 条（e2e 里两处 `reveal` 判断成了恒真；`showPanelAndInsert` 没有调用方）：e2e 两处删掉。隐藏的区域量不出位置，本来就不是键盘区域，没有可观察的替代判据。`showPanelAndInsert` 留着：它的 JSDoc 已写明只给不用容器的面板用；第一句旧的“活动栏放进隐藏的侧栏”改掉，补上“工作台不用它”。
+  - 第 6 条（Spec 输出 37 与 `sectionSectors` 的注释还写“标题行算前半”）：成立，两处都和输出 25 第 7 行对齐。
+  - 第 7 条（菜单身份里的“所在容器”没有测试）：成立。加 e2e：“移动到”菜单开着时把丁移进戊的容器（面板 id 不变），菜单关闭；去掉这一段时失败。
+  - 资源树停放时尺寸是不是零（审查只核到一边的文档）：在真实浏览器里量过。收成标题行时资源树保持 592 高，`scrollTop` 不变；展开后在前面插一行，首个可见行不变。没有回归，不改。
+- 合入前先把 master 并进分支（master 在分叉后进了 386 个提交）。合并在临时 worktree `.worktree/w00026-t24-merge`（分支 `chore/w00026-t24-merge-master`）里做，7 个文件冲突：
+  - master 的 `revealRegion: false`（views.md 输出 18）接进容器模型的默认布局：区域里没有要显示的视图时锚记为隐藏，入口照样有。master 的那条单元测试改成断言入口顺序（锚没有标签）。
+  - 通知视图、视图计数、视图目录的诊断回调，和容器目录并存。
+  - e2e 冲突取容器模型一边：master 为“底部面板里混着后台任务与通知两个标签”调的计数与过滤，在一个分节一个标签的模型里不成立。“底部面板默认没有容器”的注释改成“默认隐藏”。
+  - master 自己有一个类型错误：`MarkdownToolbar.dom.test.ts` 缺 `EditorMenus` 新加的 `matches`、`commentMargin`（w00025 t13）。和本 Task 无关，没改。
+- 合并后的验证（Work 分支快进到 `6bf2ca4e6`：合并 `1c410fb4c`，加收口审查的修正）：
+  - 类型检查：`tsc`、`vue-tsc`（web）与 nb-layout 通过；`vue-tsc`（browser-test）只有上面那个 master 自己的错误。
+  - `test:affected --since master`：nb-layout 530 + 188 项，neuro-book 2916 + 561 项，全部通过。
+  - e2e 8 个文件（`workbench-live-drag`、`workbench-dnd`、`workbench-views`、`workbench-shell`、`workbench-containers`、`workbench-titlebar`、`background-tasks`、`editor-area`）178 条，176 过。`background-tasks:130` 是 master 按“底部面板一条标签带”写的通知中心用例，按容器模型改写判据后通过。`editor-area:1265`（离开页面前的未保存确认，master 带来的编辑器用例）单独跑通过。`files-explorer`、`workbench-float`、`lab-workbench-surface` 合并前已过，合并与这批修正没碰它们走的路径，没重跑。
+  - 合并之后 master 又进了 2 个提交，只改 w00025 的文档；`git merge-tree` 试算无冲突，证据仍然有效。
+- 留给第二步：视图计数（master 的 views 输出 17）在第一步只写在看得见的分节头上。通知与后台任务各是底部面板的一个容器，切走以后，通知的计数只在状态栏铃铛上。做底部面板的入口条时，要定入口带不带计数（输出 17 现在写的是“活动栏入口不显示计数”）。
+
+## 接下来
+
+- 第一步（侧栏）已合入 master。各 Spec 里 t24 的条目级 planned 等开发者批准后再晋升，到时补实现合同与证据。
+- 第二步（右栏、底部面板的入口条）另行设计：先解决第二轮设计审查 R3 列的入口条与现有条规则冲突的六处，再加上面那条计数。
+- 开发者试用：默认侧栏是“项目”（两个分节）、切容器、拖出新容器、拖到零。

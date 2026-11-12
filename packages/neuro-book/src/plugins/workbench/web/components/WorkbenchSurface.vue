@@ -2,8 +2,8 @@
 /**
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
-import {createGrid} from "@notnotype/nb-layout";
-import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridNodeInput, GridRect, LayoutDoc, LayoutProjection} from "@notnotype/nb-layout";
+import {createGrid, isPanelShown, regionNodeOf, treeLeaves} from "@notnotype/nb-layout";
+import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridNodeInput, GridRect, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
 import type {Directive} from "vue";
@@ -155,6 +155,16 @@ const maximizedLeaf = computed(() => (props.maximized === null ? null : {leaf: p
 
 const roleOf = (id: string): "tool" | "editor" | null => props.doc.panels[id]?.role ?? null;
 
+/**
+ * 侧栏与右栏下角的场景图画在哪块卡片上（docs/specs/theme/skins.md 输出 6）：图跟着区域走，不跟着视图走。区域的锚不进呈现树，所以取区域里显示着的最后一块，
+ * 它的下缘就是区域的下缘；一列分成几节时只画一张。
+ */
+const sceneCorners = computed<ReadonlyMap<string, PanelName>>(() => new Map((["sidebar", "auxiliarybar"] as const).flatMap((region) => {
+    const hit = regionNodeOf(props.doc, region);
+    const last = hit === null ? undefined : treeLeaves(hit.node).map((leaf) => leaf.id).filter((id) => isPanelShown(props.doc, id)).at(-1);
+    return last === undefined ? [] : [[last, region] as const];
+})));
+
 /** 卡片跟着拖动中的预览走：相连与否按拖动中的几何算（输出 19）。 */
 const cards = computed<Readonly<Record<string, CardEdges>>>(() => {
     const computedCards = layoutCardEdges({
@@ -286,7 +296,7 @@ defineExpose({
                         :data-shell-join="joinOf(node.id)"
                         :data-shell-slot="node.id === slotPanel ? '' : undefined"
                         :data-panel-role="roleOf(node.id) ?? undefined"
-                        :data-panel-name="doc.panels[node.id]?.name"
+                        :data-panel-name="sceneCorners.get(node.id)"
                         :data-hover-actions-scope="roleOf(node.id) === null ? undefined : ''"
                         :data-hover-actions-active="actionsShownOn(node.id) ? '' : undefined"
                     >
@@ -418,7 +428,7 @@ defineExpose({
 }
 
 /*
- * 侧栏与右栏下角的场景图（docs/specs/theme/skins.md 输出 6）：只有这两块具名面板，跟着面板走，不跟着视图走。图在外框里，内容层盖在上面；
+ * 侧栏与右栏下角的场景图（docs/specs/theme/skins.md 输出 6）：只有这两个区域，跟着区域走，不跟着视图走；`data-panel-name` 只写在区域最下面那块上（`sceneCorners`）。图在外框里，内容层盖在上面；
  * 高度不足 300px 不画，靠容器查询。
  */
 .workbench-surface__card[data-panel-name="sidebar"],

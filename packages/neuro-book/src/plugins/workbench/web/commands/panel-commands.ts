@@ -6,7 +6,7 @@
 
 import {Type} from "typebox";
 
-import {findTab, isFloating} from "@notnotype/nb-layout";
+import {findTab, isContainerAnchor, isFloating, isSectionCollapsed, sectionCollapseBlock} from "@notnotype/nb-layout";
 
 import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 
@@ -66,6 +66,8 @@ const TEXT = {
     cannotFloat: workbenchText("panelCommands.cannotFloat"),
     floatMaximize: workbenchText("panelCommands.floatMaximize"),
     floatCollapse: workbenchText("panelCommands.floatCollapse"),
+    rowSectionCollapse: workbenchText("panelCommands.rowSectionCollapse"),
+    loneSectionCollapse: workbenchText("panelCommands.loneSectionCollapse"),
     floatLimit: workbenchText("panelCommands.floatLimit"),
 } as const;
 
@@ -88,11 +90,24 @@ export function panelCommands(layout: () => LayoutDocStore | null): PanelCommand
     return {
         [SET_PANEL_COLLAPSED_COMMAND]: withPanel((store, panel, args) => {
             if (store.state.doc.panels[panel]?.role === "editor") return {ok: false, code: "unavailable", reason: TEXT.editorCollapse};
-            if (isFloating(store.actions.document(), panel)) return {ok: false, code: "unavailable", reason: TEXT.floatCollapse};
-            const result = store.actions.setCollapsed(panel, (args.collapsed as boolean | undefined) ?? store.state.doc.panels[panel]?.collapsed !== true);
+            const doc = store.actions.document();
+            if (isFloating(doc, panel)) return {ok: false, code: "unavailable", reason: TEXT.floatCollapse};
+            // 此刻收不成标题行的分节（输出 11、20、命令表）：底部面板的分节不折叠，收起、展开都不可用；区域唯一显示的分节只是不能收起。
+            const block = sectionCollapseBlock(doc, panel);
+            if (block === "row-region") return {ok: false, code: "unavailable", reason: TEXT.rowSectionCollapse};
+            // 不给 `collapsed` 是切换。区域的锚记的是整个区域拖到零，读它自己的记录；别的面板问 `isSectionCollapsed`，记录里留着 `collapsed` 而此刻没收起的按没收起算。
+            const record = doc.panels[panel];
+            const collapsedNow = record !== undefined && isContainerAnchor(record) ? record.collapsed === true : isSectionCollapsed(doc, panel);
+            const collapsed = (args.collapsed as boolean | undefined) ?? !collapsedNow;
+            if (collapsed && block === "lone-section") return {ok: false, code: "unavailable", reason: TEXT.loneSectionCollapse};
+            const result = store.actions.setCollapsed(panel, collapsed);
             return result.ok ? DONE : {ok: false, code: "unavailable", reason: TEXT.noPanel};
         }),
-        [TOGGLE_PANEL_MAXIMIZED_COMMAND]: withPanel((store, panel) => (store.actions.toggleMaximized(panel) ? DONE : {ok: false, code: "unavailable", reason: TEXT.floatMaximize})),
+        [TOGGLE_PANEL_MAXIMIZED_COMMAND]: withPanel((store, panel) => {
+            if (store.actions.toggleMaximized(panel)) return DONE;
+            // 不是浮动窗时是区域的锚：它自己不显示，区域里最大化的是一个分节（输出 13）。
+            return {ok: false, code: "unavailable", reason: isFloating(store.actions.document(), panel) ? TEXT.floatMaximize : TEXT.noPanel};
+        }),
         [FLOAT_COMMAND]: {
             run: async (raw) => {
                 const store = layout();

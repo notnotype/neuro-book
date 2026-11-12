@@ -7,18 +7,23 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, findTreeNode, fixedNodesOf, floatTab, isFloating, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, roundFloatRect, removeTab, sameTreeShape, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
-import type {GridExtent, GridFloatInput, LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, LayoutSource, PanelRecord} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, fixedNodesOf, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, regionOf, roundFloatRect, removeTab, sameLayoutShape, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
+import type {GridExtent, GridFloatInput, LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, PanelName} from "@notnotype/nb-layout";
 
 import {defineStore} from "nbook/shared/store/store";
 
 import type {EditorSaveGate} from "../../shared/contracts";
 import {editorTabIdOf} from "../../shared/editor-panels";
 import type {EditorTabDrag} from "../contracts";
+import {applyEntryDrop, isEntryAction} from "../entry-drop";
+import type {WorkbenchDragSource, WorkbenchDropAction} from "../entry-drop";
 import type {ViewCatalog} from "../views/registry";
-import {defaultLayoutDoc, fitsSkeleton, reconcileViews} from "./default-tree";
-import {COLLAPSE_ORDER, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, newPanelEdgeTarget, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
-import {effectiveVisibleTabs} from "./layout-present";
+import {CUSTOM_CONTAINER_PREFIX, IMPLICIT_CONTAINER_PREFIX} from "../../shared/views";
+import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionContainers, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
+import type {ContainerCatalog} from "./containers";
+import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
+import {collapseOrder, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
+import {effectiveVisibleTabs, regionOccupied} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
 
@@ -33,6 +38,9 @@ export type LayoutDocProblem =
     | {readonly kind: "unsaved"; readonly code: string};
 
 export type LayoutPart = "sidebar" | "auxiliarybar" | "panel" | LayoutBar;
+
+/** “移动到”的目标（输出 23）：一个容器的 id，或在哪个区域里新建一个用户容器。 */
+export type MoveViewTarget = {readonly container: string} | {readonly newContainerIn: PanelName};
 
 /** 存盘之前的关卡（`EditorSaveGate`）：编辑器先写 `editor.tabs`，它失败时布局不写，不留下引用不存在的标签。 */
 export type LayoutSaveGate = EditorSaveGate;
@@ -50,6 +58,7 @@ function defineLayoutDocStore(bound: boolean) {
         const field = persist<LayoutDocRecord>(LAYOUT_DOC_RECORDS[bound ? "project" : "user"], {initial: {doc: null}});
         const template = persist<LayoutDocRecord>(LAYOUT_TEMPLATE_RECORD, {initial: {doc: null}});
         const catalog = shallowRef<ViewCatalog>(new Map());
+        const containers = shallowRef<ContainerCatalog>(NO_CONTAINERS);
         /** 这个窗口的文档。打开时读到记录才有；没有记录时是 null，默认树跟着视图目录（目录是陆续交进来的），第一次改动才定下来。 */
         const local = shallowRef<LayoutDoc | null>(null);
         const extent = shallowRef<GridExtent | null>(null);
@@ -85,14 +94,23 @@ function defineLayoutDocStore(bound: boolean) {
             if (base?.status === "missing") return usableDoc(template.display.doc);
             return null;
         }
-        /** 记录合法但不合骨架（片 7c 之前存的）：用默认树、下次保存覆盖它，不算损坏，用户没有什么可做的。只在外壳根写一条诊断。 */
+        /** 记录合法但不合骨架（片 7c 之前存的，或有容器之前存的）：用默认树、下次保存覆盖它，不算损坏，用户没有什么可做的。只在外壳根写一条诊断。 */
         const outsideSkeleton = computed(() => {
             const base = field.base;
             if (base?.status !== "ok") return false;
             const checked = validateLayoutDoc(base.value.doc);
             return checked.ok && !fitsSkeleton(checked.doc) && local.value === null;
         });
-        const doc = computed<LayoutDoc>(() => reconcileViews(local.value ?? defaultLayoutDoc(catalog.value), catalog.value));
+        /**
+         * 有容器之前存的记录（“状态与转换”）：回落默认布局时，它开着的编辑器标签带进默认布局的编辑组。只记下那份文档、每次现算，不在打开时就定成 `local`：
+         * 视图目录可能在记录读完之后才交进来，那时定下来的默认布局里一个视图都没有，后来的视图会按“文档已有之后才出现”放进隐藏的区域。
+         */
+        const carried = shallowRef<LayoutDoc | null>(null);
+        const fallback = (): LayoutDoc => {
+            const base = defaultLayoutDoc(catalog.value, containers.value);
+            return carried.value === null ? base : carryDynamicTabs(base, carried.value);
+        };
+        const doc = computed<LayoutDoc>(() => settleContainers(reconcileViews(local.value ?? fallback(), catalog.value, containers.value)));
 
         // 只读一次：之后别的窗口保存不改本窗口的显示。
         let opened = false;
@@ -100,6 +118,9 @@ function defineLayoutDocStore(bound: boolean) {
             if (opened || !field.ready || !template.ready) return;
             opened = true;
             local.value = readStored();
+            const base = field.base;
+            const checked = local.value === null && base?.status === "ok" ? validateLayoutDoc(base.value.doc) : null;
+            carried.value = checked?.ok === true && predatesContainers(checked.doc) ? checked.doc : null;
         });
 
         const ready = computed(() => field.ready && template.ready);
@@ -115,9 +136,11 @@ function defineLayoutDocStore(bound: boolean) {
         const collapse = computed(() => {
             const current = extent.value;
             if (current === null) return {removed: new Set<string>() as ReadonlySet<string>, squeezed: false};
-            return presentationCollapse(doc.value, current, {...layoutProjectionOptions({catalog: catalog.value, viewportWidth: current.width, cardGap: cardGap.value}), order: COLLAPSE_ORDER, focused: currentPanel.value});
+            return presentationCollapse(doc.value, current, {...layoutProjectionOptions({doc: doc.value, catalog: catalog.value, viewportWidth: current.width, cardGap: cardGap.value}), order: collapseOrder(doc.value), focused: currentPanel.value});
         });
-        const projectionOptions = computed(() => layoutProjectionOptions({catalog: catalog.value, viewportWidth: extent.value?.width ?? 0, removed: collapse.value.removed, squeezed: collapse.value.squeezed, cardGap: cardGap.value}));
+        /** 约束按面板所在的区域取（输出 6），区域要从被投影的那份文档里问：预览的文档另算一份选项。 */
+        const optionsFor = (of: LayoutDoc): LayoutProjectionOptions => layoutProjectionOptions({doc: of, catalog: catalog.value, viewportWidth: extent.value?.width ?? 0, removed: collapse.value.removed, squeezed: collapse.value.squeezed, cardGap: cardGap.value});
+        const projectionOptions = computed(() => optionsFor(doc.value));
         const projection = computed(() => projectLayoutDoc(doc.value, projectionOptions.value));
         /**
          * 实时布局的预览（docs/specs/ui/workbench-layout.md“实时布局”）：只给渲染用的一份文档。判定、提交、可见性、记录都还看已提交的 `doc` 与 `projection`：
@@ -125,12 +148,12 @@ function defineLayoutDocStore(bound: boolean) {
          */
         const livePreview = shallowRef<LayoutDoc | null>(null);
         const renderedDoc = computed(() => livePreview.value ?? doc.value);
-        const renderedProjection = computed(() => (livePreview.value === null ? projection.value : projectLayoutDoc(livePreview.value, projectionOptions.value)));
+        const renderedProjection = computed(() => (livePreview.value === null ? projection.value : projectLayoutDoc(livePreview.value, optionsFor(livePreview.value))));
         /** 放不下把最大化的面板收走了：退出最大化，不写文档。 */
         const effectiveMaximized = computed(() => {
             const panel = maximized.value === null ? undefined : doc.value.panels[maximized.value];
             // 这块面板不在了、隐藏了（包括标签被搬空）、收起了都退出（输出 13）：不管是哪条路径改的文档。
-            return maximized.value === null || panel === undefined || panel.hidden === true || panel.collapsed === true || collapse.value.removed.has(maximized.value) || isFloating(doc.value, maximized.value) ? null : maximized.value;
+            return maximized.value === null || panel === undefined || !isPanelShown(doc.value, maximized.value) || isSectionCollapsed(doc.value, maximized.value) || collapse.value.removed.has(maximized.value) || isFloating(doc.value, maximized.value) ? null : maximized.value;
         });
         /**
          * 缩放中的浮动窗矩形：只有它在变，不换文档、不重算投影。整窗拖动只在开始时写一次带上标记，跟手的位置由外壳直接写元素。
@@ -191,8 +214,12 @@ function defineLayoutDocStore(bound: boolean) {
             return new Set([...fixedNodesOf(projection.value.input)].filter((id) => same(presented.value[id], sizes[id])));
         }
 
-        function apply(operation: (current: LayoutDoc) => LayoutResult, options: {readonly flush?: boolean} = {}): LayoutResult {
-            const base = rebased();
+        /**
+         * `rebase: false` 给不动树的操作（切换容器、让视图看得见）：切换不改任何尺寸意图（输出 42）。写回意图时有收起兄弟的分支按比例换算，
+         * 呈现与意图一样也会差在浮点的末位，切换几次记录就变了。
+         */
+        function apply(operation: (current: LayoutDoc) => LayoutResult, options: {readonly flush?: boolean; readonly rebase?: boolean} = {}): LayoutResult {
+            const base = options.rebase === false ? doc.value : rebased();
             const result = operation(base);
             if (!result.ok) {
                 if (result.code === "limit-exceeded") structureFailure.value = result.detail;
@@ -202,13 +229,59 @@ function defineLayoutDocStore(bound: boolean) {
             // 落点只给合骨架的目标，但服务（`EditorPanels.tabs.moveToEdge`）能传任意目标：写入的出口再守一次。
             if (!fitsSkeleton(result.doc)) return {ok: false, code: "rejected", detail: "不合骨架"};
             if (!sameTreeShape(base, result.doc)) maximized.value = null;
-            local.value = result.doc;
+            // 库的结构操作只写分节的归属：入口顺序、当前容器空了换谁、区域空了隐藏在这里归整（输出 41、43）。预览不过这里，预览里不切容器（输出 38）。
+            const settled = settleContainers(result.doc);
+            local.value = settled;
             schedule(options.flush ?? false);
-            return result;
+            return {ok: true, doc: settled};
+        }
+
+        /** 区域显示（清掉隐藏与拖到零）并切到这个容器（输出 23、42）。容器要已经有成员：先归整，入口顺序里才有它。 */
+        function showContainer(current: LayoutDoc, region: PanelName, container: string): LayoutResult {
+            const settled = settleContainers(current);
+            const anchor = regionAnchor(settled, region);
+            if (anchor === null) return notFound(region);
+            const shown = setPanelHidden(settled, anchor, false);
+            return shown.ok ? setActiveContainer(shown.doc, anchor, container) : shown;
+        }
+
+        /** 把一个标签放成 `region` 里 `container` 的最后一个分节，区域显示并切到这个容器（输出 23 的“移进一个容器”）。 */
+        function placeInContainer(current: LayoutDoc, key: string, region: PanelName, container: string): LayoutResult {
+            const target = sectionLanding(current, region, container);
+            if (target === null) return notFound(region);
+            const moved = moveTabToEdge(current, {tab: key, target, container}, policy);
+            return moved.ok ? showContainer(moved.doc, region, container) : moved;
+        }
+
+        /**
+         * 让容器看得见，一次提交（store 的 `showContainer` 动作；`moveView` 放到它自己身后也是这件事）：不写回尺寸意图（输出 42），
+         * 最大化着的面板不是这个容器的分节时退出，不然切过去了也被盖着。
+         */
+        function revealContainer(container: string): LayoutResult {
+            if (maximized.value !== null && doc.value.panels[maximized.value]?.container !== container) maximized.value = null;
+            return apply((current) => {
+                const region = containerRegion(current, container);
+                return region === null ? notFound(container) : showContainer(current, region, container);
+            }, {rebase: false});
+        }
+
+        /**
+         * 视图按此刻的声明该回哪（“重置位置”、浮动窗回到停靠）：它的容器此刻在哪个区域就去哪，容器没有成员时去声明的区域。声明不在的视图回侧栏，进自己的隐式容器。
+         */
+        /** 没有成员的容器按声明该在哪个区域（`moveView`）：隐式容器 `view:<视图>` 只在那个视图没写别的容器时才有声明（输出 41）。 */
+        function declaredRegion(container: string): PanelName | null {
+            const owner = container.startsWith(IMPLICIT_CONTAINER_PREFIX) ? container.slice(IMPLICIT_CONTAINER_PREFIX.length) : null;
+            if (owner !== null && viewHome(owner, catalog.value, containers.value)?.container !== container) return null;
+            return containerHomeRegion(container, catalog.value, containers.value);
+        }
+
+        function homeOf(current: LayoutDoc, viewId: string): {readonly region: PanelName; readonly container: string} {
+            const home = viewHome(viewId, catalog.value, containers.value) ?? {container: implicitContainerOf(viewId), location: "sidebar" as const};
+            return {region: containerRegion(current, home.container) ?? home.location, container: home.container};
         }
 
         return {
-            state: {doc, ready, problems, field, catalog, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, renderedFloats},
+            state: {doc, ready, problems, field, catalog, containers, extent, projection, collapse, maximized: effectiveMaximized, currentPanel, focusedPanel, visibleTabs, presented, structureFailure, outsideSkeleton, renderedFloats},
             actions: {
                 apply,
                 /** 文档与呈现树本身：读 `state` 拿到的是深只读代理，领域操作要原对象（`structuredClone` 不接受代理）。在响应式作用域里读同样会被跟踪。 */
@@ -233,7 +306,7 @@ function defineLayoutDocStore(bound: boolean) {
                     const record = doc.value.panels[panel];
                     const fallback = {width: 0, height: 0};
                     if (record === undefined) return {min: fallback, max: {width: extent.value?.width ?? 0, height: extent.value?.height ?? 0}};
-                    const {minimumSize, maximumSize} = panelConstraints(record, catalog.value, extent.value?.width ?? 0);
+                    const {minimumSize, maximumSize} = panelConstraints(record, null, catalog.value, extent.value?.width ?? 0);
                     return {min: minimumSize, max: {width: Math.min(maximumSize.width, extent.value?.width ?? maximumSize.width), height: Math.min(maximumSize.height, extent.value?.height ?? maximumSize.height)}};
                 },
                 setFloatRect: (panel: string, rect: LayoutFloatRect): LayoutResult => apply((current) => setFloatRect(current, {panel, rect}), {flush: true}),
@@ -253,7 +326,14 @@ function defineLayoutDocStore(bound: boolean) {
                 /**
                  * 提交一个落点：编辑器的标签要走编辑器区（`EditorTabDrag`），工具视图与只改矩形直接改布局。外壳的拖动和命令都经这里。
                  */
-                commitDrop: (source: LayoutSource, action: LayoutDropAction, part: string | undefined, keyboard: boolean): void => {
+                commitDrop: (source: WorkbenchDragSource, action: WorkbenchDropAction, part: string | undefined, keyboard: boolean): void => {
+                    // 活动栏上段的落点（输出 45、46）：容器层面的操作，编辑器的标签放不到这里。换序不动树，不写回尺寸意图。
+                    if (isEntryAction(action)) {
+                        apply((current) => applyEntryDrop(current, source, action, policy, {commit: true}), {flush: true, rebase: action.kind !== "move-entry"});
+                        return;
+                    }
+                    // 含几个视图的入口只有入口之间这一种落点（输出 46），上面已经处理。
+                    if (source.kind === "container") return;
                     if (source.kind === "tab") {
                         const editorTab = editorTabIdOf(source.tab);
                         if (editorTab !== null) {
@@ -276,13 +356,13 @@ function defineLayoutDocStore(bound: boolean) {
                     const record = found === null ? undefined : doc.value.panels[found.panel];
                     if (found === null || record === undefined) return notFound(key);
                     if (doc.value.floats.length >= LAYOUT_MAX_FLOATS) return {ok: false, code: "limit-exceeded", detail: "浮动窗太多"};
-                    const rect = defaultFloatRect(extent.value, panelConstraints({role: record.role, tabs: [found.tab], active: key}, catalog.value, extent.value?.width ?? 0).minimumSize, doc.value.floats.length);
+                    const rect = defaultFloatRect(extent.value, panelConstraints({role: record.role, tabs: [found.tab], active: key}, null, catalog.value, extent.value?.width ?? 0).minimumSize, doc.value.floats.length);
                     const editorTab = editorTabIdOf(key);
                     if (editorTab !== null) return viaEditor(key, (drag) => drag.drop(editorTab, {kind: "float", rect}, undefined, false));
                     return apply((current) => floatTab(current, {tab: key, rect}, policy), {flush: true});
                 },
                 /**
-                 * 浮动窗回到停靠（`nbook.view.dock`）：工具视图各回声明的具名面板，声明没了的回侧栏；编辑器回树序最后一个编辑组。
+                 * 浮动窗回到停靠（`nbook.view.dock`）：工具视图各回声明的容器，一个标签一个分节（输出 39），声明没了的回侧栏；编辑器回树序最后一个编辑组。
                  */
                 dockFloat: (panel: string): LayoutResult | Promise<LayoutResult> => {
                     const record = doc.value.panels[panel];
@@ -296,20 +376,23 @@ function defineLayoutDocStore(bound: boolean) {
                         let next: LayoutResult = {ok: true, doc: current};
                         for (const tab of record.tabs) {
                             if (!next.ok || tab.kind !== "view") continue;
-                            const location = catalog.value.get(tab.viewId)?.location ?? "sidebar";
-                            const target: readonly [string, PanelRecord] | undefined = Object.entries(next.doc.panels).find(([, candidate]) => candidate.name === location);
-                            if (target === undefined) return notFound(location);
-                            const moved = moveTabToStrip(next.doc, {tab: tabKey(tab), panel: target[0], index: target[1].tabs.length}, policy);
-                            next = moved.ok ? setPanelHidden(moved.doc, target[0], false) : moved;
+                            const home = homeOf(next.doc, tab.viewId);
+                            next = placeInContainer(next.doc, tabKey(tab), home.region, home.container);
                         }
-                        // 逐个搬时最后一个成了活动标签：窗的活动标签还是活动的，和整窗拖进去一样。
-                        return next.ok && record.active !== null ? activateTab(next.doc, record.active) : next;
+                        // 逐个搬时每搬一个都切到它的容器：最后看得见的要是窗的活动标签所在的那个容器，和整窗拖进去一样。
+                        const active = record.tabs.find((tab) => tabKey(tab) === record.active);
+                        const landed = !next.ok || active?.kind !== "view" ? null : viewSection(next.doc, active.viewId);
+                        return next.ok && landed !== null ? showContainer(next.doc, landed.region, landed.container) : next;
                     }, {flush: true});
                 },
                 /** 算出这棵呈现树用的选项：预览（落点）要和真实结果同一棵树。 */
                 projectionOptions: (): LayoutProjectionOptions => projectionOptions.value,
                 acceptViewCatalog: (next: ViewCatalog): void => {
                     catalog.value = next;
+                },
+                /** 容器声明目录（docs/specs/workbench/views.md 输出 15）。没有记录时默认布局跟着它重算，所以要在视图目录之前交进来。 */
+                acceptViewContainers: (next: ContainerCatalog): void => {
+                    containers.value = next;
                 },
                 acceptExtent: (next: GridExtent | null): void => {
                     extent.value = next;
@@ -340,31 +423,44 @@ function defineLayoutDocStore(bound: boolean) {
                     presented.value = sizes;
                     // 先改收起状态再写回意图：这次手势收起的面板，呈现尺寸是标题行或零，不是意图（`rebaseIntents` 跳过收起的面板）。
                     let next = doc.value;
+                    // grid 报的是呈现树的节点 id。区域拖到零报的是代表区域的那个节点（那一列的分支，或只显示一个分节时这个分节），状态要记在锚上（输出 11）：
+                    // 对那个 id 记的话，单分节时会把分节自己标成收成标题行。
+                    const anchors = projection.value.regionAnchors;
                     for (const [id, value] of Object.entries(collapsed)) {
-                        const updated = setPanelCollapsed(next, id, value);
+                        const updated = setPanelCollapsed(next, anchors.get(id) ?? id, value);
                         if (updated.ok) next = updated.doc;
                     }
                     local.value = rebaseIntents(next, sizes, projection.value.collapsedTo, frozen);
                     schedule(true);
                 },
-                /** 显隐（输出 11）。“显示”同时清掉隐藏与收起；隐藏最大化着的面板时退出最大化（输出 13）。 */
+                /** 显隐（输出 11）：隐藏的是整个区域，记在锚上。“显示”同时清掉隐藏与拖到零；隐藏最大化着的面板所在的区域时退出最大化（输出 13）。 */
                 setPartHidden: (part: LayoutPart, hidden: boolean): LayoutResult => {
-                    // 隐藏最大化着的面板、或要显示被它盖住的面板，都退出最大化：不然按钮按了看不出变化。
-                    if (hidden ? maximized.value === part : maximized.value !== part) maximized.value = null;
+                    // 区域里一个容器都没有时显示不了：锚在提交时又被归整成隐藏（输出 43）。结果和现在一样就零写入，也不为一次没有效果的点击退出最大化。
+                    if (!hidden && part !== "activitybar" && part !== "statusbar" && regionContainers(doc.value, part).length === 0) {
+                        const anchor = regionAnchor(doc.value, part);
+                        const shown = anchor === null ? null : setPanelHidden(doc.value, anchor, false);
+                        if (shown?.ok === true && sameLayoutShape(settleContainers(shown.doc), doc.value)) return {ok: true, doc: doc.value};
+                    }
+                    // 隐藏最大化着的面板所在的区域、或要显示被它盖住的区域，都退出最大化：不然按钮按了看不出变化。
+                    const maximizedHere = maximized.value !== null && regionOf(doc.value, maximized.value) === part;
+                    if (hidden ? maximizedHere : !maximizedHere) maximized.value = null;
                     return apply((current) => {
                         if (part === "activitybar" || part === "statusbar") return setBarHidden(current, part, hidden);
-                        return setPanelHidden(current, part, hidden);
+                        const anchor = regionAnchor(current, part);
+                        return anchor === null ? notFound(part) : setPanelHidden(current, anchor, hidden);
                     });
                 },
                 setCollapsed: (panel: string, collapsed: boolean): LayoutResult => {
-                    if (collapsed && maximized.value === panel) maximized.value = null;
-                    return apply((current) => setPanelCollapsed(current, panel, collapsed));
+                    const result = apply((current) => setPanelCollapsed(current, panel, collapsed));
+                    // 收不成标题行的分节会被拒绝（区域唯一显示的、底部面板的）：没收起就不退出最大化。
+                    if (result.ok && collapsed && maximized.value === panel) maximized.value = null;
+                    return result;
                 },
                 /** 激活标签（切标签合并着存）；面板收成标题行时一起展开（输出 11）。 */
                 activate: (key: string): LayoutResult => apply((current) => {
                     const activated = activateTab(current, key);
                     const panel = findTab(current, key)?.panel;
-                    return activated.ok && panel !== undefined && current.panels[panel]?.collapsed === true ? setPanelCollapsed(activated.doc, panel, false) : activated;
+                    return activated.ok && panel !== undefined && isSectionCollapsed(current, panel) ? setPanelCollapsed(activated.doc, panel, false) : activated;
                 }),
                 /** 在标签条里换一位（Alt 加方向键，输出 20）：活动标签不变，到头了不动。 */
                 reorderTab: (key: string, delta: -1 | 1): LayoutResult => apply((current) => {
@@ -379,7 +475,7 @@ function defineLayoutDocStore(bound: boolean) {
                 /** 关掉标签：声明消失的视图的占位用（输出 4）。 */
                 closeTab: (key: string): LayoutResult => apply((current) => removeTab(current, key)),
                 /**
-                 * 让视图看得见（输出 22、35 的 `nbook.view.open`）：所在面板显示并展开，激活它。盖着它的最大化退出；它就在最大化的面板里时不退出。
+                 * 让视图看得见（输出 22、35 的 `nbook.view.open`）：所在区域显示、切到它的容器，分节展开，激活它。盖着它的最大化退出；它就在最大化的面板里时不退出。
                  */
                 revealView: (viewId: string): LayoutResult => {
                     const key = tabKey({kind: "view", viewId});
@@ -394,55 +490,60 @@ function defineLayoutDocStore(bound: boolean) {
                             const activated = activateTab(current, key);
                             return activated.ok ? raiseFloat(activated.doc, hit.panel) : activated;
                         }
-                        const panel = current.panels[hit.panel];
-                        const shown = panel?.name === undefined ? setPanelCollapsed(current, hit.panel, false) : setPanelHidden(current, hit.panel, false);
-                        return shown.ok ? activateTab(shown.doc, key) : shown;
+                        const region = regionOf(current, hit.panel);
+                        const container = current.panels[hit.panel]?.container;
+                        const shown = region === null || container === undefined ? {ok: true as const, doc: current} : showContainer(current, region, container);
+                        const expanded = shown.ok ? setPanelCollapsed(shown.doc, hit.panel, false) : shown;
+                        return expanded.ok ? activateTab(expanded.doc, key) : expanded;
+                    }, {flush: true, rebase: false});
+                },
+                /**
+                 * “移动到”与“重置位置”（输出 23，`nbook.view.move-view`）：移进一个容器，或在一个区域里新建一个只含它的用户容器。两种都是成为那个容器最后一个分节
+                 * （`sectionLanding`：从前一个分节取一半，不跟 `dropSplit` 走），目标区域显示并切到这个容器；来源容器空了由 `apply` 里的 `settleContainers` 归整（输出 43）。
+                 *
+                 * 容器在哪个区域：有成员时是成员所在的区域；没有成员时是它声明的区域（声明的容器、隐式容器，这就是“重置位置”回到没有成员的容器的路）。
+                 * 隐式容器只属于没写 `container` 的那个视图：它写了别的容器时，`view:<它>` 既没有成员也没有声明。两样都没有（含已经不存在的 `custom:`）
+                 * 是 `not-found`：不凭空建出一个调用方点名的容器。新容器的 id 只在这里生成。
+                 * 视图已经是目标容器最后一个分节时不搬：放到它自己后面不是一个落点，这就是点它的入口（`revealContainer`），已经看得见时零写入。
+                 */
+                moveView: (viewId: string, target: MoveViewTarget): LayoutResult => {
+                    if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", detail: viewId};
+                    if ("container" in target) {
+                        const region = containerRegion(doc.value, target.container);
+                        const last = region === null ? undefined : regionSections(doc.value, region).filter((section) => section.container === target.container).at(-1);
+                        if (last?.viewId === viewId) return revealContainer(target.container);
+                    }
+                    return apply((current) => {
+                        const key = tabKey({kind: "view", viewId});
+                        if (findTab(current, key) === null) return notFound(key);
+                        if ("newContainerIn" in target) return placeInContainer(current, key, target.newContainerIn, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
+                        const {container} = target;
+                        const region = containerRegion(current, container) ?? declaredRegion(container);
+                        return region === null ? notFound(container) : placeInContainer(current, key, region, container);
                     }, {flush: true});
                 },
                 /**
-                 * “移动到”（输出 23）：放到一块面板的标签末尾，或挨着一块工具面板开新面板：这一列放下面，这一排放右边。
+                 * 让容器看得见（输出 22 的点入口、输出 42）：它所在的区域显示（清掉隐藏与拖到零）并切到它，一次提交；分节的先后、大小、收成标题行都不动。
+                 * 已经是这样时零写入。
                  */
-                moveView: (viewId: string, target: string | {readonly newPanelNextTo: string}): LayoutResult => apply((current) => {
-                    if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", detail: viewId};
-                    const key = tabKey({kind: "view", viewId});
-                    if (typeof target === "string") {
-                        const panel = current.panels[target];
-                        if (panel === undefined) return notFound(target);
-                        const moved = moveTabToStrip(current, {tab: key, panel: target, index: panel.tabs.length}, policy);
-                        // 隐藏的具名面板也能是目标：放进去之后它要看得见。
-                        return moved.ok && panel.hidden === true ? setPanelHidden(moved.doc, target, false) : moved;
-                    }
-                    const beside = target.newPanelNextTo;
-                    if (current.panels[beside] === undefined) return notFound(beside);
-                    if (current.panels[beside]?.role !== "tool") return {ok: false, code: "rejected", detail: beside};
-                    const edge = newPanelEdgeTarget(current, beside);
-                    return edge === null ? notFound(beside) : moveTabToEdge(current, {tab: key, target: edge}, policy);
-                }, {flush: true}),
-                /** “重置位置”（输出 23）：回到声明的具名面板的标签末尾。 */
-                resetView: (viewId: string): LayoutResult => apply((current) => {
-                    if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", detail: viewId};
-                    const location = catalog.value.get(viewId)?.location;
-                    const panel = Object.entries(current.panels).find(([, record]) => record.name === location);
-                    if (panel === undefined) return notFound(viewId);
-                    const moved = moveTabToStrip(current, {tab: tabKey({kind: "view", viewId}), panel: panel[0], index: panel[1].tabs.length}, policy);
-                    return moved.ok ? setPanelHidden(moved.doc, panel[0], false) : moved;
-                }, {flush: true}),
+                showContainer: revealContainer,
+                /**
+                 * 把整个容器搬到另一个区域（输出 44 的“移到”“重置”），一次提交；带着什么、目标区域怎么变见 `moveContainerTo`。容器已经在那里时零写入。
+                 */
+                moveContainer: (container: string, region: PanelName): LayoutResult => apply((current) => moveContainerTo(current, container, region, policy), {flush: true}),
                 /** 最大化（输出 13）：只在内存；再点同一块退出。 */
                 toggleMaximized: (panel: string): boolean => {
-                    // 浮动窗不可最大化：它不在树里，盖不了别的面板。
-                    if (doc.value.panels[panel] === undefined || isFloating(doc.value, panel)) return false;
+                    // 浮动窗不可最大化：它不在树里，盖不了别的面板。区域的锚也不行：区域里最大化的是一个分节（输出 13）。
+                    const target = doc.value.panels[panel];
+                    if (target === undefined || isContainerAnchor(target) || isFloating(doc.value, panel)) return false;
                     maximized.value = maximized.value === panel ? null : panel;
                     return true;
                 },
-                /** 具名面板或条此刻占不占地方：隐藏、拖到零、被盖住、放不下被收走都不算，收成标题行算（输出 36）。 */
+                /** 区域或条此刻占不占地方（输出 36）；区域的判定见 `regionOccupied`。 */
                 partVisible: (part: LayoutPart): boolean => {
                     const current = doc.value;
                     if (part === "activitybar" || part === "statusbar") return !current.hiddenBars.includes(part);
-                    const panel = current.panels[part];
-                    if (panel === undefined || panel.hidden === true || collapse.value.removed.has(part)) return false;
-                    if (effectiveMaximized.value !== null && effectiveMaximized.value !== part) return false;
-                    if (panel.collapsed !== true) return true;
-                    return findTreeNode(current.tree.root, part)?.parent?.orientation === "vertical";
+                    return regionOccupied(current, part, {removed: collapse.value.removed, maximized: effectiveMaximized.value});
                 },
                 save,
                 retry: async (): Promise<string> => {
@@ -459,7 +560,7 @@ function defineLayoutDocStore(bound: boolean) {
                     const stored = readStored();
                     const current = doc.value;
                     const hasOpenTabs = Object.values(current.panels).some((panel) => panel.tabs.some((tab) => tab.kind === "tab"));
-                    local.value = stored === null && !hasOpenTabs ? null : carryDynamicTabs(stored ?? defaultLayoutDoc(catalog.value), current);
+                    local.value = stored === null && !hasOpenTabs ? null : carryDynamicTabs(stored ?? defaultLayoutDoc(catalog.value, containers.value), current);
                     saveBlocked.value = false;
                     return field.discardAll();
                 },
