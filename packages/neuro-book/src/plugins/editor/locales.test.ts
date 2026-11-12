@@ -235,6 +235,7 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "menus.commentSave": {"zh-CN": "保存", "en-US": "Save"},
     "menus.commentCancel": {"zh-CN": "取消", "en-US": "Cancel"},
     "menus.commentBody": {"zh-CN": "批注意见", "en-US": "Comment text"},
+    "menus.commentMarker": {"zh-CN": "查看批注", "en-US": "View comment"},
     "menus.pickTextColor": {"zh-CN": "选择文字颜色", "en-US": "Choose Text Color"},
     "menus.pickHighlight": {"zh-CN": "选择高亮颜色", "en-US": "Choose Highlight Color"},
     "categories.view": {"zh-CN": "视图", "en-US": "View"},

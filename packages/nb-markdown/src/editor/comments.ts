@@ -1,5 +1,6 @@
 /**
- * 批注的数据操作（docs/specs/workbench/markdown-editing.md 输出 28–35）：列出、找、改意见、去掉、跳转与标出。纯 Tiptap，不认识
+ * 批注的数据操作（docs/specs/workbench/markdown-editing.md 输出 28–35、38）：列出、找、改意见、去掉、跳转、标出、页边按段排位要的“段”的判断，
+ * 与批注末尾的小符号。纯 Tiptap，不认识
  * 界面；浮层、页边与卡片在宿主的控件里。批注的格式见 docs/specs/workspace/markdown-dialect.md 输出 11，语法与编解码器在
  * `language/syntax/comment`。
  *
@@ -152,6 +153,59 @@ export function commentsAt(state: EditorState): CommentInfo[] {
 /** 某个位置上的批注（悬停，输出 30）：判断同 `commentsAt`，不看选区。重叠的几条按先后排。 */
 export function commentsAtPos(doc: PMNode, pos: number): CommentInfo[] {
     return listComments(doc).filter((info) => info.segments.some((segment) => (info.block ? pos > segment.from && pos < segment.to : pos >= segment.from && pos <= segment.to)));
+}
+
+/** 在这个位置结束的批注（点小符号时用，输出 38）：比 `commentsAtPos` 窄，不含只是盖过这个位置或从这里开始的。 */
+export const commentsEndingAt = (doc: PMNode, pos: number): CommentInfo[] => listComments(doc).filter((info) => info.end === pos);
+
+/** 页边按“段”排槽位（输出 33）：文字块、表格的行、叶子块各是一段，别的容器（引用、列表、提示块、批注块、表格）不是。 */
+const isTerritory = (node: PMNode): boolean => node.isTextblock || node.type.name === "tableRow" || (node.isBlock && node.isLeaf);
+
+/**
+ * 位置所在的那一段的起点（输出 33）：位置在文字里取最里面的文字块，在表格里取所在的行；位置在一个块之前（块批注的 `start`
+ * 没有文字时、块菜单给的位置）就往里下降到这个块里的第一段。文档外的位置夹进文档。
+ */
+export function territoryAt(doc: PMNode, pos: number): number {
+    const at = Math.max(0, Math.min(pos, doc.content.size));
+    const after = at < doc.content.size ? doc.nodeAt(at) : null;
+    if (after !== null && after.isBlock) {
+        let node = after;
+        let found = at;
+        while (!isTerritory(node) && node.firstChild !== null) {
+            node = node.firstChild;
+            found += 1;
+        }
+        return found;
+    }
+    const $at = doc.resolve(at);
+    let textblock = -1;
+    for (let depth = $at.depth; depth >= 1; depth -= 1) {
+        const node = $at.node(depth);
+        if (node.type.name === "tableRow") return $at.before(depth);
+        if (textblock < 0 && node.isTextblock) textblock = $at.before(depth);
+    }
+    return textblock >= 0 ? textblock : at;
+}
+
+/** 这条批注所在的段（起点位置）：按它第一截的起点，块批注按块里第一个文字处。 */
+export const territoryOf = (doc: PMNode, info: CommentInfo): number => territoryAt(doc, info.start);
+
+/** 文档顺序里下一段的起点，没有为 null。`pos` 是一段的起点（`territoryAt` 的结果）。 */
+export function nextTerritory(doc: PMNode, pos: number): number | null {
+    const node = pos < doc.content.size ? doc.nodeAt(pos) : null;
+    if (node === null) return null;
+    const from = pos + node.nodeSize;
+    let found: number | null = null;
+    // 包着 `from` 的祖先也会访问到（起点在 `from` 之前）：只下降，不当作段。
+    doc.nodesBetween(from, doc.content.size, (child, at) => {
+        if (found !== null) return false;
+        if (at >= from && isTerritory(child)) {
+            found = at;
+            return false;
+        }
+        return true;
+    });
+    return found;
 }
 
 /**
@@ -315,3 +369,54 @@ export function markShownComment(editor: Editor, ref: CommentRef | null): boolea
     editor.view.dispatch(editor.state.tr.setMeta(shownCommentKey, {ranges} satisfies Shown).setMeta("addToHistory", false));
     return true;
 }
+
+const markerKey = new PluginKey<DecorationSet>("markdownCommentMarkers");
+
+/** 小符号的 DOM：点击由宿主在滚动容器上按 `data-comment-marker` 接，这里只管长什么样。条数大于 1 才带 `data-count`。 */
+function markerElement(count: number, label: string): HTMLElement {
+    const element = document.createElement("span");
+    element.className = "nb-comment-marker";
+    element.contentEditable = "false";
+    element.setAttribute("data-comment-marker", "");
+    if (count > 1) element.setAttribute("data-count", String(count));
+    element.setAttribute("role", "button");
+    element.setAttribute("aria-label", label);
+    element.title = label;
+    return element;
+}
+
+function markersOf(doc: PMNode, label: string): DecorationSet {
+    const counts = new Map<number, number>();
+    for (const info of listComments(doc)) counts.set(info.end, (counts.get(info.end) ?? 0) + 1);
+    return DecorationSet.create(doc, [...counts].map(([pos, count]) => Decoration.widget(pos, () => markerElement(count, label), {
+        // `side: 1`：光标在这个位置时在符号之前，末尾打的字不会落到符号后面；`marks: []`：画在批注标记之外，符号不带波浪线。
+        side: 1,
+        marks: [],
+        // 按条数认，位置变了（前面打了字）沿用同一个 DOM，不随输入重建。
+        key: `comment-marker-${count}`,
+        // 符号上的事件由宿主处理：ProseMirror 不据此移动光标或选区。
+        stopEvent: () => true,
+        ignoreSelection: true,
+    })));
+}
+
+/**
+ * 批注末尾的小符号（docs/specs/workbench/markdown-editing.md 输出 38）：每条批注的末尾（块批注是块里最后一个文字之后）一个挂件，同一处结束的
+ * 几条合成一个并带条数。只是显示：用装饰画，不进文档、撤销历史与剪贴板；页边画出来时由宿主用样式隐藏。`label` 是符号的可访问名称，宿主按显示语言
+ * 给（本包不认识翻译）。
+ */
+export const MarkdownCommentMarkers = Extension.create<{label: string}>({
+    name: "markdownCommentMarkers",
+    addOptions: () => ({label: ""}),
+    addProseMirrorPlugins() {
+        const {label} = this.options;
+        return [new Plugin<DecorationSet>({
+            key: markerKey,
+            state: {
+                init: (_config, state) => markersOf(state.doc, label),
+                apply: (tr, markers) => (tr.docChanged ? markersOf(tr.doc, label) : markers),
+            },
+            props: {decorations: (state) => markerKey.getState(state)},
+        })];
+    },
+});

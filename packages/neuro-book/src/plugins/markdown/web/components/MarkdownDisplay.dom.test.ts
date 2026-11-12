@@ -73,7 +73,7 @@ describe("Spec ui.markdown-display", () => {
         const language = markdownLanguage();
         const element = document.createElement("div");
         document.body.append(element);
-        const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", host: {base: () => null, assets: null, chips: nbookChips}}), editable: false});
+        const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", host: {base: () => null, assets: null, chips: nbookChips}, commentMarkerLabel: ""}), editable: false});
         cleanups.push(() => {
             editor.destroy();
             element.remove();

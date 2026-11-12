@@ -158,6 +158,49 @@
     text-underline-offset: 0.9em;
 }
 
+/*
+ * 批注末尾的小符号（编辑器里才有，docs/specs/workbench/markdown-editing.md 输出 38）：一个字宽的对话气泡，批注色。图标用 mask 画，颜色跟 `color`；
+ * 条数大于 1 时数字在气泡里。`inline-block` 让波浪线不延伸到符号下面（下划线不画在行内块上）。
+ */
+.nb-markdown .nb-comment-marker {
+    position: relative;
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    margin-inline: 0.2em 0.1em;
+    vertical-align: -0.12em;
+    color: var(--status-warning);
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.nb-markdown .nb-comment-marker::before {
+    position: absolute;
+    inset: 0;
+    content: "";
+    background: currentcolor;
+    opacity: 0.7;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/%3E%3C/svg%3E") center / contain no-repeat;
+    transition: opacity var(--motion-fast) var(--ease-layout);
+}
+
+.nb-markdown .nb-comment-marker:hover::before {
+    opacity: 1;
+}
+
+.nb-markdown .nb-comment-marker[data-count]::after {
+    position: absolute;
+    inset: 0 0 0.18em;
+    display: grid;
+    place-items: center;
+    content: attr(data-count);
+    font-size: 0.5em;
+    font-weight: 600;
+    line-height: 1;
+}
+
 /* 正在看的那条批注（卡片开着时，docs/specs/workbench/markdown-editing.md 输出 32）：波浪线之外加一层批注色的淡底。 */
 .nb-markdown .nb-comment-current {
     background: color-mix(in srgb, var(--status-warning) 22%, transparent);

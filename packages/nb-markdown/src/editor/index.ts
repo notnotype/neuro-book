@@ -7,7 +7,7 @@ export {blockAt, blockTextRange, canConvertTo, insertSlashBlock, removeSlashBloc
 export type {BlockKind, BlockTarget} from "./block-actions";
 export {markdownEditingActions} from "./editing-actions";
 export type {EditingAction, EditingArgs} from "./editing-actions";
-export {addBlockComment, canCommentBlockAt, commentsAt, commentsAtPos, findComment, gotoComment, listComments, markShownComment, MarkdownShownComment, matchComment, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody} from "./comments";
+export {addBlockComment, canCommentBlockAt, commentsAt, commentsAtPos, commentsEndingAt, findComment, gotoComment, listComments, markShownComment, MarkdownCommentMarkers, MarkdownShownComment, matchComment, nextTerritory, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody, territoryAt, territoryOf} from "./comments";
 export type {CommentInfo, CommentRef} from "./comments";
 export {holdBlock, holdSelection, releaseSelection} from "./held-selection";
 export {selectRubyAt, selectedRubyText} from "./ruby-text";
