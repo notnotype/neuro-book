@@ -164,6 +164,41 @@ describe("排布", () => {
         expect(itemOf(wrapper, 1).attributes("data-expanded")).toBeUndefined();
     });
 
+    it("展开的槽位照样按展开之前的高度占位：后面靠得很近的槽位不因展开或收回移动", async () => {
+        // 卡片的自然高度随展开变（没展开时意见被限行，高 92；展开后是全文，高 148）：桩按卡片有没有 data-expanded 给。
+        const {editor, scroller, infos} = setup("<comment body=\"长意见\">一二</comment>三四\n\n五六七八\n\n<comment body=\"乙\">九十</comment>\n", (ed, list) => {
+            const first = territoryOf(ed.state.doc, list[0] as CommentInfo);
+            const third = territoryOf(ed.state.doc, list[1] as CommentInfo);
+            // 第二段（没有批注）在 170 到 230，给第一个槽位留出放宽的地方；第三个槽位的盒子故意靠得很近：它被第一个槽位的高度推开。
+            return new Map([[first, {top: 100, height: 60}], [nextTerritory(ed.state.doc, first) as number, {top: 170, height: 60}], [third, {top: 190, height: 40}]]);
+        });
+        const prototypeHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+            configurable: true,
+            get(this: HTMLElement) {
+                if (this.matches("[data-markdown-comment-card]")) return (this.textContent ?? "").includes("长") ? (this.hasAttribute("data-expanded") ? 148 : 90) : LINE + 12;
+                return this.matches(".markdown-comment-margin__surface") ? 999 : 0;
+            },
+        });
+        cleanups.push(() => {
+            if (prototypeHeight !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetHeight", prototypeHeight);
+        });
+        const commented = new Set([territoryOf(editor.state.doc, infos[1] as CommentInfo)]);
+        const wrapper = mountMargin(editor, scroller, infos.map((info) => slot(editor, [info], {}, commented)));
+        layout(wrapper);
+        await nextTick();
+        const folded = {first: idleOf(wrapper, 0), third: topOf(wrapper, 1)};
+        // 第一个槽位的下一段没有批注：能放宽到 min(两倍段高, 下一段的底边) - 100 - 间隔；没展开时意见被限行，占 92。
+        expect(folded.first).toBe(92);
+        expect(folded.third).toBe(100 + 92 + SLOT_GAP);
+        await wrapper.setProps({slots: infos.map((info, index) => slot(editor, [info], index === 0 ? {mode: "current", expanded: true} : {}, commented))});
+        layout(wrapper);
+        await nextTick();
+        expect(idleOf(wrapper, 0)).toBe(folded.first);
+        expect(surfaceOf(wrapper, 0)).toBe(148 + 2);
+        expect(topOf(wrapper, 1)).toBe(folded.third);
+    });
+
     it("同一段几条批注：只显示 active 那一条与 1/3，箭头发 select（不展开），点卡片空白发 select（展开）", async () => {
         const {editor, scroller, infos} = setup("<comment body=\"甲\">一</comment><comment body=\"乙\">二</comment><comment body=\"丙\">三</comment>四\n", (ed, list) => new Map([[territoryOf(ed.state.doc, list[0] as CommentInfo), {top: 100, height: 60}]]));
         const wrapper = mountMargin(editor, scroller, [slot(editor, infos, {active: 1})]);

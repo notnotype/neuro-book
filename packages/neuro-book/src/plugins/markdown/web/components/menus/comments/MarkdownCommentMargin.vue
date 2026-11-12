@@ -126,7 +126,7 @@ const clamp = (value: number, low: number, high: number): number => Math.max(low
 
 /**
  * 每个槽位的位置与高度：顶边对这一段的顶边；高度的范围见 `slotRange`，卡片的自然高度夹在里面，展开的卡片面可以比槽位高（槽位仍占展开之前的
- * 高度）。展开的槽位不参与往下让，别的槽位不因它重排。限行数依赖段的盒子，自然高度又依赖限行数：第一遍排完，卡片的高度变了会再触发一遍。
+ * 高度，别的槽位不因展开或收回重排）。限行数依赖段的盒子，自然高度又依赖限行数：第一遍排完，卡片的高度变了会再触发一遍。
  */
 function layout(): void {
     const {editor, scroller} = props;
@@ -151,9 +151,11 @@ function layout(): void {
         // 展开时槽位仍占展开之前的高度：展开之前量到的，没有（待写的卡片一出来就是展开的）就取最小高度。
         const idle = slot.expanded ? prior?.idle ?? range.min : natural === null ? range.min : clamp(natural, range.min, range.max);
         const top = Math.round(box.top - base.top + scroller.scrollTop);
-        // 一行的短段放一行意见时卡片比这一段稍高，往下让到与前一个槽位隔开 `SLOT_GAP`。
-        const y = slot.expanded ? top : Math.max(top, bottom + SLOT_GAP);
-        if (!slot.expanded) bottom = y + idle;
+        // 一行的短段放一行意见时卡片比这一段稍高，往下让到与前一个槽位隔开 `SLOT_GAP`。展开的槽位照样按展开之前的高度占位，所以展开、收回都不动别的槽位；
+        // 待写的新批注（没有批注）浮着，不占位，也不被前面的槽位推开。
+        const floats = slot.infos.length === 0;
+        const y = floats ? top : Math.max(top, bottom + SLOT_GAP);
+        if (!floats) bottom = y + idle;
         next.set(slot.key, {
             top: y,
             lines: Math.max(1, Math.floor((range.max - metrics.chrome) / metrics.lineHeight)),
