@@ -34,7 +34,7 @@ updated: 2026-11-12
 - 2026-11-12 开发者：补齐 Spec 规则、加范例，并同步到 manus；“模板做上游”建成 [t02](../t02-template-as-upstream/README.md)。
 - 2026-11-12 开发者：做 `design-review` 通用版，连同 `autonomous-delivery` 同步到 manus。manus 的 `AGENTS.md` 已被那边填写过，只在原处替换了触发表的一格，没有整文件覆盖；`autonomous-delivery` 在第一次复制时已同步，哈希一致。
 - 2026-11-12 开发者：新增 `writing-proposals`、流程改为方向 Task 在前，并同步到 manus。manus 的 `AGENTS.md`、`docs/proposals/README.md` 已被那边改过（项目化、登记了它的提案），只在原处替换改动的句子；`TEMPLATE.md` 同步后被那边改写成“来源与适配说明”，保留了这次的改动。
-- 2026-11-12 开发者：把项目规范去 NeuroBook 化拆进模板（点名 UI 规范），并同步到 pc-notype。
+- 2026-11-12 开发者：把项目规范去 NeuroBook 化拆进模板（点名 UI 规范），并同步到 pc-notype。同步时 SSH 在认证前被对方重置约 20 分钟，恢复后完成：15 个新文件哈希一致；`docs/standards/README.md` 是上次同步的原样，整份替换；其余 6 个改动文件那边改过，只替换原文恰好出现一次的段落，跳过 2 段（`TEMPLATE.md` 的“怎么用”第 3 步、`code.md` 的路由表，两处都已被那边改写），所以 manus 的路由表还没指向新规范。
 
 ## 待开发者决定
 
