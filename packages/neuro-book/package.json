@@ -40,6 +40,7 @@
         "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-host": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",
+        "@notnotype/nb-models": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@notnotype/nb-time": "workspace:*",
         "@oh-my-pi/pi-natives": "18.14.0",

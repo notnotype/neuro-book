@@ -1,4 +1,4 @@
-/** 压缩触发点的算法（docs/specs/models/service.md 输出 17）：纯函数。端口与设置的接法在 `models.test.ts`。 */
+/** 压缩触发点的算法（docs/specs/models/service.md 输出 17）：纯函数。端口与设置怎样用它不在这里测。 */
 
 import {describe, expect, test} from "bun:test";
 import {Value} from "typebox/value";

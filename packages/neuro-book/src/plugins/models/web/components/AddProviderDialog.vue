@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import type {CatalogProvider} from "@notnotype/nb-models/contract";
 import {Badge, Button, Dialog, Input, Select} from "@notnotype/nb-ui/components";
 import {computed, nextTick, reactive, ref, watch} from "vue";
 
-import type {CatalogProvider} from "../../shared/contracts";
 import {useModelsText} from "../text";
 
 /**

@@ -3,7 +3,7 @@
  * “这个模型能不能用”与“哪些角色用着它”。两边用同一份，删服务商的确认与解析得到的结论一致。
  */
 
-import type {ModelConfig, ProviderConfig, RoleConfig} from "./settings";
+import type {ModelConfig, ProviderConfig, RoleConfig} from "./shapes";
 
 /** `<服务商>/<模型>`：按第一个 `/` 切，模型 id 自己可以带 `/`（OpenRouter）。 */
 export function splitReference(reference: string): {readonly provider: string; readonly model: string} | null {

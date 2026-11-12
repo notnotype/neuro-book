@@ -92,6 +92,9 @@ const PACKAGE_SIDES: ReadonlyArray<{readonly specifier: string; readonly side: "
     {specifier: "@notnotype/nb-host/web", side: "web"},
     {specifier: "@notnotype/nb-host/socket", side: "neutral"},
     {specifier: "@notnotype/nb-host/http/contracts", side: "neutral"},
+    {specifier: "@notnotype/nb-models/config", side: "neutral"},
+    {specifier: "@notnotype/nb-models/contract", side: "neutral"},
+    {specifier: "@notnotype/nb-models/core", side: "backend"},
 ];
 const packageSide = (specifier: string): "backend" | "web" | "neutral" | null => PACKAGE_SIDES.find((entry) => specifier === entry.specifier)?.side ?? null;
 

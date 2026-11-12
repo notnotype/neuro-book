@@ -15,15 +15,14 @@ import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 import type {ModelPort, ModelQuery, ModelRequest, ModelResolution} from "@notnotype/nb-harness/kernel/contracts";
 import {buildResolution, discoverModels, envRefName, envValue, listCatalog, requestAuth} from "@notnotype/nb-harness/models";
 import type {CatalogModel, CredentialStore, KeyAccess, ModelTarget, ProviderTarget, StartupEnv} from "@notnotype/nb-harness/models";
+import {BUILTIN_ROLES, compactionTrigger, DEFAULT_ROLES, effectiveCompaction, missingContextWindow, providerIdFor, referenceOf, roleOfReference, rolesUsing, seriesOf, splitReference} from "@notnotype/nb-models/config";
+import type {ModelConfig, ProviderConfig, RoleConfig, RolesConfig} from "@notnotype/nb-models/config";
+import type {CheckResult, KeyStatus, ModelsService, ModelsSnapshot, ProfileModelDefaults, RoleStatus, SnapshotModel, SnapshotProvider} from "@notnotype/nb-models/contract";
 
 import type {SettingDefinition, SettingsService, SettingWriteResult} from "nbook/shared/settings";
 
-import type {CheckResult, KeyStatus, ModelsService, ModelsSnapshot, ProfileModelDefaults, RoleStatus, SnapshotModel, SnapshotProvider} from "../shared/contracts";
 import type {modelsSettingsContract} from "../shared/contracts";
-import {compactionTrigger, effectiveCompaction} from "../shared/compaction";
-import {missingContextWindow, providerIdFor, referenceOf, roleOfReference, rolesUsing, seriesOf, splitReference} from "../shared/rules";
-import {BUILTIN_ROLES, DEFAULT_ROLES, modelsSettings} from "../shared/settings";
-import type {ModelConfig, ProviderConfig, RoleConfig, RolesConfig} from "../shared/settings";
+import {modelsSettings} from "../shared/settings";
 
 /** 冲突后重读重来的次数（输出 6）。 */
 const WRITE_ATTEMPTS = 3;

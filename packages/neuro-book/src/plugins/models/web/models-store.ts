@@ -9,9 +9,10 @@
 import {computed, reactive, shallowRef, toRaw} from "vue";
 import type {Ref} from "vue";
 
+import type {CheckResult, ModelsSnapshot} from "@notnotype/nb-models/contract";
 import type {RemoteClient, RemoteResultFor, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 
-import type {CheckResult, ModelsSnapshot, modelsSettingsContract} from "../shared/contracts";
+import type {modelsSettingsContract} from "../shared/contracts";
 
 type Contract = typeof modelsSettingsContract;
 export type ModelsRemote = RemoteClient<Contract>;

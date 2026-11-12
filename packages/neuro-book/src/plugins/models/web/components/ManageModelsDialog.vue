@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import {seriesOf} from "@notnotype/nb-models/config";
 import {Badge, Button, Dialog, IconButton, Input, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, watch} from "vue";
 
-import {seriesOf} from "../../shared/rules";
 import {useModelsText} from "../text";
 import CapabilityIcons from "./CapabilityIcons.vue";
 
