@@ -586,11 +586,11 @@ const mergeRect = computed(() => {
 });
 const mergeStyle = computed(() => {
     const rect = mergeRect.value;
-    return rect === null ? {} : {transform: `translate(${String(rect.left)}px, ${String(rect.top)}px)`, width: `${String(rect.right - rect.left)}px`, height: `${String(rect.bottom - rect.top)}px`};
+    return rect === null ? {} : {left: `${String(rect.left)}px`, top: `${String(rect.top)}px`, width: `${String(rect.right - rect.left)}px`, height: `${String(rect.bottom - rect.top)}px`};
 });
 const slotStyle = computed(() => {
     const slot = drag.value?.live.slot.value ?? null;
-    return slot === null ? {} : {transform: `translate(${String(slot.x)}px, ${String(slot.y)}px)`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
+    return slot === null ? {} : {left: `${String(slot.x)}px`, top: `${String(slot.y)}px`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
 });
 
 function dropLabel(drop: LayoutDragDrop): string {
@@ -826,7 +826,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
     pointer-events: none;
 }
 
-/* 并入：目标变暗加内描边。来源收起时目标会动，过渡和外框同一条曲线；样式走令牌，主题能换。 */
+/* 并入：目标变暗加内描边。来源收起时目标会动，过渡和外框同一条曲线、同样用 left/top（见 nb-layout 的 `gridRectStyle`）；样式走令牌，主题能换。 */
 .workbench-shell__merge {
     position: absolute;
     top: 0;
@@ -840,7 +840,8 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
     box-shadow: inset 0 0 0 var(--layout-merge-border-width) var(--layout-merge-border);
     pointer-events: none;
     transition:
-        transform var(--motion-layout) var(--ease-layout),
+        left var(--motion-layout) var(--ease-layout),
+        top var(--motion-layout) var(--ease-layout),
         width var(--motion-layout) var(--ease-layout),
         height var(--motion-layout) var(--ease-layout);
     animation: workbench-shell-merge-in var(--motion-fast) var(--ease-layout);

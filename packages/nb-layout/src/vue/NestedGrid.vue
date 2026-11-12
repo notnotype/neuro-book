@@ -18,7 +18,7 @@ import {ariaMax, buildGridBranchPanels, panelBounds} from "./grid-splitter";
 import SashHandle from "./SashHandle.vue";
 import {SASH_GESTURE_SCOPE_KEY} from "./sash-scope";
 import {useLayoutText} from "./text";
-import {gridRectStyle, useContentLayer} from "./useContentLayer";
+import {gridRectStyle, liftedRectStyle, useContentLayer} from "./useContentLayer";
 import {useDevicePixelRatio} from "./useDevicePixelRatio";
 import {useGridMotion} from "./useGridMotion";
 import {useLeafParking} from "./useLeafParking";
@@ -182,7 +182,7 @@ const {domIdOf} = order;
 const focus = useGridFocus({root: rootEl, layers, order});
 
 function sashStyle(rect: GridRect): Record<string, string> {
-    return {position: "absolute", left: "0", top: "0", ...gridRectStyle(rect)};
+    return {position: "absolute", ...gridRectStyle(rect)};
 }
 
 /** 分隔线控制的窗格：外框里只剩面板头时，真正被调整的是活动的内容。 */
@@ -280,7 +280,10 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
     const landed = next.find((item) => item.kind === "content" && item.key === key);
     const leaf = landed?.kind === "content" ? `leaf:${landed.leaf}` : null;
     const known = (previous ?? []).some((item) => item.key === leaf);
-    motion.land(key, leaf === null || known ? undefined : new Map([[leaf, liftedRect]]));
+    // 卡片跟手时位置在 `transform` 上，落到叶上换回 `left`/`top`：这一帧先不带过渡写在卡片的矩形上，下一帧再过渡到叶，不让两种位置一起过渡（又是两个线程各走各的）。
+    const entering = new Map([[key, liftedRect]]);
+    if (leaf !== null && !known) entering.set(leaf, liftedRect);
+    motion.land(key, entering);
 }, {immediate: true});
 
 /**
@@ -441,7 +444,7 @@ function placeLifted(rect: GridRect): void {
     liftedRect = rect;
     const element = rootEl.value?.querySelector<HTMLElement>(":scope > [data-lifted]");
     if (element == null) return;
-    const style = gridRectStyle(rect);
+    const style = liftedRectStyle(rect);
     if (rect.x !== before.x || rect.y !== before.y) element.style.transform = style.transform as string;
     if (rect.width !== before.width) element.style.width = style.width as string;
     if (rect.height !== before.height) element.style.height = style.height as string;
@@ -534,11 +537,16 @@ defineExpose({
     isolation: isolate;
 }
 
+/*
+ * 外框、内容、手柄都是 `contain: layout`：是里面 `position: fixed` 的包含块，也自成层叠上下文，里面的 `z-index` 出不来（位置原来用 `transform`，
+ * 这两点是它带来的，组件说明里写着）；里面的排版也不往外传。
+ */
 .nb-grid-frame {
     position: absolute;
     top: 0;
     left: 0;
     overflow: clip;
+    contain: layout;
 }
 
 /* 内容自己的裁切框，不是叶外框：飞过别的叶时不被它们裁。 */
@@ -548,6 +556,7 @@ defineExpose({
     left: 0;
     z-index: 1;
     overflow: clip;
+    contain: layout;
 }
 
 .nb-grid-frame[data-flying],
@@ -585,6 +594,7 @@ defineExpose({
     top: 0;
     left: 0;
     pointer-events: none;
+    contain: layout;
 }
 
 .nb-grid-content__body {
@@ -609,8 +619,9 @@ defineExpose({
 .nb-grid-float-chrome[data-moving],
 .nb-grid-content[data-moving],
 .nb-grid-sash[data-moving] {
-    transition: transform var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout);
-    will-change: transform, width, height;
+    transition: left var(--motion-layout) var(--ease-layout), top var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout);
+    /* 位置不在 `transform` 上（见 `gridRectStyle`）；这里只是让过渡中的项各占一层，挪动时少重画。 */
+    will-change: transform;
 }
 
 /* 离开了、在过渡里缩回去的叶与它的内容：已经不在布局里，不接指针，命中判定看到的是底下。 */

@@ -11,8 +11,17 @@ import {placeContents} from "../grid-rects";
 import type {GridContentInput, GridContentPlacement, GridPlacementItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 
+/**
+ * 网格里的项（外框、分隔线、内容、浮动窗手柄）按矩形摆放：位置用 `left`/`top`，不用 `transform`。过渡时 `transform` 在合成线程上走，宽高在主线程上走，
+ * 主线程一忙两者就不同步，不动的那条边会跳（右边是左边加宽度）；位置和宽高都在主线程上，每一帧两条边一起算。
+ */
 export function gridRectStyle(rect: GridRect): Record<string, string> {
-    return {transform: `translate(${rect.x}px, ${rect.y}px)`, width: `${rect.width}px`, height: `${rect.height}px`};
+    return {left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px`};
+}
+
+/** 拿起的内容跟手：位置用 `transform`，指针一动只合成、不排版。它不带过渡，所以没有上面那种不同步；落地的第一帧换回 `left`/`top`（见 `NestedGrid` 的落地）。 */
+export function liftedRectStyle(rect: GridRect): Record<string, string> {
+    return {left: "0px", top: "0px", transform: `translate(${rect.x}px, ${rect.y}px)`, width: `${rect.width}px`, height: `${rect.height}px`};
 }
 
 const hasSize = (rect: GridRect): boolean => rect.width > 0 && rect.height > 0;
@@ -83,7 +92,7 @@ export function useContentLayer(options: {
 
     function frameStyle(item: GridContentPlacement): Record<string, string> {
         // 矩形平时由 `placeLifted` 直接写在元素上；Vue 的样式补丁会写回这里的每个键，所以这里给的要是最新的。
-        if (isLifted(item)) return gridRectStyle(options.liftedRect());
+        if (isLifted(item)) return liftedRectStyle(options.liftedRect());
         const rect = options.growing.value.get(item.key) ?? item.rect ?? memory.get(item.key)?.rect ?? {x: 0, y: 0, width: 0, height: 0};
         // 被盖住的内容马上不可交互，但过渡结束才隐藏：最大化的面板还没长过来时它们要还在。缩回去的叶里的内容同样，外框裁着它缩到零。
         const showing = item.active && options.moving() && (options.obscuredLeaves().has(item.leaf) || options.leavingLeaves().has(item.leaf));

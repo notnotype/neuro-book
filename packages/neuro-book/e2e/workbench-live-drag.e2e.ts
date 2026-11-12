@@ -450,7 +450,7 @@ test.describe("实时布局", () => {
         await expect(page.locator("[data-live-slot]")).toHaveCount(0);
     });
 
-    test("松手时内容体一次到终点宽度：不先压成小卡再长回去", async ({page}) => {
+    test("松手时内容从卡片的位置飞到叶，内容体一次到终点宽度：不先压成小卡再长回去，也不从别处起飞", async ({page}) => {
         await open(page);
         // 右栏的丁放到底部面板戊那一节的后半。
         await lift(page, tab(page, AUXILIARY_VIEW));
@@ -458,24 +458,48 @@ test.describe("实时布局", () => {
         await page.mouse.move(target.x, target.y, {steps: 6});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
         await settled(page);
+        const card = page.locator(".nb-grid-content[data-lifted]");
+        const key = await card.getAttribute("data-content");
+        const start = await card.boundingBox();
+        if (key === null || start === null) throw new Error("没有拿起的卡片");
         await page.evaluate(() => {
             const widths: number[] = [];
-            const probe = window as unknown as {__widths: number[]; __frames: number};
+            const points: Array<{x: number; y: number}> = [];
+            const probe = window as unknown as {__widths: number[]; __points: typeof points; __frames: number};
             probe.__widths = widths;
+            probe.__points = points;
             probe.__frames = 0;
             const sample = (): void => {
                 probe.__frames += 1;
-                const body = document.querySelector("[data-lifted] > .nb-grid-content__body, [data-flying] > .nb-grid-content__body");
-                if (body !== null) widths.push(Math.round(body.getBoundingClientRect().width));
+                const frame = document.querySelector(".nb-grid-content[data-lifted], .nb-grid-content[data-flying]");
+                if (frame !== null) {
+                    const rect = frame.getBoundingClientRect();
+                    points.push({x: rect.x, y: rect.y});
+                    widths.push(Math.round((frame.querySelector(":scope > .nb-grid-content__body") ?? frame).getBoundingClientRect().width));
+                }
                 if (probe.__frames < 30) requestAnimationFrame(sample);
             };
             requestAnimationFrame(sample);
         });
         await page.mouse.up();
         await expect.poll(() => page.evaluate(() => (window as unknown as {__frames: number}).__frames)).toBe(30);
-        const widths = await page.evaluate(() => (window as unknown as {__widths: number[]}).__widths);
+        const {widths, points} = await page.evaluate(() => {
+            const probe = window as unknown as {__widths: number[]; __points: Array<{x: number; y: number}>};
+            return {widths: probe.__widths, points: probe.__points};
+        });
         // 只有拿起时的宽与终点的宽：中间值说明内容体跟着外框走了（先压成小卡再逐帧长回去）。
         expect(new Set(widths).size).toBeLessThanOrEqual(2);
+        // 每一帧都在卡片与终点之间：跟手的位置在 transform 上，落地换回 left/top 时不能从网格的左上角起飞。
+        await expect(page.locator(".nb-grid-content[data-flying]")).toHaveCount(0);
+        const end = await page.locator(`.nb-grid-content[data-content="${key}"]`).boundingBox();
+        if (end === null) throw new Error("落地后找不到内容");
+        expect(points.length).toBeGreaterThan(2);
+        for (const point of points) {
+            expect(point.x).toBeGreaterThanOrEqual(Math.min(start.x, end.x) - 2);
+            expect(point.x).toBeLessThanOrEqual(Math.max(start.x, end.x) + 2);
+            expect(point.y).toBeGreaterThanOrEqual(Math.min(start.y, end.y) - 2);
+            expect(point.y).toBeLessThanOrEqual(Math.max(start.y, end.y) + 2);
+        }
     });
 
     test("标签条里不拿起卡片：被拖的标签自己沿条跟手、夹在条里，没有拖影，预览马上换；离开才撕下", async ({page}) => {

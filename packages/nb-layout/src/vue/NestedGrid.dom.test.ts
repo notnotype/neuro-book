@@ -107,8 +107,7 @@ async function settleFrame(): Promise<void> {
 /** 叶外框的矩形（相对 grid 根，已按设备像素取整）。 */
 function frameRect(wrapper: VueWrapper, id: string): {x: number; y: number; width: number; height: number} {
     const {style} = wrapper.get<HTMLElement>(`[data-leaf="${id}"]`).element;
-    const position = /translate\(([-\d.]+)px, ([-\d.]+)px\)/u.exec(style.transform);
-    return {x: Number(position?.[1]), y: Number(position?.[2]), width: Number.parseFloat(style.width), height: Number.parseFloat(style.height)};
+    return {x: Number.parseFloat(style.left), y: Number.parseFloat(style.top), width: Number.parseFloat(style.width), height: Number.parseFloat(style.height)};
 }
 
 type RendererOptions = {
@@ -873,18 +872,22 @@ describe("NestedGrid 内容层", () => {
         const grid = wrapper.vm as unknown as {placeLifted(rect: {x: number; y: number; width: number; height: number}): void};
         // 挂上之后才量到容器，叶的矩形这时才定。
         await wrapper.setProps({revision: 1});
-        const before = element.style.transform;
+        const before = {left: element.style.left, top: element.style.top};
+        expect(element.style.transform).toBe("");
         grid.placeLifted({x: 11, y: 22, width: 33, height: 44});
         await wrapper.setProps({lifted: {key: "x"}});
         expect(element.hasAttribute("data-lifted")).toBe(true);
+        // 跟手的位置在 transform 上，left/top 归零。
         expect(element.style.transform).toBe("translate(11px, 22px)");
+        expect([element.style.left, element.style.top]).toEqual(["0px", "0px"]);
         grid.placeLifted({x: 15, y: 25, width: 33, height: 44});
         expect(element.style.transform).toBe("translate(15px, 25px)");
         expect(element.style.width).toBe("33px");
         await wrapper.setProps({revision: 2});
         expect(element.style.transform).toBe("translate(15px, 25px)");
         await wrapper.setProps({lifted: null});
-        expect(element.style.transform).toBe(before);
+        expect(element.style.transform).toBe("");
+        expect({left: element.style.left, top: element.style.top}).toEqual(before);
     });
 
     it("分隔线的 aria-controls 列外框与活动内容", () => {
@@ -961,12 +964,12 @@ describe("NestedGrid 浮动窗", () => {
         const wrapper = mountFloats({});
         const frame = wrapper.get("[data-leaf=\"f\"]").element as HTMLElement;
         expect(frame.hasAttribute("data-float")).toBe(true);
-        expect(frame.style.transform).toBe("translate(100px, 50px)");
+        expect([frame.style.left, frame.style.top]).toEqual(["100px", "50px"]);
         expect(frame.style.width).toBe("300px");
         const content = wrapper.get("[data-content=\"x\"]").element as HTMLElement;
         expect(content.getAttribute("data-content-leaf")).toBe("f");
         expect(content.hasAttribute("data-float")).toBe(true);
-        expect(content.style.transform).toBe("translate(100px, 82px)");
+        expect([content.style.left, content.style.top]).toEqual(["100px", "82px"]);
         const chrome = wrapper.get("[data-float-chrome=\"f\"]").element as HTMLElement;
         expect(chrome.parentElement).toBe(wrapper.element);
         expect(Number(chrome.style.zIndex)).toBeGreaterThan(Number(content.style.zIndex));
@@ -979,7 +982,7 @@ describe("NestedGrid 浮动窗", () => {
         const parts = ["[data-leaf=\"f\"]", "[data-content=\"x\"]", "[data-float-chrome=\"f\"]"].map((selector) => wrapper.get(selector).element as HTMLElement);
         grid.placeFloat("f", {x: 7, y: 9});
         for (const part of parts) expect(part.style.translate).toBe("7px 9px");
-        expect(parts[0]?.style.transform).toBe("translate(100px, 50px)");
+        expect([parts[0]?.style.left, parts[0]?.style.top]).toEqual(["100px", "50px"]);
         await wrapper.setProps({revision: 1});
         for (const part of parts) expect(part.style.translate).toBe("7px 9px");
         grid.placeFloat("f", null);
