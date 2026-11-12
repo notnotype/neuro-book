@@ -5,6 +5,7 @@ status: implemented
 capability: models.service
 owners:
   - nbook.models
+  - nb-models
   - nb-harness
 ---
 
@@ -148,10 +149,10 @@ Smoke：`packages/neuro-book/src/plugins/models/` 的插件测试与 `e2e/models
 
 ## 实现合同
 
-- **公开入口**：`nbook/plugins/models/shared/contracts`（服务键 `modelsKey`、快照形状、远程合同 `modelsSettingsContract`）、`nbook/plugins/models/shared/settings`（设置项 `nbook.models.providers`、`nbook.models.roles` 与形状）；`@notnotype/nb-harness/models`（目录、发现、凭据库 `openCredentials`、`env:` 的读法、`buildResolution`）与 `@notnotype/nb-harness/process-guard`（`takeOverOmpProcessHandlers`）。
-- **owner 与依赖方向**：`nbook.models` 的服务端入口持有凭据库、设置的读改写、检测与发现、服务键与远程合同；浏览器入口只是远程合同的调用方（设置页见 [`models.settings-pages`](settings-pages.md)）。它依赖 `nbook.settings`（配置服务）与 `nb-harness/models`；`nb-harness/models` 只引用内核公开入口与允许的几个 OMP 包。Agent 内核经模型端口取解析结果，不直接读设置。OMP 不打进 bundle、服务端入口先于它接管进程级处理（[ADR 0036](../../adr/0036-app-package-installs-omp.md)）。
+- **公开入口**：`nbook/plugins/models/shared/contracts`（服务键 `modelsKey`、远程合同 `modelsSettingsContract`，转出别的插件在用的快照形状与 `hasCredentials`、`roleReference`、`roleOfReference`）、`nbook/plugins/models/shared/settings`（设置项 `nbook.models.providers`、`nbook.models.roles` 的登记）；`@notnotype/nb-models`：`./config`（配置形状、内置角色 `BUILTIN_ROLES` 与 `MODEL_ROLE_IDS`、引用与服务商 id 的规则、压缩触发点）、`./contract`（快照与结果形状、远程合同的定义 `modelsSettingsSpec` 与 `ModelsSettingsContract`、`ModelsService`）、`./core`（`createModelsCore`、选择顺序 `chooseModel`、配置存储接口 `ModelsConfigStore`）；`@notnotype/nb-harness/models`（目录、发现、凭据库 `openCredentials`、`env:` 的读法、`buildResolution`）与 `@notnotype/nb-harness/process-guard`（`takeOverOmpProcessHandlers`）。
+- **owner 与依赖方向**：配置形状、规则、选择顺序、合同定义与服务核心（快照、串行写入、检测与发现）在 nb-models，与应用无关；id、设置项与远程合同实例在 `nbook.models`（[ADR 0045](../../adr/0045-shared-host-packages-for-second-app.md)）。`nbook.models` 的服务端入口打开凭据库、把设置服务适配成 `ModelsConfigStore`（`backend/settings-store.ts`）、建核心并交出服务键与远程合同；浏览器入口只是远程合同的调用方（设置页见 [`models.settings-pages`](settings-pages.md)）。它依赖 `nbook.settings`（配置服务）、nb-models 与 `nb-harness/models`；`nb-harness/models` 只引用内核公开入口与允许的几个 OMP 包。Agent 内核经模型端口取解析结果，不直接读设置。OMP 不打进 bundle、服务端入口先于它接管进程级处理（[ADR 0036](../../adr/0036-app-package-installs-omp.md)）。
 - **关键不变量**：
-  - 配置只经服务端写，每次写是对一个设置项的读改写；设置文件被别处改过时重读再合并，两个窗口同时改不同服务商两处都在（输出 5、6，`models.test.ts`“配置的校验与写入”）。
+  - 配置只经服务端写，每次写是对一个设置项的读改写；设置文件被别处改过时重读再合并，两个窗口同时改不同服务商两处都在（输出 5、6，`models.test.ts`“配置的校验与写入”，nb-models `core/core.test.ts`）。核心依赖的存储语义写在 `ModelsConfigStore` 的接口注释里，由 nb-models 的合同测试对内存实现与应用的适配器（`settings-store.test.ts`，真实设置场地）各跑一遍。
   - 密钥只在凭据库或启动环境里：`env:` 存成变量名、只认启动时拍下的环境，原文写库；任何响应、事件与诊断里都没有密钥（输出 1、2、12、13，`models.test.ts`“密钥”）。
   - 目录模型在设置里只存用户改过的字段，快照照样合出目录的值；目录里没有了的模型标 missing、绑着它的角色为 unknown-model（输出 9，`models.test.ts`“目录模型只存用户改过的”“目录漂移”）。
   - 删除模型或服务商之后没有角色指向它（输出 15，`models.test.ts`“配置的校验与写入”）。
@@ -159,7 +160,7 @@ Smoke：`packages/neuro-book/src/plugins/models/` 的插件测试与 `e2e/models
 
 ## 证据
 
-- 批准依据：w00032 t09 决定 1 到 32（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)）、[模型角色合同](../../proposals/model-roles-contract.md)；开发者 2026-11-01 批准晋升为 `implemented`。
-- 实现入口：[`backend/plugin.ts`](../../../packages/neuro-book/src/plugins/models/backend/plugin.ts)、[`backend/core.ts`](../../../packages/neuro-book/src/plugins/models/backend/core.ts)、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/models/shared/contracts.ts)、[`nb-harness/src/models/`](../../../packages/nb-harness/src/models/index.ts)、[`server/omp-process.ts`](../../../packages/neuro-book/src/server/omp-process.ts)
-- 合同测试：[`models.test.ts`](../../../packages/neuro-book/src/plugins/models/models.test.ts)（真实设置场地、真实凭据库、真实远程合同与本机的 OpenAI 兼容端点）、[`nb-harness/tests/models.test.ts`](../../../packages/nb-harness/tests/models.test.ts)、[`boundary.test.ts`](../../../packages/nb-harness/src/models/boundary.test.ts)、[`process-guard.test.ts`](../../../packages/nb-harness/tests/process-guard.test.ts)；真实模型：[`models.llm.test.ts`](../../../packages/neuro-book/src/plugins/models/models.llm.test.ts)（`test:llm`）
+- 批准依据：w00032 t09 决定 1 到 32（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)）、[模型角色合同](../../proposals/model-roles-contract.md)；开发者 2026-11-01 批准晋升为 `implemented`；配置形状、合同定义与核心抽进 nb-models 依据 [ADR 0045](../../adr/0045-shared-host-packages-for-second-app.md)（开发者 2026-11-10 同意）。
+- 实现入口：[`backend/plugin.ts`](../../../packages/neuro-book/src/plugins/models/backend/plugin.ts)、[`backend/settings-store.ts`](../../../packages/neuro-book/src/plugins/models/backend/settings-store.ts)、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/models/shared/contracts.ts)、nb-models [`core/core.ts`](../../../packages/nb-models/src/core/core.ts)、[`core/choice.ts`](../../../packages/nb-models/src/core/choice.ts)、[`core/store.ts`](../../../packages/nb-models/src/core/store.ts)、[`nb-harness/src/models/`](../../../packages/nb-harness/src/models/index.ts)、[`server/omp-process.ts`](../../../packages/neuro-book/src/server/omp-process.ts)
+- 合同测试：[`models.test.ts`](../../../packages/neuro-book/src/plugins/models/models.test.ts)（真实设置场地、真实凭据库、真实远程合同与本机的 OpenAI 兼容端点）、[`settings-store.test.ts`](../../../packages/neuro-book/src/plugins/models/backend/settings-store.test.ts)、nb-models [`core.test.ts`](../../../packages/nb-models/src/core/core.test.ts)、[`choice.test.ts`](../../../packages/nb-models/src/core/choice.test.ts)、[`memory-store.test.ts`](../../../packages/nb-models/src/testing/memory-store.test.ts)、[`roles.test.ts`](../../../packages/nb-models/src/config/roles.test.ts)、[`compaction.test.ts`](../../../packages/nb-models/src/config/compaction.test.ts)、[`nb-harness/tests/models.test.ts`](../../../packages/nb-harness/tests/models.test.ts)、[`boundary.test.ts`](../../../packages/nb-harness/src/models/boundary.test.ts)、[`process-guard.test.ts`](../../../packages/nb-harness/tests/process-guard.test.ts)；真实模型：[`models.llm.test.ts`](../../../packages/neuro-book/src/plugins/models/models.llm.test.ts)（`test:llm`）
 - Smoke：[`models.e2e.ts`](../../../packages/neuro-book/e2e/models.e2e.ts)（验收 1 的界面部分，删除后角色未绑定）
