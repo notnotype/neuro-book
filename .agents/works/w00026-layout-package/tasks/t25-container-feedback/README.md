@@ -17,8 +17,12 @@ updated: 2026-11-12
 
 ## 当前状态
 
-在 worktree `.worktree/w00026-t25-container-feedback`（分支 `fix/w00026-t25-container-feedback`，从 master `b5f894ed8` 开）里用临时探针复现了三个问题，原因与开发者的决定见 [`plan.md`](plan.md) 的 Context。计划已写，等开发者确认后实施。
+在 worktree `.worktree/w00026-t25-container-feedback`（分支 `fix/w00026-t25-container-feedback`，从 master `b5f894ed8` 开）实施，计划 [`plan.md`](plan.md) 开发者 2026-11-12 确认（“可以，开始吧”）。
+
+- 第 1 片已提交（`69e1dbfad`）：实时布局里来源收起后回到原处（判为原位）就展开回原位，判定换回拿起时的几何；按下时布局还在过渡，先走到终点再按坐标找按到的元素（nb-layout `createDragSession` 加 `settleMotion`）。Spec：`ui/workbench-layout` 输出 38、`ui/layout-drag` 输出 2 与选项签名（条目级 planned）。单元测试 `live-drag.test.ts`、`drag-session.dom.test.ts`；e2e `workbench-live-drag` 新用例“同一个容器里拖走前一节再回到原处……”，两处修正各自去掉时都失败。验证：工作台与 Lab 570 项、nb-layout 530 + 190 项、`vue-tsc` web 通过；e2e `workbench-live-drag`、`workbench-containers`、`workbench-dnd` 69 条全过。
+  - 复现时注意：e2e 默认减少动效，拖动一律是落点指示；量实时布局要先 `emulateMedia({reducedMotion: "no-preference"})`。
+  - “松手后马上再拖”在开发者的步骤里，回到原处展开以后松手时外框已在原位，本来就不再落空；按下先走完过渡的修正覆盖的是取消、放到别处之后邻居还在滑的情形。
 
 ## 下一步
 
-开发者确认计划后按切片实施：拖动两处 → 内容随外框长出 → 空区域（先写 ADR、派设计审查）→ 动画逐个做、逐个给开发者看。
+第 2 片：内容随外框长出（`grid-motion.ts` 的 `enteringRects`）。之后空区域（先写 ADR、派设计审查），动画逐个做、逐个给开发者看。
