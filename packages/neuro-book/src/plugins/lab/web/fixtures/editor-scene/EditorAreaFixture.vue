@@ -20,6 +20,7 @@ import {createMemoryEditorPanels, editorTabIdOf} from "nbook/plugins/workbench/s
 import WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
 import WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import type {EditorTabDrag} from "nbook/plugins/workbench/web/contracts";
+import {isEntryAction} from "nbook/plugins/workbench/web/entry-drop";
 import {createLayoutDrag} from "nbook/plugins/workbench/web/layout-drag";
 import type {LayoutDrag} from "nbook/plugins/workbench/web/layout-drag";
 import {createLayoutPolicy, EDITOR_GROUP_MINIMUM, layoutProjectionOptions} from "nbook/plugins/workbench/web/state/layout-constraints";
@@ -218,7 +219,7 @@ const NO_VIEWS = new Map();
 const POLICY = createLayoutPolicy();
 const doc = computed(() => panels.document());
 const extent = shallowRef<GridExtent | null>(null);
-const projectionOptions = computed(() => layoutProjectionOptions({catalog: NO_VIEWS, viewportWidth: extent.value?.width ?? 0}));
+const projectionOptions = computed(() => layoutProjectionOptions({doc: doc.value, catalog: NO_VIEWS, viewportWidth: extent.value?.width ?? 0}));
 const projection = computed(() => projectLayoutDoc(doc.value, projectionOptions.value));
 const commitSizes = (sizes: Readonly<Record<string, GridExtent>>): void => {
     panels.apply((current) => ({ok: true, doc: rebaseIntents(current, sizes, projection.value.collapsedTo, fixedNodesOf(projection.value.input))}));
@@ -257,6 +258,8 @@ onMounted(() => {
         placeFloat: (panel, offset) => surface.value?.placeFloat(panel, offset),
         floatMinimum: () => EDITOR_GROUP_MINIMUM,
         commit: (source, action, part, keyboard) => {
+            // 这个场景没有活动栏：没有入口的落点。
+            if (isEntryAction(action) || source.kind === "container") return;
             if (source.kind === "panel") {
                 if (action.kind === "float") panels.apply((current) => setFloatRect(current, {panel: source.panel, rect: action.rect}));
                 else tabDrag.value?.dropPanel(source.panel, action, part, keyboard);

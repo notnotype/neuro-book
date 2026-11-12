@@ -3,9 +3,10 @@
  */
 import {describe, expect, it} from "bun:test";
 
-import {createGrid, movePanelToEdge, projectLayoutDoc} from "@notnotype/nb-layout";
+import {createGrid, movePanelToEdge, projectLayoutDoc, regionNodeOf} from "@notnotype/nb-layout";
 import type {GridExtent, GridNodeInput, LayoutDoc} from "@notnotype/nb-layout";
 
+import {viewSection} from "../state/containers";
 import {defaultLayoutDoc, INITIAL_EDITOR_PANEL} from "../state/default-tree";
 import {createLayoutPolicy, layoutProjectionOptions} from "../state/layout-constraints";
 import type {ViewCatalog} from "../views/registry";
@@ -17,7 +18,7 @@ const CATALOG: ViewCatalog = new Map([["side", VIEW("sidebar")], ["aux", VIEW("a
 const EXTENT: GridExtent = {width: 1440, height: 900};
 
 function cards(doc: LayoutDoc, sizesOverride: Readonly<Record<string, GridExtent>> = {}) {
-    const {input, sashSize} = projectLayoutDoc(doc, layoutProjectionOptions({catalog: CATALOG, viewportWidth: EXTENT.width}));
+    const {input, sashSize} = projectLayoutDoc(doc, layoutProjectionOptions({doc, catalog: CATALOG, viewportWidth: EXTENT.width}));
     const layout = createGrid<string>(input, {sashSize}).layout(EXTENT);
     return layoutCardEdges({
         root: input as GridNodeInput<string>,
@@ -33,16 +34,25 @@ const outer: CardSide = {kind: "outer", occupied: 0};
 const joined: CardSide = {kind: "joined"};
 const inner = (occupied: number): CardSide => ({kind: "inner", occupied});
 const doc = (): LayoutDoc => defaultLayoutDoc(CATALOG);
+/** 视图所在的分节：区域里画出来的卡片是分节，锚不进呈现树。 */
+function sectionOf(source: LayoutDoc, viewId: string): string {
+    const section = viewSection(source, viewId);
+    if (section === null) throw new Error(`${viewId} 不在区域里`);
+    return section.panel;
+}
+const [SIDE, AUX, OUT] = [sectionOf(doc(), "side"), sectionOf(doc(), "aux"), sectionOf(doc(), "out")];
 const hide = (source: LayoutDoc, id: string): LayoutDoc => ({...source, panels: {...source.panels, [id]: {...source.panels[id] as LayoutDoc["panels"][string], hidden: true}}});
 
 describe("卡片的边", () => {
     it("默认树：活动栏与侧栏相连，其余按挨着的留半缝，贴窗体、状态栏留整缝", () => {
         const result = cards(doc());
         expect(result.activitybar).toEqual({top: outer, right: joined, bottom: outer, left: outer});
-        expect(result.sidebar).toEqual({top: outer, right: inner(1), bottom: outer, left: joined});
+        expect(result[SIDE]).toEqual({top: outer, right: inner(1), bottom: outer, left: joined});
         expect(result[INITIAL_EDITOR_PANEL]).toEqual({top: outer, right: inner(1), bottom: inner(1), left: inner(1)});
-        expect(result.panel).toEqual({top: inner(1), right: inner(1), bottom: outer, left: inner(1)});
-        expect(result.auxiliarybar).toEqual({top: outer, right: outer, bottom: outer, left: inner(1)});
+        expect(result[OUT]).toEqual({top: inner(1), right: inner(1), bottom: outer, left: inner(1)});
+        expect(result[AUX]).toEqual({top: outer, right: outer, bottom: outer, left: inner(1)});
+        // 锚不画卡片。
+        expect(result.sidebar).toBeUndefined();
         expect(result.statusbar).toBeUndefined();
     });
 
@@ -54,26 +64,27 @@ describe("卡片的边", () => {
 
     it("侧栏拆成一列：不等长，不相连", () => {
         const start = doc();
-        const moved = movePanelToEdge(start, {panel: "panel", target: {kind: "split", panel: "sidebar", edge: "bottom"}}, createLayoutPolicy());
+        const moved = movePanelToEdge(start, {panel: OUT, target: {kind: "split", panel: SIDE, edge: "bottom"}}, createLayoutPolicy());
         if (!moved.ok) throw new Error(moved.detail);
         const result = cards(moved.doc);
         expect(result.activitybar?.right).toEqual(inner(0));
-        expect(result.sidebar?.left).toEqual(inner(0));
-        expect(result.sidebar?.bottom).toEqual(inner(1));
+        expect(result[SIDE]?.left).toEqual(inner(0));
+        expect(result[SIDE]?.bottom).toEqual(inner(1));
     });
 
     it("相连跟着拖动中的几何：拖到零时不相连，缝算进占用", () => {
-        const result = cards(doc(), {sidebar: {width: 0, height: 878}});
+        const result = cards(doc(), {[SIDE]: {width: 0, height: 878}});
         expect(result.activitybar?.right.kind).toBe("inner");
         expect(result[INITIAL_EDITOR_PANEL]?.left).toEqual({kind: "inner", occupied: 1});
     });
 
     it("面板移到别处之后仍成立：跟固定拓扑没有关系", () => {
         const start = doc();
-        const moved = movePanelToEdge(start, {panel: "auxiliarybar", target: {kind: "between", branch: "body", before: "sidebar", after: "center"}}, createLayoutPolicy());
+        const sidebar = regionNodeOf(start, "sidebar")?.node.id ?? "";
+        const moved = movePanelToEdge(start, {panel: AUX, target: {kind: "between", branch: "body", before: sidebar, after: "center"}}, createLayoutPolicy());
         if (!moved.ok) throw new Error(moved.detail);
         const result = cards(moved.doc);
-        expect(result.auxiliarybar).toEqual({top: outer, right: inner(1), bottom: outer, left: inner(1)});
+        expect(result[AUX]).toEqual({top: outer, right: inner(1), bottom: outer, left: inner(1)});
         expect(result[INITIAL_EDITOR_PANEL]?.right).toEqual(outer);
     });
 

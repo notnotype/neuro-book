@@ -2,9 +2,9 @@ import {describe, expect, it} from "bun:test";
 
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
 import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, resolveLayoutDrop} from "./layout-drop";
-import type {LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId, LayoutDropSource} from "./layout-drop";
-import {edgeTargetOf} from "./layout-doc";
-import type {LayoutDoc, LayoutPolicy, LayoutSource} from "./layout-doc";
+import type {LayoutDropAction, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId, LayoutDropSource} from "./layout-drop";
+import {edgeTargetOf, setPanelCollapsed} from "./layout-doc";
+import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutSource} from "./layout-doc";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridDropRect} from "./grid-drop";
 
@@ -483,6 +483,110 @@ describe("文档里还没有的标签（资源树拖来的文件）", () => {
         expect(previewEdgeDrop(doc, FILE, action, testPolicy(), PROJECTION_FOR_FILE, {width: 900, height: 600}, 1)).not.toBeNull();
         const floated = applyLayoutDrop(doc, FILE, {kind: "float", rect: {x: 0, y: 0, width: 300, height: 200}}, testPolicy());
         expect(floated.ok && floated.doc.floats).toHaveLength(1);
-        expect(applyLayoutDrop(doc, FILE, {kind: "reveal", panel: "a"}, testPolicy()).ok).toBe(false);
+    });
+});
+
+/** 分节的前后两半（docs/specs/ui/workbench-layout.md 输出 25 第 7 行、28、31、37）。 */
+describe("分节的落点", () => {
+    /** 侧栏的容器 A（当前）有 s1、s2，中间夹着容器 B 的 s3（不显示）；底部面板的容器 P 有 p1、p2；右栏只剩锚、隐藏着。 */
+    const sections = (): LayoutDoc => docOf(V([H([V(["sidebar", "s1", "s3", "s2"], "side"), "ea", "auxiliarybar"], "top"), H(["panel", "p1", "p2"], "row")], "root"), {
+        sidebar: {tabs: [], active: null, entries: ["A", "B"], activeContainer: "A"},
+        s1: {container: "A"},
+        s2: {container: "A"},
+        s3: {container: "B"},
+        panel: {tabs: [], active: null, entries: ["P"], activeContainer: "P"},
+        p1: {container: "P"},
+        p2: {container: "P"},
+        auxiliarybar: {tabs: [], active: null, hidden: true, entries: [], activeContainer: null},
+    });
+    const S1: LayoutDropPanelGeometry = {id: "s1", strip: rect(0, 0, 300, 30), body: rect(0, 30, 300, 300), insertionAt: () => 0};
+    const S2: LayoutDropPanelGeometry = {id: "s2", strip: rect(0, 301, 300, 331), body: rect(0, 331, 300, 600), insertionAt: () => 0};
+    const P1: LayoutDropPanelGeometry = {id: "p1", strip: rect(0, 601, 500, 631), body: rect(0, 631, 500, 900), insertionAt: () => 0};
+    const P2: LayoutDropPanelGeometry = {id: "p2", strip: rect(501, 601, 1000, 631), body: rect(501, 631, 1000, 900), insertionAt: () => 0};
+    const EA: LayoutDropPanelGeometry = {id: "ea", strip: rect(301, 0, 1000, 30), body: rect(301, 30, 1000, 600), insertionAt: () => 0};
+    const PANELS = [S1, S2, EA, P1, P2];
+    /** 策略四条边都给：分节只用沿区域方向的两条，是分节自己的规则，不靠策略去掉交叉方向。 */
+    const anyEdge = testPolicy({edgeTarget: (_doc, _tabs, panel, edge) => ({kind: "split", panel, edge})});
+    const FROM_EDITOR: LayoutSource = {kind: "tab", tab: "view:p2"};
+    const at = (x: number, y: number, overrides: Partial<LayoutDropInput> = {}) => resolveLayoutDrop({doc: sections(), source: FROM_EDITOR, point: {x, y}, panels: PANELS, policy: anyEdge, ...overrides});
+    const split = (panel: string, edge: LayoutEdge): LayoutDropAction => ({kind: "edge", target: {kind: "split", panel, edge}});
+
+    it("侧栏的分节上下分两半，标题行算前半；没有中央，正文的左右边上也没有外缘窄带", () => {
+        expect(at(150, 10)).toEqual(split("s1", "top"));
+        expect(at(150, 100)).toEqual(split("s1", "top"));
+        expect(at(150, 200)).toEqual(split("s1", "bottom"));
+        expect(at(150, 164)).toEqual(split("s1", "top"));
+        expect(at(150, 166)).toEqual(split("s1", "bottom"));
+        expect(at(2, 150)).toEqual(split("s1", "top"));
+        expect(at(298, 250)).toEqual(split("s1", "bottom"));
+    });
+
+    it("底部面板的分节左右分两半，标题行也按同一条竖线分", () => {
+        expect(at(100, 610)).toEqual(split("p1", "left"));
+        expect(at(400, 610)).toEqual(split("p1", "right"));
+        expect(at(100, 700)).toEqual(split("p1", "left"));
+        expect(at(400, 700)).toEqual(split("p1", "right"));
+        expect(at(250, 895)).toEqual(split("p1", "right"));
+    });
+
+    it("收成标题行的分节整块是前半", () => {
+        const folded: LayoutDropPanelGeometry = {...S1, body: rect(0, 30, 300, 30)};
+        expect(at(150, 20, {panels: [folded, S2, EA]})).toEqual(split("s1", "top"));
+    });
+
+    it("编辑组不受影响：还是标签条、外缘、中央", () => {
+        const editorTab = {source: {kind: "tab", tab: "tab:ea"} as const};
+        expect(at(600, 10, editorTab)).toEqual({kind: "strip", panel: "ea", index: 0});
+        expect(at(600, 300, editorTab)).toEqual({kind: "center", panel: "ea"});
+        expect(at(310, 300)).toEqual(split("ea", "left"));
+    });
+
+    it("整窗拖动不按两半：分节的标题行不是插入位，经过正文中间继续浮着", () => {
+        const doc = sections();
+        const withFloat: LayoutDoc = {...doc, panels: {...doc.panels, f: {role: "tool", tabs: [view("w")], active: "view:w"}}, floats: [{panel: "f", rect: {x: 0, y: 0, width: 10, height: 10}}]};
+        const whole = {doc: withFloat, source: {kind: "panel", panel: "f"} as const, noCenter: true, edgeRatio: 0.14};
+        expect(at(150, 10, whole)?.kind).not.toBe("strip");
+        expect(at(150, 165, whole)).toBeNull();
+        expect(at(150, 290, whole)).toEqual(split("s1", "bottom"));
+    });
+
+    it("分区是前后两块，和判定同一条线；指针在哪块，判定就是哪块", () => {
+        const input: LayoutDropInput = {doc: sections(), source: FROM_EDITOR, point: {x: 150, y: 100}, panels: PANELS, policy: anyEdge};
+        const vertical = layoutDropSectors(input, S1);
+        expect(vertical?.map((sector) => sector.id)).toEqual(["top", "bottom"]);
+        for (const sector of vertical ?? []) {
+            const [x, y] = sector.points.reduce(([sx, sy], [px, py]) => [sx + px / sector.points.length, sy + py / sector.points.length], [0, 0]);
+            expect(at(S1.body.left + x * 300, S1.body.top + y * 270)).toEqual(sector.action);
+        }
+        expect(layoutDropSectors(input, P1)?.map((sector) => sector.id)).toEqual(["left", "right"]);
+        expect(layoutDropSectors(input, {...S1, body: rect(0, 30, 300, 30)})).toBeNull();
+    });
+
+    it("键盘：每个分节只有前后两个位置；放回原处的不列（自己的两半、隔着不显示的分节的邻居朝向它的那半）；只剩锚的区域没有位置", () => {
+        const candidates = enumerateDropCandidates({doc: sections(), source: {kind: "tab", tab: "view:s1"}, policy: anyEdge, stripIndexes: () => [0, 1]});
+        const of = (region: string) => candidates.filter((candidate) => candidate.region === region).map((candidate) => candidate.action);
+        expect(of("s1")).toEqual([]);
+        expect(of("s2")).toEqual([split("s2", "bottom")]);
+        expect(of("p1")).toEqual([split("p1", "left"), split("p1", "right")]);
+        expect(of("s3")).toEqual([]);
+        expect(of("auxiliarybar")).toEqual([]);
+        expect(of("sidebar")).toEqual([]);
+        // 不是分节的照旧四条边都是位置。
+        expect(of("ea")).toHaveLength(4);
+        // 收成标题行的分节只有前一个位置：指针那边它整块都是前半。
+        const folded = setPanelCollapsed(sections(), "s2", true);
+        if (!folded.ok) throw new Error(folded.detail);
+        const foldedCandidates = enumerateDropCandidates({doc: folded.doc, source: {kind: "tab", tab: "view:p1"}, policy: anyEdge, stripIndexes: () => [0, 1]});
+        expect(foldedCandidates.filter((candidate) => candidate.region === "s2").map((candidate) => candidate.action)).toEqual([split("s2", "top")]);
+    });
+
+    it("提交：插在这一节前面或后面，成新分节，归属是区域的当前容器", () => {
+        const before = applyLayoutDrop(sections(), {kind: "tab", tab: "view:s2"}, split("s1", "top") as never, anyEdge);
+        expect(before.ok && before.doc.panels.s2?.container).toBe("A");
+        const fromRow = applyLayoutDrop(sections(), FROM_EDITOR, split("s2", "bottom") as never, anyEdge);
+        expect(fromRow.ok && fromRow.doc.panels.p2?.container).toBe("A");
+        const doc = sections();
+        const own = applyLayoutDrop(doc, {kind: "tab", tab: "view:s2"}, split("s1", "bottom") as never, anyEdge);
+        expect(own.ok && own.doc).toBe(doc);
     });
 });

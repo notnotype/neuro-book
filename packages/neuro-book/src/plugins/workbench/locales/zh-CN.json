@@ -183,6 +183,8 @@
         "cannotFloat": "这个标签不能再浮动",
         "floatMaximize": "浮动窗不能最大化",
         "floatCollapse": "浮动窗不能收起",
+        "rowSectionCollapse": "底部面板里的视图不能收起",
+        "loneSectionCollapse": "这里只显示这一个视图，不能收起",
         "floatLimit": "浮动窗太多了，先关掉几个"
     },
     "partCommands": {
@@ -220,9 +222,13 @@
         "unknownView": "没有这个视图（没有已接受的声明）：{{viewId}}",
         "pickTarget": "移动到",
         "noViews": "没有可以移动的视图",
-        "partial": "要么都不给，要么同时给 viewId 和 target",
-        "stale": "视图或目标面板已经不在了，没有移动",
-        "newPanelNextTo": "新面板（挨着{{panel}}）",
+        "partial": "要么都不给，要么给 viewId 和 container、newContainerIn 中的一个",
+        "stale": "视图或目标容器已经不在了，没有移动",
+        "newContainerIn": {
+            "sidebar": "新容器（侧栏）",
+            "auxiliarybar": "新容器（右栏）",
+            "panel": "新容器（底部面板）"
+        },
         "rejected": "这个视图不能放到那里",
         "limit": "布局已经太复杂，放不下新面板"
     },
@@ -240,6 +246,14 @@
                 }
             }
         }
+    },
+    "viewContainers": {
+        "project": {
+            "title": "项目"
+        },
+        "reset": "重置",
+        "entryTooltip": "{{name}}：{{views}}",
+        "viewSeparator": "、"
     },
     "common": {
         "more": "更多",
@@ -262,19 +276,17 @@
                 "top": "上方",
                 "bottom": "下方"
             },
-            "reveal": "放到{{part}}",
             "addTab": "添加为标签",
             "insert": "放在这里",
             "between": "放到两块之间",
             "split": "拆到这一边",
             "inPlace": "原位",
             "float": "浮动打开",
+            "newContainer": "单独成一个入口",
+            "joinContainer": "并入{{part}}",
             "rejected": "不能放在这里"
         },
         "moreActions": "更多操作",
-        "frame": {
-            "hide": "隐藏"
-        },
         "missing": {
             "view": "提供这个视图的插件现在不在：{{viewId}}",
             "close": "关闭这个标签"

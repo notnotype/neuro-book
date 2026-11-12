@@ -183,6 +183,14 @@ function controlledIds(leaf: string): string {
     return content === undefined ? frame : `${frame} ${domIdOf(content.key)}`;
 }
 
+/**
+ * 这条线沿自己的长度方向为零：它在一个收起为零的分支里（docs/specs/ui/nested-grid.md 的“分支的收起”），两边的叶都看不见。
+ * 粗细还在，所以 `SashHandle` 按粗细判的“接缝”认不出它；按不可交互交给它，就不可聚焦、不进指针命中，展开后矩形有了长度自己恢复。
+ */
+function isZeroLength(sash: GridSashPlacement<unknown>): boolean {
+    return (sash.axis === "width" ? sash.rect.height : sash.rect.width) <= 0;
+}
+
 function sashProps(sash: GridSashPlacement<unknown>) {
     const sizes = renderLayout.value.sizes;
     const nowPx = Math.max(0, sizes[sash.before]?.[sash.axis] ?? 0);
@@ -194,7 +202,7 @@ function sashProps(sash: GridSashPlacement<unknown>) {
         size: sash.size,
         beforePx: nowPx,
         afterPx: Math.max(0, sizes[sash.after]?.[sash.axis] ?? 0),
-        disabled: gesturesDisabled.value,
+        disabled: gesturesDisabled.value || isZeroLength(sash),
         ends: sash.ends,
         ariaLabel: text(sash.axis === "width" ? "splitter.resizeWidth" : "splitter.resizeHeight", {before: sash.before, after: sash.after}),
         ariaControls: controlledIds(sash.controls),

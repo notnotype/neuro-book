@@ -23,6 +23,7 @@ import type {WindowNavigation} from "nbook/shared/host";
 import type {StorageService} from "nbook/shared/storage";
 
 import type {QuickPick, QuickPickRequest, QuickPickResult} from "../../shared/contracts";
+import {viewSection} from "../state/containers";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {LAYOUT_DOC_RECORDS} from "../state/records";
 import {workbenchState, workbenchStateBindings} from "../state/public-state";
@@ -133,8 +134,10 @@ describe("区域显隐", () => {
     it("隐藏最大化着的面板时退出最大化（输出 13）", async () => {
         const {store} = await layout();
         const commands = partCommands(() => store, picker(() => ({kind: "cancelled"})));
-        store.actions.toggleMaximized("panel");
-        expect(store.state.maximized).toBe("panel");
+        // 区域里最大化的是一个分节：隐藏它所在的区域。
+        const section = viewSection(store.actions.document(), "test.panel")?.panel ?? "";
+        store.actions.toggleMaximized(section);
+        expect(store.state.maximized).toBe(section);
         await commands[SET_PART_HIDDEN_COMMAND].run({part: "panel", hidden: true});
         expect(store.state.maximized).toBeNull();
     });

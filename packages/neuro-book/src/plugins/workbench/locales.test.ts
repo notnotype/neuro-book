@@ -237,7 +237,6 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "shell.welcome.withProject": {"zh-CN": "工作台已就绪。当前项目：{name}", "en-US": "The workbench is ready. Current project: {name}"},
     "shell.activityBar": {"zh-CN": "活动栏", "en-US": "Activity Bar"},
     "shell.drag.hint": {"zh-CN": "按空格拿起并拖动", "en-US": "Press Space to pick up and drag"},
-    "shell.drop.reveal": {"zh-CN": "放到{part}", "en-US": "Show in {part}"},
     "shell.moreActions": {"zh-CN": "更多操作", "en-US": "More Actions"},
     "viewFrame.declared": {"zh-CN": "正在等待视图所属的插件启动", "en-US": "Waiting for the view's plugin to start"},
     "viewFrame.blocked": {"zh-CN": "视图所属的插件无法启动：{reason}", "en-US": "The view's plugin cannot start: {reason}"},
@@ -363,7 +362,6 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "partCommands.parts.statusbar": {"zh-CN": "状态栏", "en-US": "Status bar"},
     "viewCommands.parts.editor": {"zh-CN": "编辑区", "en-US": "Editor area"},
     "viewCommands.parts.editorAt": {"zh-CN": "编辑区 {index}", "en-US": "Editor area {index}"},
-    "viewCommands.newPanelNextTo": {"zh-CN": "新面板（挨着{panel}）", "en-US": "New panel (next to {panel})"},
     "shell.drop.addTab": {"zh-CN": "添加为标签", "en-US": "Add as a tab"},
     "shell.drop.insert": {"zh-CN": "放在这里", "en-US": "Place here"},
     "shell.drop.between": {"zh-CN": "放到两块之间", "en-US": "Place between the two"},
@@ -385,13 +383,27 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "settings.dropSplit.choices.shared.title": {"zh-CN": "同方向的窗口一起分", "en-US": "Share with windows in the same direction"},
     "settings.dropSectors.title": {"zh-CN": "落点分区", "en-US": "Drop sectors"},
     "settings.dropSectors.description": {"zh-CN": "拖动视图或标签到面板上时，画出上下左右中能放的位置", "en-US": "When dragging a view or tab over a panel, show the places it can go"},
-    "shell.frame.hide": {"zh-CN": "隐藏", "en-US": "Hide"},
     "shell.editorUnavailable": {"zh-CN": "编辑器现在不可用：提供它的插件不在，标签都还在，它回来后恢复。", "en-US": "The editor is unavailable: the plugin providing it is not here. Your tabs are kept and come back when it returns."},
     "shell.missing.view": {"zh-CN": "提供这个视图的插件现在不在：{viewId}", "en-US": "The plugin providing this view is not here: {viewId}"},
     "shell.missing.close": {"zh-CN": "关闭这个标签", "en-US": "Close this tab"},
     "state.nonPhone.reason": {"zh-CN": "手机呈现下不可用", "en-US": "Not available in the phone layout"},
     "state.hasCurrentPanel.reason": {"zh-CN": "还没有面板获得过焦点", "en-US": "No panel has had focus yet"},
     "state.maximized.reason": {"zh-CN": "没有最大化的面板", "en-US": "No panel is maximized"},
+    // w00026 t24：工作台声明的视图容器（docs/specs/workbench/views.md 输出 15）。
+    "viewContainers.project.title": {"zh-CN": "项目", "en-US": "Project"},
+    "viewContainers.reset": {"zh-CN": "重置", "en-US": "Reset"},
+    "viewContainers.entryTooltip": {"zh-CN": "{name}：{views}", "en-US": "{name}: {views}"},
+    "viewContainers.viewSeparator": {"zh-CN": "、", "en-US": ", "},
+    // w00026 t24：收不成标题行的分节（docs/specs/ui/workbench-layout.md 输出 11、20）。
+    "panelCommands.rowSectionCollapse": {"zh-CN": "底部面板里的视图不能收起", "en-US": "A view in the bottom panel cannot be collapsed"},
+    "panelCommands.loneSectionCollapse": {"zh-CN": "这里只显示这一个视图，不能收起", "en-US": "The only view shown here cannot be collapsed"},
+    // w00026 t24 切片 4：活动栏上段的落点（docs/specs/ui/workbench-layout.md 输出 45）。
+    "shell.drop.newContainer": {"zh-CN": "单独成一个入口", "en-US": "Give it its own entry"},
+    "shell.drop.joinContainer": {"zh-CN": "并入{part}", "en-US": "Add to {part}"},
+    // w00026 t24 切片 5：“移动到”的新容器（docs/specs/ui/workbench-layout.md 输出 23）。
+    "viewCommands.newContainerIn.sidebar": {"zh-CN": "新容器（侧栏）", "en-US": "New container (Sidebar)"},
+    "viewCommands.newContainerIn.auxiliarybar": {"zh-CN": "新容器（右栏）", "en-US": "New container (Secondary Side Bar)"},
+    "viewCommands.newContainerIn.panel": {"zh-CN": "新容器（底部面板）", "en-US": "New container (Panel)"},
     // 通知中心与铃铛（docs/specs/workbench/notifications.md 输出 13 到 17）。
     "commands.nbook.notifications.clear.title": {"zh-CN": "清除全部通知", "en-US": "Clear All Notifications"},
     "views.notifications.title": {"zh-CN": "通知", "en-US": "Notifications"},
@@ -411,15 +423,15 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
 
 /**
  * 有意改过的文字：右栏统一叫 Secondary Side Bar，“Move To” 改成与 viewCommands.pickTarget 相同的 “Move to”，数量键的单数形用单数；
- * 片 7a 起“移动到”的目标是面板、不再是容器，`viewCommands.partial` 与 `stale` 两句中英文都跟着改。
+ * 片 7a 起“移动到”的目标是面板、不再是容器，`viewCommands.partial` 与 `stale` 两句中英文都跟着改；t24 切片 5 起目标又是容器（`container`、`newContainerIn`），两句再改一次。
  */
 const REVISED: Readonly<Record<string, {readonly "zh-CN"?: string; readonly "en-US"?: string}>> = {
     "titlebar.toggle.auxiliarybar": {"en-US": "Toggle Secondary Side Bar"},
     "titlebar.menuItems.auxiliarybar": {"en-US": "Secondary Side Bar"},
     "partCommands.parts.auxiliarybar": {"en-US": "Secondary Side Bar"},
     "state.auxiliaryBarVisible.reason": {"en-US": "The secondary side bar is hidden or dragged closed"},
-    "viewCommands.partial": {"zh-CN": "要么都不给，要么同时给 viewId 和 target", "en-US": "Give nothing, or both viewId and target"},
-    "viewCommands.stale": {"zh-CN": "视图或目标面板已经不在了，没有移动", "en-US": "The view or the target panel is gone; nothing moved"},
+    "viewCommands.partial": {"zh-CN": "要么都不给，要么给 viewId 和 container、newContainerIn 中的一个", "en-US": "Give nothing, or viewId and one of container and newContainerIn"},
+    "viewCommands.stale": {"zh-CN": "视图或目标容器已经不在了，没有移动", "en-US": "The view or the target container is gone; nothing moved"},
     "themeEditor.transfer.copyFailed": {"zh-CN": "复制失败：读不到或传不上素材 {reason}", "en-US": "Copy failed: the asset {reason} could not be read or uploaded"},
     "settings.dropSectors.description": {"zh-CN": "拖动手感是落点指示时，拖到面板上画出上下左右中能放的位置；实时布局不画，布局本身就是预览", "en-US": "With the drop indicator drag feel, show the places a view or tab can go when dragged over a panel; live layout doesn't draw them, the layout itself is the preview"},
 };

@@ -183,6 +183,8 @@
         "cannotFloat": "This tab cannot float",
         "floatMaximize": "A floating window cannot be maximized",
         "floatCollapse": "A floating window cannot be collapsed",
+        "rowSectionCollapse": "A view in the bottom panel cannot be collapsed",
+        "loneSectionCollapse": "The only view shown here cannot be collapsed",
         "floatLimit": "Too many floating windows; close some first"
     },
     "partCommands": {
@@ -220,9 +222,13 @@
         "unknownView": "No such view (no accepted declaration): {{viewId}}",
         "pickTarget": "Move to",
         "noViews": "No view can be moved",
-        "partial": "Give nothing, or both viewId and target",
-        "stale": "The view or the target panel is gone; nothing moved",
-        "newPanelNextTo": "New panel (next to {{panel}})",
+        "partial": "Give nothing, or viewId and one of container and newContainerIn",
+        "stale": "The view or the target container is gone; nothing moved",
+        "newContainerIn": {
+            "sidebar": "New container (Sidebar)",
+            "auxiliarybar": "New container (Secondary Side Bar)",
+            "panel": "New container (Panel)"
+        },
         "rejected": "This view can't go there",
         "limit": "The layout is too complex for another panel"
     },
@@ -240,6 +246,14 @@
                 }
             }
         }
+    },
+    "viewContainers": {
+        "project": {
+            "title": "Project"
+        },
+        "reset": "Reset",
+        "entryTooltip": "{{name}}: {{views}}",
+        "viewSeparator": ", "
     },
     "common": {
         "more": "More",
@@ -262,19 +276,17 @@
                 "top": "Top",
                 "bottom": "Bottom"
             },
-            "reveal": "Show in {{part}}",
             "addTab": "Add as a tab",
             "insert": "Place here",
             "between": "Place between the two",
             "split": "Split to this side",
             "inPlace": "In place",
             "float": "Open floating",
+            "newContainer": "Give it its own entry",
+            "joinContainer": "Add to {{part}}",
             "rejected": "Can't drop here"
         },
         "moreActions": "More Actions",
-        "frame": {
-            "hide": "Hide"
-        },
         "missing": {
             "view": "The plugin providing this view is not here: {{viewId}}",
             "close": "Close this tab"

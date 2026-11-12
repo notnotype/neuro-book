@@ -11,7 +11,7 @@ import {Type} from "typebox";
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
 import {WORKBENCH_EDITOR_AREA_POINT} from "nbook/plugins/workbench/shared/contracts";
 import {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
@@ -19,7 +19,7 @@ import type {ViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {EditorAreaContext, EditorAreaImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
-import {SAMPLE_EDITOR_AREA_ID, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_MARK_COMMAND, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
+import {SAMPLE_EDITOR_AREA_ID, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_MARK_COMMAND, SAMPLE_VIEWS_RUN_EVENT, SAMPLE_VIEWS_STOP_COMMAND, SAMPLE_VIEWS_SWITCHES, sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
 
 const view = (name: string, location: ViewDeclaration["location"], icon: string, extra: Partial<ViewDeclaration> = {}): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon, location, layout: "scroll", ...extra});
 
@@ -85,7 +85,7 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
             id: "browser",
             location: "browser",
             activationEvents: ["onStartup"],
-            dependencies: [{key: publicStateKey}],
+            dependencies: [{key: publicStateKey}, {key: commandServiceKey}],
             contributions: [
                 ...Object.entries(VIEWS).map(([id, declaration]) => ({capability: WORKBENCH_VIEWS_POINT, id, declaration})),
                 {capability: COMMANDS_POINT, id: SAMPLE_VIEWS_STOP_COMMAND, declaration: STOP_DECLARATION},
@@ -95,6 +95,15 @@ export function createSampleViewsBrowserPlugin(): PluginDefinition {
             activate: (context) => {
                 if (switchOn(SAMPLE_VIEWS_SWITCHES.failActivation).includes("1")) throw new Error("样例视图入口按开关激活失败");
                 const publicState = context.services.require(publicStateKey);
+                const commands = context.services.require(commandServiceKey);
+                const run = (event: Event): void => {
+                    const {command, args} = (event as CustomEvent<{readonly command: string; readonly args?: unknown}>).detail;
+                    void commands.execute(command, args).then((result) => {
+                        if (!result.ok) console.warn(`[test.sample-views] ${command} 没有执行`, result);
+                    }, (error: unknown) => console.error(`[test.sample-views] ${command} 出错`, error));
+                };
+                globalThis.addEventListener(SAMPLE_VIEWS_RUN_EVENT, run);
+                context.scope.register({kind: "sample-views-run-event", label: `${sampleViewsDescriptor.id} run event`, value: run, release: (listener) => globalThis.removeEventListener(SAMPLE_VIEWS_RUN_EVENT, listener)});
                 const implementation = (viewId: string): ViewImplementation => ({
                     load: async () => {
                         if (switchOn(SAMPLE_VIEWS_SWITCHES.failLoad).includes(viewId)) throw new Error(`样例视图 ${viewId} 按开关加载失败`);

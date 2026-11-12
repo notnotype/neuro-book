@@ -402,8 +402,8 @@ test("完整示例 focus 外置：状态栏条目显示今天的个数；在侧�
         const item = page.locator("[data-workbench-status-bar] [data-workbench-item='example.focus.status']");
         await expect(item).toHaveText("今天 0 个番茄");
 
-        // 显示 focus 的视图。活动栏条目点一下已经可见的视图会隐藏它（输出 22），所以只在它没按下时点。
-        const container = page.locator("[data-tool-entry='example.focus.panel']");
+        // 显示 focus 的视图。它没写容器，入口是它的隐式容器；点当前容器的入口会隐藏侧栏（输出 22），所以只在它没按下时点。
+        const container = page.locator("[data-tool-entry='view:example.focus.panel']");
         await expect(container).toBeVisible();
         if ((await container.getAttribute("aria-pressed")) !== "true") await container.click();
         await expect(container).toHaveAttribute("aria-pressed", "true");
