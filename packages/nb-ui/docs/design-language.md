@@ -546,6 +546,7 @@ Apple 自己给 Liquid Glass 配了 Reduce Transparency / Increase Contrast 两�
 - **出现**：透明度加向终点方向约 8px 的位移，`--motion-move`、`--ease-layout`，一次性，只在首次可见时。
 - **位置变化**（别的卡片增减、内容变长）：对 `top` 做过渡，`--motion-move`、`--ease-layout`；属性列表显式写，不用 `transition-all`。
 - **消失**：透明度，`--motion-fast`；卡片是绝对定位，不挤别的卡片。
+- **展开**：卡片需要比它的位置高（看全文、写）时，位置（槽位）的高度不变，卡片面在原地向下长，浮在后面的卡片上面（`z-index`），别的卡片一动不动；高度做过渡（`--motion-move`、`--ease-layout`），收回时同样。不用“推开后面的卡片”。
 - 当前、悬停、聚焦这类状态变化只渐变颜色、阴影与透明度（`--motion-fast`），不改尺寸（`ui-development-spec.md` 第 3 节第 4 条）。
 
 ### 缓动：看得出在动的都用布局曲线

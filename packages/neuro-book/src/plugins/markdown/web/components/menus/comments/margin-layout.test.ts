@@ -11,9 +11,9 @@ describe("槽位的高度范围", () => {
     });
 
     it("下一段没有批注：最大放宽到两倍段高；下一段更矮时不越过它的底边", () => {
-        expect(slotRange({top: 100, height: 120, nextBottom: 500, nextCommented: false}, METRICS)).toEqual({min: 116, max: 240 - SLOT_GAP});
+        expect(slotRange({top: 100, height: 120, nextBottom: 500, nextCommented: false}, METRICS)).toEqual({min: 120 - SLOT_GAP, max: 240 - SLOT_GAP});
         // 下一段只有 40 高：底边在 100 + 120 + 16 + 40 = 276，比两倍段高（340）近。
-        expect(slotRange({top: 100, height: 120, nextBottom: 276, nextCommented: false}, METRICS)).toEqual({min: 116, max: 176 - SLOT_GAP});
+        expect(slotRange({top: 100, height: 120, nextBottom: 276, nextCommented: false}, METRICS)).toEqual({min: 120 - SLOT_GAP, max: 176 - SLOT_GAP});
     });
 
     it("没有下一段：放宽到两倍段高，不受底边限制", () => {

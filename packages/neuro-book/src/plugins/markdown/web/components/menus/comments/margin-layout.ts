@@ -8,7 +8,7 @@ export const MARGIN_WIDTH = 264;
 export const MARGIN_GAP = 16;
 
 /** 槽位之间留的空：槽位的高度含它，卡片面比槽位矮这么多，相邻两段的卡片不贴在一起。 */
-export const SLOT_GAP = 4;
+export const SLOT_GAP = 3;
 /** 最小高度的封顶（意见区的行数）：段落很高时一句话不拖出一张很高的空卡。 */
 export const MIN_CAP_LINES = 8;
 

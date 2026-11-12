@@ -12,6 +12,7 @@ import type {VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {markRaw, nextTick} from "vue";
 
+import {SLOT_GAP} from "./margin-layout";
 import MarkdownCommentMargin from "./MarkdownCommentMargin.vue";
 import type {MarginSlot} from "./MarkdownCommentMargin.vue";
 
@@ -117,9 +118,9 @@ describe("排布", () => {
         layout(wrapper);
         await nextTick();
         expect([0, 1, 2].map((index) => topOf(wrapper, index))).toEqual([100, 250, 400]);
-        // 一段高 100、下一段有批注：范围是 [96, 96]，意见自然高度 34 被抬到最小高度。
-        expect([0, 1, 2].map((index) => idleOf(wrapper, index))).toEqual([96, 96, 96]);
-        expect(surfaceOf(wrapper, 0)).toBe(96);
+        // 一段高 100、下一段有批注：范围是 [100 - 间隔, 100 - 间隔]，意见自然高度 34 被抬到最小高度。
+        expect([0, 1, 2].map((index) => idleOf(wrapper, index))).toEqual([100 - SLOT_GAP, 100 - SLOT_GAP, 100 - SLOT_GAP]);
+        expect(surfaceOf(wrapper, 0)).toBe(100 - SLOT_GAP);
     });
 
     it("一行的短段放一行意见：卡片比这一段高，后面的槽位往下让，不互相盖住", async () => {
@@ -129,7 +130,7 @@ describe("排布", () => {
         await nextTick();
         // 一行意见的卡片 34 高，比这一段（28）高；各段的顶边相隔 30，后一个让到前一个的下沿加间距。
         expect([0, 1, 2].map((index) => idleOf(wrapper, index))).toEqual([34, 34, 34]);
-        expect([0, 1, 2].map((index) => topOf(wrapper, index))).toEqual([100, 138, 176]);
+        expect([0, 1, 2].map((index) => topOf(wrapper, index))).toEqual([100, 100 + 34 + SLOT_GAP, 100 + 2 * (34 + SLOT_GAP)]);
     });
 
     it("下一段没有批注：长意见可以长到两倍段高，但不越过下一段的底边", async () => {
@@ -141,8 +142,8 @@ describe("排布", () => {
         const wrapper = mountMargin(editor, scroller, [slot(editor, infos)]);
         layout(wrapper);
         await nextTick();
-        // 两倍段高是 100 + 120 = 220，下一段的底边在 210：上限 210 - 100 - 4 = 106；意见自然 150 被夹到 106。
-        expect(idleOf(wrapper, 0)).toBe(106);
+        // 两倍段高是 100 + 120 = 220，下一段的底边在 210：上限 210 - 100 - 间隔；意见自然 150 被夹到它。
+        expect(idleOf(wrapper, 0)).toBe(210 - 100 - SLOT_GAP);
     });
 
     it("展开：槽位占位仍是展开之前的高度，卡片面向下长到自然高度，别的槽位不动", async () => {

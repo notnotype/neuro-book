@@ -210,7 +210,7 @@ function onKeydown(event: KeyboardEvent): void {
 .markdown-comment-card[data-variant="margin"] {
     position: relative;
     width: auto;
-    padding: 6px 10px 6px 12px;
+    padding: 4px 10px 4px 12px;
 }
 
 /* 页边里没展开的卡片可以点：点了成为当前批注并展开。 */
