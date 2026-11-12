@@ -459,6 +459,15 @@ describe("页边的“段”（输出 33）", () => {
         expect(nextTerritory(doc, last as number)).toBeNull();
     });
 
+    it("嵌套里的最后一段：下一段是外面的下一个块里的第一段（引用里的列表项、列表项里的子列表）", () => {
+        const {editor} = open("> 引用里<comment body=\"q\">一段</comment>\n>\n> - 列表项\n>   - 子项<comment body=\"s\">末</comment>\n\n后面\n\n> 另一个引用\n");
+        const doc = editor.state.doc;
+        const territories = listComments(doc).map((info) => territoryOf(doc, info));
+        expect(territories.map((pos) => at(doc, pos))).toEqual(["paragraph:引用里一段", "paragraph:子项末"]);
+        expect(territories.map((pos) => at(doc, nextTerritory(doc, pos)))).toEqual(["paragraph:列表项", "paragraph:后面"]);
+        expect(at(doc, nextTerritory(doc, nextTerritory(doc, territories[1] as number) as number))).toBe("paragraph:另一个引用");
+    });
+
     it("位置超出文档时夹进文档，不抛错", () => {
         const {editor} = open("甲乙\n");
         const doc = editor.state.doc;

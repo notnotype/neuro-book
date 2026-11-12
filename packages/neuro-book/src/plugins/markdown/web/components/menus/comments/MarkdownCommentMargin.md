@@ -33,11 +33,10 @@ interface MarginSlot {
     anchor: number;                       // 这一段的起点位置
     next: number | null;                  // 文档顺序里下一段的起点
     nextCommented: boolean;               // 下一段有没有批注
-    infos: ReadonlyArray<CommentInfo>;    // 这一段的批注，按先后；待写的新批注为空
+    infos: ReadonlyArray<CommentInfo>;    // 这一段的批注，按先后；为空是待写的新批注（宿主给的 key 是 "pending"，浮着不占位）
     active: number;                       // 显示 infos 里的哪一条
     mode: "current" | "write" | "idle";
     expanded: boolean;
-    pending: boolean;                     // 还不在文档里的新批注（写）
 }
 
 type MarkdownCommentMarginProps = {editor: Editor; scroller: HTMLElement; slots: ReadonlyArray<MarginSlot>; total: number; readonly: boolean; labels: CommentCardLabels; session: number; version: number; draft: string | null /* 写着的字，宿主存 */};

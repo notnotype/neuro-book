@@ -459,7 +459,7 @@ onMounted(() => {
         const current = languageFor(catalog);
         const created = new Editor({
             element: root.value,
-            extensions: createMarkdownEditorExtensions({language: current, placeholder: props.placeholder ?? "", host: viewHost, commentMarkerLabel: menus?.label("commentMarker") ?? ""}),
+            extensions: createMarkdownEditorExtensions({language: current, placeholder: props.placeholder ?? "", host: viewHost, commentMarkerLabel: menus === null ? null : menus.label("commentMarker")}),
             editable: !props.readonly,
             editorProps: {attributes: attributes()},
         });

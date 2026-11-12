@@ -104,6 +104,11 @@ const labels = computed<CommentCardLabels>(() => ({
 }));
 
 const viewOpen = computed(() => !props.marginDrawn && viewing.value !== null && viewAt.value.length > 0 && !props.blocked && writing.value === null);
+// 卡片对着的批注没了（撤销、外部重载）：收起，不只是隐藏——批注又回来时（重做）卡片不该没人要求就自己弹出来，指针停在卡片上时被摘掉的卡片也不会补发
+// `pointerleave`，`overCard` 要复位。
+watch(viewAt, (infos) => {
+    if (viewing.value !== null && infos.length === 0) closeView(false);
+}, {flush: "sync"});
 const popoverOpen = computed(() => viewOpen.value || (writing.value !== null && !props.marginDrawn));
 /** 卡片里的批注：关闭的退场动画期间（外框还在淡出）保持关上那一刻的内容，不先变空。 */
 const stack = shallowRef<CommentInfo[]>([]);
@@ -224,6 +229,8 @@ const marginSlots = computed<MarginSlot[]>(() => {
     return slots;
 });
 watch(marginSlots, (slots) => {
+    const alive = new Set(slots.map((slot) => slot.key));
+    for (const key of activeMemory.keys()) if (!alive.has(key)) activeMemory.delete(key);
     for (const slot of slots) {
         const info = slot.mode === "idle" ? undefined : slot.infos[slot.active];
         if (info !== undefined) activeMemory.set(slot.key, {body: info.body, quote: info.quote});
@@ -270,8 +277,11 @@ function scheduleClose(): void {
     }, props.closeDelay);
 }
 
-/** 按住 Ctrl（macOS 上 ⌘ 也行；Ctrl 加点击在 macOS 上是右键，所以那里用 ⌘）：看批注，不是编辑。 */
+/** 按住 Ctrl 或 ⌘（不分平台，macOS 上 Ctrl 加点击是右键，要看卡片用 ⌘）：看批注，不是编辑。 */
 const peeking = (event: {readonly ctrlKey: boolean; readonly metaKey: boolean}): boolean => event.ctrlKey || event.metaKey;
+
+/** 本层此刻处理“看”：页边画着（卡片在页边里）、别的弹层开着、正在写时不处理，点击与 Ctrl 加点击留给 ProseMirror。 */
+const canView = (): boolean => !props.marginDrawn && !props.blocked && writing.value === null;
 
 /** 指针下的批注元素：行内批注是 `comment`，块批注是 `.nb-comment-block`；只认编辑器里的。 */
 function commentElement(target: EventTarget | null): Element | null {
@@ -287,7 +297,7 @@ function markerElement(target: EventTarget | null): Element | null {
 
 /**
  * 按指针坐标取位置，位置上有批注就开卡片。取不到坐标（没有布局）或坐标落在批注外时用元素自己的位置。`pinned` 是点开的。
- * 同一条（或同一组重叠的）批注已经开着时卡片留在原处，不跟着指针跳；点开的把开着的悬停卡片升成“点开的”。
+ * 同一条（或同一组重叠的）批注已经开着时卡片留在原处，不跟着指针跳；点开的把开着的悬停卡片升成“点开的”，悬停不动点开的。
  */
 function openAtPointer(pinned: boolean): void {
     const editor = props.editor;
@@ -298,6 +308,8 @@ function openAtPointer(pinned: boolean): void {
     const infos = commentsAtPos(editor.state.doc, pos);
     if (infos.length === 0) return;
     const open = viewing.value;
+    // 点开的卡片不被悬停换掉、降级（读意见时手碰一下 Ctrl 不该让它变成会自己收的）；只有明确的点击才换。
+    if (open?.pinned === true && !pinned) return;
     const opened = open === null || open.ending ? [] : commentsAtPos(editor.state.doc, open.pos);
     if (open !== null && opened.length === infos.length && opened.every((info, index) => info.identity === (infos[index] as CommentInfo).identity)) {
         if (pinned && !open.pinned) viewing.value = {...open, pinned: true};
@@ -343,7 +355,7 @@ function onPointerLeave(): void {
 
 /** 点符号与按住 Ctrl 点批注文字是“看”：不移动光标、不夺焦，也不让 ProseMirror 把 Ctrl 加点击当成“选中整个块”。捕获阶段先于它处理。 */
 function onMouseDown(event: MouseEvent): void {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || !canView()) return;
     if (markerElement(event.target) !== null || (peeking(event) && commentElement(event.target) !== null)) event.preventDefault();
 }
 
@@ -548,6 +560,8 @@ function submit(text: string): void {
         return;
     }
     const ok = props.editing.run("comment-edit", {...target.ref, text});
+    // 槽位记着的“上次看的那条”按意见认：这条的意见换了，记忆跟着换，槽位不退回第一条。
+    if (ok) for (const [key, remembered] of activeMemory) if (remembered.body === target.ref.body && remembered.quote === target.ref.quote) activeMemory.set(key, {body: text, quote: remembered.quote});
     endWriting(true);
     // 保存后回到“看”（输出 29）：卡片留在改的那一处；页边画着时卡片在页边里，没有浮层。没保存成（批注已经被别处改掉）就收起。
     const back = target.back ?? (target.at === null ? null : {pos: target.at, ending: false, pinned: false});

@@ -136,7 +136,7 @@ describe("render() 挂在普通 DOM 上的组件", () => {
                 provideMarkdownHost({});
                 const host: MarkdownViewHost = {base: () => null, context: markdownViewContext(), assets: null, chips: {targets: {classify: () => ({kind: "other", name: ""}), encodeFile: (target) => target}, fileIcon: () => ({className: ""})}};
                 const language = defaultMarkdownLanguage();
-                const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", host, commentMarkerLabel: ""}), content: {type: "doc", content: [{type: "paragraph", content: [{type: "image", attrs: {src: "a.png", alt: "封面"}}, {type: "text", text: "第一章", marks: [{type: "link", attrs: {href: "chapter://1"}}]}]}]}});
+                const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", host, commentMarkerLabel: null}), content: {type: "doc", content: [{type: "paragraph", content: [{type: "image", attrs: {src: "a.png", alt: "封面"}}, {type: "text", text: "第一章", marks: [{type: "link", attrs: {href: "chapter://1"}}]}]}]}});
                 editors.push(editor);
                 return () => h("div");
             },
@@ -155,7 +155,7 @@ describe("render() 挂在普通 DOM 上的组件", () => {
     it("编辑器的宿主不给上下文：图片与提示用缺省端口，中文", () => {
         const element = document.createElement("div");
         const host: MarkdownViewHost = {base: () => null, assets: null, chips: {targets: {classify: () => ({kind: "other", name: ""}), encodeFile: (target) => target}, fileIcon: () => ({className: ""})}};
-        const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language: defaultMarkdownLanguage(), placeholder: "", host, commentMarkerLabel: ""}), content: {type: "doc", content: [{type: "paragraph", content: [{type: "image", attrs: {src: "a.png", alt: "封面"}}, {type: "text", text: "第一章", marks: [{type: "link", attrs: {href: "chapter://1"}}]}]}]}});
+        const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language: defaultMarkdownLanguage(), placeholder: "", host, commentMarkerLabel: null}), content: {type: "doc", content: [{type: "paragraph", content: [{type: "image", attrs: {src: "a.png", alt: "封面"}}, {type: "text", text: "第一章", marks: [{type: "link", attrs: {href: "chapter://1"}}]}]}]}});
         editors.push(editor);
         expect(element.querySelector("[data-markdown-image]")?.textContent?.trim()).toBe("封面（不显示）");
         expect(element.querySelector("[data-reference-link]")?.getAttribute("title")).toBe("引用：第一章 · chapter://1");

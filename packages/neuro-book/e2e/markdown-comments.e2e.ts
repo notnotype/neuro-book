@@ -236,7 +236,9 @@ test.describe("打开方式（验收 13、21）", () => {
         await expect(popoverCard(page)).toHaveCount(0);
         // 指针还停在批注上，按下 Ctrl：立刻出（没有计时器，上限比旧的 400 毫秒悬停计时短）。
         await page.keyboard.down("Control");
-        await expect(popoverCard(page)).toBeVisible({timeout: 300});
+        await settle(page);
+        // 不重试地数一次：两帧之后已经在了，不是等某个计时到点（机器忙时帧会晚，但先后不变）。
+        expect(await popoverCard(page).count()).toBe(1);
         await expect(popoverCard(page)).toContainText("第一条");
         await page.keyboard.up("Control");
         await waitPastHover(page);
@@ -247,7 +249,8 @@ test.describe("打开方式（验收 13、21）", () => {
         // 按住 Ctrl 再移上去：移到批注上就出。
         await page.keyboard.down("Control");
         await page.mouse.move(comment.x + comment.width - 3, comment.y + comment.height / 2);
-        await expect(popoverCard(page)).toBeVisible({timeout: 300});
+        await settle(page);
+        expect(await popoverCard(page).count()).toBe(1);
         await page.keyboard.up("Control");
         await page.mouse.move(5, 5);
         await expect(popoverCard(page)).toHaveCount(0);
@@ -569,14 +572,14 @@ test.describe("页边（验收 15、22）", () => {
             const box = boxes[index];
             if (paragraph === null || box === undefined) throw new Error("取不到位置");
             // 不小于这一段的高度（减去槽位之间的空），不高于两倍段高。
-            expect(box.height).toBeGreaterThanOrEqual(paragraph.height - 6);
+            expect(box.height).toBeGreaterThanOrEqual(paragraph.height - 4);
             expect(box.height).toBeLessThanOrEqual(2 * paragraph.height + 1);
             expect(box.x).toBeGreaterThanOrEqual(after.x + after.width - 2);
         }
-        // 下一段有批注的槽位不借别人的地方：不高于这一段的高度（一行的短段放一行意见时稍高，最多一行）。
+        // 下一段有批注的槽位不借别人的地方：不高于这一段的高度（一行的短段放一行意见时是一行意见的卡片高度，约 32 到 36px）。
         const first = await paragraphBox(page, "癸子丑");
         if (first === null) throw new Error("取不到位置");
-        expect((boxes[0] as {height: number}).height).toBeLessThanOrEqual(first.height + 40);
+        expect((boxes[0] as {height: number}).height).toBeLessThanOrEqual(Math.max(first.height, 40) + 1);
         // 互不遮盖。
         for (let index = 1; index < boxes.length; index += 1) expect((boxes[index] as {y: number}).y).toBeGreaterThanOrEqual((boxes[index - 1] as {y: number; height: number}).y + (boxes[index - 1] as {height: number}).height - 1);
         // 光标进批注：不出浮层，这一段是当前；各槽位的位置与尺寸不变，没有左边框一类的侧边色条（输出 33）。

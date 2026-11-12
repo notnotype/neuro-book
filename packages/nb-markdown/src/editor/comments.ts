@@ -190,22 +190,35 @@ export function territoryAt(doc: PMNode, pos: number): number {
 /** 这条批注所在的段（起点位置）：按它第一截的起点，块批注按块里第一个文字处。 */
 export const territoryOf = (doc: PMNode, info: CommentInfo): number => territoryAt(doc, info.start);
 
-/** 文档顺序里下一段的起点，没有为 null。`pos` 是一段的起点（`territoryAt` 的结果）。 */
+/** 这个节点里（含它自己）文档顺序最前的一段的起点；`at` 是节点之前的位置，里面没有段为 null。 */
+function firstTerritoryIn(node: PMNode, at: number): number | null {
+    if (isTerritory(node)) return at;
+    let offset = at + 1;
+    for (let index = 0; index < node.childCount; index += 1) {
+        const child = node.child(index);
+        const found = firstTerritoryIn(child, offset);
+        if (found !== null) return found;
+        offset += child.nodeSize;
+    }
+    return null;
+}
+
+/**
+ * 文档顺序里下一段的起点，没有为 null。`pos` 是一段的起点（`territoryAt` 的结果）。从这一段的末尾沿深度往外找下一个兄弟再往里下降：
+ * 代价与嵌套深度成正比，不随文档长度涨（页边每个槽位每次重排都要问一次）。
+ */
 export function nextTerritory(doc: PMNode, pos: number): number | null {
     const node = pos < doc.content.size ? doc.nodeAt(pos) : null;
     if (node === null) return null;
-    const from = pos + node.nodeSize;
-    let found: number | null = null;
-    // 包着 `from` 的祖先也会访问到（起点在 `from` 之前）：只下降，不当作段。
-    doc.nodesBetween(from, doc.content.size, (child, at) => {
-        if (found !== null) return false;
-        if (at >= from && isTerritory(child)) {
-            found = at;
-            return false;
+    const $end = doc.resolve(pos + node.nodeSize);
+    for (let depth = $end.depth; depth >= 0; depth -= 1) {
+        const parent = $end.node(depth);
+        for (let index = $end.indexAfter(depth); index < parent.childCount; index += 1) {
+            const found = firstTerritoryIn(parent.child(index), $end.posAtIndex(index, depth));
+            if (found !== null) return found;
         }
-        return true;
-    });
-    return found;
+    }
+    return null;
 }
 
 /**
@@ -379,7 +392,8 @@ function markerElement(count: number, label: string): HTMLElement {
     element.contentEditable = "false";
     element.setAttribute("data-comment-marker", "");
     if (count > 1) element.setAttribute("data-count", String(count));
-    element.setAttribute("role", "button");
+    // 只有指针能点它（键盘走 Ctrl+Alt+M 与页边）：不写 `button`，免得声明了按钮语义却按不了。
+    element.setAttribute("role", "img");
     element.setAttribute("aria-label", label);
     element.title = label;
     return element;
