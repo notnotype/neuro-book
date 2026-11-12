@@ -18,13 +18,15 @@ updated: 2026-11-12
 - 第 1 层：根 `AGENTS.md`（核心规则、触发表、发命令前、授权边界、规则怎么改）、`CLAUDE.md`、`PROJECT-STATUS.md`、`docs/`（真相源优先级与流程、Spec、ADR、提案、编码与仓库流程、测试与验证门禁）、`.agents/works/README.md`（身份、状态、手工领号、记录只放主工作区、本地与入库、模板）。
 - 第 2 层：`.agents/skills/` 下 7 个 Skill：implementation-planning、writing-specs、reviewing、diagnosing-bugs、doc-review、autonomous-delivery、task-reflection，加 `.claude/skills` 软链。Spec 模板与 `plan.md` 结构从第 1 层移进对应 Skill，第 1 层只留指针。`design-review`、`ui-development` 依赖 nbdev 与组件 Lab，留到第 5 层。
 - 验证：模板内全部相对链接与锚点用脚本解析过，无失效；领号的 git 命令在 NeuroBook 上实跑，取到 `w00044-brand-and-mascot`（本 Work 领号前的最大值）。
-- 反思：[reflection.md](reflection.md)，第 1 层 11 条、第 2 层 5 条，每条带证据、模板的处理与给 NeuroBook 的建议。
+- 反思：[reflection.md](reflection.md)，第 1 层 11 条、第 2 层 5 条、实际使用 1 条，每条带证据、模板的处理与给 NeuroBook 的建议。
+- 实际使用：模板复制到 pc-notype 的 `D:\CodeRepository\manus`（Manus Studio 的笔试作答目录）。那里的 Agent 没建 Work、把调研写进宿主的 `.work/`，据此补了三处规则（反思第 17 条）并同步过去；那里已有的产出没有动。
 
 ## 决定
 
 - 2026-11-12 开发者：第 1 层可以，继续第 2 层。
 - 2026-11-12 开发者：`task-reflection`、`autonomous-delivery` 放进模板。
 - 2026-11-12 开发者：两层的反思记成 NeuroBook 的一个 Work（本 Work）；模板里不再留反思副本。
+- 2026-11-12 开发者：第 17 条的模板修改照做，并把模板同步到 manus。
 
 ## 待开发者决定
 

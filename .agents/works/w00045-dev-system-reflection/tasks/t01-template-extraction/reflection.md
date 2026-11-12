@@ -128,3 +128,18 @@
 ### 第 2 层的待确认项（已定）
 
 - 开发者 2026-11-12 定：`task-reflection` 与 `autonomous-delivery` 都放进模板。模板里的 `task-reflection` 是项目级的一份，回写位置表以它为准，根 `AGENTS.md` 只留触发条件与链接。
+
+## 实际使用（2026-11-12）
+
+模板复制到 pc-notype 的 `D:\CodeRepository\manus` 后，那里的 Agent（Manus Studio）做 MCP 终端调研时没有建任何 Work，调研笔记写进了宿主自带的 `.work/mcp-terminal-research/`，题目抄进了 `.local/manus/README.md`。
+
+### 17. 没有“动手前先建 Work”这条硬规则
+
+模板（以及 NeuroBook）只写了 Work 与 Task 长什么样、“一个 Work 至少有一个 Task”，没写什么时候必须建。NeuroBook 根 `AGENTS.md` 的触发表是“创建、推进或恢复 current 工作 → 读 works 规则；只读问答不新建 Work”，同样是“要建时读什么”，不是“必须建”。我在 NeuroBook 能照做，靠的是 nbdev 与自己的记忆；换一个没有这些的宿主，Agent 就沿用宿主的默认目录。同时还暴露出三处缺口：
+
+- 宿主自带的工作目录（`.work/`、`outputs/`）算不算记录，没有写；
+- 调研笔记放哪没有写：NeuroBook 有 7 个 Work 在 Work 层用了 `research/`，`.agents/works/README.md` 没有登记这个约定；
+- 模板的领号命令只有 bash 写法，Windows 的 PowerShell 跑不了。
+
+- 模板：根 `AGENTS.md` 的核心规则加“除只读问答外，动手前先找到或新建 Work 与 Task；调研、过程产物与证据写进 Task 或 Work 目录，不写进宿主自带的工作目录；宿主约定与本仓库冲突时以本仓库为准”；`.agents/works/README.md` 加 Work 层 `research/` 与“宿主工作目录不是记录”；领号补 PowerShell 写法（在 pc-notype 的临时仓库实测，能取到只在另一条分支上的编号）。
+- 建议：NeuroBook 根 `AGENTS.md` 的核心规则补同样一条；`.agents/works/README.md` 的目录树补 `research/`。

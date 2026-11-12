@@ -30,4 +30,4 @@ updated: 2026-11-12
 
 ## Task
 
-- [t01 提取项目模板第 1、2 层与反思](tasks/t01-template-extraction/README.md)：第 1、2 层已提取，反思 16 条见 [reflection.md](tasks/t01-template-extraction/reflection.md)
+- [t01 提取项目模板第 1、2 层与反思](tasks/t01-template-extraction/README.md)：第 1、2 层已提取，反思 17 条见 [reflection.md](tasks/t01-template-extraction/reflection.md)
