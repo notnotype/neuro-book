@@ -621,7 +621,12 @@ test.describe("页边（验收 15、22）", () => {
         await expect(prose(page).locator(".nb-comment-current")).toHaveText("三");
         await expect(prose(page)).toBeFocused();
         // 光标走进第三条的文字：槽位自动切过去；走出来之后仍显示它。
-        for (let index = 0; index < 3; index += 1) await page.keyboard.press("ArrowRight");
+        // 程序挪的光标经 `selectionchange` 异步同步到浏览器：先等两帧，再一格一格走（机器忙时连按会从旧位置起步）。
+        await settle(page);
+        for (let index = 0; index < 3; index += 1) {
+            await page.keyboard.press("ArrowRight");
+            await settle(page);
+        }
         await expect(slot.locator("[data-markdown-comment-pager]")).toHaveText("3/3");
         await expect(slot.locator("[data-markdown-comment-body]")).toHaveText("丙意见");
         await expect(slot.getByRole("button", {name: "下一条批注"})).toBeDisabled();
