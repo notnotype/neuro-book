@@ -152,3 +152,40 @@
 
 - 模板：新增 `writing-proposals`（方向 Task → 调研 → 讨论方向 → 写提案 → 设计审查与四类处理 → 开发者接受 → ADR 与 planned Spec → 实现 Task），把 w00043 t01 的做法写成步骤；`docs/README.md` 的流程改成“方向 Task：调研 → 讨论 → 提案 → 审查 → 接受 → planned Spec → 实现 Task → plan”，`docs/proposals/README.md` 写明提案在方向 Task 下写、接受后建的是实现 Task。
 - 建议：NeuroBook 补同样的 Skill，并改正流程描述：`docs/README.md` 第 12 行与第 52 行、`docs/proposals/README.md` 第 107 行写的是接受后“创建或复用 Work 与 Task”；`docs/specs/README.md` 第 312 行写的是“创建 Work 与实现 Task”，与实际一致，不用改。可以并入 [t02](../t02-template-as-upstream/README.md)：模板成为上游后直接取用。
+
+## 规范拆进模板（2026-11-12）
+
+开发者要求把项目规范去 NeuroBook 化拆进模板，点名 UI 规范里沉淀的经验。拆的是 `packages/nb-ui/docs/` 的设计语言（1140 行）与开发规范、`docs/standards/code/` 的前端、组件、语言、脚本、合同、数据格式规范、`docs/standards/prompts.md`，以及 `docs/testing/README.md` 里与浏览器有关的部分。
+
+### 19. 通用判据与 nbook 的取值、历史写在同一段里
+
+设计语言的每一节都同时装着三样东西：可以搬到任何项目的判据（材质只有一层、阴影三档、对话框不是三段式盒子），nbook 主题的取值与配方（圆角 10、`nbook-lens` 30 与 14），以及开发者某天看过之后的决定（“2026-10-12 看过平铺后选回卡片”“2026-11-05 定”）。踩过的坑也一样：64 条里约 50 条是浏览器与常见库的通用行为，夹着 `lab:shot`、`check:dist`、Lab 路径与 Work 编号。拆的时候几乎每段都要改写，不能整段搬。
+
+这对 NeuroBook 自己也是成本：读者要判断“这一句是规则还是当时的取值”，而取值本来已经在 `vars.css` 里，按文件头的说法本文“不抄取值”。
+
+- 模板：拆成 `docs/standards/ui/` 下六份（README、design-language、engineering、components、frontend、pitfalls），只留判据与理由；变量名作为推荐的角色名，README 留一张“角色名对照”给项目登记真实名字；坑重新编号为 1 到 64，按“CSS 与渲染”“DOM 与组件”“探针与验收”分组，框架与库专属的单独成节（原子 CSS、无头组件库、Vue）。
+- 建议：NeuroBook 的设计语言把“开发者某天定的取值”挪到主题自己的说明或决策记录里，正文只留判据；坑节可以直接从模板的 pitfalls 回取通用部分，本仓库只追加 nb-ui 专属的条目。并入 [t02](../t02-template-as-upstream/README.md) 一起考虑。
+
+### 20. 界面规则分在四处，入口靠 Skill 一张表
+
+视觉判据在 `packages/nb-ui/docs/design-language.md`，工程合同在 `packages/nb-ui/docs/ui-development-spec.md`，组件连接在 `docs/standards/code/components.md`，前端工程在 `docs/standards/code/frontend.md`，UI 验收分档在 `docs/testing/README.md`。`frontend.md` 自己写着“这两份规范此前只从 nb-ui 内部路由得到，主应用侧改样式的人找不到，材料语言因此被逐页重新发明过”：靠在 frontend.md 补一句指针修过一次。
+
+- 模板：界面规范收在 `docs/standards/ui/` 一个目录，`code.md` 的路由表按前端源码路径指过去，`ui-development` Skill 只做“先读哪份”的表与交付前检查。
+- 建议：NeuroBook 不必搬家（nb-ui 的文档跟着包走有道理），但可以在 `docs/standards/` 放一个界面规范的入口页，列这五处各写什么；比让每个读者从 Skill 的表里拼起来稳。
+
+### 21. 规范里留着进度与过期的说法
+
+- `docs/standards/code/frontend.md` 的“存量迁移方向”是一张旧应用 localStorage 键的迁移表（`novel.ide.local` 等），属于迁移进度，而 `components.md` 的“边界”一节写着“任何一次重构的进度不属于本规范”。
+- `components.md` 写“本仓库用 Nuxt 自动注册，没有引入步骤”：新应用不是 Nuxt（`packages/neuro-book` 下没有 `nuxt.config`），这句是旧应用时期留下的。
+- `docs/standards/code/README.md` 的路由表里有 4 行是 w00005 实验目录下的具体文件，而这类一次性目录照模板的规则应跟着 Task 的说明走，不进路由表。
+- `docs/testing/README.md` 的“通用包测试合同（2026-09-11）”保留着“2026-09-22 修订：……原要求作废”的修订说明，读者要在脑子里把作废的部分划掉。
+
+- 模板：没带这些；`code.md` 已写“表里只写长期存在的路径”。
+- 建议：迁移表移进存储的 Spec 或对应 Task；删掉 Nuxt 那句；路由表去掉 w00005 的 4 行；通用包测试合同按现行规则改写，修订经过留给 Git 历史。都是小改，可以一个 Task 做完。
+
+### 22. ui-development Skill 的语气与粒度和仓库其它 Skill 不一致
+
+`ui-development` 用“唯一真相源”“100% 优先复用”“严禁”这类强调词，第 3 条检查是“对话框组件名不以 Dialog 结尾时在 `component-index-model.ts` 登记”这种工具细节，和其它 Skill“写步骤、判据与理由”的写法不一样；`description` 只说“指导……开发”，没写什么时候触发。
+
+- 模板：重写成“先读什么、复用、交付前检查、回写”四节，`description` 写明触发条件与不触发的情况。
+- 建议：NeuroBook 的 `ui-development` 照这个结构改写，Lab 登记这类工具细节放进 Lab 的 fixtures 说明。

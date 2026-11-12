@@ -26,9 +26,9 @@ updated: 2026-11-12
 | 2 方法 | 仓库内 Skill | 已做（t01） |
 | 3 机检 | 文档与 Work 检查、测试写法检查、按改动选测试 | 未开工，要先定技术栈 |
 | 4 工具 | 领号与状态命令行、产物与答复面板、worktree 工具 | 未开工 |
-| 5 领域 | UI 与设计评审、Lab、真实模型测试、发布等 | 未开工 |
+| 5 领域 | UI 与设计评审、Lab、真实模型测试、发布等 | 界面规范、`design-review` 与语言、脚本等规范已做（t01）；Lab、真实模型测试、发布未开工 |
 
 ## Task
 
-- [t01 提取项目模板第 1、2 层与反思](tasks/t01-template-extraction/README.md)：第 1、2 层已提取，反思 18 条见 [reflection.md](tasks/t01-template-extraction/reflection.md)
+- [t01 提取项目模板第 1、2 层与反思](tasks/t01-template-extraction/README.md)：第 1、2 层已提取，反思 22 条见 [reflection.md](tasks/t01-template-extraction/reflection.md)
 - [t02 让模板成为通用治理的上游](tasks/t02-template-as-upstream/README.md)：计划中，未开工
