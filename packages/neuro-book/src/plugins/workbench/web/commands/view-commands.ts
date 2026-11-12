@@ -1,8 +1,9 @@
 /**
  * 视图命令（docs/specs/ui/workbench-layout.md 输出 23、35，docs/specs/workbench/views.md 输出 14）。打开视图：显示它所在的面板、激活；不给 `viewId` 时经选择挑一个。
- * 移动视图：标签的“移动到”带 `{viewId, target}`（面板 id）或 `{viewId, newPanelNextTo}`（面板 id）直接执行；命令面板执行 `{}`，经选择先选视图、再选目标。
+ * 移动视图（commands.md 的 `move-view`）：分节标题与浮动窗视图标签的“移动到”带 `{viewId, container}`（容器 id）或 `{viewId, newContainerIn}`（区域名）直接执行；
+ * 命令面板执行 `{}`，经选择先选视图、再选目标，第二步的目标表与菜单同一份（`moveTargetsOf`）。
  *
- * 选择之间视图被别处移走时，按 `stale-target` 拒绝且不写。
+ * 选择之间目标容器没了（没有成员也没有声明），按 `stale-target` 拒绝且不写。
  */
 
 import {findTab, tabKey} from "@notnotype/nb-layout";
@@ -10,13 +11,14 @@ import type {LayoutResult} from "@notnotype/nb-layout";
 import {Type} from "typebox";
 
 import type {CommandImplementation, CommandResult, WrittenCommandDeclaration} from "nbook/plugins/commands/shared/contracts";
-import type {TextResolver} from "nbook/shared/localized-text";
+import type {DisplayText} from "nbook/shared/localized-text";
 
 import type {QuickPick} from "../../shared/contracts";
 import {workbenchText} from "../../shared/text";
-import {OPEN_VIEW_COMMAND} from "../../shared/views";
-import type {LayoutDocStore} from "../state/layout-doc-store";
-import {canResetView, moveTargetsOf, panelTitle} from "../state/layout-present";
+import {OPEN_VIEW_COMMAND, VIEW_LOCATIONS} from "../../shared/views";
+import type {ViewLocation} from "../../shared/views";
+import type {LayoutDocStore, MoveViewTarget} from "../state/layout-doc-store";
+import {moveTargetsOf} from "../state/layout-present";
 import type {MoveTarget} from "../state/layout-present";
 import {workbenchState} from "../state/public-state";
 
@@ -37,11 +39,11 @@ export const VIEW_COMMAND_DECLARATIONS = {
     },
     [MOVE_VIEW_COMMAND]: {
         category: workbenchText("categories.view"),
-        description: "Move a view to the end of another panel's tabs (target), or into a new panel next to one (newPanelNextTo). Give viewId and one of those, or nothing to pick them.",
+        description: "Move a view into another view container as its last section (container: a container id), or into a new container of its own in an area (newContainerIn: sidebar, auxiliarybar or panel). Give viewId and one of those, or nothing to pick them.",
         args: Type.Object({
             viewId: Type.Optional(Id),
-            target: Type.Optional(Id),
-            newPanelNextTo: Type.Optional(Id),
+            container: Type.Optional(Id),
+            newContainerIn: Type.Optional(Type.Union(VIEW_LOCATIONS.map((region) => Type.Literal(region)))),
         }, {additionalProperties: false}),
         effect: "write",
         expose: {agent: "never"},
@@ -63,9 +65,24 @@ const TEXT = {
     limit: workbenchText("viewCommands.limit"),
 } as const;
 
-/** 选择项里“重置位置”的 id；面板 id 不会是它。 */
+/** 选择项的 id 按种类加前缀：容器 id 是插件给的，不能让它和别的种类撞。 */
+const CONTAINER_ITEM = "container:";
+const NEW_CONTAINER_ITEM = "new:";
 const RESET_ITEM = "reset:";
-const NEW_PANEL_ITEM = "new:";
+
+/** “新容器（某区域）”的名字（输出 23）。 */
+const NEW_CONTAINER_TEXT: Readonly<Record<ViewLocation, DisplayText>> = {
+    sidebar: workbenchText("viewCommands.newContainerIn.sidebar"),
+    auxiliarybar: workbenchText("viewCommands.newContainerIn.auxiliarybar"),
+    panel: workbenchText("viewCommands.newContainerIn.panel"),
+};
+
+/** 目标表的一项在选择里的 id、名字，和执行时交给 store 的目标；菜单（`WorkbenchShell.vue`）用同一份。 */
+export function moveTargetItem(target: MoveTarget): {readonly id: string; readonly label: DisplayText; readonly args: MoveViewTarget} {
+    if (target.kind === "container") return {id: `${CONTAINER_ITEM}${target.container}`, label: target.label.title, args: {container: target.container}};
+    if (target.kind === "new-container") return {id: `${NEW_CONTAINER_ITEM}${target.region}`, label: NEW_CONTAINER_TEXT[target.region], args: {newContainerIn: target.region}};
+    return {id: `${RESET_ITEM}${target.container}`, label: TEXT.reset, args: {container: target.container}};
+}
 
 const DONE: CommandResult<null> = {ok: true, value: null};
 
@@ -80,10 +97,10 @@ const isPlaced = (store: LayoutDocStore, viewId: string): boolean => findTab(sto
 
 function targetsFor(store: LayoutDocStore, viewId: string): ReadonlyArray<MoveTarget> | null {
     const movable = store.state.catalog.get(viewId)?.movable !== false;
-    return movable ? moveTargetsOf(store.actions.document(), viewId) : null;
+    return movable ? moveTargetsOf(store.actions.document(), viewId, store.state.catalog, store.state.containers) : null;
 }
 
-async function pickAndMove(store: LayoutDocStore, quickPick: QuickPick, text: TextResolver): Promise<CommandResult<null>> {
+async function pickAndMove(store: LayoutDocStore, quickPick: QuickPick): Promise<CommandResult<null>> {
     const {catalog} = store.state;
     const movable = [...catalog.keys()].filter((viewId) => isPlaced(store, viewId) && targetsFor(store, viewId) !== null);
     const pickedView = await quickPick.pick({
@@ -97,21 +114,18 @@ async function pickAndMove(store: LayoutDocStore, quickPick: QuickPick, text: Te
     // 第二步的目标表按第一步选完时的文档求。
     const targets = targetsFor(store, pickedView.id);
     if (targets === null) return {ok: false, code: "stale-target", reason: TEXT.stale};
+    const items = targets.map(moveTargetItem);
     const pickedTarget = await quickPick.pick({
         title: TEXT.pickTarget,
         placeholder: TEXT.pickTarget,
-        items: [
-            ...targets.map((target) => (target.kind === "panel"
-                ? {id: target.panel, label: panelTitle(store.actions.document(), catalog, target.panel)}
-                : {id: `${NEW_PANEL_ITEM}${target.nextTo}`, label: workbenchText("viewCommands.newPanelNextTo", {panel: text.t(panelTitle(store.actions.document(), catalog, target.nextTo))})})),
-            ...(canResetView(store.actions.document(), catalog, pickedView.id) ? [{id: RESET_ITEM, label: TEXT.reset}] : []),
-        ],
+        items: items.map(({id, label}) => ({id, label})),
     });
     if (pickedTarget.kind === "unavailable") return {ok: false, code: "unavailable", reason: pickedTarget.reason};
     if (pickedTarget.kind !== "item") return DONE;
-    if (pickedTarget.id === RESET_ITEM) return resultOf(store.actions.resetView(pickedView.id));
-    const target = pickedTarget.id.startsWith(NEW_PANEL_ITEM) ? {newPanelNextTo: pickedTarget.id.slice(NEW_PANEL_ITEM.length)} : pickedTarget.id;
-    return resultOf(store.actions.moveView(pickedView.id, target));
+    const chosen = items.find((item) => item.id === pickedTarget.id);
+    if (chosen === undefined) return DONE;
+    // 第二步期间布局可能又变了：store 按执行这一刻的文档重验，容器没了是 stale-target。
+    return resultOf(store.actions.moveView(pickedView.id, chosen.args));
 }
 
 /** 不移动焦点：成功表示布局已改，视图在下一次渲染时出现。 */
@@ -135,7 +149,7 @@ async function pickAndOpen(store: LayoutDocStore, quickPick: QuickPick): Promise
 
 type ViewCommands = {readonly [K in keyof typeof VIEW_COMMAND_DECLARATIONS]: CommandImplementation};
 
-export function viewCommands(layout: () => LayoutDocStore | null, quickPick: QuickPick, text: TextResolver): ViewCommands {
+export function viewCommands(layout: () => LayoutDocStore | null, quickPick: QuickPick): ViewCommands {
     return {
         [OPEN_VIEW_COMMAND]: {
             run: (raw) => {
@@ -149,11 +163,11 @@ export function viewCommands(layout: () => LayoutDocStore | null, quickPick: Qui
             run: (raw) => {
                 const store = layout();
                 if (store === null) return {ok: false, code: "unavailable", reason: TEXT.noLayout};
-                const {viewId, target, newPanelNextTo} = raw as {readonly viewId?: string; readonly target?: string; readonly newPanelNextTo?: string};
-                if (viewId === undefined && target === undefined && newPanelNextTo === undefined) return pickAndMove(store, quickPick, text);
-                // 目标只能给一个：两个都给时说不清要哪个。
-                if (viewId === undefined || (target === undefined) === (newPanelNextTo === undefined)) return {ok: false, code: "invalid-args", reason: TEXT.partial};
-                return resultOf(store.actions.moveView(viewId, target ?? {newPanelNextTo: newPanelNextTo as string}));
+                const {viewId, container, newContainerIn} = raw as {readonly viewId?: string; readonly container?: string; readonly newContainerIn?: ViewLocation};
+                if (viewId === undefined && container === undefined && newContainerIn === undefined) return pickAndMove(store, quickPick);
+                // 两个目标互斥：都给时说不清要哪个，只给一部分时缺了要动谁或去哪。
+                if (viewId === undefined || (container === undefined) === (newContainerIn === undefined)) return {ok: false, code: "invalid-args", reason: TEXT.partial};
+                return resultOf(store.actions.moveView(viewId, container === undefined ? {newContainerIn: newContainerIn as ViewLocation} : {container}));
             },
         },
     };

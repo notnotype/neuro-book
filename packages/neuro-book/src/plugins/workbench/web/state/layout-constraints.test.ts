@@ -7,7 +7,7 @@ import {barRef, findTab, GRID_SNAPSHOT_VERSION, isPanelShown, layoutDropSectors,
 import type {LayoutDoc, LayoutEdge, PanelName, PanelRecord} from "@notnotype/nb-layout";
 
 import {defaultLayoutDoc} from "./default-tree";
-import {collapseOrder, createLayoutPolicy, layoutAccepts, layoutEdgeTarget, layoutProjectionOptions, layoutSeamAccepts, newPanelEdgeTarget, panelConstraints, toolPanelAxis} from "./layout-constraints";
+import {collapseOrder, createLayoutPolicy, layoutAccepts, layoutEdgeTarget, layoutProjectionOptions, layoutSeamAccepts, panelConstraints, toolPanelAxis} from "./layout-constraints";
 import type {DropSplit} from "./layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 
@@ -161,11 +161,6 @@ describe("哪条边是落点（输出 25、26）", () => {
         expect(layoutSeamAccepts(doc, [], "column", "center")).toBe(false);
         expect(layoutSeamAccepts(doc, [], "center", "aux")).toBe(false);
         expect(layoutSeamAccepts(doc, [], "area", "row")).toBe(false);
-    });
-
-    it("“移动到”的新面板不跟设置走：从相邻两块取", () => {
-        const doc = splitDoc();
-        expect(newPanelEdgeTarget(doc, "x")).toEqual({kind: "between", branch: "column", before: "x", after: "x2"});
     });
 
     it("编辑组挨着面板的那条边是拆这一组，不从面板取空间", () => {

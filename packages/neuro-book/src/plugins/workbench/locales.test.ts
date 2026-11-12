@@ -363,7 +363,6 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     "partCommands.parts.statusbar": {"zh-CN": "状态栏", "en-US": "Status bar"},
     "viewCommands.parts.editor": {"zh-CN": "编辑区", "en-US": "Editor area"},
     "viewCommands.parts.editorAt": {"zh-CN": "编辑区 {index}", "en-US": "Editor area {index}"},
-    "viewCommands.newPanelNextTo": {"zh-CN": "新面板（挨着{panel}）", "en-US": "New panel (next to {panel})"},
     "shell.drop.addTab": {"zh-CN": "添加为标签", "en-US": "Add as a tab"},
     "shell.drop.insert": {"zh-CN": "放在这里", "en-US": "Place here"},
     "shell.drop.between": {"zh-CN": "放到两块之间", "en-US": "Place between the two"},
@@ -402,19 +401,23 @@ const ADDED: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US"
     // w00026 t24 切片 4：活动栏上段的落点（docs/specs/ui/workbench-layout.md 输出 45）。
     "shell.drop.newContainer": {"zh-CN": "单独成一个入口", "en-US": "Give it its own entry"},
     "shell.drop.joinContainer": {"zh-CN": "并入{part}", "en-US": "Add to {part}"},
+    // w00026 t24 切片 5：“移动到”的新容器（docs/specs/ui/workbench-layout.md 输出 23）。
+    "viewCommands.newContainerIn.sidebar": {"zh-CN": "新容器（侧栏）", "en-US": "New container (Sidebar)"},
+    "viewCommands.newContainerIn.auxiliarybar": {"zh-CN": "新容器（右栏）", "en-US": "New container (Secondary Side Bar)"},
+    "viewCommands.newContainerIn.panel": {"zh-CN": "新容器（底部面板）", "en-US": "New container (Panel)"},
 };
 
 /**
  * 有意改过的文字：右栏统一叫 Secondary Side Bar，“Move To” 改成与 viewCommands.pickTarget 相同的 “Move to”，数量键的单数形用单数；
- * 片 7a 起“移动到”的目标是面板、不再是容器，`viewCommands.partial` 与 `stale` 两句中英文都跟着改。
+ * 片 7a 起“移动到”的目标是面板、不再是容器，`viewCommands.partial` 与 `stale` 两句中英文都跟着改；t24 切片 5 起目标又是容器（`container`、`newContainerIn`），两句再改一次。
  */
 const REVISED: Readonly<Record<string, {readonly "zh-CN"?: string; readonly "en-US"?: string}>> = {
     "titlebar.toggle.auxiliarybar": {"en-US": "Toggle Secondary Side Bar"},
     "titlebar.menuItems.auxiliarybar": {"en-US": "Secondary Side Bar"},
     "partCommands.parts.auxiliarybar": {"en-US": "Secondary Side Bar"},
     "state.auxiliaryBarVisible.reason": {"en-US": "The secondary side bar is hidden or dragged closed"},
-    "viewCommands.partial": {"zh-CN": "要么都不给，要么同时给 viewId 和 target", "en-US": "Give nothing, or both viewId and target"},
-    "viewCommands.stale": {"zh-CN": "视图或目标面板已经不在了，没有移动", "en-US": "The view or the target panel is gone; nothing moved"},
+    "viewCommands.partial": {"zh-CN": "要么都不给，要么给 viewId 和 container、newContainerIn 中的一个", "en-US": "Give nothing, or viewId and one of container and newContainerIn"},
+    "viewCommands.stale": {"zh-CN": "视图或目标容器已经不在了，没有移动", "en-US": "The view or the target container is gone; nothing moved"},
     "themeEditor.transfer.copyFailed": {"zh-CN": "复制失败：读不到或传不上素材 {reason}", "en-US": "Copy failed: the asset {reason} could not be read or uploaded"},
     "settings.dropSectors.description": {"zh-CN": "拖动手感是落点指示时，拖到面板上画出上下左右中能放的位置；实时布局不画，布局本身就是预览", "en-US": "With the drop indicator drag feel, show the places a view or tab can go when dragged over a panel; live layout doesn't draw them, the layout itself is the preview"},
 };

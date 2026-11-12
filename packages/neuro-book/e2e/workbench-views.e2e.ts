@@ -99,7 +99,7 @@ async function pick(page: Page, placeholder: string, text: string): Promise<void
     await page.keyboard.press("Enter");
 }
 
-/** 目标面板的名字也是“新面板（挨着…）”的一部分，过滤不能收敛到一项：按完整名称点那一项。 */
+/** 容器的标题是视图的标题，也是第一步候选的名字，过滤不一定收敛到一项：按完整名称点那一项。 */
 async function pickExact(page: Page, placeholder: string, label: string): Promise<void> {
     await expect(page.getByRole("combobox", {name: placeholder})).toBeFocused();
     await page.getByRole("option", {name: label, exact: true}).click();
@@ -116,7 +116,8 @@ async function showView(page: Page, viewId: string): Promise<void> {
 }
 
 /**
- * 右键视图所在分节的标题，在菜单里选目标：移动视图的入口（输出 23），目标名是面板名、“新面板（挨着 X）”或“重置位置”。
+ * 右键视图所在分节的标题，在菜单里选目标：移动视图的入口（输出 23），目标名是容器的标题（隐式容器写它的视图标题）、
+ * “新容器（某区域）”、“浮动”或“重置位置”。
  * 活动栏入口的右键菜单是容器的（输出 44），不是视图的。视图自己的容器在侧栏、不是当前容器时分节没有标题 DOM，先切过去。
  */
 async function moveViaMenu(page: Page, viewId: string, target: string): Promise<void> {
@@ -185,7 +186,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     /** 记录里用到的字段。区域的锚没有标签，记着当前容器；分节记着它归哪个容器（输出 40）。 */
     interface SavedDoc {
-        readonly panels: Readonly<Record<string, {readonly tabs: ReadonlyArray<{readonly kind: string; readonly viewId?: string}>; readonly active: string | null; readonly hidden?: boolean; readonly collapsed?: boolean; readonly container?: string; readonly activeContainer?: string}>>;
+        readonly panels: Readonly<Record<string, {readonly tabs: ReadonlyArray<{readonly kind: string; readonly viewId?: string}>; readonly active: string | null; readonly hidden?: boolean; readonly collapsed?: boolean; readonly container?: string; readonly activeContainer?: string; readonly entries?: ReadonlyArray<string>}>>;
     }
 
     /** 本页客户端存下的 `workbench.layout`（`local`，按客户端分行）；还没写过为 null。后端由各用例共用，只看本用例这一行。 */
@@ -460,18 +461,19 @@ test.describe("产品页：测试插件贡献的视图", () => {
         const containers = (...viewIds: string[]) => viewIds.map((viewId) => `view:${viewId}`);
         expect(await entries()).toEqual(containers(A, B, C));
         for (const viewId of [A, B, C]) await expect(toolEntry(page, viewId)).toHaveAttribute("data-tool-view", viewId);
-        // 乙移到右栏：成了那边的容器的分节，自己的容器没有成员，入口消失（输出 41）；右栏的容器不在活动栏里。
-        await moveViaMenu(page, B, "右栏");
+        // 乙移进右栏样例丁的容器：成了那个容器的分节，自己的容器没有成员，入口消失（输出 41）；右栏的容器不在活动栏里。
+        await moveViaMenu(page, B, "样例丁");
         await expect.poll(entries).toEqual(containers(A, C));
         await expect.poll(() => instanceOf(page, B)).toMatchObject({location: "auxiliarybar"});
-        // 乙移进侧栏：成为侧栏当前容器的又一个分节。入口还是两个；当前容器的入口含两个视图，不再写单个视图，悬停文字写出两个视图。
-        await moveViaMenu(page, B, "侧栏");
+        // 乙移进样例甲的容器：成为它最后一个分节，侧栏切到它。入口还是两个；这个入口含两个视图，不再写单个视图，悬停文字写出两个视图。
+        await moveViaMenu(page, B, "样例甲");
         await expect.poll(() => instanceOf(page, B)).toMatchObject({location: "sidebar"});
         await expect.poll(entries).toEqual(containers(A, C));
         const current = page.locator('[data-tool-entry][aria-pressed="true"]');
         await expect(current).toHaveCount(1);
+        await expect(current).toHaveAttribute("data-tool-entry", `view:${A}`);
         expect(await current.getAttribute("data-tool-view")).toBeNull();
-        const host = (await current.getAttribute("data-tool-entry")) === `view:${A}` ? "样例甲" : "样例丙";
+        const host = "样例甲";
         await expect(current).toHaveAccessibleName(host);
         // 提示的面里除了看得见的字还有给读屏的一份，所以比“包含”。
         await current.hover();
@@ -507,13 +509,13 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await titleOnly(D);
         await expect(headOf(page, D).locator(`[data-panel-tab="view:${D}"]`)).toBeVisible();
         await expect(page.locator(`[data-content="view:${D}"] [role="region"]`)).toHaveCount(1);
-        // 甲进了右栏：是又一个分节，两块各有自己的头，都只写标题，没有标签带（输出 20、40）。
-        await moveViaMenu(page, A, "右栏");
+        // 甲进了右栏样例丁的容器：是又一个分节，两块各有自己的头，都只写标题，没有标签带（输出 20、40）。
+        await moveViaMenu(page, A, "样例丁");
         await expect.poll(() => instanceOf(page, A)).toMatchObject({location: "auxiliarybar"});
         expect(await panelOfTab(page, A)).not.toBe(await panelOfTab(page, D));
         await titleOnly(A);
         await titleOnly(D);
-        await moveViaMenu(page, A, "侧栏");
+        await moveViaMenu(page, A, "重置位置");
         await expect.poll(() => instanceOf(page, A)).toMatchObject({location: "sidebar"});
         await titleOnly(A);
         await titleOnly(D);
@@ -576,40 +578,54 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, C)).toBeVisible();
     });
 
-    test("移动到：右键菜单里把乙移进面板（实例不变）；甲移到新面板，乙不随甲走；重置位置后回到初始；刷新后一致（输出 23、14；验收 1、15）", async ({page}) => {
+    test("移动到：右键菜单里把乙移进底部面板样例戊的容器（实例不变）；甲移进底部面板的新容器，乙不随甲走；重置位置后回到初始；刷新后一致（输出 23、14、41；验收 1、15）", async ({page}) => {
         await open(page);
         const before = await revisionOf(page);
         await showView(page, B);
         await sample(page, B).locator("input").fill("乙的草稿");
         const beta = await instanceOf(page, B);
         const alpha = await instanceOf(page, A);
-        await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-panel-count", "4");
+        // 不是当前容器的分节没有头（输出 42），按内容项上写着的叶找分节，停放着也找得到。
+        const containerOf = async (viewId: string): Promise<string | undefined> => {
+            const section = await page.locator(`[data-content="view:${viewId}"]`).getAttribute("data-content-leaf");
+            return section === null ? undefined : (await saved(page))?.doc.panels[section]?.container;
+        };
 
-        await moveViaMenu(page, B, "面板");
-        await expect(head(page, "panel").locator(`[data-panel-tab="view:${B}"]`)).toBeVisible();
-        await expect(head(page, "sidebar").locator(`[data-panel-tab="view:${B}"]`)).toHaveCount(0);
-        await tab(page, B).click();
+        // 移进一个容器：成为它最后一个分节，底部面板切到它（输出 23）。
+        await moveViaMenu(page, B, "样例戊");
+        await expect(headOf(page, B)).toBeVisible();
+        await expect(toolEntry(page, B)).toHaveCount(0);
         await expect.poll(() => instanceOf(page, B)).toEqual({...beta, location: "panel"});
         await expect(sample(page, B).locator("input")).toHaveValue("乙的草稿");
+        await expect.poll(() => containerOf(B)).toBe(`view:${E}`);
 
-        // 甲移到挨着面板的新面板：甲单独在一块没有名字的面板里；乙留在面板里，不随甲走。
-        await moveViaMenu(page, A, "新面板（挨着面板）");
-        await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-panel-count", "5");
-        expect(["sidebar", "auxiliarybar", "panel", "g0"]).not.toContain(await panelOfTab(page, A));
-        expect(await instanceOf(page, A)).toEqual({...alpha, location: null});
+        // 甲进底部面板的新容器：只含它的用户容器，底部面板切过去；乙留在样例戊的容器里不随甲走，停放、实例不变（输出 16、41）。
+        await moveViaMenu(page, A, "新容器（底部面板）");
+        await expect(sample(page, A)).toBeVisible();
+        await expect.poll(() => containerOf(A)).toMatch(/^custom:/u);
+        const created = (await containerOf(A))!;
+        await expect.poll(async () => (await saved(page))?.doc.panels.panel?.activeContainer).toBe(created);
+        expect(await instanceOf(page, A)).toEqual({...alpha, location: "panel"});
+        await parked(page, B);
         expect(await instanceOf(page, B)).toMatchObject({location: "panel", instance: beta.instance});
+        expect(await containerOf(B)).toBe(`view:${E}`);
         expect((await saved(page))!.revision).toBeGreaterThan(before);
 
         await page.reload();
         await open(page);
-        await expect(head(page, "panel").locator(`[data-panel-tab="view:${B}"]`)).toBeVisible();
-        expect(["sidebar", "auxiliarybar", "panel", "g0"]).not.toContain(await panelOfTab(page, A));
-        await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-panel-count", "5");
+        await expect(sample(page, A)).toBeVisible();
+        expect(await containerOf(A)).toBe(created);
+        expect(await containerOf(B)).toBe(`view:${E}`);
+        // 刷新之后实例从头编号：之后的“实例不变”按刷新后的比。
+        const reloaded = await instanceOf(page, A);
 
-        // 重置位置：回到声明的具名面板；甲独占的无名面板随之消失。
+        // 重置位置：甲回到自己的容器，用户容器空了不再存在，入口顺序里没有它（输出 41）；乙要先看得见才有标题可点：经“打开视图”切过去。
         await moveViaMenu(page, A, "重置位置");
+        await expect.poll(async () => (await saved(page))?.doc.panels.panel?.entries).not.toContain(created);
+        await runCommand(page, "打开视图");
+        await pick(page, "选择要打开的视图", "样例乙");
+        await expect(sample(page, B)).toBeVisible();
         await moveViaMenu(page, B, "重置位置");
-        await expect(page.locator("[data-workbench-shell]")).toHaveAttribute("data-panel-count", "4");
         for (const viewId of [A, B, C]) await expect(toolEntry(page, viewId)).toHaveCount(1);
         // 初始位置的视图没有“重置位置”。
         await showView(page, C);
@@ -617,7 +633,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.getByRole("menuitem", {name: "重置位置", exact: true})).toHaveCount(0);
         await page.keyboard.press("Escape");
         await expect(page.getByRole("menu")).toHaveCount(0);
-        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.tabs.map((item) => item.viewId).sort()).toEqual([A, B, C].sort());
+        await expect.poll(async () => Promise.all([A, B, C].map(containerOf))).toEqual([A, B, C].map((viewId) => `view:${viewId}`));
+        expect(await instanceOf(page, A)).toMatchObject({instance: reloaded.instance, location: "sidebar"});
     });
 
     test("键盘：焦点在活动栏的入口上按菜单键打开容器的菜单；容器在声明的区域时没有菜单；“重置”把容器搬回声明的区域（输出 16、44；验收 9）", async ({page}) => {
@@ -629,13 +646,31 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await toolEntry(page, C).click({button: "right"});
         await expect(page.getByRole("menu")).toHaveCount(0);
 
-        // 让右栏的样例丁带着自己的容器进侧栏：区域里一个容器都没有时，移进去的视图在自己的容器里（输出 23）。先把侧栏的三个视图移走。
-        for (const viewId of [A, B, C]) await moveViaMenu(page, viewId, "面板");
-        await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(0);
-        await moveViaMenu(page, D, "侧栏");
+        // 要一个不在声明区域的容器：样例丁的容器在侧栏。“移动到”放进别的区域只会新建用户容器（输出 23），整个容器搬到别的区域
+        // （入口菜单的“移到”，输出 44）还没有，所以改记录造出来：乙、丙移进底部面板后，侧栏只剩甲那一节，把它与右栏丁那一节的内容互换。
+        for (const viewId of [B, C]) await moveViaMenu(page, viewId, "样例戊");
+        await expect.poll(async () => (await saved(page))?.doc.panels[await panelOfTab(page, C)]?.container).toBe(`view:${E}`);
+        await showView(page, A);
+        const [side, aux] = [await panelOfTab(page, A), await panelOfTab(page, D)];
+        const client = await page.evaluate((key) => localStorage.getItem(key), CLIENT_IDENTITY_KEY);
+        const db = new DatabaseSync(userDatabase());
+        try {
+            const row = db.prepare("SELECT rowid AS id, value FROM records WHERE owner = 'nbook.workbench' AND key = 'workbench.layout' AND client = ?1").get(client) as {id: number; value: string};
+            const value = JSON.parse(row.value) as {doc: {panels: Record<string, Record<string, unknown>>}};
+            const {panels} = value.doc;
+            const section = (viewId: string) => ({role: "tool", tabs: [{kind: "view", viewId}], active: `view:${viewId}`, container: `view:${viewId}`});
+            panels[side] = section(D);
+            panels[aux] = section(A);
+            panels.sidebar = {...panels.sidebar, entries: [`view:${D}`], activeContainer: `view:${D}`};
+            panels.auxiliarybar = {...panels.auxiliarybar, entries: [`view:${A}`], activeContainer: `view:${A}`};
+            db.prepare("UPDATE records SET value = ?1 WHERE rowid = ?2").run(JSON.stringify(value), row.id);
+        } finally {
+            db.close();
+        }
+        await page.reload();
+        await open(page);
         await expect.poll(() => instanceOf(page, D)).toMatchObject({location: "sidebar"});
         await expect(toolEntry(page, D)).toHaveAttribute("aria-pressed", "true");
-        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.activeContainer).toBe(`view:${D}`);
 
         // 菜单键：菜单里只有“重置”。Escape 关闭，焦点回到入口。
         await toolEntry(page, D).focus();
@@ -646,7 +681,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(page.getByRole("menu")).toHaveCount(0);
         await expect(toolEntry(page, D)).toBeFocused();
 
-        // 回车选“重置”：整个容器搬回右栏，右栏显示并切到它；侧栏没有容器了，隐藏，活动栏没有入口。
+        // 回车选“重置”：整个容器搬回右栏，排在入口顺序最后，右栏切到它；侧栏没有容器了，隐藏，活动栏没有入口。
         await toolEntry(page, D).press("ContextMenu");
         await expect(page.getByRole("menuitem", {name: "重置", exact: true})).toBeVisible();
         await page.getByRole("menuitem", {name: "重置", exact: true}).focus();
@@ -656,7 +691,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, D)).toBeVisible();
         await expect(page.locator("[data-tool-band] [data-tool-entry]")).toHaveCount(0);
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
-        expect((await saved(page))?.doc.panels.auxiliarybar).toMatchObject({activeContainer: `view:${D}`});
+        expect((await saved(page))?.doc.panels.auxiliarybar).toMatchObject({activeContainer: `view:${D}`, entries: [`view:${A}`, `view:${D}`]});
         // 打开菜单的入口不在了：焦点到这个容器第一个分节的标题，不落到页面上（输出 16）。
         await expect(tab(page, D)).toBeFocused();
     });
@@ -685,8 +720,11 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
         await runCommand(page, "移动视图");
         await pick(page, "选择要移动的视图", "样例丙");
-        await pickExact(page, "移动到", "右栏");
-        await expect(head(page, "auxiliarybar").locator(`[data-panel-tab="view:${C}"]`)).toBeVisible();
+        // 目标是容器的标题：右栏样例丁的容器。丙成为它最后一个分节，右栏切到它（输出 23）。
+        await pickExact(page, "移动到", "样例丁");
+        await expect(headOf(page, C)).toBeVisible();
+        await expect.poll(() => instanceOf(page, C)).toMatchObject({location: "auxiliarybar"});
+        await expect.poll(async () => (await saved(page))?.doc.panels[await panelOfTab(page, C)]?.container).toBe(`view:${D}`);
         await expect.poll(() => revisionOf(page)).toBeGreaterThan(before);
     });
 
@@ -713,7 +751,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(sample(page, C)).toBeVisible();
     });
 
-    test("实例保留：fill 与 scroll 两种视图在切标签、移到别的面板、新面板、侧栏拖到零再展开之后，输入、滚动与焦点都还在，实例不重建（输出 14；验收 7）", async ({page}) => {
+    test("实例保留：fill 与 scroll 两种视图在切容器、移进别的容器、新容器、侧栏拖到零再展开之后，输入、滚动与焦点都还在，实例不重建（输出 14；验收 7）", async ({page}) => {
         await open(page);
         const fillScroll = sample(page, A).locator("[data-sample-scroll]");
         await sample(page, A).locator("input").fill("甲的草稿");
@@ -729,20 +767,21 @@ test.describe("产品页：测试插件贡献的视图", () => {
         });
         const beta = await instanceOf(page, B);
 
-        // 切回再切走（同一面板里换标签）。
+        // 切回再切走（侧栏换容器）。
         await showView(page, A);
         await showView(page, B);
-        await moveViaMenu(page, B, "面板");
+        await moveViaMenu(page, B, "样例戊");
         await moveViaMenu(page, B, "重置位置");
         await showView(page, A);
         await sample(page, A).locator("input").focus();
-        await moveViaMenu(page, A, "新面板（挨着右栏）");
+        await moveViaMenu(page, A, "新容器（右栏）");
         await moveViaMenu(page, A, "重置位置");
 
         await showView(page, A);
+        const section = await panelOfTab(page, A);
         await sidebarSash(page).focus();
         await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(0);
+        await expect.poll(async () => (await box(page, section)).width).toBe(0);
         await parked(page, A);
         await page.keyboard.press("Enter");
         await expect(sample(page, A)).toBeVisible();
@@ -754,13 +793,14 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(await instanceOf(page, B)).toEqual(beta);
         await expect.poll(() => scrollerOf(B).evaluate((element) => element.scrollTop)).toBe(200);
 
-        // 焦点：命令面板关闭时把焦点还给乙的输入框，随后乙被命令移到面板、再重置回来；两次搬动后焦点都还在它的输入框里。
+        // 焦点：命令面板关闭时把焦点还给乙的输入框，随后乙被命令移进底部面板样例戊的容器、再重置回来；两次搬动后焦点都还在它的输入框里。
         const input = sample(page, B).locator("input");
         await input.focus();
         await runCommand(page, "移动视图");
         await pick(page, "选择要移动的视图", "样例乙");
-        await pickExact(page, "移动到", "面板");
-        await expect(head(page, "panel").locator(`[data-panel-tab="view:${B}"]`)).toBeVisible();
+        await pickExact(page, "移动到", "样例戊");
+        await expect(headOf(page, B)).toBeVisible();
+        await expect.poll(() => instanceOf(page, B)).toMatchObject({location: "panel"});
         await expect(input).toBeFocused();
         await runCommand(page, "移动视图");
         await pick(page, "选择要移动的视图", "样例乙");
@@ -773,8 +813,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     test("入口激活失败：原位显示原因与重试，标签仍在面板里；消除原因后重试，以新代次交付（views.md 验收 4；布局验收 13）", async ({page}) => {
         await open(page);
-        await moveViaMenu(page, D, "面板");
-        // 丁成了面板里的又一个分节，和戊一起显示；等这次移动落盘再刷新。
+        await moveViaMenu(page, D, "样例戊");
+        // 丁成了底部面板样例戊那个容器的又一个分节，和戊一起显示；等这次移动落盘再刷新。
         const delta = await panelOfTab(page, D);
         await expect.poll(async () => (await saved(page))?.doc.panels[delta]?.container).toBe((await saved(page))?.doc.panels.panel?.activeContainer);
         await page.evaluate((key) => localStorage.setItem(key, "1"), SAMPLE_VIEWS_SWITCHES.failActivation);
@@ -796,7 +836,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     test("入口停止：组件卸载、原位显示停止原因，标签仍在面板里；刷新后回到原位置（views.md 验收 4；布局验收 13）", async ({page}) => {
         await open(page);
-        await moveViaMenu(page, D, "面板");
+        await moveViaMenu(page, D, "样例戊");
         await tab(page, D).click();
         await expect(sample(page, D)).toBeVisible();
         await runCommand(page, "停止样例视图入口");
@@ -859,8 +899,10 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
     test("活动栏、工具面板、面板头与选中标记的颜色取主题 token 的解析值；面板头、标签带与活动栏不画外框、圆角与底线；nbook 是卡片外壳、macos 平铺，工具面板之间的线按主题（输出 19；验收 16）", async ({page}) => {
         await open(page);
+        // 区域的锚不画，卡片与面板头按分节的 id 标记（输出 40）：侧栏看样例甲那一节，右栏看样例丁那一节。
+        const [side, aux] = [await panelOfTab(page, A), await panelOfTab(page, D)];
         // 按钮的颜色有过渡：等过渡走完，没有对不上的项为止。
-        const mismatches = () => page.evaluate(() => {
+        const mismatches = () => page.evaluate((side) => {
             const read = (selector: string, pairs: Readonly<Record<string, string>>) => {
                 const element = document.querySelector(selector)!;
                 const probe = document.createElement("div");
@@ -875,21 +917,19 @@ test.describe("产品页：测试插件贡献的视图", () => {
             return [
                 ...read(".workbench-tool-strip", {"background-color": "--panel-surface"}),
                 ...read(".workbench-tool-strip__item--active", {"color": "--accent-text", "background-color": "--bg-hover"}),
-                ...read('[data-shell-card="sidebar"]', {"background-color": "--panel-surface"}),
-                // 当前标签用正文色（输出 19）。字重不断言：nb-ui 的 Tabs 所有标签同一字重，规格写的“加粗”见报告。
-                ...read('[data-panel-head="panel"] [role="tab"][aria-selected="true"]', {"color": "--text-main"}),
+                ...read(`[data-shell-card="${CSS.escape(side)}"]`, {"background-color": "--panel-surface"}),
             ].filter((item) => item.own !== item.token);
-        });
+        }, side);
         await expect.poll(mismatches).toEqual([]);
-        const drawn = await page.evaluate(() => [".workbench-tool-strip", '[data-panel-head="sidebar"]', '[data-panel-head="auxiliarybar"]', '[data-panel-head="panel"] [role="tablist"]', '[data-panel-head="panel"] [role="tablist"]'].flatMap((selector) => {
+        const unframed = (selectors: readonly string[]) => page.evaluate((selectors) => selectors.flatMap((selector) => {
             const style = getComputedStyle(document.querySelector(selector)!);
-            const widths = ["top", "right", "bottom", "left"].map((side) => style.getPropertyValue(`border-${side}-width`));
+            const widths = ["top", "right", "bottom", "left"].map((edge) => style.getPropertyValue(`border-${edge}-width`));
             return widths.some((width) => width !== "0px") || style.borderRadius !== "0px" ? [{selector, widths, radius: style.borderRadius}] : [];
-        }));
-        expect(drawn).toEqual([]);
+        }), selectors);
+        expect(await unframed([".workbench-tool-strip", `[data-panel-head="${side}"]`, `[data-panel-head="${aux}"]`])).toEqual([]);
 
         // 外壳的分隔方式：卡片的矩形、圆角与相连处，标题栏底线与网格接缝的颜色。
-        const shellLook = () => page.evaluate(() => {
+        const shellLook = () => page.evaluate((side) => {
             const card = (part: string) => document.querySelector(`[data-shell-card="${part}"]`)!;
             const rect = (part: string) => card(part).getBoundingClientRect();
             const probe = document.createElement("div");
@@ -901,19 +941,19 @@ test.describe("产品页：测试插件贡献的视图", () => {
             return {
                 titlebarBottom: document.querySelector("header[data-workbench-titlebar]")!.getBoundingClientRect().bottom,
                 activitybar: rect("activitybar").toJSON() as DOMRect,
-                sidebar: rect("sidebar").toJSON() as DOMRect,
+                sidebar: rect(side).toJSON() as DOMRect,
                 editor: rect("g0").toJSON() as DOMRect,
                 editorRadius: getComputedStyle(card("g0")).borderTopLeftRadius,
                 activityCorners: [getComputedStyle(card("activitybar")).borderTopLeftRadius, getComputedStyle(card("activitybar")).borderTopRightRadius],
-                sidebarCorners: [getComputedStyle(card("sidebar")).borderTopLeftRadius, getComputedStyle(card("sidebar")).borderTopRightRadius],
+                sidebarCorners: [getComputedStyle(card(side)).borderTopLeftRadius, getComputedStyle(card(side)).borderTopRightRadius],
                 joinLine: getComputedStyle(card("activitybar"), "::after").backgroundColor,
                 titlebarLine: getComputedStyle(document.querySelector("header[data-workbench-titlebar]")!).borderBottomColor,
                 // 工具面板之间的线单算（下面）；其余边界的接缝颜色。
                 seams: [...new Set([...document.querySelectorAll("[data-workbench-shell] .sash-seam")].filter((seam) => seam.closest('[data-sash-kind="panes"]') === null).map((seam) => getComputedStyle(seam).backgroundColor))],
                 divider,
             };
-        });
-        // 工具面板之间的线：丙移到挨着侧栏的新面板，侧栏与它之间是一条工具面板之间的线（取 `--shell-pane-divider`）。
+        }, side);
+        // 工具面板之间的线：丙移进样例甲的容器，侧栏显示上下两个分节，它们之间是一条工具面板之间的线（取 `--shell-pane-divider`）。
         const paneSeams = () => page.evaluate(() => [...document.querySelectorAll('[data-sash-kind="panes"]')].map((sash) => {
             const seam = sash.querySelector(".sash-seam")!;
             const style = getComputedStyle(seam);
@@ -933,7 +973,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         expect(nbook.titlebarLine).toBe("rgba(0, 0, 0, 0)");
         expect(nbook.seams).toEqual(["rgba(0, 0, 0, 0)"]);
 
-        await moveViaMenu(page, C, "新面板（挨着侧栏）");
+        await moveViaMenu(page, C, "样例甲");
         await expect.poll(paneSeams).toEqual([{color: nbook.divider, start: "10px", end: "10px"}]);
 
         const settings = join(tmp, "state", "settings.json");
@@ -954,6 +994,26 @@ test.describe("产品页：测试插件贡献的视图", () => {
         } finally {
             await rm(settings, {force: true});
         }
+
+        // 工具面板的当前标签用正文色（输出 19）：区域里的分节只写标题，带标签条的只剩浮动窗（输出 20、39），在多标签的窗上看；
+        // 标签带也不画外框与圆角。字重不断言：nb-ui 的 Tabs 所有标签同一字重，规格写的“加粗”见报告。
+        await expect(page.locator("html")).not.toHaveAttribute("data-nb-theme", "macos");
+        const float = await floatWithTabs(page);
+        const current = `[data-panel-head="${float}"] [role="tab"][aria-selected="true"]`;
+        const tabColour = () => page.evaluate((selector) => {
+            const element = document.querySelector(selector)!;
+            const probe = document.createElement("div");
+            probe.style.color = "var(--text-main)";
+            element.append(probe);
+            const result = {own: getComputedStyle(element).color, token: getComputedStyle(probe).color};
+            probe.remove();
+            return result;
+        }, current);
+        await expect.poll(async () => {
+            const {own, token} = await tabColour();
+            return own === token;
+        }).toBe(true);
+        expect(await unframed([`[data-panel-head="${float}"] [role="tablist"]`])).toEqual([]);
     });
 
     test("拖动边界的悬停线取主题 token：nbook 是 3px 实线、不发光、自由端缩进 16px，交汇处两条同时亮时连着，线芯设细时对齐接缝；macos 是贴满的 3px 实线（输出 19）", async ({page}) => {

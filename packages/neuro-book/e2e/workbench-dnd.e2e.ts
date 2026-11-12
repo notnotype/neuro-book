@@ -833,27 +833,27 @@ test.describe("产品页：拖放", () => {
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
-    test("“移动到”的“新面板”：视图搬进新建的无名面板并激活，刷新后仍在同一块面板里（输出 23、35；验收 1）", async ({page}) => {
+    test("“移动到”的“新容器”：视图搬进底部面板里新建的、只含它的容器，底部面板切到它；刷新后仍在同一块分节里（输出 23、35；验收 1）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
-        await entry(page, A).click({button: "right"});
-        await page.getByRole("menuitem", {name: "新面板（挨着面板）", exact: true}).click();
+        // 分节标题的右键是视图的“移动到”；活动栏入口的右键是容器的菜单（输出 44），不在这里用。
+        await tab(page, A).click({button: "right"});
+        await page.getByRole("menuitem", {name: "新容器（底部面板）", exact: true}).click();
         await expect(page.getByRole("menu")).toHaveCount(0);
-        await expect(shell(page)).toHaveAttribute("data-panel-count", "5");
-        const created = await panelOfTab(page, A);
-        expect(["sidebar", "auxiliarybar", "panel", "g0"]).not.toContain(created);
-        // “新面板”挨着面板放在它的右边（这一排放右边，输出 23）。
-        expect((await leaf(page, created).boundingBox())!.x).toBeGreaterThanOrEqual((await leaf(page, "panel").boundingBox())!.x + (await leaf(page, "panel").boundingBox())!.width - 2);
-        // 只有一个视图的头只写标题（输出 20）。
+        await expect.poll(() => regionOf(page, A)).toBe("panel");
+        const created = await sectionOf(page, A);
+        // 底部面板原来的容器（戊）不是当前容器了，它的分节停放。
+        await expect(content(page, E)).toHaveAttribute("inert", "");
+        // 分节的头只写标题（输出 20）。
         await expect(head(page, created).locator(`[data-panel-tab="view:${A}"]`)).toBeVisible();
         await expect(head(page, created).locator('[role="tab"]')).toHaveCount(0);
         await expect(sample(page, A)).toBeVisible();
         await expect.poll(() => writesOf(page)).toBeGreaterThan(writes);
         await page.reload();
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
-        expect(await panelOfTab(page, A)).toBe(created);
+        expect(await sectionOf(page, A)).toBe(created);
         await expect(sample(page, A)).toBeVisible();
-        // 活动栏只列侧栏这一列的视图：甲在面板这一排的新面板里，条目不在了。
+        // 活动栏只列侧栏的容器：甲的容器空了，入口不在了。
         await expect(entry(page, A)).toHaveCount(0);
     });
 
@@ -878,7 +878,7 @@ test.describe("产品页：拖放", () => {
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
-    test("隐藏的区域不是落点：它原来的位置现在是编辑组，工具视图放不进去（输出 26、29）", async ({page}) => {
+    test("隐藏的区域不是落点：它原来的位置现在是编辑组，工具视图放不进去；要放进隐藏的区域用“移动到”（输出 23、26、29；验收 8）", async ({page}) => {
         await open(page);
         const delta = await sectionOf(page, D);
         const right = await inLeaf(page, delta, {x: 0.5, y: 0.5});
@@ -893,6 +893,13 @@ test.describe("产品页：拖放", () => {
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
         await expect(leaf(page, delta)).toHaveCount(0);
+        // “移动到”隐藏着的右栏里样例丁的容器：同一次写入把右栏显示出来，切到这个容器，戊是它最后一个分节（输出 23）。
+        await tab(page, E).click({button: "right"});
+        await page.getByRole("menuitem", {name: "样例丁", exact: true}).click();
+        await expect(leaf(page, delta)).toBeVisible();
+        await expect.poll(() => regionOf(page, E)).toBe("auxiliarybar");
+        expect((await leaf(page, await sectionOf(page, E)).boundingBox())!.y).toBeGreaterThan((await leaf(page, delta).boundingBox())!.y);
+        await expect.poll(() => hiddenInRecord(page, "auxiliarybar")).toBe(false);
     });
 
     test("侧栏隐藏时把视图放到活动栏：同一次写入把侧栏显示出来并切到装着它的新容器（输出 22、45；验收 14）", async ({page}) => {
@@ -1079,7 +1086,7 @@ test.describe("产品页：拖放", () => {
     });
 
     test.describe("同方向一起分（设置 dropSplit，输出 27）", () => {
-        test("放到分节的前后两半时这一列都让", async ({page}) => {
+        test("放到分节的前后两半时这一列都让；“移动到”进一个容器不跟设置走，只从相邻的分节取（输出 23）", async ({page}) => {
             const settingsFile = join(tmp, "state", "settings.json");
             await writeFile(settingsFile, JSON.stringify({"nbook.workbench/dropSplit": "shared"}));
             try {
@@ -1092,6 +1099,42 @@ test.describe("产品页：拖放", () => {
                 const lowerBefore = await leaf(page, below).boundingBox();
                 await dropAt(page, entry(page, B), await inLeaf(page, alpha, {x: 0.5, y: 0.85}));
                 await expect.poll(async () => (await leaf(page, below).boundingBox())?.height ?? 0).toBeLessThan(lowerBefore?.height ?? 0);
+                // 戊“移动到”样例甲的容器：成为最后一个分节，排在丙后面，只从丙取空间；甲、乙两节不动。比记录里的尺寸意图：
+                // 屏幕上的像素是求解后取整的，多一块分节时余下的一两个像素可能落到别的块上，那不是“让出空间”。
+                const beta = await sectionOf(page, B);
+                await settledWrites(page);
+                const intents = async (): Promise<number[]> => {
+                    const client = await page.evaluate((key) => localStorage.getItem(key), CLIENT_IDENTITY_KEY);
+                    const db = new DatabaseSync(join(tmp, "state", "storage", "user.sqlite"));
+                    try {
+                        const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.workbench' AND key = 'workbench.layout' AND client = ?1").get(client) as {value: string};
+                        interface SizeNode {
+                            readonly id: string;
+                            readonly size: {readonly height: number};
+                            readonly children?: ReadonlyArray<SizeNode>;
+                        }
+                        const found = new Map<string, number>();
+                        const walk = (node: SizeNode): void => {
+                            found.set(node.id, node.size.height);
+                            node.children?.forEach(walk);
+                        };
+                        walk((JSON.parse(row.value) as {doc: {tree: {root: SizeNode}}}).doc.tree.root);
+                        return [alpha, beta, below].map((id) => found.get(id) ?? Number.NaN);
+                    } finally {
+                        db.close();
+                    }
+                };
+                const [alphaBefore, betaBefore, belowBefore] = await intents();
+                const writes = await writesOf(page);
+                await tab(page, E).click({button: "right"});
+                await page.getByRole("menuitem", {name: "样例甲", exact: true}).click();
+                await expect.poll(() => regionOf(page, E)).toBe("sidebar");
+                await expect.poll(() => writesOf(page)).toBeGreaterThan(writes);
+                await settledWrites(page);
+                const [alphaAfter, betaAfter, belowAfter] = await intents();
+                expect([alphaAfter, betaAfter]).toEqual([alphaBefore, betaBefore]);
+                expect(belowAfter).toBeLessThan(belowBefore);
+                expect((await leaf(page, await sectionOf(page, E)).boundingBox())!.y).toBeGreaterThan((await leaf(page, below).boundingBox())!.y);
             } finally {
                 await rm(settingsFile, {force: true});
             }

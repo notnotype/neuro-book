@@ -9,7 +9,7 @@ import type {GridSnapshotNode, LayoutDoc, LayoutResult, PanelName, PanelRecord, 
 import {regionContainers, sectionLanding, settleContainers, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
-import {createLayoutPolicy, layoutProjectionOptions, newPanelEdgeTarget} from "./layout-constraints";
+import {createLayoutPolicy, layoutProjectionOptions} from "./layout-constraints";
 import type {ViewCatalog} from "../views/registry";
 
 const NAMED = new Set<string>(["sidebar", "auxiliarybar", "panel"]);
@@ -317,19 +317,19 @@ describe("从默认树出发，任何操作之后都合骨架", () => {
                 result = insertTab(doc, {panel, tab: nextTab()});
             }
         } else {
-            // “移动到”的新面板：和 store 的 `moveView` 同一个目标。
+            // “移动到”的新容器：和 store 的 `moveView` 同一个目标，区域里新建一个只含它的用户容器，挂在锚后面。
             const view = pick(random, tabs.filter((tab) => tab.kind === "view"));
-            const beside = pick(random, panelsOf(doc, "tool").filter((panel) => doc.panels[panel]?.hidden !== true));
-            if (view === undefined || beside === undefined) return doc;
-            const edge = newPanelEdgeTarget(doc, beside);
-            if (edge === null) return doc;
-            result = moveTabToEdge(doc, {tab: tabKey(view), target: edge}, policy);
+            const region = pick(random, ["sidebar", "auxiliarybar", "panel"] as const) ?? "sidebar";
+            const container = `custom:new-${String(Math.floor(random() * 1000))}`;
+            const target = sectionLanding(doc, region, container);
+            if (view === undefined || target === null) return doc;
+            result = moveTabToEdge(doc, {tab: tabKey(view), target, container}, policy);
         }
         // 和 store 的写入出口一样：每次提交之后归整入口与当前容器。
         return result.ok ? settleContainers(result.doc) : doc;
     }
 
-    it("随机操作：拖动的所有落点、显隐、收起、放进容器、开关标签、新面板", () => {
+    it("随机操作：拖动的所有落点、显隐、收起、放进容器、开关标签、新容器", () => {
         for (let seed = 1; seed <= 20; seed += 1) {
             const random = randomOf(seed);
             let counter = 0;

@@ -217,9 +217,13 @@
         "unknownView": "No such view (no accepted declaration): {{viewId}}",
         "pickTarget": "Move to",
         "noViews": "No view can be moved",
-        "partial": "Give nothing, or both viewId and target",
-        "stale": "The view or the target panel is gone; nothing moved",
-        "newPanelNextTo": "New panel (next to {{panel}})",
+        "partial": "Give nothing, or viewId and one of container and newContainerIn",
+        "stale": "The view or the target container is gone; nothing moved",
+        "newContainerIn": {
+            "sidebar": "New container (Sidebar)",
+            "auxiliarybar": "New container (Secondary Side Bar)",
+            "panel": "New container (Panel)"
+        },
         "rejected": "This view can't go there",
         "limit": "The layout is too complex for another panel"
     },

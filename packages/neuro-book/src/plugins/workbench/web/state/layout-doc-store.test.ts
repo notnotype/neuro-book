@@ -11,7 +11,7 @@ import {effect} from "@vue/reactivity";
 import type {DeepReadonly} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {barRef, GRID_SNAPSHOT_VERSION, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, panelRef, regionNodeOf, removeTab, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-layout";
+import {barRef, GRID_SNAPSHOT_VERSION, insertTab, isPanelShown, isSectionCollapsed, moveTabToEdge, moveTabToStrip, panelRef, regionNodeOf, removeTab, setSiblingShares, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {LayoutDoc, LayoutResult, PanelName, TabRef} from "@notnotype/nb-layout";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -361,58 +361,91 @@ describe("损坏与失败", () => {
         expect(store.actions.document()).toBe(before);
     });
 
-    it("“移动到”的新面板：挨着侧栏的分节放下面，是侧栏当前容器的又一个分节；搬空的区域隐藏；编辑组是 rejected，不存在的是 not-found（输出 23、35、43）", async () => {
+    it("移进一个容器：成为它最后一个分节，从前一个分节取一半；目标区域隐藏着就显示，切到这个容器；来源区域空了隐藏（输出 23、43）", async () => {
         const w = await world();
         const {store} = await openLayoutDoc(w, "a", "c");
-        const inSide = store.actions.moveView("test.panel", {newPanelNextTo: sectionOf(store, "test.side")});
-        if (!inSide.ok) throw new Error(inSide.detail);
-        expect(regionSections(store.actions.document(), "sidebar")).toHaveLength(2);
-        expect(containersIn(store.actions.document(), "sidebar")).toEqual([["view:test.side", ["test.side", "test.panel"]]]);
-        expect(store.actions.document().panels.panel).toMatchObject({hidden: true, activeContainer: null});
-        expect(fitsSkeleton(store.actions.document())).toBe(true);
-        expect(store.actions.moveView("test.side", {newPanelNextTo: INITIAL_EDITOR_PANEL})).toMatchObject({ok: false, code: "rejected"});
-        expect(store.actions.moveView("test.side", {newPanelNextTo: "nowhere"})).toMatchObject({ok: false, code: "not-found"});
+        hideAux(store);
+        const aux = sectionOf(store, "test.aux");
+        const before = sizeIn(store.actions.document(), aux).height;
+        expect(store.actions.moveView("test.side", {container: "view:test.aux"}).ok).toBe(true);
+        const doc = store.actions.document();
+        expect(containersIn(doc, "auxiliarybar")).toEqual([["view:test.aux", ["test.aux", "test.side"]]]);
+        expect(doc.panels.auxiliarybar).toMatchObject({activeContainer: "view:test.aux"});
+        expect(doc.panels.auxiliarybar?.hidden).toBeUndefined();
+        expect(sizeIn(doc, aux).height + sizeIn(doc, sectionOf(store, "test.side")).height).toBeCloseTo(before, 5);
+        expect(doc.panels.sidebar).toMatchObject({hidden: true, activeContainer: null});
+        expect(fitsSkeleton(doc)).toBe(true);
     });
 
-    it("新面板挨着一块不在当前容器里的分节：进那块分节的容器，区域切过去并显示（输出 23）", async () => {
+    it("移进区域里不是当前容器的那个容器：区域切过去，隐藏着、拖到零时同一次写入展开（输出 23）", async () => {
         const w = await world();
         const {store} = await openLayoutDoc(w, "a", "c");
         const side = sectionOf(store, "test.side");
         expect(store.actions.apply((doc) => moveTabToEdge(doc, {tab: "view:test.aux", target: {kind: "split", panel: side, edge: "bottom"}, container: "view:test.aux"}, POLICY)).ok).toBe(true);
         expect(store.actions.document().panels.sidebar?.activeContainer).toBe("view:test.side");
+        store.actions.setCollapsed("sidebar", true);
         store.actions.setPartHidden("sidebar", true);
-        expect(store.actions.moveView("test.panel", {newPanelNextTo: sectionOf(store, "test.aux")}).ok).toBe(true);
+        expect(store.actions.document().panels.sidebar).toMatchObject({hidden: true, collapsed: true});
+        expect(store.actions.moveView("test.panel", {container: "view:test.aux"}).ok).toBe(true);
         const doc = store.actions.document();
         expect(containersIn(doc, "sidebar")).toEqual([["view:test.side", ["test.side"]], ["view:test.aux", ["test.aux", "test.panel"]]]);
         expect(doc.panels.sidebar).toMatchObject({activeContainer: "view:test.aux"});
         expect(doc.panels.sidebar?.hidden).toBeUndefined();
+        expect(doc.panels.sidebar?.collapsed).toBeUndefined();
         expect(fitsSkeleton(doc)).toBe(true);
     });
 
-    it("移到一个区域：成为它当前容器最后一个分节，区域隐藏着就显示（输出 23）", async () => {
+    it("新容器：在那个区域新建一个只含它的用户容器，入口排在最后并切过去；区域里原来一个容器都没有也一样，再移走时区域隐藏，别的区域尺寸不变（输出 23、43；验收 31）", async () => {
+        const w = await world();
+        const {store, storage} = await openLayoutDoc(w, "a", "c", false, new Map([...BUSY_LAYOUT_CATALOG].filter(([id]) => id !== "test.panel")));
+        expect(store.actions.document().panels.panel).toMatchObject({hidden: true, activeContainer: null});
+        const sizes = () => [regionSize(store.actions.document(), "sidebar"), regionSize(store.actions.document(), "auxiliarybar")];
+        const before = sizes();
+
+        expect(store.actions.moveView("test.aux", {newContainerIn: "panel"}).ok).toBe(true);
+        const created = viewSection(store.actions.document(), "test.aux")?.container ?? "";
+        expect(created).toMatch(/^custom:/u);
+        expect(containersIn(store.actions.document(), "panel")).toEqual([[created, ["test.aux"]]]);
+        expect(store.actions.document().panels.panel).toMatchObject({activeContainer: created, entries: [created]});
+        expect(store.actions.document().panels.panel?.hidden).toBeUndefined();
+
+        // 移回声明的容器（“重置位置”就是这一步）：用户容器空了不再存在，底部面板一个容器都没有，隐藏；保存成功。
+        expect(store.actions.moveView("test.aux", {container: "view:test.aux"}).ok).toBe(true);
+        expect(store.actions.document().panels.panel).toMatchObject({hidden: true, activeContainer: null, entries: []});
+        expect(containersIn(store.actions.document(), "auxiliarybar")).toEqual([["view:test.aux", ["test.aux"]]]);
+        expect(sizes()).toEqual(before);
+        await settled(store);
+        expect((await savedDoc(storage, USER)).panels.panel).toMatchObject({hidden: true, entries: []});
+
+        // 区域里已经有容器：新容器排在入口顺序最后，成为当前容器。
+        expect(store.actions.moveView("test.aux", {newContainerIn: "sidebar"}).ok).toBe(true);
+        const second = viewSection(store.actions.document(), "test.aux")?.container ?? "";
+        expect(store.actions.document().panels.sidebar).toMatchObject({entries: ["view:test.side", second], activeContainer: second});
+        expect(store.actions.document().panels.auxiliarybar).toMatchObject({hidden: true, activeContainer: null});
+    });
+
+    it("目标容器既没有成员也没有声明、视图不在文档里：not-found，零写入；已经是目标容器最后一个分节且看得见：零写入（输出 23；commands.md 的 move-view）", async () => {
         const w = await world();
         const {store} = await openLayoutDoc(w, "a", "c");
-        hideAux(store);
-        expect(store.actions.moveView("test.side", "auxiliarybar").ok).toBe(true);
-        const doc = store.actions.document();
-        expect(containersIn(doc, "auxiliarybar")).toEqual([["view:test.aux", ["test.aux", "test.side"]]]);
-        expect(doc.panels.auxiliarybar?.hidden).toBeUndefined();
-        expect(doc.panels.sidebar).toMatchObject({hidden: true, activeContainer: null});
-        expect(fitsSkeleton(doc)).toBe(true);
+        const before = store.actions.document();
+        expect(store.actions.moveView("test.side", {container: "custom:gone"})).toMatchObject({ok: false, code: "not-found"});
+        expect(store.actions.moveView("test.nowhere", {container: "view:test.aux"})).toMatchObject({ok: false, code: "not-found"});
+        expect(store.actions.moveView("test.side", {container: "view:test.side"}).ok).toBe(true);
+        expect(store.actions.document()).toBe(before);
+        expect(store.state.field.queue).toBe(0);
     });
 
-    it("移到一个容器都没有的区域：进它自己的容器，区域显示；重置位置回到声明的容器（输出 23）", async () => {
+    it("空区域点“显示”：锚提交时又会被归整成隐藏，结果和现在一样，零写入，最大化不退出（输出 11、43）", async () => {
         const w = await world();
         const {store} = await openLayoutDoc(w, "a", "c", false, new Map([...BUSY_LAYOUT_CATALOG].filter(([id]) => id !== "test.panel")));
-        expect(store.actions.document().panels.panel?.hidden).toBe(true);
-        expect(store.actions.moveView("test.side", "panel").ok).toBe(true);
-        expect(containersIn(store.actions.document(), "panel")).toEqual([["view:test.side", ["test.side"]]]);
-        expect(store.actions.document().panels.panel).toMatchObject({activeContainer: "view:test.side"});
-        expect(store.actions.document().panels.panel?.hidden).toBeUndefined();
-        expect(store.actions.moveView("test.side", "auxiliarybar").ok).toBe(true);
-        expect(store.actions.resetView("test.side").ok).toBe(true);
-        expect(containersIn(store.actions.document(), "sidebar")).toEqual([["view:test.side", ["test.side"]]]);
-        expect(store.actions.document().panels.sidebar?.hidden).toBeUndefined();
+        const side = sectionOf(store, "test.side");
+        expect(store.actions.toggleMaximized(side)).toBe(true);
+        const before = store.actions.document();
+        expect(store.actions.setPartHidden("panel", false).ok).toBe(true);
+        expect(store.actions.document()).toBe(before);
+        expect(store.state.field.queue).toBe(0);
+        expect(store.actions.partVisible("panel")).toBe(false);
+        expect(store.state.maximized).toBe(side);
     });
 
     it("标签换一位：活动标签不变，到头了不动（输出 20）", async () => {
@@ -421,7 +454,7 @@ describe("损坏与失败", () => {
         const {store} = await openLayoutDoc(w, "a", "c");
         expect((await store.actions.floatTab("view:test.side")).ok).toBe(true);
         const float = store.actions.document().floats[0]?.panel ?? "";
-        expect(store.actions.moveView("test.panel", float).ok).toBe(true);
+        expect(store.actions.apply((doc) => moveTabToStrip(doc, {tab: "view:test.panel", panel: float, index: 1}, POLICY)).ok).toBe(true);
         const tabs = (): ReadonlyArray<unknown> => store.actions.document().panels[float]?.tabs ?? [];
         const before = tabs();
         expect(before).toHaveLength(2);
@@ -442,7 +475,7 @@ describe("损坏与失败", () => {
         expect(store.actions.setCollapsed(section, true)).toMatchObject({ok: false, code: "rejected"});
         expect(store.actions.document()).toBe(single);
 
-        expect(store.actions.moveView("test.panel", {newPanelNextTo: section}).ok).toBe(true);
+        expect(store.actions.moveView("test.panel", {container: "view:test.side"}).ok).toBe(true);
         store.actions.setCollapsed(section, true);
         expect(store.actions.document().panels[section]?.collapsed).toBe(true);
         store.actions.activate("view:test.side");
@@ -450,7 +483,7 @@ describe("损坏与失败", () => {
 
         // 记录里留着收起、此刻却是唯一显示的分节：它没收起，点标题不动这条记录；另一个分节回来时它还是标题行。
         store.actions.setCollapsed(section, true);
-        expect(store.actions.resetView("test.panel").ok).toBe(true);
+        expect(store.actions.moveView("test.panel", {container: "view:test.panel"}).ok).toBe(true);
         store.actions.activate("view:test.side");
         expect(store.actions.document().panels[section]?.collapsed).toBe(true);
     });
@@ -460,7 +493,7 @@ describe("损坏与失败", () => {
         const {store} = await openLayoutDoc(w, "a", "c");
         expect((await store.actions.floatTab("view:test.side")).ok).toBe(true);
         const float = store.actions.document().floats[0]?.panel ?? "";
-        expect(store.actions.moveView("test.aux", float).ok).toBe(true);
+        expect(store.actions.apply((doc) => moveTabToStrip(doc, {tab: "view:test.aux", panel: float, index: 1}, POLICY)).ok).toBe(true);
         expect(store.actions.document().panels.sidebar?.hidden).toBe(true);
         expect((await store.actions.dockFloat(float)).ok).toBe(true);
         const doc = store.actions.document();
@@ -469,6 +502,25 @@ describe("损坏与失败", () => {
         expect(containersIn(doc, "auxiliarybar")).toEqual([["view:test.aux", ["test.aux"]]]);
         expect(doc.panels.sidebar?.hidden).toBeUndefined();
         expect(doc.panels.auxiliarybar?.hidden).toBeUndefined();
+        expect(fitsSkeleton(doc)).toBe(true);
+    });
+
+    it("浮动一个分节：成为只有它一个标签的窗，不再属于容器；回到停靠时回声明的容器，排在已有的分节后面（输出 39）", async () => {
+        const w = await world();
+        const {store} = await openLayoutDoc(w, "a", "c");
+        expect(store.actions.moveView("test.panel", {container: "view:test.aux"}).ok).toBe(true);
+        expect((await store.actions.floatTab("view:test.aux")).ok).toBe(true);
+        const float = store.actions.document().floats[0]?.panel ?? "";
+        const record = store.actions.document().panels[float];
+        expect(record).toMatchObject({role: "tool", tabs: [{kind: "view", viewId: "test.aux"}], active: "view:test.aux"});
+        expect(record?.container).toBeUndefined();
+        expect(containersIn(store.actions.document(), "auxiliarybar")).toEqual([["view:test.aux", ["test.panel"]]]);
+
+        expect((await store.actions.dockFloat(float)).ok).toBe(true);
+        const doc = store.actions.document();
+        expect(doc.floats).toEqual([]);
+        expect(containersIn(doc, "auxiliarybar")).toEqual([["view:test.aux", ["test.panel", "test.aux"]]]);
+        expect(doc.panels.auxiliarybar?.activeContainer).toBe("view:test.aux");
         expect(fitsSkeleton(doc)).toBe(true);
     });
 
@@ -589,7 +641,7 @@ describe("呈现事实", () => {
         expect(store.actions.toggleMaximized(side)).toBe(true);
         expect(store.state.maximized).toBe(side);
         // 把面板的视图放进另一个容器：侧栏切到那个容器，最大化着的分节不显示了。
-        expect(store.actions.moveView("test.panel", sectionOf(store, "test.aux")).ok).toBe(true);
+        expect(store.actions.moveView("test.panel", {container: "view:test.aux"}).ok).toBe(true);
         expect(containersIn(store.actions.document(), "sidebar")).toEqual([["view:test.side", ["test.side"]], ["view:test.aux", ["test.aux", "test.panel"]]]);
         expect(store.actions.document().panels.sidebar?.activeContainer).toBe("view:test.aux");
         expect(store.state.maximized).toBeNull();
@@ -678,7 +730,7 @@ describe("呈现事实", () => {
     it("手势把分节收成标题行：呈现的高度是标题行，不是意图；拉回时写的是这一列里几个分节的比例（输出 8、12）", async () => {
         const {store, storage} = await open();
         const side = sectionOf(store, "test.side");
-        expect(store.actions.moveView("test.panel", {newPanelNextTo: side}).ok).toBe(true);
+        expect(store.actions.moveView("test.panel", {container: "view:test.side"}).ok).toBe(true);
         const lower = sectionOf(store, "test.panel");
         const before = sizeIn(store.actions.document(), lower).height;
         store.actions.commitGesture({[side]: {width: 260, height: 800 - PANEL_HEAD_HEIGHT}, [lower]: {width: 260, height: PANEL_HEAD_HEIGHT}}, {[lower]: true});
@@ -718,7 +770,7 @@ describe("呈现事实", () => {
         const side = sectionOf(store, "test.side");
         store.actions.toggleMaximized(side);
         expect(store.state.maximized).toBe(side);
-        expect(store.actions.moveView("test.side", "auxiliarybar").ok).toBe(true);
+        expect(store.actions.moveView("test.side", {container: "view:test.aux"}).ok).toBe(true);
         expect(store.state.doc.panels.sidebar?.hidden).toBe(true);
         expect(store.state.maximized).toBeNull();
         expect(store.actions.partVisible("auxiliarybar")).toBe(true);

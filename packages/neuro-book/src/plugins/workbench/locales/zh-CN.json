@@ -217,9 +217,13 @@
         "unknownView": "没有这个视图（没有已接受的声明）：{{viewId}}",
         "pickTarget": "移动到",
         "noViews": "没有可以移动的视图",
-        "partial": "要么都不给，要么同时给 viewId 和 target",
-        "stale": "视图或目标面板已经不在了，没有移动",
-        "newPanelNextTo": "新面板（挨着{{panel}}）",
+        "partial": "要么都不给，要么给 viewId 和 container、newContainerIn 中的一个",
+        "stale": "视图或目标容器已经不在了，没有移动",
+        "newContainerIn": {
+            "sidebar": "新容器（侧栏）",
+            "auxiliarybar": "新容器（右栏）",
+            "panel": "新容器（底部面板）"
+        },
         "rejected": "这个视图不能放到那里",
         "limit": "布局已经太复杂，放不下新面板"
     },

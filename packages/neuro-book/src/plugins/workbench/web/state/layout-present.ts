@@ -8,6 +8,7 @@ import type {GridContentInput, GridExtent, LayoutDoc, PanelName, PanelRecord} fr
 import type {DisplayText} from "nbook/shared/localized-text";
 
 import {workbenchText} from "../../shared/text";
+import {VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewCatalog} from "../views/registry";
 import {containerLabel, NO_CONTAINERS, regionAnchor, regionContainers, regionSections, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog, ContainerLabel} from "./containers";
@@ -162,24 +163,30 @@ export function focusLandings(doc: LayoutDoc, panelId: string): ReadonlyArray<Fo
 export const panelTabDomId = (prefix: string, key: string): string => `${prefix}-tab-${key}`;
 export const panelTabpanelDomId = (prefix: string, key: string): string => `${prefix}-tabpanel-${key}`;
 
-/** “移动到”的目标（输出 23）：别的区域，或挨着一块工具面板开新面板。 */
+/**
+ * “移动到”的一项（输出 23）：移进别的容器（`label` 与活动栏的入口是同一个求值，输出 41），在一个区域里新建容器，或回到声明的容器。
+ * 执行都是 `nbook.view.move-view`：前两种给 `{container}` 与 `{newContainerIn}`，重置位置给 `{container: 声明的容器}`。
+ */
 export type MoveTarget =
-    | {readonly kind: "panel"; readonly panel: string}
-    | {readonly kind: "new-panel"; readonly nextTo: string};
+    | {readonly kind: "container"; readonly container: string; readonly region: PanelName; readonly label: ContainerLabel}
+    | {readonly kind: "new-container"; readonly region: PanelName}
+    | {readonly kind: "reset"; readonly container: string};
 
 /**
- * 按树序列目标；视图不在树上时是 null。只有这一个标签的面板挨着自己开新面板等于原位，不列。
- * 放进去的目标只列别的区域（目标是它的锚，放进那个区域的当前容器）：分节不收第二个标签（输出 40），所以分节自己不是“放进去”的目标。
+ * “移动到”菜单与命令面板第二步的目标表，两处读同一份；视图不在文档里时是 null。按区域（侧栏、右栏、底部面板）、区域里按入口顺序列有成员的容器，跳过视图此刻所在的那个；
+ * 然后三个区域的新容器；视图不在它声明的容器（没声明的是隐式容器）时最后是“重置位置”（浮动着的不在任何容器里，也有）。可不可以移动由调用方按声明判。
  */
-export function moveTargetsOf(doc: LayoutDoc, viewId: string): ReadonlyArray<MoveTarget> | null {
-    const from = findTab(doc, tabKey({kind: "view", viewId}));
-    if (from === null) return null;
-    const alone = doc.panels[from.panel]?.tabs.length === 1;
-    const leaves = treeLeaves(doc.tree.root).filter((leaf) => doc.panels[leaf.id] !== undefined);
-    const home = regionOf(doc, from.panel);
-    const into = leaves.filter((leaf) => doc.panels[leaf.id]?.name !== undefined && doc.panels[leaf.id]?.name !== home).map((leaf): MoveTarget => ({kind: "panel", panel: leaf.id}));
-    const beside = leaves.filter((leaf) => doc.panels[leaf.id]?.role === "tool" && isPanelShown(doc, leaf.id) && !(alone && leaf.id === from.panel)).map((leaf): MoveTarget => ({kind: "new-panel", nextTo: leaf.id}));
-    return [...into, ...beside];
+export function moveTargetsOf(doc: LayoutDoc, viewId: string, views: ViewCatalog, containers: ContainerCatalog = NO_CONTAINERS): ReadonlyArray<MoveTarget> | null {
+    if (findTab(doc, viewKey(viewId)) === null) return null;
+    const here = viewSection(doc, viewId)?.container ?? null;
+    const into = VIEW_LOCATIONS.flatMap((region) => regionContainers(doc, region).flatMap((container): MoveTarget[] => {
+        const label = container.id === here ? null : containerLabel(container, views, containers);
+        return label === null ? [] : [{kind: "container", container: container.id, region, label}];
+    }));
+    const fresh = VIEW_LOCATIONS.map((region): MoveTarget => ({kind: "new-container", region}));
+    const home = viewHome(viewId, views, containers);
+    const reset: MoveTarget[] = home !== null && canResetView(doc, views, viewId, containers) ? [{kind: "reset", container: home.container}] : [];
+    return [...into, ...fresh, ...reset];
 }
 
 const PANEL_NAMES: Readonly<Record<string, DisplayText>> = {

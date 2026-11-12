@@ -23,12 +23,12 @@ import {WORKBENCH_FILE_DROP} from "../../shared/contracts";
 import type {WorkbenchFileDrop, WorkbenchFileDropHost} from "../../shared/contracts";
 import {editorTabIdOf} from "../../shared/editor-panels";
 import {DOCK_COMMAND, FLOAT_COMMAND, SET_PANEL_COLLAPSED_COMMAND, TOGGLE_PANEL_MAXIMIZED_COMMAND} from "../commands/panel-commands";
-import {MOVE_VIEW_COMMAND} from "../commands/view-commands";
+import {MOVE_VIEW_COMMAND, moveTargetItem} from "../commands/view-commands";
 import {workbenchText} from "../../shared/text";
 import type {WorkbenchTextKey} from "../../shared/text";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {canResetContainer, containerHomeRegion, containerRegion, regionContainers, viewSection} from "../state/containers";
-import {canResetView, containerEntries, focusLandings, moveTargetsOf, panelTitle, sidebarVisible, titleOnlyPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
+import {containerEntries, focusLandings, moveTargetsOf, panelTitle, sidebarVisible, titleOnlyPanels, toolEntryIntent, viewIdOf, viewKey} from "../state/layout-present";
 import type {FocusLanding} from "../state/layout-present";
 import {createLayoutPolicy, panelConstraints} from "../state/layout-constraints";
 import type {DropSplit} from "../state/layout-constraints";
@@ -192,8 +192,10 @@ function viewActionsOf(viewId: string, panelId: string): TitleActionsModel {
     return props.chrome?.viewActions(viewId, catalog.value.get(viewId)?.actions ?? [], resolver, instanceOf(viewId), buttonBudget(width, headReserved(panelId), Number.POSITIVE_INFINITY)) ?? NO_TITLE_ACTIONS;
 }
 
-/** 视图所在面板、交付状态与实例代际任一变化，已打开的菜单就关闭（输出 23）。 */
-const viewIdentity = (viewId: string): string => `${viewId}|${panelOfView(viewId) ?? ""}|${props.views.delivery(viewId).kind}|${String(instances.generations.value.get(viewId) ?? 0)}`;
+/**
+ * 视图所在面板与容器、交付状态与实例代际任一变化，已打开的菜单就关闭（输出 23）。容器要单独记：只有一个标签的分节换容器时是同一块面板移动，面板 id 不变（输出 27）。
+ */
+const viewIdentity = (viewId: string): string => `${viewId}|${panelOfView(viewId) ?? ""}|${viewSection(doc.value, viewId)?.container ?? ""}|${props.views.delivery(viewId).kind}|${String(instances.generations.value.get(viewId) ?? 0)}`;
 
 function runViewAction(viewId: string, key: string): void {
     props.chrome?.runViewAction(viewId, catalog.value.get(viewId)?.actions ?? [], key, instanceOf(viewId));
@@ -276,15 +278,18 @@ function closeMoveMenu(reason: ContextMenuCloseReason): void {
 const moveMenuItems = computed((): ContextMenuItem[] => {
     const opened = moveMenu.value;
     if (opened === null) return [];
-    const targets = moveTargetsOf(doc.value, opened.viewId) ?? [];
-    const into = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "panel" ? [] : [{label: text(panelTitle(doc.value, catalog.value, target.panel)), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, target: target.panel})}]));
-    const beside = targets.flatMap((target): ContextMenuItem[] => (target.kind !== "new-panel" ? [] : [{label: message("viewCommands.newPanelNextTo", {panel: text(panelTitle(doc.value, catalog.value, target.nextTo))}), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, newPanelNextTo: target.nextTo})}]));
-    const reset: ContextMenuItem[] = canResetView(doc.value, catalog.value, opened.viewId, state.value.containers) ? [{label: message("views.resetLocation"), action: () => props.layout.actions.resetView(opened.viewId)}] : [];
+    // 和命令面板第二步同一份目标表与同一套名字（`moveTargetItem`），都经 `move-view` 执行。
+    const targets = moveTargetsOf(doc.value, opened.viewId, catalog.value, state.value.containers) ?? [];
+    const itemsOf = (kind: (typeof targets)[number]["kind"]): ContextMenuItem[] => targets.filter((target) => target.kind === kind).map((target) => {
+        const item = moveTargetItem(target);
+        return {label: text(item.label), action: () => run(MOVE_VIEW_COMMAND, {viewId: opened.viewId, ...item.args})};
+    });
+    const [into, fresh, reset] = [itemsOf("container"), itemsOf("new-container"), itemsOf("reset")];
     // 已经独占一个窗的再浮动没有意义。
     const home = panelOfView(opened.viewId);
     const alone = home !== null && isFloating(doc.value, home) && doc.value.panels[home]?.tabs.length === 1;
     const float: ContextMenuItem[] = catalog.value.get(opened.viewId)?.floatable === false || alone ? [] : [{label: message("commands.nbook.view.float.title"), action: () => run(FLOAT_COMMAND, {tab: viewKey(opened.viewId)})}];
-    const sections = [into, beside, float, reset].filter((section) => section.length > 0);
+    const sections = [into, fresh, float, reset].filter((section) => section.length > 0);
     return sections.flatMap((section, index) => (index === 0 ? section : [{separator: true}, ...section]));
 });
 

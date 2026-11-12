@@ -2,7 +2,7 @@
  * 面板的约束（docs/specs/ui/workbench-layout.md 输出 5、6）：工作台给 nb-layout 的策略。库不知道角色与名字的含义。
  */
 
-import {edgeTargetOf, findTreeNode, GRID_UNBOUNDED, REGION_ORIENTATION, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-layout";
+import {findTreeNode, GRID_UNBOUNDED, REGION_ORIENTATION, regionNodeOf, regionOf, treeLeaves} from "@notnotype/nb-layout";
 import type {GridExtent, GridOrientation, LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, PanelName, PanelRecord, TabRef} from "@notnotype/nb-layout";
 
 import {
@@ -147,9 +147,6 @@ export function layoutSeamAccepts(doc: LayoutDoc, _tabs: ReadonlyArray<TabRef>, 
     const first = treeLeaves(findTreeNode(doc.tree.root, before)?.node ?? doc.tree.root)[0];
     return parent != null && first !== undefined && parent.orientation === toolPanelAxis(doc, first.id);
 }
-
-/** “移动到”的“新面板（挨着 X）”（输出 23）：明确的命令，不跟拖动的设置走，从相邻两块取空间。 */
-export const newPanelEdgeTarget = (doc: LayoutDoc, beside: string): LayoutEdgeTarget | null => edgeTargetOf(doc, beside, toolPanelAxis(doc, beside) === "vertical" ? "bottom" : "right");
 
 export function createLayoutPolicy(overrides: {readonly canInsert?: LayoutPolicy["canInsert"]; readonly dropSplit?: () => DropSplit} = {}): LayoutPolicy {
     const {dropSplit, ...rest} = overrides;

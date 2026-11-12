@@ -308,10 +308,38 @@ describe("焦点所在的面板看不见之后的落点（输出 16、42）", ()
     });
 });
 
-describe("移动到的目标", () => {
-    test("放进去的目标是别的区域；新面板只挨着显示着的分节：编辑组、锚、没显示的分节旁边都不是目标", () => {
-        const targets = moveTargetsOf(doc(), "outline") ?? [];
-        expect(targets.filter((target) => target.kind === "panel")).toEqual([{kind: "panel", panel: "panel"}, {kind: "panel", panel: "auxiliarybar"}]);
-        expect(targets.filter((target) => target.kind === "new-panel")).toEqual([{kind: "new-panel", nextTo: FILES}, {kind: "new-panel", nextTo: OUTPUT}, {kind: "new-panel", nextTo: CHAT}]);
+describe("移动到的目标（输出 23、41）", () => {
+    const policy = createLayoutPolicy();
+    const rows = (targets: ReturnType<typeof moveTargetsOf>) => (targets ?? []).map((target) => (target.kind === "container" ? [target.kind, target.container, target.region, target.label.title] : target.kind === "new-container" ? [target.kind, target.region] : [target.kind, target.container]));
+    const FRESH = [["new-container", "sidebar"], ["new-container", "auxiliarybar"], ["new-container", "panel"]];
+
+    test("别的容器按区域、入口顺序列出，写容器的标题，不列视图自己所在的容器；然后是三个区域的新容器；在声明的容器里时没有“重置位置”", () => {
+        expect(rows(moveTargetsOf(doc(), "outline", CATALOG))).toEqual([
+            ["container", "view:files", "sidebar", {"zh-CN": "文件", "en-US": "Files"}],
+            ["container", "view:chat", "auxiliarybar", {"zh-CN": "对话", "en-US": "Chat"}],
+            ["container", "view:output", "panel", {"zh-CN": "输出", "en-US": "Output"}],
+            ...FRESH,
+        ]);
+        expect(moveTargetsOf(doc(), "nowhere", CATALOG)).toBeNull();
+    });
+
+    test("不在声明的容器里：另有“重置位置”，回到那个容器；没有成员的容器不是目标；声明的容器写声明的标题", () => {
+        const moved = moveTabToEdge(doc(), {tab: "view:outline", target: sectionLanding(doc(), "auxiliarybar", "view:chat")!, container: "view:chat"}, policy);
+        if (!moved.ok) throw new Error(moved.detail);
+        const settled = settleContainers(moved.doc);
+        expect(rows(moveTargetsOf(settled, "outline", CATALOG))).toEqual([
+            ["container", "view:files", "sidebar", {"zh-CN": "文件", "en-US": "Files"}],
+            ["container", "view:output", "panel", {"zh-CN": "输出", "en-US": "Output"}],
+            ...FRESH,
+            ["reset", "view:outline"],
+        ]);
+
+        const group = "acme.group";
+        const groups: ContainerCatalog = new Map([[group, {title: {"zh-CN": "项目", "en-US": "Project"}, icon: "i-group", location: "sidebar", order: 0}]]);
+        const grouped: ViewCatalog = new Map([...CATALOG].map(([id, view]) => [id, id === "files" || id === "outline" ? {...view, container: group} : view]));
+        expect(rows(moveTargetsOf(defaultLayoutDoc(grouped, groups), "chat", grouped, groups)).slice(0, 2)).toEqual([
+            ["container", group, "sidebar", {"zh-CN": "项目", "en-US": "Project"}],
+            ["container", "view:output", "panel", {"zh-CN": "输出", "en-US": "Output"}],
+        ]);
     });
 });

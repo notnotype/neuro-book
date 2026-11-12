@@ -118,7 +118,7 @@ describe("公开状态（输出 36）", () => {
         const keys = workbenchStateBindings(shallowRef<LayoutDocStore | null>(store));
         // 侧栏的分节收成标题行：仍占着地方。区域里要有两个分节才收得成（输出 11）。
         const side = sectionOf(store, "test.side");
-        expect(store.actions.moveView("test.panel", {newPanelNextTo: side}).ok).toBe(true);
+        expect(store.actions.moveView("test.panel", {container: "view:test.side"}).ok).toBe(true);
         expect(store.actions.setCollapsed(side, true).ok).toBe(true);
         expect(keys.sidebarVisible.value).toBe(true);
         // 区域拖到零记在锚上：宽度为 0。
@@ -133,7 +133,7 @@ describe("命令", () => {
         const commands = panelCommands(() => store);
         // 侧栏里放两个分节：只显示一个时它收不成标题行（下一条）。
         const side = sectionOf(store, "test.side");
-        expect(store.actions.moveView("test.panel", {newPanelNextTo: side}).ok).toBe(true);
+        expect(store.actions.moveView("test.panel", {container: "view:test.side"}).ok).toBe(true);
         const lower = sectionOf(store, "test.panel");
         store.actions.focusPanel(side);
         const collapsed = (panel: string) => store.state.doc.panels[panel]?.collapsed === true;
@@ -173,9 +173,9 @@ describe("命令", () => {
         expect(store.actions.document()).toBe(before);
 
         // 两个分节时收起一个，再把另一个移走：记录留着，但它此刻没收起，切换仍然是“收起”，不可用；明说展开可以，把记录清掉。
-        expect(store.actions.moveView("test.aux", {newPanelNextTo: side}).ok).toBe(true);
+        expect(store.actions.moveView("test.aux", {container: "view:test.side"}).ok).toBe(true);
         expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, collapsed: true})).toEqual({ok: true, value: null});
-        expect(store.actions.resetView("test.aux").ok).toBe(true);
+        expect(store.actions.moveView("test.aux", {container: "view:test.aux"}).ok).toBe(true);
         expect(store.actions.document().panels[side]?.collapsed).toBe(true);
         expect(failureText(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side}))).toBe("这里只显示这一个视图，不能收起");
         expect(store.actions.document().panels[side]?.collapsed).toBe(true);
@@ -193,7 +193,7 @@ describe("命令", () => {
         expect(store.state.maximized).toBe(side);
         await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: side});
         // 侧栏里再放一个分节，下面才收得起来。
-        expect(store.actions.moveView("test.aux", {newPanelNextTo: side}).ok).toBe(true);
+        expect(store.actions.moveView("test.aux", {container: "view:test.side"}).ok).toBe(true);
         store.actions.focusPanel(lower);
         await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({});
         expect(store.state.maximized).toBe(lower);

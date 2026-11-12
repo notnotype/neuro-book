@@ -120,13 +120,11 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
 
     test("切到别的容器再切回来：两个分节的先后、高度与收起都是原样，实例、输入与滚动保留；记录里的尺寸意图前后相同（验收 24；输出 42）", async ({page}) => {
         await open(page);
-        // 搭一个两个分节的容器：样例乙移到右栏再移进侧栏，成为侧栏当前容器（样例甲的）最后一个分节（输出 23）。
+        // 搭一个两个分节的容器：样例乙移进样例甲的容器，成为它最后一个分节，侧栏切到这个容器（输出 23）。
         await entry(page, `view:${B}`).click();
         await expect(sample(page, B)).toBeVisible();
-        await moveViaMenu(page, B, "右栏");
-        // 乙的容器空了，侧栏切到入口顺序里它前面的那个容器（输出 43）：样例甲。
-        await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
-        await moveViaMenu(page, B, "侧栏");
+        await moveViaMenu(page, B, "样例甲");
+        await expect(entry(page, `view:${B}`)).toHaveCount(0);
         await expect(sample(page, A)).toBeVisible();
         await expect(sample(page, B)).toBeVisible();
         await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
@@ -183,6 +181,39 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(intentsOf(after)).toEqual(intents);
         expect(after.panels[lower]?.collapsed).toBe(true);
         expect(after.panels[upper]?.collapsed ?? false).toBe(false);
+    });
+
+    test("打开视图命令：切到视图所在的容器；区域拖到零或隐藏着时同一次写入展开（输出 35；views.md 输出 14）", async ({page}) => {
+        await open(page);
+        const run = (command: string, args: Record<string, unknown>) => page.evaluate(({name, detail}) => window.dispatchEvent(new CustomEvent(name, {detail})), {name: SAMPLE_VIEWS_RUN_EVENT, detail: {command, args}});
+        const width = (await box(page, await sectionOf(page, SESSIONS))).width;
+        // 侧栏拖到零：记在区域的锚上（输出 11）。
+        const sash = (await sidebarSash(page).boundingBox())!;
+        const y = sash.y + sash.height / 2;
+        await page.mouse.move(sash.x + sash.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(0, y, {steps: 8});
+        await page.mouse.up();
+        await expect.poll(async () => (await saved(page))?.panels.sidebar?.collapsed).toBe(true);
+        await expect(pressedEntries(page)).toHaveCount(0);
+
+        // 打开样例乙：侧栏切到它的容器并展开。
+        await run("nbook.view.open", {viewId: B});
+        await expect(sample(page, B)).toBeVisible();
+        await expect(entry(page, `view:${B}`)).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(async () => (await box(page, await sectionOf(page, B))).width).toBe(width);
+        await expect.poll(async () => (await saved(page))?.panels.sidebar).toMatchObject({activeContainer: `view:${B}`});
+        expect((await saved(page))?.panels.sidebar?.collapsed ?? false).toBe(false);
+
+        // 侧栏隐藏着：打开样例甲，显示侧栏并切到甲的容器。
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: true});
+        await expect.poll(async () => (await saved(page))?.panels.sidebar?.hidden).toBe(true);
+        await expect(content(page, B)).toHaveAttribute("inert", "");
+        await run("nbook.view.open", {viewId: A});
+        await expect(sample(page, A)).toBeVisible();
+        await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(async () => (await saved(page))?.panels.sidebar).toMatchObject({activeContainer: `view:${A}`});
+        expect((await saved(page))?.panels.sidebar?.hidden ?? false).toBe(false);
     });
 
     test("侧栏拖过最小宽度：整个侧栏为零宽，点入口展开，两个分节的高度原样；只有一个分节的容器拖到零后，点别的入口再点回来是展开的（验收 28；输出 11、22）", async ({page}) => {

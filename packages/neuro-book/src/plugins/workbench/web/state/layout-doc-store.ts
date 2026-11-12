@@ -7,7 +7,7 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, fixedNodesOf, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, fixedNodesOf, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, regionOf, roundFloatRect, removeTab, sameLayoutShape, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {GridExtent, GridFloatInput, LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, PanelName} from "@notnotype/nb-layout";
 
 import {defineStore} from "nbook/shared/store/store";
@@ -18,11 +18,11 @@ import type {EditorTabDrag} from "../contracts";
 import {applyEntryDrop, isEntryAction} from "../entry-drop";
 import type {WorkbenchDragSource, WorkbenchDropAction} from "../entry-drop";
 import type {ViewCatalog} from "../views/registry";
-import {CUSTOM_CONTAINER_PREFIX, VIEW_LOCATIONS} from "../../shared/views";
-import {containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
+import {CUSTOM_CONTAINER_PREFIX} from "../../shared/views";
+import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionContainers, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
-import {collapseOrder, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, newPanelEdgeTarget, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
+import {collapseOrder, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
 import {effectiveVisibleTabs, regionOccupied} from "./layout-present";
 import {LAYOUT_DOC_RECORDS, LAYOUT_TEMPLATE_RECORD} from "./records";
 import type {LayoutDocRecord} from "./records";
@@ -38,6 +38,9 @@ export type LayoutDocProblem =
     | {readonly kind: "unsaved"; readonly code: string};
 
 export type LayoutPart = "sidebar" | "auxiliarybar" | "panel" | LayoutBar;
+
+/** “移动到”的目标（输出 23）：一个容器的 id，或在哪个区域里新建一个用户容器。 */
+export type MoveViewTarget = {readonly container: string} | {readonly newContainerIn: PanelName};
 
 /** 存盘之前的关卡（`EditorSaveGate`）：编辑器先写 `editor.tabs`，它失败时布局不写，不留下引用不存在的标签。 */
 export type LayoutSaveGate = EditorSaveGate;
@@ -413,6 +416,12 @@ function defineLayoutDocStore(bound: boolean) {
                 },
                 /** 显隐（输出 11）：隐藏的是整个区域，记在锚上。“显示”同时清掉隐藏与拖到零；隐藏最大化着的面板所在的区域时退出最大化（输出 13）。 */
                 setPartHidden: (part: LayoutPart, hidden: boolean): LayoutResult => {
+                    // 区域里一个容器都没有时显示不了：锚在提交时又被归整成隐藏（输出 43）。结果和现在一样就零写入，也不为一次没有效果的点击退出最大化。
+                    if (!hidden && part !== "activitybar" && part !== "statusbar" && regionContainers(doc.value, part).length === 0) {
+                        const anchor = regionAnchor(doc.value, part);
+                        const shown = anchor === null ? null : setPanelHidden(doc.value, anchor, false);
+                        if (shown?.ok === true && sameLayoutShape(settleContainers(shown.doc), doc.value)) return {ok: true, doc: doc.value};
+                    }
                     // 隐藏最大化着的面板所在的区域、或要显示被它盖住的区域，都退出最大化：不然按钮按了看不出变化。
                     const maximizedHere = maximized.value !== null && regionOf(doc.value, maximized.value) === part;
                     if (hidden ? maximizedHere : !maximizedHere) maximized.value = null;
@@ -470,46 +479,25 @@ function defineLayoutDocStore(bound: boolean) {
                     }, {flush: true, rebase: false});
                 },
                 /**
-                 * “移动到”（输出 23）：放到一块面板的标签末尾，或挨着一块工具面板开新面板：这一列放下面，这一排放右边。
-                 * 目标是区域的锚时是放进这个区域：成为它当前容器最后一个分节，区域显示。区域里一个容器都没有时进视图声明的容器；那个容器在别的区域还有别的视图时
-                 * 进它的隐式容器，再不行新建一个用户容器：一个容器不能跨两个区域。目标是区域里的分节时进它的容器，同样成为最后一个分节。
-                 * 新面板挨着的是分节时进那块分节的容器，位置紧挨着它。
+                 * “移动到”与“重置位置”（输出 23，`nbook.view.move-view`）：移进一个容器，或在一个区域里新建一个只含它的用户容器。两种都是成为那个容器最后一个分节
+                 * （`sectionLanding`：从前一个分节取一半，不跟 `dropSplit` 走），目标区域显示并切到这个容器；来源容器空了由 `apply` 里的 `settleContainers` 归整（输出 43）。
+                 *
+                 * 容器在哪个区域：有成员时是成员所在的区域；没有成员时是它声明的区域（声明的容器、隐式容器，这就是“重置位置”回到没有成员的容器的路）。
+                 * 两样都没有（含已经不存在的 `custom:`）是 `not-found`：不凭空建出一个调用方点名的容器。新容器的 id 只在这里生成。
+                 * 视图已经是目标容器最后一个分节时不搬，只让容器看得见，已经看得见时零写入：放到它自己后面不是一个落点。
                  */
-                moveView: (viewId: string, target: string | {readonly newPanelNextTo: string}): LayoutResult => apply((current) => {
+                moveView: (viewId: string, target: MoveViewTarget): LayoutResult => apply((current) => {
                     if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", detail: viewId};
                     const key = tabKey({kind: "view", viewId});
-                    if (typeof target === "string") {
-                        const panel = current.panels[target];
-                        if (panel === undefined) return notFound(target);
-                        if (isContainerAnchor(panel) && panel.name !== undefined) {
-                            const region = panel.name;
-                            // 容器在别的区域只剩这个视图时不算占着：视图一走它就空了，跟着视图过来。
-                            const free = (container: string): boolean => VIEW_LOCATIONS.every((other) => other === region || regionSections(current, other).every((section) => section.container !== container || section.viewId === viewId));
-                            const container = panel.activeContainer ?? [viewHome(viewId, catalog.value, containers.value)?.container, implicitContainerOf(viewId)].find((candidate) => candidate !== undefined && free(candidate)) ?? `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`;
-                            return placeInContainer(current, key, region, container);
-                        }
-                        const region = regionOf(current, target);
-                        if (region !== null && panel.container !== undefined) return placeInContainer(current, key, region, panel.container);
-                        return moveTabToStrip(current, {tab: key, panel: target, index: panel.tabs.length}, policy);
-                    }
-                    const beside = target.newPanelNextTo;
-                    if (current.panels[beside] === undefined) return notFound(beside);
-                    if (current.panels[beside]?.role !== "tool") return {ok: false, code: "rejected", detail: beside};
-                    const edge = newPanelEdgeTarget(current, beside);
-                    if (edge === null) return notFound(beside);
-                    // 挨着一块分节：进它的容器并切过去，不然新分节落在区域的当前容器里，和它挨着的那块不在一起显示。
-                    const region = regionOf(current, beside);
-                    const container = current.panels[beside]?.container;
-                    if (region === null || container === undefined) return moveTabToEdge(current, {tab: key, target: edge}, policy);
-                    const moved = moveTabToEdge(current, {tab: key, target: edge, container}, policy);
-                    return moved.ok ? showContainer(moved.doc, region, container) : moved;
-                }, {flush: true}),
-                /** “重置位置”（输出 23）：回到按此刻的声明算的容器（没声明的是它的隐式容器），成为最后一个分节，区域显示并切到这个容器。 */
-                resetView: (viewId: string): LayoutResult => apply((current) => {
-                    if (catalog.value.get(viewId)?.movable === false) return {ok: false, code: "rejected", detail: viewId};
-                    if (!catalog.value.has(viewId)) return notFound(viewId);
-                    const home = homeOf(current, viewId);
-                    return placeInContainer(current, tabKey({kind: "view", viewId}), home.region, home.container);
+                    if (findTab(current, key) === null) return notFound(key);
+                    if ("newContainerIn" in target) return placeInContainer(current, key, target.newContainerIn, `${CUSTOM_CONTAINER_PREFIX}${crypto.randomUUID()}`);
+                    const {container} = target;
+                    const region = containerRegion(current, container) ?? containerHomeRegion(container, catalog.value, containers.value);
+                    if (region === null) return notFound(container);
+                    const here = viewSection(current, viewId);
+                    const last = regionSections(current, region).filter((section) => section.container === container).at(-1);
+                    if (here?.container === container && last?.viewId === viewId) return showContainer(current, region, container);
+                    return placeInContainer(current, key, region, container);
                 }, {flush: true}),
                 /**
                  * 让容器看得见（输出 22 的点入口、输出 42）：它所在的区域显示（清掉隐藏与拖到零）并切到它，一次提交；分节的先后、大小、收成标题行都不动。

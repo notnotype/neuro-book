@@ -307,7 +307,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                         appearance: resolvedAppearance(),
                         onOpen: (where: "tab" | "floating") => void commands.execute(where === "tab" ? OPEN_THEME_EDITOR_COMMAND : OPEN_THEME_EDITOR_FLOATING_COMMAND, {}, {source: "user"}),
                     }))},
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...themeEditorCommands(commands, editorSession), ...panelCommands(() => layout.current.value), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick, text), ...appCommands(context.services.require(windowNavigationKey))},
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...themeEditorCommands(commands, editorSession), ...panelCommands(() => layout.current.value), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                 },
             };

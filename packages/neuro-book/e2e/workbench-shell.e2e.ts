@@ -101,7 +101,7 @@ const parked = (page: Page, selector: string) => expect(page.locator(selector)).
 const unparked = (page: Page, selector: string) => expect(page.locator(selector)).not.toHaveAttribute("inert", "");
 
 /**
- * 右键视图所在分节的标题，在菜单里选目标面板：移动视图的入口（输出 23），目标名是面板名或“新面板（挨着 X）”。活动栏入口的
+ * 右键视图所在分节的标题，在菜单里选目标：移动视图的入口（输出 23），目标名是容器的标题或“新容器（某区域）”。活动栏入口的
  * 右键菜单是容器的（输出 44），不是视图的。
  */
 async function moveViaMenu(page: Page, view: string, target: string): Promise<void> {
@@ -174,11 +174,11 @@ test.describe("产品页", () => {
     }
 
     /**
-     * 把会话移进底部面板，等这次写入落盘：底部面板默认没有容器，要看它得先放一个视图进去（输出 23：区域里原来一个容器都没有时，
-     * 移进去的同一次写入把它显示出来）。返回这个分节的面板 id。
+     * 把会话移进底部面板的新容器，等这次写入落盘：底部面板默认没有容器，要看它得先放一个视图进去（输出 23：区域里原来一个容器都
+     * 没有时，新容器的同一次写入把它显示出来）。返回这个分节的面板 id。
      */
     async function sessionsToPanel(page: Page): Promise<string> {
-        await moveViaMenu(page, SESSIONS, "面板");
+        await moveViaMenu(page, SESSIONS, "新容器（底部面板）");
         await expect(headOf(page, SESSIONS)).toBeVisible();
         await expect.poll(async () => (await saved(page))?.doc.panels.panel?.activeContainer ?? null).not.toBeNull();
         return sectionOf(page, SESSIONS);
