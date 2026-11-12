@@ -1,7 +1,7 @@
 /** AnchoredPopover（同名 .md）：打开与关闭都不动焦点；在里面按下不夺焦；外框不是对话框。 */
 import {mount} from "@vue/test-utils";
 import {nextTick} from "vue";
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 
 import AnchoredPopover from "./AnchoredPopover.vue";
 
@@ -60,6 +60,16 @@ describe("AnchoredPopover", () => {
         };
         expect(press("#inside")).toBe(true);
         expect(press("#field")).toBe(false);
+    });
+
+    it("对齐缺省居中，align 指定后外框按它放", async () => {
+        open();
+        await vi.waitFor(() => expect(surface()?.getAttribute("data-align")).toBe("center"));
+        for (const wrapper of wrappers.splice(0)) wrapper.unmount();
+        const anchor = document.createElement("span");
+        document.body.append(anchor);
+        wrappers.push(mount(AnchoredPopover, {props: {open: true, anchor, align: "start"}, slots: {default: "<button>按钮</button>"}, attachTo: document.body}));
+        await vi.waitFor(() => expect(surface()?.getAttribute("data-align")).toBe("start"));
     });
 
     it("contains 认得传送出去的内容", async () => {

@@ -14,9 +14,12 @@ const props = withDefaults(defineProps<{
     open: boolean;
     anchor: Element | PopoverReference | null;
     side?: "top" | "bottom";
+    /** 沿着锚点这一侧的对齐：`start` 是浮层左缘对着锚点左缘，缺省 `center`。 */
+    align?: "start" | "center" | "end";
     sideOffset?: number;
 }>(), {
     side: "top",
+    align: "center",
     sideOffset: 8,
 });
 
@@ -76,7 +79,7 @@ defineExpose({
             <PopoverContent
                 :reference="positioned"
                 :side="props.side"
-                align="center"
+                :align="props.align"
                 :side-offset="props.sideOffset"
                 :avoid-collisions="true"
                 :collision-padding="8"
