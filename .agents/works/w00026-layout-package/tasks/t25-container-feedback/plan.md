@@ -30,10 +30,9 @@
 - `layout-drag.ts`：收起时记下收起前的判定几何；`expandSource` 换回它，`sourceCollapsed` 清回假，清预览缓存，和收起一样记下展开那一刻的落点（`held`），指针再动才按展开后的几何重判。
 - 影响：活动栏“自己的空位”、标签条“回到自己那条”与这条同一个判定，待确认清单里“收起后回到空位”的已知限制随之消失。
 
-### 过渡中按下：nb-layout `src/vue/drag-session.ts`、`NestedGrid.vue`
+### 过渡中按下（实施中撤回）
 
-- `createDragSession` 的选项加 `settleMotion?(): boolean`：按下时先调它，返回真（有过渡被走到终点）就按坐标重新取指针下的元素（`elementFromPoint`），再交给 `sourceAt`。
-- `NestedGrid` 的 `settleMotion` 返回这次有没有停下进行中的过渡；工作台把它接进拖动会话。
+原计划：按下时先让过渡走到终点，再按坐标重新找按到的元素。第 1 片做了，第 2 片验证时撤回：过渡中用户按的是看得见的元素，走到终点再找会拿错（`workbench-float` 里“窗刚开、过渡还在走时拖它”拿到了窗下面的东西）。开发者的“松手后马上又拖”是回到原处不展开、松手后整列重新长一遍造成的，“回到原处展开”之后松手时外框已在原位，原步骤照常拿起（e2e 覆盖）。
 
 ### 内容跟着外框长出来：nb-layout `src/grid-motion.ts`
 

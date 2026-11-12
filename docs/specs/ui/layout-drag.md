@@ -47,8 +47,6 @@ export interface DragSessionOptions<S, D, R> {
     readonly root: HTMLElement;
     /** 按下处的来源；`null` 不起拖。 */
     sourceAt(target: Element): S | null;
-    /** （planned）按下时先让进行中的布局过渡走到终点；真停下了过渡返回 `true`（输出 2）。缺省没有过渡。 */
-    settleMotion?(): boolean;
     /** 过了门槛：宿主冻结它要的东西；返回 `false` 不起拖。`keyboard`：这一场是键盘拖动。`at`：按下处与过门槛时指针的位置，键盘拖动是 `null`。 */
     activate?(source: S, keyboard: boolean, at: {readonly pressed: GridDropPoint; readonly point: GridDropPoint} | null): boolean;
     /** 放下时提交此刻判定的动作，不要求与最后显示的相同（输出 6）。缺省假。 */
@@ -124,7 +122,7 @@ export function dropTargetAt<T>(top: Element | null, kind: DropKind<T>): {readon
 ## 输出与可观察行为
 
 1. **起拖门槛**：主指针的主键按下。鼠标与笔移动 6 px；触摸按住 200 毫秒且移动不超过 6 px，先动了就放弃，让给滚动。没过门槛的按下照常是点击。待起拖时收到没有按键的鼠标或笔移动（`buttons` 为 0，松手事件丢了），放弃这次按下。
-2. **按下的归属**：会话在根的冒泡阶段接收按下。内层先处理并停止传播的按下（分隔线的命中带）不起拖。（planned）给了 `settleMotion` 时，按下先调它；返回 `true` 时按按下的坐标重新取指针下的元素交给 `sourceAt`：刚放下、刚切换时元素还在过渡里，指针下是别的东西，拿不起刚放下的那个。
+2. **按下的归属**：会话在根的冒泡阶段接收按下。内层先处理并停止传播的按下（分隔线的命中带）不起拖。
 3. **拿起**：`activate` 返回 `false` 时不起拖。否则清掉已选中的文字、调 `onActiveChange(true)`，指针拖动时根取得指针捕获，并按当前坐标立即发布第一次判定。来源元素在拖动中被卸载不算取消。
 4. **逐帧**：指针移动每帧最多判定并发布一次。`state` 是一场进行中的唯一输出。
 5. **遮挡**：`top` 是指针处从上往下第一个不在 `data-drag-feedback` 元素里的元素。菜单、对话框挡着时它就是菜单或对话框里的元素；坐标在视口外时为 `null`。

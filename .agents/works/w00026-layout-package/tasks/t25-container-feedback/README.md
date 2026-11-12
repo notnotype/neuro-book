@@ -19,10 +19,13 @@ updated: 2026-11-12
 
 在 worktree `.worktree/w00026-t25-container-feedback`（分支 `fix/w00026-t25-container-feedback`，从 master `b5f894ed8` 开）实施，计划 [`plan.md`](plan.md) 开发者 2026-11-12 确认（“可以，开始吧”）。
 
-- 第 1 片已提交（`69e1dbfad`）：实时布局里来源收起后回到原处（判为原位）就展开回原位，判定换回拿起时的几何；按下时布局还在过渡，先走到终点再按坐标找按到的元素（nb-layout `createDragSession` 加 `settleMotion`）。Spec：`ui/workbench-layout` 输出 38、`ui/layout-drag` 输出 2 与选项签名（条目级 planned）。单元测试 `live-drag.test.ts`、`drag-session.dom.test.ts`；e2e `workbench-live-drag` 新用例“同一个容器里拖走前一节再回到原处……”，两处修正各自去掉时都失败。验证：工作台与 Lab 570 项、nb-layout 530 + 190 项、`vue-tsc` web 通过；e2e `workbench-live-drag`、`workbench-containers`、`workbench-dnd` 69 条全过。
-  - 复现时注意：e2e 默认减少动效，拖动一律是落点指示；量实时布局要先 `emulateMedia({reducedMotion: "no-preference"})`。
-  - “松手后马上再拖”在开发者的步骤里，回到原处展开以后松手时外框已在原位，本来就不再落空；按下先走完过渡的修正覆盖的是取消、放到别处之后邻居还在滑的情形。
+- 第 1 片（`69e1dbfad`）与第 2 片（`4c9cacfe8`）已提交：
+  - 实时布局里来源收起后回到原处（判为原位）就展开回原位，判定换回拿起时的几何（Spec `ui/workbench-layout` 输出 38，条目级 planned）。单元测试 `live-drag.test.ts`；e2e `workbench-live-drag`“同一个容器里拖走前一节再回到原处……松手后马上再按，照常拿起”，去掉展开时失败。
+  - 停放过的内容随刚长出来的叶一起长：切回容器、侧栏显示时内容不再先于外框整块出现。根因是内容是早就挂着的元素，起点样式带着过渡标记写上去，浏览器开始一段到起点的过渡，紧接着写终点就地反向取消；现在起点那一帧不带标记。Spec `ui/nested-grid` 的“内容层”写明停放过的内容同样。单元测试 `grid-motion.test.ts`；e2e `workbench-containers`“切回容器、侧栏从隐藏到显示……每一帧都不超出外框”，两处改动各自去掉时都失败。
+  - 计划里的“过渡中按下先走到终点”第 1 片做了、第 2 片撤回，理由见 [`plan.md`](plan.md)。
+  - 验证：工作台与 Lab 570 项、nb-layout 531 + 190 项、两份类型检查通过；e2e `workbench-containers`、`workbench-views`、`workbench-shell`、`workbench-live-drag`、`workbench-float`、`workbench-dnd`、`lab-workbench-surface` 149 条在撤回前 148 过（失败的就是被撤回那项弄坏的 `float:295`），撤回后重跑 `workbench-live-drag`、`workbench-float` 与新用例 38 条全过。
+  - 复现时注意：e2e 默认减少动效，拖动一律是落点指示；量实时布局与过渡要先 `emulateMedia({reducedMotion: "no-preference"})`。
 
 ## 下一步
 
-第 2 片：内容随外框长出（`grid-motion.ts` 的 `enteringRects`）。之后空区域（先写 ADR、派设计审查），动画逐个做、逐个给开发者看。
+第 3 片：空区域能打开（先写 ADR、派设计审查）。之后动画逐个做、逐个给开发者看。
