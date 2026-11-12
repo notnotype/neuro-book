@@ -103,6 +103,10 @@ installTheme(myTheme);
 - **角色映射**：`--control-surface` `--button-surface` `--panel-surface` `--sidebar-surface`
   `--toolbar-surface` `--overlay-surface` `--dialog-surface` `--dialog-surface-nested` `--overlay-blur` `--strip-surface` `--divider` 及对应的 `-outline`
 
+- **语法着色**：`--syntax-comment` `--syntax-keyword` `--syntax-string` `--syntax-number` `--syntax-type` `--syntax-tag`
+  `--syntax-attribute` `--syntax-regexp` `--syntax-variable` `--syntax-punctuation`，宿主的源码编辑器按它们着色。缺省由配色变量推导，
+  一般不用管；要自己的色板时只写成配色变量的引用或 `color-mix()`，不写字面色（以这套主题为基底、只换配色的主题会原样拿到这些值）
+
 角色映射这一层最容易被忽略：控件的面用哪个配色变量、描边用不用色、分隔靠线还是靠底色，
 这些是**主题决策不是颜色决策**。一整套「界面退场」的低 chrome 风格可以只靠它表达，
 一行组件代码都不用改：

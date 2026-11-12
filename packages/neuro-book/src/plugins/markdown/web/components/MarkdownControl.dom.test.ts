@@ -9,19 +9,21 @@ import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
-import {computed, nextTick} from "vue";
-import {afterEach, describe, expect, it} from "vitest";
+import {computed, defineComponent, h, nextTick, ref, shallowRef} from "vue";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {codecFor, defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
 import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
+import {createLabEditorMenus} from "nbook/plugins/lab/web/fixtures/editor-scene/lab-editor-menus";
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
+import {editorCatalogs} from "nbook/plugins/editor/web/text";
 
-import {markdownEditingActions} from "@notnotype/nb-markdown/editor";
+import {holdSelection, listComments, markdownEditingActions} from "@notnotype/nb-markdown/editor";
 
-import {EDITING_ACTIONS, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
+import {EDITING_ACTIONS, editorMenusKey, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
@@ -59,7 +61,7 @@ interface Opened {
 }
 
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
-async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void): Promise<Opened> {
+async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void, options: {readonly menus?: boolean; readonly margin?: boolean} = {}): Promise<Opened> {
     const memory = area?.memory ?? createMemoryFiles({project: [["a.md", text]], user: []});
     const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
@@ -79,11 +81,13 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     const host = editorArea.tabControlSlot(tabId, MARKDOWN_EDITOR);
     const windowText = createHostTextEngine({locale: "zh-CN", strict: true});
     windowText.register("nbook.markdown", markdownCatalogs.catalogs, markdownCatalogs.source);
+    // 要菜单与卡片的用例才提供：Lab 的菜单夹具（命令服务换成直接转给活动控件），文字目录用真实的编辑器目录。
+    if (options.menus === true) windowText.register("nbook.editor", editorCatalogs.catalogs, editorCatalogs.source);
     // 句柄交给编辑器区（与 `EditorGroup` 一样），区域的定位、结算经它找到控件。
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerTabHandle(tabId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
+    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, ...(options.menus === true ? {[editorMenusKey as symbol]: options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port)} : {})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
     return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText, wrapper};
@@ -112,6 +116,19 @@ describe("交出（方言 Spec 输出 1–3）", () => {
         editor.commands.insertContentAt(endOfBlock(editor, 2), "改");
         handle.flushPendingChange();
         expect(binding.text.value).toBe("* 甲\r\n\r\n<ruby>汉<rt>hàn</rt></ruby>字\r\n\r\n乙改\r\n");
+    });
+
+    it("打了字还没到停手：登记的“还有没交出的输入”为真，交出后为假（editor 输出 63）", async () => {
+        const {area, editor, handle, binding, groupId} = await opened("甲\n");
+        const document = area.documentOf(groupId)!;
+        expect(area.documents.pending(document)).toBe(false);
+        editor.commands.focus("end");
+        type(editor, "乙");
+        expect(binding.text.value).toBe("甲\n");
+        expect(area.documents.pending(document)).toBe(true);
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("甲乙\n");
+        expect(area.documents.pending(document)).toBe(false);
     });
 
     it("写回被接受后写法固定（输出 2）：为分开相邻列表换了符号的新列表，删掉前一个列表再改它，仍写 `*`", async () => {
@@ -324,6 +341,47 @@ describe("结算（同一文档的几个控件）", () => {
     });
 });
 
+describe("换文档（“状态与转换”）", () => {
+    it("注音卡片开着时画的选区高亮不随编辑状态存下：换到别的文档再换回来，正文里没有残留（markdown-editing 输出 9）", async () => {
+        const memory = createMemoryFiles({project: [["a.md", "甲乙\n"], ["b.md", "丙\n"]], user: []});
+        const area = createEditorArea({files: memory.files, clock: systemClock, panels: createMemoryEditorPanels(), workspaceKey: "test", generation: 1, initial: null, report: (error) => {
+            throw error;
+        }});
+        cleanups.push(() => memory.dispose());
+        cleanups.push(() => area.dispose());
+        const groupId = area.groups.activeGroup.value;
+        const read = async (path: string, text: string): Promise<TextEditorBinding> => {
+            area.open(`project://${path}`, {mode: "permanent", editor: MARKDOWN_EDITOR});
+            return waitUntil(`${path} 读到`, () => {
+                const found = area.binding(groupId);
+                return found?.kind === "text" && found.text.value === text && area.documentOf(groupId)?.status.value === "ready" ? found : null;
+            });
+        };
+        const a = await read("a.md", "甲乙\n");
+        const b = await read("b.md", "丙\n");
+        area.open("project://a.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
+        const windowText = createHostTextEngine({locale: "zh-CN", strict: true});
+        windowText.register("nbook.markdown", markdownCatalogs.catalogs, markdownCatalogs.source);
+        // 与 EditorGroup 一样，换标签时绑定与实例槽一起换。不用 setProps：绑定里有 ref，测试工具把这样的属性另存，setProps 改不到。
+        const current = shallowRef(a);
+        const wrapper = mount(defineComponent(() => () => h(MarkdownControl, {binding: current.value, host: area.tabControlSlot(current.value.tabId, MARKDOWN_EDITOR), readonly: false, visible: true, label: "a.md"})), {attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port}}});
+        cleanups.push(() => wrapper.unmount());
+        const editor = (area.tabControlSlot(a.tabId, MARKDOWN_EDITOR).state as {editor: Editor}).editor;
+        editor.commands.setTextSelection({from: 1, to: 3});
+        expect(holdSelection(editor)).toBe(true);
+        expect(document.querySelectorAll(".nb-markdown-held-selection")).toHaveLength(1);
+
+        // 焦点还在卡片里时换了文档（快捷键、文件被删、别处打开）：控件先存下这份的编辑状态，再换。
+        current.value = b;
+        await nextTick();
+        expect(editor.state.doc.textContent).toBe("丙");
+        current.value = a;
+        await nextTick();
+        expect(editor.state.doc.textContent).toBe("甲乙");
+        expect(document.querySelectorAll(".nb-markdown-held-selection")).toHaveLength(0);
+    });
+});
+
 describe("卸载", () => {
     it("编辑器区先释放了实例（组关闭、Lab 切走）再卸载控件：卸载前的结算照常写出，不报错", async () => {
         const errors: unknown[] = [];
@@ -466,3 +524,354 @@ describe("引用小块与图片（方言 Spec 输出 18、27）", () => {
     });
 });
 
+/** 批注卡片（workbench.markdown-editing 输出 28–35）：真实编辑器、真实菜单层，浮层传送到 body，用 data 属性找。 */
+describe("批注卡片（workbench.markdown-editing 输出 28–35）", () => {
+    const TWO = "甲<comment body=\"第一条\">乙丙</comment>丁戊<comment body=\"第二条\">己庚</comment>辛\n";
+    // 关上的浮层要等退场动画结束才摘掉，按 `data-state` 判断开着的那一个。
+    const card = (): HTMLElement | null => document.querySelector('[data-anchored-popover][data-state="open"] [data-markdown-comment-layer]');
+    const cardText = (): string => card()?.textContent ?? "";
+    const find = (editor: Editor, text: string): {from: number; to: number} => {
+        let found: {from: number; to: number} | null = null;
+        editor.state.doc.descendants((node, pos) => {
+            const at = node.isText ? (node.text as string).indexOf(text) : -1;
+            if (found === null && at >= 0) found = {from: pos + at, to: pos + at + text.length};
+        });
+        if (found === null) throw new Error(`找不到 ${text}`);
+        return found;
+    };
+    /** 把光标放到这个位置（选区变化的事务，不改文档）。 */
+    const moveTo = async (editor: Editor, pos: number): Promise<void> => {
+        editor.commands.setTextSelection(pos);
+        await nextTick();
+    };
+    /** 键盘事件；happy-dom 把 `getModifierState("AltGraph")` 报成 Alt 是否按下，浏览器里 AltGr 才是真，这里按浏览器的写。 */
+    const keyEvent = (init: KeyboardEventInit): KeyboardEvent => {
+        const event = new KeyboardEvent("keydown", {bubbles: true, cancelable: true, ...init});
+        Object.defineProperty(event, "getModifierState", {value: (key: string) => key !== "AltGraph" && (key === "Alt" ? event.altKey : key === "Control" ? event.ctrlKey : key === "Meta" ? event.metaKey : key === "Shift" ? event.shiftKey : false)});
+        return event;
+    };
+    const pressKey = (editor: Editor, init: KeyboardEventInit): void => {
+        editor.view.dom.dispatchEvent(keyEvent(init));
+    };
+    const click = async (label: string): Promise<void> => {
+        const target = card()?.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+        if (target === null || target === undefined) throw new Error(`卡片上没有 ${label}`);
+        target.click();
+        await nextTick();
+    };
+    const bodies = (editor: Editor): string[] => listComments(editor.state.doc).map((info) => info.body);
+
+    it("光标进批注出卡片，写着意见与“第 i 条，共 n 条”；离开就收起", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true});
+        editor.view.focus();
+        await moveTo(editor, find(editor, "乙丙").from + 1);
+        expect(cardText()).toContain("第一条");
+        expect(cardText()).toContain("第 1 条，共 2 条");
+        await moveTo(editor, find(editor, "丁戊").from + 1);
+        expect(card()).toBeNull();
+        await moveTo(editor, find(editor, "己庚").to);
+        expect(cardText()).toContain("第二条");
+        expect(cardText()).toContain("第 2 条，共 2 条");
+    });
+
+    it("Esc 收起后同一条里走动不回来，移出再移进才出；在批注里打字收起，之后按方向键不弹", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true});
+        editor.view.focus();
+        const inside = find(editor, "乙丙").from + 1;
+        await moveTo(editor, inside);
+        expect(card()).not.toBeNull();
+        pressKey(editor, {key: "Escape"});
+        await nextTick();
+        expect(card()).toBeNull();
+        await moveTo(editor, inside + 1);
+        expect(card()).toBeNull();
+        await moveTo(editor, find(editor, "丁戊").from + 1);
+        await moveTo(editor, inside);
+        expect(card()).not.toBeNull();
+        editor.commands.insertContentAt(inside, "字");
+        await nextTick();
+        expect(card()).toBeNull();
+        await moveTo(editor, inside + 2);
+        expect(card()).toBeNull();
+    });
+
+    it("下一条、上一条：光标跳到那条的开头，卡片换成它，到头置灰", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true});
+        editor.view.focus();
+        await moveTo(editor, find(editor, "乙丙").from + 1);
+        await click("下一条批注");
+        expect(editor.state.selection.from).toBe(find(editor, "己庚").from);
+        expect(cardText()).toContain("第二条");
+        expect(card()?.querySelector('[aria-label="下一条批注"]')?.hasAttribute("disabled")).toBe(true);
+        await click("上一条批注");
+        expect(editor.state.selection.from).toBe(find(editor, "乙丙").from);
+        expect(cardText()).toContain("第一条");
+    });
+
+    it("紧挨的两条：光标没动，点“下一条”当前批注也换到后一条", async () => {
+        const {editor} = await opened("<comment body=\"前\">甲乙</comment><comment body=\"后\">丙丁</comment>\n", undefined, undefined, {menus: true});
+        editor.view.focus();
+        const seam = find(editor, "丙丁").from;
+        await moveTo(editor, seam);
+        expect(cardText()).toContain("前");
+        expect(cardText()).toContain("后");
+        await click("下一条批注");
+        expect(editor.state.selection.from).toBe(seam);
+        await nextTick();
+        expect(editor.view.dom.querySelector(".nb-comment-current")?.textContent).toBe("丙丁");
+    });
+
+    it("改意见：点编辑、改、Ctrl+Enter，文档里意见变了，回到看；空意见是取消", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true});
+        editor.view.focus();
+        await moveTo(editor, find(editor, "乙丙").from + 1);
+        await click("编辑批注");
+        const field = card()?.querySelector("textarea") as HTMLTextAreaElement;
+        expect(field.value).toBe("第一条");
+        field.value = "  ";
+        field.dispatchEvent(new Event("input", {bubbles: true}));
+        field.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true}));
+        await nextTick();
+        expect(bodies(editor)).toEqual(["第一条", "第二条"]);
+        await moveTo(editor, find(editor, "丁戊").from + 1);
+        await moveTo(editor, find(editor, "乙丙").from + 1);
+        await click("编辑批注");
+        const again = card()?.querySelector("textarea") as HTMLTextAreaElement;
+        again.value = "改后的\n两行";
+        again.dispatchEvent(new Event("input", {bubbles: true}));
+        again.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true}));
+        await nextTick();
+        expect(bodies(editor)).toEqual(["改后的\n两行", "第二条"]);
+        expect(cardText()).toContain("改后的");
+        expect(card()?.querySelector("textarea")).toBeNull();
+    });
+
+    it("删除：这一条的标记去掉、字留着，卡片收起；Ctrl+Z 回来", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true});
+        editor.view.focus();
+        await moveTo(editor, find(editor, "乙丙").from + 1);
+        await click("删除批注");
+        expect(bodies(editor)).toEqual(["第二条"]);
+        expect(editor.state.doc.textContent).toBe("甲乙丙丁戊己庚辛");
+        await nextTick();
+        expect(card()).toBeNull();
+        editor.commands.undo();
+        expect(bodies(editor)).toHaveLength(2);
+    });
+
+    it("Ctrl+Alt+M：选区在字上开新批注的“写”，原选区仍画成选中，保存加上批注；光标在批注里改这条的意见", async () => {
+        const {editor} = await opened("甲乙丙\n\n丁<comment body=\"旧\">戊己</comment>\n", undefined, undefined, {menus: true});
+        editor.view.focus();
+        editor.commands.setTextSelection(find(editor, "乙"));
+        await nextTick();
+        pressKey(editor, {code: "KeyM", key: "m", ctrlKey: true, altKey: true});
+        await nextTick();
+        const field = card()?.querySelector("textarea") as HTMLTextAreaElement;
+        expect(field.value).toBe("");
+        expect(editor.view.dom.querySelector(".nb-markdown-held-selection")?.textContent).toBe("乙");
+        field.value = "新意见";
+        field.dispatchEvent(new Event("input", {bubbles: true}));
+        field.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true}));
+        await nextTick();
+        await nextTick();
+        expect(bodies(editor)).toEqual(["新意见", "旧"]);
+        expect(editor.view.dom.querySelector(".nb-markdown-held-selection")).toBeNull();
+
+        await moveTo(editor, find(editor, "戊己").from + 1);
+        pressKey(editor, {code: "KeyM", key: "m", ctrlKey: true, altKey: true});
+        await nextTick();
+        expect((card()?.querySelector("textarea") as HTMLTextAreaElement).value).toBe("旧");
+    });
+
+    it("选区在代码块里或光标不在批注里时 Ctrl+Alt+M 不开卡片、不拦截按键", async () => {
+        const {editor} = await opened("甲乙\n\n```\ncode\n```\n", undefined, undefined, {menus: true});
+        editor.view.focus();
+        editor.commands.setTextSelection(find(editor, "code"));
+        const event = keyEvent({code: "KeyM", key: "m", ctrlKey: true, altKey: true});
+        editor.view.dom.dispatchEvent(event);
+        await nextTick();
+        expect(card()).toBeNull();
+        expect(event.defaultPrevented).toBe(false);
+        await moveTo(editor, 1);
+        const plain = keyEvent({code: "KeyM", key: "m", ctrlKey: true, altKey: true});
+        editor.view.dom.dispatchEvent(plain);
+        expect(card()).toBeNull();
+        expect(plain.defaultPrevented).toBe(false);
+    });
+
+    it("“写”着改已有批注时正文被程序换掉、这条批注的意见变了：卡片收起，不改别的批注", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true});
+        editor.view.focus();
+        await moveTo(editor, find(editor, "乙丙").from + 1);
+        await click("编辑批注");
+        expect(card()?.querySelector("textarea")).not.toBeNull();
+        const codec = codecFor(editor.schema, markdownLanguage());
+        editor.commands.setContent(codec.read("甲<comment body=\"别的批注\">乙丙</comment>丁\n").doc.toJSON());
+        await nextTick();
+        await nextTick();
+        expect(card()?.querySelector("textarea") ?? null).toBeNull();
+        expect(bodies(editor)).toEqual(["别的批注"]);
+    });
+
+    it("“写”着改已有批注时正文被程序改了、前面多出一条批注（序号变了）：按唯一的指纹找到原来那条，保存改的还是它，别的不动（验收 17）", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true});
+        editor.view.focus();
+        await moveTo(editor, find(editor, "乙丙").from + 1);
+        await click("编辑批注");
+        const codec = codecFor(editor.schema, markdownLanguage());
+        editor.commands.setContent(codec.read(`新<comment body="前面新增的">增</comment>${TWO}`).doc.toJSON());
+        await nextTick();
+        await nextTick();
+        const field = card()?.querySelector("textarea") as HTMLTextAreaElement;
+        expect(field).not.toBeNull();
+        field.value = "改好的第一条";
+        field.dispatchEvent(new Event("input", {bubbles: true}));
+        field.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true}));
+        await nextTick();
+        expect(bodies(editor)).toEqual(["前面新增的", "改好的第一条", "第二条"]);
+    });
+
+    it("换文档（控件不可见）时卡片与没保存的字都收起", async () => {
+        const {editor, wrapper} = await opened(TWO, undefined, undefined, {menus: true});
+        editor.view.focus();
+        await moveTo(editor, find(editor, "乙丙").from + 1);
+        await click("编辑批注");
+        await wrapper.setProps({visible: false});
+        await nextTick();
+        expect(card()).toBeNull();
+    });
+});
+
+/** 批注页边（workbench.markdown-editing 输出 33）：宽度来自 ResizeObserver，happy-dom 没有排版，用可控的假观察者喂宽度。 */
+describe("批注页边（workbench.markdown-editing 输出 33）", () => {
+    const TWO = "甲<comment body=\"第一条\">乙丙</comment>丁戊<comment body=\"第二条\">己庚</comment>辛\n";
+    type Observer = {readonly callback: ResizeObserverCallback; readonly targets: Element[]};
+    const observers: Observer[] = [];
+    const original = globalThis.ResizeObserver;
+    beforeEach(() => {
+        observers.length = 0;
+        globalThis.ResizeObserver = class {
+            private readonly entry: Observer;
+            constructor(callback: ResizeObserverCallback) {
+                this.entry = {callback, targets: []};
+                observers.push(this.entry);
+            }
+            observe(target: Element): void {
+                this.entry.targets.push(target);
+            }
+            unobserve(): void {}
+            disconnect(): void {
+                this.entry.targets.length = 0;
+            }
+        } as unknown as typeof ResizeObserver;
+    });
+    afterEach(() => {
+        globalThis.ResizeObserver = original;
+    });
+    /** 控件根（`.markdown-control-root`）的宽度变了。 */
+    const resize = async (width: number): Promise<void> => {
+        for (const observer of observers) {
+            if (observer.targets.some((target) => target.classList.contains("markdown-control-root"))) observer.callback([{contentRect: {width}} as ResizeObserverEntry], {} as ResizeObserver);
+        }
+        await nextTick();
+        await nextTick();
+    };
+    const margin = (): HTMLElement | null => document.querySelector("[data-markdown-comment-margin]");
+    const items = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>("[data-markdown-comment-margin] [data-mode]")].filter((element) => element.classList.contains("markdown-comment-margin__item"));
+    const popover = (): HTMLElement | null => document.querySelector('[data-anchored-popover][data-state="open"] [data-markdown-comment-layer]');
+    const find = (editor: Editor, text: string): {from: number; to: number} => {
+        let found: {from: number; to: number} | null = null;
+        editor.state.doc.descendants((node, pos) => {
+            const at = node.isText ? (node.text as string).indexOf(text) : -1;
+            if (found === null && at >= 0) found = {from: pos + at, to: pos + at + text.length};
+        });
+        if (found === null) throw new Error(`找不到 ${text}`);
+        return found;
+    };
+    const keyEvent = (init: KeyboardEventInit): KeyboardEvent => {
+        const event = new KeyboardEvent("keydown", {bubbles: true, cancelable: true, ...init});
+        Object.defineProperty(event, "getModifierState", {value: (key: string) => key !== "AltGraph" && (key === "Alt" ? event.altKey : key === "Control" ? event.ctrlKey : false)});
+        return event;
+    };
+
+    it("开关开着、控件够宽才画：稿纸让位、每条批注一张卡片，光标所在的展开、其余是摘要，浮层不出", async () => {
+        const {editor, wrapper} = await opened(TWO, undefined, undefined, {menus: true, margin: true});
+        await resize(1100);
+        expect(margin()).not.toBeNull();
+        expect(wrapper.get(".markdown-control-root").attributes("data-comment-margin")).toBeDefined();
+        expect((wrapper.get("[data-editor-control]").element as HTMLElement).style.paddingInlineEnd).toBe("280px");
+        expect(items().map((item) => item.dataset.mode)).toEqual(["compact", "compact"]);
+        editor.view.focus();
+        editor.commands.setTextSelection(find(editor, "己庚").from + 1);
+        await nextTick();
+        await nextTick();
+        expect(items().map((item) => item.dataset.mode)).toEqual(["compact", "view"]);
+        expect(items()[1]?.textContent).toContain("第二条");
+        expect(items()[1]?.textContent).toContain("第 2 条，共 2 条");
+        expect(popover()).toBeNull();
+        expect(editor.view.dom.querySelector(".nb-comment-current")?.textContent).toBe("己庚");
+    });
+
+    it("宽度的迟滞：1032 起画、窄于 1000 才收起，之间不闪；收起后退回浮层，开关不变", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true, margin: true});
+        await resize(1020);
+        expect(margin()).toBeNull();
+        await resize(1040);
+        expect(margin()).not.toBeNull();
+        await resize(1010);
+        expect(margin()).not.toBeNull();
+        await resize(990);
+        expect(margin()).toBeNull();
+        editor.view.focus();
+        editor.commands.setTextSelection(find(editor, "乙丙").from + 1);
+        await nextTick();
+        await nextTick();
+        expect(popover()?.textContent).toContain("第一条");
+    });
+
+    it("点摘要：光标移到那条批注、它展开；开关关着时没有页边", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true, margin: true});
+        await resize(1100);
+        (items()[1]?.querySelector("[data-markdown-comment-card]") as HTMLElement).click();
+        await nextTick();
+        await nextTick();
+        expect(editor.state.selection.from).toBe(find(editor, "己庚").from);
+        expect(items().map((item) => item.dataset.mode)).toEqual(["compact", "view"]);
+        const off = await opened(TWO, undefined, undefined, {menus: true});
+        await resize(1100);
+        expect(off.wrapper.find("[data-markdown-comment-margin]").exists()).toBe(false);
+        expect(off.wrapper.get(".markdown-control-root").attributes("data-comment-margin")).toBeUndefined();
+    });
+
+    it("加批注的“写”卡片在页边里：按选区起点排进列表，保存后成为一条", async () => {
+        const {editor} = await opened(TWO, undefined, undefined, {menus: true, margin: true});
+        await resize(1100);
+        editor.view.focus();
+        editor.commands.setTextSelection(find(editor, "丁戊"));
+        await nextTick();
+        editor.view.dom.dispatchEvent(keyEvent({code: "KeyM", key: "m", ctrlKey: true, altKey: true}));
+        await nextTick();
+        await nextTick();
+        expect(items().map((item) => item.dataset.mode)).toEqual(["compact", "write", "compact"]);
+        expect(popover()).toBeNull();
+        const field = items()[1]?.querySelector("textarea") as HTMLTextAreaElement;
+        field.value = "新的";
+        field.dispatchEvent(new Event("input", {bubbles: true}));
+        field.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true}));
+        await nextTick();
+        await nextTick();
+        await nextTick();
+        expect(listComments(editor.state.doc).map((info) => info.body)).toEqual(["第一条", "新的", "第二条"]);
+        expect(items()).toHaveLength(3);
+    });
+
+    it("控件交出批注条数（编辑区标题的“批注 N”读它），随增删当场变；没有菜单层时不交出", async () => {
+        const {editor, handle} = await opened(TWO, undefined, undefined, {menus: true});
+        expect(handle.comments?.count.value).toBe(2);
+        editor.commands.setTextSelection(find(editor, "辛"));
+        editor.commands.addComment("第三条");
+        expect(handle.comments?.count.value).toBe(3);
+        const plain = await opened(TWO);
+        expect(plain.handle.comments).toBeUndefined();
+    });
+});

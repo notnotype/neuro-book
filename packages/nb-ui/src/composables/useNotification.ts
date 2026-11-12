@@ -24,14 +24,52 @@ export type NotificationInput = {
     duration?: number;
     /** 进度（0 到 100）；null 为不确定进度。不给就没有进度条。 */
     progress?: number | null;
+    /**
+     * 开发诊断原文：不翻译、必须已脱敏（docs/specs/workbench/notifications.md）。有它时视口出“详情”入口，点开 `DetailDialog`。
+     * 空串与全空白等于没有（`hasNotificationDetail`）；超过 `NOTIFICATION_DETAIL_MAX_CHARS` 的部分截掉并置 `detailTruncated`。
+     * 队列不按它折算时长：带详情要常驻的，调用方自己给 `duration: 0`（工作台服务按规则算好再交进来）。
+     */
+    detail?: string;
+    /** 原文已被截断：发出方自己截过时置上；队列截断时也会置上。更新时只随 `detail` 一起生效。 */
+    detailTruncated?: boolean;
 };
 
-/** 已发出的通知能改的字段；`duration` 给了就按新时长重新计时。 */
+/** 已发出的通知能改的字段；`duration` 给了就按新时长重新计时；`detail` 给空串清除详情。 */
 export type NotificationPatch = Partial<NotificationInput>;
 
 export type NotificationItem = Required<Pick<NotificationInput, "tone" | "duration">> & NotificationInput & {
     id: string;
 };
+
+/** 详情原文的长度上限（UTF-16 码元）：诊断单条消息默认 4000 字（docs/specs/runtime/diagnostics.md），加堆栈留一倍余量。 */
+export const NOTIFICATION_DETAIL_MAX_CHARS = 8000;
+
+/**
+ * “这条通知有没有详情”的唯一判据：去掉首尾空白后非空。工作台服务算常驻、队列存条目、视口出“详情”入口都用它，
+ * 三处不各写一份，免得空白原文在一处算有、另一处算没有。
+ */
+export function hasNotificationDetail(detail: string | undefined): boolean {
+    return detail !== undefined && detail.trim() !== "";
+}
+
+/** 按上限截断；不在代理对中间切开（切开会留下一个孤立的高位代理）。 */
+function boundDetail(detail: string): {detail: string; truncated: boolean} {
+    if (detail.length <= NOTIFICATION_DETAIL_MAX_CHARS) return {detail, truncated: false};
+    let end = NOTIFICATION_DETAIL_MAX_CHARS;
+    const last = detail.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+    return {detail: detail.slice(0, end), truncated: true};
+}
+
+/**
+ * 条目里的详情字段：没有详情时两个字段都不出现；有时按上限截断，截断标志与发出方给的取或。另存一份通知的地方（工作台的通知
+ * 中心）也用它，同一条通知在两处的原文与“已截断”一致。
+ */
+export function notificationDetailFields(detail: string | undefined, truncated: boolean | undefined): Pick<NotificationItem, "detail" | "detailTruncated"> {
+    if (detail === undefined || !hasNotificationDetail(detail)) return {};
+    const bounded = boundDetail(detail);
+    return {detail: bounded.detail, detailTruncated: bounded.truncated || truncated === true};
+}
 
 /**
  * 一份通知队列：发出、更新、移除与自动关闭计时。视口（`NotificationStack`）从它读列表、经它关闭；悬停时暂停计时。
@@ -115,6 +153,7 @@ export function createNotificationQueue(): NotificationQueue {
             action: normalized.action,
             duration: normalized.duration ?? DEFAULT_NOTIFICATION_DURATION[tone],
             ...(normalized.progress === undefined ? {} : {progress: normalized.progress}),
+            ...notificationDetailFields(normalized.detail, normalized.detailTruncated),
         };
         notifications.value = [...notifications.value, item];
         if (item.duration > 0) {
@@ -127,7 +166,14 @@ export function createNotificationQueue(): NotificationQueue {
         const index = notifications.value.findIndex((item) => item.id === id);
         if (index === -1) return;
         const current = notifications.value[index] as NotificationItem;
-        const next: NotificationItem = {...current, ...patch, tone: patch.tone ?? current.tone, duration: patch.duration ?? current.duration};
+        const {detail, detailTruncated, ...rest} = patch;
+        const next: NotificationItem = {...current, ...rest, tone: patch.tone ?? current.tone, duration: patch.duration ?? current.duration};
+        // 给了 detail 就整体换掉（空串清除）；detailTruncated 只随 detail 一起生效，单给它不改条目（队列截过的标志不能被改回 false）。
+        if (detail !== undefined) {
+            delete next.detail;
+            delete next.detailTruncated;
+            Object.assign(next, notificationDetailFields(detail, detailTruncated));
+        }
         notifications.value = notifications.value.map((item) => (item.id === id ? next : item));
         if (patch.duration === undefined) return;
         // 时长变了就从现在重新计时：常驻改成限时是“任务结束了”，限时改成常驻是“出错要人看”。

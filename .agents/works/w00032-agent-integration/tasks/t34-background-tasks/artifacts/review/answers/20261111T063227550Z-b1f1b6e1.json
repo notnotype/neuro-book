@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t34-background-tasks",
+    "artifactId": "review",
+    "answerId": "20261111T063227550Z-b1f1b6e1",
+    "artifactVersion": 1,
+    "contentHash": "caa5fd6d038f2af0b26e1a00da62cb0f5ce9d0bff180d24331cf7cd4d171ee79",
+    "submittedAt": "2026-11-11T06:32:26.796Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "task-rows": "line",
+        "notifications-view": "accept",
+        "status-items": "bell-always"
+    },
+    "comments": {
+        "task-rows": "空的时候，文字要居中",
+        "status-items": "样式优化一下"
+    },
+    "note": null
+}

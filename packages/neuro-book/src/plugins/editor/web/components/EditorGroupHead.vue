@@ -7,7 +7,7 @@ import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue"
 
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
-import {buttonBudget} from "nbook/ui/menus/title-actions";
+import {titleModelFor} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import type {PanelFrameControl} from "nbook/plugins/workbench/web/contracts";
@@ -131,7 +131,7 @@ onMounted(() => {
 });
 onBeforeUnmount(() => observer?.disconnect());
 
-const titleModel = computed((): TitleActionsModel | null => (props.titleActions === null ? null : props.titleActions.model(buttonBudget(stripWidth.value, EDITOR_TITLE_TAB_RESERVE, EDITOR_TITLE_MAX_BUTTONS))));
+const titleModel = computed((): TitleActionsModel | null => (props.titleActions === null ? null : titleModelFor(props.titleActions.model, stripWidth.value, EDITOR_TITLE_TAB_RESERVE, EDITOR_TITLE_MAX_BUTTONS)));
 const hasTitleActions = computed(() => titleModel.value !== null && (titleModel.value.buttons.length > 0 || titleModel.value.menu.length > 0));
 </script>
 

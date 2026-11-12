@@ -20,6 +20,8 @@ import type {DisplayText} from "nbook/shared/localized-text";
 import {CODE_EDITOR} from "../shared/contracts";
 import {editorText} from "../shared/text";
 import type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
+import {AUTO_SAVE_OFF, createAutoSave} from "./auto-save";
+import type {AutoSaveSettings} from "./auto-save";
 import {createDocumentStore} from "./documents/store";
 import type {DocumentReference, DocumentStore, TextDocument} from "./documents/store";
 import {BINARY_TAB_EDITOR, BUILTIN_CATALOG, editorRefusal, previewEditorFor, resolveEditor} from "./editors";
@@ -64,6 +66,11 @@ export interface EditorAreaOptions {
     readonly conflict?: (address: string, editors: ReadonlyArray<string>) => void;
     /** 设置“预览标签页”（输出 52）：为假时单击打开也是常驻标签，已有的 preview 标签转正。缺省为真。 */
     readonly enablePreview?: () => boolean;
+    /**
+     * 自动保存的设置（docs/specs/workbench/editor.md 输出 63），响应式读取。不给就是关：Lab 与合同测试不经插件建编辑器区，
+     * 不该被设置项的缺省（失焦时）改变行为；产品里由插件从配置读来。
+     */
+    readonly autoSave?: () => AutoSaveSettings;
     /** 每种编辑器留几个控件；缺省 `MOUNTED_CONTROLS_PER_EDITOR`。只有测试与 Lab 给：验证回收不用真开 21 个标签。 */
     readonly mountedControlsPerEditor?: number;
 }
@@ -180,6 +187,12 @@ export interface EditorArea {
     unblock(groupId: string): void;
     /** 焦点落到了编辑器区之外（用户去了资源管理器等）：撤销还在等控件就绪的焦点交接。 */
     focusLeft(): void;
+    /** 用户的焦点离开了这个标签的视图（控件的 `leave`）：自动保存的“失焦时”据此保存（输出 63）。 */
+    viewLeft(tabId: string): void;
+    /** 窗口失去焦点或页面被隐藏（输出 63）。 */
+    windowBlurred(): void;
+    /** 页面要离开了：开着自动保存时把能存的都发出去，不等结果（输出 21）。 */
+    leaving(): void;
     /** 控件交出（或撤回）句柄。 */
     registerTabHandle(tabId: string, editor: string, handle: EditorControlHandle | null): void;
     dismissNotice(): void;
@@ -331,7 +344,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
                 if (result.status === "accepted" && result.revision > baseRevision && groups.find(tabId)?.tab.preview === true) groups.keep(tabId);
                 return result;
             },
-            attach: (flush) => (current() ? documents.attachView(document, flush) : () => undefined),
+            attach: (flush, pending) => (current() ? documents.attachView(document, flush, pending) : () => undefined),
             unresolved: () => document.unresolved.value.includes(token),
             block: (input) => {
                 if (current()) documents.block(document, token, input);
@@ -455,6 +468,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         }
         return [...open];
     });
+    const autoSave = createAutoSave({documents, openDocuments, clock: options.clock, settings: options.autoSave ?? (() => AUTO_SAVE_OFF), report: options.report});
     const handleOf = (groupId: string): EditorControlHandle | null => {
         const group = groups.groups.value.find((candidate) => candidate.id === groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === group.active);
@@ -530,14 +544,24 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return editorText(unrepresentable ? "refusal.targetUnrepresentable" : "refusal.targetUnresolved");
     };
 
-    /** 换文档前结算活动视图的输入；它有未裁决输入或写不出时不换。 */
-    const leave = (groupId: string): boolean => {
+    /** 这次打开落在组此刻的活动标签上（再次打开当前文件）：活动标签不换，不算离开视图。判断同输出 1 的“已在本组打开”。 */
+    const opensActive = (groupId: string, address: string, editor: string | undefined): boolean => {
+        const group = groups.groups.value.find((candidate) => candidate.id === groupId);
+        const tab = group?.tabs.find((candidate) => candidate.id === group.active);
+        return tab !== undefined && tab.kind === "file" && tab.address === address && (editor === undefined ? !isPreview(tab.editor) : tab.editor === editor);
+    };
+    /**
+     * 换文档前结算活动视图的输入；它有未裁决输入或写不出时不换。放行就是用户要离开这个视图了，算一次失焦（输出 63）：
+     * 不等控件的 `leave`，聚焦的元素被隐藏时浏览器发不发 blur 并不一致。
+     */
+    const leave = (groupId: string, how: {readonly leaving?: boolean} = {}): boolean => {
         const current = activeBound(groupId);
         if (current === undefined) return true;
         documents.settle(current.document);
         const held = holding(groupId);
         if (held === "unresolved") notice.value = editorText("notice.unresolved");
         if (held === "unrepresentable") notice.value = editorText("notice.unrepresentable");
+        if (held === null && how.leaving !== false) autoSave.viewLeft(current.document);
         return held === null;
     };
 
@@ -589,6 +613,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         const hadFocus = focused.value;
         /** 选了“不保存”、又没有别的能编辑的标签时要还原的文档。 */
         let discarded: TextDocument | null = null;
+        /** 这次关闭里自动保存已经失败过一次：之后交给用户，不再自己试。 */
+        let autoSaveFailed = false;
         for (;;) {
             const found = groups.find(tabId);
             if (found === null) return "gone";
@@ -600,7 +626,17 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const ownInput = own !== null && (own.unresolved() || own.blocked());
             // 只剩预览视图或只读的编辑器时照常问：它们改不了正文（输出 4）。
             const shared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === found.tab.address && editable(tab)));
-            if (shared ? !ownInput : !needsSettle(document)) break;
+            if (shared ? !ownInput : !needsSettle(document)) {
+                // 别的组还开着这份文档：关掉这个标签也是离开它（“失焦时”保存），被关掉的控件发不发 blur 不可靠。
+                if (shared) autoSave.viewLeft(document);
+                break;
+            }
+            // 开着自动保存、文档又没有阻碍（输出 4、63）：不问，先保存，存完回到开头再看。保存期间又有输入就再存一次；
+            // 失败则落到下面的询问。
+            if (!autoSaveFailed && autoSave.savesOnClose(document)) {
+                autoSaveFailed = !(await autoSave.save(document)).ok;
+                continue;
+            }
             // 这个视图写不出时没有“保存”（输出 61）：它的输入交不出去，保存只会保存别的视图的正文。
             const choice = await ask(found.tab.address, own === null || !own.blocked());
             if (choice === "cancel") return "cancelled";
@@ -736,7 +772,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (request.group !== undefined && request.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === request.group)) return {ok: false, reason: editorText("refusal.groupClosed")};
         // 只结算活动标签要换掉的那一组（同 `activate`）：目标组；侧边还没有组时要新建，没有要结算的。
         const target = request.group === "side" ? groups.rightOf(groups.activeGroup.value) : (request.group ?? groups.activeGroup.value);
-        if (target !== null && !leave(target)) return {ok: false, reason: refusal(target, target === groups.activeGroup.value ? "current" : "target")};
+        if (target !== null && !leave(target, {leaving: !opensActive(target, address, request.editor)})) return {ok: false, reason: refusal(target, target === groups.activeGroup.value ? "current" : "target")};
         if (request.editor !== undefined) {
             const refusal = editorRefusal(catalog, request.editor, address);
             if (refusal !== null) return {ok: false, reason: refusal};
@@ -909,7 +945,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (tab.kind === "page") return {ok: false, reason: editorText("refusal.pageEditor")};
             const unusable = editorRefusal(catalog, editor, tab.address);
             if (unusable !== null) return {ok: false, reason: unusable};
-            if (!leave(group)) return {ok: false, reason: refusal(group, "current")};
+            // 同一个标签换编辑器不算离开这个文件：换成按字节显示的编辑器时，自己触发的保存还会挡住这次换（输出 39）。
+            if (!leave(group, {leaving: false})) return {ok: false, reason: refusal(group, "current")};
             // 换成的编辑器在本组已有这个文件的标签：切过去，当前这个关掉并释放。
             return changeEditor(tab, editor);
         },
@@ -962,6 +999,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             documents.unblock(current.document, current.binding.token);
             if (notice.value !== null) notice.value = null;
         },
+        viewLeft: (tabId) => autoSave.viewLeft(references.get(tabId)?.document ?? null),
+        windowBlurred: () => autoSave.windowBlurred(),
+        leaving: () => autoSave.leaving(),
         focusLeft: () => {
             leaves += 1;
             focused.value = false;
@@ -995,6 +1035,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             answerDialog?.("cancel");
             for (const stop of stops.splice(0)) stop();
             for (const timer of timers.values()) timer.cancel();
+            autoSave.dispose();
             for (const slot of [...slots.values(), ...controlSlots.values()]) disposeSlot(slot);
             slots.clear();
             controlSlots.clear();

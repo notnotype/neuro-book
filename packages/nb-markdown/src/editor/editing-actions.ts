@@ -7,6 +7,8 @@ import type {Editor} from "@tiptap/core";
 import {NodeSelection} from "@tiptap/pm/state";
 
 import {canMoveBlock, deleteBlock, duplicateBlock, moveBlock, selectedBlock, unwrapBlock} from "./block-actions";
+import {findComment, removeComment, setCommentBody} from "./comments";
+import type {CommentRef} from "./comments";
 
 export type EditingArgs = Readonly<Record<string, unknown>>;
 
@@ -37,6 +39,40 @@ const colorMark = (mark: string): EditingAction => ({
 });
 
 const text = (args: EditingArgs): string => (typeof args.text === "string" ? args.text : "");
+
+/**
+ * 选区里有没有注音（输出 9：有就按下注音按钮、可以移除）：盖住一部分也算，不用 `isActive`，它要整个选区都在注音里。
+ * 光标在一段注音中间时也算。
+ */
+function hasRuby(editor: Editor): boolean {
+    const type = editor.schema.marks.markdownRuby;
+    if (type === undefined) return false;
+    const {selection} = editor.state;
+    if (selection.empty) return type.isInSet(selection.$from.marks()) !== undefined;
+    return selection.ranges.some((range) => editor.state.doc.rangeHasMark(range.$from.pos, range.$to.pos, type));
+}
+
+/**
+ * 选区里有没有能加批注的文字（输出 28）：有非空白的文字，且碰到的文本块里至少有一个允许批注标记（代码块、原样块不允许）。不用
+ * `editor.can().addComment`：选区在代码块里时 `can()` 也为真，`addMark` 对不允许的节点静默跳过，命令照样返回成功、文档不变。
+ */
+function canComment(editor: Editor): boolean {
+    const type = editor.schema.marks.comment;
+    const {from, to, empty} = editor.state.selection;
+    if (type === undefined || empty || editor.state.doc.textBetween(from, to, "", "").trim() === "") return false;
+    let allowed = false;
+    editor.state.doc.nodesBetween(from, to, (node) => {
+        allowed ||= node.isTextblock && node.type.allowsMarkType(type);
+        return !allowed;
+    });
+    return allowed;
+}
+
+/** 卡片给的批注指纹（序号、意见、开头文字）；不齐全时为 null。 */
+function commentRef(args: EditingArgs): CommentRef | null {
+    const {index, body, quote} = args;
+    return typeof index === "number" && Number.isInteger(index) && index >= 0 && typeof body === "string" && typeof quote === "string" ? {index, body, quote} : null;
+}
 
 /**
  * 块类型能不能换。不用 `editor.can()`：Tiptap 的 `toggleList` 与 `setNode` 先 `clearNodes` 再转换，`can()` 下 `clearNodes`
@@ -71,8 +107,45 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
     },
     ruby: {
         run: (editor, args) => editor.chain().focus().setMarkdownRuby(text(args)).run(),
-        active: (editor) => editor.isActive("markdownRuby"),
+        active: hasRuby,
         enabled: (editor) => !editor.state.selection.empty && editor.can().setMarkdownRuby("x"),
+    },
+    // 加批注：按文档是不是真的变了返回，选区跨了不允许批注的块时不会成功却关掉卡片。
+    comment: {
+        run: (editor, args) => {
+            const body = text(args).trim();
+            if (body === "") return false;
+            const before = editor.state.doc;
+            return editor.chain().focus().addComment(body).run() && editor.state.doc !== before;
+        },
+        enabled: canComment,
+    },
+    // 改意见与删除是卡片调用的内部动作，不在动作目录里（输出 29、34、35）：参数是卡片显示时记下的批注指纹，在最新的文档里核对。
+    "comment-edit": {
+        run: (editor, args) => {
+            const ref = commentRef(args);
+            const body = text(args).trim();
+            return ref !== null && body !== "" && setCommentBody(editor, ref, body);
+        },
+        enabled: (editor, args) => {
+            const ref = commentRef(args);
+            return ref !== null && findComment(editor.state.doc, ref) !== null;
+        },
+    },
+    "comment-delete": {
+        run: (editor, args) => {
+            const ref = commentRef(args);
+            return ref !== null && removeComment(editor, ref);
+        },
+        enabled: (editor, args) => {
+            const ref = commentRef(args);
+            return ref !== null && findComment(editor.state.doc, ref) !== null;
+        },
+    },
+    // 只盖住一段注音的一部分时整段去掉（`whole-ruby.ts`）；光标在注音中间时去掉这一段。
+    "ruby-remove": {
+        run: (editor) => editor.chain().focus().unsetMark("markdownRuby", {extendEmptyMarkRange: true}).run(),
+        enabled: hasRuby,
     },
     paragraph: {
         run: (editor) => editor.chain().focus().setParagraph().run(),

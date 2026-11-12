@@ -14,12 +14,13 @@
 
 import {createHash} from "node:crypto";
 
+import type {HostRoute} from "@notnotype/nb-host/server";
+
 import {descriptorsOf, manifestOfInstalled} from "nbook/plugin-platform/backend/installed";
 import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
 import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
-import type {HostRoute} from "nbook/plugins/http/backend/plugin";
 import {BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 import {pluginCatalogsPrefix, pluginFilesPrefix} from "nbook/plugin-platform/shared/plugin-files";

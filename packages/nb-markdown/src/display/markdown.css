@@ -121,7 +121,7 @@
     text-decoration: underline;
 }
 
-/* 批注（方言 Spec 输出 11）：被批注的正文带波浪线；块批注另在左侧画一条虚线标出范围。意见的界面另做。 */
+/* 批注（方言 Spec 输出 11）：被批注的正文带波浪线；块批注另在左侧画一条虚线标出范围。意见在卡片里（输出 28–35）。 */
 .nb-markdown comment,
 .nb-markdown .nb-comment-block {
     text-decoration: underline wavy var(--status-warning);
@@ -134,10 +134,55 @@
     padding-left: 1em;
 }
 
-/* 注音（输出 12）：正文上方的小字。 */
+/* 正在看的那条批注（卡片开着时，docs/specs/workbench/markdown-editing.md 输出 32）：波浪线之外加一层批注色的淡底。 */
+.nb-markdown .nb-comment-current {
+    background: color-mix(in srgb, var(--status-warning) 22%, transparent);
+}
+
+/*
+ * 注音（输出 12）：正文上方的小字。不可选：拖选经过时不画成选中，复制只读正文时也不带它，与编辑器复制的结果一致
+ * （docs/specs/workbench/markdown-editing.md 输出 26）。
+ */
 .nb-markdown .nb-ruby-text {
     color: var(--text-muted);
     font-size: 0.6em;
+    /* Safari 只认带前缀的；带前缀的写在前面，见 nb-ui styles.css 里 backdrop-filter 那条。 */
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/*
+ * 编辑器里的注音：行内块，读音绝对定位在基底上方居中。原生的 `display: ruby` 会让 Chrome 把一行里最后一个注音的末尾当成
+ * 行尾，Home、End 与 Shift 加它们的选区在含注音的行里到不了真正的行首行尾（在没有 ProseMirror 的普通 contenteditable 里
+ * 同样复现，见 docs/specs/workbench/markdown-editing.md 输出 27）。行内块是原子的行内盒，没有这个问题，折行段落里行尾的
+ * 光标也仍画在这一行的末尾。只读显示不用改：那里没有光标。
+ * 排版与原生相近：读音不撑高行，基底顶上留 3px 让读音与上一行隔开（原生每个注音行高约多 6px）。代价是很长的基底（整句）
+ * 不再跟着折行，整个注音块掉到下一行；注音通常只给词，不处理。
+ */
+.nb-markdown.ProseMirror ruby {
+    display: inline-block;
+    position: relative;
+    padding-top: 3px;
+    max-width: 100%;
+}
+
+.nb-markdown.ProseMirror ruby > .nb-ruby-text {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    display: block;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    line-height: 1;
+}
+
+/*
+ * 选区用主题的选区色（docs/specs/theme/system.md）。编辑器里焦点去了卡片的输入框时，正文自己画出选区
+ * （`editor/held-selection.ts`）；两条同色，焦点进出卡片时选区看起来没变。
+ */
+.nb-markdown ::selection,
+.nb-markdown .nb-markdown-held-selection {
+    background: var(--selection-bg);
 }
 
 /* 双语对照（输出 13）：原文上方一行弱色的译文。 */

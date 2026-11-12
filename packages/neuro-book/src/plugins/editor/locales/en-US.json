@@ -62,6 +62,7 @@
         "deletedClean": "The file was deleted.",
         "ended": "The file service ended ({{reason}}); saving is not possible.",
         "saveFailed": "Save failed: {{reason}}",
+        "retrySave": "Retry Save",
         "saveUnknown": "The save outcome is unknown; checking the disk."
     },
     "closeDialog": {
@@ -82,6 +83,9 @@
                     "tabs": {
                         "title": "Tabs"
                     },
+                    "saving": {
+                        "title": "Saving"
+                    },
                     "code": {
                         "title": "Code Editor"
                     }
@@ -101,6 +105,29 @@
         "breadcrumbs": {
             "title": "Breadcrumbs",
             "description": "Show the file path and the current heading below the tabs"
+        },
+        "autoSave": {
+            "title": "Auto Save",
+            "description": "When unsaved changes are saved automatically",
+            "choices": {
+                "off": {
+                    "title": "Off"
+                },
+                "afterDelay": {
+                    "title": "After Delay"
+                },
+                "onFocusChange": {
+                    "title": "On Focus Change"
+                },
+                "onWindowChange": {
+                    "title": "On Window Change"
+                }
+            }
+        },
+        "autoSaveDelay": {
+            "title": "Auto Save Delay",
+            "description": "How long after you stop typing before saving; only applies to After Delay",
+            "unit": "ms"
         },
         "code": {
             "fontFamily": {
@@ -212,6 +239,9 @@
         "split-right": {
             "title": "Split Editor Right"
         },
+        "toggle-comment-margin": {
+            "title": "Show or Hide Comment Margin"
+        },
         "split-down": {
             "title": "Split Editor Down"
         },
@@ -267,6 +297,12 @@
                 },
                 "ruby": {
                     "title": "Ruby"
+                },
+                "ruby-remove": {
+                    "title": "Remove Ruby"
+                },
+                "comment": {
+                    "title": "Add Comment"
                 },
                 "paragraph": {
                     "title": "Paragraph"
@@ -384,6 +420,9 @@
         },
         "hasLanguage": {
             "reason": "The active editor has no language mode"
+        },
+        "hasComments": {
+            "reason": "The active editor has no comment margin"
         },
         "canFormat": {
             "reason": "Formatting is not available here"
@@ -519,6 +558,8 @@
         "toolbar": "Formatting",
         "more": "More Actions",
         "colorNone": "Default",
+        "pickTextColor": "Choose Text Color",
+        "pickHighlight": "Choose Highlight Color",
         "align-left": "Align Left",
         "align-center": "Center",
         "align-right": "Align Right",
@@ -540,6 +581,16 @@
         "selection": "Selection Formatting",
         "promptRuby": "Ruby Text",
         "promptBilingual": "Source Text",
+        "promptConfirm": "Confirm",
+        "commentEmpty": "No comment written",
+        "commentCounter": "Comment {{i}} of {{n}}",
+        "commentPrevious": "Previous comment",
+        "commentNext": "Next comment",
+        "commentEdit": "Edit comment",
+        "commentRemove": "Delete comment",
+        "commentSave": "Save",
+        "commentCancel": "Cancel",
+        "commentBody": "Comment text",
         "slash": "Insert Block",
         "slash-basic": "Basic",
         "slash-lists": "Lists",
@@ -550,6 +601,11 @@
         "paste": "Paste",
         "pastePlain": "Paste as Plain Text",
         "selectAll": "Select All",
+        "find": "Find",
+        "replace": "Replace",
+        "changeAll": "Change All Occurrences",
+        "formatDocument": "Format Document",
+        "formatSelection": "Format Selection",
         "insertBlock": "Insert Block",
         "blockMenu": "Block Menu",
         "pasteUnsupported": "This browser cannot paste from the menu. Use Ctrl+V.",

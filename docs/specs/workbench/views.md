@@ -45,6 +45,7 @@ interface ViewDeclaration {
     readonly maximumSize?: {readonly width?: number; readonly height?: number};
     readonly movable?: boolean;                          // 默认 true
     readonly floatable?: boolean;                        // 默认 true；假时松手没有落点就是取消，没有“浮动”按钮（ui/workbench-layout 输出 39）
+    readonly revealRegion?: boolean;                     // （planned）默认 true；假时第一次生成布局不因它显示所在区域（输出 18）
     readonly actions?: ReadonlyArray<ViewAction>;        // 标题动作（输出 10），至多 8 个
 }
 interface ViewAction {
@@ -57,6 +58,7 @@ interface ViewAction {
 }
 interface ViewImplementation {
     load(): Promise<Component>;                          // 只取得组件定义；实例由工作台创建
+    badge?(): number | null;                             // （planned）标题后的计数，响应式读取（输出 17）
 }
 // 组件的 props：{context: ViewContext}
 interface ViewContext {
@@ -128,6 +130,8 @@ interface ViewContainerDeclaration {
 14. **打开视图**：命令 `nbook.view.open {viewId?}`（`nbook.workbench` 的浏览器入口贡献，`effect: write`，不对 Agent 开放，`when` 要布局已就绪）显示视图所在的面板（隐藏、拖到零、收起时都回来）并激活它；视图所在的容器不是区域的当前容器时切到它（[ui.workbench-layout](../ui/workbench-layout.md) 输出 42）（planned）；成功表示布局已改，视图在下一次渲染时出现，不移动焦点。不给 `viewId` 时经选择服务列出树上的视图（标签是视图标题、说明是所在面板；在区域里的说明是所在容器的标题（planned）），取消为成功且不写。`viewId` 没有已接受的声明或不在布局里为 `invalid-args`，不在工作台页面（没有布局）为 `unavailable`。作者的状态栏条目收视图助手时，点击即以它的 id 执行这条命令（[`runtime.plugin-api`](../runtime/plugin-api.md) 的“作者 API”）。
 15. **视图容器的声明**（planned）：贡献点 `workbench.viewContainers` 上一条已接受的声明就是一个声明的容器，贡献 id 是容器 id。工作台激活时读本位置已接受的全部容器声明。容器有成员时才有入口（[ui.workbench-layout](../ui/workbench-layout.md) 输出 41），入口的名称与图标用声明的 `title`、`icon`。`location` 与 `order` 只在容器第一次放进布局时用：放在哪个区域、入口排在哪（规则同输出 13）；之后由布局文档决定。
 16. **视图属于哪个容器**（planned）：视图声明写了 `container`、这个容器有已接受的声明（可以是别的插件的）时，视图第一次放进布局就是这个容器的一个分节；没写时属于自己的隐式容器 `view:<视图 id>`，放在视图的 `location`。写的容器没有已接受的声明（那个插件没装、被禁用，或声明被拒）时，视图落回自己的隐式容器，并记一条诊断，写明视图 id 与它指向的容器 id；视图照常显示。归属只在视图第一次放进布局时按声明定一次，之后由布局文档决定；“重置位置”按执行那一刻的声明算。
+17. **标题后的计数**（planned）：视图实现交了 `badge()` 时，外壳响应式读它：是正整数时，面板头里这个视图的标签（只写标题时是标题）在标题后写这个数（“通知 2”），可访问名称同样带上；`null`、0 或不是正整数时只写标题。视图还没加载时照样读，计数不依赖视图实例。活动栏入口不显示计数。`badge()` 抛错时按没有计数显示并记诊断。
+18. **不显示区域的视图**（planned）：声明 `revealRegion: false` 的视图照样按 `location` 放进布局，但第一次生成布局文档时不算让区域显示的理由：区域里只有这样的视图时，区域隐藏（[ui.workbench-layout](../ui/workbench-layout.md) 输出 1）。之后与别的视图一样，经“打开视图”（输出 14）或状态栏按钮显示。内置的“后台任务”与“通知”这样声明，它们经状态栏条目与铃铛打开（[workbench.background-tasks](background-tasks.md)、[workbench.notifications](notifications.md)）。文档已经有了之后才出现的视图不改区域的显示与隐藏（[ui.workbench-layout](../ui/workbench-layout.md) 输出 4），所以这个字段只影响第一次生成。
 
 ### 约定键
 

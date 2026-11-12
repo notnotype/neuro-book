@@ -19,6 +19,7 @@ export const EDITOR_SECTION_DECLARATION: WrittenSettingsSectionDeclaration = {
     order: 30,
     groups: [
         {id: "tabs"},
+        {id: "saving"},
         {id: "code"},
     ],
 };
@@ -86,6 +87,37 @@ export const markdownToolbarPlacementSetting = defineSetting({
         {value: "merged"},
         {value: "bottom"},
     ],
+});
+
+/** 自动保存的模式（docs/specs/workbench/editor.md 输出 63）；取值与 VS Code 的 `files.autoSave` 相同。 */
+export const autoSaveSetting = defineSetting({
+    plugin: "nbook.editor",
+    name: "autoSave",
+    schema: Type.Union([Type.Literal("off"), Type.Literal("afterDelay"), Type.Literal("onFocusChange"), Type.Literal("onWindowChange")]),
+    default: "onFocusChange",
+    description: editorText("settings.autoSave.description"),
+    section: EDITOR_SECTION,
+    group: "saving",
+    order: 10,
+    choices: [
+        {value: "off"},
+        {value: "afterDelay"},
+        {value: "onFocusChange"},
+        {value: "onWindowChange"},
+    ],
+});
+
+/** “停手后”的延迟。下限 100 毫秒：再短就是每次交出输入都写盘。 */
+export const autoSaveDelaySetting = defineSetting({
+    plugin: "nbook.editor",
+    name: "autoSaveDelay",
+    schema: Type.Integer({minimum: 100, maximum: 600000}),
+    default: 1000,
+    description: editorText("settings.autoSaveDelay.description"),
+    section: EDITOR_SECTION,
+    group: "saving",
+    order: 20,
+    ui: {unit: editorText("settings.autoSaveDelay.unit")},
 });
 
 /**

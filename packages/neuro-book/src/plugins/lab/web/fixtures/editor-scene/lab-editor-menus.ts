@@ -11,13 +11,18 @@ import {EDITING_ACTIONS} from "nbook/plugins/editor/shared/editing";
 import type {EditingActionInfo} from "nbook/plugins/editor/shared/editing";
 import {editorText} from "nbook/plugins/editor/shared/text";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
+import {keyEventMatches} from "nbook/plugins/editor/web/key-event";
 
-export function createLabEditorMenus(area: EditorArea, text: TextPort): EditorMenus {
+export function createLabEditorMenus(area: EditorArea, text: TextPort, options: {readonly commentMargin?: boolean} = {}): EditorMenus {
     const editing = () => area.activeHandle.value?.editing;
     return {
         title: (action) => text.t(editorText(`commands.nbook.edit.${action}.title` as never)),
-        label: (key) => text.t(editorText(`menus.${key}` as never)),
+        label: (key, params) => text.t(editorText(`menus.${key}` as never, params)),
         shortcut: (action) => (EDITING_ACTIONS[action] as EditingActionInfo).keybinding?.replace("Mod", "Ctrl") ?? null,
+        matches: (action, event) => {
+            const keybinding = (EDITING_ACTIONS[action] as EditingActionInfo).keybinding;
+            return keybinding !== undefined && keyEventMatches(keybinding, "other", event);
+        },
         has: () => false,
         run: (action, args) => void editing()?.run(action, args),
         execute: (command) => {
@@ -28,6 +33,7 @@ export function createLabEditorMenus(area: EditorArea, text: TextPort): EditorMe
         runContributed: () => undefined,
         toolbarVisible: ref(true),
         toolbarPlacement: ref("full"),
+        commentMargin: ref(options.commentMargin === true),
         keyLabel: (keybinding) => keybinding.replace("Mod", "Ctrl"),
         notify: (key) => area.notify(editorText(`menus.${key}` as never)),
         reportError: () => undefined,

@@ -1,0 +1,44 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NeuroBook 心情差分 · 动画</title>
+<style>
+body{margin:0;background:#EDE5DA;color:#2E211B;font:14px/1.7 system-ui,"PingFang SC","Noto Sans CJK SC",sans-serif}
+main{max-width:980px;margin:0 auto;padding:32px 16px 60px}
+h1{font-size:24px;margin:0 0 6px} p{color:#7A6A5E;margin:0 0 12px}
+.stage{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px;margin:16px 0}
+.panel{border-radius:14px;padding:24px;display:grid;place-items:center;gap:10px}
+.panel.light{background:#FBF8F4;border:1px solid #E4D9CC} .panel.dark{background:#1C1418;color:#F7F2EC}
+neurobook-mood{width:220px;max-width:100%}
+.copy{min-height:1.7em;margin:0;color:inherit;opacity:.8}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+button{font:inherit;border:1px solid #E4D9CC;background:#fff;border-radius:999px;padding:4px 14px;cursor:pointer;color:#2E211B}
+button[aria-pressed="true"]{background:#871222;border-color:#871222;color:#F7F2EC}
+label{display:inline-flex;align-items:center;gap:6px;margin-left:8px}
+code{font-size:12px}
+</style></head><body><main>
+<h1>心情差分 · 动画</h1>
+<p>点状态看切换动画；勾上「自动轮播」每 2.6 秒换一个；选「空闲」后移动鼠标，猫会睁眼看过来。组件：<code>&lt;neurobook-mood state="think"&gt;&lt;/neurobook-mood&gt;</code>，改 <code>state</code> 属性就播切换动画；用法和扩展见同目录的 README.md。</p>
+<div class="btns"><button type="button" data-k="focus">专注</button><button type="button" data-k="think">思考</button><button type="button" data-k="write">写作中</button><button type="button" data-k="done">完成</button><button type="button" data-k="ask">等你选择</button><button type="button" data-k="error">出错</button><button type="button" data-k="idle">空闲</button><button type="button" data-k="sleep">睡着</button><button type="button" data-k="idea">灵感</button><button type="button" data-k="shy">害羞</button><button type="button" data-k="shy_more">羞到躲起来</button><label><input type="checkbox" id="auto"> 自动轮播</label></div>
+<div class="stage">
+<div class="panel light"><neurobook-mood state="focus"></neurobook-mood><p class="copy"></p></div>
+<div class="panel dark"><neurobook-mood state="focus" variant="dark"></neurobook-mood><p class="copy"></p></div>
+</div>
+<script src="neurobook-mood.js"></script>
+<script>
+const order = ["focus", "think", "write", "done", "ask", "error", "idle", "sleep", "idea", "shy", "shy_more"], copy = {"focus": "开始编织。", "think": "在文字抵达之前。", "write": "一根一根，将故事织成形。", "done": "世界已经成形。", "ask": "命运正在分岔。", "error": "尾巴碰到了时间线，正在恢复。", "idle": "猫已经看过了。问题不大。", "sleep": "有只猫压住了剧情线。稍等。", "idea": "一颗星刚刚改变了位置。", "shy": "看板娘的「微羞」", "shy_more": "羞到躲进书后面了。"};
+const set = (k) => {
+  document.querySelectorAll("neurobook-mood").forEach((m) => m.setAttribute("state", k));
+  document.querySelectorAll(".copy").forEach((p) => (p.textContent = copy[k]));
+  document.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.k === k));
+};
+document.querySelector(".btns").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) set(b.dataset.k); });
+let timer = 0;
+document.getElementById("auto").addEventListener("change", (e) => {
+  clearInterval(timer);
+  if (e.target.checked) timer = setInterval(() => {
+    const cur = document.querySelector("neurobook-mood").getAttribute("state");
+    set(order[(order.indexOf(cur) + 1) % order.length]);
+  }, 2600);
+});
+set("focus");
+</script>
+</main></body></html>

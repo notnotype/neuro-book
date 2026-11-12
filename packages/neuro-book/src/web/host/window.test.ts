@@ -12,6 +12,9 @@ import {EventEmitter} from "node:events";
 import {mkdir, rm} from "node:fs/promises";
 import {join} from "node:path";
 
+import {helloFrame, openRawRpcSocket, startTcpProxy} from "@notnotype/nb-host/testing";
+import {errorResponse} from "@notnotype/nb-host/testing";
+import type {DiagnosticsConsole} from "@notnotype/nb-host/web";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -23,16 +26,12 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import type {PluginDescriptor} from "nbook/manifest";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {fakePage} from "nbook/plugin-platform/testing/fake-page";
-import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
-import {errorResponse} from "nbook/plugins/http/backend/dispatch";
 import {manifestServerPlugins} from "nbook/server/plugins";
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {startClaimedServer} from "nbook/server/testing/claimed-server";
 import type {RunningServer} from "nbook/server/start";
 import {createProjectRegistry} from "nbook/server/projects/registry";
 import {killSpawnedProjects, observed, PROJECT_FIXTURE_ENTRY, trackedProjectOutput} from "nbook/server/testing/projects";
-import {helloFrame, openRawRpcSocket} from "nbook/server/testing/rpc-client";
-import {startTcpProxy} from "nbook/server/testing/tcp-proxy";
 import {createRemoteProbePlugin, newRemoteProbeState} from "nbook/server/testing/test-plugins";
 import type {RemoteProbeState} from "nbook/server/testing/test-plugins";
 import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
@@ -523,10 +522,12 @@ function newRecord(): CallerRecord {
 }
 
 /** 引导集合加上 `test.remote-caller`，RPC 端点由 `rpc()` 给出（每次引导时取，可以随测试改变）。 */
-function callerWindow(record: CallerRecord, rpc: () => {readonly port: number; readonly path: string}, options: {readonly clock?: ManualClock; readonly holdName?: string} = {}) {
+/** `protocolVersion`：引导每次给出的协议版本，缺省本页面的；测重连时服务端换了构建。 */
+function callerWindow(record: CallerRecord, rpc: () => {readonly port: number; readonly path: string}, options: {readonly clock?: ManualClock; readonly holdName?: string; readonly protocolVersion?: () => number} = {}) {
     const caller = remoteCaller(record, options.holdName ?? null);
     const builtin = [...builtinBrowserPlugins, caller.descriptor];
-    const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpc(), revision: "r", catalogs: [], plugins: builtin.map(({id, version}) => ({id, version}))}));
+    const protocolVersion = options.protocolVersion ?? (() => BROWSER_PROTOCOL_VERSION);
+    const stub = serveBootstrap(() => Response.json({protocolVersion: protocolVersion(), rpc: rpc(), revision: "r", catalogs: [], plugins: builtin.map(({id, version}) => ({id, version}))}));
     const opened = openWindow({url: stub.url, builtin, definitions: {...browserPluginDefinitions, [caller.descriptor.id]: caller.definition}, clock: options.clock});
     return {...opened, stub};
 }
@@ -632,6 +633,29 @@ describe("窗口的远程服务链路（场景 6、8、9）", () => {
         // 插件经宿主能力看到同样的变化，拿到的时钟就是窗口的时钟。
         expect(record.connection).toEqual(["online", "offline", "online", "offline", "online"]);
         expect(record.clock).toBe(clock);
+        await browserWindow.stop();
+        stub.stop();
+        proxy.stop();
+    }, 20_000);
+
+    it("重连时引导的协议版本变了：窗口转为不兼容并说明原因，之后不再重连", async () => {
+        const proxy = startTcpProxy({host: "127.0.0.1", port: rpcOf(backend).port});
+        const clock = new ManualClock();
+        let version = BROWSER_PROTOCOL_VERSION;
+        const record = newRecord();
+        const {browserWindow, stub} = callerWindow(record, () => ({port: proxy.port, path: "/"}), {clock, protocolVersion: () => version});
+        await browserWindow.start();
+        expect(readyOf(browserWindow.state).connection).toBe("online");
+
+        version = BROWSER_PROTOCOL_VERSION + 1;
+        proxy.drop();
+        await waitUntil("窗口标注离线", () => browserWindow.state.status === "ready" && browserWindow.state.connection === "offline");
+        clock.advance(500);
+        await waitUntil("窗口转为不兼容", () => browserWindow.state.status === "incompatible");
+        expect(failureOf(browserWindow.state)).toEqual({status: "incompatible", reason: `服务端的引导协议版本已不是 ${String(BROWSER_PROTOCOL_VERSION)}`});
+
+        clock.advance(60_000);
+        expect(browserWindow.state.status).toBe("incompatible");
         await browserWindow.stop();
         stub.stop();
         proxy.stop();

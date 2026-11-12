@@ -117,14 +117,6 @@
         "builtin-fixed": "内置插件不能这样操作",
         "registry-failed": "读写插件登记表失败"
     },
-    "remoteErrors": {
-        "unavailable": "连不上服务端",
-        "timeout": "服务端没有及时答复",
-        "unknown-outcome": "不知道操作有没有完成，已重新读取列表"
-    },
-    "failures": {
-        "unknown": "操作没有完成"
-    },
     "builtin": {
         "nbook-agent": {
             "name": "Agent",
@@ -193,6 +185,10 @@
         "nbook-storage": {
             "name": "存储",
             "description": "插件的记录与偏好。"
+        },
+        "nbook-tasks": {
+            "name": "后台任务",
+            "description": "插件发起的长任务：进度、取消与重试，结束时发通知。"
         },
         "nbook-workbench": {
             "name": "工作台",

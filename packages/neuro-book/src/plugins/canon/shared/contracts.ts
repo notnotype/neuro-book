@@ -8,6 +8,7 @@
  *   `too-large` 等与路由层的码同名，不能逐个声明成业务失败码。
  */
 
+import {RPC_MAX_MESSAGE_BYTES} from "@notnotype/nb-host/socket";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
@@ -15,8 +16,6 @@ import {ActorSchema, AddressSchema, AuthorizationSchema, ObjectRefSchema, ReadPo
 import type {CanonReadView, DecisionView, DiagnosticCompute, EntryView, NeededAuthorization, ObjectRef, PendingPage, ReadPosition, ReadStamp, Revision, StoryChange, Suggestion, TellingItem, ViewDenial, ViewedReads, ViewGrant, WriteRequest} from "@notnotype/nb-canon/schema";
 import {Type} from "typebox";
 import type {Static} from "typebox";
-
-import {RPC_MAX_MESSAGE_BYTES} from "nbook/shared/rpc-socket";
 
 export {CANON_COMPONENTS_POINT, CANON_DIAGNOSTICS_POINT, CANON_MARKS_POINT} from "./components";
 export type {ComponentContribution} from "./components";

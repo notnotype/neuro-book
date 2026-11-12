@@ -1,0 +1,365 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00022-dev-panel",
+    "taskId": "t22-panel-ui-a11y-pass",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "review",
+    "title": "面板 UI 与可访问性走查 · 第 1 轮",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "9a1edc5fb50bbcf762f74af288cc99a67d953a4d44743001425d7c05fbe9e1e8",
+    "files": [
+        "index.html",
+        "r1/answer-form-buttons.webp",
+        "r1/artifact-mobile.webp",
+        "r1/badges-contrast.webp",
+        "r1/banner.webp",
+        "r1/checkouts-mobile.webp",
+        "r1/docs-table.webp",
+        "r1/ephemeral.webp",
+        "r1/home-title.webp",
+        "r1/raw-markdown-card.webp",
+        "r1/raw-markdown-state.webp",
+        "r1/runs.webp",
+        "r1/search-mobile.webp",
+        "r1/sessions-header.webp",
+        "r1/task-mobile.webp",
+        "r1/terminal-watch.webp",
+        "r1/work-mobile.webp"
+    ],
+    "questions": [
+        {
+            "id": "upstream-contrast",
+            "type": "single",
+            "label": "状态徽标与字段说明的对比度在上游，改不改上游",
+            "options": [
+                {
+                    "value": "upstream",
+                    "label": "改 nb-ui 与 nb-layout"
+                },
+                {
+                    "value": "panel",
+                    "label": "只在面板里覆盖"
+                },
+                {
+                    "value": "skip",
+                    "label": "不改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "upstream"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "task-page-order",
+            "type": "single",
+            "label": "Task 页把“产物与文档”（含待答）提到前面",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "做"
+                },
+                {
+                    "value": "no",
+                    "label": "不做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "yes"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "artifact-mobile",
+            "type": "single",
+            "label": "手机上的评审板",
+            "options": [
+                {
+                    "value": "tabs",
+                    "label": "页面与答题两个切换"
+                },
+                {
+                    "value": "jump",
+                    "label": "页头加“去答题（N）”"
+                },
+                {
+                    "value": "no",
+                    "label": "不改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "tabs"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "work-table",
+            "type": "single",
+            "label": "Work 页的 Task 表：手机上保留待答与谁在动，桌面上少几列",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "做"
+                },
+                {
+                    "value": "no",
+                    "label": "不做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "yes"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "lists",
+            "type": "multi",
+            "label": "三个列表页先放要处理的",
+            "options": [
+                {
+                    "value": "artifacts",
+                    "label": "产物列表"
+                },
+                {
+                    "value": "runs",
+                    "label": "在跑页"
+                },
+                {
+                    "value": "checkouts",
+                    "label": "checkout 页手机版"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "artifacts",
+                "runs",
+                "checkouts"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "sessions-header",
+            "type": "single",
+            "label": "会话页的页头与详情头只留要紧的",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "做"
+                },
+                {
+                    "value": "no",
+                    "label": "不做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "yes"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "terminal-font",
+            "type": "single",
+            "label": "会话终端观看时的字号",
+            "options": [
+                {
+                    "value": "min",
+                    "label": "观看时字号有下限，放不下就横向滚动"
+                },
+                {
+                    "value": "fit",
+                    "label": "保持现在放下整屏"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "min"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "code-banner",
+            "type": "single",
+            "label": "“代码已更新”横幅可以关、命令可以复制",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "做"
+                },
+                {
+                    "value": "no",
+                    "label": "不做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "yes"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "wording",
+            "type": "multi",
+            "label": "界面上的字",
+            "options": [
+                {
+                    "value": "ids",
+                    "label": "编号与路径默认收起"
+                },
+                {
+                    "value": "terms",
+                    "label": "英文术语换中文"
+                },
+                {
+                    "value": "notes",
+                    "label": "删掉不看也能操作的灰色说明"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "ids",
+                "terms",
+                "notes"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "ephemeral-frame",
+            "type": "single",
+            "label": "“谁在动 · 临时”虚线框",
+            "options": [
+                {
+                    "value": "keep",
+                    "label": "保留虚线框，没人在动时不画"
+                },
+                {
+                    "value": "badge",
+                    "label": "去掉虚线框，标题旁一个“实时”小标"
+                },
+                {
+                    "value": "no",
+                    "label": "不改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "keep"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "lease-chip",
+            "type": "single",
+            "label": "会话胶囊（“谁在动”里的那几个）能不能点",
+            "options": [
+                {
+                    "value": "link",
+                    "label": "点了去会话页"
+                },
+                {
+                    "value": "plain",
+                    "label": "不能聚焦，只悬停看"
+                },
+                {
+                    "value": "no",
+                    "label": "不改"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "link"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "header-actions",
+            "type": "single",
+            "label": "页头的操作分主次",
+            "options": [
+                {
+                    "value": "yes",
+                    "label": "做"
+                },
+                {
+                    "value": "no",
+                    "label": "不做"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "yes"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "extra",
+            "type": "text",
+            "label": "你觉得不友好、上面没提到的地方",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-10T06:14:36.014Z"
+}

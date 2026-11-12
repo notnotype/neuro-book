@@ -1,0 +1,29 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t15-skills",
+    "artifactId": "review",
+    "answerId": "20261111T000041773Z-cf45c9ea",
+    "artifactVersion": 1,
+    "contentHash": "5b9b14fc7df2b4d5cc684d327544f0e51e32effd75d547417bbaea9847f3f964",
+    "submittedAt": "2026-11-11T00:00:41.100Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "skills-page": "adjust",
+        "menu-needs-init": "badge",
+        "init-dialog": "adjust",
+        "init-while-installing": "closable",
+        "message-skill": "adjust",
+        "profile-section": "accept"
+    },
+    "comments": {
+        "skills-page": "各个组件要对齐啊，你这里的未初始化，坏了，正在初始化都没对齐，而且 “坏了” 这个表述不够专业。这个要写到规范里\n",
+        "init-dialog": "还是一样的，我不想因为这个状态的不同而导致这个确认框有不同的尺寸",
+        "init-while-installing": "和 vsocde 一样，这里可能需要引入一个后台任务系统",
+        "message-skill": "不要下面那一行这种三角形通知行"
+    },
+    "note": null
+}

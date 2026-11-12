@@ -1,13 +1,13 @@
 <script setup lang="ts">
+import {referenceOf, rolesUsing} from "@notnotype/nb-models/config";
+import type {ModelConfig} from "@notnotype/nb-models/config";
+import type {CatalogProvider, SnapshotModel, SnapshotProvider} from "@notnotype/nb-models/contract";
 import {AlertDialog, Button, EmptyState, IconButton, Select, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
 
-import type {CatalogProvider, SnapshotModel, SnapshotProvider} from "../../shared/contracts";
-import {referenceOf, rolesUsing} from "../../shared/rules";
-import type {ModelConfig} from "../../shared/settings";
 import type {ModelsFailure, ModelsRemote, ModelsStore} from "../models-store";
 import {failureReason, roleName, useModelsText} from "../text";
 import AddProviderDialog from "./AddProviderDialog.vue";

@@ -387,3 +387,51 @@ test("应用只有一套原子 CSS（ADR 0028）：组件取 nb-ui 自己的字�
 
     expect(await page.evaluate(() => [document.documentElement, document.body.firstElementChild!].map((element) => getComputedStyle(element).scrollbarWidth))).toEqual(["thin", "thin"]);
 });
+
+/** NotificationStackFixture 里“文件没有保存”那条通知的原文（w00028 t04）。 */
+const SAVE_FAILED_DETAIL = [
+    "EditorSaveError: EACCES: permission denied, open '/books/长夜行/第三章.md'",
+    "    code: workspace.file-write-denied",
+    "    at saveFile (editor/shared/files.ts:88:13)",
+    "    trace: 4f2a9c1e",
+].join("\n");
+
+test("通知的“详情”：开对话框，“复制原文”写进剪贴板；没有剪贴板 API 时退到 execCommand 仍能复制；打开期间通知视口 inert，Escape 关闭后焦点回到“详情”（docs/specs/workbench/notifications.md）", async ({page, context}) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.setViewportSize({width: 1600, height: 1000});
+    await openScene(page, "c=NotificationStack&s=detail");
+    const notifications = stage(page).locator("[data-notification-stack]");
+    const detailButton = notifications.getByRole("button", {name: "详情"});
+    await detailButton.click();
+    const dialog = page.locator("[data-lab-overlay-root] [role='dialog']");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("文件没有保存：详情");
+    await expect(notifications).toHaveAttribute("inert", "");
+
+    await dialog.getByRole("button", {name: "复制原文"}).click();
+    await expect(dialog.getByRole("button", {name: "已复制"})).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(SAVE_FAILED_DETAIL);
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(notifications).not.toHaveAttribute("inert", "");
+    await expect(detailButton).toBeFocused();
+    // 先把剪贴板换成别的内容，下面读回原文才说明是退路写进去的。
+    await page.evaluate(() => navigator.clipboard.writeText("清空"));
+
+    // 非安全上下文没有 navigator.clipboard：另开一页把它去掉，复制走 execCommand；剪贴板从原来那页读回来。
+    const insecure = await context.newPage();
+    await insecure.addInitScript(() => {
+        Object.defineProperty(Navigator.prototype, "clipboard", {get: () => undefined, configurable: true});
+    });
+    await insecure.setViewportSize({width: 1600, height: 1000});
+    await openScene(insecure, "c=NotificationStack&s=detail");
+    expect(await insecure.evaluate(() => navigator.clipboard === undefined)).toBe(true);
+    await stage(insecure).locator("[data-notification-stack]").getByRole("button", {name: "详情"}).click();
+    const insecureDialog = insecure.locator("[data-lab-overlay-root] [role='dialog']");
+    await insecureDialog.getByRole("button", {name: "复制原文"}).click();
+    await expect(insecureDialog.getByRole("button", {name: "已复制"})).toBeVisible();
+    await page.bringToFront();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(SAVE_FAILED_DETAIL);
+    await insecure.close();
+});

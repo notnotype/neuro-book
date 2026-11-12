@@ -7,13 +7,13 @@
 import type {ContributionDeclaration, ContributionDeclarations, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
 import type {CompactionJob, CompactionMethodImpl, CompactionResult} from "@notnotype/nb-harness/kernel/contracts";
+import {compactionMethods} from "@notnotype/nb-harness/kit/compaction";
 
 import {COMPACTION_METHODS_POINT, onAgentCompaction} from "../../shared/points";
 import type {AgentCompactionMethodDeclaration} from "../../shared/points";
 
-import {inplaceMethod} from "./inplace";
-import {shakeMethod} from "./shake";
-import {summaryMethod} from "./summary";
+import {BUILTIN_TOOL_IDS} from "../builtin/ids";
+import {COMPACTION_PROMPTS} from "./prompts";
 
 const SHAKE = "nbook.agent.shake";
 const INPLACE = "nbook.agent.inplace";
@@ -24,7 +24,11 @@ export const DEFAULT_COMPACTION_ORDER = {onThreshold: [SHAKE, INPLACE, SUMMARY],
 
 export const BUILTIN_COMPACTION_CONTRIBUTIONS: ReadonlyArray<ContributionDeclaration<AgentCompactionMethodDeclaration>> = [SHAKE, INPLACE, SUMMARY].map((id) => ({capability: COMPACTION_METHODS_POINT, id, declaration: {}}));
 
-export const builtinCompactionMethods = (): Readonly<Record<string, CompactionMethodImpl>> => ({[SHAKE]: shakeMethod, [INPLACE]: inplaceMethod, [SUMMARY]: summaryMethod});
+/** 方法本身在宿主套件里；这里给它们写小说的提示词（t11 决定 5）与 NeuroBook 的工具 id。 */
+export const builtinCompactionMethods = (): Readonly<Record<string, CompactionMethodImpl>> => {
+    const methods = compactionMethods({prompts: COMPACTION_PROMPTS, tools: BUILTIN_TOOL_IDS});
+    return {[SHAKE]: methods.shake, [INPLACE]: methods.inplace, [SUMMARY]: methods.summary};
+};
 
 type Handle = ContributionHandle<AgentCompactionMethodDeclaration, CompactionMethodImpl>;
 

@@ -39,7 +39,11 @@ export const ARTIFACT_USAGE = `  artifact publish <workRef> <taskRef> <artifactI
   answers ack <workRef> <taskRef> <artifactId> [--through <cursor>] [--include <路径>]… [--as <标签>]
   answers record <workRef> <taskRef> <artifactId> --set <题号>=<值>… [--comment <题号>=<文字>]… [--note <说明>] [--as <标签>]`;
 
-const DEFAULT_WAIT_SECONDS = 1_800;
+/**
+ * `answers --wait` 缺省等 6 小时（原来 30 分钟）：开发者常常几个小时后才答，30 分钟一到会话就要重挂，很多会话不重挂（开发者 2026-11-10）。
+ * 会话结束时挂着的进程收到 SIGHUP 退出，不会因为等得久而留下孤儿。
+ */
+const DEFAULT_WAIT_SECONDS = 21_600;
 /** 提交失败时怎么补救（文件已经写在主工作区）：下一次写同一个产物会顺带提交 `versions/`、`answers/` 里的残留。 */
 const PUBLISH_FAILURE_HINT = "重跑同一条发布会补交它们（内容没变，不出新版本）";
 const ACK_FAILURE_HINT = "重跑同一条确认会补交它们";
@@ -135,7 +139,7 @@ function artifactLines(view: ArtifactAnswersView): string[] {
  */
 function waitHint(data: {workId: string; taskId: string; artifactId: string}): {command: string; line: string} {
     const command = `nbdev answers ${data.workId.slice(0, 6)} ${data.taskId.slice(0, data.taskId.indexOf("-"))} ${data.artifactId} --wait`;
-    return {command, line: `等答复：用会话的后台机制挂着 ${command}（Claude Code 用 run_in_background），退出码 0 是有了答复或开发者关掉了它（看 state），4（超时或被打断）时按原参数重挂；会话空闲时面板也会把 [nbdev] 通知发进输入框`};
+    return {command, line: `等答复：用会话的后台机制挂着 ${command}，缺省等 6 小时（Claude Code 用 Bash 的 run_in_background，不要用 Monitor：它最长 30 分钟就把命令结束）；退出码 0 是有了答复或开发者关掉了它（看 state），4（超时或被打断）时按原参数重挂；会话空闲时面板也会把 [nbdev] 通知发进输入框`};
 }
 
 /** 没写新记录的结果（内容没变、已经关闭、都已确认）：顺带补交了上次的残留时，照写命令报提交结果，提交失败同样是退出码 1。 */

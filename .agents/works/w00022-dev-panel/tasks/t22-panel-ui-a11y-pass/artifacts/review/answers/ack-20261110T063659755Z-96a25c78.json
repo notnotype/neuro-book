@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00022-dev-panel",
+    "taskId": "t22-panel-ui-a11y-pass",
+    "artifactId": "review",
+    "ackId": "20261110T063659755Z-96a25c78",
+    "answers": [
+        "20261110T063518799Z-ddcc2757"
+    ],
+    "through": "20261110T063518799Z-ddcc2757",
+    "included": [
+        ".agents/works/w00022-dev-panel/tasks/t22-panel-ui-a11y-pass/README.md"
+    ],
+    "ackedAt": "2026-11-10T06:36:59.755Z"
+}

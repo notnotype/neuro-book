@@ -8,10 +8,9 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
+import {upgradeStatus} from "@notnotype/nb-host/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
-
-import {upgradeStatus} from "nbook/server/testing/rpc-client";
 
 const PACKAGE_ROOT = resolve(import.meta.dir, "../../..");
 const FIXTURE = join(PACKAGE_ROOT, "src/server/dev/testing/fixture-dev.ts");

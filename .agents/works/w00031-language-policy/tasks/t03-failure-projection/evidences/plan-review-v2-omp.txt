@@ -1,0 +1,117 @@
+### 1. 只给 CommandFailure 加 detail，命令规范化仍会把它丢掉
+- 严重程度：重要；类别：正确性。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:106-114,118-126,184-189`；`packages/neuro-book/src/plugins/commands/shared/contracts.ts:45-51`；`packages/neuro-book/src/plugins/commands/shared/registry.ts:302,359-363`。
+- 现象：计划只明确给 `CommandFailure` 加 `detail`，但生产者实际返回的是另一份独立的 `CommandResult<T>`。更关键的是 registry 会重建所有结构化失败，只取 `code`、`reason`；编辑器即使按计划透传 detail，也在进通知前丢失。计划列的 registry 用例只测抛异常，没有覆盖处理函数主动返回失败的通路。
+- 如何核实：运行 `bun /tmp/w31t03-review/lab/registry-smoke.ts`，真实 `createCommandRegistry.register/execute` 的输入为 `{ok:false,code:"execution-error",reason:"Safe reason",detail:"Error: original detail"}`，登记成功，执行输出不含 detail。实验用导入解析器固定所有工作区包到被审 worktree，不使用主工作区实现。
+- 为什么是问题：保存、覆盖、剪贴板都返回结构化失败而非抛错；仅修改异常 catch 和 failure-notice，核心验收仍不能成立。远程合同故意丢 detail 是另一条边界，不是本地丢失的理由。
+- 建议改法：本地失败类型只定义一次，让 `CommandResult` 引用它；明确修改 registry 的 fail/settled 分支，保留合规 detail。补一条经真实命令表到通知的主动返回失败测试，覆盖编辑器路径；远程序列化继续显式省略 detail。
+
+### 2. saveAll 的固定文案把“结果未知”说成“没有保存”
+- 严重程度：重要；类别：正确性。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:71,118-125,188-190`；`packages/neuro-book/src/plugins/editor/web/area.ts:968-971`；`packages/neuro-book/src/plugins/editor/web/documents/store.ts:611-616,674-683`。
+- 现象：单文件 unknown-outcome 有专门文案，全部保存却统一写“{{count}} 个文件没有保存”，把每项的码移进 detail；聚合 failure 在包含未知结果或混合结果时怎么取也没定义。用户只读主文案会以为这些文件都未写入。
+- 如何核实：运行 `bun /tmp/w31t03-review/lab/save-smoke.ts`。真实 Files 三实例链路、真实磁盘与 EditorArea，扣住写回复后断线：saveAll 返回 `project://a.md：unknown-outcome`，磁盘已经是新正文，重连后 dirty=false、saveProblem=null，三个实例均正常关闭。未伪造 Files 返回或直接调内部保存函数。
+- 为什么是问题：计划自己的总则 6、文件写入合同与 editor.md 输出 14 都要求结果未知不承诺未写入。逐文件码藏进详情不能修正正文的错误断言；N 个文件混合成功、明确失败和未知时同样发生。
+- 建议改法：定义聚合优先级与计数：存在未知项时主文案明确“部分文件保存结果尚未确认，请先核对”；确定失败和未知分别计数，单项详情保留各自语义。至少测试全未知与成功/失败/未知混合两种实际 RPC 场景，不只测详情有几行。
+
+### 3. 关闭与移动的内部结果先丢码，新增三分类也恢复不了未知结果
+- 严重程度：重要；类别：不变量。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:118-127,215-216`；`packages/neuro-book/src/plugins/editor/web/area.ts:612,662-675,698-699,734-735`；`editor/web/commands.ts:197`。
+- 现象：计划只给 ActionResult/BatchCloseResult/OpenResult 加三分类，并称只有保存、覆盖、剪贴板几处写 failed/unknown-outcome。但关闭也会保存：closeOne 在保存返回处直接把所有非成功折成字符串 failed；单个 close 又折成 cancelled，批量关闭与合并标签移动只剩普通保存失败。到新增字段的那一层已经没有原码与 detail，无法按字面实现正确投影。
+- 如何核实：`bun /tmp/w31t03-review/lab/close-smoke.ts`，真实 Files 链路与 EditorArea；关闭询问选保存，真实写回复被扣住后断线。单个 close 返回 cancelled，批量关闭返回 refusal.batchSaveFailed；两者 saveProblem 都是 unknown-outcome，磁盘都已是新正文；两次各三个实例正常关闭。
+- 为什么是问题：总则 6 要区分取消、失败和结果未知，但三个值没有 cancelled，而且单关闭不在新类型中。命令面板继续提示用户取消，批量/移动继续报确定失败。不是单纯给 53 处补字段可解决的问题。
+- 建议改法：先让 closeOne/close 的结果携带真实取消、保存失败或未知结果与安全详情，逐层覆盖单关闭、批量、合并移动和菜单；再规定九个命令码的映射及用户主动取消是否通知，不要让调用方按旧 reason 猜分类。为“取消”“确定保存失败”“写入已发生但回复丢失”分别增加真实链路验收。
+
+### 4. 保存的真实错误域不是文件写入码表，拒绝与失败的映射尚未定义
+- 严重程度：重要；类别：正确性。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:118-125,215-216`；`packages/neuro-book/src/plugins/editor/web/documents/store.ts:90,563-616`；`plugins/files/shared/failures.ts:6-25`。
+- 现象：计划要求 save/overwrite 用“文件写入失败码”的闭合表，并把它们几处统一视为 failed/unknown-outcome。真实 SaveResult 的 code 是开放 string：除 18 个 Files 业务码、10 个路由码外，保存还直接产生 closed、unresolved、unrepresentable、ended、not-ready，以及重建已删文件时产生的 exists；文档核对后还有 not-written。文件码表没有这些码。
+- 为什么是问题：unresolved、unrepresentable、已知 conflict 是保存发出之前的保护性拒绝，不是计划所谓“做了但没成”；仅按 FILES_FAILURES 穷举会把用户可处理的状态误当未知码，或为了编译通过把表退成 Record<string,...>，失去闭合域检查。后续 t05 还要读 saveProblem 的 not-written，不能靠这张表直接接入。
+- 如何核实：store.ts:566-575 在任何 files.write 前返回上述保护态，584 把 create 的 conflict 改为 exists，611-616 保留路由码；356 生成 not-written。没有一份类型闭合的“编辑器保存码”供计划所称的穷举表引用。前两条真实 RPC 实验还证实 unknown-outcome 来自真实保存链。
+- 建议改法：先明确编辑器保存域的码来源及 union（本地保护态、Files、远程路由、核对终态），再分码定义 refused/failed/unknown-outcome；同一域表同时供命令结果与文档状态投影使用，涵盖 not-written，补保护态无写入与核对终态的验收。
+
+### 5. 后续 Task 表漏了 Files 与资源管理器的失败投影，t05 也没有接走完整范围
+- 严重程度：重要；类别：不变量。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:122-127,133-153,214`；`packages/neuro-book/src/plugins/files/web/client.ts:307-313`；`explorer/web/feedback-text.ts:41-55,59-81`；`editor/web/components/EditorGroup.vue:89-92,137-144`。
+- 现象：M3 点名 FilesResult、资源管理器、编辑器读取失败；第二版把 M3 交给 t07，但该 Task 的域与 Spec 只有设置、存储、项目、插件平台。t03 只处理保存动作，未处理 Files 客户端、资源管理器逐项结果/清单问题、面包屑和打开失败；w00028 t05 的 README:14-17 只承接横幅与通知载体迁移，并明确错误码与参数由 w00031 t03 产出。
+- 为什么是问题：这些现存消费者仍把 `detail` 当主文案，或拼 `code：detail`；直接返回 Files 原文的读路不经过新增 ActionResult.failure。按表做完 t03、t06–t11、t04，M3 仍不闭合；不能把“UI 迁通知”默认为“Files 失败合同已设计”。
+- 如何核实：对照审计矩阵 M3/M4（channel-matrix.md:462-474）和上述真实调用链：fromRemote 拼 `code（cause）`；reasonText 未知码拼原文；EditorGroup 的读取失败和面包屑直接显示 detail。主工作区 w00028 t05 README:17 反向依赖本 Task。
+- 建议改法：不改变已批准拆 Task 的交付形态，但给 Files/Explorer 与所有这些直接消费者明确一个 owner 和 Task；列清它与 t03 保存投影、t05 通知迁移的先后及共同输入合同。尤其区分打开失败原位显示、批量结果与持续未知状态，不能只增加几个保存键。
+
+### 6. codeText(table, code, params) 缺少拥有者，无法构造正确的文字引用
+- 严重程度：重要；类别：正确性。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:66-69,95-100`；`packages/neuro-book/src/plugins/projects/web/failure-text.ts:16-25,40-53,63-83`；`src/shared/plugin-text.ts:29-30`；`src/web/host-text.ts:10-13`。
+- 现象：总则规定表的值是局部“键”，codeText 只接 table/code/params，却承诺交出“拥有者的文字引用”。现有项目表值只有 errors.read-only 这类字符串，拥有者由 projectsText 另行绑定；新远程表归 nbook.host，保存表又归 nbook.editor。局部键或 table 的 TypeScript 类型在运行时都不能给出 ns。
+- 为什么是问题：TextRef 在运行期不经声明补命名空间。省略 ns 会查空命名空间，硬绑宿主会把业务码查到错误目录；把 owning plugin 藏在全局状态或按表对象身份猜测又会引入计划没声明的耦合。这里不是键名风格问题，而是指定接口的输入不足。
+- 如何核实：ui/i18n.md:69-80 明确运行期文字必须带 ns；pluginText 返回闭包，把 ns 显式交给 textRef。现有四个 projects lookup 调用分别由 projectsText 构造，表项本身完全没有 owner。
+- 建议改法：选一种明确接口：codeText 接受绑定命名空间的构造器，或接受 `{ns, keys}` 的不可变表描述；另一种是让表直接保存完整 TextRef 并定义 params 合并。不要只写 `Record<码,键>`。新增测试同时用两个拥有者的同名 errors.unavailable，确认不会串目录。
+
+### 7. remoteErrors 的闭合登记不能由现有目录检查表达
+- 严重程度：重要；类别：测试。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:90-101,165,180-183,201`；`scripts/ci/message-catalogs.ts:25-39,115-120`。
+- 现象：计划把宿主目录设计为 errors.unknown 加 remoteErrors.<10 个码>，并说把路由码表登记给现有目录检查即可。现有 CatalogDirectory/CatalogSet 只有 closedCodes，没有错误域路径；检查硬编码只读取 errors.* 并要求恰好覆盖。
+- 如何核实：`bun /tmp/w31t03-review/lab/catalog-smoke.ts` 调用真实 catalogFailures，输入恰是计划的宿主目录形状与真实 REMOTE_FAILURE_CODES。结果报 11 条：10 个 errors.<路由码> 缺失，另加 errors.unknown 不在码表。remoteErrors 下实际十键齐全也无效。
+- 为什么是问题：按计划登记后 governance:check 必败；不登记则“穷举由目录检查保证”的验收是假覆盖。不是 projects/plugins 删键本身有问题，而是共享宿主同时拥有通用兜底与路由域，现有单域配置表达不了。未来编辑器 saveFailure.* 同样不能直接用 errors.* 检查。
+- 建议改法：本 Task 明确把检查器扩成可指定键前缀的闭合域（同目录可登记多个域，unknown 独立于路由域）；同步改 ui/i18n 的检查合同与 message-catalogs.test.ts，测试 remoteErrors 的缺键、多键与 errors.unknown 共存。保留当前 errors 前缀为默认，避免改坏既有目录。
+
+### 8. “所有码都查静态表”悄悄删掉了已接受的开放域与缺目录兜底合同
+- 严重程度：重要；类别：不变量。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:66-69,95-98,160`；`docs/proposals/i18n-message-catalogs.md:156-163`；`packages/neuro-book/src/web/host/window.ts:435-472`；`src/web/host/text-engine.ts:88-101`。
+- 现象：总则 4 把“静态表查不到”定义为未知，并据此取消码校验与存在性能力。提案第 7 节却明确开放域：拥有者已知且目录有 errors.<码> 就显示，码不合格或目录没这一条才兜底。静态表只能证明作者写过映射，不能证明实际目录已经加载，也不能让一个新增开放码仅靠拥有者目录得到文案。
+- 如何核实：`bun /tmp/w31t03-review/lab/text-domain-smoke.ts` 用真实宿主引擎登记第三方命名空间的 errors.quota-reached，能译出“额度已满”；注销目录后同一引用在严格模式抛 Missing text key。窗口 fetchCatalog 失败只记问题、继续启动，确实存在“映射在、拥有者目录不在”的产品状态。开放类型另见 builtin-tools.md:130 的 edit-<errorKind> 与 nb-form 的 FormIssue.code:string。
+- 为什么是问题：不拼键能消除分隔符注入，但不能替代开放域的运行期目录判定；把所有开放码预登记成 TS 表就是改变已定合同。旧版前端审查第 15 条还点名目录未加载，第二版只处理了拼键那一半。
+- 建议改法：闭合内置域继续用静态表且不拼键；另明确开放域的拥有者解析、合法码检查与安全目录查询/快照接口（不一定必须给 TextPort 加 exists）。给“目录有新增码”“目录整份取不到”“不合格码”分别写验收，不把翻译后的键名当未知检测。
+
+### 9. 选 Lab 命令不能验证产品失败通知，e2e 缺少可执行的失败夹具
+- 严重程度：重要；类别：测试。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:193,202,209`；`packages/neuro-book/e2e/commands.e2e.ts:18-20`；`e2e/fixtures.ts:49-55,74-80`；`src/plugins/lab/web/fixtures/command-scene/lab-command-scene.ts:161-186`；`LabCommandSceneLayer.vue:22-45`。
+- 现象：计划把唯一的命令失败通知 e2e 留作“开工时找会抛错命令，Lab 场景优先”。现有 commands.e2e 用生产 dist/server/main.js 与 dist/web，不加载 Lab。Lab 命令场景自己建 registry/palette/keymap，失败只写检视区 alert；不经过 WorkbenchCommandHost.failureNotice，也没挂通知队列/详情对话框。
+- 如何核实：顺读上述构造链；Lab 的四条编辑器命令只提供正常动作或结构化拒绝，未提供可选的固定抛错命令。真实产品通知入口在 WorkbenchCommandHost.vue:36-51，Lab layer 只挂命令面板与确认框。未运行 e2e 或开发服务，遵守本轮只读限制。
+- 为什么是问题：即使在 Lab 注册一个抛错命令，看到 alert 也不是通知正文、常驻、详情、复制或英文切换的证据；不能把它记进计划承诺的验收覆盖。失败命令本身更不能为测试塞进生产命令目录。
+- 建议改法：计划现在明确选真实通知宿主场地：用已有 startProbeServer/e2e 外壳新增测试插件贡献固定抛错命令，走真实产品命令面板与通知视口；或扩充专门 Lab 场景，实际挂产品失败通知链并登记该场景。列明需要改的 fixture/场景文件和双语、脱敏、详情复制判据，不再把入口留成未知。
+
+### 10. 声称已处理“旧数据按载体”，实际仍没有逐载体的保留与降级判据
+- 严重程度：建议；类别：文档。
+- 位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:77-81,137-139,159`；第一版 `evidences/plan-review-omp.txt:14-23`；`packages/nb-story/src/contract/qa-record.ts:42`；`core/qa-records.ts:390-406`。
+- 现象：旧版 omp 第 2 条明确列出 QA 记录/配对日志、ingest usage.jsonl/activity.jsonl/state.json、nbdev notify/audit/init 等不同载体。第二版回应为“总则 9，具体载体随 t08、t10”，但 t08 只列会话和问答，t10 只列共用校验与 writes；ingest 和各记录的保留、坏行与未知值处理没有指派或验收。
+- 为什么是问题：泛称“读取器归一成现有合同”不足以约束后续计划。QA 当前/legacy schema 都要求失败对象带 code，无码数据先被标 broken，不能直接到网页的“按类别兜底”；ingest 的 usage.error 只有字符串，但 activity 分 stopped/failed，state 有稳定 stopReason；nbdev code:null 又是合法记录值，不是待补的失败码。把这几种一概归一会改变可读性或误造失败。这里没有证明生产环境存在无码 QA 历史记录，因此不按数据损坏回归定重要。
+- 如何核实：上述 schema 与 reader；ingest/store.ts:44-58,149-168；dev-panel/core/notify.ts:20-43,214-238。二版全文未出现 usage、activity、audit、init 或各自验收。
+- 建议改法：在后续 Task 表加逐载体 owner 与“保持原样/仅改展示/需兼容读取”清单；对当前实际支持的旧形状写磁盘读回判据，不为并不存在的历史格式扩兼容。无法按码判断的历史只保留诊断原文，不猜码，分别说明可浏览与可续跑。
+
+## 未发现问题的方面
+
+- 已确认的三项第二版决定不重议：t03 做共用件与命令/编辑器，其余拆 Task；两个 CLI JSON 的 message 改英文而不加版本字段；诊断英文采用渐进迁移。reason 放宽为 Text 与远程合同不升版的追认有效，总则 12 没有另行推翻它。
+- 远程命令的提供方确为窗口，callers 只有 server，version=2；remoteCommands 显式只序列化 ok/code/reason。产品 failureNotice 只由本地 WorkbenchCommandHost 触发，不经远程合同。本次在 packages 范围查到的远程调用方只有合同测试和 server/testing 探针，没有找到把该合同结果再推成产品通知或 Agent 模型输入的生产桥；不能把“以后 Agent 不受影响”当已验证事实，但也没有证据要求推翻已定的不传 detail 取舍。
+- describeDiagnosticError 经 nb-runtime/diagnostics 公开导出，redaction.ts 平台中立，无 Node/Bun/DOM 依赖；实际 smoke 的 token、password、sk- 样式均变成占位符。它只承诺已知字段/凭据模式，不识别任意秘密，与 diagnostics Spec 的安全边界一致。本轮未证明真实凭据泄漏，不以虚构攻击升级严重性。cause 在通知一行摘要里省略本身不是问题。
+- 通知 detail 继续是已脱敏字符串，已交付的载体有 8000 UTF-16 码元限制、纯文本显示、复制和缺省常驻规则；不用为了投影把它改成结构化错误对象。
+- 远程路由码归宿主、业务码归插件的所有权本身一致；projects/plugins 目录删掉 remoteErrors 的方向没有冲突，已有本地目录测试也应随受影响测试更新。实际问题是第 6、7、8 条的接口和检查机制，不能据此反对归宿主决定。
+- 第一版所列全局 unexpected 对象、B4 虚构消费者、失败页语言来源、文字表二次搬迁、nb-story 网页语言、nbdev 面板范围、CLI JSON 语言边界、problems() 去处、诊断迁移推进方式，本版已有明确处理或批准。第 8 条只收窄到未解决的开放域/目录在场问题；第 10 条只指出载体清单和验收仍缺，不宣称存在无码 QA 历史数据。
+
+## 实际验证与未运行项
+
+- `env TMPDIR=/tmp/w31t03-review/lab bun test --preload /tmp/w31t03-review/lab/bootstrap.ts packages/neuro-book/src/plugins/commands/shared/registry.test.ts packages/neuro-book/src/plugins/commands/shared/remote.test.ts`：33 pass，0 fail，192 次断言，2 个文件。
+- `bun /tmp/w31t03-review/lab/registry-smoke.ts`：真实命令表丢弃主动返回的 detail。
+- `bun /tmp/w31t03-review/lab/save-smoke.ts`：真实三实例 RPC 和磁盘，saveAll 得 unknown-outcome 但已经写入，重连核对为已保存；3 个实例正常关闭。
+- `bun /tmp/w31t03-review/lab/close-smoke.ts`：单关闭/批量关闭各走真实链路和保存询问，未知写入分别被折成取消/普通失败；每次 3 个实例正常关闭。
+- `bun /tmp/w31t03-review/lab/catalog-smoke.ts`：真实目录检查器对计划目录报 11 条闭合码错误。
+- `bun /tmp/w31t03-review/lab/text-domain-smoke.ts`：真实引擎能翻已登记的开放码，目录不在时抛缺键，已知凭据模式脱敏。
+- 上述实验在报告指定的 lab 内；worktree 无本地 node_modules，解析器把 @notnotype 工作区包与 nbook 别名固定到被审 worktree，第三方依赖复用已有祖先 node_modules，未 bun install。没有修改仓库文件或 Git 状态。
+- 未运行：e2e、开发服务、真实模型、浏览器视觉/复制验证、产品全量测试、类型检查。只读设计审查未产生实现变更；测试通过不表示尚未实现的第二版已经正确。
+
+## 已确认项与剩余判断
+
+- 计划末尾待确认 1–3 均已由 README“第二版计划的决定（2026-11-10）”确认，不新增确认门槛；修正本报告指出的合同和验收缺口即可。
+- 总则 9 的旧前缀是明确收窄到无 details.code 旧日志的兼容例外，不再重复第一版“永远不能保留前缀”的反对。t08 仍需用持久来源/新旧字段区分它与会丢 details 的临时事件；没有实际新格式运行证据，本轮不另定回归。
+
+## 各级数量
+
+| 严重程度 | 数量 | 编号 |
+|---|---:|---|
+| 阻断 | 0 | 无 |
+| 重要 | 9 | 1–9 |
+| 建议 | 1 | 10 |
+| 合计 | 10 | 1–10 |
+
+阅读优先级：正确性与不变量 1、2、3、4、5、6、8；验证机制 7、9；后续文档完整性 10。报告按核实顺序逐条追加，未覆盖已写内容。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10。

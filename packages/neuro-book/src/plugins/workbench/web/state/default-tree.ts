@@ -59,7 +59,7 @@ function regionPlan(region: PanelName, catalog: ViewCatalog, containers: Contain
 }
 
 /**
- * 第一次生成文档（输出 1）：每个有成员的容器放进它的区域，一个视图一个分节；有容器的区域显示，没有的隐藏。直接构造，已经是规范形：
+ * 第一次生成文档（输出 1）：每个有成员的容器放进它的区域，一个视图一个分节；有容器的区域显示，没有的、只有不让区域显示的视图的（输出 18）隐藏。直接构造，已经是规范形：
  * 没有容器的区域只有锚这一片叶，有容器的是锚带着分节的一列（底部面板是一排）。锚不占地方，它的意图只在第一个分节挂到它后面时用到（`sectionLanding`）。
  */
 export function defaultLayoutDoc(catalog: ViewCatalog, containers: ContainerCatalog = NO_CONTAINERS): LayoutDoc {
@@ -72,7 +72,9 @@ export function defaultLayoutDoc(catalog: ViewCatalog, containers: ContainerCata
     function regionNode(region: PanelName, size: GridExtent): TreeNode {
         const plan = regionPlan(region, catalog, containers);
         const entries = plan.map((group) => group.container);
-        panels[region] = {role: "tool", name: region, tabs: [], active: null, entries, activeContainer: entries[0] ?? null, ...(plan.length === 0 ? {hidden: true} : {})};
+        // 区域里有视图才显示；只有声明了 `revealRegion: false` 的视图（后台任务、通知）时也保持隐藏（views.md 输出 18），入口照样有。
+        const reveals = plan.some((group) => group.views.some((viewId) => catalog.get(viewId)?.revealRegion !== false));
+        panels[region] = {role: "tool", name: region, tabs: [], active: null, entries, activeContainer: entries[0] ?? null, ...(reveals ? {} : {hidden: true})};
         if (plan.length === 0) return leaf(region, size);
         const orientation = REGION_ORIENTATION[region];
         const main = orientation === "vertical" ? "height" : "width";

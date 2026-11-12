@@ -183,6 +183,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Agent 的内置 Profile | [`agent/builtin-profiles.md`](agent/builtin-profiles.md) | 主创与会话标题：工具、规则文件进开场、标题和说明的生成时机与兜底 |
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
 | Profile 设置页 | [`agent/profile-settings.md`](agent/profile-settings.md) | 看和改 Profile：列表、模型与审批、工具绑定、用户级 Profile 的新建打开删除 |
+| 子代理 | [`agent/subagents.md`](agent/subagents.md) | `agent_spawn`、`agent_send`、`agent_answer`：派发检查与白名单、子会话的会话头与身份、等待与结果、审批与提问的去处、中止连带、上限、`tree` 远程 |
+| 任务中心 | [`agent/jobs.md`](agent/jobs.md) | `wait`、`kill`、`jobs`：任务的登记、归属、寿命与全局上限，`shell` 的后台命令与输出文件，`jobs` 远程 |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：案头（统计、最近写到、看板娘）、卡片与列表、封面、新建与打开已有作品、修改信息与移出书架、新鲜度与刷新 |
@@ -234,8 +236,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
-| 子代理 | [`agent/subagents.md`](agent/subagents.md) | `agent_spawn`、`agent_send`、`agent_answer`：派发检查与白名单、子会话的会话头与身份、等待与结果、审批与提问的去处、中止连带、上限、`tree` 远程 |
-| 任务中心 | [`agent/jobs.md`](agent/jobs.md) | `wait`、`kill`、`jobs`：任务的登记、归属、寿命与全局上限，`shell` 的后台命令与输出文件，`jobs` 远程 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随、按矩形摆放与 Tab 顺序 |
 | 布局拖动 | [`ui/layout-drag.md`](ui/layout-drag.md) | `nb-layout` 的手势会话：起拖门槛、指针与键盘、取消、放下规则、边缘滚动，以及跨插件的落点登记。待晋升 |
@@ -248,14 +248,19 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 | Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
+| Agent Skill | [`agent/skills.md`](agent/skills.md) | Skill 包与目录、无效的隔离、就绪与初始化（三个入口、锁、标记）、认 `$` 标签与白名单、这一轮带上与压缩后放回、`skills://`、命令行 |
+| 后台任务 | [`workbench/background-tasks.md`](workbench/background-tasks.md) | 插件服务端登记的长任务：句柄、取消与重试、发起方停止时中断、内存里的清单与上限、远程与推送，底部面板的“后台任务”视图、状态栏条目与结束时的通知 |
 | Harness 会话 | [`harness/session.md`](harness/session.md) | 新内核的会话日志：会话目录与 JSONL、写入批、大块内容、锁、修复与校验、恢复、指令幂等、索引与 fork |
 | Harness 扩展 | [`harness/extensions.md`](harness/extensions.md) | 新内核的扩展（骨架）：定义与装配、id 规则、片与归约、反应与写入批、`mount`、各入口读的状态、插件装卸 |
 | Harness 视图 | [`harness/profile.md`](harness/profile.md) | 新内核由状态算请求：模板节点与文字拼法、缺省布局、轮的渲染与 `render`、纯函数提交与提交缓存、槽、请求校验、块的来源、开发检查 |
 | Harness 运行 | [`harness/runtime.md`](harness/runtime.md) | 新内核的指令、运行循环与运行结果（逐步补齐）：输入缓冲区、受理批、followup、失败与中止的收口、位置章、帧、`waitRun` |
-| Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补 |
+| Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补。待晋升 |
 | Harness 模型端口 | [`harness/models.md`](harness/models.md) | 模型端口与 OMP 适配器：失败归类、密钥遮盖、相邻 user 合并、工具名换算、思考签名、用量与停止原因 |
 | Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |
 | 剧情图谱：图的修订 | [`story/revisions.md`](story/revisions.md) | 确认或驳回候选身份、手动连两个对象、改对象种类、挪称呼；修订按书单独保存、套用后查询、不剧透、可撤销、重抽后按锚对应 |
+| 世界引擎：作者界面（设定侧） | [`canon/author-ui.md`](canon/author-ui.md) | 条目树、条目页（位置与按计划、文字与数据分页、来历、情节）、数据分页的贡献点、就地改与记一笔、新建与删除、回执页、变更详情页、待处理与改动记录、状态栏计数、读取的新鲜度与失败的呈现 |
+| 图像提示词 | [`images/prompt.md`](images/prompt.md) | 项与数值权重、NovelAI 与 SD 两种读法、规范写法与原文的保留、随机项与图中文字、按空行切段、语法检查与一键改 |
+| 图像配方 | [`images/recipes.md`](images/recipes.md) | 配方、预设、片段、风格组合四种文件；节与角色框；预设的引用加差异、更新与换预设；本书默认；我的预设库与官方预设；展开、内容快照与恢复；id 索引与重复 id |
 
 ## 旧应用的规范与 Reference（只作参照）
 

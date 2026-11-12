@@ -26,6 +26,14 @@ describe("申请切换模式的向导（agent/modes.md 输出 8–10）", () => 
         expect(answer(view)).toEqual({approved: true, approvalMode: "allow-writes"});
     });
 
+    it("有计划、但宿主不知道那个会话的审批模式（后代会话的请求）：不问审批模式，批准不改它", async () => {
+        const {approval: _unknown, ...withoutMode} = exitPlan;
+        const view = wizard(withoutMode);
+        expect(view.find("[data-mode-switch-approval]").exists()).toBe(false);
+        await view.get("[data-mode-switch-approve]").trigger("click");
+        expect(answer(view)).toEqual({approved: true});
+    });
+
     it("没有计划：不选审批模式，标题写目标模式", async () => {
         const view = wizard(plain);
         expect(view.find("[data-mode-switch-plan]").exists()).toBe(false);

@@ -21,6 +21,7 @@ nb-story 与 nb-agent-ui 的旧适配器改用 nb-harness 新内核，升级书�
 - 迁移脚本：把 nb-session 线性格式的问答日志升到当前格式；放在哪个包、怎么调用，写计划时定。做法参照旧应用的 `migrate-agent-sessions-v2`。
 - nb-agent-ui 去掉旧适配器与对 `nb-profile`、`nb-session` 的依赖（[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)“nb-story 迁移之前旧适配器留着”）。
 - `nb-session`、`nb-profile` 停更。npm 上标 deprecated 与发新版本都是远端写入，到时单独请授权。
+- 删 nb-harness 旧的 `src/tools/`（[t32](../t32-harness-backfill/README.md) 定：宿主套件 `src/kit/tools/` 是唯一维护的实现，旧的不合并、不改）：根入口导出的 `registerBuiltinTools`、`createReadTool`、`createEditTool` 随之删去，属于已发布包的公开合同变更，发版说明要写；用到它们的只有 nb-agent-ui 的契约测试与 nb-harness 自己的旧测试（含 `tests/acceptance.test.ts`）。
 
 ## 当前状态
 

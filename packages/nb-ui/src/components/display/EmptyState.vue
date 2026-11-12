@@ -26,7 +26,7 @@ const titleText = computed(() => props.title ?? text("emptyState.title"));
         </span>
         <div class="max-w-sm">
             <p class="text-sm font-medium text-[var(--text-main)]">{{ titleText }}</p>
-            <p v-if="props.description || $slots.default" class="mt-1 text-xs leading-relaxed text-[var(--text-muted)]">
+            <p v-if="props.description || $slots.default" class="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
                 <slot>{{ props.description }}</slot>
             </p>
         </div>

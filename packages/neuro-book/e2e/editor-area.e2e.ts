@@ -124,12 +124,21 @@ test.beforeAll(async () => {
     await writeFile(join(projectDir, "data/bom.txt"), new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("甲\r\n乙\r\n")]));
     await mkdir(join(stateRoot, "user"), {recursive: true});
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: projectDir}]}));
+    await writeSettings();
     server = await startProductServer(stateRoot);
 });
 
+/** 用户层的设置；每个用例结束时写回空的。 */
+const writeSettings = (values: Readonly<Record<string, unknown>> = {}): Promise<void> => writeFile(join(stateRoot, "settings.json"), JSON.stringify(values));
+/**
+ * 验手动保存合同（未保存圆点、关闭时询问、冲突、离开确认）的用例在输入后去点别处，文档要仍未保存：自动保存的缺省是失焦时
+ * 保存（输出 63，另由 `editor-autosave.e2e.ts` 验），这些用例开头关掉它；其余用例在缺省模式下跑。
+ */
+const MANUAL_SAVE = {"nbook.editor/autoSave": "off"} as const;
+
 test.afterEach(async () => {
     // 用例自己写的设置不带到下一个用例。
-    await rm(join(stateRoot, "settings.json"), {force: true});
+    await writeSettings();
 });
 
 test.afterAll(async () => {
@@ -311,6 +320,7 @@ test("外部修改：不 dirty 时换成磁盘内容；dirty 时提示，保存�
 });
 
 test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆分后两组共用正文；拖动两组间的分隔线调整宽度；刷新后组、标签与宽度恢复", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     // 右栏默认开着对话：要拖 120 像素，两组都得比最小宽度宽出这么多。
     await page.setViewportSize({width: 1600, height: 900});
     await open(page);
@@ -542,7 +552,7 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
 test("只有一个标签的组拖到紧贴它的那条边：放下去还是现在的样子，不重建组、没有过渡；拖到另一边才换位置（输出 55、验收 30）", async ({page}) => {
     await page.emulateMedia({reducedMotion: "no-preference"});
     // 看的是落点指示的提示与高亮：实时布局没有这些。
-    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.workbench/dragFeel": "indicator"}));
+    await writeSettings({"nbook.workbench/dragFeel": "indicator"});
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await closeAll(page);
@@ -918,6 +928,7 @@ test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看�
 });
 
 test("编辑器标签浮动（docs/specs/ui/workbench-layout.md 输出 39）：拖到标题栏上松手开窗，是同一个视图，接着输入、撤销都还在；回到停靠并回树里；关到空后焦点回树里的组", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     await page.setViewportSize({width: 1600, height: 900});
     await open(page);
     await closeAll(page);
@@ -1171,6 +1182,7 @@ test("标签的记录丢了（docs/specs/ui/workbench-layout.md 输出 34）：�
 });
 
 test("真实控件的缓冲：Markdown 刚输入就把标签拖到另一组，保存后字在磁盘上；刚输入就“关闭已保存”，这个标签留下", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     await page.setViewportSize({width: 1440, height: 900});
     // 用这一例自己的两个文件：保存会改磁盘，别的用例按 fixture 的原文断言。
     await writeFile(join(projectDir, "notes/buffer-a.md"), "甲\n");
@@ -1372,6 +1384,7 @@ test("Markdown：A 输入、切到 B 输入、回 A 撤销只作用于 A；重�
 });
 
 test("资源管理器的结算：未保存时剪切、保存、粘贴，标签跟到新路径、正文保留；复制先问；删除确认列出未保存的文档", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
     await open(page);
     await closeAll(page);
     for (const folder of ["project://moving", "project://target"]) {
@@ -1829,8 +1842,9 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
         // 作品第一次在本窗口打开时欢迎页也自动打开（workbench.bookshelf 输出 20）：只认 a.md 的标签。
         await expect(tabs(page).filter({hasText: "a.md"})).toHaveCount(1);
         const active = page.locator("[data-editor-group-head-active] [data-editor-title-actions]");
-        await expect(active.locator("[data-title-action-key]")).toHaveCount(2);
-        expect(await active.locator("[data-title-action-key], [data-title-actions-more]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-title-action-key") ?? "more"))).toEqual(["own:split-right", "test.menus.editor-md", "more"]);
+        // Markdown 的控件提供批注页边，自己多一个“批注 N”开关（markdown-editing.md 输出 33），排在向右拆分之后。
+        await expect(active.locator("[data-title-action-key]")).toHaveCount(3);
+        expect(await active.locator("[data-title-action-key], [data-title-actions-more]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-title-action-key") ?? "more"))).toEqual(["own:split-right", "own:comment-margin", "test.menus.editor-md", "more"]);
         await active.locator("[data-title-actions-more]").click();
         await expect(page.getByRole("menu").getByRole("menuitem", {name: "用其它编辑器重新打开"})).toBeVisible();
         await page.keyboard.press("Escape");
@@ -1922,7 +1936,7 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
 
         await more.click();
         const menu = page.getByRole("menu");
-        expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["向右拆分编辑器", "用其它编辑器重新打开", "---", "测试编辑区按钮"]);
+        expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["向右拆分编辑器", "显示或隐藏批注页边", "用其它编辑器重新打开", "---", "测试编辑区按钮"]);
         await menu.getByRole("menuitem", {name: "测试编辑区按钮"}).click();
         await expect(page.getByText(`收到 ${JSON.stringify({address: "project://a.md"})}`)).toBeVisible();
     });

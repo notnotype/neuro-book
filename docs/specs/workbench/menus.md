@@ -59,7 +59,7 @@ interface MenuItemDeclaration {
 | Markdown 斜杠菜单 | `editor.slash` | `nbook.editor` | `icon` | 同上 | 无 | 同上，输出 11 |
 | Markdown 块菜单 | `editor.block` | `nbook.editor` | `icon` | 同上 | 无 | 同上，输出 17 |
 | Markdown 正文右键 | `editor.body-context` | `nbook.editor` | `icon` | 同上 | 无 | 同上，输出 20 |
-| 源码编辑器正文右键（planned） | `editor.code-context` | `nbook.editor` | `icon`、`extensions` | `"resource"` → `{address}` | 被右击的编辑器的文件 | [`workbench.editor`](editor.md) 输出 64 |
+| 源码编辑器正文右键 | `editor.code-context` | `nbook.editor` | `icon`、`extensions` | `"resource"` → `{address}` | 被右击的编辑器的文件 | [`workbench.editor`](editor.md) 输出 64 |
 
 | 规则 | 不满足时 |
 |---|---|

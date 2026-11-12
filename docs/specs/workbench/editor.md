@@ -19,7 +19,7 @@ owners:
 
 - 把标签拖出窗口；拖动时按 Ctrl 复制标签；固定标签的紧凑样式；标签条的滚动按钮。
 - 未保存的修改跨页面刷新保留。
-- Markdown 富文本里的批注侧栏、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。工具栏、选区菜单、斜杠菜单、块按钮与正文右键见 [`workbench.markdown-editing`](markdown-editing.md)。
+- Markdown 富文本里的编辑器右侧“全部批注”侧栏列表（批注的添加、查看、修改与页边见 [`workbench.markdown-editing`](markdown-editing.md)）、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。工具栏、选区菜单、斜杠菜单、块按钮与正文右键见 [`workbench.markdown-editing`](markdown-editing.md)。
 - 差异比较界面；跨文件撤销；同一文档在两个组里共享撤销历史。
 - 预读；`project://`、`user://` 之外的方案。
 - [files-explorer 的性能标准](files-explorer.md#打开与切换)在参考机器上的测量另行交付；本 Spec 只规定结构上的保证（输出 7、10）。
@@ -47,7 +47,7 @@ owners:
 - 插件 `nbook.editor` 只有浏览器入口；依赖 `nbook.files` 的文件客户端、命令服务、Storage、窗口的项目绑定、配置、宿主时钟与宿主的抢救能力（[runtime.browser-host](../runtime/browser-host.md)）。
 - 编辑器槽：工作台的贡献点 `workbench.editor-area`（[ui.workbench-layout](../ui/workbench-layout.md) 的“边界与兼容”）。
 - 打开：命令 `nbook.editor.open {address, mode: "preview" | "permanent", editor?: string, reveal?: "end", group?: string}`；`editor` 是编辑器 id，缺省按输出 37 的顺序选；`reveal: "end"` 打开后把光标放到末尾（输出 29）；`group` 见输出 35。
-- 页面贡献点 `editor.pages`（输出 33，只接受浏览器入口）：声明 `{title, icon, openOnFirstVisit?}`，实现 `{load(): Promise<Component>}`，组件收到 `{context: {recent}}`（`recent` 是输出 31 的最近打开）。页面 id 的规则与视图相同。
+- 页面贡献点 `editor.pages`（输出 33，只接受浏览器入口）：声明 `{title, icon, openOnFirstVisit?}`，实现 `{load(): Promise<Component>}`，组件收到 `{context: {recent}}`（`recent` 是输出 31 的最近打开）。页面 id 的规则与视图相同。声明另可写 `instances?: true`、`restore?: true`；实现另可给 `title(arg)`、`initialState(arg)`、`breadcrumbs(arg)`；组件收到的 `context` 每个标签一份，另带 `arg` 与 `state`（planned，见输出 33 的“带参数与可恢复的页面”）。
 - 编辑器贡献点 `editor.editors`（输出 36–41，只接受浏览器入口）：
   - 声明 `{title, selector?: {extensions?: string[], filenames?: string[]}, priority: "default" | "option", input: "text" | "bytes", role?: "preview", cursor?: "offset" | "line"}`。`extensions` 写不带点的小写后缀，可以多段（`d.ts`）；`filenames` 写完整文件名。`cursor` 是这种编辑器记光标的写法（输出 30），没有就不记。
   - 实现 `{load(): Promise<Component>}`；组件按下面的控件合同接收绑定。
@@ -89,7 +89,7 @@ owners:
   }
   ```
 
-  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`，以及可选的 `leave()`（用户的焦点离开了这个视图，输出 63）；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。提供编辑动作的控件（Markdown 富文本）交出 `editing`（[`workbench.markdown-editing`](markdown-editing.md)）。按标题组织的控件（Markdown 富文本）交出 `outline: Readonly<Ref<{binding: string; version: number; items: ReadonlyArray<{id: string; level: number; text: string}>; current: string | null} | null>>` 与 `revealHeading(binding, version, id): "ok" | "stale"`，供面包屑（输出 60）使用：`binding` 是当前绑定的 `token`，正文每变一次 `version` 加一，`id` 按位置区分同名标题；换绑定、没有绑定、卸载时同步为 `null`；`binding` 或 `version` 对不上为 `stale`，不移动光标。
+  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`，以及可选的 `leave()`（用户的焦点离开了这个视图，输出 63）；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。提供编辑动作的控件（Markdown 富文本）交出 `editing`，提供批注页边的交出 `comments: {count: Readonly<Ref<number>>}`（文档里批注的条数；[`workbench.markdown-editing`](markdown-editing.md)）。按标题组织的控件（Markdown 富文本）交出 `outline: Readonly<Ref<{binding: string; version: number; items: ReadonlyArray<{id: string; level: number; text: string}>; current: string | null} | null>>` 与 `revealHeading(binding, version, id): "ok" | "stale"`，供面包屑（输出 60）使用：`binding` 是当前绑定的 `token`，正文每变一次 `version` 加一，`id` 按位置区分同名标题；换绑定、没有绑定、卸载时同步为 `null`；`binding` 或 `version` 对不上为 `stale`，不移动光标。
   控件的寿命：一个控件拿到一份绑定，标签切走、换组都不换绑定，换编辑器时换控件。`visible` 为假时控件隐藏、不可交互，但仍要跟着正文更新：等切回来再追，结算时会造成假冲突。`attach` 的结算回调只交还没交出的输入：正文被别处改了、控件还没跟上时，本地与正文不同不算输入。控件可能被卸载（术语“视图”）：卸载前交出还没交出的输入，把视图状态存进 `binding.slot`、要留的实例存进 `host`，再挂上时接着用；这两个槽只在标签关闭或换编辑器时释放。
 
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
@@ -98,7 +98,7 @@ owners:
   | 命令 | 参数 | `when` | `effect` | agent 暴露 | 编辑器区内的键位 |
   |---|---|---|---|---|---|
   | `nbook.editor.open` | 见上 | 无 | read | auto | — |
-  | `nbook.editor.open-page` | `{id}`（页面贡献的 id） | 无 | read | auto（不进命令面板） | — |
+  | `nbook.editor.open-page` | `{id}`（页面贡献的 id）；带参数的页面另给 `arg`（planned） | 无 | read | auto（不进命令面板） | — |
   | `nbook.editor.save` | `{}` | `dirty` | write | confirm | Ctrl+S |
   | `nbook.editor.save-all` | `{}` | 无 | write | confirm | — |
   | `nbook.editor.revert` | `{}` | `active` | write | never | — |
@@ -217,8 +217,14 @@ owners:
 
 **页面**
 
-33. **页面标签**：贡献点 `editor.pages` 登记不对应文件的页面（例如欢迎页）。`nbook.editor.open-page {id}` 打开它：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签；贡献方还没交付实现时为 `unavailable`。页面标签显示页面标题，内容区渲染页面组件；它没有文档：不读磁盘、不算 dirty、没有光标与字数，不能拆分、不能换编辑器，可以照常关闭。页面标签刷新后不恢复（输出 5）：活动的是页面时，恢复后活动的是它的相邻标签。`nbook.editor.open` 不接受页面地址。声明 `openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（`editor.tabs` 读到“不存在”）时自动打开，晚交付的等交付后再开；带继续写作参数打开时不自动打开。贡献方停止后已开的页面标签说明“这个页面已经不在了”。页面组件加载期间，内容区是一句给读屏的“正在加载页面”（`role="status"`，这个容器带 `aria-busy="true"`）；加载失败时换成失败原因（`role="alert"`），不再带 `aria-busy`。
-34. **编辑区标题**：活动编辑组的标签条右侧是标题动作（别的组不画：编辑器的命令与它们的可用性都按活动组算）：编辑器自己的“向右拆分”（按钮）与“用其它编辑器重新打开”（“⋯”里），之后是别的插件经贡献点 `editor.title` 贡献的项（共同规则见 [`workbench.menus`](menus.md)）。当前文件是这个组的活动标签：是文件时给出它的地址，`context: "resource"` 的项执行时收到 `{address}`；是页面标签或组里没有标签时没有当前文件。按钮（自己的加贡献来的）至多 4 个；编辑组窄时按它的宽度再少，给标签条至少留一个截断标签的宽度（96px），一个按钮也放不下时只剩“⋯”。放不下的按钮回到它所在的节收进“⋯”（编辑器自己的在自己那一节，贡献的在它原来的节）。另一个组成为活动组时，标题动作随之移到那个组；“⋯”打开期间活动组或活动标签变了，菜单关闭、之前的选择不执行。标签多时标签条照旧横向滚动，标题动作不随之滚动。
+33. **页面标签**：贡献点 `editor.pages` 登记不对应文件的页面（例如欢迎页）。`nbook.editor.open-page {id}` 打开它：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签；贡献方还没交付实现时为 `unavailable`。页面标签显示页面标题，内容区渲染页面组件；它没有文档：不读磁盘、不算 dirty、没有光标与字数，不能拆分、不能换编辑器，可以照常关闭。没有声明 `restore` 的页面标签刷新后不恢复（输出 5；`restore` 见本条末尾 planned 的一段）：活动的是这样的页面时，恢复后活动的是它的相邻标签。`nbook.editor.open` 不接受页面地址。声明 `openOnFirstVisit` 的页面在这部作品第一次在本窗口打开（`editor.tabs` 读到“不存在”）时自动打开，晚交付的等交付后再开；带继续写作参数打开时不自动打开。贡献方停止后已开的页面标签说明“这个页面已经不在了”。页面组件加载期间，内容区是一句给读屏的“正在加载页面”（`role="status"`，这个容器带 `aria-busy="true"`）；加载失败时换成失败原因（`role="alert"`），不再带 `aria-busy`。 **带参数与可恢复的页面（planned）**：
+    - **参数**：声明 `instances: true` 的页面按参数开多个。`open-page {id, arg}` 的 `arg` 是 1 到 200 个字符的字符串，这种页面必须带，别的页面带了为 `invalid-args`。标签的身份是页面 id 加 `arg`（地址 `page://<id>?<编码后的 arg>`，`arg` 里可以有任何字符）：同一个 `arg` 已经开着就切过去，不同的 `arg` 各开一个。`instances` 与 `openOnFirstVisit` 不能同写（自动打开不带参数），同写时声明被拒。
+    - **每个标签一份 `context`**：`recent`、这个标签的 `arg`（不带参数的页面没有）与 `state`。`state` 是编辑器给这个标签的一个响应式对象，实现给了 `initialState(arg)` 时用它的返回值作初值，否则是空对象；页面把要跨“切走再回来”保留的界面状态放在里面（页面标签只在活动时渲染，切走时组件卸载，组件里的状态不保留）。`state` 随标签：标签移到别的组时还在，标签关闭时丢弃，不存盘，刷新后恢复的标签拿到初值。
+    - **标题**：实现可以给 `title(arg)`，返回文字值或 null。编辑器在标签条里响应式地读它，返回值变了标题跟着变；编辑器记着每个标签最近一次得到的标题，`title(arg)` 为 null、没给或贡献方已经停止时显示记着的那个，再没有就显示声明的标题。
+    - **恢复**：声明 `restore: true` 的页面刷新后恢复，规则同文件标签（顺序、所在的组、是不是活动标签）。要不要恢复、`arg` 与记着的标题在打开时就抄到标签上，存盘与恢复只看标签自己，不看当时声明在不在：声明晚到或贡献方这次没启动，标签与它的记录都还在。恢复出来的标签先显示记着的标题；声明在而实现还没交付时内容区是“正在加载页面”，交付后自己变成页面；声明不在时说明“这个页面已经不在了”。实现一直不交付时一直是“正在加载页面”（已知限制，不设超时）。
+    - **面包屑**：实现可以给 `breadcrumbs(arg)`，返回几段 `{label, command?: {id, args?}}` 或 null（不带参数的页面也可以给）。编辑器响应式地读它；有返回时这个标签在标签条下面有面包屑那一行（输出 60 的位置与缩短规则）：各段从左到右，带命令的段可以点、执行那条命令，没带的段与最后一段（当前页）不可点；没有下拉。键盘：`nbook.editor.focus-breadcrumbs` 对有面包屑的页面标签同样可用，←/→ 在可点的段之间移动，Enter 执行，Escape 回到页面。没给、返回 null 或空、贡献方已经停止时没有这一行。
+    - 带参数的页面同样不能拆分、不能固定、不是 preview；`nbook.editor.open` 照旧不接受页面地址。
+34. **编辑区标题**：活动编辑组的标签条右侧是标题动作（别的组不画：编辑器的命令与它们的可用性都按活动组算）：编辑器自己的“向右拆分”（按钮）、活动控件提供批注页边（`comments`）时的“批注 N”开关（按钮，按下态读这部作品的页边开关（本机记录 `editor.comment-margin`），N 是文档里批注的条数，在“⋯”里时不显示条数；带数字的按钮按它的实际宽度算进按钮预算；见 [`workbench.markdown-editing`](markdown-editing.md) 输出 33）与“用其它编辑器重新打开”（“⋯”里），之后是别的插件经贡献点 `editor.title` 贡献的项（共同规则见 [`workbench.menus`](menus.md)）。当前文件是这个组的活动标签：是文件时给出它的地址，`context: "resource"` 的项执行时收到 `{address}`；是页面标签或组里没有标签时没有当前文件。按钮（自己的加贡献来的）至多 4 个；编辑组窄时按它的宽度再少，给标签条至少留一个截断标签的宽度（96px），一个按钮也放不下时只剩“⋯”。放不下的按钮回到它所在的节收进“⋯”（编辑器自己的在自己那一节，贡献的在它原来的节）。另一个组成为活动组时，标题动作随之移到那个组；“⋯”打开期间活动组或活动标签变了，菜单关闭、之前的选择不执行。标签多时标签条照旧横向滚动，标题动作不随之滚动。
 
 **打开到哪一组**
 
@@ -264,7 +270,7 @@ owners:
 57. **标签的右键菜单**：在标签上右击（或聚焦标签按 Shift+F10、菜单键）打开菜单，作用于被右击的标签，不先激活它。编辑器自己的项直接作用于这个标签（与带 `tabId` 的同名命令同一个动作），有没有、能不能点都按这个标签判断，不受活动标签的影响：关闭、关闭其他、关闭右侧、关闭已保存；固定或取消固定；向右拆分、向下拆分；浮动；文件标签另有复制路径、复制相对路径（`nbook.editor.copy-path`、`copy-relative-path`：服务端机器上的绝对路径取自 Files 的 `realPath`，相对路径是相对所在根的路径，写进系统剪贴板；取不到路径或剪贴板不可用时为 `unavailable`）、在资源管理器中显示（执行 `nbook.files.reveal` 并带这个标签的地址；资源管理器还没就绪时同它自己的规则）。之后是别的插件经贡献点 `editor.tab-context` 贡献的项（共同规则见 [workbench.menus](menus.md)，`context: "resource"` 的项收到 `{address}`）。菜单打开期间被右击的标签被关闭、移到别的组或换了编辑器时菜单关闭，之前的选择不执行。
 58. **悬停时显示**：编辑区标题（输出 34）只在鼠标位于这个编辑组上、焦点在组里或它的“⋯”打开时显示，其余时候透明（仍占位、仍能用 Tab 到达），淡入淡出 100 毫秒；不能悬停的设备一直显示（规则同 [workbench.views](views.md) 输出 10）。标签的关闭按钮按标签算，不随整组显示：只在活动标签、鼠标所在的标签与键盘聚焦的标签上显示（输出 53），不进 Tab 顺序（键盘用 Delete 关闭）；不能悬停的设备上每个标签都显示。
 59. **标签的键盘**：多行时 ↑/↓ 换到上一行或下一行水平位置最近的标签并激活；其余按键见组件合同（←/→、Home/End、Delete、Alt+←/→）。
-60. **面包屑**：标签条下面一行：作品名（`user://` 下为“用户资产”）› 目录 › 文件；Markdown 文件再接光标所在的标题。每个组显示自己活动标签的路径；页面标签没有面包屑。放不下时中间的目录段先缩短（截断，悬停提示完整地址），文件段与标题段不缩短；不换行、不横向滚动。点目录段列出它的子项：目录点了在下拉里进入下一层，文件点了在这一组打开，符号链接、其它类型与缺失的项显示但不可选；读取中显示进度，空目录写“空”，读取失败写原因并给“重试”。点文件段列出同级。点标题段列出这一章的大纲（按标题层级缩进，当前标题高亮），选中后光标跳到那个标题；下拉打开后正文或绑定变了，旧的选项不再跳转，下拉关闭。下拉关闭、换段或换文档后，还没回来的读取结果丢掉。键盘：`nbook.editor.focus-breadcrumbs` 聚焦面包屑，←/→ 换段，Enter 或 ↓ 打开下拉，Escape 先关下拉、再回到编辑器。
+60. **面包屑**：标签条下面一行：作品名（`user://` 下为“用户资产”）› 目录 › 文件；Markdown 文件再接光标所在的标题。每个组显示自己活动标签的路径；页面标签没有面包屑（页面自己给出面包屑的除外，输出 33 末尾 planned 的一段）。放不下时中间的目录段先缩短（截断，悬停提示完整地址），文件段与标题段不缩短；不换行、不横向滚动。点目录段列出它的子项：目录点了在下拉里进入下一层，文件点了在这一组打开，符号链接、其它类型与缺失的项显示但不可选；读取中显示进度，空目录写“空”，读取失败写原因并给“重试”。点文件段列出同级。点标题段列出这一章的大纲（按标题层级缩进，当前标题高亮），选中后光标跳到那个标题；下拉打开后正文或绑定变了，旧的选项不再跳转，下拉关闭。下拉关闭、换段或换文档后，还没回来的读取结果丢掉。键盘：`nbook.editor.focus-breadcrumbs` 聚焦面包屑，←/→ 换段，Enter 或 ↓ 打开下拉，Escape 先关下拉、再回到编辑器。
 61. **写不出**：Markdown 编辑器把输入交给文档时（停手、失焦、切走、保存与资源管理器操作之前的结算），有块写不出读得回来的 Markdown（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 3）：这次输入不交给文档，视图保留自己的内容，文档标“写不出”；这个视图之前的未裁决输入（比屏幕上的旧）随之丢弃。别的视图的输入被接受后，这个视图不随之更新。写不出的文档：保存不发出写入并说明原因；按第 4 条关闭时询问“不保存 / 取消”（没有“保存”）；第 21 条照常请求离开确认；第 22 条的终态页列出这个视图的正文，写不出的那一块只有文字、并标明丢了格式；第 23 条按需要结算处理，“先保存再复制”不可选。所在组顶部写明是哪一块，给“定位”（选中那一块并滚动过去）与“采用当前正文”（丢弃这个视图的输入，回到文档的正文）。第 9 条（换文档）、第 24 条（资源管理器的移动、改名、删除前的结算）、第 49 条（移动标签）与视图状态的淘汰，把写不出与未裁决输入同样对待：不换、不提交、不移动、不淘汰，并给出同样的提示。写不出属于视图：两个组里各有一个视图写不出时各自显示；只有这个视图自己的一次输入写得出并交了出去（被接受，或成为未裁决输入）才解除它，别的视图的输入被接受不解除；每次写不出时终态页可取回的正文都按这个视图此刻的内容更新。别的组“重新载入磁盘版本”也不解除写不出：那个视图的输入从没进过正文，它保留自己的内容。
 
 62. **在格式的边界打字**：Markdown 编辑器里光标在一段格式的末尾时，接着打的字是否带上这种格式：
@@ -285,7 +291,7 @@ owners:
     - **关闭标签**（第 4 条）：三种开启的模式下都不问，先保存。所以缺省模式下“不保存”与“还原文件”实际上用不到：去执行还原时焦点一离开正文就已保存；要回到之前的内容靠撤销。
     - 自动保存不改正文、不裁决、不覆盖磁盘版本；保存失败不另弹通知。
 
-64. **源码编辑器的右键菜单**（planned）：在源码编辑器的正文或行号区右击，出现应用的菜单（与 Markdown 正文右键同一种外观），不出现浏览器与编辑内核自己的菜单。
+64. **源码编辑器的右键菜单**：在源码编辑器的正文或行号区右击，出现应用的菜单（与 Markdown 正文右键同一种外观），不出现浏览器与编辑内核自己的菜单。
     - **项**，分三节，都执行编辑内核自己的编辑动作，结果与对应的快捷键相同：剪切、复制、粘贴；全选；查找、替换、更改所有匹配项、格式化文档、格式化选定内容。之后是别的插件经贡献点 `editor.code-context` 贡献的项（共同规则见 [`workbench.menus`](menus.md)，可以写 `extensions` 按文件后缀出现，`context: "resource"` 的项收到 `{address}`）。菜单里只标出剪切、复制、粘贴、全选、查找五项的快捷键。
     - 没有选中文字时，剪切、复制作用于光标所在的整行（与 Ctrl+X、Ctrl+C 相同；Markdown 正文菜单是置灰）；整行复制之后从菜单粘贴，插成完整的一行。格式化两项只在这门语言有格式化时出现（现在是 JSON），“格式化选定内容”还要有选区。粘贴读不到剪贴板时（浏览器不支持、被拒绝、为空）在组顶部说明，正文不变。
     - **只读**（预览视图、只读文档）：只有复制、全选、查找，不显示贡献项。
@@ -293,7 +299,7 @@ owners:
     - **键盘**：焦点在正文时按菜单键或 Shift+F10，在光标处打开（光标不在可见区时先滚到它）；几个编辑组各按各的。
     - **关闭**：选了一项或按 Escape 后焦点回到正文；点外面关闭、不抢焦点；正文滚动、换文件、标签被切走时关闭。
     - 菜单里没有撤销、重做与转到行。
-65. **语法配色**（planned）：源码编辑器的语法着色、选区、缩进线随产品主题与明暗变，用护眼主题或自己做的主题时同样跟着变，不用编辑内核自带的配色。
+65. **语法配色**：源码编辑器的语法着色、选区、缩进线随产品主题与明暗变，用护眼主题或自己做的主题时同样跟着变，不用编辑内核自带的配色。
     - 颜色来自主题的语法变量 `--syntax-*`（[theme.system](../theme/system.md) 的“变量体系”）：注释、关键字、字符串（与属性值）、数字（与常量）、类型（与命名空间、注解）、标签名、属性名（与 JSON 的键）、正则（与转义）、变量、分隔符（与运算符、括号）各一种；没有归到这十类的成分用正文字色；`invalid` 用危险色加下划线。
     - 括号按分隔符着色，不按嵌套层数分色。
     - 自带的主题与护眼主题下，这些颜色在源码编辑器的底色上读得清：注释的对比度不低于 3，其余不低于 4.5；JSON 的键、字符串值、数字与 `true`，CSS 的属性名与数值，HTML 的标签、属性名与属性值，颜色两两分得开。
@@ -332,7 +338,7 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 
 - 正文与基线只在内存；写入经 [workspace.files](../workspace/files.md) 的条件保存，写入来源为 `{kind: "user", plugin: "nbook.editor"}`。
 - 记录 `editor.tabs`：owner `nbook.editor`，project/local，版本 1；`tabId` → 地址、编辑器、preview、固定、上次的光标（第 30 条，`{offset}` 或 `{line, column}`）、语言，不存正文；几个窗口共用，按键合并（[ui.workbench-layout](../ui/workbench-layout.md)“副作用与数据”）。旧记录 `editor.session` 不读、不写、不删：合入时开着的标签不带过来（提案已接受）。
-- 页面（输出 33）不恢复：`editor.tabs` 里只留一个记号（`{page: true}`），恢复时从布局文档里拿掉，别的不写。
+- 页面（输出 33）不恢复：`editor.tabs` 里只留一个记号（`{page: true}`），恢复时从布局文档里拿掉，别的不写。声明 `restore: true` 的页面记成 `{page: true, id, arg?, title?}`（`title` 是记着的标题），照文件标签恢复；别的页面仍只记 `{page: true}`（planned）。
 - 记录 `editor.recent`：owner `nbook.editor`，project/local，版本 1；`{addresses}`，至多 10 个、不重复，最近在前（第 31 条）。
 
 ## 失败与恢复
@@ -403,8 +409,9 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 41. Given 两个选区，When 右击其中一个选区之内，Then 两个选区都在；When 右击选区之外，Then 光标到点击处；When 右击查找输入框，Then 没有应用的菜单、焦点仍在输入框；When 两个编辑组各开一个源码文件、在其中一个按 Shift+F10 或菜单键，Then 菜单开在这一个的光标处；When 按 Escape，Then 焦点回到正文；When 菜单开着时滚动正文，Then 菜单关闭；Given 只读的文件，Then 菜单只有复制、全选、查找。
 42. Given 一个测试插件往 `editor.code-context` 贡献一个 `extensions: [".json"]`、`context: "resource"` 的项，When 右击 `a.json`，Then 这一项在内置项之后，点它命令收到 `{address}`；When 右击 `a.css`，Then 没有这一项。
 43. Given `.ts`、`.json`、`.css`、`.html`、`.md` 的样例，When 用源码编辑器打开，Then 关键字、字符串、注释、括号与选区的颜色等于主题的语法变量与选区变量的值；When 切到暗色、护眼绿，Then 这些颜色随之改变，对比度与相邻成分的区分仍满足输出 65。
+44. （planned）Given 一个测试插件贡献 `instances: true`、`restore: true` 的页面，实现的 `title(arg)` 返回“条目 ”加参数、`initialState` 返回 `{count: 0}`、`breadcrumbs(arg)` 返回“样例 › 条目 a”两段（第一段带一条测试命令），页面组件把一个计数放在 `context.state.count`、另有一个只在组件里的计数，When 依次执行 `open-page {id, arg: "a"}`、`{id, arg: "b?#/"}`、`{id, arg: "a"}`，Then 有两个标签“条目 a”“条目 b?#/”，活动的是“条目 a”，标签条下面是那两段面包屑；When 点第一段，Then 那条测试命令执行了一次；When 执行 `focus-breadcrumbs` 后按 Enter，Then 又执行一次，按 Escape 焦点回到页面；When 在“条目 a”里把两个计数都加一、切到另一个标签，Then 它的两个计数都是零；When 切回“条目 a”，Then `state` 里的计数是一、组件里的计数是零；When 不带 `arg`、带空串或带 201 个字符的 `arg` 执行，Then 为 `invalid-args`，对没有声明 `instances` 的页面带 `arg` 同样；When 刷新窗口，Then 两个标签都还在、各自收到自己的 `arg`、`state` 是初值，没有激活过的那个标签的标题仍是刷新前的；When 贡献方的实现晚交付，Then 交付前内容区是“正在加载页面”，这期间关掉别的标签（触发存盘）再刷新，两个标签仍在；When 贡献方停止，Then 两个标签说明“这个页面已经不在了”，标题仍是记着的。一个同时写 `instances` 与 `openOnFirstVisit` 的声明被拒。
 
-Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。场景 22–24、26 由 `e2e/editor-types.e2e.ts` 运行；场景 27–33 由 `editor-area.e2e.ts` 的标签栏样子、多行键盘与 120px 组、拖动、右键菜单、面包屑几例运行，场景 27、28、31、32 的模型部分另由 `area.test.ts`、`groups.test.ts`、`tab-menu.test.ts`、`tab-hints.test.ts` 覆盖；触摸拖动只按代码与 `tree-drag.ts` 的同一套门槛，没有在真机上验；场景 23 的改名与删除、场景 24 的关闭时询问另由 `area.test.ts` 覆盖；场景 25 由 `editor-registry.test.ts`（真实插件宿主，交付先后与停止）与 `area.test.ts`（用默认编辑器打开）覆盖。场景 35–39 与输出 63 由 `e2e/editor-autosave.e2e.ts` 运行（窗口失焦与页面隐藏在无头浏览器里是派发事件模拟的），模型部分另由 `auto-save.test.ts` 覆盖。场景 34 与输出 62 由 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组（经编辑内核的输入入口逐种格式测）与 `e2e/markdown-input.e2e.ts`（本机 Chrome 的键盘、输入法事件与方向键，源码与富文本来回换；按快捷键打出的粗体、斜体、删除线看得出来）运行。
+Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。场景 22–24、26 由 `e2e/editor-types.e2e.ts` 运行；场景 27–33 由 `editor-area.e2e.ts` 的标签栏样子、多行键盘与 120px 组、拖动、右键菜单、面包屑几例运行，场景 27、28、31、32 的模型部分另由 `area.test.ts`、`groups.test.ts`、`tab-menu.test.ts`、`tab-hints.test.ts` 覆盖；触摸拖动只按代码与 `tree-drag.ts` 的同一套门槛，没有在真机上验；场景 23 的改名与删除、场景 24 的关闭时询问另由 `area.test.ts` 覆盖；场景 25 由 `editor-registry.test.ts`（真实插件宿主，交付先后与停止）与 `area.test.ts`（用默认编辑器打开）覆盖。场景 40–43 与输出 64、65 由 `e2e/editor-code-menu.e2e.ts` 运行（带探针的生产构建与测试插件 `test.menus`；语法色在 nbook 亮暗、macos 亮、护眼绿亮下量计算颜色与对比度），内置项的表另由 `code/context-menu.test.ts`、规则表由 `code/monaco-theme.test.ts`、读剪贴板由 `shared/clipboard-read.test.ts` 覆盖。场景 35–39 与输出 63 由 `e2e/editor-autosave.e2e.ts` 运行（窗口失焦与页面隐藏在无头浏览器里是派发事件模拟的），模型部分另由 `auto-save.test.ts` 覆盖。场景 34 与输出 62 由 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组（经编辑内核的输入入口逐种格式测）与 `e2e/markdown-input.e2e.ts`（本机 Chrome 的键盘、输入法事件与方向键，源码与富文本来回换；按快捷键打出的粗体、斜体、删除线看得出来）运行。
 
 ## 实现合同
 
@@ -423,6 +430,8 @@ Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、
   - 拖动的落点按此刻的布局算，起拖后结构变了整场取消，松手与最后显示的落点相同才提交（`web/tab-drag.ts`，`editor-area.e2e.ts` 的拖动一例）；
   - 标签右键菜单里编辑器自己的项直接作用于被右击的标签，不经命令的 `when`（`tab-menu.test.ts`）；
   - 面包屑按组读本组控件句柄的大纲，大纲带绑定与版本、对不上不跳；目录读取按请求序号作废迟到的结果（`EditorBreadcrumbs.dom.test.ts`）；
+  - 源码编辑器的右键菜单不读 Monaco 的菜单登记：内置项是 `code/context-menu.ts` 的一张表，每项执行 Monaco 的命令或动作，打开时取一次状态；打开经控件容器上捕获阶段的右键与 `onKeyDown`，不用整页共用的 `addCommand`（`context-menu.test.ts`、`editor-code-menu.e2e.ts`）；
+  - Monaco 的主题不继承 `vs`、`vs-dark`，规则表把 token 前缀映射到 `--syntax-*`，颜色经计算样式与画布换算（`code/monaco-theme.ts`，`monaco-theme.test.ts`）；
   - 自动保存只结算与发起保存，不改正文、不裁决、不覆盖；有阻碍的文档不自动保存，一次自动保存失败后对这份文档停下，文档变干净或一次保存成功后恢复；“停手后”的计时按文档对象记，视图还有没交出的输入或正在组字时顺延（`web/auto-save.ts`，`auto-save.test.ts`）；
   - 语言声明在源码编辑器建模型之前一次登记进 Monaco，分词与编辑规则在第一次遇到这门语言时才经交付加载；Monaco 自带的语言表由 `scripts/gen-monaco-languages.ts` 生成，与已装的 Monaco 一致（`languages.test.ts`）；纯文本与 JSON 不经贡献点。
 

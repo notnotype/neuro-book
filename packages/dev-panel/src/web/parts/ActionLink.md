@@ -26,6 +26,8 @@ interface ActionLinkProps {
     icon?: string;
     /** 外部地址：新标签页打开，不发 navigate；可选，默认 false */
     external?: boolean;
+    /** 页头的主要操作：实心强调色底、白字（t22：每页一个，Work 页“新建 Task”、Task 页“编辑 README”）；可选，默认 false */
+    primary?: boolean;
 }
 interface ActionLinkEmits {
     /** 普通左键点击面板内的地址 */

@@ -25,4 +25,9 @@ export interface EditorControlProps {
 export interface EditorControlEmits {
     (event: "ready", handle: EditorControlHandle | null): void;
     (event: "focus", focused: boolean): void;
+    /**
+     * 用户的焦点离开了这个视图（docs/specs/workbench/editor.md 输出 63 的“失焦时”据此保存）。与 `focus(false)` 分开：
+     * 那个事件说的是文字区有没有焦点，源码编辑器的焦点进自己的查找框时它也发，而那不算离开视图。
+     */
+    (event: "leave"): void;
 }

@@ -1,6 +1,9 @@
 /**
- * 摘要的提示词（docs/specs/agent/compaction.md 输出 5）。按写小说改造：这是第一版，开发者随实际写书的体验调。
+ * 摘要的提示词（docs/specs/agent/compaction.md 输出 5）。按写小说改造：这是第一版，开发者随实际写书的体验调。方法在宿主套件里，
+ * 提示词由应用给（开发者 2026-11-10：摘要的小节由应用决定）。
  */
+
+import type {CompactionPrompts} from "@notnotype/nb-harness/kit/compaction";
 
 const SECTIONS = `摘要按下面的小节写，没有内容的小节写“无”：
 
@@ -44,3 +47,5 @@ export const summarySystem = (require: readonly string[]): string => `你负责�
 export const summaryInput = (segment: string, previous: string | null): string => (previous === null
     ? `下面是要写成摘要的对话：\n\n<conversation>\n${segment}\n</conversation>`
     : `下面是目前的摘要：\n\n<summary>\n${previous}\n</summary>\n\n下面是接着的对话。把它合进摘要，交回更新后的完整摘要：\n\n<conversation>\n${segment}\n</conversation>`);
+
+export const COMPACTION_PROMPTS: CompactionPrompts = {inplace: inplacePrompt, system: summarySystem, input: summaryInput};

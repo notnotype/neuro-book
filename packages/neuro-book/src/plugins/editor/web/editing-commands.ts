@@ -35,9 +35,12 @@ const requires = (info: EditingActionInfo): ReadonlyArray<string> => {
 const ACTIONS: ReadonlyArray<readonly [EditingActionId, EditingActionInfo]> = Object.entries(EDITING_ACTIONS) as never;
 
 export const TOGGLE_TOOLBAR_COMMAND = "nbook.view.toggle-editor-toolbar";
+/** 切换这部作品的批注页边（输出 33）：活动控件提供批注页边时才可用。 */
+export const TOGGLE_COMMENT_MARGIN_COMMAND = "nbook.editor.toggle-comment-margin";
 
 export const EDITING_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenCommandDeclaration>> = {
     [TOGGLE_TOOLBAR_COMMAND]: {category: VIEW, description: "Show or hide the toolbar above the Markdown editor.", args: NO_ARGS, effect: "read"},
+    [TOGGLE_COMMENT_MARGIN_COMMAND]: {category: VIEW, description: "Show or hide the comment margin beside the Markdown editor for this work.", args: NO_ARGS, effect: "read", when: {requires: [editorState.key("hasComments")]}},
     ...Object.fromEntries(ACTIONS.map(([action, info]) => [editingCommandId(action), {
     category: EDIT,
     description: `Apply the "${action}" edit in the active Markdown editor.`,
@@ -47,7 +50,7 @@ export const EDITING_COMMAND_DECLARATIONS: Readonly<Record<string, WrittenComman
 } satisfies WrittenCommandDeclaration])),
 };
 
-export function editingCommands(area: Readonly<ShallowRef<EditorArea | null>>, sources: {readonly toggleToolbar: () => Promise<unknown>}): Record<string, CommandImplementation> {
+export function editingCommands(area: Readonly<ShallowRef<EditorArea | null>>, sources: {readonly toggleToolbar: () => Promise<unknown>; readonly toggleCommentMargin: () => void}): Record<string, CommandImplementation> {
     const actions = Object.fromEntries(ACTIONS.map(([action]) => [editingCommandId(action), {
         run: (args: unknown) => {
             const editing = area.value?.activeHandle.value?.editing;
@@ -62,6 +65,12 @@ export function editingCommands(area: Readonly<ShallowRef<EditorArea | null>>, s
         [TOGGLE_TOOLBAR_COMMAND]: {
             run: async () => {
                 await sources.toggleToolbar();
+                return {ok: true, value: null};
+            },
+        },
+        [TOGGLE_COMMENT_MARGIN_COMMAND]: {
+            run: () => {
+                sources.toggleCommentMargin();
                 return {ok: true, value: null};
             },
         },

@@ -7,7 +7,7 @@ import {relativeTime} from "./host/format.js";
 import {groupInbox} from "./host/inbox.js";
 import {pageKey} from "./host/routes.js";
 import {confirmRelogin, panelState, startPanelData, stopPanelData, useResource} from "./host/panel-data.js";
-import {readAppearance, readDismissedAudit, readNavArrange, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeDismissedAudit, writeNavArrange, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
+import {readAppearance, readDismissedAudit, readDismissedCode, readNavArrange, readNavCollapsed, readNavOpen, readNavWidth, writeAppearance, writeDismissedAudit, writeDismissedCode, writeNavArrange, writeNavCollapsed, writeNavOpen, writeNavWidth, type Appearance} from "./host/prefs.js";
 import {applyAppearance, followSystem} from "./host/theme.js";
 import {attentionCount} from "./host/notify-actions.js";
 import {pageTitle, type NavArrange} from "./host/nav.js";
@@ -114,6 +114,15 @@ const CONTENT_SLOT = `panel-${CONTENT}` as const;
 /** 用户要的宽度：渲染前同步读出（免得刷新时先 300 再跳），拖完写回。窗口窄时由上限夹住，变宽时恢复到它。 */
 const navWidth = ref(readNavWidth());
 const navCollapsed = ref(readNavCollapsed());
+/**
+ * 进专注页（路由元信息 `focus`，评审板）时自动收起的左栏（t23）：不写进偏好，离开专注页就恢复；
+ * 在专注页里点“展开左栏”就照开发者的，专注页之间来回切换不再收起。左栏本来就收着时不管它。
+ */
+const focusCollapsed = ref(false);
+watch(() => route.meta.focus === true, (focus) => {
+    focusCollapsed.value = focus && !navCollapsed.value;
+}, {immediate: true});
+const navFolded = computed(() => navCollapsed.value || focusCollapsed.value);
 type NavCollapse = NonNullable<SplitterPanelConfig["collapse"]>;
 /**
  * 用 computed 生成：Splitter 未受控时，`panels` 换了对象就按 defaultSizePx 重新分配；模板里写字面量数组的话，外壳每 15 秒的
@@ -128,12 +137,12 @@ const panels = computed<SplitterPanelConfig[]>(() => [
         sizing: "fixed",
         // 拖到最小宽度以内再过 80px 就收起（D4）。收起后分隔线禁用（不可拖、不进 Tab 顺序），由顶栏的“展开左栏”展开（决定点 8）：
         // 否则收起时键盘要先经过一条看不见的分隔线才到“展开左栏”。expandThreshold 只在拖动中途反悔时用到。
-        collapse: {collapsedSize: 0, restoreSize: navWidth.value, collapseThreshold: 80, expandThreshold: 80, collapsed: narrow.value || navCollapsed.value} satisfies NavCollapse,
+        collapse: {collapsedSize: 0, restoreSize: navWidth.value, collapseThreshold: 80, expandThreshold: 80, collapsed: narrow.value || navFolded.value} satisfies NavCollapse,
     },
     {id: CONTENT, minSizePx: 360, sizing: "weight"},
 ]);
 /** 左栏宽 0（收起、窄屏）时整块 inert：宽 0 与裁切不会把条目移出 Tab 顺序和读屏树。 */
-const navHidden = computed(() => narrow.value || navCollapsed.value);
+const navHidden = computed(() => narrow.value || navFolded.value);
 const shellButton = (name: "collapse-nav" | "expand-nav" | "open-nav") => document.querySelector<HTMLElement>(`[data-shell="${name}"]`);
 /**
  * 点“收起左栏”“展开左栏”之后（`fromButton`），按下去的那个按钮或者被 inert、或者被移除，焦点交给对面的那个按钮；
@@ -141,6 +150,7 @@ const shellButton = (name: "collapse-nav" | "expand-nav" | "open-nav") => docume
  */
 function setNavCollapsed(value: boolean, fromButton = false): void {
     navCollapsed.value = value;
+    if (!value) focusCollapsed.value = false;
     writeNavCollapsed(value);
     if (!fromButton) return;
     void nextTick(() => {
@@ -311,6 +321,7 @@ const statusLines = computed<StatusLine[]>(() => {
     } else {
         lines.push({label: "数据", text: freshness.value, ok: true});
     }
+    if (meta.data.value?.codeChanged) lines.push({label: "代码", text: restartHint.value.replace(/^代码已更新：/u, "已更新，"), ok: true});
     const audit = meta.data.value?.audit;
     if (audit && !audit.enabled) lines.push({label: "审计", text: audit.reason === "not_initialized" ? "未开启（运行 bun run --cwd packages/dev-panel audit-init 开启）" : `不可用：${audit.detail}`, ok: audit.reason === "not_initialized"});
     return lines;
@@ -321,7 +332,30 @@ const statusLabel = computed(() => (statusProblem.value ? `状态：${statusProb
 /**
  * 顶栏下面的横幅（t15 阶段 2d）：要开发者做点什么、或者显示的东西可能不对的情形。正常时没有横幅。
  */
-type ShellBanner = {key: string; tone: BannerTone; icon: string; text: string; dismiss?: () => void};
+type ShellBanner = {key: string; tone: BannerTone; icon: string; text: string; dismiss?: () => void; action?: {label: string; run: () => void}};
+/**
+ * “代码已更新”（t22）：可以“知道了”，按面板服务的实例 id 记住（重启之后代码再变会重新出现），关掉后状态点的详情里还有一行；
+ * 作为服务运行时给“复制命令”。复制在外壳里做（剪贴板是宿主的事），失败时按钮写明，命令照样在横幅的文字里。
+ */
+const codeDismissed = ref(readDismissedCode());
+const codeCopy = ref<"idle" | "copied" | "failed">("idle");
+function dismissCode(): void {
+    const instance = meta.data.value?.instance;
+    if (!instance) return;
+    codeDismissed.value = instance;
+    writeDismissedCode(instance);
+}
+async function copyRestartCommand(): Promise<void> {
+    const command = meta.data.value?.service.restartCommand;
+    if (!command) return;
+    try {
+        await navigator.clipboard.writeText(command);
+        codeCopy.value = "copied";
+    } catch (error) {
+        console.warn("复制重启命令失败", error);
+        codeCopy.value = "failed";
+    }
+}
 /**
  * 审计有两类“没开”：`not_initialized` 是这台机器的配置（多半有意不用通知与代打字），横幅可以“知道了”，关掉后只在状态点的
  * 详情里留一行；初始化过又坏了的（`bad_owner`、`bad_mode`、`not_regular`、`unreadable`）是故障，横幅常驻、不能关。
@@ -340,7 +374,10 @@ function dismissAudit(): void {
 const banners = computed<ShellBanner[]>(() => {
     const data = meta.data.value;
     const list: ShellBanner[] = [];
-    if (data?.codeChanged) list.push({key: "code", tone: "info", icon: "i-lucide-refresh-cw", text: restartHint.value});
+    if (data?.codeChanged && codeDismissed.value !== data.instance) {
+        const action = data.service.restartCommand ? {label: codeCopy.value === "copied" ? "已复制" : codeCopy.value === "failed" ? "复制失败" : "复制命令", run: () => void copyRestartCommand()} : undefined;
+        list.push({key: "code", tone: "info", icon: "i-lucide-refresh-cw", text: restartHint.value, dismiss: dismissCode, action});
+    }
     if (data?.build.failed) list.push({key: "build", tone: "danger", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
     if (data && !data.audit.enabled) {
         if (data.audit.reason !== "not_initialized") list.push({key: "audit", tone: "danger", icon: "i-lucide-shield-alert", text: `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
@@ -367,7 +404,7 @@ const banners = computed<ShellBanner[]>(() => {
     <a href="#nbdev-main" class="nbdev-skip" :inert="panelState.unauthorized || undefined" @click.prevent="skipToMain">跳到主内容</a>
     <Splitter class="h-full" :panels="panels" :sash-sizes="[narrow ? 0 : 1]" :disabled="navHidden" :inert="panelState.unauthorized || undefined" @gesture-end="onNavGestureEnd">
         <template #[NAV_SLOT]>
-            <aside class="shell-nav h-full overflow-hidden" :inert="navHidden || undefined">
+            <aside class="shell-nav h-full overflow-hidden" aria-label="导航" :inert="navHidden || undefined">
                 <PanelNav :works="overview.data.value?.works ?? null" :current="navCurrent" :expanded="navOpen" :counts="navCounts" :writable="navWritable" :arrange="navArrange" @navigate="(href) => router.push(href)" @toggle="toggleWork" @arrange="setNavArrange">
                     <template #actions>
                         <Tooltip text="收起左栏"><IconButton icon-class="i-lucide-panel-left-close" aria-label="收起左栏" data-shell="collapse-nav" @click="setNavCollapsed(true, true)" /></Tooltip>
@@ -379,7 +416,7 @@ const banners = computed<ShellBanner[]>(() => {
             <div class="flex h-full min-h-0 min-w-0 flex-col">
                 <header class="shell-toolbar nbdev-divider flex min-w-0 flex-wrap items-center gap-2 border-b px-3 py-2">
                     <IconButton v-if="narrow" icon-class="i-lucide-menu" aria-label="打开导航" data-shell="open-nav" @click="drawerOpen = true" />
-                    <Tooltip v-else-if="navCollapsed" text="展开左栏"><IconButton icon-class="i-lucide-panel-left-open" aria-label="展开左栏" data-shell="expand-nav" @click="setNavCollapsed(false, true)" /></Tooltip>
+                    <Tooltip v-else-if="navFolded" text="展开左栏"><IconButton icon-class="i-lucide-panel-left-open" aria-label="展开左栏" data-shell="expand-nav" @click="setNavCollapsed(false, true)" /></Tooltip>
                     <form ref="searchForm" class="min-w-0 max-w-xl flex-1 basis-48" role="search" @submit.prevent="submitSearch">
                         <Input v-model="query" placeholder="搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）" aria-label="搜索" aria-keyshortcuts="/ Control+K" />
                     </form>
@@ -387,7 +424,7 @@ const banners = computed<ShellBanner[]>(() => {
                         <RouterLink v-if="attention > 0" to="/live/sessions?view=notify" aria-label="有要处理的通知，去会话页"><Badge tone="warning" variant="soft" size="sm" icon-class="i-lucide-bell">通知要处理 {{ attention }}</Badge></RouterLink>
                         <Popover side="bottom" align="end">
                             <template #trigger>
-                                <button type="button" class="nbdev-status flex items-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1" :aria-label="statusLabel">
+                                <button type="button" class="nbdev-status nbdev-hit flex min-h-6 min-w-6 items-center justify-center gap-1.5 rounded-[var(--radius-control)] px-1.5 py-1" :aria-label="statusLabel">
                                     <span class="size-2 rounded-full" :class="statusProblem ? 'bg-[var(--status-warning)]' : 'bg-[var(--status-success)]'" aria-hidden="true" />
                                     <span v-if="statusProblem" class="max-w-[24rem] truncate nbdev-warn">{{ statusProblem.label }}{{ statusProblem.text }}</span>
                                 </button>
@@ -412,7 +449,11 @@ const banners = computed<ShellBanner[]>(() => {
                         :dismissible="banner.dismiss !== undefined"
                         close-label="知道了"
                         @dismiss="banner.dismiss?.()"
-                    />
+                    >
+                        <template v-if="banner.action" #actions>
+                            <Button size="sm" variant="ghost" icon-class="i-lucide-copy" @click="banner.action.run">{{ banner.action.label }}</Button>
+                        </template>
+                    </Banner>
                 </div>
                 <!-- 一页一个竖向滚动者：流式页面由 main 滚，铺满的页面（文档页）由它的分栏各自滚（路由元信息 layout）。 -->
                 <main id="nbdev-main" ref="mainEl" tabindex="-1" class="relative min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">

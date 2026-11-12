@@ -8,6 +8,10 @@ import {EventEmitter} from "node:events";
 import {mkdir, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
+import {isAddressInUse, PORT_SHIFT_STEP, ServerAssemblyError} from "@notnotype/nb-host/server";
+import {helloFrame, openRawRpcSocket, upgradeStatus} from "@notnotype/nb-host/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {Hono} from "hono";
@@ -15,17 +19,11 @@ import {Hono} from "hono";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
-import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
 
 import {PROJECT_LIMIT_DEFAULTS} from "./config";
-import {ServerAssemblyError} from "./start";
 import {startClaimedServer} from "./testing/claimed-server";
 import {manifestServerPlugins} from "./plugins";
-import {isAddressInUse, PORT_SHIFT_STEP} from "./ports";
-import {helloFrame, openRawRpcSocket, upgradeStatus} from "./testing/rpc-client";
 import {createRemoteProbePlugin, createTestPlugin, newRemoteProbeState, routePlugin} from "./testing/test-plugins";
 
 const FIXTURE = join(import.meta.dir, "testing", "fixture-entry.ts");
@@ -151,8 +149,8 @@ describe("后端宿主（真实子进程）", () => {
         // http、公开状态、配置、命令系统、Storage、文件与项目管理界面都只依赖诊断（配置、文件与项目管理界面另依赖宿主能力），它们之间没有先后。
         const published = pluginOrder(log, "publish");
         expect(published[0]).toBe("runtime.diagnostics");
-        expect(published.slice(1).sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage"]);
-        expect(pluginOrder(log, "close").sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage"]);
+        expect(published.slice(1).sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage", "nbook.tasks"]);
+        expect(pluginOrder(log, "close").sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage", "nbook.tasks"]);
     }, 20_000);
 
     // SIGHUP 是关掉终端时进程收到的信号。
@@ -175,7 +173,7 @@ describe("后端宿主（真实子进程）", () => {
             await fetch(await server.control);
             expect(await longText).toBe("started\nreleased");
             expect(await server.exit).toEqual({code: 0, signal: null});
-            expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage", "test.slow"]);
+            expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage", "nbook.tasks", "test.slow"]);
         }, 20_000);
     }
 
@@ -203,7 +201,7 @@ describe("后端宿主（真实子进程）", () => {
         expect(await (await fetch(`${url}api/test.throw-later/throw`)).text()).toBe("scheduled");
         expect(await server.exit).toEqual({code: 1, signal: null});
         expect(server.stderr()).toContain("process.uncaught-exception");
-        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage", "test.throw-later"]);
+        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage", "nbook.tasks", "test.throw-later"]);
     }, 20_000);
 
     it("未处理的 Promise 拒绝：记录致命诊断后有序停止，以 1 退出", async () => {
@@ -212,7 +210,7 @@ describe("后端宿主（真实子进程）", () => {
         expect(await (await fetch(`${url}api/test.throw-later/reject`)).text()).toBe("scheduled");
         expect(await server.exit).toEqual({code: 1, signal: null});
         expect(server.stderr()).toContain("process.unhandled-rejection");
-        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage", "test.throw-later"]);
+        expect(pluginOrder(await readLog(server.stateRoot), "close").sort()).toEqual(["nbook.agent", "nbook.commands", "nbook.files", "nbook.http", "nbook.models", "nbook.plot", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage", "nbook.tasks", "test.throw-later"]);
     }, 20_000);
 
     it("标准输入关闭（父进程不在）也触发有序停止", async () => {
@@ -341,20 +339,16 @@ describe("后端宿主（同进程）", () => {
     it("启动失败：等待就绪的请求得到 503 startup-failed，以 1 退出", async () => {
         const hold = Promise.withResolvers<void>();
         const listening = Promise.withResolvers<string>();
-        const captured: {admission?: HttpAdmission} = {};
         const server = await startClaimedServer({
             config: config("startup-failed"),
-            plugins: (context) => {
-                captured.admission = context.admission;
-                return [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)];
-            },
+            plugins: (context) => [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)],
             process: new EventEmitter(),
             onListening: listening.resolve,
             writeFatal: () => undefined,
         });
         server.ready.catch(() => undefined);
         const waiting = fetch(`${await listening.promise}api/runtime/health`);
-        await waitUntil("请求进入等待就绪", () => captured.admission?.active === 1);
+        await waitUntil("请求进入等待就绪", () => server.activeRequests === 1);
         hold.resolve();
         const response = await waiting;
         expect(response.status).toBe(503);
@@ -509,19 +503,15 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
 
     it("启动失败：等待就绪的 RPC 升级得到 503 startup-failed，以 1 退出", async () => {
         const hold = Promise.withResolvers<void>();
-        const captured: {admission?: HttpAdmission} = {};
         const server = await startClaimedServer({
             config: config("rpc-startup-failed"),
-            plugins: (context) => {
-                captured.admission = context.admission;
-                return [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)];
-            },
+            plugins: (context) => [...manifestServerPlugins(context), createTestPlugin("test.fail-activate", hold.promise)],
             process: new EventEmitter(),
             writeFatal: () => undefined,
         });
         server.ready.catch(() => undefined);
         const waiting = upgradeStatus(Number(new URL(server.rpcUrl).port));
-        await waitUntil("升级进入等待就绪", () => captured.admission?.active === 1);
+        await waitUntil("升级进入等待就绪", () => server.activeRequests === 1);
         hold.resolve();
         expect(await waiting).toBe(503);
         expect((await server.stopped).exitCode).toBe(1);

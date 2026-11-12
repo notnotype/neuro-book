@@ -1,0 +1,371 @@
+# t02 合入前的变异检查
+
+在干净克隆（/tmp/w43-clean，提交 94cca8703）里由 /tmp/w43-s1/mutate.py 逐项改坏一行、跑对应测试、还原；9 项都有用例失败。实现审查之后的修正（9d3bb0189）另加了两条：start.test.ts 的“宿主接口建不起来”“认领字段不合档案”在未修的 start.ts 上失败；remote-session.test.ts 的违约抛错用例在去掉 catch 里的 closed 判断时失败。
+
+================================================================
+变异 choose-approval：nb-models/src/core/choice.ts
+- if (query.purpose === "approval") return {role: MODEL_ROLE_IDS.fast};
++ // mutation: approval step removed
+命令：cd packages/nb-models && bun test src/core/choice.test.ts src/core/core.test.ts
+退出码：1
+bun test v1.4.4 (38afee6c8)
+src/core/choice.test.ts:
+33 |         expect(asked).toEqual([]);
+34 |     });
+35 | 
+36 |     it("用途是审批时取快速档，先于会话选择", () => {
+37 |         const {asked, lookup} = profiles({model: "p/m"});
+38 |         expect(chooseModel(query({purpose: "approval"}, "x/y"), lookup)).toEqual({role: "fast"});
+                                                                              ^
+error: expect(received).toEqual(expected)
+  {
+-   "role": "fast",
++   "selection": "x/y",
+  }
+- Expected  - 1
++ Received  + 1
+(fail) 选择顺序 > 用途是审批时取快速档，先于会话选择 [0.32ms]
+src/core/core.test.ts:
+167 | describe("模型端口按选择顺序解析（输出 8）", () => {
+168 |     it("审批取快速档、压缩取压缩角色；没绑定是 role-unbound；绑定的模型有密钥才能用", async () => {
+169 |         const store = memoryModelsConfig({providers: [custom("one")], roles: bound({fast: "one/qwen3:8b"})});
+170 |         const {core, call} = await start(store);
+171 |         const port = core.service.port();
+172 |         expect(port.resolve(query({purpose: "approval"}))).toEqual({ok: false, code: "no-credentials"});
+                                                                 ^
+error: expect(received).toEqual(expected)
+@@ -1,3 +1,3 @@
+  {
+-   "code": "no-credentials",
++   "code": "role-unbound",
+    "ok": false,
+- Expected  - 1
++ Received  + 1
+(fail) 模型端口按选择顺序解析（输出 8） > 审批取快速档、压缩取压缩角色；没绑定是 role-unbound；绑定的模型有密钥才能用 [21.56ms]
+ 13 pass
+ 2 fail
+ 42 expect() calls
+Ran 15 tests across 2 files. [813.00ms]
+================================================================
+变异 choose-compaction：nb-models/src/core/choice.ts
+- if (query.purpose === "compaction") return {role: MODEL_ROLE_IDS.compaction};
++ // mutation: compaction step removed
+命令：cd packages/nb-models && bun test src/core/choice.test.ts src/core/core.test.ts
+退出码：1
+bun test v1.4.4 (38afee6c8)
+src/core/choice.test.ts:
+27 |         expect(asked).toEqual([]);
+28 |     });
+29 | 
+30 |     it("用途是压缩时取 kit 按角色取模型的那个压缩角色，先于会话选择", () => {
+31 |         const {asked, lookup} = profiles({model: "p/m"});
+32 |         expect(chooseModel(query({purpose: "compaction"}, "x/y"), lookup)).toEqual({role: MODEL_ROLES.compaction});
+                                                                                ^
+error: expect(received).toEqual(expected)
+  {
+-   "role": "compaction",
++   "selection": "x/y",
+  }
+- Expected  - 1
++ Received  + 1
+(fail) 选择顺序 > 用途是压缩时取 kit 按角色取模型的那个压缩角色，先于会话选择 [0.40ms]
+ 14 pass
+ 1 fail
+ 46 expect() calls
+Ran 15 tests across 2 files. [930.00ms]
+================================================================
+变异 claim-running-exit：nb-host/src/server/claim.ts
+- if (found.state === "running") return {ok: false, reason: "running", instance: found.instance};
++ // mutation: answered instance no longer stops the claim
+命令：cd packages/nb-host && bun test src/server/claim.test.ts
+退出码：1
+bun test v1.4.4 (38afee6c8)
+src/server/claim.test.ts:
+86 |     it("第二个认领者拿到第一个的 pid 与 starting 状态；第一个放下后可以再认领", async () => {
+87 |         const root = nextRoot();
+88 |         const first = claimer(root);
+89 |         expect(await first.result).toEqual({ok: true});
+90 |         const second = claimer(root);
+91 |         expect(await second.result).toMatchObject({ok: false, reason: "running", instance: {schema: 1, pid: first.pid, status: "starting", kind: "fixture", url: null}});
+                                         ^
+error: expect(received).toMatchObject(expected)
+  {
+-   "instance": {
+-     "kind": "fixture",
+-     "pid": 2008576,
+-     "schema": 1,
+-     "status": "starting",
+-     "url": null,
+-   },
+-   "ok": false,
+-   "reason": "running",
++   "ok": true,
+  }
+- Expected  - 9
++ Received  + 1
+(fail) 状态根的实例认领（真实子进程） > 第二个认领者拿到第一个的 pid 与 starting 状态；第一个放下后可以再认领 [370.12ms]
+131 |     it("几个进程同时认领同一状态根：恰好一个认领到，其余都看到它", async () => {
+132 |         const root = nextRoot();
+133 |         const all = Array.from({length: 4}, () => claimer(root));
+134 |         const results = await Promise.all(all.map((one) => one.result));
+135 |         const winners = all.filter((_, index) => results[index]?.ok === true);
+136 |         expect(winners).toHaveLength(1);
+                              ^
+error: expect(received).toHaveLength(expected)
+Expected length: 1
+Received length: 4
+(fail) 状态根的实例认领（真实子进程） > 几个进程同时认领同一状态根：恰好一个认领到，其余都看到它 [349.46ms]
+ 11 pass
+ 2 fail
+ 33 expect() calls
+Ran 13 tests across 1 file. [7.76s]
+================================================================
+变异 dispatch-host：nb-host/src/http/dispatch.ts
+- if (!LOOPBACK_URL_HOSTS.has(url.hostname)) return errorResponse(421
++ if (false && !LOOPBACK_URL_HOSTS.has(url.hostname)) return errorResponse(421
+命令：cd packages/nb-host && bun test src/http src/server/start.test.ts
+退出码：1
+bun test v1.4.4 (38afee6c8)
+src/http/dispatch.test.ts:
+285 |     it("主机名不是回环名、或没有主机名的请求一律 421，三个回环名照常", async () => {
+286 |         const {request, routes, admission, dispatch} = setup();
+287 |         mount(routes, routeHandle("acme.files", new Hono().all("*", (c) => c.text("ok"))));
+288 |         for (const host of ["evil.example:3100", "192.168.1.5:3100", "localhost.evil.example"]) {
+289 |             const response = await request("/api/acme.files/raw", undefined, host);
+290 |             expect(response.status).toBe(421);
+                                          ^
+error: expect(received).toBe(expected)
+Expected: 421
+Received: 200
+(fail) 请求分发 > 主机名不是回环名、或没有主机名的请求一律 421，三个回环名照常 [0.72ms]
+src/server/start.test.ts:
+246 |     it("Host 不是回环名得 421；写请求带不允许的来源得 403，本页来源放行；读请求任何来源都放行；RPC 升级用同一份来源判定", async () => {
+247 |         const {server} = await start({plugins: (context) => [...hostOnly(context), echoPlugin()]});
+248 |         await server.ready;
+249 |         const url = server.url as string;
+250 |         const port = Number(new URL(url).port);
+251 |         expect(await rawStatus(port, `evil.example:${String(port)}`)).toBe(421);
+                                                                            ^
+error: expect(received).toBe(expected)
+Expected: 421
+Received: 200
+(fail) Host 与 Origin（验收 17） > Host 不是回环名得 421；写请求带不允许的来源得 403，本页来源放行；读请求任何来源都放行；RPC 升级用同一份来源判定 [15.87ms]
+ 36 pass
+ 2 fail
+ 146 expect() calls
+Ran 38 tests across 4 files. [338.00ms]
+================================================================
+变异 host-plugin-entries：nb-host/src/server/start.ts
+- if (!same) throw new Error(`entries of host plugin ${expected.id} were replaced`);
++ if (false && !same) throw new Error(`entries of host plugin ${expected.id} were replaced`);
+命令：cd packages/nb-host && bun test src/server/start.test.ts
+退出码：1
+bun test v1.4.4 (38afee6c8)
+src/server/start.test.ts:
+149 |             const fatal: string[] = [];
+150 |             expect(() => startHostServer({
+151 |                 product: {name: "Acme"}, platform: PLATFORM, listen: {host: "127.0.0.1", port: 0, rpcPort: 0, shiftPorts: false, allowedOrigins: []},
+152 |                 logDirectory: join(root, "logs"), claim, http: {id: "acme.http", staticRoot: null}, plugins, readyInfo: () => ({modules: {count: 0}}),
+153 |                 process: new EventEmitter(), signals: [], stopInput: null, writeFatal: (line) => void fatal.push(line),
+154 |             })).toThrow(ServerAssemblyError);
+                      ^
+error: expect(received).toThrow(expected)
+Expected constructor: ServerAssemblyError
+Received function did not throw
+Received value: {
+  application: ApplicationImpl {
+    identity: {
+      location: "server",
+      instanceId: "server",
+    },
+    root: ScopeImpl {
+      id: "scope-1",
+      label: "root",
+      instanceId: [Getter],
+      parentId: [Getter],
+      parent: [Getter],
+      phase: [Getter],
+      stopSignal: [Getter],
+      createChild: [Function: createChild],
+      open: [Function: open],
+      register: [Function: register],
+      acquire: [Function: acquire],
+      borrow: [Function: borrow],
+      accept: [Function: accept],
+      close: [Function: close],
+      recover: [Function: recover],
+      snapshot: [Function: snapshot],
+    },
+    assembly: ServiceAssemblyImpl {
+      instanceId: "server",
+      location: "server",
+      declare: [Function: declare],
+      report: [Function: report],
+      providerState: [Function: providerState],
+      access: [Function: access],
+      recover: [AsyncFunction: recover],
+      diagnostics: [Function: diagnostics],
+      issuedTo: [Function: issuedTo],
+    },
+    plugins: PluginHostImpl {
+      instanceId: "server",
+      location: "server",
+      register: [Function: register],
+      catalog: [Function: catalog],
+      entryState: [Function: entryState],
+      contribution: [Function: contribution],
+      activate: [Function: activate],
+================================================================
+变异 lock-release-identity：nb-file-lock/src/index.ts
+- if (!lost && (await stillHeld()) !== null) return;
++ // mutation: release without checking the lock is still ours
+命令：cd packages/nb-file-lock && bun test src/index.test.ts
+退出码：1
+bun test v1.4.4 (38afee6c8)
+src/index.test.ts:
+61 |         await rm(path, {recursive: true});
+62 |         const second = await holdLock(path, () => undefined);
+63 |         if (!second.ok) throw new Error(second.detail);
+64 |         // 先释放、再问：释放自己就要核对锁是不是还归自己。
+65 |         await first.lock.release();
+66 |         expect(await exists(path)).toBe(true);
+                                        ^
+error: expect(received).toBe(expected)
+Expected: true
+Received: false
+(fail) holdLock > 锁被别人接管：旧持有者的 stillHeld 报告失去锁，释放时不删掉新持有者的锁 [8.20ms]
+ 3 pass
+ 1 fail
+ 12 expect() calls
+Ran 4 tests across 1 file. [6.99s]
+================================================================
+变异 loopback-host：nb-host/src/server/loopback.ts
+- if (!LOOPBACK_BIND_HOSTS.has(host)) throw new HostConfigError
++ if (false && !LOOPBACK_BIND_HOSTS.has(host)) throw new HostConfigError
+命令：cd packages/nb-host && bun test src/server/loopback.test.ts src/server/ports.test.ts src/server/start.test.ts src/server/rpc-listener.test.ts
+退出码：1
+bun test v1.4.4 (38afee6c8)
+src/server/loopback.test.ts:
+17 | };
+18 | 
+19 | describe("监听地址", () => {
+20 |     it("三种回环写法放行，IPv6 不带方括号；别的地址拒绝，消息带调用方的说明", () => {
+21 |         for (const host of ["127.0.0.1", "::1", "localhost"]) expect(codeOf(() => assertLoopbackHost(host, host))).toBeNull();
+22 |         for (const host of ["0.0.0.0", "127.0.0.2", "[::1]", "192.168.1.2", ""]) expect(codeOf(() => assertLoopbackHost(host, host))).toBe("non-loopback-host");
+                                                                                                                                           ^
+error: expect(received).toBe(expected)
+Expected: "non-loopback-host"
+Received: null
+(fail) 监听地址 > 三种回环写法放行，IPv6 不带方括号；别的地址拒绝，消息带调用方的说明 [0.70ms]
+src/server/ports.test.ts:
+40 |         }
+41 |     });
+42 | 
+43 |     it("非回环地址：试探与监听之前就以 non-loopback-host 拒绝，监听函数没有被调用", async () => {
+44 |         let listened = false;
+45 |         expect(() => listenWithShift({host: "0.0.0.0", httpPort: 0, rpcPort: 0, shift: true, listenRpc: () => (listened = true)})).toThrow(HostConfigError);
+                                                                                                                                        ^
+error: expect(received).toThrow(expected)
+Expected constructor: HostConfigError
+Received function did not throw
+Received value: {
+  httpPort: 0,
+  rpc: true,
+  offset: 0,
+}
+(fail) 端口成组顺延 > 非回环地址：试探与监听之前就以 non-loopback-host 拒绝，监听函数没有被调用 [0.79ms]
+src/server/start.test.ts:
+162 |         const fatal: string[] = [];
+163 |         expect(() => startHostServer({
+164 |             product: {name: "Acme"}, platform: PLATFORM, listen: {host: "0.0.0.0", port: 0, rpcPort: 0, shiftPorts: false, allowedOrigins: []},
+165 |             logDirectory: join(root, "logs"), claim, http: {id: "acme.http", staticRoot: null}, plugins: hostOnly, readyInfo: () => ({modules: {count: 0}}),
+166 |             process: new EventEmitter(), signals: [], stopInput: null, writeFatal: (line) => void fatal.push(line),
+167 |         })).toThrow(ServerAssemblyError);
+                  ^
+error: expect(received).toThrow(expected)
+Expected constructor: ServerAssemblyError
+Received function did not throw
+Received value: {
+  application: ApplicationImpl {
+    identity: {
+      location: "server",
+      instanceId: "server",
+    },
+    root: ScopeImpl {
+      id: "scope-1",
+      label: "root",
+      instanceId: [Getter],
+      parentId: [Getter],
+      parent: [Getter],
+      phase: [Getter],
+      stopSignal: [Getter],
+================================================================
+变异 rpc-origin：nb-host/src/server/rpc-listener.ts
+- if (origin !== null && !options.allowOrigin(origin)) {
++ if (false && origin !== null && !options.allowOrigin(origin)) {
+命令：cd packages/nb-host && bun test src/server/rpc-listener.test.ts src/server/start.test.ts
+退出码：1
+bun test v1.4.4 (38afee6c8)
+src/server/rpc-listener.test.ts:
+43 | describe("内核 RPC 端口的升级（Spec server-host 场景 12）", () => {
+44 |     it("Origin：允许的来源与不带 Origin 的升级放行，其它来源 403", async () => {
+45 |         const {port} = listen();
+46 |         expect(await upgradeStatus(port, {origin: PAGE_ORIGIN})).toBe(101);
+47 |         expect(await upgradeStatus(port)).toBe(101);
+48 |         expect(await upgradeStatus(port, {origin: "http://evil.example"})).toBe(403);
+                                                                                ^
+error: expect(received).toBe(expected)
+Expected: 403
+Received: 101
+(fail) 内核 RPC 端口的升级（Spec server-host 场景 12） > Origin：允许的来源与不带 Origin 的升级放行，其它来源 403 [11.22ms]
+src/server/start.test.ts:
+256 |         expect((await post("null")).status).toBe(403);
+257 |         expect(await (await post(page)).text()).toBe("POST");
+258 |         expect(await (await post()).text()).toBe("POST");
+259 |         expect(await (await fetch(`${url}api/acme.echo/x`, {headers: {origin: "http://evil.example"}})).text()).toBe("GET");
+260 |         const rpcPort = Number(new URL(server.rpcUrl).port);
+261 |         expect(await upgradeStatus(rpcPort, {origin: "http://evil.example"})).toBe(403);
+                                                                                    ^
+error: expect(received).toBe(expected)
+Expected: 403
+Received: 101
+(fail) Host 与 Origin（验收 17） > Host 不是回环名得 421；写请求带不允许的来源得 403，本页来源放行；读请求任何来源都放行；RPC 升级用同一份来源判定 [21.64ms]
+ 13 pass
+ 2 fail
+ 42 expect() calls
+Ran 15 tests across 2 files. [355.00ms]
+================================================================
+变异 write-origin：nb-host/src/http/dispatch.ts
+- if (!SAFE_METHODS.has(request.method) && origin !== null && !allowOrigin(origin)) return errorResponse(403
++ if (false && !SAFE_METHODS.has(request.method) && origin !== null && !allowOrigin(origin)) return errorResponse(403
+命令：cd packages/nb-host && bun test src/http src/server/start.test.ts
+退出码：1
+bun test v1.4.4 (38afee6c8)
+src/http/dispatch.test.ts:
+300 |     it("写请求带了不允许的来源（含 null）是 403；允许的来源、不带来源的写请求与任何来源的读请求照常", async () => {
+301 |         const {request, routes} = setup();
+302 |         mount(routes, routeHandle("acme.files", new Hono().all("*", (c) => c.text(c.req.method))));
+303 |         for (const origin of ["null", "http://evil.example", "http://127.0.0.1:9999"]) {
+304 |             const response = await request("/api/acme.files/x", {method: "POST", body: "x", headers: {origin}});
+305 |             expect(response.status).toBe(403);
+                                          ^
+error: expect(received).toBe(expected)
+Expected: 403
+Received: 200
+(fail) 请求分发 > 写请求带了不允许的来源（含 null）是 403；允许的来源、不带来源的写请求与任何来源的读请求照常 [0.69ms]
+src/server/start.test.ts:
+250 |         const port = Number(new URL(url).port);
+251 |         expect(await rawStatus(port, `evil.example:${String(port)}`)).toBe(421);
+252 |         expect(await rawStatus(port, `127.0.0.1:${String(port)}`)).toBe(200);
+253 |         const page = loopbackOrigins(url)[1] as string;
+254 |         const post = (origin?: string) => fetch(`${url}api/acme.echo/x`, {method: "POST", body: "x", headers: origin === undefined ? {} : {origin}});
+255 |         expect((await post("http://evil.example")).status).toBe(403);
+                                                                 ^
+error: expect(received).toBe(expected)
+Expected: 403
+Received: 200
+(fail) Host 与 Origin（验收 17） > Host 不是回环名得 421；写请求带不允许的来源得 403，本页来源放行；读请求任何来源都放行；RPC 升级用同一份来源判定 [17.73ms]
+ 36 pass
+ 2 fail
+ 150 expect() calls
+Ran 38 tests across 4 files. [326.00ms]

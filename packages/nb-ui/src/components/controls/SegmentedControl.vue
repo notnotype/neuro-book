@@ -189,7 +189,7 @@ function handleKeydown(event: KeyboardEvent): void {
                     : (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1))] px-3 text-xs' : 'h-[calc(var(--control-h-sm)-var(--space-1))] px-2 text-xs'),
                 isSelected(option)
                     ? 'text-[var(--text-inverse)] font-semibold'
-                    : props.readonly ? 'text-[var(--text-muted)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]',
+                    : props.readonly ? 'text-[var(--text-secondary)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]',
                 // 整组停用时只在根上降一次透明度（同单选组的 45%），各项不再各自变淡：两层叠起来选中块上的字读不出来。
                 option.disabled === true && !props.disabled ? 'opacity-35' : '',
                 // 只读不画成可点：悬停不变色、按下不缩。
@@ -207,7 +207,7 @@ function handleKeydown(event: KeyboardEvent): void {
             <span
                 v-if="option.count !== undefined"
                 class="ml-0.5 rounded-full px-1.5 py-[0.05rem] text-[length:var(--text-2xs)] font-mono leading-none transition-colors"
-                :class="isSelected(option) ? 'bg-[color-mix(in_srgb,var(--text-inverse)_22%,transparent)] text-[var(--text-inverse)]' : 'bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] text-[var(--text-muted)]'"
+                :class="isSelected(option) ? 'bg-[color-mix(in_srgb,var(--text-inverse)_22%,transparent)] text-[var(--text-inverse)]' : 'bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] text-[var(--text-secondary)]'"
             >
                 {{ option.count }}
             </span>

@@ -11,7 +11,7 @@
 export {
     AlertDialog, AnchoredPopover, Badge, Banner, Breadcrumb, Button, Checkbox,
     CheckboxGroup, CodeBlock, Collapsible, CollapsibleCard, CollapsibleRow, ColorSwatches,
-    ContextMenu, Dialog, DiffView, Drawer, FloatingWindow, DropdownMenu,
+    ContextMenu, CopyButton, DetailDialog, Dialog, DiffView, Drawer, FloatingWindow, DropdownMenu,
     EmptyState, Field, IconButton, InfoTip, Input, Kbd,
     Menubar, Notification, NotificationStack, NumberInput, OverlayScrollbar,
     Popover, Progress, QuickPick, RadioGroup, ScrollArea, SearchSelect,
@@ -23,7 +23,7 @@ export {
 export type {
     Align, AlertDialogTone, BadgeSize, BadgeTone, BadgeVariant, BannerTone,
     BreadcrumbItemData, ButtonSize, ButtonVariant, CheckboxOption, CodeBlockLine,
-    CollapsibleCardStatus, CollapsibleRowStatus, ColorSwatchesSize, ControlSize, ContextMenuCloseReason, ContextMenuItem,
+    CollapsibleCardStatus, CollapsibleRowStatus, ColorSwatchesSize, ControlSize, ContextMenuCloseReason, ContextMenuItem, CopyButtonState,
     DialogCloseReason, DialogSize, DrawerDirection, FloatingWindowCloseReason, DropdownMenuItemData,
     DropdownMenuItemType, FocusRingStyle, GenericTreeNode, IconButtonSize, IconButtonVariant,
     InputType, KbdSize, MenubarItemData, MenubarMenuData,

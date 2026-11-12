@@ -1,0 +1,216 @@
+# w00032 t14 前端实现审查（范围 8390c3f72..e5cac78af，只读，从代码推断，未运行）
+
+按影响排序；编号即顺序。路径省略前缀时：`nbui` = `packages/nb-agent-ui/src/vue`，`host` = `packages/neuro-book/src/plugins/agent/web`。
+
+## 1. [重要] 正确性/Spec：子代理卡片与后台命令卡片不认 `denied`、`invalid`、`unknown` 三种调用状态，被拒的调用画成“正在开始”的转圈
+
+位置：`host/subagent-card.ts:70-101`（`cardModel`）、`host/components/BackgroundCommandCard.vue`（全文不读 `call.status`）。
+
+现象：`cardModel` 只特判 `status === "streaming"` 与 `status === "error" && runId === undefined`。`kernel-transcript.ts:198-205` 产出的 `ToolCallStatus` 还有 `invalid`（参数不合 schema）、`denied`（用户拒绝、规则拒绝、模式拦下、没开始就停了）、`unknown`（开始了但不知道有没有执行完）。这三种既不进 `dispatch-failed`，也没有 `runId`：
+- 父会话还在跑时落到最后一行 `parentIdle ? "unknown" : "running"`，得到“running + 转圈 + 正在开始”；父会话一停又变成“状态未知”。用户拒绝了 `agent_spawn` 的审批，卡片却在转圈。
+- Spec `docs/specs/agent/conversation.md` 输出 33 与计划“卡片行文是调用状态 × 子代理状态的矩阵，含……被拒、`unknown`……”明确要“没有派出”“参数不对，没有派出”“不知道派没派出，打开子会话核对”。`locales/zh-CN.json` 的 `conversation.subagent.*` 里没有这三句，`CardState` 里也没有对应状态。
+- `BackgroundCommandCard` 同理：`shell` 带 `async` 在等审批、被拒、参数错时，`job` 与 `saved` 都是空，`state` 直接是 `unknown`，画“状态未知”的问号图标，既没有“等你批准”也没有“未执行”。
+
+为什么是问题：被拒是最常见的非成功分支之一（子代理的写入审批与规则拒绝都会走到），画成“还在跑”会让用户以为在等什么；`subagent-card.test.ts` 没有这三个状态的用例，所以没拦住。
+
+如何核实：给 `cardModel` 传 `spawn({status: "denied", result: {text: "…", truncated: false}})`、父会话 `parentIdle=false`，期望得到 `running`。
+
+建议：`cardModel` 在 `streaming` 之后先按 `call.status` 分出 `denied`/`invalid`/`unknown`（有运行的 `unknown` 再看 tree），补三句文字与测试；后台命令卡片同样先看 `call.status`（`running` 无 `jobId` 时写“等待开始”，`denied` 写“没有执行”）。
+
+## 2. [重要] 正确性：会话面板“自动展开”每次挂载都会盖掉用户手动的收起
+
+位置：`nbui/AgentSessionPanel.vue:96-107`（`autoKey` 与 `watch(..., {immediate: true})`）。
+
+现象：监听器 `immediate: true`，回调里对 key 里的每个 id 做“`next[id] !== true` 就写成 true”。没有区分 `undefined`（没人动过）与 `false`（用户手动收起），也没有“上一次的 key”做比较。结果：
+- 用户收起了一个自动展开的父会话（有 `childWaiting`，或是当前会话的祖先），宿主记录里是 `{p: false}`。关掉会话下拉再打开（`ConversationView` 的下拉是 Reka Popover，关闭即卸载，`AgentConversationView.vue:361-368`），面板重新挂载，`immediate` 立刻把 `p` 改回 `true`。手动收起在这类行上永远留不住。
+- 不重挂载时也一样：key 集合里新增任何一个 id（别的父会话出现 `childWaiting`），回调会把集合里所有 id 重新写成 `true`，包括用户刚收起的那个。
+- Spec 输出 38 与 `agent-conversation-view.md` 的“会话面板的子会话”：“自动只在这些条件变化时生效一次，之后用户手动的优先”。
+
+为什么测试没拦住：`AgentSessionPanel.dom.test.ts` 的“自动展开一次；之后手动收起照常”只用同一份 key 重发 `items`，key 没变；另一个用例直接给 `expanded: {q: false}` 却断言提示文字，没有断言“没被改回 true”（它不回写 props，所以看不出来）。
+
+如何核实：DOM 测试里 `expanded: {p: false}`、`selectedId: "c1"`（p 是祖先）挂载，期望不 emit `p: true`；现在会 emit。
+
+建议：自动展开只对“记录里没有这个 id”或“相对上一次 key 新进入集合”的 id 生效；挂载时的第一次只补 `undefined` 的。
+
+## 3. [重要] 正确性：停靠区里几个提问事项共用同一个“第几题”，切到下一个事项或前一个答完后从上一个的题号开始
+
+位置：`nbui/wizard/AgentDock.vue:48-55`（`go`、`setWizard`）、`nbui/wizard/AgentQuestionWizard.vue:32`（`step = min(props.state.step, questions.length - 1)`）、`packages/nb-agent-ui/src/wizard.ts:17`（`WizardState.step` 是单个数字）。
+
+现象：`AgentDock` 把同一份 `state.wizard` 交给当前事项的提问向导，题号 `step` 只有一份，不按事项 id 存（答案、选择都按 id，唯独 `step` 不是）。停靠区的“下一个/上一个”（`go`）与事项答完消失都不重置 `step`。例：事项 Q1 有 3 题，用户翻到第 3 题提交，Q1 消失；Q2 有 2 题，向导按 `min(2, 1)` 直接落在 Q2 的最后一题，第一题没填，“提交”被 `allAnswered` 禁用，要自己点“上一题”才发现；Q2 的计数也看不见（见第 6 条）。同步向导不会这样，是因为一次只有一个提问事项，并且整批答完 `wizardState` 被清空；停靠区里答完一个、还有别的，状态不清。
+
+如何核实：`AgentDock.dom.test.ts` 加一个用例：两个多题的异步提问，翻到第一个的最后一题，点“下一个”，期望第二个显示第 1 题。现在是最后一题。
+
+建议：`step` 按事项 id 存（`WizardState` 加 `steps: {[id]: number}` 或停靠区自己的状态里存），或在 `go`/事项变化时重置。
+
+## 4. [重要] Spec 偏离/状态：停靠区的界面状态不“按会话存”，归还 30 秒后再借回就丢，切会话时组件里的旧状态还留着
+
+位置：`host/session-host.ts:785-800`（`closeCurrent` 无条件 `dockState = undefined`）、`:868-880`（`open` 只保留 `keptWizard`）、`:1616-1624`（归零 30 秒释放只保留 `keptState = wizardState`）、`nbui/wizard/AgentDock.vue:32`（`ref(readDockState(props.state))` 只读一次）。
+
+现象与依据：Spec `agent-conversation-view.md` 输出 37：“停靠区与同步向导的界面状态各存一份、按会话存，切走再回来还在”；conversation.md 输出 34：“已选、已写的只在确认已答时清掉……数据重取中、订阅重建时保留”。实现是：
+- 编辑区页面切标签（组件卸载、归零 30 秒后 `closeCurrent`）或 `open` 同一会话时，`wizardState` 被特地保存回来，`dockState` 没有。用户在子代理的提问里填了一半，切标签回来超过 30 秒就清空，展开/收起、看到第几个也回到默认。`session-host.test.ts` 只有 `wizardState` 的保留测试，没有停靠区的。
+- 反过来，切到另一个也有停靠事项的会话时，`AgentDock` 不会卸载（`AgentConversationView.vue` 里 `v-if="dockedInputs.length > 0"`，无 `:key`），组件内的 `state`（`collapsed`、`index`、`seenId`）是上一个会话的，宿主侧已经清成 `undefined`，两边不同步；下一次变化还会把旧会话的 `collapsed/index` 当成新会话的状态 `dock.state` 回写。答案按事项 id 存，不会串到别的事项，但“收起”和“第几个”会串。
+- “按会话存”整体没有实现：宿主只有一个 `dockState` 变量（同步向导同）。
+
+如何核实：宿主测试里让子代理发起审批，经 `dock.state` 写入状态，`RELEASE_DELAY_MS` 之后重借，断言 `ctx().dockState` 仍在；现在是 `undefined`。
+
+建议：`dockState` 与 `wizardState` 一起按会话 id 存（`Map<sessionId, …>`），`closeCurrent` 只清不属于当前会话的；`AgentDock` 加 `:key="ctx.session?.id"` 或监听 `state` 变化重读。
+
+## 5. [重要] 可访问性：停靠区里收起、展开、上一个、下一个之后键盘焦点掉到 body
+
+位置：`nbui/wizard/AgentDock.vue:48-59,102-135`、`nbui/wizard/AgentWizardFrame.vue` 的 `data-wizard-collapse` / `data-dock-step` 按钮。
+
+现象：
+- 点（或回车）“收起”：`setCollapsed(true)` 让模板从向导换成 `data-dock-collapsed` 小条，焦点所在的收起按钮被卸载，小条上的“展开”按钮没有接过焦点；“展开”同理，回到向导后焦点也不在原处。同步向导对这件事做了处理（`AgentWizard.vue` 的 `setCollapsed` 里 `nextTick` 后聚焦展开按钮或容器），停靠区没有。
+- 点“上一个/下一个”：三种向导都带 `:key="item.id"`，切到另一个事项整个向导重建，刚点的按钮连同焦点消失，键盘用户要从头 Tab。
+
+注意：这不违反“出现与事项变化时不移动焦点”（那条说的是不抢用户在输入框的焦点），是用户自己操作之后焦点丢了。`AgentDock.dom.test.ts` 的“不抢焦点”用例只测了出现时。
+
+如何核实：在 DOM 测试里聚焦 `[data-wizard-collapse]` 点击后看 `document.activeElement`；现在是 body。
+
+建议：收起/展开后 `nextTick` 聚焦对应按钮（仅当焦点原本在停靠区内，不然会抢输入框的焦点）；上一个/下一个后聚焦新向导里同名的步进按钮，或让步进按钮留在重建范围之外。
+
+## 6. [重要] UI：停靠区标题行的计数槽被“第 n / m 个”占掉，提问向导自己的“第 n / m 题”看不见
+
+位置：`nbui/wizard/AgentWizardFrame.vue:34`：`const count = computed(() => (docked.value === null ? props.count : docked.value.count))`。
+
+现象：停靠变体里计数只取停靠区的“第 n / m 个”；事项只有一个时 `docked.count` 是 `undefined`，整个计数不显示。`AgentQuestionWizard` 传给外框的 `count` 是“第 n / m 题”（多题时），在停靠区里被丢掉：一个异步提问或子代理的提问有 2 到 4 题时，用户看不到当前是第几题、一共几题，只有“上一题/下一题”按钮。多个事项时也只有事项计数。
+这是两个不同的计数共用一个槽，后者覆盖前者，不是有意取舍（`AgentWizardFrame.md` 与 `AgentDock.md` 都没说丢掉题数）。
+
+如何核实：渲染 `AgentDock`，一个 3 题的 `async` 提问，找 `[data-wizard-count]`，不存在。
+
+建议：两个计数都显示（例如“第 1 / 2 个 · 第 2 / 3 题”），或把题数放进向导正文。
+
+## 7. [重要] 正确性：停靠区“看到的是哪一个”只在点过上一个/下一个之后才按 id 跟，初始和恢复时按位置，会跳过事项或在点击瞬间换掉
+
+位置：`nbui/wizard/AgentDock.vue:33-47`（`seenId` 只在 `go()` 里赋值；`index` 在 `seenId` 找不到时回退 `state.index`，而 `state.index` 只在 `go()` 里更新）。
+
+现象：
+- 跳过：事项 [a,b,c,d]，用户点“下一个”看 b（`seenId=b`、`state.index=1`）；a 答完消失，b 变成下标 0，`index` 按 id 算出 0，但 `state.index` 仍是 1；这时 b 也被别处答掉，`seenId` 找不到，回退 `state.index=1`，显示 d，c 被跳过（本来应停在原来的位置，即 c）。现有测试“看到的那个答完消失后，停在原来的位置”只测了一次消失。
+- 换掉：没点过步进时 `seenId` 为空，纯按下标显示。宿主给的顺序是“本会话自己的事项在前，后代的在后”（`session-host.ts` 的 `pendingViews`）；用户正在看后代的审批（下标 0）时，本会话新来一个异步提问插到前面，显示的立刻变成那个提问，用户可能正在点的“批准”位置换成别的内容。
+Spec 输出 37 只要求“事项消失后位置”，但这两个都是同一个追踪方式不完整造成的。
+
+如何核实：见上，单测两次消失；第二个用 `setProps({items: [newAsync, ...old]})`，看 `[data-agent-dock]` 文本是否换成 newAsync。
+
+建议：每次渲染都把显示的事项 id 记进 `seenId`（`watch(item)`），并在按 id 算出下标后回写 `state.index`；新事项不改变正在看的那个。
+
+## 8. [重要] Spec 偏离：筛选把子会话筛掉后，父会话行的“N 个子代理”开关与“子代理等你处理”一起消失
+
+位置：`nbui/AgentSessionPanel.vue:189`（`children.length > 0`）、`:195`（开关的 `v-if="children.length > 0"`）。
+
+现象：宿主按未过滤的会话算好 `childCount`、`childWaiting`（`host/session-list.ts`），Spec `agent-conversation-view.md`“会话面板的子会话”与 conversation.md 输出 38 都写“个数与提醒按全部子会话算，不受过滤影响”。面板里这两处却都要求 `children.length > 0`，而 `children` 来自过滤后的条目。子代理的 Profile 一般是 `nbook.agent.adhoc`，在左侧按 Profile 过滤（比如只看“写作助手”），或搜索词只命中父会话标题时，子会话全被筛掉，父会话行既没有“N 个子代理”，也没有“子代理等你处理”——后者是子代理在等用户批准这件事在会话列表里唯一的提示。
+`AgentSessionPanel.dom.test.ts` 的用例里 `items` 总是带着子会话，没有覆盖。
+
+如何核实：面板 `items=[{id:"q", childCount:1, childWaiting:true}]`（没有子条目），期望出现“子代理等你处理”；现在没有。
+
+建议：提示文字按 `childWaiting`/`childCount` 显示，不依赖过滤后的子条目；开关没有子条目可展开时可以只显示文字（不做成按钮）。
+
+## 9. [重要] 正确性：后代的“模式切换”事项在停靠区里显示的当前审批模式是假的，选“和显示的一样”不会发出去
+
+位置：`host/session-host.ts:1472`（`descendants` 的 `pendingView(item, {source: …})` 不传 `approvalMode`）、`:1462`（`value: extra.approvalMode ?? "ask"`）、`nbui/wizard/AgentModeSwitchWizard.vue:47`（只有选的值不同于 `item.approval.value` 才带 `approvalMode`）。
+
+现象：本会话自己的模式切换请求，`approval.value` 取自 `meta.settings.approvalMode`；后代的请求没有这个数据（`TreeItem` 里也没有），缺省成 `"ask"`。退出计划（带 `plan` 全文）时向导里的“审批模式”分段控件会高亮“询问”，不管那个子代理实际是 `auto` 或 `yolo`。用户想把它收紧成“询问”时，选的值等于显示的值，`answer` 里不带 `approvalMode`，子会话的模式不变；想放宽则会发出去。显示的“当前值”是假的，且危险档的 `yolo` 红色提示（`yolo` 计算）也不会出现。
+
+如何核实：宿主测试里让一个 `auto` 模式的子代理发起退出计划，读 `ctx().pendingInputs` 里该项的 `approval.value`，是 `"ask"`。
+
+建议：后代的模式切换事项不显示审批模式一栏（`approval` 改为可选，向导里没有时不画），或让服务端把子会话的 `approvalMode` 放进 `TreeItem`。
+
+## 10. [建议] 正确性：上方向键翻的“我说过的话”会收进父 Agent 发来的话
+
+位置：`host/session-host.ts:103-112`（`recallOf`）。
+
+现象：只过滤 `kind === "user"`、`intent === "normal"`、`delivery === undefined`。子会话里父 Agent 的 `input`（现在带 `author`）同样满足，进入子会话输入框的上方向键历史。用户并没有说过这些话；Spec conversation.md 输出 35 要求这类话标成父会话的，不是“你”。
+
+如何核实：开子会话，`ctx().composer.recall` 里有第一条派发的 prompt。
+
+建议：`recallOf` 里跳过 `message.author !== undefined`。
+
+## 11. [建议] 正确性：后台命令卡片展开后的输出“至多每秒一次”是只有前沿没有后沿的节流，窗口内的最后一次变化会丢到下次变化才补；并发请求可乱序
+
+位置：`host/components/BackgroundCommandCard.vue:83-86`（`watch`）、`:73-80`（`loadTail`）。
+
+现象：回调只在 `job` 或 `state` 变化时跑，里面判断 `now !== before || store.now - fetchedAt >= 1000`。1 秒内的第二次 `lastLine` 变化被丢掉，之后命令安静下来（长编译卡在一行、等输入）就没有任何触发，展开的输出停在前一次，直到命令结束（状态变化）才补。注释“结束时再取一次拿到完整的结尾”只覆盖结束，不覆盖运行中的安静期。另外 `loadTail` 没有序号，两个请求的响应可能乱序，旧的覆盖新的。
+Spec 输出 36：“运行中跟着更新”“运行中至多每秒一次”——后者是上限，前者要保证最终是新的。
+
+如何核实：Lab 里把 `lastLine` 在 300ms 内改两次、之后不再改，展开着，输出里没有第二行内容。
+
+建议：节流加后沿（窗口内有变化时在窗口结束时补取一次），`loadTail` 带请求序号，只认最新的响应。
+
+## 12. [建议] UI/Spec：后台命令卡片的圆角与“输出地址点了打开”
+
+位置：`host/components/BackgroundCommandCard.vue:175-188`（`.bg-card__row`）、`:100-107`（地址 `span`）。
+
+- `.bg-card__row` 是卡片的最后一块，卡片有圆角但没有 `overflow: hidden`，这一行没有圆角：悬停背景 `var(--bg-hover)` 与焦点环（`nb-ui-focus-ring-inset`）的直角会戳出卡片的圆角。`SubagentCard.vue` 已经给了 `border-radius: 0 0 var(--radius-control) var(--radius-control)`，这里漏了。需要截图核实（亮暗两色）。
+- Spec 输出 36：“右边是输出文件的地址（点了打开）”。实现是不可点的 `span`（放在 `button` 里不能再嵌可点元素），`BackgroundCommandCard.md` 把“点了打开”静默去掉了，也没有 `action` 发出。要么改成并列的兄弟按钮，要么在 Spec 里标明不做。
+
+## 13. [建议] 设计/性能：“卡片数据不进 ctx”的收益被 `publishSubtree` 里无条件的 `bump()` 抵消，计划里“只有 pending 集合变了才重建 ctx”没有做到
+
+位置：`host/session-host.ts:812-832`（`publishSubtree` 末尾总是 `bump()` 或 `afterChange`），`host/subagent-store.ts` 文件头注释、计划“Agent 插件的浏览器端”第一条。
+
+现象：每次 `treeChanged`/`jobsChanged`（后代每走一步工具就推一次）都会 `revision += 1`，`ctx` 整体重建。`subagentData` 也是每次 `shallowRef` 换一个新外壳对象，`SubagentCard` 的 `model` 读的是整个 `data.value.tree`，所以每张卡片每次推送都重算 `cardModel`；`publishSubtree` 里按 `JSON.stringify` 保住每项引用的做法因此换不来任何记忆化（`cardModel` 每次返回新对象）。`SubagentCard` 的 `model` 还读 `props.ctx.messages`、`props.ctx.run.status`，ctx 每次重建它也重算（含 `laterTerminal` 对全部消息的线性扫描）。
+现有视图对“整体替换 ctx”本来有容忍（`AgentConversationTurn` 里 `run`/`history` 单独 computed，有“宿主每秒换 now”的测试），所以这不是正确性问题，实际代价从代码推断很小；问题是注释与计划声称的收益不成立。
+另有同类的一处：`AgentConversationTurn.vue:69` 的 `activeCalls = computed(() => new Set(props.ctx.activeCalls ?? []))`，注释“集合没变就不换引用，这里也就不重建”不对——依赖的是 `props.ctx`（每次重建都变），`new Set` 每次都是新值，下游 `expanded` 每次重算，并且在有后台任务时每个轮次都扫一遍块（整个后台任务期间，每秒与每个流式增量都扫）。
+
+建议：`publishSubtree` 里比较 `pendingInputs` 与 `activeCalls` 的 id 集合，没变不 `bump()`；`AgentConversationTurn` 先取 `computed(() => props.ctx.activeCalls)` 再派生 Set。若不改，把 `subagent-store.ts` 与 `session-host.ts` 的注释改成实际情况。
+
+## 14. [建议] 错误处理/时序：订阅子树与读祖先失败时静默，且在取快照之前串行多等两个来回
+
+位置：`host/session-host.ts:834-865`（`followSubtree`）、`:925-934`（`open`）。
+
+- `reloadTree`/`reloadJobs` 在 `!ok` 时什么也不做，`treeSubscription.ok`/`jobsSubscription.ok` 为假时也不释放、不报；`remote.ancestors` 失败同样静默（`if (ancestors.ok)`）。同一个文件里别的读取失败都走 `deps.report(...)` 或 `notice`（如 `conversation-draft-failed`）。后果：后代的审批没进停靠区，子代理在等用户批准而界面毫无线索；顶栏没有路径；父 Agent 的话作者退化成“另一个会话”，开发者也没有诊断。后台命令卡片读到的 `sessionId` 为 null（第一次 `publishSubtree` 才设），`status()` 恒返回 null，卡片显示“状态未知”。
+- `open` 里 `await followSubtree(target)`（两次订阅 + 两次重取）夹在 `frames.subscribe` 与 `snapshot` 之间，打开每个会话多等 2 个来回，打开慢的是整个对话；这些与路径的加载互不依赖，可以和 `snapshot`/`ancestors` 并行（订阅在前、重取在后即可保序）。
+
+建议：失败时 `deps.report`；并行化后保持“先订阅再重取”。
+
+## 15. [建议] 顶栏路径：读得到但还没有标题的上级会话被写成“未知会话”
+
+位置：`host/session-host.ts:1524`（`title: item.title ?? ""`）、`nbui/AgentConversationView.vue:103`（空标题写 `header.unknownSession`）。
+
+现象：`backend/remote.ts:179-188` 的 `ancestors` 对读不到索引的会话返回 `title: null, profile: null`，对读得到但还没生成标题的会话也是 `title: null`（`SessionIndexEntry.title: string | null`）。宿主一律 `?? ""`，视图一律写“未知会话”。新建后立刻派子代理的父会话（标题是异步生成的）会在子会话顶栏里被叫“未知会话”，而会话面板里同一个会话显示 `header.untitled`。Spec 输出 35：“取不到的祖先写‘未知会话’”。
+建议：有 `profile` 的（说明读到了索引）空标题交出 `header.untitled` 对应的文字，只有 `profile === null` 才写“未知会话”。
+
+## 16. [建议] 会话面板：`aria-controls` 的 id 在下拉与左栏同时存在时重复；英文下“N sub-agents”会撑出行
+
+位置：`nbui/AgentSessionPanel.vue:200`、`nbui/AgentSessionChildRows.vue:31,48`（id 为 `acv-children-${item.id}`）；样式 `AgentSessionPanel.vue:348-375`（`max-width: 6.5em`、`padding-right: 7em`、`white-space: nowrap`，无 overflow）。
+
+- 同一个会话面板既在点标题弹出的下拉里，又可以在左栏视图里（同一个 `SessionListStore`、同一份展开记录），两处都展开同一个父会话时，页面里有两个相同的 id，`aria-controls` 指向第一个。收起时目标元素根本不在 DOM（`v-if`），`aria-controls` 指向不存在的 id。id 可以用 `useId()` 的前缀拼会话 id。
+- “N 个子代理”开关绝对定位在行的右下角，`max-width: 6.5em` 但没有截断/溢出处理。英文 `children_other` 是“12 sub-agents”，11px 字号、14px 左右的箭头加内边距估计要 90px 以上，超过 6.5em（约 71px），文字会溢出按钮、与第二行的状态文字重叠或戳出行外。需要在 en-US 下截图核实（含 390px）。
+
+## 17. [建议] Spec 偏离（planned 条目里没有做、`.md` 也没说不做）
+
+逐项，位置是 Spec 原文，实现处是缺口：
+- conversation.md 输出 36 最后一句：`ask` 带 `async` 的调用是“过程里的一行”，写“提了一个问题，不用马上答”，答了之后写“已回答”。`packages/nb-agent-ui/src/builtin-tools.ts:172-175` 的 `request_user_input` 仍是无条件的 `node`，异步提问在消息流里画成一张通用节点卡片，同时停靠区里又有同一个问题。没有 `presentationOf`，没有这两句文字。
+- 输出 37：停靠区“提交处说明回答之后 Agent 会接着做”。`AgentDock`/`AgentQuestionWizard`/`AgentApprovalWizard` 在停靠变体里没有这句，`dock.*` 目录里没有对应文字。
+- 输出 33：fork 出来的父会话里复制过来的卡片写“子会话属于原会话”；运行中还没有工具调用写“正在思考”（实现写“正在开始”，与“数据还没到写‘正在启动’”合并了）；运行中“按注册表的摘要写成‘读取 …’”（`subagent-card.ts:87` 直接拼 `${item.step.tool} ${target}`，测试里断言的是 `read project://第二章.md`，原始工具 id）；等用户“写‘等你批准：…’‘等你回答：…’或‘等你切换模式’”（实现统一写“等你处理”，`SubagentCard.vue` 的 `waiting`）。
+- 输出 34：“没答成功时在这个事项上写原因、保留所选”。`resolveInput` 失败只写会话级的 `notice`（`session-host.ts:1174`），不在事项上；所选因为留在 `state.wizard` 里是保留的。
+
+如果这些是有意延后，应在 Spec 条目上标出，不然 planned → 已实现的核对会漏。
+
+## 18. [建议] 设置页“可派的子代理”一节：键拼接绕过了类型核对，缺 DOM 测试，两节的 `data-*` 钩子重名
+
+位置：`host/components/ProfileToolsSection.vue:26-28,75`、`host/components/AddToolsDialog.vue:23`、`host/profile-view.ts:294-324`。
+
+- `key = (rest) => \`profiles.${props.kind}.${rest}\` as Parameters<typeof text>[0]` 把 `agents` 与 `tools` 两套键用断言放过，缺键只在运行时才发现。现在就缺一个：模板里 `text(key('required'))` 在 `agents` 下对应 `profiles.agents.required`，两个目录里都没有（`tools` 有）。它今天不出错只因为 `agentsField` 的行永远 `required: false`，Badge 不渲染；将来加“必选”的子代理就会显示键名。
+- `data-profile-tools`、`data-profile-tools-add`、`data-profile-tools-restore`、`data-profile-tool-remove`、`data-profile-tool-group` 两节完全相同。`profile-page.dom.test.ts` 与 `e2e/agent-profiles.e2e.ts` 现有选择器大多带工具 id，所以没炸，但`wrapper.get("[data-profile-tools-add]")` 之类现在在带 `agent_spawn` 的 Profile 上取到的是第一个（工具一节）；给“可派的子代理”一节写测试时容易取错。`data-profile-agents` 只是落在同一个根上的额外属性。
+- 只有 `profile-view.test.ts` 的一个用例，没有 DOM 测试覆盖：添加对话框的 `kind="agents"`、移除一行、恢复默认、`changeAgentsBinding` 的换算（撤销“去掉”、加声明里没有的记成“我加的”）、两个数组都空时不留 `agents` 这一项。`shared/profile-agents.ts` 的 `changeAgentsBinding` 也没有单测。
+- `agentsField` 的“推荐”优先于“已删除”：一个声明推荐、但已被删除的 Profile，`effect` 写“推荐”，同时 `gone: true`，行上既有推荐标又有警告摘要，自相矛盾（`profile-view.ts` 的 `row`）。
+
+## 19. [建议] 代码质量与小处（逐点，都不影响主路径）
+
+- `host/session-list.ts:79`：`entries.value as readonly (SessionIndexEntry & {readonly parent?: string})[]` 用断言重新声明了 `shared/remote.ts:134` 已有的 `ListedSession`（服务端 `list` 就是带 `parent` 的这个类型）。两处定义会各自漂移，用 `ListedSession` 并去掉断言。
+- `packages/nb-agent-ui/src/kernel-transcript.ts:25-27`：给 `KernelPending` 前后叠了两段 JSDoc，TypeScript 只认最后一段，“`request` 是内核事件里的原文……”那段说明在悬停与文档里丢了；`types.ts` 里 `input.submit` 前面插的 `/** sessionId … */` 夹在联合成员之间，同样不挂到任何东西上。合并成一段。
+- `packages/nb-agent-ui/src/registry.ts:424-433`：`presentationOf` 在回调抛错时 `console.error` 并回退，而它在每一次整理轮次（流式时每个增量）都被调用，坏的渲染器会让控制台刷屏。可以按渲染器 id 只报一次。
+- `host/session-host.ts:812-832`（`publishSubtree`）：对每个后代与每个任务每次推送都做两次 `JSON.stringify`（上一次与这一次）来判断是否变化，其中 `TreeItem.pending[].request` 带着审批的完整参数（`write` 的文件内容可以几百 KB）。推送有合并限频，代价从代码推断不大；但 `previous.tree.get(item.id)` 在三元式里取了三次，可以先取出来，必要时只比较 `state/step/tools/pending` 这几个会变的字段。
+- `host/session-host.ts:812-832`：`target.loading` 时 `publishSubtree` 也会起 `subagentNow` 的 1 秒定时器；`open` 随后失败（`snapshot` 不 ok）时定时器一直走到下一次 `closeCurrent`，页面显示的是加载失败。
+- `host/components/SubagentCard.vue`（运行中的 `<Spinner size="sm">`）与 `BackgroundCommandCard.vue`：没传 `label`，nb-ui 的 `Spinner` 缺省是 `role="status"` + 名称“加载中”。多张运行中的卡片就是多个名为“加载中”的状态区，而不是“运行中”；同一视图的 `AgentSessionChildRows` 已传 `t('panel.state.running')`。
+
+## 未发现问题的方面（仔细检查后）
+
+- 视图根节点改成 `container-type: size`：根节点原来就是 `height: 100%`，现有嵌入处（`ConversationHost` 的 `h-full w-full`、Lab 夹具、`nb-story` 的 `QaPage` 里 `.qa-view {flex: 1; min-height: 0}`）都给得出确定高度，没看出塌成 0 的路径；视图内没有 `position: fixed` 的后代（对话框走传送门），布局包含带来的“固定定位以它为包含块”不影响。`.acv-wizard-frame.is-large` 的 `85cqh` 被 `is-docked` 的 `max-height: none` 按顺序覆盖，同步向导仍相对 `.acv-body`。未运行，窄屏和暗色需要 e2e 取证（计划里已有）。
+- 阻塞与停靠的划分：`AgentConversationView`、`AgentStatusBar` 都只看阻塞的；`pendingInputs` 其余使用处没有遗漏（全仓 grep 只有这几处）。
+- 停靠区的面：阴影 `0 1px 2px` 10% `--shadow-color`、圆角 `--radius-panel`（同输入框），收起条与展开向导一致，符合设计语言的判据；`held` 时收成一条且不改 `state.collapsed`，回到用户原来的展开成立。读屏区常驻在视图层、文字未变时 Vue 不重写 DOM。
+- `presentationOf`：`conversation-turns.ts`、`AgentChainBlock.vue` 都改成经 `presentationOf`，全仓没有绕开它直接读 `.presentation` 的地方；`streaming` 时按登记层级。
+- `session-host`：订阅的释放（`followSubtree` 在超越代数时 `target.release()`）、`closeCurrent` 里 `subagentNow` 定时器的收口、预览按事项所在会话取、`allow-always` 的规则按事项所在会话的请求算、应答带 `sessionId`，都对。`activeCalls` 在宿主侧排序后比较，集合不变不换引用。
+- `nestSessions` 的成环、自指、父会话不在条目里的处理；`changeAgentsBinding` 的换算（加声明里有的是撤销“去掉”、加没有的记“我加的”、两个数组都空返回 undefined）；`isDocked` 的划分；`readDockState` 的容错；`createKernelTranscript` 的 `authorOf` 闭包（调用发生在 `target` 初始化之后）。
+- 白名单一节的写入时机：`changeAgents` 在写的那一刻取声明，经 `settingEdits.apply` 串行；恢复默认走 `withAgentsChoice(…, undefined)` 去掉 `agents` 键。
+
+需要运行验证的：第 6、16 条的实际观感（亮暗两色、390px、英文）；第 5 条的焦点行为；第 11 条的节流后沿。

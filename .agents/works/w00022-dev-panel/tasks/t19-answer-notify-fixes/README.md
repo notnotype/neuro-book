@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t19-answer-notify-fixes
-status: active
-updated: 2026-11-02
+status: done
+updated: 2026-11-10
 ---
 
 # 评审板能不选、自动通知认带会话名的输入框
@@ -26,6 +26,7 @@ updated: 2026-11-02
 | `b1cf29fbe` | `artifact publish`（有活的题时）与 `ask` 的输出多一行怎样挂等待，`--json` 时在 `data.waitCommand` |
 | `2abb7b02f` | 答复表单里清空了的题回到“没答”、不交：多选全取消、文字只剩空白不再让整份答复交不了；待答的单选、确认题选了之后多一个“清除选择” |
 | `a652f2d11` | design-review 写明什么题标选答（不答也能往下做的标 `data-nbdev-optional`），发布后就挂等待 |
+| `9f0061a00`（合入 `bd10898b4`） | 开发者 11-10：会话用 Monitor 挂等待老是 30 分钟就超时。`answers --wait` 缺省从 30 分钟改成 6 小时；发布与 `ask` 输出的等待提示、design-review 写明 Claude Code 用 Bash 的 `run_in_background`、不用 Monitor（Monitor 最长 30 分钟）。`tests/artifacts-cli.test.ts` 19 个与 `tsc` 通过 |
 
 ## 验证
 
@@ -36,12 +37,12 @@ updated: 2026-11-02
 
 未验证：
 
-- 自动投递修好之后还没有在真实面板上等到一次自动通知；合入、重启 4400 之后，下次有会话等答复时看审计里 `manual: false` 的投递。
+- 自动投递：2026-11-10 查审计，11-05 重启 4400 之后到 11-06 共 12 次 `manual: false` 的投递，全部 `delivered`（w00041、w00032 的会话），已在真实面板上成立。
 
 ## 当前状态
 
-2026-11-02 合入 `master`（`bd8116055`），2026-11-05 重启 4400 后生效。只差一次真实的自动通知（下面）。
+2026-11-02 合入 `master`（`bd8116055`），2026-11-05 重启 4400 后生效；真实的自动通知已等到（见上面“未验证”一节的核对），已完成。
 
 ## 下一步
 
-下次有会话等答复、开发者在面板上答完时，看审计里有没有 `manual: false` 的投递；有了就把 Task 改成完成，没有就查投递判定。
+无。

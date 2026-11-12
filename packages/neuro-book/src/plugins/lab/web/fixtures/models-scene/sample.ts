@@ -1,6 +1,6 @@
 /** 模型服务夹具的示例数据：快照的服务商与角色、目录、拉取结果。数字是示意，不是目录的真实值。 */
 
-import type {CatalogProvider, ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "nbook/plugins/models/shared/contracts";
+import type {CatalogProvider, ModelsSnapshot, SnapshotModel, SnapshotProvider, SnapshotRole} from "@notnotype/nb-models/contract";
 
 export const sampleModel = (id: string, patch: Partial<SnapshotModel> = {}): SnapshotModel => ({
     id, name: id, group: id.replace(/[-:][\w.]+$/u, ""), enabled: true, contextWindow: 128_000, maxOutput: 8_192, vision: false, reasoning: false, efforts: [], compaction: null, price: null, headers: {}, status: "ok", ...patch,

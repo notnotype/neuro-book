@@ -115,8 +115,13 @@ export interface DocumentStore {
     block(document: TextDocument, token: string, input: BlockedInput): void;
     /** 视图不再写不出：它的一次输入交出成功（提交时自动解除），或用户选了采用当前正文。 */
     unblock(document: TextDocument, token: string): void;
-    /** 视图登记自己的结算函数：保存、切换、资源管理器的操作之前同步调用，让视图把还没交出的输入交给文档。 */
-    attachView(document: TextDocument, flush: () => void): () => void;
+    /**
+     * 视图登记自己的结算函数：保存、切换、资源管理器的操作之前同步调用，让视图把还没交出的输入交给文档。`pending`：这个
+     * 视图手里有还没交出的输入或正在组字时为真；不给就是没有缓冲。
+     */
+    attachView(document: TextDocument, flush: () => void, pending?: () => boolean): () => void;
+    /** 这份文档有视图手里还有没交出的输入（或正在组字）：此刻结算会把半截输入写进正文。文档已关闭为假。 */
+    pending(document: TextDocument): boolean;
     /** 同步结算这份文档全部视图的输入。 */
     settle(document: TextDocument): void;
     save(document: TextDocument): Promise<SaveResult>;
@@ -164,7 +169,8 @@ interface Entry {
     readonly saveProblem: Ref<DocumentProblem | null>;
     readonly candidates: ShallowRef<Map<string, string>>;
     readonly blocked: ShallowRef<Map<string, BlockedInput>>;
-    readonly flushers: Set<() => void>;
+    /** 视图的结算函数，值是它的“还有没交出的输入”查询（没有缓冲的视图不给）。 */
+    readonly flushers: Map<() => void, (() => boolean) | undefined>;
     /** 结果未知的那次保存的快照：之后的核对读到它的哈希就算已保存。 */
     uncertain: {readonly text: string; readonly hash: Promise<string>} | null;
     /** 用户选了“覆盖磁盘版本”：下一次保存以这个基线写入（正文与旧的已保存正文相同也写）。 */
@@ -346,6 +352,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
                 entry.saveProblem.value = null;
                 return;
             }
+            // 核对完了、那次写入没有落盘：不再是“结果未知”，是一次失败，组顶部说明并给“重试保存”（输出 14）。
+            if (entry.saveProblem.value?.code === "unknown-outcome") entry.saveProblem.value = {code: "not-written", detail: ""};
         }
         if (baseline.hash === entry.baseline?.hash) return;
         // 视图里可能还有没交出的输入（控件有输入延迟）：先结算，再按 dirty 决定换不换正文。
@@ -358,8 +366,12 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         else entry.diskChanged.value = true;
     };
 
-    /** 换成磁盘内容：正文、已保存的正文与基线一起，修订前进让视图更新。 */
+    /**
+     * 换成磁盘内容：正文、已保存的正文与基线一起，修订前进让视图更新。之前失败的那次保存不再相关（正文已经是磁盘上的）：
+     * 留着它，重新载入之后组顶部还会写“保存失败”。
+     */
     const adopt = (entry: Entry, text: string, baseline: Baseline): void => {
+        entry.saveProblem.value = null;
         entry.baseline = baseline;
         entry.saved.value = text;
         entry.text.value = text;
@@ -422,7 +434,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             saveProblem: document.saveProblem as Ref<DocumentProblem | null>,
             candidates,
             blocked,
-            flushers: new Set(),
+            flushers: new Map(),
             uncertain: null,
             overwrite: null,
             inflight,
@@ -523,7 +535,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
     };
 
     const flush = (entry: Entry): void => {
-        for (const settle of [...entry.flushers]) {
+        for (const settle of [...entry.flushers.keys()]) {
             try {
                 settle();
             } catch (error) {
@@ -750,6 +762,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             if (baseRevision === revision) {
                 entry.text.value = text;
                 entry.revision.value = revision + 1;
+                // 改回了已保存的正文：上次保存的失败不再相关，留着它组顶部还写“保存失败”，“重试保存”也无事可做。
+                if (!isDirty(entry)) entry.saveProblem.value = null;
                 return {status: "accepted", revision: revision + 1};
             }
             const candidates = new Map(entry.candidates.value);
@@ -794,12 +808,20 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             const entry = entryOf(document);
             if (entry !== null) unblockEntry(entry, token);
         },
-        attachView: (document, settle) => {
+        attachView: (document, settle, pending) => {
             const entry = live(document);
-            entry.flushers.add(settle);
+            entry.flushers.set(settle, pending);
             return () => {
                 entry.flushers.delete(settle);
             };
+        },
+        pending: (document) => {
+            const entry = entryOf(document);
+            if (entry === null) return false;
+            for (const pending of entry.flushers.values()) {
+                if (pending?.() === true) return true;
+            }
+            return false;
         },
         settle: (document) => {
             const entry = entryOf(document);

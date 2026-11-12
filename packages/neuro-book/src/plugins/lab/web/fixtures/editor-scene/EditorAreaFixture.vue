@@ -97,12 +97,35 @@ const DIALECT = [
     "",
 ].join("\n");
 
+/** 批注场景的正文（docs/specs/workbench/markdown-editing.md 输出 28–35）：短的、多行的、重叠的、块的、挨得很近的几条。 */
+const COMMENTS = [
+    "# 第一章 雾港",
+    "",
+    "雾是从海上来的。凌晨四点，码头的灯一盏一盏熄下去，林汐把缆绳在手上绕了两圈，听见身后有人踩着湿木板走近。",
+    "",
+    "“船今天不出。”周砚说。他的声音比雾还轻，<comment body=\"这个比喻和第三章重复了，换一个。\">像是怕惊动什么</comment>。",
+    "",
+    "林汐没有回头。<comment body=\"这里节奏太快：读者还不知道两人的过去。先补一句动作，再接这句。&#10;（第二行：可以让她先把缆绳放下，再往下写。）\">她知道他说的不是船。</comment>缆绳在她掌心里勒出一道白印，她松开手，又攥紧。",
+    "",
+    "<comment body=\"整段视角混乱，需要重写\">",
+    "",
+    "潮水退到第三根桩子的时候，灯塔的光扫过来，<comment body=\"信的来历要在第二章埋伏笔。\">照见他手里攥着的那封信</comment>。",
+    "",
+    "信封的一角已经被雾气洇软了。",
+    "",
+    "</comment>",
+    "",
+    "<comment body=\"外层\">她把<comment body=\"内层：同一段文字上盖了两条批注\">信</comment>收进袖口</comment>，转身走向灯塔。",
+    "",
+].join("\n");
+
 const memory = createMemoryFiles({
     project: [
         ["chapters/第一章.md", "# 第一章\n\n天色将晚，她推开了门。\n"],
         ["chapters/第二章.md", "# 第二章\n\n雨下了一整夜。\n"],
         ["notes/设定.json", "{\n  \"城市\": \"临川\"\n}\n"],
         ["chapters/方言.md", DIALECT],
+        ["chapters/批注.md", COMMENTS],
     ],
     user: [],
 });
@@ -121,6 +144,8 @@ const area = createEditorArea({
 });
 if (props.scene === "dialect") {
     area.open("project://chapters/方言.md", {mode: "permanent"});
+} else if (props.scene === "comments" || props.scene === "comments-margin") {
+    area.open("project://chapters/批注.md", {mode: "permanent"});
 } else if (props.scene !== "empty") {
     area.open("project://chapters/第一章.md", {mode: "permanent"});
     area.open("project://chapters/第二章.md", {mode: "preview"});
@@ -153,7 +178,7 @@ provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, (
 // 图片地址：内存适配器没有字节路由，作品里的 png 一律给一张画出来的图。
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#7287fd"/><text x="240" y="145" font-size="30" text-anchor="middle" fill="white">封面</text></svg>')}`;
 provide(markdownAssetsKey, createAssetUrls({rawUrl: (address) => (address.endsWith(".png") ? PICTURE : null), watch: () => () => undefined}));
-provide(editorMenusKey, createLabEditorMenus(area, text));
+provide(editorMenusKey, createLabEditorMenus(area, text, {commentMargin: props.scene === "comments-margin"}));
 const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/markdown/web/components/MarkdownControl.vue"));
 /** 只有内置的两个编辑器，组件直接给出（产品里由编辑器的登记表给出，`editor-registry.ts`）。 */
 const controls: Readonly<Record<string, Component>> = {[CODE_EDITOR]: MonacoControl, [MARKDOWN_EDITOR]: MarkdownControl};

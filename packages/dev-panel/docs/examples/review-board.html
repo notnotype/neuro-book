@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第 2 轮：产物页的答题栏</title>
+<!--
+  评审板模板（t23）。照着改：换掉标题、各节与样例，样式整段保留。写法见 .agents/skills/design-review/SKILL.md 的“评审板怎么写”。
+  - 一节一问：节标题就是要问的事，写成问句；标题下第一行加粗写推荐与一句理由；候选并排，用同一个例子画。
+  - 不写引导句、图注、复述标题的说明行。想补一句解释，说明图没讲清，回去改图。
+  - 答题控件不要自己写：在面板里打开时，nbdev 会在每道题的元素（data-nbdev-question 所在的元素）末尾放控件。
+  - 一轮只问要定的事；“直接修、不用答”的列成表，不提问；已定的收到最后。题多就拆成几轮。
+-->
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+/* 候选并排，等宽、同样的结构；窄了就上下排。列数照候选个数改。 */
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 640px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+/* 样例：用 HTML 直接画候选的样子（或者放截图 <img>），两个候选画同一个例子。 */
+.mock { display: flex; gap: 6px; height: 140px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: #fff; font-size: 12px; color: var(--muted); }
+.mock .page { flex: 1; border-radius: 4px; background: #f1eee7; padding: 6px; }
+.mock .side { width: 34%; display: flex; flex-direction: column; justify-content: space-between; border-radius: 4px; background: #eef3fb; padding: 6px; }
+.mock .btn { align-self: flex-start; padding: 1px 8px; border-radius: 4px; background: var(--accent); color: #fff; }
+.mock .hot { outline: 2px solid var(--mark); outline-offset: 1px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>第 2 轮：产物页的答题栏</h1>
+
+<section data-nbdev-question="submit-place" data-nbdev-type="single" data-nbdev-recommend="bottom">
+  <h2>“提交”放在答题栏底部还是页头？</h2>
+  <p class="rec"><strong>推荐 A 底部：题多时人在下面填，按钮就在手边。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="bottom" data-nbdev-label="A 答题栏底部">
+      <h3>A 答题栏底部</h3>
+      <div class="mock"><div class="page">页面</div><div class="side">待答 3<span class="btn hot">提交 2 题</span></div></div>
+      <p>填到第 3 题时不用滚回顶上。</p>
+    </div>
+    <div class="cand" data-nbdev-option="header" data-nbdev-label="B 页头右侧">
+      <h3>B 页头右侧</h3>
+      <div class="mock"><div class="page">页面</div><div class="side"><span class="btn hot">提交 2 题</span>待答 3</div></div>
+      <p>页头一直看得到，填完要回到顶上按。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="approve-layout" data-nbdev-type="confirm" data-nbdev-label="按 A 改产物页的答题栏">
+  <h2>按 A 改产物页的答题栏？</h2>
+  <p class="rec"><strong>推荐同意：改动只在答题栏里，页面区不动。</strong></p>
+</section>
+
+<section>
+  <h2>直接修，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>改成什么</th></tr></thead>
+    <tbody>
+      <tr><td>“已改 N 题”</td><td>数字用等宽字体，不随位数跳动</td></tr>
+      <tr><td>收起答题栏</td><td>页面下面留一条提交栏，写待答与已改几题</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>页面里填的只进草稿，在答题栏提交（第 1 轮）</li>
+    <li>进评审板页时左栏自动收起（第 1 轮）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

@@ -70,9 +70,10 @@ owners:
 10. **写入接口的会话绑定版**：资源视图是写入接口（[`workspace.resources`](../workspace/resources.md) 的“写入接口”）按会话绑定的版本：方法、参数、结果与失败码都同写入接口，改写与分类照第 1、2 条；只有写与文件操作按第 4 条判权限，读与列出按方案的读授权（读别的会话的 `session.jsonl`、`docs://` 与虚拟根照旧可以）；来源记为该会话；不另有一套方法。`call(ctx, {title?, note?})` 交回绑定一次工具调用的门面：来源另带这次调用的条目 id，工具调用的 `signal` 合进每次调用，这次调用里的写入与文件操作自动成一个操作分组，标题缺省为工具 id，工具可以给。
 11. **宿主写全文**：`artifacts/` 只有宿主能写。工具工厂的 `services.artifacts.save(label, write)` 以宿主身份（来源是 `nbook.agent`，不代表会话）在这个会话的 `artifacts/` 下新建一份全文：文件名由它生成（`<label>-<uuid>.log`），写入函数正常结束即提交，交回全局地址；`label` 只收单段、不含路径分隔符，否则 `invalid-address`。它不收工具调用的取消信号，入口停止时才丢弃。
 
-12. `home/jobs/` 只有宿主能写（planned）：后台命令的输出（[`jobs.md`](jobs.md) 输出 7）写在这里，Agent 经资源视图写 `jobs/` 下得 `permission-denied`，读照常。
-13. `sessions://` 的根先列有关的会话（planned）：读它的会话的父会话、子会话、兄弟会话排在前面，各带状态（运行中、等用户、空闲），子会话另列派它的调用 id（子会话的标题是 `name` 或 `prompt` 的开头）；状态不靠打开会话取得；之后按最近使用，合计仍至多 200 个，不重复，不列后台会话。
-14. `profiles://` 的根每项多一列“可派”或“不可派”（planned）：按读它的会话的 Profile 的白名单（[`subagents.md`](subagents.md)）。
+12. `home/jobs/` 只有宿主能写：后台命令的输出（[`jobs.md`](jobs.md) 输出 7）写在这里，Agent 经资源视图写 `jobs/` 下得 `permission-denied`，读照常。
+13. `sessions://` 的根先列有关的会话：读它的会话的父会话、子会话、兄弟会话排在前面，各带状态（运行中、等用户、空闲），子会话另列派它的调用 id（子会话的标题是 `name` 或 `prompt` 的开头）；状态不靠打开会话取得；之后按最近使用，合计仍至多 200 个，不重复，不列后台会话。
+14. `profiles://` 的根每项多一列“可派”或“不可派”：按读它的会话的 Profile 的白名单（[`subagents.md`](subagents.md)）。
+15. `skills://` 的根列出 Skill 目录，挂载点 `<Skill id>` 是那个 Skill 的目录：能读、能列、能取真实路径，Agent 不可写；根与挂载点的细则见 [`skills.md`](skills.md) 输出 23、24。上表 `skills://` 一行随之改为这条。（planned）
 
 ## 状态与转换
 
@@ -123,7 +124,7 @@ Smoke：没有界面；由 `plugins/agent/resources.test.ts` 经真实插件宿�
 ## 实现合同
 
 - **公开入口**：`nbook/plugins/agent/shared/resources`（`SessionResources`、`SessionArtifacts`、`ResourceClass`、`AgentToolServices`）；工具工厂的形状在 `nbook/plugins/agent/shared/points`（`AgentToolImplementation.create(context, services)`）。五个方案经 `nbook.files` 的贡献点 `files.schemes` 注册，读写都经写入接口（[`workspace.resources`](../workspace/resources.md)）。
-- **owner 与依赖方向**：`nbook.agent` 的服务端入口注册方案、建临时目录的容器并在注册之前做启动清理，按内核给的会话上下文构造资源视图；它依赖 `nbook.files` 的写入接口，Files 不依赖它。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口注册方案、建临时目录的容器并在注册之前做启动清理，按内核给的会话上下文构造资源视图；它依赖 `nbook.files` 的写入接口，Files 不依赖它。资源视图就是交给 nb-harness 宿主套件的 `SessionFiles`（[`harness/host-kit.md`](../harness/host-kit.md)）的 NeuroBook 实现（`backend/resources.ts` 的 `sessionFiles`、`filesFor` 与会话布局）；内核的资源接口由套件的 `kernelResources` 在它上面建出。
 - **关键不变量**：
   - 资源视图只经工具工厂的 `services.resources` 与内核的 `SessionEnv.resources` 交出，`AgentService` 不交出：别的插件拿不到能代表会话的读写（`resources.test.ts`“各方案对 Agent 的权限”）。
   - 分类只看改写后的全局地址，单数与全局写法结果相同；单数地址先校验路径再拼接，不做去点段（输出 1、2，`resources.test.ts`“改写与分类”）。
@@ -133,6 +134,6 @@ Smoke：没有界面；由 `plugins/agent/resources.test.ts` 经真实插件宿�
 ## 证据
 
 - 批准依据：开发者 2026-10-28 定稿的第三版设计与 2026-10-30 的三条后续修改（[w00032 t08](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/README.md) 的“决定”）；2026-11-02 的实施前决定与第三轮设计审查后的改判（同一 README 的“实施前的决定”、[计划](../../../.agents/works/w00032-agent-integration/tasks/t08-resources-home/plan.md)）；开发者 2026-11-02 批准晋升为 `implemented`。输出 10、11 与验收 6 依据 [文件访问与改动记账](../../proposals/file-access-and-history.md)（2026-11-02 `accepted`）的第 1 阶段与 [w00032 t12](../../../.agents/works/w00032-agent-integration/tasks/t12-builtin-tools/README.md) 的计划，开发者 2026-11-04 批准晋升。
-- 实现入口：[`backend/resources.ts`](../../../packages/neuro-book/src/plugins/agent/backend/resources.ts)（改写、分类与内核资源接口）、[`backend/schemes.ts`](../../../packages/neuro-book/src/plugins/agent/backend/schemes.ts)（五个方案）、[`backend/temps.ts`](../../../packages/neuro-book/src/plugins/agent/backend/temps.ts)（临时目录）、[`backend/docs-root.ts`](../../../packages/neuro-book/src/plugins/agent/backend/docs-root.ts)、[`scripts/agent-docs.ts`](../../../packages/neuro-book/scripts/agent-docs.ts)（产品文档）
-- 合同测试：[`resources.test.ts`](../../../packages/neuro-book/src/plugins/agent/resources.test.ts)（真实插件宿主、真实工具工厂）、[`builtin-tools.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.test.ts)（宿主写全文）、[`scripts/pack-app.test.ts`](../../../packages/neuro-book/scripts/pack-app.test.ts)（应用包里的文档布局与定位）
+- 实现入口：[`backend/resources.ts`](../../../packages/neuro-book/src/plugins/agent/backend/resources.ts)（改写、分类、会话布局与 `SessionFiles` 的实现）、nb-harness 的 [`kit/files/index.ts`](../../../packages/nb-harness/src/kit/files/index.ts)（内核资源接口 `kernelResources`）、[`backend/schemes.ts`](../../../packages/neuro-book/src/plugins/agent/backend/schemes.ts)（五个方案）、[`backend/temps.ts`](../../../packages/neuro-book/src/plugins/agent/backend/temps.ts)（临时目录）、[`backend/docs-root.ts`](../../../packages/neuro-book/src/plugins/agent/backend/docs-root.ts)、[`scripts/agent-docs.ts`](../../../packages/neuro-book/scripts/agent-docs.ts)（产品文档）
+- 合同测试：[`resources.test.ts`](../../../packages/neuro-book/src/plugins/agent/resources.test.ts)（真实插件宿主、真实工具工厂；含对 NeuroBook 实现跑的 `SessionFiles` 合同测试）、[`builtin-tools.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.test.ts)（宿主写全文）、[`scripts/pack-app.test.ts`](../../../packages/neuro-book/scripts/pack-app.test.ts)（应用包里的文档布局与定位）
 - Smoke：[`builtin-tools.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts)（`test:llm`，真实模型经内置工具读写）

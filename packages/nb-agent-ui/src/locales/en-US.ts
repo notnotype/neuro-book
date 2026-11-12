@@ -10,6 +10,9 @@ export default {
         more: "More actions",
         rawView: "Raw view",
         turnsView: "Turn view",
+        path: "Conversation path",
+        morePath: "More parent conversations",
+        unknownSession: "Unknown conversation",
     },
     stream: {
         empty: "No messages yet",
@@ -97,6 +100,7 @@ export default {
     step: {
         thinking: "Thinking",
         steer: "Follow-up note",
+        steerBy: "Note from {{author}}",
     },
     tool: {
         generic: "Tool",
@@ -293,6 +297,17 @@ export default {
         },
         compaction: "Context compacted",
     },
+    dock: {
+        label: "Non-blocking items waiting: {{count}}",
+        pending: "{{count}} waiting",
+        fromSubagent: "Sub-agent “{{name}}”: {{what}}",
+        openSession: "Open sub-session",
+        what: {
+            approval: "approve {{tool}}",
+            modeSwitch: "switch to {{mode}}",
+        },
+        announce: "{{what}} ({{count}} waiting in total)",
+    },
     wizard: {
         collapse: "Collapse",
         expand: "Expand",
@@ -423,6 +438,11 @@ export default {
         showArchived: "Show archived",
         archivedTag: "Archived",
         clearFilters: "Clear filters",
+        children_one: "{{count}} sub-agent",
+        children_other: "{{count}} sub-agents",
+        childWaiting: "A sub-agent needs you",
+        childrenOf: "Sub-agents of {{title}}",
+        ancestor: "Parent conversation: one of its sub-sessions matches",
         removeFilter: "Remove filter: {{name}}",
         today: "Today",
         yesterday: "Yesterday",

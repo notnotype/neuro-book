@@ -8,9 +8,8 @@ import {createReadStream} from "node:fs";
 import {lstat, readdir, readFile, stat} from "node:fs/promises";
 import {join, relative} from "node:path";
 
+import {errno} from "@notnotype/nb-file-lock";
 import type {ManifestFormat, PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
-
-import {errno} from "nbook/backend/locked-replace";
 
 import {brief} from "./record";
 

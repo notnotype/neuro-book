@@ -1,0 +1,234 @@
+只读实现审查：w00026 t24 切片 1（提交 74be9456a，nb-layout 的锚、分节、容器模型）
+审查者：Claude 子代理（只读；探针脚本在 /tmp/review-w00026-t24-s1/，都从 worktree 的 src 绝对路径导入，没有改仓库文件）
+记法：每条写明“探针复现”或“从代码推断”。编号按核实的先后，不是按影响；按影响的排序见文末。
+
+F1　重要　合同 / 没处理的边界　“区域”靠“锚是那一列的直接子叶”认，锚被交叉方向包一层后整个区域失效，所有容器的分节一起显示
+位置：packages/nb-layout/src/layout-doc.ts:184-195（regionOf）、:740-798（placeLeaf）、:838-872（movePanelToEdge）、:908-920（openPanelAtEdge）、:537-549（settleLanding）
+现象（探针复现，probe1.ts）：基线是测试里的 containers()（侧栏 V[sidebar,s1(A),s2(A),s3(B)]，当前容器 A）。
+  1. openPanelAtEdge(target = {kind:"split"|"spread", panel:"sidebar", edge:"right"|"left"}, panel.container = "A") 返回 ok，树变成 V[H[sidebar,new],s1,s2,s3]。
+     之后 regionOf(s1|s2|s3|new) 全是 null；isPanelShown(s3) 从 false 变 true（容器 B 的分节露出来）；new 的 container 被 settleLanding 悄悄清掉；validateLayoutDoc 通过。
+  2. 底部面板同理：target = 锚 panel 的 top/bottom → H[V[new,panel],p1]，p1 的 regionOf 变 null。
+  3. 空区域（右栏只有锚、entries=["X"]）：锚的 left/right 外缘 → new 成了骨架分支里锚旁边的一块普通工具面板，region=null，调用方明确给的 container:"X" 被清掉，结果仍是 ok。
+  4. movePanelToEdge({panel:"sidebar"（锚本身）, target: ea 的右缘}) 返回 ok，锚被搬到编辑区旁边，原来那一列的 s1、s2、s3 全部 region=null、全部显示。
+为什么是问题：输出 40“锚不移动”、ADR 0046 决策 3“可见只有一个判定”都依赖 regionOf；现在一次“成功”的写入就能让区域的容器过滤整体失效，而且结果过得了校验，会被保存。
+  交付报告第五节正好让切片 2 “用 openPanelAtEdge（目标是锚的外缘…）”，锚的四条外缘里有两条是坏的（侧栏、右栏是左右，底部面板是上下），没有任何地方拒绝或说明。
+  第 3 种是静默丢参数：调用方指定了容器，库既不放进去也不报错。
+  拖动不会走到（锚不显示，不是落点候选），所以这是给切片 2 的命令路径、默认布局构造、“移动到”埋的坑，不是用户手势直接能触发的。
+如何核实：bun run /tmp/review-w00026-t24-s1/probe1.ts，看 “open split sidebar right”“open split panel top”“open split aux left”“move ANCHOR” 四段的 region 与 shown。
+建议改法（选简单的 fail-closed）：
+  - placeLeaf 之前拒绝：目标面板是锚（isContainerAnchor）且 orientationOfEdge(edge) !== REGION_ORIENTATION[name] 时返回 rejected；
+  - movePanelToEdge 的来源是锚时返回 rejected（“锚不移动”）；
+  - settleLanding：调用方给了 wanted、落点却不在带容器的区域里时返回 rejected，不悄悄清掉（没给 wanted 的照旧清）。
+  三处各补一条测试。不建议去放宽 regionOf（让它认“锚在子分支里”）：那会把“区域只剩锚时旁边的面板不算”的判定弄复杂。
+
+F2　重要　合同（Spec 输出 11）/ 文档与呈现不一致　当前容器只显示一个分节时，这个分节的“收成标题行”在呈现里不存在，但文档里的 collapsed 仍被别处当真
+位置：packages/nb-layout/src/layout-project.ts:74-79（区域节点是叶时收起策略给了区域，continue 跳过分节自己的）；layout-doc.ts:242-245（countsInShare）、:389（rebaseIntents 的 isSkipped）仍读分节的 collapsed
+现象（探针复现，probe2.ts 的 2a、probe2b.ts）：
+  - 两个分节、s1 收成标题行：呈现 s1 高 30。关掉 s2（removeTab）之后文档里 s1.collapsed 仍是 true，呈现 s1 高 578（整列），s1 的 collapse 变成 {collapsed:false, collapsedSize:0}。
+  - 只有一个分节时 setPanelCollapsed(s1,true)：返回 ok、文档变了，呈现前后都是 250×578，什么都没发生。
+  - 同时 countsInShare(那一列) 变成 false，rebaseIntents 把 s1 当“收起的面板”不写它的尺寸（列宽经分支写回，没丢）。
+为什么是问题：
+  1. Spec 输出 11：“收成标题行：侧栏、右栏的分节高度等于面板头”“一列的面板全部收成标题行时，标题行排在上面，下面留空”。没有“只有一个分节时不能收”的例外；
+     内置默认布局里右栏的“对话”正是单分节容器，按现在的实现它收不成标题行。交付报告把它列在“拿不准 1”，但它是和 Spec 条文不一致，要开发者定，不只是实现细节。
+  2. 文档说收起、呈现说展开，读 collapsed 的地方会各说各的。工作台现有代码就有：state/layout-present.ts:58 的 effectiveVisibleTabs 用 panel.collapsed !== true 判内容可见
+     （这种状态下 ViewContext.visible 为假、内容却占满整列）；components/WorkbenchShell.vue:230 的面板头按钮按 panel.collapsed 显示状态；layout-doc-store.ts:133 按它退出最大化。
+     自然路径就能到：两个分节、收起一个、把另一个拖走或关掉。
+如何核实：bun run /tmp/review-w00026-t24-s1/probe2.ts（2a-0、2a-1、2a-2 三行）。
+建议改法（要开发者选，按复杂度从低到高）：
+  a. Spec 写明“当前容器只有一个分节时不收成标题行”，库在文档层守住：setPanelCollapsed 对“所在区域当前容器里唯一显示的分节”拒绝；分节变成唯一时（removeTab、移走、切容器不算）不清它的 collapsed，
+     但 isPanelShown 之外另给一个“此刻是不是收成标题行”的判定（例如 isSectionCollapsed(doc, id)），countsInShare、rebaseIntents 与工作台都问它，不直接读 collapsed。
+  b. 呈现时给单分节的区域保留一层分支（区域节点恒为分支，分节恒为它的子叶），两份收起策略各有其位；要确认 createGrid、NestedGrid 接受单子分支。
+  无论选哪个，“区域节点是叶时”都要有一条测试写明分节 collapsed 的去向；现在的测试只断言了区域的零宽。
+附（同类、影响更小，探针 2b）：底部面板的分节可以被 setPanelCollapsed 标成 collapsed（库不拒绝，交付报告“拿不准 6”），呈现里没有策略；但 rebaseIntents 仍把它当收起的不写尺寸：
+  把 p1|p2 的边界拖成 100/600，写回后意图不变，再呈现回到 350/350，用户的拖动丢了。目前只有直接调命令能到（从侧栏搬进底部面板时 expandWhereAxisChanged 会展开）。建议 setPanelCollapsed 对底部面板区域的分节拒绝，和输出 11“底部面板的分节不折叠”一致。
+
+F3　建议　写入路径 / 不变量有缺口　带 container 的记录在三种位置上各处判定不一致，校验都放行
+位置：packages/nb-layout/src/layout-doc.ts:222-232（isPanelShown）、:482-494（containerAnchorOf、refusesMoreTabs）、:499-506（besideSection）、:961-970（openFloatPanel）、:1188（校验）
+现象（探针复现，probe3.ts 的 3e、3f、3g）：
+  1. 浮动窗带 container（openFloatPanel 照抄调用方给的记录，校验通过）：insertTab 以“分节只有一个标签”拒绝；moveTabToStrip 却照常并入，得到 f{f+y @A}：一块带归属的两标签面板。
+     “带 container 的面板恰一个标签”在浮动窗上守不住，同一块面板两个入口答案相反。
+  2. 区域的具名面板不是锚（有标签、没有 entries），同一列的工具面板带 container（交付报告“拿不准 8”）：isPanelShown 返回 false（永远不显示，也没有任何操作能让它显示：
+     setActiveContainer 要求锚），insertTab 拒绝，settleLanding 遇到同样的落点却是清掉归属；校验通过。三处对“这份文档用不用容器”给了三种答案，
+     而 isContainerAnchor 的注释写的是“全库只问这一个函数”——isPanelShown 用的是 anchorOf，没有问它。
+  3. movePanelToEdge、moveTabToEdge、openPanelAtEdge、splitIntoSections 的 container 接受任何字符串，不要求在锚的 entries 里（探针给 "ZZZ"，得到 x{@ZZZ} n1{@ZZZ} 两块不显示的分节，
+     setActiveContainer("ZZZ") 又会因为不在入口顺序里被拒绝）。交付报告没提这一条。
+为什么是问题：这三种都是“写得进去、过得了校验、之后看不见或规则打架”的记录。现在没有调用方会造出来，但库的注释把“一个分节一个标签”说成“每条写入路径都守”的不变量，实际守的范围比说的小。
+如何核实：bun run /tmp/review-w00026-t24-s1/probe3.ts（3e、3f、3g 三段）。
+建议改法：
+  - isPanelShown 里区域的具名面板不是 isContainerAnchor 时按“归属不起作用”返回 true（和浮动窗、settleLanding 同一个口径）；
+  - 校验拒绝浮动窗带 container，openFloatPanel 写入时去掉它；
+  - 第 3 点二选一：settleLanding 要求 container 在锚的 entries 里（那么“新建容器”要先写入口顺序再放分节，顺序写进注释），或者在 movePanelToEdge 等的注释里写明“入口顺序由调用方在同一次提交里补”。按“窄场景选简单改法”，写注释即可。
+
+F4　建议　写入路径　showPanelAndInsert 的目标是分节时返回 ok，但没有“显示”：区域还隐藏着，新分节看不见；顺带清掉了目标分节的收成标题行
+位置：packages/nb-layout/src/layout-doc.ts:1035-1047
+现象（探针复现，probe3.ts 的 3a）：侧栏隐藏、s1 收成标题行；showPanelAndInsert({panel:"s1", source: 标签 y}) 返回 ok：新分节 n1{@A} 建在 s1 后面，
+  isPanelShown(n1) 为 false（锚仍 hidden），s1.collapsed 被清掉（setPanelCollapsed(s1,false) 是给“并进这块面板”准备的，现在标签并没有进 s1）。目标是锚时整个拒绝（3a'），文档不变。
+为什么是问题：函数的合同是“一次写入显示面板并接收”。带容器的区域里它要么拒绝（锚），要么成功但不显示（分节）。工作台现在的活动栏落点（layout-drag.ts 的 barDrop）调的就是它，
+  切片 2 把侧栏改成锚之后、切片 4 换掉 barDrop 之前，活动栏拖放会一律被拒绝；这一段要么在切片 2 一起处理，要么在计划里写明中间态。
+如何核实：同上脚本的 3a、3a' 两行。
+建议改法：showPanelAndInsert 的目标在带容器的区域里（锚或分节）时，改成清锚的 hidden 与 collapsed、再按外缘新建分节（目标是锚时用区域方向的外缘）；或者明确拒绝分节并在注释里写“带容器的区域用 setPanelHidden(锚) 加 openPanelAtEdge”。不要留“成功但没显示”。
+
+F5　重要（从代码推断，未在浏览器里验证）　区域级收起 / 键盘与指针　区域拖到零之后，区域里分节之间的分隔线还在：长度为 0、粗细 1px，仍可聚焦、仍有命中带
+位置：packages/nb-layout/src/grid-rects.ts:258-275（分隔线条目不看长度）、vue/SashHandle.vue:62-63（只有粗细为 0 才 inert）、sash-hit-area.ts:51-55（命中带是矩形四周各扩 5/15px）；
+  触发它的是本提交的 layout-project.ts:74-79（把收起配给分支）。
+现象（探针复现到“条目存在”这一步，probe4.ts）：侧栏三个分节、拖到零。placeGrid 的结果里 s1|s2、s2|s3 两条分隔线还在：
+  rect {x:48,y:192,width:0,height:1}、{x:48,y:385,width:0,height:1}，size（粗细）为 1。叶的矩形是 0×192，useLeafParking 按矩形判（任一轴为 0），所以叶与内容是停放的（交付报告第七节没核实的那一项：成立）。
+  分隔线这边：SashHandle 的 inert = disabled || size === 0，size 是粗细不是长度，所以这两条是 tabindex=0 的可聚焦分隔线；命中带是它的矩形四周各扩 5px（触摸 15px），
+  也就是在区域那条 1px 外边界上、y=192 与 y=385 附近各有一块约 10×11（触摸 30×31）的区域同时命中“外边界（宽）”与“分节之间（高）”两条线。
+为什么是问题（推断的后果）：
+  - 键盘：Tab 会停在看不见的分隔线上（N 个分节就多 N-1 站），方向键与 Enter 会改停放着的分节的高度与收成标题行，用户看不到在改什么；
+  - 指针：在那两小块按下，按“十字交汇同时调两轴”的规则是双轴手势，把侧栏拉开的同时改了分节高度。
+  旧模型没有这个状态：拖到零的只会是一片叶，里面没有分隔线。nested-grid.md 的“分支的收起”只写了叶按停放处理，没写里面的分隔线。
+如何核实：bun run /tmp/review-w00026-t24-s1/probe4.ts 看条目；可聚焦与命中要在切片 2 接上工作台后用浏览器看（侧栏放两个分节、拖到零、按 Tab；在边界上分节交界的高度按下拖动）。
+建议改法：分隔线沿自己长度方向的尺寸为 0 时按 inert 处理、不进命中集合（grid-rects.ts 给条目带上长度，或 placeGrid 直接不产出长度为 0 的分隔线），
+  Spec 的“分支的收起”补一句“收起为零的分支里的分隔线不可聚焦、不可拖”。加一条 NestedGrid.dom 测试。这是 nb-layout 的事，不该留给工作台。
+
+F6　建议　性能　isPanelShown 对每片分节都重新沿树找祖先、扫一遍 panels；量过，现在的规模不必缓存，要缓存只能按树根，不能按文档对象
+位置：packages/nb-layout/src/layout-doc.ts:168-176（ancestorsOf）、:184-195（regionOf）、:198-201（anchorOf 的 Object.entries）、:222-232（isPanelShown）
+怎么量的：把 src 拷到 /tmp/review-w00026-t24-s1/instr/ 加计数器（perf.ts）；耗时另用 perf2.ts，15 轮取最小值，跑了两遍（本机负载 20 到 35，绝对值偏大，看比例）。
+  文档形状：三个区域各 N 个分节、分属 2 到 4 个容器，加 3 到 6 个编辑组。“旧文档”是同一棵树、没有新字段（所有工具面板都显示，呈现的叶反而更多）。
+调用数（确定值，一次 projectLayoutDoc）：
+  叶 23（分节 15）：isPanelShown 21 次 → regionOf 15 次、访问树节点 275 个、anchorOf 18 次、扫面板记录 162 条
+  叶 43（分节 33）：41 → 33、946、36、588
+  叶 83（分节 72）：81 → 72、3516、75、2250
+  旧文档三种规模都是 regionOf 0 次、anchorOf 0 次（只有带 container 的面板才进这条路，旧文档零开销，这一点成立）。
+  一次 presentationCollapse（窗口 300×200，要收走）：叶 23 是 29 次投影，regionOf 435 次、访问 7975 个节点；叶 43 是 38 次投影、1254 次、35948 个；叶 83 是 56 次投影、4032 次、196896 个。
+  结构操作的 finish 不调它（normalizeTree 的 counts 只在同轴展平时才问）。
+耗时（毫秒，两遍）：
+                          projectLayoutDoc 一次      presentationCollapse（300×200）
+  叶 23  旧文档           0.040 / 0.032              1.34 / 0.86
+         切片 1 容器      0.128 / 0.100              2.98 / 2.04
+         按树根缓存       0.030 / 0.022              1.08 / 0.49
+  叶 43  旧文档           0.136 / 0.072              6.07 / 3.05
+         切片 1 容器      0.372 / 0.226              14.2 / 8.68
+         按树根缓存       0.055 / 0.041              2.12 / 1.11
+  叶 83  旧文档           0.497 / 0.334              20.8 / 18.0
+         切片 1 容器      0.673 / 1.14               36.1 / 65.4
+         按树根缓存       0.077 / 0.073              2.81 / 3.71
+结论：
+  - 一次投影多出来的是亚毫秒（叶 43 时约 0.15 到 0.25 毫秒），不值得为它加缓存。
+  - 贵的是 presentationCollapse：它本来就是 O(显示着的工具面板数) 次投影，带容器后每次投影再乘上 O(分节数 × 树深)。工作台的 collapse 是随窗口尺寸重算的 computed
+    （state/layout-doc-store.ts:118），窗口窄到要收走时每次尺寸变化跑一遍。叶 43 时 9 到 14 毫秒（旧文档 3 到 6），接近一帧；默认布局只有十来片叶，远没到。
+  - 所以：现在不必改；到切片 2 之后如果窄窗口拖动窗口边缘时掉帧，再加。
+如果要加，两条约束（都核对过代码）：
+  1. 不能按文档对象缓存。settleLanding（:537）与 finish 里的 countsInShare（:370）都在改到一半的 MutableDoc 上问 regionOf，同一个对象上树根已经换了；按对象缓存会读到旧树。
+  2. 可以按 doc.tree.root 这个节点对象缓存（WeakMap）：库里所有改树的地方都是新建节点、换根，不原地改节点（placeLeaf、replaceChildren、detachNode、normalizeTree、rebaseIntents 都是）。
+     对照实现在 /tmp/review-w00026-t24-s1/cached/layout-doc.ts（一次遍历建“叶 → 区域”的表，anchorOf 不再建 entries 数组），和切片 1 的 regionOf 在两份文档的所有面板上结果一致。
+  不加缓存也能白捡的一点：anchorOf 的 Object.entries(doc.panels) 每次调用都新建一个数组，换成 for…in 即可。
+
+F7　建议　写入路径　movePanelToStrip 能拿锚当来源：返回 ok，把整个区域隐藏，顺带展开目标面板、换活动编辑组
+位置：packages/nb-layout/src/layout-doc.ts:686-708（movePanelToStrip；只在“目标是分节”那条分支里拒绝具名来源，:695）
+现象（探针复现，probe6.ts 的 6a）：movePanelToStrip({panel:"sidebar"（锚）, target:"x"（旧模型的普通工具面板，收成标题行）}) → ok：锚 hidden=true（settleEmptyPanel 把空的具名面板当“拖空”处理），
+  区域的分节全部不显示，x 的 collapsed 被清掉；target 换成编辑组 eb 时 currentEditor 从 ea 变成 eb。一个标签都没有移动。
+为什么是问题：锚恒为空，按旧规则“空的具名面板并进别处”就是“拖空隐藏”。旧模型里空的具名面板是少见的中间态，现在它是常态，这条路径的副作用就成了“隐藏区域”的一个意外入口。
+  和 F1 第 4 点（movePanelToEdge 能搬走锚）是同一件事的两半：输出 40 的“锚不移动”在库里只守了一处。手势走不到（锚不呈现），是命令路径的防线。
+如何核实：bun run /tmp/review-w00026-t24-s1/probe6.ts 的 6a 两行。
+建议改法：movePanelToStrip、movePanelToEdge 开头统一拒绝 isContainerAnchor(source)（“区域的锚不移动”），把 :695 那条只在分节分支里的判断并上来；补一条测试。
+
+F8　建议　测试缺口　有几处行为只有实现、没有测试，其中一条测试把 F2 的现状写成了期望
+位置：packages/nb-layout/src/layout-doc.test.ts:750 起“区域与容器”、layout-project.test.ts:211 起“带容器的区域”、grid.test.ts:925 起
+核对结果：新增用例都断言调用方看得到的结果（树形、记录、显隐、尺寸、返回的是不是原对象），没有 mock、spy、假计时器、skip；
+  切片 0 到切片 1 三个测试文件只删了一行 import（git diff 7784d04a3 74be9456a 里以 - 开头的行只有 layout-project.test.ts 的那一行），没有放宽或删除已有断言；我自己跑 bun test src 是 498 通过、0 失败。
+缺的：
+  1. 锚的交叉方向外缘、锚作来源（F1、F7）：没有用例，这两处正是 regionOf 的前提被打破的地方。
+  2. layout-project.test.ts:294-296 “这个分节自己的收成标题行这时不呈现”把 F2 的行为固定成了期望；F2 定了之后这一条要跟着改，否则它会挡住修正。
+  3. 组件层没有一条用例覆盖“分支收起”：src/vue 一个文件都没改。Spec nested-grid.md“分支的收起”写的“里面的叶为零时按停放处理”只有纯函数层的尺寸测试（grid.test.ts），
+     停放、分隔线可不可聚焦（F5）都没有 NestedGrid.dom 用例。交付报告说“要到切片 2 在浏览器里才看得到”，其实 useLeafParking、NestedGrid 的 dom 测试现在就能测。
+  4. 手势会话（createGridGestureSession）对“子节点是分支”的缝：只测了 resizeBranches。我用探针补核了（probe5.ts）：指针拖过阈值、从零拉回、Enter 切换，两个分节与单分节各四种都对，
+     提交里 collapsed 的键是区域节点的 id（两节是 side，单节是 s1）。结果没问题，但建议把这段探针收成一条 grid 测试，免得之后改 sash-drag 时悄悄坏掉。
+  5. showPanelAndInsert 目标是分节（F4）、浮动窗带 container（F3）没有用例。
+
+F9　建议　区域级收起 / 放不下时的收走　拖到零的区域在另一根轴上仍按分节的最小尺寸算，窗口矮时会把看不见的分节“收走”并给诊断
+位置：packages/nb-layout/src/layout-project.ts:154-162（minimumOf：收起的分支只在父分支主轴上取 collapsedSize，另一轴照常累加子节点）
+现象（探针复现，probe7.ts）：侧栏六个分节（每节最小高 80，合计 485），底部面板一个分节，窗口 1000×420。
+  侧栏展开：removed=[s2,s1]（意料之中）。侧栏拖到零：removed 还是 [s2,s1]；侧栏隐藏：removed=[]；侧栏拖到零但只有一个分节：removed=[]。1000×300 时零宽的侧栏被收走三节。
+为什么是问题：输出 10 的“收走”要给诊断，这里被收走的是用户此刻根本看不见的分节（零宽、内容停放）。本提交在 minimumOf 上加的注释正是为了避免这件事
+  （“不然零宽的区域还按分节的最小宽度算，窗口窄了会把它们收走”），但只管了宽，没管高；底部面板拖到零、里面一排分节时是对称的（按宽度算）。
+  影响限于多余的诊断与 removed 集合里多出几项（读 removed 的地方会认为这些分节“放不下”）；我没有构造出“看得见的面板因此被收走且放不回来”的情况：收走之后有放回一步，探针里 p1 都放回来了。
+如何核实：bun run /tmp/review-w00026-t24-s1/probe7.ts，比较“侧栏拖到零”与“侧栏隐藏”两行。
+建议改法（窄场景，选简单的）：minimumOf 里“收起且 collapsedSize 为 0 的节点”两根轴都返回 0（它没有可见内容）；注意 grid 的 layoutOf 对骨架分支的交叉轴下限仍会把这一列算进去，
+  窗口矮时可能换成报“分支 body 的交叉轴可用空间小于约束下限”，要一起看（rigid 的豁免只覆盖收起分支的内部）。不想动 grid 的话，记成已知限制并在注释里写明“只管了主轴”。
+
+F4 补充（核实了原文里“工作台的 barDrop 调的就是它”这一句）
+  属实，但中间隔着一层：提交 74be9456a 的 packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:354-368，barDrop 给侧栏造的动作是
+  {kind:"strip", panel: SIDEBAR, …}（侧栏显示着）或 {kind:"reveal", panel: SIDEBAR, …}（隐藏或拖到零），交给 nb-layout 的 applyLayoutDrop；
+  packages/nb-layout/src/layout-drop.ts:324-326 把 strip 分派到 moveTabToStrip / movePanelToStrip，:339 把 reveal 分派到 showPanelAndInsert。
+  侧栏成了锚之后这三条都返回 rejected（“区域的锚不放标签”），barDrop 在 :368 拿到 !result.ok 就返回 null，也就是活动栏上段不再是落点。
+  所以原文的结论成立：切片 2 把侧栏改成锚之后、切片 4 换掉 barDrop 之前，往活动栏拖工具视图没有落点。（没有运行工作台验证，是按这两段代码推的。）
+  同一处顺带看到：applyLayoutDrop 的 center 动作（layout-drop.ts:327-334）对分节会变成“在它后面新建分节”；计划把“分节没有中央落点”放在切片 4，这里不算问题。
+
+F5 补充（核实了指针那一半的前提；定级改为“暂定重要，待浏览器复现后定”）
+  命中集合在 packages/nb-layout/src/vue/useSashGesture.ts:129-151：每条已登记的分隔线取 getBoundingClientRect，enabled 的条件是
+  没有 aria-disabled、没有 data-sash-inert，并且 rect.width + rect.height > 0。零宽、1px 高的分隔线是 0 + 1 > 0，仍然 enabled；只有两个方向都为 0 才被排除。
+  aria-disabled 来自 SashHandle 的 inert（:253），它只在粗细为 0 时为真。所以按代码，零长度的分节分隔线既可聚焦、也在命中集合里，命中带是 :51-55 的四周各扩 5/15px。
+  已核到的：条目存在与矩形（探针 4）、tabindex 的条件、enabled 的条件。没核到的：真实 DOM 里这条线的 getBoundingClientRect 是不是 0×1、双轴手势是否真的被触发、Tab 是否真的停上去。
+  这一条绕过了真实运行时，按“先复现再定级”，在浏览器里看到之前只算暂定。
+  另：区域里左右并排的分节（侧栏里的 H[a,b]、它是区域唯一显示的子节点）拖到零时，它们之间的缝被压成 0、粗细为 0，是 inert 的（探针 6b），所以只影响与区域方向一致排列的分节。
+
+F6 补充（缓存对照版在结构操作路径上的验证）
+  fuzz2.ts：两种带容器的起点上随机做结构操作（含 setActiveContainer、带 container 的 movePanelToEdge、splitIntoSections），每步比较切片 1 与按树根缓存的版本：
+  操作结果、是否返回原对象、校验、每块面板的 isPanelShown 与 regionOf、投影与 regionAnchors、两种窗口下的布局、presentationCollapse、rebaseIntents。
+  1776 步、1253 步成功、0 处不一致（负载高，只跑了 80 轮）。所以“按 doc.tree.root 缓存是安全的”有结构操作路径上的证据；“现在不必缓存”的结论不变。
+
+F1 补充
+  审查时 worktree 里有别的会话未提交的切片 2 改动（packages/neuro-book 下 11 个文件；packages/nb-layout 一直等于被审提交，每轮探针前后都用 git status 核对过）。
+  只读看了一眼其中的 state/default-tree.ts:122-131：补分节用的是 openPanelAtEdge，落点由它自己的 sectionLanding 选，失败时 continue。我没有审这段代码，
+  也没核实 sectionLanding 选的边；只说明 F1 说的“给切片 2 的命令路径埋的坑”正是这类调用点，库这边拒绝交叉方向的边之后，这里选错边会变成一次看得见的失败，而不是一份过得了校验的坏文档。
+
+未发现问题的方面（按说明的重点 1 到 6；都仔细查过）
+重点 1　旧文档不变：仔细检查后没有发现问题。
+  - 差分模糊（fuzz.ts）：切片 0（git show 7784d04a3 取出的源码）对切片 1，三种没有新字段的起始文档（默认骨架、空的具名面板加隐藏的右栏加多标签底部面板、每个区域都带一列工具面板且侧栏收起），
+    随机做 insertTab、removeTab、activateTab、replaceTab、moveTabToStrip、movePanelToStrip、movePanelToEdge、moveTabToEdge、openPanelAtEdge、floatTab、setPanelHidden、setPanelCollapsed、
+    showPanelAndInsert、stripDynamicTabs、edgeTargetOf 加 edgeTargetTouches。每步比较：返回值、是否返回原对象、校验、每块面板的 isPanelShown、投影（input 与 collapsedTo）、regionAnchors 为空、
+    两种窗口（1000×600、420×260）下的布局（sizes、constraints、sashSizes、issues）、presentationCollapse、rebaseIntents。9773 步、8215 步成功、0 处不一致。
+  - 局限：外缘目标只生成了 split 与 spread，没有 between；没测 carryDynamicTabs、layout-drop.ts 的落点解析（那个文件本提交没改）；起始形状只有三种。
+  - 逐个函数读过新分支的进入条件：isPanelShown（具名面板只有 isContainerAnchor 才不显示；无 container 直接返回 true）、expandWhereAxisChanged（只跳过锚）、insertTab 与两个 ToStrip（refusesMoreTabs、besideSection 在没有 container 时是 null）、
+    settleLanding（不在带容器的区域且没有 container 时什么都不写）、moveTabToEdge 里“单标签无名面板先转 movePanelToEdge”与原来“先判原处”的次序对合法文档等价、sameLayoutShape（三个新字段都是 null 对 null）、
+    校验（三条新规则都以字段存在为前提）、assignByParent（regionAnchors 为空时走原来的分支，collapseOf 给出的对象与原来逐字段相同）、minimumOf（叶的分支与原来等价）。
+重点 2　开销：见 F6。旧文档不进 regionOf、anchorOf（计数为 0）。
+重点 3　写入路径：除 F1、F3、F4、F7 外没有发现问题。
+  - 不变量模糊（fuzz3.ts）：带容器的文档上 2854 步、2040 步成功（不拿锚当来源、不取锚的交叉方向外缘，这两类已在 F1、F7 单独报）。每步检查：校验通过、锚没有标签且仍是锚且在树里、
+    带归属的面板恰一个标签且在带容器的区域里、区域里的工具面板都有归属且恰一个标签、浮动窗不带归属。0 次违反。
+    （另有 355 次“工具面板在树里却不属于任何区域”，是测试用的接受矩阵允许工具面板落到编辑组旁边，属于宿主 policy 的事，不算。）
+  - carryDynamicTabs、stripDynamicTabs、replaceTab、floatTab 是读代码得出的结论：carryDynamicTabs 只往编辑组 insertTab（home 恒为编辑组）；stripDynamicTabs 对锚与只含视图标签的分节是 continue；
+    replaceTab 原地换，不增不减；floatTab 新建的记录不带 container（搬出区域清归属有测试）。
+  - 放回原处（输出 28）：探针 3c，分节放到紧挨着它的分节朝向它的那一侧返回原对象，另一侧是换序。
+  - splitIntoSections：第一块沿用原 id，其余经 policy.newId，撞已有面板或树节点时整个拒绝；平分原份额；不在带容器的区域里只拆不写归属（探针 3i）。canInsert 在“改成新建分节”的路径上不问（探针 3b）：
+    标签没有插进目标的标签条，不问是合理的；activate:false 在这条路径上也不起作用，单标签的分节没有区别。
+重点 4　区域级收起：除 F2、F5、F9 外没有发现问题。
+  - rigid 只关诊断、不改尺寸：差分（fuzz-grid.ts）随机 1966 棵带收起分支的树（collapsedSize 为 0 或 30、叶与分支都可能收起、三层），切片 0 对切片 1 的 sizes、constraints、sashSizes 全部相等；
+    1387 棵的诊断不同，全是新版少报（收起分支内部的“可用空间小于约束下限”“sash 占用超过可用”“约束不可满足”），新版多报 0 条。不带分支收起的 1970 棵：尺寸与诊断都完全相同。allocateAxis 不按 issues 分支。
+  - 分支收起时里面的叶按停放处理（交付报告没核实的那项）：成立。useLeafParking 按矩形判，任一轴为 0 且曾经有过尺寸就停放（vue/useLeafParking.ts:22-23）；内容层同理。从代码推断，没有跑 DOM。
+  - 手势会话对“子节点是分支”的缝（交付报告没核实的另一项）：成立，探针 5，见 F8 第 4 点。
+  - expandWhereAxisChanged 跳过锚：区域拖到零时放进分节，零宽保留（探针 6c），和输出 4、45“由动作决定要不要展开”一致；有测试。
+  - 左右拆开的分节是区域唯一显示的子节点时（探针 6b）：区域节点是那个横向分支，拖到零与展开的尺寸都对，没有诊断。
+重点 5　regionOf：除 F1 外没有发现问题。规范形塌掉（只剩锚时旁边的工具面板、编辑组都是 null）、浮动窗（null）、不存在的面板（null）都有测试并核对过；
+  嵌套（分节在区域里的子分支中）沿祖先能找到；最大化不在文档里，不适用。
+重点 6　测试：见 F8。没有放宽或删除已有断言，没有替身与假计时器。
+
+交付报告“拿不准的九条”的去向
+  1 单分节的收成标题行 → F2（与输出 11 不一致，要开发者定）。
+  2 expandWhereAxisChanged 跳过锚 → 没问题（重点 4）。
+  3 REGION_ORIENTATION 写在库里 → 没问题：库本来就认识三个具名面板的名字（校验里写死），方向和名字是同一层的知识。
+  4 标签条插入位的映射 → 归切片 4，现状自洽（探针 3c）。
+  5 校验多查的三项 → 没问题；少查的见 F3。
+  6 底部面板的分节可以标成 collapsed → F2 附。
+  7 收走队列 → 没问题，结果上等价。
+  8 具名面板不是锚、区域里的面板带 container → F3 第 2 点。
+  9 编辑组落进区域那一列 → 归宿主的 policy，库不拦是现有分工；探针 3h 核对过它不会被写上归属。
+交付报告“和说明不一样的三处”：activeContainer 的改名理由成立（PanelRecord.active 是必填的活动标签）；Spec 与计划里写的是“当前容器”，计划第 19、24 行的 `active` 建议顺手改成 activeContainer。
+  isContainerAnchor 的判定（具名、无标签、有 entries）与配套的两处收紧成立，差分模糊里“空的具名面板照旧显示”也在覆盖内。grid-geometry.ts 的改动见重点 4。
+
+按影响排序
+  1. F1（重要）锚被交叉方向包住或被搬走后，区域的容器过滤整体失效，结果过得了校验
+  2. F2（重要）只显示一个分节时它的收成标题行不呈现，文档与呈现不一致，和输出 11 不一致
+  3. F5（暂定重要，待浏览器复现后定）拖到零的区域里分节之间的分隔线仍可聚焦、仍在命中集合里
+  4. F4（建议）showPanelAndInsert 对分节“成功但没显示”；侧栏成锚之后活动栏落点在切片 4 之前没有落点
+  5. F7（建议）movePanelToStrip 能拿锚当来源，副作用是隐藏区域
+  6. F3（建议）带 container 的记录在浮动窗、非锚区域、不在入口顺序里三种情况下判定不一致
+  7. F9（建议）拖到零的区域在另一根轴上仍占最小尺寸，窗口矮时收走看不见的分节
+  8. F6（建议）开销：量过，现在不必缓存；要缓存按树根
+  9. F8（建议）测试缺口
+
+各级数量：阻断 0，重要 3（其中 F5 暂定），建议 6。
+有效发现的编号：F1、F2、F3、F4、F5、F6、F7、F8、F9

@@ -14,7 +14,7 @@ import {join} from "node:path";
 import type {Hono} from "hono";
 import {bodyLimit} from "hono/body-limit";
 
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
 
 import {THEME_ASSET_DIRECTORY_ADDRESS, THEME_ASSET_FILE_NAME, THEME_ASSET_SWEEP_MAX_BYTES, THEME_ASSET_SWEEP_MAX_NAMES} from "../shared/contracts";
 import type {ThemeAssetSweepResult, ThemeAssetSweepSkipReason, ThemeAssetSweepStats} from "../shared/contracts";

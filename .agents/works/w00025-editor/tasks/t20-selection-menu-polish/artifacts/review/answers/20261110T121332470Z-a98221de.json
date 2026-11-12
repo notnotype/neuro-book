@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t20-selection-menu-polish",
+    "artifactId": "review",
+    "answerId": "20261110T121332470Z-a98221de",
+    "artifactVersion": 1,
+    "contentHash": "9517ce73a78c611015815ce4c013414fc15ad53560f279a7ce3cae027367e4d1",
+    "submittedAt": "2026-11-10T12:13:30.126Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "q1-color": "split",
+        "q2-items": [
+            "block"
+        ],
+        "q3-ruby": "card"
+    },
+    "comments": {},
+    "note": null
+}

@@ -10,11 +10,10 @@ import {readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {SessionApi} from "@notnotype/nb-harness/kernel/contracts";
+import {splitReference} from "@notnotype/nb-models/config";
 import {llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
-
-import {splitReference} from "nbook/plugins/models/shared/rules";
 
 import {MAIN_PROFILE} from "./shared/contracts";
 import {AGENT_MODES_EXTENSION, AUTO_ESCALATED_PREFIX} from "./shared/permissions";

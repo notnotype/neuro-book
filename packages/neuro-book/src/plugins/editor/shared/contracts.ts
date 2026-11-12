@@ -113,20 +113,43 @@ export const validateEditorSlashItem = menuItemValidator(editorSlashLocation);
 export const validateEditorBlockItem = menuItemValidator(editorBlockLocation);
 export const validateEditorBodyContextItem = menuItemValidator(editorBodyContextLocation);
 
+/**
+ * 源码编辑器正文右键的菜单位置（docs/specs/workbench/editor.md 输出 64）：贡献项排在内置项之后；当前文件是被右击的编辑器
+ * 的文件，`context: "resource"` 的项执行时收到 `{address}`。比 Markdown 正文的位置多 `extensions`：这里开的是各种后缀的文件。
+ */
+export const EDITOR_CODE_CONTEXT_POINT = "editor.code-context";
+
+export const editorCodeContextLocation = menuLocation(EDITOR_CODE_CONTEXT_POINT, {...MENU_ICON, ...MENU_EXTENSIONS}, {contexts: ["resource"]});
+
+export const validateEditorCodeContextItem = menuItemValidator(editorCodeContextLocation);
+
 /** 固定工具栏放在哪里：`full` 面包屑下面通栏，`merged` 并入面包屑那一行，`bottom` 编辑区底部的浮条。 */
 export type EditorToolbarPlacement = "full" | "merged" | "bottom";
 
 /** 编辑组面包屑那一行右侧留给控件的位置（`merged` 时工具栏传送到这里）：每组一个。值是元素；这个文件也进后端的类型检查，写不了 DOM 类型。 */
 export const editorToolbarSlotKey: InjectionKey<Readonly<Ref<object | null>>> = Symbol("nbook.editor/toolbar-slot");
 
+/** 键盘事件里键位匹配要读的字段（`KeyboardEvent` 的子集，测试里不用造整个事件）。 */
+export interface KeyEventLike {
+    readonly code: string;
+    readonly ctrlKey: boolean;
+    readonly metaKey: boolean;
+    readonly altKey: boolean;
+    readonly shiftKey: boolean;
+    readonly isComposing: boolean;
+    getModifierState(key: string): boolean;
+}
+
 /** 编辑器区交给控件的菜单（`provide`）：控件画内置项，命令、贡献项、文字都从这里取。响应式：在渲染函数或 computed 里读。 */
 export interface EditorMenus {
     /** 动作的显示标题。 */
     title(action: string): string;
-    /** 菜单自己的文字（`menus.<key>`）。 */
-    label(key: string): string;
+    /** 菜单自己的文字（`menus.<key>`）；文字里有 `{{name}}` 的按 `params` 填。 */
+    label(key: string, params?: Readonly<Record<string, string | number>>): string;
     /** 按平台写好的快捷键，没有为 null。 */
     shortcut(action: EditingActionId): string | null;
+    /** 这个键盘事件是不是该动作目录里写的快捷键（按物理键位、按平台映射 Mod；AltGr、组字中不算）。 */
+    matches(action: EditingActionId, event: KeyEventLike): boolean;
     /** 这条命令此刻在目录里：t09 登记 `nbook.edit.link` 之前，链接按钮不出现。 */
     has(command: string): boolean;
     /** 经命令服务执行编辑动作。 */
@@ -139,6 +162,8 @@ export interface EditorMenus {
     runContributed(point: string, id: string): void;
     readonly toolbarVisible: Readonly<Ref<boolean>>;
     readonly toolbarPlacement: Readonly<Ref<EditorToolbarPlacement>>;
+    /** 这部作品的批注页边开关（输出 33）；页边画不画得出来还要看控件的宽度，由控件判断。 */
+    readonly commentMargin: Readonly<Ref<boolean>>;
     /** 键位写法按平台写好（剪贴板这类不是命令的动作用）。 */
     keyLabel(keybinding: string): string;
     /** 给用户看的一条通知（`menus.<key>`）。 */
@@ -321,8 +346,11 @@ export interface TextEditorBinding {
     readonly slot: ViewStateSlot;
     /** 输入回执：`baseRevision` 是视图看到的修订。 */
     commit(baseRevision: number, text: string): {readonly status: "accepted" | "conflict"; readonly revision: number} | {readonly status: "stale"};
-    /** 登记结算函数（交出还没交出的输入）；切换、保存与资源管理器的操作之前同步调用。 */
-    attach(flush: () => void): () => void;
+    /**
+     * 登记结算函数（交出还没交出的输入）；切换、保存与资源管理器的操作之前同步调用。`pending` 给有缓冲的控件用：手里有
+     * 还没交出的输入或正在组字时为真，“停手后”的自动保存据此顺延，不在组字途中结算（docs/specs/workbench/editor.md 输出 63）。
+     */
+    attach(flush: () => void, pending?: () => boolean): () => void;
     /** 这个绑定有没有未裁决输入。 */
     unresolved(): boolean;
     /**
@@ -387,6 +415,8 @@ export interface EditorControlHandle {
     revealRange?(from: number, to: number): void;
     /** 控件提供的编辑动作（docs/specs/workbench/markdown-editing.md）；只有 Markdown 控件提供。 */
     readonly editing?: EditorEditing;
+    /** 提供批注页边的控件（Markdown 富文本）交出文档里批注的条数（输出 33）；编辑区标题的“批注 N”据此出现。 */
+    readonly comments?: {readonly count: Readonly<Ref<number>>};
 }
 
 /** 大纲（docs/specs/workbench/editor.md 的控件合同）：`binding` 是当前绑定的 token，正文每变一次 `version` 加一；`id` 按位置给，同名标题不冲突。 */

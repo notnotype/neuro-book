@@ -65,7 +65,7 @@ owners:
 12. `/plan`：切到 `plan`，已在 `plan` 不动；带文字时切完把文字发出去。`/mode <名>`：只管 Agent 模式，接 key 与显示名，不接审批模式；没参数切下一种；名字不对提示可选项。
 13. 非 `normal` 在状态栏标出。
 
-14. 子会话的模式（planned）：派子代理时，子会话的 Agent 模式取父会话此刻的值（[`subagents.md`](subagents.md) 输出 3），之后两边各改各的。父会话不在 `normal` 时：派发只允许装了这个扩展的子 Profile，否则得 `mode-unsupported`、不建子会话；对子会话 `agent_send`、`agent_answer` 之前先把子会话的模式收紧到父会话的（子会话没有模式的得 `mode-unsupported`），父会话切回 `normal` 后子会话不自动放宽。子会话里的 `switch_mode` 请求只能由用户答，父 Agent 答得 `not-allowed`。没有闸门或能被父 Agent 放宽的子会话会绕过父会话的模式。
+14. 子会话的模式：派子代理时，子会话的 Agent 模式取父会话此刻的值（[`subagents.md`](subagents.md) 输出 3），之后两边各改各的。父会话不在 `normal` 时：派发只允许装了这个扩展的子 Profile，否则得 `mode-unsupported`、不建子会话；对子会话 `agent_send`、`agent_answer` 之前先把子会话的模式收紧到父会话的（子会话没有模式的得 `mode-unsupported`），父会话切回 `normal` 后子会话不自动放宽。子会话里的 `switch_mode` 请求只能由用户答，父 Agent 答得 `not-allowed`。没有闸门或能被父 Agent 放宽的子会话会绕过父会话的模式。
 
 ## 状态与转换
 
@@ -106,7 +106,7 @@ Smoke：`packages/neuro-book/src/plugins/agent/permissions.llm.test.ts`（`test:
 ## 实现合同
 
 - **公开入口**：扩展 `nbook.agent.modes`（设置 `mode`，导出 `mode`）、工具 `switch_mode`、提问的请求 `mode-switch` 与回答（`ModeSwitchRequest`、`ModeSwitchAnswer`，`shared/permissions`）；界面是 `nb-agent-ui` 的 `AgentModeSwitchWizard` 与输入框的模式控件。
-- **owner 与依赖方向**：`backend/permissions/modes.ts` 拥有模式与 `switch_mode`，闸门在同目录的审批钩子里；主 Profile 装这个扩展，没装的 Profile 没有模式。内核不认识模式；界面只经 `ctx` 与 action（`mode.set`）。
+- **owner 与依赖方向**：`backend/permissions/modes.ts` 拥有模式与 `switch_mode`；闸门的分类（输出 1）在 nb-harness 宿主套件的审批钩子（`kit/approval` 的 `createApprovalHook`）里，按宿主布局的草稿根（`layout.scratch`）判断，闸门的文字与要不要拦由 `backend/permissions` 给；主 Profile 装这个扩展，没装的 Profile 没有模式。内核不认识模式；界面只经 `ctx` 与 action（`mode.set`）。
 - **关键不变量**：
   - 模式放在扩展设置里，是会话层的：`fork` 带上，回退与重启沿用内核设置的语义（`modes.test.ts`“fork 带上模式”，`session-host.test.ts`“Agent 模式”）。
   - 放行规则与 `yolo` 过不了闸门，拒绝规则先于闸门；模式变了放行过的调用按新模式重判（`modes.test.ts`“闸门”“时序”）。
@@ -116,6 +116,6 @@ Smoke：`packages/neuro-book/src/plugins/agent/permissions.llm.test.ts`（`test:
 ## 证据
 
 - 批准依据：开发者 2026-11-06（[t06 计划](../../../.agents/works/w00032-agent-integration/tasks/t06-approval/plan.md) 的“开发者的决定”与“确认结果”）；开发者 2026-11-07 批准晋升为 `implemented`。
-- 实现入口：[`backend/permissions/modes.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/modes.ts)、[`hook.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/hook.ts)、[`web/session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)、[`AgentModeSwitchWizard.vue`](../../../packages/nb-agent-ui/src/vue/wizard/AgentModeSwitchWizard.vue)
-- 合同测试：[`modes.test.ts`](../../../packages/neuro-book/src/plugins/agent/modes.test.ts)（真实内核、真实工具、本机端点）、[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)、[`AgentModeSwitchWizard.dom.test.ts`](../../../packages/nb-agent-ui/src/vue/wizard/AgentModeSwitchWizard.dom.test.ts)；e2e：[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)
+- 实现入口：[`backend/permissions/modes.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/modes.ts)、[`index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/permissions/index.ts)、nb-harness 的 [`kit/approval/hook.ts`](../../../packages/nb-harness/src/kit/approval/hook.ts)、[`web/session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)、[`AgentModeSwitchWizard.vue`](../../../packages/nb-agent-ui/src/vue/wizard/AgentModeSwitchWizard.vue)
+- 合同测试：[`modes.test.ts`](../../../packages/neuro-book/src/plugins/agent/modes.test.ts)（真实内核、真实工具、本机端点）、nb-harness 的 [`kit/approval/hook.test.ts`](../../../packages/nb-harness/src/kit/approval/hook.test.ts)（闸门的转问来源）、[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)、[`AgentModeSwitchWizard.dom.test.ts`](../../../packages/nb-agent-ui/src/vue/wizard/AgentModeSwitchWizard.dom.test.ts)；e2e：[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)
 - Smoke：[`permissions.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/permissions.llm.test.ts)（`test:llm`，真实模型）

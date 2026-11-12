@@ -4,7 +4,7 @@
  * （最后一条 path 事件或 `leafChanged` 指向的节点）。
  */
 
-import type {BufferedInput, CoreSettings, JsonValue, LogEvent, UserInput} from "../api/index.js";
+import type {BufferedInput, CoreSettings, Issuer, JsonValue, LogEvent, UserInput} from "../api/index.js";
 import {initialHistory, reduceHistory, type HistoryState} from "./history.js";
 
 export interface PathKernelState {
@@ -105,7 +105,7 @@ export function reduceSessionKernel(state: SessionKernelState, event: LogEvent):
     const data = event.data as Record<string, unknown>;
     switch (event.type) {
         case "inputQueued":
-            return {...state, buffer: [...state.buffer, {id: data.id as string, mode: data.mode as BufferedInput["mode"], input: data.input as UserInput, queuedAt: event.seq, edits: 0}]};
+            return {...state, buffer: [...state.buffer, {id: data.id as string, mode: data.mode as BufferedInput["mode"], input: data.input as UserInput, queuedAt: event.seq, edits: 0, ...(data.by === undefined ? {} : {by: data.by as Issuer})}]};
         case "inputEdited":
             return {...state, buffer: state.buffer.map((item) => (item.id === data.id ? {...item, input: data.input as UserInput, edits: item.edits + 1} : item))};
         case "inputRemoved":

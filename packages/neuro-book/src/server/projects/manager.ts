@@ -14,6 +14,7 @@ import {statSync} from "node:fs";
 
 import type {Subprocess} from "bun";
 
+import type {SocketLink} from "@notnotype/nb-host/socket";
 import {createChildInstances} from "@notnotype/nb-runtime/application";
 import type {Application, ChildInstances, ChildLease} from "@notnotype/nb-runtime/application";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
@@ -41,7 +42,6 @@ import type {
     ProjectUpdateResult,
 } from "nbook/shared/projects";
 import {projectFolderName} from "nbook/shared/projects";
-import type {SocketLink} from "nbook/shared/rpc-socket";
 
 import {checkProjectDirectory, readProjectIdentity, updateProjectMetadata} from "./identity";
 import {createEnvelopeLink, parseEnvelope} from "./ipc";

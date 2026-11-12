@@ -65,6 +65,11 @@ export const ViewDeclarationSchema = Type.Object({
     movable: Type.Optional(Type.Boolean()),
     /** 能不能浮动（docs/specs/workbench/views.md）；缺省能。不能的视图，松手没有落点时就是取消。 */
     floatable: Type.Optional(Type.Boolean()),
+    /**
+     * 第一次生成布局时，这个视图算不算让所在区域显示（docs/specs/workbench/views.md 输出 18）；缺省算。为假的视图照样放进区域，
+     * 区域只因它在而不显示，用户经它的入口（状态栏条目、命令）打开。
+     */
+    revealRegion: Type.Optional(Type.Boolean()),
     actions: Type.Optional(Type.Array(ViewActionSchema, {maxItems: VIEW_ACTIONS_MAX})),
     /**
      * 所属容器的 id（docs/specs/workbench/views.md 输出 16），可以是别的插件声明的。只在视图第一次放进布局时用；指向的容器没有已接受的声明时

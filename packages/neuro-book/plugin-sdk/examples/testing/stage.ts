@@ -20,6 +20,7 @@
 
 import {join} from "node:path";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application, CapabilityProvider, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -33,7 +34,6 @@ import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {descriptor as settingsDescriptor} from "nbook/plugins/settings/plugin";
 import {settingsBrowserCore} from "nbook/plugins/settings/web/plugin";

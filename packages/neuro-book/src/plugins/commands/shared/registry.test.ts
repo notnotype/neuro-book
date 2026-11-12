@@ -4,6 +4,8 @@
  */
 
 import {describe, expect, it} from "bun:test";
+
+import {MAX_STRING_LENGTH} from "@notnotype/nb-runtime/diagnostics";
 import {Type} from "typebox";
 import type {TSchema} from "typebox";
 
@@ -11,6 +13,7 @@ import {contextTable} from "./context-keys";
 import type {ContextValues} from "./context-keys";
 import type {AgentMode, CommandDeclaration, CommandExecutionEvent, CommandResult} from "./contracts";
 import {createCommandRegistry} from "./registry";
+import {commandsMessage} from "./text";
 import type {CommandConfirmationRequest, CommandDefinition, CommandRegistryOptions} from "./registry";
 
 const CONTEXT_KEYS = {"editor-active": "需要活动编辑器", "editor-writable": "当前编辑器不可写"};
@@ -291,11 +294,10 @@ describe("参数严格校验与执行错误", () => {
         }})));
         value(registry.register(command("nbook.edit.redo", {run: () => "done" as unknown as CommandResult<unknown>})));
 
-        expect(await registry.execute("nbook.editor.focus")).toEqual({ok: false, code: "execution-error", reason: "同步失败"});
-        expect(await registry.execute("nbook.edit.undo")).toEqual({ok: false, code: "execution-error", reason: "异步失败"});
-        const unstructured = await registry.execute("nbook.edit.redo");
-        expect(unstructured.ok ? "" : unstructured.code).toBe("execution-error");
-        expect(unstructured.ok ? "" : unstructured.reason).toContain("nbook.edit.redo");
+        // 原因是命令插件目录里固定的一句，异常原文只在详情里（docs/specs/workbench/commands.md 验收 21）。
+        expect(await registry.execute("nbook.editor.focus")).toEqual({ok: false, code: "execution-error", reason: commandsMessage("failures.executionError"), detail: "Error: 同步失败"});
+        expect(await registry.execute("nbook.edit.undo")).toEqual({ok: false, code: "execution-error", reason: commandsMessage("failures.executionError"), detail: "Error: 异步失败"});
+        expect(await registry.execute("nbook.edit.redo")).toEqual({ok: false, code: "execution-error", reason: commandsMessage("failures.noResult", {id: "nbook.edit.redo"})});
         expect(events.map((event) => event.result.ok)).toEqual([false, false, false]);
     });
 
@@ -315,6 +317,30 @@ describe("参数严格校验与执行错误", () => {
         expect(await registry.execute("nbook.editor.go-to-line")).toEqual({ok: false, code: "unavailable", reason: blocked});
         expect(await registry.execute("nbook.quick-open.open-line")).toEqual({ok: false, code: "unavailable", reason: {"zh-CN": "没有", "en-US": "None"}});
         expect(await registry.execute("nbook.quick-open.open-commands")).toEqual({ok: false, code: "unavailable", reason: "42"});
+    });
+
+    it("失败的详情：异常原文脱敏后进详情，原因不含原文；处理函数返回的字符串详情脱敏、截到诊断字符串的上限后保留，别的类型丢掉", async () => {
+        const {registry} = harness();
+        value(registry.register(command("nbook.editor.focus", {run: () => {
+            throw new Error("token=abc boom");
+        }})));
+        value(registry.register(command("nbook.edit.undo", {run: () => ({ok: false, code: "execution-error", reason: "没写成", detail: "raw"})})));
+        value(registry.register(command("nbook.editor.go-to-line", {run: () => ({ok: false, code: "execution-error", reason: "没写成", detail: `token=abc ${"x".repeat(MAX_STRING_LENGTH)}`})})));
+        value(registry.register(command("nbook.edit.redo", {run: () => ({ok: false, code: "execution-error", reason: "没写成", detail: {path: "/x"}}) as unknown as CommandResult<unknown>})));
+
+        const thrown = await registry.execute("nbook.editor.focus");
+        expect(thrown).toMatchObject({ok: false, code: "execution-error", reason: commandsMessage("failures.executionError")});
+        const detail = thrown.ok ? "" : (thrown.detail ?? "");
+        expect(detail).toContain("Error: ");
+        expect(detail).toContain("boom");
+        expect(detail).not.toContain("abc");
+        expect(JSON.stringify(thrown.ok ? null : thrown.reason)).not.toContain("boom");
+        expect(await registry.execute("nbook.edit.undo")).toEqual({ok: false, code: "execution-error", reason: "没写成", detail: "raw"});
+        const returned = await registry.execute("nbook.editor.go-to-line");
+        const returnedDetail = returned.ok ? "" : (returned.detail ?? "");
+        expect(returnedDetail.startsWith("token=[REDACTED] x")).toBe(true);
+        expect(returnedDetail).toEndWith("[truncated 17 chars]");
+        expect(await registry.execute("nbook.edit.redo")).toEqual({ok: false, code: "execution-error", reason: "没写成"});
     });
 
     it("审计监听器抛错不影响执行结果，其它监听器照常收到", async () => {
@@ -365,7 +391,7 @@ describe("Agent 暴露、只读与确认", () => {
             throw new Error("确认通道失败");
         }});
         value(broken.registry.register(command("nbook.edit.undo", {effect: "write", expose: {agent: "confirm"}})));
-        expect(await broken.registry.execute("nbook.edit.undo", {}, agent)).toEqual({ok: false, code: "execution-error", reason: "确认通道失败"});
+        expect(await broken.registry.execute("nbook.edit.undo", {}, agent)).toEqual({ok: false, code: "execution-error", reason: commandsMessage("failures.executionError"), detail: "Error: 确认通道失败"});
     });
 
     it("destructive 的 auto 实际按 confirm 处理；never 不因标注被提升", async () => {

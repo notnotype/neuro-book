@@ -1,0 +1,39 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00022-dev-panel",
+    "taskId": "t22-panel-ui-a11y-pass",
+    "artifactId": "review",
+    "answerId": "20261110T063518799Z-ddcc2757",
+    "artifactVersion": 1,
+    "contentHash": "9a1edc5fb50bbcf762f74af288cc99a67d953a4d44743001425d7c05fbe9e1e8",
+    "submittedAt": "2026-11-10T06:35:16.127Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "upstream-contrast": "upstream",
+        "task-page-order": "yes",
+        "artifact-mobile": "tabs",
+        "work-table": "yes",
+        "lists": [
+            "artifacts",
+            "runs",
+            "checkouts"
+        ],
+        "sessions-header": "yes",
+        "terminal-font": "min",
+        "code-banner": "yes",
+        "wording": [
+            "notes",
+            "terms",
+            "ids"
+        ],
+        "ephemeral-frame": "keep",
+        "lease-chip": "link",
+        "header-actions": "yes",
+        "extra": "还有这个评审版，现在是中间 html，右边答题。我觉得可以尝试把答题内嵌到 html 中。nbdev 可以提供一套评审版模板。现在题目过多，很难找到题目对应的材料。\n还有评审版中间这个 html 展示空间太小了"
+    },
+    "comments": {},
+    "note": null
+}

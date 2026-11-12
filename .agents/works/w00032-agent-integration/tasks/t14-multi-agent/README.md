@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t14-multi-agent
-status: active
-updated: 2026-11-09
+status: done
+updated: 2026-11-10
 ---
 
 # 多 Agent
@@ -221,8 +221,22 @@ t05、t06、t07。
 
 ## 下一步
 
-实施中，worktree `.worktree/w00032-t14-multi-agent`（分支 `feat/w00032-t14-multi-agent`）。已完成：切片 1 内核五处（另加视图上下文带会话，`extensions.md` 输出 31 已改）、切片 2 假端点按会话分派、切片 3 白名单与提示词一节、临时帮手、三项设置、会话关系表；切片 4 任务中心与 `wait`、`kill`、`jobs`；切片 5 三个子代理工具（主创 Profile 升到 4，加子代理与任务工具和一句“什么时候派”）；切片 6 `shell`、`ask` 的 `async`，费用上限按会话树、`wait` 豁免重复检测，`sessions://`、`profiles://` 的根。下一步切片 7 远程合同。
+实施完成，2026-11-10 合入 master（合并提交 `b74b26074`）。切片 1–10 都已提交：内核五处、任务中心与 `wait`、`kill`、`jobs`、三个子代理工具、`shell` 与 `ask` 的 `async`、远程合同、对话视图（停靠区、作者、顶栏路径、进行中的轮次不收起、会话面板的子会话）、Agent 浏览器端（子代理卡片、后台命令卡片、会话宿主跟着子树与任务、“可派的子代理”一节）、e2e（验收 1、2、4）。
+
+实现审查两次，报告与逐条处理都在 `evidences/`：后端（Opus，19 条：重要 9、建议 10，全部成立、已改，[`impl-review-backend.txt`](evidences/impl-review-backend.txt)、[处理](evidences/impl-review-backend-handling.txt)）；前端（Sonnet，19 条：重要 9、建议 10；18 条成立、已改，1 条里的一点不成立，[`impl-review-frontend.txt`](evidences/impl-review-frontend.txt)、[处理](evidences/impl-review-frontend-handling.txt)）。处理前端审查时顺带做了 Spec 要求而原先漏掉的：向导与停靠区的状态按会话存（切走再回来还在）、卡片分出“正在思考”与“正在启动”、等用户时写等的是什么。
+
+合入前先把 master 合进分支：t32 已把守卫、`shell` 与会话句柄表搬进 nb-harness 宿主套件，本分支的改动改成套件的可选参数（`costGuard` 的 `scope`、`loopGuard` 的 `waits`、`shellTool` 的 `ShellBackground`、`SessionTable` 的 `userOnly`），任务中心、会话树与模式切换的判定留在 `nbook.agent`；`run-guards.md`、`sessions.md`、`builtin-tools.md` 的实现合同各补一句。
+
+验证（合并 master 之后）：nb-harness、nb-agent-ui、neuro-book 类型检查通过；nb-harness `bun test` 815 条中 1 条失败：存储“最后一批截在任何一个字节处”在负载 16 时超时，之前在 master 上同样出现，这次合并没动它（另一条“非测试源码不出现应用名”是我在套件注释里写了 nbook.agent，已改、重跑通过）；Agent 插件 `bun test` 356 过、11 条真实模型用例跳过，`vitest` 37 过；nb-agent-ui（master 没改它）`bun test` 247、`vitest` 132 过；governance:check 无新警告；e2e 跑覆盖改动的 5 个文件（`agent-subagents`、`agent-conversation`、`agent-profiles`、`lab-agent-ui`、`lab-scenes`，58 条）：55 过；“状态栏的活动条目”与“运行中逐步展开”两条在负载 15–18 时超时，单独重跑通过；`lab-scenes` 只剩 ThemeEditor 两个场景的资源 404（之前就有，与本 Task 无关），它在版面基线比对之前就失败，所以 Agent 面板场景的版面比对这次没跑到。合入时 master 新增的 36 个提交不碰 nb-harness、nb-agent-ui 与 Agent 插件，上面的证据仍然有效。
+
+开发者 2026-11-10 批准晋升，已改为 implemented：[`subagents.md`](../../../../../docs/specs/agent/subagents.md)、[`jobs.md`](../../../../../docs/specs/agent/jobs.md) 整份；`conversation.md` 输出 33–39；`agent-conversation-view.md` 标 planned 的四处；`profile-settings.md` 输出 25；`contributions.md` 输出 19；`modes.md` 输出 14；`sessions.md` 输出 18、19；`builtin-profiles.md` 输出 14、15；`builtin-tools.md` 输出 27、28；`resources.md` 输出 12–14；`run-guards.md` 输出 13、14；`harness/session.md` 输出 22、23 与会话头的 `caller`；`harness/runtime.md` 输出 85、87、88；`harness/extensions.md` 输出 31。
+
+planned 条目里没做的五处（前端审查第 17 条），开发者交我判断，都改 Spec 跟现在的行为走：卡片运行中写工具名与对象（改成注册表的“读取 …”记进 [t29](../t29-ui-polish-after-t15/README.md) 第 5 条：卡片拿不到对话视图的注册表，要另接一条数据）；找不到子会话的卡片（例如 fork 出来的会话里复制的）按调用自己的结果画、没有终态写“状态未知，打开子会话核对”，不另写“子会话属于原会话”（要等子树取到才判断得了，窄场景）；异步提问那一行是“提问”加题干，回答在停靠区，不写“已回答”（要读停靠区的事项）；停靠区不加“回答之后 Agent 会接着做”的说明；没答成功时原因写在会话的提示里、所选保留，不挂在事项上。草稿 worktree `.worktree/w00032-t14-drafts`（未提交的静态稿）还留着，等开发者定删不删。
+
+已知限制：关着的后代会话里的异步提问不进祖先的停靠区（只读打开着的后代）；进程崩溃留下的卡片写“不知道派没派出”；fork 出来的会话照常计入会话树的费用，复制来的用量会重复算（上限偏紧，`tree-spend.ts` 有注释）。
 
 实现中的取舍（实现审查时一并看）：续用时子会话已在另一种非普通模式（例如父会话 `discuss`、子会话 `plan`）不改，只把 `normal` 的收紧到父会话的模式；子会话的标题用 `setGeneratedMeta` 写（不算用户改过）；子代理出错时工具结果的状态仍是 `ok`，出错写在文字与 `details.status` 里。
+
+测试未覆盖：`child-stopping`（中止中的窗口太短）、后台命令 64 MiB 截断（要真写 64 MiB）（后端审查第 8 条）；后台命令卡片展开时输出的补取与请求序号（要真跑持续输出的命令，前端审查第 11 条）；点后台命令卡片的输出地址打开 `sessions://` 文件、会话面板英文 390px 下“N 个子代理”的观感，都没在真实浏览器里看过。
 
 已知的旧问题：nb-harness 存储测试“别的进程持有时得 session-busy”偶发失败（文件句柄在垃圾回收时报未关闭），重跑通过，与本 Task 无关。

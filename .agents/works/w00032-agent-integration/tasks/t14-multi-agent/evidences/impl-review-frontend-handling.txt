@@ -1,0 +1,25 @@
+w00032 t14 前端实现审查的处理（审查者 Claude Sonnet，提交范围 8390c3f72..e5cac78af 的前端路径，报告见 impl-review-frontend.txt）
+
+19 条：阻断 0、重要 9、建议 10。逐条核实：18 条成立，1 条里的一点不成立（第 18 条“changeAgentsBinding 没有单测”）。修正在提交 007f68f31、728067215（worktree 分支 feat/w00032-t14-multi-agent）。
+
+1  成立，已改。cardModel 在 streaming 之后先分出 denied、invalid（没派出，不转圈）；调用 unknown 按运行找不到时是 unknown，找得到子会话写“状态未知，打开子会话核对”，找不到写“不知道派没派出”（Spec 原文是一句“不知道派没派出，打开子会话核对”；找得到子会话说明已经派出，改了说法，Spec 随之改）。后台命令卡片没有任务 id 时按调用状态写“等待开始”“没有执行”“参数不对，没有执行”，没登记成就出错写错误。测试：subagent-card.test.ts 两条。
+2  成立，已改。自动展开只对相对上一次新进入集合的会话生效；挂载时（面板关掉再打开）只补记录里没有的，用户收起过的不改回来。测试：AgentSessionPanel.dom.test.ts“面板关掉再打开”与“别的父会话新进入自动展开的集合”。
+3  成立，已改。换了事项（翻页、前一个消失）题号回到第一题。测试：AgentDock.dom.test.ts“提问事项的题号按事项算”。
+4  成立，已改。宿主按会话记向导与停靠区的状态（切走时记下，至多 20 个），重开同一会话、归还 30 秒后借回、切到别的会话再回来都还在；视图给停靠区按会话的 key，换会话时重建。测试：session-host.test.ts 向导一条加“切到别的会话再切回来”，后代审批一条加“归还超过 30 秒再借回停靠区状态还在”。
+5  成立，已改。焦点在停靠区里时，上一个、下一个、收起、展开之后放回对应按钮（到头了换另一个方向），焦点不在停靠区时不动。测试：AgentDock.dom.test.ts“焦点在停靠区里时……”。
+6  成立，已改。停靠时标题行写“第 n / m 个 · 第 k / j 题”。测试同第 3 条。
+7  成立，已改。每次显示都记下看到的事项的 id 与位置；恢复的状态按位置找到，之后按 id 跟。测试：AgentDock.dom.test.ts“恢复的状态按位置给出看到的那个”。
+8  成立，已改。子会话都被筛掉时父会话行仍写“子代理等你处理”；这时没有可展开的行，不画开关（个数随开关一起不显示，接受）。测试：AgentSessionPanel.dom.test.ts“子会话被筛掉时……”。
+9  成立，已改。PendingModeSwitchView.approval 改为可选；后代会话的模式切换不给（宿主不知道子会话的模式），向导不画审批模式一栏、批准不改模式。测试：AgentModeSwitchWizard.dom.test.ts。
+10 成立，已改。recallOf 跳过带 author 的话。测试：后代审批一条加断言。
+11 成立，已改。展开着时每秒走的 now 也触发，一秒内最后一次变化在等够一秒那一拍补取；请求带序号，只认最新回应。没补自动测试（要真跑一个持续输出的命令并控制时序），Lab 与 e2e 未覆盖，记为未验证。
+12 成立，已改。底行包一层带下圆角的容器（展开输出时去掉）；地址改成与展开按钮并列的按钮，点了发 reference.open（sessions:// 是文件服务的方案，编辑器经文件服务打开）。打开 sessions:// 输出文件没有在真实浏览器里点过，记为未验证。
+13 成立，已改。publishSubtree 只在后代事项（会话 id 与事项 id）或进行中的调用变了时重建 ctx；AgentConversationTurn 先单独取 activeCalls 数组再派生集合。
+14 成立，已改。子树、任务的订阅与重取、祖先取不到时 deps.report；打开会话时子树与快照、祖先并行取（子树内部仍先订阅再取）。
+15 成立，已改。路径的 title 改为 string | null：读不到的祖先是 null（写“未知会话”），读到了没有标题是空字符串（写“未命名会话”）。测试：AgentConversationView.dom.test.ts 面包屑一条。
+16 成立，已改。组元素 id 按面板加前缀（模块里的计数，不用 useId：两个面板可能在不同的 Vue 应用里）；收起时开关不带 aria-controls；开关按钮加 overflow 与省略号。英文 390px 的观感没截图核实。
+17 部分做了：子代理等用户时按事项写“等你批准：工具”“等你回答：问题”“等你切换模式”；运行中分出“正在思考”（进度到了、还没有工具调用）与“正在启动”（进度没到）；ask 带 async 的调用是过程里的一行（不再画一张同样的提问卡）。没做、记为晋升前的偏差（见 Task README）：卡片按注册表的摘要写“读取 …”（现在是工具名加对象）；fork 出来的父会话里复制的卡片写“子会话属于原会话”；异步提问那一行写“提了一个问题，不用马上答”“已回答”（现在是“提问”加题干）；停靠区提交处说明“回答之后 Agent 会接着做”；没答成功时在事项上写原因（现在是会话级提示，所选保留）。
+18 成立，已改：键改由类型列出（两节缺键时类型检查报），补 profiles.agents.required；根上加 data-profile-section 区分两节；已删除的不再标“推荐”“我加的”（测试：profile-view.test.ts 白名单一条把已删除的也设为推荐）。不成立的一点：changeAgentsBinding 已有单测（subagents.test.ts 第 35–38 行）。没补设置页这一节的 DOM 测试：换算与行的推导都有单测，组件与工具一节共用，e2e agent-profiles 覆盖工具一节。
+19 成立，已改：session-list 用 ListedSession、去掉断言；合并 KernelPending 与 input.submit 的散落 JSDoc；presentationOf 出错时每个回调只报一次；子树还在加载时不起卡片的计时器（加载完才按进行中的调用起）；卡片里的转圈带“运行中”名称。
+
+验证（2026-11-10）：nb-agent-ui 与 neuro-book 类型检查通过；nb-agent-ui bun test 247、vitest 132 全过；neuro-book 的 subagent-card、session-host、profile-view、subagents、profiles、profile-page.dom、Lab 夹具测试通过（session-host“结果未知再点一次”在负载 10 时超时一次，单独重跑通过，同之前记录的环境问题）；governance:check 无新警告。e2e 结果见 Task README。

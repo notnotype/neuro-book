@@ -7,7 +7,7 @@ import {renderInlineMarkdown, renderMarkdown} from "../host/markdown.js";
 import {taskPeekHref} from "../host/peek.js";
 import {emptyExpansion, MAX_EXPANDED, toggleExpansion, type TaskTableDetail} from "../host/task-expand.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
-import {docHref, editHref, newHref} from "../host/routes.js";
+import {docHref, editHref, newHref, sessionHref} from "../host/routes.js";
 import {useStatusChange} from "../host/status-change.js";
 import type {Meta, TaskPageData, WorkView} from "../host/types.js";
 import ActionLink from "../parts/ActionLink.vue";
@@ -19,6 +19,7 @@ import BranchNote from "../parts/BranchNote.vue";
 import EphemeralFrame from "../parts/EphemeralFrame.vue";
 import LeaseChip from "../parts/LeaseChip.vue";
 import LoadState from "../parts/LoadState.vue";
+import MarkdownView from "../parts/MarkdownView.vue";
 import StatusBar from "../parts/StatusBar.vue";
 import StatusChip from "../parts/StatusChip.vue";
 import TaskTable from "../parts/TaskTable.vue";
@@ -83,7 +84,11 @@ function retryDetail(taskId: string): void {
     const index = expansion.value.slots.indexOf(taskId);
     if (index >= 0) slotResources[index]!.reload();
 }
-/** Task 表的“当前情况”按行内 Markdown 渲染（不再露出 `[链接](…)` 源码）。 */
+/** 目标与 Task 表的“当前情况”按行内 Markdown 渲染（不再露出 `[链接](…)` 源码）。 */
+const goalHtml = computed(() => {
+    const data = work.data.value;
+    return data?.goal.value ? renderInlineMarkdown(data.goal.value, {checkoutKey: data.checkoutKey ?? "main", path: data.readmePath, artifactBase: artifactBase.value}) : null;
+});
 const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((work.data.value?.tasks ?? []).filter((task) => task.currentState).map((task) => [task.taskId, renderInlineMarkdown(task.currentState!, {checkoutKey: task.checkoutKey ?? "main", path: task.readmePath, artifactBase: artifactBase.value})])));
 </script>
 
@@ -94,7 +99,7 @@ const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((w
             <StatusSwitch :status="work.data.value.status.value" :options="WORK_STATUSES" :subject="workLabel(work.data.value.workId)" :disabled-reason="writeBlocked" :pending="status.write.pending.value" :slow="status.write.slow.value" @confirm="status.change" />
             <template v-if="!writeBlocked">
                 <ActionLink :href="editHref(work.data.value.readmePath)" icon="i-lucide-pencil" @navigate="navigate">编辑 README</ActionLink>
-                <ActionLink :href="newHref(work.data.value.workId)" icon="i-lucide-plus" @navigate="navigate">新建 Task</ActionLink>
+                <ActionLink :href="newHref(work.data.value.workId)" icon="i-lucide-plus" primary @navigate="navigate">新建 Task</ActionLink>
             </template>
             <ActionLink :href="docHref('main', work.data.value.readmePath)" icon="i-lucide-book-open" @navigate="navigate">看 README</ActionLink>
         </template>
@@ -109,7 +114,8 @@ const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((w
         <LoadState v-bind="loadStateOf(work)" label="正在读取 Work" :subject="`${props.workId} 这个 Work`" up-href="/" up-label="回到首页" @navigate="navigate" @retry="work.reload()" />
         <template v-if="work.data.value">
             <section class="nbdev-stack">
-                <p class="max-w-[72ch] whitespace-pre-line" :class="work.data.value.goal.value ? 'nbdev-secondary' : 'nbdev-empty'">{{ work.data.value.goal.value ?? "目标：未标" }}</p>
+                <p v-if="goalHtml" class="max-w-[72ch] whitespace-pre-line nbdev-secondary"><MarkdownView inline :html="goalHtml" @navigate="navigate" /></p>
+                <p v-else class="nbdev-empty">目标：未标</p>
                 <BranchNote v-if="work.data.value.source === 'branch'" :branch="work.data.value.branch" :checkout-key="work.data.value.checkoutKey" />
                 <div class="max-w-md"><StatusBar :counts="work.data.value.taskCounts" /></div>
             </section>
@@ -123,7 +129,7 @@ const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((w
                 <p v-if="work.data.value.sessions.length === 0" class="nbdev-empty">没有会话持有这个 Work 的租约</p>
                 <ul v-else class="nbdev-stack-tight">
                     <li v-for="session in work.data.value.sessions" :key="session.key" class="flex flex-wrap items-center gap-2">
-                        <LeaseChip :session="sessionName(session.key, session.label, work.data.value.sessionTitles)" :ended="session.alive === false" />
+                        <LeaseChip :href="sessionHref(session.key)" :session="sessionName(session.key, session.label, work.data.value.sessionTitles)" @navigate="navigate" :ended="session.alive === false" />
                         <span class="nbdev-note">
                             {{ session.herdr ? HERDR_STATUS_LABEL[session.herdr.status] ?? session.herdr.status : "不在 herdr 里" }}
                             · 在动 {{ session.leases.map((lease) => taskLabel(lease.taskId)).join("、") }}

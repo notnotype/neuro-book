@@ -1,0 +1,52 @@
+/** 用真实的剧情世界与 composeBrief 拼出星瑕第 3 章的写手上下文（t16 第 5 轮静态稿的样本来源）。 */
+import {COMPONENT_IDS, MARK_IDS} from "/home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/plot/shared/declarations";
+import {addRow, chapter, drafts, PlotWorld, present} from "/home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/plot/testing/world";
+import {composeBrief} from "/home/notnotype/CodeRepository/neuro-book/packages/neuro-book/src/plugins/plot/core/brief/index";
+
+const w = new PlotWorld(["ch1", "ch2", "ch3", "ch4"]);
+w.texts.set("ch1", "锅里的蛋煎得有点焦。……“我说过不吃煎蛋。”……反锁上门，松开了维持一早上的认知滤镜。银白的长发垂到腰际。……“那只魔偶你还留着吗？”");
+w.texts.set("ch2", "……她把卡推回桌子那头。“我不要。”");
+const withAttitude = (name: string, summary: string) => {
+    const draft = drafts.person(`tmp:a${name}`, name);
+    return w.publish([{ref: {kind: "entry", id: draft.id}, after: {...draft, init: {...draft.init, summary, data: {...draft.init.data, att: {type: COMPONENT_IDS.attitude, version: 1, enabled: true, fields: {态度: []}}}}}}])[draft.id]!;
+};
+const xia = withAttitude("星瑕", "前蓝星最强的魔法少女，隐退后回了家");
+const jin = withAttitude("星瑾", "高中生，和哥哥住在一起，还在生他的气");
+const hui = w.person("彗");
+const brother = w.person("哥哥", {sameAs: xia});
+const pointWith = (name: string, truth: string, subject: string | null, fields: Record<string, unknown>) => { const draft = drafts.point(`tmp:k${name}`, name, subject, fields); return w.publish([{ref: {kind: "entry", id: draft.id}, after: {...draft, init: {...draft.init, summary: truth}}}])[draft.id]!; };
+const k1 = pointWith("哥哥就是星瑕", "回家的“哥哥”是隐退的魔法少女星瑕，用认知滤镜幻化的样子", xia, {保密: "secret", 揭穿: {ref: brother}});
+const k2 = pointWith("那几年哥哥是被软禁", "离家的几年不是不想回，是被官方软禁，靠彗的魔偶才逃出来", xia, {保密: "secret"});
+const k3 = pointWith("父母没有死", "城市大灾难里父母没有死，成了“双王”", null, {保密: "topSecret"});
+const doll = w.thing("魔偶");
+const fs = w.foreshadow("彗的魔偶");
+const gHide = w.goal("不让妹妹发现自己是魔法少女", xia, {隐秘: {ref: k1}});
+const gMend = w.goal("修复和妹妹的关系", xia);
+const gFind = w.goal("查出哥哥在瞒什么", jin, {基于: [{id: k1}]});
+w.change({kind: "prehistory", order: 1}, {text: "前史", patches: [
+    addRow(xia, k1, {程度: "knows"}), addRow(xia, k2, {程度: "knows"}), addRow(hui, k1, {程度: "knows", 怎么知道: "told", 谁告诉的: {ref: xia}}), addRow(hui, k2, {程度: "knows"}),
+    addRow(jin, k2, {程度: "misbelieves", 他以为的: "哥哥这些年是不想回家"}),
+    {op: "listAdd", at: {entry: jin, path: "att.态度"}, value: {id: brother, 态度: "还在生气，不接话", 称呼: "哥"}},
+    {op: "listAdd", at: {entry: xia, path: "att.态度"}, value: {id: jin, 态度: "想对她好，又怕说多了露馅"}},
+]});
+w.change(chapter("ch1", 10), {text: "早餐，星瑾不吃煎蛋，出门上学", cast: [present(jin), {who: xia, as: brother, role: "present"}]});
+w.change(chapter("ch1", 20), {text: "回房松开认知滤镜，变回原身", cast: [present(xia)], told: [{source: "chapter", chapter: "ch1", quote: "松开了维持一早上的认知滤镜", marks: [{kind: MARK_IDS.reveal, version: 1, point: k1, mode: "explicit"}] as never}]});
+w.change(chapter("ch1", 30), {text: "问彗，彗提到那只魔偶", cast: [present(xia), {who: hui, role: "mentioned"} as never], told: [{source: "chapter", chapter: "ch1", quote: "那只魔偶你还留着吗", marks: [{kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "plant"}, {kind: MARK_IDS.reveal, version: 1, point: k2, mode: "hint"}] as never}]});
+w.change(chapter("ch2", 10), {text: "给了星瑾一张两万的卡，她推了回去", cast: [present(jin), {who: xia, as: brother, role: "present"}]});
+const told = (marks: unknown[]) => ({source: "outline" as const, chapter: "ch3", anchor: "细纲", marks: marks as never});
+w.change(chapter("ch3", 10), {kind: "plan", text: "星瑾去查那张卡的余额，两万一分没少", cast: [present(jin)]});
+w.change(chapter("ch3", 20), {kind: "plan", text: "哥哥在阳台和彗通话，提到魔偶", cast: [{who: xia, as: brother, role: "present"}, {who: hui, role: "mentioned"} as never], told: [told([{kind: MARK_IDS.node, version: 1, foreshadow: fs, role: "echo"}])], patches: [{op: "set", at: {entry: doll, path: "character.状态"}, value: "被提起"}]});
+w.change(chapter("ch3", 30), {kind: "plan", text: "星瑾在门外听见半句“变身的时候”", cast: [present(jin), {who: xia, as: brother, role: "present"}], told: [told([{kind: MARK_IDS.reveal, version: 1, point: k1, mode: "hint"}])], patches: [addRow(jin, k1, {程度: "suspects", 怎么知道: "witnessed"})]});
+w.change(chapter("ch3", 40), {kind: "plan", text: "星瑾把卡放回哥哥门口", cast: [present(jin)]});
+w.decision("第 1 卷之内，星瑾不知道哥哥的身份", {about: [{kind: "entry", id: k1}] as never, conclusion: "到第 1 卷末，星瑾最多只是怀疑", reason: "反讽是第一卷的主要趣味"});
+w.decision("软禁的事在哪一章告诉星瑾", {about: [{kind: "entry", id: k2}] as never, due: "ch3"} as never);
+
+const result = composeBrief({
+    view: w.view(), chapter: "ch3", targetWords: 3000, pluginVersion: "draft", digest: (text) => `sha:${String(text.length)}`,
+    outline: "星瑾放学后去银行查那张卡，两万一分没少。回家时哥哥在阳台打电话，她在门外听见半句“变身的时候”。她没有进去，把卡放回哥哥门口。",
+    instruction: {chapter: "ch3", version: "v3", pov: {kind: "entry", id: jin}, povMode: "limited", ending: "星瑾把卡放回哥哥门口", avoid: ["钱的来路"]} as never,
+});
+if (typeof result === "string") throw new Error(result);
+console.log(result.text);
+console.log("\n===== hints\n" + JSON.stringify(result.hints, null, 1));
+console.log("\n===== sections\n" + [...result.common, ...result.parts.flatMap((part) => part.sections)].map((s) => `${s.key}\t${String(s.items.map((item) => item.text).join("").length)}`).join("\n"));

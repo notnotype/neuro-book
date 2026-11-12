@@ -40,6 +40,8 @@ const labelText = computed(() => props.label ?? text("colorSwatches.label"));
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: string | null): void;
+    /** 在色板里选了一项，选的是已选的那项也发：给“点了就执行”的动作色板用（同名 .md 的“交互”）。 */
+    (event: "pick", value: string | null): void;
 }>();
 
 const AUTO = "auto";
@@ -62,6 +64,7 @@ const customOpen = ref(false);
 /** 选中一个色块；与当前值相同时不发（再点已选的色块不算一次修改）。 */
 function choose(value: string | null): void {
     if (props.disabled) return;
+    emit("pick", value);
     const unchanged = value === null ? props.modelValue === null : props.modelValue !== null && same(props.modelValue, value);
     if (!unchanged) emit("update:modelValue", value);
 }

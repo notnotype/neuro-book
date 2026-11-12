@@ -222,6 +222,22 @@
     --strip-surface: var(--bg-subtle);
     --divider: var(--border-color);
 
+    /* 语法着色（源码编辑器；以后代码块、JSON 查看器着色时用同一组）。缺省全部由配色变量推导，每套配色、只改配色的
+       声明式主题都自动有一套，十个变量各取不同的来源，相邻的成分（键与值、属性名与数值）不会同色。
+       彩色的一律往正文字色混 25%：状态色是按面板底（--bg-panel）校的，是给状态徽标与提示用的，拿来当正文大小的
+       代码字在亮色配色上不加深就不到 4.5（源码编辑器的底也是 --bg-panel）。主题包改判时只写成配色变量的引用或 color-mix()，不写字面色：以它为基底的声明式主题
+       （护眼主题、“我的主题”）会原样拿到这些值，写死的颜色到了它们的底色上读不清。 */
+    --syntax-comment: color-mix(in srgb, var(--text-secondary) 50%, var(--text-muted));
+    --syntax-keyword: color-mix(in srgb, color-mix(in srgb, var(--accent-text) 55%, var(--status-danger)) 75%, var(--text-main));
+    --syntax-string: color-mix(in srgb, var(--status-success) 75%, var(--text-main));
+    --syntax-number: color-mix(in srgb, var(--status-warning) 75%, var(--text-main));
+    --syntax-type: color-mix(in srgb, var(--status-info) 75%, var(--text-main));
+    --syntax-tag: color-mix(in srgb, var(--status-danger) 75%, var(--text-main));
+    --syntax-attribute: color-mix(in srgb, color-mix(in srgb, var(--status-info) 50%, var(--status-success)) 75%, var(--text-main));
+    --syntax-regexp: color-mix(in srgb, color-mix(in srgb, var(--status-danger) 50%, var(--status-warning)) 75%, var(--text-main));
+    --syntax-variable: var(--text-main);
+    --syntax-punctuation: var(--text-secondary);
+
     /* 交互反馈：拖动边界的悬停线与拖放的落点高亮。缺省就是一条 3px 的强调色实线、一层 12% 的淡底加 70% 的框。
        --sash-line-size 是线芯厚度（装饰带最多 3px，超过按装饰带算）；--sash-line-inset 只作用在自由端，
        碰到另一条同时亮着的边界的一端照旧连着（Splitter.md）。 */

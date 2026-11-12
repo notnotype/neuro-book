@@ -1,0 +1,26 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t20-selection-menu-polish",
+    "artifactId": "ui-check",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "t20：选区菜单、注音卡片与颜色按钮的实际样子",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "3a38bf6df40db0728c4f2245710074ae23403084ce84bdf7f485ad8e253b6e3e",
+    "files": [
+        "img/block-dropdown-nbook-light.webp",
+        "img/menu-macos-light.webp",
+        "img/menu-nbook-light.webp",
+        "img/monaco-nbook-dark.webp",
+        "img/narrow-390-card.webp",
+        "img/ruby-card-macos-light.webp",
+        "img/ruby-card-nbook-light.webp",
+        "index.html"
+    ],
+    "questions": [],
+    "publishedAt": "2026-11-11T12:08:21.747Z"
+}

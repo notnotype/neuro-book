@@ -254,7 +254,7 @@ stdout 只有一个对象，诊断走 stderr：
 
 - 等到选中的答复不为空，或者等着的产物被关闭、题都被撤回了（开发者在面板上结束评审，产物的 `state` 是 `closed` 或 `questions[]` 里没有 `open` 的题）就退出（退出码 0），输出与不带 `--wait` 时相同。只等一个产物、它已经关了时立即返回。缺省按未确认的答复选：已有未确认的答复时立即返回，所以发布之后、挂上等待之前到达的答复不会被漏掉。只想等之后的新答复时加 `--since <cursor>`（`cursor` 取上一次输出里的值）。
 - 开始时完整读一次范围内的产物，在 stderr 报一行“等待中”；之后每秒只 `readdir` 主工作区里这些产物的 `answers/` 与 `versions/`，不跑 Git，目录有变化才重读那个产物。没指定产物时还 `readdir` 范围内各 Task 的 `artifacts/`，等待期间新建的产物（例如先挂等待、后 `ask` 建出的 Task 提问集）加入范围。范围里一个产物都没有时照常等，给 `wait_scope_empty`。
-- `--timeout` 缺省 1800 秒，到点退出码 4（`wait_timeout`）；收到 SIGTERM、SIGINT 或 SIGHUP（终端或挂着它的会话关掉）退出码同样是 4（`wait_interrupted`），照常输出外壳。被 SIGKILL 结束时来不及输出，stdout 为空：调用方把“退出码不是 0、stdout 为空”当作需要重挂。Claude Code 的 TaskStop 先发 SIGTERM，所以通常仍有外壳。
+- `--timeout` 缺省 21600 秒（6 小时；原来 1800 秒，开发者常几个小时后才答，30 分钟一到很多会话不重挂，2026-11-10 改），到点退出码 4（`wait_timeout`）。Claude Code 里用 Bash 的 `run_in_background` 挂，不用 Monitor：Monitor 最长 30 分钟就结束它挂的命令；收到 SIGTERM、SIGINT 或 SIGHUP（终端或挂着它的会话关掉）退出码同样是 4（`wait_interrupted`），照常输出外壳。被 SIGKILL 结束时来不及输出，stdout 为空：调用方把“退出码不是 0、stdout 为空”当作需要重挂。Claude Code 的 TaskStop 先发 SIGTERM，所以通常仍有外壳。
 - **重挂办法**：退出码 4（或被宿主结束）时按原参数重挂；退出码 0 时先处理答复并 `answers ack --through <cursor>`，或带 `--since <cursor>` 重挂，否则按原参数重挂会立刻返回。
 - Claude Code 会话用 `run_in_background` 挂着，命令一退出会话就被唤醒；单个后台任务能活多久没有核实，被宿主结束时照样按原参数重挂，不会丢答复。
 

@@ -45,7 +45,7 @@ NeuroBook 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / �
 1. **配色变量**（随配色变化）：33 个键，契约在 nb-ui `src/colorway/colorway-contract.ts`，由主题包自带的配色给出具体值。
 2. **角色变量**（主题决策）：`--panel-surface` / `--control-surface` / `--overlay-surface` / `--dialog-surface` / `--dialog-surface-nested` / `--divider` / `--elevation-*` 等，浮层的面分三档：菜单与气泡 `--overlay-surface`，对话框与浮动窗口 `--dialog-surface`（缺省同 `--overlay-surface`），叠在对话框上的对话框 `--dialog-surface-nested`（缺省同 `--dialog-surface`）；映射写在 nb-ui `src/tokens.css`，主题可在自己的 `vars.css` 里改判。交互反馈也在这一层：拖动边界悬停线的 `--sash-line-color`、`--sash-line-size`、`--sash-line-inset`（只缩自由端）、`--sash-line-radius`、`--sash-line-glow`，拖放落点高亮的 `--drop-area-fill`、`--drop-area-border`，落点分区的 `--layout-scrim`、`--layout-sector-fill`、`--layout-sector-line`、`--layout-sector-active-fill`、`--layout-sector-active-line`，实时布局的 `--layout-slot-border`、`--layout-slot-fill`、`--layout-merge-fill`、`--layout-merge-border`、`--layout-merge-border-width`、`--layout-card-radius`、`--layout-card-shadow`。
 3. **主题新增角色**：`--page-surface`（稿面）等由主题包 `manifest.declares` 声明，fallback 兜底层保证「别的主题激活时也成立」。工作台外壳的分隔方式也在这一层：nbook 声明 `--shell-gap`、`--shell-ground`、`--shell-card-radius`、`--shell-card-shadow`、`--shell-chrome-surface`、`--shell-chrome-line`、`--shell-seam`、`--shell-join-divider`、`--shell-pane-divider`、`--shell-pane-divider-inset` 并给卡片的取值，fallback 是平铺；macos 不写，是平铺（[`ui/workbench-shell.md`](../ui/workbench-shell.md) 输出 38）。编辑器标签条的底色 `--editor-tabs-surface` 也在这一层：nbook 取正文面（`--panel-surface`）往正文字色（`--text-main`）混 7%，fallback 相同；主题可以改深浅（[`workbench/editor.md`](../workbench/editor.md) 输出 53）。
-4. **语法变量**（planned，角色变量的一组）：`--syntax-comment`、`--syntax-keyword`、`--syntax-string`、`--syntax-number`、`--syntax-type`、`--syntax-tag`、`--syntax-attribute`、`--syntax-regexp`、`--syntax-variable`、`--syntax-punctuation`，给源码编辑器的语法着色用（[`workbench/editor.md`](../workbench/editor.md) 输出 65）。缺省写在 nb-ui `src/tokens.css`，全部由配色变量推导（状态色、强调文字色与文字色，彩色的往正文字色加深），所以每套配色、只改配色的声明式主题都自动有一套。主题包可以在自己的 `vars.css` 里改判，但只写成配色变量的引用或 `color-mix()`，不写字面色：以它为基底的声明式主题（护眼主题、“我的主题”）会原样拿到这些值。声明式主题这一期不能单独改它们（不在 `vars` 的白名单里）。
+4. **语法变量**（角色变量的一组）：`--syntax-comment`、`--syntax-keyword`、`--syntax-string`、`--syntax-number`、`--syntax-type`、`--syntax-tag`、`--syntax-attribute`、`--syntax-regexp`、`--syntax-variable`、`--syntax-punctuation`，给源码编辑器的语法着色用（[`workbench/editor.md`](../workbench/editor.md) 输出 65）。缺省写在 nb-ui `src/tokens.css`，全部由配色变量推导（状态色、强调文字色与文字色，彩色的往正文字色加深），所以每套配色、只改配色的声明式主题都自动有一套。主题包可以在自己的 `vars.css` 里改判，但只写成配色变量的引用或 `color-mix()`，不写字面色：以它为基底的声明式主题（护眼主题、“我的主题”）会原样拿到这些值。声明式主题这一期不能单独改它们（不在 `vars` 的白名单里）。
 
 老体系 6 个领域专用变量的映射（唯一映射表，不允许在组件里另起名字）：
 
@@ -64,7 +64,7 @@ NeuroBook 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / �
 - 禁止新增 Tailwind 调色板类和 `dark:` 变体。
 - 禁止直接写固定 hex / rgba 作为业务颜色；测试、外部资产预览和分类色板定义除外。
 - 阴影使用 `--shadow-color` 或 `--elevation-*`，文本选区使用 `--selection-bg`。
-- Monaco 主题按会话的 `appearance` 选择 light/dark 基底，颜色从宿主的计算样式读（底色、前景、选区、缩进线读配色与角色变量，语法着色读 `--syntax-*`），换算成编辑内核认的十六进制；`color-mix(...)`、`rgba(...)` 这些写法都认（[`workbench/editor.md`](../workbench/editor.md) 输出 65，planned）。
+- Monaco 主题按会话的 `appearance` 选择 light/dark 基底，颜色从宿主的计算样式读（底色、前景、选区、缩进线读配色与角色变量，语法着色读 `--syntax-*`），换算成编辑内核认的十六进制；底色是 `--bg-panel`，与 Markdown 稿纸同一档（开发者 2026-11-10 定；编辑内核要不透明的颜色，所以读配色变量、不读面变量 `--panel-surface`，主题把编辑组的面改成别的颜色时源码编辑器不跟）；`color-mix(...)`、`rgba(...)` 这些写法都认（[`workbench/editor.md`](../workbench/editor.md) 输出 65）。
 
 ## 状态语义
 

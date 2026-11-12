@@ -14,9 +14,11 @@ import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "../locales";
 import {TEXT_PORT_KEY} from "../text-port";
 import type {TextPort} from "../text-port";
 import {createMinimalTranslator} from "../text/minimal";
+import CopyButton from "./controls/CopyButton.vue";
 import Spinner from "./display/Spinner.vue";
 import Banner from "./feedback/Banner.vue";
 import Dialog from "./feedback/Dialog.vue";
+import DetailDialog from "./feedback/DetailDialog.vue";
 import FloatingWindow from "./feedback/FloatingWindow.vue";
 import AlertDialog from "./feedback/AlertDialog.vue";
 import InfoTip from "./feedback/InfoTip.vue";
@@ -72,6 +74,7 @@ const CASES: readonly Case[] = [
     {name: "Spinner 读屏名", component: Spinner, props: {}, read: attr("[role=status]", "aria-label"), zh: "加载中", en: "Loading", override: {props: {label: "保存中"}, expected: "保存中"}},
     {name: "EmptyState 标题", component: EmptyState, props: {}, read: text("p"), zh: "暂无数据", en: "No data", override: {props: {title: "没有章节"}, expected: "没有章节"}},
     {name: "Table 空态", component: Table, props: {columns: [{key: "a", label: "A"}], rows: []}, read: text("tbody"), zh: "暂无数据", en: "No data", override: {props: {emptyText: "没有行"}, expected: "没有行"}},
+    {name: "CopyButton 按钮文字", component: CopyButton, props: {text: "x"}, read: text("button"), zh: "复制", en: "Copy", override: {props: {label: "复制原文"}, expected: "复制原文"}},
     {name: "CodeBlock 空态", component: CodeBlock, props: {lines: []}, read: text(".nb-code-block__empty"), zh: "无内容", en: "No content", override: {props: {emptyText: "空"}, expected: "空"}},
     {name: "CodeBlock 截断说明", component: CodeBlock, props: {lines: [], truncated: true}, read: text(".nb-code-block__note"), zh: "只公开了部分内容", en: "Only part of the content is shown", override: {props: {truncatedText: "已截断"}, expected: "已截断"}},
     {name: "Toolbar 读屏名", component: Toolbar, props: {}, read: attr("[role=toolbar]", "aria-label"), zh: "工具栏", en: "Toolbar", override: {props: {ariaLabel: "编辑工具"}, expected: "编辑工具"}},
@@ -82,6 +85,7 @@ const CASES: readonly Case[] = [
     {name: "NumberInput 增加按钮", component: NumberInput, props: {modelValue: "1"}, read: attr("button[aria-label]", "aria-label"), zh: "增加", en: "Increase", override: {props: {incrementLabel: "加一"}, expected: "加一"}},
     {name: "Slider 滑块名", component: Slider, props: {modelValue: [10, 20]}, read: attr("[role=slider]", "aria-label"), zh: "滑块 1", en: "Slider 1", override: {props: {ariaLabel: "音量"}, expected: "音量"}},
     {name: "InfoTip 读屏名", component: InfoTip, props: {text: "说明文字"}, read: attr("button", "aria-label"), zh: "说明", en: "Info", override: {props: {label: "主题色说明"}, expected: "主题色说明"}},
+    {name: "Notification 详情按钮", component: Notification, props: {hasDetail: true, message: "m"}, read: text("[data-notification-detail]"), zh: "详情", en: "Details", override: {props: {detailLabel: "查看原文"}, expected: "查看原文"}},
     {name: "Notification 关闭按钮", component: Notification, props: {dismissible: true, message: "m"}, read: attr("button[aria-label]", "aria-label"), zh: "关闭通知", en: "Dismiss notification", override: {props: {closeLabel: "知道了"}, expected: "知道了"}},
     {name: "Notification 不确定进度", component: Notification, props: {message: "m", progress: null}, read: attr("[role=progressbar]", "aria-valuetext"), zh: "进行中", en: "In progress"},
     {name: "NotificationStack 关闭按钮", component: NotificationStack, props: {queue}, read: attr("button[aria-label]", "aria-label"), zh: "关闭通知", en: "Dismiss notification", override: {props: {closeLabel: "知道了"}, expected: "知道了"}},
@@ -89,6 +93,7 @@ const CASES: readonly Case[] = [
     {name: "Dialog 关闭按钮", component: Dialog, props: {open: true, closable: true, title: "标题"}, read: attr("header button[aria-label]", "aria-label"), zh: "关闭", en: "Close", override: {props: {closeLabel: "收起"}, expected: "收起"}},
     {name: "Dialog 无标题时的名字", component: Dialog, props: {open: true, title: ""}, read: text("[role=dialog] h2"), zh: "对话框", en: "Dialog"},
     {name: "FloatingWindow 缩放手柄", component: FloatingWindow, props: {open: true, resizable: true, teleportTarget: false, title: "窗口"}, read: attr("[data-dialog-resize='right']", "aria-label"), zh: "调整窗口宽度", en: "Resize window width"},
+    {name: "DetailDialog 截断说明与页脚按钮", component: DetailDialog, props: {open: true, title: "t", detail: "x", truncated: true}, read: () => [text("[data-detail-dialog-truncated]")(), ...[...document.body.querySelectorAll("footer button")].map((node) => node.textContent?.trim() ?? "")].join("|"), zh: "原文过长，已截断|复制原文|关闭", en: "Output too long; truncated|Copy output|Close"},
     {name: "AlertDialog 标题与按钮", component: AlertDialog, props: {open: true}, read: () => [text("[role=alertdialog] h2")(), ...[...document.body.querySelectorAll("[role=alertdialog] button")].map((node) => node.textContent?.trim() ?? "")].join("|"), zh: "确认操作|取消|确定", en: "Confirm action|Cancel|OK", override: {props: {title: "删除？", cancelLabel: "留着", confirmLabel: "删掉"}, expected: "删除？|留着|删掉"}},
     {name: "Splitter 分隔线名与取值文字", component: Splitter, props: {panels: [{id: "outline", defaultSizePx: 200, sizing: "fixed"}, {id: "editor", defaultSizePx: 300}]}, read: () => `${attr("[role=separator]", "aria-label")()}|${attr("[role=separator]", "aria-valuetext")()}`, zh: "调整 outline 与 editor 的宽度|200 像素", en: "Resize width between outline and editor|200 pixels"},
     {name: "ColorSwatches 读屏名", component: ColorSwatches, props: {modelValue: null, colors: ["#ff0000"]}, read: attr("[role=listbox]", "aria-label"), zh: "颜色", en: "Color", override: {props: {label: "主题色"}, expected: "主题色"}},

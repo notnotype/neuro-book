@@ -15,7 +15,8 @@
 import {mkdir, readdir, readFile, realpath, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative} from "node:path";
 
-import {describe} from "nbook/backend/locked-replace";
+import {describe} from "@notnotype/nb-file-lock";
+
 import {projectUrl} from "nbook/plugins/projects/shared/project-url";
 import type {ProjectRecord} from "nbook/shared/projects";
 

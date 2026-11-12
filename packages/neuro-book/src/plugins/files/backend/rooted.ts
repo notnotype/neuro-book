@@ -17,8 +17,9 @@ import type {Dirent, Stats} from "node:fs";
 import {lstat, mkdir, open, readdir, realpath, stat} from "node:fs/promises";
 import {join, relative, sep} from "node:path";
 
-import {describe, errno, holdLock, replaceLocked} from "nbook/backend/locked-replace";
-import type {CurrentFile, HeldLock, ReplaceDecision} from "nbook/backend/locked-replace";
+import {describe, errno, holdLock, replaceLocked} from "@notnotype/nb-file-lock";
+import type {CurrentFile, HeldLock, ReplaceDecision} from "@notnotype/nb-file-lock";
+
 import {commitStaged} from "nbook/backend/staged-commit";
 import type {StagedCommitOptions, StagedCurrent} from "nbook/backend/staged-commit";
 

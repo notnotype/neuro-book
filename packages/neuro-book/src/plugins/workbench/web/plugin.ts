@@ -61,7 +61,9 @@ import type {ActivityBarItemImplementation} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
 import {createWorkbenchPages} from "./home-page";
 import {HomeSlot} from "./home-slot";
-import {createNotifications} from "./notifications";
+import {createNotifications, NOTIFICATIONS_VIEW} from "./notifications";
+import {CLEAR_NOTIFICATIONS_COMMAND, NOTIFICATION_COMMAND_DECLARATIONS, notificationCommands, notificationState} from "./commands/notification-commands";
+import {viewContribution} from "./view-contribution";
 import {ActivityItemRegistry} from "./items/activity-items";
 import {ItemRegistry} from "./items/registry";
 import {createOverlayHost, OverlaySlot} from "./overlays";
@@ -93,6 +95,16 @@ const PROFILE_DECLARATION: Omit<ActivityBarItemDeclaration, "title"> = {
     order: 900,
 };
 const NO_IMPLEMENTATION: ActivityBarItemImplementation = Object.freeze({});
+
+/**
+ * “通知”视图（docs/specs/workbench/notifications.md 输出 14）：第一次放在底部面板，排在“后台任务”（order 10）之后；标题与
+ * “全部清除”的标题取约定键（`views.notifications…`）。视图自己滚动（`fill`）。不因它让底部面板默认显示：经铃铛打开。
+ */
+const NOTIFICATIONS_VIEW_CONTRIBUTION = viewContribution({
+    id: NOTIFICATIONS_VIEW,
+    declaration: {icon: "i-lucide-bell", location: "panel", order: 20, layout: "fill", revealRegion: false, actions: [{command: CLEAR_NOTIFICATIONS_COMMAND, icon: "i-lucide-list-x"}]},
+    load: () => import("./components/WorkbenchNotificationsView.vue"),
+});
 
 export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -133,7 +145,10 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             ...Object.entries(PANE_FOCUS_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(APP_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...Object.entries(VIEW_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
+            ...Object.entries(NOTIFICATION_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
+            NOTIFICATIONS_VIEW_CONTRIBUTION.contribution,
             ...workbenchState.contributions,
+            ...notificationState.contributions,
             ...WORKBENCH_TITLEBAR_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
         ],
         activate: async (context) => {
@@ -165,7 +180,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const chrome = createShellChrome({commands, state: stateService, statusItems, titleItems, activityItems, titlebarMenu, viewTitle, platform: currentKeyPlatform(), signal: context.signal});
             const overlays = new OverlaySlot(context.signal);
             const OverlayHost = createOverlayHost(overlays, (message) => diagnostics.record({level: "warn", event: "workbench.overlays", message, source: {plugin: descriptor.id}}));
-            const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal);
+            const views = new ViewRegistry(context.declarations.list<ViewDeclaration>(WORKBENCH_VIEWS_POINT), plugins.status === "resolved" ? plugins.instance : null, context.signal, (message) => diagnostics.record({level: "warn", event: "workbench.views", message, source: {plugin: descriptor.id}}));
             const viewContainers = viewContainerCatalog(context.declarations.list<ViewContainerDeclaration>(WORKBENCH_VIEW_CONTAINERS_POINT));
             // 两份目录激活之后都不变，所以只在这里记一次（docs/specs/workbench/views.md 输出 16）；布局每次重算时不再记。
             for (const {viewId, container} of unresolvedContainerRefs(views.catalog, viewContainers)) {
@@ -213,7 +228,6 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 },
                 flush: () => void layout.current.value?.actions.save(),
             };
-            const publicState = bindingsOf(workbenchState, workbenchStateBindings(layout.current));
             const settings = context.services.require(settingsKey);
             const locale = await windowLocale(context.services, () => displayLocale(settings));
             const text = await windowTextPort(context.services, () => displayLocale(settings));
@@ -258,6 +272,8 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             // 通知队列与入口同寿：入口停止时清空，计时器不留到下一代。
             const notifications = createNotifications((message) => diagnostics.record({level: "warn", event: "workbench.notifications", message, source: {plugin: descriptor.id}}), text);
             context.signal.addEventListener("abort", () => notifications.dispose(), {once: true});
+            const publicState = bindingsOf(workbenchState, workbenchStateBindings(layout.current));
+            const notificationStateBindings = bindingsOf(notificationState, {hasNotifications: computed(() => notifications.center.entries.value.length > 0)});
 
             // 短名只给页面根的标记与“有没有项目”的判断用；界面上显示书名（窗口的显示名，见 nbook/shared/projects）。
             const projectName = project?.name ?? null;
@@ -272,7 +288,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 shell: {load: async () => {
                     layout.acquire();
                     return (await import("./components/WorkbenchShell.vue")).default;
-                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, dropSectors: settings.get(dropSectorsSetting), dragFeel: settings.get(dragFeelSetting), dragCardShrink: settings.get(dragCardShrinkSetting), dropSplit: settings.get(dropSplitSetting), attachPaneFocus: (move: PaneFocusMover) => {
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, dropSectors: settings.get(dropSectorsSetting), dragFeel: settings.get(dragFeelSetting), dragCardShrink: settings.get(dragCardShrinkSetting), dropSplit: settings.get(dropSplitSetting), unreadNotifications: notifications.center.unread.value, attachPaneFocus: (move: PaneFocusMover) => {
                     movePaneFocus = move;
                     return () => {
                         // 只清自己：外壳重挂的先后可能反过来，不把新外壳交的清掉。
@@ -307,8 +323,10 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                         appearance: resolvedAppearance(),
                         onOpen: (where: "tab" | "floating") => void commands.execute(where === "tab" ? OPEN_THEME_EDITOR_COMMAND : OPEN_THEME_EDITOR_FLOATING_COMMAND, {}, {source: "user"}),
                     }))},
-                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...themeEditorCommands(commands, editorSession), ...panelCommands(() => layout.current.value), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey))},
-                    [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
+                    [COMMANDS_POINT]: {[OPEN_COMMANDS_ID]: palettes.command, ...themeCommands(settings, palettes.quickPick, text, themes), ...themeEditorCommands(commands, editorSession), ...panelCommands(() => layout.current.value), ...partCommands(() => layout.current.value, palettes.quickPick), ...paneFocusCommands(() => movePaneFocus), ...viewCommands(() => layout.current.value, palettes.quickPick), ...appCommands(context.services.require(windowNavigationKey)), ...notificationCommands(notifications.center)},
+                    // 计数读中心的未读数，不加载视图（views.md 输出 17）。
+                    [WORKBENCH_VIEWS_POINT]: {[NOTIFICATIONS_VIEW]: {...NOTIFICATIONS_VIEW_CONTRIBUTION.implementation(() => ({center: notifications.center})), badge: () => notifications.center.unread.value}},
+                    [PUBLIC_STATE_POINT]: Object.fromEntries([...publicState.bindings, ...notificationStateBindings.bindings]),
                 },
             };
         },

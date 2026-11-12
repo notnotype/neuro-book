@@ -71,6 +71,8 @@ function typePaths(): Record<string, string[]> {
     paths["@notnotype/nb-harness/kernel/helpers"] = ["../nb-harness/src/kernel/helpers/index.ts"];
     paths["@notnotype/nb-harness/prompt"] = ["../nb-harness/src/kernel/view/prompt/index.ts"];
     paths["@notnotype/nb-harness/prompt/jsx-runtime"] = ["../nb-harness/src/kernel/view/prompt/jsx-runtime.ts"];
+    // 文件服务的 shared 合同转出宿主套件的 `decodeText`、`renderVirtual`，SDK 的 `./files` 经它碰到这个子路径。
+    paths["@notnotype/nb-harness/kit/files"] = ["../nb-harness/src/kit/files/index.ts"];
     paths["@notnotype/nb-form/vue"] = ["../nb-form/src/vue/index.ts"];
     paths["@notnotype/nb-ui/components"] = ["../nb-ui/src/components/index.ts"];
     paths["@notnotype/nb-layout"] = ["../nb-layout/src/index.ts"];

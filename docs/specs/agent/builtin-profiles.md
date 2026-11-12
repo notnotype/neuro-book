@@ -62,8 +62,9 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 12. 生成失败（模型失败、运行没有以 `yield` 收尾）写诊断 `session-meta-failed`，不改标题和说明。第一轮的生成在下一轮结束时再试；压缩后的更新等下一次压缩，压缩失败不会变成生成标题。同一个前台会话同时只生成一次，后到的触发排在后面，轮到时按当时的状态重新判断。
 13. 标题和说明都由服务端写，模型的输出只进这两个字段。对话内容在给模型的输入里标明是材料、不是指令。
 
-14. adhoc（planned）：key `nbook.agent.adhoc`，名字“临时帮手”。初始输入 `{role: string}`（父 Agent 写的角色），任务从 `agent_spawn` 的 `prompt` 来；必需工具 read、write、edit、grep、glob、shell，不带 todo 与子代理工具；装 Agent 模式扩展（[`modes.md`](modes.md) 输出 14）；`defaultTools: false`；不进新建会话的菜单。提示词照提示词规范，按 `role` 定身份，写明结果交给派它的 Agent。没有结果 schema，派发方给了 `outputSchema` 时按它交回（[`subagents.md`](subagents.md) 输出 2）。
-15. 主创派子代理（planned）：主创加上子代理与任务中心的工具（`agent_spawn`、`agent_send`、`agent_answer`、`wait`、`kill`、`jobs`），声明 `agents: {allowed: ["nbook.agent.adhoc"], recommended: ["nbook.agent.adhoc"]}`，提示词加一句什么时候派、派了怎样用结果；升 Profile 版本。
+14. adhoc：key `nbook.agent.adhoc`，名字“临时帮手”。初始输入 `{role: string}`（父 Agent 写的角色），任务从 `agent_spawn` 的 `prompt` 来；必需工具 read、write、grep、glob，可选 edit、shell 与任务中心的 wait、kill、jobs（`shell` 能转后台，没有这三个它起的后台命令取不到结果、停不掉），不带 todo 与子代理工具；装 Agent 模式扩展（[`modes.md`](modes.md) 输出 14）；`defaultTools: false`；不进新建会话的菜单。提示词照提示词规范，按 `role` 定身份，写明结果交给派它的 Agent。没有结果 schema，派发方给了 `outputSchema` 时按它交回（[`subagents.md`](subagents.md) 输出 2）。
+15. 主创派子代理：主创加上子代理与任务中心的工具（`agent_spawn`、`agent_send`、`agent_answer`、`wait`、`kill`、`jobs`），声明 `agents: {allowed: ["nbook.agent.adhoc"], recommended: ["nbook.agent.adhoc"]}`，提示词加一句什么时候派、派了怎样用结果；升 Profile 版本。
+16. 主创声明 `skills: {allowed: "all"}`：放进 `user://skills/` 的 Skill 马上能 `$`；临时帮手不声明 Skill（[`skills.md`](skills.md)）。（planned）
 
 ## 状态与转换
 
@@ -110,9 +111,9 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 ## 实现合同
 
 - **公开入口**：Profile key `nbook.agent.main`、`nbook.agent.session-title`（常量 `MAIN_PROFILE`、`SESSION_TITLE_PROFILE`，在 `nbook/plugins/agent/shared/contracts`）；扩展 id `nbook.agent.session-meta`（标签 `session-meta`，Profile 可以按标签排除）、`nbook.agent.rules`。
-- **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这两个 Profile；标题和说明经内核只给宿主的 `setGeneratedMeta` 写（[`harness/runtime.md`](../harness/runtime.md) 输出 72）；模型角色的解析在 `nbook.models`。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这两个 Profile；标题和说明的生成与触发扩展是 nb-harness 宿主套件的 `SessionMeta`、`sessionMetaExtension`（`@notnotype/nb-harness/kit/sessions`），扩展 id、标题 Profile 与两种材料的排版由 `nbook.agent` 给；标题和说明经内核只给宿主的 `setGeneratedMeta` 写（[`harness/runtime.md`](../harness/runtime.md) 输出 72）；模型角色的解析在 `nbook.models`。
 - **关键不变量**：
-  - 触发用 `turnEnded`，不用 `runEnded`：压缩运行也以 `runEnded{completed}` 收口，事件不带运行种类，而它没有轮（`builtin-profiles.test.ts`“触发器在真实内核上”）。
+  - 触发用 `turnEnded`，不用 `runEnded`：压缩运行也以 `runEnded{completed}` 收口，事件不带运行种类，而它没有轮（nb-harness 的 `kit/sessions/meta.test.ts`“触发器在真实内核上”）。
   - 碰会话的每一步各自经 `table.accept`，只有 `waitRun` 不经：停止要等 accept 的工作，而运行要等停止关会话才收口（`builtin-profiles.test.ts`“时序”）。
   - 同一个前台会话的生成排成一条队，轮到时按当时的状态重新判断，不记“上次失败了”（`builtin-profiles.test.ts`“同时触发只发一次”）。
   - 标题会话按快照里当前的 Profile 核对，不看会话头：会话头只记建会话时的（`builtin-profiles.test.ts`“被换成别的 Profile”）。
@@ -121,6 +122,6 @@ Profile 声明（[`contributions.md`](contributions.md) 的 `agent.profiles`）�
 ## 证据
 
 - 批准依据：w00032 t18 决定 1 到 5、8 到 14（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t18-builtin-profiles/README.md)）；开发者 2026-11-05 确认计划，同日批准晋升为 `implemented`。
-- 实现入口：[`backend/builtin/profiles/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/index.ts)、[`main.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/main.ts)、[`session-title.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/session-title.ts)、[`rules.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/rules.ts)、[`backend/session-meta.ts`](../../../packages/neuro-book/src/plugins/agent/backend/session-meta.ts)
-- 合同测试：[`builtin-profiles.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-profiles.test.ts)（真实内核、真实设置与文件服务、本机的 OpenAI 兼容端点）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（声明字段）、[`control.test.ts`](../../../packages/nb-harness/src/kernel/run/control.test.ts)（`setGeneratedMeta`）
+- 实现入口：[`backend/builtin/profiles/index.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/index.ts)、[`main.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/main.ts)、[`session-title.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/session-title.ts)、[`rules.ts`](../../../packages/neuro-book/src/plugins/agent/backend/builtin/profiles/rules.ts)、[`backend/session-meta.ts`](../../../packages/neuro-book/src/plugins/agent/backend/session-meta.ts)（接线与文字）、nb-harness 的 [`kit/sessions/meta.ts`](../../../packages/nb-harness/src/kit/sessions/meta.ts)
+- 合同测试：[`builtin-profiles.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-profiles.test.ts)（真实内核、真实设置与文件服务、本机的 OpenAI 兼容端点）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（声明字段）、[`control.test.ts`](../../../packages/nb-harness/src/kernel/run/control.test.ts)（`setGeneratedMeta`）、[`kit/sessions/meta.test.ts`](../../../packages/nb-harness/src/kit/sessions/meta.test.ts)
 - Smoke：[`builtin-profiles.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/builtin-profiles.llm.test.ts)（`test:llm`，DeepSeek）

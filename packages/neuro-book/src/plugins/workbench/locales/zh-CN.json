@@ -146,6 +146,11 @@
                 "open-theme-editor-floating": {
                     "title": "在浮动窗口中打开主题编辑器"
                 }
+            },
+            "notifications": {
+                "clear": {
+                    "title": "清除全部通知"
+                }
             }
         }
     },
@@ -228,7 +233,19 @@
         "limit": "布局已经太复杂，放不下新面板"
     },
     "views": {
-        "resetLocation": "重置位置"
+        "resetLocation": "重置位置",
+        "notifications": {
+            "title": "通知",
+            "actions": {
+                "nbook": {
+                    "notifications": {
+                        "clear": {
+                            "title": "全部清除"
+                        }
+                    }
+                }
+            }
+        }
     },
     "viewContainers": {
         "project": {
@@ -304,7 +321,9 @@
             "corrupt": "记录已损坏",
             "unsupported-version": "记录的版本不支持",
             "provider-stopped": "存储服务已停止"
-        }
+        },
+        "notifications": "通知",
+        "notificationsUnread": "通知：{{count}} 条没看过"
     },
     "editorArea": {
         "loading": "正在加载编辑器…",
@@ -343,6 +362,9 @@
         },
         "maximized": {
             "reason": "没有最大化的面板"
+        },
+        "hasNotifications": {
+            "reason": "通知中心是空的"
         }
     },
     "themes": {
@@ -598,5 +620,17 @@
         "theme-editor": {
             "title": "主题编辑器"
         }
+    },
+    "notificationCenter": {
+        "empty": "没有通知。",
+        "unread": "没看过",
+        "remove": "移除",
+        "detail": "详情",
+        "detailTitle": "{{title}}：详情",
+        "detailOnly": "详情",
+        "sentAt": "发出于 {{time}}"
+    },
+    "time": {
+        "yesterday": "昨天"
     }
 }

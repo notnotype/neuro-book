@@ -1,7 +1,7 @@
 /**
  * 工作台通知服务（docs/specs/workbench/notifications.md 输出 2 到 5、9）：发出的通知在视口里出现；error 与带动作的常驻，
  * 其余按色调自动消失；update 推进进度并在任务结束后改成限时；明确给的 sticky 保留；动作点了通知移除，抛错也移除并记诊断；dispose 清空；
- * 文字引用在显示时按窗口的当前语言翻，切换语言后已显示的通知跟着换文字。
+ * 文字引用在显示时按窗口的当前语言翻，切换语言后已显示的通知跟着换文字；通知中心（输出 13、15、16，验收 8 到 10 的服务一侧）。
  * 真实的 nb-ui 队列与视口、宿主的翻译引擎（像窗口根那样注入），时长用真实的短时长等可观察结果。
  */
 
@@ -51,6 +51,40 @@ describe("工作台通知服务", () => {
         await flushPromises();
         expect(texts()).toHaveLength(1);
         expect(texts()[0]).toContain("已切换主题");
+        notifications.dispose();
+    });
+
+    it("输出 3、5：带详情的缺省常驻（警告、无动作的也是）；明确给的 sticky 优先；空白详情等于没有", () => {
+        const {notifications} = world();
+        const DETAIL = "EditorSaveError: EACCES\n    trace: 4f2a9c1e";
+        // sticky 不给、true、false 三种，各配有无详情。
+        for (const sticky of [undefined, true, false]) {
+            for (const detail of [undefined, DETAIL]) {
+                notifications.notify({tone: "warning", message: "m", ...(sticky === undefined ? {} : {sticky}), ...(detail === undefined ? {} : {detail})});
+            }
+        }
+        notifications.notify({tone: "info", message: "空白详情", detail: "  \n "});
+        expect(notifications.queue.notifications.value.map((item) => item.duration)).toEqual([4200, 0, 0, 0, 4200, 4200, 3200]);
+        expect(notifications.queue.notifications.value[1]?.detail).toBe(DETAIL);
+        notifications.dispose();
+    });
+
+    it("输出 5：update 的详情——无到有变常驻、换一段原文不动时长、有到无回到按色调限时；明确给的 sticky 仍优先", () => {
+        const {notifications} = world();
+        const handle = notifications.notify({tone: "info", message: "正在同步"});
+        const entry = () => notifications.queue.notifications.value[0]!;
+        expect(entry().duration).toBe(3200);
+        handle.update({detail: "Error: offline"});
+        expect(entry()).toMatchObject({detail: "Error: offline", duration: 0});
+        handle.update({detail: "Error: offline (retry 2)"});
+        expect(entry()).toMatchObject({detail: "Error: offline (retry 2)", duration: 0});
+        handle.update({detail: ""});
+        expect(entry()).not.toHaveProperty("detail");
+        expect(entry().duration).toBe(3200);
+        // 明确给过 sticky: false 的，加上详情仍限时。
+        const timed = notifications.notify({tone: "info", message: "限时", sticky: false});
+        timed.update({detail: "x"});
+        expect(notifications.queue.notifications.value[1]?.duration).toBe(3200);
         notifications.dispose();
     });
 
@@ -138,12 +172,110 @@ describe("工作台通知服务", () => {
 
     it("限时通知到点消失", async () => {
         const {notifications, texts} = world();
-        notifications.queue.notify({message: "一闪而过", duration: 30});
+        // 时长留足：机器忙时 30ms 这类短时长会在“先看到它”的断言之前就到。
+        notifications.queue.notify({message: "一闪而过", duration: 1500});
         await flushPromises();
         expect(texts()).toHaveLength(1);
         await vi.waitFor(() => {
             expect(texts()).toHaveLength(0);
-        });
+        }, {timeout: 6000});
+        notifications.dispose();
+    });
+
+    it("通知中心：用户关掉、到时消失的留在中心；发出方撤回的两边都移除；update 同步到中心（输出 13）", async () => {
+        const {notifications, texts} = world();
+        const closed = notifications.notify({tone: "error", title: "保存失败", message: "磁盘已满"});
+        notifications.notify({tone: "info", message: "已切换主题"});
+        const recalled = notifications.notify({tone: "warning", message: "书架没有更新"});
+        await flushPromises();
+        expect(notifications.center.entries.value.map((entry) => entry.message)).toEqual(["书架没有更新", "已切换主题", "磁盘已满"]);
+        // 用户点那条通知的关闭按钮（带可访问名称的那个）：只动弹出处。
+        const toast = [...document.body.querySelectorAll("[data-notification-stack] [role='status']")].find((node) => node.textContent?.includes("磁盘已满") === true);
+        toast?.querySelector<HTMLButtonElement>("button[aria-label]")?.click();
+        await flushPromises();
+        expect(texts().some((line) => line.includes("磁盘已满"))).toBe(false);
+        expect(notifications.center.entries.value.some((entry) => entry.id === closed.id)).toBe(true);
+        recalled.dismiss();
+        expect(notifications.center.entries.value.some((entry) => entry.id === recalled.id)).toBe(false);
+        closed.update({message: "磁盘已满，已腾出空间"});
+        expect(notifications.center.entries.value.find((entry) => entry.id === closed.id)?.message).toBe("磁盘已满，已腾出空间");
+        expect(notifications.center.unread.value).toBe(2);
+        notifications.dispose();
+        expect(notifications.center.entries.value).toEqual([]);
+    });
+
+    it("点动作：在弹出处或在中心里点，执行后两边一起移除（输出 13，验收 9）", async () => {
+        const {notifications, texts} = world();
+        const runs: string[] = [];
+        notifications.notify({tone: "warning", message: "第一条", action: {label: "重试", run: () => runs.push("first")}});
+        const second = notifications.notify({tone: "warning", message: "第二条", action: {label: "打开", run: () => runs.push("second")}});
+        await flushPromises();
+        [...document.body.querySelectorAll("button")].find((node) => node.textContent?.trim() === "重试")?.click();
+        await flushPromises();
+        expect(runs).toEqual(["first"]);
+        expect(notifications.center.entries.value.map((entry) => entry.message)).toEqual(["第二条"]);
+        notifications.center.run(second.id);
+        await flushPromises();
+        expect(runs).toEqual(["first", "second"]);
+        expect(notifications.center.entries.value).toEqual([]);
+        expect(texts()).toHaveLength(0);
+        notifications.dispose();
+    });
+
+    it("视图开着时新通知只进中心、算看过、不弹出；看过的不再算未读；视图关了照常弹出（输出 15、16）", async () => {
+        const {notifications, texts} = world();
+        notifications.notify({tone: "info", message: "先到的"});
+        expect(notifications.center.unread.value).toBe(1);
+        notifications.center.setVisible(true);
+        expect(notifications.center.unread.value).toBe(0);
+        const quiet = notifications.notify({tone: "error", message: "开着时到的"});
+        await flushPromises();
+        expect(texts().some((line) => line.includes("开着时到的"))).toBe(false);
+        expect(notifications.center.entries.value[0]).toMatchObject({id: quiet.id, unread: false});
+        // 只在中心里的那条照样能更新、撤回。
+        quiet.update({message: "开着时到的（已更新）"});
+        expect(notifications.center.entries.value[0]?.message).toBe("开着时到的（已更新）");
+        quiet.dismiss();
+        notifications.center.setVisible(false);
+        notifications.notify({tone: "info", message: "关了以后到的"});
+        await flushPromises();
+        expect(texts().some((line) => line.includes("关了以后到的"))).toBe(true);
+        expect(notifications.center.unread.value).toBe(1);
+        notifications.dispose();
+    });
+
+    it("中心至多 100 条，多了丢最早的；移除、全部清除只动中心；已截断的标记交给弹出处（输出 13，验收 10）", async () => {
+        const {notifications, texts} = world();
+        for (let index = 0; index < 101; index += 1) notifications.notify({tone: "info", message: `第 ${String(index)} 条`, sticky: true});
+        expect(notifications.center.entries.value).toHaveLength(100);
+        expect(notifications.center.entries.value.at(-1)?.message).toBe("第 1 条");
+        notifications.center.remove(notifications.center.entries.value[0]!.id);
+        expect(notifications.center.entries.value).toHaveLength(99);
+        notifications.center.clear();
+        expect(notifications.center.entries.value).toEqual([]);
+        await flushPromises();
+        expect(texts().length).toBeGreaterThan(0);
+        notifications.dispose();
+        notifications.notify({tone: "error", message: "装不上", detail: "x".repeat(10), detailTruncated: true});
+        expect(notifications.queue.notifications.value[0]?.detailTruncated).toBe(true);
+        expect(notifications.center.entries.value[0]?.detailTruncated).toBe(true);
+        notifications.dispose();
+    });
+
+    it("中心里的详情与弹出处同一个上限：超过 8000 码元截掉并注明；视图开着时只进中心也一样，update 也一样（输入）", () => {
+        const {notifications} = world();
+        const popped = notifications.notify({tone: "error", message: "装不上", detail: "x".repeat(9000)});
+        expect(notifications.center.entries.value[0]).toMatchObject({detailTruncated: true});
+        expect(notifications.center.entries.value[0]?.detail).toHaveLength(8000);
+        expect(notifications.queue.notifications.value[0]?.detail).toHaveLength(8000);
+        notifications.center.setVisible(true);
+        notifications.notify({tone: "error", message: "开着时到的", detail: "y".repeat(9000)});
+        expect(notifications.center.entries.value[0]?.detail).toHaveLength(8000);
+        expect(notifications.center.entries.value[0]?.detailTruncated).toBe(true);
+        popped.update({detail: "z".repeat(8500)});
+        const updated = notifications.center.entries.value.find((entry) => entry.id === popped.id);
+        expect(updated?.detail).toBe("z".repeat(8000));
+        expect(updated?.detailTruncated).toBe(true);
         notifications.dispose();
     });
 });

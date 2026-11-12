@@ -1,0 +1,13 @@
+{
+    "failures": {
+        "unknownCommand": "未登记的命令：{{id}}",
+        "notExposed": "命令没有对 Agent 开放：{{id}}",
+        "invalidArgs": "参数校验失败：{{problems}}",
+        "readOnly": "只读模式（{{mode}}）拒绝写入类的 Agent 调用：{{id}}",
+        "noConfirmation": "命令需要确认，但没有确认通道：{{id}}",
+        "denied": "用户拒绝了命令：{{id}}",
+        "replaced": "命令在确认期间被替换：{{id}}",
+        "noResult": "命令没有返回结构化结果：{{id}}",
+        "executionError": "命令执行出错"
+    }
+}

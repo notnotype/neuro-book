@@ -5,6 +5,7 @@
  * 队列与工作台入口同寿，两个页面各挂一个视口。
  */
 
+import {ConnectionError} from "@notnotype/nb-host/web";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
@@ -18,7 +19,6 @@ import {notificationsKey} from "nbook/plugins/workbench/shared/contracts";
 import type {NotificationInput, Notifications} from "nbook/plugins/workbench/shared/contracts";
 import {BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
 
-import {ConnectionError} from "./host/connection";
 import type {Connection} from "./host/connection";
 import {createBrowserWindow} from "./host/window";
 import {mountWindowUi} from "./mount";

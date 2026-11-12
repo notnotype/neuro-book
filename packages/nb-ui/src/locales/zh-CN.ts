@@ -22,6 +22,16 @@ export default {
         empty: "无内容",
         truncated: "只公开了部分内容",
     },
+    copyButton: {
+        copy: "复制",
+        copied: "已复制",
+        failed: "复制失败，请手动选择文字",
+    },
+    detailDialog: {
+        copy: "复制原文",
+        close: "关闭",
+        truncated: "原文过长，已截断",
+    },
     diffView: {
         mode: "显示方式",
         inline: "行内",
@@ -64,6 +74,11 @@ export default {
     notification: {
         close: "关闭通知",
         inProgress: "进行中",
+        detail: "详情",
+        detailTitle: "{{title}}：详情",
+        region: "通知",
+        folded: "还有 {{count}} 条较早的通知",
+        collapse: "收起",
     },
     numberInput: {
         increase: "增加",

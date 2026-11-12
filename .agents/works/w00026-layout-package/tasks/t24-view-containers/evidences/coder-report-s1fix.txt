@@ -1,0 +1,165 @@
+w00026 t24 切片 1 审查的修正：交付报告（边做边追加）
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（分支 feat/w00026-t24-view-containers，起点 be125d3f7，未提交）
+
+〇、动手前的基线
+- 审查者的探针 probe1 到 probe7 在改动前各跑一遍，输出在 /tmp/w00026-t24-s1fix/before/。
+- 第 9 条（分节之间的边界上 Enter 恢复不到原高）的复现脚本：/tmp/w00026-t24-s1fix/scratch/enter.ts。改动前的输出：
+    起点 意图 anchor/s1/s2: 100.00 / 100.00 / 100.00 呈现 s1/s2: 421 421
+    Enter: {"s1":true}  预览 s1/s2 32 810   意图 100.00 / 100.00 / 100.00
+    Enter: {"s1":false} 预览 s1/s2 100 742  意图 100.00 / 23.75 / 176.25
+    Enter: {"s1":true}  预览 s1/s2 32 810
+    Enter: {"s1":false} 预览 s1/s2 80 762   意图 100.00 / 19.00 / 181.00
+  原因（已查清，见第 9 条）：投影把文档里的尺寸意图当像素交给 grid 作 restoreSize；区域那一列里锚永远不在呈现里，rebaseIntents 只写彼此的比例，
+  意图从来不是像素。按钮走的是“改文档、重新按比例分”，Enter 走的是“恢复到 restoreSize 像素”，所以两条路结果不同。错的值在第二次 Enter 的预览里就出现了，不是写回时才错。
+
+（进度记录，正文见后面各节）
+- nb-layout 的库改动已落：F1/F7（layout-doc.ts）、F2 的判定与 setPanelCollapsed 拒绝、F3、F4、F6、F9（layout-project.ts 与 grid-geometry.ts）、F5（NestedGrid.vue、useSashGesture.ts）、第 9 条（grid-types.ts、grid-geometry.ts、sash-drag.ts、layout-project.ts）。
+- F5 复现用例改前失败的输出：/tmp/w00026-t24-s1fix/before/f5-test-fail.txt（可聚焦）、f5-test-fail-hit.txt（命中）、f5-test-fail-key.txt（键盘）。
+- 第 9 条复现用例改前失败的输出：/tmp/w00026-t24-s1fix/before/item9-test-fail.txt。
+- 还没做：layout-doc.test.ts 的 F1/F2/F3/F4/F7 用例、工作台各读取点与命令、文档、验证与探针重跑。
+
+==================== 正文（2026-11-10 收尾时写；上面的“进度记录”作废，以这里为准） ====================
+结论：十条都做了，nb-layout 与工作台的验证全部通过（数目见第八节）。有三处超出说明字面的改动要主 Agent 知道：
+(a) 第 9 条的修法给 `SashCollapsePolicy` 加了一个公开的可选字段 `restoreToShare`；(b) F9 除了 `minimumOf` 还改了 grid 的约束与诊断规则，并改写了 `grid.test.ts` 一条已有断言；
+(c) F2 让工作台 4 条已有测试的夹具变了（原来拿“区域唯一显示的分节”做收起）。都在下面写明。没有 commit、push、stash、切分支；`git status` 只有 25 个已跟踪文件被改，没有新文件。
+
+路径前缀：L = packages/nb-layout/src，W = packages/neuro-book/src/plugins/workbench（都在 worktree 里）。
+
+一、每条怎么改的
+1. F1 锚不动、归属不丢（含 F7）
+   - L/layout-doc.ts:870 `crossesAnchor`、876 `ANCHOR_CROSS_EDGE`：目标是锚、外缘方向与 `REGION_ORIENTATION[锚的名字]` 不同轴时拒绝。三个外缘入口在 `placeLeaf` 之前问它：
+     `movePanelToEdge` 915、`moveTabToEdge` 951、`openPanelAtEdge` 974。`between` 目标不算（它不包住锚）。
+   - 来源是锚时拒绝“区域的锚不移动”：`movePanelToEdge` 900、`movePanelToStrip` 736（F7：原来只在“目标是分节”分支里判，现在提到 `policy.accepts` 之前）。
+   - `settleLanding` 581：给了 `wanted`、落点不在带容器的区域里时返回“落点不在带容器的区域里，放不进容器 X”；没给的照旧清掉归属。
+   - 配套（不做就会把原来成功的路径误拒）：
+     · `besideSection` 536–543：目标带着 `container` 却不在带容器的区域里（残留记录）时不点名容器，新块和它一样没有归属。
+     · `splitIntoSections` 638 `kept`：面板自己带着的归属只在带容器的区域里才算沿用，在别处是要清掉的残留，不当成点名交给 `settleLanding`。
+     · `movePanelToEdge` 906–908 原处捷径：点名了另一个容器、原处不在带容器的区域里时同样拒绝（原来是静默成功）。
+2. F2 单分节不收成标题行
+   - 新判定 L/layout-doc.ts:253–275（签名见第二节）。`countsInShare` 278–281、`rebaseIntents` 的 `isSkipped` 425、投影 L/layout-project.ts:90 都改问 `isSectionCollapsed`。
+   - `setPanelCollapsed` 1087–1093：收起时 `sectionCollapseBlock` 非 null 就 `rejected`（“底部面板的分节不折叠”“区域只显示这一个分节，不收成标题行”）；展开不问。
+   - 工作台读取点（grep `collapsed` 后逐处分了“锚的”与“分节的”）：
+     · W/web/state/layout-present.ts:63 `effectiveVisibleTabs`：分节问 `isSectionCollapsed`，锚的 `collapsed`（区域拖到零）照旧读记录。
+     · W/web/state/layout-doc-store.ts:151 `effectiveMaximized`；412 起的 `setCollapsed` 改成先 `apply`、成功且是收起且正是最大化的那块才退出最大化（原来先退出再写，被拒绝时最大化白退）；422 `activate`（点标题展开）。
+     · W/web/components/WorkbenchShell.vue:232 收起按钮的按下状态。
+     · W/web/commands/panel-commands.ts:92–104：底部面板的分节 `unavailable`（收起、展开、切换都是，照命令表字面）；区域唯一显示的分节只有收起 `unavailable`；省略 `collapsed` 的切换按 `isSectionCollapsed` 取反（锚读自己的记录）。按判定返回的码分支，不看库的拒绝文案。
+     · 两句新文案：W/locales/zh-CN.json:181–182、en-US.json:181–182，W/locales.test.ts:398–399 的登记表跟着加。
+     · 没改的读取：`revealView` 无条件展开（见第七节 7）、`commitGesture` 写回手势报告的收起、store 里读锚 `collapsed` 的几处、`layout-drag.ts`（说明禁止改）。
+   - L/layout-project.test.ts:288 把现状写成期望的那条改写了（第五节）。
+3. F3
+   - `isPanelShown` 227–235：改问 `containerAnchorOf`，区域的具名面板不是锚时 `container` 不起作用、按显示算。
+   - 校验 1263：浮动窗带 `container` 无效（“浮动窗 X 不属于容器”）；`openFloatPanel` 1029–1034 写入前去掉 `container`。
+   - “入口顺序由调用方在同一次提交里补”写进 `settleLanding`、`splitIntoSections`、`movePanelToEdge`、`moveTabToEdge`、`openPanelAtEdge` 的注释，没加检查。
+4. F4：`showPanelAndInsert` 1113–1115，目标是锚或带容器的区域里的分节时 `rejected`“带容器的区域不经这里显示并接收”，注释写了改用 `setPanelHidden(锚, false)` 加 `openPanelAtEdge`。没碰 `layout-drag.ts`。
+5. F5 零长度的分隔线
+   - L/vue/NestedGrid.vue:190 `isZeroLength`（线沿自己长度方向的矩形边长不大于 0），205 并进 `disabled`：`SashHandle` 对 disabled 的线本来就是 `tabindex=-1`、`aria-disabled=true`，`useSashGesture` 的命中集合本来就跳过 `aria-disabled`（139 行），所以只加这一个判定，没动 `grid-rects.ts` 与 `SashHandle.vue`。
+   - L/vue/useSashGesture.ts:459：键盘处理加同一个 `aria-disabled` 守卫。原因：线不在 Tab 顺序里了，但焦点可能在收起之前就在它上面，复现用例第三步就是这个失败。
+   - L/vue/NestedGrid.md 补了一句。
+6. F6：`anchorOf` 198–204 换成 `for…in`，没加缓存。
+7. F9：见第四节。
+8. 单分节与底部分节的收起按钮：W/web/components/WorkbenchShell.vue:176 `collapsibleHere` = 父分支纵向 且 `sectionCollapseBlock(renderedDoc, panelId) === null`；WorkbenchShell.md:23 同步。
+9. 分节之间的边界上 Enter 恢复不到原高
+   - 原因：投影把文档里的尺寸意图当像素交给 grid 作 `restoreSize`；区域那一列里锚不进呈现，`rebaseIntents` 对这样的分支只写兄弟之间的比例，意图不是像素。按钮与命令走“改文档再按比例分”，Enter 走“恢复到 `restoreSize` 像素”，结果不同。复现时错的值在第二次 Enter 的预览里就出现了。
+   - 修法：`SashCollapsePolicy.restoreToShare`（L/grid-types.ts:48–55）。为真时显式恢复不读 `restoreSize`，把这块翻成展开后用 `allocateSashPanels` 重新分配，取给它的那一份（L/sash-drag.ts:189–192），所以和“改了收起记录再布局”给的尺寸是同一个算法的同一个结果。`normCollapse` 带上这个字段（L/grid-geometry.ts:293）。投影对按比例分的子节点打开它（L/layout-project.ts:72），保留像素的照旧用 `restoreSize`。
+   - L/grid.md 补了说明。
+10. F8 测试（都是行为断言，没有 mock、spy、假计时器）
+   - L/layout-doc.test.ts：“可见”加 1 条（F3）；新小节“收成标题行（输出 11、20）”7 条（F2）；“放进区域”里扩了 `showPanelAndInsert`（F4），加“锚的交叉方向外缘不是落点”“区域的锚不移动”“点名了容器、落点却不在带容器的区域里”（F1、F7）；“校验”加“浮动窗不属于容器”（F3）。
+   - L/layout-project.test.ts：改写 288 那条（F2）；加“分节之间的边界上 Enter 收起再 Enter 展开：回到原高”（第 9 条）、“拖到零的区域在另一根轴上也不占最小尺寸”（F9）。
+   - L/grid.test.ts：“分支的收起”里改写 1 条、加 1 条（F9）；probe5 收成“手势会话对‘子节点是分支’的边界”一条；新小节“手势会话里按比例分的叶的显式恢复”2 条（第 9 条）。
+   - L/sash-drag.test.ts：`restoreToShare` 1 条。L/vue/NestedGrid.dom.test.ts：F5 复现用例 1 条。
+   - 工作台：panel-commands.test.ts 新增 1 条、改 3 条；layout-doc-store.test.ts、layout-present.test.ts 各扩 1 条。
+   - 对照：把新测试放到提交版（be125d3f7）的源码上跑，layout-doc.test.ts 13 条失败、layout-project.test.ts 3 条失败（/tmp/w00026-t24-s1fix/before/doc-tests-on-head.txt、project-tests-on-head.txt；提交版没有两个新导出，对照副本里给了“只读 collapsed”的旧行为替身，副本在 /tmp，不在仓库里）。
+
+二、新导出的签名（L/layout-doc.ts，经包入口 `@notnotype/nb-layout` 导出）
+   export type SectionCollapseBlock = "row-region" | "lone-section";
+   export function sectionCollapseBlock(doc: LayoutDoc, panelId: string): SectionCollapseBlock | null;
+   export function isSectionCollapsed(doc: LayoutDoc, panelId: string): boolean;
+   - `sectionCollapseBlock`：带容器的区域里这个分节此刻为什么收不成标题行；能收，或不是带容器的区域里的分节（旧模型的面板、浮动窗、锚、不存在）时是 null。
+   - `isSectionCollapsed`：记录 `collapsed` 为真、不是锚、并且 `sectionCollapseBlock` 为 null。锚恒为 false（它的 `collapsed` 是区域拖到零，读锚的记录）。
+   公开类型增量（L/grid-types.ts）：`SashCollapsePolicy.restoreToShare?: boolean`。
+
+三、复现用例改前失败的输出
+   F5（L/vue/NestedGrid.dom.test.ts“收起为零的分支里，叶之间的分隔线长度为零：不可聚焦、不进命中、键盘不调整；展开后恢复”），三步各失败一次，逐步修到通过：
+     /tmp/w00026-t24-s1fix/before/f5-test-fail.txt      AssertionError: side:0: expected '0' to be '-1'（tabindex，NestedGrid.dom.test.ts:387）
+     /tmp/w00026-t24-s1fix/before/f5-test-fail-hit.txt  AssertionError: expected true to be false（指针命中收了这条线）
+     /tmp/w00026-t24-s1fix/before/f5-test-fail-key.txt  AssertionError: expected [ { sessionId: 'v-0-1', …(5) } ] to have a length of +0 but got 1（焦点在线上按方向键仍提交了一次调整）
+   第 9 条（L/layout-project.test.ts“分节之间的边界上 Enter 收起再 Enter 展开：回到原高…”），/tmp/w00026-t24-s1fix/before/item9-test-fail.txt：
+     expect(heights(reopened, ["s1", "s2"])).toEqual(before)   期望 [388.5, 388.5]，实得 [80, 697.0000000000001]
+
+四、F9 有没有引出 grid 的诊断：有，一起处理了
+   - L/layout-project.ts:157–160 `minimumOf`：收起且 `collapsedSize` 为 0 的节点两根轴都返回 0。
+   - 只改这里时 grid 在骨架分支的交叉轴上会报新诊断（区域拖到零、窗口矮得放不下那一列分节时，“分支的交叉轴可用空间小于约束下限”和里面各叶的“可用空间小于约束下限”）。所以同时改了 grid：
+     · L/grid-geometry.ts:275 `collapsedToZero`；327–337 `constraintOnAxis` 的交叉轴下限不算收起为零的子节点（上限照算）；
+     · 465–475 `measure` 的静音：收起为零的节点两根轴都静音（原来只静音父分支主轴），收成一条的（`collapsedSize` 大于 0）照旧只静音主轴。
+   - probe7（改后）：“侧栏拖到零”与“侧栏隐藏”两行都是 removed=[]、issues=0（改前拖到零是 removed=[s2,s1] 与 [s3,s2,s1]）。两行 p1 宽度差 1px（951 对 952）是拖到零的区域还留着一条分隔线，改前就这样。
+   - 审查者的 fuzz-grid（旧 grid 对现在，约 1970 棵随机树乘两轮）：尺寸、约束、缝的差异 550 与 936 棵，全部出在含“收起为零”节点的树上，没有这种节点的树 0 差异。
+     有 65 棵树出现旧版同一节点没有的那一句诊断，全部落在看得见的节点上、没有一条落在收起为零的节点或它里面（/tmp/w00026-t24-s1fix/after/fuzz-grid-classified.txt）。看了例子（after/fuzz-grid-explain.txt）：
+     这些树本来就放不下（窗口比最小尺寸合计小，旧版同样报一串降级诊断）；零节点不再撑高所在分支的下限之后，“按最小值比例降级”分给各兄弟的份额变了，原来刚好够的某个看得见的节点现在不够，于是换了一个节点报同一句。例里诊断总数是减少的（13 条变 12 条、27 条变 2 条）。判断为规则变化的合理后果，不是静音漏了，没有再改。
+   - 这条 grid 规则对所有收起为零的节点生效，包括旧模型里横向分支中拖到零的面板（fuzz 里 8 步的约束变化就是它：例如 minimumSize.height 201 变 121、80 变 0）。Spec 原句只说了分支，见第七节 2。
+
+五、改了的已有断言与夹具（都因为行为按处理决定变了，不是放宽）
+   - L/grid.test.ts“另一根轴放不下照常报诊断：和没收起时报的一样”改写为“收起为零的分支在另一根轴上也不占最小尺寸：父分支的下限不算它，里面放不下不报诊断；收成一条的还看得见，照常报”。
+     依据是 nested-grid.md“分支的收起”：“为零的分支在两根轴上的最小尺寸都按零算，窗口放不下时不把它里面的叶算作要收走的。”原断言与这句相反；收成一条的那一半保留在同一条里。
+   - L/layout-project.test.ts:288“…这个分节自己的收成标题行这时不呈现”改写为“…记录里的 `collapsed` 这时不算收起，再有第二个分节显示时重新收成标题行（输出 11）”（审查报告 F8 第 2 点）。
+   - 工作台 4 条原来拿“区域唯一显示的分节”做收起的测试：夹具改成先 `moveView(…, {newPanelNextTo: …})` 让区域有两个分节，再补上唯一分节被拒绝的断言
+     （panel-commands.test.ts 的公开状态、“收起省略参数时切换”、最大化那条；layout-doc-store.test.ts“点标题：分节收成标题行时一起展开”；layout-present.test.ts“有效可见”）。
+
+六、探针与 fuzz 的前后对比（before/ 与 after/ 都在 /tmp/w00026-t24-s1fix/）
+   - probe1：锚的交叉外缘、移动锚全部由 ok 变 FAIL。probe3：`showPanelAndInsert` 对分节与锚拒绝，`openFloatPanel` 去掉 container，非锚区域里带 container 的面板显示。probe6：`movePanelToStrip` 来源是锚拒绝。probe7 见第四节。probe4、probe5 无差异。
+   - probe2、probe2b 现在以退出码 1 结束：探针假定 `setPanelCollapsed(唯一分节或底部分节, true)` 成功后读 `.doc`，现在被拒绝。属预期，对应行为在新单测里。
+   - fuzz.ts（旧模型文档 9773 步；改前对切片 0 是 0 差异）：改后 3130 条差异，3120 条是投影多出 `collapse.restoreToShare`，8 条是 F9 的约束变化，2 条是诊断条数减少；操作结果、校验、可见、`presentationCollapse`、`rebaseIntents` 无差异（after/fuzz-classified.txt）。
+   - fuzz2.ts（带容器的文档，对审查时的快照）：按每轮第一处分歧归类（after/fuzz2-first.txt）。结果类差异全是这次有意加的拒绝（“区域的锚不移动”“不能往区域的锚的交叉方向外缘放”“落点不在带容器的区域里，放不进容器 X”“带容器的区域不经这里显示并接收”“底部面板的分节不折叠”），或拒绝文案换了一句；
+     其余是 `restoreToShare`、F9 的约束与少收走、F3 的“原来藏起来现在显示”（具名面板不是锚的那一列里带 container 的面板）。
+   - fuzz3.ts（不变量）：没有违反。成功步数 2040 变 1939（新拒绝）；提示“工具面板在树里却不属于任何区域”355 变 379 次（提示项，审查者自己标了“不一定是错”）。
+
+七、拿不准的地方（附 Spec 原句；都没有擅自扩大，等主 Agent 定）
+1. `restoreToShare` 是说明里没写的公开类型增量。Spec 原句（workbench-layout.md 输出 12）：“按钮、命令与 Enter 恢复意图尺寸。”我按“Enter 与按钮恢复到同一个尺寸”实现；
+   别的修法（让投影把比例换算成像素再当 `restoreSize`）要在投影里重做一遍分配，和 grid 的分配会有两份算法，所以选了在 grid 里加一个开关。
+   `docs/specs/ui/nested-grid.md` 的收起策略字段说明里没有它，要主 Agent 补一句（我没改 Spec）。`sashCollapsePolicy()` 这个便捷构造（L/sash-drag.ts:430）没带新字段，独立 `Splitter` 的行为不变。
+   字段注释里写了限制：宿主要自己保证收起期间这块的份额不被兄弟的落账冲掉；工作台靠 `rebaseIntents` 跳过收起的面板保证，只用 `Grid.resizeBranches` 落账的宿主不要打开。
+2. F9 的 grid 规则按“节点”做，不只按“分支”。Spec 原句（nested-grid.md“分支的收起”）：“为零的分支在两根轴上的最小尺寸都按零算，窗口放不下时不把它里面的叶算作要收走的。”
+   说明第 7 条写的是“收起且 `collapsedSize` 为 0 的节点两根轴都返回 0”，我照说明做到了叶：旧模型里横向分支中拖到零的面板，也不再把所在那一行的高度下限撑高（一行全是零宽面板时这一行的高度下限变 0）。
+   如果只想管分支，`collapsedToZero` 与 `minimumOf` 各加一个 `kind === "branch"` 条件即可，带容器的区域单分节时代表区域的是叶，那种情形就又回到审查报告 F9 的现象，所以没这样做。
+3. “唯一显示的分节”按文档数，不看呈现。Spec 原句（输出 11）：“区域此刻只显示一个分节时它不收成标题行，没有收起按钮，`collapsed` 留在记录里，区域里又显示两个以上分节时才起作用。”
+   窗口矮、别的分节放不下被收走时，文档里仍是两个分节，剩下那个照旧能收、有按钮；区域里被左右拆开的分节也按分节数算。投影给不给标题行的策略本来也是按文档结构定的，两边一致；要按呈现算的话判定得吃 `presentationCollapse` 的结果，没做。
+4. 底部面板分节的命令：展开与切换也返回 `unavailable`。命令表原句：“缺省当前面板；底部面板的分节不折叠，`unavailable`。”库的 `setPanelCollapsed(…, false)` 仍然允许（说明写了“展开总是允许”），
+   只是命令这一层按表的字面整条不可用；记录里残留 `collapsed` 的底部分节不算收起，呈现与没带时相同，所以不需要经命令清它。主 Agent 觉得展开应当可用的话，把 panel-commands.ts:97 的判断挪到 `collapsed` 求值之后、只拦收起即可。
+5. 只剩锚的区域，往锚的交叉方向外缘放也拒绝（说明第 1 条的字面：目标是锚且不同轴就拒绝）。例：右栏的容器全空、只剩锚时，`split auxiliarybar left` 被拒绝。
+   这种落点会把锚包进交叉方向的分支，区域从此认不出来，所以我认为拒绝是对的；空区域要接收新块得走锚沿区域方向的外缘。活动栏、落点解析那一层（切片 4）给空区域出落点时要用这个方向。
+6. `moveView(…, {newPanelNextTo})`（W/web/state/layout-doc-store.ts:488–492）在“beside 有 container 且 `regionOf` 非 null”时点名容器。beside 所在区域的具名面板不是锚（残留记录）时，现在会从库里拿到“落点不在带容器的区域里”的拒绝，原来是成功并清掉归属。
+   正常文档里遇不到（F3 的校验与读取回落之后，带 container 的面板都在带容器的区域里），没改 store；要彻底的话把那里的 `regionOf` 换成 `containerAnchorOf`。
+7. `revealView`（layout-doc-store.ts:439）仍然无条件展开：对区域唯一显示、记录里残留 `collapsed` 的分节，它会把残留清掉，之后区域再有第二个分节时它是展开的。
+   Spec 没说揭示视图时残留的收起记录怎么办；“揭示就是要看见它”，清掉更符合直觉，所以没改，列在这里。
+8. 两句界面文案待审（zh-CN 里底部那个部件的名字是“面板”，我写了“底部面板”以免和面板头的“面板”混）：
+   panelCommands.rowSectionCollapse “底部面板里的视图不能收起” / "A view in the bottom panel cannot be collapsed"
+   panelCommands.loneSectionCollapse “这里只显示这一个视图，不能收起” / "The only view shown here cannot be collapsed"
+9. `useSashGesture` 的键盘守卫对所有 `aria-disabled` 的线生效，包括独立 `Splitter` 里 0px 的接缝线：焦点已经在这种线上时方向键、Enter 不再起作用。和指针命中读同一个标记，我认为是应有的一致；nb-layout 现有测试没有依赖旧行为的。
+10. Lab 的 `WorkbenchSurfaceFixture.vue`、`GridPanelsScene.vue` 仍直接读 `collapsed`：它们的夹具不用容器，`isSectionCollapsed` 在那里和记录等价，没改。
+
+八、验证（2026-11-10，跑之前 `cat /proc/loadavg` 是 3.8 上下）
+   cd packages/nb-layout && bun run test         退出码 0。bun test：517 通过、0 失败（13 个文件）；vitest（DOM）：15 个文件 188 通过、0 失败。输出 /tmp/w00026-t24-s1fix/verify-nb-layout-test.txt
+   cd packages/nb-layout && bun run typecheck    退出码 0。
+   cd packages/neuro-book && bunx vue-tsc --noEmit -p tsconfig.web.json    退出码 0。
+   cd packages/neuro-book && bun test src/plugins/workbench                退出码 0。467 通过、0 失败（36 个文件）。输出 /tmp/w00026-t24-s1fix/verify-nb-workbench-test.txt
+   git diff --check                              退出码 0。
+   - 包里的 `test` 脚本就是 bun test 加 vitest 的 DOM 测试，所以用它代替说明里的 `bun test src`；`typecheck` 脚本代替 `bunx tsc --noEmit`。
+   - 中途有一次工作台全量出现 1 条与本次无关的失败：`package-io.test.ts`“导入 > 文件太多、单个文件解压后太大…”（当时负载 10 到 14，5.5 秒超时）。负载降下来后全量重跑通过，没有改它。
+   - 没跑 e2e。
+
+九、给主 Agent 的提示
+   - 可能受影响的 e2e（引用收起按钮或底部面板的收起）：
+     packages/neuro-book/e2e/workbench-dnd.e2e.ts 第 410、418 行（点 `panel` 这块的 `set-panel-collapsed`）、第 570–575 行（“侧栏只有一块时没有、面板有”）、第 627、640 行：
+     这几条里 `panel` 若已经是带容器的底部面板区域里的分节，按钮就没有了、“面板有”那半句相反；若那页的布局还是不带容器的文档，行为不变（`sectionCollapseBlock` 对它返回 null）。我没跑，分不出是哪一种；
+     packages/neuro-book/e2e/workbench-shell.e2e.ts 第 192–237、345、413–419、586 行，以及第 376 行那条（第 9 条的 Enter）；packages/neuro-book/e2e/workbench-views.e2e.ts 第 1025 行。
+   - Spec 要补的：nested-grid.md 收起策略的 `restoreToShare`（第七节 1）；若采纳第七节 2，把“为零的分支”那句放宽到“收起为零的节点”。
+   - 临时产物都在 /tmp/w00026-t24-s1fix/（before、after、scratch），仓库里没有留文件。
+
+十、收尾时补的核实（advisor 复核后）
+   - 底部面板的锚照常能拖到零：`containerAnchorOf` 对具名面板返回 null（L/layout-doc.ts:519），所以 `sectionCollapseBlock(doc, 底部锚)` 是 null、`setPanelCollapsed(doc, 底部锚, true)` 成功，
+     拒绝的只是分节。在 L/layout-doc.test.ts“收起：区域唯一显示的分节、底部面板的分节都拒绝…”里补了两行断言钉住；工作台已有用例 part-commands.test.ts:113、view-commands.test.ts:249 经 store 收起底部锚，照常通过。
+     补断言后重跑 `cd packages/nb-layout && bun run test`（517 加 188 通过、0 失败）与 `bun run typecheck`（退出码 0）。
+   - 校验拒绝浮动窗带 `container`：写 `floats.push` 的只有 `floatTab`（新建记录，本来就不带 `container`）与 `openFloatPanel`（已去掉），没有别的路径会写出带归属的浮动窗。
+   - `restoreToShare` 对所有按比例分的工具面板打开，包括不带容器的文档（fuzz 的 3120 条差异就是它）：这些面板在边界上 Enter 恢复的尺寸来源也从 `restoreSize` 换成了“按权重该得的份额”，不只是区域里的分节。
+     理由相同（它们的意图也只是比例）；主 Agent 要收窄到区域里的分节，在 L/layout-project.ts:72 加上 `region !== null` 的条件即可。
+   - 第 8 条（`collapsibleHere`）在工作台这层没有自动化用例（组件没有单测）：靠库的 `sectionCollapseBlock` 测试与主 Agent 跑的 e2e。
+   - nb-layout 下没有列举 `isPanelShown` 这类判定的文档，两个新导出不需要另外登记。

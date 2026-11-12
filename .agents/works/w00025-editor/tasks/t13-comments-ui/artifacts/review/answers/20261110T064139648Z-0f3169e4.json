@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t13-comments-ui",
+    "artifactId": "review",
+    "answerId": "20261110T064139648Z-0f3169e4",
+    "artifactVersion": 2,
+    "contentHash": "9c6210436b73bcb6043d50e7238bc57f0b0f4888272e408c9f22dae5cdb9ee00",
+    "submittedAt": "2026-11-10T06:41:37.355Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "q4-coexist": "toggle",
+        "q5-look": "form"
+    },
+    "comments": {
+        "q5-look": "就用浮层和页面这两个卡片的，让它可编辑就行。不要第一轮的那个输入框边框"
+    },
+    "note": null
+}

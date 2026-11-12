@@ -14,6 +14,7 @@ import type {EditorPanelsService} from "nbook/plugins/workbench/shared/contracts
 import type {DocumentCoordinator} from "../shared/contracts";
 import {createEditorArea} from "./area";
 import type {EditorArea} from "./area";
+import type {AutoSaveSettings} from "./auto-save";
 import type {EditorCatalog} from "./editors";
 import type {TabsSnapshot} from "./groups/groups";
 import type {EditorRecentStore} from "./recent-record";
@@ -36,6 +37,8 @@ export interface EditorSessionOptions {
     readonly conflict?: (address: string, editors: ReadonlyArray<string>) => void;
     /** 设置“预览标签页”（docs/specs/workbench/editor.md 输出 52）；缺省为开。 */
     readonly enablePreview?: () => boolean;
+    /** 自动保存的设置，响应式读取（见 `EditorAreaOptions.autoSave`）。 */
+    readonly autoSave?: () => AutoSaveSettings;
 }
 
 export interface EditorSession {
@@ -78,6 +81,7 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
             ...(options.editors === undefined ? {} : {editors: options.editors}),
             ...(options.conflict === undefined ? {} : {conflict: options.conflict}),
             ...(options.enablePreview === undefined ? {} : {enablePreview: options.enablePreview}),
+            ...(options.autoSave === undefined ? {} : {autoSave: options.autoSave}),
         });
     };
 

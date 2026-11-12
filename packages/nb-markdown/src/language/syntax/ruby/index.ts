@@ -4,11 +4,12 @@
  *
  * 注音的正文只能是纯文字：读进来的正文里有格式、换行或标签时不认领（整体为原样片段）。注音标记的优先级最低，写出时在最里层：
  * 盖住整段注音的格式写在 `<ruby>` 外面；只盖住一部分时注音在格式的边界处断开成两个同样的注音，读回来仍是一个（属性相同的
- * 相邻标记合成一段）。
+ * 相邻标记合成一段）。编辑器里加格式时整段注音一起改（`whole-ruby.ts`），断开只在文件本来就这样写、或在注音中间带着
+ * 格式打字时出现。
  */
 
 import {Mark, mergeAttributes} from "@tiptap/core";
-import type {Mark as PMMark} from "@tiptap/pm/model";
+import type {Mark as PMMark, MarkType, Node as PMNode} from "@tiptap/pm/model";
 import type {MarkedExtension, Token, Tokens} from "marked";
 import {decodeHTMLStrict} from "entities";
 
@@ -17,6 +18,7 @@ import {escapeAttribute} from "../../../markdown-dialect";
 import {closeInline, openTagAt, openTagIndex} from "../tags";
 import {CODE_EXCLUSIVE} from "../types";
 import type {MarkdownSyntax, MarkWriter, TokenReader, WriteContext} from "../types";
+import {wholeRubyPlugin} from "./whole-ruby";
 
 declare module "@tiptap/core" {
     interface Commands<ReturnType> {
@@ -35,6 +37,19 @@ type RubyStyle =
     | {readonly form: "attr"; readonly open: string; readonly text: string}
     | {readonly form: "rt"; readonly open: string; readonly close: string; readonly rt: string}
     | {readonly form: "bare"; readonly open: string; readonly close: string};
+
+/** 范围里有没有能放注音的字：所在的块收这个标记，字上也没有排斥它的标记（行内代码）。同 Tiptap `setMark` 的判断。 */
+function allowsRuby(doc: PMNode, from: number, to: number, type: MarkType): boolean {
+    let allowed = false;
+    doc.nodesBetween(from, to, (node, _pos, parent) => {
+        if (allowed) return false;
+        if (node.isInline) {
+            allowed = (parent === null || parent.type.allowsMarkType(type)) && !node.marks.some((mark) => mark.type !== type && mark.type.excludes(type));
+        }
+        return !allowed;
+    });
+    return allowed;
+}
 
 export const MarkdownRuby = Mark.create({
     name: "markdownRuby",
@@ -56,9 +71,29 @@ export const MarkdownRuby = Mark.create({
     },
     addCommands() {
         return {
-            setMarkdownRuby: (text: string) => ({commands}) => commands.setMark(this.name, {text}),
+            // 整个选区放同一个注音，不用 `setMark`：它按每个文字节点合并各自旧注音的属性，盖住旧注音与旁边的字时成了两个属性
+            // 不同的注音，写回是两个 `<ruby>`。原文写法（`markdown`）沿用选区里第一个旧注音的，改注音时 `<rt>` 写法不变。
+            setMarkdownRuby: (text: string) => ({tr, state, dispatch}) => {
+                const {empty, ranges} = state.selection;
+                if (empty || !ranges.some((range) => allowsRuby(state.doc, range.$from.pos, range.$to.pos, this.type))) return false;
+                if (dispatch !== undefined) {
+                    let style: unknown = null;
+                    for (const range of ranges) {
+                        state.doc.nodesBetween(range.$from.pos, range.$to.pos, (node) => {
+                            if (style === null) style = this.type.isInSet(node.marks)?.attrs.markdown ?? null;
+                            return style === null;
+                        });
+                    }
+                    const mark = this.type.create({text, markdown: style});
+                    for (const range of ranges) tr.addMark(range.$from.pos, range.$to.pos, mark);
+                }
+                return true;
+            },
             unsetMarkdownRuby: () => ({commands}) => commands.unsetMark(this.name),
         };
+    },
+    addProseMirrorPlugins() {
+        return [wholeRubyPlugin(this.type)];
     },
 });
 

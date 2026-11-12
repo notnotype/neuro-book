@@ -90,7 +90,7 @@ export function sessionRows(data: SessionsData): {agents: SessionRow[]; panes: S
     const panes: SessionRow[] = data.panes.filter((pane) => keyOf(pane) === null && pane.inRepository).map((pane) => {
         const run = runsByPane.get(pane.paneId);
         const dir = base(pane.foregroundCwd ?? pane.cwd);
-        const title = pane.agent !== null ? `${pane.agent}（没有报会话）` : run ? `${run.command}${dir ? `（${dir}）` : ""}` : `pane ${pane.paneId}${dir ? ` · ${dir}` : ""}`;
+        const title = pane.agent !== null ? `${pane.agent}（没有报会话）` : run ? `${run.command}${dir ? `（${dir}）` : ""}` : `窗格 ${pane.paneId}${dir ? ` · ${dir}` : ""}`;
         return {
             key: pane.paneId, paneId: pane.paneId, kind: "pane",
             title, titleFrom: pane.agent === null && run ? "run" : "pane",

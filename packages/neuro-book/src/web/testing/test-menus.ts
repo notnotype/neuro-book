@@ -10,7 +10,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration, MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
-import {EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, EDITOR_TOOLBAR_POINT} from "nbook/plugins/editor/shared/contracts";
+import {EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_CODE_CONTEXT_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, EDITOR_TOOLBAR_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {EXPLORER_CONTEXT_POINT} from "nbook/plugins/explorer/shared/contracts";
 import type {ExplorerContextItemDeclaration} from "nbook/plugins/explorer/shared/contracts";
@@ -70,6 +70,10 @@ const TAB_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: Edito
     {id: "test.menus.tab-md", declaration: {section: "1", command: TEST_MENUS_RECORD_COMMAND, label: label("测试标签菜单"), extensions: [".md"], context: "resource"}},
 ];
 
+/** 源码编辑器正文右键（docs/specs/workbench/editor.md 验收 42）：只对 `.json` 的一项，收到被右击的文件的地址。 */
+const CODE_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: MenuItemDeclaration}> = [
+    {id: "test.menus.code-json", declaration: {section: "1", command: TEST_MENUS_RECORD_COMMAND, icon: "i-lucide-puzzle", label: label("测试源码右键项"), extensions: [".json"], context: "resource"}},
+];
 
 export function createTestMenusBrowserPlugin(): PluginDefinition {
     return {
@@ -85,6 +89,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
                 ...EXPLORER_ITEMS.map(({id, declaration}) => ({capability: EXPLORER_CONTEXT_POINT, id, declaration})),
                 ...EDITOR_ITEMS.map(({id, declaration}) => ({capability: EDITOR_TITLE_POINT, id, declaration})),
                 ...TAB_ITEMS.map(({id, declaration}) => ({capability: EDITOR_TAB_CONTEXT_POINT, id, declaration})),
+                ...CODE_ITEMS.map(({id, declaration}) => ({capability: EDITOR_CODE_CONTEXT_POINT, id, declaration})),
                 ...MARKDOWN_ITEMS.flatMap(({point, items}) => items.map(({id, declaration}) => ({capability: point, id, declaration}))),
             ],
             activate: (context) => {
@@ -98,6 +103,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
                     [EXPLORER_CONTEXT_POINT]: menuImplementations(EXPLORER_ITEMS),
                     [EDITOR_TITLE_POINT]: menuImplementations(EDITOR_ITEMS),
                     [EDITOR_TAB_CONTEXT_POINT]: menuImplementations(TAB_ITEMS),
+                    [EDITOR_CODE_CONTEXT_POINT]: menuImplementations(CODE_ITEMS),
                     ...Object.fromEntries(MARKDOWN_ITEMS.map(({point, items}) => [point, menuImplementations(items)])),
                 }};
             },

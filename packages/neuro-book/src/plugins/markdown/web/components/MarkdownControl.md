@@ -28,6 +28,8 @@ type Props = {
 type Emits = {
     ready: [handle: EditorControlHandle | null];
     focus: [focused: boolean];
+    /** 编辑内核失焦；焦点进自己的菜单与输入框也算（自动保存的“失焦时”用）。 */
+    leave: [];
 };
 ```
 
@@ -48,8 +50,10 @@ type Emits = {
 
 - 编辑动作与菜单（[`workbench/markdown-editing.md`](../../../../../../../docs/specs/workbench/markdown-editing.md)）：句柄交出 `editing`，动作实现在 `@notnotype/nb-markdown/editor`。菜单从编辑器区注入的 `editorMenusKey` 取，没有注入时（组件测试）不画工具栏与菜单。菜单状态按组件实例算，不写 ProseMirror 插件视图：换文档时 `plugins` 数组换了，插件视图会全部重建；组件重挂时也一样。
 
-`state:local`：编辑器实例与当前绑定。`state:inject`：方言目录与资产地址（`nbook.markdown` 交出组件时提供），以及窗口的翻译端口（[`ui/i18n.md`](../../../../../../../docs/specs/ui/i18n.md)）：引用小块的悬停提示与图片的说明经它取，`markdownViewContext()` 把它带进节点视图里挂的图片，换语言时不重建编辑器：图片跟着端口重画，引用小块的悬停提示由控件重算一次。`env:timer`：输入后的结算延迟与记下光标的延迟，卸载与结算时清除。
+- 批注页边（[`workbench/markdown-editing.md`](../../../../../../../docs/specs/workbench/markdown-editing.md) 输出 33）：开关（`menus.commentMargin`，这部作品的本机记录）开着、控件够宽才画。宽度量控件根 `.markdown-control-root` 的容器宽度（不含滚动条，页边卡片把短文档撑出滚动条时不会因此少一截而来回闪），出现在“版心 + 页边宽 + 空 + 两侧最小留白”（1032px，版心取 `--markdown-measure`）、已画出的在窄于它 32px 时收起（迟滞）；常量在 `menus/comments/margin-layout.ts` 与本文件。画出来时滚动容器加 `padding-inline-end`（页边宽加空），版心自然居中在剩下的宽度里，左移半个页边宽；根上带 `data-comment-margin`，主题的两侧场景图据此不画。`marginDrawn` 算一份，下传给批注层（浮层据此不出，页边据此画）。句柄交出 `comments.count`（文档里批注的条数，每个事务现算），没有菜单层时不交出。
+
+`state:local`：编辑器实例与当前绑定；控件宽度与页边画不画。`state:inject`：方言目录与资产地址（`nbook.markdown` 交出组件时提供），以及窗口的翻译端口（[`ui/i18n.md`](../../../../../../../docs/specs/ui/i18n.md)）：引用小块的悬停提示与图片的说明经它取，`markdownViewContext()` 把它带进节点视图里挂的图片，换语言时不重建编辑器：图片跟着端口重画，引用小块的悬停提示由控件重算一次。`env:timer`：输入后的结算延迟与记下光标的延迟，卸载与结算时清除。
 
 ## 不支持
 
-批注侧栏、Agent 与 AI 引用、工作区引用标签与 frontmatter 面板（frontmatter 用源码编辑器改）。
+“全部批注”的侧栏列表（页边打开时页边就是总览）、Agent 与 AI 引用、工作区引用标签与 frontmatter 面板（frontmatter 用源码编辑器改）。

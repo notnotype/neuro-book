@@ -59,7 +59,7 @@ describe("左列表的行", () => {
         ));
         expect(rows.panes.map((row) => [row.paneId, row.title, row.titleFrom, row.scrollback, row.selectable])).toEqual([
             ["w2:p1", "bun run dev（dev-panel）", "run", true, true],
-            ["w3:p1", "pane w3:p1 · repo", "pane", false, true],
+            ["w3:p1", "窗格 w3:p1 · repo", "pane", false, true],
         ]);
         expect(rows.panes[1]!.detail).toBe("全屏程序或没有回滚，不能往回翻");
         expect(rows.agents).toEqual([]);

@@ -1,0 +1,184 @@
+w00039 t31 作者界面第一批：设计审查第二轮（Sonnet，只读）
+审查对象：docs/specs/canon/author-ui.md、editor.md 与 commands.md 的 planned 改动、canon 四份 Spec 的 planned 条目（只看界面对它们的用法）、plan.md 第三版。
+说明：条目按核实先后编号，最后给影响次序。“从代码推断”表示没有在运行时复现。
+
+### 1. “改这一笔”与变更详情页的“改”在内核合同里没有路径：editInPlace 与 previewEdit 都不能改一条加减补丁带的数
+严重程度：阻断
+类别：正确性（合同缺口）
+位置：author-ui.md 输出 16（累出来的数）、21（变更详情页“数的改动旁有改”）、23（核对点不符“每笔一个改这一笔”）、验收 4、5；revisions.md 输出 8 的路由表与输出 22；plan.md 零、K1；packages/nb-canon/src/world/edits.ts:108-120
+现象：editInPlace 的入参是（位置、地址、新值、读到的值、意图），路由由“这个值来自哪”决定。值来自加减（op 为 add）、归纳或核对点时，创作修改一律返回 accumulated-value（edits.ts 第 108-110 行：last.kind 为 reduce、check，或 patch 且 op 为 add、note 时直接 return）。revisions.md 输出 8 路由表第四行也写“改其中某一笔，或记一笔”，但没有说用哪个方法、什么入参去改“其中某一笔”。K1 的 previewEdit 只是“入参同 editInPlace、recordDelta、recordNote”，它的返回里有 route 为 patch（改那条变更里的那一笔），但这个 route 只在“值来自赋值、整段替换、增块”时才会出现。于是：待处理里嫌疑区间每一笔的“改这一笔”（输出 23）、变更详情页里“星瑕的存款 −300”旁的“改”（输出 21）、累出来的数展开来历后“由作者改其中一笔”（输出 16），三处都没有可调用的读写方法。验收 5 的最后一步“点改这一笔改成对得上的数并保存，这一条从待处理消失”是 Smoke 的 e2e 场景，同样做不出来。
+为什么是问题：只剩两条路：界面自己从 object 读整条变更、改补丁、拼 WriteRequest 走 preview 和 publish，等于把路由和“发布后值要等于预期”的校验在界面再写一份（上一轮第 1、23 条已经指出过这种“同一规则两份”）；或者内核再补一个“改这条变更的第 N 个补丁的值”的读写方法。第二轮计划的八项补口里没有它，K1 的描述还让人以为 previewEdit 已经覆盖。
+如何核实：读 edits.ts 第 95-122 行；grep -n "accumulated-value" docs/specs/canon/revisions.md；读 author-ui.md 输出 16、21、23。
+建议改法：在内核补口里加第九项，例如 editChange {change, patch 序号, 新值}（读与写各一个，预览的 route 固定是 patch），写进 revisions.md 输出 8 与 22；或者 Spec 明说第一批的“改这一笔”只对赋值类补丁可用，加减的那一笔只显示、不给“改”，并把验收 4、5 改成可做的场景。二选一，现在两头都不成立。
+
+### 2. 计划说的“canon 现有的测试场地”在 Vitest 里跑不起来：harness.ts 与 ProjectHarness 依赖 bun:test 和 import.meta.dir，并且要起真实的项目子进程
+严重程度：重要
+类别：测试
+位置：plan.md 技术选型表第三行、二（组件测试）、S2 的验证；packages/neuro-book/src/plugins/canon/testing/harness.ts:8；packages/neuro-book/src/server/testing/projects.ts:10、30；packages/neuro-book/vitest.config.ts
+现象：计划写“用 canon 现有的测试场地（testing/harness.ts）起真实的世界服务与真实的 createCanonClient，界面的读取层接在它上面”，组件测试是 `*.dom.test.ts`，由 Vitest（Node 加 happy-dom）运行。harness.ts 第 8 行 `import {expect} from "bun:test"`，它的 windowOf 要一个 ProjectHarness；projects.ts 第 10 行同样引 bun:test，第 30 行用 Bun 才有的 import.meta.dir，并通过项目管理器起真实的项目子进程（canon.test.ts 的“世界服务在真实项目子进程里”）。
+我在 Vitest 里做了实验：写 /tmp/review-w00039-t31-design2/exp/h.dom.test.ts，用自写的配置（合并包内 vite.config，include 指向实验目录）运行 `bunx vitest run --config /tmp/review-w00039-t31-design2/exp/vitest.exp.config.ts`。结果：动态 import harness.ts 失败，报 `Cannot bundle Node.js built-in "bun:test" imported from "src/plugins/canon/testing/harness.ts"`；import projects.ts 同样失败；而 `import("@notnotype/nb-canon/node")` 在同一环境里成功。所以真实的 WorldService 在 Vitest 里能起，“现有的测试场地”不能用。
+为什么是问题：读取层的 resync、ended、独占、unknown-outcome 这些路径计划都押在这个场地上（S2、S5、S7 的验证和验收映射“条目树……失败的呈现”整行）。要用就得另写一套 Node 侧的场地：在进程内用 createWorldHost 或 WorldService 加 canonWorldContract 的服务端实现，经 @notnotype/nb-runtime/remote/testing 的 createLinkPair 接真实的 createCanonClient，再自己造“断线”“服务结束”。这是新工作，不是“现有”，S2 要为它留切片，并把它与 canon 的 bun 测试场地对一遍契约。
+如何核实：见上，实验文件与配置都在 /tmp/review-w00039-t31-design2/exp/。
+建议改法：计划把这一项从“现成”改成 S2 的明确产出（Node 侧测试场地），写进验证；或把读取层放在不依赖 Vitest 的 bun test 里测（读取层是纯 TS，只依赖 CanonClient 接口），组件层的 dom 测试只用读取层的真实实例加一个预置结果的 CanonClient。
+
+### 3. 条目页页头的面包屑与“是谁：某某”的数据没有来源：entry 的返回里没有上级、分组、马甲关系，tree 又只能由上往下取
+严重程度：重要
+类别：正确性（合同缺口）
+位置：author-ui.md 输出 6；plan.md 四的读取表（条目页只列 entry、render、chapters、origins、changes、components）；packages/nb-canon/src/engine/types.ts:81-92（EntryView）；project.md 输出 30（planned，tree 的 sameAs）
+现象：输出 6 要页头写“设定 › 分组 › 上级条目 › 名字”，上级条目可能是多层；马甲条目要写“是谁：某某”并链接到本体。EntryView 只有 id、deleted、appeared、name、aliases、summary、text、namespaces、upcoming、components，没有 parent、folder（分组）、sameAs。新加的 K4 把 sameAs 给了 tree 的每一项，而 tree 是按父条目往下取一层，不能从子条目反查父。要取只能用 object 读存下来的条目（字段 parent、folder、sameAs 在 EntrySchema 里），再对每一级上级重复 object 加取位置上的名字。计划的“条目页主要读取”一栏没有 object，每个条目页打开的读取次数、以及一个页面里要为上级链各发几次请求，都没有算进去。
+为什么是问题：面包屑是 editor.md 里已经有“待回话”标记的东西（开发者问过要不要），而它的数据要 N 次读取，标签条下面那一行在每次切标签时都要重算；输出 6 的“名字变了标题跟着变”也只管本条目，上级改名后面包屑不会跟着变（上级不在“可见的读取”里）。
+如何核实：读 types.ts 第 81-92 行与 schema.ts 第 120-130 行；grep -n "sameAs" docs/specs/canon/project.md（只在 tree 的 planned 条目）。
+建议改法：二选一：在 K4/K5 里让 entry 的返回带 parent 链（每级 id、nameAt）、folder、sameAs（一个字段，不另发请求）；或者把第一批的页头只写本条目的名字，面包屑与“是谁”降到下一批。（以上是第 3 条建议改法的完整写法，上一行被截断。）
+
+### 4. 标签标题只读“读取层里已有的名字”：刷新后没激活过的条目标签全是“条目”，别处改名后不可见标签的标题也不更新，与输出 6 矛盾
+严重程度：重要
+类别：正确性
+位置：author-ui.md 输出 6、26、验收 2；plan.md 一（title）；editor/web/components/EditorGroup.vue:159-162（页面只在活动时渲染）；EditorGroupHead.vue:78（标签名由 tabLabel 在 computed 里算）
+现象：计划写“条目页的标题读的是读取层里已有的名字，不为标题单独发请求；条目还没读到时先显示声明的标题”。页面标签只在活动时才挂载（EditorGroup.vue 的 pageId 取自 activeTab），而读取层只给“前台可见”的读取重读。因此：(a) 刷新后恢复出来 N 个条目标签，只有活动的那个会读到条目，另外 N-1 个标签一直显示“条目”，直到作者逐个点开（输出 6 写了这个回退，但没写它会持续多久，验收 2 只验“两个标签都还在”，不验标题）；N 个同名“条目”标签作者分不出谁是谁，同名提示又只对文件标签生效（输出 56，tab-hints.ts 只喂文件标签）。(b) 条目在别处被改名后，不可见标签的标题要等回到前台才更新，而输出 6 写“名字变了标题跟着变”，输出 26 写“不可见的标签与视图回到前台时重读”，两条没有交代怎样同时成立。
+为什么是问题：刷新恢复是开发者明确要的功能，恢复后的标签条是它最先暴露的地方。
+如何核实：读 EditorGroup.vue 第 158-162 行与 pages.ts 的 source().title；写一个测试：恢复两个条目标签，只激活其中一个，读另一个标签的标题。
+建议改法：恢复出来的页面标签的标题由 title(arg) 触发一次轻量读取（只要名字，缓存，不跟随每次发布重读），读取层给“标题读取”一个独立的类别：可见与否都读，但只读 tree 级别的 nameAt（K4 已有，一页多个 id 合并成一次）；或者 Spec 明说“恢复后没有激活过的标签保持‘条目’”并让标签的悬停提示至少写出条目 id（会违反“界面上不出现记录 id”，所以更倾向前一种）。
+
+### 5. “恢复”由什么记录、谁来判：快照是纯模型，不知道页面声明；声明晚到或贡献方停掉时存盘会把带参数的标签抹掉
+严重程度：重要
+类别：不变量
+位置：editor.md 输出 33 planned 段与“副作用与数据”；plan.md 一（恢复）；editor/web/groups/groups.ts:453-460（snapshot）、466-476（restoreTabs）；editor/web/tabs-record.ts:24-45（schema）；pages.ts
+现象：现在 snapshot() 对页面标签一律写 `{page: true}`，restoreTabs 看到 `page` 就把标签从布局文档里拿掉；两个函数都是纯模型，手里没有页面声明。planned 文字只说“声明 restore: true 的页面记页面 id 与 arg，照文件标签恢复”，没有写：(a) 记录的形状（tabs-record.ts 的 schema 是 `Union[{page: true}, 文件标签]`，additionalProperties 为 false，要加第三种；arg 的上限与字符集；版本是否要升）；(b) 判断“这个页面要不要记 arg”靠声明还是靠 PageTab 自带的字段。如果靠声明：刷新后贡献方的入口还没交付（或这次启动激活失败、被禁用）时，恢复出来的标签存在，但此刻声明不在，下一次存盘（任何一次切标签、关别的文件都会触发）就按“不可恢复”写成 `{page: true}`，所有条目页标签在下次刷新时永久消失；规格里“声明在而实现没交付时是‘正在加载页面’”这句保证的是显示，保不住记录。PageTab 要自带 restore 与 arg（恢复时从记录读，打开时从声明抄），snapshot 只看它自己。
+(c) 同一个原因，“一直不交付”的终态没写：声明在、实现永远不来时标签停在“正在加载页面”，没有失败文字，也没有超时。
+为什么是问题：这条决定刷新恢复会不会静默丢标签；而且是在“canon 入口启动慢或失败”这种平时看不到的路径上丢。
+如何核实：读 groups.ts 第 453-476 行；写模型测试：恢复一个带 arg 的页面标签，声明不在的状态下触发 snapshot，再恢复。
+建议改法：Spec 写明 PageTab 带 restore 与 arg，snapshot 与 restoreTabs 只看标签自己；记录形状 `{page: true, id, arg}` 写出来，restore 为假的页面仍写 `{page: true}`；“一直不交付”在 Spec 里给一个终态（例如声明在而实现 N 秒未交付仍显示加载，由诊断记录，不加机制），明说是已知限制即可。
+
+### 6. editor.md 的 planned 改动没有改全：输出 33 首句仍说页面不恢复，输出 60 仍说页面没有面包屑，focus-breadcrumbs 对页面拒绝，面包屑组件绑在文件上
+严重程度：重要
+类别：文档（Spec 自相矛盾）与可行性
+位置：editor.md 输出 33（第一句“页面标签刷新后不恢复（输出 5）：活动的是页面时，恢复后活动的是它的相邻标签”未动）、输出 5、输出 60（“页面标签没有面包屑”）、输出 56（只管文件标签）、“副作用与数据”；editor/web/area.ts 的 focusBreadcrumbs（对页面返回 refusal.notFileTab）；components/EditorBreadcrumbs.vue、EditorGroup.vue:77-87
+现象：(a) 上一轮第 17 条（b）要求把输出 33 与输出 5 的原句改成按 restore 区分的单一说法。新稿只在输出 33 尾部追加了“（planned）”段，前面“不恢复”一句原样保留，输出 5 没改：同一条里两句相反，要读者自己拼。（“副作用与数据”那一句同样只在后面补了一句。）
+(b) 输出 33 写“有返回时这个标签有面包屑（输出 60 的那一行）”，输出 60 却写“页面标签没有面包屑”，并且整条是围绕路径段、目录下拉、文件大纲、focus-breadcrumbs 键位写的。新稿没改输出 60，也没写页面面包屑的键盘行为：area.focusBreadcrumbs 对页面标签直接拒绝（area.ts，refusal.notFileTab），点带命令的段只有鼠标路径。
+(c) 组件层：EditorBreadcrumbs.vue 的 segments 是 `{kind: "root"|"dir"|"file", label, address}`，必需的 props 有 parent、outline、list（目录读取），打开下拉是读目录；EditorGroup.vue 的 crumbs 计算对 tab.kind 为 page 直接返回空。“复用文件面包屑那一行”实际要给组件加一种“命令段”（无下拉、点了执行命令）、让 list/outline 变可选，并改 crumbs 的计算与焦点命令；计划把它写成“照文件的面包屑画”，低估了。
+为什么是问题：实施者按 Spec 字面做会漏掉旧句；面包屑还带着“待回话”，开发者没答之前不该进验收 44。
+如何核实：git diff -- docs/specs/workbench/editor.md 对照第 151、221、267 行；读 EditorBreadcrumbs.vue 第 18-37 行。
+建议改法：输出 5、33、60 与“副作用与数据”各改成一句完整的话；面包屑在开发者答复前整段标 planned 并从验收 44 里拿掉，或明确列出要改的组件与键位。
+
+### 7. 上一轮第 13、14 条的前提部分不成立：编辑器区本来就是每个标签一个 EditorGroup 实例；真正的缺口是“不活动即卸载”会丢掉未提交的输入，而 Spec 没把它放进标签状态
+严重程度：重要
+类别：不变量 / 文档（计划描述与代码不符）
+位置：plan.md 一（“每个标签自己的实例”“标签状态容器”）；editor.md 输出 33 planned 段；author-ui.md 输出 7、16；WorkbenchShell.vue:677-679；packages/nb-layout/src/vue/NestedGrid.vue:429（v-for 以 item.key 为 key）；EditorGroup.vue:241-242
+现象：内容层对每个标签（contentKey 为 tab:<标签 id>）渲染一块 `EditorGroupPart`，key 是标签自己；页面组件在这块里面，且只在该标签活动时挂载。所以“同组两个同种页面共用一个组件实例”（上一轮第 13 条（a））在现有代码里不会发生，计划里“编辑组渲染页面时以标签 id 为 key”这一条是空操作；editor.md 输出 33 写“每个页面标签有自己的组件实例”只是描述现状，验收 44 里“在组件里的计数”那一半也永远通过。真正需要的只是 state：每个标签一个响应式对象，页面卸载（不活动）后还在，标签关闭时清掉，并且标签移到别的组时不丢（内容块不重建，标签 id 不变，所以按标签 id 存即可）。
+缺口在这里：Spec 输出 7 列出的标签状态只有位置、按计划、分页、展开的来历。正在填写的就地改（新值、意图）与记一笔的输入、确认条本身，都在组件里，切到别的标签（例如去查另一个条目的数）页面卸载就丢了。Spec 对此一个字没写，作者填了一半的数静默消失。
+为什么是问题：“填数时去看别的条目”是最常见的操作之一。
+如何核实：读 WorkbenchShell.vue 第 677-679 行；读 EditorGroup.vue 第 158-162、241 行。
+建议改法：把“正在编辑的地址、输入的值、意图”也放进 state（只在实际模式，数据小）；或者在 Spec 里明说“切走标签会放弃未保存的输入”并给验收。同时把计划里“每个标签自己的实例”改成“现状已满足，只加 state 与按标签的 context”，E 片的工作量按此重估（context 改成按标签：EditorPageSource.context 现在是整个窗口一个对象，pages.ts:72，EditorGroup.vue:242）。
+
+### 8. ComponentViewContext 对第二批的两个界面不够：没有世界版本信号，record 返回 void 看不到结果，edit 只开确认条但输入控件在谁手里没说
+严重程度：重要
+类别：规范（接口）
+位置：author-ui.md “数据分页的贡献点”、输出 12、14、16、17；plot/shared/contracts.ts（nbook.plot/world 的 knowing、conflicts、experience、goals）
+现象：(a) 第二批“谁知道什么”“目标与态度”的数据在 nbook.plot/world 的远程方法里（knowing、conflicts、goals），不在命名空间字段里，而且依赖别的条目（谁知道某个知识点要看很多人的知情列表；一个目标的冲突依赖别的目标）。context 里 fields 只在本条目的这个命名空间变化时才变。别处的发布改了别人的知情，本界面没有任何信号知道要重读：context 没有 version（上一轮第 9 条的建议是给只读的 version，新稿删掉了）。结果是专门界面要么自己去订阅（拿不到读取层），要么显示过期数据，违反输出 26。
+(b) record(path, input) 返回 void：专门界面里“记一笔”的输入框在界面自己手里（输出 14），提交后要清空输入、显示失败原因（value-conflict、validation-failed、busy）。record 不返回结果也没有 pending/error 的响应式状态，界面做不到；输出 29 说失败时“确认条或对话框留在原处”，记一笔没有确认条，原因写在哪里没人规定。
+(c) edit(path)“让条目页对这个地址打开就地改的确认条”：输出 16 写的是“值的位置变成输入控件，下面是确认条”。值的位置在专门界面的 DOM 里，条目页没法替它换成输入控件。如果输入控件在确认条里，Spec 要写出来（输出 16 的“按字段的声明：数、文字、选项”是在确认条里出控件）；如果在界面里，edit 就还需要把新值交回条目页的 API。现在两种读法都成立。
+(d) open 只能开条目或变更；第二批需要打开别的东西（伏笔账本、某一章）时没有出口。第一批可以不管，列一行。
+为什么是问题：窄接口公开后就是第三方合同（“公开接口”一节），第二批一开工就要改。
+如何核实：用 plot/shared/contracts.ts 的 knowing 与 conflicts 对着 ComponentViewContext 逐项找入口。
+建议改法：context 加 `readonly version: number`（响应式，世界版本）；record 与 edit 返回 Promise 或结果对象（成功、失败原因），失败原因由界面自己显示；输出 16 写明输入控件在确认条里。
+
+### 9. 从“改动记录”还原（和任何没有三种页面在前台时的写入）没有反馈：输出 18 的提示只出现在三种页面里
+严重程度：重要
+类别：正确性（行为缺口）
+位置：author-ui.md 输出 18、22、24
+现象：输出 18 写“条目页、回执页、变更详情页里在前台的那一个，顶上出现一行提示”，没有这三种页面在前台（例如前台是一个章节文件、欢迎页，或编辑区折叠）时提示出现在哪里没有规定。输出 22 又写“改动记录里每条修订……都能还原……确认后发布一次补偿修订，按输出 18 给提示”，而改动记录在底部面板，作者此刻编辑区往往是章节正文。结果：点“还原”、确认、成功，界面上什么都不发生（视图里只是多一条修订），“看回执”和“撤销”也没有入口；失败（has-dependents 之外的 value-conflict、busy、world-locked）更没有地方写原因，因为输出 29 的“确认条或对话框留在原处”只管对话框，对话框确认后已经关了。待处理里的“强行解除”同理。
+为什么是问题：这是回执和撤销这条主线的一半入口。
+如何核实：读输出 18、22。
+建议改法：提示由读取层持有一份，三个视图和三种页面都能显示（视图顶上同一行）；或者在 Spec 里写明“没有可显示的位置时用工作台通知（ui.workbench-shell 的通知）”，回执链接作为通知的动作。
+
+### 10. 条目树的“再显示（还有 N 项）”与墓碑规则不一致：输出 2 隐藏的已删除叶子条目仍计入 N
+严重程度：建议
+类别：正确性
+位置：author-ui.md 输出 2；project.md 输出 30（planned：已删除的条目照常列出，页带 remaining）
+现象：输出 2 写“已删除的条目只有在它还有子条目时才列出”，N 是“这一层剩余的条数”。内核（输出 30）的 tree 会把所有已删除条目都列出，remaining 是页之后剩余的全部项。界面要自己过滤已删除且无子项的叶子，于是：N 包含看不见的项；一页 50 项里全是已删除叶子时这一页是空的，却还有“再显示”。
+如何核实：对照两处原文。
+建议改法：任选其一：让 tree 的筛选加“不列没有子项的已删除条目”并让 remaining 按筛选后算；或输出 2 改成“已删除的也列出，叶子置灰写‘已删除’”（上一轮第 6 条的另一种解），N 才对得上。
+
+### 11. 读取层规则里仍有三处没定：写入结果与 changed 事件谁先、缓存的淘汰、标签切回时用不用旧数据
+严重程度：建议
+类别：正确性
+位置：plan.md 三；author-ui.md 输出 26、验收 3、7
+现象：(a) 写入返回的 Published 带 version，但 changed 事件走另一条订阅，两者到达的先后没有保证（client.ts 里 publish 是一次调用，订阅是另外几条）。计划没有写读取层是否在写入返回时就把已知版本抬到 Published.version 并触发重读。不抬的话，“保存”成功后提示已经出现，值还是旧的，随后点“撤销”或再改会带着旧的读到的值得到 value-conflict；验收 3 的“保存，Then 值变了、顶上有提示”要等事件才成立，测试要能区分这两种顺序。
+(b) 缓存：键是（方法, 输入），输入里有位置、条目、模式，作者来回切位置就产生新键；“没人用的”读取在计划里到底丢还是留没有写，两种都有问题：丢则输出 26 要求的“回到前台时保留旧内容、不出现占位”做不到（页面卸载后读取没人用）；留则没有上限。需要一条规则，例如保留最近的 K 个键，K 取一个数写进 Spec 或计划。
+(c) 页面标签不活动即卸载（见第 7 条），所以“切回标签”总是重新挂载一个页面，读取层要给它一份旧数据加后台重读；这对 entry 带 render 的几个读取要一起拿到才不闪，计划没写“同一页面的几个读取一起换”。
+如何核实：读 client.ts 的 publish 与 subscribe；读 plan.md 三。
+建议改法：写进读取层的三条规则（写入返回抬版本；保留最近 K 个键，K 取一个数；切回时先用旧数据）并各配一条读取层测试。
+
+### 12. Lab 的“录像回放”：只能答录过的输入，写入类场景没有演示办法，并且录像用的服务配置与产品不同
+严重程度：建议
+类别：测试
+位置：plan.md 二（Lab 场景）、技术选型表第四行；packages/nb-canon/tests/sample/replay.ts:30-46
+现象：(a) 回放客户端按（方法, 输入）精确匹配。Lab 里作者（或 e2e）一点别的位置、展开另一个来历，读取的输入就是没录过的，回放客户端只能报错或空；条目页的位置选择有 2N+1 个选项，场景若允许切换，要把这些位置都录上，计划只写“每个场景要的那几次读取”，没写没录到的输入怎么办。(b) 写入类场景（确认条的预览、保存、撤销、失败的几种呈现、busy）要预览和发布的返回；回放客户端不会改世界，所以保存之后值不会变，场景只能停在静态。计划没有写这类场景演示什么。(c) 录像用 replay.ts 的服务配置录：reducer 是原型的查表小模型、now 固定，所以人物的“现在的态度”在录像里是归纳过的一句话；产品的世界宿主没接小模型（计划“审查核实出的现状”自己写了），同一份样本在产品里和 e2e 里永远是“还没归纳”。Lab 场景展示的和产品里作者能看到的不一致，Spec 又声明归纳后的写法是 planned。(d) 录像里不能含 status 的 performance.now() 耗时一类，否则“重新生成后一致”的测试不稳；replay 的 now 与 clock 是固定值，所以可行，但要把这条写成约束。
+为什么是问题：不是做不到，是 Lab 场景能证明什么没有界限，容易变成静态截图加一个看起来能点的界面。
+建议改法：录像脚本用与产品宿主相同的 ports（不带 reducer），语义档只录“还没归纳”；写入类场景在 Lab 里只演示静态的确认条、失败条（给定的预览与失败返回），保存后的变化由 dom 测试（真实服务）覆盖，写进计划。
+
+### 13. 贡献点 canon.component-views：“只能给自己登记的类型交界面”靠 idPrefix 不成立（内置插件只需发布者前缀），规则没有写出靠什么
+严重程度：建议
+类别：安全与性能 / 规范
+位置：author-ui.md “数据分页的贡献点”；packages/nb-runtime/src/plugins/host.ts:836-846（#idPrefixProblem）；editor/web/plugin.ts:78（editor.pages 的 idPrefix: "plugin"）
+现象：仓库惯例是贡献点写 `idPrefix: "plugin"`，Spec 只写了“贡献 id 是类型 id，插件只能给自己登记的类型交界面”，没有写点的定义（implementation、idPrefix、validate、是否 complete）。#idPrefixProblem 对第三方插件要求 id 以插件 id 加点开头，所以第三方只能为 `<自己>.xxx` 的类型交界面，规则成立；但对发布者在保留名单里的内置插件，只要求以 `nbook.` 开头，所以 `nbook.plot` 可以为 `nbook.canon.person` 交一个界面，与 canon 自己交的撞 id（后到的按通则被拒，取决于激活先后）或抢占。内置插件之间是同一团队，实际风险小，但 Spec 不应把“靠前缀成立”当成既成事实。title 的约定键（`componentViews.<类型>.title`）也没写，同 editor.pages 的 completeEditorPageDeclaration。
+建议改法：Spec 写出点的定义：`implementation: "required"`，`idPrefix: "plugin"`，`complete` 补 title 的约定键；去掉“只能给自己登记的类型”一句的因果，改成“第三方插件按贡献 id 前缀只能为自己的类型交界面；内置插件之间靠约定”。这是一行文字的事。
+
+### 14. 页面声明的校验规则：真正会出错的组合没禁，禁的组合没有理由
+严重程度：建议
+类别：正确性 / 文档
+位置：editor.md 输出 33 planned 段（“openOnFirstVisit 与 restore 同时写时声明被拒”）；editor/shared/contracts.ts:157-171（声明 schema 是 additionalProperties: false）；web/plugin.ts:180-186（firstVisitPages 调 openPage(id) 不带 arg）
+现象：(a) `instances: true` 的页面必须带 arg，而 openOnFirstVisit 的自动打开是 `openPage(id)`，不带 arg，得到 invalid-args 并记一条诊断：`instances` 与 `openOnFirstVisit` 才是真正互斥的，新稿没有禁（上一轮第 17 条（d）同一处）。(b) 新稿禁的是 `openOnFirstVisit` 加 `restore`：欢迎页式的页面既首次自动打开又刷新恢复并不矛盾（没有 arg 的页面 restore 也能存），没有写理由。(c) `restore` 不带 `instances` 的含义没写（无参页面恢复？欢迎页现在是刻意不恢复的，输出 33 原话）。(d) 两个跨字段规则 schema 表达不了，只能写在 validateEditorPageContribution 里，计划没提；`instances`、`restore` 还要加进 EditorPageDeclarationSchema。(e) 验收 44 不覆盖 arg 超过 200 个字符、空串、arg 里带 `?` 与 `#`（地址 `page://<id>?<编码后的 arg>`，pageIdOf 要取 `?` 之前）、没声明 instances 的页面带了 arg。
+建议改法：规则改成“restore 必须同时写 instances；instances 与 openOnFirstVisit 互斥”，其余按 (e) 补验收一条。
+
+### 15. 标签的几个小口子：同名标签分不开、state 没有类型、title 在贡献撤回后可能抛错
+严重程度：建议
+类别：正确性 / 规范
+位置：editor/web/components/EditorGroupHead.vue:78-84；tab-hints.ts；pages.ts:117-120；editor.md 输出 33 planned 段、输出 56
+现象：(a) 同名提示只看文件标签（输出 56，EditorGroupHead 只喂 `tab.kind === "file"`）。两个名字相同的条目（常见：不同卷里的同名配角）会得到两个一模一样的标签，悬停提示也是同一个名字（title 对页面取 label）。(b) `state` 在 Spec 里是“一个响应式对象”，没有类型：条目页要的 {position, planned, tab, origin} 需要页面自己断言。让声明或实现给初值函数，EditorPageContext 带泛型，类型检查才有用。(c) pages.ts 的 source().title 现在只读声明；新的 `title(arg)` 在实现上，而实现经句柄取，句柄撤回后 `handle.implementation()` 被内核拒绝（pages.ts 头注释自己写的）。标签条的 computed 里调它必须先判句柄还在，撤回后回到声明的标题，planned 段没写这个回退。
+建议改法：(a) 条目页标题冲突时在 title 里自己带上一级（条目页自己知道上级），不动 tab-hints；(b)(c) 各写一句。
+
+### 16. 失败表缺码，验收覆盖面窄，Smoke 外的场景全押在第 2 条那个不存在的测试场地上
+严重程度：建议
+类别：测试 / 文档
+位置：author-ui.md “失败与恢复”表、验收与 Smoke；project.md 失败表
+现象：(a) 失败表缺 `write-failed`（project.md：写盘失败，确定没写进去；这是作者最可能遇到的一个）、`request-id-reused`、`result-mismatch`、`intent-not-allowed`、`field-unavailable`、`incomplete-field`、`not-deletable`；它们落在“别的失败码写出码与服务给的说明”，等于把英文码给作者看，和“界面文字里不出现记录 id……”同一条的精神冲突。其中 `incomplete-field`、`field-unavailable`、`intent-not-allowed` 其实是界面状态（值不完整时“改”该怎么表现），应在输出 16 里说。(b) `exclusive-lost` 被列为输出 28 的情形，输出 28 没写它（界面本身不持有独占，所以不会出现，列表里去掉）。(c) 验收覆盖：输出 13（语义档）、24（改动记录的筛选与重读）、25 的“世界还没读到时不显示”、27（断线重连、横幅与重试）、29（各失败码的呈现，只有验收 8 触到 busy）、30（键盘与读屏）、32（390 像素）、6（标题跟着名字变）、7 的“选着的章被删”、K8 的语义档记一笔，都没有验收。Smoke 的 e2e 只走 1、2、3、5，其余场景靠 dom 测试，而 dom 测试的真实服务场地见第 2 条。
+建议改法：失败表补 write-failed 与“值不完整”的呈现；验收补一条“失败呈现”（用 canon 现有的 busy、只读、断线夹具各造一个）和一条 390 像素的场景；其余记为“由 dom 测试覆盖”并写明哪个用例。
+
+### 17. 键盘与读屏仍写不成测试：值按钮与“改”按钮的可达顺序、文字分页里有没有“改”、树之外的键位都没定
+严重程度：建议
+类别：规范
+位置：author-ui.md 输出 10、16、30
+现象：输出 10 说文字里的每个值是按钮，读屏读出字段显示名与值；输出 16 说值旁有常显的“改”按钮。(a) 文字分页是一段段渲染出来的正文，每个值后面都挂一个常显的“改”会打断阅读，输出 10 与输出 16 没说文字分页里有没有“改”（只在通用字段表、面板里有？那么文字里的值要改只能去数据分页，没写）。(b) 一个值两个 tab 停靠点（值、改）时，焦点顺序、点“改”后焦点进输入控件（输出 30 有）、取消回到“改”（输出 16 有）、保存成功后焦点去哪没写。(c) 输出 30 的“都能只用键盘操作”除条目树（输出 5）外没有具体键：分页（左右键还是 Tab）、列表行、来历展开（Enter/空格）、待处理列表（上下键选中，选中即显示详情还是要 Enter）、位置选择（nb-ui 的 Select 现成，可以不写）。验收里没有一个键盘场景。
+建议改法：Spec 写明文字分页里值只是展开来历的按钮，不放“改”（改在数据分页里）；分页用 nb-ui 的 Tabs 的键位，列表用 roving tabindex 的上下键；补一条只用键盘完成“选值、改、保存、回到‘改’按钮”的验收。
+
+### 18. 与视图容器衔接：三个视图在没有项目的窗口里也存在，底部面板在 t24 之前会在首次布局里默认显示；输出 25 把布局规则放进了状态栏条目的条文
+严重程度：建议
+类别：文档 / 规范
+位置：author-ui.md 输入表、输出 1、25；views.md 输出 13、14、16（planned）、工作台现行规则
+现象：(a) 视图是 canon 插件的浏览器入口贡献的，没有声明 `when` 之类的条件，所以没绑定项目的窗口（欢迎页）里：侧栏有“设定”入口，底部面板有两个视图，每个只写一句“打开作品后可用”。t24 之前底部面板按现行规则默认显示，等于每个新用户第一次启动就看到一个空面板；t24 之后每个视图是自己的隐式容器，底部面板区域有两个只有一句话的入口。输出 25 把这一点放在“状态栏条目”条文末尾，既不是状态栏的行为，也没法单独验收。(b) 活动栏“排在文件资源管理器之后”要写 `order`：views.md 输出 13 说内置视图不写 order 一律按 0 排，同值的先后不由 order 决定，Spec 与计划都没写具体数值。(c) 视图需要 icon、title 等声明字段（ViewDeclaration），输入表只写了名称，S3、S7 实施时要补，Spec 里应给出。
+建议改法：三个视图声明里让面板视图在没绑定项目的窗口里不出现（若 views 声明有 `when`/公开状态就用它；没有就在 Spec 里列为已知限制，并和 t24 的“默认隐藏”一并解决）；输出 25 的布局句拆成单独一条；输入表补 order、icon、title。
+补充（第 18 条 (b)）：已核实 ViewDeclaration 没有 when 之类的条件字段（views.md 输入与前置条件）；资源管理器的视图声明 `order: 0`（explorer/web/plugin.ts:43）。views.md 输出 13 写同值按 id 排，所以 `nbook.canon.entries` 不写 order 会排在 `nbook.explorer.*` 之前（按字符串比较 canon 小于 explorer），与输出 1 的“排在文件资源管理器之后”相反；必须显式写 order（例如 10）并写进输入表。这一点不是“建议”，实现时一定会撞上。
+
+## 上一轮 35 条的核对（处理记录里说“改”的）
+- 到位：第 1、3、4、5、7、26（八项补口，合同在 canon 四份 Spec 里有 planned 条目）；第 6（输出 2 墓碑，但见本轮第 10 条的 N 问题）；第 8（commands.md 域词表）；第 9、35（窄接口，但见本轮第 8 条）；第 11、22（Spec 标 planned）；第 24（新建对话框字段）；第 28（Tree 缺的东西，计划选了包一层加给 nb-ui 一个行尾插槽，没有再审）；第 29（onStartup 与公开状态 hasPending，Spec 里有）；第 12（失败表有 author-source-required）；第 33 的引用错位（逐条核对了输出 4、14 的引用，现在是 18、17）。
+- 改了一半：第 13、14（只加了 state 与按标签的 context，没发现内容层本来就是每标签一个实例，见本轮第 7 条；未提交输入没放进 state）；第 15（title 的回退写了，但不可见标签与恢复后标签的标题仍是问题，见第 4 条）；第 16（恢复三态写了，但谁判、记录形状、一直不交付没写，见第 5 条）；第 17（editor.md：命令表和 `editor.tabs` 一句话改了，输出 33 首句、输出 5、输出 60 没改，见第 6 条；instances 与 openOnFirstVisit 没禁，见第 14 条）；第 10、31（测试底座改成真实服务，但选的“现有场地”在 Vitest 里不能用，见第 2 条）；第 18-21（读取层规则写了，三条小口见第 11 条）；第 23（待处理一键处理收窄了，但“改这一笔”本身没有合同路径，见第 1 条）；第 34（“改”常显、内容列封顶写了；通知“消失条件”写成“一直在”，见第 9 条的相关处）。
+- 没改到：第 27 的“章序调整”节（回执页 Spec 输出 20 没有章序调整一节，reorder 修订的 ops 是 {kind: "chapters"}，“改了什么”三类节放不下，K2 的 revision 虽然给 ops，页面没规定怎么写）；第 25（删除确认的数目已去掉，已处理）。
+
+## 未发现问题的方面
+- 页面标签在拖到另一个组或浮动窗时 state 是否丢：内容块不重建、标签 id 不变，按标签 id 存的 state 不受影响（EditorGroup.vue 头注释与 WorkbenchShell.vue:679 的 key）。跨窗口拖标签：布局文档按窗口存，没有发现跨窗口的标签移动路径，仔细检查后没有发现。
+- 地址里的 `?`：`isWithin` 与 `rebase` 只处理文件地址，对 `page://` 地址不会误改写（上一轮已核，本轮再看 closeWithin 也只对 isWithin 的真值动作）。
+- 失败表里列出的码：no-project、world-read-only、write-unknown、busy、exclusive-lost、world-locked、too-large、cursor-stale、chapter-not-found、stopping 都在 project.md 失败表；value-conflict、version-conflict、validation-failed、accumulated-value、has-dependents、not-revertable、author-source-required 都在 revisions.md 或 rendering.md；unknown-outcome 在 project.md 的路由层失败行。表里没有不存在的码。
+- 订阅先于首次读取、resync 重读、ended 标成断开：规则本身与 client.ts 的事件转发一致，没有发现问题（问题在测试场地，见第 2 条）。
+- 样本子路径：星瑕样本的 JSON 与 convert.ts 是纯数据与纯函数，搬到 nb-canon 子路径不引 node（replay.ts 才引 node:crypto、nodeFiles，不要一起搬）；nb-canon 的 architecture.test.ts 只检查 src 下的 node:/bun: 引用与 ./schema 的依赖闭包，不会拦新子路径。包是 private，不涉及发布。需要的只是 monorepo-boundaries.md 里 nb-canon 一行的导出清单同步（该行现在还写“./node 只在 Bun 里用”，而 Node 里的 Vitest 实测能 import）。
+- 欢迎页、Agent 对话页、主题编辑器三个现有页面：每标签一个实例本就如此，context 改成按标签对它们是多两个字段，行为不变；`page://<id>` 旧地址不受影响。
+- 三个视图写的是 `layout`/`order`/`location` 这些现行声明字段，在 t24 合入前后都是隐式容器，不依赖容器字段。
+
+## 对待确认项的判断
+- 面包屑（plan.md 一、editor.md 输出 33 里“主会话建议要，待回话”）：建议第一批不要。理由见第 3、6 条：数据要多次读取（entry 不带上级链），组件与键位（EditorBreadcrumbs、focusBreadcrumbs）都绑在文件上，输出 60 与输出 33 互相矛盾。页头已经有名字和位置；先去掉，等第二批有第二种页面再一起设计。验收 44 里面包屑那一半也随之去掉。
+- 窄场景倾向“简单规则”：本轮第 5 条（一直不交付）、第 11 条（缓存上限取一个数）、第 12 条（回放没录到的输入）按“记为已知限制、写一句规则”处理即可，不要加机制。
+
+## 数量
+阻断 1，重要 8，建议 9，合计 18。
+影响次序：1（改这一笔无合同路径）、2（测试场地跑不起来）、5（恢复记录的判断）、7（未提交输入丢失与计划描述不符）、8（窄接口不够第二批）、4（恢复后标题）、9（还原没有反馈）、6（editor.md 没改全）、3（页头数据来源）、其余建议。
+有效发现的编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18

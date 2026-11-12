@@ -112,8 +112,15 @@ export interface NotificationInput {
     readonly action?: {readonly label: DisplayText; readonly run: () => void};
     /** 进度（0 到 100）；null 为不确定进度；不给就没有进度条。 */
     readonly progress?: number | null;
-    /** 常驻：不自动消失。缺省 error 色调与带动作的通知常驻，其余按色调自动消失。 */
+    /** 常驻：不自动消失。缺省 error 色调、带动作与带详情的通知常驻，其余按色调自动消失；明确给的值优先。 */
     readonly sticky?: boolean;
+    /**
+     * 开发诊断原文，放进“详情”对话框（ADR 0034：诊断原文只进详情，不当主文案）。是字符串、不是 `DisplayText`：原文不翻译。
+     * 必须已脱敏、有界（载体最多留 8000 字，超出截断并注明）；空串与全空白等于没有。`update` 里给空串清除详情。
+     */
+    readonly detail?: string;
+    /** 发出方已经截过原文时给 true：对话框照样注明“已截断”（载体只能从长度看出自己截没截）。只随 `detail` 一起生效。 */
+    readonly detailTruncated?: boolean;
 }
 
 /** 已发出的通知：改进度、文字、色调与常驻，或移除。 */

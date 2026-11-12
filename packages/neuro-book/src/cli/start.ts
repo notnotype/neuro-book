@@ -11,7 +11,7 @@ import open from "open";
 
 import {productPlugins} from "nbook/manifest";
 import {readServerConfig, ServerConfigError} from "nbook/server/config";
-import {claimStateRoot, queryInstance} from "nbook/server/instance";
+import {claimNeuroBook, queryNeuroBook} from "nbook/server/instance";
 import type {InstanceInfo, StateRootClaim} from "nbook/server/instance";
 import {claimReport, runServerProcess} from "nbook/server/process";
 import {PRODUCT_VERSION} from "nbook/shared/product";
@@ -97,7 +97,7 @@ export async function start(context: StartContext, options: StartOptions): Promi
     const deadline = Date.now() + WAIT_MS;
     let waitingFor: InstanceInfo | null = null;
     for (;;) {
-        const found = await queryInstance(context.stateRoot);
+        const found = await queryNeuroBook(context.stateRoot);
         if (found.state === "unresponsive") {
             throw new CliFailure("instance-unresponsive", `状态根 ${context.stateRoot} 上已有实例，但它没有应答（被暂停或卡住）；结束它之后再启动`, 1, {stateRoot: context.stateRoot, detail: found.detail});
         }
@@ -109,7 +109,7 @@ export async function start(context: StartContext, options: StartOptions): Promi
             }
             waitingFor = found.instance;
         } else {
-            const claimed = await claimStateRoot({stateRoot: context.stateRoot, kind: "product", version: PRODUCT_VERSION, report: claimReport});
+            const claimed = await claimNeuroBook({stateRoot: context.stateRoot, kind: "product", report: claimReport});
             if (claimed.ok) return serve(claimed.claim, context, options);
             if (claimed.reason === "unresponsive") continue;
             if (claimed.reason === "unwritable") throw new CliFailure("state-root-unwritable", `状态根 ${context.stateRoot} 不可写：${claimed.detail}`, 1, {stateRoot: context.stateRoot});

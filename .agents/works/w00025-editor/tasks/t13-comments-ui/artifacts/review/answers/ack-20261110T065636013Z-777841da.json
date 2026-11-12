@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00025-editor",
+    "taskId": "t13-comments-ui",
+    "artifactId": "review",
+    "ackId": "20261110T065636013Z-777841da",
+    "answers": [
+        "20261110T064139648Z-0f3169e4"
+    ],
+    "through": "20261110T064139648Z-0f3169e4",
+    "included": [
+        ".agents/works/w00025-editor/tasks/t13-comments-ui/README.md"
+    ],
+    "ackedAt": "2026-11-10T06:56:36.013Z"
+}

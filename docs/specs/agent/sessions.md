@@ -79,8 +79,8 @@ owners:
 17. 事件 `profileCatalogChanged`，没有过滤、没有载荷：只说目录变了（[`contributions.md`](contributions.md) 输出 16）。先订阅后取 `profiles`、`toolCatalog`，`onResync` 重取。
 15. **附件。** 存在 `sessions://<会话 id>/home/attachments/<SHA-256>.<扩展名>`，写全局地址：`fork` 只复制日志，不用复制文件；原会话被删后按缺失处理。扩展名按 MIME 白名单定，图片按文件头认，声明是图片、文件头不是的（包括 SVG）按普通文件存。上传 `POST /api/nbook.agent/sessions/<id>/attachments`，体是文件字节，原名按百分号编码放 `X-Attachment-Name`；别的网页发起的拒绝；会话不存在 404；单个 25 MB，边读边数，超了 413，不信 `Content-Length`；同一内容已有算成功；交回 `{uri, kind, name, mime, bytes, width?, height?}`。读取 `GET`、`HEAD` 同前缀加文件名，文件名只接受哈希加扩展名；别的网页发起的拒绝；会话不存在 404（归档的还读得到）；所有响应带 `Content-Security-Policy: sandbox` 与 `nosniff`，位图内联，别的下载，`ETag` 用哈希。不做缩略图。发给模型前由内核的读取端口缩放（最长边 1,568，目标 500 KB，同 `read` 工具），原图不动；解不了的（损坏、格式不支持、像素超限）换一行字，不发原图。
 
-18. 列表带父会话（planned）：`list` 的条目有 `parent?`，是会话头 `caller` 的会话 id（只在调用方是会话时）（[`harness/session.md`](../harness/session.md) 输出 22）；没有调用方的会话没有这一项。
-19. 子代理与任务的远程（planned）：查询 `tree({sessionId})` 与事件 `treeChanged`（[`subagents.md`](subagents.md) 输出 21、22）、`ancestors({sessionId})`（同上输出 25）；`activity` 的条目加 `root`（根会话 id）；查询 `jobs({sessionId})`、`jobTail({sessionId, jobId, lines?})`、`jobStatuses({sessionId, jobIds})`、事件 `jobsChanged`、指令 `killJob({sessionId, jobId})`（[`jobs.md`](jobs.md) 输出 9–11）。都以用户的身份，会话打不开时得会话的失败码。
+18. 列表带父会话：`list` 的条目有 `parent?`，是会话头 `caller` 的会话 id（只在调用方是会话时）（[`harness/session.md`](../harness/session.md) 输出 22）；没有调用方的会话没有这一项。
+19. 子代理与任务的远程：查询 `tree({sessionId})` 与事件 `treeChanged`（[`subagents.md`](subagents.md) 输出 21、22）、`ancestors({sessionId})`（同上输出 25）；`activity` 的条目加 `root`（根会话 id）；查询 `jobs({sessionId})`、`jobTail({sessionId, jobId, lines?})`、`jobStatuses({sessionId, jobIds})`、事件 `jobsChanged`、指令 `killJob({sessionId, jobId})`（[`jobs.md`](jobs.md) 输出 9–11）。都以用户的身份；这几项不为取数打开会话（读关系表、会话索引与任务中心），不存在的会话交回空（`tree`、`ancestors`、`jobs` 是空列表，`jobStatuses` 全是 null，`jobTail`、`killJob` 得 `job-unknown`）。`activity` 的 `waiting` 只算停在等用户的事项上（审批、交给用户的提问、模式切换请求，同 [`subagents.md`](subagents.md) 输出 21 的 `waiting`）；子会话停在交给派它的 Agent 的提问上算 `running`。
 
 ## 状态与转换
 
@@ -136,9 +136,9 @@ Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试与 `agent.llm.t
 ## 实现合同
 
 - **公开入口**：`nbook/plugins/agent/shared/contracts`（服务键 `agentKey`、`AgentService`、`StartTaskOptions`、`taskSessionId`）、`nbook/plugins/agent/shared/remote`（远程合同 `agentSessionsContract` 与 `LogItem`、`PreviewItem`、`RemoteFrame` 投影）。
-- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有句柄表、远程提供方与 `agentKey`；会话日志由内核的 JSONL 存储写在 `<状态根>/agent/sessions/`。浏览器经远程合同调用，同进程的插件经 `agentKey`。
+- **owner 与依赖方向**：`nbook.agent` 的服务端入口持有句柄表、远程提供方与 `agentKey`；句柄表的实现是 nb-harness 宿主套件的 `SessionTable`（`@notnotype/nb-harness/kit/sessions`），实例与计时口由 `nbook.agent` 给，“等用户”里总要用户答的提问（模式切换请求，输出 19）经它的 `userOnly` 给；会话日志由内核的 JSONL 存储写在 `<状态根>/agent/sessions/`。浏览器经远程合同调用，同进程的插件经 `agentKey`。
 - **关键不变量**：
-  - 句柄表是会话打开、关闭与引用的唯一所有者：同时到达的打开共用一次，交出的视图不持引用、每次调用时取会话，空闲关闭在同一个同步段里复查（输出 5、6，`agent.test.ts`“会话”）。
+  - 句柄表是会话打开、关闭与引用的唯一所有者：同时到达的打开共用一次，交出的视图不持引用、每次调用时取会话，空闲关闭在同一个同步段里复查（输出 5、6，`agent.test.ts`“会话”，nb-harness 的 `kit/sessions/table.test.ts`）。
   - 停止先关门（服务的每个入口），再停用户 Profile 的打包、等在建的会话登记完，最后按 `interrupted` 关闭（输出 14，`agent.test.ts`“停止时还在建的会话”“停止时运行中的会话”）。
   - 远程结果与帧不超过一条消息：分页的按字节截断并给游标，大事件与大预览分段读，不分页的超限得 `result-too-large`（输出 9，`sessions.test.ts`、`backend/frames.test.ts`）。
   - 每个远程订阅自己的内核订阅与合并缓冲，会话打不开时订阅失败（输出 7、8，`sessions.test.ts`）。
@@ -147,6 +147,6 @@ Smoke：`packages/neuro-book/src/plugins/agent/` 的插件测试与 `agent.llm.t
 ## 证据
 
 - 批准依据：w00032 t10 决定 1–8 与实施阶段的决定 9–15（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t10-agent-plugin/README.md)）；t03 决定 4、5，t07 决定 7；开发者 2026-11-01 批准晋升为 `implemented`。
-- 实现入口：[`backend/sessions.ts`](../../../packages/neuro-book/src/plugins/agent/backend/sessions.ts)（句柄表）、[`backend/agent.ts`](../../../packages/neuro-book/src/plugins/agent/backend/agent.ts)（装配、`agentKey`、`startTask`）、[`backend/remote.ts`](../../../packages/neuro-book/src/plugins/agent/backend/remote.ts)、[`backend/frames.ts`](../../../packages/neuro-book/src/plugins/agent/backend/frames.ts)、[`shared/remote.ts`](../../../packages/neuro-book/src/plugins/agent/shared/remote.ts)
-- 合同测试：[`sessions.test.ts`](../../../packages/neuro-book/src/plugins/agent/sessions.test.ts)（真实远程链路、断线重连）、[`tasks.test.ts`](../../../packages/neuro-book/src/plugins/agent/tasks.test.ts)（`startTask` 与 `unknown-outcome` 重发）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（句柄表与停止）、[`backend/frames.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/frames.test.ts)
+- 实现入口：nb-harness 的 [`kit/sessions/table.ts`](../../../packages/nb-harness/src/kit/sessions/table.ts)（句柄表）、[`backend/agent.ts`](../../../packages/neuro-book/src/plugins/agent/backend/agent.ts)（装配、`agentKey`、`startTask`）、[`backend/remote.ts`](../../../packages/neuro-book/src/plugins/agent/backend/remote.ts)、[`backend/frames.ts`](../../../packages/neuro-book/src/plugins/agent/backend/frames.ts)、[`shared/remote.ts`](../../../packages/neuro-book/src/plugins/agent/shared/remote.ts)
+- 合同测试：[`sessions.test.ts`](../../../packages/neuro-book/src/plugins/agent/sessions.test.ts)（真实远程链路、断线重连）、[`tasks.test.ts`](../../../packages/neuro-book/src/plugins/agent/tasks.test.ts)（`startTask` 与 `unknown-outcome` 重发）、[`agent.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.test.ts)（句柄表与停止）、nb-harness 的 [`kit/sessions/table.test.ts`](../../../packages/nb-harness/src/kit/sessions/table.test.ts)（空闲关闭的时序）、[`backend/frames.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/frames.test.ts)
 - Smoke：[`agent.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/agent.llm.test.ts)（`test:llm`，DeepSeek 经远程合同跑一轮）

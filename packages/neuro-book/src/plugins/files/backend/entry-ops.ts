@@ -15,7 +15,7 @@ import type {Stats} from "node:fs";
 import {access, chmod, copyFile, lstat, mkdir, open, readdir, readlink, rmdir, symlink, unlink} from "node:fs/promises";
 import {join, sep} from "node:path";
 
-import {describe, errno} from "nbook/backend/locked-replace";
+import {describe, errno} from "@notnotype/nb-file-lock";
 
 import type {FilesFailureCode} from "../shared/failures";
 import {renameNoReplace} from "./exclusive";

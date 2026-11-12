@@ -42,4 +42,4 @@ Vue 渲染层（`@notnotype/nb-form/vue`）：
 bun add @notnotype/nb-form
 ```
 
-只支持 Bun。包里是 TypeScript 与 `.vue` 源码，不带编译产物，由宿主的 Vite 与 Tailwind v4 编译（[ADR 0028](../../docs/adr/0028-tailwind-only-host-compiles-nb-ui.md)、[ADR 0029](../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。peer 依赖 `vue` 与 `typescript`（编译单文件组件时解析导入的 props 类型要用），Bun 安装时会自动装上；宿主另装 `vite`、`@vitejs/plugin-vue`、`tailwindcss` 与 `@tailwindcss/vite`。许可证 AGPL-3.0-only。
+只支持 Bun。包里是 TypeScript 与 `.vue` 源码，不带编译产物，由宿主的 Vite 与 Tailwind v4 编译（[ADR 0028](../../docs/adr/0028-tailwind-only-host-compiles-nb-ui.md)、[ADR 0029](../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。只用核心入口（描述、检查、解析、校验）不需要别的包，只依赖 `typebox`。用 `./vue` 的宿主自己装 `vue`、`@notnotype/nb-ui` 与 `typescript`（编译单文件组件时解析导入的 props 类型要用）：这三个是可选的 peer 依赖，Bun 不会自动装；宿主另装 `vite`、`@vitejs/plugin-vue`、`tailwindcss` 与 `@tailwindcss/vite`。只用核心、又对本包的源码做类型检查时，要装上 `@notnotype/nb-ui`：核心从它取文字值的类型（只取类型，运行时不加载）。许可证 AGPL-3.0-only。

@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t24-view-containers
 status: active
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 # 视图容器：活动栏、右栏、底部面板的一个图标是一整个容器
@@ -70,4 +70,57 @@ Spec 的条目级 planned 合同已提交（`workbench-layout`、`views`、`nest
 
 ## 下一步
 
-在 worktree `.worktree/w00026-t24-view-containers`（分支 `feat/w00026-t24-view-containers`）按 `plan.md` 的切片实施，从切片 0 开始。
+在 worktree `.worktree/w00026-t24-view-containers`（分支 `feat/w00026-t24-view-containers`）按 `plan.md` 的切片实施：
+
+- 切片 0（`isPanelShown` 收口，行为不变）已提交：nb-layout、工作台单元测试通过。
+- 切片 1（nb-layout 的锚、分节、容器归属，区域整体拖到零）已提交，编码派 Fable，主 Agent 审 diff 并自跑：nb-layout 498、组件 187、工作台 206 项单元测试与类型检查通过，`workbench-views`、`workbench-dnd` e2e 68 项通过。与说明不同的三处：锚的当前容器字段叫 `activeContainer`；“新模型的锚”要求带 `entries`；`grid-geometry.ts` 收起的分支里不再报空间不够的诊断。实现审查（Fable）在后台。
+- 切片 1 的实现审查（Fable，[`evidences/impl-review-s1.txt`](evidences/impl-review-s1.txt)）：9 条（重要 3、建议 6），旧文档行为不变经差分模糊 9773 步 0 处不一致。处理（切片 2 提交后修，单独提交）：F1 锚做交叉方向的外缘、锚当来源、给了归属却落在区域外，一律拒绝；F2 只显示一个分节时不收成标题行（主 Agent 按“窄场景选简单改法”定，Spec 输出 11 已写；`collapsed` 留着，区域里又有两个以上分节时起作用），库给“此刻是不是收成标题行”的判定，工作台都问它；F3 浮动窗不许带归属、非锚区域的归属不起作用；F4 `showPanelAndInsert` 对分节拒绝，活动栏落点在切片 4 之前不可用（中间态）；F5 拖到零的区域里看不见的分隔线不可聚焦、不进命中（先在 `NestedGrid.dom` 测试里复现）；F6 不缓存，`anchorOf` 改 `for…in`；F7 `movePanelToStrip` 拒绝锚当来源；F8 补测试；F9 拖到零的区域两根轴的最小尺寸都是 0。
+- 切片 2（工作台的模型与声明）已提交（`be125d3f7`），编码派 Fable，交付报告 [`evidences/coder-report-s2.txt`](evidences/coder-report-s2.txt)。主 Agent 审 diff 并自跑：两份 `vue-tsc` 通过，工作台、资源管理器、会话、SDK 单元测试 1163 项、nb-layout 498 项通过。内置容器 id `nbook.workbench.project`；分节 id `section:<视图 id>`、区域分支 id `region:<区域名>`。e2e（编码者跑的，主 Agent 在切片 1 修正之后重跑）：`workbench-shell`、`workbench-views`、`plugins` 49 条里 34 过、15 败，都没有 skip、没有为过渡界面写期望：
+  - 活动栏 3 条留给切片 3；“移动到”与命令面板的移动 4 条、主题颜色那条留给切片 5；标签条 3 条留给切片 4（区域里没有标签条了，只剩多标签浮动窗，现在的界面搭不出来）；Lab 夹具 1 条留给切片 3、4。
+  - 焦点在分节头里时隐藏区域，焦点掉到 body：落点是活动栏里容器的入口，归切片 3。
+  - 区域只显示一个分节时仍有收起按钮、分节之间的边界上 Enter 收起再展开高度 421 变 439：并进切片 1 审查的修正。
+  - `plugins.e2e.ts:78` 失败在设置页“其它”分区，和本片无关（编码者读代码推断是 `4d73e28ef` 把工具绑定移到 Profile 分区后用例没跟上，没在 master 上跑确认）。
+  - 别的 e2e（`files-explorer`、`editor-area`、`workbench-titlebar`、`lab-workbench-surface`、`workbench-float`、`workbench-dnd`、`workbench-live-drag`、`workbench-drag-cost`）仍用旧选择器，切片 3、4 一起改。
+  - 过渡规则：`moveView` 放进没有容器的区域时依次试声明的容器、隐式容器，都不行才新建用户容器；空区域点“显示”会被归整再隐藏。切片 5 按输出 23 重做。
+- 切片 1 审查的修正（含上面两条）已提交（`b462eb722`），编码派 Fable，报告 [`evidences/coder-report-s1fix.txt`](evidences/coder-report-s1fix.txt)。主 Agent 审 diff 并自跑：nb-layout 517 项与组件 188 项、工作台与 Lab 518 项（1 条 `package-io` 5 秒超时，master 上同样）、类型检查三份都通过；`workbench-shell`、`workbench-views`、`plugins` e2e 35 过、14 败，失败的就是切片 2 留下的那些（Enter 那条已过），各归切片 3 到 5。超出说明字面的两处，主 Agent 认可并写进 nested-grid 的 Spec：收起策略加 `restoreToShare`（分节的意图只记比例，Enter 按比例恢复）；收起为零的叶与分支都按两轴最小为零，grid 交叉轴的约束跟着改。其余按报告第七节处理：唯一分节按文档数、底部分节的命令展开也不可用、`revealView` 照旧展开，都不改。
+- 切片 3（活动栏）已提交（`b9e276420`）。编码派 Fable，编码者写完产品代码、单元测试与大部分 e2e 后撞额度停下，主会话收尾（开发者 2026-11-11 要求本次不再用 Fable）；交付报告 [`evidences/coder-report-s3.txt`](evidences/coder-report-s3.txt)，末节是主 Agent 的收尾。
+  - 一个容器一个入口，点击切换或隐藏侧栏，按下态是“当前容器且侧栏可见”，溢出时当前容器的入口留在外面；只含一个视图的入口写 `data-tool-view`，拖它就是拖视图。
+  - 入口的右键菜单只有“重置”，store 动作 `moveContainer` 搬整个容器（第二步的“移到”共用）：分节比例不变，方向变了平分。为此 nb-layout 加了原语 `setSiblingShares`。
+  - 焦点落点：同面板的标签 → 新容器的第一个分节 → 活动栏里它容器的入口 → 外壳根。面板头里的焦点改由监听文档发现（不看是哪个按钮或命令改的）。
+  - 收尾时修了一处产品问题：每次结构操作前写回意图时，按比例换算有浮点误差，切换容器后记录里的尺寸意图会差在末位。现在切换容器与 `nbook.view.open` 不写回意图（Spec 输出 8、42）。
+  - 主 Agent 自跑：两份 `vue-tsc`、工作台与 Lab 547 项、nb-layout 测试与类型检查通过。e2e 跑了 `workbench-containers`、`workbench-views`、`workbench-shell`、`plugin-authoring`、`plugin-code`、`plugins` 共 62 条，52 过；失败的 10 条里有 2 条单独重跑后通过。仍失败的 8 条都在切片 2 留下的清单里，归属不变：“移动到”与主题颜色共 4 条归切片 5，标签条 3 条归切片 4，`plugins:78` 与本 Task 无关。基线 14 条失败里本片修好 5 条。
+  - 留给切片 4：`workbench-dnd`、`workbench-live-drag`、`workbench-drag-cost`、`editor-area`、`lab-workbench-surface` 里按视图 id 取入口的选择器。`editor-area` 原来经入口的右键菜单移动资源管理器，要改成经分节标题的“移动到”。
+- 切片 4（拖动）已提交（`c9cb5ceb5`）。编码派 Opus（开发者 2026-11-11 要求不用 Fable），中途两次撞 5 小时额度，额度恢复后续跑做完；交付报告 [`evidences/coder-report-s4.txt`](evidences/coder-report-s4.txt)。
+  - 分节按前后两半落（侧栏、右栏上下，底部面板左右），判定、分区、键盘候选三处同一个判定；整窗拖动经过分节仍走窄带。
+  - 活动栏上段（新模块 `web/entry-drop.ts`）：入口之间新建 `custom:` 容器，来源是它容器唯一的视图时只换序；入口中间一半算入口上，放下并入那个容器。含几个视图的入口只能在入口条里换序。预览不切容器，放下才显示侧栏并切过去。旧的 `barDrop` 删除。
+  - 结构键加各区域的当前容器（输出 32）；多标签浮动窗经“移动到”的“浮动”再拖标题进窗搭出，views 的三条标签条用例改在它上面测；Lab 加两个按钮，和拖到活动栏放下走同一个函数。
+  - 测试插件加一个页面事件执行命令（只在测试外壳里），给验收 32 在拖动进行中执行 `nbook.view.open`。
+  - 范围外一处：分节标题的焦点光晕改内描（外层 `overflow: hidden` 会裁掉），主 Agent 认可。
+  - 主 Agent 自跑：两份 `vue-tsc`、工作台与 Lab 562 项、nb-layout 530 + 188 项、`governance:check` 通过；e2e 两轮共 10 个文件 210 条，202 过。失败的 8 条：`live-drag:394` 是测试先于视图挂完就数实例（旧问题，负载下暴露），改成先等三个看得见的视图再数，连跑 3 次过；`editor-area:1374`、`files-explorer:1018` 单独各跑 2 次都过（负载 5 左右）；其余 5 条归切片 5：`dnd:836`，`views:579`、`675`、`716`（“移动到”菜单的目标、命令面板的移动、实例保留），`views:860`（主题颜色，还在用旧的固定面板选择器）。
+  - 编码者自定、Spec 没写到的几处：入口上并入的范围取入口高度的一半，提示文字“单独成一个入口”“并入{名称}”，键盘拿起浮动窗里唯一的标签时多查一次 `movable`。交实现审查一并看。
+  - 实现审查（Opus，按计划“没把握的切片当场审”）在固定于 `c9cb5ceb5` 的只读 worktree 里后台跑，修正在切片 5 之后单独提交。
+- 切片 5（命令）已提交（`d75f498b1`），编码派 Opus，与切片 4 的审查并行；交付报告 [`evidences/coder-report-s5.txt`](evidences/coder-report-s5.txt)。
+  - `move-view` 的目标是容器 `{viewId, container}` 或某区域的新容器 `{viewId, newContainerIn}`；旧参数 `target`、`newPanelNextTo` 删除，不留别名。只给一部分、两个都给是 `invalid-args`，目标容器既没有成员也没有声明是 `stale-target`，都零写入。
+  - “移动到”菜单与命令面板共用一份目标表 `moveTargetsOf`：别的容器（标题与活动栏同一个求值）、三个“新容器”、需要时“重置位置”。“重置位置”就是移回声明的容器，`resetView` 删除；切片 2 的过渡规则一并删除。
+  - 主 Agent 定的一处：区域里一个容器都没有时点“显示”，结果和现在一样就零写入（原来会被归整再隐藏、多写一次相同内容），状态栏按钮样子不变。
+  - 编码者改了两处判据，主 Agent 认可：`views:634` 改记录造场景，因为整个容器搬到别的区域的“移到”属于第二步；`dnd:1089` 比尺寸意图、不比像素，因为多一个分节少 1 px，这个取整余数落在哪一节随起始尺寸变（探针数据见报告“补充核对”）。
+  - 编码者拿不准、按 Spec 字面做的四处，主 Agent 认可、不改：没有成员的隐式容器按视图声明的区域算“有声明”；目标就是自己的容器时移到最后一节；三个“新容器”都列；浮动的视图列出全部容器。
+  - 主 Agent 自跑：两份 `vue-tsc`、工作台与 Lab 564 项通过；e2e 5 个文件（`workbench-views`、`workbench-dnd`、`workbench-shell`、`workbench-containers`、`editor-area`）145 条，143 过。`views:581` 是用例在刷新前取实例、刷新后比较，主 Agent 改成比刷新后的实例；`editor-area:1374` 单独跑 2 次都过，原因见下面审查第 6 条。
+- 切片 4 的实现审查（Opus，[`evidences/impl-review-s4.txt`](evidences/impl-review-s4.txt)）：14 条（含两条更正与收窄）。修正单独提交（`6486f87cf`）。逐条：
+  - 第 1、2、3、11 条（单视图入口在活动栏里换序要穿过邻居的并入区，停 150 ms 就收起来源，收起后高亮的入口滑离指针）：真实浏览器复现成立。改：来源是侧栏里某个容器唯一的视图时，活动栏算它自己的入口条，停在别的入口上不收起来源、入口不动，只高亮那个入口；并入的预览不先拿掉来源。Spec 输出 38 补了一句，待确认清单记一行。加 e2e“活动栏里慢慢经过邻居入口”，去掉修正时它失败（入口 3 个变 2 个）。验收 29 的用例补上第 2 条要的断言。收起之后又回到自己空位的那一种按“接受取舍”记进待确认清单。
+  - 第 4 条（`reveal` 落点没有构造者）：成立，删掉。nb-layout 的类型与三处分支、编辑器与工作台的分支、外壳的提示文字和 locale 键一起删，`showPanelAndInsert` 是 nb-layout 公开导出的文档操作，留在库里（应用里已经没有调用方）。
+  - 第 5 条（dnd 两条用例删掉的“移动到”尾段）：成立，转给切片 5 的编码者，两段都恢复了（见上）。
+  - 第 6 条（`editor-area`、`files-explorer` 的 `open()` 把会话收成标题行躲开“点到别的行”）：成立，查到根因在资源树（范围外，改的是资源管理器插件）。程序滚动之后，滚动事件下一帧才到，展开与还原行锚点用的是旧的 `scrollTop`，双击的第二下落到上面约 5 行。改成先把元素的 `scrollTop` 同步进来再算。大目录用例加三轮“双击视口下面已渲染的行”，去掉修正时打开的是别的文件。`open()` 里的收起会话保留：会话分节占掉一半高时，资源树只渲染视口附近的行，下面的行不在页面上，按行定位就找不到；注释改成只写这条理由。
+  - 第 7 条（底部面板分节的标题行整行算前半）：成立，改成和正文按同一条竖线分两半，Spec 输出 25 第 7 行与输出 20、38 的说法对齐，待确认清单记一行。
+  - 第 8 条（活动栏上每次移动都跑一遍放下判原处）：不改。量过每次移动约 0.27 ms，远低于一帧。
+  - 第 9 条（`joining` 的一半是死代码）：成立，删掉，`mergeEntry` 直接从显示的落点取。
+  - 第 10 条（迁移后的断言只看位置）：成立，补归属断言；Lab 的两个新按钮补了用例。
+  - 第 12 条（收成标题行的分节，键盘候选仍列前后两个）：成立，只列前面一个，和指针同一个判定。
+  - 第 13 条（含几个视图的入口没有 e2e 拖过）：成立，加 e2e：分节、编辑组、状态栏上都没有落点，松手零写入，只能在活动栏里换序，键盘同样。
+  - 第 14 条（并入高亮被 `:hover` 盖掉）：核实成立，并入的样式也覆盖 `:hover`。
+  - 修正的验证（主 Agent 自跑）：两份 `vue-tsc`；工作台、Lab、资源管理器、编辑器 859 项，nb-layout 530 + 188 项与类型检查，都通过。e2e 7 个文件（`workbench-live-drag`、`workbench-containers`、`workbench-dnd`、`workbench-float`、`lab-workbench-surface`、`editor-area`、`files-explorer`）：
+    - 第一轮跑到第 152 条时被工具中断，前面的失败都记下了：`float:295` 单独重跑通过；`editor-area` 2 条、`files-explorer` 5 条都是撤掉“收起会话”之后，要找的行不在页面上，于是恢复了这一步（见第 6 条）。
+    - 恢复后重跑 `files-explorer`、`editor-area`、`workbench-live-drag` 与 `float:295`，97 条里 96 过。
+    - 剩下的是 `files-explorer` 的触摸拖动：单独跑能过，整份文件跑则三次都失败（切片 4 时也有一次）。探针显示要拖的行在 y=674，资源树视口的下缘是 663.5：前面的用例往同一个目录写了文件，把这一行挤到视口下面，它还渲染着，触点却落在会话分节的标题上。用例改为先把这一行滚进视口，整份文件 23 条全过。
+    - 变异检查：在资源树恢复成原来高度的情况下拿掉 `syncScroll`，大目录用例双击 file-0019，打开的却是 file-0009。
+- 收口：切片 5 与上面的修正（`c9cb5ceb5..6486f87cf`）的实现审查派 Opus，在后台跑；`test:affected --since master --typecheck` 同时在跑。处理完再合入。

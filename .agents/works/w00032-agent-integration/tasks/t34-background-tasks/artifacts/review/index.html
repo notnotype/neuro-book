@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>w00032 t34 后台任务：评审板</title>
+<style>
+body { max-width: 1100px; margin: 24px auto; padding: 0 16px; font: 15px/1.7 system-ui, sans-serif; }
+.row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.row > div { flex: 1 1 320px; min-width: 0; }
+figure { margin: 0 0 12px; }
+figcaption { margin-bottom: 6px; font-weight: 600; }
+img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px; }
+.badge { padding: 1px 6px; border-radius: 4px; background: #e8a33d33; font-size: 12px; }
+.note { color: #666; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>t34 后台任务</h1>
+<p>第 2 轮：按你第 1 轮的备注改了状态栏的样式，只有一道题；空状态的文字已经居中（不用答）。第 1 轮的决定见页底。</p>
+
+<section data-nbdev-question="status-style-r2" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>状态栏：任务条目与铃铛的样式</h2>
+  <figure><figcaption>几种状态（放大两倍）；最后一张是鼠标停在“3 个任务”上</figcaption><img src="r2/status-bar.webp" alt="状态栏右侧：任务条目、铃铛、隐藏面板，几种状态；悬停时的提示每件两行：名字和进度条一行，状态一行"></figure>
+  <p>和第 1 轮比，改了这几处：</p>
+  <ul>
+    <li>任务条目、铃铛和“隐藏面板”用同一种按钮：一样高、一样的悬停底色，条目之间都是 4px。</li>
+    <li>图标统一为 12px 的同一套线条图标。原来的转圈用的是另一个组件，颜色浅、线条细，和别的图标不搭，换成同一套里的转圈图标，颜色跟文字一样；系统设了减少动画时不转。</li>
+    <li>铃铛本身不变色，有新通知时只在右上角加一个蓝点，蓝点外面一圈状态栏的底色，和铃铛分开。第 1 轮是整个铃铛变蓝。</li>
+    <li>悬停提示用产品里真的提示组件：每件两行，名字和进度条一行，状态一行，名字太长时截断；提示和条目右对齐，不会伸出窗口。第 1 轮是手画的卡片，三列挤在一行。</li>
+    <li>都结束后只留一个图标：有没看过的失败时是红色的失败图标，否则是淡色的任务图标。</li>
+  </ul>
+  <div data-nbdev-option="accept" data-nbdev-label="可以"></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已改</span>空的时候文字居中</h2>
+  <div class="row">
+    <div><figure><figcaption>后台任务</figcaption><img src="r2/empty.webp" alt="没有后台任务。安装 Skill 这类要跑一阵的事会列在这里。居中"></figure></div>
+    <div><figure><figcaption>通知</figcaption><img src="r2/notifications-empty.webp" alt="没有通知。居中"></figure></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>第 1 轮的答复（第 5–7 条）</h2>
+  <ul>
+    <li><b>“后台任务”视图</b>：一行一件，整个列表共用几列；窄的时候名字和状态截断，悬停看全文；空的时候文字居中。</li>
+    <li><b>“通知”视图</b>：照第 1 轮的稿。</li>
+    <li><b>状态栏</b>：铃铛一直在；样式要优化，本轮改了，见上。</li>
+  </ul>
+  <div class="row">
+    <div><figure><figcaption>后台任务（默认布局的宽度）</figcaption><img src="r1/line-narrow.webp" alt="每件一行，各列对齐"></figure></div>
+    <div><figure><figcaption>通知（默认布局的宽度）</figcaption><img src="r1/notifications-narrow.webp" alt="每条一行，没看过的行首一个点"></figure></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>会话里定的（第 1–4 条）</h2>
+  <ul>
+    <li><b>任务在服务端登记</b>：刷新页面、开几个窗口，看到的都是同一份；服务重启后清空，正在跑的记为“已中断”。</li>
+    <li><b>范围</b>：NeuroBook 级的任务，也就是插件发起的长任务（Skill 安装这类）。Agent 的后台命令和后台子代理归 t22。</li>
+    <li><b>通知中心和任务列表都做</b>，两者都作为视图放在底部面板里。</li>
+    <li><b>注意力排序</b>：先看到状态栏上的条目，点开是任务视图；安装输出这类原文收在“详情”里；任务开始时不弹通知，结束时弹，成功的过一会儿自动消失，失败的一直留着；关掉通知不影响任务列表。</li>
+  </ul>
+  <p class="note">书架页（没有打开作品时）没有状态栏和底部面板，在那里只会弹出通知；打开作品后，任务和通知都能在面板里看到。</p>
+</section>
+</body>
+</html>

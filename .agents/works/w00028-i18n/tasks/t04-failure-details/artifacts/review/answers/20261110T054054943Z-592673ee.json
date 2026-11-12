@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00028-i18n",
+    "taskId": "t04-failure-details",
+    "artifactId": "review",
+    "answerId": "20261110T054054943Z-592673ee",
+    "artifactVersion": 4,
+    "contentHash": "a85245c93954ceec4eb3b7f20e83bcb758613eaedbf6d2e4fe960d8de1cef025",
+    "submittedAt": "2026-11-10T05:40:50.940Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "detail-dialog-style": false
+    },
+    "comments": {
+        "detail-dialog-style": "样式有点丑"
+    },
+    "note": null
+}

@@ -15,16 +15,15 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createJsonlStore, defineExtension} from "@notnotype/nb-harness/kernel";
 import type {CompactionJob, CompactionResult, SessionApi} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestSession} from "@notnotype/nb-harness/kernel/testing";
+import {ResourceReadError} from "@notnotype/nb-harness/kit/files";
+import {titleSessionId} from "@notnotype/nb-harness/kit/sessions";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {RELOAD_DELAY_MS} from "nbook/plugins/settings/backend/layer-owner";
 
 import {loadRules} from "./backend/builtin/profiles/rules";
-import {ResourceReadError} from "./backend/resources";
-import {sessionMetaExtension, titleSessionId} from "./backend/session-meta";
-import type {MetaTrigger} from "./backend/session-meta";
-import {MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";
+import {ADHOC_PROFILE, MAIN_PROFILE, SESSION_TITLE_PROFILE} from "./shared/contracts";
 import {agentExtension, agentTool} from "./shared/points";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint, SeenRequest} from "./testing/endpoint";
@@ -150,7 +149,7 @@ describe("主创", () => {
         const request = await turn(await createMain(w), "开始");
         for (const section of SECTIONS) expect(request.system).toContain(`<${section}>`);
         expect(request.system).toContain("<shell>");
-        expect([...request.tools].sort()).toEqual(["ask", "edit", "glob", "grep", "read", "shell", "switch_mode", "write"]);
+        expect([...request.tools].sort()).toEqual(["agent_answer", "agent_send", "agent_spawn", "ask", "edit", "glob", "grep", "jobs", "kill", "read", "shell", "switch_mode", "wait", "write"]);
     });
 
     /** 让模型调一次 `edit`，交回这次调用实际执行的工具 id。 */
@@ -176,7 +175,7 @@ describe("主创", () => {
         const session = await createMain(w);
         const request = await turn(session, "开始");
         expect(request.system).not.toContain("<shell>");
-        expect([...request.tools].sort()).toEqual(["ask", "edit", "glob", "grep", "read", "switch_mode", "write"]);
+        expect([...request.tools].sort()).toEqual(["agent_answer", "agent_send", "agent_spawn", "ask", "edit", "glob", "grep", "jobs", "kill", "read", "switch_mode", "wait", "write"]);
         expect(await editedBy(w, session, {input: "不是合法的 hashline"})).toBe("nbook.agent.edit");
     });
 
@@ -205,6 +204,33 @@ describe("主创", () => {
         const after = messagesText(await turn(session, "第三轮"));
         expect(after).toContain("新规则。");
         expect(after).not.toContain("旧规则。");
+    });
+});
+
+describe("临时帮手", () => {
+    test("输出 14：角色来自初始输入，工具是该有的那些；不进选 Profile 的界面；没给角色建不成", async () => {
+        const w = await world();
+        expect(w.service.profiles().find((profile) => profile.key === ADHOC_PROFILE)).toMatchObject({status: "ok", hidden: true});
+        const created = await w.service.create({profile: ADHOC_PROFILE, initial: {role: "你是设定核对员，只看人物卡与正文是否矛盾。"}});
+        if (!created.ok) throw new Error(`create failed: ${created.code}`);
+        const request = await turn(created.value, "核对第三章");
+        expect(request.system).toContain("你是设定核对员");
+        expect(request.system).toContain("<work>");
+        expect([...request.tools].sort()).toEqual(["edit", "glob", "grep", "jobs", "kill", "read", "shell", "wait", "write"]);
+        expect(await w.service.create({profile: ADHOC_PROFILE})).toMatchObject({ok: false, code: "invalid-initial"});
+    });
+
+    test("输出 15：主创声明能派它、推荐它，提示词里有什么时候派与可派的它；去掉 agent_spawn 两节都没有", async () => {
+        const w = await world();
+        expect(w.service.profiles().find((profile) => profile.key === MAIN_PROFILE)?.agents).toEqual({allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]});
+        const request = await turn(await createMain(w), "开始");
+        expect(request.system).toContain("<delegate>");
+        expect(request.system).toContain(`${ADHOC_PROFILE}（临时帮手）`);
+
+        const without = await world({settings: {"nbook.agent/toolBindings": {[MAIN_PROFILE]: {added: [], removed: ["nbook.agent.spawn"]}}}});
+        const plain = await turn(await createMain(without), "开始");
+        expect(plain.system).not.toContain("<delegate>");
+        expect(plain.system).not.toContain("临时帮手");
     });
 });
 
@@ -359,38 +385,6 @@ describe("标题和说明", () => {
         await turn(other, "第三轮");
         expect(await metaOf(other)).toEqual(["雨夜", "说明"]);
         expect(tiny.requests.length - before).toBe(2);
-    });
-
-    test("输出 6、8：触发器在真实内核上：一轮完成时通知、压缩带摘要时通知；压缩运行收口与失败的轮不通知", async () => {
-        const seen: MetaTrigger[] = [];
-        let summary: string | null = "前情摘要";
-        const method = async (job: CompactionJob): Promise<CompactionResult> => {
-            const cut = job.cuts.filter((item) => item.kind === "turn").at(-1);
-            return cut === undefined ? {failed: "no-cut"} : {method: job.method, firstKeptEntryId: cut.entryId, replacement: summary, omitted: [], tokensBefore: 100, tokensAfter: 10};
-        };
-        await using session = await createTestSession({extensions: [sessionMetaExtension((_id, trigger) => seen.push(trigger))], compaction: {methods: {shake: method, inplace: method}}});
-        session.model.script("一", "二");
-        await session.say("第一轮");
-        await session.say("第二轮");
-        expect(seen).toEqual([{kind: "turn"}, {kind: "turn"}]);
-
-        const compactNow = async () => {
-            const compacted = await session.raw.compact({commandId: cid()});
-            if (!compacted.ok || compacted.value.runId === undefined) throw new Error(`compact failed: ${JSON.stringify(compacted)}`);
-            await session.raw.waitRun(compacted.value.runId);
-        };
-        await compactNow();
-        expect(seen.slice(2)).toEqual([{kind: "compaction", summary: "前情摘要"}]);
-
-        session.model.script("三");
-        await session.say("第三轮");
-        summary = null;
-        await compactNow();
-        expect(seen.slice(3)).toEqual([{kind: "turn"}]);
-
-        session.model.script({fail: "provider"});
-        await session.say("这一轮失败");
-        expect(seen.slice(4)).toEqual([]);
     });
 
     test("输出 6、8：还没有说明时压缩，下一轮结束才生成，生成的还是第一轮的内容", async () => {
