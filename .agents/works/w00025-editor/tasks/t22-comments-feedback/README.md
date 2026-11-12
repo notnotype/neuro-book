@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t22-comments-feedback
-status: active
+status: done
 updated: 2026-11-12
 ---
 
