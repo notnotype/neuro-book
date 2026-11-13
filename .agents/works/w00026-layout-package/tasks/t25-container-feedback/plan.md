@@ -118,7 +118,7 @@ Spec（`ui/workbench-layout`）：术语一节（锚）、输出 3、10、11、3
 
 1. **编辑器回答放下会怎样**（`editor/web/area.ts`、`editor/web/tab-drag.ts`、`workbench/web/contracts.ts`、`workbench/web/layout-drag.ts`）：
    - `EditorArea.moveBlocked` 换成 `moveOutcome(tabId, target): "move" | "merge" | "refuse"`，按 `moveTab` 的先后判：同组换位、目标组已有地址与编辑器相同的标签（并入；那个标签不是活动的而目标组有未裁决输入时是拒绝）、源组或目标组有未裁决输入。`EditorTabDrag.previewable` 换成 `dropOutcome(tabId, action)`。
-   - 工作台只在 `dropAt` 问一次，在算出落点之后：原位不问（放下什么都不做，不会被拒绝）；拒绝走现有的“被拒绝”（`overRejected`），两种手感、键盘都一样；并入时落点改成目标组的中央（标签条上也是），之后的预览、盖层、文字、提交都按中央走。编辑器的 `moveTab` 并入时不管位置（`workbench/editor.md` 输出 49 只说激活那个标签、关掉被移动的），所以提交中央和提交标签条结果相同。分区仍按指针下的落点算：在标签条上不画分区。
+   - 工作台只在 `dropAt` 问一次，在算出落点之后：原位不问（放下什么都不做，不会被拒绝）；拒绝走现有的“被拒绝”（`overRejected`），两种手感、键盘都一样；并入时落点改成目标组的中央（标签条上也是），之后的预览、盖层、文字、提交都按中央走。（实现审查后改：原来以为编辑器的 `moveTab` 并入时不管位置，其实它会把留下的那个挪到落点，放到中央就是挪到普通区末尾、取消固定。现在正文中央用不指定位置的 `GroupPlace`，留下的那个只激活、不挪；画的是盖住整组的“添加为标签”，结果与画的一致。）分区仍按指针下的落点算：在标签条上不画分区。
    - `candidateDoc` 去掉问编辑器的那一步：中央本来就不摆结果。资源树拖来的文件、整窗停靠不变（提交时编辑器照旧会拒绝并给提示）。
 2. **原位**（`workbench/web/live-drag.ts`、`drag-presentation.ts`、`WorkbenchDragFeedback.vue`、nb-layout `DropIndicatorLabel`）：
    - 落点是原位、来源在已提交的位置上（没收起）时不要卡片：卡片飞回，内容回到叶。来源收起着时等它展开（原位稳定之后）再收回：收起着的预览里没有这个标签，没有卡片的话内容项就卸了。
