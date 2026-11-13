@@ -1,0 +1,15 @@
+t23 第二轮反馈修正：实现审查（Sonnet，前端）逐条处理（2026-11-13）
+报告：impl-review-2-sonnet.txt。审查对象提交 7bfd06222，7 条：阻断 0、重要 1、建议 6。处理在提交 e83eabfaf。
+
+1（重要，测试）e2e“右上角的按钮不压字”里 lines() 空转：成立，已改。lines() 原来取 body.firstChild，那是占位 span，范围没有矩形，“文字位置不变”的比较是两个空串相等。改成取 body 的文本子节点，并先断言每张卡片都量到了字。
+2（建议）延后限行挂在限行样式上，不是“收起”事件上：成立，接受取舍。已显示的槽位里限的行数变了（窗口缩放使段落重新折行、打字使段高变）也晚一个 --motion-move 才限行。窄场景选简单改法：不加“刚收起”的标记，在 Margin.vue 的注释、Margin.md、Spec 输出 33 的动画里写明范围，待确认清单记一行。
+3（建议）皮肤的浮层画框会画在带浮层基座的页边卡片上：成立，已改。Lab 里没有 WorkbenchDocument，把同一条规则注入页面模拟：画框线贴着文字、横穿右上角按钮（fix2-frame-current.webp）。页边卡片用基座只为同一种材质，不是浮出来的浮层，所以在 Margin.vue 里用更高特异性的 `outline: none !important` 排除，skins.md 输出 13 写明“小提示与页边里的批注卡片不画”；改后同一模拟下没有线（fix2-frame-current-fixed.webp）。没有在真有画框的皮肤里截图。
+4（建议）基线浏览器与注释：成立，只改注释。Firefox 124 到 128 不认 allow-discrete，整条 transition 丢弃，退化成立刻限行；Chrome 156 里 transition 列表中起作用的是 -webkit-line-clamp，无前缀的 line-clamp 不是别名，不能当冗余删掉。
+5（建议，未验证）占位 float 放在 -webkit-box 里，Firefox 124、Chrome 119 里 -webkit-box 是弹性盒、float 无效，占位可能多占一行：未验证，不改代码。本机只有 Chrome 156（Playwright 没装 Firefox），改法也要在那两个浏览器里确认才能定；注释、Card.md 记明，待确认清单记一行（需要真机确认；若要支持，再改结构）。
+6（建议，测试）：
+ (a) 去掉 [data-ready] 的变异活下来（expect.poll 等到延后结束才通过）：成立，已改成一次性断言（第一次显示时意见已放得进卡片面），不轮询；去掉 [data-ready] 后该用例变红（65 对 31.7），已还原。
+ (b) `|| slot.expanded` 恒冗余：保留，补单元用例（expanded 为真而 mode 为 idle 的槽位，面也是浮层），免得靠别的字段碰巧成立。
+ (c) idle 面没断言不透明：已补（计算出的背景色不带透明度）。
+ (d) 占位宽度只由 e2e 的重叠检查守着：接受。
+ (e) 900ms 采样在主线程卡顿时可能误报：风险低，不改。
+7（建议，代码质量与文档）：成立，已改。Card.vue 写明占位宽度依赖的数（IconButton xs 的 24px、靠右 4px、右内边距 10px、页码 28px）与两条同特异性变量规则靠写在后面覆盖；样式头注释“页边里的卡片自己画底色与边”已按现状改；Margin.md“重排”一节去掉“限行数变了”。

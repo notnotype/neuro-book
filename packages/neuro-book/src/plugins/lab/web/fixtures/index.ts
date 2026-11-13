@@ -62,6 +62,9 @@ import type SkillChip from "nbook/ui/SkillChip.vue";
 import type ThemeEditor from "nbook/plugins/workbench/web/components/theme-editor/ThemeEditor.vue";
 import type ThemeSettingsPage from "nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue";
 import type WorkbenchCommandPalette from "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue";
+import type WorkbenchNotificationsView from "nbook/plugins/workbench/web/components/WorkbenchNotificationsView.vue";
+import type TasksView from "nbook/plugins/tasks/web/components/TasksView.vue";
+import type TasksHover from "nbook/plugins/tasks/web/components/TasksHover.vue";
 import type WorkbenchDragFeedback from "nbook/plugins/workbench/web/components/WorkbenchDragFeedback.vue";
 import type WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import type WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
@@ -383,8 +386,16 @@ export const labFixtures: LabFixture[] = [
         events: ["select", "run-item"],
         class: "h-full",
         scenes: (() => {
-            const entry = (id: string, label: string, icon: string, pressed: boolean) => ({id, label, icon, pressed});
-            const entries = [entry("files", "资源管理器", "i-lucide-files", true), entry("search", "搜索", "i-lucide-search", false), entry("outline", "大纲", "i-lucide-list-tree", false), entry("chat", "对话", "i-lucide-message-square", true)];
+            // 只含一个视图的容器：入口就是这个视图的，能拖。
+            const entry = (viewId: string, label: string, icon: string, current: boolean) => ({id: `view:${viewId}`, label, icon, tooltip: label, viewId, current, pressed: current});
+            const entries = [
+                // 声明的容器，含两个视图：悬停文字写出它们，不起拖。
+                {id: "nbook.workbench.project", label: "项目", icon: "i-lucide-folder-kanban", tooltip: "项目：会话、资源管理器", viewId: null, current: true, pressed: true},
+                entry("search", "搜索", "i-lucide-search", false),
+                entry("outline", "大纲", "i-lucide-list-tree", false),
+                // 成员视图的声明不在：名称是视图 id，没有图标可取，画占位图标。
+                {id: "view:example.gone", label: "example.gone", icon: null, tooltip: "example.gone", viewId: "example.gone", current: false, pressed: false},
+            ];
             const items = [
                 {id: "profile", title: "个人资料尚未开放", icon: "i-lucide-user", interactive: false, pressed: null, disabledReason: null},
                 {id: "settings", title: "设置", icon: "i-lucide-settings", interactive: true, pressed: true, disabledReason: null},
@@ -392,9 +403,9 @@ export const labFixtures: LabFixture[] = [
             ];
             const base = {label: "活动栏", moreLabel: "更多"};
             return [
-                {id: "default", label: "两个视图同时按下，底段全局项", input: {props: {...base, entries, items}}},
-                {id: "many", label: "视图多：放不下时后面的收进“更多”，按下的总在外面", input: {props: {...base, entries: [...Array.from({length: 24}, (_, index) => entry(`v${String(index)}`, `视图 ${String(index)}`, "i-lucide-square", false)), entry("last", "排在最后的可见视图", "i-lucide-star", true)], items}}},
-                {id: "empty", label: "没有视图", input: {props: {...base, entries: [], items}}},
+                {id: "default", label: "一个容器一个入口：当前容器按下，声明不在的画占位图标，底段全局项", input: {props: {...base, entries, items}}},
+                {id: "many", label: "容器多：放不下时后面的收进“更多”，当前容器的总在外面", input: {props: {...base, entries: [...Array.from({length: 24}, (_, index) => entry(`v${String(index)}`, `视图 ${String(index)}`, "i-lucide-square", false)), entry("last", "排在最后的当前容器", "i-lucide-star", true)], items}}},
+                {id: "empty", label: "侧栏里没有容器", input: {props: {...base, entries: [], items}}},
             ];
         })(),
         subject: () => import("nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue"),
@@ -433,6 +444,40 @@ export const labFixtures: LabFixture[] = [
         })(),
         load: async () => withWorkbenchText(createSubjectFixture<typeof ThemeSettingsPage>((await import("nbook/plugins/workbench/web/components/theme-editor/ThemeSettingsPage.vue")).default, {events: ["open"], class: "w-full max-w-[720px] p-6"}), ["mine-english"]),
     }),
+    defineLabFixture<typeof TasksView>({
+        component: "TasksView",
+        scenes: (() => {
+            // 集成场景：内存里的任务仓库由包装组件建；输入只是占位，场景不读它。
+            const placeholder = {props: {context: {id: "nbook.tasks.list", generation: 1, visible: {value: false}, location: {value: "panel" as const}}}};
+            return [
+                {id: "mixed", label: "在跑、失败、成功、已取消、已中断（右栏隐藏时的宽度）", input: placeholder},
+                {id: "mixed-narrow", label: "默认布局的宽度", input: placeholder},
+                {id: "mixed-cancelling", label: "一件正在取消", input: placeholder},
+                {id: "empty", label: "没有任务", input: placeholder},
+                {id: "mixed-english", label: "英文界面", input: placeholder},
+            ];
+        })(),
+        load: async () => (await import("./tasks-scene/TasksFixture.vue")).default,
+    }),
+    defineLabFixture<typeof TasksHover>({
+        component: "TasksHover",
+        noInput: "唯一的属性是任务仓库，不是场景能写的数据；包装组件在内存里建一份",
+        scenes: [{id: "hover", label: "两件在跑：确定与不确定进度"}],
+        load: async () => (await import("./tasks-scene/TasksFixture.vue")).default,
+    }),
+    defineLabFixture<typeof WorkbenchNotificationsView>({
+        component: "WorkbenchNotificationsView",
+        scenes: (() => {
+            // 集成场景：真实的通知服务与中心由包装组件建；输入只是占位，场景不读它。
+            const placeholder = {props: {context: {id: "nbook.workbench.notifications", generation: 1, visible: {value: false}, location: {value: "panel" as const}}}};
+            return [
+                {id: "mixed", label: "五条：两条没看过、带动作与详情（右栏隐藏时的宽度）", input: placeholder},
+                {id: "mixed-narrow", label: "默认布局的宽度", input: placeholder},
+                {id: "empty", label: "没有通知", input: placeholder},
+            ];
+        })(),
+        load: async () => withWorkbenchText((await import("./workbench-scene/NotificationsViewFixture.vue")).default),
+    }),
     defineLabFixture<typeof WorkbenchStatusBar>({
         component: "WorkbenchStatusBar",
         scenes: [
@@ -441,6 +486,7 @@ export const labFixtures: LabFixture[] = [
             {id: "unsaved", label: "布局未保存", input: {props: {project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "customizations", kind: "unsaved", code: "unavailable"}]}}},
             {id: "unread", label: "布局未读取", input: {props: {project: "雾港", panelHidden: false, panelToggleDisabled: false, problems: [{record: "side", kind: "unread", code: "corrupt"}]}}},
             {id: "hidden", label: "面板已隐藏、按钮不可用", input: {props: {project: null, panelHidden: true, panelToggleDisabled: true, problems: []}}},
+            {id: "bell-unread", label: "铃铛：有 2 条没看过的通知", input: {props: {project: "雾港", panelHidden: true, panelToggleDisabled: false, problems: [], unreadNotifications: 2}}},
         ],
         // 场景 `hidden` 一直是英文界面，id 被引用，所以点名。
         load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchStatusBar>((await import("nbook/plugins/workbench/web/components/WorkbenchStatusBar.vue")).default, {events: ["toggle-panel", "retry", "discard"], class: "w-full"}), ["hidden"]),
@@ -464,8 +510,8 @@ export const labFixtures: LabFixture[] = [
             return [
                 {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部"}}},
                 {id: "no-project", label: "没有项目", input: {props: {...base, project: null}}},
-                {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
-                {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null}]}}},
+                {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
+                {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
             ];
         })(),
         // 场景 `long` 一直是英文界面，id 被 e2e 引用，所以点名。
@@ -474,10 +520,13 @@ export const labFixtures: LabFixture[] = [
     defineLabFixture<typeof WorkbenchItemStrip>({
         component: "WorkbenchItemStrip",
         scenes: (() => {
-            const entry = (id: string, text: string, extra: {title?: string; order?: number; priority?: number; command?: boolean; state?: "normal" | "warning" | "error"; disabledReason?: string; tooltip?: string} = {}) => ({
+            type Extra = {title?: string; order?: number; priority?: number; command?: boolean; state?: "normal" | "warning" | "error"; disabledReason?: string; tooltip?: string; icon?: {name: string; spin: boolean; muted: boolean}};
+            const entry = (id: string, text: string, extra: Extra = {}) => ({
                 id, text, title: extra.title ?? text, alignment: "right" as const, order: extra.order ?? 0, priority: extra.priority ?? 0,
                 command: extra.command === true ? {id: "nbook.editor.save-all", args: {}} : null,
                 tooltip: extra.tooltip ?? null, state: extra.state ?? "normal", disabledReason: extra.disabledReason ?? null,
+                // 悬停内容带加载函数，不是场景能写的数据；它由 WorkbenchItemStrip.dom.test.ts 测。
+                icon: extra.icon ?? null, hover: null,
             });
             const editor = [
                 entry("nbook.editor.unsaved", "未保存 3 个", {title: "未保存的文档", order: 10, priority: 30, command: true, state: "warning", tooltip: "第一章.md、第二章.md、设定.md"}),
@@ -490,6 +539,11 @@ export const labFixtures: LabFixture[] = [
                     entry("test.items.failed", "保存失败 1 个", {order: 1, priority: 5, command: true, state: "error", tooltip: "第一章.md：磁盘已满"}),
                     entry("test.items.disabled", "全部保存", {order: 2, priority: 5, command: true, disabledReason: "没有需要保存的文档"}),
                     entry("test.items.long", "一段相当长的条目文字，用来看看三百二十像素的上限与省略号在状态栏里是什么样子", {order: 3, priority: 1}),
+                ]}}},
+                {id: "icons", label: "图标：转圈加文字、只有图标（淡色与出错）", input: {props: {itemHeight: 20, align: "end", entries: [
+                    entry("test.items.running", "3 个任务", {title: "后台任务", order: 1, priority: 5, command: true, icon: {name: "i-lucide-loader-circle", spin: true, muted: false}}),
+                    entry("test.items.idle", "", {title: "后台任务", order: 2, priority: 5, command: true, icon: {name: "i-lucide-list-checks", spin: false, muted: true}}),
+                    entry("test.items.failed-icon", "", {title: "后台任务：1 个没有成功", order: 3, priority: 5, command: true, state: "error", icon: {name: "i-lucide-circle-x", spin: false, muted: false}}),
                 ]}}},
                 {id: "many", label: "放不下时收进“更多”", input: {props: {itemHeight: 20, align: "end", entries: Array.from({length: 14}, (_, index) => entry(`test.items.n${String(index)}`, `条目 ${String(index + 1)} · 一些文字`, {order: index, priority: index % 4, command: index % 3 === 0}))}}},
             ];
@@ -726,6 +780,10 @@ export const labFixtures: LabFixture[] = [
             {id: "english", label: "英文界面", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "empty", label: "没有标签：标志与提示", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "comments", label: "批注：批注末尾的小符号出浮层、按住 Ctrl 悬停，Ctrl+Alt+M 加批注，块菜单整块批注", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "comments-margin", label: "批注：页边开着（视口够宽时画在稿纸右边）", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "comments-slots", label: "批注页边：一段几条批注、短段与长段、下一段有无批注、表格行", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "comments-overlap", label: "批注：重叠的波浪线、块批注的显示", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "recycle", label: "回收：每种编辑器只留 2 个控件", input: {props: {groupId: "g0", wrapTabs: true}}},
         ],

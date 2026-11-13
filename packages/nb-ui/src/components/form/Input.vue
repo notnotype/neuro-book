@@ -7,6 +7,8 @@ import type {ControlSize} from "../shared-types";
 
 export type InputType = "text" | "search" | "password" | "number";
 export type InputSize = Extract<ControlSize, "sm" | "md">;
+/** `bare`：放在已有外框的容器里原地编辑，没有字段的外框（同名 .md 的“布局”）。 */
+export type InputVariant = "default" | "bare";
 
 const props = withDefaults(defineProps<{
     modelValue?: string;
@@ -15,6 +17,7 @@ const props = withDefaults(defineProps<{
     type?: InputType;
     placeholder?: string;
     size?: InputSize;
+    variant?: InputVariant;
     disabled?: boolean;
     readonly?: boolean;
     /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
@@ -39,6 +42,7 @@ const props = withDefaults(defineProps<{
     type: "text",
     placeholder: "",
     size: "md",
+    variant: "default",
     disabled: false,
     readonly: false,
     invalid: false,
@@ -61,9 +65,17 @@ const clearText = computed(() => props.clearLabel ?? text("input.clear"));
 const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 
 const isSmall = computed(() => props.size === "sm");
-const controlSizeClass = computed(() => isSmall.value
-    ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[length:var(--text-xs)]"
-    : "nb-ui-control-h-md nb-ui-control-px text-[length:var(--text-sm)]");
+const isBare = computed(() => props.variant === "bare");
+// `bare` 不要左右内边距：留白由外面的容器给。
+const controlSizeClass = computed(() => {
+    if (isSmall.value) return isBare.value ? "nb-ui-control-h-sm text-[length:var(--text-xs)]" : "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[length:var(--text-xs)]";
+    return isBare.value ? "nb-ui-control-h-md text-[length:var(--text-sm)]" : "nb-ui-control-h-md nb-ui-control-px text-[length:var(--text-sm)]";
+});
+// 字段的外框：`nb-ui-control` 带边框色、内阴影与聚焦光晕（styles.css 的表单控件状态基座）；`bare` 一样都不要。
+const frameClass = computed(() => {
+    if (isBare.value) return "bg-transparent";
+    return ["nb-ui-control rounded-[var(--radius-control)] border bg-[var(--control-surface)]", isInvalid.value ? "nb-ui-control-invalid" : ""];
+});
 
 // prefix 与裸 input 两个分支共享同一份属性绑定，排除组件层 size prop 避免原生 HTMLInputElement size 属性类型冲突
 const inputAttrs = computed(() => ({
@@ -111,8 +123,8 @@ function handleClear(): void {
     <div
         v-if="$slots.prefix || $slots.suffix || props.iconClass || props.clearable"
         v-bind="splitAttrs.root"
-        class="nb-ui-control flex w-full items-center gap-[var(--space-2)] rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] focus-within:outline-none"
-        :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '']"
+        class="flex w-full items-center gap-[var(--space-2)] text-[var(--text-main)] focus-within:outline-none"
+        :class="[controlSizeClass, frameClass]"
     >
         <span v-if="props.iconClass" :class="props.iconClass" class="h-4 w-4 shrink-0 text-[var(--text-muted)] flex items-center justify-center self-center" aria-hidden="true" />
         <div v-if="$slots.prefix" class="inline-flex items-center self-center shrink-0 leading-none">
@@ -138,8 +150,8 @@ function handleClear(): void {
     <input
         v-else
         v-bind="mergeProps(inputAttrs, $attrs)"
-        class="nb-ui-native-input nb-ui-control w-full rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
-        :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '']"
+        class="nb-ui-native-input w-full text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+        :class="[controlSizeClass, frameClass]"
         @focus="emit('focus', $event)"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     >

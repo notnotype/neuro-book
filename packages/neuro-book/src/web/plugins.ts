@@ -4,6 +4,8 @@
  * 清单写了浏览器入口而两张表都没有时，窗口以启动失败结束，不静默少装。
  */
 
+import {createBrowserDiagnosticsPlugin} from "@notnotype/nb-host/web";
+import type {DiagnosticsConsole} from "@notnotype/nb-host/web";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {Catalog} from "@notnotype/nb-ui/text";
@@ -12,8 +14,6 @@ import {pluginsAt, productPlugins} from "nbook/manifest";
 import {STUDY_ICON_NAMES} from "nbook/plugins/theme-study/plugin";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
-import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
-import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
 import {editorBrowserPlugin} from "nbook/plugins/editor/web/plugin";
 import {editorCatalogs} from "nbook/plugins/editor/web/text";
 import {htmlPreviewBrowserPlugin} from "nbook/plugins/html-preview/web/plugin";
@@ -24,6 +24,8 @@ import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {markdownCatalogs} from "nbook/plugins/markdown/web/text";
 import {modelsBrowserPlugin} from "nbook/plugins/models/web/plugin";
 import {modelsCatalogs} from "nbook/plugins/models/web/text";
+import {tasksBrowserPlugin} from "nbook/plugins/tasks/web/plugin";
+import {tasksCatalogs} from "nbook/plugins/tasks/web/text";
 import {agentBrowserPlugin} from "nbook/plugins/agent/web/plugin";
 import {agentCatalogs} from "nbook/plugins/agent/web/text";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
@@ -73,6 +75,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.html-preview": htmlPreviewBrowserPlugin,
     "nbook.canon": canonBrowserPlugin,
     "nbook.models": modelsBrowserPlugin,
+    "nbook.tasks": tasksBrowserPlugin,
     "nbook.agent": agentBrowserPlugin,
 };
 
@@ -100,6 +103,7 @@ export const builtinPluginCatalogs: Readonly<Record<string, BuiltinCatalogs>> = 
     "nbook.image-viewer": imageViewerCatalogs,
     "nbook.markdown": markdownCatalogs,
     "nbook.models": modelsCatalogs,
+    "nbook.tasks": tasksCatalogs,
     "nbook.plugins": pluginsCatalogs,
     "nbook.projects": projectsCatalogs,
     "nbook.settings": settingsCatalogs,

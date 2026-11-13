@@ -9,6 +9,7 @@
 import {lstat, mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
@@ -29,8 +30,6 @@ import {agentSessionsContract} from "../shared/remote";
 import {profileAgents} from "../shared/profile-agents";
 import {agentSettings} from "../shared/settings";
 import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
-
-import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 
 import {createAgentRuntime} from "./agent";
 import {createAttachmentRoutes, sessionDirectoryExists} from "./attachments";

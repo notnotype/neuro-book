@@ -130,6 +130,34 @@ test.describe("工具栏", () => {
         await expect(page.getByRole("menuitem", {name: "清除格式"})).toBeVisible();
     });
 
+    test("文字颜色是拆分按钮：左半边用上次的颜色（第一次是红色），箭头开色板，选了记住，刷新后仍记得（输出 1）", async ({page}) => {
+        await openFile(page, "notes/toolbar-color.md", "一二三\n");
+        const bar = activeGroup(page).locator(".markdown-toolbar [data-markdown-color-bar]").first();
+        await expect(bar).toHaveCSS("background-color", "rgb(239, 68, 68)");
+        await focusFirst(page);
+        await page.keyboard.press("Control+a");
+        await toolbarButton(page, "文字颜色").click();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/toolbar-color.md")).toBe("<span style=\"color: #ef4444\">一二三</span>\n");
+
+        // 选区还在、选区菜单本来开着：工具栏的色板开着时选区菜单收起，不盖住色板。
+        await toolbarButton(page, "选择文字颜色").click();
+        await expect(selectionMenu(page)).toHaveCount(0);
+        await page.locator("[data-color-swatch=\"#0ea5e9\"]").click();
+        await expect(bar).toHaveCSS("background-color", "rgb(14, 165, 233)");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/toolbar-color.md")).toBe("<span style=\"color: #0ea5e9\">一二三</span>\n");
+
+        // 刷新页面、换一个文件：仍是上次的颜色，左半边直接用它。
+        await openFile(page, "notes/toolbar-color-2.md", "四五\n");
+        await expect(bar).toHaveCSS("background-color", "rgb(14, 165, 233)");
+        await focusFirst(page);
+        await page.keyboard.press("Control+a");
+        await toolbarButton(page, "文字颜色").click();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/toolbar-color-2.md")).toBe("<span style=\"color: #0ea5e9\">四五</span>\n");
+    });
+
     test("“视图”菜单关掉后工具栏消失，再打开恢复", async ({page}) => {
         await openFile(page, "notes/toolbar-toggle.md", "字\n");
         const toolbar = activeGroup(page).locator(".markdown-toolbar");
@@ -217,6 +245,49 @@ test.describe("选区菜单", () => {
         await expect(selectionMenu(page)).toHaveCount(0);
     });
 
+    test("块类型在最前面：选“标题 2”后这一段变成标题，焦点回正文（输出 6）", async ({page}) => {
+        // 测关闭动画结束后的焦点：配置默认减少动态效果，要开回来。
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await openFile(page, "notes/selection-block.md", "第一段文字\n");
+        await focusFirst(page);
+        await page.keyboard.press("Home");
+        await page.keyboard.press("Shift+End");
+        const trigger = selectionMenu(page).getByRole("button", {name: /块类型/u});
+        await expect(trigger).toHaveAccessibleName("块类型：正文");
+        await trigger.click();
+        // 焦点在下拉里时选区菜单仍算有焦点。
+        await expect(selectionMenu(page)).toBeVisible();
+        await page.getByRole("menuitemcheckbox", {name: "标题 2"}).click();
+        await expect(prose(page).locator("h2")).toHaveText("第一段文字");
+        await expect(page.getByRole("menu")).toHaveCount(0);
+        await expect(prose(page)).toBeFocused();
+        await expect(trigger).toHaveAccessibleName("块类型：标题 2");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-block.md")).toBe("## 第一段文字\n");
+    });
+
+    test("高亮是拆分按钮：左半边第一次是黄色，色板里点已选的黄色也上色；色板开着时菜单留着，选了记住（输出 6）", async ({page}) => {
+        await openFile(page, "notes/selection-highlight.md", "一二三\n");
+        await focusFirst(page);
+        await page.keyboard.press("Control+a");
+        const bar = selectionMenu(page).locator("[data-markdown-color-bar]").nth(1);
+        await expect(bar).toHaveCSS("background-color", "rgb(254, 249, 195)");
+        const palette = selectionMenu(page).getByRole("button", {name: "选择高亮颜色"});
+        // 色板里标着已选的是上次的颜色（第一次是黄色）：点它照样上色、色板收起。
+        await palette.click();
+        await page.locator("[data-color-swatch=\"#fef9c3\"]").click();
+        await expect(page.locator("[data-color-swatch=\"#fef9c3\"]")).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-highlight.md")).toBe("<mark style=\"background-color: #fef9c3\">一二三</mark>\n");
+        await palette.click();
+        await expect(selectionMenu(page)).toBeVisible();
+        await page.locator("[data-color-swatch=\"#dbeafe\"]").click();
+        await expect(prose(page)).toBeFocused();
+        await expect(bar).toHaveCSS("background-color", "rgb(219, 234, 254)");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-highlight.md")).toBe("<mark style=\"background-color: #dbeafe\">一二三</mark>\n");
+    });
+
     test("按 Esc 收起；键盘选完也出现", async ({page}) => {
         await openFile(page, "notes/selection-esc.md", "第一段文字\n");
         await focusFirst(page);
@@ -270,7 +341,7 @@ test.describe("选区菜单", () => {
         await expect(selectionMenu(page)).toHaveCount(0);
     });
 
-    test("注音：选区菜单里输入，回车写回", async ({page}) => {
+    test("注音：选区菜单里打开卡片，写的时候选区仍画着，回车写回（输出 9）", async ({page}) => {
         await openFile(page, "notes/selection-ruby.md", "汉字\n");
         await focusFirst(page);
         await page.keyboard.press("Control+a");
@@ -278,10 +349,189 @@ test.describe("选区菜单", () => {
         await selectionMenu(page).getByRole("button", {name: "注音"}).click();
         const input = page.getByRole("textbox", {name: "注音"});
         await expect(input).toBeFocused();
+        await expect(input).toHaveValue("");
+        // 新加注音没有移除按钮。
+        await expect(page.locator("[data-markdown-text-prompt]").getByRole("button")).toHaveCount(1);
+        // 焦点在卡片里，浏览器不画正文的选区：正文自己画，与浏览器画的选区同是主题的选区色。
+        const held = prose(page).locator(".nb-markdown-held-selection");
+        await expect(held).toHaveText("汉字");
+        const colors = await held.evaluate((element) => {
+            const probe = document.createElement("div");
+            probe.style.backgroundColor = "var(--selection-bg)";
+            document.body.append(probe);
+            const expected = getComputedStyle(probe).backgroundColor;
+            probe.remove();
+            return {held: getComputedStyle(element).backgroundColor, native: getComputedStyle(element, "::selection").backgroundColor, expected};
+        });
+        expect(colors).toEqual({held: colors.expected, native: colors.expected, expected: colors.expected});
         await input.fill("hàn zì");
         await page.keyboard.press("Enter");
+        await expect(held).toHaveCount(0);
         await page.keyboard.press("Control+s");
         await expect.poll(() => disk("notes/selection-ruby.md")).toBe("<ruby text=\"hàn zì\">汉字</ruby>\n");
+    });
+
+    test("已有注音：点注音小字打开修改；选中时注音按钮按下，卡片预填、可以移除；清空回车不移除（输出 9）", async ({page}) => {
+        await openFile(page, "notes/selection-ruby-edit.md", "前<ruby text=\"zhù yīn\">注音</ruby>后\n");
+        const input = page.getByRole("textbox", {name: "注音"});
+        const card = page.locator("[data-markdown-text-prompt]");
+        await prose(page).locator(".nb-ruby-text").click();
+        await expect(input).toBeFocused();
+        await expect(input).toHaveValue("zhù yīn");
+        await expect(prose(page).locator(".nb-markdown-held-selection")).toHaveText("注音");
+        await input.fill("zhuyin");
+        await card.getByRole("button", {name: "确定"}).click();
+        await expect(input).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-ruby-edit.md")).toBe("前<ruby text=\"zhuyin\">注音</ruby>后\n");
+
+        // 选区盖住注音的一部分也算有注音。
+        await focusFirst(page);
+        await page.keyboard.press("Home");
+        await page.keyboard.press("Shift+ArrowRight");
+        await page.keyboard.press("Shift+ArrowRight");
+        const rubyButton = selectionMenu(page).getByRole("button", {name: "注音"});
+        await expect(rubyButton).toHaveAttribute("aria-pressed", "true");
+        await rubyButton.click();
+        await expect(input).toHaveValue("zhuyin");
+        await input.fill("");
+        await page.keyboard.press("Enter");
+        await expect(input).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-ruby-edit.md")).toBe("前<ruby text=\"zhuyin\">注音</ruby>后\n");
+
+        await rubyButton.click();
+        await card.getByRole("button", {name: "移除注音"}).click();
+        await expect(input).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-ruby-edit.md")).toBe("前注音后\n");
+    });
+
+    test("卡片开着时点另一段注音的小字：卡片换到那一段、重新预填，读音相同也一样（输出 9）", async ({page}) => {
+        await openFile(page, "notes/selection-ruby-switch.md", "<ruby text=\"lín\">林</ruby>和<ruby text=\"lín\">霖</ruby>\n");
+        const input = page.getByRole("textbox", {name: "注音"});
+        const rubies = prose(page).locator(".nb-ruby-text");
+        await rubies.nth(0).click();
+        await expect(input).toHaveValue("lín");
+        await input.fill("改了一半");
+        await rubies.nth(1).click();
+        await expect(input).toBeFocused();
+        await expect(input).toHaveValue("lín");
+        await expect(prose(page).locator(".nb-markdown-held-selection")).toHaveText("霖");
+        await input.fill("lín2");
+        await page.keyboard.press("Enter");
+        await expect(input).toHaveCount(0);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-ruby-switch.md")).toBe("<ruby text=\"lín\">林</ruby>和<ruby text=\"lín2\">霖</ruby>\n");
+    });
+
+    test("注音是一个整体：拖选不带注音小字，从注音中间加粗时整段注音一起加粗（输出 26、场景 7）", async ({page}) => {
+        await openFile(page, "notes/selection-whole-ruby.md", "前文<ruby text=\"zhù yīn\">注音</ruby>后文\n");
+        const base = prose(page).locator(".nb-ruby-base");
+        const box = await base.boundingBox();
+        if (box === null) throw new Error("注音不可见");
+        // 从“注”与“音”之间按下，拖到“后文”的中间：经过注音小字所在的那一行。
+        const y = box.y + box.height / 2;
+        await page.mouse.move(box.x + box.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width + 20, y, {steps: 6});
+        await page.mouse.up();
+        await expect(selectionMenu(page)).toBeVisible();
+        expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).not.toContain("zhù");
+        await page.keyboard.press("Control+b");
+        await expect(prose(page).locator("rt")).toHaveCount(1);
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/selection-whole-ruby.md")).toBe("前文**<ruby text=\"zhù yīn\">注音</ruby>后**文\n");
+    });
+
+    test("含注音的行里 Home、End 与加 Shift 的选区到真正的行首行尾，折行的段落每一行都对（输出 27、场景 10）", async ({page}) => {
+        const wrapped = "她抬头看了他一眼，远处站着<ruby text=\"hàn zì\">汉字</ruby>先生，" + "手里拿着一本很厚的书，一页一页地翻着，像是在找什么东西，又像是只想让时间过得慢一点。".repeat(6);
+        await openFile(page, "notes/ruby-line-edges.md", `前<ruby text="lín xī">林汐</ruby>后，一行。\n\n${wrapped}\n`);
+        const selected = () => page.evaluate(() => window.getSelection()?.toString() ?? "");
+        // 一行的段落：注音在行中间，行尾在注音之后。
+        await prose(page).locator("p").nth(0).click({position: {x: 3, y: 10}});
+        await expect(prose(page)).toBeFocused();
+        await page.keyboard.press("Home");
+        await page.keyboard.press("Shift+End");
+        expect(await selected()).toBe("前林汐后，一行。");
+        await page.keyboard.press("End");
+        await page.keyboard.press("Shift+Home");
+        expect(await selected()).toBe("前林汐后，一行。");
+
+        // 折行的段落：按渲染出来的行（逐字取矩形）认每一行的文字与位置，注音的小字不算。
+        const lines = await prose(page).locator("p").nth(1).evaluate((paragraph) => {
+            const found: Array<{text: string; top: number}> = [];
+            const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode() as Text | null; node !== null; node = walker.nextNode() as Text | null) {
+                if (node.parentElement?.closest(".nb-ruby-text") != null) continue;
+                for (let index = 0; index < node.length; index += 1) {
+                    const range = document.createRange();
+                    range.setStart(node, index);
+                    range.setEnd(node, index + 1);
+                    const rect = range.getBoundingClientRect();
+                    if (rect.height === 0) continue;
+                    const last = found.at(-1);
+                    if (last === undefined || rect.top > last.top + 12) found.push({text: "", top: rect.top});
+                    (found.at(-1) as {text: string}).text += node.data[index];
+                }
+            }
+            const origin = paragraph.getBoundingClientRect().top;
+            return found.map((line) => ({text: line.text, y: line.top - origin}));
+        });
+        expect(lines.length).toBeGreaterThan(2);
+        expect(lines[0]?.text).toContain("汉字");
+        for (const line of lines) {
+            await prose(page).locator("p").nth(1).click({position: {x: 40, y: line.y + 8}});
+            await page.keyboard.press("Home");
+            await page.keyboard.press("Shift+End");
+            expect(await selected()).toBe(line.text);
+            // 行尾的光标画在这一行的末尾：再往回选到行首，选中的还是这一整行。
+            await page.keyboard.press("End");
+            await page.keyboard.press("Shift+Home");
+            expect(await selected()).toBe(line.text);
+        }
+    });
+
+    test("选区菜单淡入、淡出，淡出时停在原处；斜杠菜单只淡入（设计语言“浮层入退场的编排是固定的”）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await openFile(page, "notes/selection-motion.md", "第一段文字，长一些，好在别处点。\n\n第二段\n");
+        // 把浮层的时长放慢到 3 秒：退场期间来得及量，也分得清“立即拿掉”和“淡出”。
+        await page.addStyleTag({content: ":root { --motion-fast: 3000ms !important; }"});
+        // 变量的原文与计算值写法不同（`.23` 与 `0.23`）：放到一个元素上，取计算后的写法来比。
+        const easeLayout = await page.evaluate(() => {
+            const probe = document.createElement("div");
+            probe.style.animationTimingFunction = "var(--ease-layout)";
+            document.body.append(probe);
+            const value = getComputedStyle(probe).animationTimingFunction;
+            probe.remove();
+            return value;
+        });
+        const surface = page.locator("[data-anchored-popover]");
+        const motion = () => surface.evaluate((element) => ({
+            name: getComputedStyle(element).animationName,
+            easing: getComputedStyle(element).animationTimingFunction,
+            state: element.getAttribute("data-state"),
+            // 定位写在原语外包的那一层上。
+            at: (element.parentElement as HTMLElement).style.transform,
+        }));
+        await dragSelect(page);
+        await expect(selectionMenu(page)).toBeVisible();
+        const opened = await motion();
+        expect(opened).toMatchObject({name: "nb-popover-in", easing: easeLayout, state: "open"});
+        // 点到第二段：选区换成那里的光标，菜单淡出，淡出期间不跟着跳。
+        await prose(page).locator("p").nth(1).click();
+        expect(await motion()).toMatchObject({name: "nb-popover-out", state: "closed", at: opened.at});
+        await expect(surface).toHaveCount(0, {timeout: 10_000});
+
+        await page.keyboard.press("End");
+        await page.keyboard.press("Enter");
+        await page.keyboard.type("/");
+        const slash = page.locator("[data-suggestion-menu]");
+        await expect(slash).toBeVisible();
+        expect(await slash.evaluate((element) => getComputedStyle(element).animationName)).toBe("nb-popover-in");
+        await page.keyboard.press("Escape");
+        // 只入场：关上就拿掉，不等 3 秒的淡出。
+        await expect(slash).toHaveCount(0, {timeout: 1000});
     });
 });
 

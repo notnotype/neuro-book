@@ -121,7 +121,7 @@ owners:
 ### 命名与域词表（第一批）
 
 - 格式：内置插件写 `nbook.<domain>.<action>`；`action` 可为复合（如 `go-to-line`）。其它插件写 `<插件 id>.<action>`。
-- 域词表：`view`、`editor`、`edit`、`quick-open`、`settings`、`account`、`project`、`app`、`help`、`files`、`canon`（planned：世界引擎的作者界面，[`canon.author-ui`](../canon/author-ui.md)）。本批只用 `editor` / `edit` / `quick-open`；`files` 随资源管理器加入。
+- 域词表：`view`、`editor`、`edit`、`quick-open`、`settings`、`account`、`project`、`app`、`help`、`files`、`canon`（planned：世界引擎的作者界面，[`canon.author-ui`](../canon/author-ui.md)）、`tasks` 与 `notifications`（planned：后台任务与通知中心，[`workbench.background-tasks`](background-tasks.md)、[`workbench.notifications`](notifications.md)）。本批只用 `editor` / `edit` / `quick-open`；`files` 随资源管理器加入。
 
 ### 命令目录（第一批 · 本批全部交付）
 

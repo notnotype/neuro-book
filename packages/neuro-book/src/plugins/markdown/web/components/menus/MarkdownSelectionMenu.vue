@@ -8,6 +8,7 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 import {EDITING_ACTIONS, EDITOR_SELECTION_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditingActionId, EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
+import MarkdownBlockTypeMenu from "./MarkdownBlockTypeMenu.vue";
 import MarkdownColorButton from "./MarkdownColorButton.vue";
 import {LINK_COMMAND} from "./palette";
 import {selectionAnchor} from "./selection-anchor";
@@ -23,7 +24,7 @@ const props = defineProps<{
     /** 别的弹层（注音的输入框）开着时不显示。 */
     suspended: boolean;
 }>();
-const emit = defineEmits<{(event: "prompt", action: "ruby"): void}>();
+const emit = defineEmits<{(event: "prompt", action: "ruby" | "comment"): void}>();
 
 /**
  * 这些状态只由指针、键盘与编辑器事件推进，不写 ProseMirror 插件视图：换文档时 `plugins` 数组换了，插件视图会全部重建
@@ -115,7 +116,7 @@ const visible = computed(() => {
     const editor = props.editor;
     if (editor === null || props.readonly || props.suspended) return false;
     if (!settled.value || dismissed.value || composing.value) return false;
-    // 焦点在菜单的按钮或色板上时也算（色板传送到 body，按钮按下不夺焦，所以这里只差打开的色板）。
+    // 焦点在菜单自己的色板、块类型下拉上时也算（它们传送到 body，按钮按下不夺焦，所以这里只差打开的那一层）。
     const inMenu = document.activeElement?.closest("[data-markdown-menu-layer]") != null;
     if (!focused.value && !inMenu) return false;
     // 节点选区是块菜单选中的一整块，不是用户选的文字。
@@ -136,6 +137,8 @@ const buttonTitle = (id: EditingActionId): string => {
 <template>
     <AnchoredPopover :open="visible" :anchor="anchor">
         <Toolbar variant="flat" :aria-label="props.menus.label('selection')" class="markdown-selection-menu" data-markdown-selection-menu>
+            <MarkdownBlockTypeMenu :editing="props.editing" :menus="props.menus" :readonly="props.readonly" in-selection-menu />
+            <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
             <IconButton
                 v-for="id in FORMATS"
                 :key="id"
@@ -149,10 +152,19 @@ const buttonTitle = (id: EditingActionId): string => {
             />
             <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
             <IconButton v-if="hasLink" size="sm" icon-class="i-lucide-link" :title="props.menus.title('link')" :aria-label="props.menus.title('link')" @click="props.menus.execute(LINK_COMMAND)" />
-            <MarkdownColorButton action="text-color" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" />
-            <MarkdownColorButton action="highlight" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" />
+            <MarkdownColorButton action="text-color" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" in-selection-menu />
+            <MarkdownColorButton action="highlight" :editing="props.editing" :menus="props.menus" :readonly="props.readonly" in-selection-menu />
             <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />
-            <IconButton size="sm" :icon-class="EDITING_ACTIONS.ruby.icon" :title="props.menus.title('ruby')" :aria-label="props.menus.title('ruby')" @click="emit('prompt', 'ruby')" />
+            <IconButton
+                size="sm"
+                :variant="props.editing.active('ruby') ? 'accent' : 'default'"
+                :icon-class="EDITING_ACTIONS.ruby.icon"
+                :title="props.menus.title('ruby')"
+                :aria-label="props.menus.title('ruby')"
+                :aria-pressed="props.editing.active('ruby')"
+                @click="emit('prompt', 'ruby')"
+            />
+            <IconButton size="sm" :icon-class="EDITING_ACTIONS.comment.icon" :title="buttonTitle('comment')" :aria-label="props.menus.title('comment')" :disabled="!props.editing.enabled('comment')" @click="emit('prompt', 'comment')" />
             <IconButton size="sm" :icon-class="EDITING_ACTIONS['clear-format'].icon" :title="props.menus.title('clear-format')" :aria-label="props.menus.title('clear-format')" @click="props.menus.run('clear-format')" />
             <template v-if="contributed.length > 0">
                 <span class="mx-1 h-4 w-px shrink-0 bg-[var(--divider)]" aria-hidden="true" />

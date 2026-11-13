@@ -128,7 +128,7 @@ Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，�
 
 ## 实现合同
 
-- **实现 owner 与入口**：application-runtime。入口 `packages/neuro-book/src/cli/main.ts`（commander 的命令表、中文帮助与错误、退出码），打包成 `dist/server/nbook.js`，应用包的 `bin` 指向它；`start.ts` 的 `start(context, options)`，`plugin.ts` 的 `listPlugins`、`installPlugin`、`setPluginEnabled`、`uninstallPlugin`，`state-root.ts` 的 `resolveStateRoot`、`defaultStateRoot`，`output.ts` 的 `CliFailure(code, message, exitCode)` 与 `createOutput(json)`。依赖方向：命令行依赖服务端的认领与进程入口（`src/server/instance.ts`、`src/server/process.ts`）和插件平台的插件管理（`createPluginInventory`、`previewInstalledPlugins`），它们都不依赖命令行。
+- **实现 owner 与入口**：application-runtime。入口 `packages/neuro-book/src/cli/main.ts`（commander 的命令表、中文帮助与错误、退出码），打包成 `dist/server/nbook.js`，应用包的 `bin` 指向它；`start.ts` 的 `start(context, options)`，`plugin.ts` 的 `listPlugins`、`installPlugin`、`setPluginEnabled`、`uninstallPlugin`，`state-root.ts` 的 `resolveStateRoot`、`defaultStateRoot`，`output.ts` 的 `CliFailure(code, message, exitCode)` 与 `createOutput(json)`。依赖方向：命令行依赖服务端的认领与进程入口（`src/server/instance.ts` 的 NeuroBook 认领档案，认领本身在 `@notnotype/nb-host/server`；`src/server/process.ts`）和插件平台的插件管理（`createPluginInventory`、`previewInstalledPlugins`），它们都不依赖命令行。
 - **关键不变量**：
   - `start` 在本进程里运行服务端，不另起子进程：先认领状态根，认领到才运行；认领报 `running` 时回去问实例，不当作失败。
   - 状态根的缺省只在命令行这一层定，服务端进程仍要求显式的状态根；`--state-root` 的空串是用法错误，不回落到缺省。

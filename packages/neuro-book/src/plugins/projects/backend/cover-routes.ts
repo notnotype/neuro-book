@@ -11,10 +11,10 @@ import {join} from "node:path";
 import {Hono} from "hono";
 import {bodyLimit} from "hono/body-limit";
 
+import {rethrowRouteError} from "@notnotype/nb-host/http/contracts";
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
-import {rethrowRouteError} from "nbook/plugins/http/shared/contracts";
 import type {ProjectsService} from "nbook/shared/projects";
 
 import {coverContentType, coverFileName, PROJECT_COVER_MAX_BYTES, sniffCoverType} from "../shared/cover";

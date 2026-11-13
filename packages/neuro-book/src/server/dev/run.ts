@@ -7,8 +7,7 @@
  * 以 1 结束。终端 Ctrl+C 会同时把 SIGINT 发给后端，后端自己也开始停止，与监督进程发来的 stop 汇合为同一次停止。
  */
 
-import {loopbackOrigins} from "../config";
-import {freeGroupOffset, PORT_SHIFT_ATTEMPTS} from "../ports";
+import {freeGroupOffset, loopbackOrigins, PORT_SHIFT_ATTEMPTS} from "@notnotype/nb-host/server";
 
 import {spawnBackend} from "./backend-process";
 import type {BackendSpec} from "./backend-process";

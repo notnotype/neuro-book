@@ -1,0 +1,131 @@
+### 1. 换标签（同一控件换绑定）后页边与浮层数据沿用上一份文档，页边布局会对着不存在的位置调 coordsAtPos 抛 RangeError
+严重程度：重要；类别：正确性 / 不变量
+位置：packages/neuro-book/src/plugins/markdown/web/components/menus/comments/MarkdownCommentLayer.vue:46-56（`tick`、`list`、`at` 只在 `onTransaction` 里加一）、:263-298（`watch([editor, scroller])` 之外没有任何地方在换绑定时让 `tick` 加一）；MarkdownControl.vue:232-249 `enter()` 的 `editor.view.updateState(...)` 不产生事务。
+现象：EditorGroup 每组一个 MarkdownControl，切标签只换 `binding`（EditorGroup.vue:246-252），控件用 `view.updateState(view.state)` 换编辑状态，这一步没有事务。批注层的 `list`/`at`/`marginItems` 全靠 `tick`（只在“改了文档或选区的事务”里加一）重算，所以换文档之后到第一次选区变化之前，页边里还是上一份文档的批注卡片，位置（`item.anchor`）也是上一份的。`MarkdownCommentMargin.layout()` 在 rAF 里对每个 `anchor` 调 `editor.view.coordsAtPos`；新文档比旧文档短时位置越界，ProseMirror 抛 `RangeError: Position N out of range`（rAF 回调里未捕获，页边的 ResizeObserver 每触发一次就再抛一次）。`closeAll` 只清卡片状态，不碰 `tick`。
+为什么是问题：Spec markdown-editing.md“状态与转换”写明“换文档、切标签：……页边按新文档重排”；验收 15 的页边在带批注的作品里切标签是最常见的路径。用户看到的是 A 文档的批注挂在 B 文档的正文旁，点其中一张还会 `gotoComment` 到 B 里不存在的批注（findComment 找不到就什么都不做）。
+如何核实：在 /tmp/t13-review-impl/exp/nb/x1.dom.test.ts（照 MarkdownControl.dom.test.ts 的 `换文档` 用例搭，页边开、宽 1100）里：A 文档三条批注，`current.value = b`（b 正文“丙”，无批注）后 `[data-markdown-comment-margin] .markdown-comment-margin__item` 仍是 ["第一条","第二条","第三条"]；同一编辑器上 `coordsAtPos(40)` 抛 `RangeError: Position 40 out of range`。happy-dom 里 rAF 不跑，抛错的那一步是从代码推断（`topOf` 对每个 `item.anchor` 无保护），RangeError 本身已实测。
+建议改法：控件在 `enter()`/`leave()` 里（或 Layer 在 `binding` 的 watch 里）让 `tick += 1`；`topOf` 外包一层越界保护（`Math.min(pos, doc.content.size)` 或 try/catch 并写诊断）；补一条用例：页边开着换到无批注的文档后页边卡片数为 0。
+
+### 2. 页边按“意见加开头文字”判断哪张卡片展开或在写，两条指纹相同的批注会同时展开、同时进入“写”
+严重程度：重要；类别：正确性
+位置：MarkdownCommentLayer.vue:92（`sameComment`）、:127-131（`marginItems` 的 `mode`）；`cursorComment`（:96-100）。
+现象：`marginItems` 给每条批注定 `mode` 时用 `sameComment(info, editing/open)`，只比意见与开头文字，不比序号。文档里有两条同一个字、同一句意见的批注（“改”“同上”“？”这类短批注，一个字上标“改”很常见）时，光标进其中一条，两张卡片都是 `view`；点其中一条的“编辑”，两张卡片同时变成 `write`、各带一个 textarea，两个 `Card` 的 `watch([mode, session])` 各自把焦点抢到自己的输入框，最后一个赢，另一个里的字不会提交也不会收起。
+为什么是问题：Spec 输出 33“当前批注展开成‘看’卡片（只有一条）”；输出 29“写”只有一张。`findComment` 对相同指纹已经有“序号处优先、否则唯一才算”的处理，页边却没用序号，同一个设计的两半不一致。
+如何核实：/tmp/t13-review-impl/exp/nb/x2.dom.test.ts 的 `duplicate fingerprints in margin`：正文“甲<comment body="改">的</comment>乙丙<comment body="改">的</comment>丁<comment body="别">戊</comment>”，页边开、光标在第一个“的”里，`data-mode` 是 ["view","view","compact"]；点第一张的“编辑批注”后是 ["write","write","compact"]，页边里有 2 个 textarea（实测）。
+建议改法：`mode` 与 `cursorComment` 按 `info.identity`（或序号加指纹）比，不只比指纹；`CommentRef` 里已有 `index`，`sameComment` 改成“序号相同且指纹相同”。补一条重复指纹的用例。
+
+### 3. 每次选区变化多发一个事务；换标签后“进入”记忆被清成空集，回来后在同一条批注里第一次走动就弹卡片
+严重程度：建议；类别：代码质量 / 不变量
+位置：MarkdownCommentLayer.vue:102-109（`shown` 每次返回新对象，`watch(shown)` 每次触发）、:122-129（`closeAll` 里 `previousInside = new Set()`）。
+现象：(a) `cursorComment` 在 `tick` 变化时每次返回 `refOf(first)` 新对象，`watch(shown, …, {flush: "post"})` 按 `Object.is` 判变化，所以光标在同一条批注里走一格也会重新 `markShownComment`，多发一个“只含装饰”的事务。实测（页边开、同一条批注里连续两次 `setTextSelection`）每次选区变化都是 2 个事务（1 个选区 + 1 个装饰），MarkdownControl 的 `onTransaction`、Tiptap 的 `appendTransaction` 插件、ProseMirror 的装饰比较都再走一遍；200 条批注时 `markShownComment` 里还有一次 `listComments` + `findComment`。(b) 换文档、变只读、卡片被 blocked 时 `closeAll()` 把 `previousInside` 清成空集；光标已经在某条批注里（标签记着上次的光标、`load` 放回）时，下一次只是在这条批注里走一格也被判成“进入”而弹卡片，与输出 30 的“光标在同一条批注里继续移动不再弹”不符。实测：光标在批注里 → 切到别的标签再切回（光标仍在批注里）→ 同一条批注里 `setTextSelection` 走一格，卡片弹出（`card=true`）。
+为什么是问题：(a) 浪费且容易被后来的“只看事务数”的逻辑踩到；(b) 窗口里每次切标签回来第一下方向键就弹卡片，盖住正在写的字。
+如何核实：x2.dom.test.ts 的 `transactions per selection change in margin`（输出 `tx on 1st move=2 on 2nd move (same comment)=2`）与 `reload with cursor inside comment …`（输出 `then move inside same comment: card=true`）。
+建议改法：(a) `shown` 的计算结果按 `index/body/quote` 比较后再返回上一个对象（或 watch 里自己比较）；(b) `closeAll` 里用 `commentsAt(editor.state)` 的当前集合初始化 `previousInside`，不要清成空集。
+
+### 4. 删除块批注后光标被挪到块的末尾，不是“留在原处”
+严重程度：重要；类别：正确性（违反 Spec 输出 34）
+位置：packages/nb-markdown/src/editor/comments.ts `removeComment` 的块分支（`tr.replaceWith(at, at + node.nodeSize, node.content)`）。
+现象：用一个把整个容器换成它自己的内容的 `ReplaceStep`，原来落在容器内部的光标位置映射到被替换范围的一端。实测正文“前 / <comment body="块">甲甲甲、乙乙乙、丙丙丙</comment> / 后”，光标在“乙乙乙”里（位置 11），`removeComment` 之后选区 from 是 19（块的末尾，在“丙丙丙”之后），文字内容与写回的文件都对，光标不对。行内批注的分支是 `removeMark`，位置不变，实测前后都是 3。
+为什么是问题：Spec 输出 34“删后光标留在原处”；块批注通常包着整章或一大段，删除后光标飞到块尾，用户接着打字就落在别处；卡片的“删除”之后 `remove()` 会 `editor.view.focus()`，用户感觉到的是“删完光标跑了”。现有用例（comments.dom.test.ts 的“块批注：解开容器”）只断言文字与文件，没有断言选区。
+如何核实：/tmp/t13-review-impl/exp/a.dom.test.ts `block delete cursor`（nb-markdown 包内 `bunx vitest run --config /tmp/t13-review-impl/exp/vitest.exp.config.ts -t "block delete"`），输出 `cursor before pos=11 after pos=19`。
+建议改法：解开后用 `tr.setSelection` 把原选区按“去掉一个开标记”平移回去（容器内位置减 1，容器外不变，起止同理），或改用 `ReplaceAroundStep`/`tr.lift` 之类保持内部位置映射的步骤；在“解开容器”用例里补上选区断言。
+
+### 5. 两条盖住同一段的批注：第一次写回会把嵌套顺序翻过来，重新打开后“第 1 条、第 2 条”互换
+严重程度：建议；类别：正确性（与 Spec 输出 31、35 的“先后不变”不完全一致；根子在编解码器，不是这次引入）
+位置：packages/nb-markdown/src/language/syntax/comment/index.ts（读入时同段重叠的标记里层在前，写出时第一个标记当外层）；comments.ts 头注释“写回的嵌套顺序不变”。
+现象：正文“甲<comment body="外"><comment body="内">乙丙</comment></comment>丁”读入后标记集合顺序是 [内, 外]（按 key 编号，里层小），`list` 是 [内, 外]。不改意见、只在块里打一个字再写回，文件变成“<comment body="内"><comment body="外">乙字丙</comment></comment>”，外内互换（基线，未经本次代码）。用 `setCommentBody` 改“外”的意见为“外2”再 `save()`：文件里外层变成“内”、里层“外2”；同一个编辑会话里列表仍是 [内, 外2]，重新读这份文件得到 [外2, 内]，序号互换。
+为什么是问题：用户在会话里看到“第 2 条”改了意见，保存重开后它成了“第 1 条”；`findComment` 靠指纹能继续找对，所以不会改错批注，但 Spec 验收 17 末句“先后不变”与 `comments.dom.test.ts` 的“嵌套顺序不变”用例都只在内存标记集合里成立，文件层面不成立。
+如何核实：/tmp/t13-review-impl/exp/a.dom.test.ts `nesting flip baseline`，输出 `order after list: ["内","外2"] after reload: ["外2","内"]`。基线用例（不调 t13 的代码，只打字）同样翻转，说明是编解码器的既有行为。
+建议改法：优先改编解码器让读与写的内外顺序一致（读入时把里层排在集合后面或写出时从后往前嵌套），顺手补读写读不变的用例；不想动编解码器就在 Spec 输出 31 写明“重叠同一段的批注，保存并重新打开后先后可能互换”，并去掉 comments.ts 头注释里“写回的嵌套顺序不变”。
+
+### 6. 写着意见时控件宽度跨过阈值（页边出现或消失），没保存的字被丢掉
+严重程度：建议（触发条件窄，但丢的是用户手打的多行意见，Spec 与待确认清单专门强调不丢字）；类别：正确性
+位置：MarkdownCommentLayer.vue:150-153（`popoverOpen`）、:228-261（模板里浮层与页边各一份 `MarkdownCommentCard`）；MarkdownCommentCard.vue:49-58（`draft` 只存在卡片实例里，`watch(..., {immediate: true})` 进入“写”时按 `props.body` 预填）。
+现象：`writing` 的状态在 Layer 里，草稿 `draft` 在卡片组件实例里。页边画出来时“写”卡片在页边的 Teleport 里，窄了页边收起，同一个 `writing` 改成在 `AnchoredPopover` 里渲染——是另一个卡片实例，`draft` 重新按原意见预填，打了一半的字没了；反方向（窗口变宽、开了页边）同理。实测：页边开、选区上 Ctrl+Alt+M、textarea 填“写了很久的意见”，把宽度喂成 900，浮层里的 textarea 值是空串，页边消失。
+为什么是问题：拆分编辑区、打开右栏、拖分隔条都会改控件宽度，写意见时用快捷键开关侧栏很自然；Spec 输出 29 只对“窗口失焦”承诺不丢字，没有说宽度变化，也没有提示；开发者待确认清单里写明“多行意见丢字的代价比注音大两个数量级”。
+如何核实：/tmp/t13-review-impl/exp/nb_keep/x2.dom.test.ts 的 `typed draft survives width change?`（输出 `draft after narrow: popover textarea=""`）。
+建议改法：把草稿提到 Layer 的 `writing` 状态里（`writing.value.draft`，卡片用 `v-model:draft`），换位置不重置；或者“写”着时冻结页边画不画（宽度判断照算，等写完再切）。
+
+### 7. 页边卡片的 `top` 带过渡：新卡片第一帧画在顶部再滑到位，正文改动时卡片也是“滑过去”，不是“当帧跟着重排”
+严重程度：建议；类别：正确性（对 Spec 输出 33 的措辞）/ 代码质量；从代码推断，没有在真实浏览器里逐帧录
+位置：MarkdownCommentMargin.vue 的样式（`.markdown-comment-margin__item { transition: top var(--motion-fast) ... }`）与 `:style="{top: `${offsets[index] ?? 0}px`}"`（`offsets` 初值为空数组）；MarkdownCommentMargin.md“重排”一节写了“top 变化有一个很短的过渡”。
+现象：(a) 页边刚画出来、或新加一条批注、或待写卡片出现时，新元素第一次渲染 `top` 是 `offsets[index] ?? 0` = 0，`layout()` 在 rAF 里才算出真实位置并同步读了布局（`getBoundingClientRect`、`offsetHeight`，已经算过一次样式），随后 Vue 在同一任务里把 `top` 改成真实值，CSS 过渡从 0 开始滑到位：卡片从稿纸顶部滑下来。(b) 输入、折行使位置变化时，每张受影响的卡片都滑一小段，而 Spec 输出 33 写“正文换行、改动时当帧跟着重排”。
+为什么是问题：页边是“总览”，打开开关就看到所有卡片从顶上掉下来，视觉上像闪；打字时卡片落后正文一个过渡时长；评审板与 UI 取证（ui-check.txt）只截了静止的帧，不会发现。
+如何核实：真实浏览器里打开页边（Lab 的 EditorGroup/comments-margin 场景）录屏或在 `transitionrun` 事件上计数；happy-dom 无法复现。
+建议改法：第一次 `layout()` 完成前不渲染页边（`v-if` 加“已量过”标记），或只在已经有位置的卡片上启用过渡（`offsets[index] === undefined` 时不带 transition 类）；正文改动引起的重排不加过渡，或把 Spec 改成“很短的过渡”。
+
+### 8. 只读文档里 Esc 收不起浮层卡片
+严重程度：建议；类别：正确性
+位置：MarkdownCommentLayer.vue:211-215（`onKeyDown` 里的 Esc）、:271-272（`keydown` 只挂在 `editor.view.dom` 上）。
+现象：只读的正文 `contenteditable="false"` 拿不到焦点（计划第 9 节、`onSelectionChange` 的注释都这样写），键盘事件的目标是 `document.body`，不经过 `editor.view.dom`。浮层“看”卡片在只读文档里靠 `readingInside` 出现，却没有任何路径响应 Esc；它只在浏览器选区离开正文时才收（点到按钮上选区可能不动，卡片就一直挂着）。
+为什么是问题：Spec 输出 30 写“Esc 收起，……只读文档也出”，两句同时要成立；e2e 的只读用例只断言卡片里有什么，没按 Esc。
+如何核实：e2e 里在只读文档上点批注文字出卡片后 `page.keyboard.press("Escape")`，卡片不收（本机未跑 e2e，从代码推断）。
+建议改法：只读时把 `keydown` 监听挂到 `document`（或 `scroller` 的祖先）上，只处理 Esc 且卡片开着；补一条只读文档的 Esc 用例。
+
+### 9. Spec 验收 17 与输出 29/失败表写“前面多了一条批注就不改、收起”，实现按唯一指纹找到并照常保存
+严重程度：重要（Spec 与实现必有一个要改；行为本身倒是更友好）；类别：文档 / 对照需求
+位置：packages/nb-markdown/src/editor/comments.ts `findComment`（序号对不上时在整份文档里找唯一指纹）；docs/specs/workbench/markdown-editing.md 输出 29 末段、“失败与恢复”表、验收 17 首句、实现合同的“指纹对不上就不执行”；计划 plan.md 第 36 行写的是“在附近找相同指纹的唯一一条”，与 Spec 不是一回事。
+现象：Spec 验收 17：“卡片在‘写’里已打了几个字，文件被外部改写（前面多了一条批注）并重载后点保存，Then 不改任何批注、卡片收起”。实测（/tmp/t13-review-impl/exp/nb_keep/x2.dom.test.ts 的 `accept17`）：写着“第一条”时一次不进历史的重载在它前面多了一条“前面新增”，卡片仍在“写”（`watch(writingInfo)` 也靠 `findComment` 的回退找到了它），点保存后批注变成 ["前面新增","改好的第一条","第二条"]：改的是同一条、没有改错，但与验收的字面相反。comments.dom.test.ts 的“前面多出一条批注、序号变了，指纹唯一就还是它”用例把这个行为固定下来，MarkdownControl.dom.test.ts 的重载用例只覆盖“意见变了”，没有一条覆盖验收 17 首句。
+为什么是问题：验收条文是交付判据，字面做不到就没有通过；两处互相矛盾，下一个读 Spec 的人会把回退当 bug 删掉，或把 Spec 当错的。
+如何核实：见上；读 `findComment` 与 Spec 行 69、163、185–191。
+建议改法：二选一并写明。(a) 保留回退（推荐，理由：重载、别处改动很常见，丢字代价大），改 Spec：输出 29、失败表、验收 17 首句改成“序号对不上时按唯一指纹找，找不到才不执行、收起”，并在 MarkdownControl 用例里补这一条；(b) 去掉回退，`comments.dom.test.ts` 与 `watch(writingInfo)` 一起改。
+
+### 10. 浮层/页边在退出控件时，“当前批注”装饰随编辑状态存下，重新挂载后不会被清掉（comments.ts 头注释说“宿主在存状态之前也清一次”，宿主没有）
+严重程度：建议；类别：不变量；从代码推断（happy-dom 里 Tiptap 编辑器二次 `mount` 会因 MutationObserver 私有字段报错，复现不了）
+位置：MarkdownControl.vue `leave()`（:250-253 只 `releaseSelection`）；comments.ts 的 `MarkdownShownComment` 注释与 `markShownComment`；MarkdownCommentLayer.vue:122-129（`closeAll`）与 `onBeforeUnmount`（:289-292）。
+现象：控件卸载而编辑器实例留在标签的实例槽里（拆分到另一组、移动标签、编辑器区换挂位置）时，MarkdownControl 的 `onBeforeUnmount` 先 `leave()` 存下 `editor.state`（此刻若卡片开着，状态里有 `nb-comment-current` 装饰），再 `editor.unmount()`；之后 Layer 的 `onBeforeUnmount` 里 `!editor.isDestroyed` 为假（`unmount` 之后 `isDestroyed` 为真，MarkdownControl 的注释也这么写），`closeAll()` 不跑。新挂载的控件 `enter()` 把存下的状态 `updateState` 回来，新 Layer 的 `shown` 初值是 null、`watch(shown)` 不是 immediate，所以那条批注一直带着淡底，直到下次卡片开合才被 `markShownComment(null)` 清掉。同一控件换标签的路径是对的（我实测：A 开卡片、切到 B 再切回，`.nb-comment-current` 为 0），因为 Layer 的 `closeAll` 恰好在 `enter()` 之后才跑，这一点靠的是 prop 更新顺序，不是显式保证。
+为什么是问题：Spec 输出 32“只是显示，不进撤销历史，不写进文件”，规定“换文档前先清掉”（输出 实现合同第 210 行）；与 `held-selection` 的处理（`leave` 里显式 `releaseSelection`）不一致。
+如何核实：真实浏览器里：光标进批注使卡片开着，用“向右拆分”把标签拆到新组（旧控件卸载、新控件挂载同一个编辑器实例），看新组里该批注是否带淡底而无卡片。
+建议改法：`leave()` 里同 `releaseSelection` 一起调 `markShownComment(editor, null)`；不要靠 Layer 的 props 更新顺序。
+
+### 11. 加新批注保存时先关卡片、再发命令且丢弃结果，Spec 要求“加不上时不关成已保存”
+严重程度：建议；类别：正确性；从代码推断
+位置：MarkdownCommentLayer.vue:305-312（`submit` 的 `target === null` 分支：`endWriting(true)` 后 `props.menus.run("comment", {text})`）；contracts.ts `EditorMenus.run` 返回 void（editing-menus.ts 里 `execute` 是 `void options.commands.execute(...)`）。
+现象：`comment` 动作的 `run` 按“文档是不是真的变了”返回成败（editing-actions.ts 里已为此写了注释“选区跨了不允许批注的块时不会成功却关掉卡片”），但 `submit` 先把卡片收起、释放选区，再经命令服务执行；返回值走不回来，失败时用户的几百字意见没了、卡片已经消失，只剩命令服务的“不可用”提示（如果有）。
+为什么是问题：输出 28 的最后一句是“真的加不上时……动作返回失败，卡片不关成‘已保存’”；这里把返回值设计出来了却没人接。前置的 `enabled("comment")` 检查挡住了大部分情形，剩下的是：卡片写着时正文被程序换掉、选区折成空（外部重载映射）、选区所在的块被别处改成代码块。
+如何核实：dom 用例：新批注“写”着时用不进历史的事务把选区所在段整体换掉，Ctrl+Enter，观察卡片与文档。
+建议改法：`submit` 新批注走 `props.editing.run("comment", {text})`（控件句柄，同步、有返回值），成功才 `endWriting(true)`，失败时保持“写”并保留文字或至少给提示；`menus.run` 留给菜单项。
+
+### 12. 测试缺口：Spec 与计划点名要覆盖的几类判据没有用例，另有几处断言太弱
+严重程度：重要；类别：测试
+位置与现象（逐条核对过用例名与内容）：
+(a) Spec 实现合同（markdown-editing.md 第 209 行）写“`MarkdownControl.dom.test.ts` 覆盖打字后方向键、Esc、组字、注音卡片开着、右键菜单开着”。该文件 528–726 行的批注用例里没有组字、没有注音卡片开着（`blocked` 里的 `prompting`）、没有右键菜单开着（`contextOpen`，MarkdownContextMenu 新发的 `open` 事件）；组字只在 e2e 与 `comment-entry.test.ts` 的纯函数里有。这三个分支删掉没有任何单元用例会红。
+(b) 同一行写“刷新引用链接、保持选区、写回回填都会产生无关的事务”，控件层面没有一条用例证明“不进历史的文档事务（`quietly`）既不弹卡片也不重新弹出已被 Esc 收起的卡片”。我手写的用例（x2.dom.test.ts `quiet reload with cursor inside closed card does not reopen`）通过，说明实现是对的，但没有回归保护。
+(c) 验收 17 首句（前面多了一条批注、重载、保存）没有用例，见第 9 条。
+(d) 页边布局：计划 S4 写了“页边组件测试（排布、折叠块、待写卡片）”，但没有 MarkdownCommentMargin 的测试文件，`layout()` 的位置计算、互不盖住、折叠提示块里 `coordsAtPos` 全 0 的退路（`topOf`）没有任何用例；e2e 只覆盖普通段落。`defineExpose({layout})` 的注释写“组件测试里没有 rAF 的节奏时用”，全仓没有人调用它，是没人用的导出。
+(e) 页边开关记录 `comment-margin-record.ts`（读不出按关且切换不记、保存失败只改显示、无作品只在运行里记）没有一条用例；`editing-commands.test.ts` 只测命令存在。
+(f) 换标签（第 1 条）、重复指纹（第 2 条）没有用例；页边的“开关关着没有页边”那条断言（MarkdownControl.dom.test.ts 的“点摘要”用例末尾）开了第二个控件却断言 `querySelectorAll("[data-markdown-comment-margin]")` 为 1，其实数的是第一个控件的页边，断言的是自己的前置状态，不能证明第二个没页边（后一条 `data-comment-margin` 属性的断言才有效）。
+(g) 外观靠类名断言：Card 的“意见区没有输入框的框”与 nb-ui `Textarea` 的 contract 用例都在断言 class 列表（`not.toContain("border")`、`resize-none`）；nb-ui 开发规范第 6 节要求“不得以无意义的 class 快照代替行为”，实测样式（边框 0、背景透明、12 行 260px）只在 ui-check.txt 的手工脚本里，没有进 e2e。同一个 Textarea 用例里 `expect(auto.element.style.height).not.toBe("")` 在 happy-dom 里恒为 "0px"（scrollHeight 为 0），改坏 `maxRows` 夹取也不会红。
+(h) e2e 的负向断言（`popoverCard(page).toHaveCount(0)`，Esc 后、打字后、组字中）在卡片本该“稍后才出现”的回归下会立即通过，没有等一个稳定信号；ui 取证里的 999/1000/1031/1032 边界、场景图隐藏、窗口失焦都没进 e2e（计划第 6 节写了 e2e 要含这些，进度记录只承认失焦未验证）。
+为什么是问题：这些都是 Spec 或计划自己点了名的判据；(a) 与 (d) 删掉对应代码不会有测试失败。
+如何核实：`grep -n "blocked\|contextOpen\|prompt" MarkdownControl.dom.test.ts` 在批注两个 describe 里没有命中；`ls menus/comments/` 没有 Margin 的测试。
+建议改法：补 (a)(b)(c)(d)(e)(f) 的用例（(a) 用已有的 `opened(..., {menus: true})` 加 `prompt`/右键菜单的事件即可；(d) 在 happy-dom 里桩 `coordsAtPos`）；(g) 把 Textarea 的 clamp 用桩的 `scrollHeight` 与 `lineHeight` 测行为，外观交给 e2e 取计算样式；(h) 负向断言前先等 `page.evaluate(() => new Promise(requestAnimationFrame))` 两帧。
+
+### 13. nb-ui `Textarea`：新属性没登记 Lab 场景；`lineHeight: normal` 时 `maxRows` 静默失效；`autosize` 中途打开不会观察宽度
+严重程度：建议；类别：代码质量 / 文档；从代码推断
+位置：packages/nb-ui/src/components/form/Textarea.vue `fit()`（`Number.isFinite(line) ? … : Number.POSITIVE_INFINITY`）、`onMounted` 里的观察器；packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/form.ts（Textarea 的三个场景没有改）。
+现象：(a) nb-ui 开发规范第 7 节与“每批组件完成时”第 3 条要求给受影响组件登记 Component Lab 场景；`bare`、`autosize`、`maxRows` 是新增的公开属性，Lab 里没有对应场景（只有 default、empty、readonly）；UI 取证用的是不进库的 probe.mjs。(b) `getComputedStyle(...).lineHeight` 在行高为 `normal` 时是字符串 "normal"，`parseFloat` 得 NaN，`limit` 变成无穷，`maxRows` 被静默忽略；调用方没设行高时（Tailwind 的 `text-sm` 会给行高，覆盖后可能没有）高度无上限地长，没有诊断。(c) 观察器只在 `onMounted` 里按 `props.autosize` 当时的值创建；`autosize` 由 false 变 true 后只有值的 `watch` 会重量，宽度变了（折行变了）不会。(d) 默认外观加 `autosize` 时：`box-sizing` 是 border-box、有边框，`element.style.height = scrollHeight`（不含边框）会让内容区少 2px，最后一行下的内边距被截；`limit` 里却加了边框，两边不一致。当前只有 `bare` 在用，(d) 现在不显现。
+为什么是问题：公开属性的组合没有守卫；规范要求的 Lab 登记缺失。
+如何核实：读 `fit()`；在 Lab 的 Textarea 场景里加 `autosize` + 自定义 `line-height: normal`。
+建议改法：`fit()` 里 `line` 为 NaN 时退到 `fontSize * 1.2`（或按 `rows` 估）；观察器不论 `autosize` 初值，创建后在回调里判断；按 `box-sizing` 加上边框；在 Lab 的 Textarea 夹具加 `bare`、`autosize` 两个场景。
+
+### 14. Spec 与文档的几处不一致或遗漏
+严重程度：建议；类别：文档
+(a) Spec 验收 16 写“只读文档：选区菜单与右键菜单里的批注项置灰”，输出 20 写“只读文档只有复制、全选”（实现是后者：MarkdownContextMenu.vue 只读时直接返回 `[copy, selectAll]`，没有批注项，更谈不上置灰）。两句要统一。
+(b) Spec“公开键”一行写“……读活动控件”，`commentMargin` 在 state.ts 里读的是本作品的记录（`commentMargin.value`），不经活动控件；没有可提供页边的控件时它也可能为真。按钮的 `whenHidden` 靠 `hasComments` 兜着，所以界面上没有错，但文字要么改成“`commentMargin` 读这部作品的记录”，要么实现里与 `hasComments` 取与。
+(c) comments.ts 文件头第 3 条“写回的嵌套顺序不变”，与第 5 条（编解码器重写块时同一段上的重叠批注内外互换）矛盾；MarkdownCommentMargin.md“top 变化有一个很短的过渡”与 Spec 输出 33“当帧跟着重排”的措辞冲突，见第 7 条。
+(d) MarkdownCommentMargin.vue 里 `defineExpose({layout})` 无人使用（见第 12 条 d）。
+(e) 紧凑卡片（页边摘要）是 `role="button" tabindex="-1"`，键盘够不到，也没有 `keydown` 的 Enter；键盘用户只能用上一条、下一条跳转。Spec 输出 20 已明说“键盘只管添加与修改意见”，不算违约，但页边既是总览又只有鼠标可点，是已知限制，建议在 MarkdownCommentMargin.md 里写明。
+
+（第 12 条 g 与第 13 条 b 的补充核实：/tmp/t13-review-impl/exp/nb_t/t.dom.test.ts 在 happy-dom 里挂 `Textarea autosize maxRows=2`，得到 `style.height = "0px"`、`overflowY = "hidden"`、`getComputedStyle(...).lineHeight = "normal"`——高度断言在这里没有信息量，行高为 normal 时 `fit()` 走无穷上限的退路。）
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14（无撤回）。
+数量：阻断 0、重要 5（1、2、4、9、12）、建议 9（3、5、6、7、8、10、11、13、14）。
+未发现问题的方面（仔细检查后没有发现）：
+- “进入”判断的事务过滤：只看 `docChanged`/`selectionSet`，`addToHistory === false` 的文档事务（`quietly`、`written.accept`）、REFRESH_REFERENCE_LINKS、held-selection、shown-comment 装饰都不会混进来；手写用例（Esc 之后不进历史的重载与整段替换，卡片都不重开）通过。
+- 改意见与去标记对特殊字符的往返：意见里含引号、尖括号、`&`、字面的 `&#10;`、`</comment>`、嵌套的 `<comment …>`、前后空白，行内与块批注（含代码块、表格）写回再读回都与输入一致；去块批注（含代码块与表格）文字与结构都保住。
+- 部分重叠（A 盖 乙丙丁，B 盖 丁戊）与带格式（粗体、斜体）切成多个文本节点的行内批注：段数、意见、写回、去标记都对。
+- `findComment` 的指纹与序号逻辑、`commentEntry` 纯函数、Ctrl+Alt+M 的键位匹配（AltGr、组字、修饰键完全一致、物理键位）、卡片的“按下不夺焦、焦点离开才放弃、窗口失焦不放弃”判断、空意见保存等于取消、Ctrl+Enter/Esc 的归属与组字时的让出，与 Spec 输出 28、29 一致。
+- 标签条：`titleModelFor` 的两遍拼装（徽标按一格预算扣）、`EditorMenus` 契约新增字段（vue-tsc 通过，Lab 夹具已同步）、`defineRecord`/`persist` 的用法与 `markdown.colors`、`editor.tabs` 一致；中英文文案成对、说法一致（`locales.test.ts` 通过）。
+- 页边的资源清理：`ResizeObserver`、`rAF`、`document.fonts` 监听在卸载时摘掉，`isDestroyed` 守卫在编辑器卸载后跳过布局；类型检查（`vue-tsc -p tsconfig.web.json`）退出码 0；`comments.dom.test.ts`、`editing-actions.dom.test.ts`、`comment-entry.test.ts`、`MarkdownControl.dom.test.ts`、卡片与标签条的组件测试、`title-actions`/`key-event`/`locales` 的 bun 测试在 HEAD `36ae15e15` 全部通过。
+未跑 e2e 与开发服务（按说明）；真实排版、真实输入法、窗口失焦、折叠提示块里的页边定位均未在真实浏览器里复验，涉及它们的结论已标“从代码推断”。

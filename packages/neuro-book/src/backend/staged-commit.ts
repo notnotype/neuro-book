@@ -18,7 +18,7 @@ import {constants} from "node:fs";
 import type {Stats} from "node:fs";
 import {access, chmod, copyFile, link, lstat, open, rename, unlink} from "node:fs/promises";
 
-import {describe, errno, holdLock, readOnly, sameFile, statOrNull} from "./locked-replace";
+import {describe, errno, holdLock, readOnly, sameFile, statOrNull} from "@notnotype/nb-file-lock";
 
 /** 目标现在的样子；不存在为 `null`。`bytes` 只在不超过 `keepBytes` 时给。 */
 export type StagedCurrent = {readonly stats: Stats; readonly hash: string; readonly bytes: Uint8Array | null} | null;

@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t20-selection-menu-polish
-status: planned
+status: done
 updated: 2026-11-11
 ---
 
@@ -37,7 +37,9 @@ updated: 2026-11-11
 
 ## 当前状态
 
-执行位置：`.worktree/w00025-t20-selection-menu-polish`，分支 `feat/w00025-t20-selection-menu-polish`。草稿在 t13 的草稿 worktree `.worktree/w00025-t13-drafts`（`drafts/web/components/selection-menu/`，Lab 组件 `SelectionMenuDraft`），不合并。
+**已完成，2026-11-11 合入 master**（快进到 `ad53fd721`，不 push）。两段实现、两轮实现审查都处理完；给开发者看的亮色截图是产物 [`ui-check`](artifacts/ui-check/index.html)。
+
+执行位置：`.worktree/w00025-t20-selection-menu-polish`，分支 `feat/w00025-t20-selection-menu-polish`（合入后删除）。草稿在 t13 的草稿 worktree `.worktree/w00025-t13-drafts`（`drafts/web/components/selection-menu/`，Lab 组件 `SelectionMenuDraft`），不合并。
 
 **第一段（[plan.md](plan.md)）已实施，未合入**：`e22401bfb` 注音当成整体（注音语法的 ProseMirror 插件，按加标记、去标记的步把只盖住一半的补到整段；设新注音改为放一个新的标记）与注音小字不可选；`e9e67dc0a` `AnchoredPopover` 淡入淡出、退场时停在原处，`SuggestionMenu` 只淡入（斜杠菜单关上时锚点与内容已被收走）；`5cf6164ea` 源码编辑器底色改成 `--bg-panel`。
 
@@ -45,8 +47,15 @@ updated: 2026-11-11
 - Spec（主工作区，未提交，合入时一起提交）：`markdown-editing.md` 加输出 26、验收 7 与实现合同；`theme/system.md` 写 Monaco 底色取 `--bg-panel`；待确认清单 t05 第 5 行写了改判结果。
 - 实现审查（Sonnet）已处理：阻断 1（反转映射反转了整个事务，撤销 `**…**` 输入规则时抛错、撤销栈卡住，无注音的文档也会）、重要 1、建议 6；修正在 `e43c383b8`，用例补到 18 例并做了三次变异检查。暗色下源码编辑器当前行与缩进线对比变弱一条接受取舍，四种组合取证时看暗色截图。报告与逐条处理见 [evidences/impl-review-sonnet.txt](evidences/impl-review-sonnet.txt)、[evidences/impl-review-disposition.txt](evidences/impl-review-disposition.txt)。修正后 e2e `markdown-editing`、`markdown-input` 43 例通过；快捷键那条在负载下的偶发记到 t17。
 
-**第二段**：[plan-2.md](plan-2.md) 开发者 2026-11-11 已确认，实施中。
+**第二段（[plan-2.md](plan-2.md)，开发者 2026-11-11 确认）已实施，未合入**：`68a294072` nb-ui `Input` 的 `variant="bare"`；`ae031537b` 保持选区高亮（`held-selection.ts`）与 `ruby-remove` 动作；`8338a543b` 注音一行卡片（预填、移除、写时保持选区高亮、点注音小字打开）；`fc6ce379e` 文字颜色与高亮的拆分按钮，记住的颜色存 user/local 记录 `markdown.colors`；`a8dc86fda` 选区菜单最前面加块类型下拉，与工具栏共用；`8160dd749` 取证时发现正文选区是浏览器缺省色、卡片一开就变色，改成主题的 `--selection-bg`（theme/system.md 本来就这样要求）。
+
+- 验证：应用、nb-markdown、nb-ui 的单元与 DOM 测试和类型检查都过；`test:affected --since master --typecheck` 只有三例 5 秒超时（nb-story 两例命令行用例、`SnippetsPage.dom.test.ts`，都不是本分支改的），负载降下后单独重跑都过。e2e：`markdown-editing` 42 例、`markdown-input` 5 例全过；选区颜色修正后重跑注音的 4 例过（修之前新断言失败，即变异检查）。`lab-scenes` 只有 ThemeEditor 假素材的 404（已知，提交 `14051849a`，别的 Task 记过）；临时把那条改成 `expect.soft` 跑完，版面检查与基线没有新问题，改动已还原。
+- UI 取证（四种组合加 390px）：[evidences/ui-check.txt](evidences/ui-check.txt)。第一段审查第 5 条（暗色下源码编辑器当前行与缩进线变弱）量了对比度：暗色当前行 1.38 → 1.19、缩进线 1.92 → 1.65，与 VS Code 缺省暗色相近，截图里看得出，维持接受取舍。
+- 取证时发现、不属于本 Task：一行里有注音时按 End 光标停在注音后面，master 上同样如此，待另建 Task。
+- Spec（主工作区，未提交，合入时一起提交）：`markdown-editing.md` 输出 1、6、7、9，命令表加 `nbook.edit.ruby-remove`，“副作用与数据”加 `markdown.colors`，验收 8、9，实现合同与证据加新文件。
+- 实现审查（Sonnet，第二段 `e43c383b8..8160dd749`）：阻断 0、重要 3、建议 8，修正在 `8b98e50e2`。重要的三条：色板点已选的颜色没反应（根因是 nb-ui `ColorSwatches` 值不变不发事件，加了 `pick` 事件，base 里点“默认”也是这样）；“移除注音”按钮上按回车被当成确定；换文档前撤掉高亮没有测试（已补，变异检查过）。另外改了卡片开着时换到同读音的另一段不重来（浏览器里复现过）、跨几段读音不同的注音时的预填、修饰键、组字中的 Esc、入口等存储期间被停止时的资源释放。接受取舍两条：记录损坏时选了颜色也不记（与别的偏好记录同样，Spec 已写明）、颜色箭头复制 `IconButton` 的状态色不抽共享形态。报告与逐条处理见 [evidences/impl-review-2-sonnet.txt](evidences/impl-review-2-sonnet.txt)、[evidences/impl-review-2-disposition.txt](evidences/impl-review-2-disposition.txt)。
+- 合入前把 master（131 个提交，改的是 agent、lab、commands 等，与本分支没有同一个文件）合进分支（`ad53fd721`），在合并后的代码上：应用与 nb-ui 类型检查、markdown 插件 68 例通过；e2e `markdown-editing`、`markdown-input` 48 例里 47 例过，“块菜单：下移、副本、删除”在负载 6 时失败一次（删除没生效），单独重跑 3 次都过，是负载下的偶发，记到 t17 一类。修正后的截图在四种组合与 390px 下重量过。
 
 ## 下一步
 
-开发者确认第二段计划后实施；两段做完一起做四种主题组合的 UI 取证，再合入。
+无。“一行里有注音时按 End 停在注音后面”待另建 Task。

@@ -1,0 +1,128 @@
+w00026 t25 动画 2 实现审查（2026-11-12）
+审查者：Claude Sonnet（claude-sonnet-5-5，经 claude 命令行；Agent 子代理的别名被环境变量映射到不存在的模型，派不出去）
+范围：d20aa3e0b..76d1cb3b8（七个提交）；说明：仓库外 review-t25-a2/brief.md
+审查者写不进报告文件，报告在它的最终回复里，原文如下。
+
+==== 审查报告原文 ====
+我发现 2 条重要、7 条建议，没有阻断项。报告文件和实验目录都被权限系统拦了（提示“sensitive file”），写不进去，所以报告放在这里。实验脚本也跑不了，下面所有结论都从读代码推断，没有实际复现。基线我跑过：`bun test src` 551 个通过，`vitest run` 190 个通过，`bun run typecheck` 通过。
+
+### 1. 过渡中反向时，元素先跳到布局终点再动
+- 严重程度：重要
+- 类别：正确性
+- 位置：`packages/nb-layout/src/grid-motion.ts:292`（`keptSizeStarts`）、`:161`（`enteringRects` 的 `known`）、`packages/nb-layout/src/vue/useGridMotion.ts:159-176`、`packages/nb-layout/src/vue/NestedGrid.vue:256`（`structureMoving`）
+- 现象：
+  - 长到一半又隐藏：第二轮里这块叶是“离开”，`keptSizeStarts` 给它的起点是 `before.get(key)`，也就是上一帧布局里的完整矩形。
+  - 第一次渲染 `growing` 里有它，`structureMoving` 为假，不带过渡，样式一次写成完整宽度。元素本来在过渡中途，这样写会取消过渡并一下子变成全宽，下一个 tick 才从全宽缩回去。
+  - 缩到一半又显示：`decideMotion` 前后帧都滤掉了 `leaving`，所以这块叶对 `enteringRects` 是“新叶”，起点是压成零的矩形。DOM 元素同 key 复用，于是从半宽跳到零宽再长出来。
+  - 内容外层的起点用的是 `leaf:X` 这个键，同样会跳。
+- 为什么是问题：快速连点两下活动栏入口是常见操作，起点矩形本来是为“元素已经画在那儿”设计的，进行中的轮次里元素的实际位置不等于布局模型的矩形。
+- 如何核实：
+  - 在 `useGridMotion.dom.test.ts` 里让 `start` 连发两次，第二次的 `entering` 里会有 `leaf:X`。
+  - e2e 的“长到一半又隐藏、缩到一半又显示”只检查最终状态和宽度，测不到中间帧。
+  - 可以在逐帧录屏里量外框宽度，应该会看到一帧突变。
+- 建议改法：
+  - 轮次进行中（`inRound`），已经有元素的叶不写起点：`start()` 里丢弃 `move.entering` 中已画着的叶的键，让 CSS 过渡从当前计算值重新定向。内容外层换摆法那一帧要的起点，仍给上一轮没有换过摆法的。
+  - 把当前 `leaving` 的 key 并进 `enteringRects` 的 `known`，这样重新显示的叶不当新叶。
+  - 补一条逐帧用例，断言每帧外框宽度和上一帧的差不超过一帧该走的量。
+
+### 2. 留着的叶被下一次变化整个丢掉；`leaving` 与 `keptSize`、`anchoredRight` 的跨轮规则不一致
+- 严重程度：建议
+- 类别：正确性、代码质量
+- 位置：`useGridMotion.ts:172`（`leaving.value = move.leaving`）和它上面“要么回到树里，要么已经缩到了头”的注释；`NestedGrid.vue:132`（`placement`）
+- 现象：
+  - 隐藏侧栏后，过渡中又隐藏底部面板或做别的布局变化，第二轮的 `previous` 已经滤掉了 `leaving`，新的 `move.leaving` 里没有侧栏。
+  - 赋值把侧栏整个丢掉，它在缩到一半时瞬间消失。注释说的“已经缩到了头”不成立。
+  - `keptSize` 和 `anchoredRight` 是用 `carried()` 跨轮保留的，唯独 `leaving` 是替换。已丢掉的叶的键还留在 `keptSize` 里，直到 `stop`。
+  - 还有一条出口：`duration <= 0` 时 `update()` 不调用 `start`。过渡中切到“减少动效”再显示同一块叶，`leavers` 还留着旧的，树里又有同 key 的叶，出现重复 key。
+- 建议改法：
+  - `start()` 里把上一轮 `leaving` 中这一轮树里没有的叶继续保留，只替换这一轮判出来的。
+  - `placement` 里过滤掉树里已有同 key 的 `leavers`，作为保险。
+
+### 3. 留着的外框成了“被隐藏面板的几何”，指示器式拖动在 470ms 内会量到它
+- 严重程度：建议
+- 类别：隐含耦合
+- 位置：`packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:347`（`geometryOf`）、`:358`（`measureGeometry`）、`:857-858`（只有实时分支调 `settleMotion`）
+- 现象：
+  - `geometryOf` 靠 `querySelector('[data-leaf=id]')` 是否存在来排除隐藏面板，此前隐藏的面板没有 DOM。
+  - 现在留着的外框、`[data-shell-card]` 和标签都还在，隐藏的面板会成为一块正在缩小的落点。
+  - 键盘拖动、拖容器入口这类“落点指示”拖动，以及手感设为指示器的用户，都走不到 `settleMotion`。
+  - `measureGeometry` 只按 `doc.panels[leaf.id]` 过滤，没看面板是否显示。
+- 为什么是问题：窗口很窄（约 470ms），但依赖的是“隐藏即无 DOM”这个隐含前提，现在被打破。
+- 如何核实：从代码推断，未验证。
+- 建议改法：`geometryOf` 或 `measureGeometry` 显式排除 `isPanelShown` 为假的面板，或排除带 `data-leaving` 的外框。
+
+### 4. 判定“相邻两块同时离开”时都不当合拢，立即消失
+- 严重程度：建议
+- 类别：边界
+- 位置：`grid-motion.ts:250`（`closesUp`）
+- 现象：
+  - `[a, X, Y, c]` 里 X、Y 同时离开：X 的 `after` 是 Y（这一帧没了），`seamNow` 找不到，两头都有兄弟时直接返回 false。Y 同理，两块都立即消失。
+  - 活动栏和侧栏一起隐藏时，侧栏的 `before` 是活动栏，同样不留。
+- 如何核实：从代码推断，未验证。查一下有没有“同时隐藏活动栏和侧栏”的命令。
+- 建议改法：往兄弟方向继续找第一个这一帧还在的节点来判相接；不改的话，在 Spec 里写明“相邻的几块同时离开不留”。
+
+### 5. 验证清单漏了用 NestedGrid 的 Lab 场景
+- 严重程度：建议
+- 类别：测试
+- 位置：计划“验证”里重跑的是 `workbench-live-drag`、`workbench-dnd`、`workbench-float`、`workbench-shell`、`workbench-containers`
+- 现象：
+  - 这次改了 NestedGrid 的公共行为：位置从 `transform` 换成 `left`/`top`、`contain: layout`、内容外层在过渡中按叶的矩形摆、离开的叶留着。
+  - `lab-grid-panels.e2e.ts` 的 `open(page, true)` 用例（第 75、123、147、159、169、192、230 行）会在过渡中读内容外层的矩形和外层、内部宽度。
+  - `lab-grid-structure.e2e.ts`（第 99、112、141、155、183 行）、`lab-nested-grid.e2e.ts`、`lab-workbench-surface.e2e.ts` 同样没跑。
+- 建议：主 Agent 补跑这四个文件，重点看 `lab-grid-panels` 的第 168-187 行，那条比较了内容外层和内容体的宽度。
+
+### 6. 留着的叶这条新路径缺 DOM 层单元测试
+- 严重程度：建议
+- 类别：测试
+- 位置：`useGridMotion.dom.test.ts`、`NestedGrid.dom.test.ts`
+- 现象：
+  - 只有纯函数测试和 e2e。`useGridMotion` 里 `leaving` 的生命周期（`start` 设置、第二轮替换、`stop` 清空）没有单元测试。
+  - e2e 里“缩到一半又显示”只断言最终宽度，测不到第 1 条。
+  - 任务书让评估“能不能用更少的假设写”：现有 e2e 大量依赖 `requestAnimationFrame` 轮询和真实时长，建议把几何判据下沉到 `useGridMotion` 的 DOM 测试，e2e 只留焦点和最终状态。
+
+### 7. `lastPresented` 只增不减
+- 严重程度：建议
+- 类别：资源
+- 位置：`WorkbenchSurface.vue:197-207`
+- 现象：只在叶呈现时写入，没有清理，编辑组反复新建、关闭后，已经不存在的 id 的 `CardEdges` 一直留着。
+- 建议改法：`NestedGrid` 的 `leavingLeaves` 变空时，清掉不在呈现里的键。
+
+### 8. 文档与整洁度
+- 严重程度：建议
+- 类别：质量
+- 位置：
+  - Spec `docs/specs/ui/nested-grid.md:94` 仍写“叶的外框用了 `transform`”，与第 44 行已改成 `left`/`top` 加 `contain: layout` 不一致。
+  - `NestedGrid.vue` 末尾样式里，“过渡中内容贴着外框的右边”那段注释孤零零地排在 `[data-by-leaf]` 规则前面，它说明的 `[data-anchor-right]` 规则在后面。
+  - 工作区里有未跟踪的 `packages/neuro-book/e2e/zz-t25-probe.e2e.ts`，不要进提交。
+
+### 未发现问题的方面
+我对下面这些做过读代码核对，没发现问题。
+- `enteringRects` 的 `replaces` 和 `leavingPlacements` 的 `closesUp` 在这些树形下判得对：多层嵌套、底部面板和编辑区的纵向分支被摊平、右栏在一头、切换容器（顶替）、关编辑组（无挂着内容）、浮动窗（`path` 为空）、最大化（只改一块叶的矩形）。
+- 停放与内容层：`parking.update` 排在 `motion.update` 之后，留着的叶算“降到零”，`lastSizes` 在 `stop` 后才被清，次序没问题；`useRenderOrder` 不搬已有元素；`tabbable` 会跳过 `inert`，焦点和 Tab 顺序没问题。
+- 监听自激：加上、摘掉留着的叶会各触发一次监听，`decideMotion` 前后帧都滤掉 `leaving`，不会判成布局变化。
+- 位置改用 `left`/`top`：`contain: layout` 保住了 `position: fixed` 的包含块和层叠上下文。我没在 `packages` 里找到别处按 `transform` 读位置的代码，仓库里原本依赖 `transform` 位置的断言（`NestedGrid.dom.test.ts` 里的 `frameRect`、浮动窗位置）已随提交改成读 `left`/`top`。`placeFloat` 写的 `translate` 与 `left`/`top` 叠加正确；落地一帧先写卡片矩形再过渡，我没找到会闪的路径。
+- `rightAnchored`：从左边长出来、缩向左边才贴右边，右栏、底部面板和几块并排的子树都不贴，规则自洽。
+- `leafShape` 圆角顺序与卡片 CSS 一致，`inset` 和 `round` 的取值与 `data-shell-join` 吻合。
+- `barJoinHeld` 的推断成立：`adjacency.ts` 里 `joined` 只出现在活动栏和它右边的工具面板之间，`leavingLeaves` 的暴露和读取是响应式的。
+- 注意：我只在代码和单元测试层面核对过，没有用真实浏览器逐帧验证，e2e 与开发服务按要求没跑。
+
+各级数量：阻断 0，重要 1，建议 7；另有 0 项仅为问题陈述。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8
+
+（我把第 2 条按“建议”归类，所以重要只有第 1 条；其余数量是 7 条建议。）
+
+==== 主 Agent 的处理 ====
+1. 过渡中反向时先跳到终点（重要）：不成立，补注释。真实浏览器里记侧栏外框每一次样式改写：中途重开时起点那一帧写的是上一帧的矩形（例如 340px），
+   正是元素此刻在走的那次过渡的终点；CSS 过渡里写回同一个终点不打断它（量到的宽度停在 304.2），5ms 后写新终点时从当前位置反向（304→253→205…）。
+   隐藏到一半再显示同样（起点 0px 等于在走的终点，35.8→86.8→133.9…）。审查者没有用真实浏览器（它自己写明了）。这条依赖没写出来的前提，
+   在 useGridMotion 的 start() 里写清：起点不再是上一轮的终点时就不成立。
+2. 留着的叶被下一次变化整个丢掉（建议）：成立，已改。真实浏览器里侧栏缩到 77px 时显示底部面板，侧栏当场没了。decideMotion 把上一轮还在缩、
+   这一轮没回到树里也没重新判成离开的叶接着留着；过渡中切到减少动效时 update() 直接 stop()（审查说的重复画同一块叶）。补单元测试两条
+   （去掉各自的改动时失败）与 e2e 一段（缩到一半显示底部面板，侧栏接着缩）。
+3. 指示器式拖动量到留着的外框（建议）：成立，已改。layout-drag 的 geometryOf 跳过带 data-leaving 的外框。改动一行，没加测试。
+4. 相邻两块同时离开都不留（建议）：不改。Spec 写的条件是“前后的兄弟这一帧相接”，相邻两块同时离开不满足，按 Spec 是立即消失；
+   应用里没有同时隐藏两个相邻区域的命令（区域显隐命令一次一个）。窄场景按简单规则处理。
+5. 漏跑 Lab 场景（建议）：照做，补跑 lab-grid-panels、lab-grid-structure、lab-nested-grid、lab-workbench-surface。
+6. 缺 DOM 层单元测试（建议）：部分照做，随第 2 条补了 useGridMotion 的两条；几何判据仍在 e2e（要真实布局）。
+7. lastPresented 只增不减（建议）：成立，已改。等 NestedGrid 判完过渡（post）清掉不在呈现里、也不在缩回去的叶。
+8. 文档与整洁（建议）：成立，已改。Spec 里“叶的外框用了 transform”改成 contain: layout；样式里贴右边那段注释挪到它的规则前；探针文件已删。

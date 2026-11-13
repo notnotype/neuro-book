@@ -16,6 +16,8 @@ import {SessionUnavailable} from "@notnotype/nb-harness/kit/sessions";
 import type {SessionTable} from "@notnotype/nb-harness/kit/sessions";
 import {capLine, LINE_BYTES} from "@notnotype/nb-harness/kit/tools";
 
+import {PushThrottle} from "nbook/shared/push-throttle";
+
 import type {AgentService, ProfileAdmin} from "../shared/contracts";
 import type {Rule} from "../shared/permissions";
 import type {agentSessionsContract, ApprovalPreview, JobTail, RemoteCommandName} from "../shared/remote";
@@ -24,7 +26,6 @@ import type {AncestorItem, JobItem} from "../shared/subagents";
 import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimText} from "./frames";
 import {jobDirectory, OUTPUT_FILE, readStatus} from "./builtin/shell-background";
 import type {Job, JobCenter} from "./jobs/center";
-import {PushThrottle} from "./push-throttle";
 import type {SkillCatalog} from "./skills/catalog";
 import type {SkillInstaller} from "./skills/install";
 import type {SessionRelations} from "./subagents/relations";

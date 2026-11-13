@@ -40,16 +40,18 @@ describe("ColorSwatches", () => {
         expect(swatch("custom").getAttribute("aria-label")).toBe("自定义 #123456");
     });
 
-    it("点色块发出它，点“自动”发出 null，再点已选的不发 undefined；点“自定义”不改值，打开取色面板", async () => {
+    it("点色块发出它，点“自动”发出 null，再点已选的不改值、但 pick 照发；点“自定义”不改值，打开取色面板", async () => {
         const wrapper = mountSwatches("#2f5d8a");
+        swatch("#2f5d8a").click();
         swatch("#8f3f2e").click();
         swatch("auto").click();
-        swatch("#2f5d8a").click();
         await flushPromises();
         expect(wrapper.emitted("update:modelValue")).toEqual([["#8f3f2e"], [null]]);
+        expect(wrapper.emitted("pick")).toEqual([["#2f5d8a"], ["#8f3f2e"], [null]]);
         swatch("custom").click();
         await flushPromises();
         expect(wrapper.emitted("update:modelValue")).toHaveLength(2);
+        expect(wrapper.emitted("pick")).toHaveLength(3);
         expect(document.body.querySelector("[data-color-swatches-panel] [data-color-panel]")).not.toBeNull();
     });
 

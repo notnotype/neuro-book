@@ -3,13 +3,12 @@
  * 不另做测试用的认领句柄。
  */
 
-import {claimStateRoot} from "nbook/server/instance";
+import {claimNeuroBook} from "nbook/server/instance";
 import {startServer} from "nbook/server/start";
 import type {RunningServer, StartServerOptions} from "nbook/server/start";
-import {PRODUCT_VERSION} from "nbook/shared/product";
 
 export async function startClaimedServer(options: Omit<StartServerOptions, "claim">): Promise<RunningServer> {
-    const claimed = await claimStateRoot({stateRoot: options.config.stateRoot, kind: "fixture", version: PRODUCT_VERSION, report: () => undefined});
+    const claimed = await claimNeuroBook({stateRoot: options.config.stateRoot, kind: "fixture", report: () => undefined});
     if (!claimed.ok) throw new Error(`测试状态根 ${options.config.stateRoot} 认领失败：${claimed.reason}`);
     return startServer({...options, claim: claimed.claim});
 }

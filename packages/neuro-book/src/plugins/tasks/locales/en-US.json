@@ -1,0 +1,62 @@
+{
+    "views": {
+        "list": {
+            "title": "Background Tasks",
+            "actions": {
+                "nbook": {
+                    "tasks": {
+                        "clear-finished": {
+                            "title": "Clear Finished"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "statusItems": {
+        "status": {
+            "title": "Background tasks"
+        }
+    },
+    "commands": {
+        "show": {
+            "title": "Show Background Tasks"
+        },
+        "clear-finished": {
+            "title": "Clear Finished Background Tasks"
+        }
+    },
+    "state": {
+        "nonEmpty": {
+            "reason": "There are no background tasks"
+        },
+        "hasFinished": {
+            "reason": "No background task has finished"
+        }
+    },
+    "status": {
+        "count": "{{count}} tasks",
+        "failed": "Background tasks: an unseen failure",
+        "idle": "Background tasks: all finished"
+    },
+    "list": {
+        "empty": "No background tasks. Long-running work such as installing a skill shows up here.",
+        "running": "Running",
+        "cancel": "Cancel",
+        "cancelling": "Cancelling",
+        "retry": "Retry",
+        "detail": "Details",
+        "remove": "Remove",
+        "detailTitle": "{{title}}: Details",
+        "startedAt": "Started {{time}}",
+        "endedAt": "Ended {{time}}"
+    },
+    "outcome": {
+        "succeeded": "Done",
+        "cancelled": "Cancelled",
+        "interrupted": "Interrupted"
+    },
+    "time": {
+        "yesterday": "Yesterday"
+    }
+}

@@ -12,6 +12,8 @@
 
 层级在 `Dialog` 或浮动窗口里跟随它们注入的层级，不在里面时取普通页面的浮层层级（`state:inject`）。
 
+出现与消失用浮层共用的动效（`.nb-ui-popover-motion`，设计语言“浮层入退场的编排是固定的”）。退场期间外框停在关上那一刻量到的位置，不再读锚点：宿主的锚点常跟着选区走，关的时候选区多半已经变了。
+
 ## 交互
 
 - 在浮层里按下指针不夺走焦点（`mousedown` 默认动作被阻止），只有能接收焦点的元素（输入框等）照常接收。
@@ -26,6 +28,8 @@ type AnchoredPopoverProps = {
     anchor: Element | {getBoundingClientRect: () => DOMRect; contextElement?: Element} | null;
     /** 偏好的一侧；缺省 "top"。放不下时翻到另一侧。 */
     side?: "top" | "bottom";
+    /** 沿着这一侧的对齐；缺省 "center"（浮层中心对着锚点中心）。"start" 是浮层左缘对着锚点左缘，"end" 是右缘对右缘。靠近窗口边时仍夹进窗口。 */
+    align?: "start" | "center" | "end";
     /** 与锚点的距离；缺省 8。 */
     sideOffset?: number;
 };

@@ -2,7 +2,7 @@
  * 一层配置文件的读与写（docs/specs/settings/configuration.md 输出 13、14，“副作用与数据”）。
  *
  * 写入：先不持锁读一次，新文本与当前相同就直接成功，不建目录、不取锁、不碰文件（删除不存在的键没有副作用）；否则建好目录，
- * 经 `nbook/backend/locked-replace` 加锁替换（锁、重做与只读、权限位的规则见那里）。
+ * 经 `@notnotype/nb-file-lock` 加锁替换（锁、重做与只读、权限位的规则见那里）。
  * - 写入锁是目标旁的 `<目标>.lock`（诊断插件也用 proper-lockfile）：同一份项目层可能被用不同状态根的两个服务端同时写。
  * - 符号链接解析到最终目标，替换目标、不动链接；链接悬空时不写，免得把链接换成普通文件。
  */
@@ -11,9 +11,9 @@ import {lstat, mkdir, readFile, realpath} from "node:fs/promises";
 import type {Stats} from "node:fs";
 import {dirname} from "node:path";
 
-import {describe, errno, replaceLocked} from "nbook/backend/locked-replace";
+import {describe, errno, replaceLocked} from "@notnotype/nb-file-lock";
 
-export {errno} from "nbook/backend/locked-replace";
+export {errno} from "@notnotype/nb-file-lock";
 
 export type LayerTarget =
     | {readonly kind: "file" | "missing"; readonly target: string}

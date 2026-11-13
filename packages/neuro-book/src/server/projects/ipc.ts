@@ -9,11 +9,11 @@
 import {Type} from "typebox";
 import {Value} from "typebox/value";
 
+import {createSocketLink} from "@notnotype/nb-host/socket";
+import type {SocketLink} from "@notnotype/nb-host/socket";
+
 import {InstalledPluginSchema} from "nbook/plugin-platform/backend/installed";
 import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
-
-import {createSocketLink} from "nbook/shared/rpc-socket";
-import type {SocketLink} from "nbook/shared/rpc-socket";
 
 export type ProjectEnvelope =
     | {readonly t: "frame"; readonly d: string}

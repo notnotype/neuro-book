@@ -4,6 +4,8 @@
  * 还有两页共用的几处措辞：失败原因、角色名、单价。
  */
 
+import type {SnapshotModel, SnapshotRole} from "@notnotype/nb-models/contract";
+
 import type {PluginCatalogs} from "nbook/shared/convention-keys";
 import {usePluginText} from "nbook/shared/use-plugin-text";
 import type {BoundText} from "nbook/shared/use-plugin-text";
@@ -11,7 +13,6 @@ import type {BoundText} from "nbook/shared/use-plugin-text";
 import enUS from "../locales/en-US.json";
 import zhCN from "../locales/zh-CN.json";
 import {builtinRoleNameKey, MODELS_TEXT_NAMESPACE} from "../shared/text";
-import type {SnapshotModel, SnapshotRole} from "../shared/contracts";
 import type {ModelsFailure} from "./models-store";
 import {detailText} from "./models-store";
 

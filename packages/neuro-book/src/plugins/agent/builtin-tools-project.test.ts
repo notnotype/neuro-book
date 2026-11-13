@@ -7,6 +7,7 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {readFile, realpath, rm, writeFile, mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -18,7 +19,6 @@ import {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {definitionAt} from "nbook/manifest";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
 import {descriptor} from "nbook/plugins/files/plugin";
 import {workspaceFilesKey} from "nbook/plugins/files/shared/contracts";

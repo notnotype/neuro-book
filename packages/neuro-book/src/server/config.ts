@@ -8,6 +8,8 @@
 
 import {join, resolve} from "node:path";
 
+import {assertLoopbackHost, HostConfigError, parseAllowedOrigins} from "@notnotype/nb-host/server";
+
 export interface ServerConfig {
     readonly host: string;
     /** 0 表示由系统分配端口，实际地址见监听日志。 */
@@ -49,9 +51,6 @@ const DEFAULT_RPC_PORT = 4218;
 export const PROJECT_LIMIT_DEFAULTS: ServerConfig["projects"] = {graceMs: 5 * 60_000, startMs: 30_000, stopMs: 20_000};
 /** 计时器能表示的最大毫秒数；更大的值会被运行时缩成立即触发。 */
 const MAX_TIMER_MS = 2 ** 31 - 1;
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
-/** `URL.hostname` 的写法：IPv6 带方括号。 */
-const LOOPBACK_ORIGIN_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 export function readServerConfig(argv: readonly string[], env: Readonly<Record<string, string | undefined>>, cwd: string): ServerConfig {
     let stopStdin = false;
@@ -60,12 +59,10 @@ export function readServerConfig(argv: readonly string[], env: Readonly<Record<s
         else throw new ServerConfigError("unknown-argument", `未知参数：${argument}`);
     }
     const host = env.NBOOK_HOST?.trim() || DEFAULT_HOST;
-    if (!LOOPBACK_HOSTS.has(host)) {
-        throw new ServerConfigError("non-loopback-host", `未加载鉴权插件时只允许监听回环地址，收到 NBOOK_HOST=${host}`);
-    }
+    hostConfig(() => assertLoopbackHost(host, `NBOOK_HOST=${host}`));
     const port = parsePort("NBOOK_PORT", env.NBOOK_PORT, DEFAULT_PORT);
     const rpcPort = parsePort("NBOOK_RPC_PORT", env.NBOOK_RPC_PORT, DEFAULT_RPC_PORT);
-    const allowedOrigins = parseOrigins(env.NBOOK_ALLOWED_ORIGINS);
+    const allowedOrigins = hostConfig(() => parseAllowedOrigins(env.NBOOK_ALLOWED_ORIGINS, "NBOOK_ALLOWED_ORIGINS"));
     const stateRootInput = env.NBOOK_STATE_ROOT?.trim();
     if (!stateRootInput) {
         throw new ServerConfigError("missing-state-root", "缺少 NBOOK_STATE_ROOT：后端需要显式的状态根来存放日志与数据");
@@ -104,30 +101,12 @@ function parsePort(name: string, value: string | undefined, fallback: number): n
     return port;
 }
 
-/**
- * 一个回环端口在三个回环别名上的页面来源：同一个本机页面可以从任一别名打开，Origin 随之不同。
- * 用于本进程 HTTP 端口（RPC 端口的允许来源）与开发模式的页面服务（传给后端的 `NBOOK_ALLOWED_ORIGINS`）。
- */
-export function loopbackOrigins(pageUrl: string): string[] {
-    const port = new URL(pageUrl).port;
-    const suffix = port === "" ? "" : `:${port}`;
-    return [...LOOPBACK_ORIGIN_HOSTS].map((host) => new URL(`http://${host}${suffix}`).origin);
-}
-
-/** 逗号分隔的页面来源；每项必须是回环主机上的 `http` 来源，不带路径、查询与片段。 */
-function parseOrigins(value: string | undefined): string[] {
-    const origins: string[] = [];
-    for (const item of (value ?? "").split(",").map((part) => part.trim()).filter(Boolean)) {
-        let url: URL;
-        try {
-            url = new URL(item);
-        } catch {
-            throw new ServerConfigError("invalid-origin", `NBOOK_ALLOWED_ORIGINS 里的 ${item} 不是 URL`);
-        }
-        if (url.protocol !== "http:" || !LOOPBACK_ORIGIN_HOSTS.has(url.hostname) || url.username !== "" || url.pathname !== "/" || url.search !== "" || url.hash !== "") {
-            throw new ServerConfigError("invalid-origin", `未加载鉴权插件时 NBOOK_ALLOWED_ORIGINS 只能列回环地址上的 http 来源（例如 http://127.0.0.1:3000），收到 ${item}`);
-        }
-        origins.push(url.origin);
+/** 回环与来源的校验在 nb-host：它的错误原样转成本模块的错误，码与消息不变，调用方只认 `ServerConfigError`。 */
+function hostConfig<T>(check: () => T): T {
+    try {
+        return check();
+    } catch (error) {
+        if (error instanceof HostConfigError) throw new ServerConfigError(error.code, error.message);
+        throw error;
     }
-    return origins;
 }

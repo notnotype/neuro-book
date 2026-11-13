@@ -29,6 +29,12 @@ export const SAMPLE_VIEWS_STOP_COMMAND = "test.sample-views.stop";
 /** 样例视图丙自己声明、收进“⋯”的标题动作执行的命令：什么都不做（docs/specs/workbench/views.md 验收 8）。 */
 export const SAMPLE_VIEWS_MARK_COMMAND = "test.sample-views.mark";
 
+/**
+ * 页面上派发这个名字的 `CustomEvent`（`detail` 是 `{command, args}`），插件就执行这条命令。给 e2e 在拖动进行中执行命令用
+ * （docs/specs/ui/workbench-layout.md 验收 32）：那时按键归拖动会话，点不了菜单，`page.evaluate` 派发事件不碰指针与焦点。
+ */
+export const SAMPLE_VIEWS_RUN_EVENT = "test.sample-views/run-command";
+
 export const SAMPLE_VIEWS_SWITCHES = {
     failActivation: "test.sample-views/fail-activation",
     failLoad: "test.sample-views/fail-load",

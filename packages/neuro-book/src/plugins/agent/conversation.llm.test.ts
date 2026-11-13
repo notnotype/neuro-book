@@ -7,13 +7,12 @@ import {afterAll, describe, expect, test} from "bun:test";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {splitReference} from "@notnotype/nb-models/config";
 import {llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {PendingApprovalView} from "@notnotype/nb-agent-ui";
-
-import {splitReference} from "nbook/plugins/models/shared/rules";
 
 import {MAIN_PROFILE} from "./shared/contracts";
 import {agentWorld} from "./testing/world";

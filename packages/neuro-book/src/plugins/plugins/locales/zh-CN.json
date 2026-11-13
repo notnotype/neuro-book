@@ -186,6 +186,10 @@
             "name": "存储",
             "description": "插件的记录与偏好。"
         },
+        "nbook-tasks": {
+            "name": "后台任务",
+            "description": "插件发起的长任务：进度、取消与重试，结束时发通知。"
+        },
         "nbook-workbench": {
             "name": "工作台",
             "description": "工作台的外壳：侧栏、面板、标题栏与状态栏。"

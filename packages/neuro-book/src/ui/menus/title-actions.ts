@@ -17,6 +17,8 @@ export interface TitleActionEntry {
     readonly pressed?: boolean;
     /** 按平台写好的快捷键，在“⋯”里显示；命令没有声明键位时没有这一项。 */
     readonly shortcut?: string;
+    /** 图标后面的一小段数字（例如批注的条数，至多三个字符）；只在按钮上画，收进“⋯”时不画。 */
+    readonly badge?: string;
 }
 
 export interface TitleActionsModel {
@@ -37,6 +39,9 @@ export const NO_TITLE_ACTIONS: TitleActionsModel = {buttons: [], menu: []};
 const BUTTON_PX = 24;
 const GAP_PX = 2;
 
+/** 带 `badge` 的按钮比 24px 宽出的部分：三个字符（“99+”）的宽度加图标与数字之间的间距。 */
+export const BADGE_EXTRA_PX = 26;
+
 /**
  * 宽度给定时放得下几个按钮：先给别的内容留出 `reserved`，再给“⋯”留一格，剩下的按每格按钮加间距（26px）算，至多 `max` 个。量不到
  * 宽度（还没挂上）时按 `max`。
@@ -55,4 +60,14 @@ export function assembleTitleActions(own: ReadonlyArray<TitleActionCandidate>, c
     const shown = new Set(buttons);
     const rest = (section: ReadonlyArray<TitleActionCandidate>): TitleActionEntry[] => section.map((item) => item.entry).filter((entry) => !shown.has(entry));
     return {buttons, menu: [rest(own), ...contributed.map(rest)].filter((section) => section.length > 0)};
+}
+
+/**
+ * 带数字的按钮更宽：先按个数预算拼一次，拼出的按钮里有带 `badge` 的，就把多出的宽度从预算里扣掉再拼一次，免得吃掉给标签条
+ * 留的最小宽度（`reserved`，docs/specs/workbench/editor.md 输出 34）。没有带数字的按钮时就是 `buttonBudget` 的结果。
+ */
+export function titleModelFor(model: (maxButtons: number) => TitleActionsModel, width: number | null, reserved: number, max: number): TitleActionsModel {
+    const first = model(buttonBudget(width, reserved, max));
+    const badged = first.buttons.filter((entry) => entry.badge !== undefined).length;
+    return badged === 0 ? first : model(buttonBudget(width, reserved + badged * BADGE_EXTRA_PX, max));
 }

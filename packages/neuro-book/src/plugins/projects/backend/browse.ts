@@ -6,7 +6,8 @@
 import {readdir, readFile, realpath, stat} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 
-import {describe} from "nbook/backend/locked-replace";
+import {describe} from "@notnotype/nb-file-lock";
+
 import type {ProjectDirectoryFailure, ProjectState} from "nbook/shared/projects";
 
 import {PROJECT_ID_PATTERN} from "../shared/contracts";

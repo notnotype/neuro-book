@@ -82,6 +82,22 @@ const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name)
  * （docs/specs/runtime/plugin-code-loading.md 输出 2、plugin-api.md 的“SDK”）。外置构建时它们就只能这样导入。
  */
 const EXAMPLE_PACKAGES: ReadonlyArray<string> = [...SDK_ENTRIES.map((entry) => entry.specifier), "vue", "@vue/reactivity", "typebox"];
+/**
+ * 从应用抽出去的工作区包，按子路径登记运行位置：`targetInSrc` 把包名一律当作“不在 src 内”，不登记的话前端引后端的包拦不住。
+ * 抽出新包或给它加子路径时在这里登记；没登记的包不参加前后端判定。`neutral` 与没登记的判定相同（哪里都能引），写出来是为了
+ * 让表列全每个子路径、登记时想过一遍它在哪运行。
+ */
+const PACKAGE_SIDES: ReadonlyArray<{readonly specifier: string; readonly side: "backend" | "web" | "neutral"}> = [
+    {specifier: "@notnotype/nb-file-lock", side: "backend"},
+    {specifier: "@notnotype/nb-host/server", side: "backend"},
+    {specifier: "@notnotype/nb-host/web", side: "web"},
+    {specifier: "@notnotype/nb-host/socket", side: "neutral"},
+    {specifier: "@notnotype/nb-host/http/contracts", side: "neutral"},
+    {specifier: "@notnotype/nb-models/config", side: "neutral"},
+    {specifier: "@notnotype/nb-models/contract", side: "neutral"},
+    {specifier: "@notnotype/nb-models/core", side: "backend"},
+];
+const packageSide = (specifier: string): "backend" | "web" | "neutral" | null => PACKAGE_SIDES.find((entry) => specifier === entry.specifier)?.side ?? null;
 
 function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
     const found: string[] = [];
@@ -91,9 +107,10 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         const web = has(use.file, "web") || use.file.startsWith("ui/");
         const server = isBackend(use.file);
         const neutral = use.file.startsWith("shared/") || has(use.file, "shared") || /^(?:\.\.\/plugin-sdk\/examples\/)?plugins\/[^/]+\/plugin\.ts$/u.test(use.file) || use.file === "manifest.ts" || use.file === "development-manifest.ts";
-        if (web && (isPlatformModule(use.specifier) || (target !== null && isBackend(target)))) found.push(`前端引用了后端或运行平台：${where}`);
-        if (server && (isFrontendPackage(use.specifier) || (target !== null && has(target, "web")))) found.push(`后端引用了前端：${where}`);
-        if (neutral && target !== null && (isBackend(target) || has(target, "web"))) found.push(`共用代码引用了一侧的实现：${where}`);
+        const side = packageSide(use.specifier);
+        if (web && (isPlatformModule(use.specifier) || (target !== null && isBackend(target)) || side === "backend")) found.push(`前端引用了后端或运行平台：${where}`);
+        if (server && (isFrontendPackage(use.specifier) || (target !== null && has(target, "web")) || side === "web")) found.push(`后端引用了前端：${where}`);
+        if (neutral && ((target !== null && (isBackend(target) || has(target, "web"))) || side === "backend" || side === "web")) found.push(`共用代码引用了一侧的实现：${where}`);
         const from = pluginOf(use.file);
         const to = target === null ? null : pluginOf(target);
         if (from !== null && to !== null && from !== to && !use.typeOnly && !isPluginContracts(target as string) && !labSceneMayImport(use.file, target as string)) {
@@ -102,6 +119,7 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         if ((use.specifier === "vite" || use.specifier.startsWith("vite/")) && !use.file.startsWith("server/dev/") && !use.file.startsWith("plugin-platform/build/")) found.push(`只有开发监督进程与构建预设能引用 Vite：${where}`);
         if (target !== null && target.startsWith("plugin-platform/build/") && !use.file.startsWith("plugin-platform/build/")) found.push(`构建预设只给作者工具用，产品代码不引用：${where}`);
         if (isTestLibrary(use.specifier)) found.push(`产品代码引用了测试库：${where}`);
+        if (use.specifier === "proper-lockfile" || use.specifier.startsWith("proper-lockfile/")) found.push(`锁只经 @notnotype/nb-file-lock 取（锁的过期参数只有那一份）：${where}`);
         if (importsTesting(use, target)) found.push(`产品代码引用了测试支持代码（testing/ 或内核的 */testing 入口）：${where}`);
         if (target !== null && isPluginSdk(target) && !isPluginSdk(use.file)) found.push(`产品代码引用了作者包 plugin-sdk/：${where}`);
         if (isExample(use.file) && ((target !== null && !isExample(target)) || (target === null && !EXAMPLE_PACKAGES.includes(use.specifier)))) {
@@ -122,9 +140,8 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
  * 列名的通用件，不引用应用的插件、合同与档案；“这是哪个应用”的事实都由调用方交来的平台档案给出，源码里不写应用名。
  * 构建预设所在的 `build/` 另可以用打包器。测试与 `testing/` 不受限。
  */
-const PLATFORM_ALLOWED_PACKAGES = /^(?:@notnotype\/nb-runtime\/[a-z-]+|typebox|typebox\/value|semver|proper-lockfile|bun|node:.+)$/u;
+const PLATFORM_ALLOWED_PACKAGES = /^(?:@notnotype\/nb-runtime\/[a-z-]+|@notnotype\/nb-file-lock|typebox|typebox\/value|semver|bun|node:.+)$/u;
 const PLATFORM_BUILD_PACKAGES = /^(?:vite|rolldown|@vitejs\/plugin-vue|vue\/compiler-sfc|@iconify\/utils)$/u;
-const PLATFORM_SHARED_UTILITIES = new Set(["backend/locked-replace"]);
 const APP_NAMES = /nbook|neurobook/iu;
 
 function platformViolations(uses: ReadonlyArray<ImportUse>): string[] {
@@ -136,7 +153,7 @@ function platformViolations(uses: ReadonlyArray<ImportUse>): string[] {
             if (use.file.startsWith("plugin-platform/build/") && PLATFORM_BUILD_PACKAGES.test(use.specifier)) return [];
             return [`通用插件管理只能用内核与列名的包：${use.file} -> ${use.specifier}`];
         }
-        if (target.startsWith("plugin-platform/") || PLATFORM_SHARED_UTILITIES.has(target)) return [];
+        if (target.startsWith("plugin-platform/")) return [];
         return [`通用插件管理不引用应用的代码：${use.file} -> ${use.specifier}`];
     });
 }
@@ -170,11 +187,13 @@ describe("通用插件管理的边界", () => {
             use("plugin-platform/web/plugin-code.ts", "nbook/sdk/index"),
             use("plugin-platform/backend/loader.ts", "vite"),
             use("plugin-platform/shared/types.ts", "vue"),
+            // 锁一律经 nb-file-lock 取，锁参数只有一份。
+            use("plugin-platform/backend/startup.ts", "proper-lockfile"),
         ];
         expect(cases.map((item) => platformViolations([item]).length)).toEqual(cases.map(() => 1));
         expect(platformViolations([
             use("plugin-platform/build/build-plugin.ts", "vite"),
-            use("plugin-platform/backend/record.ts", "nbook/backend/locked-replace"),
+            use("plugin-platform/backend/record.ts", "@notnotype/nb-file-lock"),
             use("plugin-platform/backend/record.ts", "@notnotype/nb-runtime/plugin-manifest"),
             use("plugin-platform/backend/startup.ts", "./record"),
         ])).toEqual([]);
@@ -219,12 +238,12 @@ describe("包内依赖方向", () => {
         const cases: ReadonlyArray<ImportUse> = [
             use("web/host/window.ts", "nbook/server/start"),
             use("web/host/window.ts", "node:fs"),
-            use("plugins/http/backend/plugin.ts", "../web/view"),
-            use("plugins/http/backend/plugin.ts", "vue"),
+            use("plugins/files/backend/plugin.ts", "../web/view"),
+            use("plugins/files/backend/plugin.ts", "vue"),
             use("project/start.ts", "vue"),
             use("web/host/window.ts", "nbook/plugins/storage/backend/plugin"),
-            use("shared/browser-bootstrap.ts", "nbook/plugins/http/backend/dispatch"),
-            use("plugins/workbench/web/plugin.ts", "nbook/plugins/diagnostics/web/plugin"),
+            use("shared/browser-bootstrap.ts", "@notnotype/nb-host/server"),
+            use("plugins/workbench/web/plugin.ts", "nbook/plugins/editor/web/plugin"),
             use("web/main.ts", "vite"),
             use("server/start.ts", "nbook/plugin-platform/build/build-plugin"),
             use("web/host/window.ts", "@vue/test-utils"),
@@ -249,10 +268,17 @@ describe("包内依赖方向", () => {
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "nbook/plugins/storage/shared/contracts"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "@notnotype/nb-runtime/plugins"),
             use("../plugin-sdk/examples/plugins/notes/web/plugin.ts", "@notnotype/nb-ui/composables"),
+            use("web/host/window.ts", "@notnotype/nb-file-lock"),
+            use("plugins/files/shared/contracts.ts", "@notnotype/nb-file-lock", true),
+            use("web/host/window.ts", "@notnotype/nb-host/server"),
+            use("server/start.ts", "@notnotype/nb-host/web"),
+            use("plugins/files/shared/contracts.ts", "@notnotype/nb-host/web"),
+            use("web/host/window.ts", "@notnotype/nb-models/core"),
+            use("plugins/files/backend/rooted.ts", "proper-lockfile"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
-            use("plugins/workbench/web/plugin.ts", "nbook/plugins/diagnostics/web/plugin", true),
+            use("plugins/workbench/web/plugin.ts", "nbook/plugins/editor/web/plugin", true),
             use("plugins/projects/web/plugin.ts", "nbook/plugins/workbench/shared/contracts"),
             use("plugins/storage/web/plugin.ts", "nbook/plugins/commands/shared/contracts"),
             use("server/development-main.ts", "nbook/development-manifest"),
@@ -266,6 +292,12 @@ describe("包内依赖方向", () => {
             use("../plugin-sdk/examples/plugins/counter/backend/plugin.ts", "@vue/reactivity"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "../../clock/shared/contracts"),
             use("../plugin-sdk/examples/plugins/notes/web/plugin.ts", "../shared/contracts"),
+            use("plugins/files/backend/rooted.ts", "@notnotype/nb-file-lock"),
+            use("plugins/files/shared/contracts.ts", "@notnotype/nb-host/socket"),
+            use("web/host/connection.ts", "@notnotype/nb-host/web"),
+            use("server/start.ts", "@notnotype/nb-host/socket"),
+            use("plugins/models/web/models-store.ts", "@notnotype/nb-models/contract"),
+            use("plugins/models/backend/plugin.ts", "@notnotype/nb-models/core"),
         ])).toEqual([]);
 
         expect(importsOf(join(SRC, "web", "main.ts")).some((item) => item.specifier === "./development-plugins" && item.dynamic === true)).toBe(true);

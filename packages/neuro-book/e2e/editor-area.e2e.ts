@@ -208,6 +208,13 @@ async function dragFrom(page: Page, source: Locator, to: {x: number; y: number} 
     await expect(ghost).toHaveCount(0);
 }
 
+/** 资源管理器所在分节的面板 id：分节的 id 是布局起的（输出 40），内容项上写着它所在的叶。 */
+async function explorerSection(page: Page): Promise<string> {
+    const id = await page.locator("[data-content=\"view:nbook.explorer\"]").getAttribute("data-content-leaf");
+    if (id === null) throw new Error("资源管理器不在任何面板里");
+    return id;
+}
+
 /**
  * 面板上放不进去就是被拒绝（docs/specs/ui/workbench-layout.md 输出 39）：没有反馈，光标是禁止，松手取消。
  */
@@ -226,6 +233,10 @@ async function open(page: Page): Promise<void> {
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(page.locator("[data-editor-group]").first()).toBeVisible();
+    // 侧栏的“项目”容器是会话、资源管理器两个分节，各占一半高（docs/specs/ui/workbench-layout.md 输出 4）：这个作品的文件
+    // 半高放不下，资源树只渲染视口附近的行，下面的行不在页面上，按行定位就找不到。这里不看会话，把它收成标题行，资源树占这一列。
+    const sessions = page.locator("[data-panel-head]:has([data-panel-tab=\"view:nbook.agent.sessions\"]) [data-panel-action=\"nbook.view.set-panel-collapsed\"]");
+    if (await sessions.getAttribute("aria-pressed") !== "true") await sessions.click();
     if (await item(page, "project://notes").getAttribute("aria-expanded") !== "true") await item(page, "project://notes").click();
     await expect(item(page, "project://notes/a.md")).toBeVisible();
 }
@@ -976,8 +987,9 @@ test("编辑器标签和工具面板（docs/specs/ui/workbench-layout.md 输出 
     const noDrop = () => rejectedHere(page);
 
     // 工具面板的标题（侧栏这一列只有标题）、中央、上下缘：编辑器标签都没有落点，只能浮动。
-    const head = await page.locator("[data-panel-head=\"sidebar\"]").boundingBox();
-    const sidebar = await page.locator("[data-leaf=\"sidebar\"]").boundingBox();
+    // 侧栏是“项目”的两个分节：拿资源管理器那一节。
+    const head = await page.locator("[data-panel-head]:has([data-panel-tab=\"view:nbook.explorer\"])").boundingBox();
+    const sidebar = await page.locator(`[data-leaf="${await explorerSection(page)}"]`).boundingBox();
     if (head === null || sidebar === null) throw new Error("没有侧栏");
     await dragTab("b.md", {x: head.x + 20, y: head.y + head.height / 2}, noDrop);
     await dragTab("b.md", {x: sidebar.x + sidebar.width / 2, y: sidebar.y + sidebar.height / 2}, noDrop);
@@ -1021,6 +1033,7 @@ test("编辑器标签和工具面板（docs/specs/ui/workbench-layout.md 输出 
     // 工具视图：编辑组的标签条、中央、外缘和两组之间的缝都没有落点，松手不动。
     const explorer = page.locator("[data-panel-tab=\"view:nbook.explorer\"]");
     const explorerLeft = await leftOf(explorer);
+    const explorerHome = await explorerSection(page);
     const seam = await page.locator("[data-sash-kind=\"editors\"]").boundingBox();
     const strip = await headOf(page, firstId).locator("[data-editor-tabs]").boundingBox();
     const body = await other.locator("[data-editor-content]").boundingBox();
@@ -1031,7 +1044,7 @@ test("编辑器标签和工具面板（docs/specs/ui/workbench-layout.md 输出 
     await dragFrom(page, explorer, {x: body.x + body.width - 10, y: body.y + body.height / 2}, noDrop);
     await expect(groups).toHaveCount(2);
     expect(await leftOf(explorer)).toBe(explorerLeft);
-    await expect(page.locator("[data-panel-head=\"sidebar\"] [data-panel-tab=\"view:nbook.explorer\"]")).toHaveCount(1);
+    expect(await explorerSection(page)).toBe(explorerHome);
     await headOf(page, id).locator("[data-editor-tab-close]").click();
     const discard = page.locator("[data-editor-close-discard]");
     if (await discard.isVisible()) await discard.click();
@@ -1052,18 +1065,26 @@ test("编辑器标签的落点（docs/specs/ui/workbench-layout.md 输出 25、2
         return {x: box.x + box.width / 2, y: box.y + box.height / 2};
     };
 
-    // 活动栏不接收编辑器标签。
-    await dragTab("b.md", await center(page.locator("[data-tool-entry=\"nbook.explorer\"]")), () => noDropShown(page));
+    // 活动栏不接收编辑器标签（资源管理器在“项目”这个容器里）。
+    await dragTab("b.md", await center(page.locator("[data-tool-entry=\"nbook.workbench.project\"]")), () => noDropShown(page));
     await expect(tabs(page)).toHaveCount(2);
 
     // 侧栏和编辑组之间的缝：工具视图归侧栏，编辑器标签归编辑组。
-    const sash = await page.getByRole("separator", {name: /^调整 sidebar 与 .+ 的宽度$/u}).boundingBox();
+    // 侧栏显示两个分节，挨着编辑区的是区域的分支：只认编辑区那一侧。
+    const sash = await page.getByRole("separator", {name: /^调整 \S+ 与 (?:center|g0) 的宽度$/u}).boundingBox();
     if (sash === null) throw new Error("没有侧栏与编辑区之间的分隔线");
     const seamX = sash.x + sash.width / 2;
     const seamY = sash.y + sash.height / 2;
-    // 缝左边归侧栏，落在它右缘的窄带上：侧栏不左右分，那里没有落点。
-    await dragFrom(page, explorer, {x: seamX - 2, y: seamY}, () => rejectedHere(page));
-    await dragFrom(page, explorer, {x: seamX + 2, y: seamY}, () => rejectedHere(page));
+    // 会话那一节收成了标题行（见 open），缝的这一侧整段是资源管理器那一节；在它的下半段量，结果唯一。
+    const explorerBox = await page.locator(`[data-leaf="${await explorerSection(page)}"]`).boundingBox();
+    if (explorerBox === null) throw new Error("没有资源管理器那一节");
+    const lowY = explorerBox.y + explorerBox.height * 0.75;
+    // 缝左边归侧栏：分节没有外缘窄带，靠右缘也按前后两半算（输出 25 第 7 行，验收 10）。拖的就是资源管理器，放到它自己后面是原位（输出 28）。
+    await dragFrom(page, explorer, {x: seamX - 2, y: lowY}, async () => {
+        await expect(page.locator("[data-drop-kind=\"noop\"]")).toHaveCount(1);
+        await page.keyboard.press("Escape");
+    });
+    await dragFrom(page, explorer, {x: seamX + 2, y: lowY}, () => rejectedHere(page));
     // 缝右边 2px 在编辑组的左缘窄带里，松手会拆出新组：看到落点就用 Escape 取消，后面接着用这一个组。
     await dragTab("b.md", {x: seamX + 2, y: seamY}, async () => {
         await expect(page.locator(DROP_SHOWN)).toHaveCount(1);
@@ -1071,11 +1092,12 @@ test("编辑器标签的落点（docs/specs/ui/workbench-layout.md 输出 25、2
     });
     await expect(groups).toHaveCount(1);
 
-    // 把资源管理器移到面板：编辑组的下面挨着面板。
-    await page.locator("[data-tool-entry=\"nbook.explorer\"]").click({button: "right"});
-    await page.getByRole("menuitem", {name: "面板", exact: true}).click();
-    await expect(page.locator("[data-leaf=\"panel\"]")).toBeVisible();
-    const panel = page.locator("[data-leaf=\"panel\"]");
+    // 把资源管理器移进底部面板的新容器（右键分节标题的“移动到”，输出 23；底部面板默认隐藏，里面只有不让区域显示的通知、后台任务，views.md 输出 18）：编辑组的下面挨着面板。
+    await explorer.click({button: "right"});
+    await page.getByRole("menu").getByRole("menuitem", {name: "新容器（底部面板）", exact: true}).click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    const panel = page.locator(`[data-leaf="${await explorerSection(page)}"]`);
+    await expect(panel).toBeVisible();
     // 面板刚出现，尺寸还在过渡：等它稳定再量。
     let heightBefore = 0;
     await expect.poll(async () => {
@@ -1820,8 +1842,9 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
         // 作品第一次在本窗口打开时欢迎页也自动打开（workbench.bookshelf 输出 20）：只认 a.md 的标签。
         await expect(tabs(page).filter({hasText: "a.md"})).toHaveCount(1);
         const active = page.locator("[data-editor-group-head-active] [data-editor-title-actions]");
-        await expect(active.locator("[data-title-action-key]")).toHaveCount(2);
-        expect(await active.locator("[data-title-action-key], [data-title-actions-more]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-title-action-key") ?? "more"))).toEqual(["own:split-right", "test.menus.editor-md", "more"]);
+        // Markdown 的控件提供批注页边，自己多一个“批注 N”开关（markdown-editing.md 输出 33），排在向右拆分之后。
+        await expect(active.locator("[data-title-action-key]")).toHaveCount(3);
+        expect(await active.locator("[data-title-action-key], [data-title-actions-more]").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-title-action-key") ?? "more"))).toEqual(["own:split-right", "own:comment-margin", "test.menus.editor-md", "more"]);
         await active.locator("[data-title-actions-more]").click();
         await expect(page.getByRole("menu").getByRole("menuitem", {name: "用其它编辑器重新打开"})).toBeVisible();
         await page.keyboard.press("Escape");
@@ -1913,7 +1936,7 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
 
         await more.click();
         const menu = page.getByRole("menu");
-        expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["向右拆分编辑器", "用其它编辑器重新打开", "---", "测试编辑区按钮"]);
+        expect(await menu.locator('[role^="menuitem"], [role="separator"]').evaluateAll((nodes) => nodes.map((node) => (node.getAttribute("role") === "separator" ? "---" : (node.textContent ?? "").trim())))).toEqual(["向右拆分编辑器", "显示或隐藏批注页边", "用其它编辑器重新打开", "---", "测试编辑区按钮"]);
         await menu.getByRole("menuitem", {name: "测试编辑区按钮"}).click();
         await expect(page.getByText(`收到 ${JSON.stringify({address: "project://a.md"})}`)).toBeVisible();
     });
@@ -2053,7 +2076,7 @@ test("落点分区（docs/specs/ui/workbench-layout.md“落点分区”）：�
     const group = page.locator("[data-editor-group-active]");
     const body = await group.locator("[data-editor-content]").boundingBox();
     const strip = await page.locator("[data-editor-group-head-active] [data-editor-tabs]").boundingBox();
-    const sidebar = await page.locator("[data-leaf=\"sidebar\"]").boundingBox();
+    const sidebar = await page.locator(`[data-leaf="${await explorerSection(page)}"]`).boundingBox();
     if (body === null || strip === null || sidebar === null) throw new Error("没有正文区、标签条或侧栏");
     const sectors = page.locator("[data-drop-sectors]");
     await dragFrom(page, tabs(page).filter({hasText: "b.md"}), {x: body.x + body.width - 10, y: body.y + body.height / 2}, async () => {

@@ -65,8 +65,9 @@ function select(key: string): void {
             :disabled="entry.disabledReason !== null"
             :data-title-action="entry.command"
             :data-title-action-key="entry.key"
+            :class="{'title-actions__badged': entry.badge !== undefined}"
             @click="emit('run', entry.key)"
-        />
+        >{{ entry.badge }}</IconButton>
         <DropdownMenu v-if="model.menu.length > 0" :items="items" :open="open" align="end" @update:open="setOpen" @select="select">
             <IconButton size="xs" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" :title="moreLabel" data-title-actions-more />
         </DropdownMenu>
@@ -79,5 +80,15 @@ function select(key: string): void {
     flex: 0 0 auto;
     align-items: center;
     gap: var(--space-1);
+}
+
+/* 图标后面跟着数字的按钮：比 24px 宽，宽度的预算见 `title-actions.ts` 的 `BADGE_EXTRA_PX`。 */
+.title-actions__badged {
+    width: auto;
+    min-width: 24px;
+    padding-inline: 4px;
+    gap: 2px;
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
 }
 </style>

@@ -12,10 +12,9 @@ import {createHash} from "node:crypto";
 import {chmod, lstat, mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {holdLock} from "@notnotype/nb-file-lock";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
-
-import {holdLock} from "nbook/backend/locked-replace";
 
 import {BATCH_DELAY_MS} from "./backend/changes";
 import {OPERATIONS_LOCK} from "./backend/rooted";

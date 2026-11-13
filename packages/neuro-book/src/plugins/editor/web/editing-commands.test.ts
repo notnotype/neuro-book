@@ -11,7 +11,7 @@ import {EDITING_COMMAND_DECLARATIONS, editingCommands} from "./editing-commands"
 import {editorState} from "./state";
 
 const ids = Object.keys(EDITING_ACTIONS) as EditingActionId[];
-const SOURCES = {toggleToolbar: async () => undefined};
+const SOURCES = {toggleToolbar: async () => undefined, toggleCommentMargin: () => undefined};
 
 function areaWith(editing: EditorEditing | undefined) {
     return shallowRef({activeHandle: {value: {editing}}} as unknown as EditorArea);
@@ -40,6 +40,11 @@ describe("编辑命令", () => {
             const properties = (EDITING_COMMAND_DECLARATIONS[editingCommandId(id)]?.args as {properties?: object} | undefined)?.properties ?? {};
             expect(Object.keys(properties).length > 0, id).toBe("args" in EDITING_ACTIONS[id]);
         }
+    });
+
+    it("加批注要可写、能加格式、有选区；改意见与删除是控件内部动作，不是命令（输出 28、29）", () => {
+        expect([...(EDITING_COMMAND_DECLARATIONS["nbook.edit.comment"]?.when?.requires ?? [])].sort()).toEqual([editorState.key("canFormat"), editorState.key("hasSelection"), editorState.key("writable")].sort());
+        expect(Object.keys(EDITING_COMMAND_DECLARATIONS).filter((id) => id.startsWith("nbook.edit.comment"))).toEqual(["nbook.edit.comment"]);
     });
 
     it("执行转给活动控件，控件拒绝时是 unavailable", async () => {

@@ -8,11 +8,11 @@ import {afterAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
+import {splitReference} from "@notnotype/nb-models/config";
 import {llmTestConfig} from "@notnotype/neuro-book-test-support/llm";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {CoreSettings, ModelDelta, ModelRequest} from "@notnotype/nb-harness/kernel/contracts";
 
-import {splitReference} from "./shared/rules";
 import {modelsWorld} from "./testing/world";
 import type {ModelsWorld} from "./testing/world";
 

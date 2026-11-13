@@ -189,6 +189,10 @@
             "name": "Storage",
             "description": "Records and preferences for plugins."
         },
+        "nbook-tasks": {
+            "name": "Background Tasks",
+            "description": "Long-running tasks started by plugins: progress, cancelling and retrying, and a notification when they finish."
+        },
         "nbook-workbench": {
             "name": "Workbench",
             "description": "The workbench shell: sidebars, panel, title bar and status bar."

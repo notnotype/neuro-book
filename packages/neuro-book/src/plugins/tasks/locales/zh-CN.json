@@ -1,0 +1,62 @@
+{
+    "views": {
+        "list": {
+            "title": "后台任务",
+            "actions": {
+                "nbook": {
+                    "tasks": {
+                        "clear-finished": {
+                            "title": "清除已结束"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "statusItems": {
+        "status": {
+            "title": "后台任务"
+        }
+    },
+    "commands": {
+        "show": {
+            "title": "显示后台任务"
+        },
+        "clear-finished": {
+            "title": "清除已结束的后台任务"
+        }
+    },
+    "state": {
+        "nonEmpty": {
+            "reason": "没有后台任务"
+        },
+        "hasFinished": {
+            "reason": "没有已结束的后台任务"
+        }
+    },
+    "status": {
+        "count": "{{count}} 个任务",
+        "failed": "后台任务：有没看过的失败",
+        "idle": "后台任务：都结束了"
+    },
+    "list": {
+        "empty": "没有后台任务。安装 Skill 这类要跑一阵的事会列在这里。",
+        "running": "正在进行",
+        "cancel": "取消",
+        "cancelling": "正在取消",
+        "retry": "重试",
+        "detail": "详情",
+        "remove": "移除",
+        "detailTitle": "{{title}}：详情",
+        "startedAt": "开始于 {{time}}",
+        "endedAt": "结束于 {{time}}"
+    },
+    "outcome": {
+        "succeeded": "完成",
+        "cancelled": "已取消",
+        "interrupted": "已中断"
+    },
+    "time": {
+        "yesterday": "昨天"
+    }
+}

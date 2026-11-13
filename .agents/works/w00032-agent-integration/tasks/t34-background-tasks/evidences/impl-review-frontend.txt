@@ -1,0 +1,145 @@
+# w00032 t34 浏览器端实现审查报告
+
+（逐条追加；位置行号是 worktree `.worktree/w00032-t34-background-tasks` 里 HEAD 的行号）
+
+## F1 没有在跑的任务时，状态栏“后台任务”条目悬停出一个 16rem 宽的空提示框，`tooltip()` 的文字永远显示不出来
+
+- 严重程度：重要；类别：正确性
+- 位置：`packages/neuro-book/src/plugins/tasks/web/plugin.ts:111-115`（`tooltip` 与 `hover`），`src/plugins/tasks/web/components/TasksHover.vue:19-28`、`.tasks-hover { width: 16rem }`，`src/plugins/workbench/web/components/WorkbenchItemStrip.vue:117-145`（`tooltipOf` 在有 hover 时返回 undefined，`<Tooltip>` 包着按钮）
+- 现象：任务条目的 `hover` 是写死的对象，条目一出现（清单不空）就一直有。只剩结束的任务（淡色任务图标，或危险色失败图标）时，`WorkbenchItemStrip` 仍走 `Tooltip` 分支：原生 `title` 被去掉，悬停 300ms 后弹出的提示框里是 `TasksHover`，而它 `v-for` 的 `store.running.value` 是空，只剩一个 `width: 16rem` 的空 span，也就是一个空白的深色胶囊。`tooltip: () => tasksText(unseenFailure ? "status.failed" : "status.idle")` 写了却没有任何路径会显示（`WorkbenchItemHover` 的 `fallback` 只在加载中、加载失败时才露出一下）。
+- 为什么是问题：这正是“只有一个图标”的状态，也是条目最需要提示文字说明图标含义的时候（失败图标、淡色图标）；现在悬停得到一个空框，键盘聚焦同样（Tooltip 聚焦即显示）。`TasksHover.md` 自己写“没有在跑的任务时……条目这时没有悬停内容可看，只剩图标”，与实现不符：实现不是“没有悬停内容”，而是画出空框。测试与 e2e 都没有覆盖“没有在跑的任务时悬停”（`TasksView.dom.test.ts:146-153` 只测有在跑的）。
+- 如何核实：看代码即可；真实运行时复现：`TasksFixture` 里让清单只剩结束的任务，悬停条目 300ms，检查 `[data-tasks-hover]` 的子节点为 0、而 `.nb-ui-tooltip-surface` 存在。
+- 建议改法：最少的改法是 `TasksHover` 在没有在跑的任务时渲染条目的提示文字（`status.failed`/`status.idle`，同 `plugin.ts` 里 `tooltip()` 的两个键），宽度也只在有行时才定为 16rem；或把 `ItemImplementation.hover` 改成可返回 `null` 的函数 `hover?(): ItemHover | null`，没有可列的内容时退回 `tooltip()`（后者让外壳按状态选，更符合“有它时取代 tooltip()”的合同语义）。无论哪种，补一条“只剩结束的任务时悬停显示图标的含义”的测试。
+
+## F2 通知中心里的详情没有按 8000 码元截断：中心里点“详情”看到并复制到完整原文，也不注明已截断
+
+- 严重程度：重要；类别：正确性（合同）
+- 位置：`packages/neuro-book/src/plugins/workbench/web/notifications.ts:138-148`（`notify` 里 `detail = hasNotificationDetail(input.detail) ? input.detail : undefined`，`detailTruncated` 只取发出方给的）、`:178-179`（`update` 里 `patchEntry(id, {detail: patch.detail, detailTruncated: patch.detailTruncated === true})`）；对照 `packages/nb-ui/src/composables/useNotification.ts:45-69`（`boundDetail` 只在 nb-ui 队列里截）
+- 现象：截断与“已截断”标志的 OR 只发生在 nb-ui 队列的 `detailFields` 里。中心条目 `CenterEntry` 是自己另存的一份，存的是 `input.detail` 原文。所以发出方交一段 20000 码元、没带 `detailTruncated` 的详情时：右下角弹出的那条“详情”是 8000 码元加“原文过长，已截断”，而通知中心里同一条的“详情”（`WorkbenchNotificationsView.vue:63-72` 取 `entry.detail`）是 20000 码元、`truncated` 为假、没有注明，“复制原文”把全部 20000 码元交给剪贴板。“通知”视图开着时发出的通知不进队列，这时只有中心这一份，永远不截。
+- 为什么是问题：notifications.md 输入段与失败表要求“载体最多留 8000 个 UTF-16 码元，超出的截掉并注明已截断”；同一条通知两个入口行为不一致；中心至多 100 条，每条的详情无界，内存也没有上限（诊断原文含堆栈时很大）。任务通知的 detail 已在服务端截过，所以任务这条路径看不到，但通知服务对所有发出方开放。
+- 如何核实：`notifications.dom.test.ts` 里加一例：`notify({message: "m", detail: "x".repeat(9000)})`，读 `center.entries.value[0].detail.length`（预期现在是 9000，应为 8000）与 `detailTruncated`（应为 true）；再在 `center.setVisible(true)` 之后发一条，同样检查。
+- 建议改法：把 `detailFields`（含 `boundDetail`）从 nb-ui 的 `notifications` 子路径导出，`notify` 与 `update` 的中心那份与队列共用它，不在两处各写一份规则；或者反过来中心的详情取队列条目归一后的结果（但视图开着时没有队列条目，所以前者更直接）。补测试：中心的详情长度、`detailTruncated`、`update` 同样。
+
+## F3 窄屏（390 宽）下“后台任务”视图的进展一列被压到 0 宽，还出横向滚动条；`TasksView.md` 写“列不变，标题与进展先截断”并不成立
+
+- 严重程度：重要；类别：正确性（UI）
+- 位置：`packages/neuro-book/src/plugins/tasks/web/components/TasksView.vue:137-140`（`grid-template-columns: 16px minmax(8em, 2fr) minmax(0, 3fr) 96px minmax(3.5em, max-content) max-content 24px` 加 `column-gap: var(--space-3)`）
+- 现象：不可压缩的部分是 16 + 8em（标题下限，13px 字号约 104）+ 96（进度条）+ 3.5em（时间）+ 按钮列（max-content）+ 24，再加 6 个 12px 的列间距和行内 8px 的左右内边距。390 宽的面板里，一行“重试 + 详情”就让标题占满下限、进展列（`minmax(0, 3fr)`）剩 0。我在 `/tmp/review-t34-impl/scratch-frontend/narrow.html` 里按同一份 CSS（按钮用近似的 24px 高、8px 内边距、12px 字，没有用 nb-ui 的真实 Button）搭了一个失败行与一个在跑行，用系统 Chrome 在 390 视口里量：`.tasks-view` 的 `clientWidth` 390、`scrollWidth` 458（横向溢出约 68px），两行的进展列宽度都是 0，标题列 104。也就是说失败原因（输出 10 要求“失败写原因”，是用户最需要看的字）在 390 宽下完全看不见，还要左右滚动才能点到“详情”与移除。
+- 为什么是问题：输出 10 与 `TasksView.md` 的“390×844：列不变，标题与进展先截断”写的是“截断”，不是消失加滚动；UI 规范的窄屏检查要求 390 宽可用。Lab 的窄场景 `mixed-narrow` 宽度是 648px（`TasksFixture.vue:76`），没有任何场景或 e2e 在 390 宽量过，所以没被发现。注意我的复现用的是近似按钮宽度，真实数值要在 Lab 里以 390 宽截图复核；方向（进展列塌成 0）不依赖这点，因为固定部分已经超过 374。
+- 如何核实：`nbdev` 起 Lab，场景 `TasksView/mixed` 把视口设为 390×844 看，或者在 `TasksFixture` 加一个 390 宽的场景并加 e2e 量 `[data-task-status]` 的宽度大于 0、`.tasks-view` 没有横向溢出。
+- 建议改法：窄时让列数变少而不是挤压：例如 `@container`（或视图宽度媒体查询）小于约 560px 时进度条列收到 48px 或去掉（进度已经在“进展”里能看到时用不着），时间列在窄时隐藏（悬停在行上才有），列间距降到 `var(--space-2)`；或者把进展换到标题下面第二行。无论怎么改，都要把 390 宽的场景加进 Lab，并让 e2e 断言进展列宽 > 0。
+
+## F4 状态栏任务条目只有图标时，读屏拿不到“有没看过的失败”；视图与通知中心每行的“取消 / 重试 / 详情 / 移除”没有行上下文
+
+- 严重程度：重要；类别：正确性（可访问性）
+- 位置：`packages/neuro-book/src/plugins/tasks/web/plugin.ts:97-116`、`src/plugins/workbench/web/components/WorkbenchItemStrip.vue:30-34,117-135`；`TasksView.vue:100-105`、`WorkbenchNotificationsView.vue:95-98`
+- 现象一：任务条目没有在跑的任务时 `text()` 为空串，条目的读屏名称（`nameOf`）只剩声明的标题“后台任务”；图标是 `aria-hidden`；失败与否只在 `tooltip()` 里（`status.failed`/`status.idle`），而有 `hover` 的条目又把 `title` 去掉（`tooltipOf` 在有 hover 时返回 `undefined`）。所以读屏用户只会听到“后台任务，按钮”，听不出有没看过的失败（危险色图标是唯一信号，颜色加图标形状，对读屏等于没有）。`WorkbenchItemStrip.dom.test.ts` 的图标用例用的是 `title: "后台任务：1 个没有成功"` 这种把状态写进标题的假条目，真实的任务条目并不这样给。
+- 现象二：视图每行的“取消”“重试”“详情”与 IconButton 的“移除”，通知中心每行的动作、“详情”、“移除”，可访问名称都是裸的“重试”“移除”，一屏里有 5 条就有 5 个同名按钮，读屏的按钮列表里分不出哪个是哪件任务。
+- 如何核实：看代码；或在真实页面用 `page.getByRole("button", {name: "移除"}).count()` 对多行清单，会得到 N 个同名。
+- 建议改法：现象一：让 `ItemImplementation` 给图标条目一个可访问名称的来源，最少的改法是条目的 `aria-label` 在文字为空时取 `tooltip`（有就取）：`nameOf` 里 `entry.text === "" ? (entry.tooltip ?? entry.title)`；任务条目已有 `tooltip()`，不用再加字段。现象二：按钮加 `:aria-label`，把标题接进去（目录里加 `list.retryTask` 这类带 `{title}` 的键，如“重试：初始化 Skill pdf-tools”）。
+
+## F5 在两次推送之间“开始又失败”、且没有详情的任务，不发失败通知（输出 14 的“上一份里没有它”情形漏了）
+
+- 严重程度：重要；类别：正确性
+- 位置：`packages/neuro-book/src/plugins/tasks/web/store.ts:61-76`（`announce`）与 `:78-98`（`accept`）
+- 现象：`accept` 在循环里调 `void announce(item)`，此时 `items.value` 还是旧清单（`items.value = next` 在第 96 行，循环之后）。`announce` 对失败的任务先 `const detail = item.hasDetail ? await store.detail(item.id) : null`，`hasDetail` 为假时没有 `await`，整个函数同步往下走到第 68 行 `if (!items.value.some((entry) => entry.id === item.id)) return;`：旧清单里没有这件任务（正是“上一份里没有它”的情形：任务在一次合并推送的间隔内开始并失败），于是直接 return，通知不发，`announced` 里也没有它。带详情的因为有 `await`，检查时 `items.value` 已是新清单，所以能发；成功的不经这个检查，也能发。只有“新出现 + 失败 + 没有详情”这一格漏掉。
+- 为什么是问题：输出 14 明说“上一份清单里它在跑，或上一份里没有它”都发；“重试后马上失败”“登记即失败”（例如装依赖时 registry 立刻连不上）正是最常见的快速失败，用户既没看到通知，条目又因为 `unseenFailure` 也许是真，只剩图标变红。`store.test.ts` 的失败用例都是先 `settled` 等到“在跑”再 `fail`，没有覆盖这一格。
+- 如何核实：我在 `/tmp/review-t34-impl/scratch-frontend/fast-fail.test.ts` 里用真实的 `createTasksStore` 加一个只捕获推送回调的远程替身，依次推：新出现且失败、无详情的一件（`sent: 0`）；新出现且成功的一件（累计 1）；新出现、失败、带详情的一件（累计 2）。`cd /tmp/review-t34-impl/scratch-frontend && bun test ./fast-fail.test.ts`。（替身只替了传输，`accept` 与 `announce` 是真实代码；真实服务端上的复现是：`start` 后在同一个 250ms 窗口内 `fail`，不带 `detail`。）
+- 建议改法：“任务已离开清单”的检查改成基于这次要接受的清单：`announce(item, present)`，或者让 `accept` 先 `items.value = next` 再发通知，使两条路径（有无 await）看到同一份清单；更简单的是让这个检查只用在 `await` 之后（`if (item.hasDetail) { const detail = await …; if (!items.value.some(...)) return; }`）。补用例：不先经过“在跑”，直接推一份已失败（无详情）的清单，断言发出一条；以及取详情的这会儿任务被移出时不发。
+
+## F6 `store.start` 在订阅等待期间被 abort 时，退订监听挂得太晚，订阅泄漏
+
+- 严重程度：建议；类别：不变量（资源释放）
+- 位置：`packages/neuro-book/src/plugins/tasks/web/store.ts:125-136`
+- 现象：`signal.addEventListener("abort", …, {once: true})` 在 `await remote.events.changed.subscribe(...)` 之后才登记。入口在订阅完成之前停止（启动即激活，页面刚打开就切换或应用关停）时，`abort` 事件已经派发过，监听器永远不会触发，订阅不释放；`refresh()` 也照样跑、`accept` 照样发通知。
+- 如何核实：测试里先 `stop.abort()` 再 `await store.start(stop.signal)`，用替身记录 `release` 次数（预期 1，现在 0）。若远程运行时在入口停止时本来就会回收这个入口的全部订阅，则此条降为“多余的防御缺失”，请主 Agent 先看 `context.remote` 的停止语义。
+- 建议改法：订阅后先判 `signal.aborted` 立即 `release()` 并返回；监听器仍保留给之后的 abort。
+
+## F7 测试覆盖缺口（给出要做的变异，由主 Agent 去做）
+
+- 严重程度：建议；类别：测试
+- 位置与变异：
+  1. `tasks/web/store.ts:97` `if (viewVisible) markSeen(next);`：删掉这一行，`store.test.ts` 全部通过（唯一涉及“看过”的用例是先失败、`unseenFailure` 为真、再 `setViewVisible(true)`，走的是 `setViewVisible` 里的那一处 `markSeen`）。要补：视图可见时才结束的任务立即不算“没看过”（输出 13 第一种情形）。
+  2. `tasks/web/store.ts:127` `baseline = null;`（`onResync`）：整个重连路径没有任何用例（单元与 e2e 都没有）。删掉这一行或把 `baseline` 留着，应当有用例失败：断线期间结束的任务不弹通知、不画失败图标（输出 13、14 的后两种情形）。需要能触发 `onResync` 的真实远程链路，可以用 `tasksWorld` 的窗口重连能力（若没有，就在 `testing/world.ts` 里加）。
+  3. `tasks/web/store.ts:89-93` 撤回：只有“重试”一条路径被测；`remove`、`clearFinished`、超过 50 件上限三种“任务离开清单”都没测，把 `handle.dismiss()` 删掉只有重试的用例会失败，这一点够用，但三种来源在同一段代码，风险低；可以不补。
+  4. `WorkbenchItemStrip.vue` 测量层里的图标 span（`iconClass(entry)` 两处）：删掉，所有 dom 测试仍过（happy-dom 没有布局，量不出宽度）。输出 42 的“测量要算上图标”与 `WorkbenchItemStrip.md` 的对应一句只有靠 e2e 或 Lab 截图；建议在 Lab 的 `icons` 场景再加一个窄宽度场景并在 e2e 里断言放不下时图标条目收进“更多”且没有溢出。
+  5. 通知中心的详情截断（见 F2）、任务视图 390 宽（见 F3）、“任务快速失败”（见 F5）、“没有在跑的任务时悬停”（见 F1）都没有用例。
+- 另：`TasksView.dom.test.ts` 与 `store.test.ts` 用的替身（`fakeStore`、记录调用的 `recorder`）文件头都写了理由，`recorder` 的理由成立（合同只有 `notify`），`fakeStore` 让视图测试不覆盖仓库与视图的接线，接线由 e2e 兜底，可以接受。
+
+## F8 三个外壳 e2e 的改动是否放宽了判据
+
+- 严重程度：建议；类别：测试
+- 位置：`e2e/workbench-shell.e2e.ts:487-490`、`:578`；`e2e/workbench-dnd.e2e.ts:90-94`；`e2e/workbench-views.e2e.ts:413,877`
+- 结论：没有放宽到失效，但有两处值得主 Agent 复核：
+  1. shell：“三个框架按钮”改成“四个”，注释写“当前视图能浮动，所以有‘浮动’”。`[data-panel-action]` 是框架动作（停靠、浮动、折叠等），不是视图动作（“清除已结束”不带这个属性）。这个解释是我从 `WorkbenchPanelHead.vue:122-131` 推断的，没有在真实运行里验证；请在两个版本上各打印一次该面板头的 `data-panel-action` 列表，确认多出来的确实是“浮动”，而不是“折叠”之类本该一直在的按钮前后不一致。数量写死成 4 也耦合了内置视图是否可浮动。
+  2. shell 的标题颜色改读 `[data-panel-head="auxiliarybar"] h2`：判据（标题取 `--text-secondary`）保留了，但面板底部区域只写标题的头不再被测；标签带里标签的颜色本来就没被这条测。可接受。
+  3. dnd：`tabsOf` 过滤成 `view:test.` 开头，拖放的断言只看测试插件的标签；落点顺序里内置两项占的位置不再被断言，如果某次改动让拖放落到“后台任务”“通知”之前，这些用例看不出来。views 的 4、5 是精确计数，没有放宽。
+
+## F9 悬停提示组件的小问题与代码重复
+
+- 严重程度：建议；类别：代码质量
+- 位置与建议：
+  1. `WorkbenchItemStrip.vue:114` `<component :is="hoverOf(entry) === null ? Bare : Tooltip">`：条目按钮的可用性（`disabledReason`）变化时，外层组件在 `Bare` 与 `Tooltip` 之间切换，按钮被卸载重建（焦点丢失，正在进行的悬停丢失）。任务条目的命令永远可用，现在碰不到；有命令会变不可用的条目一用就会碰到。直接用 `<Tooltip :disabled="hoverOf(entry) === null">` 包着所有条目（nb-ui 的 `Tooltip.disabled` 就是为此设计的：禁用时不开、已开的关上），可以删掉 `Bare`。
+  2. `items/registry.ts:150-162`：悬停组件的 `load` 失败后 `loading` 的拒绝结果被永久缓存，一次网络抖动导致的分块加载失败，直到刷新页面条目都只有文字退回、没有重试。若要保持“只记一条诊断”，可以失败后清掉 `loading` 允许下次悬停重试，诊断仍由 `reported` 去重。
+  3. “窗口里的视图在可见且页面在前台时上报”这一段（`pageVisible` 的 ref、`visibilitychange` 监听、`watch(..., {immediate: true})`、卸载时报不可见）在 `TasksView.vue:30-40` 与 `WorkbenchNotificationsView.vue:31-41` 一字不差各写了一份，且两份的 `.md` 都要各自描述 `env:global` 通道。抽成一个 `useEffectiveVisible(context, report)`（放在 `workbench/web/` 的 composable，经 `ViewContext` 公开入口给插件用），两处各剩一行。
+  4. 不确定进度条的标记（`role="progressbar"` 加 `nb-ui-indeterminate-runner`）与 `.tasks-*__indeterminate` 的样式在 `TasksView.vue` 与 `TasksHover.vue` 各写一遍；`Progress` 组件若能接受 `model-value=null` 表示不确定，两处都能直接用它（`Progress` 的 `.md` 没读，请主 Agent 确认）。
+  5. `TasksView.vue:68` 的注释“时间也随之按此刻重算”不准：`rows` 是 computed，`Date.now()` 不是响应式，清单不变时时间不更新（过了午夜“昨天”不变）；`WorkbenchNotificationsView.vue:45` 的注释倒是写对了“只在列表重画时更新”。要么改注释，要么接一个每分钟的节拍。
+  6. `WorkbenchNotificationsView.vue:87` 的“没看过”只靠一个 `title` 在无语义的 span 上、加粗与点；读屏读不到哪些行没看过。可以在行里放一个视觉隐藏的“没看过”文字，或者 `aria-label` 一起带上。
+
+（F9 第 4 点更正：已核实 `packages/nb-ui/src/components/display/Progress.vue` 只收数字，没有不确定进度的模式。所以两处各写一份不确定进度条不是漏用现成组件，而是 nb-ui 缺这个模式；建议改为把不确定进度条做进 nb-ui 的 `Progress`（`modelValue` 接受 `null`），或至少抽成插件内一个小组件，两处共用。）
+
+## 未发现问题的方面
+
+- `revealRegion`：`default-tree.ts` 只改第一次生成路径，`reveals` 对空区域、混合区域、未知视图 id 的判断正确；`default-tree.test.ts` 的新用例判据完整。已有布局文档里新出现视图的路径没有被改动。
+- 视图计数 `badge()`：`ViewRegistry.badge` 只读贡献方状态不加载视图，非正整数按没有计数，抛错只记一次诊断；面板头单标签（title-only）模式也经 `headTabs` 带上计数（`WorkbenchPanelHead` 的 `activeTab.label` 取自 `props.tabs`）。
+- 通知中心的两份状态在 dismiss、动作、关闭、到时、超 100 条几条路径下彼此一致（除 F2 的详情截断）；视图卸载时 `setVisible(false)` 复位。
+- 任务仓库的撤回、重试两行顶替、重连只建基线（除 F5、F6 与 F7 指出的缺口）逻辑成立。
+- 样式只用主题 token，焦点线用 `focus-ring="inset"`，减少动画有 `prefers-reduced-motion`；通知视图在 390 宽未发现溢出（按列宽估算，没有实测）。
+
+## 本次没有、而 JetBrains 进程管理器或 VS Code 通知中心有、用户可能会感到缺的项（只列）
+
+- 通知中心里的通知可以点开跳到来源或对应视图（任务失败的通知点一下去“后台任务”并定位那一行）；VS Code 的通知有“更多操作”菜单。
+- 勿扰模式与按来源静音（已在 Spec 非目标里）；通知中心按来源分组或折叠重复。
+- 任务条目点击后在视图里定位到某一任务；任务的进度百分比在状态栏上直接显示（VS Code 状态栏的进度）。
+- 在任务视图里的“全部取消”，以及任务日志的实时输出（JetBrains 的后台任务有进度详情）。
+- 失败通知的“复制详情”只在对话框里有，通知条上没有。
+
+## 各级数量
+
+- 阻断：0
+- 重要：5（F1 空悬停框、F2 中心详情不截断、F3 窄屏进展列塌成 0、F4 读屏名称缺失、F5 快速失败不通知）
+- 建议：4 组（F6 订阅泄漏、F7 测试缺口、F8 e2e 复核、F9 代码质量与小问题）
+
+---
+
+# 处理（主会话，2026-11-11）
+
+审查者：Claude Sonnet 子代理（`reviewer`，只读），说明 `/tmp/review-t34-impl/brief-frontend.md`（仓库外），范围 `502e40a03..3df4e2fab` 的浏览器端。共 9 条：重要 5、建议 4 组。
+
+- F1 成立，改。`TasksHover` 在没有在跑的任务时写一句说明。这句与条目的 `tooltip()` 共用 `statusSummary`：有在跑的写件数，否则写有没有没看过的失败。master 上 Spec 输出 12 补了这一句。补用例“没有在跑的：不是空框”。
+- F2 成立，改。nb-ui 导出 `notificationDetailFields`，通知中心的 `notify` 与 `update` 都和弹出队列用它。补用例：弹出处、视图开着只进中心、`update` 三条路径都截到 8000 码元并注明。
+- F3 成立，改。先在 Lab 里按 390 宽截图核实：进展一列为零宽，按钮伸出视口。改为视图宽度不到 600px（容器查询）时每件排两行：第一行图标、标题、时间、按钮、移除，第二行进展与进度条。390 宽中英文与 640 宽各截图核对过；`TasksView.md` 已同步。不另加 e2e：按 UI 验收分档，窄屏用截图取证。
+- F4 成立，改。（a）有悬停内容的条目，按钮带 `aria-description`，取 `tooltip()` 的文字。master 上外壳 Spec 输出 43 补了一句，`WorkbenchItemStrip.dom.test.ts` 补了断言。（b）两个视图里行内的按钮用 `aria-describedby` 指向这一行的标题（通知视图指向标题与正文）。
+- F5 成立，改。“任务已离开清单”只在取过原文（有 await）之后检查。补用例“两次推送之间开始又失败、没有原文的照样发”；把检查改回去，这条用例失败。
+- F6 成立，改。订阅返回后先看 `signal.aborted`，已中止就退订并返回。补用例；去掉这段检查，这条用例失败。
+- F7：
+  - 第 1 点：改，补“视图可见时结束的立即算看过”，删掉 `accept` 里的 `markSeen`，这条用例失败。
+  - 第 2 点：改。场地加 `link(id)`（断线与重连），补“断线期间结束的任务重连后只建基线”，删掉 `onResync` 里的 `baseline = null`，这条用例失败。
+  - 第 3 点：不补。撤回由重试那条用例覆盖，三种来源走同一段代码。
+  - 第 4 点：不补。happy-dom 没有布局，图标宽度靠 Lab 截图取证（切片 2 已截图核对）。
+- F8：
+  - 第 1 点已核实：`frameActionsOf` 在当前视图能浮动时多一个“浮动”，与 base 上的空面板只差这一项。
+  - 第 2、3 点接受：dnd 用例测的是拖放，不测内置视图的位置，所以过滤内置标签是有意的。
+- F9：
+  - 第 1 点：不改。只有“有悬停内容、命令又会变得不可用”的条目会遇到，任务条目的命令不会变得不可用。
+  - 第 2 点：不改。分块加载失败多半要刷新页面才能恢复。
+  - 第 3 点：改。抽成 `src/ui/foreground-visibility.ts` 的 `useForegroundVisibility`，两个视图共用。
+  - 第 4 点：不改。不确定进度是 nb-ui `Progress` 缺的模式，另说。
+  - 第 5 点：改注释。
+  - 第 6 点：改。没看过的点里加一段视觉隐藏的“没看过”。
+- 参照有、本次没有的几项（点通知跳到来源、按来源分组、状态栏直接显示百分比、全部取消、任务日志实时输出、通知条上复制详情）：只记下，不在本 Task 做。
+
+验证：
+- `store.test.ts` 9 过，新增 4 条用例各自的变异都失败；`TasksView.dom.test.ts` 6 过；`notifications.dom.test.ts` 与 `WorkbenchNotificationsView.dom.test.ts` 17 过；`WorkbenchItemStrip.dom.test.ts` 7 过。
+- `test:affected` 全过；`typecheck`（neuro-book、nb-ui）过；`governance:check` 过。
+- 重建后 `e2e/background-tasks.e2e.ts` 4 过。

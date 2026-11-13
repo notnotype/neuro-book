@@ -17,6 +17,7 @@ import type {EditingActionId, EditingActionInfo} from "../shared/editing";
 import {editorText} from "../shared/text";
 import type {EditorArea} from "./area";
 import {nameOf} from "./documents/address";
+import {keyEventMatches} from "./key-event";
 
 type Items = () => ReadonlyArray<{readonly id: string; readonly declaration: MenuItemDeclaration}>;
 
@@ -34,6 +35,7 @@ export function createEditorMenus(options: {
     readonly version: Readonly<Ref<number>>;
     readonly toolbarVisible: Readonly<Ref<boolean>>;
     readonly toolbarPlacement: Readonly<Ref<EditorToolbarPlacement>>;
+    readonly commentMargin: Readonly<Ref<boolean>>;
     readonly notify: (text: DisplayText) => void;
     readonly report: (error: unknown) => void;
 }): EditorMenus {
@@ -47,10 +49,14 @@ export function createEditorMenus(options: {
     };
     return {
         title: (action) => options.text.t(editorText(`commands.nbook.edit.${action}.title` as never)),
-        label: (key) => options.text.t(editorText(`menus.${key}` as never)),
+        label: (key, params) => options.text.t(editorText(`menus.${key}` as never, params)),
         shortcut: (action) => {
             const keybinding = (EDITING_ACTIONS[action] as EditingActionInfo).keybinding;
             return keybinding === undefined ? null : formatKeybinding(keybinding, options.platform);
+        },
+        matches: (action, event) => {
+            const keybinding = (EDITING_ACTIONS[action] as EditingActionInfo).keybinding;
+            return keybinding !== undefined && keyEventMatches(keybinding, options.platform, event);
         },
         has: (command) => {
             void options.version.value;
@@ -89,6 +95,7 @@ export function createEditorMenus(options: {
         },
         toolbarVisible: computed(() => options.toolbarVisible.value),
         toolbarPlacement: computed(() => options.toolbarPlacement.value),
+        commentMargin: computed(() => options.commentMargin.value),
         keyLabel: (keybinding) => formatKeybinding(keybinding, options.platform),
         notify: (key) => options.notify(editorText(`menus.${key}` as never)),
         reportError: options.report,

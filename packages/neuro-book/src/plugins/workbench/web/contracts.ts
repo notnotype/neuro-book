@@ -35,6 +35,11 @@ export const workbenchRootKey: ServiceKey<WorkbenchRoot> = defineServiceKey<Work
 /** 视图贡献的实现（docs/specs/workbench/views.md）：只取得组件定义，实例由工作台创建；首次有效可见时才调用。 */
 export interface ViewImplementation {
     load(): Promise<Component>;
+    /**
+     * 标题后的计数（docs/specs/workbench/views.md 输出 17）：外壳响应式读它，视图没加载时照样读，所以从贡献方自己的状态算，
+     * 不依赖视图实例。正整数才显示；`null`、0 只写标题。
+     */
+    badge?(): number | null;
 }
 
 /**
@@ -46,6 +51,23 @@ export interface ItemImplementation {
     text(): Text;
     tooltip?(): Text;
     state?(): "normal" | "warning" | "error";
+    /** 文字前的图标（外壳四输出 42）；`text()` 为空字符串时只画图标，名字（声明的 `title`）是可访问名称。 */
+    icon?(): ItemIcon | null;
+    /** 悬停或聚焦时显示的组件（外壳四输出 43），有它时取代 `tooltip()`；组件不收属性，数据由贡献方在 `load()` 里绑好。 */
+    readonly hover?: ItemHover;
+}
+
+export interface ItemIcon {
+    /** 图标类名，例如 `i-lucide-bell`。 */
+    readonly name: string;
+    /** 匀速旋转；系统设了减少动画时不转。 */
+    readonly spin?: boolean;
+    /** 淡色；`state()` 为 warning、error 时以状态色为准。 */
+    readonly muted?: boolean;
+}
+
+export interface ItemHover {
+    load(): Promise<Component>;
 }
 
 /**

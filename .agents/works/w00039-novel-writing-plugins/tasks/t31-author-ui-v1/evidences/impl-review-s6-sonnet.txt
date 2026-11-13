@@ -1,0 +1,116 @@
+# w00039 t31 S6 实现审查报告（f194331d4..f9a9d1884）
+
+### 1. “带来的变化”把条目名、简介、主文字块的地址写成 `name`、`summary`、`text[b1]`，违反术语“不出现字段路径”
+- 严重程度：重要；类别：正确性（界面文字）
+- 位置：`web/entry-heads.ts:61`（`label`）、`web/entry-heads.ts:29-36`（`namespaceField`）、`web/impact.ts:26-29`
+- 现象：世界算出的 `impact.values` 的地址除 `<命名空间>.<字段>` 外还有 `entry.name`、`entry.summary`、`entry.aliases` 与 `text[<块 id>]`（`packages/nb-canon/src/world/world.ts` 约 1578-1593 行 `computeImpact`）。`heads.label(path, entry)` 先按 `.` 切命名空间，再找声明，找不到就退到“路径最后一段”：`entry.name` 得 `name`，`text[b1]`（没有点）得整串 `text[b1]`。回执页与还原对话框的“带来的变化”因此写成“星瑕二的name：星瑕 → 星瑕二”“星瑕二的summary：…”“星瑕二的text[b1]：…”。
+- 如何核实：在真实世界里（node-world 加 `pageStandIn`，实验文件 `/tmp/review-w00039-t31-s6/x.dom.test.ts`，用 `--config /tmp/review-w00039-t31-s6/vitest.config.ts` 跑）发布一次改名字、简介、主文字块与存款的修订，挂回执页，页面文字里“带来的变化”依次是：`星瑕二的name：星瑕 → 星瑕二`、`星瑕二的summary：星瑕的简介 → 新简介`、`星瑕二的存款：1,000 → 2,000`、`星瑕二的text[b1]：她有 {panel.存款} 元。 → 她有很多钱 {panel.存款} 元。`。同一次修订上方“改了什么”一节倒是把它们写成“名字”“简介”“主文字”，两处不一致，说明 `receipt.ts` 的 `entryField` 已经有这几个词，而 `useEntryHeads.label` 没有。测试只覆盖了外观、存款，没有一例改名字、简介或主文字。
+- 建议改法：`EntryHeads.label` 认 `entry.name|summary|aliases` 与 `text[...]`，复用 `receipt.fields.name/summary/aliases/text` 这几个词；找不到声明的字段退到“一个字段”之类的话，而不是 id。补一个改名字与主文字块的回执页测试（这一条与第 2 条在同一个入口修）。
+
+### 2. 未归纳的语义档在“带来的变化”里被写成原始 JSON
+- 严重程度：重要；类别：正确性（界面文字）
+- 位置：`web/impact.ts:26-29`（`displayText(value.before/after)`），数据来源 `packages/nb-canon/src/world/world.ts:1606`
+- 现象：Spec canon.revisions 输出 6 规定：语义档未归纳时存 `{notReduced: true, anchor, events}`，不存全文。`impactLines` 对它调用 `displayText`，对象走到 `JSON.stringify`。实验（`bun run /tmp/review-w00039-t31-s6/a.ts`）：`before={notReduced:true,anchor:"提防",events:1}` 得 `impact.value {"label":"星瑕的态度","before":"{\"notReduced\":true,\"anchor\":\"提防\",\"events\":1}","after":"{\"notReduced\":true,...,\"events\":2}"}`，也就是作者会看到 `星瑕的态度：{"notReduced":true,"anchor":"提防","events":1} → {...}`。人物的“态度”这类语义档是 canon 内置人物界面的主角（`FieldTable` 已经单独处理 `notReduced` 写“还没归纳”），所以这是常见路径，不是边角。S5 的预览（“follows”写法）原先就走同一个 `displayText`，S6 把它抽成 `impactLines` 供回执与还原共用，把问题带进了两处新界面。
+- 建议改法：`impactLines` 在值是 `{notReduced: true}` 时按“起点：X，之后 N 条”之类的话写（`fields.notReduced` 已有“还没归纳”），不走 `displayText`；补一个含未归纳语义档的回执或还原测试。
+
+### 3. 还原对话框的预览过期后确认得到 `has-dependents`，对话框停在“没有依赖”阶段、只写“这次改动没有成功”，无法继续
+- 严重程度：重要；类别：正确性（时序与状态不一致）
+- 位置：`web/revert.ts:176-197`（`submit`）、`web/revert.ts:194`（失败原因只认 `not-revertable`、`author-source-required`）、`web/failures.ts:41`（`has-dependents` 落到 `failure.other`）
+- 现象：预览在打开时算一次（`start`），之后不随世界变化重取。对话框开着、预览写着“没有依赖”（phase `ready`）时，如果别处发布了依赖这次修订的后续修订，点“还原”，写入返回 `has-dependents`；`submit` 把它按“别的失败”写成“这次改动没有成功”，`phase` 仍是 `ready`，“还原”按钮仍可用，再点同样失败（每次还换新请求 id）。作者只能取消、重新打开才会看到依赖列表。Spec 输出 22 的失败表把 `has-dependents` 列为对话框要处理的码（有依赖时列出、给“连同这些一起还原”）；“预览只对它基于的版本有效”（状态与转换）。同一份对话框对世界变化没有任何反应，这也是它与确认条（输出 16、条目页 S5 已做自动重取）的不一致。
+- 如何核实：真实世界实验（`/tmp/review-w00039-t31-s6/y.dom.test.ts`，输出 `/tmp/review-w00039-t31-s6/out2.txt`）：A 改外观为“银发”，打开 A 的回执页，点“还原这次修订”，等到 `data-phase="ready"`；另一个窗口再发布 B（红发，改同一个字段）；点“还原”。结果：`after confirm: phase=ready | text=还原以后：星瑕的外观：银发 → 黑发这次改动没有成功 | buttons=取消,还原`；第二次点“还原”同样。顺带：对话框里仍写着“银发 → 黑发”，已与世界不符。测试里没有这一条（`receipt-page.dom.test.ts` 的还原用例都是预览后世界没变）。
+- 建议改法：`submit` 收到 `has-dependents` 时按同样的写法转到 `dependents` 阶段（失败里带 `dependents`，已有 `start` 里的那段逻辑可抽成函数共用），或在世界版本变了以后重取预览（与输出 16 一致）；补一个“预览之后世界变了”的用例。
+
+### 4. 回执里改“涉及的条目”的剧情变更，条目名读不到，写成“一个条目”
+- 严重程度：建议；类别：正确性
+- 位置：`web/receipt.ts:66-83`（`receiptEntryIds`）、`web/receipt.ts:90-100`（`mentionedEntries`）
+- 现象：`involves` 是没有 id 的数组，按 `diffValues` 整体是一个叶子：`{path:"involves", before:["e1"], after:["e1","e2"]}`。`receiptEntryIds` 对剧情变更的 `modify` 把 before、after 交给 `mentionedEntries`，而它只认对象（补丁的 `at.entry`、`involves` 字段、`at.entry`），遇到字符串数组走 `Array.isArray` 逐项再调用，字符串项返回 `[]`，所以 `involves` 的 id 一个也没收进去，`changeField("involves")` 查不到名字，整行写成“一个条目、一个条目”。
+- 如何核实：`bun run /tmp/review-w00039-t31-s6/b.ts`：对这样一份修订，`receiptEntryIds` 返回 `[]`，`receiptModel` 的字段是 `before: 一个条目`、`after: 一个条目、一个条目`。
+- 建议改法：`mentionedEntries` 对字符串数组直接收为 id（只在字段路径是 `involves` 时），或 `receiptEntryIds` 按路径收。补一个改 `involves` 的回执用例。
+
+### 5. 变更详情页“每一处改动”对非数值的补丁只写一个地址，不写改了什么
+- 严重程度：重要；类别：正确性（对照需求）
+- 位置：`web/rows.ts:174-178`（`patchLine`，S6 从 `patchText` 改名导出）、`web/change.ts:93`
+- 现象：`patchLine` 只认两种补丁：`add` 数值写“存款 −300”，`set` 写“样子 → 哥哥”；别的操作（`note`、`listAdd`、`listRemove`、`aliasAdd`、`aliasRemove`、`replaceBlock`、`addBlock`、`removeBlock`）一律 `return label`，只剩一个地址。变更详情页的“每一处改动”整页就是为了写出这条变更改了什么（Spec 输出 21），对语义档的 `note`（人物“态度”这类，canon 内置人物界面的主角）只会写“星瑕的态度”，一句“被救了一次”的内容不出现。回执页的 `changeField("patches")` 同样走这个函数。S4 的“情节”分页用它做摘要时这样还说得过去，S6 把它搬进详情页当主内容就不够了。
+- 如何核实：`bun run /tmp/review-w00039-t31-s6/c.ts`（对 `note`、`listAdd`、`aliasAdd`、`replaceBlock` 各一条，输出里只有地址，没有值）。测试里的补丁只有 `add` 与 `set`。
+- 另：补丁的地址是 `entry.aliases` 或 `text[b1]` 时，`heads.label` 会把它写成 `aliases`、`text[b1]`（同第 1 条）。
+- 建议改法：给每种操作一个说法（“加上别名 小瑕”“记：被救了一次”“换了第 N 段文字”……），写进 `patchLine`；补每种操作一行的详情页用例。
+
+### 6. 从设定树新建条目时，提示走了工作台通知，不在新开的条目页顶上
+- 严重程度：建议；类别：正确性（对照需求）
+- 位置：`web/entries-view.ts:154-155`（先 `notices.show` 再 `options.open(id)`）、`web/notices.ts:44-52`
+- 现象：`createNotices.show` 在调用的那一刻按“有没有页面挂着”分流。新建条目时前台若是章节文件（没有三种页面挂着）、窗口里又有工作台通知，`show` 先走工作台通知（只有“看回执”，没有“撤销”），随后 `open(id)` 才让条目页挂上，页面顶上没有提示。Spec 输出 4 写“打开它的条目页，并按输出 18 给提示”，输出 18 写前台是条目页时提示在页面顶上、带“看回执”“撤销”。S5 之前没有这个分流，所以这是 S6 引入的行为差别。
+- 如何核实：从代码推断（未复现）：`entries-view.ts` 的调用顺序加 `createNotices` 的分支。
+- 建议改法：`options.open(id)` 先发，再 `show`；条目页挂载是异步的（命令、懒加载），所以更稳的做法是新建这条路径把提示交给“将要打开的页面”（例如 `show` 带一个 `forPage` 提示，或开页后再 `show`），并写进待确认清单；也可以接受现状并在 Spec 输出 4 注明。
+
+### 7. 变更详情页：取消或保存完成之后，在途预览的失败会把已取消的草稿重新写回标签状态
+- 严重程度：建议；类别：不变量（竞态）
+- 位置：`web/change-edit.ts:124-145`（`runPreview`）、`web/change-edit.ts:108-122`（`applyFailure`）、`web/change-edit.ts:232-237`（`cancel`）
+- 现象：`cancel`、保存成功都只 `setDraft(null)` 与 `reset()`，不让 `previewRun` 加一。预览已经发出去、结果还没回来时取消，结果回来仍满足 `mine === previewRun`，走 `applyFailure(draft, failure)`；除 `version-conflict` 外都执行 `options.setDraft({...draft, requestId: newRequestId()})`，用捕获的旧草稿把确认条又打开，并把原因写出来。最常见的失败是 `validation-failed`（测试里就有“原文里没有这个数”的用例），在途窗口是一次往返的时间。
+- 如何核实：从代码推断，未复现：进程内往返只有几毫秒，窗口很窄，且没有办法在真实运行时里稳定停在这一段。
+- 建议改法：`cancel` 与保存成功时让 `previewRun += 1`；或 `applyFailure` 开头先判 `options.draft() === draft`（同一份），不再是当前草稿就丢掉结果。
+
+### 8. 测试缺口：还原失败路径、回执折叠的各个分支、`useWorldReads` 的释放与上限都没有测试
+- 严重程度：重要；类别：测试
+- 位置：`web/receipt-page.dom.test.ts`、`web/components/RevertDialog.dom.test.ts`、`web/components/ReceiptPage.dom.test.ts`（对照 `web/revert.ts`、`web/receipt.ts`、`web/use-reads.ts`）
+- 现象：
+  - Spec 验收 12 的后半句（“这次还原被拒收，对话框不关、写出原因”）没有任何接真实世界的用例；`RevertDialog.dom.test.ts` 只是给组件喂 `error` 属性。也没有：`not-revertable`（真实的章序调整修订）、`author-source-required`、结局不明“再查一次”用同一请求 id、保存中不关对话框、换了要还原的修订、预览之后世界变了。第 3 条的缺陷正好落在这个空档里。
+  - 验收 12 的前半句（前台是章节正文时还原，得到工作台通知）只有 `notices.test.ts` 里手写的 `notify` 记录器，没有经过真实的页面卸载与浮层。
+  - `receipt.ts` 的折叠只有“修改外观与存款”一个真实用例，新建、删除（墓碑）、章序调整、`#order`、`init.name/summary/aliases/text`、改 `parent/sameAs/appears`、剧情变更的各字段，只在 Lab 里手写的模型里出现，没有一条是从真实修订折出来的。第 1、4 条的问题因此没被发现。
+  - `useWorldReads`：键没了释放读取、一页最多 50 个、键的顺序换了不重开，`DEPENDENTS_LISTED` 的上限，都没有测试（重点 5 里要求的“键没了释放”无证据）。
+- 如何核实：`grep -rn "not-revertable\|author-source\|reorder\|useWorldReads" packages/neuro-book/src/plugins/canon/web/*.test.ts packages/neuro-book/src/plugins/canon/web/components/*.test.ts` 没有命中真实路径；87 个用例全部通过也说明这些行为没有被断言。
+- 建议改法：回执页测试里加一个“预览之后世界变了”“被拒收”“章序调整”各一例（真实世界），回执折叠补一个从真实修订折出来的表（新建、删除、改名字与主文字、改涉及的条目）；`useWorldReads` 加一个小的单元测试（用真实读取层句柄计数）。
+
+### 9. 对话框关闭的动画期间内容会被清空成“还原这次改动？”“正在预览…”
+- 严重程度：建议；类别：界面
+- 位置：`web/components/RevertHost.vue:131-145`、`web/revert.ts:200-214`（`model` 在 `target === null` 时返回 null）、`web/plugin.ts`（注释写“关的时候有收起的动画”）
+- 现象：`:open="model !== null"` 的同时，标题、阶段、带来的变化都取 `model?.…`，关闭那一刻 `model` 变 null，于是标题变成“还原这次改动？”、阶段变回 `previewing`（正文写“正在预览…”，“还原”不可用），而 nb-ui 的 `Dialog` 在收起动画期间仍然显示这块内容。成功后看到的是对话框里的文字先换成“正在预览…”再收起。
+- 如何核实：从代码推断（happy-dom 里没有动画）；`Dialog.md` 写明关闭有 `--motion-dialog-leave` 的收起动画与 `closed` 事件。
+- 建议改法：宿主在关闭后保留最后一个 `model`（直到 `Dialog` 发 `closed`），只让 `open` 变 false。
+
+### 10. 点提示里的“撤销”后，焦点既丢了触发它的按钮，对话框关闭后也没有地方可还
+- 严重程度：建议；类别：界面（焦点去向）
+- 位置：`web/notices.ts:72-80`（`usePageNotice.undo`：先 `dismiss()` 再 `revert.open`）、`web/components/NoticeBar.vue`
+- 现象：“撤销”在提示条上，`undo` 先把提示收起（条被 `v-if` 拿掉），再打开对话框。键盘用户点“撤销”时焦点按钮随即消失，焦点落到页面外；对话框关闭后 `Dialog` “把焦点还给打开前的元素”（`Dialog.md`）也还不了，焦点掉到 body，下一个 Tab 从文档最前面开始。从回执页“还原这次修订”打开则没有这个问题。输出 30 要求键盘可达，没有写焦点去向，但“保存或取消后回到‘改’按钮”的做法在 S5 已经立了。
+- 如何核实：从代码推断。
+- 建议改法：对话框关闭（`closed`）以后把焦点放到页面的容器（`tabindex="-1"` 的页面区），或在 `undo` 时先开对话框、等对话框关了再收提示。
+
+### 11. 回执与“带来的变化”里的“未知”“是”“否”是写死的中文，英文界面里也这样显示
+- 严重程度：建议；类别：界面
+- 位置：`web/receipt.ts:134,169`、`web/impact.ts:28-29`（`displayText`，`packages/nb-canon/src/core/display.ts` 里是中文字面量）
+- 现象：值为 `null` 写“未知”，布尔写“是/否”。人物的“状态”“态度”初值是 `null`，回执里“状态：未知 → …”很常见；还原一次删除时“已删除：是 → 否”。Spec 输出 31 要求界面文字都经界面文字机制。`value.unknown` 这类键已经在语言包里。S4、S5 的 `rows.ts` 也用 `displayText`，所以这是沿用的问题，S6 的两处新用法把范围扩大了。
+- 如何核实：`display.ts:8-10` 与 `receipt.ts:134`；英文界面下没有跑（从代码推断）。
+- 建议改法：`plain` 与 `impactLines` 先判 `null`、布尔，用 `value.unknown`、新增“是/否”键；其余才交给 `displayText`。
+
+### 12. 代码质量：几处重复与未用的东西
+- 严重程度：建议；类别：代码质量
+- 位置与现象：
+  - `web/entry-heads.ts:20,57` `EntryHeads.gone` 没有任何调用方（`grep` 全仓只有定义），是死接口。
+  - `web/components/ReceiptPageHost.vue:114` 的 `NAMED_MAX = 50` 与 `entry-heads.ts:16` 的 `NAMED_ENTRIES_MAX = 50` 是同一个意思的两份常量。
+  - `web/receipt.ts:146` 的 `ENTRY_FIELD` 与 `entry-heads.ts:29` 的 `namespaceField` 各解析一遍同一种路径；`entryField` 里的 `head` 正则（`/^[^.[#]+(?:\.[^.[#]+)?/`）靠“第二段可有可无”区分 `init.name` 与 `type`，读者要推演才明白；`whatText` 手写了一份 `known` 列表（`receipt.ts:236`），内核有 `RevisionWhatSchema`，多一种 `what` 时界面会把代码原样写出来。
+  - `web/change-edit.ts:22` 与 `:17` 对同一个模块（`../shared/contracts`）写了两条 import；`ChangeDraft` 里 `value: string`、`parsedNumber` 接受 `0x10`、`1e3` 与 `1,5`（逗号一律去掉，“1,5”变 15）；条目页的 `in-place-edit.ts` 里也有同类解析，两处各写一份。
+- 如何核实：`grep -rn "\.gone(" packages/neuro-book/src/plugins/canon`；读相应行。
+- 建议改法：删 `gone`；共用一个常量；`whatText` 用内核导出的联合；数的解析抽到一处并只接受十进制。
+
+### 13. 提示里写“改了”的几类改动与“别的设置”：只写显示名、不写改前改后，作者无从判断改了什么（已记入待确认，仅评估）
+- 严重程度：建议；类别：正确性（对照需求，评估）
+- 位置：`web/receipt.ts:143-144,161-171`
+- 现象：开发者待确认清单已记“回执里写不出值的改动只写‘改了’”。我核实的范围：它涵盖 `init.data` 整块（启用或停用数据）、`init.components`、`initBasis`、认不出的键。其中“启用的数据”一行不写是启用哪一种数据，“初值的依据”一行不写依据，作者看到“启用的数据：改了”无法判断。这在“回执要让作者知道这一笔写了什么”的目的下信息偏少，但改前改后是对象，写成一句话要另做格式化，范围不小。
+- 建议改法：按作者取舍记录；若要补，先补“启用的数据”（写数据类型的名字）与“初值的依据”（写依据的一句）。
+
+### 14. 变更详情页的草稿只记补丁的下标，换基准版本后不核对下标上还是不是原来那一处
+- 严重程度：建议；类别：正确性（边角）
+- 位置：`web/change-edit.ts:26,93-100,121`
+- 现象：`ChangeDraft` 存 `index`。`version-conflict` 后草稿换成读到的新版本，`requestOf` 取 `change.patches[draft.index]`，只判“有没有”，不判是不是同一个地址、是不是仍是数值补丁。别处把这条变更的补丁删掉或重排后，作者填的数会写进另一处补丁；确认条的标题取的是当前下标上的补丁，作者能看到标题变了，但“要作者再点一次”的提示里没有说明哪里变了。窄、少见，按“窄场景选简单改法”可记为已知限制：草稿里再存一份 `at`，不一致时按“这一处已经不在了”丢掉草稿。
+- 如何核实：从代码推断。
+
+## 未发现问题的方面
+- 预览、依赖、确认、关闭的 `run` 号与保存中不关（`useRevert`）：晚到的预览确实被作废；换了要还原的那一次、关掉再开都会重置并换请求 id；结局不明时用同一个请求 id（除第 3 条的世界变了以外）没有发现问题。
+- `useWorldReads` 本身（键没了停掉作用域、`onScopeDispose` 收口）读代码没有发现泄漏；`useChangeWrite` 的计时器与 `onScopeDispose` 配合没有发现问题；`version-conflict` 只在读取层已读到更新版本后才换基准的逻辑（避免预览一直失败的循环）读代码成立，`watch` 的键不含请求 id，没有发现重复发写入的路径。
+- `notices.ts` 的 `attach` 计数与 `onScopeDispose`、页面 `key` 重建的顺序没有发现问题（卸载先于新挂载，中间没有 `show`）。
+- 宿主能力标签与理由（`ReceiptPageHost`、`ChangePageHost`、`RevertHost`）与代码一致；中英文语言包键与占位符一一对应；类型检查（`bun run typecheck`）通过；`bunx vitest run src/plugins/canon/web` 20 个文件 87 个用例通过。
+- 窄屏横幅整宽（f9a9d1884）与回执页“还原这次修订”换行（b1f2cdb72）读 CSS 类没有发现问题（未在浏览器里量）。
+
+## 数量
+阻断 0；重要 5（第 1、2、3、5、8 条）；建议 9（第 4、6、7、9、10、11、12、13、14 条）。
+
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14

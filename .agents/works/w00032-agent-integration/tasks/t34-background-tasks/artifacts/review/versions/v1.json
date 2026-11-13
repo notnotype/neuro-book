@@ -1,0 +1,108 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t34-background-tasks",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t34 后台任务：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "caa5fd6d038f2af0b26e1a00da62cb0f5ce9d0bff180d24331cf7cd4d171ee79",
+    "files": [
+        "index.html",
+        "r1/card-narrow.webp",
+        "r1/card.webp",
+        "r1/empty.webp",
+        "r1/line-narrow.webp",
+        "r1/line.webp",
+        "r1/notifications-narrow.webp",
+        "r1/notifications.webp",
+        "r1/status-bar.webp"
+    ],
+    "questions": [
+        {
+            "id": "task-rows",
+            "type": "single",
+            "label": "“后台任务”视图：一行一件，还是两行一件",
+            "options": [
+                {
+                    "value": "line",
+                    "label": "A 一行一件（推荐）"
+                },
+                {
+                    "value": "card",
+                    "label": "B 两行一件"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "line"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notifications-view",
+            "type": "single",
+            "label": "“通知”视图",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "status-items",
+            "type": "single",
+            "label": "状态栏：任务条目与通知铃铛",
+            "options": [
+                {
+                    "value": "bell-always",
+                    "label": "A 铃铛一直在（推荐）"
+                },
+                {
+                    "value": "bell-unread",
+                    "label": "B 有新通知时才出现"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "bell-always"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-11T06:28:36.572Z"
+}

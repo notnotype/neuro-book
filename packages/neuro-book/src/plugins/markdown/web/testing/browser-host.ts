@@ -3,12 +3,12 @@
  * `SyntaxCatalog`；给的测试方言插件照常登记与交付。组件拿到的目录与产品里 `nbook.markdown` 交组件时给的是同一种。
  */
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createApplication} from "nbook/application";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 
 import {descriptor} from "../../plugin";
 import {MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../../shared/contracts";

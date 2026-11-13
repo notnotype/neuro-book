@@ -1,0 +1,101 @@
+# w00026 t24 实现审查：切片 5（d75f498b1）与切片 4 审查的修正（6486f87cf），范围 c9cb5ceb5..6486f87cf
+
+审查者：Claude Opus 子代理，只读。worktree HEAD 6486f87cf、干净。
+
+### 1. 修正引入的回归：单视图来源已经收起之后再停到别的入口上，并入的预览返回已提交的文档，来源的分节与入口又画回来，高亮的入口被挤离指针
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:203（`candidateDoc` 新加的 `join-container && soleSidebarContainer(doc, source) !== null` 返回 `doc`）；live-drag.ts:190-198（`host.show(doc ?? …)`）
+- **现象**（从代码推断，未在真实运行时复现）：`candidateDoc` 里的 `doc` 是 `options.doc()`，即已提交的文档；`soleSidebarContainer` 也按已提交的文档判，来源收起与否它都看不到。走法：侧栏当前容器 view:A 只有甲，拖甲的分节标题到编辑区停 300ms（`elsewhere` 为真，`collapseSource` 收起来源，判定几何删掉甲那一节和它的入口，`barAfterCollapse` 把下面的入口上移）；再移到活动栏上 A 下面的入口 B 中间停 300ms。候选 `join-container(B)` 稳定，`candidateDoc` 返回已提交的文档（不是 null），live-drag.ts:198 只在 `doc === null` 时才改用 `sourceRemovedDoc`，于是预览就是已提交的文档：侧栏里甲那一节又出现，活动栏里 A 的入口又出现，B 被挤下去一个入口高，`mergeEntry` 仍高亮 B。判定几何还是收起后的：指针在判定里仍在 B 上，屏幕上指针下面已是 A 的入口。
+  这正是切片 4 审查第 1、3 条要消掉的“高亮的入口滑离指针”，只是换了一条进入的路；也违反输出 38“这一场不再展开：收起后不在的面板不是落点，指针回到它原来的位置不会让它又出现”。待确认清单 11-12 第 4 行接受的只是“回到它自己的空位（原处）”，不包括停在别的入口上。base（c9cb5ceb5）的并入预览一律 `removeTab`，收起之后来源不会画回来，所以这是本次修正带来的。
+  同类的 base 遗留（不算回归，另记）：收起之后落在别的空位（非原处的 `move-entry`），`applyEntryDrop(已提交文档, commit:false)` 同样把甲那一节画回侧栏；切片 4 审查第 1 条建议改法（c）没有做，待确认清单也只接受了原处那一种。
+- **为什么是问题**：用户拖出去犹豫一下再回来并进别的容器，是自然的走法；回来之后侧栏突然弹出已经收起的那一节、入口跳一格，高亮与指针错位，松手并进的容器以判定为准（B），和屏幕上指针下那个（A 的入口）不是同一个。
+- **如何核实**：e2e（实时布局，`workbench-containers.e2e.ts` 的场地）：甲是侧栏当前容器唯一的视图，活动栏上它下面还有入口 B。按下甲的分节标题，移到编辑区中央，停 300ms，断言侧栏里甲那一节看不见；再移到 B 入口的中心，停 300ms。断言：甲那一节仍看不见、`[data-tool-band] [data-tool-view=甲]` 数为 0、带并入高亮的入口矩形包含指针。按代码推断前两句会失败。去掉 layout-drag.ts:203 这一行再跑，应通过（证明是这行引入）。
+- **建议改法**：并入的“不拿掉来源”只在来源还没收起时成立。`layout-drag.ts` 里记一个本场的 `sourceCollapsed`（在 `collapseSource` 里置真、每场开头清掉），第 203 行改成 `!sourceCollapsed && soleSidebarContainer(...) !== null`；收起之后照旧走下面的 `removeTab`。同一个标志也可以顺手修上面的 base 遗留：收起之后的 `move-entry` 预览从 `removeTab(doc)` 的结果起算。比在 live-drag 里给 `candidateDoc` 多传参数部件少。
+
+### 2. 切片 4 审查第 12 条只修了一半：收成标题行的分节，键盘剩下的“前”停靠点仍换算到正文外面，解析成下一节的前面
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:701-711（`pointOfCandidate` 的 `edge === "top"` → `{x: center.x, y: body.top + 2}`）；nb-layout/src/layout-drop.ts:476（候选已改成只列前一个）
+- **现象**：候选表现在对收起的分节只列 `split(s1, top)`，和指针一致；但键盘停靠点由 `pointOfCandidate` 换成点再交给指针规则（`dropAt`），正文零高时 `body.top + 2` 在分节下沿往下 2px，落进下一节的标题行。实验 `/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t24-final/exp/collapsed-keyboard-stop.test.ts`（直接调 nb-layout 的 `enumerateDropCandidates` 与 `resolveLayoutDrop`，几何是手写的：s1 标题行 0-30、正文 30-30，s2 标题行 31-61；绕过了 DOM 与真实量出的几何）在 packages/nb-layout 下 `bun test` 通过，打印：候选 `[split s1 top]`，这个停靠点解析成 `split s2 top`。也就是键盘在 s1 上停下，提示与放下都是“s2 前面”（和 s2 自己的前停靠点重复），“s1 前面”这个位置键盘到不了。第 12 条原文已经指出“‘前’的停靠点落到缝或下一节”，修正只删了“后”。
+- **为什么是问题**：重点 4 要的“指针、分区、键盘三处同一个判定”在候选这一层成立了，在停靠点这一层仍不成立；收起的分节是区域第一节时，键盘没有任何方式插到它前面。
+- **如何核实**：上面的实验。真实运行时：dnd 场地里把侧栏第一节收成标题行，键盘拿起底部面板的视图，Tab 进侧栏那一列，停在收起那一节上，读提示与 `data-drop-kind`、放下后看新分节排在收起那节之前还是之后（按推断是之后）。
+- **建议改法**：分节的停靠点不借正文外缘的点：沿区域方向的前半取标题行中心（`geometry.strip` 的中心，`sectionHalf` 对上下分的区域把标题行算前半），后半取正文后半的中心。这样收起与否用同一套点，也不依赖 2px 的内缩。
+
+### 3. `{container: "view:X"}` 在 X 声明了别的容器时也算“有声明”：凭空建出一个不属于任何视图的隐式容器，落在 X 的 `location` 而不是 X 的容器所在的区域
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/workbench/web/state/containers.ts:144-148（`containerHomeRegion` 的隐式分支）；layout-doc-store.ts:495（`moveView` 用它判“有没有声明”）
+- **现象**：`containerHomeRegion("view:x")` 只看 `views.get("x").location`，不看 x 是否写了 `container`。实验 `/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t24-final/exp/implicit-target.test.ts`（packages/neuro-book 下 `bun test` 通过；纯函数，不涉及运行时）：x 声明 `container: "acme.group"`（侧栏）、`location: "auxiliarybar"`，`viewHome(x)` 是 `acme.group/sidebar`，`containerHomeRegion("view:x")` 却给 `auxiliarybar`。于是 `move-view {viewId: y, container: "view:x"}` 不报 `stale-target`，而是在右栏建出 id 为 `view:x`、成员只有 y 的容器，标题取 y 的；它不是 `custom:`，空了以后 id 也一直留在锚的 `entries` 里（`settleContainers` 只删 `custom:`）。
+- **为什么是问题**：输出 41 说三类 id 互不重叠，隐式容器只属于“没写 `container` 的视图”；x 写了容器，`view:x` 就既没有成员也没有声明，按 commands.md 应是 `stale-target`。之后若 x 的插件去掉 `container`，x 的“重置位置”会并进 y 所在的这个容器。只有直接带参数调用才走得到（菜单与命令面板不列没有成员的容器），所以记建议。
+- **如何核实**：上面的实验；或在 view-commands.test.ts 的场地里给某个视图声明一个容器，再以 `{viewId: 别的视图, container: "view:<它>"}` 执行，看到 `ok: true` 与新建的 `view:<它>` 容器。
+- **建议改法**：`containerHomeRegion` 的隐式分支加一个条件：`viewHome(那个视图).container === container` 才返回 `location`，否则 null。它也给入口菜单的“重置”（`canResetContainer`）用，同样该这样判，改一处两边都对。
+
+### 4. 目标是视图自己所在的容器、已经是最后一节时走 `showContainer`，但 `apply` 仍按默认写回尺寸意图，也不处理最大化
+- **严重程度**：建议；**类别**：不变量
+- **位置**：packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:488-500（`moveView` 的 `{flush: true}`，没有 `rebase: false`；第 499 行的 `showContainer` 分支）
+- **现象**：这条分支只切容器、清隐藏与拖到零，不动树。同一件事的 store 动作 `showContainer`（:506-511）与 `revealView` 用 `rebase: false`，并在切走时退出盖着的最大化；`moveView` 这条分支两样都没有：区域原来隐藏或当前容器不是它时会提交一份按呈现尺寸写回的意图（切片 3 收尾记的浮点末位漂移，输出 42“切换不改任何尺寸意图”），别的面板最大化着时 `sameTreeShape` 不变、最大化不退出，切过去了也被盖着。单元测试只测了“已经看得见时零写入”，那时 `rebased()` 在没有呈现尺寸的测试里返回原对象，测不到写回。
+- **为什么是问题**：同一种“让容器看得见”现在有三处实现，两处守了输出 42 与最大化，这一处没守。只有直接带参数调用才走得到，记建议。
+- **如何核实**：store 测试里先 `acceptPresented` 一份与意图有末位差的尺寸，隐藏侧栏，再 `moveView(侧栏某容器唯一的视图, {container: 它自己的容器})`，比较前后记录里的意图；再在右栏某节最大化时执行一次，看 `state.maximized`。
+- **建议改法**：这条分支直接返回 `store.actions.showContainer(container)` 的结果（在 `apply` 外先判出来），不另写一份；或者把 `moveView` 拆成“先判是不是自己容器的最后一节”再分别调 `apply(…, {rebase: false})` 与 `apply(…)`。
+
+### 5. 删掉 `reveal` 后 e2e 里还留着两处对它的判断，成了恒真的断言；`showPanelAndInsert` 只剩库自己的测试在用
+- **严重程度**：建议；**类别**：测试 / 代码质量
+- **位置**：packages/neuro-book/e2e/workbench-dnd.e2e.ts:496（`expect(kinds.has("reveal")).toBe(false)`）、:1251（`["strip", "reveal", …].includes(kind)`）；packages/nb-layout/src/layout-doc.ts:1149（`showPanelAndInsert`）与 layout-doc.test.ts:580-596、:1107-1114
+- **现象**：落点种类里已经没有 `reveal`，第 496 行永远通过，测不到任何东西；它原来要守的是“隐藏的右栏不是键盘候选”，同一用例结尾的 `leaf(page, delta)` 数为 0 已经覆盖了一部分，但键盘候选里有没有右栏的位置，这一句不再能说明。`showPanelAndInsert` 在应用里没有调用方，按切片 1 审查 F4 它对分节拒绝，按 layout-doc.test.ts:1107 对新模型的锚也拒绝，只在没有锚的旧形文档上有用；库里留一个只对旧形文档成立、无人调用的公开操作，读者会以为它仍是“放进隐藏面板”的正路。
+- **为什么是问题**：恒真断言让人以为这条性质有守护；死的公开导出会被下一个人当成可用的原语接回来（切片 4 审查第 4 条就是这么来的：活动栏落点删了，消费分支还在）。
+- **如何核实**：`grep -rn '"reveal"' packages/neuro-book/e2e`；`grep -rn showPanelAndInsert packages --include=*.ts | grep -v test`，只命中定义与 index 导出。
+- **建议改法**：第 496 行改成断言隐藏的右栏没有停靠点（例如走遍时记下 `data-drop-panel` 或落点所在的叶，断言不含右栏的分节），第 1251 行从列表里删掉 `"reveal"`。`showPanelAndInsert` 连同它的测试删掉；若想留，至少在 JSDoc 写明“只对没有锚的文档成立，工作台不用”。
+
+### 1 补充（第 1 条的实验、严重程度与 e2e 写法更正）
+- **实验**（绕过 DOM 与真实运行时：直接驱动 `createLiveDrag`，候选与时序手写，宿主照 HEAD 的 layout-drag.ts 写：`isHomeStrip` 认 BAR_STRIP，`candidateDoc` 对 `join-container` 返回已提交文档、对 `center` 返回摘掉来源的文档）：`/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t24-final/exp/live-join-after-collapse.test.ts`，packages/neuro-book 下 `bun test` 通过。先给 `center(g0)` 等 200ms：`collapseSource` 调 1 次，`show` 收到摘掉来源的文档；再给 `join-container(view:b)` 等 200ms：不再收起，`show` 收到的是已提交的文档。也核对了 HEAD 的 layout-drag.ts:373-389（`entryDrop`）与 :519-529（`barAfterCollapse`）本次没动：收起后判定用的入口几何已上移，指针在 B 上给出 `join-container(B)`、`inPlace` 为假。
+- **严重程度**：按代码与上面的状态机实验是“重要”；实验绕过了真实运行时，按规则降一级，记为“建议”，待主 Agent 用下面的 e2e 复现后按“重要”处理。
+- **e2e 写法更正**：拖动中甲的内容在卡片上，“甲那一节看不见”不能按内容判，要按分节的叶判：断言 `[data-leaf="<甲的分节 id>"]` 不可见（或不在侧栏的矩形里），以及活动栏 `[data-tool-band] [data-tool-entry]` 的数目比拿起前少 1。最有区分力的一句是：带并入高亮的入口（`[data-tool-merge]`）的矩形包含指针。
+
+### 3、4 补充（改法收窄与措辞更正）
+- **第 3 条改法收窄**：不要改 `containerHomeRegion` 本身。它也给入口菜单的“重置”（`canResetContainer`）用：一个视图原来没写 `container`、后来插件给它加了声明，布局里仍有以它为成员的 `view:x`，输出 44 写的是“隐式容器看视图的 location”，这时“重置”应当还在；改了函数，这一项会消失。改法收到 `moveView` 一处：目标没有成员时，隐式容器只在 `viewHome(那个视图).container === container` 时才算有声明，否则 `not-found`。
+- **第 4 条措辞更正**：现象“从代码推断，未在真实运行时复现”。“测试里 `rebased()` 返回原对象”一句不准，删掉：那条单元测试零写入成立，是因为 `showContainer` 对已经看得见、已经是当前容器的文档每一步都返回原对象（`finish` 结果不变返回原对象），与 `rebased()` 返回什么无关。要点不变：测试只覆盖“已经看得见”，没覆盖“隐藏着或不是当前容器时切过去”，后者会带着按呈现尺寸写回的意图提交。
+
+### 6. 底部面板标题行改成按竖线分之后，Spec 输出 37 与 `sectionSectors` 的注释还写“标题行算前半”
+- **严重程度**：建议；**类别**：文档
+- **位置**：主工作区 docs/specs/ui/workbench-layout.md:210（输出 37 末句“分节的标题行算前半，分区照画（planned）”）；packages/nb-layout/src/layout-drop.ts:336（`sectionSectors` 的 JSDoc“标题行不在正文里，不画（它算前半）”）
+- **现象**：本次把输出 25 第 7 行改成“侧栏、右栏的标题行算前半，底部面板的标题行和正文按同一条竖线分”，Task 记录说与输出 20、38 对齐了，但输出 37（落点分区）没跟上，仍不分区域地说标题行算前半；nb-layout 里 `sectionHalf` 的注释已改，紧挨着的 `sectionSectors` 注释没改。e2e 与单元测试已按新规则断言（dnd:659-663、layout-drop.test.ts:524-530），所以只是文字。
+- **为什么是问题**：输出 37 说“形状就是输出 25 的判定”，读者对照两处会得到相反的结论；下一个改分区的人会按注释把底部面板标题行画成前半。
+- **如何核实**：`grep -n "标题行算前半" docs/specs/ui/workbench-layout.md packages/nb-layout/src/layout-drop.ts`。
+- **建议改法**：输出 37 末句改成“侧栏、右栏分节的标题行算前半，底部面板的按同一条竖线分（输出 25 第 7 行），分区照画”；`sectionSectors` 注释改成“标题行不在正文里，不画；它归哪半见 `sectionHalf`”。
+
+### 7. 菜单身份里新加的“所在容器”一段没有测试守着
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:198（`viewIdentity` 的 `viewSection(doc.value, viewId)?.container`）
+- **现象**：注释说这一段是给“只有一个标签的分节换容器、面板 id 不变”的情形加的（输出 23“所在容器变化即关闭”），编码者报告第三节也写明没有 e2e 测它；现有 e2e 只测换代。删掉这一段，所有单元测试与 e2e 都不会失败（从代码推断：这个函数只在外壳组件里，单元测试碰不到；e2e 里没有“菜单开着时视图换容器”的步骤）。
+- **为什么是问题**：输出 23 的四个身份里，这是唯一一个只能靠这一段发现的变化；回归了没人知道。
+- **如何核实（变异检查，交主 Agent 跑）**：把第 198 行的 `|${viewSection(doc.value, viewId)?.container ?? ""}` 删掉，跑下面这条新 e2e 应失败、恢复后通过：在 `workbench-views.e2e.ts` 的场地里右键样例乙的分节标题打开“移动到”，菜单开着时经测试外壳的 `SAMPLE_VIEWS_RUN_EVENT` 执行 `nbook.view.move-view {viewId: 乙, container: "view:<戊>"}`（乙是只有一个标签的分节，面板 id 不变），断言 `page.getByRole("menu")` 数为 0。
+- **建议改法**：补上这条 e2e；同一条里顺带点一下关闭前菜单里的旧项不再可点（零写入）。
+
+## 未发现问题的方面
+
+- **`setPartHidden` 的零写入**：比较用 `sameLayoutShape`，比结构、显隐、收起、归属、入口顺序与当前容器，不比意图；`setPanelHidden` 不碰意图，所以不会把真有变化的情形吞掉。有区分力的情形（区域拖到零后搬走最后一节，锚同时 hidden 与 collapsed）查过：实验 `exp/empty-region-collapsed.test.ts`（纯函数）显示搬走最后一节时锚的 `collapsed` 已被清掉，归整后只剩 `hidden`，“显示”再归整与原文档 `sameLayoutShape` 为真，零写入成立。
+- **`moveView` 的来源归整、目标区域隐藏或拖到零、最大化**：`placeInContainer` → `showContainer` 先归整再清隐藏与拖到零（`setPanelHidden(false)` 一并删 `collapsed`），树变了 `apply` 退出最大化；来源容器空了由归整切到相邻容器或隐藏区域。只在第 4 条那条不动树的分支上有缺口。
+- **菜单与命令面板同一份**：两处都读 `moveTargetsOf` 加 `moveTargetItem`，菜单只多一组“浮动”；第二步的选择 id 按种类加前缀，插件给的容器 id 撞不上；两步之间目标容器没了是 `stale-target` 零写入（单元测试真跑了竞态）；`invalid-args`（只给一部分、两个都给、不可移动）与 `stale-target`（目标既无成员也无声明、视图不在文档里）的划分与 commands.md 一致。commands.md 对“视图不存在”没给错误码，实现给 `stale-target`，与 `nbook.view.open` 对未知视图给 `invalid-args` 不同，属于 Spec 没定的地方，不算违反。
+- **活动栏单视图来源（重点 3）**：除第 1 条外，松手并入走 `commitDrop` → `applyEntryDrop(commit: true)`，按已提交的文档把来源从原容器搬走，与预览怎么摆无关；来源是浮动窗的标签、右栏或底部面板的分节时 `soleSidebarContainer` 为 null，照旧收起、照旧 `removeTab`；含几个视图的入口只有 `move-entry`，不进 join 分支；键盘是落点指示，不经 `candidateDoc`，放下同样走 `applyEntryDrop`。并入高亮的样式：`--merge:hover` 与 `:hover` 同优先级、写在后面，能盖住。
+- **nb-layout `sectionHalf` 与候选（重点 4）**：横向区域的标题行按正文竖线分，纵向区域标题行仍算前半；分区（`sectionSectors`）只画在正文上，与判定同一条线；候选对收起的分节只列前一个，与指针一致（停靠点那一层见第 2 条）。底部面板的分节不折叠，`isSectionCollapsed` 对它恒假，不受影响。nb-layout 530 项通过。
+- **ExplorerTree 的 `syncScroll`（重点 5）**：rows 的 watch 是 pre 刷新，此时 DOM 还是旧行，用 `previous` 记锚点是对的；`reveal` 的 `nextTick` 在 DOM 更新后先同步再算。停放查过：NestedGrid 停放是 `visibility: hidden` 加 `inert`、保持最后的非零尺寸（NestedGrid.md:13），元素不变零尺寸、浏览器不夹滚动位置，所以“回来时先 `syncScroll` 盖掉记住的位置”不会发生；`clientHeight === 0` 时两处都不记，和 `onScroll` 一致。同步只在元素与记住的值差 0.5px 以上时写，紧接着的滚动事件读到同一个值，不会来回跳或循环。点目录行时 rows 与焦点同一拍变，两个 `nextTick` 的先后是 base 就有的，本次没改变。
+- **`reveal` 落点的删除**：类型、nb-layout 三处分支、编辑器与外壳的分支、locale 键与 locales.test.ts 都删干净了（worktree 里 grep，非测试代码只剩 `showPanelAndInsert` 的定义）；残留见第 5 条。
+- **验收 8、14、29、31**：8 由 dnd“隐藏的区域不是落点”尾段（移进丁的容器）与 store 测试（新容器进隐藏、没有容器的区域）覆盖，“改选新容器（右栏）且右栏隐藏、已有容器”这一种没有专门的用例，代码路径与前者相同；14 的“含两个视图的入口”由 containers 新用例覆盖指针与键盘；29 补了原处的断言，与待确认清单第 4 行一致；31 由 store 测试覆盖尺寸不变与保存成功。
+- **UI**：只改了一条 CSS 选择器，令牌不变，明暗两态无差别；`WorkbenchToolStrip.md` 对并入高亮的描述与样式一致。
+- **测试与验证**：工作台 state、commands、entry-drop、live-drag、drag-presentation、locales 共 254 项与 nb-layout 530 项在 worktree 里通过。e2e 没跑。live-drag 新用例里 `toHaveCount(before.length)` 的 `before` 恒为 3 个，场地入口数一变就会误报，属于小的写法问题，不单列。
+
+## 数量
+
+重要 0 条（第 1 条按代码与状态机实验是重要，实验绕过真实运行时，按规则降一级记为建议，e2e 复现后按重要处理）；建议 7 条（第 1 至 7 条）。阻断 0 条。
+
+有效发现（按影响排序）：1、2、3、4、5、7、6
+
+### 1 再补充（复现走法更正与论点收窄，取代第 1 条“现象”“如何核实”里的对应句子）
+- **走法更正**：第 1 条写的“拖甲的分节标题到编辑区中央停 300ms”不成立：按输出 26 的接受矩阵，工具视图在编辑组上被拒绝，没有候选；之前没摆过预览时也不会进 `source-removed`，来源不会收起。改用验收 29 那条用例已证明能收起的路：把甲（侧栏当前容器唯一的视图）拖到右栏丁那一节的后半，停 300ms，确认侧栏里甲那一节的叶不可见、活动栏入口数比拿起前少 1（来源已收起）；**收起之后再量** B 入口的矩形（此时 B 已上移一格），移到它的中心，停 300ms。断言：带 `[data-tool-merge]` 的入口矩形包含指针；活动栏入口数仍是拿起前减 1；侧栏里甲那一节的叶仍不可见。按代码推断三句都失败（预览换回已提交的文档，甲的入口回来，B 被挤下一格）。松手后看记录：并进的是 B，而屏幕上指针下是甲的入口。
+- **论点收窄**：上一轮审查第 3 条已撤回过“违反输出 38 这一场不再展开”的说法（输出 38 在“来源是当前容器唯一的视图”这个组合上两句相撞），这里同样不以它为依据。站得住、不依赖那处措辞的是**判定几何与屏幕不一致**：判定按收起后上移的入口几何，屏幕按已提交的文档画，高亮的 B 不在指针下，松手提交到 B，指针下画的却是甲的入口。和待确认清单 11-12 第 4 行的区别：那一行是回到自己的空位、放回原处、不提交；这里停在别的入口上，松手会提交、把视图并进另一个容器。
+
+### ExplorerTree 一条的补充（“未发现问题的方面”里重点 5 那一条按这里读）
+- 那条结论是“从代码与文档推断”。依据是 nb-layout 的 NestedGrid.md:13 与 NestedGrid.vue:219（停放保持最后的非零尺寸，`visibility: hidden` 加 `inert`）；但 `ExplorerTree.md:12`（“视图停放时尺寸为零”）与 ExplorerTree.vue:188 `onScroll` 的注释（“停放（尺寸为零）期间浏览器可能把滚动位置夹成零”）说的相反，两边文档不一致，我只核到了 NestedGrid 这一边。若有别的停放路径真会让元素变零尺寸并夹住 `scrollTop`，回来时先 `syncScroll` 会把记住的位置盖成 0，就是回归。
+- 判据（交主 Agent 跑 e2e）：资源树滚到中段，切到别的容器再切回（或把资源管理器那一节收成标题行再展开），然后展开一个目录，断言首个可见行与切走之前相同。
+
+### 维度 6（常见返工项）与覆盖范围
+- 读过的 diff 里没有按错误文案分支、静默 `catch`、跳过测试或产品代码里的测试分支、跨包深导入；`dnd:1089` 由比像素改成比尺寸意图是精确相等，不是放宽（编码者报告有探针数据）。e2e 改期望逐条对过编码者报告第四节。
+- 覆盖范围如实说明：`workbench-views.e2e.ts` 只按断言行扫过；`panel-commands.test.ts`、`default-tree.test.ts`、`layout-constraints.test.ts`、`locales.test.ts` 的 diff 没有逐行读，只跑了它们。

@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00032-agent-integration
 issueId: null
 status: active
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 # NeuroBook 接入 Agent
@@ -65,6 +65,9 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-10 | t14 合入：子代理工具与任务中心、`shell` 与 `ask` 的 `async`、子树与任务的远程、停靠区与子代理卡片、会话面板的子会话、“可派的子代理”一节；前后端实现审查各一次；合入前并进 t32 的宿主套件（守卫、`shell`、句柄表加可选钩子）。待开发者批准 `subagents.md`、`jobs.md` 等的晋升，并定 planned 条目里没做的几处去留（[t14](tasks/t14-multi-agent/README.md)） |
 | 2026-11-10 | 开发者批准 t14 的 Spec 晋升：`agent/subagents.md`、`agent/jobs.md` 改为 `implemented`，其余 Spec 里 t14 的条目去掉 planned；没做的五处由我判断，改 Spec 跟现在的行为走，卡片写注册表的工具名记进 t29；t14 完成。接着做 t15（[t14](tasks/t14-multi-agent/README.md)） |
 | 2026-11-10 | t15 开工，实施计划开发者确认：没声明白名单就没有可用的 Skill、主创声明全部；父 Agent 的 `$x` 也算触发；`nbook skill init` 离线可用；插件的 Skill 与 SDK 构建拆到 [t33](tasks/t33-plugin-skills/README.md)；先出一轮界面静态稿（[t15](tasks/t15-skills/README.md)） |
+| 2026-11-11 | t15 评审两轮：后台安装的进度与结果由新建的 [t34](tasks/t34-background-tasks/README.md)（工作台的后台任务）承担，t15 的界面几片排在它之后；没带上的 `$` 改为给模型的 system-reminder；t15 切片 1–4 的后端已在分支上（[t15](tasks/t15-skills/README.md)） |
+| 2026-11-11 | t34 合入：插件 `nbook.tasks`（服务端清单、按调用方登记、远程接口与推送限频）、状态栏任务条目与悬停、底部面板的“后台任务”与“通知”视图、铃铛、视图计数与 `revealRegion`；前后端实现审查各一次，成立的都已修。待开发者批准 `workbench/background-tasks.md` 晋升与相关条目去掉 planned；t15 变基后接上 Skill 初始化（[t34](tasks/t34-background-tasks/README.md)） |
+| 2026-11-12 | 开发者批准 t34 的 Spec 晋升：`workbench/background-tasks.md` 改为 `implemented`，其余 Spec 里 t34 的条目去掉 planned；t34 完成。接着把 t15 变基到 master，做它的界面切片（[t34](tasks/t34-background-tasks/README.md)） |
 
 ## 待确认
 
@@ -101,7 +104,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | [t12](tasks/t12-builtin-tools/README.md) | 基础工具与外部命令行依赖 | t04、t06、t08、t26 |
 | [t26](tasks/t26-write-interface/README.md) | 写入接口：读、暂存与提交、文件操作、操作分组与记账槽（文件访问第 1 阶段，从 t12 拆出） | t08 |
 | [t14](tasks/t14-multi-agent/README.md) | 多 Agent（Workflow 在 t24） | t05、t06、t07 |
-| [t15](tasks/t15-skills/README.md) | Skill 规范与目录 | t05、t08、t10 |
+| [t15](tasks/t15-skills/README.md) | Skill 规范与目录 | t05、t08、t10、t34 |
 | [t25](tasks/t25-plugin-marketplace/README.md) | 插件市场：索引、来源、版本与更新、信任；Skill 经插件分发 | t10、t15 |
 | [t16](tasks/t16-command-bridge/README.md) | Agent 操控 NeuroBook 与 `nbook project` 子命令 | t06、t10 |
 | [t17](tasks/t17-conversation-ui/README.md) | 对话界面：Composer、状态栏、待处理区（并入 w00019 t11） | t06、t07、t09、t10；w00028 t03 合入 |

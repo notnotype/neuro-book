@@ -13,8 +13,9 @@ import {join} from "node:path";
 import {Hono} from "hono";
 import type {Context} from "hono";
 
-import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
-import {rethrowRouteError} from "nbook/plugins/http/shared/contracts";
+import {rethrowRouteError} from "@notnotype/nb-host/http/contracts";
+import type {HttpRouteEnv} from "@notnotype/nb-host/http/contracts";
+
 import type {ProjectsService} from "nbook/shared/projects";
 
 import {previewContentSecurityPolicy} from "../shared/contracts";

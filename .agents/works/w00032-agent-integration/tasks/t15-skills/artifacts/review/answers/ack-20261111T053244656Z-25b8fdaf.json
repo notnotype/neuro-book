@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t15-skills",
+    "artifactId": "review",
+    "ackId": "20261111T053244656Z-25b8fdaf",
+    "answers": [
+        "20261111T053147554Z-f2e4c5d9"
+    ],
+    "through": "20261111T053147554Z-f2e4c5d9",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t15-skills/README.md"
+    ],
+    "ackedAt": "2026-11-11T05:32:44.656Z"
+}

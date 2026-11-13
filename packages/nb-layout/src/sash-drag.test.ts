@@ -411,6 +411,24 @@ describe("拖动求解：两侧外栏的收起与恢复", () => {
         expect(outcomes[0]).toBe(outcomes[1]);
     });
 
+    it("策略带 `restoreToShare` 时显式恢复回到按权重该得的那一份：等于把它翻成展开后重新分配给它的尺寸", () => {
+        // 一列三块按比例分的面板，权重只记比例（合计不是像素）；first 收成 32 高的标题行。
+        const stack = (restoreToShare: boolean): SashPanel[] => [
+            {...weight("first", 80), size: 2, collapse: {...sashCollapsePolicy({collapsedSize: 32, restoreSize: 2, collapsed: true})!, ...(restoreToShare ? {restoreToShare: true} : {})}},
+            {...weight("second", 80), size: 1},
+            {...weight("third", 80), size: 1},
+        ];
+        const sizes = [32, 484, 284];
+        const share = solveSashCollapse({panels: stack(true), sizesPx: sizes, sashIndex: 0, index: 0, collapsed: false});
+        expect(share?.collapsed).toEqual({first: false});
+        // 总量 800 按 2:1:1 分，first 得 400；挨着边界的 second 让出 368，third 不动。
+        expect(share?.sizesPx).toEqual([400, 116, 284]);
+
+        // 缺省读 restoreSize：这里的 2 不是像素，被夹到最小尺寸。
+        const remembered = solveSashCollapse({panels: stack(false), sizesPx: sizes, sashIndex: 0, index: 0, collapsed: false});
+        expect(remembered?.sizesPx).toEqual([80, 436, 284]);
+    });
+
     it("显式恢复的记忆尺寸超过自身上限时按上限恢复，不吃掉兄弟", () => {
         const {panels, baseline} = projectedSidePanels("right", {right: SIDE_MAX + 55});
         const result = solveSashCollapse({panels, sizesPx: baseline, sashIndex: 1, index: 2, collapsed: false});

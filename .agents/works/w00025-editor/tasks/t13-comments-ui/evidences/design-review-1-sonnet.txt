@@ -1,0 +1,174 @@
+# t13 设计审查报告（只读；Sonnet）
+范围：plan-snapshot.md、spec-markdown-editing-snapshot.md、editor.md 两处小改、README 决定 1–5；代码对照见各条位置。
+
+### 1. 以“第几条”为批注身份，而“程序改了正文就收起卡片”没有可用的信号（阻断）
+位置：plan 3.3“卡片开着时正文被程序改了（重载）就收起”、3.1 末段（块批注无 key，靠序号）；Spec 命令表第 71 行、失败表第 162 行；`packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:111-121`（`quietly`）、`:136-167`（`commitNow`）、`:194-205`（`reload`）、`:386-392`（`onUpdate`）。
+现象：控件里有两类“程序做的”文档事务，都走 `quietly`，meta 完全一样（`addToHistory:false`、`preventAutolink:true`），区别只在控件内部的局部变量 `loading`：（a）`reload`，外部改了正文；（b）`commitNow` 成功后的 `written.accept(tr)` 写法回填，只要新写出的块有 `markdown` 写法属性与读回不同就会产生 docChanged 事务（`write.ts:611-632` 的 `restyle`）。浮层所在的 `MarkdownMenus` 拿不到 `loading`，计划也没说用什么信号区分。这带来三个后果：
+ 1. 若按“任何非用户的 docChanged 就收起”实现，（b）会误关卡片，而且必然出现在最常见的路径上：用户刚打完一段带 `**粗**` 的字（150ms 的提交计时还没到），选中一句、按 Ctrl+Alt+M，焦点进卡片使编辑器 blur，`onBlur` 里 `commitNow()`（`:403-408`）立刻提交并回填，卡片刚开就被关掉（或闪一下）。
+ 2. 若只在（a）收起，就需要控件新开一个“重载计数”给 Layer，计划没写这个接口，`MarkdownMenus` 的 props 也没有。
+ 3. 页边开着时，页边里的卡片一直在，不会因“事务改了文档就收起”而收起（那条只描述浮层）；页边的卡片列表来自 150ms 防抖后的 `listComments`（3.3、3.5），期间卡片上的 `index` 对着旧文档。页边里的“写”卡片开着时（编辑器已 blur，不会有用户输入），Agent 或另一个窗口写了同一个文件→`reload`→批注序号整体错位，用户按保存，`comment-edit {index}` 命中的是另一条批注：静默改错意见；点删除就是静默删错批注。Spec 的 `unavailable` 只在“这一刻没有这一条”时才出现，“有一条但不是原来那条”没有保护。NeuroBook 的 Agent 会改作品文件，这不是理论上的。
+为什么是问题：序号是“按显示时的文档”给的，Spec 自己写了“不是稳定的标识”，但把唯一的保护（程序改了就收起）交给一个没有信号、范围不明的规则；加上 150ms 的显示滞后，窗口期不为零。
+如何核实：读上述行；跑 MarkdownControl 的 dom 测试，在带 `**粗**` 输入的段落后立刻选区、`menus.run("comment")` 开卡片，观察是否有 docChanged 事务（`editor.on("transaction")`）；或在 `quietly` 里 console 打印 `loading` 与 meta。
+实验结果（`/tmp/t13-review-design/exp/e.dom.test.mjs`，真实 Tiptap 与编解码器）：对一段文字做了加粗加斜体之后调用 `codec.write(...).accept(tr)`，`tr.docChanged` 为 true（写法回填把 `**` 与 `*` 的写法属性补上）；只是普通打字时为 false。所以“刚格式化完、提交计时还没到就选中再按 Ctrl+Alt+M”这条路径上，`onBlur` 的 `commitNow` 一定会发出一个程序事务；这是上面第 1 点的实测依据。
+建议改法：不要依赖“收起”：卡片打开时记下一个指纹（该批注的 `body`、第一截的 `from`、`key` 或块节点引用），`comment-edit`/`comment-remove` 执行时用 `listComments(state.doc)[index]` 核对指纹，对不上就 `unavailable` 并收起卡片。这比“收起”更直接，且覆盖外部重载、撤销、协同、防抖滞后所有窗口期。块批注可用“节点在文档里的位置经装饰映射”（3.1 已为 `markShownComment` 做了按位置映射的装饰）代替加 `key`。收起规则另外需要控件给 Layer 一个只在 `reload` 时加一的计数，不要把 `accept` 回填算进去。
+
+### 2. 改意见、去标记的实现细节会改变同范围批注的顺序，或误删重叠的另一条批注（重要）
+位置：plan 3.1 `setCommentBody`、`removeComment`、“经 `tr.addMark/removeMark/setNodeMarkup`”；Spec 输出 31“仍相同时先写的在前”；`packages/nb-markdown/src/language/syntax/comment/index.ts:102-108`（`excludes: ""`）、`:143`、`:147`。
+现象（已用真实 Tiptap 加 happy-dom 实验核实，文件 `/tmp/t13-review-design/exp/a.dom.test.mjs`，用 `bunx vitest run --config /tmp/t13-review-design/exp/vitest.config.mjs`）：
+ - 两条批注盖住同一段“甲乙丙”（`<comment body="B"><comment body="A">…`）。读入后标记顺序是 [A, B]（key k1、k2）。按“改意见”最自然的写法对 A 先 `removeMark(from,to,mA)` 再 `addMark(from,to,A2)`，标记顺序变成 [B, A2]；写出仍是 `B 外 A2 内`，读回是 [A2, B]（key 重新分配成 k5、k6）。也就是同一对批注，在编辑器里“第 1、2 条”先是 A、B，改完意见后是 B、A2，重开文件后又是 A2、B。
+ - `removeMark(from, to, markType)`（按类型）会把盖住同一段的所有批注一起去掉：实验里对 A 调用后 `comments(doc)` 为空，B 也没了。`excludes: ""` 让两个标记共存，但按类型的 `removeMark`、`unsetMark`（现有的 `unsetComment` 就是它，`:147`）不区分。
+为什么是问题：输出 31 把“先写的在前”列为排序的最后一级，但计划没说编辑器里怎么得到“先写”（文档里没有写入时刻，`key` 是 `k` 加 base36 计数，字符串序 `k10 < k2`，并且每次读入都重新分配）。如果用标记集合的顺序，则 `setCommentBody` 会改变它，直接让“第 i 条”“上一条、下一条”在改完意见后换位，页边里卡片的顺序也会跳；如果去标记误用按类型的删除，会静默丢一条没点的批注（用户只点了其中一条的删除）。分截批注各截排在不同块里时同样受影响。
+如何核实：运行上面的实验文件；对照 `listComments` 的排序键。
+建议改法：（1）Spec 输出 31 的最后一级落实成一个确定的规则：例如读入时按文件顺序给 `key` 编号并用数值比较，改意见保留 `key`，所以顺序稳定；（2）`setCommentBody` 用“收集该 key 的各截范围，逐段 `removeMark(from,to,旧标记实例)` 加 `addMark` 新实例，再把原来排在它后面的重叠标记按原顺序补回”，或直接用一个自定义 `Step`/`ReplaceAroundStep` 就地换属性；（3）`removeComment` 只用标记实例（`Mark.eq` 比较 id、body、key）去掉，写一个“两条同范围批注，删其中一条，另一条仍在”的 `comments.dom.test.ts` 用例，并在计划 S1 的自跑验证里写明。
+
+### 3. 浮层“何时出”写成了状态判断，不是“进入”事件：打字后按一下方向键、Esc 之后移动光标、无关事务都会让卡片冒出来（重要）
+位置：plan 3.3“浮层何时出”；Spec 输出 30（“进到”“不算进入”“同一条批注不再出现，直到光标离开它再进来”）、验收 13；对照 `packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownSelectionMenu.vue:30-100`（`settled`、`dismissed`、`selectionTick` 的推进方式）。
+现象与推演（从代码推断，未跑真实浏览器）：
+ 1. 计划的条件是“选区变化的事务没有改文档、选区为空、光标在批注里（commentsAt，含紧挨两端）、没按过 Esc、指针已松开”。它判断的是“当前状态”，不是“从外面进来”。用户在批注中间连打几个字（docChanged，卡片不弹，符合验收 13），再按一下 ← 修错字：这是 selectionSet 且未改文档的事务，光标本来就在批注里，条件全部成立，卡片弹出来盖住正在写的字。方向键、点击改位置是写作里最频繁的动作；页边关着、批注密的段落会反复弹。Spec 的“进到”“离开它再进来”在计划里没有对应的状态（要记“上一次光标所在的批注集合”）。
+ 2. Esc：选区菜单里 `dismissed` 在任何 selectionSet 事务时复位（`MarkdownSelectionMenu.vue:81-84`），照抄会让“Esc 后同一条批注里再按一下方向键卡片就回来”，与输出 30 相反。计划只写“没有按过 Esc”，没写“同一条”“离开再进来”，也没说用什么当“同一条”（又是序号，见第 1 条；块批注没有 key）。
+ 3. “按事务判断”与“指针已松开”是两种机制：鼠标点在批注里，selectionSet 事务发生在 pointerdown，那时指针没松开；松开后没有新事务。若实现成“看最近一次事务是否改文档”（选区菜单那样每个事务都 `selectionTick += 1`），之后任何无关事务（`REFRESH_REFERENCE_LINKS`，`MarkdownControl.vue:219,280`；`holdSelection/releaseSelection`；`quietly` 回填）会把“最近一次事务”变成“没改文档”，打字后停在批注里的光标就会弹卡片。判断必须只看 `selectionSet` 的事务，把结论存下来，指针松开时用存下来的结论。
+ 4. 输入法：选区菜单对组字单独记了 `composing`（`:37,60-65`）；计划只靠 docChanged（Spec 实现合同也写“输入法组字中也算输入”）。happy-dom 的 dom 测试模拟不了真实的组字时序。ProseMirror 在 compositionstart 里会先 flush 一次 DOM 观察器，是否会先发出一个未改文档的选区事务我没有在真实浏览器里验证，只能列为风险：若有，卡片会在组字开头弹出。建议同时用 `view.composing` 兜底（一行代码），e2e 里用 CDP 的 `Input.imeSetComposition` 做一次真实组字（Playwright 的 `keyboard.type` 不经输入法，测不出）。
+ 5. 与别的弹层的互斥：计划只写了“选区为空”。注音卡片的 `prompting` 为“双语”时选区是空的（`MarkdownMenus.vue` 里“双语只要光标”，`holdSelection` 对空选区不画），光标又恰好在批注里时，双语卡片与批注卡片会同时锚在同一行。计划没有让批注浮层读 `prompting`（相当于选区菜单的 `suspended`）。
+如何核实：读 `MarkdownSelectionMenu.vue` 对比计划；写一个 `MarkdownControl.dom.test.ts` 用例“批注中间打字，再发 ArrowLeft 的选区事务，断言卡片不出现”，按计划的字面实现会失败。
+建议改法：把规则改成“事件”：每个 `selectionSet` 事务算出光标处的批注集合（按稳定身份），仅当集合里出现了上一次集合里没有的批注、事务未改文档、`!view.composing`、`prompting === null` 时记一次“进入”；卡片随“进入”打开，随“离开所有批注 / 选区不空 / 改文档 / Esc / 换文档”关；Esc 记下被关的批注身份，直到集合不再含它才清除。把这套判断写成纯函数（输入：上一集合、新集合、事务特征），放进 `nb-markdown` 并单测，浮层只订阅结果。
+
+### 4. 页边里的卡片没有 AnchoredPopover 的“按下不夺焦”保护：点页边会误取消正在写的意见，或把焦点带出编辑器（重要）
+位置：plan 3.3/3.4（页边用 `Teleport` 到 `scroller` 的普通绝对定位列，不用浮层库）；`packages/nb-ui/src/components/popup/AnchoredPopover.vue:67-71`（`onMousedown`）；`MarkdownControl.vue:403-409`（`onBlur`）；`MarkdownTextPrompt.vue:26-31`（`onFocusOut`）。
+现象：浮层的卡片被 `AnchoredPopover` 包着，它对浮层里一切非输入控件的 mousedown 做 `preventDefault`，所以点按钮、点卡片空白都不会把焦点从编辑器或输入框上拿走（所以我撤回了“浮层里点空白会误取消”的担心）。页边的卡片不在 `AnchoredPopover` 里，同一张 `MarkdownCommentCard.vue` 放进去后：
+ 1. “看”状态下点编辑、删除、上一条、下一条或卡片空白，mousedown 默认行为把焦点移到 body：编辑器 blur，`onBlur` 里 `commitNow()`、`rememberCursor()`、`emit("focus", false)`、`emit("leave")`（自动保存的“离开视图”）全跑一遍，点一下摘要就触发一次保存，工作台还以为编辑器失焦；`gotoComment` 挪动光标后若不 `focus()`，光标不可见、键盘无处可去。
+ 2. “写”状态下 mousedown 点到卡片自己的空白：textarea 失焦，`relatedTarget` 为空，按“焦点离开卡片就 cancel”（照 `MarkdownTextPrompt.vue:26-31` 的 `!box.contains(relatedTarget)`）会取消并丢掉没保存的字。多行卡片比注音那一行卡片大得多，点到空白的机会高得多。macOS Safari 上按钮点击本来就不取得焦点，`relatedTarget` 也为空，点“保存”会先 cancel 再 click，保存失效（注音卡片的确认按钮在 Safari 上有同样的潜在问题，但那是已有代码）。
+ 3. 页边里 textarea 有焦点时按 Ctrl+Alt+M：keydown 冒泡到 scroller 上的监听（plan 3.2 在滚动容器上监听 keydown，页边卡片在 scroller 内），再次触发“打开写”，把正在写的字重置成预填。浮层里没有这个问题，因为它传送到 body。
+为什么是问题：计划把“浮层与页边共用一张卡片”当作主要复用点，Spec 实现合同也写“两处的区别只在摆在哪里”，但焦点与事件行为恰恰依赖外壳。
+如何核实：读 `AnchoredPopover.vue:67-71`；在 Lab 里把卡片放进非 `AnchoredPopover` 的容器，写状态下点卡片空白。
+建议改法：把“mousedown 在非输入控件上 preventDefault”“mousedown 发生在卡片内时焦点离开不算离开”放进 `MarkdownCommentCard.vue`，浮层与页边共用；Ctrl+Alt+M 的监听只处理目标在编辑器 DOM 内的事件；`gotoComment` 与摘要的点击明写调用 `editor.view.focus()`。
+
+### 5. Ctrl+Alt+M 在 `MarkdownMenus` 里自己监听 keydown 是绕路：修饰键没写、AltGr 会吞字、与其它快捷键的做法与测试都分叉（建议；其中 AltGr 一条偏重要）
+位置：plan 3.2 第 3 条（“不是 Tiptap 快捷键……按 `event.code === "KeyM"` 判断”）、第 8 节风险；`packages/nb-markdown/src/editor/editing-actions.dom.test.ts:154-172`（其它快捷键的核对方式）。
+现象：
+ 1. 计划只写了 `event.code === "KeyM"`，没写修饰键判断。Spec 写的是 Ctrl+Alt+M，macOS 上 ⌘⌥M，即 `Mod`：要写成“mac 上 metaKey、其它平台 ctrlKey，且 altKey，且不带 shift”。如果只检查 `ctrlKey && altKey`，Windows 上 AltGr 被报告为 Ctrl+Alt，在 AltGr+M 打出字符的布局上（例如德语布局 AltGr+M 是 µ）会把用户打字吞掉并弹出批注卡片；`event.code` 只表示物理键位，对这种情形无防护。需要 `!event.getModifierState("AltGraph")`。其它 `Mod-Alt-0..3`、`Mod-Alt-c` 是 Tiptap 的 `prosemirror-keymap` 处理，计划选用 `event.code` 绕开了它已有的修饰键归一，却没有补回这部分。
+ 2. 监听挂在 `scroller` 上，页边的卡片也在 `scroller` 内（第 4 条第 3 点），textarea 里按键会冒泡进来；浮层里不会（传送到 body）。
+ 3. 光标不在批注里、选区也空时“不响应”：计划没写要不要 `preventDefault`。不阻止的话 Ctrl+Alt+M 会继续交给浏览器或系统（Linux 桌面、Windows 的输入法热键有不少占用 Ctrl+Alt 组合）；阻止的话又吞掉了别处可能要用的组合。要写明。
+ 4. 命令表里 `nbook.edit.comment` 在 `EDITING_ACTIONS` 里有 `keybinding: "Mod+Alt+M"` 用于显示（菜单里的快捷键文字），而现有的快捷键都有“键位真的管用”的 dom 测试逐个核对（`editing-actions.dom.test.ts:154-172`，是手写列表，不会自动覆盖新增项）。计划没有为这个键位写对应的测试，靠肉眼。
+为什么是问题：`event.code` 分支在 happy-dom 里测不了真实键盘布局；一个绕开 ProseMirror keymap 的单点监听，是后面所有平台问题的入口。
+建议改法（上游选择）：在 `nb-markdown` 里加一个很小的 Tiptap 扩展，用 `addKeyboardShortcuts` 注册 `Mod-Alt-m`，处理函数调用扩展选项里的 `onComment()`（由 `MarkdownControl` 传入，转给 `MarkdownMenus.prompt("comment")` 或“改意见”），返回 true/false 决定是否消费。这样与同类键位同一条路径（`prosemirror-keymap` 的修饰键与 macOS Option 归一，事件只来自编辑器 DOM，不会冒泡到页边卡片），测试方式也与已有的一致（对 `handleKeyDown` 发事件，已有写法）。若坚持保留 DOM 监听，至少补上 `AltGraph`、`Mod` 映射、`target` 判断与 `isComposing`（组字中的 keydown `key` 是 `Process`，`code` 仍是 KeyM），并列出这几条的单元测试。
+
+### 6. “批注 N”徽标：画的位置写错了文件，按钮预算按固定 26px 算，带数字的按钮会挤掉标签条的保底宽度；还漏了接入活动句柄（重要）
+位置：plan 3.4 末句（“`ui/menus/title-actions.ts` 的 `TitleActionEntry` 加可选 `badge`，`EditorGroupHead.vue` 画在图标之后”）；`packages/neuro-book/src/ui/menus/TitleActions.vue:55-78`、`packages/neuro-book/src/ui/menus/title-actions.ts:37-48`（`BUTTON_PX = 24`、`GAP_PX = 2`、`buttonBudget`）、`packages/neuro-book/src/plugins/editor/web/components/EditorGroupHead.vue:9,134,175`、`packages/neuro-book/src/plugins/editor/web/title-actions.ts:62-68,76-79`（`createEditorTitleActions` 的 `area` 选项只有 `Pick<EditorArea, "groups">`）；Spec `editor.md` 输出 34、58。
+现象：
+ 1. 按钮是 `ui/menus/TitleActions.vue` 画的（一排 24px 的 `IconButton`），`EditorGroupHead.vue` 只是引用它；这个组件还被工作台的视图标题共用（`WorkbenchShell.vue:187`）。徽标要改的是 `TitleActions.vue` 与它的同名 `.md`、`TitleActionEntry`，不是 `EditorGroupHead.vue`。计划里写错了落点，实现者要么改了不画按钮的文件，要么改共享组件却没有按“共享”去评估对视图标题的影响与测试（计划 S4 只列了 `title-actions.test.ts` 与 `EditorGroupHead.dom.test.ts`，没有 `TitleActions` 自己的 dom 测试与视图标题那边的）。
+ 2. `buttonBudget(width, reserved, max)` 假定每个按钮是 24px 加 2px 间距（26px）。“批注 12”之类带数字的按钮更宽（图标加一到三位数字，十几到二十几 px），预算按个数算就会少算：`EditorGroupHead.vue:134` 先给标签条留 `EDITOR_TITLE_TAB_RESERVE`（104px），按钮挤占的宽度比预算多出这几十个 px，标签条的“至少一个截断标签（96px）”保底被吃掉（Spec 输出 34 的硬要求）。数字位数变化（9 到 10，99 到 100）还会让标题行宽度跳动，触发 `ResizeObserver` 回环的可能（预算变少、按钮收进“⋯”，宽度又变了），虽然不会无限（个数是整数），但会闪。
+ 3. `createEditorTitleActions` 的 `area` 参数类型是 `Pick<EditorArea, "groups">`，拿不到 `activeHandle`，所以 `badge` 读 `comments.count`、`whenHidden` 判断“活动控件有没有 `comments`”都需要扩这个依赖（`EditorArea.activeHandle` 存在，`area.ts:128`）；计划只写“按控件句柄的 `comments` 出现”，没写怎么传。`whenHidden` 现在是读命令的 `isEnabled`（`title-actions.ts:83-84`），而命令的 `when` 读的是公开键 `hasComments`，两条路径各自从 `activeHandle` 取，要保证同一份响应式依赖，否则按钮出现与徽标数字可能差一拍（公开键是批量更新的）。
+ 4. 输出 58：编辑区标题只在悬停或焦点在组里时可见，其余时候透明。批注数这个用户最想“扫一眼”的信息默认不可见；这不是缺陷，但验收 15 的“‘批注 N’仍是按下的”在 e2e 里要先悬停再断言，不然读到 opacity 0 的按钮。
+如何核实：读上面几处；在 `EditorGroupHead.dom.test.ts` 里给 `model` 放一个 `badge: 128` 的条目，窄宽度（`stripWidth` 约 300）下读标签条宽度与 `TitleActions` 宽度。
+建议改法：（1）改计划的落点为 `TitleActions.vue`（及同名 `.md`、视图标题的现有测试）；（2）宽度：徽标用固定宽度的小圆点数字（最多显示“99+”，等宽 tabular-nums），并让 `buttonBudget` 的每个按钮宽度由条目给出（`TitleActionEntry.width?`），或者把带徽标的按钮固定按 `BUTTON_PX + 徽标宽` 算；（3）`createEditorTitleActions` 的 `area` 加上 `activeHandle`，并在 plan 里写出 `whenHidden` 与 `badge` 读同一个 computed。
+
+### 7. 页边开关“写作品层”：接口能做到，但落点是进 Git 的共享配置文件，该由开发者再确认；失败回落与“跟随用户层”没写（建议；上游选择）
+位置：plan 2 表“开关的存放”、3.4“写作品层，没有作品时写用户层，实施前先核对 `settings.update` 能不能指定层”；`packages/neuro-book/src/plugins/settings/shared/instance.ts:250-262`、`packages/neuro-book/src/shared/settings.ts:417`（`SettingUpdateOptions.layer`）；`docs/specs/settings/configuration.md` 第 30、78、124、139、203、215 行；`docs/specs/storage/persistence.md` 第 15、139 行；`packages/neuro-book/src/plugins/editor/web/plugin.ts:358`（`toggleToolbar` 现在是不带 layer 的 `settings.update`）。
+对“实施前先核对”这一条的结论：`settings.update(setting, value, {layer: "project" | "user" | "auto"})` 存在（`instance.ts:250-254`）；缺省 `auto` 是“项目层里已有这个键才写项目层，否则写用户层”（`configuration.md` 输出 12，第 139 行）。所以“写作品层”必须显式传 `layer: "project"`；没有项目层时返回 `{ok:false, code:"no-project"}`（`instance.ts:258`），按这个错误码回落到 `user` 即可，不用在设置服务上补入口。`toggleToolbar` 与 `markdownToolbar` 走的是 `auto`，所以与它“仿”不到作品层这一点，实现者不要照抄。
+需要开发者看的取舍（我没有找到记录这条取舍的 ADR/Spec，只有计划表里一句“另建本地记录：多一套存储”，应当当作没有记录的理由）：
+ 1. 项目层文件是 `<作品目录>/.nbook/settings.json`，Spec 明说“项目层文件可以进 Git（与 `.vscode/settings.json` 相同）”（第 124 行），作者规则又说“项目层文件可能来自别人的仓库”（第 78 行）。第一次点“批注 N”就会在作者的作品目录里创建或改一个可能被提交、被协作者看到的文件，用来记“我自己此刻想不想看页边”这种个人显示偏好。第二个人打开同一作品，页边就是开着的。
+ 2. “程序替用户记住的东西（布局尺寸、展开的目录）”是 Storage 的职责（`persistence.md` 第 15 行），它的 project 分区也按作品记（`.nbook/storage.sqlite`，项目放进 Git 时要求忽略它，第 139 行）。编辑器现有的会话记录（打开的标签、光标）已经按作品放在那里。计划否决 Storage 的理由是“设置窗口、命令面板、公开键都要另接”：命令与公开键不论哪种存法都要接（`toggle-comment-margin`、`commentMargin`），设置窗口里放不放这一项是产品选择，Spec 现在写了“在设置窗口‘编辑器’分区”。
+ 3. 项目层一旦有了值，用户层的值就被盖住（项目层 > 用户层）：以后用户想在设置窗口里全局关掉页边，作品里那个值仍然是开着，要到“项目”标签里逐个作品去清。
+ 4. 并发：两个窗口开着同一个作品时，`!settings.get()` 是读后写，没有 `expect`；两个窗口同时点是后写者赢，没有数据损坏，不用处理。
+建议：把“作品层设置”与“按作品记在 Storage 的本机记录”两个方案连同以上第 1、3 点的代价交给开发者定，不要默认走项目层；若保留项目层，Spec 输出 33 要写明“第一次切换会在作品目录的 `.nbook/settings.json` 里留下这一项”，并写 `no-project` 回落，以及 `commands.execute` 在 `write-failed`、`conflict` 时的通知。
+
+### 8. 页边的版面：“左移页边宽”的数字自相矛盾，场景图与工具栏中轴没处理，按滚动容器量宽会在阈值附近来回闪，折叠的提示块里的批注算不出位置（重要）
+位置：plan 3.4 第 2、3 条（`margin-inline` 把版心“整体左移页边宽（约 270px 加间隙）”、阈值“约 1000px”）、3.5；`MarkdownControl.vue:486-550`（`--markdown-measure: 720px`、`.markdown-control { max-width; margin-inline: auto }`、`.markdown-control__margin` 两侧场景图宽 `calc((100% - 720px)/2)`、`@container (max-width: 959px)` 才隐藏场景图）；Spec `markdown-editing.md` 输出 2（工具栏按钮居中、与版心同一条中轴）、`docs/specs/theme/skins.md` 输出 5（正文底下始终是干净的面）；`packages/nb-markdown/src/language/syntax/callout/index.ts:86-110`（折叠的提示块）。
+现象：
+ 1. 数字：版心 720px 在宽 W 的容器里居中，左边缘是 (W−720)/2。若“整体左移 270px”按字面做，W=1000（计划的阈值）时左边缘是 −130px，正文被裁掉一截，要到 W=1260 才不裁；若只让出一半（135px，让“稿纸加页边”整体居中），W=990 才刚好放下，阈值 1000 才成立。计划写的是“左移页边宽”和“约 1000px”，两者不能同时成立；而且 `margin-inline: auto` 与固定偏移不能直接相加，实现者要换写法。建议用“滚动内容区右内边距 D”（`padding-inline-end: D`，auto 外边距自然把版心居中在剩下的 W−D 里，左移 D/2），页边列绝对定位在版心右边缘外（取 `root.getBoundingClientRect().right`），阈值 = 720 + D（+间隙），写成同一个常量并在 `MarkdownControl.md` 与 Spec 里用同一个数。
+ 2. 场景图：两侧场景图的宽度按“居中的 720px 版心”算，W=1000 时每侧 140px（≥120 且 ≥960，会画）。版心左移后，左边这 140px 场景图整个压在正文底下，右边的压在页边卡片底下，违反 skins 输出 5“正文底下始终是干净的面”。计划只提到“会不会影响”这个问题（任务单里的问题 4）而 plan 本身没有处理。至少要在页边画出时隐藏两侧场景图（给 `.markdown-control-root` 加属性，场景图的选择器里排除）。
+ 3. 工具栏中轴：输出 2 写“按钮居中、和版心同一条中轴”。工具栏按组居中，版心左移后两者的中轴错开 D/2（约 135px），块按钮（输出 14，按右缘离正文 14px 取位置）随正文走不受影响，但这条输出需要改写成“页边关着时”，或让工具栏跟着偏。计划没列。
+ 4. 阈值判断用“滚动容器的宽”：滚动容器有纵向滚动条，页边卡片是绝对定位，卡片排到文末之后会撑高 `scrollHeight`，使短文档出现滚动条，宽度减一个滚动条宽（约 15px），在阈值附近越过它页边就消失，滚动条随之消失，宽度回来，页边又出现，来回闪。应量 `.markdown-control-root`（已经是 `container-type: inline-size`，宽度与滚动条无关）并加迟滞（出现用 D+40，消失用 D）。
+ 5. 折叠的提示块：提示块带 `-` 折叠标记时内容不画（只在光标进去时展开，`callout/index.ts:86-110`）。里面的批注文字没有盒子，`view.coordsAtPos` 取到的是空矩形（浏览器里 `getClientRects()` 为空时 ProseMirror 退回 `getBoundingClientRect()`，对 `display:none` 是全 0，从代码推断，未实测），换算后卡片 `top` 在滚动容器顶部，会堆在文章最上面。规则要写：被折叠的批注，卡片对着折叠块的标题行（块节点自己的 DOM 顶边）。
+ 6. 位置跟随：计划用 150ms 防抖给计数、列表，又“rAF 合并”给位置。打字换行时下面所有正文立刻下移一行（约 33px），页边卡片要等到停手 150ms 后才跳，边打字边脱节。位置重排只要读已有的批注矩形，应当逐帧（只在页边画出来时）做，防抖只留给 `listComments`。ResizeObserver 观察 `root` 的高度也漏掉一种情形：窗口变宽使两段重新折行、总高度不变（一段多一行、另一段少一行）；`scroller` 宽度变化需要同样观察，字体加载（`document.fonts` 的 `loadingdone`）也不一定改变高度。
+如何核实：算术部分直接看上面几处的数；2 在 Lab 里用有场景图的主题（`data-nb-skin-scene`）把容器宽调到 1000px 就能看到；5 在 Playwright 里造一个 `> [!NOTE]-` 折叠提示块里有批注的文档。
+建议改法：见各点；并在 S4 的“页边组件测试”之外，加一个 Playwright 用例：宽 1000、999、1001 与带滚动条/不带滚动条各一次，核对页边不闪、正文不被裁。
+
+### 9. 150ms 防抖加缓存的 `listComments` 是不必要的优化，并且正是它造成“卡片上的序号对着旧文档”的窗口（重要）
+位置：plan 3.5、3.3“数据：每次事务后……重算（防抖）”、3.1 的 `commentsAt(state): CommentInfo[]`（带 `index`）；Spec 输出 31。
+现象：我按计划的口径测了一次全文扫描：用真实 Tiptap 读入 200 条行内批注、5 万字的文档（`/tmp/t13-review-design/exp/b.dom.test.mjs`），`doc.descendants` 收集所有 `comment` 标记按 `key` 分组再排序，平均 0.095 毫秒（50 次，happy-dom 下纯 CPU 部分）。计划的预算是 5 毫秒，差约 50 倍。真正贵的是页边的布局（200 次 `coordsAtPos`、卡片高度、绝对定位写回），不是数据扫描。
+为什么是问题：
+ 1. 为 0.1ms 的操作加防抖与“光标移动只重新选当前那一条”的缓存，引入了两份状态：`commentsAt(state)` 里的 `index` 要靠整份列表的次序算出来，如果用缓存的列表，打字之后的 150ms 内缓存的位置没有映射，光标移动会选错批注、给出错的“第 i 条，共 n 条”；标签条上的数字也要晚 150ms。第 1 条的窗口期有一部分就来自这里。
+ 2. 计划把这个防抖写成“同提交延迟”的 150ms，但提交延迟的 150ms 是为了合并写文件，与 UI 重算无关。
+如何核实：运行上面的文件（`cd packages/nb-markdown && bunx vitest run --config /tmp/t13-review-design/exp/vitest.config.mjs b.dom.test.mjs --reporter=verbose`）。
+建议改法：数据（`listComments`、`commentsAt`、计数）每个事务同步算，不缓存、不防抖；只有页边的布局（读 `coordsAtPos`、量卡片高度）用 rAF 合并。S4 的性能测量改成测页边布局的总耗时（200 张卡片、五万字，要在真实浏览器里测，happy-dom 没有布局），预算按帧（16ms）里布局占的比例写；计划里“每次重算 5 毫秒内”那一句删掉。
+
+### 10. `comment-edit`、`comment-remove` 做成带 `index` 的公开命令，把不稳定的序号冻进“字段只追加”的公开接口（建议；上游选择）
+位置：plan 3.2 第 1 条、Spec 命令表第 58-59 行、71 行、“边界与兼容”第 167 行（“公开接口：命令 id、公开键……字段只追加”）、`packages/neuro-book/src/plugins/editor/web/editing-commands.ts:41-50`（`ACTIONS` 遍历 `EDITING_ACTIONS` 为每个动作生成命令声明）。
+现象：`EDITING_ACTIONS` 里的每一项都被生成成工作台命令（`effect: "write"`），命令一经登记就是公开接口，贡献菜单项可以引用它并带静态参数（输出 25：菜单项只能引用命令）。`comment-edit {index, text}`、`comment-remove {index}` 的 `index` 只对“某一刻、某份文档”有意义（Spec 自己写“不是稳定的标识”），不应当成为别的插件可以调用的命令参数。这两个动作只是卡片内部要用，`menus.run(...)` 走的是控件句柄的 `editing.run`，不经过命令服务。Spec 目标里的“每个编辑动作都是工作台命令，命令面板找得到”对它们没有价值（带参数的命令本来就不进命令面板）。
+为什么是问题：一旦发布，后面想换成稳定标识（第 1 条的修法）要么保留 `index` 的语义兼容，要么破坏公开接口；序号语义又让命令的 `unavailable` 变得只对一半情形成立（第 1 条）。
+建议改法：只有 `comment`（加批注，`{text}`，对应选区）进命令目录；改与删作为控件内部的编辑动作放在 `markdownEditingActions` 里，不进 `EDITING_ACTIONS`、不生成命令（需要在 `editing-commands.ts` 与 `EditorEditing` 的类型上区分“目录动作”与“内部动作”，或在 `ACTIONS` 上加一个 `command: false` 标记）；Spec 命令表里相应删掉两行与 71 行的说明，并用同一个身份校验（第 1 条）。这也让 plan 3.2 的“参数表加两种形状”不再需要。
+
+### 11. 写意见时“焦点离开卡片就放弃”，窗口失焦（Alt+Tab、点开发者工具、点别的应用）也会丢掉整段多行意见（重要）
+位置：plan 3.3 `MarkdownCommentCard` 第 51 行（“焦点离开卡片发 `cancel`（照 `MarkdownTextPrompt.vue`）”）；Spec 输出 29“写”、`pending-confirmations.md` 第 23 行（只把“多行意见丢字”记成代价，没有区分窗口失焦）；`MarkdownTextPrompt.vue:26-31`（`onFocusOut`）。
+现象：浏览器在窗口失去焦点时会给当前焦点元素（textarea）派发 `blur` 与 `focusout`，`relatedTarget` 为 null。照 `MarkdownTextPrompt.vue` 的 `!box.contains(event.relatedTarget)` 判断，这等于“焦点离开卡片”，卡片收起、没保存的字丢掉。注音卡片是一行几个字的输入，这个代价可以忍；批注意见是多行文字，写作时切去查资料、看别的窗口再回来是最常见的动作，回来就是一张空卡片，几百字没了，也没有撤销。
+为什么是问题：不是“与注音卡片一致”就合理：注音卡片的内容量与丢失代价小两个数量级。待确认清单里把“丢字”当成已知代价，但只考虑了点到正文上，没有考虑窗口失焦这条最常见的路径。
+如何核实：在 Lab 的卡片场景里打开“写”，打几个字，再用 Playwright 的 `page.evaluate(() => window.dispatchEvent(new Event("blur")))` 不够（不派发元素 `focusout`）；需要真实窗口失焦：在有头 Chromium 里 `page.bringToFront` 另一个页面后回来，观察卡片是否还在。或读代码推断即可。
+建议改法：判断“真的离开”时加一个条件：`event.relatedTarget === null && !document.hasFocus()` 视为窗口失焦，不收起，窗口回来仍然保留文字与焦点；只有焦点移到卡片外的另一个元素（`relatedTarget` 非空且不在卡片内），或在卡片外 mousedown 时才收起。更稳的做法是待确认清单里列的第二方案：草稿存在控件里按文档+批注身份保存，换文档时清；失焦只收起卡片，下次打开同一条时恢复草稿。至少要选一个，不要默认“与注音卡片一致”。
+
+### 12. 上一条、下一条与“当前一条”在紧挨、同起点的批注上原地不动，页边的“当前一条展开”是单数而 `commentsAt` 是复数（重要）
+位置：plan 3.1 `commentsAt`、`gotoComment`（“光标到开头”）、3.4 第 62 行（“当前一条 `mode="view"` 展开，其余 `compact`”）；Spec 输出 30（含紧挨两端）、31、33、验收 13。
+现象（推演，未跑；`commentsAt` 的语义取自计划原文）：
+ 1. 两条紧挨的批注 B 覆盖 [5,10]、C 覆盖 [10,15]（连着写的两句分别批注，很常见）。光标在位置 10 时 `commentsAt` 因“含紧挨两端”返回 B 与 C 两条；点 B 的“下一条”要把光标放到 C 的开头，也就是位置 10，光标没有动，选区事务不产生，卡片什么都没变，按钮看起来是坏的。同理，两条同起点的重叠批注 A、B（`excludes: ""` 允许）互为“下一条”时光标位置相同。
+ 2. 光标从 B 里走到 C 开头，页边“光标所在那条展开”得到两条，计划写的是“当前一条”单数，没有说两条一起展开，还是排在前面的一条；点页边里 C 的摘要（`gotoComment(C)`）把光标放到位置 10，页边重算后 B 与 C 并列，“点了哪条就展开哪条”做不到。
+ 3. 块批注与它第一段里的行内批注：块批注的“起点”在 Spec 输出 31 里没有定义是块节点的开启位置还是“块里第一个文字处”（`gotoComment` 用的是后者）。若排序用前者、跳转用后者，外层块批注与它里面第一个字上的行内批注的起点相同，又落进第 1 点。
+为什么是问题：用光标位置反推“当前是哪条”，信息是有损的；上一条、下一条是按批注身份走的，却把结果交给光标去表达。
+如何核实：`comments.dom.test.ts` 里造这三种文档，断言 `gotoComment(editor, 1)` 之后“当前批注”是第 1 条（而不是仅仅 `commentsAt` 包含它）。
+建议改法：把“当前批注”作为 Layer 自己的状态（身份），由 `gotoComment`、点摘要、光标进入（取 `commentsAt` 里排在最前的）写入；卡片与页边展开读这个状态，不从光标反推。`gotoComment` 对起点相同的情形不依赖光标变化：直接更新“当前批注”并重新标出（输出 32 的装饰）。Spec 输出 31 里写清块批注的起点定义（建议与 `gotoComment` 一致：第一个文字处）。浮层里并排多条时，每条卡片的“上一条、下一条”都可用，不置灰。
+
+### 13. “卡片外观不变地原地编辑”依赖 nb-ui 里不存在的能力，长意见没有高度上限（重要）
+位置：plan 2 表“卡片里的字”、3.3 第 51 行、第 7 节“很长的批注只看了排版，不测滚动”；`packages/nb-ui/src/components/form/Textarea.vue:41-59`、`Textarea.md:11`；对比 `Input.vue:10-11,68-74`（`variant="bare"`）；Spec 输出 29、开发者决定 5（“卡片外观不变，没有输入框的边框与灰底”）。
+对“实施前先核对：nb-ui 有没有多行的 `Textarea` 且支持 bare”的结论：`Textarea` 存在，但没有 `variant`（`bare`），根元素写死了 `nb-ui-control`、边框、`bg-[var(--control-surface)]`、`px-3 py-2`、`resize-y`，也没有按内容自动长高（`rows` 固定，默认 4）。要在不改外观的前提下原地编辑，至少需要补：（a）`bare` 变体（去外框、灰底、内边距、拖拽把手）；（b）自动高度：“看”状态是一段 `white-space: pre-wrap` 的文字，“写”状态若是固定 4 行的 textarea，卡片高度在两种状态切换时一定会跳（短意见变高、长意见变矮并出滚动条），“卡片的样子不变”做不到；纯 CSS 的 `field-sizing: content` 不是所有目标浏览器都有（计划没有列目标浏览器），要用镜像节点或 `scrollHeight` 回写；（c）字体、字号、行距与“看”状态一致，否则点“编辑”文字会重排。这三点都在 nb-ui 里，要改同名 `.md` 与 Lab 场景，计划已提到改 `.md`，但工作量低估为“照 `Input` 加”。
+长意见：Spec 没有规定卡片的最大高度。几百字的意见在浮层里会比可用空间高（`AnchoredPopover` 有 `avoid-collisions` 但没有 max-height，翻面也放不下），在页边里“展开的卡片”会把后面所有卡片往下推几百 px。计划把它写进了“未验证”，但这是会直接影响版面设计的规则（要不要内部滚动、摘要之外的展开卡片上限），不是测试范围问题。建议在 Spec 输出 29 加一句：浮层与页边的“看”卡片意见区最高约 12 行，超出内部滚动；“写”状态同样，textarea 自动长高到上限后滚动。
+如何核实：读 `Textarea.vue`；在 Lab 里用 `Textarea` 放一张卡片对比“看”与“写”的高度。
+建议改法：见上。
+
+### 14. 其余较小的问题（建议；逐条给一句改法）
+ 1. `comment` 动作的 `run` 在没有改文档时仍返回 true：我在真实 Tiptap 上实验（`/tmp/t13-review-design/exp/d.dom.test.mjs`）：选区在代码块里，`editor.can().addComment("x")` 为 true，`editor.commands.addComment("x")` 返回 true，但文档没有变化（`addMark` 对不允许批注标记的节点静默跳过）。计划已经决定不用 `can()`，是对的；但 `run` 也要按“文档是否真的变了”返回（`dispatch` 前后比较 `tr.docChanged`），否则卡片会“保存成功”关闭而什么也没加（例如选区跨了空白段落与代码块）。
+ 2. 只读切换：`MarkdownMenus.vue` 里 `watch([binding, readonly])` 会清掉注音卡片；批注浮层与页边的“写”状态也要同样处理（文件被外部删除变只读时），否则保存走 `editing.run` 返回 false，卡片关闭，字丢了且没有提示。
+ 3. 右键菜单：`MarkdownContextMenu.vue` 里右键点在批注文字上会把光标移到点击处，pointerup 之后批注浮层与右键菜单会同时出现在同一处，需要让批注浮层在右键菜单打开期间 suspended（与第 3 条第 5 点同一个机制）。
+ 4. 焦点归还：注音卡片的 `cancel` 会 `editor.commands.focus()`（`MarkdownMenus.vue:96-99`），`submit` 靠动作里的 `chain().focus()`。计划没写批注卡片取消、保存、删除、点摘要后焦点回哪里；“写”状态里的 textarea 在保存后被“看”状态的 DOM 替换，焦点会掉到 body（键盘无处可去）。每个出口都要回到编辑器。
+ 5. `own:comment-margin` 要有“按下态”：现在 `OWN` 里的条目只有 `command/icon/menu/whenHidden`，`title-actions.ts:69-90` 构造 entry 时没有 `pressed`；计划写了“`pressed` 读设置”但没写怎么读（`options.state.read("nbook.editor/commentMargin")`，与贡献项的 `isOn` 一致）。
+ 6. “页边画得出来吗”的判断需要有唯一的拥有者：浮层要读它（画得出就不弹），页边组件、`MarkdownControl`（给版心加属性）与场景图都要读它。计划里宽度判断在 `MarkdownCommentMargin.vue`，浮层在 `MarkdownCommentLayer.vue`，属性在 `MarkdownControl.vue`，依赖方向没写；ResizeObserver 回调有一帧延迟，拆分瞬间可能浮层与页边同时出现或同时没有。建议由 `MarkdownControl` 量宽并算出一个 `computed`，下传给两个组件。
+ 7. 键盘删除：待确认清单第 23 行说“键盘删除要加一个带序号的命令入口”。不需要序号：像 `ruby-remove` 那样做一个“去掉光标处的批注”（不带参数、进命令面板，重叠时去排在最前的一条或全部），键盘用户就有了删除入口，也不产生序号命令（见第 10 条）。当前 Spec 下键盘用户没有任何办法删一条批注（保存空意见是取消，清除格式不动批注，输出 8）。
+ 8. 撤销分组（低风险）：ProseMirror 的 history 默认把 500ms 内连续的事务并成一组。保存批注后紧接着继续打字（500ms 内）会与这次批注并进同一个撤销步，Ctrl+Z 一次撤掉批注加字。发生的机会不大，保存事务后 `closeHistory(tr)` 一行就能避免，S1 的撤销用例里加一步“保存后立刻打字再撤销”。
+ 9. 块批注里改意见后，写回会改变块以外的字节：我用 `setNodeMarkup` 改了列表项里块批注的 `body`，写回得到的文本在 `</comment>` 与下一项 `- 丁` 之间多了一个空行（列表变宽松，`/tmp/t13-review-design/exp/c.dom.test.mjs` 的 list 用例）。这是列表这一块被整块重写（符合输出 19：被编辑的块可以重写，没被编辑的块字节不变），不算违规，但“改一处意见，diff 里出现一个空行”会让写作者意外，S1 的读回用例要把“列表里的块批注”放进去并把这个写法写成已知行为。
+
+### 15. 验收映射：哪些判据能写成真实测试，哪些计划写成了测试但其实测不出，以及页边里“新批注的写卡片”没有设计（重要）
+位置：plan 第 6 节、第 5 节 S3、S4、S5；Spec 验收 11–16。
+逐条判断（“能”指在真实浏览器里能自动化）：
+ - 验收 11 的 Ctrl+Alt+M、保存、重开、撤销：能。Playwright `keyboard.press("Control+Alt+KeyM")` 在 Linux Chromium 可行；macOS 的 ⌘⌥M 只能在单元测试里按平台参数测键位映射，真实键盘靠人（CI 在 Linux）。
+ - 验收 13 的“在批注末尾打字卡片不出现”：用 `keyboard.type` 能测，但那不经输入法。计划把“输入法”只放进 `MarkdownCommentCard.dom.test.ts` 与 `MarkdownControl.dom.test.ts`（happy-dom 里发一个 `isComposing` 的 KeyboardEvent），测的是 `event.isComposing` 分支而不是真实组字时序；组字中的卡片弹出（第 3 条第 4 点）与组字中 Enter、Esc 在 Safari 的差异要用 CDP `Input.imeSetComposition`，计划没有。这一条实际是“靠肉眼”。
+ - 验收 13 的“打字后按方向键不弹”：计划里没有这个用例（也是第 3 条要补的）。
+ - 验收 15 的“稿纸左移、顶边与批注第一行对齐、卡片不互相盖住”：能，用 `getBoundingClientRect` 比较，但计划没有写容差（建议顶边差 ≤2px，注音行内块 `padding-top: 3px` 会带来 3px 以内的偏差）；“拆成两栏页边消失”与“重开作品开关仍开”能（要先悬停标题行，见第 6 条）；阈值边界（宽 999、1000、1001，有无滚动条）要加，第 8 条。
+ - 验收 12 的“清空保存意见保持”“光标移出卡片收起”“删除后字还在”：能。验收 14 的分截两段、块批注：能；嵌套在列表、引用、表格里、折叠提示块、同范围重叠（第 2 条）这几种计划没有，应加进 S1/S5。
+ - 输出 32“装饰不进撤销历史、不写进文件”：`comments.dom.test.ts` 能测，按 `undoDepth` 与写出文本断言（`held-selection.dom.test.ts` 已有写法）。
+ - 外部重载与同一文档拆成两组：计划只写“重载就收起”，没有任何测试；用 `binding.revision` 推进可以在 `MarkdownControl.dom.test.ts` 里做（第 1 条的核心用例：卡片开着，外部在前面插入一条批注，点保存，不应改到别的批注）。
+ - 窗口失焦丢字（第 11 条）：自动化困难（需要真实窗口切换），列为手动验证项并写进计划第 7 节。
+ - 变异检查那一段（第 6 节末）只列了三个变异；建议加：“`removeMark` 改成按类型”“`setCommentBody` 改成不保留标记顺序”“去掉 `docChanged` 判断后外部重载”，对应用例应失败。
+页边里“新批注的写卡片”没有设计：Spec 输出 33 写“加批注的‘写’卡片也出现在页边里，顶边对着选区所在的行”。页边的列表来自 `listComments`，新批注还不在文档里，它没有序号、没有 `key`；它要插进已排好的卡片之间并参与“靠得太近往下让”，取消时消失，保存时变成列表里的一项（顺序可能因它的起点而插在中间，后面卡片全部下移）。计划 3.4 没提这张卡片的位置来源（选区起点？终点？多行选区时“选区所在的行”是哪一行），也没提它与浮层模式下 `AnchoredPopover` 的锚点怎么共用（3.3 写“光标所在行（posToDOMRect）”，选区非空时光标在选区终点，Spec 输出 28 写“选区下方”，注音卡片用的是整个选区的矩形 `selectionAnchor`）。
+建议：在 3.4 加一小节“待写的新批注”：页边列表 = `listComments` 加一个可选的 pending 项（位置取选区起点所在行，按起点插入顺序），浮层锚点用选区终点所在行（与 Spec 输出 28 的“下方”一致）。
+
+### 16. 对计划里“实施前先核对”几处的一句话判断
+ 1. `settings.update` 能不能指定层：能（`{layer: "project"}`），没有作品时返回 `no-project`，据此回落用户层，不用改设置服务（见第 7 条）。
+ 2. nb-ui 有没有多行 `Textarea` 且支持 bare：有 `Textarea`，没有 `bare`，也没有自动长高（见第 13 条）。
+ 3. “`addComment` 内部判断与 `can()` 试跑不同，写测试核对两者一致”：不一致，且这个不一致是产品里确实会碰到的（代码块里 `can()` 为 true 但不改文档，见第 14 条第 1 点）；方向对，但判据要写成“`enabled` 与 `run` 是否真的改了文档一致”。
+ 4. “依赖草稿自己的数据与引擎，按重写估”：同意。
+ 5. 对 `editor.md` 的两处小改：输出 34 里“向右拆分、批注 N、用其它编辑器重新打开”的顺序与现行输出 47（“打开预览”在“向右拆分”之前）不冲突，但“按钮至多 4 个”下，Markdown 文档上自己占 3 个（打开预览、向右拆分、批注 N），只给贡献项剩 1 个，与现有测试里“向右拆分与贡献按钮”的断言要核对（`title-actions.test.ts`、`EditorGroupHead.dom.test.ts`）。
+
+---
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14、15（16 是对“实施前先核对”的判断，不计入）。撤回：无（第 4 条里撤回了“浮层里点空白会误取消”的一个子担心，已在条内写明）。
+
+未发现问题的方面（仔细检查后）：
+ - 块批注、嵌套在引用或列表里的块批注、嵌套的块批注：用真实编解码器实验（`/tmp/t13-review-design/exp/c.dom.test.mjs`），`setNodeMarkup` 改意见与 `replaceWith(pos, pos+size, node.content)` 解开块，写出的文本都对，读回批注数一致；序号按节点开启位置排，外层在内层之前。唯一的副作用是列表里的块批注被改后列表多一个空行（第 14 条第 9 点，属符合输出 19 的行为）。
+ - 分截批注的 `id` 与 `body` 在 `setCommentBody` 里只要各截属性一起改且 `key` 保留，写回编解码器的分组（`groupOf` 以 `id、body、key` 为键）不会把它拆开；风险在标记顺序与按类型删除（第 2 条），不在分组本身。
+ - 加批注时原选区的显示复用 `held-selection`、装饰不进撤销历史：机制成立（`held-selection.ts` 用 `addToHistory:false`、按映射移动）。
+ - 浮层的“点按钮不夺走正文光标”：浮层路径由 `AnchoredPopover.onMousedown` 保证，成立（页边路径不成立，见第 4 条）。
+ - `settings.update` 能指定层、没有作品时有明确的 `no-project`：成立（第 7 条的技术部分）。
+ - 窄组规则里“放不下的按钮收进‘⋯’并回到所在节”本身没被计划破坏；问题只在带数字的按钮宽度（第 6 条）。
+ - 文档不是 Markdown 或控件未就绪时“批注 N”不出现：`activeHandle` 为 null 或没有 `comments` 时按 `whenHidden` 隐藏，成立；就绪后出现会让标题行宽度变化一次，不算缺陷。
+ - 与 Word、Google 文档的快捷键：Ctrl+Alt+M 与它们的“插入批注”同一个键，一致；Spec 刻意不做作者、回复、已解决，不算遗漏。
+
+数量：阻断 1（第 1 条）、重要 10（第 2、3、4、6、8、9、11、12、13、15 条）、建议 4（第 5、7、10、14 条），共 15 条有效发现，另有第 16 条判断。
+需要主 Agent 自己跑的东西：第 8 条的 1000px 阈值（有无滚动条、有场景图的主题）、第 11 条的窗口失焦、第 3 条第 4 点的真实输入法（CDP `Input.imeSetComposition`），都在 Playwright 里，我没有跑 e2e 与开发服务。
+实验文件都在 `/tmp/t13-review-design/exp/`（a、b、c、d、e 五个 `*.dom.test.mjs` 加 `vitest.config.mjs`），没有改动仓库。

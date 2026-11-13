@@ -1,0 +1,106 @@
+w00026 t24 切片 5：命令接上视图容器 —— 交付报告（边做边追加）
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（基于 c9cb5ceb5，未提交）
+
+进度 0（开始）：已读 brief、plan 切片 5、Task README、ADR 0046、Spec workbench-layout（输出 11、13、20、23、35、39 到 43、验收 8、14、31）、commands.md move-view、views.md 输出 14、s2 报告第四节与第六节、s4 报告“留给切片 5”。下一步读 store、命令与菜单代码。
+
+进度 1（读代码）：读过 layout-doc-store.ts、containers.ts、layout-present.ts、view-commands.ts、panel-commands.ts、part-commands.ts、WorkbenchShell.vue 的“移动到”菜单与相关单元测试。方案：
+- store 的 moveView 改成 (viewId, {container} | {newContainerIn})；删掉锚当目标、newPanelNextTo 与过渡规则；resetView 并进 moveView（重置就是 {container: 声明的容器}），菜单与命令面板都经 move-view。
+- moveTargetsOf 改成按容器列：别的容器（三个区域，按入口顺序，标题用 containerLabel）、三个“新容器（区域）”、需要时“重置位置”；菜单与命令面板同一份。
+- newPanelEdgeTarget 只剩旧的“新面板”在用，删掉。
+- setPartHidden 显示空区域：归整后和现在一样就零写入。
+下一步：改 store 与命令，跑单元测试。
+
+== 进度 2：store、命令、菜单与单元测试 ==
+- store：moveView(viewId, {container} | {newContainerIn})；resetView 删除，“重置位置”改为 moveView 到声明的容器；setPartHidden 对没有容器的区域“显示”时结果与现在相同则零写入。
+- 命令：move-view 参数改为 container / newContainerIn，target、newPanelNextTo 删除不留别名；只给一部分或两个目标都给为 invalid-args；视图不存在或目标容器没有成员也没有声明为 stale-target 零写入。
+- 目标表 moveTargetsOf 改为 容器 / 新容器 / 重置；菜单与命令面板共用 moveTargetItem；菜单身份加上所在容器。
+- layout-constraints 的 newPanelEdgeTarget 删除（唯一用户是旧 moveView）。
+- 单元测试改写：layout-doc-store、view-commands、panel-commands、layout-present、layout-constraints、default-tree、locales。
+- 验证：vue-tsc web、browser-test 均无错误；bun test src/plugins/workbench src/plugins/lab 563 pass 0 fail。
+
+== 进度 3：第 7、8 条与 e2e 改写（进行中） ==
+- 第 7 条：layout-doc-store.test.ts 新增“浮动一个分节：成为只有它一个标签的窗，不再属于容器；回到停靠时回声明的容器，排在已有的分节后面”。
+- 第 8 条：workbench-containers.e2e.ts 新增“打开视图命令：切到视图所在的容器；区域拖到零或隐藏着时同一次写入展开”。
+- e2e 改写：workbench-dnd（836）、workbench-shell（sessionsToPanel 改“新容器（底部面板）”）、editor-area（1086 改“新容器（底部面板）”）、workbench-containers（第一条用例改“样例甲”）；workbench-views 的改写脚本已备好，等基线跑完再应用。
+- WorkbenchShell.md 的“移动到”描述已更新。
+- governance:check 0 失败 0 警告；git diff --check 通过。
+- 下一步：看 workbench-views 基线失败表，应用改写、处理 860（主题颜色），重建后跑 e2e。
+
+== 进度 4：协调者补充的两段 dnd 尾段已恢复；第一轮 e2e（5 个文件）在跑 ==
+- workbench-dnd.e2e.ts “隐藏的区域不是落点……”：尾段恢复为右键戊“移动到”→“样例丁”，右栏显示、戊在丁之后、记录里右栏不再隐藏（验收 8，输出 23）。
+- workbench-dnd.e2e.ts “同方向一起分”：尾段恢复为 dropSplit=shared 下戊“移动到”→“样例甲”，甲、乙两节高度不变，丙（相邻的最后一节）变矮，戊排在丙后面（输出 23“不跟设置 dropSplit 走”）。
+- workbench-views.e2e.ts 改写已应用（457、501、579、623、675、716、774、797、860）。
+- vue-tsc browser-test 通过。
+
+== 最终报告 ==
+
+一、改动文件（都在 packages/neuro-book/ 下，没有新文件，nb-layout 未改，切片 4 的拖动代码未改）
+产品代码：
+- src/plugins/workbench/web/state/layout-doc-store.ts：moveView(viewId, {container}|{newContainerIn})；删除 resetView 与切片 2 的过渡规则；setPartHidden 对空区域“显示”零写入。
+- src/plugins/workbench/web/state/layout-present.ts：MoveTarget 改为 container / new-container / reset，moveTargetsOf(doc, viewId, views, containers)。
+- src/plugins/workbench/web/state/layout-constraints.ts：删除 newPanelEdgeTarget（唯一用户是旧 moveView）。
+- src/plugins/workbench/web/commands/view-commands.ts：新参数与校验；moveTargetItem（菜单与命令面板共用）；viewCommands 不再收 text。
+- src/plugins/workbench/web/plugin.ts：viewCommands 调用改签名。
+- src/plugins/workbench/web/components/WorkbenchShell.vue：菜单读新目标表，菜单身份加上所在容器。
+- src/plugins/workbench/web/components/WorkbenchShell.md：“移动到”描述。
+- src/plugins/workbench/locales/zh-CN.json、en-US.json：删 viewCommands.newPanelNextTo；改 partial、stale；加 viewCommands.newContainerIn.{sidebar,auxiliarybar,panel}。
+测试：
+- src/plugins/workbench/locales.test.ts、web/state/layout-doc-store.test.ts、web/state/layout-present.test.ts、web/state/layout-constraints.test.ts、web/state/default-tree.test.ts、web/commands/view-commands.test.ts、web/commands/panel-commands.test.ts
+- e2e/workbench-views.e2e.ts、e2e/workbench-dnd.e2e.ts、e2e/workbench-shell.e2e.ts、e2e/workbench-containers.e2e.ts、e2e/editor-area.e2e.ts
+
+二、每一条的结果
+1. 完成。参数 {viewId, container} / {viewId, newContainerIn} / {}；target、newPanelNextTo 删除，不留别名。只给一部分或两个目标都给：invalid-args（“要么都不给，要么给 viewId 和 container、newContainerIn 中的一个”）。不可移动：invalid-args 零写入（沿用原来的 rejected 映射）。视图不在文档里、目标容器没有成员也没有声明：stale-target 零写入。
+2. 完成。移进容器走 sectionLanding（容器最后一个分节，从前一个分节取一半，不读 dropSplit）；新容器 custom:<UUID> 入口排最后；两者都经 placeInContainer→showContainer，同一次写入清掉 hidden 与 collapsed 并切容器；区域原来没有容器也一样（单测“新容器……验收 31”）。来源容器空了由 apply 里的 settleContainers 归整。
+3. 完成。菜单从分节标题与浮动窗标签的右键或菜单键打开（已有接线）；目标表来自 moveTargetsOf，标签取 containerLabel（与活动栏同一个求值）；菜单身份 = 视图|面板|容器|交付状态|代际，任一变化关菜单；执行经 move-view，store 按执行时的文档重验，过期点击零写入。菜单里保留了原有的“浮动”一组。
+4. 完成。命令面板两步，第二步目标表同菜单（moveTargetItem），取消任一步成功且零写入；第二步期间目标容器没了：stale-target 零写入（单测“两步选择之间目标容器没了”）。
+5. 已成立，未改。row-region（底部面板分节）返回 unavailable“底部面板里的视图不能收起”；面板头的 collapsibleHere 对底部面板分节不给按钮。覆盖：panel-commands.test.ts“收不成标题行的分节 unavailable……”。对锚的现状：set-panel-collapsed {panelId: <区域名>} 切换锚自己的 collapsed，即整个区域拖到零/展开（panel-commands.test.ts“收起省略参数时切换……”里“对区域的锚是整个区域拖到零”）。Spec 没写，按要求未改。
+6. 完成。setPartHidden(区域, false) 在区域没有容器、且“显示后归整”结果与当前文档形状相同时直接返回当前文档，零写入、不退出最大化；状态栏按钮外观未动。单测“空区域点‘显示’……零写入，最大化不退出”。
+7. 基本已成立，补了一条单测。分节浮出：floatTab 建出的窗只有这一个标签，没有 container；回到停靠：dockFloat 用 homeOf + placeInContainer，回声明的容器最后一个分节；最大化的分节在切走它的容器时退出（effectiveMaximized 看 isPanelShown）。新增 layout-doc-store.test.ts“浮动一个分节：成为只有它一个标签的窗，不再属于容器；回到停靠时回声明的容器，排在已有的分节后面”。已有覆盖：layout-doc-store.test.ts“浮动窗回到停靠：视图各回声明的容器……”“最大化的分节：切走它所在的容器时退出（输出 13）”；panel-commands.test.ts“浮动与回到停靠；浮动窗不能最大化、不能收起……”。
+8. 已成立，补了 e2e。revealView 用 showContainer；新增 workbench-containers.e2e.ts“打开视图命令：切到视图所在的容器；区域拖到零或隐藏着时同一次写入展开”。
+
+三、拿不准的地方
+- 没有成员的隐式容器（例如 view:乙，乙搬走后）算不算“有声明”。Spec 原句：“目标容器既没有成员也没有声明时为 stale-target”。我按“有声明的区域”算：隐式容器的区域取视图声明的 location（输出 4“隐式容器看视图的 location”），所以 {container: "view:乙"} 会把视图放回乙声明的区域并重建这个容器，不报 stale-target。“重置位置”回到没有成员的容器也依赖这一点。菜单与命令面板不会列出没有成员的容器，只有直接带参数调用才会走到这里。
+- 目标就是视图自己所在的容器：已经是最后一个分节时只让容器看得见（看得见时零写入）；不是最后一个分节时移到最后。菜单不列它自己的容器，只有直接调用会这样。
+- 三个“新容器”无条件都列出（在只有自己一个分节的容器里，“新容器（同区域）”效果是换一个 id）。Spec 原句：“目标是别的容器，或‘新容器（侧栏）’‘新容器（右栏）’‘新容器（底部面板）’”，没有排除条件，按字面列。
+- 浮动着的视图不在任何容器里：别的容器全部列出，声明的容器有成员时既出现在容器项里，也会有“重置位置”。
+- 菜单里沿用了“浮动”一组（Spec 输出 23 没列它，原菜单就有）。
+- 没有 e2e 直接测“菜单开着时视图换了容器、面板 id 不变 → 菜单关闭”这一条（身份里加了容器，代码层面成立）；现有的 e2e 只测了换代。
+
+四、e2e 改了哪些期望与理由（逐条）
+- workbench-views 457（活动栏入口）：“右栏”→“样例丁”（右栏丁的容器），“侧栏”→“样例甲”。新的目标是具体的容器，所以当前入口固定是甲的（原来写“甲或丙”）。
+- workbench-views 501（头只写标题）：“右栏”→“样例丁”；回来的“侧栏”→“重置位置”（甲自己的容器空了，菜单不列没有成员的容器）。
+- workbench-views 579/581（移动到与重置位置）：“面板”→“样例戊”；“新面板（挨着面板）”→“新容器（底部面板）”。去掉 data-panel-count 与 head(page,"panel") 这类锚选择器（锚不画）；改为断言甲在 custom: 容器里、底部面板切到它、乙留在戊的容器里停放且实例不变、刷新后一致、重置后用户容器从入口顺序删掉。乙重置前经“打开视图”切到它的容器（停放的分节没有标题可点，输出 42）。收尾比较的是三个视图各回 view:<id>，不再读锚的 tabs（锚没有 tabs）。
+- workbench-views 623/634（容器菜单的“重置”）：原来靠“移动到侧栏”把丁连同自己的容器放进空侧栏，那是切片 2 的过渡规则，现在“移动到”进一个区域只会新建用户容器（没有“重置”）。整个容器搬到别的区域的“移到”（输出 44）还没有，所以改记录造场景：乙、丙移进戊的容器后，把侧栏甲那一节与右栏丁那一节的内容互换。后面的判据不变，只多查一项：右栏 entries 为 [view:甲, view:丁]。
+- workbench-views 675/704（命令面板的移动视图）：“右栏”→“样例丁”，用 headOf 与记录里的 container 代替锚选择器。
+- workbench-views 716/748（实例保留）：“面板”→“样例戊”，“新面板（挨着右栏）”→“新容器（右栏）”；box(page,"sidebar")（锚）→ 甲那一节；命令面板里的“面板”→“样例戊”。保持的性质不变。
+- workbench-views 774、797（入口激活失败或停止）：“面板”→“样例戊”。
+- workbench-views 860（主题颜色）：卡片与面板头选择器改按分节 id（侧栏甲那一节、右栏丁那一节）；“当前标签用正文色”和“标签带不画外框”改到 floatWithTabs 搭的多标签浮动窗上测，放在主题切回 nbook 之后；“新面板（挨着侧栏）”→“样例甲”（侧栏两节之间的工具面板线）。
+- workbench-dnd 836（新面板）：改为“新容器（底部面板）”。操作从活动栏入口的右键（现在是容器菜单）改成分节标题的右键；去掉 data-panel-count 与“放在面板右边”这条位置断言（新容器排在底部面板的入口里，不再是挨着某块）；改为断言甲在底部面板、戊停放、刷新后在同一节、活动栏没有甲的入口。
+- workbench-dnd 881（隐藏的区域不是落点）：按协调者补充恢复尾段：右键戊→“样例丁”，右栏显示，戊在丁之后，记录里右栏不再隐藏（验收 8）。
+- workbench-dnd 1081/1089（dropSplit=shared）：按协调者补充恢复尾段：戊→“样例甲”，甲、乙两节的尺寸意图不变，丙变小，戊排在丙后面。第一版比的是像素：乙差了 1px（280→279），这是求解后取整的余数，所以改为比记录里的尺寸意图（精确相等，没有放宽）。
+- workbench-shell sessionsToPanel：“面板”→“新容器（底部面板）”（产品的底部面板默认没有容器）。
+- workbench-containers 第一条（切容器再切回）：“右栏”再“侧栏”两步改为一步“样例甲”。
+- editor-area 1086：“面板”→“新容器（底部面板）”。
+
+五、仍失败的用例与归属
+- 没有。第一轮的 editor-area.e2e.ts:1374（资源管理器的剪切粘贴，data-explorer-dirty-copy 没出现）与本片无关（本片只改了这个文件第 1086 行所在的另一条用例），单独重跑通过，判为负载下的偶发失败。
+
+六、验证命令与结果（packages/neuro-book 下）
+- bunx vue-tsc --noEmit -p tsconfig.web.json：通过
+- bunx vue-tsc --noEmit -p tsconfig.browser-test.json：通过
+- bun test src/plugins/workbench src/plugins/lab：564 pass 0 fail
+- bun run build:server && bun run build:web && bun run build:e2e：成功（产物比全部产品源码改动都新）
+- 基线（改 e2e 之前）workbench-views.e2e：23 passed 9 failed（457、501、579、623、675、716、774、797、860）
+- 第一轮 views+dnd+shell+containers+editor-area（5 个文件）：142 passed 3 failed（editor-area:1374 偶发；dnd:1089 像素取整；views:581 停放分节没有头）
+- 第二轮只重跑那三条（修正后）：3 passed
+- 仓库根 bun run governance:check：0 failures 0 warnings；git diff --check：通过
+
+== 补充核对（交付前） ==
+- 波及范围：按 set-part-hidden、panel-toggle、data-titlebar-layout、右键、ContextMenu、移动视图 搜 e2e，另外跑了 workbench-float、workbench-live-drag、workbench-titlebar：39 passed 0 failed。其余命中（lab-*、markdown-editing、files-explorer、themes）只在 open 帮手里等 panel-toggle 可用，或是别的菜单，没有点底部面板的“显示”，也没有用“移动到”，未跑。
+- dnd:1089 改判据的依据：用临时探针（e2e/zz-probe-s5.e2e.ts；它要用 e2e 的夹具，所以放在了仓库的 e2e/ 里，与说明里“临时探针放仓库外”不符；建之前用 git ls-files 确认过没有被跟踪，跑完已删）两种设置各跑一次“移动到 → 样例甲”，记录像素高度（甲、乙、丙，再加戊）：
+  shared：之前 [280,280,280]，之后 [280,279,140]，戊 140
+  默认：  之前 [210,210,420]，之后 [210,210,209]，戊 210
+  两种设置下合计都是 840 变 839：多一块分节少 1px，这 1px 落在哪块随起始尺寸变（shared 落在乙，默认落在丙）。只有丙对半分给了戊，别的块变化不超过取整的 1px。所以屏幕上“不跟设置走”同样成立；用例改为比记录里的尺寸意图（精确相等）。这是判据的改动，请协调者定。
+- 第 5 条的按钮：e2e 已有覆盖，workbench-dnd.e2e.ts“收起按钮只给侧栏、右栏的分节，容器里只有一节时没有；底部面板的分节不折叠（输出 20）”（第一轮通过）。
+- panelTitle 还有产品调用方（WorkbenchShell.vue 拖放的 reveal 文字、面板头 label），不是死代码。
+- editor-area:1374：改动前没有跑过这个文件的基线；判它偶发，只凭两点：单独重跑通过，失败点（资源管理器的 data-explorer-dirty-copy）不在本片改动的路径上。没有基线对照。

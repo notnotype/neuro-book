@@ -13,7 +13,7 @@ import {join, resolve} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {claimStateRoot, queryInstance} from "nbook/server/instance";
+import {claimNeuroBook, queryNeuroBook} from "nbook/server/instance";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 
 import {SERVER_EXTERNALS} from "../../scripts/pack-app";
@@ -136,7 +136,7 @@ describe("nbook start（真实进程）", () => {
 
         first.signal("SIGHUP");
         expect(await first.exit).toBe(0);
-        expect(await queryInstance(root)).toEqual({state: "none"});
+        expect(await queryNeuroBook(root)).toEqual({state: "none"});
     }, 30_000);
 
     it("--no-open 不打开；SSH 会话里不打开，提示端口转发；Ctrl-C（SIGINT）以 0 退出", async () => {
@@ -167,12 +167,12 @@ describe("nbook start（真实进程）", () => {
 describe("nbook start 遇到已有实例", () => {
     it("还在启动：等它就绪后报告它（started 为 false）", async () => {
         const root = nextRoot();
-        const claimed = await claimStateRoot({stateRoot: root, kind: "product", version: PRODUCT_VERSION, report: () => undefined});
+        const claimed = await claimNeuroBook({stateRoot: root, kind: "product", report: () => undefined});
         if (!claimed.ok) throw new Error(claimed.reason);
         try {
             const waiting = run(["start", "--state-root", root, "--json", "--no-open"]);
             await waitUntil("nbook 看到实例在启动、开始等", () => (waiting.stderr().includes("等它就绪") ? true : undefined));
-            claimed.claim.publish({url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", plugins: {safeMode: false, items: []}});
+            claimed.claim.publish({url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", extra: {plugins: {safeMode: false, items: []}}});
             expect(await waiting.result).toMatchObject({ok: true, started: false, pid: process.pid, url: "http://127.0.0.1:1/"});
             expect(await waiting.exit).toBe(0);
         } finally {
@@ -182,7 +182,7 @@ describe("nbook start 遇到已有实例", () => {
 
     it("正在停止：等它停完，自己认领并启动", async () => {
         const root = nextRoot();
-        const claimed = await claimStateRoot({stateRoot: root, kind: "product", version: PRODUCT_VERSION, report: () => undefined});
+        const claimed = await claimNeuroBook({stateRoot: root, kind: "product", report: () => undefined});
         if (!claimed.ok) throw new Error(claimed.reason);
         claimed.claim.stopping();
         const next = run(["start", "--state-root", root, "--json", "--no-open", "--port", "0"]);
@@ -195,10 +195,10 @@ describe("nbook start 遇到已有实例", () => {
 
     it("版本不同：以 1 退出，码 version-mismatch，说明两个版本", async () => {
         const root = nextRoot();
-        const claimed = await claimStateRoot({stateRoot: root, kind: "product", version: "9.9.9", report: () => undefined});
+        const claimed = await claimNeuroBook({stateRoot: root, kind: "product", version: "9.9.9", report: () => undefined});
         if (!claimed.ok) throw new Error(claimed.reason);
         try {
-            claimed.claim.publish({url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", plugins: {safeMode: false, items: []}});
+            claimed.claim.publish({url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", extra: {plugins: {safeMode: false, items: []}}});
             const attempt = run(["--state-root", root, "--json"]);
             expect(await attempt.result).toMatchObject({ok: false, code: "version-mismatch", running: "9.9.9", installed: PRODUCT_VERSION, pid: process.pid});
             expect(await attempt.exit).toBe(1);
@@ -209,10 +209,10 @@ describe("nbook start 遇到已有实例", () => {
 
     it("开发服务占着：以 1 退出，码 development-instance", async () => {
         const root = nextRoot();
-        const claimed = await claimStateRoot({stateRoot: root, kind: "development", version: PRODUCT_VERSION, report: () => undefined});
+        const claimed = await claimNeuroBook({stateRoot: root, kind: "development", report: () => undefined});
         if (!claimed.ok) throw new Error(claimed.reason);
         try {
-            claimed.claim.publish({url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", plugins: {safeMode: false, items: []}});
+            claimed.claim.publish({url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", extra: {plugins: {safeMode: false, items: []}}});
             const attempt = run(["--state-root", root, "--json"]);
             expect(await attempt.result).toMatchObject({ok: false, code: "development-instance"});
             expect(await attempt.exit).toBe(1);
@@ -330,7 +330,7 @@ describe("nbook plugin（真实进程）", () => {
         expect(await first.exit).toBe(0);
         const second = run(["start", "--state-root", root, "--port", "0", "--no-open", "--json"]);
         expect(await second.result).toMatchObject({ok: true, started: true});
-        const instance = await queryInstance(root);
+        const instance = await queryNeuroBook(root);
         expect(instance).toMatchObject({state: "running", instance: {plugins: {items: [{id: "example.live", state: "enabled", notLoaded: null}]}}});
         expect(thirdParty((await json(["plugin", "list", "--state-root", root])).result)).toEqual([expect.objectContaining({id: "example.live", pending: []})]);
         second.signal("SIGTERM");
@@ -342,7 +342,7 @@ describe("nbook plugin（真实进程）", () => {
         expect((await json(["plugin", "install", await pluginSource("safe", PRODUCT_VERSION), "--state-root", root])).result).toMatchObject({ok: true});
         const server = run(["start", "--state-root", root, "--port", "0", "--no-open", "--json", "--safe-mode"]);
         expect(await server.result).toMatchObject({ok: true, started: true});
-        expect(await queryInstance(root)).toMatchObject({state: "running", instance: {plugins: {safeMode: true, items: [{id: "example.safe", notLoaded: {code: "safe-mode"}}]}}});
+        expect(await queryNeuroBook(root)).toMatchObject({state: "running", instance: {plugins: {safeMode: true, items: [{id: "example.safe", notLoaded: {code: "safe-mode"}}]}}});
         expect((await json(["plugin", "list", "--state-root", root])).result).toMatchObject({safeMode: true});
         server.signal("SIGTERM");
         expect(await server.exit).toBe(0);

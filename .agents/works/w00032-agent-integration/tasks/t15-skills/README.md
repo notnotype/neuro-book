@@ -91,6 +91,19 @@ t05、t08、t10。
 31. 用户消息：不要消息下面那一行带三角形图标的提示；没带上的 Skill 原因改放在哪里，第 2 轮定。标签的悬停提示从“技能：…”统一为“Skill：…”，开发者没有异议，照做。
 32. Profile 页的“Skill”一节照草稿做。
 
+第九轮（开发者 2026-11-11，评审板第 2 轮）：
+
+33. 后台安装的进度与结果（选 B）：先另开一个 Task 做通用的后台任务系统（类似 VS Code 的进度服务加通知中心），t15 的界面几片等它；不用临时的进度通知顶上。
+34. Skill 页：整页共用的几列，照第 2 轮的草稿做。
+35. `$` 菜单的徽标列：右边空白太多，要改；第 3 轮出候选。
+36. 确认框：尺寸对了，但一个组件的几种状态之间区别不要太大：没有锁时多出的黄字挤小了“直接依赖”那块，不行；“标签已经插进输入框”这类话不放在确认框里。这条原则写进 nb-ui 开发规范，也写进 Skill 的 Spec；第 3 轮出改过的稿。
+37. 没带上的 Skill 界面上不提示（标签不改样子、不加悬停原因）；改为给模型一条 system-reminder，排在用户的话前面，写明哪些 `$` 没带上、为什么。改了第 25、31 条。
+
+第十轮（开发者 2026-11-11，评审板第 3 轮）：
+
+38. `$` 菜单的状态改用图标：每行留一列图标列（未初始化、正在初始化各一个图标），悬停时看图标的意思；不用徽标。改了第 28、35 条；Skill 页仍用徽标、仍叫“正在初始化”。
+39. 确认框照第 3 轮的稿：三块区域（一行状态、中间一块、两行说明）位置与大小固定，没有锁的那句在说明行，失败的原因在说明行。
+
 审查改动（同意）：插话里的 `$x` 正文排在插话后面；放回合计不超过窗口 25%、Skill 用文件与计划剩下的；同一 Skill 没改过、上一份还在上下文里时只附“见前文”；代码里的 `$` 不认成 Skill（编辑器也不再显示成小块）。
 
 先调研再定的：字段全表、Skill 参数与“带参数自动执行脚本”、依赖（Python、Node、Bun）、更新与 Skill 市场。调研：[各家的 Skill](../../research/2026-10-30-skill-survey.md)。
@@ -101,8 +114,17 @@ t05、t08、t10。
 
 ## 当前状态
 
-讨论完成（开发者 2026-10-30 确认）：五轮决定见上。2026-11-10 开工：实施计划 [`plan.md`](plan.md) 开发者确认（第六轮第 17–21 条）。2026-11-11：评审板第 1 轮答复记为第 27–32 条，第 2 轮已发布（后台安装的进度与结果、Skill 页对齐、`$` 菜单徽标、确认框定尺寸、原因放进悬停提示）；Spec 已写：新建 [`agent/skills.md`](../../../../../docs/specs/agent/skills.md)（planned，界面部分等第 2 轮定了再补），相关 Spec 补了 planned 条目。
+讨论完成（开发者 2026-10-30 确认）：五轮决定见上。2026-11-10 开工：实施计划 [`plan.md`](plan.md) 开发者确认（第六轮第 17–21 条）。2026-11-11：评审板第 1 轮答复记为第 27–32 条，第 2 轮已发布、等答复；Spec 已写：新建 [`agent/skills.md`](../../../../../docs/specs/agent/skills.md)（planned，界面部分等第 2 轮定了再补），相关 Spec 补了 planned 条目。
+
+实施（worktree `.worktree/w00032-t15-skills`，分支 `feat/w00032-t15-skills`，未合入）：切片 1–4 的后端已提交，各自的测试与类型检查通过。
+
+- 切片 1：`nb-markdown` 代码里的 `$` 不算技能、`${…}` 放宽，经纯 TS 子路径 `./prompt-text` 交出 `promptSkillTokens`（计划原定根入口，包的边界规定不允许，改了并记进计划）；技能小块悬停改为“Skill：”；`nbook.files` 的挂载点可另给容器与目录名；Skill 目录服务、`skills://`、远程 `skills` 与 `skillsChanged`。
+- 切片 2（后端）：Profile 声明 `skills`、`profileSettings` 的 `skills`、白名单合成，主创声明全部。
+- 切片 3：扩展 `nbook.agent.skills`（带上正文、见前文、`skillMissing`）；内核放回参数加 `kept`；压缩之后放回 Skill；压缩详情认 `skill`。
+- 切片 4：初始化模块（应用的 Bun 按锁安装、文件锁、标记）、远程 `skillInitPlan` 与 `initSkill`、`nbook skill init`；nb-harness 公开 `./file-lock`。
+
+留到切片 5（界面，等第 2 轮答复）：Profile 页的“Skill”一节、`$` 菜单、确认框、Skill 页、用户消息上的 Skill（适配器目前整体跳过扩展事件，要连实时更新一起改）、后台安装的进度。还没覆盖：插话里 `$` 的位置只靠内核的位置章，没有单独的测试；Bun 在没有 `node_modules` 时自动联网取包的行为没有实测。`skills://` 写入在资源视图层得 `unsupported-capability`（与 `docs://` 相同），写工具按分类拒绝为 `permission-denied`。
 
 ## 下一步
 
-第 2 轮答复回来后记决定、补 `skills.md` 的界面条目与 `agent/conversation.md`、`ui/agent-conversation-view.md`。与评审并行：在 worktree `.worktree/w00032-t15-skills`（分支 `feat/w00032-t15-skills`）按计划做切片 1–4（后端）。插件 SDK 的构建在 [t33](../t33-plugin-skills/README.md)。
+第 3 轮答复回来后记决定；界面几片（切片 5）排在 [t34](../t34-background-tasks/README.md)（工作台的后台任务）之后，补 `agent/conversation.md`、`ui/agent-conversation-view.md` 的界面条目后做，再做切片 6（e2e `agent-skills.e2e.ts` 与收口审查：后端派 Opus、前端派 Sonnet）。插件 SDK 的构建在 [t33](../t33-plugin-skills/README.md)。

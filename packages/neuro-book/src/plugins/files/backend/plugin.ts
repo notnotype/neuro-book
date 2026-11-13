@@ -7,6 +7,7 @@
 import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
+import {HTTP_ROUTES_POINT} from "@notnotype/nb-host/http/contracts";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
@@ -17,7 +18,6 @@ import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
 import {clockKey, stateRootKey} from "nbook/shared/host";
-import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 import {currentProjectKey, projectsKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";

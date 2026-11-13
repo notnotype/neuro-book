@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t15-skills",
+    "artifactId": "review",
+    "answerId": "20261111T054824044Z-f4cbecd2",
+    "artifactVersion": 3,
+    "contentHash": "1eacce2ef454a85875f1d426069705082b747b1daf6b9c1452aad4defb1093db",
+    "submittedAt": "2026-11-11T05:48:23.340Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "menu-badge-r3": "adjust",
+        "init-dialog-r3": "accept"
+    },
+    "comments": {
+        "menu-badge-r3": "用图标吧，留一列图标列（hover 的时候看具体图标意义）"
+    },
+    "note": null
+}

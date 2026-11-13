@@ -1,0 +1,100 @@
+## 审查报告：w00025 t23 批注 Ctrl 悬停与小符号、页边按段排槽位（被审 0637b7e2a..d21b228bd，HEAD 核对为 18dd20f5c，比 d21b228bd 多一个只改 e2e 的提交）
+
+已跑：nb-markdown `vitest run src/editor src/language/syntax` 151 项全过；neuro-book `vitest run src/plugins/markdown` 147 项全过。没跑 e2e 与开发服务。做过的实验都在报告末尾列出（临时测试文件已删除，变异已用备份还原，`git status` 干净）。
+
+### 1. 点开的卡片被 Ctrl 悬停“降级”成悬停的卡片，指针一离开就收
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/components/menus/comments/MarkdownCommentLayer.vue:292-307`（`openAtPointer`）
+- **现象**：点小符号打开的卡片（`{ending: true, pinned: true}`）开着时，把指针移到这条批注的文字上再按一下 Ctrl（Ctrl+C 一类快捷键都算），`openAtPointer(false)` 里 `opened` 对 `ending` 的目标恒为空数组，长度比较不相等，于是整个 `viewing` 被换成 `{pos, ending: false, pinned: false}`：同一张卡片变成了“悬停的”，指针离开批注后 0.25 秒收起。同理，点开的卡片开着时按 Ctrl 悬停到另一条批注上，也会把点开的卡片换成悬停的（pinned 丢了）。只有“同一组批注且都不是 ending”时才走 `if (pinned && !open.pinned)` 的升级分支，降级方向没有任何保护。
+- **为什么是问题**：Spec 输出 30 写“点符号或 Ctrl 点击打开的卡片（点开的）不因鼠标离开而收”；开发者决定 1 是“点它才弹”。用户点开卡片读意见，手一碰 Ctrl 就变成会自己收的卡片。
+- **如何核实**：我在 `MarkdownCommentLayer.dom.test.ts` 的 harness 上写了临时用例（已删）：`clickMarker(editor, 0)` 等卡片出现，`moveOver(commentElement(editor,"乙丙"))`，`keyDown(document,{key:"Control",ctrlKey:true})`，`leaveComments(editor)`，等 100 毫秒，`popover()` 为 null（卡片收了）。现有用例没有“点开之后再 Ctrl 悬停”这一组。
+- **建议改法**：`openAtPointer(false)`（悬停）在 `open?.pinned === true` 时不替换、不降级（点开的优先，只有明确的点击才换）；同一条批注的判断统一用 `infos` 的 `identity`，不要拿 `ending` 目标和 `pos` 目标去比较。补一个“点开后 Ctrl 悬停仍是点开的”的用例。
+
+### 2. `viewing` 在卡片因批注消失而关上之后仍留着：批注回来时卡片无 Ctrl 自己弹出
+- **严重程度**：建议（偏重要：违反“不按 Ctrl 不弹”）；**类别**：正确性 / 不变量
+- **位置**：`MarkdownCommentLayer.vue:84-88、106、417-427`
+- **现象**：`viewOpen` 要求 `viewAt.length > 0`，批注被去掉时卡片只是因为 `viewAt` 变空而关上，`viewing` 本身没清。撤销与重做走 `addToHistory: false`，`onTransaction` 里的 `typed` 为假，也不会 `closeView`。所以“点开卡片 → Ctrl+Z 撤销了这条批注（卡片消失）→ Ctrl+Shift+Z 重做”之后，`viewing` 的位置上又有批注了，卡片自己弹出来，没有按 Ctrl，也没有点击。
+- **为什么是问题**：Spec 输出 30 “不按 Ctrl 的悬停与点击……都不出卡片，不打扰编辑正文”；失效的状态靠文档碰巧又恢复了才复活。
+- **如何核实**：临时用例：点符号开卡片；用 `editor.view.dispatch(tr.delete(range).setMeta("addToHistory", false))` 去掉批注，卡片关；再把同一批注写回（同样不进历史），100 毫秒后 `popover() !== null`（输出 true）。
+- **建议改法**：`viewAt` 变空时（`watch` 里）顺手 `closeView(false)`；或在 `onTransaction` 里发现 `viewing` 对着的批注没了就清。
+
+### 3. 卡片消失时 `overCard` 不复位，之后的悬停卡片永远不自动收
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`MarkdownCommentLayer.vue:245、264-271、378-386`
+- **现象**：`overCard` 只在卡片自己的 `pointerenter` 置真、`pointerleave` 复位，以及 `closeView` 里复位。指针停在卡片上时卡片因 `viewAt` 变空（见第 2 条，撤销批注）而消失，浏览器不会给被摘掉的元素补发 `pointerleave`，`overCard` 就停在 true；`viewing` 又没清，不走 `closeView`。之后按 Ctrl 悬停出新卡片，指针离开批注，`scheduleClose` 因 `overCard` 为真直接返回，卡片不收，直到指针再进出一次卡片或按 Esc。
+- **如何核实**：临时用例：点符号开卡片，对卡片根派发 `pointerenter`，用不进历史的事务去掉这条批注，再 `peekOpen` 另一条、`leaveComments`，等 120 毫秒后 `popover() !== null`（输出 true）。
+- **建议改法**：同第 2 条，卡片关上的出口（`viewOpen` 变假）统一走 `closeView`，由它复位 `overCard`。
+
+### 4. 键盘改意见保存后弹出一张没有指针来源的“悬停卡片”
+- **严重程度**：建议；**类别**：正确性（Spec 对此含糊，请确认意图）
+- **位置**：`MarkdownCommentLayer.vue:553-554`（`submit`）
+- **现象**：`back` 在没有从“看”的卡片进来时取 `{pos: target.at, ending: false, pinned: false}`。Ctrl+Alt+M 在光标处改意见、保存之后，浮层里出现一张 `pinned: false` 的卡片。它只靠 `pointermove` 收（指针在滚动容器里移到批注之外才 `scheduleClose`），指针不动或在别处时一直开着，直到输入或 Esc。Spec 输出 30“键盘走进批注不出卡片”，输出 29“保存后回到‘看’（卡片留在改的那一处）”：键盘入口之前并没有看卡片，“回到”哪里没有定义。
+- **建议改法**：与开发者确认：键盘入口保存后不开卡片（`back` 只在从“看”进来时有值）；若要开，至少设成点开的（Esc 能收，指针不用再动）。
+
+### 5. 页边每个事务（含光标走动）都为每个槽位做一次“从头扫到尾”的 `nextTerritory`，大文档上是 `listComments` 的约 3 倍
+- **严重程度**：建议；**类别**：安全与性能（热路径）
+- **位置**：`packages/nb-markdown/src/editor/comments.ts` 的 `nextTerritory`（`doc.nodesBetween(from, doc.content.size, …)`）与 `territoryAt`；调用处 `MarkdownCommentLayer.vue:182-225`（`marginSlots`，每次 `tick` 一变就由同步观察者重算）
+- **现象**：`nextTerritory` 找到下一段后只是让回调对后面的节点返回 false（不再下降），但 `Fragment.nodesBetween` 仍从子节点下标 0 起遍历到文档末尾，每个槽位每次重算是 O(顶层块数)。
+- **如何核实**：我在 nb-markdown 里写了临时基准（已删）：3000 个顶层段、300 条批注，机器负载约 4，happy-dom，连跑五轮：`listComments` 5.7–11.4ms，`territoryOf` ×300 为 6.7–12.4ms，`nextTerritory` ×300 为 20.0–25.6ms。也就是页边画着时每按一个键或挪一次光标，这两项额外增加约 27–38ms，比 Spec 实现合同里“每个事务现算、约 0.1 毫秒”的前提高两个数量级（那个数字指五万字两百条的 `listComments`，这里的机器与文档规模不同，只看相对关系：`nextTerritory` 约是 `listComments` 的 2–4 倍）。典型章节（几百段）要小一个数量级，所以不是阻断。
+- **建议改法**：一次重算里只走一遍文档，按文档顺序收集所有“段”的起点（一个有序数组），槽位的 `next` 用二分或相邻下标取；或者 `nextTerritory` 用 `doc.resolve(from)` 沿深度往外找下一个兄弟再下降，不扫整个文档。另外选区变化不改变分组，`groups` 与 `next` 可以只在文档变了时重算（现在 `tick` 同时挂了选区变化）。
+
+### 6. `activeMemory` 按意见与开头文字记：槽位不是当前时改了意见，槽位退回第一条；表也不清理
+- **严重程度**：建议；**类别**：正确性（从代码推断，未在浏览器验证）
+- **位置**：`MarkdownCommentLayer.vue:163、201-203、226-231`
+- **现象**：记忆项是 `{body, quote}`。同一段有几条批注、光标不在这一段里时（槽位 `idle`，显示上次看的那条），悬停这张卡片点“编辑”改意见并保存：`write` 模式下记忆写的是改之前的 `body`；保存后意见变了，`rememberedAt` 找不到，`Math.max(0, -1)` 取第 0 条，槽位从刚改的那条跳回第一条。（光标在这条批注里时是 `current`，走 `currentAt`，不受影响；只有悬停改、光标不在的路径。）另外 `activeMemory` 只在 `closeAll` 清，已删除槽位的 key 一直留着，一次会话里按新 key 越攒越多（量很小）。
+- **建议改法**：记忆改按 `identity`（行内批注的 `key`）或保存后用新意见重写那一项（`submit` 成功时把新 body 写进记忆）；按本轮 `slots` 的 key 集合裁掉过期项。
+
+### 7. 小符号在没有批注层的宿主里是“死按钮”：可访问名称为空，标签不跟语言切换，键盘用不了
+- **严重程度**：建议；**类别**：正确性 / 代码质量
+- **位置**：`MarkdownControl.vue:462`（`menus?.label("commentMarker") ?? ""`）、`packages/nb-markdown/src/editor/comments.ts` 的 `markerElement`（`role="button"`、无 `tabindex`）
+- **现象**：(a) `menus === null` 时（`MarkdownControl` 允许，`inject(editorMenusKey, null)`）扩展照样加进编辑器，符号画出来、带 `role="button"` 和 `title=""`，却没有 `MarkdownCommentLayer` 接点击；(b) `label` 在建编辑器时取一次，之后切换界面语言，已建的编辑器里符号的 `aria-label` 与 `title` 仍是旧语言；(c) `role="button"` 的元素在 `contenteditable=false` 里没有 `tabindex`，键盘走不到也按不了（Spec 输出 30 确实写了键盘走 Ctrl+Alt+M 与页边，所以只是“声明了按钮语义却不能按”）。
+- **建议改法**：`menus === null` 时不加这个扩展（或只加不带 `role`）；`label` 要跟语言就让扩展选项取函数；不能键盘操作的就不写 `role="button"`。
+
+### 8. Ctrl 点批注文字的 `mousedown` 无条件被取消，页边画着、`blocked`、只读时 Ctrl+点击什么都不发生
+- **严重程度**：建议（低）；**类别**：正确性
+- **位置**：`MarkdownCommentLayer.vue:345-348`
+- **现象**：`onMouseDown` 不看 `marginDrawn`、`blocked`、`writing`：只要 Ctrl（⌘）加左键落在批注元素上就 `preventDefault`，光标不移、不夺焦；而 `openAtPointer` 在这几种状态下又直接返回，所以点击既不弹卡片也不移光标。Spec 输出 33 “点批注的文字，那条批注成为当前批注、光标移过去”，是没按 Ctrl 的普通点击；Ctrl 加点击在页边模式里没定义，但现在等于被吞掉。
+- **建议改法**：`onMouseDown` 与 `onPointerDown` 用同一个“这次点击是不是要由本层处理”的判断（`!marginDrawn && !blocked && writing === null`），不处理时放行给 ProseMirror。
+
+### 9. 同名 `.md` 与注释里和实现不一致的几处
+- **严重程度**：建议；**类别**：文档
+- **位置与现象**：
+  1. `MarkdownCommentLayer.md` 末尾：`env:global` 写了 `document` 上的 `keyup`，`state:local` 写了“Ctrl 是否按着”；代码里没有 `keyup` 监听，也没有 Ctrl 状态（Ctrl 只看每个事件的 `ctrlKey`/`metaKey`，按下 Ctrl 靠 `keydown`）。
+  2. `MarkdownCommentMargin.md` 的 `MarginSlot` 数据块有 `pending: boolean`；`MarkdownCommentMargin.vue` 的 `MarginSlot` 没有这个字段，待写槽位是 `infos` 为空，宿主给 `key: "pending"`。
+  3. `MarkdownCommentLayer.vue:273` 的注释说“Ctrl 加点击在 macOS 上是右键，所以那里用 ⌘”，代码是 `ctrlKey || metaKey` 不分平台（已知并接受的偏差，但注释与代码字面相反，会让读的人以为 macOS 上 Ctrl 不算）。
+  4. Spec 实现合同写“不看选区变化的事务”，代码 `onTransaction` 在选区不空时 `closeView(true)`（输出 30 也要求选区不空时收起，所以 Spec 实现合同这一句应改成“只看改了文档或选区的事务”）。
+- **建议改法**：按代码改文档与注释，不要为了文档加代码。
+
+### 10. 槽位最小高度比 Spec 字面少 `SLOT_GAP`（3px）
+- **严重程度**：建议（低）；**类别**：正确性（字面）/ 文档
+- **位置**：`margin-layout.ts:42-47`
+- **现象**：Spec 输出 33 “不小于这一段的高度”，`slotRange` 里 `own = height - SLOT_GAP`，`min = max(oneLine, min(own, minCap))`，卡片面最小是段高减 3px（`margin-layout.test.ts` 也断言 `120 - SLOT_GAP`）；e2e 里相应断言放宽成 `box.height >= paragraph.height - 6`、上界 `first.height + 40`。实现意图（槽位含间隔、卡片面比槽位矮 3px）合理，但 Spec 与 `design-language.md` 没写这个口径。
+- **建议改法**：在 Spec 输出 33 的“位置与高度”里写明“槽位高度含间隔，卡片面比槽位矮 3px”，或者让 `min` 不减间隔。e2e 的 `-6`、`+40` 是松的断言，会放过 `min` 少 3–6px 的变化。
+
+### 11. 测试：存活的变异与几处靠不住的地方
+- **严重程度**：建议；**类别**：测试
+- **位置与现象**：
+  1. **变异存活**：把 `viewLine` 里符号时取 `pos - 1` 改成 `pos`（`MarkdownCommentLayer.vue:50`），`MarkdownCommentLayer.dom.test.ts` 与 `MarkdownControl.dom.test.ts` 共 86 项全过（已还原）。happy-dom 没有排版，这条只能靠 e2e；我没跑 e2e，从用例标题与内容看（“卡片的左边缘对齐批注在这一行的起点……点符号开的也一样”，没有批注末尾折行、符号单独落到下一行的场景）没有覆盖。Spec 输出 30 与 `viewLine` 的注释都专门提到“符号单独折到下一行时也不跟着去”，这是本次新写的行为。建议在 e2e 或 Lab 场景里加一个窄宽度、批注刚好在行尾、符号折到下一行的用例，断言卡片贴在批注最后一个字那一行。
+  2. 第 1、2、3 条里的状态机缺口（点开之后再 Ctrl 悬停、批注消失后又回来、卡片在指针下消失）都没有用例。
+  3. e2e `markdown-comments.e2e.ts` 里 `toBeVisible({timeout: 300})`（“按下 Ctrl 立刻出”两处）：300 毫秒上限比默认短，机器忙时（本机常有别的会话的 omp 审查与开发服务）卡片渲染稍慢就失败，而失败时分不清是产品慢还是机器忙。要证明“没有计时器”可以断言“事件之后下一帧卡片已出现”，不必卡 300 毫秒。
+  4. `test-lint-allow fixed-wait` 的两处：e2e 的 500 毫秒（`waitPastHover`）可以接受（真实浏览器里没有别的信号）；`MarkdownCommentLayer.dom.test.ts` 的 60 毫秒（`settle`）理由偏弱：开卡片已经没有计时器，状态是同步的，`await nextTick()` 加一次 `flushPromises` 就能确定性地等到渲染完成；固定等待是不必要的。未验证 `AnchoredPopover` 的开合是否另有 `requestAnimationFrame`，若有再保留。
+  5. `MarkdownCommentMargin.dom.test.ts` 对 `HTMLElement.prototype` 的 `offsetHeight`、`clientHeight` 整个原型上打桩（`surface` 恒 999/997），桩的是浏览器几何、算法是真实的，已在文件头说明；但桩让 `naturalOf` 的“减描边”恒等于 2，真实浏览器里 `surface.offsetHeight - clientHeight` 还会含横向滚动条高度（`overflow:hidden` 下为 0，目前不影响）。属于可接受的桩，仅提醒别把这两个常数当成算法的一部分。
+- **建议改法**：补 1、2 的用例；3 改成等下一帧；4 的 dom 用例去掉固定等待。
+
+### 已做的实验（全部已还原，`git status` 干净，HEAD 始终是 18dd20f5c）
+- 临时文件 `MarkdownCommentLayer` 同目录 `zz-scratch.dom.test.ts`（第 1、2、3 条与“批注消失后按 Ctrl 不抛错”）、nb-markdown 下 `src/editor/zz-scratch.dom.test.ts`（第 5 条基准），都是我新建的未跟踪文件，用完已逐个 `rm`；原有文件没动。
+- 变异一：`viewLine` 去掉 `- 1`（存活，见第 11 条）。备份 `/tmp/t23-review-impl/exp/MarkdownCommentLayer.vue.bak`，已还原。
+- 变异二：`onTransaction` 里把 `tick.value += 1` 提到 `slotKeys` 映射之前：用例“块批注的槽位跨事务不重建”变红（被抓住）。备份 `.bak2`，已还原（`cmp` 一致）。
+- 用无头 Chrome 对静态 HTML 验证：`display:-webkit-box` 加 `-webkit-line-clamp` 的意见区里，开头的 `float: right` 占位确实让第一行变窄（第一行宽 140、其余 210），页边卡片 `__reserve` 的做法在 Chrome 里成立。
+
+### 未发现问题的方面
+- 点符号与 Ctrl 点击的 `mousedown`：捕获阶段 `preventDefault` 之后 ProseMirror 的 `eventBelongsToView` 因 `defaultPrevented` 不再处理 `mousedown`，光标、焦点与“选中整个块”都不会发生；符号挂件的 `stopEvent`、`ignoreSelection` 合理。
+- 槽位 key 的映射与 `tick` 的先后：Tiptap 核心 `Editor` 的 `state` 不是响应式，没有别的路径让同步观察者在映射之前重算；调换顺序的变异被现有用例抓住。
+- `layout()` 与 `ResizeObserver`：限行数只由 `range.max` 决定、不依赖自然高度，所以没有死循环；`observeAll` 每次事务断开重观察使每次事务多排一帧，这一模式在 base 上就有，不是回归；`layouts` 每次从当前 `slots` 重建，不残留已删除槽位；函数形式的 `ref` 在卸载时对当前函数传 null，`elements` 不残留。
+- `territoryAt`、`nextTerritory`：段落、标题、列表项、表格按行、块批注、超出文档的位置在现有用例里都对；没发现错判（单元格前的位置会得到单元格里的段落而不是行，只在 CellSelection 起点出现，影响只是待写卡片的顶边，忽略）。
+- 撤销历史、剪贴板、写回字节：符号是装饰，用例断言了撤销深度、写回文本与 `serializeForClipboard`。
+- 浮层变体：底行、计数、上一条、下一条保持原样，页边变体按钮不嵌套，点按钮不发 `select`。
+
+### 汇总
+有效发现 11 条：阻断 0，重要 1（第 1 条），建议 10（第 2–11 条，其中第 2 条偏重要）。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11

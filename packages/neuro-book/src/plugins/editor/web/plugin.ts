@@ -44,6 +44,7 @@ import {EditorRegistry} from "./editor-registry";
 import {BUILTIN_EDITORS} from "./editors";
 import {editorRecentStore} from "./recent-record";
 import {createEditorSession} from "./session";
+import {commentMarginOf, commentMarginStore, memoryCommentMargin} from "./comment-margin-record";
 import {editorTabsStore} from "./tabs-record";
 import {editorState, editorStateValues} from "./state";
 import {EDITOR_STATUS_ITEMS, editorStatusItems} from "./status-items";
@@ -282,6 +283,8 @@ export const editorBrowserPlugin: PluginDefinition = {
                 }};
             };
             const toolbarVisible = computed(() => settings.get(markdownToolbarSetting));
+            // 批注页边的开关（输出 33）：按作品记在本机；没有绑定作品时只在这次运行里记着。
+            const commentMargin = project === null ? memoryCommentMargin() : commentMarginOf(commentMarginStore.create(context, {storage, diagnostics}));
             const menus = createEditorMenus({
                 area: () => session.area.value,
                 commands,
@@ -299,6 +302,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                 version: commandsVersion,
                 toolbarVisible,
                 toolbarPlacement: computed(() => settings.get(markdownToolbarPlacementSetting)),
+                commentMargin: commentMargin.on,
                 notify: (message) => session.area.value?.notify(message),
                 report,
             });
@@ -349,13 +353,13 @@ export const editorBrowserPlugin: PluginDefinition = {
                     };
                 },
             };
-            const published = bindingsOf(editorState, editorStateValues(session.area, toolbarVisible));
+            const published = bindingsOf(editorState, editorStateValues(session.area, toolbarVisible, commentMargin.on));
             return {
                 services: [provideService(documentCoordinatorKey, session.coordinator)],
                 receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver(), [EDITOR_TAB_CONTEXT_POINT]: tabMenuItems.receiver(), [EDITOR_TOOLBAR_POINT]: toolbarItems.receiver(), [EDITOR_SELECTION_POINT]: selectionItems.receiver(), [EDITOR_SLASH_POINT]: slashItems.receiver(), [EDITOR_BLOCK_POINT]: blockItems.receiver(), [EDITOR_BODY_CONTEXT_POINT]: bodyContextItems.receiver(), [EDITOR_CODE_CONTEXT_POINT]: codeContextItems.receiver(), [EDITOR_EDITORS_POINT]: editors.receiver(), [EDITOR_LANGUAGES_POINT]: languages.receiver()},
                 contributions: {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
-                    [COMMANDS_POINT]: {...editingCommands(session.area, {toggleToolbar: () => settings.update(markdownToolbarSetting, !settings.get(markdownToolbarSetting))}), ...editorCommands(session.area, {pages, editors: editors.catalog, languages, pick: quickPick.status === "resolved" ? quickPick.instance : null, ...commandSources})},
+                    [COMMANDS_POINT]: {...editingCommands(session.area, {toggleToolbar: () => settings.update(markdownToolbarSetting, !settings.get(markdownToolbarSetting)), toggleCommentMargin: commentMargin.toggle}), ...editorCommands(session.area, {pages, editors: editors.catalog, languages, pick: quickPick.status === "resolved" ? quickPick.instance : null, ...commandSources})},
                     [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(builtins, MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(builtins, CODE_EDITOR)},
                     [EDITOR_LANGUAGES_POINT]: Object.fromEntries(MONACO_LANGUAGES.map((entry) => [entry.id, monacoLanguageImplementation(entry)])),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),

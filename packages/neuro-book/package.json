@@ -35,9 +35,12 @@
     },
     "dependencies": {
         "@notnotype/nb-canon": "workspace:*",
+        "@notnotype/nb-file-lock": "workspace:*",
         "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-harness": "workspace:*",
+        "@notnotype/nb-host": "workspace:*",
         "@notnotype/nb-markdown": "workspace:*",
+        "@notnotype/nb-models": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@notnotype/nb-time": "workspace:*",
         "@oh-my-pi/pi-natives": "18.14.0",
@@ -51,7 +54,6 @@
         "jsonc-parser": "^3.3.1",
         "open": "^11.0.0",
         "pinyin-pro": "^3.28.1",
-        "proper-lockfile": "4.1.2",
         "semver": "^7.8.5",
         "typebox": "^1.3.6",
         "yaml": "^2.8.2"

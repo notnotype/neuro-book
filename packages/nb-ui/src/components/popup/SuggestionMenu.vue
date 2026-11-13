@@ -180,7 +180,7 @@ defineExpose({
                 :collision-padding="COLLISION_PADDING"
                 sticky="always"
                 update-position-strategy="always"
-                class="nb-ui-popover-surface nb-ui-menu-surface relative flex max-h-[var(--reka-popper-available-height)] flex-col overflow-hidden text-[var(--text-main)] outline-none"
+                class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion nb-ui-popover-motion--enter-only relative flex max-h-[var(--reka-popper-available-height)] flex-col overflow-hidden text-[var(--text-main)] outline-none"
                 :class="widthClass"
                 :style="{zIndex}"
                 data-suggestion-menu

@@ -6,14 +6,16 @@ import type {Editor} from "@tiptap/core";
 import {Selection} from "@tiptap/pm/state";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
-import {EDITOR_BODY_CONTEXT_POINT} from "nbook/plugins/editor/shared/contracts";
+import {EDITING_ACTIONS, EDITOR_BODY_CONTEXT_POINT} from "nbook/plugins/editor/shared/contracts";
 import type {EditorEditing, EditorMenus} from "nbook/plugins/editor/shared/contracts";
 
 import {copyOrCut, paste} from "./clipboard";
 
 const props = defineProps<{editor: Editor | null; scroller: HTMLElement | null; editing: EditorEditing; menus: EditorMenus; readonly: boolean; binding: string | null}>();
+const emit = defineEmits<{(event: "comment"): void; (event: "open", open: boolean): void}>();
 
 const open = ref(false);
+watch(open, (now) => emit("open", now));
 const at = ref({x: 0, y: 0});
 
 /** 点在选区内保留选区，点在选区外光标移到点击处（输出 21）。聚焦让这一组成为活动组：`EditorGroup` 的 `pointerdown` 只认左键。 */
@@ -73,6 +75,8 @@ const items = computed<ContextMenuItem[]>(() => {
         copy,
         {label: props.menus.label("paste"), iconClass: "i-lucide-clipboard", shortcut: props.menus.keyLabel("Mod+V"), action: () => pasteWith(false)},
         {label: props.menus.label("pastePlain"), iconClass: "i-lucide-clipboard-type", shortcut: props.menus.keyLabel("Mod+Shift+V"), action: () => pasteWith(true)},
+        {separator: true},
+        {label: props.menus.title("comment"), iconClass: EDITING_ACTIONS.comment.icon, ...(props.menus.shortcut("comment") === null ? {} : {shortcut: props.menus.shortcut("comment") as string}), disabled: !props.editing.enabled("comment"), action: () => emit("comment")},
         {separator: true},
         selectAll,
         ...contributed.flatMap((section): ContextMenuItem[] => [{separator: true}, ...section]),

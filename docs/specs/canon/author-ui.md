@@ -61,7 +61,7 @@ owners:
 | `nbook.canon.new-entry` | `{parent?}` | 打开新建条目的对话框 |
 | `nbook.canon.show-pending` | 无 | 显示底部面板并切到待处理视图 |
 
-**数据分页的贡献点** `canon.component-views`：只接受浏览器入口，必须交实现（`implementation: "required"`），贡献 id 是 Component 类型 id（[`canon.components`](components.md) 输出 1）并按插件 id 的前缀校验（`idPrefix: "plugin"`），所以第三方插件只能给自己的类型交界面；内置插件之间靠约定，同一个类型后交的被拒。`title` 不写时用界面文字的约定键 `componentViews.<类型 id>.title`，再没有就用类型的显示名。
+**数据分页的贡献点** `canon.component-views`：只接受浏览器入口，必须交实现（`implementation: "required"`），贡献 id 是 Component 类型 id（[`canon.components`](components.md) 输出 1）并按插件 id 的前缀校验（`idPrefix: "plugin"`），所以第三方插件只能给自己的类型交界面；内置插件之间靠约定，同一个类型后交的被拒。`title` 不写时补界面文字的约定键 `componentViews.<本地 id>.title`（本地 id 是类型 id 去掉插件 id 的前缀，同视图与页面的约定键）。
 
 ```ts
 interface ComponentViewDeclaration {
@@ -84,6 +84,12 @@ interface ComponentViewContext {
     readonly fields: Readonly<Record<string, FieldState>>;
     /** 这个类型的字段声明（canon.components 输出 21），含条目上实例声明的。 */
     readonly declarations: readonly FieldDeclaration[];
+    /** 这个分页在标签上的状态（例如面板选中的值卡）：界面组件随标签卸载，要跨“切走再回来”保留的放在这里，寿命同输出 7。 */
+    readonly state: Record<string, unknown>;
+    /** 写入入口不可用时的原因（输出 28 的只读、独占，输出 27 的断开）；可以写时为 null。 */
+    readonly blocked: Text | null;
+    /** 把一次安放写成界面上的“第 N 章”“前史”（同条目页，按章表的序号）。 */
+    place(at: Placement): string;
     /** 一个地址的来历的一页（canon.model 输出 37），从最近一步往前；`path` 是这个命名空间里的路径。 */
     origins(path: string, cursor?: string): Promise<OriginsPage>;
     /** 让条目页对这个地址打开就地改的确认条（输出 16）；输入控件在确认条里，界面自己不画。 */

@@ -10,9 +10,10 @@ import type {JsonValue, LogEvent, SessionIndexEntry, SessionSnapshot, StorageRes
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {SessionUnavailable, type SessionTable} from "@notnotype/nb-harness/kit/sessions";
 
+import {PushThrottle} from "nbook/shared/push-throttle";
+
 import type {ProfileEntry} from "../../shared/contracts";
 import type {TreeItem, TreeState} from "../../shared/subagents";
-import {PushThrottle} from "../push-throttle";
 import type {JobCenter} from "../jobs/center";
 import {isLive} from "../jobs/center";
 import type {SessionRelations} from "./relations";

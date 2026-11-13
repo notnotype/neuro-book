@@ -1,0 +1,94 @@
+审查对象：提交 7bfd06222（HEAD 已核对为 7bfd0622210b0960094f108feb94dd013e9067b2），base 5118888b3。
+已跑：comments 目录 vitest 3 文件 66 条全过。未改仓库文件，未做仓库内变异实验；用 /tmp/t23-fix-review/exp/ 下独立 HTML 在本机 Chrome 156 里验证了几条 CSS 判断（见各条）。
+
+发现 1
+严重程度：重要
+类别：测试
+位置：packages/neuro-book/e2e/markdown-comments.e2e.ts，“右上角的按钮不压字”里的 lines()（约 710 行起）
+现象：lines() 取 `body.firstChild as Text` 的 range 矩形，拿“按钮显现前后文字位置一个像素不动”做断言。但 body 的第一个子节点是占位 `span.markdown-comment-card__reserve`（非只读或有 pager 时），不是文本节点；只读且单条时是 `<!--v-if-->` 注释节点。对空 span 做 selectNodeContents 再 getClientRects 得到 0 个矩形，lines() 恒返回 ["", ""]。
+为什么是问题：`expect(await lines()).toEqual(idle)` 是两个空串数组比较，永远通过，测试标题与注释声称的“文字位置不变”没有被测到。按钮绝对定位、本来就不会推动文字，真正会让文字位置随显隐变化的回归（例如把占位改成只在显现时才有）测不出来。
+如何核实：Chrome 156 里用与卡片相同的结构（`<p style="display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden"><span style="float:right;width:118px;height:1.55em"></span>长文字</p>`），对 p.firstChild 做 Range.selectNodeContents 后 getClientRects().length 为 0（实测输出 first=SPAN rectsOfFirst=0）；对 p.lastChild（文本）才有矩形。
+建议改法：取 body 的最后一个文本子节点（`[...body.childNodes].filter(n => n.nodeType === Node.TEXT_NODE)`，与 overlaps() 一致），并断言 idle 里每项非空，免得再次空转。
+
+
+发现 2
+严重程度：建议
+类别：不变量
+位置：MarkdownCommentMargin.vue 的 `.markdown-comment-margin__item[data-ready] :deep(.markdown-comment-card__body--clamped)` 一条（约 399 行）；注释与 Spec 只写了“收起”
+现象：延后写在“限行样式”上，不是写在“展开到收起”这个事件上。已显示槽位里，只要 `--markdown-comment-lines` 变了（窗口缩放使段落重新折行、正文打字使段高变、同一槽位范围变化），限行也晚 --motion-move（280ms）才生效，而 layout() 立刻按新行数改了卡片面高度与 naturalOf。
+为什么是问题：实测（Chrome 156，b.html，同一份 transition 列表）lines 3 到 2 后 +60ms 正文高度仍是 60（3 行），+460ms 才是 40。行数减少时文字被正在缩的卡片面裁一阵再突然出省略号；行数增加（2 到 3）时卡片面先长出一行空白、文字仍是 2 行加省略号，280ms 后才跳成 3 行。边写正文边看页边时每次折行变化都会出现。不严重，但注释与 Spec 都没说这是已知行为，读者会以为只在收起时生效。
+如何核实：在真实浏览器里开页边，拖窄编辑组到一段刚好多折一行，看对应卡片；或照 /tmp/t23-fix-review/exp/b.html 的做法（full 与 noline 两列）。
+建议改法：二选一。(a) 注释与 Spec 写明“限行变化一律晚一个过渡，包括重新折行”，记为已知限制；(b) 只在收起时延后：给槽位加一个“刚收起”的标记（如 expanded 由真变假时设 data-collapsing，一个 --motion-move 后摘掉），transition 只挂在该标记下。窄场景倾向 (a)。
+
+
+发现 3
+严重程度：建议
+类别：不变量
+位置：packages/neuro-book/src/plugins/workbench/web/document/WorkbenchDocument.vue 59-62 行（`:root[data-nb-skin-frame] :is(.nb-ui-popover-surface, .nb-ui-dialog-surface)`）；docs/specs/theme/skins.md 输出 13；MarkdownCommentMargin.vue 的 `:class`（约 298 行）
+现象：页边卡片面现在带 `.nb-ui-popover-surface`，所以在有画框的皮肤下，当前的、写着的、展开的卡片会被画上 `outline: 1px solid … !important; outline-offset: -4px`。该处注释写的前提是“浮层都挂在 body 上，不在这个组件里”，Spec 输出 13 列的是“菜单、气泡、对话框、抽屉与设置窗口等浮层”，页边卡片是编辑区里的 DOM 后代，两处都没把它算进来或排除。
+为什么是问题：(1) 画框线从 idle 到 current 瞬间出现，outline 不在卡片面的 transition 列表里，其它属性在渐变；(2) 按几何推算：线在描边内 4 到 5px，页边卡片上下内边距 4px 加描边 1px，线正好贴着文字行盒的上沿与下沿，只有一行高的卡片（约 30px）里像把字框在细线上；右上角按钮盒（top 2、right 4）上沿与右缘与线重合，悬停底会被线横穿。(3) 规范与实现的关系没有记录，是“碰巧生效”。这是从代码与尺寸推算，未在带 frame 的皮肤里截图，不确定视觉上是否难看。
+如何核实：用带 `frame` 的皮肤（skins.md 输出 13 的书房）开页边，点一条批注看当前卡片；对比浮层里的批注卡片。
+建议改法：由开发者定。若不要：给卡片面加一个让画框规则不命中的写法（例如框规则改成 `:not([data-markdown-comment-margin] *)`，或给卡片面加 `data-no-skin-frame` 并在规则里排除），并在 Spec 输出 13 写“页边卡片不画”；若要：Spec 写明并给 outline 加过渡，截图确认与按钮的关系。
+
+
+发现 4
+严重程度：建议
+类别：不变量（基线浏览器）
+位置：MarkdownCommentMargin.vue 的收起延后一条 transition（约 399-402 行）
+现象：`transition: … allow-discrete` 在基线浏览器（packages/neuro-book/AGENTS.md：Chrome、Edge 119，Firefox 124，Safari 17.4）里：Chrome 117 起、Safari 17.4 认；Firefox 到 129 才认。Firefox 124 到 128 里整条 transition 声明因含不认识的关键字而无效被丢弃，限行不延后，退回到修之前的“文字先跳成几行、框再缩”。这个退化本身可以接受（只是一处动画），但注释没写。
+为什么是问题：design-language.md 第 850 行附近的判据是“用比基线新的写法时先写基线能认的兜底、写明退化”；这里没有兜底也没有写退化，读者与后来的审查会再问一遍。另外实测 Chrome 156 里 transition 列表必须含 `-webkit-line-clamp` 才延后（只列 display、overflow、max-height 或只列无前缀 line-clamp 都是立刻限行），所以两个名字都留着是对的，但注释没说明“不要删前缀的那条”，容易被当成冗余删掉。
+如何核实：Chrome 156 下运行 /tmp/t23-fix-review/exp/b.html（run.mjs 驱动）：full、noline 两列 +50ms 仍是 181（延后），partial、lineonly 两列已是 60（立刻）。Firefox 124 从版本表推断，未实测。
+建议改法：在注释里写一句“Firefox 129 以前不认 allow-discrete，整条丢弃，退化为立刻限行；`-webkit-line-clamp` 那一项是起作用的，不能删”。
+
+
+发现 5
+严重程度：建议
+类别：不变量（基线浏览器，未验证）
+位置：MarkdownCommentCard.vue 的 `.markdown-comment-card__reserve`（float: right）放在 `.markdown-comment-card__body--clamped`（display: -webkit-box）里
+现象：Chrome 156 里成立：实测（c.html）占位在第一行右侧，第一行文字右缘 139、其余行到 256，省略号在最后一行末尾，截图已看。但 Chrome 156 把带 line-clamp 的 -webkit-box 的 computed display 解析成 flow-root（实测 getComputedStyle 输出），这是新行为。基线是 Chrome 119 与 Firefox 124：旧实现里 `-webkit-box` 是 flexbox 的变体，子元素被块化，float 对 flex 项无效，占位 span 会成为自己的一行（1.55em 高）排在文字上面，每张非只读的卡片多出一行空白，且 line-clamp 的行数不含它。上一轮（t23 impl-review-1）只在 Chrome 里验证过占位；本提交把占位从“有 pager 才有”扩大到“每张非只读卡片都有”，影响面变大。
+为什么是问题：这是 Firefox 的已知行为（-webkit-box 即 legacy flex 的别名）；Chrome 119 是从旧 LayoutNG 行为推断的。两者都未在本机验证（本机只有 Chrome 156）。
+如何核实：Firefox 124 或 Chrome 119 打开 /tmp/t23-fix-review/exp/c.html（把 `.b` 的样式贴进页边卡片）看第一行是否空一整行。
+建议改法：若基线浏览器真有这个问题，把 float 与文字放进一个不是 -webkit-box 的块里，限行放在外层不能用 float 时改用 `line-clamp` 标准写法，或者占位用 `padding-right` 加第一行的 `text-indent` 以外的办法；窄场景也可以直接在 Spec 记为“基线外浏览器占位可能多一行”的已知限制。需要先在基线浏览器里确认。
+
+
+发现 6
+严重程度：建议
+类别：测试
+位置：e2e/markdown-comments.e2e.ts 三条新增测试；MarkdownCommentMargin.dom.test.ts 新增“卡片面”测试
+现象：能活下来的变异：
+(a) 去掉 `.markdown-comment-margin__item[data-ready] :deep(...)` 里的 `[data-ready]`：首次显示时 `--markdown-comment-lines` 从缺省 3 变成真实行数会被延后 280ms。收起测试里“第一次排好之后限行立刻生效”用的是 expect.poll(...)，会等到延后结束再通过，测不出“立刻”。
+(b) 卡片面测试标题写“当前的与展开的是浮层”，只点了当前（mode=current、未展开）；`|| slot.expanded` 这半个条件没有任何一条测试单独覆盖。按 MarginSlot 合同与 MarkdownCommentLayer.vue 219 行，expanded 为真时 mode 必是 current 或 write，所以这半个条件恒冗余。
+(c) 页边卡片面“idle 是实心淡底”只检查了 backdrop-filter 与 box-shadow 为 none，没检查背景色不透明；反馈 3 的另一半“太透明”只靠“用了浮层基座”间接保证。
+(d) DOM 测试只断言类名 `nb-ui-popover-surface` 与 `.markdown-comment-card__reserve` 的有无，没有断言占位宽度；宽度只由 e2e 的 1px 容差重叠检查守着，属于可接受。
+(e) 新增 e2e 收起测试用 900ms 的 rAF 采样：中间帧由 face 高度筛（foldedFace+4 到 openFace-4），框的过渡与限行延后同一起点同一时长，按 ease-layout 的长尾，中间帧都在 flip 之前，逻辑上没有竞态；但机器卡到主线程停 130ms 以上时 during.length 可能为 0 而误报，风险低。
+如何核实：(a) 删掉 [data-ready] 后跑该 e2e；(b)(c) 读测试。
+建议改法：(a) 把“第一次限行立刻生效”改成在 data-ready 出现的同一帧内断言 body 高度已限行，不用 poll；(b) 要么补一条 mode=write 或 expanded 的 e2e 断言，要么删掉恒冗余的 `|| slot.expanded` 并在 MarginSlot 注释写明 expanded 蕴含 current 或 write；(c) 断言 idle 面 backgroundColor 的 alpha 为 1（或与 bg-panel 混合后不透明）。
+
+
+发现 7
+严重程度：建议
+类别：代码质量 / 文档
+位置：MarkdownCommentCard.vue 样式（`--markdown-comment-actions-w: 48px`、`--markdown-comment-pager-w: 76px`、`width: calc(… - 6px)`、`.overlay { right: 4px }`、`.pager-count { min-width: 28px }`、卡片内边距 10px）；MarkdownCommentCard.vue 样式区头注释；MarkdownCommentMargin.md 重排一节
+现象：
+(1) 占位宽度是几处硬编码数字推出来的：IconButton xs 的 24px、overlay 的 right: 4px、卡片右内边距 10px、页码 28px。任何一处改了（nb-ui 调 xs 尺寸、页码到 `10/12` 这样 12px 字号约 30px 宽超过 28px 而撑宽 2px）占位就不对。目前只有 e2e 的 1px 容差重叠检查守着，并且那条的 lines() 又是空转（发现 1）。实际影响很小：按钮图标在 24px 按钮里内缩约 4.5px，页码超出 2px 不会压到字。另外两条同特异性的变量规则（`[data-variant="margin"]` 写 0px，`[data-actions]`、`[data-pager]` 覆盖）靠书写顺序成立，没有注释。
+(2) 更不易碎的做法：让 overlay 本身就是 float 的内容（占位里放控件，控件显隐只改 opacity 与 visibility），宽度由真实内容撑出来，不需要这组数字。代价是控件落入 -webkit-box 的问题（见发现 5），所以现在的做法可以接受，但值得在注释里写“数字依赖 IconButton xs=24px”。
+(3) 样式区头注释仍写“页边里的卡片自己画底色与边（MarkdownCommentMargin.vue）”，现在当前、展开的卡片面用的是浮层基座，只有 idle 自己画，已不准确。
+(4) MarkdownCommentMargin.md 的“重排”一节仍列“限行数变了”为触发卡片自然高度变化的情形，现在限行数由 layout 一遍算出，不再经由卡片高度回传，措辞可改。
+建议改法：补一句依赖说明与顺序说明；更新两处过时措辞。
+
+
+发现 5 的建议改法更正（上面那条后半句表述不清）：若基线浏览器确有问题，办法是让占位与文字所在的块不是 -webkit-box：把限行放到外层 -webkit-box 里的一个内部块（`<div class=text>`）上不行（float 要和文字同一个块格式化上下文），所以更可行的是在 Spec 记为基线外（Firefox 124、Chrome 119）占位可能多占一行的已知限制，或改用标准 `line-clamp`；先在基线浏览器里确认再定。
+
+未发现问题的方面（仔细检查后）：
+- 占位宽度与按钮左缘在 Chrome 156 里数值上对得上：控件左缘 = 卡片宽 - 4 - 124，占位左缘 = 卡片宽 - 10 - (124 - 6)，相等；第二行不被绕开（float 高 1.55em 等于一行）；省略号在最后一行末尾；占位不计入 scrollHeight（实测 p.scrollHeight=20 与高 20.14 一致）。
+- `line-clamp` 与 `-webkit-line-clamp` 在 Chrome 156 里不是别名，两者都列没有错（见发现 4）。
+- 展开立即放开、收起延后在 Chrome 156 里实测正确（移除类后立刻 181，加类后 280ms 才限行）；`--motion-move` 为 0 时延迟为 0，不生效。
+- naturalOf：scrollHeight 在 clamp 状态下仍是全文高度（实测 161），取整误差 0.15 到 0.5px 落在卡片下内边距里，不裁到字；意见为空时有“空”字一行；写模式与展开分支走卡片实际高度；idle、slotRange 夹取未变，与 margin-layout.ts 合同一致；展开槽位 `height: max(idle, natural)` 没变。
+- RO 触发：限行数不再经卡片高度回传，layout 由 slots、version、session、滚动容器与稿纸尺寸、卡片实际高度、字体加载触发；没找到漏掉的触发。收起延后结束时卡片实际高度变化会再触发一次 layout，结果相同，`same` 判断挡住。
+- `.markdown-comment-margin__surface:not(.nb-ui-popover-surface)` 的判断正确：scoped 样式不在 @layer，非分层样式恒压过分层样式；描边宽度、圆角（`--nb-popover-radius` 无人设置，退回 `--radius-panel`）、描边样式两种状态一致，background 简写会把 background-image 置 none 与基座一致。
+- 浮层基座的磨砂：isolation 不是 backdrop root（design-language 踩坑 13），槽位入场动画期间 opacity 小于 1 时磨砂采不到后面，动画结束才出现，视觉影响很小；工作台插件里没有给编辑区祖先加 backdrop-filter。
+- 没有删改任务之外的代码：删除的 `gap: 2px`、actions 的圆角与底色、`--markdown-comment-surface` 变量都是本改动要去掉的，且无其它引用。
+- Spec 主工作区 markdown-editing.md 输出 29、33、验收 15、22 与实现一致，没有残留旧行为的描述。
+
+有效发现的编号：1、2、3、4、5、6、7
+数量：阻断 0，重要 1（发现 1），建议 6（发现 2 到 7）。

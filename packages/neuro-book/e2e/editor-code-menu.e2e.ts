@@ -279,7 +279,7 @@ for (const [theme, appearance] of [["nbook", "light"], ["nbook", "dark"], ["maco
         const cases = [["\"key\"", "--syntax-attribute"], ["\"value\"", "--syntax-string"], ["12", "--syntax-number"], ["true", "--syntax-keyword"]] as const;
         const background = await editor(page).locator(".monaco-editor-background").first().evaluate((node) => getComputedStyle(node).backgroundColor);
         const bg = (/^rgba?\((\d+), (\d+), (\d+)/u.exec(background) ?? []).slice(1).map(Number);
-        expect(near(bg, await resolved(page, "var(--bg-main)"))).toBe(true);
+        expect(near(bg, await resolved(page, "var(--bg-panel)"))).toBe(true);
         const seen: number[][] = [];
         for (const [text, variable] of cases) {
             const expected = await resolved(page, `var(${variable})`);
