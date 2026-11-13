@@ -32,6 +32,7 @@
         "src/server",
         "src/project",
         "src/shared",
+        "src/desktop",
         "src/plugin-platform/backend",
         "src/plugin-platform/shared",
         "src/plugin-platform/build",
@@ -43,6 +44,7 @@
         "src/**/*.test.ts",
         "plugin-sdk",
         "scripts",
+        "desktop/scripts",
         "vite.config.ts",
         "vite.e2e.config.ts",
         "vitest.config.ts"
