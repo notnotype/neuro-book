@@ -86,12 +86,20 @@ export interface PackedApp {
     readonly tarball: string;
 }
 
-/** 清空上次生成的应用包。输出目录来自命令行，传错了不能被递归删除：只认不存在、为空，或者带标记文件的目录。 */
-export async function clearPreviousApp(outDir: string): Promise<void> {
+/**
+ * 清空上次生成的目录。输出目录来自命令行，传错了不能被递归删除：只认不存在、为空，或者带标记文件（内容是 `owner`）的目录。
+ * 应用包与桌面载荷（`desktop-payload.ts`）各用自己的标记。
+ */
+export async function clearGenerated(outDir: string, marker: string, owner: string): Promise<void> {
     if (!existsSync(outDir) || (await readdir(outDir)).length === 0) return;
-    const marker = await readFile(join(outDir, MARKER), "utf8").catch(() => null);
-    if (marker?.trim() !== APP_NAME) throw new Error(`输出目录 ${outDir} 不是空的，也不是上次生成的 ${APP_NAME}（没有 ${MARKER}），不清理`);
+    const found = await readFile(join(outDir, marker), "utf8").catch(() => null);
+    if (found?.trim() !== owner) throw new Error(`输出目录 ${outDir} 不是空的，也不是上次生成的 ${owner}（没有 ${marker}），不清理`);
     await rm(outDir, {recursive: true});
+}
+
+/** 清空上次生成的应用包。 */
+export function clearPreviousApp(outDir: string): Promise<void> {
+    return clearGenerated(outDir, MARKER, APP_NAME);
 }
 
 /** bundle 里不该有的东西：内置模块之外的导入，以及运行时按路径找文件的写法。返回问题列表，空表示通过。 */

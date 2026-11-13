@@ -338,10 +338,28 @@ async function checkWorkbench(url: string): Promise<void> {
 }
 
 /**
+ * 桌面载荷（`packages/neuro-book/scripts/desktop-payload.ts`）：用这次打的应用包按本机平台组装，以托管方式运行 `app/server/main.js`。
+ * 正式的发布清单要等冒烟全部通过才写，这里另写一份只给组装用的清单，tarball 写绝对路径。
+ */
+async function smokeDesktopPayload(root: string, manifest: ReleaseManifest, nbook: string, env: Record<string, string>): Promise<void> {
+    const pending = join(root, "release-manifest.json");
+    await writeJson(pending, {...manifest, packages: manifest.packages.map((entry) => ({...entry, tarball: join(RELEASE_DIRECTORY, entry.tarball)}))});
+    const payload = join(root, "desktop-payload");
+    await mustRun("组装桌面载荷", ["bun", join(REPOSITORY, "packages", "neuro-book", "scripts", "desktop-payload.ts"), pending, payload], {cwd: root, env});
+    const listed = JSON.parse(await readFile(join(payload, "payload-manifest.json"), "utf8")) as {commit?: string; tarball?: {sha256?: string}};
+    const app = manifest.packages.find((entry) => entry.name === APP_PACKAGE);
+    if (listed.commit !== manifest.commit || listed.tarball?.sha256 !== app?.sha256) fail(`载荷清单的提交或 tarball 摘要与发布清单不同：${JSON.stringify(listed.tarball)}`);
+    const managedState = join(root, "payload-state");
+    await mkdir(managedState);
+    await withManagedEntry(join(payload, "app"), nbook, managedState, env, checkWorkbench);
+    step("桌面载荷：由同一个应用包 tarball 组装，依赖与仓库根 bun.lock 一致，托管入口打开书架、写 stop 后以 0 退出");
+}
+
+/**
  * 用户装应用、作者写插件、用户装插件：都在 `root` 下的空目录里，`BUN_INSTALL`、`HOME` 指向临时目录，不碰开发者自己的
  * 全局包、缓存与数据。
  */
-async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>, tarballs: ReadonlyMap<string, string>): Promise<void> {
+async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>, tarballs: ReadonlyMap<string, string>, manifest: ReleaseManifest | null): Promise<void> {
     const appName = APP_PACKAGE;
     const sdkName = SDK_PACKAGE;
     const bunHome = join(root, "bun-home");
@@ -367,6 +385,7 @@ async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>,
     await mkdir(managedState);
     await withManagedEntry(installed, nbook, managedState, env, checkWorkbench);
     step("托管入口 server/main.js：以 --stop-stdin 起来，页面打开书架，写 stop 后以 0 退出");
+    if (manifest !== null) await smokeDesktopPayload(root, manifest, nbook, env);
 
     const sdkFlags = tarballs.has(sdkName) ? ["--sdk", `file:${sdkSpec}`] : [];
     await mustRun("bunx -p SDK nbooke create", ["bunx", "-p", sdkSpec, "nbooke", "create", "hello", "--publisher", "smoke", ...sdkFlags], {cwd: authors, env});
@@ -444,7 +463,7 @@ if (import.meta.main) {
         const from = sources(packages, tarballs);
         await smokeStory(root, from);
         await smokeVueHost(root, from);
-        await smokeAppAndPlugin(root, from, tarballs);
+        await smokeAppAndPlugin(root, from, tarballs, manifest);
         if (manifest !== null) {
             // master 被几个会话共用，冒烟期间别处的提交照常进来；只要会发布的目录没变，打出的字节就还是开始时那份代码的。
             const changed = releaseFilesChangedSince(manifest.commit, releaseDirectories());
