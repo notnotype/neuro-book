@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {createGrid} from "./grid";
-import {enteringRects, flyingContents, followingLeaves, grownRect, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored, settleFloatMoves, stableOrder} from "./grid-motion";
+import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, grownRect, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored, settleFloatMoves, stableOrder} from "./grid-motion";
 import {floatPlacements, layerItems, placeContents, placeGrid} from "./grid-rects";
 import type {GridLayerItem} from "./grid-rects";
 import type {GridNodeInput} from "./grid-types";
@@ -430,5 +430,42 @@ describe("只有浮动窗的矩形变了", () => {
         const swapped = windowAt(500, "g");
         const settled = settleFloatMoves(swapped, windowAt(0));
         expect(settled.find((item) => item.kind === "content")?.rect).toEqual(rect(500));
+    });
+});
+
+describe("新开的浮动窗从内容原来的叶出发（输出“过渡”）", () => {
+    const WINDOW = {x: 300, y: 40, width: 400, height: 200};
+    /** 一行叶，加上 `windows` 里的浮动窗（都在 `WINDOW`），内容项面板头 32。 */
+    const scene = (widths: Record<string, number>, contents: ReadonlyArray<{key: string; leaf: string; active?: boolean; insetTop?: number}>, windows: ReadonlyArray<string> = []) => {
+        const children = Object.entries(widths).map(([id, width]) => leaf(id, width));
+        const {node, layout} = grid({kind: "branch", id: "root", orientation: "horizontal", children}, 4, {width: 1000, height: 300});
+        const items = [...placeGrid(node, layout, {width: 1000, height: 300}, 1).items, ...floatPlacements(windows.map((id) => ({id, rect: WINDOW})))];
+        return layerItems(items, placeContents(items, contents.map((content) => ({insetTop: 32, active: true, ...content})), 1));
+    };
+    const rectOfLeaf = (items: ReadonlyArray<GridLayerItem<unknown>>, id: string) => items.find((item): item is Extract<GridLayerItem<unknown>, {kind: "leaf"}> => item.kind === "leaf" && item.node.id === id)?.rect;
+
+    it("视图浮出来、原来那一节没了：窗的起点是那一节上一帧的矩形，整张卡片从原处拿起来；按新叶的规则它没有兄弟，第一帧就在终点", () => {
+        const before = scene({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "b"}]);
+        const after = scene({b: 1000}, [{key: "x", leaf: "f"}, {key: "y", leaf: "b"}], ["f"]);
+        expect(floatLiftStarts(after, before).get("leaf:f")).toEqual(rectOfLeaf(before, "a"));
+        expect(enteringRects(after, before).get("leaf:f")).toEqual(WINDOW);
+    });
+
+    it("多标签的面板里浮出一个、来源还在：同样从来源的矩形出发", () => {
+        const before = scene({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "z", leaf: "a", active: false}]);
+        const after = scene({a: 500, b: 500}, [{key: "x", leaf: "f"}, {key: "z", leaf: "a"}], ["f"]);
+        expect(floatLiftStarts(after, before).get("leaf:f")).toEqual(rectOfLeaf(before, "a"));
+    });
+
+    it("不算：窗上一帧就在（并进已有的窗）；新叶不是窗（拆分出来的）；内容上一帧不活动、没有尺寸（收成标题行）", () => {
+        const into = scene({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "f"}], ["f"]);
+        expect(floatLiftStarts(scene({b: 1000}, [{key: "x", leaf: "f"}, {key: "y", leaf: "f", active: false}], ["f"]), into).size).toBe(0);
+        const split = scene({a: 500, b: 250, n: 250}, [{key: "x", leaf: "n"}]);
+        expect(floatLiftStarts(split, scene({a: 500, b: 500}, [{key: "x", leaf: "a"}])).size).toBe(0);
+        const hidden = scene({a: 500, b: 500}, [{key: "x", leaf: "a", active: false}, {key: "z", leaf: "a"}]);
+        expect(floatLiftStarts(scene({a: 500, b: 500}, [{key: "x", leaf: "f"}, {key: "z", leaf: "a"}], ["f"]), hidden).size).toBe(0);
+        // 收成标题行：叶还有一个面板头高，内容是零。
+        const titleOnly = scene({a: 500, b: 500}, [{key: "x", leaf: "a", insetTop: 300}]);
+        expect(floatLiftStarts(scene({b: 1000}, [{key: "x", leaf: "f"}], ["f"]), titleOnly).size).toBe(0);
     });
 });

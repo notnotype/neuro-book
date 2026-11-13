@@ -3,7 +3,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, ref} from "vue";
 
 import {createGrid} from "../grid";
-import {placeGrid} from "../grid-rects";
+import {floatPlacements, layerItems, placeContents, placeGrid} from "../grid-rects";
 import type {GridPlacementItem} from "../grid-rects";
 import type {GridNodeInput} from "../grid-types";
 import {EMPTY_GRID_MOTION_MEMORY, decideMotion, useGridMotion} from "./useGridMotion";
@@ -87,6 +87,26 @@ describe("decideMotion", () => {
         if (decision.kind !== "move") return;
         expect(decision.entering.has("leaf:l3")).toBe(true);
         expect([...decision.following]).toEqual(["leaf:l0", "leaf:l1", "leaf:l2"]);
+    });
+
+    it("新开的浮动窗：外框从内容原来的叶出发、跟外框（头逐帧重排，不按最终尺寸裁）；拖动中不用，落地另给起点", () => {
+        const window = {x: 100, y: 50, width: 300, height: 200};
+        const scene = (tree: GridPlacementItem<unknown>[], leafId: string, floats: ReadonlyArray<string> = []) => {
+            const all = [...tree, ...floatPlacements(floats.map((id) => ({id, rect: window})))];
+            return layerItems(all, placeContents(all, [{key: "v", leaf: leafId, insetTop: 32, active: true}], 1));
+        };
+        const before = scene(items([300, 200, 200]), "l2");
+        const after = scene(items([400, 300]), "w", ["w"]);
+        const source = before.find((item) => item.kind === "leaf" && item.node.id === "l2")?.rect;
+        const {memory} = warmed();
+        const decision = decideMotion(frame({items: after, previous: before}), memory);
+        if (decision.kind !== "move") throw new Error("应当过渡");
+        expect(decision.entering.get("leaf:w")).toEqual(source);
+        expect(decision.following.has("leaf:w")).toBe(true);
+        expect(decision.keptSize.has("leaf:w")).toBe(false);
+        const dragged = decideMotion(frame({items: after, previous: before, holding: true}), warmed().memory);
+        if (dragged.kind !== "move") throw new Error("应当过渡");
+        expect(dragged.entering.get("leaf:w")).toEqual(window);
     });
 
     it("容器尺寸变了（宿主的根尺寸或自己量到的盒，两个来源晚一拍到）：不过渡，进行中的直接到终点", () => {

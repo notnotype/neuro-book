@@ -9,7 +9,7 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, flyingContents, followingLeaves, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored} from "../grid-motion";
+import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored} from "../grid-motion";
 import type {GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
@@ -90,8 +90,10 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
     if (resized || rescaled) return {kind: "stop"};
     if (first || gesture || frame.previous === null || frame.previous.length === 0) return {kind: "none"};
     if (!placementMoved(frame.items, frame.previous)) return {kind: "none"};
-    const entering = enteringRects(frame.items, frame.previous);
-    const following = followingLeaves(frame.items, frame.previous);
+    // 新开的浮动窗从内容原来的叶出发：在 `enteringRects` 之后并进去，挨着的分隔线不拿它当起点。它跟外框，头逐帧重排，不按最终尺寸裁。
+    const lifts = frame.holding === true ? new Map<string, GridRect>() : floatLiftStarts(frame.items, frame.previous);
+    const entering = new Map([...enteringRects(frame.items, frame.previous), ...lifts]);
+    const following = new Set([...followingLeaves(frame.items, frame.previous), ...lifts.keys()]);
     const flying = flyingContents(frame.items, frame.previous);
     const leaving = leavingPlacements(frame.items, frame.previous, frame.holding === true);
     const kept = keptSizeStarts({items: frame.items, previous: frame.previous, entering, following, leaving});

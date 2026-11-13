@@ -224,6 +224,29 @@ export function enteringRects(items: ReadonlyArray<GridLayerItem<unknown>>, prev
 }
 
 /**
+ * 新开的浮动窗从哪里出发（docs/specs/ui/nested-grid.md 的“过渡”）：窗的叶上一帧没有，它的活动内容上一帧活动着、有尺寸，在另一块叶里；
+ * 起点是那块叶上一帧的矩形（`key` 到矩形），整张卡片从原来的位置拿起来，和内容同一个起点、同一个终点。
+ * 按 `enteringRects`，浮动窗没有兄弟，第一帧就画在终点，内容从旧矩形单独飞过去，两张卡片错开。
+ *
+ * 只管浮动窗：回到树里的窗沿用同一块叶（宿主不换 id），本来就从窗的位置飞回去。内容上一帧停放着、没有尺寸的不算（收成标题行的分节），
+ * 那时内容不跟外框，外框从标题行长出来、内容一下子在终点。拖动中不用（`decideMotion`）：落地的起点是卡片的矩形（`useGridMotion` 的 `land`）。
+ */
+export function floatLiftStarts(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>): ReadonlyMap<string, GridRect> {
+    const known = new Set(previous.map((item) => item.key));
+    const floats = new Set(items.flatMap((item) => (item.kind === "leaf" && item.float === true && !known.has(item.key) ? [item.node.id] : [])));
+    const before = new Map(previous.flatMap((item) => (item.kind === "content" ? [[item.key, item] as const] : [])));
+    const hasSize = (rect: GridRect | null): rect is GridRect => rect !== null && rect.width > 0 && rect.height > 0;
+    const starts = new Map<string, GridRect>();
+    for (const item of items) {
+        if (item.kind !== "content" || !item.active || !floats.has(item.leaf)) continue;
+        const old = before.get(item.key);
+        if (old === undefined || !old.active || old.leaf === item.leaf || !hasSize(old.rect) || !hasSize(old.leafRect)) continue;
+        starts.set(`leaf:${item.leaf}`, old.leafRect);
+    }
+    return starts;
+}
+
+/**
  * 离开的叶里要在过渡里留着缩回去的那些（docs/specs/ui/nested-grid.md 的“过渡”）：上一帧的叶，矩形换成缩到的终点，带 `leaving`。
  * 与 `enteringRects` 对称：从根往下找第一个这一帧没有、下面也没有留下的叶的节点，它和它下面的叶作为一块，沿它在父分支里的主轴缩回
  * 这一帧它前后兄弟相接的那道缝；它在分支一头、挨着的兄弟这一帧到了那一头时，缩向那一头。

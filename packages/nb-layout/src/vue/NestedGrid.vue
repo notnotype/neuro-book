@@ -582,9 +582,16 @@ defineExpose({
     contain: layout;
 }
 
-.nb-grid-frame[data-flying],
-.nb-grid-content[data-flying] {
+/*
+ * 飞的内容压在飞的外框上面，和不飞时一样。不能都是一档、按 DOM 序：换了叶的内容留在原来的 DOM 位置，可能排在新叶的外框前面
+ * （浮动窗回到树里时外框排在最后），外框的卡片底色就把内容盖住了，飞的一路只看得到面板头。
+ */
+.nb-grid-frame[data-flying] {
     z-index: 2;
+}
+
+.nb-grid-content[data-flying] {
+    z-index: 3;
 }
 
 /* 拿起的内容是一张卡片：盖在分隔线上跟手，不接指针（`elementsFromPoint` 要看到底下的面板）。 */
@@ -629,7 +636,7 @@ defineExpose({
 }
 
 .nb-nested-grid > .nb-grid-sash {
-    z-index: 3;
+    z-index: 4;
 }
 
 /* 最大化的面板盖住的分隔线不画：它在面板上面一层，会露出来。 */
