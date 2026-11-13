@@ -294,6 +294,7 @@
       "name": "@notnotype/nb-harness",
       "version": "0.1.1",
       "dependencies": {
+        "@notnotype/nb-flock": "workspace:^",
         "@notnotype/nb-form": "workspace:^",
         "@notnotype/nb-profile": "workspace:^",
         "@notnotype/nb-session": "workspace:^",
@@ -469,6 +470,7 @@
       },
       "dependencies": {
         "@clack/prompts": "^1.0.0",
+        "@notnotype/nb-flock": "workspace:^",
         "@notnotype/nb-harness": "workspace:^",
         "@notnotype/nb-profile": "workspace:^",
         "@notnotype/nb-runtime": "workspace:^",
@@ -576,6 +578,7 @@
       "dependencies": {
         "@notnotype/nb-canon": "workspace:*",
         "@notnotype/nb-file-lock": "workspace:*",
+        "@notnotype/nb-flock": "workspace:*",
         "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-host": "workspace:*",
