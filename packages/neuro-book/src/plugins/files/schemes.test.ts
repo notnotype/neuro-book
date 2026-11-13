@@ -130,6 +130,27 @@ describe("挂载方案", () => {
         expect(await agent.read("notes://a/../b")).toMatchObject({ok: false, code: "invalid-address"});
     });
 
+    test("挂载点另给容器与目录名：读写、列出与真实路径落在那个目录；那个容器是链接时不跟着打开，目录名不能越出容器", async () => {
+        const {agent, root} = await scene({spec: (container) => ({
+            ...notesSpec(container),
+            mount: (name) => ({
+                a: {create: false, container: join(root, "elsewhere"), directory: "real-a"},
+                b: {create: false, container: join(root, "linked")},
+                c: {create: false, container: join(root, "elsewhere"), directory: ".."},
+            })[name] ?? null,
+        })});
+        await mkdir(join(root, "elsewhere", "real-a"), {recursive: true});
+        await writeFile(join(root, "elsewhere", "real-a", "SKILL.md"), "正文");
+        const read = await agent.read("notes://a/SKILL.md");
+        expect(read.ok && new TextDecoder().decode(read.value.bytes)).toBe("正文");
+        expect(await agent.readPath("notes://a/SKILL.md")).toMatchObject({ok: true, value: {path: join(root, "elsewhere", "real-a", "SKILL.md")}});
+        await symlink(join(root, "elsewhere"), join(root, "linked"));
+        await mkdir(join(root, "elsewhere", "b"));
+        await writeFile(join(root, "elsewhere", "b", "x.md"), "x");
+        expect(await agent.read("notes://b/x.md")).toMatchObject({ok: false, code: "root-gone"});
+        expect(await agent.read("notes://c/elsewhere/real-a/SKILL.md")).toMatchObject({ok: false, code: "not-a-directory"});
+    });
+
     test("物化：目录不存在时读 not-found、列出为空；取真实路径与新建建好挂载点与 home；被拒的请求不建目录", async () => {
         const {agent, container} = await scene();
         expect(await agent.read("notes://a/home/x.md")).toMatchObject({ok: false, code: "not-found"});

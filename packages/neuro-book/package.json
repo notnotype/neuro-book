@@ -55,7 +55,8 @@
         "open": "^11.0.0",
         "pinyin-pro": "^3.28.1",
         "semver": "^7.8.5",
-        "typebox": "^1.3.6"
+        "typebox": "^1.3.6",
+        "yaml": "^2.8.2"
     },
     "devDependencies": {
         "@iconify-json/catppuccin": "^1.2.17",

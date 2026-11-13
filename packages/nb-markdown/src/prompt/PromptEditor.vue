@@ -142,6 +142,7 @@ const emit = defineEmits<{
     (e: "focus"): void;
     (e: "blur"): void;
     (e: "menu-open", payload: {trigger: string}): void;
+    (e: "menu-select", payload: {trigger: string; id: string}): void;
     (e: "token-activate", token: PromptEditorToken): void;
     (e: "attachment-add", payload: {localId: string; kind: PromptEditorAttachmentKind; file: File}): void;
     (e: "attachment-retry", payload: {localId: string}): void;
@@ -380,7 +381,7 @@ function toGroups(items: readonly PromptEditorMenuItem[]): SuggestionMenuGroup[]
     items.forEach((item, index) => {
         const last = groups.at(-1);
         if (last === undefined || (item.group ?? undefined) !== last.label) groups.push({id: String(index), label: item.group || undefined, items: []});
-        groups.at(-1)!.items.push({id: item.id, label: item.label, iconClass: item.iconClass, hint: item.description, disabled: item.disabled});
+        groups.at(-1)!.items.push({id: item.id, label: item.label, iconClass: item.iconClass, hint: item.description, disabled: item.disabled, status: item.status});
     });
     return groups;
 }
@@ -420,6 +421,7 @@ function confirmItem(id: string): void {
     }
     insertParsed(current, item.insertText + (item.continues ? "" : " "), {from: active.from, to: active.to, structure: false});
     current.view.focus();
+    emit("menu-select", {trigger: active.trigger, id: item.id});
 }
 
 function handleKeyDown(view: EditorView, event: KeyboardEvent): boolean {

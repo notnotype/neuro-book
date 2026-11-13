@@ -125,8 +125,8 @@ export type CompactionView = {
     model: {name: string; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number | null} | null;
     /** 用到的压缩要求。 */
     require: readonly string[];
-    /** 放回了什么；没有放回（shake）是空数组。 */
-    restored: readonly {kind: "file" | "plan" | "log"; target: string; tokens: number; truncated: boolean}[];
+    /** 放回了什么；没有放回（shake）是空数组。`skill` 的 `target` 是 Skill 的 id（docs/specs/agent/skills.md 输出 17）。 */
+    restored: readonly {kind: "file" | "plan" | "log" | "skill"; target: string; tokens: number; truncated: boolean}[];
     /** 换成占位的工具结果条数。 */
     omitted: number;
     /** 原样保留了最近几轮；切在一轮中间或算不出时是 null。 */
@@ -578,6 +578,8 @@ export type BuiltinAgentViewAction =
     /** 输入框自己处理了一条命令（`/model`）：宿主清掉草稿。 */
     | {type: "composer.commandHandled"}
     | {type: "menu.opened"; trigger: string}
+    /** 确认了宿主菜单里的一项，标签已经插入；宿主做插入之外的事（例如问要不要初始化 Skill）。 */
+    | {type: "menu.selected"; trigger: string; id: string}
     // 运行设置
     | {type: "mode.set"; mode: string}
     | {type: "model.set"; modelKey: string}

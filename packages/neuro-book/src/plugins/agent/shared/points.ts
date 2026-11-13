@@ -85,6 +85,10 @@ const ProfileDeclarationSchema = Type.Object({
         allowed: Type.Array(Type.String({minLength: 1})),
         recommended: Type.Optional(Type.Array(Type.String({minLength: 1}))),
     }, {additionalProperties: false})),
+    /** 能用 `$` 带上哪些 Skill（Skill 的 id），`"all"` 是 Skill 目录里的全部；不写就是空白名单（contributions.md 输出 20）。 */
+    skills: Type.Optional(Type.Object({
+        allowed: Type.Union([Type.Array(Type.String({minLength: 1})), Type.Literal("all")]),
+    }, {additionalProperties: false})),
 }, {additionalProperties: false});
 
 export type AgentExtensionDeclaration = Static<typeof ExtensionDeclarationSchema>;

@@ -26,6 +26,8 @@ const ProfileSettingSchema = Type.Object({
     approvalMode: Type.Optional(Type.Union([Type.Literal("ask"), Type.Literal("allow-writes"), Type.Literal("auto"), Type.Literal("yolo")])),
     /** 可派的子代理在 Profile 声明之外加、减的（profile-settings.md 输出 25）；形状与规则同工具绑定。 */
     agents: Type.Optional(ToolBindingSchema),
+    /** 可用的 Skill 在 Profile 声明之外加、减的（profile-settings.md 输出 26）；形状与规则同工具绑定。 */
+    skills: Type.Optional(ToolBindingSchema),
 }, {additionalProperties: false});
 
 export const ToolBindingsSchema = Type.Record(Type.String({minLength: 1}), ToolBindingSchema);
@@ -45,6 +47,9 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
 
 /** “Profile”页（profile-settings.md）：这两项由页面画，不进“其它”。 */
 export const PROFILES_SECTION = "nbook.agent.profiles";
+
+/** “Skill”页（skills.md 输出 25）：只有页面，没有配置项。 */
+export const SKILLS_SECTION = "nbook.agent.skills";
 
 /** “权限规则”页（permissions.md 输出 22）：这几项由页面画，不进“其它”。 */
 export const PERMISSIONS_SECTION = "nbook.agent.permissions";

@@ -8,6 +8,7 @@ import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {ProfileEntry, ToolCatalogEntry} from "../shared/contracts";
 import type {ToolBinding} from "../shared/profile-tools";
+import type {SkillEntry} from "../shared/skills";
 import enUS from "../locales/en-US.json";
 import zhCN from "../locales/zh-CN.json";
 import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf, withApprovalChoice, withModelChoice} from "./profile-edits";
@@ -268,5 +269,57 @@ describe("可派的子代理一节", () => {
         expect(agents.count).toBe(3);
         expect(agents.modified).toBe(true);
         expect(agents.candidates.flatMap((group) => group.tools.map((row) => row.id)).sort()).toEqual(["main"]);
+    });
+});
+
+describe("Skill 一节（skills.md 的白名单）", () => {
+    const skill = (source: SkillEntry["source"], name: string, extra: Partial<SkillEntry> = {}): SkillEntry => ({id: `${source}.${name}`, name, description: `${name} 的说明`, source, location: `skills://${source}.${name}/SKILL.md`, status: "ready", ...extra});
+    const SKILLS: readonly SkillEntry[] = [
+        skill("builtin", "chapter-summary"),
+        skill("user", "style-guide"),
+        skill("user", "epub-export", {status: "needs-init"}),
+        skill("user", "tts-preview"),
+        skill("user", "outline", {status: "invalid"}),
+    ];
+    const skillsOf = (input: {entry?: ProfileEntry; setting?: object; skills?: readonly SkillEntry[] | null}) => profileViews({
+        profiles: [input.entry ?? entry()],
+        catalog: [],
+        bindings: {},
+        settings: input.setting === undefined ? {} : {x: input.setting},
+        snapshot: snapshot(),
+        modelsFailed: false,
+        pluginName: (plugin) => plugin,
+        text,
+        skills: input.skills === undefined ? SKILLS : input.skills,
+    })[0]!.skills;
+    const groups = (field: ReturnType<typeof skillsOf>) => field?.groups.map((group) => [group.provider, group.tools.map((row) => `${row.id}${row.effect === "" ? "" : `:${row.effect}`}${row.restorable === true ? ":加回" : ""}`)]);
+
+    test("声明全部：目录里的都列出，我的在前、内置在后；未初始化的标出；去掉的收在最后一组“已去掉”，能加回", () => {
+        const field = skillsOf({entry: entry({skills: {allowed: "all"}}), setting: {skills: {added: [], removed: ["user.tts-preview"]}}});
+        expect(groups(field)).toEqual([
+            ["我的 Skill", ["user.style-guide", "user.epub-export:未初始化", "user.outline:无效"]],
+            ["内置", ["builtin.chapter-summary"]],
+            ["已去掉", ["user.tts-preview:加回"]],
+        ]);
+        expect(field).toMatchObject({count: 3, modified: true});
+        expect(field?.candidates.flatMap((group) => group.tools.map((row) => row.id))).toEqual(["user.tts-preview"]);
+    });
+
+    test("没声明就是空的；用户加的标“我加的”；白名单里、目录中没有的列在“已删除或不可用”；无效的不进候选", () => {
+        expect(groups(skillsOf({}))).toEqual([]);
+        const field = skillsOf({entry: entry({skills: {allowed: ["user.style-guide", "user.gone"]}}), setting: {skills: {added: ["builtin.chapter-summary"], removed: []}}});
+        expect(groups(field)).toEqual([
+            ["我的 Skill", ["user.style-guide"]],
+            ["内置", ["builtin.chapter-summary:我加的"]],
+            ["已删除或不可用", ["user.gone"]],
+        ]);
+        expect(field?.groups.at(-1)?.tools[0]).toMatchObject({gone: true, summary: expect.stringContaining("没有找到")});
+        expect(field?.candidates.flatMap((group) => group.tools.map((row) => row.id))).toEqual(["user.epub-export", "user.tts-preview"]);
+    });
+
+    test("Skill 目录还没取到、Profile 从未成功过、后台的 Profile 没有这一节", () => {
+        expect(skillsOf({skills: null})).toBeNull();
+        expect(skillsOf({entry: entry({tools: undefined})})).toBeNull();
+        expect(skillsOf({entry: entry({hidden: true, skills: {allowed: "all"}})})).toBeNull();
     });
 });

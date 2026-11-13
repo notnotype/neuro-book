@@ -5,13 +5,13 @@ import {computed, ref, shallowRef, watch} from "vue";
 import type {ProfileToolCandidate, ProfileToolCandidateGroup, ToolChange} from "../profile-view";
 import {useAgentPageText} from "../text";
 
-/** “添加工具”对话框（同名 .md）；`kind` 为 `agents` 时是“添加可派的子代理”，候选是 Profile。 */
+/** “添加工具”对话框（同名 .md）；`kind` 为 `agents` 时是“添加可派的子代理”，候选是 Profile；为 `skills` 时候选是 Skill。 */
 const props = withDefaults(defineProps<{
     open: boolean;
     candidates: readonly ProfileToolCandidateGroup[];
     busy?: boolean;
     status?: string;
-    kind?: "tools" | "agents";
+    kind?: "tools" | "agents" | "skills";
 }>(), {busy: false, status: "", kind: "tools"});
 
 const emit = defineEmits<{
@@ -20,9 +20,9 @@ const emit = defineEmits<{
 }>();
 
 const text = useAgentPageText();
-/** 返回类型列出两种对话框的全部键：哪一种缺了键，类型检查就报。 */
+/** 返回类型列出几种对话框的全部键：哪一种缺了键，类型检查就报。 */
 type DialogText = "add.title" | "add.done" | "add.search" | "add.empty" | "add.noMatch" | "add.blocked" | "add.replaces" | "add.join" | "add.unjoin";
-const key = (rest: DialogText): `profiles.${"tools" | "agents"}.${DialogText}` => `profiles.${props.kind}.${rest}`;
+const key = (rest: DialogText): `profiles.${"tools" | "agents" | "skills"}.${DialogText}` => `profiles.${props.kind}.${rest}`;
 const query = ref("");
 const picked = ref(new Set<string>());
 /** 打开时定下：开着的时候目录变了不刷新，用户正在看的行不跳。 */

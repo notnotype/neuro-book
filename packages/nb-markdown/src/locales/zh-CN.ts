@@ -12,7 +12,7 @@ export default {
     /** 行内小块的悬停提示（`chip/chip.ts`）。 */
     chip: {
         reference: "引用：{{label}}",
-        skill: "技能：{{name}}",
+        skill: "Skill：{{name}}",
         selection: "选区：{{label}}",
         command: "命令：/{{name}}",
         image: "图片 #{{number}}",

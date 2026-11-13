@@ -8,7 +8,7 @@
 
 ## 布局
 
-外框是弹出列表共用的外框（`.nb-ui-popover-surface .nb-ui-menu-surface`），项是共用的一行（`.nb-ui-menu-item`，行高 `--menu-item-h`、字号 `--menu-item-font`，缺省取 `--text-sm`）：左侧图标、名称、右侧次要文字（`hint`，放不下时先截它）。整个菜单（跨组）有一项带图标时，没有图标的项也留出图标列，名称左边对齐。分组按输入顺序排列，有标题的组画一行分组标题；顶部可以放 `header` 插槽（标题或搜索框），底部在加载时有一行加载提示，都不随列表滚动。没有按键提示的页脚。
+外框是弹出列表共用的外框（`.nb-ui-popover-surface .nb-ui-menu-surface`），项是共用的一行（`.nb-ui-menu-item`，行高 `--menu-item-h`、字号 `--menu-item-font`，缺省取 `--text-sm`）：左侧图标、名称、右侧次要文字（`hint`，放不下时先截它）。整个菜单（跨组）有一项带图标时，没有图标的项也留出图标列，名称左边对齐。行尾可以有一列状态图标（`status`：未初始化、正在初始化这类）：整个菜单有一项带状态时每行都留出这一列（一个图标宽），名称与次要文字的右缘对齐；进行中的画转圈。指针停在图标上显示状态的意思，读屏在名称与次要文字之后读出它。分组按输入顺序排列，有标题的组画一行分组标题；顶部可以放 `header` 插槽（标题或搜索框），底部在加载时有一行加载提示，都不随列表滚动。没有按键提示的页脚。
 
 列表在滚动视口里：项超过 8 个时截在第 9 项的中间，不超过时取自然高度；可滚动时显示悬浮滑块。
 
@@ -73,6 +73,19 @@ type SuggestionMenuItem = {
     disabled?: boolean;
     /** 当前值：行尾画一个勾（SearchSelect 用它标出已选项）；与高亮无关 */
     checked?: boolean;
+    /** 行尾的状态图标；同一个菜单有一项带它时每行都留出这一列 */
+    status?: SuggestionMenuStatus;
+};
+
+type SuggestionMenuStatus = {
+    /** 意思：悬停提示与读屏都用它 */
+    label: string;
+    /** Iconify 类名；busy 时不用 */
+    iconClass?: string;
+    /** 进行中：画转圈代替图标 */
+    busy?: boolean;
+    /** 缺省 neutral（次要色） */
+    tone?: "neutral" | "warning" | "danger";
 };
 
 type SuggestionMenuGroup = {

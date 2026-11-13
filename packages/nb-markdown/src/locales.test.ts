@@ -23,7 +23,7 @@ type Legacy = Readonly<{"zh-CN": string; "en-US": string}>;
 const LEGACY: Readonly<Record<string, Legacy>> = {
     // chip/chip.ts 的 TEXT
     "chip.reference": {"zh-CN": "引用：{label}", "en-US": "Reference: {label}"},
-    "chip.skill": {"zh-CN": "技能：{name}", "en-US": "Skill: {name}"},
+    "chip.skill": {"zh-CN": "Skill：{name}", "en-US": "Skill: {name}"},
     "chip.selection": {"zh-CN": "选区：{label}", "en-US": "Selection: {label}"},
     "chip.command": {"zh-CN": "命令：/{name}", "en-US": "Command: /{name}"},
     "chip.image": {"zh-CN": "图片 #{number}", "en-US": "Image #{number}"},

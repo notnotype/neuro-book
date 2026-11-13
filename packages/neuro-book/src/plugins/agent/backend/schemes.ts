@@ -1,5 +1,5 @@
 /**
- * `nbook.agent` 注册进文件服务的五个方案（docs/specs/agent/resources.md 的“输入与前置条件”表与输出 4–8）。这里只有声明：
+ * `nbook.agent` 注册进文件服务的五个方案（docs/specs/agent/resources.md 的“输入与前置条件”表与输出 4–8、15）。这里只有声明：
  * 根的说明与条目、挂载点、授权规则；读写与目录寿命由 `nbook.files` 管理。
  *
  * 授权按调用方区分：`caller.agent` 是 Agent 会话（由 `nbook.agent` 自己注明，Files 只认它注明），没带的是服务端插件，
@@ -7,13 +7,15 @@
  */
 
 import {lstat} from "node:fs/promises";
-import {join} from "node:path";
+import {basename, dirname, join} from "node:path";
 
 import type {SessionIndexEntry} from "@notnotype/nb-harness/kernel/contracts";
 
 import type {AuthorizeResult, MountedSchemeSpec, SchemeCaller, SchemeOperation, VirtualEntry} from "nbook/plugins/files/shared/contracts";
 
 import type {ProfileEntry} from "../shared/contracts";
+import type {SkillEntry} from "../shared/skills";
+import type {SkillItem} from "./skills/catalog";
 import type {SessionRelations} from "./subagents/relations";
 
 /** `sessions://` 的根至多列出这么多个会话。 */
@@ -45,7 +47,18 @@ export interface AgentSchemesOptions {
     readonly activity: () => ReadonlyArray<{readonly id: string; readonly state: "running" | "waiting"}>;
     /** 这个 Profile 能派哪些 Profile（白名单合成之后，subagents.md）。 */
     readonly allowedAgents: (profile: string) => readonly string[];
+    /** Skill 目录（skills.md 输出 23、24）。 */
+    readonly skills: {
+        /** 用户的 Skill 文件夹：方案的缺省容器；每个挂载点另给自己所在的目录。 */
+        readonly userRoot: string;
+        readonly list: () => readonly SkillEntry[];
+        readonly item: (id: string) => SkillItem | undefined;
+        /** 这个 Profile 的 Skill 白名单（合成之后）。 */
+        readonly allowed: (profile: string) => ReadonlySet<string>;
+    };
 }
+
+const SKILL_STATUS_TEXT = {"ready": "可用", "needs-init": "未初始化", "initializing": "正在初始化", "invalid": "无效"} as const;
 
 const STATE_TEXT = {running: "运行中", waiting: "等用户", idle: "空闲"} as const;
 
@@ -144,11 +157,30 @@ export function agentSchemes(options: AgentSchemesOptions): Record<(typeof AGENT
             authorize: (_caller, _mount, operation) => (writes(operation) ? "permission-denied" : true),
         },
         skills: {
-            capabilities: ["read", "list"],
-            container: options.sessionsRoot,
-            root: () => ({description: "Skill 目录。还没有可用的 Skill。", entries: []}),
-            mount: () => null,
-            authorize: () => "not-found",
+            capabilities: ["read", "list", "realPath"],
+            container: options.skills.userRoot,
+            root: (caller) => {
+                // 每项标出读它的会话能不能用 `$` 带上（skills.md 输出 23）；不是 Agent 会话在读时不标。
+                const allowed = caller.agent === null ? null : options.skills.allowed(caller.agent.profile);
+                const entries = options.skills.list().map((entry) => ({
+                    name: entry.id,
+                    title: entry.name,
+                    meta: {
+                        status: SKILL_STATUS_TEXT[entry.status],
+                        ...(entry.status === "invalid" && entry.problem !== undefined ? {problem: entry.problem.code} : {}),
+                        ...(entry.description === "" ? {} : {description: entry.description}),
+                        ...(allowed === null ? {} : {invoke: allowed.has(entry.id) ? "能用 $" : "不在白名单"}),
+                    },
+                }));
+                return {description: entries.length === 0 ? "Skill 目录。还没有 Skill：用户把 Skill 文件夹放进 user://skills/ 后会列在这里。" : "Skill 目录，只读。每个 Skill 的文件在 skills://<id>/ 下，入口是 SKILL.md；用户自己的 Skill 也在 user://skills/<名字>/，要改去那里。", entries};
+            },
+            // 挂载点是 Skill 的 id，落在它所在的目录：内置与用户的 Skill 在不同的文件夹里。链接的 Skill 不挂（挂载点不能是链接）。
+            mount: (name) => {
+                const item = options.skills.item(name);
+                if (item === undefined || item.entry.problem?.code === "symlink") return null;
+                return {create: false, container: dirname(item.directory), directory: basename(item.directory)};
+            },
+            authorize: (_caller, _mount, operation) => (writes(operation) ? "permission-denied" : true),
         },
         temps,
     };

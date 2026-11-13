@@ -3,7 +3,7 @@
  * 活动条目（`activity.ts`）；视图、宿主与 nb-agent-ui 的 Vue 层用到时才加载，打开窗口不多花时间。
  */
 
-import {markRaw, defineComponent, h, onBeforeUnmount, shallowRef} from "vue";
+import {markRaw, defineComponent, h, onBeforeUnmount, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -24,7 +24,7 @@ import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey}
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {PROJECT_VIEW_CONTAINER, quickPickKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, PROJECT_VIEW_CONTAINER, quickPickKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -42,7 +42,8 @@ import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
-import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION} from "../shared/settings";
+import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, SKILLS_SECTION} from "../shared/settings";
+import {profileSkills} from "../shared/profile-skills";
 import {agentText} from "../shared/text";
 import {settingsPage} from "nbook/ui/settings/settings-page";
 import {createAgentActivity} from "./activity";
@@ -51,6 +52,9 @@ import {permissionsPage} from "./permission-page";
 import {createProfileWriters, profilesPage} from "./profile-page";
 import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 import {createFileMentions} from "./mentions";
+import {createSkillInit} from "./skill-init";
+import type {SkillInit} from "./skill-init";
+import {createSkillsClient, OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu} from "./skills";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
@@ -136,6 +140,7 @@ const browser = globalThis as {readonly location?: {readonly pathname: string}; 
 
 const PROFILES_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-user-round-cog", category: "ai", order: 25, layers: ["user"], layout: "fill", description: agentText("settingsPages.profiles.description")};
 const PERMISSIONS_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-shield-check", category: "ai", order: 40, layers: ["user"], description: agentText("settingsPages.permissions.description")};
+const SKILLS_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-sparkles", category: "ai", order: 30, layers: ["user"], description: agentText("settingsPages.skills.description")};
 
 export const agentBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -143,7 +148,7 @@ export const agentBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: markdownKey}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: notificationsKey}, {key: markdownKey}, {key: windowTextKey, required: false}],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: CONVERSATION_VIEW, declaration: CONVERSATION_DECLARATION},
             {capability: WORKBENCH_VIEWS_POINT, id: SESSIONS_VIEW, declaration: SESSIONS_DECLARATION},
@@ -152,6 +157,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             ...Object.entries(COMMANDS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             {capability: SETTINGS_PAGES_POINT, id: PROFILES_SECTION, declaration: PROFILES_PAGE},
             {capability: SETTINGS_PAGES_POINT, id: PERMISSIONS_SECTION, declaration: PERMISSIONS_PAGE},
+            {capability: SETTINGS_PAGES_POINT, id: SKILLS_SECTION, declaration: SKILLS_PAGE},
             ...agentState.contributions,
         ],
         activate: async (context) => {
@@ -162,6 +168,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const storage = context.services.require(storageKey);
             const clock = context.services.require(clockKey);
             const quickPick = context.services.require(quickPickKey);
+            const notifications = context.services.require(notificationsKey);
             const text = await windowTextPort(context.services, () => displayLocale(settings));
             const remote = context.remote.use(agentSessionsContract);
             const rulesWriter = createRulesWriter(settings);
@@ -176,6 +183,23 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             const project = windowProject.project?.id ?? null;
             const profiles = shallowRef<readonly ProfileEntry[]>([]);
+            const skills = createSkillsClient(remote, context.signal, (message) => report("skills-failed", message));
+            /** 一个 Profile 的 Skill 白名单（skills.md 的“输入与前置条件”），与服务端认标签用的同一个换算。 */
+            const allowedSkills = (profile: string): readonly string[] => profileSkills(
+                profiles.value.find((entry) => entry.key === profile)?.skills,
+                settings.get(agentSettings.settings.profileSettings)[profile]?.skills,
+                (skills.entries.value ?? []).map((entry) => entry.id),
+            );
+            /** 对话位置的确认框（输出 27）：每个位置一份，右栏与编辑区页面同时开着时只在选了 Skill 的那个位置弹出。 */
+            const inits = new Map<string, SkillInit>();
+            const initAt = (position: string): SkillInit => {
+                let init = inits.get(position);
+                if (init === undefined) {
+                    init = createSkillInit(remote, (message) => report("skill-init-failed", message));
+                    inits.set(position, init);
+                }
+                return init;
+            };
             const loadProfiles = async (): Promise<void> => {
                 const result = await remote.profiles({});
                 if (result.ok) profiles.value = result.value;
@@ -224,6 +248,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const ensureStarted = (): void => {
                 if (!started) void loadProfiles();
                 started = true;
+                skills.ensure();
                 ensureModels();
             };
 
@@ -301,6 +326,19 @@ export const agentBrowserPlugin: PluginDefinition = {
                     openSettings: () => void commands.execute(OPEN_SETTINGS_COMMAND),
                     openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),
+                    skills: {
+                        selected: (id, profile) => {
+                            if (id === OPEN_PROFILE_SETTINGS_ITEM) {
+                                void commands.execute(OPEN_SETTINGS_COMMAND, {section: PROFILES_SECTION});
+                                return;
+                            }
+                            skills.touch(id);
+                            // 选了未初始化的照常插入了标签，再问要不要初始化（输出 27）；白名单之外的菜单里不会有。
+                            const entry = skills.entries.value?.find((candidate) => candidate.id === id);
+                            if (entry?.status === "needs-init" && allowedSkills(profile).includes(id)) void initAt(position).ask(entry);
+                        },
+                        address: (name, profile) => skillAddress(name, skills.entries.value ?? [], allowedSkills(profile)),
+                    },
                     report,
                 });
                 hosts.set(position, host);
@@ -380,11 +418,31 @@ export const agentBrowserPlugin: PluginDefinition = {
                         noProject: text.t(agentText("conversation.mentions.noProject")),
                         failed: text.t(agentText("conversation.mentions.failed")),
                     }),
-                    onChange: () => {
-                        services.value = {resolveAttachmentUrl: attachmentUrl, resolveTriggerMenu: (context) => mentions.resolve(context)};
-                    },
+                    onChange: () => refreshServices(),
                 });
-                services.value = {resolveAttachmentUrl: attachmentUrl, resolveTriggerMenu: (context) => mentions.resolve(context)};
+                const skillTexts = () => ({
+                    title: text.t(agentText("skills.menu.title")),
+                    recentGroup: text.t(agentText("skills.menu.recent")),
+                    allGroup: text.t(agentText("skills.menu.all")),
+                    noMatch: text.t(agentText("skills.menu.noMatch")),
+                    openSettings: text.t(agentText("skills.menu.openSettings")),
+                    noSkills: text.t(agentText("skills.menu.noSkills")),
+                    needsInit: text.t(agentText("skills.menu.needsInit")),
+                    initializing: text.t(agentText("skills.menu.initializing")),
+                });
+                /** `$` 菜单按这个位置当前会话的 Profile 取白名单（skills.md 输出 26）。 */
+                const refreshServices = (): void => {
+                    services.value = {
+                        resolveAttachmentUrl: attachmentUrl,
+                        resolveTriggerMenu: (context) => (context.trigger === "$"
+                            ? skillMenu(context.query, {entries: skills.entries.value, allowed: allowedSkills(hostAt(position).profileKey()), recent: skills.recent.value, texts: skillTexts()})
+                            : mentions.resolve(context)),
+                    };
+                };
+                refreshServices();
+                // 目录、最近用过的或 Profile（白名单由它求出，启动时可能比目录晚到）变了：换一个新函数，开着的菜单按当前查询重取。
+                const stopWatching = watch([skills.entries, skills.recent, profiles], refreshServices);
+                context.signal.addEventListener("abort", stopWatching, {once: true});
                 return defineComponent({
                     name: "AgentConversationPosition",
                     inheritAttrs: false,
@@ -394,7 +452,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         onBeforeUnmount(() => {
                             if (lastPosition === position) lastPosition = "view";
                         });
-                        return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: services.value, pickProfile, labels});
+                        return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position)});
                     },
                 });
             };
@@ -483,7 +541,11 @@ export const agentBrowserPlugin: PluginDefinition = {
                         text,
                         openAddress,
                         report,
-                    })), [PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report}))},
+                        skills,
+                    })), [PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report})), [SKILLS_SECTION]: settingsPage(async () => {
+                        const [{skillsPage}, {default: page}] = await Promise.all([import("./skills-page"), import("./components/SkillsSettingsPage.vue")]);
+                        return skillsPage(page, {skills, remote, openAddress, notify: (input) => void notifications.notify(input), report});
+                    })},
                 },
             };
         },

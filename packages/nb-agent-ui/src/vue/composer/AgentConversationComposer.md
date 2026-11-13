@@ -34,7 +34,7 @@
 
 - 正文去掉首尾空白后为空时不发送。有附件还在上传或上传失败时也不发送，发送按钮不可用并在悬停提示里说明：没上传完的附件还不在文字里，这时发出去附件就丢了。正文以 `/名称` 开头、名称是登记的输入框命令时，发出 `command.run {name, argsText}`（`argsText` 是名称之后的文字，去掉首尾空白），不发 `composer.submit`。
 - 发送后不自行清空：宿主受理后给出新版本的空草稿，失败时文字不会丢。每次编辑发出 `composer.draftChanged`。
-- 触发字符取自登记的输入框触发字符。`/` 位于正文开头时，菜单列出登记的命令（名称、说明与参数提示），按名称过滤；其余情况的菜单来自 `services.resolveTriggerMenu`；宿主没有提供它时只把 `/` 交给编辑器，别的触发字符不打开菜单；正文中间打 `/` 时菜单只说明命令要写在开头。菜单每次从关到开发出 `menu.opened`。
+- 触发字符取自登记的输入框触发字符。`/` 位于正文开头时，菜单列出登记的命令（名称、说明与参数提示），按名称过滤；其余情况的菜单来自 `services.resolveTriggerMenu`；宿主没有提供它时只把 `/` 交给编辑器，别的触发字符不打开菜单；正文中间打 `/` 时菜单只说明命令要写在开头。菜单每次从关到开发出 `menu.opened`；确认宿主菜单里的一项、标签插入之后发出 `menu.selected {trigger, id}`。菜单项可以带行尾的状态图标（`status`）。
 - 附件：编辑器的 `attachment-add`、`attachment-retry`、`attachment-remove` 依次发出 `composer.attachmentAdded`、`composer.attachmentRetry`、`composer.attachmentRemoved`。“添加附件”打开文件选择，选中的文件插在光标处，与粘贴相同。允许登记附件时接受文件；当前模型支持图片时才接受图片。被拒收时显示提示：模型不支持图片、会话不能登记附件，分别说明。
 - 点击正文里的标签或附件卡片：引用与选区发出 `reference.open`，技能发出 `skill.open`，文件发出 `attachment.open`，图片发出 `image.preview` 的 action，由对话视图打开原图预览；规则与已发送消息相同。
 - 模式按钮点击与 Shift+Tab 相同；模型与思考档位在下拉里选，发出 `model.set`、`thinking.set`。不允许修改运行设置时三者都禁用。`interaction.canManageModels` 为真时下拉末尾有“管理模型…”，发出 `model.manage`。不允许登记附件时下拉不标“不支持图片”。

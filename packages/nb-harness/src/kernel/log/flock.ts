@@ -30,7 +30,7 @@ let flock: ((fd: number, operation: number) => number) | undefined;
 function loadFlock(): (fd: number, operation: number) => number {
     if (flock) return flock;
     const library = process.platform === "darwin" ? "libSystem.B.dylib" : process.platform === "linux" ? "libc.so.6" : null;
-    if (!library) throw new Error(`session lock is not supported on ${process.platform} (needs flock)`);
+    if (!library) throw new Error(`file lock is not supported on ${process.platform} (needs flock)`);
     const {symbols} = dlopen(library, {flock: {args: [FFIType.i32, FFIType.i32], returns: FFIType.i32}});
     flock = (fd, operation) => symbols.flock(fd, operation);
     return flock;

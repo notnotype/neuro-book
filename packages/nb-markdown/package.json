@@ -20,6 +20,7 @@
         "./chip": "./src/chip/index.ts",
         "./display": "./src/display/index.ts",
         "./prompt": "./src/prompt/index.ts",
+        "./prompt-text": "./src/prompt/text.ts",
         "./editor": "./src/editor/index.ts",
         "./markdown.css": "./src/display/markdown.css",
         "./locales": "./src/locales/index.ts",

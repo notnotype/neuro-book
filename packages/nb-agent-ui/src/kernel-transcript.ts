@@ -165,7 +165,7 @@ function compactionView(data: JsonRecord, turnStarts: readonly string[]): Compac
     const modelName = stringField(details, "model");
     const restored = Array.isArray(data.restored) ? data.restored.flatMap((item): CompactionView["restored"] => {
         if (!isRecord(item)) return [];
-        const kind = item.kind === "file" || item.kind === "plan" || item.kind === "log" ? item.kind : null;
+        const kind = item.kind === "file" || item.kind === "plan" || item.kind === "log" || item.kind === "skill" ? item.kind : null;
         const target = stringField(item, "target");
         return kind === null || target === null ? [] : [{kind, target, tokens: numberField(item, "tokens") ?? 0, truncated: item.truncated === true}];
     }) : [];

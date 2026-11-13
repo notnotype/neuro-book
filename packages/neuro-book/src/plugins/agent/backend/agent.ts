@@ -10,7 +10,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, Clock, CompactionRestoreArgs, CompactionRestored, ModelPort, RunResult, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
 import {SessionMeta, SessionTable} from "@notnotype/nb-harness/kit/sessions";
@@ -58,6 +58,8 @@ export interface AgentRuntimeOptions {
     readonly dialects: Dialects;
     /** 触发本插件前缀下的激活事件；有入口激活失败或受阻时交回 false。 */
     readonly trigger: (event: string) => Promise<boolean>;
+    /** 接在文件与计划之后放回的内容（Skill，skills.md 输出 16）；交回合并后的放回。 */
+    readonly restoreMore?: (args: CompactionRestoreArgs, previous: CompactionRestored) => Promise<CompactionRestored>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -199,7 +201,10 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             report: options.report,
         }),
         attachments: createAttachmentPort(options.files),
-        compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER, restore: restore.run},
+        compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER, restore: async (context, args) => {
+            const restored = await restore.run(context, args);
+            return options.restoreMore === undefined ? restored : options.restoreMore(args, restored);
+        }},
     });
     hostRef = host;
 

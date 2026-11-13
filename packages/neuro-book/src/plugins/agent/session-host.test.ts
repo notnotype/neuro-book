@@ -110,6 +110,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         },
         openAddress: () => undefined,
         openLink: () => undefined,
+        skills: {selected: () => undefined, address: () => null},
         report: (code, message) => {
             throw new Error(`host reported ${code}: ${message}`);
         },
@@ -509,7 +510,7 @@ describe("命令、草稿与输入历史（输出 28–30）", () => {
         await idle(h);
         const first = h.host.sessionId.value!;
         expect(h.ctx().interaction.commands).toEqual(expect.arrayContaining(["new", "fork", "rename", "model", "compact"]));
-        expect(h.ctx().interaction.triggers).toEqual(["@", "/"]);
+        expect(h.ctx().interaction.triggers).toEqual(["@", "/", "$"]);
 
         h.host.act({type: "command.run", name: "rename", argsText: ""});
         await until("说明要写标题", () => h.ctx().composer.notice !== undefined);
@@ -1505,5 +1506,31 @@ describe("子代理（w00032 t14）", () => {
         expect(Object.fromEntries(list.items.value.map((item) => [item.id, item.dimmed === true]))).toEqual({[child!.id]: false, [parent!]: true});
         held.release();
         controller.abort();
+    });
+});
+
+describe("Skill（skills.md 输出 26–28）", () => {
+    test("`$` 菜单选中交给宿主，带上当前会话的 Profile；点开标签打开宿主给的地址，认不到时输入框上提示；别的菜单选中不管", async () => {
+        const w = await world();
+        const selected: Array<[string, string]> = [];
+        const opened: string[] = [];
+        const h = await harness(w, {
+            skills: {selected: (id, profile) => void selected.push([id, profile]), address: (name, profile) => (name === "style-guide" ? `user://skills/${name}/SKILL.md#${profile}` : null)},
+            openAddress: (address) => void opened.push(address),
+        });
+        h.host.act({type: "menu.selected", trigger: "$", id: "user.style-guide"});
+        expect(selected).toEqual([["user.style-guide", MAIN_PROFILE]]);
+
+        await h.host.create(PROFILE);
+        h.host.act({type: "menu.selected", trigger: "$", id: "user.epub-export"});
+        h.host.act({type: "menu.selected", trigger: "@", id: "设定/林雪.md"});
+        expect(selected).toEqual([["user.style-guide", MAIN_PROFILE], ["user.epub-export", PROFILE]]);
+
+        h.host.act({type: "skill.open", name: "style-guide"});
+        await until("打开", () => opened.length === 1 || undefined);
+        expect(opened).toEqual([`user://skills/style-guide/SKILL.md#${PROFILE}`]);
+        h.host.act({type: "skill.open", name: "gone"});
+        await until("提示", () => h.ctx().composer.notice !== undefined);
+        expect(h.ctx().composer.notice).toMatchObject({key: "skills.open.missing", params: {name: "gone"}});
     });
 });

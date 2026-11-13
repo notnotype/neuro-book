@@ -14,6 +14,7 @@ import {readServerConfig, ServerConfigError} from "nbook/server/config";
 import {claimNeuroBook, queryNeuroBook} from "nbook/server/instance";
 import type {InstanceInfo, StateRootClaim} from "nbook/server/instance";
 import {claimReport, runServerProcess} from "nbook/server/process";
+import {desktopReach} from "nbook/shared/desktop";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 
 import {CliFailure} from "./output";
@@ -42,16 +43,10 @@ function defaultWebRoot(): string {
     return import.meta.path.endsWith(".js") ? join(import.meta.dir, "..", "web") : join(import.meta.dir, "..", "..", "dist", "web");
 }
 
-/** 只在本机有桌面时打开浏览器：SSH 会话里打开的是远端机器上的浏览器，Linux 没有图形会话时 `xdg-open` 什么也做不了。 */
-function browserReachable(env: StartContext["env"]): "yes" | "ssh" | "no-display" {
-    if (env.SSH_CONNECTION || env.SSH_TTY) return "ssh";
-    if (process.platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY) return "no-display";
-    return "yes";
-}
-
 async function openBrowser(url: string, context: StartContext, options: StartOptions): Promise<void> {
     if (!options.open) return;
-    const reachable = browserReachable(context.env);
+    // 只在本机有桌面时打开浏览器（判据见 `shared/desktop.ts`）。
+    const reachable = desktopReach(context.env, process.platform);
     if (reachable === "ssh") {
         const port = new URL(url).port;
         context.output.hint(`这是 SSH 会话，没有打开浏览器。在本机运行 ssh -L ${port}:127.0.0.1:${port} <这台机器>，再打开上面的地址。`);
