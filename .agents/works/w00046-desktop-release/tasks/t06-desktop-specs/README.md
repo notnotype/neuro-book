@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t06-desktop-specs
-status: active
+status: done
 updated: 2026-11-13
 ---
 
