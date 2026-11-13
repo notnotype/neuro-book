@@ -1,7 +1,8 @@
 /**
  * 工作台通知服务（docs/specs/workbench/notifications.md 输出 2 到 5、9）：发出的通知在视口里出现；error 与带动作的常驻，
  * 其余按色调自动消失；update 推进进度并在任务结束后改成限时；明确给的 sticky 保留；动作点了通知移除，抛错也移除并记诊断；dispose 清空；
- * 文字引用在显示时按窗口的当前语言翻，切换语言后已显示的通知跟着换文字；通知中心（输出 13、15、16，验收 8 到 10 的服务一侧）。
+ * 文字引用在显示时按窗口的当前语言翻，切换语言后已显示的通知跟着换文字；通知中心（输出 13、15、16，验收 8 到 10 的服务一侧）；
+ * 用户关闭的回告（输出 18，验收 11）。
  * 真实的 nb-ui 队列与视口、宿主的翻译引擎（像窗口根那样注入），时长用真实的短时长等可观察结果。
  */
 
@@ -203,6 +204,50 @@ describe("工作台通知服务", () => {
         notifications.dispose();
         expect(notifications.center.entries.value).toEqual([]);
     });
+
+    it("输出 18、验收 11：用户关闭回告一次——弹出的关闭、中心移除、全部清除、到时消失后的移除；动作、dismiss、到时消失本身、挤出都不回告", async () => {
+        const {notifications, reports} = world();
+        const calls: string[] = [];
+        const closer = (name: string) => () => void calls.push(name);
+        // 视口一次只显示 4 条（再多的折起来），先发两条、关掉，再发其余的。
+        const popped = notifications.notify({tone: "info", message: "弹出后关掉", sticky: true, onClose: closer("弹出后关掉")});
+        notifications.notify({tone: "info", message: "坏回告", sticky: true, onClose: () => {
+            throw new Error("回告失败");
+        }});
+        await flushPromises();
+        const toast = (message: string) => [...document.body.querySelectorAll("[data-notification-stack] [role='status']")].find((node) => node.textContent?.includes(message) === true);
+        toast("弹出后关掉")?.querySelector<HTMLButtonElement>("button[aria-label]")?.click();
+        toast("坏回告")?.querySelector<HTMLButtonElement>("button[aria-label]")?.click();
+        notifications.notify({tone: "info", message: "点了动作", action: {label: "下载", run: () => undefined}, onClose: closer("点了动作")});
+        const recalled = notifications.notify({tone: "info", message: "发出方撤回", onClose: closer("发出方撤回")});
+        const timed = notifications.notify({tone: "info", message: "到时消失", onClose: closer("到时消失")});
+        await flushPromises();
+        [...document.body.querySelectorAll("button")].find((node) => node.textContent?.trim() === "下载")?.click();
+        recalled.dismiss();
+        await flushPromises();
+        expect(calls).toEqual(["弹出后关掉"]);
+        expect(reports.some((line) => line.includes("回告失败"))).toBe(true);
+        expect(toast("坏回告")).toBeUndefined();
+        // 关掉的那条还在中心，再移除不重复回告。
+        notifications.center.remove(popped.id);
+        expect(calls).toEqual(["弹出后关掉"]);
+        // 到时消失本身不回告；之后在中心移除算用户关闭。
+        await vi.waitFor(() => expect(toast("到时消失")).toBeUndefined(), {timeout: 8000});
+        expect(calls).toEqual(["弹出后关掉"]);
+        notifications.center.remove(timed.id);
+        expect(calls).toEqual(["弹出后关掉", "到时消失"]);
+        // 视图开着时只进中心的那条：全部清除回告它。
+        notifications.center.setVisible(true);
+        notifications.notify({tone: "info", message: "只进中心", onClose: closer("只进中心")});
+        notifications.center.clear();
+        expect(calls).toEqual(["弹出后关掉", "到时消失", "只进中心"]);
+        // 挤出不回告。
+        notifications.notify({tone: "info", message: "最早的", onClose: closer("最早的")});
+        for (let index = 0; index < 100; index += 1) notifications.notify({tone: "info", message: `第 ${String(index)} 条`});
+        notifications.center.clear();
+        expect(calls).toEqual(["弹出后关掉", "到时消失", "只进中心"]);
+        notifications.dispose();
+    }, 15_000);
 
     it("点动作：在弹出处或在中心里点，执行后两边一起移除（输出 13，验收 9）", async () => {
         const {notifications, texts} = world();

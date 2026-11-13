@@ -121,12 +121,17 @@ export interface NotificationInput {
     readonly detail?: string;
     /** 发出方已经截过原文时给 true：对话框照样注明“已截断”（载体只能从长度看出自己截没截）。只随 `detail` 一起生效。 */
     readonly detailTruncated?: boolean;
+    /**
+     * 用户关掉了这条（输出 18）：弹出的关闭、中心的“移除”或“全部清除”，先到的那次调用一次。点动作、`dismiss`、按时消失本身、
+     * 中心挤出都不调用。发出时定下，`update` 不能换。
+     */
+    readonly onClose?: () => void;
 }
 
 /** 已发出的通知：改进度、文字、色调与常驻，或移除。 */
 export interface NotificationHandle {
     readonly id: string;
-    update(patch: Partial<NotificationInput>): void;
+    update(patch: Partial<Omit<NotificationInput, "onClose">>): void;
     dismiss(): void;
 }
 
