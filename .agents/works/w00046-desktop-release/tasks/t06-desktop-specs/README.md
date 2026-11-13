@@ -15,8 +15,10 @@ updated: 2026-11-13
 
 ## 当前状态
 
-2026-11-13 经 nbdev 新建。开发者指定用 autonomous-delivery 推进；Spec 初稿写完，`docs:check` 通过，待设计审查（omp）。本该开发者决定的点记在 [待确认清单](../../pending-confirmations.md)。
+已完成（2026-11-13）。Spec 初稿 `9b7d32f1e`，经 omp 三轮设计审查：第一轮有效 20 条（[报告](evidences/design-review-r1-omp.txt)、[处理](evidences/design-review-r1-disposition.txt)，`04124d30e`），第二轮 7 条（[报告](evidences/design-review-r2-omp.txt)、[处理](evidences/design-review-r2-disposition.txt)，`99da195b9`），第三轮 2 条（[报告](evidences/design-review-r3-omp.txt)、[处理](evidences/design-review-r3-disposition.txt)，`97b1fbcec`），全部成立、全部改。第三轮是上限，最后两条局部改动作者自查定稿。
+
+结果：新建 `runtime/desktop-shell`、`runtime/desktop-update`（planned）；在 `runtime/server-host`（托管宿主、在跑的工作）、`runtime/browser-host`（输出 9 到 11、场景 15）、`runtime/cli`、`workbench/editor`（输出 66、场景 45、46）、`workbench/notifications`（输出 18、场景 11）、`agent/sessions`（输出 20）、`workbench/background-tasks`（输出 17）加 planned 条目；`agent/conversation` 输出 40 删除；术语表加三个词。本该开发者决定的点在 [待确认清单](../../pending-confirmations.md)。`repository-workflow.md` 的发布一节挪到 t11。
 
 ## 下一步
 
-设计审查，处理后提交，然后进 t07。
+无。实现见 t07 到 t10；新增的宿主能力与接口（在跑的工作、通知的 `onClose`）随 t09 实现。

@@ -47,8 +47,8 @@ updated: 2026-11-13
 | [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏。未开工 |
 | [t04](tasks/t04-desktop-settings/README.md) | 桌面端专有设置：开机自启、系统托盘、通知。未开工 |
 | [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具：第一版只检测加提示。未开工 |
-| [t06](tasks/t06-desktop-specs/README.md) | 桌面发行的 Spec（desktop-shell、desktop-update 新建，server-host、browser-host、editor、cli 等修改）。进行中 |
-| [t07](tasks/t07-managed-entry-payload/README.md) | 应用包托管入口与桌面载荷组装。未开工 |
+| [t06](tasks/t06-desktop-specs/README.md) | 桌面发行的 Spec（desktop-shell、desktop-update 新建，server-host、browser-host、editor、cli、notifications 等修改）。已完成，omp 三轮设计审查 |
+| [t07](tasks/t07-managed-entry-payload/README.md) | 应用包托管入口与桌面载荷组装。进行中 |
 | [t08](tasks/t08-desktop-shell/README.md) | Electrobun 桌面壳。未开工 |
 | [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。未开工 |
 | [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。未开工 |
