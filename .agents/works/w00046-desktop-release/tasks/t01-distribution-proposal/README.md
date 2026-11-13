@@ -66,12 +66,11 @@ Electrobun 原型在 Windows 上的实测（[evidences/windows-electrobun-proto-
 - 旧应用的经验（[legacy t143](../../../../tasks/143-desktop-envelope-installation-spike/README.md)、[t145](../../../../tasks/145-electron-desktop-productization/README.md)，2026-08）：同一产品的 Windows 便携 zip，Electron 约 230 到 390 MB、Tauri 约 84 到 244 MB（随产品体积变化）；干净 Windows 上踩过三类坑——无 BOM 的 `.ps1` 被按 ANSI 读坏、没装 VC++ 运行库时原生模块加载失败、超过 260 字符的路径删不掉；当时用 Windows Sandbox 做干净环境验收。pi-natives 不依赖 VC++ 运行库：`pi_natives.win32-x64-baseline.node`（18.14.0，124 MB，Windows 包只有 baseline 一份）的 PE 导入表只有系统 DLL（kernel32、user32、bcrypt、ws2_32 等），没有 `vcruntime140.dll`、`msvcp140.dll`。
 - 要另行处理的：Setup 没有界面、静默安装并自动建桌面快捷方式；经计划任务在桌面会话里运行 Setup 的两次没装上，原因未查，双击安装这条路径未验证。便携方式（复制 `app` 目录）能跑，但数据仍写在 `%LOCALAPPDATA%` 下与安装版共用，便携模式要 NeuroBook 自己把状态根放到程序旁边。Hutch 0.29.0 设了 `HTTPS_PROXY` 时下载必失败，只能直连，国内直连 GitHub 偶有中断。
 
-GitHub Actions windows-2025 runner 上的探针（[evidences/windows-runner-probe-r1.txt](evidences/windows-runner-probe-r1.txt)；临时分支 `probe/w00046-windows`，两次运行）：整个工作区 `bun install` 112 秒；`smoke:server` 同样十过九（只有 SIGTERM 不过）；Hutch 构建 82 到 84 秒，产物与本地构建大小一致；静默安装成功（建快捷方式、在 HKCU 登记卸载项）；装完直接运行 `launcher.exe`，2 秒建好窗口、服务端开始监听，4.7 秒页面就绪，`WM_CLOSE` 后服务端 206 毫秒以 0 退出；卸载干净。**Setup 显示“安装完成”后既不打开应用也不退出**（runner 上等 120 秒未退出，pc-notype 经 SSH 运行时同样），用户双击时的表现要亲手验证。CI 里可以做“安装、启动到页面就绪、有序停止、卸载”的发布前冒烟，但要直接起 `launcher.exe`，不能等 Setup 自己打开。
+GitHub Actions windows-2025 runner 上的探针（[evidences/windows-runner-probe-r1.txt](evidences/windows-runner-probe-r1.txt)；临时分支 `probe/w00046-windows`，两次运行）：整个工作区 `bun install` 112 秒；`smoke:server` 同样十过九（只有 SIGTERM 不过）；Hutch 构建 82 到 84 秒，产物与本地构建大小一致；静默安装成功（建快捷方式、在 HKCU 登记卸载项）；装完直接运行 `launcher.exe`，2 秒建好窗口、服务端开始监听，4.7 秒页面就绪，`WM_CLOSE` 后服务端 206 毫秒以 0 退出；卸载干净。**Setup 显示“安装完成”后既不打开应用也不退出**（runner 上等 120 秒未退出，pc-notype 经 SSH 运行时同样），开发者 2026-11-13 在 pc-notype 上双击验证：装完自动打开应用、setup 自己退出，只有在没有桌面的会话里运行时才停住。CI 里可以做“安装、启动到页面就绪、有序停止、卸载”的发布前冒烟，但要直接起 `launcher.exe`，不能等 Setup 自己打开。
 
 ## 下一步
 
 1. 提案草稿 [docs/proposals/desktop-distribution.md](../../../../../docs/proposals/desktop-distribution.md) 已提交（`706713fab`）；开发者 2026-11-13 按推荐定了状态根、更新提示、第一版无界面安装、便携版浏览器缓存四项（见提案决策记录）。下一步按 reviewing Skill 交审查。后续工作已建 t02（安装程序）、t03（自定义标题栏）、t04（桌面端专有设置）、t05（外部工具向导）。
-2. 请开发者在 pc-notype 上亲手双击一次 Setup（`%USERPROFILE%\nb-w00046\proto\artifacts\win-x64-NeuroBookProto-Setup.zip` 解压后的 setup），确认安装完成后会不会打开应用、setup 会不会退出。
-3. 临时分支 `probe/w00046-windows` 与 worktree `.worktree/w00046-probe` 在提案定稿后删除。
+2. 临时分支 `probe/w00046-windows` 与 worktree `.worktree/w00046-probe` 在提案定稿后删除。
 
 pc-notype 上要收尾清理的（都是本 Task 建的）：`%USERPROFILE%\nb-w00046\`（独立 Bun、Hutch、原型与脚本）、`%USERPROFILE%\nb-w00046-*.ps1`（三个早期脚本）、`%LOCALAPPDATA%\cottontail\cache`（Hutch 建的）、`%TEMP%` 里 Bun 的安装缓存。测试安装已用卸载程序清掉。
