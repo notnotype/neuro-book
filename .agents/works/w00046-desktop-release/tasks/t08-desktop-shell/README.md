@@ -23,8 +23,14 @@ updated: 2026-11-13
 - `7f760b404`：owned-process 的租约交出目标 pid（`rootPid`）；核实了两个平台的监督进程都把标准输入转给目标。
 - 切片 2（`packages/neuro-book/src/desktop/`）：`0ef17f9c9` 状态根与便携、长截止分段、连接判定；`cf4add662` 桌面锁与开窗转交；`522cc169f` 自有服务端（真实服务端测试：只认自己 pid 的就绪、被抢先交回外部实例、重新启动用上一次端口、意外退出、停止卡住时到截止结束整棵树连孙进程）；关窗协调 `windows.ts`（8 个用例）。`bun test src/desktop` 全过。
 
-还没做：`shell.ts`（把锁、连接、自有服务端、关窗协调串成输出 1 到 24 的流程，含“没有正常停止”的记录、意外退出的对话框、启动中关窗）；切片 3 的 Electrobun 适配层、预加载、启动页与对话框视图、Hutch 配置与构建脚本、Windows 上的验收；切片 4 的 Spec 证据。
+- 切片 2 续：`6095cc535` 关窗协调；`7ebc09fe7` 壳的流程 `shell.ts`（取锁与转交、连接或拉起、“上次没有正常停止”的提示、最后一次关闭后停服放锁、启动中关窗作废）。`bun test src/desktop` 28 个全过。
+- 切片 3：`c705d0e03` Electrobun 适配层（窗口与关窗否决、壳的对话框窗口、导航规则、预加载、桥、WebView2 检查）与 Hutch 配置；`844c0a079` 预打包的主进程改放 `bundle/`，与 Electrobun 自己的 `build/` 输出分开。
+- 切片 4：`runtime/server-host` 的实现合同写进认领档案的 `socketName`、`messageLimit`、`requests`、`unknownReply`、绝对截止与 `sendRequest`。
+
+Windows 实测第 1 轮（[证据](evidences/windows-shell-r1.txt)，只用 UI 自动化读文字，不截屏）：启动与两份认领、第二次启动转交开窗、关窗被否决、3 秒后壳的“没有响应”对话框、对话框开着时转交照常、“取消关闭”。pc-notype 17:05 后离线，剩下的待它恢复后补：强制关闭、关掉最后一个窗口后的停服与退出、服务端意外退出的对话框、外链交系统浏览器、便携 zip、`Alt+F4` 与任务栏关闭。
+
+计划里“用只回答桥协议的测试页面驱动 `ack`、`allow`、`deny`”在 t08 没做：产品页面在 t09 才参与关窗，这几条路径由 `windows.test.ts` 覆盖，Windows 上与 t09 联合验收。
 
 ## 下一步
 
-按计划切片 1 到 4 推进，代码在 Work 分支 `feat/w00046-desktop-release`。
+pc-notype 恢复后跑完上面剩下的 Windows 项（用 `bundle/` 的新构建），然后启动实现审查（omp，不阻塞）、合入 master，进 t09。
