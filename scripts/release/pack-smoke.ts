@@ -253,7 +253,7 @@ async function smokeVueHost(root: string, from: ReturnType<typeof sources>): Pro
 }
 
 /** 读子进程标准输出的第一行（`--json` 的结果对象写在第一行）。 */
-async function firstLine(child: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<string> {
+async function firstLine(child: {readonly stdout: ReadableStream<Uint8Array>}): Promise<string> {
     const reader = child.stdout.getReader();
     let text = "";
     try {
@@ -290,6 +290,51 @@ async function withNbook(nbook: string, stateRoot: string, env: Record<string, s
     if (code !== 0) fail(`nbook 收到 SIGINT 后退出码 ${code}（${child.signalCode ?? "没有被强制结束"}）`);
 }
 
+/**
+ * 以托管方式运行装好的应用包里的 `server/main.js`（docs/specs/runtime/server-host.md 的“托管宿主”，桌面壳就这样运行它）：
+ * 等它认领了状态根（标准输出的第一行 `RPC listening on` 在认领之后才打印），再用 `nbook start --json` 找到它（同一状态根上已有
+ * 同版本实例时只报告它，`started: false`；还在启动就等它就绪），交给 `use`；最后经标准输入写 `stop`，要求以 0 退出。
+ * 不先等认领的话，`nbook start` 可能抢先认领、自己在前台运行下去。每一步都有截止，超时结束子进程。
+ */
+async function withManagedEntry(packageDirectory: string, nbook: string, stateRoot: string, env: Record<string, string>, use: (url: string) => Promise<void>): Promise<void> {
+    const server = Bun.spawn(["bun", join(packageDirectory, "server", "main.js"), "--stop-stdin"], {
+        cwd: stateRoot,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {...process.env, ...env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join(packageDirectory, "web")},
+    });
+    const stderr = new Response(server.stderr).text();
+    let failure: unknown = null;
+    try {
+        const claimTimer = setTimeout(() => server.kill("SIGKILL"), 60_000);
+        const first = await firstLine(server).finally(() => clearTimeout(claimTimer));
+        // 余下的标准输出照样读掉，免得管道写满挡住服务端（读过一次的流不能再交给 Response，只能接着用读取器）。
+        void (async () => {
+            const reader = server.stdout.getReader();
+            while (!(await reader.read()).done);
+        })();
+        if (!first.startsWith("RPC listening on")) fail(`托管入口没有起来：${first}\n${await stderr}`);
+        const finder = Bun.spawn([nbook, "start", "--state-root", stateRoot, "--no-open", "--json"], {cwd: stateRoot, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: {...process.env, ...env}});
+        const finderTimer = setTimeout(() => finder.kill("SIGKILL"), 90_000);
+        const [output, code] = await Promise.all([new Response(finder.stdout).text(), finder.exited]).finally(() => clearTimeout(finderTimer));
+        const found = JSON.parse(output || "{}") as {ok?: boolean; started?: boolean; url?: string; pid?: number};
+        if (code !== 0 || found.started !== false || found.pid !== server.pid || typeof found.url !== "string") fail(`nbook start 没有报告托管运行的实例（退出码 ${code}）：${output}${await new Response(finder.stderr).text()}`);
+        await use(found.url);
+    } catch (error) {
+        failure = error;
+    }
+    if (server.exitCode === null) {
+        void server.stdin.write("stop\n");
+        await server.stdin.flush();
+    }
+    const timer = setTimeout(() => server.kill("SIGKILL"), 60_000);
+    const code = await server.exited;
+    clearTimeout(timer);
+    if (failure !== null) throw failure;
+    if (code !== 0) fail(`托管入口写 stop 后退出码 ${code}（${server.signalCode ?? "没有被强制结束"}）\n${await stderr}`);
+}
+
 async function checkWorkbench(url: string): Promise<void> {
     const browser = await chromium.launch({channel: "chrome", headless: true});
     try {
@@ -305,10 +350,28 @@ async function checkWorkbench(url: string): Promise<void> {
 }
 
 /**
+ * 桌面载荷（`packages/neuro-book/scripts/desktop-payload.ts`）：用这次打的应用包按本机平台组装，以托管方式运行 `app/server/main.js`。
+ * 正式的发布清单要等冒烟全部通过才写，这里另写一份只给组装用的清单，tarball 写绝对路径。
+ */
+async function smokeDesktopPayload(root: string, manifest: ReleaseManifest, nbook: string, env: Record<string, string>): Promise<void> {
+    const pending = join(root, "release-manifest.json");
+    await writeJson(pending, {...manifest, packages: manifest.packages.map((entry) => ({...entry, tarball: join(RELEASE_DIRECTORY, entry.tarball)}))});
+    const payload = join(root, "desktop-payload");
+    await mustRun("组装桌面载荷", ["bun", join(REPOSITORY, "packages", "neuro-book", "scripts", "desktop-payload.ts"), pending, payload], {cwd: root, env});
+    const listed = JSON.parse(await readFile(join(payload, "payload-manifest.json"), "utf8")) as {commit?: string; tarball?: {sha256?: string}};
+    const app = manifest.packages.find((entry) => entry.name === APP_PACKAGE);
+    if (listed.commit !== manifest.commit || listed.tarball?.sha256 !== app?.sha256) fail(`载荷清单的提交或 tarball 摘要与发布清单不同：${JSON.stringify(listed.tarball)}`);
+    const managedState = join(root, "payload-state");
+    await mkdir(managedState);
+    await withManagedEntry(join(payload, "app"), nbook, managedState, env, checkWorkbench);
+    step("桌面载荷：由同一个应用包 tarball 组装，依赖与仓库根 bun.lock 一致，托管入口打开书架、写 stop 后以 0 退出");
+}
+
+/**
  * 用户装应用、作者写插件、用户装插件：都在 `root` 下的空目录里，`BUN_INSTALL`、`HOME` 指向临时目录，不碰开发者自己的
  * 全局包、缓存与数据。
  */
-async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>, tarballs: ReadonlyMap<string, string>): Promise<void> {
+async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>, tarballs: ReadonlyMap<string, string>, manifest: ReleaseManifest | null): Promise<void> {
     const appName = APP_PACKAGE;
     const sdkName = SDK_PACKAGE;
     const bunHome = join(root, "bun-home");
@@ -329,6 +392,12 @@ async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>,
     if (!version.includes(`NeuroBook ${from.expected.get(appName) as string}`)) fail(`nbook --version 报的不是要验的版本：${version}`);
     await withNbook(nbook, stateRoot, env, checkWorkbench);
     step(`bun add -g ${appName}：nbook 启动、页面打开书架并连上服务端，Ctrl-C 以 0 退出`);
+    const installed = join(bunHome, "install", "global", "node_modules", ...appName.split("/"));
+    const managedState = join(root, "managed-state");
+    await mkdir(managedState);
+    await withManagedEntry(installed, nbook, managedState, env, checkWorkbench);
+    step("托管入口 server/main.js：以 --stop-stdin 起来，页面打开书架，写 stop 后以 0 退出");
+    if (manifest !== null) await smokeDesktopPayload(root, manifest, nbook, env);
 
     const sdkFlags = tarballs.has(sdkName) ? ["--sdk", `file:${sdkSpec}`] : [];
     await mustRun("bunx -p SDK nbooke create", ["bunx", "-p", sdkSpec, "nbooke", "create", "hello", "--publisher", "smoke", ...sdkFlags], {cwd: authors, env});
@@ -406,7 +475,7 @@ if (import.meta.main) {
         const from = sources(packages, tarballs);
         await smokeStory(root, from);
         await smokeVueHost(root, from);
-        await smokeAppAndPlugin(root, from, tarballs);
+        await smokeAppAndPlugin(root, from, tarballs, manifest);
         if (manifest !== null) {
             // master 被几个会话共用，冒烟期间别处的提交照常进来；只要会发布的目录没变，打出的字节就还是开始时那份代码的。
             const changed = releaseFilesChangedSince(manifest.commit, releaseDirectories());
