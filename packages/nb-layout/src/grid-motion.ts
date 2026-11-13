@@ -230,6 +230,7 @@ export function enteringRects(items: ReadonlyArray<GridLayerItem<unknown>>, prev
  *
  * 只管浮动窗：回到树里的窗沿用同一块叶（宿主不换 id），本来就从窗的位置飞回去。内容上一帧停放着、没有尺寸的不算（收成标题行的分节），
  * 那时内容不跟外框，外框从标题行长出来、内容一下子在终点。拖动中不用（`decideMotion`）：落地的起点是卡片的矩形（`useGridMotion` 的 `land`）。
+ * 起点是布局里的矩形，不是此刻画着的位置：别的过渡还没走完时开窗，内容从它半路的位置出发，外框从终点出发，一路错开，随过渡收拢。
  */
 export function floatLiftStarts(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>): ReadonlyMap<string, GridRect> {
     const known = new Set(previous.map((item) => item.key));
@@ -240,7 +241,7 @@ export function floatLiftStarts(items: ReadonlyArray<GridLayerItem<unknown>>, pr
     for (const item of items) {
         if (item.kind !== "content" || !item.active || !floats.has(item.leaf)) continue;
         const old = before.get(item.key);
-        if (old === undefined || !old.active || old.leaf === item.leaf || !hasSize(old.rect) || !hasSize(old.leafRect)) continue;
+        if (old === undefined || !old.active || !hasSize(old.rect) || !hasSize(old.leafRect)) continue;
         starts.set(`leaf:${item.leaf}`, old.leafRect);
     }
     return starts;
