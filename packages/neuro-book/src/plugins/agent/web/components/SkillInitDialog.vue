@@ -67,7 +67,7 @@ const close = (): void => emit("update:open", false);
             </p>
             <div class="skill-init__box">
                 <span class="skill-init__caption">{{ box.caption }}</span>
-                <pre class="skill-init__output nb-ui-scrollbar-thin" tabindex="0" :aria-label="box.caption" data-skill-init-box>{{ box.body }}</pre>
+                <pre class="skill-init__output nb-ui-scrollbar-thin" tabindex="0" role="group" :aria-label="box.caption" data-skill-init-box>{{ box.body }}</pre>
             </div>
             <p class="skill-init__note" :class="`is-${note.tone}`" data-skill-init-note>{{ note.text }}</p>
             <span class="skill-init__start" tabindex="-1" data-skill-init-start></span>

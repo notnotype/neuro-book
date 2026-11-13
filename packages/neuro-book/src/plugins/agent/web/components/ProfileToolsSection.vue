@@ -69,7 +69,7 @@ function openAdd(): void {
             </button>
             <ul v-if="!folded.has(group.id)" class="profile-tools__rows">
                 <li v-for="tool in group.tools" :key="tool.id" class="profile-tools__row" :class="{'is-gone': tool.gone}" :data-profile-tool="tool.id">
-                    <code class="profile-tools__name">{{ tool.name }}</code>
+                    <code class="profile-tools__name" :title="tool.name">{{ tool.name }}</code>
                     <span class="profile-tools__effect" :class="{'is-danger': tool.danger}">{{ tool.effect }}</span>
                     <Tooltip :text="tool.detail">
                         <span class="profile-tools__summary" tabindex="0">{{ tool.summary }}</span>

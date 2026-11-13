@@ -69,12 +69,13 @@ describe("SkillsSettingsPage", () => {
         expect(row("user.drafts").querySelector<HTMLButtonElement>("[data-skill-open]")?.disabled).toBe(true);
     });
 
-    it("展开写许可、兼容性、外部依赖、metadata 与位置，没有的项不列；展开按钮报告展开与否", async () => {
+    it("展开写许可、兼容性、外部依赖、metadata、上次安装的输出与位置，没有的项不列；展开按钮报告展开与否", async () => {
         const {wrapper, root, row} = await show(ENTRIES);
         const expand = (id: string) => row(id).querySelector<HTMLButtonElement>("[data-skill-expand]")!;
         expect(expand("user.style-guide").getAttribute("aria-expanded")).toBe("false");
         expand("user.style-guide").click();
         expand("user.voice-check").click();
+        expand("user.lore-check").click();
         await wrapper.vm.$nextTick();
         expect(expand("user.style-guide").getAttribute("aria-expanded")).toBe("true");
         const terms = (id: string) => [...row(id).querySelectorAll("[data-skill-details] dt")].map((term) => term.textContent);
@@ -82,6 +83,8 @@ describe("SkillsSettingsPage", () => {
         expect(row("user.style-guide").querySelector("[data-skill-details]")?.textContent).toContain("author: 林默 · version: 0.3");
         expect(terms("user.voice-check")).toEqual(["兼容性", "外部依赖", "位置"]);
         expect(row("user.voice-check").querySelector("[data-skill-details]")?.textContent).toContain("没有找到 uv");
+        expect(terms("user.lore-check")).toEqual(["上次安装的输出", "位置"]);
+        expect(row("user.lore-check").querySelector("[data-skill-details]")?.textContent).toContain("error: ETIMEDOUT");
     });
 
     it("没有 Skill 时写怎样放进来；还没取到时是读取中", async () => {

@@ -653,6 +653,7 @@
                 "python": "脚本带 Python 依赖，应用不代装",
                 "pythonNoUv": "脚本带 Python 依赖，应用不代装；没有找到 uv",
                 "metadata": "metadata",
+                "lastOutput": "上次安装的输出",
                 "location": "位置"
             },
             "folder": {

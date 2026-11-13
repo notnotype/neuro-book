@@ -125,8 +125,7 @@ export type CompactionView = {
     model: {name: string; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number | null} | null;
     /** 用到的压缩要求。 */
     require: readonly string[];
-    /** 放回了什么；没有放回（shake）是空数组。 */
-    /** `skill` 的 `target` 是 Skill 的 id（docs/specs/agent/skills.md 输出 17）。 */
+    /** 放回了什么；没有放回（shake）是空数组。`skill` 的 `target` 是 Skill 的 id（docs/specs/agent/skills.md 输出 17）。 */
     restored: readonly {kind: "file" | "plan" | "log" | "skill"; target: string; tokens: number; truncated: boolean}[];
     /** 换成占位的工具结果条数。 */
     omitted: number;

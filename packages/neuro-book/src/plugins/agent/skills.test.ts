@@ -90,7 +90,28 @@ describe("这一轮带上 Skill", () => {
         await writeFile(join(w.stateRoot, "user", "skills", "style-guide", "SKILL.md"), "---\nname: style-guide\ndescription: 说明\n---\n\n第二版：人称用第三人称。\n");
         const third = await ask(session, "$style-guide 第八章");
         expect(third).toContain("第二版：人称用第三人称。");
+        // 已经发出的那一轮不变：同一次请求的历史里，第一轮仍是第一版。
+        const history = endpoint.requests.at(-1)!.messages.filter((message) => message.role === "user").map((message) => textOf(message.content));
+        expect(history[0]).toContain("第一版：人称用第一人称。");
         expect(await missingOf(session)).toEqual([]);
+    }, 30_000);
+
+    test("场景 2：运行中插话带 $x，正文排在这句插话后面", async () => {
+        const w = await world({"style-guide": "插话带上的正文。"});
+        const created = await w.service.create({profile: MAIN_PROFILE});
+        if (!created.ok) throw new Error(created.code);
+        const session = created.value;
+        endpoint.script("先回一句", "好");
+        const held = endpoint.hold();
+        const result = await session.send({commandId: cid(), input: {text: "改写第六章"}});
+        if (!result.ok || result.value.runId === null) throw new Error(`send failed: ${JSON.stringify(result)}`);
+        await held.arrived;
+        expect((await session.send({commandId: cid(), input: {text: "按 $style-guide 来"}, mode: "steer"})).ok).toBe(true);
+        held.release();
+        await session.waitRun(result.value.runId);
+        const last = JSON.stringify(endpoint.requests.at(-1)!.messages);
+        expect(last.indexOf("按 $style-guide 来")).toBeGreaterThanOrEqual(0);
+        expect(last.indexOf("插话带上的正文。")).toBeGreaterThan(last.indexOf("按 $style-guide 来"));
     }, 30_000);
 
     test("场景 3、7：不存在的、用户在 Profile 设置里去掉的都不带正文；模型在用户的话前面看到 system-reminder 写明原因；行内代码里的 $HOME 不算标签", async () => {
@@ -174,7 +195,7 @@ describe("远程", () => {
 });
 
 describe("窗口：目录与确认框（输出 5、27）", () => {
-    test("窗口的目录跟着 skillsChanged 更新；确认框取计划、确认后装好并关上，目录里变成可用；装不上时停在失败、带安装输出，能重试", async () => {
+    test("窗口的目录跟着 skillsChanged 更新；确认框取计划、确认后装好并关上，目录里变成可用；装不上时停在失败、带安装输出；旧的一轮不覆盖新的，安装中关掉不再拉开，计划取不到时重试是重新取", async () => {
         const w = await world({});
         const dep = join(w.stateRoot, "..", "local-dep");
         await mkdir(dep, {recursive: true});
@@ -197,14 +218,49 @@ describe("窗口：目录与确认框（输出 5、27）", () => {
             return entry()?.status === "needs-init" ? entry() : undefined;
         }, {timeoutMs: 10_000});
 
-        const init = createSkillInit(client, fail);
+        // 真实的远程，只把“先问的那个”的计划压到后一个之后才交回，看旧的一轮不覆盖新的。
+        let releaseStale = () => undefined as void;
+        const staleHeld = new Promise<void>((resolve) => (releaseStale = resolve));
+        let installs = 0;
+        const ordered: Parameters<typeof createSkillInit>[0] = {
+            skillInitPlan: async (...args) => {
+                const result = await client.skillInitPlan(...args);
+                if (args[0].id === "user.gone") await staleHeld;
+                return result;
+            },
+            initSkill: (...args) => {
+                installs += 1;
+                return client.initSkill(...args);
+            },
+        };
+        const reports: string[] = [];
+        const init = createSkillInit(ordered, (message) => void reports.push(message));
+        const stale = init.ask({id: "user.gone", name: "gone"});
         await init.ask(found);
+        releaseStale();
+        await stale;
         expect(init.state.value).toMatchObject({open: true, name: "epub-export", phase: "confirm", plan: {lock: false, dependencies: ["not-here"]}});
+
+        // 取计划失败时的“重试”重新取计划，不直接装。
+        await init.ask({id: "user.gone", name: "gone"});
+        expect(init.state.value).toMatchObject({phase: "failed", plan: null, failure: {code: "unavailable"}});
         await init.confirm();
-        expect(init.state.value).toMatchObject({open: true, phase: "failed", failure: {code: "install-failed"}});
+        expect(init.state.value).toMatchObject({phase: "failed", plan: null});
+        expect(installs).toBe(0);
+        expect(reports).toEqual(["skill init plan user.gone: skill-not-found", "skill init plan user.gone: skill-not-found", "skill init plan user.gone: skill-not-found"]);
+
+        // 安装中关掉：装完（这次失败）也不再把对话框拉开。
+        await init.ask(found);
+        const installing = init.confirm();
+        init.close();
+        await installing;
+        expect(init.state.value).toMatchObject({open: false, phase: "failed", failure: {code: "install-failed"}});
         expect(init.state.value.failure?.output).toContain("missing-dir");
 
+        // 关掉后再打开同一个 Skill 是新的一轮：回到确认；改好依赖后确认，装好并关上。
         await writeFile(join(directory, "package.json"), JSON.stringify({name: "epub-export", private: true, dependencies: {"local-dep": `file:${dep}`}}));
+        await init.ask(found);
+        expect(init.state.value).toMatchObject({open: true, phase: "confirm", failure: null});
         await init.confirm();
         expect(init.state.value.open).toBe(false);
         await waitUntil("窗口的目录变成可用", () => {

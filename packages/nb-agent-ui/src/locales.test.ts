@@ -297,7 +297,7 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "wizard.modeSwitch.decline": {"zh-CN": "不同意", "en-US": "Don't switch"},
     "composer.plus": {"zh-CN": "添加", "en-US": "Add"},
     "composer.plusReference": {"zh-CN": "引用文件", "en-US": "Reference a file"},
-    "composer.plusSkill": {"zh-CN": "使用技能", "en-US": "Use a skill"},
+    "composer.plusSkill": {"zh-CN": "使用 Skill", "en-US": "Use a Skill"},
     "composer.plusCommand": {"zh-CN": "运行命令", "en-US": "Run a command"},
     "composer.approvalModeWhileGated": {"zh-CN": "审批模式：{mode}（{current}模式下不改作品，切回普通模式后按它走）", "en-US": "Approval mode: {mode} (nothing changes in {current} mode; this applies after switching back to Normal)"},
     "composer.modeChanged": {"zh-CN": "已切到{mode}模式", "en-US": "Switched to {mode} mode"},

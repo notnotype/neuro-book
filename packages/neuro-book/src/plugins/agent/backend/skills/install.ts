@@ -128,8 +128,12 @@ export class SkillInstaller {
         const running = this.#running.get(id);
         if (running !== undefined) return running;
         if (this.#stopped) return Promise.resolve({ok: false, code: "interrupted"});
+        // 中止器在同步段里就登记：`stop()` 或取消在拿锁、起子进程之前到达时，后面每一步都看得到。
+        const abort = new AbortController();
+        this.#aborts.add(abort);
         // 先移出“在装”再重扫：重扫按 `installing` 算状态，还在表里会一直显示“正在初始化”。
-        const work = this.#init(id, options.resolve === true).finally(async () => {
+        const work = this.#init(id, options.resolve === true, abort).finally(async () => {
+            this.#aborts.delete(abort);
             this.#running.delete(id);
             await this.#options.refresh(id);
         });
@@ -156,22 +160,23 @@ export class SkillInstaller {
         return tryLock(join(this.#options.locksRoot, `${id}.lock`));
     }
 
-    async #init(id: string, resolve: boolean): Promise<SkillInitResult> {
+    async #init(id: string, resolve: boolean, abort: AbortController): Promise<SkillInitResult> {
         const checked = await this.#initializable(id);
         if (!checked.ok) return checked;
         const {directory} = checked.item;
         const hasLock = await readFile(join(directory, LOCK_FILE), "utf8").then(() => true, () => false);
         if (!hasLock && !resolve) return {ok: false, code: "lock-missing"};
         await mkdir(this.#options.locksRoot, {recursive: true});
+        // 还没开始装就被停下：不拿锁、不写标记。
+        if (abort.signal.aborted) return {ok: false, code: "interrupted"};
         const lock = this.#tryLock(id);
         if (lock === null) return {ok: false, code: "busy"};
-        const abort = new AbortController();
-        this.#aborts.add(abort);
-        // 拿到锁才登记：并入的请求、`busy`、`lock-missing` 都不是一次安装，不进清单。
-        const task = await this.#startTask(checked.item, resolve, abort);
-        // 写完标记才算有结果：中途抛错时任务按失败收尾，不留一件一直在跑的。
+        // 拿到锁之后的每一步都在 try 里，锁只在 finally 放。写完标记才算有结果：中途抛错时任务按失败收尾，不留一件一直在跑的。
+        let task: TaskHandle | null = null;
         let outcome: SkillInitResult | undefined;
         try {
+            // 拿到锁才登记：并入的请求、`busy`、`lock-missing` 都不是一次安装，不进清单。
+            task = await this.#startTask(checked.item, resolve, abort);
             await this.#options.refresh(id);
             const result = await this.#run(directory, hasLock, abort.signal);
             const error: SkillDepsMarker["error"] = result.ok ? undefined : result.code === "interrupted" ? {code: "interrupted"} : {code: "install-failed", detail: result.detail ?? ""};
@@ -179,7 +184,6 @@ export class SkillInstaller {
             outcome = result;
             return result;
         } finally {
-            this.#aborts.delete(abort);
             lock.release();
             if (task !== null) finishTask(task, outcome);
         }
@@ -193,7 +197,12 @@ export class SkillInstaller {
             title: agentText("skills.task.title", {name: item.entry.name}),
             message: installingText(await planOf(item.directory)),
             cancellable: true,
-            retry: () => this.init(item.entry.id, {resolve}).then(() => undefined),
+            // 重试只在拿到锁时登记新的一件；别处正在装、锁文件没了、Skill 不在了这些结果没有新任务可看，抛出让后台任务记诊断
+            // （background-tasks.md 的“失败与恢复”）。
+            retry: async () => {
+                const result = await this.init(item.entry.id, {resolve});
+                if (!result.ok && result.code !== "install-failed" && result.code !== "interrupted") throw new Error(`skill init retry for ${item.entry.id}: ${result.code}`);
+            },
         });
         handle.signal.addEventListener("abort", () => {
             if (handle.signal.reason === "cancelled") abort.abort();
@@ -202,6 +211,8 @@ export class SkillInstaller {
     }
 
     async #run(directory: string, frozen: boolean, signal: AbortSignal): Promise<SkillInitResult> {
+        // 在已中止的 signal 上挂监听不会再触发：起子进程前先看一眼。
+        if (signal.aborted) return {ok: false, code: "interrupted"};
         const command = [this.#options.bun, "install", ...(frozen ? ["--frozen-lockfile"] : []), "--ignore-scripts"];
         const child = Bun.spawn(command, {cwd: directory, stdin: "ignore", stdout: "pipe", stderr: "pipe"});
         let timedOut = false;

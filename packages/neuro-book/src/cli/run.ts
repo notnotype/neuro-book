@@ -58,7 +58,7 @@ function program(): Command {
         .allowExcessArguments()
         .action(async (options: {port?: number; rpcPort?: number; open: boolean; safeMode?: boolean}, command: Command) => {
             const [unknown] = command.args;
-            if (unknown !== undefined) throw new CliFailure("usage", `不认识的命令 ${unknown}；可用的命令：start、plugin（nbook --help 查看用法）`, 2);
+            if (unknown !== undefined) throw new CliFailure("usage", `不认识的命令 ${unknown}；可用的命令：${nbook.commands.map((each) => each.name()).join("、")}（nbook --help 查看用法）`, 2);
             const globals = command.optsWithGlobals<GlobalOptions>();
             // 只有起服务端的 start 才求值 OMP：先接管它要装的进程级处理，再加载服务端（server/omp-process.ts）。--version、
             // --help 与插件管理不碰 OMP，没装 OMP 的原生包也能用。
@@ -104,6 +104,10 @@ function program(): Command {
                         const prompt = createInterface({input: process.stdin, output: process.stderr});
                         try {
                             return /^y(es)?$/iu.test((await prompt.question(question)).trim());
+                        } catch (error) {
+                            // 终端里问话时按 Ctrl-C 由 readline 收下（不产生 SIGINT），问话以 ABORT_ERR 失败：当作没有确认。
+                            if ((error as NodeJS.ErrnoException).code === "ABORT_ERR") return false;
+                            throw error;
                         } finally {
                             prompt.close();
                         }

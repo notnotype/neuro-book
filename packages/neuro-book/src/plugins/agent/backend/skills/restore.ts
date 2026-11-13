@@ -18,6 +18,8 @@ export const RESTORE_SKILL_TOKENS = 5_000;
 export const RESTORE_SKILLS_TOTAL = 25_000;
 /** 放回的全部内容（文件、计划、Skill）合计不超过窗口的这一份（compaction.md 的口径）。 */
 const WINDOW_SHARE = 0.25;
+/** 截断后正文不到这么多就不放：只剩一两行的 Skill 帮不上忙（同套件放回文件的下限）。 */
+const MIN_SKILL_TOKENS = 400;
 const SKILL_EVENT = `${SKILLS_EXTENSION}/skill`;
 
 export interface SkillRestoreOptions {
@@ -63,8 +65,12 @@ export async function restoreSkills(options: SkillRestoreOptions, args: Compacti
             options.report("restore-skipped", `Skill ${id} was not restored after compaction`, {id, message: error instanceof Error ? error.message : String(error)});
             continue;
         }
-        const shown = truncateTokens(body, Math.min(RESTORE_SKILL_TOKENS, budget));
-        const text = renderSkill({id, name: item.entry.name, location: item.entry.location, body: shown.text, truncated: shown.truncated});
+        // 预算算的是包好之后的整段：先扣掉包装（标签与说明行，按截断时的样子算），剩下的给正文。
+        const data = {id, name: item.entry.name, location: item.entry.location};
+        const bodyBudget = Math.min(RESTORE_SKILL_TOKENS, budget) - estimateTokens(renderSkill({...data, body: "", truncated: true}));
+        const shown = truncateTokens(body, Math.max(0, bodyBudget));
+        if (shown.truncated && bodyBudget < MIN_SKILL_TOKENS) continue;
+        const text = renderSkill({...data, body: shown.text, truncated: shown.truncated});
         const tokens = estimateTokens(text);
         notices.push(text);
         restored.push({kind: "skill", target: id, tokens, truncated: shown.truncated});

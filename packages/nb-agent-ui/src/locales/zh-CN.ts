@@ -161,7 +161,7 @@ export default {
         approvalMode: "审批模式：{{mode}}",
         plus: "添加",
         plusReference: "引用文件",
-        plusSkill: "使用技能",
+        plusSkill: "使用 Skill",
         plusCommand: "运行命令",
         approvalModeWhileGated: "审批模式：{{mode}}（{{current}}模式下不改作品，切回普通模式后按它走）",
         modeChanged: "已切到{{mode}}模式",

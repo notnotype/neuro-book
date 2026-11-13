@@ -112,6 +112,31 @@ describe("初始化", () => {
         expect(await installer.init("user.epub-export", {resolve: true})).toEqual({ok: true});
     }, 60_000);
 
+    test("输出 21：应用停止时，正在进行的安装被结束、标记写中断、锁放掉；刚请求就停止的不起安装", async () => {
+        // 一个不回应的本地包源：安装一直等在下载上，直到被停止。
+        const server = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: () => new Promise<Response>(() => undefined)});
+        cleanups.push(() => void server.stop(true));
+        const slow = JSON.stringify({name: "epub-export", private: true, dependencies: {"slow-dep": `http://127.0.0.1:${String(server.port)}/slow-dep.tgz`}});
+
+        const midway = await scene();
+        await writeFile(join(midway.directory, "package.json"), slow);
+        await midway.catalog.refresh("user.epub-export");
+        const running = midway.installer.init("user.epub-export", {resolve: true});
+        await waitUntil("开始下载", () => status(midway.catalog) === "initializing" || undefined);
+        await midway.installer.stop();
+        expect(await running).toEqual({ok: false, code: "interrupted"});
+        expect(JSON.parse(await readFile(join(midway.directory, MARKER_FILE), "utf8"))).toMatchObject({error: {code: "interrupted"}});
+        expect(midway.installer.installing("user.epub-export")).toBe(false);
+
+        const early = await scene();
+        await writeFile(join(early.directory, "package.json"), slow);
+        await early.catalog.refresh("user.epub-export");
+        const started = early.installer.init("user.epub-export", {resolve: true});
+        await early.installer.stop();
+        expect(await started).toEqual({ok: false, code: "interrupted"});
+        expect(early.installer.installing("user.epub-export")).toBe(false);
+    }, 60_000);
+
     test("内置的、没有 package.json 的不能初始化；没有这个 id 得 skill-not-found", async () => {
         const {directory, catalog, installer} = await scene();
         await rm(join(directory, "package.json"));

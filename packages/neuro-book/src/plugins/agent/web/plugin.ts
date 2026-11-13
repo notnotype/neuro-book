@@ -440,8 +440,8 @@ export const agentBrowserPlugin: PluginDefinition = {
                     };
                 };
                 refreshServices();
-                // 目录或最近用过的变了：换一个新函数，开着的菜单按当前查询重取。
-                const stopWatching = watch([skills.entries, skills.recent], refreshServices);
+                // 目录、最近用过的或 Profile（白名单由它求出，启动时可能比目录晚到）变了：换一个新函数，开着的菜单按当前查询重取。
+                const stopWatching = watch([skills.entries, skills.recent, profiles], refreshServices);
                 context.signal.addEventListener("abort", stopWatching, {once: true});
                 return defineComponent({
                     name: "AgentConversationPosition",

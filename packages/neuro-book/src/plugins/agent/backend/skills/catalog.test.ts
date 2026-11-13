@@ -80,6 +80,13 @@ describe("目录", () => {
         await waitUntil("新放进来的 Skill 出现", () => catalog.item("user.fresh"), {timeoutMs: 10_000});
         await rm(join(user, "fresh"), {recursive: true});
         await waitUntil("删掉的 Skill 消失", () => catalog.item("user.fresh") === undefined || undefined, {timeoutMs: 10_000});
+
+        // 整个文件夹换掉（删掉再建，解压覆盖常这样做）之后，再改它的 SKILL.md 照样看得到。
+        await rm(join(user, "style-guide"), {recursive: true});
+        await put(user, "style-guide", {"SKILL.md": skillMd("style-guide", "第二版")});
+        await waitUntil("换掉的文件夹读到新的", () => catalog.item("user.style-guide")?.entry.description === "第二版" || undefined, {timeoutMs: 10_000});
+        await writeFile(join(user, "style-guide", "SKILL.md"), skillMd("style-guide", "第三版"));
+        await waitUntil("换掉之后再改也看得到", () => catalog.item("user.style-guide")?.entry.description === "第三版" || undefined, {timeoutMs: 10_000});
     }, 30_000);
 
     test("无效的原因：没有 SKILL.md、frontmatter 读不懂、必填字段缺或不合规、目录是链接；可选字段不合规只忽略那个字段", async () => {

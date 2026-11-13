@@ -317,8 +317,9 @@ describe("Skill 一节（skills.md 的白名单）", () => {
         expect(field?.candidates.flatMap((group) => group.tools.map((row) => row.id))).toEqual(["user.epub-export", "user.tts-preview"]);
     });
 
-    test("Skill 目录还没取到、Profile 从未成功过时没有这一节", () => {
+    test("Skill 目录还没取到、Profile 从未成功过、后台的 Profile 没有这一节", () => {
         expect(skillsOf({skills: null})).toBeNull();
         expect(skillsOf({entry: entry({tools: undefined})})).toBeNull();
+        expect(skillsOf({entry: entry({hidden: true, skills: {allowed: "all"}})})).toBeNull();
     });
 });

@@ -55,14 +55,16 @@ const secondLine = (entry: SkillEntry): string => (entry.problem === undefined ?
 
 const folderOf = (entry: SkillEntry): string => (entry.source === "user" ? `user://skills/${entry.name}/` : `skills://${entry.id}/`);
 
-function details(entry: SkillEntry): ReadonlyArray<readonly [string, string]> {
-    const rows: Array<readonly [string, string]> = [];
-    if (entry.license !== undefined) rows.push([text("skills.page.details.license"), entry.license]);
-    if (entry.external?.compatibility !== undefined) rows.push([text("skills.page.details.compatibility"), entry.external.compatibility]);
-    if (entry.external?.python === true) rows.push([text("skills.page.details.external"), text(entry.external.uvMissing === true ? "skills.page.details.pythonNoUv" : "skills.page.details.python")]);
+/** 展开里的各项；`output` 是上次安装的输出，按原样的行显示。 */
+function details(entry: SkillEntry): ReadonlyArray<{readonly term: string; readonly value: string; readonly output?: boolean}> {
+    const rows: Array<{readonly term: string; readonly value: string; readonly output?: boolean}> = [];
+    if (entry.license !== undefined) rows.push({term: text("skills.page.details.license"), value: entry.license});
+    if (entry.external?.compatibility !== undefined) rows.push({term: text("skills.page.details.compatibility"), value: entry.external.compatibility});
+    if (entry.external?.python === true) rows.push({term: text("skills.page.details.external"), value: text(entry.external.uvMissing === true ? "skills.page.details.pythonNoUv" : "skills.page.details.python")});
     const metadata = Object.entries(entry.metadata ?? {});
-    if (metadata.length > 0) rows.push([text("skills.page.details.metadata"), metadata.map(([key, value]) => `${key}: ${value}`).join(" · ")]);
-    rows.push([text("skills.page.details.location"), folderOf(entry)]);
+    if (metadata.length > 0) rows.push({term: text("skills.page.details.metadata"), value: metadata.map(([key, value]) => `${key}: ${value}`).join(" · ")});
+    if (entry.problem?.code === "install-failed" && entry.problem.detail !== "") rows.push({term: text("skills.page.details.lastOutput"), value: entry.problem.detail, output: true});
+    rows.push({term: text("skills.page.details.location"), value: folderOf(entry)});
     return rows;
 }
 </script>
@@ -107,9 +109,9 @@ function details(entry: SkillEntry): ReadonlyArray<readonly [string, string]> {
                             @click="toggle(entry.id)"
                         />
                         <dl v-if="expanded.has(entry.id)" class="skills-page__details" data-skill-details>
-                            <template v-for="[term, value] in details(entry)" :key="term">
-                                <dt>{{ term }}</dt>
-                                <dd>{{ value }}</dd>
+                            <template v-for="row in details(entry)" :key="row.term">
+                                <dt>{{ row.term }}</dt>
+                                <dd :class="{'skills-page__output': row.output === true}">{{ row.value }}</dd>
                             </template>
                         </dl>
                     </li>
@@ -120,7 +122,7 @@ function details(entry: SkillEntry): ReadonlyArray<readonly [string, string]> {
 </template>
 
 <style scoped>
-.skills-page { display: flex; flex-direction: column; }
+.skills-page { display: flex; flex-direction: column; container-type: inline-size; }
 .skills-page__bar { display: flex; justify-content: flex-end; }
 .skills-page__empty { display: flex; min-height: 160px; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-5); font-size: var(--text-sm); line-height: var(--leading-ui); color: var(--text-secondary); text-align: center; }
 .skills-page__empty p { max-width: 36em; margin: 0; }
@@ -141,4 +143,10 @@ function details(entry: SkillEntry): ReadonlyArray<readonly [string, string]> {
 .skills-page__details { grid-column: 1 / -1; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-1) var(--space-4); margin: var(--space-3) 0 0; padding: var(--space-3); border-radius: var(--radius-control); background: var(--bg-subtle); font-size: var(--text-xs); line-height: var(--leading-ui); }
 .skills-page__details dt { color: var(--text-muted); }
 .skills-page__details dd { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+/* 窄时名字与说明占满第一行，徽标与按钮落到第二行、仍在各自的列里：按钮列不收，名字不被挤成几个字。 */
+@container (max-width: 480px) {
+    .skills-page__meta { grid-column: 1 / -1; }
+    .skills-page__item > :nth-child(2) { grid-column: 2; }
+}
+.skills-page__details dd.skills-page__output { font-family: var(--font-mono); white-space: pre-wrap; }
 </style>

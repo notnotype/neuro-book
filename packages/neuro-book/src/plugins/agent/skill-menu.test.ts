@@ -46,6 +46,9 @@ describe("$ 菜单（输出 26）", () => {
         expect(promptSkillTokens(`用 ${inserted("user.review")} 审`)).toEqual(["user.review"]);
         expect(promptSkillTokens(`用 ${inserted("builtin.review")} 审`)).toEqual(["builtin.review"]);
         expect(promptSkillTokens(`用 ${inserted("user.1st-draft")} 写`)).toEqual(["1st-draft"]);
+        // 同名的另一个无效、不列出，但它在白名单里，按名字仍认不出唯一一个：照样写 id。
+        const shadowed = menu("", {entries: [entry("user", "review", {status: "invalid"}), entry("builtin", "review")], allowed: ["user.review", "builtin.review"]}).items;
+        expect(shadowed.map((item) => [item.label, item.insertText])).toEqual([["builtin.review", "${builtin.review}"]]);
     });
 
     test("最近用过的在前：没有查询词时分“最近用过”“全部”两组，有查询词时不分组、照样排在前面", () => {
@@ -60,11 +63,17 @@ describe("$ 菜单（输出 26）", () => {
         expect(searched[0]?.id).toBe("user.tts-preview");
         // 不分大小写、按包含匹配：tts-preview 里也有 review。
         expect(menu("REVIEW").items.map((item) => item.id)).toEqual(["builtin.review", "user.review", "user.tts-preview"]);
+        // 按名字找；带 `.` 时按 id 找，来源前缀不会让短词命中整个来源。
+        expect(menu("user").items).toEqual([]);
+        expect(menu("in").items.map((item) => item.id)).toEqual([]);
+        expect(menu("user.st").items.map((item) => item.id)).toEqual(["user.style-guide"]);
     });
 
-    test("没取到目录时加载中；白名单为空时只有“打开 Profile 设置”一项，选它不插入文字；查不到时写没有匹配", () => {
+    test("没取到目录时加载中；白名单为空时刚打 `$` 只有“打开 Profile 设置”一项，选它不插入文字；查不到时写没有匹配", () => {
         expect(menu("", {entries: null})).toMatchObject({items: [], loading: true});
         expect(menu("", {allowed: []}).items).toEqual([{id: OPEN_PROFILE_SETTINGS_ITEM, label: "打开 Profile 设置", description: "这个 Profile 还没有可用的 Skill", iconClass: "i-lucide-settings", insertText: "", continues: true}]);
+        // `$` 后面已经有字（正文里的“$50”）时不给能被回车选中的那一项，回车照常发送。
+        expect(menu("50", {allowed: []})).toMatchObject({items: [], emptyText: "这个 Profile 还没有可用的 Skill"});
         expect(menu("zzz")).toMatchObject({items: [], emptyText: "没有匹配的 Skill"});
     });
 });

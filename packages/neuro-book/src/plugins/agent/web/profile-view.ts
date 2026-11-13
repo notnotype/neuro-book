@@ -341,7 +341,8 @@ export const REMOVED_GROUP = "removed";
  */
 function skillsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
     const catalog = input.skills;
-    if (catalog === null || catalog === undefined || entry.tools === undefined) return null;
+    // 后台的 Profile 没有用户的输入，`$` 到不了它，不给这一节。
+    if (catalog === null || catalog === undefined || entry.tools === undefined || entry.hidden === true) return null;
     const {text} = input;
     const ids = catalog.map((skill) => skill.id);
     const binding = input.settings[entry.key]?.skills;

@@ -9,7 +9,7 @@
 
 import {watch, type FSWatcher} from "node:fs";
 import {lstat, mkdir, readdir} from "node:fs/promises";
-import {join} from "node:path";
+import {basename, join, sep} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
@@ -54,6 +54,8 @@ export class SkillCatalog {
     #items = new Map<string, SkillItem>();
     readonly #listeners = new Set<() => void>();
     readonly #watchers = new Map<string, FSWatcher>();
+    /** 已经报过的“可选字段不合规”，按 id：同样的只报一次，每次重扫都报会刷满诊断。 */
+    readonly #ignoredReported = new Map<string, string>();
     /** 等着重扫的来源目录（整个来源）与 Skill 目录（单个 Skill），各自的取消函数。 */
     readonly #pending = new Map<string, () => void>();
     #scanning: Promise<void> = Promise.resolve();
@@ -147,7 +149,7 @@ export class SkillCatalog {
     }
 
     async #rescanSkill(source: SkillSource, directory: string): Promise<boolean> {
-        const folder = directory.slice(directory.lastIndexOf("/") + 1);
+        const folder = basename(directory);
         const id = skillId(source, folder);
         const next = new Map(this.#items);
         const present = await lstat(directory).then(() => true, () => false);
@@ -172,7 +174,11 @@ export class SkillCatalog {
 
     async #scanRoot(source: SkillSource, root: string | null): Promise<SkillItem[]> {
         if (root === null) return [];
-        const children = await readdir(root, {withFileTypes: true}).catch(() => []);
+        const children = await readdir(root, {withFileTypes: true}).catch((error: unknown) => {
+            // 来源目录不存在是常态（还没有内置的 Skill）；别的错误（没有权限、不是目录）让整组 Skill 消失，要留诊断。
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.#options.report("skills-scan-failed", `Cannot read skills folder ${root}`, {source, message: error instanceof Error ? error.message : String(error)});
+            return [];
+        });
         const items: SkillItem[] = [];
         for (const child of children) {
             // 文件与以点开头的条目不是 Skill（`.DS_Store`、编辑器的临时目录）；链接照样列出，状态是无效。
@@ -187,7 +193,9 @@ export class SkillCatalog {
         const base = {id, source, location: skillLocation(id)};
         const read = await readSkillPackage(directory, folder).catch((error: unknown) => ({ok: false as const, problem: {code: "frontmatter-unreadable", detail: error instanceof Error ? error.message : String(error)} satisfies SkillProblem}));
         if (!read.ok) return {directory, entry: {...base, name: folder, description: "", status: "invalid", problem: read.problem}};
-        if (read.ignored.length > 0) this.#options.report("skill-field-ignored", `Skill ${id}: ignored invalid optional fields ${read.ignored.join(", ")}`, {id, fields: read.ignored});
+        const ignored = read.ignored.join(", ");
+        if (ignored !== "" && this.#ignoredReported.get(id) !== ignored) this.#options.report("skill-field-ignored", `Skill ${id}: ignored invalid optional fields ${ignored}`, {id, fields: read.ignored});
+        this.#ignoredReported.set(id, ignored);
         const {manifest} = read;
         const ready = await readiness(directory);
         const external = await detectExternal(directory, manifest.compatibility, this.#options.which ?? ((command) => Bun.which(command)));
@@ -231,8 +239,12 @@ export class SkillCatalog {
         for (const [path, onChange] of wanted) {
             if (this.#watchers.has(path)) continue;
             try {
-                const watcher = watch(path, {persistent: false}, onChange);
-                // 目录被删掉时监视器报错；它的上一级会触发重扫，重扫后的同步再按需重建。
+                // 子目录被删掉再建（或改名替换）后是另一个目录，按路径留着的旧监视器收不到它的事件，Bun 也不报错：上一级报出某个
+                // 子项变了，就关掉这个子项及其下面的监视器，重扫之后的同步按新的目录重建。
+                const watcher = watch(path, {persistent: false}, (_event, filename) => {
+                    if (filename !== null) this.#forgetWatchers(join(path, String(filename)));
+                    onChange();
+                });
                 watcher.on("error", () => {
                     watcher.close();
                     if (this.#watchers.get(path) === watcher) this.#watchers.delete(path);
@@ -242,6 +254,14 @@ export class SkillCatalog {
                 // 还不存在的 `node_modules` 是常态；装好后 Skill 目录的变化会触发重扫，再建它的监视器。
                 if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.#options.report("skills-watch-failed", `Cannot watch ${path}`, {message: error instanceof Error ? error.message : String(error)});
             }
+        }
+    }
+
+    #forgetWatchers(path: string): void {
+        for (const [watched, watcher] of this.#watchers) {
+            if (watched !== path && !watched.startsWith(`${path}${sep}`)) continue;
+            watcher.close();
+            this.#watchers.delete(watched);
         }
     }
 

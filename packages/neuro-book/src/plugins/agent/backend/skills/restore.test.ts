@@ -79,11 +79,14 @@ describe("压缩之后放回 Skill", () => {
         const wide = await restoreSkills(options(catalog), args(path), {notices: []});
         for (const item of wide.restored as ReadonlyArray<{tokens: number; truncated: boolean}>) {
             expect(item.truncated).toBe(true);
-            expect(item.tokens).toBeLessThanOrEqual(RESTORE_SKILL_TOKENS + 200);
+            expect(item.tokens).toBeLessThanOrEqual(RESTORE_SKILL_TOKENS);
         }
         const narrow = await restoreSkills(options(catalog), args(path, {contextWindow: 64_000}), filesRestored);
         const total = (narrow.restored as ReadonlyArray<{tokens: number}>).reduce((sum, item) => sum + item.tokens, 0);
-        expect(total).toBeLessThanOrEqual(64_000 * 0.25 + 200);
+        expect(total).toBeLessThanOrEqual(64_000 * 0.25);
+        // 文件几乎占满窗口的 25% 时，剩下的放不进一段有用的正文，就不放。
+        const nearlyFull: CompactionRestored = {notices: ["最近的文件"], restored: [{kind: "file", target: "home://a.md", tokens: 15_990, truncated: false}]};
+        expect(await restoreSkills(options(catalog), args(path, {contextWindow: 64_000}), nearlyFull)).toBe(nearlyFull);
         expect(await restoreSkills(options(catalog), args(path, {replacement: null}), filesRestored)).toBe(filesRestored);
     });
 

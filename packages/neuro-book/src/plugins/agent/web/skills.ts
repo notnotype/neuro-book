@@ -83,7 +83,8 @@ export interface SkillMenuInput {
 
 /**
  * `$` 菜单（输出 26）：白名单里、目录中有、不是无效的 Skill；最近用过的在前，其余按名字；同名的显示 id，插入时写 `${id}`。
- * 没有查询词时分“最近用过”“全部”两组，有查询词时不分组。
+ * 没有查询词时分“最近用过”“全部”两组，有查询词时不分组。查询词按名字找，带 `.` 时按 id 找（id 都以来源开头，短词按 id
+ * 找会命中整个来源）。
  */
 export function skillMenu(query: string, input: SkillMenuInput): TriggerMenu {
     const {texts} = input;
@@ -91,18 +92,24 @@ export function skillMenu(query: string, input: SkillMenuInput): TriggerMenu {
     const allowed = new Set(input.allowed);
     const usable = input.entries.filter((entry) => allowed.has(entry.id) && entry.status !== "invalid");
     if (usable.length === 0) {
+        // 去设置的那一项只在刚打 `$` 时给：它会被回车选中，`$` 后面已经有字（“$50”）时回车要照常发送。
+        if (query !== "") return {title: texts.title, items: [], emptyText: texts.noSkills};
         return {title: texts.title, items: [{id: OPEN_PROFILE_SETTINGS_ITEM, label: texts.openSettings, description: texts.noSkills, iconClass: "i-lucide-settings", insertText: "", continues: true}]};
     }
-    const sameName = new Map<string, number>();
-    for (const entry of usable) sameName.set(entry.name, (sameName.get(entry.name) ?? 0) + 1);
+    // 名字认得回它自己才写名字，与服务端认标签同一个规则：同名的另一个哪怕无效，只要在白名单里也算重名。
+    const entries = input.entries;
+    const byName = (entry: SkillEntry): boolean => {
+        const matched = matchSkillToken(entry.name, entries, (each) => each, allowed);
+        return matched.ok && matched.item.id === entry.id;
+    };
     const needle = query.toLowerCase();
-    const matched = needle === "" ? usable : usable.filter((entry) => entry.name.toLowerCase().includes(needle) || entry.id.toLowerCase().includes(needle));
+    const matched = needle === "" ? usable : usable.filter((entry) => (needle.includes(".") ? entry.id : entry.name).toLowerCase().includes(needle));
     const rank = new Map(input.recent.map((id, index) => [id, index]));
     const recent = matched.filter((entry) => rank.has(entry.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
     const rest = matched.filter((entry) => !rank.has(entry.id)).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
     const grouped = needle === "" && recent.length > 0;
     const item = (entry: SkillEntry, group: string | undefined): TriggerMenuItem => {
-        const duplicated = (sameName.get(entry.name) ?? 0) > 1;
+        const duplicated = !byName(entry);
         return {
             id: entry.id,
             label: duplicated ? entry.id : entry.name,

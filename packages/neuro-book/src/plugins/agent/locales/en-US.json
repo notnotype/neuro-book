@@ -580,9 +580,9 @@
             "title": "Initialize {{name}}",
             "head": {
                 "loading": "Reading the dependencies to install…",
-                "packages": "{{count}} packages will be installed. Requires network access.",
-                "packagesUnknown": "Dependencies will be installed (package count unknown). Requires network access.",
-                "direct": "{{count}} direct dependencies will be installed. Requires network access.",
+                "packages": "Installs {{count}} packages. Needs internet.",
+                "packagesUnknown": "Installs dependencies. Needs internet.",
+                "direct": "Installs {{count}} dependencies. Needs internet.",
                 "installing": "Installing…",
                 "failed": "Initialization failed."
             },
@@ -592,13 +592,13 @@
                 "none": "No direct dependencies"
             },
             "note": {
-                "scripts": "Package install scripts will not run; packages that need them may not work.",
-                "noLock": "No bun.lock: dependencies will be resolved to their latest versions and a lockfile created. Package install scripts will not run.",
-                "installing": "Closing this keeps the installation running in the background; progress is under background tasks in the status bar.",
+                "scripts": "Install scripts won't run; packages that need them may not work.",
+                "noLock": "No bun.lock: resolves the latest versions and creates one. Install scripts won't run.",
+                "installing": "Closing this keeps it installing in the background (see background tasks).",
                 "installFailed": "Check the output above, fix the network or the dependencies, then retry.",
-                "busy": "This Skill is being initialized elsewhere (the app or the command line). Check again when it finishes.",
+                "busy": "Being initialized elsewhere (the app or the command line). Check back when it's done.",
                 "interrupted": "The installation was cancelled or interrupted. You can retry.",
-                "unavailable": "This Skill cannot be initialized right now. Check its status on the Skills page in Settings."
+                "unavailable": "This Skill can't be initialized now. See its status on the Skills page in Settings."
             },
             "later": "Not now",
             "confirm": "Initialize",
@@ -653,6 +653,7 @@
                 "python": "The scripts need Python packages, which the app does not install",
                 "pythonNoUv": "The scripts need Python packages, which the app does not install; uv was not found",
                 "metadata": "metadata",
+                "lastOutput": "Last install output",
                 "location": "Location"
             },
             "folder": {

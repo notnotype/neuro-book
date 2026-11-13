@@ -42,23 +42,33 @@ export function createSkillInit(remote: Pick<RemoteClient<typeof agentSessionsCo
     const update = (at: number, patch: Partial<SkillInitState>): void => {
         if (at === round) state.value = {...state.value, ...patch};
     };
+    const ask = async (skill: {readonly id: string; readonly name: string}): Promise<void> => {
+        round += 1;
+        const at = round;
+        state.value = {...CLOSED, open: true, id: skill.id, name: skill.name};
+        const planned = await remote.skillInitPlan({id: skill.id});
+        if (planned.ok) {
+            update(at, {phase: "confirm", plan: planned.value});
+            return;
+        }
+        report(`skill init plan ${skill.id}: ${planned.code}`);
+        update(at, {phase: "failed", failure: {code: "unavailable", output: ""}});
+    };
     return {
         state,
-        async ask(skill) {
-            round += 1;
-            const at = round;
-            state.value = {...CLOSED, open: true, id: skill.id, name: skill.name};
-            const planned = await remote.skillInitPlan({id: skill.id});
-            if (planned.ok) update(at, {phase: "confirm", plan: planned.value});
-            else update(at, {phase: "failed", failure: {code: "unavailable", output: ""}});
-        },
+        ask,
         async confirm() {
-            const {id, plan, phase} = state.value;
+            const {id, name, plan, phase} = state.value;
             if (phase === "loading" || phase === "installing") return;
+            // 计划没取到时的“重试”是重新取计划：用户还没看过依赖与要联网的说明，不直接装。
+            if (plan === null) {
+                await ask({id, name});
+                return;
+            }
             const at = round;
             update(at, {phase: "installing", failure: null});
             // 没有锁时确认框已经写明会生成锁文件，所以直接带上 `resolve`。
-            const done = await remote.initSkill({id, ...(plan !== null && !plan.lock ? {resolve: true} : {})});
+            const done = await remote.initSkill({id, ...(plan.lock ? {} : {resolve: true})});
             if (done.ok) {
                 update(at, {open: false, phase: "confirm"});
                 return;

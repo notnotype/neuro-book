@@ -167,7 +167,7 @@ export default {
         approvalMode: "Approval mode: {{mode}}",
         plus: "Add",
         plusReference: "Reference a file",
-        plusSkill: "Use a skill",
+        plusSkill: "Use a Skill",
         plusCommand: "Run a command",
         approvalModeWhileGated: "Approval mode: {{mode}} (nothing changes in {{current}} mode; this applies after switching back to Normal)",
         modeChanged: "Switched to {{mode}} mode",
