@@ -81,6 +81,7 @@ owners:
 
 18. 列表带父会话：`list` 的条目有 `parent?`，是会话头 `caller` 的会话 id（只在调用方是会话时）（[`harness/session.md`](../harness/session.md) 输出 22）；没有调用方的会话没有这一项。
 19. 子代理与任务的远程：查询 `tree({sessionId})` 与事件 `treeChanged`（[`subagents.md`](subagents.md) 输出 21、22）、`ancestors({sessionId})`（同上输出 25）；`activity` 的条目加 `root`（根会话 id）；查询 `jobs({sessionId})`、`jobTail({sessionId, jobId, lines?})`、`jobStatuses({sessionId, jobIds})`、事件 `jobsChanged`、指令 `killJob({sessionId, jobId})`（[`jobs.md`](jobs.md) 输出 9–11）。都以用户的身份；这几项不为取数打开会话（读关系表、会话索引与任务中心），不存在的会话交回空（`tree`、`ancestors`、`jobs` 是空列表，`jobStatuses` 全是 null，`jobTail`、`killJob` 得 `job-unknown`）。`activity` 的 `waiting` 只算停在等用户的事项上（审批、交给用户的提问、模式切换请求，同 [`subagents.md`](subagents.md) 输出 21 的 `waiting`）；子会话停在交给派它的 Agent 的提问上算 `running`。
+20. （planned）在跑的工作：`nbook.agent` 向宿主的 `runningWorkKey` 登记（[`runtime.server-host`](../runtime/server-host.md) 的“在跑的工作”），报出停止服务会中断的：有运行在跑或在等用户的会话，后台会话（`background: true`）也算，每个根会话一项“Agent 会话「<标题>」正在运行”或“…在等你处理”；任务中心里在跑的任务（[`jobs.md`](jobs.md)，含会话已空闲时还在跑的后台命令与子代理运行），每件一项，写命令或子代理名。
 
 ## 状态与转换
 
