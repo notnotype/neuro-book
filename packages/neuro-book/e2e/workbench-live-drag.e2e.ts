@@ -388,6 +388,7 @@ test.describe("实时布局", () => {
         const writes = await settledWrites(page);
         const node = await content(page, F).elementHandle();
         const same = (): Promise<boolean> => content(page, F).evaluate((element, other) => element === other, node);
+        const home = await centerOf(tab(page, F));
         await lift(page, tab(page, F));
         const body = await inLeaf(page, panel, {x: 0.5, y: 0.6});
         await page.mouse.move(body.x, body.y, {steps: 4});
@@ -422,6 +423,15 @@ test.describe("实时布局", () => {
             const box = await card.boundingBox();
             return box !== null && box.x <= body.x && body.x <= box.x + box.width && box.y <= body.y && body.y <= box.y + box.height;
         }).toBe(true);
+        // 回到自己标签条它原来的位置：卡片收回，己回到条里跟手；再拖出来又撕下。
+        await page.mouse.move(home.x, home.y, {steps: 8});
+        await expect(card).toHaveCount(0);
+        await expect.poll(() => headTabsOf(page, panel)).toEqual([`view:${E}`, `view:${F}`]);
+        await expect.poll(() => sortedFrameOf(tab(page, F))).toMatchObject({visible: true});
+        await page.mouse.move(body.x, body.y, {steps: 8});
+        await expect(card).toHaveCount(1);
+        await expect.poll(() => headTabsOf(page, panel)).toEqual([`view:${E}`]);
+        await expect(merge).toHaveAttribute("data-live-merge-panel", panel);
         // 离开（侧栏甲那一节的后半）再回来，仍是添加为标签。
         const away = await inLeaf(page, await sectionOf(page, "test.sample-views.alpha"), {x: 0.5, y: 0.75});
         await page.mouse.move(away.x, away.y, {steps: 6});
