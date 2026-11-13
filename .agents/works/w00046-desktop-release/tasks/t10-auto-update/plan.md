@@ -44,7 +44,7 @@
   - `apply()`：只在失败时返回 `{error}`，成功时进程随即退出；
   - `onResult(listener)`：上次换上的对账结果，`complete` 或 `failed` 带版本；
   - `downloadPageUrl`。
-- `HintPort`：把提示交给“最近一次获得焦点的产品窗口”、撤回提示；由 `WindowCoordinator` 记最近焦点、窗口关掉或页面重新就绪时重发（下面“窗口”一节）。
+- 提示交付：`WindowCoordinator` 持有当前提示与持有窗口，见“壳的提示状态”一节。
 
 `UpdateController`（输出 1 到 7、9、10）：
 - 模式：`auto`（安装版，没设 `NBOOK_STATE_ROOT`）或 `notify-only`（便携、设了环境变量）。
@@ -83,24 +83,59 @@
 
 失败记录的作用：换上失败后，同一个已准备的更新不在每次启动时反复尝试。重新检查后用户再点“下载”时，更新器复用这份准备好的更新，我们清掉失败记录，下次启动再试（输出 8 的“丢弃”由此实现，见“Spec 与文档改动”）。
 
-### 页面与壳之间：更新提示（`src/shared/desktop-bridge.ts`、`src/web/host/`）
+### 壳的提示状态（`src/desktop/update.ts` 的一部分）与窗口（`src/desktop/windows.ts`）
 
-- 桥加三种消息：
-  - 壳到页面 `{type: "update-hint", id, hint}` 与 `{type: "update-hint-end", id}`；
-  - 页面到壳 `{type: "update-choice", id, choice}` 与 `{type: "page-ready"}`。
-- `hint` 的种类：`available`、`notify-only`（带 `stateRootEnv` 标志）、`downloading`、`downloaded`、`download-failed`、`updated`、`update-failed`，都带版本。
-- `choice`：`download`、`later`、`open-page`、`retry`。
-- 新文件 `src/web/host/desktop-updates.ts`：
-  - 窗口就绪后经运行实例取工作台的 `notificationsKey`，把提示按种类发成通知，文案在宿主目录 `nbook.host` 的 `update.*`；
-  - 通知的动作与 `onClose` 交回 `update-choice`；同一个 `id` 再来时用 `update()` 改那条通知；`update-hint-end` 时 `dismiss()`；
-  - 页面就绪时发 `page-ready`，壳据此重发还没处理的提示。
-  - 不就绪的窗口（加载页、宿主页）不显示更新提示（Spec“通知只在产品窗口里出现”），壳会在下一个就绪的窗口里发。
-- 页面里的插件拿不到这些（输出 11）。
+提示是状态，不是事件（Sonnet 设计审查第 1、3、6 条）：
+- `UpdateController` 至多持有一条“当前提示” `{id, kind, version}`，每次阶段变化换一个新 id；
+- 协调器为它记一个“持有窗口”。
 
-### 壳的窗口：最近焦点与重发（`src/desktop/windows.ts`）
+交付与转交：
+- 当前提示变化时，交给最近获得焦点的、已就绪的产品窗口，它成为持有窗口；没有就绪窗口时等。
+- 只在三种情况把提示转给当时最近焦点的就绪窗口：持有窗口关掉、刷新（同一窗口又报一次就绪）、离开就绪。
+- 别的窗口第一次就绪时，只在没有持有窗口时接手；正在关的窗口不选。
+- 转交时对旧窗口发 `update-hint-end`；旧窗口已关掉的不发。
 
-- `WindowCoordinator` 记各产品窗口的焦点顺序（适配层送 `focused(id)`）与 `pageReady(id)`。
-- `UpdateController` 经 `HintPort.deliver(hint)` 交提示：协调器把它交给最近焦点的、页面已就绪的产品窗口；那个窗口关掉、或页面重新就绪（刷新）时，还没处理的提示重发到当时最近焦点的就绪窗口。
+结束：
+- 带选择的提示（`available`、`notify-only`、`download-failed`）由用户的选择结束。
+  - 选“以后”时壳记下这个版本不再提示，清掉当前提示，但不发 end：中心里留下的“下载”仍可点，壳仍接受这个 id 的 `download`（场景 7）。
+- 一次性的提示（`downloaded`、`updated`、`update-failed`）在页面回 `update-hint-shown` 后清掉，不再转交。
+- `downloading` 一直留到阶段变化。
+
+壳对页面的消息只信形状、窗口与当前状态（第 7 条）：
+- 不认识的 id 写诊断后忽略；
+- 已结束的 id 只接受“以后”之后的 `download`，其余写诊断后忽略；
+- 与种类不符的选择同样写诊断后忽略；
+- 重复的 `download` 不重复下载。
+
+### 页面一侧（`src/shared/desktop-bridge.ts`、`src/web/host/`）
+
+- 桥加这些消息：
+  - 壳到页面：`{type: "update-hint", id, hint}`、`{type: "update-hint-end", id}`；
+  - 页面到壳：`{type: "update-choice", id, choice}`、`{type: "update-hint-shown", id}`、`{type: "page-ready"}`、`{type: "page-gone"}`。
+- 就绪的定义（第 4 条）：窗口状态是 `ready`，且 `mountWindowUi` 挂好了页面（`PageOutlet`，不是启动失败页）。
+  - 每个运行实例只报一次 `page-ready`，连接在在线与离线之间变化不再报；
+  - 离开 `ready`（服务端重启、项目已关闭、版本不一致）与 `pagehide` 时报 `page-gone`；
+  - 发送失败写诊断，下一次状态变化时再试。
+- 监听在 `boot.ts` 最早建立，与关窗询问同时。就绪之前来的提示先缓冲，就绪后再显示。
+- 通知服务的取法（第 5 条）：`window.ts` 加一个非必需的启动门禁，依赖 `notificationsKey`，与现有的 `workbench-root` 同一种写法；`BrowserWindow` 加 `notifications(): Notifications | null`，离开 `ready` 即为 null。
+  - 选宿主取工作台的服务而不是让工作台贡献出口：宿主本来就依赖工作台交根界面（`workbenchRootKey`），通知只给宿主自己用，不经本地能力交给插件。
+- 新文件 `src/web/host/desktop-updates.ts`：按下表把提示发成通知，记“壳 id → 通知句柄”。
+  - 同一 id 再来时，句柄还在就不重发；句柄已失效（点了动作、被用户关掉、到时消失）也不重发，壳会在需要时换新 id。
+  - `update-hint-end` 时 `dismiss()`，连中心记录一起删：这条提示已被新阶段取代，留着它的“下载”只会让人点到旧版本。
+  - 发出后回 `update-hint-shown`。
+
+| hint | 色调 | 常驻 | 动作（choice） | 用户关闭（`onClose`） |
+|---|---|---|---|---|
+| `available` | info | 是 | 下载（`download`） | `later` |
+| `notify-only` | info | 是 | 打开下载页（`open-page`） | `later` |
+| `downloading` | info，不确定进度 | 是 | 无 | 不回（下载照常） |
+| `download-failed` | warning | 是 | 重试（`retry`） | `later` |
+| `downloaded` | success | 否 | 无 | 不回 |
+| `updated` | success | 否 | 无 | 不回 |
+| `update-failed` | warning | 否 | 无 | 不回 |
+
+- `notify-only` 设了 `NBOOK_STATE_ROOT` 时，正文另加一句“不设这个环境变量打开 NeuroBook 时可以自动更新”。
+- 文案放宿主目录 `nbook.host` 的 `update.*`，`zh-CN` 与 `en-US` 两份，带版本参数。
 
 ### Electrobun 适配与构建（`desktop/`）
 
@@ -134,8 +169,8 @@
    验证：`cd packages/nb-flock && bun test`。
 2. **核心**：`update.ts`（控制器与 `applyAtStartup`）、`shell.ts` 接入、`windows.ts` 的焦点与重发，带测试。提交。
    验证：`bun test src/desktop`。
-3. **桥与页面**：`desktop-bridge.ts` 的新消息、`desktop-updates.ts`、宿主文案、`boot.ts` 接线。提交。
-   验证：`desktop-bridge.test.ts`、`desktop-updates` 的窗口测试、`e2e/desktop-update.e2e.ts`（假壳派发提示，看通知与回交的选择）。
+3. **桥与页面**：`desktop-bridge.ts` 的新消息、`window.ts` 的通知门禁与 `notifications()`、`desktop-updates.ts`、宿主文案、`boot.ts` 与 `mount.ts` 的就绪接线。提交。
+   验证：`desktop-bridge.test.ts`、`window.test.ts`、`desktop-updates` 的测试、`e2e/desktop-update.e2e.ts`。
 4. **适配与构建**：`index.ts`、`electrobun.config.ts`、`scripts/build.ts` 传覆盖地址。提交。
    验证：打包主进程。
 5. **Windows 验收**：pc-notype 上起固定端口的本地更新源，同一地址构建 A、B、C，跑 desktop-update 场景 1 到 7。证据只用 UI 自动化读文字。提交 Spec 与证据。
@@ -168,8 +203,22 @@
    - 新版本删标记；
    - `apply` 失败后照常启动、记失败哈希、下次不再换；
    - 显式下载清掉失败记录。
-3. 提示交给最近焦点的就绪窗口；窗口关掉或刷新时重发；没有就绪窗口时等。
-4. 提示变成通知；关闭回 `later`，“下载”回 `download`；同一 id 再来时更新、结束时撤下；就绪时发 `page-ready`；加载页不显示。
+3. `windows.test.ts`：
+   - 交给最近焦点的就绪窗口；
+   - 持有窗口关掉、刷新、离开就绪时转交并对旧窗口发 end；
+   - 新开窗口不夺走提示；
+   - 两个就绪交错；
+   - 正在关的窗口不选；
+   - 没有就绪窗口时等。
+   `update.test.ts` 另测：`later` 之后仍接受这个 id 的 `download`；一次性提示收到 shown 后不再转交；不认识的 id 与不符的选择被忽略。
+4. 窗口测试与 `e2e/desktop-update.e2e.ts`（假壳记下页面回的消息序列）：
+   - 七种提示各成表里的形状；
+   - 场景 7 整条链：关掉弹出、回 `later`，中心里点“下载”、回 `download`，刷新后不再弹出；
+   - 通知视图开着时只进中心；
+   - `page-ready` 在界面挂好之后、每个实例一次，在线与离线的变化不重发；
+   - 离开就绪发 `page-gone`；
+   - 就绪前来的提示被缓冲；
+   - 关窗询问进行中来提示。
 
 ## 验证
 
