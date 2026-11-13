@@ -15,6 +15,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {FilesResult, FilesService, Listing} from "nbook/plugins/files/shared/contracts";
 import type {EditorPanels} from "nbook/plugins/workbench/shared/contracts";
+import type {EditorTabDropOutcome} from "nbook/plugins/workbench/web/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
 
 import {CODE_EDITOR} from "../shared/contracts";
@@ -92,8 +93,16 @@ export interface MoveOptions {
     readonly focusView?: boolean;
 }
 
-/** 一次移动会怎样（输出 49）：照字面移动；并到目标组已开着的同一标签（激活它、关掉被移动的）；被拒绝（要结算的组有未裁决输入）。 */
-export type MoveOutcome = "move" | "merge" | "refuse";
+/** 一次移动会怎样（输出 49）：照字面移动；并到目标组已开着的同一标签（激活它、关掉被移动的）；被拒绝（要结算的组有未裁决输入）。拖动问的就是它，同一个类型。 */
+export type MoveOutcome = EditorTabDropOutcome;
+
+/**
+ * 放进这一组、不指定位置（拖到正文中央，画的是“添加为标签”）：新来的排在普通区末尾；目标组已开着同一标签时只激活它，位置与固定都不动。
+ * 给了位置（`TabPlace`）时，留下的那个照样挪到落点（输出 49）。
+ */
+export interface GroupPlace {
+    readonly group: string;
+}
 
 export interface EditorArea {
     readonly documents: DocumentStore;
@@ -153,7 +162,7 @@ export interface EditorArea {
     /** 固定或取消固定（输出 50）。 */
     setPinned(tabId: string, pinned: boolean): ActionResult;
     /** 把标签移到组内另一位置或别的组（输出 49）；目标组已有同一标签时并掉，可能要问，问完之前 Promise 不结束。 */
-    moveTab(tabId: string, place: TabPlace, options?: MoveOptions): Promise<ActionResult>;
+    moveTab(tabId: string, place: TabPlace | GroupPlace, options?: MoveOptions): Promise<ActionResult>;
     /**
      * 这次移动会怎样，和 `moveTab`、`moveToNewGroup`、`moveToFloat` 同样的先后判，只读，不结算：拖动据此画落点（并入画成添加为标签，拒绝画成放不下）。
      * `target` 是目标组；移到外缘（新组）、浮出来是 null。并入时被移动的视图自己有未裁决输入要问，问之前不知道结果，算并入。
@@ -720,7 +729,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     /**
      * 移动标签（输出 49）。绑定、视图状态与控件都跟着标签走，移动只改结构：先结算活动标签会变的组，有未裁决输入就不动。
      */
-    const moveTab = async (tabId: string, place: TabPlace, moveOptions: MoveOptions = {}): Promise<ActionResult> => {
+    const moveTab = async (tabId: string, where: TabPlace | GroupPlace, moveOptions: MoveOptions = {}): Promise<ActionResult> => {
+        const exact = "partition" in where ? where : null;
+        const place: TabPlace = exact ?? {group: where.group, partition: "normal", before: null};
         const focusAfterMove = (): void => {
             if (moveOptions.focusView !== false) focusActive();
         };
@@ -737,8 +748,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             groups.activate(twin.id);
             const outcome = await closeOne(tabId);
             if (outcome !== "closed" && outcome !== "gone") return {ok: false, reason: editorText(outcome === "failed" ? "refusal.saveFailed" : "refusal.cancelled")};
-            // 关掉之后再把留下的那个放到落点（位置与固定区）；它已经在那里时不动。
-            if (groups.find(twin.id)?.group.id === target.id) groups.moveTab(twin.id, place);
+            // 关掉之后再把留下的那个放到落点（位置与固定区）；它已经在那里、或没给位置时不动。
+            if (exact !== null && groups.find(twin.id)?.group.id === target.id) groups.moveTab(twin.id, exact);
             focusAfterMove();
             return {ok: true};
         }

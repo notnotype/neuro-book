@@ -306,8 +306,13 @@ test.describe("实时布局", () => {
         const content = page.locator(`[data-content="view:${AUXILIARY_VIEW}"]`);
         const node = await content.elementHandle();
         await lift(page, tab(page, AUXILIARY_VIEW));
+        // 先在自己那一节停到原位的预览摆出来，再到被拒绝的地方：等够 150ms 预览换成来源收起，被拒绝一直在。
+        await expect(surface(page)).toHaveAttribute("data-live-preview", "in-place");
         const rejected = await inLeaf(page, "g0", {x: 0.5, y: 0.5});
         await page.mouse.move(rejected.x, rejected.y, {steps: 6});
+        await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
+        await expect(page.locator("[data-drag-card-hint]")).toHaveText("不能放在这里");
+        await expect(surface(page)).toHaveAttribute("data-live-preview", "source-removed");
         await expect(page.locator("html")).toHaveAttribute("data-drop-rejected", "");
         await expect(page.locator("[data-drag-card-hint]")).toHaveText("不能放在这里");
         const target = await centerOf(page.locator("[data-shell-titlebar]"));

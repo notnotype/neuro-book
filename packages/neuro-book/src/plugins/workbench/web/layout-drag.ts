@@ -168,6 +168,12 @@ interface FrozenGeometry {
     readonly bar: ReadonlyArray<BarEntryRect>;
 }
 
+/** 编辑器不让放的落点：哪个标签、放到哪（`answeredByEditor` 答拒绝的那一个）。 */
+interface EditorRefusal {
+    readonly tab: string;
+    readonly drop: LayoutDragDrop<LayoutDropAction>;
+}
+
 export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const {root} = options;
     const surface = (): HTMLElement | null => root.querySelector("[data-workbench-surface]");
@@ -201,6 +207,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     const rejected = shallowRef(false);
     /** 这一次判定有没有被拒绝。 */
     let overRejected = false;
+    /** 这一次判定里编辑器不让放的落点（`answeredByEditor`）：在它上面松手时仍交给编辑器，由它在同一处拒绝并在组顶部写提示。 */
+    let editorRefusal: EditorRefusal | null = null;
     /** 光标在全局样式里按根元素上的标记生效（`WorkbenchDragFeedback`）：拖动中的抓手是 `!important`，写在别处压不过。 */
     function setRejected(next: boolean): void {
         if (rejected.value === next) return;
@@ -242,8 +250,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             sourceCollapsed = true;
             // 预览缓存里并入的矩形是按旧几何算的。
             previews.clear();
-            // 照 Trellis：指针再动才按收起后的布局重判。收起时指针下的落点留着，松手（按指针下重判）还是屏幕上这个。
-            held = {point: session.state.value?.point ?? null, drop};
+            // 照 Trellis：指针再动才按收起后的布局重判。收起时指针下的判定留着，松手（按指针下重判）还是屏幕上这个；被拒绝也留着：松手那次重判命中它，编辑器不让放的要交给编辑器写提示。
+            held = {point: session.state.value?.point ?? null, drop, rejected: overRejected, refusal: editorRefusal};
         },
         expandSource: (_source, drop) => {
             if (beforeCollapse === null) return;
@@ -252,7 +260,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             sourceCollapsed = false;
             previews.clear();
             // 同收起：指针再动才按拿起时的布局重判，这之前松手还是屏幕上的原位。
-            held = {point: session.state.value?.point ?? null, drop};
+            held = {point: session.state.value?.point ?? null, drop, rejected: overRejected, refusal: editorRefusal};
         },
         homeOf: (source) => findTab(options.doc(), source.tab)?.panel ?? null,
         // 侧栏里一个容器唯一的视图：活动栏就是它自己的入口条，在里面换位、停在别的入口上都不收起来源（输出 45）。
@@ -639,12 +647,16 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         return drop === null ? moved : sectored(drop, resolved, input);
     }
 
-    /** 来源收起那一刻屏幕上的落点：指针没动之前一直是它（`collapseSource`）。 */
-    let held: {readonly point: GridDropPoint | null; readonly drop: LayoutDragDrop | null} | null = null;
+    /** 来源收起、展开那一刻屏幕上的判定（落点，或被拒绝）：指针没动之前一直是它（`collapseSource`）。 */
+    let held: {readonly point: GridDropPoint | null; readonly drop: LayoutDragDrop | null; readonly rejected: boolean; readonly refusal: EditorRefusal | null} | null = null;
 
     function dropAt(source: LayoutTabSource, point: GridDropPoint, region: KeyboardRegion | null): LayoutDragDrop | null {
         if (held !== null) {
-            if (region === null && held.point !== null && held.point.x === point.x && held.point.y === point.y) return held.drop;
+            if (region === null && held.point !== null && held.point.x === point.x && held.point.y === point.y) {
+                overRejected = held.rejected;
+                editorRefusal = held.refusal;
+                return held.drop;
+            }
             held = null;
         }
         const doc = options.doc();
@@ -676,6 +688,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         const answered = answeredByEditor(doc, source, drop, point, [...panels, ...floats]);
         if (answered === "refuse") {
             overRejected = true;
+            const tab = editorTabIdOf(source.tab);
+            editorRefusal = tab === null ? null : {tab, drop};
             return null;
         }
         // 分区按指针下的落点算：并入改成了中央，指针在标签条上时照旧不画分区。
@@ -684,7 +698,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
 
     /**
      * 编辑器标签放下走编辑器的动作，结果可能和布局层算的不同（docs/specs/workbench/editor.md 输出 55）：拒绝的是被拒绝，两种手感、键盘一样；
-     * 并到目标组已开着的同一标签时落点就是那一组的中央，标签条上也是（并入不管位置，结果与放到中央相同），之后的预览、盖层、文字与提交都按中央走。
+     * 并到目标组已开着的同一标签时落点就是那一组的中央，标签条上也是：画的是盖住整组的“添加为标签”，之后的预览、盖层、文字与提交都按中央走，编辑器放到中央不挪留下的那个标签。
      * 原位不问：放下什么都不做，不会被拒绝。每次判定都问、不进预览缓存：未裁决输入在拖动中也会出现、消掉。
      */
     function answeredByEditor(doc: LayoutDoc, source: LayoutTabSource, drop: LayoutDragDrop<LayoutDropAction>, point: GridDropPoint, panels: ReadonlyArray<LayoutDropPanelGeometry>): LayoutDragDrop<LayoutDropAction> | "refuse" {
@@ -855,6 +869,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             previews.clear();
             sortGrab = null;
             held = null;
+            editorRefusal = null;
             shownDrop = null;
             shownDropKey = "";
             frozen = null;
@@ -892,6 +907,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         structure: () => JSON.stringify([layoutStructureKey(options.doc()), options.editorTabs()?.structure() ?? null, live.active.value ? extentKey(options.extent()) : null]),
         resolve: (input) => {
             overRejected = false;
+            editorRefusal = null;
             const drop = stableDrop(resolveDrop(input));
             // 判定读完 DOM 才写。根元素上的标记一变整页都要重算样式（规则里有 `*`），每次移动写两下就是每帧一次全量重算。
             setRejected(overRejected);
@@ -906,6 +922,13 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         commitsUnderPointer: (keyboard) => !keyboard && (live.active.value || windowDrag !== null),
         actionKey: (drop) => (drop.inPlace ? null : JSON.stringify([workbenchDropKey(drop.action), drop.part ?? null])),
         commit: (drop, source, keyboard) => options.commit(source, drop.action, drop.part, keyboard),
+        // 编辑器不让放的落点上松手：拖动中只读、不结算，为什么不让要松手才说。照常交给编辑器，它在同一处拒绝（与 `dropOutcome` 同一判据）并在组顶部写提示（docs/specs/workbench/editor.md 输出 55）。
+        onEnd: (end, last) => {
+            const refusal = editorRefusal;
+            editorRefusal = null;
+            if (end.kind !== "no-action" || refusal === null) return;
+            void options.editorTabs()?.drop(refusal.tab, refusal.drop.action, refusal.drop.part, last.keyboard);
+        },
         // 拖动中的光标与禁选在全局样式里按这个标记生效。
         onActiveChange: (active) => {
             root.ownerDocument.documentElement.toggleAttribute("data-workbench-dragging", active);

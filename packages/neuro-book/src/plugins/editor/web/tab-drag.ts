@@ -112,7 +112,8 @@ async function dropTab(area: EditorArea, tabId: string, action: LayoutDropAction
             return (await area.moveTab(tabId, {group: action.panel, partition, before: inPartition ? next.id : null}, {focusView})).ok;
         }
         case "center":
-            return (await area.moveTab(tabId, {group: action.panel, partition: "normal", before: null}, {focusView})).ok;
+            // 中央不指定位置：已开着同一标签时它不动（画的是盖住整组的“添加为标签”）。
+            return (await area.moveTab(tabId, {group: action.panel}, {focusView})).ok;
         case "edge":
             return area.moveToNewGroup(tabId, action.target, {focusView}).ok;
         case "float":

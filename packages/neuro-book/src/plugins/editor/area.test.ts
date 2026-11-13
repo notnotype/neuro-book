@@ -1339,6 +1339,25 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         expect(at.area.moveOutcome(rightB, left)).toBe("merge");
         expect(await at.area.moveTab(rightB, {group: left, partition: "normal", before: null})).toEqual({ok: true});
         expect(names(at, 1)).toEqual(["c.md", "a.md"]);
+        // 目标组不存在、标签不存在是拒绝，同 `moveTab`。
+        expect(at.area.moveOutcome(c, "missing")).toBe("refuse");
+        expect(await at.area.moveTab(c, {group: "missing"})).toMatchObject({ok: false});
+        expect(at.area.moveOutcome("missing", right)).toBe("refuse");
+    });
+
+    it("并到正文中央（不指定位置）：留下的那个只激活，位置与固定都不动；给了位置时照样挪到落点", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        at.area.open("project://b.md", {mode: "permanent", group: "side"});
+        const right = groupAt(at, 1);
+        at.area.open("project://a.md", {mode: "permanent", group: right});
+        at.area.open("project://c.md", {mode: "permanent", group: right});
+        at.area.setPinned(tabId(at, 1, "a.md"), true);
+        const marks = (): string[][] => at.area.groups.groups.value.map((group) => group.tabs.map((tab) => `${tab.address.replace("project://", "")}${tab.kind === "file" && tab.pinned === true ? "^" : ""}`));
+        expect(marks()).toEqual([["a.md"], ["a.md^", "b.md", "c.md"]]);
+        expect(await at.area.moveTab(tabId(at, 0, "a.md"), {group: right})).toEqual({ok: true});
+        expect(marks()).toEqual([["a.md^", "b.md", "c.md"]]);
+        expect(at.area.groups.activeTab()?.address).toBe("project://a.md");
     });
 
     it("移到已有同一标签的组：共享的修改不问，源组空了随之关闭；被移动的视图有未裁决输入时问，取消则留在原处", async () => {

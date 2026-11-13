@@ -96,7 +96,7 @@ export interface EditorTabDrag {
     structure(): string;
     /**
      * 放下会怎样（docs/specs/workbench/editor.md 输出 49、55）：`move` 照布局层算的移动；`merge` 并到目标组已开着的同一标签，工作台把落点画成那一组的中央；
-     * `refuse` 要结算的组有未裁决输入或写不出，工作台按被拒绝画。只读，拖动中每次判定都问，所以要便宜。
+     * `refuse` 要结算的组有未裁决输入或写不出，工作台按被拒绝画；在它上面松手时工作台仍调 `drop`，编辑器在同一处拒绝并写提示。只读、不结算，拖动中每次判定都问，所以要便宜。
      */
     dropOutcome(tabId: string, action: LayoutDropAction): EditorTabDropOutcome;
     /** 拖影。 */
