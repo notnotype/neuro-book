@@ -556,7 +556,7 @@
                 "unjoin": "Deselect {{name}} ({{id}})"
             },
             "userAdded": "Added by me",
-            "needsInit": "Not initialized",
+            "needsInit": "Uninitialized",
             "gone": "This Skill was not found; it comes back once it is in the Skills folder again",
             "goneGroup": "Deleted or unavailable",
             "removedGroup": "Removed",

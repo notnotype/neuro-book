@@ -52,7 +52,7 @@ function openAdd(): void {
 </script>
 
 <template>
-    <section class="profile-tools" :data-profile-section="props.kind" data-profile-tools>
+    <section class="profile-tools" :class="{'profile-tools--skills': props.kind === 'skills'}" :data-profile-section="props.kind" data-profile-tools>
         <div class="profile-tools__title">
             <h4>{{ text(sectionKey) }}</h4>
             <InfoTip :text="text(key('section.help'))" />
@@ -202,12 +202,21 @@ function openAdd(): void {
     justify-content: flex-end;
 }
 
+/* Skill 一节的状态写“未初始化”“无效”，最右一格是“加回”：这两列按它们定宽，整节的行照样对齐。 */
+.profile-tools--skills .profile-tools__row {
+    grid-template-columns: 136px 6.5em minmax(0, 1fr) 72px;
+}
+
 /* 页面不到 600px：一行变两行，说明放不下几个字时不如另起一行。 */
 @container (max-width: 600px) {
     .profile-tools__row {
         grid-template-columns: minmax(0, 1fr) 36px 64px;
         row-gap: 0;
         padding-block: var(--space-1);
+    }
+
+    .profile-tools--skills .profile-tools__row {
+        grid-template-columns: minmax(0, 1fr) 6.5em 72px;
     }
 
     .profile-tools__summary {
