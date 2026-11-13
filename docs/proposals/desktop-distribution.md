@@ -1,12 +1,13 @@
 ---
 schema: nbook.proposal/v1
-status: draft
+status: accepted
 created: 2026-11-13
-decided: null
+decided: 2026-11-13
 supersedes: []
 superseded-by: null
 specs: []
-adrs: []
+adrs:
+  - docs/adr/0051-desktop-shell-electrobun-tag-release.md
 ---
 
 # 桌面发行：Windows 安装包、便携包与打标签自动发布
@@ -195,3 +196,4 @@ Windows 上的实测（开发机 pc-notype 与 GitHub 的 windows-2025 runner）
 | 2026-11-13 | 开发者 | 状态根沿用 ADR 0033 的 `%LOCALAPPDATA%\NeuroBook`，与 `nbook` 共用；更新为后台检查、提示用户、下次启动换上；第一版接受 Electrobun 无界面的安装程序，完整安装程序（为当前用户安装、选择安装位置、是否建快捷方式）作为后续任务；便携版在 `%LOCALAPPDATA%` 留下浏览器缓存，第一版接受并写明。后续任务另有自定义标题栏、桌面端专有设置（开机自启、系统托盘、通知） |
 | 2026-11-13 | 开发者 | 第一轮设计审查后：外部工具第一版只检测加提示，两条安装路径以后再做；更新的真实性接受只靠 HTTPS，不自签；禁止自动降级，出问题发递增的修复版；关最后一个窗口时有任务在跑，先提示、由用户决定 |
 | 2026-11-13 | 开发者 | 确认“直接用 Electrobun”取代 ADR 0033 决定 6 的三选一实测，提案接受时出 ADR 记录；同意再做一轮设计审查 |
+| 2026-11-13 | 开发者 | 第二轮设计审查处理后接受本提案；长期决定写成 [ADR 0051](../adr/0051-desktop-shell-electrobun-tag-release.md) |
