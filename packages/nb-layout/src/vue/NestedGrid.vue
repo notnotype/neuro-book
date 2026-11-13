@@ -654,6 +654,17 @@ defineExpose({
     will-change: transform;
 }
 
+/*
+ * 浮动窗回到树里（叶不换）：这一次渲染摘掉 `data-float`，窗的投影、底色与圆角跟着位置一起过渡掉，看得出是一张卡片飞回去、落下来；
+ * 一下子摘掉的话飞回去的只是一块没有边的底色，像没有动画。三样都用加速的曲线，到快落地才没：圆角跟着位置先变直，底色还没淡，半路就是一张方角的卡片。
+ * 别的叶这几样不变，过渡不到它们。
+ */
+.nb-grid-frame[data-moving] {
+    transition:
+        left var(--motion-layout) var(--ease-layout), top var(--motion-layout) var(--ease-layout), width var(--motion-layout) var(--ease-layout), height var(--motion-layout) var(--ease-layout),
+        box-shadow var(--motion-layout) var(--ease-dialog-leave), background-color var(--motion-layout) var(--ease-dialog-leave), border-radius var(--motion-layout) var(--ease-dialog-leave);
+}
+
 /* 离开了、在过渡里缩回去的叶与它的内容：已经不在布局里，不接指针，命中判定看到的是底下。 */
 .nb-grid-frame[data-leaving],
 .nb-grid-content[data-leaving] {

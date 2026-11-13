@@ -457,6 +457,15 @@ describe("新开的浮动窗从内容原来的叶出发（输出“过渡”）"
         expect(floatLiftStarts(after, before).get("leaf:f")).toEqual(rectOfLeaf(before, "a"));
     });
 
+    it("窗回到树里（叶不换），盖在它要回去的位置上：新旧矩形相交，叶和内容照样压在上面飞，它是从别的面板上面落下来的", () => {
+        const before = scene({a: 1000}, [{key: "x", leaf: "f"}], ["f"]);
+        const after = scene({a: 300, f: 700}, [{key: "x", leaf: "f"}]);
+        const flying = flyingContents(after, before);
+        expect(flying.has("leaf:f")).toBe(true);
+        expect(flying.has("content:x")).toBe(true);
+        expect(flying.has("leaf:a")).toBe(false);
+    });
+
     it("不算：窗上一帧就在（并进已有的窗）；新叶不是窗（拆分出来的）；内容上一帧不活动、没有尺寸（收成标题行）", () => {
         const into = scene({a: 500, b: 500}, [{key: "x", leaf: "a"}, {key: "y", leaf: "f"}], ["f"]);
         expect(floatLiftStarts(scene({b: 1000}, [{key: "x", leaf: "f"}, {key: "y", leaf: "f", active: false}], ["f"]), into).size).toBe(0);

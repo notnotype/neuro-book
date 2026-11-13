@@ -87,11 +87,16 @@ export function followingLeaves(items: ReadonlyArray<GridLayerItem<unknown>>, pr
 }
 
 /**
- * 这次过渡里要压在别的面板上面的项（`key`）：换了叶的内容项，以及新旧矩形不相交的叶和内容项（整块面板移到别处时叶没换，但一样飞过别的面板）。原地变宽变窄的不算。
+ * 这次过渡里要压在别的面板上面的项（`key`）：换了叶的内容项，新旧矩形不相交的叶和内容项（整块面板移到别处时叶没换，但一样飞过别的面板），
+ * 以及从浮动窗回到树里的叶和它的内容（窗盖在它要回去的位置上时新旧矩形相交，但它是从别的面板上面落下来的）。原地变宽变窄的不算。
  */
 export function flyingContents(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>): ReadonlySet<string> {
     const before = new Map(previous.map((item) => [item.key, item]));
     const overlaps = (left: GridRect, right: GridRect): boolean => left.x < right.x + right.width && right.x < left.x + left.width && left.y < right.y + right.height && right.y < left.y + left.height;
+    const floatsOf = (list: ReadonlyArray<GridLayerItem<unknown>>): Set<string> => new Set(list.flatMap((item) => (item.kind === "leaf" && item.float === true ? [item.node.id] : [])));
+    const wasFloat = floatsOf(previous);
+    const isFloat = floatsOf(items);
+    const docked = (leaf: string): boolean => wasFloat.has(leaf) && !isFloat.has(leaf);
     const flying = new Set<string>();
     for (const item of items) {
         if (item.kind === "sash" || (item.kind === "content" && !item.active)) continue;
@@ -99,7 +104,8 @@ export function flyingContents(items: ReadonlyArray<GridLayerItem<unknown>>, pre
         const oldRect = old === undefined ? null : rectOf(old);
         const rect = rectOf(item);
         if (old === undefined || oldRect == null || rect === null || oldRect.width <= 0 || oldRect.height <= 0 || rect.width <= 0 || rect.height <= 0) continue;
-        if ((item.kind === "content" && old.kind === "content" && old.leaf !== item.leaf) || !overlaps(oldRect, rect)) flying.add(item.key);
+        const leaf = item.kind === "leaf" ? item.node.id : item.leaf;
+        if ((item.kind === "content" && old.kind === "content" && old.leaf !== item.leaf) || !overlaps(oldRect, rect) || docked(leaf)) flying.add(item.key);
     }
     return flying;
 }
