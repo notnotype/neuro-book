@@ -7,6 +7,7 @@ import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageVie
 import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
 import type EditorPageBreadcrumbs from "nbook/plugins/editor/web/components/EditorPageBreadcrumbs.vue";
 import type ChangePage from "nbook/plugins/canon/web/components/ChangePage.vue";
+import type BreakExclusiveDialog from "nbook/plugins/canon/web/components/BreakExclusiveDialog.vue";
 import type ConfirmBar from "nbook/plugins/canon/web/components/ConfirmBar.vue";
 import type EntryPage from "nbook/plugins/canon/web/components/EntryPage.vue";
 import type EntryText from "nbook/plugins/canon/web/components/EntryText.vue";
@@ -16,6 +17,8 @@ import type NewEntryDialog from "nbook/plugins/canon/web/components/NewEntryDial
 import type NoticeBar from "nbook/plugins/canon/web/components/NoticeBar.vue";
 import type OriginList from "nbook/plugins/canon/web/components/OriginList.vue";
 import type PanelView from "nbook/plugins/canon/web/components/PanelView.vue";
+import type PendingDetail from "nbook/plugins/canon/web/components/PendingDetail.vue";
+import type PendingView from "nbook/plugins/canon/web/components/PendingView.vue";
 import type PlotList from "nbook/plugins/canon/web/components/PlotList.vue";
 import type ReceiptPage from "nbook/plugins/canon/web/components/ReceiptPage.vue";
 import type RecordForm from "nbook/plugins/canon/web/components/RecordForm.vue";
@@ -1703,6 +1706,68 @@ function canonEntryPageFixtures() {
             })(),
             load: async () => (await import("./RevisionsViewFixture.vue")).default,
         }),
+        ...(() => {
+            const rows = (items: readonly [string, string, string][]) => items.map(([key, text, place]) => ({key, text, place}));
+            const group = (items: readonly [string, string, string][], extra: {count?: number | null; loading?: boolean; more?: boolean} = {}) => ({rows: rows(items), count: extra.count === undefined ? items.length : extra.count, loading: extra.loading ?? false, more: extra.more ?? false});
+            const groups = {
+                pending: group([
+                    ["check", "星瑕的存款对不上：正文写 2,700，算出来是 24,500", "第 2 章"],
+                    ["held", "“订了星瑾小时候最喜欢的那家店”待定", "第 2 章"],
+                    ["chain", "传话链断了", "第 3 章第 4 段"],
+                ]),
+                hints: group([["dup", "“领了工资”的原句在这一章出现了 2 次", "第 1 章"]]),
+                handled: group([], {count: 2}),
+            };
+            const detail = {
+                title: "星瑕的存款对不上：正文写 2,700，算出来是 24,500",
+                place: "第 2 章",
+                quote: {text: "她看了一眼余额：2700。", chapter: "2"},
+                facts: [{label: "正文写的数", value: "2,700"}, {label: "算出来的数", value: "24,500"}],
+                suspects: [
+                    {key: "c3", text: "工资到账，三千左右", place: "第 2 章", estimate: true, target: {kind: "change" as const, id: "c3"}, initial: false},
+                    {key: "c2", text: "订了星瑾小时候最喜欢的那家店", place: "第 2 章", estimate: false, target: {kind: "change" as const, id: "c2"}, initial: false},
+                    {key: "init", text: "初值", place: "", estimate: false, target: {kind: "entry" as const, id: "xingxia"}, initial: true},
+                ],
+                links: [{label: "打开条目", target: {kind: "entry" as const, id: "xingxia"}}],
+            };
+            const held = {title: "“订了星瑾小时候最喜欢的那家店”待定", place: "第 2 章", quote: {text: "她订了那家店。", chapter: "2"}, facts: [{label: "原因", value: "与设定冲突：存款不够"}], suspects: [], links: [{label: "打开这条情节", target: {kind: "change" as const, id: "c2"}}]};
+            const handled = {title: "传话链断了", place: "第 3 章第 4 段", quote: null, facts: [{label: "作者当时的决定", value: "有意为之：她是故意不传话的"}], suspects: [], links: [{label: "星瑕", target: {kind: "entry" as const, id: "xingxia"}}, {label: "“她没把话带到”", target: {kind: "change" as const, id: "c5"}}]};
+            const sample = {props: {groups, selected: {group: "pending" as const, key: "check"}, detail}, model: {expanded: ["pending" as const]}};
+            return [
+                defineLabFixture<typeof PendingView>({
+                    component: "PendingView",
+                    scenes: [
+                        {id: "sample", label: "核对点不符：详情有原句、两个数与嫌疑", input: sample},
+                        {id: "all-groups", label: "三组都展开", input: {props: {...sample.props, groups: {...groups, handled: group([["chain-old", "传话链断了", "第 1 章"], ["chain-2", "传话链断了", "第 2 章"]])}}, model: {expanded: ["pending" as const, "hints" as const, "handled" as const]}}},
+                        {id: "busy", label: "别人正在独占写入、结果不完整", input: {props: {...sample.props, holder: "第 3 章记账", notes: ["这些检查没有算出来：传话链断了", "这些检查所在的插件停用了，没有算：插件的一项检查"]}, model: sample.model}},
+                        {id: "no-selection", label: "没有选中", input: {props: {groups}, model: sample.model}},
+                        {id: "loading", label: "读取中", input: {props: {groups: {pending: group([], {count: null, loading: true}), hints: group([], {count: null}), handled: group([], {count: null})}}, model: sample.model}},
+                        {id: "empty", label: "没有待处理的问题", input: {props: {groups: {pending: group([]), hints: group([]), handled: group([])}}, model: sample.model}},
+                        {id: "read-only", label: "世界只读", input: {props: {...sample.props, readOnly: "世界只读：日志的版本号重复了"}, model: sample.model}},
+                        {id: "sample-english", label: "英文界面", input: {props: {groups: {pending: group([["check", "Xingxia's Savings does not match: the text says 2,700, computed 24,500", "Chapter 2"]]), hints: group([]), handled: group([])}, selected: {group: "pending" as const, key: "check"}, detail: {...detail, title: "Xingxia's Savings does not match: the text says 2,700, computed 24,500", place: "Chapter 2", facts: [{label: "In the text", value: "2,700"}, {label: "Computed", value: "24,500"}], suspects: [{...detail.suspects[0]!, text: "Salary arrived, about three thousand", place: "Chapter 2"}], links: [{label: "Open entry", target: {kind: "entry" as const, id: "xingxia"}}]}}, model: sample.model}},
+                    ],
+                    load: async () => (await import("./PendingViewFixture.vue")).default,
+                }),
+                defineLabFixture<typeof PendingDetail>({
+                    component: "PendingDetail",
+                    scenes: [
+                        {id: "check-mismatch", label: "核对点不符", input: {props: {detail}}},
+                        {id: "held", label: "待定的情节", input: {props: {detail: held}}},
+                        {id: "handled", label: "已处理的插件发现", input: {props: {detail: handled}}},
+                    ],
+                    load: async () => (await import("./PendingDetailFixture.vue")).default,
+                }),
+                defineLabFixture<typeof BreakExclusiveDialog>({
+                    component: "BreakExclusiveDialog",
+                    scenes: [
+                        {id: "confirm", label: "二次确认", input: {props: {holder: "第 3 章记账"}, model: {open: true}}},
+                        {id: "saving", label: "解除中", input: {props: {holder: "第 3 章记账", saving: true}, model: {open: true}}},
+                        {id: "failed", label: "没有解除", input: {props: {holder: "第 3 章记账", error: "世界已断开"}, model: {open: true}}},
+                    ],
+                    load: async () => (await import("./BreakExclusiveDialogFixture.vue")).default,
+                }),
+            ];
+        })(),
         defineLabFixture<typeof ChangePage>({
             component: "ChangePage",
             scenes: (() => {

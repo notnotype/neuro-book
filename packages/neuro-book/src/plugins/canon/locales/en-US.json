@@ -399,5 +399,96 @@
         "empty": "No changes yet",
         "emptyFiltered": "No changes match the filters",
         "loading": "Reading…"
+    },
+    "pending": {
+        "label": "Pending",
+        "groups": {
+            "pending": "Pending",
+            "hints": "Hints only",
+            "handled": "Handled"
+        },
+        "more": "Show more",
+        "loading": "Reading…",
+        "empty": {
+            "pending": "Nothing is pending",
+            "hints": "No hints",
+            "handled": "Nothing handled yet"
+        },
+        "noSelection": "Select an item to see details",
+        "pluginCheck": "A plugin check",
+        "incomplete": {
+            "unavailable": "These checks could not be computed: {{names}}",
+            "truncated": "These checks reported too much and only part is listed: {{names}}",
+            "disabled": "The plugins of these checks are disabled, so they were not computed: {{names}}"
+        },
+        "busy": "{{holder}} is writing exclusively",
+        "breakExclusive": {
+            "action": "Force Release",
+            "title": "Force release the exclusive write held by “{{holder}}”?",
+            "body": "After this, its next write will fail. Only do this when you are sure it has stopped writing.",
+            "confirm": "Force Release",
+            "cancel": "Cancel"
+        },
+        "what": {
+            "change": "“{{text}}”",
+            "someChange": "A story change",
+            "check": "A check",
+            "decision": "A decision",
+            "suggestion": "A suggestion"
+        },
+        "paragraph": "{{chapter}}, paragraph {{paragraph}}",
+        "rows": {
+            "check-mismatch": "{{address}} does not match: the text says {{written}}, computed {{computed}}",
+            "cannot-apply": "{{what}} no longer applies",
+            "held": "{{what}} is on hold",
+            "chapter-deleted": "The chapter of {{what}} was deleted",
+            "time-conflict": "The times of {{count}} story changes contradict each other",
+            "time-invalid": "The time of {{what}} has a problem",
+            "time-placement-mismatch": "The time of {{what}} does not match its placement order",
+            "fork-time-mismatch": "The times of a rollback fork do not match: {{what}}",
+            "line-out-of-bounds": "{{what}} is placed outside its worldline",
+            "line-missing": "The worldline of {{what}} does not exist",
+            "line-planned": "{{what}} is written on a worldline that is only planned",
+            "telling-lost": "A quote of {{what}} can no longer be found in the text",
+            "duplicate-quote": "The quote of {{what}} appears {{count}} times in this chapter",
+            "mark-kind-unknown": "{{what}} has a mark of an unknown kind",
+            "mark-version-unsupported": "{{what}} has a mark of a newer version",
+            "component-unknown": "{{entry}} uses an unregistered data type",
+            "component-version-unsupported": "{{entry}} uses a newer version of a data type",
+            "diagnostic-duplicate-key": "{{label}} reported the same place twice",
+            "binder-line-planned": "{{chapter}} has a part on a worldline that is only planned",
+            "binder-line-ended": "{{chapter}} has a part on a worldline that has ended",
+            "telling-line-mismatch": "The quote of {{what}} is in a part about another worldline"
+        },
+        "heldReasons": {
+            "conflict": "Conflicts with the setting",
+            "unsure": "The writer was not sure"
+        },
+        "applyFailures": {
+            "entry-missing": "The entry to change is gone",
+            "element-missing": "The item to change is gone",
+            "type-mismatch": "The value type does not match",
+            "unknown-value": "The earlier value is unknown, so it cannot be changed on top of it",
+            "constraint-violated": "The new value breaks the field's limits",
+            "number-out-of-range": "The new number is out of range",
+            "invalid-asset-path": "The asset path is wrong"
+        },
+        "detail": {
+            "label": "Details",
+            "computed": "Computed",
+            "written": "In the text",
+            "suspects": "Possibly one of these",
+            "estimate": "Estimate",
+            "initial": "Initial value",
+            "reason": "Reason",
+            "root": "Root cause",
+            "followers": "Also failing",
+            "followersCount": "{{count}} more",
+            "decision": "The author's decision",
+            "earlierDecision": "Decision before the check was upgraded",
+            "openChange": "Open this story change",
+            "openEntry": "Open entry",
+            "objects": "Related objects"
+        }
     }
 }

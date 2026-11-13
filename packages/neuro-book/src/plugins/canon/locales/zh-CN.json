@@ -399,5 +399,96 @@
         "empty": "还没有改动",
         "emptyFiltered": "没有符合筛选的改动",
         "loading": "读取中…"
+    },
+    "pending": {
+        "label": "待处理",
+        "groups": {
+            "pending": "待处理",
+            "hints": "只是提示",
+            "handled": "已处理"
+        },
+        "more": "再显示更多",
+        "loading": "读取中…",
+        "empty": {
+            "pending": "没有待处理的问题",
+            "hints": "没有提示",
+            "handled": "还没有处理过的"
+        },
+        "noSelection": "选一条看详情",
+        "pluginCheck": "插件的一项检查",
+        "incomplete": {
+            "unavailable": "这些检查没有算出来：{{names}}",
+            "truncated": "这些检查报得太多，只列出了一部分：{{names}}",
+            "disabled": "这些检查所在的插件停用了，没有算：{{names}}"
+        },
+        "busy": "{{holder}}正在独占写入",
+        "breakExclusive": {
+            "action": "强行解除",
+            "title": "强行解除“{{holder}}”的独占写入？",
+            "body": "解除以后，它的下一次写入会失败。只在确定它已经不再写的时候这样做。",
+            "confirm": "强行解除",
+            "cancel": "取消"
+        },
+        "what": {
+            "change": "“{{text}}”",
+            "someChange": "一条情节",
+            "check": "一个核对点",
+            "decision": "一条决策",
+            "suggestion": "一条建议"
+        },
+        "paragraph": "{{chapter}}第 {{paragraph}} 段",
+        "rows": {
+            "check-mismatch": "{{address}}对不上：正文写 {{written}}，算出来是 {{computed}}",
+            "cannot-apply": "{{what}}套不上了",
+            "held": "{{what}}待定",
+            "chapter-deleted": "{{what}}安放的那一章已经删除",
+            "time-conflict": "{{count}} 条情节的时间说法互相矛盾",
+            "time-invalid": "{{what}}的时间说法有问题",
+            "time-placement-mismatch": "{{what}}的时间与安放的先后对不上",
+            "fork-time-mismatch": "回溯分叉的时间对不上：{{what}}",
+            "line-out-of-bounds": "{{what}}安放在世界线的范围之外",
+            "line-missing": "{{what}}所在的世界线不存在",
+            "line-planned": "{{what}}写在一条还只是计划的世界线上",
+            "telling-lost": "{{what}}的一句原句在正文里找不到了",
+            "duplicate-quote": "{{what}}的原句在这一章出现了 {{count}} 次",
+            "mark-kind-unknown": "{{what}}里有不认识的标记",
+            "mark-version-unsupported": "{{what}}里的标记版本太新",
+            "component-unknown": "{{entry}}用了没有登记的数据类型",
+            "component-version-unsupported": "{{entry}}的数据类型版本太新",
+            "diagnostic-duplicate-key": "{{label}}在同一处报了两次",
+            "binder-line-planned": "{{chapter}}有一段讲的是还只是计划的世界线",
+            "binder-line-ended": "{{chapter}}有一段讲的是已经结束的世界线",
+            "telling-line-mismatch": "{{what}}的原句所在的段讲的是另一条世界线"
+        },
+        "heldReasons": {
+            "conflict": "与设定冲突",
+            "unsure": "写入者没把握"
+        },
+        "applyFailures": {
+            "entry-missing": "要改的条目不在了",
+            "element-missing": "要改的那一项不在了",
+            "type-mismatch": "值的类型对不上",
+            "unknown-value": "前面的值不知道，没法在它上面改",
+            "constraint-violated": "改完的值不合字段的限制",
+            "number-out-of-range": "改完的数超出了范围",
+            "invalid-asset-path": "资源路径不对"
+        },
+        "detail": {
+            "label": "详情",
+            "computed": "算出来的数",
+            "written": "正文写的数",
+            "suspects": "可能是这几笔",
+            "estimate": "估计",
+            "initial": "初值",
+            "reason": "原因",
+            "root": "根因",
+            "followers": "跟着套不上的",
+            "followersCount": "还有 {{count}} 条",
+            "decision": "作者当时的决定",
+            "earlierDecision": "检查升级之前的决定",
+            "openChange": "打开这条情节",
+            "openEntry": "打开条目",
+            "objects": "相关的对象"
+        }
     }
 }

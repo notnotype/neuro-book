@@ -5,7 +5,7 @@
 import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
-export type PendingGroup = "pending" | "hints" | "handled";
+import type {PendingGroup} from "./pending";
 
 export interface PendingViewState {
     /** 选中的那一条的键（`pending.ts` 的 `pendingKey`）；没有选中为 null。 */
