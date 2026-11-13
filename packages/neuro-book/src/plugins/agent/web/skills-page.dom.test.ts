@@ -41,14 +41,16 @@ async function show(entries: readonly SkillEntry[] | null) {
     const wrapper = mount(SkillsSettingsPage, {props: {entries}, attachTo: document.body, global: {provide: provideText(text.port)}});
     cleanup.push(() => wrapper.unmount());
     await flushPromises();
-    const row = (id: string) => wrapper.element.querySelector<HTMLElement>(`[data-skill="${id}"]`)!;
-    return {wrapper, row};
+    // 这里 `wrapper.element` 推不出元素类型（是 any），按页面根元素取。
+    const root = wrapper.element as HTMLElement;
+    const row = (id: string) => root.querySelector<HTMLElement>(`[data-skill="${id}"]`)!;
+    return {wrapper, root, row};
 }
 
 describe("SkillsSettingsPage", () => {
     it("我的在前、内置在后；第二行写说明，无效的与上次没装好的写原因；徽标只在不可用时出现；“初始化”只给未初始化的", async () => {
-        const {wrapper, row} = await show(ENTRIES);
-        expect([...wrapper.element.querySelectorAll("[data-skills-group]")].map((group) => group.getAttribute("data-skills-group"))).toEqual(["user", "builtin"]);
+        const {wrapper, root, row} = await show(ENTRIES);
+        expect([...root.querySelectorAll("[data-skills-group]")].map((group) => group.getAttribute("data-skills-group"))).toEqual(["user", "builtin"]);
         expect(row("user.style-guide").querySelector("[data-skill-status]")).toBeNull();
         expect(row("user.style-guide").textContent).toContain("style-guide 的说明");
         expect(row("user.epub-export").querySelector("[data-skill-status]")?.textContent?.trim()).toBe("未初始化");
@@ -60,7 +62,7 @@ describe("SkillsSettingsPage", () => {
 
         row("user.epub-export").querySelector<HTMLButtonElement>("[data-skill-init]")!.click();
         row("user.style-guide").querySelector<HTMLButtonElement>("[data-skill-open]")!.click();
-        wrapper.element.querySelector<HTMLButtonElement>("[data-skills-open-folder]")!.click();
+        root.querySelector<HTMLButtonElement>("[data-skills-open-folder]")!.click();
         expect(wrapper.emitted("init")).toEqual([["user.epub-export"]]);
         expect(wrapper.emitted("open")).toEqual([["user.style-guide"]]);
         expect(wrapper.emitted("open-folder")).toHaveLength(1);
@@ -68,7 +70,7 @@ describe("SkillsSettingsPage", () => {
     });
 
     it("展开写许可、兼容性、外部依赖、metadata 与位置，没有的项不列；展开按钮报告展开与否", async () => {
-        const {wrapper, row} = await show(ENTRIES);
+        const {wrapper, root, row} = await show(ENTRIES);
         const expand = (id: string) => row(id).querySelector<HTMLButtonElement>("[data-skill-expand]")!;
         expect(expand("user.style-guide").getAttribute("aria-expanded")).toBe("false");
         expand("user.style-guide").click();
@@ -84,10 +86,10 @@ describe("SkillsSettingsPage", () => {
 
     it("没有 Skill 时写怎样放进来；还没取到时是读取中", async () => {
         const empty = await show([]);
-        expect(empty.wrapper.element.querySelector("[data-skills-empty]")?.textContent).toContain("SKILL.md");
+        expect(empty.root.querySelector("[data-skills-empty]")?.textContent).toContain("SKILL.md");
         cleanup.splice(0).forEach((dispose) => dispose());
         const loading = await show(null);
-        expect(loading.wrapper.element.querySelector("[role='status']")?.textContent).toContain("正在读取 Skill");
+        expect(loading.root.querySelector("[role='status']")?.textContent).toContain("正在读取 Skill");
     });
 
     it("“打开”的地址：用户的经 user://skills/，下一层才有 SKILL.md 的打开那一层；内置的经 skills://", () => {
