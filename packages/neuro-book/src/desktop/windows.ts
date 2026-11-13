@@ -11,11 +11,13 @@
  * 被拒，窗口集合只会变少，所以同意时它一定还是最后一个；同意与进入停止中在同一个同步段里，中间开不出窗口。
  */
 
+import type {CloseReason} from "../shared/desktop-bridge";
+
 import {at} from "./deadline";
 import type {DeadlineClock} from "./deadline";
 
+export type {CloseReason} from "../shared/desktop-bridge";
 export type WindowId = number;
-export type CloseReason = "window" | "quit";
 export type OpenTarget = {readonly kind: "startup"} | {readonly kind: "page"; readonly url: string};
 
 /** 适配层实现：每个方法同步执行（开窗、关窗、发消息都不等）。 */

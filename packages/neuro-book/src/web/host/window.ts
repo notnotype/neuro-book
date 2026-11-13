@@ -37,8 +37,8 @@ import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
-import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginFilesKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
-import type {WindowPluginFiles} from "nbook/shared/host";
+import {clockKey, windowCloseKey, windowConnectionKey, windowNavigationKey, windowPluginFilesKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
+import type {CloseParticipant, WindowClose, WindowPluginFiles} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {windowTextKey} from "nbook/shared/window-text";
@@ -115,6 +115,10 @@ export interface BrowserWindow {
     stop(): Promise<StopResult>;
     /** 窗口的翻译引擎：作为窗口能力交给插件，挂载界面时注入每个 Vue 根（docs/specs/ui/i18n.md）。 */
     readonly text: WindowText;
+    /** 关闭前询问的参与方，按登记顺序（docs/specs/runtime/browser-host.md 输出 9）；表跨启动重试不变。 */
+    closeParticipants(): ReadonlyArray<CloseParticipant>;
+    /** 写一条窗口诊断：已启动时进本窗口的诊断，还没启动时写到控制台。 */
+    record(input: DiagnosticInput): void;
 }
 
 /**
@@ -151,6 +155,18 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     const clientIdentity = options.clientIdentity ?? crypto.randomUUID();
     const adapter = new BrowserRuntimeHost();
     const listeners = new Set<(state: WindowState) => void>();
+    /** 关闭参与方：放在窗口这一层，启动重试新建运行实例时不丢，关闭前询问在启动之前就能拿到它。 */
+    const participants: CloseParticipant[] = [];
+    const close: WindowClose = Object.freeze({
+        participate(participant: CloseParticipant) {
+            participants.push(participant);
+            return () => {
+                const index = participants.indexOf(participant);
+                if (index !== -1) participants.splice(index, 1);
+            };
+        },
+    });
+    let diagnostics: DiagnosticsStore | null = null;
     let state: WindowState = {status: "idle"};
     let host: BrowserHost | null = null;
     let session: RemoteSession | null = null;
@@ -201,6 +217,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         const instanceId = crypto.randomUUID();
         const rescue = createRescue((error) => store.record({level: "warn", event: "browser-host.rescue.failed", message: "抢救未保存正文的提供者抛错", error}));
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId}});
+        diagnostics = store;
         const link = createLinkState((error) => store.record({level: "warn", event: "browser-host.connection-listener.failed", message: "连接状态的监听抛错", error}));
         const node = createRemoteNode({
             instance: {id: instanceId, kind: "browser", role: "client", project: null, client: clientIdentity},
@@ -294,6 +311,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         {id: "window.plugins", key: windowPluginsKey, create: () => windowPlugins.capability},
                         {id: "window.plugin-files", key: windowPluginFilesKey, create: () => pluginFiles},
                         {id: "window.rescue", key: windowRescueKey, create: () => rescue.capability},
+                        {id: "window.close", key: windowCloseKey, create: () => close},
                     ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
@@ -340,6 +358,11 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
 
     return {
         text,
+        closeParticipants: () => [...participants],
+        record(input) {
+            if (diagnostics !== null) diagnostics.record(input);
+            else Reflect.apply(options.console.warn ?? options.console.error, options.console, [JSON.stringify({level: input.level, event: input.event, message: input.message})]);
+        },
         get state() {
             return state;
         },

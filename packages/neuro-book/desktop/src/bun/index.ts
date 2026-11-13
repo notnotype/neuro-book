@@ -21,7 +21,9 @@ import {systemClock} from "../../../src/desktop/deadline";
 import {DesktopShell} from "../../../src/desktop/shell";
 import type {ShellPorts, StartupView} from "../../../src/desktop/shell";
 import {resolveDesktopStateRoot} from "../../../src/desktop/state-root";
-import type {CloseReason, OpenTarget, WindowId, WindowPort} from "../../../src/desktop/windows";
+import type {OpenTarget, WindowId, WindowPort} from "../../../src/desktop/windows";
+import {DESKTOP_EVENT, parsePageMessage} from "../../../src/shared/desktop-bridge";
+import type {CloseReason, ShellMessage} from "../../../src/shared/desktop-bridge";
 import {PRODUCT_VERSION} from "../../../src/shared/product";
 
 import {PRELOAD} from "./preload";
@@ -88,8 +90,8 @@ async function main(): Promise<void> {
     const render = (win: BrowserWindow, state: unknown): void => {
         win.webview.executeJavascript(`window.__nbookShell && window.__nbookShell.render(${JSON.stringify(state)})`);
     };
-    const dispatch = (win: BrowserWindow, detail: unknown): void => {
-        win.webview.executeJavascript(`window.dispatchEvent(new CustomEvent("nbook-desktop", {detail: ${JSON.stringify(detail)}}))`);
+    const dispatch = (win: BrowserWindow, detail: ShellMessage): void => {
+        win.webview.executeJavascript(`window.dispatchEvent(new CustomEvent(${JSON.stringify(DESKTOP_EVENT)}, {detail: ${JSON.stringify(detail)}}))`);
     };
     const parse = (event: unknown): Record<string, unknown> | null => {
         const detail = (event as {data?: {detail?: unknown}}).data?.detail;
@@ -138,28 +140,32 @@ async function main(): Promise<void> {
         return id;
     };
 
-    const onWindowMessage = (id: WindowId, win: BrowserWindow, message: Record<string, unknown>): void => {
+    const onWindowMessage = (id: WindowId, win: BrowserWindow, raw: Record<string, unknown>): void => {
+        // 启动页（壳自己的页面）的两种消息。
+        if (raw.type === "shell-ready") {
+            if (windows.get(id)?.kind === "shell") render(win, view);
+            return;
+        }
+        if (raw.type === "action") {
+            if (typeof raw.action === "string") shell.startupAction(raw.action as never);
+            return;
+        }
+        // 产品页面的消息：形状在共用的桥模块里校验。
+        const message = parsePageMessage(raw);
+        if (message === null) return;
         switch (message.type) {
-            case "shell-ready":
-                if (windows.get(id)?.kind === "shell") render(win, view);
-                return;
-            case "action":
-                if (typeof message.action === "string") shell.startupAction(message.action as never);
-                return;
             case "title":
-                if (typeof message.title === "string") win.setTitle(message.title === "" ? "NeuroBook" : message.title);
+                win.setTitle(message.title === "" ? "NeuroBook" : message.title);
                 return;
-            case "open-window": {
-                const url = typeof message.url === "string" ? message.url : "";
-                if (isServerUrl(url)) shell.windows.pageWindowRequested(url);
-                else if (isWebUrl(url)) Utils.openExternal(url);
+            case "open-window":
+                if (isServerUrl(message.url)) shell.windows.pageWindowRequested(message.url);
+                else if (isWebUrl(message.url)) Utils.openExternal(message.url);
                 return;
-            }
             case "close-ack":
-                if (typeof message.generation === "number") shell.windows.pageAcked(id, message.generation);
+                shell.windows.pageAcked(id, message.generation);
                 return;
             case "close-answer":
-                if (typeof message.generation === "number" && (message.answer === "allow" || message.answer === "deny")) shell.windows.pageAnswered(id, message.generation, message.answer);
+                shell.windows.pageAnswered(id, message.generation, message.answer);
                 return;
         }
     };

@@ -10,6 +10,7 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {PluginProblem} from "nbook/plugin-platform/shared/types";
+import type {CloseReason} from "nbook/shared/desktop-bridge";
 import type {DisplayText} from "nbook/shared/localized-text";
 
 /** 服务端的状态根。宿主拥有根的位置，根下的布局归各插件（例如 Storage 的 `storage/user.sqlite`）。 */
@@ -123,6 +124,34 @@ export interface WindowRescue {
 }
 
 export const windowRescueKey: ServiceKey<WindowRescue> = defineServiceKey<WindowRescue>("nbook/window-rescue");
+
+/**
+ * 关闭前询问的参与方（docs/specs/runtime/browser-host.md 输出 9）：桌面壳关窗之前，宿主按登记顺序逐个调用。`allow` 只是同意，
+ * 这时还不能丢弃任何东西；`signal` 在这次询问结束时 abort，参与方收起自己的对话框、不再发起新的保存，之后交回的结果不被采用。
+ */
+export type CloseParticipant = (request: {readonly reason: CloseReason; readonly signal: AbortSignal}) => Promise<"allow" | "deny">;
+
+/** 浏览器宿主提供给本窗口的插件；没有桌面壳时登记照常可用，只是不会被调用。 */
+export interface WindowClose {
+    participate(participant: CloseParticipant): () => void;
+}
+
+export const windowCloseKey: ServiceKey<WindowClose> = defineServiceKey<WindowClose>("nbook/window-close");
+
+/** 一项在跑的工作：停止服务端会中断它。文字值，页面按窗口的语言显示。 */
+export interface RunningWorkItem {
+    readonly text: DisplayText;
+}
+
+/**
+ * 在跑的工作（docs/specs/runtime/server-host.md）：服务端与项目两个位置的宿主能力。插件的入口登记报告方，`reporter()` 同步交回此刻
+ * 在跑、停止服务端会中断的工作，没有时交空列表；入口停止时它的登记随之撤下。
+ */
+export interface RunningWork {
+    register(reporter: () => ReadonlyArray<RunningWorkItem>): () => void;
+}
+
+export const runningWorkKey: ServiceKey<RunningWork> = defineServiceKey<RunningWork>("nbook/running-work");
 
 /** 插件的静态文件（docs/specs/theme/skins.md）：内置的随前端构建，第三方的经插件文件端点；不认识的插件或路径为 null。 */
 export interface WindowPluginFiles {
