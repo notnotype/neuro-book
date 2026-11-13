@@ -152,6 +152,9 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     });
     const clock = options.clock ?? systemClock;
     const text = options.text ?? createHostTextEngine({locale: "zh-CN"});
+    // 内置插件的目录随构建，建窗口时就登记：加载页、宿主页上（还没首连或连不上项目）关窗时，插件交来的在跑的工作也能按
+    // 窗口语言显示（docs/specs/runtime/browser-host.md 输出 10）。第三方插件的目录要经服务端取，首连之后才登记。
+    for (const [plugin, {source, catalogs}] of Object.entries(builtinCatalogs)) text.register(plugin, catalogs, source);
     const clientIdentity = options.clientIdentity ?? crypto.randomUUID();
     const adapter = new BrowserRuntimeHost();
     const listeners = new Set<(state: WindowState) => void>();
@@ -265,7 +268,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             const observers = mechanismObservers(store);
             const windowPlugins = createWindowPlugins(() => host?.application.plugins ?? null, (error) => store.record({level: "warn", event: "browser-host.plugins-listener.failed", message: "入口状态的监听抛错", error}));
             // 目录先于插件登记：入口激活、界面挂载时文字已经在引擎里。取不到的只成为问题，不让这一步失败。
-            const catalogProblems = await loadCatalogs({index: catalogIndex, builtin: builtinCatalogs, connection: options.connection, text, record: (input) => void store.record(input)});
+            const catalogProblems = await loadCatalogs({index: catalogIndex, connection: options.connection, text, record: (input) => void store.record(input)});
             windowPlugins.catalogProblems(catalogProblems);
             if (closed) {
                 current.close();
@@ -471,18 +474,16 @@ async function fetchCatalog(connection: Connection, plugin: string, prefix: stri
 }
 
 /**
- * 把消息目录登记进翻译引擎（docs/specs/runtime/browser-host.md 输出 2）：内置插件的随构建，第三方的按引导目录索引经目录端点
- * 取，各插件、各语言并行。一个插件取到几种语言就登记几种，一种都没取到时不登记，文字按回退链显示。返回没取到的那些，每条
+ * 把第三方插件的消息目录登记进翻译引擎（docs/specs/runtime/browser-host.md 输出 2；内置插件的随构建，建窗口时已登记）：按引导
+ * 目录索引经目录端点取，各插件、各语言并行。一个插件取到几种语言就登记几种，一种都没取到时不登记，文字按回退链显示。返回没取到的那些，每条
  * 另记一条诊断。
  */
 async function loadCatalogs(options: {
     readonly index: BrowserBootstrap["catalogs"];
-    readonly builtin: Readonly<Record<string, BuiltinCatalogs>>;
     readonly connection: Connection;
     readonly text: WindowText;
     readonly record: (input: DiagnosticInput) => void;
 }): Promise<PluginProblem[]> {
-    for (const [plugin, {source, catalogs}] of Object.entries(options.builtin)) options.text.register(plugin, catalogs, source);
     const results = await Promise.all(options.index.map(async (entry) => {
         const fetched = await Promise.all(entry.locales.map(async (locale) => [locale, await fetchCatalog(options.connection, entry.plugin, entry.prefix, locale)] as const));
         const catalogs: Record<string, MessageCatalog> = {};

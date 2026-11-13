@@ -190,6 +190,17 @@ describe("窗口运行实例", () => {
         stub.stop();
     });
 
+    it("连不上服务端的窗口里，内置插件交来的文字引用照样按窗口语言翻译（关窗时提示在跑的工作，browser-host 输出 10）", async () => {
+        const probe = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response()});
+        const port = probe.port as number;
+        await probe.stop(true);
+        const {browserWindow} = openWindow({url: `http://127.0.0.1:${String(port)}/`});
+        await browserWindow.start();
+        expect(failureOf(browserWindow.state)?.status).toBe("connection-failed");
+        expect(browserWindow.text.port.t({kind: "text", ns: "nbook.tasks", key: "commands.show.title"})).toBe("显示后台任务");
+        await browserWindow.stop();
+    });
+
     it("服务端连不上：可重试的连接失败，没有运行实例；服务端起来后重试成功（场景 2）", async () => {
         const probe = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response()});
         const port = probe.port as number;
