@@ -1,0 +1,73 @@
+# t09 计划 r1 前端部分设计审查（sonnet）
+
+[1] 阻断 | 合同违反 / 实现不可行 | 计划“浏览器宿主：接下询问”第 60 行、“风险”第 128 行
+现象：计划靠 `window` 上的捕获阶段 keydown 拦截挡快捷键。但工作台的键位分发正是挂在同一个目标同一个阶段：`src/plugins/workbench/web/commands/WorkbenchCommandHost.vue:57` `window.addEventListener("keydown", onKeydown, true)`，它在页面挂载时就注册；计划的拦截要等 `layer.show()` 才注册，同一目标上同阶段的监听按注册先后执行，工作台的先跑。`keymap.ts:94` 虽然检查 `event.defaultPrevented`，但等到后注册的拦截去 `preventDefault` 时，`keymap.handle` 已经执行过 `commands.execute`（`keymap.ts:100-103`，它还自己 `stopImmediatePropagation`）。`stopPropagation` 也拦不住同一目标上的其它监听，必须 `stopImmediatePropagation`。
+第二个洞：计划写“目标不在对话框里的按键才拦”，反过来目标在对话框里的按键全放行；焦点在编辑器的“保存/不保存/取消”对话框上时按 Ctrl+S、Ctrl+W、Ctrl+P 会照样进工作台键位表（它不看有没有模态打开）：关标签会再开一个标签对话框，命令面板会开出来。第三个洞：反方向，焦点落在 body（点了遮罩、`inert` 导致焦点修正后）时 Escape、Tab 被拦，reka 对话框的 Escape 挂在 document 上，到不了，对话框关不掉。
+如何核实：读上面两处；在 e2e 里先开一个 Dialog 再按 Ctrl+P 即可复现（计划的“正文里打字不生效”测试测不到这个）。
+建议：拦截监听在 CloseLayer 根挂载时就注册（早于工作台），带一个“询问中”开关，`stopImmediatePropagation`；对话框内只放行一小撮对话框需要的键（Tab、Shift+Tab、Enter、Space、Escape、方向键），其余全拦，不看目标；Escape 在焦点落到 body 时也要能到达对话框。更根本的做法见 [2]：让层本身是一个 nb-ui 模态，由 reka 的焦点锁处理键盘，不手写拦截。
+
+[2] 重要 | 隐含耦合 / 层级 | 计划“技术选型”第 23 行、“浏览器宿主：接下询问”第 59–61 行
+现象：计划说“对话框 Teleport 到 body，不在挂载根里，不受 inert 影响”，但同样的话适用于所有出了挂载根的浮层，计划没有处理反面：(a) 右键菜单（z 9100）、命令面板 QuickPick（z 9200）、下拉与 Popover 都 Teleport 到 body（nb-ui `useTeleportTarget.ts` 注释写明锚点类浮层固定传到 body）。询问到来时已经开着的面板/菜单不在 `#app` 里，`inert` 管不到，仍可操作，命令照样执行（例如面板里删文件）。(b) z-index 登记处 `nb-ui/src/theme/z-index.ts`：模态对话框 9000–9009、通知 9050、右键菜单 9100、命令面板 9200。“正在关闭”层要压住 (a) 就得高于 9200，那参与方的对话框（9000 起）反而在层下面、点不到；层放在 9000 以下则压不住 (a)，且已开着的命令面板（9200）会盖在参与方对话框上面。计划没有写层的 z-index，规范“叠放层级”要求新增整页浮层在 z-index.ts 登记。(c) 进行中的工作台拖动（`dragFeedback` 1000，指针手势在 window 上）不被 inert 取消，询问期间松手会落点改动布局。
+(d) reka 的模态 Dialog 在打开时给 body 设 `pointer-events: none` 并 aria-hidden 其余，所以“有对话框开着”的时段指针本来就被挡；真正没有保护的是参与方之间、等保存、等取工作的那些没有任何对话框的时段（计划的“正在关闭”层要管的正是这些）。
+建议（上游选择）：不手写 inert + z-index，让 CloseLayer 本身是一个 nb-ui `Dialog` 模态（无按钮或只带状态文字，`closeOnEsc=false`），询问开始时打开。`useModalLayer` 按打开顺序叠放，后开的参与方对话框自然在其上；reka 的焦点锁、body 指针锁一并生效；`openLayers` 是模块级单例，独立 Vue 根之间共享。仍需在打开前关掉已开的命令面板、菜单（它们 z 高于模态）：可让 CloseLayer 在 show 时先对 document 派发 Escape，或标出 body 下除自己与对话框外的子节点为 inert。把选型写进计划并说明被否掉的 inert 方案的理由。
+
+[3] 重要 | 遗漏 / 时序 | 计划“浏览器宿主：接下询问”第 49、59、64 行；`src/web/boot.ts`、`mount.ts`
+现象：(a) 计划只写“boot.ts 只在桥非 null 时建询问控制器”，没写在 `browserWindow.start()` 之前还是之后。`boot.ts` 的 `await browserWindow.start()` 在绑定项目时要等项目子进程启动“几秒”（`window.ts` 启动段注释），这段时间界面是 `index.html` 的静态加载页，`mountWindowUi` 还没调用。壳的询问是一次性事件（`index.ts:92` `executeJavascript` 派发，不重发）：控制器若建在 start() 之后，这几秒里的询问没人收，壳 3 秒后弹“没有响应”。计划的 `state: () => WindowState` 与“窗口还没就绪（加载页）时没有参与方要调”说明作者想答它，但控制器与层的建立时机没跟上。(b) CloseLayer 在 mount.ts 里挂载，也在 start() 之后：加载页阶段 `layer.show()` 无处可显示，计划没说怎么办。(c) 参与方登记表归哪个对象：`createRescue` 是每次 `boot()` 内部创建、只经能力与内部 `collect()` 使用（`window.ts:202`），`BrowserWindow` 接口（`state/onChange/start/stop`）没有出口。`createCloseQuery({participants})` 的 `participants` 从哪来？每次 boot 重试（`connection-failed` 后 `start()` 重跑）都会新建一份，而控制器只建一次。计划没有写 `BrowserWindow` 接口要加什么。
+建议：控制器在 `createBrowserWindow` 之后、`await start()` 之前建立（只依赖 `browserWindow.state` 与一个窗口级、跨 boot 稳定的参与方表）；表放在 `createBrowserWindow` 闭包里，能力表的 `window.close` 引用它，`BrowserWindow` 加一个只读的 `participants()`；加载页阶段层与对话框的显示方式写明（最小做法：CloseLayer 的根在 boot 里最早挂到 body 上，不等 mount）。测试用例加：start() 未完成时来询问仍然立即 ack。
+
+[4] 重要 | 状态切换 / 悬挂 | 计划“浏览器宿主”第 51–56 行、“编辑器”第 72–73 行
+现象：计划把窗口状态当作一次性输入（“窗口 ready 时按登记顺序调参与方”），询问进行中状态变化没有处理。真实路径：`window.ts:215-227` 链路 `onState` 转入 `server-restarted / project-gone / incompatible` 时先 `rescue.collect()`、设状态，再 `host.destroy()` 停全部插件；`PageOutlet.vue` 立刻把页面换成 `FailurePage`，EditorHost 随之卸载。此时若编辑器的 `windowDialog` 正开着，或 `closeWindow` 正在等保存：(1) 计划第 73 行只在 `signal` abort 时收对话框；插件停止走的是 `area.dispose()`（`area.ts:1034-1036` 只对旧的 `dialog` 调 `answerDialog?.("cancel")`），新加的 `windowDialog` 的 resolve 若不在 dispose 里一并结算，参与方的 Promise 永远不 settle，控制器永远停在这一步；(2) 控制器没有订阅状态变化，不会改走“失败页带 rescued → 确认丢失”那一支。结果：用户面对一个“正在关闭”层盖在失败页上，没有任何对话框；失败页上正是需要“复制正文”的时候，层又把它挡住。能走出来只有再点一次 X（壳的已接下分支弹“没有响应”→取消或强制）。
+如何核实：`area.ts` dispose 与 `PageOutlet.vue` 的 v-if；窗口合同测试里有“服务端换进程”的用例，可以在询问中途触发。
+建议：控制器订阅 `browserWindow.onChange`：状态离开 `ready` 时 abort 当前参与方的 signal 并从“失败页”一支重新评估（不是整次取消）；编辑器 `dispose` 里结算 `windowDialog`/失败说明的 pending 为 `deny`（控制器此时已因状态变化放弃它的结果）；验收映射补一条“询问中途服务端重启”。
+
+[5] 重要 | 与现有流程的交互 | 计划“编辑器：参与方”第 72 行（“与关标签的 dialog 分开”）；`area.ts` 的 `ask`（601）、`closeOne`（617–660）
+现象：新 `windowDialog` 与旧 `dialog` 是两份状态，计划没有说询问到来时旧的怎么处理。关标签时 `closeOne` 正在 `await ask(...)`（旧 `dialog` 开着），或 `closeMany` 批量关闭在跑（`batchRunning`），此时来了窗口询问：用户面前有两个模态；旧框回答“不保存”会执行 `documents.discardInput`/`documents.revert(discarded)`（`closeOne` 的 discard 分支）真的丢掉正文，发生在窗口关闭询问期间，破坏 Spec 编辑器输出 66 “询问期间页面不接受输入、取消后文档照旧”的保证；旧框回答“保存”则与 `closeWindow` 的第 1 步（settle）、第 3 步（自动保存）在同一份文档上并发。`ask` 现有的约定是“新询问先对旧的 `answerDialog('cancel')`”，就是为此。
+另：计划第 71 行“先结算全部视图输入，再等在途保存”没有给等待的办法。`area` 没有对外的“等保存”接口，`needsSettle` 含 `saving`，但等待只能靠 `documents.save(document)` 排队（`store.ts` 的 saveNow 对不 dirty 的文档直接 `ok`）或 `coordinator.begin`（会取租约，必须 `end`）。要在计划里选定一种。
+建议：`closeWindow` 开头先 `answerDialog?.("cancel")` 收掉旧框、让进行中的 `closeOne`/批量返回“cancelled”；等待在途保存对 `document.saving` 为真的文档调 `documents.save` 排队；两条写进计划，再加单测“关标签对话框开着时来窗口询问”。
+
+[6] 重要 | 合同边界 / 没写出的假设 | 计划“工作台通知：onClose”第 79–80 行；Spec notifications 输出 18
+现象：(a) “按时消失”之后用户在中心点“移除”：Spec 输出 18 写“弹出的关闭或中心的移除，先到的那次调用一次；按时消失不调用”，字面上按时消失不算“先到的那次”，之后的中心“移除”应当调用。计划写“弹出关闭与中心 remove 两处调用，先到的那次之后不再调用”，没有说“已按时消失”的状态下中心 remove 算不算；场景 11 也没有覆盖。实现者会二选一。这正是 t10 要用的：更新提示 5 秒外的按时消失与之后的手动移除要分清是“以后”还是仍待决。(b) 中心的“全部清除”命令（`notification-commands.ts:38` `center.clear()`）与超过 `CENTER_LIMIT=100` 的挤出：这两处也是用户可见的移除，计划与 Spec 都没写调不调 `onClose`；`center.clear` 是接口上的方法，实现时必有选择。(c) “只调一次”的标记要存在以通知 id 为键的闭包里：现有 `queued` 映射会被“每次发出时扫掉已不在队列的对应关系”（`notifications.ts` 的 notify 内的循环）清理，不能拿它当标记。(d) nb-ui 层 `@dismiss="remove(item.id)"` 改成先调 `onDismiss` 再 `remove` 时，`onDismiss` 抛错会让 `remove` 不执行（对比 `runAction` 用 `try/finally` 保证移除）；计划只在 workbench 层吞错，nb-ui 的新字段在别的调用方（Lab、其它队列）下没有保护。(e) `NotificationPatch = Partial<NotificationInput>` 加字段后 `queue.update` 会接受 `onDismiss`、`NotificationHandle.update(Partial<NotificationInput>)` 接受 `onClose`，计划没说更新时忽略还是替换。
+建议：Spec 与计划同时写明 (a)(b) 的结论（建议：按时消失后中心移除算用户关闭；清除全部与挤出：清除全部算用户关闭、挤出不算）；nb-ui 先 `try { onDismiss } finally { remove }`；update 的补丁里不带 onClose 并在类型上用 `Omit`。
+
+[7] 重要 | 测试方案 | 计划“验收映射”第 111–113 行、“风险”第 128 行
+现象：(a) `CloseLayer.dom.test.ts` 在 happy-dom 里跑，happy-dom 的 `inert` 只是属性的读写（`HTMLElement.js:680` 一带只有 getAttribute/setAttribute），没有焦点阻断，也没有事件阻断；`docs/testing/README.md:155` 也说需要真实布局的交互走 Playwright。所以“层显示时挂载根 inert、快捷键被拦、对话框可操作”在 dom 测试里最多断言属性在、监听被调用，测不到 [1] 的次序问题（要真有 WorkbenchCommandHost 的 window 捕获监听在先才能复现）。(b) e2e “询问期间在正文里打字不生效”会空过：焦点原来在 Monaco 上，`inert` 一设焦点被浏览器修正到 body，`page.keyboard.type` 打进 body，不论拦截器写得对不对都“不生效”。要有效就要：焦点在对话框里按 Ctrl+P / Ctrl+W / Ctrl+S 不触发命令；询问前先打开命令面板；询问中点击被层盖住的编辑区位置。(c) `close-query.test.ts` 的清单缺：`close-end` 的代次与当前不符（迟到）时忽略；`allow` 之后壳以 quit 再问一次（desktop-shell 输出 16：`windows.ts:142` `#endAsk(..., false)` 后 `#ask`），层保持、第二次照常调参与方；询问中途窗口状态变化（[4]）；两次参与方之一抛错后选“仍然关闭”是继续问下一个参与方还是直接 allow（计划与 Spec 都没定，见 [11]）；参与方永不 settle 时新询问与 `close-end` 能收口。(d) e2e 的假壳按对象传 `__electrobunSendToHost(message)`，与 preload.ts 的 `send` 一致、壳端 `parse` 也接受对象，形状没问题；但它测不到“真壳里该函数何时出现”：`preload.ts` 的 `send` 在调用时才取 `window.__electrobunSendToHost`（try/catch 包着），说明作者对它在 preload 时刻是否已定义是留了余地的，而计划的 `findDesktopBridge(global)` 在 boot 时一次性取，若那一刻没有就永远建不了控制器，每次关窗都走“强制关闭”，且不留诊断。
+建议：Windows 联合验收（切片 6）增加一项明确的探针：页面脚本运行时 `typeof window.__electrobunSendToHost`；`findDesktopBridge` 改成延迟取（发送时才取，取不到写诊断）。把 (b)(c) 列入验收映射。
+
+[8] 建议 | 可用性 / 副作用 | 计划“技术选型”第 23 行（“不自己写焦点陷阱”）
+现象：给挂载根设 `inert` 时，焦点在其中的元素会被浏览器修正到 body，触发 blur/focusout。后果：(a) `EditorGroup` 的 `@focusout`、`EditorHost.vue` 的 `document` focusin 监听会走 `focusLeft()`；自动保存的“失焦时”模式下 `viewLeft`/`windowBlurred` 会在询问刚开始时就保存一次（对 mode 为 `off` 无影响，所以不违反“不保存”语义，但这是第一次询问就产生的写入，应写进计划的预期里）；(b) 用户在“取消”之后（`deny`，层撤下，inert 去掉）焦点停在 body：光标位置不在了，Monaco 与 Markdown 编辑器要再点一下才能继续打字；写作场景里 Alt+F4 误触后丢焦点是明显的退化。(c) 正在输入法组字时设 inert 会终止组字。`WorkbenchShell.vue:398-420` 的 `reachable`/`recoverFocus` 都看 `closest("[inert]")`，外壳自己写过对 inert 的焦点处理，计划没提。
+建议：`layer.show()` 记下 `document.activeElement`，以 `deny` 或被壳结束撤层时，用 `preventScroll` 恢复焦点（元素已不在则交给编辑区的 `focusActive`）；若按 [2] 改成 nb-ui 模态，Dialog 关闭时的焦点归还（`onCloseAutoFocus`）基本能做这件事，但要验证归还目标不在 inert 里。
+
+[9] 建议 | 重复造轮子 / 显示合同 | 计划“编辑器：参与方”第 72 行、`saveAll` 的返回
+现象：(a) 计划让失败说明写“失败的文件与原因”，但 `saveAll`（`area.ts:968`）的 `reason` 是 `${address}：${code}` 拼的原始码（`conflict`、`unresolved`、`unrepresentable`、`ended`、`not-ready`，见 `store.ts:566-573`），不是文字值，也不是人读的；而状态栏“未保存”条目已有成品：`status-items.ts:110-123` 用 `document.saveProblem.value?.detail` 配 `editorText("status.failed")`、`status.more`（超过 `LISTED` 个写“另有 N 个”）。计划另起 `windowCloseDialog.*` 一套文案并自己列文件，会与状态栏的第 26 条判据与措辞分叉。(b) 找文档用 `references`（`needsLeaveConfirm` 的写法）还是 `openDocuments` + `needsSaving`（`state.ts:65`，状态栏与 Spec 第 26 条用的判据）：计划写“同 needsLeaveConfirm 的 documents.settle”，与第 26 条“含非活动的文档”的集合一致性没有论证；`coordinator.save` 又是对地址前缀下的全部条目保存，范围比 `references` 大，可能出现“对话框没列的文档被保存了”。(c) 冲突文档（`conflict !== null`）“全部保存”必定返回 `conflict`（`saveNow` 570 行），计划第 72 行的“有写不出的文档时不给全部保存”只管 `blocked`，没有定冲突文档在列表中是否给“全部保存”：用户点了只会得到一定失败的说明。
+建议：文档集合与排列直接取 `openDocuments.filter(needsSaving)` 加冲突的，文案复用 `status.*` 键；失败原因取 `saveProblem.detail`，没有时按 code 查 `editorText` 目录；冲突文档与写不出的同样不给“全部保存”，或明说“覆盖”走另外的路径（`overwrite` 已存在）。
+
+[8 更正] 上条 (a) 里的机制说得不准：`useEditorGroupRoot.ts:35` 的 `onFocusOut` 只是把 `area.focused` 置假；自动保存的“失焦时”来自控件自己的 blur 发出的 `@leave` → `area.viewLeft`（`EditorGroup.vue:257`）。inert 触发的焦点修正是否让 Monaco/Markdown 控件发出 `leave`，代码读不出，未验证（需要真实浏览器）。(b)(c) 不受影响。
+
+[10] 建议 | 边界 / 恢复 | 计划“浏览器宿主”第 56 行（“以 allow 结束时层保留到窗口关掉”）；`src/desktop/windows.ts:142,174`
+现象：(a) 以 `allow` 回答后层永远保留，页面完全冻结。若壳没有真正关掉窗口（`commitClose` 的 `win.close()` 失败、关闭被系统拦下），用户再点 X：`closeRequested` 在 `state.closing` 为真时直接返回（`windows.ts:97`），`state.ask` 也已经 `#endAsk` 掉，没有“没有响应”对话框，没有任何出口。概率低，但后果是整个窗口死掉、里面还有未保存的正文。(b) 同一路径的另一半：`window` 原因的 `allow` 之后若别的窗口先关了，壳以 `quit` 重新询问（`windows.ts:142-146`，不发 `close-end`）：控制器要能在“已 allow、层保留”的状态下接新询问，并重新调用参与方，编辑器会第二次弹窗问同一批文件（用户刚选过“不保存”）。这是 Spec 输出 16 的设计，但计划应写明控制器的状态机允许“allow 之后的新询问”，并在验收里覆盖；也可让编辑器参与方记住“同一批未改动的文档刚被同意过”，第二次直接 allow（需 Spec 同意）。
+建议：allow 之后给层一个保险超时（例如 5 秒内窗口没有关掉就撤层并写诊断，页面恢复可用；此时仍有“同意之后不再有新的修改”的假设被破坏，但比死窗口好）；或只在 `closing` 状态下保留而超时后让用户能再点 X 触发壳的对话框——这需要壳侧配合（t08 的 `closeRequested` 在 closing 状态忽略），所以首选页面侧的保险超时。
+
+[10 更正] 行号：`closeRequested` 对 `state.closing` 的提前返回在 `windows.ts:118`（上条写的 97 有误）；`quit` 重问在 `windows.ts:142-146`。
+
+[11] 建议 | 遗漏 / 失败模式 | 计划“浏览器宿主”第 52–54、58 行
+现象：(a) `Connection.work(signal)` 与等待参与方都没有时限也没有可见出口。服务端半死（TCP 通、不回包）时，“正在关闭”层上没有任何对话框，用户只能再点 X 靠壳的“没有响应”对话框取消。Spec 说“取不到（连接断开、服务端出错）”要提示“无法确认”，但“挂住”不在其中。建议给 `fetchWork` 一个固定时限（如 5 秒，与服务端取项目工作的 5 秒错开，留 3 秒余量不如 8 秒），超时按“取不到”走；层上给一条状态文字与“取消”（页面自己回答 `deny`，不需要壳）。(b) “participant-failed”选“仍然关闭”后，是继续调用后面的参与方还是直接进入后面各步，计划与 Spec 输出 10 都没写；若继续，后面的参与方若又抛错会再问一次，要说明。(c) 步骤 2（`rescued-lost`）按 `state.rescued` 的条数提示，但失败页上 rescued 来自抢救时刻的快照，条数 0 时 `rescued` 字段不存在（`window.ts:226`），计划写“带 rescued 时”是对的；但 Spec 写的是“列出未保存的正文”的提示，计划的 `{kind: "rescued-lost", count}` 只给条数，用户看不到是哪些文件，可以复用 `RescuedText.path`。(d) 多个窗口：每个窗口各自的控制器各自取工作；`quit` 仅最后一个窗口发，不会重复提示，没问题（desktop-shell 输出 16）。
+
+[12] 建议 | 重复 / 隐含耦合 | 计划第 24 行、“编辑器”`plugin.ts` 的 `beforeunload`（约 200）
+现象：`plugin.ts` 现有的 `beforeunload` 在 `needsLeaveConfirm()` 为真时 `preventDefault`。桌面壳路径里原生窗口关闭不触发它（Spec 输出 9 的前提），但这个前提在 macOS、Linux 与 WebView2 上都未验证（计划“未验证边界”也只列了 macOS 与 Linux）。用户在对话框里选“不保存”→ `allow` → 壳 `win.close()` 之后，如果某个 WebView 仍然触发页面卸载与 `beforeunload`，现有监听会请求离开确认，可能出现原生“离开此页？”对话框、或把关窗挡住，与已经确认过的一次询问重复。计划没有让两条路径互相知道。
+建议：编辑器参与方在回答 `allow` 的同一刻置一个“关闭已同意”标记，`beforeUnload` 看到它就不拦；`deny`、`signal` abort 时复位。同时在 Windows 联合验收（切片 6）里记录 `allow` 之后是否有 beforeunload 触发。
+
+[13] 建议 | 重复定义 | 计划“页面与壳之间的桥”第 43 行、“浏览器宿主”第 48 行
+现象：`CloseReason = "window" | "quit"` 已定义在 `src/desktop/windows.ts:18`；计划再在 `desktop-bridge.ts` 与 `shared/host.ts` 各写一份字面量联合，正好是第 22 行想避免的“各写一份”。同时 `desktop/src/bun/index.ts` 里页面到壳的消息仍由它自己的 `parse` 与 `typeof` 检查接，计划的 `parseShellMessage` 只管壳到页面一个方向，两个方向的形状各校验一次且不在同一个模块里；t08 的评审（design-review-r1-omp.txt）已指出同页脚本可伪造这些消息，此处不重复，但共用模块应让双向的形状与校验放一起、由两端的测试共享同一份夹具。
+建议：`desktop-bridge.ts` 导出 `CloseReason`，`windows.ts` 与 `host.ts` 引用它；页面到壳的 `parsePageMessage` 也放进这个模块，由 `desktop/src/bun/index.ts` 使用。注意 `src/shared` 受 `architecture.test.ts` 约束，按检查结果调整位置。
+
+[11 更正] (a) 的时限数字写乱了：建议 `fetchWork` 固定时限取 8 秒左右（服务端取项目工作自己的上限是计划里的 5 秒，页面时限要比它长，才能收到服务端汇总的 `failed`），超时按“取不到”走。
+
+未发现问题的方面（仔细检查后）：
+- 自动保存“保存后重查”不会死循环：计划只重查一次，`savesOnClose` 排除被闸住（保存失败过）、冲突、未裁决、写不出的文档（`auto-save.ts:69,163`），它们由 `needsSettle` 找出后询问，不会漏。
+- 通知视口 `WorkbenchNotifications` 渲染在页面根内（不 Teleport），`inert` 能盖住弹出的通知；nb-ui 对话框缺省 Teleport 到 body，工作台没有调用 `provideTeleportTarget`（只有 Lab 用），所以对话框确实在 inert 的 `#app` 之外。
+- 消息形状与壳一侧对得上：`close-ack`/`close-answer` 带数字 `generation`，`index.ts:158-162` 的校验与计划一致，壳的 `parse` 接受对象 detail，e2e 假壳传对象与 preload 的 `send` 一致。
+- `mount.ts` 的 HostPage→PageOutlet 重新挂载都在同一个 `container` 上，`inert` 设在 container 元素上不受重挂影响（前提是计划明写设在 `#app` container 上，目前写的是“其它挂载根”，见 [2]）。
+- 编辑器以可选依赖解析 `windowCloseKey` 的写法与既有的 `windowRescueKey` 一致。
+
+有效发现编号：[1] [2] [3] [4] [5] [6] [7] [8] [9] [10] [11] [12] [13]（[8 更正]、[10 更正]、[11 更正] 是对前条的更正，不另计）。
+数量：阻断 1（[1]）；重要 6（[2]–[7]）；建议 6（[8]–[13]）。共 13 条。

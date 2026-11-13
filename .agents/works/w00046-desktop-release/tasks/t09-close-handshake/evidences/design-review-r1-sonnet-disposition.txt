@@ -1,0 +1,15 @@
+t09 计划设计审查第 1 轮（Sonnet，前端部分）的处理。报告：design-review-r1-sonnet.txt。13 条有效，均成立，均改计划。
+
+[1] 阻断 键盘拦截次序：成立（WorkbenchCommandHost.vue:57 在 window 捕获阶段、挂载时注册）。改：拦截器在 createCloseQuery 里、早于挂载注册，stopImmediatePropagation；对话框里只放行 Tab、Enter、空格、Escape、方向键。
+[2] 重要 层级与浮层：成立（z-index.ts 模态 9000、菜单 9100、命令面板 9200）。改：层本身是 nb-ui 模态 Dialog，用 useModalLayer 的叠放；打开前给 body 下已有子节点设 inert；不新登记 z-index。
+[3] 重要 控制器建立太晚、参与方表归属：成立。改：控制器与 CloseLayer 根在 boot 里、start() 之前建立；参与方表在 createBrowserWindow 闭包，BrowserWindow 加 closeParticipants()。
+[4] 重要 询问中途离开 ready：成立。改：控制器订阅 onChange，abort 当前参与方、改走失败页一支；编辑器 dispose 时未定的询问按 deny 结算。
+[5] 重要 与关标签对话框并存：成立。改：closeWindow 开头 answerDialog("cancel")；等在途保存用 documents.save 排队。
+[6] 重要 onClose 语义：成立。改：nb-ui try/finally；补丁类型去掉回调；按时消失后的移除与“全部清除”算用户关闭，挤出不算；Spec 输出 18 补写。
+[7] 重要 测试会空过：成立。改：挡输入改由 e2e 判（命令面板、对话框里的快捷键、点被盖住的编辑区、焦点恢复），不用 happy-dom；createDesktopBridge 发送时才取 __electrobunSendToHost，取不到写诊断；Windows 加探针。
+[8] 建议 焦点恢复：成立。改：show 时记下活动元素，撤层时恢复。
+[9] 建议 复用状态栏文案与判据：成立。改：集合取 openDocuments 中 needsSaving 的加冲突的，文字复用 status.* 与 saveProblem.detail；冲突文档不给“全部保存”（Spec 补一句）。
+[10] 建议 allow 之后：成立。改：allow 之后以 quit 重问时不再调参与方（层一直在、没有输入）；10 秒窗口没关就撤层并写诊断（Spec 补一句）。
+[11] 建议 取工作时限等：成立。改：fetchWork 8 秒；“仍然关闭”后接着问下一个参与方；rescued-lost 列路径。层上不加“取消”：再点关闭有壳的对话框，超时后也会给出提示。
+[12] 建议 beforeunload 重复：成立。改：参与方 allow 时置标记，beforeunload 不再请求离开确认。
+[13] 建议 CloseReason 重复：成立。改：desktop-bridge.ts 导出 CloseReason 与两个方向的校验，windows.ts、host.ts、壳的适配层引用它。
