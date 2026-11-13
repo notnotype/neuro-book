@@ -376,5 +376,28 @@
         "hasPending": {
             "reason": "Nothing is pending"
         }
+    },
+    "revisions": {
+        "label": "Change History",
+        "meta": "{{by}} · {{time}}",
+        "values": "{{count}} values changed",
+        "noImpact": "Nothing else changed",
+        "separator": ", ",
+        "allChapters": "All chapters",
+        "allWriters": "All writers",
+        "chapterFilter": "Filter by chapter",
+        "writerFilter": "Filter by writer",
+        "writers": {
+            "author": "Author",
+            "agent": "Agent",
+            "task": "Task",
+            "system": "System"
+        },
+        "receipt": "View receipt",
+        "revert": "Revert",
+        "more": "Show more",
+        "empty": "No changes yet",
+        "emptyFiltered": "No changes match the filters",
+        "loading": "Reading…"
     }
 }

@@ -56,7 +56,6 @@ export function createReceiptPage(options: ReceiptPageOptions): EditorPageImplem
             if (title === undefined) return null;
             const crumbs: EditorPageCrumb[] = [
                 {label: canonText("views.entries.title"), command: {id: OPEN_VIEW_COMMAND, args: {viewId: options.entriesView}}},
-                // 改动记录视图在第一批的底部面板一片登记；在那之前点它得到命令服务的失败。
                 {label: canonText("receipt.revisionsCrumb"), command: {id: OPEN_VIEW_COMMAND, args: {viewId: options.revisionsView}}},
                 {label: title},
             ];

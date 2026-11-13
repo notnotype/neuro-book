@@ -376,5 +376,28 @@
         "hasPending": {
             "reason": "没有待处理的问题"
         }
+    },
+    "revisions": {
+        "label": "改动记录",
+        "meta": "{{by}} · {{time}}",
+        "values": "{{count}} 处值变了",
+        "noImpact": "没有带来别的变化",
+        "separator": "，",
+        "allChapters": "全部章",
+        "allWriters": "全部写入者",
+        "chapterFilter": "按章筛",
+        "writerFilter": "按写入者筛",
+        "writers": {
+            "author": "作者",
+            "agent": "Agent",
+            "task": "任务",
+            "system": "系统"
+        },
+        "receipt": "看回执",
+        "revert": "还原",
+        "more": "再显示更多",
+        "empty": "还没有改动",
+        "emptyFiltered": "没有符合筛选的改动",
+        "loading": "读取中…"
     }
 }

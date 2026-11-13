@@ -48,6 +48,7 @@ import {createPendingCount} from "./pending-count";
 import {pendingViewState, pickFirstPending} from "./pending-view";
 import {createReceiptPage} from "./receipt-page";
 import {createRevertRequests} from "./revert";
+import {createRevisionsView, revisionsViewState} from "./revisions-view";
 import {useCanonText} from "./text";
 import {createCanonWorld} from "./world";
 import type {CanonWorld} from "./world";
@@ -208,7 +209,8 @@ export const canonBrowserPlugin: PluginDefinition = {
             };
             const state = entriesViewState();
             const pendingState = pendingViewState();
-            // 底部面板的两个视图：内容在后面两片做，先只登记（没绑定项目时写一句）。
+            const revisionsView = createRevisionsView({world: worldOf, state: revisionsViewState(), revert, receipt: (revision) => execute(OPEN_RECEIPT_COMMAND, {revision})});
+            // 底部面板的“待处理”：内容在下一片做，先只登记（没绑定项目时写一句）。
             const bottomView = (): ViewImplementation => ({
                 load: async () => {
                     const unbound = worldOf() === null;
@@ -233,7 +235,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 services: [provideServicePerConsumer(canonClientKey, (consumer) => createCanonClient(bound ? () => context.remote.on(consumer) : null))],
                 receivers: {[CANON_COMPONENT_VIEWS_POINT]: views.receiver()},
                 contributions: {
-                    [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view, [PENDING_VIEW_ID]: bottomView(), [REVISIONS_VIEW_ID]: bottomView()},
+                    [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view, [PENDING_VIEW_ID]: bottomView(), [REVISIONS_VIEW_ID]: revisionsView},
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[PENDING_COUNT_ITEM]: pendingItem},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                     [EDITOR_PAGES_POINT]: {[ENTRY_PAGE]: page, [RECEIPT_PAGE]: receiptPage, [CHANGE_PAGE]: changePage},

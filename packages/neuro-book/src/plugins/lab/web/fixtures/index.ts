@@ -20,6 +20,7 @@ import type PlotList from "nbook/plugins/canon/web/components/PlotList.vue";
 import type ReceiptPage from "nbook/plugins/canon/web/components/ReceiptPage.vue";
 import type RecordForm from "nbook/plugins/canon/web/components/RecordForm.vue";
 import type RevertDialog from "nbook/plugins/canon/web/components/RevertDialog.vue";
+import type RevisionsView from "nbook/plugins/canon/web/components/RevisionsView.vue";
 import type WorldBanners from "nbook/plugins/canon/web/components/WorldBanners.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
@@ -1666,6 +1667,41 @@ function canonEntryPageFixtures() {
                 ];
             })(),
             load: async () => (await import("./ReceiptPageFixture.vue")).default,
+        }),
+        defineLabFixture<typeof RevisionsView>({
+            component: "RevisionsView",
+            scenes: (() => {
+                const row = (id: string, title: string, meta: string, summary: string, extra: {notRevertable?: boolean; note?: string} = {}) => ({id, title, meta, summary, notRevertable: extra.notRevertable ?? false, note: extra.note ?? ""});
+                const rows = [
+                    row("r7", "改存款", "作者 · 2026-11-13 14:12", "2 处值变了，少了 1 条待处理"),
+                    row("r6", "第 3 章记账", "任务：第 3 章记账 · 2026-11-13 14:08", "4 处值变了，多了 1 条待处理"),
+                    row("r5", "还原“改外观”", "作者 · 2026-11-13 14:05", "1 处值变了"),
+                    row("r4", "改外观", "作者 · 2026-11-13 14:03", "1 处值变了", {note: "后面有 1 次改动依赖它"}),
+                    row("r3", "补上星瑕领工资的那一笔", "Agent · 2026-11-13 13:58", "1 处值变了，1 条情节套不上了"),
+                    row("r2", "新建“星瑕”", "作者 · 2026-11-13 13:50", "没有带来别的变化", {note: "后面有 4 次改动依赖它"}),
+                    row("r1", "章序调整", "系统 · 2026-11-13 13:49", "没有带来别的变化", {notRevertable: true, note: "调整章序的改动不能还原"}),
+                ];
+                const chapters = [{value: "all", label: "全部章"}, {value: "1", label: "第 1 章：入学"}, {value: "2", label: "第 2 章：打工"}, {value: "3", label: "第 3 章"}];
+                const writers = [{value: "all", label: "全部写入者"}, {value: "author", label: "作者"}, {value: "agent", label: "Agent"}, {value: "task", label: "任务"}, {value: "system", label: "系统"}];
+                const model = {chapter: "all", writer: "all"};
+                const sample = {props: {status: "normal" as const, rows, more: true, chapters, writers}, model};
+                const busy = "第 3 章记账正在写，写完以后才能改";
+                const readOnly = "世界只读：日志的版本号重复了";
+                return [
+                    {id: "sample", label: "七次修订：有依赖的、章序调整、还有更多", input: sample},
+                    {id: "current", label: "键盘停在第四行", input: {props: {...sample.props, more: false}, model: {...model, current: "r4"}}},
+                    {id: "long-title", label: "很长的标题", input: {props: {...sample.props, more: false, rows: [row("r9", "把第 3 章到第 9 章里所有提到星瑕存款的地方按新的工资标准重新记一遍账", "Agent · 2026-11-13 15:01", "12 处值变了，少了 3 条待处理，2 条情节套不上了"), ...rows.slice(0, 2)]}, model}},
+                    {id: "busy", label: "别人正在独占写", input: {props: {...sample.props, revertBlocked: busy}, model}},
+                    {id: "read-only", label: "世界只读", input: {props: {...sample.props, revertBlocked: readOnly, readOnly}, model}},
+                    {id: "disconnected", label: "世界已断开", input: {props: {...sample.props, revertBlocked: "世界已断开", disconnected: true}, model}},
+                    {id: "loading", label: "读取中", input: {props: {status: "loading" as const, rows: [], chapters, writers}, model}},
+                    {id: "failed", label: "没有读出来", input: {props: {status: "failed" as const, rows: [], chapters, writers}, model}},
+                    {id: "empty", label: "还没有改动", input: {props: {status: "normal" as const, rows: [], chapters, writers}, model}},
+                    {id: "empty-filtered", label: "没有符合筛选的", input: {props: {status: "normal" as const, rows: [], chapters, writers}, model: {chapter: "3", writer: "agent"}}},
+                    {id: "sample-english", label: "英文界面", input: {props: {...sample.props, more: false, chapters: [{value: "all", label: "All chapters"}], writers: [{value: "all", label: "All writers"}], rows: [row("e2", "Edit Savings", "Author · 2026-11-13 14:12", "2 values changed, 1 fewer pending"), row("e1", "Chapter reorder", "System · 2026-11-13 13:49", "Nothing else changed", {notRevertable: true, note: "Chapter reorders cannot be reverted"})]}, model}},
+                ];
+            })(),
+            load: async () => (await import("./RevisionsViewFixture.vue")).default,
         }),
         defineLabFixture<typeof ChangePage>({
             component: "ChangePage",
