@@ -15,6 +15,8 @@ import {MAIN_PROFILE} from "./shared/contracts";
 import {fakeEndpoint, localModelSettings} from "./testing/endpoint";
 import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
+import {createSkillInit} from "./web/skill-init";
+import {createSkillsClient} from "./web/skills";
 import type {AgentWorld} from "./testing/world";
 
 let tmp = "";
@@ -169,4 +171,46 @@ describe("远程", () => {
         }, {timeoutMs: 10_000});
         expect(await ids()).toEqual(["user.lore-check:ready", "user.style-guide:ready"]);
     }, 20_000);
+});
+
+describe("窗口：目录与确认框（输出 5、27）", () => {
+    test("窗口的目录跟着 skillsChanged 更新；确认框取计划、确认后装好并关上，目录里变成可用；装不上时停在失败、带安装输出，能重试", async () => {
+        const w = await world({});
+        const dep = join(w.stateRoot, "..", "local-dep");
+        await mkdir(dep, {recursive: true});
+        await writeFile(join(dep, "package.json"), JSON.stringify({name: "local-dep", version: "1.0.0", main: "index.js"}));
+        await writeFile(join(dep, "index.js"), "module.exports = 1;\n");
+        const directory = join(w.stateRoot, "user", "skills", "epub-export");
+        await mkdir(directory, {recursive: true});
+        await writeFile(join(directory, "package.json"), JSON.stringify({name: "epub-export", private: true, dependencies: {"not-here": "file:./missing-dir"}}));
+        await writeFile(join(directory, "SKILL.md"), "---\nname: epub-export\ndescription: 导出\n---\n\n正文\n");
+        const {client} = await w.window("dialog");
+        const controller = new AbortController();
+        const fail = (message: string) => {
+            throw new Error(message);
+        };
+        const skills = createSkillsClient(client, controller.signal, fail);
+        skills.ensure();
+        const entry = () => skills.entries.value?.find((item) => item.id === "user.epub-export");
+        const found = await waitUntil("窗口的目录里有它、未初始化", () => {
+            w.settings.clock.advance(1_000);
+            return entry()?.status === "needs-init" ? entry() : undefined;
+        }, {timeoutMs: 10_000});
+
+        const init = createSkillInit(client, fail);
+        await init.ask(found);
+        expect(init.state.value).toMatchObject({open: true, name: "epub-export", phase: "confirm", plan: {lock: false, dependencies: ["not-here"]}});
+        await init.confirm();
+        expect(init.state.value).toMatchObject({open: true, phase: "failed", failure: {code: "install-failed"}});
+        expect(init.state.value.failure?.output).toContain("missing-dir");
+
+        await writeFile(join(directory, "package.json"), JSON.stringify({name: "epub-export", private: true, dependencies: {"local-dep": `file:${dep}`}}));
+        await init.confirm();
+        expect(init.state.value.open).toBe(false);
+        await waitUntil("窗口的目录变成可用", () => {
+            w.settings.clock.advance(1_000);
+            return entry()?.status === "ready" || undefined;
+        }, {timeoutMs: 10_000});
+        controller.abort();
+    }, 60_000);
 });

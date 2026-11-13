@@ -3,7 +3,7 @@
  * 活动条目（`activity.ts`）；视图、宿主与 nb-agent-ui 的 Vue 层用到时才加载，打开窗口不多花时间。
  */
 
-import {markRaw, defineComponent, h, onBeforeUnmount, shallowRef} from "vue";
+import {markRaw, defineComponent, h, onBeforeUnmount, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -43,6 +43,7 @@ import {MAIN_PROFILE} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
 import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION} from "../shared/settings";
+import {profileSkills} from "../shared/profile-skills";
 import {agentText} from "../shared/text";
 import {settingsPage} from "nbook/ui/settings/settings-page";
 import {createAgentActivity} from "./activity";
@@ -51,6 +52,9 @@ import {permissionsPage} from "./permission-page";
 import {createProfileWriters, profilesPage} from "./profile-page";
 import {ATTACHMENT_LIMIT_BYTES} from "../shared/attachments";
 import {createFileMentions} from "./mentions";
+import {createSkillInit} from "./skill-init";
+import type {SkillInit} from "./skill-init";
+import {createSkillsClient, OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu} from "./skills";
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
@@ -176,6 +180,23 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             const project = windowProject.project?.id ?? null;
             const profiles = shallowRef<readonly ProfileEntry[]>([]);
+            const skills = createSkillsClient(remote, context.signal, (message) => report("skills-failed", message));
+            /** 一个 Profile 的 Skill 白名单（skills.md 的“输入与前置条件”），与服务端认标签用的同一个换算。 */
+            const allowedSkills = (profile: string): readonly string[] => profileSkills(
+                profiles.value.find((entry) => entry.key === profile)?.skills,
+                settings.get(agentSettings.settings.profileSettings)[profile]?.skills,
+                (skills.entries.value ?? []).map((entry) => entry.id),
+            );
+            /** 对话位置的确认框（输出 27）：每个位置一份，右栏与编辑区页面同时开着时只在选了 Skill 的那个位置弹出。 */
+            const inits = new Map<string, SkillInit>();
+            const initAt = (position: string): SkillInit => {
+                let init = inits.get(position);
+                if (init === undefined) {
+                    init = createSkillInit(remote, (message) => report("skill-init-failed", message));
+                    inits.set(position, init);
+                }
+                return init;
+            };
             const loadProfiles = async (): Promise<void> => {
                 const result = await remote.profiles({});
                 if (result.ok) profiles.value = result.value;
@@ -224,6 +245,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const ensureStarted = (): void => {
                 if (!started) void loadProfiles();
                 started = true;
+                skills.ensure();
                 ensureModels();
             };
 
@@ -301,6 +323,19 @@ export const agentBrowserPlugin: PluginDefinition = {
                     openSettings: () => void commands.execute(OPEN_SETTINGS_COMMAND),
                     openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),
+                    skills: {
+                        selected: (id, profile) => {
+                            if (id === OPEN_PROFILE_SETTINGS_ITEM) {
+                                void commands.execute(OPEN_SETTINGS_COMMAND, {section: PROFILES_SECTION});
+                                return;
+                            }
+                            skills.touch(id);
+                            // 选了未初始化的照常插入了标签，再问要不要初始化（输出 27）；白名单之外的菜单里不会有。
+                            const entry = skills.entries.value?.find((candidate) => candidate.id === id);
+                            if (entry?.status === "needs-init" && allowedSkills(profile).includes(id)) void initAt(position).ask(entry);
+                        },
+                        address: (name, profile) => skillAddress(name, skills.entries.value ?? [], allowedSkills(profile)),
+                    },
                     report,
                 });
                 hosts.set(position, host);
@@ -380,11 +415,31 @@ export const agentBrowserPlugin: PluginDefinition = {
                         noProject: text.t(agentText("conversation.mentions.noProject")),
                         failed: text.t(agentText("conversation.mentions.failed")),
                     }),
-                    onChange: () => {
-                        services.value = {resolveAttachmentUrl: attachmentUrl, resolveTriggerMenu: (context) => mentions.resolve(context)};
-                    },
+                    onChange: () => refreshServices(),
                 });
-                services.value = {resolveAttachmentUrl: attachmentUrl, resolveTriggerMenu: (context) => mentions.resolve(context)};
+                const skillTexts = () => ({
+                    title: text.t(agentText("skills.menu.title")),
+                    recentGroup: text.t(agentText("skills.menu.recent")),
+                    allGroup: text.t(agentText("skills.menu.all")),
+                    noMatch: text.t(agentText("skills.menu.noMatch")),
+                    openSettings: text.t(agentText("skills.menu.openSettings")),
+                    noSkills: text.t(agentText("skills.menu.noSkills")),
+                    needsInit: text.t(agentText("skills.menu.needsInit")),
+                    initializing: text.t(agentText("skills.menu.initializing")),
+                });
+                /** `$` 菜单按这个位置当前会话的 Profile 取白名单（skills.md 输出 26）。 */
+                const refreshServices = (): void => {
+                    services.value = {
+                        resolveAttachmentUrl: attachmentUrl,
+                        resolveTriggerMenu: (context) => (context.trigger === "$"
+                            ? skillMenu(context.query, {entries: skills.entries.value, allowed: allowedSkills(hostAt(position).profileKey()), recent: skills.recent.value, texts: skillTexts()})
+                            : mentions.resolve(context)),
+                    };
+                };
+                refreshServices();
+                // 目录或最近用过的变了：换一个新函数，开着的菜单按当前查询重取。
+                const stopWatching = watch([skills.entries, skills.recent], refreshServices);
+                context.signal.addEventListener("abort", stopWatching, {once: true});
                 return defineComponent({
                     name: "AgentConversationPosition",
                     inheritAttrs: false,
@@ -394,7 +449,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         onBeforeUnmount(() => {
                             if (lastPosition === position) lastPosition = "view";
                         });
-                        return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: services.value, pickProfile, labels});
+                        return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position)});
                     },
                 });
             };

@@ -60,6 +60,7 @@ describe.skipIf(config === null)("对话宿主接真实模型", () => {
             openSettings: () => undefined,
             openAddress: () => undefined,
             openLink: () => undefined,
+            skills: {selected: () => undefined, address: () => null},
             report: (code, message) => {
                 throw new Error(`${code}: ${message}`);
             },

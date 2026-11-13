@@ -62,8 +62,7 @@ const COMPACT_REJECT_KEYS = {
 } as const;
 /** 宿主做了的输入框命令。 */
 const HOST_COMMANDS = ["compact", "new", "fork", "rename", "model", "plan", "mode"] as const;
-/** `$` 要等 Skill（t15）；还没有时不打开空菜单。 */
-const HOST_TRIGGERS = ["@", "/"] as const;
+const HOST_TRIGGERS = ["@", "/", "$"] as const;
 /** 打字时攒一下再写草稿。 */
 const DRAFT_SAVE_DELAY_MS = 500;
 /** 上方向键最多翻多少条。 */
@@ -171,6 +170,12 @@ export interface SessionHostDeps {
     readonly openSettings: () => void;
     readonly openAddress: (address: string) => void;
     readonly openLink: (href: string) => void;
+    /** Skill（skills.md 输出 26–28）：`$` 菜单选中之后的事、点开标签的地址；`profile` 是当前会话的 Profile。 */
+    readonly skills: {
+        selected(id: string, profile: string): void;
+        /** 认不到时交回 null，视图上提示。 */
+        address(name: string, profile: string): string | null;
+    };
     /** 视图要换新的会话面板（点标题）；打开列表的动作归面板。 */
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
@@ -205,6 +210,8 @@ export interface SessionHost {
     /** 新建并打开；`profile` 缺省用主创。 */
     create(profile?: string): Promise<string | null>;
     act(action: AgentViewAction): void;
+    /** 当前会话的 Profile；还没有会话时是新建要用的主创。`$` 菜单按它取白名单。 */
+    profileKey(): string;
     /** 组件借用，交回归还函数。 */
     borrow(): () => void;
     dispose(): void;
@@ -1278,6 +1285,10 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         return "";
     }
 
+    function profileKey(): string {
+        return current?.transcript.meta()?.profile ?? MAIN_PROFILE;
+    }
+
     function act(action: AgentViewAction): void {
         void run(action).catch((error: unknown) => {
             deps.report("conversation-action-failed", `${action.type}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1454,6 +1465,18 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             case "reference.open":
                 deps.openAddress(action.target);
                 return;
+            case "menu.selected":
+                if (action.trigger === "$") deps.skills.selected(action.id, profileKey());
+                return;
+            case "skill.open": {
+                const address = deps.skills.address(action.name, profileKey());
+                if (address !== null) deps.openAddress(address);
+                else {
+                    notice = agentText("skills.open.missing", {name: action.name});
+                    bump();
+                }
+                return;
+            }
             case "file.openDiff":
                 deps.openAddress(action.path);
                 return;
@@ -1638,6 +1661,7 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         open,
         create,
         act,
+        profileKey,
         borrow() {
             borrowers += 1;
             cancelRelease?.();

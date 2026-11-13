@@ -25,6 +25,7 @@ import {
     parsePromptText,
     promptNodeText,
     promptReferenceText,
+    promptSkillText,
     promptSkillTokens,
     promptTokenFromAttrs,
     renumberInsertion,
@@ -203,6 +204,15 @@ describe("prompt-text Markdown 链接的写法", () => {
         const text = `$a [$b](/b.md) $a\n<paste id="1">\n$c\n</paste>\n\`$d\` ${"${e}"}`;
         expect(promptSkillTokens(text)).toEqual(["a", "a", "e"]);
         expect(promptSkillTokens(text)).toEqual(tokensOf(parsePromptText(text, {commands: []})).filter((token) => token.kind === "skill").map((token) => token.label));
+    });
+
+    it("`promptSkillText` 写下的标签分词读回同一个名字：字母开头的写 `$名称`，数字开头与带前缀的 id 写花括号，写不下的交回 null", () => {
+        expect(promptSkillText("epub-export")).toBe("$epub-export");
+        for (const name of ["epub-export", "1st-draft", "user.review", "builtin.chapter-summary"]) {
+            expect(promptSkillTokens(`用 ${promptSkillText(name)!} 改一段`)).toEqual([name]);
+        }
+        expect(promptSkillText("1st-draft")?.startsWith("$" + "{")).toBe(true);
+        expect(promptSkillText("有 空格")).toBeNull();
     });
 
     it("场景 4：`@` 菜单插入的引用是以 `/` 开头的作品根地址；含空格时加尖括号；文字里的方括号转义", () => {

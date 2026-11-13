@@ -13,7 +13,7 @@ import {join} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
-import {skillId, skillLocation, type SkillEntry, type SkillMissingReason, type SkillProblem, type SkillSource} from "../../shared/skills";
+import {matchSkillToken, skillId, skillLocation, type SkillEntry, type SkillProblem, type SkillSource, type SkillTokenMatch} from "../../shared/skills";
 import {detectExternal, readSkillPackage} from "./package";
 import {readiness} from "./readiness";
 
@@ -44,7 +44,7 @@ export interface SkillItem {
     readonly directory: string;
 }
 
-export type SkillTokenResolution = {readonly ok: true; readonly item: SkillItem} | {readonly ok: false; readonly reason: Exclude<SkillMissingReason, "unreadable">};
+export type SkillTokenResolution = SkillTokenMatch<SkillItem>;
 
 const SOURCE_ORDER: Readonly<Record<SkillSource, number>> = {user: 0, builtin: 1};
 
@@ -84,14 +84,7 @@ export class SkillCatalog {
      * 认一个 `$` 标签（skills.md 输出 7）：先按 id，再在整个目录里按 `name`。`allowed` 是会话的 Profile 的白名单。
      */
     resolveToken(token: string, allowed: ReadonlySet<string>): SkillTokenResolution {
-        const byId = this.#items.get(token);
-        if (byId !== undefined) return judge(byId, allowed);
-        const named = [...this.#items.values()].filter((item) => item.entry.name === token);
-        if (named.length === 0) return {ok: false, reason: "not-found"};
-        const permitted = named.filter((item) => allowed.has(item.entry.id));
-        if (permitted.length === 0) return {ok: false, reason: "not-allowed"};
-        if (permitted.length > 1) return {ok: false, reason: "ambiguous"};
-        return judge(permitted[0]!, allowed);
+        return matchSkillToken(token, this.#items.values(), (item) => item.entry, allowed);
     }
 
     /** 目录内容变了时调用；返回取消订阅的函数。 */
@@ -260,10 +253,4 @@ export class SkillCatalog {
             void this.#queue(work);
         }, RESCAN_DELAY_MS));
     }
-}
-
-function judge(item: SkillItem, allowed: ReadonlySet<string>): SkillTokenResolution {
-    if (!allowed.has(item.entry.id)) return {ok: false, reason: "not-allowed"};
-    if (item.entry.status === "invalid") return {ok: false, reason: "invalid"};
-    return {ok: true, item};
 }

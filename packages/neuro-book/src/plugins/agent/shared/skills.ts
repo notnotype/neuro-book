@@ -61,6 +61,30 @@ export type SkillInitPlan =
 /** `$` 标签没带上的原因（skills.md 输出 12）。 */
 export type SkillMissingReason = "not-found" | "not-allowed" | "ambiguous" | "invalid" | "unreadable";
 
+export type SkillTokenMatch<Item> = {readonly ok: true; readonly item: Item} | {readonly ok: false; readonly reason: Exclude<SkillMissingReason, "unreadable">};
+
+/**
+ * 认一个 `$` 标签（skills.md 输出 7）：先按 id，再在整个目录里按 `name`（区分大小写）。`allowed` 是会话的 Profile 的白名单。
+ * 服务端带上 Skill、`$` 菜单与点开标签用同一个规则，所以放在两端共用的这里；`entryOf` 从各自的条目里取目录条目。
+ */
+export function matchSkillToken<Item>(token: string, items: Iterable<Item>, entryOf: (item: Item) => SkillEntry, allowed: ReadonlySet<string>): SkillTokenMatch<Item> {
+    const all = [...items];
+    const judge = (item: Item): SkillTokenMatch<Item> => {
+        const entry = entryOf(item);
+        if (!allowed.has(entry.id)) return {ok: false, reason: "not-allowed"};
+        if (entry.status === "invalid") return {ok: false, reason: "invalid"};
+        return {ok: true, item};
+    };
+    const byId = all.find((item) => entryOf(item).id === token);
+    if (byId !== undefined) return judge(byId);
+    const named = all.filter((item) => entryOf(item).name === token);
+    if (named.length === 0) return {ok: false, reason: "not-found"};
+    const permitted = named.filter((item) => allowed.has(entryOf(item).id));
+    if (permitted.length === 0) return {ok: false, reason: "not-allowed"};
+    if (permitted.length > 1) return {ok: false, reason: "ambiguous"};
+    return judge(permitted[0]!);
+}
+
 /** 各来源的 id 前缀。 */
 export const SKILL_ID_PREFIX: Readonly<Record<SkillSource, string>> = {builtin: "builtin", user: "user"};
 

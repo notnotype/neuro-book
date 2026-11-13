@@ -537,6 +537,49 @@
             "resolving": "Resolving dependencies and creating a lockfile",
             "ready": "Ready",
             "failed": "Installation failed"
+        },
+        "init": {
+            "title": "Initialize {{name}}",
+            "head": {
+                "loading": "Reading the dependencies to install…",
+                "packages": "{{count}} packages will be installed. Requires network access.",
+                "packagesUnknown": "Dependencies will be installed (package count unknown). Requires network access.",
+                "direct": "{{count}} direct dependencies will be installed. Requires network access.",
+                "installing": "Installing…",
+                "failed": "Initialization failed."
+            },
+            "box": {
+                "dependencies": "Direct dependencies",
+                "output": "Install output (last lines)",
+                "none": "No direct dependencies"
+            },
+            "note": {
+                "scripts": "Package install scripts will not run; packages that need them may not work.",
+                "noLock": "No bun.lock: dependencies will be resolved to their latest versions and a lockfile created. Package install scripts will not run.",
+                "installing": "Closing this keeps the installation running in the background; progress is under background tasks in the status bar.",
+                "installFailed": "Check the output above, fix the network or the dependencies, then retry.",
+                "busy": "This Skill is being initialized elsewhere (the app or the command line). Check again when it finishes.",
+                "interrupted": "The installation was cancelled or interrupted. You can retry.",
+                "unavailable": "This Skill cannot be initialized right now. Check its status on the Skills page in Settings."
+            },
+            "later": "Not now",
+            "confirm": "Initialize",
+            "background": "Continue in background",
+            "close": "Close",
+            "retry": "Retry"
+        },
+        "open": {
+            "missing": "Skill “{{name}}” no longer exists, or this Profile cannot use it."
+        },
+        "menu": {
+            "title": "Skills",
+            "recent": "Recently used",
+            "all": "All",
+            "noMatch": "No matching Skill",
+            "openSettings": "Open Profile settings",
+            "noSkills": "This Profile has no Skills available yet",
+            "needsInit": "Not initialized",
+            "initializing": "Initializing"
         }
     }
 }

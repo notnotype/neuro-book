@@ -4,4 +4,4 @@
  * 能引的文件由 `src/boundary.test.ts` 核对。
  */
 
-export {promptSkillTokens} from "./prompt-text";
+export {promptSkillText, promptSkillTokens} from "./prompt-text";

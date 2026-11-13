@@ -537,6 +537,49 @@
             "resolving": "正在解析依赖并生成锁文件",
             "ready": "已可用",
             "failed": "安装没有成功"
+        },
+        "init": {
+            "title": "初始化 {{name}}",
+            "head": {
+                "loading": "正在读取要装的依赖…",
+                "packages": "要装 {{count}} 个包，需要联网。",
+                "packagesUnknown": "要装依赖（包数未知），需要联网。",
+                "direct": "要装 {{count}} 个直接依赖，需要联网。",
+                "installing": "正在安装…",
+                "failed": "初始化没有成功。"
+            },
+            "box": {
+                "dependencies": "直接依赖",
+                "output": "安装输出（最后几行）",
+                "none": "没有直接依赖"
+            },
+            "note": {
+                "scripts": "包的安装脚本不会运行，依赖安装脚本的包可能用不了。",
+                "noLock": "没有 bun.lock：会按最新版本解析依赖并生成锁文件。包的安装脚本不会运行。",
+                "installing": "关掉也会在后台继续装，进度在状态栏的后台任务里。",
+                "installFailed": "看上面的输出，修好网络或依赖后重试。",
+                "busy": "这个 Skill 正在别处初始化（应用或命令行），等它装完再看。",
+                "interrupted": "安装被取消或中断了，可以重试。",
+                "unavailable": "这个 Skill 现在不能初始化，到设置的 Skill 页看它的状态。"
+            },
+            "later": "先不初始化",
+            "confirm": "初始化",
+            "background": "在后台继续装",
+            "close": "关闭",
+            "retry": "重试"
+        },
+        "open": {
+            "missing": "Skill“{{name}}”已不在，或这个 Profile 不能用它。"
+        },
+        "menu": {
+            "title": "Skill",
+            "recent": "最近用过",
+            "all": "全部",
+            "noMatch": "没有匹配的 Skill",
+            "openSettings": "打开 Profile 设置",
+            "noSkills": "这个 Profile 还没有可用的 Skill",
+            "needsInit": "未初始化",
+            "initializing": "正在初始化"
         }
     }
 }

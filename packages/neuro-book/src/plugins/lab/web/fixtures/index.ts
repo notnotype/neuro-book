@@ -40,6 +40,7 @@ import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue
 import type BackgroundCommandCard from "nbook/plugins/agent/web/components/BackgroundCommandCard.vue";
 import type SubagentCard from "nbook/plugins/agent/web/components/SubagentCard.vue";
 import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
+import type SkillInitDialog from "nbook/plugins/agent/web/components/SkillInitDialog.vue";
 import type ProfileSettingsPage from "nbook/plugins/agent/web/components/ProfileSettingsPage.vue";
 import type ProfileToolsSection from "nbook/plugins/agent/web/components/ProfileToolsSection.vue";
 import type AddToolsDialog from "nbook/plugins/agent/web/components/AddToolsDialog.vue";
@@ -1153,6 +1154,16 @@ function shelfFixtures(): LabFixture[] {
                 {id: "exists", label: "已有同名", input: {props: {status: "已经有同名的 Profile 了。"}, model: {open: true}}},
             ],
             load: async () => withAgentPageText(createSubjectFixture<typeof NewProfileDialog>((await import("nbook/plugins/agent/web/components/NewProfileDialog.vue")).default)),
+        }),
+        defineLabFixture<typeof SkillInitDialog>({
+            component: "SkillInitDialog",
+            scenes: [
+                {id: "confirm", label: "确认：有锁，列直接依赖", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "no-lock", label: "确认：没有 bun.lock（说明行写会生成锁文件）", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: false, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "installing", label: "正在安装（能关掉，在后台继续）", input: {props: {name: "epub-export", phase: "installing", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "failed", label: "失败：中间换成安装输出", input: {props: {name: "epub-export", phase: "failed", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: {code: "install-failed", output: "bun install v1.4.4\nResolving dependencies\nResolved, downloaded and extracted [12]\nerror: GET https://registry.npmjs.org/epub-gen-memory - ETIMEDOUT\nerror: epub-gen-memory@^1.1.2 failed to resolve"}}, model: {open: true}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof SkillInitDialog>((await import("nbook/plugins/agent/web/components/SkillInitDialog.vue")).default)),
         }),
         defineLabFixture<typeof ProvidersPage>({
             component: "ProvidersPage",
