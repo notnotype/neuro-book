@@ -16,7 +16,7 @@ owners:
 
 明确不承诺：
 
-- 不定义交付：打包分发、安装、Manager 与桌面版的启动与停止通道属于另行设计的交付链。
+- 不定义交付：npm 应用包与 `nbook` 见 [`runtime.cli`](cli.md)，桌面版见 [`runtime.desktop-shell`](desktop-shell.md)；本 Spec 只定义它们依赖的托管合同（输出里的“托管宿主”）。
 - 不定义浏览器宿主（[`runtime.browser-host`](browser-host.md)）与主线程卡死看门狗（[`runtime.stall-watchdog`](stall-watchdog.md)）。
 - 不定义 Session Store 租约本身（[`agent.session-store-lease`](../../archived/specs/agent/session-store-lease.md)），只规定租约失效作为停止来源。
 - 不支持一个进程中同时存在两个产品运行实例。
@@ -97,6 +97,15 @@ owners:
 - 进程级未处理异常（未捕获异常、未处理的 Promise 拒绝）：同步写出致命诊断，按停止序列有序停止，以 1 退出。
 - 关闭未完成时，进程退出前补写诊断存储中已接受的记录。
 
+**托管宿主（planned）：** 桌面壳这类托管宿主用自己的 Bun 运行应用包里的托管入口 `server/main.js`，与产品入口是同一次构建、同一份服务端（`kind` 为 `product`）。托管宿主依赖、按接口变更处理的只有下面几样：
+
+- 状态根经环境变量 `NBOOK_STATE_ROOT` 给出（必填，同“输入与前置条件”）；
+- 以 `--stop-stdin` 启动，标准输入的一行 `stop` 与标准输入结束都走有序停止（术语“标准输入停止通道”）；Windows 上这是唯一的有序停止渠道；
+- 就绪与页面地址从认领应答读（`status` 为 `ready` 时的 `url`），不读标准输出的文字；
+- 退出码（下面的“停止序列”第 6 步）。
+
+托管入口的标准输出与标准错误内容不是接口。
+
 **项目子进程**：
 
 - 服务端用自己的 Bun 可执行文件运行项目宿主入口：生产是打包产物中与服务端入口同目录的 `project.js`（同一次构建产出），开发模式是项目宿主的开发入口。子进程从环境变量得到项目 id、短名、代次、项目目录与状态根，经 Bun 进程间通信连到路由（[远程服务与 RPC 协议](plugin-channel.md) 的“进程间链路”）。
@@ -151,10 +160,10 @@ owners:
 
 - **owner**：application-runtime（宿主适配器）；内核合同沿用 [`runtime.application`](application.md)、[`runtime.lifecycle`](lifecycle.md)。
 - **兼容**：退出码 0、1、75、76 的含义保持不变。v2 去掉了旧应用的 `.output/server/index.mjs` 入口、`PRODUCT_SHUTDOWN_PATH` 控制请求与产品启动包装进程；它们服务的 Manager 与桌面版已在 v2 分支删除。
-- **实例应答**：`hello` 的应答是给 `nbook` 命令行与以后的桌面壳的接口，`schema` 变了就加新版本号；以后的停止、查询等请求加在同一个协议上。
+- **实例应答**：`hello` 的应答是给 `nbook` 命令行与桌面壳（[`runtime.desktop-shell`](desktop-shell.md)）的接口，`schema` 变了就加新版本号；以后的停止、查询等请求加在同一个协议上。
 - **鉴权**：鉴权是可选的内置插件，向 `nbook.http` 贡献请求守卫；未加载时宿主只监听回环地址。
 - **开发模式问题** 对应 [#244](https://github.com/notnotype/neuro-book/issues/244)。
-- **已知限制**：租约失效（场景 5）随 Session Store 插件实现，退出码 76 随看门狗实现；Windows 上未实测（含开发模式的 Ctrl+C 与文件监视），POSIX 信号路径由 Linux 上的真实子进程测试覆盖；RPC 链路不做发送背压，大量事件推送时未发出的消息在内存里堆积（本机回环下风险低）；鉴权上线前，不带 `Origin` 的本机进程都能连 RPC 端口，与未加载鉴权时的 HTTP 端口同等信任；Windows 上 Bun 能否监听命名管道未核实（有 Bun 1.3.14 失败的报告），新应用在 Windows 上整体未验证；有人手工删掉运行中实例的套接字文件时，下一次启动会认领成功，与它并存。
+- **已知限制**：租约失效（场景 5）随 Session Store 插件实现，退出码 76 随看门狗实现；Windows 上只手工跑过打包产物的 smoke（Bun 1.4.4：命名管道的认领、标准输入停止与项目子进程正常，Windows 没有 SIGTERM），没有进 CI，开发模式（Ctrl+C 与文件监视）未实测；POSIX 信号路径由 Linux 上的真实子进程测试覆盖；RPC 链路不做发送背压，大量事件推送时未发出的消息在内存里堆积（本机回环下风险低）；鉴权上线前，不带 `Origin` 的本机进程都能连 RPC 端口，与未加载鉴权时的 HTTP 端口同等信任；有人手工删掉运行中实例的套接字文件时，下一次启动会认领成功，与它并存。
 
 ## 验收与 Smoke
 

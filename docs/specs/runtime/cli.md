@@ -19,7 +19,7 @@ owners:
 - 没有停止、查询状态、作品管理、配置的子命令。
 - 插件子命令不连运行中的服务端：只写登记表，变化在服务端下一次启动生效；不支持从 npm 包名或 tarball 安装，只收本地目录。
 - 不替用户选状态根之外的目录（作品目录见 [`runtime.projects`](projects.md)）。
-- 已知限制：Windows 与 macOS 上未实测（状态根缺省由单元测试覆盖）；Bun 低于最低版本时入口拦下，但 `npm` 与 `bun add` 安装时都不拦。
+- 已知限制：Windows 与 macOS 上未实测（状态根缺省由单元测试覆盖）；Windows 没有 SIGTERM 与 SIGHUP，`nbook start` 只能在它自己的控制台里按 Ctrl-C 有序停止，关掉控制台窗口不保证有序停止；Bun 低于最低版本时入口拦下，但 `npm` 与 `bun add` 安装时都不拦。
 
 ## 术语与参与者
 
@@ -51,6 +51,7 @@ owners:
 | `plugin uninstall <id>` | 无 | 卸载，保留插件的私有数据 |
 
 - 端口是 0 到 65535 的整数，0 表示由系统分配。只给 `--port` 时 RPC 端口取它加 1（`--port 0` 时也是 0）；都不给时沿用服务端的缺省与成对顺延。`--safe-mode` 等于以环境变量 `NEURO_BOOK_SAFE_MODE=1` 启动（[`runtime.plugin-install`](plugin-install.md) 的安全模式）。
+- （planned）应用包另带服务端的托管入口 `server/main.js`，给桌面壳这类托管宿主用，合同见 [`runtime.server-host`](server-host.md) 的“托管宿主”；`nbook` 不经它。桌面版与 `nbook` 共用这里的状态根缺省（[`runtime.desktop-shell`](desktop-shell.md)），桌面壳起的服务端对 `nbook start` 来说是同种类的已有实例。
 - Web 产物在应用包里 `nbook.js` 旁的 `../web`；环境变量 `NBOOK_WEB_ROOT` 给出时用它。其余服务端环境变量（`NBOOK_HOST`、项目时限等）照常生效。
 
 ## 输出与可观察行为

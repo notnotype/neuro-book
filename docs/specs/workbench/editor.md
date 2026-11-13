@@ -305,6 +305,13 @@ owners:
     - 自带的主题与护眼主题下，这些颜色在源码编辑器的底色上读得清：注释的对比度不低于 3，其余不低于 4.5；JSON 的键、字符串值、数字与 `true`，CSS 的属性名与数值，HTML 的标签、属性名与属性值，颜色两两分得开。
     - 查找框、建议框这些部件仍是编辑内核按明暗给的颜色。
 
+66. （planned）**桌面窗口关闭时的结算**：编辑器是窗口关闭前询问的参与方（[`runtime.browser-host`](../runtime/browser-host.md) 输出 9、10），原因 `window` 与 `quit` 同样处理：
+    - 先结算全部视图输入、等在途保存完成，再按第 26 条的判据（dirty、未裁决输入、写不出）找需要结算的文档；没有时同意。
+    - 开着自动保存时，把能自动保存的文档（第 63 条“不自动保存的文档”之外的）都保存一次并等完成；之后没有需要结算的文档就同意，不询问。
+    - 其余情形（自动保存关着、有不自动保存的文档、保存失败）在页面上询问，列出至多 5 个文件与“另有 N 个”，保存失败的写原因：“全部保存”“不保存”“取消”，缺省在取消；有写不出的文档时没有“全部保存”。“全部保存”后都成功才同意，有一份失败就说明失败的文件与原因、不同意；“不保存”同意，修改丢掉；“取消”不同意。
+    - 询问被壳结束（`signal` abort）时收起询问，不再发起新的保存；已经发出的保存照常完成。
+    - 浏览器里的离开与刷新仍按第 21 条。
+
 ### 约定键
 
 页面与编辑器声明里的 `title` 是界面文字值（[`ui.i18n`](../ui/i18n.md)），不写时登记时补成贡献方插件目录里的键：页面（`editor.pages`）取 `editorPages.<本地 id>.title`，编辑器（`editor.editors`）取 `editors.<本地 id>.title`（规则见 [`ui.i18n`](../ui/i18n.md) 的“约定键”）。本地 id 是贡献 id 去掉开头的 `<插件 id>.`。编辑区标题与编辑器标签右键两处菜单位置没有约定键，只按 [`workbench.menus`](menus.md) 输出 9 补命名空间。
@@ -410,6 +417,8 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 42. Given 一个测试插件往 `editor.code-context` 贡献一个 `extensions: [".json"]`、`context: "resource"` 的项，When 右击 `a.json`，Then 这一项在内置项之后，点它命令收到 `{address}`；When 右击 `a.css`，Then 没有这一项。
 43. Given `.ts`、`.json`、`.css`、`.html`、`.md` 的样例，When 用源码编辑器打开，Then 关键字、字符串、注释、括号与选区的颜色等于主题的语法变量与选区变量的值；When 切到暗色、护眼绿，Then 这些颜色随之改变，对比度与相邻成分的区分仍满足输出 65。
 44. （planned）Given 一个测试插件贡献 `instances: true`、`restore: true` 的页面，实现的 `title(arg)` 返回“条目 ”加参数、`initialState` 返回 `{count: 0}`、`breadcrumbs(arg)` 返回“样例 › 条目 a”两段（第一段带一条测试命令），页面组件把一个计数放在 `context.state.count`、另有一个只在组件里的计数，When 依次执行 `open-page {id, arg: "a"}`、`{id, arg: "b?#/"}`、`{id, arg: "a"}`，Then 有两个标签“条目 a”“条目 b?#/”，活动的是“条目 a”，标签条下面是那两段面包屑；When 点第一段，Then 那条测试命令执行了一次；When 执行 `focus-breadcrumbs` 后按 Enter，Then 又执行一次，按 Escape 焦点回到页面；When 在“条目 a”里把两个计数都加一、切到另一个标签，Then 它的两个计数都是零；When 切回“条目 a”，Then `state` 里的计数是一、组件里的计数是零；When 不带 `arg`、带空串或带 201 个字符的 `arg` 执行，Then 为 `invalid-args`，对没有声明 `instances` 的页面带 `arg` 同样；When 刷新窗口，Then 两个标签都还在、各自收到自己的 `arg`、`state` 是初值，没有激活过的那个标签的标题仍是刷新前的；When 贡献方的实现晚交付，Then 交付前内容区是“正在加载页面”，这期间关掉别的标签（触发存盘）再刷新，两个标签仍在；When 贡献方停止，Then 两个标签说明“这个页面已经不在了”，标题仍是记着的。一个同时写 `instances` 与 `openOnFirstVisit` 的声明被拒。
+
+45. （planned）Given 桌面窗口里一份自动保存的文档刚输入、一份自动保存关着的 dirty 文档，When 关窗，Then 第一份已保存，页面列出第二份询问；When 选“取消”，Then 窗口与正文都在；When 再关窗选“全部保存”而保存失败，Then 说明原因、窗口不关；When 选“不保存”，Then 窗口关掉。
 
 Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。场景 22–24、26 由 `e2e/editor-types.e2e.ts` 运行；场景 27–33 由 `editor-area.e2e.ts` 的标签栏样子、多行键盘与 120px 组、拖动、右键菜单、面包屑几例运行，场景 27、28、31、32 的模型部分另由 `area.test.ts`、`groups.test.ts`、`tab-menu.test.ts`、`tab-hints.test.ts` 覆盖；触摸拖动只按代码与 `tree-drag.ts` 的同一套门槛，没有在真机上验；场景 23 的改名与删除、场景 24 的关闭时询问另由 `area.test.ts` 覆盖；场景 25 由 `editor-registry.test.ts`（真实插件宿主，交付先后与停止）与 `area.test.ts`（用默认编辑器打开）覆盖。场景 40–43 与输出 64、65 由 `e2e/editor-code-menu.e2e.ts` 运行（带探针的生产构建与测试插件 `test.menus`；语法色在 nbook 亮暗、macos 亮、护眼绿亮下量计算颜色与对比度），内置项的表另由 `code/context-menu.test.ts`、规则表由 `code/monaco-theme.test.ts`、读剪贴板由 `shared/clipboard-read.test.ts` 覆盖。场景 35–39 与输出 63 由 `e2e/editor-autosave.e2e.ts` 运行（窗口失焦与页面隐藏在无头浏览器里是派发事件模拟的），模型部分另由 `auto-save.test.ts` 覆盖。场景 34 与输出 62 由 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组（经编辑内核的输入入口逐种格式测）与 `e2e/markdown-input.e2e.ts`（本机 Chrome 的键盘、输入法事件与方向键，源码与富文本来回换；按快捷键打出的粗体、斜体、删除线看得出来）运行。
 

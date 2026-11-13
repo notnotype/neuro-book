@@ -38,6 +38,8 @@ updated: 2026-11-13
 
 ## Task
 
+开发者 2026-11-13 指定 t06 到 t11 用 autonomous-delivery 推进；本该开发者决定的点记在 [待确认清单](pending-confirmations.md)。
+
 | Task | 内容 |
 |---|---|
 | [t01](tasks/t01-distribution-proposal/README.md) | 发行提案与桌面壳实测选型。已完成：提案 [desktop-distribution](../../../docs/proposals/desktop-distribution.md) 已接受，[ADR 0051](../../../docs/adr/0051-desktop-shell-electrobun-tag-release.md) |
@@ -45,7 +47,7 @@ updated: 2026-11-13
 | [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏。未开工 |
 | [t04](tasks/t04-desktop-settings/README.md) | 桌面端专有设置：开机自启、系统托盘、通知。未开工 |
 | [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具：第一版只检测加提示。未开工 |
-| [t06](tasks/t06-desktop-specs/README.md) | 桌面发行的 Spec（desktop-shell 新建，server-host、browser-host、editor、cli、发布流程修改）。未开工，先做 |
+| [t06](tasks/t06-desktop-specs/README.md) | 桌面发行的 Spec（desktop-shell、desktop-update 新建，server-host、browser-host、editor、cli 等修改）。进行中 |
 | [t07](tasks/t07-managed-entry-payload/README.md) | 应用包托管入口与桌面载荷组装。未开工 |
 | [t08](tasks/t08-desktop-shell/README.md) | Electrobun 桌面壳。未开工 |
 | [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。未开工 |
