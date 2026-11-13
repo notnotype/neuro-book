@@ -1,0 +1,17 @@
+t08 实现审查第 1 轮（omp，提交范围 692c4c1c3..ac236021a）的处理。报告：impl-review-r1-omp.txt，9 条有效（阻断 1、重要 8），均成立、均改。
+修正由 Opus 编码子代理在独立 worktree 完成（交付报告 impl-review-r1-fix-report.txt），主会话审 diff、在 Work 分支重跑验证后合入：
+9c73f22e6（第 7 条）、0060cb892（第 2、3、5、9 条与第 4 条的协调器部分）、fcc04a4b7（第 1、6、8 条与第 4 条的适配层部分）。
+另：governance:check 报 t08 测试里三处 fixed-wait（手动时钟的方法名叫 setTimeout、窗口替身用 setTimeout 0），一并改为 RuntimeClock 的 schedule 形状与 setImmediate。
+
+[1] will-navigate 载荷：按 SDK 的 JSON 串 {url, allowed} 解析，统一分流。改。
+[2] 阻断 监督失败当作树已结束：completion 失败后按 rootPid 轮询确认目标（POSIX 进程组）不在才交回；强制结束后的 10 秒诊断等树真实结束才取消。改。
+    已知限制（不改）：POSIX 上监督进程被 SIGKILL 时目标进程组没人收，壳停在停止中、只写诊断。桌面版只发 Windows，Job Object 随监督进程结束整棵树；窄场景按简单规则处理。
+[3] 重启中的服务端纳入所有权：创建租约的同一同步段登记，await 后核对是否仍是当前、是否已开始停止。改。
+[4] before-quit 只否决：协调器加 quitRequested()，每个窗口走 closeRequested；已在询问的窗口跳过（不弹“没有响应”）。改。
+[5] 等待确认关闭时“退出”无接收者：等待期间一直接按钮，点了以 0 退出。改。
+[6] 预加载在文档创建时观察空 documentElement：改观察 document，装好后先报一次标题。改。
+[7] 未知请求命中原型：Object.hasOwn。改。
+[8] new-window-open 未接：订阅并与 open-window 同一分流入口；预加载不再处理 Ctrl/Meta 点击与无 target 的外链点击（后者由导航规则拦下交系统浏览器）。改。
+[9] 启动中强杀不记异常停止：两条停止路径合成 #stopOwnedServer，按 StopOutcome 记录，删掉 #ready。改。
+
+未在 Windows 上验证：第 1、4、6、8 条的主进程与预加载一侧（第 6、8 条在 Linux 的 Chrome 上用 addInitScript 复现过）；第 2 条在 Windows 上 completion 失败时 Job Object 里的子孙是否残留。待 pc-notype 恢复后随 Windows 实测第 2 轮验。

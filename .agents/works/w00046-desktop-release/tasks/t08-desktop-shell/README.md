@@ -31,6 +31,8 @@ Windows 实测第 1 轮（[证据](evidences/windows-shell-r1.txt)，只用 UI �
 
 计划里“用只回答桥协议的测试页面驱动 `ack`、`allow`、`deny`”在 t08 没做：产品页面在 t09 才参与关窗，这几条路径由 `windows.test.ts` 覆盖，Windows 上与 t09 联合验收。
 
+实现审查第 1 轮（omp）报 9 条（阻断 1、重要 8），均成立、均改（[报告](evidences/impl-review-r1-omp.txt)、[处理](evidences/impl-review-r1-disposition.txt)）。修正提交 `9c73f22e6`、`0060cb892`、`fcc04a4b7`，Work 分支上桌面核心、桥与询问的 51 条测试、认领 17 条、类型检查、打包与治理检查通过。
+
 ## 下一步
 
-pc-notype 恢复后跑完上面剩下的 Windows 项（用 `bundle/` 的新构建），然后启动实现审查（omp，不阻塞）、合入 master，进 t09。
+pc-notype 恢复后用新构建跑 Windows 实测第 2 轮：上面剩下的项、审查修正里只能在 Windows 上验的第 1、4、6、8 条，并与 t09 联合验收；之后合入 master。
