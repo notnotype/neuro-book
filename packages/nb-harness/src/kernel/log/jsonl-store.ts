@@ -1,16 +1,18 @@
 /**
  * 会话目录上的 JSONL 存储（docs/specs/harness/session.md）。
  *
- * 批的完整性判定依赖两条：一个会话只有一个写者（操作系统的独占锁，`flock.ts`），以及一批一次写入后同步到盘。
+ * 批的完整性判定依赖两条：一个会话只有一个写者（操作系统的独占锁，`@notnotype/nb-flock`），以及一批一次写入后同步到盘。
  * 所以只有文件末尾可能有写到一半的批，打开时截掉；写或同步失败后句柄进损坏状态、进程内不重试，
  * 重开以文件为准。大块内容在引用它的批之前写完并同步，所以完整的批引用的内容一定在盘上。
  */
 
 import {join} from "node:path";
+
+import type {FileLock} from "@notnotype/nb-flock";
+
 import type {LogEvent, LogHandle, LogStore, SessionHeader, SessionIndexEntry, StorageError, StorageNotice, StorageResult} from "../api/index.js";
 import {blobRefsOf, encodeBatch, toEventInPlace} from "./codec.js";
 import {nodeFiles, type AppendFile, type FilePort} from "./files.js";
-import type {FileLock} from "./flock.js";
 import {advanceIndex, emptyIndex, parseIndex, predatesRunIndex} from "./index-file.js";
 import {sha256, utf8} from "./json.js";
 import {isSessionId, LogReader, NEWLINE, type ParsedLog} from "./validate.js";

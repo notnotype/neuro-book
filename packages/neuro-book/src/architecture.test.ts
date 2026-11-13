@@ -83,12 +83,13 @@ const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name)
  */
 const EXAMPLE_PACKAGES: ReadonlyArray<string> = [...SDK_ENTRIES.map((entry) => entry.specifier), "vue", "@vue/reactivity", "typebox"];
 /**
- * 从应用抽出去的工作区包，按子路径登记运行位置：`targetInSrc` 把包名一律当作“不在 src 内”，不登记的话前端引后端的包拦不住。
+ * 从应用抽出去的工作区包与只能在后端用的工作区包，按子路径登记运行位置：`targetInSrc` 把包名一律当作“不在 src 内”，不登记的话前端引后端的包拦不住。
  * 抽出新包或给它加子路径时在这里登记；没登记的包不参加前后端判定。`neutral` 与没登记的判定相同（哪里都能引），写出来是为了
  * 让表列全每个子路径、登记时想过一遍它在哪运行。
  */
 const PACKAGE_SIDES: ReadonlyArray<{readonly specifier: string; readonly side: "backend" | "web" | "neutral"}> = [
     {specifier: "@notnotype/nb-file-lock", side: "backend"},
+    {specifier: "@notnotype/nb-flock", side: "backend"},
     {specifier: "@notnotype/nb-host/server", side: "backend"},
     {specifier: "@notnotype/nb-host/web", side: "web"},
     {specifier: "@notnotype/nb-host/socket", side: "neutral"},

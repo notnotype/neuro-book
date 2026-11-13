@@ -33,7 +33,6 @@
         "./kit/tools": "./src/kit/tools/index.ts",
         "./models": "./src/models/index.ts",
         "./process-guard": "./src/process-guard.ts",
-        "./file-lock": "./src/kernel/log/flock.ts",
         "./prompt": "./src/kernel/view/prompt/index.ts",
         "./prompt/jsx-runtime": "./src/kernel/view/prompt/jsx-runtime.ts",
         "./prompt/jsx-dev-runtime": "./src/kernel/view/prompt/jsx-dev-runtime.ts"
@@ -44,6 +43,7 @@
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
+        "@notnotype/nb-flock": "workspace:^",
         "@notnotype/nb-form": "workspace:^",
         "@notnotype/nb-profile": "workspace:^",
         "@notnotype/nb-session": "workspace:^",

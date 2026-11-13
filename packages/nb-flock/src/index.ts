@@ -1,12 +1,16 @@
 /**
- * 进程级的独占文件锁。拿到就一直持有，直到 release 或进程退出；进程怎么结束锁都会被操作系统放掉，所以没有“判旧再
- * 回收”的竞争。Node 没有文件锁，这里经 bun:ffi 调系统接口：
+ * 进程级的独占文件锁，不判旧：拿到就一直持有，直到 release 或进程退出；进程怎么结束锁都会被操作系统放掉，所以没有
+ * “判旧再回收”的竞争，也不会因为持有者暂停太久被别人接管。适合一直持有到进程结束的单一所有者（单实例、独占写）；
+ * 短时间的临界区要等待或接管时用按过期判旧的锁。Bun 与 Node 都没有文件锁，这里经 bun:ffi 调系统接口：
  *
- * - Linux 与 macOS：libc 的 `flock(LOCK_EX | LOCK_NB)`；
+ * - Linux 与 macOS：libc 的 `flock(LOCK_EX | LOCK_NB)`；Linux 按 glibc 的库名 `libc.so.6` 加载；
  * - Windows：kernel32 的 `CreateFileW` 打开（允许别人读写删，只靠锁排他）再 `LockFileEx` 锁第一个字节
  *   （`LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY`）。锁跟着句柄走，同一进程用另一个句柄也拿不到。
  *
  * 锁的是文件（inode）而不是路径名：锁文件一旦建好就不要删，删了再建是另一个文件，新旧两把锁互不排他。
+ *
+ * Windows 段在 Windows 上实测过（docs/adr/0031-nb-story-supports-windows.md），自动测试与发布冒烟都不跑 Windows：改到它要在
+ * Windows 上重测。
  */
 
 import {dlopen, FFIType, ptr} from "bun:ffi";
@@ -17,7 +21,13 @@ export interface FileLock {
     release(): void;
 }
 
-/** 拿 `path` 上的锁（文件不存在就建）；已被别的持有者拿着时返回 null。同一进程里第二次拿同一个文件也拿不到。 */
+/**
+ * 拿 `path` 上的锁（文件不存在就建）。返回 null 表示锁被别的持有者拿着，同一进程里第二次拿同一个文件也拿不到。
+ * 别的失败都抛 Error：打不开文件（目录不存在、没有权限）、平台不支持、Windows 上 `LockFileEx` 报“被占用”以外的错误。
+ *
+ * POSIX 上 `flock` 的任何失败都当作被占用，不看 errno（沿用实测过的原实现）。所以在不支持 `flock` 的文件系统
+ * （例如部分 NFS）上会一直返回 null。
+ */
 export function tryLock(path: string): FileLock | null {
     return process.platform === "win32" ? tryLockWindows(path) : tryLockPosix(path);
 }
@@ -30,7 +40,7 @@ let flock: ((fd: number, operation: number) => number) | undefined;
 function loadFlock(): (fd: number, operation: number) => number {
     if (flock) return flock;
     const library = process.platform === "darwin" ? "libSystem.B.dylib" : process.platform === "linux" ? "libc.so.6" : null;
-    if (!library) throw new Error(`nbstory 不支持 ${process.platform}（独占锁要用 flock）`);
+    if (!library) throw new Error(`file lock is not supported on ${process.platform} (needs flock)`);
     const {symbols} = dlopen(library, {flock: {args: [FFIType.i32, FFIType.i32], returns: FFIType.i32}});
     flock = (fd, operation) => symbols.flock(fd, operation);
     return flock;
@@ -91,13 +101,13 @@ function tryLockWindows(path: string): FileLock | null {
     const api = loadKernel32();
     const name = Buffer.from(`${path}\0`, "utf16le");
     const handle = api.CreateFileW(ptr(name), GENERIC_READ_WRITE, FILE_SHARE_READ_WRITE_DELETE, null, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, null);
-    if (handle === INVALID_HANDLE_VALUE) throw new Error(`打不开锁文件 ${path}（Win32 错误 ${api.GetLastError()}）`);
+    if (handle === INVALID_HANDLE_VALUE) throw new Error(`cannot open lock file ${path} (Win32 error ${api.GetLastError()})`);
     const overlapped = new Uint8Array(OVERLAPPED_SIZE);
     if (api.LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, ptr(overlapped)) === 0) {
         const code = api.GetLastError();
         api.CloseHandle(handle);
         if (code === ERROR_LOCK_VIOLATION) return null;
-        throw new Error(`锁不上 ${path}（Win32 错误 ${code}）`);
+        throw new Error(`cannot lock ${path} (Win32 error ${code})`);
     }
     let released = false;
     return {

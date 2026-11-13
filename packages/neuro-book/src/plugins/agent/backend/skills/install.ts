@@ -10,7 +10,7 @@ import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
-import {tryLock} from "@notnotype/nb-harness/file-lock";
+import {tryLock} from "@notnotype/nb-flock";
 import type {TextRef} from "@notnotype/nb-ui/text";
 
 import type {BackgroundTasks, TaskHandle} from "nbook/plugins/tasks/shared/contracts";

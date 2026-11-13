@@ -96,7 +96,7 @@ describe("初始化", () => {
         const {catalog, installer, locksRoot} = await scene();
         await mkdir(locksRoot, {recursive: true});
         // 子进程从本目录起，经包名找到同一个锁模块。
-        const holder = Bun.spawn([process.execPath, "-e", `const {tryLock} = await import("@notnotype/nb-harness/file-lock"); const lock = tryLock(${JSON.stringify(join(locksRoot, "user.epub-export.lock"))}); console.log(lock === null ? "missed" : "held"); await new Promise(() => {});`], {cwd: import.meta.dir, stdout: "pipe", stdin: "ignore"});
+        const holder = Bun.spawn([process.execPath, "-e", `const {tryLock} = await import("@notnotype/nb-flock"); const lock = tryLock(${JSON.stringify(join(locksRoot, "user.epub-export.lock"))}); console.log(lock === null ? "missed" : "held"); await new Promise(() => {});`], {cwd: import.meta.dir, stdout: "pipe", stdin: "ignore"});
         cleanups.push(() => void holder.kill("SIGKILL"));
         const reader = holder.stdout.getReader();
         const line = new TextDecoder().decode((await reader.read()).value);

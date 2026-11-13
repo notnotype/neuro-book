@@ -1,0 +1,37 @@
+{
+    "name": "@notnotype/nb-flock",
+    "version": "0.1.0",
+    "description": "进程级的独占文件锁，不判旧：持有到 release 或进程退出，进程怎样结束锁都由系统放掉；Bun 专用，经 bun:ffi 调 flock 或 LockFileEx",
+    "license": "AGPL-3.0-only",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/notnotype/neuro-book.git",
+        "directory": "packages/nb-flock"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "type": "module",
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3"
+    },
+    "files": [
+        "src",
+        "!src/**/*.test.ts",
+        "!src/testing",
+        "README.md",
+        "LICENSE"
+    ]
+}
