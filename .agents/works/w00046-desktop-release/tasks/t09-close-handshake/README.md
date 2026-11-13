@@ -15,8 +15,20 @@ updated: 2026-11-13
 
 ## 当前状态
 
-2026-11-13：计划初稿，待设计审查（前端部分 Sonnet，服务端部分 omp；omp 等 t08 的实现审查跑完再开，同一时间只跑一个）。
+2026-11-13：
+- 前端部分的设计审查（Sonnet）报了 13 条，全部成立、照改（[报告](evidences/design-review-r1-sonnet.txt)、[处理](evidences/design-review-r1-sonnet-disposition.txt)）；Spec 补了三处，待确认清单加了五条。
+- 服务端部分（在跑的工作）的 omp 设计审查在跑，切片 1、2 等它的结论。
+- 前端各片先实施（与服务端部分文件不重叠），代码在 Work 分支：
+  - 切片 5 `0bdce81c7`：通知的用户关闭回告，nb-ui `onDismiss`、工作台 `onClose`；
+  - 切片 3：
+    - `d7de9fc33`：桥的共用形状与校验、关闭参与方能力、页面的询问控制器，`close-query.test.ts` 11 条；
+    - `16ac2f275`：正在关闭层与宿主的询问、挡输入、启动前接线；
+  - 切片 4 `efc3614cf`：编辑器参与方，`window-close.test.ts` 8 条；
+  - `596b7a84e`：真实浏览器验收 `e2e/desktop-close.e2e.ts`，2 条，用假壳派发询问。
 
 ## 下一步
 
-设计审查，处理后按切片实施。
+1. 处理 omp 的服务端审查，实施切片 1、2：在跑的工作的宿主能力与接口、项目子进程取工作、Agent 与后台任务的登记。
+2. e2e 补 `quit` 时取工作的提示。
+3. Spec 去掉 planned、补实现合同。
+4. Windows 联合验收。
