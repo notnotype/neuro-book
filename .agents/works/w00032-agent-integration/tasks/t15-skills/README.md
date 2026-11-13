@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t15-skills
-status: active
+status: done
 updated: 2026-11-13
 ---
 
@@ -135,9 +135,8 @@ t05、t08、t10。
 
 ## 下一步
 
-等开发者：
+完成。开发者 2026-11-13 批准 Spec 晋升：`agent/skills.md` 改为 `implemented`（补实现合同与证据），`agent/compaction.md`、`agent/contributions.md`、`agent/resources.md`、`agent/profile-settings.md`、`agent/builtin-profiles.md`、`ui/prompt-editor.md`、`workspace/resources.md` 里 t15 的条目去掉 planned。
 
-1. 批准 Spec 晋升：`agent/skills.md` 改为 `implemented`（补实现合同与证据）；`agent/compaction.md`（输出 13 与非目标里的一句）、`agent/contributions.md` 输出 20、`agent/resources.md` 输出 15、`agent/profile-settings.md` 输出 26、`ui/prompt-editor.md`（`${…}` 的写法）、`workspace/resources.md`（挂载点另给容器）里 t15 的条目去掉 planned。
-2. 锁放在哪个包（后端审查第 10 条）：不判旧的系统文件锁 `tryLock` 现在在 nb-harness 的 `./file-lock`，nb-story 的 `platform/flock.ts` 是几乎相同的另一份。开发者 2026-11-13 问 nb-file-lock 为什么是 private、能不能并进 nb-harness 或一起发布：ADR 0045 决策 4 只写了不发 npm、要发布时另定，没有记录别的理由；候选是把 `tryLock` 放进 nb-file-lock 的单独子路径并随 nb-story 发布，或留在 nb-harness、让 nb-story 改用它。待定。
+锁放在哪个包（后端审查第 10 条）：开发者同日定方案 A，把不判旧的系统文件锁 `tryLock` 放进 nb-file-lock 的单独子路径，nb-harness 与 nb-story 都从那里取，nb-file-lock 随 nb-story 发布；ADR 0045 决策 4 只写了不发 npm、要发布时另定，没有记录别的理由。另开 Task 做（w00043）。
 
 与评审板不同、要告诉开发者的：确认框安装中不显示实时输出（中间一块仍列直接依赖，失败后才是输出的最后几行）；点已发送消息里的 Skill 标签按名字现认，不按那一轮记下的 id；白名单为空时去 Profile 设置的那一项只在刚打 `$` 时给，`$` 后面已经有字时回车照常发送（审查前端第 16 条）。插件 SDK 的构建在 [t33](../t33-plugin-skills/README.md)。

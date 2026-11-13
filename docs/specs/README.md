@@ -182,6 +182,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Agent 的上下文压缩 | [`agent/compaction.md`](agent/compaction.md) | 三种压缩方法与缺省顺序、放回的内容、贡献点 `agent.compactionMethods` |
 | Agent 的内置 Profile | [`agent/builtin-profiles.md`](agent/builtin-profiles.md) | 主创与会话标题：工具、规则文件进开场、标题和说明的生成时机与兜底 |
 | Agent 的资源地址 | [`agent/resources.md`](agent/resources.md) | 单数地址的改写与分类、`sessions://`、`profiles://`、`temps://`、`docs://`、`skills://` 的内容与权限、按需建目录、临时目录的分区与启动清理 |
+| Agent Skill | [`agent/skills.md`](agent/skills.md) | Skill 包与目录、无效的隔离、就绪与初始化（三个入口、锁、标记、后台任务）、认 `$` 标签与白名单、这一轮带上与压缩后放回、`skills://`、命令行、`$` 菜单与确认框、设置里的 Skill 页 |
 | Profile 设置页 | [`agent/profile-settings.md`](agent/profile-settings.md) | 看和改 Profile：列表、模型与审批、工具绑定、用户级 Profile 的新建打开删除 |
 | 子代理 | [`agent/subagents.md`](agent/subagents.md) | `agent_spawn`、`agent_send`、`agent_answer`：派发检查与白名单、子会话的会话头与身份、等待与结果、审批与提问的去处、中止连带、上限、`tree` 远程 |
 | 任务中心 | [`agent/jobs.md`](agent/jobs.md) | `wait`、`kill`、`jobs`：任务的登记、归属、寿命与全局上限，`shell` 的后台命令与输出文件，`jobs` 远程 |
@@ -249,7 +250,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 | Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
-| Agent Skill | [`agent/skills.md`](agent/skills.md) | Skill 包与目录、无效的隔离、就绪与初始化（三个入口、锁、标记）、认 `$` 标签与白名单、这一轮带上与压缩后放回、`skills://`、命令行 |
 | Harness 会话 | [`harness/session.md`](harness/session.md) | 新内核的会话日志：会话目录与 JSONL、写入批、大块内容、锁、修复与校验、恢复、指令幂等、索引与 fork |
 | Harness 扩展 | [`harness/extensions.md`](harness/extensions.md) | 新内核的扩展（骨架）：定义与装配、id 规则、片与归约、反应与写入批、`mount`、各入口读的状态、插件装卸 |
 | Harness 视图 | [`harness/profile.md`](harness/profile.md) | 新内核由状态算请求：模板节点与文字拼法、缺省布局、轮的渲染与 `render`、纯函数提交与提交缓存、槽、请求校验、块的来源、开发检查 |

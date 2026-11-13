@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.skills
 owners:
   - nbook.agent
@@ -170,6 +170,20 @@ owners:
 
 Smoke：`packages/neuro-book/e2e/agent-skills.e2e.ts`（场景 2、3、4 在界面上的部分：经菜单选了发出、不存在的标签、确认后安装）；插话、白名单与重名、停止时中断由 `skills.test.ts`、`install.test.ts`、`catalog.test.ts` 覆盖。
 
+## 实现合同
+
+- **公开入口**：远程 `skills`、`skillsChanged`、`skillInitPlan`、`initSkill`、`openSkillsFolder`（`nbook.agent` 的会话合同）；Profile 声明的 `skills`（`agent.profiles`）与 `profileSettings[key].skills`；地址 `skills://`；扩展 `nbook.agent.skills`（事件 `skill`、`skillMissing`）；命令行 `nbook skill init`；`$` 标签的写法与分词经 `@notnotype/nb-markdown/prompt-text`（`promptSkillTokens`、`promptSkillText`）。
+- **owner 与依赖方向**：`nbook.agent` 的服务端持有 Skill 目录、初始化与带上、放回；初始化登记到 `nbook.tasks` 的后台任务（可选依赖，没有时照常装）；`skills://` 是 `nbook.files` 的挂载；跨进程锁取自 `@notnotype/nb-harness/file-lock`，放回接在 nb-harness 内核的放回参数（`kept`）之后。浏览器端的 `$` 菜单、确认框、Skill 页与 Profile 页一节在 Agent 插件的 `web/`，菜单行尾的状态列在 nb-ui 的 `SuggestionMenu`。
+- **关键不变量**：
+  - 认 `$` 标签只有一个规则（`shared/skills.ts` 的 `matchSkillToken`）：服务端带上、菜单插入的写法与点开标签共用，菜单插入的文字经同一套分词读回同一个 Skill（`catalog.test.ts`“认标签”，`skill-menu.test.ts`“插入的标签分词读回同一个 Skill”）。
+  - 同一个 Skill 同一时间只装一次：进程内并入，跨进程靠按 Skill 分文件的系统文件锁（锁文件建好不删）；停止或取消在任一步到达都结束这次安装，锁只在一处放（`install.test.ts`“同一个进程里同时请求两次”“场景 5”“输出 21”“用户取消”）。
+  - 目录的重扫一个接一个地做，每次之后对齐监视器；子目录被替换时重建它的监视器（`catalog.test.ts`“场景 1”）。
+  - 正文不缓存，带上与放回时现读；“见前文”按截断后正文的哈希比对，压缩后复位（`skills.test.ts`“场景 2、8”）。
+  - 放回的预算按包好之后的整段算，截断后正文不到 400 token 不放（`restore.test.ts`）。
+
 ## 证据
 
-- 批准依据：[t15 的决定](../../../.agents/works/w00032-agent-integration/tasks/t15-skills/README.md#决定)
+- 批准依据：[t15 的决定](../../../.agents/works/w00032-agent-integration/tasks/t15-skills/README.md#决定)与[计划](../../../.agents/works/w00032-agent-integration/tasks/t15-skills/plan.md)；开发者 2026-11-10 确认计划，2026-11-13 批准晋升为 `implemented`。
+- 实现入口：[`backend/skills/catalog.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts)、[`install.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/install.ts)、[`extension.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/extension.ts)、[`restore.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/restore.ts)、[`shared/skills.ts`](../../../packages/neuro-book/src/plugins/agent/shared/skills.ts)、[`web/skills.ts`](../../../packages/neuro-book/src/plugins/agent/web/skills.ts)、[`cli/skill.ts`](../../../packages/neuro-book/src/cli/skill.ts)
+- 合同测试：[`catalog.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/catalog.test.ts)、[`install.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/install.test.ts)、[`restore.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/restore.test.ts)、[`skills.test.ts`](../../../packages/neuro-book/src/plugins/agent/skills.test.ts)（真实内核与本机假端点）、[`skill-menu.test.ts`](../../../packages/neuro-book/src/plugins/agent/skill-menu.test.ts)、[`skills-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/skills-page.dom.test.ts)、[`profile-view.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-view.test.ts)
+- Smoke：[`agent-skills.e2e.ts`](../../../packages/neuro-book/e2e/agent-skills.e2e.ts)
