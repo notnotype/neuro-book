@@ -1,0 +1,136 @@
+[1] 阻断 | 正确性 / 失败恢复 | plan-r2.md:70-79、84、143（启动标记与异步换上失败）
+现象：helper 在旧壳退出后换文件；失败时会回滚并重新启动旧版本。但标记仍是目标新版本、年龄不足 5 分钟，重新启动的旧版本按第 1 步直接显示“正在更新”并退出，根本到不了“照常启动旧版本、在第一个产品窗口通知失败”。用户此后 5 分钟内每次打开都同样退出。第 78 行只处理 apply() 在当前进程返回的失败，覆盖不到 helper 的换文件/集成/拉起失败。异步 onResult 只有提示，没有清标记、登记失败哈希的恢复协议。
+依据与核实：desktop-update.md:47-51、89 要求换上失败后旧版本照常启动；Electrobun Updater.ts:2415-2440 先起任务再退出；src/extractor/main.zig:7488-7552 回滚，7364-7387 的 recoverApplyUpdateFailure 重新启动旧版本；计划第 72 行无条件挡住这个启动。按“B 标记仍新鲜、当前仍 A、helper 已失败并重启 A”的真实可达时序逐步代入即可核实，不需要假造 updater 行为。
+建议：启动协议先对账事务终态，再决定标记是否仍代表活动更新；失败终态必须原子地清活动标记、记录目标 hash 并进入正常旧版启动。区分同步交接失败与 helper 异步失败，测试两条路径，并测试 5 分钟内连续重开。不能把等待过期当恢复。
+
+[2] 阻断 | 不变量 / 并发 | plan-r2.md:69-80、163（独占结束与标记判定不是同一协议）
+现象：两个旧壳 A1、A2 都先读到“没有标记”。A2 在步骤 1 后暂停；A1 取独占、写标记、交给 helper 后退出，OS 释放它的 nbook-install.lock。此时 helper 仍可在校验、等 launcher 退出或换文件，A2 恢复，步骤 3 能再次取得独占，且计划没有锁内重读标记，于是第二次 apply；A2 若走“不换”分支则直接取共享、开始运行旧程序。两种都违反换上到新版本接手前的安装独占。这个反例不需要等 5 分钟。
+为什么：Electrobun helper 不认识 nbook-install.lock，旧壳退出之后没有进程持有这把独占；一次锁外读过的标记不能封闭这个交接空窗。即使补锁内重读，“5 分钟过期就删”仍不能证明 helper 已结束：main.zig:7427-7457 在最长 120 秒的父进程等待之前还会重验整棵暂存目录，暂停或慢磁盘不受 5 分钟上限约束。
+依据：desktop-update.md:31、49、72-73 要求连续独占至新版本接手；nb-flock/src/index.ts:19-20、49-61、100-118 的锁随句柄/进程释放；Electrobun main.zig:7456-7465 只等 launcher 后取自己的卸载锁，没有接手 nbook 锁。按上述真实调度逐步代入计划即可核实。
+建议：明确跨旧壳、helper、新壳的所有权交接；至少所有入场路径在取得相应锁后重读事务状态，并用事务身份和可靠终态决定恢复，不能仅凭 TTL。若保留现成 helper，可用存活到新版本确认的独立门禁进程或修订 helper 接入安装门禁；测试应暂停在“读标记后”和“旧壳退出后”两个位置。
+
+[3] 阻断 | 正确性 / 隐含共享状态 | plan-r2.md:39-45、51-58、100-108、143（无目标的 download/apply）
+现象：check() 的结果供壳比较版本，但 download() 没有目标参数，实际下载的是 Electrobun 全局 checkedManifest 的最后一份，不是用户同意的 {version,hash}。可达例：A=1.0.0，提示 C=3.0.0 后用户选“以后”，24 小时检查到 B=2.0.0（仍高于本地，或被已下载 C 的比较挡住），此时中心里 C 的旧 download id 仍合法；点它时 SDK 下载 B。另一例：检查失败把 checkedManifest 清空，点旧通知触发 SDK 自己重新检查，期间远端已降到 0.9.0；壳没有机会再做只升不降判定就开始下载。apply() 同样重读共享的 prepared 文件，不接收刚刚验证过的目标。
+依据：Updater.ts:1851、1880 每次检查覆盖/清空 checkedManifest；2287-2291 download 等在途检查、无清单时自行检查，然后使用该全局对象；2381-2394 apply 从磁盘取当下目标；Spec desktop-update.md:41、46、95 要求不降级、不用低版本替换已下载更新、选择对应壳的提示。
+建议：端口把已校验目标绑定到一次操作，串行化 check/download/apply；开始下载和开始换上都核对同一 version+hash，目标变了先回控制器判定，不直接下。为“以后旧 id + 后续检查降级/失败”“下载前 check 尚未完成”“两个状态根共享准备目录”加与真实 SDK 对过契约的测试，不只用返回 ok 的 fake。
+
+[4] 重要 | 正确性 / 错误分类 | plan-r2.md:45、59、143（onResult 把全部 error 当换上失败）
+现象：适配层计划把 onStatusChange 的 complete 与 error 直接作为上次换上的结果；但 error 是检查、下载、同步交接、异步换上的共同通道。一次离线检查就会同时走“只写日志”和“更新没有完成”通知；一次普通下载失败也会被误报成安装失败，且可能覆盖正确的重试提示。该回调也不直接携带 version 字段，计划的“failed 带版本”无法从一个泛用 error 稳定取得。
+核实：Updater.ts:1879-1892 检查失败 emitStatus("error")；2326-2329 下载失败相同；2355-2359、2454-2456 同步 apply 失败也相同；899-933 才是持久事务对账，同样 error，但 details 带 currentHash/latestHash。Spec 输出 1、5、8 明确区分三类失败。
+建议：onResult 只输出经事务身份核对的持久对账结果，不按 error 文案分支；检查/下载/同步 apply 的返回独立转换。把事务 id、目标版本与 hash 保存在适配层的结构化上下文，并补“离线不弹失败”“下载失败只给重试”“真正回滚才提示换上失败”的契约测试。
+
+[5] 重要 | 不变量 / 事件寿命 | plan-r2.md:45、59、71-72、143（早期对账与产品窗口交付未协调）
+现象：SDK 的对账“各一次”指 result 一被回调观察就写 observed 文件，不是产品通知真的交付。计划让每个新壳早期注册 onStatusChange，再去做安装门禁/桌面锁；一个随后仅开窗转交退出的壳、只提示状态根上的壳、或启动失败没有产品窗口的壳，都可能抢先消费成功/失败结果，真正持有产品窗口的壳再启动时不会重放，输出 8、9 的通知永久丢失。即使只有新版本的第一个壳，服务端启动失败后退出也有同样问题。
+依据：Updater.ts:2481-2485 注册就排对账；1096-1136 选到结果后 emitStatus，并在 finally 立即 markUpdateTransactionObserved；1049 后的 observed 文件位于安装通道根、跨壳共享。计划 101 行只在内存中等 shown，没有持久交付，也没有在转交路径把待通知结果送给已持锁壳。
+建议：把“SDK 已观察”和“产品已展示”分成两步：早期捕获结果持久化为待交付，只有有权拥有产品窗口的壳接手，收到 shown 后确认；或在取得桌面锁后再建立唯一观察者并补读未消费结果。用同版本双启动、第二状态根、首次启动服务失败三种真实进程时序验收，断言最后恰有一次可见通知。
+
+[6] 重要 | 正确性 / 输入校验 | plan-r2.md:43、52、74、143、235（prepared 只查目录存在不等于 SDK 可用）
+现象：壳将私有文件的 version/hash 当成“已下载并校验完”，只检查暂存目录存在；SDK 实际还要求 schema、应用标识、channel、平台、架构、路径归属、普通文件/目录且非链接、recipe 文件及其摘要形状。记录损坏、错平台或 recipe 丢失而目录还在时，壳会把它当已下载，用其版本压住后续提示；启动 apply 又被 SDK 拒绝。更高的伪/损坏版本还能让真正的新版本长期不再提示。JSON 解析/权限错误怎样降为无准备更新并照常启动也未定义。
+核实：Updater.ts:748-829 的 validatePreparedUpdate/loadPreparedUpdate，含 64 KiB 限制；原生 main.zig:7425 在事务返回时清 staging，因此“失败后一定能复用准备好的更新”并不成立，即使 prepared 记录仍在。计划仅“核对暂存目录存在”比真实判断弱很多。Spec desktop-update.md:29、45-46 的保留与比较仅针对有效的已下载更新。
+建议：适配层对齐固定版 SDK 的完整 prepared 校验（能复用导出的 validatePreparedUpdate 就复用，避免第二套近似实现），先确认运行模式与受管安装身份；读取失败要分类记日志并不阻塞旧版本启动。为截断 JSON、超限、错误身份、目录链接、recipe 缺失/错路径、helper 失败后残留记录做真实文件契约测试。启动锁内还须重新读取并绑定目标，见第 3 条。
+
+[7] 重要 | 正确性 / 模式隔离 | plan-r2.md:63-80、143（便携也落到通道根共享锁）
+现象：步骤 2 把“只提示的启动”归入“不换”，步骤 4 又让所有“不换”启动去通道根取共享锁。便携目录不是受管安装，干净机器上甚至没有该通道根；按计划接 Updater.appDataFolder() 会直接抛 outside its managed update directory，硬拼通道根则会凭空依赖/写入另一份安装。若这台机器另有安装版正在换上，步骤 1 的标记还能把完全独立的便携版挡住。便携版只该受自己目录/状态根约束。
+核实：Updater.ts:553-590 由 process.execPath 推导并核对受管目录，非 dev 的便携路径抛错；nb-flock/src/index.ts:25-28 明确父目录不存在会抛；state-root.ts:31-48 便携与安装本来有独立程序根。Spec 输出 10 与输入条件说便携版照常检查、不下载不换上，不是加入另一份安装的换上门禁。
+建议：先区分“便携”与“受管安装 + env 只提示”，不能都归成一个 notify-only 分支后共用安装文件：前者不读写通道根、不拿安装共享锁；后者仍须在用锁，避免别人替换正在执行的安装。补干净机器只有便携包、便携与安装共存且后者正在更新、环境变量启动安装版三条适配层验收。
+
+[8] 重要 | 正确性 / 输入校验 | plan-r2.md:23、51-52、193（把 order 当严格稳定版本判据）
+现象：只排除包含 '-' 的版本再用 Bun.semver.order，不足以实现“不是稳定版本号就检查失败”。实测 Bun v1.4.4：order("2","1.0.0")、order("2.0","1.0.0")、order("v2.0.0","1.0.0")、order("02.0.0","1.0.0") 均为 1；order("bad",...) 抛 Invalid SemVer。2.0.0+build-x 是合法稳定版本，却会被“不含 -”误杀。SDK 的清单校验也不替壳做严格稳定 SemVer 解析。
+核实：已执行 bun -e 对上述输入逐个 try/catch，结果如上；计划测试只列缺版本/预发布/大小比较，没覆盖这些。Spec desktop-update.md:28、41 要求稳定语义化版本，非法清单只写日志不干扰用户。当前机器 Bun 与打包版可能不同，打包版仍应跑同一契约。
+建议：先按完整 SemVer 语法解析并检查 prerelease 为空，再调 order；捕获解析/比较错误到 check 失败，不让定时回调抛出。测试缩写、v 前缀、前导零、尾部换行、带 '-' 的 build metadata、超长数字与非法字符串，且在随包 Bun 上跑。
+
+[9] 重要 | 不变量 / 生命周期 | plan-r2.md:49-59、170、191（24 小时计时没有停止收口）
+现象：控制器只定义“进入运行中后检查、之后每 24 小时”，没有进入停止中时取消定时、禁止新操作或忽略在途 check/download 续体的接口与接线。现有壳会在停止中持续存活等自有服务端真实退出；NBOOK_PROJECT_STOP_MS 上限 2^31-1 ms，停止能跨过 24 小时（强制结束仍未完成时还会继续等）。因此无窗口的停止中仍可能检查、替换提示或接受旧 id 发来的下载，且 SDK 更新状态可能和已停止控制器互相回写。
+核实：shell.ts:304-330、345-348 的停止流程，windows.ts:239-247 同步进入 stopping；deadline.ts:1-4 说明长截止；desktop-shell.md:115、143、151 要求停止期不开窗并等进程树结束。计划端口与测试未列 stop/dispose、timer cancellation 或 await 后状态复核。
+建议：把控制器寿命挂在壳的运行中区间，停止入口同步封闭选择与调度、撤监听/取消 timer，在每个异步返回后核对代次/活性。说明已开始下载在退出时是等、取消还是允许进程退出后清理；不能由计时器偶然决定。补 24 小时前进入停止中、检查在停止后返回、下载未完成时末窗关闭三条时序。
+
+[10] 重要 | 接口合同 / 壳页衔接 | plan-r2.md:89、93-96、123-124（转交复用 id 与页面永久去重冲突）
+现象：窗口 A 收到未处理提示 id=1，A 离开就绪，协调器发 end 给 A、转给 B；B 关掉后又转回 A。计划只在“阶段变化”换新 id，转交仍是 id=1；页面却规定同一 id 已被 dismiss、句柄失效时也不重发，因此 A 永久忽略这次交付。下载中的通知同样会丢。A 离开就绪后恢复、或刷新时最近焦点转给 B 再转回 A 都是允许的真实时序。
+核实：把 A -> B -> A 代入第 93-96、123-124 行：第一次 end 已删 A 的中心记录，第二次 hint 因已见过 id 被忽略。现有验收只有“一次转交”“两个就绪交错”，没有回到曾持有窗口的 round-trip。该问题是 r2 新的永久去重规则与壳的持有协议相撞，不重复 Sonnet 对旧稿通知 update 的意见。
+建议：区分逻辑提示 id 与每次投递/持有的代次；转交用新 delivery id，选择仍绑定逻辑目标；或在明确 end 后允许该 id 的下一次合法投递重建通知，并在壳侧过滤旧窗口迟到的 shown/choice。补 A -> B -> A、迟到 shown 与转交交错，断言最终可见提示且只有一个持有者。
+
+[11] 重要 | 正确性 / 壳页衔接 | plan-r2.md:99-108、129-132（关闭后合法动作只放行 download）
+现象：available 的中心动作是 download，所以 later 后特许 download 能工作；但 download-failed 的中心动作是 retry，notify-only 的中心动作是 open-page。计划把这两类也列为可关闭的带选择提示，关闭后清当前提示，随后又规定“已结束的 id 只接受 later 之后的 download，其余忽略”。于是用户关掉失败通知后在中心点“重试”，或关掉只提示通知后点“打开下载页”，页面会移除通知而壳丢弃动作，什么也不发生。
+核实：对照计划 106 行与 130、132 行的 choice 即可；Spec 输出 5 要给可用重试，输出 10 要能打开下载页。Sonnet 第 7 条要求各 kind-choice 映射，r2 的表补了页面动作但壳侧例外仍只覆盖一种。
+建议：保留的历史提示记录自己的目标与合法动作集合；later 后仍能接受该种类的 retry/open-page，而不是统一改成 download。新阶段取代旧目标时明确撤销记录与页面中心动作。对 available、download-failed、notify-only 各跑“关闭 -> 中心动作”整链，不能只测 available 的场景 7。
+
+[10] 重要 | 接口合同 / 壳页衔接（撤回）
+复核 window.ts:57-68、241-251、345-357 与 notifications.md:19、63、70 后撤回：已 ready 的同一文档离开就绪后是终态，恢复必须刷新；刷新会建立新的提示去重表。原条目假定同一文档可“离开就绪后原地恢复 ready”，不是现有产品路径。不能用伪造 page-gone/page-ready 的时序把它当真实缺陷。需要更换投递代次可作为实现选择，不列为本计划必须修复的问题。有效发现不含 10。
+
+[12] 重要 | 正确性 / 恢复闭环 | plan-r2.md:52、58、74、78、84（失败 hash 仍参与已下载版本上限）
+现象：B 已准备，apply 在复制 helper、发布计划或启动计划任务时同步失败；SDK 保留 B 的有效暂存目录，壳写失败 hash，并正常起旧版 A。此时重新 check 的远端仍是 B，但第 52 行要求远端“还须高于已下载的版本”，B 等于 prepared B，被直接过滤，不会出现下载按钮。第 84 行声称“重新检查后用户再点下载即可清记录”，这个入口在同版本时根本到不了；以后每次启动又因失败 hash 跳过 B，除非发布 C 或用户手工改文件。
+核实：Updater.ts:2407-2456 同步交接失败只清 plan/helper，不清 prepared；计划 143 的 prepared 仍返回 B；把 version(B)==version(prepared) 代入 52 行必为拒绝。Spec 输出 8 要求失败后回正常检查/重新下载，拟改的 Spec 156 行也承诺用户能重新选下载。另一个同类条件：notify-only 不能用磁盘 prepared 版本挡提示，输出 10 只要求 remote>local，已有 B 不应让环境变量启动时的 B 提示消失。
+建议：明确“物理 prepared”与“可自动换上的已下载更新”不是同一状态。失败 hash 对应的 prepared 不得用作提示比较基线；只提示模式也仅比较本地版本。测试必须把同步 apply 失败 -> 同版本 check -> 用户 download -> 下次启动重试连起来，而不是单独测“显式下载能清文件”。
+
+[13] 重要 | 测试 / 可执行性 | plan-r2.md:174-176、227（A/B/C 构建没有版本输入与补丁前提）
+现象：计划只说同一地址依次构建 A、B、C，但现有 desktop/scripts/build.ts:15、32 直接把 PRODUCT_VERSION 写进 bundle/version.json，src/shared/product.ts:9 固定 0.12.1；脚本没有测试版本输入。仅改 Electrobun app.version 会让壳/服务端/网页仍报 0.12.1，测不到真实产品升级，且违背壳版本等于产品版本。构建补丁还必须在构建 B 前已发布 A、构建 C 前已发布 B；只“构建 A/B/C 后先传 tar/patch 再清单”没有这个前提，generatePatch 失败会跳过，UI 升级照样成功却未验输出 4 的增量路径。
+核实：build.ts:18、32 的 CLI 与版本写入，desktop-payload.ts:2-7、66-73 的发布 tarball/hash 合同；pack-smoke.ts:430-438、458-467 无版本覆盖、按应用包版本打包。官方 scripts/test-updater-lifecycle.mjs:473-520 为各版本建隔离 project、显式注入版本；1608-1620 是 build A -> publish A -> build B -> publish B -> build C，不是先全构建。
+建议：给验收设计可执行的三版本 fixture 构建步骤，统一 shell、payload、服务端/网页、manifest 的产品版本，不能仅改清单；保留各版本原始产物，明确 interleaved build/publish 与缺补丁时的完整包场景。记录运行的具体 Setup/版本/hash/baseUrl，固定端口先探测空闲并保持同一服务，不复用正式安装身份/用户数据，Setup 必须实际装进受管目录。
+
+[14] 重要 | 不变量 / 退出时序 | plan-r2.md:61-82、236（先换上再注册 before-quit 没有生命周期接缝）
+现象：计划把 applyAtStartup 放在 DesktopShell.run() 内、取锁前，又让适配层“先做这一步再注册否决”。现有 run() 没有在更新结束、取锁之前返回/通知的接缝：它会继续取桌面锁、拉起服务端、等 ready 才返回。若按最自然接法 await shell.run() 后注册，则拿锁后的启动期间任何系统退出都不受否决，违背三态合同；若仍先注册现有 handler，requestQuitApproval 又必被否决，apply 返回 idle 而不是 {error}，标记已写却没有启动 helper。
+核实：shell.ts:98-108 的顺序；desktop/src/bun/index.ts:276-292 目前先注册无条件否决再 await run；Updater.ts:2396-2401 在创建 helper/任务前同步 requestQuitApproval；Utils.ts:134-161 只看同步应答，quitAfterApproval:169-188 消费同一批准，不会再触发一次 veto。Spec desktop-shell.md:115、132 要求更新交接可退、拿桌面锁后不许裸退。
+建议：不要靠挪整段事件注册来表达阶段；handler 从头注册，由核心明确的 pre-lock/applying/active/stopping/stopped 状态决定是否放行，apply 的有效批准窗口必须在任何服务端拉起之前结束。把取消批准、apply 无更新/idle 返回等分支纳入端口结果。测试除了“更新先于桌面锁”，还要覆盖取得锁后 ready 前的退出请求，确保有序停止并等进程真实结束。
+
+[15] 重要 | 测试 / 验收证据 | plan-r2.md:175-176、182-205、227-230（适配层与原生事务只用 UI 文字验收）
+现象：“Windows 证据只用 UI 自动化读文字”不能证明几个明确判据：真的走了 patch 还是 full tar、没有下载/不替换已下载高版本、独占跨旧壳退出一直维持到新壳、只剩一个新版本进程、没有新建状态根、下载失败后至多一份。核心测试用的 UpdaterPort fake 又没有真实 SDK 的 global manifest、error 混流、持久 observed 语义，第 1-7、12、14 条都会在形状一致的 fake 下漏过。打包主进程只证明编译，不能补这些证据。
+核实：Spec 验收 1 要状态根与作品不变且没有额外状态根；2、4 要保留 C/安装排他；输出 4、7 要补丁选择/至多一份。官方 test-updater-lifecycle.mjs:695-727、845-919 读取安装 version/hash、结果 JSON、recipe、残留暂存与 helper；921-1006 校验实际 HTTP 请求路径、顺序、200/404、补丁更新没有取 tar、完整回退发生在 patch 404 后。它不是只看“已下载”文字。
+建议：UI 自动化继续证明用户入口与文案，但不能排斥源端请求日志、真实进程、安装/状态根文件清单与事务记录证据；为适配层写一组对真实 SDK 状态序列的契约验证。Windows 门禁明确加同步拒绝、异步回滚、双启动、launcher 等待、环境变量只提示与无网络重启，不能用“场景 1-7”一句代替未覆盖的失败合同。
+
+第 3 条反例澄清（不新增编号）：最直接的一条是本地 A=1.0.0、提示 C=3.0.0 后点“以后”；24 小时检查返回 0.9.0，SDK 仍把 checkedManifest 覆盖成 0.9.0，壳只是不提示；中心里 C 的 download id 仍合法，点击会下载 0.9.0。另一个完整可达序列是 prepared C=3.0.0，提示 D=4.0.0 后 later，下一次 check 得 B=2.0.0（被壳按 prepared C 过滤），旧 D 的动作却下载 B 并删除 C。启动时版本 guard 只能阻止最终安装 0.9.0，不能补回已经被错误下载/覆盖的内容。第 3 条仍为阻断。
+
+参照核对（支撑既有发现，不另计问题）：
+- Microsoft LockFileEx 文档 Remarks 83-95：同一范围共享锁可共存、独占与其它句柄上的共享锁冲突；进程终止或关句柄后释放。此设计用每次新开句柄，独占失败即 CloseHandle 后另开共享，未发现“失败的独占还残留着”这一额外死锁。来源：https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-lockfileex 。已在 Linux 真实子进程实测持共享时独占失败、关掉失败 fd 后共享成功；持有者关闭后独占成功。Windows/macOS 未实测，不把 Linux 结果当跨平台通过。
+- Electron autoUpdater 官方 API：明确 update-downloaded 才能 quitAndInstall，并专门定义 before-quit-for-update，说明普通 before-quit 的顺序与更新退出不同。计划缺精确退出阶段/否决恢复接缝，见第 14 条。来源：https://www.electronjs.org/docs/latest/api/auto-updater （Events before-quit-for-update、Methods quitAndInstall）。不把 Electron 的事件顺序套在 Electrobun 上，后者已按固定版 Utils.ts/Updater.ts 单独核对。
+- VS Code AbstractUpdateService:430-459 下载只接受 AvailableForDownload 并把当前 state 交给具体实现；492-527 先进入 Restarting、经 lifecycle quit，veto 时恢复原 Ready，成功才执行真实安装。计划缺操作目标绑定与批准失败的完整状态恢复，分别见第 3、14 条。412-427 的调度是可取消句柄，见第 9 条。来源：https://raw.githubusercontent.com/microsoft/vscode/main/src/vs/platform/update/electron-main/abstractUpdateService.ts 。
+- VS Code Win32UpdateService:262-298 下载到 .tmp、校验摘要再改名并发布 Downloaded；检查链有 CancellationTokenSource/checkPromise。计划的 prepared 读取与 SDK 契约不等价，检查/下载续体未定义寿命，见第 6、9 条。来源：https://raw.githubusercontent.com/microsoft/vscode/main/src/vs/platform/update/electron-main/updateService.win32.ts 。只借鉴 Spec 所需的不变量，不建议引入 VS Code 的频道、覆盖升级、遥测等额外功能。
+- Electrobun 固定版官方 test-updater-lifecycle：Setup 安装、隔离版本构建、交错发布、请求日志、持久事务结果与安装 hash 都有断言；计划只用 UI 文字不足，见第 13、15 条。其静态源随机绑定一个端口并在同一轮所有构建内保持 baseUrl，固定端口不是 SDK 硬要求；对可重复跨轮本地构建采用固定端口可以接受。
+
+[16] 重要 | 测试 / 发布边界 | plan-r2.md:147、227-229（正式 baseUrl 的唯一链路延后到发布后）
+现象：所有本地验收包都内置 http://127.0.0.1:<端口>，正式包却内置 GitHub latest/download；计划明确把 GitHub 重定向与 ?cache= 留到“第一次真实发布”才验。更新源地址发出去以后是固定选择，若首发包在原生 helper 的 HTTPS/CDN 重定向链上不能下载，已装用户无法通过自动更新修复这个同一能力，只能手工重装。本地 HTTP 成功不能覆盖这一条正式路径。这里不是断言 GitHub 不支持，而是首发完成判据漏了唯一的生产下载链路。
+核实：prepare_update_http.zig:6、68-89、117-134 限制最多 5 跳并逐跳校验协议/来源；Updater.ts:2235-2241 拒 query 的 baseUrl；真实 artifact URL 带 cache 事务参数。官方文档允许 latest/download 并不能代替当前发布资产和原生下载器的联合验证。Spec desktop-update.md:93 固定更新源，109 要发布流水线 Windows smoke。
+建议：把生产 baseUrl 的原生下载 smoke 写成 t11 首次正式发布的阻断门禁，明确负责人和可回退点；先用可控的真实 HTTPS GitHub 测试资产验相同重定向/query 流程，再在公开正式资产后、宣布发布完成前验清单与包。不可把 loopback 测试构建误发正式资产；从包内 version.json 核对最终 baseUrl，不能只看构建时环境变量。无需因此改已定的 HTTPS/不签名取舍。
+
+[17] 重要 | 合同冲突 / 下载失败恢复 | plan-r2.md:15、42、54-57、143、182（“下载前删旧的”只发生在 helper 内）
+现象：输出 7 要求用户选下载更高版本时先丢弃旧更新，新下载失败后没有可换上的更新。但 SDK 并非所有失败路径都先删旧：publish 请求文件、解析/验证请求、复制/启动 helper、取得 prepare 锁都在 pruneSupersededStage 之前。磁盘满导致请求 JSON 写不了，或 helper 启动失败时，原来有效的 B 仍保留；新 C 下载报告失败，下一次启动仍会自动换上 B，违反输出 7。计划 UpdaterPort 没有 discard，也没有失败后核对真实 prepared 的分支，却把这项映射成核心 fake 测试能保证。
+核实：Updater.ts:2243-2272 在 atomicWriteJson(requestPath) 与启动 helper 以后才可能进原生准备；prepare_update.zig:564-578 读取/校验请求并取锁，603 才 pruneSupersededStage；426-460 才实际删除旧 B。副作用在这些步骤之前都不可能已发生。
+建议：选择下载 C 时明确处理旧 B 的逻辑/物理丢弃，再执行 SDK，或失败后按明确协议使 B 不再可自动换上；如接受“开始准备前失败仍保留 B”，必须作为产品合同变更修改输出 7、状态表与待确认项，不能声称现成 SDK 已完全符合。补请求写入失败、helper 未起、prepare 锁冲突三条真实适配层失败路径，并重启检查最终会不会安装 B。
+
+[8] 重要 | 正确性 / 输入校验（收窄，仍按第 8 条计）
+原文“不含 `-` 预发布段”也可理解为仅拒绝 prerelease，而不是粗暴拒绝字符串任意位置的连字符。因此不把“必然误杀 2.0.0+build-x”当既成实现行为。有效问题收窄为：唯一指定的 Bun.semver.order 不是稳定 SemVer 验证器，SDK isSafeVersion 也只限 1-256 字符且无控制字符（Updater.ts:385-387）；计划尚未给出严格格式验证、异常变检查失败与对应边界测试。上述实测证明必须另做解析，不证明作者未来一定写成 includes('-')。附：固定 SDK 的 src/shared/bun-version.ts:2 也是 1.4.4，与本次实际执行版本一致。
+
+待确认项判断（限本次自动更新范围）：
+1. t06 应用标识 io.github.notnotype.neurobook / stable：可接受，一次性固定；本地验收必须用独立 Windows 用户/隔离正式安装与数据，不能为测试改正式包的身份后声称验过同一安装协议。
+2. t06 启动后一次、每 24 小时：可接受；补“运行中”的精确开始点和停止入口取消/续体复核，第 9 条。时间按注入时钟测试，系统休眠后不补发一串漏掉的检查。
+3. t06 单动作下载、关闭等于以后：可接受；旧动作必须绑定原目标且仍受版本 guard，retry/open-page 也须保留正确路由，第 3、11 条。
+4. t06 已下载至多一份、先删旧再下新：合同选择可保留，但“SDK 本来就完全这么做”不成立；helper 启动前失败仍留旧包，须按第 17 条补机制或明确改判。
+5. t06 NBOOK_STATE_ROOT 与便携只提示：认可规避新进程不继承旧启动环境的取舍。非空值以现有 state-root.ts 解析结果为准（空串/空白未给）；安装版 env 启动仍持本安装共享锁，便携必须跳过安装门禁，第 7、12 条。相对路径只在这次启动解析，不交新版本接力。
+6. t06 换上中再开说明后退出：可接受，但以真实活动事务判断，不是仅凭新鲜标记；helper 终态失败立即恢复旧版，第 1、2 条。
+7. t10 每阶段新通知、旧阶段连中心撤掉：可接受；later 留中心必须与失效目标的撤销规则并存，不准历史动作绕过当前目标 guard。第 10 条原反例已撤回。
+8. t10 不确定进度：认可。固定版 downloadUpdate 的真实路径经原生 prepare，没把百分比上报回来；虽然 SDK 类型表有 download-progress，不代表该路径发百分比。应改 Spec 输出 4 并标明无百分比，不伪造进度。
+9. t10 不删失败包、记失败 hash：当前方案不可接受。异步回滚与活动标记未闭合，第 1 条；同步失败后同版本重新下载入口被比较规则挡住，第 12 条；helper 有些失败本就清 staging，第 6 条。先完成恢复协议，再决定是否需要偏离“丢弃”。
+10. t10 标记 5 分钟过期：不认可作为排他的安全判据；120 秒只是 wait parent，不含全部校验/换文件/集成/进程暂停，墙钟过期不证明 helper 死亡，第 2 条。可以作诊断/提醒阈值，不能凭它撤门禁。
+11. t10 安装锁放通道根：放置位置可接受，能避开 app 整体替换与 Setup 的 self-extraction 替换。Updater/Setup 不参与 nbook-install.lock；独占连续性仍按第 2 条解决。Windows 卸载“应用和数据”会删通道根，但代码先终止 app 目录下进程；不应据此孤立判为新旧 inode 共存漏洞。应用卸载后遗留 nbook 标记的重装处理仍应随事务协议定义。
+12. 新版 spawn 成功以后崩溃不回滚、不做签名/频道/预发布/关闭自动检查：符合本次明确非目标，不据此新增需求；本报告第 1 条针对的是 spawn 失败/换文件失败这类已承诺恢复，不是要求健康检查回滚。
+
+未发现问题的方面：
+- nb-flock 的 Windows 共享标志与首字节同范围设计符合 LockFileEx 语义；现有失败句柄立即关闭，再开共享不会留下“自己先前的独占”导致必然死锁。Linux 子进程实测通过；Windows FFI 与 macOS 未实际运行。
+- 锁文件放 app 外、通道根，普通更新/Setup 不替换它；没有发现其正常更新路径会删除这把锁。删除范围核对到 main.zig:1470-1600、5041-5139、5234-5384。不要把卸载与普通更新混成一条生命周期。
+- 现有 before-quit 确实先于 helper 武装，批准后的 quitAfterApproval 不重发 before-quit；计划指出“不能让 apply 被自己的无条件否决挡住”这一机制依据正确，缺的是第 14 条的接线与失败分支。
+- Windows 任务启动的新 launcher 没继承旧壳临时环境；NBOOK_STATE_ROOT 只提示有源码依据。便携/环境变量模式的分离问题不推翻这一取舍。
+- 正常 prepare 已进入 pruneSupersededStage 后会先删 superseded v2 prepared，再下载新目标；同一目标会复用。第 17 条仅针对进入该步骤之前失败的例外，不否定成功路径。
+- 固定版 Electrobun 最多 64 跳补丁、失败回退完整包与 baseUrl 构建时注入有源码依据；固定端口方案可用，但必须补第 13、15 条的可执行步骤和证据。
+
+验证与证据边界：只读核对固定计划、主工作区合同与待确认清单、worktree 当前壳代码、Electrobun 2.0.6 源码和官方生命周期脚本；在线核对 Microsoft LockFileEx、Electron autoUpdater、VS Code 两个更新服务。实际命令 bun -e（Bun 1.4.4，SemVer 输入组，首轮 bad 抛错、第二轮逐项捕获得到完整结果）；Python fcntl + 真实子进程（仅 scratch/review-flock.lock），结果：其它共享存在时 exclusive=false/shared_after_failed_exclusive=true；持有者关句柄后 exclusive=true。未跑合同套件、类型检查、e2e、开发服务、Windows Setup 或真实更新；设计尚未实现，不能把源码推演写成 Windows 运行通过。未修改仓库文件、未执行 commit/push/stash/切分支/删除。
+
+参照核对补正：线上源码复核使用 AbstractUpdateService.downloadUpdate、scheduleCheckForUpdates、quitAndInstall 三个符号定位；对应原始源码行号为 446-459、412-427、492-527（此前把下载入口写成 430-459 过宽；430 起是 checkForUpdates）。Win32 校验/发布处是 285-289 的 writeFile -> checksum -> rename。Microsoft LockFileEx 的实际 Remarks 是 85-95；其中明确共享锁可相互重叠、不同句柄的独占不可重叠，同一句柄上共享/独占重叠是另一种情况，不适用于本方案每次新开句柄。以上均已在线读取原始一手来源，不依赖调研转述。GitHub latest/download 支持声明仅来自给定调研第 28 行；固定版 package 中搜索同字串无命中，不把这一项当源码证明，第 16 条仍只报告验证门禁缺口。
+
+对既有合同的判断：本次不把作者待确认推荐等同开发者确认。第 156 行拟改“丢弃失败更新”属于恢复语义变更，须连失败恢复表、状态表、验收映射一起改，不能只改输出一句；允许复用前先解决第 1、6、12 条。输出 7 的例外若接受也需另列待确认，第 17 条。现有 Spec 状态表未定义下载失败后重查失败/远端降低时的结果，计划同样未补；落地时应明确落回可重试状态、不留下 downloading，并保持已有版本 guard；这是合同空白，未另算实现缺陷。
+
+反思回写：不提出额外规范修改。第 10 条撤回是依据真实生命周期收窄反例，reviewing Skill 已要求不把伪造时序当真实运行，现行规则覆盖，无需重复追加规则。
+
+影响排序索引（编号保持追加记录不变）：
+阻断：[1] 回滚重启被标记挡住；[2] 旧壳退出后独占中断、锁外标记竞态与 TTL 不安全；[3] check 的全局可变目标绕过版本授权。
+重要：优先 [14] 退出否决接缝、[12] 同版本失败永久无法重试、[17] 新下载起步失败仍换旧更新、[5] 持久结果被无产品窗口进程消费、[4] 混淆所有 error、[7] 便携误入安装门禁、[6] prepared 校验不足；随后 [9] 停止期收口、[11] 中心 retry/open-page 被丢、[8] 严格版本验证缺失（按收窄后范围）；验收 [13] A/B/C 与补丁构建输入、[15] 仅 UI 文案证据不足、[16] 生产 GitHub 下载链路无首发门禁。
+撤回：[10]。未发现问题的方面与待确认项判断见前述独立段落；本轮有效发现合计 16 条：阻断 3，重要 13，建议 0；另撤回 1 条，第 8 条按收窄范围有效。
+有效发现编号：1、2、3、4、5、6、7、8（收窄）、9、11、12、13、14、15、16、17。

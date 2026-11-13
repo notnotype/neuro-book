@@ -15,8 +15,10 @@ Electrobun Updater 接 GitHub Releases：后台检查与提示、下载前核对
 
 ## 当前状态
 
-2026-11-13：计划初稿，待设计审查。omp 正在做 t09 的实现审查，同一时间只跑一个 omp 审查，这一份等它跑完再开。
+2026-11-13：
+- 页面一侧的设计审查（Sonnet）8 条，均改（[报告](evidences/design-review-r1-sonnet.txt)、[处理](evidences/design-review-r1-sonnet-disposition.txt)）。
+- 壳与更新器的设计审查（omp）17 条，阻断 3 条（[报告](evidences/design-review-r1-omp.txt)、[处理](evidences/design-review-r1-omp-disposition.txt)）。阻断三条指向同一个上游问题：Spec 要求的“安装独占保持到新版本接手”，Electrobun 2.0.6 的原生 helper 做不到。**停下等开发者定方向**，未开始实施。
 
 ## 下一步
 
-设计审查，处理后按切片实施；Windows 验收要等 pc-notype 恢复。
+开发者在几个方向里选一个（见交付汇报），之后按方向修订 Spec 与计划，重新审查，再实施。
