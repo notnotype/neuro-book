@@ -27,10 +27,10 @@ export const tasksBackendPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "server",
         location: "server",
-        dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: runningWorkKey}],
+        dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: runningWorkKey, required: false}],
         provides: [tasksKey],
         remoteProvides: [tasksContract],
-        activate: (context) => {
+        activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const clock = context.services.require(clockKey);
             const report: TasksDiagnostic = (event, message, data) => {
@@ -39,8 +39,10 @@ export const tasksBackendPlugin: PluginDefinition = {
             const core = createTasksCore({clock, newId: () => randomUUID().slice(0, 12), report});
             context.scope.register({kind: "tasks-core", label: `${descriptor.id} tasks`, value: core, release: (value) => value.close()});
             const remote = tasksRemote(core, {clock, report});
-            // 关闭服务前报出在跑的任务（background-tasks.md 输出 17）；入口停止时宿主随门面撤下这条登记。
-            context.services.require(runningWorkKey).register(() => core.list().filter((item) => item.state === "running").map((item) => ({text: item.title})));
+            // 关闭服务前报出在跑的任务（background-tasks.md 输出 17）；入口停止时宿主随门面撤下这条登记。没有这个能力的宿主（只装
+            // 这个插件的测试场地、别的应用）照常运行，只是不报。
+            const work = await context.services.resolve(runningWorkKey);
+            if (work.status === "resolved") work.instance.register(() => core.list().filter((item) => item.state === "running").map((item) => ({text: item.title})));
             return {
                 services: [provideServicePerConsumer(tasksKey, (consumer) => core.facade(consumer), {release: (_facade, consumer) => core.release(consumer)})],
                 remote: [provideRemote(tasksContract, () => remote)],

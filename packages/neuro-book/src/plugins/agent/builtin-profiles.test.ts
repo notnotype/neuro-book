@@ -408,7 +408,7 @@ describe("标题和说明", () => {
         expect(messagesText(tiny.requests[3]!)).toContain("第一轮");
     });
 
-    test("输出 9：标题会话不进列表、running() 与 sessions://；按 id 读得到；前台费用不算它；第二次请求不带第一次的内容", async () => {
+    test("输出 9：标题会话不进列表、running()、在跑的工作与 sessions://；按 id 读得到；前台费用不算它；第二次请求不带第一次的内容", async () => {
         const w = await world({settings: withTiny(), plugins: [compactor("前情摘要")]});
         const session = await createMain(w);
         const hold = tiny.hold();
@@ -418,6 +418,8 @@ describe("标题和说明", () => {
         const titleId = titleSessionId(session.id);
         expect(w.service.running()).not.toContain(titleId);
         expect((await w.service.session(titleId).snapshot()).status.state).toBe("running");
+        // 程序自己开的标题会话不算用户在跑的工作（sessions.md 输出 20）：主会话这一轮已结束，没有要报的。
+        expect(w.work.collect()).toEqual({items: [], failed: []});
         hold.release();
         await waitUntil("标题写下", async () => (await metaOf(session))[1] !== null);
 

@@ -49,6 +49,8 @@ export interface AgentRunningWorkSources {
     readonly relations: Pick<SessionRelations, "rootOf">;
     readonly titles: Pick<SessionTitles, "of">;
     readonly jobs: Pick<JobCenter, "live">;
+    /** 程序自己开的会话（起标题与说明）：不报。 */
+    readonly internal: ReadonlySet<string>;
 }
 
 /**
@@ -58,6 +60,7 @@ export interface AgentRunningWorkSources {
 export function agentRunningWork(sources: AgentRunningWorkSources): ReadonlyArray<RunningWorkItem> {
     const roots = new Map<string, "running" | "waiting">();
     for (const {id, state} of sources.table.activityWithBackground()) {
+        if (sources.internal.has(id)) continue;
         const root = sources.relations.rootOf(id);
         if (roots.get(root) !== "running") roots.set(root, state);
     }

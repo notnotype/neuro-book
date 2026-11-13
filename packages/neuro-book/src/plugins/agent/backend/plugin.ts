@@ -68,7 +68,7 @@ export const agentBackendPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "server",
         location: "server",
-        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}, {key: tasksKey, required: false}, {key: runningWorkKey}],
+        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}, {key: tasksKey, required: false}, {key: runningWorkKey, required: false}],
         provides: [agentKey],
         remoteProvides: [agentSessionsContract],
         receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT],
@@ -172,8 +172,9 @@ export const agentBackendPlugin: PluginDefinition = {
             const stop = () => (stopped ??= Promise.all([runtime.stop(), installer.stop().then(() => skillCatalog.close())]).then(() => undefined).finally(() => previews.clear()));
             context.signal.addEventListener("abort", () => void stop(), {once: true});
             context.onStop(stop);
-            // 入口停止时宿主随门面撤下这条登记，不必自己 release。
-            context.services.require(runningWorkKey).register(() => runtime.runningWork());
+            // 入口停止时宿主随门面撤下这条登记，不必自己 release。没有这个能力的宿主照常运行，只是不报。
+            const work = await context.services.resolve(runningWorkKey);
+            if (work.status === "resolved") work.instance.register(() => runtime.runningWork());
             return {
                 services: [provideService(agentKey, runtime.service)],
                 remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, skills: skillCatalog, skillInstaller: installer, skillsFolder: {path: userSkills, open: () => openFolder(userSkills, process.env, process.platform)}, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal), subagents: {relations: runtime.relations, jobs: runtime.jobs, tree: runtime.tree, entry: (id) => runtime.sessionEntry(id), sessionsRoot: runtime.sessionsRoot, report}}, previews))],

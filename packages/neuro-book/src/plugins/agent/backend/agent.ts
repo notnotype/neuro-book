@@ -244,7 +244,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         }
         else options.report("relations-fork-failed", `could not read the index of forked session ${id}: ${entry.code}`, {session: id, code: entry.code});
     };
-    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => restore.forget(id), forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), report: options.report});
+    /** 程序自己开的会话（起标题与说明）：不是用户的工作，停止服务端时不必提示（sessions.md 输出 20）。 */
+    const internal = new Set<string>();
+    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => {
+        restore.forget(id);
+        internal.delete(id);
+    }, forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), report: options.report});
     const table = sessions;
     titles.follow(table);
 
@@ -312,7 +317,10 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
-    const meta = new SessionMeta({table, create: createSession, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
+    const meta = new SessionMeta({table, create: (metaOptions) => {
+        internal.add(metaOptions.id);
+        return createSession(metaOptions);
+    }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
     const children = new ChildRuns({table, jobs, report: options.report});
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
 
@@ -347,7 +355,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         profileAdmin,
         relations,
         jobs,
-        runningWork: () => agentRunningWork({table, relations, titles, jobs}),
+        runningWork: () => agentRunningWork({table, relations, titles, jobs, internal}),
         children,
         tree,
         sessionEntry: (id) => store.entry(id),
