@@ -24,7 +24,7 @@ import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/con
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {editorPanelsKey, quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {EditorAreaContext, EditorAreaHostProps, EditorAreaImplementation, PanelFrameControl} from "nbook/plugins/workbench/web/contracts";
-import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
+import {clockKey, windowCloseKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
@@ -71,6 +71,9 @@ const builtinComponents = (markdown: MarkdownService): Readonly<Record<BuiltinEd
 const builtinImplementation = (components: Readonly<Record<BuiltinEditor, Component>>, id: BuiltinEditor): EditorImplementation => ({load: async () => components[id]});
 
 /** 编辑器区内键位的意图对应的命令。 */
+/** 同意关窗后多久还不请求离开确认：与宿主撤“正在关闭”层的上限相同（docs/specs/runtime/browser-host.md 输出 10）。 */
+const CLOSE_AGREED_MS = 10_000;
+
 const INTENTS = {"save": SAVE_COMMAND, "close": CLOSE_COMMAND, "split-right": SPLIT_RIGHT_COMMAND} as const;
 
 export const editorBrowserPlugin: PluginDefinition = {
@@ -97,7 +100,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: editorPanelsKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: editorPanelsKey}, {key: windowRescueKey, required: false}, {key: windowCloseKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
         provides: [documentCoordinatorKey],
         receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TOOLBAR_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_CODE_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
@@ -196,9 +199,34 @@ export const editorBrowserPlugin: PluginDefinition = {
                 const release = rescue.instance.register(() => session.area.value?.documents.rescue() ?? []);
                 context.signal.addEventListener("abort", release, {once: true});
             }
+            // 桌面窗口关闭前的询问（输出 66）：编辑器是参与方。同意之后到窗口真的关掉之间，页面卸载时不再请求浏览器的离开
+            // 确认（同一件事已经问过一次）；万一窗口没关掉，过一会儿复位，之后的离开照常确认。
+            let closeAgreed = false;
+            let cancelAgreed: (() => void) | null = null;
+            const windowClose = await context.services.resolve(windowCloseKey);
+            if (windowClose.status === "resolved") {
+                const release = windowClose.instance.participate(async ({signal}) => {
+                    const area = session.area.value;
+                    const answer = area === null ? "allow" : await area.closeWindow(signal);
+                    cancelAgreed?.();
+                    closeAgreed = answer === "allow" && !signal.aborted;
+                    if (closeAgreed) {
+                        cancelAgreed = context.services.require(clockKey).schedule(() => {
+                            closeAgreed = false;
+                            cancelAgreed = null;
+                        }, CLOSE_AGREED_MS);
+                    }
+                    return answer;
+                });
+                context.signal.addEventListener("abort", () => {
+                    release();
+                    cancelAgreed?.();
+                }, {once: true});
+            }
             // 离开页面前：结算全部视图输入，有需要结算的文档时请求浏览器的离开确认。开着自动保存时顺手把保存发出去：用户在
             // 确认框里选择留下时正文已经存好；不指望它在卸载前完成。
             const beforeUnload = (event: Event): void => {
+                if (closeAgreed) return;
                 if (session.area.value?.needsLeaveConfirm() !== true) return;
                 session.area.value.leaving();
                 // 现在的浏览器以 preventDefault 请求离开确认（Chrome 119 起不再要求 returnValue）。

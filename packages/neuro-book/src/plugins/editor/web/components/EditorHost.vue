@@ -36,6 +36,9 @@ onMounted(() => document.addEventListener("focusin", onDocumentFocusIn));
 onBeforeUnmount(() => document.removeEventListener("focusin", onDocumentFocusIn));
 
 const dialog = computed(() => props.area.dialog.value);
+// 桌面窗口关闭前的询问（输出 66）：与关标签的询问分开，两者不会同时开着（关窗询问开始时先收掉关标签的）。
+const windowDialog = computed(() => props.area.windowDialog.value);
+const shownPath = (path: string): string => path.replace(/^[a-z]+:\/\//u, "");
 </script>
 
 <template>
@@ -51,6 +54,31 @@ const dialog = computed(() => props.area.dialog.value);
                 <Button variant="ghost" size="sm" data-editor-close-cancel @click="area.answer('cancel')">{{ t("closeDialog.cancel") }}</Button>
                 <Button variant="secondary" size="sm" data-editor-close-discard @click="area.answer('discard')">{{ t("closeDialog.discard") }}</Button>
                 <Button v-if="dialog?.saveable !== false" variant="primary" size="sm" data-editor-close-save @click="area.answer('save')">{{ t("closeDialog.save") }}</Button>
+            </div>
+        </template>
+    </Dialog>
+    <Dialog
+        :open="windowDialog !== null"
+        :title="t(windowDialog?.kind === 'failed' ? 'windowCloseDialog.failedTitle' : 'windowCloseDialog.title')"
+        size="sm"
+        initial-focus="[data-editor-window-close-cancel]"
+        @request-close="area.answerWindow('cancel')"
+    >
+        <p class="text-sm" data-editor-window-close-dialog>{{ t(windowDialog?.kind === "failed" ? "windowCloseDialog.failedBody" : "windowCloseDialog.body") }}</p>
+        <ul class="mt-2 text-sm" data-editor-window-close-files>
+            <li v-for="document in windowDialog?.documents ?? []" :key="document.path" class="truncate">
+                {{ document.conflict ? t("windowCloseDialog.conflict", {path: shownPath(document.path)}) : document.problem === null ? shownPath(document.path) : t("status.failed", {path: shownPath(document.path), reason: document.problem}) }}
+            </li>
+            <li v-if="(windowDialog?.more ?? 0) > 0" class="text-[var(--text-muted)]">{{ t("status.more", {count: windowDialog?.more ?? 0}) }}</li>
+        </ul>
+        <template #footer>
+            <div v-if="windowDialog?.kind === 'failed'" class="flex justify-end">
+                <Button variant="primary" size="sm" data-editor-window-close-cancel @click="area.answerWindow('cancel')">{{ t("windowCloseDialog.ok") }}</Button>
+            </div>
+            <div v-else class="flex flex-wrap justify-end gap-2">
+                <Button variant="ghost" size="sm" data-editor-window-close-cancel @click="area.answerWindow('cancel')">{{ t("windowCloseDialog.cancel") }}</Button>
+                <Button variant="secondary" size="sm" data-editor-window-close-discard @click="area.answerWindow('discard')">{{ t("windowCloseDialog.discard") }}</Button>
+                <Button v-if="windowDialog?.saveable !== false" variant="primary" size="sm" data-editor-window-close-save @click="area.answerWindow('save')">{{ t("windowCloseDialog.saveAll") }}</Button>
             </div>
         </template>
     </Dialog>

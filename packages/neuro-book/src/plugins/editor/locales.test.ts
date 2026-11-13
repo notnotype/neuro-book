@@ -180,6 +180,16 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
 
 const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": string}>> = {
     "tabMenu.float": {"zh-CN": "浮动", "en-US": "Float"},
+    // 桌面窗口关闭时的询问（docs/specs/workbench/editor.md 输出 66）。
+    "windowCloseDialog.title": {"zh-CN": "关闭窗口前保存修改？", "en-US": "Save changes before closing?"},
+    "windowCloseDialog.body": {"zh-CN": "下面的文件还有没保存的修改，不保存的话关闭窗口后修改会丢失：", "en-US": "These files have unsaved changes that will be lost when the window closes:"},
+    "windowCloseDialog.failedTitle": {"zh-CN": "有文件没有保存好", "en-US": "Some files weren't saved"},
+    "windowCloseDialog.failedBody": {"zh-CN": "下面的文件没能保存，窗口没有关闭：", "en-US": "These files couldn't be saved, so the window stays open:"},
+    "windowCloseDialog.saveAll": {"zh-CN": "全部保存", "en-US": "Save All"},
+    "windowCloseDialog.discard": {"zh-CN": "不保存", "en-US": "Don't Save"},
+    "windowCloseDialog.cancel": {"zh-CN": "取消", "en-US": "Cancel"},
+    "windowCloseDialog.ok": {"zh-CN": "知道了", "en-US": "OK"},
+    "windowCloseDialog.conflict": {"zh-CN": "{path}（与磁盘上的版本冲突，要到这份文档上选重新载入或覆盖）", "en-US": "{path} (conflicts with the version on disk; reload or overwrite it in that document)"},
     // Markdown 的编辑命令与菜单（docs/specs/workbench/markdown-editing.md）。
     "banner.retrySave": {"zh-CN": "重试保存", "en-US": "Retry Save"},
     "menus.find": {"zh-CN": "查找", "en-US": "Find"},

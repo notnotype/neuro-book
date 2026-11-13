@@ -74,6 +74,17 @@
         "discard": "不保存",
         "cancel": "取消"
     },
+    "windowCloseDialog": {
+        "title": "关闭窗口前保存修改？",
+        "body": "下面的文件还有没保存的修改，不保存的话关闭窗口后修改会丢失：",
+        "failedTitle": "有文件没有保存好",
+        "failedBody": "下面的文件没能保存，窗口没有关闭：",
+        "saveAll": "全部保存",
+        "discard": "不保存",
+        "cancel": "取消",
+        "ok": "知道了",
+        "conflict": "{{path}}（与磁盘上的版本冲突，要到这份文档上选重新载入或覆盖）"
+    },
     "settingsSections": {
         "nbook": {
             "editor": {
