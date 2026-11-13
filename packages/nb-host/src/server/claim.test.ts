@@ -313,7 +313,10 @@ describe("同一状态根上的另一种认领（桌面壳的锁）", () => {
         if (!claimed.ok) throw new Error(claimed.reason);
         expect(await sendRequest(root, DESKTOP, {type: "open-window"})).toEqual({state: "answered", reply: {ok: true}});
         expect(seen).toEqual([{type: "open-window"}]);
-        expect(await sendRequest(root, DESKTOP, {type: "nope"})).toEqual({state: "answered", reply: {ok: false, code: "unknown-request"}});
+        // 继承自 Object.prototype 的名字也是不认识的请求，不当作处理器调用。
+        for (const type of ["nope", "constructor", "toString", "__proto__", "hasOwnProperty"]) {
+            expect(await sendRequest(root, DESKTOP, {type})).toEqual({state: "answered", reply: {ok: false, code: "unknown-request"}});
+        }
         expect(await sendRequest(root, DESKTOP, {type: "broken"})).toMatchObject({state: "unresponsive"});
         await claimed.claim.release();
         expect(await sendRequest(root, DESKTOP, {type: "open-window"})).toEqual({state: "none"});

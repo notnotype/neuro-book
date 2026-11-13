@@ -221,7 +221,9 @@ async function listen<E extends TProperties>(address: string, options: ClaimOpti
         socket.on("close", () => connections.delete(socket));
         answer(socket, (type, request) => {
             if (type === "hello") return info;
-            const handler = type === null ? undefined : options.requests?.[type];
+            // 只认登记表自己的键：`toString`、`constructor`、`__proto__` 这类继承属性不是处理器。
+            const requests = options.requests;
+            const handler = type === null || requests === undefined || !Object.hasOwn(requests, type) ? undefined : requests[type];
             return handler === undefined ? (options.unknownReply ?? {error: "unknown-request"}) : handler(request);
         }, profile.messageLimit, options.report);
     });
