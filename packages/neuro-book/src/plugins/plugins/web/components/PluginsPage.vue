@@ -5,15 +5,17 @@
  */
 import type {RemoteFailureCode} from "@notnotype/nb-runtime/remote";
 import {Badge, Button, Dialog, Input, Spinner, Switch} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {compareVersions} from "nbook/plugin-platform/shared/versions";
 import type {WindowPlugins} from "nbook/shared/host";
+import {codeText, isRemoteFailureCode, remoteFailureText} from "nbook/web/failure-text";
 
 import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
-import {usePluginsText} from "../text";
+import {pluginsText, usePluginsText} from "../text";
 import type {PluginsTextKey} from "../text";
 import {builtinPluginTextKey} from "../../shared/builtin-names";
 
@@ -55,10 +57,11 @@ const NOT_LOADED: Record<NotLoadedCode, {readonly text: PluginsTextKey; readonly
 type FailureCode = PluginFailureCode | RemoteFailureCode;
 
 /**
- * 业务失败码（plugin-install 的失败码表）都有文字，键是 `errors.<码>`；路由层失败码只写常见的三个，其余显示“操作没有完成”
- * 与详情。路由层的码按提案归宿主的远程文案，宿主目录还没有这一组之前先放在本插件的 `remoteErrors` 下。
+ * 业务失败码（plugin-install 的失败码表）都有文字，键是 `errors.<码>`；路由层失败码用宿主的文案，不认识的码用宿主的
+ * 未知码文案（docs/specs/ui/i18n.md 输出 13）。路由层的码文字已经说全，服务端详情是诊断原文，不列；不认识的码列出详情，
+ * 那是唯一能说明发生了什么的信息。
  */
-const FAILURE_KEYS: Readonly<Record<PluginFailureCode, PluginsTextKey> & Partial<Record<RemoteFailureCode, PluginsTextKey>>> = {
+const FAILURE_KEYS: Readonly<Record<PluginFailureCode, PluginsTextKey>> = {
     "manifest-invalid": "errors.manifest-invalid",
     "catalog-invalid": "errors.catalog-invalid",
     "incompatible-engine": "errors.incompatible-engine",
@@ -70,13 +73,10 @@ const FAILURE_KEYS: Readonly<Record<PluginFailureCode, PluginsTextKey> & Partial
     "not-installed": "errors.not-installed",
     "builtin-fixed": "errors.builtin-fixed",
     "registry-failed": "errors.registry-failed",
-    unavailable: "remoteErrors.unavailable",
-    timeout: "remoteErrors.timeout",
-    "unknown-outcome": "remoteErrors.unknown-outcome",
 };
 
 /** 服务端详情能补充信息的码；其余的码固定文字已经说全，详情只会重复。 */
-const DETAIL_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["manifest-invalid", "catalog-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
+const DETAIL_CODES: ReadonlySet<PluginFailureCode> = new Set<PluginFailureCode>(["manifest-invalid", "catalog-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
 /** 失败后列表可能已过时的码：写出原因之后重新读列表。 */
 const STALE_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["unknown-outcome", "not-installed", "uninstall-pending", "already-installed"]);
 
@@ -85,6 +85,8 @@ type Problem = {readonly serial: number; readonly code: string; readonly reason:
 
 /** 本插件目录里的一段文字，按窗口的当前语言。 */
 const text = usePluginsText();
+/** 宿主目录里的文字（路由失败码、未知码）。 */
+const port = useText();
 /** 显示名与说明：第三方插件取清单里的；内置插件清单里没有，取窗口这侧的名称表（builtin-names.ts）。 */
 const builtinText = (item: PluginListEntry, field: "name" | "description"): string | null => {
     const key = item.source === "builtin" ? builtinPluginTextKey(item.id, field) : null;
@@ -192,6 +194,11 @@ const groups = computed(() => [
     {key: "builtin", heading: "groups.builtin" as const, items: items.value.filter((item) => item.source === "builtin")},
 ]);
 
+/** 失败码的一句原因：路由码取宿主目录，本插件的码取本插件目录，都不是时是宿主的未知码文案。 */
+const reasonOf = (code: string): string => port.t(isRemoteFailureCode(code) ? remoteFailureText(code) : codeText(pluginsText, FAILURE_KEYS, code));
+/** 列不列服务端详情：本插件的码只在能补充时列，路由码不列，不认识的码列。 */
+const listsDetail = (code: string): boolean => (Object.hasOwn(FAILURE_KEYS, code) ? DETAIL_CODES.has(code as PluginFailureCode) : !isRemoteFailureCode(code));
+
 function detailOf(failure: Failure): {readonly detail: string; readonly problems: ReadonlyArray<string>} {
     const detail = failure.detail;
     if (typeof detail === "string") return {detail, problems: []};
@@ -204,12 +211,11 @@ function detailOf(failure: Failure): {readonly detail: string; readonly problems
 
 /** 写出失败说明并让它进入视野（行内操作的失败可能发生在滚下去的位置）；列表可能已过时时等重新读完。 */
 async function report(failure: Failure): Promise<void> {
-    const known: PluginsTextKey | undefined = FAILURE_KEYS[failure.code];
     const {detail, problems} = detailOf(failure);
     // 出错字段（清单无效）本身就是原因；没有时才用服务端的一句话。
     const lines = problems.length > 0 ? problems : [detail].filter((line) => line !== "");
     serial += 1;
-    problem.value = {serial, code: failure.code, reason: text(known ?? "failures.unknown"), lines: known === undefined || DETAIL_CODES.has(failure.code) ? lines : []};
+    problem.value = {serial, code: failure.code, reason: reasonOf(failure.code), lines: listsDetail(failure.code) ? lines : []};
     await nextTick();
     problemRegion.value?.scrollIntoView({block: "nearest"});
     if (STALE_CODES.has(failure.code)) await refresh();
@@ -228,9 +234,8 @@ async function refresh(): Promise<"failed" | "ready" | null> {
     if (mine !== generation) return null;
     reading = false;
     if (!result.ok) {
-        const known = FAILURE_KEYS[result.code];
         const {detail} = detailOf(result);
-        loadFailure.value = [text(known ?? "failures.unknown"), detail].filter((line) => line !== "").join(" · ");
+        loadFailure.value = [reasonOf(result.code), listsDetail(result.code) ? detail : ""].filter((line) => line !== "").join(" · ");
         state.value = "failed";
         return "failed";
     }

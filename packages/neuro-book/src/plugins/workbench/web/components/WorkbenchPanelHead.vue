@@ -78,12 +78,13 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
 <template>
     <header class="workbench-panel-head" :data-panel-head="panelId">
         <div class="workbench-panel-head__band" :data-panel-band="panelId" :data-panel-strip="panelId">
-            <!-- 头只写标题时它就是拖动源（docs/specs/ui/workbench-layout.md 输出 20）。内容的 `aria-labelledby` 指向它，所以名称就是标题，怎么拖写在描述里。 -->
+            <!-- 头只写标题时它就是拖动源（docs/specs/ui/workbench-layout.md 输出 20）。内容的 `aria-labelledby` 指向它，所以名称就是标题，怎么拖写在描述里。
+                 焦点光晕画在里面：标题要省略号，外面一层是 `overflow: hidden`，画在外面会被裁掉（和标签一样用内描）。 -->
             <h2 v-if="activeTab !== null" class="workbench-panel-head__title">
                 <button
                     :id="panelTabDomId(idPrefix, activeTab.id)"
                     type="button"
-                    class="workbench-panel-head__handle nb-ui-focus-ring"
+                    class="workbench-panel-head__handle nb-ui-focus-ring-inset"
                     tabindex="0"
                     :data-panel-tab="activeTab.id"
                     :aria-description="dragHint === '' ? undefined : dragHint"

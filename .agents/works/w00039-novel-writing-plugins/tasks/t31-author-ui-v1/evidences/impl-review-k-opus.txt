@@ -1,0 +1,221 @@
+w00039 t31 内核补口（K-a、K-b、K-c）实现审查，审查者 Claude Opus，对象 6973bbb28..6be7f80fb
+（条目按核实先后追加；文末“汇总”里按影响重新排序）
+
+### 1. 就地改、记一笔、语义档的记一笔对“值为 undefined 的键”直接抛 TypeError（K9 的输入摘要引入的回归）
+- 严重程度：重要
+- 类别：正确性 / 错误路径
+- 位置：packages/nb-canon/src/world/edits.ts:225-227（inputDigest 用 canonicalJson），被 editInPlace:139、recordNote:219、recordDelta:274 在一切校验之前调用
+- 现象：inputDigest 用 core/stable-json.ts 的 canonicalJson 给调用方的原始输入算摘要；canonicalJson 遇到值为 undefined 的键直接 throw（stable-json.ts:48）。
+  进程内调用 service.editInPlace({..., title: undefined}) / ({..., intent: undefined}) / position 里 line: undefined / read.value 为 undefined，
+  得到的不是失败结果，而是被拒的 Promise（TypeError "canonical JSON: key \"title\" is undefined"）。同一份输入走 previewEdit 却是 ok：预览不算摘要，
+  于是“预览通过、写入抛异常”。
+- 为什么是问题：base 上这些输入都正常（base 只对合成的写入请求算摘要，title 用 `?? "就地改"` 兜住、position 先经 onLine 去掉 line）。
+  nb-canon 的 tsconfig 没开 exactOptionalPropertyTypes，`title: undefined` 能过类型检查；InPlaceEdit.read.value 是 unknown，读一个不存在的列表元素
+  得到 undefined 也是合法输入。产品当前只经链路（JSON 序列化，没有 undefined）调用，所以眼下没触发；但内核的公开函数 editInPlace/recordDelta/recordNote
+  与 WorldService 的同名方法对进程内调用方（计划里的 Agent 记账工具 t19/t20、测试）变成了会抛的接口，并且错误不是 EditFailure。
+- 如何核实：/tmp/review-w00039-t31-impl-k/exp/t1/undefined-key.ts（星瑕样本，真实 WorldService 与 node 日志）：
+  `title: undefined -> THROWN canonical JSON: key "title" is undefined`，intent、position.line 同样；对应的 previewEdit 全是 ok。
+  同一脚本对 base（git archive 6973bbb28 解到 exp/base）跑：三条都正常返回（ok / value-conflict）。
+- 建议改法：输入摘要改用跳过 undefined 的 stableStringify（与 setChapters 等处一致），或在摘要前按 schema 规整输入（去掉 undefined 键、position 先 onLine）；
+  补一条“可选键显式写 undefined 与不写，摘要相同、重发判为同一请求”的用例。
+
+### 2. tree 每次调用用展开复制建“父到子”表，条目数的平方级；比 base 更慢
+- 严重程度：重要
+- 类别：性能（热路径）
+- 位置：packages/nb-canon/src/service/service.ts:925（`below.set(entry.parent, [...(below.get(entry.parent) ?? []), entry])`）
+- 现象：每处理一个条目就把同一父条目下已有的数组整个复制一遍。条目都挂在根下（三百万字夹具就是 520 个条目全在根下）时是 n²/2 次复制。
+  这张表每次 tree 调用都重建，而条目树每展开一层、每翻一页都调一次 tree。
+- 为什么是问题：同样的写法隔离测量（exp/tree-bench.ts，只量建表这一步）：520 条 3.5 ms、2000 条 16.8 ms、5000 条 78 ms、10000 条 360 ms；
+  改成 push 分别是 0.06、0.19、0.30、0.38 ms。base 的 tree 是 O(页长 × n)（50 × 520 次比较），新写法在 520 条时就已经更慢，条目一多直接出预算。
+  tree 不在规模脚本里，所以输出 14 的测量看不到它。
+- 如何核实：bun /tmp/review-w00039-t31-impl-k/exp/tree-bench.ts
+- 建议改法：`const list = below.get(entry.parent); if (list === undefined) below.set(entry.parent, [entry]); else list.push(entry);`。
+  更进一步：`below` 与 `listed` 只依赖 world.data.entries，可以按 WorldData 用 WeakMap 缓存（同 lineTable 的做法），同一版本翻页、展开各层不重建；
+  规模脚本补一项“根这一层的 tree”。
+
+### 3. changedAt 与条目树墓碑规则的几条判据没有测试覆盖（五个变异全部存活）
+- 严重程度：重要
+- 类别：测试
+- 位置：packages/nb-canon/tests/author-reads.test.ts（K-b 两组）、tests/differential.test.ts:262-273；对应实现 src/core/address.ts:41-45（fieldPath）、
+  src/service/service.ts:156-176（#changedAt）、service.ts:917-941（listed、hasChildren）
+- 现象：逐个改坏实现、用备份还原（工作区确认干净），跑 author-reads、service、views、edits，以及 CANON_DIFF_SEEDS=3 STEPS=40 的差分测试：
+  D. fieldPath 改成原样返回路径（元素与子字段的补丁不再算到字段上）：差分、author-reads、edits、service 共 73 条全过。差分两个引擎共用 fieldPath，
+     第二段“对来历”只比 panel.存款 与 character.态度 两个标量字段，抓不到；
+  E. #changedAt 遇到子线上带过去的值直接 return null（输出 32“子线上带过去的给原线上的那一条”）：186 条全过（含 worldlines、revisions）；
+  F. #changedAt 的核对点分支改成 return null（“核对点给的起点给那个核对点”）：全过；
+  G. hasChildren 改回“有任何子条目”（不按墓碑规则数）：全过；
+  H. 已删除条目只要有子条目就列（不看子孙是否也都删了）：全过。
+  另外 author-reads“删掉一个没有子条目的条目后……它的上级照常显示有没有子项”这条，标题说了上级的 hasChildren，正文没有任何 hasChildren 的断言。
+- 为什么是问题：计划“要守住的”写了“两个引擎的差分测试覆盖 K5 新加的地址种类”，Spec 输出 32 的三处口径（元素与子字段、核对点、子线）与输出 30 的
+  “hasChildren 与 remaining 只数会列出的”都是这次新加的行为，目前只靠实现正确。E 我另用真实 WorldService 验证过实现本身是对的
+  （exp/t1/changed-at-child.ts：回溯线与两层回溯线上 rb.次数 的 changedAt 都给到主线的 c3），所以这条只是缺测试，不是缺陷。
+- 如何核实：备份在 /tmp/review-w00039-t31-impl-k/exp/bak/，改法见上；命令 `bun test tests/author-reads.test.ts tests/service.test.ts tests/views.test.ts`
+  与 `CANON_DIFF_SEEDS=3 CANON_DIFF_STEPS=40 bun test tests/differential.test.ts`。
+- 建议改法：差分第二段把列表字段 know.认得（其元素子字段有 note、set、语义档核对点）也纳入，并按 fieldPath 口径比“来历里碰到元素的最后一步”；
+  author-reads 加三条：语义档字段在核对点之后读得 {by: "check"}、回溯线上带过去的字段给原线那条变更、删除上级的唯一子条目后上级 hasChildren 为假，
+  以及“已删除条目下只有已删除子条目时不列”。
+
+### 4. components.md 输出 21 的“条目上实例声明的字段在 entry 的那个命名空间里给出同样形状的声明”没有实现，面板拿不到字段声明
+- 严重程度：重要
+- 类别：正确性 / 合同缺口
+- 位置：packages/nb-canon/src/service/service.ts:347-370（entry 只加了 ancestors、sameAs、folder 与 changedAt）；engine/types.ts:75-81（NamespaceView 没有声明）；
+  components() 在 service.ts:893-895 只给登记里类型固定的 fields
+- 现象：Spec components.md 输出 21 末句（t31 的 Spec 提交 ab0f467cc 新加，属本次 planned 范围）要求 `entry` 在允许实例字段的命名空间里给出实例声明。
+  实现没有做：EntryView 的 NamespaceView 只有 type、version、readOnly、fields。内置的面板类型 nbook.canon.panel（plugins/canon/shared/components.ts:51-56）
+  `instanceFields: true` 且没有固定字段，所以 `components` 给面板的 fields 是空的；存款、魔力这些字段的 kind、precision、item 只在条目初值的
+  `init.data.panel.declared` 里，经远程合同只能用 `object` 读整条存下来的条目再自己拼。
+- 为什么是问题：author-ui.md 的 ComponentViewContext.declarations 写明“含条目上实例声明的”，面板是第一批两个数据分页之一；计划 K7 的用途就是“就地改按字段出控件”。
+  验收映射把 components.md 输出 21 算在合同测试里，但没有一条测试碰实例字段（author-reads 只比了 panel 的 fields 与声明原样，两边都是固定字段那份）。
+- 如何核实：`grep -n "instanceFields" packages/neuro-book/src/plugins/canon/shared/components.ts`；`grep -n "declared" packages/nb-canon/src/engine/types.ts`（无结果）；
+  读 service.ts:347-370 的 entry。
+- 建议改法：NamespaceView 加可选的 `declared`（只在类型 instanceFields 为真且条目上有声明时给，值为 effectiveFields 里实例那部分，或直接给 effectiveFields 全份），
+  在 buildEntryView 里两个引擎同一处填（不进差分以外的路径）；或者在服务的 entry 外层补（带视图令牌时也可以给，声明不涉及位置）。若决定不做，就改 Spec 21 的末句
+  并在 author-ui 写明读取层从 `object` 取。
+
+### 5. changes 给了 before、没写 worldline 时，套没套上按“最新一章讲的线”算，子线上的变更 outcome 是 null
+- 严重程度：重要
+- 类别：正确性 / 与 Spec 输出 31 不一致
+- 位置：packages/nb-canon/src/service/service.ts:976-988（worldline 缺省仍是 positionLine(defaultPosition)）；service/reads.ts:411-428（beforeFilter 只拿位置的线做成员筛选）；
+  reads.ts:532-535（changeItem 按 worldline 取 outcome）
+- 现象：before 的位置在子线 r1 上、不写 worldline 时，列表按 r1 的视图筛（对），但每项的 outcome 按缺省线（最新一章讲的线，通常是主线）算：
+  只在 r1 上的变更不在主线视图里，outcome 是 null；同一请求加上 worldline: r1，outcome 才是 {applied: true}。
+- 为什么是问题：Spec 输出 31 写“按这个位置的线算（不写线时是那一章讲的线），只列那条线视图里的”，这里只做到了后半句。情节分页按条目页的读取位置
+  调 changes（作者在子线上看一个条目时位置带 line），界面会把本线上明明套上了的变更显示成没有结果；progress 筛选同样按错的线判。调用方要知道
+  “before 之外还得再写一遍 worldline”，这是 Spec 没写的隐含约定。
+- 如何核实：/tmp/review-w00039-t31-impl-k/exp/t1/changes-before-line.ts（真实 WorldService，回溯线 l1 上记一条 c5）：
+  `before on r1, no worldline: [{"id":"c5","line":"l1","outcome":null},...]`；`before on r1, worldline r1: [{"id":"c5","outcome":{"applied":true}},...]`。
+- 建议改法：service.changes 里 `const worldline = filter.worldline ?? (filter.before !== undefined ? world.positionLine(filter.before.position, filter.before.mode) : world.positionLine(defaultPosition(...)))`，
+  游标参数随之带上算出的 worldline（现在已经带）；补一条子线位置的用例。
+
+### 6. origins 的“路径不认”漏了“非列表字段带元素”：panel.存款[x] 返回父字段的补丁、值全是 undefined
+- 严重程度：建议
+- 类别：正确性 / 边界
+- 位置：packages/nb-canon/src/service/service.ts:178-185（addressDeclared）
+- 现象：addressDeclared 只在有 `.子字段` 时查 item 声明；`命名空间.字段[元素]` 不看这个字段是不是列表。对数值字段 panel.存款 读 origins({path: "panel.存款[x]"})，
+  得到 total 3、每一步 kind patch、result undefined（引擎按前缀重叠把父字段的补丁算了进来），initial 是 {kind: "init", value: undefined}。
+  同一地址走 editInPlace / previewEdit 得到 value-conflict（current undefined），也不是“地址不认”。
+- 为什么是问题：model.md 输出 37“路径不是声明过的地址时结果是空的”；返回一页看似真实、值却全空的来历，界面会照着画出几行“改成了（空）”。
+- 如何核实：/tmp/review-w00039-t31-impl-k/exp/t1/origins-addr2.ts（星瑕样本）：panel.存款 total 5；panel.存款[x] total 3、首项 result undefined；panel.存款[x].y 才是空。
+- 建议改法：元素路径要求字段 kind 为 list（`parsed.element === undefined || field.kind === "list"`），子字段再查 item；就地改的地址校验可以共用同一个判断，
+  在 planEdit 开头给出 field-unavailable 或 validation-failed，而不是 value-conflict。
+
+### 7. 章标题与章正文各自找“这一章的文件”，规则不同，可能取自两个不同的文件
+- 严重程度：建议
+- 类别：正确性 / 隐含耦合
+- 位置：packages/neuro-book/src/plugins/canon/backend/binder.ts:131-145（chapterTitles）对照 binder.ts:116-124（chapterText）
+- 现象：chapterTitles 认任意位数的编号（`String(Number(match[1]))`），同一章有两个文件时取 readdir 里最后一个；chapterText 只认五位补零的前缀、取第一个。
+  实测：目录里有 00002-甲.md、00002-乙.md、012-丙.md 时，第 2 章正文取“甲”的文件、标题却是“乙”；第 12 章有标题“丙”、正文是空的。
+- 为什么是问题：Spec 输出 28 说标题是“章节文件名里的标题”，隐含前提是“那一章的文件”只有一个、两处认的是同一个。两套规则各写一份，结果靠 readdir 顺序碰巧一致。
+- 如何核实：bun /tmp/review-w00039-t31-impl-k/exp/binder/t.ts → `titles [["2","乙"],["12","丙"]]`、`text 2 A text 12 undefined`。
+- 建议改法：binder.ts 出一个“列出各章的文件”的函数（一次 readdir，按同一规则选文件，重名时确定性地取一个并写诊断），chapterText 与 chapterTitles 都从它取；
+  窄场景，至少让两处的编号规则与重名时的取法一致。
+
+### 8. previewEdit 的 accumulated-value 失败带整份来历，且远程层不量失败的大小；预览让这条成了热路径
+- 严重程度：建议
+- 类别：性能 / 预算（base 上已有，本次放大）
+- 位置：packages/nb-canon/src/world/edits.ts:178-179、194（`{code: "accumulated-value", origins}`，origins 是整份来历）；
+  packages/neuro-book/src/plugins/canon/backend/remote.ts:131-136（previewEdit 失败经 fail 原样带回）、remote.ts:26（fail 不做 encodedBytes 检查）
+- 现象：三百万字夹具上常出场条目的存款有 8001 步，按规模脚本同一世界量得 accumulated-value 失败编码后 515,610 字节（exp/scale-copy.ts 末尾），
+  每次对这个字段打开“就地改”的确认条预览一次就整份序列化一次；补丁带 basis 说明或 id 更长时会越过 960 KiB 的预算，而失败路径不会回 too-large，
+  直接撞 1 MiB 的消息上限。同一请求的写入（editInPlace）在 base 上就是这样，只是以前只有点了“保存”才走到。
+- 为什么是问题：K5 已经把来历改成分页（设计审查内核第 2 条就是因为整份来历超预算），这里的失败详情却仍是整份；预览是确认条一打开就调的读方法。
+- 如何核实：`bun /tmp/review-w00039-t31-impl-k/exp/scale-copy.ts`（规模脚本的副本，末尾加了一段量 JSON 字节数），输出 `hot origins steps 8001 ... failure JSON bytes 515610`。
+- 建议改法：accumulated-value 的详情改成“总步数加最近一页”（或只给 total，界面用 origins 翻页），Spec revisions 输出 8 的“详情给出来历”相应改；
+  远程层的 fail 也按预算量一次，超了把详情裁成只剩 code。
+
+### 9. 几条测试的标题、验收判据与断言对不上，或期望值取自同一份实现
+- 严重程度：建议
+- 类别：测试
+- 位置：packages/nb-canon/tests/author-reads.test.ts:92-114、191-202、232-275；tests/edits.test.ts:201-307
+- 现象与问题：
+  a. author-reads:92 标题与 project.md 验收 10 都写“宿主只改第 2 章各段讲的线：版本不变，收到 inputChanged，重读得到新的线”，用例只改了标题（setChapters 第二个参数是 undefined），
+     全部测试里没有一处只改段的线。实现本身是对的（exp/t1/lines-only.ts：只给第 2 章两段，收到 inputChanged:chapters、版本不变、重读得到两段），缺的是这条判据的测试。
+  b. author-reads:191 标题“它的上级照常显示有没有子项”，正文没有 hasChildren 断言（第 3 条的变异 G、H 因此存活）。
+  c. author-reads:232 来历分页的期望 `between` 取自 service.entry(..., withOrigins) 的整份来历，与被测的 service.origins 是同一个引擎方法的两条出口，
+     只能证明“分页与倒序”，证明不了步本身；初值 41800 与“工资到账”是独立的期望，可以再加“总步数等于样本里改过存款的变更数加核对点数”这类从样本数出来的期望。
+  d. K9 的几条边界没有测：请求 id 已被普通 publish、回写或还原用过时 editInPlace 得到 request-id-reused；recordNote 用同一请求 id 重发；重发得到的 laterRecords。
+     edits.test 只测了 editInPlace 与 recordDelta 的同输入、换输入。
+- 如何核实：读上述行；a 的实现行为见 exp/t1/lines-only.ts 的输出 `events [ "inputChanged:chapters" ] version same true`。
+- 建议改法：a 在同一用例里加一步只给 chapterLines 的 setChapters；b 加 hasChildren 断言（见第 3 条）；c 改成从样本数期望；d 各补一行断言。
+
+### 10. 打开后补读一次活页夹（world-host 新加的 reloadBinder）在没有活页夹的项目里发布一次空的“章序调整”，现有用例“订阅：释放后不再收到事件”因此失败
+- 严重程度：重要
+- 类别：正确性 / 竞态 / 破坏既有测试
+- 位置：packages/neuro-book/src/plugins/canon/backend/world-host.ts:277-279（打开后无条件 reloadBinder()）；根因在 packages/nb-canon/src/world/world.ts:631-634（base 已有）
+- 现象：World.reorder 只在“没记过章序、章序为空且版本是 0”时视为不用发布；版本大于 0、从没记过章序、宿主给空章序时，会发布一次 before [] after [] 的
+  system“章序调整”。base 上这只在打开时发生一次（open 里的 setChapters）。新加的 reloadBinder 在打开后 50 毫秒（排在写入队列后面）再调一次 setChapters：
+  新项目在版本 0 打开、调用方紧接着写了东西，这次补读就发布一条空的章序调整，并发一条 changed（what: "reorder"）。
+- 为什么是问题：
+  1) 应用测试 packages/neuro-book/src/plugins/canon/canon.test.ts:265“订阅：释放后不再收到事件”在本提交上失败：我这里负载 11 到 15 时单独跑连续三次都失败，
+     加日志看到 kept 收到三条 changed：r1“星瑕”、r2“星瑾”、r3 system reorder“章序调整”，用例等的是恰好两条。把 client.ts 新加的 inputChanged 订阅那一行
+     临时删掉（备份还原）它就过了，只是因为订阅少一条、时序变了，不是那一行本身的错。主会话那边可能是负载低时补读赶在第一次发布之前（版本 0，不发布）所以没看到。
+  2) 产品上：没有活页夹的新项目第一次写入后，改动记录里多一条作者没做过的“章序调整”，读取层收到一次全量失效的 changed。
+- 如何核实：
+  `cd packages/neuro-book && bun test src/plugins/canon/canon.test.ts -t "订阅：释放后"`（负载高时稳定失败）；
+  内核层直接复现：`bun /tmp/review-w00039-t31-impl-k/exp/t1/empty-reorder.ts <nb-canon 目录>` → `events [ "changed:edit", "changed:reorder" ]`，
+  修订表多出 `reorder:{"kind":"chapters","before":[],"after":[]}`。
+- 建议改法：World.reorder 在 `recorded === null && order.ids.length === 0` 时一律返回 null（空章序与“没记过”等价，没有东西要记），不再看版本；
+  canon.test 那条用例只数 what 为 edit 的 changed，或先等打开后的补读做完再订阅。补读本身（主会话自定第 7 条）是对的，保留。
+
+### 11. 几处小的一致性与可简化之处
+- 严重程度：建议
+- 类别：代码质量 / 边界
+- 位置与现象：
+  a. packages/neuro-book/src/plugins/canon/shared/contracts.ts:59-71 的注释说 EditFields、DeltaFields、NoteFields“写入与预览共用，两边的字段才不会各写各的”，
+     editInPlace、recordDelta 用了，recordNote（contracts.ts:184-189）却把同样的字段又逐个写了一遍。改成 `Type.Object({...NoteFields, token: Token, view: View})`。
+  b. 预览的修订带的是 `requestId: "preview:<id>"` 与合成请求的 requestDigest（world.preview 不传摘要覆盖），与随后真正写入的修订这两项不同；
+     远程层 previewEdit 原样交出 revision。界面若把预览的修订当回执展示或比对会看到假 id。返回前把 requestId 换回调用方的，或者只交 ops 与 impact。
+  c. service.ts:1207-1209 setChapters 在排进写入队列之前就换上新标题：写入队列里有别的写入时，这段时间 chapters() 给的是“旧章序 + 新标题”；
+     宿主给 "invalid" 时直接 return，标题也不更新（文件改了名但清单坏了，标题停在旧的）。把标题的赋值挪进 .then、与章序一起换上即可。
+  d. service.ts:1217-1219 只读世界里每次 setChapters 都无条件追加一条 reorder-not-recorded 诊断（不看章序到底变没变）；base 上就有，打开时一条、活页夹每变一次一条，
+     这次的补读让每次打开又多一条重复的。只在章序与记下的不同时才记，或按码去重。
+  e. scripts/scale.ts 新加的两项量的是引擎（engine.lastTouched、engine.origins），输出 14 的口径是“项目进程里直接调用”服务；服务层的 #withChangedAt
+     （逐个命名空间复制、每个字段查一次 #changedAt）与 service.origins（每页重算整条、再按变更补 at 与 text）不在测量里。我在负载 11 到 15 下跑规模脚本副本：
+     带 changedAt 的随机读中位 5.13 ms、最慢 42 ms；来历一页中位 56 ms、最慢 327 ms（主会话负载 3.5 时是 2.05/15 与 20/111）。建议改成调 WorldService，或另加一项服务层的。
+- 如何核实：读上述行；e 见 /tmp/review-w00039-t31-impl-k/exp/scale-copy.ts 的输出。
+
+## 汇总
+
+### 按影响排序
+1. 第 10 条（重要）打开后补读活页夹触发空的“章序调整”，canon.test“订阅：释放后不再收到事件”在负载下稳定失败
+2. 第 5 条（重要）changes 给了 before 不写 worldline 时 outcome 按最新一章的线算，子线上的变更 outcome 为 null
+3. 第 4 条（重要）components.md 输出 21 的实例字段声明没进 entry，面板拿不到字段声明
+4. 第 1 条（重要）K9 的输入摘要用 canonicalJson，值为 undefined 的键让三个写入方法抛 TypeError（预览却通过）
+5. 第 2 条（重要）tree 建“父到子”表是平方级，5000 条 78 ms、10000 条 360 ms，比 base 慢
+6. 第 3 条（重要）changedAt 的元素与子字段、核对点、子线三种口径与墓碑规则的 hasChildren 没有测试，五个变异全部存活
+7. 第 6 条（建议）origins 的地址判断漏了“非列表字段带元素”
+8. 第 8 条（建议）accumulated-value 的详情带整份来历（夹具上 0.5 MB），预览让它成了热路径，失败不量预算
+9. 第 7 条（建议）章标题与章正文各认各的文件
+10. 第 9 条（建议）测试标题与断言、验收判据对不上，来历分页的期望取自同一实现，K9 边界缺用例
+11. 第 11 条（建议）若干小处：recordNote 合同没复用字段、预览修订的假 requestId、标题先于章序换上、只读时重复诊断、规模脚本量的是引擎不是服务
+
+### 未发现问题的方面
+- 两个引擎的 lastTouched：对按计划模式的覆盖层、已删除的条目（时间线被删、参照实现先判 deleted，结果同为空）、核对点给起点、条目不在时间线里，逐条对照后口径一致；
+  差分测试在“增量引擎忽略套没套上”的变异下三个种子都失败，说明两引擎比较本身有效（缺的是两引擎共用部分的口径测试，见第 3 条）。
+- #changedAt 往父线找的循环：每轮换到 definer.parent，线表是树，不会死循环；父线不可建时 originsAfter 为 null，退出得 null。用真实 WorldService 构造回溯线与两层回溯线，
+  rb.次数 的 changedAt 都正确给到主线的 c3（exp/t1/changed-at-child.ts）。窄处：originsAfter 只收与字段地址完全相同的核对点，父线上“元素子字段的语义档核对点”
+  在映射时会被跳过，只有回溯者带过去的列表字段里有语义档子字段时才会遇到，记为已知限制即可。
+- origins 的游标参数（method、address、position、mode）完整；paged 减半重取时每次重算整条来历，成本见第 11 条 e，正确性没问题。
+- edits.ts 重构：result-mismatch 的核对、laterRecords 的位置（规整过线的位置）、各失败码与 base 一致；repeated 遇到被普通 publish、回写、还原用过的请求 id 时摘要不同，
+  得到 request-id-reused（合理，但没测，见第 9 条 d）；预览与写入共用 plan*，新对象的 id 由分配器按世界发号、与请求 id 无关，所以预览与写入的操作逐字相同。
+- setChapters / setRegistries 的 inputChanged：只读世界（#write 不调 compute、.then 换上新章序后比表）会发；invalid 不发（章表也没变）；标题从有到无会发；
+  发布了章序调整时只有 changed，不重复；setRegistries 在写入队列里比较、只比 types，登记同一份不发。只改段的线也会发（exp/t1/lines-only.ts）。
+- 视图令牌：entry 带令牌走 #viewedOn，拿不到 ancestors、sameAs、folder、changedAt；origins、revision、previewEdit、recordNote 带令牌拒；chapters 夹到上限所在章；
+  changes 的 before 经 within 校验上限与线、total 只数视图里的。与 Spec 输出 35 一致。窄处（不记为发现）：上限所在那一章的 lines 会列出这一章后面几段讲的线 id。
+- ./schema 的导入边界：新加的都是 type 导出，architecture.test 通过；nb-canon 的 tsc --noEmit 通过。
+- tree 现有调用方：在 packages/neuro-book/src/plugins 与 nb-story 里没搜到别的 tree 调用（只有远程层），墓碑规则对它们没有影响；service.test 原有的墓碑用例仍过。
+- Spec 输出 30 的“缺省见 model 输出 21”：远程层只在给了 position 时才带位置上的几项，只给 mode 时忽略 mode；Spec 这句可以读成“给位置时的缺省”，不记为发现。
+
+### 对主会话自定七条的判断
+1. before 列已写变更不论生效状态、计划按模式与计入：合理，Spec 输出 31 已同步，用例覆盖了实际与按计划两种模式。
+2. changedAt 与来历同口径（整条套上、补丁碰到字段就算）：合理且简单，两引擎一致；但“碰到元素与子字段也算”没有测试保护（第 3 条 D）。
+3. 来历页里核对点也带安放 at：合理，Spec model 输出 37 已写，用例有断言。
+4. 墓碑规则对不带位置的 tree 同样生效：合理，没有别的调用方受影响；hasChildren 的规则缺测试（第 3 条 G、H）。
+5. 存调用方输入的摘要：方向对，修好了重发报 value-conflict；但摘要用 canonicalJson 引出第 1 条，且没先规整（位置写不写 line 会算成不同请求）。
+6. 预览用 preview:<请求 id>：可行，与“预览不看请求 id”的合同一致；副作用是预览的修订带假 requestId 与另一份摘要（第 11 条 b）。
+7. 打开后补读一次活页夹清单：修竞态的做法对，但让 base 上 reorder 的空章序怪癖在新项目里可达，并使一条现有用例在负载下失败（第 10 条）。
+
+### 各级数量
+阻断 0；重要 6（第 1、2、3、4、5、10 条）；建议 5（第 6、7、8、9、11 条）。共 11 条，无撤回。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11

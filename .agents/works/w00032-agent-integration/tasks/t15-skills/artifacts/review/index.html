@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>w00032 t15 Skill：评审板</title>
+<style>
+body { max-width: 1100px; margin: 24px auto; padding: 0 16px; font: 15px/1.7 system-ui, sans-serif; }
+.row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.row > div { flex: 1 1 320px; min-width: 0; }
+figure { margin: 0 0 8px; }
+figcaption { margin-bottom: 6px; font-weight: 600; }
+img { max-width: 100%; height: auto; border: 1px solid #8884; border-radius: 6px; }
+.badge { padding: 1px 6px; border-radius: 4px; background: #e8a33d33; font-size: 12px; }
+.note { color: #666; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>t15 Skill</h1>
+<p>第 3 轮：按第 2 轮的答复改了 <code>$</code> 菜单的徽标列和确认框，各一道题。第 1、2 轮的决定见页底。</p>
+
+<section data-nbdev-question="menu-badge-r3" data-nbdev-type="single" data-nbdev-recommend="column">
+  <h2><span class="badge" data-nbdev-skip>待定</span><code>$</code> 菜单：徽标列的留白</h2>
+  <div class="row">
+    <div data-nbdev-option="column" data-nbdev-label="A 收窄的徽标列（推荐）">
+      <figure><figcaption>A 每行留一列，只有一个徽标宽</figcaption><img src="r3/menu-column.webp" alt="徽标列收窄到一个徽标的宽度，徽标靠右；没有徽标的行右边空出一个徽标宽；说明的右端都对齐"></figure>
+      <p>“正在初始化”改成四个字的“初始化中”，与“未初始化”一样宽，徽标列就只留一个徽标的宽度、间距也收小了。说明的右端每行对齐，符合上一轮写进规范的“同一种零件落在同一列”。Skill 页的徽标同样改叫“初始化中”。</p>
+    </div>
+    <div data-nbdev-option="inline" data-nbdev-label="B 不留列，徽标紧跟说明">
+      <figure><figcaption>B 只有带徽标的行才有</figcaption><img src="r3/menu-inline.webp" alt="没有徽标的行说明贴到最右；带徽标的行徽标在最右，说明往左让出一个徽标宽"></figure>
+      <p>没有徽标的行说明贴到最右，右边不再留空；带徽标的行说明往左让出一个徽标宽，所以说明的右端不再全对齐。</p>
+    </div>
+  </div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
+</section>
+
+<section data-nbdev-question="init-dialog-r3" data-nbdev-type="single" data-nbdev-recommend="accept">
+  <h2><span class="badge" data-nbdev-skip>待定</span>确认框：几种状态同一个版式</h2>
+  <div class="row">
+    <div>
+      <figure><figcaption>确认：有锁文件</figcaption><img src="r3/init-plan.webp" alt="一行状态：要装 23 个包，需要联网；中间一块列出直接依赖；两行说明：安装脚本不会运行"></figure>
+      <figure><figcaption>正在安装</figcaption><img src="r3/init-installing.webp" alt="一行状态：正在安装；中间一块是安装输出；说明：关掉也会在后台继续装"></figure>
+    </div>
+    <div>
+      <figure><figcaption>确认：没有锁文件</figcaption><img src="r3/init-no-lock.webp" alt="中间一块与有锁时一样大；会生成锁文件这句放在说明行，黄字"></figure>
+      <figure><figcaption>失败</figcaption><img src="r3/init-failed.webp" alt="一行状态红字：初始化没有成功；中间一块是安装输出；说明行红字写原因"></figure>
+    </div>
+  </div>
+  <p>每种状态都是三块：一行状态、中间一块（确认时是直接依赖，装的时候和失败后是安装输出）、两行说明。三块的位置与大小固定，状态之间只换里面的文字、颜色与按钮。</p>
+  <ul>
+    <li>没有锁时的那句移到说明行（黄字），不再挤小中间那块。</li>
+    <li>失败：状态行写“初始化没有成功”，原因写在说明行（红字）。</li>
+    <li>“标签已经插进输入框”这类话都去掉了。装的时候的说明只写“关掉也会在后台继续装”，进度与结果的去处等后台任务系统定。</li>
+  </ul>
+  <p class="note">这条原则已写进 nb-ui 开发规范（“几何、排版与动效”与自检清单）和 Skill 的 Spec。</p>
+  <div data-nbdev-option="accept" data-nbdev-label="可以"></div>
+  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>第 2 轮的答复（第 33–37 条）</h2>
+  <ul>
+    <li><b>后台安装的进度与结果</b>：先另开一个 Task 做通用的后台任务系统，t15 的界面几片等它。</li>
+    <li><b>Skill 页</b>：整页共用几列，照第 2 轮的稿。</li>
+    <li><b><code>$</code> 菜单</b>：右边空白太多（本轮改了，见上）。</li>
+    <li><b>确认框</b>：几种状态区别不要太大，不写“标签已插进输入框”（本轮改了，见上）；原则写进规范与 Spec。</li>
+    <li><b>没带上的 Skill</b>：界面不提示；改成给模型一条 system-reminder，排在用户的话前面（已经实现）。</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>第 1 轮的答复（第 27–32 条）</h2>
+  <ul>
+    <li><b>Skill 页</b>：徽标与按钮对齐、“坏了”改为“无效”；对齐写进规范。</li>
+    <li><b><code>$</code> 菜单</b>：用黄色徽标。</li>
+    <li><b>确认框</b>：几种状态尺寸不变；“先不初始化”也把标签插进输入框。</li>
+    <li><b>装的时候</b>：能关掉，在后台继续装。</li>
+    <li><b>标签悬停</b>：统一写“Skill：…”。</li>
+    <li><b>Profile 页的“Skill”一节</b>：照第 1 轮的稿。</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="badge" data-nbdev-skip>已定</span>注意力排序（会话里定的，第 22–26 条）</h2>
+  <ul>
+    <li><b>Skill 页</b>：按来源分组；先看名字，状态只在不是“可用”时出现；“初始化”只在要初始化时出现，“打开”常在；无效的行写原因；细节收在展开里；页头只有“打开 Skill 文件夹”。</li>
+    <li><b><code>$</code> 菜单</b>：名字与一行说明，未初始化的标出；最近用过的在前；无效的不列；白名单为空时一句说明加去设置的入口。</li>
+    <li><b>确认框</b>：先看要装几个包、要联网；没有锁时才多一句；失败写原因并能重试。</li>
+    <li><b>Profile 页</b>：与工具、可派的子代理两节同样式，放在它们下面。</li>
+  </ul>
+</section>
+</body>
+</html>

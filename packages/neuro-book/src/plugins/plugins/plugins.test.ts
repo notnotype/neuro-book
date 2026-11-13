@@ -8,6 +8,7 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -19,7 +20,6 @@ import {createApplication} from "nbook/application";
 import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
 import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 
 import {pluginsBackendPlugin} from "./backend/plugin";
 import {pluginsRegistryContract} from "./shared/contracts";

@@ -11,6 +11,7 @@ import {EventEmitter} from "node:events";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import type {DiagnosticsConsole} from "@notnotype/nb-host/web";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -21,7 +22,6 @@ import type {StartupPlugins} from "nbook/plugin-platform/backend/startup";
 import {pluginCatalogUrl} from "nbook/plugin-platform/shared/plugin-files";
 import type {PluginProblem} from "nbook/plugin-platform/shared/types";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
-import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {startClaimedServer} from "nbook/server/testing/claimed-server";
 import type {RunningServer} from "nbook/server/start";

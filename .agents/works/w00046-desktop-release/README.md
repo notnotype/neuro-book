@@ -1,0 +1,39 @@
+---
+schema: nbook.work/v1
+workId: w00046-desktop-release
+issueId: null
+status: active
+updated: 2026-11-13
+---
+
+# 桌面端打包、CI 与自动发布
+
+## 目标
+
+让用户不用先装 Bun、不用命令行就能装上并打开 NeuroBook：按 ADR 0033 决定 6 写发行提案，实测 Electrobun、Tauri、Electron 选定桌面壳，做出 Windows、macOS、Linux 的桌面安装包，并由 GitHub Actions 在打标签时构建、冒烟并自动发布（npm 包与桌面包同一版本号）。
+
+## 背景
+
+- [ADR 0033](../../../docs/adr/0033-app-delivered-as-built-npm-package.md) 定了第一种发行：npm 包 `@notnotype/neuro-book`（构建产物、带 `nbook` 命令、要用户先装 Bun）。决定 6 留下两个维度另写提案：运行时用用户的 Bun 还是随发行捆绑 Bun（目录包）；界面在浏览器、浏览器安装的独立窗口还是原生窗口（桌面壳，在 Electrobun、Tauri、Electron 里实测后选，都把 Bun 当独立进程、窗口加载回环页面）。决定 7：不恢复旧 Manager，Windows 一键启动由目录包或桌面壳承担。
+- 现有发布链（[w00027 t15](../w00027-plugin-platform/tasks/t15-author-api-round2/README.md) 第三期）：`release:smoke` 打包并冒烟、`release:publish` 由开发者 `npm login` 后手动发 npm；不建 GitHub Release。CI（`.github/workflows/ci.yml`）只跑治理、文档、受影响的包和应用包能打出来，没有发布作业。
+- 旧应用的交付链（Windows zip、Manager、`desktop/`）在 v2 分支已删，只作参照，见 [v2 重建提案](../../../docs/proposals/neuro-book-v2-rebuild.md)。
+- 已知风险：新应用在 Windows、macOS 上整体未验证（ADR 0033 后果一节：命名管道的实例认领在 Bun 上有失败报告）；`bun build --compile` 的单文件起不来项目子进程。
+
+## 范围
+
+- 发行提案：两个维度的取舍、桌面壳选型、安装包形态、更新方式、签名与公证、版本号与发布顺序。
+- 桌面壳与安装包：Windows、macOS、Linux。
+- CI：多平台构建与冒烟；打标签自动发布（npm 包、桌面包、GitHub Release）。
+
+非目标：服务器部署（Docker、远端访问，以鉴权为前提另写提案）；后台运行与系统服务（`nbook service`）。
+
+## 授权
+
+- 远端写入（push、打标签、发 npm、建 GitHub Release、配置仓库 Secrets）仍要开发者逐次授权；自动发布的流水线本身上线前由开发者确认。
+- 签名证书与 Apple 开发者账号由开发者提供，Agent 不经手密钥原文。
+
+## Task
+
+| Task | 内容 |
+|---|---|
+| [t01](tasks/t01-distribution-proposal/README.md) | 发行提案与桌面壳实测选型。计划中 |

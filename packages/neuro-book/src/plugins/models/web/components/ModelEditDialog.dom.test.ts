@@ -3,6 +3,7 @@
  * 不改就不写，改了写新的形状；百分比不能超过 100。
  */
 
+import type {SnapshotModel} from "@notnotype/nb-models/contract";
 import {NumberInput, Select} from "@notnotype/nb-ui/components";
 import {flushPromises, mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
@@ -10,7 +11,6 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
-import type {SnapshotModel} from "../../shared/contracts";
 import {MODELS_TEXT_NAMESPACE} from "../../shared/text";
 import {modelsCatalogs} from "../text";
 import ModelEditDialog from "./ModelEditDialog.vue";

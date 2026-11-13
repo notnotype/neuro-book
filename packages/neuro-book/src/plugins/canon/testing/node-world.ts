@@ -10,6 +10,7 @@
 
 import {join} from "node:path";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -19,7 +20,6 @@ import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 
 import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
 
 import {canonProjectPlugin} from "../backend/plugin";

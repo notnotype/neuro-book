@@ -24,7 +24,7 @@ import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey}
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {quickPickKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {PROJECT_VIEW_CONTAINER, quickPickKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -69,7 +69,7 @@ const EDITOR_OPEN_COMMAND = "nbook.editor.open";
 const OPEN_VIEW_COMMAND = "nbook.view.open";
 
 const CONVERSATION_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-message-square", location: "auxiliarybar", order: 0, layout: "fill"};
-const SESSIONS_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-messages-square", location: "sidebar", order: 50, layout: "fill"};
+const SESSIONS_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-messages-square", location: "sidebar", order: 50, layout: "fill", container: PROJECT_VIEW_CONTAINER};
 const PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-message-square"};
 const ACTIVITY_DECLARATION: ItemDeclaration = {title: agentText("conversation.activity.title"), alignment: "right", order: 50, priority: 50, command: {id: FOCUS_SESSION_COMMAND}, when: {requires: ["nbook.agent/active"]}};
 const command = (description: string, args: WrittenCommandDeclaration["args"] = Type.Object({}, {additionalProperties: false})): WrittenCommandDeclaration => ({
@@ -342,26 +342,30 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             // 组件与渲染组件用到时才加载（nb-agent-ui 的 Vue 层不小）。
             const loadVue = async () => {
-                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: SessionPanelHost}, {default: AgentFormRenderer}] = await Promise.all([
+                const [{builtinContributions}, {createAgentViewRegistry}, {default: ConversationHost}, {default: SessionPanelHost}, {default: AgentFormRenderer}, {default: SubagentCard}, {default: BackgroundCommandCard}, {subagentContribution}] = await Promise.all([
                     import("@notnotype/nb-agent-ui/vue"),
                     import("@notnotype/nb-agent-ui"),
                     import("./ConversationHost.vue"),
                     import("./SessionPanelHost.vue"),
                     import("./form-renderer.vue"),
+                    import("./components/SubagentCard.vue"),
+                    import("./components/BackgroundCommandCard.vue"),
+                    import("./subagent-renderers"),
                 ]);
-                return {builtinContributions, createAgentViewRegistry, ConversationHost, SessionPanelHost, AgentFormRenderer};
+                return {builtinContributions, createAgentViewRegistry, ConversationHost, SessionPanelHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution};
             };
             let vue: ReturnType<typeof loadVue> | null = null;
             const vueOnce = () => (vue ??= loadVue());
 
             const conversationComponent = async (position: "view" | "page"): Promise<Component> => {
                 ensureStarted();
-                const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer} = await vueOnce();
+                const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution} = await vueOnce();
                 const markdown = await context.services.resolve(markdownKey);
                 const components = markdown.status === "resolved" ? markdown.instance.components : null;
-                const registry = createAgentViewRegistry(builtinContributions);
+                const registry = createAgentViewRegistry([...builtinContributions, subagentContribution({card: SubagentCard})]);
                 const renderers = {
                     form: markRaw(AgentFormRenderer),
+                    backgroundCommand: markRaw(BackgroundCommandCard),
                     ...(components === null ? {} : {markdown: markRaw(components.MarkdownDisplay), promptEditor: markRaw(components.PromptEditor), promptTextView: markRaw(components.PromptTextView)}),
                 };
                 const labels = panelLabels();

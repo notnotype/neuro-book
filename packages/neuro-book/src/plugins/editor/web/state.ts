@@ -41,6 +41,9 @@ export const editorState = definePublicState("nbook.editor", {
     canConvertBlock: {type: "boolean", unready: false, reason: editorText("state.canConvertBlock.reason")},
     hasSelection: {type: "boolean", unready: false, reason: editorText("state.hasSelection.reason")},
     toolbarVisible: {type: "boolean", unready: false, reason: editorText("state.toolbarVisible.reason")},
+    // 活动控件提供批注页边（输出 33）：“批注 N”开关与它的命令据此出现、可用；开关此刻是开着的（这部作品的记录）。
+    hasComments: {type: "boolean", unready: false, reason: editorText("state.hasComments.reason")},
+    commentMargin: {type: "boolean", unready: false},
     formatBold: {type: "boolean", unready: false},
     formatItalic: {type: "boolean", unready: false},
     formatStrike: {type: "boolean", unready: false},
@@ -64,7 +67,7 @@ export function needsSaving(document: TextDocument): boolean {
 }
 
 /** 各公开键此刻的值；编辑器区还没建立时都为假。 */
-export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>, toolbarVisible: Readonly<Ref<boolean>> = computed(() => true)): PublicBindings<typeof editorState.declarations> {
+export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>, toolbarVisible: Readonly<Ref<boolean>> = computed(() => true), commentMargin: Readonly<Ref<boolean>> = computed(() => false)): PublicBindings<typeof editorState.declarations> {
     const document = computed(() => area.value?.activeDocument.value ?? null);
     const handle = computed(() => area.value?.activeHandle.value ?? null);
     const fileTab = computed(() => {
@@ -94,6 +97,8 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>,
         canConvertBlock: computed(() => handle.value?.editing?.enabled("paragraph") === true),
         hasSelection: computed(() => handle.value?.editing?.hasSelection.value === true),
         toolbarVisible: computed(() => toolbarVisible.value),
+        hasComments: computed(() => handle.value?.comments !== undefined),
+        commentMargin: computed(() => commentMargin.value),
         formatBold: active("bold"),
         formatItalic: active("italic"),
         formatStrike: active("strike"),

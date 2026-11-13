@@ -112,7 +112,7 @@
         },
         "maxCost": {
             "title": "Cost limit (USD)",
-            "description": "Stops sending model requests when this session's cost reaches this amount; the last request may go slightly over. 0 means no limit. Models without a price are not counted, so the limit does not apply to them"
+            "description": "Stops sending model requests when the whole session tree (the session and the sub-agents it spawned) reaches this cost; the last few requests may go slightly over. 0 means no limit. Models without a price are not counted, so the limit does not apply to them"
         },
         "permissionRules": {
             "title": "Permission rules",
@@ -129,6 +129,18 @@
         "toolLoopThreshold": {
             "title": "Repeated call threshold",
             "description": "Reminds the model after this many identical tool calls in a row, and stops the run if the results stay the same after the reminder; 0 turns it off"
+        },
+        "subagentDepth": {
+            "title": "Sub-agent depth",
+            "description": "Sub-agents can spawn their own; spawning fails beyond this many levels."
+        },
+        "subagentsPerSession": {
+            "title": "Sub-agents per session",
+            "description": "How many sub-agents one session can have running at once, foreground or background."
+        },
+        "backgroundJobs": {
+            "title": "Running jobs",
+            "description": "How many sub-agents and background commands can run at once across all sessions."
         }
     },
     "settingsSections": {
@@ -144,6 +156,9 @@
                 },
                 "guards": {
                     "title": "Guards"
+                },
+                "subagents": {
+                    "title": "Sub-agents and background jobs"
                 }
             }
         }
@@ -252,6 +267,57 @@
         "modeSwitch": {
             "approved": "Approved",
             "declined": "Declined"
+        },
+        "author": {
+            "otherSession": "Another conversation"
+        },
+        "subagent": {
+            "spawn": "Spawn sub-agent",
+            "send": "Message sub-agent",
+            "answer": "Answer sub-agent",
+            "wait": "Wait for jobs",
+            "kill": "Stop job",
+            "jobs": "List jobs",
+            "open": "Open sub-session",
+            "background": "Background",
+            "tools": "{{count}} calls",
+            "preparing": "Preparing…",
+            "dispatchFailed": "Not started: {{code}}",
+            "waiting": "Needs you",
+            "waitingApproval": "Needs your approval: {{tool}}",
+            "waitingAnswer": "Needs your answer: {{text}}",
+            "waitingMode": "Needs you to switch mode",
+            "question": "Asking its parent: {{text}}",
+            "done": "Done",
+            "failed": "Failed: {{line}}",
+            "failedNoLine": "Failed",
+            "aborted": "Stopped",
+            "interrupted": "Interrupted (it was running when the app stopped)",
+            "unknown": "Status unknown",
+            "denied": "Not started: denied",
+            "invalid": "Not started: invalid arguments",
+            "unknownDispatch": "Unclear whether it started",
+            "unknownOpen": "Status unknown; open the sub-session to check",
+            "running": "Running",
+            "starting": "Starting",
+            "thinking": "Thinking",
+            "showResult": "Show full result",
+            "hideResult": "Hide result",
+            "command": "Background command",
+            "commandJob": "Job {{id}}",
+            "stop": "Stop",
+            "lastLine": "Last line: {{line}}",
+            "exited": "Exit code {{code}} · {{lines}} lines of output",
+            "commandFailed": "Failed · exit code {{code}}",
+            "commandAborted": "Stopped",
+            "commandInterrupted": "Interrupted (it was running when the app stopped)",
+            "commandPending": "Waiting to start",
+            "commandDenied": "Not run",
+            "commandInvalid": "Not run: invalid arguments",
+            "showOutput": "Show output",
+            "hideOutput": "Hide output",
+            "openOutput": "Open output file {{path}}",
+            "outputUnavailable": "Output is not readable"
         }
     },
     "views": {
@@ -343,7 +409,8 @@
         },
         "sections": {
             "model": "Model and approval",
-            "tools": "Tools"
+            "tools": "Tools",
+            "agents": "Allowed sub-agents"
         },
         "model": {
             "label": "Model",
@@ -401,7 +468,13 @@
                 "shell": "Runs a command.",
                 "switch-mode": "Asks to switch to discuss, plan, or normal mode.",
                 "ask": "Asks the user with fixed choices.",
-                "ask-form": "Asks the user, with choices or a form."
+                "ask-form": "Asks the user, with choices or a form.",
+                "wait": "Waits for its own background jobs to finish, or for a sub-agent to ask a question.",
+                "kill": "Stops one of its own jobs.",
+                "jobs": "Lists the jobs it started.",
+                "spawn": "Spawns a sub-agent to do one task.",
+                "send": "Sends a message to one of its sub-agents, or lets it continue.",
+                "answer": "Answers a question a sub-agent passed to it."
             }
         },
         "create": {
@@ -429,6 +502,31 @@
             "thinking": "This model doesn't support thinking",
             "context": "This model's context window is {{have}}; this profile needs {{need}}",
             "separator": "; "
+        },
+        "agents": {
+            "section": {
+                "help": "Which profiles this profile can spawn with agent_spawn; takes effect from the next model request",
+                "count": "{{count}} allowed",
+                "restore": "Restore defaults",
+                "add": "Add sub-agent"
+            },
+            "remove": "Stop allowing {{name}} ({{id}})",
+            "required": "Required",
+            "add": {
+                "title": "Add allowed sub-agents",
+                "done": "Add",
+                "search": "Search profiles",
+                "empty": "No other usable profiles",
+                "noMatch": "No matching profiles",
+                "blocked": "Cannot be added",
+                "replaces": "(replaces the same name)",
+                "join": "Select {{name}} ({{id}})",
+                "unjoin": "Deselect {{name}} ({{id}})"
+            },
+            "recommended": "Recommended",
+            "userAdded": "Added by me",
+            "gone": "Deleted or unavailable",
+            "goneGroup": "Deleted or unavailable"
         }
     }
 }

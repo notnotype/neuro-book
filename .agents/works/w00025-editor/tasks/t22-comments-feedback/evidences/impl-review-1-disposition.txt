@@ -1,0 +1,12 @@
+t22 实现审查（Sonnet，前端；范围 3b340e780..31fc05cc0）逐条处理。修正提交 dd03ec21b。报告：impl-review-1-sonnet.txt。
+
+1. 块批注的页边卡片 key 带位置，前面每打一个字整张卡片重建、重放入场（重要）：成立，已改。`MarkdownCommentLayer.vue` 自己记块批注的 key（位置经每个事务映射后沿用，新的块批注取新 key）；`MarkdownCommentLayer.dom.test.ts` 补“块批注的卡片跨事务不重建”，把 `marginKey` 改回 `info.identity` 后这一条变红。
+2. 单卡淡出被 `[data-ready]` 的 transition 盖掉（建议）：成立，已改（leave-active 的特异性提到不低于 `[data-ready]`）；e2e 补“删一条批注：它的卡片淡出”，采样透明度经过中间值；把选择器改回去重建后这条变红，还原后通过。
+3. 注释与同名 .md 里的旧行为（建议）：成立，五处都改了（Layer.md 的 `pointerup`/`pointercancel`、`identity` 注释的 `commentEntry`、`addComment` 注释里不存在的节点选区分支、Card 测试头注释的“摘要”；Margin.md 写的淡出现在是真的）。
+4. neuro-book 类型检查失败：新 e2e 里 `offsetWidth`（重要）：成立，已改；`bun run --cwd packages/neuro-book typecheck` 与 nb-markdown 的都通过。这一条说明收口时没有在最后一次改 e2e 之后重跑类型检查。
+5. 改意见时卡片位置不分入口（建议）：成立，已改成 `beginEdit(info, at)`，悬停卡片上的编辑传悬停处，Ctrl+Alt+M 传光标，页边里的编辑传这条批注的开头；补 dom 测试“鼠标停在 A、光标在 B 里按 Ctrl+Alt+M”，改回旧写法后变红。
+6. `suppressed` 没有测试护着（建议）：成立，补 dom 测试“点击收起之后指针直接移到另一条批注上：同一次悬停不再弹”，把 `suppressed` 改成恒 false 后变红。附带的窄问题（两条批注紧挨时指针在接缝处会同时出两张卡片）：成立但接受取舍，记为已知限制（窄场景，改法要把悬停位置的判断收成“指针所在元素对应的范围”，不值得加机制）。
+7. 输入法组字中 `appendTransaction` 改标记，未在真实输入法下验证（重要，未验证）：不能在无头环境验证，保留现状，交开发者用系统输入法试。实测：CDP 的 `Input.imeSetComposition` 不带替换参数时不替换选区；带 `replacementStart/replacementEnd` 时语义是相对光标的字符偏移，会把选区之外的字一起替换掉，不是“替换选区”，所以没法当真实输入法的替身。预案：若真人试出组字被打断，改成组字期间不动文档（跳过带 `composition` 元数据的事务），在组字结束之后补标记；代价是组字期间新字在批注外，提交后才进批注，Spec 输出 36 要回写。记入待确认清单。
+8. 页边画着时整块批注待写卡片的位置没有测试（建议）：成立，e2e 补“页边画着时块菜单给表格加批注”，量出待写卡片的顶边与表格顶边差不超过一行，保存后成为一条。通过。
+
+未改的东西：第 7 条的实现；第 6 条附带的窄问题。

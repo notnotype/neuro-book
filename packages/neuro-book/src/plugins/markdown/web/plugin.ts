@@ -3,8 +3,9 @@
  * `markdownKey` 交出用 Markdown 的组件。
  *
  * 组件按需加载：nb-markdown 的组件、语法模块、Markdown 解析器与编辑内核只从这些 `.vue` 组件引用，入口本身不引它们，所以
- * 首屏不含它们；后端的类型检查装配浏览器插件时也不展开它们（`src/types/vue-sfc.d.ts`）。方言目录、图片地址服务与诊断出口经
- * 组件的包装交下去：Markdown 控件直接用，nb-markdown 的组件经 `components/MarkdownHosted.vue` 换成 nbook 的宿主。
+ * 首屏不含它们；后端的类型检查装配浏览器插件时也不展开它们（`src/types/vue-sfc.d.ts`）。方言目录、图片地址服务、诊断出口与
+ * 上次用过的颜色（`colors.ts`）经组件的包装交下去：Markdown 控件直接用，nb-markdown 的组件经 `components/MarkdownHosted.vue`
+ * 换成 nbook 的宿主。
  */
 
 import {defineAsyncComponent, defineComponent, h, provide as provideToChildren, ref} from "vue";
@@ -15,11 +16,14 @@ import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {filesKey} from "nbook/plugins/files/shared/contracts";
+import {storageKey} from "nbook/plugins/storage/shared/contracts";
 
 import {descriptor} from "../plugin";
 import {markdownKey, MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../shared/contracts";
 import type {MarkdownService} from "../shared/contracts";
 import {dialectsPoint} from "../shared/plugin";
+import {colorsPort, markdownColorsKey, markdownColorsStore, memoryColors} from "./colors";
+import type {MarkdownColors} from "./colors";
 import {createAssetUrls, markdownAssetsKey} from "./parts/asset-urls";
 import type {AssetUrls} from "./parts/asset-urls";
 import {forwardExpose} from "./parts/forward-expose";
@@ -31,11 +35,12 @@ interface Host {
     readonly catalog: SyntaxCatalog;
     readonly assets: AssetUrls;
     readonly report: MarkdownReport;
+    readonly colors: MarkdownColors;
 }
 
 /**
- * 包一层：给组件交方言目录、图片地址服务与诊断出口；属性、事件与插槽原样转给它。组件的代码加载失败（部署换了版本、网络断了）
- * 时记诊断，有 `fallback` 的按它显示（展示器按纯文字显示原文）。
+ * 包一层：给组件交方言目录、图片地址服务、诊断出口与上次用过的颜色；属性、事件与插槽原样转给它。组件的代码加载失败（部署换了
+ * 版本、网络断了）时记诊断，有 `fallback` 的按它显示（展示器按纯文字显示原文）。
  */
 function withHost(host: Host, name: string, load: () => Promise<Component>, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>, props: Record<string, unknown> = {}): Component {
     const failed = ref(false);
@@ -51,6 +56,7 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
             provideToChildren(syntaxCatalogKey, host.catalog);
             provideToChildren(markdownAssetsKey, host.assets);
             provideToChildren(markdownReportKey, host.report);
+            provideToChildren(markdownColorsKey, host.colors);
             const exposed = forwardExpose(expose);
             return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props, ref: exposed}, slots));
         },
@@ -64,18 +70,21 @@ export const markdownBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}],
         provides: [markdownKey],
         receives: [MARKDOWN_SYNTAXES_POINT],
-        activate: (context) => {
+        activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const catalog = new SyntaxCatalog(context.declarations, (id, code, message, error) => {
                 diagnostics.record({level: "warn", event: "markdown.dialect.inactive", message, ...(error === undefined ? {} : {error}), data: {dialect: id, code}, source: {plugin: descriptor.id}});
             });
             const assets = createAssetUrls(context.services.require(filesKey));
-            const report: MarkdownReport = (event, message, error) => diagnostics.record({level: "warn", event, message, error, source: {plugin: descriptor.id}});
-            const host: Host = {catalog, assets, report};
+            // 在等存储服务之前登记：等的时候入口就可能被停止，之后登记的监听等不到这次 abort。
             context.signal.addEventListener("abort", () => assets.dispose(), {once: true});
+            const report: MarkdownReport = (event, message, error) => diagnostics.record({level: "warn", event, message, error, source: {plugin: descriptor.id}});
+            const storage = await context.services.resolve(storageKey);
+            const colors = storage.status === "resolved" ? colorsPort(markdownColorsStore.create(context, {storage: storage.instance, diagnostics})) : memoryColors();
+            const host: Host = {catalog, assets, report, colors};
             // nb-markdown 的组件都经 `MarkdownHosted.vue` 挂上，拿到 nbook 的宿主（目标分类、文件图标、语言与诊断）。
             const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component =>
                 withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component});

@@ -12,6 +12,8 @@
 
 `size="sm"` 使用紧凑高度和字号；`size="md"`（缺省）使用标准高度。`390×844` 下扩展控件保持单行，输入文本在可伸缩区域内处理溢出。
 
+`variant="bare"` 用在已经有外框的容器里原地编辑（例如浮层卡片里写一段注音、一条批注）：没有边框、底色、内阴影、圆角与左右内边距，聚焦时也不画高亮边框与光晕，只有光标；高度与字号仍按 `size`，与同一行的小按钮对齐。文字的左右留白由容器给。
+
 ## 交互
 
 - 输入或编辑原生 input 时发出 `update:modelValue`，payload 始终为字符串，保留用户输入的中间态。
@@ -25,6 +27,7 @@
 ```ts
 type InputType = "text" | "search" | "password" | "number";
 type InputSize = "sm" | "md";
+type InputVariant = "default" | "bare";
 
 type InputProps = {
     /** 受控字符串值；默认 ""。 */
@@ -39,6 +42,8 @@ type InputProps = {
     placeholder?: string;
     /** 控件尺寸；默认 "md"。 */
     size?: InputSize;
+    /** 外观；默认 "default"（带边框的字段）。"bare" 没有外框，见“布局”。 */
+    variant?: InputVariant;
     /** 禁止输入；默认 false。 */
     disabled?: boolean;
     /** 只读输入；默认 false。 */
@@ -96,10 +101,10 @@ type InputSlots = {
 
 - **默认/空值**：显示空 input 和 placeholder；`clearable` 在值为空时不显示按钮。
 - **受控**：父组件通过 `modelValue` 决定输入值，输入事件只向外报告。
-- **聚焦**：边框转 `--focus-outline`，外加 `--focus-ring` 光晕；悬停不改边框。只读和禁用时聚焦也不画这圈高亮。
+- **聚焦**：边框转 `--focus-outline`，外加 `--focus-ring` 光晕；悬停不改边框。只读和禁用时聚焦也不画这圈高亮。`bare` 聚焦时只有光标。
 - **禁用**：原生 input 不可编辑，视觉降低不透明度，清空入口隐藏。
 - **只读**：原生 input 保留值但不接受编辑，清空入口隐藏。
-- **错误**：从 Field 收到 `invalid` 时控制器使用错误样式并向 input 设置 `aria-invalid`、`aria-describedby`。
+- **错误**：从 Field 收到 `invalid` 时控制器使用错误样式并向 input 设置 `aria-invalid`、`aria-describedby`。`bare` 没有边框可以变红，只设 `aria-invalid`，出错外观由容器给。
 - **加载中、空数据**：没有专用状态；加载/业务校验由宿主表达。
 
 ## 不支持

@@ -103,8 +103,8 @@ owners:
 
 26. `edit`、`edit-replace`、`write` 有只读预览：`approvalPreview({sessionId, interactionId})` 按这个事项的参数试算，不写盘、不激活提供方，按会话的资源权限读。结果按文件分组：`diff`（`before`、`after`）、`too-large`（单个文件超过 256 KiB；`edit` 的原文件超过时不试算，这次调用的其余文件得 `failed`，码 `preview-skipped`）、`failed`（`code`；试算成功却没有这个文件的结果，比如粘贴前面调用存的寄存器，码 `edit-no-preview`）。别的工具得空列表。
 
-27. `shell` 的 `async`（planned）：参数加 `async?`，为真时转后台，见 [`jobs.md`](jobs.md) 输出 7。
-28. `ask` 的 `async`（planned）：参数加 `async?`，为真时提出异步提问（[`harness/runtime.md`](../harness/runtime.md) 输出 40、43），工具立即返回一句“问题已提出，回答会作为一条输入送来”，运行接着跑；问题留到有人回答，跨轮也在；回答作为一条输入进缓冲区。后台会话里同样得 `ask-unavailable`。
+27. `shell` 的 `async`：参数加 `async?`，为真时转后台，见 [`jobs.md`](jobs.md) 输出 7。
+28. `ask` 的 `async`：参数加 `async?`，为真时提出异步提问（[`harness/runtime.md`](../harness/runtime.md) 输出 40、43），工具立即返回一句“问题已提出，回答会作为一条输入送来”，运行接着跑；问题留到有人回答，跨轮也在；回答作为一条输入进缓冲区。后台会话里同样得 `ask-unavailable`。
 
 ## 状态与转换
 
@@ -149,7 +149,7 @@ Smoke：`packages/neuro-book/src/plugins/agent/builtin-tools.llm.test.ts`（`tes
 
 ## 实现合同
 
-- **公开入口**：工具 id 与声明（`nbook.agent` 经 `agent.tools` 贡献），Profile 按 id 绑定；工具工厂的 `services` 形状在 `nbook/plugins/agent/shared/resources`。工具的实现在 `@notnotype/nb-harness/kit/tools`（`builtinDeclarations`、`builtinTools`、`previewChanges`），工具 id、说明文字与 `SessionFiles` 的实现由 `nbook.agent` 给。
+- **公开入口**：工具 id 与声明（`nbook.agent` 经 `agent.tools` 贡献），Profile 按 id 绑定；工具工厂的 `services` 形状在 `nbook/plugins/agent/shared/resources`。工具的实现在 `@notnotype/nb-harness/kit/tools`（`builtinDeclarations`、`builtinTools`、`previewChanges`），工具 id、说明文字与 `SessionFiles` 的实现由 `nbook.agent` 给；`shell` 的 `async`（[`jobs.md`](jobs.md) 输出 7）经 `builtinTools` 的 `shellBackground` 交给 `nbook.agent` 的任务中心（`backend/builtin/shell-background.ts`）。
 - **owner 与依赖方向**：`nbook.agent` 的服务端入口，既贡献也接收这些工具，依赖 nb-harness 的宿主套件；套件的工具经宿主给的 `SessionFiles`（[`harness/host-kit.md`](../harness/host-kit.md)）读写，NeuroBook 的实现建在 `nbook.files` 的写入接口上；行锚、搜索与 shell 依赖 `@oh-my-pi/pi-natives`。
 - **关键不变量**：
   - 工具不自己写盘：写都经资源视图或 `SessionArtifacts`，所以来源、分组与授权由文件服务判定（`builtin-tools.test.ts`“edit”“全文”；套件一侧由 nb-harness 的 `kit/architecture.test.ts` 按导入白名单检查）。

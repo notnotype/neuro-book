@@ -12,18 +12,20 @@
 import {writeSync} from "node:fs";
 import {join} from "node:path";
 
+import {ServerAssemblyError, ServerStartupError} from "@notnotype/nb-host/server";
+import type {InstanceKind} from "@notnotype/nb-host/server";
+
 import {prepareInstalledPlugins, safeModeOf} from "nbook/plugin-platform/backend/startup";
 import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import type {PluginDescriptor} from "nbook/manifest";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
-import {PRODUCT_VERSION} from "nbook/shared/product";
 
 import {readServerConfig, ServerConfigError} from "./config";
 import type {ServerConfig} from "./config";
-import {claimStateRoot} from "./instance";
-import type {ClaimResult, InstanceKind, StateRootClaim} from "./instance";
+import {claimNeuroBook} from "./instance";
+import type {ClaimResult, StateRootClaim} from "./instance";
 import {ompProcess} from "./omp-process";
-import {ServerAssemblyError, ServerStartupError, startServer} from "./start";
+import {startServer} from "./start";
 import type {RunningServer, StartServerOptions} from "./start";
 
 function fatal(event: string, fields: Record<string, unknown>): void {
@@ -135,7 +137,7 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
     const config = options.config ?? readConfigOrExit();
     let claim = options.claim;
     if (claim === undefined) {
-        const claimed = await claimStateRoot({stateRoot: config.stateRoot, kind: options.kind ?? "product", version: PRODUCT_VERSION, report: claimReport});
+        const claimed = await claimNeuroBook({stateRoot: config.stateRoot, kind: options.kind ?? "product", report: claimReport});
         if (!claimed.ok) {
             reportClaimFailure(claimed, config.stateRoot);
             return exitAfterOmpCleanup(1);

@@ -338,6 +338,83 @@ describe("命中结果映射到分界线的状态", () => {
         expect(zeroSash.hasAttribute("data-sash-hover")).toBe(false);
     });
 
+    it("收起为零的分支里，叶之间的分隔线长度为零：不可聚焦、不进命中、键盘不调整；展开后恢复", async () => {
+        // docs/specs/ui/nested-grid.md 的“分支的收起”：一列三片叶，收起策略配在这一列上。
+        const column = (collapsed: boolean): Grid<string> => createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            children: [
+                {
+                    kind: "branch",
+                    id: "side",
+                    orientation: "vertical",
+                    size: {width: 300, height: 0},
+                    sizing: "fixed",
+                    collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed},
+                    children: ["s1", "s2", "s3"].map((id) => ({kind: "leaf" as const, id, ref: id, size: {width: 0, height: 100}, minimumSize: {width: 160, height: 80}})),
+                },
+                {kind: "leaf", id: "editor", ref: "editor", size: {width: 699, height: 0}},
+            ],
+        }, {sashSize: SASH});
+        const sashOf = (wrapper: VueWrapper, key: string): HTMLElement => wrapper.get<HTMLElement>(`[data-sash="${key}"]`).element;
+        const pressArrow = async (element: HTMLElement): Promise<void> => {
+            element.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true, cancelable: true}));
+            await nextTick();
+            element.dispatchEvent(new KeyboardEvent("keyup", {key: "ArrowDown", bubbles: true, cancelable: true}));
+            await nextTick();
+        };
+
+        const closed = column(true);
+        const commits: GridGestureCommit[] = [];
+        const wrapper = mountRenderer(closed.root(), closed.layout(CONTAINER), {
+            onGestureCommit: (commit) => {
+                commits.push(commit);
+                return {ok: true};
+            },
+        });
+        const scope = wrapper.get<HTMLElement>("[data-grid-scope]").element;
+        stubRect(scope, {left: 0, top: 0, right: CONTAINER.width, bottom: CONTAINER.height});
+        Object.defineProperty(scope, "clientWidth", {value: CONTAINER.width, configurable: true});
+        Object.defineProperty(scope, "clientHeight", {value: CONTAINER.height, configurable: true});
+        // 零宽的一列：它和编辑区之间的线贴在左边；里面叶之间的线在浏览器里是 0×1 的矩形（长度为零，粗细还在）。
+        stubRect(sashOf(wrapper, "root:0"), {left: 0, top: 0, right: 1, bottom: 600});
+        stubRect(sashOf(wrapper, "side:0"), {left: 0, top: 200, right: 0, bottom: 201});
+        stubRect(sashOf(wrapper, "side:1"), {left: 0, top: 400, right: 0, bottom: 401});
+        await nextTick();
+
+        for (const key of ["side:0", "side:1"]) {
+            expect(sashOf(wrapper, key).getAttribute("tabindex"), key).toBe("-1");
+            expect(sashOf(wrapper, key).getAttribute("aria-disabled"), key).toBe("true");
+        }
+        expect(sashOf(wrapper, "root:0").getAttribute("tabindex")).toBe("0");
+
+        // 指针在那一列的外边界上、正对着里面一条线的高度：只命中外边界，不是两根轴一起调。
+        wrapper.get<HTMLElement>("[data-leaf='editor']").element.dispatchEvent(pointerEvent("pointermove", 2, 200));
+        await nextTick();
+        expect(sashOf(wrapper, "root:0").getAttribute("data-sash-hover")).toBe("true");
+        expect(sashOf(wrapper, "root:0").hasAttribute("data-sash-cross")).toBe(false);
+        expect(sashOf(wrapper, "side:0").hasAttribute("data-sash-hover")).toBe(false);
+
+        // 焦点早就在这条线上时（它是后来才变成零长度的），方向键也不调整看不见的叶。
+        await pressArrow(sashOf(wrapper, "side:0"));
+        expect(commits).toHaveLength(0);
+
+        const open = column(false);
+        await wrapper.setProps({node: open.root(), layout: open.layout(CONTAINER)});
+        stubRect(sashOf(wrapper, "root:0"), {left: 300, top: 0, right: 301, bottom: 600});
+        stubRect(sashOf(wrapper, "side:0"), {left: 0, top: 200, right: 300, bottom: 201});
+        await nextTick();
+        expect(sashOf(wrapper, "side:0").getAttribute("tabindex")).toBe("0");
+        expect(sashOf(wrapper, "side:0").hasAttribute("aria-disabled")).toBe(false);
+        wrapper.get<HTMLElement>("[data-leaf='editor']").element.dispatchEvent(pointerEvent("pointermove", 150, 202));
+        await nextTick();
+        expect(sashOf(wrapper, "side:0").getAttribute("data-sash-hover")).toBe("true");
+        await pressArrow(sashOf(wrapper, "side:0"));
+        expect(commits).toHaveLength(1);
+        expect(commits[0]!.changes[0]!.branchId).toBe("side");
+    });
+
     it("悬停线的两端：交汇处两条一起亮时，横线挨着竖线的一端连着；只亮横线时两端都按自由端缩进", async () => {
         const grid = nestedGrid();
         const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER), {onGestureCommit: () => ({ok: true})});

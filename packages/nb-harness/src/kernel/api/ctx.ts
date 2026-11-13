@@ -28,6 +28,11 @@ export interface ViewCtx<S extends StateDecl, St, Deps extends DepList, I = unkn
     readonly now: number;
     /** 调用方给的初始输入（Profile 声明了 `initial` 时有类型）。 */
     readonly initial: DeepReadonly<I>;
+    /**
+     * 在哪个会话里（同 `ReactCtx.session`）；不带会话的单次请求（`complete`）没有。扩展对象被所有会话共用，槽的内容与拦截要按会话或
+     * Profile 取外部数据时用它（extensions.md 输出 31）。
+     */
+    readonly session?: ToolSessionContext;
 }
 
 /** 没有数据的事件写 `emit(名字)`；要幂等键时写 `emit(名字, undefined, {key})`。 */

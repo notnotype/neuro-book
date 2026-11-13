@@ -15,6 +15,11 @@
 
 一个编辑器实例换 `EditorState` 时插件视图会重建（`plugins` 数组换了，prosemirror-view 按数组身份判断），组件重挂时也一样，所以界面状态不放在插件视图里，也不在扩展配置里捕获组件的 DOM 或回调。
 
+## ProseMirror 的几个坑
+
+- `Mapping.appendMapping(mapping)` 把传入映射底下的全部 `maps` 追加进来，不管 `mapping.slice(from, to)` 切出的范围。想要“某一步之后的映射”，对切出的映射逐段 `map(pos, assoc)`，不要拼成一个新的 `Mapping`（w00025 t22：替换批注文字时补标记的位置被映射进了自己的替换范围，补的标记长度为零，继承悄悄没做，只有测试里的一个用例看得出来）。
+- `Mark.isInSet(set)` 在集合里没有这个标记时返回的不是 `undefined`，与类型声明对不上，`!== undefined` 对空集合也成立。判断“在不在”用 `set.some((other) => mark.eq(other))`（同上：整句被换掉时该不该继承判反了）。
+
 ## 验证
 
 ```text

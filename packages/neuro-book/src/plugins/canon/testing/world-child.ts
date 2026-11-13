@@ -10,8 +10,7 @@
 import {join} from "node:path";
 
 import type {ObjectRef, WriteRequest} from "@notnotype/nb-canon";
-
-import {holdLock} from "nbook/backend/locked-replace";
+import {holdLock} from "@notnotype/nb-file-lock";
 
 import {createWorldHost, WORLD_LOCK} from "../backend/world-host";
 

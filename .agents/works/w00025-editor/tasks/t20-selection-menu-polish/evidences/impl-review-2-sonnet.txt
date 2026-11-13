@@ -1,0 +1,102 @@
+# w00025 t20 第二段（e43c383b8..8160dd749）实现审查报告
+worktree HEAD 核对：8160dd749，开始时 git status 干净。实验文件都在 /tmp/review-t20-impl2/exp/（用符号链接借 worktree 的 node_modules，不在仓库里写文件）。
+
+### 1. 色板预选“上次的颜色”后，点那个已选的色块什么都不发生：既不上色，也不收起色板
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownColorButton.vue:44（`:model-value="last"`）；根因在 packages/nb-ui/src/components/form/ColorSwatches.vue 的 `choose()`（“与当前值相同时不发”）
+- **现象**：base 上色板的 `model-value` 是 `null`，点任何色块都发 `update:modelValue`。现在改成 `last`（上次的颜色，第一次是红色文字、黄色高亮），而 `ColorSwatches.choose()` 对“与当前值相同”的点击直接不发事件，`pick()` 不被调用：`menus.run` 不执行、`open` 不置 false。所以打开箭头的色板后，点那个带选中标记的色块（第一次用时就是红色或黄色），没有任何反应，色板还开着。
+- **为什么是问题**：用户打开色板、点中一个标着“已选”的颜色，期望是“用这个颜色”。选区当前是别的颜色（例如蓝）、上次用的是红时，点红色同样无效，只能先点别的再点回来，或者关色板用左半边。Spec 输出 1 写“在色板选了颜色就记住”，没有把“选中的是上次的颜色”当成不可点。e2e 新用例选的是 `#0ea5e9`、`#dbeafe`，都不是预选色，没覆盖。选色板的预选值是作者自己加的（.md“选中的是上次的颜色”），不是开发者决定 1–3 里的要求。
+- **如何核实**（实测，happy-dom 挂真实 `ColorSwatches`）：`/tmp/review-t20-impl2/exp/swatch.vue.test.ts`，`modelValue="#ef4444"`，点 `[data-color-swatch="#ef4444"]` 后 `emitted("update:modelValue")` 为 `undefined`；再点 `#0ea5e9` 才发出 `[["#0ea5e9"]]`。命令：`cd /tmp/review-t20-impl2/exp && npx vitest run --config vitest.vue.config.ts --disable-console-intercept`。
+- **建议改法**：二选一。(a) 色板的 `model-value` 仍传 `null`（不预选），“上次的颜色”只体现在色条上；(b) 保留预选，但在 `MarkdownColorButton` 里不依赖 `update:modelValue`，改成监听色块的选择自己执行（需要 nb-ui 配合发一个“再点已选也发”的事件，改上游）。(a) 最简单，也与 base 一致。同时补一条 e2e：第一次用时点开色板，点红色，文字变红且色板收起。
+
+### 2. 焦点在“移除注音”按钮上按回车，被卡片的 keydown 当成“确定”处理，移除不会发生
+- **严重程度**：重要；**类别**：正确性（键盘可访问性）
+- **位置**：packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.vue:42-52（`onKeydown` 挂在整张卡片的容器上，`Enter` 分支无条件 `preventDefault()` 再 `confirm()`）
+- **现象**：base 的卡片里只有输入框，容器级的 Enter 处理没问题。本段在卡片里加了两个 `IconButton`（移除、确定）。Tab 到“移除注音”按钮按回车时，keydown 冒泡到容器，`event.key === "Enter"` 成立，`preventDefault()` 取消了按钮原生的点击激活，随后 `confirm()` 提交输入框里的文字（空则取消）。`remove` 事件不会发出。Space 键不受影响（只有 Enter 被截），所以同一个按钮 Space 能用、Enter 不能。
+- **为什么是问题**：用户 Tab 到按钮、按回车，期望是这个按钮的动作；实际是把预填的注音原样写回（看起来什么都没发生，注音还在）。“移除”只能用鼠标或 Space。Spec 输出 9 写“回车或点确定写回”，没有说焦点在别的按钮上时回车也算确定；plan-2 也只说“回车、Esc、焦点离开的规则不变”，没想到卡片里有了按钮。
+- **如何核实**（实测，happy-dom 挂真实 `MarkdownTextPrompt`）：`/tmp/review-t20-impl2/exp2/prompt.dom.test.ts`，在“移除注音”按钮上派发 `keydown Enter`：`defaultPrevented` 为 true，`emitted()` 只有 `cancel`（输入框为空时），没有 `remove`。命令：`cd /tmp/review-t20-impl2/exp2 && npx vitest run --config vitest.config.mts --disable-console-intercept`。
+- **建议改法**：Enter 只在事件目标是输入框时处理（`event.target instanceof HTMLInputElement`），或把回车处理挂到 `Input` 上而不是容器。Esc 仍可留在容器上（任何一个子控件上按 Esc 都应取消）。补一个组件测试：焦点在移除按钮上回车触发 `remove`；e2e 现有用例只用鼠标点按钮。
+
+### 3. 卡片开着时再打开另一段“同样读音”的注音，输入框里是上一段改了一半的文字，没有重来
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.vue:13-22（`watch(() => [props.open, props.initial] as const, …)`）与 MarkdownMenus.vue:36-49（`openPrompt` 的“已开着再打开”分支）
+- **现象**：作者为“卡片开着时点另一段注音”加了 `props.initial` 作为触发条件，并在 MarkdownMenus 里手动 release+hold 换高亮。但 watch 只在 `open` 或 `initial` 的值变了才重跑；两段注音的原文相同（小说里同一个人名反复出现，读音一样，很常见）时，`promptInitial.value = 同一个字符串` 不触发，输入框保留用户在上一段里敲了一半的文字，焦点与光标也不重置，而高亮与确定的目标已经是新的一段。回车就把那半截文字写到新的一段上。
+- **如何核实**（实测）：`/tmp/review-t20-impl2/exp2/stale.dom.test.ts`：`initial="lín xī"` 打开，把输入框改成“我改了一半”，再 `setProps({initial: "lín xī"})`：输入框仍是“我改了一半”；换成 `"zhù yīn"` 才重置。真实运行时 `openPrompt` 的赋值同样是对 ref 写同一个值，Vue 不会触发。这一步走的是“指针按下后卡片仍然开着”这条路；是否会因为浏览器把焦点移走而先触发 `focusout` 关闭卡片，我没法不跑 e2e 证实（推断：作者给 `openPrompt` 写了这个分支，应当是测过会保持打开）。
+- **建议改法**：`openPrompt` 每次打开都递增一个计数（或传 `key`）给卡片，watch 以计数为触发条件，这样不依赖文字是否变化；顺带把“再点一次同一段”也算一次重来。同样的做法也解决“上一次取消后立刻再打开同一段”之外的任何同值情形。
+
+### 4. “换文档前先撤掉保持的选区高亮”没有任何测试；Spec 却把它列在 held-selection.dom.test.ts 名下
+- **严重程度**：重要；**类别**：测试（不变量）
+- **位置**：packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:248-249（`leave()` 里的 `releaseSelection(editor)`）；docs/specs/workbench/markdown-editing.md 实现合同“卡片开着时……`MarkdownControl` 换文档、存下 `EditorState` 之前先清掉……（`held-selection.dom.test.ts`）”
+- **现象**：`held-selection.dom.test.ts` 的三例只测“画出、随插入移动、撤掉、不进撤销历史”，从不涉及换文档。e2e 新用例都是在卡片关上后才切别处，也没有“卡片开着切标签再切回来”。
+- **为什么是问题**：这一行是装饰放进 `EditorState` 带来的专门防御：卡片开着切标签，`leave()` 把 `editor.state`（带着装饰）存进 `view.state`；随后 MarkdownMenus 的 `binding` watch 把 `prompting` 置空，这时 `editor` 已经换成新文档的状态，`releaseSelection` 在新状态上是空操作；切回来 `updateState(view.state)` 恢复的就是带着旧装饰的状态，而卡片已关，高亮永远留在正文里（直到下一次打开又关上）。这是评审重点第 1 条里最容易错的时序，应当有测试守。
+- **如何核实**（变异检查，已恢复）：把 `leave()` 里的 `releaseSelection(editor);` 注释掉后跑 `cd packages/neuro-book && npx vitest run src/plugins/markdown`：8 个文件 63 例全部通过，没有任何例子失败。`git checkout -- MarkdownControl.vue` 已恢复，与备份逐字相同，`git status --short` 干净。
+- **建议改法**：在 MarkdownControl.dom.test.ts 里加一例：挂载带两份文档的控件，选中文字、`holdSelection`，切 `binding` 再切回来，断言 `.nb-markdown-held-selection` 数量为 0；或在 e2e 里加“卡片开着点另一个标签再回来，正文里没有残留高亮”。同时把 Spec 实现合同里的测试指向改成真正覆盖它的那一条。
+
+### 5. 选区跨多段注音时，卡片预填第一段的读音，确定会把整个选区都改成这一个读音；“移除注音”的标签也只说一段
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownMenus.vue:30-33（`editor.getAttributes("markdownRuby").text`）
+- **现象**：Tiptap 的 `getMarkAttributes` 取选区里遇到的第一个注音标记的属性。选区盖住“甲(a)和乙(b)”两段注音时，`hasRuby` 为真（注音按钮按下），卡片预填 `a`、有“移除注音”按钮。此时回车（按原样确定）会对整个选区执行 `setMarkdownRuby("a")`，乙的读音 `b` 被丢掉，甲和乙被合成一段注音 `a`。
+- **为什么是问题**：Spec 输出 9 只规定“选区里已有注音时卡片预填原来的注音”，没有考虑选区里有多段不同读音。用户看到预填就会以为是在改“这段”，其实是在覆盖全部。重点第 1、2 条要求核对“同一行有两段注音”。
+- **如何核实**（实测，真实 Tiptap）：`/tmp/review-t20-impl2/exp/multi.dom.test.ts`，文档 `<ruby text="a">甲</ruby>和<ruby text="b">乙</ruby>`，全选后 `getAttributes` 得到 `text:"a"`；用它调用 `ruby` 动作后 HTML 变成一个 `<ruby>` 覆盖“甲和乙”、读音 `a`。命令：`cd /tmp/review-t20-impl2/exp && npx vitest run --config vitest.config.ts --disable-console-intercept`。
+- **建议改法**：选区里碰到的注音不止一段（或读音不同）时不预填，输入框留空、移除按钮照旧；这是窄场景，简单规则即可，不用加机制。
+
+### 6. 记录损坏或版本不支持时，选了颜色后色条与左半边仍停在缺省色（选了不记）
+- **严重程度**：建议；**类别**：正确性（从代码推断，加 store 自己的测试说明）
+- **位置**：packages/neuro-book/src/plugins/markdown/web/colors.ts:46-52（`remember`）
+- **现象**：`remember` 只处理 `save.state` 为 `failed`/`unknown` 的暂停，其余走 `colors.commit`。按 store 合同（shared/store/store.test.ts 的 `corrupt`、`unsupported-version` 两例：“commit 直接 protected、不改显示”），受保护的记录不接受修改，`#pump` 里 `settleFirst(head,"protected")` 后 `display` 回到 `#project()`，也就是缺省。用户在色板选了蓝色，文字变蓝，但色条与左半边仍是红色；每次左半边点下去都是红色。记录是什么时候会损坏：schema 只认小写 `#rrggbb`，另一个版本或手工改成大写 `#EF4444`，同样判为损坏并保护。
+- **为什么是问题**：Spec 写了“记录读不出或已损坏时按缺省颜色”，没写损坏时选了颜色能不能记。作者对“保存失败、结果未知”做了只改显示的退路，却没对“受保护”做同样的处理，三种“存不下”里漏一种，行为不一致。偏好丢了无伤，但色条与刚用的颜色不符会让人以为选色没生效。
+- **如何核实**：读 shared/store/persisted.ts `#pump` 的 protected 分支（约 330-340 行）与 store.test.ts 553-561；未写成用例实测（需要真实 Storage 世界），标“从代码推断”。
+- **建议改法**：`remember` 在 `commit` 返回 `protected` 时也 `colors.show(next(colors.display))`（与另两种暂停一致），或者在 Spec 里写明“受保护的记录不记”。窄场景，选后者也可接受。另：缺少 `colors.ts` 的单元测试（失败、未知、保护、内存回退都无覆盖），只有 e2e 的好路径。
+
+### 7. 插件入口改成 async 后，等存储服务期间被停止，`assets` 不会被释放
+- **严重程度**：建议；**类别**：不变量（资源释放）
+- **位置**：packages/neuro-book/src/plugins/markdown/web/plugin.ts:77-91
+- **现象**：`activate` 在 `createAssetUrls(...)` 之后才 `await context.services.resolve(storageKey)`，而 `context.signal.addEventListener("abort", () => assets.dispose(), {once: true})` 在 await 之后才登记。base 里整段同步，没有这个窗口。若入口在等待期间被停止（`context.signal` 已 abort），监听器登记在“已 abort 的信号”上，不会再触发，`assets` 里创建的对象地址不被回收。`resolve` 也没传 `{signal: context.signal}`（canon 插件就是这样传的），停止时等待不会被取消。
+- **为什么是问题**：违反“创建资源后立刻登记释放”的习惯，是改成 async 引入的新窗口；概率很低（存储服务本来在它之前就激活了）。
+- **如何核实**：读代码；运行时的 `onStop` 登记（contracts.ts 里 `context.onStop`）是更合适的挂法，不依赖信号当前状态。
+- **建议改法**：把 `context.onStop(() => assets.dispose())`（或把 abort 监听）放到 `createAssetUrls` 之后、`await` 之前，`resolve` 加 `{signal: context.signal}`。
+
+### 8. 点注音小字的处理不看修饰键：Shift、Ctrl、Meta 加点击也被当成“打开卡片”
+- **严重程度**：建议；**类别**：正确性
+- **位置**：packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownMenus.vue:52-58（`onPointerDown`，只判了 `event.button !== 0`）
+- **现象**：Shift+点击小字本意是扩展选区，这里被替换成“选中这段注音并打开卡片”，还 `preventDefault` 掉了这次按下；macOS 上 Ctrl+点击（等于右键，Chrome 里 pointerdown 的 button 为 0、`ctrlKey` 为真，紧接着还有 `contextmenu`）会同时打开卡片和右键菜单。
+- **为什么是问题**：窄场景，但“误拦别的指针操作”正是评审重点第 2 条；条件只多写一句。
+- **如何核实**：读代码；没跑浏览器（这条是从事件语义推断）。
+- **建议改法**：只处理无修饰键的主键点击：`event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey` 时直接返回，让浏览器与 ProseMirror 按原样处理。
+
+### 9. 卡片里 Esc 不看输入法组字：组字中按 Esc 取消候选，同时整张卡片被取消（base 就有，不算本段回归）
+- **严重程度**：建议；**类别**：正确性（base 既有）
+- **位置**：packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.vue:36-38（`event.key === "Escape"` 分支没有 `isComposing` 判断；Enter 分支有）
+- **现象**：注音正是要用拼音输入法写的文字。Linux、macOS 的中文输入法在组字时按 Esc，keydown 是 `key: "Escape"` 且 `isComposing: true`，卡片把它当成“取消”：候选没取消干净，整张卡片先关了，已敲的拼音与高亮一并丢失。Enter 已经对 `isComposing` 做了保护，Esc 漏了。
+- **为什么是问题**：重点第 6 条明确点了“Esc 在输入法组字中”。base 的 Esc 分支与此相同（本段只是把 Enter 分支抽成 `confirm()`），所以记为 base 既有，但这张卡片现在就是为了写注音存在，值得顺手改。
+- **如何核实**：读代码对照 Enter 分支；输入法行为没法在 happy-dom 里复现，标“从事件语义推断”，需要作者在带输入法的真实浏览器里试。
+- **建议改法**：`event.key === "Escape" && !event.isComposing` 才取消；组字中的 Esc 交给输入法处理。
+
+### 10. 卡片的核心行为只有 e2e 覆盖，没有组件测试；`bare` 的“无内边距”无测试
+- **严重程度**：建议；**类别**：测试
+- **位置**：packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.vue（无同名 test）；packages/nb-ui/src/components/form/form-controls.contract.test.ts:45-58；packages/neuro-book/src/plugins/markdown/web/plugin.dom.test.ts
+- **现象**：(a) `MarkdownTextPrompt` 的回车、Esc、空确定即取消、焦点离开收起、移除、预填重来都没有组件测试；本报告第 2、3 条两个问题都是 15 行的 happy-dom 用例就能复现的（`/tmp/review-t20-impl2/exp2/*.dom.test.ts`），说明这一层可以低成本测。(b) `bare` 合同测试只断言两个分支的根上没有 `nb-ui-control` 与 `border` 类、`aria-invalid` 与输入事件；.md 写的“没有左右内边距”没有断言。变异检查：把 `controlSizeClass` 恢复成不分 `bare`（bare 也带 `px-…`）后 `npx vitest run src/components/form` 仍是 5 个文件 51 例全过，已用 `git checkout -- Input.vue` 恢复并与备份逐字相同。(c) `plugin.dom.test.ts` 不提 storage，生产路径（存储服务就绪、`colorsPort(store)`）只被 e2e 的刷新用例走到，`memoryColors` 回退也没有被直接断言。
+- **为什么是问题**：“依赖用真的、测行为”这套测试写法在这里是可行的，而最容易出事的 Enter/Esc/焦点规则却只能靠需要整套开发服务的 e2e。
+- **建议改法**：补 `MarkdownTextPrompt.dom.test.ts`（Enter/Esc 在输入框与按钮上、空确定、重开重置、焦点离开 dismiss、移除）；`bare` 的测试加一条“类里没有 `px-`/`nb-ui-control-px`”；`plugin.dom.test.ts` 加一例带存储服务与不带存储服务两种装配下按钮的记忆。
+
+### 11. 代码质量与小的不一致（合并为一条，都不阻碍合入）
+- **严重程度**：建议；**类别**：代码质量
+- (a) **拆分按钮的箭头复制了 `IconButton` 的状态色**：MarkdownColorButton.vue 样式里手写 `color-mix(... 15%)` 与 `24%`，注释写“与旁边的 IconButton（default）同一组状态色”。`IconButton` 改了状态色，箭头会悄悄走样；没有链接回 IconButton.vue:61 的任何机制。可以让 nb-ui 给 `IconButton` 一个宽度或 `narrow` 形态，或至少在 IconButton.vue 那一行旁注明被谁复制。
+- (b) **回退到内存颜色的逻辑写了两处且不一致**：MarkdownColorButton.vue 里 `inject(markdownColorsKey, null) ?? memoryColors()`，每个按钮实例各建一份内存状态，工具栏与选区菜单的两组按钮在没有注入时（组件测试）互不相通；MarkdownToolbar.vue 里 `inject(markdownColorsKey, null)` 回退到 null，“⋯”里选色什么也不记。建议抽一个 `useMarkdownColors()`，统一回退，由控件根一处提供。
+- (c) **MarkdownMenus.openPrompt 的“已开着”分支先 `releaseSelection` 再 `holdSelection`**：`holdSelection` 对非空选区本来就会覆盖旧装饰，`release` 只在新选区为空时有意义；注释没说明，读者会以为两步都必需。留一个即可，或写明理由。
+- (d) **两个窗口**：store 的 `#receive` 只在第一个快照时更新显示（persisted.ts:285 附近），另一个窗口改了颜色，本窗口的色条要等自己下一次选色才同步；没有丢数据（`change` 在 base 上重算，另一字段保留），只是显示陈旧。Spec 没提，记一笔，不用改。
+
+## 未发现问题的方面（仔细检查后）
+- 保持选区高亮的寿命：装饰只在 EditorState 的插件状态里，不写插件视图；`holdSelection`/`releaseSelection` 都带 `addToHistory: false` 且不改文档、不改选区（测试覆盖），`ruby-remove`/确定/取消/点外面/只读/换文档（卡片侧）的收起顺序都先 `prompting = null`（同步 watch 撤装饰）再执行命令，没有发现撤销历史被污染；外部改写时 `reload` 只替换不同的一段，装饰随映射移动或随被删文字消失，不会错位（但见第 4 条：换文档时的清除没有测试）。
+- 记住的颜色的存取方式：`defineRecord`、`persist`、保存暂停时只 `show`，与 `settings/web/window-size.ts` 同一写法；commit 在首个快照到达之前排队，`change` 在 base 上重算，不会用 `{}` 覆盖已存的另一个字段；可选依赖的取法与 explorer 对 `documentCoordinatorKey` 的写法一致。
+- 块类型下拉：选中后 `onCloseAutoFocus` 拦住原语的焦点回退，靠 `menus.run` 里的 `.focus()` 让焦点回正文（选区菜单没有接 `@refocus`，但不影响结果）；`data-markdown-menu-layer` 只在 `inSelectionMenu` 时挂，工具栏的不挂，符合 Spec 输出 7。
+- `ruby-remove`：光标在注音边上不算在注音里（注音标记不是 inclusive）、相邻两段注音在交界处不串、只盖住一半时整段去掉（靠第一段的 whole-ruby 插件），测试覆盖这三点。
+- nb-ui `Input` 的 `bare`：两个分支都不挂 `nb-ui-control`、`border`，聚焦光晕与外框同出一处所以一并去掉；`aria-invalid` 两个分支都设；默认外观的类集合与改前逐项相同。
+- 验证：nb-markdown `bun run test` 通过（bun 265、vitest 209）、`bun run typecheck` 通过；nb-ui 的 form、token-consumption、components 测试 170 例通过；neuro-book `npx vitest run src/plugins/markdown` 63 例通过、`vue-tsc -p tsconfig.web.json` 通过。没有跑 e2e 与开发服务。
+- 基线（不算本段）：选区菜单的下拉或色板用 Esc、点外面关上后，原语把焦点还给选区菜单里的触发按钮，`visible` 不重算，菜单留着而焦点在它的按钮上；base 的色板就是这样。没有展开。
+- 浏览器里才能确认、我没法验证的两点（已在第 3 条说明）：Chrome 里对 `pointerdown` 调 `preventDefault` 之后，卡片输入框开着时再点另一段注音，焦点是否被抢走、卡片是否被 `focusout` 收起；e2e 没有“卡片开着点另一段”的用例，请作者补一条并跑。
+
+## 数量
+阻断 0；重要 3（第 1、2、4 条）；建议 8（第 3、5、6、7、8、9、10、11 条）。
+实验与变异：MarkdownControl.vue 与 Input.vue 各做了一次变异检查，均用 `git checkout -- <文件>` 恢复并与备份逐字相同；结束时 worktree `git status --short` 为空，HEAD 8160dd749。实验文件在 /tmp/review-t20-impl2/exp、exp2。
+有效发现的编号：1、2、3、4、5、6、7、8、9、10、11

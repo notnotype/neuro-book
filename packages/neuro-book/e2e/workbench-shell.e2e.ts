@@ -20,6 +20,9 @@ import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {regionNodeOf} from "@notnotype/nb-layout";
+import type {LayoutDoc, PanelName} from "@notnotype/nb-layout";
+
 import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 
 import {startDevSession, startProductServer} from "./fixtures";
@@ -54,13 +57,38 @@ const leafRects = (page: Page): Promise<Record<string, number[]>> => page.evalua
     return [element.getAttribute("data-leaf")!, [x, y, width, height].map(Math.round)];
 })), LEAF);
 
-/** 面板头里的框架按钮；`command` 是命令名（`nbook.view.` 之后的部分）。 */
-const frame = (page: Page, panel: string, command: string) => page.locator(`[data-panel-head="${panel}"] [data-panel-action="nbook.view.${command}"]`);
+/** 内置声明下的默认布局（输出 1）：侧栏是容器“项目”的会话、资源管理器两个分节，右栏是对话一个分节，底部面板没有容器。 */
+const SESSIONS = "nbook.agent.sessions";
+const EXPLORER = "nbook.explorer";
+const CONVERSATION = "nbook.agent.conversation";
+/** 内置容器“项目”：会话与资源管理器声明在它里面，活动栏上是一个入口（输出 22、41）。 */
+const PROJECT_CONTAINER = "nbook.workbench.project";
+
 const content = (page: Page, view: string) => page.locator(`[data-content="view:${view}"]`);
+/**
+ * 视图所在分节的面板 id。区域的锚不进呈现树，分节的 id 是布局起的（输出 40），所以按视图取：内容项上写着它所在的叶。
+ */
+async function sectionOf(page: Page, view: string): Promise<string> {
+    const id = await content(page, view).getAttribute("data-content-leaf");
+    if (id === null) throw new Error(`${view} 不在任何面板里`);
+    return id;
+}
+/** 视图所在分节的外框。区域只在挨着编辑区的方向上伸缩，所以侧栏、右栏的宽与底部面板的高，量区域里任何一个分节都一样。 */
+const sectionBox = async (page: Page, view: string): Promise<Box> => box(page, await sectionOf(page, view));
+/** 视图所在分节的面板头：分节的头只写它那个视图的标题（输出 20）。 */
+const headOf = (page: Page, view: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"])`);
+/** 分节头里的框架按钮；`command` 是命令名（`nbook.view.` 之后的部分）。 */
+const frame = (page: Page, view: string, command: string) => headOf(page, view).locator(`[data-panel-action="nbook.view.${command}"]`);
 const editorContent = (page: Page) => page.locator('[data-content="editor:g0"]');
-const sidebarSash = (page: Page) => page.getByRole("separator", {name: "调整 sidebar 与 center 的宽度"});
-const panelSash = (page: Page) => page.getByRole("separator", {name: "调整 g0 与 panel 的高度"});
+/**
+ * 区域挨着编辑区的那条边界。分隔线的名称里是两侧节点的 id：区域这一侧显示一个分节时是那个分节，显示几个时是区域的分支，
+ * 所以只认编辑区那一侧；编辑区那一侧在底部面板显示着时是中间那一列（`center`），没显示时只剩编辑组（`g0`）。
+ */
+const sidebarSash = (page: Page) => page.getByRole("separator", {name: /^调整 \S+ 与 (?:center|g0) 的宽度$/u});
+const panelSash = (page: Page) => page.getByRole("separator", {name: /^调整 g0 与 \S+ 的高度$/u});
 const panelToggle = (page: Page) => page.locator('[data-shell-focus-target="panel-toggle"]');
+/** 标题栏里显示或隐藏一个区域的按钮：分节没有隐藏按钮，隐藏是区域的事（输出 20）。 */
+const regionToggle = (page: Page, region: PanelName) => page.locator(`[data-titlebar-layout="${region}"]`);
 /** “显示面板”总在状态栏最右，右侧没有条目时也是（ui/workbench-shell.md 输出 35）。 */
 const expectToggleAtRight = async (page: Page): Promise<void> => {
     const bar = (await page.locator("[data-workbench-status-bar]").boundingBox())!;
@@ -73,12 +101,11 @@ const parked = (page: Page, selector: string) => expect(page.locator(selector)).
 const unparked = (page: Page, selector: string) => expect(page.locator(selector)).not.toHaveAttribute("inert", "");
 
 /**
- * 右键视图，在菜单里选目标面板：移动视图的入口（输出 23），目标名是面板名或“新面板（挨着 X）”。侧栏这一列的视图右键活动栏条目
- * （不是当前视图的标签没有 DOM，输出 22），别处的视图右键标签。
+ * 右键视图所在分节的标题，在菜单里选目标：移动视图的入口（输出 23），目标名是容器的标题或“新容器（某区域）”。活动栏入口的
+ * 右键菜单是容器的（输出 44），不是视图的。
  */
 async function moveViaMenu(page: Page, view: string, target: string): Promise<void> {
-    const entry = page.locator(`[data-tool-entry="${view}"]`);
-    await (await entry.count() > 0 ? entry : page.locator(`[data-panel-tab="view:${view}"]`)).click({button: "right"});
+    await page.locator(`[data-panel-tab="view:${view}"]`).click({button: "right"});
     await page.getByRole("menuitem", {name: target, exact: true}).click();
 }
 
@@ -101,28 +128,16 @@ test.describe("产品页", () => {
 
     const userDatabase = (): string => join(tmp, "state", "storage", "user.sqlite");
 
-    interface SavedDoc {
-        readonly tree: {readonly root: SavedNode};
-        readonly panels: Readonly<Record<string, {readonly collapsed?: boolean; readonly hidden?: boolean; readonly active?: string | null}>>;
-    }
-    type SavedNode = {readonly kind: "leaf"; readonly id: string; readonly size: {readonly width: number; readonly height: number}} | {readonly kind: "branch"; readonly children: readonly SavedNode[]};
-
-    const sizeOf = (node: SavedNode, id: string): {width: number; height: number} | null => {
-        if (node.kind === "leaf") return node.id === id ? node.size : null;
-        for (const child of node.children) {
-            const found = sizeOf(child, id);
-            if (found !== null) return found;
-        }
-        return null;
-    };
+    /** 记录里一个区域的尺寸意图：区域有分节时记在区域的分支上，没有时记在锚上。 */
+    const regionSize = (doc: LayoutDoc, region: PanelName): {width: number; height: number} | null => regionNodeOf(doc, region)?.node.size ?? null;
 
     /** 本页客户端存下的 `workbench.layout`（`local`，按客户端分行）；还没写过为 null。 */
-    async function saved(page: Page): Promise<{revision: number; doc: SavedDoc} | null> {
+    async function saved(page: Page): Promise<{revision: number; doc: LayoutDoc} | null> {
         const client = await page.evaluate((key) => localStorage.getItem(key), CLIENT_IDENTITY_KEY);
         const db = new DatabaseSync(userDatabase());
         try {
             const row = db.prepare("SELECT revision, value FROM records WHERE owner = 'nbook.workbench' AND key = 'workbench.layout' AND client = ?1").get(client) as {revision: number; value: string} | undefined;
-            return row === undefined ? null : {revision: Number(row.revision), doc: (JSON.parse(row.value) as {doc: SavedDoc}).doc};
+            return row === undefined ? null : {revision: Number(row.revision), doc: (JSON.parse(row.value) as {doc: LayoutDoc}).doc};
         } finally {
             db.close();
         }
@@ -148,87 +163,109 @@ test.describe("产品页", () => {
     const SAVE = 2;
 
     /**
-     * 每个用例一个新的浏览器上下文：客户端身份不同，`local` 的布局记录互不影响。新客户端的面板默认不显示，打开后经状态栏
-     * 显示面板，等记录写完再返回，免得这次保存混进用例自己数的修订号。
+     * 每个用例一个新的浏览器上下文：客户端身份不同，`local` 的布局记录互不影响。新客户端没有记录，默认布局不保存，第一次改动
+     * 才写；底部面板没有容器，默认隐藏（输出 1）。
      */
     async function open(page: Page): Promise<void> {
         await page.goto(new URL("/workbench", server.url).href);
         await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
         // 记录读完前状态栏的面板按钮不可用：等按钮可用。
-        const toggle = panelToggle(page);
-        await expect(toggle).toBeEnabled();
-        if ((await saved(page)) !== null) return;
-        await toggle.click();
-        await expect.poll(async () => (await saved(page)) !== null).toBe(true);
+        await expect(panelToggle(page)).toBeEnabled();
     }
 
-    test("隐藏、收起、最大化：形态互不等价；收起或隐藏退出最大化；最大化不落盘；隐藏时焦点到活动栏条目；显示同时清除收起（输出 11、13、16；验收 5）", async ({page}) => {
+    /**
+     * 把会话移进底部面板的新容器，等这次写入落盘：底部面板默认隐藏（里面只有不让区域显示的通知、后台任务，views.md 输出 18），
+     * 要看它得先放一个视图进去（输出 23：新容器的同一次写入把区域显示出来、切到它）。返回这个分节的面板 id。
+     */
+    async function sessionsToPanel(page: Page): Promise<string> {
+        await moveViaMenu(page, SESSIONS, "新容器（底部面板）");
+        await expect(headOf(page, SESSIONS)).toBeVisible();
+        await expect.poll(async () => (await saved(page))?.doc.panels.panel?.activeContainer ?? null).not.toBeNull();
+        return sectionOf(page, SESSIONS);
+    }
+
+    test("隐藏、收成标题行、最大化：形态互不等价；收起或隐藏退出最大化；最大化不落盘；显示区域不动分节的收起；隐藏时焦点到活动栏条目（输出 11、13、16；验收 5）", async ({page}) => {
         await open(page);
         await expectToggleAtRight(page);
-        await frame(page, "panel", "set-panel-collapsed").click();
-        await expect.poll(async () => (await box(page, "panel")).height).toBe(32);
+        // 侧栏的两个分节上下排：资源管理器收成标题行，高度等于面板头，记在分节自己的记录上。
+        const explorer = await sectionOf(page, EXPLORER);
+        const expanded = (await box(page, explorer)).height;
+        await frame(page, EXPLORER, "set-panel-collapsed").click();
+        await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
         // 先等收起写进记录，再展开，最后等展开也写进去：下面读到的修订号才是这两次写入之后的，不会被迟到的写入抬高。
-        await expect.poll(async () => (await saved(page))?.doc.panels.panel?.collapsed).toBe(true);
-        await frame(page, "panel", "set-panel-collapsed").click();
-        await expect.poll(async () => (await box(page, "panel")).height).toBe(200);
-        await expect.poll(async () => (await saved(page))?.doc.panels.panel?.collapsed ?? false).toBe(false);
+        await expect.poll(async () => (await saved(page))?.doc.panels[explorer]?.collapsed).toBe(true);
+        await frame(page, EXPLORER, "set-panel-collapsed").click();
+        await expect.poll(async () => (await box(page, explorer)).height).toBe(expanded);
+        await expect.poll(async () => (await saved(page))?.doc.panels[explorer]?.collapsed ?? false).toBe(false);
 
         // 最大化盖住条以外的区域；别的面板还在原来的矩形里，内容停放。
         const before = await leafRects(page);
+        const others = [await sectionOf(page, SESSIONS), "g0", await sectionOf(page, CONVERSATION)];
         const record = await saved(page);
-        await frame(page, "panel", "toggle-panel-maximized").click();
-        await expect(frame(page, "panel", "toggle-panel-maximized")).toHaveAttribute("aria-pressed", "true");
+        await frame(page, EXPLORER, "toggle-panel-maximized").click();
+        await expect(frame(page, EXPLORER, "toggle-panel-maximized")).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => {
-            const [panel, sidebar, aux, editor] = [await box(page, "panel"), await box(page, "sidebar"), await box(page, "auxiliarybar"), await box(page, "g0")];
-            return panel.x <= sidebar.x + 0.5 && right(panel) >= right(aux) - 0.5 && panel.y <= editor.y + 0.5 && bottom(panel) >= bottom(editor) + 150;
+            const over = await box(page, explorer);
+            return others.every((id) => {
+                const [x, y, width, height] = before[id]!;
+                return over.x <= x! + 0.5 && right(over) >= x! + width! - 0.5 && over.y <= y! + 0.5 && bottom(over) >= y! + height! - 0.5;
+            });
         }).toBe(true);
         const covered = await leafRects(page);
-        for (const id of ["sidebar", "g0", "auxiliarybar"]) expect(covered[id], id).toEqual(before[id]);
+        for (const id of others) expect(covered[id], id).toEqual(before[id]);
         await parked(page, '[data-content="editor:g0"]');
-        await parked(page, '[data-content="view:nbook.explorer"]');
+        await parked(page, `[data-content="view:${CONVERSATION}"]`);
         // 最大化只在内存：记录不动，刷新后回到原来的高度。
         expect((await saved(page))?.revision).toBe(record?.revision);
         await page.reload();
         await open(page);
-        expect((await box(page, "panel")).height).toBe(200);
+        expect((await box(page, explorer)).height).toBe(expanded);
 
-        // 收起这个面板退出最大化，别的面板的内容恢复。
-        await frame(page, "panel", "toggle-panel-maximized").click();
+        // 收起这个分节退出最大化，别的面板的内容恢复。
+        await frame(page, EXPLORER, "toggle-panel-maximized").click();
         await parked(page, '[data-content="editor:g0"]');
-        await frame(page, "panel", "set-panel-collapsed").click();
-        await expect(frame(page, "panel", "toggle-panel-maximized")).toHaveAttribute("aria-pressed", "false");
-        await expect.poll(async () => (await box(page, "panel")).height).toBe(32);
+        await frame(page, EXPLORER, "set-panel-collapsed").click();
+        await expect(frame(page, EXPLORER, "toggle-panel-maximized")).toHaveAttribute("aria-pressed", "false");
+        await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
         await unparked(page, '[data-content="editor:g0"]');
-        await frame(page, "panel", "set-panel-collapsed").click();
-        await expect.poll(async () => (await box(page, "panel")).height).toBe(200);
 
-        // 收起后隐藏，再从状态栏显示：两个状态一起清掉（输出 11 的表）。
-        await frame(page, "panel", "set-panel-collapsed").click();
-        await frame(page, "panel", "set-part-hidden").focus();
-        await page.keyboard.press("Enter");
-        await expect(leaf(page, "panel")).toHaveCount(0);
+        // 分节收成标题行时隐藏区域，再显示：区域回来，分节的收起不动（输出 11 的表）。
+        await regionToggle(page, "sidebar").click();
+        await expect(leaf(page, explorer)).toHaveCount(0);
+        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
+        await regionToggle(page, "sidebar").click();
+        await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
+        await frame(page, EXPLORER, "set-panel-collapsed").click();
+        await expect.poll(async () => (await box(page, explorer)).height).toBe(expanded);
+
+        // 底部面板隐藏后从状态栏显示，回到原来的高度。
+        const sessions = await sessionsToPanel(page);
+        const height = (await box(page, sessions)).height;
+        await expect(panelToggle(page)).toHaveText("隐藏面板");
+        await panelToggle(page).click();
+        await expect(leaf(page, sessions)).toHaveCount(0);
         await expect(panelToggle(page)).toHaveText("显示面板");
         await panelToggle(page).click();
-        await expect.poll(async () => (await box(page, "panel")).height).toBe(200);
+        await expect.poll(async () => (await box(page, sessions)).height).toBe(height);
 
         // 焦点在面板内容里时隐藏面板：视图在面板里，活动栏没有它的条目（只列侧栏这一列），焦点移到外壳根，不落在 body 上（输出 16）。
-        await moveViaMenu(page, "nbook.agent.sessions", "面板");
-        await expect(page.locator('[data-panel-head="panel"] [data-panel-tab="view:nbook.agent.sessions"]')).toBeVisible();
-        await content(page, "nbook.agent.sessions").locator("input").first().focus();
-        // 键盘用户在内容里没有走到隐藏按钮的路径可选（按钮在头里，焦点会先离开内容），所以用脚本点它，让焦点留在内容里被停放。
-        await frame(page, "panel", "set-part-hidden").evaluate((button) => (button as HTMLElement).click());
-        await expect(leaf(page, "panel")).toHaveCount(0);
+        await content(page, SESSIONS).locator("input").first().focus();
+        // 用脚本点状态栏的按钮：真的去点会先把焦点从内容里移走，这里要它留在内容里被停放。
+        await panelToggle(page).evaluate((button) => (button as HTMLElement).click());
+        await expect(leaf(page, sessions)).toHaveCount(0);
         await expect(page.locator(".workbench-shell-host")).toBeFocused();
 
-        // 侧栏的头随侧栏隐藏：侧栏里的视图有活动栏条目，焦点移到它的条目。
-        await frame(page, "sidebar", "set-part-hidden").focus();
-        await page.keyboard.press("Enter");
-        await expect(leaf(page, "sidebar")).toHaveCount(0);
-        await expect(page.locator('[data-tool-entry="nbook.explorer"]')).toBeFocused();
+        // 焦点在侧栏分节的头里时隐藏侧栏：头随侧栏隐藏，焦点移到活动栏里这个分节所在容器（“项目”）的入口（输出 16）。
+        await frame(page, EXPLORER, "toggle-panel-maximized").focus();
+        await regionToggle(page, "sidebar").evaluate((button) => (button as HTMLElement).click());
+        await expect(leaf(page, explorer)).toHaveCount(0);
+        await expect(page.locator(`[data-tool-entry="${PROJECT_CONTAINER}"]`)).toBeFocused();
     });
 
     test("拖动边界：一次手势只提交一次；越界停住、刷新恢复；键盘步长、Home/End；Escape 与拖动中改窗口零写入；拖到零留 1px，指针拉回与 Enter 恢复（输出 8、9、11、12；验收 5）", async ({page}) => {
         await open(page);
+        // 侧栏的宽量它的一个分节：两个分节同宽，就是区域的宽。
+        const side = await sectionOf(page, EXPLORER);
         const sash = sidebarSash(page);
         const at = async () => {
             const found = await sash.boundingBox();
@@ -247,127 +284,147 @@ test.describe("产品页", () => {
         // 默认侧栏 340（叶宽，卡片在留白里），上限 560。一次手势落账一次：修订号前进一次保存的步数。
         let before = revisions();
         await drag(400);
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(560);
+        await expect.poll(async () => (await box(page, side)).width).toBe(560);
         await expect.poll(() => revisions().all).toBe(before.all + SAVE);
         expect(revisions().layout).toBe(before.all + SAVE);
-        expect(sizeOf((await saved(page))!.doc.tree.root, "sidebar")?.width).toBe(560);
+        expect(regionSize((await saved(page))!.doc, "sidebar")?.width).toBe(560);
         await page.reload();
         await open(page);
-        expect((await box(page, "sidebar")).width).toBe(560);
+        expect((await box(page, side)).width).toBe(560);
         const afterDrag = revisions().all;
 
         await sash.focus();
         await page.keyboard.press("ArrowLeft");
         await page.keyboard.press("Shift+ArrowLeft");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(549);
+        await expect.poll(async () => (await box(page, side)).width).toBe(549);
         await page.keyboard.press("Home");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(160);
+        await expect.poll(async () => (await box(page, side)).width).toBe(160);
         await page.keyboard.press("End");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(560);
+        await expect.poll(async () => (await box(page, side)).width).toBe(560);
         await page.keyboard.press("ArrowLeft");
         await page.keyboard.press("Shift+ArrowLeft");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(549);
+        await expect.poll(async () => (await box(page, side)).width).toBe(549);
         // 六次按键各结束一次手势，各保存一次。
         await expect.poll(() => revisions().all).toBe(afterDrag + 6 * SAVE);
 
         // 取消与上下文变化：预览回滚，记录不变。
         before = revisions();
         await page.keyboard.down("ArrowLeft");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(539);
+        await expect.poll(async () => (await box(page, side)).width).toBe(539);
         await page.keyboard.press("Escape");
         await page.keyboard.up("ArrowLeft");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(549);
+        await expect.poll(async () => (await box(page, side)).width).toBe(549);
         await drag(-100, () => page.setViewportSize({width: 1400, height: 900}));
         await page.setViewportSize({width: 1440, height: 900});
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(549);
+        await expect.poll(async () => (await box(page, side)).width).toBe(549);
         expect(revisions()).toEqual(before);
 
         // 拖到零：内容 0、边界 1px 还在；刷新后保持；从边界用指针拉回跟随指针；Enter 恢复记忆尺寸。
         await drag(-600);
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(0);
+        await expect.poll(async () => (await box(page, side)).width).toBe(0);
         await expect(sash).toBeVisible();
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.collapsed).toBe(true);
         await page.reload();
         await open(page);
-        expect((await box(page, "sidebar")).width).toBe(0);
+        expect((await box(page, side)).width).toBe(0);
         await drag(300);
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBeGreaterThan(250);
+        await expect.poll(async () => (await box(page, side)).width).toBeGreaterThan(250);
         await drag(-600);
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(0);
+        await expect.poll(async () => (await box(page, side)).width).toBe(0);
         await sash.focus();
         await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBeGreaterThan(250);
+        await expect.poll(async () => (await box(page, side)).width).toBeGreaterThan(250);
     });
 
     test("最大化与拖到零时内容停放：看不见的内容不可交互；侧栏拖到零后标题栏按钮恢复；隐藏面板后状态栏“显示面板”按记忆尺寸恢复（输出 11、13、16；验收 5、7）", async ({page}) => {
         await open(page);
+        const side = await sectionOf(page, EXPLORER);
         // 最大化：被盖住的编辑组停放，Tab 走不进去。
-        await frame(page, "panel", "toggle-panel-maximized").click();
+        await frame(page, EXPLORER, "toggle-panel-maximized").click();
         await parked(page, '[data-content="editor:g0"]');
         await expect(editorContent(page)).toHaveCount(1);
-        await frame(page, "panel", "set-panel-collapsed").focus();
+        await frame(page, EXPLORER, "set-panel-collapsed").focus();
         for (let step = 0; step < 6; step++) {
             await page.keyboard.press("Tab");
             expect(await page.evaluate(() => document.activeElement?.closest('[data-content="editor:g0"]') ?? null)).toBeNull();
         }
-        await frame(page, "panel", "toggle-panel-maximized").click();
+        await frame(page, EXPLORER, "toggle-panel-maximized").click();
         await unparked(page, '[data-content="editor:g0"]');
 
-        // 横向分支拖到零：内容停放、保持实例；标题栏的侧栏按钮显示它。
+        // 侧栏拖到零：内容停放、保持实例；标题栏的侧栏按钮显示它。
         await sidebarSash(page).focus();
         await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(0);
+        await expect.poll(async () => (await box(page, side)).width).toBe(0);
         await parked(page, '[data-content="view:nbook.explorer"]');
         await expect(content(page, "nbook.explorer")).toHaveCount(1);
         await expect(page.locator('[data-titlebar-layout="sidebar"]')).toHaveAttribute("aria-pressed", "false");
         await page.locator('[data-titlebar-layout="sidebar"]').click();
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(340);
+        await expect.poll(async () => (await box(page, side)).width).toBe(340);
         await unparked(page, '[data-content="view:nbook.explorer"]');
 
         // 面板里有内容时，隐藏后经状态栏显示，回到记忆的尺寸。
-        await moveViaMenu(page, "nbook.agent.sessions", "面板");
-        await expect(page.locator('[data-panel-head="panel"] [data-panel-tab="view:nbook.agent.sessions"]')).toBeVisible();
-        await frame(page, "panel", "set-part-hidden").click();
-        await expect(leaf(page, "panel")).toHaveCount(0);
+        const sessions = await sessionsToPanel(page);
         const toggle = panelToggle(page);
+        await expect(toggle).toHaveText("隐藏面板");
+        await toggle.click();
+        await expect(leaf(page, sessions)).toHaveCount(0);
         await expect(toggle).toHaveText("显示面板");
         await toggle.click();
-        await expect.poll(async () => (await box(page, "panel")).height).toBe(200);
+        await expect.poll(async () => (await box(page, sessions)).height).toBe(200);
         await expect(toggle).toHaveText("隐藏面板");
     });
 
-    test("纵向分支的边界：Enter 把面板收成标题行、内容停放，再按一次恢复记忆的尺寸（输出 11、12）", async ({page}) => {
+    test("侧栏里分节之间的边界：Enter 把分节收成标题行、内容停放，再按一次恢复记忆的尺寸（输出 11、12）", async ({page}) => {
         await open(page);
-        await moveViaMenu(page, "nbook.agent.sessions", "面板");
-        await expect(page.locator('[data-panel-head="panel"] [data-panel-tab="view:nbook.agent.sessions"]')).toBeVisible();
+        const [explorer, sessions] = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
+        const [upper, lower] = (await box(page, explorer)).y < (await box(page, sessions)).y ? [explorer, sessions] : [sessions, explorer];
+        // 收的是边界前面的那一块。
+        const upperView = upper === sessions ? SESSIONS : EXPLORER;
+        const expanded = (await box(page, upper)).height;
+        const between = page.getByRole("separator", {name: `调整 ${upper} 与 ${lower} 的高度`, exact: true});
+        await between.focus();
+        await page.keyboard.press("Enter");
+        await expect.poll(async () => (await box(page, upper)).height).toBe(32);
+        await parked(page, `[data-content="view:${upperView}"]`);
+        await expect.poll(async () => (await saved(page))?.doc.panels[upper]?.collapsed).toBe(true);
+        await page.keyboard.press("Enter");
+        await expect.poll(async () => (await box(page, upper)).height).toBe(expanded);
+        await unparked(page, `[data-content="view:${upperView}"]`);
+    });
+
+    test("底部面板挨着编辑区的边界：Enter 把整个区域拖到零、内容停放，边界还在，再按一次恢复记忆的尺寸（输出 11、12）", async ({page}) => {
+        await open(page);
+        const sessions = await sessionsToPanel(page);
         await panelSash(page).focus();
         await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, "panel")).height).toBe(32);
+        await expect.poll(async () => (await box(page, sessions)).height).toBe(0);
+        await expect(panelSash(page)).toBeVisible();
         await parked(page, '[data-content="view:nbook.agent.sessions"]');
+        await expect.poll(async () => (await saved(page))?.doc.panels.panel?.collapsed).toBe(true);
         await page.keyboard.press("Enter");
-        await expect.poll(async () => (await box(page, "panel")).height).toBe(200);
+        await expect.poll(async () => (await box(page, sessions)).height).toBe(200);
         await unparked(page, '[data-content="view:nbook.agent.sessions"]');
     });
 
     test("侧栏这一列全部收成标题行：页面大小不变，标题行排在上面，再展开能回来（输出 11）", async ({page}) => {
         await open(page);
-        await moveViaMenu(page, "nbook.agent.sessions", "新面板（挨着侧栏）");
-        const other = await content(page, "nbook.agent.sessions").getAttribute("data-content-leaf");
-        if (other === null) throw new Error("新面板没有叶");
+        // 默认的侧栏就是上下两个分节（输出 1）。
+        const [sessions, explorer] = [await sectionOf(page, SESSIONS), await sectionOf(page, EXPLORER)];
         const editor = await box(page, "g0");
-        await frame(page, "sidebar", "set-panel-collapsed").click();
-        await frame(page, other, "set-panel-collapsed").click();
-        await expect.poll(async () => (await box(page, other)).height).toBe(32);
-        expect((await box(page, "sidebar")).height).toBe(32);
+        await frame(page, SESSIONS, "set-panel-collapsed").click();
+        await frame(page, EXPLORER, "set-panel-collapsed").click();
+        await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
+        expect((await box(page, sessions)).height).toBe(32);
         // 编辑组不动：列收起不是整行变矮。
         expect(await box(page, "g0")).toEqual(editor);
-        await frame(page, "sidebar", "set-panel-collapsed").click();
-        await expect.poll(async () => (await box(page, "sidebar")).height).toBeGreaterThan(400);
-        expect((await box(page, other)).height).toBe(32);
+        await frame(page, SESSIONS, "set-panel-collapsed").click();
+        await expect.poll(async () => (await box(page, sessions)).height).toBeGreaterThan(400);
+        expect((await box(page, explorer)).height).toBe(32);
     });
 
     test("从零拉回：按着拖的过程中内容就出现，按回零内容回到停放，再拉出又出现，松手后保持（输出 12）", async ({page}) => {
         await open(page);
+        const side = await sectionOf(page, EXPLORER);
         const sash = sidebarSash(page);
         const explorer = '[data-content="view:nbook.explorer"]';
         const press = async (): Promise<{x: number; y: number}> => {
@@ -381,12 +438,12 @@ test.describe("产品页", () => {
         let start = await press();
         await page.mouse.move(start.x - 600, start.y, {steps: 6});
         await page.mouse.up();
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(0);
+        await expect.poll(async () => (await box(page, side)).width).toBe(0);
         await parked(page, explorer);
 
         start = await press();
         await page.mouse.move(start.x + 200, start.y, {steps: 8});
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBeGreaterThan(150);
+        await expect.poll(async () => (await box(page, side)).width).toBeGreaterThan(150);
         // 松手之前内容就已经搬出停放区、看得见。
         await unparked(page, explorer);
         await expect(page.locator(explorer)).toBeVisible();
@@ -397,7 +454,7 @@ test.describe("产品页", () => {
         await unparked(page, explorer);
         await page.mouse.up();
         await unparked(page, explorer);
-        expect((await box(page, "sidebar")).width).toBeGreaterThan(150);
+        expect((await box(page, side)).width).toBeGreaterThan(150);
     });
 
     test("外框过渡：开关侧栏时有，拖分隔线松手、改窗口尺寸时没有（输出 15；docs/specs/ui/nested-grid.md 的“过渡”）", async ({page}) => {
@@ -473,38 +530,42 @@ test.describe("产品页", () => {
         await expect(page.locator("[data-status-problem]")).toHaveCount(0);
         await page.reload();
         await open(page);
-        expect((await box(page, "sidebar")).width).toBe(350);
+        expect((await sectionBox(page, EXPLORER)).width).toBe(350);
     });
 
     test("放不下时只改呈现：窄到最小值时先压工具面板，再按右栏、面板、侧栏的顺序收走并给诊断，最后才压编辑组；文档不变，放大后回到原样（输出 6、10；验收 6）", async ({page}) => {
         await open(page);
+        // 底部面板默认隐藏：先放一个视图进去，三个区域才都有分节可收。
+        const panel = await sessionsToPanel(page);
+        const [side, aux] = [await sectionOf(page, EXPLORER), await sectionOf(page, CONVERSATION)];
         const original = await leafRects(page);
         const recorded = revisions();
         const diagnostics = page.locator("[data-workbench-shell]");
         const fullyVisible = async (): Promise<boolean> => {
-            const panel = await box(page, "panel");
-            const buttons = await page.locator('[data-panel-head="panel"] [data-panel-action]').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect()).map((rect) => ({x: rect.x, width: rect.width})));
-            return buttons.length === 3 && buttons.every((button) => button.width > 0 && button.x >= panel.x - 0.5 && button.x + button.width <= panel.x + panel.width + 0.5);
+            const frameBox = await box(page, panel);
+            const buttons = await headOf(page, SESSIONS).locator("[data-panel-action]").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect()).map((rect) => ({x: rect.x, width: rect.width})));
+            // 底部面板的分节只有浮动、最大化两个框架按钮：不折叠，隐藏是区域的事（输出 20）。
+            return buttons.length === 2 && buttons.every((button) => button.width > 0 && button.x >= frameBox.x - 0.5 && button.x + button.width <= frameBox.x + frameBox.width + 0.5);
         };
 
-        // 840 宽：工具面板压到最小值以上，编辑组不小于 220，三个框架按钮完整可见。
+        // 840 宽：工具面板压到最小值以上，编辑组不小于 220，框架按钮完整可见。
         await page.setViewportSize({width: 840, height: 900});
         await expect.poll(async () => (await box(page, "g0")).width).toBeGreaterThanOrEqual(220);
-        expect((await box(page, "sidebar")).width).toBeGreaterThanOrEqual(160);
-        expect((await box(page, "auxiliarybar")).width).toBeGreaterThanOrEqual(160);
+        expect((await box(page, side)).width).toBeGreaterThanOrEqual(160);
+        expect((await box(page, aux)).width).toBeGreaterThanOrEqual(160);
         await expect.poll(fullyVisible).toBe(true);
 
         // 放不下最小值的总和：右栏先收走。
         await page.setViewportSize({width: 590, height: 900});
-        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
-        await expect(diagnostics).toHaveAttribute("data-layout-diagnostics", /auxiliarybar/u);
+        await expect(leaf(page, aux)).toHaveCount(0);
+        await expect.poll(() => diagnostics.getAttribute("data-layout-diagnostics")).toContain(`收走 ${aux}`);
         expect((await box(page, "g0")).width).toBeGreaterThanOrEqual(220);
         await parked(page, '[data-content="view:nbook.agent.conversation"]');
 
         // 高度放不下：面板在侧栏之前收走，编辑组留在可用的高度里。
         await page.setViewportSize({width: 590, height: 230});
-        await expect(leaf(page, "panel")).toHaveCount(0);
-        await expect(diagnostics).toHaveAttribute("data-layout-diagnostics", /panel/u);
+        await expect(leaf(page, panel)).toHaveCount(0);
+        await expect.poll(() => diagnostics.getAttribute("data-layout-diagnostics")).toContain(`收走 ${panel}`);
         expect((await box(page, "g0")).height).toBeGreaterThanOrEqual(120);
 
         // 全程没有写文档；放大后收走的都回来，矩形回到原样。
@@ -516,17 +577,18 @@ test.describe("产品页", () => {
         await expect.poll(fullyVisible).toBe(true);
     });
 
-    test("窄的时候切个标签：被压缩的宽度不写进布局，放大后回到原样（输出 8；验收 6）", async ({page}) => {
+    test("窄的时候收起一个分节：被压缩的宽度不写进布局，放大后回到原样（输出 8；验收 6）", async ({page}) => {
         await open(page);
-        const wide = (await box(page, "sidebar")).width;
+        const [side, sessions] = [await sectionOf(page, EXPLORER), await sectionOf(page, SESSIONS)];
+        const wide = (await box(page, side)).width;
         await page.setViewportSize({width: 840, height: 900});
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBeLessThan(wide);
-        // 侧栏这一列的头只写当前视图，切到会话要点活动栏条目。
-        await page.locator('[data-tool-entry="nbook.agent.sessions"]').click();
-        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.active).toBe("view:nbook.agent.sessions");
-        expect(sizeOf((await saved(page))!.doc.tree.root, "sidebar")?.width).toBe(wide);
+        await expect.poll(async () => (await box(page, side)).width).toBeLessThan(wide);
+        // 窄的时候做一次会保存的操作：收起会话这个分节。
+        await frame(page, SESSIONS, "set-panel-collapsed").click();
+        await expect.poll(async () => (await saved(page))?.doc.panels[sessions]?.collapsed).toBe(true);
+        expect(regionSize((await saved(page))!.doc, "sidebar")?.width).toBe(wide);
         await page.setViewportSize({width: 1440, height: 900});
-        await expect.poll(async () => (await box(page, "sidebar")).width).toBe(wide);
+        await expect.poll(async () => (await box(page, side)).width).toBe(wide);
     });
 
     test("同一客户端的两个窗口：各改一次布局，后保存的整棵胜出，另一窗口的显示不被强改；刷新后一致（验收 11）", async ({browser}) => {
@@ -535,22 +597,23 @@ test.describe("产品页", () => {
         const b = await context.newPage();
         await open(a);
         await open(b);
-        // a 先拉宽侧栏并保存；b 随后隐藏面板并保存。
+        const [side, aux] = [await sectionOf(a, EXPLORER), await sectionOf(a, CONVERSATION)];
+        // a 先拉宽侧栏并保存；b 随后隐藏右栏并保存（底部面板默认就隐藏着）。
         await sidebarSash(a).focus();
         await a.keyboard.press("ArrowRight");
-        await expect.poll(async () => (await box(a, "sidebar")).width).toBe(350);
-        await expect.poll(async () => sizeOf((await saved(a))!.doc.tree.root, "sidebar")?.width).toBe(350);
+        await expect.poll(async () => (await box(a, side)).width).toBe(350);
+        await expect.poll(async () => regionSize((await saved(a))!.doc, "sidebar")?.width).toBe(350);
         const afterA = revisions().all;
-        await frame(b, "panel", "set-part-hidden").click();
-        await expect(leaf(b, "panel")).toHaveCount(0);
+        await regionToggle(b, "auxiliarybar").click();
+        await expect(leaf(b, aux)).toHaveCount(0);
         await expect.poll(() => revisions().all).toBe(afterA + SAVE);
-        await expect.poll(async () => (await saved(b))?.doc.panels.panel?.hidden).toBe(true);
-        // b 保存后，a 的显示不被强改：面板还在。
-        await expect(leaf(a, "panel")).toHaveCount(1);
+        await expect.poll(async () => (await saved(b))?.doc.panels.auxiliarybar?.hidden).toBe(true);
+        // b 保存后，a 的显示不被强改：右栏还在。
+        await expect(leaf(a, aux)).toHaveCount(1);
         for (const page of [a, b]) {
             await page.reload();
             await open(page);
-            await expect(leaf(page, "panel")).toHaveCount(0);
+            await expect(leaf(page, aux)).toHaveCount(0);
         }
         // 两个窗口读到的是同一份记录，布局一致。
         expect(await leafRects(a)).toEqual(await leafRects(b));
@@ -559,8 +622,9 @@ test.describe("产品页", () => {
 
     test("外壳、面板与状态栏的底色、文字颜色、字体与分隔线取主题 token 的解析值（输出 19；验收 16）", async ({page}) => {
         await open(page);
+        const side = await sectionOf(page, EXPLORER);
         // 每块区域读计算样式，再在同一位置放一个探针读对应 token 的解析值，逐项对照。
-        const resolved = await page.evaluate(() => {
+        const resolved = await page.evaluate((section) => {
             const read = (selector: string, pairs: Readonly<Record<string, string>>) => {
                 const element = document.querySelector(selector)!;
                 const probe = document.createElement("div");
@@ -574,14 +638,14 @@ test.describe("产品页", () => {
             };
             return [
                 ...read("[data-workbench-shell]", {"background-color": "--shell-ground", "color": "--text-main", "font-family": "--font-ui"}),
-                ...read('[data-shell-card="sidebar"]', {"background-color": "--panel-surface"}),
-                ...read('[data-panel-head="panel"] h2', {"color": "--text-secondary"}),
+                ...read(`[data-shell-card="${section}"]`, {"background-color": "--panel-surface"}),
+                ...read(`[data-panel-head="${section}"] h2`, {"color": "--text-secondary"}),
                 ...read("[data-workbench-status-bar]", {"background-color": "--shell-chrome-surface", "border-top-color": "--shell-chrome-line", "color": "--text-secondary"}),
             ];
-        });
+        }, side);
         for (const {selector, property, own, token} of resolved) expect(own, `${selector} ${property}`).toBe(token);
         // 面板头不画底线；页面根不预留滚动条位置，外壳贴到视口右缘。
-        expect(await page.locator('[data-panel-head="panel"]').evaluate((head) => getComputedStyle(head).borderBottomWidth)).toBe("0px");
+        expect(await headOf(page, EXPLORER).evaluate((head) => getComputedStyle(head).borderBottomWidth)).toBe("0px");
         expect(await page.evaluate(() => window.innerWidth - document.querySelector("[data-workbench-shell]")!.getBoundingClientRect().right)).toBe(0);
     });
 });
@@ -620,7 +684,10 @@ test.describe("Lab", () => {
             element.scrollTop = 300;
         });
         const act = (name: string) => page.locator(`[data-surface-action="${name}"]`).click();
-        const head = (panel: string, action: string) => page.locator(`[data-panel-head="${panel}"] [data-panel-action="${action}"]`);
+        // 夹具的五个视图各是自己的容器：分节的头按它那个视图找，活动栏的入口按容器 id。
+        const head = (view: string, action: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${view}"]) [data-panel-action="${action}"]`);
+        const entry = (view: string) => page.locator(`[data-tool-entry="view:${view}"]`);
+        const left = async (selector: string): Promise<number> => (await page.locator(selector).boundingBox())?.x ?? Number.NaN;
         const settled = async (visible: boolean): Promise<void> => {
             expect(await instances()).toEqual(before);
             await expect(input).toHaveValue("草稿");
@@ -630,28 +697,29 @@ test.describe("Lab", () => {
             }
         };
 
-        // 并进右栏再回侧栏。
+        // A 的容器整个搬到右栏再搬回侧栏（输出 44）：搬过去右栏切到它，它在编辑组右边，活动栏没有它的入口；搬回来入口回来、是当前容器。
         await act("a-to-right");
-        await page.locator("[data-panel-tab='view:a']").click();
-        await expect(page.locator(a)).toHaveAttribute("data-content-leaf", "auxiliarybar");
+        await expect(entry("a")).toHaveCount(0);
+        await expect.poll(async () => (await left(a)) > (await left("[data-leaf='g1']"))).toBe(true);
         await settled(true);
         await act("a-back");
-        await page.locator("[data-panel-tab='view:a']").click();
-        await expect(page.locator(a)).toHaveAttribute("data-content-leaf", "sidebar");
+        await expect(entry("a")).toHaveAttribute("aria-pressed", "true");
+        await expect.poll(async () => (await left(a)) < (await left("[data-leaf='g0']"))).toBe(true);
         await settled(true);
 
-        // 最大化别的面板：A 被盖住（内容停放，读不到滚动位置），还原后回来。
-        await head("auxiliarybar", "maximize").click();
+        // 最大化别的面板：A 被盖住（内容停放，读不到滚动位置），还原后回来。A 的容器搬走后，右栏切到入口顺序里它前面的那个容器（输出 43）：D。
+        await expect(head("d", "maximize")).toBeVisible();
+        await head("d", "maximize").click();
         await expect(page.locator(a)).toBeHidden();
         await settled(false);
-        await head("auxiliarybar", "maximize").click();
+        await head("d", "maximize").click();
         await settled(true);
 
-        // 隐藏侧栏再从活动栏条目显示。
-        await head("sidebar", "hide").click();
+        // 点当前容器的入口隐藏侧栏，再点它显示（输出 22）。
+        await entry("a").click();
         await expect(page.locator(a)).toBeHidden();
         await settled(false);
-        await page.locator('[data-tool-entry="a"]').click();
+        await entry("a").click();
         await settled(true);
 
         // 画布窄到放不下：右栏先收走，再收侧栏（A 随之不可见）；画布变回宽，两者回来。画布宽度靠拖舞台右缘的把手改。
@@ -672,8 +740,12 @@ test.describe("Lab", () => {
         const visibleTabs = async () => ((await fixture.getAttribute("data-visible-tabs")) ?? "").split(" ").filter((tab) => tab !== "");
         const wide = await visibleTabs();
         expect(wide).toContain("view:a");
+        const auxiliary = await page.locator('[data-content="view:d"]').getAttribute("data-content-leaf");
+        expect(auxiliary).not.toBeNull();
+        // 焦点所在的面板最后收（输出 10）。点入口不把焦点带进分节（输出 42），上面最后聚焦的是右栏的头：把焦点放回 A 里，收的先后才是右栏、侧栏。
+        await input.focus();
         await resizeTo(720);
-        await expect(page.locator("[data-leaf='auxiliarybar']")).toHaveCount(0);
+        await expect(page.locator(`[data-leaf="${auxiliary}"]`)).toHaveCount(0);
         expect(await visibleTabs()).toContain("view:a");
         await settled(true);
         await resizeTo(520);
@@ -681,7 +753,7 @@ test.describe("Lab", () => {
         await settled(false);
         await resizeTo(1396);
         await expect.poll(visibleTabs).toEqual(wide);
-        await expect(page.locator("[data-leaf='auxiliarybar']")).toHaveCount(1);
+        await expect(page.locator(`[data-leaf="${auxiliary}"]`)).toHaveCount(1);
         await settled(true);
     });
 

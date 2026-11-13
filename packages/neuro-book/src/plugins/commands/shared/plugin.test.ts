@@ -10,13 +10,13 @@ import {computed, ref} from "@vue/reactivity";
 import type {Ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createApplication} from "nbook/application";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -24,6 +24,7 @@ import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {COMMANDS_POINT, commandServiceKey} from "./contracts";
 import type {CommandDeclaration, CommandImplementation, CommandService} from "./contracts";
 import {commandsPlugin} from "./plugin";
+import {commandsMessage} from "./text";
 
 const silent = {error: () => undefined};
 
@@ -172,7 +173,7 @@ describe("nbook.commands 经内核装配", () => {
         });
         const {application, store} = await start("server", [greeter]);
 
-        expect(await (service as CommandService | null)?.execute("example.greeter.fail")).toEqual({ok: false, code: "execution-error", reason: "问候失败"});
+        expect(await (service as CommandService | null)?.execute("example.greeter.fail")).toEqual({ok: false, code: "execution-error", reason: commandsMessage("failures.executionError"), detail: "Error: 问候失败"});
         const recorded = store.query({plugin: "example.greeter"}).records.filter((record) => record.event === "commands.run-failed");
         expect(recorded).toHaveLength(1);
         expect(recorded[0]?.level).toBe("error");

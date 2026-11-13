@@ -11,6 +11,7 @@ import {afterEach, describe, expect, it} from "bun:test";
 
 import {getSchema, Mark} from "@tiptap/core";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -19,7 +20,6 @@ import {codecFor, coreSyntax, createMarkdownLanguage} from "@notnotype/nb-markdo
 import type {MarkdownLanguage} from "@notnotype/nb-markdown/language";
 
 import {createApplication} from "nbook/application";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 
 import {descriptor} from "../plugin";
 import {MARKDOWN_DIALECTS_POINT, MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../shared/contracts";

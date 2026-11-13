@@ -14,8 +14,8 @@ import type {Stats} from "node:fs";
 import {lstat, mkdir, open, readdir, readFile, unlink} from "node:fs/promises";
 import {join} from "node:path";
 
-import {describe, errno, holdLock} from "nbook/backend/locked-replace";
-import type {HeldLock} from "nbook/backend/locked-replace";
+import {describe, errno, holdLock} from "@notnotype/nb-file-lock";
+import type {HeldLock} from "@notnotype/nb-file-lock";
 
 import {STAGE_NAME} from "../shared/contracts";
 import type {Baseline, CommitExpect} from "../shared/contracts";

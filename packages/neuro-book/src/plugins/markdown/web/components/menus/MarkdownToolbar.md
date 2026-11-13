@@ -25,7 +25,7 @@ type Props = {
 - 放不下时从右往左收进“⋯”：按钮宽度是定值，`ResizeObserver` 量容器宽度后按算术决定留几个，不用隐藏的测量层。贡献的 `inline` 项在最后，最先被收。
 - 只读时全部置灰，版面不变。
 
-`state:local`：可放下的宽度、颜色弹层的开关。`state:inject`：图标按钮的翻译端口。`env:global`：`ResizeObserver`，卸载时断开。
+`state:local`：可放下的宽度、颜色弹层的开关。`state:inject`：图标按钮的翻译端口；上次用过的颜色（`markdownColorsKey`，见 `MarkdownColorButton.md`），颜色按钮收进“⋯”时在子菜单里选的颜色也记下。`env:global`：`ResizeObserver`，卸载时断开。
 
 ## 不支持
 

@@ -120,14 +120,6 @@
         "builtin-fixed": "Built-in plugins cannot be changed",
         "registry-failed": "Reading or writing the plugin registry failed"
     },
-    "remoteErrors": {
-        "unavailable": "The server is unreachable",
-        "timeout": "The server did not answer in time",
-        "unknown-outcome": "It is unknown whether the operation completed; the list was reloaded"
-    },
-    "failures": {
-        "unknown": "The operation did not complete"
-    },
     "builtin": {
         "nbook-agent": {
             "name": "Agent",
@@ -196,6 +188,10 @@
         "nbook-storage": {
             "name": "Storage",
             "description": "Records and preferences for plugins."
+        },
+        "nbook-tasks": {
+            "name": "Background Tasks",
+            "description": "Long-running tasks started by plugins: progress, cancelling and retrying, and a notification when they finish."
         },
         "nbook-workbench": {
             "name": "Workbench",

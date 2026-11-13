@@ -21,11 +21,10 @@ import {join} from "node:path";
 import {buildDiagnosticRegistry, buildMarkRegistry, buildRegistry} from "@notnotype/nb-canon";
 import type {ComponentDeclaration, DiagnosticDeclaration, MarkDeclaration, PluginContribution} from "@notnotype/nb-canon";
 import {nodeFiles, WorldService} from "@notnotype/nb-canon/node";
+import {holdLock} from "@notnotype/nb-file-lock";
 import type {Calendar} from "@notnotype/nb-time";
 import type {DiagnosticCompute, LogLock} from "@notnotype/nb-canon/node";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
-
-import {holdLock} from "nbook/backend/locked-replace";
 
 import {descriptor} from "../plugin";
 import {BINDER_DIR, chapterOfFile, chapterText, chapterTitles, readBinder} from "./binder";

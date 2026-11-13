@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t34-background-tasks",
+    "artifactId": "review",
+    "ackId": "20261111T063259251Z-1ae47fa4",
+    "answers": [
+        "20261111T063227550Z-b1f1b6e1"
+    ],
+    "through": "20261111T063227550Z-b1f1b6e1",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t34-background-tasks/README.md"
+    ],
+    "ackedAt": "2026-11-11T06:32:59.251Z"
+}

@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t02-host-base
-status: active
-updated: 2026-11-10
+status: done
+updated: 2026-11-12
 ---
 
 # 把两端宿主的通用部分与模型服务抽成包
@@ -46,6 +46,38 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 - 第 1 片漏改一处：应用依赖多了 nb-file-lock，开发监督进程的监视目录随之多一项，`src/server/dev/watch.test.ts` 的期望没改（第 1 片的验证没跑 `src/server/dev`），已单独提交修正。
 - 第 2 片（nb-host 骨架、`./socket`、`./testing`）已提交：nb-host 的两份类型检查与边界测试；应用类型检查、`src/server`、`src/web/host`、`files/transport.test.ts`、`canon`、架构测试，3 条项目子进程用例负载下超时、单独重跑通过；`build:web`；`build:sdk` 的产物里没有 nb-host 与 nb-file-lock；开发模式页面加载（书架页，报告无问题）。第 1、2 片之后应用整套 `test:bun` 2754 条通过，6 条子进程用例负载下超时，单独重跑 44 条全过。
 - 第 3 片（`./server`：回环与来源、端口顺延、状态根认领）已提交：认领档案改成 `defineClaimProfile` 建出（核对字段不与基础字段重名、建好整个应答的 schema），发布时核对应用字段，各加一条用例；应用 `instance.ts` 是 NeuroBook 的档案加 `claimNeuroBook`、`queryNeuroBook`（版本只在测试里换）。验证：nb-host 24 条；应用类型检查；`src/server`、`src/cli`、架构测试、`window.test.ts` 206 条，`server-projects.test.ts` 的项目停止用例在负载 16 到 20 下超时，放宽到 30 秒全过（每条约 5 秒）。
+- 第 4 片（HTTP 进 nb-host，路由合同 `./http/contracts`）已提交：准入拒绝的产品名由宿主传入（应用传 `NEUROBOOK_PROFILE.productName`，文字不变），HTTP 插件的 id 由宿主传入，`Host` 核对改用 `LOOPBACK_URL_HOSTS`；应用 17 个文件改导入（计划写 12 个，另有 `browser-bootstrap.ts`、`plugin-files.ts` 用 `HostRoute`，`window.test.ts` 用 `errorResponse`，`server.test.ts`、`theme-asset-route.test.ts` 用准入与分发层）。验证：nb-host 53 条；应用类型检查；`src/server`、`files`、`projects`、`theme-editor.test.ts`、架构测试、`window.test.ts`、`agent/attachments.test.ts` 555 条，`files/project-child.test.ts` 一条“没有外部回声”在负载下多收 7 条变更，单独跑两次都过。分支上 `docs:check` 报 `runtime/server-host.md` 证据里 4 条指向 `plugins/http/backend/` 的链接，合入后改。
+- 与计划的偏差（第 4 片）：没有做过渡的 `createHostPlugins` 包装，直接从 `./server` 过渡导出 `createHttpPlugin`、`HttpAdmission`、`HttpAdmissionRejected`、`HTTP_DRAIN_LIMIT_MS`，第 5 片删去；产品名只给准入，没有再给 HTTP 插件（插件里没有带产品名的文字）。`HostRoute` 类型从 `./server` 长期导出（应用给宿主接口）。
+- 第 5 片分两次提交。前半（5a）已提交：服务端诊断出口与浏览器诊断出口、宿主适配器 `startServerHost`（平台档案必填、放在清单之后）、内核 RPC 监听（503 文字的产品名由宿主传入、监听前核对回环）搬进 nb-host，浏览器诊断为 `./web`；应用约 40 个文件改导入。验证：nb-host 70 条与两份类型检查；应用类型检查；应用整套 `test:bun` 2698 条通过，4 条子进程用例负载下 5 秒超时，单独重跑 67 条全过。期间一次失误：全套测试运行中删了 `./server` 的过渡导出，那一轮作废、恢复后重跑。应用名扫描的 `nbot` 原来会匹配 `drainBoth` 这类单词内部，已收紧（nb-file-lock 一并改）。
+- 第 5 片后半（5b）：`startHostServer` 在 nb-host，应用 `src/server/start.ts` 改成装配者（产品名、平台档案、插件表、能力表、宿主接口、项目管理器与开发任务两个扩展），`server/plugins.ts` 删去 `serverHostPlugins`，两个宿主插件经上下文交来。应用 `src/server`、`src/project`、`src/cli`、`src/web/host` 与架构测试 244 条通过；nb-host 新增同进程用例 9 条（宿主插件核对三种、回环、扩展钩子时序三条、启动失败 503、`Host` 421 与 `Origin` 403 且 RPC 升级同一份判定）。
+- 与计划的偏差（第 5 片）：`http.hostRoutes` 与 `capabilities` 改成函数（引导接口要实际 RPC 端口，插件文件接口与插件清单要诊断存储，都在宿主里才有）；宿主句柄加只读的 `activeRequests`（已接纳或在等就绪的请求数），两条“启动失败时等待中的请求得到 503”的用例改等它，应用拿不到准入对象；进程级用例（信号、标准输入、未处理异常、在途请求、关闭失败）没有搬进 nb-host，仍在应用 `server.test.ts` 经产品装配跑同一份 nb-host 代码，nb-host 只加同进程用例与来源用例；`server.test.ts` 没有按用例逐条拆，同进程组照旧留在应用。新写的三条开发诊断用英文，搬来的中文消息不改。
+- 第 6 片（浏览器宿主 `./web`）已提交：浏览器适配器（平台档案必填，加一条“清单里带的档案覆盖不了”的用例，把合并顺序反过来时它失败）、远程会话（`openRemote` 与 `refreshEndpoint` 注入，`close()` 中止在途的重取，去掉这一句时用例失败）、`openRpcSocket` 与 `rpcSocketUrl`、`ConnectionError`、`readClientIdentity(key, storage)`；应用新增 `web/host/endpoint-refresh.ts`（协议版本与引导结构，经真实 `fetch` 的 5 条用例）、`window.test.ts`“重连时引导的协议版本变了”。验证：nb-host 98 条与两份类型检查；应用类型检查、`src/web` 与架构测试的 `bun test` 82 条、`test:vitest src/web` 60 条、`build:web`；开发模式页面加载（书房页，报告无问题）。
+- 与计划的偏差（第 6 片）：应用的 `Connection` 保留 `openRemote`（实现改成调 `openRpcSocket`），窗口把它交给远程会话，`mount.dom.test.ts` 的进程内链路替身因此不用改；`bootstrap` 多一个可选的 `signal`，重取端点经它中止。nb-host 的 `client-identity.test.ts` 另加两条（键由应用给、写不进存储）。分支上 `docs:check` 预期多报 `runtime/browser-host.md` 证据里指向 `web/host/remote-session.ts`、`remote-session.test.ts`、`client-identity.dom.test.ts`、`browser-host.test.ts` 的链接。
+- 第 7 片之前把 master 合进分支（211 个提交，含 w00032 t34 改 `server/plugins.ts`、`server.test.ts`；试算与实际合并都无冲突，没有新依赖）。合并后应用 `src/server`、`src/web`、`src/plugins/tasks` 与架构测试 258 条通过。应用类型检查在合并后报一条 `MarkdownToolbar.dom.test.ts` 的替身缺 `matches`、`commentMargin`：这个测试与 `EditorMenus` 都与 master 相同，是 master 上已有的（w00025 t13 给菜单接口加了两个字段，t18 的工具栏测试没跟上），不在本 Task 范围，交开发者。
+- 第 7 片（nb-models 的 `./config`、`./contract`）已提交：第一步核对了 `defineRemoteService({id, ...modelsSettingsSpec})` 推出的类型与 `ModelsSettingsContract` 相同，`setRole` 的输入、`setKey` 的失败码、`changed` 事件都是具体类型（把期望改成 `unknown` 时类型检查报错）；`roles.test.ts` 核对内置角色含 `MODEL_ROLE_IDS` 与 nb-harness `MODEL_ROLES` 的每个 id。验证：nb-models 12 条与两份类型检查；应用类型检查（只剩上面那条 master 上的）、`src/plugins/models`、`src/plugins/agent/web`、架构测试与 `watch.test.ts` 69 条、`test:vitest` 两处 43 条、`build:web`、`build:sdk`（产物里没有 nb-models；`node:crypto` 外置的提示第 2 片就有）、`scripts/ci` 110 条、`governance:check`。
+- 与计划的偏差（第 7 片）：`./contract` 分成 `shapes.ts`、`settings-spec.ts`、`service.ts` 三个文件；计划的改导入清单漏了 `models/models.llm.test.ts`（从插件根目录导入 `./shared/rules`），类型检查发现后补上；应用多了一个 workspace 依赖，`server/dev/watch.test.ts` 的监视目录期望随之加一项。
+- 第 8 片（nb-models 的 `./core`、`./testing`）已提交：`core.ts` 用 `git mv` 搬进包，设置服务换成 `ModelsConfigStore`，写入步骤的失败类型由合同的失败码表推出（码写错是类型错误），`relay` 只剩“属于哪个方法”这一处断言；`chooseModel` 抽成纯函数，`setRole` 的“压缩跟着快速档”改用 `MODEL_ROLE_IDS`。应用 `backend/settings-store.ts` 把设置服务适配成存储，`settings-store.test.ts` 以 `nbook.models` 的身份在真实设置场地上跑存储合同（用户层 `invalid` 由坏 JSON 造出；`unavailable` 这个场地做不出来，只由内存实现核对）。验证：nb-models 34 条与两份类型检查；应用类型检查（只剩 master 上那条）、`src/plugins/models`、`src/plugins/agent/backend`、`src/plugins/plot`、架构测试 359 条；变异：去掉 `chooseModel` 的压缩、审批两步，`choice.test.ts` 各有一条失败（输出待第 9 片存进 `evidences/`）。
+- 与计划的偏差（第 8 片）：存储合同多写了一条“只通知订阅之后的变化、不在 `onChange` 返回之前回调”（核心的 `changeOf` 依赖它；测试替身起初同步回调，核心报 `off` 未初始化）；`conflict` 允许带说明（设置服务带）。内存实现分“磁盘”与“视图”两份、别处的写入要 `catchUp()` 才看见，这样核心撞上 `conflict` 的时刻不靠计时器也能测；合同函数多一个参数 `layerStates`（夹具做得出来的坏状态）。
+- 第 9 片的合入前清单（干净克隆 `/tmp/w43-clean`，先在 94cca8703、修正后在 9d3bb0189 各跑一次）：`bun run build`（含 `check:dist`）、`build:sdk`（`dist/plugin-sdk` 里没有三个新包）、`smoke:server` S1–S10 全过；`validate-proper-lockfile-patch.ts` 通过；`docs:check` 只报主工作区 Spec 里 15 条指向搬走文件的链接（`models/service.md` 1 条、`runtime/browser-host.md` 4 条、`runtime/diagnostics.md` 5 条、`runtime/server-host.md` 5 条），合入后改；计划列的 9 项变异都被测试拦下（[evidences/mutations.txt](evidences/mutations.txt)）。
+
+### 实现审查（第 1 到 8 片，2026-11-12）
+
+后端 Opus、前端 Sonnet 各审一份（本会话开发者定审查不用 omp、改用 Opus），对象 `4044fc4d7..94cca8703`，报告 [evidences/impl-review-r1-backend-opus.txt](evidences/impl-review-r1-backend-opus.txt)、[evidences/impl-review-r1-frontend-sonnet.txt](evidences/impl-review-r1-frontend-sonnet.txt)。后端：阻断 0、重要 2、建议 3；前端：阻断 0、重要 0、建议 5、基线 1。修正在 9d3bb0189。
+
+| 条目 | 结论 | 处理 |
+|---|---|---|
+| 后端 1 宿主插件与宿主接口在装配的 try 外构造，抛错时 RPC 不关、认领不放、没有致命诊断 | 成立，是搬家带来的回归 | 移进 try；`start.test.ts` 加“宿主接口路径重复”装配失败用例（未修的代码上失败） |
+| 后端 2 认领字段核对在放行 HTTP 之后抛错，服务半启动 | 成立（核对是本 Task 新加的） | 先发布、再放行，同一个同步段；发布不了按启动失败（503、致命诊断、有序停止、退出码 1）；`readyInfo` 抛错同路径；加用例（未修的代码上失败） |
+| 后端 3 `activeRequests` 只给测试用；`./testing` 转出产品类 | 部分成立：应用的“产品代码不引用 testing”规则已按路径段拦下 `@notnotype/nb-host/testing`（前端审查核实） | 接受取舍：`activeRequests` 是一次只读观察，换成别的观察方式要改三条用例的写法，收益小；nb-host 内部补了同类规则（见前端 5） |
+| 后端 4 只查了 `proper-lockfile` 的声明，没查源码导入 | 成立 | 应用架构测试、nb-host 与 nb-models 的边界测试各加“不直接导入 `proper-lockfile`”，带反例 |
+| 后端 5 诊断插件 id 写了两份 | 成立 | 必需插件的 id 取自宿主插件本身，删去 `start.ts` 的常量 |
+| 后端基线：扩展 `attach` 抛错时运行实例无人收口 | base 上就有 | 不改：应用的装配者在 `attach` 没完成时自己也会抛，单在包里兜住还不够，要先定“运行实例已建之后的装配失败”怎么交回，留作已知问题 |
+| 前端 1 运行位置表 `nb-models/core` 没有反例，`neutral` 行不参与判定 | 成立 | 补反例；表注释写明 `neutral` 与没登记的判定相同、列出来是为了登记时想过运行位置 |
+| 前端 2 身份测试的替身依据说过头，真实 `localStorage` 的用例没了 | 成立 | 应用加 `src/web/host/client-identity.dom.test.ts`（happy-dom 的真实存储与 `nbook.client-identity`）；nb-host 测试的头注释照实写 |
+| 前端 3 `close()` 后违约抛错不再记那一行没有测试；负向断言靠 `setImmediate` | (a) 成立；(b) 不改 | 加“违约抛错”用例（去掉那一行时失败）；`setImmediate` 是排空微任务、不是按时长等，注释写明 |
+| 前端 4 退避的 8 秒、稳态 10 秒没有测试（基线） | 成立，便宜 | 补用例；成功后清零已由应用 `window.test.ts`“再断一次仍是 0.5 秒”覆盖 |
+| 前端 5 nb-host 拦不住产品代码引用 `testing/` | 成立 | 补规则与反例 |
+| 前端 6 应用 `client-identity.ts` 是单调用的包装 | 成立 | 只留键，`boot.ts` 直接调 nb-host 的函数 |
 
 ### 计划第一稿的处理
 
@@ -104,3 +136,11 @@ NeuroBot（[提案](../../../../../docs/proposals/neurobot.md)）是 monorepo �
 ## 下一步
 
 第 0 片已做（2026-11-10）：[ADR 0045](../../../../../docs/adr/0045-shared-host-packages-for-second-app.md) 记三个新包与 ADR 0030 决策 2 的修订，索引已补注。2026-11-10 开发者听过三个包与对 nb-harness、`nbook.agent` 的影响后答“可以”，开工：worktree `.worktree/w00043-neurobot`（分支 `feat/w00043-neurobot`），代码由主会话写，从第 1 片做起。
+
+2026-11-12 合入 master（afe0ddc9f）。合入前在 9d3bb0189 上：`test:affected --since master --package nb-file-lock --with-consumers --typecheck`（选中 nb-file-lock、nb-host、neuro-book；`bun.lock` 只多了三个工作区包的条目，整仓全选不必要）：nb-file-lock 5、nb-host 102、应用 `test:bun` 2815、`test:vitest` 561 全过，失败只有应用类型检查里 master 上已有的那一条；nb-models 修正后单独跑过 34 条与两份类型检查；干净克隆里 `build`、`check:dist`、`smoke:server` S1–S10 全过；e2e 7 个文件（`rpc`、`browser-host`、`projects`、`dev`、`app-package`、`lab`、`models`）53 条全过。合入后主工作区 `bun install`，紧接着提交 Spec 与文档：`runtime/server-host.md`、`browser-host.md`、`diagnostics.md`、`application.md`、`cli.md`、`models/service.md` 的 owners、实现合同与证据（行为合同不变）、`docs/modules/monorepo-boundaries.md` 三个包与“新应用”一行、`packages/AGENTS.md`、根 `AGENTS.md` 的结构树、`docs/standards/code/common.md` 的样例路径；`docs:check` 没有失败。
+
+留下的：
+
+- 扩展 `attach` 抛错时运行实例无人收口（base 上就有，见“实现审查”）；
+- 应用类型检查里 `MarkdownToolbar.dom.test.ts` 的替身缺 `matches`、`commentMargin`，是 master 上已有的（w00025），本 Task 没改；
+- `models.llm.test.ts` 没跑（真实模型，计划写明本 Task 不跑）。

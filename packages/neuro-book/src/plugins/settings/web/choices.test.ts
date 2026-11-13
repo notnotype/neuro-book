@@ -9,6 +9,7 @@ import {afterEach, describe, expect, it} from "bun:test";
 import {computed, ref, toValue} from "@vue/reactivity";
 
 import type {OptionSource} from "@notnotype/nb-form";
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -21,7 +22,6 @@ import {Type} from "typebox";
 
 import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineSetting} from "nbook/shared/settings";

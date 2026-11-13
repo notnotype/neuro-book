@@ -1,0 +1,202 @@
+# w00026 t25 第 3 片“空区域能打开”设计审查报告（Opus，只读）
+
+审查对象：主工作区 plan.md 的“空区域能打开”一节、docs/adr/0050-workbench-empty-region-anchor.md 草稿；代码读 worktree .worktree/w00026-t25-container-feedback（HEAD 4c9cacfe8）。
+条目按核实先后追加，最后一节按影响给出排序与数量。
+
+### 1. 空区域拖到零接不上：区域节点是锚这片叶时投影不登记 regionAnchors，收起状态读的是恒为假的 isSectionCollapsed
+- 严重程度：重要
+- 类别：依赖的机制不存在 / 遗漏
+- 位置：packages/nb-layout/src/layout-project.ts:124-147（presentedAs 只在分支那一支调用）、:79-93（assignByParent）；packages/nb-layout/src/layout-doc.ts:280-285（isSectionCollapsed 对锚恒为 false）；计划“空区域能打开 / nb-layout”第 1 条“投影照常给区域节点配收起策略，区域拖到零时锚这片叶同样收成零”。
+- 现象：区域里只有锚时，regionNodeOf 返回的区域节点就是锚这片叶（layout-doc.ts:216）。projectLayoutDoc 只在 `node.kind === "branch"` 的分支里调 presentedAs，叶不登记，所以 regionAnchors 里没有锚。assignByParent 于是把锚当普通工具面板：`collapse = collapseOf(child, isSectionCollapsed(doc, 锚), …)`，而 isSectionCollapsed 对锚恒为 false。结果：
+  1) 锚记录上的 collapsed（区域拖到零）在空面板上不起作用，拖到零落账（commitGesture 里 `anchors.get(id) ?? id` 碰巧仍写到锚上）之后下一次投影又展开，区域弹回；从零拉回同理读不到状态。
+  2) 底部面板的锚单独时在 center 这个纵向分支里，collapsedSize 取 `node.orientation === "vertical" ? headHeight : 0` = 32px，空底部面板拖到零停在 32px（空面板没有头，留一条空白）。
+  3) 有分节、又是“区域拖到零”时把区域拖空（落账后锚 collapsed 仍为 true，setPanelHidden 隐藏与 collapsed 并存），再“显示”会清掉两者，这条没问题；但空面板显示期间做的拖到零无法保持。
+- 为什么是问题：计划把“照常配收起策略”当成现成机制，实际只对分支成立；Spec 输出 11 的“拖到零”在空区域上不成立。LayoutProjection.regionAnchors 的文档注释（layout-project.ts:40-44）也写着“区域没有显示着的分节时不在里面”。
+- 如何核实：读 layout-project.ts:128-147，`presentedAs` 的两处调用都在 `if (node.kind === "branch")` 里；叶的返回（:146-147）不经过它。
+- 建议改法：叶的返回也过 presentedAs（regionRoots 里有锚叶的 id 时登记），并在计划的 nb-layout 一节写明；同时补一条 nb-layout 单元测试“空区域显示、锚 collapsed 为真时区域节点 collapsed、collapsedSize 为 0（三个区域各一）”，和工作台“空区域拖到零后刷新仍为零”。
+
+### 2. 放进空区域的预览里新分节看不见：库的外缘操作不补入口顺序与当前容器，预览路径不过归整
+- 严重程度：阻断
+- 类别：接口与合同 / 预览与提交不一致
+- 位置：packages/nb-layout/src/layout-drop.ts:399-404（applyLayoutDrop 的 edge）、:410-425（previewEdgeDrop）；packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:201-222（candidateDoc 的外缘路径直接用 applyLayoutDrop 的结果）；packages/nb-layout/src/layout-doc.ts:228-236（isPanelShown 对分节要求 `anchor.activeContainer === panel.container`）；计划“空区域能打开 / nb-layout”第 2 条与“工作台 / 拖动”。
+- 现象：空区域经 settleContainers 归整后锚的 activeContainer 是 null（成员没了，successorOf 找不到）。按计划的动作 `{edge, target: {split, 锚, 后边}, container: newContainer}` 放下，库只给新分节写 container，不改锚的 entries 与 activeContainer（这件事由工作台的 settleContainers 在提交时做）。所以未归整的结果文档里：新分节 isPanelShown 为假（activeContainer 是 null，不等于 custom:…）；区域里已经有分节，锚按新判定也不显示。整个区域在这份文档里不占地方。
+  实测（exp/empty-region.test.ts，用现有代码：默认文档把右栏唯一的视图“对话”移进侧栏新容器、归整、setPanelHidden(锚, false)，再 moveTabToEdge 到锚的 bottom、container 为 custom:b）：未归整时 `anchor.activeContainer = null`、`entries = ["view:chat"]`、新分节 `isPanelShown = false`；settleContainers 之后 activeContainer 变 custom:b、新分节可见。
+  后果：
+  1) 落点指示（非实时布局）：previewEdgeDrop 在库里投影 applyLayoutDrop 的原始结果，找不到落下那块的叶，返回 null，空面板上没有预览矩形，只剩提示文字。
+  2) 实时布局：candidateDoc 返回的预览里右栏整列消失，邻居（编辑区）反而占满，和“放下就在那里”正相反；松手后提交过 settleContainers 才出现。
+  3) 键盘拖动同 1)。
+- 为什么是问题：输出 38“预览摆真实结果”、输出 28 的指示画真实结果，在这个新落点上都不成立。同一个问题 entry-drop.ts 已经遇到过并自己处理（文件头注释“预览不过 settleContainers，所以入口顺序在这里自己排好”，:170 的 setPanelHidden + setActiveContainer），计划没给外缘这条路径同样的处理。
+- 如何核实：bun test /home/notnotype/.claude/jobs/03f32b6c/tmp/review-t25-s3/exp/empty-region.test.ts（在 worktree 的 packages/neuro-book 下跑），看“raw (preview) section … shown? false”一行。
+- 建议改法：二选一，并写进计划：
+  a) 库里让带 container 的外缘落点在锚上把容器排进入口顺序并设为当前容器（放进锚的后边、锚又显示着时，这一步属于“放下就在那里”的语义，不是工作台的归整）。这样 applyLayoutDrop、previewEdgeDrop、candidateDoc 三处自动一致。
+  b) 预览与指示都过工作台的同一个“提交前收尾”（settleContainers + hideEmptiedRegions），即 previewEdgeDrop 接一个宿主给的收尾钩子。只在 setLivePreview 一处接不够，previewEdgeDrop 在库内。
+  并加测试：nb-layout“空区域的外缘落点的 previewEdgeDrop 返回整块区域的矩形”；工作台 e2e 拖进空右栏时预览里右栏可见。
+
+### 3. “预览文档也过 hideEmptiedRegions”没有落到具体位置；按计划只改提交与预览两处，判定几何、落点指示、Lab 夹具会和屏幕上的样子不一致
+- 严重程度：重要
+- 类别：隐含的耦合 / 遗漏
+- 位置：计划“空区域能打开 / 工作台”第 1 条；packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:201-245（candidateDoc 有 4 条返回路径：applyEntryDrop {commit:false}、原文档、removeTab、applyLayoutDrop；sourceRemovedDoc；collapseSource 用 removeTab 的原始结果算 `collapsed()` 判定几何）、:506-532（collapsed 用 previewPanelRects(base) 算每块挪到哪）；packages/nb-layout/src/layout-drop.ts:410-425（previewEdgeDrop 在库内直接投影 applyLayoutDrop 的结果）；packages/neuro-book/src/plugins/lab/web/fixtures/WorkbenchSurfaceFixture.vue:82-86（Lab 自己的 commit，注释写明“和产品的 store 同一个次序”）。
+- 现象：t24 里拖空的区域在任何未归整的文档里都不占地方，因为锚永远不显示，所以预览、判定几何、指示矩形天然一致。改成“锚在区域没有分节时显示”之后，凡是不过 hideEmptiedRegions 的文档里，拖空的区域都会变成一块空面板占着原来的宽度：
+  1) collapseSource：来源是右栏最后一个视图时，`collapsed(frozen, doc, removeTab 的结果)` 按“右栏还在、是空面板”算编辑区的新矩形，编辑区不变宽；如果屏幕上的预览（经 setLivePreview 或 sourceRemovedDoc 过了 hideEmptiedRegions）里右栏收起、编辑区变宽，指针在编辑区右侧那一段时判定几何里没有任何面板，`layoutDropOverPanel` 为假，判成“明确的无落点”，松手开浮动窗。
+  2) previewEdgeDrop：拖走右栏最后一个视图到别处的外缘，指示矩形按“右栏空面板还在”算，和松手后（提交过 hideEmptiedRegions、右栏隐藏）的真实矩形不同，违反输出 28“指示画真实结果、用提交时的同一个函数算”。
+  3) applyEntryDrop {commit:false}：右栏最后一个视图拖到活动栏入口之间新建容器，预览里右栏是空面板而不是收起。
+  4) Lab 夹具 commit 只过 settleContainers：去掉归整里的隐藏之后，Lab 里把区域拖空会留下空面板，和产品不一致；计划没列这个文件。
+- 为什么是问题：计划只写了“store 的 apply 提交时用它；实时布局的预览文档也过它”，没说接在 setLivePreview 一处还是每条返回路径；只接 setLivePreview 盖不住 1)、2)，接在每条路径又要在库外给 previewEdgeDrop 加钩子。这是“可见判定在库里、隐藏在工作台”这一拆分带来的系统性缺口（见第 4 条）。
+- 如何核实：读 layout-drag.ts:224-245，collapseSource 把 `result.doc`（removeTab 的原始结果）交给 `collapsed()`；读 layout-drop.ts:410-425，previewEdgeDrop 不接受宿主的收尾函数。
+- 建议改法：首选第 4 条的上移到库；不上移的话，计划逐条列出要过 hideEmptiedRegions 的调用点（candidateDoc 四条路径、sourceRemovedDoc、collapseSource 的 base、previewEdgeDrop 加宿主收尾参数、Lab 夹具 commit），并加 e2e：实时布局拖走右栏最后一个视图、指针停在原右栏位置附近的编辑区上，松手落进编辑区而不是开浮动窗。
+
+### 4. 上游选择：“拖空就隐藏”放在工作台的提交里，而可见判定在库里；库里已有同类不变量的现成位置（settleEmptyPanel / finish），ADR 草稿的备选方案没考虑它
+- 严重程度：重要
+- 类别：上游选择 / 别扭与反常之处
+- 位置：docs/adr/0050-workbench-empty-region-anchor.md 决策 3 与“备选方案”；计划“工作台”第 1 条 hideEmptiedRegions；packages/nb-layout/src/layout-doc.ts:529-545（settleEmptyPanel：具名面板拖空即隐藏，所有结构操作都过）、:547-551（库自己的注释：分节与容器的不变量“由这里的操作保证……isPanelShown 已经按这些字段判可见，写入的每条路径都要守同一条规则”）、:412-421（finish 拿得到 original 与 next）。
+- 现象：计划把“这一次提交把区域拖空了就隐藏”做成工作台的 hideEmptiedRegions(before, after)，只在 store.apply 和（未指明的）预览处调用。可它判定的条件（区域在 before 里有分节、在 after 里没有）完全是文档自己的字段，库的 finish(original, next) 就有这两份文档；库在“有容器之前”的模型里也正是这样做的（settleEmptyPanel 把拖空的具名面板隐藏）。放在工作台，就要让每一个产出“将要显示的文档”的地方各接一次：第 2、3 条列出的 candidateDoc 四条路径、sourceRemovedDoc、collapseSource、库内的 previewEdgeDrop、Lab 夹具、以后新加的操作。这正是用户级规则里“同一件事各写一份”“结果靠调用方补”的信号。
+  查 ADR 0046、t24 计划：没有找到把“区域空了隐藏”放进工作台归整（而不是库）的理由，属于没有记录的理由。推断当时是因为锚永远不显示，隐不隐藏只影响“显示”按钮的结果，放哪都行；这条理由在 0050 之后不成立。
+- 为什么是问题：拆开放导致的不一致不是假设：第 3 条的几处都已经能从代码推出来；第 2 条（新分节在预览里看不见）同样源于“落点语义的一半在库、一半在工作台的归整”。
+- 如何核实：对照 layout-doc.ts:530-535 与计划的 hideEmptiedRegions 描述；grep 'settleEmptyPanel(' 有 6 处调用，覆盖 moveTab*/movePanel*/removeTab/floatTab 等全部摘出路径。
+- 建议改法：作为候选交开发者：在库的 finish 里加“original 中区域有分节、next 中没有 → 锚 hidden”，ADR 0050 决策 3 改写为库的不变量，备选方案里补上“放在工作台提交时”并写为什么不选；工作台只剩入口顺序与当前容器的归整。代价：库多一条不变量、nb-layout 的单元测试要补；好处是提交、预览、指示、判定几何、Lab 自动一致，第 3 条整条消失。同理可考虑第 2 条的“带 container 的外缘落点到锚时，把容器排进入口并设为当前”也放进库（settleLanding 已在写 container）。
+
+### 5. 空锚在现有落点规则里会被判成“中央”；计划只改 LayoutDropInput，键盘候选的入参、整窗拖动、编辑器标签、外缘目标的生成方式都没交代
+- 严重程度：重要
+- 类别：接口与合同 / 遗漏
+- 位置：packages/nb-layout/src/layout-drop.ts:114-133（resolveInPanel：锚 tabs 为空、policy 接受 center 时 `centered` 为真，返回 `{kind:"center", panel: 锚}`）、:282-291（layoutDropSectors：同样整块画成 center）、:450-499（enumerateDropCandidates：入参是自己的对象类型，不是 LayoutDropInput，没有 newContainer；空面板加 `{center, 锚}` 候选）；packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:116-118（layoutAccepts 只看角色，工具视图对锚的 strip/center/edge 都接受）；packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:618-627（windowDrop，noCenter）、:666-681（fileDrop）、:906-914（键盘调 enumerateDropCandidates）。
+- 现象：今天锚永远没有几何，所以这些分支从没碰到锚。锚进呈现树、geometryOf 量得到它（data-leaf 与 data-shell-card 都在，头不在则 strip 为 null、body 为整张卡片）之后，不加特判时：指针、分区、键盘三处都会给出 `center` 到锚，提交时被 refusesMoreTabs“区域的锚不放标签”拒绝。计划只写“LayoutDropInput 加 newContainer”“锚显示着时整块是一个落点”“键盘候选一个，落点分区画整块一块”，没交代：
+  1) enumerateDropCandidates 的入参要加 newContainer（它不吃 LayoutDropInput），否则键盘候选里是那条会被拒绝的 center；键盘 pointOfCandidate → dropAt 重判时也要带同一个 id。
+  2) 没给 newContainer 时“锚不是落点”要在三处都先于 center 分支返回 null；layoutDropOverPanel 仍把它算“在面板上”，所以文件、编辑器标签拖到空面板上是“被拒绝、松手取消”，不是开浮动窗。这条行为要写进 Spec（输出 39 的“在面板上却没有落点”）。
+  3) 特判要先问 policy.accepts(tabs, 锚, "edge")：dropAt 对编辑器标签也会带上 newContainer（layout-drag.ts:650 的 input 是同一份），不问就会给编辑器标签一个进工具区域的落点，预览摆出来、提交被拒。
+  4) 整窗拖动（windowDrop：noCenter、0.14 窄带）：输出 39 规定整窗经过中央继续浮着、只有标签条缝窄带能停靠。空面板“整块是落点”对整窗成立吗？成立的话一个多标签的工具浮动窗落进去，settleLanding 把它拆成几个分节、都归新容器，不是“只含它的容器”。计划与 Spec 都没写。
+  5) 外缘目标写死成 `{kind:"split", …}`，没走 policy.edgeTarget（dropSplit 为 shared 时产品给的是 spread）。对单独的锚两者结果相同，但要写明为什么不问策略，免得以后有人统一时改出差异。
+- 为什么是问题：这些是“锚进呈现树”在落点模块里的直接后果，计划的风险一节只说“片 3 前用 grep 列出读 isPanelShown 与锚的地方”，而上面几处根本不读 isPanelShown，grep 不到。
+- 如何核实：读 layout-drop.ts:114-133 的 `centered` 分支与 :467-471 的“接受中央的空面板整块都是中央”；layoutAccepts 不区分 region。
+- 建议改法：在 nb-layout 里加一个“空区域的落点”函数（输入 doc、锚、tabs、policy、newContainer），resolveInPanel、layoutDropSectors、enumerateDropCandidates 三处在区域分节判定之前统一调它；enumerateDropCandidates 入参加 newContainer；计划写明整窗拖动与多标签窗的规则（建议：整窗拖动时空面板同样只有窄带或不接收，与输出 39 一致），并给编辑器标签、文件、整窗各一条 nb-layout 单元测试。
+
+### 6. 放不下时的收走顺序：空面板排在侧栏分节之后，窗口变窄先收侧栏、后收空右栏
+- 严重程度：建议
+- 类别：遗漏（读“锚不显示”的地方）
+- 位置：packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts:52-65（collapseOrder 显式 `filter((id) => id !== hit.anchor)`）；packages/nb-layout/src/layout-project.ts:181-189（presentationCollapse：`shown` 取所有显示着的工具叶，不在 order 里的排在最后）。
+- 现象：空右栏打开后锚是显示着的工具叶，进 `shown`，但不在 collapseOrder 里，被排到队尾（焦点所在的之前）。窗口变窄时先收侧栏的分节、再收底部面板，最后才收那块什么都没有的空右栏。
+- 为什么是问题：Spec 输出 10 的顺序是右栏、底部面板、侧栏；空面板没有内容，最该先让位。计划逐处清单里没有 collapseOrder / presentationCollapse。
+- 如何核实：读两处代码；可在 layout-constraints.test.ts 的 collapseOrder 用例旁加一份“右栏只剩锚且显示”的文档，看 presentationCollapse 先收谁。
+- 建议改法：collapseOrder 在区域没有分节时把锚列在该区域的位置（或直接不再排除锚，锚在有分节时本来就不显示、不会被挑中）；补单元测试。
+
+### 7. ADR 0050“后果”最后一句与 Spec 输出 4 矛盾：插件被禁用时分节留着占位，区域不会因此变空
+- 严重程度：建议
+- 类别：与已定设计不一致 / 文档事实错误
+- 位置：docs/adr/0050-workbench-empty-region-anchor.md“后果”第 3 条（“插件被禁用、区域里的视图全没了时，区域显示为空面板”）；docs/specs/ui/workbench-layout.md 输出 4 末句（“声明消失的视图（插件暂时缺失）留在树上显示占位……可以关闭”）；packages/neuro-book/src/plugins/workbench/web/state/default-tree.ts:116-145（reconcileViews 只补缺的视图，不删）；packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts:475-476（关掉占位走 closeTab → apply）。
+- 现象：逐个看了不经 apply 的写入：commitGesture（只改尺寸与收起）、discard 与 readStored/usableDoc（读记录，t24 存下的空区域都是隐藏的）、carryDynamicTabs（只动编辑器标签）、reconcileViews（只增）、defaultLayoutDoc（自己按 reveals 隐藏空区域）。没有一条能把有分节的区域清空：插件禁用后分节变占位，区域照样有分节；用户关掉最后一个占位走 closeTab → apply，会被 hideEmptiedRegions 隐藏。所以 ADR 描述的“视图目录变化导致空面板”并不存在；真正“不经提交出现的打开着的空区域”只有一种来源：用户自己打开、或模板记录（LAYOUT_TEMPLATE_RECORD）里存着打开的空区域，新项目会照它显示空面板（这条 ADR 没提）。
+- 为什么是问题：ADR 接受后正文不改，写错的后果会误导后来者去为一条不存在的路径加处理。
+- 如何核实：grep reconcileViews 与 closeTab；Spec 输出 4 原文。
+- 建议改法：把这句改成“只经归整、不经提交的路径都不会清空区域（占位保留分节）；打开着的空区域只来自用户打开与模板记录”，并说明模板带出空面板是预期行为。
+
+### 8. 要改的 Spec 条目与代码点列得不全：输出 3、10、36、37、39 与 regionOccupied、ADR 索引没在计划里
+- 严重程度：建议
+- 类别：验收映射 / 遗漏
+- 位置：计划“空区域能打开”末段的 Spec 清单（11、22、40、43、45、验收 8）与“Spec 与文档改动”一节（只写 11、22、43、验收 8，和上一段不一致，漏 40、45）；docs/specs/ui/workbench-layout.md 输出 3（“锚一直留在树里……区域里一个容器都没有时隐藏（输出 43）”）、输出 10（收走顺序，见第 6 条）、输出 36（公开状态“按区域求值”）、输出 37（“空面板整块是中央”）、输出 39（在面板上却没有落点＝被拒绝）；packages/neuro-book/src/plugins/workbench/web/state/layout-present.ts:72-82（regionOccupied 只看显示着的分节，空区域打开时恒为 false）；docs/adr/README.md 的索引规则（部分取代时旧 ADR 那一行补注、新 ADR 加一行）。
+- 现象：
+  1) 输出 3 与新的决策 3 直接冲突，必须改，计划没列。
+  2) 输出 36：partVisible 走 regionOccupied，它不读锚，打开的空右栏 `auxiliaryBarVisible` 为假，标题栏开关显示“未打开”，再点一次是 setPartHidden(false)，零变化，用户用开关关不掉这块空面板。计划写了“公开状态与标题栏开关按 isPanelShown 走”，但没点名 regionOccupied 这个函数，也没列输出 36。
+  3) 输出 37 写着“空面板整块是中央”，空区域整块是“新建容器”的外缘落点，分区的说法要改；输出 39 要写清文件、编辑器标签、整窗拖到空面板上的结果（见第 5 条）。
+  4) docs/adr/README.md 的索引里还没有 0050，0046 那一行也要补注“锚永远不进呈现树已被 0050 部分取代”。
+- 为什么是问题：Spec 是验收依据，冲突条目留着，实施者会按旧条目写测试；输出 36 的开关关不掉是用户直接能碰到的错误。
+- 如何核实：grep 这几条原文；读 regionOccupied。
+- 建议改法：计划两处清单统一并补上 3、10、36、37、39；工作台测试加“空右栏打开时 partVisible('auxiliarybar') 为真，再点开关隐藏”的用例；ADR 索引在同一提交里改。
+
+### 9. 容器唯一的视图放进空区域总是新建 custom: 容器，和活动栏入口之间“只换位置、容器不变”的规则不一致，声明的容器会丢标题图标与“重置”
+- 严重程度：建议
+- 类别：与已定设计的一致性 / 交开发者的产品取舍
+- 位置：计划“空区域能打开 / nb-layout”第 2 条（“放下成为一个只含它的新容器”）；packages/neuro-book/src/plugins/workbench/web/entry-drop.ts:112-118（来源是容器唯一的视图时是 move-entry，保留容器 id）；Spec 输出 45 末句、输出 44（“移到”保留容器）；packages/neuro-book/src/plugins/workbench/web/state/containers.ts:115-124、:144-155（custom: 容器取第一个视图的标题图标、没有声明的区域、没有“重置”）。
+- 现象：先核对派发说明里的 inPlace 例子：一场拖动里把右栏唯一的视图拖出去再放回空右栏，够不着。指示模式的几何是拿起时量的，右栏那时显示着分节、锚不显示；实时布局收起来源后，锚也不在拿起时量到的几何里（collapsed() 只平移已有的块）。所以同一场里不会出现“放回空右栏变成 custom:”。跨两场才会出现：第一场把视图拖走、右栏隐藏，打开空右栏，第二场拖回去。结果是 custom:UUID，原来的 view:chat 或声明的容器 id 留在入口顺序里没有成员。对隐式容器看不出差别；对声明的容器（插件给了不同于视图的标题与图标，例如“项目”只剩一个视图时），放回去之后标题图标变成视图的，入口右键菜单没有“重置”，这和输出 45“容器唯一的视图落在入口之间只换位置、容器不变”、输出 44“移到”保留容器的处理方向相反。
+- 为什么是问题：开发者的决定写的是“新建一个只含它的容器”，在多视图容器上没有疑问；在“视图是它容器唯一的成员”这个情形下，计划没把和输出 44、45 的不一致摆出来让开发者确认。
+- 如何核实：读 entry-drop.ts:113-118 与 containers.ts:144-148。
+- 建议改法：交开发者二选一：a) 照现在，任何情形都新建；b) 来源是它容器唯一的成员时，放进空区域等于把容器搬过去（同“移到”，容器 id 不变），否则新建。选 b 的话 action 的 container 填来源的容器而不是 newContainer，库不用改。
+
+## 按影响排序
+
+1. 第 2 条（阻断）：放进空区域的预览与指示里新分节看不见。
+2. 第 1 条（重要）：空区域拖到零接不上，底部面板停在 32px。
+3. 第 3 条（重要）：hideEmptiedRegions 接在哪没写，判定几何、指示、Lab 会和屏幕不一致。
+4. 第 4 条（重要）：上游选择，隐藏应进库的 finish，ADR 备选方案漏了它。
+5. 第 5 条（重要）：空锚在三处落点规则里会被判成中央；键盘入参、整窗、编辑器标签没交代。
+6. 第 8 条（建议）：Spec 清单漏输出 3、10、36、37、39，regionOccupied 不改则开关关不掉空面板。
+7. 第 6 条（建议）：放不下时空面板最后才收。
+8. 第 9 条（建议）：容器唯一的视图放进空区域时新建还是搬容器，交开发者定。
+9. 第 7 条（建议）：ADR 后果里“插件禁用后显示空面板”不成立。
+
+## 未发现问题的方面
+
+- 尺寸（重点 4）：用现有代码实测（exp/size-cycle.test.ts）右栏先改宽到 600，再“拖空、打开、放入”循环三轮，区域宽度一直是 600、高度 878，没有漂移；拖空时 normalizeTree 的单子塌陷把列分支的尺寸交给锚，放入时 placeLeaf 从锚取一半高度、宽度不变。零宽、超宽在这条链上没有出现；“区域拖到零时空面板”的问题见第 1 条。
+- inPlace（重点 3 的例子）：同一场拖动里把右栏唯一的视图拖出去再放回空右栏够不着（理由见第 9 条），提交时的 edgeTargetTouches 对锚的后边也不会误判原位（锚单独时父分支方向与该边不同）。跨两场的容器身份问题见第 9 条。
+- 不经 apply 的写入路径（重点 1）：commitGesture、discard、readStored、carryDynamicTabs、reconcileViews、defaultLayoutDoc 都不会清空区域，也不会把用户打开的空区域再藏起来；去掉归整里的隐藏后 moveContainerTo、showContainer、reconcileViews 里对 settleContainers 的调用也不会藏掉它。提交路径（commitDrop、moveView、dockFloat、closeTab、moveContainer、setPartHidden）都经 apply。只剩预览与 Lab，见第 3 条。
+- 缝：锚显示后会出现锚与编辑区、活动栏之间的缝，layoutSeamAccepts 要求两边同为编辑组或同列工具面板，这些缝都不接受，骨架插不进东西。
+- isPanelShown 改动的其余读者：sameLayoutShape（比 hidden，不受影响）、fitsSkeleton（按锚位置判，不受影响）、sectionCollapseBlock 与 isSectionCollapsed（锚只在没有分节时显示，不会和分节同时出现在 shown 里）、卡片四边 layoutCardEdges 与 sceneCorners（都按投影或 isPanelShown 走，空面板自动成为最后一块）、focusLandings（锚没有 container，不影响）、F6（moveGridFocus 跳过没有可聚焦元素的叶，空面板不接收焦点时被跳过，和计划一致）、toggleMaximized（拒绝锚）、effectiveVisibleTabs（锚没有标签）。titleOnlyPanels 会把锚算进去（tabs 为 0），只影响内容层 role，锚没有内容项，无害；外壳的 head 插槽要对锚不画，计划已写“没有头”。
+- “锚进呈现树”本身：锚就是区域的记录，空的时候把它画出来，与 VS Code 空部件自己就是部件的做法同构，没有找到更简单的模型；ADR 的三条备选方案（变灰、不隐藏、占位视图）理由成立。别扭之处在隐藏与容器激活被拆到工作台（第 2、4 条），不在锚进树。
+
+## 各级数量
+
+- 阻断：1（第 2 条）
+- 重要：4（第 1、3、4、5 条）
+- 建议：4（第 6、7、8、9 条）
+
+有效发现：2, 1, 3, 4, 5, 8, 6, 9, 7
+
+## 更正与补充（复核后追加，前文不改，以本节为准）
+
+### 更正 A：第 2 条的旁证与改法 b
+- 第 2 条写“同一个问题 entry-drop.ts 已经遇到过并自己处理（:170 的 setPanelHidden + setActiveContainer）”，不准确。复读 packages/neuro-book/src/plugins/workbench/web/entry-drop.ts:127-174：applyEntryDrop 在 `commit: false`（预览）时只补入口顺序，不显示侧栏、不切当前容器；:170 那两步只在 `options.commit` 为真时跑。文件头注释写明“预览里不切（输出 38，ADR 0046 决策 5）”。所以 entry-drop 不是“预览切容器”的先例，而是“预览不切”的先例。
+- 第 2 条的现象不变（实测仍成立），但改法 b“预览过 settleContainers”要撤回：它会让拖走当前容器最后一节的预览切到别的容器，直接违反 ADR 0046 决策 5、Spec 输出 38、43、45 和 store.apply 里“预览不过这里”的注释。
+- 修正后的建议：这是 ADR 0050 必须回答、现在没有回答的问题——区域没有当前容器（空区域）时，预览里要不要让新容器显示。决策 5 的理由是“判定几何是拿起时量的，不活动容器的分节那时不在页面上”，空区域没有“从哪个容器切走”，这条理由不覆盖它；建议 ADR 0050 写明“当前容器为空时，放进空区域的落点在预览里就把新容器当作当前容器，这不算决策 5 说的切换”，只限这一种情形实现（库内：带 container 的外缘落点、目标是锚、锚的 activeContainer 为空时，同时排入口并设当前；或工作台只在这一情形补这两步），其余预览照旧不切。改法 a 按这个范围收窄。
+
+### 更正 B：第 4 条“如何核实”
+- 第 4 条写“grep 'settleEmptyPanel(' 有 6 处调用，覆盖 moveTab*/movePanel*/removeTab/floatTab 等全部摘出路径”，不成立。6 处在 removeTab(:714)、moveTabToStrip(:761)、movePanelToStrip(:788)、moveTabToEdge(:992)、floatTab(:1041)、stripDynamicTabs(:1177)；movePanelToEdge 走 detachNode，不调 settleEmptyPanel，而它正是单标签分节最常走的路径（moveTabToEdge 对单标签无名面板转给它）。依据改为：所有结构操作都经 finish(original, next)（layout-doc.ts:412-421），在那里比较 original 与 next 才覆盖全部路径。
+- 补充一个要核对的差别：放进 finish 是“逐个库操作”判拖空，计划是“逐次提交”判。复合操作里如果某一步先把区域拖空、同一次提交的后一步又放回去，逐操作判会在中间一步把锚设成 hidden，后一步的放入不会清掉它。核对了几个复合操作：moveContainerTo（逐个搬分节，来源区域只在最后一步变空，目标区域最后 setPanelHidden(false)）、placeInContainer + showContainer（showContainer 会 setPanelHidden(false)）、dockFloat（逐个 placeInContainer，每次都 showContainer）、moveView newContainerIn 同区域（单个 movePanelToEdge，摘出与放入在同一次 finish 里，不会中间变空）。都没有“同一次提交先拖空、又放回且不重新显示”的情形；但这条要作为库内实现的约束写进 ADR（放回同一区域的复合操作必须自己显示区域）。
+
+### 更正 C：第 8 条第 2 点的依据
+- “开关关不掉”已从代码核实（未运行）：标题栏三个布局按钮的按下态读 partVisible（WorkbenchShell.vue:382-386），视图菜单的勾选读公开状态 auxiliaryBarVisible，也是 partVisible（public-state.ts:53、titlebar/menu-items.ts:20），命令 set-part-hidden 不带参数时按 `given.hidden ?? partVisible(part)` 切换（commands/part-commands.ts:73）。空右栏打开时 regionOccupied 为假，再点开关得到 setPartHidden(part, false)，零变化。
+- 另：计划把“标题栏开关能打开空区域”记在输出 22 名下，但输出 22 是活动栏（入口条）；开关的语义在输出 11 末段（“显示”指状态栏按钮、活动栏的入口、命令 nbook.view.set-part-hidden；实际按钮在标题栏，这句本身已过时）与输出 36。Spec 改动应落在输出 11、36，而不是 22；术语一节“具名面板……不进呈现树（输出 40）”（workbench-layout.md:43）也要改。
+
+### 更正 D：行号
+- packages/nb-layout/src/layout-drop.ts：resolveInPanel 是 :116-135（`centered` 在 :130）；layoutDropSectors 是 :301 起，整块中央在 :307-309；applyLayoutDrop 是 :367 起，edge 分支在 :381；previewEdgeDrop 是 :393 起（:394 调 applyLayoutDrop）；enumerateDropCandidates 是 :450 起，“接受中央的空面板整块都是中央”在 :484；layoutDropOverPanel 是 :262。
+- packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.ts：layoutAccepts 是 :108；COLLAPSE_REGIONS 是 :54，collapseOrder 是 :60。
+- packages/neuro-book/src/plugins/workbench/web/layout-drag.ts：windowDrop :617（input 在 :623）、dropAt 的 input 在 :648、fileDrop :669（input 在 :675）、键盘 enumerateDropCandidates 在 :908。
+- 前文第 2、5、6 条里与此不符的行号以这里为准；结论不受影响。
+
+### 补充 E：键与缓存（重点 3）
+- layoutDropKey（JSON.stringify 整个动作）、actionKey（workbenchDropKey）、live-drag 的 keyOf、预览缓存键（JSON.stringify([source, action, extent])）都会把 container 带进去。newContainer 只在 activate 时生成一次（layout-drag.ts 约 :831），一场拖动里不变，所以这些键在一场内稳定，不会因为 id 每帧变而让候选永远不稳定；activate 时清 previews，跨场也不会串。未发现问题。
+
+### 补充 F：nested-grid 与输出 22
+- docs/specs/ui/nested-grid.md 里没有“锚”“空面板”“空区域”的规定，和 0050 没有冲突。输出 22 的原文只管活动栏，见更正 C。
+
+### 补充 G：对计划每条设计的判断
+| 计划里的设计 | 判断 |
+|---|---|
+| isPanelShown(锚)：没隐藏、区域里没有分节 | 条件本身成立；读者见第 1、6、8 条与“未发现问题”一节 |
+| 投影照常给区域节点配收起策略 | 有问题，见第 1 条 |
+| LayoutDropInput.newContainer、edge 带 container、applyLayoutDrop 转交 | 方向成立；enumerateDropCandidates 入参、中央分支、整窗、编辑器标签见第 5 条；预览看不见见第 2 条 |
+| 不变：锚不收标签、不移动、交叉方向外缘拒绝 | 成立：layoutEdgeTarget 对工具面板只给区域方向的边，crossesAnchor 照旧兜底 |
+| settleContainers 去掉隐藏、hideEmptiedRegions(before, after) 在 apply | 提交路径成立；预览与 Lab 见第 3 条；放置位置见第 4 条 |
+| 预览文档也过 hideEmptiedRegions | 没落到具体位置，见第 3 条 |
+| setPartHidden 去掉零写入 | 成立 |
+| 拖动传同一个 newContainer、提示“放到这里” | 成立，见补充 E |
+| 空面板：没有头、正中提示、不接收焦点、F6 照旧、键盘拖动一个停靠点 | 成立（F6 跳过没有可聚焦元素的叶）；键盘停靠点依赖第 5 条第 1 点 |
+| 卡片四边、场景图按最后一块显示的叶 | 成立，按投影与 isPanelShown 自动得到 |
+| 公开状态与开关按 isPanelShown | 方向成立，但要改的是 regionOccupied，见第 8 条与更正 C |
+| Spec 清单 | 不全且有错号，见第 8 条与更正 C |
+| 测试清单 | 不全，见补充 H |
+| ADR 0050 | 决策 1 成立；决策 3 的放置位置见第 4 条；缺“空区域预览要不要显示新容器”的回答，见更正 A；后果一句不成立，见第 7 条；README 索引见第 8 条 |
+
+### 补充 H：验收映射
+计划的测试清单（nb-layout 可见判定、投影、落点与 newContainer；containers.test.ts；layout-doc-store.test.ts；e2e 四步）没有覆盖这些判据：
+- 预览里放进空区域的新分节可见、落点指示有矩形（第 2 条）；
+- 空区域拖到零并保持、刷新后仍为零，底部面板空区域拖到零为 0 而不是 32px（第 1 条）；
+- 实时布局拖走右栏最后一个视图时，判定几何与预览一致（指针在原右栏位置附近的编辑区上松手落进编辑区）（第 3 条）；
+- 键盘拖动把视图放进空区域；文件、编辑器标签拖到空面板上是被拒绝；整窗拖动经过空面板的行为（第 5 条）；
+- 空区域打开时 partVisible 为真、标题栏开关能再关掉（第 8 条）；
+- 窗口变窄时空右栏先于侧栏收走（第 6 条）；
+- Lab 夹具拖空区域后隐藏（第 3 条）。
+这些都能用真实运行时写出来：前四类在 workbench-dnd、workbench-live-drag、workbench-shell 的 e2e 里，partVisible 与收走顺序可以在 layout-doc-store.test.ts、layout-constraints.test.ts 里用真实 store 与投影写。
+
+## 各级数量（复核后，不变）
+- 阻断：1（第 2 条）
+- 重要：4（第 1、3、4、5 条）
+- 建议：4（第 6、7、8、9 条）
+
+有效发现：2, 1, 3, 4, 5, 8, 6, 9, 7

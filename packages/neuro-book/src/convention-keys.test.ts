@@ -10,6 +10,7 @@ import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 import {Type} from "typebox";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -22,7 +23,6 @@ import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 import {commandServiceKey, COMMANDS_POINT, completeCommandDeclaration, completeMenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {completeEditorDeclaration, completeEditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {completePageDeclaration, completeSectionDeclaration} from "nbook/plugins/settings/shared/sections";

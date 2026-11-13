@@ -26,13 +26,17 @@ export type InputMode = "steer" | "followup";
 /** 指令的参数与成功时的值（不含 `commandId`）。`value` 里引用的 id 都在受理批里写出。 */
 export interface CommandMap {
     /** 入队，空闲时同时开始运行（对话框的发送按钮）；运行中回车是 followup，另一个操作是 steer。 */
-    send: {args: {input: UserInput; mode?: InputMode}; value: {inputId: string; runId: string | null}};
-    /** 只入队，不开始。 */
-    enqueue: {args: {input: UserInput; mode: InputMode}; value: {inputId: string; position: number}};
+    /**
+     * `runId` 是这次开始或接着跑的运行，入队进在跑的运行时为 null，这时 `currentRunId` 是那次运行（runtime.md 输出 88）。
+     */
+    send: {args: {input: UserInput; mode?: InputMode}; value: {inputId: string; runId: string | null; currentRunId?: string}};
+    /** 只入队，不开始。会话有在跑或暂停的运行时 `currentRunId` 是它。 */
+    enqueue: {args: {input: UserInput; mode: InputMode}; value: {inputId: string; position: number; currentRunId?: string}};
     edit: {args: {inputId: string; input: UserInput}; value: {}};
     remove: {args: {inputId: string}; value: {}};
     /** 应答等用户的事项。`answer` 只给提问；`note` 是拒绝时附给模型的话。 */
-    resolve: {args: {id: string; decision: "allow" | "allow-session" | "deny" | "answer"; answer?: {text: string; data?: JsonValue}; note?: string}; value: {}};
+    /** `runId`：受理后接着跑的运行（被叫醒的、开的或续的）；没有运行时不给（runtime.md 输出 88）。 */
+    resolve: {args: {id: string; decision: "allow" | "allow-session" | "deny" | "answer"; answer?: {text: string; data?: JsonValue}; note?: string}; value: {runId?: string}};
     /** 缓冲区空时是没有新输入的“继续”运行；末尾已是完整回复时失败 `nothing-to-continue`。 */
     start: {args: {}; value: {runId: string}};
     /** 幂等：没有运行时 `aborted: false`。缺省清空缓冲区，`keepQueue` 保留。 */
@@ -121,6 +125,8 @@ export interface BufferedInput {
     /** 入队时的 seq，缓冲区按它排。 */
     queuedAt: number;
     edits: number;
+    /** 别的会话以自己的身份发进来的（父会话给子会话放话）；用户发的没有（runtime.md 输出 85）。 */
+    by?: Issuer;
 }
 
 export interface ExtensionInfo {

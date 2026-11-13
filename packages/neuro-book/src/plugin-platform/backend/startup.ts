@@ -16,13 +16,12 @@
 import {readdir, rm, rmdir, unlink} from "node:fs/promises";
 import {join} from "node:path";
 
+import {errno, lockHeld} from "@notnotype/nb-file-lock";
+import type {HeldLock} from "@notnotype/nb-file-lock";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
-import {check} from "proper-lockfile";
 
-import {errno, LOCK_STALE_MS} from "nbook/backend/locked-replace";
-import type {HeldLock} from "nbook/backend/locked-replace";
 import type {NotLoaded} from "nbook/plugin-platform/shared/types";
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {engineAccepts} from "nbook/plugin-platform/shared/versions";
@@ -238,7 +237,7 @@ async function reclaim(
         const lockPath = join(staging, `${name}.lock`);
         let held: boolean;
         try {
-            held = await check(lockPath, {realpath: false, lockfilePath: lockPath, stale: LOCK_STALE_MS});
+            held = await lockHeld(lockPath);
         } catch (error) {
             warn("plugins.cleanup.failed", "核对准备目录的锁失败，跳过", {path: join(staging, name)}, error);
             continue;

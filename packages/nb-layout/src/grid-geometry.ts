@@ -268,6 +268,14 @@ function collapsedRigid(collapse: SashCollapseState | undefined): {low: number; 
     return {low: size, high: size};
 }
 
+/**
+ * 收起为零的节点：没有看得见的内容，两根轴上都不该再占最小尺寸（docs/specs/ui/nested-grid.md 的“分支的收起”）。
+ * 收成标题行的（`collapsedSize` 大于 0）还看得见，只在父分支主轴上是刚性的。
+ */
+function collapsedToZero(collapse: SashCollapseState | undefined): boolean {
+    return collapse?.collapsed === true && Math.max(0, finite(collapse.collapsedSize, 0)) === 0;
+}
+
 /** 建树/恢复时归一收起状态：尺寸非有限或负值一律按 0；非法策略由调用方按诊断丢弃。 */
 export function normCollapse(value: SashCollapseState | undefined): SashCollapseState | undefined {
     if (!value || typeof value !== "object") {
@@ -282,6 +290,7 @@ export function normCollapse(value: SashCollapseState | undefined): SashCollapse
         expandThreshold: Math.max(0, finite(value.expandThreshold, 0)),
         collapsed: value.collapsed === true,
         ...(value.toggleable === false ? {toggleable: false} : {}),
+        ...(value.restoreToShare === true ? {restoreToShare: true} : {}),
     };
 }
 
@@ -317,11 +326,14 @@ function constraintOnAxis<T>(
         derivedHigh = GRID_UNBOUNDED;
     } else {
         // 交叉轴的上限看最大的那个子节点：放不满的子节点自己留空，不该压住兄弟。取最小值时，一列全收成标题行，上限只剩几个标题行高，整行都被压扁。
+        // 下限不算收起为零的子节点：它沿父分支主轴已经是零，这根轴上的最小尺寸撑开的只会是兄弟。上限照算，它展开后的上限不变。
         derivedLow = 0;
         derivedHigh = 0;
         for (const child of node.children) {
             const bounds = constraintOnAxis(child, axis, sashSize, issues, reported);
-            derivedLow = Math.max(derivedLow, bounds.low);
+            if (!collapsedToZero(child.collapse)) {
+                derivedLow = Math.max(derivedLow, bounds.low);
+            }
             derivedHigh = Math.max(derivedHigh, bounds.high);
         }
     }
@@ -418,6 +430,8 @@ export function branchSashSizes<T>(branch: GridBranch<T>, sashSize: number | Gri
     return sashValues(branch, sashSize);
 }
 
+const NO_AXES: ReadonlySet<GridAxis> = new Set();
+
 /** 位置无关的布局：返回足以渲染同一几何的尺寸、约束与实际 sash，不修改树的意图。 */
 export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sashSize: number | GridSashResolver): GridLayoutResult {
     const sizes: Record<string, GridExtent> = Object.create(null) as Record<string, GridExtent>;
@@ -428,7 +442,7 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
     if (!root) {
         return {sizes, constraints, sashSizes, issues};
     }
-    measure(root, {width: Math.max(0, finite(container.width, 0)), height: Math.max(0, finite(container.height, 0))}, null);
+    measure(root, {width: Math.max(0, finite(container.width, 0)), height: Math.max(0, finite(container.height, 0))}, null, NO_AXES);
     return {sizes, constraints, sashSizes, issues};
 
     /**
@@ -448,18 +462,24 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
         };
     }
 
-    function measure(node: GridNode<T>, space: GridExtent, parentMain: GridAxis | null): GridExtent {
+    /**
+     * `rigid`：祖先沿这几根轴收起着。收起的分支把 collapsedSize 原样交给里面的节点（docs/specs/ui/nested-grid.md 的“分支的收起”），
+     * 所以这几根轴上“空间小于约束下限”是有意的，不报诊断；另一根轴照常。收起为零的节点两根轴都算：父分支在交叉轴上不再按它的下限留空间
+     * （`constraintOnAxis`），它和它里面的节点在那根轴上分不够同样是有意的。
+     */
+    function measure(node: GridNode<T>, space: GridExtent, parentMain: GridAxis | null, rigid: ReadonlySet<GridAxis>): GridExtent {
         const nodeBounds = boundsOf(node, parentMain);
         constraints[node.id] = nodeBounds;
+        // 收起是有意的零内容：它不该再报成“可用空间小于约束下限”。自己收起与祖先收起是同一个理由。
+        const silenced: readonly GridAxis[] = node.collapse?.collapsed !== true || parentMain === null ? [] : collapsedToZero(node.collapse) ? ["width", "height"] : [parentMain];
+        const quiet = silenced.every((axis) => rigid.has(axis)) ? rigid : new Set([...rigid, ...silenced]);
         if (node.kind === "leaf") {
             const extent: GridExtent = {
                 width: Math.min(space.width, nodeBounds.maximumSize.width),
                 height: Math.min(space.height, nodeBounds.maximumSize.height),
             };
-            // 收起是有意的零内容：它不该再报成“可用空间小于约束下限”。
-            const collapsed = node.collapse?.collapsed === true && parentMain !== null;
             for (const axis of ["width", "height"] as const) {
-                if (collapsed && axis === parentMain) {
+                if (quiet.has(axis)) {
                     continue;
                 }
                 if (space[axis] < nodeBounds.minimumSize[axis] - EPSILON) {
@@ -478,19 +498,20 @@ export function layoutOf<T>(root: GridNode<T> | null, container: GridExtent, sas
         const effectiveSashes = configuredSashes.map((value) => value * sashScale);
         const effectiveGap = effectiveSashes.reduce((sum, value) => sum + value, 0);
         sashSizes[node.id] = effectiveSashes;
-        if (configuredGap > target + EPSILON) {
+        if (configuredGap > target + EPSILON && !quiet.has(main)) {
             issues.push(`分支 ${node.id} 的 sash 占用 ${round(configuredGap)} 超过可用 ${round(target)}，已压缩分隔条与子节点`);
         }
         const crossBounds = constraintOnAxis(node, cross, sashSize, issues, reportedConstraints);
         const crossSize = Math.min(space[cross], clampAxis(space[cross], crossBounds.low, crossBounds.high));
-        if (crossSize < crossBounds.low - EPSILON) {
+        if (crossSize < crossBounds.low - EPSILON && !quiet.has(cross)) {
             issues.push(`分支 ${node.id} 的交叉轴可用空间 ${round(space[cross])} 小于约束下限 ${round(crossBounds.low)}，已按可用空间降级`);
         }
-        const assigned = allocateAxis(node, main, Math.max(0, target - effectiveGap), sashSize, issues);
+        // 主轴被祖先收起时，这里分不够是有意的：分配照做，诊断不收。
+        const assigned = allocateAxis(node, main, Math.max(0, target - effectiveGap), sashSize, quiet.has(main) ? [] : issues);
         const measured: number[] = [];
         let total = effectiveGap;
         for (const [index, child] of node.children.entries()) {
-            const childSize = measure(child, extentOf(main, assigned[index]!, crossSize), main)[main];
+            const childSize = measure(child, extentOf(main, assigned[index]!, crossSize), main, quiet)[main];
             measured.push(childSize);
             total += childSize;
         }

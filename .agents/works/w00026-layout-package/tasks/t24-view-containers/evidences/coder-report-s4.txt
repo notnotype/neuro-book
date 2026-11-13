@@ -1,0 +1,198 @@
+w00026 t24 切片 4：拖动接上容器 —— 交付报告（边做边追加）
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00026-t24-view-containers（基于 b9e276420，未提交）
+
+进度 0（开始）：已读 brief、计划、Task README、ADR 0046、Spec workbench-layout、layout-drag、s1fix/s2/s3 报告。下一步读拖动管线代码。
+
+## 进度 1（第 1、4、6 条）
+
+- packages/nb-layout/src/layout-doc.ts：新导出 `sectionRegionOf(doc, panelId)`（带容器的区域里的分节返回区域，条件同写入路径的 `containerAnchorOf`）。
+- packages/nb-layout/src/layout-drop.ts：分节按前后两半判（`sectionHalf`）：标题行算前半，正文按自己的中线分；侧栏、右栏上下，底部面板左右；没有中央、没有窄带。分区（`sectionSectors`）是前后两块，键盘候选每个分节两个（沿区域方向的两条边），三处共用 `sectionEdges`。整窗拖动（`noCenter`）不按两半，走原来 14% 窄带的规则，且分节的标题行不是插入位（输出 39）。结果是 `edge` 落点，目标由策略给（`split`/`spread`），归属由库按区域的当前容器写。
+- packages/nb-layout/src/layout-drop.test.ts：新 describe“分节的落点”8 条。
+- 第 4 条：`web/state/layout-present.ts` 的 `layoutStructureKey` 加各区域锚的 `[name, activeContainer]`；`layout-present.test.ts` 补一条（切容器变、拖到零与隐藏不变）。
+- 第 6 条核对：工作台的原处判定是 `applyLayoutDrop(...).doc === doc`，库的 `finish` 用 `sameLayoutShape`（已比 container、entries、activeContainer），走到了。
+- 验证：nb-layout `bun run test` 530 + 188 过；typecheck 过。
+- 下一步：活动栏落点的纯函数模块（`web/entry-drop.ts`）与 layout-drag 接线。
+
+== 进度 2：第 2、3 条（活动栏落点与拖入口）接线完成 ==
+改动：
+- entry-drop.ts（新）：BAR_STRIP、ContainerSource/WorkbenchDragSource、EntryDropAction（new-container / join-container / move-entry）、barSpotAt、barStopsOf、soleSidebarContainer、entryDropAt、applyEntryDrop（预览与提交同一个函数，commit 时 setPanelHidden(false) + setActiveContainer，结尾 sameLayoutShape 判原处）。
+- layout-drag.ts：barDrop 删掉，活动栏上段改由 entryDrop 判（入口中间一半算入口上 = 并入；其余与入口间距算空位，按“排在哪个容器入口前面”记）；新容器 id 每场拖动起头生成一次（custom:<UUID>），落点逐帧字节稳定。含几个视图的入口是 container 来源：不进实时布局（落点指示）、只在活动栏上有落点、不浮出；键盘起拖也覆盖 [data-tool-entry]，键盘停靠点：视图每个空位与每个入口，容器入口只有空位（KeyboardRegion.entries）。整窗拖到活动栏的旧处理去掉（输出 39：窗口停靠只在标签条、缝与外缘窄带）。
+- live-drag.ts：LiveDragHost 加 isHomeStrip（来源是侧栏里一个容器唯一的视图时，活动栏是它自己的标签条：入口之间马上跟手、不收起来源）；标签条判断改用 dropStripOf（活动栏的 new-container/move-entry 算标签条，join 不算）。
+- drag-presentation.ts：入口之间算排序（不要拖影）；新增 mergeEntry（实时布局按已显示的 join，落点指示按此刻非原处的 join）。
+- WorkbenchToolStrip.vue：加 highlighted 属性（入口盖 --layout-merge-fill 底与 --layout-merge-border 内描边，data-tool-merge 标记）；dragHint 给所有入口（含几个视图的入口现在也能拖）。
+- WorkbenchShell.vue：ghostOf 支持容器来源（入口的名称与图标）；dropLabel 加 new-container（“单独成一个入口”）、join-container（“并入{容器名}”）、move-entry（复用“放在这里”）；把 mergeEntry 传给活动栏。
+- layout-doc-store.ts commitDrop：入口落点走 applyEntryDrop（flush，move-entry 不写回尺寸意图 rebase:false）。
+- EditorAreaFixture.vue：类型收窄（这个场景没有活动栏）。
+- locales zh-CN/en-US 加 shell.drop.newContainer、shell.drop.joinContainer；locales.test.ts 的 ADDED 登记。
+- 测试：entry-drop.test.ts 11 条；live-drag.test.ts 加 2 条（活动栏入口之间等稳定再吸收、并入卡片留着；唯一视图在活动栏里马上跟手不收起）；drag-presentation.test.ts 加 1 条并扩 1 条。
+- layout-constraints.test.ts 两条期望按第 1 条（分节两半）改：分节的分区由 上/中/下 变成 上/下（底部面板 左/右），“靠两边不算并入、返回 null”改成“靠两边也按两半算”。理由：Spec 输出 25 第 7 行、输出 37、验收 10。
+验证：vue-tsc web 0 错、browser-test 0 错；bun test src/plugins/workbench src/plugins/lab 见下一段。
+
+== 进度 3：第 5、7、8 条与 e2e 起步 ==
+- 第 5 条：预览里当前容器拖空不切（预览不过 settleContainers），提交由 store apply 的 settleContainers 切到相邻容器；收起后的几何里活动栏仍接得住（layout-drag 的 collapsed() 里 barAfterCollapse 把消失入口以下的入口上移）。用 e2e 验收 29 验（含收起后回到活动栏空位出现入口）。
+- 第 7 条：库层核对过（临时探针，已删）：工具视图拖到工具浮动窗的头是 strip、正文是 center，applyLayoutDrop center 后浮动窗有两个标签——多标签浮动窗搭得出来。e2e 迁移见后。
+- 第 8 条：WorkbenchSurfaceFixture 加两个按钮 d-new-entry（D 放到活动栏最后，新建用户容器 custom:lab）、d-into-a（D 放到 A 的入口上并入），和拖到活动栏放下是同一个函数 applyEntryDrop(commit:true)。原有 a-to-right/a-back/c-to-new-panel/d-below-b 在切片 3 已是容器语义（“移动到”/“移到”），没改。
+- 测试插件 test.sample-views（src/web/testing/sample-views.ts、src/shared/testing/sample-views-contract.ts）加一个 window CustomEvent（SAMPLE_VIEWS_RUN_EVENT）执行命令：验收 32 要在拖动进行中执行 nbook.view.open，那时按键归会话、点不了菜单；page.evaluate 派发事件不碰指针与焦点。只在测试外壳里有。
+- e2e/workbench-containers.e2e.ts 新 describe：验收 25、26、29、32 四条（实时布局，写入次数用触发器计数）。
+- e2e/editor-area.e2e.ts：sidebar/panel 具名叶与头的选择器改为按资源管理器所在分节（data-content-leaf）；活动栏入口改为“项目”容器 nbook.workbench.project；1064 行改为右键分节标题开“移动到”选“面板”；侧栏与编辑区的分隔线按编辑区一侧认。
+- 第一次跑 dnd/live-drag/drag-cost/float（e2e-r1.log）：dnd 前 6 条全败于旧选择器（[data-leaf="sidebar"] 等，每条等满 60s），中途停掉，先静态改选择器。
+
+## 进度 4：editor-area.e2e.ts:1039 的缝
+- 旧期望：工具视图放在侧栏右缘（seamX-2）没有落点（旧注释“侧栏不左右分，那里没有落点”）。分节没有外缘窄带、整块按上下两半分（输出 25 第 7 行），所以侧栏一侧现在有落点：在会话那一节下半段放，是“在会话后面插一节”（data-drop-kind=edge）。验收 10“缝上放视图归侧栏”仍成立：缝右边（seamX+2，编辑组那侧）仍拒绝。
+- 原用例在 seamY（缝的中点）量，正好是两个分节的分界，一像素取整决定落在哪一节；改在会话那一节下半段的 3/4 处量。编辑器标签那一步保持在 seamY。
+- 期望改动：seamX-2 由“拒绝”改为“在侧栏插一节”。理由同上。
+- 结果：editor-area.e2e.ts:1039 通过（1 passed）。
+
+## 进度 5：editor-area.e2e.ts 全文件
+- 全文件一轮（--timeout=20000 只为分拣）：36 过、16 败（15 条，1938 那条两个参数各算一次）。失败的 852、1213、1275、1296、1336、1351、1372、1498、1526、1596、1623、1710、1783、1938、1998 与拖动无关：都是点资源树的行点到了别的行，或行还不在。根因是切片 2 的默认布局（输出 4）：侧栏“项目”容器是会话、资源管理器两个分节各占半高，这个作品的文件半高放不下，要滚动。切片 2 之前资源管理器占整列。
+- 改法（只改准备步骤，不动断言）：open() 里把会话那一节收成标题行，资源树占这一列。改后这 15 条加 964、2046 共 17 条用默认超时重跑全过。
+- 1039（缝）因此再改：会话收起后缝左边整段是资源管理器自己那一节，拖资源管理器放到它自己后面是原位。期望改为 seamX-2 处是“原位”（data-drop-kind=noop），说明缝归侧栏这一侧，不是编辑组、也不是被拒绝；seamX+2 仍被拒绝。依据：输出 25 第 7 行（分节没有窄带、整块前后两半）、输出 28（放回挨着来源的位置是原位）、验收 10。重跑通过。
+- editor-area 现状：52 条，最后一轮只剩上述改动后的复核全部通过（17 + 1）；全文件没有再整跑一遍。
+
+## 进度 6：workbench-drag-cost.e2e.ts
+- 选择器：实时布局拖视图那条原来拿侧栏头里的第一个标签（[data-panel-head='sidebar']），改为拿资源管理器那一节的标题（[data-panel-tab="view:nbook.explorer"]）。断言不动。
+- 第一轮 4 过 1 败：“整窗拖动”每帧样式重算 3.3 到 3.9 次（预算 1.3），连跑两次都超。在 HEAD b9e276420 的临时 worktree 里构建同一用例：通过。用 MutationObserver 看到每次移动编辑器标签条（TransitionGroup 的 nb-tab-strip__row）重渲染 4 次。
+- 根因（本片引入）：WorkbenchShell.vue 模板里写了 `:highlighted="dragView.mergeEntry"`。dragView 每次指针移动都是新对象，模板直接读它，整个外壳连同编辑区插槽每帧重渲染（dragView 上方的注释早写明了模板只读拆开的 computed）。改为单独的 `mergeEntry` computed，与 mergeTarget 一样。预算没动。
+- 修后 5 条全过，测量值（每帧，预算：移动 recalc ≤ 1.3、layout ≤ 0.1；指针不动 recalc = 0）：
+  - 实时布局拖视图：recalc 0.99，layout 0；指针不动：recalc 0，layout 0
+  - 实时布局拖编辑器标签：recalc 1，layout 0
+  - 标签条里排序：recalc 1，layout 0
+  - 整窗拖动：recalc 1，layout 0
+  - 落点指示：recalc 1，layout 0
+- 临时 worktree 已删除；测量用的打印是临时改的，已从备份还原。
+
+## 进度 7：第 7 条，多标签浮动窗与 workbench-views 的三条标签条用例
+- 产品页上用指针搭得出：戊经“移动到”的“浮动”出来，丁、己的标题拖到窗的正文上各添加为一个标签，得到 [戊, 丁, 己] 的浮动窗。己声明了 floatable: false，但放进已有的浮动窗是“添加为标签”，不是开新窗，按输出 26（工具视图在浮动窗的标签条与正文上“接受”）与输出 39（floatable 只管“无落点就浮动”）可以放进去。没改样例声明。
+- 新 helper floatWithTabs（workbench-views.e2e.ts）。三条改在这个窗上测：
+  - “标签带变窄时逐级让位”：原来缩视口宽，浮动窗的宽不随视口变，改用右下角手柄的键盘（输出 39“键盘”，每下 10px）先放宽到头，再逐下变窄直到收进“更多”。断言照旧：见过 0、1、2、3 四级；选中的始终带标题；“更多 N”的数目；Home、End 把收起来的换进标签带并聚焦；从“更多”选中后回到标签带。
+  - “Alt 加方向键换一位”：断言照旧。
+  - “标签与内容互相关联……840 宽”：标签与 tabpanel 互相关联、长标题标签完整可点、方向键切到己（窗里是戊丁己，往右两下）——在浮动窗上，断言照旧。框架按钮那一段不能照搬：浮动窗的框架按钮只有“回到停靠”（输出 20“浮动窗的框架按钮只有‘回到停靠’”，输出 39“不可：最大化、收起……隐藏只有区域”），分节也没有隐藏按钮（输出 20“分节没有隐藏按钮，隐藏是区域的事”），底部面板的分节不折叠（输出 20“收起按钮只给侧栏、右栏的分节，底部面板的分节不折叠”）。所以期望改为：840 宽下底部面板戊那一节的头上“浮动”“最大化”完整可点，浮动窗头上“回到停靠”完整可点。这是 Spec 改了期望，不是放宽；原来的“收起、最大化、隐藏三个”在新模型里没有任何一种头同时有。
+- 结果：三条都过（第一条单独重跑 1 过；后两条 2 过）。
+
+== 进度 8：workbench-live-drag.e2e.ts（20 过 0 败，全文件一次跑）
+基线 18 败。共用帮手：sectionOf（读 data-content-leaf）、regionOf（按与 g0 的相对位置判 sidebar/auxiliarybar/panel/float；分节换区域 id 不变，输出 27）、
+floatViaMenu、floatOfTwo（戊浮出、己的标题放到窗正文上 → 戊己两标签的浮动窗；带标签条的只剩浮动窗，输出 20、39）、auxiliaryWidth（量右栏这一列）。
+期望改动与理由：
+- “拖到面板这一排右边”“取消”“预览不改可见性”“松手时内容体”“离开标签条就缩小”等：目标改成戊那一节的后半（x 0.97），分节整块是前后两半（输出 25 第 7 行），断言不变。
+- “来源是那块面板最后一个视图”：原量丁那块叶的宽；丁那一节搬进侧栏后叶还在、id 不变（输出 27），改量右栏这一列（g0 右沿到窗口右沿）。判据不变（收起 <2、Esc 后 >100）。
+- “候选还没预览就松手”“同一任务里到”：目标改成丁那一节后半，判“戊到了右栏”（regionOf）。
+- “拿起时过渡还在走”：预览键是数组里的 JSON 串（引号转义），正则改成只认 edge 和戊那一节的 id；判据不变。
+- “撕下卡片（dragCardShrink=panel）”“标签条里不拿起卡片”：分节标题不是标签条、按住就拿起（输出 20），改从 floatOfTwo 的浮动窗标签条拖戊。
+- “长出新块是空位”：从 floatOfTwo 的窗里拖己，放到丁那一节后半；头数预览中不变、放下 +1。
+- “并入是盖一层”：分节没有中央（输出 25 第 7 行），目标改成丁浮出来的第二个窗（用移动把手键盘挪开 500px）。在浮动窗上按下会 raiseFloat（一次写入，不属于拖动），所以先点一下来源窗的戊标签，再等写入在合并窗口（LAYOUT_SAVE_COALESCE_MS）之后不再变，才记拖动前的写入数。“零写入”判据不变。
+- “别人的标签条上被吸收”：目标改成 floatOfTwo 窗的标签条；落点从第一个标签 x+2 改到左四分之一——窗的左沿 4px 内是改大小的把手，不接收落点（探针实测 x+2 时 preview none、不拒绝；第二个标签中间是 strip index 2）。
+- “活动栏也是标签条”：放下是侧栏里新的自定义容器（输出 22、45），入口顺序期望 ["custom", ...before]，放下后入口按下、丁在侧栏。
+- “侧栏隐藏时放到活动栏”：分节没有隐藏按钮，点按下着的入口隐藏侧栏（输出 22）；放下后丁在侧栏、原来甲那节不出现。
+
+## 进度（续，额度恢复后）
+
+### dnd 首轮（重写后）：28 过、9 败；修完 8 条重跑 8/8 过
+失败分三类：
+1. 产品缺口（预览找不到浮动窗）：`layout-drag.ts` 的原位预览（`stripDrop` 里的 `previewOf`）和指针落点 `dropAt` 的 `dropFor`，量的块只给 `seen.panels`，不含浮动窗。浮动窗成了唯一带标签条的工具面板（输出 25 第 0 行）之后，激活标签放回自己的位置没有可画的矩形，反馈层不出现，“原位”也不显示。两处都改成 `[...panels, ...floats]`。这段代码 HEAD 就有，切片 4 让它暴露出来。
+2. 产品缺口（入口上没有落点形状）：`entryDrop` 在入口上（并入，或来源自己的入口即原处）给的预览没有形状，反馈层整个不渲染，`data-drop-kind` 与提示（“并入{part}”“原位”）都没有。改法：`LayoutDropPreview` 加可选的 `entryRect`，入口上给出这个入口的矩形；外壳把它交给 `DropFeedbackOverlay` 的 `entryRect`，这是覆盖层本来就有的“切换器上接收条目”形状。`presentDrag` 的 `mergeEntry`（外壳在入口上盖的并入高亮）改成只在实时布局给，和中央一样：落点指示由反馈层画，实时布局由外壳盖层，不叠两层。`drag-presentation.test.ts` 那一条期望跟着改（落点指示下 `mergeEntry` 为 null）。
+3. 测试写错：
+   - 350：我把“激活标签放回原处”写成了“没激活的标签放回原处”。没激活的标签放下会激活它，所以不是原位。按原用例恢复成激活标签 F。
+   - 626：面板分节的“标题行算前半”取的点（y=0.2）其实在正文里；改成 {x: 0.8, y: 0.06}，在标题行内（这一节高 200，标题行 32）。
+   - 1168：编辑组上的点被浮动窗盖着；改成在编辑组里找一个不在窗里的点。
+   - 1191（原 1187）：戊在底部面板里只有自己这一节，方向键只在本区域移动，两个位置都是原处；改成按 Tab 换区域找分节的落点。
+834（“移动到”的“新面板”）仍失败，属于切片 5（菜单目标），未改。
+
+### lab-workbench-surface：重写后 12 过、3 败；修完 3/3 过
+- 多视图入口的悬停文字：Tooltip 不写 title 属性，改读 `.nb-ui-tooltip-surface`（与 workbench-views 同一写法）。
+- 场景图只挂在区域最下面那块（`sceneCorners`）：D 并进 B 的容器后，最下面是 section:d，改成把 section:d 拖矮。
+- 手机画布上分节标题的焦点光晕被裁：夹具改成分节只写标题（`titleOnlyPanels`，和外壳同一判定，输出 20）之后才暴露出来。原因是标题按钮 `workbench-panel-head__handle` 用外描光晕 `nb-ui-focus-ring`，外面的 h2 是 `overflow: hidden`（标题要省略号），产品外壳里也一样会被裁。改成内描 `nb-ui-focus-ring-inset`，和标签一致。改的是 `WorkbenchPanelHead.vue` 一个 class，加了注释；这个文件不在原先列出的范围里，主 Agent 可以决定是否保留。
+
+### workbench-dnd.e2e.ts 重写：期望改动与理由（原文件备份 /tmp/w00026-t24-s4/dnd.orig）
+共用帮手：entry（`[data-tool-band] [data-tool-view=..]`）、implicit(viewId)（`view:<id>` 容器）、sectionOf/regionOf、auxiliaryWidth、entriesOf（`custom:*` 记成 "custom"）、settledWrites（等写入在合并窗口之后不再变）、floatViaMenu、floatOfTwo。侧栏的分隔线名是“调整 section:<甲> 与 center 的宽度”。
+- 原来在多标签区域面板上测标签条、中央、标签换序的：区域里的分节只写标题、一个标签（输出 20），带标签条的只剩浮动窗（输出 25 第 0 行、39），都改到 floatOfTwo 的窗上，断言不变。
+- 原来按区域面板的外缘、窄带、中央判的：分节整块前后两半、标题行算前半、没有中央与窄带（输出 25 第 7 行、26、37），改成分节的两半，落点种类 `edge`、提示“拆到这一边”。
+- 活动栏：落点种类由 strip/reveal 改成 new-container（“单独成一个入口”）、join-container（“并入{容器名}”）、move-entry（复用“放在这里”）（输出 45、46）；入口顺序按容器读。
+- “面板收成标题行……展开”改为“收成标题行的分节：落在它的标题行上是前半……它自己还收着”：分节放下不展开别的分节（输出 25 第 7 行“收成标题行的分节正文零面积，整块都是前半”；放下的新分节在它前面）。
+- “标签并入已有面板”改在两个浮动窗之间测：分节没有中央。
+- 收起按钮：底部面板的分节没有（输出 20“收起按钮只给侧栏、右栏的分节”）。
+- 缝上：侧栏与编辑组之间不是缝落点，指针归侧栏那一节，按它的两半判（输出 25、26；验收 10），原期望“拒绝”改为甲那一节上的 `edge`。
+- 753 与 dropSplit 两条的“移动到”尾段删掉：菜单目标属于切片 5。
+- “移动到”的“新面板”（现 834）没改，仍失败，归切片 5。
+
+### 8 个文件一轮（editor-area、files-explorer、containers、dnd、drag-cost、float、live-drag、titlebar）：127 过、36 败，25 分钟
+- files-explorer 22 条：都卡在 open() 里的 `[data-leaf="sidebar"]`。这是切片 3 留下的旧选择器。改法：资源管理器那一节的头与叶按内容项的 `data-content-leaf` 找；会话那一节收成标题行，和 editor-area 一样。只动准备步骤与选择器，断言不变。另外改掉一句已经不成立的注释（“这个场地只有资源管理器一个工具面板”）。
+- workbench-float 7 条：没迁移，还是旧选择器（备份 /tmp/w00026-t24-s4/float.orig）。
+  - “面板”“侧栏”改成按视图找分节（sectionOf）。
+  - “不浮动的情形”：己现在是底部面板里另一个容器的分节，不显示。先用 `nbook.view.open` 切过去（一次写入，计入基线）。按钮区与 Esc 两段改用丁做来源：戊浮出之后己才显示。
+  - “窗回到树里”第二段原期望“右栏的头等于中央”。Spec 验收 23：“分节没有标签条，工具视图的窗到分节沿区域方向两端的 14% 窄带或缝才停靠，每个标签成一个分节”。所以改成：经过丁那一节的正文中央是 float（继续浮着），到它下缘窄带是 edge，放下后戊在丁下面同一列。（第一版取的是丁那一节的头，头落在上缘 14% 窄带里，是停靠点，第 9 轮失败后改到正文中央，见进度 10。）
+  - “框架按钮”回停靠：原期望 id 是 "panel"，改成判它回到编辑组下面（声明的位置是底部面板）。
+- titlebar 144：`[data-leaf="sidebar"]` 判侧栏可见，改成看有没有按下的入口（输出 22：侧栏可见时当前容器的入口才按下）。
+- containers 188、editor-area 1374：单独重跑都过，是这一轮负载下的偶发失败。
+- containers 364（验收 29）：放下后立刻读甲那一节的 x，两次读到不同的值（1030、936，期望 > 1039），读的是飞行与重排中途。改成 expect.poll 等它停在右栏。这条是这一片早先写的，原来就有时序问题。
+- containers 404（验收 32）：命令已经提交，但屏幕上还是这一场的预览，入口的按下态读的是预览，要等指针一动、这一场取消才更新。原来在命令之后立刻断言入口按下，是在给过渡状态写期望。改成先看记录里 activeContainer 已切到乙，松手后再断言入口按下。
+- dnd 532：floatOfTwo 在开着动效时，己那一节还在滑进来就去按它的标题，按空。加了一步等 `[data-moving]` 清零。
+- dnd 834：切片 5。
+
+### 第 9 轮（float、files-explorer 全文件，加 titlebar 144、containers 364、404、dnd 532）：35 过、4 败
+- titlebar 144、containers 364、404、dnd 532 修过之后都过。
+- 4 条失败的处理（进度 10）：
+  - files-explorer 1018（触摸）、float 281（过渡中拖窗）：第 10 轮单独重跑都过，是这一轮负载下的偶发失败。
+  - float 316 第二段：断言写错了。我取的点在丁那一节的头上，头落在这一节上缘 14% 窄带里（右栏是竖向区域，两端窄带在上下）。Spec 写的是“分节上能停靠的是缝与沿区域方向两端 14% 的窄带”“经过中央继续浮着”（docs/specs/ui/workbench-layout.md 回到停靠；验收 23），所以头本来就是停靠点。改成取正文中央 {0.5, 0.5} 判 float，窄带判 edge 不变。
+  - float 493（键盘）：是产品回归，切片 4 自己引入的。我把键盘的 `sourceAt` 改成复用指针的 `sourceAt` 之后，浮动窗里唯一的标签按指针规则算整窗（kind: panel），键盘又拒绝 panel，结果拿不起来。改回原先的合同：键盘拿起的是标签本身（“拿起停在原位，Enter 不动”，输出 31）。按标签做 movable 检查（声明 movable: false 的不起拖）。改在 layout-drag.ts 的 keyboard.sourceAt，加了注释。
+- 改了产品源码，所以重新 build:web 与 build:e2e（都是退出码 0）。tsc web 0 错，bun test workbench 与 lab 562 过。
+
+### 第 11 轮（float、dnd、containers、drag-cost 全文件；重新构建后）：60 过、3 败，4.3 分钟
+- float 493（键盘）修好后通过；dnd 与 containers 里的键盘用例都过：改 keyboard.sourceAt 没有打坏它们。
+- drag-cost 5 条全过：入口反馈（entryRect、mergeEntry 只在实时布局给）改完之后预算仍然守住。这一版用例只断言预算、不打印数值。早先实测的每帧数值：实时拖视图 recalc 0.99、layout 0，指针不动时 0；拖编辑器标签 1/0；标签条里排序 1/0；整窗拖动 1/0；落点指示 1/0。预算是 recalc ≤ 1.3、layout ≤ 0.1，指针不动 0。
+- dnd 836（“移动到”的“新面板”）：归切片 5。
+- float 316：经过分节中央时没有任何反馈元素，不是 drop-kind="float"。整窗继续浮着时，窗本身就是反馈，预览没有形状，覆盖层不渲染（windowDrop 的 moved）。我原来的断言写错了，改成 `feedback` 数为 0，和同一用例第一段“不算窄带”是同一判法。改完后单独跑 4 次都过（第 12 轮），float 全文件 14/14 过（第 13 轮）。
+- float 281（“窗刚开、过渡还在走时拖它”）：这条用例与 HEAD 一字未改。它只在多文件连着跑时失败：第 9、11 轮失败，第 8 轮过；单独跑 4 次都过，float 全文件跑也过。失败时第二次移动后窗的 x 没变（681.0 对 start 681.7）。推断（从代码推断，未验证）：窗的位置按帧更新，用例在 mouse.move 之后马上读外框，负载高时那一帧还没画就读到了旧值。这是已有用例的时序问题，不是切片 4 的行为。我没有改它：改成轮询会盖掉它要测的“没有拖尾”。归属：交主 Agent 决定是否另开修正，可以改成等一帧再读。
+
+## 最终验证（worktree packages/neuro-book，除非另注）
+- `bunx vue-tsc --noEmit -p tsconfig.web.json`：0 错
+- `bunx vue-tsc --noEmit -p tsconfig.browser-test.json`：0 错
+- `bun test src/plugins/workbench src/plugins/lab`：562 过 0 败
+- packages/nb-layout：`bun run test` 530 + 188 过；`bun run typecheck` 过（之后没有再改 nb-layout）
+- 仓库根 `bun run governance:check`：failures 0，本次改动范围内 warnings 0
+- `git diff --check`：干净
+- e2e（每轮不超过 8 个文件）：
+  - lab-workbench-surface 15/15
+  - live-drag 20/20
+  - editor-area、titlebar、files-explorer：第 8、9 轮修完都过；files-explorer 1018 是负载下的偶发失败，单独跑过
+  - containers 全过（第 11 轮）
+  - dnd 除 836 外全过（第 11 轮）
+  - float 14/14（第 13 轮，单文件）
+  - drag-cost 5/5（第 11 轮）
+- 仍失败：
+  - dnd 836、workbench-views 555、651、692、836：都是“移动到”菜单、重置与过渡期名字，归切片 5
+  - float 281：已有用例的时序问题，只在负载下失败，见上
+  - plugins.e2e.ts:78：与本切片无关
+- 临时探针 e2e/zz-probe-s4.e2e.ts：先用 git ls-files 确认未跟踪，已删除。
+
+## 拿不准的地方
+- `BAR_ENTRY_CORE = 0.5`：入口中间一半是“并入”，上下各四分之一是“插在前后”。Spec 只说“落在入口上并入、入口之间单独成一个入口”（输出 45、46），没有给比例，0.5 是我定的。
+- 文案：
+  - new-container 用“单独成一个入口”，join-container 用“并入{part}”
+  - move-entry 复用已有的“放在这里”
+  - 输出 45、46 没有规定提示文字
+- entryRect 画成入口条带的宽度，上下沿用这个入口的上下边（inset ±6，和条带插入线一致）。这是覆盖层原有的“切换器上接收条目”形状，没有新造。
+- WorkbenchPanelHead.vue 不在原先列出的范围里。我把分节标题的焦点光晕从外描改成内描，因为外面的 h2 是 overflow: hidden，外描会被裁掉。主 Agent 决定是否保留。
+- 缝：侧栏与编辑组之间不是缝落点，指针归侧栏那一节，按它的两半判。依据是输出 25、26 与验收 10，以及“缝上没有分区：缝不属于哪一块面板”（输出 37）。
+- 浮动窗左沿 4px 是改大小的把手，不接收落点。这是现有行为，我只是在测试里避开它，没有改。
+- float 的期望改动（备份 float.orig），逐条见进度 9 与本节。
+- `barDrop` 已由 `entryDrop` 与 `barAccepts` 取代，旧函数已删。
+
+## 留给切片 5
+- “移动到”菜单的目标（dnd 836、workbench-views 555、651、692、836），以及过渡期名字
+- 入口与容器的“重置”
+- 打开视图时切换容器（`nbook.view.open` 切到视图所在的容器）：containers 与 float 用例里只当准备步骤用
+- 分节上的最大化与浮动按钮
+
+## 补充（顾问复核之后）
+- float 316 中段原来写成 `expect(feedback).toHaveCount(0)`，这在落点画出来之前就会通过。改用同文件现成的 `noFeedback`（等两帧再断言没有反馈）。同一用例第一段 `feedback.and(edge)` 计数为 0 是 HEAD 原有的写法，也有同样的空过风险，不在本切片范围，没动。
+- 第 14 轮（containers 全文件，float 281、316，workbench-views 全文件；构建是最新的）：37 过、4 败。
+  - float 281 排在 containers 后面跑也过了，316 也过。
+  - 281 各轮结果：第 8 轮过；第 9 轮败；第 10 轮单独跑过；第 11 轮败；第 12 轮单独跑 4 次都过；第 13 轮全文件过；第 14 轮跟在 containers 后面过。两次失败时窗都基本没动（约 -0.7px），这更像按下没接上拖动（按在还在移动的标签上，和 dnd 532 同一类），不像晚一帧。用例本身与 HEAD 相同，但浮出的来源从面板标签换成了分节，所以切片 4 有没有引入它没有确认，归属未定。
+  - workbench-views 的 4 条失败（行号比之前报的 555、651、692、836 往后移了 24 行，是同样的 4 条用例）：
+    - 579“移动到：右键菜单……重置位置”：切片 5
+    - 675“命令面板的移动视图”：切片 5
+    - 716“实例保留：……移到别的面板、新面板……”：用到“移动到”与“新面板”，切片 5
+    - 860“颜色取主题 token”：不是拖动，也不是切片 5 的菜单。它用了旧的固定面板选择器 `[data-shell-card="sidebar"]`、`[data-panel-head="sidebar"|"auxiliarybar"|"panel"]`。卡片与面板头现在按分节 id 标记，所以 querySelector 返回 null。另外底部面板里只有分节标题，没有 `role=tab`，“当前标签用正文色”（输出 19）在分节上该测什么要另定。归属：主 Agent 决定交切片 5，还是单独迁移（推断是切片 2、3 留下的旧选择器，没有在 HEAD 上核对）。
+- 报告前文的 dnd 834 就是现在的 dnd 836，行号移了。
+- 早于最后一次产品改动（键盘 sourceAt）的 e2e 结论：lab-workbench-surface、live-drag、editor-area、titlebar、files-explorer。这次改动只动了“键盘拿起浮动窗里唯一的标签”这一支，这几个文件不走这条路径，结论仍然成立。
+- 键盘 sourceAt 现在对独占浮动窗的标签多做一次 movable 检查。HEAD 没有这一步（HEAD 先过指针的 sourceAt，那里对 panel 只检查 isFloating）。所以声明 movable: false 的视图独占一个窗时，键盘拿不起它，比 HEAD 略严。我认为这和指针拖它的标签时的检查一致，但没有 Spec 原文明确这一点。

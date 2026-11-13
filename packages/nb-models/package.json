@@ -1,0 +1,31 @@
+{
+    "name": "@notnotype/nb-models",
+    "version": "0.1.0",
+    "private": true,
+    "description": "建在 nb-runtime 与 nb-harness 上的模型服务：服务商与角色的配置形状、内置角色、设置页的远程合同、选择顺序与服务核心；合同 id 与设置存储由应用给",
+    "license": "AGPL-3.0-only",
+    "type": "module",
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "exports": {
+        "./config": "./src/config/index.ts",
+        "./contract": "./src/contract/index.ts",
+        "./core": "./src/core/index.ts",
+        "./testing": "./src/testing/index.ts"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.browser.json"
+    },
+    "dependencies": {
+        "@notnotype/nb-harness": "workspace:^",
+        "@notnotype/nb-runtime": "workspace:*",
+        "typebox": "^1.3.6"
+    },
+    "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3"
+    }
+}

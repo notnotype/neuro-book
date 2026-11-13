@@ -13,7 +13,7 @@
  *
  * `Grid` 与独立 `Splitter` 共用这一份实现；阈值与记忆尺寸由宿主的收起策略给出。
  */
-import {EPSILON, clampAxis, finite, sashPanelBounds, type SashPanel} from "./grid-geometry";
+import {EPSILON, allocateSashPanels, clampAxis, finite, sashPanelBounds, type SashPanel} from "./grid-geometry";
 
 /** 主轴位移的正方向 = 分隔条向右（水平分支）或向下（竖直分支）移动。 */
 
@@ -144,7 +144,8 @@ function relocate(input: {
 /**
  * 键盘/命令式的显式折叠与恢复：走与拖动同一份收起策略与容量判定，不复制阈值算法。
  * 只覆盖目标面板的收起状态，兄弟保持各自状态；恢复用记忆的 `restoreSize`——这是与拖动
- * 「按指针位置展开」的分工，按钮/菜单/Enter 才回记忆尺寸。
+ * 「按指针位置展开」的分工，按钮/菜单/Enter 才回记忆尺寸。策略带 `restoreToShare` 时记忆尺寸换成它按权重该得的那一份：
+ * 把它翻成展开后重新分配，取给它的那一项，所以和宿主改收起记录后重新布局给它的尺寸相同。
  * 返回 null 表示输入非法；`collapsed` 只含真正改变的收起状态。
  */
 export function solveSashCollapse(input: {
@@ -185,7 +186,10 @@ export function solveSashCollapse(input: {
         issues.push(`面板 ${panel.id} 的恢复空间不足（可用 ${Math.round(capacity)}px），保持收起`);
         return {sizesPx: [...sizes], collapsed: {}, issues};
     }
-    const restored = clampAxis(panel.collapse.restoreSize, targetBounds.low, Math.min(targetBounds.high, capacity));
+    const remembered = panel.collapse.restoreToShare === true
+        ? allocateSashPanels(panels.map((item, index) => index === input.index ? {...panel, collapse: {...panel.collapse!, collapsed: false}} : item), total)[input.index]!
+        : panel.collapse.restoreSize;
+    const restored = clampAxis(remembered, targetBounds.low, Math.min(targetBounds.high, capacity));
     const next = relocate({sizes, total, sashIndex: input.sashIndex, index: input.index, target: restored, boundsOf});
     return {sizesPx: next, collapsed: {[panel.id]: false}, issues};
 }

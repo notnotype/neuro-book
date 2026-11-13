@@ -1,11 +1,11 @@
 <script setup lang="ts">
+import {referenceOf} from "@notnotype/nb-models/config";
+import type {SnapshotRole} from "@notnotype/nb-models/contract";
 import {Badge, Button, IconButton, Input, SearchSelect, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 
-import type {SnapshotRole} from "../../shared/contracts";
-import {referenceOf} from "../../shared/rules";
 import type {ModelsFailure, ModelsStore} from "../models-store";
 import {failureReason, roleDescription, roleName, useModelsText} from "../text";
 

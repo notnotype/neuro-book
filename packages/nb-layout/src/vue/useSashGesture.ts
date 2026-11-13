@@ -455,6 +455,10 @@ export function useSashGesture<S, C>(options: SashGestureOptions<S, C>): SashGes
         if (registration === undefined || options.disabled?.() === true) {
             return;
         }
+        // 单条线不可交互（0px 接缝、收起为零的分支里长度为零的线）时不在 Tab 顺序里，但焦点可能早就在它上面：和指针命中读同一个标记。
+        if (registration.element.getAttribute("aria-disabled") === "true") {
+            return;
+        }
         if (event.key === "Enter") {
             event.preventDefault();
             if (keyboardMode === "enter") {

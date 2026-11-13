@@ -12,12 +12,11 @@ import {createHash, randomUUID} from "node:crypto";
 import {open} from "node:fs/promises";
 import type {FileHandle} from "node:fs/promises";
 
+import {errno} from "@notnotype/nb-file-lock";
 import {provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {ProvidedService} from "@notnotype/nb-runtime/plugins";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 import {decodeText, renderVirtual} from "@notnotype/nb-harness/kit/files";
-
-import {errno} from "nbook/backend/locked-replace";
 
 import type {Baseline, BatchResult, ChangeGroup, ChangeSource, Identified, Listing, OperationDone} from "../shared/contracts";
 import {parseAddress} from "../shared/resource";

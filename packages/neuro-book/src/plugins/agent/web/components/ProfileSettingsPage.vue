@@ -17,11 +17,13 @@ const props = withDefaults(defineProps<{
     initial?: string;
     /** “添加工具”的“完成”：交回失败原因，成功交回 null。 */
     addTools?: (key: string, change: ToolChange) => Promise<string | null>;
+    /** “添加子代理”的“完成”：同上（profile-settings.md 输出 25）。 */
+    addAgents?: (key: string, change: ToolChange) => Promise<string | null>;
     /** “新建并打开”：交回新的 key，或失败原因；交回时目录里已经有它。 */
     createProfile?: (name: string) => Promise<{readonly key: string} | {readonly reason: string}>;
     /** 确认后的删除：交回时目录里已经没有它，失败由包装通知。 */
     deleteProfile?: (key: string) => Promise<void>;
-}>(), {writable: true, initial: undefined, addTools: async () => null, createProfile: async () => ({reason: ""}), deleteProfile: async () => undefined});
+}>(), {writable: true, initial: undefined, addTools: async () => null, addAgents: async () => null, createProfile: async () => ({reason: ""}), deleteProfile: async () => undefined});
 
 const emit = defineEmits<{
     (e: "retry"): void;
@@ -30,6 +32,8 @@ const emit = defineEmits<{
     (e: "open-file", key: string): void;
     (e: "remove-tool", key: string, id: string): void;
     (e: "restore-tools", key: string): void;
+    (e: "remove-agent", key: string, id: string): void;
+    (e: "restore-agents", key: string): void;
 }>();
 
 const text = useAgentPageText();
@@ -129,6 +133,17 @@ const pickerOptions = computed(() => ordered.value.map((profile) => ({value: pro
                         :add-tools="(change) => addTools(current!.key, change)"
                         @remove="(id) => emit('remove-tool', current!.key, id)"
                         @restore="emit('restore-tools', current!.key)"
+                    />
+                    <!-- 工具一节下面，有 agent_spawn 时才有 -->
+                    <ProfileToolsSection
+                        v-if="current.agents !== null"
+                        kind="agents"
+                        :tools="current.agents"
+                        :disabled="!writable"
+                        :add-tools="(change) => addAgents(current!.key, change)"
+                        data-profile-agents
+                        @remove="(id) => emit('remove-agent', current!.key, id)"
+                        @restore="emit('restore-agents', current!.key)"
                     />
                 </ProfileDetail>
             </div>

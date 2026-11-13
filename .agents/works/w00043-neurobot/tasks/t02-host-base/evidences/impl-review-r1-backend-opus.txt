@@ -1,0 +1,65 @@
+# w00043 t02 后端实现审查（范围 4044fc4d7..94cca8703，HEAD 核对为 94cca8703）
+
+### 1. 宿主插件与宿主接口在装配 try 之外构造：hostRoutes 或 createHttpPlugin 抛错时 RPC 监听不关、认领不放、没有致命诊断
+- **严重程度**：重要；**类别**：不变量
+- **位置**：packages/nb-host/src/server/start.ts:291-306（`hostPlugins` 的构造，含 `options.http.hostRoutes?.(...)` 与 `createHttpPlugin` 的重复路径检查），对照 try 在 :310-318
+- **现象**：base 上宿主接口（`createBrowserBootstrapRoute`、两个插件文件路由）和 `createHttpPlugin`、`createServerDiagnosticsPlugin` 都在应用 `serverHostPlugins` 工厂里，由 base start.ts:273-281 的 `try { plugins = ...(context) } catch { rpc.stop(); reportFatal(...); claim.release(); throw ServerAssemblyError }` 包住。搬家后这三处挪到 try 之前。可抛错的点：`createHttpPlugin` 的“宿主接口 /api/runtime… 重复”（路径由应用给）、`browserBootstrap` 的“第三方插件 … 没有安装信息”、`createServerDiagnosticsPlugin` 的形状核对、应用 `hostRoutes` 回调本身。
+- **为什么是问题**：类注释（:173）写“抛出前致命诊断已写出、认领已放下，调用方只需以 1 退出”，这里三条都不成立；process.ts:89 对非 `ServerAssemblyError` 直接重抛，进程以未捕获异常退出，期间 RPC 端口仍接受连接，认领档案没有走 release。
+- **如何核实**：/tmp/review-w43t02-impl/scratch/hostroutes-throw.test.ts（真实 `startHostServer`、真实认领、真实 Bun 监听）：`hostRoutes` 抛错后输出 `thrown name: Error`（不是 ServerAssemblyError）、`fatal lines: 0`、`released: 0`，随后对 RPC 端口的升级请求被接受并挂住直到 5 秒超时（监听仍开着、准入一直在等就绪）。
+- **建议改法**：把 `hostPlugins` 的构造移进 :310 的 try（或单独包一层走同样的 `rpc.stop()` 与 `assemblyFailed`），并补一条“宿主接口构造失败”的装配失败测试（可直接用重复路径触发）。
+
+### 2. 新增的 publish 字段核对抛错时，服务端照常服务、认领停在 starting、没有致命诊断，进程层却当成启动失败
+- **严重程度**：重要；**类别**：正确性
+- **位置**：packages/nb-host/src/server/claim.ts:208（`publish` 里 `Value.Check(profile.extra, ...)` 不合就 throw）；packages/nb-host/src/server/start.ts:396-401（`admission.ready()` 之后才 `claim.publish`，抛错直接让 `ready` reject）；packages/neuro-book/src/server/process.ts:166-172
+- **现象**：base 的 `publish` 不校验，不会抛。现在应用字段不合档案时抛普通 Error；它发生在 `admission.ready()` 之后、扩展 `ready` 之前，于是：HTTP 已放行、运行实例 available；`ready` 以非 `ServerStartupError` reject；扩展的 `ready`（开发任务）不跑；认领应答停在 `status: "starting"`、`url: null`；致命通道一行没写。process.ts 对这种 reject 调 `onStartupFailed`（`nbook start` 会报“启动失败”），然后等一个永远不会自己到来的 `stopped`。之后人为停止时退出码是 0。
+- **为什么是问题**：同一个进程同时是“启动失败”（对调用方）与“正常服务”（对浏览器），认领应答对后来的启动者说“还在启动”。claim.ts:79-81 的注释只说“应答不变”，没说宿主这时该怎么办；start.ts 也没有把它接进启动失败或停止路径。触发要应用的 `readyInfo` 在运行时不合档案（类型系统挡不住 `Type.Integer` 收到小数、字符串格式约束之类），概率不高，但一旦发生没有任何诊断。
+- **如何核实**：/tmp/review-w43t02-impl/scratch/publish-throw.test.ts（真实 `startHostServer` 与认领，acme 档案的 `count: Integer` 给 1.5）：输出 `ready: rejected Error: claim publish: ...`、`health: 200 fatal lines: 0`、`claim status: running starting null`、停止后 `exit: 0`。
+- **建议改法**：二选一并补测试：(a) 在 `admission.ready()` 之前先核 `readyInfo()`，不合就按启动失败处理（写 `runtime.startup.failed` 致命行、`requestStop`、退出码 1）；(b) 保留 publish 抛错，但 start.ts 捕获后写致命诊断并 `host.requestStop("claim-publish-failed")`，`fatalSeen = true`。
+
+（第 2 条补充）同一处还有 `options.readyInfo()`（start.ts:398）：它是应用回调，在 `admission.ready()` 之后、`publish` 的实参里求值，抛错时后果与第 2 条相同（HTTP 已放行、认领停在 starting、无致命诊断、`ready` 以普通 Error reject）。改第 2 条时一并把 `readyInfo()` 提到 `admission.ready()` 之前求值并纳入同一失败路径。
+
+### 3. 包的公开面露出只给测试用的东西：`HostServer.activeRequests`，以及 `./testing` 原样转出产品类
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：packages/nb-host/src/server/start.ts:157-158、449-451；packages/neuro-book/src/server/start.ts:106-107、251-253；packages/nb-host/src/testing/index.ts:10-11
+- **现象**：`activeRequests` 只有三处测试读（nb-host start.test.ts:235、应用 server.test.ts:351、514），产品代码没有使用者，却进了 `HostServer` 与应用 `RunningServer` 两个公开接口（README 偏差第 5 片自述是为测试加的）。`./testing` 转出 `HttpAdmission`、`createDispatcher`、`RouteTable`、`validateRouteContribution` 这些产品实现，应用侧非测试代码也能从 `@notnotype/nb-host/testing` 拿到准入与分发层自己拼一个 HTTP 入口，`boundary`/`architecture` 测试只禁止 nb-models 的产品代码引用 `testing/`，nb-host 与应用侧没有同样的规则（`grep -rln nb-host/testing packages` 目前只命中 6 个测试文件，属实但无机检）。
+- **为什么是问题**：任务重点 6 要求公开面只露出使用方需要的东西；ADR 0045 的意图是准入与来源判定“应用换不掉”，`./testing` 把它们换成可自由组装的零件。
+- **如何核实**：`grep -rn activeRequests packages --include='*.ts'`；`grep -rln -e nb-host/testing packages --include='*.ts' | grep -v test`。
+- **建议改法**：测试改为观察可见行为（例如等诊断存储里出现准入等待的记录，或等 `fetch` 已建连后再放行），去掉 `activeRequests`；或保留但注明“测试观察用”并在应用架构测试里加“产品代码不引用 `@notnotype/nb-host/testing`”一条（nb-models 的 boundary.test.ts 已有同类规则可照抄）。
+
+### 4. “只有 nb-file-lock 直接用 proper-lockfile”只查了 package.json 声明，没查源码导入；提升后的副本对全工作区可解析
+- **严重程度**：建议；**类别**：不变量
+- **位置**：scripts/ci/validate-proper-lockfile-patch.ts:33-41；packages/neuro-book/src/architecture.test.ts 的 `PLATFORM_ALLOWED_PACKAGES`（只管 `plugin-platform/`）
+- **现象**：新规则只拦“别的成员在依赖字段里声明 proper-lockfile”。但 proper-lockfile 装在根 `node_modules/`，从应用目录 `Bun.resolveSync("proper-lockfile", packages/neuro-book)` 直接解析成功；应用 `src/` 里除 plugin-platform 之外任何文件写 `import {lock} from "proper-lockfile"` 都不会被脚本或架构测试拦下（nb-host、nb-models 的边界测试也没列它）。
+- **为什么是问题**：nb-file-lock 的注释与 package.json 描述把“锁的过期与退避参数只在这里一处”当作不变量（index.ts:35-37 的 `LOCK_STALE_MS` 注释“所有共用这把锁的进程必须一致”）。补丁按“包名@版本”生效这一层确实保住了，但“锁参数只此一份”只靠声明规则保不住：绕过 nb-file-lock 直接 `lock(path, {stale: 5000})` 的新代码会和其它进程互判过期。
+- **如何核实**：`cd packages/neuro-book && bun -e 'console.log(Bun.resolveSync("proper-lockfile", process.cwd()))'` 输出根 node_modules 的路径；`grep -n proper-lockfile packages/neuro-book/src/architecture.test.ts` 只命中 plugin-platform 的反例。
+- **建议改法**：在应用架构测试（以及 nb-host、nb-models 的边界测试）加一条“非 nb-file-lock 的源码不导入 `proper-lockfile`”，或在补丁校验脚本里扫各成员源码的导入说明符；规则配一个反例。
+
+### 5. 诊断插件 id 在包里写了两份，宿主已经握有插件对象却不用它的 id
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：packages/nb-host/src/server/start.ts:42-43、320；packages/nb-host/src/server/diagnostics/plugin.ts:16-17
+- **现象**：`DIAGNOSTICS_PLUGIN_ID = "runtime.diagnostics"` 在 start.ts 与 diagnostics/plugin.ts 各定义一次。start.ts:320 `required.add(DIAGNOSTICS_PLUGIN_ID)` 本可以写 `required.add(hostPlugins.diagnostics.id)`（与 :321 用 `options.http.id` 对称），`assertHostPlugins` 也已经按 `expected.id` 找。
+- **为什么是问题**：两份字面量各自维护；diagnostics/plugin.ts 里那份才是与内核形状核对的那份，start.ts 那份若有一天不同步，“诊断插件总是必需”会静默落到一个不存在的 id 上（内核对未知的 required id 怎样处理不在本次范围，未验证）。
+- **如何核实**：`grep -n "runtime.diagnostics" packages/nb-host/src/server/*.ts packages/nb-host/src/server/diagnostics/*.ts`。
+- **建议改法**：删去 start.ts 的常量，用 `hostPlugins.diagnostics.id`；diagnostics/plugin.ts 的常量保留为唯一来源。
+
+## base（4044fc4d7）上就有、不算本次回归
+
+- **扩展 `attach` 抛错时运行实例已建、无人收口**：nb-host start.ts:393 在 `startServerHost` 之后同步调各扩展 `attach`；应用的 attach 里 `createProjectManager` 抛错时，`startHostServer` 直接抛出，运行实例在跑、RPC 在听、认领不放、无致命诊断。base start.ts:382-398 的 `createProjectManager` 处在同一位置，后果相同。抽成扩展钩子后包可以在这里统一兜住（捕获后写 `runtime.startup.failed`、`host.requestStop`），顺手改代价很小。
+- **RPC 升级不核 `Host`**：rpc-listener.ts 只核 `Origin`，靠“浏览器发起的 WebSocket 握手总带 Origin”这一条挡 DNS 重绑定，与 base 相同，注释写明了理由，不改。
+
+## 未发现问题的方面
+
+- 停止序列：`claim.stopping()` → 各扩展 `stopping`（应用里开发任务先 abort、项目管理器再停接纳）→ `admission.drain()` 与 `router.stopAdmission()`，都在 `beforeStop` 的同一个同步段，与 base 的先后一致；排空与扩展失败计为“停止步骤失败：排空”、退出码 1；`router.close()`、`rpc.stop()`、`store.flush()`、最后 `claim.release()` 的顺序与 base 逐行相同。
+- 启动序列：回环与来源核对在任何监听之前（且 `listenWithShift`、`probePort`、`freeGroupOffset`、`startRpcListener` 各自再核一次）；`onRpcListening` 先于插件装配；`assertHostPlugins` 按 id 加入口身份核对，测试有“漏掉”“换掉入口”两种反例；扩展 `ready` 在 `admission.ready()` 与 `publish` 之后、停止已开始时不调。
+- 安全不变量：HTTP 写请求与 RPC 升级共用同一个 `allowOrigin` 闭包；分发层 `Host` 判断改用 `LOOPBACK_URL_HOSTS`，集合内容与 base 相同；421、403、503 的码与文字逐字不变（产品名经 `NEUROBOOK_PROFILE.productName` = "NeuroBook" 传入）；`NBOOK_HOST`、`NBOOK_ALLOWED_ORIGINS` 的错误码与消息经 `hostConfig` 映射后与 base 逐字相同。
+- 认领：应答 schema（基础字段 + 可为 null 的 `plugins`）、套接字名前缀 `nbook`、文件名、上限与超时、`development` 不报 url、放下时的身份核对与 base 相同；`queryNeuroBook` 用产品档案校验，`version` 不进 schema。
+- nb-file-lock：`replaceLocked`、`holdLock` 与 base 逐行相同（相似度 89%，差异只有导出与注释）；`lockHeld` 的参数 `{realpath: false, lockfilePath, stale: LOCK_STALE_MS}` 与 base startup.ts 原调用逐字相同；工作区只有 nb-file-lock 声明并导入 proper-lockfile，补丁校验脚本在 HEAD 上通过。
+- nb-models：`mutate` 的层状态映射（ok / invalid→layer-invalid / unavailable 与 absent→unavailable）、`conflict` 后 `changeOf` + `CATCH_UP_MS` 重试、`WRITE_ATTEMPTS`、`invalid-value` 与其它码的转发与 base 逐条相同；`chooseModel` 与 base 的六步顺序相同；配置形状与 base settings.ts 逐字相同。适配器 `onChange` 只转 providers/roles/compaction 三个键，与 base 的作废条件相同。真实设置场地上核实：带旧 `expect` 的写入得 `conflict` 时变化尚未送出，之后订阅能收到（/tmp/review-w43t02-impl/scratch/conflict-order.test.ts），核心的 `changeOf` 不会白等。存储合同的变异检查：内存实现去掉自己写入的通知、改成按引用比较 `expect`、写入后不更新视图，三种各有用例失败。
+- 与应用无关：三个包的非测试源码里没有应用名、不导入应用包（`grep -rniE "nbook|neuro-?book|NBOOK_"` 只命中 neuro-book-test-support 这个非应用包）。
+- 验证：nb-models 34 条、nb-file-lock 5 条、nb-host server/http/架构 77 条、应用 settings-store.test.ts 6 条通过；三个包 `bun run typecheck` 退出码 0。
+
+## 数量
+
+阻断 0；重要 2（第 1、2 条）；建议 3（第 3、4、5 条）。
+
+有效发现：1, 2, 3, 4, 5

@@ -15,7 +15,7 @@ import {constants} from "node:fs";
 import {copyFile, lstat, mkdir, readdir, realpath} from "node:fs/promises";
 import {dirname, join, sep} from "node:path";
 
-import {errno} from "nbook/backend/locked-replace";
+import {errno} from "@notnotype/nb-file-lock";
 
 import {brief} from "./record";
 

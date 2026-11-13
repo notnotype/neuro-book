@@ -99,7 +99,7 @@
 - 样本：星瑕样本的 JSON 与转换从 `packages/nb-canon/tests/sample/` 挪到 nb-canon 的子路径 `@notnotype/nb-canon/sample`（不进主入口；S0 先对 `packages/AGENTS.md` 与 `docs/modules/monorepo-boundaries.md` 核对子路径与发布内容的约定，不合就改放 `packages/neuro-book/scripts/` 下、nb-canon 的测试经相对路径读同一份 JSON）。
 - `packages/neuro-book/scripts/canon-sample.ts`：经真实的 `WorldService` 把样本发布到一个目录，生成一部完整的作品（活页夹三章正文加世界日志），开发与 e2e 共用；e2e 的接法照 `e2e/fixtures.ts` 与 `e2e/support/` 的现有做法。
 - 组件测试（`*.dom.test.ts`，Vitest 在 Node 里）：用“技术选型”里那个 Node 侧的场地起真实的世界服务与真实的 `createCanonClient`，界面的读取层接在它上面。resync、ended、独占这些路径由场地真实触发。场地与 canon 的 `bun test` 场地各跑同一组契约用例（订阅、独占、断开后的失败码）。
-- Lab 场景：`scripts/canon-sample.ts` 另出一份“读取结果的录像”（每个场景要的那几次读取的输入与输出），场景用一个只回放的客户端。录像是生成物，入库前由一条测试核对“重新生成后与入库的一致”，世界合同变了它会失败。
+- Lab 场景：组件都是受控的领域视图，场景用手写的 props，不用读取录像（2026-11-11 改，见“S4 的细计划”）。
 
 ### 三、读取层（`plugins/canon/web/world.ts`）
 
@@ -142,9 +142,132 @@
 - 失败的呈现：各失败码有固定的写法（`author-ui.md` 的失败表与输出 29），不把码给作者看。
 - 三个视图的声明写 `order`（设定 10，排在文件资源管理器之后；不写会按 id 排到它前面）、图标与标题。
 
+#### S3 的细计划（2026-11-10，开工前补）
+
+- **nb-ui `Tree`**（`packages/nb-ui/src/components/navigation/Tree.{vue,md}`）：节点加 `muted?: boolean`（标题用次级色）；加插槽 `suffix`（`{node}`，标题后面的一小段说明，例如“未出场”）；每行带 `data-tree-id`，包一层右键菜单的调用方据此知道右键的是哪一行。都是通用的，不带条目语义。Lab 场景补一个带后缀与次级色的；`Tree` 的 `.dom.test.ts` 补三条。
+- **界面文字**：canon 插件加 `locales/{zh-CN,en-US}.json` 与 `web/text.ts`（照 `explorer/web/text.ts`），在 `web/plugins.ts` 的 `builtinPluginCatalogs` 登记。
+- **`EntryTree`**（`plugins/canon/web/components/EntryTree.{vue,md}`，领域视图、受控）：props 是按父条目分好的各层（`{items, remaining, loading}`）、展开的 id、选中的 id；根下按分组插一层分组节点（分组节点的 id 带前缀，不可打开）；未出场的 `muted` 加后缀“未出场”，已删除的加“已删除”；一层有剩余时末尾一行“再显示（还有 N 项）”。emits：`open(id)`、`update:expanded`、`more(parent)`、`menu(id | null, event)`。不发请求。Lab 场景用手写的各层数据（它不读世界，不需要录像）。
+- **视图宿主**（`plugins/canon/web/entries-view.ts`，渲染函数写，同 `explorer/web/view-host.ts`）：用读取层的 `list("tree", {parent, position: 缺省位置})` 读根与每个展开的父条目；展开时才读那一层；`more` 调列表的 `more()`；树跟着世界变由读取层保证，展开状态在宿主里（视图实例的寿命），选中项跟着活动的条目页（S4 之前没有条目页，选中项是最后点过的那个，不在了就清掉）。没有绑定项目时只显示一句“打开作品后可用”。打开条目经命令 `nbook.canon.open-entry`；宿主收一个 `execute(id, args)` 端口。
+- **缺省位置**：最新一章末尾；没有章时是初值（`author-ui.md` 输出 7 的“缺省位置”）。宿主读 `chapters` 得到。
+- **入口**：canon 的浏览器入口改成 `onStartup`，在激活时建本窗口的那份读取层（用入口自己的远程访问），交视图 `nbook.canon.entries`（侧栏、`order: 10`、图标 `i-lucide-book`）与命令 `nbook.canon.open-entry`（执行编辑器的 `nbook.editor.openPage`，页面 `nbook.canon.entry`，参数是条目 id）。条目页在 S4 才登记，S3 之间打开得到编辑器的“这个页面已经不在了”。
+- **测试**：`EntryTree.dom.test.ts`（纯组件）；`entries-view.dom.test.ts` 接进程内的真实世界：分组与次级色、展开时才读、“再显示”、别处发布后展开状态保留且内容更新、点了执行打开命令。
+
+#### S4 的细计划（2026-11-11，开工前补）
+
+S4 只做读：页头、位置、分页、文字、来历、通用字段表、人物、面板、情节、贡献点、量读取。“改”按钮、确认条、记一笔的输入都在 S5；S4 的界面不画写入入口。
+
+- **组件按“受控领域视图”拆**（同 `EntryTree`：数据由宿主给，只把点击翻成事件，Lab 场景用手写数据）。原计划“Lab 场景用读取录像回放”改为不用：受控组件不读世界，手写的 props 就是场景；录像只在要在 Lab 里跑读取层时才需要，第一批没有这样的组件。宿主 `.ts` 不引 nb-ui（应用 tsc 没有 DOM 类型），所以页面骨架也是一个 `.vue`：
+  - `EntryPage.vue`：页头（名字、简介、“是谁：某某”、位置选择、“按计划”开关）、未出场一行、“原来选的那一章已经不在了”、断开横幅、分页条，分页内容是默认插槽；状态 `loading | missing | deleted | normal`。
+  - `EntryText.vue`：给作者的渲染（`AuthorBlock[]`）。块是 mdast；条目 MDX 允许 CommonMark 加方言，自己写一个小的递归渲染（段落、标题、列表、引用、强调、行内代码、代码块、链接显示文字、分隔线、换行；别的节点显示它的纯文本），canon 节点：值是按钮（读屏名“显示名：值”），后面是“改过”标记；未知、不完整照输出 10；`canonRef` 是到条目页的链接；出错的块显示纯文本与原因。展开的来历是插槽，紧跟所在块之后。不复用 nb-markdown 的展示器：它收原文、自己解析，接不进已经算好值的语法树。
+  - `OriginList.vue`：来历的一页（`origins` 的 `items` 加 `initial`），从新到旧、初值最后；“再显示更早的（还有 N 步）”；估计的依据警告色带“估计”；变更给出的步行尾“改这一笔”；读取失败写原因与“重试”。条目页的文字分页、通用字段表、人物与面板的流水共用。
+  - `FieldTable.vue`：通用字段表（输出 12），列表字段一行一个元素；值可点，展开的来历是插槽。
+  - `PersonView.vue`、`PanelView.vue`：canon 给 `nbook.canon.person`、`nbook.canon.panel` 交的数据分页界面，收 `{context}`（下面的贡献点）；人物复用 `FieldTable` 再加语义档的起点与之后各句；面板是值卡加流水（来历），390 像素宽上下排。
+  - `PlotList.vue`：情节分页（输出 15）。
+- **“改过”与位置的写法**：`web/positions.ts` 一组纯函数：章表 → 位置选项；读取位置 ↔ 选项值；安放（`Placement`）→“第 N 章”“前史”；`changedAt` → 标记文字。测试用纯单元测试。
+- **贡献点 `canon.component-views`**：点与声明的 schema 在 `shared/component-views.ts`（`implementation: "required"`、`idPrefix: "plugin"`、只收浏览器入口，照 `editor/shared/contracts.ts` 的 `editor.pages`）；实现与 `ComponentViewContext` 的类型在 `web/component-views.ts`（要 Vue 的类型），注册表照 `editor/web/pages.ts`：每次经句柄取实现，句柄撤回后换成通用字段表，换了句柄重新加载。`context` 在 Spec 的形状上补两项（回 S0 改 `author-ui.md` 的输入一节）：`state`（这个分页在标签上的状态，例如面板选中的值卡，切走再回来还在；输出 7 要求它随标签，而界面组件随标签卸载）与 `blocked`（写入入口不可用时的原因，输出 28；没有为 null）。S4 里 `edit`、`record` 先交“写入不可用”（与 `blocked` 同一条路径），S5 换成真的。
+- **页面 `nbook.canon.entry`**（`web/entry-page.ts`）：编辑器页面贡献，`instances: true`、`restore: true`，声明标题是约定键（“条目”）。
+  - `initialState(arg)`：`{position: null, planned: false, tab: null, origin: null, views: {}}`。`position: null` 表示缺省位置，跟着章表走；选过的章被删掉时回到 null 并记一句提示（输出 7）。
+  - 读取（都经读取层、组件挂载时才建、卸载时释放）：`entry`（带 `withChangedAt`）、`chapters`、`components`（分页名的最后一档）；当前分页是文字时 `render`；展开一个值时 `list("origins", …, 20)`；当前分页是情节时 `list("changes", {filter: {entry, before: {position, mode}, order: "desc"}}, 50)`。不在前台的分页不读。
+  - `title(arg)`、`breadcrumbs(arg)`：读本模块的一张响应式表“各条目最近读到的页头”（名字、分组、上级链），由挂着的条目页写入。所以标题与面包屑不另发请求；不在前台的标签用编辑器记着的标题（editor.md 输出 33 已经这样处理）。面包屑：“设定”执行 `nbook.view.open`（视图 `nbook.canon.entries`），上级执行 `nbook.canon.open-entry`，分组与名字不带命令。
+  - 选中项：条目树的选中跟着活动的条目页（宿主订阅编辑器的活动标签；拿不到这个信号就保留 S3 的“最后点过的那个”，记为已知限制）。
+- **测试**：
+  - 组件：上面每个 `.vue` 一份 `*.dom.test.ts`（手写数据），配同名 `.md`、Lab 场景（含 390 像素宽、加载、找不到、已删除、未出场）。
+  - `entry-page.dom.test.ts`：接进程内的真实世界（`canonNodeWorld`），测试里经真实服务发布人物、面板与几笔记账（不等样本）：打开后名字、简介、标题、面包屑；换位置后文字与值卡跟着变；点值才读来历、先 20 步、“再显示”；状态在卸载再挂载后还在、两个条目各有各的；找不到、已删除、未出场；情节从新到旧、总条数；别处发布后原地更新、不出加载占位；断开横幅。
+  - `component-views.dom.test.ts`：照 `editor/web/pages.dom.test.ts` 用真实的贡献接收：有界面用它、撤回后换成通用字段表、再交付换回、加载失败回退并写原因（验收 9）。
+- **量读取**：`entry-page.dom.test.ts` 里用计数包装（同 `entries-view.dom.test.ts`）记下“条目页开着、树展开两层、一次别处发布”引起的读取次数，写进断言的上限并记入 `evidences/`；`scripts/perf/canon-scale.ts` 加“打开热门条目页的一组读取”（`entry` 带 `changedAt`、`render`、`chapters`、`components`、情节第一页、来历第一页），记各自的字节数与耗时。超过单次预算的一半回来改。
+- **审查**：S4 是界面里最大的一片，提交后派一个 Sonnet 做前端实现审查（后台，不阻塞 S5），结论回来单独修。
+
+#### S5 的细计划（2026-11-11，开工前补）
+
+S5 做条目页上的写入：就地改、记一笔、保存后的提示、新建与删除条目、写不了时的呈现与写入失败的呈现。“撤销”（还原）要预览依赖的对话框，与回执页的“还原这次修订”一起放 S6；S5 的提示先只有标题、“看回执”（命令在 S6 登记）与关闭。
+
+- **能不能写**（`web/writable.ts`）：由读取层的 `status`（`state`、`reason`、`exclusive`）与连接（`ended`）算出一句原因或 null，三种页面与 `ComponentViewContext.blocked` 共用（输出 27、28）。独占事件已让读取层重读 `status`，独占结束后自动恢复。
+- **失败的写法**（`web/failures.ts`）：失败码到界面文字的一张表（输出 29 与失败表），写入的各个入口共用；`value-conflict` 带回新值、`accumulated-value` 要展开来历、`unknown-outcome` 给“再查一次”（同一输入、同一请求 id，读取层的 `write` 已按请求 id 查结局）。码不给作者看。
+- **就地改**：
+  - `FieldTable` 每行加“改”按钮（行的 `editable` 与 `editReason`：按计划开着时写“先关掉按计划”；列表、图片、引用这几种字段第一批不就地改，没有按钮）；发 `edit(path)`。人物、面板的界面经 `context.edit(path)` 请条目页打开确认条。
+  - 确认条 `ConfirmBar.vue`（受控）：字段名、按声明的输入控件（数 `NumberInput`、文字 `Textarea`、选项 `Select`、是否 `Switch`）、意图二选一（初值时没有“剧情里变了”，不完整时只有它）、预览的两句（写回哪里、带来的变化）、原因、保存与取消；贴在分页顶上（`sticky`），焦点进输入控件，保存或取消（含 Escape）后焦点回到那个“改”按钮（按 `data-edit` 找）。
+  - 宿主（`EntryPageHost`）：确认条的状态在标签状态里（`state.edit`：路径、填的值、意图、读到的值与版本），切走再回来还在（验收 2）。填了值以后预览（`previewEdit`，输入停 300 毫秒再发，版本变了重取）；写回哪里按 `route` 写：“改初值”、“改第 N 章‘某某’那一笔”（变更的文字经 `object` 读）、“在某位置记一条变更”；带来的变化取预览里修订的 `impact`，写成“多了 N 条待处理”“少了 N 条”“某某跟着变成 X”这几种短句。`accumulated-value` 时写“这个数是几笔累出来的”，展开那个值的来历，保存不可用。保存走 `world.write("editInPlace", …)`；成功后关掉确认条、给提示。打开期间世界版本变了：值没变就重取预览；变了就按 `value-conflict` 写“这个值刚刚变了”并换上新值。
+- **记一笔**：`PanelView` 的 `record` 插槽放 `RecordForm.vue`（受控：精确档是变化量加一句话，语义档只有一句话；不可用时写原因：初值时“先选一章”、按计划时“先关掉按计划”、`blocked`）。`context.record` 由宿主实现：精确档走 `recordDelta`，语义档走 `recordNote`；成功后输入清空，失败时原因写在输入下面。填了一半的输入在 `context.state` 里。
+- **保存后的提示** `NoticeBar.vue`：本窗口每次发布成功给一条，标题、“看回执”、关闭（“撤销”S6 加）。条目页挂着时显示在页面顶上；不在条目页的写入（S6 起才有）走工作台通知。提示由本窗口的一份“最近一次提示”持有（插件入口里），切到另一个条目页时跟过去。
+- **新建条目**：命令 `nbook.canon.new-entry {parent?}`、设定视图标题栏的“新建条目”、条目树的右键菜单“在它下面新建”（`EntryTree` 加 `menu` 事件与 `ContextMenu`），打开 `NewEntryDialog.vue`：名字、种类（已读到的条目用过的种类与两个内置类型的名字里选，也可以新写）、分组（缺省同种类）、放在谁下面、启用哪些数据（`components` 读到的类型）、是谁的另一个身份、从哪里出场（缺省一开始就在，否则选一章的开头）。确认后 `publish` 一个新条目（顺序排在同层最后：同层已读到的最大 `order` 加 1），成功后打开它的条目页、给提示。
+- **删除条目**：条目页页头加“更多”（`DropdownMenu`）里的“删除条目”，确认对话框（`AlertDialog`）写 Spec 的那句；确认后读出存下的条目、`publish` 带 `deleted: true` 的版本；`not-deletable` 时对话框里写服务给的原因。
+- **测试**：组件各一份 `*.dom.test.ts`（`ConfirmBar`、`RecordForm`、`NoticeBar`、`NewEntryDialog`、`FieldTable` 的“改”）配文档与 Lab 场景；`entry-page.dom.test.ts` 接真实世界加：改只在初值设过的字段（预览“改初值”、保存后值变了、有提示、焦点回到“改”）；累出来的数；按计划时“改”不可用；确认条开着时别处改了这个值（“这个值刚刚变了”）；记一笔精确档与语义档；别的窗口独占时写入入口不可用并写出它给的那句、释放后恢复；切走再回来确认条与填的值还在；新建（经设定视图）与删除。
+
+#### S6 的细计划（2026-11-11，开工前补）
+
+S6 做回执页、变更详情页与还原，并把 S5 留下的“撤销”、不在条目页时的工作台通知补上。
+
+- **页面**（同条目页的做法：`web/receipt-page.ts`、`web/change-page.ts` 各一个编辑器页面贡献，`instances`、`restore`；宿主 `.vue` 标 `io:read`，骨架受控、配 Lab）：
+  - 回执页 `nbook.canon.receipt`（参数是修订 id）：读 `revision`（输出 20）。“改了什么”按对象分节（新建、修改、删除；修改的列出每个字段的显示名与改前改后，显示名经条目的 `declarations` 取），章序调整只有一节；“带来的变化”是修订存下的 `impact`。条目、剧情变更名字是链接。页头“还原这次修订”（`revertable` 不行时按钮旁写原因）；它本身是一次还原时写明还原的是哪一次并链接过去。面包屑“设定 › 改动记录 › 标题”，“改动记录”执行 `nbook.view.open`（视图在 S7 登记，之前执行失败）。
+  - 变更详情页 `nbook.canon.change`（参数是剧情变更 id）：读 `object`（输出 21）。文字、安放、已写还是计划、生效状态、原句（出处是章节正文的“打开这一章”经编辑器的打开文件命令）、涉及的条目、每一处改动。数的改动旁“改”：页面顶上同 `ConfirmBar` 的确认条（没有意图），保存是对这条变更的普通写入（读出、换掉那一处的值、`preview` 再 `publish`，`baseVersion` 用读出时的版本，被别处改过时得到 `version-conflict`）。待定时页头写原因与“改成生效”（同样先预览再发布，校验不过写第一条原因）。
+  - 命令 `nbook.canon.open-receipt {revision}`、`nbook.canon.open-change {id}`（S4、S5 已在调用）。
+- **还原**（输出 22）：`RevertDialog.vue`（受控）与 `web/revert.ts`：点了先 `preview` 还原请求；没有依赖时写带来的变化与“还原”；有依赖（`has-dependents`）时从新到旧列出依赖的修订（标题，经 `revision` 读），给“连同这些一起还原”与“取消”；`not-revertable`、`author-source-required` 时只写原因、没有确认。确认后 `revert`；结果回来之前对话框不关、按钮不可用，失败时原因写在对话框里，成功后关掉并给提示。回执页的“还原这次修订”与提示里的“撤销”共用这一个。还原的对话框放在窗口里一份（入口里），哪里打开都一样。
+- **提示**（输出 18 的后一半）：`NoticeBar` 加“撤销”。前台不是三种页面时走工作台通知：本入口依赖 `notificationsKey`（可选）与编辑器的活动标签（取不到时一律走页面顶上的那一条）。工作台通知只有一个动作按钮（`NotificationInput.action`），放“看回执”，“撤销”从回执页做；这与 Spec 的“看回执”“撤销”都是它的动作不符，记进待确认（要两个动作得改 `workbench.notifications`）。
+- **测试**：回执页、变更详情页接真实世界（改一笔后回执列出改前改后；变更详情里改那一处的值、改成生效、读出后别处改过得到“这个对象刚被改过”）；还原（没有依赖、有依赖连同一起、不能还原只写原因；验收 6、12 的界面部分）；组件测试、文档与 Lab。
+- **实施时定下的**（2026-11-11）：还原的对话框交给工作台的页面浮层（`workbench.overlays`，id `nbook.canon.revert`），第一次有人要还原时才挂上；“前台是三种页面之一”按“有这样的页面挂着”判断（编辑器不公开活动标签是哪个页面），记进待确认清单；“打开这一章”经文件服务列活页夹目录按编号找章节文件，入口对文件服务的依赖可选；三种页面顶上补世界只读的横幅（输出 28，S5 漏了）。
+
+#### S7 的细计划（2026-11-13，开工前补）
+
+S7 做底部面板的“待处理”“改动记录”两个视图（输出 23、24）、状态栏的“待处理 N”与公开状态（输出 25）、`nbook.canon.show-pending`，以及待处理视图里的“强行解除”。
+
+开工前查到的现状（2026-11-13）：
+
+- w00026 t24 的第一步（侧栏的视图容器）已合进 master（`f8cd67902`）；第二步（右栏、底部面板的入口条）还没设计。t25 在改动画，不碰视图的声明。
+- “不让所在区域默认显示”的声明已经有了：视图声明的 `revealRegion: false`（`workbench.views` 输出 18），后台任务与通知就是这样声明的。输出 33 的前提已满足，不用等第二步。
+- 第二步之前，底部面板一次只显示一个容器，没有切换的入口：后台任务、通知各是一个隐式容器，经状态栏条目与铃铛打开。
+- 停放的视图不卸载，`ViewContext.visible` 为假（停放、收起、加载中都不算可见）。S3 的设定视图不看它，所以侧栏切到别的容器以后，设定树每次发布仍在重读。
+- 本分支落后 master 262 个提交，试合有 4 处冲突：`architecture.test.ts`、命令登记 `commands/shared/registry.ts`、工作台的 `shared/contracts.ts`、`scripts/ci/message-catalogs.ts`。
+- `pending` 的一页不带插件诊断的显示名。发现只有诊断 id、键与参数，没算出、被截断、停用的诊断也只有 id。浏览器入口拿不到别的插件的诊断声明（声明在剧情插件的描述符里，项目入口才接收）。
+
+做法：
+
+- **S7a 合进 master**：在 worktree 里 `git merge master`，解 4 处冲突后先 `bun install`（如果 master 加了包），再跑 `test:affected --typecheck` 与 e2e `editor-area`、`welcome`。
+- **S7b 登记、状态栏与可见**：
+  - 两个视图：`location: "panel"`、`layout: "fill"`、`revealRegion: false`，`order` 照 Spec，都不写容器（各是一个隐式容器，第二步以后各是底部面板的一个入口）。先交空的宿主，跑外壳的 e2e，确认布局与基线。
+  - 公开状态 `definePublicState("nbook.canon", {hasPending})`，照 `tasks/web/plugin.ts` 的写法。状态栏条目 `nbook.canon.pending-count`：左侧，`state: "warning"`，`when` 要 `hasPending`，点了执行 `show-pending`。
+  - 条数：`world.list("pending", {group: "pending"}, 1)` 的 `counts.pending`，不传位置与模式，用内核的缺省；待处理视图同样不传，所以两处的数一样。窗口绑定了项目就在启动时建读取层。原来要等视图、页面或对话框第一次挂上才建，现在状态栏一开始就要用。
+  - `show-pending`：`nbook.view.open {viewId: pending}`，再把视图的选中放回“待处理”的第一条。
+  - `show-revisions`：`nbook.view.open {viewId: revisions}`。开发者 2026-11-13 定两个视图分开放（“可以 A”）；底部面板的入口条做好之前，改动记录经它、回执页的面包屑与“打开视图”到达，命令面板里能直接搜到。命令的声明照 `show-pending`（`effect: write`，不对 Agent 开放）。
+  - 可见：`use-reads.ts` 加 `useWorldList(world, method, input)`，`input` 返回 null 时释放，同 `useWorldReads`。三个视图的宿主在 `visible` 为假时传 null：不可见就不重读，回来时先显示留着的旧数据，同时重读（输出 26）。设定视图一起改。
+- **S7c 改动记录视图**：
+  - `web/revisions.ts`（纯函数）：一行写标题、谁（`actorText`）、什么时候（`timeText`）、带来的变化的一句摘要（`impact.ts` 新加 `impactSummary`：几处值变了、多了或少了几条待处理、几条套不上了，都没有时写“没有带来别的变化”）。还原按钮旁的原因同回执页：`not-revertable` 写原因、按钮不可用；`has-dependents` 写“后面有 N 次改动依赖它”、按钮照常（对话框里列出依赖）。
+  - `RevisionsView.vue`（受控骨架）与 `RevisionsViewHost.vue`：“看回执”执行 `open-receipt`；“还原”经 S6 的 `createRevertRequests()` 打开对话框。没有页面挂着时，还原后的提示走工作台通知（S6 已有），验收 12 在这里补上组件测试。
+  - 筛选：两个 nb-ui `Select`，章（“全部章”加章表里的每一章）、写入者（全部、作者、Agent、任务、系统），传给 `revisions` 的 `filter`。筛选放在窗口里一份的视图状态上（同 `entriesViewState`），停放、卸载后都还在。
+  - 再显示更多：`world.list` 已经按已读的条数重读，行的 key 是修订 id，滚动位置不动。
+  - 键盘：`web/roving.ts`，照设置窗口左栏与 `ProviderRail` 的写法。上下、Home、End 在行之间移，只有焦点所在那行的按钮在 Tab 序列里。nb-ui 没有列表框，这两个视图先在 canon 里用，第三处要用时再挪进 nb-ui。
+- **S7d 内核补一项，再做待处理视图**：
+  - K-e：`PendingPage` 加 `labels: Record<诊断 id, 显示名>`，内容是这一页的发现、没算出、截断、停用里提到的诊断的声明 `label`；声明已经不在的不写。改在 `nb-canon/src/service/service.ts` 组页的地方，`service.test.ts` 加一条，`project.md` 方法表 `pending` 那一行加一句。界面写插件诊断时用这个名字，没有时写“插件的一项检查”。
+  - `web/pending.ts`（纯函数）：
+    - `pendingKey(item)`：选中与“消失了选下一条”都用它。只取能认出同一条的部分，例如核对点的 id、待定变更的 id、根因修订的 id、诊断 id 加键的规范 JSON，不含会随值变的“算出来的数”。
+    - `pendingRefs(item)`：一行要另读的对象。
+    - `pendingRow(item, lookups, text)`：一句是什么与它的位置。
+    - `pendingDetail(item, lookups, text)`：按种类给详情。
+    - 种类与文字都写成 `text()` 的键，每种一句。内核的待处理、提示两组共十几种，插件的发现写它的显示名。
+  - `web/object-heads.ts`：`useObjectHeads(world, refs)` 按引用读 `object`（变更、核对点、决策），一页最多 `NAMED_ENTRIES_MAX` 个，同 `entry-heads.ts`。行的位置取变更的安放或核对点的安放；超出上限的行只写种类，不写位置与名字。
+  - 详情（输出 23）：
+    - 核对点不符：原句与“打开这一章”（S6 的打开章节），算出来的数与正文写的数，嫌疑的每一笔。内核已经按估计在前排好；`init` 一项是“初值”，链到条目页，其余的“改这一笔”执行 `open-change`。
+    - 待定：原句与原因，链到详情页。
+    - 套不上：根因那条变更与原因。原因经 `changes {filter: {range: {through: 根因}, order: "desc"}, limit: 1}` 取那条的结局。
+    - 别的种类：一句说明与它指向的对象的链接；已处理的另读那条决策，写它的结论。
+  - 列表：三组，每组一个展开按钮（组名与条数，条数来自 `counts`），下面是这一组的行。只读展开着的组，“只是提示”“已处理”默认收起。键盘用 `roving.ts`，选中跟着焦点走，移到哪条详情就显示哪条。
+  - 选中：放在窗口里一份的视图状态上。第一次打开选“待处理”的第一条；选中的那条重读后不在了，选它原来位置上的那一条，没有就不选。
+  - 不完整（输出 23）：列表顶上写哪些检查没算出来、被截断、因插件停用没算，名字用 `labels`。
+  - 独占：列表顶上写谁在写（同 `writable.ts` 的 `blocked.busy`），带“强行解除”。`BreakExclusiveDialog.vue` 受控，写明强行解除以后它的下一次写入会失败；结果回来之前不关、按钮不可用，失败的原因写在对话框里（同输出 22）。`world.ts` 加 `breakExclusive()`，不进读取缓存，`status` 跟着 `exclusive` 事件重读。
+  - 宽度：视图用容器查询，宽 640 像素以上列表与详情并排，以下上下排。
+- **测试**（接真实世界，`testing/world-fixtures.ts`）：
+  - 待处理：核对点不符的一行与详情（原句、两个数、估计的在前、“改这一笔”）；把那一笔改对之后这一条消失、条数与状态栏一起变（验收 5 的界面部分）；三组的收起与条数；选中的那条消失后选下一条；上下键移动时详情跟着换；不完整的提示；另一个调用方独占时写出是谁、强行解除后恢复，失败时对话框不关。
+  - 改动记录：从新到旧、四项都写出；“看回执”；还原删除后条目回到树里（验收 10 的后一半）；没有页面挂着时还原得到工作台通知（验收 12）；`not-revertable` 写原因；按章、按写入者筛；读了两页以后别处发布一次，仍是两页加新的那条。
+  - 状态栏与公开状态：有待处理时显示“待处理 N”，处理掉以后消失；窗口没有项目时不显示；`show-pending` 打开视图并选中第一条。
+  - 可见：视图停放期间别处发布不重读，回来以后内容更新。用 S4 量读取次数的办法数。
+  - 组件测试、同名 `.md`、Lab 场景各一份：`PendingView`、`PendingDetail`、`RevisionsView`、`BreakExclusiveDialog`。
+  - 样本：先确认星瑕样本里有一条核对点不符（验收 5 要它），没有就在生成脚本里改。
+- **e2e 与真实浏览器**：外壳 e2e 跑 `workbench-views`、`workbench-shell`、`workbench-containers`、`background-tasks`、`plugins`（`plugins:78` 在 master 上就失败）。在生成的星瑕项目上走一遍：状态栏“待处理 1”→ 待处理 → 改这一笔 → 保存 → 条目消失；回执页的面包屑“改动记录”→ 改动记录 → 还原；390 像素宽各看一次。
+- **Spec**（主工作区，`author-ui.md` 仍是 planned，2026-11-13 已改）：输入表两个视图写明 `revealRegion: false`、不写容器；命令表加 `show-revisions`，`show-pending` 写明选回第一条；输出 33 改写为经 `workbench.views` 输出 18 的声明，并写明入口条做好之前从哪里到达；输出 23 加插件的诊断写它声明的显示名；`project.md` 的 `pending` 一行加显示名。
+- **待确认清单**：K-e 是第九项内核补口（2026-11-10 定的是八项）；`show-pending` 每次都选回第一条；超出 50 个对象的行只写种类。
+
 ### 五、底部面板默认隐藏
 
-待处理、改动记录两个视图不写容器，各自是底部面板里的一个入口。“默认隐藏”的声明由 w00026 t24 加；它提供之前底部面板按现行规则默认显示，S7 的外壳 e2e 基线按“默认显示”写一遍，声明到位后改声明与基线各一处。
+待处理、改动记录两个视图不写容器，各自是底部面板里的一个隐式容器。“默认隐藏”用视图声明的 `revealRegion: false`（`workbench.views` 输出 18，2026-11-13 查到已在 master）。底部面板的入口条是 w00026 t24 的第二步，做完以后这两个视图各是底部面板的一个入口。
 
 ## Spec 与文档改动（S0，草稿已写，未提交）
 
@@ -171,12 +294,13 @@
 | K-c | K1、K8、K9：预览、语义档的记一笔、重试 | `revisions.test.ts`、`edits.test.ts`；预览与发布一致、同一请求 id 重发的用例 |
 | — | 内核补口的实现审查（Opus），修正 | — |
 | E | 带参数的页面标签（状态容器、按标签的 context、标题与记着的标题、恢复、声明校验、页面的面包屑） | 编辑器的 `bun test` 与 `*.dom.test.ts`、`e2e/editor-area.e2e.ts`、`e2e/welcome.e2e.ts` |
-| S2 | Node 侧的测试场地（先验证走得通）；样本与生成脚本；读取层；入口的 `onStartup` 与命令的域 | `sample.test.ts`、场地的契约用例、读取层的测试（真实服务：失效、合并、写入返回抬版本、留 64 个键、resync、ended） |
-| S3 | 条目树（`EntryTree`） | `*.dom.test.ts`；Lab 场景 |
+| S2 | Node 侧的测试场地（先验证走得通）；样本与生成脚本；读取层（入口的 `onStartup` 与命令的域挪到 S3：第一个视图出现时才有要在启动时交付的东西） | `sample.test.ts`、场地的契约用例、读取层的测试（真实服务：失效、合并、写入返回抬版本、留 64 个键、resync、ended） |
+| S3 | 条目树（`EntryTree`）；入口的 `onStartup`、读取层在入口里的那一份、命令的域 | `*.dom.test.ts`；Lab 场景 |
 | S4 | 条目页（文字、位置、来历、情节）；贡献点、通用字段表、人物与面板两个界面；量读取次数与耗时 | `*.dom.test.ts`；Lab 场景；数字记进 `evidences/` |
 | S5 | 写入：就地改、记一笔、保存后的提示、新建与删除条目、失败的呈现 | `*.dom.test.ts`（真实服务上写入后界面跟着变） |
 | S6 | 回执页、变更详情页 | 同上 |
 | S7 | 底部面板两个视图、状态栏条目 | 同上；外壳 e2e |
+| K-d | 内核读取的性能（S4 的测量发现，2026-11-11 加）：`changes` 按条目建索引、不每次建线表；热门条目的 `entry`（带 `changedAt`）与 `origins` 的时间线扫描。目标是打开热门条目页的每个读取都在单次预算的一半以内 | `canon-scale.ts` 的“打开热门条目页的一组读取”；nb-canon 的差分与合同测试 |
 | S8 | e2e、截图取证、组件文档、实现审查（Sonnet）、逐条核对后晋升 Spec | 见“验证” |
 
 K 三片与 E 互不依赖，可以交替做；S2 起依赖它们。每片先写用例再写实现，验证过后单独提交。
@@ -216,4 +340,4 @@ K 三片与 E 互不依赖，可以交替做；S2 起依赖它们。每片先写
 - **第一批比第一版大了约三分之一**（内核三片十项加页面标签的状态容器与恢复）。K 与 E 先做，做完界面各片才开工；任何一片发现合同还缺东西，回 S0 补 Spec，不在界面里绕。
 - **底部面板第一次有产品视图**，而且赶上视图容器换模型。S7 开头先放一个空视图跑通布局与外壳 e2e；t24 合入的先后会影响 S7 的基线，开工前看它的状态。
 - **原型组件是同步引擎上的。** 搬过来时每个读取都变成异步，加载中与失败两种状态要逐个补。
-- **Lab 的录像会过时。** 由“重新生成后一致”的测试守着；世界合同一变就要重录。
+- **Lab 场景的手写数据会与世界合同脱节。** 场景数据用组件 props 的类型写，世界合同变了由类型检查与宿主的真实服务测试兜底。

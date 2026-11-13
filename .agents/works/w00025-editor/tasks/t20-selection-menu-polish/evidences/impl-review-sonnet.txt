@@ -1,0 +1,73 @@
+实现 worktree HEAD 核对：5cf6164ea（加载的就是被审版本）。实验放在 /tmp/nb-review-w00025/t20-impl1/scratch/（真实 Tiptap，happy-dom，用 scratch/vitest.config.mjs 跑）。
+
+================ 发现 ================
+
+1. 【阻断 / 正确性】whole-ruby.ts:54-55 的 `transaction.mapping.slice(0, i).invert()` 实际反转了整个事务的全部映射，不是前 i 步；含替换步的事务里位置被算错，没有注音的文档里也会抛 RangeError，撤销被卡死
+位置：packages/nb-markdown/src/language/syntax/ruby/whole-ruby.ts:54-55（以及 :21 的 doc.resolve 是抛出点）
+现象：任意文档（不需要有注音）里，输入 `**word**` 触发粗体输入规则后按撤销，`editor.commands.undo()` 抛 `RangeError: Position 18 out of range`，栈顶是 rubyAround（whole-ruby.ts:21）。抛出后历史栈没有变化（`can().undo()` 仍为 true），用户这一步和更早的步都撤销不了：每次 Ctrl+Z 都再抛一次。
+原因：prosemirror-transform 1.12.0 的 `Mapping.slice(from,to)` 只是给同一个 `_maps` 数组加了 from/to 视窗，而 `Mapping.invert()` 走 `appendMappingInverted`（node_modules/prosemirror-transform/dist/index.js:272-285），循环用的是 `mapping.maps.length` 与 `mapping._maps[i]`，忽略 from/to。所以 `slice(0, i).invert()` 对任何 i 都是把整个事务的所有步反转一遍（i=0 时也是）。作者的测试里所有事务都只有标记步（标记步的 StepMap 为空），所以反转多少步都没有区别，问题测不出来。只要事务里在标记步之后还有长度变化的替换步，back 映射就用错了坐标系：
+ - 撤销事务（历史把原事务反过来：先去标记步，再插回被输入规则删掉的 `**`），第一步 RemoveMarkStep 的位置被当成“全部步之后的文档”的坐标反推，超出 transaction.before 的范围，抛 RangeError；
+ - 坐标没超界时不抛，但 left/right 认错注音，补写会盖错地方（静默错）。
+如何核实（真实 Tiptap，无注音）：scratch/e4.dom.test.ts：setContent 一段纯文字 "hello **world*"，光标放段尾，经 `view.someProp("handleTextInput")` 输入 `*`（真实输入规则）得到 "world[bold]"，再 `editor.commands.undo()`：抛 RangeError，栈 `ResolvedPos.resolve → rubyAround (whole-ruby.ts:21)`。含注音的同类实验见 scratch/e2.dom.test.ts 的 S1（同样在 undo 抛出）。命令：`cd <实现 worktree>/packages/nb-markdown && npx vitest run --config /tmp/nb-review-w00025/t20-impl1/scratch/vitest.config.mjs e4`。
+为什么是问题：这是所有 Markdown 稿纸（含 Agent、批注、任何用 nb-markdown 编辑器的地方）里最常用的一条输入路径加撤销，和注音无关，是本次改动引入的回归（base 没有这个插件）。另外，每个带标记步的事务（包括没有注音的文档）都要先走完 `back.mapResult` 与两次 `doc.resolve` 才发现不是注音，所以影响面是整个编辑器。
+建议改法：不用 `slice(0,i).invert()`。可选：(a) 自己在循环里维护“当前步之前的 Mapping”：`const before = new Mapping(); transaction.steps.forEach((step, i) => { ...用 before.invert()...; before.appendMap(transaction.mapping.maps[i]); })`（invert 的是自己建的、长度正好是 i 的 Mapping，同时要保留 mirror 的话改用 `new Mapping(maps.slice(0,i))`）；(b) 更简单：不要逐步映射回 transaction.before，改为只在 `newState.doc`（最终文档）上认注音：标记步不改位置，补写只需要“这一步的 [from,to] 经过之后的步与事务映射到最终文档后落在哪段注音中间”，认注音用最终文档，再处理 addMark 换同类标记时旧注音被切开的情形（见第 3 条，需要想清楚）。(c) 无论哪种，补一条“同一事务里有替换步”的用例：输入规则 `**x**` 后撤销，以及注音中间的输入规则。
+
+2. 【重要 / 测试】whole-ruby.dom.test.ts 的 11 个用例里每个事务都只有标记步，没有一个含替换步，所以第 1 条的缺陷测不出来；计划里点名要查的情形也都没测
+位置：packages/nb-markdown/src/language/syntax/ruby/whole-ruby.dom.test.ts（整个文件）
+现象：用例全部是“选区 → 编辑动作/快捷键 → 看写回”。标记步的 StepMap 是空的，`mapping.slice(0,i).invert()` 对它们怎么错都不影响结果，所以全部通过（我在实现 worktree 跑了这个文件，11 个全过）。没有覆盖：(a) 输入规则 `**x**`（先 delete 后 addMark）及其撤销、重做；(b) 注音中间/边上的输入规则；(c) 同一事务里替换步在标记步之后（撤销事务就是这种）；(d) `transactions` 里不止一个事务（`later` 循环）；(e) `deleted` 分支；(f) `from >= to` 分支；(g) 重做；(h) 去掉注音 `unsetMarkdownRuby`（Spec 输出 26 点名“去掉注音”，只有“新注音”和“行内代码”两条用例间接涉及）。
+变异检查：把 `back` 的定义改成 `new Mapping()`（恒等映射）后，这 11 个用例仍全部通过（按代码推断：标记步映射为空，恒等与反转等价；未实跑这一变异，但第 1 条的真实复现说明了测试对这类错误无感）。
+如何核实：`cd <实现 worktree>/packages/nb-markdown && npx vitest run src/language/syntax/ruby/whole-ruby.dom.test.ts` 通过；再跑 scratch/e4.dom.test.ts 复现第 1 条。
+建议改法：补用例：纯文字文档里 `**word**` 输入规则后 `undo()` 不抛且回到输入前；注音中间的输入规则；撤销、重做各一步；`unsetMarkdownRuby` 盖住一半；用 `editor.view.state.tr` 先 `insertText` 再 `addMark` 一个事务（真实 API 能产生）。这些是测试“行为”，不测实现。
+
+3. 【建议 / 安全与性能】每个标记步都构造一次“前 i 步的反转映射”，整个事务是 O(步数²)；全选加格式时可测到变慢
+位置：whole-ruby.ts:54
+现象：全选后对 N 个段落整体加斜体（每段一个 AddMarkStep，N 步）。scratch/e5.dom.test.ts（真实 Tiptap，机器负载 14，数据有噪声）：N=3000，无插件 1541/1404 ms，有插件 1851/1775 ms；N=6000，无插件 5433/8641 ms，有插件 9357/17406 ms（两次）。把第 1 条的映射改对（每步从 maps 里自己反转前 i 个）后仍是 3307/1989、8855/15404，说明开销来自“每步重建一次反转映射”，不是第 1 条的 bug 带来的。
+为什么是问题：几千段的整章全选格式、清除格式（每个 FORMAT_MARK 一轮，一个事务里步数更多）是真实操作；而这些事务大多不含注音，也不含任何替换步，白付代价。
+建议改法：先判断“这个事务到第 i 步为止是否改变过位置”（`transaction.steps[j].getMap().ranges.length > 0`，或整个事务全是标记步）；没有就 back 是恒等映射，直接用 `step.from/to`，省掉反转；有替换步时再建反转。另一个更省的做法：先 `rubyAround` 判断两端在 `transaction.docs[i]`（该步之前的文档，Transform 自带）里是否都不在注音中间，都不在就直接返回，只对碰到注音的步做昂贵的映射。
+
+4. 【建议 / 正确性】`setMarkdownRuby` 改成直接 `tr.addMark(新注音)` 后，给只有一个旧注音的选区改注音时，原文的写法（`<ruby>字<rt>a</rt></ruby>`）丢了，文件被改写成 `text=` 写法；此外空选区时命令从“可用”变成“不可用”
+位置：packages/nb-markdown/src/language/syntax/ruby/index.ts:73-82
+现象：scratch/e2.dom.test.ts 的 S4：读入 `前<ruby>字<rt>a</rt></ruby>后`，选中“字”，改注音为 b：新命令写回 `前<ruby text="b">字</ruby>后`；原来的 `setMark("markdownRuby",{text:"b"})` 写回 `前<ruby>字<rt>b</rt></ruby>后`（`markdown` 属性被合并保留，`formOf` 认 `rt` 写法）。方言 Spec 输出 12 与文件头写的是“写回保持原来的写法”；用户只是改了一个注音的拼音，整个 `<rt>` 写法的文件被改成别的写法，产生与意图无关的 diff。计划与 Spec 输出 26 都没有提到这个取舍。
+空选区：S4 同文件第二例：`editor.can().setMarkdownRuby("x")` 在光标（空选区）下新实现为 false，旧 `setMark` 为 true（存标记）。`editing-actions.ts` 的 `ruby.enabled` 已经排除空选区，所以界面不受影响，只是命令的合同变了，且 `allowsRuby` 的注释写“同 Tiptap setMark 的判断”并不准确（少了存下的标记与 `$from.depth === 0` 两个分支）。我对照 Tiptap 的 canSetMark：单元格选区、节点选区走 `ranges.some(nodesBetween…)` 分支，与 `allowsRuby` 等价，没有漏。
+建议改法：新注音恰好盖住一段旧注音（范围等于某个旧注音的整段）时沿用它的 `markdown` 属性，其余情形不带；或在 `allowsRuby` 注释里写明与 Tiptap 的差别（不处理空选区）并在 Spec 里记一句“改注音会改写 `<rt>` 写法”。
+
+5. 【建议 / 不变量】源码编辑器底色改成 `--bg-panel` 后，三套暗色配色里当前行高亮和缩进线与底色的对比明显变弱；计划的验证只看了亮色截图
+位置：packages/neuro-book/src/plugins/editor/web/code/monaco-theme.ts:105（底色），:124、:127（`--bg-hover` 当前行、`--border-color`/`--border-strong` 缩进线）
+现象（用配色表算 WCAG 相对亮度对比，python 计算，数值是对比度）：
+ - nbook 夜：当前行/底 1.38 → 1.19；缩进线/底 1.47 → 1.26；活动缩进线 1.92 → 1.65
+ - macOS 暗：当前行/底 1.50 → 1.23；缩进线/底 1.50 → 1.23（且 macos-dark 里 `--bg-hover` 与 `--border-color` 都是 #3a3a3c，缩进线画在当前行上完全看不见，这条原来就有）
+ - 内置 dark：当前行/底 1.37 → 1.18；缩进线 1.70 → 1.46
+ 亮色反而变好：nbook 昼 当前行 1.06 → 1.26，缩进线 1.17 → 1.40；macOS 亮 1.15 → 1.23。
+ 另外语法色里 `--syntax-comment` 在 macOS 亮的 --bg-panel 上是 4.22，没到 4.5（原来 3.96，不是本次回归，且场景 43 只测键、字符串、数字、true 四个）。
+为什么是问题：暗色下底色变亮了一档，高亮层（`--bg-hover`）和线（`--border-*`）是按“比 --bg-main 亮一档”选的，贴在 --bg-panel 上差距缩到约 1.2:1。计划写了“看一张亮色截图里的当前行高亮与缩进线”，没有看暗色；e2e 只断言底色等于 `--bg-panel`。
+另一处合同缝：注释写“自带主题里 `--panel-surface` 就是 `--bg-panel`”。声明式主题（`THEME_ROLE_VARS` 允许改 `--panel-surface`）可以让二者不同，此时 Monaco 又和 Markdown 稿纸不一致。这是作者已经承认的取舍，不算回归，但 Spec（theme/system.md）应写明“以 --bg-panel 为准，主题改了 --panel-surface 不跟”。
+建议改法：暗色下 `editor.lineHighlightBackground` 和缩进线改成在 `--bg-panel` 上推导（例如 `color-mix(in srgb, var(--bg-hover) …)` 或用 `--bg-hover` 再往正文色混一点），并出一张暗色截图；或至少把暗色三套的数值写进 Task 记录，由开发者决定。
+
+6. 【建议 / 文档】文件头注释仍写着旧行为；whole-ruby.ts 里“下一轮不再触发”的机制说法不准确
+位置：ruby/index.ts:3-8；whole-ruby.ts 末尾 `appendTransaction` 里的“补写的两端都在注音的边上，下一轮不再触发”
+现象：ruby/index.ts 文件头：“只盖住一部分时注音在格式的边界处断开成两个同样的注音，读回来仍是一个”。本次之后，加/去格式的入口不再切开注音，只有“带存下的格式打字、往注音中间粘贴”这两个已知限制还会切开；头注释没有同步，读者会以为切开是常态。whole-ruby.ts：ProseMirror 的 `applyTransaction` 把插件自己追加的事务算作它已看过（`seen[i] = {state: newState, n: trs.length}`），插件不会再收到自己追加的事务，不是“下一轮看到但无事可做”。收敛靠的是这个机制而不是两端的位置。注释应写真正的原因，别的插件追加的事务才会走到这里。
+另：RemoveMarkStep 的补写用 `removeMark(from, to, step.mark.type)`（按类型），而原步只去掉某一个具体标记；盖在注音上的批注可以有多条（`excludes: ""`），宿主若用 `tr.removeMark(from,to,某条批注)` 去掉其中一条，扩到整段注音后会把其它批注也去掉。当前产品里没有这样的入口（仓库里 `removeMark` 只有 codec 在独立 Transform 上用，`unsetComment` 本来就是按类型），所以只是潜在问题；改成 `tr.removeMark(from, to, step.mark)` 更忠实于原步，且对 `unsetMark` 产生的步行为不变。
+
+7. 【建议 / 代码质量】`.nb-ui-popover-motion--enter-only[data-state="closed"]` 与 `.nb-ui-popover-motion[data-state="closed"]` 同特异性（0,2,0），靠写在后面取胜
+位置：packages/nb-ui/src/styles.css:465-475
+现象：两条都是 (0,2,0)，不在 @layer 里，现在在同一个文件里相邻，所以成立；任何会重排或拆分这个文件的构建、以及主题包里按同样选择器写的 `.nb-ui-popover-motion[data-state="closed"]` 覆盖（主题 CSS 在库样式之后加载，同特异性就会赢）都会让 SuggestionMenu 重新带上退场动画：Presence 会等 3 秒（e2e 里放慢到 3000ms 的那条正好检查这个，但只在这个构建顺序下）。当前仓库里没有主题这样写（grep popover-motion 只在 nb-ui 内）。
+建议改法：把选择器写成 `.nb-ui-popover-motion.nb-ui-popover-motion--enter-only[data-state="closed"]`（0,3,0），不再靠先后；减少动态效果下 `--motion-fast` 是 0ms，行为不变。
+
+8. 【建议 / 测试】AnchoredPopover 的“退场停在原处”只有 e2e 覆盖，组件测试没有；换锚点、退场期间再开等边界没人测
+位置：packages/nb-ui/src/components/popup/AnchoredPopover.vue:31-51；AnchoredPopover.test.ts 未改
+现象：`kept`/`lastRect`/`positioned` 三者的时序我逐条走了：关上后以别的锚点再开、开着时锚点变 null、Presence 退场期间再次打开，三种情形都因为 `visible` 为真而重新量，没有用到旧矩形；`getBoundingClientRect` 里读 `visible.value`（computed）在 floating-ui 的 rAF 回调里是可靠的（Vue 的 flush 在微任务，先于下一帧）。所以没发现错误。但这段逻辑只有 `markdown-editing.e2e.ts` 的一例间接断言（`at` 不变），happy-dom 里没有动画、Presence 立即卸载，测不了。
+补充观察（不算缺陷）：`kept` 在锚点变 null 后一直持有旧锚点的闭包（编辑器、选区函数），到组件卸载才释放。
+建议改法：可以在 e2e 里再加“退场期间再次选中另一处，菜单在新位置淡入”一例；组件测试无法覆盖时在 .md 里写明由 e2e 保证。
+
+================ 未发现问题的方面 ================
+- AnchoredPopover 的冻结位置时序（见第 8 条）；退场期间内容仍在 DOM 里：MarkdownSelectionMenu 的 `inMenu` 按焦点判断，退场的注音输入框在 `submit`/`cancel` 时焦点已被 `menus.run`/`focus()` 移回编辑器；MarkdownTextPrompt 的 `onFocusOut` 有 `props.open &&` 守卫，退场中的 focusout 不会误发 dismiss。退场的 150 毫秒内旧内容仍可点击、可按键，没有发现因此造成的重复提交。
+- SuggestionMenu 只入场：`data-state=closed` 时 `animation:none`，Presence 读到 none 立即卸载，与改前一致；`prefers-reduced-motion` 下 `--motion-fast` 为 0ms，行为同其它挂 `.nb-ui-popover-motion` 的浮层。
+- `markdown.css` 的 `user-select: none`：只对类 `.nb-markdown .nb-ruby-text`，ProseMirror 自己处理复制（序列化文档片段，不读 DOM 选区），不受影响；浏览器端的拖选、方向键、Shift 选择与只读显示里的复制行为属于真实浏览器行为，我没有跑 e2e，标为未验证。
+- 批注、链接扩到整段注音：按 Spec 输出 26 的约定是合理的（scratch S2、S3 结果：整段注音一起带链接、批注），没有发现与撤销不一致。
+- `setMarkdownRuby` 对单元格选区、节点选区的判断与 Tiptap `canSetMark` 等价；`unsetMarkdownRuby` 盖住一半时整段去掉（scratch/e7，结果“前注音后”）。
+- 同一个 `applyTransaction` 里“先 Remove 旧注音、再 Add 新注音”的次序：ProseMirror 的 `addMark` 总是先发全部 RemoveMarkStep 再发全部 AddMarkStep，作者用 `transaction.before` 认注音在这个次序下成立（S5 两条相邻不同注音、各被盖一半，结果正确）。
+- 未验证：`transactions` 含多个事务的 `later` 映射（没有找到真实入口能在一个 applyTransaction 里产生，其它插件追加的事务才会有）、触屏拖选。
+
+================ 汇总 ================
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8
+阻断 1 条（第 1 条）；重要 1 条（第 2 条）；建议 6 条（第 3、4、5、6、7、8 条）；撤回 0 条。

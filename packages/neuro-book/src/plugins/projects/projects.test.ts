@@ -9,6 +9,7 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, readdir, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -26,7 +27,6 @@ import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {contextTable} from "nbook/plugins/commands/shared/context-keys";
 import {createCommandRegistry} from "nbook/plugins/commands/shared/registry";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {descriptor as settingsDescriptor} from "nbook/plugins/settings/plugin";

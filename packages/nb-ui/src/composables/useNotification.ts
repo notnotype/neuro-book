@@ -61,8 +61,11 @@ function boundDetail(detail: string): {detail: string; truncated: boolean} {
     return {detail: detail.slice(0, end), truncated: true};
 }
 
-/** 条目里的详情字段：没有详情时两个字段都不出现；有时按上限截断，截断标志与发出方给的取或。 */
-function detailFields(detail: string | undefined, truncated: boolean | undefined): Pick<NotificationItem, "detail" | "detailTruncated"> {
+/**
+ * 条目里的详情字段：没有详情时两个字段都不出现；有时按上限截断，截断标志与发出方给的取或。另存一份通知的地方（工作台的通知
+ * 中心）也用它，同一条通知在两处的原文与“已截断”一致。
+ */
+export function notificationDetailFields(detail: string | undefined, truncated: boolean | undefined): Pick<NotificationItem, "detail" | "detailTruncated"> {
     if (detail === undefined || !hasNotificationDetail(detail)) return {};
     const bounded = boundDetail(detail);
     return {detail: bounded.detail, detailTruncated: bounded.truncated || truncated === true};
@@ -150,7 +153,7 @@ export function createNotificationQueue(): NotificationQueue {
             action: normalized.action,
             duration: normalized.duration ?? DEFAULT_NOTIFICATION_DURATION[tone],
             ...(normalized.progress === undefined ? {} : {progress: normalized.progress}),
-            ...detailFields(normalized.detail, normalized.detailTruncated),
+            ...notificationDetailFields(normalized.detail, normalized.detailTruncated),
         };
         notifications.value = [...notifications.value, item];
         if (item.duration > 0) {
@@ -169,7 +172,7 @@ export function createNotificationQueue(): NotificationQueue {
         if (detail !== undefined) {
             delete next.detail;
             delete next.detailTruncated;
-            Object.assign(next, detailFields(detail, detailTruncated));
+            Object.assign(next, notificationDetailFields(detail, detailTruncated));
         }
         notifications.value = notifications.value.map((item) => (item.id === id ? next : item));
         if (patch.duration === undefined) return;

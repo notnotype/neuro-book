@@ -18,7 +18,7 @@ import {NO_INSTALLED_PLUGINS, previewInstalledPlugins} from "nbook/plugin-platfo
 import type {StartupPlugins} from "nbook/plugin-platform/backend/startup";
 import type {PendingChange, PluginListEntry} from "nbook/plugin-platform/shared/types";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
-import {queryInstance} from "nbook/server/instance";
+import {queryNeuroBook} from "nbook/server/instance";
 import type {InstanceInfo} from "nbook/server/instance";
 
 import {CliFailure} from "./output";
@@ -36,7 +36,7 @@ const RESTART = "重启服务后生效。";
 
 /** 运行中的实例（就绪的才有本次启动的集合）；没有、开发服务或不应答为 null。 */
 async function running(stateRoot: string): Promise<InstanceInfo | null> {
-    const found = await queryInstance(stateRoot);
+    const found = await queryNeuroBook(stateRoot);
     return found.state === "running" && found.instance.plugins !== null ? found.instance : null;
 }
 

@@ -5,7 +5,7 @@
  * `.staging/<随机名>/`（各带自己的锁 `<随机名>.lock`），以及安装目录 `<插件 id>/<版本>/`。
  *
  * 一个状态根只跑一个服务端，但应用的命令行会在服务端运行时离线写登记表，所以登记表的读改写与版本目录的
- * 改名都在写入锁里做；锁是跨进程的（`backend/locked-replace.ts` 的 `holdLock`）。只读的列表不取锁：登记表
+ * 改名都在写入锁里做；锁是跨进程的（`@notnotype/nb-file-lock` 的 `holdLock`）。只读的列表不取锁：登记表
  * 用临时文件改名替换，读者只会读到完整的旧表或新表。
  */
 
@@ -17,10 +17,10 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 import {Value} from "typebox/value";
 
+import {errno, holdLock} from "@notnotype/nb-file-lock";
+import type {HeldLock} from "@notnotype/nb-file-lock";
 import {isPluginId} from "@notnotype/nb-runtime/plugin-manifest";
 
-import {errno, holdLock} from "nbook/backend/locked-replace";
-import type {HeldLock} from "nbook/backend/locked-replace";
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {npmVersions} from "nbook/plugin-platform/shared/versions";
 

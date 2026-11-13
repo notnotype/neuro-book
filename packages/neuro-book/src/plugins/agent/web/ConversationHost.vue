@@ -2,7 +2,7 @@
 /**
  * 对话位置的组件：右栏的视图和编辑区的页面是同一个。状态都在插件级的宿主里（`session-host.ts`），这里借用它，把视图接上，再放切换会话的面板。
  */
-import {onBeforeUnmount, onMounted, ref} from "vue";
+import {onBeforeUnmount, onMounted, provide, ref} from "vue";
 
 import {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
 import type {AgentConversationServices, AgentViewAction, AgentViewRegistry} from "@notnotype/nb-agent-ui";
@@ -10,6 +10,7 @@ import type {AgentViewRenderers} from "@notnotype/nb-agent-ui/vue";
 
 import type {SessionHost} from "./session-host";
 import type {SessionListStore} from "./session-list";
+import {subagentStoreKey} from "./subagent-store";
 import SessionPanelHost from "./SessionPanelHost.vue";
 
 const props = defineProps<{
@@ -23,6 +24,9 @@ const props = defineProps<{
 }>();
 
 const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
+
+// 子代理与后台命令卡片的数据：按宿主（这个对话位置的当前会话）一份，卡片注入，不进 ctx。
+provide(subagentStoreKey, props.host.subagents);
 
 let giveBack: (() => void) | null = null;
 onMounted(() => {

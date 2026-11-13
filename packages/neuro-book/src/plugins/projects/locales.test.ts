@@ -14,7 +14,7 @@ import {flattenCatalog} from "@notnotype/nb-ui/text";
 import enUS from "./locales/en-US.json";
 import zhCN from "./locales/zh-CN.json";
 import {projectsRemoteContract} from "./shared/contracts";
-import {BUSINESS_FAILURE_KEYS, REGISTER_FAILURE_KEYS, REMOTE_FAILURE_KEYS} from "./web/failure-text";
+import {BUSINESS_FAILURE_KEYS, REGISTER_FAILURE_KEYS} from "./web/failure-text";
 import {projectsCatalogs} from "./web/text";
 import {descriptor} from "./plugin";
 
@@ -77,8 +77,6 @@ const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US
     "errors.read-only": {"zh-CN": "作品的身份文件只读", "en-US": "the book's identity file is read-only"},
     "errors.identity-invalid": {"zh-CN": "作品的身份文件无法读取", "en-US": "the book's identity file cannot be read"},
     "errors.identity-conflict": {"zh-CN": "作品目录里的身份与登记不一致", "en-US": "the identity in the folder does not match the registry"},
-    "remoteErrors.version-changed": {"zh-CN": "页面与服务端的版本不一致，请刷新页面", "en-US": "the page and the server are out of sync; reload the page"},
-    "remoteErrors.unavailable": {"zh-CN": "服务端暂时不可用", "en-US": "the server is temporarily unavailable"},
     "format.words": {"zh-CN": "{count} 字", "en-US": "{count} words"},
     "format.wordsTenThousand": {"zh-CN": "{count} 万字", "en-US": "{count}k words"},
     "format.files": {"zh-CN": "{count} 篇", "en-US": "{count} files"},
@@ -288,9 +286,7 @@ describe("nbook.projects 的目录", () => {
         const under = (group: string): string[] => Object.keys(flat).filter((key) => key.startsWith(`${group}.`)).map((key) => key.slice(group.length + 1)).sort();
         expect(under("registerFailures")).toEqual(Object.keys(REGISTER_FAILURE_KEYS).sort());
         expect(under("errors")).toEqual(Object.keys(BUSINESS_FAILURE_KEYS).sort());
-        // 路由层的码里 not-provided、target-gone 与 unavailable 共用一句，目录里只有 unavailable 与 version-changed。
-        expect(under("remoteErrors")).toEqual([...new Set(Object.values(REMOTE_FAILURE_KEYS).map((key) => key.slice("remoteErrors.".length)))].sort());
-        for (const key of [...Object.values(REGISTER_FAILURE_KEYS), ...Object.values(BUSINESS_FAILURE_KEYS), ...Object.values(REMOTE_FAILURE_KEYS)]) expect(Object.keys(flat)).toContain(key);
+        for (const key of [...Object.values(REGISTER_FAILURE_KEYS), ...Object.values(BUSINESS_FAILURE_KEYS)]) expect(Object.keys(flat)).toContain(key);
     });
 
     it("errors 下的每个码都是 nbook.projects/projects 合同里某个方法声明的业务失败码", () => {

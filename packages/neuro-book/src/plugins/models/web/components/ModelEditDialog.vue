@@ -1,10 +1,9 @@
 <script setup lang="ts">
+import type {CompactionSetting, ModelConfig} from "@notnotype/nb-models/config";
+import type {SnapshotModel} from "@notnotype/nb-models/contract";
 import {Collapsible, Dialog, Input, NumberInput, Select, Switch} from "@notnotype/nb-ui/components";
 import {computed, reactive, ref, watch} from "vue";
 
-import type {CompactionSetting} from "../../shared/compaction";
-import type {SnapshotModel} from "../../shared/contracts";
-import type {ModelConfig} from "../../shared/settings";
 import {useModelsText} from "../text";
 import HeadersEditor from "./HeadersEditor.vue";
 

@@ -59,7 +59,84 @@ ol.week li { margin: 2px 0; }
 <p>界面上不出现记录 id、Component、字段路径（提案第 8 节“入口与用词”），所以草稿里把提案的几个词换成了作者的说法：初值 → 开局，讲述 → 讲到的地方，补丁 → 改了什么，生效位置 → 什么时候。</p>
 </div>
 
-<div class="round">前情与文风 · S 摘要的方案（你要的）</div>
+<div class="round">第一批（设定侧）实施中 · 星瑕样本项目用什么类型</div>
+
+<section class="s">
+<h2>样本的类型和应用内置的对不上 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>第一批要有一个脚本生成“星瑕样本项目”，开发和 e2e 都打开它。样本来自 t16 原型，用的是原型自己定的四种数据：人物（身体、现在的样子、原身外观、性格、现在的态度）、面板（魔力、魔力上限、存款、今天还能回溯、随身物品）、身份、剧情线。</p>
+<p>应用里的数据种类只能由插件登记。现在内置的只有两种，字段是临时的（完整清单留给 t10）：人物（外观、状态、现在的态度）和面板（字段由每个条目自己加）。条目页上人物、面板的专门界面（你在第 7 版定的）挂在这两个内置种类上。</p>
+<p>样本里真正被剧情改动的：存款 8 次、现在的样子 5 次、外观 3 次、态度 2 次、身体、魔力、随身物品各 1 次。身份、剧情线只有开局的值，没有改动。</p>
+</section>
+
+<section class="q" data-nbdev-question="b1-sample-types" data-nbdev-type="single" data-nbdev-recommend="map-builtin">
+<h2>样本项目里的数据用哪种类型 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="map-builtin"><h3>换成内置类型，内置人物补上样本要的字段</h3><p>面板的五个字段成为每个条目自己加的字段（内置面板本来就这样用）。内置人物加上“身体”“现在的样子”“性格”三个字段，都做成文字而不是选项（“原身、哥哥、魔法少女”这类选项是这本书专有的，不该进内置）。身份、剧情线不带进样本（剧情线是第二批剧情侧的事）。样本里人物、面板的专门界面都看得到；内置人物多三个临时字段，t10 定完整清单时再整理。</p></div>
+<div class="opt" data-nbdev-option="map-lossy"><h3>换成内置类型，内置人物不动</h3><p>样本里内置人物没有的字段丢掉，或者写进条目的文字里。“马甲换样子”这条故事线在界面上看不到随章变化。</p></div>
+<div class="opt" data-nbdev-option="sample-plugin"><h3>原样保留四种类型，另装一个只给样本用的插件登记它们</h3><p>样本最完整；但人物、面板的专门界面挂在内置类型上，样本里看不到它们，只显示通用的字段表；还要多维护一个开发用插件。</p></div>
+</div>
+<div class="rec-note"><b>推荐：换成内置类型，内置人物补上三个字段。</b></div>
+</section>
+
+<div class="round">不改 Profile 也能控制写手的上下文 · 方案</div>
+
+<section class="s">
+<h2>把写手的上下文分成两层 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>你的问题：大多数用户用的是别人写的写手 Profile（社区分享的，或 NeuroBook 自带的），他们想在“写战斗场景时带上某段写作提示词”这类事上自己说了算，又不想去改 Profile。旧应用里 Profile 自带表单选项，你觉得不够。</p>
+<p>不够的原因是：表单里有什么选项由 Profile 作者决定，用户只能在他留的口子里选。我的建议是把上下文分成两层，各有各的主人：</p>
+<table>
+<tr><th>层</th><th>谁说了算</th><th>里面是什么</th></tr>
+<tr><td>Profile 层</td><td>Profile 的作者</td><td>系统提示词，和它自己的表单选项（旧应用那种，保留）</td></tr>
+<tr><td>作品层</td><td>写这本书的人</td><td>NeuroBook 按作品里的文件拼出来的几块：写作提示词、稳定的设定、前情、这一章。换哪个 Profile 都会收到</td></tr>
+</table>
+<p>Profile 不用知道作品层里写了什么，只决定这几块放在哪；不写就按缺省的顺序全带上（上一节那张五块的表）。所以社区的 Profile 不用为每个用户留口子，用户的东西一定进得去。</p>
+</section>
+
+<section class="s">
+<h2>作品层里加一种东西：写作提示词卡 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>一张卡就是作品里的一个文件，例如“写作提示词/战斗.md”：正文是提示词，文件开头写它什么时候带上。</p>
+<table>
+<tr><th>什么时候带上</th><th>例子</th></tr>
+<tr><td>总是带</td><td>文风提示词、稳定的设定</td></tr>
+<tr><td>按场景</td><td>这一章的细纲里有一条计划标了“战斗”，标着“战斗”的卡就带上</td></tr>
+<tr><td>这一章手动勾</td><td>这一章想试试“多写心理活动”</td></tr>
+</table>
+<ul>
+<li><b>看得见、改得了</b>：工作单“细纲”一步的“写手还会拿到”里，列出这一章带上了哪几张卡、为什么带上（例如“因为这一章有战斗”），可以临时去掉或加上。</li>
+<li><b>一套机制</b>：文风的三个文件、稳定的设定都是“总是带”的卡，放在同一个文件夹里。检查用的提示词（文风检查、“再查一项”里自己写的那一句）是同一种文件，只是标着“写完以后用”。</li>
+<li><b>能分享</b>：卡就是文件，可以随作品带走，也可以从别人那里拿一套过来。</li>
+<li><b>场景怎么标</b>：场景类型（战斗、日常、感情戏……）是你自己定的一组词。在“细纲”一步给每条计划选；Agent 提计划、记账时也可以标。</li>
+</ul>
+<p>这一版不做“出现某个关键词就自动带上”（酒馆世界书那种）：写手拿上下文的时候正文还没写，关键词只能去对细纲，容易带错；真有需要以后再加。</p>
+</section>
+
+<section class="q" data-nbdev-question="p-layers" data-nbdev-type="single" data-nbdev-recommend="two-layers">
+<h2>两层这个方向对不对 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="two-layers"><h3>对：作品层由 NeuroBook 拼，Profile 只管自己的系统提示词与选项</h3><p>用户换 Profile 不丢自己的文风、设定与提示词卡。代价是写手 Profile 的写法要有一份约定（留出这几块的位置），自带的 Profile 先照做。</p></div>
+<div class="opt" data-nbdev-option="profile-form"><h3>还是放在 Profile 里，把表单机制做强</h3><p>例如让 Profile 的表单能加“按场景注入的提示词”这种栏。灵活度看 Profile 作者，换一个 Profile 就要重填。</p></div>
+<div class="opt" data-nbdev-option="other"><h3>都不是</h3><p>在备注里写你的想法。</p></div>
+</div>
+<div class="rec-note"><b>推荐：两层。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="p-trigger" data-nbdev-type="multi" data-nbdev-recommend="always,scene,manual">
+<h2>提示词卡第一版做哪几种“什么时候带上” <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="always"><h3>总是带</h3><p>文风、稳定的设定靠它。</p></div>
+<div class="opt rec" data-nbdev-option="scene"><h3>按场景</h3><p>你举的“战斗场景”靠它。要先有“场景类型”这组词和给计划标场景的入口。</p></div>
+<div class="opt rec" data-nbdev-option="manual"><h3>这一章手动勾</h3><p>最简单，也是另外两种的兜底。</p></div>
+<div class="opt" data-nbdev-option="keyword"><h3>按关键词</h3><p>细纲里出现某个词就带上。容易带错，不推荐第一版做。</p></div>
+</div>
+<div class="rec-note"><b>推荐：前三种。</b></div>
+</section>
+
+<section class="q" data-nbdev-question="p-notes" data-nbdev-type="text">
+<h2>这个方案还缺什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>定了以后写进任务 t36（写手上下文与分级摘要），和摘要一起出计划。</p>
+</section>
+
+<div class="round">前情与文风 · S 摘要的方案（已定）</div>
 
 <section class="s">
 <h2>方案：范围摘要两两合并 <span class="badge info" data-nbdev-skip>说明</span></h2>
@@ -105,7 +182,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="s-scheme" data-nbdev-type="single" data-nbdev-recommend="merge">
-<h2>S 摘要用哪种做法 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>S 摘要用哪种做法 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="merge"><h3>两两合并（上面的方案）</h3><p>每 10 章一段，相邻两段再合；字数随书的长度只慢慢涨（1000 章约 2800 字）。</p></div>
 <div class="opt" data-nbdev-option="volume"><h3>按卷</h3><p>一卷一段摘要，卷里再按 10 章分段。读起来最顺，但要你把章分好卷，卷的大小不一样时“越远越粗”不成立，很长的书段数一直涨。</p></div>
@@ -115,7 +192,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="s-rolling" data-nbdev-type="single" data-nbdev-recommend="reset">
-<h2>“滚动摘要”怎么做 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>“滚动摘要”怎么做 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>你列的第 4 块里另有一份“到目前为止的滚动摘要”，用来快速告诉模型现在的局面。它和 S 摘要分工不同：S 是按范围留下因果，滚动摘要是一段固定 300 字左右的“故事到现在”。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="reset"><h3>每章滚一次，每 10 章从头对一次</h3><p>平时用“上一份加这一章的 L3”更新；每满 10 章，改成从 S 摘要和最近几章的 L3 重新写一份，免得越滚越偏。</p></div>
@@ -126,7 +203,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="s-stable" data-nbdev-type="single" data-nbdev-recommend="file">
-<h2>“稳定的设定”从哪来 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>“稳定的设定”从哪来 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="file"><h3>作品里的一个文件，你写</h3><p>例如“设定/总纲.md”。内容你说了算，改得少，缓存稳。</p></div>
 <div class="opt" data-nbdev-option="entries"><h3>从条目里挑</h3><p>在条目上标“核心设定”，程序把它们的文字拼起来。和设定库不会两处不一致，但条目一改这一块就变，缓存常失效。</p></div>
@@ -217,7 +294,7 @@ ol.week li { margin: 2px 0; }
 
 
 <section class="q" data-nbdev-question="r6-ripple" data-nbdev-type="single" data-nbdev-recommend="list">
-<h2>写了很多章以后改设定：这样处理行不行 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>写了很多章以后改设定：这样处理行不行 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>图 5、6。回执列出牵连到的章，被牵连的章的工作单里多一块。现在后端能算出来的是：哪些句子是照旧设定写的（记账时链到这条设定的那些句子）、哪些还没写的计划靠旧设定才成立、哪些章的检查结果过期。算不出来的：正文里没被记账链到设定的句子（要靠重查才发现）。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="list"><h3>就按图：列出来，一章一章处理与重查</h3><p>重查在各章的工作单里点，花多少额度当场写明。27 章都要重查时要点 27 次。</p></div>
@@ -312,7 +389,7 @@ ol.week li { margin: 2px 0; }
 </section>
 
 <section class="q" data-nbdev-question="r5-line-scope" data-nbdev-type="single" data-nbdev-recommend="global">
-<h2>“看哪条线”是整个窗口一个，还是每页各选各的 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>“看哪条线”是整个窗口一个，还是每页各选各的 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>图上两种都画了：每页页头有一个选线的下拉，状态栏右边也写着“在看：主线”。实施时只留一种。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="global"><h3>整个窗口一个</h3><p>在状态栏切换，所有页面一起跟着变，页头只写一行“在看：回溯以后”。写回溯以后那几章时切过去，写完切回来。要对照两条线时开两个窗口。</p></div>

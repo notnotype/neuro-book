@@ -2,8 +2,10 @@
 
 import {describe, expect, it} from "bun:test";
 
-import type {GridDropRect, GridRect, LayoutDoc, LayoutDropAction} from "@notnotype/nb-layout";
+import type {GridDropRect, GridRect, LayoutDoc} from "@notnotype/nb-layout";
 
+import {BAR_STRIP} from "./entry-drop";
+import type {WorkbenchDropAction} from "./entry-drop";
 import type {LayoutDragDrop, LayoutTabSource} from "./layout-drag";
 import {createLiveDrag} from "./live-drag";
 import type {LiveDragHost} from "./live-drag";
@@ -12,7 +14,7 @@ const SOURCE: LayoutTabSource = {kind: "tab", tab: "view:a"};
 const DOC = {} as LayoutDoc;
 const REMOVED = {} as LayoutDoc;
 const preview = {areaRect: null, indicator: null, orientation: "horizontal" as const};
-const dropOf = (action: LayoutDropAction, inPlace = false): LayoutDragDrop => ({action, inPlace, preview});
+const dropOf = (action: WorkbenchDropAction, inPlace = false): LayoutDragDrop => ({action, inPlace, preview});
 const strip = (panel: string, index = 0): LayoutDragDrop => dropOf({kind: "strip", panel, index});
 const CENTER = dropOf({kind: "center", panel: "other"});
 const RECTS: Readonly<Record<string, GridDropRect>> = {home: {left: 0, top: 0, right: 600, bottom: 800}, other: {left: 600, top: 0, right: 1400, bottom: 800}};
@@ -44,6 +46,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
         sourceRemovedDoc: () => REMOVED,
         collapseSource: (from) => collapses.push(from.tab),
         homeOf: () => "home",
+        isHomeStrip: (_from, strip) => strip === "home",
         show: (doc) => shown.push(doc),
         ...over,
     });
@@ -223,6 +226,35 @@ describe("createLiveDrag", () => {
         const writes = t.placed.length;
         for (let index = 0; index < 30; index += 1) t.frame();
         expect(t.placed.length).toBe(writes);
+    });
+
+    it("活动栏的入口之间是一条标签条：第一次进去等稳定，吸收之后卡片收回、拖的视图在活动栏里排序；入口上是并入，卡片留着", () => {
+        const t = setup();
+        t.live.begin(SOURCE, {x: 20, y: 100});
+        t.live.offer(dropOf({kind: "new-container", container: "custom:a", before: null}));
+        t.frame();
+        expect(t.shown.length).toBe(0);
+        t.frame(200);
+        expect(t.shown).toEqual([DOC]);
+        expect(t.live.card.value).toBeNull();
+        expect(t.collapses).toEqual([SOURCE.tab]);
+        t.frame();
+        expect(t.sorted.at(-1)).toBe(BAR_STRIP);
+        t.live.offer(dropOf({kind: "join-container", container: "view:b"}));
+        t.frame();
+        t.frame(200);
+        expect(t.live.card.value).toEqual({key: SOURCE.tab});
+        expect(t.live.shownAction.value).toEqual({kind: "join-container", container: "view:b"});
+    });
+
+    it("来源是侧栏里一个容器唯一的视图时活动栏是它自己的标签条：入口之间马上跟手，不收起来源", () => {
+        const t = setup({isHomeStrip: (_from, strip) => strip === "home" || strip === BAR_STRIP});
+        t.live.begin(SOURCE, {x: 20, y: 100});
+        t.live.offer(dropOf({kind: "move-entry", container: "view:a", before: "view:b"}));
+        t.frame();
+        expect(t.shown).toEqual([DOC]);
+        expect(t.live.card.value).toBeNull();
+        expect(t.collapses).toEqual([]);
     });
 
     it("判定时结构变了结束这一场：这一帧不再往下做", () => {

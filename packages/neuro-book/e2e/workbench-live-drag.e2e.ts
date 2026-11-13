@@ -16,6 +16,7 @@ import {startProbeServer} from "./fixtures";
 import type {ProbeServer} from "./fixtures";
 
 const E = "test.sample-views.omega";
+const F = "test.sample-views.zeta";
 const AUXILIARY_VIEW = "test.sample-views.delta";
 
 const ghost = (page: Page) => page.locator("[data-workbench-drag-ghost]");
@@ -23,6 +24,33 @@ const surface = (page: Page) => page.locator("[data-workbench-surface]");
 const leaf = (page: Page, id: string) => page.locator(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${id}"]`);
 const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"]`);
 const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);
+/**
+ * 视图所在面板的 id：内容项上写着它所在的叶（输出 14）。每个样例视图是自己的隐式容器里唯一的分节（输出 40），分节在区域之间移动时
+ * 是同一块面板，id 不变（输出 27），所以“落到了别处”按它在哪个区域判（`regionOf`），不按面板 id。
+ */
+async function sectionOf(page: Page, viewId: string): Promise<string> {
+    const id = await page.locator(`[data-content="view:${viewId}"]`).getAttribute("data-content-leaf");
+    if (id === null) throw new Error(`${viewId} 不在任何面板里`);
+    return id;
+}
+/** 视图显示在哪个区域：按它的内容和编辑组 g0 的相对位置（侧栏在左、右栏在右、底部面板在下）；浮动窗是 float。 */
+async function regionOf(page: Page, viewId: string): Promise<string> {
+    const panel = await sectionOf(page, viewId);
+    if (await page.locator(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${panel}"][data-float]`).count() > 0) return "float";
+    const [view, editor] = [await leaf(page, panel).boundingBox(), await leaf(page, "g0").boundingBox()];
+    if (view === null || editor === null) throw new Error(`量不到 ${viewId} 或编辑组`);
+    if (view.x + view.width <= editor.x + 1) return "sidebar";
+    if (view.x >= editor.x + editor.width - 1) return "auxiliarybar";
+    return "panel";
+}
+/** 经分节标题的右键菜单浮动一个视图（输出 23），返回窗的面板 id。 */
+async function floatViaMenu(page: Page, viewId: string): Promise<string> {
+    await tab(page, viewId).click({button: "right"});
+    await page.getByRole("menu").getByRole("menuitem", {name: "浮动", exact: true}).click();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect.poll(() => regionOf(page, viewId)).toBe("float");
+    return sectionOf(page, viewId);
+}
 
 async function centerOf(locator: Locator): Promise<{x: number; y: number}> {
     const found = await locator.boundingBox();
@@ -52,8 +80,15 @@ const rowOf = (locator: Locator): Promise<{left: number; right: number}> => loca
     const box = (element.closest("[data-tab-row]") as Element).getBoundingClientRect();
     return {left: box.left, right: box.right};
 });
-/** 收起的面板整个叶都不在：算 0 宽。 */
-const shownWidth = async (page: Page, panel: string): Promise<number> => ((await leaf(page, panel).count()) === 0 ? 0 : ((await leaf(page, panel).boundingBox())?.width ?? 0));
+/**
+ * 右栏这一列的宽：编辑组 g0 的右沿到窗口右沿（右栏在编辑组右边）。分节在区域之间移动时是同一块面板、id 不变（输出 27），
+ * 预览里丁那一节搬进侧栏后叶还在，量它自己的叶分不出“右栏收起了”，所以量这一列。
+ */
+const auxiliaryWidth = async (page: Page): Promise<number> => {
+    const editor = await leaf(page, "g0").boundingBox();
+    if (editor === null) throw new Error("没有编辑组");
+    return (page.viewportSize()?.width ?? 0) - (editor.x + editor.width);
+};
 const widthOf = async (page: Page, panel: string): Promise<number> => {
     await settled(page);
     return (await leaf(page, panel).boundingBox())?.width ?? 0;
@@ -99,6 +134,26 @@ test.describe("实时布局", () => {
         }
     }
 
+    /**
+     * 搭一个戊、己两个标签的浮动窗，返回它的面板 id。区域里的分节只写标题、恰一个标签（输出 20、40），带标签条的只剩浮动窗：
+     * 要“来源那块还有别的标签”“落到别人的标签条上”的用例在它上面测。戊浮出来之后底部面板切到己的容器（输出 43），
+     * 己的标题拖到窗的正文上是添加为标签（输出 25 第 0 行）。
+     */
+    async function floatOfTwo(page: Page): Promise<string> {
+        const window = await floatViaMenu(page, E);
+        await expect(tab(page, F)).toBeVisible();
+        // 底部面板切容器时外框在过渡：等停下再量己的标题，免得按在过渡中间的位置上没拿起来。
+        await settled(page);
+        const body = await inLeaf(page, window, {x: 0.5, y: 0.6});
+        await lift(page, tab(page, F));
+        await page.mouse.move(body.x, body.y, {steps: 6});
+        await page.mouse.up();
+        await expect(ghost(page)).toHaveCount(0);
+        await expect.poll(() => headTabsOf(page, window)).toEqual([`view:${E}`, `view:${F}`]);
+        await settled(page);
+        return window;
+    }
+
     async function open(page: Page): Promise<void> {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await page.goto(new URL("/workbench", server.url).href);
@@ -109,82 +164,88 @@ test.describe("实时布局", () => {
     test("拖到面板这一排的右边：拖动中邻居真实让位，不写记录；松手一次写入，结果就是预览的样子", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
-        const before = await widthOf(page, "panel");
-        await lift(page, tab(page, E));
-        const target = await inLeaf(page, "panel", {x: 0.97, y: 0.6});
+        // 底部面板这一排只有戊那一节：把右栏的丁放到它的后半，在它后面插一节（输出 25 第 7 行），戊让出一半。
+        const omega = await sectionOf(page, E);
+        const before = await widthOf(page, omega);
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        const target = await inLeaf(page, omega, {x: 0.97, y: 0.6});
         await page.mouse.move(target.x, target.y, {steps: 6});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
         // 预览换树之后布局下一拍才发布，过渡这时才开始：先等宽度真的变了。
-        await expect.poll(async () => (await leaf(page, "panel").boundingBox())?.width ?? 0).toBeLessThan(before - 40);
-        const previewWidth = await widthOf(page, "panel");
+        await expect.poll(async () => (await leaf(page, omega).boundingBox())?.width ?? 0).toBeLessThan(before - 40);
+        const previewWidth = await widthOf(page, omega);
         expect(await writesOf(page)).toBe(writes);
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
         await expect(surface(page)).toHaveAttribute("data-drag-feel", "indicator");
         await expect(surface(page)).toHaveAttribute("data-live-preview", "none");
-        expect(await panelOfTab(page, E)).not.toBe("panel");
-        expect(await widthOf(page, "panel")).toBeCloseTo(previewWidth, 0);
+        expect(await regionOf(page, AUXILIARY_VIEW)).toBe("panel");
+        expect(await widthOf(page, omega)).toBeCloseTo(previewWidth, 0);
     });
 
     test("来源是那块面板最后一个视图：落到别处时它收起，指针回到原处也不再展开；Esc 回原样（输出 38）", async ({page}) => {
         await open(page);
-        expect(await headTabsOf(page, "auxiliarybar")).toEqual([`view:${AUXILIARY_VIEW}`]);
+        const delta = await sectionOf(page, AUXILIARY_VIEW);
+        expect(await headTabsOf(page, delta)).toEqual([`view:${AUXILIARY_VIEW}`]);
         const writes = await writesOf(page);
-        const home = await centerOf(leaf(page, "auxiliarybar"));
+        const home = await centerOf(leaf(page, delta));
         await lift(page, tab(page, AUXILIARY_VIEW));
         // 拿起的是它唯一的视图：还没落到别处、没收起之前，原位是空位，标题头不留在原地。
         await page.mouse.move(home.x, home.y + 40, {steps: 4});
         await expect(page.locator("[data-lifted]")).toHaveCount(1);
-        await expect(page.locator(`[data-panel-head="auxiliarybar"]`)).toHaveCount(0);
-        await expect(leaf(page, "auxiliarybar")).toHaveCount(1);
-        const target = await inLeaf(page, "sidebar", {x: 0.5, y: 0.5});
+        await expect(page.locator(`[data-panel-head="${delta}"]`)).toHaveCount(0);
+        await expect(leaf(page, delta)).toHaveCount(1);
+        // 侧栏甲那一节的后半（分节没有中央，整块是前后两半，输出 25 第 7 行）。
+        const target = await inLeaf(page, await sectionOf(page, "test.sample-views.alpha"), {x: 0.5, y: 0.75});
         await page.mouse.move(target.x, target.y, {steps: 6});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
-        await expect.poll(async () => shownWidth(page, "auxiliarybar")).toBeLessThan(2);
+        await expect.poll(() => auxiliaryWidth(page)).toBeLessThan(2);
         // 回到它原来的位置：那里现在是编辑组，工具视图放不进去，是来源收起的样子，不是放回原处。
         await page.mouse.move(home.x, home.y, {steps: 12});
         await expect(surface(page)).toHaveAttribute("data-live-preview", "source-removed");
         await settled(page);
-        expect(await shownWidth(page, "auxiliarybar")).toBeLessThan(2);
+        expect(await auxiliaryWidth(page)).toBeLessThan(2);
         expect(await writesOf(page)).toBe(writes);
         await page.keyboard.press("Escape");
         await page.mouse.up();
-        await expect.poll(async () => shownWidth(page, "auxiliarybar")).toBeGreaterThan(100);
+        await expect.poll(() => auxiliaryWidth(page)).toBeGreaterThan(100);
         expect(await writesOf(page)).toBe(writes);
     });
 
     test("候选还没预览就松手：提交指针下的候选", async ({page}) => {
         await open(page);
-        const from = await panelOfTab(page, E);
+        // 戊从底部面板放到右栏丁那一节的后半。
         await lift(page, tab(page, E));
-        const target = await inLeaf(page, from === "auxiliarybar" ? "sidebar" : "auxiliarybar", {x: 0.5, y: 0.5});
+        const target = await inLeaf(page, await sectionOf(page, AUXILIARY_VIEW), {x: 0.5, y: 0.75});
         await page.mouse.move(target.x, target.y);
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
-        await expect.poll(() => panelOfTab(page, E)).not.toBe(from);
+        await expect.poll(() => regionOf(page, E)).toBe("auxiliarybar");
     });
 
     test("移动与松手在同一个任务里到（候选一帧都没显示过）：还是提交指针下的候选", async ({page}) => {
         await open(page);
-        const from = await panelOfTab(page, E);
+        // 戊从底部面板放到右栏丁那一节的后半。
         await lift(page, tab(page, E));
-        const target = await inLeaf(page, from === "auxiliarybar" ? "sidebar" : "auxiliarybar", {x: 0.5, y: 0.5});
+        const target = await inLeaf(page, await sectionOf(page, AUXILIARY_VIEW), {x: 0.5, y: 0.75});
         // 两次 Playwright 调用之间浏览器可能已经跑过一帧，分不出“与最后显示的相同才提交”：在页面里同一个任务派发。
         await page.evaluate(({x, y}) => {
             for (const type of ["pointermove", "pointerup"]) window.dispatchEvent(new PointerEvent(type, {bubbles: true, pointerId: 1, pointerType: "mouse", isPrimary: true, clientX: x, clientY: y, button: type === "pointerup" ? 0 : -1, buttons: type === "pointerup" ? 0 : 1}));
         }, target);
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
-        await expect.poll(() => panelOfTab(page, E)).not.toBe(from);
+        await expect.poll(() => regionOf(page, E)).toBe("auxiliarybar");
     });
 
     test("拿起时上一次布局变化的过渡还在走：判定按终点的矩形", async ({page}) => {
         await open(page);
-        const finalPanel = await inLeaf(page, "panel", {x: 0.5, y: 0.5});
+        const omega = await sectionOf(page, E);
+        // 戊那一节的后半：放下是在它后面插一节。
+        const finalPanel = await inLeaf(page, omega, {x: 0.75, y: 0.5});
         const toggle = page.locator("[data-shell-focus-target=\"panel-toggle\"]");
         await toggle.click();
-        await expect(leaf(page, "panel")).toHaveCount(0);
+        await expect(leaf(page, omega)).toHaveCount(0);
         await settled(page);
         // 放慢过渡：面板还在长的时候拿起。过渡中间的矩形里指针下是别的面板（或者没有面板）。
         await page.addStyleTag({content: ":root { --motion-layout: 5000ms !important; }"});
@@ -193,7 +254,8 @@ test.describe("实时布局", () => {
         // 面板这一排在动，拖右栏的视图。
         await lift(page, tab(page, AUXILIARY_VIEW));
         await page.mouse.move(finalPanel.x, finalPanel.y, {steps: 3});
-        await expect(surface(page)).toHaveAttribute("data-live-preview", /center.*panel.*panel/);
+        // 预览键是数组里的 JSON 串，引号带转义：只认“edge”和戊那一节的 id。
+        await expect(surface(page)).toHaveAttribute("data-live-preview", new RegExp(`edge.*${omega.replaceAll(".", "\\.")}`, "u"));
         await page.keyboard.press("Escape");
         await page.mouse.up();
     });
@@ -238,24 +300,24 @@ test.describe("实时布局", () => {
         expect(await content.evaluate((element, other) => element === other, node)).toBe(true);
         // 布局记录这个文件的用例共用：放回去。
         await page.locator(`[data-panel-head="${await panelOfTab(page, AUXILIARY_VIEW)}"] [data-panel-action="nbook.view.dock"]`).click();
-        await expect.poll(() => panelOfTab(page, AUXILIARY_VIEW)).toBe("auxiliarybar");
+        await expect.poll(() => regionOf(page, AUXILIARY_VIEW)).toBe("auxiliarybar");
     });
 
     test("取消：布局回原样，不写记录", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
-        const from = await panelOfTab(page, E);
-        const before = await widthOf(page, "panel");
-        await lift(page, tab(page, E));
-        const target = await inLeaf(page, "panel", {x: 0.97, y: 0.6});
+        const omega = await sectionOf(page, E);
+        const before = await widthOf(page, omega);
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        const target = await inLeaf(page, omega, {x: 0.97, y: 0.6});
         await page.mouse.move(target.x, target.y, {steps: 6});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
         await page.keyboard.press("Escape");
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
         await expect(surface(page)).toHaveAttribute("data-live-preview", "none");
-        expect(await widthOf(page, "panel")).toBeCloseTo(before, 0);
-        expect(await panelOfTab(page, E)).toBe(from);
+        expect(await widthOf(page, omega)).toBeCloseTo(before, 0);
+        expect(await regionOf(page, AUXILIARY_VIEW)).toBe("auxiliarybar");
         expect(await writesOf(page)).toBe(writes);
     });
 
@@ -283,8 +345,9 @@ test.describe("实时布局", () => {
 
         test("离开标签条撕下一张卡片：内容是同一个节点、盖在分隔线上跟手，抓住的点在指针下；离开来源面板后缩小；取消后回到原处", async ({page}) => {
             await open(page);
+            // 分节的标题不是标签条，按住就拿起（输出 20）：要“还在标签条里不拿起”，从浮动窗的标签条拖。
+            const from = await floatOfTwo(page);
             const source = tab(page, E);
-            const from = await panelOfTab(page, E);
             const content = page.locator(`[data-content="view:${E}"]`);
             const node = await content.elementHandle();
             await lift(page, source);
@@ -331,9 +394,12 @@ test.describe("实时布局", () => {
     test("预览不改可见性，读屏文字按语义变；拖到面板边上有空位，不画分区", async ({page}) => {
         await open(page);
         const instanceCount = () => page.locator("[data-sample-view]").count();
+        // 视图是异步挂上的：先等这一刻看得见的三个（侧栏的甲、右栏的丁、底部面板当前容器的戊）都在，再数，不然数到的是还没挂完的。
+        for (const view of ["test.sample-views.alpha", AUXILIARY_VIEW, E]) await expect(page.locator(`[data-sample-view="${view}"]`)).toHaveCount(1);
         const instances = await instanceCount();
-        await lift(page, tab(page, E));
-        const target = await inLeaf(page, "panel", {x: 0.97, y: 0.6});
+        // 右栏的丁放到底部面板戊那一节的后半。
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        const target = await inLeaf(page, await sectionOf(page, E), {x: 0.97, y: 0.6});
         await page.mouse.move(target.x, target.y, {steps: 6});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
         expect(await instanceCount()).toBe(instances);
@@ -347,8 +413,9 @@ test.describe("实时布局", () => {
 
     test("松手时内容体一次到终点宽度：不先压成小卡再长回去", async ({page}) => {
         await open(page);
-        await lift(page, tab(page, E));
-        const target = await inLeaf(page, "panel", {x: 0.97, y: 0.6});
+        // 右栏的丁放到底部面板戊那一节的后半。
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        const target = await inLeaf(page, await sectionOf(page, E), {x: 0.97, y: 0.6});
         await page.mouse.move(target.x, target.y, {steps: 6});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
         await settled(page);
@@ -374,7 +441,8 @@ test.describe("实时布局", () => {
 
     test("标签条里不拿起卡片：被拖的标签自己沿条跟手、夹在条里，没有拖影，预览马上换；离开才撕下", async ({page}) => {
         await open(page);
-        const panel = await panelOfTab(page, E);
+        // 带标签条的只剩浮动窗（输出 20、39）。
+        const panel = await floatOfTwo(page);
         const tabs = page.locator(`[data-panel-head="${panel}"] [data-panel-tab]`);
         expect(await tabs.count()).toBeGreaterThan(1);
         const other = tabs.filter({hasNot: page.locator(`[data-panel-tab="view:${E}"]`)}).first();
@@ -409,16 +477,19 @@ test.describe("实时布局", () => {
 
     test("长出新块时是空位：不画头，放下才有（输出 38）", async ({page}) => {
         await open(page);
+        // 来源要在别的标签旁边，拿走它，来源那块的头还在：从戊、己两个标签的浮动窗里拖己。
+        await floatOfTwo(page);
         const heads = await page.locator("[data-panel-head]").count();
-        const node = await content(page, E).elementHandle();
-        await lift(page, tab(page, E));
-        const target = await inLeaf(page, "panel", {x: 0.97, y: 0.6});
+        const node = await content(page, F).elementHandle();
+        await lift(page, tab(page, F));
+        // 右栏丁那一节的后半：在它后面长出一节。
+        const target = await inLeaf(page, await sectionOf(page, AUXILIARY_VIEW), {x: 0.5, y: 0.9});
         await page.mouse.move(target.x, target.y, {steps: 6});
         await expect(surface(page)).toHaveAttribute("data-live-preview", /edge/u);
         await expect(page.locator("[data-live-slot]")).toBeVisible();
         // 新块的头、标题都还没有：头的数量不变，来源的标签哪儿都没有。
         await expect(page.locator("[data-panel-head]")).toHaveCount(heads);
-        await expect(tab(page, E)).toHaveCount(0);
+        await expect(tab(page, F)).toHaveCount(0);
         // 让出的位置什么都不画：卡片没有底、没有投影，缺省没有边框，露出窗体底。
         const slotCard = page.locator("[data-shell-slot]");
         await expect(slotCard).toHaveCount(1);
@@ -429,28 +500,47 @@ test.describe("实时布局", () => {
         });
         expect(paint).toEqual({background: "rgba(0, 0, 0, 0)", shadow: "none", border: "rgba(0, 0, 0, 0)", fill: "rgba(0, 0, 0, 0)"});
         await page.mouse.up();
-        await expect(tab(page, E)).toHaveCount(1);
+        await expect(tab(page, F)).toHaveCount(1);
         await expect(page.locator("[data-panel-head]")).toHaveCount(heads + 1);
-        expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
+        expect(await content(page, F).evaluate((element, other) => element === other, node)).toBe(true);
     });
 
     test("并入是目标不动、盖一层：头和活动标签不变，内容是同一个节点；放下才变（输出 38）", async ({page}) => {
         await open(page);
+        // 分节没有中央（输出 25 第 7 行），添加为标签只在浮动窗的正文上：来源是戊、己两个标签的窗里的戊，目标是丁浮出来的另一个窗。
+        const source = await floatOfTwo(page);
+        const other = await floatViaMenu(page, AUXILIARY_VIEW);
+        // 新开的窗和前一个在同一处（松手处或居中）：用移动把手的键盘把它往右挪 50 下（输出 39“键盘”），两个窗不重叠。
+        const before = (await leaf(page, other).boundingBox())!;
+        await page.locator(`[data-float-chrome="${other}"] [data-float-move-handle]`).focus();
+        for (let step = 0; step < 50; step += 1) await page.keyboard.press("ArrowRight");
+        await expect.poll(async () => (await leaf(page, other).boundingBox())!.x).toBeGreaterThan(before.x + 400);
+        await settled(page);
+        // 在浮动窗上按下会把它提到最上（`raiseFloat`，是一次写入，不属于拖动）：先点一下来源窗里戊的标签把它提上来。
+        await tab(page, E).click();
+        // 挪窗、提窗的写入合并在一小段时间里落库（`LAYOUT_SAVE_COALESCE_MS`）：等写入次数隔一段合并时间不再变，再记拖动前的数。
+        let seen = -1;
+        await expect.poll(async () => {
+            const now = await writesOf(page);
+            const quiet = now === seen;
+            seen = now;
+            return quiet;
+        }, {intervals: [400]}).toBe(true);
         const writes = await writesOf(page);
         const node = await content(page, E).elementHandle();
-        const headBefore = await headTabsOf(page, "auxiliarybar");
+        const headBefore = await headTabsOf(page, other);
         await lift(page, tab(page, E));
-        const target = await inLeaf(page, "auxiliarybar", {x: 0.5, y: 0.5});
+        const target = await inLeaf(page, other, {x: 0.5, y: 0.6});
         await page.mouse.move(target.x, target.y, {steps: 6});
         const merge = page.locator("[data-live-merge]");
-        await expect(merge).toHaveAttribute("data-live-merge-panel", "auxiliarybar");
+        await expect(merge).toHaveAttribute("data-live-merge-panel", other);
         await expect(merge).toContainText("添加为标签");
         await settled(page);
-        expect(await headTabsOf(page, "auxiliarybar")).toEqual(headBefore);
+        expect(await headTabsOf(page, other)).toEqual(headBefore);
         // 来源那块还有一个标签，头不跟着变成只写标题：按已提交的文档算（输出 20）。
-        await expect(page.locator("[data-panel-head=\"panel\"] [role=\"tab\"]")).not.toHaveCount(0);
+        await expect(page.locator(`[data-panel-head="${source}"] [role="tab"]`)).not.toHaveCount(0);
         // 盖住整块面板：头也算。
-        const [cover, frame] = [await merge.boundingBox(), await leaf(page, "auxiliarybar").boundingBox()];
+        const [cover, frame] = [await merge.boundingBox(), await leaf(page, other).boundingBox()];
         expect(Math.abs((cover?.x ?? 0) - (frame?.x ?? 0))).toBeLessThanOrEqual(1);
         expect(Math.abs((cover?.height ?? 0) - (frame?.height ?? 0))).toBeLessThanOrEqual(1);
         const style = await merge.evaluate((element) => {
@@ -463,21 +553,25 @@ test.describe("实时布局", () => {
         expect(await writesOf(page)).toBe(writes);
         await page.mouse.up();
         await expect(merge).toHaveCount(0);
-        await expect.poll(() => panelOfTab(page, E)).toBe("auxiliarybar");
+        await expect.poll(() => panelOfTab(page, E)).toBe(other);
         expect(await content(page, E).evaluate((element, other) => element === other, node)).toBe(true);
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
     test("别人的标签条上被吸收：卡片收回，预览是放下的样子，零写入；离开卡片回来，目标恢复；放下就是预览的样子（输出 38）", async ({page}) => {
         await open(page);
+        // 别人的标签条：带标签条的只剩浮动窗（输出 20、39），丁落到戊、己两个标签的窗上。
+        const window = await floatOfTwo(page);
         const writes = await writesOf(page);
         const node = await content(page, AUXILIARY_VIEW).elementHandle();
-        const head = page.locator("[data-panel-head=\"panel\"]");
+        const head = page.locator(`[data-panel-head="${window}"]`);
         const activeBefore = await head.locator("[data-panel-tab][aria-selected=\"true\"]").getAttribute("data-panel-tab");
         await lift(page, tab(page, AUXILIARY_VIEW));
         const strip = await head.locator("[data-panel-tab]").first().boundingBox();
         if (strip === null) throw new Error("面板没有标签");
-        await page.mouse.move(strip.x + 2, strip.y + strip.height / 2, {steps: 6});
+        // 第一个标签的左四分之一：插到它前面。不贴着窗的左沿，那里是浮动窗改大小的把手，不接收落点。
+        const before = {x: strip.x + strip.width / 4, y: strip.y + strip.height / 2};
+        await page.mouse.move(before.x, before.y, {steps: 6});
         const card = page.locator("[data-lifted]");
         const placed = head.locator(`[data-panel-tab="view:${AUXILIARY_VIEW}"]`);
         await expect(placed).toHaveCount(1);
@@ -490,40 +584,46 @@ test.describe("实时布局", () => {
         expect(await content(page, AUXILIARY_VIEW).evaluate((element, other) => element === other && element.isConnected, node)).toBe(true);
         expect(await writesOf(page)).toBe(writes);
         // 离开标签条：卡片回来；预览换走之后目标恢复。
-        const away = await inLeaf(page, "panel", {x: 0.5, y: 0.6});
+        const away = await inLeaf(page, window, {x: 0.5, y: 0.6});
         await page.mouse.move(away.x, away.y, {steps: 3});
         await expect(card).toHaveCount(1);
         await expect(ghost(page)).toHaveCount(0);
         await expect(head.locator("[data-panel-tab][aria-selected=\"true\"]")).toHaveAttribute("data-panel-tab", activeBefore ?? "");
         // 回去，放下。
-        await page.mouse.move(strip.x + 2, strip.y + strip.height / 2, {steps: 3});
+        await page.mouse.move(before.x, before.y, {steps: 3});
         await expect(card).toHaveCount(0);
         await page.mouse.up();
-        await expect.poll(() => panelOfTab(page, AUXILIARY_VIEW)).toBe("panel");
+        await expect.poll(() => panelOfTab(page, AUXILIARY_VIEW)).toBe(window);
         await expect(head.locator("[data-panel-tab]").first()).toHaveAttribute("data-panel-tab", `view:${AUXILIARY_VIEW}`);
         expect(await content(page, AUXILIARY_VIEW).evaluate((element, other) => element === other, node)).toBe(true);
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
-    test("活动栏也是标签条：别处的视图放上去被吸收，条目让位，零写入；Esc 回原样；放下进侧栏（输出 22、38）", async ({page}) => {
+    test("活动栏也是标签条：别处的视图放到两个入口之间被吸收，入口让位，零写入；Esc 回原样；放下是侧栏的新容器（输出 22、38、45）", async ({page}) => {
         await open(page);
         const writes = await writesOf(page);
         const entries = page.locator("[data-tool-band] [data-tool-entry]");
-        const before = await entries.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry));
+        // 入口列的是容器（输出 22）：拖出来的新容器是用户容器，id 是随机的，比较时记成 custom。
+        const order = (): Promise<string[]> => entries.evaluateAll((elements) => elements.map((element) => {
+            const id = (element as HTMLElement).dataset.toolEntry ?? "";
+            return id.startsWith("custom:") ? "custom" : id;
+        }));
+        const before = await order();
         const first = await entries.first().boundingBox();
-        if (first === null || before.length === 0) throw new Error("活动栏没有条目");
+        if (first === null || before.length === 0) throw new Error("活动栏没有入口");
         await lift(page, tab(page, AUXILIARY_VIEW));
+        // 第一个入口的上沿：入口之间（第一个之前），不是入口上（输出 45）。
         await page.mouse.move(first.x + first.width / 2, first.y + 2, {steps: 6});
-        const placed = page.locator(`[data-tool-band] [data-tool-entry="${AUXILIARY_VIEW}"]`);
+        const placed = page.locator(`[data-tool-band] [data-tool-view="${AUXILIARY_VIEW}"]`);
         await expect(placed).toHaveCount(1);
         await expect(page.locator("[data-lifted]")).toHaveCount(0);
         await expect(ghost(page)).toHaveCount(0);
         await expect.poll(() => placed.evaluate((element) => getComputedStyle(element.closest(".workbench-tool-strip__frame") as Element).visibility)).toBe("visible");
-        await expect.poll(() => entries.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry))).toEqual([AUXILIARY_VIEW, ...before]);
+        await expect.poll(order).toEqual(["custom", ...before]);
         expect(await writesOf(page)).toBe(writes);
         await page.keyboard.press("Escape");
         await page.mouse.up();
-        await expect.poll(() => entries.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry))).toEqual(before);
+        await expect.poll(order).toEqual(before);
         expect(await writesOf(page)).toBe(writes);
         await settled(page);
         await lift(page, tab(page, AUXILIARY_VIEW));
@@ -531,26 +631,32 @@ test.describe("实时布局", () => {
         await expect(placed).toHaveCount(1);
         await page.mouse.up();
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
-        await expect.poll(() => entries.evaluateAll((elements) => elements.map((element) => (element as HTMLElement).dataset.toolEntry))).toEqual([AUXILIARY_VIEW, ...before]);
+        await expect.poll(order).toEqual(["custom", ...before]);
+        // 放下才切：侧栏切到这个新容器，入口按下（输出 45）。
+        await expect(placed).toHaveAttribute("aria-pressed", "true");
+        expect(await regionOf(page, AUXILIARY_VIEW)).toBe("sidebar");
     });
 
     test("侧栏隐藏时放到活动栏：预览里侧栏不展开，条目照样让位；放下才展开并装着它（输出 22、38）", async ({page}) => {
         await open(page);
-        await page.locator(`[data-panel-head="sidebar"] [data-panel-action="nbook.view.set-part-hidden"]`).click();
-        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        // 分节没有隐藏按钮（输出 20）：点当前容器按下着的入口，侧栏隐藏（输出 22）。
+        const alpha = await sectionOf(page, "test.sample-views.alpha");
+        await page.locator("[data-tool-entry][aria-pressed=\"true\"]").click();
+        await expect(leaf(page, alpha)).toHaveCount(0);
         await settled(page);
         const writes = await writesOf(page);
         const first = await page.locator("[data-tool-band] [data-tool-entry]").first().boundingBox();
         if (first === null) throw new Error("活动栏没有条目");
         await lift(page, tab(page, AUXILIARY_VIEW));
         await page.mouse.move(first.x + first.width / 2, first.y + 2, {steps: 6});
-        await expect(page.locator(`[data-tool-band] [data-tool-entry="${AUXILIARY_VIEW}"]`)).toHaveCount(1);
+        await expect(page.locator(`[data-tool-band] [data-tool-view="${AUXILIARY_VIEW}"]`)).toHaveCount(1);
         await settled(page);
-        await expect(leaf(page, "sidebar")).toHaveCount(0);
+        await expect(leaf(page, alpha)).toHaveCount(0);
         expect(await writesOf(page)).toBe(writes);
         await page.mouse.up();
-        await expect(leaf(page, "sidebar")).toBeVisible();
-        expect(await panelOfTab(page, AUXILIARY_VIEW)).toBe("sidebar");
+        // 侧栏显示出来，切到装着丁的新容器（输出 45）。
+        await expect.poll(() => regionOf(page, AUXILIARY_VIEW)).toBe("sidebar");
+        await expect(leaf(page, alpha)).toHaveCount(0);
         await expect.poll(() => writesOf(page)).toBe(writes + 1);
     });
 
@@ -584,11 +690,73 @@ test.describe("实时布局", () => {
         await page.mouse.up();
     });
 
+    test("活动栏里慢慢经过邻居入口：停在它上面它高亮、就在指针下，入口不动、来源不收起；松手并进那个容器（输出 38、45）", async ({page}) => {
+        await open(page);
+        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        expect(await entries.count()).toBeGreaterThan(2);
+        const firstId = (await entries.nth(0).getAttribute("data-tool-entry")) ?? "";
+        const secondId = (await entries.nth(1).getAttribute("data-tool-entry")) ?? "";
+        const before = await Promise.all([0, 1, 2].map((index) => entries.nth(index).boundingBox()));
+        const second = before[1];
+        if (second === null || second === undefined) throw new Error("没有第二个入口");
+        const writes = await writesOf(page);
+        // 第一个入口是侧栏当前容器唯一的视图：活动栏是它自己的入口条。
+        await lift(page, entries.first());
+        const over = {x: second.x + second.width / 2, y: second.y + second.height / 2};
+        await page.mouse.move(over.x, over.y, {steps: 8});
+        const merged = page.locator(`[data-tool-band] [data-tool-entry="${secondId}"][data-tool-merge]`);
+        await expect(merged).toHaveCount(1);
+        // 来源没收起：它的入口还在，入口都没挪，高亮的就是指针下面那个。
+        await expect(entries).toHaveCount(before.length);
+        for (const [index, box] of before.entries()) expect((await entries.nth(index).boundingBox())?.y).toBe(box?.y);
+        const box = await merged.boundingBox();
+        expect(box !== null && box.y <= over.y && over.y <= box.y + box.height).toBe(true);
+        expect(await writesOf(page)).toBe(writes);
+        await page.mouse.up();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        // 并进第二个容器：第一个入口跟着它唯一的视图走了，侧栏切到第二个容器。
+        await expect(page.locator(`[data-tool-band] [data-tool-entry="${firstId}"]`)).toHaveCount(0);
+        await expect(page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`)).toHaveAttribute("aria-pressed", "true");
+    });
+
+    test("来源收起之后再回到活动栏、停在别的入口上：来源不画回来，高亮的就是指针下那个；松手并进它（输出 38、45）", async ({page}) => {
+        await open(page);
+        const entries = page.locator("[data-tool-band] [data-tool-entry]");
+        const count = await entries.count();
+        expect(count).toBeGreaterThan(2);
+        const firstId = (await entries.nth(0).getAttribute("data-tool-entry")) ?? "";
+        const secondId = (await entries.nth(1).getAttribute("data-tool-entry")) ?? "";
+        // 第一个入口是侧栏当前容器唯一的视图：拖它就是拖这个视图。
+        const source = await sectionOf(page, (await entries.nth(0).getAttribute("data-tool-view")) ?? "");
+        const writes = await writesOf(page);
+        await lift(page, entries.first());
+        // 先停到右栏那一节的后半：来源收起，它的入口没了、下面的入口上移（预览里它那一节摆在右栏，分节换区域时 id 不变）。
+        const away = await inLeaf(page, await sectionOf(page, AUXILIARY_VIEW), {x: 0.5, y: 0.8});
+        await page.mouse.move(away.x, away.y, {steps: 8});
+        await expect(entries).toHaveCount(count - 1);
+        // 收起之后再量第二个入口，停到它中间。
+        const second = await page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`).boundingBox();
+        if (second === null) throw new Error("没有第二个入口");
+        const over = {x: second.x + second.width / 2, y: second.y + second.height / 2};
+        await page.mouse.move(over.x, over.y, {steps: 8});
+        const merged = page.locator(`[data-tool-band] [data-tool-entry="${secondId}"][data-tool-merge]`);
+        await expect(merged).toHaveCount(1);
+        await expect(entries).toHaveCount(count - 1);
+        await expect(leaf(page, source)).toHaveCount(0);
+        const box = await merged.boundingBox();
+        expect(box !== null && box.y <= over.y && over.y <= box.y + box.height).toBe(true);
+        expect(await writesOf(page)).toBe(writes);
+        await page.mouse.up();
+        await expect.poll(() => writesOf(page)).toBe(writes + 1);
+        await expect(page.locator(`[data-tool-band] [data-tool-entry="${firstId}"]`)).toHaveCount(0);
+        await expect(page.locator(`[data-tool-band] [data-tool-entry="${secondId}"]`)).toHaveAttribute("aria-pressed", "true");
+    });
+
     test("中途窗口变了：整场取消", async ({page}) => {
         await open(page);
-        const from = await panelOfTab(page, E);
-        await lift(page, tab(page, E));
-        const target = await inLeaf(page, "panel", {x: 0.97, y: 0.6});
+        // 右栏的丁放到底部面板戊那一节的后半。
+        await lift(page, tab(page, AUXILIARY_VIEW));
+        const target = await inLeaf(page, await sectionOf(page, E), {x: 0.97, y: 0.6});
         await page.mouse.move(target.x, target.y, {steps: 6});
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
         await page.setViewportSize({width: 1300, height: 800});
@@ -598,7 +766,7 @@ test.describe("实时布局", () => {
         await expect(surface(page)).toHaveAttribute("data-drag-feel", "indicator");
         await expect(surface(page)).toHaveAttribute("data-live-preview", "none");
         await page.mouse.up();
-        expect(await panelOfTab(page, E)).toBe(from);
+        expect(await regionOf(page, AUXILIARY_VIEW)).toBe("auxiliarybar");
     });
 
     test("键盘拖动是落点指示", async ({page}) => {

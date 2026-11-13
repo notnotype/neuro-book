@@ -1,0 +1,184 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t15-skills",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00032 t15 Skill：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "5b9b14fc7df2b4d5cc684d327544f0e51e32effd75d547417bbaea9847f3f964",
+    "files": [
+        "index.html",
+        "r1/init-failed.webp",
+        "r1/init-installing-locked.webp",
+        "r1/init-installing.webp",
+        "r1/init-no-lock.webp",
+        "r1/init-plan.webp",
+        "r1/menu-empty.webp",
+        "r1/menu-list.webp",
+        "r1/menu-query.webp",
+        "r1/msg-ambiguous.webp",
+        "r1/msg-missing.webp",
+        "r1/msg-not-allowed.webp",
+        "r1/msg-ok.webp",
+        "r1/page-empty.webp",
+        "r1/page-full.webp",
+        "r1/section-all.webp",
+        "r1/section-list.webp"
+    ],
+    "questions": [
+        {
+            "id": "skills-page",
+            "type": "single",
+            "label": "设置里的 Skill 页",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "menu-needs-init",
+            "type": "single",
+            "label": "输入框的 $ 菜单：未初始化怎样标",
+            "options": [
+                {
+                    "value": "hint",
+                    "label": "A 写在右边说明的开头（推荐）"
+                },
+                {
+                    "value": "badge",
+                    "label": "B 用黄色徽标"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "hint"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "init-dialog",
+            "type": "single",
+            "label": "选了未初始化的 Skill：确认框",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "init-while-installing",
+            "type": "single",
+            "label": "装的时候能不能关掉确认框",
+            "options": [
+                {
+                    "value": "closable",
+                    "label": "A 能关，在后台继续装（推荐）"
+                },
+                {
+                    "value": "locked",
+                    "label": "B 不能关，等装完"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "closable"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "message-skill",
+            "type": "single",
+            "label": "用户消息上的 Skill",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "profile-section",
+            "type": "single",
+            "label": "Profile 设置页的“Skill”一节",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "可以"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-10T18:57:39.797Z"
+}

@@ -7,6 +7,7 @@
 
 import {join} from "node:path";
 
+import {createConsoleExporterFactory, createConsoleFallback} from "@notnotype/nb-host/web";
 import type {Application, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -16,7 +17,6 @@ import type {InstanceDescriptor, RemoteRouter} from "@notnotype/nb-runtime/remot
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 
 import {createApplication} from "nbook/application";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {stateRootKey} from "nbook/shared/host";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
 
@@ -47,7 +47,6 @@ export interface StorageWorld {
     /** 逆序停全部实例，再关路由。 */
     close(): Promise<ReadonlyArray<StopResult>>;
 }
-
 
 export async function storageWorld(root: string, hubPlugins: ReadonlyArray<PluginDefinition>): Promise<StorageWorld> {
     const apps: Application[] = [];

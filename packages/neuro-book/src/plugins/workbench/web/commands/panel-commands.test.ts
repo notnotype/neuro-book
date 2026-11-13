@@ -18,6 +18,7 @@ import {commandDeclarationProblems, createCommandRegistry} from "nbook/plugins/c
 import {storageWorld} from "nbook/plugins/storage/testing/world";
 import type {StorageWorld} from "nbook/plugins/storage/testing/world";
 
+import {regionContainers, viewSection} from "../state/containers";
 import type {LayoutDocStore} from "../state/layout-doc-store";
 import {workbenchState, workbenchStateBindings} from "../state/public-state";
 import {openLayoutDoc} from "../testing/layout-doc";
@@ -57,6 +58,13 @@ async function layout(): Promise<LayoutDocStore> {
     return (await openLayoutDoc(w, "w", "c")).store;
 }
 
+/** 视图所在的分节（面板 id）：区域里能聚焦、收起、最大化的是分节，锚自己不显示。 */
+function sectionOf(store: LayoutDocStore, viewId: string): string {
+    const section = viewSection(store.actions.document(), viewId);
+    if (section === null) throw new Error(`${viewId} 不在区域里`);
+    return section.panel;
+}
+
 describe("声明", () => {
     it("面板命令的声明通过命令系统的校验；when 只引用工作台声明的公开键", () => {
         const declared = new Set((Object.keys(workbenchState.declarations) as (keyof typeof workbenchState.declarations)[]).map((name) => workbenchState.key(name)));
@@ -83,8 +91,8 @@ describe("公开状态（输出 36）", () => {
         current.value = store;
         expect(snapshot()).toEqual({layoutReady: true, nonPhone: true, hasCurrentPanel: false, maximized: false, panelVisible: true, sidebarVisible: true, auxiliaryBarVisible: true, activityBarVisible: true, focusedPart: "editor"});
 
-        // 焦点进了具名面板：focusedPart 是它的名字；进了编辑组是 editor。
-        store.actions.focusPanel("panel");
+        // 焦点进了区域里的分节：focusedPart 是区域的名字；进了编辑组是 editor。
+        store.actions.focusPanel(sectionOf(store, "test.panel"));
         expect(snapshot()).toMatchObject({hasCurrentPanel: true, focusedPart: "panel"});
         store.actions.focusPanel("g0");
         expect(keys.focusedPart.value).toBe("editor");
@@ -92,11 +100,11 @@ describe("公开状态（输出 36）", () => {
         store.actions.focusPanel(null);
         expect(snapshot()).toMatchObject({hasCurrentPanel: true, focusedPart: "editor"});
 
-        store.actions.toggleMaximized("sidebar");
+        store.actions.toggleMaximized(sectionOf(store, "test.side"));
         expect(keys.maximized.value).toBe(true);
-        // 最大化的侧栏盖住了其余面板：它们按名字求值都不算可见。
+        // 侧栏里最大化的分节盖住了别的区域：它们都不算可见。
         expect(snapshot()).toMatchObject({sidebarVisible: true, panelVisible: false, auxiliaryBarVisible: false});
-        store.actions.toggleMaximized("sidebar");
+        store.actions.toggleMaximized(sectionOf(store, "test.side"));
         expect(snapshot()).toMatchObject({maximized: false, panelVisible: true, auxiliaryBarVisible: true});
 
         store.actions.setPartHidden("panel", true);
@@ -105,15 +113,17 @@ describe("公开状态（输出 36）", () => {
         expect(keys.activityBarVisible.value).toBe(false);
     });
 
-    it("收成标题行的面板算可见，拖到零的不算（输出 11、36）", async () => {
+    it("分节收成标题行的区域算可见，拖到零的不算（输出 11、36）", async () => {
         const store = await layout();
         const keys = workbenchStateBindings(shallowRef<LayoutDocStore | null>(store));
-        // `panel` 在纵向分支里：收成标题行，仍占着地方。
-        store.actions.setCollapsed("panel", true);
-        expect(keys.panelVisible.value).toBe(true);
-        // `sidebar` 在横向分支里：收起就是拖到零，宽度为 0。
-        store.actions.setCollapsed("sidebar", true);
-        expect(keys.sidebarVisible.value).toBe(false);
+        // 侧栏的分节收成标题行：仍占着地方。区域里要有两个分节才收得成（输出 11）。
+        const side = sectionOf(store, "test.side");
+        expect(store.actions.moveView("test.panel", {container: "view:test.side"}).ok).toBe(true);
+        expect(store.actions.setCollapsed(side, true).ok).toBe(true);
+        expect(keys.sidebarVisible.value).toBe(true);
+        // 区域拖到零记在锚上：宽度为 0。
+        store.actions.setCollapsed("auxiliarybar", true);
+        expect(keys.auxiliaryBarVisible.value).toBe(false);
     });
 });
 
@@ -121,36 +131,84 @@ describe("命令", () => {
     it("收起省略参数时切换，带参数时设成给定值；缺省作用在当前面板，panelId 优先", async () => {
         const store = await layout();
         const commands = panelCommands(() => store);
-        store.actions.focusPanel("panel");
+        // 侧栏里放两个分节：只显示一个时它收不成标题行（下一条）。
+        const side = sectionOf(store, "test.side");
+        expect(store.actions.moveView("test.panel", {container: "view:test.side"}).ok).toBe(true);
+        const lower = sectionOf(store, "test.panel");
+        store.actions.focusPanel(side);
         const collapsed = (panel: string) => store.state.doc.panels[panel]?.collapsed === true;
 
         expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({})).toEqual({ok: true, value: null});
-        expect(collapsed("panel")).toBe(true);
+        expect(collapsed(side)).toBe(true);
         await commands[SET_PANEL_COLLAPSED_COMMAND].run({collapsed: true});
-        expect(collapsed("panel")).toBe(true);
+        expect(collapsed(side)).toBe(true);
         await commands[SET_PANEL_COLLAPSED_COMMAND].run({});
-        expect(collapsed("panel")).toBe(false);
+        expect(collapsed(side)).toBe(false);
 
-        await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: "auxiliarybar", collapsed: true});
+        await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: lower, collapsed: true});
+        expect(collapsed(lower)).toBe(true);
+        expect(collapsed(side)).toBe(false);
+
+        // 对区域的锚是整个区域拖到零：省略参数时按锚自己的记录切换。
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: "auxiliarybar"})).toEqual({ok: true, value: null});
         expect(collapsed("auxiliarybar")).toBe(true);
-        expect(collapsed("panel")).toBe(false);
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: "auxiliarybar"})).toEqual({ok: true, value: null});
+        expect(collapsed("auxiliarybar")).toBe(false);
+    });
+
+    it("收不成标题行的分节 unavailable，文档不变：底部面板的分节不折叠；区域此刻唯一显示的分节不能收起，记录里留着的收起切换时不算（输出 11、20、35）", async () => {
+        const store = await layout();
+        const commands = panelCommands(() => store);
+        const [side, lower] = [sectionOf(store, "test.side"), sectionOf(store, "test.panel")];
+        const before = store.actions.document();
+
+        for (const args of [{}, {collapsed: true}, {collapsed: false}]) {
+            expect(failureText(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: lower, ...args}))).toBe("底部面板里的视图不能收起");
+        }
+        for (const args of [{}, {collapsed: true}]) {
+            const result = await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, ...args});
+            expect(result).toMatchObject({ok: false, code: "unavailable"});
+            expect(failureText(result)).toBe("这里只显示这一个视图，不能收起");
+        }
+        expect(store.actions.document()).toBe(before);
+
+        // 两个分节时收起一个，再把另一个移走：记录留着，但它此刻没收起，切换仍然是“收起”，不可用；明说展开可以，把记录清掉。
+        expect(store.actions.moveView("test.aux", {container: "view:test.side"}).ok).toBe(true);
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, collapsed: true})).toEqual({ok: true, value: null});
+        expect(store.actions.moveView("test.aux", {container: "view:test.aux"}).ok).toBe(true);
+        expect(store.actions.document().panels[side]?.collapsed).toBe(true);
+        expect(failureText(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side}))).toBe("这里只显示这一个视图，不能收起");
+        expect(store.actions.document().panels[side]?.collapsed).toBe(true);
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, collapsed: false})).toEqual({ok: true, value: null});
+        expect(store.actions.document().panels[side]?.collapsed).toBeUndefined();
     });
 
     it("最大化切换，不落盘；隐藏或收起最大化着的面板时退出（输出 13）", async () => {
         const store = await layout();
         const commands = panelCommands(() => store);
-        store.actions.focusPanel("panel");
+        const [side, lower] = [sectionOf(store, "test.side"), sectionOf(store, "test.panel")];
+        // 区域唯一显示的分节收不成标题行：收起不可用，最大化不退出。
+        await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: side});
+        expect(await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, collapsed: true})).toMatchObject({ok: false, code: "unavailable"});
+        expect(store.state.maximized).toBe(side);
+        await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: side});
+        // 侧栏里再放一个分节，下面才收得起来。
+        expect(store.actions.moveView("test.aux", {container: "view:test.side"}).ok).toBe(true);
+        store.actions.focusPanel(lower);
         await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({});
-        expect(store.state.maximized).toBe("panel");
+        expect(store.state.maximized).toBe(lower);
         await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({});
         expect(store.state.maximized).toBeNull();
 
         await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: "g0"});
         expect(store.state.maximized).toBe("g0");
         // 换成另一块：同一时刻只有一块最大化。
-        await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: "sidebar"});
-        expect(store.state.maximized).toBe("sidebar");
-        await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: "sidebar", collapsed: true});
+        await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: side});
+        expect(store.state.maximized).toBe(side);
+        // 区域的锚自己不显示：区域里最大化的是一个分节，对锚不可用，原来的不变。
+        expect(failureText(await commands[TOGGLE_PANEL_MAXIMIZED_COMMAND].run({panelId: "sidebar"}))).toBe("没有可以操作的面板");
+        expect(store.state.maximized).toBe(side);
+        await commands[SET_PANEL_COLLAPSED_COMMAND].run({panelId: side, collapsed: true});
         expect(store.state.maximized).toBeNull();
     });
 
@@ -188,7 +246,9 @@ describe("命令", () => {
 
         expect(await run(DOCK_COMMAND, {})).toEqual({ok: true, value: null});
         expect(store.actions.document().floats).toEqual([]);
-        expect(store.actions.document().panels.panel?.tabs.map((tab) => (tab.kind === "view" ? tab.viewId : ""))).toEqual(["fixed", "v"]);
+        // 回到它自己的容器，入口还在原来的位置。
+        expect(regionContainers(store.actions.document(), "panel").map((container) => [container.id, container.views])).toEqual([["view:fixed", ["fixed"]], ["view:v", ["v"]]]);
+        expect(store.actions.document().panels.panel?.activeContainer).toBe("view:v");
     });
 
     it("没有当前面板、panelId 指向不存在的面板、外壳没挂载时都是 unavailable，布局不变", async () => {
@@ -243,7 +303,8 @@ describe("经命令注册表", () => {
 
     it("参数严格：多余字段与非法取值为 invalid-args 且不改布局；位置、对齐、隐藏面板的旧命令不再注册", async () => {
         const store = await layout();
-        store.actions.focusPanel("panel");
+        const lower = sectionOf(store, "test.panel");
+        store.actions.focusPanel(lower);
         const registry = registryFor(shallowRef<LayoutDocStore | null>(store));
         const before = JSON.stringify(store.state.doc);
         expect(await registry.execute(SET_PANEL_COLLAPSED_COMMAND, {collapsed: "yes"}, {source: "user"})).toMatchObject({ok: false, code: "invalid-args"});
@@ -254,6 +315,6 @@ describe("经命令注册表", () => {
         for (const id of ["nbook.view.set-panel-position", "nbook.view.set-panel-alignment", "nbook.view.set-panel-hidden"]) expect(registry.isEnabled(id).ok, id).toBe(false);
 
         expect(await registry.execute(TOGGLE_PANEL_MAXIMIZED_COMMAND, {}, {source: "user"})).toEqual({ok: true, value: null});
-        expect(store.state.maximized).toBe("panel");
+        expect(store.state.maximized).toBe(lower);
     });
 });

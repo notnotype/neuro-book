@@ -1,0 +1,78 @@
+# t22 实现审查报告（HEAD 31fc05cc0，范围 3b340e780..31fc05cc0）
+
+## 1. 块批注的卡片 key 是位置，正文里上面的字一变，页边里这张卡片就整张重建、闪一下
+- 严重程度：重要；类别：正确性（动画合同的副作用）
+- 位置：packages/nb-markdown/src/editor/comments.ts:134（`identity: raw.block ? \`b${segments[0].from}\` : group`）与 packages/neuro-book/src/plugins/markdown/web/components/menus/comments/MarkdownCommentLayer.vue:159（`key: info.identity`）、MarkdownCommentMargin.vue:54-117（`offsets`、`ready` 都按 key 记）、MarkdownCommentMargin.vue:236-256（没有 `data-ready` 时 `opacity:0`）
+- 现象：块批注的 identity 是 `b` 加块的位置。页边画着时，在这个块前面的任何地方打一个字，块的位置就变了，key 从 `b120` 变成 `b121`：旧 key 的卡片走 TransitionGroup 的 leave，新 key 的卡片 `offsets` 里没有、`ready` 里没有，渲染成 `top:0; opacity:0`，等下一个 rAF 排位置、再下一个 rAF 进 `ready`，才带着 280ms 的入场动画（透明度加 8px 位移）出现。也就是每敲一个键，所有排在编辑点后面的块批注卡片都消失再淡入一次。行内批注的 identity 是标记的 key，稳定，不受影响。
+- 为什么是问题：t22 之前同样按 identity 记 key，但没有“首次排好才显示”的机制，重建只是同帧重绘，看不出来；这次加了 `ready` 与入场动画，把一个原本无害的不稳定 key 变成了每次按键的可见闪烁。Spec 输出 33 与 design-language“列表里卡片的出现与移动”写的判据是“卡片增删时别的卡片滑开”，不是“按键就重放入场”。注释里 `identity` 写“换文档、改动之后不保证稳定”，MarginItem 却把它当成跨事务稳定的 key 用。
+- 如何核实：从代码推断，没有跑浏览器。复现：打开宽编辑组（页边画着）、文件里有一条块批注（`<comment body="x">` 包一个代码块或多段），在它前面的段落里连续打字，观察卡片。想用 DOM 测试固定它：MarkdownCommentMargin.dom.test.ts 里给一条块批注，把 items 的 key 从 `b10` 换成 `b11`（模拟位置后移），断言原来的元素没有被卸载、没有丢 `data-ready`。
+- 建议改法：Margin 的 key 不要用位置。块批注给一个跨事务稳定的身份（例如用批注块节点上的 `id`/读入时编的 key；没有的话在 Layer 里按“上一次的 items 与这一次按指纹匹配”继承 key）；或者让 `offsets/ready` 对“同一序号、同一指纹”的卡片沿用旧 key。最简单的做法：Layer 的 `marginItems` 里 key 用 `matchComment` 能对上的上一次的 key。
+
+## 2. 页边单张卡片移除时的淡出被 `[data-ready]` 的 transition 盖掉，实际没有动画
+- 严重程度：建议（与 design-language 新补的“消失：透明度，--motion-fast”不符，不影响功能）；类别：正确性（动画）
+- 位置：packages/neuro-book/src/plugins/markdown/web/components/menus/comments/MarkdownCommentMargin.vue:248-256 与 271-279
+- 现象：`.markdown-comment-card-leave-active { transition: opacity … }`（scoped 后特异性 0,2,0）被 `.markdown-comment-margin__item[data-ready] { transition: top …, background-color …, border-color …, box-shadow … }`（0,3,0）整条盖掉。卡片移除时 Vue 加 leave-active/leave-to，`opacity` 立刻变 0，不渐变；Vue 还会按被盖后的 transition 时长（280ms）把节点留在 DOM 里，期间是不可见的空位。
+- 如何核实：我在 /tmp/t22-review-impl/cascade/t.html 里用同样的选择器结构与令牌值、真实 Chrome（headless）取 getComputedStyle：同时带 `data-ready` 与 leave-active 的元素 `transition-property` 是 `top, background-color`，没有 opacity（脚本与结果都在那个目录，不在仓库里）。e2e 与 DOM 测试都没有断言单卡淡出（e2e 只看了整个页边的淡出，Layer 的 `<Transition>` 那一层没有这个问题）。
+- 建议改法：leave-active 的 transition 写在更高特异性上，例如 `.markdown-comment-margin__item[data-ready].markdown-comment-card-leave-active { transition: opacity var(--motion-fast) var(--ease-dialog-leave); }`；并补一条 e2e：删一条批注，断言它在被摘掉前 opacity 经过了 0 到 1 之间的中间值，或 `getComputedStyle(...).transitionProperty` 含 opacity。
+
+## 3. 文档与注释里还留着旧行为或没做的行为
+- 严重程度：建议；类别：文档
+- 位置与内容：
+  a. packages/neuro-book/src/plugins/markdown/web/components/menus/comments/MarkdownCommentLayer.md:23 的 `env:global` 仍写“`window` 上的 `pointerup`、`pointercancel`”，实现里（MarkdownCommentLayer.vue:342-363）没有这两个监听，只有滚动容器的 `pointermove`、`pointerleave`、`pointerdown`、`document` 的 `keydown` 和编辑器 DOM 的 `keydown`。
+  b. packages/nb-markdown/src/editor/comments.ts:43 `identity` 的注释写“只用来判断‘进入了哪条批注’（`commentEntry`）”：`commentEntry` 已删，现在它是页边卡片的 key 和浮层 `v-for` 的 key（见第 1 条，那里它不稳定就是问题）。
+  c. packages/nb-markdown/src/language/syntax/comment/index.ts:42 `addComment` 的声明注释新增“节点选区（块菜单选中的整块）包进块批注”，但实现（同文件 200-218 行）没有节点选区的分支，块菜单也不走它（走 `addBlockComment`）；节点选区进来时会落到 `addMark` 上，对代码块等不允许标记的节点静默不做。注释描述了不存在的行为。
+  d. MarkdownCommentMargin.md“动画”一节写“卡片移除时淡出（--motion-fast）”，实际没有（第 2 条）。
+  e. packages/neuro-book/src/plugins/markdown/web/components/menus/comments/MarkdownCommentCard.dom.test.ts:1 的头注释仍写“摘要”，而这次把 `compact` 摘要模式换成了 `variant="margin"`（页边里限行，不是另一种模式）。
+- 如何核实：`grep -rn "pointerup\|pointercancel" packages/neuro-book/src/plugins/markdown/web/components/menus/comments/`；`grep -n "commentEntry" packages/nb-markdown/src/editor/comments.ts`；`grep -n NodeSelection packages/nb-markdown/src/language/syntax/comment/index.ts` 无命中。
+- 建议改法：逐处改注释与 .md；c 处删掉那句，或者真的给 `addComment` 加节点选区分支（但块菜单已经走 `comment-block`，没有第二条路径的需要，建议删句）。
+
+## 4. packages/neuro-book 的类型检查不通过：新 e2e 里 `offsetWidth` 在 `HTMLElement | SVGElement` 上不存在
+- 严重程度：重要（验证门禁里的类型检查红）；类别：测试
+- 位置：packages/neuro-book/e2e/markdown-comments.e2e.ts:408（提交 71cd8f919 引入）
+- 现象：`bun run --cwd packages/neuro-book typecheck` 退出码 2，第三段 `vue-tsc --noEmit -p tsconfig.browser-test.json` 报 `e2e/markdown-comments.e2e.ts(408,148): TS2339 Property 'offsetWidth' does not exist on type 'HTMLElement | SVGElement'`，同一行 `offsetHeight` 也是。`marginItems(page).evaluateAll((elements) => ...)` 的元素类型是 `HTMLElement | SVGElement`。nb-markdown 的类型检查（退出码 0）与 neuro-book 前两段（tsc、vue-tsc web）通过。
+- 为什么是问题：交付说明若写了“类型检查通过”就不成立；e2e 文件本身不受 Playwright 的转译影响，所以 e2e 能跑，只有 typecheck 能发现。
+- 如何核实：在实现 worktree 里 `bun run --cwd packages/neuro-book typecheck`（我跑过，日志 /tmp/t22-review-impl/tc-nb.log）。
+- 建议改法：回调里把 `element` 收窄到 `HTMLElement`（`(element as HTMLElement).offsetWidth`，或先 `elements.filter((e): e is HTMLElement => e instanceof HTMLElement)`）。
+
+## 5. Ctrl+Alt+M 改光标所在批注时，“写”卡片的位置取了悬停卡片的位置，不是光标所在那一行
+- 严重程度：建议（违反 Spec 输出 30 的“改已有批注的在光标所在那一行下面”，但要两个条件同时成立）；类别：正确性
+- 位置：MarkdownCommentLayer.vue:392-400（`beginEdit`：`const at = viewing.value?.pos ?? editor.state.selection.head`）与 320-334（`onKeyDown` 调 `beginEdit(first)`）
+- 现象：`beginEdit` 不分入口一律先取悬停卡片的位置。键盘入口（Ctrl+Alt+M）改的是 `cursorAt[0]`（光标所在的批注 X）；若此刻鼠标恰好停在另一条批注 Y 上、悬停卡片开着（方向键走进批注不关悬停卡片，这是这次的设计），`at` 就是 Y 的位置：写卡片贴在 Y 那一行（`commentLineAnchor` 用 Y 的行上下沿、X 的各截去找最左，找不到就用 Y 处的 caret.left），而写的是 X 的意见；保存后 `viewing = {pos: at}` 又把“看”卡片开回 Y 的位置，卡片里是 Y。同一个 `at` 也被页边里的“编辑”用：页边里点非当前卡片的编辑按钮（按钮 hover 时可见、点按钮不触发 select，光标不动），`at` 是光标处，与被编辑的批注无关；这时若编辑组被拉窄、页边退成浮层，写卡片出现在光标那一行而不是这条批注那一行。
+- 如何核实：从代码推断。DOM 测试可以这样固定：TWO 文档里先悬停“乙丙”开卡片，再 `setTextSelection` 到“己庚”里，按 Ctrl+Alt+M，断言写卡片的锚点（`commentLineAnchor` 的 `pos()`）在“己庚”内；现在在“乙丙”内。
+- 建议改法：`beginEdit(info, at)` 由入口给位置：卡片上的编辑按钮传 `viewing.pos`，Ctrl+Alt+M 传 `selection.head`，页边的编辑传 `info.start`。比现在多一个参数，没有新机制。
+
+## 6. 悬停的“同一次悬停不再弹”（`suppressed`）没有测试护着；紧挨的两条批注，指针在接缝一侧会同时出两条卡片
+- 严重程度：建议；类别：测试 / 正确性（窄）
+- 位置：MarkdownCommentLayer.vue:200-205、242-259；MarkdownCommentLayer.dom.test.ts“在正文里按下鼠标、输入、Esc 收起……”；e2e markdown-comments.e2e.ts 的“点击收起卡片，同一次悬停不再弹”
+- 变异实验：把 `closeView` 里的 `suppressed = suppress && overComment !== null;` 改成 `suppressed = false;`（等于去掉“同一次悬停不再弹”），跑 MarkdownCommentLayer.dom.test.ts：20 个用例全绿（已用备份还原，`git status` 干净）。原因：测试里点击、输入、Esc 之后都是在同一个批注元素上再 `pointermove`，而 `onPointerMove` 一开头 `element === overComment` 就返回了，`suppressed` 根本没有被读到。e2e 同样：真实 Chrome 里指针落在同一个 `<comment>` 元素上，走同一个早退。`suppressed` 只在 `overComment` 换成另一个元素时才起作用——典型的是输入或加标记后 ProseMirror 把 `<comment>` 元素重建（旧的 `overComment` 脱离文档），指针没动一下就是“新元素”，这时没有 `suppressed` 就会重新计时、弹出卡片，正是 Spec 输出 30 说的“打字之后同一次悬停不再弹”。这条规则现在是未被任何测试验证的代码。
+- 建议改法：在 Layer 的 DOM 测试里加一例：悬停开卡片，按下（或输入）收起，然后把批注元素换成另一个节点（例如在批注里输入、或直接 `replaceWith` 一个克隆）再对新元素 `pointermove`，断言不弹；再离开到无批注处、回来，断言弹。e2e 里用“在批注里替换整句（会重建元素）后鼠标轻微移动”来做。
+- 附带的窄问题（建议，不一定改）：`openAtPointer` 用 `posAtCoords` 的位置去 `commentsAtPos`，后者两端都含（为光标设计）。两条批注紧挨时，指针在前一条最后一个字的右半边，位置是前一条的末端也是后一条的起点，卡片里会同时出两条（序号、按钮各一份），而指针只在前一条上。可以只在 `pos` 落在“指针所在批注元素”对应的范围内时取，或悬停时用严格不含两端的判断，再退回现在的做法。窄场景，按开发者对窄场景的偏好可以记为已知限制。
+
+## 7. 输入法组字过程中 `appendTransaction` 改标记，没有任何测试在真实输入法下验证（未验证的风险）
+- 严重程度：重要（未验证，按 Spec 输出 36 与验收 18 写明“含输入法”，需要真人试一次）；类别：正确性 / 测试
+- 位置：packages/nb-markdown/src/language/syntax/comment/index.ts:107-171（`inheritComments`）；e2e markdown-comments.e2e.ts:352（“一次提交一段字”）、274（“真实的输入法组字”）
+- 现象：整句替换的继承与续写都放在 `appendTransaction` 里，在有 `compositionstart` 之后 ProseMirror 往状态里写组字文字的那些事务上同样会跑：选区里的整句被换成组字中的拼音（`from<to`，全在批注里）时会追加一个 `addMark`，把正在组字的那段文字包进新的 `<comment>` 元素；之后每次组字更新（`from===previous.end` 的续写分支）又追加一次。组字中途让 ProseMirror 重画组字文字所在的标记元素，是否会让 Chrome 或某个输入法取消组字，作者没有验证：e2e 注释自己承认 CDP 的 `Input.imeSetComposition` 不替换选区，所以实际只验证了“提交一段字”（`Input.insertText`），没有走过“选中整句、开始组字、组字更新几次、提交”这条真实路径。测试里的 `replace` 都是直接 `tr.insertText(text, from, to)`，也绕过了组字。
+- 如何核实：真人用系统输入法（拼音）：打开有批注的文件，选中批注里的整句（或后半句），直接开始拼音输入，观察 ①组字下划线是否一直在、候选框是否不断；②提交后字是否仍在批注里；③撤销一步是否回到原样。也可以用 CDP 的 `Input.imeSetComposition` 带 `replacementStart/replacementEnd` 参数试能否让它替换选区。
+- 建议改法：先验证，不要先改。若组字被打断，可以把继承放到 `compositionend` 之后（`view.composing` 为真时不追加，组字结束的那个事务再一并补），代价是组字期间新字在批注外，提交后进入批注；这个行为变化要回写 Spec 输出 36。
+
+## 8. 整块批注的“写”在页边画着时的位置（待写卡片取块位置）没有任何测试
+- 严重程度：建议；类别：测试
+- 位置：MarkdownCommentLayer.vue:165-170（待写卡片的 `anchor = target.block.pos`）、MarkdownCommentMargin.vue:68-77（`topOf` 用 `coordsAtPos(块的位置)`）
+- 现象：Layer 的 DOM 测试里 `beginAddBlock` 只在浮层（marginDrawn=false）下测，e2e 的块菜单用例也是在默认关着页边的 2400px 宽视口里走浮层（`blockAnchor`）。页边画着时待写卡片的顶边取 `coordsAtPos` 在“块开始前的位置”（两个顶层块之间的边界位置）上量：这类位置上 ProseMirror 的矩形取的是前一块的底还是后一块的顶，随块的种类（表格外框、代码块、原子块）而定，没有被量过。
+- 如何核实：真实浏览器里开页边，用块菜单给表格、代码块、分割线各加一条批注，看待写卡片的顶边是否对着那一块的顶。
+- 建议改法：e2e 加一例（开页边 + 块菜单批注表格），断言待写卡片的 top 与块的 top 差不超过一行。
+
+## 未发现问题的方面（仔细检查后）
+- 悬停状态机的计时器与监听：`closeView` 在每个出口都 `clearTimers` 并复位 `overCard`；卸载与换文档时 `detach`、`closeAll` 清了计时器与监听；指针从批注经空白进卡片、从卡片回批注、批注之间互换，按代码推演都没有残留的计时器或卡住的 `overCard`（`pointerleave` 总在新目标的 `pointermove` 之前到）。`step` 之后卡片按 `target.start` 重新对准。
+- `inheritComments`：与撤销历史的分组（追加事务并进原事务，`addToHistory:false` 的原事务也不污染历史）、与 `whole-ruby` 的先后（whole-ruby 只处理 AddMark/RemoveMark 步，不再触发本插件）、`mapLater` 多事务映射、整块替换与外部重载（切片不是纯文本，直接返回）、换文档（`updateState` 时插件状态重新 `init`）、粘贴（`pastedComments` 换了 key 后与被换掉的标记不相等，不继承，行为自洽）、热路径（无替换步时只做几次 `instanceof` 与比较）都没有发现问题。唯一的空事务（标记本来就在）只带续写的元数据，历史与编辑器事件都忽略它。
+- 块菜单的“批注”：`focusHandedToCard` 只在 `action` 里置位，`ContextMenuPanel.selectItem` 先 `action()` 后 `emit("select")`，所以必然紧跟一次 `onRequestClose` 复位，Esc、点外面等路径不会置位，不会误吞下一次“还焦点”；`wrapBlock` 对文档外位置有保护（`nodeAt` 前判断 `pos > content.size`），`canCommentBlockAt` 对非块位置返回 false；表格按位置做，不依赖节点选区。
+- `selection-anchor.ts`：`posToDOMRect` 自己夹位置，`leftOnLine` 夹了范围，`blockAnchor` 的 `nodeDOM` 找不到时给空矩形；没有布局时回退到 caret 的位置。性能：只在浮层开着时每帧量一次，常见的批注范围很小。`AnchoredPopover` 的 `align` 与 `.md`、测试一致。
+- 令牌：新增的 CSS 全用 `var(--motion-*)`、`var(--ease-*)`；`governance:check` 通过（无失败、无新增警告）。减少动态效果时 `--motion-*` 为 0，入场动画与过渡都是 0 时长，`transitionrun` 不会触发，页边不进每帧重排循环。
+- `opacity:0` 的待排卡片：`pointer-events:none`，不挡点击；没用 `visibility:hidden`，textarea 能拿焦点（作者已处理并有注释）。
+- `commentEntry`、`caretAnchor` 在源码里已无引用，旧的 `compact` 模式名在代码里已无（只剩第 3 条列的注释）。
+- 合同测试与类型检查：nb-markdown `vitest run src/editor src/language/syntax` 141 通过、typecheck 退出码 0；neuro-book `vitest run src/plugins/markdown` 129 通过；neuro-book typecheck 失败，见第 4 条。
+- 唯一的变异实验：第 6 条的 `suppressed` 变异（已用 `/tmp/t22-review-impl/MarkdownCommentLayer.vue.orig` 还原，`cmp` 一致、`git status` 干净）。没有跑 e2e 与开发服务；第 2 条用 /tmp/t22-review-impl/cascade/t.html 在 headless Chrome 里取了计算样式，不在仓库里。
+
+## 汇总
+- 有效发现 8 条：阻断 0，重要 3（第 1、4、7；第 7 条是未验证的风险，需真人用输入法试），建议 5（第 2、3、5、6、8）。
+- 有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8

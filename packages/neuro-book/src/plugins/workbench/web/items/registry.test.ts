@@ -72,7 +72,7 @@ interface Control {
     text: () => Text;
 }
 
-function contributor(id: string, items: Readonly<Record<string, Partial<ItemDeclaration>>>, control: Control, point: string = WORKBENCH_STATUSBAR_ITEMS_POINT): PluginDefinition {
+function contributor(id: string, items: Readonly<Record<string, Partial<ItemDeclaration>>>, control: Control, point: string = WORKBENCH_STATUSBAR_ITEMS_POINT, extra: Partial<ItemImplementation> = {}): PluginDefinition {
     return {
         id,
         entries: [{
@@ -82,7 +82,7 @@ function contributor(id: string, items: Readonly<Record<string, Partial<ItemDecl
             contributions: Object.entries(items).map(([item, declared]) => ({capability: point, id: item, declaration: declared})),
             activate: (context) => {
                 control.context = context;
-                const implementation: ItemImplementation = {text: () => control.text(), tooltip: () => "提示", state: () => "warning"};
+                const implementation: ItemImplementation = {text: () => control.text(), tooltip: () => "提示", state: () => "warning", ...extra};
                 return {contributions: {[point]: Object.fromEntries(Object.keys(items).map((item) => [item, implementation]))}};
             },
         }],
@@ -113,6 +113,24 @@ describe("条目注册表", () => {
         expect(shown.map((item) => item.id)).toEqual(["test.items.left", "test.items.a", "test.items.b"]);
         expect(shown[0]).toMatchObject({title: "标题L", text: "文字", tooltip: "提示", state: "warning", command: {id: "nbook.editor.save-all", args: {}}});
         expect(owner.status!.shown(workbenchTestText("en-US"))[1]!.title).toBe("Title A");
+    });
+
+    it("图标与悬停内容带给外壳；同一个悬停内容只加载一次，失败只记一次诊断（外壳四输出 42、43）", async () => {
+        let loads = 0;
+        const hover = {load: async () => {
+            loads += 1;
+            throw new Error("no component");
+        }};
+        const {owner} = await start([contributor("test.items", {"test.items.a": declaration("A"), "test.items.b": declaration("B", {order: 1})}, control(), WORKBENCH_STATUSBAR_ITEMS_POINT, {icon: () => ({name: "i-lucide-bell", spin: true}), hover})]);
+        const [first] = owner.status!.shown(workbenchTestText("zh-CN"));
+        expect(first).toMatchObject({icon: {name: "i-lucide-bell", spin: true, muted: false}});
+        const [again] = owner.status!.shown(workbenchTestText("zh-CN"));
+        expect(again!.hover).toBe(first!.hover);
+        await expect(first!.hover!.load()).rejects.toThrow("no component");
+        await expect(again!.hover!.load()).rejects.toThrow("no component");
+        first!.hover!.failed(new Error("render failed"));
+        expect(loads).toBe(1);
+        expect(owner.reports.filter((report) => report.includes("hover content"))).toHaveLength(1);
     });
 
     it("实现返回固定的文字引用、声明省略标题：都按窗口当前语言翻译，切换语言后在 computed 里重算", async () => {
