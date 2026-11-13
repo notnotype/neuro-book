@@ -22,14 +22,15 @@ updated: 2026-11-13
 ## 范围
 
 - 发行提案：两个维度的取舍、桌面壳选型、安装包形态、更新方式、签名与公证、版本号与发布顺序。
-- 桌面壳与安装包：Windows、macOS、Linux。
-- CI：多平台构建与冒烟；打标签自动发布（npm 包、桌面包、GitHub Release）。
+- 桌面壳与安装包：Electrobun（候选 Electron）；先做 Windows 的 setup 安装程序与便携包，macOS、Linux 在后。
+- 应用内的外部工具向导：Git、Python 等，可随 NeuroBook 安装（自己管理）或装到系统（只识别）。
+- CI：构建与冒烟；打 `v*` 标签后全自动发布（npm 包、桌面包、GitHub Release）。
 
 非目标：服务器部署（Docker、远端访问，以鉴权为前提另写提案）；后台运行与系统服务（`nbook service`）。
 
 ## 授权
 
-- 远端写入（push、打标签、发 npm、建 GitHub Release、配置仓库 Secrets）仍要开发者逐次授权；自动发布的流水线本身上线前由开发者确认。
+- 开发者 2026-11-13 定打 `v*` 标签后全自动发布。流水线本身上线前由开发者确认；push、打标签、配置仓库 Secrets 等远端写入仍要开发者逐次授权。
 - 签名证书与 Apple 开发者账号由开发者提供，Agent 不经手密钥原文。
 
 ## Task
