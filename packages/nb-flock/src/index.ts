@@ -25,8 +25,8 @@ export interface FileLock {
  * 拿 `path` 上的锁（文件不存在就建）。返回 null 表示锁被别的持有者拿着，同一进程里第二次拿同一个文件也拿不到。
  * 别的失败都抛 Error：打不开文件（目录不存在、没有权限）、平台不支持、Windows 上 `LockFileEx` 报“被占用”以外的错误。
  *
- * POSIX 上 `flock` 的任何失败都当作被占用：经 ffi 读不到 errno。所以在不支持 `flock` 的文件系统（例如部分 NFS）上
- * 会一直返回 null。
+ * POSIX 上 `flock` 的任何失败都当作被占用，不看 errno（沿用实测过的原实现）。所以在不支持 `flock` 的文件系统
+ * （例如部分 NFS）上会一直返回 null。
  */
 export function tryLock(path: string): FileLock | null {
     return process.platform === "win32" ? tryLockWindows(path) : tryLockPosix(path);

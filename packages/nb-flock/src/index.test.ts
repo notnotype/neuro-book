@@ -23,18 +23,21 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-/** 起子进程拿锁，读到它的第一行（`held` 或 `busy`）再返回。 */
-async function holdInChild(path: string) {
+/** 起子进程拿锁。`first` 在读到它的第一行（`held` 或 `busy`）时完成；调用方拿到 `child` 就进 try，失败时也结束它。 */
+function holdInChild(path: string) {
     const child = Bun.spawn(["bun", CHILD, path], {stdin: "pipe", stdout: "pipe", stderr: "inherit"});
-    const reader = child.stdout.pipeThrough(new TextDecoderStream()).getReader();
-    let first = "";
-    while (!first.includes("\n")) {
-        const {value, done} = await reader.read();
-        if (done) break;
-        first += value;
-    }
-    reader.releaseLock();
-    return {child, first: first.trim()};
+    const first = (async () => {
+        const reader = child.stdout.pipeThrough(new TextDecoderStream()).getReader();
+        let text = "";
+        while (!text.includes("\n")) {
+            const {value, done} = await reader.read();
+            if (done) break;
+            text += value;
+        }
+        reader.releaseLock();
+        return text.trim();
+    })();
+    return {child, first};
 }
 
 describe("tryLock", () => {
@@ -52,9 +55,9 @@ describe("tryLock", () => {
 
     it("别的进程拿着时拿不到；它被强杀后立即能拿到", async () => {
         const path = join(tmp, "cross-process.lock");
-        const {child, first} = await holdInChild(path);
+        const {child, first} = holdInChild(path);
         try {
-            expect(first).toBe("held");
+            expect(await first).toBe("held");
             expect(tryLock(path)).toBeNull();
             child.kill(9);
             await child.exited;
@@ -71,9 +74,9 @@ describe("tryLock", () => {
         const path = join(tmp, "held-here.lock");
         const mine = tryLock(path);
         expect(mine).not.toBeNull();
-        const {child, first} = await holdInChild(path);
+        const {child, first} = holdInChild(path);
         try {
-            expect(first).toBe("busy");
+            expect(await first).toBe("busy");
             expect(await child.exited).toBe(1);
         } finally {
             child.kill(9);

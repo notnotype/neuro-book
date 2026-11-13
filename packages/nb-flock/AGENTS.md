@@ -2,7 +2,7 @@
 
 本包位于 `packages/nb-flock`，遵循仓库共享 Agent 合同 [`../../AGENTS.md`](../../AGENTS.md)。本文件只保留本包的专属规则。
 
-`@notnotype/nb-flock` 是不判旧的进程级独占文件锁 `tryLock`：持有到 `release` 或进程退出，进程怎样结束锁都由系统放掉。工作区里的使用者：nb-harness 的会话日志、nb-story 的书库与导入、应用的 Skill 安装。按过期判旧、可等待可接管的锁是另一种，在 `nb-file-lock`；两者怎么选见 [ADR 0052](../../docs/adr/0052-non-stale-file-lock-package.md)。
+`@notnotype/nb-flock` 是不判旧的进程级独占文件锁 `tryLock`：持有到 `release` 或进程退出，进程怎样结束锁都由系统放掉。工作区里的使用者：nb-harness 的会话日志、nb-story 的书库、导入与问答配置、应用的 Skill 安装。按过期判旧、可等待可接管的锁是另一种，在 `nb-file-lock`；两者怎么选见 [ADR 0052](../../docs/adr/0052-non-stale-file-lock-package.md)。
 
 ## 边界
 
