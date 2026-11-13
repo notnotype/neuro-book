@@ -8,7 +8,9 @@ Windows 桌面版的主进程与壳自己的页面。行为合同是 [`runtime/d
 | `src/bun/preload.ts` | 产品窗口的预加载脚本：页面标题与新窗口请求经事件桥交给壳 |
 | `src/views/shell/index.html` | 启动页与壳的对话框（同一页，按壳交来的状态显示） |
 | `electrobun.config.ts`、`hutch.config.ts` | Electrobun 与 Hutch 的配置，版本固定 |
-| `scripts/build.ts` | 在仓库里把主进程打成 `build/main.js`，按发布清单组装载荷到 `payload/` |
+| `scripts/build.ts` | 在仓库里把主进程打成 `bundle/main.js`，按发布清单组装载荷到 `payload/` |
+
+`bundle/` 是我们预打包的主进程，`build/` 与 `artifacts/` 是 Electrobun 自己的输出目录；分开放，免得 Electrobun 构建时清掉或覆盖预打包的文件。
 
 ## 构建
 
