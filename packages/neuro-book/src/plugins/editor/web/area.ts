@@ -92,6 +92,9 @@ export interface MoveOptions {
     readonly focusView?: boolean;
 }
 
+/** 一次移动会怎样（输出 49）：照字面移动；并到目标组已开着的同一标签（激活它、关掉被移动的）；被拒绝（要结算的组有未裁决输入）。 */
+export type MoveOutcome = "move" | "merge" | "refuse";
+
 export interface EditorArea {
     readonly documents: DocumentStore;
     readonly groups: EditorGroups;
@@ -152,9 +155,10 @@ export interface EditorArea {
     /** 把标签移到组内另一位置或别的组（输出 49）；目标组已有同一标签时并掉，可能要问，问完之前 Promise 不结束。 */
     moveTab(tabId: string, place: TabPlace, options?: MoveOptions): Promise<ActionResult>;
     /**
-     * 这次移动不会照字面发生：有未裁决输入会被拒绝，目标组已有同一标签会并掉。实时布局据此不摆预览，只读，不结算。`target` 是目标组；移到外缘（新组）是 null。
+     * 这次移动会怎样，和 `moveTab`、`moveToNewGroup`、`moveToFloat` 同样的先后判，只读，不结算：拖动据此画落点（并入画成添加为标签，拒绝画成放不下）。
+     * `target` 是目标组；移到外缘（新组）、浮出来是 null。并入时被移动的视图自己有未裁决输入要问，问之前不知道结果，算并入。
      */
-    moveBlocked(tabId: string, target: string | null): boolean;
+    moveOutcome(tabId: string, target: string | null): MoveOutcome;
     /** 把标签移到外缘（输出 49；docs/specs/ui/workbench-layout.md 输出 25、27）：单个标签的组整块移动，视图不重建。 */
     moveToNewGroup(tabId: string, target: LayoutEdgeTarget, options?: MoveOptions): ActionResult;
     /** 把标签浮出来（docs/specs/ui/workbench-layout.md 输出 39）：和拆出新组一样，先结算活动视图的输入。 */
@@ -882,16 +886,19 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             return {ok: true};
         },
         moveTab,
-        moveBlocked: (tabId, target) => {
+        // 每一步对应 `moveTab`（`target` 为 null 时是 `moveToNewGroup`、`moveToFloat`）里的一次 `leave`：它会拒绝的，这里就答拒绝。
+        moveOutcome: (tabId, target) => {
             const found = groups.find(tabId);
-            if (found === null) return true;
-            if (target === null) return found.group.tabs.length > 1 && found.group.active === tabId && holding(found.group.id) !== null;
+            if (found === null) return "refuse";
+            const holds = (groupId: string): boolean => holding(groupId) !== null;
+            if (target === null) return found.group.tabs.length > 1 && found.group.active === tabId && holds(found.group.id) ? "refuse" : "move";
             const group = groups.groups.value.find((candidate) => candidate.id === target);
-            if (group === undefined) return true;
-            if (target === found.group.id) return found.group.active !== tabId && holding(found.group.id) !== null;
+            if (group === undefined) return "refuse";
             const moving = found.tab;
-            if (moving.kind === "file" && group.tabs.some((tab) => tab.kind === "file" && tab.address === moving.address && tab.editor === moving.editor)) return true;
-            return (found.group.active === tabId && holding(found.group.id) !== null) || holding(target) !== null;
+            const twin = target === found.group.id || moving.kind !== "file" ? undefined : group.tabs.find((tab) => tab.kind === "file" && tab.address === moving.address && tab.editor === moving.editor);
+            if (twin !== undefined) return group.active !== twin.id && holds(target) ? "refuse" : "merge";
+            if (found.group.active === tabId && target !== found.group.id && holds(found.group.id)) return "refuse";
+            return group.active !== tabId && holds(target) ? "refuse" : "move";
         },
         moveToNewGroup: (tabId, target, moveOptions = {}) => {
             if (disposed) return {ok: false, reason: editorText("refusal.disposed")};

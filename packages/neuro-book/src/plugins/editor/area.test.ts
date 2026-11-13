@@ -1296,38 +1296,49 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         });
     });
 
-    it("实时布局的预览判据与真正移动同条件：同组换位、跨组、新组、目标已有同一文件", async () => {
+    it("拖动问的放下结果与真正移动同条件：照常移动、并到已开着的同一标签、被拒绝", async () => {
         const at = await world();
         at.area.open("project://a.md", {mode: "permanent"});
         at.area.open("project://b.md", {mode: "permanent"});
         const left = groupAt(at, 0);
         at.area.open("project://c.md", {mode: "permanent", group: "side"});
         const right = groupAt(at, 1);
+        at.area.open("project://a.md", {mode: "permanent", group: right});
         at.area.open("project://b.md", {mode: "permanent", group: right});
         const b = tabId(at, 0, "b.md");
         const a = tabId(at, 0, "a.md");
         const c = tabId(at, 1, "c.md");
-        // 没有未裁决输入：只有目标已有同一文件时不摆预览。
-        expect(at.area.moveBlocked(a, left)).toBe(false);
-        expect(at.area.moveBlocked(c, left)).toBe(false);
-        expect(at.area.moveBlocked(b, right)).toBe(true);
-        expect(at.area.moveBlocked(a, null)).toBe(false);
+        const rightA = tabId(at, 1, "a.md");
+        const rightB = tabId(at, 1, "b.md");
+        // 没有未裁决输入：目标组已开着同一文件时是并入，别的照常移动。
+        expect(at.area.moveOutcome(a, left)).toBe("move");
+        expect(at.area.moveOutcome(c, left)).toBe("move");
+        expect(at.area.moveOutcome(b, right)).toBe("merge");
+        expect(at.area.moveOutcome(rightA, left)).toBe("merge");
+        expect(at.area.moveOutcome(a, null)).toBe("move");
 
-        // 让左组的 b.md 有未裁决输入：两边基于同一修订输入不同内容。
-        const leftB = await boundIn(at, left);
-        const rightB = await boundIn(at, right);
-        const base = rightB.revision.value;
-        rightB.commit(base, "右");
-        expect(leftB.commit(base, "左")).toMatchObject({status: "conflict"});
-        expect(leftB.unresolved()).toBe(true);
+        // 让左组的 b.md（活动的）有未裁决输入：两边基于同一修订输入不同内容。
+        const leftView = await boundIn(at, left);
+        const rightView = await boundIn(at, right);
+        const base = rightView.revision.value;
+        rightView.commit(base, "右");
+        expect(leftView.commit(base, "左")).toMatchObject({status: "conflict"});
+        expect(leftView.unresolved()).toBe(true);
         // 活动标签有未裁决输入：同组里挪别的标签、把它移走、往这组移，都和 `moveTab` 一样不行。
-        expect(at.area.moveBlocked(a, left)).toBe(true);
+        expect(at.area.moveOutcome(a, left)).toBe("refuse");
         expect(await at.area.moveTab(a, {group: left, partition: "normal", before: b})).toMatchObject({ok: false});
-        expect(at.area.moveBlocked(c, left)).toBe(true);
+        expect(at.area.moveOutcome(c, left)).toBe("refuse");
         expect(await at.area.moveTab(c, {group: left, partition: "normal", before: null})).toMatchObject({ok: false});
-        // 活动的就是被挪的标签：同组换位不用离开它。
-        expect(at.area.moveBlocked(b, left)).toBe(false);
-        expect(at.area.moveBlocked(b, null)).toBe(true);
+        // 并入要先激活那个标签：它不是活动的，就要离开有未裁决输入的活动标签，同样不行。
+        expect(at.area.moveOutcome(rightA, left)).toBe("refuse");
+        expect(await at.area.moveTab(rightA, {group: left, partition: "normal", before: null})).toMatchObject({ok: false});
+        // 活动的就是被挪的标签：同组换位不用离开它；移到新组要离开它。
+        expect(at.area.moveOutcome(b, left)).toBe("move");
+        expect(at.area.moveOutcome(b, null)).toBe("refuse");
+        // 那个标签就是活动的：不用离开，照样并入。
+        expect(at.area.moveOutcome(rightB, left)).toBe("merge");
+        expect(await at.area.moveTab(rightB, {group: left, partition: "normal", before: null})).toEqual({ok: true});
+        expect(names(at, 1)).toEqual(["c.md", "a.md"]);
     });
 
     it("移到已有同一标签的组：共享的修改不问，源组空了随之关闭；被移动的视图有未裁决输入时问，取消则留在原处", async () => {

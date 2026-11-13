@@ -2181,29 +2181,54 @@ test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局�
         await closeAll(page);
     });
 
-    test("目标组已有同一文件：不摆预览，卡片照常跟手；松手照常并掉", async ({page}) => {
-        await page.emulateMedia({reducedMotion: "no-preference"});
+    test("目标组已有同一文件：标签条与正文中央都是并入，盖一层写“添加为标签”，不插进标签条；落点指示同样画中央；松手并掉（workbench/editor.md 输出 55）", async ({page}) => {
         await page.setViewportSize({width: 1440, height: 900});
         await open(page);
         await closeAll(page);
         for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
         await page.locator("[data-editor-group-head-active] [data-title-action-key=\"own:split-right\"]").click();
         await expect(heads(page)).toHaveCount(2);
+        const target = (await page.locator("[data-editor-group-active]").getAttribute("data-editor-group")) ?? "";
         const leftTab = heads(page).nth(0).locator("[data-editor-tab]").filter({hasText: "b.md"});
+        const rightTabs = heads(page).nth(1).locator("[data-editor-tab]");
         const strip = await heads(page).nth(1).locator("[data-editor-tabs]").boundingBox();
+        const targetGroup = await page.locator(`[data-editor-group="${target}"]`).boundingBox();
         const from = await leftTab.boundingBox();
-        if (strip === null || from === null) throw new Error("没有矩形");
-        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-        await page.mouse.down();
-        await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
+        if (strip === null || targetGroup === null || from === null) throw new Error("没有矩形");
+        const press = async (): Promise<void> => {
+            await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
+        };
+
+        // 落点指示（缺省减少动效）：标签条上画的是那一组的正文，写“添加为标签”，不画插入线。
+        await press();
         await page.mouse.move(strip.x + strip.width - 40, strip.y + 16, {steps: 8});
-        await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300))); // test-lint-allow fixed-wait: 候选稳定要 150ms，这里断言它稳定之后也没摆预览，没有可等的状态
-        await expect(page.locator("[data-editor-group-head]")).toHaveCount(2);
-        await expect(heads(page).nth(1).locator("[data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(1);
+        await expect(page.locator("[data-drop-feedback-label]")).toHaveText("添加为标签");
+        await expect(page.locator("[data-drop-kind]")).toHaveAttribute("data-drop-kind", "center");
+        const area = await page.locator("[data-drop-feedback-area]").boundingBox();
+        expect(area !== null && area.x >= targetGroup.x - 1 && area.x + area.width <= targetGroup.x + targetGroup.width + 1 && area.height > targetGroup.height * 0.5).toBe(true);
+        await page.keyboard.press("Escape");
+        await expect(page.locator("html")).not.toHaveAttribute("data-workbench-dragging", "");
         await page.mouse.up();
+        await expect(rightTabs).toHaveCount(1);
+
+        // 实时布局：标签条上不吸收，目标盖一层，卡片头写同样的字；目标的标签条里还是它自己那一个。
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await press();
+        await page.mouse.move(strip.x + strip.width - 40, strip.y + 16, {steps: 8});
+        const merge = page.locator("[data-live-merge]");
+        await expect(merge).toHaveAttribute("data-live-merge-panel", target);
+        await expect(page.locator("[data-drag-card-hint]")).toHaveText("添加为标签");
+        await expect(rightTabs).toHaveCount(1);
+        // 正文中央同样是并入。
+        await page.mouse.move(targetGroup.x + targetGroup.width / 2, targetGroup.y + targetGroup.height / 2, {steps: 4});
+        await expect(merge).toHaveAttribute("data-live-merge-panel", target);
+        await page.mouse.up();
+        await expect(merge).toHaveCount(0);
         await expect(heads(page)).toHaveCount(2);
         await expect(heads(page).nth(0).locator("[data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(0);
-        await expect(heads(page).nth(1).locator("[data-editor-tab]").filter({hasText: "b.md"})).toHaveCount(1);
+        await expect(rightTabs.filter({hasText: "b.md"})).toHaveCount(1);
         await closeAll(page);
     });
 });

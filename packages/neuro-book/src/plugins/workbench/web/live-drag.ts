@@ -47,7 +47,7 @@ export interface LiveDragHost {
     placeSortedAfterRender(at: {readonly point: GridDropPoint; readonly panel: string} | null): void;
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）：离开标签条，或离开来源面板。 */
     cardShrink(): "strip" | "panel";
-    /** 按这个落点摆的文档；null 是摆不出来（放回原处、编辑器会合并或拒绝），就用已提交的。 */
+    /** 按这个落点摆的文档；null 是放回原处或算不出，就用已提交的。编辑器标签的并入、拒绝在判定里已经换成中央、被拒绝（`layout-drag` 的 `answeredByEditor`）。 */
     candidateDoc(source: LayoutTabSource, drop: LayoutDragDrop): LayoutDoc | null;
     /** 摘掉来源后的文档。 */
     sourceRemovedDoc(source: LayoutTabSource): LayoutDoc | null;
@@ -197,10 +197,10 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             shown = offered;
             previewKey.value = preview.key;
             const doc = offered === null ? null : host.candidateDoc(from, offered);
-            // 摆不出来（原位、编辑器会合并或拒绝）就没有预览，盖层看它。
+            // 原位、算不出就没有预览，盖层看它。
             shownAction.value = doc === null ? null : (offered?.action ?? null);
             absorbedIn = offered !== null && (offered.inPlace || doc !== null) ? stripOf(offered.action) : null;
-            // 来源收起着时，摆不出来的（编辑器会合并或拒绝）仍是来源收起的样子：已提交的文档里来源还在原处，换回它就是又展开。原位走上面的展开。
+            // 来源收起着时，算不出的仍是来源收起的样子：已提交的文档里来源还在原处，换回它就是又展开。原位走上面的展开。
             host.show(doc ?? (collapsed ? host.sourceRemovedDoc(from) : null));
         } else if (preview.kind === "source-removed") {
             shown = null;

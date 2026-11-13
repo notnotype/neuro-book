@@ -211,9 +211,6 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         candidateDoc: (source, drop) => {
             if (drop.inPlace) return null;
             const doc = options.doc();
-            const editorTab = editorTabIdOf(source.tab);
-            // 放下走编辑器的动作，结果可能和布局层算的不同（并到同一标签、被拒绝）：摆不出提交后的样子就不摆。
-            if (editorTab !== null && !isEntryAction(drop.action) && options.editorTabs()?.previewable(editorTab, drop.action) === false) return null;
             const {action} = drop;
             // 活动栏的入口之间：入口滑开，来源在空位上显示成入口，侧栏不切（输出 38、45）。入口上不吸收，同中央。
             if (isEntryAction(action) && action.kind !== "join-container") {
@@ -672,7 +669,28 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         }
         // 中央与原位的预览画在落点那块的正文上：落点可能是浮动窗。
         const drop = dropFor(doc, source, resolved, point, [...panels, ...floats]);
-        return drop === null ? null : sectored(drop, resolved, input);
+        if (drop === null) return null;
+        const answered = answeredByEditor(doc, source, drop, point, [...panels, ...floats]);
+        if (answered === "refuse") {
+            overRejected = true;
+            return null;
+        }
+        // 分区按指针下的落点算：并入改成了中央，指针在标签条上时照旧不画分区。
+        return sectored(answered, resolved, input);
+    }
+
+    /**
+     * 编辑器标签放下走编辑器的动作，结果可能和布局层算的不同（docs/specs/workbench/editor.md 输出 55）：拒绝的是被拒绝，两种手感、键盘一样；
+     * 并到目标组已开着的同一标签时落点就是那一组的中央，标签条上也是（并入不管位置，结果与放到中央相同），之后的预览、盖层、文字与提交都按中央走。
+     * 原位不问：放下什么都不做，不会被拒绝。每次判定都问、不进预览缓存：未裁决输入在拖动中也会出现、消掉。
+     */
+    function answeredByEditor(doc: LayoutDoc, source: LayoutTabSource, drop: LayoutDragDrop<LayoutDropAction>, point: GridDropPoint, panels: ReadonlyArray<LayoutDropPanelGeometry>): LayoutDragDrop<LayoutDropAction> | "refuse" {
+        const editorTab = editorTabIdOf(source.tab);
+        if (editorTab === null || drop.inPlace) return drop;
+        const outcome = options.editorTabs()?.dropOutcome(editorTab, drop.action) ?? "move";
+        if (outcome === "refuse") return "refuse";
+        if (outcome === "move" || drop.action.kind !== "strip") return drop;
+        return dropFor(doc, source, {kind: "center", panel: drop.action.panel}, point, panels) ?? drop;
     }
 
     /**
