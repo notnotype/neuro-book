@@ -51,8 +51,13 @@ Electrobun 调研（读 v2.0.6 源码仓库的文档，2026-11-13；源码克隆
 - 卸载：自带的卸载程序提供“只删应用”和“应用和数据”两个选项，后者删 `Utils.paths.userData` 等目录。**要在提案里定状态根放哪**：ADR 0033 的缺省状态根是 `%LOCALAPPDATA%\NeuroBook`，与 npm 包的 `nbook` 共用；Electrobun 管的是 `%LOCALAPPDATA%\<identifier>\<channel>`。放在后者，卸载时选“应用和数据”会连作品登记与设置一起删掉，也和 `nbook` 不通。
 - 官方文档给了 GitHub Actions 的矩阵示例：打标签触发，各平台构建都成功后才建 Release。
 
+Windows 实测（pc-notype：Windows 11 26200 x64、32 GB；独立的 Bun 1.4.4 放在 `C:\Users\notnotype\nb-w00046\`，不动机器上 scoop 装的 Bun；代码是 master `0ac934e53` 打出的产物）：
+
+- `smoke:server` 十个场景过九个（[evidences/windows-smoke-server-r1.txt](evidences/windows-smoke-server-r1.txt)）：health、标准输入停止、端口占用、Web 外壳、RPC 握手、项目子进程（S7）、SQLite 与 WAL 收回、设置文件、同一状态根第二个实例被命名管道认领拦下（S10）都正常。ADR 0033 担心的“命名管道认领在 Bun 上失败”在 Bun 1.4.4 上没有出现。没过的 S2 是 SIGTERM：Windows 没有这个信号，`kill("SIGTERM")` 直接结束进程。所以**桌面壳要用标准输入让服务端有序停止**（S1 的做法），不能发信号。`nbook start` 目前只认信号，Windows 上只有在同一个控制台里按 Ctrl-C 才能有序停止；提案里要处理这一点。
+- Agent 的内嵌 shell（[evidences/windows-embedded-shell-r1.txt](evidences/windows-embedded-shell-r1.txt)）：echo 与变量、ls、cat 加管道 wc、sort、uniq、head、sed、find、jq、for 循环与 `$(...)`、重定向、mkdir、cp、mv、rm、退出码全部正常，中文文件名与中文内容正常，每条 60 到 100 毫秒；也能调起 Windows 程序（`where.exe`）。git、awk、python 失败，原因是这台机器 scoop 的目录联接在 SSH 会话里解析不了，证实它们走的是外部程序。
+
 ## 下一步
 
-1. 先查新应用在 Windows 上能否起来（实例认领的命名管道、项目子进程）：本机只有 Linux，靠 GitHub Actions 的 Windows runner 或开发者的机器。
-2. 调研 Electrobun 在 Windows 上的现状（版本、安装包形态、自动更新、签名），做最小原型。
+1. 在 pc-notype 上做 Electrobun 最小原型：装 Hutch，拉起服务端、窗口加载回环页面、关窗时经标准输入有序停止，量安装包体积、内存与启动时间。
+2. 用 GitHub Actions 的 Windows runner 验证无人值守的构建与打包（开发者 2026-11-13 同意推临时分支）。
 3. 写提案草稿，先给开发者看要点，确认后再交审查。

@@ -1,0 +1,81 @@
+# Windows 上试 pi-natives 的内嵌 shell（2026-11-13，pc-notype，Bun 1.4.4，@oh-my-pi/pi-natives 18.14.0）；脚本 shell-probe.ts 见同目录说明
+# git、awk、python 失败的原因是这台机器 scoop 的 current 目录联接在 SSH 会话里解析不了（与 pi-natives 无关），证明它们走外部程序。
+## echo 与变量
+$ X=世界; echo "你好 $X"
+exit=0 timedOut=false 91ms
+你好 世界
+
+## ls 与中文文件名
+$ ls
+exit=0 timedOut=false 74ms
+b.txt
+第一章.md
+
+## cat 与管道 wc
+$ cat 第一章.md | wc -l
+exit=0 timedOut=false 63ms
+2
+
+## sort uniq head
+$ sort b.txt | uniq | head -2
+exit=0 timedOut=false 64ms
+a
+b
+
+## sed
+$ sed 's/周叔/周伯/' 第一章.md
+exit=0 timedOut=false 67ms
+林青走进药铺。
+周伯抬起头。
+
+## find
+$ find . -name '*.md'
+exit=0 timedOut=false 66ms
+./第一章.md
+
+## jq
+$ echo '{"a":[1,2]}' | jq '.a | length'
+exit=0 timedOut=false 73ms
+2
+
+## for 循环与 $(...)
+$ for f in *.txt; do echo "$f:$(wc -l < $f)"; done
+exit=0 timedOut=false 67ms
+b.txt:3
+
+## 重定向写文件
+$ echo 新 > c.txt && cat c.txt
+exit=0 timedOut=false 60ms
+新
+
+## mkdir cp mv rm
+$ mkdir d && cp b.txt d/ && mv d/b.txt d/e.txt && ls d && rm -r d && echo ok
+exit=0 timedOut=false 64ms
+e.txt
+ok
+
+## git（系统的）
+$ git --version
+exit=1 timedOut=false 95ms
+Could not create process with command '"C:\Users\notnotype\scoop\apps\git\current\cmd\git.exe"  --version'.
+
+## awk（不内置）
+$ echo a b | awk '{print $2}'
+exit=1 timedOut=false 136ms
+Could not create process with command '"C:\Users\notnotype\scoop\apps\busybox\current\busybox.exe" awk "{print $2}"'.
+
+## python（不内置）
+$ python --version
+exit=103 timedOut=false 197ms
+No Python at '"C:\Users\notnotype\scoop\apps\python\current\python.exe'
+
+## Windows 程序 where
+$ where.exe cmd
+exit=0 timedOut=false 115ms
+C:\Windows\System32\cmd.exe
+
+## 退出码
+$ exit 3
+exit=3 timedOut=false 60ms
+
+
