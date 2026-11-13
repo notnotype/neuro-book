@@ -70,7 +70,7 @@ GitHub Actions windows-2025 runner 上的探针（[evidences/windows-runner-prob
 
 ## 下一步
 
-1. 提案草稿 [docs/proposals/desktop-distribution.md](../../../../../docs/proposals/desktop-distribution.md) 已写好，等开发者看要点并定待定项，确认后提交并交审查。
+1. 提案草稿 [docs/proposals/desktop-distribution.md](../../../../../docs/proposals/desktop-distribution.md) 已提交（`706713fab`）；开发者 2026-11-13 按推荐定了状态根、更新提示、第一版无界面安装、便携版浏览器缓存四项（见提案决策记录）。下一步按 reviewing Skill 交审查。后续工作已建 t02（安装程序）、t03（自定义标题栏）、t04（桌面端专有设置）、t05（外部工具向导）。
 2. 请开发者在 pc-notype 上亲手双击一次 Setup（`%USERPROFILE%\nb-w00046\proto\artifacts\win-x64-NeuroBookProto-Setup.zip` 解压后的 setup），确认安装完成后会不会打开应用、setup 会不会退出。
 3. 临时分支 `probe/w00046-windows` 与 worktree `.worktree/w00046-probe` 在提案定稿后删除。
 
