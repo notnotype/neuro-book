@@ -60,7 +60,7 @@ export function useContentLayer(options: {
     /** 这个内容项此刻含焦点吗。 */
     readonly holdsFocus: (key: string) => boolean;
     readonly onParked: (contentKey: string) => void;
-    /** 拿起的内容项（实时布局）：不按叶摆放，内容体保持拿起时的尺寸，不重排。 */
+    /** 拿起的内容项（实时布局）：不按叶摆放，内容体占满卡片头下面的部分，卡片尺寸一变就重排（宿主决定多久写一次尺寸）。 */
     readonly lifted: () => {readonly key: string} | null;
     /** 拿起的内容项此刻的矩形（相对网格根）。跟手，每帧变：是普通值，不进响应式。 */
     readonly liftedRect: () => GridRect;
@@ -143,12 +143,9 @@ export function useContentLayer(options: {
         return {...gridRectStyle(rect), ...hidden};
     }
 
-    /** 跟外框的是 100%；否则是最终尺寸，停放时是最后的非零尺寸。 */
+    /** 拿起的不写尺寸，由样式撑满卡片；跟外框的是 100%；否则是最终尺寸，停放时是最后的非零尺寸。 */
     function bodyStyle(item: GridContentPlacement): Record<string, string> {
-        if (isLifted(item)) {
-            const size = memory.get(item.key)?.size ?? item.rect ?? {width: 0, height: 0};
-            return {width: `${size.width}px`, height: `${size.height}px`};
-        }
+        if (isLifted(item)) return {};
         if (options.following.value.has(item.key)) return {width: "100%", height: "100%"};
         const rect = item.rect;
         const size = !isParked(item) && rect !== null && hasSize(rect) ? rect : (memory.get(item.key)?.size ?? rect ?? {width: 0, height: 0});

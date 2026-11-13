@@ -594,8 +594,13 @@ defineExpose({
     z-index: 3;
 }
 
-/* 拿起的内容是一张卡片：盖在分隔线上跟手，不接指针（`elementsFromPoint` 要看到底下的面板）。 */
+/*
+ * 拿起的内容是一张卡片：盖在分隔线上跟手，不接指针（`elementsFromPoint` 要看到底下的面板）。卡片是一列：宿主的头（`lifted-head`）加内容体，
+ * 内容体占满头下面的部分，宿主写的尺寸一变就按卡片的大小重排。
+ */
 .nb-grid-content[data-lifted] {
+    display: flex;
+    flex-direction: column;
     z-index: 1000;
     overflow: hidden;
     border-radius: var(--layout-card-radius);
@@ -633,6 +638,11 @@ defineExpose({
     min-width: 0;
     min-height: 0;
     overflow: hidden;
+}
+
+.nb-grid-content[data-lifted] > .nb-grid-content__body {
+    flex: 1 1 0;
+    width: 100%;
 }
 
 .nb-nested-grid > .nb-grid-sash {

@@ -20,7 +20,7 @@ import type {Ref} from "vue";
 import {applyEntryDrop, BAR_STRIP, barSpotAt, barStopsOf, entryDropAt, isEntryAction, soleSidebarContainer, workbenchDropKey} from "./entry-drop";
 import type {BarEntryRect, ContainerSource, EntryDropAction, WorkbenchDragSource, WorkbenchDropAction} from "./entry-drop";
 import {createLiveDrag} from "./live-drag";
-import type {LiveDrag} from "./live-drag";
+import type {LiveCardRefresh, LiveDrag} from "./live-drag";
 
 import {EDITOR_TAB_TYPE, editorTabIdOf} from "../shared/editor-panels";
 import {CUSTOM_CONTAINER_PREFIX} from "../shared/views";
@@ -86,6 +86,8 @@ export interface LayoutDragOptions {
     feel(): "live" | "indicator";
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）。 */
     cardShrink(): "strip" | "panel";
+    /** 卡片的尺寸多久写一次（设置 `nbook.workbench/dragCardRefresh`）。 */
+    cardRefresh(): LiveCardRefresh;
     /** 把进行中的过渡直接送到终点：拿起后要量矩形。 */
     settleMotion(): void;
     /** 摆预览；null 回到已提交的布局。 */
@@ -274,6 +276,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             });
         },
         cardShrink: () => options.cardShrink(),
+        cardRefresh: () => options.cardRefresh(),
     });
 
     /**

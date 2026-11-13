@@ -247,6 +247,7 @@ onMounted(() => {
         sectors: () => true,
         feel: () => "indicator",
         cardShrink: () => "strip",
+        cardRefresh: () => "display",
         settleMotion: () => undefined,
         showPreview: () => undefined,
         placeCard: () => undefined,

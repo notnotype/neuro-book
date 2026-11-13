@@ -24,6 +24,13 @@ const CARD_COMPACT = {width: 380, height: 260};
 const CARD_TAU_MS = 90;
 /** 卡片尺寸离目标这么近就算到了：指数逼近永远到不了，不截断的话宽高每帧都在变，每帧都要布局。 */
 const CARD_STILL_PX = 0.1;
+/** 刷新率设置（`nbook.workbench/dragCardRefresh`）对应的写尺寸的间隔：卡片里的内容按卡片大小排版，尺寸每写一次就重排一次。 */
+const CARD_REFRESH_MS: Readonly<Record<LiveCardRefresh, number>> = {"display": 0, "60": 1000 / 60, "30": 1000 / 30};
+/** 帧的时间戳有抖动：离该写的时刻差这么多也算到了，不然 60Hz 的屏上选 30 有时要隔三帧才写一次。 */
+const CARD_REFRESH_SLACK_MS = 2;
+
+/** 卡片的尺寸多久写一次：跟随屏幕每帧写，或每秒至多 60、30 次。 */
+export type LiveCardRefresh = "display" | "60" | "30";
 
 export interface LiveDragHost {
     requestFrame(run: (now: number) => void): number;
@@ -47,6 +54,8 @@ export interface LiveDragHost {
     placeSortedAfterRender(at: {readonly point: GridDropPoint; readonly panel: string} | null): void;
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）：离开标签条，或离开来源面板。 */
     cardShrink(): "strip" | "panel";
+    /** 卡片的尺寸多久写一次（设置 `nbook.workbench/dragCardRefresh`）。位置不受它管，每帧跟手。 */
+    cardRefresh(): LiveCardRefresh;
     /** 按这个落点摆的文档；null 是放回原处或算不出，就用已提交的。编辑器标签的并入、拒绝在判定里已经换成中央、被拒绝（`layout-drag` 的 `answeredByEditor`）。 */
     candidateDoc(source: LayoutTabSource, drop: LayoutDragDrop): LayoutDoc | null;
     /** 摘掉来源后的文档。 */
@@ -101,8 +110,10 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     let source: LayoutTabSource | null = null;
     let pointer: GridDropPoint | null = null;
     let origin: {readonly x: number; readonly y: number} = {x: 0, y: 0};
-    /** 上一次写出去的矩形：指针没动、缩放结束之后不写。 */
+    /** 上一次写出去的矩形：指针没动、缩放结束之后不写。它的宽高就是卡片此刻画出来的大小。 */
     let written: GridRect | null = null;
+    /** 尺寸下一次该写的时刻：写过之后按间隔往后排，落后一个间隔以上就从现在算。 */
+    let sizeDue = 0;
     /** 卡片此刻的尺寸与抓住的那一点（占卡片的比例）：缩放时抓住的点一直在指针下。 */
     let cardSize: {width: number; height: number} | null = null;
     let grab = {x: 0.5, y: 0};
@@ -173,7 +184,15 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         const approach = (from: number, to: number): number => (Math.abs(to - from) < CARD_STILL_PX ? to : from + (to - from) * blend);
         cardSize = {width: approach(cardSize.width, target.width), height: approach(cardSize.height, target.height)};
         chase = {x: approach(chase.x, 0), y: approach(chase.y, 0)};
-        const rect = {x: pointer.x - origin.x - grab.x * cardSize.width + chase.x, y: pointer.y - origin.y - grab.y * cardSize.height + chase.y, width: cardSize.width, height: cardSize.height};
+        // 尺寸按刷新率写、取整到像素（指数逼近的尾巴里不到一像素的变化不再每次重排）；缩放到了终点马上写。位置按画出来的大小算，抓住的点才一直在指针下。
+        const rounded = {width: Math.round(cardSize.width), height: Math.round(cardSize.height)};
+        const arrived = cardSize.width === target.width && cardSize.height === target.height;
+        const interval = CARD_REFRESH_MS[host.cardRefresh()];
+        const drawn = written === null ? null : {width: written.width, height: written.height};
+        let size = drawn ?? rounded;
+        if (drawn !== null && (arrived || now >= sizeDue - CARD_REFRESH_SLACK_MS) && (rounded.width !== drawn.width || rounded.height !== drawn.height)) size = rounded;
+        if (size !== drawn) sizeDue = drawn === null || now - sizeDue >= interval ? now + interval : sizeDue + interval;
+        const rect = {x: pointer.x - origin.x - grab.x * size.width + chase.x, y: pointer.y - origin.y - grab.y * size.height + chase.y, width: size.width, height: size.height};
         if (card.value?.key !== source.tab) card.value = {key: source.tab};
         if (written !== null && written.x === rect.x && written.y === rect.y && written.width === rect.width && written.height === rect.height) return;
         written = rect;

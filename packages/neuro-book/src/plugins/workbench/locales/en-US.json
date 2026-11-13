@@ -26,6 +26,21 @@
                 }
             }
         },
+        "dragCardRefresh": {
+            "title": "How often the drag card lays out again",
+            "description": "While a live-layout drag card resizes, its content is laid out again at the card's size. Fewer times a second costs less; the card still follows the pointer every frame",
+            "choices": {
+                "display": {
+                    "title": "Every display refresh"
+                },
+                "60": {
+                    "title": "60 times a second"
+                },
+                "30": {
+                    "title": "30 times a second"
+                }
+            }
+        },
         "dropSplit": {
             "title": "When dropped on an edge",
             "choices": {

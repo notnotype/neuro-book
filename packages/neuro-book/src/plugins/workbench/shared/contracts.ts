@@ -208,6 +208,27 @@ export const dragCardShrinkSetting = defineSetting({
 });
 
 /**
+ * 实时布局下拖动的卡片多久写一次尺寸（docs/specs/ui/workbench-layout.md“实时布局”）：卡片里的内容按卡片大小排版，尺寸每写一次就重排一次；位置照旧每帧跟手。
+ * 只管拖动的卡片，不管开关面板的布局过渡。只有用户层，理由同上。
+ */
+export const dragCardRefreshSetting = defineSetting({
+    plugin: "nbook.workbench",
+    name: "dragCardRefresh",
+    schema: Type.Union([Type.Literal("display"), Type.Literal("60"), Type.Literal("30")]),
+    default: "display",
+    description: workbenchText("settings.dragCardRefresh.description"),
+    layers: ["user"],
+    section: "nbook.appearance",
+    group: "ui",
+    order: 43,
+    choices: [
+        {value: "display", title: workbenchText("settings.dragCardRefresh.choices.display.title")},
+        {value: "60", title: workbenchText("settings.dragCardRefresh.choices.60.title")},
+        {value: "30", title: workbenchText("settings.dragCardRefresh.choices.30.title")},
+    ],
+});
+
+/**
  * 拖到四周时怎么分（docs/specs/ui/workbench-layout.md 输出 27）：只分本窗口，或同方向的窗口一起分。只有用户层，理由同上。
  */
 export const dropSplitSetting = defineSetting({

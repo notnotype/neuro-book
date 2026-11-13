@@ -883,11 +883,15 @@ describe("NestedGrid 内容层", () => {
         grid.placeLifted({x: 15, y: 25, width: 33, height: 44});
         expect(element.style.transform).toBe("translate(15px, 25px)");
         expect(element.style.width).toBe("33px");
+        // 内层不写尺寸，按样式撑满卡片（跟着卡片重排）；放下时一次写回叶的尺寸。
+        const body = element.querySelector<HTMLElement>(".nb-grid-content__body");
+        expect([body?.style.width, body?.style.height]).toEqual(["", ""]);
         await wrapper.setProps({revision: 2});
         expect(element.style.transform).toBe("translate(15px, 25px)");
         await wrapper.setProps({lifted: null});
         expect(element.style.transform).toBe("");
         expect({left: element.style.left, top: element.style.top}).toEqual(before);
+        expect(body?.style.width).toMatch(/^[1-9][0-9]*(\.[0-9]+)?px$/u);
     });
 
     it("分隔线的 aria-controls 列外框与活动内容", () => {

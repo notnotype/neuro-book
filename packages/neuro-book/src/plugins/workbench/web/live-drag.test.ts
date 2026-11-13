@@ -45,6 +45,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
         placeSorted: (at) => () => sorted.push(at === null ? null : at.panel),
         placeSortedAfterRender: () => undefined,
         cardShrink: () => "strip",
+        cardRefresh: () => "display",
         candidateDoc: () => DOC,
         sourceRemovedDoc: () => REMOVED,
         collapseSource: (from) => collapses.push(from.tab),
@@ -288,6 +289,35 @@ describe("createLiveDrag", () => {
         expect(t.placed.at(-1)?.width).toBeGreaterThan(700);
         for (let index = 0; index < 60; index += 1) t.frame();
         expect(t.placed.at(-1)?.width).toBe(380);
+    });
+
+    it("刷新率 30：尺寸每秒至多约 30 次、按整像素写，位置每帧都跟手，抓住的点按画出来的大小算；跟随屏幕时取整后变了就写", () => {
+        const run = (refresh: "display" | "30") => {
+            let pointer = {x: 300, y: 400};
+            const t = setup({cardRefresh: () => refresh, pointer: () => pointer});
+            t.live.begin(SOURCE, pointer);
+            t.live.offer(HOME_SPLIT);
+            t.frame();
+            // 16ms 一帧，约半秒：缩放还没到终点。
+            for (let index = 0; index < 30; index += 1) {
+                pointer = {x: pointer.x + 1, y: 400};
+                t.frame();
+            }
+            const sizes = t.placed.filter((rect, index, all) => index === 0 || rect.width !== all[index - 1]?.width).length;
+            return {t, sizes};
+        };
+        const limited = run("30");
+        expect(limited.t.placed.length).toBe(31);
+        // 31 帧共 480ms：按 33ms 一次至多 16 次。
+        expect(limited.sizes).toBeLessThanOrEqual(16);
+        expect(limited.sizes).toBeGreaterThan(8);
+        expect(limited.t.placed.every((rect) => Number.isInteger(rect.width) && Number.isInteger(rect.height))).toBe(true);
+        // 抓住的点按画出来的大小算：尺寸没写的帧，卡片右边照样和指针保持拿起时的比例。
+        limited.t.placed.forEach((rect, index) => expect((300 + index - rect.x) / rect.width).toBeCloseTo(0.5, 5));
+        // 跟随屏幕：取整后变了就写，缩放的尾巴里一帧不到一像素的才不写。
+        expect(run("display").sizes).toBeGreaterThan(limited.sizes + 8);
+        for (let index = 0; index < 60; index += 1) limited.t.frame();
+        expect(limited.t.placed.at(-1)?.width).toBe(380);
     });
 
     it("指针不动、缩放结束之后不再写", () => {

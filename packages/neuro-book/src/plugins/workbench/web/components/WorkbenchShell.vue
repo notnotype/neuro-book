@@ -38,6 +38,7 @@ import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {presentDrag} from "../drag-presentation";
 import {createLayoutDrag} from "../layout-drag";
 import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
+import type {LiveCardRefresh} from "../live-drag";
 import type {WorkbenchDragSource} from "../entry-drop";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
@@ -79,6 +80,8 @@ const props = defineProps<{
     dragFeel?: "live" | "indicator";
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）；缺省离开标签条就缩。 */
     dragCardShrink?: "strip" | "panel";
+    /** 卡片的尺寸多久写一次（设置 `nbook.workbench/dragCardRefresh`）；缺省跟随屏幕每帧写。 */
+    dragCardRefresh?: LiveCardRefresh;
     /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
     dropSplit?: DropSplit;
 }>();
@@ -474,6 +477,7 @@ onMounted(() => {
         sectors: () => props.dropSectors !== false,
         feel: () => props.dragFeel ?? "live",
         cardShrink: () => props.dragCardShrink ?? "strip",
+        cardRefresh: () => props.dragCardRefresh ?? "display",
         settleMotion: () => surface.value?.settleMotion(),
         showPreview: (next) => props.layout.actions.setLivePreview(next),
         placeCard: (rect) => surface.value?.placeLifted(rect),

@@ -392,6 +392,12 @@ test.describe("实时布局", () => {
         expect(look.events).toBe("none");
         expect(Number(look.z)).toBeGreaterThan(3);
         await expect.poll(async () => (await card.boundingBox())?.width ?? 0).toBeLessThanOrEqual(381);
+        // 卡片里的内容按卡片的大小排版，不是拿起时的大小被裁出左上角：内容体和卡片一样宽，底边对齐。
+        const cardBody = card.locator(":scope > .nb-grid-content__body");
+        await expect.poll(async () => {
+            const [outer, inner] = [await card.boundingBox(), await cardBody.boundingBox()];
+            return outer === null || inner === null ? Infinity : Math.max(Math.abs(outer.width - inner.width), Math.abs(outer.y + outer.height - (inner.y + inner.height)));
+        }).toBeLessThanOrEqual(1);
         // 卡片缩完：抓住的点还在指针下。
         await expect.poll(async () => {
             const box = await card.boundingBox();
