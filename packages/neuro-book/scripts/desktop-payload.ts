@@ -158,17 +158,18 @@ export async function assembleDesktopPayload(options: PayloadOptions): Promise<P
     const nativeName = `pi-natives-${options.os}-${options.cpu}`;
     const natives = existsSync(join(nodeModules, "@oh-my-pi")) ? (await readdir(join(nodeModules, "@oh-my-pi"))).filter((name) => name.startsWith("pi-natives-")) : [];
     if (natives.length !== 1 || natives[0] !== nativeName) throw new Error(`载荷里的原生插件应当只有 @oh-my-pi/${nativeName}，实际是 ${natives.join("、") || "没有"}`);
+    // 清单只列实际装上的包（锁文件还列着别的平台的原生插件）；每个都要有许可文件、在锁里有完整性哈希。
     const unlicensed: string[] = [];
-    for (const directory of await installedPackageDirectories(nodeModules)) {
-        if (!(await readdir(directory)).some((name) => LICENSE_FILE.test(name))) unlicensed.push(relative(nodeModules, directory));
+    const dependencies: Record<string, {version: string; integrity: string}> = {};
+    for (const directory of (await installedPackageDirectories(nodeModules)).sort()) {
+        const name = relative(nodeModules, directory).split(sep).join("/");
+        if (!(await readdir(directory)).some((file) => LICENSE_FILE.test(file))) unlicensed.push(name);
+        const {version} = JSON.parse(await readFile(join(directory, "package.json"), "utf8")) as {version: string};
+        const integrity = payloadLock.get(`${name}@${version}`);
+        if (integrity === undefined) throw new Error(`装上的 ${name}@${version} 不在载荷的锁文件里`);
+        dependencies[name] = {version, integrity};
     }
     if (unlicensed.length > 0) throw new Error(`这些依赖没有许可文件，不能随载荷分发：${unlicensed.join("、")}`);
-
-    const dependencies: Record<string, {version: string; integrity: string}> = {};
-    for (const [spec, integrity] of [...payloadLock].sort(([a], [b]) => (a < b ? -1 : 1))) {
-        const at = spec.lastIndexOf("@");
-        dependencies[spec.slice(0, at)] = {version: spec.slice(at + 1), integrity};
-    }
     const manifest: PayloadManifest = {
         schema: 1,
         product: APP_NAME,
