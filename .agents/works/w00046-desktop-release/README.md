@@ -25,6 +25,7 @@ updated: 2026-11-13
 - 桌面壳与安装包：Electrobun（候选 Electron）；先做 Windows 的 setup 安装程序与便携包，macOS、Linux 在后。
 - 应用内的外部工具向导：Git、Python 等，可随 NeuroBook 安装（自己管理）或装到系统（只识别）。
 - CI：构建与冒烟；打 `v*` 标签后全自动发布（npm 包、桌面包、GitHub Release）。
+- 桌面端体验（开发者 2026-11-13 列的后续）：有界面的安装程序（为当前用户安装、安装位置、快捷方式）、自定义标题栏、桌面端专有设置（开机自启、系统托盘、通知）。
 
 非目标：服务器部署（Docker、远端访问，以鉴权为前提另写提案）；后台运行与系统服务（`nbook service`）。
 
@@ -37,4 +38,8 @@ updated: 2026-11-13
 
 | Task | 内容 |
 |---|---|
-| [t01](tasks/t01-distribution-proposal/README.md) | 发行提案与桌面壳实测选型。计划中 |
+| [t01](tasks/t01-distribution-proposal/README.md) | 发行提案与桌面壳实测选型。进行中：实测完成，提案 [desktop-distribution](../../../docs/proposals/desktop-distribution.md) 草稿待定稿 |
+| [t02](tasks/t02-installer/README.md) | 有界面的安装程序：为当前用户安装、安装位置、快捷方式。未开工 |
+| [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏。未开工 |
+| [t04](tasks/t04-desktop-settings/README.md) | 桌面端专有设置：开机自启、系统托盘、通知。未开工 |
+| [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具安装向导。未开工 |
