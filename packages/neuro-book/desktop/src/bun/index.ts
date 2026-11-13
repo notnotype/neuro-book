@@ -4,7 +4,8 @@
  *
  * - 关窗：`will-close` 里同步设 `{allow: false}`（Electrobun 只在同步段里看这个应答）再交给协调器；真正关窗用 `win.close()`，
  *   它不经 `will-close`。窗口没了（`close` 事件）才告诉协调器。
- * - 退出：`before-quit` 一律同步否决，直到核心说可以退（`exit`）才放行一次。
+ * - 退出：`before-quit` 一律同步否决，直到核心说可以退（`exit`）才放行一次；否决之后把这次退出请求交给协调器
+ *   （`quitRequested`），由它像用户逐个关窗一样询问、停止（输出 19）。
  * - 对话框：壳自己开的小窗口，不用 `Utils.showMessageBox`（它在 Windows 上同步阻塞主线程）；只有缺 WebView2 时用它，那时什么
  *   都还没运行。
  * - 桥：产品窗口是沙箱网页视图（没有 RPC），页面经预加载脚本与 `__electrobunSendToHost` 发固定形状的消息；壳经
@@ -104,14 +105,21 @@ async function main(): Promise<void> {
             return null;
         }
     };
-    const isServerUrl = (url: string): boolean => {
+    /**
+     * 页面要去别处的地址（输出 11、12）：服务端的精确来源交 `sameOrigin`，`http`、`https` 的外部地址交系统浏览器，别的不理。
+     * 整页导航被导航规则拦下后、页面请求新窗口时都走这里。
+     */
+    const routeAway = (raw: unknown, sameOrigin: (url: string) => void): void => {
+        if (typeof raw !== "string") return;
+        let url: URL;
         try {
-            return serverOrigin !== null && new URL(url).origin === serverOrigin;
+            url = new URL(raw);
         } catch {
-            return false;
+            return;
         }
+        if (serverOrigin !== null && url.origin === serverOrigin) sameOrigin(url.href);
+        else if (url.protocol === "http:" || url.protocol === "https:") Utils.openExternal(url.href);
     };
-    const isWebUrl = (url: string): boolean => /^https?:\/\//u.test(url);
 
     /** 产品窗口与启动页窗口：沙箱、预加载、导航规则；事件接到协调器。 */
     const openManaged = (target: OpenTarget): WindowId => {
@@ -133,9 +141,16 @@ async function main(): Promise<void> {
             if (message === null) return;
             onWindowMessage(id, win, message);
         });
+        // Electrobun 2.0.6 的 will-navigate 载荷是 JSON 字符串 `{url, allowed}`（SDK 不替它解析），new-window-open 已由 SDK 解成
+        // `{url, isCmdClick, ...}`（解析失败时仍是字符串）；`parse` 两种都收。被导航规则放行的整页导航（同源、启动页）不用处理。
         win.webview.on("will-navigate", (event: unknown) => {
-            const url = String((event as {data?: {detail?: unknown}}).data?.detail ?? "");
-            if (!isServerUrl(url) && !url.startsWith("views://") && isWebUrl(url)) Utils.openExternal(url);
+            const detail = parse(event);
+            if (detail === null || detail.allowed === true) return;
+            routeAway(detail.url, () => undefined);
+        });
+        // Ctrl 点击链接、按住 Ctrl 的前端路由跳转：SDK 自己的预加载与 WebView2 的导航事件截下后发 new-window-open（输出 12）。
+        win.webview.on("new-window-open", (event: unknown) => {
+            routeAway(parse(event)?.url, (url) => void shell.windows.pageWindowRequested(url));
         });
         return id;
     };
@@ -158,8 +173,7 @@ async function main(): Promise<void> {
                 win.setTitle(message.title === "" ? "NeuroBook" : message.title);
                 return;
             case "open-window":
-                if (isServerUrl(message.url)) shell.windows.pageWindowRequested(message.url);
-                else if (isWebUrl(message.url)) Utils.openExternal(message.url);
+                routeAway(message.url, (url) => void shell.windows.pageWindowRequested(url));
                 return;
             case "close-ack":
                 shell.windows.pageAcked(id, message.generation);
@@ -260,7 +274,10 @@ async function main(): Promise<void> {
     };
 
     Electrobun.events.on("before-quit", (event: {response?: {allow: boolean}}) => {
-        if (!quitAllowed) event.response = {allow: false};
+        if (quitAllowed) return;
+        event.response = {allow: false};
+        // SDK 只在这个同步段里看应答；发起关闭（询问页面、关启动页）放到下一轮事件循环，不在它的退出流程里操作窗口。
+        setImmediate(() => shell.windows.quitRequested());
     });
 
     const env = {...process.env};
