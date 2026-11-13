@@ -15,6 +15,7 @@ import {join, relative} from "node:path";
 export const RELEASE_PACKAGES = [
     "nb-profile",
     "nb-session",
+    "nb-flock",
     "nb-runtime",
     "nb-ui",
     "nb-harness",

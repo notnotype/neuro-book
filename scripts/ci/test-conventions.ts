@@ -17,7 +17,7 @@ export type TestRule = "module-mock" | "spy" | "fixed-wait" | "fake-timer" | "fo
 
 export type TestConventionFinding = {path: string; line: number; rule: TestRule; detail: string};
 
-export const STRICT_TEST_ROOTS: readonly string[] = ["packages/neuro-book/", "packages/nb-runtime/", "packages/nb-file-lock/", "packages/nb-host/", "packages/nb-models/"];
+export const STRICT_TEST_ROOTS: readonly string[] = ["packages/neuro-book/", "packages/nb-runtime/", "packages/nb-file-lock/", "packages/nb-flock/", "packages/nb-host/", "packages/nb-models/"];
 // 只读的旧应用与历史记录不检查。
 const SKIPPED_ROOTS: readonly string[] = ["packages/neuro-book-legacy/", "docs/archived/", ".agents/tasks/"];
 
