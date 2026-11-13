@@ -61,13 +61,12 @@ Electrobun 原型在 Windows 上的实测（[evidences/windows-electrobun-proto-
 - 做法：Electrobun 主进程用 `process.execPath`（应用自带的 `bin\bun.exe`）拉起 `server/main.js --stop-stdin`，窗口先显示启动页，读到 `Listening on` 后导航到回环地址；关窗时往服务端的标准输入写 `stop`，等它退出后再退出应用。
 - 结果：能构建（66 秒）、能安装、能启动、书房页面正常显示，关窗后服务端 197 毫秒以 0 退出，进程全部退出，卸载干净。服务端拉起项目子进程用的也是 `process.execPath`，不依赖 PATH 上的 Bun。
 - 体积：Setup.zip 与更新包都约 86 MB；装好后 275 MB，其中 Bun 110 MB、pi-natives 约 133 MB。
-- 速度与内存：窗口 80 毫秒出现，服务端 0.6 秒开始监听，页面 1.4 秒就绪；整套工作集约 610 MB，其中 WebView2 428 MB、服务端 123 MB（私有内存 569 MB，偏高，要另查）。
+- 速度与内存：窗口 80 毫秒出现，服务端 0.6 秒开始监听，页面 1.4 秒就绪；整套工作集约 610 MB，其中 WebView2 428 MB、服务端 123 MB。服务端的“私有内存”569 MB 是 Windows 的提交量，不是常驻：本机 Linux 上同一产物常驻 151 MB、私有脏页 91 MB，与 Windows 的工作集同一量级（从对照推断，JavaScriptCore 在 Windows 上预先提交大块堆）。
 - 要另行处理的：Setup 没有界面、静默安装并自动建桌面快捷方式；经计划任务在桌面会话里运行 Setup 的两次没装上，原因未查，双击安装这条路径未验证。便携方式（复制 `app` 目录）能跑，但数据仍写在 `%LOCALAPPDATA%` 下与安装版共用，便携模式要 NeuroBook 自己把状态根放到程序旁边。Hutch 0.29.0 设了 `HTTPS_PROXY` 时下载必失败，只能直连，国内直连 GitHub 偶有中断。
 
 ## 下一步
 
 1. 用 GitHub Actions 的 Windows runner 验证无人值守的构建与打包（开发者 2026-11-13 同意推临时分支），产物下载到 pc-notype 上验证双击 Setup 的安装路径。
-2. 查服务端私有内存 569 MB 的来源（与 Linux 上同一产物对照）。
-3. 写提案草稿，先给开发者看要点，确认后再交审查。
+2. 写提案草稿，先给开发者看要点，确认后再交审查。
 
 pc-notype 上要收尾清理的（都是本 Task 建的）：`%USERPROFILE%\nb-w00046\`（独立 Bun、Hutch、原型与脚本）、`%USERPROFILE%\nb-w00046-*.ps1`（三个早期脚本）、`%LOCALAPPDATA%\cottontail\cache`（Hutch 建的）、`%TEMP%` 里 Bun 的安装缓存。测试安装已用卸载程序清掉。
