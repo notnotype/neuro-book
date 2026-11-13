@@ -42,6 +42,15 @@ updated: 2026-11-13
 - v2 产品代码自身不调用 git 或 python。
 - 体积：pi-natives 是原生 N-API 模块，`@oh-my-pi/pi-natives-win32-x64` 18.20.0 解压后约 133 MB（npm registry 的 `dist.unpackedSize`）；Linux 包含 baseline 与 modern 两份，共 234 MB。它会是桌面包里最大的一块，比 Bun 本身还大。应用包里它是 dependencies（`scripts/pack-app.ts` 的 `SERVER_EXTERNALS`），没有打进 bundle。
 
+Electrobun 调研（读 v2.0.6 源码仓库的文档，2026-11-13；源码克隆在本地 `.local/agent/works/w00046-desktop-release/tasks/t01-distribution-proposal/research/`）：
+
+- 现状：MIT，GitHub 约 1.3 万星，最新稳定版 v2.0.6（2026-11-04），之后几天一个 beta。构建工具叫 Hutch，只为当前主机平台构建，多平台靠各平台的 CI runner。主进程缺省是 Bun 1.4.4，由 Hutch 下载并打进应用（pi-natives 要求 `bun >= 1.4.4`，正好对上）；应用的 JavaScript 跑在 worker 里，原生事件循环占主线程。Windows 用系统的 WebView2，也可以选择捆绑 CEF。
+- Windows 产物：`win-x64-<App>-Setup.zip`（里面是 setup 程序与隐藏的安装数据）、更新用的 `.tar.zst`、`update.json`、可选的增量补丁。**没有现成的便携包**，要用 `postPackage` 钩子或 CI 另打一个。装到 `%LOCALAPPDATA%\<identifier>\<channel>`，按用户安装，不需要管理员权限。
+- 更新：更新文件都是静态文件，文档点名 GitHub Releases 也能当来源。`update-v2.json` 里有 tar 的 SHA-256 与大小，文档写明这是完整性校验、不是签名。增量补丁按上一版的哈希命名，缺了就退回下载完整包。
+- 签名：文档写明 Hutch 的打包流程目前不做 Windows 签名，与“不买证书”的决定一致。
+- 卸载：自带的卸载程序提供“只删应用”和“应用和数据”两个选项，后者删 `Utils.paths.userData` 等目录。**要在提案里定状态根放哪**：ADR 0033 的缺省状态根是 `%LOCALAPPDATA%\NeuroBook`，与 npm 包的 `nbook` 共用；Electrobun 管的是 `%LOCALAPPDATA%\<identifier>\<channel>`。放在后者，卸载时选“应用和数据”会连作品登记与设置一起删掉，也和 `nbook` 不通。
+- 官方文档给了 GitHub Actions 的矩阵示例：打标签触发，各平台构建都成功后才建 Release。
+
 ## 下一步
 
 1. 先查新应用在 Windows 上能否起来（实例认领的命名管道、项目子进程）：本机只有 Linux，靠 GitHub Actions 的 Windows runner 或开发者的机器。
