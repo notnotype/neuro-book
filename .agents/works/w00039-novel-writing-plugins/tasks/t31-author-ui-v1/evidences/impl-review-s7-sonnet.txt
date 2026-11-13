@@ -1,0 +1,109 @@
+# w00039 t31 S7 前端实现审查报告（e5ca8e1da、4d3790881、75b465e17、8d2582682，不含 packages/nb-canon）
+# 工作树 /home/notnotype/CodeRepository/neuro-book/.worktree/w00039-novel-writing-plugins
+# 背景：既有的 6 个相关测试文件 27 条在 base 之上全过；vue-tsc -p tsconfig.web.json 退出码 0。
+
+### 1. show-pending 与第一次打开选“第一条”时用的是读取层留着的旧结果，之后新结果到了不再补选
+严重程度：重要；类别：正确性
+位置：packages/neuro-book/src/plugins/canon/web/components/PendingViewHost.vue:87-92（pickFirst 的 watch）；牵连 use-reads.ts 的 useKeptRead 与 world.ts 的 list（slot 在没人用时仍留着上次的 state）
+现象：视图停放（或“待处理”一组收起）后再回到前台时，useWorldList 换上的句柄指向读取层里留着的槽，槽里是上次的结果，`loading` 为 false，重读才刚发出。watch 的来源含 `props.visible`，所以回到前台那一刻就用这份旧结果选第一条并立刻 `pickFirst = false`。新结果到了以后：旧结果里的第一条还在就保持选它（可能已不是第一条）；旧结果是空列表时选成 null，而新结果里有了一条也不再选。
+为什么是问题：状态栏“待处理 N”的 N 变了才会有人去点它，也就是正好在读取层留着的结果过期的时候。验收 5（点状态栏、底部面板显示、选中那一条、详情里有原句与嫌疑）在第二次进入视图时走不通。Spec 命令表写“选中第一条”，待确认清单也写“show-pending 每次选回第一条”，实现达不到。
+如何核实（真实世界、真实读取层与真实视图实现，只绕过工作台把 context 交给视图这一步，测试里本来也是这么做的）：在 pending-view.dom.test.ts 末尾临时追加一条：用 mine.canon 建 createCanonWorld，createPendingView 的 load 得到组件，挂上，visible 为 ref(true)；等“待处理”一组读到空列表；visible=false；经 other 窗口发布一条核对点不符；等 world.status 的版本追上；调 pickFirstPending(state)；visible=true；等行数为 1 再等 800 ms。实测输出：rows=1 selectedExists=false noSelection=true pickFirst=false selected=null，即列表里有一条而详情区写“选一条看详情”。已把测试文件从 scratch/pending-view.dom.test.ts.orig 恢复，git status 干净。
+建议改法：pickFirst 要等“视图可见之后发起的那次读取”读完再消耗。做法之一：world.ts 的 ListState 带 `stale`（槽的 generation 小于世界当前 generation），宿主在 stale 为真时不消耗 pickFirst；之二：回到前台时先清掉 pickFirst 以外的依赖、只在 `loading` 从 true 变 false 的那次结果上选。无论哪种，都要补一条“停放期间来了新的一条，show-pending 后选中它”的测试。
+
+### 2. “视图停放时不重读”没有被测到：改动记录的测试在去掉可见性门控后仍然通过，待处理视图的测试从不翻 visible
+严重程度：重要；类别：测试
+位置：packages/neuro-book/src/plugins/canon/web/revisions-view.dom.test.ts:191-219；pending-view.dom.test.ts:62（visible 只有 ref(true)）；对照 entries-view.dom.test.ts:114-136（数了读取次数）
+现象：计划写“可见：视图停放期间别处发布不重读，回来以后内容更新。用 S4 量读取次数的办法数”。实际：
+- 改动记录：测试停放后发布，再把 visible 改回 true 就断言旧内容，没有任何地方数读取次数。变异检查：把 RevisionsViewHost.vue 里 `props.visible ? {filter: ...} : null` 改成永远读（`({filter: revisionsFilter(chapter.value, state.writer.value)})`），连跑 3 次 `vitest run revisions-view.dom.test.ts -t 停放期间`，3 次都通过。该行已从 scratch/RevisionsViewHost.vue.orig 恢复，git diff 为空。
+- 待处理：整个文件没有一处把 visible 设为 false；状态栏与视图共享槽、`summaryList` 在不可见时释放、停放时的 useKeptRead、回到前台先显示旧的，这些都没有测试。pending-count.dom.test.ts 也没测窗口停止时释放读取。
+为什么是问题：输出 26 的这一半（不可见不占读取）是 S7b 专门改了三个视图宿主去做的，没有判据兜着，以后谁把 `props.visible` 去掉都不会失败。
+建议改法：照 entries-view.dom.test.ts 的写法（countedClient 数 `revisions` 与 `pending` 的调用次数）各补一条：停放后发布，读取次数不增；回到前台先显示旧行、之后换新。待处理那条同时覆盖第 1 条的场景。
+
+### 3. show-pending、show-revisions 两个命令没有任何测试执行过
+严重程度：重要；类别：测试
+位置：packages/neuro-book/src/plugins/canon/web/commands.ts:68-80；plugin.ts 里 `pendingShown: () => pickFirstPending(pendingState)`
+现象：grep show-revisions、SHOW_REVISIONS、canonCommands、pickFirstPending 在 src 与 e2e 下的测试文件里零命中；pending-count.dom.test.ts 只断言了状态栏条目声明里的 command id 是 "nbook.canon.show-pending"。计划的测试清单明确写了“`show-pending` 打开视图并选中第一条”。
+为什么是问题：这是状态栏、命令面板与（回执页面包屑之外）到达这两个视图的唯一入口；先调 pickFirstPending 再执行 open-view、命令服务不在时返回 unavailable，这些分支都没被覆盖，第 1 条的缺陷也因此没被发现。
+建议改法：在 pending-view.dom.test.ts 里用真实命令服务（或 commands 的一个最小真实实现）执行 `nbook.canon.show-pending`：视图开着时选回第一条；组收起时展开；再执行 `show-revisions` 得到 open-view 调用。
+
+### 4. 详情里的链接按钮把整句剧情变更文字当标签，nb-ui 的 Button 是 whitespace-nowrap，窄宽度下会横向滚动
+严重程度：重要；类别：正确性（宽度，Spec 输出 32、验收 14）
+位置：components/PendingDetail.vue:51-53（links 的 Button）、pending.ts 的 linkTo（label 为 `what(ref)`）；nb-ui components/controls/Button.vue:67（`whitespace-nowrap`）；PendingView.vue 的 `.pending-view__scroll`（`overflow-y: auto` 使横向也成了 auto）
+现象：time-conflict、cannot-apply 之外的“别的种类”与提示组里，链接的标签是 `“{{text}}”`，text 是作者写的那条剧情变更的整句文字（可以很长，Lab 的改动记录场景里就有 40 多个汉字的标题）。Button 不换行，单个按钮宽过详情窗格（390 像素宽时约 330 像素）就撑出横向滚动条，Spec 输出 32 与验收 14 要求三个视图都没有横向滚动。详情的标题 `h2` 与原句 `blockquote` 也没有 `overflow-wrap`，遇到不带空格的长英文串或标识符同样会撑宽。
+核实情况：从代码推断，未在浏览器里量（本次不跑 e2e 与开发服务）。Lab 的 PendingDetail 场景只有短标签，没有长标签场景，所以截图基线看不到。
+建议改法：链接做成能换行或截断的形式（给 Button 传 class 覆盖为 `whitespace-normal text-left`、`max-w-full`，或标签截断加 `title`），标题与原句加 `overflow-wrap: anywhere`；Lab 补“很长的链接标签”场景并在 390 像素宽核对。
+
+### 5. 强行解除的确认按钮对“确认那一刻的持有者”生效，不是对话框里写的那一位
+严重程度：建议；类别：正确性
+位置：components/PendingViewHost.vue:190-207（startBreak 抓 holder、confirmBreak 调 world.breakExclusive()）；canon.project 方法表 `breakExclusive` 没有参数，backend/remote.ts:180 直接 `service.breakExclusive()`
+现象：对话框标题写的是点“强行解除”那一刻的持有者 A。对话框开着期间 A 自己释放或到期，另一个调用方 B 申请到独占，作者点确认时被解除的是 B，而标题仍写 A；A 已结束、没有新持有者时确认是空操作，对话框照常显示“强行解除 A 的独占”并报成功。窗口断开的情形有测试，持有者变化没有。
+为什么是问题：二次确认的意义就是作者知道自己在解除谁。窄场景，不用加机制：
+建议改法：宿主在确认时比较 `world.status.value.data?.exclusive?.label` 与 `breaking.holder`，不一致就不调用，在对话框里写一句“持有者已经变了”并把 holder 更新为现在的（或持有者为空时直接关）。或者记为已知限制。
+
+### 6. 选中的 `index` 只在 select() 时记下，位置变了以后“消失时选原来位置上的那一条”选错
+严重程度：建议；类别：正确性
+位置：components/PendingViewHost.vue:94-104（消失时的 watch）与 106-112（select）
+现象：`state.selected.index` 只在 select() 与消失重选时写。选中的那条仍在、只是前面插进或消失了几条（别处发布以后很常见：排序按章序，新的待处理排在前面）时，index 不更新。之后它消失，选的是“它被选中那一刻的位置”上的那条，不是消失前一刻的位置（Spec 输出 23：“选中它原来位置上的下一条”）。例：选中第 3 条（index 2），前面新增一条后它成了第 4 条（实际位置 3），再被处理掉，选到的是新增那条前面算起的第 3 条，也就是它原来的前一条，而不是后一条。
+如何核实：从代码推断；watch 在 `read.items.some(key === selected.key)` 为真时直接 return，不写 index。
+建议改法：在那个 return 之前把找到的位置写回 `state.selected`（key 与 group 不变，只更新 index；注意只在 index 变了时写，免得触发多余的更新）。补一条测试：先插入一条再处理掉选中的。
+
+### 7. 插件诊断的显示名只增不减：诊断停用或声明不在了以后，行与提示仍写旧名字
+严重程度：建议；类别：正确性
+位置：components/PendingViewHost.vue:62-75（labels 的累积 watch）
+现象：watch 把每一页带来的 `labels` 并进 `labels.value`，从不删。内核 K-e 的约定是“声明已经不在的（停用）不带”，Spec 输出 23 写“声明已经不在时写‘插件的一项检查’”。窗口开着期间某个诊断插件被停用，新读到的页不再带它，但 `labels` 里还留着，“因插件停用没有算”那一句和已处理组里它的发现都继续写旧显示名。
+为什么累积：注释说“再显示更多”之后 `data` 只是新的一页。但世界一变，list 按已读条数整页从头重读，`data` 又是完整的一页，累积只对“刚点了再显示更多、还没重读”的那一刻有用。
+建议改法：按“当前这一轮的页”合并，每次从头重读（`data` 对应的 items 个数等于 state.items 个数）时重置；或让 ListState 另带 `labels` 的累积（读取层在 `fromStart` 时重置、`next` 时合并），宿主直接用。
+
+### 8. 键盘与读屏：选中的那行消失时焦点掉到 body；详情区换内容没有任何提示；行没有角色
+严重程度：建议；类别：正确性（Spec 输出 30）
+位置：components/PendingView.vue:89-101（`li` 带 tabindex、aria-current）、112（详情 `role="region"`）；RevisionsView.vue:85-93
+现象：
+- 焦点在选中的那一行上时，别处发布让它消失：行从 DOM 里删掉，焦点落到 body，Host 把选中换到邻行但不移焦点；再按方向键，keydown 的 target 不在列表里，`rovingKeydown` 直接 return，键盘用户要从头 Tab。ProviderRail 的选中不会消失，所以没有这个问题；S6 审查第 10 条（焦点掉到页面外）是同类。
+- Spec 输出 30 要求“移到哪条详情就显示哪条”，但详情区只是 `role="region"` 加 aria-label，不是 live，读屏用户按方向键移动时听不到详情换了。
+- `li` 加 tabindex 但没有 role，读屏读成“列表项”，选中状态靠 `aria-current="true"`；这与 ProviderRail 的 `aria-current="page"`、nb-ui `Tree` 的 `aria-selected`/`treeitem` 两种做法都不一样，没有写明为什么另起一种。
+- “强行解除”所在的 `div role="status"` 里放了可交互的按钮，live region 里的按钮每次出现会连按钮名一起被念。
+如何核实：从代码读出；未用读屏软件实测。
+建议改法：选中那行消失且焦点本来在列表里时，把焦点移到新选中的那一行（Host 在换选中前看 `document.activeElement` 是否在 `[data-row]` 内）；详情标题放进 `aria-live="polite"` 区或给选中行 `aria-describedby`；`role="status"` 只包文字，按钮放在它外面；在 PendingView.md 里写明选 `aria-current` 的理由。
+
+### 9. pending.ts 里两处多余的类型断言；三个视图重复同一段“未绑定项目”分支
+严重程度：建议；类别：代码质量
+位置：pending.ts:235（`(patch as {basis?: ...}).basis?.kind`）、pending.ts:276（`(found as {held?: {note?: string}} | undefined)?.held?.note`）；pending-view.ts、revisions-view.ts 与 entries-view.ts 各写一份 `h("p", {class: "px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"))`
+现象：nb-canon 的 StoryChangeSchema 已有 `held: {reason, note, against?}`，PatchSchema 已有 `basis?: Basis`（`kind: "estimate"` 在联合里）。两处断言把已经有的类型绕开，将来 schema 改名时 vue-tsc 不会报。AGENTS.md 的规则是不用 hack 绕过类型系统。
+建议改法：直接写 `found?.held?.note`、`patch.basis?.kind === "estimate"`（vue-tsc 本次通过，应当无需别的改动）；“未绑定项目”那一句抽成一个小函数，三处共用。
+
+### 10. 待处理宿主只有“核对点不符”与“强行解除”两条端到端测试，计划里列的几项与几种详情没有覆盖
+严重程度：建议；类别：测试
+位置：pending-view.dom.test.ts（5 条）、components/PendingView.dom.test.ts
+现象：对照计划“测试”一节：
+- “不完整的提示”只在骨架测试里用手给的 notes 测了，宿主里 `summary.data.unavailable/truncated/disabled` 与 `labels` 折成句子的那段（PendingViewHost.vue:168-177）没有测试。
+- “只是提示”“已处理”展开后只测了空状态；hints 与 handled 里有项目时的行、选中跟着焦点、“已处理”另读决策（pendingDetailNeeds 的 decision 引用）没有端到端测试。
+- 待定与套不上两种详情只在 pending.test.ts 里用手写的 lookups 测过；套不上要读 `changes` 的 `{filter: {range: {through}, order: "desc"}}` 与 `limit 1`，第一条就是根因这一假设（PendingViewHost.vue:125-130、145-148）没有对真实服务验证过。
+- 窗口没有绑定项目时两个新视图写“打开作品后可用”、状态栏不显示，没有测试。
+- “再显示更多”（一组超过 50 条）在宿主里没有测试；改动记录那边有。
+- 选中的第一条消失后选原来第二条有测试，选中的消失后换组收起、停放时“不动它”这两条注释里写的分支没有。
+为什么是问题：这些分支都是实现里专门写了判断的地方，其中 `outcome` 那条是唯一向服务发一个新形状输入的新读取。
+建议改法：用 world-fixtures 再造三类数据（待定的变更、套不上的变更、已处理的发现），补 3 到 4 条端到端测试；其余分支按风险取舍。
+
+### 11. Lab 场景没摆出两种最容易出问题的状态：窄宽度、长文字
+严重程度：建议；类别：测试
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/index.ts 新增的 RevisionsView、PendingView、PendingDetail、BreakExclusiveDialog 场景；PendingViewFixture.vue（`class="h-80 w-full"`）
+现象：
+- PendingView 与 RevisionsView 的容器查询断点（640、480 像素）、390 像素宽的验收，场景里都没有一个固定窄宽度的场景（固定宽度只能靠 Lab 自己的宽度开关，场景没写明要看哪几档）。
+- RevisionsView 有“很长的标题”场景；PendingView/PendingDetail 没有长行、长链接标签、长原句场景，第 4 条的问题因此看不到。
+- PendingView 没有“世界已断开”“还有更多（`more: true`）”“hints 展开且有项”的场景；PendingDetail 只有三个场景，缺时间矛盾（一串链接）、没有原句的情形。
+建议改法：补这几个场景，并给宽度敏感的场景在 Lab 里固定 390 与 640 像素两档（照该仓库其它容器查询组件的 Lab 写法）。
+
+### 补注（收窄第 11 条的措辞，见第 11 条）
+第 11 条里提到“Lab 自己的宽度开关”是推测：我没有核实 Lab 是否有整页宽度开关。能确定的只有：本批新增的场景里没有一个专门给窄宽度（390、小于 640）的，也没有长文字场景。
+
+### 未发现问题的方面
+- 读取层寿命（重点 1）：createPendingCount 与宿主 summaryList 用同一个键（method=pending、group=pending、pageSize=1）确实共享一个槽，users 计数正确；窗口停止时 abort 先 release 再 dispose；world 为 null（未绑定项目）时 createPendingCount 返回 null 计数，hasPending 为假，状态栏不显示。宿主的 lists.pending（pageSize 50）是另一个槽，但内核 #groups 按输入摘要缓存，重复读成本只在客户端，不算问题。useKeptRead 只在 read() 返回 null 时给旧的；对“条目被删”这类 null 不适用，宿主只用在停放与收起，`itemsOf` 另按 expanded 门控，没有发现收起后仍显示旧行的路径。
+- pendingKey（重点 3）：逐种对照 PendingItem、TimePendingItem、LinePendingItem、CanonHint 的字段，VOLATILE 去掉的 computed、written、suspects、changes、reason、count 都是内核里随世界变的字段，剩下的字段足以分开同一份列表里不同的项（time-conflict 靠 statements，time-invalid 靠 change 加 statement，check-mismatch 靠 check 加 at）；没有找到两项撞键或同一项换键的情形。applyFailures 的七个键与 ApplyFailure 联合一致，pending.rows 键覆盖了全部种类，zh-CN 与 en-US 键集与占位符一致。
+- 强行解除（重点 5）：结果回来之前不关、按钮不可用、失败写 `role="alert"`，窗口断开的失败有端到端测试；对话框开着时独占自己结束的情形只是第 5 条那种“标题过期”，没有别的副作用。
+- 宽度（重点 6）：Select 的 `class="w-48 max-w-full"` 经 nb-ui 的 cn 覆盖默认 w-full，符合 Select.md；叠加滚动条与滚动元素同父且父元素定位，选中色与 Tree 一致。除第 4 条外，容器查询的断点与 `min-width: 240px` 没有发现冲突。
+- 性能（审查维度 6）：宿主每次名字或对象到达都会重算 groups（最多 150 行 pendingRow 加 pendingKey 的规范 JSON）；规模小，估算每次几毫秒以内，没有测量，不列为发现。
+- 验证：`bunx vitest run` 对相关 6 个测试文件 27 条全过；`vue-tsc --noEmit -p tsconfig.web.json` 退出码 0；变异与复现用的两个文件（RevisionsViewHost.vue、pending-view.dom.test.ts）都已从 scratch 下的 .orig 恢复，工作树 git status 干净。
+
+### 数量
+阻断 0，重要 4（第 1、2、3、4 条），建议 7（第 5、6、7、8、9、10、11 条）。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11
