@@ -50,6 +50,6 @@ updated: 2026-11-13
 | [t06](tasks/t06-desktop-specs/README.md) | 桌面发行的 Spec（desktop-shell、desktop-update 新建，server-host、browser-host、editor、cli、notifications 等修改）。已完成，omp 三轮设计审查 |
 | [t07](tasks/t07-managed-entry-payload/README.md) | 应用包托管入口与桌面载荷组装。已完成 |
 | [t08](tasks/t08-desktop-shell/README.md) | Electrobun 桌面壳。进行中：代码与 Windows 实测第 1 轮完成，实现审查中 |
-| [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。计划中 |
-| [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。未开工 |
+| [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。进行中：已实施，实现审查中，待 Windows 联合验收 |
+| [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。计划中 |
 | [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。未开工 |
