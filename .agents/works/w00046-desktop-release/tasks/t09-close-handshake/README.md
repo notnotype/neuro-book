@@ -15,20 +15,37 @@ updated: 2026-11-13
 
 ## 当前状态
 
-2026-11-13：
-- 前端部分的设计审查（Sonnet）报了 13 条，全部成立、照改（[报告](evidences/design-review-r1-sonnet.txt)、[处理](evidences/design-review-r1-sonnet-disposition.txt)）；Spec 补了三处，待确认清单加了五条。
-- 服务端部分（在跑的工作）的 omp 设计审查在跑，切片 1、2 等它的结论。
-- 前端各片先实施（与服务端部分文件不重叠），代码在 Work 分支：
-  - 切片 5 `0bdce81c7`：通知的用户关闭回告，nb-ui `onDismiss`、工作台 `onClose`；
-  - 切片 3：
-    - `d7de9fc33`：桥的共用形状与校验、关闭参与方能力、页面的询问控制器，`close-query.test.ts` 11 条；
-    - `16ac2f275`：正在关闭层与宿主的询问、挡输入、启动前接线；
-  - 切片 4 `efc3614cf`：编辑器参与方，`window-close.test.ts` 8 条；
-  - `596b7a84e`：真实浏览器验收 `e2e/desktop-close.e2e.ts`，2 条，用假壳派发询问。
+2026-11-13：切片 1 到 5 都已实施，代码在 Work 分支 `feat/w00046-desktop-release`，实现审查进行中。
+
+设计审查两份，发现都成立、照改：
+- 前端（Sonnet）13 条：[报告](evidences/design-review-r1-sonnet.txt)、[处理](evidences/design-review-r1-sonnet-disposition.txt)；
+- 服务端（omp）6 条：[报告](evidences/design-review-r1-omp.txt)、[处理](evidences/design-review-r1-omp-disposition.txt)。
+
+各片提交：
+- 切片 5 `0bdce81c7`：通知的用户关闭回告；
+- 切片 3：
+  - `d7de9fc33`：桥与询问控制器；
+  - `16ac2f275`：正在关闭层、宿主询问与挡输入；
+  - `1b331b4a9`：内置目录在建窗口时登记；
+- 切片 4 `efc3614cf`：编辑器参与方；
+- 切片 1、2：由 Opus 编码子代理在独立 worktree 实施（[交付报告](evidences/server-impl-report.txt)），主会话审过 diff 后合入：
+  - `825b1c012`：服务端在跑的工作与项目取工作；
+  - `4a1d496db`：Agent 与后台任务的登记；
+  - `75c33a1d4`：起标题的会话不算在跑的工作，能力改为可选依赖；
+- e2e `596b7a84e`，加一条 `quit` 的用例；
+- `a04be981e`：开发模式监视根的期望补上 nb-flock 与 owned-process。后者是 t08 加依赖带来的；前者是 master 上已有的失败。
+
+验证：
+- 单元测试：服务端、项目、agent、tasks、编辑器、页面、共用与桌面核心 1026 条，只有监视根这 1 条失败，已修；
+- 前端 dom 测试 156 条、nb-harness 句柄表 7 条；
+- e2e 3 个文件 31 条：`desktop-close`、`editor-autosave`、`browser-host`；
+- 类型检查与治理检查。
 
 ## 下一步
 
-1. 处理 omp 的服务端审查，实施切片 1、2：在跑的工作的宿主能力与接口、项目子进程取工作、Agent 与后台任务的登记。
-2. e2e 补 `quit` 时取工作的提示。
-3. Spec 去掉 planned、补实现合同。
-4. Windows 联合验收。
+1. 实现审查不阻塞：前端 Sonnet，服务端与 t08 修正 omp。报告回来后处理，修正单独提交。
+2. pc-notype 恢复后，Windows 实测第 2 轮：
+   - t08 剩下的项；
+   - t08 修正里只能在 Windows 上验的几条；
+   - desktop-shell 场景 5、6、7，即与 t09 联合验收。
+3. 合入 master 时同步改 Spec：去掉 planned，补实现合同。
