@@ -130,6 +130,16 @@ export class WindowCoordinator {
         this.#ask(id, state, this.#isLast(id) ? "quit" : "window");
     }
 
+    /**
+     * 应用级的退出请求（输出 19：系统或框架发来的退出，适配层已同步否决）：每个还活着的窗口都像用户关它一样走 `closeRequested`，
+     * 启动页直接关，产品窗口各自询问，最后一个照常以 `quit` 询问；任何一个页面不同意，应用就照常运行。已经在问的窗口不再弹
+     * “没有响应”（那是用户再次关同一个窗口时才给的），停止中再来的退出请求不用处理。
+     */
+    quitRequested(): void {
+        if (this.#stopping) return;
+        for (const [id, state] of [...this.#windows]) if (state.ask === null) this.closeRequested(id);
+    }
+
     pageAcked(id: WindowId, generation: number): void {
         const ask = this.#windows.get(id)?.ask;
         if (ask === null || ask === undefined || ask.generation !== generation || ask.acked) return;

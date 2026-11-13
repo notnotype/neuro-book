@@ -12,13 +12,13 @@ function manualClock(): DeadlineClock & {advance(ms: number): void; armed: numbe
     return {
         armed,
         now: () => now,
-        setTimeout(callback, ms) {
+        schedule(callback, ms) {
             armed.push(ms);
-            next = {due: now + ms, callback};
-            return next;
-        },
-        clearTimeout(handle) {
-            if (next === handle) next = null;
+            const timer = {due: now + ms, callback};
+            next = timer;
+            return () => {
+                if (next === timer) next = null;
+            };
         },
         advance(ms) {
             const target = now + ms;

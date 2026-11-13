@@ -66,12 +66,15 @@ export class DesktopShell {
     readonly #options: ShellOptions;
     readonly #coordinator: WindowCoordinator;
     #lock: Extract<ClaimResult<Record<string, never>>, {ok: true}>["claim"] | null = null;
+    /**
+     * 壳拥有的服务端：拉起（含重新启动）时在创建租约的同一个同步段里登记，停止路径随时都能取到还在拉起中的那一个。拉起它的
+     * 续体等完 `started` 之后核对它还是不是这一个（`#isCurrent`）、壳是否已开始停止，不是就不再登记或重试。
+     */
     #server: OwnedServer | null = null;
     #lastPorts: {http: number; rpc: number} | undefined;
     #startupAction: ((action: StartupAction) => void) | null = null;
     /** 启动作废（启动中关掉了最后一个窗口，输出 23）或已开始退出。 */
     #finishing = false;
-    #ready = false;
 
     constructor(options: ShellOptions) {
         this.#options = options;
@@ -108,19 +111,42 @@ export class DesktopShell {
     /** 取桌面锁；被同版本的壳持有时转交后退出（交回 false）。 */
     async #takeLock(stateRoot: string): Promise<boolean> {
         let waitedSince: number | null = null;
+        // 显示“正在确认关闭”期间用户点了“退出”（输出 3、场景 5）。按钮在等待的任何时刻都可能来，包括一次询问还没返回时，
+        // 所以从进入这个状态起一直接着，每次 await 之后都看它。
+        let exitWhileClosing = false;
+        let wakeClosingPoll: (() => void) | null = null;
+        /** 离开“正在确认关闭”：不再由它接按钮（之后的错误页由 `#fail` 自己接）。 */
+        const leaveClosing = (): void => {
+            this.#startupAction = null;
+        };
         for (;;) {
             if (this.#finishing) return false;
+            if (exitWhileClosing) {
+                this.#exit(0);
+                return false;
+            }
             const claimed = await acquireDesktopLock({stateRoot, version: this.#options.version, report: this.#options.report, onOpenWindow: () => this.#coordinator.openWindowRequested()});
             if (claimed.ok) {
+                leaveClosing();
+                if (this.#finishing || exitWhileClosing) {
+                    // 取锁的同时已决定退出：放下刚取到的锁再走。
+                    await claimed.claim.release();
+                    if (!this.#finishing) this.#exit(0);
+                    return false;
+                }
                 this.#lock = claimed.claim;
                 return true;
             }
             if (claimed.reason !== "running") {
+                leaveClosing();
                 const action = await this.#fail(claimed.reason === "unresponsive" ? "shell-unresponsive" : "lock-failed", claimed.detail, ["retry", "exit"]);
                 if (action !== "retry") return false;
                 continue;
             }
             const answer = await askRunningShell(stateRoot, this.#options.version);
+            if (this.#finishing) return false;
+            if (exitWhileClosing) continue;
+            if (answer.kind !== "closing" && answer.kind !== "lock-free") leaveClosing();
             switch (answer.kind) {
                 case "handed-off":
                     this.#exit(0);
@@ -130,7 +156,19 @@ export class DesktopShell {
                 case "closing":
                     this.#options.ports.startupView({kind: "waiting-close"});
                     waitedSince = null;
-                    await this.#sleep(POLL_MS);
+                    this.#startupAction = (action) => {
+                        if (action !== "exit") return;
+                        exitWhileClosing = true;
+                        wakeClosingPoll?.();
+                    };
+                    await new Promise<void>((resolve) => {
+                        const cancel = at(this.#options.clock, this.#options.clock.now() + POLL_MS, resolve);
+                        wakeClosingPoll = () => {
+                            cancel();
+                            resolve();
+                        };
+                    });
+                    wakeClosingPoll = null;
                     continue;
                 case "stopping":
                     this.#options.ports.startupView({kind: "waiting-exit"});
@@ -175,7 +213,6 @@ export class DesktopShell {
             if (this.#finishing) return;
             const decision = decideConnection(await queryNeuroBook(stateRoot), this.#options.version);
             if (decision.kind === "connect") {
-                this.#ready = true;
                 this.#lock?.publish({url: null, rpcUrl: null, extra: {}});
                 this.#coordinator.serverReady(decision.url, false);
                 return;
@@ -204,10 +241,10 @@ export class DesktopShell {
 
     /** 拉起自有服务端；就绪或交给外部实例时交回 true，被抢先时交回 false 让调用方重问。 */
     async #spawn(stateRoot: string): Promise<boolean> {
-        const server = startOwnedServer({...this.#options.server, stateRoot, ports: this.#lastPorts, report: this.#options.report, clock: this.#options.clock});
-        this.#server = server;
+        const server = this.#startServer(stateRoot);
         const started = await server.started;
-        if (this.#finishing) return true;
+        // 等待期间已开始停止：这个服务端归停止路径收尾。
+        if (this.#finishing || !this.#isCurrent(server)) return true;
         if (started.kind === "taken") {
             this.#server = null;
             return false;
@@ -218,11 +255,22 @@ export class DesktopShell {
             return action !== "retry";
         }
         this.#lastPorts = started.ports;
-        this.#ready = true;
         this.#lock?.publish({url: null, rpcUrl: null, extra: {}});
         server.onUnexpectedExit((code) => void this.#serverExited(stateRoot, code));
         this.#coordinator.serverReady(started.url, true);
         return true;
+    }
+
+    /** 拉起自有服务端，并在同一个同步段里登记为壳拥有的那一个。 */
+    #startServer(stateRoot: string): OwnedServer {
+        const server = startOwnedServer({...this.#options.server, stateRoot, ports: this.#lastPorts, report: this.#options.report, clock: this.#options.clock});
+        this.#server = server;
+        return server;
+    }
+
+    /** 拉起 `server` 的续体在 await 之后用它核对自己还是不是壳拥有的那一个。 */
+    #isCurrent(server: OwnedServer): boolean {
+        return this.#server === server;
     }
 
     async #serverExited(stateRoot: string, exitCode: number | null): Promise<void> {
@@ -234,13 +282,15 @@ export class DesktopShell {
                 this.#coordinator.serverAbandoned();
                 return;
             }
-            const server = startOwnedServer({...this.#options.server, stateRoot, ports: this.#lastPorts, report: this.#options.report, clock: this.#options.clock});
+            const server = this.#startServer(stateRoot);
             const started = await server.started;
+            // 重新启动还在拉起中时最后一次关闭被同意：这个服务端已由停止路径收尾，不再登记或重试（输出 18、19）。
+            if (this.#finishing || !this.#isCurrent(server)) return;
             if (started.kind === "ready") {
-                this.#server = server;
                 server.onUnexpectedExit((code) => void this.#serverExited(stateRoot, code));
                 return;
             }
+            this.#server = null;
             this.#options.ports.tellRestartFailed(started.kind === "failed" ? started.detail : "状态根已被别的实例认领");
         }
     }
@@ -249,12 +299,7 @@ export class DesktopShell {
     async #stopAndExit(): Promise<void> {
         if (this.#finishing) return;
         this.#finishing = true;
-        this.#lock?.stopping();
-        const server = this.#server;
-        if (server !== null) {
-            const outcome = await server.stop();
-            if (outcome.forced || outcome.exitCode !== 0) await this.#recordUnclean(outcome.forced, outcome.exitCode);
-        }
+        await this.#stopOwnedServer();
         await this.#releaseAndExit(0);
     }
 
@@ -263,13 +308,20 @@ export class DesktopShell {
         // 没有经最后一次关闭就关完了：启动中关掉（输出 23）、服务端不归壳、或自有服务端已放弃（“稍后”）。
         this.#finishing = true;
         this.#startupAction?.("exit");
-        const server = this.#server;
-        if (server !== null) {
-            this.#lock?.stopping();
-            const outcome = await server.stop();
-            if (this.#ready && (outcome.forced || outcome.exitCode !== 0)) await this.#recordUnclean(outcome.forced, outcome.exitCode);
-        }
+        await this.#stopOwnedServer();
         await this.#releaseAndExit(0);
+    }
+
+    /**
+     * 停止壳拥有的服务端（含还在拉起中的），等进程树真实结束；超时、强制结束或非 0 退出都记“没有正常停止”（输出 19、23），
+     * 不论它有没有就绪过：还在拉起中的服务端也可能已经写过设置、登记表。
+     */
+    async #stopOwnedServer(): Promise<void> {
+        this.#lock?.stopping();
+        const server = this.#server;
+        if (server === null) return;
+        const outcome = await server.stop();
+        if (outcome.forced || outcome.exitCode !== 0) await this.#recordUnclean(outcome.forced, outcome.exitCode);
     }
 
     async #recordUnclean(forced: boolean, exitCode: number | null): Promise<void> {

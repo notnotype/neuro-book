@@ -4,17 +4,17 @@
  * 这里按绝对时间分段排，每段不超过上限。
  */
 
-/** 能注入的时钟：现在几点、排一个回调、取消它。测试换成手动时钟。 */
-export interface DeadlineClock {
-    now(): number;
-    setTimeout(callback: () => void, ms: number): unknown;
-    clearTimeout(handle: unknown): void;
-}
+import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+
+/** 能注入的时钟：与内核的 `RuntimeClock` 同形（现在几点、排一个回调并交回取消函数）。测试换成手动时钟。 */
+export type DeadlineClock = RuntimeClock;
 
 export const systemClock: DeadlineClock = {
     now: () => Date.now(),
-    setTimeout: (callback, ms) => setTimeout(callback, ms),
-    clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    schedule(callback, ms) {
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
+    },
 };
 
 /** `setTimeout` 一次能排的最长毫秒数。 */
@@ -22,22 +22,22 @@ export const MAX_TIMER_MS = 2 ** 31 - 1;
 
 /** 到 `at`（绝对时间，毫秒）时调用 `callback`，交回取消函数。`at` 已过时尽快调用。 */
 export function at(clock: DeadlineClock, atMs: number, callback: () => void): () => void {
-    let handle: unknown = null;
+    let cancelArmed: (() => void) | null = null;
     let cancelled = false;
     const arm = (): void => {
         if (cancelled) return;
         const remaining = atMs - clock.now();
         if (remaining <= 0) {
-            handle = null;
+            cancelArmed = null;
             callback();
             return;
         }
-        handle = clock.setTimeout(arm, Math.min(remaining, MAX_TIMER_MS));
+        cancelArmed = clock.schedule(arm, Math.min(remaining, MAX_TIMER_MS));
     };
     arm();
     return () => {
         cancelled = true;
-        if (handle !== null) clock.clearTimeout(handle);
+        cancelArmed?.();
     };
 }
 

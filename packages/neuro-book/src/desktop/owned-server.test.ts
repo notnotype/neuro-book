@@ -18,6 +18,7 @@ import {rotatingLog} from "./rotating-log";
 
 const ENTRY = join(import.meta.dir, "..", "server", "main.ts");
 const INSTANCE = join(import.meta.dir, "..", "server", "instance.ts");
+const SCRIPTED = join(import.meta.dir, "testing", "scripted-server.ts");
 let tmp = "";
 let sequence = 0;
 const live = new Set<OwnedServer>();
@@ -123,6 +124,36 @@ setInterval(() => {}, 1000);
         expect(alive(ready.pid)).toBe(false);
         expect(alive(grandchild)).toBe(false);
         expect((await queryNeuroBook(root)).state).toBe("none");
+    }, 60_000);
+
+    it.skipIf(process.platform === "win32")("监督进程停住、owned-process 确认不了收口：stop 不交回，强制结束 10 秒后写诊断、继续等；监督进程恢复、树真实结束后才交回", async () => {
+        const root = nextRoot();
+        const events: string[] = [];
+        const server = start({stateRoot: root, entry: SCRIPTED, env: {...ENV, NBOOK_TEST_TARGET_STOP: "ignore"}, stopDeadlineMs: 100, report: (event) => void events.push(event)});
+        const ready = await server.started;
+        if (ready.kind !== "ready") throw new Error(JSON.stringify(ready));
+        const {supervisor} = JSON.parse((await readFile(join(root, "targets.jsonl"), "utf8")).trim()) as {supervisor: number};
+        let returned = false;
+        try {
+            process.kill(supervisor, "SIGSTOP");
+            const stopping = server.stop().then((outcome) => {
+                returned = true;
+                return outcome;
+            });
+            await waitUntil("owned-process 报告确认不了收口", () => events.includes("desktop.server.completion-failed"), {timeoutMs: 20_000, intervalMs: 50});
+            await waitUntil("强制结束 10 秒后的诊断", () => events.includes("desktop.server.forced-stop-slow"), {timeoutMs: 20_000, intervalMs: 50});
+            expect(returned).toBe(false);
+            expect(alive(ready.pid)).toBe(true);
+            expect((await queryNeuroBook(root)).state).toBe("running");
+            // 监督进程恢复后看到宿主已断开，按 host-disconnect 结束整个进程组。
+            process.kill(supervisor, "SIGCONT");
+            expect(await stopping).toEqual({exitCode: null, forced: true});
+            expect(alive(ready.pid)).toBe(false);
+            expect((await queryNeuroBook(root)).state).toBe("none");
+        } finally {
+            if (alive(supervisor)) process.kill(supervisor, "SIGCONT");
+            if (alive(ready.pid)) process.kill(-ready.pid, "SIGKILL");
+        }
     }, 60_000);
 });
 

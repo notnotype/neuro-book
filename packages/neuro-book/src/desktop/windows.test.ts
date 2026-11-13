@@ -23,12 +23,11 @@ function harness(options: {owned?: boolean; ready?: boolean} = {}) {
     const timers = new Set<{due: number; callback: () => void}>();
     const clock: DeadlineClock = {
         now: () => now,
-        setTimeout(callback, ms) {
+        schedule(callback, ms) {
             const timer = {due: now + ms, callback};
             timers.add(timer);
-            return timer;
+            return () => void timers.delete(timer);
         },
-        clearTimeout: (handle) => void timers.delete(handle as {due: number; callback: () => void}),
     };
     const advance = (ms: number) => {
         now += ms;
@@ -194,6 +193,60 @@ describe("关窗协调", () => {
         expect(did("commitClose", s)).toBe(true);
         starting.closed(s);
         expect(startingEvents).toEqual(["all-closed"]);
+    });
+
+    it("应用级退出请求：两个窗口各自以 window 询问，都同意后最后一个改以 quit 重问一次，同意时进入停止中", () => {
+        const {coordinator, events, lastAsk, did} = harness();
+        const a = coordinator.openWindow();
+        const b = coordinator.openWindow();
+        coordinator.quitRequested();
+        const askA = lastAsk(a);
+        const askB = lastAsk(b);
+        expect([askA?.[3], askB?.[3]]).toEqual(["window", "window"]);
+        coordinator.pageAnswered(a, askA?.[2] ?? 0, "allow");
+        expect(did("commitClose", a)).toBe(true);
+        coordinator.closed(a);
+        coordinator.pageAnswered(b, askB?.[2] ?? 0, "allow");
+        const requeried = lastAsk(b);
+        expect(requeried?.[3]).toBe("quit");
+        coordinator.pageAnswered(b, requeried?.[2] ?? 0, "allow");
+        expect(did("commitClose", b)).toBe(true);
+        expect(events).toEqual(["quit"]);
+    });
+
+    it("应用级退出请求：一个页面回 deny 时它照旧开着、应用继续运行；只有启动页的窗口直接关；已在问的窗口不弹没有响应", () => {
+        const {coordinator, calls, events, lastAsk, did} = harness();
+        const a = coordinator.openWindow();
+        const b = coordinator.openWindow();
+        coordinator.quitRequested();
+        coordinator.quitRequested();
+        expect(did("showNotResponding", a)).toBe(false);
+        expect(calls.filter((call) => call[0] === "askPage")).toHaveLength(2);
+        coordinator.pageAnswered(a, lastAsk(a)?.[2] ?? 0, "deny");
+        coordinator.pageAnswered(b, lastAsk(b)?.[2] ?? 0, "allow");
+        coordinator.closed(b);
+        expect(did("commitClose", a)).toBe(false);
+        expect(coordinator.windowCount).toBe(1);
+        expect(events).toEqual([]);
+        expect(coordinator.openWindowRequested()).toEqual({ok: true});
+
+        const {coordinator: starting, did: startingDid} = harness({ready: false});
+        const s = starting.openWindow();
+        starting.quitRequested();
+        expect(startingDid("askPage", s)).toBe(false);
+        expect(startingDid("commitClose", s)).toBe(true);
+    });
+
+    it("应用级退出请求：停止中再来的退出请求不再询问、不再提交关闭", () => {
+        const {coordinator, calls, events, lastAsk} = harness();
+        const a = coordinator.openWindow();
+        coordinator.quitRequested();
+        coordinator.pageAnswered(a, lastAsk(a)?.[2] ?? 0, "allow");
+        expect(events).toEqual(["quit"]);
+        const before = calls.length;
+        coordinator.quitRequested();
+        expect(calls).toHaveLength(before);
+        expect(events).toEqual(["quit"]);
     });
 
     it("启动中开的窗口在服务端就绪后加载页面；询问中窗口被关掉，询问作废、页面得到结束通知", () => {
