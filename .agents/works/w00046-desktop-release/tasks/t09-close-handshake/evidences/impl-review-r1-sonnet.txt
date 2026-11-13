@@ -1,0 +1,56 @@
+# t09 实现审查第 1 轮（Sonnet，前端）：范围 ac236021a..a04be981e；加载版本：实现 worktree HEAD = a04be981e，合同测试 54 通过（close-query、window-close、window、desktop-bridge）
+
+[1] 重要 | 正确性 / 不变量 | packages/neuro-book/src/plugins/editor/web/plugin.ts:204-222、232（`closeAgreed`）
+现象：编辑器参与方回 `allow` 时置 `closeAgreed = true` 并排 10 秒复位；`beforeUnload` 看到它就不请求离开确认。但整次询问之后以 `deny` 结束（后面的参与方 deny、宿主页“正在丢失正文”选取消、quit 时“在跑的工作”选取消）或被壳 `close-end` 结束时，没有任何东西把它复位。页面恢复可用、用户继续输入，10 秒内刷新或导航（F5、点链接离开）就不再有“离开此页？”确认，未保存正文直接丢。
+为什么是问题：计划（plan.md 编辑器一节）写的是“`deny` 与 abort 时复位”，实现只在编辑器自己返回时判断了自己的答案，没有跟整次询问的终局挂钩。Spec browser-host 输出 9 也写明“询问之后被否决或取消，页面上的一切照旧”，丢掉离开确认就是没有照旧。quit 原因下“在跑的工作”选取消是最常见的路径（用户看到有工作在跑，取消后回去看一眼，顺手刷新）。
+如何核实：从代码推断（未在真实浏览器复现）：close-query.ts 的 `finish(query, "deny")` 与 `close-end` 分支只会 abort 询问的 signal 并撤层，不通知参与方；参与方交回 `allow` 之后 signal 上没有监听；`finish(allow)` 自己也会 `controller.abort()`，所以不能简单地“signal abort 就复位”。
+建议改法：让宿主在整次询问以 `deny` 或 `close-end` 结束时通知参与方（例如 `participate` 的参与方请求里多给一个只在“否决或被结束”时 abort 的 signal，或者给 `WindowClose` 一个 `onAborted`），编辑器据此复位；或干脆把“同意之后不再请求离开确认”收回宿主，由宿主在 `finish("allow")` 之后到窗口关掉之间对 `beforeunload` 放行。无论哪种，补一个测试（见第 2 条）。
+
+[2] 重要 | 测试 | packages/neuro-book/src/plugins/editor/window-close.test.ts（8 条）；plugin.ts 的 `closeAgreed`
+现象：三处判据没有被任何测试测到：
+ a. `closeWindow` 的“等在途保存”（`untilSaved`，计划与 Spec 输出 66 都要求）。变异检查：在仓库外副本把 `await untilSaved(signal);` 改成注释，window-close.test.ts 8 条全过（8 pass, 0 fail）。所有用例里被问到时文档都不在 `saving` 状态。在途保存与 abort 的交互（abort 时 `untilSaved` 返回、不再发起新的保存）同样没有用例。
+ b. 写不出（`document.blocked`，输出 61）的文档：`windowDialogOf` 的 `saveable` 只在冲突用例里测到 false；`blocked` 分支、以及“未裁决输入”（`unresolved`）被 `settle` 结算后的路径没有用例。
+ c. `plugin.ts` 里参与方与 `beforeUnload` 的衔接（`closeAgreed` 置位、10 秒复位、`deny` 复位）：e2e 与单测都没有碰，第 1 条的缺陷因此没有被发现。e2e/desktop-close.e2e.ts 三条用例都不触发 beforeunload。
+为什么是问题：它们是“关窗不丢正文”的核心判据；a 删掉后行为就是保存没完成就问或就同意。
+建议改法：a 用例：打字后触发一次保存（让 `saving` 为真，例如在文件系统暂停写入的场地里，或在测试里用 documents.save 的未 await 的 Promise），断言 `closeWindow` 在保存完成前不返回/不弹询问；再加 abort 用例。b 用例：写一个 Markdown 写不出的输入，断言 `saveable:false`。c 用例：用测试插件 + 真实窗口（close-query.test.ts 的 world 方式）调编辑器参与方，派发 `beforeunload`，断言 allow 后不 preventDefault、deny 后恢复。
+
+[3] 建议 | 正确性 | packages/neuro-book/src/web/host/close-query.ts 的 `onMessage`（`const skipParticipants = heldAfterAllow !== null;`）
+现象：“同意之后壳以 quit 重问时跳过参与方”的状态只存在于 `heldAfterAllow`，而新询问到来时就把它清成 null。如果这个重问（第二次）还没答完，壳又发来第三次询问，第三次的 `skipParticipants` 为 false，参与方被重新调用。
+实验（仓库外副本，真实窗口 + 真实后端 + 测试参与方，壳消息按真实形状派发）：window 询问同意 → quit 重问（弹出在跑的工作提示、不答）→ 再来一个 quit 询问。参与方的调用记录是 ["test.first:window", "test.first:quit"]，期望只有第一条。对编辑器来说，用户在第一次选了“不保存”，第三次会再弹一次“全部保存 / 不保存 / 取消”。
+为什么是问题：违反 Spec browser-host 输出 10“上一次以 allow 结束、层一直没撤时，新的询问不再调用参与方”的意图：层一直没撤，页面一直没有输入，参与方的结论不会变。触发要壳在第二次询问期间又发一次（例如又有窗口关掉），较窄。
+建议改法：把“层自开盖之后一直没撤、且有过 allow”记成一个独立标志（`layerHeldSinceAllow`），在 `release()` 时才清；`skipParticipants` 读它，而不是读会被每次新询问清掉的 `heldAfterAllow`。
+
+[4] 建议 | 代码质量 | packages/neuro-book/src/plugins/editor/web/plugin.ts:73-76
+现象：新加的 `CLOSE_AGREED_MS` 插在原来属于 `INTENTS` 的文档注释和 `INTENTS` 之间：
+    /** 编辑器区内键位的意图对应的命令。 */
+    /** 同意关窗后多久还不请求离开确认：… */
+    const CLOSE_AGREED_MS = 10_000;
+    const INTENTS = {...}
+读到的效果是第一条注释挂在了 `CLOSE_AGREED_MS` 上（或两条叠在一起），`INTENTS` 没有注释。这是“删改任务之外的注释”一类的返工项。
+另外 `CLOSE_AGREED_MS = 10_000` 与 close-query.ts 导出的 `NOT_CLOSED_MS = 10_000` 是同一个合同数字（Spec 输出 10）的两份拷贝，靠一句注释声明“相同”；将来改一处漏一处。第 1 条若采用“宿主通知参与方”的做法，这个常量就整个不需要了。
+建议改法：把 `INTENTS` 的注释挪回它上面；常量要保留时只留一份、由宿主一侧导出。
+
+[5] 建议 | 正确性（边界） | packages/neuro-book/src/web/host/close-query.ts 的 `send`、`finish`、`onMessage`；src/shared/desktop-bridge.ts 的 `send`
+现象：`bridge.send` 只处理了“没有发送函数”（返回 false）的情况；`window.__electrobunSendToHost` 本身抛错（预加载脚本换了形状、WebView 正在销毁）时异常直接上抛。
+ - `onMessage` 里 `current = query` 之后先 `send(ack)`：抛错则 `layer.show()` 与 `run` 都没跑，但 `current !== null`，键盘拦截 `active()` 为真，页面所有快捷键被吞，没有层、没有出口，直到壳再发 close-end（壳在 ack 超时后才会）。
+ - `finish(..., "deny")` 里 `send` 在 `release()` 之前：抛错则层永远不撤，层没有按钮、不能 Escape，页面不可用，只能刷新；`run().catch` 只写一条 error 诊断。
+为什么是问题：层的设计是“页面不接受输入”，所以“回不了壳”的失败不能留下一个没有出口的层。概率很低（Electrobun 的发送函数通常不抛），按“窄场景选简单改法”：不加机制，只把 `send` 包进 try/catch，失败当 no-bridge 写诊断，顺序上保证 `finish` 里先 `release()`（deny）/ 先记 `heldAfterAllow` 与计时（allow）再发。未在真实浏览器复现，从代码推断。
+
+[6] 建议 | 代码质量 | 几处小的
+ a. packages/neuro-book/src/web/host/close-ui.ts 的 `CloseUiOptions.ownRoot` 与 `show()` 里的 `child === own` 判断：层与询问都是 nb-ui `Dialog`，传送到 `body` 下新建的节点，`closeRoot`（`[data-close-root]`）里从来没有内容；不给它设 inert 与给它设 inert 没有区别。这个参数、闭包与测试面都是多余的，注释“层自己的挂载根：不设 inert”还容易让读者以为层的 DOM 在里面。
+ b. packages/neuro-book/src/plugins/editor/web/area.ts:701：`documents.coordinator.save(["project://", "user://"])` 与同文件 `saveAll`（约 1081）重复了地址表。`saveAll` 返回 `ActionResult`，可以直接复用，地址表只留一份。
+ c. packages/neuro-book/src/web/host/window.ts 的 `record()`：窗口还没启动（没有诊断仓库）时只写 `JSON.stringify({level, event, message})`，丢掉 `error` 与 `data`。加载页上关窗、服务端连不上时的 `browser-host.close.work-unavailable` 正是带 `error`（取不到的原因）的诊断，这时恰好没有仓库，原因丢了。
+ d. packages/neuro-book/src/web/host/connection.ts 新加的 `import {Value} from "typebox/value";` 夹在 `@notnotype/*` 与 `nbook/*` 两组之间，破坏了该文件原有的三方包、工作区包、本包的分组顺序（`desktop-bridge.ts` 里同一导入在三方组里）。
+ e. 未验证：close-ui.ts 的 `restoreFocus` 用 `focusBefore` 单变量，在“deny 撤层后很快又来新询问”时（nb-ui 的 `closed` 交接会被重开作废，`show()` 重新取 `document.activeElement`，此时焦点可能还在正在关闭的层里或 body 上）可能取到一个随后卸载的元素，撤层后焦点落在 body。窄场景，不建议加机制。
+
+[5 的更正] 第 5 条里“直到壳再发 close-end（壳在 ack 超时后才会）”这半句是我对壳一侧行为的推测，壳不在本次审查范围，没有核实；页面一侧的结论（回壳失败会留下没有出口的层或吞键的 `active`）不依赖它。
+
+未发现问题的方面（读过并核实，仔细检查后没有发现）：
+- close-query.ts 的状态机：回答只在 `finish` 里发，由 `current !== query` 守卫，没有回答两次的路径；`close-end`、新询问、窗口离开就绪（参与方 abort 改道宿主页，有合同测试）、取工作 8 秒超时、同意后 10 秒撤层，各条都有用例，变异检查（去掉“同意后收到 close-end 撤层”的分支、去掉 10 秒撤层里的代次核对的一半）都被测试抓到（前者 1 条失败）。
+- 挡输入的三层（模态层、body 子节点 inert、最早注册的键盘拦截）与编辑器对话框叠放：nb-ui Dialog 传送到 body 下的新节点，不受 inert 影响；e2e 用例断言了 Ctrl+S、Ctrl+W、命令面板、正文点击与焦点回到正文。
+- 通知 onClose：弹出的关闭、中心移除、全部清除、动作、dismiss、按时消失各条与“只回告一次”一致，回告抛错有诊断且照常移除（有 NotificationStack 与 notifications.dom.test 的用例）；超过 CENTER_LIMIT 被挤出的不回告与计划一致。
+- 编辑器 `closeWindow` 的主线（关标签询问先收、自动保存先存、冲突无“全部保存”、失败说明、abort 与 dispose 收起询问）与计划一致，8 条合同测试通过。
+
+有效发现编号：1、2、3、4、5、6（5 里有一句已更正）。
+数量：阻断 0；重要 2（第 1、2 条）；建议 4（第 3、4、5、6 条）。
+[更正] 上面“未发现问题的方面”第一条的变异结果写得不准：去掉“同意后收到 close-end 撤层”的分支被抓到（1 条失败）；把 10 秒撤层回调里的代次核对 `heldAfterAllow !== query.generation || current !== null` 改成只剩 `current !== null`，11 条全过，没有被抓到。该核对防的是“同意后又来了新的同意、旧计时误撤新一次的层”，而 `onMessage` 在新询问到来时已经 `cancelNotClosed()`，所以这个代次核对在当前代码里实际是冗余的（等价变异），不算测试缺口，只是可删的防御。

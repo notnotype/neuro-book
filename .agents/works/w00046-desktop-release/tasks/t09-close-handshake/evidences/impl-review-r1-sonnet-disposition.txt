@@ -1,0 +1,8 @@
+t09 实现审查第 1 轮（Sonnet，前端部分，ac236021a..a04be981e）的处理。报告：impl-review-r1-sonnet.txt。6 条有效（重要 2、建议 4），处理提交 538376667。
+
+[1] 重要 closeAgreed 只靠 10 秒复位：成立。改：“已同意”收到询问控制器（close-query.ts 的 agreed：参与方都同意、层还盖着，撤层时复位），经 WindowClose.agreed() 交给编辑器的 beforeunload；删掉编辑器自己的标记与计时。
+[2] 重要 三处判据没测到：成立。补 window-close.test.ts“有在途的保存”（变异去掉 untilSaved 后失败）与“有写不出的视图”；agreed 的复位在 close-query.test.ts 测。beforeunload 本身不另测（它只读 agreed()）。
+[3] 建议 第三次询问又调参与方：成立。跳过参与方改按 agreed 判，新询问不清它；补用例。
+[4] 建议 常量与注释错位：随第 1 条删掉编辑器的常量。
+[5] 建议 bridge.send 抛错：成立。send 里接住、写诊断，照常收口；补用例。
+[6] 建议 小项：诊断回退带上错误信息、connection.ts 导入分组，改。ownRoot 保留（层的根以后可能有内容，排除它是对的，代价为零）；编辑器的全部保存与 saveAll 的地址表重复，留着（两处都是“项目与用户两个方案”，抽常量收益小）；焦点在撤层后很快又来询问时的去向，未验证，留到 Windows 联合验收观察。
