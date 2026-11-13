@@ -15,7 +15,13 @@ updated: 2026-11-13
 
 ## 当前状态
 
-2026-11-13：切片 1 到 5 都已实施，代码在 Work 分支 `feat/w00046-desktop-release`，实现审查进行中。
+2026-11-13：切片 1 到 5 都已实施，代码在 Work 分支 `feat/w00046-desktop-release`。
+
+实现审查两份，都已处理：
+- 前端（Sonnet）6 条：修正 `538376667`，[报告](evidences/impl-review-r1-sonnet.txt)、[处理](evidences/impl-review-r1-sonnet-disposition.txt)；
+- 服务端与 t08 修正（omp）6 条：修正 `a3d8006ca`，[报告](evidences/impl-review-r1-omp.txt)、[处理](evidences/impl-review-r1-omp-disposition.txt)。
+
+剩下 Windows 联合验收。
 
 设计审查两份，发现都成立、照改：
 - 前端（Sonnet）13 条：[报告](evidences/design-review-r1-sonnet.txt)、[处理](evidences/design-review-r1-sonnet-disposition.txt)；
@@ -43,9 +49,8 @@ updated: 2026-11-13
 
 ## 下一步
 
-1. 实现审查不阻塞：前端 Sonnet，服务端与 t08 修正 omp。报告回来后处理，修正单独提交。
-2. pc-notype 恢复后，Windows 实测第 2 轮：
+1. pc-notype 恢复后，Windows 实测第 2 轮：
    - t08 剩下的项；
    - t08 修正里只能在 Windows 上验的几条；
    - desktop-shell 场景 5、6、7，即与 t09 联合验收。
-3. 合入 master 时同步改 Spec：去掉 planned，补实现合同。
+2. 合入 master 时同步改 Spec：去掉 planned，补实现合同。
