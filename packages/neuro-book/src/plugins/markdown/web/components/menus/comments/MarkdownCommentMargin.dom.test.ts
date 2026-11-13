@@ -244,9 +244,11 @@ describe("排布", () => {
             slot(editor, [infos[0] as CommentInfo], {}, commented),
             slot(editor, [infos[1] as CommentInfo], {mode: "current"}, commented),
             slot(editor, [infos[2] as CommentInfo], {mode: "write", expanded: true}, commented),
+            // 宿主不会给“展开却不是当前”的槽位，但展开的卡片浮着盖住别的槽位，面就该是浮层，不靠别的字段碰巧成立。
+            slot(editor, [infos[0] as CommentInfo], {key: "expanded-idle", mode: "idle", expanded: true}, commented),
         ]);
-        const glass = [0, 1, 2].map((index) => itemOf(wrapper, index).get(".markdown-comment-margin__surface").classes().includes("nb-ui-popover-surface"));
-        expect(glass).toEqual([false, true, true]);
+        const glass = [0, 1, 2, 3].map((index) => itemOf(wrapper, index).get(".markdown-comment-margin__surface").classes().includes("nb-ui-popover-surface"));
+        expect(glass).toEqual([false, true, true, true]);
     });
 
     it("待写的新批注（infos 为空）：浮着、有输入；不推别的槽位，不占别的槽位的位置", async () => {

@@ -196,7 +196,7 @@ function onKeydown(event: KeyboardEvent): void {
 
 <style scoped>
 /*
- * 卡片本身的外观是浮层（`AnchoredPopover`）给的；页边里的卡片自己画底色与边（`MarkdownCommentMargin.vue`）。这里只管里面：
+ * 卡片本身的外观是浮层（`AnchoredPopover`）给的；页边里的卡片面由页边画（`MarkdownCommentMargin.vue`：当前的用浮层基座，其余是淡底）。这里只管里面：
  * “看”的文字与“写”的输入字体、字号、行距一样，点“编辑”时文字不重排；意见区最高约 12 行再滚动（输出 29）。
  * 浮层里状态之间外框与版式不变（ui-development-spec 第 3 节第 4 条）：意见区加一个固定高度的底行。页边里没有底行，按钮浮在右上角，只是显隐。
  */
@@ -214,8 +214,10 @@ function onKeydown(event: KeyboardEvent): void {
 
 .markdown-comment-card[data-variant="margin"] {
     /*
-     * 右上角控件的宽度：编辑、删除两个 24px 的按钮，`‹ 1/3 ›` 是两个按钮夹一个页码。意见第一行按它们的总宽留位置（`__reserve`），所以按钮显现时
+     * 右上角控件的宽度：编辑、删除两个按钮，`‹ 1/3 ›` 是两个按钮夹一个页码。意见第一行按它们的总宽留位置（`__reserve`），所以按钮显现时
      * 不压到字，也不因为显现而重排（ui-development-spec 第 3 节第 4 条：只在某个状态出现的零件放进预留的位置）。
+     * 数字依赖 `IconButton` 的 xs 是 24px、`__overlay` 靠右 4px、卡片右内边距 10px、页码 `__pager-count` 的 28px：改了其中一个要一起改；
+     * 下面 `[data-actions]`、`[data-pager]` 两条与这条同特异性，靠写在后面覆盖。
      */
     --markdown-comment-actions-w: 0px;
     --markdown-comment-pager-w: 0px;
@@ -251,7 +253,11 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text-muted);
 }
 
-/* 页边里没展开的卡片按宿主给的行数限（意见区）；收起时什么时候限行见 `MarkdownCommentMargin.vue` 的 `__body--clamped` 一条。 */
+/*
+ * 页边里没展开的卡片按宿主给的行数限（意见区）；什么时候限行（收起时晚一个过渡）见 `MarkdownCommentMargin.vue` 的 `__body--clamped` 一条。
+ * 占位（`__reserve`）是浮动元素，放在 `-webkit-box` 里：Chrome 里成立（`-webkit-box` 带限行时是块容器），Firefox 124、Chrome 119 里 `-webkit-box`
+ * 是弹性盒、浮动无效，占位可能自己占一行，未在那两个浏览器里验证（t23 的待确认清单）。
+ */
 .markdown-comment-card__body--clamped {
     display: -webkit-box;
     -webkit-box-orient: vertical;

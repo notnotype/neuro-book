@@ -399,11 +399,23 @@ defineExpose({
  * 收起时意见晚一个过渡的时长才限行：卡片面的高度正在往回收（上面 `height` 的过渡），文字等它收完才被截成几行加省略号；不然文字先一下跳成几行、
  * 框再慢慢缩，看上去没有收起的动画。限行的几个属性是离散的，用 `allow-discrete` 延后切换；展开是回到不限行的样式，那一边没有过渡，立刻切。
  * 只对已显示（`data-ready`）的槽位开：第一次显示时限行要一步到位，不然文字多亮着 `--motion-move` 才出省略号。
+ * 延后挂在限行的样式上，不是“收起”这个事件上：已显示的槽位里限的行数变了（窗口缩放使段落重新折行、打字使段高变）也晚一个过渡才生效，
+ * 文字被正在变高或变矮的框裁一阵再出省略号，不处理（窄场景，见 Spec 输出 33 的动画）。
  * 因此“限没限行”不是卡片高度的依据：没展开的卡片的自然高度由意见全文的高度与行数算（`naturalOf`）。
+ * 两个名字都要列：Chrome 里起作用的是 `-webkit-line-clamp` 那一项，无前缀的 `line-clamp` 不是它的别名，不能当冗余删掉。`allow-discrete` 在
+ * Firefox 129 以前不认，整条 transition 被丢弃，退化成立刻限行（文字先跳成几行、框再缩），只是动画没有。
  */
 .markdown-comment-margin__item[data-ready] :deep(.markdown-comment-card__body--clamped) {
     transition: display 0s var(--motion-move) allow-discrete, overflow 0s var(--motion-move) allow-discrete, max-height 0s var(--motion-move) allow-discrete,
         -webkit-box-orient 0s var(--motion-move) allow-discrete, -webkit-line-clamp 0s var(--motion-move) allow-discrete, line-clamp 0s var(--motion-move) allow-discrete;
+}
+
+/*
+ * 页边的卡片面借浮层基座只为同一种材质，它不是浮出来的浮层：皮肤的浮层画框（`WorkbenchDocument.vue`，docs/specs/theme/skins.md 输出 13）不画在它上面。
+ * 画框线在描边里面 4px，页边卡片的内边距只有 4px，线会贴着文字、横穿右上角的按钮。画框规则带 `!important`，这里要同样带。
+ */
+:root[data-nb-skin-frame] .markdown-comment-margin__surface.nb-ui-popover-surface {
+    outline: none !important;
 }
 
 @keyframes markdown-comment-card-in {

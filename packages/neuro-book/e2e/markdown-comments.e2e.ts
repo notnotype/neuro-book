@@ -704,13 +704,16 @@ test.describe("页边（验收 15、22）", () => {
             return count + (buttons.length === 0 ? 1000 : 0);
         }));
         expect(await overlaps()).toEqual([0, 0]);
+        // 意见的字：body 的子节点里文本那个（第一个子节点是占位 span，它没有字）。
         const lines = (): Promise<string[]> => marginItems(page).evaluateAll((items) => items.map((item) => {
-            const text = (item.querySelector("[data-markdown-comment-body]") as HTMLElement).firstChild as Text;
+            const text = [...(item.querySelector("[data-markdown-comment-body]") as HTMLElement).childNodes].find((node) => node.nodeType === Node.TEXT_NODE) as Text;
             const range = document.createRange();
             range.selectNodeContents(text);
             return [...range.getClientRects()].map((box) => `${Math.round(box.left)}-${Math.round(box.right)}@${Math.round(box.top)}`).join(" ");
         }));
         const idle = await lines();
+        // 每张卡片都量到了字（量不到会让下面“文字位置不变”的比较变成两个空串相等）。
+        for (const line of idle) expect(line).not.toBe("");
         // 光标走进批注：按钮显现，文字一个像素也不动。
         await clickComment(page, "六");
         await expect(actionsOf(page, 1)).toBeVisible();
@@ -733,6 +736,8 @@ test.describe("页边（验收 15、22）", () => {
         for (const face of idle) {
             expect(face.blur).toBe("none");
             expect(face.shadow).toBe("none");
+            // 实心：计算出的颜色没有透明度（`color(srgb r g b / a)` 才带斜杠）。
+            expect(face.background).not.toContain("/");
         }
         await clickComment(page, "申酉");
         await expect(marginItems(page).nth(1)).toHaveAttribute("data-mode", "current");
@@ -932,10 +937,10 @@ test.describe("页边的动画（验收 15）", () => {
         await expect(marginItems(page).first()).toHaveAttribute("data-ready", "");
         const body = marginItems(page).first().locator("[data-markdown-comment-body]");
         const bodyHeight = (): Promise<number> => body.evaluate((element) => element.getBoundingClientRect().height);
-        // 第一次排好之后限行立刻生效（意见放得进卡片面）；排版还在动的几帧里不量。
-        await expect.poll(async () => (await bodyHeight()) <= ((await slotBoxes(page))[0]?.height ?? 0)).toBe(true);
+        // 第一次显示时限行一步到位（意见放得进卡片面）：这里不轮询，延后一个 `--motion-move` 才限行的话一次量就量得出来。
         const foldedBody = await bodyHeight();
         const foldedFace = (await slotBoxes(page))[0]?.height ?? 0;
+        expect(foldedBody).toBeLessThanOrEqual(foldedFace);
         await body.click();
         await expect.poll(async () => (await slotBoxes(page))[0]?.height ?? 0).toBeGreaterThan(foldedFace + 20);
         const openBody = await bodyHeight();
