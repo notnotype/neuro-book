@@ -1,0 +1,143 @@
+w00032 t15 前端实现审查报告
+实现 worktree HEAD 核对为 6385299f3（与任务说明一致）。审查范围 a801ab9d7..6385299f3 的前端部分。
+说明：本报告没有跑 e2e、开发服务与截图。标"从代码推断"的条目需要主 Agent 用 Lab 截图核实，条目里写了场景与宽度。
+
+## 1. `$` 菜单的“同名要写 id”漏算无效的同名 Skill，插入的标签被服务端判为 ambiguous
+- 严重程度：重要　类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/skills.ts:91-97（usable 过滤后才数同名）、:105 `duplicated`；对照 shared/skills.ts:70-82 `matchSkillToken`、skills.md 输出 7
+- 现象：`sameName` 只在 `usable`（白名单里且不是无效）里数。`matchSkillToken` 里 `permitted = named.filter(allowed)` 不排除无效的，同名且都在白名单的不止一个就是 `ambiguous`，认到之后才判 `invalid`。所以“用户的 `review` 是无效的（无 SKILL.md 之类），内置也有 `review`，两个都在白名单（声明 "all" 时无效的也在）”时，菜单里只剩内置那个，`duplicated=false`，插入 `$review`，服务端认标签得 `ambiguous`，Skill 正文没有带上，界面上也没有任何提示（输出 12 只给模型一条 system-reminder，输出 28 界面不提示）。
+- 为什么是问题：这正是任务说明重点 1 要求的“插入文字与后端认标签对得上”。无效的 Skill 名字取自目录名（backend/skills/catalog.ts:189 `name: folder`），用户放了一个没 SKILL.md 的 `review` 文件夹再用内置 `review` 是现实场景。菜单测试里 ENTRIES 恰好有 user.outline 无效但没有与它同名的有效 Skill，所以没覆盖。
+- 如何核实（已做）：scratch 实验 /tmp/review-w00032-t15-impl/frontend-scratch/dup.test.ts，用 `bun test` 在 /tmp 下跑：entries=[user.review(invalid), builtin.review(ready)]，allowed 全选，输出 `skillMenu` 为 `[["review","$review"]]`，同一份数据 `matchSkillToken("review", …)` 为 `{"ok":false,"reason":"ambiguous"}`。
+- 建议改法：`sameName` 对 `input.entries` 里“在白名单里”的条目计数（不排除无效的），与 `matchSkillToken` 的 `permitted` 同口径；补一例“同名一个无效一个可用”，断言插入 `${builtin.review}` 且 `promptSkillTokens` 读回 id。更稳的是让 `skillMenu` 直接对每个要列的条目调 `matchSkillToken(插入的名字, …)`，认不回自己就改写 id，口径就不会再分叉。
+
+## 2. 确认框在英文界面下状态行被省略号截断、说明行被裁掉第三行（从代码推断，待截图）
+- 严重程度：重要　类别：正确性（UI）
+- 位置：packages/neuro-book/src/plugins/agent/web/components/SkillInitDialog.vue:96-98（`.skill-init__head` 单行 nowrap + ellipsis）、:103（`.skill-init__note` 固定 2 行高、overflow:hidden）；文案 locales/en-US.json 的 `skills.init.head.*`、`skills.init.note.*`；Dialog sm 宽 `min(360px, calc(100cqw - 32px))`（nb-ui dialog-frame.ts:16）
+- 现象：正文可用宽度约 300 到 330px。英文状态行 `packages`（62 字符）、`direct`（73）、`packagesUnknown`（80）在 --text-sm 下一行放不下，被省略号截断，而“Requires network access.（需要联网）”恰好在句尾，是 Spec 输出 27 要确认框写明的要点之一。说明行是 --text-xs 固定 2 行：`note.noLock` 129 字符、`note.installing` 116、`note.busy` 102 字符，按每行约 50 到 55 个字符算，前两条要 3 行，第三行被 overflow:hidden 无声裁掉（没有省略号、没有提示），“package install scripts will not run”这类关键句就看不到。中文最长的 `noLock` 约 40 字，2 行内放得下，所以中文没问题。
+- 为什么是问题：产品带 en-US 全套文案；这个对话框的合同是“尺寸固定、文字放得下”（SkillInitDialog.md 布局一节），但 Lab 的 4 个场景都是中文，英文从没被看过。固定高度的取舍是开发者定的（README 第 29、36、39 条），问题只在英文文案没按这个版式收紧。
+- 如何核实：Lab 场景 SkillInitDialog 的 `no-lock`、`installing`、`confirm`，切到 en-US，宽度 360（桌面）与 390（手机）各截一张；DOM 里 `[data-skill-init-note]` 的 scrollHeight 大于 clientHeight 即被裁。
+- 建议改法：先截图定性。若属实，优先收短英文（例如 head.direct 改 “Installs {{count}} direct dependencies. Needs network.”，note 各条压到约 100 字符内）；其次让状态行允许 2 行并把整体高度的预算重分配；不要用 tooltip 补救被裁的文字。并给 Lab 的确认框加一个英文场景（现有 Lab 场景机制是否支持换语言需要看，不支持就在 DOM 测试里用 en-US 引擎断言文案长度上限）。
+
+## 3. Skill 页五列子网格在英文与窄宽度下，名字列会被挤到几乎为零（从代码推断，待截图）
+- 严重程度：重要　类别：正确性（UI）
+- 位置：packages/neuro-book/src/plugins/agent/web/components/SkillsSettingsPage.vue:129 `grid-template-columns: minmax(0, 1fr) repeat(4, max-content)`；没有任何窄宽度分支（对照 ProfileToolsSection.vue 有 `@container (max-width: 600px)` 的两行版式）
+- 现象：后四列都是 max-content，整页取各行最宽者。中文：徽标约 64px、“初始化”按钮约 63px、“打开”约 50px、展开图标按钮约 28px、加 4 个 12px 间隙，合计约 250px；390 宽的设置页内容区约 340 到 360px，名字列剩约 100px 勉强可读。英文：徽标 “Not initialized” 约 114px、“Initialize” 约 86px、“Open” 约 52px、图标 28px、间隙 48px，合计约 330px，名字列只剩 10 到 30px，名字与第二行说明都只剩一个省略号。只要页里有一行是未初始化，整页的徽标列与按钮列就按它定宽，所以哪怕只有一行也影响所有行。
+- 为什么是问题：UI 检查第 1 条要求 390 窄屏可用；README 第 27 条定了“整页共用的列”，SkillsSettingsPage.md 只写了“390 宽：名字与说明一列先收，按钮列不收”，没有给名字列下限，也没有英文估算。英文是产品支持的语言。展开里的详情 `dl` 是 grid-column 1/-1，不受影响，所以只有名字列崩。
+- 如何核实：Lab 场景 SkillsSettingsPage 的 `full`，en-US 与 zh-CN 各在 390 与 720 宽截图；看 `.skills-page__name` 的 clientWidth。
+- 建议改法：加一个容器查询（与 ProfileToolsSection 同一个 600px 断点）：窄时把徽标与按钮收进名字下面的第三行（或把“初始化”收进展开区），回到两到三列；或把徽标列改成只放图标加 `title`/`aria-label`，宽度固定 28px。不要靠缩短文案。另外 `skills-page__second` 的 `:title` 只有鼠标悬停才看得到，键盘与触屏看不到被省略的原因文字，窄屏更需要允许第二行换行（line-clamp 2）。
+
+## 4. 取计划失败后点“重试”不重新取计划：没有 bun.lock 的 Skill 永远装不上，且取计划失败没有诊断
+- 严重程度：建议　类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/skill-init.ts:51-53（`ask` 失败分支）、:55-69（`confirm`）
+- 现象：`skillInitPlan` 失败（传输错误、`skill-not-found`、`not-initializable`）时状态是 `phase: "failed"`、`plan: null`、`failure.code: "unavailable"`；对话框页脚给出“关闭 / 重试”。“重试”调 `confirm()`，它直接 `initSkill({id})`，`plan === null` 所以不带 `resolve: true`。没有锁的 Skill 后端得 `lock-missing`（backend/skills/install.ts:164），`confirm` 把它当意外码 `report` 一条再改成 `unavailable`，对话框回到同一个失败状态，用户点多少次都一样。有锁的 Skill 则会不经确认（依赖列表与“要联网”从没显示过）直接联网安装，与 Spec 输出 27“先问”相悖。另外 `ask` 的失败分支没有调 `report`，取计划失败在诊断里没有痕迹（对照 `confirm` 里对意外码是会 `report` 的）。
+- 为什么是问题：窄边角（取计划本来就很少失败），但“重试”按钮是对话框主动给出的，行为与它的字面意思不符；诊断缺一条会让这类失败查不出来。
+- 如何核实：从代码推断：`createSkillInit(fakeRemote, report)` 让 `skillInitPlan` 返回 `{ok:false, code:"unavailable"}`，`ask` 之后 `confirm`，观察 `initSkill` 收到的入参没有 `resolve`。skills.test.ts 的窗口流程只走了成功取计划的路径。
+- 建议改法：`confirm` 在 `plan === null` 时改为重新 `ask`（同一个 id 与 name，状态回到 loading）；`ask` 失败分支补一条 `report("skill init plan <id>: <code>")`。这样“重试”总是先回到确认状态，不会绕过确认。补一例：计划失败 → 重试 → 取到计划 → 处于 confirm。
+
+## 5. Profile 页对后台（hidden）Profile 也画出“Skill”一节
+- 严重程度：建议　类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/profile-view.ts `skillsField`（约 :341-345，只判 `catalog === null` 与 `entry.tools === undefined`）；对照同文件 `toolsField`（:395 对 hidden 有 `return null` 的分支）与 `agentsField`（按有没有 `nbook.agent.spawn` 决定）
+- 现象：ProfileSettingsPage 的 `ordered` 与 ProfileRail 都会列出 hidden Profile（左栏“后台”一组：会话标题、压缩之类）。这些 Profile 在真实数据里有 `tools` 声明，所以 `skillsField` 非空，Skill 一节出现：“可用 0 个”加“添加 Skill”。后台 Profile 没有用户输入，不可能有 `$` 标签，用户在这里加的 Skill 永远不会被带上。Lab 的样例 `nbook.agent.session-title` 把 `skills: null` 写死，没有暴露这一点。
+- 为什么是问题：Spec 输出 26 只规定“可派的子代理一节下面、样子相同”，没有规定哪些 Profile 有这一节；与其它两节比，只有它漏了“后台 Profile 不适用”的判断，且设置会写进 `profileSettings` 里一条没用的记录。
+- 如何核实：从代码推断。`profileViews({profiles:[{hidden:true, tools:{required:[],optional:[]}, …}], skills:[…]})[0].skills` 非 null。
+- 建议改法：`skillsField` 开头加 `entry.hidden === true → null`；在 profile-view.test.ts 补一例。若开发者认为后台 Profile 也该能配（例如将来后台任务也能 `$`），把这条记为决定写进 Spec，不要靠漏判。
+
+## 6. 两处新加的 JSDoc 把原有注释顶掉了（连续两段 `/** */`，只有最后一段生效）
+- 严重程度：建议　类别：代码质量
+- 位置：packages/neuro-book/src/plugins/agent/web/profile-edits.ts:38-39；packages/nb-agent-ui/src/types.ts:128-129
+- 现象：profile-edits.ts：原来贴在 `withAgentsChoice` 上的 `/** 白名单写回（profile-settings.md 输出 25）：undefined 是恢复默认，agents 这一项去掉。 */` 没动，新加的 `withSkillsChoice` 及其注释插在它与 `withAgentsChoice` 之间，于是旧注释现在叠在 `withSkillsChoice` 的新注释上面（内容还写着“`agents` 这一项”），而 `withAgentsChoice` 失去了自己的注释。nb-agent-ui/src/types.ts：`restored` 上原有的“放回了什么；没有放回（shake）是空数组。”与新加的“`skill` 的 `target` 是 Skill 的 id”叠成两段，IDE 悬停只取最后一段，原描述丢了。
+- 为什么是问题：这是“改写任务之外的注释”一类的返工项，读者会把 `agents` 的说明当成 Skill 函数的说明。
+- 如何核实：`sed -n 36,48p` 看两处。
+- 建议改法：profile-edits.ts 把旧注释移回 `withAgentsChoice` 之上、`withSkillsChoice` 只留自己的一段；types.ts 合成一段（先写“放回了什么……”，再接“`skill` 的 `target` 是 Skill 的 id”）。
+
+## 7. `skill-init.ts` 的状态流程测试只覆盖一条成功加一条失败，round 守卫、关掉后重开、两个 Skill 先后 ask 都没有用例
+- 严重程度：建议　类别：测试
+- 位置：packages/neuro-book/src/plugins/agent/skills.test.ts:176-222（窗口流程唯一一例）；skill-init.dom.test.ts 只测对话框的属性与事件
+- 现象：`createSkillInit` 里最容易出错的三处没有被任何测试触及：（a）`update(at, …)` 的 round 守卫（把 `if (at === round)` 改成恒真，现有测试仍全过：测试里只 ask 过一次）；（b）安装中 `close()` 之后结果回来不能再把对话框拉开：`update(at, {open:false…})` 与失败分支都没有断言“关着时失败不重开”；（c）`ask` 取计划失败（见第 4 条）。任务说明重点 2 里“一轮里的旧响应不覆盖新一轮”“安装中能关上而安装继续”“关闭后再打开同一 Skill”正是这几条。
+- 如何核实：变异检查需要真实世界场地（60s 一例）；这里按代码推断：round 变量只在 `ask` 里自增，现有测试只调一次 `ask`。
+- 建议改法：在 skills.test.ts 的窗口流程里补两例：（1）对同一个 `client`，先 `ask(A)` 不等结果就 `ask(B)`，断言最终 `state.value.id === B`、plan 是 B 的；（2）`confirm()` 进行中 `close()`，等装完，断言 `open` 仍为 false、目录里该 Skill 变 ready，再 `ask` 同一个 Skill 得到 loading→confirm 的新状态。两例都是窄用例，不需要新场地。
+
+## 8. 状态列的测试只数了元素、对读屏顺序用 textContent 近似，悬停说明与色调没人测；e2e 场景 3 只覆盖 Spec 三种输入里的一种
+- 严重程度：建议　类别：测试
+- 位置：packages/nb-ui/src/components/popup/SuggestionMenu.test.ts:99-120；packages/neuro-book/e2e/agent-skills.e2e.ts:112-125
+- 现象：（a）SuggestionMenu 测试断言每行有一个 `[data-suggestion-menu-status]` 且 textContent 顺序正确。把 `<Tooltip>` 包装整个去掉、把 `STATUS_TONE` 全换成同一个色、把 `busy` 的转圈换成别的图标，测试都仍通过：任务说明重点 3 的“悬停有意思说明”没有被测到。（b）e2e 场景 3 的 Spec 验收是“一个不存在的、一个不在白名单里的、一个重名的，都不带正文，各写原因”，e2e 只发了 `$nothing`（not-found）。不在白名单与重名两种前端不涉及，但 e2e 也没有从界面层造出它们（重名需要内置同名；不在白名单可在 Profile 页去掉一个再发）。（c）场景 2 的“改 SKILL.md 后已发那一轮不变、下一次用新的”“运行中插话带 $x”e2e 没做；场景 4 的“bun.lock 改了回到 needs-init”、“后台任务里有一件在跑”（只看了结束时的成功通知）、“模型经 shell 运行脚本能导入依赖”也没做。Spec 把这三个场景都登记为这份 e2e 的 Smoke，现在只是各自的一小段。
+- 如何核实：（a）在 /tmp 的副本里删掉 SuggestionMenu.vue 的 `<Tooltip>` 包装再跑该测试文件：从代码推断仍为全绿（测试没有任何地方查 tooltip）；（b）(c) 对照 Spec 验收 2、3、4 的文字。
+- 建议改法：（a）加一例：悬停图标（`pointerenter` + 等 delay）后 body 里出现 `status.label` 的 tooltip，或至少断言图标节点被 Tooltip 触发器包着；tone 用 class 断言一次。（b）在场景 3 里再加一个“去掉主创的某个 Skill 后 `$x` 带不上”或在 Spec 的 Smoke 行里明写 e2e 只覆盖 not-found，其余由 backend 测试覆盖；不要让登记与实际不符。
+
+## 9. `$` 菜单的查询词按 id 全文包含匹配，`builtin.` 与 `user.` 前缀会让短查询命中一整个来源
+- 严重程度：建议　类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/skills.ts:99（`entry.id.toLowerCase().includes(needle)`）
+- 现象：id 是 `<来源>.<name>`，所以查询词 `in`、`il`、`ui`、`lt`、`ti`、`tin` 命中每一个内置 Skill（`builtin` 里都有这些子串），`us`、`se`、`er`、`user` 命中每一个用户 Skill。想找 `index-builder` 打 `$in` 会列出所有内置 Skill。菜单里显示的是 name（重名时才是 id），用户看不到匹配的依据。
+- 为什么是问题：Spec 输出 26 只说“列出……名字与一行说明”，没有说按 id 搜；搜出一整个来源是噪声而不是便利。AddToolsDialog 的搜索同样含 id，但那里的行同时显示了 `providerName`（id），用户看得到命中原因。
+- 如何核实：skill-menu.test.ts 的测试 ENTRIES 里 `menu("in")` 会列出 `builtin.review`、`builtin.chapter-summary`（可直接在 scratch 里调 `skillMenu("in", …)` 看）。
+- 建议改法：按 name 匹配；只有查询词含 `.` 时才按 id 匹配（用户明说要写 id 时）。窄场景，改一行即可，不需要新机制。
+
+## 10. `$` 菜单只在目录与最近用过变化时换函数，不盯 profiles；启动时两路并行取数，菜单可能先显示“没有可用的 Skill”
+- 严重程度：建议　类别：不变量
+- 位置：packages/neuro-book/src/plugins/agent/web/plugin.ts:248-253（`ensureStarted` 同时 `loadProfiles()` 与 `skills.ensure()`）、:441-445（`watch([skills.entries, skills.recent], refreshServices)`）、:186-191（`allowedSkills` 读 `profiles.value`）
+- 现象：声明 `"all"` 的主创，白名单要靠 `profiles.value.find(...)?.skills` 与目录求出。两路取数并行：目录先到、profiles 后到时，`allowedSkills` 得到空数组，`skillMenu` 走 `usable.length === 0` 分支，菜单显示“这个 Profile 还没有可用的 Skill — 打开 Profile 设置”。profiles 到了之后没有任何东西触发 `refreshServices`（函数身份不变，编辑器不重取），要等用户再敲一个字才会纠正。运行中 Profile 声明变化（重新加载 Profile 文件）同样不刷新开着的菜单。
+- 为什么是问题：窗口刚打开就打 `$` 的人会看到一个错的“空”提示，还带一个去设置的入口，容易误导。概率不大，改法一行。
+- 如何核实：从代码推断。在 `loadProfiles` 加延迟后打开窗口立刻打 `$`；或单测里让 `profiles.value` 晚于 `skills.entries` 赋值，观察 `resolveTriggerMenu` 的结果与函数身份。
+- 建议改法：`watch([skills.entries, skills.recent, profiles], refreshServices)`。另外 `allowedSkills` 在 `skills.entries` 为 null 时传 `[]` 作为目录，菜单自己会先判 `entries === null` 返回 loading，不受影响，不用改。
+
+## 11. Profile 页 Skill 一节的 136px 名字列、6.5em 状态列、72px 末列在英文与长名字下可能截断或叠字（从代码推断，待截图）
+- 严重程度：建议　类别：正确性（UI）
+- 位置：packages/neuro-book/src/plugins/agent/web/components/ProfileToolsSection.vue:204-221（`.profile-tools--skills .profile-tools__row` 的两套列宽）
+- 现象：（a）名字列固定 136px、等宽字（--text-sm）、`text-overflow: ellipsis`：约 17 个字符，Skill 名字（目录名，最长 64 字符）常超过，而被截断的名字没有 tooltip 也没有 title（tooltip 只包了说明列），名字重复时（`user.review` 与 `builtin.review` 在同一个“已去掉”或“已删除”组里）无法区分。工具一节的 id 较短，这个问题在 Skill 一节才出现。（b）状态列 `6.5em` 的 `.profile-tools__effect` 是 `white-space: nowrap` 且没有 overflow 处理，en-US 的 “Uninitialized”（--text-xs 约 75px）对 6.5em（约 78px）几乎没有余量，字体渲染稍宽就叠到说明列；“Added by me”同样紧。（c）末列 72px 放 sm 幽灵按钮 “Add back”（文字约 50px 加内边距约 24px）略超，`.profile-tools__action` 是 `justify-content: flex-end`，超出的部分向左压到说明列。
+- 为什么是问题：几个定宽都是按中文调的，英文没有看过（Lab 样例 WRITER_SKILLS 是中文）。
+- 如何核实：Lab 场景 ProfileSettingsPage（选“写作助手”，有 Skill 一节）en-US，宽度 1200 与 700 各截一张；再用一个 40 字符的 Skill 名字造一行。
+- 建议改法：名字列加 `title`（或把 Tooltip 套到名字上，同说明列），状态列与末列改成 `max-content` 加 `min-width`，让整节仍对齐但不叠字；“加回”的文案若要定宽，英文用 “Re-add”。先截图定性。
+
+## 12. 失败路径上用户没有反馈：目录取不到时 `$` 菜单一直转“加载中”，打开文件夹的其它失败码只进诊断
+- 严重程度：建议　类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/skills.ts:36-40（`load` 失败只 `report`，`entries` 保持 null）；web/skills-page.ts:43-52（`openFolder` 对 `no-desktop`、`open-failed` 之外的码只 `report`）
+- 现象：（a）`remote.skills({})` 失败（例如 `unavailable`）时 `entries` 一直是 null，`skillMenu` 对 null 返回 `{loading: true, items: []}`，菜单永远显示“正在查找”，Skill 页永远显示“正在读取 Skill”转圈；只有下一次 `skillsChanged` 或重连的 `onResync` 才会重取。（b）`openFolder` 遇到 `unavailable`、`denied` 之类运行时失败码，点了按钮什么都不发生。
+- 为什么是问题：用户无从判断是慢还是坏了。属于窄边角（本地应用里远程调用很少失败），按“窄场景选简单改法”不建议加机制。
+- 如何核实：从代码推断。
+- 建议改法：`skillMenu` 加一个最简单的第三态不值得；只需 `load` 失败且 `entries` 还是 null 时才 `entries.value = []`（已有目录时失败不覆盖）并保留诊断，这样菜单落到“没有可用的 Skill”而不是一直转圈（代价是把“取不到”显示成“没有”，诊断里有 `skills: <code>`）。`openFolder` 的兜底分支用 `no-desktop` 同一条通知（“打不开 Skill 文件夹”，不带路径）即可。
+
+## 13. Skill 页从不显示上次安装失败的输出：`install-failed` 的 `detail` 被丢掉
+- 严重程度：建议　类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/components/SkillsSettingsPage.vue:39-51（`problemText` 的 `install-failed` 分支只写固定句）、:58-67（`details()` 不含它）；类型说明 shared/skills.ts:8-12 与 :42 的 `detail`（“能原样显示的事实……安装输出的最后几行”）；Lab 数据 fixtures/index.ts 的 `user.lore-check` 带了 `detail: "error: GET … ETIMEDOUT"` 却看不到
+- 现象：上次初始化失败的 Skill，标记里存了安装输出的最后几行（backend/skills/install.ts:177、readiness.ts:30），目录条目 `problem: {code:"install-failed", detail}` 也带到了前端；Skill 页第二行只写“上次初始化没有成功”，展开里也没有这一项，点“初始化”打开的确认框又是新取的计划，不含上次输出。用户永远看不到为什么失败（网络？依赖名写错？），必须再装一次才有输出。
+- 为什么是问题：合同把 `detail` 设计成给界面显示的，界面却丢弃，等于白传；README 第 36 条的确认框把“失败后中间一块是输出”做了，但那只覆盖这一次会话内的失败。
+- 如何核实：skills-page.dom.test.ts 里 `lore-check` 带 `detail: "error: ETIMEDOUT"`，断言只看了“上次初始化没有成功”，没有任何断言会让 detail 出现；DOM 里搜 `ETIMEDOUT` 为空。
+- 建议改法：`details()` 在 `problem.code === "install-failed"` 时多推一行（“上次安装输出”，值为 `problem.detail`，等宽、`white-space: pre-wrap`）；这是加一行，不改版式。若开发者认为不需要，就把 `detail` 从 `install-failed` 的前端合同里去掉并改 Lab 数据，不要保留一个不显示的字段。
+
+## 14. 小项：确认框输出区 `aria-label` 挂在 `pre` 上不生效；“使用技能”与全站改用的“Skill”不一致；复用 `changeAgentsBinding` 给 Skill 用
+- 严重程度：建议　类别：代码质量 / 无障碍 / 文案
+- 位置：SkillInitDialog.vue:70（`<pre tabindex="0" :aria-label="box.caption">`）；packages/nb-agent-ui/src/locales/zh-CN.ts:164（`plusSkill: "使用技能"`）；profile-page.ts:182-185 与 shared/profile-skills.ts 的注释（“写法同可派的子代理（`changeAgentsBinding`）”）
+- 现象：（a）`<pre>` 没有角色（generic），ARIA 1.2 不允许给 generic 命名，读屏通常不读这个标签，用户聚焦（`tabindex="0"`）到输出区时听不到“直接依赖”或“安装输出”。（b）本 Task 把标签悬停提示从“技能：…”统一成“Skill：…”（README 第 31 条），但输入框工具栏里 `$` 按钮的文案仍是“使用技能”，同一个功能两种叫法。（c）`withSkillsChoice` 的改动形状借用 `changeAgentsBinding`（名字里写着 agents）：Skill 一节的调用读起来像在改子代理白名单；三处注释都得解释“它其实是通用的”。
+- 如何核实：（a）axe 的 `aria-prohibited-attr` 规则会报；（b）`grep -n 使用技能 packages/nb-agent-ui/src/locales/zh-CN.ts`；（c）读 profile-page.ts。
+- 建议改法：（a）加 `role="region"`（或 `role="group"`）；（b）改成“使用 Skill”，同步 locales.test.ts 的对照表；（c）把 `changeAgentsBinding` 改名成中性的 `changeAllowList` （调用与测试一共几处，一次改完，不留旧名），或在 shared/profile-tools.ts 旁边放一个通用函数。三项都不阻塞。
+
+## 15. Lab 场景缺口：Skill 页没有“读取中”场景，确认框与 Skill 页只有中文，Profile 的 Skill 一节没有 hidden 与长名字样例
+- 严重程度：建议　类别：测试 / 文档
+- 位置：packages/neuro-book/src/plugins/lab/web/fixtures/index.ts（SkillsSettingsPage 两个场景 full、empty；SkillInitDialog 四个场景）；fixtures/agent-scene/profile-samples.ts
+- 现象：任务说明重点 4 点名“读取中与空目录”，Lab 只有 `full` 与 `empty`，`entries: null` 的读取中没有场景（DOM 测试里有，但视觉上没有）；第 2、3、11 条列的英文与窄宽度问题都因为 Lab 没有对应场景而没人看到；SAMPLE_PROFILES 里 hidden 的 `session-title` 把 `skills: null` 写死，掩盖第 5 条。
+- 如何核实：读 fixtures/index.ts 的两处 `defineLabFixture`。
+- 建议改法：SkillsSettingsPage 加 `loading`（entries: null）场景；`SKILL_PAGE_ENTRIES` 里加一个 40 字符名字与长中文说明的一行；Lab 如果有换语言的办法，主场景各加一个 en-US 版本。
+
+## 16. 白名单为空的 Profile 下，正文里写 `$5` 之类再按回车，“打开 Profile 设置”那一项会吃掉这段文字并打开设置窗口，消息没发出去
+- 严重程度：重要　类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/web/skills.ts:93-95（白名单为空时返回只含 OPEN_PROFILE_SETTINGS_ITEM 的菜单，不看 `query`，`insertText: ""`、`continues: true`）；机理在 packages/nb-markdown/src/prompt/PromptEditor.vue:511-520（`handleMenuKey`：有高亮项时回车确认它）与 :415-425（`confirmItem` 用 `insertText` 替换触发范围）
+- 现象：用户 Profile 默认不声明 `skills`，白名单为空，是常态。这时 `$` 前面是空白的任何输入（“他花了 $50”“路径 $HOME”）都会打开菜单，菜单里永远只有那一项且自动高亮（`keepActive` 选第一个可用项）。此时回车是“确认这一项”而不是“发送”：触发范围（`$50`）被替换成空串，设置窗口被打开，消息没有发出。查询词匹配不到任何 Skill 时（白名单非空）菜单没有项，回车照常发送，所以只有白名单为空的这条分支有问题。
+- 为什么是问题：小说写作里的 `$` 不罕见（价格、货币、变量名、shell 命令讨论），而且这是静默地删掉用户刚写的字并放弃发送。Spec 输出 26 要求“白名单为空时写一句说明，并带去 Profile 设置的入口”，没有要求它吞掉文字；入口可以做得不抢回车。
+- 如何核实（已做，真实 PromptEditor 组件）：在 /tmp/review-w00032-t15-impl/frontend-scratch/nbm（nb-markdown 包的副本，不动 worktree）里 `bunx vitest run src/prompt/Scratch.dom.test.ts`：`resolveMenu` 对 `$` 返回与 `skillMenu` 白名单为空时逐字相同的那一项；输入 `价格是 $5` 后派发 Enter，输出 `menu-open [[{"trigger":"$"}]]`、option 数 1；Enter 后 `change` 依次为 `["价格是 $5","价格是 "]`，`submit` 为 undefined，`menu-select` 为 `[{"trigger":"$","id":"open-settings"}]`。
+- 建议改法（选最简单的）：把“去 Profile 设置”做成不被回车选中的提示：`PromptMenuItem` 已有 `disabled`，但 `disabled` 项点不了；更直接的是白名单为空时 `skillMenu` 返回 `{items: [], emptyText: "这个 Profile 还没有可用的 Skill。到设置里加"}`，不放可确认的项，入口用 `emptyText` 里的文字加设置窗口自己的入口承担（回车照常发送）。若开发者一定要可点的入口，让该项 `disabled: false` 但不是默认高亮（需要 PromptEditor 支持“无默认高亮”，是更大的改动，不建议）。
+
+## 未发现问题的方面（仔细检查后没有发现）
+- nb-ui `SuggestionMenu` 不知道 Skill：`status` 是通用的“标签加图标加色调”，文案例子只出现在 .md 的说明里；没有 `statusColumn` 时（SearchSelect 等老用法）不多画任何元素，老行为没变；Spinner 不嵌进选项避免读屏重复报，意思由 sr-only 在名称与说明之后读出（DOM 顺序已核对）。
+- nb-markdown 的 `./prompt-text` 子路径：boundary.test.ts 对四份文件分别核对了包名与相对导入，新增文件会因白名单失败而被发现；`promptSkillTokens` 与编辑器认的小块共用同一份分词（我另用 11 条边角输入在 bun 里跑过，反引号、围栏、链接、粘贴块、`${a.b}`、`$5`、转义的 `\$` 的结果都与规则一致）。
+- `menu-select` 在 `insertParsed` 与 `view.focus()` 之后才发；Composer 把它翻成 `menu.selected {trigger,id}`，nb-agent-ui 的 .md 与类型同步，nb-agent-ui 与 nb-markdown 都没有引用 Skill 业务。
+- 确认框：每个对话位置（view、page）一份，Skill 页自己一份，互不影响；round 守卫的写法对（`update(at, …)` 对不上就不写，且失败分支不重开已关的框）；安装中关闭只改 `open`，安装继续；同一 Skill 两处同时确认，后端 `#running` 会并入同一次，不会装两遍。
+- Profile 页：`withSkillsChoice` 写入的 `{added, removed}` 与 profile-settings.md 输出 26 一致，两个数组都空时清掉这一项，声明 `"all"` 去掉后能加回（DOM 测试与我读 `changeAgentsBinding` 的结果相符）；无效的不计入可用数、不进候选；工具与子代理两节的行为未变（`kind` 默认 `tools`，新增的类名与按钮只在 `skills` 出现）。
+- 监听释放：`skillsChanged` 订阅与 `watch` 都挂在 `context.signal` 的 abort 上；订阅失败时 `started` 回滚，下一次 `ensureStarted` 会重试。
+- e2e 场景 4 等待方式：等确认框隐藏（60 秒内），再等通知与标签、再看 `bun.lock` 文件，没有按固定时长等；定位用 role 与 `data-*` 属性，不依赖文案以外的结构。
+- 我跑过的测试（worktree HEAD 6385299f3）：`bun test src/plugins/agent/skill-menu.test.ts src/plugins/agent/web/profile-view.test.ts` 35 通过；`bunx vitest run` 的 skill-init、skills-page、profile-page 三个 dom 测试 37 通过。
+- 需要主 Agent 截图的清单（第 2、3、11 条）：Lab 场景 SkillInitDialog（confirm、no-lock、installing）en-US 360 与 390 宽；SkillsSettingsPage（full）en-US 与 zh-CN 各 390 与 720 宽；ProfileSettingsPage（写作助手）en-US 1200 与 700 宽。
+
+## 汇总
+- 阻断 0；重要 4（第 1、2、3、16 条）；建议 12（第 4 到 15 条）。共 16 条。编号按发现顺序，严重度见各条。
+- 第 2、3、11 条是从代码与文案长度推断，需要截图核实；第 1、16 条已用实验复现（第 16 条在真实 PromptEditor 组件上），第 6、9、13、14 条是读代码即可确认的事实。
+- 有效发现的编号：1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16

@@ -1,0 +1,126 @@
+# w00032 t15 后端实现审查（范围 a801ab9d7..6385299f3，worktree HEAD 已核对为 6385299f3）
+
+## 1. 停止与取消在“中止器登记前 / 子进程起来前”到达时不生效，stop() 要等完整次安装（至多 10 分钟）
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：packages/neuro-book/src/plugins/agent/backend/skills/install.ts:127-145、159-176、204-213
+- 现象：
+  1) `init()` 把 `#init` 放进 `#running` 后，`#init` 先 await `#initializable`、读 `bun.lock`、`mkdir`、`tryLock`，到第 168 行才建 AbortController 并放进 `#aborts`。这段时间里 `stop()` 置 `#stopped`、中止 `#aborts` 里现有的（不含这一个），再 `await` 全部 `#running`；`#init` 之后不再看 `#stopped`，照常起 `bun install`。
+  2) 中止器登记后、`#run` 起子进程前还有 `await refresh(id)`（第 175 行）和 `#startTask` 里的 `planOf`。此时 `stop()` 或用户取消把 signal abort 掉；`#run` 里 `signal.addEventListener("abort", onAbort)` 挂在一个已经 abort 的 signal 上，永远不会触发，子进程一直跑到装完或超时。
+- 实测（真实模块、公开 API，本机不回应的包源）：`/tmp/review-w00032-t15-impl/backend-scratch/stop-race.ts`。`init()` 后立刻 `stop()`：stop 用了 8007 ms（实验把超时设成 8 s，真实是 10 分钟），结果是 `install-failed`（"install timed out"），标记写的也是 `install-failed`，不是 Spec 输出 21 要的 `interrupted`。对照组 `MODE=1500`（子进程已起）：stop 6 ms、结果 `interrupted`。
+- 为什么是问题：Spec 输出 21 与“时序与寿命”要求插件停止时安装结束并写 `interrupted`；窗口虽窄，一旦撞上，应用关停最多卡 10 分钟。用户在 refresh 期间点“取消”，任务一直显示“正在取消”，直到安装自然结束。
+- 建议改法：AbortController 在 `#init` 的第一行建好并登记（`init()` 同步段里就建，和 `#running` 一起登记），每个 await 之后、尤其拿锁之后与 `Bun.spawn` 之前检查 `signal.aborted`（已中止就直接走 `interrupted` 分支，仍写标记、放锁）；`#run` 开头 `if (signal.aborted) return {ok:false, code:"interrupted"}`。这样 `#stopped` 也可以去掉，统一看 signal。补一条用例：`init` 后同一 tick 里 `stop()`，断言 stop 在几百毫秒内完成、结果 `interrupted`。
+
+## 2. 拿到锁之后、进 try 之前还有一段会抛的代码：一旦抛出，锁在本进程里永远不放，之后一直 busy、一直显示“正在初始化”
+- 严重程度：建议；类别：不变量 / 代码质量
+- 位置：packages/neuro-book/src/plugins/agent/backend/skills/install.ts:166-174、189-197
+- 现象：`tryLock` 成功（第 166 行）后，`#aborts.add`、`await #startTask(...)` 都在 `try/finally` 之外。`#startTask` 里的 `tasks.start()` 按合同会同步抛 `TypeError`（`nbook.tasks` 的 core.ts:216 在清单关闭后抛 "background tasks are closed"，以及输入不合格时）。一旦抛出：`lock.release()` 不会执行，fd 一直开着；flock 跟着打开的文件走，同一进程用新句柄也拿不到，于是之后每次 `init` 都得 `busy`，`installing()` 探测也一直为真（Skill 页一直“正在初始化”），直到进程退出；中止器也留在 `#aborts` 里。
+- 为什么是问题：注释（第 172 行）声称“写完标记才算有结果：中途抛错时任务按失败收尾”，但锁的收口并不覆盖这一段。现在能触发它的只有 `nbook.tasks` 先于 Agent 关闭这类时序（`planOf` 自己吞错），所以定为建议；但它与第 1 条是同一个结构问题：资源在 try 外面拿。
+- 如何核实：读代码即可；或在副本里让传入的 `tasks.start` 抛错，之后再 `init` 得 `busy`。
+- 建议改法：拿锁之后立即进入 `try`，把 `#aborts.add`、`#startTask`、`refresh` 都放进 try；`finally` 里 `lock.release()` 与 `#aborts.delete` 照旧，`task` 可能为 null。和第 1 条一起改成“先建中止器、拿锁、进 try”，只留一个收口点。
+
+## 3. Skill 放回的预算只按正文算、没有下限：每个超过 5,000、合计超过 25,000 与窗口的 25%，预算只剩几 token 时也放一份几乎空的 Skill；测试用 +200 的容差把超出放过去了
+- 严重程度：重要；类别：正确性 / 测试
+- 位置：packages/neuro-book/src/plugins/agent/backend/skills/restore.ts:208-229；restore.test.ts:82、86
+- 现象：`truncateTokens(body, min(5000, budget))` 只给正文定预算，`renderSkill` 再包上 `<skill …>` 与两行说明（约 100 多 token），`tokens = estimateTokens(text)` 记的是包好之后的数，于是每一个都超。也没有“剩下的放不下就不放”的下限。
+- 实测（真实目录与文件，按内核合同给参数）：`/tmp/review-w00032-t15-impl/backend-scratch/restore-budget.ts`
+  - 200k 窗口、6 个长 Skill：每个 5,104 token，合计 25,110（Spec 输出 16：每个至多 5,000、合计至多 25,000）。
+  - 64k 窗口、文件已占 15,990（上限 16,000，只剩 10 token）：仍放回一个 Skill，120 token，放回合计 16,110，超过窗口的 25%；那份正文只有一行“第 0 行，规则说明。”，再加一句“正文太长，上面只是前一部分”。
+- 为什么是问题：Spec 输出 16“超了截断，放不下的不放”、验收场景 6“各不超过 5,000 token”“64k 窗口时放回合计不超过窗口的 25%”都被违反；测试 restore.test.ts:82 写 `RESTORE_SKILL_TOKENS + 200`、:86 写 `64_000 * 0.25 + 200`，是把断言放宽到让实现通过（禁止清单里的“放宽断言”）。参照实现 nb-harness `kit/compaction/restore.ts` 有这两样而这里没有：`perFile < MIN_FILE_TOKENS` 时不放；按包好之后的估算反复收缩、收不进就整份跳过（“不把超预算的内容放回去”）。
+- 建议改法：先算出包装的开销（用空正文 `renderSkill` 一次再 `estimateTokens`），正文预算 = `min(5000, budget) - 开销`；小于一个下限（例如与套件相同的 `MIN_FILE_TOKENS`，或几百 token）就停止放 Skill，不放空壳。测试去掉 +200，按 Spec 的数字精确断言 `<= 5000`、`<= 16000`，并加“只剩很少预算时不放”的一例。
+
+## 4. 重扫单个 Skill 用 `lastIndexOf("/")` 取文件夹名：Windows 上 id 算错，单个 Skill 的重扫（含装完后的 refresh）全部失效
+- 严重程度：重要；类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts:150
+- 现象：`directory` 是 `join(root, child.name)` 得来的本机路径，Windows 上分隔符是 `\`。`directory.slice(directory.lastIndexOf("/") + 1)` 在没有 `/` 时得到整条路径，`skillId` 变成 `user.C:\…\skills\x`。于是 `#rescanSkill` 往目录里加一条带这个怪 id 的项（名字和目录名对不上，状态 `invalid`），真正的那一项不更新。凡是走单个重扫的都受影响：文件监视的触发、`refresh(id)`（初始化开始与结束），装完之后 Skill 页会停在“正在初始化”，直到整个来源被重扫。
+- 为什么是问题：w00046 正在做 Windows 桌面包（README 第 25 行“先做 Windows 的 setup 安装程序与便携包”）。这处不涉及 Windows 特有 API，只是取文件夹名写错了；计划“未验证边界”只列了 Windows 上的锁与监视，不包括这一处。
+- 如何核实：`node -e 'const p=require("path").win32.join("C:\\\\s","user","skills","x"); console.log(p.slice(p.lastIndexOf("/")+1))'` 输出整条路径。
+- 建议改法：用 `basename(directory)`；更好的是让 `SkillItem` 带上 `folder`，或让 `#rescanSkill` 直接收 id/folder，不从路径反推。
+
+## 5. 验收场景里有几条判据没有任何测试：插话里的 `$x`、应用停止时的 `interrupted`、`ambiguous` 与 `unreadable` 两种 skillMissing、已发出的那一轮不变
+- 严重程度：重要；类别：测试
+- 位置：packages/neuro-book/src/plugins/agent/skills.test.ts:73-112；backend/skills/install.test.ts；e2e/agent-skills.e2e.ts:89-125
+- 现象（在 skills.test.ts、install.test.ts、restore.test.ts、catalog.test.ts、e2e/agent-skills.e2e.ts 里 grep `steer`、`插话`、`stop(`、`ambiguous`、`unreadable` 核对）：
+  1) 场景 2 后半“运行中插话带 `$x`，正文紧跟在这句插话后面”：单测和 e2e 都没测。`extension.ts` 的 `steer` 分支、内核给 `steer` 引出的 conv 事件盖的位置，都没有验证。e2e 头注释和 Spec 的 Smoke 写的是“场景 2、3、4”，但 e2e 的场景 2 只测了前半。
+  2) 场景 2“改了 SKILL.md 之后，已经发出的那一轮不变”：skills.test.ts:89-91 只看第三次请求的最后一条 user 消息里有第二版，没断言同一请求的历史里第一轮仍是第一版。
+  3) 场景 3 要“一个不在白名单里的、一个重名的”：`ambiguous` 只在 catalog.test.ts 里对 `matchSkillToken` 做了单元断言，没有经过扩展写出 `skillMissing{reason:"ambiguous"}` 与对应的 system-reminder；`unreadable`（读 SKILL.md 失败，extension.ts:135-141 的单独收错分支，计划审查第 2 条专门要的）也没测。
+  4) 输出 21“应用停止时，正在进行的安装被结束，标记写 interrupted，请求得 interrupted”：没有任何用例调用 `SkillInstaller.stop()` 后断言结果与标记（cleanups 里调的 `own.stop()` 不做断言），所以第 1 条的竞态也没被发现。
+  5) 场景 4“模型经 shell 运行它的脚本能导入依赖”：install.test.ts:73 是测试自己 `Bun.spawnSync` 跑 `run.js`，没经过 `skills://` 的 `realPath` 或 shell 工具；e2e 也没测。
+- 为什么是问题：这些是 Spec 编号验收里的判据，而且（1）（4）恰好是实现里最容易出错的时序路径。
+- 建议改法：skills.test.ts 加一例：运行中经 `send(..., mode: "steer")` 插话带 `$style-guide`，断言下一次请求里 skill 正文在这句插话之后；同一例里断言改文件后历史中第一轮仍是旧正文。加一个同名两来源（或两个都加进白名单的 id）的 `ambiguous` 用例，以及把 SKILL.md 改成目录或去掉读权限的 `unreadable` 用例。install.test.ts 加“装到一半 `stop()`：结果 `interrupted`、标记 `{code:"interrupted"}`、锁已放（另起一次 init 不得 busy）”，同时覆盖“init 后立刻 stop”。
+
+## 6. `open-failed` 几乎测不到：`open` v11 在子进程 spawn 成功时就 resolve，不看 xdg-open / open / PowerShell 的退出码
+- 严重程度：建议；类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/backend/skills/folder.ts:246-254
+- 现象：`await open(path)` 没带 `wait`。按 node_modules/open/index.js（11.0.0）第 296-312 行，非 wait、非 fallback 时它 `unref()` 子进程，只在 `'spawn'` 时 resolve、`'error'` 时 reject；退出码只在 `wait: true` 或 fallback 路径里看（第 257-293 行）。所以只有启动器本身不存在（ENOENT）才会得到 `open-failed`；有 DISPLAY、但 xdg-open 找不到能打开目录的程序（退出码 3 或 4）、Wayland 下 portal 不可用、Windows 上 PowerShell 报错，都返回 `{ok:true}`，界面不发写有路径的通知，用户什么都看不到。
+- 为什么是问题：Spec 输出 25 与失败码表：`open-failed` 是“有桌面，但文件管理器没有打开”，并要发通知写出路径；现在这一类失败基本都报成成功。
+- 如何核实：读上面那段库源码；或在没有文件管理器的 Linux 容器里设 `DISPLAY` 调 `openFolder`（本次没跑：本机有桌面，实测会真弹窗口）。
+- 建议改法：自己 `Bun.spawn` 平台的启动器（xdg-open / open / `explorer.exe`），等它退出，退出码非 0 就交回 `open-failed` 并带上 stderr，设一个短时限（例如 5 s，超时按已打开算，因为有些 xdg-open 后端会一直挂着）；或者用 `open(path, {wait: true})` 再加同样的时限。这样也不再需要整个 `open` 依赖（`nbook start` 打开浏览器另说）。
+
+## 7. 后台任务的“重试”把非安装类的结果（busy、lock-missing、skill-not-found、not-initializable、interrupted）全吞掉：旧行消失，什么也不出现，诊断也没有
+- 严重程度：建议；类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/backend/skills/install.ts:196
+- 现象：`retry: () => this.init(id, {resolve}).then(() => undefined)`。`nbook.tasks` 的 retry 会先把旧行移出清单，再调用这个回调（background-tasks.md 输出 6）。`init` 只有拿到锁才登记新任务；如果这时命令行正在装（`busy`）、`bun.lock` 被删了（`lock-missing`）、Skill 被删或改坏（`skill-not-found` / `not-initializable`），或 Agent 正在停止（`interrupted`），回调就正常 resolve：失败那一行和它的通知被撤回，没有新任务，`nbook.tasks` 也不记诊断，因为它只在 retry 抛错或 reject 时记。
+- 为什么是问题：用户点了“重试”，界面上这件事直接消失，看起来像成功了。background-tasks.md 的“失败与恢复”给发起方留的出口是“`retry` 抛错或失败：记诊断，旧行已移出，用户可以从发起方的界面再来一次”，现在连这一点也没有。
+- 建议改法：`init` 的结果 `ok:false` 且不是 `install-failed`（`install-failed` 已经由新任务表达）时，`throw new Error(code)` 让 `nbook.tasks` 记诊断；更好的是对 `busy`、`lock-missing` 等直接 `start` 一件立即 `fail` 的任务，原因写清（“正在别处初始化”“没有 bun.lock”），用户在清单里看得到。
+
+## 8. Skill 文件夹（或它的 node_modules）被删掉再建之后，监视器还是旧的那个，之后的修改再也看不到
+- 严重程度：重要；类别：正确性
+- 位置：packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts:226-245
+- 现象：`#syncWatchers` 按路径判断“已经在监视”（`this.#watchers.has(path)`）。目录被删时，Bun 的 `fs.watch` 不发 `error`，旧监视器还留在表里，只是盯着已经不存在的 inode。同名目录重建后，这个路径被当成“已经在监视”，不再新建监视器。
+- 实测（真实 `SkillCatalog`、真实文件系统与计时器）：`/tmp/review-w00032-t15-impl/backend-scratch/watch-recreate.ts`
+  - `MODE=rm`（删掉 `x/`，再建 `x/` 写 v2）：重建后读到 v2（由根监视器触发）。之后两次改 `x/SKILL.md` 为 v3、v4，目录一直停在 v2。
+  - `MODE=rename`（解压工具常见的“写临时目录再改名替换”）：结果相同，停在 v2。
+  - 对照 `watch-control.ts`（不重建）：v3、v4 都看得到。
+- 同一机制也作用在 `node_modules` 上（从代码推断，未单独实测）：用户删掉 `node_modules` 后用 `nbook skill init` 重装，新 `node_modules` 里写下的标记没有监视器看到。Skill 目录的监视器在 `node_modules` 出现时触发过一次重扫，当时命令行拿着锁，状态成了 `initializing`；之后只有标记写入，锁释放又不是文件事件，应用会一直停在“正在初始化”，直到别的变化触发重扫。
+- 为什么是问题：违反 Spec 输出 5、22、27（“不重启应用，skills() 很快反映出来”“应用开着时，应用很快看到结果”）。替换整个 Skill 文件夹是用户更新 Skill 最常见的做法。
+- 建议改法：每次重扫后对每个要监视的路径比一次 `ino`（lstat 一次），与建监视器时记下的不同就关掉旧的、重建；或者在根监视器收到某个子项的 `rename` 事件时，关掉这个子项（及其 `node_modules`）的监视器再重扫。补一条用例：删除并重建一个 Skill 文件夹，再改它的 SKILL.md，断言收到 `skillsChanged` 且内容是新的。
+
+## 9. 命令行两处收口不全：确认时按 Ctrl-C 直接崩出堆栈，不按机读约定输出；“不认识的命令”里列的可用命令没有 skill
+- 严重程度：建议；类别：正确性
+- 位置：packages/neuro-book/src/cli/run.ts:61、94-112；packages/neuro-book/src/cli/skill.ts:69
+- 现象：
+  1) 在真实终端里（`script -qfc` 起 pty，`(sleep 3; printf '\003')` 送 Ctrl-C），`nbook skill init ep` 停在“继续初始化？[y/N]”时按 Ctrl-C。终端模式下 Ctrl-C 被 readline 收下，不产生 SIGINT，所以 `process.once("SIGINT")` 不会触发。`prompt.question` 以 `AbortError: Aborted with Ctrl+C`（code `ABORT_ERR`）reject；`initSkill` 不处理它，`main` 只认 `CliFailure` 与 `CommanderError`，其余重新抛出，结果是 Bun 打出整段内部堆栈、退出码 1。`--json` 时标准输出上没有那个 JSON 结果对象。
+  2) `nbook nosuch` 输出“可用的命令：start、plugin”，`skill` 已经登记（`--help` 里有），这句提示没跟着改。
+- 为什么是问题：Spec 输出 22“`--json` 时输出遵守命令行的机读约定”，输出 21“命令行收到中断时同样处理”（得 `interrupted`）。确认时按 Ctrl-C 是最常见的退出方式。
+- 如何核实：见上面的 pty 命令（实验状态根在 `/tmp/review-w00032-t15-impl/backend-scratch/state-*`）。
+- 建议改法：`confirm` 里接住 `ABORT_ERR`，当成用户取消（交回 false，走现有的 `cancelled` 失败），或抛 `CliFailure("interrupted", …, 130)`；第 61 行的命令列表改成从 `program().commands` 生成，或至少加上 `skill`。
+
+## 10. 跨进程锁从 nb-harness 的内部日志模块开了公开子路径，与 w00043 刚建的锁包 nb-file-lock 职责重叠；计划要求的边界文档没有更新
+- 严重程度：建议；类别：代码质量 / 文档
+- 位置：packages/nb-harness/package.json（`"./file-lock": "./src/kernel/log/flock.ts"`）；install.ts:13；docs/modules/monorepo-boundaries.md（主工作区）第 21、27 行
+- 现象：
+  1) 仓库入口与边界文档把 `nb-file-lock` 登记为“跨进程锁与加锁替换”的包（w00043）；t15 没有用它，而是把 nb-harness 会话日志用的 `kernel/log/flock.ts` 开成 `@notnotype/nb-harness/file-lock`，让应用的 Skill 安装依赖 Agent harness 的内部日志实现。现在工作区里有两套跨进程锁：`nb-file-lock` 的 `holdLock`（proper-lockfile，判旧）和 nb-harness 的 `tryLock`（flock），nb-story 里还有一份 `platform/flock.ts`。
+  2) flock.ts 的报错文字仍写 “session lock is not supported on …”，用在 Skill 锁上会误导。
+  3) 计划“Spec 与文档改动”写了“`docs/modules/monorepo-boundaries.md`：nb-harness 新增 `tryLock` 的导出”，主工作区 master 上的边界文档里搜不到 `file-lock` 或 `tryLock`（`grep -n 'tryLock\|file-lock' docs/modules/monorepo-boundaries.md` 无结果）。
+- 为什么是问题：计划否决 proper-lockfile 的理由（要判旧）成立，但否决的只是“那种锁”，不是“锁该放在哪个包”。现在锁的所有权落在一个与 Skill 无关的包上，nb-harness 的公开面也多了一个与 Agent 无关的入口。没有记录说明为什么不放进 nb-file-lock。
+- 建议改法（交开发者选）：a) 把 flock 版 `tryLock` 搬进 nb-file-lock（它本来就“只在 Bun 进程里用”），应用和 nb-harness 都从那里取。代价是 nb-harness 随 nb-story 发布到 npm，要么 nb-file-lock 也一起发布，要么 nb-harness 留一份私有副本。b) 维持现状，但要补边界文档、把报错文字改成中性的，并在 nb-file-lock 的说明里写明“不判旧的 flock 锁在 nb-harness/file-lock”。
+
+## 11. 改了 package.json（加依赖）而 bun.lock 没跟着更新时，这个 Skill 在应用和命令行里都装不上，也没有办法重新生成锁
+- 严重程度：建议（这是 README 第 16 条决定带来的后果，需要开发者拍板）；类别：正确性 / 文档
+- 位置：install.ts:163-164、205（`frozen = hasLock`，`resolve` 只在没有锁时起作用）；cli/skill.ts:71（`resolve: !planned.plan.lock`）
+- 现象：Spec 输出 3 说 package.json 改了 Skill 就回到 `needs-init`，让用户重新初始化。但有 bun.lock 时一律 `--frozen-lockfile`。实测（`/tmp/review-w00032-t15-impl/backend-scratch/frozen/`）：先装好，再在 package.json 里加一个依赖，`bun install --frozen-lockfile --ignore-scripts` 报 `error: lockfile had changes, but lockfile is frozen … depb was added`，退出码 1。于是每次初始化都得 `install-failed`；`initSkill({resolve:true})` 也没用，命令行没有对应的选项。用户只能自己删掉 bun.lock，或在终端里跑一次不带 frozen 的 `bun install`。错误原文给的建议是 “re-running without --frozen-lockfile”，在应用里做不到。
+- 为什么是问题：给 Skill 加依赖是写 Skill 的常规操作，作者在这一步卡住，界面只显示“安装没有成功”加上面那几行。
+- 附带的文档不一致：Spec 输出 21 写“标记写 `error: "interrupted"`”，输出 19 写“把原因写进标记的 `error`”；实现写的是对象 `{code:"interrupted"}` / `{code:"install-failed", detail}`（readiness.ts:182）。“边界与兼容”把标记 `schema: 1` 列为公开格式，Spec 应写出实际形状。另外，`invalid` 的 Skill 初始化得 `not-initializable`（install.ts:150），Spec 失败码表里的含义只写了“不是 user 来源，或没有 package.json”。`inputs` 多算了 `trustedDependencies`（readiness.ts:169），Spec 输出 3 的字段清单里没有。
+- 建议改法：交开发者选：a) 冻结安装失败、且输出里有 “lockfile had changes” 时交回新码 `lock-outdated`（按退出状态加 Bun 的错误码判，不按整句文案分支有困难时就在 Spec 里写明这是已知限制），确认框提示“锁文件过期，确认后按 package.json 重新解析”，再带 `resolve: true` 走不冻结安装；b) 维持现状，把“改了依赖要自己删 bun.lock”写进 Spec 的已知限制和 Skill 页说明。文档不一致的几处按实现改 Spec。
+
+## 12. 目录诊断的两处小问题：可选字段不合规的诊断每次重扫都写一条；用户 Skill 根读不了时整组 Skill 静默消失
+- 严重程度：建议；类别：代码质量
+- 位置：packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts:190、175
+- 现象：
+  1) `#readItem` 每读一次就 `report("skill-field-ignored", …)`。`skill-invalid` 在 `#replace` 里按“原因变了才写”去重，这一条没有去重。一个 `compatibility` 超长的 Skill，每次被重扫都多一条 warn 诊断：编辑器保存、安装过程中 `node_modules` 的每一批事件（150 ms 防抖后一次），以及每次 `refresh(id)`（初始化开始与结束各一次）。
+  2) `#scanRoot` 里 `readdir(root).catch(() => [])` 把除了不存在以外的错误（EACCES、ENOTDIR）也吞掉：用户的 Skill 全部从目录里消失，没有诊断（全局规则“不用静默的 catch 吞掉错误，至少写一条诊断”）。
+- 建议改法：1) 把 `ignored` 放进条目（或在 `#replace` 里与上一份比较），只在变化时写诊断；2) `ENOENT` 以外的错误写一条 `skills-scan-failed`。
+
+## 未发现问题的方面
+- 认标签：`matchSkillToken` 先按 id、再按名字，白名单与 invalid 的判断顺序合 Spec 输出 7；扩展按出现顺序去重，`$x` 与 `${user.x}` 认到同一个 Skill 时只带一次；单个标签读失败只影响它自己。
+- “见前文”：path 片在压缩时复位，回退与切分支跟着走；只有带正文的事件更新哈希，比对用截断后的正文。合 Spec 输出 11（“压缩之后算不在上下文里”）。
+- nb-harness `kept`：取压缩前路径上切点（含）之后、未被省略的事件；切点为 null 时什么都不留；放回扩展只在 `replacement !== null` 时工作。
+- 资源地址：`MountDeclaration.directory` 拒绝空串、`.`、`..` 和含分隔符的值，容器与挂载点每次打开都核对不是链接；`skills://` 写入在分类上就是 denied；链接的 Skill 不挂载；远程与挂载对任意 id 都先查目录，不拼路径。
+- 插件装配：`tasksKey` 是可选依赖，没有时安装照常进行（`#startTask` 交回 null）；停止顺序是先 `installer.stop()` 再 `catalog.close()`，停止之后 `#queue` 不再工作，监听也已清空，不会再发 `skillsChanged`。
+- `desktopReach` 抽出后，`nbook start` 的判据与原来的 `browserReachable` 逐字相同（平台改为参数传入），行为没变。
+- 用户取消（锁已拿到、子进程已起时）：结果 `interrupted`、标记 `{code:"interrupted"}`、任务结束为 cancelled、锁已放，install.test.ts 有真实用例；本地 `bun test src/plugins/agent/backend/skills/` 15 个用例全过。
+
+## 数量
+- 阻断 0；重要 5（第 1、3、4、5、8 条）；建议 7（第 2、6、7、9、10、11、12 条）。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12

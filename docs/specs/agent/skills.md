@@ -20,7 +20,7 @@ owners:
 - 来源只有内置与 `user://skills/`：没有额外的 Skill 目录，没有书专属的 Skill；插件贡献的 Skill 以后另定。
 - Skill 目录变了不实时提醒正在进行的会话；`$` 菜单与 Skill 页随时是最新的。
 - 命令行发起的安装在另一个进程里，不进后台任务的清单；应用里只看到它“正在初始化”与之后的状态。
-- 已知限制：安装时不运行包的安装脚本，需要安装脚本的包（例如带原生模块的）装完也可能用不了；没有初始化的 Skill，它的脚本仍可能被运行起来，结果不保证；排队中的话在“看上下文”的预览里看不到 Skill 正文（预览不跑反应）。
+- 已知限制：安装时不运行包的安装脚本，需要安装脚本的包（例如带原生模块的）装完也可能用不了；没有初始化的 Skill，它的脚本仍可能被运行起来，结果不保证；排队中的话在“看上下文”的预览里看不到 Skill 正文（预览不跑反应）；“打开 Skill 文件夹”只知道系统的打开程序有没有起来，它起来之后没能打开文件夹（例如没有文件管理器）时界面上看不出来。
 
 ## 术语与参与者
 
@@ -64,7 +64,7 @@ owners:
 
 1. `skills()` 列出全部 Skill，每条 `{id, name, description, whenToUse?, source, location, status, problem?, external?}`：`location` 是 `skills://<id>/SKILL.md`；`problem` 是不可用或上次初始化失败的原因；`external` 是外部依赖的检测结果（输出 4）。
 2. 无效的 Skill 只隔离它一个：照样列出，状态 `invalid`，`problem` 写原因，并写一条诊断；别的 Skill 不受影响。算无效的：没有 `SKILL.md`（下一层有的，原因写“可能多套了一层文件夹”）、frontmatter 读不懂、必填字段缺或不合规、`name` 与目录名不同、Skill 目录是链接。可选字段不合规的只忽略那个字段并写诊断，Skill 照常可用。
-3. 状态：没有 `package.json` 的是 `ready`。有的看初始化标记：标记的输入与现状一致、平台相同、没有 `error` 才是 `ready`；否则是 `needs-init`，标记里有 `error` 时 `problem` 写这次失败的原因。本应用正在装、或别的进程拿着这个 Skill 的安装锁时是 `initializing`。现状的输入是 `package.json` 里影响安装的字段（各类依赖、`overrides`、`resolutions`、`patchedDependencies`）与 `bun.lock` 的内容；它们改了，Skill 回到 `needs-init`。
+3. 状态：没有 `package.json` 的是 `ready`。有的看初始化标记：标记的输入与现状一致、平台相同、没有 `error` 才是 `ready`；否则是 `needs-init`，标记里有 `error` 时 `problem` 写这次失败的原因。本应用正在装、或别的进程拿着这个 Skill 的安装锁时是 `initializing`。现状的输入是 `package.json` 里影响安装的字段（各类依赖、`overrides`、`resolutions`、`patchedDependencies`、`trustedDependencies`）与 `bun.lock` 的内容；它们改了，Skill 回到 `needs-init`。
 4. 外部依赖只检测、只报告，不改变状态：有 `pyproject.toml`、`requirements.txt`、`uv.lock`，或 Skill 目录两层以内有带 `# /// script` 内联依赖的 `.py` 文件的，`external.python` 为真，`PATH` 上没有 `uv` 时 `external.uvMissing` 为真；`external.compatibility` 是 `compatibility` 的原文。
 5. 用户在 `user://skills/` 里加、删、改 Skill，或命令行装好了依赖，不重启应用，`skills()` 很快反映出来，并发出 `skillsChanged`。
 
@@ -91,10 +91,10 @@ owners:
 
 ### 初始化
 
-18. `skillInitPlan({id})` 交回：要装几个包（按 `bun.lock`；读不了时写“未知”）与直接依赖的名字、要联网、包的安装脚本不会运行；没有 `bun.lock` 时交回直接依赖的个数与名字，并说明会按最新版本解析依赖、生成锁文件。只有来源是 `user`、有 `package.json` 的 Skill 能初始化，其余得 `not-initializable`。
-19. `initSkill({id, resolve?})`、Skill 页的“初始化”、`$` 选它时的确认、命令行，做的是同一件事：在 Skill 目录里按 `bun.lock` 安装，不运行安装脚本；没有 `bun.lock` 时要 `resolve: true` 才解析并生成锁文件，否则得 `lock-missing`。成功时写初始化标记，Skill 变成 `ready`；失败时把原因（安装输出的最后几行）写进标记的 `error`，Skill 回到 `needs-init`，得 `install-failed`。一次安装至多 10 分钟，超时按失败算。
+18. `skillInitPlan({id})` 交回：要装几个包（按 `bun.lock`；读不了时写“未知”）与直接依赖的名字、要联网、包的安装脚本不会运行；没有 `bun.lock` 时交回直接依赖的个数与名字，并说明会按最新版本解析依赖、生成锁文件。只有来源是 `user`、不是无效的、有 `package.json` 的 Skill 能初始化，其余得 `not-initializable`。
+19. `initSkill({id, resolve?})`、Skill 页的“初始化”、`$` 选它时的确认、命令行，做的是同一件事：在 Skill 目录里按 `bun.lock` 安装，不运行安装脚本；没有 `bun.lock` 时要 `resolve: true` 才解析并生成锁文件，否则得 `lock-missing`。成功时写初始化标记，Skill 变成 `ready`；失败时标记的 `error` 写 `{code: "install-failed", detail}`（`detail` 是安装输出的最后几行），Skill 回到 `needs-init`，得 `install-failed`。一次安装至多 10 分钟，超时按失败算。
 20. 同一个 Skill 同一时间只装一次：同一个应用里再次请求，并入正在进行的那一次、得到同一个结果；别的进程正在装时得 `busy`。正在装的进程无论怎样结束，锁都会放掉，下一次照常能装。
-21. 应用停止时，正在进行的安装被结束，标记写 `error: "interrupted"`，请求得 `interrupted`；命令行收到中断时同样处理。
+21. 应用停止时，正在进行的安装被结束，标记的 `error` 写 `{code: "interrupted"}`，请求得 `interrupted`；还没开始装的不装、不写标记，同样得 `interrupted`。命令行收到中断时同样处理。
 22. `nbook skill init <id>`：`<id>` 写完整 id，或只写名字（只在来源是 `user` 的里找）；先打出计划（输出 18），在交互终端里确认，非交互又没给 `--yes` 时得 `confirmation-required`；然后按输出 19 安装。`--json` 时输出遵守命令行的机读约定。应用开着时，应用很快看到结果（输出 5）。
 
 ### 资源地址
@@ -104,8 +104,8 @@ owners:
 
 ### 界面
 
-25. 设置里的 Skill 页：按来源分组，我的在前、内置在后；一行一个 Skill，先是名字，下面一行说明（无效的、上次初始化失败的写原因）；状态不是可用时出状态徽标（未初始化、正在初始化、无效）；“初始化”只在未初始化时出现，“打开”常在；许可、兼容性、外部依赖、`metadata`、位置收在行的展开里。徽标与按钮每行落在同一列，没有的那一格空着。页头只有“打开 Skill 文件夹”：用系统的文件管理器打开 `user://skills/` 对应的文件夹（还没有就先建）；应用所在的机器没有桌面（SSH 会话、没有图形会话）时得 `no-desktop`，打开没有成功时得 `open-failed`，两种都发一条通知写出文件夹的路径。没有 Skill 时写一句怎样放进来。
-26. 输入框打 `$`：菜单列出白名单里、目录中有、不是无效的 Skill，名字与一行说明；最近用过的在前（本窗口里经菜单选过的，刷新后清空），其余按名字；重名时显示 id；每行行尾留一列状态图标，未初始化、正在初始化的各画一个图标，指针停在图标上时显示它的意思。白名单为空时写一句说明，并带去 Profile 设置的入口。选了插入 `$名字 `，名字写不出 `$名字` 或有重名时插 `${id} `。
+25. 设置里的 Skill 页：按来源分组，我的在前、内置在后；一行一个 Skill，先是名字，下面一行说明（无效的、上次初始化失败的写原因）；状态不是可用时出状态徽标（未初始化、正在初始化、无效）；“初始化”只在未初始化时出现，“打开”常在；许可、兼容性、外部依赖、`metadata`、上次安装的输出（上次初始化失败时）、位置收在行的展开里。徽标与按钮每行落在同一列，没有的那一格空着。页头只有“打开 Skill 文件夹”：用系统的文件管理器打开 `user://skills/` 对应的文件夹（还没有就先建）；应用所在的机器没有桌面（SSH 会话、没有图形会话）时得 `no-desktop`，打开没有成功时得 `open-failed`，两种都发一条通知写出文件夹的路径。没有 Skill 时写一句怎样放进来。
+26. 输入框打 `$`：菜单列出白名单里、目录中有、不是无效的 Skill，名字与一行说明；最近用过的在前（本窗口里经菜单选过的，刷新后清空），其余按名字；查询词按名字找，带 `.` 时按 id 找；重名时显示 id（同名的另一个即使无效，只要在白名单里也算重名）；每行行尾留一列状态图标，未初始化、正在初始化的各画一个图标，指针停在图标上时显示它的意思。白名单为空时写一句说明；刚打 `$` 时另带去 Profile 设置的入口，`$` 后面已经有字时不带（回车照常发送）。选了插入 `$名字 `，名字写不出 `$名字` 或有重名时插 `${id} `。
 27. 选了未初始化的 Skill 时先问：写明要装几个包（没有锁时是直接依赖，并说明会生成锁文件）、要联网、不运行安装脚本。确认后按输出 19 初始化；装的时候能关掉对话框，安装照常进行，进度与结果见输出 29；失败写原因并能重试。对话框中间一块在确认前与安装中列出直接依赖，失败后是安装输出的最后几行；安装中不显示实时输出。确认、关掉、失败、选“先不初始化”，标签都插进输入框。对话框在确认、正在安装、失败几种状态之间尺寸与版式相同，只换文字与按钮（[UI 规范](../../../packages/nb-ui/docs/ui-development-spec.md)“几何、排版与动效”）。
 28. 用户消息里的 Skill 标签照常显示，带上了的与没带上的样子相同；点标签打开它的 `SKILL.md`：用户的经 `user://skills/<名字>/SKILL.md`（能改），其余经 `skills://<id>/SKILL.md`（只读）；标签按名字现认（输出 7，白名单取这个会话的 Profile 的），认不到时提示这个 Skill 已不在或不能用。
 29. 应用里开始的初始化（Skill 页、`$` 的确认）登记成一件后台任务（[`workbench/background-tasks`](../workbench/background-tasks.md)）：标题“初始化 Skill 名字”，进展写要装几个包（没有锁时写正在解析依赖），不确定进度，能取消。成功时结束为成功，进展“已可用”；失败时结束为失败，原因“安装没有成功”，详情是安装输出的最后几行，能重试（按同样的 `resolve` 再初始化一次）；用户取消时结束安装，按输出 21 写标记，任务结束为已取消。并入正在进行的那一次的请求不另登记；应用停止时任务按后台任务的规则转为已中断。
@@ -129,7 +129,7 @@ owners:
 
 ## 副作用与数据
 
-- **初始化标记** `node_modules/.nbook-skill-deps.json`：`{schema: 1, runtime: "bun", inputs, platform, bun, installedAt, error?}`。`inputs` 是输出 3 所说输入的哈希，`platform` 含操作系统与 CPU 架构，`bun` 是装它的 Bun 版本。标记与 `node_modules` 同生共死，不写进 Skill 的源文件；不认识的 `schema` 按没有标记算，下次初始化时改写。
+- **初始化标记** `node_modules/.nbook-skill-deps.json`：`{schema: 1, runtime: "bun", inputs, platform, bun, installedAt, error?}`，`error` 是 `{code: "install-failed", detail}` 或 `{code: "interrupted"}`。`inputs` 是输出 3 所说输入的哈希，`platform` 含操作系统与 CPU 架构，`bun` 是装它的 Bun 版本。标记与 `node_modules` 同生共死，不写进 Skill 的源文件；不认识的 `schema` 按没有标记算，下次初始化时改写。
 - **锁文件**：状态根下 `agent/skills/locks/<id>.lock`，按 Skill 分文件，建好不删；锁靠系统的文件锁，不靠文件存在与否。
 - **生成的锁文件**：`resolve: true` 时在 Skill 目录写 `bun.lock`，之后都按它装。
 - **会话日志**：`skill`、`skillMissing` 事件，放回的 `notice` 与 `compaction.restored` 里的 Skill 项。
@@ -140,7 +140,7 @@ owners:
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|
 | `skill-not-found` | 没有这个 id | 刷新目录 |
-| `not-initializable` | 不是 `user` 来源，或没有 `package.json` | 不用初始化 |
+| `not-initializable` | 不是 `user` 来源、无效，或没有 `package.json` | 不用初始化；无效的先按 Skill 页写的原因改好 |
 | `busy` | 别的进程正在装这个 Skill | 等它装完再看状态 |
 | `lock-missing` | 没有 `bun.lock`，又没给 `resolve: true` | 告诉用户会生成锁文件，确认后带 `resolve: true` 重试 |
 | `install-failed` | 安装失败或超时 | 看原因，修好网络或依赖后重试 |
@@ -148,7 +148,7 @@ owners:
 | `confirmation-required` | 命令行在非交互环境里没给 `--yes` | 加 `--yes` |
 | `permission-denied` | Agent 写 `skills://` | 用户的 Skill 经 `user://skills/` 改 |
 | `no-desktop` | 应用所在的机器没有桌面，打不开文件管理器 | 按通知里的路径自己打开 |
-| `open-failed` | 有桌面，但文件管理器没有打开 | 同上；原因在通知的详情里 |
+| `open-failed` | 有桌面，但系统的打开程序起不来 | 同上；原因在通知的详情里 |
 
 标签认不出（输出 12）不是失败：这一轮照常进行，只是不带那个 Skill。
 
@@ -168,7 +168,7 @@ owners:
 7. Given Profile 设置里去掉一个 Skill；Then `$` 菜单不再列它，打它的名字得 `not-allowed`。
 8. Given 同一个会话；When 连续两轮 `$` 同一个没改过的 Skill；Then 第二轮只带“见前文”。
 
-Smoke：`packages/neuro-book/e2e/agent-skills.e2e.ts`（场景 2、3、4）。
+Smoke：`packages/neuro-book/e2e/agent-skills.e2e.ts`（场景 2、3、4 在界面上的部分：经菜单选了发出、不存在的标签、确认后安装）；插话、白名单与重名、停止时中断由 `skills.test.ts`、`install.test.ts`、`catalog.test.ts` 覆盖。
 
 ## 证据
 
