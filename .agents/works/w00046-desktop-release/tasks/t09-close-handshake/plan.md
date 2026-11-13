@@ -32,9 +32,16 @@ t08 的壳已经会拦下关窗、按代次问页面、3 秒没接下就弹“�
 - 新文件 `src/server/running-work.ts`：`createRunningWork(report)` 返回 `{provision, collect()}`。`provision` 用 nb-runtime 的 `perConsumer`（同 `projects/manager.ts:364` 的写法），按消费者身份记下插件 id，消费者释放时撤下它的全部登记。`collect()` 同步调用每个登记方，返回 `{items: [{plugin, text}], failed: [plugin]}`；抛错的进 `failed` 并写诊断 `runtime.work.reporter-failed`。
 - `src/server/start.ts`：`capabilities` 加 `{id: "host.running-work", key: runningWorkKey, create: () => work.provision}`；`hostRoutes` 加 `GET /work`（完整路径 `/api/runtime/work`）。处理：先 `collect()` 服务端的，再向项目管理器要项目的，合成 `{items: [{plugin, project, text}], failed: [{plugin, project}]}`。`DisplayText` 原样编码（字符串或文字引用），页面按窗口语言显示。准入与 503 由 nb-host 的宿主路由已有的门负责，不另写。
 - 项目一侧：`src/project/start.ts` 的 `capabilities` 加同一个键，用同一个 `createRunningWork`。IPC 信封（`src/server/projects/ipc.ts`）加 `{t: "work-query", id}`（服务端到子进程）与 `{t: "work", id, items, failed}`（子进程到服务端）；`parseEnvelope` 校验形状。
-- `src/server/projects/manager.ts`：`ProjectManager.work(): Promise<{items, failed}>`。只问 `running`（状态 `available`）的子进程，`idle-grace`、`stopping` 与启动中的不问、不唤醒；每个子进程 5 秒没应答就把这个项目记进 `failed`（`plugin` 为 null）并写诊断；应答按 `id` 配对，子进程在等待中退出也落到 `failed`。计时用管理器已注入的时钟。
+- `src/server/projects/manager.ts`：`ProjectManager.work(): Promise<{items, failed}>`（omp 设计审查第 2、5、6 条）：
+  - 问 `available` 与 `idle-grace` 的子进程：经已有的 IPC 读同步快照，不 acquire、不加租约、不续宽限计时（“不唤醒”只是不为取工作起进程或延长寿命，宽限期里的插件仍在跑、长任务仍在）；
+  - 启动中（`creating`）的不问，直接记进 `failed`（`plugin` 为 null）并写诊断：插件可能已在跑长任务，查不到不能当成没有；
+  - 停止中与已停下的不问、不记；
+  - 每个子进程的查询各自收口：登记 pending（绑定子进程记录与代次、请求 id）、发送都在 try 里，发送抛错（`ERR_IPC_CHANNEL_CLOSED` 这类）立即记进 `failed`；应答、退出、断开、5 秒超时只结算一次；迟到的应答丢弃；汇合用不会整体失败的方式，一个项目出事不影响服务端与别的项目的结果。计时用管理器已注入的时钟。
 - 登记方：
-  - `nbook.agent`（`src/plugins/agent/backend/plugin.ts`）：根会话中在跑或在等用户的（含 `background: true` 的后台会话）各报一项“Agent 会话「<标题>」正在运行”或“…在等你处理”；`JobCenter.live()` 的每件报一项，写命令或子代理名。现成的 `sessions.activity()` 不含后台会话，实施时在句柄表上补一个含后台会话的查询（`nb-harness` 的 `kit/sessions/table.ts`），不改 `activity()` 的现有语义。
+  - `nbook.agent`（`src/plugins/agent/backend/plugin.ts`）（omp 设计审查第 1、3 条）：
+    - 会话按根归并：读全部活动句柄（含后台会话，句柄表补一个含后台的查询，不改 `activity()` 的现有语义），经关系表的 `rootOf` 归到根，每个根一项；同根里有在跑的就写“Agent 会话「<标题>」正在运行”，否则有在等用户的写“…在等你处理”。根句柄已空闲或已关闭、只有后代在跑时照样报这个根。
+    - 标题：reporter 是同步的，标题由 Agent 层自己缓存：会话打开、创建时取得，跟着标题变化更新，按根 id 存；没有标题（还没起名、根已关闭且没缓存过）时写“未命名的会话”。不为取工作打开会话。
+    - `JobCenter.live()` 的每件另报一项，写命令或子代理名；与会话项是 Spec 要求的两类，可以同时出现。
   - `nbook.tasks`（`src/plugins/tasks/backend/plugin.ts`）：`running` 表里每件报一项，写标题。
   - 文案进各插件的消息目录（`zh-CN` 与 `en-US`）。
 
@@ -67,6 +74,7 @@ t08 的壳已经会拦下关窗、按代次问页面、3 秒没接下就弹“�
   - 宿主自己的三种询问也用 nb-ui `Dialog`，在层之后打开，缺省焦点在“取消”。
   - 工作项按窗口语言显示 `DisplayText`；`uncertain` 时多一行“无法确认是否有工作在跑”。
   - 文案进宿主的消息目录（`src/web/locales`）。
+- 内置插件随构建的消息目录在建窗口时就登记进翻译引擎，不等首连（omp 设计审查第 4 条）：加载页、宿主页上关窗时，`nbook.agent`、`nbook.tasks` 交来的文字引用也能翻译。第三方插件的目录仍在首连之后登记，窗口没就绪时它们的文字引用可能显示成键名，记为已知限制（第三方插件可以交字符串或语言映射）。
 
 ### 编辑器：参与方
 
@@ -117,8 +125,9 @@ t08 的壳已经会拦下关窗、按代次问页面、3 秒没接下就弹“�
 
 | Spec 编号 | 覆盖 |
 |---|---|
-| server-host 在跑的工作 | `running-work.test.ts`（同进程，真实认领的服务端加测试插件：登记、撤下、抛错进 `failed`、503）；`server-projects.test.ts`（真实项目子进程：项目登记的工作、5 秒取不到、宽限期中不唤醒） |
-| sessions 输出 20 | `agent` 后端测试：运行中、在等用户、后台会话、空闲会话的后台命令 |
+| server-host 在跑的工作 | `running-work.test.ts`（同进程，真实认领的服务端加测试插件：登记、撤下、同插件多次登记、抛错进 `failed`、503）；`server-projects.test.ts` 或 `manager.test.ts`（真实项目子进程：项目登记的工作；宽限期里的项目照样列出且代次、租约数、宽限截止不变；启动中的项目进 `failed`；5 秒取不到；发送时通道已断进 `failed`；两个项目一坏一好；同一子进程并发两个查询；超时后迟到的应答丢弃） |
+| sessions 输出 20 | `agent` 后端测试（真实内核与假端点）：运行中、在等用户、后台会话、空闲会话的后台命令；根本轮结束只有子代理在跑时报根一项；多个后代归一项；改标题后立即查询得到新标题 |
+| browser-host 输出 10 的文字 | 窗口测试：项目绑定失败的窗口里 `nbook.tasks` 的文字引用能翻译 |
 | background-tasks 输出 17 | `tasks` 后端测试 |
 | browser-host 输出 9、10 | `close-query.test.ts`（真实 `createBrowserWindow` 与测试插件；桥与提问用测试实现，按 `desktop-bridge.ts` 的形状与共用夹具）：登记顺序、`deny` 停下、抛错后“仍然关闭”接着问下一个、`rescued` 列路径、`quit` 取工作、取不到与 8 秒超时的“无法确认”、`close-end` 与新询问的收口、迟到的 `close-end` 忽略、结束后不回答、`start()` 未完成时来询问立即 ack、询问中途服务端重启改走失败页一支、`allow` 后以 `quit` 重问不再调参与方、`allow` 后 10 秒没关撤层、参与方永不 settle 时 `close-end` 能收口 |
 | browser-host 输出 10 的层、对话框与挡输入 | `e2e/desktop-close.e2e.ts`（真实浏览器；happy-dom 的 `inert` 没有阻断行为，不用 dom 测试判它）：询问前先开命令面板，询问中它不可点；焦点在参与方对话框里按 Ctrl+P、Ctrl+W、Ctrl+S 不触发命令；点被层盖住的编辑区没有反应；Escape 能关参与方的对话框；`deny` 后焦点回到正文、能直接打字 |
