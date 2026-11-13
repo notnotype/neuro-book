@@ -23,4 +23,4 @@ updated: 2026-11-13
 - 验证：包内 `bun test scripts/pack-app.test.ts scripts/desktop-payload.test.ts` 13 通过（合并 master 之后重跑）；`prox bun run release:smoke` 在 `dd78597a1` 上通过；包内与 `scripts` 的 `tsc --noEmit` 通过。
 - Spec：`runtime/server-host` 的“托管宿主”与 `runtime/cli` 的托管入口去掉 planned，cli 加场景 8，证据补齐。
 
-未验证：Windows 上运行组装出的载荷。本机 `--os win32 --cpu x64` 组装成功（158 MB、2064 个文件，原生插件只有 `pi-natives-win32-x64`），但到 pc-notype 的 SSH 链路当天降到约 10 KB/s（1 MB 两分钟传不完），没能传过去。挪到 t08（壳要在 Windows 上实测）或 t11（Windows runner 上组装并冒烟）一起验。
+Windows：链路恢复后把本机组装的 Windows 载荷传到 pc-notype 运行（[证据](evidences/windows-payload-r1.txt)）：托管入口 1.4 秒就绪、首页可取；同一状态根第二个实例以 1 退出、诊断 `runtime.state-root.busy`；写 `stop` 与关闭标准输入都以 0 退出。
