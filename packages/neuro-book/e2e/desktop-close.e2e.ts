@@ -159,3 +159,14 @@ test("询问前开着的命令面板在询问期间点不到；壳结束询问�
     expect(await answers(page)).toEqual([]);
     await expect(tab(page, "b15.md")).toHaveAttribute("data-editor-tab-dirty", "");
 });
+
+test("关最后一个窗口（quit）：经服务端的在跑的工作接口取工作，没有工作、也没有要保存的就直接同意，不提示", async ({page}) => {
+    await installShell(page);
+    await page.goto(new URL("/?project=book", server.url).href);
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    const work = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/runtime/work");
+    await shell(page, {type: "close-query", generation: 1, reason: "quit"});
+    expect((await work).status()).toBe(200);
+    await expect.poll(() => answers(page)).toEqual([{type: "close-answer", generation: 1, answer: "allow"}]);
+    await expect(page.locator("[data-close-prompt]")).toHaveCount(0);
+});
