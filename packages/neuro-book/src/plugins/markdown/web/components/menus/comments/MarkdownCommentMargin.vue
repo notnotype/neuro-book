@@ -114,19 +114,26 @@ function measureCard(): {readonly lineHeight: number; readonly chrome: number} |
     return null;
 }
 
-/** 卡片的自然高度（含描边）：卡片根不限高，意见按 `--markdown-comment-lines` 限行之后的样子；还没渲染为 null。 */
-function naturalOf(key: string): number | null {
+/**
+ * 卡片的自然高度（含描边）：没展开的卡片是意见限到 `lines` 行之后的样子；还没渲染为 null。
+ * 没展开的卡片不读卡片的实际高度：收起时卡片里的限行晚一个过渡才生效（`MarkdownCommentCard.vue` 的 `__body--clamped`），那一阵卡片还是展开时的高度，
+ * 读到的就是错的。改由意见全文的高度（`scrollHeight` 不管限不限行都是全文）和行数算。展开的、写着的卡片不限行，读实际高度。
+ */
+function naturalOf(key: string, expanded: boolean, metrics: {readonly lineHeight: number; readonly chrome: number}, lines: number): number | null {
     const surface = elements.get(key)?.querySelector<HTMLElement>(".markdown-comment-margin__surface");
     const card = surface?.querySelector<HTMLElement>("[data-markdown-comment-card]");
     if (surface === null || surface === undefined || card === null || card === undefined) return null;
-    return card.offsetHeight + (surface.offsetHeight - surface.clientHeight);
+    const body = expanded ? null : card.querySelector<HTMLElement>("[data-markdown-comment-body]");
+    if (body === null) return card.offsetHeight + (surface.offsetHeight - surface.clientHeight);
+    return metrics.chrome + Math.min(body.scrollHeight, lines * metrics.lineHeight);
 }
 
 const clamp = (value: number, low: number, high: number): number => Math.max(low, Math.min(high, value));
 
 /**
  * 每个槽位的位置与高度：顶边对这一段的顶边；高度的范围见 `slotRange`，卡片的自然高度夹在里面，展开的卡片面可以比槽位高（槽位仍占展开之前的
- * 高度，别的槽位不因展开或收回重排）。限行数依赖段的盒子，自然高度又依赖限行数：第一遍排完，卡片的高度变了会再触发一遍。
+ * 高度，别的槽位不因展开或收回重排）。限的行数由范围的上限算，自然高度再由意见全文与行数算（`naturalOf`），一遍就够；卡片的实际高度变了
+ * （换了模式、意见变长）由观察者再触发一遍。
  */
 function layout(): void {
     const {editor, scroller} = props;
@@ -146,7 +153,8 @@ function layout(): void {
             {top: box.top, height: box.bottom - box.top, nextBottom: nextBox === null ? null : nextBox.bottom, nextCommented: slot.nextCommented},
             {oneLine: metrics.chrome + metrics.lineHeight, minCap: metrics.chrome + MIN_CAP_LINES * metrics.lineHeight},
         );
-        const natural = naturalOf(slot.key);
+        const lines = Math.max(1, Math.floor((range.max - metrics.chrome) / metrics.lineHeight));
+        const natural = naturalOf(slot.key, slot.expanded || slot.mode === "write", metrics, lines);
         const prior = before.get(slot.key);
         // 展开时槽位仍占展开之前的高度：展开之前量到的，没有（待写的卡片一出来就是展开的）就取最小高度。
         const idle = slot.expanded ? prior?.idle ?? range.min : natural === null ? range.min : clamp(natural, range.min, range.max);
@@ -158,7 +166,7 @@ function layout(): void {
         if (!floats) bottom = y + idle;
         next.set(slot.key, {
             top: y,
-            lines: Math.max(1, Math.floor((range.max - metrics.chrome) / metrics.lineHeight)),
+            lines,
             idle,
             height: slot.expanded ? Math.max(idle, natural ?? idle) : idle,
         });
@@ -287,6 +295,7 @@ defineExpose({
             >
                 <div
                     class="markdown-comment-margin__surface"
+                    :class="{'nb-ui-popover-surface': slot.mode !== 'idle' || slot.expanded}"
                     :style="{height: layouts.has(slot.key) ? `${layouts.get(slot.key)?.height}px` : undefined, '--markdown-comment-lines': String(layouts.get(slot.key)?.lines ?? 3)}"
                 >
                     <MarkdownCommentCard
@@ -356,21 +365,25 @@ defineExpose({
 }
 
 /*
- * 卡片面：非当前的用淡底，当前的与写着的用浮层的底、描边与阴影；两种都带同宽的描边（透明或实色），切换时外框不变，没有左边框一类的侧边色条。
- * 高度是排出来的（`MarkdownCommentMargin.vue`），展开时比槽位高、向下长，高度变化有过渡；`--markdown-comment-surface` 给卡片上浮着的按钮当底色。
+ * 卡片面：非当前的用实心的淡底（层级轴，不开模糊）；当前的、展开的与写着的是浮层（会盖住后面的槽位），面、描边、阴影与磨砂都来自浮层基座
+ * `.nb-ui-popover-surface`（组件上按状态加这个类，不在这里再写一遍：ui-development-spec 第 3 节“浮层外框”），和浮层里的批注卡片是同一种材质。
+ * 两种都带同宽的描边（透明或实色）与同一档圆角，切换时外框不变，没有左边框一类的侧边色条。
+ * 高度是排出来的（`MarkdownCommentMargin.vue`），展开时比槽位高、向下长，高度变化有过渡。
  */
 .markdown-comment-margin__surface {
-    --markdown-comment-surface: color-mix(in srgb, var(--text-main) 5%, var(--bg-panel));
-
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     box-sizing: border-box;
     overflow: hidden;
+}
+
+/* 淡底只在没用浮层基座的时候写：这里的规则不在 `@layer` 里，写在基座之上会把基座整个压掉。 */
+.markdown-comment-margin__surface:not(.nb-ui-popover-surface) {
     border: var(--border-w) solid transparent;
     border-radius: var(--radius-panel);
-    background: var(--markdown-comment-surface);
+    background: color-mix(in srgb, var(--text-main) 5%, var(--bg-panel));
 }
 
 .markdown-comment-margin__item[data-ready] .markdown-comment-margin__surface {
@@ -378,14 +391,19 @@ defineExpose({
     transition: height var(--motion-move) var(--ease-layout),
         background-color var(--motion-fast) var(--ease-layout),
         border-color var(--motion-fast) var(--ease-layout),
-        box-shadow var(--motion-fast) var(--ease-layout);
+        box-shadow var(--motion-fast) var(--ease-layout),
+        backdrop-filter var(--motion-fast) var(--ease-layout);
 }
 
-.markdown-comment-margin__item:not([data-mode="idle"]) .markdown-comment-margin__surface {
-    --markdown-comment-surface: var(--overlay-surface);
-
-    border-color: var(--panel-outline);
-    box-shadow: var(--elevation-popover);
+/*
+ * 收起时意见晚一个过渡的时长才限行：卡片面的高度正在往回收（上面 `height` 的过渡），文字等它收完才被截成几行加省略号；不然文字先一下跳成几行、
+ * 框再慢慢缩，看上去没有收起的动画。限行的几个属性是离散的，用 `allow-discrete` 延后切换；展开是回到不限行的样式，那一边没有过渡，立刻切。
+ * 只对已显示（`data-ready`）的槽位开：第一次显示时限行要一步到位，不然文字多亮着 `--motion-move` 才出省略号。
+ * 因此“限没限行”不是卡片高度的依据：没展开的卡片的自然高度由意见全文的高度与行数算（`naturalOf`）。
+ */
+.markdown-comment-margin__item[data-ready] :deep(.markdown-comment-card__body--clamped) {
+    transition: display 0s var(--motion-move) allow-discrete, overflow 0s var(--motion-move) allow-discrete, max-height 0s var(--motion-move) allow-discrete,
+        -webkit-box-orient 0s var(--motion-move) allow-discrete, -webkit-line-clamp 0s var(--motion-move) allow-discrete, line-clamp 0s var(--motion-move) allow-discrete;
 }
 
 @keyframes markdown-comment-card-in {

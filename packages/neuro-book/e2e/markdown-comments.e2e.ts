@@ -682,6 +682,70 @@ test.describe("页边（验收 15、22）", () => {
         await marginSwitch(page).click();
     });
 
+    test("右上角的按钮不压字：意见每一行的字都在按钮的左边或下面（有同段切换的、只有一条的都一样）；按钮显现与否文字位置不变", async ({page}) => {
+        const LONG = "这条意见很长很长，第一行要绕开右上角的按钮：".repeat(3);
+        await openFile(page, "notes/controls.md", `一<comment body="甲${LONG}">二</comment><comment body="乙意见">三</comment>四\n\n五<comment body="丙${LONG}">六</comment>七\n`);
+        await activeHead(page).hover();
+        await marginSwitch(page).click();
+        await expect(marginItems(page)).toHaveCount(2);
+        await expect(marginItems(page).nth(1)).toHaveAttribute("data-ready", "");
+        const overlaps = (): Promise<number[]> => marginItems(page).evaluateAll((items) => items.map((item) => {
+            const body = item.querySelector("[data-markdown-comment-body]") as HTMLElement;
+            const buttons = [...item.querySelectorAll(".markdown-comment-card__overlay button")].map((button) => button.getBoundingClientRect());
+            let count = 0;
+            for (const node of body.childNodes) {
+                if (node.nodeType !== Node.TEXT_NODE) continue;
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                for (const text of range.getClientRects()) for (const box of buttons) {
+                    if (text.left < box.right - 1 && text.right > box.left + 1 && text.top < box.bottom - 1 && text.bottom > box.top + 1) count += 1;
+                }
+            }
+            return count + (buttons.length === 0 ? 1000 : 0);
+        }));
+        expect(await overlaps()).toEqual([0, 0]);
+        const lines = (): Promise<string[]> => marginItems(page).evaluateAll((items) => items.map((item) => {
+            const text = (item.querySelector("[data-markdown-comment-body]") as HTMLElement).firstChild as Text;
+            const range = document.createRange();
+            range.selectNodeContents(text);
+            return [...range.getClientRects()].map((box) => `${Math.round(box.left)}-${Math.round(box.right)}@${Math.round(box.top)}`).join(" ");
+        }));
+        const idle = await lines();
+        // 光标走进批注：按钮显现，文字一个像素也不动。
+        await clickComment(page, "六");
+        await expect(actionsOf(page, 1)).toBeVisible();
+        expect(await overlaps()).toEqual([0, 0]);
+        expect(await lines()).toEqual(idle);
+        await marginSwitch(page).click();
+    });
+
+    test("卡片面：当前的与展开的是浮层（磨砂、描边、阴影同浮层里的批注卡片），其余是实心淡底、没有磨砂；外框的结构不变", async ({page}) => {
+        await openFile(page, "notes/glass.md", PARAGRAPHS);
+        await activeHead(page).hover();
+        await marginSwitch(page).click();
+        await expect(marginItems(page)).toHaveCount(3);
+        await expect(marginItems(page).nth(2)).toHaveAttribute("data-ready", "");
+        const faces = () => marginItems(page).evaluateAll((items) => items.map((item) => {
+            const style = getComputedStyle(item.querySelector(".markdown-comment-margin__surface") as HTMLElement);
+            return {blur: style.backdropFilter, background: style.backgroundColor, shadow: style.boxShadow, border: style.borderTopWidth, radius: style.borderTopLeftRadius};
+        }));
+        const idle = await faces();
+        for (const face of idle) {
+            expect(face.blur).toBe("none");
+            expect(face.shadow).toBe("none");
+        }
+        await clickComment(page, "申酉");
+        await expect(marginItems(page).nth(1)).toHaveAttribute("data-mode", "current");
+        await expect.poll(async () => (await faces())[1]?.blur).not.toBe("none");
+        const current = await faces();
+        expect(current[1]?.shadow).not.toBe("none");
+        expect(current[0]?.blur).toBe("none");
+        // 外框的结构（描边宽度、圆角）与淡底的一样，切换时不跳。
+        expect(current[1]?.border).toBe(idle[1]?.border);
+        expect(current[1]?.radius).toBe(idle[1]?.radius);
+        await marginSwitch(page).click();
+    });
+
     test("窗口变窄页边退回浮层与小符号，开关仍是按下的；够宽了页边回来，稿纸不被裁掉", async ({page}) => {
         await openFile(page, "notes/narrow.md", PARAGRAPHS);
         await activeHead(page).hover();
@@ -856,6 +920,45 @@ test.describe("页边的动画（验收 15）", () => {
         const shrunk = await closing;
         expect(shrunk.some((height) => height > startHeight + 2 && height < endHeight - 2)).toBe(true);
         expect(Math.round(shrunk.at(-1) as number)).toBe(Math.round(startHeight));
+        await marginSwitch(page).click();
+    });
+
+    test("收起：文字等卡片面收完才被截成几行，收的过程里是一扇窗在缩，不是文字先跳成几行、框再慢慢缩", async ({page}) => {
+        const LONG = "这条意见很长很长，页边里放不下它：".repeat(6);
+        await openFile(page, "notes/motion-collapse.md", `壬<comment body="${LONG}">癸子丑</comment>寅卯辰巳午\n\n未<comment body="第二条">申酉</comment>戌亥\n`);
+        await activeHead(page).hover();
+        await marginSwitch(page).click();
+        await expect(marginItems(page)).toHaveCount(2);
+        await expect(marginItems(page).first()).toHaveAttribute("data-ready", "");
+        const body = marginItems(page).first().locator("[data-markdown-comment-body]");
+        const bodyHeight = (): Promise<number> => body.evaluate((element) => element.getBoundingClientRect().height);
+        // 第一次排好之后限行立刻生效（意见放得进卡片面）；排版还在动的几帧里不量。
+        await expect.poll(async () => (await bodyHeight()) <= ((await slotBoxes(page))[0]?.height ?? 0)).toBe(true);
+        const foldedBody = await bodyHeight();
+        const foldedFace = (await slotBoxes(page))[0]?.height ?? 0;
+        await body.click();
+        await expect.poll(async () => (await slotBoxes(page))[0]?.height ?? 0).toBeGreaterThan(foldedFace + 20);
+        const openBody = await bodyHeight();
+        expect(openBody).toBeGreaterThan(foldedBody + 20);
+        const closing = marginItems(page).first().evaluate((item) => new Promise<Array<{face: number; text: number}>>((resolve) => {
+            const face = item.querySelector(".markdown-comment-margin__surface") as HTMLElement;
+            const text = item.querySelector("[data-markdown-comment-body]") as HTMLElement;
+            const seen: Array<{face: number; text: number}> = [];
+            const started = performance.now();
+            const tick = (): void => {
+                seen.push({face: face.getBoundingClientRect().height, text: text.getBoundingClientRect().height});
+                if (performance.now() - started < 900) requestAnimationFrame(tick);
+                else resolve(seen);
+            };
+            requestAnimationFrame(tick);
+        }));
+        await page.keyboard.press("Escape");
+        const frames = await closing;
+        // 框在收的中间帧里，文字还是展开时的高度（被框裁着）；收完之后才是限行的高度。
+        const during = frames.filter((frame) => frame.face > foldedFace + 4 && frame.face < frames[0].face - 4);
+        expect(during.length).toBeGreaterThan(0);
+        for (const frame of during) expect(frame.text).toBeGreaterThan(openBody - 2);
+        expect(Math.round(frames.at(-1)?.text ?? 0)).toBe(Math.round(foldedBody));
         await marginSwitch(page).click();
     });
 

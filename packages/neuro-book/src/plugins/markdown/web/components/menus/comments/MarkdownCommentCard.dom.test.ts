@@ -99,10 +99,16 @@ describe("看", () => {
         expect(first.find('button[aria-label="编辑"]').exists()).toBe(false);
         const last = card({variant: "margin", pager: {index: 1, count: 2}});
         expect(button(last, "下一条").attributes("disabled")).toBeDefined();
-        // 只有一条批注的槽位没有箭头与占位。
+        // 只有一条批注的槽位没有箭头；编辑、删除的位置照样留着（按钮显现时不压到字，也不因显现而重排）。
         const single = card({variant: "margin"});
         expect(single.find("[data-markdown-comment-pager]").exists()).toBe(false);
-        expect(single.find(".markdown-comment-card__reserve").exists()).toBe(false);
+        expect(single.find(".markdown-comment-card__reserve").exists()).toBe(true);
+    });
+
+    it("页边里右上角没有控件可显现时不留位置：只读且只有一条批注；浮层里从不留位置", () => {
+        expect(card({variant: "margin", readonly: true}).find(".markdown-comment-card__reserve").exists()).toBe(false);
+        expect(card({variant: "margin", readonly: true, pager: {index: 0, count: 2}}).find(".markdown-comment-card__reserve").exists()).toBe(true);
+        expect(card().find(".markdown-comment-card__reserve").exists()).toBe(false);
     });
 });
 

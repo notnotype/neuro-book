@@ -33,9 +33,12 @@ interface Box {
     readonly height: number;
 }
 
+/** 意见全文的高度（`scrollHeight`）：含“长”的 136（卡片展开时 148 = 136 加内边距 12），其余一行。 */
+const bodyHeight = (element: HTMLElement): number => ((element.textContent ?? "").includes("长") ? 136 : LINE);
+
 /**
- * 浏览器的几何：`boxes` 按段的起点位置给各段的盒子；卡片的自然高度看意见文字（含“长”的 148，其余 32）加卡片面的描边 2；
- * 卡片与卡片面的样式用行内样式给（样式表在 happy-dom 里不生效）。
+ * 浏览器的几何：`boxes` 按段的起点位置给各段的盒子；展开的卡片的自然高度看意见文字（含“长”的 148，其余 32）加卡片面的描边 2，
+ * 没展开的卡片按意见全文的高度（`bodyHeight`）与限的行数算；卡片与卡片面的样式用行内样式给（样式表在 happy-dom 里不生效）。
  */
 function setup(markdown: string, boxes: (editor: Editor, infos: CommentInfo[]) => Map<number, Box>) {
     const scroller = document.createElement("div");
@@ -60,6 +63,13 @@ function setup(markdown: string, boxes: (editor: Editor, infos: CommentInfo[]) =
     };
     const heights = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
     const inner = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+    const scrolled = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+        configurable: true,
+        get(this: HTMLElement) {
+            return this.matches("[data-markdown-comment-body]") ? bodyHeight(this) : 0;
+        },
+    });
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
         configurable: true,
         get(this: HTMLElement) {
@@ -73,6 +83,8 @@ function setup(markdown: string, boxes: (editor: Editor, infos: CommentInfo[]) =
         else Object.defineProperty(HTMLElement.prototype, "offsetHeight", heights);
         if (inner === undefined) Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
         else Object.defineProperty(HTMLElement.prototype, "clientHeight", inner);
+        if (scrolled === undefined) Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+        else Object.defineProperty(HTMLElement.prototype, "scrollHeight", scrolled);
         editor.destroy();
         scroller.remove();
     });
@@ -142,8 +154,32 @@ describe("排布", () => {
         const wrapper = mountMargin(editor, scroller, [slot(editor, infos)]);
         layout(wrapper);
         await nextTick();
-        // 两倍段高是 100 + 120 = 220，下一段的底边在 210：上限 210 - 100 - 间隔；意见自然 150 被夹到它。
-        expect(idleOf(wrapper, 0)).toBe(210 - 100 - SLOT_GAP);
+        // 两倍段高是 100 + 120 = 220，下一段的底边在 210：上限 210 - 100 - 间隔 = 107。意见全文 136 放不下，限到放得下的整行数：(107 - 14) 除以行高 20，四行。
+        expect(idleOf(wrapper, 0)).toBe(CHROME + 4 * LINE);
+    });
+
+    it("没展开的卡片按意见全文与行数算高度，不读卡片的实际高度：收起时限行晚一个过渡才生效，那阵卡片还是展开时的高度", async () => {
+        const {editor, scroller, infos} = setup("<comment body=\"甲\">一二</comment>三四\n\n五六\n", (ed, list) => {
+            const first = territoryOf(ed.state.doc, list[0] as CommentInfo);
+            return new Map([[first, {top: 100, height: 20}], [nextTerritory(ed.state.doc, first) as number, {top: 300, height: 20}]]);
+        });
+        // 卡片的实际高度还停在展开时的 148（桩）。
+        const prototypeHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+            configurable: true,
+            get(this: HTMLElement) {
+                if (this.matches("[data-markdown-comment-card]")) return 148;
+                return this.matches(".markdown-comment-margin__surface") ? 999 : 0;
+            },
+        });
+        cleanups.push(() => {
+            if (prototypeHeight !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetHeight", prototypeHeight);
+        });
+        const wrapper = mountMargin(editor, scroller, [slot(editor, infos)]);
+        layout(wrapper);
+        await nextTick();
+        // 一行的短段：范围 [34, 37]，一行意见 34；读卡片的实际高度会被夹成 37。
+        expect(idleOf(wrapper, 0)).toBe(CHROME + LINE);
     });
 
     it("展开：槽位占位仍是展开之前的高度，卡片面向下长到自然高度，别的槽位不动", async () => {
@@ -165,32 +201,21 @@ describe("排布", () => {
     });
 
     it("展开的槽位照样按展开之前的高度占位：后面靠得很近的槽位不因展开或收回移动", async () => {
-        // 卡片的自然高度随展开变（没展开时意见被限行，高 92；展开后是全文，高 148）：桩按卡片有没有 data-expanded 给。
+        // 卡片的自然高度随展开变：没展开时意见被限行，展开后是全文（148）。
         const {editor, scroller, infos} = setup("<comment body=\"长意见\">一二</comment>三四\n\n五六七八\n\n<comment body=\"乙\">九十</comment>\n", (ed, list) => {
             const first = territoryOf(ed.state.doc, list[0] as CommentInfo);
             const third = territoryOf(ed.state.doc, list[1] as CommentInfo);
             // 第二段（没有批注）在 170 到 230，给第一个槽位留出放宽的地方；第三个槽位的盒子故意靠得很近：它被第一个槽位的高度推开。
             return new Map([[first, {top: 100, height: 60}], [nextTerritory(ed.state.doc, first) as number, {top: 170, height: 60}], [third, {top: 190, height: 40}]]);
         });
-        const prototypeHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
-        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
-            configurable: true,
-            get(this: HTMLElement) {
-                if (this.matches("[data-markdown-comment-card]")) return (this.textContent ?? "").includes("长") ? (this.hasAttribute("data-expanded") ? 148 : 90) : LINE + 12;
-                return this.matches(".markdown-comment-margin__surface") ? 999 : 0;
-            },
-        });
-        cleanups.push(() => {
-            if (prototypeHeight !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetHeight", prototypeHeight);
-        });
         const commented = new Set([territoryOf(editor.state.doc, infos[1] as CommentInfo)]);
         const wrapper = mountMargin(editor, scroller, infos.map((info) => slot(editor, [info], {}, commented)));
         layout(wrapper);
         await nextTick();
         const folded = {first: idleOf(wrapper, 0), third: topOf(wrapper, 1)};
-        // 第一个槽位的下一段没有批注：能放宽到 min(两倍段高, 下一段的底边) - 100 - 间隔；没展开时意见被限行，占 92。
-        expect(folded.first).toBe(92);
-        expect(folded.third).toBe(100 + 92 + SLOT_GAP);
+        // 第一个槽位的下一段没有批注：能放宽到 min(两倍段高, 下一段的底边) - 100 - 间隔 = 117；没展开时意见被限行，放得下五整行，占 14 + 100。
+        expect(folded.first).toBe(CHROME + 5 * LINE);
+        expect(folded.third).toBe(100 + folded.first + SLOT_GAP);
         await wrapper.setProps({slots: infos.map((info, index) => slot(editor, [info], index === 0 ? {mode: "current", expanded: true} : {}, commented))});
         layout(wrapper);
         await nextTick();
@@ -210,6 +235,18 @@ describe("排布", () => {
         expect(wrapper.emitted("select")).toEqual([[infos[2], false], [infos[0], false]]);
         await wrapper.get("[data-markdown-comment-body]").trigger("click");
         expect(wrapper.emitted("select")?.[2]).toEqual([infos[1], true]);
+    });
+
+    it("当前的、写着的与展开的卡片面是浮层（用浮层基座，磨砂与面色来自它），其余是淡底：外框的结构不变", async () => {
+        const {editor, scroller, infos} = setup(THREE, (ed, list) => new Map(list.map((info, index) => [territoryOf(ed.state.doc, info), {top: 100 + index * 150, height: 100}])));
+        const commented = new Set(infos.map((info) => territoryOf(editor.state.doc, info)));
+        const wrapper = mountMargin(editor, scroller, [
+            slot(editor, [infos[0] as CommentInfo], {}, commented),
+            slot(editor, [infos[1] as CommentInfo], {mode: "current"}, commented),
+            slot(editor, [infos[2] as CommentInfo], {mode: "write", expanded: true}, commented),
+        ]);
+        const glass = [0, 1, 2].map((index) => itemOf(wrapper, index).get(".markdown-comment-margin__surface").classes().includes("nb-ui-popover-surface"));
+        expect(glass).toEqual([false, true, true]);
     });
 
     it("待写的新批注（infos 为空）：浮着、有输入；不推别的槽位，不占别的槽位的位置", async () => {

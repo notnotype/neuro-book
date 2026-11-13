@@ -27,8 +27,8 @@ const props = defineProps<{
     mode: "view" | "write";
     readonly: boolean;
     /**
-     * 摆在浮层里还是页边里，缺省浮层。页边里没有底行：编辑、删除按钮在当前、悬停或有焦点时浮在右上角，意见的行数由宿主的 CSS 变量
-     * `--markdown-comment-lines` 限；点不是展开的卡片发 `select`。
+     * 摆在浮层里还是页边里，缺省浮层。页边里没有底行：编辑、删除按钮在当前、悬停或有焦点时显现在右上角，意见第一行给它们留着位置（不压到字）；
+     * 意见的行数由宿主的 CSS 变量 `--markdown-comment-lines` 限；点不是展开的卡片发 `select`。
      */
     variant?: "float" | "margin";
     /** 页边里这条是当前批注（光标所在的、写着的）：编辑、删除按钮显现。 */
@@ -64,6 +64,9 @@ const draft = ref("");
 /** 页边里没展开的卡片：意见按宿主给的行数限。展开的与浮层里的放开到约 12 行。 */
 const clamped = computed(() => props.variant === "margin" && props.expanded !== true);
 const isMargin = computed(() => props.variant === "margin");
+/** 页边里右上角有控件：编辑、删除（只读没有）与同一段的 `‹ 1/3 ›`。意见第一行为它们留位置。 */
+const hasActions = computed(() => isMargin.value && !props.readonly);
+const hasPager = computed(() => isMargin.value && props.pager !== undefined);
 const root = useTemplateRef<HTMLElement>("root");
 
 // 进入“写”：预填原来的意见，光标在末尾。
@@ -145,13 +148,15 @@ function onKeydown(event: KeyboardEvent): void {
         :data-variant="props.variant ?? 'float'"
         :data-current="props.current === true ? '' : undefined"
         :data-expanded="props.expanded === true ? '' : undefined"
+        :data-actions="hasActions ? '' : undefined"
+        :data-pager="hasPager ? '' : undefined"
         @mousedown="onMousedown"
         @click="onClick"
         @focusout="onFocusOut"
         @keydown="onKeydown"
     >
         <template v-if="props.mode === 'view'">
-            <p class="markdown-comment-card__body" :class="{'markdown-comment-card__body--empty': props.body === '', 'markdown-comment-card__body--clamped': clamped}" data-markdown-comment-body><span v-if="props.pager !== undefined && isMargin" class="markdown-comment-card__reserve" aria-hidden="true" />{{ props.body === "" ? props.labels.empty : props.body }}</p>
+            <p class="markdown-comment-card__body" :class="{'markdown-comment-card__body--empty': props.body === '', 'markdown-comment-card__body--clamped': clamped}" data-markdown-comment-body><span v-if="hasActions || hasPager" class="markdown-comment-card__reserve" aria-hidden="true" />{{ props.body === "" ? props.labels.empty : props.body }}</p>
             <div v-if="isMargin" class="markdown-comment-card__overlay" data-markdown-comment-controls>
                 <div v-if="!props.readonly" class="markdown-comment-card__actions">
                     <IconButton size="xs" icon-class="i-lucide-pencil" :title="props.labels.edit" :aria-label="props.labels.edit" @click="emit('edit')" />
@@ -208,9 +213,25 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 .markdown-comment-card[data-variant="margin"] {
+    /*
+     * 右上角控件的宽度：编辑、删除两个 24px 的按钮，`‹ 1/3 ›` 是两个按钮夹一个页码。意见第一行按它们的总宽留位置（`__reserve`），所以按钮显现时
+     * 不压到字，也不因为显现而重排（ui-development-spec 第 3 节第 4 条：只在某个状态出现的零件放进预留的位置）。
+     */
+    --markdown-comment-actions-w: 0px;
+    --markdown-comment-pager-w: 0px;
+    --markdown-comment-controls-w: calc(var(--markdown-comment-actions-w) + var(--markdown-comment-pager-w));
+
     position: relative;
     width: auto;
     padding: 4px 10px 4px 12px;
+}
+
+.markdown-comment-card[data-actions] {
+    --markdown-comment-actions-w: 48px;
+}
+
+.markdown-comment-card[data-pager] {
+    --markdown-comment-pager-w: 76px;
 }
 
 /* 页边里没展开的卡片可以点：点了成为当前批注并展开。 */
@@ -230,6 +251,7 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text-muted);
 }
 
+/* 页边里没展开的卡片按宿主给的行数限（意见区）；收起时什么时候限行见 `MarkdownCommentMargin.vue` 的 `__body--clamped` 一条。 */
 .markdown-comment-card__body--clamped {
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -267,21 +289,20 @@ function onKeydown(event: KeyboardEvent): void {
     transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
-/* 页边：同一段有几条批注时，右上角常显的 `‹ 1/3 ›` 占一行的位置，意见的第一行绕开它（占位是浮动的，只占第一行高）。 */
+/* 页边：右上角控件的占位，浮动、只占第一行高，意见的第一行绕开它。控件靠右 4px，比内容区的右缘多出 6px，所以占位少 6px。 */
 .markdown-comment-card__reserve {
     float: right;
-    width: 72px;
+    width: calc(var(--markdown-comment-controls-w) - 6px);
     height: 1.55em;
 }
 
-/* 页边：右上角浮着的控件，不占位。 */
+/* 页边：右上角的控件，绝对定位，位置已经由 `__reserve` 留好。 */
 .markdown-comment-card__overlay {
     position: absolute;
     top: 2px;
     right: 4px;
     display: flex;
     align-items: center;
-    gap: 2px;
 }
 
 .markdown-comment-card__pager {
@@ -291,7 +312,7 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 .markdown-comment-card__pager-count {
-    min-width: 2.4em;
+    min-width: 28px;
     text-align: center;
     font-size: var(--text-xs);
     color: var(--text-muted);
@@ -299,15 +320,12 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 /*
- * 编辑、删除只在当前的卡片、指针停在卡片上、焦点在里面时画：背景用卡片面的底色（页边设的 `--markdown-comment-surface`），盖住一点文字。
+ * 编辑、删除只在当前的卡片、指针停在卡片上、焦点在里面时显现；位置一直留着（`__reserve`），不盖字。
  * `visibility` 等淡出结束才切，显现时立刻切（`visibility` 的过渡是离散的）；键盘焦点进来（`:focus-within`）时显现，按钮才点得到。
  */
 .markdown-comment-card__actions {
     display: flex;
     align-items: center;
-    gap: 2px;
-    border-radius: var(--radius-control);
-    background: var(--markdown-comment-surface, transparent);
     opacity: 1;
     transition: opacity var(--motion-fast) var(--ease-layout);
 }
