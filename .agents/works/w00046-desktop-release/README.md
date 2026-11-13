@@ -27,7 +27,7 @@ updated: 2026-11-13
 - CI：构建与冒烟；打 `v*` 标签后全自动发布（npm 包、桌面包、GitHub Release）。
 - 桌面端体验（开发者 2026-11-13 列的后续）：有界面的安装程序（为当前用户安装、安装位置、快捷方式）、自定义标题栏、桌面端专有设置（开机自启、系统托盘、通知）。
 
-代码分支：`feat/w00046-desktop-release`，worktree `.worktree/w00046-desktop-release`（2026-11-13 从 master 开出，尚无代码提交）。
+代码分支：`feat/w00046-desktop-release`，worktree `.worktree/w00046-desktop-release`（2026-11-13 从 master 开出）。
 
 非目标：服务器部署（Docker、远端访问，以鉴权为前提另写提案）；后台运行与系统服务（`nbook service`）。
 
@@ -48,8 +48,8 @@ updated: 2026-11-13
 | [t04](tasks/t04-desktop-settings/README.md) | 桌面端专有设置：开机自启、系统托盘、通知。未开工 |
 | [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具：第一版只检测加提示。未开工 |
 | [t06](tasks/t06-desktop-specs/README.md) | 桌面发行的 Spec（desktop-shell、desktop-update 新建，server-host、browser-host、editor、cli、notifications 等修改）。已完成，omp 三轮设计审查 |
-| [t07](tasks/t07-managed-entry-payload/README.md) | 应用包托管入口与桌面载荷组装。进行中 |
-| [t08](tasks/t08-desktop-shell/README.md) | Electrobun 桌面壳。未开工 |
-| [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。未开工 |
+| [t07](tasks/t07-managed-entry-payload/README.md) | 应用包托管入口与桌面载荷组装。已完成 |
+| [t08](tasks/t08-desktop-shell/README.md) | Electrobun 桌面壳。进行中：代码与 Windows 实测第 1 轮完成，实现审查中 |
+| [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。计划中 |
 | [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。未开工 |
 | [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。未开工 |

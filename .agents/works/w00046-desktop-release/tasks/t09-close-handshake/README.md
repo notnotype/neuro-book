@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t09-close-handshake
-status: planned
+status: active
 updated: 2026-11-13
 ---
 
@@ -9,14 +9,14 @@ updated: 2026-11-13
 
 ## 目标与范围
 
-页面与壳之间的关闭前询问：壳同步拦下原生关闭、问页面，编辑器结算输入并保存或询问，保存失败不关；代次、截止后的原生对话框、串行提交、最后一窗的任务提示。涉及编辑器与浏览器宿主。依据提案 4.3 关闭窗口。
+页面与壳之间的关闭前询问：浏览器宿主接下壳的询问、盖“正在关闭”层、按顺序问参与方，关最后一个窗口时取服务端“在跑的工作”提示；编辑器作为参与方结算保存；工作台通知加 `onClose`。依据提案 4.3 关闭窗口。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`runtime/browser-host`](../../../../../docs/specs/runtime/browser-host.md) 输出 9 到 11、[`runtime/server-host`](../../../../../docs/specs/runtime/server-host.md) 的“在跑的工作”、[`workbench/editor`](../../../../../docs/specs/workbench/editor.md) 输出 66、[`agent/sessions`](../../../../../docs/specs/agent/sessions.md) 输出 20、[`workbench/background-tasks`](../../../../../docs/specs/workbench/background-tasks.md) 输出 17、[`workbench/notifications`](../../../../../docs/specs/workbench/notifications.md) 输出 18；Windows 上与 [`runtime/desktop-shell`](../../../../../docs/specs/runtime/desktop-shell.md) 场景 5、6、7 联合验收。计划见 [plan.md](plan.md)。
 
 ## 当前状态
 
-2026-11-13 经 nbdev 新建，尚未开工。
+2026-11-13：计划初稿，待设计审查（前端部分 Sonnet，服务端部分 omp；omp 等 t08 的实现审查跑完再开，同一时间只跑一个）。
 
 ## 下一步
 
-待补充。
+设计审查，处理后按切片实施。
