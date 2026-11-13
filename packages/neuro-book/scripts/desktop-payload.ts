@@ -8,7 +8,8 @@
  *
  * 依赖闭包：先 `bun install --lockfile-only` 按目标平台写出锁文件，锁里的每个包都要在仓库根 `bun.lock` 里有同名同版本、完整性
  * 哈希相同的条目，再按这份锁 `--frozen-lockfile` 安装。比的是完整性哈希而不是版本号：同版本内容被换、依赖链将来带进别的第三方包，
- * 都会被拦下。`--production` 自己不写锁文件，所以分两步。`--backend copyfile`：载荷里不能是指向本机全局缓存的硬链接。
+ * 都会被拦下。分两步是因为带 `--production` 时 Bun 1.4.4 不写锁文件（加了 `--lockfile-only` 也不写）；写锁那一步不带它，
+ * 应用包没有 devDependencies，锁的内容一样。`--backend copyfile`：载荷里不能是指向本机全局缓存的硬链接。
  *
  * 用法：`bun scripts/desktop-payload.ts <release-manifest.json> <输出目录> [--os win32] [--cpu x64]`（缺省本机平台）。从 registry
  * 装依赖，直连慢时整条命令前加 `prox`。输出目录只在不存在、为空或者是上次生成的载荷时清空重建。
@@ -146,7 +147,7 @@ export async function assembleDesktopPayload(options: PayloadOptions): Promise<P
     await rm(extracted, {recursive: true});
 
     const platform = [`--os=${options.os}`, `--cpu=${options.cpu}`];
-    bunInstall(app, ["--production", "--lockfile-only", "--linker=hoisted", ...platform]);
+    bunInstall(app, ["--lockfile-only", "--linker=hoisted", ...platform]);
     const lockText = await readFile(join(app, "bun.lock"), "utf8");
     const payloadLock = lockedPackages(lockText);
     const mismatches = lockMismatches(payloadLock, lockedPackages(await readFile(options.rootLock ?? join(repoRoot, "bun.lock"), "utf8")));
