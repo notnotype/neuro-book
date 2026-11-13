@@ -62,6 +62,8 @@ Electrobun 原型在 Windows 上的实测（[evidences/windows-electrobun-proto-
 - 结果：能构建（66 秒）、能安装、能启动、书房页面正常显示，关窗后服务端 197 毫秒以 0 退出，进程全部退出，卸载干净。服务端拉起项目子进程用的也是 `process.execPath`，不依赖 PATH 上的 Bun。
 - 体积：Setup.zip 与更新包都约 86 MB；装好后 275 MB，其中 Bun 110 MB、pi-natives 约 133 MB。
 - 速度与内存：窗口 80 毫秒出现，服务端 0.6 秒开始监听，页面 1.4 秒就绪；整套工作集约 610 MB，其中 WebView2 428 MB、服务端 123 MB。服务端的“私有内存”569 MB 是 Windows 的提交量，不是常驻：本机 Linux 上同一产物常驻 151 MB、私有脏页 91 MB，与 Windows 的工作集同一量级（从对照推断，JavaScriptCore 在 Windows 上预先提交大块堆）。
+- 外壳崩溃：强行结束壳进程（`Stop-Process -Force`）后，服务端 0.1 秒内也退出，没有孤儿进程；但服务端日志在启动后再无记录，是被直接终止、没走有序停止（推断是 Windows 上子进程随父进程所在的作业对象一起结束）。服务端代码本身在标准输入关闭时会走有序停止（`nb-host/src/server/host.ts` 的 `stdin:closed`），这次没来得及。崩溃时的数据安全只能靠 SQLite 与原子写入。
+- 旧应用的经验（[legacy t143](../../../../tasks/143-desktop-envelope-installation-spike/README.md)、[t145](../../../../tasks/145-electron-desktop-productization/README.md)，2026-08）：同一产品的 Windows 便携 zip，Electron 约 230 到 390 MB、Tauri 约 84 到 244 MB（随产品体积变化）；干净 Windows 上踩过三类坑——无 BOM 的 `.ps1` 被按 ANSI 读坏、没装 VC++ 运行库时原生模块加载失败、超过 260 字符的路径删不掉；当时用 Windows Sandbox 做干净环境验收。pi-natives 是否依赖 VC++ 运行库还没查，pc-notype 与 runner 上都装了运行库，暴露不出来。
 - 要另行处理的：Setup 没有界面、静默安装并自动建桌面快捷方式；经计划任务在桌面会话里运行 Setup 的两次没装上，原因未查，双击安装这条路径未验证。便携方式（复制 `app` 目录）能跑，但数据仍写在 `%LOCALAPPDATA%` 下与安装版共用，便携模式要 NeuroBook 自己把状态根放到程序旁边。Hutch 0.29.0 设了 `HTTPS_PROXY` 时下载必失败，只能直连，国内直连 GitHub 偶有中断。
 
 ## 下一步
