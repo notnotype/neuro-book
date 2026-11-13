@@ -1,0 +1,13 @@
+# w00046 t07 计划第一轮设计审查的处理结果（2026-11-13）
+# 审查者：Claude Sonnet（按任务大小降级：改动限于打包脚本与新脚本，不碰并发与公开接口之外的数据格式）；报告 design-review-r1-sonnet.txt，9 条：重要 5、建议 4。
+# 归类按 reviewing Skill。
+
+1 测试运行器与联网：成立要改。脚本移到 packages/neuro-book/scripts/（bun test）；快速测试只测不联网的部分，联网的整段组装放进 release:smoke。
+2 --production 不写锁文件、版本核对是恒真式：成立要改。先 --lockfile-only 写锁、按 sha512 对照根 bun.lock，再 --frozen-lockfile 安装；显式 --linker hoisted --backend copyfile。
+3 打包后起 server/main.js 的核对缺端口、截止与收口：成立要改。端口 0、60 秒截止、失败与超时都结束子进程并删临时状态根、用 queryNeuroBook 读应答。
+4 验收映射漏标准输入结束、状态根被占用、安装布局：成立要改。pack-app.test 加三种情形，release:smoke 在 bun add -g 的布局下起一次托管入口。
+5 commit 来自 README 散文、与发布清单脱节：成立要改。输入改为发布清单，核对 tarball 摘要，commit 取自清单。
+6 pack-app.test 的白名单与 chunk 名会失败、三套打包配方：成立要改（白名单随改）；build:server 与 cli.test 的打包这次不动，模块头写明发布形态以 pack-app 为准。
+7 “前两条导入”的文本核对不成立：成立要改，删掉文本核对，靠真实进程兜底（审查已实验确认顺序成立）。
+8 只核对 @oh-my-pi：成立要改，完整性对照与许可核对覆盖 node_modules 下全部包。
+9 清空标记共用、hardlink、记录 Bun 版本：成立要改，并入上面各条。
