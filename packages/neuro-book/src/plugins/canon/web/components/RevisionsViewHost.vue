@@ -3,7 +3,7 @@
  * 改动记录视图的宿主（同名 .md；docs/specs/canon/author-ui.md 输出 24、26）：经读取层分页读 `revisions` 与章表，折成
  * `RevisionsView` 的 props；“还原”放进窗口里那一个还原对话框，“看回执”打开回执页。
  */
-import {computed, shallowRef, watch} from "vue";
+import {computed} from "vue";
 
 import {useText} from "@notnotype/nb-ui/text-port";
 
@@ -11,9 +11,9 @@ import type {RevertRequests} from "../revert";
 import {ALL, chapterFilterOptions, revisionRow, revisionsFilter, writerFilterOptions} from "../revisions";
 import type {RevisionsViewState} from "../revisions-view";
 import {useCanonText} from "../text";
-import {useWorldList, useWorldRead} from "../use-reads";
+import {useKeptRead, useWorldList, useWorldRead} from "../use-reads";
 import {readOnlyBanner, writeBlocked} from "../writable";
-import type {CanonWorld, ListState} from "../world";
+import type {CanonWorld} from "../world";
 import RevisionsView from "./RevisionsView.vue";
 import type {RevisionsViewStatus} from "./RevisionsView.vue";
 
@@ -43,15 +43,8 @@ const chapter = computed(() => {
 });
 const list = useWorldList(world, "revisions", () => (props.visible ? {filter: revisionsFilter(chapter.value, state.writer.value)} : null), PAGE);
 
-// 停放时释放了读取，屏幕上留着最后读到的：回到前台时行不消失、滚动位置还在，同时重读（读取层没留着结果时也一样）。
-const last = shallowRef<ListState<"revisions"> | null>(null);
-watch(() => list.state.value, (read) => {
-    if (read?.data !== undefined) last.value = read;
-}, {immediate: true});
-const shown = computed(() => {
-    const read = list.state.value;
-    return read !== null && (read.data !== undefined || read.error !== null) ? read : last.value ?? read;
-});
+// 停放时释放了读取，屏幕上留着最后读到的。
+const shown = useKeptRead(() => list.state.value);
 
 const status = computed<RevisionsViewStatus>(() => {
     const read = shown.value;

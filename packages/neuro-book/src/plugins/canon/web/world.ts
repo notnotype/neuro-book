@@ -74,6 +74,11 @@ export interface CanonWorld {
      * 调用方可以再调一次（同一个输入、同一个请求 id）。
      */
     write<M extends WriteMethod>(method: M, input: CanonInput<M>): Promise<CanonResult<CanonOutputs[M]>>;
+    /**
+     * 强行解除别的调用方的独占写入（canon.project 的 `breakExclusive`，author-ui.md 输出 23）。不带请求 id、不查结局；世界的状态
+     * 跟着 `exclusive` 事件重读。
+     */
+    breakExclusive(): Promise<CanonResult<CanonOutputs["breakExclusive"]>>;
     /** 订阅被结束以后重新订阅；成功后内容按当前版本重读。 */
     retry(): Promise<void>;
     dispose(): void;
@@ -330,6 +335,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
         read,
         list,
         write,
+        breakExclusive: () => client.call("breakExclusive", {}),
         retry: async () => {
             if (connection.value !== "ended" || disposed) return;
             connection.value = "connecting";

@@ -38,18 +38,17 @@ import {canonText} from "../shared/text";
 import {createCanonClient} from "./client";
 import {BINDER_DIR, chapterFileName} from "../shared/binder-files";
 import {createChangePage} from "./change-page";
-import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMMAND, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, PENDING_VIEW, RECEIPT_PAGE, REVISIONS_VIEW, SHOW_PENDING_COMMAND} from "./commands";
+import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMMAND, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_CHANGE_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, PENDING_VIEW, RECEIPT_PAGE, REVISIONS_VIEW, SHOW_PENDING_COMMAND} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
 import {createEntryPage, originsFetcher} from "./entry-page";
 import {createNotices} from "./notices";
 import {createPendingCount} from "./pending-count";
-import {pendingViewState, pickFirstPending} from "./pending-view";
+import {createPendingView, pendingViewState, pickFirstPending} from "./pending-view";
 import {createReceiptPage} from "./receipt-page";
 import {createRevertRequests} from "./revert";
 import {createRevisionsView, revisionsViewState} from "./revisions-view";
-import {useCanonText} from "./text";
 import {createCanonWorld} from "./world";
 import type {CanonWorld} from "./world";
 
@@ -210,18 +209,11 @@ export const canonBrowserPlugin: PluginDefinition = {
             const state = entriesViewState();
             const pendingState = pendingViewState();
             const revisionsView = createRevisionsView({world: worldOf, state: revisionsViewState(), revert, receipt: (revision) => execute(OPEN_RECEIPT_COMMAND, {revision})});
-            // 底部面板的“待处理”：内容在下一片做，先只登记（没绑定项目时写一句）。
-            const bottomView = (): ViewImplementation => ({
-                load: async () => {
-                    const unbound = worldOf() === null;
-                    return defineComponent({
-                        name: "CanonBottomView",
-                        setup: () => {
-                            const text = useCanonText();
-                            return () => (unbound ? h("p", {class: "px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound")) : h("div"));
-                        },
-                    });
-                },
+            const pendingView = createPendingView({
+                world: worldOf,
+                state: pendingState,
+                open: (target) => execute(target.kind === "entry" ? OPEN_ENTRY_COMMAND : OPEN_CHANGE_COMMAND, {id: target.id}),
+                openChapter: (chapter) => void openChapter(chapter),
             });
             const view: ViewImplementation = {
                 load: async () => createEntriesViewHost((await import("./components/EntryTree.vue")).default, {
@@ -235,7 +227,7 @@ export const canonBrowserPlugin: PluginDefinition = {
                 services: [provideServicePerConsumer(canonClientKey, (consumer) => createCanonClient(bound ? () => context.remote.on(consumer) : null))],
                 receivers: {[CANON_COMPONENT_VIEWS_POINT]: views.receiver()},
                 contributions: {
-                    [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view, [PENDING_VIEW_ID]: bottomView(), [REVISIONS_VIEW_ID]: revisionsView},
+                    [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view, [PENDING_VIEW_ID]: pendingView, [REVISIONS_VIEW_ID]: revisionsView},
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[PENDING_COUNT_ITEM]: pendingItem},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                     [EDITOR_PAGES_POINT]: {[ENTRY_PAGE]: page, [RECEIPT_PAGE]: receiptPage, [CHANGE_PAGE]: changePage},
