@@ -23,7 +23,7 @@ updated: 2026-11-13
 
 - 发行提案：两个维度的取舍、桌面壳选型、安装包形态、更新方式、签名与公证、版本号与发布顺序。
 - 桌面壳与安装包：Electrobun（候选 Electron）；先做 Windows 的 setup 安装程序与便携包，macOS、Linux 在后。
-- 应用内的外部工具向导：Git、Python 等，可随 NeuroBook 安装（自己管理）或装到系统（只识别）。
+- 外部工具（Git、Python 等）：第一版只检测加提示（2026-11-13 第一轮审查后定），两条安装路径以后再做。
 - CI：构建与冒烟；打 `v*` 标签后全自动发布（npm 包、桌面包、GitHub Release）。
 - 桌面端体验（开发者 2026-11-13 列的后续）：有界面的安装程序（为当前用户安装、安装位置、快捷方式）、自定义标题栏、桌面端专有设置（开机自启、系统托盘、通知）。
 
@@ -42,4 +42,4 @@ updated: 2026-11-13
 | [t02](tasks/t02-installer/README.md) | 有界面的安装程序：为当前用户安装、安装位置、快捷方式。未开工 |
 | [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏。未开工 |
 | [t04](tasks/t04-desktop-settings/README.md) | 桌面端专有设置：开机自启、系统托盘、通知。未开工 |
-| [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具安装向导。未开工 |
+| [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具：第一版只检测加提示。未开工 |

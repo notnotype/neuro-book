@@ -9,9 +9,9 @@ updated: 2026-11-13
 
 ## 目标与范围
 
-应用内的外部工具（Git、Python 等）安装向导：首次启动不强制，Agent 用到找不到的工具时提示；每个工具一条登记；随 NeuroBook 安装（PortableGit、uv 管 Python）或装到系统（winget 或官方安装器，装完只检测）；下载地址与 SHA-256 固定、可选国内镜像；配 Spec runtime/external-tools。来源：开发者 2026-11-13 确认的方案，见 t01 与提案 4.7 节。
+第一版只检测、提示（开发者 2026-11-13 在提案第一轮审查后定）：Agent 用到找不到的外部工具（git、python 等）时，在对话里说明缺什么、去哪装（官方地址或 winget 命令）。随 NeuroBook 安装（PortableGit、uv 管 Python）与装到系统两条安装路径，等有了实际需求再做；当初确认的完整方案见 [t01](../t01-distribution-proposal/README.md) 开发者决定第 3 条。与桌面壳没有技术依赖，npm 版同样适用。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：新建 Spec `runtime/external-tools`（检测与提示），见提案 [desktop-distribution](../../../../../docs/proposals/desktop-distribution.md) 4.7 节。
 
 ## 当前状态
 

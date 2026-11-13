@@ -70,7 +70,7 @@ GitHub Actions windows-2025 runner 上的探针（[evidences/windows-runner-prob
 
 ## 下一步
 
-1. 提案草稿 [docs/proposals/desktop-distribution.md](../../../../../docs/proposals/desktop-distribution.md) 已提交（`706713fab`）；开发者 2026-11-13 按推荐定了状态根、更新提示、第一版无界面安装、便携版浏览器缓存四项（见提案决策记录）。开发者 2026-11-13 同意交审查：设计审查已开（omp 默认模型做普通审查，Claude Sonnet 做拉远看），报告回来后逐条核实处理。后续工作已建 t02（安装程序）、t03（自定义标题栏）、t04（桌面端专有设置）、t05（外部工具向导）。
+1. 提案草稿 [docs/proposals/desktop-distribution.md](../../../../../docs/proposals/desktop-distribution.md) 已提交（`706713fab`）；开发者 2026-11-13 按推荐定了状态根、更新提示、第一版无界面安装、便携版浏览器缓存四项（见提案决策记录）。第一轮设计审查（omp 默认模型 18 条：阻断 6、重要 12；Claude Sonnet 拉远看 8 条）已处理：报告 [evidences/design-review-r1-omp.txt](evidences/design-review-r1-omp.txt)、[evidences/design-review-r1-sonnet-zoom-out.txt](evidences/design-review-r1-sonnet-zoom-out.txt)，逐条处理 [evidences/design-review-r1-disposition.txt](evidences/design-review-r1-disposition.txt)。涉及已定决定的四项交开发者，2026-11-13 定：外部工具第一版只检测加提示、更新只靠 HTTPS、禁止自动降级、关窗有任务时先提示；提案已据此整体修订，等开发者看修订稿。后续工作已建 t02（安装程序）、t03（自定义标题栏）、t04（桌面端专有设置）、t05（外部工具向导）。
 2. 临时分支 `probe/w00046-windows` 与 worktree `.worktree/w00046-probe` 在提案定稿后删除。
 
 pc-notype 上要收尾清理的（都是本 Task 建的）：`%USERPROFILE%\nb-w00046\`（独立 Bun、Hutch、原型与脚本）、`%USERPROFILE%\nb-w00046-*.ps1`（三个早期脚本）、`%LOCALAPPDATA%\cottontail\cache`（Hutch 建的）、`%TEMP%` 里 Bun 的安装缓存。测试安装已用卸载程序清掉。
