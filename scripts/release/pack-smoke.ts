@@ -309,8 +309,11 @@ async function withManagedEntry(packageDirectory: string, nbook: string, stateRo
     try {
         const claimTimer = setTimeout(() => server.kill("SIGKILL"), 60_000);
         const first = await firstLine(server).finally(() => clearTimeout(claimTimer));
-        // 余下的标准输出照样读掉，免得管道写满挡住服务端。
-        void new Response(server.stdout).text();
+        // 余下的标准输出照样读掉，免得管道写满挡住服务端（读过一次的流不能再交给 Response，只能接着用读取器）。
+        void (async () => {
+            const reader = server.stdout.getReader();
+            while (!(await reader.read()).done);
+        })();
         if (!first.startsWith("RPC listening on")) fail(`托管入口没有起来：${first}\n${await stderr}`);
         const finder = Bun.spawn([nbook, "start", "--state-root", stateRoot, "--no-open", "--json"], {cwd: stateRoot, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: {...process.env, ...env}});
         const finderTimer = setTimeout(() => finder.kill("SIGKILL"), 90_000);
