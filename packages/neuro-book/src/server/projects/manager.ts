@@ -8,6 +8,8 @@
  * - 停止（宽限期满或服务端停止）：发 `stop` 等它退出，到停止截止强制结束；非 0 退出写诊断。
  * - 意外退出：没有被要求停止时 IPC 断开或进程结束，立即结束这一代、租约失效；退出码要等进程真正结束才可靠，
  *   随后写进诊断。不自动重启。
+ *
+ * 取在跑的工作（`work`）只读，不碰租约与宽限计时：问的是已经在跑的子进程，不为取工作起进程或延长它的寿命。
  */
 
 import {statSync} from "node:fs";
@@ -26,6 +28,7 @@ import {perConsumer} from "@notnotype/nb-runtime/services";
 import type {ConsumerIdentity, PerConsumerProvision} from "@notnotype/nb-runtime/services";
 
 import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
+import type {ProjectsRunningWork, RunningWorkCollection} from "nbook/server/running-work";
 import {PROJECT_ENV} from "nbook/project/config";
 import {projectInstance} from "nbook/project/start";
 import type {
@@ -109,9 +112,23 @@ export interface ProjectManager {
     access(caller: CallerFrame, id: string, generation: number): "allowed" | "denied";
     /** 宿主能力 `projectsKey` 的提供：每个调用方入口的每次激活一个门面，入口停止时释放它取得的租约。 */
     provision(): PerConsumerProvision<ProjectsService>;
+    /**
+     * 各项目此刻在跑的工作（docs/specs/runtime/server-host.md 的“在跑的工作”）。只问 `running` 与 `idle-grace` 的子进程，
+     * 启动中的记进 `failed`，停止中与已停下的不问也不记。不会失败：某个项目取不到只让它进 `failed`。
+     */
+    work(): Promise<ProjectsRunningWork>;
 }
 
+/** 一个项目子进程交回在跑的工作的截止（docs/specs/runtime/server-host.md 的“在跑的工作”）。 */
+export const PROJECT_WORK_QUERY_MS = 5000;
+
 type AcquireRejected = Extract<ProjectAcquireResult, {readonly status: "rejected"}>;
+
+/** 取不到一个项目在跑的工作的原因；进诊断。 */
+type WorkUnavailable = "starting" | "timeout" | "send-failed" | "disconnected";
+
+/** 一次 `work-query` 的结局：子进程的应答，或取不到的原因。 */
+type WorkAnswer = {readonly ok: true; readonly collection: RunningWorkCollection} | {readonly ok: false; readonly reason: Exclude<WorkUnavailable, "starting">; readonly error?: unknown};
 
 /** 打开在项目 id 队列里的那一段的结果：已进入 starting（`pending` 是内核子实例的取得结果），或被拒。 */
 type AcquireEntered = {readonly status: "entered"; readonly record: ProjectRecord; readonly pending: ReturnType<ChildInstances["acquire"]>} | AcquireRejected;
@@ -134,6 +151,8 @@ interface ProjectChild {
     /** 已报告过结束（意外退出只处理一次）。 */
     lost: boolean;
     available: boolean;
+    /** 在等应答的 `work-query`：请求 id → 结算函数。结算时先从表里删掉，所以每次查询只结算一次，之后到的应答找不到它。 */
+    readonly workQueries: Map<number, (answer: WorkAnswer) => void>;
 }
 
 function describeExit(proc: Subprocess): string {
@@ -184,6 +203,8 @@ class ProjectManagerImpl implements ProjectManager {
     /** 启动时项目宿主入口的大小与修改时间；入口当时不存在为 null（起子进程时照常报错）。 */
     readonly #entryStamp: string | null;
     #admission = true;
+    /** `work-query` 的请求 id，整个管理器递增：换代后的子进程不会收到与旧代次相同的 id。 */
+    #workQuery = 0;
 
     constructor(options: ProjectManagerOptions) {
         this.registry = options.registry;
@@ -400,6 +421,69 @@ class ProjectManagerImpl implements ProjectManager {
         return this.#children.holds(id, generation, holder);
     }
 
+    async work(): Promise<ProjectsRunningWork> {
+        const failed: Array<ProjectsRunningWork["failed"][number]> = [];
+        const queries: Array<Promise<ProjectsRunningWork>> = [];
+        for (const status of this.#children.list()) {
+            if (status.state === "stopping" || status.state === "terminated") continue;
+            const project = status.key;
+            if (status.state === "creating") {
+                // 启动中的项目里插件可能已在跑长任务；查不到不能当成没有。
+                this.#workUnavailable(project, status.generation, "starting");
+                failed.push({plugin: null, project});
+                continue;
+            }
+            const child = this.#processes.get(project);
+            if (child === undefined || child.generation !== status.generation || child.lost || child.stopping) {
+                this.#workUnavailable(project, status.generation, "disconnected");
+                failed.push({plugin: null, project});
+                continue;
+            }
+            queries.push(this.#queryWork(child));
+        }
+        // 每个查询自己收口、不会失败，汇合时一个项目出事不影响别的。
+        const answers = await Promise.all(queries);
+        return {
+            items: answers.flatMap((answer) => answer.items),
+            failed: [...failed, ...answers.flatMap((answer) => answer.failed)],
+        };
+    }
+
+    #queryWork(child: ProjectChild): Promise<ProjectsRunningWork> {
+        this.#workQuery += 1;
+        const id = this.#workQuery;
+        const project = child.record.id;
+        const answered = Promise.withResolvers<WorkAnswer>();
+        let cancel = (): void => undefined;
+        const settle = (answer: WorkAnswer): void => {
+            if (!child.workQueries.delete(id)) return;
+            cancel();
+            answered.resolve(answer);
+        };
+        child.workQueries.set(id, settle);
+        try {
+            cancel = this.#clock.schedule(() => settle({ok: false, reason: "timeout"}), PROJECT_WORK_QUERY_MS);
+            this.#send(child, {t: "work-query", id});
+        } catch (error) {
+            // 通道在断开事件到达之前已断（例如 ERR_IPC_CHANNEL_CLOSED）：这个项目取不到，不等截止。
+            settle({ok: false, reason: "send-failed", error});
+        }
+        return answered.promise.then((answer) => {
+            if (answer.ok) {
+                return {
+                    items: answer.collection.items.map(({plugin, text}) => ({plugin, project, text})),
+                    failed: answer.collection.failed.map((plugin) => ({plugin, project})),
+                };
+            }
+            this.#workUnavailable(project, child.generation, answer.reason, answer.error);
+            return {items: [], failed: [{plugin: null, project}]};
+        });
+    }
+
+    #workUnavailable(project: string, generation: number, reason: WorkUnavailable, error?: unknown): void {
+        this.#options.record({level: "warn", event: "project.work.unavailable", message: `取不到项目 ${project}#${String(generation)} 在跑的工作`, error, data: {project, generation, reason}});
+    }
+
     running(id: string): {readonly generation: number; readonly state: Exclude<ProjectRunState, "stopped">} | null {
         const status = this.#children.state(id);
         if (status === null) return null;
@@ -477,6 +561,7 @@ class ProjectManagerImpl implements ProjectManager {
             stopping: false,
             lost: false,
             available: false,
+            workQueries: new Map(),
             link: createEnvelopeLink(
                 {send: (envelope) => this.#send(child, envelope), disconnect: () => child.proc?.disconnect()},
                 (error) => this.#options.record({level: "warn", event: "project.ipc.send-failed", message: `${label}IPC 通道已断，帧没有发出`, error}),
@@ -530,18 +615,30 @@ class ProjectManagerImpl implements ProjectManager {
 
     #receive(child: ProjectChild, message: unknown): void {
         const envelope = parseEnvelope(message);
-        if (envelope === null || envelope.t === "stop" || envelope.t === "plugins") {
+        if (envelope === null || envelope.t === "stop" || envelope.t === "plugins" || envelope.t === "work-query") {
             this.#options.record({level: "warn", event: "project.ipc.invalid", message: `项目 ${child.record.name}#${String(child.generation)} 发来无法识别的 IPC 消息`});
             return;
         }
         if (envelope.t === "frame") child.link.receive(envelope.d);
+        else if (envelope.t === "work") this.#workAnswered(child, envelope);
         else child.started.resolve(envelope);
+    }
+
+    #workAnswered(child: ProjectChild, envelope: Extract<ProjectEnvelope, {readonly t: "work"}>): void {
+        const settle = child.workQueries.get(envelope.id);
+        if (settle === undefined) {
+            // 那次查询已按超时结算并交回了结果；这份应答不再算进任何汇总。
+            this.#options.record({level: "debug", event: "project.work.late", message: `项目 ${child.record.name}#${String(child.generation)} 的在跑的工作应答晚于截止，已丢弃`, data: {project: child.record.id, generation: child.generation, query: envelope.id}});
+            return;
+        }
+        settle({ok: true, collection: {items: envelope.items, failed: envelope.failed}});
     }
 
     /** IPC 断开或进程结束（两者都会到达，只处理一次）。 */
     #disconnected(child: ProjectChild): void {
         child.link.closed();
         child.started.resolve({status: "disconnected"});
+        for (const settle of [...child.workQueries.values()]) settle({ok: false, reason: "disconnected"});
         if (child.lost || child.stopping || !child.available) return;
         child.lost = true;
         // 没有被要求停止却断开：这一代结束，租约失效，不自动重启。
