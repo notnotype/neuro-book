@@ -7,8 +7,8 @@ export {assertLoopbackHost, assertLoopbackOrigins, HostConfigError, LOOPBACK_BIN
 export type {HostConfigErrorCode} from "./loopback";
 export {freeGroupOffset, isAddressInUse, listenWithShift, PORT_SHIFT_ATTEMPTS, PORT_SHIFT_STEP, probePort} from "./ports";
 export type {ListenWithShiftOptions, ShiftedListen} from "./ports";
-export {claimStateRoot, defineClaimProfile, HELLO_TIMEOUT_MS, instanceAddress, queryInstance} from "./claim";
-export type {ClaimOptions, ClaimProfile, ClaimResult, InstanceInfo, InstanceKind, InstanceQuery, InstanceStatus, StateRootClaim} from "./claim";
+export {claimStateRoot, defineClaimProfile, HELLO_TIMEOUT_MS, instanceAddress, queryInstance, sendRequest} from "./claim";
+export type {ClaimOptions, ClaimProfile, ClaimResult, InstanceInfo, InstanceKind, InstanceQuery, InstanceStatus, RequestResult, StateRootClaim} from "./claim";
 export type {HostRoute} from "../http/plugin";
 export type {DrainClock} from "../http/admission";
 export {startServerHost} from "./host";
