@@ -227,6 +227,7 @@ S7 做底部面板的“待处理”“改动记录”两个视图（输出 23�
   - 公开状态 `definePublicState("nbook.canon", {hasPending})`，照 `tasks/web/plugin.ts` 的写法。状态栏条目 `nbook.canon.pending-count`：左侧，`state: "warning"`，`when` 要 `hasPending`，点了执行 `show-pending`。
   - 条数：`world.list("pending", {group: "pending"}, 1)` 的 `counts.pending`，不传位置与模式，用内核的缺省；待处理视图同样不传，所以两处的数一样。窗口绑定了项目就在启动时建读取层。原来要等视图、页面或对话框第一次挂上才建，现在状态栏一开始就要用。
   - `show-pending`：`nbook.view.open {viewId: pending}`，再把视图的选中放回“待处理”的第一条。
+  - `show-revisions`：`nbook.view.open {viewId: revisions}`。开发者 2026-11-13 定两个视图分开放（“可以 A”）；底部面板的入口条做好之前，改动记录经它、回执页的面包屑与“打开视图”到达，命令面板里能直接搜到。命令的声明照 `show-pending`（`effect: write`，不对 Agent 开放）。
   - 可见：`use-reads.ts` 加 `useWorldList(world, method, input)`，`input` 返回 null 时释放，同 `useWorldReads`。三个视图的宿主在 `visible` 为假时传 null：不可见就不重读，回来时先显示留着的旧数据，同时重读（输出 26）。设定视图一起改。
 - **S7c 改动记录视图**：
   - `web/revisions.ts`（纯函数）：一行写标题、谁（`actorText`）、什么时候（`timeText`）、带来的变化的一句摘要（`impact.ts` 新加 `impactSummary`：几处值变了、多了或少了几条待处理、几条套不上了，都没有时写“没有带来别的变化”）。还原按钮旁的原因同回执页：`not-revertable` 写原因、按钮不可用；`has-dependents` 写“后面有 N 次改动依赖它”、按钮照常（对话框里列出依赖）。
@@ -261,7 +262,7 @@ S7 做底部面板的“待处理”“改动记录”两个视图（输出 23�
   - 组件测试、同名 `.md`、Lab 场景各一份：`PendingView`、`PendingDetail`、`RevisionsView`、`BreakExclusiveDialog`。
   - 样本：先确认星瑕样本里有一条核对点不符（验收 5 要它），没有就在生成脚本里改。
 - **e2e 与真实浏览器**：外壳 e2e 跑 `workbench-views`、`workbench-shell`、`workbench-containers`、`background-tasks`、`plugins`（`plugins:78` 在 master 上就失败）。在生成的星瑕项目上走一遍：状态栏“待处理 1”→ 待处理 → 改这一笔 → 保存 → 条目消失；回执页的面包屑“改动记录”→ 改动记录 → 还原；390 像素宽各看一次。
-- **Spec**（主工作区，`author-ui.md` 仍是 planned）：输入表两个视图写明 `revealRegion: false`；输出 33 改写为“经 `workbench.views` 输出 18 的声明”；输出 23 加一句插件的诊断写它声明的显示名；`project.md` 的 `pending` 一行加显示名。
+- **Spec**（主工作区，`author-ui.md` 仍是 planned，2026-11-13 已改）：输入表两个视图写明 `revealRegion: false`、不写容器；命令表加 `show-revisions`，`show-pending` 写明选回第一条；输出 33 改写为经 `workbench.views` 输出 18 的声明，并写明入口条做好之前从哪里到达；输出 23 加插件的诊断写它声明的显示名；`project.md` 的 `pending` 一行加显示名。
 - **待确认清单**：K-e 是第九项内核补口（2026-11-10 定的是八项）；`show-pending` 每次都选回第一条；超出 50 个对象的行只写种类。
 
 ### 五、底部面板默认隐藏
