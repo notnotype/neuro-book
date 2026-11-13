@@ -14,7 +14,7 @@ updated: 2026-11-13
 - 运行时：桌面包捆绑 Bun；与现有 npm 包（用户自备 Bun）的关系、共用哪些产物。
 - 桌面壳：按开发者决定直接用 Electrobun，在 Windows 上做最小原型验证——拉起捆绑的 Bun 服务端、窗口加载回环页面、退出时有序停止、与 `nbook` 的实例认领共存；记下安装包体积、内存、启动时间。原型遇到 Electrobun 解决不了的阻断才转候选 Electron，并写明阻断。
 - 安装包与更新：Windows 的 setup 安装程序与便携包（解压即用）；自动更新的来源与校验。
-- 签名：Windows 代码签名的选项与费用，没有证书时的退路（SmartScreen 警告）。
+- 签名：开发者定不买 Windows 代码签名证书；提案写清未签名的代价（SmartScreen 的“未知发布者”警告、自动更新包的完整性改靠发布的摘要校验）。
 - CI 与发布：Windows 构建与冒烟；打 `v*` 标签后全自动发布（npm 包、桌面包、GitHub Release），发布前的门禁全部在 CI 里跑完、半途失败的处理，接现有 `release:smoke` 与 `release:publish`。
 - 外部工具向导：见下面“开发者决定”第 3 条，提案里单列一节。
 
@@ -28,12 +28,19 @@ updated: 2026-11-13
 2. 先做 Windows，提供 setup 安装程序与便携包。
 3. 应用内要有第三方工具的安装向导（Git、Python 等），两种安装路径：随 NeuroBook 安装（NeuroBook 自己管理）；系统安装（装到用户或系统，NeuroBook 装完后只识别）。Agent 提的细化方案待开发者确认，见会话与下一版提案。
 4. 打 `v*` 标签后全自动发布。
+5. 不用 Windows 代码签名证书（2026-11-13 第二轮答复）。
 
 ## 当前状态
 
 2026-11-13 新建，范围按上面的决定收窄，尚未开工。
 
-查到的事实（从代码推断，未在 Windows 上运行）：v2 产品代码不直接调用 git 或 python；但 Agent 的命令工具只有 `bash` 一种方言（`packages/nb-harness/src/kit/commands/dialects.ts`），Windows 上要有 bash 才能用，Git for Windows 自带的 bash 是现成的来源。
+查到的事实（读代码与已装的包，未在 Windows 上运行）：
+
+- Agent 的 `shell` 工具不调用系统的 bash：它用 `@oh-my-pi/pi-natives` 的 `executeShell`（`packages/nb-harness/src/kit/tools/shell.ts`），在进程内跑 pi-natives 内嵌的 brush（Rust 写的 bash 兼容 shell）。所以 Windows 上没有 Git Bash，Agent 照样能跑命令。最早那版判断（“Windows 要靠 Git 自带的 bash”）不对，已更正。
+- pi-natives 内置的命令（见它的 `THIRD-PARTY-NOTICES.txt`）：uutils coreutils（ls、cat、cp、mv、rm、mkdir、head、tail、sort、uniq、wc、tr、cut 等 40 多个）、findutils（find、xargs）、uutils sed、jaq（jq）；grep 与 glob 是工具层的原生实现。omp 的 `resolveWindowsShell` 注释写明：bash 工具的命令一律在内嵌 shell 里跑，宿主的 bash 可有可无，只给交互终端用。
+- 内置的 `git` 只是一层防护（omp 的 `gitGuard`），真正执行仍然调用系统的 git：二进制里有 `spawn git`、`spawn git apply`、`spawn git worktree add`。所以 Git 仍要另装，但只是 Agent 要用 git 命令时才需要，不是 Agent 能不能跑命令的前提。awk、Python、curl 这些不在内置命令里。
+- v2 产品代码自身不调用 git 或 python。
+- 体积：pi-natives 是原生 N-API 模块，`@oh-my-pi/pi-natives-win32-x64` 18.20.0 解压后约 133 MB（npm registry 的 `dist.unpackedSize`）；Linux 包含 baseline 与 modern 两份，共 234 MB。它会是桌面包里最大的一块，比 Bun 本身还大。应用包里它是 dependencies（`scripts/pack-app.ts` 的 `SERVER_EXTERNALS`），没有打进 bundle。
 
 ## 下一步
 
