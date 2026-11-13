@@ -12,6 +12,12 @@
         },
         "open-change": {
             "title": "Open Story Change"
+        },
+        "show-pending": {
+            "title": "Show Pending"
+        },
+        "show-revisions": {
+            "title": "Show Change History"
         }
     },
     "views": {
@@ -26,6 +32,12 @@
                     }
                 }
             }
+        },
+        "pending": {
+            "title": "Pending"
+        },
+        "revisions": {
+            "title": "Change History"
         }
     },
     "world": {
@@ -353,5 +365,16 @@
         "blockReplaced": "{{label}}: replaced a paragraph",
         "blockAdded": "{{label}}: added a paragraph",
         "blockRemoved": "{{label}}: removed a paragraph"
+    },
+    "statusItems": {
+        "pending-count": {
+            "title": "Pending",
+            "text": "Pending {{count}}"
+        }
+    },
+    "state": {
+        "hasPending": {
+            "reason": "Nothing is pending"
+        }
     }
 }

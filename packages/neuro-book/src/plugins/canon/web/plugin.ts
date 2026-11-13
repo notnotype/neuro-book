@@ -2,27 +2,31 @@
  * `nbook.canon` 的浏览器入口：不存世界，按调用方提供世界客户端，以调用方的身份经远程服务转给本窗口绑定的项目实例
  * （docs/specs/canon/project.md 输出 1）。没有绑定项目的窗口调用得到 `no-project`。
  *
- * 作者界面（docs/specs/canon/author-ui.md）也在这里：侧栏视图“设定”、条目页、回执页、变更详情页、数据分页的贡献点 `canon.component-views`
- * （canon 自己给人物、面板各交一个界面）、命令，以及挂还原对话框的页面浮层。界面用本入口自己的身份建一份读取层（`world.ts`），
- * 视图、页面或对话框第一次挂上时才建（才订阅世界），窗口停止时释放。视图、页面与命令的实现要在启动时交出，所以入口在启动时
- * 激活。保存后的提示与还原的对话框在窗口里各一份，几种页面共用。
+ * 作者界面（docs/specs/canon/author-ui.md）也在这里：侧栏视图“设定”、底部面板的“待处理”与“改动记录”、条目页、回执页、变更详情页、
+ * 数据分页的贡献点 `canon.component-views`（canon 自己给人物、面板各交一个界面）、状态栏的“待处理 N”与公开状态
+ * `nbook.canon/hasPending`、命令，以及挂还原对话框的页面浮层。界面用本入口自己的身份建一份读取层（`world.ts`）：状态栏条数要
+ * 一直读“待处理”一组，所以窗口绑定了项目时启动就建（就订阅世界），窗口停止时释放。视图、页面与命令的实现要在启动时交出，所以
+ * 入口在启动时激活。保存后的提示与还原的对话框在窗口里各一份，几种页面共用。
  */
 
 import {defineEntry, provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {defineComponent, h, shallowRef, watch} from "vue";
+import {computed, defineComponent, h, shallowRef, watch} from "vue";
 import type {PropType} from "vue";
 
 import {COMMANDS_POINT, commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import {EDITOR_PAGES_POINT} from "nbook/plugins/editor/shared/contracts";
 import {filesKey, formatResource} from "nbook/plugins/files/shared/contracts";
 import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts";
-import {notificationsKey, WORKBENCH_OVERLAYS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
-import type {OverlayDeclaration} from "nbook/plugins/workbench/shared/contracts";
+import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
+import {notificationsKey, WORKBENCH_OVERLAYS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ItemDeclaration, OverlayDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
-import type {ViewImplementation, WorkbenchOverlayImplementation} from "nbook/plugins/workbench/web/contracts";
+import type {ItemImplementation, ViewImplementation, WorkbenchOverlayImplementation} from "nbook/plugins/workbench/web/contracts";
+import type {Written} from "nbook/shared/convention-keys";
 import {windowProjectKey} from "nbook/shared/projects";
+import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
 import {CANON_COMPONENT_VIEWS_POINT, componentViewsPoint} from "../shared/component-views";
@@ -30,29 +34,49 @@ import type {ComponentViewDeclaration} from "../shared/component-views";
 import {componentsPoint} from "../shared/components";
 import {canonClientKey, canonWorldContract} from "../shared/contracts";
 import type {CanonClient} from "../shared/contracts";
+import {canonText} from "../shared/text";
 import {createCanonClient} from "./client";
 import {BINDER_DIR, chapterFileName} from "../shared/binder-files";
 import {createChangePage} from "./change-page";
-import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMMAND, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, RECEIPT_PAGE} from "./commands";
+import {CANON_COMMAND_DECLARATIONS, canonCommands, CHANGE_PAGE, EDITOR_OPEN_COMMAND, ENTRY_PAGE, NEW_ENTRY_COMMAND, OPEN_ENTRY_COMMAND, OPEN_RECEIPT_COMMAND, PENDING_VIEW, RECEIPT_PAGE, REVISIONS_VIEW, SHOW_PENDING_COMMAND} from "./commands";
 import {ComponentViewRegistry} from "./component-views";
 import type {ComponentViewContext, ComponentViewImplementation} from "./component-views";
 import {createEntriesViewHost, entriesViewState, startNewEntry} from "./entries-view";
 import {createEntryPage, originsFetcher} from "./entry-page";
 import {createNotices} from "./notices";
+import {createPendingCount} from "./pending-count";
+import {pendingViewState, pickFirstPending} from "./pending-view";
 import {createReceiptPage} from "./receipt-page";
 import {createRevertRequests} from "./revert";
+import {useCanonText} from "./text";
 import {createCanonWorld} from "./world";
 import type {CanonWorld} from "./world";
 
 export const ENTRIES_VIEW_ID = "nbook.canon.entries";
-/** 改动记录视图（author-ui.md 输出 24），在底部面板一片登记；回执页的面包屑先指着它。 */
-export const REVISIONS_VIEW_ID = "nbook.canon.revisions";
+/** 底部面板的待处理、改动记录视图（author-ui.md 输出 23、24）；回执页的面包屑指着改动记录。 */
+export const PENDING_VIEW_ID = PENDING_VIEW;
+export const REVISIONS_VIEW_ID = REVISIONS_VIEW;
+/** 状态栏的“待处理 N”（输出 25）。 */
+export const PENDING_COUNT_ITEM = "nbook.canon.pending-count";
 /** 挂还原对话框的页面浮层。 */
 const REVERT_OVERLAY = "nbook.canon.revert";
 const REVERT_OVERLAY_DECLARATION: OverlayDeclaration = {};
 
 /** author-ui.md 的“输入与前置条件”：侧栏，排在文件资源管理器（`order: 0`）之后。标题由约定键补（`views.<id>.title`）。 */
 const ENTRIES_VIEW: WrittenViewDeclaration = {icon: "i-lucide-book", location: "sidebar", order: 10, layout: "fill", actions: [{command: NEW_ENTRY_COMMAND, icon: "i-lucide-plus"}]};
+/**
+ * 底部面板的两个视图（author-ui.md 输出 33）：不写容器，各是一个隐式容器；不因它们让底部面板默认显示，经状态栏条目、命令与
+ * 回执页的面包屑打开（workbench/views.md 输出 18）。
+ */
+const PENDING_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-circle-alert", location: "panel", order: 10, layout: "fill", revealRegion: false};
+const REVISIONS_VIEW_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-history", location: "panel", order: 20, layout: "fill", revealRegion: false};
+
+/** 公开状态 `nbook.canon/hasPending`：状态栏条目的 `when`（输出 25）。 */
+export const canonState = definePublicState("nbook.canon", {
+    hasPending: {type: "boolean", unready: false, reason: canonText("state.hasPending.reason")},
+});
+/** 状态栏左侧；标题由约定键补（`statusItems.pending-count.title`）。 */
+const PENDING_COUNT_DECLARATION: Written<ItemDeclaration, "title"> = {alignment: "left", order: 10, priority: 40, command: {id: SHOW_PENDING_COMMAND}, when: {requires: [canonState.key("hasPending")]}};
 
 /** 条目页：每个条目一个标签，刷新后恢复（author-ui.md 的“输入与前置条件”）。标题由约定键补（`editorPages.entry.title`）。 */
 const ENTRY_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> = {icon: "i-lucide-book-open", instances: true, restore: true};
@@ -96,6 +120,10 @@ export const canonBrowserPlugin: PluginDefinition = {
         remoteDelegates: [canonWorldContract],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: ENTRIES_VIEW_ID, declaration: ENTRIES_VIEW},
+            {capability: WORKBENCH_VIEWS_POINT, id: PENDING_VIEW_ID, declaration: PENDING_VIEW_DECLARATION},
+            {capability: WORKBENCH_VIEWS_POINT, id: REVISIONS_VIEW_ID, declaration: REVISIONS_VIEW_DECLARATION},
+            {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: PENDING_COUNT_ITEM, declaration: PENDING_COUNT_DECLARATION},
+            ...canonState.contributions,
             {capability: EDITOR_PAGES_POINT, id: ENTRY_PAGE, declaration: ENTRY_PAGE_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: RECEIPT_PAGE, declaration: RECEIPT_PAGE_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: CHANGE_PAGE, declaration: CHANGE_PAGE_DECLARATION},
@@ -108,7 +136,7 @@ export const canonBrowserPlugin: PluginDefinition = {
             const bound = context.services.require(windowProjectKey).project !== null;
             const resolved = await context.services.resolve(commandServiceKey);
             const commands = resolved.status === "resolved" ? resolved.instance : null;
-            // 界面用的那一份客户端与读取层：第一个视图或页面挂上时才建。
+            // 界面用的那一份客户端与读取层：状态栏的“待处理 N”一开始就要，绑定了项目的窗口在启动时就建（下面的 `pendingCount`）。
             let client: CanonClient | null = null;
             let world: CanonWorld | null = null;
             const clientOf = (): CanonClient => (client ??= createCanonClient(() => context.remote));
@@ -117,7 +145,17 @@ export const canonBrowserPlugin: PluginDefinition = {
                 world ??= createCanonWorld(clientOf());
                 return world;
             };
-            context.signal.addEventListener("abort", () => world?.dispose(), {once: true});
+            const pendingCount = createPendingCount(worldOf());
+            context.signal.addEventListener("abort", () => {
+                pendingCount.release();
+                world?.dispose();
+            }, {once: true});
+            const publicState = bindingsOf(canonState, {hasPending: computed(() => (pendingCount.count.value ?? 0) > 0)});
+            const pendingItem: ItemImplementation = {
+                text: () => canonText("statusItems.pending-count.text", {count: pendingCount.count.value ?? 0}),
+                icon: () => ({name: "i-lucide-circle-alert"}),
+                state: () => "warning",
+            };
             const notifications = await context.services.resolve(notificationsKey);
             const execute = (id: string, args: unknown): void => void commands?.execute(id, args);
             const call: CanonClient["call"] = (method, input) => clientOf().call(method, input);
@@ -169,6 +207,20 @@ export const canonBrowserPlugin: PluginDefinition = {
                 },
             };
             const state = entriesViewState();
+            const pendingState = pendingViewState();
+            // 底部面板的两个视图：内容在后面两片做，先只登记（没绑定项目时写一句）。
+            const bottomView = (): ViewImplementation => ({
+                load: async () => {
+                    const unbound = worldOf() === null;
+                    return defineComponent({
+                        name: "CanonBottomView",
+                        setup: () => {
+                            const text = useCanonText();
+                            return () => (unbound ? h("p", {class: "px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound")) : h("div"));
+                        },
+                    });
+                },
+            });
             const view: ViewImplementation = {
                 load: async () => createEntriesViewHost((await import("./components/EntryTree.vue")).default, {
                     world: worldOf(),
@@ -181,14 +233,16 @@ export const canonBrowserPlugin: PluginDefinition = {
                 services: [provideServicePerConsumer(canonClientKey, (consumer) => createCanonClient(bound ? () => context.remote.on(consumer) : null))],
                 receivers: {[CANON_COMPONENT_VIEWS_POINT]: views.receiver()},
                 contributions: {
-                    [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view},
+                    [WORKBENCH_VIEWS_POINT]: {[ENTRIES_VIEW_ID]: view, [PENDING_VIEW_ID]: bottomView(), [REVISIONS_VIEW_ID]: bottomView()},
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[PENDING_COUNT_ITEM]: pendingItem},
+                    [PUBLIC_STATE_POINT]: Object.fromEntries(publicState.bindings),
                     [EDITOR_PAGES_POINT]: {[ENTRY_PAGE]: page, [RECEIPT_PAGE]: receiptPage, [CHANGE_PAGE]: changePage},
                     [WORKBENCH_OVERLAYS_POINT]: {[REVERT_OVERLAY]: overlay},
                     [CANON_COMPONENT_VIEWS_POINT]: {
                         [PERSON_TYPE]: componentView(() => import("./components/FieldsDataView.vue"), {semanticNotes: true}),
                         [PANEL_TYPE]: componentView(() => import("./components/PanelDataView.vue")),
                     },
-                    [COMMANDS_POINT]: canonCommands(commands, (parent) => startNewEntry(state, parent)),
+                    [COMMANDS_POINT]: canonCommands(commands, {newEntry: (parent) => startNewEntry(state, parent), pendingShown: () => pickFirstPending(pendingState)}),
                 },
             };
         },

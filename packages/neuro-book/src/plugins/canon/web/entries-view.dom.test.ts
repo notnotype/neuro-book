@@ -7,11 +7,14 @@ import {rm} from "node:fs/promises";
 
 import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {nextTick, ref} from "vue";
+import type {Ref} from "vue";
 
 import type {Entry, WriteRequest} from "@notnotype/nb-canon";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import type {CanonClient} from "../shared/contracts";
@@ -59,7 +62,7 @@ async function publish(canon: CanonClient, entries: Entry[]): Promise<Record<str
     return result.value.ids;
 }
 
-async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; state: EntriesViewState; opened: string[]; parents: () => Array<string | null>; view: () => ReturnType<typeof mount>}> {
+async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; state: EntriesViewState; opened: string[]; parents: () => Array<string | null>; view: (visible?: Ref<boolean>) => ReturnType<typeof mount>}> {
     venue = await canonNodeWorld(tmp);
     const mine = await venue.window("mine");
     const other = await venue.window("other");
@@ -74,8 +77,10 @@ async function setup(): Promise<{world: CanonWorld; other: CanonNodeWindow; stat
     const host = createEntriesViewHost(EntryTree, {world, state, open: (id) => opened.push(id), create: {dialog: NewEntryDialog, call: client.call, notices}});
     return {
         world, other, state, opened, parents,
-        view: () => {
-            const wrapper = mount(host, {global: {provide: provideText(port)}, attachTo: document.body});
+        // 给了 `visible` 时按工作台的做法给一份 `context`；不给时宿主按可见算。
+        view: (visible) => {
+            const context: ViewContext | undefined = visible === undefined ? undefined : {id: "nbook.canon.entries", generation: 1, visible, location: ref("sidebar")};
+            const wrapper = mount(host, {props: context === undefined ? {} : {context}, global: {provide: provideText(port)}, attachTo: document.body});
             cleanups.push(() => wrapper.unmount());
             return wrapper;
         },
@@ -104,6 +109,31 @@ describe("设定视图", () => {
         await publish(other.canon, [person("白灵")]);
         await waitUntil("新条目出现在人物下", () => rowTexts(wrapper).join("|") === "人物|星瑕|哥哥|白灵|地点|学院");
         expect(state.expanded.value).toContain(ids[star.id]);
+    });
+
+    it("视图停放时别处发布不重读；回到前台先显示留着的，同时重读（输出 26）", async () => {
+        const {world, other, state, parents, view} = await setup();
+        await publish(other.canon, [person("星瑕")]);
+        const visible = ref(true);
+        const wrapper = view(visible);
+        await waitUntil("根这一层", () => rowTexts(wrapper).join("|") === "人物");
+        state.expanded.value = ["folder:人物"];
+        await waitUntil("分组展开", () => rowTexts(wrapper).join("|") === "人物|星瑕");
+
+        visible.value = false;
+        await nextTick();
+        const read = parents().length;
+        await publish(other.canon, [person("白灵")]);
+        const version = (await other.canon.call("status", {}));
+        if (!version.ok) throw new Error(JSON.stringify(version.failure));
+        // 读取层收到这次发布、重读完状态时，要重读的读取已经和状态一起发出去了。
+        await waitUntil("读取层知道了新版本", () => world.status.value.data?.version === version.value.version);
+        expect(parents()).toHaveLength(read);
+
+        visible.value = true;
+        await nextTick();
+        expect(rowTexts(wrapper).join("|")).toBe("人物|星瑕");
+        await waitUntil("回到前台以后重读", () => rowTexts(wrapper).join("|") === "人物|星瑕|白灵");
     });
 
     it("点条目打开它的条目页，并成为选中项", async () => {

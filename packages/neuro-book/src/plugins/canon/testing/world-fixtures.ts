@@ -50,3 +50,9 @@ export function change(entry: string, chapter: string, text: string, delta: numb
     };
     return {ref: {kind: "change", id}, after};
 }
+
+/** 一个核对点：第 `chapter` 章安放处，正文写存款是 `value`（出处是作者的笔记，不在正文里找原句）。 */
+export function check(entry: string, chapter: string, value: number, quote = `余额 ${String(value)}`): WriteRequest["puts"][number] {
+    const id = `tmp:${nextId()}`;
+    return {ref: {kind: "check", id}, after: {id, at: {entry, path: "panel.存款"}, value, told: {source: "note", quote}, place: {kind: "chapter", chapter, key: sequence}}};
+}

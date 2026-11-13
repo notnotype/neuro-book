@@ -21,6 +21,8 @@ import type {NewEntryDraft} from "./new-entry";
 import type {CanonNotices} from "./notices";
 import {defaultPosition} from "./positions";
 import {useCanonText} from "./text";
+import {useWorldRead} from "./use-reads";
+import {viewContextProp, viewVisible} from "./view-visible";
 import type {CanonWorld, ListHandle} from "./world";
 
 /** 每层一次读多少项。 */
@@ -62,20 +64,23 @@ export function startNewEntry(state: EntriesViewState, parent: string | null): v
 export function createEntriesViewHost(tree: Component, options: EntriesViewHostOptions): Component {
     return defineComponent({
         name: "EntriesViewHost",
-        setup() {
+        props: viewContextProp,
+        setup(props) {
             const text = useCanonText();
             const port = useText();
             const {world, state} = options;
             if (world === null) return () => h("p", {class: "px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
 
-            const chapters = world.read("chapters", {});
-            const position = computed(() => defaultPosition(chapters.state.value.data?.items));
+            // 视图停放、收起时不占着读取（输出 26）：读取层留着结果，回来时先显示旧的，同时重读。新建条目的对话框开着时要章表。
+            const visible = viewVisible(props);
+            const chapters = useWorldRead(world, "chapters", () => (visible.value || state.creating.value !== null ? {} : null));
+            const position = computed(() => defaultPosition(chapters.value?.data?.items));
             const positionKey = computed(() => JSON.stringify(position.value));
 
             // 每层一个分页读取；位置变了全部换新的。展开列表里的条目 id 才读，收起的释放（读取层留着结果，再展开先显示旧的）。
             const handles = shallowRef(new Map<string, {readonly list: ListHandle<"tree">; readonly at: string}>());
             const sync = (): void => {
-                const wanted = new Set([ROOT, ...state.expanded.value.filter((id) => !id.startsWith("folder:"))]);
+                const wanted = new Set(visible.value ? [ROOT, ...state.expanded.value.filter((id) => !id.startsWith("folder:"))] : []);
                 const next = new Map<string, {readonly list: ListHandle<"tree">; readonly at: string}>();
                 for (const [parent, held] of handles.value) {
                     if (wanted.has(parent) && held.at === positionKey.value) next.set(parent, held);
@@ -86,10 +91,9 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                 }
                 handles.value = next;
             };
-            watch([() => state.expanded.value, positionKey], sync, {immediate: true});
+            watch([() => state.expanded.value, positionKey, visible], sync, {immediate: true});
             onBeforeUnmount(() => {
                 for (const held of handles.value.values()) held.list.release();
-                chapters.release();
             });
 
             const layers = computed<Record<string, EntryTreeLayer>>(() => {
@@ -179,7 +183,7 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
                     kinds: [...new Set(known.value.map((item) => item.type).filter((kind) => kind !== ""))],
                     entries: known.value.map((item) => ({id: item.id, name: item.nameAt ?? item.name})),
                     types: components.value.map((type) => ({id: type.id, label: type.label})),
-                    chapters: chapters.state.value.data?.items ?? [],
+                    chapters: chapters.value?.data?.items ?? [],
                     saving: saving.value,
                     error: error.value,
                     "onUpdate:draft": (draft: NewEntryDraft) => {

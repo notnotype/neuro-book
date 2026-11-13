@@ -12,6 +12,12 @@
         },
         "open-change": {
             "title": "打开情节"
+        },
+        "show-pending": {
+            "title": "显示待处理"
+        },
+        "show-revisions": {
+            "title": "显示改动记录"
         }
     },
     "views": {
@@ -26,6 +32,12 @@
                     }
                 }
             }
+        },
+        "pending": {
+            "title": "待处理"
+        },
+        "revisions": {
+            "title": "改动记录"
         }
     },
     "world": {
@@ -353,5 +365,16 @@
         "blockReplaced": "{{label}}：换了一段",
         "blockAdded": "{{label}}：加了一段",
         "blockRemoved": "{{label}}：删了一段"
+    },
+    "statusItems": {
+        "pending-count": {
+            "title": "待处理",
+            "text": "待处理 {{count}}"
+        }
+    },
+    "state": {
+        "hasPending": {
+            "reason": "没有待处理的问题"
+        }
     }
 }
