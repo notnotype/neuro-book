@@ -14,7 +14,7 @@ import {BUN_ENGINE, PRODUCT_VERSION} from "../src/shared/product";
 
 import {locateDocsRoot} from "../src/plugins/agent/backend/docs-root";
 import {queryNeuroBook} from "../src/server/instance";
-import {APP_NAME, bundleProblems, packApp} from "./pack-app";
+import {APP_NAME, bundleProblems, checkManagedEntry, packApp} from "./pack-app";
 
 let tmp = "";
 let web = "";
@@ -145,11 +145,11 @@ describe("托管入口", () => {
 
     it("标准输入结束即有序停止、以 0 退出；状态根已被占用时第二个以 1 退出，不碰第一个", async () => {
         const out = join(tmp, "managed", "neuro-book");
-        // 打包本身已核对：就绪、health 200、写 stop 后以 0 退出。
         await packApp({webRoot: web, outDir: out});
         await symlink(join(import.meta.dir, "../../../node_modules"), join(out, "node_modules"), "dir");
         const stateRoot = join(tmp, "managed-state");
         const first = startManaged(out, stateRoot);
+        let second: ReturnType<typeof startManaged> | null = null;
         try {
             const ready = await waitUntil("托管入口就绪", async () => {
                 const query = await queryNeuroBook(stateRoot);
@@ -158,7 +158,7 @@ describe("托管入口", () => {
             expect(ready.kind).toBe("product");
             expect(ready.version).toBe(PRODUCT_VERSION);
 
-            const second = startManaged(out, stateRoot);
+            second = startManaged(out, stateRoot);
             second.stdin.end();
             expect(await second.exited).toBe(1);
             expect(await new Response(second.stderr).text()).toContain("runtime.state-root.busy");
@@ -168,9 +168,45 @@ describe("托管入口", () => {
             expect(await first.exited).toBe(0);
             expect((await queryNeuroBook(stateRoot)).state).toBe("none");
         } finally {
-            if (first.exitCode === null) first.kill("SIGKILL");
+            for (const child of [first, second]) {
+                if (child !== null && child.exitCode === null) child.kill("SIGKILL");
+                await child?.exited;
+            }
         }
     }, 90_000);
+
+    /**
+     * 打包时的托管核对（`checkManagedEntry`）拦得住的几种坏入口：用替身的 `server/main.js` 代替真实服务端。替身经产品自己的
+     * 认领档案认领状态根、发布就绪与地址，与真实服务端对 `checkManagedEntry` 可观察的部分相同。
+     */
+    async function fakeEntry(name: string, body: string): Promise<string> {
+        const directory = join(tmp, "fake-entries", name);
+        await mkdir(join(directory, "server"), {recursive: true});
+        await mkdir(join(directory, "web"), {recursive: true});
+        const instance = join(import.meta.dir, "../src/server/instance.ts");
+        await writeFile(join(directory, "server", "main.js"), `import {claimNeuroBook} from ${JSON.stringify(instance)};\n${body}\n`);
+        return directory;
+    }
+    const claimAndServe = `
+const claimed = await claimNeuroBook({stateRoot: process.env.NBOOK_STATE_ROOT, kind: "product", report: () => {}});
+if (!claimed.ok) process.exit(9);
+const server = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: () => new Response(globalThis.healthStatus === undefined ? "ok" : "bad", {status: globalThis.healthStatus ?? 200})});
+`;
+    const publish = `claimed.claim.publish({url: \`http://127.0.0.1:\${server.port}/\`, rpcUrl: "ws://127.0.0.1:1/rpc", extra: {plugins: {safeMode: false, items: []}}});`;
+
+    it("打包时的托管核对：就绪前退出、health 不是 200、停止后退出码不是 0、超时都失败，并说明是哪一种", async () => {
+        const early = await fakeEntry("early", "process.exit(3);");
+        await expect(checkManagedEntry(early)).rejects.toThrow("在就绪前退出，退出码 3");
+
+        const unhealthy = await fakeEntry("unhealthy", `globalThis.healthStatus = 500;${claimAndServe}${publish}\nfor await (const _ of console) break;\nprocess.exit(0);`);
+        await expect(checkManagedEntry(unhealthy)).rejects.toThrow("health 是 500");
+
+        const badStop = await fakeEntry("bad-stop", `${claimAndServe}${publish}\nfor await (const _ of console) break;\nprocess.exit(7);`);
+        await expect(checkManagedEntry(badStop)).rejects.toThrow("经标准输入停止，退出码 7");
+
+        const neverReady = await fakeEntry("never-ready", `${claimAndServe}\nawait new Promise(() => {});`);
+        await expect(checkManagedEntry(neverReady, 1_500)).rejects.toThrow("秒内没有完成");
+    }, 60_000);
 });
 
 describe("bundle 的核对", () => {

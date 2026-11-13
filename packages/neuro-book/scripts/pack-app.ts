@@ -148,43 +148,49 @@ async function bundleServerEntries(serverDir: string): Promise<Set<string>> {
 const MANAGED_CHECK_MS = 60_000;
 
 /**
- * 以托管方式跑一遍 `server/main.js`（docs/specs/runtime/server-host.md 的“托管宿主”）：临时状态根、系统分配的端口、`--stop-stdin`；
- * 从认领应答读到就绪与地址，health 为 200，写 `stop` 后以 0 退出。要求包旁边已经能解析到外部依赖（见 `packApp`）。
- * 失败或超时都结束子进程、删掉临时状态根。
+ * 以托管方式跑一遍包里的 `server/main.js`（docs/specs/runtime/server-host.md 的“托管宿主”）：临时状态根、系统分配的端口、
+ * `--stop-stdin`；从认领应答读到就绪与地址，health 为 200，写 `stop` 后以 0 退出。要求 `packageDirectory` 旁边已经能解析到
+ * 外部依赖（见 `packApp`）。失败或超时都结束子进程，等它真的退出后才删临时状态根（它还开着状态根里的文件）。
  */
-async function checkManagedEntry(outDir: string): Promise<void> {
+export async function checkManagedEntry(packageDirectory: string, deadlineMs: number = MANAGED_CHECK_MS): Promise<void> {
     const stateRoot = await mkdtemp(join(tmpdir(), "nbook-pack-app-"));
-    const child = Bun.spawn(["bun", join(outDir, "server", "main.js"), "--stop-stdin"], {
-        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join(outDir, "web")},
+    const child = Bun.spawn(["bun", join(packageDirectory, "server", "main.js"), "--stop-stdin"], {
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join(packageDirectory, "web")},
         stdin: "pipe",
         stdout: "ignore",
         stderr: "pipe",
     });
     const stderr = new Response(child.stderr).text();
-    const deadline = Date.now() + MANAGED_CHECK_MS;
-    const failure = async (message: string): Promise<Error> => {
+    // 截止用一个计时器：到时结束子进程，下面等待它的地方都随之结束；正常走完时清掉，不让脚本在打印结果后还挂着。
+    let timedOut = false;
+    const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+    }, deadlineMs);
+    const fail = async (message: string): Promise<never> => {
         child.kill("SIGKILL");
         await child.exited;
-        return new Error(`server/main.js 托管运行${message}\n${await stderr}`);
+        throw new Error(`server/main.js 托管运行${timedOut ? `在 ${String(deadlineMs / 1000)} 秒内没有完成` : message}\n${await stderr}`);
     };
     try {
         let url: string | null = null;
         while (url === null) {
-            if (child.exitCode !== null) throw await failure(`在就绪前退出，退出码 ${String(child.exitCode)}`);
-            if (Date.now() > deadline) throw await failure(`在 ${String(MANAGED_CHECK_MS / 1000)} 秒内没有就绪`);
+            if (child.exitCode !== null || timedOut) await fail(`在就绪前退出，退出码 ${String(child.exitCode)}`);
             const query = await queryNeuroBook(stateRoot);
             if (query.state === "running" && query.instance.status === "ready" && query.instance.url !== null) url = query.instance.url;
             else await Bun.sleep(100);
         }
-        const health = await fetch(new URL("/api/runtime/health", url));
-        if (health.status !== 200) throw await failure(`就绪后 health 是 ${String(health.status)}`);
+        const health = await fetch(new URL("/api/runtime/health", url), {signal: AbortSignal.timeout(10_000)}).catch((error: unknown) => fail(`就绪后取 health 失败：${String(error)}`));
+        if (health.status !== 200) await fail(`就绪后 health 是 ${String(health.status)}`);
         void child.stdin.write("stop\n");
         await child.stdin.flush();
-        const code = await Promise.race([child.exited, Bun.sleep(Math.max(0, deadline - Date.now())).then(() => null)]);
-        if (code === null) throw await failure("写了 stop 之后没有退出");
-        if (code !== 0) throw new Error(`server/main.js 托管运行经标准输入停止，退出码 ${String(code)}\n${await stderr}`);
+        const code = await child.exited;
+        if (timedOut) await fail("");
+        if (code !== 0) await fail(`经标准输入停止，退出码 ${String(code)}`);
     } finally {
+        clearTimeout(timer);
         if (child.exitCode === null) child.kill("SIGKILL");
+        await child.exited;
         await rm(stateRoot, {recursive: true, force: true});
     }
 }
@@ -205,7 +211,7 @@ async function thirdPartyNotices(serverPackages: ReadonlySet<string>, webRoot: s
     return [
         "# 第三方许可",
         "这个包里的 `server/` 与 `web/` 是打包产物，打包时去掉了各依赖文件头的版权声明。下面是打进去的每个第三方包的许可与声明。",
-        noticeSection("服务端（server/nbook.js、server/project.js）", await packageNotices(serverPackages)),
+        noticeSection("服务端（server/nbook.js、server/main.js、server/project.js）", await packageNotices(serverPackages)),
         noticeSection("前端（web/）", web),
         ["## 字体", ...fonts.map(({file, text}) => `### web/assets/${file}\n\n\`\`\`\n${text}\n\`\`\``)].join("\n\n"),
     ].join("\n\n") + "\n";

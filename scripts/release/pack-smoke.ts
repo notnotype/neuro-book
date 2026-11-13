@@ -253,7 +253,7 @@ async function smokeVueHost(root: string, from: ReturnType<typeof sources>): Pro
 }
 
 /** 读子进程标准输出的第一行（`--json` 的结果对象写在第一行）。 */
-async function firstLine(child: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<string> {
+async function firstLine(child: {readonly stdout: ReadableStream<Uint8Array>}): Promise<string> {
     const reader = child.stdout.getReader();
     let text = "";
     try {
@@ -292,22 +292,31 @@ async function withNbook(nbook: string, stateRoot: string, env: Record<string, s
 
 /**
  * 以托管方式运行装好的应用包里的 `server/main.js`（docs/specs/runtime/server-host.md 的“托管宿主”，桌面壳就这样运行它）：
- * 用 `nbook start --json` 找到它（同一状态根上已有同版本实例时只报告它，`started: false`），交给 `use`；最后经标准输入
- * 写 `stop`，要求以 0 退出。
+ * 等它认领了状态根（标准输出的第一行 `RPC listening on` 在认领之后才打印），再用 `nbook start --json` 找到它（同一状态根上已有
+ * 同版本实例时只报告它，`started: false`；还在启动就等它就绪），交给 `use`；最后经标准输入写 `stop`，要求以 0 退出。
+ * 不先等认领的话，`nbook start` 可能抢先认领、自己在前台运行下去。每一步都有截止，超时结束子进程。
  */
 async function withManagedEntry(packageDirectory: string, nbook: string, stateRoot: string, env: Record<string, string>, use: (url: string) => Promise<void>): Promise<void> {
     const server = Bun.spawn(["bun", join(packageDirectory, "server", "main.js"), "--stop-stdin"], {
         cwd: stateRoot,
         stdin: "pipe",
-        stdout: "ignore",
+        stdout: "pipe",
         stderr: "pipe",
         env: {...process.env, ...env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join(packageDirectory, "web")},
     });
+    const stderr = new Response(server.stderr).text();
     let failure: unknown = null;
     try {
-        // nbook start 遇到启动中的同版本实例会等它就绪（至多 60 秒），然后报告它、以 0 退出。
-        const found = JSON.parse(await mustRun("nbook start 找托管运行的实例", [nbook, "start", "--state-root", stateRoot, "--no-open", "--json"], {cwd: stateRoot, env})) as {ok?: boolean; started?: boolean; url?: string; pid?: number};
-        if (found.started !== false || found.pid !== server.pid || typeof found.url !== "string") fail(`nbook start 没有报告托管运行的实例：${JSON.stringify(found)}`);
+        const claimTimer = setTimeout(() => server.kill("SIGKILL"), 60_000);
+        const first = await firstLine(server).finally(() => clearTimeout(claimTimer));
+        // 余下的标准输出照样读掉，免得管道写满挡住服务端。
+        void new Response(server.stdout).text();
+        if (!first.startsWith("RPC listening on")) fail(`托管入口没有起来：${first}\n${await stderr}`);
+        const finder = Bun.spawn([nbook, "start", "--state-root", stateRoot, "--no-open", "--json"], {cwd: stateRoot, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: {...process.env, ...env}});
+        const finderTimer = setTimeout(() => finder.kill("SIGKILL"), 90_000);
+        const [output, code] = await Promise.all([new Response(finder.stdout).text(), finder.exited]).finally(() => clearTimeout(finderTimer));
+        const found = JSON.parse(output || "{}") as {ok?: boolean; started?: boolean; url?: string; pid?: number};
+        if (code !== 0 || found.started !== false || found.pid !== server.pid || typeof found.url !== "string") fail(`nbook start 没有报告托管运行的实例（退出码 ${code}）：${output}${await new Response(finder.stderr).text()}`);
         await use(found.url);
     } catch (error) {
         failure = error;
@@ -320,7 +329,7 @@ async function withManagedEntry(packageDirectory: string, nbook: string, stateRo
     const code = await server.exited;
     clearTimeout(timer);
     if (failure !== null) throw failure;
-    if (code !== 0) fail(`托管入口写 stop 后退出码 ${code}（${server.signalCode ?? "没有被强制结束"}）\n${await new Response(server.stderr).text()}`);
+    if (code !== 0) fail(`托管入口写 stop 后退出码 ${code}（${server.signalCode ?? "没有被强制结束"}）\n${await stderr}`);
 }
 
 async function checkWorkbench(url: string): Promise<void> {
