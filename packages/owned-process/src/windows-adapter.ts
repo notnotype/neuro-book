@@ -44,6 +44,12 @@ export function spawnWindowsOwnedProcess(spec: OwnedProcessSpec, options: Window
         resolveCompletion = resolvePromise;
         rejectCompletion = rejectPromise;
     });
+    // 目标的 pid 随监督进程的 ready 消息到来；目标没创建成功、监督进程就收口了，交回 null。
+    let resolveRootPid!: (pid: number | null) => void;
+    const rootPid = new Promise<number | null>((resolvePromise) => {
+        resolveRootPid = resolvePromise;
+    });
+    completion.then(() => resolveRootPid(null), () => resolveRootPid(null));
 
     supervisor.once("error", (error) => beginFailure(new OwnedProcessError(
         `无法启动Windows自有进程监督器：${error.message}`,
@@ -98,6 +104,7 @@ export function spawnWindowsOwnedProcess(spec: OwnedProcessSpec, options: Window
         stdout: supervisor.stdout ?? undefined,
         stderr: supervisor.stderr ?? undefined,
         completion,
+        rootPid,
         terminate(reason) {
             if (terminationPromise) return terminationPromise;
             if (settled) return completion;
@@ -180,6 +187,10 @@ export function spawnWindowsOwnedProcess(spec: OwnedProcessSpec, options: Window
 
     /** 把监督状态映射为单一completion，最终仍等待监督进程close确认句柄收口。 */
     function handleSupervisorMessage(message: SupervisorMessage): void {
+        if (message.kind === "ready") {
+            resolveRootPid(message.rootPid);
+            return;
+        }
         if (message.kind === "error") {
             terminalError = terminalError ?? new OwnedProcessError(message.message, {
                 stage: message.stage,

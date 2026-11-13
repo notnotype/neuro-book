@@ -42,6 +42,12 @@ export function spawnPosixOwnedProcess(spec: OwnedProcessSpec, options: PosixAda
         resolveCompletion = resolvePromise;
         rejectCompletion = rejectPromise;
     });
+    // 目标的 pid 随监督进程的 ready 消息到来；目标没创建成功、监督进程就收口了，交回 null。
+    let resolveRootPid!: (pid: number | null) => void;
+    const rootPid = new Promise<number | null>((resolvePromise) => {
+        resolveRootPid = resolvePromise;
+    });
+    completion.then(() => resolveRootPid(null), () => resolveRootPid(null));
 
     supervisor.once("error", (error) => beginFailure(new OwnedProcessError(
         `无法启动POSIX自有进程监督器：${error.message}`,
@@ -92,6 +98,7 @@ export function spawnPosixOwnedProcess(spec: OwnedProcessSpec, options: PosixAda
         stdout: supervisor.stdout ?? undefined,
         stderr: supervisor.stderr ?? undefined,
         completion,
+        rootPid,
         terminate(reason) {
             if (terminationPromise) return terminationPromise;
             if (settled) return completion;
@@ -162,6 +169,10 @@ export function spawnPosixOwnedProcess(spec: OwnedProcessSpec, options: PosixAda
 
     /** 目标终态和结构化错误最终都等待 supervisor close。 */
     function handleSupervisorMessage(message: SupervisorMessage): void {
+        if (message.kind === "ready") {
+            resolveRootPid(message.rootPid);
+            return;
+        }
         if (message.kind === "error") {
             terminalError = terminalError ?? new OwnedProcessError(message.message, {stage: message.stage});
             armWatchdog("POSIX监督进程报告错误后未在窗口内退出。", hardKillWaitMs + 250);

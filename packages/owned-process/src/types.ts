@@ -41,6 +41,8 @@ export type OwnedProcessLease = {
     stdout?: Readable;
     stderr?: Readable;
     completion: Promise<OwnedProcessCompletion>;
+    /** 目标进程的 pid：目标创建后 resolve；目标没创建成功就收口时 resolve 为 null。 */
+    rootPid: Promise<number | null>;
     terminate(reason: OwnedProcessTerminationReason): Promise<OwnedProcessCompletion>;
 };
 
