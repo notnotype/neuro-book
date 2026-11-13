@@ -9,7 +9,7 @@
  * 判定是纯读：预览用提交时的同一个函数（`applyLayoutDrop`）算，放回原处的落点只显示、不提交。结构键变了整场取消（输出 32），放下时提交再验一次接受矩阵（领域操作自己验）。
  */
 
-import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewPanelRects, removeTab, resolveLayoutDrop, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, isPanelShown, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewPanelRects, removeTab, resolveLayoutDrop, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, GridRect, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
 import {createDragSession, layoutMotionMs, measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops, translateTabStrip} from "@notnotype/nb-layout/vue";
 import type {DragSession, TabStripSnapshot} from "@notnotype/nb-layout/vue";
@@ -158,6 +158,17 @@ const FLOAT_REGION = "float";
 /** 文件还不是文档里的标签：判定按一个编辑器标签问接受矩阵，提交归编辑器。 */
 const FILE_SOURCE: LayoutDropSource = {kind: "new", tab: {kind: "tab", type: EDITOR_TAB_TYPE, tabId: "file"}};
 
+/**
+ * 摘掉这个标签之后它那块面板还在、还显示着：还有别的标签，或是最后一个编辑组留成空组（`removeTab`）。这时放回它那块的中央是添加为标签，不是原位；
+ * 实时布局拿起卡片时就把它撕下来（输出 38）。单个标签的面板、分节摘掉就没了，它的整块是原位。
+ */
+function homeStays(doc: LayoutDoc, tab: string): boolean {
+    const home = findTab(doc, tab)?.panel;
+    if (home === undefined) return false;
+    const result = removeTab(doc, tab);
+    return result.ok && isPanelShown(result.doc, home);
+}
+
 /** 按整数比：亚像素的抖动不算容器变了。 */
 const extentKey = (extent: GridExtent | null): string => (extent === null ? "" : `${String(Math.round(extent.width))}x${String(Math.round(extent.height))}`);
 
@@ -263,6 +274,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             held = {point: session.state.value?.point ?? null, drop, rejected: overRejected, refusal: editorRefusal};
         },
         homeOf: (source) => findTab(options.doc(), source.tab)?.panel ?? null,
+        homeStays: (source) => homeStays(options.doc(), source.tab),
         // 侧栏里一个容器唯一的视图：活动栏就是它自己的入口条，在里面换位、停在别的入口上都不收起来源（输出 45）。
         isHomeStrip: (source, strip) => strip === findTab(options.doc(), source.tab)?.panel || (strip === BAR_STRIP && soleSidebarContainer(options.doc(), source) !== null),
         show: (doc) => options.showPreview(doc),
@@ -619,7 +631,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         if (cached !== undefined) return cached;
         const result = applyLayoutDrop(doc, source, action, options.policy());
         if (!result.ok) return null;
-        const inPlace = result.doc === doc;
+        // 放回它自己那块的中央、那块摘掉它还在：和别的面板的中央一样是添加为标签（输出 25 第 6 行），松手回到原来的位置、成为活动标签。
+        const rejoins = source.kind === "tab" && action.kind === "center" && findTab(doc, source.tab)?.panel === action.panel && homeStays(doc, source.tab);
+        const inPlace = result.doc === doc && !rejoins;
         const drop = {action, inPlace, preview: previewOf(doc, source, action, inPlace, panels)};
         if (key !== null) previews.set(key, drop);
         return drop;

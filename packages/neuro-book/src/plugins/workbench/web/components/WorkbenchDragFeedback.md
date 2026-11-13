@@ -20,8 +20,8 @@ import type {DropFeedbackPreview} from "@notnotype/nb-ui/components";
 
 type Props = {
     /** 跟着指针的拖影：拖动源的图标与标题；没有拖动为 null。位置经 `moveGhost` 写。 */
-    /** `icon` 是视图的图标类，`fileIcon` 是编辑器标签的文件图标；`hint` 写在标题后（实时布局原位时的落点文字）。 */
-    ghost: {label: string; icon?: string; fileIcon?: CatppuccinIcon | null; hint?: string} | null;
+    /** `icon` 是视图的图标类，`fileIcon` 是编辑器标签的文件图标。 */
+    ghost: {label: string; icon?: string; fileIcon?: CatppuccinIcon | null} | null;
     /** 拖影一开始的位置（视口坐标）：不跟手的场景（Lab）用。 */
     ghostAt?: {x: number; y: number};
     /** 落点预览：插入线或接收区域；没有可显示的落点为 null。 */

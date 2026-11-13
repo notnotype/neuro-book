@@ -99,7 +99,6 @@ export const nbLayoutFixtures: LabFixture[] = [
         scenes: [
             {id: "default", label: "带图标", input: {props: {label: "新建容器（在侧栏）", iconClass: "i-lucide-plus"}}},
             {id: "long", label: "长文字", input: {props: {label: "移到「资源管理器」容器的末尾，并与大纲视图合并显示"}}},
-            {id: "hint", label: "带附注（拖影写落点）", input: {props: {label: "第一章：一个很长很长的文件名.md", iconClass: "i-lucide-file-text", hint: "原位"}}},
         ],
         subject: nbLayoutSubject("DropIndicatorLabel"),
     }),

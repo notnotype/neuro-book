@@ -158,7 +158,7 @@ test.describe("拖动的每帧开销", () => {
         test.setTimeout(120_000);
         await page.emulateMedia({reducedMotion: "no-preference"});
         const cdp = await openBook(page);
-        // 本组正文中央是原位，不拿起卡片（workbench/editor.md 输出 55）：往右拆一组（开着长章），把短章拖到那一组的正文中央。
+        // 往右拆一组（开着长章），把短章拖到那一组的正文中央：卡片拿着，那一组盖着“添加为标签”。
         await page.locator("[data-editor-group-head-active] [data-title-action-key=\"own:split-right\"]").click();
         await expect(page.locator("[data-editor-group-head]")).toHaveCount(2);
         await expect(page.locator("[data-editor-group-active] [data-editor-prose]")).toContainText("长章");

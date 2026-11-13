@@ -51,6 +51,7 @@ function setup(over: Partial<LiveDragHost> = {}) {
         collapseSource: (from) => collapses.push(from.tab),
         expandSource: (from) => expansions.push(from.tab),
         homeOf: () => "home",
+        homeStays: () => false,
         isHomeStrip: (_from, strip) => strip === "home",
         show: (doc) => shown.push(doc),
         ...over,
@@ -161,60 +162,77 @@ describe("createLiveDrag", () => {
         expect(t.live.card.value).toBeNull();
     });
 
-    it("原位不要卡片：拿着的卡片收回；离开原位再拿起，从来源面板的矩形开始（输出 38）", () => {
-        let pointer = {x: 100, y: 400};
-        const t = setup({candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC), pointer: () => pointer});
-        t.live.begin(SOURCE, pointer);
+    it("放回原处（不在自己的标签条里）照样拿着卡片：来源展开回原位，卡片不收回（输出 38）", () => {
+        const t = setup({candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC)});
+        t.live.begin(SOURCE, {x: 300, y: 400});
         t.live.offer(HOME_SPLIT);
         t.frame();
         expect(t.live.card.value).toEqual({key: SOURCE.tab});
-        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.live.offer(dropOf({kind: "edge", target: {kind: "split", panel: "home", edge: "top"}}, true));
         t.frame();
-        expect(t.live.card.value).toBeNull();
         t.frame(200);
-        expect(t.live.card.value).toBeNull();
-        pointer = {x: 300, y: 400};
-        t.live.offer(dropOf({kind: "edge", target: {kind: "split", panel: "home", edge: "right"}}));
-        t.frame();
         expect(t.live.card.value).toEqual({key: SOURCE.tab});
-        expect(t.placed.at(-1)).toEqual({x: 0, y: 0, width: 600, height: 800});
+        expect(t.shown.at(-1)).toBeNull();
     });
 
-    it("来源收起着时回到原位：等原位稳定、来源展开之后才收回卡片", () => {
-        const t = setup({candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC)});
-        t.live.begin(SOURCE, {x: 700, y: 400});
-        t.live.offer(CENTER);
+    it("撕下标签：来源那块面板摘掉它还在时，拿起卡片的那一帧就收起来源，预览是来源收起的样子；回到自己标签条里的原位展开、收回卡片（输出 38）", () => {
+        const t = setup({homeStays: () => true, candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC)});
+        t.live.begin(SOURCE, {x: 100, y: 10});
+        t.live.offer(dropOf({kind: "strip", panel: "home", index: 0}, true));
         t.frame();
+        expect(t.collapses).toEqual([]);
+        expect(t.live.card.value).toBeNull();
+        // 拖出标签条到自己的正文：不等落点稳定。
+        t.live.offer(dropOf({kind: "center", panel: "home"}));
+        t.frame();
+        expect(t.collapses).toEqual([SOURCE.tab]);
+        expect(t.shown.at(-1)).toBe(REMOVED);
+        expect(t.live.previewKey.value).toBe("source-removed");
+        expect(t.live.card.value).toEqual({key: SOURCE.tab});
+        // 稳定之后是并入自己那块：预览照旧是摘掉它的样子，盖层看 `shownAction`。
+        t.frame(200);
+        expect(t.live.shownAction.value).toEqual({kind: "center", panel: "home"});
+        expect(t.collapses).toEqual([SOURCE.tab]);
+        t.live.offer(dropOf({kind: "strip", panel: "home", index: 0}, true));
+        t.frame();
+        expect(t.expansions).toEqual([SOURCE.tab]);
+        expect(t.shown.at(-1)).toBeNull();
+        expect(t.live.card.value).toBeNull();
+        // 再拖出去又撕下来。
+        t.live.offer(dropOf({kind: "center", panel: "home"}));
+        t.frame();
+        expect(t.collapses).toEqual([SOURCE.tab, SOURCE.tab]);
+    });
+
+    it("摘掉它面板就没了（单个标签的面板）：拿起卡片不收起来源，等第一个落点稳定", () => {
+        const t = setup({homeStays: () => false});
+        t.live.begin(SOURCE, {x: 300, y: 400});
+        t.live.offer(HOME_SPLIT);
+        t.frame();
+        expect(t.live.card.value).toEqual({key: SOURCE.tab});
+        expect(t.collapses).toEqual([]);
         t.frame(200);
         expect(t.collapses).toEqual([SOURCE.tab]);
-        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
-        t.frame();
-        expect(t.live.card.value).toEqual({key: SOURCE.tab});
-        expect(t.expansions).toEqual([]);
-        t.frame(200);
-        expect(t.expansions).toEqual([SOURCE.tab]);
-        expect(t.live.card.value).toBeNull();
     });
 
-    it("离开原位时指针已在来源面板外面：卡片从面板的位置追到指针下，不跳", () => {
-        let pointer = {x: 300, y: 400};
-        const t = setup({candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC), pointer: () => pointer});
+    it("离开吸收它的标签条时指针已在那块面板外面：卡片从面板的位置追到指针下，不跳", () => {
+        let pointer = {x: 900, y: 10};
+        const t = setup({pointer: () => pointer});
         t.live.begin(SOURCE, pointer);
-        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.live.offer(strip("other"));
         t.frame();
+        t.frame(200);
         expect(t.live.card.value).toBeNull();
-        // 单标签面板拖到邻居靠它的那一半是原位；再往外就离开了，这时指针在来源面板右边 200px。
-        pointer = {x: 800, y: 400};
-        t.live.offer(CENTER);
+        // 从标签条往上拖出了网格：那块面板（other，从 y=0 起）在指针下面 40px。
+        pointer = {x: 900, y: -40};
+        t.live.offer(null);
         t.frame();
-        expect(t.placed.at(-1)).toEqual({x: 0, y: 0, width: 600, height: 800});
+        expect(t.placed.at(-1)?.y).toBe(0);
         t.frame();
-        const second = t.placed.at(-1);
-        expect(second?.x).toBeGreaterThan(0);
-        // 抓住的点夹在卡片右边上：追完之后卡片的右边在指针下。
+        expect(t.placed.at(-1)?.y).toBeLessThan(0);
+        // 抓住的点夹在卡片上边：追完之后卡片的上边在指针下。
         for (let index = 0; index < 120; index += 1) t.frame();
-        const settled = t.placed.at(-1);
-        expect(settled === undefined ? null : settled.x + settled.width).toBeCloseTo(800, 5);
+        expect(t.placed.at(-1)?.y).toBeCloseTo(-40, 5);
     });
 
     it("第一次进别的标签条等够稳定才吸收：这之前卡片留着，路过不换预览", () => {

@@ -8,7 +8,7 @@
 import type {GridDropPoint, GridDropRect} from "./grid-drop";
 import {placeGrid} from "./grid-rects";
 import {createGrid} from "./grid";
-import {edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isContainerAnchor, isNodeShown, isSectionCollapsed, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, REGION_ORIENTATION, sectionRegionOf, setFloatRect, tabKey, treeLeaves} from "./layout-doc";
+import {activateTab, edgeTargetOf, edgeTargetTouches, findTab, findTreeNode, firstPanelIn, floatTab, insertTab, isContainerAnchor, isNodeShown, isSectionCollapsed, movePanelToEdge, movePanelToStrip, moveTabToEdge, moveTabToStrip, openFloatPanel, openPanelAtEdge, REGION_ORIENTATION, sectionRegionOf, setFloatRect, tabKey, treeLeaves} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutEdgeTarget, LayoutFloatRect, LayoutPolicy, LayoutResult, LayoutSource, PanelName, PanelRecord, TabRef} from "./layout-doc";
 import {projectLayoutDoc} from "./layout-project";
 import type {LayoutProjectionOptions} from "./layout-project";
@@ -393,8 +393,9 @@ export function applyLayoutDrop(doc: LayoutDoc, source: LayoutDropSource, action
         case "center": {
             const panel = doc.panels[action.panel];
             if (panel === undefined) return {ok: false, code: "not-found", detail: `面板 ${action.panel}`};
-            const inPlace = source.kind === "tab" && findTab(doc, source.tab)?.panel === action.panel;
-            if (inPlace || (source.kind === "panel" && source.panel === action.panel)) return {ok: true, doc};
+            // 放回自己所在面板的中央：它成为活动标签，本来就是时原样（放回原处）。
+            if (source.kind === "tab" && findTab(doc, source.tab)?.panel === action.panel) return panel.active === source.tab ? {ok: true, doc} : activateTab(doc, source.tab);
+            if (source.kind === "panel" && source.panel === action.panel) return {ok: true, doc};
             if (source.kind === "tab") return moveTabToStrip(doc, {tab: source.tab, panel: action.panel, index: panel.tabs.length}, policy);
             return movePanelToStrip(doc, {panel: source.panel, target: action.panel}, policy);
         }

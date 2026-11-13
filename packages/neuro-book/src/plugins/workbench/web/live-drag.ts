@@ -4,7 +4,7 @@
  * 一帧的顺序固定：先让手势判定（读 DOM），再换预览，最后写卡片。写在读前面的话，判定里的 `elementsFromPoint` 每帧要强制重算一次样式。卡片的矩形每帧变，直接写在元素上，不进响应式；响应式的东西一场只变几次到几十次。
  *
  * 判定的几何：拿起时量一份；第一次落到别处时来源收起，之后按收起后的布局判（`collapseSource`），预览怎么摆判定都不跟着变。回到原处（放下去是原样）时来源展开，
- * 判定换回拿起时的那份（`expandSource`）；再落到别处又收起（输出 38）。
+ * 判定换回拿起时的那份（`expandSource`）；再落到别处又收起（输出 38）。来源那块面板摘掉它还在时，拿起卡片就收起（撕下标签），不等落点。
  *
  * 预览只是一份给渲染用的文档（store 的 `setLivePreview`），不写记录，不改可见性。撤预览由 `end` 做：手势的收场顺序里它先于提交，同一个同步段不渲染，不闪。
  */
@@ -66,6 +66,8 @@ export interface LiveDragHost {
     expandSource(source: LayoutTabSource, drop: LayoutDragDrop): void;
     /** 来源在已提交的文档里所在的面板。 */
     homeOf(source: LayoutTabSource): string | null;
+    /** 摘掉来源之后它那块面板还在：还有别的标签，或是最后一个编辑组留成空组。 */
+    homeStays(source: LayoutTabSource): boolean;
     /**
      * 这条标签条是不是来源自己的：它所在面板的，或者来源是侧栏里一个容器唯一的视图时的活动栏（输出 45：入口之间只是给它的容器换位置）。
      * 在自己的标签条里跟手、不收起来源。
@@ -79,7 +81,7 @@ export interface LiveDrag {
     readonly active: Readonly<Ref<boolean>>;
     /** 此刻预览的是什么：`none`、`source-removed` 或候选的键。e2e 等它，不按时长等。 */
     readonly previewKey: Readonly<Ref<string>>;
-    /** 拿起的内容项；原位、被标签条吸收、没拿起时为 null。只在拿起与放下时变，矩形经 `placeCard` 写。 */
+    /** 拿起的内容项；被标签条吸收、没拿起时为 null。只在拿起与放下时变，矩形经 `placeCard` 写。 */
     readonly card: Readonly<Ref<{readonly key: string} | null>>;
     /** 已显示的空位（相对网格根）；没有新面板时为 null。 */
     readonly slot: Readonly<Ref<GridRect | null>>;
@@ -125,6 +127,8 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     let absorbedIn: string | null = null;
     /** 来源此刻收起着：摆别处的落点（或来源收起的预览）时收起，回到原处时展开。 */
     let collapsed = false;
+    /** 来源那块面板摘掉它还在不在（`homeStays`）：已提交的文档一场里不变（结构变了整场取消），第一次要时问一次。undefined 是还没问。 */
+    let stays: boolean | undefined;
     let lastFrame = 0;
     let state: LiveDropState = initialLiveDrop(0);
     let started = false;
@@ -142,15 +146,13 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     }
 
     /**
-     * 两种时候不要卡片（输出 38）。原位：放下去是原样，卡片飞回，内容回到叶，标签照常显示。来源收起着时等它展开：收起着的预览里没有这个标签，
-     * 不拿着的话内容项就卸了；原位稳定的那一帧 `stepPreview` 先展开，同一帧这里就收回。指针落在别人的标签条上并且已经被它吸收：只有标签跟手。
+     * 指针在标签条上、并且是自己标签条里的原位或已经被这条吸收时不要卡片：只有标签跟手。别的时候都拿着卡片，原位也是（输出 38）。
      * 还没等够稳定时卡片留着，内容靠拿起留着（`WorkbenchSurface` 的 `contents`）。
      */
     function wantsCard(): boolean {
         if (offered === null) return true;
-        if (offered.inPlace) return collapsed;
         const strip = stripOf(offered.action);
-        return strip === null || strip !== absorbedIn;
+        return strip === null || !(offered.inPlace || strip === absorbedIn);
     }
 
     function updateCard(now: number): void {
@@ -209,7 +211,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         }
         const before = state.preview;
         state = stepLiveDrop(state, {now, candidate: offered === null ? null : candidateOf(offered, from)});
-        if (state.preview === before) return false;
+        if (state.preview === before) return tearOff(from);
         const {preview} = state;
         // 落到别处才收起来源：自己的标签条里换序、放回原处都还没离开（活动栏是自己的入口条时，停在别的入口上也是，`homeStripOf`）。
         const elsewhere = preview.kind === "source-removed" || (preview.kind === "candidate" && offered !== null && !offered.inPlace && !isHome(from, homeStripOf(offered.action)));
@@ -239,6 +241,27 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             host.show(host.sourceRemovedDoc(from));
         }
         slot.value = state.slot === null ? null : {x: state.slot.left - origin.x, y: state.slot.top - origin.y, width: state.slot.right - state.slot.left, height: state.slot.bottom - state.slot.top};
+        return true;
+    }
+
+    /**
+     * 撕下标签（照 Trellis，输出 38）：要拿起卡片、来源那块面板摘掉它还在时，马上收起来源，那一块接着显示下一个标签（或是空组）。
+     * 收起只让它的标签条少一个标签，面板的矩形不变；等第一个落点稳定再收的话，这 150ms 里正文是空的：内容在卡片上。
+     * 预览换成来源收起的样子：回到自己标签条里的原位是又一次换预览，照常展开。摘掉它面板就没了的（单个标签的组、分节）照旧等第一个落点。
+     */
+    function tearOff(from: LayoutTabSource): boolean {
+        if (collapsed || !wantsCard()) return false;
+        stays ??= host.homeStays(from);
+        if (!stays) return false;
+        collapsed = true;
+        host.collapseSource(from, offered);
+        state = {...state, preview: {kind: "source-removed"}, slot: null};
+        shown = null;
+        previewKey.value = "source-removed";
+        shownAction.value = null;
+        absorbedIn = null;
+        slot.value = null;
+        host.show(host.sourceRemovedDoc(from));
         return true;
     }
 
@@ -281,6 +304,7 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             homeRect = undefined;
             absorbedIn = null;
             collapsed = false;
+            stays = undefined;
             written = null;
             lastFrame = 0;
             state = initialLiveDrop(0);

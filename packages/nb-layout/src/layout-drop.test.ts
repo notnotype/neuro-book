@@ -252,10 +252,12 @@ describe("策略按边回答（edgeTarget）", () => {
 });
 
 describe("提交", () => {
-    it("放回原处返回原文档：中央落在自己所在的面板、整块面板落在自己的外缘", () => {
+    it("放回原处返回原文档：活动标签落在自己所在面板的中央、整块面板落在自己的外缘；不活动的落在中央成为活动标签，位置不变", () => {
         const doc = THREE();
-        const center = applyLayoutDrop(doc, VIEW, {kind: "center", panel: "a"}, testPolicy());
+        const center = applyLayoutDrop(doc, {kind: "tab", tab: "view:a"}, {kind: "center", panel: "a"}, testPolicy());
         expect(center.ok && center.doc).toBe(doc);
+        const rejoined = applyLayoutDrop(doc, VIEW, {kind: "center", panel: "a"}, testPolicy());
+        expect(rejoined.ok && rejoined.doc.panels.a).toEqual({...doc.panels.a, active: "view:x"});
         const own = applyLayoutDrop(doc, {kind: "panel", panel: "b"}, {kind: "edge", target: {kind: "split", panel: "b", edge: "top"}}, testPolicy());
         expect(own.ok && own.doc).toBe(doc);
     });

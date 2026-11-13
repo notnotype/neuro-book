@@ -1,12 +1,11 @@
 <script setup lang="ts">
-defineProps<{label: string; iconClass?: string; hint?: string}>();
+defineProps<{label: string; iconClass?: string}>();
 </script>
 
 <template>
     <span v-if="label.trim().length > 0" class="nb-ui-drop-indicator-label" data-drop-indicator-label aria-hidden="true">
         <slot name="icon"><span v-if="iconClass" class="nb-ui-drop-indicator-label__icon" :class="iconClass" aria-hidden="true" /></slot>
         <span class="nb-ui-drop-indicator-label__text">{{ label }}</span>
-        <span v-if="hint !== undefined && hint.trim().length > 0" class="nb-ui-drop-indicator-label__hint" data-drop-indicator-hint>{{ hint }}</span>
     </span>
 </template>
 
@@ -45,14 +44,6 @@ defineProps<{label: string; iconClass?: string; hint?: string}>();
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* 附注（例如拖影上的落点）：不截断，挤掉的是前面的标签。 */
-.nb-ui-drop-indicator-label__hint {
-    flex: none;
-    color: var(--text-muted);
-    font-weight: var(--weight-normal);
     white-space: nowrap;
 }
 

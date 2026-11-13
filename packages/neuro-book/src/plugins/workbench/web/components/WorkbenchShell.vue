@@ -576,11 +576,8 @@ const liftedCard = computed(() => {
 });
 const cardTitle = computed(() => (dragSource.value === null ? null : ghostOf(dragSource.value)));
 const wantsGhost = computed(() => dragView.value.ghost);
-/** 拖影的身份；位置经 `moveGhost` 写。实时布局里只有原位时有拖影，它就是反馈，和卡片头一样写落点文字。 */
-const dragGhost = computed(() => {
-    const ghost = dragSource.value === null || !wantsGhost.value ? null : ghostOf(dragSource.value);
-    return ghost === null || drag.value?.live.active.value !== true ? ghost : {...ghost, hint: liveLabel.value};
-});
+/** 拖影的身份；位置经 `moveGhost` 写。 */
+const dragGhost = computed(() => (dragSource.value === null || !wantsGhost.value ? null : ghostOf(dragSource.value)));
 /** 正被拖着、活动栏上留着位置的入口：只含被拖视图的那个容器的。 */
 const toolPlaceholder = computed(() => {
     const viewId = dragPlaceholder.value === null ? null : viewIdOf(dragPlaceholder.value);

@@ -97,8 +97,8 @@ export interface MoveOptions {
 export type MoveOutcome = EditorTabDropOutcome;
 
 /**
- * 放进这一组、不指定位置（拖到正文中央，画的是“添加为标签”）：新来的排在普通区末尾；目标组已开着同一标签时只激活它，位置与固定都不动。
- * 给了位置（`TabPlace`）时，留下的那个照样挪到落点（输出 49）。
+ * 放进这一组、不指定位置（拖到正文中央，画的是“添加为标签”）：新来的排在普通区末尾；目标组已开着同一标签时只激活它，位置与固定都不动；
+ * 它本来就在这一组时也一样，只激活它。给了位置（`TabPlace`）时，留下的那个照样挪到落点（输出 49）。
  */
 export interface GroupPlace {
     readonly group: string;
@@ -755,6 +755,12 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         }
         if (found.group.active === tabId && target.id !== found.group.id && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
         if (target.active !== tabId && !leave(target.id)) return {ok: false, reason: refusal(target.id, "target")};
+        // 放回它自己这一组的中央（拖走又拖回正文）：回到原来的位置成为活动标签，不挪到末尾、不取消固定。
+        if (exact === null && target.id === found.group.id) {
+            groups.activate(tabId);
+            focusAfterMove();
+            return {ok: true};
+        }
         const moved = groups.moveTab(tabId, place);
         if (moved === null) return {ok: false, reason: editorText("refusal.samePlace")};
         focusAfterMove();

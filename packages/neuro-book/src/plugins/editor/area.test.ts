@@ -1327,6 +1327,8 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         // 活动标签有未裁决输入：同组里挪别的标签、把它移走、往这组移，都和 `moveTab` 一样不行。
         expect(at.area.moveOutcome(a, left)).toBe("refuse");
         expect(await at.area.moveTab(a, {group: left, partition: "normal", before: b})).toMatchObject({ok: false});
+        // 放回自己这一组的中央要激活它，同样要离开活动标签。
+        expect(await at.area.moveTab(a, {group: left})).toMatchObject({ok: false});
         expect(at.area.moveOutcome(c, left)).toBe("refuse");
         expect(await at.area.moveTab(c, {group: left, partition: "normal", before: null})).toMatchObject({ok: false});
         // 并入要先激活那个标签：它不是活动的，就要离开有未裁决输入的活动标签，同样不行。
@@ -1345,7 +1347,7 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         expect(at.area.moveOutcome("missing", right)).toBe("refuse");
     });
 
-    it("并到正文中央（不指定位置）：留下的那个只激活，位置与固定都不动；给了位置时照样挪到落点", async () => {
+    it("并到正文中央（不指定位置）：留下的那个只激活，位置与固定都不动；放回它自己这一组也只激活", async () => {
         const at = await world();
         at.area.open("project://a.md", {mode: "permanent"});
         at.area.open("project://b.md", {mode: "permanent", group: "side"});
@@ -1355,6 +1357,13 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         at.area.setPinned(tabId(at, 1, "a.md"), true);
         const marks = (): string[][] => at.area.groups.groups.value.map((group) => group.tabs.map((tab) => `${tab.address.replace("project://", "")}${tab.kind === "file" && tab.pinned === true ? "^" : ""}`));
         expect(marks()).toEqual([["a.md"], ["a.md^", "b.md", "c.md"]]);
+        expect(await at.area.moveTab(tabId(at, 0, "a.md"), {group: right})).toEqual({ok: true});
+        expect(marks()).toEqual([["a.md^", "b.md", "c.md"]]);
+        expect(at.area.groups.activeTab()?.address).toBe("project://a.md");
+        // 拖走又拖回自己这一组的正文：回到原来的位置成为活动标签，固定的还固定着。
+        expect(await at.area.moveTab(tabId(at, 0, "b.md"), {group: right})).toEqual({ok: true});
+        expect(marks()).toEqual([["a.md^", "b.md", "c.md"]]);
+        expect(at.area.groups.activeTab()?.address).toBe("project://b.md");
         expect(await at.area.moveTab(tabId(at, 0, "a.md"), {group: right})).toEqual({ok: true});
         expect(marks()).toEqual([["a.md^", "b.md", "c.md"]]);
         expect(at.area.groups.activeTab()?.address).toBe("project://a.md");

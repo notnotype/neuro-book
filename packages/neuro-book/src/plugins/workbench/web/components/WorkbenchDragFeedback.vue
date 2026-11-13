@@ -13,8 +13,8 @@ import type {LayoutDragSectors} from "../layout-drag";
 defineOptions({name: "WorkbenchDragFeedback"});
 
 const props = withDefaults(defineProps<{
-    /** 跟着指针的拖影：拖动源的图标（视图的图标类，或文件图标）与标题，`hint` 是标题后的落点文字（实时布局没有落点指示）；没有拖动为 null。跟手时位置经 `moveGhost` 写。 */
-    ghost: {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null; readonly hint?: string} | null;
+    /** 跟着指针的拖影：拖动源的图标（视图的图标类，或文件图标）与标题；没有拖动为 null。跟手时位置经 `moveGhost` 写。 */
+    ghost: {readonly label: string; readonly icon?: string; readonly fileIcon?: CatppuccinIcon | null} | null;
     /** 拖影一开始的位置（视口坐标）：不跟手的场景（Lab）用。 */
     ghostAt?: GridDropPoint;
     /** 落点预览：插入线或接收区域；没有可显示的落点为 null。 */
@@ -60,7 +60,7 @@ defineExpose({
     <div class="workbench-drag-feedback">
         <Teleport to="body">
             <div v-if="ghost !== null" :ref="attachGhost" class="workbench-drag-ghost" data-drag-feedback data-workbench-drag-ghost :style="{zIndex: NB_Z_INDEX.dragFeedback}">
-                <DropIndicatorLabel :label="ghost.label" :icon-class="ghost.icon" :hint="ghost.hint">
+                <DropIndicatorLabel :label="ghost.label" :icon-class="ghost.icon">
                     <template v-if="ghost.fileIcon != null" #icon><FileIcon :icon="ghost.fileIcon" /></template>
                 </DropIndicatorLabel>
             </div>
