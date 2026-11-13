@@ -104,6 +104,10 @@ t05、t08、t10。
 38. `$` 菜单的状态改用图标：每行留一列图标列（未初始化、正在初始化各一个图标），悬停时看图标的意思；不用徽标。改了第 28、35 条；Skill 页仍用徽标、仍叫“正在初始化”。
 39. 确认框照第 3 轮的稿：三块区域（一行状态、中间一块、两行说明）位置与大小固定，没有锁的那句在说明行，失败的原因在说明行。
 
+第十一轮（开发者 2026-11-13，收口审查之后）：
+
+40. Skill 已有 `bun.lock`、之后手改 `package.json` 加了依赖时，按锁的安装失败，记为已知限制（方案 b）：用户在 Skill 文件夹里跑一次 `bun install` 或删掉 `bun.lock` 再初始化，应用与命令行不重新生成锁。写进 `agent/skills.md` 的已知限制。
+
 审查改动（同意）：插话里的 `$x` 正文排在插话后面；放回合计不超过窗口 25%、Skill 用文件与计划剩下的；同一 Skill 没改过、上一份还在上下文里时只附“见前文”；代码里的 `$` 不认成 Skill（编辑器也不再显示成小块）。
 
 先调研再定的：字段全表、Skill 参数与“带参数自动执行脚本”、依赖（Python、Node、Bun）、更新与 Skill 市场。调研：[各家的 Skill](../../research/2026-10-30-skill-survey.md)。
@@ -134,7 +138,6 @@ t05、t08、t10。
 等开发者：
 
 1. 批准 Spec 晋升：`agent/skills.md` 改为 `implemented`（补实现合同与证据）；`agent/compaction.md`（输出 13 与非目标里的一句）、`agent/contributions.md` 输出 20、`agent/resources.md` 输出 15、`agent/profile-settings.md` 输出 26、`ui/prompt-editor.md`（`${…}` 的写法）、`workspace/resources.md`（挂载点另给容器）里 t15 的条目去掉 planned。
-2. 后端审查第 11 条：Skill 有 `bun.lock`、之后在 `package.json` 里加了依赖时，冻结安装必然失败，应用与命令行里都没有办法重新生成锁（第 16 条决定的后果）。待定：确认框按 `package.json` 重新解析并更新锁文件，还是记为已知限制、让用户自己删 `bun.lock`。
-3. 知悉：后端审查第 10 条，跨进程锁 `tryLock` 留在 nb-harness 的 `./file-lock`，没有搬进 `nb-file-lock`（nb-harness 随 nb-story 发布到 npm，`nb-file-lock` 是 private）。
+2. 锁放在哪个包（后端审查第 10 条）：不判旧的系统文件锁 `tryLock` 现在在 nb-harness 的 `./file-lock`，nb-story 的 `platform/flock.ts` 是几乎相同的另一份。开发者 2026-11-13 问 nb-file-lock 为什么是 private、能不能并进 nb-harness 或一起发布：ADR 0045 决策 4 只写了不发 npm、要发布时另定，没有记录别的理由；候选是把 `tryLock` 放进 nb-file-lock 的单独子路径并随 nb-story 发布，或留在 nb-harness、让 nb-story 改用它。待定。
 
 与评审板不同、要告诉开发者的：确认框安装中不显示实时输出（中间一块仍列直接依赖，失败后才是输出的最后几行）；点已发送消息里的 Skill 标签按名字现认，不按那一轮记下的 id；白名单为空时去 Profile 设置的那一项只在刚打 `$` 时给，`$` 后面已经有字时回车照常发送（审查前端第 16 条）。插件 SDK 的构建在 [t33](../t33-plugin-skills/README.md)。
