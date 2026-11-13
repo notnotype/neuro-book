@@ -425,7 +425,7 @@ defineExpose({
     --shell-card-shadow: none;
 }
 
-/* 卡片主题里主体的接缝透明，卡片之间的缝就是边界；工具面板之间、编辑组之间的线还要看得见。 */
+/* 工具面板之间的线按主题（卡片主题里两节之间有缝，不画）；编辑组之间的线一直看得见（docs/specs/workbench/editor.md 输出 2）。 */
 .workbench-surface :deep(.nb-grid-sash[data-sash-kind="panes"]) {
     --nb-splitter-seam: var(--shell-pane-divider, var(--divider));
     --nb-splitter-seam-inset: var(--shell-pane-divider-inset, 0px);
@@ -434,7 +434,7 @@ defineExpose({
 
 /* 编辑组之间的线贯通整个高度。 */
 .workbench-surface :deep(.nb-grid-sash[data-sash-kind="editors"]) {
-    --nb-splitter-seam: var(--shell-pane-divider, var(--divider));
+    --nb-splitter-seam: var(--divider);
     --nb-splitter-seam-inset: 0px;
 }
 
@@ -459,6 +459,11 @@ defineExpose({
     overflow: hidden;
     border-radius: var(--shell-card-radius, 0px);
     box-shadow: var(--shell-card-shadow, none);
+    /*
+     * 相连、断开时相接的两个角在直角与圆角之间过渡（开发者 2026-11-13）：显示侧栏时活动栏的角随侧栏长出来变直，隐藏时侧栏摘掉后
+     * （输出 19 的相连保持）再变圆。用布局的时长与曲线；减少动效时为 0。
+     */
+    transition: border-radius var(--motion-layout) var(--ease-layout);
 }
 
 .workbench-surface__card[data-panel-role] {
@@ -563,6 +568,8 @@ defineExpose({
     overflow: hidden;
     border-end-start-radius: var(--shell-card-radius, 0px);
     border-end-end-radius: var(--shell-card-radius, 0px);
+    /* 同卡片的角：相连、断开时跟卡片一起过渡。 */
+    transition: border-radius var(--motion-layout) var(--ease-layout);
 }
 
 /* 飞行中压在别的面板上面（输出 15）：内容平时透明，露出卡片的底与场景图；飞的时候离开了卡片，要自己带底，不和下面的字叠在一起。 */

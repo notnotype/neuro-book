@@ -313,13 +313,13 @@ test.describe("卡片按邻接算", () => {
         expect(panel.left).toBe(2);
     });
 
-    test("分隔线按两侧是什么分种类：卡片主题里主体的接缝透明，工具面板之间、编辑组之间的线看得见", async ({page}) => {
+    test("分隔线按两侧是什么分种类：卡片主题里主体与工具面板之间的接缝透明（一节一张卡片，中间有缝），编辑组之间的线看得见", async ({page}) => {
         await open(page, "cards");
         await act(page, "d-below-b");
         const seam = (kind: string) => page.locator(`.nb-grid-sash[data-sash-kind="${kind}"]`).first().evaluate((element) => getComputedStyle(element).getPropertyValue("--nb-splitter-seam").trim());
         expect(await seam("shell")).toBe("transparent");
         expect(await seam("editors")).not.toBe("transparent");
-        expect(await seam("panes")).not.toBe("transparent");
+        expect(await seam("panes")).toBe("transparent");
     });
 });
 
