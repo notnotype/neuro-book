@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t12-flock-into-file-lock
-status: active
+status: done
 updated: 2026-11-13
 ---
 
