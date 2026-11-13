@@ -36,6 +36,12 @@ export function withApprovalChoice(settings: Readonly<Record<string, ProfileSett
 }
 
 /** 白名单写回（profile-settings.md 输出 25）：`undefined` 是恢复默认，`agents` 这一项去掉。 */
+/** 写或清掉一个 Profile 的 Skill 白名单改动（skills.md 的“输入与前置条件”）；写法同 `withAgentsChoice`。 */
+export function withSkillsChoice(settings: Readonly<Record<string, ProfileSetting>>, profile: string, skills: ProfileSetting["skills"] | undefined): Record<string, ProfileSetting> {
+    const {skills: _skills, ...rest} = settings[profile] ?? {};
+    return withSetting(settings, profile, skills === undefined ? rest : {...rest, skills});
+}
+
 export function withAgentsChoice(settings: Readonly<Record<string, ProfileSetting>>, profile: string, agents: ProfileSetting["agents"] | undefined): Record<string, ProfileSetting> {
     const {agents: _agents, ...rest} = settings[profile] ?? {};
     return withSetting(settings, profile, agents === undefined ? rest : {...rest, agents});

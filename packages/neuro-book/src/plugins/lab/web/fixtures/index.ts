@@ -41,6 +41,8 @@ import type BackgroundCommandCard from "nbook/plugins/agent/web/components/Backg
 import type SubagentCard from "nbook/plugins/agent/web/components/SubagentCard.vue";
 import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
 import type SkillInitDialog from "nbook/plugins/agent/web/components/SkillInitDialog.vue";
+import type SkillsSettingsPage from "nbook/plugins/agent/web/components/SkillsSettingsPage.vue";
+import type {SkillEntry} from "nbook/plugins/agent/shared/skills";
 import type ProfileSettingsPage from "nbook/plugins/agent/web/components/ProfileSettingsPage.vue";
 import type ProfileToolsSection from "nbook/plugins/agent/web/components/ProfileToolsSection.vue";
 import type AddToolsDialog from "nbook/plugins/agent/web/components/AddToolsDialog.vue";
@@ -139,6 +141,17 @@ const DISPLAY_REPLY = [
  * 场景登记。这不是第二份组件清单——组件清单由 component-index 扫文档得到，
  * 这里只补文档里没有的东西：一个组件可以摆出哪几个场景。两者按组件名对上。
  */
+
+/** Skill 页的场景数据：长短不一的名字放在一起，看徽标与按钮是否落在同一列。 */
+const SKILL_PAGE_ENTRIES: readonly SkillEntry[] = [
+    {id: "user.style-guide", name: "style-guide", description: "按本书的文风规则改写一段：人称、时态、对白格式与禁用词。", source: "user", location: "skills://user.style-guide/SKILL.md", status: "ready", license: "MIT"},
+    {id: "user.epub-export", name: "epub-export", description: "把选中的章节导成 EPUB，带目录、封面与脚注。", source: "user", location: "skills://user.epub-export/SKILL.md", status: "needs-init"},
+    {id: "user.lore-check", name: "lore-check", description: "对照人物卡与设定集，找出正文里前后矛盾的地方。", source: "user", location: "skills://user.lore-check/SKILL.md", status: "needs-init", problem: {code: "install-failed", detail: "error: GET https://registry.npmjs.org/epub-gen-memory - ETIMEDOUT"}},
+    {id: "user.tts-preview", name: "tts-preview", description: "用本机的语音合成朗读选中的一段，听对白的节奏。", source: "user", location: "skills://user.tts-preview/SKILL.md", status: "initializing"},
+    {id: "user.outline", name: "outline", description: "", source: "user", location: "skills://user.outline/SKILL.md", status: "invalid", problem: {code: "name-mismatch", name: "outline-helper"}},
+    {id: "user.voice-check-with-a-much-longer-name", name: "voice-check-with-a-much-longer-name", description: "逐段检查叙述视角有没有串，标出越界的句子。", source: "user", location: "skills://user.voice-check-with-a-much-longer-name/SKILL.md", status: "ready", external: {python: true, uvMissing: true, compatibility: "需要 Python 3.11 以上与 uv；朗读用的 espeak-ng 要自己装"}, metadata: {author: "林默", version: "0.3"}},
+    {id: "builtin.chapter-summary", name: "chapter-summary", description: "给一章写三五句提要，写进章节的元数据。", source: "builtin", location: "skills://builtin.chapter-summary/SKILL.md", status: "ready"},
+];
 export type LabScene = {
     id: string;
     label: string;
@@ -1154,6 +1167,14 @@ function shelfFixtures(): LabFixture[] {
                 {id: "exists", label: "已有同名", input: {props: {status: "已经有同名的 Profile 了。"}, model: {open: true}}},
             ],
             load: async () => withAgentPageText(createSubjectFixture<typeof NewProfileDialog>((await import("nbook/plugins/agent/web/components/NewProfileDialog.vue")).default)),
+        }),
+        defineLabFixture<typeof SkillsSettingsPage>({
+            component: "SkillsSettingsPage",
+            scenes: [
+                {id: "full", label: "我的与内置：可用、未初始化、上次没装好、正在初始化、无效", input: {props: {entries: SKILL_PAGE_ENTRIES}}},
+                {id: "empty", label: "还没有 Skill", input: {props: {entries: []}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof SkillsSettingsPage>((await import("nbook/plugins/agent/web/components/SkillsSettingsPage.vue")).default, {class: "w-full max-w-[720px] p-6"})),
         }),
         defineLabFixture<typeof SkillInitDialog>({
             component: "SkillInitDialog",

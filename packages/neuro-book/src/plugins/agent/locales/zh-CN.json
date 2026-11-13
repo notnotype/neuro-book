@@ -361,6 +361,10 @@
         "profiles": {
             "title": "Profile",
             "description": "每个 Profile 用什么模型、新会话的审批模式、能用哪些工具"
+        },
+        "skills": {
+            "title": "Skill",
+            "description": "放进 Skill 文件夹的 Skill、它们的状态与初始化"
         }
     },
     "profiles": {
@@ -410,7 +414,8 @@
         "sections": {
             "model": "模型与审批",
             "tools": "工具",
-            "agents": "可派的子代理"
+            "agents": "可派的子代理",
+            "skills": "Skill"
         },
         "model": {
             "label": "模型",
@@ -527,6 +532,39 @@
             "userAdded": "我加的",
             "gone": "已删除或不可用",
             "goneGroup": "已删除或不可用"
+        },
+        "skills": {
+            "section": {
+                "help": "这个 Profile 能在对话里用 $ 选哪些 Skill；下一轮起生效",
+                "count": "可用 {{count}} 个",
+                "restore": "恢复默认",
+                "add": "添加 Skill"
+            },
+            "remove": "不再允许用 {{name}}（{{id}}）",
+            "required": "必需",
+            "addBack": "加回",
+            "addBackLabel": "加回 {{name}}（{{id}}）",
+            "add": {
+                "title": "添加 Skill",
+                "done": "添加",
+                "search": "搜索 Skill",
+                "empty": "没有别的可用的 Skill",
+                "noMatch": "没有匹配的 Skill",
+                "blocked": "不能添加",
+                "replaces": "（替换同名的）",
+                "join": "选上 {{name}}（{{id}}）",
+                "unjoin": "不选 {{name}}（{{id}}）"
+            },
+            "userAdded": "我加的",
+            "needsInit": "未初始化",
+            "gone": "没有找到这个 Skill，放回 Skill 文件夹后恢复",
+            "goneGroup": "已删除或不可用",
+            "removedGroup": "已去掉",
+            "groups": {
+                "user": "我的 Skill",
+                "builtin": "内置"
+            },
+            "invalid": "无效"
         }
     },
     "skills": {
@@ -580,6 +618,48 @@
             "noSkills": "这个 Profile 还没有可用的 Skill",
             "needsInit": "未初始化",
             "initializing": "正在初始化"
+        },
+        "page": {
+            "openFolder": "打开 Skill 文件夹",
+            "loading": "正在读取 Skill…",
+            "empty": "还没有 Skill。把一个 Skill 的文件夹（里面有 SKILL.md）放进 Skill 文件夹，这里就会列出来；之后在对话里打 $ 选它。",
+            "groups": {
+                "user": "我的 Skill",
+                "builtin": "内置"
+            },
+            "status": {
+                "needsInit": "未初始化",
+                "initializing": "正在初始化",
+                "invalid": "无效"
+            },
+            "problem": {
+                "skillMdMissing": "文件夹里没有 SKILL.md",
+                "nested": "文件夹里没有 SKILL.md，下一层的 {{directory}} 里有：可能多套了一层文件夹",
+                "frontmatter": "SKILL.md 开头的 frontmatter 读不出来：{{detail}}",
+                "fieldMissing": "SKILL.md 缺少 {{field}}",
+                "fieldInvalid": "SKILL.md 里的 {{field}} 不合规",
+                "nameMismatch": "SKILL.md 里的 name 是 {{name}}，与文件夹名不同",
+                "symlink": "Skill 文件夹是链接，不能使用",
+                "installFailed": "上次初始化没有成功",
+                "interrupted": "上次初始化被中断了"
+            },
+            "init": "初始化",
+            "open": "打开",
+            "details": {
+                "toggle": "{{name}} 的详情",
+                "license": "许可",
+                "compatibility": "兼容性",
+                "external": "外部依赖",
+                "python": "脚本带 Python 依赖，应用不代装",
+                "pythonNoUv": "脚本带 Python 依赖，应用不代装；没有找到 uv",
+                "metadata": "metadata",
+                "location": "位置"
+            },
+            "folder": {
+                "title": "打不开 Skill 文件夹",
+                "noDesktop": "这台机器没有桌面，打不开文件管理器。Skill 文件夹在：{{path}}",
+                "failed": "文件管理器没有打开。Skill 文件夹在：{{path}}"
+            }
         }
     }
 }

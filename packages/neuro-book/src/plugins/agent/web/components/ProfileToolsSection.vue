@@ -7,26 +7,28 @@ import {useAgentPageText} from "../text";
 import AddToolsDialog from "./AddToolsDialog.vue";
 
 /**
- * Profile 设置页的绑定列表一节（同名 .md）：工具一节，也是“可派的子代理”一节（`kind` 选文字）。两节的行、分组、添加与恢复默认相同。
+ * Profile 设置页的绑定列表一节（同名 .md）：工具一节，也是“可派的子代理”“Skill”两节（`kind` 选文字）。几节的行、分组、添加与恢复默认相同。
  */
 const props = withDefaults(defineProps<{
     tools: ProfileToolsField;
     disabled?: boolean;
     addTools?: (change: ToolChange) => Promise<string | null>;
     initialAdd?: boolean;
-    kind?: "tools" | "agents";
+    kind?: "tools" | "agents" | "skills";
 }>(), {disabled: false, addTools: async () => null, initialAdd: false, kind: "tools"});
 
 const emit = defineEmits<{
     (e: "remove", id: string): void;
     (e: "restore"): void;
+    /** 用户去掉的那一行点了“加回”（只有 Skill 一节有）。 */
+    (e: "add-back", id: string): void;
 }>();
 
 const text = useAgentPageText();
-/** 两节的文字在目录里结构相同，只是前缀不同。返回类型列出两节的全部键：哪一节缺了键，类型检查就报。 */
+/** 几节的文字在目录里结构相同，只是前缀不同。返回类型列出几节的全部键：哪一节缺了键，类型检查就报。 */
 type SectionText = "section.help" | "section.count" | "section.restore" | "section.add" | "required" | "remove";
-const key = (rest: SectionText): `profiles.${"tools" | "agents"}.${SectionText}` => `profiles.${props.kind}.${rest}`;
-const sectionKey: `profiles.sections.${"tools" | "agents"}` = `profiles.sections.${props.kind}`;
+const key = (rest: SectionText): `profiles.${"tools" | "agents" | "skills"}.${SectionText}` => `profiles.${props.kind}.${rest}`;
+const sectionKey: `profiles.sections.${"tools" | "agents" | "skills"}` = `profiles.sections.${props.kind}`;
 const folded = ref(new Set<string>());
 function fold(id: string): void {
     const next = new Set(folded.value);
@@ -74,6 +76,7 @@ function openAdd(): void {
                     </Tooltip>
                     <span class="profile-tools__action">
                         <Badge v-if="tool.required" size="sm" variant="soft" :tone="tool.gone ? 'warning' : undefined">{{ text(key('required')) }}</Badge>
+                        <Button v-else-if="tool.restorable === true" size="sm" variant="ghost" :aria-label="text('profiles.skills.addBackLabel', {name: tool.name, id: tool.id})" :disabled="disabled" data-profile-tool-add-back @click="emit('add-back', tool.id)">{{ text('profiles.skills.addBack') }}</Button>
                         <Tooltip v-else :text="text(key('remove'), {name: tool.name, id: tool.id})">
                             <IconButton size="xs" icon-class="i-lucide-x" :aria-label="text(key('remove'), {name: tool.name, id: tool.id})" :disabled="disabled" data-profile-tool-remove @click="emit('remove', tool.id)" />
                         </Tooltip>

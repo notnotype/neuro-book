@@ -24,7 +24,7 @@ import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey}
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {PROJECT_VIEW_CONTAINER, quickPickKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, PROJECT_VIEW_CONTAINER, quickPickKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -42,7 +42,7 @@ import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
-import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION} from "../shared/settings";
+import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, SKILLS_SECTION} from "../shared/settings";
 import {profileSkills} from "../shared/profile-skills";
 import {agentText} from "../shared/text";
 import {settingsPage} from "nbook/ui/settings/settings-page";
@@ -140,6 +140,7 @@ const browser = globalThis as {readonly location?: {readonly pathname: string}; 
 
 const PROFILES_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-user-round-cog", category: "ai", order: 25, layers: ["user"], layout: "fill", description: agentText("settingsPages.profiles.description")};
 const PERMISSIONS_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-shield-check", category: "ai", order: 40, layers: ["user"], description: agentText("settingsPages.permissions.description")};
+const SKILLS_PAGE: WrittenSettingsPageDeclaration = {icon: "i-lucide-sparkles", category: "ai", order: 30, layers: ["user"], description: agentText("settingsPages.skills.description")};
 
 export const agentBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -147,7 +148,7 @@ export const agentBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: markdownKey}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: commandServiceKey}, {key: windowProjectKey}, {key: settingsKey}, {key: storageKey}, {key: clockKey}, {key: quickPickKey}, {key: notificationsKey}, {key: markdownKey}, {key: windowTextKey, required: false}],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: CONVERSATION_VIEW, declaration: CONVERSATION_DECLARATION},
             {capability: WORKBENCH_VIEWS_POINT, id: SESSIONS_VIEW, declaration: SESSIONS_DECLARATION},
@@ -156,6 +157,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             ...Object.entries(COMMANDS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             {capability: SETTINGS_PAGES_POINT, id: PROFILES_SECTION, declaration: PROFILES_PAGE},
             {capability: SETTINGS_PAGES_POINT, id: PERMISSIONS_SECTION, declaration: PERMISSIONS_PAGE},
+            {capability: SETTINGS_PAGES_POINT, id: SKILLS_SECTION, declaration: SKILLS_PAGE},
             ...agentState.contributions,
         ],
         activate: async (context) => {
@@ -166,6 +168,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             const storage = context.services.require(storageKey);
             const clock = context.services.require(clockKey);
             const quickPick = context.services.require(quickPickKey);
+            const notifications = context.services.require(notificationsKey);
             const text = await windowTextPort(context.services, () => displayLocale(settings));
             const remote = context.remote.use(agentSessionsContract);
             const rulesWriter = createRulesWriter(settings);
@@ -538,7 +541,11 @@ export const agentBrowserPlugin: PluginDefinition = {
                         text,
                         openAddress,
                         report,
-                    })), [PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report}))},
+                        skills,
+                    })), [PERMISSIONS_SECTION]: settingsPage(async () => permissionsPage((await import("./components/PermissionRulesPage.vue")).default, {settings, remote, project: windowProject.project?.id ?? null, text, writer: rulesWriter, report})), [SKILLS_SECTION]: settingsPage(async () => {
+                        const [{skillsPage}, {default: page}] = await Promise.all([import("./skills-page"), import("./components/SkillsSettingsPage.vue")]);
+                        return skillsPage(page, {skills, remote, openAddress, notify: (input) => void notifications.notify(input), report});
+                    })},
                 },
             };
         },

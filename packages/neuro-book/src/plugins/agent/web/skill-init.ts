@@ -35,7 +35,7 @@ export interface SkillInit {
 
 const CLOSED: SkillInitState = {open: false, id: "", name: "", phase: "loading", plan: null, failure: null};
 
-export function createSkillInit(remote: RemoteClient<typeof agentSessionsContract>, report: (message: string) => void): SkillInit {
+export function createSkillInit(remote: Pick<RemoteClient<typeof agentSessionsContract>, "skillInitPlan" | "initSkill">, report: (message: string) => void): SkillInit {
     const state = shallowRef<SkillInitState>(CLOSED);
     // 每次打开加一：上一个 Skill 的计划或安装结果回来时已经换了对话框，就不再写进来。
     let round = 0;

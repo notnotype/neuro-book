@@ -48,6 +48,9 @@ export const RUN_GUARDS_SECTION_DECLARATION: WrittenSettingsSectionDeclaration =
 /** “Profile”页（profile-settings.md）：这两项由页面画，不进“其它”。 */
 export const PROFILES_SECTION = "nbook.agent.profiles";
 
+/** “Skill”页（skills.md 输出 25）：只有页面，没有配置项。 */
+export const SKILLS_SECTION = "nbook.agent.skills";
+
 /** “权限规则”页（permissions.md 输出 22）：这几项由页面画，不进“其它”。 */
 export const PERMISSIONS_SECTION = "nbook.agent.permissions";
 

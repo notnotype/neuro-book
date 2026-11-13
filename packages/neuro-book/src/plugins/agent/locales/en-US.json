@@ -361,6 +361,10 @@
         "profiles": {
             "title": "Profiles",
             "description": "The model, starting approval mode, and tools of each profile"
+        },
+        "skills": {
+            "title": "Skills",
+            "description": "Skills in the Skills folder, their status and initialization"
         }
     },
     "profiles": {
@@ -410,7 +414,8 @@
         "sections": {
             "model": "Model and approval",
             "tools": "Tools",
-            "agents": "Allowed sub-agents"
+            "agents": "Allowed sub-agents",
+            "skills": "Skills"
         },
         "model": {
             "label": "Model",
@@ -527,6 +532,39 @@
             "userAdded": "Added by me",
             "gone": "Deleted or unavailable",
             "goneGroup": "Deleted or unavailable"
+        },
+        "skills": {
+            "section": {
+                "help": "Which Skills this Profile can pick with $ in a conversation; takes effect from the next turn",
+                "count": "{{count}} available",
+                "restore": "Restore defaults",
+                "add": "Add Skill"
+            },
+            "remove": "Stop allowing {{name}} ({{id}})",
+            "required": "Required",
+            "addBack": "Add back",
+            "addBackLabel": "Add back {{name}} ({{id}})",
+            "add": {
+                "title": "Add Skills",
+                "done": "Add",
+                "search": "Search Skills",
+                "empty": "No other Skills available",
+                "noMatch": "No matching Skill",
+                "blocked": "Cannot add",
+                "replaces": "(replaces the one with the same name)",
+                "join": "Select {{name}} ({{id}})",
+                "unjoin": "Deselect {{name}} ({{id}})"
+            },
+            "userAdded": "Added by me",
+            "needsInit": "Not initialized",
+            "gone": "This Skill was not found; it comes back once it is in the Skills folder again",
+            "goneGroup": "Deleted or unavailable",
+            "removedGroup": "Removed",
+            "groups": {
+                "user": "My Skills",
+                "builtin": "Built-in"
+            },
+            "invalid": "Invalid"
         }
     },
     "skills": {
@@ -580,6 +618,48 @@
             "noSkills": "This Profile has no Skills available yet",
             "needsInit": "Not initialized",
             "initializing": "Initializing"
+        },
+        "page": {
+            "openFolder": "Open Skills folder",
+            "loading": "Reading Skills…",
+            "empty": "No Skills yet. Put a Skill folder (with a SKILL.md inside) into the Skills folder and it will be listed here; then pick it in a conversation by typing $.",
+            "groups": {
+                "user": "My Skills",
+                "builtin": "Built-in"
+            },
+            "status": {
+                "needsInit": "Not initialized",
+                "initializing": "Initializing",
+                "invalid": "Invalid"
+            },
+            "problem": {
+                "skillMdMissing": "No SKILL.md in the folder",
+                "nested": "No SKILL.md in the folder, but {{directory}} one level down has one: the folder may be nested once too often",
+                "frontmatter": "The frontmatter at the top of SKILL.md cannot be read: {{detail}}",
+                "fieldMissing": "SKILL.md is missing {{field}}",
+                "fieldInvalid": "{{field}} in SKILL.md is invalid",
+                "nameMismatch": "The name in SKILL.md is {{name}}, which differs from the folder name",
+                "symlink": "The Skill folder is a link and cannot be used",
+                "installFailed": "The last initialization failed",
+                "interrupted": "The last initialization was interrupted"
+            },
+            "init": "Initialize",
+            "open": "Open",
+            "details": {
+                "toggle": "Details of {{name}}",
+                "license": "License",
+                "compatibility": "Compatibility",
+                "external": "External dependencies",
+                "python": "The scripts need Python packages, which the app does not install",
+                "pythonNoUv": "The scripts need Python packages, which the app does not install; uv was not found",
+                "metadata": "metadata",
+                "location": "Location"
+            },
+            "folder": {
+                "title": "Cannot open the Skills folder",
+                "noDesktop": "This machine has no desktop, so no file manager can be opened. The Skills folder is at: {{path}}",
+                "failed": "The file manager did not open. The Skills folder is at: {{path}}"
+            }
         }
     }
 }

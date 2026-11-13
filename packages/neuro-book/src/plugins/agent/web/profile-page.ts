@@ -22,8 +22,10 @@ import type {ProfileSetting, ToolBinding} from "../shared/settings";
 import {changeToolBinding, userProfileAddress, withToolBinding} from "../shared/profile-tools";
 import type {ToolChange} from "../shared/profile-tools";
 import {agentText} from "../shared/text";
-import {withAgentsChoice, withApprovalChoice, withModelChoice} from "./profile-edits";
+import {withAgentsChoice, withApprovalChoice, withModelChoice, withSkillsChoice} from "./profile-edits";
 import {changeAgentsBinding} from "../shared/profile-agents";
+import {declaredSkills} from "../shared/profile-skills";
+import type {SkillsClient} from "./skills";
 import {profileViews, toolChangeContext} from "./profile-view";
 import {createSettingWriter} from "./setting-writes";
 import type {SettingWriter} from "./setting-writes";
@@ -76,6 +78,8 @@ export interface ProfilePageDeps {
     readonly text: TextResolver;
     readonly openAddress: (address: string) => void;
     readonly report: (code: string, message: string) => void;
+    /** 窗口的 Skill 目录：Skill 一节要它；不给时这一节不画。 */
+    readonly skills?: SkillsClient;
 }
 
 export function profilesPage(component: Component, deps: ProfilePageDeps): Component {
@@ -120,6 +124,7 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
             let unmounted = false;
             onMounted(async () => {
                 deps.models.ensure();
+                deps.skills?.ensure();
                 void deps.pluginNames().then((names) => {
                     pluginNames.value = names;
                 });
@@ -155,6 +160,7 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                 modelsFailed: deps.models.failed.value,
                 pluginName,
                 text: deps.text,
+                skills: deps.skills?.entries.value ?? null,
             }));
 
             /** 写的那一刻对当时的值求改动，按这时的目录换算（用到的是 Profile 本来就有哪些工具）。 */
@@ -171,6 +177,12 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                 return settingEdits.apply((current) => withAgentsChoice(current, key, changeAgentsBinding(current[key]?.agents, declared, change)));
             };
 
+            /** Skill 白名单的写法同可派的子代理：`"all"` 的声明按此刻的目录展开（skills.md 的“输入与前置条件”）。 */
+            const changeSkills = (key: string, change: ToolChange): Promise<SettingWriteResult> => {
+                const declared = declaredSkills(entries.value.find((candidate) => candidate.key === key)?.skills, (deps.skills?.entries.value ?? []).map((skill) => skill.id));
+                return settingEdits.apply((current) => withSkillsChoice(current, key, changeAgentsBinding(current[key]?.skills, declared, change)));
+            };
+
             return () => h(component, {
                 state: state.value,
                 profiles: views.value,
@@ -185,6 +197,13 @@ export function profilesPage(component: Component, deps: ProfilePageDeps): Compo
                 onRestoreTools: (key: string) => void bindingEdits.apply((current) => withToolBinding(current, key, undefined)).then(reportIfFailed),
                 onRemoveAgent: (key: string, id: string) => void changeAgents(key, {remove: [id]}).then(reportIfFailed),
                 onRestoreAgents: (key: string) => void settingEdits.apply((current) => withAgentsChoice(current, key, undefined)).then(reportIfFailed),
+                onRemoveSkill: (key: string, id: string) => void changeSkills(key, {remove: [id]}).then(reportIfFailed),
+                onAddBackSkill: (key: string, id: string) => void changeSkills(key, {add: [id]}).then(reportIfFailed),
+                onRestoreSkills: (key: string) => void settingEdits.apply((current) => withSkillsChoice(current, key, undefined)).then(reportIfFailed),
+                addSkills: async (key: string, change: ToolChange): Promise<string | null> => {
+                    const result = await changeSkills(key, change);
+                    return result.ok ? null : settingsFailureText(result.code, result.detail, deps.text);
+                },
                 addAgents: async (key: string, change: ToolChange): Promise<string | null> => {
                     const result = await changeAgents(key, change);
                     return result.ok ? null : settingsFailureText(result.code, result.detail, deps.text);

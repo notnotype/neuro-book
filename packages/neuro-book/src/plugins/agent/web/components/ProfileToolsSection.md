@@ -4,7 +4,7 @@
 
 # ProfileToolsSection
 
-Profile 设置页的绑定列表一节（[`agent/profile-settings.md`](../../../../../../../docs/specs/agent/profile-settings.md) 输出 10–13、25）：工具一节只列模型看到的工具，按提供者分组，另外经 [`AddToolsDialog`](AddToolsDialog.md) 添加。“可派的子代理”一节用同一个组件（`kind: "agents"`）：一行一个 Profile，`effect` 一列写“推荐”“我加的”，已删除或不可用的一行警告、能去掉；文字取 `profiles.agents.*`。
+Profile 设置页的绑定列表一节（[`agent/profile-settings.md`](../../../../../../../docs/specs/agent/profile-settings.md) 输出 10–13、25）：工具一节只列模型看到的工具，按提供者分组，另外经 [`AddToolsDialog`](AddToolsDialog.md) 添加。“可派的子代理”一节用同一个组件（`kind: "agents"`）：一行一个 Profile，`effect` 一列写“推荐”“我加的”，已删除或不可用的一行警告、能去掉；文字取 `profiles.agents.*`。“Skill”一节同样（`kind: "skills"`，输出 26）：`effect` 一列写“未初始化”“无效”“我加的”；用户去掉的行（`restorable`）收在最后一组“已去掉”，行尾是“加回”而不是“×”；文字取 `profiles.skills.*`。
 
 ## 布局
 
@@ -26,11 +26,12 @@ defineProps<{
     disabled?: boolean;                                                 // 缺省 false
     addTools?: (change: ToolChange) => Promise<string | null>;          // 失败原因，成功 null
     initialAdd?: boolean;                                               // 起始打开对话框（Lab 用），缺省 false
-    kind?: "tools" | "agents";                                          // 哪一节：选文字前缀，缺省 tools
+    kind?: "tools" | "agents" | "skills";                               // 哪一节：选文字前缀，缺省 tools
 }>();
 defineEmits<{
     (e: "remove", id: string): void;
     (e: "restore"): void;
+    (e: "add-back", id: string): void;                                  // “已去掉”一行的“加回”（只有 Skill 一节有）
 }>();
 ```
 
