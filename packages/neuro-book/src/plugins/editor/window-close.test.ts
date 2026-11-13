@@ -16,6 +16,8 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {BATCH_DELAY_MS} from "nbook/plugins/files/backend/changes";
 import {files, filesScene} from "nbook/plugins/files/testing/scene";
 import type {Scene} from "nbook/plugins/files/testing/scene";
+import {createLinkTap} from "nbook/plugins/files/testing/tap";
+import type {LinkTap} from "nbook/plugins/files/testing/tap";
 import {createMemoryEditorPanels} from "nbook/plugins/workbench/shared/editor-panels";
 
 import {createEditorArea} from "./web/area";
@@ -41,12 +43,14 @@ afterAll(async () => {
 
 interface World {
     readonly scene: Scene;
+    readonly tap: LinkTap;
     readonly area: EditorArea;
 }
 
 async function world(mode: AutoSaveMode, project: Record<string, string> = {"a.md": "A", "b.md": "B"}): Promise<World> {
     counter += 1;
-    const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project});
+    const tap = createLinkTap();
+    const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project}, {wrapLink: tap.wrap});
     const settings = shallowRef<AutoSaveSettings>({mode, delay: 1000});
     const area = createEditorArea({files: files(scene.window), clock: new ManualClock(), workspaceKey: "p1", generation: 1, panels: createMemoryEditorPanels(), initial: null, autoSave: () => settings.value, report: (error) => {
         throw error;
@@ -57,7 +61,7 @@ async function world(mode: AutoSaveMode, project: Record<string, string> = {"a.m
         await chmod(scene.project, 0o755);
         await rm(scene.root, {recursive: true, force: true});
     });
-    return {scene, area};
+    return {scene, tap, area};
 }
 
 async function until(at: World, description: string, check: () => boolean | Promise<boolean>): Promise<void> {
@@ -209,5 +213,36 @@ describe("Spec workbench.editor 输出 66：桌面窗口关闭时的结算", () 
         await until(at, "再问", () => at.area.windowDialog.value !== null);
         at.area.dispose();
         expect(await again).toBe("deny");
+    });
+    it("有在途的保存：等它完成再判断，不发起新的保存；存好了就同意，不询问", async () => {
+        const at = await world("off");
+        await open(at, "a.md");
+        type(at, "A1");
+        const held = at.tap.hold((request) => request.method === "write");
+        const saving = at.area.save();
+        await held.arrived;
+        const answer = at.area.closeWindow(new AbortController().signal);
+        held.release();
+        expect(await saving).toEqual({ok: true});
+        expect(await answer).toBe("allow");
+        expect(at.area.windowDialog.value).toBeNull();
+        expect(at.tap.requests.filter((request) => request.method === "write")).toHaveLength(1);
+        expect(await disk(at, "a.md")).toBe("A1");
+    });
+
+    it("有写不出的视图：询问里没有“全部保存”，即使开着自动保存也不自己存", async () => {
+        const at = await world("onWindowChange");
+        const document = await open(at, "a.md");
+        type(at, "A1");
+        const binding = at.area.binding(at.area.groups.activeGroup.value);
+        if (binding?.kind !== "text") throw new Error("没有文本绑定");
+        binding.block({reason: "测试", from: 0, to: 1, index: 1, excerpt: "A", fallback: "A"});
+        const answer = at.area.closeWindow(new AbortController().signal);
+        await until(at, "询问", () => at.area.windowDialog.value !== null);
+        expect(at.area.windowDialog.value).toMatchObject({kind: "ask", saveable: false});
+        expect(document.saving.value).toBe(false);
+        at.area.answerWindow("cancel");
+        expect(await answer).toBe("deny");
+        expect(await disk(at, "a.md")).toBe("A");
     });
 });

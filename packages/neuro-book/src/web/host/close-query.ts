@@ -15,9 +15,10 @@
  * 5. 都过了回 `allow`，否则 `deny`。
  *
  * 每一步等待之后都先核对这次是否已结束（`close-end`、新的询问）；结束了就不再往下走、不再回答，提问随 `signal` 收起。
- * `deny` 与被壳结束时撤层并恢复焦点；`allow` 时层保留到窗口关掉。壳在 `window` 的同意之后可能以 `quit` 再问一次（别的窗口
- * 在询问期间关掉了，desktop-shell 输出 16）：层一直盖着、页面没有输入，参与方的结论不会变，所以这时跳过第 2 步。同意之后
- * 10 秒窗口还没关、也没有新询问，就撤层写诊断，免得页面一直不能用。
+ * `deny` 与被壳结束时撤层并恢复焦点；`allow` 时层保留到窗口关掉。参与方都同意之后、层撤下之前（`agreed`），页面不接受输入，
+ * 参与方的结论不会变：壳在 `window` 的同意之后以 `quit` 再问（别的窗口在询问期间关掉了，desktop-shell 输出 16），或这期间又来
+ * 新的询问，都跳过第 2 步；编辑器据 `agreed` 在页面卸载时不再请求离开确认。同意之后 10 秒窗口还没关、也没有新询问，就撤层
+ * 写诊断，免得页面一直不能用。
  */
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
@@ -68,6 +69,8 @@ export interface CloseQueryOptions {
 export interface CloseQuery {
     /** 有询问在进行，或同意之后层还盖着：键盘拦截据此生效。 */
     readonly active: boolean;
+    /** 参与方都已同意、“正在关闭”层还盖着：再来的询问不再调参与方，页面卸载时不必再确认离开。 */
+    readonly agreed: boolean;
     dispose(): void;
 }
 
@@ -99,10 +102,18 @@ export function createCloseQuery(options: CloseQueryOptions): CloseQuery {
     let current: Query | null = null;
     /** 上一次以 `allow` 结束、层还盖着：它的代次。 */
     let heldAfterAllow: number | null = null;
+    /** 参与方都同意了，之后层一直盖着（撤层时复位）。 */
+    let agreed = false;
     let cancelNotClosed: (() => void) | null = null;
 
     const send = (message: Parameters<DesktopBridge["send"]>[0]): void => {
-        if (options.bridge.send(message)) return;
+        try {
+            if (options.bridge.send(message)) return;
+        } catch (error) {
+            // 发送函数自己抛错：与没有发送函数一样回答不了，壳那边按没有响应处理；询问照常收口，不让层一直盖着。
+            options.report({level: "warn", event: "browser-host.close.send-failed", message: "给桌面壳回消息失败", error, data: {type: message.type}});
+            return;
+        }
         options.report({level: "warn", event: "browser-host.close.no-bridge", message: "页面里没有桌面壳的发送函数，关闭前询问回答不了", data: {type: message.type}});
     };
 
@@ -110,6 +121,7 @@ export function createCloseQuery(options: CloseQueryOptions): CloseQuery {
         cancelNotClosed?.();
         cancelNotClosed = null;
         heldAfterAllow = null;
+        agreed = false;
         options.layer.hide();
     };
 
@@ -191,6 +203,7 @@ export function createCloseQuery(options: CloseQueryOptions): CloseQuery {
                 return;
             }
         }
+        agreed = true;
         const state = options.window.state;
         if ("rescued" in state && state.rescued !== undefined && state.rescued.length > 0) {
             const choice = await options.prompts.ask({kind: "rescued-lost", paths: state.rescued.map((item) => item.path)}, query.controller.signal);
@@ -226,7 +239,7 @@ export function createCloseQuery(options: CloseQueryOptions): CloseQuery {
             return;
         }
         if (current !== null) end(current);
-        const skipParticipants = heldAfterAllow !== null;
+        const skipParticipants = agreed;
         cancelNotClosed?.();
         cancelNotClosed = null;
         heldAfterAllow = null;
@@ -248,6 +261,9 @@ export function createCloseQuery(options: CloseQueryOptions): CloseQuery {
     return {
         get active() {
             return current !== null || heldAfterAllow !== null;
+        },
+        get agreed() {
+            return agreed;
         },
         dispose() {
             stopListening();

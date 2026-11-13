@@ -117,6 +117,8 @@ export interface BrowserWindow {
     readonly text: WindowText;
     /** 关闭前询问的参与方，按登记顺序（docs/specs/runtime/browser-host.md 输出 9）；表跨启动重试不变。 */
     closeParticipants(): ReadonlyArray<CloseParticipant>;
+    /** 接上关闭前询问的“参与方都已同意”（`close-query.ts` 的 `agreed`），经本地能力交给插件；没接时总是 false。 */
+    setCloseAgreed(source: () => boolean): void;
     /** 写一条窗口诊断：已启动时进本窗口的诊断，还没启动时写到控制台。 */
     record(input: DiagnosticInput): void;
 }
@@ -160,7 +162,9 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     const listeners = new Set<(state: WindowState) => void>();
     /** 关闭参与方：放在窗口这一层，启动重试新建运行实例时不丢，关闭前询问在启动之前就能拿到它。 */
     const participants: CloseParticipant[] = [];
+    let closeAgreed: () => boolean = () => false;
     const close: WindowClose = Object.freeze({
+        agreed: () => closeAgreed(),
         participate(participant: CloseParticipant) {
             participants.push(participant);
             return () => {
@@ -362,9 +366,12 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     return {
         text,
         closeParticipants: () => [...participants],
+        setCloseAgreed(source) {
+            closeAgreed = source;
+        },
         record(input) {
             if (diagnostics !== null) diagnostics.record(input);
-            else Reflect.apply(options.console.warn ?? options.console.error, options.console, [JSON.stringify({level: input.level, event: input.event, message: input.message})]);
+            else Reflect.apply(options.console.warn ?? options.console.error, options.console, [JSON.stringify({level: input.level, event: input.event, message: input.message, ...(input.error === undefined ? {} : {error: input.error instanceof Error ? input.error.message : String(input.error)})})]);
         },
         get state() {
             return state;

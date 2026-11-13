@@ -134,6 +134,11 @@ export type CloseParticipant = (request: {readonly reason: CloseReason; readonly
 /** 浏览器宿主提供给本窗口的插件；没有桌面壳时登记照常可用，只是不会被调用。 */
 export interface WindowClose {
     participate(participant: CloseParticipant): () => void;
+    /**
+     * 参与方都已同意这次关闭、窗口正在关（“正在关闭”层还盖着，页面不接受输入）。页面在这期间卸载不必再请求浏览器的离开确认：
+     * 同一件事已经问过。询问以不关结束或被壳结束时回到 false。没有桌面壳时总是 false。
+     */
+    agreed(): boolean;
 }
 
 export const windowCloseKey: ServiceKey<WindowClose> = defineServiceKey<WindowClose>("nbook/window-close");

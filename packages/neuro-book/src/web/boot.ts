@@ -99,6 +99,7 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         report: (input) => browserWindow.record(input),
         clock: systemClock,
     });
+    browserWindow.setCloseAgreed(() => closeQuery.agreed);
     installCloseKeyGuard(window, () => closeQuery.active);
     createApp(CloseLayer, {ui: closeUi}).provide(TEXT_PORT_KEY, text.port).mount(closeRoot);
     // 启动期间屏幕上只有 index.html 的静态加载页（界面在 start 之后才挂载）：引导给出书名后写进它预留的位置。

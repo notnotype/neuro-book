@@ -7,7 +7,6 @@
 import {ConnectionError, openRpcSocket} from "@notnotype/nb-host/web";
 import type {RpcEndpoint} from "@notnotype/nb-host/web";
 import type {RemoteLink} from "@notnotype/nb-runtime/remote";
-
 import {Value} from "typebox/value";
 
 import {BROWSER_BOOTSTRAP_PATH} from "nbook/shared/browser-bootstrap";

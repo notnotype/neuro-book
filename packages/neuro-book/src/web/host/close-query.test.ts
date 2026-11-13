@@ -106,6 +106,7 @@ interface World {
     readonly answers: Partial<Record<ClosePrompt["kind"], "close" | "cancel">>;
     shell(message: unknown): void;
     readonly browserWindow: ReturnType<typeof createBrowserWindow>;
+    readonly query: ReturnType<typeof createCloseQuery>;
     stop(): Promise<void>;
 }
 
@@ -155,7 +156,7 @@ function world(plugins: ReadonlyArray<ReturnType<typeof participant>>, options: 
         clock,
     });
     return {
-        sent, prompts, layer, reports, clock, answers, browserWindow,
+        sent, prompts, layer, reports, clock, answers, browserWindow, query,
         shell: (detail) => void shellTarget.dispatchEvent(new CustomEvent(DESKTOP_EVENT, {detail})),
         stop: async () => {
             query.dispose();
@@ -401,6 +402,66 @@ describe("关闭前询问：页面一侧", () => {
         });
         target.dispatchEvent(new CustomEvent(DESKTOP_EVENT, {detail: {type: "close-query", generation: 1, reason: "window"}}));
         await waitUntil("两次诊断（接下与回答）", () => reports.filter((report) => report.event === "browser-host.close.no-bridge").length === 2);
+        query.dispose();
+        await w.stop();
+    });
+    it("参与方都同意后（agreed）层一直盖着：期间再来几次询问都不再调参与方；壳结束询问后复位，再问照常调", async () => {
+        const calls: string[] = [];
+        const w = world([participant("test.first", calls, async () => "allow")], {fetchWork: () => new Promise(() => undefined)});
+        await w.browserWindow.start();
+        expect(w.query.agreed).toBe(false);
+        w.shell({type: "close-query", generation: 1, reason: "window"});
+        await waitUntil("第一次回答", () => answered(w));
+        expect(w.query.agreed).toBe(true);
+        // 壳以 quit 重问，取工作还没回来时又来第三次询问：都不再调参与方。
+        w.shell({type: "close-query", generation: 2, reason: "quit"});
+        w.shell({type: "close-query", generation: 3, reason: "window"});
+        await waitUntil("第三次回答", () => w.sent.some((message) => message.type === "close-answer" && message.generation === 3));
+        expect(calls).toEqual(["test.first:window"]);
+        expect(w.query.agreed).toBe(true);
+        w.shell({type: "close-end", generation: 3});
+        expect(w.query.agreed).toBe(false);
+        w.shell({type: "close-query", generation: 4, reason: "window"});
+        await waitUntil("第四次回答", () => w.sent.some((message) => message.type === "close-answer" && message.generation === 4));
+        expect(calls).toEqual(["test.first:window", "test.first:window"]);
+        await w.stop();
+    });
+
+    it("以不关结束（后面的提问选取消）：agreed 复位、撤层", async () => {
+        const calls: string[] = [];
+        const w = world([participant("test.first", calls, async () => "allow")], {fetchWork: async () => ({items: [{plugin: "nbook.tasks", project: null, text: "导入"}], failed: []})});
+        await w.browserWindow.start();
+        w.answers.work = "cancel";
+        w.shell({type: "close-query", generation: 1, reason: "quit"});
+        await waitUntil("回答", () => answered(w));
+        expect(answered(w)).toMatchObject({answer: "deny"});
+        expect(w.query.agreed).toBe(false);
+        expect(w.layer).toEqual(["show", "hide"]);
+        await w.stop();
+    });
+
+    it("壳的发送函数抛错：写诊断，询问照常收口（不让层一直盖着）", async () => {
+        const w = world([]);
+        await w.browserWindow.start();
+        const target = new EventTarget();
+        const reports: DiagnosticInput[] = [];
+        const layer: string[] = [];
+        const query = createCloseQuery({
+            bridge: createDesktopBridge({addEventListener: (type, listener) => target.addEventListener(type, listener as EventListener), removeEventListener: (type, listener) => target.removeEventListener(type, listener as EventListener), __electrobunSendToHost: () => {
+                throw new Error("桥坏了");
+            }}),
+            window: w.browserWindow,
+            fetchWork: async () => ({items: [], failed: []}),
+            prompts: {ask: async () => "close"},
+            layer: {show: () => void layer.push("show"), hide: () => void layer.push("hide")},
+            report: (input) => void reports.push(input),
+            clock: w.clock,
+        });
+        target.dispatchEvent(new CustomEvent(DESKTOP_EVENT, {detail: {type: "close-query", generation: 1, reason: "window"}}));
+        await waitUntil("两次诊断（接下与回答）", () => reports.filter((report) => report.event === "browser-host.close.send-failed").length === 2);
+        // 同意之后层照常保留，10 秒后撤。
+        w.clock.advance(NOT_CLOSED_MS);
+        expect(layer).toEqual(["show", "hide"]);
         query.dispose();
         await w.stop();
     });
