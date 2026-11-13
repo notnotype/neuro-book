@@ -481,14 +481,17 @@
             "estimate": "Estimate",
             "initial": "Initial value",
             "reason": "Reason",
-            "root": "Root cause",
+            "root": "The change that broke it",
             "followers": "Also failing",
             "followersCount": "{{count}} more",
             "decision": "The author's decision",
             "earlierDecision": "Decision before the check was upgraded",
             "openChange": "Open this story change",
             "openEntry": "Open entry",
-            "objects": "Related objects"
+            "objects": "Related objects",
+            "revision": "“{{title}}”",
+            "someRevision": "A change",
+            "openRoot": "View that change's receipt"
         }
     }
 }

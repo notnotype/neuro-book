@@ -9,7 +9,7 @@ import {join} from "node:path";
 
 import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {ref} from "vue";
+import {nextTick, ref} from "vue";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -18,14 +18,18 @@ import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
 import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import type {CanonClient} from "../shared/contracts";
+import {countedClient} from "../testing/counted-client";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
 import {pageStandIn} from "../testing/page-stand-in";
 import type {PageStandIn} from "../testing/page-stand-in";
-import {change, check, person, publish} from "../testing/world-fixtures";
+import {change, check, person, publish, publishWith} from "../testing/world-fixtures";
 import {PENDING_VIEW} from "./commands";
+import {createPendingView, pendingViewState, pickFirstPending} from "./pending-view";
+import type {PendingTarget} from "./pending";
 import {PENDING_COUNT_ITEM} from "./plugin";
 import {canonCatalogs} from "./text";
+import {createCanonWorld} from "./world";
 
 const port = testTextPort("zh-CN", {"nbook.canon": canonCatalogs});
 const global = {provide: provideText(port)};
@@ -67,12 +71,12 @@ async function setup(): Promise<{mine: CanonNodeWindow; other: CanonNodeWindow; 
     };
 }
 
-/** 一个存款 1000 的人，第 1 章一笔估计的 +200，第 2 章正文写 500：算出来 1200，对不上。返回人与核对点的正式 id。 */
-async function mismatch(canon: CanonClient, name: string): Promise<{readonly entry: string; readonly check: string}> {
+/** 一个存款 1000 的人，第 1 章一笔估计的 +200，第 `chapter` 章正文写 500：算出来 1200，对不上。返回人与核对点的正式 id。 */
+async function mismatch(canon: CanonClient, name: string, chapter = "2"): Promise<{readonly entry: string; readonly check: string}> {
     const someone = person(name);
     const entry = (await publish(canon, [someone]))[someone.id]!;
     await publish(canon, [change(entry, "1", `${name}领了工资`, 200, {kind: "estimate", note: "大概两百"})]);
-    const written = check(entry, "2", 500);
+    const written = check(entry, chapter, 500);
     return {entry, check: (await publish(canon, [written]))[written.ref.id]!};
 }
 
@@ -190,5 +194,96 @@ describe("待处理视图", () => {
         await waitUntil("写出原因", () => document.body.querySelector("[role='dialog'] [role='alert']") !== null, {timeoutMs: 10_000});
         expect(dialog()).not.toBeNull();
         await again.value.release();
+    });
+    it("停放时不重读；停放期间来了新的一条，show-pending 以后回到前台选中它，不按读取层留着的旧结果选（输出 25、26）", async () => {
+        const {mine, other} = await setup();
+        const counted = countedClient(mine.canon);
+        const world = createCanonWorld(counted.client);
+        cleanups.push(() => world.dispose());
+        const state = pendingViewState();
+        const component = await createPendingView({world: () => world, state, open: () => undefined, openChapter: () => undefined}).load();
+        const visible = ref(true);
+        const view = mount(component, {props: {context: {id: PENDING_VIEW, generation: 1, visible, location: ref("panel")} as unknown as ViewContext}, global, attachTo: document.body});
+        cleanups.push(() => view.unmount());
+        await waitUntil("读到了空的一组", () => view.find("[data-pending-group='pending'] [data-pending-empty]").exists());
+
+        visible.value = false;
+        await nextTick();
+        const before = counted.calls.filter((call) => call.method === "pending").length;
+        await mismatch(other.canon, "星瑕");
+        const version = (await other.canon.call("status", {}));
+        if (!version.ok) throw new Error(JSON.stringify(version.failure));
+        await waitUntil("本窗口知道了新版本", () => world.status.value.data?.version === version.value.version);
+        expect(counted.calls.filter((call) => call.method === "pending").length).toBe(before);
+
+        pickFirstPending(state);
+        visible.value = true;
+        await waitUntil("选中新来的那一条", () => rows(view).length === 1 && selectedText(view) === rows(view)[0]);
+        expect(counted.calls.filter((call) => call.method === "pending").length).toBeGreaterThan(before);
+    });
+
+    it("选中的那条还在、前面多了一条：记下它现在的位置；之后它消失，选它消失前位置上的那一条", async () => {
+        const {other, open} = await setup();
+        await mismatch(other.canon, "甲", "2");
+        const second = await mismatch(other.canon, "乙", "2");
+        await mismatch(other.canon, "丙", "2");
+        const view = await open();
+        await waitUntil("三行", () => rows(view).length === 3);
+        const row = view.findAll("[data-pending-group='pending'] [data-pending-row]")[1]!;
+        (row.element as HTMLElement).focus();
+        await waitUntil("选中第二条", () => selectedText(view) === rows(view)[1]);
+        const picked = rows(view)[1];
+
+        // 第 1 章多了一条，排到最前：选中的那条成了第三条。
+        await mismatch(other.canon, "丁", "1");
+        await waitUntil("四行", () => rows(view).length === 4);
+        expect(selectedText(view)).toBe(picked);
+        const after = rows(view)[3];
+        await settle(other.canon, second.check, 1200);
+        await waitUntil("选中它后面那一条", () => rows(view).length === 3 && selectedText(view) === after);
+    });
+
+    it("待定写原因与说明、链到它的详情页；套不上写根因与原因（读根因那条的结局）", async () => {
+        const {mine, other} = await setup();
+        const star = person("星瑕");
+        const id = (await publish(other.canon, [star]))[star.id]!;
+        const heldId = `tmp:held`;
+        await publish(other.canon, [{ref: {kind: "change", id: heldId}, after: {id: heldId, kind: "written", text: "她把存款都取了出来", at: {kind: "chapter", chapter: "1", key: 1}, told: [{source: "note", quote: "取光了"}], involves: [id], lines: [], links: [], status: "held", held: {reason: "unsure", note: "不知道取了多少"}, by: {kind: "author"}, patches: []}}]);
+        // 第 2 章加两百亿（套得上）；之后在第 1 章把存款设成九百亿：第 2 章那条加完超出精确档的范围，套不上了。
+        const brokenId = `tmp:broken`;
+        await publish(other.canon, [{ref: {kind: "change", id: brokenId}, after: {id: brokenId, kind: "written", text: "中了两百亿", at: {kind: "chapter", chapter: "2", key: 1}, told: [], involves: [id], lines: [], links: [], status: "active", by: {kind: "author"}, patches: [{op: "add", at: {entry: id, path: "panel.存款"}, value: 2e10}]}}]);
+        const richId = `tmp:rich`;
+        await publishWith(other.canon, [{ref: {kind: "change", id: richId}, after: {id: richId, kind: "written", text: "继承了一大笔遗产", at: {kind: "chapter", chapter: "1", key: 2}, told: [], involves: [id], lines: [], links: [], status: "active", by: {kind: "author"}, patches: [{op: "set", at: {entry: id, path: "panel.存款"}, value: 9e10}]}}], "继承了遗产");
+
+        const world = createCanonWorld(mine.canon);
+        cleanups.push(() => world.dispose());
+        const opened: PendingTarget[] = [];
+        const component = await createPendingView({world: () => world, state: pendingViewState(), open: (target) => void opened.push(target), openChapter: () => undefined}).load();
+        const view = mount(component, {props: {context: {id: PENDING_VIEW, generation: 1, visible: ref(true), location: ref("panel")} as unknown as ViewContext}, global, attachTo: document.body});
+        cleanups.push(() => view.unmount());
+        // 行先写种类，读到那条情节以后换成它的文字。
+        await waitUntil("两行写出情节", () => rows(view).join("|") === "“她把存款都取了出来”待定|“中了两百亿”套不上了").catch((error: unknown) => {
+            throw new Error(`${String(error)}；实际：${rows(view).join("|")}`);
+        });
+
+        await waitUntil("待定的详情", () => view.find("[data-pending-detail-facts]").exists());
+        expect(view.get("[data-pending-detail-facts]").text().replace(/\s+/gu, "")).toBe("原因写入者没把握：不知道取了多少");
+        await view.get("[data-pending-detail-links] button").trigger("click");
+
+        const broken = view.findAll("[data-pending-group='pending'] [data-pending-row]")[1]!;
+        (broken.element as HTMLElement).focus();
+        await waitUntil("套不上的原因", () => view.find("[data-pending-detail-facts]").exists() && view.get("[data-pending-detail-facts]").text().includes("改完的数超出了范围"));
+        // 根因是把存款设成九百亿的那次修订：写它的标题，链到它的回执。
+        await waitUntil("根因的标题", () => view.get("[data-pending-detail-facts]").text().includes("继承了遗产"));
+        expect([...view.get("[data-pending-detail-facts]").element.querySelectorAll("dt")].map((term) => `${term.textContent ?? ""}：${term.nextElementSibling?.textContent ?? ""}`)).toEqual(["原因：改完的数超出了范围", "让它套不上的那次改动：“继承了遗产”"]);
+        for (const button of view.findAll("[data-pending-detail-links] button")) await button.trigger("click");
+        expect(opened.map((target) => target.kind)).toEqual(["change", "change", "receipt"]);
+    });
+
+    it("窗口没有绑定项目时写一句“打开作品后可用”", async () => {
+        const component = await createPendingView({world: () => null, state: pendingViewState(), open: () => undefined, openChapter: () => undefined}).load();
+        const view = mount(component, {global});
+        cleanups.push(() => view.unmount());
+        expect(view.text()).toBe("打开作品后可用");
     });
 });

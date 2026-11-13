@@ -49,7 +49,9 @@ const text = useCanonText();
             </ul>
         </section>
         <div v-if="props.detail.links.length > 0" class="pending-detail__links" data-pending-detail-links>
-            <Button v-for="link in props.detail.links" :key="`${link.target.kind}:${link.target.id}`" size="sm" variant="ghost" @click="emit('open', link.target)">{{ link.label }}</Button>
+            <Button v-for="link in props.detail.links" :key="`${link.target.kind}:${link.target.id}`" size="sm" variant="ghost" class="max-w-full" :title="link.label" data-pending-detail-link @click="emit('open', link.target)">
+                <span class="min-w-0 truncate">{{ link.label }}</span>
+            </Button>
         </div>
     </div>
 </template>
@@ -64,6 +66,7 @@ const text = useCanonText();
 
 .pending-detail__title {
     margin: 0;
+    overflow-wrap: anywhere;
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
 }
@@ -76,6 +79,7 @@ const text = useCanonText();
 
 .pending-detail__quote {
     display: flex;
+    overflow-wrap: anywhere;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
@@ -135,8 +139,10 @@ const text = useCanonText();
     font-size: var(--text-xs);
 }
 
+/* 链接的文字可能是整句情节：按钮不换行，放不下时截断、悬停看全文，不撑出横向滚动（输出 32）。 */
 .pending-detail__links {
     display: flex;
+    min-width: 0;
     flex-wrap: wrap;
     gap: var(--space-1);
 }

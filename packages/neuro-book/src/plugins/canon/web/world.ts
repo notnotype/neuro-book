@@ -33,6 +33,11 @@ export interface ReadState<T> {
     readonly error: CanonFailure | null;
     /** 还没有读到过（第一次读取期间显示加载占位）。 */
     readonly loading: boolean;
+    /**
+     * 结果早于世界当前的版本：世界变了、重读还没读完（停放的视图回到前台、读取层里留着的结果也是这样）。还没读到过时为真。
+     * 要按“现在的结果”做决定的调用方（待处理视图选第一条）等它变成假。
+     */
+    readonly stale: boolean;
 }
 
 export interface ReadHandle<T> {
@@ -95,6 +100,8 @@ interface Slot {
     released: number;
     /** 发出这个读取，返回换上结果的函数（不换就什么也不做）。 */
     load(): Promise<() => void>;
+    /** 世界变了：结果标成过期（`ReadState.stale`），重读读完再清掉。 */
+    markStale(): void;
 }
 
 const keyOf = (method: string, input: unknown): string => `${method}:${stableKey(input)}`;
@@ -124,8 +131,14 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
     let subscription: {release(): void} | null = null;
     let disposed = false;
 
-    const invalidate = (): void => {
+    /** 世界换了一代：所有结果（有人用的、留着没人用的）都标过期，重读读完的才清掉。 */
+    const nextGeneration = (): void => {
         generation += 1;
+        for (const slot of slots.values()) slot.markStale();
+    };
+
+    const invalidate = (): void => {
+        nextGeneration();
         void run();
     };
 
@@ -146,6 +159,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             case "exclusive":
                 // 独占不改版本，只有状态要重读。
                 statusSlot.generation = -1;
+                statusSlot.markStale();
                 void run();
                 return;
             case "ended":
@@ -219,7 +233,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
     const readSlot = <T>(key: string, fetch: () => Promise<CanonResult<T>>, onValue?: (value: T) => void): {slot: Slot; state: ShallowRef<ReadState<T>>} => {
         const existing = slots.get(key) as (Slot & {state: ShallowRef<ReadState<T>>}) | undefined;
         if (existing !== undefined) return {slot: existing, state: existing.state};
-        const state = shallowRef<ReadState<T>>({data: undefined, error: null, loading: true});
+        const state = shallowRef<ReadState<T>>({data: undefined, error: null, loading: true, stale: true});
         const slot: Slot & {state: ShallowRef<ReadState<T>>} = {
             key,
             users: 0,
@@ -227,16 +241,20 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             busy: false,
             released: 0,
             state,
+            // 换上结果时 `run` 已经把这一轮的代写进 `slot.generation`：读的期间世界又变了，结果仍算过期，下一轮再读。
             load: async () => {
                 const result = await fetch();
                 return () => {
                     if (result.ok) {
                         onValue?.(result.value);
-                        state.value = {data: result.value, error: null, loading: false};
+                        state.value = {data: result.value, error: null, loading: false, stale: slot.generation < generation};
                     } else {
                         state.value = {...state.value, error: result.failure, loading: false};
                     }
                 };
+            },
+            markStale: () => {
+                if (!state.value.stale) state.value = {...state.value, stale: true};
             },
         };
         slots.set(key, slot);
@@ -263,14 +281,14 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             acquire(existing);
             return {state: existing.list, more: () => existing.next(), release: releaseOf(existing)};
         }
-        const state = shallowRef<ListState<M>>({data: undefined, error: null, loading: true, items: [], more: false});
+        const state = shallowRef<ListState<M>>({data: undefined, error: null, loading: true, stale: true, items: [], more: false});
         const call = (cursor: string | undefined, limit: number) => client.call(method, {...input, ...(cursor === undefined ? {} : {cursor}), limit} as CanonInput<M>) as Promise<CanonResult<Out>>;
         /** 从头读，条数是已读的条数（至少一页）：重读与游标过期后都这样，作者翻到哪里还在哪里。 */
         const fromStart = async (): Promise<() => void> => {
             const limit = Math.min(LIST_LIMIT_MAX, Math.max(pageSize, state.value.items.length));
             const result = await call(undefined, limit);
             return () => {
-                if (result.ok) state.value = {data: result.value, error: null, loading: false, items: result.value.items as readonly ListItem<M>[], more: result.value.cursor !== undefined};
+                if (result.ok) state.value = {data: result.value, error: null, loading: false, stale: slot.generation < generation, items: result.value.items as readonly ListItem<M>[], more: result.value.cursor !== undefined};
                 // 同普通读取：失败也算读过一次（不再是加载占位），读到过的项留着。
                 else state.value = {...state.value, error: result.failure, loading: false};
             };
@@ -283,6 +301,9 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             released: 0,
             list: state,
             load: fromStart,
+            markStale: () => {
+                if (!state.value.stale) state.value = {...state.value, stale: true};
+            },
             next: async () => {
                 const cursor = state.value.data?.cursor;
                 if (cursor === undefined || slot.busy) return;
@@ -290,10 +311,11 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
                 try {
                     const result = await call(cursor, pageSize);
                     if (result.ok) {
-                        state.value = {data: result.value, error: null, loading: false, items: [...state.value.items, ...(result.value.items as readonly ListItem<M>[])], more: result.value.cursor !== undefined};
+                        state.value = {...state.value, data: result.value, error: null, loading: false, items: [...state.value.items, ...(result.value.items as readonly ListItem<M>[])], more: result.value.cursor !== undefined};
                     } else if (result.failure.code === "cursor-stale") {
-                        (await fromStart())();
+                        const commit = await fromStart();
                         slot.generation = generation;
+                        commit();
                     } else {
                         state.value = {...state.value, error: result.failure};
                     }
@@ -320,7 +342,7 @@ export function createCanonWorld(client: CanonClient): CanonWorld {
             const version = (result.value as {version: number}).version;
             if (version > known) {
                 known = version;
-                generation += 1;
+                nextGeneration();
             }
             await run();
         }

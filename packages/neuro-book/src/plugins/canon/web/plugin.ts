@@ -212,7 +212,10 @@ export const canonBrowserPlugin: PluginDefinition = {
             const pendingView = createPendingView({
                 world: worldOf,
                 state: pendingState,
-                open: (target) => execute(target.kind === "entry" ? OPEN_ENTRY_COMMAND : OPEN_CHANGE_COMMAND, {id: target.id}),
+                open: (target) => {
+                    if (target.kind === "receipt") execute(OPEN_RECEIPT_COMMAND, {revision: target.id});
+                    else execute(target.kind === "entry" ? OPEN_ENTRY_COMMAND : OPEN_CHANGE_COMMAND, {id: target.id});
+                },
                 openChapter: (chapter) => void openChapter(chapter),
             });
             const view: ViewImplementation = {

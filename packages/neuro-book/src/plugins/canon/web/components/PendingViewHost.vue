@@ -11,7 +11,7 @@ import {useText} from "@notnotype/nb-ui/text-port";
 import {useEntryHeads} from "../entry-heads";
 import {failureText} from "../failures";
 import {useObjectHeads} from "../object-heads";
-import {pendingDetail, pendingDetailNeeds, pendingKey, pendingNeeds, pendingRow} from "../pending";
+import {cannotApplyRoot, pendingDetail, pendingDetailNeeds, pendingKey, pendingNeeds, pendingRow} from "../pending";
 import type {PendingGroup, PendingItem, PendingLookups, PendingTarget} from "../pending";
 import type {PendingViewState} from "../pending-view";
 import {defaultPosition, placementLabel} from "../positions";
@@ -59,19 +59,16 @@ const chaptersRead = useWorldRead(world, "chapters", () => (props.visible ? {} :
 const chaptersShown = useKeptRead(() => chaptersRead.value);
 const chapters = computed<readonly ChapterRef[]>(() => chaptersShown.value?.data?.items ?? []);
 
-// 插件诊断的显示名：各页各带自己提到的；“再显示更多”之后 `data` 只是新的一页，所以累积起来（诊断只有几个）。
+// 插件诊断的显示名：各页各带自己提到的。“再显示更多”之后 `data` 只是新的一页，所以把读到的各页合起来；世界一变，各组都按
+// 读出来的条数从头重读（`data` 又是整组），这时从头合，停用了的诊断不再留着旧名字。“世界变了”看状态栏那一个读取换了结果。
 const labels = shallowRef<Readonly<Record<string, string>>>({});
-watch(() => [summary.value?.data?.labels, ...GROUPS.map((group) => shown[group].value?.data?.labels)], (pages) => {
-    const merged = {...labels.value};
-    let changed = false;
-    for (const page of pages) {
-        for (const [id, label] of Object.entries(page ?? {})) {
-            if (merged[id] === label) continue;
-            merged[id] = label;
-            changed = true;
-        }
-    }
-    if (changed) labels.value = merged;
+let labelsOf: unknown = null;
+watch(() => [summary.value?.data, ...GROUPS.map((group) => shown[group].value?.data?.labels)] as const, ([page, ...pages]) => {
+    const fresh = page !== labelsOf;
+    labelsOf = page;
+    const merged: Record<string, string> = fresh ? {...page?.labels} : {...labels.value};
+    for (const item of pages) Object.assign(merged, item);
+    labels.value = merged;
 }, {immediate: true});
 
 /* ---------- 选中 ---------- */
@@ -84,21 +81,27 @@ const selectedItem = computed<PendingItem | null>(() => {
 
 // 第一次打开与 show-pending 之后：读到“待处理”一组时选中它的第一条，没有就不选（输出 23、25）。视图开着时执行 show-pending，
 // 读到的没变，所以也看 `pickFirst` 本身。
+// 只在现在的结果上选：回到前台时先到的是读取层留着的旧结果（`stale`），等重读读完。
 watch([() => shown.pending.value, () => state.pickFirst.value, () => props.visible], ([read]) => {
-    if (!state.pickFirst.value || !props.visible || !state.expanded.value.includes("pending") || read?.data === undefined) return;
+    if (!state.pickFirst.value || !props.visible || !state.expanded.value.includes("pending") || read === null || read.data === undefined || read.stale) return;
     const first = read.items[0];
     state.selected.value = first === undefined ? null : {group: "pending", key: pendingKey(first), index: 0};
     state.pickFirst.value = false;
 }, {immediate: true});
 
-// 选中的那一条在世界变了以后消失：选它原来位置上的那一条，没有就不选。只在那一组展开着、读到了时判断（停放、收起时不动它）。
+// 选中的那一条在世界变了以后消失：选它原来位置上的那一条，没有就不选。还在的话记下它现在的位置（前面多了或少了几条）。
+// 只在那一组展开着、读到了现在的结果时判断（停放、收起、旧结果先到时不动它）。
 watch(() => {
     const selected = state.selected.value;
     return selected === null ? null : shown[selected.group].value;
 }, (read) => {
     const selected = state.selected.value;
-    if (selected === null || read === null || read.data === undefined || !props.visible || !state.expanded.value.includes(selected.group)) return;
-    if (read.items.some((item) => pendingKey(item) === selected.key)) return;
+    if (selected === null || read === null || read.data === undefined || read.stale || !props.visible || !state.expanded.value.includes(selected.group)) return;
+    const at = read.items.findIndex((item) => pendingKey(item) === selected.key);
+    if (at >= 0) {
+        if (at !== selected.index) state.selected.value = {...selected, index: at};
+        return;
+    }
     const next = read.items[selected.index];
     state.selected.value = next === undefined ? null : {group: selected.group, key: pendingKey(next), index: selected.index};
 });
@@ -122,12 +125,16 @@ const needs = computed(() => {
 const objects = useObjectHeads(world, () => (props.visible ? needs.value.refs : []));
 const heads = useEntryHeads(world, () => (props.visible ? needs.value.entries : []), () => (chaptersShown.value?.data === undefined ? null : defaultPosition(chapters.value)), text);
 
-// 套不上的原因：根因那条这次的结局，经 `changes` 取（安放到它为止、从新到旧的第一条就是它）。
-const root = computed(() => {
+// 套不上（选中的是这一种时）：第一条套不上的情节这次的结局，经 `changes` 取（安放到它为止、从新到旧的第一条就是它）；根因是
+// 一次修订时另读它的标题。
+const cannotApply = computed(() => {
     const item = selectedItem.value;
-    return item?.kind === "canon" && item.item.kind === "cannot-apply" ? item.item.root : null;
+    return item?.kind === "canon" && item.item.kind === "cannot-apply" ? item.item : null;
 });
-const rootRead = useWorldList(world, "changes", () => (props.visible && root.value !== null ? {filter: {range: {through: root.value}, order: "desc" as const}} : null), 1);
+const failing = computed(() => cannotApply.value?.changes[0] ?? null);
+const failingRead = useWorldList(world, "changes", () => (props.visible && failing.value !== null ? {filter: {range: {through: failing.value}, order: "desc" as const}} : null), 1);
+const rootRevision = computed(() => (cannotApply.value === null ? null : cannotApplyRoot(cannotApply.value)));
+const rootRead = useWorldRead(world, "revision", () => (props.visible && rootRevision.value !== null ? {id: rootRevision.value} : null));
 
 const chapterText = (id: string): string => {
     const chapter = chapters.value.find((item) => item.id === id);
@@ -143,8 +150,12 @@ const lookups: PendingLookups = {
     chapter: chapterText,
     label: (id) => labels.value[id],
     outcome: (id) => {
-        const found = rootRead.state.value?.items.find((item) => item.change.id === id);
+        const found = failingRead.state.value?.items.find((item) => item.change.id === id);
         return (found?.outcome ?? undefined) as ChangeOutcome | undefined;
+    },
+    revisionTitle: (id) => {
+        const found = rootRead.value?.data?.revision;
+        return found?.id === id ? found.title : undefined;
     },
 };
 
@@ -196,6 +207,12 @@ function startBreak(): void {
 async function confirmBreak(): Promise<void> {
     const current = breaking.value;
     if (current === null || current.saving) return;
+    // 对话框开着时持有者变了：已经没人独占就关掉；换了一位就把对话框里的名字换成它，要作者再点一次（解除的是现在这一位）。
+    if (holder.value !== current.holder) {
+        if (holder.value === "") breakOpen.value = false;
+        else breaking.value = {...current, holder: holder.value, error: ""};
+        return;
+    }
     breaking.value = {...current, saving: true, error: ""};
     const result = await world.breakExclusive();
     if (result.ok) {

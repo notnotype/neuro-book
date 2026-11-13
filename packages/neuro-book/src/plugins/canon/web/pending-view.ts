@@ -11,10 +11,10 @@ import type {ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 
 import type {PendingGroup, PendingTarget} from "./pending";
 import {useCanonText} from "./text";
-import {viewContextProp, viewVisible} from "./view-visible";
+import {unboundView, viewContextProp, viewVisible} from "./view-visible";
 import type {CanonWorld} from "./world";
 
-/** 选中的那一条：组、键（`pending.ts` 的 `pendingKey`），与选中时它在组里的位置（它消失以后选这个位置上的那一条）。 */
+/** 选中的那一条：组、键（`pending.ts` 的 `pendingKey`），与它在组里的位置（每次读到现在的结果时跟着更新；它消失以后选这个位置上的那一条）。 */
 export interface PendingSelection {
     readonly group: PendingGroup;
     readonly key: string;
@@ -42,7 +42,7 @@ export interface PendingViewOptions {
     /** 窗口没有绑定项目时为 null。 */
     readonly world: () => CanonWorld | null;
     readonly state: PendingViewState;
-    /** 打开条目页或变更详情页（命令 `nbook.canon.open-entry`、`nbook.canon.open-change`）。 */
+    /** 打开条目页、变更详情页或回执页（命令 `nbook.canon.open-entry`、`nbook.canon.open-change`、`nbook.canon.open-receipt`）。 */
     readonly open: (target: PendingTarget) => void;
     /** “打开这一章”：在编辑区打开那一章的正文。 */
     readonly openChapter: (chapter: string) => void;
@@ -60,7 +60,7 @@ export function createPendingView(options: PendingViewOptions): ViewImplementati
                     const visible = viewVisible(props);
                     return () => {
                         const world = options.world();
-                        if (world === null) return h("p", {class: "px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
+                        if (world === null) return unboundView(text);
                         return h(Host, {world, state: options.state, open: options.open, openChapter: options.openChapter, visible: visible.value});
                     };
                 },

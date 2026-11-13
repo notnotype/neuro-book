@@ -12,7 +12,7 @@ import type {ViewImplementation} from "nbook/plugins/workbench/web/contracts";
 import type {RevertRequests} from "./revert";
 import {ALL} from "./revisions";
 import {useCanonText} from "./text";
-import {viewContextProp, viewVisible} from "./view-visible";
+import {unboundView, viewContextProp, viewVisible} from "./view-visible";
 import type {CanonWorld} from "./world";
 
 export interface RevisionsViewState {
@@ -49,7 +49,7 @@ export function createRevisionsView(options: RevisionsViewOptions): ViewImplemen
                     const visible = viewVisible(props);
                     return () => {
                         const world = options.world();
-                        if (world === null) return h("p", {class: "px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
+                        if (world === null) return unboundView(text);
                         return h(Host, {world, state: options.state, revert: options.revert, receipt: options.receipt, visible: visible.value});
                     };
                 },

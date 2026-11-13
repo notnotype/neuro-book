@@ -30,10 +30,20 @@ export interface PendingLookups {
     label(diagnostic: string): string | undefined;
     /** 剧情变更这次套没套上（套不上的原因）；没读时为 undefined。 */
     outcome(change: string): ChangeOutcome | undefined;
+    /** 一次修订的标题（套不上的根因、计划线的根因）；没读时为 undefined。 */
+    revisionTitle(revision: string): string | undefined;
 }
 
-/** 详情里可以点开的对象：剧情变更开详情页，条目开条目页。 */
-export type PendingTarget = {readonly kind: "change"; readonly id: string} | {readonly kind: "entry"; readonly id: string};
+/** 详情里可以点开的对象：剧情变更开详情页，条目开条目页，修订开回执页。 */
+export type PendingTarget = {readonly kind: "change" | "entry" | "receipt"; readonly id: string};
+
+/**
+ * 套不上的根因（model.md 输出 16、22）：内核按根因合并套不上的情节，根因是让它们套不上的那次修订；查不到时是第一条情节自己。
+ * 是修订时给出它的 id，否则为 null。
+ */
+export function cannotApplyRoot(item: {readonly root: string; readonly changes: readonly string[]}): string | null {
+    return item.changes.includes(item.root) ? null : item.root;
+}
 
 export interface PendingRow {
     readonly key: string;
@@ -98,7 +108,7 @@ export function pendingNeeds(item: PendingItem): PendingNeeds {
     const canon = item.item;
     switch (canon.kind) {
         case "check-mismatch": return {refs: [{kind: "check", id: canon.check}], entries: [canon.at.entry]};
-        case "cannot-apply": return {refs: [change(canon.root)], entries: []};
+        case "cannot-apply": return {refs: canon.changes.slice(0, 1).map(change), entries: []};
         case "held":
         case "time-invalid":
         case "time-placement-mismatch":
@@ -192,8 +202,11 @@ export function pendingRow(item: PendingItem, lookups: PendingLookups, text: Bou
     switch (canon.kind) {
         case "check-mismatch":
             return {key, text: text("pending.rows.check-mismatch", {address: lookups.address(canon.at), written: shownValue(canon.written, text), computed: shownValue(canon.computed, text)}), place: placeOf({kind: "check", id: canon.check}, lookups)};
-        case "cannot-apply":
-            return {key, text: text("pending.rows.cannot-apply", {what: what(change(canon.root), lookups, text)}), place: placeOf(change(canon.root), lookups)};
+        case "cannot-apply": {
+            // 写套不上的第一条情节；同一个根因弄坏的几条合成一行（详情里写还有几条）。
+            const first = canon.changes[0] ?? canon.root;
+            return {key, text: text("pending.rows.cannot-apply", {what: what(change(first), lookups, text)}), place: placeOf(change(first), lookups)};
+        }
         case "time-conflict": {
             const first = canon.changes[0];
             return {key, text: text("pending.rows.time-conflict", {count: canon.changes.length}), place: first === undefined ? "" : placeOf(change(first), lookups)};
@@ -232,7 +245,7 @@ function decisionText(lookups: PendingLookups, id: string): string | undefined {
 }
 
 function hasEstimate(found: StoryChange): boolean {
-    return found.patches.some((patch) => (patch as {readonly basis?: {readonly kind?: string}}).basis?.kind === "estimate");
+    return found.patches.some((patch) => patch.basis?.kind === "estimate");
 }
 
 export function pendingDetail(item: PendingItem, lookups: PendingLookups, text: Bound): PendingDetailModel {
@@ -273,17 +286,24 @@ export function pendingDetail(item: PendingItem, lookups: PendingLookups, text: 
         }
         case "held": {
             const found = storyChange(lookups, canon.change);
-            const note = (found as {readonly held?: {readonly note?: string}} | undefined)?.held?.note;
+            const note = found?.held?.note;
             const reason = text(`pending.heldReasons.${canon.reason}`);
             return {...base, quote: firstQuote(found), facts: [{label: text("pending.detail.reason"), value: note === undefined || note === "" ? reason : `${reason}：${note}`}], links: [{label: text("pending.detail.openChange"), target: {kind: "change", id: canon.change}}]};
         }
         case "cannot-apply": {
-            const outcome = lookups.outcome(canon.root);
-            const facts = [{label: text("pending.detail.root"), value: what(change(canon.root), lookups, text)}];
+            const first = canon.changes[0] ?? canon.root;
+            const outcome = lookups.outcome(first);
+            const facts: {label: string; value: string}[] = [];
             if (outcome?.reason !== undefined) facts.push({label: text("pending.detail.reason"), value: text(`pending.applyFailures.${outcome.reason}`)});
-            const followers = canon.changes.filter((id) => id !== canon.root);
-            if (followers.length > 0) facts.push({label: text("pending.detail.followers"), value: text("pending.detail.followersCount", {count: followers.length})});
-            return {...base, quote: firstQuote(storyChange(lookups, canon.root)), facts, links: [{label: text("pending.detail.openChange"), target: {kind: "change", id: canon.root}}]};
+            const root = cannotApplyRoot(canon);
+            const links: {label: string; target: PendingTarget}[] = [{label: text("pending.detail.openChange"), target: {kind: "change", id: first}}];
+            if (root !== null) {
+                const title = lookups.revisionTitle(root);
+                facts.push({label: text("pending.detail.root"), value: title === undefined ? text("pending.detail.someRevision") : text("pending.detail.revision", {title})});
+                links.push({label: text("pending.detail.openRoot"), target: {kind: "receipt", id: root}});
+            }
+            if (canon.changes.length > 1) facts.push({label: text("pending.detail.followers"), value: text("pending.detail.followersCount", {count: canon.changes.length - 1})});
+            return {...base, quote: firstQuote(storyChange(lookups, first)), facts, links};
         }
         case "time-conflict":
             return {...base, links: canon.changes.map((id) => linkTo(change(id), lookups, text)).filter(present)};

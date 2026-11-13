@@ -59,8 +59,9 @@ export interface PendingPage {
     readonly truncated: readonly string[];
     readonly disabled: readonly string[];
     /**
-     * 这一页提到的插件诊断（这一页的发现与重复键的提示、没算出的、被截断的、停用的）的显示名，即声明的 `label`：界面不读
-     * 别的插件的声明，按它写诊断的名字。声明已经不在的（停用）没有。
+     * 这一页提到的插件诊断（这一页的发现与重复键的提示、没算出的、被截断的）的显示名，即声明的 `label`：界面不读别的插件的
+     * 声明，按它写诊断的名字。停用的诊断声明已经不在，没有显示名。显示名是读取时的显示数据，不属于读取输入（model.md 输出 36）：
+     * 插件只改显示名、不升版本时，同一串游标的前后两页可以给出不同的名字。
      */
     readonly labels: Readonly<Record<string, string>>;
     readonly counts: {readonly pending: number; readonly hints: number; readonly handled: number};

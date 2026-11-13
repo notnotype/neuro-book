@@ -132,9 +132,12 @@ interface PendingGroups {
     readonly disabled: readonly string[];
 }
 
-/** 一页提到的插件诊断的显示名（`PendingPage.labels`）：声明已经不在的不写。 */
+/**
+ * 一页提到的插件诊断的显示名（`PendingPage.labels`）。停用的诊断按定义就是登记里已经没有声明的（见 `#groups` 的 `disabled`），
+ * 拿不到显示名，所以不算在“提到的”里。
+ */
 function diagnosticLabels(registry: DiagnosticRegistry, groups: PendingGroups, items: readonly GroupItem[]): Record<string, string> {
-    const mentioned = new Set([...groups.unavailable.map((item) => item.diagnostic), ...groups.truncated, ...groups.disabled]);
+    const mentioned = new Set([...groups.unavailable.map((item) => item.diagnostic), ...groups.truncated]);
     for (const item of items) {
         if (item.kind === "finding") mentioned.add(item.diagnostic);
         else if (item.kind === "hint" && item.hint.code === "diagnostic-duplicate-key") mentioned.add(item.hint.diagnostic);

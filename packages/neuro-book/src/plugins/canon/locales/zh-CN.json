@@ -481,14 +481,17 @@
             "estimate": "估计",
             "initial": "初值",
             "reason": "原因",
-            "root": "根因",
+            "root": "让它套不上的那次改动",
             "followers": "跟着套不上的",
             "followersCount": "还有 {{count}} 条",
             "decision": "作者当时的决定",
             "earlierDecision": "检查升级之前的决定",
             "openChange": "打开这条情节",
             "openEntry": "打开条目",
-            "objects": "相关的对象"
+            "objects": "相关的对象",
+            "revision": "“{{title}}”",
+            "someRevision": "一次改动",
+            "openRoot": "看那次改动的回执"
         }
     }
 }

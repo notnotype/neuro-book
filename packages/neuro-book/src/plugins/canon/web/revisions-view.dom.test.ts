@@ -28,14 +28,18 @@ import {provideText, testTextPort} from "nbook/shared/testing/text-port";
 
 import {WORLD_LOCK} from "../backend/world-host";
 import type {CanonClient} from "../shared/contracts";
+import {countedClient} from "../testing/counted-client";
 import {canonNodeWorld} from "../testing/node-world";
 import type {CanonNodeWindow, CanonNodeWorld} from "../testing/node-world";
 import {pageStandIn} from "../testing/page-stand-in";
 import {person, publish, publishWith} from "../testing/world-fixtures";
 import {REVISIONS_VIEW} from "./commands";
 import RevisionsView from "./components/RevisionsView.vue";
+import {createRevertRequests} from "./revert";
 import {ALL} from "./revisions";
+import {createRevisionsView, revisionsViewState} from "./revisions-view";
 import {canonCatalogs} from "./text";
+import {createCanonWorld} from "./world";
 
 const port = testTextPort("zh-CN", {"nbook.canon": canonCatalogs});
 const global = {provide: provideText(port)};
@@ -59,6 +63,7 @@ afterEach(async () => {
 });
 
 interface Setup {
+    readonly mine: CanonNodeWindow;
     readonly other: CanonNodeWindow;
     readonly notifications: WindowNotifications;
     /** 按工作台的做法挂上视图；`visible` 是它的 `context.visible`。 */
@@ -72,13 +77,14 @@ async function setup(): Promise<Setup> {
     const notifications = createNotifications(() => undefined, port);
     cleanups.push(() => notifications.dispose());
     const notifier: PluginDefinition = {id: "nbook.workbench", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], provides: [notificationsKey], activate: () => ({services: [provideService(notificationsKey, notifications)]})})]};
-    await venue.window("mine", [standIn.plugin, notifier]);
+    const mine = await venue.window("mine", [standIn.plugin, notifier]);
     const other = await venue.window("other");
     // 还原的对话框挂在页面根上（工作台的页面浮层），同产品。
     const overlay = mount(await standIn.overlay("nbook.canon.revert").load(), {global, attachTo: document.body});
     cleanups.push(() => overlay.unmount());
     const component = await standIn.view(REVISIONS_VIEW).implementation.load();
     return {
+        mine,
         other,
         notifications,
         open: async () => {
@@ -217,4 +223,30 @@ describe("改动记录视图", () => {
         expect(titles(view)[0]).toBe("新来的");
         await waitUntil("回来以后读到新的", () => titles(view)[0] === "停放时来的");
     }, 60_000);
+    it("停放时不读：别处发布一次，改动记录的读取次数不变；回到前台先显示留着的，同时读到新的（输出 26）", async () => {
+        const {mine, other} = await setup();
+        const counted = countedClient(mine.canon);
+        const world = createCanonWorld(counted.client);
+        cleanups.push(() => world.dispose());
+        const component = await createRevisionsView({world: () => world, state: revisionsViewState(), revert: createRevertRequests(), receipt: () => undefined}).load();
+        const visible = ref(true);
+        const view = mount(component, {props: {context: {id: REVISIONS_VIEW, generation: 1, visible, location: ref("panel")} as unknown as ViewContext}, global, attachTo: document.body});
+        cleanups.push(() => view.unmount());
+        await waitUntil("章序调整", () => titles(view).length === 1);
+
+        visible.value = false;
+        await nextTick();
+        const reads = (): number => counted.calls.filter((call) => call.method === "revisions").length;
+        const before = reads();
+        const published = await publishWith(other.canon, [person("停放时来的")], "停放时来的");
+        await waitUntil("本窗口知道了新版本", () => world.status.value.data?.version === published.version);
+        expect(reads()).toBe(before);
+        expect(titles(view)).toEqual(["章序调整"]);
+
+        visible.value = true;
+        await nextTick();
+        expect(titles(view)).toEqual(["章序调整"]);
+        await waitUntil("读到新的", () => titles(view)[0] === "停放时来的");
+        expect(reads()).toBeGreaterThan(before);
+    });
 });

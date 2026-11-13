@@ -83,17 +83,18 @@ export function useWorldList<M extends ListMethod>(world: CanonWorld, method: M,
 
 /**
  * 视图停放时（输入变成 null，读取已释放）接着给最后读到的：屏幕上的行不消失、滚动位置还在；回到前台时先显示它，同时重读
- * （docs/specs/canon/author-ui.md 输出 26）。重读的结果到了（或读失败）就换上。只给停放的视图用：输入因为别的原因变成 null
- * （例如条目被删了）时不该留着旧的。
+ * （docs/specs/canon/author-ui.md 输出 26）。重读的结果到了（或读失败）就换上。给出的留着的结果标 `stale`：它不一定是现在的。
+ * 只给停放的视图用：输入因为别的原因变成 null（例如条目被删了）时不该留着旧的。
  */
-export function useKeptRead<S extends {readonly data: unknown; readonly error: unknown}>(read: () => S | null): ComputedRef<S | null> {
+export function useKeptRead<S extends {readonly data: unknown; readonly error: unknown; readonly stale: boolean}>(read: () => S | null): ComputedRef<S | null> {
     const last = shallowRef<S | null>(null);
     watch(read, (value) => {
         if (value !== null && value.data !== undefined) last.value = value;
     }, {immediate: true});
     return computed(() => {
         const value = read();
-        return value !== null && (value.data !== undefined || value.error !== null) ? value : last.value ?? value;
+        if (value !== null && (value.data !== undefined || value.error !== null)) return value;
+        return last.value === null ? value : {...last.value, stale: true};
     });
 }
 

@@ -2,7 +2,7 @@
 /**
  * 待处理视图的骨架（同名 .md；docs/specs/canon/author-ui.md 输出 23）。受控：各组的行、展开、选中与详情都由宿主给。
  */
-import {computed, ref} from "vue";
+import {computed, nextTick, ref, watch} from "vue";
 
 import {Button, OverlayScrollbar} from "@notnotype/nb-ui/components";
 
@@ -47,11 +47,28 @@ const list = ref<HTMLElement | null>(null);
 const listScroller = ref<HTMLElement | null>(null);
 const detailScroller = ref<HTMLElement | null>(null);
 
-/** 行的键在三组里各自唯一；`data-row` 带上组，焦点移动按它找行。 */
-const rowId = (group: PendingGroup, key: string): string => `${group}\u0000${key}`;
+/** 行的键在三组里各自唯一；`data-row` 带上组，焦点移动按它找行（逐个比 `dataset`，键里可能有引号，不拼选择器）。 */
+const rowId = (group: PendingGroup, key: string): string => `${group}:${key}`;
 const shownRows = computed(() => GROUPS.filter((group) => props.expanded.includes(group)).flatMap((group) => props.groups[group].rows.map((row) => rowId(group, row.key))));
 const tabbable = computed(() => tabbableRow(shownRows.value, props.selected === null ? null : rowId(props.selected.group, props.selected.key)));
 const isSelected = (group: PendingGroup, key: string): boolean => props.selected?.group === group && props.selected.key === key;
+
+// 焦点在列表里时选中的那一行消失（世界变了、宿主换了选中）：焦点落到了页面上，移到新选中的那一行，键盘还能接着移。
+let focusInList = false;
+const onListFocusIn = (): void => {
+    focusInList = true;
+};
+const onListFocusOut = (event: FocusEvent): void => {
+    focusInList = event.relatedTarget instanceof Node && list.value?.contains(event.relatedTarget) === true;
+};
+watch(() => props.selected, async (selected) => {
+    if (!focusInList || selected === null) return;
+    await nextTick();
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && list.value?.contains(active) === true) return;
+    const id = rowId(selected.group, selected.key);
+    [...(list.value?.querySelectorAll<HTMLElement>("[data-row]") ?? [])].find((row) => row.dataset.row === id)?.focus();
+});
 
 function toggle(group: PendingGroup): void {
     emit("update:expanded", props.expanded.includes(group) ? props.expanded.filter((item) => item !== group) : [...props.expanded, group]);
@@ -61,15 +78,15 @@ function toggle(group: PendingGroup): void {
 <template>
     <div class="pending-view" data-pending-view>
         <WorldBanners :disconnected="props.disconnected" :read-only="props.readOnly" @retry="emit('retry')" />
-        <div v-if="props.holder !== ''" class="pending-view__note pending-view__busy" role="status" data-pending-busy>
-            <span>{{ text("pending.busy", {holder: props.holder}) }}</span>
+        <div v-if="props.holder !== ''" class="pending-view__note pending-view__busy" data-pending-busy>
+            <span role="status">{{ text("pending.busy", {holder: props.holder}) }}</span>
             <Button size="sm" variant="ghost" data-pending-break @click="emit('break-exclusive')">{{ text("pending.breakExclusive.action") }}</Button>
         </div>
         <p v-for="(note, index) in props.notes" :key="index" class="pending-view__note" role="status" data-pending-incomplete>{{ note }}</p>
         <div class="pending-view__body">
             <div class="pending-view__pane pending-view__pane--list">
                 <div ref="listScroller" class="pending-view__scroll">
-                    <div ref="list" @keydown="rovingKeydown($event, list)">
+                    <div ref="list" @keydown="rovingKeydown($event, list)" @focusin="onListFocusIn" @focusout="onListFocusOut">
                         <section v-for="group in GROUPS" :key="group" class="pending-view__group" :data-pending-group="group">
                             <button
                                 type="button"

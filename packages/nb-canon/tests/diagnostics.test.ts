@@ -180,6 +180,30 @@ describe("canon.project 方法表 pending：一页带这一页提到的诊断的
         expect(hints.labels).toEqual({[broken.id]: "算不出来", [twice.id]: "报了两次"});
     });
 
+    test("待处理级的诊断报了重复键：提示组里只有那条重复键的提示，提示页也带它的显示名", async () => {
+        const twice = declaration("twice", {label: "报了两次"});
+        const service = await open([twice]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[twice.id]: () => [finding("同一处"), finding("同一处")]}});
+        const hints = pageOf(service, {group: "hints"});
+        expect(hints.items.map(describeItem)).toEqual(["diagnostic-duplicate-key"]);
+        expect(hints.labels).toEqual({[twice.id]: "报了两次"});
+    });
+
+    test("只带这一页提到的：分页读时每页只有本页的发现的显示名", async () => {
+        const first = declaration("a-first", {label: "第一个"});
+        const second = declaration("b-second", {label: "第二个"});
+        const service = await open([first, second]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[first.id]: () => [finding("甲")], [second.id]: () => [finding("乙")]}});
+        const one = service.pending({}, undefined, 1);
+        if (typeof one === "string") throw new Error(one);
+        expect(one.items.map(describeItem)).toEqual(["a-first:甲"]);
+        expect(one.labels).toEqual({[first.id]: "第一个"});
+        const two = service.pending({}, one.cursor, 1);
+        if (typeof two === "string") throw new Error(two);
+        expect(two.items.map(describeItem)).toEqual(["b-second:乙"]);
+        expect(two.labels).toEqual({[second.id]: "第二个"});
+    });
+
     test("截断的诊断在任何一组的页上都带显示名", async () => {
         const many = declaration("many", {label: "太多了"});
         const service = await open([many]);

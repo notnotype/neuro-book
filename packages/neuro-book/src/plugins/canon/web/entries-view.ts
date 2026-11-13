@@ -22,7 +22,7 @@ import type {CanonNotices} from "./notices";
 import {defaultPosition} from "./positions";
 import {useCanonText} from "./text";
 import {useWorldRead} from "./use-reads";
-import {viewContextProp, viewVisible} from "./view-visible";
+import {unboundView, viewContextProp, viewVisible} from "./view-visible";
 import type {CanonWorld, ListHandle} from "./world";
 
 /** 每层一次读多少项。 */
@@ -69,7 +69,7 @@ export function createEntriesViewHost(tree: Component, options: EntriesViewHostO
             const text = useCanonText();
             const port = useText();
             const {world, state} = options;
-            if (world === null) return () => h("p", {class: "px-3 py-2 text-[length:var(--text-sm)] text-[var(--text-muted)]"}, text("world.unbound"));
+            if (world === null) return () => unboundView(text);
 
             // 视图停放、收起时不占着读取（输出 26）：读取层留着结果，回来时先显示旧的，同时重读。新建条目的对话框开着时要章表。
             const visible = viewVisible(props);

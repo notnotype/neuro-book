@@ -34,6 +34,7 @@ function lookups(objects: readonly unknown[] = [], extra: Partial<PendingLookups
         chapter: (id) => `第 ${id} 章`,
         label: () => undefined,
         outcome: () => undefined,
+        revisionTitle: () => undefined,
         ...extra,
     };
 }
@@ -88,8 +89,16 @@ describe("pendingDetail", () => {
         expect(held.quote).toEqual({text: "她数了数钱", chapter: "2"});
         expect(held.links).toEqual([{label: "打开这条情节", target: {kind: "change", id: "c1"}}]);
 
-        const cannot = pendingDetail({kind: "canon", item: {kind: "cannot-apply", root: "c1", changes: ["c1", "c2", "c3"]}}, lookups([storyChange("c1")], {outcome: () => ({applied: false, reason: "entry-missing"})}), text);
-        expect(cannot.facts).toEqual([{label: "根因", value: "“情节c1”"}, {label: "原因", value: "要改的条目不在了"}, {label: "跟着套不上的", value: "还有 2 条"}]);
+        // 根因查不到（根因就是第一条情节自己）：写原因与还有几条。
+        const cannot = pendingDetail({kind: "canon", item: {kind: "cannot-apply", root: "c1", changes: ["c1", "c2", "c3"]}}, lookups([storyChange("c1")], {outcome: (id) => (id === "c1" ? {applied: false, reason: "entry-missing"} : undefined)}), text);
+        expect(cannot.title).toBe("“情节c1”套不上了");
+        expect(cannot.facts).toEqual([{label: "原因", value: "要改的条目不在了"}, {label: "跟着套不上的", value: "还有 2 条"}]);
+        expect(cannot.links).toEqual([{label: "打开这条情节", target: {kind: "change", id: "c1"}}]);
+        // 根因是一次修订：写它的标题，链到它的回执。
+        const broken = pendingDetail({kind: "canon", item: {kind: "cannot-apply", root: "r9", changes: ["c1"]}}, lookups([storyChange("c1")], {outcome: () => ({applied: false, reason: "number-out-of-range"}), revisionTitle: (id) => (id === "r9" ? "继承了遗产" : undefined)}), text);
+        expect(broken.facts).toEqual([{label: "原因", value: "改完的数超出了范围"}, {label: "让它套不上的那次改动", value: "“继承了遗产”"}]);
+        expect(broken.links).toEqual([{label: "打开这条情节", target: {kind: "change", id: "c1"}}, {label: "看那次改动的回执", target: {kind: "receipt", id: "r9"}}]);
+        expect(pendingNeeds({kind: "canon", item: {kind: "cannot-apply", root: "r9", changes: ["c1"]}}).refs).toEqual([{kind: "change", id: "c1"}]);
 
         const handled: PendingItem = {kind: "finding", diagnostic: "nbook.plot.chain", level: "pending", finding: {key: {detail: "x"}, objects: [{kind: "entry", id: "e1"}], params: {}}, handledBy: "d1"};
         const detail = pendingDetail(handled, lookups([decision]), text);

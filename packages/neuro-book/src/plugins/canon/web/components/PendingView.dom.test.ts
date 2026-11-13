@@ -38,8 +38,8 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-const rowOf = (wrapper: ReturnType<typeof mount>, group: PendingGroup, key: string) => wrapper.get(`[data-row='${group}\u0000${key}']`);
-const focusedRow = (): string | null => document.activeElement?.getAttribute("data-row")?.replace("\u0000", ":") ?? null;
+const rowOf = (wrapper: ReturnType<typeof mount>, group: PendingGroup, key: string) => wrapper.get(`[data-row='${group}:${key}']`);
+const focusedRow = (): string | null => document.activeElement?.getAttribute("data-row") ?? null;
 
 describe("PendingView", () => {
     it("三组各有展开按钮与条数，收起的组只写条数；点了发新的展开列表；一行写是什么与位置，选中的那行标出来", async () => {
@@ -58,7 +58,7 @@ describe("PendingView", () => {
 
     it("上下键在展开的各组的行之间移，选中跟着焦点走；只有选中的那行在 Tab 序列里", async () => {
         const wrapper = mount(PendingView, {props: {groups, expanded: ["pending", "hints"], selected: {group: "pending", key: "a"}}, global, attachTo: document.body});
-        expect(wrapper.findAll("[data-pending-row]").filter((row) => row.attributes("tabindex") === "0").map((row) => row.attributes("data-row")?.replace("\u0000", ":"))).toEqual(["pending:a"]);
+        expect(wrapper.findAll("[data-pending-row]").filter((row) => row.attributes("tabindex") === "0").map((row) => row.attributes("data-row"))).toEqual(["pending:a"]);
         (rowOf(wrapper, "pending", "a").element as HTMLElement).focus();
         await rowOf(wrapper, "pending", "a").trigger("keydown", {key: "ArrowDown"});
         expect(focusedRow()).toBe("pending:b");
