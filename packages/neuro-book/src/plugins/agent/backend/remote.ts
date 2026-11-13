@@ -27,6 +27,7 @@ import {byteLength, chunkOf, FrameMerger, PAGE_BYTES, pageOf, pageOfItems, trimT
 import {jobDirectory, OUTPUT_FILE, readStatus} from "./builtin/shell-background";
 import type {Job, JobCenter} from "./jobs/center";
 import type {SkillCatalog} from "./skills/catalog";
+import type {OpenFolderResult} from "./skills/folder";
 import type {SkillInstaller} from "./skills/install";
 import type {SessionRelations} from "./subagents/relations";
 import {TREE_PUSH_MS, type SubagentTree} from "./subagents/tree";
@@ -48,6 +49,8 @@ export interface AgentRemoteOptions {
     /** Skill 目录（skills.md 输出 1、5）。 */
     readonly skills: Pick<SkillCatalog, "list" | "onChanged">;
     readonly skillInstaller: Pick<SkillInstaller, "plan" | "init">;
+    /** 用户的 Skill 文件夹与打开它的办法（skills.md 输出 25）。 */
+    readonly skillsFolder: {readonly path: string; open(): Promise<OpenFolderResult>};
     /** 审批预览（builtin-tools.md 输出 26）：按这个会话的资源权限试算。 */
     readonly previewApproval: (session: ToolSessionContext, tool: string, args: Readonly<Record<string, unknown>>, signal: AbortSignal) => Promise<ApprovalPreview>;
     readonly projectRules: (project: string, signal: AbortSignal) => Promise<Rule[] | "invalid">;
@@ -314,6 +317,12 @@ export function agentRemote(options: AgentRemoteOptions, previews: PreviewTokens
             const done = await options.skillInstaller.init(id, {resolve: resolve === true});
             if (done.ok) return context.ok({});
             return done.code === "install-failed" ? context.fail("install-failed", {output: done.detail ?? ""}) : context.fail(done.code);
+        },
+        openSkillsFolder: async (_input, context) => {
+            const opened = await options.skillsFolder.open();
+            if (opened.ok) return context.ok({});
+            const {path} = options.skillsFolder;
+            return opened.code === "no-desktop" ? context.fail("no-desktop", {path}) : context.fail("open-failed", {path, detail: opened.detail ?? ""});
         },
         createUserProfile: async ({name, description, system}, context) => {
             const created = await options.profileAdmin.createUser(name, {description, system});

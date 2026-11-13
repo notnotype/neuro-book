@@ -528,5 +528,15 @@
             "gone": "已删除或不可用",
             "goneGroup": "已删除或不可用"
         }
+    },
+    "skills": {
+        "task": {
+            "title": "初始化 Skill {{name}}",
+            "installing": "正在安装 {{count}} 个包",
+            "installingUnknown": "正在安装依赖",
+            "resolving": "正在解析依赖并生成锁文件",
+            "ready": "已可用",
+            "failed": "安装没有成功"
+        }
     }
 }

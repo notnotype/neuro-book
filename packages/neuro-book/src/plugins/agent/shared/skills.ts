@@ -53,8 +53,8 @@ export interface SkillEntry {
 
 /** 初始化之前交给用户确认的内容（skills.md 输出 18）；联网、不运行安装脚本对每个 Skill 都一样，由界面写明。 */
 export type SkillInitPlan =
-    /** 有 `bun.lock`：要装的包数，读不懂锁文件时为 null（“未知”）。 */
-    | {readonly lock: true; readonly packages: number | null}
+    /** 有 `bun.lock`：要装的包数，读不懂锁文件时为 null（“未知”）；直接依赖给确认框列出来。 */
+    | {readonly lock: true; readonly packages: number | null; readonly dependencies: readonly string[]}
     /** 没有 `bun.lock`：直接依赖，安装时按最新版本解析并生成锁文件。 */
     | {readonly lock: false; readonly dependencies: readonly string[]};
 

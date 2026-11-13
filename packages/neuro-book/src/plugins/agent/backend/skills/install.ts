@@ -11,8 +11,12 @@ import {join} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {tryLock} from "@notnotype/nb-harness/file-lock";
+import type {TextRef} from "@notnotype/nb-ui/text";
+
+import type {BackgroundTasks, TaskHandle} from "nbook/plugins/tasks/shared/contracts";
 
 import type {SkillInitPlan} from "../../shared/skills";
+import {agentText} from "../../shared/text";
 import type {SkillItem} from "./catalog";
 import {currentPlatform, installInputs, LOCK_FILE, MARKER_FILE, MARKER_SCHEMA, PACKAGE_FILE} from "./readiness";
 import type {SkillDepsMarker} from "./readiness";
@@ -36,6 +40,8 @@ export interface SkillInstallerOptions {
     readonly bun: string;
     readonly clock: RuntimeClock;
     readonly timeoutMs?: number;
+    /** 应用里的后台任务（skills.md 输出 29）；命令行在另一个进程里，不给。 */
+    readonly tasks?: BackgroundTasks;
 }
 
 const missing = (error: unknown): boolean => (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
@@ -50,6 +56,39 @@ async function readJson(path: string, parse: (text: string) => unknown): Promise
 }
 
 const tail = (text: string): string => text.trimEnd().split("\n").slice(-OUTPUT_TAIL_LINES).join("\n");
+
+/** 确认框与后台任务的进展用的内容：有锁时是锁里的包数，两种都列直接依赖。 */
+async function planOf(directory: string): Promise<SkillInitPlan> {
+    const manifest = await readJson(join(directory, PACKAGE_FILE), (text) => JSON.parse(text)) as {dependencies?: Record<string, unknown>; optionalDependencies?: Record<string, unknown>} | null | undefined;
+    const dependencies = [...Object.keys(manifest?.dependencies ?? {}), ...Object.keys(manifest?.optionalDependencies ?? {})];
+    const lock = await readJson(join(directory, LOCK_FILE), (text) => Bun.JSONC.parse(text));
+    if (lock === undefined) return {lock: false, dependencies};
+    const packages = typeof lock === "object" && lock !== null && "packages" in lock && typeof lock.packages === "object" && lock.packages !== null ? Object.keys(lock.packages).length : null;
+    return {lock: true, packages, dependencies};
+}
+
+/**
+ * 按安装的结果结束任务（skills.md 输出 29）。中断有两种：用户取消（任务的 `signal` 以 `cancelled` abort）结束为已取消；应用停止时
+ * 不动它，由后台任务在 Agent 入口停止之后转成已中断。`outcome` 为空是安装中途抛错，按失败算。
+ */
+function finishTask(task: TaskHandle, outcome: SkillInitResult | undefined): void {
+    if (outcome?.ok === true) {
+        task.succeed(agentText("skills.task.ready"));
+        return;
+    }
+    if (outcome?.code === "interrupted") {
+        if (task.signal.reason === "cancelled") task.cancelled();
+        return;
+    }
+    const detail = outcome?.code === "install-failed" ? outcome.detail : undefined;
+    task.fail({message: agentText("skills.task.failed"), ...(detail === undefined ? {} : {detail})});
+}
+
+/** 后台任务的进展：窗口按界面语言翻文字引用（background-tasks.md 的“输入与前置条件”）。 */
+function installingText(plan: SkillInitPlan): TextRef {
+    if (!plan.lock) return agentText("skills.task.resolving");
+    return plan.packages === null ? agentText("skills.task.installingUnknown") : agentText("skills.task.installing", {count: plan.packages});
+}
 
 export class SkillInstaller {
     readonly #options: SkillInstallerOptions;
@@ -81,14 +120,7 @@ export class SkillInstaller {
     async plan(id: string): Promise<{readonly ok: true; readonly plan: SkillInitPlan} | {readonly ok: false; readonly code: "skill-not-found" | "not-initializable"}> {
         const checked = await this.#initializable(id);
         if (!checked.ok) return checked;
-        const lock = await readJson(join(checked.item.directory, LOCK_FILE), (text) => Bun.JSONC.parse(text));
-        if (lock !== undefined) {
-            const packages = typeof lock === "object" && lock !== null && "packages" in lock && typeof lock.packages === "object" && lock.packages !== null ? Object.keys(lock.packages).length : null;
-            return {ok: true, plan: {lock: true, packages}};
-        }
-        const manifest = await readJson(join(checked.item.directory, PACKAGE_FILE), (text) => JSON.parse(text)) as {dependencies?: Record<string, unknown>; optionalDependencies?: Record<string, unknown>} | null | undefined;
-        const dependencies = [...Object.keys(manifest?.dependencies ?? {}), ...Object.keys(manifest?.optionalDependencies ?? {})];
-        return {ok: true, plan: {lock: false, dependencies}};
+        return {ok: true, plan: await planOf(checked.item.directory)};
     }
 
     /** 初始化；本进程已在装就交回那一次的结果。`resolve` 为真时允许在没有 `bun.lock` 时解析并生成它。 */
@@ -135,16 +167,38 @@ export class SkillInstaller {
         if (lock === null) return {ok: false, code: "busy"};
         const abort = new AbortController();
         this.#aborts.add(abort);
+        // 拿到锁才登记：并入的请求、`busy`、`lock-missing` 都不是一次安装，不进清单。
+        const task = await this.#startTask(checked.item, resolve, abort);
+        // 写完标记才算有结果：中途抛错时任务按失败收尾，不留一件一直在跑的。
+        let outcome: SkillInitResult | undefined;
         try {
             await this.#options.refresh(id);
-            const outcome = await this.#run(directory, hasLock, abort.signal);
-            const error: SkillDepsMarker["error"] = outcome.ok ? undefined : outcome.code === "interrupted" ? {code: "interrupted"} : {code: "install-failed", detail: outcome.detail ?? ""};
+            const result = await this.#run(directory, hasLock, abort.signal);
+            const error: SkillDepsMarker["error"] = result.ok ? undefined : result.code === "interrupted" ? {code: "interrupted"} : {code: "install-failed", detail: result.detail ?? ""};
             await this.#writeMarker(directory, error);
-            return outcome;
+            outcome = result;
+            return result;
         } finally {
             this.#aborts.delete(abort);
             lock.release();
+            if (task !== null) finishTask(task, outcome);
         }
+    }
+
+    /** skills.md 输出 29：用户取消就中止安装；`nbook.tasks` 自己停止时（reason `interrupted`）安装照常进行。 */
+    async #startTask(item: SkillItem, resolve: boolean, abort: AbortController): Promise<TaskHandle | null> {
+        const tasks = this.#options.tasks;
+        if (tasks === undefined) return null;
+        const handle = tasks.start({
+            title: agentText("skills.task.title", {name: item.entry.name}),
+            message: installingText(await planOf(item.directory)),
+            cancellable: true,
+            retry: () => this.init(item.entry.id, {resolve}).then(() => undefined),
+        });
+        handle.signal.addEventListener("abort", () => {
+            if (handle.signal.reason === "cancelled") abort.abort();
+        }, {once: true});
+        return handle;
     }
 
     async #run(directory: string, frozen: boolean, signal: AbortSignal): Promise<SkillInitResult> {

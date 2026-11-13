@@ -528,5 +528,15 @@
             "gone": "Deleted or unavailable",
             "goneGroup": "Deleted or unavailable"
         }
+    },
+    "skills": {
+        "task": {
+            "title": "Initialize Skill {{name}}",
+            "installing": "Installing {{count}} packages",
+            "installingUnknown": "Installing dependencies",
+            "resolving": "Resolving dependencies and creating a lockfile",
+            "ready": "Ready",
+            "failed": "Installation failed"
+        }
     }
 }

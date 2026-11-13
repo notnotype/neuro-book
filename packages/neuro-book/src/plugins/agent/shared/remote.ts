@@ -255,6 +255,13 @@ const methods = {
         // `install-failed` 带安装输出的最后几行（确认框的“最后几行输出”）。
         errors: {...errorsOf(["skill-not-found", "not-initializable", "busy", "lock-missing", "interrupted"] as const), "install-failed": Type.Object({output: Type.String()}, {additionalProperties: false})},
     },
+    /** 用系统的文件管理器打开用户的 Skill 文件夹（skills.md 输出 25）；失败都带文件夹的路径，界面写进通知。 */
+    openSkillsFolder: {
+        input: Type.Object({}, {additionalProperties: false}),
+        output: Type.Object({}, {additionalProperties: false}),
+        effect: "write",
+        errors: {"no-desktop": Type.Object({path: Type.String()}, {additionalProperties: false}), "open-failed": Type.Object({path: Type.String(), detail: Type.String()}, {additionalProperties: false})},
+    },
     /** 骨架里的文字由窗口按界面语言给（contributions.md 输出 18）。 */
     createUserProfile: {
         input: Type.Object({
