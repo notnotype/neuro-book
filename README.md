@@ -108,6 +108,7 @@ AI 能写好一段文字，但写不好一部长篇：设定靠对话记忆，�
 | [`@notnotype/nb-harness`](packages/nb-harness/README.md) | Agent harness：Profile、工具与一次运行 |
 | [`@notnotype/nb-profile`](packages/nb-profile/README.md) | Profile 的定义、加载与 JSX 渲染 |
 | [`@notnotype/nb-session`](packages/nb-session/README.md) | Agent 会话日志 |
+| [`@notnotype/nb-flock`](packages/nb-flock/README.md) | 进程级的独占文件锁，进程退出即放 |
 | [`@notnotype/nb-runtime`](packages/nb-runtime/README.md) | 内核：生命周期、服务装配、插件、启动门禁、诊断、远程服务 |
 | [`@notnotype/nb-ui`](packages/nb-ui/README.md) | Vue 基础组件与主题（宿主用 Vite 与 Tailwind v4 编译） |
 | [`@notnotype/nb-agent-ui`](packages/nb-agent-ui/README.md) | Agent 对话视图 |
@@ -122,7 +123,7 @@ AI 能写好一段文字，但写不好一部长篇：设定靠对话记忆，�
 - 前端共享包：[nb-ui](packages/nb-ui/README.md) · [nb-form](packages/nb-form/README.md) · [nb-markdown](packages/nb-markdown/README.md) · [nb-agent-ui](packages/nb-agent-ui/README.md)
 - Agent：[nb-harness](packages/nb-harness/README.md) · [nb-profile](packages/nb-profile/README.md) · [nb-session](packages/nb-session/README.md) · [neuro-agent-harness（已冻结）](packages/neuro-agent-harness/README.md) · [llmlint（准备退役）](packages/llmlint/README.md)
 - 领域包：[nb-story](packages/nb-story/README.md) · [nb-history](packages/nb-history/README.md) · [nb-workflow](packages/nb-workflow/README.md) · [nb-memory](packages/nb-memory/README.md)
-- 基础与工具：[owned-process](packages/owned-process/README.md) · [file-snapshot-cache](packages/file-snapshot-cache/README.md) · [neuro-book-contracts](packages/neuro-book-contracts/README.md) · [neuro-book-test-support](packages/neuro-book-test-support/README.md) · [dev-panel（nbdev）](packages/dev-panel/README.md)
+- 基础与工具：[owned-process](packages/owned-process/README.md) · [file-snapshot-cache](packages/file-snapshot-cache/README.md) · [neuro-book-contracts](packages/neuro-book-contracts/README.md) · [nb-flock](packages/nb-flock/README.md) · [neuro-book-test-support](packages/neuro-book-test-support/README.md) · [dev-panel（nbdev）](packages/dev-panel/README.md)
 
 ## 社区
 

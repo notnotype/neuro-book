@@ -173,7 +173,7 @@ Smoke：`packages/neuro-book/e2e/agent-skills.e2e.ts`（场景 2、3、4 在界�
 ## 实现合同
 
 - **公开入口**：远程 `skills`、`skillsChanged`、`skillInitPlan`、`initSkill`、`openSkillsFolder`（`nbook.agent` 的会话合同）；Profile 声明的 `skills`（`agent.profiles`）与 `profileSettings[key].skills`；地址 `skills://`；扩展 `nbook.agent.skills`（事件 `skill`、`skillMissing`）；命令行 `nbook skill init`；`$` 标签的写法与分词经 `@notnotype/nb-markdown/prompt-text`（`promptSkillTokens`、`promptSkillText`）。
-- **owner 与依赖方向**：`nbook.agent` 的服务端持有 Skill 目录、初始化与带上、放回；初始化登记到 `nbook.tasks` 的后台任务（可选依赖，没有时照常装）；`skills://` 是 `nbook.files` 的挂载；跨进程锁取自 `@notnotype/nb-harness/file-lock`，放回接在 nb-harness 内核的放回参数（`kept`）之后。浏览器端的 `$` 菜单、确认框、Skill 页与 Profile 页一节在 Agent 插件的 `web/`，菜单行尾的状态列在 nb-ui 的 `SuggestionMenu`。
+- **owner 与依赖方向**：`nbook.agent` 的服务端持有 Skill 目录、初始化与带上、放回；初始化登记到 `nbook.tasks` 的后台任务（可选依赖，没有时照常装）；`skills://` 是 `nbook.files` 的挂载；跨进程锁取自 `@notnotype/nb-flock`，放回接在 nb-harness 内核的放回参数（`kept`）之后。浏览器端的 `$` 菜单、确认框、Skill 页与 Profile 页一节在 Agent 插件的 `web/`，菜单行尾的状态列在 nb-ui 的 `SuggestionMenu`。
 - **关键不变量**：
   - 认 `$` 标签只有一个规则（`shared/skills.ts` 的 `matchSkillToken`）：服务端带上、菜单插入的写法与点开标签共用，菜单插入的文字经同一套分词读回同一个 Skill（`catalog.test.ts`“认标签”，`skill-menu.test.ts`“插入的标签分词读回同一个 Skill”）。
   - 同一个 Skill 同一时间只装一次：进程内并入，跨进程靠按 Skill 分文件的系统文件锁（锁文件建好不删）；停止或取消在任一步到达都结束这次安装，锁只在一处放（`install.test.ts`“同一个进程里同时请求两次”“场景 5”“输出 21”“用户取消”）。

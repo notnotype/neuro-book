@@ -108,6 +108,7 @@ All published under `@notnotype` on npm, Bun only, licensed AGPL-3.0-only. The a
 | [`@notnotype/nb-harness`](packages/nb-harness/README.md) | Agent harness: profiles, tools and a run |
 | [`@notnotype/nb-profile`](packages/nb-profile/README.md) | Profile definition, loading and JSX rendering |
 | [`@notnotype/nb-session`](packages/nb-session/README.md) | Agent session logs |
+| [`@notnotype/nb-flock`](packages/nb-flock/README.md) | Process-level exclusive file lock, released when the process exits |
 | [`@notnotype/nb-runtime`](packages/nb-runtime/README.md) | Kernel: lifecycle, services, plugins, startup gates, diagnostics, remote services |
 | [`@notnotype/nb-ui`](packages/nb-ui/README.md) | Vue base components and themes (compiled by the host with Vite and Tailwind v4) |
 | [`@notnotype/nb-agent-ui`](packages/nb-agent-ui/README.md) | Agent conversation view |

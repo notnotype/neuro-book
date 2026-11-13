@@ -1,0 +1,66 @@
+# w00043 t12 实现审查（nb-flock）
+
+审查范围：worktree `feat/w00043-t12-flock` 的 `6d3dc32eb..HEAD`（dc4279c09、12937a3c5），加主工作区未提交的切片 3 文档。
+
+## 1. 重要 / 文档、不变量：w00046 的 CI 自动发布要逐包配置 npm 信任发布，没有发布过的新包 nb-flock 第一次发不出去；ADR 0052 与 w00046 的文档都没提
+
+- 位置：主工作区 `docs/adr/0052-non-stale-file-lock-package.md` 后果一节（第 42-47 行）；`docs/adr/0051-desktop-shell-electrobun-tag-release.md:45`（“11 个包都要在 npm 上配置信任发布工作流”）；`docs/proposals/desktop-distribution.md:153,155`（“打出 11 个包”“11 个包都要在 npm 上配置信任这个工作流”）；`.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/README.md:12`（“ubuntu 冒烟 11 个包……11 个包在 npm 上配置信任（开发者操作）”）。
+- 现象：这次让以源码发布的包从 9 个变成 10 个，发布的包总数从 11 个变成 12 个。`repository-workflow.md` 已改成 12，但正在进行的 w00046 t11 发布流水线（打标签后 CI 用 npm CLI 走 trusted publishing，不存长期 token）的提案和 Task 仍写 11 个包。更要紧的是：npm 只能给 registry 上已经存在的包配置 trusted publisher（`npm trust` 的要求里写着“package must exist”，首个版本要先用手工或 token 发出去，见 https://docs.npmjs.com/trusted-publishers）。nb-flock 从没发布过，如果下次发布走 t11 的 CI 入口，它会在 OIDC 发布这一步失败；按 `release:publish` 的依赖顺序它排在 nb-harness、nb-story 之前，失败就停，整批都发不出去。
+- 为什么是问题：ADR 0052 的后果里已经写了“下次发布要一起提 nb-harness 与 nb-story 的版本号”，但没写“nb-flock 首发必须在本机手工完成，之后才能给它配信任发布”。两个 Work 并行时，t11 的作者照提案里的 11 个包去配置，不会知道多了一个新包。
+- 如何核实：`grep -rn '11 个包' docs .agents/works/w00046*`（主工作区）；`bun run release:check` 输出的发布顺序里有 `@notnotype/nb-flock`；npm 的信任发布文档与 `npm trust` 手册。
+- 建议改法：ADR 0052 后果加一条：nb-flock 的首个版本要在本机用 `release:publish` 手工发出，发出后才能在 npm 上给它配信任发布；在 w00046 t11 的 README（或 followups）里记一笔：包数变成 12，nb-flock 首发不能走 CI。提案已经接受，正文按提案规则处理（改不改由主 Agent 定）。ADR 0051 的正文不改。
+
+## 2. 建议 / 代码质量：`tryLock` 新写的注释说“经 ffi 读不到 errno”，这不对
+
+- 位置：`packages/nb-flock/src/index.ts:28`（“POSIX 上 `flock` 的任何失败都当作被占用：经 ffi 读不到 errno。”）
+- 现象：这是这次新写的注释，把“读不到 errno”当成“任何失败都当作被占用”的原因。在 Linux 上实测，经 `bun:ffi` 调 `__errno_location` 再 `read.i32` 读得到 errno：`flock(-1, …)` 读到 9（EBADF），第二个句柄 `flock(LOCK_EX|LOCK_NB)` 读到 11（EWOULDBLOCK）。
+- 为什么是问题：注释给了一个不成立的理由。以后的读者会以为没法区分“被占用”和“不支持 flock”，不会去考虑这个改进；而实际的理由是这次有意保持与 Windows 上实测过的代码逐行相同（计划里写的）。
+- 如何核实：`bun /tmp/review-w00043-t12-impl/scratch/errno.ts` 输出 `{r1: -1, e1: 9, r2: -1, e2: 11}`。
+- 建议改法：改成实话，例如“现在不读 errno（glibc 的 `__errno_location`、macOS 的 `__error`），`flock` 的任何失败都当作被占用；所以在不支持 flock 的文件系统上……”。要不要真去区分 EWOULDBLOCK 留到以后另做，这次不改代码。
+
+## 3. 建议 / 测试：跨进程用例里读子进程第一行的调用放在 try 之外，子进程打第一行之前卡住时不会被收口
+
+- 位置：`packages/nb-flock/src/index.test.ts:55`、`:74`（`const {child, first} = await holdInChild(path);` 在 `try` 之前），`:27-38`（`holdInChild` 内部 spawn 之后一直 `await reader.read()`）。
+- 现象：`holdInChild` 先 spawn，再等第一行。子进程正常打出 `held`/`busy` 或退出时没问题：分块输出由 while 循环拼起来，提前退出时 `done` 跳出、断言失败、`finally` 收口，这些都对。但如果子进程起来后没打第一行就卡住（例如加载 ffi 时卡住），用例会在 bun test 的默认超时上失败，而 `child` 还没交给 `try`/`finally`，不会被 kill。`lock-child.ts` 靠“标准输入关闭就退出”兜底，可子进程卡在 `console.log` 之前时还没走到那段循环，这条兜底也不起作用。用例三的 `mine` 也在这条路径上不 release（进程退出时会放，影响小）。
+- 为什么是问题：brief 要求子进程在失败时也收口。这个窗口窄，但写法本身可以不留这个窗口。
+- 如何核实：读代码；或者在 scratch 副本的 `lock-child.ts` 开头加一个永不 resolve 的 await，跑测试后用 `ps` 看到残留的 `bun …/lock-child.ts`。
+- 建议改法：把 spawn 和读第一行拆开，`const child = Bun.spawn(...)` 之后马上进 `try`，在 `try` 里读第一行。和参照的 `nb-harness/src/kernel/log/store.test.ts:457-471` 一样。
+
+## 4. 建议 / 文档：两份根 README 的 npm 包表说“都发布在 npm”，nb-flock 合入后到下次发布前并不在 npm 上
+
+- 位置：主工作区 `README.md:100,110`、`README.en.md:100,111`；`packages/nb-flock/README.md` 的“安装”一节（`bun add @notnotype/nb-flock`）。
+- 现象：计划和 ADR 0052 都写明这次不改版本号、不发布，而且 nb-flock 要等 nb-harness、nb-story 一起提版本号时才会发。表头那句“都发布在 npm 的 `@notnotype` 下”，在这段时间里对 nb-flock 不成立；从 GitHub 首页照着去装会得到 404。
+- 为什么是问题：影响小、时间有限，但这是对外文档里一句可以验证的话。`scripts/release/packages.ts:14` 只要求“加包时同步根 README 两份的包表”，没要求等到发布后再加。
+- 如何核实：`npm view @notnotype/nb-flock`（计划里写的是“registry 上没有被占用”）。
+- 建议改法：二选一：表里这一行先标“下次发布”；或者接受这段时间的不一致，在 Task README 的发布事项里记一笔。改动小，收益也小，主 Agent 可以直接判“不改”。
+
+## 5. 建议 / 文档：ADR 0052 背景说两份副本“只差报错文字”，不准确
+
+- 位置：主工作区 `docs/adr/0052-non-stale-file-lock-package.md:20`（“两份副本只差报错文字”）。
+- 现象：`diff` base 上的两份文件（`git show 6d3dc32eb:packages/nb-story/src/platform/flock.ts` 对 `…/nb-harness/src/kernel/log/flock.ts`），除了报错文字，nb-harness 那份还把两处内联的 `released` 提成了 `releaseOnce`，注释也不同。计划的 Context 自己写的是“只差三处报错文字与 `releaseOnce`”。ADR 正文接受后就不再改，事实应当在合入前写准。决策 1 的“以在 Windows 上实测过的 nb-story 那份为底”正是因为 nb-harness 那份改过结构，所以这个差别和决策有关。
+- 如何核实：`diff /tmp/review-w00043-t12-impl/scratch/old-story-flock.ts /tmp/review-w00043-t12-impl/scratch/old-harness-flock.ts`。
+- 建议改法：改成“两份副本只差报错文字与 nb-harness 那份抽出的 `releaseOnce`”。
+
+## 6. 建议 / 文档：nb-flock 的使用者列表漏了 nb-story 的问答配置锁，两处说法不一致
+
+- 位置：worktree `packages/nb-flock/AGENTS.md:5`（“nb-story 的书库与导入”）；主工作区 `docs/modules/monorepo-boundaries.md` 新加的 nb-flock 行（“nb-story 的书库与导入”）。同一份边界文档里 nb-story 那一行写的是“书库、导入与问答配置的锁依赖 `nb-flock`”。
+- 现象：`packages/nb-story/src/qa/config.ts` 也从 nb-flock 取 `tryLock`（配置写入的跨进程锁），两处列表都没写。
+- 如何核实：`git grep -n '@notnotype/nb-flock' -- packages/nb-story/src`，命中 registry、store、runner、qa/config 和测试。
+- 建议改法：两处都写成“书库、导入与问答配置”。
+
+## 未发现问题的方面
+
+- 逐行对照：`packages/nb-flock/src/index.ts` 和 base 上的 `nb-story/src/platform/flock.ts` 比，除了注释，只有三处报错文字不同（第 43、104、110 行），代码逐字相同，Windows 段（常量、`>>> 0`、kernel32 签名、`GetLastError` 的时机、`CloseHandle`）和实测版一致。新注释里的失败通道（null 只表示被占用；打不开文件、平台不支持、Win32 其它错误都抛错）和代码对得上（errno 那一句除外，见第 2 条）。
+- 子进程继承：实测持锁进程用 `Bun.spawn` 和 `node:child_process` 起的子进程都没有继承锁文件的 fd（`/proc/<pid>/fd` 里没有），持锁进程被 kill -9 后锁立即能再拿到，“进程怎样结束都放锁”成立。
+- 发布形状：`bun pm pack --dry-run` 只有 `package.json`、`LICENSE`、`README.md`、`src/index.ts`，测试和 `src/testing/` 都排除了；打出的 manifest 没有 `dependencies`，`exports` 只有 `.`；`bun scripts/release/packages.ts --package nb-flock` 通过。`pack-smoke.ts` 的 `FORBIDDEN`、`entryTargets`、`sources` 的 overrides 都按清单自动覆盖新包，不用另加登记。README 写的接口、例子和失败语义与代码一致。
+- 导入点：worktree 里（不含旧应用和 `.agents` 历史记录）已经没有代码、测试、子进程脚本或注释指向 `platform/flock`、`kernel/log/flock`、`@notnotype/nb-harness/file-lock`。worktree 里 `docs/specs/agent/skills.md:176` 是旧副本，主工作区那份已经改了。
+- 架构测试：nb-harness 的 `log` 目录 `packages` 加 `@notnotype/nb-flock`、`builtins` 去掉 `bun:ffi`，规则只收紧不放宽；应用的 `PACKAGE_SIDES` 加 nb-flock 为 backend（以前 `nb-harness/file-lock` 根本没登记，现在反而拦得住前端引用）。两个架构测试我都重跑过，都通过。
+- 测试强度：在 scratch 副本里做变异检查，`release` 不关文件、`tryLock` 总返回对象、总返回 null、去掉重复 release 的保护、把打不开文件吞成 null，每种都有用例失败；没有 mock、spy、假计时器或固定等待；第一行按 `\n` 拼接读取，输出分块时也可靠。
+- 依赖方向：nb-flock 没有任何工作区依赖，nb-harness、nb-story、应用单向依赖它，没有环。nb-story 的 `src/core/`、`src/contract/` 不引 nb-flock，“core 不用 bun:*”的约束保持。nb-file-lock 没有动。
+- 文档数字：ADR 0052 写的“17 个导出”（`nb-file-lock/src/index.ts` 里正好 17 条 `export`）、“proper-lockfile 的 3 个依赖”（graceful-fs、retry、signal-exit）、ADR 0045 决策 4、0029 决策 6、0031 决策 3 的引用、9 个变 10 个、11 个变 12 个，都和代码与原 ADR 一致。“补充”写法有先例（0022、0023），索引里 0029 那一行的补注也符合 README 的做法。`packages/AGENTS.md`、`repository-workflow.md`、根 `AGENTS.md` 那一行、两份根 README 互相一致（第 4、6 条除外）。
+
+## 各级数量
+
+- 阻断：0
+- 重要：1（第 1 条）
+- 建议：5（第 2 至 6 条）
