@@ -29,8 +29,15 @@ updated: 2026-11-13
 
 ## 当前状态
 
-2026-11-13 计划审查已处理，[`plan.md`](plan.md) 改为方案 E，开发者确认。
+2026-11-13 完成，已合入 master（合并提交里分支的三个提交：新包与发布登记、改用新包并删两份副本、实现审查的修正），文档在 master 上单独提交。
+
+- 新包 `packages/nb-flock`：代码以 nb-story 那份为底，只换了三处报错文字，Windows 段与实测版一致；零运行时依赖，加进以源码发布的清单（10 个，冒烟 12 个包）。
+- nb-harness、nb-story 与应用改从 `@notnotype/nb-flock` 取锁；删掉 nb-story 的 `src/platform/flock.ts`、nb-harness 的 `src/kernel/log/flock.ts` 与 `./file-lock` 子路径。
+- 文档：[ADR 0052](../../../../../docs/adr/0052-non-stale-file-lock-package.md)（补充 ADR 0029 的发布清单、两种锁怎么选、下次发布的约束）、边界文档、`packages/AGENTS.md`、发布流程的包数、两份根 README、根 `AGENTS.md` 结构图、[`agent/skills.md`](../../../../../docs/specs/agent/skills.md) 实现合同；w00046 t11 记了包数变 12 与 nb-flock 首发要手工。
+- 审查：计划审查两位 Sonnet（细节阻断 0、重要 4、建议 4 加 1；整体阻断 0、重要 3、建议 3，引出方案 E）；实现审查 Opus（阻断 0、重要 1、建议 5，改 5 条、1 条不改），证据与处理在 [`evidences/`](evidences/)。
+
+验证：nb-flock `bun test`（4 例）与 `typecheck`；nb-harness `src/kernel/log` 与 `src/kernel/architecture.test.ts`（37 例）与 `typecheck`；nb-story `bun test`（669 例）与 `typecheck`；应用 `install.test.ts` 与 `architecture.test.ts`（16 例）；`scripts/release/packages.test.ts` 与 `scripts/ci/test-conventions.test.ts`（13 例）；`release:check`；`prox bun run release:smoke` 通过（从 tarball 装上 nb-story 与 nb-flock，`nbstory serve` 起停正常）；`docs:check` 没有新的失败。没验证的边界：Windows 上的 `LockFileEx` 路径这次没有实测，代码与 nb-story 实测过的那份相同（只差报错文字）。
 
 ## 下一步
 
-按计划的切片在 worktree `.worktree/w00043-t12-flock` 实施：切片 1 新包与发布登记，切片 2 改用新包、删两份副本，切片 3 文档；之后实现审查（Opus 子代理）。
+无。下次发布时：nb-flock 首发由开发者在本机手工完成（npm 要包已存在才能配信任发布），并同时提 nb-harness 与 nb-story 的版本号（见 ADR 0052 的后果）。
