@@ -8,7 +8,11 @@ import {ConnectionError, openRpcSocket} from "@notnotype/nb-host/web";
 import type {RpcEndpoint} from "@notnotype/nb-host/web";
 import type {RemoteLink} from "@notnotype/nb-runtime/remote";
 
+import {Value} from "typebox/value";
+
 import {BROWSER_BOOTSTRAP_PATH} from "nbook/shared/browser-bootstrap";
+import {RUNNING_WORK_PATH, RunningWorkReportSchema} from "nbook/shared/running-work";
+import type {RunningWorkReport} from "nbook/shared/running-work";
 
 export interface Connection {
     /**
@@ -23,6 +27,11 @@ export interface Connection {
      * 网络失败或非 2xx 时抛 ConnectionError，404 时 `status` 为 404。
      */
     catalog(path: string): Promise<string>;
+    /**
+     * 取服务端在跑的工作（docs/specs/runtime/server-host.md 的“在跑的工作”），关最后一个窗口前用。网络失败、非 2xx、形状不对
+     * 都抛 ConnectionError（`signal` 中止也是）。
+     */
+    work(signal: AbortSignal): Promise<RunningWorkReport>;
 }
 
 export function createConnection(baseUrl: string): Connection {
@@ -44,6 +53,23 @@ export function createConnection(baseUrl: string): Connection {
             } catch (error) {
                 throw new ConnectionError("读消息目录的响应失败", response.status, {cause: error});
             }
+        },
+        async work(signal) {
+            let response: Response;
+            try {
+                response = await fetch(new URL(RUNNING_WORK_PATH, base), {cache: "no-store", headers: {accept: "application/json"}, signal});
+            } catch (error) {
+                throw new ConnectionError("无法连接服务端", null, {cause: error});
+            }
+            if (!response.ok) throw new ConnectionError(`取不到在跑的工作（HTTP ${String(response.status)}${await errorCode(response)}）`, response.status);
+            let body: unknown;
+            try {
+                body = await response.json();
+            } catch (error) {
+                throw new ConnectionError("在跑的工作的响应不是 JSON", response.status, {cause: error});
+            }
+            if (!Value.Check(RunningWorkReportSchema, body)) throw new ConnectionError("在跑的工作的响应形状不对", response.status);
+            return body;
         },
         async bootstrap(project, signal) {
             const target = new URL(url);

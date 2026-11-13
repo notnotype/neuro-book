@@ -8,17 +8,24 @@
 import "nbook-tailwind.css";
 import "./styles.css";
 
-import {watchEffect} from "vue";
+import {createApp, watchEffect} from "vue";
 import {createWebHistory} from "vue-router";
 
 import {readClientIdentity} from "@notnotype/nb-host/web";
+import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import type {PluginDescriptor} from "nbook/manifest";
+import {createDesktopBridge} from "nbook/shared/desktop-bridge";
 import type {WindowNavigation} from "nbook/shared/host";
+
+import CloseLayer from "./CloseLayer.vue";
 
 import {rememberDocumentAppearance} from "./host/appearance-hint";
 import {CLIENT_IDENTITY_KEY} from "./host/client-identity";
+import {createCloseQuery} from "./host/close-query";
+import {createCloseUi, installCloseKeyGuard} from "./host/close-ui";
 import {createConnection} from "./host/connection";
 import {readLocaleHint, writeLocaleHint} from "./host/locale-hint";
 import {createHostTextEngine} from "./host/text-engine";
@@ -62,8 +69,9 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         currentUrl: () => location.href,
         replaceUrl: (href) => history.replaceState(history.state, "", href),
     };
+    const connection = createConnection(location.origin);
     const browserWindow = createBrowserWindow({
-        connection: createConnection(location.origin),
+        connection,
         page: window,
         console,
         navigation,
@@ -75,6 +83,24 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         // 第三方插件浏览器入口的共享模块；第一个第三方入口激活时才加载。
         pluginModules: async () => (await import("./host/plugin-modules")).hostModules(),
     });
+    // 关闭前询问（docs/specs/runtime/browser-host.md 输出 9、10）：在启动之前建好，启动中桌面壳来问也能立即接下。普通浏览器里
+    // 不会有壳的事件，这些只是空等。键盘拦截要早于工作台键位注册，所以也在挂载界面之前。层是独立的 Vue 根，挂在 `body`
+    // 下、不随宿主页与工作台切换卸载。
+    const closeRoot = document.createElement("div");
+    closeRoot.dataset.closeRoot = "";
+    document.body.append(closeRoot);
+    const closeUi = createCloseUi({document, ownRoot: () => closeRoot});
+    const closeQuery = createCloseQuery({
+        bridge: createDesktopBridge(window),
+        window: browserWindow,
+        fetchWork: (signal) => connection.work(signal),
+        prompts: closeUi.prompts,
+        layer: closeUi.layer,
+        report: (input) => browserWindow.record(input),
+        clock: systemClock,
+    });
+    installCloseKeyGuard(window, () => closeQuery.active);
+    createApp(CloseLayer, {ui: closeUi}).provide(TEXT_PORT_KEY, text.port).mount(closeRoot);
     // 启动期间屏幕上只有 index.html 的静态加载页（界面在 start 之后才挂载）：引导给出书名后写进它预留的位置。
     const stopTitle = browserWindow.onChange((state) => {
         if (state.status !== "starting" || state.projectTitle === null) return;

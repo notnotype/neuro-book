@@ -67,5 +67,26 @@
         "unknown-outcome": "不知道操作有没有完成，请先核对再重试",
         "provider-error": "服务端处理时出错"
     },
-    "unknownResult": "收到了无法识别的结果（{{code}}）"
+    "unknownResult": "收到了无法识别的结果（{{code}}）",
+    "close": {
+        "layer": {
+            "title": "正在关闭…",
+            "hint": "正在确认这个窗口能不能关。"
+        },
+        "participantFailed": {
+            "title": "关闭前的检查出错",
+            "body": "检查有没有要保存的内容时出了错，仍然关闭可能丢掉没保存的内容。"
+        },
+        "rescuedLost": {
+            "title": "关闭后这些正文会丢失",
+            "body": "下面的文件还有没保存的正文，关闭窗口后就取不回了："
+        },
+        "work": {
+            "title": "关闭后 NeuroBook 的服务会停止",
+            "body": "下面的工作会被中断：",
+            "uncertain": "无法确认是否有工作在跑。"
+        },
+        "cancel": "取消",
+        "confirm": "仍然关闭"
+    }
 }
