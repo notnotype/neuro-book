@@ -290,6 +290,39 @@ async function withNbook(nbook: string, stateRoot: string, env: Record<string, s
     if (code !== 0) fail(`nbook 收到 SIGINT 后退出码 ${code}（${child.signalCode ?? "没有被强制结束"}）`);
 }
 
+/**
+ * 以托管方式运行装好的应用包里的 `server/main.js`（docs/specs/runtime/server-host.md 的“托管宿主”，桌面壳就这样运行它）：
+ * 用 `nbook start --json` 找到它（同一状态根上已有同版本实例时只报告它，`started: false`），交给 `use`；最后经标准输入
+ * 写 `stop`，要求以 0 退出。
+ */
+async function withManagedEntry(packageDirectory: string, nbook: string, stateRoot: string, env: Record<string, string>, use: (url: string) => Promise<void>): Promise<void> {
+    const server = Bun.spawn(["bun", join(packageDirectory, "server", "main.js"), "--stop-stdin"], {
+        cwd: stateRoot,
+        stdin: "pipe",
+        stdout: "ignore",
+        stderr: "pipe",
+        env: {...process.env, ...env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join(packageDirectory, "web")},
+    });
+    let failure: unknown = null;
+    try {
+        // nbook start 遇到启动中的同版本实例会等它就绪（至多 60 秒），然后报告它、以 0 退出。
+        const found = JSON.parse(await mustRun("nbook start 找托管运行的实例", [nbook, "start", "--state-root", stateRoot, "--no-open", "--json"], {cwd: stateRoot, env})) as {ok?: boolean; started?: boolean; url?: string; pid?: number};
+        if (found.started !== false || found.pid !== server.pid || typeof found.url !== "string") fail(`nbook start 没有报告托管运行的实例：${JSON.stringify(found)}`);
+        await use(found.url);
+    } catch (error) {
+        failure = error;
+    }
+    if (server.exitCode === null) {
+        void server.stdin.write("stop\n");
+        await server.stdin.flush();
+    }
+    const timer = setTimeout(() => server.kill("SIGKILL"), 60_000);
+    const code = await server.exited;
+    clearTimeout(timer);
+    if (failure !== null) throw failure;
+    if (code !== 0) fail(`托管入口写 stop 后退出码 ${code}（${server.signalCode ?? "没有被强制结束"}）\n${await new Response(server.stderr).text()}`);
+}
+
 async function checkWorkbench(url: string): Promise<void> {
     const browser = await chromium.launch({channel: "chrome", headless: true});
     try {
@@ -329,6 +362,11 @@ async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>,
     if (!version.includes(`NeuroBook ${from.expected.get(appName) as string}`)) fail(`nbook --version 报的不是要验的版本：${version}`);
     await withNbook(nbook, stateRoot, env, checkWorkbench);
     step(`bun add -g ${appName}：nbook 启动、页面打开书架并连上服务端，Ctrl-C 以 0 退出`);
+    const installed = join(bunHome, "install", "global", "node_modules", ...appName.split("/"));
+    const managedState = join(root, "managed-state");
+    await mkdir(managedState);
+    await withManagedEntry(installed, nbook, managedState, env, checkWorkbench);
+    step("托管入口 server/main.js：以 --stop-stdin 起来，页面打开书架，写 stop 后以 0 退出");
 
     const sdkFlags = tarballs.has(sdkName) ? ["--sdk", `file:${sdkSpec}`] : [];
     await mustRun("bunx -p SDK nbooke create", ["bunx", "-p", sdkSpec, "nbooke", "create", "hello", "--publisher", "smoke", ...sdkFlags], {cwd: authors, env});
