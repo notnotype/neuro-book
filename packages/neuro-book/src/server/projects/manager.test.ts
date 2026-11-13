@@ -288,9 +288,12 @@ describe("Spec server-host 在跑的工作：取各项目的工作", () => {
         leaseOf(await h.manager.acquire("book", "window-1"));
         await h.ready(1);
 
-        const expected = {items: [{plugin: RUNNING_WORK_PROBE_ID, project: h.project.id, text: projectWorkText("book")}], failed: []};
+        const expected = {items: [{plugin: RUNNING_WORK_PROBE_ID, project: h.project.id, text: expect.stringContaining(projectWorkText("book"))}], failed: []};
         expect(await h.manager.work()).toEqual(expected);
-        expect(await Promise.all([h.manager.work(), h.manager.work()])).toEqual([expected, expected]);
+        const both = await Promise.all([h.manager.work(), h.manager.work()]);
+        expect(both).toEqual([expected, expected]);
+        // 两次查询各得自己那份应答（报告方的调用次数不同），不是同一份应答填给两个请求。
+        expect(new Set(both.map((result) => result.items[0]?.text)).size).toBe(2);
     });
 
     it("宽限期里的项目照样问到；不取租约、不续宽限：代次不变，原来的宽限截止一到照常停止", async () => {
@@ -300,7 +303,7 @@ describe("Spec server-host 在跑的工作：取各项目的工作", () => {
         lease.release();
         h.clock.advance(GRACE_MS / 2);
 
-        expect((await h.manager.work()).items).toEqual([{plugin: RUNNING_WORK_PROBE_ID, project: h.project.id, text: projectWorkText("book")}]);
+        expect((await h.manager.work()).items).toEqual([{plugin: RUNNING_WORK_PROBE_ID, project: h.project.id, text: expect.stringContaining(projectWorkText("book"))}]);
         expect(h.manager.running(h.project.id)).toEqual({generation: 1, state: "idle-grace"});
         expect(h.manager.holds(h.project.id, 1, "window-1")).toBe(false);
         // 查询若取过又放下租约，宽限会从查询时重新计起，这里就还不会停。
@@ -338,7 +341,7 @@ describe("Spec server-host 在跑的工作：取各项目的工作", () => {
 
         process.kill(pid, "SIGCONT");
         expect((await h.records.until((record) => record.event === "project.work.late")).data).toMatchObject({project: h.project.id, generation: 1});
-        expect(await h.manager.work()).toEqual({items: [{plugin: RUNNING_WORK_PROBE_ID, project: h.project.id, text: projectWorkText("book")}], failed: []});
+        expect(await h.manager.work()).toEqual({items: [{plugin: RUNNING_WORK_PROBE_ID, project: h.project.id, text: expect.stringContaining(projectWorkText("book"))}], failed: []});
     });
 
     it("两个项目一个的子进程已死（断开还没处理）一个正常：死的不等截止进 failed，好的照常列出", async () => {
@@ -350,7 +353,7 @@ describe("Spec server-host 在跑的工作：取各项目的工作", () => {
         process.kill(pid, "SIGKILL");
         // 同一个同步段里查询：管理器还没观察到退出，查询照常发出，结果靠断开结算，不推时钟。
         const result = await h.manager.work();
-        expect(result).toEqual({items: [{plugin: RUNNING_WORK_PROBE_ID, project: second.id, text: projectWorkText(second.name)}], failed: [{plugin: null, project: h.project.id}]});
+        expect(result).toEqual({items: [{plugin: RUNNING_WORK_PROBE_ID, project: second.id, text: expect.stringContaining(projectWorkText(second.name))}], failed: [{plugin: null, project: h.project.id}]});
         expect(unavailable(h)).toEqual([{project: h.project.id, generation: 1, reason: expect.stringMatching(/^(disconnected|send-failed)$/)}]);
     });
 });

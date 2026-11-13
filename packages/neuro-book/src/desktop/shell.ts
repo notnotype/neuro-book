@@ -139,6 +139,12 @@ export class DesktopShell {
             }
             if (claimed.reason !== "running") {
                 leaveClosing();
+                // 取锁在途时用户已点了“退出”：不再转成错误页让他再点一次。
+                if (this.#finishing) return false;
+                if (exitWhileClosing) {
+                    this.#exit(0);
+                    return false;
+                }
                 const action = await this.#fail(claimed.reason === "unresponsive" ? "shell-unresponsive" : "lock-failed", claimed.detail, ["retry", "exit"]);
                 if (action !== "retry") return false;
                 continue;

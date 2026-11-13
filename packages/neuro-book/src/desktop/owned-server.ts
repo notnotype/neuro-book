@@ -166,27 +166,48 @@ export function startOwnedServer(options: OwnedServerOptions): OwnedServer {
 }
 
 /**
- * `completion` 失败之后，等目标真的不在了。目标是否创建过看 `rootPid`：它在 `completion` 结算前已 resolve，为 null 说明目标没有
- * 创建成功，没有要等的树。POSIX 的目标由监督进程以独立进程组拉起（它就是组长），看整个进程组；Windows 只能看目标进程本身，
- * 它的子孙归 Job Object，监督进程收口时一起结束。
+ * `completion` 失败之后，等进程树真的不在了。目标是否创建过看 `rootPid`：它在 `completion` 结算前已 resolve，为 null 说明目标
+ * 没有创建成功，没有要等的树。
+ *
+ * - POSIX：目标由监督进程以独立进程组拉起（它就是组长），看整个进程组。
+ * - Windows：子孙归 Job Object，只看目标 pid 证明不了它们已经结束（根先退出、后代还在跑时根 pid 已不在）。Job 唯一的句柄在
+ *   监督进程手里，所以先结束监督进程：句柄一关，Job 结束全部成员。之后等监督进程与目标都不在了才算结束。
  */
 async function treeGone(lease: OwnedProcessLease, clock: DeadlineClock, report: (event: string, error: unknown) => void): Promise<void> {
     const pid = await lease.rootPid;
     if (pid === null) return;
+    const windows = process.platform === "win32";
+    const supervisor = lease.supervisorPid;
+    if (windows && supervisor !== null) {
+        try {
+            process.kill(supervisor);
+        } catch (error) {
+            // 已经不在（ESRCH）正是要的结果；别的失败记下，下面照样等。
+            if ((error as NodeJS.ErrnoException).code !== "ESRCH") report("desktop.server.supervisor-kill-failed", error);
+        }
+    }
+    const targets = windows ? [pid, ...(supervisor === null ? [] : [supervisor])] : [-pid];
     let probeFailed = false;
     for (;;) {
-        try {
-            process.kill(process.platform === "win32" ? pid : -pid, 0);
-        } catch (error) {
-            const code = (error as NodeJS.ErrnoException).code;
-            if (code === "ESRCH") return;
-            // EPERM 说明进程（组）还在，只是无权发信号；别的错误证明不了它已经结束，记一次，继续当作还在。
-            if (code !== "EPERM" && !probeFailed) {
-                probeFailed = true;
-                report("desktop.server.tree-probe-failed", error);
-            }
-        }
+        if (targets.every((target) => gone(target, (error) => {
+            if (probeFailed) return;
+            probeFailed = true;
+            report("desktop.server.tree-probe-failed", error);
+        }))) return;
         await new Promise<void>((resolve) => at(clock, clock.now() + TREE_POLL_MS, resolve));
+    }
+}
+
+/** 进程（负数为进程组）已不在。EPERM 说明还在、只是无权发信号；别的错误证明不了它已经结束，当作还在。 */
+function gone(target: number, probeFailed: (error: unknown) => void): boolean {
+    try {
+        process.kill(target, 0);
+        return false;
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ESRCH") return true;
+        if (code !== "EPERM") probeFailed(error);
+        return false;
     }
 }
 

@@ -105,6 +105,7 @@ export function spawnWindowsOwnedProcess(spec: OwnedProcessSpec, options: Window
         stderr: supervisor.stderr ?? undefined,
         completion,
         rootPid,
+        supervisorPid: supervisor.pid ?? null,
         terminate(reason) {
             if (terminationPromise) return terminationPromise;
             if (settled) return completion;

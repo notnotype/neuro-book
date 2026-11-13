@@ -317,9 +317,11 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
-    const meta = new SessionMeta({table, create: (metaOptions) => {
-        internal.add(metaOptions.id);
-        return createSession(metaOptions);
+    const meta = new SessionMeta({table, create: async (metaOptions) => {
+        // 建成了才是程序自己的会话；id 被普通会话占着（session-exists）时不记，那是用户的会话，照常报。
+        const created = await createSession(metaOptions);
+        if (created.ok) internal.add(metaOptions.id);
+        return created;
     }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
     const children = new ChildRuns({table, jobs, report: options.report});
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});

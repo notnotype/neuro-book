@@ -99,6 +99,7 @@ export function spawnPosixOwnedProcess(spec: OwnedProcessSpec, options: PosixAda
         stderr: supervisor.stderr ?? undefined,
         completion,
         rootPid,
+        supervisorPid: supervisor.pid ?? null,
         terminate(reason) {
             if (terminationPromise) return terminationPromise;
             if (settled) return completion;

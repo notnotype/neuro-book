@@ -594,6 +594,15 @@ describe("标题和说明", () => {
         expect(tiny.requests.length).toBe(before);
         expect((await squatter.value.snapshot()).head).toBe(untouched);
         expect(await metaOf(victim.value)).toEqual([null, null]);
+        // 占着这个 id 的是用户的会话：它在跑时照常算在跑的工作（sessions.md 输出 20）。
+        const hold = endpoint.hold();
+        endpoint.script("好");
+        const accepted = await squatter.value.send({commandId: cid(), input: {text: "占位会话的一轮"}});
+        if (!accepted.ok || accepted.value.runId === null) throw new Error("send failed");
+        await hold.arrived;
+        expect(w.work.collect().items.length).toBe(1);
+        hold.release();
+        await squatter.value.waitRun(accepted.value.runId);
     });
 
     test("失败码：标题会话被换成别的 Profile 也算冲突，对话内容不发给它和它的工具", async () => {

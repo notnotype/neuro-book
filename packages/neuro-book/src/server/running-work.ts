@@ -78,21 +78,21 @@ export function createRunningWork(report: (record: DiagnosticInput) => void): Ru
         const items: Array<RunningWorkCollection["items"][number]> = [];
         const failed = new Set<string>();
         for (const {plugin, reporter} of [...registrations]) {
-            let reported: unknown;
+            // 调用、校验与取值都在同一个隔离边界里：交回的对象在读取时也可能抛错（例如 getter）。一个插件出事只让它进
+            // `failed`，别的照常列出；不合形状的照样算失败，否则整条应答过不了页面的校验，所有工作都看不到。
             try {
-                reported = reporter();
+                const reported: unknown = reporter();
+                if (!Value.Check(ItemsSchema, reported)) {
+                    failed.add(plugin);
+                    report({level: "warn", event: "runtime.work.reporter-failed", message: `插件 ${plugin} 交回的在跑的工作不是工作项列表`, source: {plugin}});
+                    continue;
+                }
+                const own = reported.map((item) => ({plugin, text: Value.Clone(item.text)}));
+                items.push(...own);
             } catch (error) {
                 failed.add(plugin);
                 report({level: "warn", event: "runtime.work.reporter-failed", message: `插件 ${plugin} 报告在跑的工作时出错`, error, source: {plugin}});
-                continue;
             }
-            // 交回的不合形状时整条应答会过不了页面的校验，所有工作都看不到；按这个插件失败处理，别的照常列出。
-            if (!Value.Check(ItemsSchema, reported)) {
-                failed.add(plugin);
-                report({level: "warn", event: "runtime.work.reporter-failed", message: `插件 ${plugin} 交回的在跑的工作不是工作项列表`, source: {plugin}});
-                continue;
-            }
-            for (const item of reported) items.push({plugin, text: item.text});
         }
         return {items, failed: [...failed]};
     };

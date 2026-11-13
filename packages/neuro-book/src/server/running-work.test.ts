@@ -123,25 +123,28 @@ describe("Spec server-host 在跑的工作：服务端的登记", () => {
         expect((await fetchWork(server)).items.map((item) => item.text)).toEqual([reference, {"zh-CN": "导出", "en-US": "Export"}]);
     });
 
-    it("报告方抛错或交回的不是工作项列表：这个插件进 failed（一次）并写诊断，别的照常列出", async () => {
+    it("报告方抛错、交回的不是工作项列表或读取时抛错（getter）：这个插件进 failed（一次）并写诊断，别的照常列出", async () => {
         const server = await started("reporter-failed", [
             workPlugin("test.work-throws", [() => {
                 throw new Error("报告方坏了");
             }, () => [{text: "同插件的另一项"}]]),
             workPlugin("test.work-malformed", [() => [{text: 42}] as unknown as ReadonlyArray<RunningWorkItem>]),
+            workPlugin("test.work-getter", [() => [{get text(): string {
+                throw new Error("读取时坏了");
+            }}]]),
             workPlugin("test.work-ok", [() => [{text: "照常"}]]),
         ]);
 
         expect(await fetchWork(server)).toEqual({
             items: [{plugin: "test.work-throws", project: null, text: "同插件的另一项"}, {plugin: "test.work-ok", project: null, text: "照常"}],
-            failed: [{plugin: "test.work-throws", project: null}, {plugin: "test.work-malformed", project: null}],
+            failed: [{plugin: "test.work-throws", project: null}, {plugin: "test.work-malformed", project: null}, {plugin: "test.work-getter", project: null}],
         });
 
         server.requestStop("test:done");
         expect((await server.stopped).exitCode).toBe(0);
         servers.delete(server);
         const log = (await readFile(join(config("reporter-failed").logDirectory, "server-current.jsonl"), "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as {event: string; data: {$source: {plugin: string | null}}});
-        expect(log.filter((line) => line.event === "runtime.work.reporter-failed").map((line) => line.data.$source.plugin)).toEqual(["test.work-throws", "test.work-malformed"]);
+        expect(log.filter((line) => line.event === "runtime.work.reporter-failed").map((line) => line.data.$source.plugin)).toEqual(["test.work-throws", "test.work-malformed", "test.work-getter"]);
     });
 
     it("停止开始后宿主接口回 503", async () => {
@@ -184,7 +187,7 @@ describe("Spec server-host 在跑的工作：服务端的登记", () => {
         expect(await fetchWork(server)).toEqual({
             items: [
                 {plugin: "test.work-a", project: null, text: "服务端的"},
-                {plugin: RUNNING_WORK_PROBE_ID, project: registered.project.id, text: projectWorkText("book")},
+                {plugin: RUNNING_WORK_PROBE_ID, project: registered.project.id, text: expect.stringContaining(projectWorkText("book"))},
             ],
             failed: [],
         });
