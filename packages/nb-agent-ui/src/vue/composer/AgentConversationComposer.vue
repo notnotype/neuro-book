@@ -417,6 +417,7 @@ defineExpose({
                     :capture-shift-tab="canCycleMode"
                     @shift-tab="cycleMode"
                     @menu-open="emit('action', {type: 'menu.opened', trigger: $event.trigger})"
+                    @menu-select="emit('action', {type: 'menu.selected', trigger: $event.trigger, id: $event.id})"
                     @token-activate="onTokenActivate"
                     @attachment-add="onAttachmentAdd"
                     @attachment-retry="emit('action', {type: 'composer.attachmentRetry', localId: $event.localId})"

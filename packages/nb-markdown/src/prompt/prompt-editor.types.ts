@@ -26,6 +26,8 @@ export type PromptEditorMenuItem = {
     insertText: string;
     /** 为真时不补空格，插入后仍构成触发则菜单继续。 */
     continues?: boolean;
+    /** 行尾的状态图标（例如 Skill 未初始化）；同一个菜单有一项带它时每行都留出这一列。 */
+    status?: {label: string; iconClass?: string; busy?: boolean; tone?: "neutral" | "warning" | "danger"};
 };
 
 export type PromptEditorMenu = {

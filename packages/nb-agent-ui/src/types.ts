@@ -579,6 +579,8 @@ export type BuiltinAgentViewAction =
     /** 输入框自己处理了一条命令（`/model`）：宿主清掉草稿。 */
     | {type: "composer.commandHandled"}
     | {type: "menu.opened"; trigger: string}
+    /** 确认了宿主菜单里的一项，标签已经插入；宿主做插入之外的事（例如问要不要初始化 Skill）。 */
+    | {type: "menu.selected"; trigger: string; id: string}
     // 运行设置
     | {type: "mode.set"; mode: string}
     | {type: "model.set"; modelKey: string}
