@@ -146,6 +146,48 @@ describe("canon.model 输出 34：一次计算的结果怎样处理", () => {
 
 const change = (chapter: string, extra: Partial<StoryChangeDraft> = {}, key = 0): StoryChangeDraft => ({id: "tmp:c", kind: "written", text: "一件事", at: {kind: "chapter", chapter, key}, told: [], involves: [], lines: [], links: [], patches: [], status: "active", by: {kind: "author"}, ...extra});
 
+describe("canon.project 方法表 pending：一页带这一页提到的诊断的显示名", () => {
+    test("发现、重复键的提示、没算出、被截断的诊断带声明的 label；别的组里的不带；声明已经不在的（停用）不带", async () => {
+        const [found, quiet, broken, many, twice] = [declaration("found", {label: "传话链断了"}), declaration("quiet", {label: "没有发现"}), declaration("broken", {label: "算不出来"}), declaration("many", {label: "太多了"}), declaration("twice", {level: "hint", label: "报了两次"})];
+        const gone = declaration("gone", {label: "停用的"});
+        const service = await open([found, quiet, broken, many, twice, gone]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {
+            [found.id]: () => [finding("钟")],
+            [quiet.id]: () => [],
+            [broken.id]: () => {
+                throw new Error("坏了");
+            },
+            [many.id]: () => Array.from({length: 1001}, (_, index) => finding(String(index).padStart(4, "0"))),
+            [twice.id]: () => [finding("同一处"), finding("同一处")],
+            [gone.id]: () => [],
+        }});
+        pageOf(service);
+        // 插件不再声明 gone：它成了“因插件停用而未计算”的，声明不在了，没有显示名。
+        await service.setRegistries({diagnostics: registryOf(found, quiet, broken, many, twice)});
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {
+            [found.id]: () => [finding("钟")],
+            [quiet.id]: () => [],
+            [broken.id]: () => {
+                throw new Error("坏了");
+            },
+            [many.id]: () => [finding("一")],
+            [twice.id]: () => [finding("同一处"), finding("同一处")],
+        }});
+        const page = pageOf(service);
+        expect(page.disabled).toEqual([gone.id]);
+        expect(page.labels).toEqual({[broken.id]: "算不出来", [found.id]: "传话链断了", [many.id]: "太多了"});
+        const hints = pageOf(service, {group: "hints"});
+        expect(hints.labels).toEqual({[broken.id]: "算不出来", [twice.id]: "报了两次"});
+    });
+
+    test("截断的诊断在任何一组的页上都带显示名", async () => {
+        const many = declaration("many", {label: "太多了"});
+        const service = await open([many]);
+        service.registerDiagnostics(PLUGIN, {dataVersion: "1", compute: {[many.id]: () => Array.from({length: 1001}, (_, index) => finding(String(index).padStart(4, "0")))}});
+        expect(pageOf(service, {group: "handled"}).labels).toEqual({[many.id]: "太多了"});
+    });
+});
+
 describe("canon.model 输出 16：三组的全序", () => {
     test("核对点取比较时点排序：挂靠的变更没套上时回到核对点自己的安放，不按挂靠的变更排", async () => {
         const service = await open([]);

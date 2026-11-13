@@ -132,6 +132,21 @@ interface PendingGroups {
     readonly disabled: readonly string[];
 }
 
+/** 一页提到的插件诊断的显示名（`PendingPage.labels`）：声明已经不在的不写。 */
+function diagnosticLabels(registry: DiagnosticRegistry, groups: PendingGroups, items: readonly GroupItem[]): Record<string, string> {
+    const mentioned = new Set([...groups.unavailable.map((item) => item.diagnostic), ...groups.truncated, ...groups.disabled]);
+    for (const item of items) {
+        if (item.kind === "finding") mentioned.add(item.diagnostic);
+        else if (item.kind === "hint" && item.hint.code === "diagnostic-duplicate-key") mentioned.add(item.hint.diagnostic);
+    }
+    const labels: Record<string, string> = {};
+    for (const id of [...mentioned].sort()) {
+        const label = registry.byId(id)?.label;
+        if (label !== undefined) labels[id] = label;
+    }
+    return labels;
+}
+
 /** 世界里的全部讲述，按讲述 id（发现挂在讲述上时找它的发生点）。 */
 function tellingsById(world: World): Map<string, Telling> {
     const found = new Map<string, Telling>();
@@ -505,6 +520,7 @@ export class WorldService {
             unavailable: groups.unavailable,
             truncated: groups.truncated,
             disabled: groups.disabled,
+            labels: diagnosticLabels(world.options.diagnostics ?? EMPTY_DIAGNOSTIC_REGISTRY, groups, page.items),
             counts: {pending: groups.pending.length, hints: groups.hints.length, handled: groups.handled.length},
             decisionsPending: [...world.data.decisions.values()].filter((decision) => decision.status === "pending").length,
             suggestionsOpen: [...world.data.suggestions.values()].filter((suggestion) => suggestion.status === "open").length,
