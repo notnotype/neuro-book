@@ -97,7 +97,7 @@ owners:
 - 进程级未处理异常（未捕获异常、未处理的 Promise 拒绝）：同步写出致命诊断，按停止序列有序停止，以 1 退出。
 - 关闭未完成时，进程退出前补写诊断存储中已接受的记录。
 
-**托管宿主（planned）：** 桌面壳这类托管宿主用自己的 Bun 运行应用包里的托管入口 `server/main.js`，与产品入口是同一次构建、同一份服务端（`kind` 为 `product`）。托管宿主依赖、按接口变更处理的只有下面几样：
+**托管宿主：** 桌面壳这类托管宿主用自己的 Bun 运行应用包里的托管入口 `server/main.js`，与产品入口是同一次构建、同一份服务端（`kind` 为 `product`）。托管宿主依赖、按接口变更处理的只有下面几样：
 
 - 状态根经环境变量 `NBOOK_STATE_ROOT` 给出（必填，同“输入与前置条件”）；页面资源由托管宿主经 `NBOOK_WEB_ROOT` 指向应用包的 `web/`（服务端不猜测默认目录）；
 - 以 `--stop-stdin` 启动，标准输入的一行 `stop` 与标准输入结束都走有序停止（术语“标准输入停止通道”）；Windows 上这是唯一的有序停止渠道；
@@ -195,7 +195,7 @@ owners:
 20. **项目宿主入口被更换。** 服务端运行期间换掉项目宿主入口：之后打开作品得到 `project-unavailable`，提示重启服务。
 21. **路由抛错。** Hono 写的路由同步或异步抛错：响应是 JSON 的 `internal-error`，诊断有 `http.request.failed`；`HTTPException` 保持自己的状态码；客户端上传到一半断开：诊断是 `http.request.aborted`，不是错误。
 
-Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、11、18，以及一次 RPC 握手（场景 12 的来源核对）和一次打开项目（登记临时目录、经 RPC 绑定、项目子进程报告身份）；开发模式运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
+Smoke：`bun run release:smoke`（仓库根）在 `bun add -g` 装好的应用包与组装出的桌面载荷里各以托管方式运行一次 `server/main.js`（托管宿主）；生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、11、18，以及一次 RPC 握手（场景 12 的来源核对）和一次打开项目（登记临时目录、经 RPC 绑定、项目子进程报告身份）；开发模式运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
 
 ## 实现合同
 
@@ -211,6 +211,7 @@ Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、
   - HTTP 的 `Host` 与写请求 `Origin` 核对在 nb-host 分发层的入口，先于准入的门与路由匹配；允许的来源与 RPC 端口同一份（`loopbackOrigins`），由 `startHostServer` 经 HTTP 插件的 `allowOrigin` 交给分发（nb-host `http/dispatch.test.ts`、`server/start.test.ts`）。回环与来源由 nb-host 在任何监听之前再核一次（端口试探与 RPC 监听也各自核对），应用换不掉来源判定、准入与排空。
   - 项目：停止的同步段里先关项目管理器的接纳，再开始两路排空；项目管理器建在服务端运行实例上（子实例的停止阶段在内核关闭插件之前停完项目子进程），宿主能力 `projectsKey` 等项目管理器建好再交出（内核在建立运行实例的同步段里就开始启动激活）。项目子进程先把链路交给路由（带 `expect`）再起进程；没有被要求停止时 IPC 断开或进程结束即报告这一代结束，退出码等进程真正结束后写诊断；停止中被强制结束或以非 0 退出的子进程计入停止问题，退出码 1。项目子进程只认 SIGTERM，终端的 Ctrl+C 与关闭终端的 SIGHUP 不让它自行退出；它的日志位置是 `<状态根>/logs/projects/<短名>/`。
 - **合同测试**：实例认领 nb-host `src/server/claim.test.ts`（真实子进程：第二个认领者看到第一个、暂停不接管、`SIGKILL` 后重新认领、同时认领只有一个；同进程：应答的各字段与状态、开发会话不给页面地址、长路径改用运行时目录、不存在与不可写的状态根）；项目`src/server/server-projects.test.ts`（同进程：绑定与共用代次、项目宿主入口被更换、宽限期内重连与期满后 `project-gone`、崩溃、宽限期中不唤醒、停止开始后打开被拒与绑定中的租约释放；真实子进程：场景 14 的收口顺序与场景 15 的强制结束）、`src/server/projects/manager.test.ts`（真实项目子进程：打开、关闭与崩溃、启动与停止的收口、父实例停止）、`projects-capability.test.ts`、`registry.test.ts`，`config.test.ts` 的项目时限；`src/server/server.test.ts`（真实子进程：启动、标准输入、SIGTERM 与 SIGHUP 停止、同一状态根的第二个服务端（产品入口与测试入口）、在途请求、启动失败、关闭失败、未捕获异常、未处理的 Promise 拒绝、标准输入结束、非回环地址；同进程：排空超时、启动失败时等待就绪的请求得到 503、未处理异常汇合为一次停止且停止后监听全部移除、插件装配失败、页面目录缺少 index.html）、`src/server/config.test.ts`；nb-host `src/server/start.test.ts`（同进程：宿主插件被包装仍通过、漏掉或换掉入口与宿主接口建不起来时装配失败、非回环地址、扩展钩子的先后、启动失败与认领字段不合档案时的 503 与退出码、`Host` 421 与 `Origin` 403 且 RPC 升级同一份判定）、`src/http/admission.test.ts`、`src/http/dispatch.test.ts`、`src/http/static.test.ts`、`src/server/loopback.test.ts`、`src/server/ports.test.ts`；开发模式 `src/server/dev/supervisor.test.ts`（真实后端子进程：场景 7 的有序重启、去抖、启动失败不循环、运行中退出、门）、`src/server/dev/run.test.ts`（真实会话子进程：场景 8 的停止顺序、终端 Ctrl+C、第二个信号、页面端口被占用）、`src/server/dev/watch.test.ts`、`src/server/dev/config.test.ts`。RPC 端口：nb-host `src/server/rpc-listener.test.ts`（真实 Bun 监听与内核路由：来源、路径、门、消息上限、停止后拒绝连接）、`server.test.ts` 的 RPC 一组（同进程：两类允许来源与额外来源、在途远程请求时停止、RPC 排空超时、启动失败时等待中的升级得到 503、RPC 端口被占用；真实子进程：`RPC listening on` 与停止后端口关闭）、`config.test.ts`（RPC 端口与额外来源的解析与拒绝）、`src/server/dev/run.test.ts`（开发会话把页面来源传给后端、重启后经引导取得新端口）。
+- **托管入口**：应用包里的 `server/main.js` 由 `scripts/pack-app.ts` 从 `src/server/main.ts` 打出，与命令行 `nbook.js` 共用 chunk；打包时以托管方式起一次核对（`checkManagedEntry`），`scripts/pack-app.test.ts` 用真实打包产物验收标准输入结束与状态根被占用，并测核对的失败分支。桌面载荷由 `scripts/desktop-payload.ts` 从发布清单里的同一个 tarball 组装。
 - **实际 smoke**：`bun run smoke:server`（先打包再运行场景 1、2、4、11、页面资源、RPC 握手 S6、打包产物的项目绑定 S7 与同一状态根的第二个实例 S10），检查未执行时以非零退出；开发模式由 `e2e/dev.e2e.ts`（`bun run test:e2e`）以真实的 `bun run dev` 入口、本机 Chrome 运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
 
 ## 证据

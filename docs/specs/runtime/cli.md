@@ -51,7 +51,7 @@ owners:
 | `plugin uninstall <id>` | 无 | 卸载，保留插件的私有数据 |
 
 - 端口是 0 到 65535 的整数，0 表示由系统分配。只给 `--port` 时 RPC 端口取它加 1（`--port 0` 时也是 0）；都不给时沿用服务端的缺省与成对顺延。`--safe-mode` 等于以环境变量 `NEURO_BOOK_SAFE_MODE=1` 启动（[`runtime.plugin-install`](plugin-install.md) 的安全模式）。
-- （planned）应用包另带服务端的托管入口 `server/main.js`，给桌面壳这类托管宿主用，合同见 [`runtime.server-host`](server-host.md) 的“托管宿主”；`nbook` 不经它。桌面版与 `nbook` 共用这里的状态根缺省（[`runtime.desktop-shell`](desktop-shell.md)），桌面壳起的服务端对 `nbook start` 来说是同种类的已有实例。
+- 应用包另带服务端的托管入口 `server/main.js`，给桌面壳这类托管宿主用，合同见 [`runtime.server-host`](server-host.md) 的“托管宿主”；`nbook` 不经它。桌面版与 `nbook` 共用这里的状态根缺省（[`runtime.desktop-shell`](desktop-shell.md)），桌面壳起的服务端对 `nbook start` 来说是同种类的已有实例。
 - Web 产物在应用包里 `nbook.js` 旁的 `../web`；环境变量 `NBOOK_WEB_ROOT` 给出时用它。其余服务端环境变量（`NBOOK_HOST`、项目时限等）照常生效。
 
 ## 输出与可观察行为
@@ -124,18 +124,19 @@ owners:
 5. **不能用的实例。** 版本不同、开发服务占着：以 1 退出，码分别是 `version-mismatch`、`development-instance`。
 6. **用法。** 拼错的命令、不认识的选项、越界的端口、空的 `--state-root` 以 2 退出、码 `usage`；`--version`、`--help`、`help <命令>` 以 0 退出。服务端启动失败时结果对象是 `startup-failed`、以 1 退出。
 7. **插件。** 服务端运行时 `nbook plugin install` 一个用 `nbooke build` 构建的插件、`list --json` 列出待生效的安装，重启服务后插件页列出它；降级不带 `--yes` 以 2 退出。
+8. **托管入口。** 从 tarball 装好的应用包里，以 `--stop-stdin` 运行 `server/main.js`：认领应答就绪后 `nbook start --json` 报告它（`started: false`、同一个 pid），页面打开书架；标准输入写 `stop` 或关闭标准输入都以 0 退出；同一状态根上再起一个以 1 退出、致命诊断是 `runtime.state-root.busy`。
 
-Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，用真实进程运行场景 1 到 7（场景 7 用临时目录里只有清单的插件，以重启后的实例应答核对登记）；`e2e/app-package.e2e.ts` 用 `scripts/pack-app.ts` 打出的 tarball `bun add -g` 装上 `nbook`，在本机 Chrome 上跑场景 1 的启动与打开作品、场景 7 的安装与重启生效。`bun run release:smoke`（仓库根）用发布前打好的 tarball，在仓库外的临时 `BUN_INSTALL` 下装上应用，跑场景 1 的启动与打开书架，再用 `bunx -p` 装 SDK 生成插件，跑场景 7 的安装与重启生效；发布后 `--from registry` 对 registry 上的版本再跑一遍。
+Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，用真实进程运行场景 1 到 7（场景 7 用临时目录里只有清单的插件，以重启后的实例应答核对登记）；`e2e/app-package.e2e.ts` 用 `scripts/pack-app.ts` 打出的 tarball `bun add -g` 装上 `nbook`，在本机 Chrome 上跑场景 1 的启动与打开作品、场景 7 的安装与重启生效。`bun run release:smoke`（仓库根）用发布前打好的 tarball，在仓库外的临时 `BUN_INSTALL` 下装上应用，跑场景 1 的启动与打开书架、场景 8 的托管入口（装好的包与组装出的桌面载荷各一次），再用 `bunx -p` 装 SDK 生成插件，跑场景 7 的安装与重启生效；发布后 `--from registry` 对 registry 上的版本再跑一遍。
 
 ## 实现合同
 
-- **实现 owner 与入口**：application-runtime。入口 `packages/neuro-book/src/cli/main.ts`（commander 的命令表、中文帮助与错误、退出码），打包成 `dist/server/nbook.js`，应用包的 `bin` 指向它；`start.ts` 的 `start(context, options)`，`plugin.ts` 的 `listPlugins`、`installPlugin`、`setPluginEnabled`、`uninstallPlugin`，`state-root.ts` 的 `resolveStateRoot`、`defaultStateRoot`，`output.ts` 的 `CliFailure(code, message, exitCode)` 与 `createOutput(json)`。依赖方向：命令行依赖服务端的认领与进程入口（`src/server/instance.ts` 的 NeuroBook 认领档案，认领本身在 `@notnotype/nb-host/server`；`src/server/process.ts`）和插件平台的插件管理（`createPluginInventory`、`previewInstalledPlugins`），它们都不依赖命令行。
+- **实现 owner 与入口**：application-runtime。入口 `packages/neuro-book/src/cli/main.ts`（commander 的命令表、中文帮助与错误、退出码），打包成应用包的 `server/nbook.js`（与托管入口 `server/main.js` 一次打包、共用 chunk，`scripts/pack-app.ts`），应用包的 `bin` 指向它；`start.ts` 的 `start(context, options)`，`plugin.ts` 的 `listPlugins`、`installPlugin`、`setPluginEnabled`、`uninstallPlugin`，`state-root.ts` 的 `resolveStateRoot`、`defaultStateRoot`，`output.ts` 的 `CliFailure(code, message, exitCode)` 与 `createOutput(json)`。依赖方向：命令行依赖服务端的认领与进程入口（`src/server/instance.ts` 的 NeuroBook 认领档案，认领本身在 `@notnotype/nb-host/server`；`src/server/process.ts`）和插件平台的插件管理（`createPluginInventory`、`previewInstalledPlugins`），它们都不依赖命令行。
 - **关键不变量**：
   - `start` 在本进程里运行服务端，不另起子进程：先认领状态根，认领到才运行；认领报 `running` 时回去问实例，不当作失败。
   - 状态根的缺省只在命令行这一层定，服务端进程仍要求显式的状态根；`--state-root` 的空串是用法错误，不回落到缺省。
   - 插件子命令与插件页用同一套插件管理与失败码，只写登记表、不连服务端；列表的待生效变化有实例时按实例应答里的启动集合算，没有时按下一次启动算。
   - commander 的错误不让它自己打印，按错误码换成中文、以 2 退出；`--json` 时标准输出只有一个结果对象，提示与诊断走标准错误。
-- **合同测试**：`src/cli/cli.test.ts`（真实进程，命令行与项目宿主构建到临时目录：场景 1 到 7）、`src/cli/state-root.test.ts`（三个平台的缺省与取值顺序）；应用包 `scripts/pack-app.test.ts`。
+- **合同测试**：`src/cli/cli.test.ts`（真实进程，命令行与项目宿主构建到临时目录：场景 1 到 7）、`src/cli/state-root.test.ts`（三个平台的缺省与取值顺序）；应用包 `scripts/pack-app.test.ts`（含场景 8 的标准输入结束、状态根被占用与打包时托管核对的失败分支）。
 - **实际 smoke**：`bun test src/cli`；`e2e/app-package.e2e.ts`（`bun run test:e2e`）从 tarball 装上 `nbook`，在本机 Chrome 上跑场景 1 与 7；发布前后的 `bun run release:smoke`（`scripts/release/pack-smoke.ts`）在仓库外装上应用与 SDK 跑场景 1 与 7。
 
 ## 证据
