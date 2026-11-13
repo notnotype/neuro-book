@@ -186,3 +186,16 @@ Smoke：`packages/neuro-book/e2e/agent-skills.e2e.ts`（场景 2、3、4）。
 - 挂载：`MountedSchemeSpec` 只有一个容器，挂载点是“容器/名字”，不能是链接；`skills` 方案只有 `read`、`list`。
 - 白名单与设置页：`profile-agents.ts`、`ProfileToolsSection` 的 `kind` 可以照搬；设置页经 `settings.pages` 登记。
 - 命令行：`src/cli/run.ts`（commander），只有 `start` 与 `plugin`；运行期没有跑过 `bun install`；`tryLock` 只在 nb-harness 内核内部。
+
+## 切片 5 细化（2026-11-13，t34 合入之后）
+
+t34 的后台任务已合入，master 已合进本分支（`b748a34b5`，冲突只有推送节流改了位置的一行 import）。切片 5 按下面做，分几次提交：
+
+1. **初始化接进后台任务**（`skills/install.ts`、`backend/plugin.ts`）：Agent 插件对 `tasksKey` 声明可选依赖。应用里开始的一次安装（拿到锁之后）登记一件任务：标题“初始化 Skill 名字”，进展写要装几个包或“正在解析依赖”，不确定进度，可以取消；结束时成功写“已可用”，失败的原因写“安装没有成功”、详情是安装输出的最后几行、可以重试（同样的 `resolve` 再装一次）；用户取消时中止安装，标记照 `interrupted` 写，任务结束为已取消；应用停止时不结束任务，由后台任务转成已中断。并入同一次的请求不另登记；命令行在另一个进程，不登记。确认框关掉后安装的进度与结果就在后台任务里（README 第 30、33 条）。`skillInitPlan` 有锁时也交回直接依赖的名字（确认框的中间一块要列它们）。
+2. **菜单的状态图标与选中事件**：nb-ui `SuggestionMenuItem` 加 `status?: {iconClass, label}`，同一个菜单有一项带它时每行行尾留一个图标宽的列，指针停在图标上显示意思，读屏读到“名字，意思”（第 38 条）；nb-markdown 的 `PromptEditorMenuItem` 透传 `status`，确认一项后发 `menu-select {trigger, id}`；nb-agent-ui 的 `PromptMenuItem` 加 `status`，输入区把 `menu-select` 转成动作 `menu.selected`（同 `menu-open` 转 `menu.opened`）。三处同名 `.md` 与端口类型断言一起改。
+3. **`$` 菜单、确认框与点开**（`agent/web/`）：浏览器端的 Skill 目录（先订阅 `skillsChanged` 再取，`onResync` 重取）；`$` 菜单按 Spec 输出 26，“最近用过”是本窗口里经菜单选过的，刷新后清空；选了未初始化的照常插入标签，再由宿主收到 `menu.selected` 后打开确认框 `SkillInitDialog`（新组件，三块区域固定：一行状态、中间一块、两行说明；中间一块确认前与安装中列直接依赖，失败后是安装输出的最后几行，不做安装中的实时输出）；`skill.open` 按名字现认（同输出 7，白名单取这个会话的 Profile），用户的打开 `user://skills/<名字>/SKILL.md`，其余打开 `skills://<id>/SKILL.md`，认不到时提示——不从那一轮的事件里取 id（第 15 条审查意见原定的做法要改适配器，换来的只是白名单变过之后的窄情形）。
+4. **Skill 页**（`settings.pages`，分类 ai）：照第 22、27、34 条与第 2 轮草稿；“初始化”走同一个确认框；“打开 Skill 文件夹”经新的远程方法 `openSkillsFolder` 在服务端用系统的文件管理器打开（目录不存在先建），没有桌面（SSH、没有图形会话，判据同 `cli/start.ts`）时得 `no-desktop`，界面发一条通知写出文件夹路径。
+5. **Profile 页的“Skill”一节**：复用 `ProfileToolsSection`（`kind: "skills"`），照第 26、32 条与草稿。
+6. **Lab**：`SkillInitDialog` 的确认、没有锁、安装中、失败四个场景；Skill 页的完整与空两个场景；`SuggestionMenu` 带状态图标的场景。
+
+Spec 随第 1、3、4 点改：`agent/skills.md` 的非目标、输出 18、25–28 与新增输出 29（后台任务）、失败码 `no-desktop`；`agent/conversation.md` 与 `ui/agent-conversation-view.md` 补 `$` 菜单、`menu.selected` 与点开 Skill。

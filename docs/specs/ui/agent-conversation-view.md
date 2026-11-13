@@ -294,7 +294,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 - 模型下拉：同组的模型右侧写组名（不同服务商的同名模型分得清）；用不了的模型灰掉、不能选，悬停看原因；宿主不收附件时不标“不支持图片”。`interaction.canManageModels` 为真时末尾有“管理模型…”，发出 `model.manage`。
 - 带触发字符的工具栏按钮（例如“插入引用”插 `@`）：编辑器聚焦到末尾，前一个字不是空白或标点时先补一个空格，再插入触发字符并打开它的菜单。
 - 输入以 `/` 开头且命令名与已登记的输入框命令一致时，发出 `command.run`；否则按普通文字发送。宿主在 `interaction.commands` 里列出自己做了的内置命令时，没列出的内置命令不显示、也不算已登记：输入 `/new` 按普通文字发给模型（有意的取舍：以前这些命令发出去被宿主丢弃，是死入口）。
-- 触发字符（`@`、`$`、`/` 及登记的其他字符）打开候选菜单，菜单内容来自 `services.resolveTriggerMenu`；`/` 位于正文开头时改为列出登记的输入框命令，显示说明与参数提示。方向键选择，回车或 Tab 确认，Escape 关闭。
+- 触发字符（`@`、`$`、`/` 及登记的其他字符）打开候选菜单，菜单内容来自 `services.resolveTriggerMenu`；菜单项可以带行尾的状态图标（`status {iconClass, label}`，同一个菜单有一项带它时每行都留出这一列，指针停在图标上显示意思）；`/` 位于正文开头时改为列出登记的输入框命令，显示说明与参数提示。方向键选择，回车或 Tab 确认，Escape 关闭。
 - 输入框的内容始终是一段文字：引用、技能、选区、命令、图片、文件附件与粘贴块按统一的文字写法保存（见组件文档 `PromptEditor.md` 的“文字写法”），在输入框里显示为整体的标签或块，光标跨过和退格删除都按一整个算。输入框与历史消息的就地编辑共用这个编辑器。
 - 图片与文件（PDF、txt 等）可以用“添加附件”选择、粘贴或拖入：输入框上方的附件条显示缩略图或卡片，正文在插入处留 `#N` 标签；图片一套编号，文件与粘贴块另一套。每个附件显示上传中、已就绪、失败三种状态，失败可重试或移除；会话不能登记附件时拒绝添加并在输入框上方说明原因。模型不支持图片时不拒绝：能力只作提示，发送时按实际解析的模型换成一行字。发给模型时图片保留在文字中的位置；文件以附件路径给模型，由模型按需读取。
 - 粘贴文字按大小分三档：小段原样插入；中等的在粘贴处成为默认折叠的粘贴块（展开后可以直接编辑内容），以 `<paste>` 标签包起来发给模型，也可配置为放到开头、粘贴处只留位置标记；特别大的转为文件附件。阈值与放置方式可配置。Ctrl/⌘+Shift+V 粘贴原文，不分档。
@@ -364,7 +364,7 @@ type AgentSessionListItem = {
 | 会话 | `session.create {profileKey?}`、`session.select {sessionId}`、`session.rename {sessionId, title}`、`session.archive {sessionId}`、`session.restore {sessionId}`、`sessions.query {query}`、`sessions.refresh`、`view.close` |
 | 消息 | `message.copy {messageId}`、`message.editStart {messageId}`、`message.editCancel`、`message.editSubmit {messageId, text}`、`message.retry {messageId}`、`message.branchFrom {messageId}`、`message.resend {messageId}`、`message.dismiss {messageId}`、`branch.switch {messageId, direction}`、`tool.copy {toolCallId}`、`history.loadPrevious`、`history.refresh` |
 | 引用与文件 | `reference.open {target}`、`link.open {href}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
-| 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}` |
+| 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}`、`menu.selected {trigger, id}`（确认了宿主菜单里的一项，标签已经插入；宿主据此做插入之外的事，例如问要不要初始化 Skill） |
 | 运行设置 | `mode.set {mode}`、`model.set {modelKey}`、`thinking.set {level}`、`model.manage`、`runtime.reset` |
 | 审批与提问 | `input.submit {batchKey, resolutions, sessionId?}`（`batchKey` 是事项 id，一个事项一条；`resolutions` 是 `{kind: "approval", decision, note?}` 或 `{kind: "question", answer: {text, data}}`；`sessionId` 是事项所在的会话，带 `source` 的事项提交时有）、`input.cancelRun`、`input.resync`、`wizard.state {state}`（向导的界面状态，宿主放回 `ctx.wizardState`）、`dock.state {state}`（停靠区的界面状态，宿主放回 `ctx.dockState`） |
 | 中断与排队 | `run.continue`、`queued.edit {id}`、`queued.remove {id}` |
