@@ -70,7 +70,7 @@ export interface LiveDrag {
     readonly active: Readonly<Ref<boolean>>;
     /** 此刻预览的是什么：`none`、`source-removed` 或候选的键。e2e 等它，不按时长等。 */
     readonly previewKey: Readonly<Ref<string>>;
-    /** 拿起的内容项；被标签条吸收、没拿起时为 null。只在拿起与放下时变，矩形经 `placeCard` 写。 */
+    /** 拿起的内容项；原位、被标签条吸收、没拿起时为 null。只在拿起与放下时变，矩形经 `placeCard` 写。 */
     readonly card: Readonly<Ref<{readonly key: string} | null>>;
     /** 已显示的空位（相对网格根）；没有新面板时为 null。 */
     readonly slot: Readonly<Ref<GridRect | null>>;
@@ -106,6 +106,8 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
     /** 卡片此刻的尺寸与抓住的那一点（占卡片的比例）：缩放时抓住的点一直在指针下。 */
     let cardSize: {width: number; height: number} | null = null;
     let grab = {x: 0.5, y: 0};
+    /** 卡片离跟手的位置还差多少：拿起时指针在那块面板外面，抓住的点夹在卡片边上，卡片从面板的位置追到指针下，和尺寸同一个时间常数。 */
+    let chase = {x: 0, y: 0};
     /** 来源面板的矩形：这一场第一次要卡片时量，之后不变（吸收之后“来源面板”还是它）。undefined 是还没量。 */
     let homeRect: GridDropRect | null | undefined;
     /** 已经吸收来源的标签条是哪块面板的：预览摆着它（或它本来就在那里）。 */
@@ -128,11 +130,16 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         return {key: keyOf(drop), immediate, slot: grows ? drop.preview.areaRect : null};
     }
 
-    /** 指针落在标签条上并且已经被它吸收时不要卡片：只有标签跟手。还没等够稳定时卡片留着，内容靠拿起留着（`WorkbenchSurface` 的 `contents`）。 */
+    /**
+     * 两种时候不要卡片（输出 38）。原位：放下去是原样，卡片飞回，内容回到叶，标签照常显示。来源收起着时等它展开：收起着的预览里没有这个标签，
+     * 不拿着的话内容项就卸了；原位稳定的那一帧 `stepPreview` 先展开，同一帧这里就收回。指针落在别人的标签条上并且已经被它吸收：只有标签跟手。
+     * 还没等够稳定时卡片留着，内容靠拿起留着（`WorkbenchSurface` 的 `contents`）。
+     */
     function wantsCard(): boolean {
         if (offered === null) return true;
+        if (offered.inPlace) return collapsed;
         const strip = stripOf(offered.action);
-        return strip === null || !(offered.inPlace || strip === absorbedIn);
+        return strip === null || strip !== absorbedIn;
     }
 
     function updateCard(now: number): void {
@@ -145,6 +152,8 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
         const homePanel = host.homeOf(source);
         if (homeRect === undefined) homeRect = homePanel === null ? null : host.panelRect(homePanel);
         const home = homeRect;
+        // 拿起的那一帧不算时间：卡片就在那块面板上，从它的矩形开始缩、开始追。
+        const lifting = cardSize === null;
         if (cardSize === null) {
             // 撕下来：从此刻显示着它的那块面板开始缩。
             const showing = absorbedIn ?? homePanel;
@@ -153,17 +162,18 @@ export function createLiveDrag(host: LiveDragHost): LiveDrag {
             const height = rect === null ? Math.min(CARD_COMPACT.height, home === null ? CARD_COMPACT.height : home.bottom - home.top) : rect.bottom - rect.top;
             cardSize = {width, height};
             grab = rect === null ? {x: 0.5, y: 0} : {x: clampUnit((pointer.x - rect.left) / width), y: clampUnit((pointer.y - rect.top) / height)};
+            chase = rect === null ? {x: 0, y: 0} : {x: rect.left - (pointer.x - grab.x * width), y: rect.top - (pointer.y - grab.y * height)};
         }
         const inHome = host.cardShrink() === "panel" && home !== null && pointer.x >= home.left && pointer.x < home.right && pointer.y >= home.top && pointer.y < home.bottom;
         const target = inHome ? {width: home.right - home.left, height: home.bottom - home.top} : {
             width: Math.min(CARD_COMPACT.width, home === null ? CARD_COMPACT.width : home.right - home.left),
             height: Math.min(CARD_COMPACT.height, home === null ? CARD_COMPACT.height : home.bottom - home.top),
         };
-        // 这一场的第一帧没有上一帧：不算时间，从面板的大小开始缩。
-        const blend = lastFrame === 0 ? 0 : 1 - Math.exp(-Math.max(0, now - lastFrame) / CARD_TAU_MS);
+        const blend = lifting ? 0 : 1 - Math.exp(-Math.max(0, now - lastFrame) / CARD_TAU_MS);
         const approach = (from: number, to: number): number => (Math.abs(to - from) < CARD_STILL_PX ? to : from + (to - from) * blend);
         cardSize = {width: approach(cardSize.width, target.width), height: approach(cardSize.height, target.height)};
-        const rect = {x: pointer.x - origin.x - grab.x * cardSize.width, y: pointer.y - origin.y - grab.y * cardSize.height, width: cardSize.width, height: cardSize.height};
+        chase = {x: approach(chase.x, 0), y: approach(chase.y, 0)};
+        const rect = {x: pointer.x - origin.x - grab.x * cardSize.width + chase.x, y: pointer.y - origin.y - grab.y * cardSize.height + chase.y, width: cardSize.width, height: cardSize.height};
         if (card.value?.key !== source.tab) card.value = {key: source.tab};
         if (written !== null && written.x === rect.x && written.y === rect.y && written.width === rect.width && written.height === rect.height) return;
         written = rect;

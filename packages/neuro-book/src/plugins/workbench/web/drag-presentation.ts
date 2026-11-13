@@ -39,7 +39,7 @@ export interface DragFeedback {
 }
 
 export interface DragPresentation {
-    /** 留着位置、看不见的标签：它正被拖着。 */
+    /** 留着位置、看不见的标签：它正被拖着（卡片拿着，或在标签条里排序）。 */
     readonly placeholder: string | null;
     /** 要不要跟手的拖影：拿着卡片时卡片就是；在标签条里排序时标签自己就是。 */
     readonly ghost: boolean;
@@ -73,7 +73,9 @@ export function presentDrag(input: DragPresentationInput): DragPresentation {
     // 卡片收回、指针在标签条上（活动栏的入口之间也是）：被拖的标签自己在条里跟手（`placeSorted`），不要拖影。
     const sorting = liveTab !== null && !lifted && drop !== null && dropStripOf(drop.action) !== null;
     return {
-        placeholder: liveTab,
+        // 原位时卡片收回，标签回到原处照常显示（输出 38）；拿着卡片、在标签条里排序时标签被拖着，留位置不画。
+        placeholder: lifted || sorting ? liveTab : null,
+        // 实时布局里只有原位时没有卡片也不在排序：拖影跟手，写落点文字。
         ghost: source !== null && !lifted && !sorting,
         // 拿起的是这块面板唯一的标签：它的头（只写标题、或只剩这一个标签）也跟着走，原位是空位，直到来源收起。
         slotPanel: shownAction?.kind === "edge" || (lifted && landing !== null && rendered.panels[landing]?.tabs.length === 1) ? landing : null,

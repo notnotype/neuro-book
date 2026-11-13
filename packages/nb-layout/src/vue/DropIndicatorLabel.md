@@ -14,6 +14,8 @@ type DropIndicatorLabelProps = {
     label: string;
     /** 可选图标 CSS class；缺省不渲染图标。 */
     iconClass?: string;
+    /** 跟在文字后面的附注（例如拖影上写落点）；缺省或 trim 后为空时不渲染。 */
+    hint?: string;
 };
 
 type DropIndicatorLabelEmits = Record<never, never>;
@@ -28,7 +30,7 @@ type DropIndicatorLabelSlots = {
 
 ## 状态与边界
 
-- 非空标签渲染文案；提供 `iconClass` 时在文案前渲染装饰图标。
+- 非空标签渲染文案；提供 `iconClass` 时在文案前渲染装饰图标；提供非空 `hint` 时在文案后渲染附注（`data-drop-indicator-hint`）。
 - 空字符串或纯空白不渲染任何节点。
-- 外观是药丸：`--radius-pill` 圆角，细 accent 描边，`--panel-surface` 的半透明底加 `--overlay-blur`，文字取 `--accent-text`、`--font-ui` 与 `--text-xs`，图标 14px，图文之间留小间距。文字单行，放不下时截断。用户要求减少透明度或增强对比时，底改成实色面板底并关闭模糊。
+- 外观是药丸：`--radius-pill` 圆角，细 accent 描边，`--panel-surface` 的半透明底加 `--overlay-blur`，文字取 `--accent-text`、`--font-ui` 与 `--text-xs`，图标 14px，图文之间留小间距。文字单行，放不下时截断。附注用 `--text-muted` 与常规字重，不截断：放不下时截断的是前面的文案。用户要求减少透明度或增强对比时，底改成实色面板底并关闭模糊。
 - 组件不处理文案翻译、位置、最大宽度、剪裁、播报或拖放状态。

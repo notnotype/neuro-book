@@ -17,6 +17,8 @@ const preview = {areaRect: null, indicator: null, orientation: "horizontal" as c
 const dropOf = (action: WorkbenchDropAction, inPlace = false): LayoutDragDrop => ({action, inPlace, preview});
 const strip = (panel: string, index = 0): LayoutDragDrop => dropOf({kind: "strip", panel, index});
 const CENTER = dropOf({kind: "center", panel: "other"});
+/** 来源面板里不是原位的落点：拆开它自己那块。 */
+const HOME_SPLIT = dropOf({kind: "edge", target: {kind: "split", panel: "home", edge: "left"}});
 const RECTS: Readonly<Record<string, GridDropRect>> = {home: {left: 0, top: 0, right: 600, bottom: 800}, other: {left: 600, top: 0, right: 1400, bottom: 800}};
 
 function setup(over: Partial<LiveDragHost> = {}) {
@@ -158,12 +160,60 @@ describe("createLiveDrag", () => {
         expect(t.live.card.value).toBeNull();
     });
 
-    it("正文里放回原处要卡片：只有标签条才不要", () => {
-        const t = setup({candidateDoc: () => null});
-        t.live.begin(SOURCE, {x: 100, y: 400});
+    it("原位不要卡片：拿着的卡片收回；离开原位再拿起，从来源面板的矩形开始（输出 38）", () => {
+        let pointer = {x: 100, y: 400};
+        const t = setup({candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC), pointer: () => pointer});
+        t.live.begin(SOURCE, pointer);
+        t.live.offer(HOME_SPLIT);
+        t.frame();
+        expect(t.live.card.value).toEqual({key: SOURCE.tab});
+        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.frame();
+        expect(t.live.card.value).toBeNull();
+        t.frame(200);
+        expect(t.live.card.value).toBeNull();
+        pointer = {x: 300, y: 400};
+        t.live.offer(dropOf({kind: "edge", target: {kind: "split", panel: "home", edge: "right"}}));
+        t.frame();
+        expect(t.live.card.value).toEqual({key: SOURCE.tab});
+        expect(t.placed.at(-1)).toEqual({x: 0, y: 0, width: 600, height: 800});
+    });
+
+    it("来源收起着时回到原位：等原位稳定、来源展开之后才收回卡片", () => {
+        const t = setup({candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC)});
+        t.live.begin(SOURCE, {x: 700, y: 400});
+        t.live.offer(CENTER);
+        t.frame();
+        t.frame(200);
+        expect(t.collapses).toEqual([SOURCE.tab]);
         t.live.offer(dropOf({kind: "center", panel: "home"}, true));
         t.frame();
         expect(t.live.card.value).toEqual({key: SOURCE.tab});
+        expect(t.expansions).toEqual([]);
+        t.frame(200);
+        expect(t.expansions).toEqual([SOURCE.tab]);
+        expect(t.live.card.value).toBeNull();
+    });
+
+    it("离开原位时指针已在来源面板外面：卡片从面板的位置追到指针下，不跳", () => {
+        let pointer = {x: 300, y: 400};
+        const t = setup({candidateDoc: (_from, drop) => (drop.inPlace ? null : DOC), pointer: () => pointer});
+        t.live.begin(SOURCE, pointer);
+        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.frame();
+        expect(t.live.card.value).toBeNull();
+        // 单标签面板拖到邻居靠它的那一半是原位；再往外就离开了，这时指针在来源面板右边 200px。
+        pointer = {x: 800, y: 400};
+        t.live.offer(CENTER);
+        t.frame();
+        expect(t.placed.at(-1)).toEqual({x: 0, y: 0, width: 600, height: 800});
+        t.frame();
+        const second = t.placed.at(-1);
+        expect(second?.x).toBeGreaterThan(0);
+        // 抓住的点夹在卡片右边上：追完之后卡片的右边在指针下。
+        for (let index = 0; index < 120; index += 1) t.frame();
+        const settled = t.placed.at(-1);
+        expect(settled === undefined ? null : settled.x + settled.width).toBeCloseTo(800, 5);
     });
 
     it("第一次进别的标签条等够稳定才吸收：这之前卡片留着，路过不换预览", () => {
@@ -211,7 +261,7 @@ describe("createLiveDrag", () => {
     it("卡片缩小的时机：缺省离开标签条就缩到紧凑，从面板的大小开始", () => {
         const t = setup();
         t.live.begin(SOURCE, {x: 300, y: 400});
-        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.live.offer(HOME_SPLIT);
         t.frame();
         expect(t.placed[0]?.width).toBe(600);
         for (let index = 0; index < 60; index += 1) t.frame();
@@ -223,7 +273,7 @@ describe("createLiveDrag", () => {
         let pointer = {x: 300, y: 400};
         const t = setup({cardShrink: () => "panel", pointer: () => pointer});
         t.live.begin(SOURCE, pointer);
-        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.live.offer(HOME_SPLIT);
         t.frame();
         for (let index = 0; index < 30; index += 1) t.frame();
         expect(t.placed.at(-1)?.width).toBe(600);
@@ -243,7 +293,7 @@ describe("createLiveDrag", () => {
     it("指针不动、缩放结束之后不再写", () => {
         const t = setup();
         t.live.begin(SOURCE, {x: 300, y: 400});
-        t.live.offer(dropOf({kind: "center", panel: "home"}, true));
+        t.live.offer(HOME_SPLIT);
         for (let index = 0; index < 120; index += 1) t.frame();
         const writes = t.placed.length;
         for (let index = 0; index < 30; index += 1) t.frame();

@@ -2231,4 +2231,50 @@ test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局�
         await expect(rightTabs.filter({hasText: "b.md"})).toHaveCount(1);
         await closeAll(page);
     });
+
+    test("设置离开面板才缩小（dragCardShrink）：自己这一组的正文中央是原位，不拿起；外缘（拆开它）拿起这一组原大小的卡片，离开这一组才缩；取消后内容是同一个节点（输出 38）", async ({page}) => {
+        await writeSettings({"nbook.workbench/dragCardShrink": "panel"});
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await page.setViewportSize({width: 1440, height: 900});
+        await open(page);
+        await closeAll(page);
+        for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
+        await expect(prose(page)).toContainText("第二章");
+        const content = page.locator("[data-editor-group-active]");
+        const node = await content.elementHandle();
+        const group = (await content.getAttribute("data-editor-group")) ?? "";
+        const groupLeaf = page.locator(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${group}"]`);
+        const tab = tabs(page).filter({hasText: "b.md"});
+        const [body, home, from] = [await content.boundingBox(), await groupLeaf.boundingBox(), await tab.boundingBox()];
+        if (body === null || home === null || from === null) throw new Error("没有矩形");
+        if (home.width <= 390 && home.height <= 270) throw new Error(`编辑组 ${String(home.width)}×${String(home.height)} 不比小卡大，分不出原大小与缩小后的卡片`);
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
+        // 正文中央：放下是原样，不拿起，标签照常显示，跟手的是写着“原位”的拖影。
+        await page.mouse.move(body.x + body.width / 2, body.y + body.height / 2, {steps: 6});
+        await expect(page.locator("[data-workbench-drag-ghost]")).toContainText("原位");
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        await expect(tab).toBeVisible();
+        // 左边的外缘窄带：拆开这一组，不是原位，拿起；还在这一组里，卡片是这一组原大小。卡片按拿起时量的面板外框摆，卡片主题下外框每边比叶的盒小几个像素，
+        // 所以差 12px 以内算同样大；缩成的小卡是 380×260，这一组宽过 1000px，分得开。
+        await page.mouse.move(body.x + 12, body.y + body.height / 2, {steps: 6});
+        const card = page.locator("[data-lifted]");
+        await expect(card).toHaveCount(1);
+        await expect(card.locator("[data-editor-prose]")).toContainText("第二章");
+        await expect.poll(async () => {
+            const box = await card.boundingBox();
+            return box === null ? Infinity : Math.max(Math.abs(box.width - home.width), Math.abs(box.height - home.height));
+        }).toBeLessThanOrEqual(12);
+        // 离开这一组（到侧栏上，编辑器标签放不进去）：缩到小卡。
+        await page.mouse.move(home.x - 120, body.y + body.height / 2, {steps: 6});
+        await expect.poll(async () => (await card.boundingBox())?.width ?? 0).toBeLessThanOrEqual(385);
+        await page.keyboard.press("Escape");
+        await page.mouse.up();
+        await expect(card).toHaveCount(0);
+        await expect(page.locator("[data-editor-group]")).toHaveCount(1);
+        const after = await page.locator("[data-editor-group-active]").elementHandle();
+        expect(await node?.evaluate((element, other) => element === other, after)).toBe(true);
+        await closeAll(page);
+    });
 });

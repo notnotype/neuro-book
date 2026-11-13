@@ -2,7 +2,7 @@
  * 实时布局（docs/specs/ui/workbench-layout.md“实时布局”）在真实浏览器里：邻居真实让位、预览不写记录、松手提交指针下的候选、取消回原样。应用的 Playwright 配置缺省减少动态效果，那时一律落点指示，所以这里每个用例开回来。
  */
 
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, rm} from "node:fs/promises";
 import {DatabaseSync} from "node:sqlite";
 import {join} from "node:path";
 
@@ -191,14 +191,16 @@ test.describe("实时布局", () => {
         const writes = await writesOf(page);
         const home = await centerOf(leaf(page, delta));
         await lift(page, tab(page, AUXILIARY_VIEW));
-        // 拿起的是它唯一的视图：还没落到别处、没收起之前，原位是空位，标题头不留在原地。
+        // 自己这一节里是原位：不拿起，标题头留在原地，跟手的是写着“原位”的拖影。
         await page.mouse.move(home.x, home.y + 40, {steps: 4});
-        await expect(page.locator("[data-lifted]")).toHaveCount(1);
-        await expect(page.locator(`[data-panel-head="${delta}"]`)).toHaveCount(0);
-        await expect(leaf(page, delta)).toHaveCount(1);
-        // 侧栏甲那一节的后半（分节没有中央，整块是前后两半，输出 25 第 7 行）。
+        await expect(ghost(page)).toContainText("原位");
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        await expect(page.locator(`[data-panel-head="${delta}"]`)).toHaveCount(1);
+        // 侧栏甲那一节的后半（分节没有中央，整块是前后两半，输出 25 第 7 行）：离开原位，拿起。
         const target = await inLeaf(page, await sectionOf(page, "test.sample-views.alpha"), {x: 0.5, y: 0.75});
         await page.mouse.move(target.x, target.y, {steps: 6});
+        await expect(page.locator("[data-lifted]")).toHaveCount(1);
+        await expect(ghost(page)).toHaveCount(0);
         await expect(surface(page)).not.toHaveAttribute("data-live-preview", "none");
         await expect.poll(() => auxiliaryWidth(page)).toBeLessThan(2);
         // 回到它原来的位置：那里现在是编辑组，工具视图放不进去，是来源收起的样子，不是放回原处。
@@ -360,74 +362,55 @@ test.describe("实时布局", () => {
         expect(await writesOf(page)).toBe(writes);
     });
 
-    test("离开标签条就缩小：指针还在来源面板里，卡片已经是紧凑的（设置缺省）", async ({page}) => {
+    test("原位不拿起：标签与正文留在原处，跟手的是写“原位”的拖影；离开原位才拿起一张紧凑的卡片，盖在分隔线上跟手；回到原位卡片收回，内容一直是同一个节点（输出 38）", async ({page}) => {
         await open(page);
-        const from = await panelOfTab(page, E);
-        await lift(page, tab(page, E));
-        const inside = await inLeaf(page, from, {x: 0.5, y: 0.5});
-        await page.mouse.move(inside.x, inside.y, {steps: 3});
+        // 要标签条与正文都在的来源：两个标签的浮动窗，拖后一个（己）。拖回正文是加到末尾，来源收起之后回来仍是原位。
+        const panel = await floatOfTwo(page);
+        const writes = await writesOf(page);
+        const node = await content(page, F).elementHandle();
+        const same = (): Promise<boolean> => content(page, F).evaluate((element, other) => element === other, node);
+        await lift(page, tab(page, F));
+        const body = await inLeaf(page, panel, {x: 0.5, y: 0.6});
+        await page.mouse.move(body.x, body.y, {steps: 4});
+        await expect(ghost(page)).toContainText("原位");
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        await expect.poll(() => sortedFrameOf(tab(page, F))).toMatchObject({visible: true});
+        await expect(content(page, F)).toBeVisible();
+        expect(await same()).toBe(true);
+        // 离开原位（侧栏甲那一节的后半）：拿起，缺省一离开标签条就是紧凑的卡片。
+        const away = await inLeaf(page, await sectionOf(page, "test.sample-views.alpha"), {x: 0.5, y: 0.75});
+        await page.mouse.move(away.x, away.y, {steps: 6});
         const card = page.locator("[data-lifted]");
         await expect(card).toHaveCount(1);
+        expect(await same()).toBe(true);
+        await expect(ghost(page)).toHaveCount(0);
+        await expect(page.locator("[data-drag-card-head]")).toHaveCount(1);
+        const look = await card.evaluate((element) => {
+            const style = getComputedStyle(element);
+            return {events: style.pointerEvents, z: style.zIndex};
+        });
+        expect(look.events).toBe("none");
+        expect(Number(look.z)).toBeGreaterThan(3);
         await expect.poll(async () => (await card.boundingBox())?.width ?? 0).toBeLessThanOrEqual(381);
+        // 卡片缩完：抓住的点还在指针下。
+        await expect.poll(async () => {
+            const box = await card.boundingBox();
+            return box !== null && box.x <= away.x && away.x <= box.x + box.width && box.y <= away.y && away.y <= box.y + box.height;
+        }).toBe(true);
+        // 回到原位：来源展开，卡片收回，内容回到窗里。
+        await page.mouse.move(body.x, body.y, {steps: 8});
+        await expect(surface(page)).toHaveAttribute("data-live-preview", "in-place");
+        await expect(card).toHaveCount(0);
+        await expect(ghost(page)).toContainText("原位");
+        await expect.poll(() => sortedFrameOf(tab(page, F))).toMatchObject({visible: true});
+        expect(await same()).toBe(true);
         await page.keyboard.press("Escape");
         await page.mouse.up();
-    });
-
-    test.describe("设置离开面板才缩小（dragCardShrink）", () => {
-        const settingsFile = (): string => join(tmp, "state", "settings.json");
-        test.beforeEach(async () => {
-            await writeFile(settingsFile(), JSON.stringify({"nbook.workbench/dragCardShrink": "panel"}));
-        });
-        test.afterEach(async () => {
-            await rm(settingsFile(), {force: true});
-        });
-
-        test("离开标签条撕下一张卡片：内容是同一个节点、盖在分隔线上跟手，抓住的点在指针下；离开来源面板后缩小；取消后回到原处", async ({page}) => {
-            await open(page);
-            // 分节的标题不是标签条，按住就拿起（输出 20）：要“还在标签条里不拿起”，从浮动窗的标签条拖。
-            const from = await floatOfTwo(page);
-            const source = tab(page, E);
-            const content = page.locator(`[data-content="view:${E}"]`);
-            const node = await content.elementHandle();
-            await lift(page, source);
-            // 还在标签条里：不拿起。
-            await expect(page.locator("[data-lifted]")).toHaveCount(0);
-            const inside = await inLeaf(page, from, {x: 0.5, y: 0.5});
-            await page.mouse.move(inside.x, inside.y, {steps: 3});
-            const card = page.locator("[data-lifted]");
-            await expect(card).toHaveCount(1);
-            expect(await card.evaluate((element, other) => element === other, node)).toBe(true);
-            // 还在来源面板里：卡片是面板原大小，不是缩成的 380×260。卡片按布局里的面板矩形摆，和叶元素的盒差几个像素（卡片外沿），所以差 6px 以内算同样大。
-            const home = await leaf(page, from).boundingBox();
-            if (home === null || (home.width <= 390 && home.height <= 270)) throw new Error(`来源面板 ${String(home?.width)}×${String(home?.height)} 不比小卡大，分不出原大小与缩小后的卡片`);
-            await expect.poll(async () => {
-                const box = await card.boundingBox();
-                return box === null ? Infinity : Math.max(Math.abs(box.width - home.width), Math.abs(box.height - home.height));
-            }).toBeLessThanOrEqual(6);
-            await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
-            await expect(page.locator("[data-drag-card-head]")).toHaveCount(1);
-            const look = await card.evaluate((element) => {
-                const style = getComputedStyle(element);
-                return {events: style.pointerEvents, z: style.zIndex};
-            });
-            expect(look.events).toBe("none");
-            expect(Number(look.z)).toBeGreaterThan(3);
-            // 离开来源面板：缩到小卡，抓住的点还在指针下。
-            const away = {x: inside.x + 500, y: inside.y};
-            await page.mouse.move(away.x, away.y, {steps: 4});
-            await expect.poll(async () => (await card.boundingBox())?.width ?? 0).toBeLessThanOrEqual(385);
-            const box = await card.boundingBox();
-            expect(away.x).toBeGreaterThanOrEqual(box?.x ?? 0);
-            expect(away.x).toBeLessThanOrEqual((box?.x ?? 0) + (box?.width ?? 0));
-            expect(away.y).toBeGreaterThanOrEqual(box?.y ?? 0);
-            expect(away.y).toBeLessThanOrEqual((box?.y ?? 0) + (box?.height ?? 0));
-            await page.keyboard.press("Escape");
-            await page.mouse.up();
-            await expect(page.locator("[data-lifted]")).toHaveCount(0);
-            await expect(content).not.toHaveAttribute("data-lifted", "");
-            await settled(page);
-            expect(await content.evaluate((element, other) => element === other, node)).toBe(true);
-        });
+        await expect(ghost(page)).toHaveCount(0);
+        await settled(page);
+        expect(await same()).toBe(true);
+        expect(await headTabsOf(page, panel)).toEqual([`view:${E}`, `view:${F}`]);
+        expect(await writesOf(page)).toBe(writes);
     });
 
     test("预览不改可见性，读屏文字按语义变；拖到面板边上有空位，不画分区", async ({page}) => {
@@ -502,7 +485,7 @@ test.describe("实时布局", () => {
         }
     });
 
-    test("标签条里不拿起卡片：被拖的标签自己沿条跟手、夹在条里，没有拖影，预览马上换；离开才撕下", async ({page}) => {
+    test("标签条里不拿起卡片：被拖的标签自己沿条跟手、夹在条里，没有拖影，预览马上换；到自己的正文是原位，离开原位才撕下", async ({page}) => {
         await open(page);
         // 带标签条的只剩浮动窗（输出 20、39）。
         const panel = await floatOfTwo(page);
@@ -528,9 +511,14 @@ test.describe("实时布局", () => {
         await page.mouse.move(row.left + 1, otherBox.y + otherBox.height / 2, {steps: 6});
         await expect.poll(async () => (await sortedFrameOf(tab(page, E))).left).toBeGreaterThanOrEqual(row.left - 1);
         expect((await sortedFrameOf(tab(page, E))).left).toBeLessThan(row.left + 4);
-        // 离开标签条：撕下。
-        const away = await inLeaf(page, panel, {x: 0.5, y: 0.6});
-        await page.mouse.move(away.x, away.y, {steps: 3});
+        // 离开标签条到自己的正文：原位，不撕下，标签回到原处，跟手的换成拖影。
+        const body = await inLeaf(page, panel, {x: 0.5, y: 0.6});
+        await page.mouse.move(body.x, body.y, {steps: 3});
+        await expect(ghost(page)).toContainText("原位");
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        // 离开原位：撕下。
+        const away = await inLeaf(page, await sectionOf(page, "test.sample-views.alpha"), {x: 0.5, y: 0.75});
+        await page.mouse.move(away.x, away.y, {steps: 6});
         await expect(page.locator("[data-lifted]")).toHaveCount(1);
         await expect(ghost(page)).toHaveCount(0);
         await page.keyboard.press("Escape");

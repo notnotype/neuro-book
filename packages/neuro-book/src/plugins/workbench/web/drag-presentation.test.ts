@@ -19,9 +19,13 @@ const dropOf = (action: WorkbenchDropAction, inPlace = false): LayoutDragDrop =>
 const input = (over: Partial<DragPresentationInput> = {}): DragPresentationInput => ({live: true, source: {kind: "tab", tab: TAB}, drop: null, lifted: false, shownAction: null, rendered: doc, rejected: false, ...over});
 
 describe("presentDrag", () => {
-    it("实时布局下来源一直是占位；落点指示不留占位", () => {
-        expect(presentDrag(input()).placeholder).toBe(TAB);
-        expect(presentDrag(input({live: false})).placeholder).toBeNull();
+    it("实时布局下拿着卡片、在标签条里排序时来源是占位；原位（卡片收回）标签照常显示、有拖影；落点指示不留占位", () => {
+        expect(presentDrag(input({lifted: true})).placeholder).toBe(TAB);
+        expect(presentDrag(input({drop: dropOf({kind: "strip", panel: "sidebar", index: 1})})).placeholder).toBe(TAB);
+        const inPlace = presentDrag(input({drop: dropOf({kind: "center", panel: "sidebar"}, true)}));
+        expect(inPlace.placeholder).toBeNull();
+        expect(inPlace.ghost).toBe(true);
+        expect(presentDrag(input({live: false, lifted: false})).placeholder).toBeNull();
     });
 
     it("拿着卡片时不要拖影，没拿着要", () => {
