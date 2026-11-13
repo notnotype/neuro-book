@@ -1,0 +1,120 @@
+# t12 计划审查（细节与事实核对）
+
+审查对象：`.agents/works/w00043-neurobot/tasks/t12-flock-into-file-lock/plan.md`（只读，主工作区 master）。以下按核实顺序追加，最后汇总排序。
+
+## 1. nb-harness 架构测试的目录表按“包名”比对，计划写的 `@notnotype/nb-file-lock/flock` 填进去无效
+
+- 严重程度：重要；类别：测试
+- 位置：`packages/nb-harness/src/kernel/architecture.test.ts:32`（`log` 一行）、`:91`（`packageName`）、`:122-125`（`allowed.includes(name)`）；计划“`packages/nb-harness`”第三条
+- 现象：计划写“`log` 的 `packages` 加 `@notnotype/nb-file-lock/flock`”。测试在 `directoryViolation` 里先用 `packageName(specifier)` 把说明符截成“包名”（`@scope/name` 两段）再 `allowed.includes(name)`。`files.ts` 里导入 `@notnotype/nb-file-lock/flock` 时 `name` 是 `@notnotype/nb-file-lock`，表里只有带 `/flock` 的字符串就匹配不上，报“引用了目录表未登记的包”。
+- 如何核实：在 scratch 里复制测试里的 `packageName`，`packageName("@notnotype/nb-file-lock/flock")` 得 `@notnotype/nb-file-lock`，`["@notnotype/nb-file-lock/flock"].includes(...)` 为 `false`（`/tmp/review-t12-design/scratch-detail/pn.ts`）。
+- 影响：切片 1 的验证会在这条上失败；照字面“只加子路径”实施会返工。
+- 建议改法：表里写 `@notnotype/nb-file-lock`（该测试只能按包名放行，无法只放行 `/flock` 子路径，这个粒度损失写进目录表注释）。想收紧到子路径要改测试的比对方式（对 `use.specifier` 全串匹配），属于顺手扩范围，不建议。
+- 对照：应用的 `PACKAGE_SIDES`（`packages/neuro-book/src/architecture.test.ts:90-100`）是 `specifier === entry.specifier` 全串匹配，所以那边必须写 `@notnotype/nb-file-lock/flock`，计划这半边是对的。两处写法不同，计划应分别写明，免得照抄。
+
+## 2. “Windows 路径与 nb-story 0.2.x 实测过的那份相同”不成立：计划以 nb-harness 那份为底，它的 Windows 分支被改写过
+
+- 严重程度：重要；类别：不变量
+- 位置：计划“验证”最后一段；`packages/nb-harness/src/kernel/log/flock.ts:39-48,105` 对 `packages/nb-story/src/platform/flock.ts:44-52,102-109`；[ADR 0031](docs/adr/0031-nb-story-supports-windows.md) 后果第一条
+- 现象：`diff` 两份文件，代码差异是三处报错文字，加上 `releaseOnce(close)` 的提取：nb-story 的 POSIX 分支与 Windows 分支各自内联 `let released` 加 `release()`，nb-harness 版把它们提成 `releaseOnce`，Windows 分支末尾变成 `return releaseOnce(() => api.CloseHandle(handle))`。行为等价，但这不是 Windows 上实测过的那段字节。计划“以 nb-harness 那份为底”，又写“代码与 nb-story 0.2.x 在 Windows 上实测过的那份相同”，两句互相矛盾。
+- 为什么是问题：ADR 0031 后果写明“改到平台相关的代码（锁……）时要在 Windows 上再实测一遍”，Windows 没有自动测试、`release:smoke` 也只在 Linux 跑。计划把“没实测”记为已知缺口，但理由（“相同”）是错的，开发者读到会误以为零风险。nb-harness 那份是否在 Windows 上跑过也没有记录（t20 计划只说“照 nb-story 写”）。
+- 如何核实：`diff packages/nb-story/src/platform/flock.ts packages/nb-harness/src/kernel/log/flock.ts`。
+- 建议改法（二选一，写进计划）：
+  a) 以 nb-story 那份为底，只把三处报错文字换成英文，保留内联的 `released`，Windows 段字节与实测过的一致；`releaseOnce` 提取不做（省一个特殊写法，也没有收益）。
+  b) 保留 `releaseOnce`，但在计划与 ADR 里如实写“Windows 段有改写”，并列入“交开发者在 Windows 机器上跑 nbstory serve 双开、ingest 抢锁”的验收。
+  同时注释以 nb-story 的为底：它保留了“访问权限要按无符号数传、在 pc-notype 上实测报 ERROR_ACCESS_DENIED”这条证据，nb-harness 版删掉了。
+
+## 3. 加进 `RELEASE_PACKAGES` 会让 `scripts/release/packages.test.ts` 的现有用例失败，计划没列也没验证
+
+- 严重程度：重要；类别：测试
+- 位置：`scripts/release/packages.test.ts:60-70`（用例“本仓库的发布清单通过检查，按依赖顺序排出 9 个包”，`:67` 的 `expect(output.order).toHaveLength(9)`）；计划“发布链与锁文件”与“切片”
+- 现象：该用例对真实仓库跑 `runCheck([])`，硬编码 9 个包。加 `nb-file-lock` 后是 10，用例失败。计划的验证只有 `release:check` 与 `release:smoke`，不跑 `scripts/release` 的测试；CI 的 `test:affected` 改到 `scripts/` 时会跑它。
+- 另：切片 1（nb-harness、nb-story 加 `workspace:^` 依赖 nb-file-lock）早于切片 2（加进 `RELEASE_PACKAGES`、去掉 `private`）。切片 1 提交后这条用例会因 `internal_dependency`（“@notnotype/nb-file-lock 不在发布清单里”）先失败一次。
+- 如何核实：读 `checkReleasePackages` 的 `internal_dependency` 分支（`scripts/release/packages.ts:174-175`）与上述用例；可在 scratch 里把 nb-harness 的 `dependencies` 加上 nb-file-lock、清单不加，`bun scripts/release/packages.ts` 会报。
+- 建议改法：计划列出 `scripts/release/packages.test.ts`（用例标题与数字 9 改 10），验证里加 `bun test scripts/release/packages.test.ts`；把 `RELEASE_PACKAGES`、`package.json` 发布字段与依赖声明放进同一个提交（合并切片 1 与 2 的这部分），每个提交 `release:check` 都能过。
+
+## 4. 文档清单漏了三处：发布流程里的包数、`packages/AGENTS.md` 的两句、ADR 0045 的“只有 `.`”
+
+- 严重程度：重要；类别：文档
+- 位置：
+  - `docs/standards/repository-workflow.md:89`（“以源码发布的 9 个工作区包（nb-story 与它依赖的 8 个）”）、`:94`（“11 个包都过发布清单检查”）、`:95`（“发不完 11 个包”）；
+  - `packages/AGENTS.md:4`（“nb-story……它与依赖的 8 个工作区包以 npm 包发布”，以及“`nb-host`、`nb-models` 与文件锁 `nb-file-lock`（都是 `private`，见 ADR 0045）”）；
+  - `docs/adr/0045-shared-host-packages-for-second-app.md` 决策 4 同时写了“`nb-file-lock` 只有 `.`”，t02 计划第 425 行同。
+- 现象：计划的“Spec 与文档改动”列了边界文档、两份根 README、skills.md、ADR 索引，没有上面三处。`packages/AGENTS.md` 是各包的入口规则，改完仍写 nb-file-lock `private`，与 `package.json` 矛盾；发布流程文档里的包数是人按这份清单读的，加包后数字错。`docs:check` 查不出这类数字。
+- ADR 0052 的取代范围也要写全：只取代“不发 npm”不够，新增 `./flock` 子路径同时改了决策 4 里“`nb-file-lock` 只有 `.`”。ADR README 规定部分取代要写清“哪一项”，索引补注也要对应（计划只补注“不发 npm”）。
+- 如何核实：`grep -rIn "11 个包\|8 个工作区\|都是 \`private\`" docs packages/AGENTS.md`。
+- 建议改法：把这三处加进计划；ADR 头部写“部分取代：ADR 0045 决策 4 中 nb-file-lock 的‘不发 npm’与‘只有 `.`’”。
+- 另：边界文档 nb-story 行“8 个工作区包”改 9、ADR 0029 索引不改数字只补注，都与现状对得上（核实：nb-ui、nb-agent-ui、nb-form、nb-markdown、nb-harness、nb-profile、nb-session、nb-runtime 共 8 个，`RELEASE_PACKAGES` 共 9 个含 nb-story）。
+
+## 5. 新测试与发布验证的缺口：子进程收口、边界断言写法、`.` 入口与 `src/testing` 排除都没有被验证到
+
+- 严重程度：建议（其中第 2、3 点偏重要）；类别：测试
+- 位置：计划“`packages/nb-file-lock`”测试一条、“发布链”、“验证”
+- 现象与建议：
+  1. **子进程收口**：`docs/testing/README.md` 第 48 行要求测试起的子进程在用例失败时也收口（`afterEach` 里停止）。计划只写“另起子进程……杀掉子进程后能拿到”，没写失败收口。现有 `src/index.test.ts` 的 `child()` 也没有失败收口（子进程靠 stdin 关闭自停）。新测试要在 `afterEach`/`finally` 里 `kill("SIGKILL")` 并 `await exited`，并用 `waitUntil` 等“held”行，不用固定时长。可照 `packages/nb-harness/src/kernel/log/store.test.ts:454-470` 的 try/finally 写法。
+  2. **子进程脚本只能导入 `../flock`**：计划说“同 `lock-child.ts` 的做法”。`lock-child.ts` 顶部 `import {holdLock, replaceLocked} from "../index"` 会加载 `proper-lockfile`；若把 flock 的模式加进它，就无法证明 `./flock` 单独可用。要另起一个 `src/testing/flock-child.ts`，只导入 `../flock`。
+  3. **边界断言能写**：`typescript` 已在 nb-file-lock 的 devDependencies，可照 `packages/nb-harness/src/kernel/architecture.test.ts` 的 `importsOf` 用 TS 语法树读 `src/flock.ts` 的导入，或用 `Bun.Transpiler().scanImports`（发布清单检查 `scripts/release/packages.ts:300-309` 就这样做）。要求：静态、动态 `import()`、`require`、`export ... from` 都扫，说明符只能是 `bun:ffi` 与 `node:` 开头，相对导入也不行（否则 `import "./index"` 能绕过）。这条断言管得住 `flock.ts` 的源码，管不住“npm 用户仍会装上 proper-lockfile”，计划“风险”里已承认，这里不用再强调；但它也不检查 `exports["./flock"]` 真指向 `src/flock.ts`，可顺带加一句断言。
+  4. **`.` 入口没有任何发布验证**：`release:smoke` 的 nbstory 段（`scripts/release/pack-smoke.ts:114-170`）只走 `serve` 的 `acquireServeLock`，即 `./flock`。nb-file-lock 的 `.`（README 要对外说明的入口）从 tarball 装出来能不能用（`/// <reference path>` 带类型声明、`proper-lockfile` 解析）没有人跑。建议在冒烟的空项目里加一步 `bun -e 'import {holdLock} from "@notnotype/nb-file-lock"; …'` 取放一次锁。
+  5. **`src/testing/` 排除没有机检护栏**：我在 `/tmp/review-t12-design/scratch-detail/root/packages/nb-file-lock` 按计划的 `files`（`src`、`!src/testing`、`!src/**/*.test.ts`、`README.md`、`LICENSE`）跑了 `bun pm pack --dry-run`，只打进 6 个文件（`package.json`、`LICENSE`、`README.md`、`src/flock.ts`、`src/index.ts`、`src/types/proper-lockfile.d.ts`），排除是生效的，`bun scripts/release/packages.ts --root <scratch> --package nb-file-lock` 也通过。但 `pack-smoke.ts:32` 的 `FORBIDDEN` 没有 `testing/` 一项（因为 nb-harness 的 `./testing` 是公开入口），以后有人改 `files` 把 `src/testing` 带进去，冒烟不会报。可接受，也可以在 `entryTargets` 旁加“包里不含 exports 未指向的 `src/testing/`”。
+
+## 6. 导入点之外的“旧路径残留”：注释、模块头与新文件头引用已删除的文件
+
+- 严重程度：建议；类别：文档 / 代码质量
+- 位置：`packages/nb-story/src/server/registry.ts:7`（“flock 的细节见 src/platform/flock.ts”）；`packages/nb-harness/src/kernel/log/jsonl-store.ts:4`（“操作系统的独占锁，`flock.ts`”）；`packages/nb-harness/src/kernel/architecture.test.ts:28`（计划已列）；`packages/nb-harness/src/kernel/log/flock.ts:3`（“照 nb-story 的 `platform/flock.ts`（ADR 0031）”，计划拿它当新文件的底，删掉两份后这句指向不存在的文件）；`packages/nb-story/AGENTS.md:16`（计划已列）；`packages/nb-story/src/core/library.ts:88`（“独占权要用 flock，由命令行与独立服务注入”，仍然对，可不动）。
+- 现象：计划“导入点”全列对了（我在整个工作区 grep `platform/flock|log/flock|nb-harness/file-lock|tryLock|FileLock`，代码与测试里的导入方正好是计划列的 5 个 nb-story 文件、2 个 nb-harness 文件、2 个应用文件；`packages/nb-story/testing/ingest-state.ts:30` 调的是 `store.tryLock()`，不是 flock 导入；harness 的 `tests/kernel/fixtures/hold-session.ts` 没有直接导入锁），但前三处注释没有列，实施时容易留下。
+- 建议改法：计划的 `nb-harness`、`nb-story` 小节各加一句“同步改 `jsonl-store.ts` 与 `registry.ts` 模块头里的 flock 路径”；新 `src/flock.ts` 的头注释重写，不保留“照 nb-story 的……”。
+
+## 7. `tryLock` 变成 npm 公开接口后，抛错通道与 POSIX 分支的两处老毛病要在注释里交代
+
+- 严重程度：建议；类别：代码质量
+- 位置：合并后的 `src/flock.ts`（现 `packages/nb-harness/src/kernel/log/flock.ts:20-23,50-57`）
+- 现象：
+  1. 接口注释只写“已被别的持有者拿着时返回 null”，实际 `openSync` 失败（ENOENT 目录不存在、EACCES）、平台不支持、Windows 打不开或锁不上都是**抛错**。调用方里 `qa/config.ts:225-229` 显式捕获并包成 `qa_config_write_failed`，`registry.ts` 与 `ingest/store.ts` 让它直接抛给上层，都依赖这个约定。现在要发到 npm 且 README 要写“两个入口各做什么”，应在 JSDoc 与 README 里写明“返回 null = 被占用；其它失败抛 Error”。
+  2. POSIX 分支 `flock(...) !== 0` 一律当“被占用”，不看 errno（Windows 分支只把 `ERROR_LOCK_VIOLATION` 当被占用，其它抛错）。NFS 等不支持 flock 的文件系统上会表现成“永远被别人占着”。Bun 的 ffi 读不到 errno，改不了，只能在注释里写成已知限制。按“窄场景选简单改法”，写注释即可，不加机制。
+  3. `tryLockPosix` 里先 `openSync` 再 `loadFlock()`：平台不支持（`loadFlock` 抛错）时 fd 泄漏。两份副本都有，合并时顺手把 `loadFlock()` 提到 `openSync` 之前即可，POSIX 路径之外无影响，不触发第 2 条的 Windows 复测。
+- 如何核实：读代码；`loadFlock` 抛错的分支在 `process.platform` 非 linux/darwin/win32 时。
+
+## 8. 版本与发布的衔接：不改版本号后，下次发布的行为在计划里没有交代
+
+- 严重程度：建议；类别：文档
+- 位置：计划“发布链与锁文件”最后一条、“不做与风险”
+- 现象：我核实了计划的事实：`@notnotype/nb-harness` 在 registry 的 `latest` 是 0.1.1（time 2026-10-28），`./file-lock` 是 2026-11-11 提交 `c65f67311` 才加，确实从没发布；`@notnotype/nb-file-lock` 在 registry 返回 404，包名未被占用。但这意味着合并后 master 上 nb-harness 与 nb-story 的源码依赖 nb-file-lock，而版本号仍与 registry 上不依赖它的同号版本一样。`scripts/release/publish.ts:176-199` 的行为：已发布的同号版本跳过并提醒“源码改过但没提版本号，这次不发它们”，所以此时跑 `release:publish` 只会发 nb-file-lock 一个孤包，没有任何已发布的包依赖它。
+- 建议改法：Task README 的“下一步”或 ADR 0052“后果”里写一句“下次发布必须同时提 nb-harness、nb-story 的版本号（并 `bun install` 刷新 `bun.lock`），否则 nb-file-lock 发出去也没人用”；这与“这次不改版本号”不矛盾。
+
+## 补充：根 `AGENTS.md` 仓库结构图里的 nb-file-lock 一行
+
+- 严重程度：建议；类别：文档
+- 位置：根 `AGENTS.md:110`（“跨进程锁与加锁替换；工作区里只有它直接用 proper-lockfile（w00043）”）
+- 现象：计划没列。该行没有写 private，不会错，但新增“不判旧的 `./flock` 与随 nb-story 发布”后可补半句。注意：该文件当前有别的会话的未提交改动，改它要用路径限定的提交，别带走别人的修改。可选，不阻塞。
+
+---
+
+# 汇总
+
+## 各级数量
+
+- 阻断：0
+- 重要：4（第 1 至 4 条：harness 架构测试按包名比对、Windows 段“相同”的说法不成立、`packages.test.ts` 的 9 个包与切片顺序、文档清单漏三处与 ADR 取代范围）
+- 建议：4 条加 1 条补充（第 5 至 8 条与补充：新测试与发布验证缺口、旧路径注释残留、公开接口的抛错与 POSIX 老毛病、版本与发布衔接）
+
+最该先处理：第 2 条（改变“风险为零”的结论，或改选 nb-story 那份为底）、第 1 条（照字面写会让切片 1 的验证失败）、第 3 条（会让 CI 的 `test:affected` 在 scripts 上失败）。
+
+## 未发现问题的方面（仔细检查后）
+
+- **两份 flock 的差异**：逐行 `diff` 后，除三处报错文字与 `releaseOnce` 提取（见第 2 条）外只有注释不同；POSIX 的 `openSync(path, "a")`、`LOCK_EX|LOCK_NB`、失败时 `closeSync`，Windows 的常量、`>>> 0`、`OVERLAPPED_SIZE`、`ERROR_LOCK_VIOLATION` 处理、失败时 `CloseHandle`、`release` 幂等，两份相同。计划“只差三处报错文字与 releaseOnce”这句事实属实。
+- **导入点**：代码、测试与子进程脚本里的导入方列全了（见第 6 条）；`@notnotype/nb-harness/file-lock` 的使用者仅 `install.ts:13` 与 `install.test.ts:99` 的内联脚本。该内联脚本在 `packages/neuro-book` 下 `bun -e` 解析，应用本来就直接依赖 `@notnotype/nb-file-lock`（`packages/neuro-book/package.json:38`），改完能解析。`.worktree/` 里旧分支的副本不算。
+- **发布链**：按计划的字段我用 `bun scripts/release/packages.ts --root <scratch> --package nb-file-lock` 跑通（license、LICENSE 与根相同、README、`files` 含 LICENSE 与 README、`engines.bun`、`publishConfig.access`、`repository`、`internal_dependency`、`undeclared_import`：`flock.ts` 只有 `bun:` 与 `node:` 导入，`index.ts` 的 `proper-lockfile` 已声明、`lockfile_version`）；`bun.lock` 里 `packages/nb-file-lock` 有 `name`、`version` 记录，`staleLockfileVersions` 的正则能匹配；`publishOrder` 确是按 `dependencies` 与 `peerDependencies` 做深度优先排序，nb-file-lock 会排在 nb-harness、nb-story 之前，devDependencies 里的 `@notnotype/neuro-book-test-support` 被允许（同 nb-story 的做法）；`bun pm pack --dry-run` 排除 `src/testing` 与测试生效。当前仓库 `bun run release:check` 通过（9 个包）。
+- **应用包的打包**：`packages/neuro-book/scripts/pack-app.ts` 把工作区包打进服务端 bundle，`third-party-notices.ts` 按 `@notnotype/` 前缀过滤，与包是否 private 无关，“对它没有影响”属实。
+- **`PACKAGE_SIDES` 的写法**：全串匹配，登记 `@notnotype/nb-file-lock/flock` 正确（见第 1 条的对照）。
+- **nb-file-lock 自己的架构或中立性测试**：只有 `src/app-neutral.test.ts`，它递归扫 `src/` 的非测试 `.ts`，新文件与新的 `src/testing/flock-child.ts` 不含应用名、不导入应用包即可，现有 nb-harness 那份的文字不会触发（正则是 `nbook|neurobook|neurobot|nbot`，`nb-story`、`nbstory` 都不命中）。`scripts/ci/test-conventions.ts` 的 `STRICT_TEST_ROOTS` 含 `packages/nb-file-lock/`，新测试守住“不用固定等待”即可。
+- **ADR 编号与索引写法**：`docs/adr/` 最大编号 0051，下一个是 0052，全仓没有别处预占 0052；索引里 0045、0029 的补注写法与 ADR README 的先例一致；部分取代的写法见第 4 条补全范围。
+- **边界文档的数字**：nb-story 行“8 个工作区包”确为 8，改 9 对。
+- **`agent/skills.md`**：全仓 `docs/` 只有第 176 行一处提到 `@notnotype/nb-harness/file-lock`，计划已列；`docs/specs` 下没有提到两份 flock 文件的地方（`diagnostics.md:121` 提的是 nb-file-lock 本身，不用改）。
+- **“直接去掉 `./file-lock`”的事实**：核实属实，见第 8 条。
+
+## 对四个待确认项的判断
+
+1. **直接去掉 `./file-lock`、不留转发**：同意。registry 上 nb-harness 的 `latest` 是 0.1.1，`./file-lock` 在其后 2026-11-11 才加，没有外部使用者；仓库内使用者只有两处，一并改。
+2. **nb-story 的锁报错改英文**：同意。全仓没有 Spec、测试断言这三句文字（grep “锁不上”“打不开锁文件”“nbstory 不支持” 只在 flock.ts 自己）；ADR 0034 规定开发诊断用英文，w00031 的错误审计也把它们归为诊断。小处：`qa/config.ts:229` 把它拼进“写不了问答配置 …：<原因>”，会出现中文前缀加英文原因，可接受。
+3. **`proper-lockfile` 补丁在 npm 上不生效，记为接受的代价**：同意，前提是写明范围：只影响 `.` 入口、只在 Windows 的 exFAT 一类 mtime 精度低的卷上续期可能误报 `ECOMPROMISED`；npm 上 nb-story 与 nb-harness 只用 `./flock`，不受影响。README 与 ADR 0052 要写同样范围（计划已写）。另外建议按第 5 条第 4 点给 `.` 加一步冒烟，至少证明从 tarball 装的 `.` 能加载。
+4. **不改版本号、不发布**：同意。补一句下次发布的约束，见第 8 条。

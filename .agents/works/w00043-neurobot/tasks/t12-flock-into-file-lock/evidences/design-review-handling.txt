@@ -1,0 +1,28 @@
+w00043 t12 计划审查的处理（对象：plan.md 第一稿，提交 cca312146；两位审查者都是 Claude Sonnet，开发者 2026-11-13 指定：一位核对细节与代码事实，报告 design-review-detail.txt；一位从整体看方向，报告 design-review-overview.txt）
+
+细节审查：阻断 0、重要 4、建议 4 加 1 条补充。整体审查：阻断 0、重要 3、建议 3。逐条对照代码核实（diff 两份 flock、nb-harness 架构测试的 packageName、scripts/release/packages.test.ts 的包数、文档里的包数、各包 package.json 与 bun.lock）。
+
+整体审查引出的方向改动：开发者 2026-11-13 从方案 A 改定方案 E（单独成零依赖的小包 @notnotype/nb-flock，随 nb-story 发布；nb-file-lock 不动）。下面“细节”各条按 E 落到计划里。
+
+整体
+
+1  成立，交开发者，改选 E。A 为共用约 100 行的零依赖锁把 nb-file-lock 整包公开：17 个导出、proper-lockfile 与它的 3 个依赖（graceful-fs、retry、signal-exit）随 nb-story 装到用户那里却用不到，.入口在 npm 上缺仓库补丁。E 只公开 tryLock，用户多装 1 个包，不用补丁说明，ADR 0045 不动。
+2  成立，改。ADR 0052 与 nb-flock 的 README、边界文档写选哪种锁的两行规则（短临界区、可判旧接管用 holdLock；持有到进程结束、不许接管用 tryLock）。
+3  随第 1 条消失（nb-file-lock 不发布）。
+4  部分成立。改：nb-flock 的 README 第一段写只在 Bun 里用（bun:ffi）、Linux 要 glibc、NFS 上不可靠；ADR 的后果写 bun:ffi 是实验性接口。不改：musl 上 dlopen 的原始报错已写出 libc.so.6，情形窄，不另包；Windows 上 GetLastError 可能被中间的系统调用覆盖是推断、没有复现，这段代码在 Windows 上实测过，不改。
+5  成立，交开发者（见第 1 条），开发者选 E。
+6  不改：分析性的，结论与第 1、5 条一致（不发布保留重复，放进 nb-runtime、nb-host 破坏依赖方向）。
+
+细节
+
+1  成立，改。nb-harness 的架构测试按包名放行，目录表写 @notnotype/nb-flock；应用的 PACKAGE_SIDES 按说明符全串比对，两处分别写明。
+2  成立，改。以 nb-story 那份为底，只换三处报错文字，保留内联的 released，Windows 段与 ADR 0031 实测过的一致；计划里“与实测相同”的理由原来是错的（第一稿以改写过的 nb-harness 那份为底）。
+3  成立，改。packages.test.ts 的 9 个包改 10、验证里加这个测试；新包、发布字段与发布清单放在切片 1，使用方改依赖放在切片 2，每个提交都能过发布检查。
+4  成立，改。文档清单补 docs/standards/repository-workflow.md 的包数（9 改 10、11 改 12）、packages/AGENTS.md 的成员列表与“8 个工作区包”。ADR 0045 的取代范围随第 1 条消失。
+5  部分成立。改：子进程在 finally 里收口、按标准输出的一行等它拿到；子进程脚本只导入本包入口。不另加导入边界测试：新包没有 dependencies，release:check 的 undeclared_import 已拦住外部包导入。.入口的冒烟与 testing 目录的冒烟护栏随第 1 条消失（nb-file-lock 不发布；nb-flock 的 files 排除 src/testing，release:check 与 pack --dry-run 已核实生效）。
+6  成立，改。registry.ts、jsonl-store.ts 模块头与 nb-harness 架构测试里指向已删文件的话一并改；新文件的头注释重写。
+7  部分成立。改：tryLock 的说明写全失败通道（null 是被占用，其它失败抛 Error），注释写明 POSIX 分支把 flock 的任何失败当作被占用（ffi 读不到 errno，NFS 上会一直拿不到）。不改：平台不支持时先开文件再抛错、漏一个文件描述符，那时调用本来就失败，且要保持代码与实测版相同。
+8  成立，改。ADR 0052 的后果与 Task README 写明下次发布要一起提 nb-harness 与 nb-story 的版本号。
+补充  成立，改。根 AGENTS.md 仓库结构图加 nb-flock 一行（该文件有别的会话未提交的改动，只提交自己的一行）。
+
+待确认项：直接去掉 nb-harness 的 ./file-lock、nb-story 的锁报错改英文、这次不改版本号不发布，两位审查者都同意，开发者同意。补丁一项随方案 E 消失。
