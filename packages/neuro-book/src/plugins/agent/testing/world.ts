@@ -18,7 +18,9 @@ import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
 import {descriptor as modelsDescriptor} from "nbook/plugins/models/plugin";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import type {SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
-import {startupEnvKey} from "nbook/shared/host";
+import {createRunningWork} from "nbook/server/running-work";
+import type {RunningWorkRegistry} from "nbook/server/running-work";
+import {runningWorkKey, startupEnvKey} from "nbook/shared/host";
 
 import {agentBackendPlugin} from "../backend/plugin";
 import {descriptor} from "../plugin";
@@ -33,6 +35,8 @@ export interface AgentWorld {
     readonly settings: SettingsWorld;
     readonly service: AgentService;
     readonly stateRoot: string;
+    /** 服务端的在跑的工作登记表（宿主能力 `runningWorkKey`，与产品同一个实现）；报告方失败的诊断进服务端的诊断。 */
+    readonly work: RunningWorkRegistry;
     /** 起一个窗口，交回它的远程客户端与窗口（断线、重连用）。 */
     /** `wrapLink`：包住窗口这一端的链路，测试据此在帧上做手脚（例如丢掉一次结果再断线）。 */
     window(id: string, options?: {readonly wrapLink?: (link: RemoteLink) => RemoteLink}): Promise<{readonly client: SessionsClient; readonly window: WorldWindow}>;
@@ -51,18 +55,23 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
         service = context.services.require(agentKey);
         return {};
     }})]};
+    const work = createRunningWork((record) => settings.diagnostics("hub").record(record));
     const settings = await settingsWorld(root, [
         definitionAt("server", filesDescriptor, filesBackendPlugin),
         ...(options.withoutModels === true ? [] : [definitionAt("server", modelsDescriptor, modelsBackendPlugin)]),
         definitionAt("server", descriptor, agentBackendPlugin),
         ...(options.plugins ?? []),
         probe,
-    ], {hubCapabilities: [{id: "host.startup-env", key: startupEnvKey, create: () => ({env: Object.freeze({...options.env})})}]});
+    ], {hubCapabilities: [
+        {id: "host.startup-env", key: startupEnvKey, create: () => ({env: Object.freeze({...options.env})})},
+        {id: "host.running-work", key: runningWorkKey, create: () => work.provision},
+    ]});
     if (service === null) throw new Error("nbook.agent did not activate");
     return {
         settings,
         service,
         stateRoot,
+        work,
         window: async (id, windowOptions = {}) => {
             let captured: ActivationContext | null = null;
             const page: PluginDefinition = {id: `test.agent-page-${id}`, entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context) => {
