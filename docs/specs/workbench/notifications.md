@@ -42,7 +42,7 @@ owners:
       sticky?: boolean;                                   // 常驻；缺省 error、带动作与带详情的常驻
       detail?: string;                                    // 开发诊断原文；不翻译，必须已脱敏
       detailTruncated?: boolean;                          // 发出方已经截过原文时给 true，对话框照样注明已截断
-      onClose?: () => void;                               // （planned）用户点了关闭按钮，见输出 18
+      onClose?: () => void;                               // 用户点了关闭按钮，见输出 18
   }
   interface NotificationHandle { id: string; update(patch: Partial<NotificationInput>): void; dismiss(): void }
   interface Notifications { notify(input: NotificationInput): NotificationHandle }
@@ -81,7 +81,7 @@ owners:
     - 12px 的铃铛图标，与“显示面板”同一种按钮；有没看过的通知时右上角一个强调色的小点，铃铛本身不变色。
     - 悬停提示与可访问名称：没有没看过的时“通知”，有时“通知：N 条没看过”。
     - 点它打开“通知”视图（同 [workbench.views](views.md) 输出 14 的 `nbook.view.open`）。
-18. （planned）**用户关闭的回告。** 通知带了 `onClose` 时，用户点弹出那条的关闭按钮、在中心点它的“移除”或“全部清除”（输出 14），先到的那次调用一次；弹出的那条按时消失之后，用户再在中心移除它同样调用。点动作、发出方 `dismiss`、按时消失本身、中心超过 100 条被挤出、页面卸载都不调用。两个按钮原有的效果不变：弹出的关闭只撤下弹出的那条，中心里的记录与动作照旧；中心的“移除”删除中心记录。`onClose` 抛错时记诊断，不影响关闭。
+18. **用户关闭的回告。** 通知带了 `onClose` 时，用户点弹出那条的关闭按钮、在中心点它的“移除”或“全部清除”（输出 14），先到的那次调用一次；弹出的那条按时消失之后，用户再在中心移除它同样调用。点动作、发出方 `dismiss`、按时消失本身、中心超过 100 条被挤出、页面卸载都不调用。两个按钮原有的效果不变：弹出的关闭只撤下弹出的那条，中心里的记录与动作照旧；中心的“移除”删除中心记录。`onClose` 抛错时记诊断，不影响关闭。
 
 ## 状态与转换
 
@@ -136,12 +136,12 @@ owners:
 9. Given 中心里一条带“重试”的通知，When 在中心点“重试”，Then `run` 执行，这条从中心与弹出的队列里一起消失；Given 另一条带动作的通知还在弹出，When 在弹出处点动作，Then 中心里也没有它了；Given 发出方对第三条 `dismiss`，Then 中心里也没有它了。Given “通知”视图开着，When 离开工作台页去书架页再发一条，Then 它照常弹出。
 10. Given 101 条通知，Then 中心只留最新的 100 条；When 刷新页面，Then 中心为空。
 
-11. （planned）Given 一条带 `onClose` 与动作的通知，When 用户点弹出的关闭，Then `onClose` 调用一次、中心里仍有它与动作；When 再在中心点“移除”，Then 记录删除、`onClose` 不再调用。Given “通知”视图开着时来的一条带 `onClose` 的通知（只进中心），When 点“移除”，Then `onClose` 调用一次。When 另一条带 `onClose` 的通知被点了动作或按时消失，Then `onClose` 没有调用。
+11. Given 一条带 `onClose` 与动作的通知，When 用户点弹出的关闭，Then `onClose` 调用一次、中心里仍有它与动作；When 再在中心点“移除”，Then 记录删除、`onClose` 不再调用。Given “通知”视图开着时来的一条带 `onClose` 的通知（只进中心），When 点“移除”，Then `onClose` 调用一次。When 另一条带 `onClose` 的通知被点了动作或按时消失，Then `onClose` 没有调用。
 Smoke：`notifications.dom.test.ts`（真实队列与视口、宿主翻译引擎，验收 3、4，验收 5 的常驻规则）；`NotificationStack.test.ts`（验收 5 的对话框与焦点、6、7）；`e2e/lab-nb-ui.e2e.ts` 的“通知的‘详情’”（验收 5 的真实浏览器复制，含没有剪贴板 API 的退路）；`shelf-page.test.ts` 的刷新失败一组（验收 1）；`mount.dom.test.ts`（验收 2：真实窗口、内核与工作台插件，经路由导航换页面。产品里还没有站内去 `/workbench` 的入口，真实浏览器的验收等入口出现时补）；Lab 场景 `NotificationStack`、`Notification`（进度）、`Banner`。
 
 ## 实现合同
 
-- **公开入口**：服务键与类型 `notificationsKey`、`Notifications`、`NotificationInput`、`NotificationHandle`（`nbook/plugins/workbench/shared/contracts`）；nb-ui 的 `createNotificationQueue`（`@notnotype/nb-ui/notifications`）与组件 `NotificationStack`、`Notification`、`Banner`。
+- **公开入口**：服务键与类型 `notificationsKey`、`Notifications`、`NotificationInput`（含可选的 `onClose`）、`NotificationHandle`（`nbook/plugins/workbench/shared/contracts`）；nb-ui 的 `createNotificationQueue`（`@notnotype/nb-ui/notifications`，队列项的 `onDismiss` 是服务 `onClose` 的下层）与组件 `NotificationStack`、`Notification`、`Banner`。
 - **owner 与依赖方向**：`nbook.workbench` 的浏览器入口持有本窗口的队列并提供服务，两个内置页面各挂一个视口显示它；发出方只依赖服务键，不引用工作台的界面。常驻与时长规则只在服务里定，nb-ui 的队列只认折算后的时长；“有没有详情”由服务、队列与视口共用 `hasNotificationDetail` 一个判据，长度上限在队列里截。详情对话框由视口自己挂一份（`DetailDialog` 是受控、无自有状态的组件，别处要显示详情时各挂一份）。
 - **关键不变量**：
   - 队列随入口激活建立、停止时清空，不随页面挂载与卸载（输出 7，验收 2）。
@@ -151,7 +151,7 @@ Smoke：`notifications.dom.test.ts`（真实队列与视口、宿主翻译引擎
 
 ## 证据
 
-- 批准依据：开发者 2026-10-11 在 t76 的设计讨论中决定通知按三个去处分工、形式补足到 nb-ui 与应用的通用组件（[t76 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/plan.md)）；2026-10-12 同意晋升为 `implemented`，验收 2 先由入口级测试覆盖。标题、正文与动作名改为 `Text`（输出 9、验收 4）依据 [《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md) 第 3 节“跨插件传递”（2026-10-27 接受），由 [w00028 t03](../../../.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md) 的“SDK 与通知”一片实现。详情、动作行、上限折叠与详情对话框（输出 10 到 12、验收 5 到 7）依据 w00028 t04 的五轮设计评审（[Task 记录](../../../.agents/works/w00028-i18n/tasks/t04-failure-details/README.md)的“设计决定”）与[计划](../../../.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md)。
+- 批准依据：开发者 2026-10-11 在 t76 的设计讨论中决定通知按三个去处分工、形式补足到 nb-ui 与应用的通用组件（[t76 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/plan.md)）；2026-10-12 同意晋升为 `implemented`，验收 2 先由入口级测试覆盖。`onClose`（输出 18、验收 11）依据 [w00046 t09 计划](../../../.agents/works/w00046-desktop-release/tasks/t09-close-handshake/plan.md)。标题、正文与动作名改为 `Text`（输出 9、验收 4）依据 [《界面文字的消息目录》](../../proposals/i18n-message-catalogs.md) 第 3 节“跨插件传递”（2026-10-27 接受），由 [w00028 t03](../../../.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md) 的“SDK 与通知”一片实现。详情、动作行、上限折叠与详情对话框（输出 10 到 12、验收 5 到 7）依据 w00028 t04 的五轮设计评审（[Task 记录](../../../.agents/works/w00028-i18n/tasks/t04-failure-details/README.md)的“设计决定”）与[计划](../../../.agents/works/w00028-i18n/tasks/t04-failure-details/plan.md)。
 - 实现入口：[`web/notifications.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.ts)（服务与常驻规则）、[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/workbench/web/plugin.ts)（队列与入口同寿）、[`web/home-page.ts`](../../../packages/neuro-book/src/plugins/workbench/web/home-page.ts)（两个页面挂视口）、[`WorkbenchNotifications.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchNotifications.vue)；nb-ui [`useNotification.ts`](../../../packages/nb-ui/src/composables/useNotification.ts)（队列、计时与悬停暂停）、[`NotificationStack.vue`](../../../packages/nb-ui/src/components/feedback/NotificationStack.vue)、[`Notification.vue`](../../../packages/nb-ui/src/components/feedback/Notification.vue)、[`DetailDialog.vue`](../../../packages/nb-ui/src/components/feedback/DetailDialog.vue)、[`CopyButton.vue`](../../../packages/nb-ui/src/components/controls/CopyButton.vue)
-- 合同测试：[`notifications.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.dom.test.ts)（输出 2 到 5、9，验收 3、4）、[`useNotification.test.ts`](../../../packages/nb-ui/src/composables/useNotification.test.ts)（输出 3 的时长与悬停）、[`NotificationStack.test.ts`](../../../packages/nb-ui/src/components/feedback/NotificationStack.test.ts)、[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（验收 1）
+- 合同测试：[`notifications.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.dom.test.ts)（输出 2 到 5、9、18，验收 3、4、11）、[`useNotification.test.ts`](../../../packages/nb-ui/src/composables/useNotification.test.ts)（输出 3 的时长与悬停）、[`NotificationStack.test.ts`](../../../packages/nb-ui/src/components/feedback/NotificationStack.test.ts)（验收 5 到 7；输出 18 在 nb-ui 一侧的“关闭按钮回告 `onDismiss`”）、[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（验收 1）
 - Smoke：[`mount.dom.test.ts`](../../../packages/neuro-book/src/web/mount.dom.test.ts)（验收 2）；Lab 场景 `NotificationStack`、`Notification`、`Banner`

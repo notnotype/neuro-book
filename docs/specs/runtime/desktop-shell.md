@@ -199,6 +199,20 @@ owners:
 
 Smoke：发布流水线的 Windows 作业对安装版与便携版各跑一遍：静默安装（便携版解压到别处）、直接启动应用到页面就绪、打开一部作品并执行一条 Agent 的内嵌 shell 命令、经关闭前询问关窗、服务端有序停止并以 0 退出、卸载。
 
+## 实现合同
+
+- **公开入口**：壳的流程核心 `DesktopShell`（`packages/neuro-book/src/desktop/shell.ts`），只依赖 `ShellPorts`（窗口、启动页、对话框等端口）与时钟，不依赖 Electrobun；对外的合同只有桌面锁的地址与协议、便携标记、应用标识（见“边界与兼容”），核心里的符号不是包的公开接口。
+- **owner 与依赖方向**：owner 是 `desktop-shell`。核心 `src/desktop/` 依赖服务端的实例查询（`src/server/instance.ts`）、`@notnotype/nb-host/server` 的状态根认领、`@notnotype/owned-process` 与 `src/cli/state-root.ts` 的平台缺省；Electrobun 适配层 `packages/neuro-book/desktop/`（主进程、预加载脚本、启动页）依赖核心、实现它的端口、把窗口事件送进来，核心不反向依赖它；页面一侧经 `src/shared/desktop-bridge.ts` 的消息形状与壳通信（[`runtime.browser-host`](browser-host.md) 输出 9、10）。
+- **关键不变量**：
+  - 桌面锁是状态根上的另一种认领（套接字名 `desktop`），与服务端的认领互不相干；同版本的后来者经 `open-window` 让持有者开窗，版本不同不发请求，锁已放下就回去取锁（`lock.test.ts`、`shell.test.ts`）。
+  - 就绪只认认领应答里 `pid` 等于自己目标进程的 `ready`：被 `nbook start` 抢先认领时交回 `taken`、连那个实例，不当作崩溃（`owned-server.test.ts`）。
+  - 每个窗口至多一个待决询问，带代次，只认当前代次的回答；3 秒内没有接下才弹“没有响应”，接下之后不限时（`windows.test.ts`）。
+  - 最后一次关闭进行中，开窗转交回 `closing`、页面的新窗口被拒；询问期间别的窗口关掉使它成了最后一个时，以 `quit` 重问一次；同意与进入停止中是同一个同步段（`windows.test.ts`、`shell.test.ts`）。
+  - 停止的截止按绝对时间分段排，每段不超过 `setTimeout` 的上限，缺省共 90 秒；到时结束整棵进程树，等树真实结束才交回、才放桌面锁（`deadline.test.ts`、`owned-server.test.ts`）。
+
 ## 证据
 
 - 批准依据：[桌面发行提案](../../proposals/desktop-distribution.md) 4.2 到 4.5（2026-11-13 `accepted`）；[ADR 0051](../../adr/0051-desktop-shell-electrobun-tag-release.md)。
+- 实现入口：核心 [`desktop/shell.ts`](../../../packages/neuro-book/src/desktop/shell.ts)、[`windows.ts`](../../../packages/neuro-book/src/desktop/windows.ts)、[`lock.ts`](../../../packages/neuro-book/src/desktop/lock.ts)、[`owned-server.ts`](../../../packages/neuro-book/src/desktop/owned-server.ts)、[`connect.ts`](../../../packages/neuro-book/src/desktop/connect.ts)、[`state-root.ts`](../../../packages/neuro-book/src/desktop/state-root.ts)、[`deadline.ts`](../../../packages/neuro-book/src/desktop/deadline.ts)；Electrobun 适配层 [`desktop/README.md`](../../../packages/neuro-book/desktop/README.md)（主进程、预加载脚本与启动页的说明）。
+- 合同测试：[`shell.test.ts`](../../../packages/neuro-book/src/desktop/shell.test.ts)、[`windows.test.ts`](../../../packages/neuro-book/src/desktop/windows.test.ts)、[`lock.test.ts`](../../../packages/neuro-book/src/desktop/lock.test.ts)、[`owned-server.test.ts`](../../../packages/neuro-book/src/desktop/owned-server.test.ts)、[`connect.test.ts`](../../../packages/neuro-book/src/desktop/connect.test.ts)、[`state-root.test.ts`](../../../packages/neuro-book/src/desktop/state-root.test.ts)、[`deadline.test.ts`](../../../packages/neuro-book/src/desktop/deadline.test.ts)
+- Smoke：自动测试不跑 Windows，Electrobun 适配层（`desktop/src/bun/`）不在类型检查与自动测试里，靠 Windows 上的实测把关：第 1 轮 [`windows-shell-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r1.txt)、第 2 轮 [`windows-shell-r2.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r2.txt)；上面“验收与 Smoke”里的发布流水线 Windows 作业还没有实现，没有跑过。
