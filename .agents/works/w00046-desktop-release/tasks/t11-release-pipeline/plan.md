@@ -38,7 +38,7 @@ GitHub windows runner 上已经实测过（t01 [windows-runner-probe-r1.txt](../
 |---|---|---|
 | 驱动 Windows 上装好的应用的页面 | Playwright `chromium.connectOverCDP`，壳启动时设 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<端口>` | 仓库已有 Playwright 与 e2e 的定位写法，能断言页面里看得到的东西。否决 UI 自动化读文字：能看到文字，但点击与等待靠轮询，CI 上难稳定。否决只查服务端 HTTP：验不到页面与关闭前询问 |
 | 不调真实模型跑一条 Agent 命令 | `src/plugins/agent/testing/endpoint.ts` 的 `fakeEndpoint` 与 `localModelSettings`，脚本回一次 `bash` 工具调用 | e2e 已在用这个本机 OpenAI 兼容端点；它只在仓库检出里，不进安装包 |
-| 关窗 | `user32` 的 `PostMessageW(WM_CLOSE)`，用 `bun:ffi` 调 | 与用户点关闭走同一条路（关闭前询问、有序停止）；t01、t08 实测过 |
+| 关窗 | `user32` 的 `PostMessageW(WM_CLOSE)`，用 `bun:ffi` 调 | 与用户点关闭走同一条路（关闭前询问、有序停止）；切片 1 实测过（[cdp-probe-r1.txt](evidences/cdp-probe-r1.txt)），窗口枚举要在登录的桌面会话里跑 |
 | GitHub Release 与资产 | `gh` CLI（runner 自带），由 `scripts/release/github-release.ts` 调用 | 资产列表带 `digest`，能核对同名资产的摘要。否决第三方 Action：多一份要固定版本、要审查的依赖 |
 | npm 发布 | npm CLI 11.5.1 以上，trusted publishing（OIDC） | 提案 4.8 已定 |
 | 工作流静态检查 | `actionlint`（本机用 `bunx` 或下载的二进制跑，不进依赖） | 在 push 之前抓住表达式与 `needs` 的错 |
@@ -242,7 +242,7 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
 
 ## 切片
 
-1. **CDP 探针**（pc-notype，不提交产品代码）：
+1. **CDP 探针**（pc-notype，不提交产品代码；2026-11-14 已做，选型成立，[cdp-probe-r1.txt](evidences/cdp-probe-r1.txt)）：
    - 装 t10 的测试包，设 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 起应用；
    - 从 pc-notype 本机用 Playwright `connectOverCDP` 连上，读到书架页；
    - `bun:ffi` 的 `WM_CLOSE` 能触发关闭前询问。
