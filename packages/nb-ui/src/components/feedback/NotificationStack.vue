@@ -117,6 +117,15 @@ function runAction(item: NotificationItem): void {
         remove(item.id);
     }
 }
+
+function dismiss(item: NotificationItem): void {
+    // 关闭的回告抛错也照常移除，同 runAction。
+    try {
+        item.onDismiss?.();
+    } finally {
+        remove(item.id);
+    }
+}
 </script>
 
 <template>
@@ -172,7 +181,7 @@ function runAction(item: NotificationItem): void {
                         @mouseleave="resume(item.id)"
                         @action="runAction(item)"
                         @detail="openDetail(item, $event)"
-                        @dismiss="remove(item.id)"
+                        @dismiss="dismiss(item)"
                     />
                 </TransitionGroup>
             </div>

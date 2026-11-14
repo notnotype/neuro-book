@@ -1,21 +1,25 @@
 /**
  * 项目管理器：真实的项目子进程（项目宿主的测试入口）、真实的服务端运行实例与路由；宽限期与截止用注入时钟
  * （测试支持见 `../testing/projects.ts`）。
- * 行为合同见 docs/specs/runtime/projects.md 输出第 3–6、11、15 条与场景 2、5、6、9、15。
+ * 行为合同见 docs/specs/runtime/projects.md 输出第 3–6、11、15 条与场景 2、5、6、9、15，在跑的工作见 docs/specs/runtime/server-host.md
+ * 的“在跑的工作”。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {rm} from "node:fs/promises";
+import {mkdir, rm} from "node:fs/promises";
+import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {FIXTURE_READY_LINE} from "nbook/project/testing/fault-plugin";
+import {projectWorkText, RUNNING_WORK_PROBE_ID} from "nbook/project/testing/running-work-plugin";
 import type {ProjectAcquireResult, ProjectUnregisterResult} from "nbook/shared/projects";
 
-import {alive, GRACE_MS, killSpawnedProjects, leaseOf, projectHarness, revoked, settle, START_MS, STOP_MS} from "../testing/projects";
+import {alive, GRACE_MS, killSpawnedProjects, leaseOf, projectHarness, readyPid, revoked, settle, START_MS, STOP_MS} from "../testing/projects";
 import type {ProjectHarness} from "../testing/projects";
 import {readProjectIdentity} from "./identity";
+import {PROJECT_WORK_QUERY_MS} from "./manager";
 
 let tmp = "";
 
@@ -258,5 +262,98 @@ describe("Spec projects 输出 15：移出书架与打开串行", () => {
                 : await Promise.all([h.manager.unregister(h.project.id), h.manager.acquire(target, "window-1")]).then(([second, first]) => [first, second] as const);
             await expectNoHalfState(h, opened, removed);
         }
+    });
+});
+
+describe("Spec server-host 在跑的工作：取各项目的工作", () => {
+    const withWork = {env: {NBOOK_TEST_PLUGINS: RUNNING_WORK_PROBE_ID}};
+
+    /** 再登记一个项目 `Book2` 并打开它，返回它的 id 与子进程 pid。 */
+    async function openSecond(h: ProjectHarness): Promise<{readonly id: string; readonly name: string; readonly pid: number}> {
+        await mkdir(join(h.root, "Book2"), {recursive: true});
+        const registered = await h.manager.registry.register("Book2");
+        if (!registered.ok) throw new Error(registered.detail);
+        const {id, name} = registered.project;
+        leaseOf(await h.manager.acquire(id, "window-2"));
+        const pid = readyPid(await h.output.until((text) => text.includes(`${FIXTURE_READY_LINE} ${id}#1 `)));
+        return {id, name, pid};
+    }
+
+    function unavailable(h: ProjectHarness): ReadonlyArray<unknown> {
+        return h.records.items.filter((record) => record.event === "project.work.unavailable").map((record) => record.data);
+    }
+
+    it("运行中的项目交回它登记的工作，带项目 id；同一子进程上并发的两次查询各得一份", async () => {
+        const h = await projectHarness(tmp, withWork);
+        leaseOf(await h.manager.acquire("book", "window-1"));
+        await h.ready(1);
+
+        const expected = {items: [{plugin: RUNNING_WORK_PROBE_ID, project: h.project.id, text: expect.stringContaining(projectWorkText("book"))}], failed: []};
+        expect(await h.manager.work()).toEqual(expected);
+        const both = await Promise.all([h.manager.work(), h.manager.work()]);
+        expect(both).toEqual([expected, expected]);
+        // 两次查询各得自己那份应答（报告方的调用次数不同），不是同一份应答填给两个请求。
+        expect(new Set(both.map((result) => result.items[0]?.text)).size).toBe(2);
+    });
+
+    it("宽限期里的项目照样问到；不取租约、不续宽限：代次不变，原来的宽限截止一到照常停止", async () => {
+        const h = await projectHarness(tmp, withWork);
+        const lease = leaseOf(await h.manager.acquire("book", "window-1"));
+        await h.ready(1);
+        lease.release();
+        h.clock.advance(GRACE_MS / 2);
+
+        expect((await h.manager.work()).items).toEqual([{plugin: RUNNING_WORK_PROBE_ID, project: h.project.id, text: expect.stringContaining(projectWorkText("book"))}]);
+        expect(h.manager.running(h.project.id)).toEqual({generation: 1, state: "idle-grace"});
+        expect(h.manager.holds(h.project.id, 1, "window-1")).toBe(false);
+        // 查询若取过又放下租约，宽限会从查询时重新计起，这里就还不会停。
+        h.clock.advance(GRACE_MS / 2);
+        await revoked(lease);
+        expect(h.manager.running(h.project.id)).toBeNull();
+        // 已停下的项目不问也不记。
+        expect(await h.manager.work()).toEqual({items: [], failed: []});
+    });
+
+    it("启动中的项目不问，记进 failed（plugin 为 null）并写诊断；启动完成后照常问到", async () => {
+        const h = await projectHarness(tmp, {fault: "start-on-signal", ...withWork});
+        const opening = h.manager.acquire("book", "window-1");
+        const pid = await h.ready(1);
+
+        expect(await h.manager.work()).toEqual({items: [], failed: [{plugin: null, project: h.project.id}]});
+        expect(unavailable(h)).toEqual([{project: h.project.id, generation: 1, reason: "starting"}]);
+
+        process.kill(pid, "SIGUSR2");
+        leaseOf(await opening);
+        expect((await h.manager.work()).failed).toEqual([]);
+    });
+
+    it("子进程 5 秒内不应答：这个项目进 failed；超时之后到的应答丢弃，之后的查询照常", async () => {
+        const h = await projectHarness(tmp, withWork);
+        leaseOf(await h.manager.acquire("book", "window-1"));
+        const pid = await h.ready(1);
+
+        // 暂停子进程：查询发得出去，但它答不了。
+        process.kill(pid, "SIGSTOP");
+        const pending = h.manager.work();
+        h.clock.advance(PROJECT_WORK_QUERY_MS);
+        expect(await pending).toEqual({items: [], failed: [{plugin: null, project: h.project.id}]});
+        expect(unavailable(h)).toEqual([{project: h.project.id, generation: 1, reason: "timeout"}]);
+
+        process.kill(pid, "SIGCONT");
+        expect((await h.records.until((record) => record.event === "project.work.late")).data).toMatchObject({project: h.project.id, generation: 1});
+        expect(await h.manager.work()).toEqual({items: [{plugin: RUNNING_WORK_PROBE_ID, project: h.project.id, text: expect.stringContaining(projectWorkText("book"))}], failed: []});
+    });
+
+    it("两个项目一个的子进程已死（断开还没处理）一个正常：死的不等截止进 failed，好的照常列出", async () => {
+        const h = await projectHarness(tmp, withWork);
+        leaseOf(await h.manager.acquire("book", "window-1"));
+        const pid = await h.ready(1);
+        const second = await openSecond(h);
+
+        process.kill(pid, "SIGKILL");
+        // 同一个同步段里查询：管理器还没观察到退出，查询照常发出，结果靠断开结算，不推时钟。
+        const result = await h.manager.work();
+        expect(result).toEqual({items: [{plugin: RUNNING_WORK_PROBE_ID, project: second.id, text: expect.stringContaining(projectWorkText(second.name))}], failed: [{plugin: null, project: h.project.id}]});
+        expect(unavailable(h)).toEqual([{project: h.project.id, generation: 1, reason: expect.stringMatching(/^(disconnected|send-failed)$/)}]);
     });
 });

@@ -1,5 +1,5 @@
 /**
- * NotificationStack（同名 .md）：点动作执行并移除通知，动作抛错时同样移除；视口上限与折叠小条；“详情”打开对话框、
+ * NotificationStack（同名 .md）：点动作执行并移除通知，动作抛错时同样移除；关闭按钮回告 `onDismiss`；视口上限与折叠小条；“详情”打开对话框、
  * 快照与标题、打开期间视口 inert、关闭后的焦点去向。
  *
  * 详情对话框的内部结构（原文怎么排、复制按钮在哪）归 DetailDialog 自己的测试；这里只按角色与文字找它。
@@ -57,6 +57,36 @@ describe("NotificationStack", () => {
         expect(queue.notifications.value).toEqual([]);
         expect(errors).toMatchObject([{message: "重连失败"}]);
         queue.clearAll();
+    });
+
+    it("点关闭按钮先回告 onDismiss 再移除，回告抛错也移除；点动作、发出方移除、按时消失都不回告", async () => {
+        const queue = createNotificationQueue();
+        const errors: unknown[] = [];
+        const wrapper = mount(NotificationStack, {props: {queue, closeLabel: "关闭通知", maxVisible: 8}, attachTo: document.body, global: {config: {errorHandler: (error) => {
+            errors.push(error);
+        }}}});
+        mounted.push(wrapper);
+        const dismissed: string[] = [];
+        queue.notify({message: "可以更新", duration: 0, onDismiss: () => void dismissed.push("可以更新")});
+        queue.notify({message: "坏回告", duration: 0, onDismiss: () => {
+            dismissed.push("坏回告");
+            throw new Error("回告失败");
+        }});
+        queue.notify({message: "点动作", duration: 0, action: {label: "下载", run: () => undefined}, onDismiss: () => void dismissed.push("点动作")});
+        const viaRemove = queue.notify({message: "发出方移除", duration: 0, onDismiss: () => void dismissed.push("发出方移除")});
+        queue.notify({message: "按时消失", duration: 20, onDismiss: () => void dismissed.push("按时消失")});
+        await flushPromises();
+        const closeOf = (message: string): HTMLButtonElement => {
+            const card = [...stack().querySelectorAll<HTMLElement>(".nb-notification")].find((node) => node.textContent?.includes(message));
+            return [...(card?.querySelectorAll("button") ?? [])].find((node) => node.getAttribute("aria-label") === "关闭通知")!;
+        };
+        closeOf("可以更新").click();
+        closeOf("坏回告").click();
+        button("下载")?.click();
+        queue.remove(viaRemove);
+        await vi.waitFor(() => expect(queue.notifications.value).toEqual([]));
+        expect(dismissed).toEqual(["可以更新", "坏回告"]);
+        expect(errors).toMatchObject([{message: "回告失败"}]);
     });
 
     it("视口是有名字的区域；六条常驻只显示最新 4 条，列顶的小条展开全部、再收起；回到上限以内自动收起", async () => {

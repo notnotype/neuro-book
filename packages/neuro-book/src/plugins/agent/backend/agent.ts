@@ -21,6 +21,7 @@ import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
 import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
+import type {RunningWorkItem} from "nbook/shared/host";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {SESSION_TITLE_PROFILE, TASK_ID, taskSessionId} from "../shared/contracts";
@@ -30,6 +31,7 @@ import {agentSettings} from "../shared/settings";
 
 import {BUILTIN_TOOL_IDS} from "./builtin/ids";
 import {JobCenter} from "./jobs/center";
+import {agentRunningWork, SessionTitles} from "./running-work";
 import {ChildRuns} from "./subagents/children";
 import {SessionRelations} from "./subagents/relations";
 import {isModeSwitch, type PendingItem} from "./subagents/result";
@@ -77,6 +79,8 @@ export interface AgentRuntime {
     readonly relations: SessionRelations;
     /** 任务中心（jobs.md）。 */
     readonly jobs: JobCenter;
+    /** 此刻在跑、停止服务端会中断的会话与任务（sessions.md 输出 20），给宿主的 `runningWorkKey` 登记用；同步。 */
+    runningWork(): ReadonlyArray<RunningWorkItem>;
     /** 会话树的累计花费：费用守卫按树比（run-guards.md 输出 13）。 */
     readonly treeSpend: TreeSpend;
     /** 子代理运行与任务中心之间的跟踪（subagents.md 输出 6、7）。 */
@@ -160,10 +164,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     // 扫完才交出服务（深度与费用上限靠它）：之后的派发与 fork 增量登记。读不了的索引不在列表里，那些会话按没有父会话算。
     const relations = new SessionRelations();
     const treeSpend = new TreeSpend(relations);
+    const titles = new SessionTitles();
     const scanned = await store.list();
     if (scanned.ok) {
         relations.load(scanned.value);
         treeSpend.load(scanned.value);
+        titles.load(scanned.value);
     }
     else options.report("relations-scan-failed", `could not list sessions to load sub-agent relations: ${scanned.code}`, {code: scanned.code});
     let sessions: SessionTable | null = null;
@@ -232,11 +238,20 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     // fork 出来的会话：会话头照抄了 `caller`、另有 `origin`，从它的索引读出来登记。
     const registerFork = async (id: string): Promise<void> => {
         const entry = await store.entry(id);
-        if (entry.ok) relations.register(entry.value);
+        if (entry.ok) {
+            relations.register(entry.value);
+            titles.set(entry.value.id, entry.value.title);
+        }
         else options.report("relations-fork-failed", `could not read the index of forked session ${id}: ${entry.code}`, {session: id, code: entry.code});
     };
-    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => restore.forget(id), forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), report: options.report});
+    /** 程序自己开的会话（起标题与说明）：不是用户的工作，停止服务端时不必提示（sessions.md 输出 20）。 */
+    const internal = new Set<string>();
+    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => {
+        restore.forget(id);
+        internal.delete(id);
+    }, forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), report: options.report});
     const table = sessions;
+    titles.follow(table);
 
     const createSession = async (createOptions: Parameters<AgentService["create"]>[0]): ReturnType<AgentService["create"]> => {
         const created = await table.create(createOptions);
@@ -302,7 +317,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
-    const meta = new SessionMeta({table, create: createSession, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
+    const meta = new SessionMeta({table, create: async (metaOptions) => {
+        // 建成了才是程序自己的会话；id 被普通会话占着（session-exists）时不记，那是用户的会话，照常报。
+        const created = await createSession(metaOptions);
+        if (created.ok) internal.add(metaOptions.id);
+        return created;
+    }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
     const children = new ChildRuns({table, jobs, report: options.report});
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
 
@@ -337,6 +357,7 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         profileAdmin,
         relations,
         jobs,
+        runningWork: () => agentRunningWork({table, relations, titles, jobs, internal}),
         children,
         tree,
         sessionEntry: (id) => store.entry(id),

@@ -37,8 +37,8 @@ import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
-import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginFilesKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
-import type {WindowPluginFiles} from "nbook/shared/host";
+import {clockKey, windowCloseKey, windowConnectionKey, windowNavigationKey, windowPluginFilesKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
+import type {CloseParticipant, WindowClose, WindowPluginFiles} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {windowTextKey} from "nbook/shared/window-text";
@@ -115,6 +115,12 @@ export interface BrowserWindow {
     stop(): Promise<StopResult>;
     /** 窗口的翻译引擎：作为窗口能力交给插件，挂载界面时注入每个 Vue 根（docs/specs/ui/i18n.md）。 */
     readonly text: WindowText;
+    /** 关闭前询问的参与方，按登记顺序（docs/specs/runtime/browser-host.md 输出 9）；表跨启动重试不变。 */
+    closeParticipants(): ReadonlyArray<CloseParticipant>;
+    /** 接上关闭前询问的“参与方都已同意”（`close-query.ts` 的 `agreed`），经本地能力交给插件；没接时总是 false。 */
+    setCloseAgreed(source: () => boolean): void;
+    /** 写一条窗口诊断：已启动时进本窗口的诊断，还没启动时写到控制台。 */
+    record(input: DiagnosticInput): void;
 }
 
 /**
@@ -148,9 +154,26 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     });
     const clock = options.clock ?? systemClock;
     const text = options.text ?? createHostTextEngine({locale: "zh-CN"});
+    // 内置插件的目录随构建，建窗口时就登记：加载页、宿主页上（还没首连或连不上项目）关窗时，插件交来的在跑的工作也能按
+    // 窗口语言显示（docs/specs/runtime/browser-host.md 输出 10）。第三方插件的目录要经服务端取，首连之后才登记。
+    for (const [plugin, {source, catalogs}] of Object.entries(builtinCatalogs)) text.register(plugin, catalogs, source);
     const clientIdentity = options.clientIdentity ?? crypto.randomUUID();
     const adapter = new BrowserRuntimeHost();
     const listeners = new Set<(state: WindowState) => void>();
+    /** 关闭参与方：放在窗口这一层，启动重试新建运行实例时不丢，关闭前询问在启动之前就能拿到它。 */
+    const participants: CloseParticipant[] = [];
+    let closeAgreed: () => boolean = () => false;
+    const close: WindowClose = Object.freeze({
+        agreed: () => closeAgreed(),
+        participate(participant: CloseParticipant) {
+            participants.push(participant);
+            return () => {
+                const index = participants.indexOf(participant);
+                if (index !== -1) participants.splice(index, 1);
+            };
+        },
+    });
+    let diagnostics: DiagnosticsStore | null = null;
     let state: WindowState = {status: "idle"};
     let host: BrowserHost | null = null;
     let session: RemoteSession | null = null;
@@ -201,6 +224,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         const instanceId = crypto.randomUUID();
         const rescue = createRescue((error) => store.record({level: "warn", event: "browser-host.rescue.failed", message: "抢救未保存正文的提供者抛错", error}));
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId}});
+        diagnostics = store;
         const link = createLinkState((error) => store.record({level: "warn", event: "browser-host.connection-listener.failed", message: "连接状态的监听抛错", error}));
         const node = createRemoteNode({
             instance: {id: instanceId, kind: "browser", role: "client", project: null, client: clientIdentity},
@@ -248,7 +272,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             const observers = mechanismObservers(store);
             const windowPlugins = createWindowPlugins(() => host?.application.plugins ?? null, (error) => store.record({level: "warn", event: "browser-host.plugins-listener.failed", message: "入口状态的监听抛错", error}));
             // 目录先于插件登记：入口激活、界面挂载时文字已经在引擎里。取不到的只成为问题，不让这一步失败。
-            const catalogProblems = await loadCatalogs({index: catalogIndex, builtin: builtinCatalogs, connection: options.connection, text, record: (input) => void store.record(input)});
+            const catalogProblems = await loadCatalogs({index: catalogIndex, connection: options.connection, text, record: (input) => void store.record(input)});
             windowPlugins.catalogProblems(catalogProblems);
             if (closed) {
                 current.close();
@@ -294,6 +318,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         {id: "window.plugins", key: windowPluginsKey, create: () => windowPlugins.capability},
                         {id: "window.plugin-files", key: windowPluginFilesKey, create: () => pluginFiles},
                         {id: "window.rescue", key: windowRescueKey, create: () => rescue.capability},
+                        {id: "window.close", key: windowCloseKey, create: () => close},
                     ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
@@ -340,6 +365,14 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
 
     return {
         text,
+        closeParticipants: () => [...participants],
+        setCloseAgreed(source) {
+            closeAgreed = source;
+        },
+        record(input) {
+            if (diagnostics !== null) diagnostics.record(input);
+            else Reflect.apply(options.console.warn ?? options.console.error, options.console, [JSON.stringify({level: input.level, event: input.event, message: input.message, ...(input.error === undefined ? {} : {error: input.error instanceof Error ? input.error.message : String(input.error)})})]);
+        },
         get state() {
             return state;
         },
@@ -448,18 +481,16 @@ async function fetchCatalog(connection: Connection, plugin: string, prefix: stri
 }
 
 /**
- * 把消息目录登记进翻译引擎（docs/specs/runtime/browser-host.md 输出 2）：内置插件的随构建，第三方的按引导目录索引经目录端点
- * 取，各插件、各语言并行。一个插件取到几种语言就登记几种，一种都没取到时不登记，文字按回退链显示。返回没取到的那些，每条
+ * 把第三方插件的消息目录登记进翻译引擎（docs/specs/runtime/browser-host.md 输出 2；内置插件的随构建，建窗口时已登记）：按引导
+ * 目录索引经目录端点取，各插件、各语言并行。一个插件取到几种语言就登记几种，一种都没取到时不登记，文字按回退链显示。返回没取到的那些，每条
  * 另记一条诊断。
  */
 async function loadCatalogs(options: {
     readonly index: BrowserBootstrap["catalogs"];
-    readonly builtin: Readonly<Record<string, BuiltinCatalogs>>;
     readonly connection: Connection;
     readonly text: WindowText;
     readonly record: (input: DiagnosticInput) => void;
 }): Promise<PluginProblem[]> {
-    for (const [plugin, {source, catalogs}] of Object.entries(options.builtin)) options.text.register(plugin, catalogs, source);
     const results = await Promise.all(options.index.map(async (entry) => {
         const fetched = await Promise.all(entry.locales.map(async (locale) => [locale, await fetchCatalog(options.connection, entry.plugin, entry.prefix, locale)] as const));
         const catalogs: Record<string, MessageCatalog> = {};

@@ -662,5 +662,17 @@
                 "failed": "The file manager did not open. The Skills folder is at: {{path}}"
             }
         }
+    },
+    "work": {
+        "session": {
+            "running": "Agent session \"{{title}}\" is running",
+            "waiting": "Agent session \"{{title}}\" is waiting for you",
+            "untitledRunning": "An untitled Agent session is running",
+            "untitledWaiting": "An untitled Agent session is waiting for you"
+        },
+        "job": {
+            "shell": "Background command \"{{command}}\" is running",
+            "agent": "Sub-agent \"{{name}}\" is running"
+        }
     }
 }

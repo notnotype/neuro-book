@@ -48,6 +48,30 @@ describe("Owned Process", () => {
         expect(output).toContain("owned-ok");
     });
 
+    it("rootPid 交出目标进程的 pid；标准输入经监督进程转给目标，结束输入后目标照常退出", async () => {
+        const lease = spawnOwnedProcess({
+            command: process.execPath,
+            args: ["-e", "let text = ''; process.stdin.on('data', (chunk) => text += chunk); process.stdin.on('end', () => { console.log(`pid=${process.pid} got=${text.trim()}`); });"],
+            stdin: "pipe",
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        let output = "";
+        lease.stdout?.on("data", (chunk) => output += chunk);
+        const pid = await lease.rootPid;
+        expect(pid).toEqual(expect.any(Number));
+        lease.stdin?.write("stop\n");
+        lease.stdin?.end();
+        await expect(lease.completion).resolves.toMatchObject({exitCode: 0});
+        expect(output).toContain(`pid=${String(pid)} got=stop`);
+    });
+
+    it("目标没创建成功时 rootPid 交出 null", async () => {
+        const lease = spawnOwnedProcess({command: "/nonexistent/owned-process-target"});
+        await lease.completion.catch(() => undefined);
+        await expect(lease.rootPid).resolves.toBeNull();
+    });
+
     it("终止 lease 会清理完整孙进程并释放端口", async () => {
         const root = await mkdtemp(testHostPath("nbook-owned-process-"));
         roots.push(root);

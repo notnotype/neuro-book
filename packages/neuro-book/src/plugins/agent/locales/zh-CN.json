@@ -662,5 +662,17 @@
                 "failed": "文件管理器没有打开。Skill 文件夹在：{{path}}"
             }
         }
+    },
+    "work": {
+        "session": {
+            "running": "Agent 会话「{{title}}」正在运行",
+            "waiting": "Agent 会话「{{title}}」在等你处理",
+            "untitledRunning": "未命名的 Agent 会话正在运行",
+            "untitledWaiting": "未命名的 Agent 会话在等你处理"
+        },
+        "job": {
+            "shell": "后台命令「{{command}}」正在运行",
+            "agent": "子代理「{{name}}」正在运行"
+        }
     }
 }

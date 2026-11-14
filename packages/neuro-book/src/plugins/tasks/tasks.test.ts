@@ -1,5 +1,5 @@
 /**
- * 后台任务服务端的合同测试（docs/specs/workbench/background-tasks.md 输出 1–9、“输入与前置条件”“失败与恢复”、验收 3、5）：
+ * 后台任务服务端的合同测试（docs/specs/workbench/background-tasks.md 输出 1–9、17、“输入与前置条件”“失败与恢复”、验收 3、5）：
  * 真实服务端入口与经 JSON 编解码的远程链路，发起方经真实的按调用方门面登记；推送的合并按注入的手动时钟推进。
  */
 
@@ -364,6 +364,20 @@ describe("整体关停（时序与寿命）", () => {
         expect(seen).toHaveLength(count);
         expect(item(seen.at(-1)!, handle.id)?.state).toBe("running");
         expect(diagnostics(w, "tasks.push-failed")).toEqual([]);
+    });
+});
+
+describe("关闭服务前报出（输出 17）", () => {
+    test("在跑的任务每件一项、写它的标题（文字引用原样），结束的不报；入口停止后不再报", async () => {
+        const w = await world();
+        const title = {kind: "text" as const, ns: "nbook.tasks", key: "install", params: {name: "lint"}};
+        w.tasks.start({title: "导出全书"});
+        const done = w.tasks.start({title: "已结束的"});
+        w.tasks.start({title});
+        done.succeed();
+        expect(w.work.collect()).toEqual({items: [{plugin: "nbook.tasks", text: "导出全书"}, {plugin: "nbook.tasks", text: title}], failed: []});
+        expect(await w.settings.hub.stop()).toMatchObject({status: "closed"});
+        expect(w.work.collect()).toEqual({items: [], failed: []});
     });
 });
 
