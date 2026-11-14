@@ -15,17 +15,20 @@ import type {WindowState} from "./window";
 
 const READY = (instanceId: string, connection: "online" | "offline" = "online"): WindowState => ({status: "ready", instanceId, connection, project: null, root: {pages: () => []}});
 
-function harness(options: {notifications?: boolean; failSend?: boolean} = {}) {
+function harness(options: {notifications?: boolean; failSend?: boolean; noShell?: boolean} = {}) {
     const target = new EventTarget();
     const sent: unknown[] = [];
     let failSend = options.failSend ?? false;
     const bridge = createDesktopBridge({
         addEventListener: (type, listener) => target.addEventListener(type, listener as EventListener),
         removeEventListener: (type, listener) => target.removeEventListener(type, listener as EventListener),
-        __electrobunSendToHost: (message) => {
-            if (failSend) throw new Error("bridge is gone");
-            sent.push(message);
-        },
+        // 普通浏览器：预加载脚本没有留下发送函数。
+        ...(options.noShell === true ? {} : {
+            __electrobunSendToHost: (message: unknown) => {
+                if (failSend) throw new Error("bridge is gone");
+                sent.push(message);
+            },
+        }),
     });
     let state: WindowState = {status: "starting", projectTitle: null};
     const listeners = new Set<(state: WindowState) => void>();
@@ -37,7 +40,7 @@ function harness(options: {notifications?: boolean; failSend?: boolean} = {}) {
             return {id: String(shown.length), update: () => undefined, dismiss: () => void (entry.dismissed = true)};
         },
     };
-    const pageListeners = new Set<() => void>();
+    const pageListeners = {pagehide: new Set<() => void>(), pageshow: new Set<() => void>()};
     const reports: string[] = [];
     const updates = createDesktopUpdates({
         bridge,
@@ -51,7 +54,7 @@ function harness(options: {notifications?: boolean; failSend?: boolean} = {}) {
             },
             notifications: () => (state.status === "ready" && (options.notifications ?? true) ? notifications : null),
         },
-        page: {addEventListener: (_type, listener) => void pageListeners.add(listener), removeEventListener: (_type, listener) => void pageListeners.delete(listener)},
+        page: {addEventListener: (type, listener) => void pageListeners[type].add(listener), removeEventListener: (type, listener) => void pageListeners[type].delete(listener)},
         report: (input) => void reports.push(input.event),
     });
     return {
@@ -65,7 +68,8 @@ function harness(options: {notifications?: boolean; failSend?: boolean} = {}) {
         },
         hint: (id: number, hint: UpdateHint) => target.dispatchEvent(new CustomEvent(DESKTOP_EVENT, {detail: {type: "update-hint", id, hint}})),
         end: (id: number) => target.dispatchEvent(new CustomEvent(DESKTOP_EVENT, {detail: {type: "update-hint-end", id}})),
-        pageHide: () => pageListeners.forEach((listener) => listener()),
+        pageHide: () => pageListeners.pagehide.forEach((listener) => listener()),
+        pageShow: () => pageListeners.pageshow.forEach((listener) => listener()),
         setFailSend: (value: boolean) => void (failSend = value),
     };
 }
@@ -131,6 +135,20 @@ describe("页面一侧的更新提示", () => {
         hidden.updates.pagesMounted();
         hidden.pageHide();
         expect(hidden.sent).toEqual([{type: "page-ready"}, {type: "page-gone"}]);
+        // 从往返缓存恢复：页面还是那一页、仍然就绪，重新报就绪。
+        hidden.pageShow();
+        expect(hidden.sent).toEqual([{type: "page-ready"}, {type: "page-gone"}, {type: "page-ready"}]);
+    });
+
+    it("普通浏览器（没有壳）：报就绪与离开发不出去，不写诊断", () => {
+        const h = harness({noShell: true});
+        h.setState(READY("i1"));
+        h.updates.pagesMounted();
+        h.setState(READY("i1", "offline"));
+        h.setState({status: "server-restarted", reason: "x"});
+        h.setState(READY("i2"));
+        h.pageHide();
+        expect(h.reports).toEqual([]);
     });
 
     it("就绪前来的提示先存着，挂好后再显示；启动失败页（没挂页面）不显示、不报就绪", () => {

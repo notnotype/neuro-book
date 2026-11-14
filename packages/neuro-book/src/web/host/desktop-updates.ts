@@ -1,11 +1,12 @@
 /**
  * 页面一侧的更新提示（docs/specs/runtime/browser-host.md 输出 11，docs/specs/runtime/desktop-update.md 输出 3 到 10）：把桌面壳交来
  * 的提示发成工作台通知，把用户的选择交回壳；页面就绪与离开就绪时告诉壳，壳据此交付、转交提示。不依赖 Vue 与 DOM：桥、窗口
- * 与页面事件由装配方（`boot.ts`）给出。普通浏览器里没有壳的事件，这里只是空等。
+ * 与页面事件由装配方（`boot.ts`）给出。普通浏览器里没有壳：收不到提示，报就绪与离开时发不出去也不写诊断（这是常态），
+ * 下一次状态变化时照常再试（预加载脚本的发送函数出现的时刻不由页面决定）。
  *
  * - 就绪：窗口状态是 `ready`，且页面已经挂好（`pagesMounted`，挂的是页面而不是启动失败页）。每个运行实例只报一次
- *   `page-ready`，连接在在线与离线之间变化不再报；离开 `ready` 与 `pagehide` 时报 `page-gone`。发送失败写诊断，下一次状态变化
- *   时再试。
+ *   `page-ready`，连接在在线与离线之间变化不再报；离开 `ready` 与 `pagehide` 时报 `page-gone`，从往返缓存恢复（`pageshow`）时
+ *   重新报就绪。发送抛错时写诊断，下一次状态变化时再试。
  * - 就绪之前来的提示先存着，就绪后再发。
  * - 同一个 id 再来时，这一页已经发过就不再发（点了动作、被用户关掉、到时消失都算发过）：壳在需要时会换新 id。
  * - `update-hint-end`：撤掉这条通知，连通知中心的记录一起删（被新阶段取代后，留着旧的“下载”只会让人点到旧版本）；之后同一个
@@ -27,10 +28,10 @@ export interface DesktopUpdatesWindow {
     notifications(): Notifications | null;
 }
 
-/** 页面全局对象里用到的部分：页面卸载。 */
+/** 页面全局对象里用到的部分：页面卸载与从往返缓存恢复。 */
 export interface DesktopUpdatesPage {
-    addEventListener(type: "pagehide", listener: () => void): void;
-    removeEventListener(type: "pagehide", listener: () => void): void;
+    addEventListener(type: "pagehide" | "pageshow", listener: () => void): void;
+    removeEventListener(type: "pagehide" | "pageshow", listener: () => void): void;
 }
 
 export interface DesktopUpdatesOptions {
@@ -79,6 +80,8 @@ export function createDesktopUpdates(options: DesktopUpdatesOptions): DesktopUpd
     const send = (message: HostReply): boolean => {
         try {
             if (options.bridge.send(message)) return true;
+            // 就绪与离开是页面主动报的，普通浏览器里每次状态变化都会走到这里；只有回复壳交来的提示时没有发送函数才不正常。
+            if (message.type === "page-ready" || message.type === "page-gone") return false;
             options.report({level: "warn", event: "browser-host.update.no-bridge", message: "页面里没有桌面壳的发送函数，更新提示的回复发不出去", data: {type: message.type}});
         } catch (error) {
             options.report({level: "warn", event: "browser-host.update.send-failed", message: "给桌面壳回消息失败", error, data: {type: message.type}});
@@ -140,6 +143,7 @@ export function createDesktopUpdates(options: DesktopUpdatesOptions): DesktopUpd
         if (reportedReady !== null && send({type: "page-gone"})) reportedReady = null;
     };
     options.page.addEventListener("pagehide", onPageHide);
+    options.page.addEventListener("pageshow", sync);
 
     return {
         pagesMounted() {
@@ -150,6 +154,7 @@ export function createDesktopUpdates(options: DesktopUpdatesOptions): DesktopUpd
             stopListening();
             stopWatching();
             options.page.removeEventListener("pagehide", onPageHide);
+            options.page.removeEventListener("pageshow", sync);
         },
     };
 }
