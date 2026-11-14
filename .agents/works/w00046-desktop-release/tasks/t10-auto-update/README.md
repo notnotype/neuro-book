@@ -41,6 +41,17 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 - 验证：`bun test src/desktop` 81 条通过；类型检查与 `governance:check` 通过。7 处关键规则做了变异核对：6 处被测试抓到；1 处没被抓到，是因为“正在关的窗口不选”被另一处判断重复保证，这处多余的判断已删掉。
 - 2 条新的产品取舍记进了待确认清单：“打开下载页”后不再提示同一版本；一次性通知优先。
 
+切片 3 `330938c7f`：桥加更新提示、选择、已显示、页面就绪与离开的消息；窗口经非必需的启动门禁取工作台通知服务（`notifications()`，离开 ready 即为 null）；页面一侧 `src/web/host/desktop-updates.ts` 按提示种类发通知；宿主文案 `update.*` 中英两份。验证：桥、窗口、关闭前询问、`desktop-updates` 等单测 67 条，`mount.dom.test.ts` 7 条，e2e `desktop-update`（新增 4 条）与 `desktop-close`（3 条，旧断言改为只看关窗的消息）通过。
+
+切片 4 `8472400a5`：适配层接 Electrobun 2.0.6 的 `Updater`。
+- 检查只取版本、哈希与错误。
+- 下载、换上都按调用之后的状态判断：下载看 `updateInfo`，换上看新增的状态记录里有没有“正在启动新版本”。
+- 结果文件交给核心的 `scanApplyResults`；换上程序的进程用 `tasklist` 的 CSV 查。
+- 页面的就绪与选择消息、窗口焦点接进协调器与控制器；取桌面锁之前放行退出请求。
+- `electrobun.config.ts` 加 `release.baseUrl`、`generatePatch`，以及验收用的 `NBOOK_UPDATE_BASE_URL`、`NBOOK_DESKTOP_IDENTIFIER`。
+- 验证：主进程能打包。适配层不在类型检查范围内，用到的接口逐个对过 2.0.6 源码，行为留给切片 5 在 Windows 上实测。
+- 核对源码时发现计划里 t11 门禁的查询串写错了：更新器取清单用的是 `stable-win-x64-update-v2.json?<16 位十六进制>`，不是 `?cache=<32 位>`。计划已改。
+
 ## 下一步
 
-切片 3：桥与页面（更新提示的消息、页面就绪与离开、通知门禁、`desktop-updates.ts`、文案、e2e）。
+切片 5：pc-notype 上的 Windows 验收（本地更新源，A、B、C 三个版本，desktop-update 场景 1 到 7）。切片 2 的 omp 实现审查在后台进行。
