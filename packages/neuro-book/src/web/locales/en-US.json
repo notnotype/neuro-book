@@ -88,5 +88,41 @@
         },
         "cancel": "Cancel",
         "confirm": "Close anyway"
+    },
+    "update": {
+        "available": {
+            "title": "NeuroBook {{version}} is available",
+            "message": "Download it now; it installs the next time you open NeuroBook."
+        },
+        "notifyOnly": {
+            "title": "NeuroBook {{version}} is available to download",
+            "message": "This copy of NeuroBook does not update itself. Get the new version from the download page.",
+            "envRootMessage": "NeuroBook was opened with NBOOK_STATE_ROOT set, so it does not update itself. Open it without that environment variable to update automatically."
+        },
+        "downloading": {
+            "title": "Downloading NeuroBook {{version}}",
+            "message": "You can close this notification; the download continues."
+        },
+        "downloadFailed": {
+            "title": "The update did not download",
+            "message": "NeuroBook {{version}} did not finish downloading. You can try again."
+        },
+        "downloaded": {
+            "title": "NeuroBook {{version}} is downloaded",
+            "message": "It installs the next time you open NeuroBook."
+        },
+        "updated": {
+            "title": "Updated to NeuroBook {{version}}",
+            "message": "You are now using the new version."
+        },
+        "updateFailed": {
+            "title": "The update did not finish",
+            "message": "NeuroBook {{version}} was not installed, so you are still using the previous version. You will be told again when a new version is found."
+        },
+        "action": {
+            "download": "Download",
+            "openPage": "Open download page",
+            "retry": "Try again"
+        }
     }
 }

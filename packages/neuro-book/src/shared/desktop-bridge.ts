@@ -1,6 +1,7 @@
 /**
  * 桌面壳与页面之间的桥（docs/specs/runtime/desktop-shell.md 输出 13 到 15，docs/specs/runtime/browser-host.md 输出 9 到 11）。
- * 壳一侧（`desktop/src/bun/`）与页面一侧（`src/web/host/close-query.ts`）都从这里取消息形状与校验，两边不各写一份。
+ * 壳一侧（`desktop/src/bun/`）与页面一侧（`src/web/host/close-query.ts`、`src/web/host/desktop-updates.ts`）都从这里取消息形状
+ * 与校验，两边不各写一份。
  *
  * 通道是 Electrobun 的事件桥：壳经 `executeJavascript` 在页面里派发 `nbook-desktop` 事件（`detail` 是壳的消息）；页面经
  * 预加载脚本留下的 `window.__electrobunSendToHost(message)` 回消息。同一页面里的脚本都能发（插件完全信任，ADR 0022），所以
@@ -46,20 +47,31 @@ export type UpdateChoice = Static<typeof UpdateChoiceSchema>;
 const ShellMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("close-query"), generation: Generation, reason: Type.Union([Type.Literal("window"), Type.Literal("quit")])}),
     Type.Object({type: Type.Literal("close-end"), generation: Generation}),
+    /** 壳的当前更新提示交给这个窗口；同一个 `id` 可能再来（转交、刷新后重发）。 */
+    Type.Object({type: Type.Literal("update-hint"), id: Generation, hint: UpdateHintSchema}),
+    /** 这条提示已被新阶段取代或转给了别的窗口：收起它，连通知中心里的记录。 */
+    Type.Object({type: Type.Literal("update-hint-end"), id: Generation}),
 ]);
 
-/** 页面能发给壳的消息：关闭前询问的两种回答，加上预加载脚本自己发的标题与新窗口请求。 */
+/**
+ * 页面能发给壳的消息：关闭前询问的两种回答；更新提示的选择、“已显示”，页面就绪与离开就绪（壳据此交付、转交提示，
+ * desktop-update 输出 3）；加上预加载脚本自己发的标题与新窗口请求。
+ */
 const PageMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("close-ack"), generation: Generation}),
     Type.Object({type: Type.Literal("close-answer"), generation: Generation, answer: Type.Union([Type.Literal("allow"), Type.Literal("deny")])}),
+    Type.Object({type: Type.Literal("update-choice"), id: Generation, choice: UpdateChoiceSchema}),
+    Type.Object({type: Type.Literal("update-hint-shown"), id: Generation}),
+    Type.Object({type: Type.Literal("page-ready")}),
+    Type.Object({type: Type.Literal("page-gone")}),
     Type.Object({type: Type.Literal("title"), title: Type.String()}),
     Type.Object({type: Type.Literal("open-window"), url: Type.String()}),
 ]);
 
 export type ShellMessage = Static<typeof ShellMessageSchema>;
 export type PageMessage = Static<typeof PageMessageSchema>;
-/** 页面里的宿主发的那两种（另两种只由预加载脚本发）。 */
-export type CloseReply = Extract<PageMessage, {type: "close-ack" | "close-answer"}>;
+/** 页面里的宿主发的消息（标题与新窗口请求只由预加载脚本发）。 */
+export type HostReply = Exclude<PageMessage, {type: "title" | "open-window"}>;
 
 /** 壳发来的消息；形状不对返回 null（页面里别的脚本也能派发同名事件）。 */
 export function parseShellMessage(value: unknown): ShellMessage | null {
@@ -76,7 +88,7 @@ export interface DesktopBridge {
     /** 订阅壳的消息；形状不对的事件丢弃。 */
     listen(handler: (message: ShellMessage) => void): () => void;
     /** 回壳；没有壳的发送函数时返回 false。 */
-    send(message: CloseReply): boolean;
+    send(message: HostReply): boolean;
 }
 
 /** 页面的全局对象里桥用到的部分。 */

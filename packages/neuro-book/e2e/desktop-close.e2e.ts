@@ -52,8 +52,8 @@ const layer = (page: Page) => page.locator("[data-close-layer]");
 const windowDialog = (page: Page) => page.locator("[data-editor-window-close-dialog]");
 const disk = (path: string): Promise<string> => readFile(join(projectDir, path), "utf8");
 
-/** 页面发给假壳的消息。 */
-const sent = (page: Page): Promise<unknown[]> => page.evaluate(() => (window as unknown as {__shellSent: unknown[]}).__shellSent);
+/** 页面发给假壳的关闭前询问的消息（更新提示的 `page-ready` 等不在内，见 desktop-update.e2e.ts）。 */
+const sent = async (page: Page): Promise<unknown[]> => (await page.evaluate(() => (window as unknown as {__shellSent: unknown[]}).__shellSent)).filter((message) => (message as {type: string}).type.startsWith("close-"));
 const answers = async (page: Page): Promise<unknown[]> => (await sent(page)).filter((message) => (message as {type: string}).type === "close-answer");
 
 /** 像壳那样在页面里派发一条消息。 */

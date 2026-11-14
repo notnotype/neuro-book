@@ -33,6 +33,8 @@ import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 import {createPluginCodeHost, pageDocument} from "nbook/plugin-platform/web/plugin-code";
 import type {PluginCodeHost, PluginDocument, PluginLink} from "nbook/plugin-platform/web/plugin-code";
 import {attachPluginStyles} from "nbook/plugin-platform/web/styles";
+import {notificationsKey} from "nbook/plugins/workbench/shared/contracts";
+import type {Notifications} from "nbook/plugins/workbench/shared/contracts";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
@@ -121,6 +123,11 @@ export interface BrowserWindow {
     setCloseAgreed(source: () => boolean): void;
     /** 写一条窗口诊断：已启动时进本窗口的诊断，还没启动时写到控制台。 */
     record(input: DiagnosticInput): void;
+    /**
+     * 工作台的通知服务，宿主自己用来显示桌面壳交来的更新提示（browser-host 输出 11）；不经本地能力交给插件。不在 ready、
+     * 或工作台没交出通知服务时为 null。
+     */
+    notifications(): Notifications | null;
 }
 
 /**
@@ -163,6 +170,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     /** 关闭参与方：放在窗口这一层，启动重试新建运行实例时不丢，关闭前询问在启动之前就能拿到它。 */
     const participants: CloseParticipant[] = [];
     let closeAgreed: () => boolean = () => false;
+    /** 进入 ready 的那个运行实例取到的通知服务；只在 ready 时交出去。 */
+    let readyNotifications: Notifications | null = null;
     const close: WindowClose = Object.freeze({
         agreed: () => closeAgreed(),
         participate(participant: CloseParticipant) {
@@ -265,6 +274,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         }
         link.set("online");
         let root: WorkbenchRoot | null = null;
+        let notifications: Notifications | null = null;
         // 首连之后绑定已定，窗口一生不变。
         const project: WindowProject["project"] = node.binding === null ? null : {id: node.binding.id, name: node.binding.name, title: projectTitle ?? node.binding.name, generation: node.binding.generation};
         try {
@@ -334,6 +344,18 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                             if (resolved.status !== "resolved") throw new Error(resolved.reason);
                             root = resolved.instance;
                         },
+                    }, {
+                        // 宿主取工作台的通知服务而不让工作台另开出口：宿主本来就依赖工作台交根界面，通知只给宿主自己显示
+                        // 更新提示。不是必需的：取不到时窗口照常就绪，只是看不到更新提示。
+                        id: "workbench-notifications",
+                        kind: "check",
+                        required: false,
+                        dependencies: [{key: notificationsKey}],
+                        async check({services}) {
+                            const resolved = await services.resolve(notificationsKey);
+                            if (resolved.status !== "resolved") throw new Error(resolved.reason);
+                            notifications = resolved.instance;
+                        },
                     }],
                     observers: {...observers, plugins: {diagnosticRecorded: (diagnostic) => {
                         observers.plugins?.diagnosticRecorded?.(diagnostic);
@@ -354,6 +376,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             if (startup.status !== "available" || root === null) {
                 throw new Error(startup.failures.map((failure) => `${failure.source}：${failure.error?.message ?? failure.reason}`).join("；") || `运行实例 ${startup.status}`);
             }
+            readyNotifications = notifications;
             setState({status: "ready", instanceId, root, connection: "online", project});
         } catch (error) {
             store.record({level: "error", event: "browser-host.startup.failed", message: "窗口运行实例启动失败", error});
@@ -369,6 +392,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         setCloseAgreed(source) {
             closeAgreed = source;
         },
+        notifications: () => (state.status === "ready" ? readyNotifications : null),
         record(input) {
             if (diagnostics !== null) diagnostics.record(input);
             else Reflect.apply(options.console.warn ?? options.console.error, options.console, [JSON.stringify({level: input.level, event: input.event, message: input.message, ...(input.error === undefined ? {} : {error: input.error instanceof Error ? input.error.message : String(input.error)})})]);
