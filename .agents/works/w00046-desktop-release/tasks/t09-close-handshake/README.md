@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t09-close-handshake
-status: active
-updated: 2026-11-13
+status: done
+updated: 2026-11-14
 ---
 
 # 关闭前询问
@@ -49,4 +49,4 @@ Windows 联合验收（2026-11-14，与 t08 第 2 轮一起，[证据](../t08-de
 
 ## 下一步
 
-与 t08 一起合入 master，Spec 补实现合同。
+无。2026-11-14 合入 master（`fe4560370`），Spec 去掉 planned、补实现合同（`194393cd3`）；desktop-shell 待开发者批准晋升 `implemented`。

@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-desktop-shell
-status: active
-updated: 2026-11-13
+status: done
+updated: 2026-11-14
 ---
 
 # Electrobun 桌面壳
@@ -37,4 +37,4 @@ Windows 实测第 2 轮（2026-11-14，[证据](evidences/windows-shell-r2.txt)�
 
 ## 下一步
 
-与 t09 一起合入 master，Spec 补实现合同。
+无。2026-11-14 合入 master（`fe4560370`），Spec 去掉 planned、补实现合同（`194393cd3`）；desktop-shell 待开发者批准晋升 `implemented`。

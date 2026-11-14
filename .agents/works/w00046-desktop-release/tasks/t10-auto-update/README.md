@@ -29,6 +29,8 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 
 2026-11-14：第三轮设计审查（omp）3 条重要、没有阻断，均成立、已改进计划（[报告](evidences/design-review-r3-omp.txt)、[处理](evidences/design-review-r3-omp-disposition.txt)）：未对账时运行中每 30 秒重判，进行中与否看换上程序的进程而不是 10 分钟墙钟，验收前确认缺省状态根不存在。满三轮仍有实质问题，停下问开发者；开发者 2026-11-14 定：按修订后的计划直接实施，修订部分（运行中重判、按进程判进行中）在实现审查里重点看。
 
+切片 1 `4bc20008f`：nb-flock 的共享锁。本包测试 6 条、类型检查，使用方的锁测试（nb-harness 日志 32 条、nb-story 669 条、Skill 安装 8 条）通过；Windows 上用真实子进程核对了四种关系（两个共享共存、共享挡独占、独占挡共享、持有者退出后可拿）。随 t08、t09 一起合入 master（`fe4560370`）。
+
 ## 下一步
 
-按切片实施（从 nb-flock 共享锁开始）；Windows 验收在 pc-notype 上做，开始前确认缺省状态根不存在；Windows 验收要等 pc-notype 恢复。
+切片 2：核心 `update.ts`（控制器、`applyAtStartup`、`reconcileAtStartup`）、`shell.ts` 接入、`windows.ts` 的提示交付。
