@@ -20,8 +20,8 @@
 ## 技术选型
 
 - 更新：Electrobun 2.0.6 的 `Updater`（ADR 0051）。它的下载、补丁链、换上与回滚都用现成的，不另写。
-- 版本比较：`Bun.semver.order`（Bun 自带），只认稳定版本号（不含 `-` 预发布段），不另引库。
-- 安装级的“在用”与“换上”：nb-flock 加共享锁模式（`flock` 的 `LOCK_SH`、`LockFileEx` 不带独占标志），一把锁文件、进程退出即放。否决：
+- 版本比较：先按 SemVer 2.0 的语法严格解析（`主.次.修订`，没有前导零、没有预发布段，构建元数据可有可无），解析不了算检查失败；比较用 `Bun.semver.order`（Bun 自带）。`order` 本身接受 `2`、`v2.0.0`、`02.0.0` 这类写法（omp 设计审查第 8 条实测），不能拿它当校验。
+- 安装级的“在用”与“发起换上”：nb-flock 加共享锁模式（`flock` 的 `LOCK_SH`、`LockFileEx` 不带独占标志），一把锁文件、进程退出即放。它只管“有人在用时不发起换上”；壳退出之后的那段由更新器的换上程序与 Windows 的文件占用承担（开发者 2026-11-14 选定的方向 A）。否决：
   - 每个壳一把独占锁、换上时逐个探测：探测与新启动之间有竞态；
   - 按过期判旧的锁（proper-lockfile）：壳暂停久了会被误判为不在用。
 - 页面显示：工作台通知服务（`notificationsKey`，t09 加了 `onClose`）。
@@ -40,48 +40,68 @@
   - `localVersion`；
   - `check()` → `{ok: true, version, hash} | {ok: false, error}`；
   - `download()` → `{ok: true} | {ok: false, error}`；
-  - `prepared()` → `{version, hash} | null`：读更新器的已准备记录，离线可读；
-  - `apply()`：只在失败时返回 `{error}`，成功时进程随即退出；
-  - `onResult(listener)`：上次换上的对账结果，`complete` 或 `failed` 带版本；
+  - `apply()` → `"exiting" | {failed: string}`。适配层按更新器的状态记录区分：走到“正在启动新版本”就是 `exiting`，壳不再做任何事、等进程被结束；其余返回都是同步失败（被否决、没有可换的、发起不成）；
   - `downloadPageUrl`。
-- 提示交付：`WindowCoordinator` 持有当前提示与持有窗口，见“壳的提示状态”一节。
+  - 只用这几个方法的返回值判断结果，不按更新器的 `onStatusChange` 事件判断（omp 第 4 条：`error` 是检查、下载、换上共用的通道）。
+- `UpdateStatePort`：安装级的更新状态文件（见下一节），读写都是原子的。
+- 便携版没有这两样之外的安装级文件，`UpdateStatePort` 为 null（第 7 条）。
 
 `UpdateController`（输出 1 到 7、9、10）：
-- 模式：`auto`（安装版，没设 `NBOOK_STATE_ROOT`）或 `notify-only`（便携、设了环境变量）。
-- 时机：壳进入运行中后检查一次，之后每 24 小时一次；计时用注入的 `DeadlineClock`（`at` 分段）。
-- 判定：远端版本须是稳定版本号且高于本地，有已下载的更新时还须高于已下载的版本。检查失败只写壳的日志。
-- 状态：空闲、提示中、下载中、已下载，转换按 Spec 的状态表。“以后”只对这次运行里的同一个版本生效。
-- 下载：
-  - 选“下载”时调 `download()`；下载期间的提示是不确定进度（更新器不给百分比）。
-  - 失败时重新 `check()`：远端更高就按新版本提示，同一版本就提示“没有下载成功”加“重试”。
-  - 成功后提示“已下载，下次打开时安装”。
-- 显式下载会清掉“换上失败”的记录（见下一节）。
-- 对账结果：`complete` 在第一个产品窗口提示“已更新到 X”（输出 9）；`failed` 提示“更新没有完成”（输出 8）。
+- 模式：
+  - `auto`：受管安装，没设 `NBOOK_STATE_ROOT`；
+  - `notify-only`：便携，或设了环境变量。只和本地版本比，不看已下载的更新（第 12 条）。
+- 寿命：挂在壳的运行中区间（第 9 条）。
+  - `start()` 在壳进入运行中时调；`stop()` 在进入停止中时同步调。
+  - `stop()` 取消计时、封住选择。每次 `await` 返回后先核对还在运行中，不在就丢掉结果。
+  - 停止时在途的下载不等，进程退出时由更新器的准备程序自己收尾，下一次启动按状态文件重来。
+- 时机：运行中检查一次，之后每 24 小时一次。计时用注入的 `DeadlineClock`（`at` 分段）。
+- 判定：
+  - 远端版本须是严格的稳定版本号，且高于基线。
+  - 基线：本地版本；`auto` 模式下还有状态文件里“已下载”且不在失败、被取代名单里的那个版本，取两者较高的。
+- 同一时刻只做一件事（检查、下载串行，第 3 条）。下载要绑定目标：
+  - 用户选“下载”时先重新 `check()`；
+  - 远端仍是提示里的那个版本与哈希才调 `download()`；
+  - 变了就回到判定，按新结果提示，不直接下；
+  - 开始下载前，把状态文件里现有的“已下载”记为被取代（第 17 条：更新器在准备开始之前就失败时，旧的文件还在，但不会再被换上）；
+  - 下载成功后把这个版本与哈希记为“已下载”。
+- 状态、“以后”、目标移动与重试按 Spec 的状态表。
+- 结束的提示保留它的目标与合法动作，直到被新阶段取代（第 11 条）：
+  - 关掉的 `available` 仍接受 `download`；
+  - 关掉的 `download-failed` 仍接受 `retry`；
+  - 关掉的 `notify-only` 仍接受 `open-page`。
 
-### 启动时换上：`src/desktop/shell.ts` 与 `update.ts` 的 `applyAtStartup`
+### 启动时换上：`src/desktop/update.ts` 的 `applyAtStartup` 与 `reconcileAtStartup`
 
-在 `run()` 里、取桌面锁之前（输出 8）。安装级文件放在通道根（`%LOCALAPPDATA%\<identifier>\stable\`，换上时 `app` 目录整个被替换，不能放在里面）：
+状态文件 `nbook-update-state.json` 与锁文件 `nbook-install.lock` 放在通道根（`%LOCALAPPDATA%\<identifier>\stable\`，换上时 `app` 目录整个被替换，不能放在里面）。状态文件只由持有安装独占（发起换上）或在用的壳写，写法是先写临时文件再改名。内容：
+- `downloaded`：`{version, hash}` 或 null；
+- `attempt`：`{version, hash, at}` 或 null，表示发起过换上、还没对账；
+- `failed`、`superseded`：哈希列表，至多各留 8 个；
+- `pendingNotice`：`updated` 或 `update-failed` 加版本，等产品窗口显示。
 
-- `nbook-install.lock`：在用的壳持共享锁，换上的壳持独占锁；
-- `nbook-updating.json`：换上进行中的标记，写着目标版本与时刻；
-- `nbook-update-failed.json`：换上失败过的哈希。
+`applyAtStartup`（受管安装、没设环境变量时才做；在取桌面锁之前，输出 8）：
+1. 状态文件里没有可换的 `downloaded`（不高于本地，或在 `failed`、`superseded` 里），或者有未对账的 `attempt`：跳到第 4 步。
+2. 试独占锁。拿不到（有人在用）：跳到第 4 步。
+3. 拿到之后重读状态文件（别的壳可能刚换过，第 2 条）：
+   - 仍然可换：写 `attempt`，启动页显示“正在更新到 X”，调 `apply()`。
+     - `exiting`：停在这里，等更新器结束进程。
+     - `{failed}`：把哈希记进 `failed`、清 `attempt`、写 `pendingNotice: update-failed`，放独占，写日志，照常启动。
+   - 不可换：放独占，跳到第 4 步。
+4. 取共享锁，持有到进程退出。拿不到说明别人正在发起换上：等 1 秒再试（不超过 30 秒），之后照常启动。
+   - 这里不退出、不显示“正在更新”：换上真正进行时，旧程序的启动由文件占用让那次换上失败（方向 A），比让用户空等更直接。
 
-步骤：
-1. 读标记。
-   - 标记的版本等于本地版本：我就是刚换上的新版本，删标记，接着走。
-   - 标记的版本不等于本地版本、且不到 5 分钟：启动页显示“正在更新”，然后以 0 退出。
-   - 超过 5 分钟：当作上次换上没走完，删掉，接着走。
-2. 只提示的启动、没有已准备的更新、已准备的版本不高于本地，或它的哈希在失败记录里：不换。
-3. 要换：试独占锁。
-   - 拿不到（有人在用）：不换。
-   - 拿到：写标记，启动页显示“正在更新到 X”，调 `apply()`。
-     - 返回失败：删标记，放独占锁，写日志，记下失败的哈希，启动照常走，第一个产品窗口里提示“更新没有完成”。
-     - 成功：进程由更新器退出。
-4. 不换时取共享锁，持有到进程退出。拿不到共享锁说明别人正在换：显示“正在更新”，以 0 退出。
+`reconcileAtStartup`（取到桌面锁之后，只有拥有窗口的壳做，第 5 条）：
+- 有 `attempt`：
+  - 本地版本等于它的版本：成功，`pendingNotice: updated`，`downloaded` 清空；
+  - 否则：换上失败（更新器还原并重新启动了旧版本，或新版本没起来），哈希进 `failed`，`pendingNotice: update-failed`；
+  - 清 `attempt`。
+- 有 `pendingNotice`：交给控制器作为一次性提示。收到页面的 `update-hint-shown` 才从状态文件清掉；没有产品窗口就退出的壳留着它给下一次。
+- 换上结果只认这份状态文件与本地版本，不靠更新器的结果事件（第 4、5 条）。
 
-这一步在 `before-quit` 否决处理器生效之前（适配层先做这一步再注册否决），否则 `applyUpdate` 的退出请求会被壳自己拦下。
-
-失败记录的作用：换上失败后，同一个已准备的更新不在每次启动时反复尝试。重新检查后用户再点“下载”时，更新器复用这份准备好的更新，我们清掉失败记录，下次启动再试（输出 8 的“丢弃”由此实现，见“Spec 与文档改动”）。
+退出拦截（第 14 条）：
+- 适配层的 `before-quit` 处理器从一开始就注册，由核心的阶段决定放不放行：
+  - `pre-lock` 与 `applying` 放行，这样 `applyUpdate` 的退出请求能通过；
+  - 取桌面锁之后到已停止之前一律否决。
+- `apply()` 只在 `pre-lock` 阶段调用，一定在拉起服务端之前。
 
 ### 壳的提示状态（`src/desktop/update.ts` 的一部分）与窗口（`src/desktop/windows.ts`）
 
@@ -140,28 +160,36 @@
 ### Electrobun 适配与构建（`desktop/`）
 
 - `desktop/src/bun/index.ts`：
-  - `UpdaterPort` 接 `Updater`：`check` 用 `checkForUpdate()`，`download` 用 `downloadUpdate()`，`prepared` 读 `<appDataFolder>/self-extraction/.electrobun-prepared-update.json` 并核对暂存目录存在，`apply` 用 `applyUpdate()`，`onResult` 用 `onStatusChange` 的 `complete` 与 `error`，启动早期注册；
-  - 焦点事件、桥的三种新消息；
-  - “打开下载页”用 `Utils.openExternal`。
+  - `UpdaterPort` 接 `Updater`：
+    - `check` 用 `checkForUpdate()`，只取 `version`、`hash` 与 `error`，不用 `updateAvailable`；
+    - `download` 用 `downloadUpdate()`；
+    - `apply` 用 `applyUpdate()`，返回后看状态记录最后一项是不是“正在启动新版本”。
+  - 受管安装的判断：`Updater.appDataFolder()` 能取到，即程序在 `%LOCALAPPDATA%\<identifier>\<channel>\app\` 下。取不到的当便携或开发构建，不建安装级文件。
+  - 状态文件的读写；`before-quit` 按核心阶段放行；焦点事件与桥的新消息；“打开下载页”用 `Utils.openExternal`。
 - `electrobun.config.ts`：
   - `release.baseUrl` 缺省 `https://github.com/notnotype/neuro-book/releases/latest/download`；
-  - 构建时环境变量 `NBOOK_UPDATE_BASE_URL` 可覆盖，给本地测试用；
-  - `release.generatePatch: true`。
+  - `release.generatePatch: true`；
+  - 构建时环境变量覆盖：`NBOOK_UPDATE_BASE_URL`（本地更新源）、`NBOOK_DESKTOP_IDENTIFIER`（测试包用另一个应用标识，不碰正式安装与数据）。
+- `scripts/build.ts` 加 `--version`（第 13 条）：测试构建把同一个版本号写进壳的版本文件，并要求载荷的应用包也是这个版本。应用包的版本来自 `packages/neuro-book/package.json`，所以测试构建在独立的检出副本里改它。
 - 下载页：`https://github.com/notnotype/neuro-book/releases/latest`。
 
 ## Spec 与文档改动
 
-- desktop-update：
-  - 输出 4 写明下载进度是不确定进度（更新器不给百分比）；
-  - 输出 8 的“丢弃这份已下载的更新”改为“不再自动换上这份更新；重新检查后用户再选下载时，复用它或下载新的”；
-  - 实现合同写 `update.ts`、安装级的三个文件、适配层的更新器用法。
-- desktop-shell：启动页加“正在更新”两种状态。
+- desktop-update 的合同按方向 A 已改（2026-11-14，提交 `8f93ab879`）：
+  - 术语“安装的使用与换上”；
+  - 输出 4 的不确定进度；
+  - 输出 7 的“旧的不再换上”；
+  - 输出 8 的发起与失败；
+  - 时序、失败表与场景 4。
+- 实现后补实现合同：`update.ts`、状态文件与锁文件、适配层的更新器用法。
+- desktop-shell：启动页加“正在更新到 X”。
 - nb-flock README：共享锁。
 - 待确认清单：
-  - 下载进度为不确定进度；
-  - 换上失败后不删更新器的已准备更新，改为记失败哈希；
-  - 换上标记 5 分钟算过期；
-  - 安装级锁放通道根。
+  - 下载进度不确定；
+  - 状态文件与锁放通道根；
+  - 拿不到共享锁时等至多 30 秒后照常启动；
+  - 换上结果只按状态文件与本地版本判断；
+  - 测试包用另一个应用标识。
 
 ## 切片
 
@@ -180,7 +208,7 @@
 | Spec 编号 | 覆盖 |
 |---|---|
 | desktop-update 输出 1、2、3、5、6、7、9、10，状态表 | `update.test.ts` 的控制器部分（要点 1） |
-| desktop-update 输出 8、场景 4 的锁与标记 | `update.test.ts` 的 `applyAtStartup`（要点 2）；`shell.test.ts`：换上在取桌面锁之前 |
+| desktop-update 输出 8、9、场景 4 的锁、状态与对账 | `update.test.ts` 的 `applyAtStartup` 与 `reconcileAtStartup`（要点 2）；`shell.test.ts`：换上在取桌面锁之前，取锁之后到就绪之前的退出请求被否决并有序停止 |
 | desktop-update 输出 3、4 的重发 | `windows.test.ts`（要点 3） |
 | browser-host 输出 11 | 窗口测试与 `e2e/desktop-update.e2e.ts`（要点 4） |
 | desktop-update 场景 1 到 7 | pc-notype 上的真实安装与本地更新源 |
@@ -188,21 +216,23 @@
 测试要点：
 
 1. 更新器与提示用测试实现，形状照适配层，时间用手动时钟：
-   - 启动时检查与每 24 小时；
+   - 启动时检查与每 24 小时，进入停止中后不再检查，在途结果被丢弃；
    - 失败只写日志；
-   - 远端低于、等于本地，预发布版本，缺版本号；
+   - 版本解析：低于、等于本地，预发布，缺版本号，`2`、`v2.0.0`、`02.0.0`、尾部换行、带构建元数据；
    - “以后”只压这个版本，更高版本照常提示；
+   - 下载前重新检查：目标变了改提示新版本，降级了不下载；
    - 下载失败后目标移动与重试；
-   - 已下载后只在更高时提示；
-   - 只提示模式与“打开下载页”；
-   - 对账结果的两种提示。
-2. 真实 nb-flock、真实文件，另起真实子进程持锁：
-   - 有人在用不换；
-   - 换上中再启动，显示“正在更新”后退出；
-   - 标记过期；
-   - 新版本删标记；
-   - `apply` 失败后照常启动、记失败哈希、下次不再换；
-   - 显式下载清掉失败记录。
+   - 已下载后只在更高时提示；失败与被取代的不算基线；只提示模式只比本地；
+   - 三种可关闭提示在关闭后的中心动作；
+   - 一次性提示收到 shown 后从状态里清掉。
+2. 真实 nb-flock、真实状态文件，另起真实子进程持锁：
+   - 有人在用不发起换上；
+   - 独占拿到后重读状态，别人刚换过就不换；
+   - 同步失败（`{failed}`）：照常启动、记失败、下次不再换，重新下载后再换；
+   - 对账：版本相同为成功、不同为失败，各一次提示，没有窗口的壳不消费；
+   - 拿不到共享锁时等待后照常启动；
+   - 便携版不建、不读安装级文件；
+   - 状态文件截断、坏 JSON、没有权限时按“没有可换的”处理并写日志。
 3. `windows.test.ts`：
    - 交给最近焦点的就绪窗口；
    - 持有窗口关掉、刷新、离开就绪时转交并对旧窗口发 end；
@@ -224,13 +254,20 @@
 
 - 每片跑上面列的测试；收口跑 `bun run test:affected` 与 `governance:check`。
 - e2e：合入前跑 `e2e/desktop-update.e2e.ts` 与 `e2e/desktop-close.e2e.ts`。
-- Windows：pc-notype 恢复后做。依次构建 A、B、C，`release.baseUrl` 用固定端口的 `http://127.0.0.1:<端口>`；发布顺序先传 tar.zst 与 patch，最后传清单。
+- Windows：pc-notype 恢复后做（第 13、15 条）：
+  - 在三个独立检出副本里把版本改成 `0.90.1`、`0.90.2`、`0.90.3`；
+  - 测试应用标识、固定端口的 `http://127.0.0.1:<端口>`（先探测空闲）作 `release.baseUrl`；
+  - 交替构建与发布：构建 A、发布 A、构建 B（生成补丁）、发布 B、构建 C；发布时先传 tar.zst 与 patch，最后传清单；
+  - 经 Setup 装进受管目录；
+  - 证据除 UI 自动化读的文字外，另记：状态文件、更新器的结果文件、`version.json`、壳日志、更新源的请求日志（走了补丁还是完整包）。
 - 未验证边界：
-  - GitHub `latest/download` 的重定向与更新器追加的 `?cache=` 参数要等第一次真实发布（t11）；
+  - GitHub `latest/download` 的重定向与更新器追加的 `?cache=` 参数要等第一次真实发布，写进 t11 的发布后核对（第 16 条）；
   - 新版本起来后崩溃的情形更新器不回滚，我们也不处理（Spec 没要求）。
 
 ## 不做与风险
 
 - 不做更新频道、预发布、关闭自动检查（Spec 非目标）。
-- 风险：读更新器的私有文件 `.electrobun-prepared-update.json`，Electrobun 升级可能改格式。由适配层的读取函数与 Windows 实测把关，Electrobun 版本固定在 2.0.6（ADR 0051）。
+- 不读更新器的私有文件：“有没有可换的”看我们自己的状态文件，真正能不能换由更新器在 `applyUpdate` 里自己校验，校验不过就是同步失败。
 - 风险：`applyUpdate` 在窗口创建之前调用时的退出时序没有实测证据（调研第 3 节），Windows 验收第一个就测它；不行就先开启动页窗口再换。
+- 风险：适配层判断 `exiting` 依赖更新器状态记录里“正在启动新版本”这一项；Windows 验收核对它与真实退出的先后。
+- 已知限制（方向 A）：换上进行中又打开旧程序会让这次换上失败、还原，用户看到“更新没有完成”，下一次再换。
