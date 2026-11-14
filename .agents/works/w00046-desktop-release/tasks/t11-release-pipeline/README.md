@@ -19,13 +19,16 @@ release.yml：标签与产品版本一致性、标签提交上调用可复用的
 
 2026-11-13 经 nbdev 新建。
 
-2026-11-14：计划初稿写成。要点：
-- Windows 冒烟用 Playwright 经 WebView2 的远程调试端口驱动装好的应用；
-- Agent 的命令用 e2e 已有的本机假模型端点；
-- npm 发布冻结一份 `release-plan.json`，低于当前 `latest` 的版本用 `history` 标签；
-- Release 先草稿，只补缺的资产，本次版本更高才设为最新；
-- 发布后照更新器的取法核对 `latest/download`。
+2026-11-14：计划初稿写成，切片 1（CDP 与 WM_CLOSE 探针）在 pc-notype 上做完，选型成立（[cdp-probe-r1.txt](evidences/cdp-probe-r1.txt)）。
+
+2026-11-14：设计审查第 1 轮（omp）23 条，阻断 4、重要 17、次要 2，都成立，计划改成 r2（[报告](evidences/design-review-r1-omp.txt)、[处理](evidences/design-review-r1-omp-disposition.txt)）。要点：
+- 桌面工程的输入在 ubuntu 上做齐；测试包 B′ 在独立 worktree 里改版本并做本地提交，壳与应用包同一版本；每个变体各自一份工程目录构建，正式产物构建完即另存；
+- 发布计划在构建作业里冻结依赖与摘要，本次版本的包已发而字节不同就失败；npm 的 dist-tag 一律显式；
+- Release 公开与是否设为最新在同一个请求里定，重跑时只核对；发布完成门禁核对清单身份、逐个文件的 SHA-256 并存请求证据；
+- 更新冒烟用缺省状态根，补上场景 2 后半与“上一正式版到本次”；冒烟核对作品与设置不变、服务端有序停止，失败证据收全；
+- 加发布后的 registry 核对；正式发布排队用 `queue: max`；一次性准备加标签规则集、Environment 的标签限制与 npm 信任的 2 天时限。
+- 新增待确认 5 行。
 
 ## 下一步
 
-等 t10 的收口审查（omp）跑完，再交计划的设计审查（omp，阻断）。同一时间只跑一个 omp 审查。
+切片 2：`tag.ts`、`publish.ts` 的 `--plan` 与 `--ci`、`github-release.ts`、`verify-update-feed.ts` 与单测（Work worktree）。
