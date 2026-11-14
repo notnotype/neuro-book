@@ -164,7 +164,7 @@ async function main(): Promise<void> {
         return;
     }
 
-    const root = await resolveDesktopStateRoot({env: process.env, cwd: process.cwd(), programRoot, platform: process.platform, home: homedir()});
+    const root = await resolveDesktopStateRoot({env: process.env, programRoot, platform: process.platform, home: homedir()});
     if (root.ok) {
         const dir = join(root.stateRoot, "logs", "desktop");
         mkdirSync(dir, {recursive: true});

@@ -40,7 +40,7 @@ export type StartupView =
     | {readonly kind: "unclean-stop"; readonly logDir: string}
     | {readonly kind: "error"; readonly reason: StartupError; readonly detail: string; readonly actions: ReadonlyArray<StartupAction>};
 
-export type StartupError = "portable-unwritable" | "version-mismatch-shell" | "shell-unresponsive" | "version-mismatch-server" | "not-product" | "server-unresponsive" | "wait-timeout" | "server-failed" | "lock-failed" | "install-busy";
+export type StartupError = "portable-unwritable" | "state-root-relative" | "version-mismatch-shell" | "shell-unresponsive" | "version-mismatch-server" | "not-product" | "server-unresponsive" | "wait-timeout" | "server-failed" | "lock-failed" | "install-busy";
 export type StartupAction = "retry" | "exit" | "open-logs" | "continue";
 
 export interface ShellPorts {
@@ -143,7 +143,7 @@ export class DesktopShell {
         const root = this.#options.root;
         this.#coordinator.openWindow();
         if (!root.ok) {
-            await this.#fail("portable-unwritable", root.path, ["exit"]);
+            await this.#fail(root.reason === "env-relative" ? "state-root-relative" : "portable-unwritable", root.path, ["exit"]);
             return;
         }
         if (!(await this.#prepareInstall(root.source))) return;
