@@ -1,6 +1,8 @@
 # t11 打标签自动发布流水线：实施计划
 
-修订记录：r1 交 omp 设计审查（23 条：阻断 4、重要 17、次要 2），本稿是 r2，逐条处理见 [design-review-r1-omp-disposition.txt](evidences/design-review-r1-omp-disposition.txt)。
+修订记录：
+- r1 交 omp 设计审查（23 条：阻断 4、重要 17、次要 2），处理见 [design-review-r1-omp-disposition.txt](evidences/design-review-r1-omp-disposition.txt)；
+- r2 交第 2 轮（有效 14 条：阻断 1、重要 12、次要 1），处理见 [design-review-r2-omp-disposition.txt](evidences/design-review-r2-omp-disposition.txt)；本稿是 r3。
 
 ## Context
 
@@ -65,7 +67,8 @@ GitHub windows runner 上已经实测过（t01 [windows-runner-probe-r1.txt](../
   - 用一次性的身份提交到这个 worktree（不 push），让 `release:smoke` 的干净检查与结束核对照常成立，不给正式门禁开口子；
   - 在这个 worktree 里跑 `release:smoke` 与 `build.ts`，壳和应用包都是 B′ 的版本。
 - 三个变体的输入各自上传为产物。Windows 上每个变体复制一份 `desktop/` 工程到 `RUNNER_TEMP` 下各自的目录，放入它的 `bundle/` 与 `payload/`，各自 `hutch install`、`hutch electrobun build`，产物互不覆盖。
-- 正式变体一构建完，就把它的 `artifacts/` 与便携 zip 复制到 `release-assets/`、写 `SHA256SUMS`，之后上传的只有这个目录。A′ 构建完先把它的产物复制进本机更新源的目录，再构建 B′（Hutch 构建 B′ 时从更新源取 A′ 做补丁）。
+- 正式变体一构建完，就把它的 `artifacts/` 复制到 `release-assets/`，再打便携 zip、写 `SHA256SUMS`，之后上传的只有这个目录。
+- 便携 zip 从 `stable-win-x64-NeuroBook.tar.zst` 解压出真实的应用目录，放入 `NeuroBook.portable` 再打包：Hutch 的 stable 构建在打完内层 tar 后会把 `build/stable-win-x64/NeuroBook/` 清空、重建成解压器外壳（没有 `bun.exe`、`Resources/version.json` 与载荷），那里不能当便携版。打完核对 zip 里有 `bun.exe`、`Resources/version.json` 与载荷。A′ 构建完先把它的产物复制进本机更新源的目录，再构建 B′（Hutch 构建 B′ 时从更新源取 A′ 做补丁）。
 - 复制一份 `desktop/` 单独构建是否成立（`hutch install` 要不要仓库里的别的文件），切片 4 在 pc-notype 上先验；不成立就改成每个变体一个 worktree。
 - `verifyBuiltVersions`：每个变体构建前核对 `bundle/version.json`、载荷清单里应用包的版本与预期版本一致（正式与 A′ 等于标签版本，B′ 等于标签版本补丁号加 1）；构建后核对产物里 `update-v2.json` 的版本与标识。
 
@@ -85,17 +88,21 @@ GitHub windows runner 上已经实测过（t01 [windows-runner-probe-r1.txt](../
 
 `--plan`（`npm-packages` 作业里，生成目录还在的时候跑）写 `dist/release/release-plan.json`：
 - 清单里每个包的名字、版本、tarball、`dist.integrity`、运行时依赖（这时读得到生成目录），按发布顺序；
-- 每个包当时在 registry 上的状态：没发、已发且字节相同、已发而字节不同。
+- 每个包归入三类之一：
+  - **本次发布**：registry 上没有这个版本；或有、而它是在标签提交之后发布的（`npm view <名> time.<版本>` 晚于标签提交的提交时间），即本次发布的前一轮已经发过；
+  - **历史包**：registry 上有这个版本，发布时间早于标签提交，字节相同或不同（不同就是源码改过没提版本，沿用现有的提醒）；
+  - 应用包与 SDK（版本等于标签版本）不会是历史包：它们的版本就是这次的版本。
 - 失败（不写计划）的情况：
-  - 本次版本的包（应用包与 SDK，版本等于标签版本）已发而字节不同：桌面载荷与 npm 上的应用包会不是同一批；
-  - 计划要发的包依赖已发而字节不同的包（沿用 `blockingStalePackages`）。
-- 已发而字节不同、又没人依赖的源码包，沿用现有的提醒，不发。
+  - 本次发布的包已发而字节不同：前一轮发出去的与这一轮验过的、要进桌面载荷的不是同一批；
+  - 本次发布的包依赖字节不同的历史包（沿用 `blockingStalePackages`）。
+- 用发布时间区分，不靠上一轮留下的产物：整轮重跑时上一轮的产物不一定还在，registry 上的发布时间一直在。
 
 `--ci --yes`（`publish-npm` 作业）只读下载的 `dist/release/`，不读生成目录：
 - 不跑 `npm whoami`，不要求分支叫 master（标签检出是分离的 HEAD）；
 - 核对清单的 `commit` 等于 `GITHUB_SHA`，计划与清单对得上（同一批 tarball、摘要相同）；
-- 对计划里每个包重读 registry：没发就发；已发而 `dist.integrity` 与计划相同就跳过（上次发了一半）；已发而不同就失败；
+- 只处理本次发布的包，重读 registry：没发就发；已发而 `dist.integrity` 与计划相同就跳过（上次发了一半）；已发而不同就失败。历史包不发、不拦；
 - 用 `npm publish <tarball> --access public --tag <标签>`，不用 `bun publish`（trusted publishing 只认 npm CLI，provenance 由它自动生成）。
+- 单测含跨入口的场景：`--plan` 收下一个字节不同的历史包之后，`--ci` 照常发其余的。
 
 npm 的 dist-tag，一律显式给：
 - 每个包发之前读 `npm view <名> dist-tags.latest`；
@@ -143,10 +150,12 @@ npm 的 dist-tag，一律显式给：
 - **本次没有公开**：失败。
 
 要核对的：
-- `stable-win-x64-update-v2.json?<16 位十六进制>`：版本、哈希、标识、频道、平台、架构与本次正式构建一致，声明的文件存在；
+- `stable-win-x64-update-v2.json?<16 位十六进制>`：按 Electrobun 2.0.6 更新器的校验规则（`Updater.ts` 的清单校验）核对形状与必需字段，含 `schemaVersion`、`artifact.tarSize`、`artifact.tarSha256`；版本、哈希、标识、频道、平台、架构与本次正式构建一致；
 - `stable-win-x64-update.json?cache=<32 位>`（下一次构建 Hutch 要取的）：与 v2 指向同一版本、同一哈希、同一文件；
-- 清单声明的完整包与补丁（若有）按 `?cache=<32 位>` 下载，SHA-256 与本地资产相同；
+- 完整包 `artifact.file` 按 `?cache=<32 位>` 下载：SHA-256 与本地资产相同；解压后 tar 的大小与 SHA-256 等于 `tarSize`、`tarSha256`（压缩包的摘要代替不了它）；
+- 补丁：清单里没有补丁的列表，更新器按本地哈希拼 `stable-win-x64-<哈希>.patch` 去取。所以按冻结的 `release-assets/SHA256SUMS` 列出这次实际生成的补丁，逐个按 `?cache=<32 位>` 请求、核对 SHA-256；没有补丁时在证据里写明“这次没有生成补丁”及原因（Hutch 的构建日志）；
 - 正式构建产物里 `Resources/version.json` 的更新源是 GitHub `latest/download`、版本与哈希与清单一致。
+- 单测含“文件字节不变、v2 的 `tarSha256` 改错或缺失”的失败用例。
 
 跟随重定向至多 5 跳，都要 200。查询串的形状写成常量，注释链接 Electrobun 2.0.6 的出处与 t10 的请求日志。每个请求的地址、重定向链、状态与应答头写进 `feed-evidence.json`，作为作业产物上传，并写进作业摘要。失败时作业失败，摘要写明“发行没有完成，自动更新不可用”与处置（见“失败与重跑”）。
 
@@ -158,6 +167,7 @@ npm 的 dist-tag，一律显式给：
    - 状态根用缺省的 `%LOCALAPPDATA%\NeuroBook`；便携版用程序目录下的 `data\`；
    - 起 `fakeEndpoint`，在状态根写 `settings.json`（`localModelSettings`）；
    - 在仓库外的临时目录建一部作品，写一章已知内容；经应用的“打开作品”登记，不直接写 `projects.json`；
+   - 数据基线：`projects.json` 里作品的 id 与路径集合、`settings.json` 里假端点写进去的模型设置的值。之后的“数据不变”都按这份基线比这些用户看得到的值，不整份比会合法变化的文件；
    - 便携版：先记下缺省状态根的顶层清单与 `projects.json`、`settings.json` 的摘要（安装版冒烟已在那里留下东西），作基线。
 2. **安装**：
    - 解压 Setup.zip，起 `*-Setup.exe`；
@@ -175,38 +185,39 @@ npm 的 dist-tag，一律显式给：
    - 对产品窗口 `WM_CLOSE`（窗口句柄按进程号枚举）；
    - 关闭前询问以 `quit` 同意（没有未保存的内容与在跑的工作）；
    - 壳进程以 0 退出，至多 90 秒；
-   - 状态根下没有 `logs\desktop\unclean-stop.json`（壳以 0 退出不代表服务端有序停止；服务端超时、被强制结束或非 0 退出时壳写这个标记）；
-   - 没有残留的 `bun.exe` 子进程。
-6. **卸载**（安装版）：`uninstall.exe --uninstall --quiet --delete-data`，安装目录与开始菜单快捷方式都不在；缺省状态根里的 `projects.json`、`settings.json` 与那部作品的文件都还在（desktop-shell：卸载不删作品与设置）。
+   - 正向证据：这次启动之后的 `shell.log` 有一条 `desktop.server.stopped`（切片 3 加），PID 是这次壳拉起的服务端、`forced` 为假、退出码 0；没有服务端意外退出的记录（意外退出时壳不经停止路径，也不写异常标记，壳照样以 0 退出）；
+   - 补充：状态根下没有 `logs\desktop\unclean-stop.json`，没有残留的 `bun.exe` 子进程。
+6. **卸载**（安装版）：`uninstall.exe --uninstall --quiet --delete-data`，安装目录与开始菜单快捷方式都不在；按数据基线核对作品登记与模型设置的值不变，读回那一章的内容（desktop-shell：卸载不删作品与设置）。
 7. **便携版另核对**：`data\` 在程序目录下；缺省状态根与基线相同；`%LOCALAPPDATA%\io.github.notnotype.neurobook\stable` 下没有建出状态文件。
 
 每一步打印一行 `✓`。证据目录不论成败都写（见下一节“冒烟的证据”）。定位写法复用 e2e 里的数据属性，不另造。
 
 ### `packages/neuro-book/desktop/scripts/smoke-update.ts`（新增）：更新的冒烟
 
-对应 desktop-update 的 Smoke：场景 1、场景 2；有上一个正式桌面版本时再跑一遍场景 1。用 A′、B′ 两个测试包（见“构建分工”），本机静态更新源与 t10 的 `t10-serve.ts` 同一种写法，记请求。状态根用缺省的（设了 `NBOOK_STATE_ROOT` 就进只提示模式，不下载、不换上）。
+对应 desktop-update 的 Smoke：场景 1、场景 2。用 A′、B′ 两个测试包（见“构建分工”），本机静态更新源与 t10 的 `t10-serve.ts` 同一种写法，记请求。状态根用缺省的（设了 `NBOOK_STATE_ROOT` 就进只提示模式，不下载、不换上）。“上一个正式版本到本次”另在发布之后的 `upgrade-from-previous` 作业里跑（见 release.yml 一节）。
+
+壳的交接：每一段开头与结尾写明哪个壳在跑。结束一段时对它 `WM_CLOSE`、等壳与整棵服务端进程树都结束、桌面锁能重新取得，才进下一段；脚本的 `finally` 先存证据，再按自己记下的 PID 收掉自己起的实例。测试标识只隔开安装与通道根，不隔开缺省状态根上的桌面锁。
+
+更新器拉起的新版本不带脚本的环境：Windows 上换上程序由任务计划程序的交互任务启动，再由它起新的启动器，不转交原进程的环境变量。所以换上后第一次启动的 B′ 没有远程调试端口，这一次用 UI 自动化读窗口文字（与 t10 相同）与更新器的结果文件取证；之后按 PID 关掉它，再由脚本带调试端口重新启动 B′，接着做页面一侧的检查。这次重新启动已经不是“换上后第一次”，“已更新到”只在前一次取证。
 
 - **场景 1 与场景 2 后半**：
-  - 装 A′；在 A′ 的状态根里建一部作品、写一章已知内容；
+  - 装 A′；在状态根里建一部作品、写一章已知内容，记下数据基线（同 `smoke-windows.ts`）；
   - 源放 B′：页面出现“可以更新”，点“下载”，等到“已下载”；请求记录里取的是补丁；
-  - 关窗，把源换回 A′（低于已下载的 B′，与场景 2 后半“已下载 C 之后源换成 B”同一形状：源退回正在运行的版本）；
-  - 再起：等到 B′ 的页面与“已更新到”，没有“可以更新”的提示；
-  - 同一状态根、同一部作品、那一章内容不变；安装目录与缺省位置之外没有建出新的状态根。
+  - 关掉 A′，把源换回 A′（低于已下载的 B′，与场景 2 后半“已下载 C 之后源换成 B”同一形状：源退回正在运行的版本）；
+  - 打开 A′ 的启动器：换上 B′，B′ 自己起来；结果文件是成功，UI 自动化读到“已更新到”，没有“可以更新”；
+  - 关掉这个 B′，带调试端口重新启动：同一状态根，按数据基线核对作品登记与模型设置的值，读回那一章；安装目录与缺省位置之外没有建出新的状态根。
 - **场景 2 前半**：
-  - 关掉 B′，源仍是 A′；记下请求记录与 `shell.log` 的位置，再起 B′（检查只在启动时与每 24 小时做一次，换源后不重起就看不到新的检查）；
-  - 这次启动之后的 `shell.log` 有一条 `desktop.update.checked`，远端版本 A′、结论“更低”；请求记录里没有补丁或完整包的请求；页面没有提示。
-- **上一个正式版本到本次**（`latest/download` 上已有低于本次的正式桌面版本时跑；第一次发布跳过并注明）：
-  - 下载上一版的 Setup，用正式标识安装；
-  - 把装好的 `Resources\version.json` 里的更新源改成本机更新源，源里放本次的正式资产（本次正式构建时 Hutch 已从 GitHub 取上一版做了补丁）；
-  - 跑场景 1 的步骤，核对状态根与作品不变、版本是本次；结束后卸载。
-  - 改装好的 `version.json` 更新源是否被更新器接受，切片 4 在 pc-notype 上用 t10 留下的测试安装先验；不成立就回到开发者定这一条的做法。
+  - 接上一段：源仍是 A′。上一段的重新启动就是换源之后的一次启动（检查只在启动时与每 24 小时做一次）；
+  - 这次启动之后的 `shell.log` 有一条 `desktop.update.checked`，远端版本 A′、结论“更低”；请求记录里这次启动之后没有补丁或完整包的请求；页面没有提示；
+  - 关掉 B′，卸载测试安装。
 - 测试包不进 Release。失败时 A′、B′ 的产物与更新源的请求记录随证据上传，保留 14 天。
+- UI 自动化在 runner 上能否读到 WebView 窗口里的文字，切片 4 在 pc-notype 上先验（t10 在那里读到过）；runner 上第一次真实运行时再确认。
 
 为了让“检查过、结论是什么”可观察，`UpdateController` 在检查完成时写一条 info 诊断 `desktop.update.checked`，带远端版本与结论（没有更新、有更新、更低）。适配层把它写进 shell.log。
 
 ### 冒烟的证据
 
-三个冒烟都写 `--evidence <目录>`，按变体分子目录（正式安装、便携、A′、B′、上一版）。工作流的收集步骤 `if: always()`，截图失败不影响原始错误：
+冒烟都写 `--evidence <目录>`，按变体分子目录（正式安装、便携、A′、B′、上一版）。工作流的收集步骤 `if: always()`，截图失败不影响原始错误：
 - 失败的步骤名与退出码；
 - 壳与服务端的完整日志（`logs\desktop\` 下全部，含 `server-output.log`、`unclean-stop.json`）；
 - 安装的 `Resources\version.json` 与载荷清单；
@@ -217,9 +228,11 @@ npm 的 dist-tag，一律显式给：
 
 证据作为作业产物上传，保留 14 天。
 
-### `src/desktop/update.ts`：检查完成的诊断
+### `src/desktop/update.ts`、`shell.ts`：两条 info 诊断
 
-`#check` 成功判定后 `report` 一条 `desktop.update.checked`，不改行为。`update.test.ts` 在现有“只升不降”的用例里断言这条诊断的结论。
+- `#check` 成功判定后 `report` 一条 `desktop.update.checked`，带远端版本与结论。`update.test.ts` 在现有“只升不降”的用例里断言这条诊断的结论。
+- 壳经停止路径停完自有服务端后 `report` 一条 `desktop.server.stopped`，带服务端 PID、`forced`、退出码；现在只有异常时写 `unclean-stop.json`，正常停止没有任何记录，冒烟拿不到“有序以 0 停止”的正向证据。`shell.test.ts` 在现有的停止用例里断言它。
+- 都不改行为；适配层照现有诊断的写法进 `shell.log`。
 
 ### `.github/workflows/ci.yml`：可复用
 
@@ -230,7 +243,7 @@ npm 的 dist-tag，一律显式给：
 ### `.github/workflows/release.yml`（新增）
 
 - 触发：`push: tags: ['v*']`；`workflow_dispatch` 只做演练（`dry-run`），跳过所有远端写入的作业。
-- `concurrency`：正式发布 `{group: release, queue: max}`（缺省的 `queue: single` 只留一个等待中的，新来的会把旧的等待中的取消；`max` 至多 100 个、先进先出）。演练另一个组 `release-dry-run`，不占正式发布的队列。actionlint 若还不认 `queue`，按它的版本处理（升级或注明）。
+- `concurrency`：正式发布 `{group: release, queue: max}`（缺省的 `queue: single` 只留一个等待中的，新来的会把旧的等待中的取消；`max` 至多 100 个、先进先出；满了以后新来的被取消，被取消的那一轮在 Actions 里重跑即可，标签不用重推）。演练另一个组 `release-dry-run`，不占正式发布的队列。actionlint 若还不认 `queue`，按它的版本处理（升级或注明）。
 - `permissions` 按作业给：缺省 `contents: read`；发 npm 的作业 `id-token: write`；发 Release 的作业 `contents: write`。
 - 每个作业自己装要用的运行时：`oven-sh/setup-bun`（版本与 ci.yml 一致）、`bun install --frozen-lockfile`；Windows 作业另装 Hutch，版本从 `desktop/` 下一处可机读的地方读（切片 5 定：`hutch.config.ts` 现在只固定了 Electrobun 2.0.6，没有 Hutch 的版本），装后核对 `hutch --version`。
 - 产物都显式 `retention-days: 35`（覆盖 GitHub 首次运行后 30 天的可重跑期）；失败证据 14 天。
@@ -241,6 +254,7 @@ npm 的 dist-tag，一律显式给：
    - `fetch-depth: 0`；
    - 新建标签的检查（见 `tag.ts` 一节）；
    - `bun scripts/release/tag.ts $GITHUB_REF_NAME`，输出版本；
+   - 定下上一个正式桌面版本（见 `upgrade-from-previous`），输出它的标签或“没有”；
    - 演练时用 `package.json` 的版本，不核对标签。
 2. `ci`：`uses: ./.github/workflows/ci.yml`，`with: {all: true}`，`needs: gate`。
 3. `npm-packages`（ubuntu，`needs: gate`）：
@@ -251,7 +265,7 @@ npm 的 dist-tag，一律显式给：
 4. `update-test-packages`（ubuntu，`needs: gate`）：按“构建分工”做 B′，上传 `desktop-bplus`。只供冒烟，不发布。
 5. `desktop`（windows-2025，`needs: [npm-packages, update-test-packages]`）：
    - 下载 `desktop-official`、`desktop-bplus`；
-   - 正式变体：核对版本、构建、复制到 `release-assets/`、打便携 zip（`build/stable-win-x64/NeuroBook/` 的内容加 `NeuroBook.portable`）、`SHA256SUMS`；
+   - 正式变体：核对版本、构建、复制到 `release-assets/`、从 tar.zst 打便携 zip（见“构建分工”）、`SHA256SUMS`；
    - `smoke-windows.ts` 跑安装版，再跑便携版；
    - A′、B′ 构建，`smoke-update.ts`；
    - 上传 `desktop-assets`（`release-assets/`）；收集并上传证据（`always()`）。
@@ -261,11 +275,16 @@ npm 的 dist-tag，一律显式给：
 7. `registry-smoke`（ubuntu，`needs: publish-npm`）：标签提交上 `release:smoke --from registry`；registry 刚发的版本可能要一会儿才装得到，读不到时重试几次再判失败。结果写进作业摘要。不挡 GitHub Release：npm 上的字节已经定了，桌面包不受它影响。
 8. `github-release`（ubuntu，`needs: publish-npm`，非演练）：`github-release.ts draft`，然后 `publish`。
 9. `verify-feed`（ubuntu，`needs: github-release`）：`verify-update-feed.ts`，按它自己重读的最新身份分支；上传 `feed-evidence.json`。
+10. `upgrade-from-previous`（windows-2025，`needs: verify-feed`）：desktop-update 的“有了上一个正式的桌面版本以后，另用它到本次版本跑一遍场景 1”。
+   - 上一版的身份由 `gate` 定下并作为输出传下来：Release 历史里低于本次、有正式 Setup 资产的最高稳定版本（`gh release list` 加逐个读资产）。不从可变的 `latest` 推断；整轮重跑时得到同一个；没有符合条件的就跳过，证据里写明依据。
+   - 只在本次是最新时跑（`verify-feed` 重读的身份），因为它走的是真实路径：在新的 runner 上按标签地址下载上一版的 Setup、用正式标识装好，上一版先用自己的代码建状态根、作品与数据基线；它从 GitHub `latest/download` 发现本次，下载（有补丁就是补丁）、换上；之后照 `smoke-update.ts` 的取证与数据核对。
+   - 不改装好的文件：更新器按安装时记下的清单逐个核对文件来重建旧的 tar 做补丁，改了 `version.json` 会让补丁准备失败、退成完整包。
+   - 它在发布之后：失败时 Release 已经公开，作业失败、摘要写明“上一版升级到本次没有通过”，处置同 `verify-feed` 的失败（见“失败与重跑”）。本次是补发的旧版本时跳过并注明。
 
 ### 失败与重跑
 
-- **重跑失败的作业**（同一轮）：成功作业的产物与输出照旧可用，不重新构建；`publish-npm` 跳过已发而字节相同的包，`github-release` 只补缺的资产、已公开的只核对，`verify-feed` 重读当前最新身份。
-- **整轮重跑**：重新构建。若第一轮已经发了本次版本的应用包或 SDK，而这次打出来的字节不同，`--plan` 失败，不会出现“npm 上是第一轮的、桌面包是第二轮的”。字节相同（打包可复现）时照常走完。
+- **重跑失败的作业**（同一轮）：成功作业的产物与输出照旧可用，不重新构建；`publish-npm` 跳过已发而字节相同的包，`github-release` 只补缺的资产、已公开的只核对，`verify-feed` 重读当前最新身份，`upgrade-from-previous` 用 `gate` 定下的同一个上一版。
+- **整轮重跑**：重新构建。第一轮已经发了的本次发布的包（按发布时间认出，见 `publish.ts` 一节），这次打出来的字节不同时 `--plan` 失败，不会出现“npm 上是第一轮的、桌面包或依赖它的包是第二轮的”。字节相同（打包可复现）时照常走完。
 - **恢复不了**（产物过了保留期或被删，而 npm 已发、Release 没有公开）：流水线不自动重建替换。按 `release-plan.json` 与 registry 只读对账，处置是提高补丁号、重打标签发一个新版本；没公开的草稿由开发者删掉。
 - 这些写进 `repository-workflow.md`。
 
@@ -273,7 +292,7 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
 
 ### 一次性准备（开发者做，写进 `repository-workflow.md`）
 
-- `nb-flock` 首发（npm 要包已经存在才能配置信任）。
+- `nb-flock` 首发（npm 要包已经存在才能配置信任）。[ADR 0052](../../../../../docs/adr/0052-non-stale-file-lock-package.md) 要求同时提高 `nb-harness` 与 `nb-story` 的版本：registry 上的 `nb-harness@0.1.1`、`nb-story@0.2.2` 还不依赖 `nb-flock`（审查者 2026-11-14 只读查过），只发 `nb-flock` 会是一个没人用的包。所以第一次发布前由开发者授权这两个包提版本，提版的改动合入后，`nb-flock` 在本机手工首发，另外两个随第一个标签经流水线发。
 - 标签规则集：`v*` 标签只允许开发者创建，禁止改指与删除。没有它，有仓库写权限的人推一个 `v*` 标签就能发布。
 - `release` Environment：部署只允许 `v*` 标签；可选加人工批准。npm 的信任绑定这个 Environment，OIDC 的主体随之是 Environment 形式。
 - npm 上每个包配置信任：仓库、`release.yml`、Environment `release`，允许的动作勾上直接发布 `npm publish`（2026-09-03 之后新建的配置缺省只允许 `npm stage publish`）。
@@ -301,15 +320,16 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
 | `docs/specs/runtime/desktop-update.md` | 证据加 Smoke 入口；Smoke 的要求不改 |
 | `docs/specs/runtime/desktop-shell.md` | 证据的 Smoke 一条改成入口与运行记录 |
 | `docs/standards/repository-workflow.md` | 见上 |
-| `docs/proposals/desktop-distribution.md` | 只追加决策记录（npm 历史标签名、整轮重跑字节不同就失败），正文不动 |
+| `docs/proposals/desktop-distribution.md` | 只追加决策记录（npm 历史标签名、整轮重跑字节不同就失败、上一版到本次在发布之后跑），正文不动 |
 
 ## 切片
 
 1. **CDP 探针**（pc-notype，不提交产品代码；2026-11-14 已做，选型成立，[cdp-probe-r1.txt](evidences/cdp-probe-r1.txt)）。
 2. **门禁与发布脚本**：`tag.ts`、`publish.ts` 的 `--plan` 与 `--ci`、`github-release.ts`、`verify-update-feed.ts`、单测。验证：`bun test scripts/release`、`bunx tsc -p scripts`（按 scripts 的 tsconfig）、`governance:check`。另加一条只读的端到端检查：只有源码检出与下载的 `dist/release/`、没有生成目录时，`publish.ts --ci` 走到“要发哪些”为止不出错（不真的发）。
-3. **检查完成的诊断**：`update.ts` 与适配层的一行日志。验证：`bun test src/desktop`。
+3. **两条诊断**：`update.ts` 的 `desktop.update.checked`、`shell.ts` 的 `desktop.server.stopped`。验证：`bun test src/desktop`。
 4. **Windows 冒烟脚本**：`smoke-windows.ts`、`smoke-update.ts`。在 pc-notype 上用本分支做的三个变体跑：
-   - 先验两件前提：复制一份 `desktop/` 单独构建；改装好的 `version.json` 更新源被更新器接受（用 t10 留下的测试安装）；
+   - 先验两件前提：复制一份 `desktop/` 单独构建；从 tar.zst 解压出的目录加便携标记能作为便携版运行；
+   - 换上后更新器拉起的 B′ 用 UI 自动化读得到“已更新到”，按 PID 关掉后带调试端口重新启动能连上；
    - 安装版、便携版：测试应用标识，`--state-root` 放 `%USERPROFILE%\nb-w00046\t11\` 下，不碰缺省状态根；
    - 更新冒烟：测试应用标识，用缺省状态根（与 t10 相同，开发者当时定直接用已有的 `%LOCALAPPDATA%\NeuroBook`；记进待确认清单）。冒烟建的作品在结束时经应用移出书架；前后对照顶层清单与 `projects.json`；
    - 证据 `evidences/windows-smoke-r1.txt`；顺带重跑 t10 没在 Windows 上重跑的相对路径与无盘符路径的拒绝。
@@ -328,7 +348,8 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
 | 发布后 registry 核对 | `registry-smoke` 作业 |
 | 提案 4.8 Release（草稿、只补缺、摘要、最新） | `github-release.test.ts`；第一次真实运行 |
 | desktop-shell 的 Smoke | `smoke-windows.ts` |
-| desktop-update 的 Smoke 场景 1、2，上一版到本次 | `smoke-update.ts` |
+| desktop-update 的 Smoke 场景 1、2 | `smoke-update.ts` |
+| desktop-update 的 Smoke 上一版到本次 | `upgrade-from-previous` 作业；第一次发布没有上一版，跳过 |
 | t10 交下来的发布完成门禁 | `verify-update-feed.ts`；`verify-feed` 作业与 `feed-evidence.json` |
 
 ## 验证
@@ -340,7 +361,9 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
   - GitHub runner 上 `connectOverCDP` 是否同样可用（t01 证明窗口能起、能关）；
   - trusted publishing 与 Environment 形式的 OIDC 主体；
   - 重跑失败的作业时，下载得到前一次尝试的产物；
-  - `latest/download` 的重定向。
+  - `latest/download` 的重定向；
+  - runner 上 UI 自动化读得到 WebView 窗口里的文字；
+  - `upgrade-from-previous`：第一次发布没有上一版，要到第二个桌面版本才第一次跑。
 
 ## 不做与风险
 

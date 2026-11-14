@@ -52,4 +52,4 @@ updated: 2026-11-14
 | [t08](tasks/t08-desktop-shell/README.md) | Electrobun 桌面壳。已完成，合入 master；desktop-shell 已晋升 implemented |
 | [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。已完成，合入 master |
 | [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。已完成，合入 master；desktop-update 已晋升 implemented |
-| [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。计划 r2（设计审查第 1 轮已处理），实施中 |
+| [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。计划 r3（设计审查两轮已处理），实施中 |

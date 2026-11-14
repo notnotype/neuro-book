@@ -29,6 +29,16 @@ release.yml：标签与产品版本一致性、标签提交上调用可复用的
 - 加发布后的 registry 核对；正式发布排队用 `queue: max`；一次性准备加标签规则集、Environment 的标签限制与 npm 信任的 2 天时限。
 - 新增待确认 5 行。
 
+2026-11-14：设计审查第 2 轮（omp）有效 14 条（阻断 1、重要 12、次要 1），都成立，计划改成 r3（[报告](evidences/design-review-r2-omp.txt)、[处理](evidences/design-review-r2-omp-disposition.txt)）。要点：
+- 便携 zip 改从完整包解压出的应用目录打；
+- 发布计划按 npm 上的发布时间区分本次发布与历史包；
+- 发布完成门禁校验 v2 清单的解压后摘要，按 SHA256SUMS 列补丁；
+- “上一版到本次”移到发布之后的 `upgrade-from-previous` 作业，走真实路径；
+- 更新冒烟各段之间收掉壳；换上后第一次启动用 UI 自动化取证，之后带调试端口重新启动；
+- 加 `desktop.server.stopped` 诊断作服务端有序停止的正向证据；
+- `nb-flock` 首发前要开发者授权 `nb-harness`、`nb-story` 提版。
+- 不再开第 3 轮设计审查：余下的不确定点都排在切片 4 的 pc-notype 先验里。新增待确认 2 行。
+
 ## 下一步
 
 切片 2：`tag.ts`、`publish.ts` 的 `--plan` 与 `--ci`、`github-release.ts`、`verify-update-feed.ts` 与单测（Work worktree）。
