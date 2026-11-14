@@ -211,6 +211,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Markdown 展示器 | [`ui/markdown-display.md`](ui/markdown-display.md) | `nb-markdown` 包：只读显示、与编辑器一致的方言外观、交互出口、流式更新与释放、长对话性能、宿主接口 |
 | 写给 Agent 的编辑组件 | [`ui/prompt-editor.md`](ui/prompt-editor.md) | `nb-markdown` 包：Composer 的编辑组件与已发送消息的静态显示：文字写法、小块、触发菜单、粘贴分档、附件、输入历史 |
 | 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | 挂载前建立窗口运行实例、引导接口、RPC 首连与断线重连、多窗口隔离、项目绑定与可分离边界；按需激活、插件集合订阅与热插拔联动、鉴权与第三方浏览器入口标 `(planned)` |
+| 桌面壳 | [`runtime/desktop-shell.md`](runtime/desktop-shell.md) | Windows 桌面版：桌面锁与开窗转交、连接服务端、窗口与导航、关闭前询问（壳一侧）、三态停止、异常、便携版的状态根 |
 | 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | 跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环、进程间链路 |
 | 剧情图谱：内置问答 | [`story/qa.md`](story/qa.md) | 一问一个 Agent、查询工具、作答工具的校验与退回、`nbstory ask` 与问答记录、`nbstory config`、回归门槛 |
 | 剧情图谱：导入原文并抽取 | [`story/ingest.md`](story/ingest.md) | TXT 切章、逐章抽取、随抽随看、停止与接着抽、追加新章、进度 |
@@ -261,7 +262,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 世界引擎：作者界面（设定侧） | [`canon/author-ui.md`](canon/author-ui.md) | 条目树、条目页（位置与按计划、文字与数据分页、来历、情节）、数据分页的贡献点、就地改与记一笔、新建与删除、回执页、变更详情页、待处理与改动记录、状态栏计数、读取的新鲜度与失败的呈现 |
 | 图像提示词 | [`images/prompt.md`](images/prompt.md) | 项与数值权重、NovelAI 与 SD 两种读法、规范写法与原文的保留、随机项与图中文字、按空行切段、语法检查与一键改 |
 | 图像配方 | [`images/recipes.md`](images/recipes.md) | 配方、预设、片段、风格组合四种文件；节与角色框；预设的引用加差异、更新与换预设；本书默认；我的预设库与官方预设；展开、内容快照与恢复；id 索引与重复 id |
-| 桌面壳 | [`runtime/desktop-shell.md`](runtime/desktop-shell.md) | Windows 桌面版：桌面锁与开窗转交、连接服务端、窗口与导航、关闭前询问（壳一侧）、三态停止、异常、便携版的状态根 |
 | 桌面版的更新 | [`runtime/desktop-update.md`](runtime/desktop-update.md) | 检查、只升不降、提示与下载、下次启动换上与安装级排他、便携版只提示 |
 
 ## 旧应用的规范与 Reference（只作参照）
