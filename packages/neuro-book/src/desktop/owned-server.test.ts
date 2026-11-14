@@ -6,6 +6,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {readFile, rm, writeFile} from "node:fs/promises";
+import {createServer} from "node:net";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -72,6 +73,22 @@ describe("自有服务端", () => {
         const again = start({stateRoot: root, ports: ready.ports});
         const reStarted = await again.started;
         expect(reStarted).toMatchObject({kind: "ready", ports: ready.ports});
+    }, 60_000);
+
+    it("上一次的端口被别的程序占着时重新启动失败，说明是哪个端口", async () => {
+        const root = nextRoot();
+        const first = start({stateRoot: root});
+        const ready = await first.started;
+        if (ready.kind !== "ready") throw new Error(JSON.stringify(ready));
+        await first.stop();
+        const holder = createServer();
+        await new Promise<void>((resolve) => holder.listen(ready.ports.http, "127.0.0.1", resolve));
+        try {
+            const outcome = await start({stateRoot: root, ports: ready.ports}).started;
+            expect(outcome).toMatchObject({kind: "failed", detail: expect.stringContaining(`端口 ${String(ready.ports.http)} 被别的程序占用`)});
+        } finally {
+            await new Promise<void>((resolve) => holder.close(() => resolve()));
+        }
     }, 60_000);
 
     it("自己的服务端被抢先认领（nbook start 先认领了）：交回 taken 与那个实例，不当作崩溃", async () => {

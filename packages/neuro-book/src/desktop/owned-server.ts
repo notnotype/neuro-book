@@ -13,6 +13,7 @@
  * 不交回（输出 19：不放桌面锁）。
  */
 
+import {createServer} from "node:net";
 import {join} from "node:path";
 
 import {spawnOwnedProcess} from "@notnotype/owned-process";
@@ -130,6 +131,8 @@ export function startOwnedServer(options: OwnedServerOptions): OwnedServer {
                 // 自己退出了：看看状态根上是不是别人的实例（被抢先认领）。
                 const after = await queryNeuroBook(options.stateRoot);
                 if (after.state === "running" && after.instance.pid !== pid) return {kind: "taken", instance: after.instance};
+                const busy = options.ports === undefined ? [] : await busyPorts([options.ports.http, options.ports.rpc]);
+                if (busy.length > 0) return {kind: "failed", exitCode: outcome.exitCode, detail: `端口 ${busy.join("、")} 被别的程序占用，服务端没能启动`};
                 return {kind: "failed", exitCode: outcome.exitCode, detail: "服务端在就绪前退出"};
             }
             await new Promise<void>((resolve) => at(clock, clock.now() + READY_POLL_MS, resolve));
@@ -163,6 +166,23 @@ export function startOwnedServer(options: OwnedServerOptions): OwnedServer {
     };
 
     return {started, ended, onUnexpectedExit: (listener) => unexpected.push(listener), stop};
+}
+
+/**
+ * 重新启动服务时给定的端口里，此刻在回环地址上已被占用的那些（输出 21 要说明“端口被占用”）。服务端自己退出之后再试着监听：
+ * 它的端口已经放掉，还监听不了就是别人占着。不读服务端输出的文字（输出 5）。只判 `EADDRINUSE`；别的监听错误不当作占用。
+ */
+async function busyPorts(ports: ReadonlyArray<number>): Promise<number[]> {
+    const busy: number[] = [];
+    for (const port of ports) {
+        const inUse = await new Promise<boolean>((resolve) => {
+            const probe = createServer();
+            probe.once("error", (error: NodeJS.ErrnoException) => resolve(error.code === "EADDRINUSE"));
+            probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(false)));
+        });
+        if (inUse) busy.push(port);
+    }
+    return busy;
 }
 
 /**

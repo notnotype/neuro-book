@@ -16,10 +16,13 @@ export const PRELOAD = `(() => {
     try { window.__electrobunSendToHost(message); } catch (error) { console.error("nbook-desktop bridge", error); }
   };
   const absolute = (url) => { try { return new URL(String(url), location.href).href; } catch { return null; } };
+  // 交给壳之后没有真正的窗口对象可交回；返回 null 会让页面当作“被浏览器拦截”（boot.ts 的 openExternal 据此提示），
+  // 所以交回一个什么都不做的替身。地址无效、没交给壳时才返回 null。
   window.open = function (url) {
     const href = url === undefined || url === null || url === "" ? null : absolute(url);
-    if (href !== null) send({type: "open-window", url: href});
-    return null;
+    if (href === null) return null;
+    send({type: "open-window", url: href});
+    return {closed: false, opener: null, close() {}, focus() {}, blur() {}};
   };
   document.addEventListener("click", (event) => {
     if (event.defaultPrevented || event.button !== 0) return;
