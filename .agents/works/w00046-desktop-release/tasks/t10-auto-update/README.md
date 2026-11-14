@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t10-auto-update
 status: active
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 # 桌面版自动更新
@@ -33,6 +33,14 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 
 2026-11-14：开发者定 Windows 验收直接用 pc-notype 上已有的 `%LOCALAPPDATA%\NeuroBook`（里面没有要保护的真实数据），计划“验证”一节已改。
 
+切片 2 `0d28ccb62`：
+- 核心分两个文件：`src/desktop/update.ts` 是运行中的控制器（检查、只升不降、下载绑定目标、页面选择的判定）；`src/desktop/update-install.ts` 是安装级的状态文件、安装锁、启动时换上与对账。
+- 结果文件的校验（照 Electrobun 2.0.6 的 `scanNativeUpdateResults` 与 `validateNativeUpdateResult`）放在核心的 `scanApplyResults`，适配层只调用它。这样能在 Linux 上测，与计划“适配层自己读”的写法不同，规则不变。
+- 壳：取桌面锁之前换上并登记在用（共享锁）；拿不到共享锁时启动页报“另一个 NeuroBook 正在更新”；取锁后对账；进入运行中启动控制器，停止中封住它，放锁前关掉它。退出请求只在取锁之前放行（`acceptsQuit`，适配层在切片 4 接）。
+- 窗口协调器：按焦点与就绪交付提示，持有窗口关掉、刷新、离开就绪时转交。
+- 验证：`bun test src/desktop` 81 条通过；类型检查与 `governance:check` 通过。7 处关键规则做了变异核对：6 处被测试抓到；1 处没被抓到，是因为“正在关的窗口不选”被另一处判断重复保证，这处多余的判断已删掉。
+- 2 条新的产品取舍记进了待确认清单：“打开下载页”后不再提示同一版本；一次性通知优先。
+
 ## 下一步
 
-切片 2：核心 `update.ts`（控制器、`applyAtStartup`、`reconcileAtStartup`）、`shell.ts` 接入、`windows.ts` 的提示交付。
+切片 3：桥与页面（更新提示的消息、页面就绪与离开、通知门禁、`desktop-updates.ts`、文案、e2e）。
