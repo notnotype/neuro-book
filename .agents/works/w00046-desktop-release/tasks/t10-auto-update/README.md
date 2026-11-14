@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t10-auto-update
-status: active
+status: completed
 updated: 2026-11-14
 ---
 
@@ -71,9 +71,9 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
   - 已知作废就不写 attempt。
 - 验证：`bun test src/desktop` 90 条、`desktop-updates` 单测 8 条、类型检查（tsc 与 web 的 vue-tsc），e2e `desktop-update`、`desktop-close` 7 条通过。
 
+2026-11-14 合入 master（`18b494dc7`），合入后 `governance:check` 通过。构建用的 worktree `w00046-t10-build` 与审查 worktree 已删，pc-notype 上的本地更新源已停。测试包（应用标识 `io.github.notnotype.neurobook.t10test`）还装在 pc-notype 上，留给 t11 的 Windows 冒烟用。
+
 ## 下一步
 
-收口：
-- 合入 master；
-- 删掉构建用的 worktree `w00046-t10-build`；
-- 停掉 pc-notype 上的本地更新源。
+- `runtime/desktop-update` 是否晋升为 `implemented`，交开发者定。证据是 Windows 验收第 1 轮；发布流水线的 Smoke 要等 t11。
+- 相对路径的 `NBOOK_STATE_ROOT` 修正后没有在 Windows 上重跑，并入 t11 的 Windows 冒烟时顺带确认启动页。

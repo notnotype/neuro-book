@@ -51,5 +51,5 @@ updated: 2026-11-14
 | [t07](tasks/t07-managed-entry-payload/README.md) | 应用包托管入口与桌面载荷组装。已完成 |
 | [t08](tasks/t08-desktop-shell/README.md) | Electrobun 桌面壳。已完成，合入 master；desktop-shell 已晋升 implemented |
 | [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。已完成，合入 master |
-| [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。切片 1 到 5 完成（Windows 验收第 1 轮通过），收口审查中 |
+| [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。已完成，合入 master；desktop-update 是否晋升待开发者定 |
 | [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。计划初稿，待设计审查 |
