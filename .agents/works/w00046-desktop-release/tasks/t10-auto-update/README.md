@@ -17,8 +17,14 @@ Electrobun Updater 接 GitHub Releases：后台检查与提示、下载前核对
 
 2026-11-13：
 - 页面一侧的设计审查（Sonnet）8 条，均改（[报告](evidences/design-review-r1-sonnet.txt)、[处理](evidences/design-review-r1-sonnet-disposition.txt)）。
-- 壳与更新器的设计审查（omp）17 条，阻断 3 条（[报告](evidences/design-review-r1-omp.txt)、[处理](evidences/design-review-r1-omp-disposition.txt)）。阻断三条指向同一个上游问题：Spec 要求的“安装独占保持到新版本接手”，Electrobun 2.0.6 的原生 helper 做不到。**停下等开发者定方向**，未开始实施。
+- 壳与更新器的设计审查（omp）17 条，阻断 3 条（[报告](evidences/design-review-r1-omp.txt)、[处理](evidences/design-review-r1-omp-disposition.txt)）。阻断三条指向同一个上游问题：Spec 要求的“安装独占保持到新版本接手”，Electrobun 2.0.6 的原生 helper 做不到。停下交开发者定方向。
+
+2026-11-14：开发者选方向 A，即改 Spec，靠更新器的 helper 与 Windows 的文件占用：
+- 壳只在没有别的壳在用时才发起换上；
+- 换上期间又有人打开旧程序时，这次换上失败、还原，通知“更新没有完成”，下次再试。
+
+Spec desktop-update 已随之修改（术语“安装的使用与换上”、输出 4、7、8，时序、失败表与场景 4）。计划按这个方向与 omp 的另外 14 条修订后，交第二轮设计审查。
 
 ## 下一步
 
-开发者在几个方向里选一个（见交付汇报），之后按方向修订 Spec 与计划，重新审查，再实施。
+计划第二轮设计审查（omp），处理后按切片实施；Windows 验收要等 pc-notype 恢复。
