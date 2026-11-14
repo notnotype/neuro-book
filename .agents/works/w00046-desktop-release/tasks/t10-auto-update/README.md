@@ -27,6 +27,8 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 
 2026-11-14：第二轮设计审查（omp）10 条，阻断 3 条，全部成立、均改进计划（[报告](evidences/design-review-r2-omp.txt)、[处理](evidences/design-review-r2-omp-disposition.txt)）：状态文件改单写者、换上终态读更新器的结果文件、拿不到共享锁不启动、下载结果按 `updateInfo` 判断、版本来源改为 `PRODUCT_VERSION`。交第三轮（最后一轮）设计审查。
 
+2026-11-14：第三轮设计审查（omp）3 条重要、没有阻断，均成立、已改进计划（[报告](evidences/design-review-r3-omp.txt)、[处理](evidences/design-review-r3-omp-disposition.txt)）：未对账时运行中每 30 秒重判，进行中与否看换上程序的进程而不是 10 分钟墙钟，验收前确认缺省状态根不存在。满三轮仍有实质问题，停下等开发者决定实施还是再审一轮。
+
 ## 下一步
 
-计划第三轮设计审查（omp），处理后按切片实施；第三轮仍有实质问题就停下交开发者；Windows 验收要等 pc-notype 恢复。
+等开发者决定：按修订后的计划实施，或再审一轮；Windows 验收要等 pc-notype 恢复。
