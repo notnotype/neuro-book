@@ -31,6 +31,8 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 
 切片 1 `4bc20008f`：nb-flock 的共享锁。本包测试 6 条、类型检查，使用方的锁测试（nb-harness 日志 32 条、nb-story 669 条、Skill 安装 8 条）通过；Windows 上用真实子进程核对了四种关系（两个共享共存、共享挡独占、独占挡共享、持有者退出后可拿）。随 t08、t09 一起合入 master（`fe4560370`）。
 
+2026-11-14：开发者定 Windows 验收直接用 pc-notype 上已有的 `%LOCALAPPDATA%\NeuroBook`（里面没有要保护的真实数据），计划“验证”一节已改。
+
 ## 下一步
 
 切片 2：核心 `update.ts`（控制器、`applyAtStartup`、`reconcileAtStartup`）、`shell.ts` 接入、`windows.ts` 的提示交付。
