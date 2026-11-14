@@ -33,6 +33,8 @@ Windows 实测第 1 轮（[证据](evidences/windows-shell-r1.txt)，只用 UI �
 
 实现审查第 1 轮（omp）报 9 条（阻断 1、重要 8），均成立、均改（[报告](evidences/impl-review-r1-omp.txt)、[处理](evidences/impl-review-r1-disposition.txt)）。修正提交 `9c73f22e6`、`0060cb892`、`fcc04a4b7`，Work 分支上桌面核心、桥与询问的 51 条测试、认领 17 条、类型检查、打包与治理检查通过。
 
+Windows 实测第 2 轮（2026-11-14，[证据](evidences/windows-shell-r2.txt)）：关最后一个窗口与 Alt+F4、服务端意外退出与重新启动、页面卡死的强制关闭、最后一次关闭中再打开（取消与同意）、页面请求的新窗口、便携版挪目录都通过，与 t09 联合验收。发现两处并修正（`ce39a6f0a`）：重新启动服务时端口被占用只说“服务端在就绪前退出”，改为说明被占用的端口；预加载的 `window.open` 返回 null 让页面误报“弹出窗口被拦截”，改为返回替身。外链交系统浏览器只有间接证据，待开发者看一眼。
+
 ## 下一步
 
-pc-notype 恢复后用新构建跑 Windows 实测第 2 轮：上面剩下的项、审查修正里只能在 Windows 上验的第 1、4、6、8 条，并与 t09 联合验收；之后合入 master。
+与 t09 一起合入 master，Spec 补实现合同。

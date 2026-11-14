@@ -21,7 +21,7 @@ updated: 2026-11-13
 - 前端（Sonnet）6 条：修正 `538376667`，[报告](evidences/impl-review-r1-sonnet.txt)、[处理](evidences/impl-review-r1-sonnet-disposition.txt)；
 - 服务端与 t08 修正（omp）6 条：修正 `a3d8006ca`，[报告](evidences/impl-review-r1-omp.txt)、[处理](evidences/impl-review-r1-omp-disposition.txt)。
 
-剩下 Windows 联合验收。
+Windows 联合验收（2026-11-14，与 t08 第 2 轮一起，[证据](../t08-desktop-shell/evidences/windows-shell-r2.txt)）：关最后一个窗口的 quit、编辑中关窗（取消、全部保存）、页面卡死、最后一次关闭中再打开都通过；有工作在跑时关窗（场景 7）要真实的 Agent 会话，没在 Windows 上做。
 
 设计审查两份，发现都成立、照改：
 - 前端（Sonnet）13 条：[报告](evidences/design-review-r1-sonnet.txt)、[处理](evidences/design-review-r1-sonnet-disposition.txt)；
@@ -49,8 +49,4 @@ updated: 2026-11-13
 
 ## 下一步
 
-1. pc-notype 恢复后，Windows 实测第 2 轮：
-   - t08 剩下的项；
-   - t08 修正里只能在 Windows 上验的几条；
-   - desktop-shell 场景 5、6、7，即与 t09 联合验收。
-2. 合入 master 时同步改 Spec：去掉 planned，补实现合同。
+与 t08 一起合入 master，Spec 补实现合同。
