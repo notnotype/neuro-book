@@ -100,6 +100,12 @@ export class DesktopShell {
     /** 在用这份安装的登记（共享锁）；放桌面锁之后才放。 */
     #installUse: {release(): void} | null = null;
     #updates: UpdateController | null = null;
+    /**
+     * 还在进行的启动时换上（`applyAtStartup`）或启动对账（`reconcileAtStartup`）：它们在锁下读写状态文件，放锁之前要等它们
+     * 结算（单写者，`update-install.ts` 的模块头）。两者都不等用户操作，很快结算；等用户点按钮的启动错误不在内，否则从错误页
+     * 点“退出”会等自己。
+     */
+    #updateStartupStep: Promise<unknown> = Promise.resolve();
 
     constructor(options: ShellOptions) {
         this.#options = options;
@@ -256,15 +262,19 @@ export class DesktopShell {
         if (updates === undefined || channelRoot === null) return true;
         const auto = this.#autoUpdates(source);
         if (auto !== null) {
-            const outcome = await applyAtStartup({
+            const applying = applyAtStartup({
                 channelRoot,
                 updater: updates.updater,
                 state: auto.state,
                 newer: isNewer,
                 now: () => this.#options.clock.now(),
+                // 启动中关掉了启动页（输出 23）：这次启动已作废，还没交给更新器的就不再交。
+                cancelled: () => this.#finishing,
                 onApplying: (version) => this.#options.ports.startupView({kind: "updating", version}),
                 report: this.#options.report,
             });
+            this.#updateStartupStep = applying;
+            const outcome = await applying;
             if (outcome === "exiting") {
                 // 更新器正在结束这个进程，由它启动新版本接着完成这次启动；壳什么都不再做。
                 this.#finishing = true;
@@ -292,10 +302,14 @@ export class DesktopShell {
         const updates = this.#options.updates;
         if (updates === undefined) return;
         const auto = this.#autoUpdates(source);
-        const mode: UpdateMode =
-            auto === null
-                ? {kind: "notify-only", envRoot: source === "env"}
-                : {kind: "auto", state: auto.state, initial: await reconcileAtStartup(auto.state, updates.updater, this.#options.clock.now(), this.#options.report)};
+        let mode: UpdateMode = {kind: "notify-only", envRoot: source === "env"};
+        if (auto !== null) {
+            const reconciling = reconcileAtStartup(auto.state, updates.updater, this.#options.clock.now(), this.#options.report);
+            this.#updateStartupStep = reconciling;
+            mode = {kind: "auto", state: auto.state, initial: await reconciling};
+        }
+        // 对账期间已开始退出：放锁之后不能再有写状态文件的控制器。
+        if (this.#finishing) return;
         this.#updates = new UpdateController({
             mode,
             updater: updates.updater,
@@ -455,8 +469,12 @@ export class DesktopShell {
         }
     }
 
-    /** 先关更新控制器（它在桌面锁下写状态文件），再放桌面锁，最后放安装的登记（共享锁要比桌面锁持有得久，见 `update-install.ts`）。 */
+    /**
+     * 先等启动时的换上与对账、关更新控制器（它们在锁下写状态文件），再放桌面锁，最后放安装的登记（共享锁要比桌面锁持有得久，
+     * 见 `update-install.ts`）。
+     */
     async #releaseAndExit(code: number): Promise<void> {
+        await this.#updateStartupStep;
         await this.#updates?.close();
         await this.#lock?.release();
         this.#lock = null;

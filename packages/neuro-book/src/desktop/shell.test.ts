@@ -19,7 +19,7 @@ import {acquireDesktopLock, askRunningShell} from "./lock";
 import {DesktopShell, readUncleanStop} from "./shell";
 import type {ShellUpdates, StartupView} from "./shell";
 import {EMPTY_UPDATE_STATE, UPDATE_STATE_FILE, fileUpdateState} from "./update-install";
-import type {UpdaterPort, UpdateState} from "./update-install";
+import type {ApplyResult, UpdaterPort, UpdateState} from "./update-install";
 import type {CloseReason, WindowId, WindowPort} from "./windows";
 
 const ENTRY = join(import.meta.dir, "..", "server", "main.ts");
@@ -370,6 +370,29 @@ describe("桌面壳的更新（desktop-update 输出 8 到 10）", () => {
             child.kill();
         }
     }, 60_000);
+
+    it("取锁后对账还在读结果时关掉启动页：等对账写完才放锁、退出，之后不建控制器、不检查", async () => {
+        const root = nextRoot();
+        const channelRoot = await channel();
+        await writeState(channelRoot, {...EMPTY_UPDATE_STATE, downloaded: B, attempt: {version: B.version, hash: B.hash, from: A.hash, at: 0}});
+        let answerResults!: (results: ReadonlyArray<ApplyResult>) => void;
+        let asked = false;
+        const updater = {...fakeUpdater(), results: () => ((asked = true), new Promise<ReadonlyArray<ApplyResult>>((resolve) => (answerResults = resolve)))};
+        let checks = 0;
+        updater.check = () => ((checks += 1), Promise.resolve({ok: false, error: "offline"}));
+        const a = fakeShell(root, {...scripted, source: "default", updates: {updater, channelRoot, openDownloadPage: () => undefined}});
+        void a.shell.run();
+        await waitUntil("对账在读结果", () => asked, {timeoutMs: 10_000});
+        a.shell.windows.closeRequested(1);
+        await waitUntil("启动页关掉", () => a.open.size === 0);
+        expect(a.exitCode()).toBeNull();
+        expect((await askRunningShell(root)).kind).not.toBe("lock-free");
+        answerResults([{version: B.version, hash: B.hash, success: false, phase: "swapping", modifiedAt: 1}]);
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 10_000});
+        expect(JSON.parse((await stateText(channelRoot)) ?? "null")).toMatchObject({attempt: null, failed: [B.hash], pendingNotice: {kind: "update-failed"}});
+        expect(a.shell.updates).toBeNull();
+        expect(checks).toBe(0);
+    }, 30_000);
 
     it("单写者：设了 NBOOK_STATE_ROOT 的壳与缺省状态根的壳共用一份安装，只有后者读写状态文件；退出后共享锁放下", async () => {
         const channelRoot = await channel();

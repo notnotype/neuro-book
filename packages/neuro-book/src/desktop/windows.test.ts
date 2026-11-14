@@ -362,6 +362,35 @@ describe("更新提示的交付（desktop-update 输出 3、4）", () => {
         expect(hintCalls(calls)).toEqual([["sendHint", a, 1, HINT.hint]]);
     });
 
+    it("用户结束（“以后”）的带动作提示还留在中心里：下一个阶段到来时让那个窗口收起它；一次性通知显示后不收", () => {
+        const {coordinator, calls} = harness();
+        const a = coordinator.openWindow();
+        const b = coordinator.openWindow();
+        coordinator.focused(a);
+        coordinator.pageReady(a);
+        coordinator.pageReady(b);
+        coordinator.setUpdateHint(HINT, false);
+        coordinator.setUpdateHint(null, false);
+        coordinator.focused(b);
+        coordinator.setUpdateHint({id: 2, hint: {kind: "available", version: "0.90.3"}}, true);
+        expect(hintCalls(calls)).toEqual([
+            ["sendHint", a, 1, HINT.hint],
+            ["endHint", a, 1],
+            ["sendHint", b, 2, {kind: "available", version: "0.90.3"}],
+        ]);
+
+        const notice = harness();
+        const c = notice.coordinator.openWindow();
+        notice.coordinator.pageReady(c);
+        notice.coordinator.setUpdateHint({id: 5, hint: {kind: "downloaded", version: "0.90.2"}}, true);
+        notice.coordinator.setUpdateHint(null, false);
+        notice.coordinator.setUpdateHint({id: 6, hint: {kind: "available", version: "0.90.3"}}, true);
+        expect(hintCalls(notice.calls)).toEqual([
+            ["sendHint", c, 5, {kind: "downloaded", version: "0.90.2"}],
+            ["sendHint", c, 6, {kind: "available", version: "0.90.3"}],
+        ]);
+    });
+
     it("启动页窗口不算就绪；停止中不再交", () => {
         const {coordinator, calls, lastAsk} = harness({ready: false});
         const s = coordinator.openWindow();

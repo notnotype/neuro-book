@@ -257,9 +257,16 @@ export class UpdateController {
                 this.#emit(true);
                 return;
             }
-            // 开始下载前把已下载的那份记为被取代：更新器在准备开始之前就失败时旧文件还在，但不再换上（输出 7）。
+            // 开始下载前把已下载的那份记为被取代：更新器在准备开始之前就失败时旧文件还在，但不再换上（输出 7）。这一笔要写成功才
+            // 下载：写不成而下载失败时，下一次启动会换上用户已经放弃的那份。
             const previous = this.#state.downloaded;
-            if (previous !== null && previous.hash !== target.hash) this.#persist({...this.#state, superseded: withHash(this.#state.superseded, previous.hash)});
+            if (previous !== null && previous.hash !== target.hash && !(await this.#persistNow({...this.#state, superseded: withHash(this.#state.superseded, previous.hash)}))) {
+                if (this.#currentPhase() !== "running") return;
+                this.#setPrompt("download-failed", target);
+                this.#emit(true);
+                return;
+            }
+            if (this.#currentPhase() !== "running") return;
             this.#setPrompt("downloading", target);
             this.#emit(true);
             const result = await this.#options.updater.download(target);
@@ -325,6 +332,24 @@ export class UpdateController {
         if (port === null) return;
         this.#state = next;
         this.#writes = this.#writes.then(() => port.write(next)).catch((error: unknown) => this.#options.report("desktop.update.state-write-failed", error));
+    }
+
+    /** 同 `#persist`，并等这一笔（连同排在前面的）写完；交回是否写成功。写不成时内存里退回原来的状态，与文件一致。 */
+    async #persistNow(next: UpdateState): Promise<boolean> {
+        const port = this.#options.mode.kind === "auto" ? this.#options.mode.state : null;
+        const before = this.#state;
+        if (port === null) return false;
+        this.#state = next;
+        const written = this.#writes.then(() => port.write(next)).then(
+            () => true,
+            (error: unknown) => {
+                this.#options.report("desktop.update.state-write-failed", error);
+                if (this.#state === next) this.#state = before;
+                return false;
+            },
+        );
+        this.#writes = written.then(() => undefined);
+        return written;
     }
 
     #enqueue(task: () => Promise<void>): void {

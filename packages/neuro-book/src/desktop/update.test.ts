@@ -5,12 +5,18 @@
  */
 
 import {describe, expect, it} from "bun:test";
+import {rm, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {UpdateChoice} from "../shared/desktop-bridge";
 import type {DeadlineClock} from "./deadline";
 import {CHECK_INTERVAL_MS, isNewer, isStableVersion, RECHECK_ATTEMPT_MS, UpdateController} from "./update";
 import type {CurrentHint, UpdateMode} from "./update";
-import {EMPTY_UPDATE_STATE} from "./update-install";
+import {WindowCoordinator} from "./windows";
+import {EMPTY_UPDATE_STATE, scanApplyResults} from "./update-install";
 import type {ApplyResult, CheckResult, DownloadResult, UpdaterPort, UpdateState, UpdateTarget} from "./update-install";
 
 const A = {version: "0.90.1", hash: "hash-a"};
@@ -22,7 +28,7 @@ interface Pending<T> {
     resolve(value: T): void;
 }
 
-function harness(options: {mode?: "auto" | "notify-only"; envRoot?: boolean; initial?: UpdateState; local?: UpdateTarget} = {}) {
+function harness(options: {mode?: "auto" | "notify-only"; envRoot?: boolean; initial?: UpdateState; local?: UpdateTarget; results?: UpdaterPort["results"]; onHint?: (current: CurrentHint | null, endPrevious: boolean) => void} = {}) {
     let now = 1_000_000;
     const timers = new Set<{due: number; callback: () => void}>();
     const clock: DeadlineClock = {
@@ -42,14 +48,16 @@ function harness(options: {mode?: "auto" | "notify-only"; envRoot?: boolean; ini
         check: () => new Promise((resolve) => checks.push({resolve})),
         download: (target) => new Promise((resolve) => downloads.push({target, resolve})),
         apply: () => Promise.resolve({failed: "not used here"}),
-        results: () => Promise.resolve(results),
+        results: options.results ?? (() => Promise.resolve(results)),
         helperRunning: () => Promise.resolve(helper),
     };
     let written: UpdateState = options.initial ?? EMPTY_UPDATE_STATE;
+    let failWrites = false;
     const writes: UpdateState[] = [];
     const statePort = {
         read: () => Promise.resolve(written),
         write(state: UpdateState) {
+            if (failWrites) return Promise.reject(new Error("EACCES: read-only channel root"));
             written = state;
             writes.push(state);
             return Promise.resolve();
@@ -63,7 +71,10 @@ function harness(options: {mode?: "auto" | "notify-only"; envRoot?: boolean; ini
         mode,
         updater,
         clock,
-        onHint: (current, endPrevious) => void hints.push([current, endPrevious]),
+        onHint: (current, endPrevious) => {
+            hints.push([current, endPrevious]);
+            options.onHint?.(current, endPrevious);
+        },
         openDownloadPage: () => void (pagesOpened += 1),
         report: (event) => void events.push(event),
     });
@@ -107,6 +118,7 @@ function harness(options: {mode?: "auto" | "notify-only"; envRoot?: boolean; ini
         pagesOpened: () => pagesOpened,
         setResults: (value: ReadonlyArray<ApplyResult> | null) => void (results = value),
         setHelper: (value: boolean | null) => void (helper = value),
+        setFailWrites: (value: boolean) => void (failWrites = value),
         settle,
         advance,
         answerCheck,
@@ -447,5 +459,86 @@ describe("更新控制器", () => {
         await h.settle();
         expect(kinds(h.hints).at(-1)).toBe("available 0.90.2");
         expect(h.state().pendingNotice).toBeNull();
+    });
+
+    it("把已下载的那份记为被取代要写成功才下载：写不成时不下载，给“重试”", async () => {
+        const h = harness({initial: {...EMPTY_UPDATE_STATE, downloaded: B}});
+        h.controller.start();
+        await h.settle();
+        await h.answerCheck(h.remote(C));
+        h.setFailWrites(true);
+        await h.choose("download");
+        await h.answerCheck(h.remote(C));
+        expect(h.downloads).toHaveLength(0);
+        expect(h.state()).toEqual({...EMPTY_UPDATE_STATE, downloaded: B});
+        expect(kinds(h.hints).at(-1)).toBe("download-failed 0.90.3");
+        expect(h.events).toContain("desktop.update.state-write-failed");
+        h.setFailWrites(false);
+        await h.choose("retry");
+        await h.answerCheck(h.remote(C));
+        expect(h.state().superseded).toEqual([B.hash]);
+        expect(h.downloads).toHaveLength(1);
+    });
+
+    it("与窗口协调器合用：“以后”关掉的 B 在检查到 C 时从那个窗口的中心里收起", async () => {
+        const calls: string[] = [];
+        let coordinator!: WindowCoordinator;
+        const h = harness({onHint: (current, endPrevious) => coordinator.setUpdateHint(current, endPrevious)});
+        let nextId = 0;
+        coordinator = new WindowCoordinator({
+            port: {
+                open: () => (nextId += 1),
+                load: () => undefined,
+                commitClose: () => undefined,
+                askPage: () => undefined,
+                endAsk: () => undefined,
+                showNotResponding: () => undefined,
+                closeNotResponding: () => undefined,
+                sendHint: (id, hintId, hint) => void calls.push(`send ${String(id)} ${String(hintId)} ${hint.kind} ${hint.version}`),
+                endHint: (id, hintId) => void calls.push(`end ${String(id)} ${String(hintId)}`),
+            },
+            clock: {now: () => 0, schedule: () => () => undefined},
+            onQuit: () => undefined,
+            onAllClosed: () => undefined,
+        });
+        coordinator.serverReady("http://127.0.0.1:4217/", true);
+        const win = coordinator.openWindow();
+        coordinator.pageReady(win);
+        h.controller.start();
+        await h.settle();
+        await h.answerCheck(h.remote(B));
+        await h.choose("later");
+        await h.advance(CHECK_INTERVAL_MS);
+        await h.answerCheck(h.remote(C));
+        expect(calls).toEqual(["send 1 1 available 0.90.2", "end 1 1", "send 1 2 available 0.90.3"]);
+    });
+
+    it("真实的结果文件（Electrobun 2.0.6 的格式）驱动运行中重判：换上程序写出失败的结果后通知“更新没有完成”", async () => {
+        const dir = await createTestTmpRoot("neuro-book-desktop", "update-results");
+        try {
+            const attemptAt = 1_000_000 - 10_000;
+            const identity = {identifier: "dev.neurobook.test", channel: "stable"};
+            const h = harness({
+                local: {version: A.version, hash: "hasha"},
+                initial: {...EMPTY_UPDATE_STATE, downloaded: {version: B.version, hash: "hashb"}, attempt: {version: B.version, hash: "hashb", from: "hasha", at: attemptAt}},
+                results: () => scanApplyResults(dir, identity),
+            });
+            h.setHelper(false);
+            h.controller.start();
+            await h.settle();
+            // 发起还不到 2 分钟、没有结果：进行中。
+            await h.advance(RECHECK_ATTEMPT_MS);
+            expect(h.state().attempt).not.toBeNull();
+            const transaction = "0123456789abcdef0123456789abcdef";
+            await writeFile(join(dir, `.electrobun-update-${transaction}.result.json`), JSON.stringify({schema_version: 1, transaction_id: transaction, success: false, phase: "swapping", message: "The process cannot access the file", identifier: identity.identifier, channel: identity.channel, version: B.version, hash: "hashb"}));
+            await h.advance(RECHECK_ATTEMPT_MS);
+            // 对账读的是真实文件，不只是微任务：等可观察的结果。
+            await waitUntil("对账出终态", () => h.state().attempt === null);
+            await waitUntil("发出通知", () => h.hints.length > 0);
+            expect(h.state()).toMatchObject({attempt: null, failed: ["hashb"], pendingNotice: {kind: "update-failed", version: B.version}});
+            expect(kinds(h.hints)).toEqual(["update-failed 0.90.2"]);
+        } finally {
+            await rm(dir, {recursive: true, force: true});
+        }
     });
 });

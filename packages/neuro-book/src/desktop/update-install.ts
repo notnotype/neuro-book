@@ -155,6 +155,8 @@ export interface ApplyAtStartupOptions {
     readonly state: UpdateStatePort;
     readonly newer: (version: string, than: string) => boolean;
     readonly now: () => number;
+    /** 这次启动已作废（启动中关掉了启动页）：还没交给更新器就不再交，放下独占、不记失败。 */
+    readonly cancelled: () => boolean;
     /** 拿到独占、确定要换时调用：启动页显示“正在更新到 <版本>”。 */
     readonly onApplying: (version: string) => void;
     readonly report: (event: string, error: unknown) => void;
@@ -193,6 +195,13 @@ export async function applyAtStartup(options: ApplyAtStartupOptions): Promise<"e
     } catch (error) {
         // 记不下发起过就不发起：之后没法对账。
         options.report("desktop.update.attempt-write-failed", error);
+        exclusive.release();
+        return "continue";
+    }
+    // 取消只在交给更新器之前看一次：在这之前的几步都是很快的文件操作。
+    if (options.cancelled()) {
+        // 写了 attempt 却不发起：清掉它，免得下一次启动等一个不存在的换上程序。
+        await options.state.write(state).catch((error: unknown) => options.report("desktop.update.state-write-failed", error));
         exclusive.release();
         return "continue";
     }

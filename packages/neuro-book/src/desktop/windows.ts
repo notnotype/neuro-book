@@ -50,6 +50,9 @@ export interface WindowCoordinatorOptions {
     readonly onAllClosed: () => void;
 }
 
+/** 带动作的提示：用户关掉之后，它的动作还留在通知中心里。 */
+const ACTIONABLE_HINTS: ReadonlySet<UpdateHint["kind"]> = new Set(["available", "notify-only", "download-failed"]);
+
 /** 页面接下询问的截止（输出 14）。 */
 export const ACK_MS = 3_000;
 
@@ -89,6 +92,11 @@ export class WindowCoordinator {
     #hint: {readonly id: number; readonly hint: UpdateHint} | null = null;
     /** 当前提示交给了哪个窗口；null 是还没有就绪的窗口可交，等。 */
     #hintHolder: WindowId | null = null;
+    /**
+     * 被用户结束（“以后”、打开下载页）的带动作的提示：控制器清掉了它，但它还留在那个窗口的通知中心里，动作照样能点
+     * （desktop-update 场景 7）。下一个阶段到来时让那个窗口收起它，否则中心里留着旧版本的动作。
+     */
+    #lingeringHint: {readonly id: number; readonly holder: WindowId} | null = null;
     #focusSequence = 0;
 
     constructor(options: WindowCoordinatorOptions) {
@@ -238,7 +246,14 @@ export class WindowCoordinator {
     setUpdateHint(current: {readonly id: number; readonly hint: UpdateHint} | null, endPrevious: boolean): void {
         const previous = this.#hint;
         const holder = this.#hintHolder;
-        if (endPrevious && previous !== null && holder !== null && this.#windows.has(holder)) this.#options.port.endHint(holder, previous.id);
+        if (endPrevious) {
+            if (previous !== null && holder !== null && this.#windows.has(holder)) this.#options.port.endHint(holder, previous.id);
+            const lingering = this.#lingeringHint;
+            if (lingering !== null && this.#windows.has(lingering.holder)) this.#options.port.endHint(lingering.holder, lingering.id);
+            this.#lingeringHint = null;
+        } else if (current === null && previous !== null && holder !== null && ACTIONABLE_HINTS.has(previous.hint.kind)) {
+            this.#lingeringHint = {id: previous.id, holder};
+        }
         this.#hint = current;
         this.#hintHolder = null;
         if (current !== null) this.#deliverHint();

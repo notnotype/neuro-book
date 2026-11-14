@@ -9,10 +9,12 @@ import {chmod, mkdir, readFile, rm, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import type {Subprocess} from "bun";
 
 import {systemClock} from "./deadline";
-import {isNewer} from "./update";
+import {isNewer, UpdateController} from "./update";
+import type {CurrentHint} from "./update";
 import {ATTEMPT_GRACE_MS, EMPTY_UPDATE_STATE, UPDATE_STATE_FILE, acquireInstallUse, applyAtStartup, applyOutcome, fileUpdateState, reconcileAtStartup, scanApplyResults, settleAttempt} from "./update-install";
 import type {ApplyResult, UpdaterPort, UpdateState} from "./update-install";
 
@@ -87,7 +89,7 @@ describe("启动时换上", () => {
             const root = await nextChannelRoot();
             await writeState(root, state);
             let applied = false;
-            const outcome = await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state: fileUpdateState(root, () => undefined), newer: isNewer, now: () => 0, onApplying: () => undefined, report: () => undefined});
+            const outcome = await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state: fileUpdateState(root, () => undefined), newer: isNewer, cancelled: () => false, now: () => 0, onApplying: () => undefined, report: () => undefined});
             expect(outcome).toBe("continue");
             expect(applied).toBe(false);
         }
@@ -98,7 +100,7 @@ describe("启动时换上", () => {
         await writeState(root, {...EMPTY_UPDATE_STATE, downloaded: B});
         expect((await holder(root, "shared")).held).toBe(true);
         let applied = false;
-        const outcome = await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state: fileUpdateState(root, () => undefined), newer: isNewer, now: () => 0, onApplying: () => undefined, report: () => undefined});
+        const outcome = await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state: fileUpdateState(root, () => undefined), newer: isNewer, cancelled: () => false, now: () => 0, onApplying: () => undefined, report: () => undefined});
         expect(outcome).toBe("continue");
         expect(applied).toBe(false);
         expect(await readState(root)).toEqual({...EMPTY_UPDATE_STATE, downloaded: B});
@@ -120,7 +122,7 @@ describe("启动时换上", () => {
             write: real.write,
         };
         let applied = false;
-        const outcome = await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state, newer: isNewer, now: () => 0, onApplying: () => undefined, report: () => undefined});
+        const outcome = await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state, newer: isNewer, cancelled: () => false, now: () => 0, onApplying: () => undefined, report: () => undefined});
         expect(outcome).toBe("continue");
         expect(applied).toBe(false);
         expect((await holder(root, "exclusive")).held).toBe(true);
@@ -139,6 +141,7 @@ describe("启动时换上", () => {
             }),
             state: fileUpdateState(root, () => undefined),
             newer: isNewer,
+            cancelled: () => false,
             now: () => 12_345,
             onApplying: (version) => void applying.push(version),
             report: () => undefined,
@@ -154,7 +157,7 @@ describe("启动时换上", () => {
         const root = await nextChannelRoot();
         await writeState(root, {...EMPTY_UPDATE_STATE, downloaded: B});
         const events: string[] = [];
-        const options = {channelRoot: root, state: fileUpdateState(root, () => undefined), newer: isNewer, now: () => 1, onApplying: () => undefined, report: report(events)};
+        const options = {channelRoot: root, state: fileUpdateState(root, () => undefined), newer: isNewer, cancelled: () => false, now: () => 1, onApplying: () => undefined, report: report(events)};
         expect(await applyAtStartup({...options, updater: updater(A, () => Promise.resolve({failed: "no prepared update"}))})).toBe("continue");
         expect(await readState(root)).toEqual({...EMPTY_UPDATE_STATE, downloaded: B, failed: [B.hash], pendingNotice: {kind: "update-failed", version: B.version, forHash: A.hash}});
         expect(events).toEqual(["desktop.update.apply-failed"]);
@@ -166,11 +169,58 @@ describe("启动时换上", () => {
         expect(applied).toBe(false);
     });
 
+    it("启动已作废（启动中关掉了启动页）：不交给更新器、不记失败，放下独占", async () => {
+        const root = await nextChannelRoot();
+        await writeState(root, {...EMPTY_UPDATE_STATE, downloaded: B});
+        let cancelled = false;
+        const real = fileUpdateState(root, () => undefined);
+        // 第一次读完之后用户关掉了启动页。
+        const state = {read: async () => {
+            const value = await real.read();
+            cancelled = true;
+            return value;
+        }, write: real.write};
+        let applied = false;
+        const applying: string[] = [];
+        const outcome = await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state, newer: isNewer, cancelled: () => cancelled, now: () => 0, onApplying: (version) => void applying.push(version), report: () => undefined});
+        expect(outcome).toBe("continue");
+        expect(applied).toBe(false);
+        expect(applying).toEqual([]);
+        expect(await readState(root)).toEqual({...EMPTY_UPDATE_STATE, downloaded: B});
+        const probe = await holder(root, "exclusive");
+        expect(probe.held).toBe(true);
+        await probe.release();
+    });
+
+    it("失败名单里的那份：运行中明确重新下载并成功之后，下一次启动确实发起换上", async () => {
+        const root = await nextChannelRoot();
+        await writeState(root, {...EMPTY_UPDATE_STATE, downloaded: B, failed: [B.hash], superseded: [B.hash]});
+        const statePort = fileUpdateState(root, () => undefined);
+        const hints: Array<CurrentHint | null> = [];
+        const controller = new UpdateController({
+            mode: {kind: "auto", state: statePort, initial: await statePort.read()},
+            updater: {local: A, check: () => Promise.resolve({ok: true, ...B}), download: () => Promise.resolve({ok: true}), apply: () => Promise.resolve({failed: "not used"}), results: () => Promise.resolve([]), helperRunning: () => Promise.resolve(false)},
+            clock: systemClock,
+            onHint: (current) => void hints.push(current),
+            openDownloadPage: () => undefined,
+            report: () => undefined,
+        });
+        controller.start();
+        await waitUntil("提示可以更新", () => hints.at(-1)?.hint.kind === "available");
+        controller.choose(hints.at(-1)?.id ?? -1, "download");
+        await waitUntil("下载完成", () => hints.at(-1)?.hint.kind === "downloaded");
+        controller.stop();
+        await controller.close();
+        let applied = false;
+        expect(await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state: statePort, newer: isNewer, cancelled: () => false, now: () => 0, onApplying: () => undefined, report: () => undefined})).toBe("exiting");
+        expect(applied).toBe(true);
+    });
+
     it("有未对账的 attempt 时不再发起", async () => {
         const root = await nextChannelRoot();
         await writeState(root, {...EMPTY_UPDATE_STATE, downloaded: B, attempt: {version: B.version, hash: B.hash, from: A.hash, at: 0}});
         let applied = false;
-        expect(await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state: fileUpdateState(root, () => undefined), newer: isNewer, now: () => 0, onApplying: () => undefined, report: () => undefined})).toBe("continue");
+        expect(await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state: fileUpdateState(root, () => undefined), newer: isNewer, cancelled: () => false, now: () => 0, onApplying: () => undefined, report: () => undefined})).toBe("continue");
         expect(applied).toBe(false);
     });
 });
