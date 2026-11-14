@@ -38,6 +38,7 @@
     "wait-timeout": (d) => ["等了 60 秒还没有变化", d],
     "server-failed": (d) => ["NeuroBook 的服务没有起来", d],
     "lock-failed": (d) => ["打不开数据目录", d],
+    "install-busy": () => ["另一个 NeuroBook 正在更新", "等它更新完再打开，或者点“重试”。"],
   };
   const send = (message) => window.__electrobunSendToHost(message);
   const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };

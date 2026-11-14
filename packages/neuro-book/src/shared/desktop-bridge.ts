@@ -19,6 +19,30 @@ export const DESKTOP_EVENT = "nbook-desktop";
 
 const Generation = Type.Integer({minimum: 0});
 
+/**
+ * 更新提示（docs/specs/runtime/desktop-update.md 输出 3 到 10）：壳至多持有一条，按种类决定页面怎么显示、收什么选择。
+ * `envRoot` 只在 `notify-only` 上：这次启动设了 `NBOOK_STATE_ROOT`，正文另说明不设时可以自动更新。
+ */
+export const UpdateHintSchema = Type.Object({
+    kind: Type.Union([
+        Type.Literal("available"),
+        Type.Literal("notify-only"),
+        Type.Literal("downloading"),
+        Type.Literal("download-failed"),
+        Type.Literal("downloaded"),
+        Type.Literal("updated"),
+        Type.Literal("update-failed"),
+    ]),
+    version: Type.String({minLength: 1}),
+    envRoot: Type.Optional(Type.Boolean()),
+});
+export type UpdateHint = Static<typeof UpdateHintSchema>;
+export type UpdateHintKind = UpdateHint["kind"];
+
+/** 页面交回的选择：动作按钮（下载、重试、打开下载页）或关掉通知（“以后”）。 */
+export const UpdateChoiceSchema = Type.Union([Type.Literal("download"), Type.Literal("retry"), Type.Literal("open-page"), Type.Literal("later")]);
+export type UpdateChoice = Static<typeof UpdateChoiceSchema>;
+
 const ShellMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("close-query"), generation: Generation, reason: Type.Union([Type.Literal("window"), Type.Literal("quit")])}),
     Type.Object({type: Type.Literal("close-end"), generation: Generation}),

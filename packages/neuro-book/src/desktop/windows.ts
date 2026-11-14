@@ -9,9 +9,13 @@
  *
  * 最后一次关闭：关的是最后一个仍存活的产品窗口、服务端是自有时以 `quit` 询问。询问期间开窗转交回 `closing`、页面请求的新窗口
  * 被拒，窗口集合只会变少，所以同意时它一定还是最后一个；同意与进入停止中在同一个同步段里，中间开不出窗口。
+ *
+ * 更新提示的交付（docs/specs/runtime/desktop-update.md 输出 3、4）：当前提示由更新控制器给（`setUpdateHint`），这里为它记一个
+ * “持有窗口”。提示变化时交给最近获得焦点的就绪产品窗口；只在持有窗口关掉、刷新（又报一次就绪）、离开就绪时转给当时最近
+ * 焦点的就绪窗口；别的窗口第一次就绪时只在没有持有窗口时接手。“就绪”由页面报（`pageReady`、`pageGone`）。
  */
 
-import type {CloseReason} from "../shared/desktop-bridge";
+import type {CloseReason, UpdateHint} from "../shared/desktop-bridge";
 
 import {at} from "./deadline";
 import type {DeadlineClock} from "./deadline";
@@ -31,6 +35,10 @@ export interface WindowPort {
     endAsk(id: WindowId, generation: number): void;
     showNotResponding(id: WindowId): void;
     closeNotResponding(id: WindowId): void;
+    /** 把更新提示交给这个窗口的页面。 */
+    sendHint(id: WindowId, hintId: number, hint: UpdateHint): void;
+    /** 这条提示已被新阶段取代或转给了别的窗口：页面收起它（连通知中心里的记录）。 */
+    endHint(id: WindowId, hintId: number): void;
 }
 
 export interface WindowCoordinatorOptions {
@@ -58,6 +66,14 @@ interface WindowState {
     closing: boolean;
     ask: Ask | null;
     dialogOpen: boolean;
+    /** 页面报了就绪（界面挂好），还没报离开。 */
+    ready: boolean;
+    /** 最近一次获得焦点的序号，0 是还没获得过。 */
+    focusedAt: number;
+}
+
+function newWindowState(kind: WindowState["kind"]): WindowState {
+    return {kind, closing: false, ask: null, dialogOpen: false, ready: false, focusedAt: 0};
 }
 
 export class WindowCoordinator {
@@ -70,6 +86,10 @@ export class WindowCoordinator {
     #stopping = false;
     /** 进行中的最后一次关闭（以 `quit` 询问的那个窗口）。 */
     #lastClose: WindowId | null = null;
+    #hint: {readonly id: number; readonly hint: UpdateHint} | null = null;
+    /** 当前提示交给了哪个窗口；null 是还没有就绪的窗口可交，等。 */
+    #hintHolder: WindowId | null = null;
+    #focusSequence = 0;
 
     constructor(options: WindowCoordinatorOptions) {
         this.#options = options;
@@ -78,7 +98,7 @@ export class WindowCoordinator {
     /** 开第一个窗口（或开窗转交时再开一个）：服务端就绪了加载页面，否则显示启动页。 */
     openWindow(): WindowId {
         const id = this.#options.port.open(this.#serverUrl === null ? {kind: "startup"} : {kind: "page", url: this.#serverUrl});
-        this.#windows.set(id, {kind: this.#serverUrl === null ? "startup" : "page", closing: false, ask: null, dialogOpen: false});
+        this.#windows.set(id, newWindowState(this.#serverUrl === null ? "startup" : "page"));
         return id;
     }
 
@@ -94,7 +114,7 @@ export class WindowCoordinator {
     pageWindowRequested(url: string): boolean {
         if (this.#stopping || this.#lastClose !== null || this.#serverUrl === null) return false;
         const id = this.#options.port.open({kind: "page", url});
-        this.#windows.set(id, {kind: "page", closing: false, ask: null, dialogOpen: false});
+        this.#windows.set(id, newWindowState("page"));
         return true;
     }
 
@@ -182,7 +202,46 @@ export class WindowCoordinator {
         if (state.ask !== null) this.#endAsk(id, state, true);
         if (state.dialogOpen) this.#options.port.closeNotResponding(id);
         this.#windows.delete(id);
+        if (this.#hintHolder === id) this.#handOverHint(id);
         if (this.#windows.size === 0) this.#options.onAllClosed();
+    }
+
+    /** 窗口获得焦点。 */
+    focused(id: WindowId): void {
+        const state = this.#windows.get(id);
+        if (state === undefined) return;
+        this.#focusSequence += 1;
+        state.focusedAt = this.#focusSequence;
+    }
+
+    /** 页面的界面挂好了。持有窗口又报一次是刷新：转给当时最近焦点的就绪窗口（可能还是它）。 */
+    pageReady(id: WindowId): void {
+        const state = this.#windows.get(id);
+        if (state === undefined || state.kind !== "page" || state.closing) return;
+        state.ready = true;
+        if (this.#hint === null) return;
+        if (this.#hintHolder === id || this.#hintHolder === null) this.#deliverHint();
+    }
+
+    /** 页面离开了就绪（服务端重启、项目关闭、页面卸载）。持有窗口离开时转交，并让它收起（页面还在时它的通知还在）。 */
+    pageGone(id: WindowId): void {
+        const state = this.#windows.get(id);
+        if (state === undefined) return;
+        state.ready = false;
+        if (this.#hintHolder === id) this.#handOverHint(id);
+    }
+
+    /**
+     * 更新控制器的当前提示变了。`endPrevious` 为真时上一条被新阶段取代，持有它的窗口收起；之后把新的一条交给最近焦点的
+     * 就绪窗口。
+     */
+    setUpdateHint(current: {readonly id: number; readonly hint: UpdateHint} | null, endPrevious: boolean): void {
+        const previous = this.#hint;
+        const holder = this.#hintHolder;
+        if (endPrevious && previous !== null && holder !== null && this.#windows.has(holder)) this.#options.port.endHint(holder, previous.id);
+        this.#hint = current;
+        this.#hintHolder = null;
+        if (current !== null) this.#deliverHint();
     }
 
     get stopping(): boolean {
@@ -240,10 +299,40 @@ export class WindowCoordinator {
         const state = this.#windows.get(id);
         if (state === undefined) return;
         state.closing = true;
+        state.ready = false;
+        if (this.#hintHolder === id) this.#handOverHint(id);
         if (quit) {
             this.#stopping = true;
             this.#options.onQuit();
         }
         this.#options.port.commitClose(id);
+    }
+
+    /** 持有窗口没了或离开就绪：还在的让它收起，再转给当时最近焦点的就绪窗口。 */
+    #handOverHint(from: WindowId): void {
+        const hint = this.#hint;
+        this.#hintHolder = null;
+        if (hint === null) return;
+        const state = this.#windows.get(from);
+        if (state !== undefined && !state.closing) this.#options.port.endHint(from, hint.id);
+        this.#deliverHint();
+    }
+
+    /** 交给最近获得焦点的就绪产品窗口（正在关的在 `#commit` 里已不算就绪）；一个都没有时等下一个就绪的。停止中不再交。 */
+    #deliverHint(): void {
+        const hint = this.#hint;
+        if (hint === null || this.#stopping) return;
+        let best: WindowId | null = null;
+        let bestFocus = -1;
+        for (const [id, state] of this.#windows) {
+            if (state.kind !== "page" || !state.ready) continue;
+            // 焦点相同（都还没获得过）时取后开的。
+            if (state.focusedAt >= bestFocus) {
+                best = id;
+                bestFocus = state.focusedAt;
+            }
+        }
+        this.#hintHolder = best;
+        if (best !== null) this.#options.port.sendHint(best, hint.id, hint.hint);
     }
 }
