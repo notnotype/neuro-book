@@ -3,6 +3,10 @@
  * 关窗 → 停止 → 放锁退出。只依赖端口与时钟，Electrobun 的适配层（`packages/neuro-book/desktop/`）实现端口、把窗口事件送进来。
  *
  * 启动页与对话框都是壳自己的小窗口，开着时壳照常应答锁上的请求、计时与收页面的回答（审查过：系统消息框会同步阻塞主线程）。
+ *
+ * 更新（docs/specs/runtime/desktop-update.md）：取桌面锁之前先换上（`applyAtStartup`）、登记在用这份安装（共享锁，到进程退出）；
+ * 取锁之后对账；进入运行中启动更新控制器，进入停止中封住它，放锁之前关掉它（`update.ts` 的模块头）。退出请求只在取桌面锁
+ * 之前放行（`acceptsQuit`）：更新器换上时要经正常的退出流程结束进程。
  */
 
 import {existsSync} from "node:fs";
@@ -19,6 +23,10 @@ import {acquireDesktopLock, askRunningShell} from "./lock";
 import {startOwnedServer} from "./owned-server";
 import type {OwnedServer, OwnedServerOptions} from "./owned-server";
 import type {DesktopStateRoot} from "./state-root";
+import {isNewer, UpdateController} from "./update";
+import type {UpdateMode} from "./update";
+import {acquireInstallUse, applyAtStartup, fileUpdateState, reconcileAtStartup} from "./update-install";
+import type {UpdaterPort, UpdateStatePort} from "./update-install";
 import {WindowCoordinator} from "./windows";
 import type {WindowPort} from "./windows";
 
@@ -28,10 +36,11 @@ export type StartupView =
     | {readonly kind: "waiting-instance"; readonly status: "starting" | "stopping"}
     | {readonly kind: "waiting-close"}
     | {readonly kind: "waiting-exit"}
+    | {readonly kind: "updating"; readonly version: string}
     | {readonly kind: "unclean-stop"; readonly logDir: string}
     | {readonly kind: "error"; readonly reason: StartupError; readonly detail: string; readonly actions: ReadonlyArray<StartupAction>};
 
-export type StartupError = "portable-unwritable" | "version-mismatch-shell" | "shell-unresponsive" | "version-mismatch-server" | "not-product" | "server-unresponsive" | "wait-timeout" | "server-failed" | "lock-failed";
+export type StartupError = "portable-unwritable" | "state-root-relative" | "version-mismatch-shell" | "shell-unresponsive" | "version-mismatch-server" | "not-product" | "server-unresponsive" | "wait-timeout" | "server-failed" | "lock-failed" | "install-busy";
 export type StartupAction = "retry" | "exit" | "open-logs" | "continue";
 
 export interface ShellPorts {
@@ -54,6 +63,17 @@ export interface ShellOptions {
     readonly ports: ShellPorts;
     readonly clock: DeadlineClock;
     readonly report: (event: string, error: unknown) => void;
+    /** 没有更新器的构建（开发构建）不给。 */
+    readonly updates?: ShellUpdates;
+}
+
+export interface ShellUpdates {
+    readonly updater: UpdaterPort;
+    /** 受管安装的通道根（更新器的 `%LOCALAPPDATA%\<identifier>\<channel>\`）；不是受管安装（便携、开发构建）时 null，不建安装级文件。 */
+    readonly channelRoot: string | null;
+    readonly openDownloadPage: () => void;
+    /** 共享锁拿不到时等多久（缺省 30 秒）。 */
+    readonly installWaitMs?: number;
 }
 
 /** 等待已有实例或旧壳的截止（输出 3、4）。 */
@@ -75,6 +95,17 @@ export class DesktopShell {
     #startupAction: ((action: StartupAction) => void) | null = null;
     /** 启动作废（启动中关掉了最后一个窗口，输出 23）或已开始退出。 */
     #finishing = false;
+    /** 取到桌面锁之后为真：从此退出请求一律交给协调器询问（`acceptsQuit`）。 */
+    #locked = false;
+    /** 在用这份安装的登记（共享锁）；放桌面锁之后才放。 */
+    #installUse: {release(): void} | null = null;
+    #updates: UpdateController | null = null;
+    /**
+     * 还在进行的启动时换上（`applyAtStartup`）或启动对账（`reconcileAtStartup`）：它们在锁下读写状态文件，放锁之前要等它们
+     * 结算（单写者，`update-install.ts` 的模块头）。两者都不等用户操作，很快结算；等用户点按钮的启动错误不在内，否则从错误页
+     * 点“退出”会等自己。
+     */
+    #updateStartupStep: Promise<unknown> = Promise.resolve();
 
     constructor(options: ShellOptions) {
         this.#options = options;
@@ -90,6 +121,19 @@ export class DesktopShell {
         return this.#coordinator;
     }
 
+    /** 更新控制器：页面交回的选择与“已显示”交给它。进入运行中之前是 null。 */
+    get updates(): UpdateController | null {
+        return this.#updates;
+    }
+
+    /**
+     * 框架的退出请求能不能直接放行：取桌面锁之前可以（那时没有服务端、没有页面；换上时更新器要经它结束进程），之后一律否决、
+     * 交给协调器询问（输出 19）。
+     */
+    get acceptsQuit(): boolean {
+        return !this.#locked;
+    }
+
     /** 启动页或对话框上的按钮。 */
     startupAction(action: StartupAction): void {
         this.#startupAction?.(action);
@@ -99,10 +143,13 @@ export class DesktopShell {
         const root = this.#options.root;
         this.#coordinator.openWindow();
         if (!root.ok) {
-            await this.#fail("portable-unwritable", root.path, ["exit"]);
+            await this.#fail(root.reason === "env-relative" ? "state-root-relative" : "portable-unwritable", root.path, ["exit"]);
             return;
         }
+        if (!(await this.#prepareInstall(root.source))) return;
         if (!(await this.#takeLock(root.stateRoot))) return;
+        await this.#setUpUpdates(root.source);
+        if (this.#finishing) return;
         await this.#noticeUncleanStop(root.stateRoot);
         if (this.#finishing) return;
         await this.#connect(root.stateRoot);
@@ -127,6 +174,7 @@ export class DesktopShell {
             }
             const claimed = await acquireDesktopLock({stateRoot, version: this.#options.version, report: this.#options.report, onOpenWindow: () => this.#coordinator.openWindowRequested()});
             if (claimed.ok) {
+                this.#locked = true;
                 leaveClosing();
                 if (this.#finishing || exitWhileClosing) {
                     // 取锁的同时已决定退出：放下刚取到的锁再走。
@@ -197,6 +245,81 @@ export class DesktopShell {
         }
     }
 
+    /** 自动更新只在受管安装、没设 `NBOOK_STATE_ROOT` 时（便携标记与环境变量都没有，状态根取缺省）。 */
+    #autoUpdates(source: "env" | "portable" | "default"): {readonly channelRoot: string; readonly state: UpdateStatePort} | null {
+        const channelRoot = this.#options.updates?.channelRoot ?? null;
+        if (channelRoot === null || source !== "default") return null;
+        return {channelRoot, state: fileUpdateState(channelRoot, this.#options.report)};
+    }
+
+    /**
+     * 取桌面锁之前（desktop-update 输出 8）：`auto` 模式先看要不要换上；受管安装再登记在用（共享锁）。共享锁拿不到说明别人
+     * 正在发起换上，等至多 30 秒，还拿不到就报启动错误（不无锁启动）。交回 false 时这次启动到此为止（在换上或用户点了退出）。
+     */
+    async #prepareInstall(source: "env" | "portable" | "default"): Promise<boolean> {
+        const updates = this.#options.updates;
+        const channelRoot = updates?.channelRoot ?? null;
+        if (updates === undefined || channelRoot === null) return true;
+        const auto = this.#autoUpdates(source);
+        if (auto !== null) {
+            const applying = applyAtStartup({
+                channelRoot,
+                updater: updates.updater,
+                state: auto.state,
+                newer: isNewer,
+                now: () => this.#options.clock.now(),
+                // 启动中关掉了启动页（输出 23）：这次启动已作废，还没交给更新器的就不再交。
+                cancelled: () => this.#finishing,
+                onApplying: (version) => this.#options.ports.startupView({kind: "updating", version}),
+                report: this.#options.report,
+            });
+            this.#updateStartupStep = applying;
+            const outcome = await applying;
+            if (outcome === "exiting") {
+                // 更新器正在结束这个进程，由它启动新版本接着完成这次启动；壳什么都不再做。
+                this.#finishing = true;
+                return false;
+            }
+        }
+        for (;;) {
+            if (this.#finishing) return false;
+            const lease = await acquireInstallUse({channelRoot, clock: this.#options.clock, waitMs: updates.installWaitMs, report: this.#options.report});
+            if (this.#finishing) {
+                lease?.release();
+                return false;
+            }
+            if (lease !== null) {
+                this.#installUse = lease;
+                return true;
+            }
+            const action = await this.#fail("install-busy", "", ["retry", "exit"]);
+            if (action !== "retry") return false;
+        }
+    }
+
+    /** 取桌面锁之后：`auto` 模式对账（单写者从这里开始），再建更新控制器，进入运行中时启动。 */
+    async #setUpUpdates(source: "env" | "portable" | "default"): Promise<void> {
+        const updates = this.#options.updates;
+        if (updates === undefined) return;
+        const auto = this.#autoUpdates(source);
+        let mode: UpdateMode = {kind: "notify-only", envRoot: source === "env"};
+        if (auto !== null) {
+            const reconciling = reconcileAtStartup(auto.state, updates.updater, this.#options.clock.now(), this.#options.report);
+            this.#updateStartupStep = reconciling;
+            mode = {kind: "auto", state: auto.state, initial: await reconciling};
+        }
+        // 对账期间已开始退出：放锁之后不能再有写状态文件的控制器。
+        if (this.#finishing) return;
+        this.#updates = new UpdateController({
+            mode,
+            updater: updates.updater,
+            clock: this.#options.clock,
+            onHint: (current, endPrevious) => this.#coordinator.setUpdateHint(current, endPrevious),
+            openDownloadPage: updates.openDownloadPage,
+            report: this.#options.report,
+        });
+    }
+
     async #noticeUncleanStop(stateRoot: string): Promise<void> {
         const logDir = join(stateRoot, "logs", "desktop");
         const marker = join(logDir, UNCLEAN_MARKER);
@@ -221,6 +344,7 @@ export class DesktopShell {
             if (decision.kind === "connect") {
                 this.#lock?.publish({url: null, rpcUrl: null, extra: {}});
                 this.#coordinator.serverReady(decision.url, false);
+                this.#updates?.start();
                 return;
             }
             if (decision.kind === "wait") {
@@ -264,6 +388,7 @@ export class DesktopShell {
         this.#lock?.publish({url: null, rpcUrl: null, extra: {}});
         server.onUnexpectedExit((code) => void this.#serverExited(stateRoot, code));
         this.#coordinator.serverReady(started.url, true);
+        this.#updates?.start();
         return true;
     }
 
@@ -305,6 +430,7 @@ export class DesktopShell {
     async #stopAndExit(): Promise<void> {
         if (this.#finishing) return;
         this.#finishing = true;
+        this.#updates?.stop();
         await this.#stopOwnedServer();
         await this.#releaseAndExit(0);
     }
@@ -313,6 +439,7 @@ export class DesktopShell {
         if (this.#coordinator.stopping) return;
         // 没有经最后一次关闭就关完了：启动中关掉（输出 23）、服务端不归壳、或自有服务端已放弃（“稍后”）。
         this.#finishing = true;
+        this.#updates?.stop();
         this.#startupAction?.("exit");
         await this.#stopOwnedServer();
         await this.#releaseAndExit(0);
@@ -342,9 +469,17 @@ export class DesktopShell {
         }
     }
 
+    /**
+     * 先等启动时的换上与对账、关更新控制器（它们在锁下写状态文件），再放桌面锁，最后放安装的登记（共享锁要比桌面锁持有得久，
+     * 见 `update-install.ts`）。
+     */
     async #releaseAndExit(code: number): Promise<void> {
+        await this.#updateStartupStep;
+        await this.#updates?.close();
         await this.#lock?.release();
         this.#lock = null;
+        this.#installUse?.release();
+        this.#installUse = null;
         this.#exit(code);
     }
 

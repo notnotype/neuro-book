@@ -17,11 +17,14 @@ import {PRODUCT_VERSION} from "../shared/product";
 import {systemClock} from "./deadline";
 import {acquireDesktopLock, askRunningShell} from "./lock";
 import {DesktopShell, readUncleanStop} from "./shell";
-import type {StartupView} from "./shell";
+import type {ShellUpdates, StartupView} from "./shell";
+import {EMPTY_UPDATE_STATE, UPDATE_STATE_FILE, fileUpdateState} from "./update-install";
+import type {ApplyResult, UpdaterPort, UpdateState} from "./update-install";
 import type {CloseReason, WindowId, WindowPort} from "./windows";
 
 const ENTRY = join(import.meta.dir, "..", "server", "main.ts");
 const SCRIPTED = join(import.meta.dir, "testing", "scripted-server.ts");
+const HOLDER = join(import.meta.dir, "testing", "install-holder.ts");
 let tmp = "";
 let sequence = 0;
 beforeAll(async () => {
@@ -40,6 +43,9 @@ interface FakeShellOptions {
     readonly stopDeadlineMs?: number;
     /** 自有服务端意外退出时用户的选择；缺省“稍后”。 */
     readonly onServerExited?: "restart" | "later";
+    /** 状态根从哪来；缺省 `env`（与更新无关的用例）。 */
+    readonly source?: "env" | "portable" | "default";
+    readonly updates?: ShellUpdates;
 }
 
 function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
@@ -68,9 +74,11 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
         endAsk: () => undefined,
         showNotResponding: () => undefined,
         closeNotResponding: () => undefined,
+        sendHint: () => undefined,
+        endHint: () => undefined,
     };
     shell = new DesktopShell({
-        root: {ok: true, stateRoot, portable: false, source: "env"},
+        root: {ok: true, stateRoot, portable: options.source === "portable", source: options.source ?? "env"},
         version: options.version ?? PRODUCT_VERSION,
         server: {bun: process.execPath, entry: options.entry ?? ENTRY, webRoot: null, env: {...process.env, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", ...options.env}, stopDeadlineMs: options.stopDeadlineMs},
         ports: {
@@ -85,6 +93,7 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
         },
         clock: systemClock,
         report: (event) => void events.push(event),
+        updates: options.updates,
     });
     /** 用户关一个窗口，页面接下并同意。 */
     const closeAndAllow = (id: WindowId) => {
@@ -275,4 +284,136 @@ describe("桌面壳的流程", () => {
         await running;
         await waitUntil("壳退出", () => b.exitCode() !== null);
     }, 60_000);
+});
+
+describe("桌面壳的更新（desktop-update 输出 8 到 10）", () => {
+    const A = {version: "0.90.1", hash: "hasha"};
+    const B = {version: "0.90.2", hash: "hashb"};
+    /** 更新器替身：检查一律失败（不打扰），换上的结果由用例给。 */
+    const fakeUpdater = (apply: UpdaterPort["apply"] = () => Promise.resolve({failed: "not expected"})): UpdaterPort & {checks: () => number} => {
+        let checks = 0;
+        return {
+            local: A,
+            check: () => ((checks += 1), Promise.resolve({ok: false, error: "offline"})),
+            download: () => Promise.resolve({ok: false, error: "not expected"}),
+            apply,
+            results: () => Promise.resolve([]),
+            helperRunning: () => Promise.resolve(false),
+            checks: () => checks,
+        };
+    };
+    const channel = async () => {
+        const path = join(tmp, `channel-${String((sequence += 1))}`);
+        await mkdir(path, {recursive: true});
+        return path;
+    };
+    const writeState = (channelRoot: string, state: UpdateState) => fileUpdateState(channelRoot, () => undefined).write(state);
+    const stateText = async (channelRoot: string) => (existsSync(join(channelRoot, UPDATE_STATE_FILE)) ? await readFile(join(channelRoot, UPDATE_STATE_FILE), "utf8") : null);
+    const scripted = {entry: SCRIPTED};
+
+    it("有可换的、没人在用：取桌面锁之前显示“正在更新”并交给更新器，不取锁、不拉起服务端；退出请求在这段放行", async () => {
+        const root = nextRoot();
+        const channelRoot = await channel();
+        await writeState(channelRoot, {...EMPTY_UPDATE_STATE, downloaded: B});
+        let applied!: () => void;
+        const applying = new Promise<void>((resolve) => (applied = resolve));
+        const updater = fakeUpdater(() => {
+            applied();
+            return Promise.resolve("exiting");
+        });
+        const a = fakeShell(root, {...scripted, source: "default", updates: {updater, channelRoot, openDownloadPage: () => undefined}});
+        expect(a.shell.acceptsQuit).toBe(true);
+        const running = a.shell.run();
+        await applying;
+        await running;
+        expect(a.views).toContainEqual({kind: "updating", version: B.version});
+        expect(a.shell.acceptsQuit).toBe(true);
+        expect((await askRunningShell(root)).kind).toBe("lock-free");
+        expect((await queryNeuroBook(root)).state).toBe("none");
+        expect(a.exitCode()).toBeNull();
+    }, 30_000);
+
+    it("取到桌面锁之后退出请求不再放行；运行中检查更新", async () => {
+        const root = nextRoot();
+        const channelRoot = await channel();
+        const updater = fakeUpdater();
+        const a = fakeShell(root, {...scripted, source: "default", updates: {updater, channelRoot, openDownloadPage: () => undefined}});
+        void a.shell.run();
+        await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 20});
+        expect(a.shell.acceptsQuit).toBe(false);
+        await waitUntil("检查了一次", () => updater.checks() === 1);
+        a.closeAndAllow(1);
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 20});
+    }, 60_000);
+
+    it("别人持独占在发起换上：每秒重试；一直拿不到就报“另一个 NeuroBook 正在更新”，服务端与页面都没起来；持有者退出后“重试”就能启动", async () => {
+        const root = nextRoot();
+        const channelRoot = await channel();
+        const child = Bun.spawn([process.execPath, HOLDER, channelRoot, "exclusive"], {stdin: "pipe", stdout: "pipe", stderr: "inherit"});
+        try {
+            const reader = child.stdout.getReader();
+            expect(new TextDecoder().decode((await reader.read()).value).trim()).toBe("held");
+            reader.releaseLock();
+            const a = fakeShell(root, {...scripted, source: "env", updates: {updater: fakeUpdater(), channelRoot, openDownloadPage: () => undefined, installWaitMs: 1_200}});
+            void a.shell.run();
+            await waitUntil("启动错误", () => a.views.some((view) => view.kind === "error" && view.reason === "install-busy"), {timeoutMs: 10_000, intervalMs: 20});
+            expect(a.views.at(-1)).toEqual({kind: "error", reason: "install-busy", detail: "", actions: ["retry", "exit"]});
+            expect((await queryNeuroBook(root)).state).toBe("none");
+            expect(a.loaded).toEqual([]);
+            child.stdin.end();
+            await child.exited;
+            a.shell.startupAction("retry");
+            await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 20});
+            a.closeAndAllow(1);
+            await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 20});
+        } finally {
+            child.kill();
+        }
+    }, 60_000);
+
+    it("取锁后对账还在读结果时关掉启动页：等对账写完才放锁、退出，之后不建控制器、不检查", async () => {
+        const root = nextRoot();
+        const channelRoot = await channel();
+        await writeState(channelRoot, {...EMPTY_UPDATE_STATE, downloaded: B, attempt: {version: B.version, hash: B.hash, from: A.hash, at: 0}});
+        let answerResults!: (results: ReadonlyArray<ApplyResult>) => void;
+        let asked = false;
+        const updater = {...fakeUpdater(), results: () => ((asked = true), new Promise<ReadonlyArray<ApplyResult>>((resolve) => (answerResults = resolve)))};
+        let checks = 0;
+        updater.check = () => ((checks += 1), Promise.resolve({ok: false, error: "offline"}));
+        const a = fakeShell(root, {...scripted, source: "default", updates: {updater, channelRoot, openDownloadPage: () => undefined}});
+        void a.shell.run();
+        await waitUntil("对账在读结果", () => asked, {timeoutMs: 10_000});
+        a.shell.windows.closeRequested(1);
+        await waitUntil("启动页关掉", () => a.open.size === 0);
+        expect(a.exitCode()).toBeNull();
+        expect((await askRunningShell(root)).kind).not.toBe("lock-free");
+        answerResults([{version: B.version, hash: B.hash, success: false, phase: "swapping", modifiedAt: 1}]);
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 10_000});
+        expect(JSON.parse((await stateText(channelRoot)) ?? "null")).toMatchObject({attempt: null, failed: [B.hash], pendingNotice: {kind: "update-failed"}});
+        expect(a.shell.updates).toBeNull();
+        expect(checks).toBe(0);
+    }, 30_000);
+
+    it("单写者：设了 NBOOK_STATE_ROOT 的壳与缺省状态根的壳共用一份安装，只有后者读写状态文件；退出后共享锁放下", async () => {
+        const channelRoot = await channel();
+        // 上一次换上已成功（本地就是目标）：缺省状态根的壳对账时会写回。
+        await writeState(channelRoot, {...EMPTY_UPDATE_STATE, downloaded: {version: "0.90.1", hash: "hasha"}, attempt: {version: A.version, hash: A.hash, from: "hashz", at: 0}});
+        const before = await stateText(channelRoot);
+        const envShell = fakeShell(nextRoot(), {...scripted, source: "env", updates: {updater: fakeUpdater(), channelRoot, openDownloadPage: () => undefined}});
+        void envShell.shell.run();
+        await waitUntil("设了环境变量的壳加载了页面", () => envShell.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 20});
+        expect(await stateText(channelRoot)).toBe(before);
+        const defaultShell = fakeShell(nextRoot(), {...scripted, source: "default", updates: {updater: fakeUpdater(), channelRoot, openDownloadPage: () => undefined}});
+        void defaultShell.shell.run();
+        await waitUntil("缺省状态根的壳加载了页面", () => defaultShell.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 20});
+        expect(JSON.parse((await stateText(channelRoot)) ?? "null")).toEqual({...EMPTY_UPDATE_STATE, pendingNotice: {kind: "updated", version: A.version, forHash: A.hash}});
+        envShell.closeAndAllow(1);
+        defaultShell.closeAndAllow(1);
+        await waitUntil("两个壳都退出", () => envShell.exitCode() !== null && defaultShell.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 20});
+        const probe = Bun.spawn([process.execPath, HOLDER, channelRoot, "exclusive"], {stdin: "pipe", stdout: "pipe", stderr: "inherit"});
+        const reader = probe.stdout.getReader();
+        expect(new TextDecoder().decode((await reader.read()).value).trim()).toBe("held");
+        probe.stdin.end();
+        await probe.exited;
+    }, 90_000);
 });

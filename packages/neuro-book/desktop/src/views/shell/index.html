@@ -30,6 +30,7 @@
   const LABELS = {retry: "重试", exit: "退出", "open-logs": "打开日志目录", continue: "继续", wait: "继续等待", cancel: "取消关闭", force: "强制关闭（未保存的内容可能丢失）", restart: "重新启动服务", later: "稍后"};
   const ERRORS = {
     "portable-unwritable": (d) => ["便携版要放在可写的位置", `没法在 ${d} 写入。把 NeuroBook 复制到可写的文件夹后再打开。`],
+    "state-root-relative": (d) => ["NBOOK_STATE_ROOT 要写完整路径", `现在的值是 ${d}。改成完整路径（例如 D:\\NeuroBook-data）后再打开。`],
     "version-mismatch-shell": (d) => ["已有另一个版本的 NeuroBook 在运行", `已在运行的是 NeuroBook ${d}，先关掉它再打开。`],
     "shell-unresponsive": (d) => ["另一个 NeuroBook 没有响应", d],
     "version-mismatch-server": (d) => { const [running, installed] = d.split("|"); return ["这个数据目录正被另一个版本使用", `运行中的服务是 NeuroBook ${running}，本程序是 ${installed}。先停掉它（例如在运行 nbook 的终端里按 Ctrl-C）再打开。`]; },
@@ -38,6 +39,7 @@
     "wait-timeout": (d) => ["等了 60 秒还没有变化", d],
     "server-failed": (d) => ["NeuroBook 的服务没有起来", d],
     "lock-failed": (d) => ["打不开数据目录", d],
+    "install-busy": () => ["另一个 NeuroBook 正在更新", "等它更新完再打开，或者点“重试”。"],
   };
   const send = (message) => window.__electrobunSendToHost(message);
   const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };

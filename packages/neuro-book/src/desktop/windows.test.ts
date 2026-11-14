@@ -5,6 +5,7 @@
 
 import {describe, expect, it} from "bun:test";
 
+import type {UpdateHint} from "../shared/desktop-bridge";
 import type {DeadlineClock} from "./deadline";
 import {ACK_MS, WindowCoordinator} from "./windows";
 import type {CloseReason, OpenTarget, WindowId, WindowPort} from "./windows";
@@ -16,7 +17,9 @@ type Call =
     | ["askPage", WindowId, number, CloseReason]
     | ["endAsk", WindowId, number]
     | ["showNotResponding", WindowId]
-    | ["closeNotResponding", WindowId];
+    | ["closeNotResponding", WindowId]
+    | ["sendHint", WindowId, number, UpdateHint]
+    | ["endHint", WindowId, number];
 
 function harness(options: {owned?: boolean; ready?: boolean} = {}) {
     let now = 0;
@@ -49,6 +52,8 @@ function harness(options: {owned?: boolean; ready?: boolean} = {}) {
         endAsk: (id, generation) => void calls.push(["endAsk", id, generation]),
         showNotResponding: (id) => void calls.push(["showNotResponding", id]),
         closeNotResponding: (id) => void calls.push(["closeNotResponding", id]),
+        sendHint: (id, hintId, hint) => void calls.push(["sendHint", id, hintId, hint]),
+        endHint: (id, hintId) => void calls.push(["endHint", id, hintId]),
     };
     const events: string[] = [];
     const coordinator = new WindowCoordinator({port, clock, onQuit: () => events.push("quit"), onAllClosed: () => events.push("all-closed")});
@@ -259,5 +264,143 @@ describe("关窗协调", () => {
         const generation = lastAsk(a)?.[2] ?? 0;
         coordinator.closed(a);
         expect(calls).toContainEqual(["endAsk", a, generation]);
+    });
+});
+
+describe("更新提示的交付（desktop-update 输出 3、4）", () => {
+    const HINT = {id: 1, hint: {kind: "available", version: "0.90.2"}} as const;
+    const hintCalls = (calls: Call[]) => calls.filter((call) => call[0] === "sendHint" || call[0] === "endHint");
+
+    it("交给最近获得焦点的就绪窗口；没有就绪窗口时等，第一个就绪的接手", () => {
+        const {coordinator, calls} = harness();
+        const a = coordinator.openWindow();
+        const b = coordinator.openWindow();
+        coordinator.setUpdateHint(HINT, false);
+        expect(hintCalls(calls)).toEqual([]);
+        coordinator.focused(a);
+        coordinator.pageReady(a);
+        expect(hintCalls(calls)).toEqual([["sendHint", a, 1, HINT.hint]]);
+        // b 后来就绪、也获得了焦点，但 a 已经持有：新开窗口不夺走提示。
+        coordinator.focused(b);
+        coordinator.pageReady(b);
+        expect(hintCalls(calls)).toHaveLength(1);
+        // 下一条提示（新阶段）交给此时最近焦点的 b，并让 a 收起旧的。
+        coordinator.setUpdateHint({id: 2, hint: {kind: "downloading", version: "0.90.2"}}, true);
+        expect(hintCalls(calls).slice(1)).toEqual([
+            ["endHint", a, 1],
+            ["sendHint", b, 2, {kind: "downloading", version: "0.90.2"}],
+        ]);
+    });
+
+    it("持有窗口关掉时转给最近焦点的就绪窗口（正在关的不选、已关的不发收起）", () => {
+        const {coordinator, calls, lastAsk} = harness();
+        const a = coordinator.openWindow();
+        const b = coordinator.openWindow();
+        const c = coordinator.openWindow();
+        for (const id of [c, b, a]) {
+            coordinator.focused(id);
+            coordinator.pageReady(id);
+        }
+        coordinator.setUpdateHint(HINT, false);
+        expect(hintCalls(calls)).toEqual([["sendHint", a, 1, HINT.hint]]);
+        // b 正在关（已同意、还没 closed），a 关掉：转给 c。
+        coordinator.closeRequested(b);
+        coordinator.pageAnswered(b, lastAsk(b)?.[2] ?? 0, "allow");
+        coordinator.closeRequested(a);
+        coordinator.pageAnswered(a, lastAsk(a)?.[2] ?? 0, "allow");
+        expect(hintCalls(calls).slice(1)).toEqual([["sendHint", c, 1, HINT.hint]]);
+    });
+
+    it("持有窗口刷新（又报一次就绪）：转给当时最近焦点的就绪窗口，可能还是它自己", () => {
+        const {coordinator, calls} = harness();
+        const a = coordinator.openWindow();
+        const b = coordinator.openWindow();
+        coordinator.focused(b);
+        coordinator.pageReady(b);
+        coordinator.focused(a);
+        coordinator.pageReady(a);
+        coordinator.setUpdateHint(HINT, false);
+        coordinator.pageReady(a);
+        expect(hintCalls(calls)).toEqual([
+            ["sendHint", a, 1, HINT.hint],
+            ["sendHint", a, 1, HINT.hint],
+        ]);
+        coordinator.focused(b);
+        coordinator.pageReady(a);
+        // 刷新后的页面里没有旧的那条，不发收起。
+        expect(hintCalls(calls).slice(2)).toEqual([["sendHint", b, 1, HINT.hint]]);
+    });
+
+    it("持有窗口离开就绪：让它收起，转给别的就绪窗口；都不就绪时等，回来就绪再交", () => {
+        const {coordinator, calls} = harness();
+        const a = coordinator.openWindow();
+        const b = coordinator.openWindow();
+        coordinator.focused(a);
+        coordinator.pageReady(a);
+        coordinator.pageReady(b);
+        coordinator.setUpdateHint(HINT, false);
+        coordinator.pageGone(a);
+        expect(hintCalls(calls)).toEqual([
+            ["sendHint", a, 1, HINT.hint],
+            ["endHint", a, 1],
+            ["sendHint", b, 1, HINT.hint],
+        ]);
+        coordinator.pageGone(b);
+        expect(hintCalls(calls).slice(3)).toEqual([["endHint", b, 1]]);
+        coordinator.pageReady(a);
+        expect(hintCalls(calls).slice(4)).toEqual([["sendHint", a, 1, HINT.hint]]);
+    });
+
+    it("提示被用户结束（清掉、不收起）后，窗口的就绪变化不再交", () => {
+        const {coordinator, calls} = harness();
+        const a = coordinator.openWindow();
+        coordinator.pageReady(a);
+        coordinator.setUpdateHint(HINT, false);
+        coordinator.setUpdateHint(null, false);
+        coordinator.pageReady(a);
+        coordinator.pageGone(a);
+        expect(hintCalls(calls)).toEqual([["sendHint", a, 1, HINT.hint]]);
+    });
+
+    it("用户结束（“以后”）的带动作提示还留在中心里：下一个阶段到来时让那个窗口收起它；一次性通知显示后不收", () => {
+        const {coordinator, calls} = harness();
+        const a = coordinator.openWindow();
+        const b = coordinator.openWindow();
+        coordinator.focused(a);
+        coordinator.pageReady(a);
+        coordinator.pageReady(b);
+        coordinator.setUpdateHint(HINT, false);
+        coordinator.setUpdateHint(null, false);
+        coordinator.focused(b);
+        coordinator.setUpdateHint({id: 2, hint: {kind: "available", version: "0.90.3"}}, true);
+        expect(hintCalls(calls)).toEqual([
+            ["sendHint", a, 1, HINT.hint],
+            ["endHint", a, 1],
+            ["sendHint", b, 2, {kind: "available", version: "0.90.3"}],
+        ]);
+
+        const notice = harness();
+        const c = notice.coordinator.openWindow();
+        notice.coordinator.pageReady(c);
+        notice.coordinator.setUpdateHint({id: 5, hint: {kind: "downloaded", version: "0.90.2"}}, true);
+        notice.coordinator.setUpdateHint(null, false);
+        notice.coordinator.setUpdateHint({id: 6, hint: {kind: "available", version: "0.90.3"}}, true);
+        expect(hintCalls(notice.calls)).toEqual([
+            ["sendHint", c, 5, {kind: "downloaded", version: "0.90.2"}],
+            ["sendHint", c, 6, {kind: "available", version: "0.90.3"}],
+        ]);
+    });
+
+    it("启动页窗口不算就绪；停止中不再交", () => {
+        const {coordinator, calls, lastAsk} = harness({ready: false});
+        const s = coordinator.openWindow();
+        coordinator.pageReady(s);
+        coordinator.setUpdateHint(HINT, false);
+        expect(hintCalls(calls)).toEqual([]);
+        coordinator.serverReady("http://127.0.0.1:4217/", true);
+        coordinator.closeRequested(s);
+        coordinator.pageAnswered(s, lastAsk(s)?.[2] ?? 0, "allow");
+        coordinator.pageReady(s);
+        expect(hintCalls(calls)).toEqual([]);
     });
 });

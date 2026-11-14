@@ -37,6 +37,24 @@ describe("桌面桥", () => {
         }
     });
 
+    it("更新提示的消息：七种提示、选择、已显示与页面就绪收下；不认识的种类、选择与缺版本号丢弃", () => {
+        for (const kind of ["available", "notify-only", "downloading", "download-failed", "downloaded", "updated", "update-failed"]) {
+            expect(parseShellMessage({type: "update-hint", id: 1, hint: {kind, version: "0.90.2"}})).not.toBeNull();
+        }
+        expect(parseShellMessage({type: "update-hint", id: 2, hint: {kind: "notify-only", version: "0.90.2", envRoot: true}})).not.toBeNull();
+        expect(parseShellMessage({type: "update-hint-end", id: 2})).toEqual({type: "update-hint-end", id: 2});
+        for (const bad of [{type: "update-hint", id: 1, hint: {kind: "installing", version: "1"}}, {type: "update-hint", id: 1, hint: {kind: "available"}}, {type: "update-hint", id: 1, hint: {kind: "available", version: ""}}, {type: "update-hint-end"}]) {
+            expect(parseShellMessage(bad)).toBeNull();
+        }
+        for (const choice of ["download", "retry", "open-page", "later"]) expect(parsePageMessage({type: "update-choice", id: 3, choice})).not.toBeNull();
+        expect(parsePageMessage({type: "update-hint-shown", id: 3})).toEqual({type: "update-hint-shown", id: 3});
+        expect(parsePageMessage({type: "page-ready"})).toEqual({type: "page-ready"});
+        expect(parsePageMessage({type: "page-gone"})).toEqual({type: "page-gone"});
+        for (const bad of [{type: "update-choice", id: 3, choice: "install"}, {type: "update-choice", choice: "later"}, {type: "update-hint-shown", id: -1}]) {
+            expect(parsePageMessage(bad)).toBeNull();
+        }
+    });
+
     it("页面一侧：只把形状对的事件交给处理器；停止监听后不再收到", () => {
         const global = page();
         const seen: ShellMessage[] = [];

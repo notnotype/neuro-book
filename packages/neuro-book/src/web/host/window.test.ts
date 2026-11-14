@@ -155,6 +155,16 @@ describe("窗口运行实例", () => {
         expect(browserWindow.state.status).toBe("closed");
     });
 
+    it("ready 时交出工作台的通知服务（宿主显示桌面壳的更新提示，browser-host 输出 11）；不在 ready 时为 null", async () => {
+        const {browserWindow} = openWindow();
+        expect(browserWindow.notifications()).toBeNull();
+        await browserWindow.start();
+        const handle = browserWindow.notifications()?.notify({message: "NeuroBook 0.90.2 可以更新"});
+        expect(typeof handle?.id).toBe("string");
+        await browserWindow.stop();
+        expect(browserWindow.notifications()).toBeNull();
+    });
+
     it("改界面语言设置：窗口的翻译端口与插件经 windowLocale 取到的语言一起切换（i18n 输出 8）", async () => {
         const seen: {locale: {readonly value: string} | null; commands: CommandService | null} = {locale: null, commands: null};
         const probeId = "test.locale-reader";
