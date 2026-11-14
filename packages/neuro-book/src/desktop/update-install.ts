@@ -186,7 +186,8 @@ export async function applyAtStartup(options: ApplyAtStartupOptions): Promise<"e
     // 拿到独占之后重读：别的壳可能在我们读和拿锁之间刚换过（输出 8 的“再核对一次”）。
     const state = await options.state.read();
     const target = state.attempt === null ? usableDownload(state, local, options.newer) : null;
-    if (target === null) {
+    // 已知作废就不写 attempt：写了再撤回时，撤回失败会让下一次启动把没发起的换上记成失败。
+    if (target === null || options.cancelled()) {
         exclusive.release();
         return "continue";
     }
@@ -198,7 +199,7 @@ export async function applyAtStartup(options: ApplyAtStartupOptions): Promise<"e
         exclusive.release();
         return "continue";
     }
-    // 取消只在交给更新器之前看一次：在这之前的几步都是很快的文件操作。
+    // 写 attempt 的这段时间里也可能作废，交给更新器之前再看一次。
     if (options.cancelled()) {
         // 写了 attempt 却不发起：清掉它，免得下一次启动等一个不存在的换上程序。
         await options.state.write(state).catch((error: unknown) => options.report("desktop.update.state-write-failed", error));

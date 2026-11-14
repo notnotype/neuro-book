@@ -169,27 +169,48 @@ describe("启动时换上", () => {
         expect(applied).toBe(false);
     });
 
-    it("启动已作废（启动中关掉了启动页）：不交给更新器、不记失败，放下独占", async () => {
+    it("启动已作废（启动中关掉了启动页）：不交给更新器、不记失败、不写状态文件，放下独占", async () => {
         const root = await nextChannelRoot();
         await writeState(root, {...EMPTY_UPDATE_STATE, downloaded: B});
         let cancelled = false;
         const real = fileUpdateState(root, () => undefined);
-        // 第一次读完之后用户关掉了启动页。
+        // 第一次读完之后用户关掉了启动页。已知作废就不写：先写 attempt 再撤回，撤回失败时下一次启动会把没发起的换上记成失败。
+        const writes: unknown[] = [];
         const state = {read: async () => {
             const value = await real.read();
             cancelled = true;
             return value;
-        }, write: real.write};
+        }, write: async (next: Parameters<typeof real.write>[0]) => {
+            writes.push(next);
+            await real.write(next);
+        }};
         let applied = false;
         const applying: string[] = [];
         const outcome = await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state, newer: isNewer, cancelled: () => cancelled, now: () => 0, onApplying: (version) => void applying.push(version), report: () => undefined});
         expect(outcome).toBe("continue");
         expect(applied).toBe(false);
         expect(applying).toEqual([]);
+        expect(writes).toEqual([]);
         expect(await readState(root)).toEqual({...EMPTY_UPDATE_STATE, downloaded: B});
         const probe = await holder(root, "exclusive");
         expect(probe.held).toBe(true);
         await probe.release();
+    });
+
+    it("写 attempt 的时候作废：不交给更新器，撤回 attempt", async () => {
+        const root = await nextChannelRoot();
+        await writeState(root, {...EMPTY_UPDATE_STATE, downloaded: B});
+        let cancelled = false;
+        const real = fileUpdateState(root, () => undefined);
+        const state = {read: real.read, write: async (next: Parameters<typeof real.write>[0]) => {
+            await real.write(next);
+            cancelled = true;
+        }};
+        let applied = false;
+        const outcome = await applyAtStartup({channelRoot: root, updater: updater(A, () => ((applied = true), Promise.resolve("exiting"))), state, newer: isNewer, cancelled: () => cancelled, now: () => 0, onApplying: () => undefined, report: () => undefined});
+        expect(outcome).toBe("continue");
+        expect(applied).toBe(false);
+        expect(await readState(root)).toEqual({...EMPTY_UPDATE_STATE, downloaded: B});
     });
 
     it("失败名单里的那份：运行中明确重新下载并成功之后，下一次启动确实发起换上", async () => {

@@ -32,11 +32,13 @@ describe("桌面壳的状态根", () => {
         await writeFile(join(portable, PORTABLE_MARKER), "");
         expect(await resolveDesktopStateRoot({...base, env: {}, programRoot: portable})).toEqual({ok: true, stateRoot: join(portable, "data"), portable: true, source: "portable"});
         expect(await resolveDesktopStateRoot({...base, env: {NBOOK_STATE_ROOT: "E:\\explicit"}, programRoot: portable})).toMatchObject({stateRoot: "E:\\explicit", portable: true, source: "env"});
+        expect(await resolveDesktopStateRoot({...base, env: {NBOOK_STATE_ROOT: "\\\\nas\\books\\state"}, programRoot: program})).toMatchObject({ok: true, stateRoot: "\\\\nas\\books\\state", source: "env"});
     });
 
     it("环境变量是相对路径时交回错误，不按工作目录解析：工作目录在更新时会被整个替换的程序目录里", async () => {
         const program = join(tmp, "installed");
-        for (const value of ["s6-rel", "..\\data", "C:state"]) {
+        // 后两个只有根、没有盘符：取工作目录所在的盘。
+        for (const value of ["s6-rel", "..\\data", "C:state", "\\state", "/state"]) {
             expect(await resolveDesktopStateRoot({...base, env: {NBOOK_STATE_ROOT: value}, programRoot: program})).toEqual({ok: false, reason: "env-relative", path: value});
         }
         expect(await resolveDesktopStateRoot({...base, platform: "linux", env: {NBOOK_STATE_ROOT: "rel/state"}, programRoot: program})).toMatchObject({ok: false, reason: "env-relative"});
