@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: runtime.desktop-update
 owners:
   - desktop-shell
@@ -111,8 +111,20 @@ owners:
 
 Smoke：发布流水线的 Windows 作业用本次构建的包与同一链路构建的、版本号更高的测试包跑场景 1、2；有了上一个正式的桌面版本以后，另用它到本次版本跑一遍场景 1。
 
+## 实现合同
+
+- **公开入口**：更新的流程核心 `UpdateController`（`packages/neuro-book/src/desktop/update.ts`）与启动时的换上 `applyAtStartup`、对账 `reconcileAtStartup`（`update-install.ts`），只依赖 `UpdaterPort`、`UpdateStatePort` 与时钟，不依赖 Electrobun；对外的合同只有通道根下的状态文件 `nbook-update-state.json` 与安装锁 `nbook-install.lock`，核心里的符号不是包的公开接口。
+- **owner 与依赖方向**：owner 是 `desktop-shell`（壳一侧）与 `nbook.workbench`（页面一侧）。壳的核心由 [`runtime.desktop-shell`](desktop-shell.md) 的 `DesktopShell` 装配；Electrobun 适配层 `packages/neuro-book/desktop/src/bun/index.ts` 用 Electrobun 2.0.6 的 `Updater` 实现 `UpdaterPort`，核心不反向依赖它；页面一侧 `src/web/host/desktop-updates.ts` 只经 `src/shared/desktop-bridge.ts` 的消息收壳交来的提示、交回用户的选择。
+- **关键不变量**：
+  - 只认稳定版本，远端不高于本地就什么都不做；已下载的更新只在高于本地、且没有记为失败或作废时才换上（`update.test.ts`、`update-install.test.ts`）。
+  - 选“下载”时先重新检查，下载绑定检查到的目标；目标变了改提示新目标，不下旧的（`update.test.ts`）。
+  - 只有不设 `NBOOK_STATE_ROOT` 的壳读写状态文件，且只在持安装独占或桌面锁期间写；启动时有别的壳持安装的共享锁就不换上（`update-install.test.ts`）。
+  - 换上之前先写换上记录、交给更新器之前再查一次是否已作废，作废就撤回记录；换上的终态按更新器的结果文件与换上程序的进程对账，对账出终态之前这次运行不检查、不下载（`update-install.test.ts`、`update.test.ts`）。
+  - 页面只在就绪时向壳报 `page-ready`、离开时报 `page-gone`，从往返缓存恢复后重新报；壳至多持有一条当前提示（`desktop-updates.test.ts`、`update.test.ts`）。
+
 ## 证据
 
-- 批准依据：[桌面发行提案](../../proposals/desktop-distribution.md) 4.6（2026-11-13 `accepted`）；[ADR 0051](../../adr/0051-desktop-shell-electrobun-tag-release.md) 决定 6。
-- 换上期间的保证改为由更新器的换上程序与操作系统的文件占用承担（不再要求壳独占到新版本接手）：开发者 2026-11-14 在 [w00046 t10](../../../.agents/works/w00046-desktop-release/tasks/t10-auto-update/README.md) 选定（设计审查发现 Electrobun 2.0.6 在发起换上的进程退出之后才替换文件，壳管不到那段）。
-- Windows 验收第 1 轮（2026-11-14，本地更新源，场景 1 到 7）：[`windows-update-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t10-auto-update/evidences/windows-update-r1.txt)。按实测改了四处写法：选“下载”时先重新检查（输出 5、场景 3）；换上程序遇到文件被占用会等约 5 分钟，期间关掉旧程序就照常换上（术语、输出 8、时序、失败表、场景 4）；启动页的“正在更新”可能来不及显示（输出 8、场景 1）；场景 6 改用绝对路径（相对路径改为拒绝，见 [`runtime.desktop-shell`](desktop-shell.md) 的“输入与前置条件”）。发布流水线的 Smoke 还没有。
+- 批准依据：[桌面发行提案](../../proposals/desktop-distribution.md) 4.6（2026-11-13 `accepted`）；[ADR 0051](../../adr/0051-desktop-shell-electrobun-tag-release.md) 决定 6。开发者 2026-11-14 看过 Windows 验收第 1 轮后同意晋升为 `implemented`。换上期间的保证改为由更新器的换上程序与操作系统的文件占用承担（不再要求壳独占到新版本接手），开发者 2026-11-14 在 [w00046 t10](../../../.agents/works/w00046-desktop-release/tasks/t10-auto-update/README.md) 选定（设计审查发现 Electrobun 2.0.6 在发起换上的进程退出之后才替换文件，壳管不到那段）。
+- 实现入口：核心 [`desktop/update.ts`](../../../packages/neuro-book/src/desktop/update.ts)、[`update-install.ts`](../../../packages/neuro-book/src/desktop/update-install.ts)；Electrobun 适配层 [`desktop/src/bun/index.ts`](../../../packages/neuro-book/desktop/src/bun/index.ts)；页面一侧 [`web/host/desktop-updates.ts`](../../../packages/neuro-book/src/web/host/desktop-updates.ts)。
+- 合同测试：[`update.test.ts`](../../../packages/neuro-book/src/desktop/update.test.ts)、[`update-install.test.ts`](../../../packages/neuro-book/src/desktop/update-install.test.ts)、[`desktop-updates.test.ts`](../../../packages/neuro-book/src/web/host/desktop-updates.test.ts)、[`desktop-update.e2e.ts`](../../../packages/neuro-book/e2e/desktop-update.e2e.ts)
+- Smoke：不适用——发布流水线的 Windows 作业还没有（w00046 t11 在做）。自动测试不跑 Windows，更新器与换上程序的行为靠 Windows 上的实测把关：第 1 轮 [`windows-update-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t10-auto-update/evidences/windows-update-r1.txt)；上面“验收与 Smoke”里的发布流水线 Windows 作业还没有实现，没有跑过。

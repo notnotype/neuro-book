@@ -75,5 +75,5 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 
 ## 下一步
 
-- `runtime/desktop-update` 是否晋升为 `implemented`，交开发者定。证据是 Windows 验收第 1 轮；发布流水线的 Smoke 要等 t11。
+- `runtime/desktop-update` 开发者 2026-11-14 同意晋升为 `implemented`（依据 Windows 验收第 1 轮）；发布流水线的 Smoke 由 t11 补。
 - 相对路径的 `NBOOK_STATE_ROOT` 修正后没有在 Windows 上重跑，并入 t11 的 Windows 冒烟时顺带确认启动页。
