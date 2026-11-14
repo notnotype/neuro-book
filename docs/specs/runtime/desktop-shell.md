@@ -46,11 +46,11 @@ owners:
 
 - 系统：Windows 10 或 11，x64；已装 Microsoft Edge WebView2 运行时（Windows 11 自带）。具体的最低系统版本以 Electrobun 与 WebView2 的要求为准，写进下载页。
 - 一次性的标识（发出去以后不改）：应用标识 `io.github.notnotype.neurobook`，发布频道 `stable`。安装版装在 `%LOCALAPPDATA%\io.github.notnotype.neurobook\stable`，WebView2 的浏览器数据在同一标识的目录下。
-- 状态根按下面的顺序取第一个，取到后规范成绝对路径，这次运行一直用它：
+- 状态根按下面的顺序取第一个，这次运行一直用它：
 
 | 来源 | 状态根 |
 |---|---|
-| 环境变量 `NBOOK_STATE_ROOT`（空串算没给） | 它的值，相对路径按壳的工作目录解析 |
+| 环境变量 `NBOOK_STATE_ROOT`（空串算没给） | 它的值，必须是绝对路径；相对路径时启动页显示这个值、要求改成完整路径，只给“退出”（壳的工作目录是安装里的程序目录，更新时整个被替换） |
 | 程序根目录里有便携标记 | 程序根目录下的 `data\` |
 | 都没有 | [`runtime.cli`](cli.md) 的平台缺省：`%LOCALAPPDATA%\NeuroBook`，与 `nbook` 共用 |
 
@@ -167,6 +167,7 @@ owners:
 | 等待超过 60 秒 | 启动页给“重试”“退出” | 看日志，稍后再试 |
 | 自有服务端启动失败 | 启动页给退出码与日志目录（输出 5） | 看日志，重试 |
 | 便携目录不可写 | 启动页说明（输出 24） | 复制到可写的位置 |
+| `NBOOK_STATE_ROOT` 是相对路径 | 启动页说明（“输入与前置条件”） | 改成完整路径再打开 |
 | 没有 WebView2 | 系统对话框（输出 20） | 装好后再打开 |
 | 服务端停止超时或非 0 退出 | 下一次启动时提示（输出 19） | 看日志 |
 | 自有服务端意外退出 | 对话框（输出 21） | 重新启动服务或稍后 |
@@ -213,6 +214,7 @@ Smoke：发布流水线的 Windows 作业对安装版与便携版各跑一遍：
 ## 证据
 
 - 批准依据：[桌面发行提案](../../proposals/desktop-distribution.md) 4.2 到 4.5（2026-11-13 `accepted`）；[ADR 0051](../../adr/0051-desktop-shell-electrobun-tag-release.md)。开发者 2026-11-14 看过 Windows 实测第 2 轮后同意晋升为 `implemented`。
+- 相对路径的 `NBOOK_STATE_ROOT` 由“按壳的工作目录解析”改为拒绝：w00046 t10 在 Windows 上实测发现 Electrobun 的启动器以安装里的 `app\bin` 为工作目录启动壳，相对路径落进更新时被整个替换的程序目录（[`windows-update-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t10-auto-update/evidences/windows-update-r1.txt) 场景 6）；记在 [待确认清单](../../../.agents/works/w00046-desktop-release/pending-confirmations.md)，待开发者追认。
 - 实现入口：核心 [`desktop/shell.ts`](../../../packages/neuro-book/src/desktop/shell.ts)、[`windows.ts`](../../../packages/neuro-book/src/desktop/windows.ts)、[`lock.ts`](../../../packages/neuro-book/src/desktop/lock.ts)、[`owned-server.ts`](../../../packages/neuro-book/src/desktop/owned-server.ts)、[`connect.ts`](../../../packages/neuro-book/src/desktop/connect.ts)、[`state-root.ts`](../../../packages/neuro-book/src/desktop/state-root.ts)、[`deadline.ts`](../../../packages/neuro-book/src/desktop/deadline.ts)；Electrobun 适配层 [`desktop/README.md`](../../../packages/neuro-book/desktop/README.md)（主进程、预加载脚本与启动页的说明）。
 - 合同测试：[`shell.test.ts`](../../../packages/neuro-book/src/desktop/shell.test.ts)、[`windows.test.ts`](../../../packages/neuro-book/src/desktop/windows.test.ts)、[`lock.test.ts`](../../../packages/neuro-book/src/desktop/lock.test.ts)、[`owned-server.test.ts`](../../../packages/neuro-book/src/desktop/owned-server.test.ts)、[`connect.test.ts`](../../../packages/neuro-book/src/desktop/connect.test.ts)、[`state-root.test.ts`](../../../packages/neuro-book/src/desktop/state-root.test.ts)、[`deadline.test.ts`](../../../packages/neuro-book/src/desktop/deadline.test.ts)
 - Smoke：不适用——发布流水线的 Windows 作业还没有。自动测试不跑 Windows，Electrobun 适配层（`desktop/src/bun/`）不在类型检查与自动测试里，靠 Windows 上的实测把关：第 1 轮 [`windows-shell-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r1.txt)、第 2 轮 [`windows-shell-r2.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r2.txt)；上面“验收与 Smoke”里的发布流水线 Windows 作业还没有实现，没有跑过。

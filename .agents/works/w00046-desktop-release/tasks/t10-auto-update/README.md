@@ -52,6 +52,22 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 - 验证：主进程能打包。适配层不在类型检查范围内，用到的接口逐个对过 2.0.6 源码，行为留给切片 5 在 Windows 上实测。
 - 核对源码时发现计划里 t11 门禁的查询串写错了：更新器取清单用的是 `stable-win-x64-update-v2.json?<16 位十六进制>`，不是 `?cache=<32 位>`。计划已改。
 
+切片 2 的 omp 实现审查 5 条（阻断 1、重要 4），均成立、已改（[报告](evidences/impl-review-s2-omp.txt)、[处理](evidences/impl-review-s2-omp-disposition.txt)），修正 `2e0fae272`。
+
+切片 5（2026-11-14）：pc-notype 上的 Windows 验收，第 1 轮 [windows-update-r1.txt](evidences/windows-update-r1.txt)。本地更新源，A、B、C 三个版本，desktop-update 场景 1 到 7 都通过。
+- Spec 按实测改了四处写法：
+  - 选“下载”时先重新检查（场景 3）；
+  - 换上程序遇到文件占用会等约 5 分钟，期间旧程序关掉就照常换上；占用 420 秒时约 290 秒失败、还原，旧版本通知“更新没有完成”（场景 4）；
+  - 启动页的“正在更新”来不及显示；
+  - 场景 6 改用绝对路径。
+- 发现一个缺陷：相对路径的 `NBOOK_STATE_ROOT` 解析进了安装里的 `app\bin`（启动器的工作目录），换上后数据会丢。修正是壳拒绝相对路径、启动页要求改成完整路径（`d45edcb84`，`bun test src/desktop` 89 条、类型检查通过）。desktop-shell Spec 跟着改，记进待确认清单。修正后的包没有在 Windows 上重跑。
+- 缺省状态根对照验收前的清单：没有新增顶层条目，`projects.json` 未变。
+- 构建测试版本时改了 package.json 的版本还要 `bun install` 刷新 `bun.lock`，计划与 t11 门禁的查询串已补。
+
 ## 下一步
 
-切片 5：pc-notype 上的 Windows 验收（本地更新源，A、B、C 三个版本，desktop-update 场景 1 到 7）。切片 2 的 omp 实现审查在后台进行。
+收口：
+- 对切片 3 到 5 的提交启动实现审查：页面一侧派 Sonnet，壳与适配层开 omp；
+- 处理审查结论后合入 master；
+- 删掉构建用的 worktree `w00046-t10-build`；
+- 停掉 pc-notype 上的本地更新源。

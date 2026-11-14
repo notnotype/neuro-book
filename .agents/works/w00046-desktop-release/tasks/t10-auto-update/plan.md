@@ -189,7 +189,7 @@
   - `release.baseUrl` 缺省 `https://github.com/notnotype/neuro-book/releases/latest/download`；
   - `release.generatePatch: true`；
   - 构建时环境变量覆盖：`NBOOK_UPDATE_BASE_URL`（本地更新源）、`NBOOK_DESKTOP_IDENTIFIER`（测试包用另一个应用标识，隔开安装目录与 WebView 数据；缺省状态根 `%LOCALAPPDATA%\NeuroBook` 不随标识变，隔离靠验收前的检查，见“验证”）。
-- 版本的来源（第 13 条、第二轮第 8 条）：产品版本只有两处，`src/shared/product.ts` 的 `PRODUCT_VERSION` 与 `packages/neuro-book/package.json` 的 `version`，`product.test.ts` 核对两者相同；应用包（`scripts/pack-app.ts`）、壳的 `bundle/version.json`（`desktop/scripts/build.ts`）、服务端与网页都取 `PRODUCT_VERSION`。所以测试构建不加 `--version` 参数，而是在独立的检出副本里把这两处一起改成测试版本、跑 `product.test.ts`，再按正式的发布链从头构建。构建后核对：壳的 `version.json`、`nbook --version`、服务端 hello 里的版本、应用包清单，四处都是这个测试版本。
+- 版本的来源（第 13 条、第二轮第 8 条）：产品版本只有两处，`src/shared/product.ts` 的 `PRODUCT_VERSION` 与 `packages/neuro-book/package.json` 的 `version`，`product.test.ts` 核对两者相同；应用包（`scripts/pack-app.ts`）、壳的 `bundle/version.json`（`desktop/scripts/build.ts`）、服务端与网页都取 `PRODUCT_VERSION`。所以测试构建不加 `--version` 参数，而是在独立的检出副本里把这两处一起改成测试版本、跑 `product.test.ts`，再按正式的发布链从头构建。改了 package.json 的版本还要 `bun install` 刷新根 `bun.lock` 里的工作区版本，否则 `release:smoke` 报依赖与 bun.lock 不一致（切片 5 实测；t11 的发布版本号改动同样要带上 bun.lock）。构建后核对：壳的 `version.json`、`nbook --version`、服务端 hello 里的版本、应用包清单，四处都是这个测试版本。
 - 下载页：`https://github.com/notnotype/neuro-book/releases/latest`。
 
 ## Spec 与文档改动
@@ -291,7 +291,7 @@
   - 证据除 UI 自动化读的文字外，另记：状态文件、更新器的结果文件、`version.json`、壳日志、更新源的请求日志（走了补丁还是完整包）。
 - 未验证边界：
   - GitHub `latest/download` 的重定向与更新器取清单时追加的查询串要等第一次真实发布。交给 t11 作发布完成的门禁（第 16 条、第二轮第 10 条），t11 的计划照抄：
-    - 公开资产之后、宣布发布完成之前，照更新器的取法各发一次 GET：清单是正式 baseUrl 下的 `stable-win-x64-update-v2.json?<16 位十六进制>`（Electrobun 2.0.6 `checkForUpdateOperation`：查询串只有随机的十六进制、没有参数名；404 时退回 `-update.json`），完整包与补丁按清单里的文件名、不带查询串。跟随重定向（至多 5 跳）拿到 200、长度与清单一致（2026-11-14 切片 4 核对源码时改正：原先写的 `?cache=<32 位>` 不对）；同时用装好的这一版做一次检查，壳日志里是“没有更新”而不是检查失败；
+    - 公开资产之后、宣布发布完成之前，照更新器的取法各发一次 GET：清单是正式 baseUrl 下的 `stable-win-x64-update-v2.json?<16 位十六进制>`（Electrobun 2.0.6 `checkForUpdateOperation`：查询串只有随机的十六进制、没有参数名；404 时退回 `-update.json`）；补丁与完整包带另一种查询串：`stable-win-x64-<上一版哈希>.patch?cache=<32 位十六进制>`、`stable-win-x64-NeuroBook.tar.zst?cache=<32 位>`；下一次构建时 Hutch 取上一版也用 `?cache=<32 位>`（`stable-win-x64-update.json` 与 tar.zst）。两种都要发。跟随重定向（至多 5 跳）拿到 200、长度与清单一致（2026-11-14 切片 4 核对源码时改正清单的查询串，切片 5 在 Windows 上看请求日志补上补丁、完整包与构建时的查询串，见 [windows-update-r1.txt](evidences/windows-update-r1.txt)）；同时用装好的这一版做一次检查，壳日志里是“没有更新”而不是检查失败；
     - 证据存 `version.json` 里的 baseUrl、请求与应答头；
     - 不通过：不标发布完成，Release 说明不写“自动更新可用”，停下交开发者（baseUrl 发出后改不了，只能另发一版修）；
     - 真正的下载与换上要有上一个正式桌面版才能走，按 Spec 的 Smoke 在第二个正式版时补；
