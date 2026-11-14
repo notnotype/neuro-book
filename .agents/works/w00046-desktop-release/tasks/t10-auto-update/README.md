@@ -25,6 +25,8 @@ Electrobun Updater 接 GitHub Releases：后台检查与提示、下载前核对
 
 Spec desktop-update 已随之修改（术语“安装的使用与换上”、输出 4、7、8，时序、失败表与场景 4）。计划按这个方向与 omp 的另外 14 条修订后，交第二轮设计审查。
 
+2026-11-14：第二轮设计审查（omp）10 条，阻断 3 条，全部成立、均改进计划（[报告](evidences/design-review-r2-omp.txt)、[处理](evidences/design-review-r2-omp-disposition.txt)）：状态文件改单写者、换上终态读更新器的结果文件、拿不到共享锁不启动、下载结果按 `updateInfo` 判断、版本来源改为 `PRODUCT_VERSION`。交第三轮（最后一轮）设计审查。
+
 ## 下一步
 
-计划第二轮设计审查（omp），处理后按切片实施；Windows 验收要等 pc-notype 恢复。
+计划第三轮设计审查（omp），处理后按切片实施；第三轮仍有实质问题就停下交开发者；Windows 验收要等 pc-notype 恢复。
