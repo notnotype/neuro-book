@@ -10,9 +10,12 @@
  *   都还没运行。
  * - 桥：产品窗口是沙箱网页视图（没有 RPC），页面经预加载脚本与 `__electrobunSendToHost` 发固定形状的消息；壳经
  *   `executeJavascript` 派发 `nbook-desktop` 事件。消息按网页视图 id 认窗口，按代次认询问；同一页面里的脚本都能发（插件完全信任）。
+ * - 更新（docs/specs/runtime/desktop-update.md）：`UpdaterPort` 接 Electrobun 2.0.6 的 `Updater`，规则都在核心
+ *   （`src/desktop/update.ts`、`update-install.ts`）。更新器的事件不用来判断结果（`error` 是检查、下载、换上共用的通道），每次调用
+ *   之后读它的状态；`before-quit` 在取桌面锁之前放行（`DesktopShell.acceptsQuit`），换上要经它结束进程。
  */
 
-import Electrobun, {BrowserWindow, PATHS, Screen, Utils} from "electrobun/main";
+import Electrobun, {BrowserWindow, PATHS, Screen, Updater, Utils} from "electrobun/main";
 import {spawnSync} from "node:child_process";
 import {appendFileSync, mkdirSync} from "node:fs";
 import {homedir} from "node:os";
@@ -20,8 +23,10 @@ import {dirname, join} from "node:path";
 
 import {systemClock} from "../../../src/desktop/deadline";
 import {DesktopShell} from "../../../src/desktop/shell";
-import type {ShellPorts, StartupView} from "../../../src/desktop/shell";
+import type {ShellPorts, ShellUpdates, StartupView} from "../../../src/desktop/shell";
 import {resolveDesktopStateRoot} from "../../../src/desktop/state-root";
+import {scanApplyResults} from "../../../src/desktop/update-install";
+import type {UpdaterPort} from "../../../src/desktop/update-install";
 import type {OpenTarget, WindowId, WindowPort} from "../../../src/desktop/windows";
 import {DESKTOP_EVENT, parsePageMessage} from "../../../src/shared/desktop-bridge";
 import type {CloseReason, ShellMessage} from "../../../src/shared/desktop-bridge";
@@ -32,6 +37,8 @@ import {PRELOAD} from "./preload";
 const SHELL_VIEW = "views://shell/index.html";
 const DEFAULT_SIZE = {width: 1280, height: 800};
 const WEBVIEW2_DOWNLOAD = "https://developer.microsoft.com/microsoft-edge/webview2/";
+/** “打开下载页”（desktop-update 输出 10）：最新 Release 的页面。 */
+const DOWNLOAD_PAGE = "https://github.com/notnotype/neuro-book/releases/latest";
 
 /** 程序根目录：`Resources` 的上一层；便携包解压出来就是这一层，便携标记写在这里。 */
 const programRoot = dirname(PATHS.RESOURCES_FOLDER);
@@ -58,6 +65,90 @@ function hasWebView2(): boolean {
         const version = /pv\s+REG_SZ\s+(\S+)/u.exec(result.stdout)?.[1];
         return result.status === 0 && version !== undefined && version !== "0.0.0.0";
     });
+}
+
+const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/**
+ * 接 Electrobun 的更新器。读不到 `Resources/version.json`（开发运行）时不给更新。通道根取不到（不在
+ * `%LOCALAPPDATA%\<identifier>\<channel>\app\` 下：便携、开发构建）时 `channelRoot` 为 null，核心只提示、不建安装级文件。
+ */
+async function desktopUpdates(): Promise<ShellUpdates | undefined> {
+    const info = await Updater.getLocalInfo();
+    if (info.version === "" || info.hash === "") {
+        log("update.disabled version.json is unavailable");
+        return undefined;
+    }
+    let channelRoot: string | null = null;
+    try {
+        channelRoot = await Updater.appDataFolder();
+    } catch (error) {
+        log("update.not-managed-install", error);
+    }
+    const identity = {identifier: info.identifier, channel: info.channel};
+    const updater: UpdaterPort = {
+        local: {version: info.version, hash: info.hash},
+        async check() {
+            try {
+                // 不看 `updateAvailable`：它只比哈希，只升不降由核心按版本判断。
+                const checked = await Updater.checkForUpdate();
+                return checked.error === "" ? {ok: true, version: checked.version, hash: checked.hash} : {ok: false, error: checked.error};
+            } catch (error) {
+                return {ok: false, error: describe(error)};
+            }
+        },
+        async download(target) {
+            try {
+                // 成功、失败都 resolve 为 undefined（失败被它自己写进 `updateInfo.error`），所以之后读状态判断。
+                await Updater.downloadUpdate();
+            } catch (error) {
+                return {ok: false, error: describe(error)};
+            }
+            const state = Updater.updateInfo();
+            if (state.updateReady && state.error === "" && state.hash === target.hash) return {ok: true};
+            return {ok: false, error: state.error !== "" ? state.error : `prepared ${state.hash || "nothing"} instead of ${target.hash}`};
+        },
+        async apply() {
+            // 只看这次调用之后新增的状态记录：走到“正在启动新版本”就是更新器已在结束进程；不按英文文字分支。
+            const before = Updater.getStatusHistory().length;
+            try {
+                await Updater.applyUpdate();
+            } catch (error) {
+                return {failed: describe(error)};
+            }
+            const added = Updater.getStatusHistory().slice(before);
+            if (added.some((entry) => entry.status === "launching-new-version")) return "exiting";
+            return {failed: added.map((entry) => `${entry.status}: ${entry.message}`).join("; ") || "the updater did not start the update"};
+        },
+        async results() {
+            if (channelRoot === null) return [];
+            const results = await scanApplyResults(channelRoot, identity);
+            if (results === null) log(`update.results-unreadable channelRoot=${channelRoot}`);
+            return results;
+        },
+        helperRunning: updateHelperRunning,
+    };
+    return {updater, channelRoot, openDownloadPage: () => void Utils.openExternal(DOWNLOAD_PAGE)};
+}
+
+/**
+ * 更新器的换上程序还在不在：它被复制成 `%TEMP%\electrobun-update-<事务号>.exe` 运行（Electrobun 2.0.6 `copyUpdateHelper`）。
+ * 用 `tasklist` 的 CSV（第一列是映像名，不随系统语言变），不经 PowerShell。查不了时 null，核心按“还在”处理。
+ */
+async function updateHelperRunning(): Promise<boolean | null> {
+    if (process.platform !== "win32") return null;
+    try {
+        const child = Bun.spawn(["tasklist", "/fo", "csv", "/nh"], {stdout: "pipe", stderr: "ignore", windowsHide: true});
+        const [output, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+        if (code !== 0) {
+            log(`update.tasklist-failed exit=${String(code)}`);
+            return null;
+        }
+        return output.split(/\r?\n/u).some((line) => /^"electrobun-update-/iu.test(line));
+    } catch (error) {
+        log("update.tasklist-failed", error);
+        return null;
+    }
 }
 
 interface ManagedWindow {
@@ -136,6 +227,7 @@ async function main(): Promise<void> {
             windows.delete(id);
             shell.windows.closed(id);
         });
+        win.on("focus", () => shell.windows.focused(id));
         win.webview.on("host-message", (event: unknown) => {
             const message = parse(event);
             if (message === null) return;
@@ -180,6 +272,18 @@ async function main(): Promise<void> {
                 return;
             case "close-answer":
                 shell.windows.pageAnswered(id, message.generation, message.answer);
+                return;
+            case "page-ready":
+                shell.windows.pageReady(id);
+                return;
+            case "page-gone":
+                shell.windows.pageGone(id);
+                return;
+            case "update-choice":
+                shell.updates?.choose(message.id, message.choice);
+                return;
+            case "update-hint-shown":
+                shell.updates?.shown(message.id);
                 return;
         }
     };
@@ -243,6 +347,14 @@ async function main(): Promise<void> {
             }, () => shell.windows.dialogChose(id, "wait"));
         },
         closeNotResponding: (id) => closeDialog(`not-responding:${String(id)}`),
+        sendHint(id, hintId, hint) {
+            const managed = windows.get(id);
+            if (managed !== undefined) dispatch(managed.win, {type: "update-hint", id: hintId, hint});
+        },
+        endHint(id, hintId) {
+            const managed = windows.get(id);
+            if (managed !== undefined) dispatch(managed.win, {type: "update-hint-end", id: hintId});
+        },
     };
 
     let pendingRestartFailure: string | null = null;
@@ -274,13 +386,16 @@ async function main(): Promise<void> {
     };
 
     Electrobun.events.on("before-quit", (event: {response?: {allow: boolean}}) => {
-        if (quitAllowed) return;
+        // 取桌面锁之前放行：那时没有服务端与页面，启动时换上要经这里结束进程（desktop-update 输出 8）。
+        if (quitAllowed || shell.acceptsQuit) return;
         event.response = {allow: false};
         // SDK 只在这个同步段里看应答；发起关闭（询问页面、关启动页）放到下一轮事件循环，不在它的退出流程里操作窗口。
         setImmediate(() => shell.windows.quitRequested());
     });
 
     const env = {...process.env};
+    const updates = await desktopUpdates();
+    log(`update setup=${updates === undefined ? "none" : `channelRoot=${String(updates.channelRoot)} local=${updates.updater.local.version}/${updates.updater.local.hash}`}`);
     shell = new DesktopShell({
         root,
         version: PRODUCT_VERSION,
@@ -288,6 +403,7 @@ async function main(): Promise<void> {
         ports,
         clock: systemClock,
         report: log,
+        updates,
     });
     await shell.run();
 
