@@ -64,10 +64,16 @@ Spec desktop-update 已随之修改（术语“安装的使用与换上”、输
 - 缺省状态根对照验收前的清单：没有新增顶层条目，`projects.json` 未变。
 - 构建测试版本时改了 package.json 的版本还要 `bun install` 刷新 `bun.lock`，计划与 t11 门禁的查询串已补。
 
+收口实现审查（2026-11-14，worktree 固定在 `cead88ccb`）：
+- 页面一侧（Sonnet）5 条，重要 1、次要 4（[报告](evidences/impl-review-final-sonnet.txt)、[处理](evidences/impl-review-final-sonnet-disposition.txt)）。重要的一条与次要 1 已改（`654f8da1d`）：普通浏览器里报就绪发不出去不写诊断；从往返缓存恢复时重新报就绪。
+- 壳与适配层（omp）2 条，都是重要，均成立、已改（[报告](evidences/impl-review-final-omp.txt)、[处理](evidences/impl-review-final-omp-disposition.txt)，`de1cb361c`）：
+  - Windows 上没有盘符的根路径不收作状态根；
+  - 已知作废就不写 attempt。
+- 验证：`bun test src/desktop` 90 条、`desktop-updates` 单测 8 条、类型检查（tsc 与 web 的 vue-tsc），e2e `desktop-update`、`desktop-close` 7 条通过。
+
 ## 下一步
 
 收口：
-- 对切片 3 到 5 的提交启动实现审查：页面一侧派 Sonnet，壳与适配层开 omp；
-- 处理审查结论后合入 master；
+- 合入 master；
 - 删掉构建用的 worktree `w00046-t10-build`；
 - 停掉 pc-notype 上的本地更新源。
