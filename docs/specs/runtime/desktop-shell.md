@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: runtime.desktop-shell
 owners:
   - desktop-shell
@@ -212,7 +212,7 @@ Smoke：发布流水线的 Windows 作业对安装版与便携版各跑一遍：
 
 ## 证据
 
-- 批准依据：[桌面发行提案](../../proposals/desktop-distribution.md) 4.2 到 4.5（2026-11-13 `accepted`）；[ADR 0051](../../adr/0051-desktop-shell-electrobun-tag-release.md)。
+- 批准依据：[桌面发行提案](../../proposals/desktop-distribution.md) 4.2 到 4.5（2026-11-13 `accepted`）；[ADR 0051](../../adr/0051-desktop-shell-electrobun-tag-release.md)。开发者 2026-11-14 看过 Windows 实测第 2 轮后同意晋升为 `implemented`。
 - 实现入口：核心 [`desktop/shell.ts`](../../../packages/neuro-book/src/desktop/shell.ts)、[`windows.ts`](../../../packages/neuro-book/src/desktop/windows.ts)、[`lock.ts`](../../../packages/neuro-book/src/desktop/lock.ts)、[`owned-server.ts`](../../../packages/neuro-book/src/desktop/owned-server.ts)、[`connect.ts`](../../../packages/neuro-book/src/desktop/connect.ts)、[`state-root.ts`](../../../packages/neuro-book/src/desktop/state-root.ts)、[`deadline.ts`](../../../packages/neuro-book/src/desktop/deadline.ts)；Electrobun 适配层 [`desktop/README.md`](../../../packages/neuro-book/desktop/README.md)（主进程、预加载脚本与启动页的说明）。
 - 合同测试：[`shell.test.ts`](../../../packages/neuro-book/src/desktop/shell.test.ts)、[`windows.test.ts`](../../../packages/neuro-book/src/desktop/windows.test.ts)、[`lock.test.ts`](../../../packages/neuro-book/src/desktop/lock.test.ts)、[`owned-server.test.ts`](../../../packages/neuro-book/src/desktop/owned-server.test.ts)、[`connect.test.ts`](../../../packages/neuro-book/src/desktop/connect.test.ts)、[`state-root.test.ts`](../../../packages/neuro-book/src/desktop/state-root.test.ts)、[`deadline.test.ts`](../../../packages/neuro-book/src/desktop/deadline.test.ts)
 - Smoke：自动测试不跑 Windows，Electrobun 适配层（`desktop/src/bun/`）不在类型检查与自动测试里，靠 Windows 上的实测把关：第 1 轮 [`windows-shell-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r1.txt)、第 2 轮 [`windows-shell-r2.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r2.txt)；上面“验收与 Smoke”里的发布流水线 Windows 作业还没有实现，没有跑过。

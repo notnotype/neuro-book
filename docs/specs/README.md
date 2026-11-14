@@ -261,7 +261,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 世界引擎：作者界面（设定侧） | [`canon/author-ui.md`](canon/author-ui.md) | 条目树、条目页（位置与按计划、文字与数据分页、来历、情节）、数据分页的贡献点、就地改与记一笔、新建与删除、回执页、变更详情页、待处理与改动记录、状态栏计数、读取的新鲜度与失败的呈现 |
 | 图像提示词 | [`images/prompt.md`](images/prompt.md) | 项与数值权重、NovelAI 与 SD 两种读法、规范写法与原文的保留、随机项与图中文字、按空行切段、语法检查与一键改 |
 | 图像配方 | [`images/recipes.md`](images/recipes.md) | 配方、预设、片段、风格组合四种文件；节与角色框；预设的引用加差异、更新与换预设；本书默认；我的预设库与官方预设；展开、内容快照与恢复；id 索引与重复 id |
-| 桌面壳 | [`runtime/desktop-shell.md`](runtime/desktop-shell.md) | Windows 桌面版：桌面锁与开窗转交、连接服务端、窗口与导航、关闭前询问（壳一侧）、三态停止、异常、便携版的状态根。待晋升 |
+| 桌面壳 | [`runtime/desktop-shell.md`](runtime/desktop-shell.md) | Windows 桌面版：桌面锁与开窗转交、连接服务端、窗口与导航、关闭前询问（壳一侧）、三态停止、异常、便携版的状态根 |
 | 桌面版的更新 | [`runtime/desktop-update.md`](runtime/desktop-update.md) | 检查、只升不降、提示与下载、下次启动换上与安装级排他、便携版只提示 |
 
 ## 旧应用的规范与 Reference（只作参照）
