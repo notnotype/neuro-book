@@ -96,6 +96,42 @@ export function matchSkillToken<Item>(token: string, items: Iterable<Item>, entr
     return judge(permitted[0]!);
 }
 
+/** 按来源的一组：用户的、一个插件的、内置的。`key` 是 `user`、`plugin:<插件 id>` 或 `builtin`。 */
+export interface SkillGroup<Item> {
+    readonly key: string;
+    readonly source: SkillSource;
+    /** 插件的组才有。 */
+    readonly plugin?: SkillPluginRef;
+    readonly items: readonly Item[];
+}
+
+/**
+ * 按来源分组（skills.md 输出 25、34）：我的在前，然后每个插件一组（按显示名，没有的按插件 id），内置在后；空组不出。组里保持传入
+ * 的先后。Skill 页与 Profile 设置的 Skill 一节共用。
+ */
+export function groupSkills<Item>(items: readonly Item[], entryOf: (item: Item) => SkillEntry): Array<SkillGroup<Item>> {
+    const user: Item[] = [];
+    const builtin: Item[] = [];
+    const plugins = new Map<string, {readonly plugin: SkillPluginRef; readonly items: Item[]}>();
+    for (const item of items) {
+        const entry = entryOf(item);
+        if (entry.source === "user") user.push(item);
+        else if (entry.source === "builtin") builtin.push(item);
+        else {
+            const plugin = entry.plugin ?? {id: entry.id.slice(0, Math.max(entry.id.lastIndexOf("."), 0)), title: null};
+            const group = plugins.get(plugin.id) ?? {plugin, items: []};
+            group.items.push(item);
+            plugins.set(plugin.id, group);
+        }
+    }
+    const pluginName = (plugin: SkillPluginRef): string => plugin.title ?? plugin.id;
+    return [
+        ...(user.length === 0 ? [] : [{key: "user", source: "user" as const, items: user}]),
+        ...[...plugins.values()].sort((left, right) => pluginName(left.plugin).localeCompare(pluginName(right.plugin)) || left.plugin.id.localeCompare(right.plugin.id)).map(({plugin, items: grouped}) => ({key: `plugin:${plugin.id}`, source: "plugin" as const, plugin, items: grouped})),
+        ...(builtin.length === 0 ? [] : [{key: "builtin", source: "builtin" as const, items: builtin}]),
+    ];
+}
+
 /** 用户与内置来源的 id 前缀；插件来源的前缀是插件 id。 */
 export const SKILL_ID_PREFIX: Readonly<Record<"builtin" | "user", string>> = {builtin: "builtin", user: "user"};
 

@@ -314,6 +314,18 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
   });
   ```
 
+### 带 Skill
+
+插件可以带 Skill（[Agent Skills](../../../docs/specs/agent/skills.md)：一个带 `SKILL.md` 的文件夹，用户在对话里用 `$` 选它）。把 Skill 放进插件目录里的一个文件夹（例如 `skills/`，每个子文件夹一个 Skill，文件夹名等于 `SKILL.md` 的 `name`），在 `plugin.ts` 里用 `/agent` 的 `agentSkills` 声明它：
+
+- 写法：``plugin.descriptor([agentSkills(`${plugin.id}.skills`, {directory: "skills"})])``。`directory` 是插件目录里的相对路径，用 `/` 分段。
+- id：Skill 的 id 是插件 id 加 `.` 加文件夹名。只带 Skill 的插件没有入口，`locations` 写空数组。
+- 构建：`nbooke build` 把目录搬进产物，每个 JS/TS 脚本连同它用到的 npm 包打成一个单文件，写回同一个路径与文件名，`SKILL.md` 里写的 `bun scripts/x.ts` 不用改。`package.json`、锁文件与 `node_modules` 不进产物，装好的 Skill 直接可用、不用初始化。
+- 找旁边的文件：脚本用 `import.meta.dir`。`__dirname` 会被换成构建机器上的路径，构建拒绝。
+- 构建失败的几种：依赖带原生模块（`.node`）或别的附件；依赖按自己的位置读文件（`__dirname`、`import.meta.url`）；运行时才按名字加载模块；Skill 带 Python 第三方依赖（只用标准库的 `.py` 可以）。报错写明是哪个 Skill、哪个文件、哪个依赖。依赖按工作目录或环境变量找文件时构建查不出，装好之后才失败。
+
+能照着改的例子是 SDK 包里的 `examples/plugins/skill-pack`。
+
 ### 作者可用的内置命令
 
 内置插件的命令很多，作者能依赖的（属于 `engines.neurobook` 的兼容范围）只有下面这些；别的内置命令随产品改动，不要写进插件。

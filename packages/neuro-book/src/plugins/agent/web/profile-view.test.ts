@@ -280,6 +280,7 @@ describe("Skill 一节（skills.md 的白名单）", () => {
         skill("user", "epub-export", {status: "needs-init"}),
         skill("user", "tts-preview"),
         skill("user", "outline", {status: "invalid"}),
+        {...skill("plugin", "pdf"), id: "acme.docs.pdf", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.pdf/SKILL.md"},
     ];
     const skillsOf = (input: {entry?: ProfileEntry; setting?: object; skills?: readonly SkillEntry[] | null}) => profileViews({
         profiles: [input.entry ?? entry()],
@@ -294,14 +295,15 @@ describe("Skill 一节（skills.md 的白名单）", () => {
     })[0]!.skills;
     const groups = (field: ReturnType<typeof skillsOf>) => field?.groups.map((group) => [group.provider, group.tools.map((row) => `${row.id}${row.effect === "" ? "" : `:${row.effect}`}${row.restorable === true ? ":加回" : ""}`)]);
 
-    test("声明全部：目录里的都列出，我的在前、内置在后；未初始化的标出；去掉的收在最后一组“已去掉”，能加回", () => {
+    test("声明全部：目录里的都列出，我的在前、插件的按插件名、内置在后；未初始化的标出；去掉的收在最后一组“已去掉”，能加回", () => {
         const field = skillsOf({entry: entry({skills: {allowed: "all"}}), setting: {skills: {added: [], removed: ["user.tts-preview"]}}});
         expect(groups(field)).toEqual([
             ["我的 Skill", ["user.style-guide", "user.epub-export:未初始化", "user.outline:无效"]],
+            ["文档工具", ["acme.docs.pdf"]],
             ["内置", ["builtin.chapter-summary"]],
             ["已去掉", ["user.tts-preview:加回"]],
         ]);
-        expect(field).toMatchObject({count: 3, modified: true});
+        expect(field).toMatchObject({count: 4, modified: true});
         expect(field?.candidates.flatMap((group) => group.tools.map((row) => row.id))).toEqual(["user.tts-preview"]);
     });
 
@@ -314,7 +316,7 @@ describe("Skill 一节（skills.md 的白名单）", () => {
             ["已删除或不可用", ["user.gone"]],
         ]);
         expect(field?.groups.at(-1)?.tools[0]).toMatchObject({gone: true, summary: expect.stringContaining("没有找到")});
-        expect(field?.candidates.flatMap((group) => group.tools.map((row) => row.id))).toEqual(["user.epub-export", "user.tts-preview"]);
+        expect(field?.candidates.map((group) => [group.provider, group.tools.map((row) => row.id)])).toEqual([["我的 Skill", ["user.epub-export", "user.tts-preview"]], ["文档工具", ["acme.docs.pdf"]]]);
     });
 
     test("Skill 目录还没取到、Profile 从未成功过、后台的 Profile 没有这一节", () => {

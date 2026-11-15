@@ -33,6 +33,10 @@ const ENTRIES: readonly SkillEntry[] = [
     entry("user", "outline", {status: "invalid", description: "", problem: {code: "name-mismatch", name: "outline-helper"}}),
     entry("user", "drafts", {status: "invalid", description: "", problem: {code: "skill-md-missing"}}),
     entry("user", "voice-check", {external: {python: true, uvMissing: true, compatibility: "需要 Python 3.11"}}),
+    // 插件的：目录交来时已按插件名排好，这里故意打乱，分组自己排。
+    {...entry("plugin", "lint"), id: "zeta.tools.lint", plugin: {id: "zeta.tools", title: null}, location: "skills://zeta.tools.lint/SKILL.md"},
+    {...entry("plugin", "pdf"), id: "acme.docs.pdf", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.pdf/SKILL.md"},
+    {...entry("plugin", "raw"), id: "acme.docs.raw", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.raw/SKILL.md", status: "invalid", problem: {code: "plugin-skill-unbuilt"}},
 ];
 
 async function show(entries: readonly SkillEntry[] | null) {
@@ -48,9 +52,17 @@ async function show(entries: readonly SkillEntry[] | null) {
 }
 
 describe("SkillsSettingsPage", () => {
-    it("我的在前、内置在后；第二行写说明，无效的与上次没装好的写原因；徽标只在不可用时出现；“初始化”只给未初始化的", async () => {
+    it("我的在前、各插件一组（组头是插件名，没有显示名写 id）、内置在后；第二行写说明，无效的与上次没装好的写原因；徽标只在不可用时出现；“初始化”只给未初始化的", async () => {
         const {wrapper, root, row} = await show(ENTRIES);
-        expect([...root.querySelectorAll("[data-skills-group]")].map((group) => group.getAttribute("data-skills-group"))).toEqual(["user", "builtin"]);
+        expect([...root.querySelectorAll("[data-skills-group]")].map((group) => [group.getAttribute("data-skills-group"), group.querySelector("h3")?.textContent])).toEqual([
+            ["user", "我的 Skill"],
+            // 按插件名的本地化比较：拉丁字母在汉字前面。
+            ["plugin:zeta.tools", "zeta.tools"],
+            ["plugin:acme.docs", "文档工具"],
+            ["builtin", "内置"],
+        ]);
+        expect(row("acme.docs.raw").textContent).toContain("没有经 nbooke build 打包");
+        expect(row("acme.docs.raw").querySelector("[data-skill-status]")?.textContent?.trim()).toBe("无效");
         expect(row("user.style-guide").querySelector("[data-skill-status]")).toBeNull();
         expect(row("user.style-guide").textContent).toContain("style-guide 的说明");
         expect(row("user.epub-export").querySelector("[data-skill-status]")?.textContent?.trim()).toBe("未初始化");

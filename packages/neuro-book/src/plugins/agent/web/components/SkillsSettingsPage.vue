@@ -2,7 +2,8 @@
 import {Badge, Button, IconButton} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 
-import type {SkillEntry, SkillProblem, SkillSource} from "../../shared/skills";
+import {groupSkills} from "../../shared/skills";
+import type {SkillEntry, SkillProblem} from "../../shared/skills";
 import {useAgentPageText} from "../text";
 
 /** 设置里的“Skill”页（同名 .md）：按来源分组、整页共用五列。 */
@@ -18,10 +19,12 @@ const emit = defineEmits<{
 
 const text = useAgentPageText();
 
-const GROUPS: readonly SkillSource[] = ["user", "builtin"];
-const groups = computed(() => GROUPS
-    .map((source) => ({source, rows: (props.entries ?? []).filter((entry) => entry.source === source)}))
-    .filter((group) => group.rows.length > 0));
+/** 我的、各插件、内置（skills.md 输出 25、34）；插件组的标题是插件名，没有显示名时写插件 id。 */
+const groups = computed(() => groupSkills(props.entries ?? [], (entry) => entry).map((group) => ({
+    key: group.key,
+    title: group.plugin === undefined ? text(group.source === "user" ? "skills.page.groups.user" : "skills.page.groups.builtin") : (group.plugin.title ?? group.plugin.id),
+    rows: group.items,
+})));
 
 const expanded = ref(new Set<string>());
 function toggle(id: string): void {
@@ -84,8 +87,8 @@ function details(entry: SkillEntry): ReadonlyArray<{readonly term: string; reado
             <p>{{ text("skills.page.empty") }}</p>
         </div>
         <div v-else class="skills-page__groups">
-            <section v-for="group in groups" :key="group.source" class="skills-page__group" :data-skills-group="group.source">
-                <h3 class="skills-page__group-title">{{ text(group.source === "user" ? "skills.page.groups.user" : "skills.page.groups.builtin") }}</h3>
+            <section v-for="group in groups" :key="group.key" class="skills-page__group" :data-skills-group="group.key">
+                <h3 class="skills-page__group-title">{{ group.title }}</h3>
                 <ul class="skills-page__list">
                     <li v-for="entry in group.rows" :key="entry.id" class="skills-page__item" :data-skill="entry.id">
                         <div class="skills-page__meta">
