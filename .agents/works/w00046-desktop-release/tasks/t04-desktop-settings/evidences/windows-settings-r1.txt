@@ -1,0 +1,29 @@
+w00046 t04 Windows 验收第 1 轮（2026-11-15，pc-notype：Windows 11 26200 x64，单屏 2560x1440、缩放 100%，WebView2 157）
+
+构建：t04 分支 b974acfbe。worktree 里 release:smoke 出发布清单，desktop/scripts/build.ts 组装 win32-x64 载荷；Hutch stable 构建，测试标识
+io.github.notnotype.neurobook.t04test，Setup 装进 %LOCALAPPDATA%\io.github.notnotype.neurobook.t04test\stable\app（开机自启只对安装版）。
+缺省状态根用 pc-notype 上已有的 %LOCALAPPDATA%\NeuroBook（开发者 2026-11-14 定可用于 Windows 验收）；脚本先备份它的 settings.json、结束时恢复。
+取证：脚本 windows-settings-check.ts.txt（独立的 Bun，在桌面会话里）：CDP 读产品页面的 devicePixelRatio（缩放 100% 的屏上等于缩放值）、
+在页面里点按钮与发按键；reg query 读 HKCU Run 下以应用标识为名的一项；读壳的日志与缓存。不截屏，不发系统键盘与鼠标输入。
+
+结果（RESULT ok）：
+1. 缺省状态根 settings.json 写 zoom 1.25、openAtLogin true 后启动：devicePixelRatio 1.25；Run 下有
+   io.github.notnotype.neurobook.t04test = "C:\Users\notnotype\AppData\Local\io.github.notnotype.neurobook.t04test\stable\app\bin\launcher.exe"。
+   页面里 window.open 开第二个窗口：devicePixelRatio 1.25。
+2. 运行中直接改 settings.json（删 zoom、openAtLogin false）：两个窗口都回到 1，Run 下这一项被删。
+3. CDP 向页面发 Ctrl+=（code Equal）：两个窗口都到 1.1（不是 1.21，没有叠加 WebView2 自带的缩放），settings.json 写进 zoom 1.1；
+   缓存 logs\desktop\settings-cache.json 为 {"zoom":1.1,"openAtLogin":false}。
+4. 关掉再开：devicePixelRatio 1.1。
+5. 设 NBOOK_STATE_ROOT=…\t04\state、其 settings.json 写 openAtLogin true 后启动：Run 下没有这一项；壳日志
+   desktop.login-item.skipped the state root is not the default one。
+6. 结束时恢复缺省状态根的 settings.json、确认 Run 下没有残留。
+
+过程中的两次失败（都是脚本的问题）：
+- 第一次在第 3 步超时：devicePixelRatio 实际是 1.100000023841858，脚本用了严格相等。另写一个探针确认：按键到达页面，捕获阶段被接管
+  （defaultPrevented 为真），缩放变成 1.1。改为按千分位比较后整轮重跑通过。
+- 那个探针在缺省状态根里按了 Ctrl+=，把 zoom 1.1 写进了原本没有的 settings.json，下一轮又把它当原样恢复。发现后删掉了这个文件与
+  缓存文件，缺省状态根回到原状（没有 settings.json、没有缓存），Run 下没有残留。
+
+未验证（要真实键盘）：Ctrl+加号、Ctrl+减号、Ctrl+0、Ctrl+滚轮在真实键盘与鼠标下只改一次缩放、WebView2 自带的缩放不叠加。CDP 发的按键
+不一定经过 WebView2 的浏览器加速键处理，证明不了这一条。请开发者在 pc-notype 上按：开始菜单里的测试版 NeuroBook（t04test，已装），
+或双击 %USERPROFILE%\nb-w00046\t04\launch-default.cmd。拦不住时按计划去掉快捷键与 Ctrl+滚轮，只留设置项与命令。
