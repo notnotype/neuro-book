@@ -41,8 +41,8 @@ export interface SkillExternal {
     readonly compatibility?: string;
 }
 
-/** 一条目录条目（skills.md 输出 1）。 */
-export interface SkillEntry {
+/** 一条目录条目的字段（skills.md 输出 1）；来源与所属插件见 `SkillEntry`。 */
+interface SkillEntryFields {
     /** `<来源前缀>.<name>`，插件的前缀是插件 id；来源以 `source` 为准，不从前缀推断。 */
     readonly id: string;
     /** 无效的 Skill 读不出 `name` 时是目录名。 */
@@ -50,9 +50,6 @@ export interface SkillEntry {
     /** 无效的 Skill 可能为空串。 */
     readonly description: string;
     readonly whenToUse?: string;
-    readonly source: SkillSource;
-    /** 插件来源的 Skill 才有。 */
-    readonly plugin?: SkillPluginRef;
     /** `skills://<id>/SKILL.md`。 */
     readonly location: string;
     readonly status: SkillStatus;
@@ -61,6 +58,9 @@ export interface SkillEntry {
     readonly license?: string;
     readonly metadata?: Readonly<Record<string, string>>;
 }
+
+/** 一条目录条目（skills.md 输出 1、30）：插件来源的必带所属插件，别的来源没有。 */
+export type SkillEntry = SkillEntryFields & ({readonly source: "builtin" | "user"; readonly plugin?: undefined} | {readonly source: "plugin"; readonly plugin: SkillPluginRef});
 
 /** 初始化之前交给用户确认的内容（skills.md 输出 18）；联网、不运行安装脚本对每个 Skill 都一样，由界面写明。 */
 export type SkillInitPlan =
@@ -96,12 +96,16 @@ export function matchSkillToken<Item>(token: string, items: Iterable<Item>, entr
     return judge(permitted[0]!);
 }
 
-/** 按来源的一组：用户的、一个插件的、内置的。`key` 是 `user`、`plugin:<插件 id>` 或 `builtin`。 */
+/**
+ * 按来源的一组：用户的、一个插件的、内置的。`key` 是 `user`、`plugin:<插件 id>` 或 `builtin`。插件的组带 `title`：插件的显示名，
+ * 没有时是插件 id；两个插件显示名相同时后面加上插件 id 区分。用户与内置的组标题按界面语言由调用方给。
+ */
 export interface SkillGroup<Item> {
     readonly key: string;
     readonly source: SkillSource;
     /** 插件的组才有。 */
     readonly plugin?: SkillPluginRef;
+    readonly title?: string;
     readonly items: readonly Item[];
 }
 
@@ -115,22 +119,30 @@ export function groupSkills<Item>(items: readonly Item[], entryOf: (item: Item) 
     const plugins = new Map<string, {readonly plugin: SkillPluginRef; readonly items: Item[]}>();
     for (const item of items) {
         const entry = entryOf(item);
-        if (entry.source === "user") user.push(item);
-        else if (entry.source === "builtin") builtin.push(item);
-        else {
-            const plugin = entry.plugin ?? {id: entry.id.slice(0, Math.max(entry.id.lastIndexOf("."), 0)), title: null};
-            const group = plugins.get(plugin.id) ?? {plugin, items: []};
+        if (entry.source === "plugin") {
+            const group = plugins.get(entry.plugin.id) ?? {plugin: entry.plugin, items: []};
             group.items.push(item);
-            plugins.set(plugin.id, group);
-        }
+            plugins.set(entry.plugin.id, group);
+        } else if (entry.source === "user") user.push(item);
+        else builtin.push(item);
     }
-    const pluginName = (plugin: SkillPluginRef): string => plugin.title ?? plugin.id;
+    const sorted = [...plugins.values()].sort((left, right) => skillPluginName(left.plugin).localeCompare(skillPluginName(right.plugin)) || left.plugin.id.localeCompare(right.plugin.id));
+    const names = sorted.map(({plugin}) => skillPluginName(plugin));
     return [
         ...(user.length === 0 ? [] : [{key: "user", source: "user" as const, items: user}]),
-        ...[...plugins.values()].sort((left, right) => pluginName(left.plugin).localeCompare(pluginName(right.plugin)) || left.plugin.id.localeCompare(right.plugin.id)).map(({plugin, items: grouped}) => ({key: `plugin:${plugin.id}`, source: "plugin" as const, plugin, items: grouped})),
+        ...sorted.map(({plugin, items: grouped}, index) => ({
+            key: `plugin:${plugin.id}`,
+            source: "plugin" as const,
+            plugin,
+            title: names.filter((name) => name === names[index]).length > 1 ? `${names[index]!} · ${plugin.id}` : names[index]!,
+            items: grouped,
+        })),
         ...(builtin.length === 0 ? [] : [{key: "builtin", source: "builtin" as const, items: builtin}]),
     ];
 }
+
+/** 插件给人看的名字：显示名，没有时是插件 id（skills.md 输出 34）。服务端目录与界面的分组按它排。 */
+export const skillPluginName = (plugin: SkillPluginRef): string => plugin.title ?? plugin.id;
 
 /** 用户与内置来源的 id 前缀；插件来源的前缀是插件 id。 */
 export const SKILL_ID_PREFIX: Readonly<Record<"builtin" | "user", string>> = {builtin: "builtin", user: "user"};

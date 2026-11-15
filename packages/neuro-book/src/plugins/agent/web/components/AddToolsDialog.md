@@ -41,4 +41,4 @@ defineEmits<{
 - `state:inject`：文字经宿主注入的翻译端口取。
 - `env:portal`：nb-ui `Dialog` 传送到 `body`。
 
-`kind` 为 `agents` 时是“添加可派的子代理”：候选是不在白名单里、可用的 Profile，文字取 `profiles.agents.add.*`（profile-settings.md 输出 25）。`kind` 为 `skills` 时是“添加 Skill”：候选是 Skill 目录里不在白名单、不是无效的 Skill，按来源分组，文字取 `profiles.skills.add.*`（输出 26）。
+`kind` 为 `agents` 时是“添加可派的子代理”：候选是不在白名单里、可用的 Profile，文字取 `profiles.agents.add.*`（profile-settings.md 输出 25）。`kind` 为 `skills` 时是“添加 Skill”：候选是 Skill 目录里不在白名单、不是无效的 Skill，按来源分组（我的、各插件、内置，同 Skill 一节），文字取 `profiles.skills.add.*`（输出 26）。

@@ -20,8 +20,12 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-const entry = (source: SkillEntry["source"], name: string, extra: Partial<SkillEntry> = {}): SkillEntry => ({
+type EntryExtra = Partial<Pick<SkillEntry, "status" | "problem" | "description" | "license" | "metadata" | "external">>;
+const entry = (source: "user" | "builtin", name: string, extra: EntryExtra = {}): SkillEntry => ({
     id: `${source}.${name}`, name, description: `${name} 的说明`, source, location: `skills://${source}.${name}/SKILL.md`, status: "ready", ...extra,
+});
+const pluginEntry = (plugin: string, title: string | null, name: string, extra: EntryExtra = {}): SkillEntry => ({
+    id: `${plugin}.${name}`, name, description: `${name} 的说明`, source: "plugin", plugin: {id: plugin, title}, location: `skills://${plugin}.${name}/SKILL.md`, status: "ready", ...extra,
 });
 
 const ENTRIES: readonly SkillEntry[] = [
@@ -34,9 +38,9 @@ const ENTRIES: readonly SkillEntry[] = [
     entry("user", "drafts", {status: "invalid", description: "", problem: {code: "skill-md-missing"}}),
     entry("user", "voice-check", {external: {python: true, uvMissing: true, compatibility: "需要 Python 3.11"}}),
     // 插件的：目录交来时已按插件名排好，这里故意打乱，分组自己排。
-    {...entry("plugin", "lint"), id: "zeta.tools.lint", plugin: {id: "zeta.tools", title: null}, location: "skills://zeta.tools.lint/SKILL.md"},
-    {...entry("plugin", "pdf"), id: "acme.docs.pdf", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.pdf/SKILL.md"},
-    {...entry("plugin", "raw"), id: "acme.docs.raw", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.raw/SKILL.md", status: "invalid", problem: {code: "plugin-skill-unbuilt"}},
+    pluginEntry("zeta.tools", null, "lint"),
+    pluginEntry("acme.docs", "文档工具", "pdf"),
+    pluginEntry("acme.docs", "文档工具", "raw", {status: "invalid", problem: {code: "plugin-skill-unbuilt"}}),
 ];
 
 async function show(entries: readonly SkillEntry[] | null) {

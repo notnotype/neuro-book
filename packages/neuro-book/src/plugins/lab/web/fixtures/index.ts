@@ -151,7 +151,9 @@ const SKILL_PAGE_ENTRIES: readonly SkillEntry[] = [
     {id: "user.outline", name: "outline", description: "", source: "user", location: "skills://user.outline/SKILL.md", status: "invalid", problem: {code: "name-mismatch", name: "outline-helper"}},
     {id: "user.voice-check-with-a-much-longer-name", name: "voice-check-with-a-much-longer-name", description: "逐段检查叙述视角有没有串，标出越界的句子。", source: "user", location: "skills://user.voice-check-with-a-much-longer-name/SKILL.md", status: "ready", external: {python: true, uvMissing: true, compatibility: "需要 Python 3.11 以上与 uv；朗读用的 espeak-ng 要自己装"}, metadata: {author: "林默", version: "0.3"}},
     {id: "acme.docs.pdf-extract", name: "pdf-extract", description: "从扫描的 PDF 里抽出正文与页码，按章分段。", source: "plugin", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.pdf-extract/SKILL.md", status: "ready"},
-    {id: "acme.docs.raw-notes", name: "raw-notes", description: "", source: "plugin", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.raw-notes/SKILL.md", status: "invalid", problem: {code: "plugin-skill-unbuilt"}},
+    {id: "acme.docs.raw-notes", name: "raw-notes", description: "把采访录音的转写整理成按人物分的笔记。", source: "plugin", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.raw-notes/SKILL.md", status: "invalid", problem: {code: "plugin-skill-unbuilt"}},
+    // 没有显示名的插件，组头写插件 id；id 很长时组头要折行，不撑出页面。
+    {id: "someverylongpublishername.averyveryverylongpluginnamewithoutbreaks.lint", name: "lint", description: "按本书的禁用词表检查选中的章节。", source: "plugin", plugin: {id: "someverylongpublishername.averyveryverylongpluginnamewithoutbreaks", title: null}, location: "skills://someverylongpublishername.averyveryverylongpluginnamewithoutbreaks.lint/SKILL.md", status: "ready"},
     {id: "builtin.chapter-summary", name: "chapter-summary", description: "给一章写三五句提要，写进章节的元数据。", source: "builtin", location: "skills://builtin.chapter-summary/SKILL.md", status: "ready"},
 ];
 export type LabScene = {

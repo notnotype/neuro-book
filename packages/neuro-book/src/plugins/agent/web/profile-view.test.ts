@@ -273,14 +273,15 @@ describe("可派的子代理一节", () => {
 });
 
 describe("Skill 一节（skills.md 的白名单）", () => {
-    const skill = (source: SkillEntry["source"], name: string, extra: Partial<SkillEntry> = {}): SkillEntry => ({id: `${source}.${name}`, name, description: `${name} 的说明`, source, location: `skills://${source}.${name}/SKILL.md`, status: "ready", ...extra});
+    const skill = (source: "user" | "builtin", name: string, extra: Partial<Pick<SkillEntry, "status" | "problem" | "description">> = {}): SkillEntry => ({id: `${source}.${name}`, name, description: `${name} 的说明`, source, location: `skills://${source}.${name}/SKILL.md`, status: "ready", ...extra});
+    const pluginSkill = (plugin: string, title: string | null, name: string, extra: Partial<Pick<SkillEntry, "status" | "problem" | "description">> = {}): SkillEntry => ({id: `${plugin}.${name}`, name, description: `${name} 的说明`, source: "plugin", plugin: {id: plugin, title}, location: `skills://${plugin}.${name}/SKILL.md`, status: "ready", ...extra});
     const SKILLS: readonly SkillEntry[] = [
         skill("builtin", "chapter-summary"),
         skill("user", "style-guide"),
         skill("user", "epub-export", {status: "needs-init"}),
         skill("user", "tts-preview"),
         skill("user", "outline", {status: "invalid"}),
-        {...skill("plugin", "pdf"), id: "acme.docs.pdf", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.pdf/SKILL.md"},
+        pluginSkill("acme.docs", "文档工具", "pdf"),
     ];
     const skillsOf = (input: {entry?: ProfileEntry; setting?: object; skills?: readonly SkillEntry[] | null}) => profileViews({
         profiles: [input.entry ?? entry()],
@@ -317,6 +318,37 @@ describe("Skill 一节（skills.md 的白名单）", () => {
         ]);
         expect(field?.groups.at(-1)?.tools[0]).toMatchObject({gone: true, summary: expect.stringContaining("没有找到")});
         expect(field?.candidates.map((group) => [group.provider, group.tools.map((row) => row.id)])).toEqual([["我的 Skill", ["user.epub-export", "user.tts-preview"]], ["文档工具", ["acme.docs.pdf"]]]);
+    });
+
+    test("插件的 Skill 每个插件一组：没有显示名写插件 id，显示名撞了带上 id；无效的悬停写原因、不进候选；去掉的进“已去掉”；插件停用后白名单里留下的进“已删除或不可用”", () => {
+        const skills: readonly SkillEntry[] = [
+            pluginSkill("acme.docs", "文档工具", "pdf"),
+            pluginSkill("acme.docs", "文档工具", "raw", {status: "invalid", problem: {code: "plugin-skill-unbuilt"}}),
+            pluginSkill("zeta.tools", null, "lint"),
+            pluginSkill("beta.docs", "文档工具", "ocr"),
+            skill("user", "notes"),
+        ];
+        const field = skillsOf({entry: entry({skills: {allowed: "all"}}), setting: {skills: {added: ["acme.old.gone"], removed: ["zeta.tools.lint"]}}, skills});
+        expect(field?.groups.map((group) => [group.id, group.provider, group.tools.map((row) => row.id)])).toEqual([
+            ["user", "我的 Skill", ["user.notes"]],
+            ["plugin:acme.docs", "文档工具 · acme.docs", ["acme.docs.pdf", "acme.docs.raw"]],
+            ["plugin:beta.docs", "文档工具 · beta.docs", ["beta.docs.ocr"]],
+            ["gone", "已删除或不可用", ["acme.old.gone"]],
+            ["removed", "已去掉", ["zeta.tools.lint"]],
+        ]);
+        const raw = field?.groups[1]?.tools[1];
+        expect(raw).toMatchObject({effect: "无效", danger: true, summary: "raw 的说明"});
+        expect(raw?.detail).toContain("没有经 nbooke build 打包");
+        expect(field?.groups[3]?.tools[0]?.summary).toContain("插件的重新启用插件后恢复");
+        // 没有显示名的插件组写插件 id；无效的不进候选。
+        const later = skillsOf({entry: entry({skills: {allowed: []}}), skills});
+        expect(later?.candidates.map((group) => [group.id, group.provider, group.tools.map((row) => row.id)])).toEqual([
+            ["user", "我的 Skill", ["user.notes"]],
+            // 插件组按名字的本地化比较：拉丁字母在汉字前面；同名的按插件 id。
+            ["plugin:zeta.tools", "zeta.tools", ["zeta.tools.lint"]],
+            ["plugin:acme.docs", "文档工具 · acme.docs", ["acme.docs.pdf"]],
+            ["plugin:beta.docs", "文档工具 · beta.docs", ["beta.docs.ocr"]],
+        ]);
     });
 
     test("Skill 目录还没取到、Profile 从未成功过、后台的 Profile 没有这一节", () => {

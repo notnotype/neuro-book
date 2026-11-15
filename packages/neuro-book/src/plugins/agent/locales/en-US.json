@@ -587,7 +587,7 @@
             },
             "userAdded": "Added by me",
             "needsInit": "Uninitialized",
-            "gone": "This Skill was not found; it comes back once it is in the Skills folder again",
+            "gone": "This Skill was not found; it comes back once your own is in the Skills folder again, or its plugin is enabled again",
             "goneGroup": "Deleted or unavailable",
             "removedGroup": "Removed",
             "groups": {
@@ -670,7 +670,7 @@
                 "fieldInvalid": "{{field}} in SKILL.md is invalid",
                 "nameMismatch": "The name in SKILL.md is {{name}}, which differs from the folder name",
                 "symlink": "The Skill folder is a link and cannot be used",
-                "pluginSkillUnbuilt": "This plugin Skill was not packaged with nbooke build and cannot be used",
+                "pluginSkillUnbuilt": "This plugin Skill was not packaged with nbooke build and cannot be used; please tell the plugin author",
                 "installFailed": "The last initialization failed",
                 "interrupted": "The last initialization was interrupted"
             },

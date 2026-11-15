@@ -15,6 +15,7 @@ import type {ToolBinding, ToolChange} from "../shared/profile-tools";
 import {profileAgents} from "../shared/profile-agents";
 import {declaredSkills, profileSkills} from "../shared/profile-skills";
 import {groupSkills} from "../shared/skills";
+import {skillProblemText} from "./skill-problem";
 import type {SkillEntry, SkillGroup} from "../shared/skills";
 import type {ProfileSetting} from "../shared/settings";
 import {agentText} from "../shared/text";
@@ -74,7 +75,10 @@ export interface ProfileToolRow {
 }
 
 export interface ProfileToolGroup {
-    /** 身份：插件 id，已卸载的一组是 `GONE_GROUP`。显示名可能重复、随界面语言变，不作身份。 */
+    /**
+     * 身份。工具一节：插件 id，已卸载的一组是 `GONE_GROUP`。Skill 一节：`user`、`plugin:<插件 id>`、`builtin`（`groupSkills` 的 key），
+     * 另有 `GONE_GROUP` 与 `REMOVED_GROUP`。显示名可能重复、随界面语言变，不作身份。
+     */
     readonly id: string;
     readonly provider: string;
     readonly tools: readonly ProfileToolRow[];
@@ -357,14 +361,15 @@ function skillsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
             : declared.has(skill.id) || extra.restorable === true ? "" : text.t(agentText("profiles.skills.userAdded")),
         danger: skill.status === "invalid",
         summary: skill.description,
-        detail: skill.description,
+        // 无效的、上次没装好的：悬停的全文先写原因（同 Skill 页的第二行），再写说明。
+        detail: skill.problem === undefined ? skill.description : [skillProblemText(skill.problem, (key, params) => text.t(agentText(key, params))), skill.description].filter((part) => part !== "").join("\n"),
         required: false,
         gone: false,
         ...extra,
     });
     const goneRow = (id: string): ProfileToolRow => ({id, name: id, effect: "", danger: false, summary: text.t(agentText("profiles.skills.gone")), detail: text.t(agentText("profiles.skills.gone")), required: false, gone: true});
     // 分组同 Skill 页：我的、各插件（标题是插件名）、内置。
-    const groupName = (group: SkillGroup<SkillEntry>): string => (group.plugin === undefined ? text.t(agentText(group.source === "user" ? "profiles.skills.groups.user" : "profiles.skills.groups.builtin")) : (group.plugin.title ?? group.plugin.id));
+    const groupName = (group: SkillGroup<SkillEntry>): string => group.title ?? text.t(agentText(group.source === "user" ? "profiles.skills.groups.user" : "profiles.skills.groups.builtin"));
     const listed = allowed.map((id) => byId.get(id)).filter((skill): skill is SkillEntry => skill !== undefined);
     const gone = allowed.filter((id) => !byId.has(id));
     const removed = (binding?.removed ?? []).map((id) => byId.get(id)).filter((skill): skill is SkillEntry => skill !== undefined && skill.status !== "invalid");

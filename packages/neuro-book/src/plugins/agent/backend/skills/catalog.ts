@@ -16,26 +16,26 @@ import {basename, join, sep} from "node:path";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
-import {matchSkillToken, SKILL_ID_PREFIX, skillId, skillLocation, type SkillEntry, type SkillPluginRef, type SkillProblem, type SkillSource, type SkillTokenMatch} from "../../shared/skills";
+import {matchSkillToken, SKILL_ID_PREFIX, skillId, skillLocation, skillPluginName, type SkillEntry, type SkillPluginRef, type SkillProblem, type SkillSource, type SkillTokenMatch} from "../../shared/skills";
 import {detectExternal, readSkillPackage} from "./package";
 import {readiness} from "./readiness";
 
 /** 文件变化合并成一次重扫的等待时长：编辑器保存、`bun install` 都会连着改好几个文件。 */
 const RESCAN_DELAY_MS = 150;
 
-export interface SkillRoot {
+interface SkillRootFields {
     /** 根的稳定身份：用户与内置的根是来源名，插件的根是贡献 id。增删根、重扫与同名时的先后都按它。 */
     readonly key: string;
-    readonly source: SkillSource;
     /** Skill id 的前缀：用户与内置的是 `SKILL_ID_PREFIX`，插件的是插件 id。 */
     readonly prefix: string;
     /** 根目录；null 时这个根没有 Skill（例如还没有内置的 Skill）。 */
     readonly root: string | null;
     /** 用户的 Skill 文件夹要监视；随应用分发的、插件的不用。 */
     readonly watch: boolean;
-    /** 插件的根：插件 id 与显示名。 */
-    readonly plugin?: SkillPluginRef;
 }
+
+/** 一个根：插件的根带插件 id 与显示名，条目照抄。 */
+export type SkillRoot = SkillRootFields & ({readonly source: "builtin" | "user"; readonly plugin?: undefined} | {readonly source: "plugin"; readonly plugin: SkillPluginRef});
 
 /** 用户或内置来源的根：每种只有一个，key 就是来源名。 */
 export function sourceRoot(source: "user" | "builtin", root: string | null, watch: boolean): SkillRoot {
@@ -97,7 +97,7 @@ export class SkillCatalog {
 
     /** 我的 Skill 在前、插件的其次（按插件名）、内置在后，同一组按名字。 */
     list(): readonly SkillEntry[] {
-        const pluginName = (entry: SkillEntry): string => entry.plugin?.title ?? entry.plugin?.id ?? "";
+        const pluginName = (entry: SkillEntry): string => (entry.plugin === undefined ? "" : skillPluginName(entry.plugin));
         return [...this.#items.values()].map((item) => item.entry).sort((left, right) => SOURCE_ORDER[left.source] - SOURCE_ORDER[right.source] || pluginName(left).localeCompare(pluginName(right)) || left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
     }
 
@@ -246,7 +246,8 @@ export class SkillCatalog {
 
     async #readItem(root: SkillRoot, directory: string, folder: string): Promise<SkillItem> {
         const id = skillId(root.prefix, folder);
-        const base = {id, source: root.source, location: skillLocation(id), ...(root.plugin === undefined ? {} : {plugin: root.plugin})};
+        const origin = root.source === "plugin" ? {source: root.source, plugin: root.plugin} : {source: root.source};
+        const base = {id, location: skillLocation(id), ...origin};
         const read = await readSkillPackage(directory, folder).catch((error: unknown) => ({ok: false as const, problem: {code: "frontmatter-unreadable", detail: error instanceof Error ? error.message : String(error)} satisfies SkillProblem}));
         if (!read.ok) return {directory, root: root.key, entry: {...base, name: folder, description: "", status: "invalid", problem: read.problem}};
         const ignored = read.ignored.join(", ");
