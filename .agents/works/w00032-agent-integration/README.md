@@ -72,6 +72,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-13 | 开发者批准 t15 的 Spec 晋升：`agent/skills.md` 改为 `implemented`，其余 Spec 里 t15 的条目去掉 planned；`bun.lock` 过期记为已知限制；t15 完成。不判旧的文件锁 `tryLock` 搬进 nb-file-lock 并随 nb-story 发布，另在 w00043 开 Task（[t15](tasks/t15-skills/README.md)） |
 | 2026-11-15 | 开发者：先做 t30（模型请求的 trace），排在 t29 之前；参考旧应用的 trace，先出界面静态稿；查看器的组件放进 nb-agent-ui（[t30](tasks/t30-model-request-trace/README.md)） |
 | 2026-11-15 | t30 合入；开发者批准 `agent/request-trace.md` 晋升为 `implemented`，没做的几项标 planned、统一新建 [t35](tasks/t35-request-trace-followups/README.md)；t30 完成。下一步开 [t33](tasks/t33-plugin-skills/README.md)（[t30](tasks/t30-model-request-trace/README.md)） |
+| 2026-11-15 | t33 开工：开发者确认[计划](tasks/t33-plugin-skills/plan.md)（6 个待确认项按推荐），用 autonomous-delivery 推进到 Task 完成（[t33](tasks/t33-plugin-skills/README.md)） |
 
 ## 待确认
 
