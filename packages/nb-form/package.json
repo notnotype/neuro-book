@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-form",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "按数据 schema 画表单：核心（描述、字段树、校验与问题、条件、Agent 策略）只依赖 TypeBox；Vue 渲染层用 nb-ui 的控件。",
     "license": "AGPL-3.0-only",
     "repository": {

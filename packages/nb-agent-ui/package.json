@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-agent-ui",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Agent 对话视图：核心（视图类型、分轮与摘要、发送规则、harness 适配器）是纯 TS；Vue 渲染层建在 nb-ui 之上，Markdown 与提示词编辑器由宿主注入。",
     "license": "AGPL-3.0-only",
     "repository": {
