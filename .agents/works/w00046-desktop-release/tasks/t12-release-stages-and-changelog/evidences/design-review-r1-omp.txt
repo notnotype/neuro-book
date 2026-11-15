@@ -1,0 +1,113 @@
+1. **严重程度**：阻断；**类别**：正确性；**位置**：`plan-r1.md:56`、`packages/neuro-book/scripts/pack-app.ts:263-281`、`scripts/release/packages.ts:152-168`、`scripts/release/pack-smoke.ts:67-79`
+
+**现象**：计划只明确源码包的 `package.json.files` 加 `CHANGELOG.md`，对应用包只说由 `pack-app.ts` 拷进生成目录；现有 `pack-app.ts` 生成包的 `files` 白名单是 `server/`、`web/`、`docs/`、`LICENSE`、`README.md`、`THIRD-PARTY-NOTICES.md`，没有 `CHANGELOG.md`。`checkReleasePackages` 当前只检查 README、LICENSE 和白名单，不检查白名单是否覆盖 CHANGELOG；`pack-smoke` 也只检查入口文件。
+
+**为什么是问题**：按计划逐字实现时，应用生成目录里可能存在 CHANGELOG，清单检查也可能通过，但 `bun pm pack` 会把它排除，发布到 npm 的应用包没有变更记录，直接违反“CHANGELOG 进 npm 包”。应用包是 ADR 0033 的构建产物，不能靠源码包的 `files` 继承该文件。
+
+**如何核实**：在生成目录写入 `CHANGELOG.md`，保持现有 `files`，执行 `bun pm pack --filename <临时包>.tgz` 后用 `tar -tzf` 检查；会看不到 `package/CHANGELOG.md`。同时执行 `bunx vitest run scripts/release/packages.test.ts` 的新增白名单场景，可证明现有检查不会拦住它。
+
+**建议改法**：把 `CHANGELOG.md` 明确加入 `pack-app.ts` 生成的 `files` 与复制步骤；`checkReleasePackages` 对所有发布单元同时检查文件存在、解析格式和 `files` 覆盖；`pack-smoke` 增加实际 tarball 必须含 `package/CHANGELOG.md` 的行为断言。
+2. **严重程度**：重要；**类别**：不变量；**位置**：`plan-r1.md:54-56`、`scripts/release/release-plan.ts:22-24,57-86`、`scripts/release/publish.ts:256-265`
+
+**现象**：计划要求现在给 10 个源码包补建 CHANGELOG；这些包中已有版本已经在 registry 发布。发布计划把“发布时间早于标签提交且完整性不同”的条目归为 `history/different`，不发布它，也只有在本次待发包依赖它时才由 `blockingStalePackages` 拦截。
+
+**为什么是问题**：仅增加 CHANGELOG 就会改变已发布版本的 tarball 字节。于是没有代码或用户行为变化的历史包不再被判定为“字节相同、跳过”，而被标成源码改过；若待发包依赖其中一个，整轮发布会被无关文档改动阻断；若没有依赖，则悄悄携带一份永远无法发布的不同 tarball，后续排障时会误认为源码漂移。版本不可重发，CHANGELOG 初始化不能把已发版本当成可重打包的基线。
+
+**如何核实**：用现有 `release-plan.test.ts` 的 `different(BEFORE)` 输入模拟“只增加 CHANGELOG”的完整性摘要，运行 `bunx vitest run scripts/release/release-plan.test.ts`；再给一个待发包加入对该历史包的依赖，观察 `blockingStalePackages` 失败。
+
+**建议改法**：在计划中明确迁移策略：要么在 CHANGELOG 进入 `files` 前为每个已有源码包先发布新版本，要么把 CHANGELOG 延迟到该包下一次提版并在这次初始化时不改已发版本的 tarball；不能只靠现有 `history/different` 提醒。若接受历史 tarball 与当前源码不同，需把它记录为一次性基线并保证依赖检查不会把这次文档初始化误当成代码 stale。
+3. **严重程度**：重要；**类别**：正确性；**位置**：`plan-r1.md:80-84`、`plan-r1.md:113-117`、`.github/workflows/release.yml:34-37,392-415`、`scripts/release/github-release.ts:35,102-110,245-247`
+
+**现象**：改名方案要求 `previous` 同时识别旧名与新名，并多输出 `previous-setup=<名>`，随后 `upgrade-from-previous` 按这个资产名下载。当前工作流的 job 输出只声明 `version`、`dry-run`、`previous`，没有 `previous-setup`；下游 job 也只把 `previous` 标签传入环境变量。`previous` 命令当前只输出 `previous=<标签>`，没有资产名合同。
+
+**为什么是问题**：GitHub Actions 只能把声明在 `jobs.gate.outputs` 里的 step output 传给下游。实现若只在脚本 stdout 增加 `previous-setup`，`upgrade-from-previous` 仍拿不到它；若下载步骤仍写旧固定名，下一版的新版资产下载失败；若把标签误当文件名，`gh release download` 找不到资产。该作业位于 `github-release` 和 `verify-feed` 之后，失败发生在 GitHub Release 已公开之后，不能作为远端写入前门禁。
+
+**如何核实**：对照工作流表达式 `needs.gate.outputs.previous-setup` 的声明和消费链；在一个同时有 `win-x64-NeuroBook-Setup.zip` 与 `NeuroBook-0.14.0-win-x64-Setup.zip` 的 Release 夹具上运行下载命令，旧固定 pattern 会返回非零。
+
+**建议改法**：让 `previous` 返回结构化的 `previous` 与 `previous-setup`，在 `gate.outputs` 显式暴露二者，升级作业同时使用标签和资产名；为 v0.13.0 旧名、下一版新名各写跨脚本测试，并把下载资产名作为升级作业的输入合同。
+4. **严重程度**：重要；**类别**：正确性；**位置**：`plan-r1.md:60-69`、`.github/workflows/release.yml:103-105,323-343`
+
+**现象**：说明的最终输入包括“上一个公开 Release 标签”和应用的历史版本区间，但计划中的 `check <版本> <release-plan.json>` 没有这个输入；它在 `npm-packages` 作业运行，最终 `render` 却在 `github-release` 作业运行。计划没有定义两者如何共享同一个 floor、阶段和模板结果，也没有把最终说明文件作为产物传递。
+
+**为什么是问题**：预检可能只验证本次包有版本段，无法验证比较链接、公开 Release 查询失败、floor 选择或最终正文格式。只要 `github-release` 的真实 `render` 失败，`publish-npm` 已先执行并写入 registry；说明缺失或错误时无法再靠这道“远端写入前的检查”收口。`npm-packages` 当前也没有与 `github-release` 相同的 `GH_TOKEN` 环境配置，若检查依赖 `gh` 查询公开 Release，会在预检阶段直接因认证失败。
+
+**如何核实**：用一个缺少上一个 Release 或 floor 标签异常的 release plan，分别执行预检和最终 render；预检不带 floor 无法覆盖最终路径。再在无 `GH_TOKEN` 的 `npm-packages` 等效环境执行需要 `gh release list` 的命令，观察认证失败。
+
+**建议改法**：在 `gate` 一次解析并输出按本次版本选定的上一个公开 Release，或在 `npm-packages` 生成完整说明文件并把它随 `npm-packages` 工件上传；`check` 与 `render` 必须调用同一渲染函数、使用同一输入，`github-release` 只消费已检查的说明文件并校验摘要。必要的 `GH_TOKEN` 与 `contents: read` 也应显式配置。这样说明失败仍发生在 npm 写入前。
+5. **严重程度**：重要；**类别**：不变量；**位置**：`plan-r1.md:67-69,124-125`、`.github/workflows/release.yml:323-343`
+
+**现象**：计划明确规定 `draft` 对已存在的草稿不重建说明。说明正文又依赖可变的“上一个公开 Release”与应用 CHANGELOG 的版本区间。工作流失败在草稿已创建、或等待期间有更高版本先公开后，重跑同一作业会读到旧草稿而跳过重新渲染。
+
+**为什么是问题**：同一标签的说明不再由当前 release-plan 和当前 floor 决定。典型时序是：第一次运行创建 v0.14.0 草稿后在 publish 前失败；队列中的 v0.15.0 随后公开；再重跑 v0.14.0 时，已有草稿保留旧的 compare 链接和应用变更区间。`draft` 的幂等资产逻辑因此把说明也错误地当成不可变资产，重跑后正文可能漏项或把中间版本归错。
+
+**如何核实**：用两个 Release 列表快照运行同一版本的 `render`，比较 floor 改变时的正文；先建立一个已有草稿，再运行 draft，确认计划要求的“不重建”不会更新正文。
+
+**建议改法**：把渲染后的说明作为本轮不可变工件，并在草稿仍为 draft 时用同一工件更新正文；重跑时校验草稿正文摘要，不一致就失败并要求人工处理或明确覆盖。只有已公开 Release 才禁止自动改正文，同时把 floor、plan commit 和说明摘要记入草稿可核对的元数据。
+6. **严重程度**：重要；**类别**：不变量；**位置**：`plan-r1.md:26-31,92`、`scripts/release/tag.ts:31-38,89-93`、`scripts/release/github-release.ts:89-110`、`scripts/release/verify-update-feed.ts:24-34`
+
+**现象**：当前阶段只存在源码常量，版本号和标签保持纯数字；npm 在首个 stable 前一直用 `latest`，桌面更新身份仍是 `channel: stable`。计划把“第一个稳定版以后照 omp 改”留给未来 ADR，但没有写迁移版本、已安装用户频道、GitHub Release 预发布标志或 npm 标签的具体合同。
+
+**为什么是问题**：纯数字 `0.13.0` canary 已占用 npm 版本，首个 stable 不能再发布同一个 npm 版本；不能靠改 `PRODUCT_STAGE` 或编辑同一个 tag 把它变成 stable。若未来 canary 改成 `X.Y.Z-canary.N`，GitHub 会把它视为 prerelease，而当前 `previousDesktopRelease` 明确排除 `isPrerelease`；现有 v0.13.0 安装包写的是 stable 频道和 `latest/download`，也没有状态把它们切到新的 canary 频道。于是“照 omp 改”若没有先定义切换窗口，旧 canary 用户、稳定用户、Hutch 增量基线和 npm `latest/canary` 会落在不同更新线上。
+
+**如何核实**：构造已发布 `0.13.0`、将来的 `0.13.0-canary.1` 与 `0.14.0`，分别检查 npm 版本不可复用、`previousDesktopRelease` 对 prerelease 的筛选，以及 v0.13.0 `version.json` 中的 `channel` 与更新 URL；这些条件由上述代码直接决定。
+
+**建议改法**：在 ADR 0053 中提前写死迁移合同：首个 stable 必须使用高于全部纯数字 canary 的新版本；是否在 stable 前冻结 canary；现有 stable 频道用户如何转移；新 canary 的 GitHub/npm 标签、桌面频道、previous 选择和依赖范围如何处理。当前 Task 可以不实现未来分支，但不能把它描述成无需迁移的后续改动。
+7. **严重程度**：重要；**类别**：正确性；**位置**：`plan-r1.md:71-78`、`docs/adr/0029-workspace-packages-publish-source-to-npm.md:23-27`、`scripts/release/packages.ts:18-39`
+
+**现象**：`release:prepare <版本|patch|minor>` 的步骤只说明改应用 `package.json` 与 `product.ts` 两处；随后却要求逐个源码发布单元依据各自版本检查 registry，并把各自 `[Unreleased]` 定稿。ADR 0029 明确 10 个源码包独立手工管理版本，发布计划也按每个包的版本决定是否发。
+
+**为什么是问题**：计划没有说明源码包版本由谁、何时、按什么命令提高，也没有包选择参数或“本次要发哪些源码包”的输入。只改 nb-ui 后直接运行 `release:prepare patch`，nb-ui 的 `[Unreleased]` 有条目但现有版本仍在 registry，脚本必停；若为通过检查手工改了多个 package.json，又无法知道哪些包应定稿、哪些只是被依赖方提版。只改依赖范围、只升级被依赖方、以及首次手工发布过的 `nb-flock` 都会依赖这条未写出的流程，不能靠产品版本的 patch/minor 参数推导。
+
+**如何核实**：在仓库外夹具中保持应用版本待提、源码包版本已发布，给 nb-ui 的 `[Unreleased]` 加一条，按计划执行等价判定；它会因 registry 已有该版本停止，而没有任何计划步骤能生成 nb-ui 的新版本。再分别模拟只改依赖范围和仅被依赖方提版，观察同一布尔规则无法区分“要发布的新源码包”和“产品版本提交中的无关包”。
+
+**建议改法**：把源码包版本更新纳入准备合同：明确输入是已预先提版还是 `prepare` 负责按包 bump，提供显式包集合并校验其依赖闭包；对 app、SDK 与独立源码包分别定义版本和 CHANGELOG 定稿规则。`nb-flock` 的本机首发/已在 registry 的状态也应作为发布单元状态输入，不要用“registry 没有版本”替代发布信任配置。
+8. **严重程度**：重要；**类别**：不变量；**位置**：`plan-r1.md:73-78`、`docs/standards/repository-workflow.md:28-30`
+
+**现象**：`release:prepare` 被允许在 Work 分支或 master 上运行，预检只要求目录干净；计划没有检查当前提交已包含最新 master，也没有在提交后重新验证 master 未前进。仓库发布规范要求 Work 落后 master 且改到同一批代码时先合 master、解冲突并在合并后验证。
+
+**为什么是问题**：在 Work 分支准备出版本提交后，master 可以继续加入产品代码、版本相关 CHANGELOG 或主题声明提交。此时把 release commit 合入 master 会产生冲突，或在人工解决时丢掉 master 的条目；若直接推标签，版本提交可能不包含当前 master 的发布输入。`registry` 判定和 CHANGELOG 日期也已在旧基线完成，重跑并不能保证原提交仍是要发布的那一批。
+
+**如何核实**：建立 Work 分支与 master 分叉：在 Work 上运行等价的版本/CHANGELOG 修改，在 master 追加同一文件提交，再执行合并或按计划继续；会出现冲突或发布提交不含 master 新提交。检查当前计划步骤没有 `merge-base --is-ancestor origin/master HEAD` 或类似 CAS 复核。
+
+**建议改法**：默认只允许基于已同步的 master 准备，或在开始前 fetch 并拒绝 Work 落后；若支持 Work，要求先合并最新 master、重新跑完整预检，再生成 release commit。提交后到推标签之间记录并核对发布提交的祖先关系，避免用旧分支快照定稿。
+9. **严重程度**：重要；**类别**：正确性；**位置**：`plan-r1.md:73-78`
+
+**现象**：`release:prepare` 的顺序是先改产品版本与阶段，再逐个发布单元查询 registry、检查 CHANGELOG 并定稿；计划只写“停下”，没有回滚或事务性写入策略。
+
+**为什么是问题**：任一 registry 查询网络失败、包返回异常、版本与 CHANGELOG 不匹配，都会在一部分文件已改之后退出。下一次运行首先会遇到“发布目录不干净”，而当前版本可能已改、部分 CHANGELOG 可能已定稿、其余仍是 `[Unreleased]`；人工恢复时容易把一个包的定稿日期或版本段带进错误的 release commit。外部 registry 失败不应把本地工作区留在不可解释的半状态。
+
+**如何核实**：在仓库外复制最小夹具，令第 1 个包的 registry 查询成功、第 2 个查询返回网络/权限错误，按计划步骤运行；检查第 1 个包和产品版本已经被写入而命令退出，随后再次运行会被干净检查拒绝。
+
+**建议改法**：先只读收集并校验所有包的 registry 状态、阶段、版本和 CHANGELOG，全部通过后一次性写版本与定稿；或记录原文件字节并在任意异常时恢复，恢复失败也要明确报告恢复边界。提交前再做一次全量解析和 `[Unreleased]` 非空/空状态检查。
+10. **严重程度**：建议；**类别**：代码质量；**位置**：`plan-r1.md:60-67`、参照 `.local/agent/works/w00046-desktop-release/tasks/t12-release-stages-and-changelog/reports/design-r1/omp-ref/scripts_ci-release-notes.ts:74-165`
+
+**现象**：计划要求应用按多个 Release 版本段合并、按固定 `CATEGORIES` 输出，但没有条目级去重规则；omp 的实现会对 floor 与目标之间的所有版本按精确去重，并在合并前按新版本优先，原因是变更记录整理可能让同一条目跨版本重复出现。
+
+**为什么是问题**：应用说明覆盖多个未单独公开的版本时，同一用户可见事项可能在两个版本段重复，Release 正文会重复展示；后续把条目从 `[Unreleased]` 搬到版本段时也没有机制阻止重复。它不破坏发布，但会让“中间版本并入”产生不稳定、冗余的说明，且计划没有定义读者应看到一条还是多条。
+
+**如何核实**：构造应用 CHANGELOG，给两个目标区间内的版本放完全相同的条目，调用计划中的 `render` 等价实现；预期会看到两次，现有验收映射没有覆盖该边界。
+
+**建议改法**：采用 omp 的按规范化条目文本去重规则，明确去重发生在跨版本合并后、分类排序前；保留最新版本的原文和归属信息。至少在 `release-notes.test.ts` 增加跨版本重复条目场景。
+## 未发现问题的方面与验证
+
+- 当前“纯数字版本 + 阶段常量”的 canary 单线方案，与现有 `tag.ts` 的 `STABLE_VERSION`、GitHub `shouldBeLatest` 的纯数字比较、`verify-update-feed.ts` 的 stable 更新身份和 ADR 0051 的只升不降，在首个 stable 之前没有发现另一个独立的不一致；未来切换风险已列第 6 条。
+- `release-plan` 与 `release-manifest` 的提交、tarball 名称和 SHA-256 交接已有 `planManifestProblems` 核对；未发现除第 2 条 CHANGELOG 初始化字节漂移之外的独立交接缺口。
+- 资产目录的“必需文件、未知文件、SHA256SUMS 覆盖全部其余文件”约束本身是闭合的；安装包改名造成的跨作业资产名遗漏集中在第 3 条，未另列重复问题。
+- 本次未运行 e2e、开发服务或 `release:smoke`，符合审查限制。已运行：`bunx tsc -p scripts/tsconfig.json --noEmit`，退出码 0；`bunx vitest run scripts/release/`，退出码 1，未取得可据以归因的失败断言输出。
+
+## 不做与风险判断
+
+- **英文说明**：接受当前取舍。开发者已明确先只写中文；风险是非中文读者暂时需要自行翻译，不阻断当前发布合同。
+- **应用界面显示阶段**：接受当前取舍。阶段已在 GitHub 标题和说明表达，计划明确不改关于页、标题栏；风险是用户在应用内看不到阶段，属于已确认的产品范围。
+- **稳定版的 npm 标签与桌面频道**：当前不做可以接受，但第 6 条风险必须进入 ADR 0053 的后续合同；若不定义首个 stable 的版本和频道迁移，风险不是可忽略的后续工作。
+- **签名的 SHA256SUMS**：接受当前取舍。ADR 0051 已决定不签名，当前合同仍用 GitHub 资产摘要、SHA256SUMS 和 HTTPS；风险是具备 Release 写权限者仍可替换更新源内容，属于已接受的信任模型。
+- **清理旧应用时期的 GitHub Release**：接受当前取舍。开发者已决定不清理；旧资产名由第 3 条要求兼容识别，历史页面保留会增加说明与下载入口的维护成本。
+- **CHANGELOG 依靠作者自觉补写**：不应按现计划原样接受。计划虽会拦截部分“有条目但版本未提”和“版本新但无条目”，但第 7 条的独立版本输入没有定义，第 2 条又会把初始化文件改动传导成历史 tarball 差异；“不加治理检查”不能覆盖这两个结构性风险。
+
+## 数量
+
+- 阻断：1 条（第 1 条）。
+- 重要：8 条（第 2 至第 9 条）。
+- 建议：1 条（第 10 条）。
+
+有效发现：1、2、3、4、5、6、7、8、9、10。

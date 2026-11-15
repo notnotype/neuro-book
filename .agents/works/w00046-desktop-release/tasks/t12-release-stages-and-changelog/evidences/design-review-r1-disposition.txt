@@ -1,0 +1,32 @@
+w00046 t12 设计审查第 1 轮的处理（2026-11-15）
+
+审查对象：plan.md r1（固定副本在 .local/agent/works/w00046-desktop-release/tasks/t12-release-stages-and-changelog/reports/design-r1/plan-r1.md）。
+审查者：omp（默认模型，report-omp.txt，10 条：阻断 1、重要 8、建议 1）；Claude Sonnet 拉远看（report-zoomout.txt，10 条）。
+报告与会话在 .local/ 下（git 忽略）。下面逐条写判断与改法，改法都进了 plan.md r2。
+
+== omp
+1 阻断，成立（与 omp 2、拉远看 7 同源）：CHANGELOG 进 npm 包的路径没想全。改为 CHANGELOG 不进 npm 包，问题消失。
+2 重要，成立，已核实：已发的 10 个库加了 CHANGELOG 字节就变成 history/different；blockingStalePackages 会在下次发 nb-story 时拦下整轮。改法同上。
+3 重要，部分成立：previous-setup 这条输出没声明就传不到下游。改为不加新输出：upgrade-from-previous 下载用 --pattern '*Setup.zip'（每个 Release 只有一个安装包），previous 认新旧两个名字。
+4 重要，成立：check 与 render 分在两个作业、输入不同。改为 gate 生成说明文件并上传工件，github-release 只用它；生成失败停在一切远端写入之前。gate 已有 GH_TOKEN 与 previous。
+5 重要，成立：草稿已存在时不改正文会留下旧说明。改为草稿阶段每次用本轮说明改标题与正文，已公开的不动。说明的输入（标签提交、previous）在重跑时不变。
+6 重要，成立：第一个稳定版的迁移没写合同。ADR 0053 写迁移合同（稳定版版本号更高、已装的留在稳定线、之后的支线照 omp、previous 只看稳定线）；本 Task 不实现。
+7 重要，成立：源码包的版本由谁提没写。照 ADR 0029 手工提，提版即“这个包这次发”；脚本按“与上一个桌面 Release 标签相比版本号有变”找出要定稿的包，不看 registry。
+8 重要，成立：prepare 只在 master、HEAD 包含 origin/master、目录干净时运行。
+9 重要，成立：先只读检查全部、再一次写、写后重新解析再提交。
+10 建议，成立：跨版本合并时按条目文本去重，保留较新的一条。
+
+== 拉远看（Sonnet）
+1 成立：照抄了 omp 的外形没抄它的前提（全包同版本）。见 omp 7 的改法；并去掉 patch/minor 关键字，版本显式给。
+2 成立：说明按 npm 源码包拼接，读者是桌面用户。改为说明只展开应用的变更，同时发布的 npm 包每个一行、链到标签下它的 CHANGELOG；写在哪的规则写进计划（应用用户看得到的写应用的）。
+3 成立：定稿到打标签之间的窗口。门禁加“应用的 [Unreleased] 为空”。
+4 部分成立：阶段与 Electrobun 频道名撞了，ADR 0053 写明两者无关。阶段仍放 product.ts：它是这一版产品的属性、只随提版改，改了也是同一次构建，不多成本。
+5 成立，按 omp 6 写进 ADR 0053：已装的留在稳定线，分支线只给新装的，所以不需要在 preview 之前先换更新源。
+6 交开发者决定：开发者选了不带版本号的 NeuroBook-win-x64-Setup.zip（固定的最新版直链），便携版一起改成 NeuroBook-win-x64-portable.zip。兼容代码只有 previous 认旧名一处。
+7 成立：已发布段落不可改的检查没设计。去掉选型里这句，改为写进手册的规则；分类名中文写死，英文说明以后再加映射。CHANGELOG 进 files 的问题见 omp 2。
+8 成立：选型补上不用 --generate-notes、git-cliff、release-please 的理由（提交是中文开发流水账、不经 PR）。
+9 成立：源码包的空 CHANGELOG 不建（下次提版时建）、致谢一节去掉、patch/minor 去掉；stable 拒绝保留（成本低）。
+10 成立：版本号不带阶段的理由改引 ADR 0051 决定 6 与提案 4.8，去掉不成立的 ^ 范围那条。阶段按“每个发布的属性”建模，与“项目当前的成熟度”是同一个值：只随提版改。
+
+另：r2 补了 r1 漏掉的演练情况（master 上 [Unreleased] 通常有条目，演练只渲染不查它为空）。
+不开第 2 轮设计审查：改动都是收窄与按审查给的改法，没有新的机制；实现审查照常一次。
