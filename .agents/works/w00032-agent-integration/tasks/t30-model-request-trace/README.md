@@ -68,7 +68,9 @@ updated: 2026-11-15
 
 切片 4 的入口部分已提交（`e496fc516`）：`AssistantMessageView.request`、对话视图的登记顶栏动作（验收 36，`AgentConversationView.md` 已改；常驻动作在 390 宽时不收进溢出菜单记为已知偏差）、应用的“查看模型请求”“查看这次请求”。
 
+消息页收起相同前缀与“和上一次比较”页已提交（`e1ef32321`）：记录器详情带 `previous` 与相同前缀条数，消息大纲标出压缩摘要，核心 `compareRequests`。比较页现在只写各部分的变化摘要与多出、少了的消息；变了的系统提示词与工具的逐行差异没做（`AgentRequestTrace.md` 的“不支持”里写了）。
+
 ## 下一步
 
-1. 切片 4 其余：`search` 与命中位置、查找条、消息页的大纲与相同前缀、和上一次比较；e2e `agent-request-trace.e2e.ts` 的场景 1、2、4、6。
+1. 切片 4 其余：`search` 与命中位置、查找条（服务端逐条扫、3 秒或 200 处上限、`truncated` 与续扫游标、新的作废旧的）；e2e `agent-request-trace.e2e.ts` 的场景 1、2、4、6。
 2. 切片 5：抛光（见计划），收口跑 `lab-scenes` 与新 e2e，前端（Sonnet）与后端（omp）实现审查，合入。
