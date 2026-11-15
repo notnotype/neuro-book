@@ -21,6 +21,7 @@ defaults:
 
 # 正式发布串行、先进先出地排队（queue: max 至多 100 个等待中的；缺省的 single 只留一个，后来的会把等待中的取消）。
 # 演练另一组，不占正式发布的队列。被取消的一轮在 Actions 里重跑即可，标签不用重推。
+# queue 是 GitHub 文档里的正式写法（concurrency 一节），actionlint 1.7.12 还不认识：本机检查时加 -ignore 'unexpected key "queue"'。
 concurrency:
   group: ${{ github.event_name == 'push' && 'release' || 'release-dry-run' }}
   queue: max

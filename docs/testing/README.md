@@ -173,6 +173,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 - CI（`.github/workflows/ci.yml`）在推 master 与 PR 上把下一节的验证门禁在干净机器上再跑一遍：`governance:check`、`docs:check`、
   `test:affected --typecheck`（基准是 PR 的 base 或推送前的 master，取不到共同祖先时跑全部），另一个 job 打应用包与 SDK
   并跑 `smoke:server`。e2e 与真实模型测试不在 CI 里跑。
+- 改了 `.github/workflows/` 就跑 actionlint：`actionlint .github/workflows/*.yml`（没装时 `go install github.com/rhysd/actionlint/cmd/actionlint@latest`，直连慢加 `prox`，不进仓库依赖）。它认不得的新写法先对照 GitHub 文档确认，再用 `-ignore` 放过那一条并在工作流里注明（`release.yml` 的 `concurrency.queue`）。
 - 干净机器上没有 `.nuxt/tsconfig.json` 这类生成物：相关测试配置使用独立的 esbuild transform（`oxc: false`），不依赖
   Nuxt prepare 的产物。
 
@@ -218,6 +219,7 @@ e2e 打开文件时等到活动标签真是这个文件，不凭一次 `aria-exp
 | nb-ui 共享基础组件 | 主题轴 × 配色轴四组合（nbook/macos × light/dark），外加 390px 视口 |
 
 - 每项给出实测结果（元素计算样式 ↔ 同名变量解析值、几何、交互前后差异），不用静态推断或截图观感冒充实测；所用工具做不到时按本节首条改用备用工具，仍做不到的如实说明未做。
+- 会自己消失的界面（一次性通知缺省 3.2 秒后消失）不靠 UI 自动化或截图去赶：验收以产品留下的可持久信号为准（页面交回宿主后写的诊断、状态文件），读到文字只作补充证据；产品没有这种信号时，在被测代码里加一条 info 诊断（w00046 t11 的更新冒烟：每次起 PowerShell 读窗口，240 秒没赶上“已更新到”）。
 - 分档只决定取证范围；人工评测的授权要求见本节「普通 UI 运行验证不自动升级为完整人工评测」一条。
 
 ## 通用包测试合同（2026-09-11）
