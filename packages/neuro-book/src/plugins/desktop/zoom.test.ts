@@ -102,9 +102,17 @@ describe("档位与输入", () => {
         expect(steppedZoom(0.5, -1)).toBe(0.5);
     });
 
-    it("按 code 认数字行与小键盘的加、减、0；要 Ctrl，不要 Alt、Meta，Shift 不限", () => {
-        const key = (code: string, extra: Partial<{ctrlKey: boolean; altKey: boolean; metaKey: boolean}> = {}) => zoomKeyAction({code, ctrlKey: true, altKey: false, metaKey: false, ...extra});
-        expect(["Equal", "NumpadAdd", "Minus", "NumpadSubtract", "Digit0", "Numpad0"].map((code) => key(code))).toEqual(["in", "in", "out", "out", "reset", "reset"]);
+    it("先按 code 认数字行与小键盘的加、减、0，认不到再按字符；要 Ctrl，不要 Alt、Meta，Shift 不限；组字时不算", () => {
+        type Extra = Partial<{key: string; isComposing: boolean; ctrlKey: boolean; altKey: boolean; metaKey: boolean}>;
+        const key = (code: string, extra: Extra = {}) => zoomKeyAction({code, key: "", isComposing: false, ctrlKey: true, altKey: false, metaKey: false, ...extra});
+        expect(["Equal", "NumpadAdd", "Minus", "NumpadSubtract", "Digit0"].map((code) => key(code))).toEqual(["in", "in", "out", "out", "reset"]);
+        expect(key("Numpad0", {key: "0"})).toBe("reset");
+        // NumLock 关着时小键盘的 0 是 Insert：Ctrl+Insert 是复制，不是复位。
+        expect(key("Numpad0", {key: "Insert"})).toBeNull();
+        // 别的键盘布局：物理键位不是美式的位置，字符对得上就认。
+        expect(key("BracketRight", {key: "+"})).toBe("in");
+        expect(key("Digit6", {key: "-"})).toBe("out");
+        expect(key("Equal", {isComposing: true})).toBeNull();
         expect(key("Equal", {ctrlKey: false})).toBeNull();
         expect(key("Equal", {altKey: true})).toBeNull();
         expect(key("Equal", {metaKey: true})).toBeNull();
@@ -140,6 +148,16 @@ describe("改档与写回", () => {
         expect(reported.at(-1)?.zoom).toBe(1);
         timer.flush();
         await waitUntil("复位删掉这个键", async () => (await userLayer()) === "{}");
+    });
+
+    it("页面离开前：还没写回的档位立刻写，不等防抖", async () => {
+        const {settings, file} = await serverSettings();
+        const timer = manualSchedule();
+        const zoom = createZoomController({settings, report: () => undefined, failed: () => undefined, schedule: timer.schedule});
+        zoom.apply("out");
+        zoom.flush();
+        expect(timer.pending).toBe(0);
+        await waitUntil("用户层写进 0.9", async () => JSON.stringify(JSON.parse(await readFile(file, "utf8").catch(() => "null"))) === JSON.stringify({"nbook.desktop/zoom": 0.9}));
     });
 
     it("写回失败：说明原因，把壳拉回配置服务里的值", async () => {

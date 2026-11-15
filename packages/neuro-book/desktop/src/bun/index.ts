@@ -28,7 +28,7 @@ import {dirname, join} from "node:path";
 import {systemClock} from "../../../src/desktop/deadline";
 import {DesktopShell} from "../../../src/desktop/shell";
 import type {ShellPorts, ShellUpdates, StartupView} from "../../../src/desktop/shell";
-import {DEFAULT_DESKTOP_SETTINGS, loginItemPlan, readDesktopSettingsCache, sameDesktopSettings, writeDesktopSettingsCache} from "../../../src/desktop/desktop-settings";
+import {createDesktopSettingsCacheWriter, DEFAULT_DESKTOP_SETTINGS, loginItemPlan, readDesktopSettingsCache, sameDesktopSettings} from "../../../src/desktop/desktop-settings";
 import {resolveDesktopStateRoot} from "../../../src/desktop/state-root";
 import {scanApplyResults} from "../../../src/desktop/update-install";
 import type {UpdaterPort} from "../../../src/desktop/update-install";
@@ -201,6 +201,7 @@ async function main(): Promise<void> {
 
     // 桌面专属设置（输出“桌面专属设置”）：值由页面交来，壳只缓存最后收到的值，下次启动时在页面交来之前先用它。
     const settingsCache = root.ok ? join(root.stateRoot, "logs", "desktop", "settings-cache.json") : null;
+    const cacheWriter = settingsCache === null ? null : createDesktopSettingsCacheWriter(settingsCache, (error) => log("desktop.settings.cache-write-failed", error));
     let desktopValues: DesktopSettingValues = DEFAULT_DESKTOP_SETTINGS;
     if (settingsCache !== null) {
         const cached = await readDesktopSettingsCache(settingsCache);
@@ -318,7 +319,11 @@ async function main(): Promise<void> {
     const syncLoginItem = (openAtLogin: boolean): void => {
         if (loginIdentity === null || !root.ok) return;
         const existing = readLoginItem(loginIdentity.name);
-        if (existing.problem !== null) log(`desktop.login-item.unreadable ${existing.problem}`);
+        // 读不出现状时不按“没有登记”行事：开着时可能重复写，关着时会漏删。只记诊断，下次值变化再试。
+        if (existing.problem !== null) {
+            log(`desktop.login-item.unreadable ${existing.problem}`);
+            return;
+        }
         const command = `"${join(dirname(process.execPath), "launcher.exe")}"`;
         const plan = loginItemPlan({openAtLogin, managed: loginIdentity.managed, defaultStateRoot: root.source === "default", existing: existing.command, command});
         if (plan.action === "none") {
@@ -342,7 +347,7 @@ async function main(): Promise<void> {
         if (same) return;
         desktopValues = values;
         for (const managed of windows.values()) if (managed.kind === "page") managed.win.setPageZoom(values.zoom);
-        if (settingsCache !== null) writeDesktopSettingsCache(settingsCache, values).catch((error: unknown) => log("desktop.settings.cache-write-failed", error));
+        void cacheWriter?.write(values);
     };
 
     /** 窗口按钮（输出 10）：两种窗口都有；关闭与系统的关闭同一条路（输出 14、17）。 */

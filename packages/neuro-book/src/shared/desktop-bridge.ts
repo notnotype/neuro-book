@@ -53,8 +53,15 @@ export const DESKTOP_FRAME_MARKER = "__nbookDesktopFrame";
  * 桌面专属设置的有效值（desktop-shell 的“桌面专属设置”）：`nbook.desktop` 的页面入口从配置服务读出、经 `windowDesktopKey` 交给壳。
  * 设置的拥有者是服务端的 `nbook.settings`，壳只拿这份值、缓存上一次的。
  */
+/** 界面缩放的档位（沿用 Chromium 的一组）：桥消息、壳的缓存与 `nbook.desktop` 的配置声明共用这一份。 */
+export const ZoomLevelSchema = Type.Union([
+    Type.Literal(0.5), Type.Literal(0.67), Type.Literal(0.75), Type.Literal(0.8), Type.Literal(0.9), Type.Literal(1),
+    Type.Literal(1.1), Type.Literal(1.25), Type.Literal(1.5), Type.Literal(1.75), Type.Literal(2),
+]);
+export type ZoomLevel = Static<typeof ZoomLevelSchema>;
+
 export const DesktopSettingValuesSchema = Type.Object({
-    zoom: Type.Number({minimum: 0.25, maximum: 5}),
+    zoom: ZoomLevelSchema,
     openAtLogin: Type.Boolean(),
 }, {additionalProperties: false});
 export type DesktopSettingValues = Static<typeof DesktopSettingValuesSchema>;

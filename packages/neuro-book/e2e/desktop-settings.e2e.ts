@@ -78,10 +78,18 @@ test("浏览器里（没有壳）：设置里没有“桌面窗口”分区，�
     await openWorkbench(page);
     expect(await sectionIds(page)).not.toContain("nbook.desktop.window");
     await page.keyboard.press("Escape");
-    await page.keyboard.press("Control+Shift+P");
-    await page.keyboard.type("放大");
+    await paletteSearch(page, "放大");
     await expect(page.locator("[role=option]").filter({hasText: "放大"})).toHaveCount(0);
 });
+
+/** 打开命令面板、输入查询词；面板确实开着才返回（不开着时“没有某条命令”的断言是空的）。 */
+async function paletteSearch(page: Page, query: string): Promise<void> {
+    await page.keyboard.press("Control+Shift+P");
+    const input = page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"});
+    await expect(input).toBeVisible();
+    await input.fill(query);
+    await expect(input).toHaveValue(query);
+}
 
 test("桌面里：有“桌面窗口”分区；启动时交出有效值；Ctrl+= 与 Ctrl+滚轮改档、防抖后写进用户层；Ctrl+0 删掉这个键", async ({page}) => {
     await installShell(page);
@@ -107,6 +115,19 @@ test("桌面里：有“桌面窗口”分区；启动时交出有效值；Ctrl+
     await page.keyboard.press("Control+0");
     await expect.poll(async () => (await zooms(page)).at(-1)).toBe(1);
     await expect.poll(userLayer).toEqual({});
+
+    // 命令面板里的“放大”（只在桌面里可用）。
+    await paletteSearch(page, "放大");
+    const option = page.locator("[role=option]").filter({hasText: "放大"});
+    await expect(option).toHaveCount(1);
+    await option.click();
+    await expect.poll(async () => (await zooms(page)).at(-1)).toBe(1.1);
+    // 防抖写回落盘之后再改文件，不然写回会盖掉下面这次修改。
+    await expect.poll(userLayer).toEqual({"nbook.desktop/zoom": 1.1});
+
+    // 直接改设置文件：拥有者推给页面，页面交给壳。
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.desktop/zoom": 1.5}));
+    await expect.poll(async () => (await zooms(page)).at(-1)).toBe(1.5);
 });
 
 test("图片查看器里的 Ctrl+滚轮缩放图片，不改界面缩放", async ({page}) => {

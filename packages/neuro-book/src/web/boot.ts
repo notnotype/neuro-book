@@ -78,7 +78,14 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     const inDesktop = typeof (window as {__electrobunSendToHost?: unknown}).__electrobunSendToHost === "function";
     const browserWindow = createBrowserWindow({
         connection,
-        desktop: {available: inDesktop, reportSettings: (values) => void (inDesktop && bridge.send({type: "desktop-settings", values}))},
+        desktop: {available: inDesktop, reportSettings: (values) => {
+            if (!inDesktop) return;
+            try {
+                bridge.send({type: "desktop-settings", values});
+            } catch (error) {
+                browserWindow.record({level: "warn", event: "browser-host.desktop.send-failed", message: "Sending desktop settings to the shell failed", error});
+            }
+        }},
         page: window,
         console,
         navigation,

@@ -5,22 +5,18 @@
  */
 
 import {Type} from "typebox";
-import type {Static} from "typebox";
 
 import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/contracts";
 import type {WrittenSettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
+import {ZoomLevelSchema} from "nbook/shared/desktop-bridge";
+import type {ZoomLevel} from "nbook/shared/desktop-bridge";
 import {defineSettings} from "nbook/shared/settings";
 
 export const DESKTOP_PLUGIN = "nbook.desktop";
 
-/** 界面缩放的档位，沿用 Chromium 的一组；命令与 Ctrl+滚轮在相邻两档之间移动。 */
-const ZoomSchema = Type.Union([
-    Type.Literal(0.5), Type.Literal(0.67), Type.Literal(0.75), Type.Literal(0.8), Type.Literal(0.9), Type.Literal(1),
-    Type.Literal(1.1), Type.Literal(1.25), Type.Literal(1.5), Type.Literal(1.75), Type.Literal(2),
-]);
-export type ZoomLevel = Static<typeof ZoomSchema>;
-/** 从小到大。 */
-export const ZOOM_LEVELS: ReadonlyArray<ZoomLevel> = ZoomSchema.anyOf.map((member) => member.const);
+/** 界面缩放的档位，从小到大（schema 在桥里，壳也用它校验）；命令与 Ctrl+滚轮在相邻两档之间移动。 */
+export const ZOOM_LEVELS: ReadonlyArray<ZoomLevel> = ZoomLevelSchema.anyOf.map((member) => member.const);
+export type {ZoomLevel};
 /** 缺省的缩放，也是复位的目标。 */
 export const DEFAULT_ZOOM: ZoomLevel = 1;
 
@@ -37,7 +33,7 @@ export const DESKTOP_WINDOW_SECTION_DECLARATION: WrittenSettingsSectionDeclarati
 
 export const {settings: desktopSettings, contributions: desktopSettingContributions} = defineSettings(DESKTOP_PLUGIN, {
     zoom: {
-        schema: ZoomSchema,
+        schema: ZoomLevelSchema,
         default: DEFAULT_ZOOM,
         title: {"zh-CN": "界面缩放", "en-US": "Zoom"},
         description: {"zh-CN": "所有桌面窗口一起缩放。也可以按 Ctrl 加减号、Ctrl+0，或按住 Ctrl 滚动鼠标。", "en-US": "Zooms every desktop window. Also Ctrl with plus or minus, Ctrl+0, or Ctrl with the mouse wheel."},

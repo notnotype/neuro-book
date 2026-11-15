@@ -7,7 +7,7 @@ import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {loginItemPlan, readDesktopSettingsCache, sameDesktopSettings, writeDesktopSettingsCache} from "./desktop-settings";
+import {createDesktopSettingsCacheWriter, loginItemPlan, readDesktopSettingsCache, sameDesktopSettings, writeDesktopSettingsCache} from "./desktop-settings";
 
 let tmp = "";
 
@@ -62,5 +62,25 @@ describe("开机自启的登记", () => {
         expect(loginItemPlan({...base, managed: false})).toEqual({action: "none", reason: "not an installed app"});
         expect(loginItemPlan({...base, defaultStateRoot: false, existing: base.command})).toEqual({action: "none", reason: "the state root is not the default one"});
         expect(loginItemPlan({...base, openAtLogin: false, defaultStateRoot: false, existing: base.command})).toEqual({action: "none", reason: null});
+    });
+});
+
+describe("缓存的串行写入", () => {
+    it("几个窗口接连交来值：按到达顺序写，最后一次落盘，没有失败", async () => {
+        const file = join(tmp, "c", "settings-cache.json");
+        const failures: unknown[] = [];
+        const writer = createDesktopSettingsCacheWriter(file, (error) => failures.push(error));
+        const values = Array.from({length: 40}, (_, index) => ({zoom: index % 2 === 0 ? 1.1 : 1.25, openAtLogin: index % 3 === 0} as const));
+        await Promise.all(values.map((value) => writer.write(value)));
+        expect(failures).toEqual([]);
+        expect((await readDesktopSettingsCache(file)).values).toEqual(values.at(-1)!);
+    });
+
+    it("缓存里的缩放不是档位之一（数值在范围内也不行）：为 null，交回原因", async () => {
+        const file = join(tmp, "c", "off-level.json");
+        await writeFile(file, JSON.stringify({zoom: 2.5, openAtLogin: false}));
+        const read = await readDesktopSettingsCache(file);
+        expect(read.values).toBeNull();
+        expect(read.problem).toContain(file);
     });
 });

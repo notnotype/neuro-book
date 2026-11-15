@@ -26,14 +26,20 @@ export function steppedZoom(current: number, direction: 1 | -1): ZoomLevel {
 /** 判定用到的按键字段（这个文件也在后端的类型检查范围里，没有 DOM 类型）。 */
 export interface ZoomKey {
     readonly code: string;
+    readonly key: string;
+    readonly isComposing: boolean;
     readonly ctrlKey: boolean;
     readonly altKey: boolean;
     readonly metaKey: boolean;
 }
 
-/** 按键对应的缩放动作：要按住 Ctrl、不按 Alt 与 Meta，Shift 不限；数字行与小键盘的加、减、0。 */
+/**
+ * 按键对应的缩放动作：要按住 Ctrl、不按 Alt 与 Meta，Shift 不限，输入法组字时不算。先按物理键位（数字行与小键盘的加、减、0），
+ * 认不到再按字符（`+`、`=`、`-`、`0`），别的键盘布局里这几个字符不在美式的位置上。小键盘的 0 在 NumLock 关着时是 Insert
+ * （Ctrl+Insert 是复制），不算复位。
+ */
 export function zoomKeyAction(event: ZoomKey): ZoomAction | null {
-    if (!event.ctrlKey || event.altKey || event.metaKey) return null;
+    if (!event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return null;
     switch (event.code) {
         case "Equal":
         case "NumpadAdd":
@@ -42,7 +48,19 @@ export function zoomKeyAction(event: ZoomKey): ZoomAction | null {
         case "NumpadSubtract":
             return "out";
         case "Digit0":
+            return "reset";
         case "Numpad0":
+            return event.key === "0" ? "reset" : null;
+        default:
+            break;
+    }
+    switch (event.key) {
+        case "+":
+        case "=":
+            return "in";
+        case "-":
+            return "out";
+        case "0":
             return "reset";
         default:
             return null;
@@ -81,6 +99,8 @@ export interface ZoomController {
     /** 交给壳的值：防抖期间缩放是目标档位，其余是配置服务里的有效值。 */
     values(): DesktopSettingValues;
     apply(action: ZoomAction): void;
+    /** 页面要离开了：还没写回的档位立刻写，不等防抖。 */
+    flush(): void;
     dispose(): void;
 }
 
@@ -119,6 +139,11 @@ export function createZoomController(options: ZoomControllerOptions): ZoomContro
             options.report(values());
             cancel?.();
             cancel = options.schedule(() => void write(), ZOOM_WRITE_DELAY_MS);
+        },
+        flush() {
+            if (cancel === null) return;
+            cancel();
+            void write();
         },
         dispose() {
             cancel?.();

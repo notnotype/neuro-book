@@ -33,12 +33,26 @@ export async function readDesktopSettingsCache(file: string): Promise<{readonly 
     }
 }
 
-/** 写缓存：先写临时文件再改名，中途退出不留下半份。 */
+/** 写一次缓存：先写临时文件再改名，中途退出不留下半份。同一个文件的写入要经 `createDesktopSettingsCacheWriter` 串行。 */
 export async function writeDesktopSettingsCache(file: string, values: DesktopSettingValues): Promise<void> {
     await mkdir(dirname(file), {recursive: true});
     const temporary = `${file}.${String(process.pid)}.tmp`;
     await writeFile(temporary, `${JSON.stringify(values)}\n`);
     await rename(temporary, file);
+}
+
+/**
+ * 缓存的写入者：按到达顺序一次写一份，最后一次的值最后落盘。几个窗口会接连交来值，并发写同一个临时文件会互相覆盖、改名失败。
+ * 失败交给 `failed`（壳写日志），不影响后面的写入。
+ */
+export function createDesktopSettingsCacheWriter(file: string, failed: (error: unknown) => void): {write(values: DesktopSettingValues): Promise<void>} {
+    let tail: Promise<void> = Promise.resolve();
+    return {
+        write(values) {
+            tail = tail.then(() => writeDesktopSettingsCache(file, values)).catch(failed);
+            return tail;
+        },
+    };
 }
 
 /** 两份值是否相同（壳据此去重：几个窗口会各交一次同样的值）。 */
