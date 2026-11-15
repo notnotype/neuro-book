@@ -4,7 +4,7 @@
 
 # ProfileToolsSection
 
-Profile 设置页的绑定列表一节（[`agent/profile-settings.md`](../../../../../../../docs/specs/agent/profile-settings.md) 输出 10–13、25）：工具一节只列模型看到的工具，按提供者分组，另外经 [`AddToolsDialog`](AddToolsDialog.md) 添加。“可派的子代理”一节用同一个组件（`kind: "agents"`）：一行一个 Profile，`effect` 一列写“推荐”“我加的”，已删除或不可用的一行警告、能去掉；文字取 `profiles.agents.*`。“Skill”一节同样（`kind: "skills"`，输出 26）：`effect` 一列写“未初始化”“无效”“我加的”；用户去掉的行（`restorable`）收在最后一组“已去掉”，行尾是“加回”而不是“×”；文字取 `profiles.skills.*`。
+Profile 设置页的绑定列表一节（[`agent/profile-settings.md`](../../../../../../../docs/specs/agent/profile-settings.md) 输出 10–13、25）：工具一节只列模型看到的工具，按提供者分组，另外经 [`AddToolsDialog`](AddToolsDialog.md) 添加。“可派的子代理”一节用同一个组件（`kind: "agents"`）：一行一个 Profile，`effect` 一列写“推荐”“我加的”，已删除或不可用的一行警告、能去掉；文字取 `profiles.agents.*`。“Skill”一节同样（`kind: "skills"`，输出 26）：按来源分组，我的、各插件一组（组头是插件名，撞名时带插件 id）、内置，组 id 是 `user`、`plugin:<插件 id>`、`builtin`；`effect` 一列写“未初始化”“无效”“我加的”，无效的悬停写原因；用户去掉的行（`restorable`）收在最后一组“已去掉”，行尾是“加回”而不是“×”；文字取 `profiles.skills.*`。
 
 ## 布局
 

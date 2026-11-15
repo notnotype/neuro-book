@@ -2,7 +2,9 @@
 import {Badge, Button, IconButton} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 
-import type {SkillEntry, SkillProblem, SkillSource} from "../../shared/skills";
+import {groupSkills} from "../../shared/skills";
+import type {SkillEntry, SkillProblem} from "../../shared/skills";
+import {skillProblemText} from "../skill-problem";
 import {useAgentPageText} from "../text";
 
 /** 设置里的“Skill”页（同名 .md）：按来源分组、整页共用五列。 */
@@ -18,10 +20,12 @@ const emit = defineEmits<{
 
 const text = useAgentPageText();
 
-const GROUPS: readonly SkillSource[] = ["user", "builtin"];
-const groups = computed(() => GROUPS
-    .map((source) => ({source, rows: (props.entries ?? []).filter((entry) => entry.source === source)}))
-    .filter((group) => group.rows.length > 0));
+/** 我的、各插件、内置（skills.md 输出 25、34）；插件组的标题由 `groupSkills` 给（插件名，撞名时带 id）。 */
+const groups = computed(() => groupSkills(props.entries ?? [], (entry) => entry).map((group) => ({
+    key: group.key,
+    title: group.title ?? text(group.source === "user" ? "skills.page.groups.user" : "skills.page.groups.builtin"),
+    rows: group.items,
+})));
 
 const expanded = ref(new Set<string>());
 function toggle(id: string): void {
@@ -36,19 +40,7 @@ const STATUS = {
     "invalid": {key: "skills.page.status.invalid", tone: "danger"},
 } as const;
 
-function problemText(problem: SkillProblem): string {
-    switch (problem.code) {
-        case "skill-md-missing": return text("skills.page.problem.skillMdMissing");
-        case "nested": return text("skills.page.problem.nested", {directory: problem.directory});
-        case "frontmatter-unreadable": return text("skills.page.problem.frontmatter", {detail: problem.detail});
-        case "field-missing": return text("skills.page.problem.fieldMissing", {field: problem.field});
-        case "field-invalid": return text("skills.page.problem.fieldInvalid", {field: problem.field});
-        case "name-mismatch": return text("skills.page.problem.nameMismatch", {name: problem.name});
-        case "symlink": return text("skills.page.problem.symlink");
-        case "install-failed": return text("skills.page.problem.installFailed");
-        case "interrupted": return text("skills.page.problem.interrupted");
-    }
-}
+const problemText = (problem: SkillProblem): string => skillProblemText(problem, text);
 
 /** 第二行：有原因写原因，否则写说明。 */
 const secondLine = (entry: SkillEntry): string => (entry.problem === undefined ? entry.description : problemText(entry.problem));
@@ -83,8 +75,8 @@ function details(entry: SkillEntry): ReadonlyArray<{readonly term: string; reado
             <p>{{ text("skills.page.empty") }}</p>
         </div>
         <div v-else class="skills-page__groups">
-            <section v-for="group in groups" :key="group.source" class="skills-page__group" :data-skills-group="group.source">
-                <h3 class="skills-page__group-title">{{ text(group.source === "user" ? "skills.page.groups.user" : "skills.page.groups.builtin") }}</h3>
+            <section v-for="group in groups" :key="group.key" class="skills-page__group" :data-skills-group="group.key">
+                <h3 class="skills-page__group-title">{{ group.title }}</h3>
                 <ul class="skills-page__list">
                     <li v-for="entry in group.rows" :key="entry.id" class="skills-page__item" :data-skill="entry.id">
                         <div class="skills-page__meta">
@@ -130,7 +122,7 @@ function details(entry: SkillEntry): ReadonlyArray<{readonly term: string; reado
 /* 整页一张网格：各组各行经 subgrid 共用这五列，零件每行落在同一列。 */
 .skills-page__groups { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, max-content); column-gap: var(--space-3); row-gap: var(--space-7); margin-top: var(--space-4); }
 .skills-page__group, .skills-page__list, .skills-page__item { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
-.skills-page__group-title { grid-column: 1 / -1; margin: 0; padding-bottom: var(--space-3); border-bottom: var(--border-w) solid var(--divider); font-size: var(--text-xs); font-weight: var(--weight-strong); line-height: var(--leading-ui); color: var(--text-secondary); }
+.skills-page__group-title { grid-column: 1 / -1; min-width: 0; margin: 0; overflow-wrap: anywhere; padding-bottom: var(--space-3); border-bottom: var(--border-w) solid var(--divider); font-size: var(--text-xs); font-weight: var(--weight-strong); line-height: var(--leading-ui); color: var(--text-secondary); }
 .skills-page__list { margin: 0; padding: 0; list-style: none; }
 .skills-page__item { align-items: center; padding: var(--space-3) 0; border-bottom: var(--border-w) solid var(--divider); }
 .skills-page__meta { display: flex; min-width: 0; flex-direction: column; gap: var(--space-1); }

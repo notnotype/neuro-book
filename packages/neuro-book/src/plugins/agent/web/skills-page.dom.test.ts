@@ -20,8 +20,12 @@ afterEach(() => {
     document.body.innerHTML = "";
 });
 
-const entry = (source: SkillEntry["source"], name: string, extra: Partial<SkillEntry> = {}): SkillEntry => ({
+type EntryExtra = Partial<Pick<SkillEntry, "status" | "problem" | "description" | "license" | "metadata" | "external">>;
+const entry = (source: "user" | "builtin", name: string, extra: EntryExtra = {}): SkillEntry => ({
     id: `${source}.${name}`, name, description: `${name} 的说明`, source, location: `skills://${source}.${name}/SKILL.md`, status: "ready", ...extra,
+});
+const pluginEntry = (plugin: string, title: string | null, name: string, extra: EntryExtra = {}): SkillEntry => ({
+    id: `${plugin}.${name}`, name, description: `${name} 的说明`, source: "plugin", plugin: {id: plugin, title}, location: `skills://${plugin}.${name}/SKILL.md`, status: "ready", ...extra,
 });
 
 const ENTRIES: readonly SkillEntry[] = [
@@ -33,6 +37,10 @@ const ENTRIES: readonly SkillEntry[] = [
     entry("user", "outline", {status: "invalid", description: "", problem: {code: "name-mismatch", name: "outline-helper"}}),
     entry("user", "drafts", {status: "invalid", description: "", problem: {code: "skill-md-missing"}}),
     entry("user", "voice-check", {external: {python: true, uvMissing: true, compatibility: "需要 Python 3.11"}}),
+    // 插件的：目录交来时已按插件名排好，这里故意打乱，分组自己排。
+    pluginEntry("zeta.tools", null, "lint"),
+    pluginEntry("acme.docs", "文档工具", "pdf"),
+    pluginEntry("acme.docs", "文档工具", "raw", {status: "invalid", problem: {code: "plugin-skill-unbuilt"}}),
 ];
 
 async function show(entries: readonly SkillEntry[] | null) {
@@ -48,9 +56,17 @@ async function show(entries: readonly SkillEntry[] | null) {
 }
 
 describe("SkillsSettingsPage", () => {
-    it("我的在前、内置在后；第二行写说明，无效的与上次没装好的写原因；徽标只在不可用时出现；“初始化”只给未初始化的", async () => {
+    it("我的在前、各插件一组（组头是插件名，没有显示名写 id）、内置在后；第二行写说明，无效的与上次没装好的写原因；徽标只在不可用时出现；“初始化”只给未初始化的", async () => {
         const {wrapper, root, row} = await show(ENTRIES);
-        expect([...root.querySelectorAll("[data-skills-group]")].map((group) => group.getAttribute("data-skills-group"))).toEqual(["user", "builtin"]);
+        expect([...root.querySelectorAll("[data-skills-group]")].map((group) => [group.getAttribute("data-skills-group"), group.querySelector("h3")?.textContent])).toEqual([
+            ["user", "我的 Skill"],
+            // 按插件名的本地化比较：拉丁字母在汉字前面。
+            ["plugin:zeta.tools", "zeta.tools"],
+            ["plugin:acme.docs", "文档工具"],
+            ["builtin", "内置"],
+        ]);
+        expect(row("acme.docs.raw").textContent).toContain("没有经 nbooke build 打包");
+        expect(row("acme.docs.raw").querySelector("[data-skill-status]")?.textContent?.trim()).toBe("无效");
         expect(row("user.style-guide").querySelector("[data-skill-status]")).toBeNull();
         expect(row("user.style-guide").textContent).toContain("style-guide 的说明");
         expect(row("user.epub-export").querySelector("[data-skill-status]")?.textContent?.trim()).toBe("未初始化");

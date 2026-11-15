@@ -11,7 +11,7 @@ import {OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu} from "./web/skills"
 
 const TEXTS = {title: "Skill", recentGroup: "最近用过", allGroup: "全部", noMatch: "没有匹配的 Skill", openSettings: "打开 Profile 设置", noSkills: "这个 Profile 还没有可用的 Skill", needsInit: "未初始化", initializing: "正在初始化"};
 
-const entry = (source: SkillEntry["source"], name: string, extra: Partial<SkillEntry> = {}): SkillEntry => ({
+const entry = (source: "user" | "builtin", name: string, extra: Partial<Pick<SkillEntry, "status" | "problem" | "description" | "id">> = {}): SkillEntry => ({
     id: `${source}.${name}`, name, description: `${name} 的说明`, source, location: `skills://${source}.${name}/SKILL.md`, status: "ready", ...extra,
 });
 

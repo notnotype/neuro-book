@@ -24,6 +24,7 @@ import {modelsKey} from "nbook/plugins/models/shared/contracts";
 import {tasksKey} from "nbook/plugins/tasks/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {clockKey, runningWorkKey, stateRootKey} from "nbook/shared/host";
+import {pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
 
 import {descriptor} from "../plugin";
 import {agentKey} from "../shared/contracts";
@@ -31,7 +32,7 @@ import {agentSessionsContract} from "../shared/remote";
 import {agentRequestsContract} from "../shared/requests";
 import {profileAgents} from "../shared/profile-agents";
 import {agentSettings} from "../shared/settings";
-import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
+import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, SKILLS_POINT, skillsPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
 
 import {createAgentRuntime} from "./agent";
 import {createAttachmentRoutes, sessionDirectoryExists} from "./attachments";
@@ -47,11 +48,12 @@ import {ProfileShapes, SUBAGENTS_EXTENSION, subagentsPrompt} from "./subagents/p
 import {SUBAGENT_TOOL_CONTRIBUTIONS, subagentTools} from "./subagents/tools";
 import {extensionReceiver} from "./extensions";
 import {locateDocsRoot} from "./docs-root";
-import {SkillCatalog} from "./skills/catalog";
+import {SkillCatalog, sourceRoot} from "./skills/catalog";
 import {SKILLS_EXTENSION, skillsExtension} from "./skills/extension";
 import {restoreSkills} from "./skills/restore";
 import {openFolder} from "./skills/folder";
 import {SkillInstaller} from "./skills/install";
+import {pluginSkillRoots} from "./skills/plugin-roots";
 import {profileSkills} from "../shared/profile-skills";
 import {agentRemote, PreviewTokens} from "./remote";
 import {requestsRemote} from "./requests";
@@ -66,14 +68,14 @@ const allActivated = (result: TriggerActivationResult): boolean => result.status
 export const agentBackendPlugin: PluginDefinition = {
     id: descriptor.id,
     activationEventPrefixes: [AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, AGENT_PROFILE_PREFIX, AGENT_COMPACTION_PREFIX],
-    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint],
+    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint, skillsPoint],
     entries: [defineEntry({
         id: "server",
         location: "server",
-        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}, {key: tasksKey, required: false}, {key: runningWorkKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}, {key: tasksKey, required: false}, {key: runningWorkKey, required: false}, {key: pluginPackagesKey, required: false}],
         provides: [agentKey],
         remoteProvides: [agentSessionsContract, agentRequestsContract],
-        receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT],
+        receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT, SKILLS_POINT],
         contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...JOB_TOOL_CONTRIBUTIONS, ...SUBAGENT_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION, {capability: EXTENSIONS_POINT, id: SUBAGENTS_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: SKILLS_EXTENSION, declaration: {}}],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
@@ -82,14 +84,15 @@ export const agentBackendPlugin: PluginDefinition = {
             };
             const models = await context.services.resolve(modelsKey);
             const tasks = await context.services.resolve(tasksKey);
+            const pluginPackages = await context.services.resolve(pluginPackagesKey);
             const editStores = new SessionEditStores();
             const dialects = createDialects(() => context.services.require(settingsKey).get(agentSettings.settings.readOnlyCommands));
-            // 用户的 Skill 在 `user://skills/`；内置的随应用分发，这一版还没有内置的 Skill（skills.md 的来源）。
+            // 用户的 Skill 在 `user://skills/`；内置的随应用分发，这一版还没有内置的 Skill；插件的随 `agent.skills` 贡献由接收者增删（skills.md 的来源）。
             // 目录按“在装”算状态，初始化又要从目录取 Skill：两者互相引用，安装器在目录打开之后接上。
             let skillInstaller: SkillInstaller | null = null;
             const userSkills = join(context.services.require(stateRootKey).path, "user", "skills");
             const skillCatalog = await SkillCatalog.open({
-                roots: [{source: "user", root: userSkills, watch: true}, {source: "builtin", root: null, watch: false}],
+                roots: [sourceRoot("user", userSkills, true), sourceRoot("builtin", null, false)],
                 clock: context.services.require(clockKey),
                 report,
                 installing: (id) => skillInstaller?.installing(id) ?? false,
@@ -186,6 +189,7 @@ export const agentBackendPlugin: PluginDefinition = {
                     [TOOLS_POINT]: runtime.tools.receiver,
                     [COMPACTION_METHODS_POINT]: runtime.compaction.receiver,
                     [PROFILES_POINT]: runtime.profiles.receiver,
+                    [SKILLS_POINT]: pluginSkillRoots({catalog: skillCatalog, packages: pluginPackages.status === "resolved" ? pluginPackages.instance : null, report}),
                 },
             };
         },

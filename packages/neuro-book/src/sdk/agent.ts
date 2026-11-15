@@ -1,5 +1,5 @@
 /**
- * SDK 的 `nbook.agent` 子路径（docs/specs/agent/contributions.md“输入与前置条件”）：插件给 Agent 交扩展、工具与 Profile，
+ * SDK 的 `nbook.agent` 子路径（docs/specs/agent/contributions.md“输入与前置条件”）：插件给 Agent 交扩展、工具、Profile 与 Skill，
  * 用户在状态根里写 Profile，都从这里取内核的定义写法（`defineProfile`、`defineExtension` 等）、类型与模板节点，以及写清单
  * 用的助手。转出的是内核的公开接口，内核改了它们就是 SDK 的破坏性变更。不拖内核的实现与模型适配器。
  */
@@ -11,5 +11,5 @@ export {finalOnly, mapEventContent, opening, reminder, standardLayout, withoutEv
 export type {ContentMap, ContentWhere} from "@notnotype/nb-harness/kernel/helpers";
 export {Assistant, Fragment, History, If, P, Slot, System, Tag, ToolName, Turn, User} from "@notnotype/nb-harness/prompt";
 export type {PromptChild, PromptComponent, PromptNode} from "@notnotype/nb-harness/prompt";
-export {agentCompactionMethod, agentExtension, agentProfile, agentTool, COMPACTION_METHODS_POINT, EXTENSIONS_POINT, PROFILES_POINT, TOOLS_POINT} from "nbook/plugins/agent/shared/points";
-export type {AgentCompactionMethodDeclaration, AgentExtensionDeclaration, AgentProfileDeclaration, AgentToolDeclaration, AgentToolImplementation} from "nbook/plugins/agent/shared/points";
+export {agentCompactionMethod, agentExtension, agentProfile, agentSkills, agentTool, COMPACTION_METHODS_POINT, EXTENSIONS_POINT, PROFILES_POINT, SKILLS_POINT, TOOLS_POINT} from "nbook/plugins/agent/shared/points";
+export type {AgentCompactionMethodDeclaration, AgentExtensionDeclaration, AgentProfileDeclaration, AgentSkillsDeclaration, AgentToolDeclaration, AgentToolImplementation} from "nbook/plugins/agent/shared/points";

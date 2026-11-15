@@ -14,7 +14,9 @@ import {profileToolIds, sameNameTool, visibleToolIds} from "../shared/profile-to
 import type {ToolBinding, ToolChange} from "../shared/profile-tools";
 import {profileAgents} from "../shared/profile-agents";
 import {declaredSkills, profileSkills} from "../shared/profile-skills";
-import type {SkillEntry, SkillSource} from "../shared/skills";
+import {groupSkills} from "../shared/skills";
+import {skillProblemText} from "./skill-problem";
+import type {SkillEntry, SkillGroup} from "../shared/skills";
 import type {ProfileSetting} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf} from "./profile-edits";
@@ -73,7 +75,10 @@ export interface ProfileToolRow {
 }
 
 export interface ProfileToolGroup {
-    /** 身份：插件 id，已卸载的一组是 `GONE_GROUP`。显示名可能重复、随界面语言变，不作身份。 */
+    /**
+     * 身份。工具一节：插件 id，已卸载的一组是 `GONE_GROUP`。Skill 一节：`user`、`plugin:<插件 id>`、`builtin`（`groupSkills` 的 key），
+     * 另有 `GONE_GROUP` 与 `REMOVED_GROUP`。显示名可能重复、随界面语言变，不作身份。
+     */
     readonly id: string;
     readonly provider: string;
     readonly tools: readonly ProfileToolRow[];
@@ -330,8 +335,6 @@ function agentsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
     return {groups, count: effective.allowed.length, modified: binding !== undefined, candidates};
 }
 
-/** Skill 一节的分组：我的在前、内置在后（同 Skill 页）。 */
-const SKILL_SOURCES: readonly SkillSource[] = ["user", "builtin"];
 /** 用户去掉的那一组的身份。 */
 export const REMOVED_GROUP = "removed";
 
@@ -358,26 +361,28 @@ function skillsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
             : declared.has(skill.id) || extra.restorable === true ? "" : text.t(agentText("profiles.skills.userAdded")),
         danger: skill.status === "invalid",
         summary: skill.description,
-        detail: skill.description,
+        // 无效的、上次没装好的：悬停的全文先写原因（同 Skill 页的第二行），再写说明。
+        detail: skill.problem === undefined ? skill.description : [skillProblemText(skill.problem, (key, params) => text.t(agentText(key, params))), skill.description].filter((part) => part !== "").join("\n"),
         required: false,
         gone: false,
         ...extra,
     });
     const goneRow = (id: string): ProfileToolRow => ({id, name: id, effect: "", danger: false, summary: text.t(agentText("profiles.skills.gone")), detail: text.t(agentText("profiles.skills.gone")), required: false, gone: true});
-    const groupName = (source: SkillSource): string => text.t(agentText(source === "user" ? "profiles.skills.groups.user" : "profiles.skills.groups.builtin"));
+    // 分组同 Skill 页：我的、各插件（标题是插件名）、内置。
+    const groupName = (group: SkillGroup<SkillEntry>): string => group.title ?? text.t(agentText(group.source === "user" ? "profiles.skills.groups.user" : "profiles.skills.groups.builtin"));
     const listed = allowed.map((id) => byId.get(id)).filter((skill): skill is SkillEntry => skill !== undefined);
     const gone = allowed.filter((id) => !byId.has(id));
     const removed = (binding?.removed ?? []).map((id) => byId.get(id)).filter((skill): skill is SkillEntry => skill !== undefined && skill.status !== "invalid");
     const groups: ProfileToolGroup[] = [
-        ...SKILL_SOURCES.map((source) => ({id: source, provider: groupName(source), tools: listed.filter((skill) => skill.source === source).map((skill) => row(skill))})).filter((group) => group.tools.length > 0),
+        ...groupSkills(listed, (skill) => skill).map((group) => ({id: group.key, provider: groupName(group), tools: group.items.map((skill) => row(skill))})),
         ...(gone.length === 0 ? [] : [{id: GONE_GROUP, provider: text.t(agentText("profiles.skills.goneGroup")), tools: gone.map(goneRow)}]),
         ...(removed.length === 0 ? [] : [{id: REMOVED_GROUP, provider: text.t(agentText("profiles.skills.removedGroup")), tools: removed.map((skill) => row(skill, {restorable: true}))}]),
     ];
-    const candidates = SKILL_SOURCES.map((source) => ({
-        id: source,
-        provider: groupName(source),
-        tools: catalog.filter((skill) => skill.source === source && skill.status !== "invalid" && !allowedSet.has(skill.id)).map((skill): ProfileToolCandidate => ({...row(skill), providerName: skill.id, blocked: false})),
-    })).filter((group) => group.tools.length > 0);
+    const candidates = groupSkills(catalog.filter((skill) => skill.status !== "invalid" && !allowedSet.has(skill.id)), (skill) => skill).map((group) => ({
+        id: group.key,
+        provider: groupName(group),
+        tools: group.items.map((skill): ProfileToolCandidate => ({...row(skill), providerName: skill.id, blocked: false})),
+    }));
     // 无效的照样列出（它在白名单里），但不算“可用”。
     return {groups, count: listed.filter((skill) => skill.status !== "invalid").length, modified: binding !== undefined, candidates};
 }

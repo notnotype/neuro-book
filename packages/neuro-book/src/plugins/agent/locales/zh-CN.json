@@ -587,7 +587,7 @@
             },
             "userAdded": "我加的",
             "needsInit": "未初始化",
-            "gone": "没有找到这个 Skill，放回 Skill 文件夹后恢复",
+            "gone": "没有找到这个 Skill：自己的放回 Skill 文件夹、插件的重新启用插件后恢复",
             "goneGroup": "已删除或不可用",
             "removedGroup": "已去掉",
             "groups": {
@@ -670,6 +670,7 @@
                 "fieldInvalid": "SKILL.md 里的 {{field}} 不合规",
                 "nameMismatch": "SKILL.md 里的 name 是 {{name}}，与文件夹名不同",
                 "symlink": "Skill 文件夹是链接，不能使用",
+                "pluginSkillUnbuilt": "插件里的这个 Skill 没有经 nbooke build 打包，用不了；请向插件作者反馈",
                 "installFailed": "上次初始化没有成功",
                 "interrupted": "上次初始化被中断了"
             },

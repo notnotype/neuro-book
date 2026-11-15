@@ -17,7 +17,7 @@ import {descriptor as filesDescriptor} from "nbook/plugins/files/plugin";
 import {modelsBackendPlugin} from "nbook/plugins/models/backend/plugin";
 import {descriptor as modelsDescriptor} from "nbook/plugins/models/plugin";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
-import type {SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
+import type {HostCapability, SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
 import {createRunningWork} from "nbook/server/running-work";
 import type {RunningWorkRegistry} from "nbook/server/running-work";
 import {runningWorkKey, startupEnvKey} from "nbook/shared/host";
@@ -49,8 +49,11 @@ export interface AgentWorld {
     close(): Promise<void>;
 }
 
-/** `withoutModels`：不装 `nbook.models`（看模型服务不在时的行为）。`env`：启动环境（真实模型的密钥只进这里）。 */
-export async function agentWorld(root: string, options: {readonly plugins?: ReadonlyArray<PluginDefinition>; readonly userSettings?: Readonly<Record<string, unknown>>; readonly withoutModels?: boolean; readonly env?: Readonly<Record<string, string>>} = {}): Promise<AgentWorld> {
+/**
+ * `withoutModels`：不装 `nbook.models`（看模型服务不在时的行为）。`env`：启动环境（真实模型的密钥只进这里）。`capabilities`：另外的
+ * 宿主能力（例如服务端宿主提供的插件包查询）。
+ */
+export async function agentWorld(root: string, options: {readonly plugins?: ReadonlyArray<PluginDefinition>; readonly userSettings?: Readonly<Record<string, unknown>>; readonly withoutModels?: boolean; readonly env?: Readonly<Record<string, string>>; readonly capabilities?: ReadonlyArray<HostCapability>} = {}): Promise<AgentWorld> {
     const stateRoot = join(root, "state");
     await mkdir(stateRoot, {recursive: true});
     if (options.userSettings !== undefined) await writeFile(join(stateRoot, "settings.json"), JSON.stringify(options.userSettings));
@@ -69,6 +72,7 @@ export async function agentWorld(root: string, options: {readonly plugins?: Read
     ], {hubCapabilities: [
         {id: "host.startup-env", key: startupEnvKey, create: () => ({env: Object.freeze({...options.env})})},
         {id: "host.running-work", key: runningWorkKey, create: () => work.provision},
+        ...(options.capabilities ?? []),
     ]});
     if (service === null) throw new Error("nbook.agent did not activate");
     return {
