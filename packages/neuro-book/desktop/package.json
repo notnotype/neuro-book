@@ -1,5 +1,8 @@
 {
     "name": "neurobook-desktop",
     "private": true,
-    "type": "module"
+    "type": "module",
+    "config": {
+        "hutch": "0.29.0"
+    }
 }

@@ -1,12 +1,12 @@
 import {spawnSync} from "node:child_process";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {builtVersionProblems, checkReleaseTag, versionOfTag} from "#scripts/release/tag";
+import {builtVersionProblems, bumpTestVersion, checkReleaseTag, sourceVersion, versionOfTag} from "#scripts/release/tag";
 
 const roots: string[] = [];
 
@@ -110,5 +110,21 @@ describe("构建出的版本", () => {
 
     it("发布清单里缺应用包或 SDK：报出", () => {
         expect(builtVersionProblems("0.12.2", {manifest: {commit: "a", packages: []}})).toHaveLength(2);
+    });
+});
+
+describe("演练与测试包的版本", () => {
+    it("演练取源码里的版本；两处不一致时拒绝", async () => {
+        expect(sourceVersion((await repository({packageJson: "0.12.2", product: "0.12.2"})).root)).toBe("0.12.2");
+        const {root} = await repository({packageJson: "0.12.2", product: "0.12.1"});
+        expect(() => sourceVersion(root)).toThrow("不一致");
+    });
+
+    it("B′ 把两处都改成补丁号加 1，别的内容不动", async () => {
+        const {root} = await repository({packageJson: "0.12.9", product: "0.12.9"});
+        expect(bumpTestVersion(root)).toBe("0.12.10");
+        const app = join(root, "packages", "neuro-book");
+        expect(JSON.parse(await readFile(join(app, "package.json"), "utf8"))).toEqual({name: "@notnotype/neuro-book", version: "0.12.10"});
+        expect(await readFile(join(app, "src", "shared", "product.ts"), "utf8")).toBe('/** 产品版本。 */\nexport const PRODUCT_VERSION = "0.12.10";\n');
     });
 });

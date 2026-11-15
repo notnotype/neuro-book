@@ -7,14 +7,22 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  # 发布流水线（release.yml）在标签提交上整套跑一遍。被调用时 github 上下文是调用方的（标签推送的 before 不能当基准），
+  # 所以由输入直接要 --all，不靠事件的形状。
+  workflow_call:
+    inputs:
+      all:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 # 只有 PR 的新一轮取消旧的。推 master 按 github.event.before 选包，取消一轮（包括排队中的）就等于那次推送的改动
-# 没人测，所以每次推送各成一组，互不取消。
+# 没人测，所以每次推送各成一组，互不取消。组名带上调用来源（被发布流水线调用时 github.workflow 是 Release），
+# 免得与 master 上同一提交的 CI 同组排队。
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -40,8 +48,13 @@ jobs:
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           BEFORE: ${{ github.event.before }}
-        # 基准缺失、是全零（新分支）或与 HEAD 没有共同祖先（强推）时测全部。
+          ALL: ${{ inputs.all }}
+        # 要求了全部（被发布流水线调用）、基准缺失、是全零（新分支）或与 HEAD 没有共同祖先（强推）时测全部。
         run: |
+          if [ "$ALL" = "true" ]; then
+            echo "args=--all" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           case "$EVENT" in
             pull_request) base="$PR_BASE" ;;
             push) base="$BEFORE" ;;

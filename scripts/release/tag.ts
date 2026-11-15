@@ -5,6 +5,8 @@
  *
  * - `check <标签>`：标签是 `v<稳定版本>`，与源码里的产品版本相同，解引用后的提交就是这次检出的提交，且在 origin/master 上。
  *   通过时在 stdout 打一行 `version=<版本>`，工作流把它追加进 `GITHUB_OUTPUT`。
+ * - `source`：演练用，打印源码里的产品版本（两处要一致），不核对标签。
+ * - `bump-test <目录>`：在一次性检出里把产品版本改成补丁号加 1（更新冒烟的 B′），打印 `version=<新版本>`。
  * - `verify-built --version <版本> [--manifest <release-manifest.json>] [--desktop <桌面工程目录>]`：构建出的应用包、SDK、
  *   壳与载荷的版本都是预期的那个（测试包 B′ 的预期是补丁号加 1，见 t11 计划的“构建分工”）。
  *
@@ -12,7 +14,7 @@
  */
 
 import {spawnSync} from "node:child_process";
-import {readFileSync} from "node:fs";
+import {readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
@@ -73,6 +75,35 @@ export function checkReleaseTag(options: {tag: string; head: string; root?: stri
     return {version};
 }
 
+/** 演练（没有标签）用的版本：源码里两处一致时就是它。 */
+export function sourceVersion(root: string): string {
+    const source = sourceVersions(root);
+    if (source.packageJson !== source.product) throw new GateFailure(`源码里的产品版本不一致：packages/neuro-book/package.json 是 ${source.packageJson}，PRODUCT_VERSION 是 ${source.product}`);
+    return source.packageJson;
+}
+
+/**
+ * 更新冒烟的 B′（t11 计划的“构建分工”）：把 `root` 这份检出里的两处产品版本都改成补丁号加 1，返回新版本。
+ * 只改这两处，`bun.lock` 由调用方 `bun install` 刷新；`root` 是一次性的检出，不在发布用的检出里调用。
+ */
+export function bumpTestVersion(root: string): string {
+    const current = sourceVersion(root);
+    const match = STABLE_VERSION.exec(current);
+    if (match === null) throw new GateFailure(`产品版本 ${current} 不是稳定版本`);
+    const next = `${match[1]}.${match[2]}.${String(Number(match[3]) + 1)}`;
+    const app = join(root, "packages", "neuro-book");
+    const packageFile = join(app, "package.json");
+    const packageText = readFileSync(packageFile, "utf8");
+    const versionLine = `"version": "${current}"`;
+    if (packageText.split(versionLine).length !== 2) throw new GateFailure(`${packageFile} 里 ${versionLine} 不是正好一处`);
+    writeFileSync(packageFile, packageText.replace(versionLine, `"version": "${next}"`));
+    const productFile = join(app, "src", "shared", "product.ts");
+    writeFileSync(productFile, readFileSync(productFile, "utf8").replace(`export const PRODUCT_VERSION = "${current}";`, `export const PRODUCT_VERSION = "${next}";`));
+    const after = sourceVersions(root);
+    if (after.packageJson !== next || after.product !== next) throw new GateFailure(`改版本没有成功：package.json 是 ${after.packageJson}，PRODUCT_VERSION 是 ${after.product}`);
+    return next;
+}
+
 /** 构建出的各个版本：发布清单里的应用包与 SDK、壳的 `bundle/version.json`、载荷清单；没给的那一项不核对。 */
 export type BuiltVersions = {manifest?: ReleaseManifest; shell?: string; payload?: string};
 
@@ -106,6 +137,16 @@ function main(argv: readonly string[]): void {
         console.log(`version=${checkReleaseTag({tag, head}).version}`);
         return;
     }
+    if (command === "source" && rest.length === 0) {
+        console.log(`version=${sourceVersion(REPOSITORY)}`);
+        return;
+    }
+    if (command === "bump-test") {
+        const [root, ...extra] = rest;
+        if (root === undefined || extra.length > 0) throw new UsageError("用法：bun scripts/release/tag.ts bump-test <一次性检出的目录>");
+        console.log(`version=${bumpTestVersion(root)}`);
+        return;
+    }
     if (command === "verify-built") {
         let values: {version?: string; manifest?: string; desktop?: string};
         try {
@@ -127,7 +168,7 @@ function main(argv: readonly string[]): void {
         console.log(`✓ 构建出的版本都是 ${values.version}`);
         return;
     }
-    throw new UsageError("用法：bun scripts/release/tag.ts check <标签> | verify-built --version <版本> …");
+    throw new UsageError("用法：bun scripts/release/tag.ts check <标签> | source | bump-test <目录> | verify-built --version <版本> …");
 }
 
 if (import.meta.main) {

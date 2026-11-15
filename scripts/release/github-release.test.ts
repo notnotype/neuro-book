@@ -7,7 +7,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {assetUploads, draftRelease, GitHubReleases, localAssetProblems, previousDesktopRelease, publishRelease, requiredAssets, shouldBeLatest, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
+import {assetUploads, draftRelease, GitHubReleases, localAssetProblems, previousDesktopRelease, publishRelease, requiredAssets, shouldBeLatest, sumsText, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
 
 const roots: string[] = [];
 
@@ -79,9 +79,11 @@ const OLD_APP: ReleaseSummary = {tagName: "v0.9.2-canary.20260805.125926Z.39d220
 const silent = () => {};
 
 describe("本地资产目录", () => {
-    it("必有的齐全、补丁可有可无、SHA256SUMS 覆盖其余全部：通过", async () => {
+    it("必有的齐全、补丁可有可无、sums 写出的 SHA256SUMS 覆盖其余全部：通过", async () => {
         const {digests} = await assetDirectory();
-        const sums = [...digests].filter(([name]) => name !== "SHA256SUMS").map(([name, digest]) => `${digest}  ${name}`).join("\n");
+        const sums = sumsText(digests);
+        expect(sums).not.toContain("\r");
+        expect(sums).not.toContain("SHA256SUMS");
         expect(localAssetProblems(VERSION, digests, sums)).toEqual([]);
     });
 

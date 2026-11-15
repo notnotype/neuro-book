@@ -6,6 +6,7 @@
  * - `draft <版本> <资产目录>`：没有这个标签的 Release 就建草稿；只上传缺的资产，同名资产的摘要与本地不同就失败；已公开的只核对。
  * - `publish <版本> <资产目录>`：资产齐全、摘要一致后公开；公开与是否设为最新在同一个请求里定（草稿不能设为最新，
  *   公开时不带 `make_latest` 会缺省设为最新）。已公开的只核对，必要时补设最新，不撤掉已有的标记。
+ * - `sums <资产目录>`：写 `SHA256SUMS`（`<64 位十六进制>  <文件名>`，换行是 LF，覆盖目录里除它以外的全部文件）；桌面作业冻结资产时用。
  * - `previous <版本>`：上一个正式桌面版本的标签（Release 历史里低于本次、有正式 Setup 资产的最高稳定版本），打 `previous=<标签>`，
  *   没有时 `previous=`。不从可变的“最新”推断，整轮重跑时得到同一个。
  *
@@ -148,6 +149,19 @@ export class GitHubReleases {
     }
 }
 
+/** `SHA256SUMS` 的内容：按文件名排序，每行 `<摘要>  <文件名>`，LF 换行（Windows 上也是，按行读的核对不处理 CR）。 */
+export function sumsText(digests: ReadonlyMap<string, string>): string {
+    return [...digests].filter(([name]) => name !== SUMS_ASSET).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([name, digest]) => `${digest}  ${name}\n`).join("");
+}
+
+async function writeSums(directory: string): Promise<void> {
+    const digests = new Map<string, string>();
+    for (const name of await readdir(directory)) if (name !== SUMS_ASSET) digests.set(name, await sha256Of(join(directory, name)));
+    const text = sumsText(digests);
+    await writeFile(join(directory, SUMS_ASSET), text);
+    process.stdout.write(text);
+}
+
 /** 读冻结的资产目录：文件名到 SHA-256；缺必有的、多了不认识的、SHA256SUMS 对不上时抛出。 */
 export async function readLocalAssets(version: string, directory: string): Promise<Map<string, string>> {
     const local = new Map<string, string>();
@@ -218,8 +232,14 @@ async function spawnRun(argv: readonly string[]): Promise<RunResult> {
 
 async function main(argv: readonly string[]): Promise<void> {
     const [command, version, directory, ...extra] = argv;
+    if (command === "sums") {
+        // 这里第二个参数是目录。
+        if (version === undefined || directory !== undefined) throw new UsageError("用法：bun scripts/release/github-release.ts sums <资产目录>");
+        await writeSums(version);
+        return;
+    }
     const repo = process.env.GITHUB_REPOSITORY;
-    const usage = "用法：bun scripts/release/github-release.ts draft|publish <版本> <资产目录> | previous <版本>（仓库取自 GITHUB_REPOSITORY）";
+    const usage = "用法：bun scripts/release/github-release.ts draft|publish <版本> <资产目录> | previous <版本>（仓库取自 GITHUB_REPOSITORY） | sums <资产目录>";
     if (repo === undefined || repo === "" || version === undefined || extra.length > 0) throw new UsageError(usage);
     const github = new GitHubReleases(spawnRun, repo);
     if (command === "previous" && directory === undefined) {
