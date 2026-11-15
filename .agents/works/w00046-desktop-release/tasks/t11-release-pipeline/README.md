@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t11-release-pipeline
-status: active
+status: done
 updated: 2026-11-15
 ---
 
@@ -49,6 +49,8 @@ release.yml：标签与产品版本一致性、标签提交上调用可复用的
 - 没有跑 actionlint：下载它的二进制被本机权限分类器拦下，只做了 YAML 解析与 `needs` 引用核对。
 - 新增待确认 4 行。
 
+2026-11-15：实现审查第 1 轮（omp）有效 7 条（重要 5、建议 2）：6 条成立已改（Work 分支 `e3f4d4277`：冒烟失败时也卸载、先还原用户数据，换上后第一次启动要检查过更新，PowerShell 字面量转义，就绪要带 PID，版本比较用 BigInt），1 条不成立（所指步骤在 ubuntu 作业里，缺省是 bash -e）；pc-notype 上安装版、更新冒烟重跑通过，失败路径的卸载实测成立（[报告](evidences/impl-review-r1-omp.txt)、[处理](evidences/impl-review-r1-omp-disposition.txt)）。合入 master；两份 Spec 的 Smoke 证据改为流水线入口与 pc-notype 的运行。
+
 ## 下一步
 
-一次实现审查（omp，范围 `d849b332a` 到 `37925670c`）；处理后合入 master，补两份 Spec 的 Smoke 证据（入口与“未运行”），删 scratch worktree `w00046-t11-bplus`。之后停下交开发者：push、actionlint、`nb-flock` 首发与 `nb-harness`、`nb-story` 提版、标签规则集、Environment `release`、npm 信任、演练与第一个标签。
+开发者做（远端写入与一次性准备，见 [`repository-workflow.md`](../../../../../docs/standards/repository-workflow.md#一次性准备)）：push master；补跑 actionlint（本机下载被拦）；授权 `nb-harness`、`nb-story` 提版并在本机首发 `nb-flock`；标签规则集；Environment `release`；npm 信任（发布前 2 天内）；在 master 上演练一次，打第一个标签。流水线第一次运行后补两份 Spec 的运行记录。
