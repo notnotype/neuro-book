@@ -61,6 +61,26 @@ describe("拖动求解：直接相邻与传播", () => {
         expect(result.compensated).toEqual(["a"]);
     });
 
+    it("推开远端兄弟后往回拖：先动挨着分隔条的面板，被推开的兄弟留在原处，和拖一段松手再拖一样；同方向分几帧到达结果不变", () => {
+        // 编辑区 A | B | C 拖 B|C：B 到最小宽度后把 A 往左推，掉头时 A|B 不动、B 先长回来。
+        const panels = [weight("a", 100), weight("b", 100), weight("c", 100)];
+        const baseline = [300, 300, 300];
+        const pushed = drag(panels, baseline, 1, [-250]);
+        expect(pushed.sizesPx).toEqual([250, 100, 550]);
+
+        const back = drag(panels, baseline, 1, [-250, -150]);
+        expect(back.sizesPx).toEqual([250, 200, 450]);
+        expect(back.sizesPx).toEqual(drag(panels, pushed.sizesPx, 1, [100]).sizesPx);
+        // 回到按下位置也不把 A 还回去：主动与补偿仍相对按下基线。
+        const home = drag(panels, baseline, 1, [-250, 0]);
+        expect(home.sizesPx).toEqual([250, 350, 300]);
+        expect(home.active).toEqual(["b"]);
+        expect(home.compensated).toEqual(["a"]);
+
+        expect(drag(panels, baseline, 1, [-60, -180, -250]).sizesPx).toEqual(pushed.sizesPx);
+        expect(drag(panels, baseline, 1, [-250, -200, -150]).sizesPx).toEqual(back.sizesPx);
+    });
+
     it("消费不掉的位移不采用（两侧容量都用尽）", () => {
         const panels = [fixed("a", 100, 200), fixed("b", 100, 200)];
         expect(drag(panels, [200, 200], 0, [200]).sizesPx).toEqual([200, 200]);
