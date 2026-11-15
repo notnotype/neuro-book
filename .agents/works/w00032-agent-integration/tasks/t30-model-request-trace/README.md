@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t30-model-request-trace
-status: active
+status: done
 updated: 2026-11-15
 ---
 
