@@ -194,6 +194,9 @@ function matches(row: RequestRow, query: RequestQuery, except?: "sessions" | "mo
     return query.since === undefined || row.startedAt >= query.since;
 }
 
+/** 这次请求的全部输入 token：OMP 的 `input` 不含读到与写入缓存的那部分。 */
+const promptOf = (usage: Usage | undefined): number | null => (usage === undefined ? null : usage.input + usage.cacheRead + usage.cacheWrite);
+
 /** 排序键：排序值（没有值的排最后）、开始时间、`start` 的序号，都是大的在前。游标就是上一页最后一条的键。 */
 type SortKey = readonly [number | null, number, number];
 
@@ -201,7 +204,7 @@ function sortKey(entry: Entry, sort: NonNullable<RequestQuery["sort"]>): SortKey
     const row = entry.row;
     const value = sort === "time" ? row.startedAt
         : sort === "duration" ? (row.endedAt === undefined ? null : row.endedAt - row.startedAt)
-        : sort === "input" ? (row.usage?.input ?? null)
+        : sort === "input" ? promptOf(row.usage)
         : (row.usage?.cost ?? null);
     return [value, row.startedAt, entry.start.seq];
 }
@@ -396,7 +399,7 @@ export class RequestRecorder {
             seq: this.#committed,
             totals: {
                 count: filtered.length,
-                input: filtered.reduce((sum, entry) => sum + (entry.row.usage?.input ?? 0), 0),
+                input: filtered.reduce((sum, entry) => sum + (promptOf(entry.row.usage) ?? 0), 0),
                 cacheRead: filtered.reduce((sum, entry) => sum + (entry.row.usage?.cacheRead ?? 0), 0),
                 cost: priced.length === 0 ? null : priced.reduce((sum, cost) => sum + cost, 0),
             },

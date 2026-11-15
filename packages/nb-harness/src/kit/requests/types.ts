@@ -106,6 +106,7 @@ export interface RequestQuery {
     readonly models?: readonly string[];
     /** 开始时间不早于它（毫秒）。 */
     readonly since?: number;
+    /** `input` 按全部输入 token（含缓存的部分）排。 */
     readonly sort?: "time" | "duration" | "input" | "cost";
     readonly cursor?: string;
     readonly limit?: number;
@@ -113,6 +114,7 @@ export interface RequestQuery {
 
 export interface RequestTotals {
     readonly count: number;
+    /** 全部输入 token（含读到与写入缓存的部分）。 */
     readonly input: number;
     readonly cacheRead: number;
     /** 没有一条有价格时为 null。 */

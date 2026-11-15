@@ -488,7 +488,7 @@ describe("列表", () => {
 
         const all = await r.recorder.list();
         expect(numbers(all)).toEqual([4, 3, 2, 1]);
-        expect(all.totals).toEqual({count: 4, input: 650, cacheRead: 80, cost: 0.05});
+        expect(all.totals).toEqual({count: 4, input: 730, cacheRead: 80, cost: 0.05});
         expect(all.seq).toBe(r.changes.at(-1)?.seq ?? -1);
 
         const first = await r.recorder.list({limit: 3});
@@ -503,7 +503,7 @@ describe("列表", () => {
 
         const filtered = await r.recorder.list({models: ["a/one"], purposes: ["turn"]});
         expect(numbers(filtered)).toEqual([4, 1]);
-        expect(filtered.totals).toEqual({count: 2, input: 300, cacheRead: 80, cost: 0.05});
+        expect(filtered.totals).toEqual({count: 2, input: 380, cacheRead: 80, cost: 0.05});
         expect(filtered.facets.models).toEqual([{id: "a/one", count: 2}, {id: "b/two", count: 1}]);
         expect(filtered.facets.sessions).toEqual([{id: "s1", count: 1}, {id: "s2", count: 1}]);
 
