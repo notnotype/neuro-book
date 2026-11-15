@@ -40,10 +40,10 @@ Agent 每发一次模型请求，都记下发出去的内容、回来的结果�
 
 | 键 | 缺省 | 含义 |
 |---|---|---|
-| `nbook.agent.requestTrace` | `true` | 记不记 |
-| `nbook.agent.requestTracePayload` | `true` | 存不存原始请求体 |
-| `nbook.agent.requestTraceDays` | `14` | 保留几天，1 到 365 |
-| `nbook.agent.requestTraceHeaders` | `false` | 记不记请求头 |
+| `nbook.agent/requestTrace` | `true` | 记不记 |
+| `nbook.agent/requestTracePayload` | `true` | 存不存原始请求体 |
+| `nbook.agent/requestTraceDays` | `14` | 保留几天，1 到 365 |
+| `nbook.agent/requestTraceHeaders` | `false` | 记不记请求头 |
 
 入口：
 
