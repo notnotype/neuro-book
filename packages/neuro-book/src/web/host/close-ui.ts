@@ -7,7 +7,8 @@
  * - 层本身是一个模态对话框（`CloseLayer.vue`）：焦点锁在对话框里、对话框之外点不到。参与方之后开的对话框是更上一层的模态，
  *   叠在它上面照常可用。
  * - 盖层之前给 `body` 下已有的子节点设 `inert`：已经开着的菜单与命令面板也传送在 `body` 下，层级高于模态，只靠模态盖不住它们。
- *   之后打开的对话框是新的子节点，不受影响。撤层时只撤自己设的。
+ *   之后打开的对话框是新的子节点，不受影响。撤层时只撤自己设的。层自己的根与桌面窗口外框的根（`DesktopFrame`）不设：询问期间
+ *   窗口照样能最小化、最大化，再点关闭交给壳（browser-host 输出 10 的例外）。拖动不行：层的遮罩盖满窗口、不是拖动区域。
  * - 键盘拦截（`installCloseKeyGuard`）：工作台的键位在 `window` 的捕获阶段处理，焦点在对话框里也照样触发，所以要在它之前
  *   注册一个同阶段的拦截器，见那里的说明。
  */
@@ -34,8 +35,8 @@ export interface CloseUi {
 
 export interface CloseUiOptions {
     readonly document: Document;
-    /** 层自己的挂载根：不设 `inert`。 */
-    readonly ownRoot: () => Element | null;
+    /** 不设 `inert` 的根：层自己的挂载根，桌面窗口外框的根。 */
+    readonly exemptRoots: () => ReadonlyArray<Element | null>;
 }
 
 export function createCloseUi(options: CloseUiOptions): CloseUi {
@@ -49,9 +50,9 @@ export function createCloseUi(options: CloseUiOptions): CloseUi {
             if (state.value.layer) return;
             const active = options.document.activeElement;
             focusBefore = active instanceof HTMLElement && active !== options.document.body ? active : null;
-            const own = options.ownRoot();
+            const exempt = options.exemptRoots();
             for (const child of [...options.document.body.children]) {
-                if (child === own || child.hasAttribute("inert")) continue;
+                if (exempt.includes(child) || child.hasAttribute("inert")) continue;
                 child.setAttribute("inert", "");
                 inerted.push(child);
             }

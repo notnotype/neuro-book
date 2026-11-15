@@ -74,6 +74,16 @@ async function evaluate(wsUrl: string, expression: string): Promise<unknown> {
     ws.close();
     return result.result?.result?.value;
 }
+async function cdp(wsUrl: string, method: string, params: unknown): Promise<unknown> {
+    const ws = new WebSocket(wsUrl);
+    await new Promise((resolve) => ws.addEventListener("open", resolve, {once: true}));
+    const result = await new Promise<any>((resolve) => {
+        ws.addEventListener("message", (event) => resolve(JSON.parse(String(event.data))), {once: true});
+        ws.send(JSON.stringify({id: 1, method, params}));
+    });
+    ws.close();
+    return result.result;
+}
 async function until<T>(label: string, probe: () => Promise<T | null> | T | null, ms = 60_000): Promise<T> {
     const deadline = Date.now() + ms;
     for (;;) {
@@ -153,6 +163,31 @@ try {
     for (const t of pages.filter((t) => t.webSocketDebuggerUrl !== page.webSocketDebuggerUrl)) await evaluate(t.webSocketDebuggerUrl, "document.querySelector('[data-desktop-control=close]').click()");
     await until("back to one window", () => windowsOf(shellPids).length === 1, 30_000);
     log(`closed extra windows via close button: remaining=${windowsOf(shellPids).length}`);
+
+    // 关闭前询问开着时：窗口按钮照样能用（编辑一个文件、关窗出编辑器的询问、点最小化），再取消。自动保存在测试状态根里关着。
+    await evaluate(page.webSocketDebuggerUrl, `(async () => {
+        const folder = document.querySelector('[data-explorer-row="project://notes"]');
+        if (folder && folder.getAttribute('aria-expanded') !== 'true') folder.click();
+        await new Promise((r) => setTimeout(r, 500));
+        document.querySelector('[data-explorer-row="project://notes/a.md"]').dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+        return true; })()`);
+    await until("editor open", () => evaluate(page.webSocketDebuggerUrl, "!!document.querySelector('[data-editor-group-active] [data-editor-prose]')"), 30_000);
+    await evaluate(page.webSocketDebuggerUrl, "(() => { const p = document.querySelector('[data-editor-group-active] [data-editor-prose]'); p.focus(); const sel = getSelection(); sel.selectAllChildren(p); sel.collapseToEnd(); return true; })()");
+    await cdp(page.webSocketDebuggerUrl, "Input.insertText", {text: "乙"});
+    await until("dirty tab", () => evaluate(page.webSocketDebuggerUrl, "!!document.querySelector('[data-editor-tab-dirty]')"), 10_000);
+    await click("close");
+    await until("close prompt", () => evaluate(page.webSocketDebuggerUrl, "!!document.querySelector('[data-editor-window-close-dialog]')"), 15_000);
+    await click("minimize");
+    const minimizedDuringClose = await until("minimized during close query", () => u.IsIconic(hwnd), 10_000);
+    u.ShowWindow(hwnd, 9);
+    await Bun.sleep(800);
+    log(`close query open: minimize via button iconic=${minimizedDuringClose}`);
+    await evaluate(page.webSocketDebuggerUrl, "(() => { const d = document.querySelector('[data-editor-window-close-dialog]').closest('[role=dialog]'); const b = [...d.querySelectorAll('button')].find((x) => x.textContent.trim() === '取消'); b.click(); return true; })()");
+    await until("close prompt gone", async () => !(await evaluate(page.webSocketDebuggerUrl, "!!document.querySelector('[data-editor-window-close-dialog]')")), 10_000);
+    log("close query cancelled; window still open");
+    await cdp(page.webSocketDebuggerUrl, "Input.dispatchKeyEvent", {type: "keyDown", key: "s", code: "KeyS", modifiers: 2, windowsVirtualKeyCode: 83});
+    await cdp(page.webSocketDebuggerUrl, "Input.dispatchKeyEvent", {type: "keyUp", key: "s", code: "KeyS", modifiers: 2, windowsVirtualKeyCode: 83});
+    await until("saved", async () => !(await evaluate(page.webSocketDebuggerUrl, "!!document.querySelector('[data-editor-tab-dirty]')")), 10_000);
 
     // 书架首页：后备标题栏。
     await evaluate(page.webSocketDebuggerUrl, "location.assign('/'); true");

@@ -48,6 +48,13 @@
             "textLabel": "{{path}} 未保存的正文"
         }
     },
+    "desktopFrame": {
+        "controls": "窗口",
+        "minimize": "最小化",
+        "maximize": "最大化",
+        "restore": "还原",
+        "close": "关闭"
+    },
     "offline": {
         "banner": "与服务端的连接已断开，正在重新连接…"
     },

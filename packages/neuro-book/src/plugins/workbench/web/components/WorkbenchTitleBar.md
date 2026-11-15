@@ -11,6 +11,7 @@
 
 - 一行 36px，左右留 8px；面取 `--shell-chrome-surface`（缺省 `--bg-panel`），底部分隔线取 `--shell-chrome-line`（缺省 `--divider`）：卡片外壳的主题把两者设成透明，标题栏落在窗体底上（[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 输出 38）。左组依次是横排标志（`NeuroBookLockup`，高 17px，墨色跟随文字色）、项目切换（书本图标加显示名，下拉从左边展开）、一道 16px 高的短分隔与菜单入口；中间是搜索按钮（最宽 560px）；右组是布局按钮与条目区。左右两栏等分时搜索在正中；左组放不进一半时左栏按内容撑开、搜索往右让。
 - 逐级让位按根元素的实测宽度与各部件的实测宽度（`titlebar/yield.ts`，[`ui/workbench-shell.md`](../../../../../../../docs/specs/ui/workbench-shell.md) 外壳四输出 30），放不下就收下一项、往回展开多留 40px：横排标志换成图形标志（`NeuroBookMark`，18px）；完整菜单栏（nb-ui `Menubar`，`variant="flat"`）收成 ≡ 图标按钮，点开一组一行、悬停或方向键展开子菜单；收起搜索里的快捷键提示；布局按钮不画（视图菜单里有对应的勾选项）；项目切换只留书本图标。各部件的宽度从一层不可见、不占位、`inert` 的测量层量（复本：两种标志、两种项目切换、菜单栏、≡、快捷键提示、布局按钮），语言、项目名与快捷键变了随之重算。根上带 `data-titlebar-level`（0 到 5）。搜索取中间剩下的宽度，最宽 560px、最窄 120px。
+- 桌面窗口里（没有系统标题栏）它就是窗口的拖动区域（[`runtime.browser-host`](../../../../../../../docs/specs/runtime/browser-host.md) 的“窗口外框”）：根带 `data-desktop-titlebar`，向宿主声明“页面自己画了标题栏”，宿主据此不画后备标题栏；这是宿主的合同，`data-workbench-titlebar` 是工作台自己的钩子，两者并存。空白处 `app-region: drag`，有点击或悬停行为的一切（按钮、链接、输入框、菜单栏与菜单触发器、可聚焦元素、条目）`no-drag`；这组规则写在非 scoped 的样式块里，才命中得了 nb-ui `Menubar` 内部渲染的触发器。右栏末尾留出窗口按钮的宽度（`--nb-window-controls-width`，普通浏览器里是 0），逐级让位把它算进 `chrome`；三栏仍左右等分，两侧够宽时搜索在窗口正中。双击空白处最大化由系统做，组件不处理。
 - 菜单项禁用时以原因作提示（`title` 与 `aria-description`）；勾选项显示勾。
 - 项目名过长时截断，提示里有全文。
 

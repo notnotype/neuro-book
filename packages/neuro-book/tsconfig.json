@@ -45,6 +45,8 @@
         "plugin-sdk",
         "scripts",
         "desktop/scripts",
+        "desktop/src/bun/preload.ts",
+        "desktop/src/bun/win32.ts",
         "vite.config.ts",
         "vite.e2e.config.ts",
         "vitest.config.ts"

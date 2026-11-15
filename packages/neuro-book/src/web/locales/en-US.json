@@ -48,6 +48,13 @@
             "textLabel": "Unsaved text of {{path}}"
         }
     },
+    "desktopFrame": {
+        "controls": "Window",
+        "minimize": "Minimize",
+        "maximize": "Maximize",
+        "restore": "Restore Down",
+        "close": "Close"
+    },
     "offline": {
         "banner": "The connection to the server was lost. Reconnecting…"
     },

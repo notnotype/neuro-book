@@ -25,7 +25,7 @@ import {feedServer} from "./smoke/feed";
 
 const DESKTOP = join(import.meta.dir, "..");
 /** 工程里 Hutch 要的源文件；`bundle/`、`payload/` 来自 `--inputs`，`build/`、`artifacts/`、`node_modules/` 是输出。 */
-const PROJECT_FILES = ["electrobun.config.ts", "hutch.config.ts", "package.json", "src"];
+const PROJECT_FILES = ["electrobun.config.ts", "hutch.config.ts", "package.json", "src", "assets"];
 const OFFICIAL_IDENTIFIER = "io.github.notnotype.neurobook";
 const REQUIRED_ARTIFACTS = ["win-x64-NeuroBook-Setup.zip", "stable-win-x64-NeuroBook.tar.zst", "stable-win-x64-update.json", "stable-win-x64-update-v2.json"];
 

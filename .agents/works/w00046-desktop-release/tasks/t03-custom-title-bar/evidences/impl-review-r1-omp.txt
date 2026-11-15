@@ -1,0 +1,31 @@
+1. 重要；正确性/不变量；位置：packages/neuro-book/desktop/src/bun/win32.ts:81-87
+现象：补窗口样式时调用 `SetWindowLongPtrW`，但完全忽略返回值；随后无条件把流程当作成功，只检查 `SetWindowPos`。
+为什么是问题：Win32 的 `SetWindowLongPtrW` 返回修改前的 LONG_PTR；失败时返回 0，需结合调用前清零的 LastError 判断。当前实现即使三个位没有写进去，也不会把失败项交回 `adoptCustomFrame`，壳不会记录 Spec 要求的 `desktop.frame.adopt-failed`。窗口随后仍使用 `hiddenInset`，最大化可能压住任务栏，失败降级合同被静默破坏。
+如何核实：从代码推断；对 `SetWindowLongPtrW` 注入返回 0、LastError 非 0 的失败路径，函数仍只可能报告图标或 `SetWindowPos` 问题，绝不会报告样式失败。
+建议改法：声明并使用 `GetLastError`（或等价的 LastError 读取方式），调用前清零，调用后检查返回值和错误；失败时追加明确原因并停止该项的 `SWP_FRAMECHANGED`，让调用方记录 `desktop.frame.adopt-failed`。
+2. 重要；正确性/不变量；位置：packages/neuro-book/desktop/src/bun/index.ts:295-347
+现象：`pushWindowState` 对迟到事件会先查 `windows`，但 `onWindowMessage` 收到已关闭 WebView 的迟到 `window-control` 后，仍把捕获的 `win` 直接交给 `onWindowControl`。只有 `close` 分支最终经过协调器的窗口表检查；`minimize` 和 `toggle-maximize` 无此检查。
+为什么是问题：关闭事件已从 `windows` 与 `sentMaximized` 删除后，排队中的页面消息仍可能进入这个回调。此时对已关闭的 `BrowserWindow` 调 `minimize()`、`isMaximized()` 或 `maximize()/unmaximize()`，可能访问已释放的原生 HWND、抛异常或改变错误窗口；这违反“窗口关闭后迟到事件安全丢弃”的边界。启动页换产品页也复用同一回调，不能靠页面种类区分。
+如何核实：从代码推断；构造 `windows.delete(id)` 后再调用保存下来的 host-message 回调，`pushWindowState` 会安全返回，但 `window-control` 仍执行原生窗口方法。
+建议改法：在 `onWindowMessage` 进入时校验 `windows.get(id)?.win === win`，或至少在 `onWindowControl` 入口做同一身份检查；不匹配时直接丢弃所有迟到消息。
+3. 重要；正确性/合同；位置：packages/neuro-book/desktop/src/bun/index.ts:259-264、368
+现象：窗口图标只在 `customFrame` 为真时随 `adoptCustomFrame()` 设置；WebView2 低于 123 的系统标题栏窗口跳过它，对话框 `openDialog()` 也没有预加载、外框或图标设置。
+为什么是问题：desktop-shell Spec 输出 10 明确要求程序、安装程序与窗口都使用应用图标，没有给旧 WebView2 或对话框例外。`build.win.icon` 只把图标嵌入 launcher.exe/bun.exe；Electrobun Windows 原生 `BasicWindowClass` 的 `WNDCLASSW` 不设置 `hIcon`，已有 frame-probe 也证明仅配 build 图标时窗口 `WM_GETICON` 为 0。因此这些路径的任务栏、Alt+Tab 或系统标题栏仍显示通用图标。
+如何核实：从代码与 `/tmp/eb-research/eb/package/src/native/win/nativeWrapper.cpp:13171-13178` 推断；当前分支 Windows 证据只覆盖 customFrame 路径，不能覆盖旧运行时和对话框。
+建议改法：把“加载并设置窗口图标”从 `adoptCustomFrame` 拆成可复用的 `setWindowIcon`，在所有产品/启动页/对话框窗口创建后调用；只有自定义外框路径额外补样式。失败仍交回 `desktop.frame.adopt-failed` 对应诊断。
+4. 重要；正确性/兼容；位置：packages/neuro-book/desktop/src/bun/index.ts:74-86、179-195
+现象：只要注册表里 `pv` 存在但主版本解析失败，`webView2Major()` 就返回 `null`；主流程把它当作“没有 WebView2”，弹出下载提示并退出。旧实现对除 `0.0.0.0` 外的登记值直接视为已安装。
+为什么是问题：WebView2 已安装但登记值异常时，仍可安全使用系统标题栏路径；当前实现反而拒绝启动，无法兑现“低于 123 退回系统标题栏”的退路，也把“版本未知/登记损坏”误报成“未安装”。多处登记取最高版本和 `0.0.0.0` 跳过本身没有问题，缺的是解析失败与确实没有登记的区分。
+如何核实：从提交前后的 `git diff 8925dd75e..92f8de4d6 -- packages/neuro-book/desktop/src/bun/index.ts` 可见旧逻辑只检查登记存在；对 `pv=garbage` 或非标准但非零版本的登记，当前函数直接走 `main()` 的 WebView2 缺失分支。
+建议改法：返回“未安装”与“已登记但版本未知”的区分结果；后者记录诊断并把 `customFrame` 设为 false，使用系统标题栏。至少为多处登记、`0.0.0.0`、低版本、解析失败分别补分支测试或 Windows 证据。
+5. 建议；代码质量/FFI 合同；位置：packages/neuro-book/desktop/src/bun/win32.ts:42-49
+现象：`PostMessageW` 的 `lParam` 声明为 `FFIType.ptr`，但 Win32 签名是 `LPARAM`，即 x64 下的有符号 `LONG_PTR`；`wParam` 声明为 `u64` 则与 `WPARAM` 的 `UINT_PTR` 相符。
+为什么是问题：当前 x64 传入的是 HICON 指针，位宽相同，已有 Windows 证据没有暴露运行时错误；但 FFI 声明仍把整数消息参数误标成指针，依赖 Bun 对 Pointer 到参数槽的隐式兼容，不能逐项兑现 Win32 ABI 合同，也会误导后续传负值或非句柄 lParam 的调用。
+如何核实：对照 Win32 SDK `PostMessageW(HWND, UINT, WPARAM, LPARAM)`；当前实现第 93 行把 HICON 作为 lParam 传入，二进制宽度相同是现有行为成立的原因。
+建议改法：把 lParam 声明为 `FFIType.i64`，按 Bun FFI 的整数表示显式把 HICON 句柄转换为 64 位值；保留 wParam 的 `u64`。若 Bun 的 Pointer 无安全整数转换，应在此处写一个只负责句柄位模式转换的适配函数并加 ABI 说明。
+6. 重要；测试；位置：packages/neuro-book/e2e/desktop-frame.e2e.ts:81-82；依据：.agents/works/w00046-desktop-release/tasks/t03-custom-title-bar/evidences/windows-frame-r1.txt:25
+现象：自动化只检查 CSS 的 `app-region` 计算值；现有 Windows 证据也明确把真实拖动、真实双击最大化/还原、拖到屏幕边缘贴靠、Alt+Space，以及标题栏空白处开菜单后的关闭行为列为“未验证”。
+为什么是问题：desktop-shell 场景 15 把这些作为实现合同的一部分。静态样式值和合成 `WM_NCHITTEST` 只能证明命中区域，不能证明真实输入链路、双击状态转换、系统贴靠菜单或失焦收口；提交记录中的“Windows 验收全过”不能覆盖这些未执行场景。
+如何核实：直接读取上述 e2e 与 Windows 证据；`frame-probe-r1.txt:24-25` 还说明合成双击无效，所以当前证据不能替代真实操作。
+建议改法：在 Windows 目标机按 Spec 场景 15 执行真实输入，分别记录拖动位置、双击后的 `IsZoomed`、贴靠结果、Alt+Space 菜单和打开菜单后的行为；在证据补齐前将这些判据标为未验证，不把它们计入通过数。
+有效发现：1、2、3、4、5、6；阻断 0，重要 5，建议 1。

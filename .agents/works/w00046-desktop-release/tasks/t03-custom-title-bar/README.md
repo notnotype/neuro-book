@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t03-custom-title-bar
-status: active
+status: done
 updated: 2026-11-15
 ---
 
@@ -34,10 +34,14 @@ updated: 2026-11-15
 - 验证：
   - 单测、DOM 测试与类型检查通过；
   - e2e `desktop-frame.e2e.ts` 7 条，加受影响的 `bookshelf`、`browser-host`、`desktop-close`、`rpc` 共 36 条，全过；
-  - Windows 验收 [windows-frame-r1.txt](evidences/windows-frame-r1.txt) 全过（命中测试、样式、图标、最大化几何、三个按钮、并发开窗、书架后备标题栏、关最后一个窗口）。
+  - Windows 验收 [windows-frame-r1.txt](evidences/windows-frame-r1.txt)：命中测试、样式、图标、最大化几何、三个按钮、并发开窗、书架后备标题栏、关最后一个窗口都通过；真实操作（拖动、双击、贴边、Alt+Space）未验证，等开发者。
+- 实现审查第 1 轮：omp 6 条、Sonnet 14 条，处理见 [disposition](evidences/impl-review-r1-disposition.txt)，修正 `b40a4b902`；e2e `desktop-frame`、`desktop-close` 重跑 11 条通过。
 - Spec：`runtime/desktop-shell.md`（输出 10、13、场景 15、实现合同、已知限制）、`runtime/browser-host.md`（输出 10 的例外、输出 11 改为三类、新输出 12“窗口外框”、场景 16）、`ui/workbench-shell.md` 输出 28。
+
+- Windows 复验第 2 轮 [windows-frame-r2.txt](evidences/windows-frame-r2.txt)：修正之后各项照旧通过，另验关闭询问期间点最小化可用、取消询问后窗口还在。
+- 变基到 master 后：类型检查、`src/shared`、`src/desktop` 的单测、两个 DOM 测试文件、nb-ui 层级测试、`governance:check`、`docs:check` 通过；master 带进来的改动与本分支没有交集，e2e 不重跑。2026-11-15 快进合入 master（`9223e131a`），worktree 与分支已删。
 
 ## 下一步
 
-- 实现审查（omp 审壳与桥，Sonnet 审页面一侧），不阻塞；报告回来后处理，修正单独提交，再合入 master。
-- 请开发者在 pc-notype 上真实操作一次：拖动、双击、贴边、Alt+Space，以及点标题栏空白处时开着的菜单会不会关。启动方法：双击 `%USERPROFILE%\nb-w00046\t03\launch.cmd`。
+- 请开发者在 pc-notype 上真实操作一次：拖动、双击、贴边、Alt+Space，以及点标题栏空白处时开着的菜单会不会关。启动方法：双击 `%USERPROFILE%\nb-w00046\t03\launch.cmd`（测试状态根，带调试端口）。结果记进证据。
+- 待确认清单里 t03 的几行（图标的取舍、书架首屏的后备标题栏、模态时不能拖等）等开发者追认。

@@ -8,7 +8,6 @@
     uv run --no-project --with shapely python tools/guidelines.py
 """
 import os
-import subprocess
 import sys
 from html import escape
 
@@ -65,15 +64,6 @@ def tile(size=None):
 
 def plain_tile():
     return f'<img class="icon" src="{PROD}/svg/app-icon/neurobook-app-icon-plain.svg" alt="NeuroBook 应用图标（不带边框）">'
-
-
-def small_png(src_name, out_name, folder="app-icon"):
-    """把成品 SVG 按 16px 真实像素渲染成 PNG，供误用示例放大显示（页面里放大 4 倍，看得到糊掉的像素）。"""
-    src = os.path.join(OUT, PROD, "svg", folder, src_name)
-    dst = os.path.join(OUT, "assets", out_name)
-    os.makedirs(os.path.dirname(dst), exist_ok=True)
-    subprocess.run(["resvg", "-w", "16", "-h", "16", src, dst], check=True)
-    return f"assets/{out_name}"
 
 
 def label(x, y, text, size=40, color=DIM, anchor="middle"):
@@ -203,7 +193,7 @@ def min_sizes():
     hw = round(w_per_cap * 11)
     v, vbx = stacked()
     px14 = mark.pixel_svg(14, tile=False, color=INK).replace("<svg ", '<svg width="14" height="14" ', 1)
-    px16 = mark.pixel_svg(16, tile=True).replace("<svg ", '<svg width="16" height="16" ', 1)
+    px16 = f'<img src="{PROD}/svg/app-icon/neurobook-app-icon-plain.svg" width="16" height="16" alt="">'
     return f"""<div class="mins">
 <div>{svg(body, vb_of(box), hw)}<span>横排 {hw}px 宽 · 印刷 25mm</span></div>
 <div>{svg(v, vb_of(vbx), 80)}<span>竖排 80px 宽 · 印刷 20mm</span></div>
@@ -211,21 +201,19 @@ def min_sizes():
 <div>{px16}<span>应用图标 16px</span></div>
 </div>
 <table><thead><tr><th>尺寸</th><th>用哪一版</th><th>文件</th></tr></thead><tbody>
-<tr><td>64px 及以上</td><td>标准版；应用图标带封面边框</td><td><code>svg/mark/</code>、<code>svg/app-icon/neurobook-app-icon.svg</code></td></tr>
-<tr><td>32–48px</td><td>标准版；应用图标不带边框（猫更大）</td><td><code>svg/mark/</code>、<code>svg/app-icon/neurobook-app-icon-plain.svg</code></td></tr>
-<tr><td>24px</td><td>像素专用版（没有尾巴、装饰和光环）</td><td><code>svg/small/neurobook-mark-24.svg</code>、<code>svg/app-icon/neurobook-app-icon-24.svg</code></td></tr>
-<tr><td>16px</td><td>像素专用版</td><td><code>svg/small/neurobook-mark-16.svg</code>、<code>svg/app-icon/neurobook-app-icon-16.svg</code></td></tr>
-<tr><td>14px</td><td>像素专用版（标题栏）</td><td><code>svg/small/neurobook-mark-14.svg</code></td></tr>
+<tr><td>应用图标，任何尺寸</td><td>同一份 SVG 直接渲染到这个尺寸，不按尺寸换版本、不用像素专用版；桌面应用与 favicon 用不带边框的，网页清单用带封面边框的</td><td><code>svg/app-icon/neurobook-app-icon-plain.svg</code>、<code>svg/app-icon/neurobook-app-icon.svg</code></td></tr>
+<tr><td>标志 32px 及以上</td><td>标准版</td><td><code>svg/mark/</code></td></tr>
+<tr><td>标志 24、16、14px</td><td>像素专用版（没有尾巴、装饰和光环），只用于界面里的单色小标志</td><td><code>svg/small/neurobook-mark-24.svg</code>、<code>-16.svg</code>、<code>-14.svg</code></td></tr>
 </tbody></table>
-<p class="note">像素专用版画在像素格上，只在 1 倍屏上用；2 倍屏上 16px 实际有 32 个像素，用标准版即可。ICO、ICNS 已经把两种尺寸都装进去，由系统挑。</p>"""
+<p class="note">像素专用版画在像素格上，只在 1 倍屏上用；2 倍屏上 16px 实际有 32 个像素，用标准版即可。应用图标不用它（开发者 2026-11-15）：ICO、ICNS 里的每个尺寸都从同一份 SVG 渲染，小尺寸也认得出是同一个图标。</p>"""
 
 
 SCENES = [
     ("桌面标题栏", "svg/small/neurobook-mark-14.svg", "14px 单色，currentColor 跟随标题栏文字色；2 倍屏可用 svg/mark/neurobook-mark.svg"),
     ("浏览器标签", "web/favicon.ico", "同时引用 web/favicon.svg（不带边框）；高分屏浏览器用 SVG，其他用 ICO"),
     ("iOS 主屏、网页清单", "web/apple-touch-icon.png", "满版、不带边框；另有 web/icon-192.png、icon-512.png、icon-maskable-512.png"),
-    ("Windows 应用、托盘", "desktop/windows/neurobook.ico", "16、24px 是像素专用版，32、48px 不带边框"),
-    ("macOS 应用", "desktop/macos/neurobook.icns", "按 Apple 图标网格：1024 画布里 824 的底块"),
+    ("Windows 应用、托盘", "desktop/windows/neurobook.ico", "16–256px 都从不带边框的 SVG 渲染"),
+    ("macOS 应用", "desktop/macos/neurobook.icns", "按 Apple 图标网格：1024 画布里 824 的底块，不带边框"),
     ("Linux 应用", "desktop/linux/neurobook.svg", "另有 512px PNG"),
     ("官网头部", "svg/lockup/neurobook-lockup-horizontal-badge.svg", "深色头部用 -reversed"),
     ("启动页、关于页", "svg/lockup/neurobook-lockup-stacked-badge.svg", "版面已经很满时，标志可换成不带边框的应用图标"),
@@ -329,10 +317,6 @@ def misuse():
           f'<g filter="url(#sh)">{horizontal("crimson", INK)[0]}</g>')
     add("加阴影、描边或渐变", svg(fx, vb))
     add("放在杂乱的背景上", svg(h, vb), "repeating-linear-gradient(45deg,#C9A27E 0 10px,#8FB3C9 10px 20px,#E7D5B8 20px 30px)")
-    tiny = "".join(f'<figure class="px"><img src="{src}" width="64" height="64" alt=""><figcaption>{escape(cap)}</figcaption></figure>' for src, cap in (
-        (small_png("neurobook-app-icon.svg", "std-16.png"), "标准版缩到 16px"),
-        (f"{PROD}/png/app-icon/neurobook-app-icon-16.png", "应该用：像素专用版")))
-    add("小尺寸直接缩小标准版", f'<div class="tiny">{tiny}</div>')
     return "".join(items)
 
 
@@ -369,7 +353,7 @@ tbody tr:last-child td{{border-bottom:0}}
 .bad figcaption span{{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:{BAD};color:#fff;font-weight:700;margin-right:6px}}
 .stretch{{height:120px!important;max-height:120px}}
 .retype{{display:flex;align-items:center;gap:10px;font:400 36px/1 Arial,Helvetica,sans-serif;color:{INK}}}
-.tiny{{display:flex;gap:10px;align-items:flex-start}} .tiny .px{{border:0;padding:0;background:none;text-align:center}} .tiny img{{display:block;image-rendering:pixelated;margin:0 auto}} .tiny figcaption{{font-size:11px;margin-top:4px}}
+
 .pv img.icon{{width:130px;height:130px;display:block}}
 .pv img.lk{{width:100%;max-height:150px;object-fit:contain;display:block}}
 .moods{{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(180px,100%),1fr));gap:10px;margin-bottom:12px}}
@@ -395,7 +379,7 @@ def build():
 <div class="box"><ul>
 <li>首选横排组合；浅色底用应用图标 + 字标，深色或赤红底用反白。</li>
 <li>只用成品文件，不重画、不换字体、不改比例和颜色，不增减装饰。</li>
-<li>四周留出至少一个大写高 X 的空白；应用图标 64px 以下用不带边框的，32px 以下换像素专用版。</li>
+<li>四周留出至少一个大写高 X 的空白；应用图标的每个尺寸都从同一份 SVG 渲染，不按尺寸换版本、不用像素专用版；桌面应用与 favicon 用不带边框的那一版。</li>
 </ul></div>
 
 <h2>标志与组合</h2>

@@ -30,7 +30,7 @@
 | 问题 | 选用 | 理由 | 否决 |
 |---|---|---|---|
 | 打包 Skill 脚本 | `Bun.build`（`target: "bun"`、`metafile`） | 第 7 条点名 `bun build --target bun`；`nbooke` 只在 Bun 上跑；Skill 脚本由 shell 用 Bun 运行 | 插件入口那套 Vite/Rolldown：外部引用按“宿主模块”划分，每个脚本都要单独配一份，和“依赖全部打进去”正好相反 |
-| 查产物里剩下的模块引用 | `Bun.Transpiler.scanImports` 查静态的 `import`，再用文本检查查 `__require(`、`import(`；是不是内置模块用 `node:module` 的 `isBuiltin` | `scanImports` 认不出 `__require(...)` 与拼出来的模块名，要文本检查补上；Bun 的 `isBuiltin` 认 `undici`、`ws`、`bun:*` | metafile 的外部引用：cheerio 报出 `./stringify`，产物里其实没有，是误报 |
+| 查打不进单文件的情况 | 打进产物的每个源文件（从 metafile 的 `inputs` 取）与产物本身，用 `vite` 的 `parseAst`（oxc，SDK 的构建依赖里已有）解析，按语法查；内置模块用 `node:module` 的 `isBuiltin` | 按语法查，字符串与注释不会误判；按源文件查，能指出是哪个依赖；Bun 的 `isBuiltin` 认 `undici`、`ws`、`bun:*` | 在产物文本里搜（字符串、注释会误判）；`Bun.Transpiler.scanImports`（认不出 `__require(...)`）；metafile 的外部引用（cheerio 误报 `./stringify`）；查“产物里有作者目录的绝对路径”（`import.meta.url` 不会被换成绝对路径，查不出） |
 | 读 `SKILL.md` | 复用 `backend/skills/package.ts` 的 `readSkillPackage` | 构建时与运行时判“无效”用同一套规则 | — |
 
 不加新依赖。`readSkillPackage` 用到的 `yaml` 要登记进 SDK 的构建依赖（`plugin-sdk/dependencies.ts`）。
@@ -41,8 +41,8 @@
 - 十个产物按 TS 的加载器解析都通过。
 - 自造一个带 `.node` 的包：打包成功，但多出一个 `.node` 附件。
 - 自造一个按 `__dirname` 读数据文件的包：打包成功，Bun 把 `__dirname` 换成了构建机器上的绝对路径。
-
-后两种都能在构建时查出来。
+- 自造一个 ESM 包，用 `new URL("./data.txt", import.meta.url)` 读文件：打包成功，产物里没有绝对路径。
+- 设计审查之后改成按语法、逐个源文件查“用到自己的位置”（见“构建”的第 4 项）：两个自造包与 sharp 都查出来，九个常用包零误报。
 
 ## 关键设计
 
@@ -51,25 +51,38 @@
 - `skillsPoint`：`implementation: "none"`（只有顶层声明），`idPrefix: "plugin"`。声明 `{directory: string}`，是相对插件目录的路径；规则同主题的 `scene`：不是绝对路径，不含 `..`，不带协议。
 - 一个贡献声明一个目录，里面每个子文件夹是一个 Skill（与 `user://skills/` 同一种形状）。Skill id 是 `<插件 id>.<文件夹名>`。
 - 同一插件的两个贡献里有同名文件夹时，按贡献 id 的顺序第一个生效，后面的标无效（`duplicate`）。
-- SDK 的 `/agent` 子路径加助手 `agentSkills(id, {directory})`，交回顶层贡献。Agent 插件的 `contributionPoints` 与 `receives` 加上它。
+- SDK 的 `/agent` 子路径加助手 `agentSkills(id, {directory})`，交回顶层贡献。
+- Agent 插件的 `contributionPoints` 与 `receives` 加上它，入口交一个接收者（只用 `published` 与 `revoke`）。先例是工作台的主题：`workbench.themes` 同样是 `implementation: "none"`，也是收在接收者里。声明发布时加一个插件根，撤回时拿掉，运行中登记、停掉插件都跟着变。
 
 ### 平台：服务端查插件包里的目录（`src/plugin-platform/backend/`）
 
-- 新服务 `pluginPackagesKey`（`plugin-platform/packages`），与 `pluginInventoryKey` 在同一处由服务端宿主提供：
+- 新服务 `pluginPackagesKey`（`plugin-platform/packages`），在 `src/server/start.ts` 的 `capabilities` 里由服务端宿主提供（与 `host.plugin-inventory` 并列），用本次启动的 `installed` 建：
   - `directory(plugin, path): Promise<string | null>`：本次启动的第三方插件当前版本目录里的子目录。逐段 `lstat`、不跟随链接（同插件文件端点的 `regularFile`），交回真实路径；不存在、在目录之外、是链接，或是内置插件时交回 null。
   - `title(plugin): string | null`：清单的 `displayName`。
 - 路径的安全检查放在平台：平台知道版本目录在哪，也已经有逐段检查的写法；Agent 插件不碰安装布局。
+- Agent 插件的入口把它列为可选依赖（`required: false`）：没有它的宿主（项目子进程、只装 Agent 的测试）照常启动；插件的 `agent.skills` 贡献到达时，写诊断 `skills-root-unavailable`，不出 Skill。
 
 ### Skill 目录加插件来源（`backend/skills/catalog.ts`、`shared/skills.ts`、`backend/plugin.ts`）
 
-- `SkillSource` 加 `"plugin"`，`SkillEntry` 加 `plugin?: {id, title}`；插件的 Skill id 是 `<插件 id>.<名>`。
-- 启动时从 `context.declarations.list("agent.skills")` 与 `pluginPackages.directory` 算出插件的根。根不监视：装好的内容一次运行里不变。找不到目录的贡献写诊断 `skills-root-unavailable`，这个贡献不出 Skill。
-- 状态：
+- **根的身份。** 现在的根是 `{source, root, watch}`，id 由 `skillId(source, 文件夹)` 生成，同一个来源只能有一个根。改成每个根带：
+  - 稳定的 `key`；
+  - id 前缀 `prefix`：`user`、`builtin`，或插件 id；
+  - `source`；
+  - 插件的 `{id, title}`（只有插件的根有）。
+
+  `skillId(prefix, 文件夹)` 生成 id。重扫按根的 `key` 找根：`#rescanRoot(key)`；条目记住所属根的 `key`，`#rescanSkill` 按它重建 id。
+- **增删根。** 目录加 `addRoot(root)`、`removeRoot(key)`，都排进原有的重扫队列，内容变了照常发 `skillsChanged`。
+  - 接收者的 `published` 用 `pluginPackages.directory` 解析声明的目录。找到了，加一个插件根，`key` 是贡献 id；找不到，写诊断。
+  - `revoke` 拿掉这个根。用这个插件 Skill 的 `$` 之后得 `not-found`，`skills://` 里也没有了。
+  - Profile 白名单的 `"all"` 每次现算，不用另外清缓存。
+- **id 撞车。** 插件的 Skill id 是 `<插件 id>.<文件夹名>`。用户与内置的名字不含 `.`，与插件的 id 撞不上。同一插件两个贡献里有同名文件夹时，按贡献 id 的码元顺序第一个生效，后面的标无效（`duplicate`）。
+- **状态。**
   - 插件的 Skill 里没有 `package.json` 时是 `ready`。
   - 有 `package.json` 时是 `invalid`，原因 `plugin-skill-unbuilt`（“插件里的 Skill 没有经 nbooke build 打包”）。插件不用 `nbooke build`、直接装文件夹时就会这样。
   - 初始化只认 `user` 来源，插件的照样得 `not-initializable`。
-- 排序：我的 → 插件（按插件名，再按 Skill 名）→ 内置。
-- `skills://<id>/` 经 `catalog.item(id).directory` 取目录，不用改。shell 拿到的真实路径是安装目录。Agent 写入照样得 `permission-denied`。
+- **监视。** 插件根不监视：装好的版本目录一次运行里不变，换版本要重启。
+- **排序。** 我的 → 插件（按插件名，再按 Skill 名）→ 内置。
+- **地址。** `skills://<id>/` 经 `catalog.item(id).directory` 取目录，不用改。shell 拿到的真实路径是安装目录。Agent 写入照样得 `permission-denied`。
 
 ### 构建：`nbooke build` 打包 Skill
 
@@ -83,13 +96,16 @@
   1. 目录在作者目录里、存在、不是链接；`readSkillPackage` 判无效的作为构建问题。
   2. 遍历文件，跳过 `node_modules`、以点开头的、`package.json`、`bun.lock`、`bun.lockb`、`package-lock.json`。
   3. JS/TS 文件（`.js .mjs .cjs .jsx .ts .mts .cts .tsx`）各自 `Bun.build` 成单文件，写回同一个相对路径、同一个文件名（`SKILL.md` 里写的命令不用改）。
-  4. `.py` 按待确认第 4 条处理。
+  4. `.py`：Skill 带 Python 第三方依赖时失败，判据同 `skills.md` 输出 4（有 `pyproject.toml`、`requirements.txt`、`uv.lock`，或有带 `# /// script` 内联依赖的 `.py`）；只用标准库的原样复制。这一条改了 t15 第 7 条的字面（开发者 2026-11-15，决定 2），t15 的记录与 Spec 一并写明。
   5. 其余原样复制。
-- 每个脚本的检查（问题写明哪个 Skill、哪个文件、哪个依赖）：
+- 每个脚本的检查（问题写明哪个 Skill、哪个文件、哪个依赖或源文件）：
   1. 打包器报错（例如找不到模块）。
   2. 产物不止一个文件：依赖带原生模块或附带文件（`.node`、`.wasm` 之类）。
-  3. 产物运行时还要取非内置的模块，含按变量拼出名字的 `require` 与 `import()`。
-  4. 产物里出现作者目录的绝对路径：依赖按自己的位置读文件（`__dirname`、`import.meta.dir`）。
+  3. 产物里还有运行时加载模块的调用：`require`、`__require`、`import()`、`import.meta.require`。参数不是字符串字面量（按变量拼名字）的失败；参数是字符串、但不是内置模块的也失败。
+  4. 打进产物的源文件里，除入口脚本自己，有用到自己位置的就失败：`__dirname`、`__filename`、`import.meta` 的 `url`、`dir`、`dirname`、`path`、`filename`、`file`、`resolve`、`require`，以及 `require.resolve`。
+     - 依赖包：打包后它的文件不在了。
+     - 作者自己的辅助模块：被内联进入口之后，位置就变了。
+     - 入口脚本自己用 `import.meta` 的这些属性没问题：Skill 文件夹原样带着，相对位置不变。但入口自己的 `__dirname`、`__filename` 被 Bun 换成构建机器上的路径（实施时的实验），所以入口产物的字符串里出现作者目录的绝对路径时也失败，提示改用 `import.meta.dir`。
   5. 按原扩展名的加载器解析产物（兜底，实验里十个都过）。
 - `--dev` 同样处理。SDK 包要带上这个模块（`pack.test.ts` 核对）。
 
@@ -115,15 +131,24 @@
 - [`runtime/plugin-api.md`](../../../../../docs/specs/runtime/plugin-api.md)：`nbooke build` 一条加打包 Skill 的规则与失败原因。
 - [`runtime/plugin-code-loading.md`](../../../../../docs/specs/runtime/plugin-code-loading.md)：加服务端宿主给内置插件的“查插件包里的目录”。
 - `plugin-sdk/README.md`；SDK 的 `/agent` 助手注释。
+- [t15](../t15-skills/README.md) 第 7 条后面注明：Python 脚本的部分由 t33 决定 2 改为“只在带第三方依赖时失败”。
 
 ## 切片
 
 1. **平台服务、贡献点与目录的插件来源**（后端）：`pluginPackagesKey`、`skillsPoint` 与 SDK 助手、目录服务的插件来源与状态、Spec 改动。验证：`plugin-platform/backend` 与 `agent/backend/skills` 的测试，应用 typecheck。
 2. **构建步骤**：`contributionBuilds` 选项、`agent/build/skills.ts`、`build-plugin.test.ts` 的用例（每种失败一条，加一条成功的：产物脚本在没有 `node_modules` 的目录里能跑），SDK 打包核对。验证：`plugin-sdk` 的测试，`pack.test.ts`。
-3. **端到端串起来**：一条集成测试，用真实的 `buildPlugin` 构建一个带 Skill 的作者项目，放进状态根的插件目录，起 Agent 插件。核对：
+3. **端到端串起来**：一条集成测试走真实的构建与安装链：
+   1. 用 `buildPlugin` 构建一个带 Skill 的作者项目；
+   2. 用插件管理的 `install` 装进状态根；
+   3. 用 `prepareInstalledPlugins` 得到 `installed`，再用 `thirdPartyDefinitionsAt("server", …)` 得到它的插件定义；
+   4. 交给 `agentWorld`，平台服务作为宿主能力挂上（`agentWorld` 加一个 `capabilities` 选项）。
+
+   核对：
    - `skills()` 列出它、状态可用；
    - `$` 带上它的正文；
-   - shell 能运行它的脚本。
+   - shell 经 `skills://` 的真实路径运行它的脚本，输出证明依赖打进去了；
+   - 第二个插件装好但启动时不登记，运行中用 `register` 登记后它的 Skill 出现，`stop` 后消失（实施时改：运行中才登记的插件，顶层声明要等接收者下次接上才补交，是 `runtime/plugins.md` 写明的已知限制。改为两个插件都在启动时登记；撤回与“查目录期间就撤回”的先后由接收者自己的测试 `plugin-roots.test.ts` 按合同调用）；
+   - 内置插件、找不到的目录交回 null 并写诊断。
 4. **界面与例子**：Skill 页分组、DOM 测试、Lab 场景；例子插件与场景测试；作者文档。验证：DOM 测试、`lab-scenes`、e2e `agent-skills`，`plugins` 那份在安装流程受影响时跑。
 
 ## 验收映射
@@ -134,7 +159,8 @@ Spec 条目编号在写 Spec 时定，这里按行为列：
 - 插件来源出现在目录里、id、状态 `ready`、有 `package.json` 时无效、不能初始化 → `catalog.test.ts`、`install.test.ts`。
 - 平台只交回版本目录里、不经过链接的目录 → `plugin-platform/backend` 的测试。
 - 构建的每种失败与原因文字、成功时产物能独立运行、路径与文件名不变、跳过的文件 → `build-plugin.test.ts`。
-- 装好之后 `$` 带上与 shell 运行 → 切片 3 的集成测试。
+- 装好之后 `$` 带上与 shell 运行；运行中登记、停掉插件时 Skill 出现与消失；没有平台服务或找不到目录时写诊断 → 切片 3 的集成测试。
+- 同一插件两个贡献里的同名文件夹、根的增删与重扫 → `catalog.test.ts`。
 - Skill 页分组 → `skills-page.dom.test.ts`。
 
 ## 验证
@@ -147,8 +173,8 @@ Spec 条目编号在写 Spec 时定，这里按行为列：
 ## 不做与风险
 
 - **内置 Skill。** 现在一个都没有。第 7 条说“内置 Skill 用同一套”，等第一个内置 Skill 出现时再接上。内置插件不经 `agent.skills` 带 Skill（平台的 `directory` 对它们交回 null）。
-- **查不出的读文件方式。** 按工作目录、环境变量或别的方式找数据文件的依赖，产物里没有绝对路径，查不出来，运行时才失败。记为已知限制。
-- **可选依赖会被误判。** 依赖里“试着加载、没有也行”的写法（`try { require("可选包") }`）会被第 3 项检查判失败，作者没有豁免的办法。按第 7 条的“打不进就失败”从严。
+- **查不出的读文件方式。** 依赖按工作目录、环境变量或写死的路径找数据文件时，源文件里没有“自己的位置”可查，构建通过、运行时才失败。要查出来只能把读文件的调用都判失败，那样常用包大多过不了。所以按“接受取舍”记进待确认清单，Spec 写明。
+- **可选依赖会被误判。** 依赖里“试着加载、没有也行”的写法（`try { require("可选包") }`）会被第 3 项检查判失败，作者没有豁免的办法。按第 7 条的“打不进就失败”从严，同样记进待确认清单。
 - **体积。** 每个脚本各带一份依赖，同一个 Skill 里几个脚本用同一个大包时会重复。
 - **SDK 构建依赖。** 构建依赖多一个 `yaml`，作者装 SDK 时会多装它（体积很小）。
 

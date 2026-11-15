@@ -31,10 +31,11 @@ updated: 2026-11-15
 ### 桌面端体验的决定（开发者 2026-11-15）
 
 - **标题栏**：不要 Windows 原生标题栏，参考 VS Code 自己画：窗口按钮放进工作台的标题栏，桌面窗口只剩一条标题栏（t03）。
-- **关最后一个窗口**：默认照旧退出（停服务端），设置里可改为留在托盘（t04）。
-- **从系统拖入**：第一版的落点是文件树、Markdown 编辑器插图、书架导入新作品三处；支持文件夹，保留层级（t13）。
+- **关最后一个窗口**：默认照旧退出（停服务端），设置里可改为留在托盘（t13）。
+- **从系统拖入**：第一版的落点是文件树、Markdown 编辑器插图、书架导入新作品三处；支持文件夹，保留层级（t15）。
 - **Web 与桌面要不要统一 facade**：按能力分，不建统一的一层（主会话的建议，开发者没有异议）。两端都是同一个网页、同一套 Web 标准时只写一份（拖放用 HTML5 拖放，两端都拿不到本机路径，只能读内容上传）；两端确实不同的（系统通知若 WebView2 的网页通知不可用）才在页面宿主层 `src/web/host/` 加一个窄接口，按“有没有这项能力”分支；只有桌面有的（窗口按钮、托盘、缩放、开机自启）没有 Web 对应物，壳不在时不出现。
-- **推进顺序**：t03 标题栏与应用图标 → t04 桌面专属设置与托盘、通知 → t13 拖拽导入 → t14 拖拽安装插件 → t15 磨砂背景（实验，最后做，只在 Windows 11 22H2 以上）。
+- **推进顺序**：t03 标题栏与应用图标 → t04 桌面专属设置（机制、界面缩放、开机自启）→ t13 托盘与关窗去向 → t14 系统通知 → t15 拖拽导入 → t16 拖拽安装插件 → t17 磨砂背景（实验，最后做，只在 Windows 11 22H2 以上）。原来的 t04 拆成 t04、t13、t14（2026-11-15，见待确认清单）。
+- **应用图标**（2026-11-15，开发者两次）：不用 16、24 的像素专用版；每个尺寸都从同一份 SVG 渲染，桌面与 favicon 用不带边框的那一份，品牌规范随之改写（t03）。
 
 代码分支：`feat/w00046-desktop-release`，worktree `.worktree/w00046-desktop-release`（2026-11-13 从 master 开出）。
 
@@ -53,8 +54,8 @@ updated: 2026-11-15
 |---|---|
 | [t01](tasks/t01-distribution-proposal/README.md) | 发行提案与桌面壳实测选型。已完成：提案 [desktop-distribution](../../../docs/proposals/desktop-distribution.md) 已接受，[ADR 0051](../../../docs/adr/0051-desktop-shell-electrobun-tag-release.md) |
 | [t02](tasks/t02-installer/README.md) | 有界面的安装程序：为当前用户安装、安装位置、快捷方式。未开工 |
-| [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏与应用图标（高清 ICO）。进行中：探针与计划完成，待设计审查 |
-| [t04](tasks/t04-desktop-settings/README.md) | 桌面端专有设置：开机自启、系统托盘、通知。未开工 |
+| [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏与应用图标。已完成，合入 master；拖动、双击、贴边等真实操作待开发者试 |
+| [t04](tasks/t04-desktop-settings/README.md) | 桌面端专属设置：机制（只在桌面显示的设置分区、壳读设置）、界面缩放、开机自启。未开工 |
 | [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具：第一版只检测加提示。未开工 |
 | [t06](tasks/t06-desktop-specs/README.md) | 桌面发行的 Spec（desktop-shell、desktop-update 新建，server-host、browser-host、editor、cli、notifications 等修改）。已完成，omp 三轮设计审查 |
 | [t07](tasks/t07-managed-entry-payload/README.md) | 应用包托管入口与桌面载荷组装。已完成 |
@@ -62,4 +63,9 @@ updated: 2026-11-15
 | [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。已完成，合入 master |
 | [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。已完成，合入 master；desktop-update 已晋升 implemented |
 | [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。已完成：第一次正式发布 v0.13.0（2026-11-15）走完，registry 冒烟改为先等版本可见 |
+| [t13](tasks/t13-tray/README.md) | 系统托盘与关掉最后一个窗口时的去向。未开工 |
+| [t14](tasks/t14-system-notifications/README.md) | 系统通知（先实测 WebView2 的网页通知）。未开工 |
+| [t15](tasks/t15-drag-import/README.md) | 从系统拖入文件、图片与文件夹（文件树、编辑器插图、书架导入）。未开工 |
+| [t16](tasks/t16-plugin-drag-install/README.md) | 拖拽安装插件。未开工 |
+| [t17](tasks/t17-window-backdrop/README.md) | 磨砂透明的窗口背景（实验）。未开工 |
 | [t12](tasks/t12-release-stages-and-changelog/README.md) | 发布阶段（canary → preview → stable）、CHANGELOG 与由它生成的中文 Release 说明、发版脚本 `release:prepare`、发布手册、安装包改名。已完成，合入 master；推送后演练待开发者授权 |
