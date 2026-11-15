@@ -34,7 +34,8 @@ updated: 2026-11-15
 - 验证：
   - 单测、DOM 测试与类型检查通过；
   - e2e `desktop-frame.e2e.ts` 7 条，加受影响的 `bookshelf`、`browser-host`、`desktop-close`、`rpc` 共 36 条，全过；
-  - Windows 验收 [windows-frame-r1.txt](evidences/windows-frame-r1.txt) 全过（命中测试、样式、图标、最大化几何、三个按钮、并发开窗、书架后备标题栏、关最后一个窗口）。
+  - Windows 验收 [windows-frame-r1.txt](evidences/windows-frame-r1.txt)：命中测试、样式、图标、最大化几何、三个按钮、并发开窗、书架后备标题栏、关最后一个窗口都通过；真实操作（拖动、双击、贴边、Alt+Space）未验证，等开发者。
+- 实现审查第 1 轮：omp 6 条、Sonnet 14 条，处理见 [disposition](evidences/impl-review-r1-disposition.txt)，修正 `b40a4b902`；e2e `desktop-frame`、`desktop-close` 重跑 11 条通过。
 - Spec：`runtime/desktop-shell.md`（输出 10、13、场景 15、实现合同、已知限制）、`runtime/browser-host.md`（输出 10 的例外、输出 11 改为三类、新输出 12“窗口外框”、场景 16）、`ui/workbench-shell.md` 输出 28。
 
 ## 下一步
