@@ -18,7 +18,7 @@ NeuroBook 的应用源码：Bun 服务端、Vue 前端、内置插件与插件�
 | `bun run build:app-package` | 生成要发布的应用包（[ADR 0033](../../docs/adr/0033-app-delivered-as-built-npm-package.md)） |
 | `bun run build:sdk` | 生成插件 SDK 包 `@notnotype/nb-plugin-sdk` |
 
-目录约定、内置插件的写法与改动前要读的规则见 [`AGENTS.md`](AGENTS.md)；行为合同在 [`docs/specs/`](../../docs/specs/)。发布由维护者按 [repository-workflow 的“npm 包”](../../docs/standards/repository-workflow.md#npm-包)执行。
+目录约定、内置插件的写法与改动前要读的规则见 [`AGENTS.md`](AGENTS.md)；行为合同在 [`docs/specs/`](../../docs/specs/)。发布由维护者按 [repository-workflow 的“发布授权”](../../docs/standards/repository-workflow.md#发布授权)执行：打标签发布，本机发布作备用。
 
 ## 许可证
 
