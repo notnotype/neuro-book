@@ -165,11 +165,18 @@ describe("记录", () => {
         const detail = await r.recorder.read(row?.id ?? "");
         expect(detail?.modifiedBy).toEqual([{extension: "ext.a", fields: ["system"]}]);
         expect(detail?.params).toEqual({maxTokens: 1000});
+        await send(port, request([user("带选项")], {providerOptions: {store: false, gatewayToken: "option-secret-value"}}), meta(2));
+        await settled(r, 2);
+        const withOptions = await r.recorder.read((await r.recorder.find("s1", 2))?.id ?? "");
+        expect(withOptions?.params).toEqual({maxTokens: 1000, providerOptions: ["store", "gatewayToken"]});
+        expect(await everything(r.root)).not.toContain("option-secret-value");
         expect(detail?.system.map((block) => block.preview)).toEqual(["你是写作助手。"]);
         expect(detail?.messages.map((message) => [message.role, message.preview])).toEqual([["user", "写第一章"]]);
         expect(detail?.tools.map((tool) => [tool.id, tool.description])).toEqual([["builtin.read", "读文件。"]]);
         expect(detail?.reply).toMatchObject({role: "assistant", preview: "好的"});
-        expect(await r.recorder.content(detail?.messages[0]?.hash ?? "")).toMatchObject({role: "user", content: [{kind: "text", text: "写第一章"}]});
+        expect(JSON.parse(await r.recorder.content(detail?.messages[0]?.hash ?? "") ?? "null")).toMatchObject({role: "user", content: [{kind: "text", text: "写第一章"}]});
+        expect((await r.recorder.find("s1", 1))?.id).toBe(row?.id);
+        expect(await r.recorder.find("s1", 9)).toBeNull();
     });
 
     test("输出 3：失败的回复记类别、码、状态与文字；适配器抛错与中止也结算", async () => {
@@ -240,14 +247,22 @@ describe("记录", () => {
         await send(traceModelPort(portOf(async () => reply("好")), r.recorder), request([user("三")]), meta(3));
         r.settings.payload = false;
         await send(port, request([user("四")]), meta(4));
-        await settled(r, 4);
+        r.settings.payload = true;
+        // 最后一次尝试的体是流（null）：没有可存的，不退回第一次的。
+        await send(traceModelPort(portOf(async (_req, _signal, observe) => {
+            observe?.attempt?.(attempt(500, {body: JSON.stringify({try: 1})}));
+            observe?.attempt?.(attempt(200, {body: null}));
+            return reply("好");
+        }), r.recorder), request([user("五")]), meta(5));
+        await settled(r, 5);
 
         const byRequest = new Map((await rows(r)).map((row) => [row.request, row.id]));
         const state = async (number: number) => (await r.recorder.read(byRequest.get(number) ?? ""))?.payload.state;
         expect(await r.recorder.payload(byRequest.get(1) ?? "")).toBe(JSON.stringify({try: 2}));
         expect(await r.recorder.payload(byRequest.get(2) ?? "")).toBe(JSON.stringify({transport: "websocket"}));
-        expect([await state(1), await state(2), await state(3), await state(4)]).toEqual(["present", "present", "unavailable", "disabled"]);
+        expect([await state(1), await state(2), await state(3), await state(4), await state(5)]).toEqual(["present", "present", "unavailable", "disabled", "unavailable"]);
         expect(await r.recorder.payload(byRequest.get(4) ?? "")).toBeNull();
+        expect(await r.recorder.payload(byRequest.get(5) ?? "")).toBeNull();
     });
 
     test("输出 6：原始请求体合计超过上限时从最旧的删起，记录本身留着", async () => {
@@ -359,7 +374,7 @@ describe("记录", () => {
             await chmod(index, 0o700);
         }
         expect(await rows(r)).toEqual([]);
-        expect(r.reports.map((report) => report.code)).toEqual(["agent.requests.write-failed"]);
+        expect(r.reports.map((report) => report.code)).toEqual(["requests.write-failed"]);
     });
 
     test("输出 10：关掉记录之后的请求不记，已有的照样能看；适配器拿到的说明不带观察者", async () => {
@@ -411,7 +426,8 @@ describe("记录", () => {
         const image = Buffer.from(Array.from({length: 3000}, (_, index) => (index * 7919) % 251)).toString("base64");
         const withImage: Message = {role: "tool", callId: "c1", content: [{kind: "text", text: "截图如下", origin: {kind: "fixed", by: "kernel"}}, {kind: "image", data: image, mime: "image/png", origin: {kind: "fixed", by: "kernel"}}]};
         const port = traceModelPort(portOf(async (_req, _signal, observe) => {
-            const body = {messages: [{content: [{type: "image_url", image_url: {url: `data:image/png;base64,${image}`}}]}, {content: [{type: "image", source: {type: "base64", media_type: "image/png", data: image}}]}]};
+            // 第三种是 Gemini 的 `inlineData`，图很小也照换。
+            const body = {messages: [{content: [{type: "image_url", image_url: {url: `data:image/png;base64,${image}`}}]}, {content: [{type: "image", source: {type: "base64", media_type: "image/png", data: image}}]}, {parts: [{inlineData: {mimeType: "image/png", data: "c21hbGwtaW1hZ2U="}}]}]};
             observe?.attempt?.(attempt(200, {body: JSON.stringify(body)}));
             return {...reply("看到了"), content: [{kind: "text", text: "看到了"}, {kind: "image", data: image, mime: "image/png"}]};
         }), r.recorder);
@@ -421,8 +437,10 @@ describe("记录", () => {
         const [row] = await rows(r);
         const detail = await r.recorder.read(row?.id ?? "");
         expect(detail?.messages.map((message) => message.images)).toEqual([0, 1]);
-        expect(await r.recorder.content(detail?.messages[1]?.hash ?? "")).toMatchObject({content: [{kind: "text"}, {kind: "image", mime: "image/png", bytes: 3000, hash: expect.stringMatching(/^[0-9a-f]{64}$/u)}]});
-        expect(await everything(r.root)).not.toContain(image.slice(200, 260));
+        expect(JSON.parse(await r.recorder.content(detail?.messages[1]?.hash ?? "") ?? "null")).toMatchObject({content: [{kind: "text"}, {kind: "image", mime: "image/png", bytes: 3000, hash: expect.stringMatching(/^[0-9a-f]{64}$/u)}]});
+        const text = await everything(r.root);
+        expect(text).not.toContain(image.slice(200, 260));
+        expect(text).not.toContain("c21hbGwtaW1hZ2U=");
     });
 
     test("输出 25：清空一个会话的记录不动别的会话与进行中的", async () => {
@@ -515,13 +533,32 @@ describe("边界", () => {
         const root = join(base, `trace-${String(counter)}`);
         await mkdir(root, {recursive: true});
         await writeFile(join(root, "format.json"), JSON.stringify({version: 2}));
+        // 更新的版本留下的东西：恢复中的临时文件、写到一半的天文件。
+        await mkdir(join(root, "index"), {recursive: true});
+        await writeFile(join(root, "index", "2026-11-15.jsonl.0000.tmp"), "{}\n");
+        await writeFile(join(root, "index", "2026-11-14.jsonl"), `{"v":2,"seq":1}\n{"v":2`);
         const r = await rig({root});
         await expect(r.recorder.list()).rejects.toMatchObject({code: "trace-unavailable", reason: "newer-format"});
         await expect(r.recorder.list()).rejects.toBeInstanceOf(RequestTraceUnavailable);
         const response = await send(traceModelPort(portOf(answering("照常")), r.recorder), request([user("一")]), meta(1));
         expect(response.content).toEqual([{kind: "text", text: "照常"}]);
-        expect(await readdir(join(root, "index"))).toEqual([]);
+        expect((await readdir(join(root, "index"))).sort()).toEqual(["2026-11-14.jsonl", "2026-11-15.jsonl.0000.tmp"]);
+        expect(await readFile(join(root, "index", "2026-11-14.jsonl"), "utf8")).toBe(`{"v":2,"seq":1}\n{"v":2`);
         expect(await readFile(join(root, "format.json"), "utf8")).toBe(JSON.stringify({version: 2}));
-        expect(r.reports.map((report) => report.code)).toEqual(["agent.requests.unreadable"]);
+        expect(r.reports.map((report) => report.code)).toEqual(["requests.unreadable"]);
+    });
+
+    test("索引里不认识版本的天文件不显示、不截半行；id 不是记录 id 的行不认（它会拼进请求体的文件名）", async () => {
+        const first = await rig();
+        await first.recorder.close();
+        const index = join(first.root, "index");
+        await writeFile(join(index, "2026-11-13.jsonl"), `{"v":2,"seq":1,"id":"x","kind":"start"}\n{"v":2`);
+        await writeFile(join(index, "2026-11-14.jsonl"), `${JSON.stringify({v: 1, seq: 1, id: "../../outside", kind: "start", at: NOV_15, session: "s1", request: 1, hash: "h", purpose: "turn", model: "m", params: {}, system: [], messages: [], tools: [], toolsChanged: false})}\n`);
+
+        const second = await rig({root: first.root});
+        expect(await rows(second)).toEqual([]);
+        expect(await second.recorder.payload("../../outside")).toBeNull();
+        expect(await readFile(join(index, "2026-11-13.jsonl"), "utf8")).toBe(`{"v":2,"seq":1,"id":"x","kind":"start"}\n{"v":2`);
+        expect(second.reports.map((report) => report.code)).toEqual(["requests.unreadable", "requests.unreadable"]);
     });
 });

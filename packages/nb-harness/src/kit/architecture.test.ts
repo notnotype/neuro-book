@@ -3,7 +3,7 @@
  *
  * - 单元之间按表单向依赖；对内核只经公开入口（`kernel/index.js`、`kernel/contracts.js`），不引旧 harness、`src/models/`；
  *   kit 内只用相对导入。
- * - 浏览器会加载的入口（`./kit/shapes`、`./kit/files`）顺着相对导入走完整条链：值导入只许 `typebox`，类型只许
+ * - 浏览器会加载的入口（`./kit/shapes`、`./kit/files`、`./kit/requests/types`）顺着相对导入走完整条链：值导入只许 `typebox`，类型只许
  *   `import type` 自 `kernel/contracts.js`。
  * - 对 nb-form 只用核心入口：整个 `src/` 不导入它的子路径、nb-ui 与 vue（含 `import type`），`package.json` 也不依赖后两者。
  * - 工具、压缩、审批不自己写盘（ADR 0040 在 harness 这一侧的不变量）：`node:fs` 只许具名导入只读函数，源码不出现写盘与起进程的写法；
@@ -59,7 +59,7 @@ const UNITS: Readonly<Record<string, UnitRule>> = {
 };
 
 /** 浏览器会加载的入口：顺着相对导入整条链检查。 */
-const BROWSER_ENTRIES = ["shapes.ts", "files/index.ts"];
+const BROWSER_ENTRIES = ["shapes.ts", "files/index.ts", "requests/types.ts"];
 
 const FORBIDDEN_PACKAGES = ["@oh-my-pi/pi-coding-agent", "@oh-my-pi/pi-agent-core"];
 /** 内核的公开入口（不带扩展名）。 */

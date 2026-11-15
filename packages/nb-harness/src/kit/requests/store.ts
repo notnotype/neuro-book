@@ -24,6 +24,10 @@ const gunzipAsync = promisify(gunzip);
 
 const DAY_FILE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/u;
 const HASH = /^[0-9a-f]{64}$/u;
+const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+
+/** 记录 id 是 `randomUUID()` 取的；索引里读到的、远程层转进来的 id 都要过这一关，它会拼进请求体的文件名。 */
+export const isRecordId = (id: string): boolean => RECORD_ID.test(id);
 
 export const dayOf = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
@@ -42,13 +46,11 @@ export class RequestFiles {
         return this.#root;
     }
 
-    /** 建目录；版本不认识时交回 false（调用方不写、不清理）。 */
+    /**
+     * 版本认识时建目录、收拾上次退出留下的临时文件，交回 true；不认识（或 `format.json` 读不懂）时什么都不动，交回 false
+     * （调用方不写、不清理）。先读版本再动手：更新的版本可能正在用这些临时文件恢复。
+     */
     async prepare(): Promise<boolean> {
-        await mkdir(join(this.#root, "index"), {recursive: true});
-        await mkdir(join(this.#root, "blobs"), {recursive: true});
-        await mkdir(join(this.#root, "payloads"), {recursive: true});
-        // 整天重写（`rewriteDay`）中途退出留下的临时文件：天文件本身没动，删掉即可。
-        for (const name of await readdir(join(this.#root, "index"))) if (name.endsWith(".tmp")) await rm(join(this.#root, "index", name), {force: true});
         const formatPath = join(this.#root, "format.json");
         let text: string | null = null;
         try {
@@ -56,12 +58,23 @@ export class RequestFiles {
         } catch (error) {
             if (!missing(error)) throw error;
         }
-        if (text === null) {
-            await this.#writeAtomic(formatPath, JSON.stringify({version: FORMAT_VERSION}));
-            return true;
+        if (text !== null) {
+            let version: unknown;
+            try {
+                version = (JSON.parse(text) as {version?: unknown} | null)?.version;
+            } catch {
+                // 读不懂的版本文件按不认识处理（它是改名写成的，正常不会只写一半）。
+                version = undefined;
+            }
+            if (version !== FORMAT_VERSION) return false;
         }
-        const parsed = JSON.parse(text) as {version?: unknown};
-        return parsed.version === FORMAT_VERSION;
+        await mkdir(join(this.#root, "index"), {recursive: true});
+        await mkdir(join(this.#root, "blobs"), {recursive: true});
+        await mkdir(join(this.#root, "payloads"), {recursive: true});
+        // 整天重写（`rewriteDay`）中途退出留下的临时文件：天文件本身没动，删掉即可。
+        for (const name of await readdir(join(this.#root, "index"))) if (name.endsWith(".tmp")) await rm(join(this.#root, "index", name), {force: true});
+        if (text === null) await this.#writeAtomic(formatPath, JSON.stringify({version: FORMAT_VERSION}));
+        return true;
     }
 
     async #writeAtomic(path: string, data: string | Uint8Array): Promise<void> {
@@ -104,6 +117,7 @@ export class RequestFiles {
     }
 
     #payloadPath(id: string): string {
+        if (!isRecordId(id)) throw new TypeError(`not a request record id: ${id}`);
         return join(this.#root, "payloads", `${id}.json.gz`);
     }
 
@@ -115,6 +129,7 @@ export class RequestFiles {
     }
 
     async readPayload(id: string): Promise<string | null> {
+        if (!isRecordId(id)) return null;
         try {
             return (await gunzipAsync(await readFile(this.#payloadPath(id)))).toString("utf8");
         } catch (error) {
@@ -154,18 +169,13 @@ export class RequestFiles {
     }
 
     /**
-     * 读一天的事件行。不以换行结尾时先截到最后一个换行（上次写到一半就退出了），否则下一次追加会和半行粘在一起。
-     * 解析不了的行交给 `onBad` 并跳过。
+     * 读一天的事件行，解析不了的行交给 `onBad` 并跳过。不以换行结尾时（上次写到一半就退出了）末尾的半行不算，`partial` 给出
+     * 该截到的长度：调用方确认这一天的版本认识之后用 `repairDay` 截掉，否则下一次追加会和半行粘在一起。
      */
-    async readDay(day: string, onBad: (line: number) => void): Promise<unknown[]> {
-        const path = this.#dayPath(day);
-        const buffer = await readFile(path);
-        let text = buffer.toString("utf8");
-        if (buffer.length > 0 && buffer[buffer.length - 1] !== 0x0a) {
-            const keep = buffer.lastIndexOf(0x0a) + 1;
-            await truncate(path, keep);
-            text = buffer.subarray(0, keep).toString("utf8");
-        }
+    async readDay(day: string, onBad: (line: number) => void): Promise<{readonly lines: unknown[]; readonly partial: number | null}> {
+        const buffer = await readFile(this.#dayPath(day));
+        const partial = buffer.length > 0 && buffer[buffer.length - 1] !== 0x0a ? buffer.lastIndexOf(0x0a) + 1 : null;
+        const text = buffer.subarray(0, partial ?? buffer.length).toString("utf8");
         const lines: unknown[] = [];
         text.split("\n").forEach((line, index) => {
             if (line === "") return;
@@ -175,7 +185,11 @@ export class RequestFiles {
                 onBad(index + 1);
             }
         });
-        return lines;
+        return {lines, partial};
+    }
+
+    async repairDay(day: string, keep: number): Promise<void> {
+        await truncate(this.#dayPath(day), keep);
     }
 
     /** 整天重写（清空一部分时）；没有剩下的行就删掉文件。 */

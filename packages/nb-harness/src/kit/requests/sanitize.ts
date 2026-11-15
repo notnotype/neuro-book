@@ -69,8 +69,6 @@ export function stripBlocks(blocks: readonly ContentBlock[]): readonly StoredBlo
 
 const DATA_URL = /^data:([^;,]+);base64,/u;
 const MIME_FIELDS = ["media_type", "mimeType", "mime_type", "mime"];
-/** 只换像图片的长串：短的 `data` 字段多半不是图。 */
-const MIN_INLINE_IMAGE = 256;
 
 /**
  * 服务商原生请求体里的图片：OpenAI 的 data URL、Anthropic 的 `source.data`、Gemini 的 `inlineData.data` 都按形状认，
@@ -94,7 +92,7 @@ export function stripPayloadImages(body: string): string {
         const mimeField = MIME_FIELDS.find((field) => typeof object[field] === "string" && (object[field] as string).startsWith("image/"));
         const result: Record<string, unknown> = {};
         for (const [key, item] of Object.entries(object)) {
-            result[key] = mimeField !== undefined && key === "data" && typeof item === "string" && item.length >= MIN_INLINE_IMAGE
+            result[key] = mimeField !== undefined && key === "data" && typeof item === "string"
                 ? `[image ${String(object[mimeField])}, ${String(decodedBytes(item))} bytes, sha256 ${sha256(item)}]`
                 : walk(item);
         }

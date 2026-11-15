@@ -13,7 +13,7 @@ import {randomUUID} from "node:crypto";
 import type {JsonValue, ModelCallMeta, ModelRequest, ModelResponse, ModelWireAttempt, ModelWireObserver, RequestPurpose, StopReason, Usage} from "../../kernel/contracts.js";
 import {blockOutline, messageOutline, previewOf, replyOutline, toolOutline} from "./outline.js";
 import {maskHeaders, maskUrl, sha256, stripBlocks, stripMessage, stripPayloadImages} from "./sanitize.js";
-import {dayOf, FORMAT_VERSION, RequestFiles} from "./store.js";
+import {dayOf, FORMAT_VERSION, isRecordId, RequestFiles} from "./store.js";
 import type {BlockOutline, MessageOutline, PayloadState, RequestAttempt, RequestChange, RequestDetail, RequestPage, RequestQuery, RequestRow, RequestStatus, RequestUsage, ToolOutline} from "./types.js";
 
 /** 设置在每次请求开始时读（Spec 的设置表）：改了从下一次请求生效。 */
@@ -27,6 +27,7 @@ export interface RequestRecorderOptions {
     /** 记录目录（状态根下的 `agent/requests/`）。 */
     readonly root: string;
     readonly settings: () => RequestTraceSettings;
+    /** 码是 `requests.write-failed`、`requests.unreadable`、`requests.listener-failed`；宿主加自己的前缀（应用里是 `agent.`）。 */
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
     readonly now?: () => number;
     /** 原始请求体合计的上限（压缩后的字节）；缺省 1 GB（Spec 输出 6）。 */
@@ -131,7 +132,7 @@ const LINE_KINDS = new Set(["start", "attempt", "end", "pruned"]);
 
 function isLine(value: unknown): value is IndexLine {
     const line = value as Partial<LineBase & {kind: string}> | null;
-    return typeof line === "object" && line !== null && line.v === FORMAT_VERSION && typeof line.seq === "number" && typeof line.id === "string" && typeof line.kind === "string" && LINE_KINDS.has(line.kind);
+    return typeof line === "object" && line !== null && line.v === FORMAT_VERSION && typeof line.seq === "number" && typeof line.id === "string" && isRecordId(line.id) && typeof line.kind === "string" && LINE_KINDS.has(line.kind);
 }
 
 function rowOf(entry: Pick<Entry, "start" | "attempts" | "end">): RequestRow {
@@ -368,7 +369,7 @@ export class RequestRecorder {
                 return this.#handle(entry, settings);
             });
         } catch (error) {
-            this.#options.report("agent.requests.write-failed", `Could not record a model request: ${errorText(error)}`, {session: meta.session, request: meta.request});
+            this.#options.report("requests.write-failed", `Could not record a model request: ${errorText(error)}`, {session: meta.session, request: meta.request});
             return null;
         }
     }
@@ -432,11 +433,20 @@ export class RequestRecorder {
         };
     }
 
-    /** 一段内容的全文；已经清掉时交回 null（`content-not-found`）。 */
-    async content(hash: string): Promise<JsonValue | null> {
+    /** 一段内容的全文（存下的 JSON 文本，远程层按字节分段交出）；已经清掉时交回 null（`content-not-found`）。 */
+    async content(hash: string): Promise<string | null> {
         await this.#ready();
-        const text = await this.#files.readBlob(hash);
-        return text === null ? null : (JSON.parse(text) as JsonValue);
+        return this.#files.readBlob(hash);
+    }
+
+    /** 会话里第几次请求的记录（“查看这次请求”）；没有记录时交回 null。 */
+    async find(session: string, request: number): Promise<RequestRow | null> {
+        await this.#ready();
+        let found: Entry | null = null;
+        for (const entry of this.#entries.values()) {
+            if (entry.start.session === session && entry.start.request === request && (found === null || entry.start.seq > found.start.seq)) found = entry;
+        }
+        return found?.row ?? null;
     }
 
     /** 原始请求体；没有时交回 null（`payload-not-found`，原因看详情的 `payload`）。 */
@@ -486,24 +496,25 @@ export class RequestRecorder {
         try {
             if (!(await this.#files.prepare())) {
                 this.#unavailable = new RequestTraceUnavailable("newer-format", "The request trace directory was written by a newer version");
-                this.#options.report("agent.requests.unreadable", "The request trace directory was written by a newer version; it is left untouched", {root: this.#files.root});
+                this.#options.report("requests.unreadable", "The request trace directory was written by a newer version; it is left untouched", {root: this.#files.root});
                 return;
             }
             for (const day of await this.#files.days()) {
                 let bad = 0;
-                const lines = await this.#files.readDay(day, () => {
+                const {lines, partial} = await this.#files.readDay(day, () => {
                     bad += 1;
                 });
                 if (lines.some((line) => (line as {v?: unknown} | null)?.v !== FORMAT_VERSION)) {
                     this.#foreignDays.add(day);
-                    this.#options.report("agent.requests.unreadable", "A request trace day file has lines of an unknown version; it is skipped", {day});
+                    this.#options.report("requests.unreadable", "A request trace day file has lines of an unknown version; it is skipped", {day});
                     continue;
                 }
+                if (partial !== null) await this.#files.repairDay(day, partial);
                 for (const line of lines) {
                     if (isLine(line)) this.#apply(day, line);
                     else bad += 1;
                 }
-                if (bad > 0) this.#options.report("agent.requests.unreadable", "Skipped unreadable request trace lines", {day, lines: bad});
+                if (bad > 0) this.#options.report("requests.unreadable", "Skipped unreadable request trace lines", {day, lines: bad});
             }
             this.#nextSeq = this.#committed + 1;
             const unfinished = [...this.#entries.values()].filter((entry) => entry.end === undefined);
@@ -512,7 +523,7 @@ export class RequestRecorder {
             });
         } catch (error) {
             this.#unavailable = new RequestTraceUnavailable("unreadable", errorText(error));
-            this.#options.report("agent.requests.unreadable", `Could not open the request trace directory: ${errorText(error)}`, {root: this.#files.root});
+            this.#options.report("requests.unreadable", `Could not open the request trace directory: ${errorText(error)}`, {root: this.#files.root});
         }
     }
 
@@ -589,7 +600,7 @@ export class RequestRecorder {
                 listener(change);
             } catch (error) {
                 // 监听方是宿主的远程层；它出错不能让已经写成的记录被报成写入失败。
-                this.#options.report("agent.requests.listener-failed", `A request trace listener threw: ${errorText(error)}`);
+                this.#options.report("requests.listener-failed", `A request trace listener threw: ${errorText(error)}`);
             }
         }
     }
@@ -603,12 +614,13 @@ export class RequestRecorder {
         const guard = (what: string, job: () => Promise<void>): void => {
             if (this.#closed) return;
             this.#enqueue(job).catch((error: unknown) => {
-                this.#options.report("agent.requests.write-failed", `Could not record the ${what} of a model request: ${errorText(error)}`, {id});
+                this.#options.report("requests.write-failed", `Could not record the ${what} of a model request: ${errorText(error)}`, {id});
             });
         };
         const observer: ModelWireObserver = {
             attempt: (wire: ModelWireAttempt) => {
-                if (wire.body !== null) body = wire.body;
+                // 只存最后一次尝试发出的（Spec 输出 6）：最后一次的体不是字符串时就没有可存的，不退回更早的那次。
+                body = wire.body;
                 guard("attempt", async () => {
                     const line: AttemptLine = {
                         v: FORMAT_VERSION,
@@ -680,7 +692,7 @@ export class RequestRecorder {
         try {
             return await this.#files.writePayload(id, stripPayloadImages(body));
         } catch (error) {
-            this.#options.report("agent.requests.write-failed", `Could not store the raw request body: ${errorText(error)}`, {id});
+            this.#options.report("requests.write-failed", `Could not store the raw request body: ${errorText(error)}`, {id});
             return undefined;
         }
     }
@@ -756,7 +768,7 @@ export class RequestRecorder {
         try {
             text = await this.#files.readBlob(hash);
         } catch (error) {
-            this.#options.report("agent.requests.unreadable", `Could not read recorded content: ${errorText(error)}`, {hash});
+            this.#options.report("requests.unreadable", `Could not read recorded content: ${errorText(error)}`, {hash});
             return missingOutline(kind, hash);
         }
         if (text === null) return missingOutline(kind, hash);
@@ -764,7 +776,7 @@ export class RequestRecorder {
         try {
             outline = computeOutline(kind, hash, JSON.parse(text));
         } catch (error) {
-            this.#options.report("agent.requests.unreadable", `Recorded content is damaged: ${errorText(error)}`, {hash});
+            this.#options.report("requests.unreadable", `Recorded content is damaged: ${errorText(error)}`, {hash});
             return missingOutline(kind, hash);
         }
         if (this.#outlines.size >= OUTLINE_CACHE) this.#outlines.clear();
@@ -775,12 +787,15 @@ export class RequestRecorder {
 
 type EndFields = Omit<EndLine, keyof LineBase | "kind" | "at">;
 
-/** 请求的参数：采样参数、工具选择、请求自带的头（遮过）与透传给适配器的选项。 */
+/**
+ * 请求的参数：采样参数、工具选择、请求自带的头（遮过）与透传给适配器的选项的名字。选项的值不记：它们原样交给服务商，记录器
+ * 拿不到配置密钥原值来遮；要看值就看原始请求体（适配器遮过）。
+ */
 function paramsOf(request: ModelRequest): Record<string, JsonValue> {
     const params: Record<string, JsonValue> = {};
     for (const [key, value] of Object.entries(request.params)) if (value !== undefined) params[key] = value;
     if (request.toolChoice !== undefined) params.toolChoice = request.toolChoice;
     if (Object.keys(request.headers).length > 0) params.headers = maskHeaders(request.headers);
-    if (request.providerOptions !== undefined) params.providerOptions = request.providerOptions;
+    if (request.providerOptions !== undefined) params.providerOptions = Object.keys(request.providerOptions);
     return params;
 }

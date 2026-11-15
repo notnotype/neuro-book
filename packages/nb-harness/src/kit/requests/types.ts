@@ -1,6 +1,9 @@
 /**
  * 请求记录器交给宿主的数据形状（docs/specs/agent/request-trace.md）。宿主把它们经自己的远程层交给界面；
  * nb-agent-ui 的核心按结构声明同样的形状，契约测试核对两边一致。
+ *
+ * 单独导出为 `./kit/requests/types`：宿主的两端共用合同要引它，而记录器本身用到 Node 的模块。这里只许 `import type`
+ * 自 `kernel/contracts.js`（`kit/architecture.test.ts` 的浏览器链检查）。
  */
 
 import type {JsonValue, ModelErrorKind, RequestPurpose, StopReason, Usage} from "../../kernel/contracts.js";
