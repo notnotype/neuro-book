@@ -256,7 +256,7 @@ async function writePlan(): Promise<number> {
     for (const entry of plan.packages) {
         const label = `${entry.name}@${entry.version}`;
         if (entry.kind === "history") console.log(`  已发布，不发  ${label}${entry.registry === "different" ? "（源码改过没提版本号，下次发布前提版本号）" : ""}`);
-        else console.log(`  ${entry.registry === "unpublished" ? "要发布" : "本次已发、字节相同"}  ${label}`);
+        else console.log(`  ${{unpublished: "要发布", same: "本次已发、字节相同", different: "已发而字节不同"}[entry.registry]}  ${label}`);
     }
     if (planProblems.length > 0) throw new GateFailure(planProblems.join("\n"));
     await writeFile(RELEASE_PLAN, `${JSON.stringify(plan, null, 2)}\n`);

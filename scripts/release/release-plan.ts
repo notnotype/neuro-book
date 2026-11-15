@@ -71,7 +71,10 @@ export function buildReleasePlan(input: PlanInput): {plan: ReleasePlan; problems
         if (Number.isNaN(publishedAt)) throw new Error(`${entry.name}@${entry.version} 的发布时间读不懂：${registry.publishedAt}`);
         const kind: PlanKind = input.productPackages.has(entry.name) || publishedAt > boundary ? "release" : "history";
         if (!same && kind === "release") {
-            problems.push(`${entry.name}@${entry.version} 已在 registry 上（${registry.publishedAt}），与这一轮验过的 tarball 字节不同：同一次发布的前一轮发出的不是这一批。版本号不能重发：重跑上一轮失败的作业，或提高补丁号重打标签`);
+            // 应用包与 SDK 早于标签提交就发过这个版本：产品版本号没提，不是前一轮发了一半。
+            problems.push(publishedAt > boundary
+                ? `${entry.name}@${entry.version} 已在 registry 上（${registry.publishedAt}，标签提交之后），与这一轮验过的 tarball 字节不同：这次发布的前一轮发出的不是这一批。版本号不能重发：重跑上一轮失败的作业，或提高补丁号重打标签`
+                : `${entry.name}@${entry.version} 早就发过（${registry.publishedAt}），与这一轮验过的 tarball 字节不同：应用包与 SDK 的版本就是产品版本，先提高产品版本号再发布`);
         }
         if (!same && kind === "history") stale.push(entry.name);
         return {...base, kind, registry: same ? "same" : "different"};

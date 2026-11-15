@@ -52,13 +52,14 @@ describe("发布计划：本次发布与历史包", () => {
         const {problems} = buildReleasePlan(input({"@x/flock": different(AFTER), [APP]: unpublished}));
         expect(problems).toHaveLength(1);
         expect(problems[0]).toContain("@x/flock@0.3.0");
-        expect(problems[0]).toContain("字节不同");
+        expect(problems[0]).toContain("前一轮发出的不是这一批");
     });
 
     it("应用包与 SDK 不会是历史包：同版本已在 registry 上而字节不同就失败，桌面载荷与 npm 上的会不是一批", () => {
         const {problems} = buildReleasePlan(input({[SDK]: same(SDK, BEFORE), [APP]: different(BEFORE)}));
         expect(problems).toHaveLength(1);
         expect(problems[0]).toContain(`${APP}@0.12.2`);
+        expect(problems[0]).toContain("先提高产品版本号");
     });
 
     it("本次发布的包依赖字节不同的历史包：失败", () => {
