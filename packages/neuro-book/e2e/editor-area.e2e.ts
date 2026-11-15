@@ -365,6 +365,45 @@ test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆�
     await expect(page.locator("[data-editor-group]")).toHaveCount(1);
 });
 
+test("三组 A | B | C：拖 B | C 往左，B 到最小宽度后推着 A 走；不松手往右拖回，A | B 不动、B 先长回来；松手后就是这样（ui/nested-grid 的分配接着上一帧）", async ({page}) => {
+    // 宽到三组都比最小宽度（220）宽出不少，B 才有一段先缩、A 才有一段被推。
+    await page.setViewportSize({width: 2400, height: 900});
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/a.md").dblclick();
+    await prose(page).click();
+    await page.keyboard.press("Control+\\");
+    await page.keyboard.press("Control+\\");
+    await expect(page.locator("[data-editor-group]")).toHaveCount(3);
+
+    const widths = () => page.locator("[data-editor-group]").evaluateAll((nodes) => nodes
+        .map((node) => node.getBoundingClientRect())
+        .sort((left, right) => left.x - right.x)
+        .map((rect) => Math.round(rect.width)));
+    const [a = 0, b = 0, c = 0] = await widths();
+    expect(b - 220, "B 要有一段能先缩").toBeGreaterThan(100);
+    expect(a - 220, "A 要有一段能被推").toBeGreaterThan(100);
+    const boxes = await page.locator("[data-sash-kind=\"editors\"]").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON() as {x: number; y: number; width: number; height: number}));
+    expect(boxes).toHaveLength(2);
+    const sash = boxes.sort((left, right) => left.x - right.x)[1]!;
+    const y = sash.y + sash.height / 2;
+    const x = sash.x + sash.width / 2;
+
+    // 组的内容比它的外框窄几像素，最小宽度按拖到底时读到的算。
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - (b - 220) - 80, y, {steps: 10});
+    await expect.poll(async () => (await widths())[0]!, "A 被推着变窄").toBeLessThan(a - 60);
+    const [pushedA = 0, floorB = 0, pushedC = 0] = await widths();
+    expect(floorB).toBeLessThanOrEqual(220);
+    await page.mouse.move(x - (b - 220) - 20, y, {steps: 4});
+    const back = [pushedA, floorB + 60, pushedC - 60];
+    await expect.poll(widths).toEqual(back);
+    await page.mouse.up();
+    await expect.poll(widths).toEqual(back);
+    await closeAll(page);
+});
+
 test("标签栏的样子：条底比正文低一档、活动标签与正文同色；开放式分隔线；关闭按钮按标签显示；标题动作悬停时显示；固定标签单独一行并随刷新保留", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
