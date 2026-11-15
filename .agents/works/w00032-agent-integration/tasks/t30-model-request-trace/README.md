@@ -35,11 +35,12 @@ updated: 2026-11-15
 | 12 | 2026-11-15 | 评审板第 2 轮 `messages-r2`：消息页用大纲，一条消息一行（序号、角色、一行预览、token 条），和上一次相同的前缀缺省收成一行，点一行在原地展开；按轮次分段、“这次新加的”分隔线、工具结果标出对应的调用、回复放在最后 |
 | 13 | 2026-11-15 | 计划的待确认项：缺省开着记录、存原始请求体；只按天数保留，缺省 14 天；全文查找第一版逐条扫、不建索引；nb-story 问答这次不记；设计审查派 omp（整份计划与后端）、Sonnet（界面）、另一位 Sonnet（从整体看）。开发者改一条：请求头记不记做成设置（`requestTraceHeaders`，缺省关，开着时凭据类的值遮盖） |
 | 14 | 2026-11-15 | 细化决定 7（界面审查引出，开发者“没问题”）：按时间排、没有查找词、列表在顶部时新请求直接插到顶部；已往下翻、按别的排序或在查找时不插，顶部显示“有 N 条新请求”，点了刷新。两种情况都不改当前选中 |
+| 15 | 2026-11-15 | 开发者确认计划第 3 稿（“没问题，开工”）：含顺带修 `modifiedBy` 的串用、原始请求体合计 1 GB 上限、查找一次 3 秒或 200 条、先出纵向最小版的切片顺序、Spec 编号重排 |
 
 ## 当前状态
 
-开工，按 design-review 走：旧应用的行为与新应用的现状列在 [参照清单](legacy-survey.md)；注意力排序已定（决定 3 到 8）。界面定稿：[评审板](artifacts/review/index.html)两轮已答（决定 9 到 12）。草稿代码在 `.worktree/w00032-t30-drafts`（不提交）。Spec [`agent/request-trace.md`](../../../../../docs/specs/agent/request-trace.md) 与[计划](plan.md)已写，待确认项已定（决定 13）。设计审查三位（omp、Sonnet 界面、Sonnet 整体）已回并处理，计划第 3 稿、Spec 同步修订并重排编号，处理见 [`evidences/design-review-handling.txt`](evidences/design-review-handling.txt)；待开发者确认修订后的计划再开工。
+开工，按 design-review 走：旧应用的行为与新应用的现状列在 [参照清单](legacy-survey.md)；注意力排序已定（决定 3 到 8）。界面定稿：[评审板](artifacts/review/index.html)两轮已答（决定 9 到 12）。草稿代码在 `.worktree/w00032-t30-drafts`（不提交）。Spec [`agent/request-trace.md`](../../../../../docs/specs/agent/request-trace.md) 与[计划](plan.md)已写，待确认项已定（决定 13）。设计审查三位（omp、Sonnet 界面、Sonnet 整体）已回并处理，计划第 3 稿、Spec 同步修订并重排编号，处理见 [`evidences/design-review-handling.txt`](evidences/design-review-handling.txt)；开发者已确认（决定 15），实施中：代码在 `.worktree/w00032-t30-request-trace`（分支 `feat/w00032-t30-request-trace`）。
 
 ## 下一步
 
-1. 开发者确认第 3 稿后，建 worktree `.worktree/w00032-t30-request-trace` 按切片实施。
+1. 切片 1：内核调用说明与 `modifiedBy`、适配器的线上事实、记录器。
