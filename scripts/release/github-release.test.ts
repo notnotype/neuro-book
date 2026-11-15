@@ -7,7 +7,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {assetUploads, draftRelease, GitHubReleases, localAssetProblems, previousDesktopRelease, publishRelease, requiredAssets, shouldBeLatest, sumsText, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
+import {assetUploads, draftRelease, GitHubReleases, releaseTitle, localAssetProblems, previousDesktopRelease, publishRelease, requiredAssets, shouldBeLatest, sumsText, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
 
 const roots: string[] = [];
 
@@ -77,6 +77,8 @@ function fakeGh(initial: {releases: ReleaseSummary[]; assets?: Record<string, Re
 
 const OLD_APP: ReleaseSummary = {tagName: "v0.9.2-canary.20260805.125926Z.39d220b7", isDraft: false, isPrerelease: false, isLatest: true};
 const silent = () => {};
+/** gate 作业生成的说明文件；替身不读它，只核对传给 gh 的参数。 */
+const NOTES = {file: "release-notes/notes.md", stage: "canary"} as const;
 
 describe("本地资产目录", () => {
     it("必有的齐全、补丁可有可无、sums 写出的 SHA256SUMS 覆盖其余全部：通过", async () => {
@@ -141,13 +143,19 @@ describe("最新与上一版", () => {
 });
 
 describe("草稿与公开", () => {
+    it("标题带阶段，稳定版不带", () => {
+        expect(releaseTitle("0.13.1", "preview")).toBe("NeuroBook 0.13.1（preview）");
+        expect(releaseTitle("1.0.0", "stable")).toBe("NeuroBook 1.0.0");
+    });
+
     it("第一次：建草稿（--verify-tag）、上传全部资产；公开时一个请求里公开并设为最新", async () => {
         const {directory} = await assetDirectory();
         const {github, calls, releases} = fakeGh({releases: [OLD_APP]});
-        await draftRelease(github, VERSION, directory, silent);
+        await draftRelease(github, VERSION, directory, NOTES, silent);
         const create = calls.find((call) => call[2] === "create") as string[];
         expect(create).toContain("--draft");
         expect(create).toContain("--verify-tag");
+        expect(create).toEqual(expect.arrayContaining(["--title", "NeuroBook 0.12.2（canary）", "--notes-file", NOTES.file]));
         expect(calls.find((call) => call[2] === "upload")?.filter((arg) => arg.startsWith(directory))).toHaveLength(7);
 
         expect(await publishRelease(github, VERSION, directory, silent)).toEqual({latest: true});
@@ -161,19 +169,21 @@ describe("草稿与公开", () => {
         const {directory, digests} = await assetDirectory();
         const setup = {name: "win-x64-NeuroBook-Setup.zip", digest: `sha256:${digests.get("win-x64-NeuroBook-Setup.zip")}`, state: "uploaded"};
         const partial = fakeGh({releases: [{tagName: TAG, isDraft: true, isPrerelease: false, isLatest: false}], assets: {[TAG]: [setup]}});
-        await draftRelease(partial.github, VERSION, directory, silent);
+        await draftRelease(partial.github, VERSION, directory, NOTES, silent);
         expect(partial.calls.some((call) => call[2] === "create")).toBe(false);
+        // 已有的草稿：标题与正文换成这一轮的。
+        expect(partial.calls.find((call) => call[2] === "edit")).toEqual(expect.arrayContaining(["--title", "NeuroBook 0.12.2（canary）", "--notes-file", NOTES.file]));
         expect(partial.calls.find((call) => call[2] === "upload")?.some((arg) => arg.endsWith("Setup.zip"))).toBe(false);
 
         const wrong = fakeGh({releases: [{tagName: TAG, isDraft: true, isPrerelease: false, isLatest: false}], assets: {[TAG]: [{...setup, digest: `sha256:${"0".repeat(64)}`}]}});
-        await expect(draftRelease(wrong.github, VERSION, directory, silent)).rejects.toThrow("摘要不同");
+        await expect(draftRelease(wrong.github, VERSION, directory, NOTES, silent)).rejects.toThrow("摘要不同");
         expect(wrong.calls.some((call) => call[2] === "upload")).toBe(false);
     });
 
     it("补发旧版本：公开时不设为最新，当前最新不变", async () => {
         const {directory} = await assetDirectory();
         const {github, calls, releases} = fakeGh({releases: [{tagName: "v0.13.0", isDraft: false, isPrerelease: false, isLatest: true}]});
-        await draftRelease(github, VERSION, directory, silent);
+        await draftRelease(github, VERSION, directory, NOTES, silent);
         expect(await publishRelease(github, VERSION, directory, silent)).toEqual({latest: false});
         expect(calls.find((call) => call[2] === "edit")).toEqual(expect.arrayContaining(["--draft=false", "--latest=false"]));
         expect(releases.find((release) => release.isLatest)?.tagName).toBe("v0.13.0");
@@ -182,10 +192,10 @@ describe("草稿与公开", () => {
     it("公开成功后作业失败、重跑：已是最新的只核对，不发请求、不撤最新", async () => {
         const {directory} = await assetDirectory();
         const {github, calls} = fakeGh({releases: [OLD_APP]});
-        await draftRelease(github, VERSION, directory, silent);
+        await draftRelease(github, VERSION, directory, NOTES, silent);
         await publishRelease(github, VERSION, directory, silent);
         const before = calls.length;
-        await draftRelease(github, VERSION, directory, silent);
+        await draftRelease(github, VERSION, directory, NOTES, silent);
         expect(await publishRelease(github, VERSION, directory, silent)).toEqual({latest: true});
         expect(calls.slice(before).filter((call) => ["create", "upload", "edit"].includes(call[2] as string))).toEqual([]);
     });
@@ -193,7 +203,7 @@ describe("草稿与公开", () => {
     it("已公开但没设上最新（上一次只落了一半）：补设最新", async () => {
         const {directory} = await assetDirectory();
         const {github, calls, releases} = fakeGh({releases: [OLD_APP]});
-        await draftRelease(github, VERSION, directory, silent);
+        await draftRelease(github, VERSION, directory, NOTES, silent);
         (releases.find((release) => release.tagName === TAG) as ReleaseSummary).isDraft = false;
         await publishRelease(github, VERSION, directory, silent);
         expect(calls.filter((call) => call[2] === "edit").at(-1)).toEqual(expect.arrayContaining(["--latest"]));

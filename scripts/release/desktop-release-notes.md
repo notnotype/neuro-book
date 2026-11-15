@@ -1,5 +1,3 @@
-NeuroBook {{version}} 的 Windows 桌面版。npm 上的命令行版本与这个版本同时发布（`bun add -g @notnotype/neuro-book`）。
-
 ## 下载哪个
 
 - **安装版**：`win-x64-NeuroBook-Setup.zip`。解压后运行里面的 `NeuroBook-Setup.exe`，装到当前用户下，不需要管理员权限。装好以后有新版本时会提示，同意后在后台下载，下次打开时换上。

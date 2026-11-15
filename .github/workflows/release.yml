@@ -74,6 +74,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: bun scripts/release/github-release.ts previous "$VERSION" >> "$GITHUB_OUTPUT"
+      # Release 说明由应用的 CHANGELOG 生成（ADR 0053）：在这里生成，生不成就停在一切远端写入之前；github-release 作业只用这份。
+      # 演练用源码里已发过的版本，[Unreleased] 通常有条目，只警告。说明也写进作业摘要，演练时看得到。
+      - name: Release 说明
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          STAGE: ${{ steps.version.outputs.stage }}
+          PREVIOUS: ${{ steps.previous.outputs.previous }}
+          DRY_RUN: ${{ github.event_name != 'push' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-notes"
+          args=("$VERSION" "$STAGE" "$RUNNER_TEMP/release-notes/notes.md" --previous "$PREVIOUS")
+          [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+          bun scripts/release/release-notes.ts "${args[@]}"
+          cat "$RUNNER_TEMP/release-notes/notes.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes/notes.md
+          retention-days: 35
+          if-no-files-found: error
 
   ci:
     name: CI
@@ -333,6 +354,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.gate.outputs.version }}
+      STAGE: ${{ needs.gate.outputs.stage }}
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -341,7 +363,11 @@ jobs:
         with:
           name: desktop-assets
           path: ${{ runner.temp }}/release-assets
-      - run: bun scripts/release/github-release.ts draft "$VERSION" "$RUNNER_TEMP/release-assets"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes
+      - run: bun scripts/release/github-release.ts draft "$VERSION" "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/release-notes/notes.md" "$STAGE"
       - run: bun scripts/release/github-release.ts publish "$VERSION" "$RUNNER_TEMP/release-assets"
 
   verify-feed:

@@ -3,7 +3,9 @@
  * 桌面版的 GitHub Release（`.github/workflows/release.yml` 的 `gate` 与 `github-release` 作业；docs/proposals/desktop-distribution.md 4.8）。
  * 经 `gh` CLI 调用（runner 自带，令牌是作业的 `GITHUB_TOKEN`），调用经注入的 `run` 端口，单测用记录调用的替身。
  *
- * - `draft <版本> <资产目录>`：没有这个标签的 Release 就建草稿；只上传缺的资产，同名资产的摘要与本地不同就失败；已公开的只核对。
+ * - `draft <版本> <资产目录> <说明文件> <阶段>`：没有这个标签的 Release 就建草稿（标题按阶段，正文是 `gate` 作业用
+ *   release-notes.ts 生成的说明）；已有草稿时把标题与正文换成这次的；只上传缺的资产，同名资产的摘要与本地不同就失败；
+ *   已公开的只核对，不改正文。
  * - `publish <版本> <资产目录>`：资产齐全、摘要一致后公开；公开与是否设为最新在同一个请求里定（草稿不能设为最新，
  *   公开时不带 `make_latest` 会缺省设为最新）。已公开的只核对，必要时补设最新，不撤掉已有的标记。
  * - `sums <资产目录>`：写 `SHA256SUMS`（`<64 位十六进制>  <文件名>`，换行是 LF，覆盖目录里除它以外的全部文件）；桌面作业冻结资产时用。
@@ -14,12 +16,12 @@
  * 退出码：0 通过；1 失败（原因在 stderr）；2 用法错误。
  */
 
-import {readdir, readFile, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {readdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {sha256Of} from "#scripts/release/manifest";
 import {compareVersions} from "#scripts/release/semver";
+import type {ReleaseStage} from "#scripts/release/tag";
 
 export class ReleaseFailure extends Error {}
 class UsageError extends Error {}
@@ -135,6 +137,11 @@ export class GitHubReleases {
         await this.#gh(["release", "create", tag, "--draft", "--verify-tag", "--title", title, "--notes-file", notesFile]);
     }
 
+    /** 草稿的标题与正文换成这一轮的（重跑时说明来自同一提交、同一个上一版，内容相同）。只对草稿调用。 */
+    async editDraft(tag: string, title: string, notesFile: string): Promise<void> {
+        await this.#gh(["release", "edit", tag, "--title", title, "--notes-file", notesFile]);
+    }
+
     async upload(tag: string, paths: readonly string[]): Promise<void> {
         // 不带 --clobber：同名资产不覆盖，摘要不同已在 assetUploads 里拦下。
         await this.#gh(["release", "upload", tag, ...paths]);
@@ -171,22 +178,23 @@ export async function readLocalAssets(version: string, directory: string): Promi
     return local;
 }
 
-const NOTES_TEMPLATE = new URL("./desktop-release-notes.md", import.meta.url);
+/** Release 的标题：带阶段（ADR 0053），稳定版不带。 */
+export function releaseTitle(version: string, stage: ReleaseStage): string {
+    return stage === "stable" ? `NeuroBook ${version}` : `NeuroBook ${version}（${stage}）`;
+}
 
-/** 草稿：建、补资产。已经公开的 Release 只核对，不上传。 */
-export async function draftRelease(github: GitHubReleases, version: string, directory: string, log: (line: string) => void = console.log): Promise<void> {
+/** 草稿：建或更新标题与正文、补资产。已经公开的 Release 只核对，不上传、不改正文。 */
+export async function draftRelease(github: GitHubReleases, version: string, directory: string, notes: {file: string; stage: ReleaseStage}, log: (line: string) => void = console.log): Promise<void> {
     const tag = `v${version}`;
+    const title = releaseTitle(version, notes.stage);
     const local = await readLocalAssets(version, directory);
     const existing = (await github.list()).find((release) => release.tagName === tag);
     if (existing === undefined) {
-        const notes = join(tmpdir(), `nbook-release-notes-${version}-${process.pid}.md`);
-        await writeFile(notes, (await readFile(NOTES_TEMPLATE, "utf8")).replaceAll("{{version}}", version));
-        try {
-            await github.createDraft(tag, `NeuroBook ${version}`, notes);
-        } finally {
-            await rm(notes, {force: true});
-        }
-        log(`✓ 建了草稿 ${tag}`);
+        await github.createDraft(tag, title, notes.file);
+        log(`✓ 建了草稿 ${tag}（${title}）`);
+    } else if (existing.isDraft) {
+        await github.editDraft(tag, title, notes.file);
+        log(`✓ 草稿 ${tag} 的标题与正文换成这一轮的`);
     }
     const {upload, problems} = assetUploads(local, existing === undefined ? [] : await github.assets(tag));
     if (problems.length > 0) throw new ReleaseFailure(problems.join("\n"));
@@ -239,8 +247,9 @@ async function main(argv: readonly string[]): Promise<void> {
         return;
     }
     const repo = process.env.GITHUB_REPOSITORY;
-    const usage = "用法：bun scripts/release/github-release.ts draft|publish <版本> <资产目录> | previous <版本>（仓库取自 GITHUB_REPOSITORY） | sums <资产目录>";
-    if (repo === undefined || repo === "" || version === undefined || extra.length > 0) throw new UsageError(usage);
+    const usage = "用法：bun scripts/release/github-release.ts draft <版本> <资产目录> <说明文件> <阶段> | publish <版本> <资产目录> | previous <版本>（仓库取自 GITHUB_REPOSITORY） | sums <资产目录>";
+    const draftArgs = command === "draft" && extra.length === 2 ? {file: extra[0] as string, stage: extra[1] as string} : null;
+    if (repo === undefined || repo === "" || version === undefined || (extra.length > 0 && draftArgs === null)) throw new UsageError(usage);
     const github = new GitHubReleases(spawnRun, repo);
     if (command === "previous" && directory === undefined) {
         const previous = await previousDesktopRelease(version, await github.list(), async (tag) => (await github.assets(tag)).some((asset) => asset.name === SETUP_ASSET));
@@ -248,7 +257,11 @@ async function main(argv: readonly string[]): Promise<void> {
         return;
     }
     if (directory === undefined) throw new UsageError(usage);
-    if (command === "draft") await draftRelease(github, version, directory);
+    if (command === "draft") {
+        const stage = draftArgs?.stage;
+        if (draftArgs === null || !(stage === "canary" || stage === "preview" || stage === "stable")) throw new UsageError(usage);
+        await draftRelease(github, version, directory, {file: draftArgs.file, stage});
+    }
     else if (command === "publish") await publishRelease(github, version, directory);
     else throw new UsageError(usage);
 }
