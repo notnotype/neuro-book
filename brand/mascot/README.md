@@ -41,7 +41,7 @@
 
 | 文件 | 主题 | 尺寸 | Token 用量（`u_total` / `sp_total`） |
 | --- | --- | --- | --- |
-| [`gallery/illustrations/I01_tangled_starlight_threads.png`](gallery/illustrations/I01_tangled_starlight_threads.png) | 指尖牵引万千星丝·从容织界插图 | `832 × 1216` | `498 / 387` |
+| [`gallery/illustrations/I01_tangled_starlight_threads.png`](gallery/illustrations/I01_tangled_starlight_threads.png) | 闲暇逗弄「星丝」私下俏皮插图 | `832 × 1216` | `498 / 387` |
 | [`gallery/illustrations/I02_starlight_tea_recharge.png`](gallery/illustrations/I02_starlight_tea_recharge.png) | 「星火燃素」星光琥珀茶补给插图 | `832 × 1216` | `464 / 359` |
 | [`gallery/illustrations/I03_chasing_memory_star_butterfly.png`](gallery/illustrations/I03_chasing_memory_star_butterfly.png) | 捕捉逸散「星屑光蝶」灵动插图 | `832 × 1216` | `486 / 376` |
 | [`gallery/illustrations/I04_cushion_nap_with_red_codex.png`](gallery/illustrations/I04_cushion_nap_with_red_codex.png) | 抱书小憩星绒软垫插图 | `1216 × 832` | `498 / 380` |

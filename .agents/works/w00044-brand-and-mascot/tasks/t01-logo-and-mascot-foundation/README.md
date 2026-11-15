@@ -15,7 +15,7 @@ updated: 2026-11-15
    - 确立四层名讳体系（**星璃 · Lyra** / **璃璃·小璃** / *Astria Lyra Luminis* / 跨神话古籍尊号）、三重性格内核（端庄游刃有余的智识强者 × 萝莉妈妈包容 × 慧黠少女）与完整宇宙体系（万言星海、溯言白洞、界隙水镜、忆星书庭双区与「记忆宝石」、创世星环·万界天球仪、天职圣器《万界真典》与「律政星杖」、跨界载具「折页星舟」）；
    - 采用开发者在 NovelAI V4.5 下调校定稿的新形象（图 6 `16-14-50-2948684181.png` 作为标准参考母版，默认步数 `28`，接口请求并发固定为 `1`），不再制作三视图或沿用早期 GPT 母版；
    - 精确测算 T5 512-Token 分词预算，通过 28 步同种子消融实验验证标签影响度并沉淀三档精简母版；
-   - 基于新形象蓝图串行生成 12 幅立绘、插图与世界观场景并录入 [`brand/mascot/`](../../../../../brand/mascot/README.md)。
+   - 基于新形象蓝图串行生成 12 幅立绘、插图与世界观场景，连同水面之上的人设/对话规范（[`brand/mascot/guide/01-persona.md`](../../../../../brand/mascot/guide/01-persona.md)）、冰山之下的深层世界观（[`brand/mascot/guide/02-worldview-and-cosmology.md`](../../../../../brand/mascot/guide/02-worldview-and-cosmology.md)）及 NAI V4.5 提示词工程指南（[`brand/mascot/guide/03-nai45-prompt-engineering.md`](../../../../../brand/mascot/guide/03-nai45-prompt-engineering.md)）录入 [`brand/mascot/`](../../../../../brand/mascot/README.md)。
 
 合同：行为合同未变（本次仅将品牌标识与看板娘设计资产纳入仓库 `brand/` 管理，不改动产品运行时行为）。
 
