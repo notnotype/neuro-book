@@ -16,7 +16,7 @@ owners:
 不承诺：
 
 - 第一版只有 Windows 10、11 的 x64；macOS 与 Linux 以后做。
-- 有界面的安装程序（安装位置、快捷方式的选择）、自定义标题栏、开机自启、系统托盘、系统通知：以后另做。
+- 有界面的安装程序（安装位置、快捷方式的选择）、开机自启、系统托盘、系统通知：以后另做。
 - 窗口不记大小与位置，每次以缺省大小居中打开。
 - 不在后台常驻：没有窗口时壳退出（服务端归它时先停止服务端）。
 - 被强行结束、注销、关机时不保证有序停止（输出 22）。
@@ -27,6 +27,7 @@ owners:
   - 便携版的 WebView2 浏览器数据留在本机，不随目录走；作品登记记绝对路径，目录挪走或盘符变了以后要重新打开作品。
   - 安装包与便携包没有代码签名，第一次运行 setup 时系统显示“未知发布者”。
   - 页面里的 `window.open` 与带 `target` 的链接经壳按输出 12 处理；其它弹出入口（例如内嵌页面里的弹窗）可能由 WebView2 自己开一个不受输出 11 约束的窗口。
+  - 自己画的标题栏（输出 10）：悬停最大化按钮不弹出 Windows 11 的贴靠布局（Win+Z 照常）；窗口换到缩放比例不同的显示器后，窗口图标不按新的比例重新加载，由系统缩放；模态对话框开着时整个窗口不能拖动；窗口窄到工作台标题栏最省的一档也放不下时，右栏被裁掉一部分（没有最小窗口尺寸）。
 
 ## 术语与参与者
 
@@ -90,10 +91,14 @@ owners:
 
 8. **第一个窗口。** 启动时开一个窗口，先显示启动页，服务端就绪后加载它的页面地址；创建网页视图之前检查 WebView2（输出 20）。
 9. **开窗转交开的窗口。** 开窗转交（输出 2）开一个新窗口，加载服务端的首页（不带任何查询参数），置前。壳正在停止时不再开窗。
-10. **窗口标题与大小。** 窗口标题是页面的标题；缺省大小 1280×800 逻辑像素，放不下时取工作区的九成，居中；可以调整大小、最大化。
+10. **窗口、标题栏与图标。** 窗口标题（任务栏与 Alt+Tab 里的文字）是页面的标题；缺省大小 1280×800 逻辑像素，放不下时取工作区的九成，居中；可以调整大小、最大化。
+    - **没有系统标题栏**：Windows 上 WebView2 的主版本不低于 123 时，产品窗口与启动页窗口没有系统标题栏，保留拉伸边框与阴影；窗口按钮与标题栏由页面画（页面一侧见 [`runtime.browser-host`](browser-host.md) 的“窗口外框”）。页面用 CSS `app-region` 标出拖动区域，拖动、双击最大化与还原、拖到屏幕边缘贴边分屏、Alt+Space 的系统菜单都由系统处理。壳在页面脚本之前定义只读的能力标记 `__nbookDesktopFrame`，页面据此画按钮；它只是渲染信号，不是安全边界。WebView2 更旧时（没有非客户区支持）窗口退回系统标题栏、不定义标记，页面照旧只画工作台自己的标题栏。对话框窗口（输出 15 的“没有响应”、输出 21）保留系统标题栏。
+    - **最大化**：落在显示器的工作区里，不压任务栏。壳在创建窗口后给它补上系统菜单与最小化、最大化按钮的窗口样式（Electrobun 的无标题栏样式缺这几位，缺了最大化会铺满整个显示器）；补不成时窗口照常可用，记诊断 `desktop.frame.adopt-failed`。
+    - **窗口按钮**：页面经壳最小化、在最大化与还原之间切换、关闭；关闭与系统的关闭同一条路（输出 14、17）。壳把“是不是最大化”推给页面（窗口大小变化、页面报就绪、页面查询时），它严格等于 Win32 的最大化状态：贴边分屏不算最大化。
+    - **图标**：程序、安装程序与窗口的图标是应用图标（品牌成品的 `desktop/windows/neurobook.ico`，16 到 256 各档都从同一份 SVG 渲染）；窗口图标按窗口所在显示器的缩放比例取尺寸。
 11. **导航。** 产品窗口只允许导航到启动页与当前服务端页面地址的精确来源（协议、主机、端口都相同）；页面里对其它来源的整页导航被拒绝，`http`、`https` 的交给系统默认浏览器打开，`file` 与其它协议拒绝。
 12. **页面请求的新窗口。** 页面以网页的方式请求打开新窗口（脚本打开、`target="_blank"` 的链接）时：同一来源的地址开一个新的产品窗口，原样加载这个地址（路径、查询参数与片段都保留，例如带 `project` 参数打开作品）；`http`、`https` 的外部地址交给系统默认浏览器；其它拒绝。
-13. **页面能用的壳接口。** 除了输出 12 这种网页本来就有的新窗口请求，页面只能经壳回答关闭前询问（输出 14）与收发更新提示（[`runtime.desktop-update`](desktop-update.md)）；页面不能经壳读写文件、执行命令、开任意窗口或调用其它原生能力。
+13. **页面能用的壳接口。** 除了输出 12 这种网页本来就有的新窗口请求，页面只能经壳回答关闭前询问（输出 14）、收发更新提示（[`runtime.desktop-update`](desktop-update.md)）、按窗口按钮与查询窗口是否最大化（输出 10）；页面不能经壳读写文件、执行命令、开任意窗口或调用其它原生能力。
 
 **关闭窗口：**
 
@@ -197,6 +202,7 @@ owners:
 12. **自有服务端意外退出。** 结束服务端进程：对话框出现，“重新启动服务”后页面显示“服务端已重启”，刷新后可用；先占住原来的端口再“重新启动服务”：对话框说明端口被占用，窗口保持离线、未保存的正文仍可复制。
 13. **停止超时。** 让服务端在停止时卡住：到截止后进程树被结束，结束之前新打开的 NeuroBook 一直等待、不会连到旧服务端；下一次启动提示“上次退出时服务端没有正常停止”。
 14. **启动中关窗。** 分别在等别人的实例、自有服务端拉起中、还没就绪时关掉启动页：壳退出，没有残留的服务端，别人的实例不受影响。
+15. **标题栏。** 工作台窗口只有一条标题栏，右端是最小化、最大化、关闭三个按钮：拖动标题栏空白处移动窗口，双击最大化、再双击还原，拖到屏幕边缘贴边；最大化后页面底部不被任务栏盖住；按钮的名字在“最大化”“还原”之间跟着变；点关闭与 Alt+F4 一样经关闭前询问，询问期间还能最小化；Alt+Space 出系统菜单。书架首页与启动页也能拖、能用三个按钮。程序、任务栏与 Alt+Tab 里是应用图标。WebView2 低于 123 时窗口有系统标题栏、页面里没有窗口按钮。
 
 Smoke：发布流水线的 Windows 作业对安装版与便携版各跑一遍：静默安装（便携版解压到别处）、直接启动应用到页面就绪、打开一部作品并执行一条 Agent 的内嵌 shell 命令、经关闭前询问关窗、服务端有序停止并以 0 退出、卸载。
 
@@ -210,10 +216,11 @@ Smoke：发布流水线的 Windows 作业对安装版与便携版各跑一遍：
   - 每个窗口至多一个待决询问，带代次，只认当前代次的回答；3 秒内没有接下才弹“没有响应”，接下之后不限时（`windows.test.ts`）。
   - 最后一次关闭进行中，开窗转交回 `closing`、页面的新窗口被拒；询问期间别的窗口关掉使它成了最后一个时，以 `quit` 重问一次；同意与进入停止中是同一个同步段（`windows.test.ts`、`shell.test.ts`）。
   - 停止的截止按绝对时间分段排，每段不超过 `setTimeout` 的上限，缺省共 90 秒；到时结束整棵进程树，等树真实结束才交回、才放桌面锁（`deadline.test.ts`、`owned-server.test.ts`）。
+  - 无标题栏的窗口经 `bun:ffi` 补窗口样式、设窗口图标（`desktop/src/bun/win32.ts`）：调用跑在 Bun 主线程，窗口归 Electrobun 的原生 UI 线程；Electrobun 的窗口回调都是不等返回值的线程安全回调，UI 线程不同步等 Bun，所以从 Bun 同步调窗口函数不成环，仍尽量用不等待的写法（`SWP_ASYNCWINDOWPOS`、`PostMessageW`）。这依赖 Electrobun 2.0.6 对 `hiddenInset` 的处理（`WM_NCCALCSIZE` 去掉标题区、`WM_GETMINMAXINFO` 只管 `WS_POPUP`），升级 Electrobun 时复测。
 
 ## 证据
 
 - 批准依据：[桌面发行提案](../../proposals/desktop-distribution.md) 4.2 到 4.5（2026-11-13 `accepted`）；[ADR 0051](../../adr/0051-desktop-shell-electrobun-tag-release.md)。开发者 2026-11-14 看过 Windows 实测第 2 轮后同意晋升为 `implemented`。相对路径的 `NBOOK_STATE_ROOT` 由“按壳的工作目录解析”改为拒绝：w00046 t10 在 Windows 上实测发现 Electrobun 的启动器以安装里的 `app\bin` 为工作目录启动壳，相对路径落进更新时被整个替换的程序目录（[`windows-update-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t10-auto-update/evidences/windows-update-r1.txt) 场景 6）；记在 [待确认清单](../../../.agents/works/w00046-desktop-release/pending-confirmations.md)，开发者 2026-11-14 追认。
 - 实现入口：核心 [`desktop/shell.ts`](../../../packages/neuro-book/src/desktop/shell.ts)、[`windows.ts`](../../../packages/neuro-book/src/desktop/windows.ts)、[`lock.ts`](../../../packages/neuro-book/src/desktop/lock.ts)、[`owned-server.ts`](../../../packages/neuro-book/src/desktop/owned-server.ts)、[`connect.ts`](../../../packages/neuro-book/src/desktop/connect.ts)、[`state-root.ts`](../../../packages/neuro-book/src/desktop/state-root.ts)、[`deadline.ts`](../../../packages/neuro-book/src/desktop/deadline.ts)；Electrobun 适配层 [`desktop/README.md`](../../../packages/neuro-book/desktop/README.md)（主进程、预加载脚本与启动页的说明）。
 - 合同测试：[`shell.test.ts`](../../../packages/neuro-book/src/desktop/shell.test.ts)、[`windows.test.ts`](../../../packages/neuro-book/src/desktop/windows.test.ts)、[`lock.test.ts`](../../../packages/neuro-book/src/desktop/lock.test.ts)、[`owned-server.test.ts`](../../../packages/neuro-book/src/desktop/owned-server.test.ts)、[`connect.test.ts`](../../../packages/neuro-book/src/desktop/connect.test.ts)、[`state-root.test.ts`](../../../packages/neuro-book/src/desktop/state-root.test.ts)、[`deadline.test.ts`](../../../packages/neuro-book/src/desktop/deadline.test.ts)
-- Smoke：入口 [`.github/workflows/release.yml`](../../../.github/workflows/release.yml) 的 `desktop` 作业，脚本 [`smoke-windows.ts`](../../../packages/neuro-book/desktop/scripts/smoke-windows.ts)（安装版与便携版各跑一遍）。第一次运行：v0.13.0 的 [Release 运行 43715099679](https://github.com/notnotype/neuro-book/actions/runs/43715099679) 在 GitHub 的 Windows runner 上通过（[`release-v0.13.0.txt`](../../../.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/evidences/release-v0.13.0.txt)）。同一脚本在 pc-notype 上用测试标识跑通（[`windows-smoke-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/evidences/windows-smoke-r1.txt)）。Electrobun 适配层（`desktop/src/bun/`）不在类型检查与自动测试里，另靠 Windows 上的实测把关：第 1 轮 [`windows-shell-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r1.txt)、第 2 轮 [`windows-shell-r2.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r2.txt)。
+- Smoke：入口 [`.github/workflows/release.yml`](../../../.github/workflows/release.yml) 的 `desktop` 作业，脚本 [`smoke-windows.ts`](../../../packages/neuro-book/desktop/scripts/smoke-windows.ts)（安装版与便携版各跑一遍）。第一次运行：v0.13.0 的 [Release 运行 43715099679](https://github.com/notnotype/neuro-book/actions/runs/43715099679) 在 GitHub 的 Windows runner 上通过（[`release-v0.13.0.txt`](../../../.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/evidences/release-v0.13.0.txt)）。同一脚本在 pc-notype 上用测试标识跑通（[`windows-smoke-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t11-release-pipeline/evidences/windows-smoke-r1.txt)）。Electrobun 适配层（`desktop/src/bun/`）不在类型检查与自动测试里，另靠 Windows 上的实测把关：第 1 轮 [`windows-shell-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r1.txt)、第 2 轮 [`windows-shell-r2.txt`](../../../.agents/works/w00046-desktop-release/tasks/t08-desktop-shell/evidences/windows-shell-r2.txt)。输出 10 的标题栏与图标（场景 15）：w00046 t03 的 [`windows-frame-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t03-custom-title-bar/evidences/windows-frame-r1.txt)（命中测试、样式、图标、最大化几何、按钮、并发开窗；拖动、双击、贴边与 Alt+Space 待开发者真实操作），探针 [`frame-probe-r1.txt`](../../../.agents/works/w00046-desktop-release/tasks/t03-custom-title-bar/evidences/frame-probe-r1.txt)。

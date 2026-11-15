@@ -1,0 +1,175 @@
+// w00046 t03 Windows acceptance for the custom title bar. Runs with a standalone Bun inside the logged-on desktop session.
+// Reads only the NeuroBook test app's own windows and pages: CDP on the WebView2 debugging port for element positions and
+// clicks inside the page, user32 for hit tests, window styles, icons and geometry. No screen capture, no OS mouse input.
+import {dlopen, FFIType, ptr} from "bun:ffi";
+
+const [launchCmd, cdpPortText, outFile] = process.argv.slice(2);
+const cdpPort = Number(cdpPortText);
+const lines: string[] = [];
+const log = (line: string) => { lines.push(line); console.log(line); };
+const flush = async () => Bun.write(outFile, lines.join("\n") + "\n");
+
+const u = dlopen("user32.dll", {
+    FindWindowExW: {args: [FFIType.ptr, FFIType.ptr, FFIType.ptr, FFIType.ptr], returns: FFIType.ptr},
+    GetWindowTextW: {args: [FFIType.ptr, FFIType.ptr, FFIType.i32], returns: FFIType.i32},
+    GetWindowThreadProcessId: {args: [FFIType.ptr, FFIType.ptr], returns: FFIType.u32},
+    IsWindowVisible: {args: [FFIType.ptr], returns: FFIType.bool},
+    GetWindowLongPtrW: {args: [FFIType.ptr, FFIType.i32], returns: FFIType.i64},
+    GetClientRect: {args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool},
+    GetWindowRect: {args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool},
+    ClientToScreen: {args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool},
+    WindowFromPoint: {args: [FFIType.i64], returns: FFIType.ptr},
+    SendMessageW: {args: [FFIType.ptr, FFIType.u32, FFIType.u64, FFIType.i64], returns: FFIType.i64},
+    IsZoomed: {args: [FFIType.ptr], returns: FFIType.bool},
+    IsIconic: {args: [FFIType.ptr], returns: FFIType.bool},
+    ShowWindow: {args: [FFIType.ptr, FFIType.i32], returns: FFIType.bool},
+    MonitorFromWindow: {args: [FFIType.ptr, FFIType.u32], returns: FFIType.ptr},
+    GetMonitorInfoW: {args: [FFIType.ptr, FFIType.ptr], returns: FFIType.bool},
+    GetDpiForWindow: {args: [FFIType.ptr], returns: FFIType.u32},
+}).symbols;
+
+const wide = (text: string) => Buffer.from(`${text}\0`, "utf16le");
+function windowsOf(pids: Set<number>): Array<{hwnd: any; title: string}> {
+    const found: Array<{hwnd: any; title: string}> = [];
+    let hwnd: any = null;
+    const cls = wide("BasicWindowClass");
+    for (;;) {
+        hwnd = u.FindWindowExW(null, hwnd, ptr(cls), null);
+        if (hwnd === null) break;
+        const pidBuf = new Uint32Array(1);
+        u.GetWindowThreadProcessId(hwnd, ptr(pidBuf));
+        if (!pids.has(pidBuf[0]) || !u.IsWindowVisible(hwnd)) continue;
+        const buf = new Uint16Array(256);
+        const n = u.GetWindowTextW(hwnd, ptr(buf), 256);
+        found.push({hwnd, title: String.fromCharCode(...buf.slice(0, n))});
+    }
+    return found;
+}
+function rect(fn: "GetClientRect" | "GetWindowRect", hwnd: any) { const r = new Int32Array(4); u[fn](hwnd, ptr(r)); return {l: r[0], t: r[1], r: r[2], b: r[3]}; }
+function clientOrigin(hwnd: any) { const p = new Int32Array(2); u.ClientToScreen(hwnd, ptr(p)); return {x: p[0], y: p[1]}; }
+function workArea(hwnd: any) { const mi = new Int32Array(10); mi[0] = 40; u.GetMonitorInfoW(u.MonitorFromWindow(hwnd, 2), ptr(mi)); return {l: mi[5], t: mi[6], r: mi[7], b: mi[8]}; }
+function hit(x: number, y: number): number {
+    // POINT 按值传：低 32 位是 x，高 32 位是 y。
+    const target = u.WindowFromPoint((BigInt(y) << 32n) | BigInt(x >>> 0));
+    const lparam = (BigInt(y & 0xffff) << 16n) | BigInt(x & 0xffff);
+    return Number(u.SendMessageW(target, 0x84, 0n, lparam));
+}
+const HIT: Record<number, string> = {1: "HTCLIENT", 2: "HTCAPTION", 12: "HTTOP"};
+
+async function pids(): Promise<Set<number>> {
+    const out = await new Response(Bun.spawn(["tasklist", "/fo", "csv", "/nh", "/fi", "IMAGENAME eq bun.exe"], {stdout: "pipe"}).stdout).text();
+    return new Set(out.split(/\r?\n/u).filter((l) => l.includes("bun.exe")).map((l) => Number(l.split('","')[1])));
+}
+
+async function targets(): Promise<Array<{type: string; url: string; webSocketDebuggerUrl: string}>> {
+    try { return await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json(); } catch { return []; }
+}
+async function evaluate(wsUrl: string, expression: string): Promise<unknown> {
+    const ws = new WebSocket(wsUrl);
+    await new Promise((resolve) => ws.addEventListener("open", resolve, {once: true}));
+    const result = await new Promise<any>((resolve) => {
+        ws.addEventListener("message", (event) => resolve(JSON.parse(String(event.data))), {once: true});
+        ws.send(JSON.stringify({id: 1, method: "Runtime.evaluate", params: {expression, returnByValue: true, awaitPromise: true}}));
+    });
+    ws.close();
+    return result.result?.result?.value;
+}
+async function until<T>(label: string, probe: () => Promise<T | null> | T | null, ms = 60_000): Promise<T> {
+    const deadline = Date.now() + ms;
+    for (;;) {
+        const value = await probe();
+        if (value !== null && value !== undefined && value !== false) return value as T;
+        if (Date.now() > deadline) throw new Error(`timeout: ${label}`);
+        await Bun.sleep(300);
+    }
+}
+
+try {
+    const before = await pids();
+    Bun.spawn(["cmd", "/c", launchCmd], {stdout: "ignore", stderr: "ignore"});
+    // 启动页：views:// 页面上的拖动条与按钮（趁服务端还没就绪时读）。
+    const startup = await until("startup or product page", async () => (await targets()).find((t) => t.type === "page") ?? null, 60_000);
+    log(`first page: ${startup.url}`);
+    if (startup.url.startsWith("views://")) log(`startup frame: ${JSON.stringify(await evaluate(startup.webSocketDebuggerUrl, `(() => { const f = document.querySelector('.frame'); return {marker: window.__nbookDesktopFrame, hidden: f.hidden, region: getComputedStyle(f).getPropertyValue('-webkit-app-region'), buttons: [...f.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))}; })()`))}`);
+    const page = await until("product page", async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("http://127.0.0.1")) ?? null, 120_000);
+    log(`product page: ${page.url}`);
+    await until("bookshelf ready", () => evaluate(page.webSocketDebuggerUrl, "!!document.querySelector('[data-bookshelf-page]')"), 60_000);
+    await evaluate(page.webSocketDebuggerUrl, "location.assign('/?project=book'); true");
+    await Bun.sleep(1500);
+    await until("workbench titlebar", () => evaluate(page.webSocketDebuggerUrl, "!!document.querySelector('[data-workbench-titlebar]') && !!document.querySelector('[data-desktop-controls]')"), 60_000);
+    const shellPids = new Set([...(await pids())].filter((p) => !before.has(p)));
+    const win = await until("product window", () => windowsOf(shellPids)[0] ?? null, 30_000);
+    const hwnd = win.hwnd;
+    const style = BigInt(u.GetWindowLongPtrW(hwnd, -16));
+    log(`window title=${JSON.stringify(win.title)} style=0x${style.toString(16)} sysmenu=${(style & 0x80000n) !== 0n} minbox=${(style & 0x20000n) !== 0n} maxbox=${(style & 0x10000n) !== 0n} dpi=${u.GetDpiForWindow(hwnd)}`);
+    log(`WM_GETICON big=${u.SendMessageW(hwnd, 0x7f, 1n, 0n)} small=${u.SendMessageW(hwnd, 0x7f, 0n, 0n)}`);
+
+    // 页面里几个点的位置（CSS 像素，相对视口）；乘 DPR 加客户区原点就是屏幕坐标。
+    const points = await evaluate(page.webSocketDebuggerUrl, `(() => {
+        const center = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+        const bar = document.querySelector('[data-workbench-titlebar]').getBoundingClientRect();
+        const search = document.querySelector('[data-titlebar-search]').getBoundingClientRect();
+        const menu = document.querySelector('[data-workbench-titlebar] [role=menuitem]') ?? document.querySelector('[data-titlebar-menu-entry]');
+        // 标题栏里一个真正的空白点：横扫这一行，取第一段计算值为 drag 的区间的中点。
+        const y = bar.top + bar.height / 2;
+        let start = -1, end = -1;
+        for (let x = 0; x < innerWidth; x += 2) { const el = document.elementFromPoint(x, y); const drag = el !== null && getComputedStyle(el).getPropertyValue('-webkit-app-region') === 'drag'; if (drag && start < 0) start = x; if (!drag && start >= 0) { end = x; break; } }
+        return {dpr: devicePixelRatio, blank: [(start + end) / 2, y], blankRange: [start, end], search: center(document.querySelector('[data-titlebar-search]')), menu: center(menu),
+            minimize: center(document.querySelector('[data-desktop-control=minimize]')), close: center(document.querySelector('[data-desktop-control=close]')), content: [innerWidth / 2, innerHeight / 2]};
+    })()`) as Record<string, any>;
+    const origin = clientOrigin(hwnd);
+    const at = (name: string) => { const [x, y] = points[name]; const sx = Math.round(origin.x + x * points.dpr), sy = Math.round(origin.y + y * points.dpr); const h = hit(sx, sy); return `${name}(${sx},${sy})=${HIT[h] ?? h}`; };
+    log(`workbench blank range (css px) ${JSON.stringify(points.blankRange)}; hit tests: ${["blank", "menu", "search", "minimize", "close", "content"].map(at).join(" ")}`);
+
+    // 最大化几何（系统 ShowWindow）与页面上的按钮名。
+    u.ShowWindow(hwnd, 3);
+    await Bun.sleep(1500);
+    const c = rect("GetClientRect", hwnd), o = clientOrigin(hwnd), wa = workArea(hwnd);
+    log(`maximized(ShowWindow): zoomed=${u.IsZoomed(hwnd)} client=(${o.x},${o.y}) ${c.r}x${c.b} workArea=(${wa.l},${wa.t})-(${wa.r},${wa.b}) button=${JSON.stringify(await evaluate(page.webSocketDebuggerUrl, "document.querySelector('[data-desktop-control=toggle-maximize]').getAttribute('aria-label')"))}`);
+    u.ShowWindow(hwnd, 9);
+    await Bun.sleep(1200);
+    log(`restored: zoomed=${u.IsZoomed(hwnd)} button=${JSON.stringify(await evaluate(page.webSocketDebuggerUrl, "document.querySelector('[data-desktop-control=toggle-maximize]').getAttribute('aria-label')"))}`);
+
+    // 页面按钮（在页面里点，走 window-control）。
+    const click = (control: string) => evaluate(page.webSocketDebuggerUrl, `document.querySelector('[data-desktop-control=${control}]').click()`);
+    await click("toggle-maximize");
+    await until("maximized by button", () => u.IsZoomed(hwnd), 10_000);
+    log(`button toggle-maximize: zoomed=${u.IsZoomed(hwnd)} label=${JSON.stringify(await until("label restore", async () => { const l = await evaluate(page.webSocketDebuggerUrl, "document.querySelector('[data-desktop-control=toggle-maximize]').getAttribute('aria-label')"); return l === "还原" ? l : null; }, 10_000))}`);
+    await click("toggle-maximize");
+    await until("restored by button", () => !u.IsZoomed(hwnd), 10_000);
+    log(`button toggle-maximize again: zoomed=${u.IsZoomed(hwnd)}`);
+    await click("minimize");
+    await until("minimized by button", () => u.IsIconic(hwnd), 10_000);
+    log(`button minimize: iconic=${u.IsIconic(hwnd)}`);
+    u.ShowWindow(hwnd, 9);
+    await Bun.sleep(1000);
+
+    // 并发：开 3 个窗口、连着切换最大化，壳不卡住（新窗口都报就绪、按钮都起作用）。
+    await evaluate(page.webSocketDebuggerUrl, "for (let i = 0; i < 3; i += 1) window.open(location.href, '_blank'); true");
+    const many = await until("4 windows", () => { const list = windowsOf(shellPids); return list.length >= 4 ? list : null; }, 60_000);
+    for (const w of many) { u.ShowWindow(w.hwnd, 3); u.ShowWindow(w.hwnd, 9); }
+    const pages = await until("4 product pages with controls", async () => { const list = (await targets()).filter((t) => t.type === "page" && t.url.startsWith("http://127.0.0.1")); if (list.length < 4) return null; const ok = await Promise.all(list.map((t) => evaluate(t.webSocketDebuggerUrl, "!!document.querySelector('[data-desktop-controls]')"))); return ok.every(Boolean) ? list : null; }, 60_000);
+    log(`concurrency: windows=${many.length} pagesWithControls=${pages.length}`);
+    for (const t of pages.filter((t) => t.webSocketDebuggerUrl !== page.webSocketDebuggerUrl)) await evaluate(t.webSocketDebuggerUrl, "document.querySelector('[data-desktop-control=close]').click()");
+    await until("back to one window", () => windowsOf(shellPids).length === 1, 30_000);
+    log(`closed extra windows via close button: remaining=${windowsOf(shellPids).length}`);
+
+    // 书架首页：后备标题栏。
+    await evaluate(page.webSocketDebuggerUrl, "location.assign('/'); true");
+    await Bun.sleep(1500);
+    const shelf = await until("bookshelf page", async () => (await targets()).find((t) => t.type === "page" && t.url.startsWith("http://127.0.0.1") && !t.url.includes("project=")) ?? null, 30_000);
+    await until("fallback bar", () => evaluate(shelf.webSocketDebuggerUrl, "!!document.querySelector('[data-desktop-fallback-bar]') && !!document.querySelector('[data-bookshelf-page]')"), 30_000);
+    const shelfPoints = await evaluate(shelf.webSocketDebuggerUrl, `(() => { const r = document.querySelector('[data-desktop-fallback-bar]').getBoundingClientRect(); return {dpr: devicePixelRatio, bar: [r.width / 2, r.height / 2], below: [innerWidth / 2, 60], app: document.getElementById('app').getBoundingClientRect().top}; })()`) as Record<string, any>;
+    const so = clientOrigin(hwnd);
+    const shelfHit = (name: string) => { const [x, y] = shelfPoints[name]; const h = hit(Math.round(so.x + x * shelfPoints.dpr), Math.round(so.y + y * shelfPoints.dpr)); return `${name}=${HIT[h] ?? h}`; };
+    log(`bookshelf: appTop=${shelfPoints.app} ${shelfHit("bar")} ${shelfHit("below")}`);
+
+    // 关最后一个窗口：经关闭前询问，服务端有序停止，壳退出。
+    await evaluate(shelf.webSocketDebuggerUrl, "document.querySelector('[data-desktop-control=close]').click(); true");
+    await until("shell exited", async () => [...(await pids())].every((p) => !shellPids.has(p)), 120_000);
+    log("close button on the last window: shell and server exited");
+    log("RESULT ok");
+} catch (error) {
+    log(`RESULT failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+}
+await flush();

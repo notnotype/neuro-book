@@ -21,6 +21,23 @@ updated: 2026-11-15
 - 应用图标按开发者的两次决定做完（分支 `be074783f`、`39276fe1e`）：每个尺寸都从同一份不带边框的 SVG 渲染，不再用像素专用版，品牌规范随之改写；[对比图](artifacts/icon-variants/index.html)。
 - 设计审查第 1 轮：omp 14 条、Sonnet 17 条，处理见 [disposition](evidences/design-review-r1-disposition.txt)，计划改为 r2。不开第 2 轮。
 
+- 实施（分支 `feat/w00046-t03-title-bar`）：
+  - 切片 1（`bd17317c3`）：壳、桥、能力标记、`win32.ts`、启动页的拖动条与按钮、旧 WebView2 的退路。
+  - 切片 2（`4eef85139`）：页面宿主的窗口外框、工作台标题栏的拖动区域与留位、浮层 no-drag、关闭层的例外、层级登记。
+  - `92f8de4d6`：桌面壳 README。
+- 与计划 r2 的出入：
+  - 窗口状态的去重只是一个 Map，按“单调用的包装不进代码库”写在适配层里，没有建 `src/desktop/window-state.ts`；
+  - 启动页复用已有的 `shell-ready` 报到，壳收到就推一次状态，没有另发查询；
+  - 按钮字形只用 Windows 的图标字体，没有 SVG 回退：外框只在 Windows 的桌面壳里出现；
+  - 后备标题栏的属性改名 `data-desktop-fallback-bar`：与 `<html>` 上的 `data-desktop-frame-bar` 同名时选择器会选中两个元素；
+  - e2e 的“搜索在窗口正中”在 1600 宽量：1280 宽时右栏（布局按钮、条目、138px 留位）已比一半宽，按 Spec 不再居中。
+- 验证：
+  - 单测、DOM 测试与类型检查通过；
+  - e2e `desktop-frame.e2e.ts` 7 条，加受影响的 `bookshelf`、`browser-host`、`desktop-close`、`rpc` 共 36 条，全过；
+  - Windows 验收 [windows-frame-r1.txt](evidences/windows-frame-r1.txt) 全过（命中测试、样式、图标、最大化几何、三个按钮、并发开窗、书架后备标题栏、关最后一个窗口）。
+- Spec：`runtime/desktop-shell.md`（输出 10、13、场景 15、实现合同、已知限制）、`runtime/browser-host.md`（输出 10 的例外、输出 11 改为三类、新输出 12“窗口外框”、场景 16）、`ui/workbench-shell.md` 输出 28。
+
 ## 下一步
 
-按 plan r2 的切片 1（壳与约定）实施。
+- 实现审查（omp 审壳与桥，Sonnet 审页面一侧），不阻塞；报告回来后处理，修正单独提交，再合入 master。
+- 请开发者在 pc-notype 上真实操作一次：拖动、双击、贴边、Alt+Space，以及点标题栏空白处时开着的菜单会不会关。启动方法：双击 `%USERPROFILE%\nb-w00046\t03\launch.cmd`。
