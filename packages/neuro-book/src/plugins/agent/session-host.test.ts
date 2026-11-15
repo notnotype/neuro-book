@@ -29,6 +29,7 @@ import {createAgentActivity} from "./web/activity";
 import {createSessionList} from "./web/session-list";
 import {createSessionHost, displayToolName, RELEASE_DELAY_MS} from "./web/session-host";
 import type {SessionHost, SessionHostDeps} from "./web/session-host";
+import {OPEN_REQUEST_ACTION, OPEN_REQUESTS_ACTION} from "./web/request-entries";
 
 let root = "";
 let counter = 0;
@@ -77,6 +78,7 @@ interface Harness {
     readonly recent: {value: string | null};
     readonly copied: string[];
     readonly settingsOpened: {count: number};
+    readonly requestsOpened: {readonly sessionId: string; readonly request?: number}[];
     ctx(): AgentConversationContext;
 }
 
@@ -87,6 +89,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
     const recent = {value: null as string | null};
     const copied: string[] = [];
     const settingsOpened = {count: 0};
+    const requestsOpened: {readonly sessionId: string; readonly request?: number}[] = [];
     const host = createSessionHost({
         remote: client,
         project: null,
@@ -108,6 +111,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         openSettings: () => {
             settingsOpened.count += 1;
         },
+        openRequests: (target) => void requestsOpened.push(target),
         openAddress: () => undefined,
         openLink: () => undefined,
         skills: {selected: () => undefined, address: () => null},
@@ -117,7 +121,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         ...overrides,
     });
     hosts.push(host);
-    return {host, client, recent, copied, settingsOpened, ctx: () => host.ctx.value};
+    return {host, client, recent, copied, settingsOpened, requestsOpened, ctx: () => host.ctx.value};
 }
 
 const assistants = (messages: readonly MessageView[]) => messages.filter((message): message is AssistantMessageView => message.kind === "assistant");
@@ -1309,6 +1313,22 @@ describe("寿命", () => {
         const back = h.host.borrow();
         await until("重新打开", () => assistants(h.ctx().messages).length === 1);
         back();
+    });
+});
+
+describe("模型请求的入口（request-trace.md 的入口表）", () => {
+    test("顶栏的“查看模型请求”与回复上的“查看这次请求”补上当前会话交给宿主；回复带着它出自的请求序号", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("你好，作者。");
+        h.host.act({type: "composer.submit", text: "你好", delivery: "prompt"});
+        await until("回复到了", () => h.ctx().messages.some((message) => message.kind === "assistant" && message.request !== undefined));
+        const reply = h.ctx().messages.find((message) => message.kind === "assistant");
+        const sessionId = h.host.sessionId.value!;
+        h.host.act({type: OPEN_REQUESTS_ACTION});
+        h.host.act({type: OPEN_REQUEST_ACTION, payload: {request: reply?.kind === "assistant" ? reply.request ?? null : null}});
+        await until("两个入口都交给了宿主", () => h.requestsOpened.length === 2);
+        expect(h.requestsOpened).toEqual([{sessionId}, {sessionId, request: 1}]);
     });
 });
 

@@ -338,6 +338,10 @@
             "hideOutput": "Hide output",
             "openOutput": "Open output file {{path}}",
             "outputUnavailable": "Output is not readable"
+        },
+        "requests": {
+            "open": "View model requests",
+            "openThis": "View this request"
         }
     },
     "views": {

@@ -681,3 +681,24 @@ describe("宿主每秒换 now", () => {
         view.unmount();
     });
 });
+
+describe("登记的顶栏动作（验收 36）", () => {
+    it("允许常驻的按 order 取前两个放在顶栏，其余进溢出菜单、排在原始视图之前；点了发出它的 action", async () => {
+        const action = (id: string) => ({type: `lab:${id}` as const});
+        const headers: AgentViewContribution = {source: "lab:header", headerActions: [
+            {id: "c", order: 30, icon: "i-lucide-activity", label: "第三个", target: {kind: "action", action: action("c")}, pinnable: true},
+            {id: "a", order: 10, icon: "i-lucide-activity", label: "第一个", target: {kind: "action", action: action("a")}, pinnable: true, badge: () => 2},
+            {id: "b", order: 20, icon: "i-lucide-activity", label: "第二个", target: {kind: "action", action: action("b")}, pinnable: true},
+            {id: "d", order: 5, icon: "i-lucide-activity", label: "不常驻的", target: {kind: "action", action: action("d")}, pinnable: false},
+            {id: "hidden", icon: "i-lucide-activity", label: "看不见的", target: {kind: "action", action: action("hidden")}, pinnable: true, when: () => false},
+        ]};
+        const view = mountView("zh-CN", {}, {registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, builtinMessageActionsContribution, builtinComposerContribution, headers])});
+        expect(view.findAll("[data-header-action]").map((button) => [button.attributes("data-header-action"), button.attributes("aria-label")])).toEqual([["a", "第一个 (2)"], ["b", "第二个"]]);
+        const menu = view.findAllComponents({name: "DropdownMenu"}).find((item) => (item.props("items") as {id: string}[]).some((entry) => entry.id === "toggle-view-mode"))!;
+        expect((menu.props("items") as {id: string; label: string}[]).map((entry) => entry.id).slice(-3)).toEqual(["header:d", "header:c", "toggle-view-mode"]);
+        await view.get("[data-header-action='a']").trigger("click");
+        menu.vm.$emit("select", "header:c");
+        expect(view.emitted("action")).toEqual([[{type: "lab:a"}], [{type: "lab:c"}]]);
+        view.unmount();
+    });
+});

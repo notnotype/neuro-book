@@ -488,3 +488,19 @@ describe("压缩（runtime.md 输出 46–52，t11）", () => {
         expect(live.run().kind).toBeNull();
     });
 });
+
+describe("回复出自哪次请求", () => {
+    test("真发给模型的回复带上请求序号；拦截层不调 next、直接交回的回复没有", async () => {
+        const direct = defineExtension({id: "lab.direct", intercept: {model: async (request, next) => {
+            const last = request.messages.at(-1)?.content[0];
+            if (last?.kind === "text" && last.text.includes("直接")) return {content: [{kind: "text", text: "拦截层的回答"}], toolCalls: [], stopReason: "stop", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: "lab/direct"};
+            return next(request);
+        }}});
+        await using session = await createTestSession({extensions: [direct]});
+        session.model.script("模型的回答");
+        await session.say("问模型");
+        await session.say("直接回答");
+        const replies = assistants((await rebuilt(session.raw)).messages());
+        expect(replies.map((reply) => [reply.text, reply.request])).toEqual([["模型的回答", 1], ["拦截层的回答", undefined]]);
+    });
+});

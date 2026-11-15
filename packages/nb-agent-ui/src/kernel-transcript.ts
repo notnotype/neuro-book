@@ -296,7 +296,10 @@ export function createKernelTranscript(options: {readonly toolName?: (id: string
             return [{id: call.id, name: toolName(call.tool), status: "running", args: toJsonValue(call.args ?? {})}];
         });
         const view = usageView(data.usage);
-        return {kind: "assistant", id, timestamp, status, text, thinking, model: stringField(data, "model") ?? "", toolCalls, contentOmitted: false, ...(view === null ? {} : {usage: view})};
+        // 只有记过 `modelStarted` 的序号才是真发出去的请求（拦截层直接交回的回复也带序号，但没有请求）。
+        const request = numberField(data, "request");
+        const sent = request !== null && purposes.has(request);
+        return {kind: "assistant", id, timestamp, status, text, thinking, model: stringField(data, "model") ?? "", toolCalls, contentOmitted: false, ...(view === null ? {} : {usage: view}), ...(sent ? {request} : {})};
     };
 
     const contextOf = (data: JsonRecord): void => {

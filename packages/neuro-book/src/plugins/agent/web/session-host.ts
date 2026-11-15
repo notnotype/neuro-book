@@ -34,6 +34,7 @@ import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogIte
 import type {AncestorItem, JobItem, TreeItem} from "../shared/subagents";
 import {agentText} from "../shared/text";
 import type {SubagentStore} from "./subagent-store";
+import {OPEN_REQUEST_ACTION, OPEN_REQUESTS_ACTION} from "./request-entries";
 
 type SessionsRemote = RemoteClient<typeof agentSessionsContract>;
 
@@ -168,6 +169,8 @@ export interface SessionHostDeps {
     readonly profiles: () => readonly ProfileEntry[];
     readonly copy: (text: string) => void;
     readonly openSettings: () => void;
+    /** 打开“模型请求”页，只看这个会话；带 `request` 时选中那一次（request-trace.md 的入口）。 */
+    readonly openRequests: (target: {readonly sessionId: string; readonly request?: number}) => void;
     readonly openAddress: (address: string) => void;
     readonly openLink: (href: string) => void;
     /** Skill（skills.md 输出 26–28）：`$` 菜单选中之后的事、点开标签的地址；`profile` 是当前会话的 Profile。 */
@@ -1297,6 +1300,12 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
 
     async function run(action: AgentViewAction): Promise<void> {
         const target = current;
+        // 本插件登记在注册表里的入口（`request-entries.ts`）：补上当前会话再交出去。
+        if (action.type === OPEN_REQUESTS_ACTION || action.type === OPEN_REQUEST_ACTION) {
+            const request = (action.payload as {request?: unknown} | null | undefined)?.request;
+            if (target !== null) deps.openRequests({sessionId: target.id, ...(typeof request === "number" ? {request} : {})});
+            return;
+        }
         switch (action.type) {
             case "composer.draftChanged":
                 draftText = action.text;

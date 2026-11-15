@@ -60,6 +60,7 @@ import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
 import {createSessionList} from "./session-list";
 import {RequestsPage, useRequests} from "./requests-page";
+import {requestEntriesContribution} from "./request-entries";
 
 export const CONVERSATION_VIEW = "nbook.agent.conversation";
 export const SESSIONS_VIEW = "nbook.agent.sessions";
@@ -331,6 +332,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     profiles: () => profiles.value,
                     copy: (value) => void browser.navigator?.clipboard?.writeText(value),
                     openSettings: () => void commands.execute(OPEN_SETTINGS_COMMAND),
+                    openRequests: (target) => void commands.execute(OPEN_REQUESTS_COMMAND, target),
                     openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),
                     skills: {
@@ -407,7 +409,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution} = await vueOnce();
                 const markdown = await context.services.resolve(markdownKey);
                 const components = markdown.status === "resolved" ? markdown.instance.components : null;
-                const registry = createAgentViewRegistry([...builtinContributions, subagentContribution({card: SubagentCard})]);
+                const registry = createAgentViewRegistry([...builtinContributions, subagentContribution({card: SubagentCard}), requestEntriesContribution]);
                 const renderers = {
                     form: markRaw(AgentFormRenderer),
                     backgroundCommand: markRaw(BackgroundCommandCard),
