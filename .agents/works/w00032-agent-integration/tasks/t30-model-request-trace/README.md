@@ -58,6 +58,14 @@ updated: 2026-11-15
 - 多了 `find(session, request)`：给“查看这次请求”和命令的 `request` 参数用。
 - 后台标题会话的所属不扫会话表，而是对记录里出现过的会话正向算 `titleSessionId`：标题会话第一次发请求之前，它所属的会话已经发过那一轮的请求。按会话筛选与清空都连同它的后台请求。
 
+切片 3 已提交（`54953aa90`、`c2388b61b`、`da143824c`）：nb-agent-ui 核心 `request-trace.ts`（视图类型、分组、新记录进不进筛选、数值写法，契约测试用真实记录器）、受管组件 `AgentRequestTrace`（筛选条、分组列表、概览与五页详情、全文与请求体按需要取、窄时单栏）、应用的 `web/requests-page.ts`、编辑区页面 `nbook.agent.requests` 与命令 `nbook.agent.open-requests`、Lab 场景九个。验证：nb-agent-ui 测试 254 加 140 过、两份 typecheck 过；应用 typecheck 过，`src/plugins/agent` 与根上几份测试 480 过、Lab 场景登记门禁过；`nbdev shot` 在 1280 宽与手机画布上截了五个场景，越界、被裁的焦点环与外扩环都是 0；`governance:check`、`docs:check` 无新警告。实施中的改动：
+
+- OMP 的 `usage.input` 不含读到与写入缓存的部分：记录器的输入合计、按输入排序与界面的“输入”、缓存命中率都按三部分相加的全部输入算（`54953aa90`）。
+- 查看器的 `contents` 是按哈希的普通对象，不是 `Map`：Lab 场景的输入要能 JSON 往返，远程交来的也是对象。
+- `locales.test.ts` 的旧表冻结，新键只核对中英两份的键与占位符（计划原排在切片 5，加目录键时就要改，提前做了）。
+
+留给后面切片：输出 13 的“页面新开时从全部开始”（状态仓现在一直保留筛选）、输出 15 的“列表在顶部”判断与非时间排序以外的提示条、输出 23 的迟滞与滚动位置保留；开发服务里接本机端点的真实页面检查由切片 4 的 e2e 覆盖。
+
 ## 下一步
 
-1. 切片 3：nb-agent-ui 核心的映射与分组、列表与详情的最小页面、应用的状态仓、编辑区页面与命令入口。
+1. 切片 4：`search` 与命中位置、查找条、消息页的大纲与相同前缀、和上一次比较、顶栏动作与回复的入口、`AssistantMessageView.request`；e2e `agent-request-trace.e2e.ts` 的场景 1、2、4、6。
