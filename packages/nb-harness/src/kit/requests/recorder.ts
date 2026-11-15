@@ -14,7 +14,7 @@ import type {JsonValue, ModelCallMeta, ModelRequest, ModelResponse, ModelWireAtt
 import {blockOutline, messageOutline, previewOf, replyOutline, toolOutline} from "./outline.js";
 import {maskHeaders, maskUrl, sha256, stripBlocks, stripMessage, stripPayloadImages} from "./sanitize.js";
 import {dayOf, FORMAT_VERSION, isRecordId, RequestFiles} from "./store.js";
-import {occurrences, searchablePieces} from "./search.js";
+import {findMatches, searchablePieces} from "./search.js";
 import type {BlockOutline, MessageOutline, PayloadState, RequestAttempt, RequestChange, RequestDetail, RequestHit, RequestMatch, RequestPage, RequestQuery, RequestRow, RequestSearchPage, RequestStatus, RequestUsage, ToolOutline} from "./types.js";
 
 /** 设置在每次请求开始时读（Spec 的设置表）：改了从下一次请求生效。 */
@@ -220,6 +220,10 @@ function sortKey(entry: Entry, sort: NonNullable<RequestQuery["sort"]>): SortKey
     return [value, row.startedAt, entry.start.seq];
 }
 
+function charsOf(pieces: readonly string[]): number {
+    return pieces.reduce((sum, piece) => sum + piece.length, 0);
+}
+
 /** 负数表示 `a` 排在前面。 */
 function compareKeys(a: SortKey, b: SortKey): number {
     if (a[0] !== b[0]) {
@@ -298,8 +302,8 @@ export class RequestRecorder {
     /** 冻结的内容对象（内核的提交缓存跨请求是同一个对象）的哈希：每次请求只序列化新出现的内容。 */
     readonly #contentHashes = new WeakMap<object, string>();
     readonly #outlines = new Map<string, Outlines[keyof Outlines]>();
-    /** 查找用的文字（`searchablePieces` 用换行连起来），按内容哈希。 */
-    readonly #searchTexts = new Map<string, string>();
+    /** 查找用的几段文字（`searchablePieces`），按内容哈希。 */
+    readonly #searchTexts = new Map<string, readonly string[]>();
     #searchChars = 0;
     readonly #listeners = new Set<(change: RequestChange) => void>();
 
@@ -444,11 +448,14 @@ export class RequestRecorder {
         const from = after === null ? 0 : keyed.findIndex((item) => compareKeys(item.key, after) > 0);
         const rows: (RequestRow & {readonly match: RequestMatch})[] = [];
         const seq = this.#committed;
+        const {signal} = options;
+        // 中止的查找一条也不扫；时间上限只在扫过一段之后才看，每次至少往前走一段，接着查的游标总在前进。
+        signal?.throwIfAborted();
         let index = from < 0 ? keyed.length : from;
         for (; index < keyed.length; index += 1) {
             if ((index - from) % SEARCH_SLICE === 0 && index !== from) {
                 await new Promise<void>((resolve) => setImmediate(resolve));
-                if (options.signal?.aborted === true) throw options.signal.reason;
+                signal?.throwIfAborted();
                 if (Date.now() - started >= budget) break;
             }
             const {entry} = keyed[index]!;
@@ -471,7 +478,7 @@ export class RequestRecorder {
         if (entry === undefined) return null;
         const hits: RequestHit[] = [];
         for (const item of this.#searchItems(entry)) {
-            const count = occurrences([await this.#searchText(item)], text).length;
+            const count = (await this.#searchText(item)).reduce((sum, piece) => sum + findMatches(piece, text).length, 0);
             for (let ordinal = 0; ordinal < count; ordinal += 1) hits.push({page: item.page, item: item.item, ordinal});
         }
         return hits;
@@ -489,28 +496,28 @@ export class RequestRecorder {
         ];
     }
 
-    /** 一条要查的文字（与查看器显示的相同），按哈希缓存。内容已经清掉时当作空的。 */
-    async #searchText(item: {readonly hash?: string; readonly text?: string}): Promise<string> {
-        if (item.hash === undefined) return item.text ?? "";
+    /** 一条要查的几段文字（与查看器显示的相同），按哈希缓存。内容已经清掉时当作空的。 */
+    async #searchText(item: {readonly hash?: string; readonly text?: string}): Promise<readonly string[]> {
+        if (item.hash === undefined) return item.text === undefined ? [] : [item.text];
         const cached = this.#searchTexts.get(item.hash);
         if (cached !== undefined) return cached;
         const raw = await this.#files.readBlob(item.hash);
-        let text = "";
+        let pieces: readonly string[] = [];
         if (raw !== null) {
             try {
-                text = searchablePieces(JSON.parse(raw)).join("\n");
+                pieces = searchablePieces(JSON.parse(raw));
             } catch (error) {
                 this.#options.report("requests.unreadable", `Recorded content is damaged: ${errorText(error)}`, {hash: item.hash});
             }
         }
-        this.#searchTexts.set(item.hash, text);
-        this.#searchChars += text.length;
+        this.#searchTexts.set(item.hash, pieces);
+        this.#searchChars += charsOf(pieces);
         for (const [hash, value] of this.#searchTexts) {
             if (this.#searchChars <= SEARCH_CACHE_CHARS) break;
             this.#searchTexts.delete(hash);
-            this.#searchChars -= value.length;
+            this.#searchChars -= charsOf(value);
         }
-        return text;
+        return pieces;
     }
 
     async #matchOf(entry: Entry, text: string): Promise<RequestMatch | null> {
@@ -518,14 +525,15 @@ export class RequestRecorder {
         let first: RequestMatch["first"] | null = null;
         let count = 0;
         for (const item of this.#searchItems(entry)) {
-            const content = await this.#searchText(item);
-            const found = occurrences([content], text);
-            if (found.length === 0) continue;
-            pages[item.page] += found.length;
-            count += found.length;
-            if (first === null) {
-                const at = found[0]!;
-                first = {page: item.page, item: item.item, ordinal: 0, before: content.slice(Math.max(0, at - SNIPPET_BEFORE), at), text: content.slice(at, at + text.length), after: content.slice(at + text.length, at + text.length + SNIPPET_AFTER)};
+            for (const piece of await this.#searchText(item)) {
+                const found = findMatches(piece, text);
+                if (found.length === 0) continue;
+                pages[item.page] += found.length;
+                count += found.length;
+                if (first === null) {
+                    const {start, end} = found[0]!;
+                    first = {page: item.page, item: item.item, ordinal: 0, before: piece.slice(Math.max(0, start - SNIPPET_BEFORE), start), text: piece.slice(start, end), after: piece.slice(end, end + SNIPPET_AFTER)};
+                }
             }
         }
         return first === null ? null : {count, pages, first};

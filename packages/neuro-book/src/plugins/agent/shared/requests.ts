@@ -49,7 +49,10 @@ export type RequestDetailView = Omit<RequestDetail, "messages"> & RowContext & {
     readonly messagesNext: number | null;
 };
 
-/** `removed` 的 id 很多时（清理、清空）拆成几条同一序号的事件，每条放得进一条消息。 */
+/**
+ * `removed` 的 id 很多时（清理、清空）拆成几条同一序号的事件，每条放得进一条消息。按序号丢旧事件时，`removed` 要收下与已收到的
+ * 序号相等的（同一次删除的后几段）；同一批 id 删两遍不会有别的影响。
+ */
 export type RequestChangeView =
     | {readonly seq: number; readonly kind: "added" | "settled"; readonly row: RequestRowView}
     | {readonly seq: number; readonly kind: "removed"; readonly ids: readonly string[]};

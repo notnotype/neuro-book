@@ -41,9 +41,10 @@ const DAY = 24 * 60 * 60 * 1000;
 let commands = 0;
 const cid = () => `c-${String((commands += 1))}`;
 
-async function world(userSettings: Record<string, unknown> = {}): Promise<AgentWorld> {
+/** `at` 是已有的目录（重启）。 */
+async function world(userSettings: Record<string, unknown> = {}, at?: string): Promise<AgentWorld> {
     counter += 1;
-    const created = await agentWorld(join(root, `w${String(counter)}`), {userSettings: {...localModelSettings(endpoint.baseUrl), ...userSettings}});
+    const created = await agentWorld(at ?? join(root, `w${String(counter)}`), {userSettings: {...localModelSettings(endpoint.baseUrl), ...userSettings}});
     worlds.push(created);
     return created;
 }
@@ -123,6 +124,25 @@ describe("记录", () => {
         // 会话的候选里，标题会话的条数并进它所属的会话；清空这个会话连它的后台请求一起。
         expect(ok(await requests.list({})).facets.sessions).toEqual([{id, count: 3, title: "雨夜"}]);
         expect(ok(await requests.clear({session: id})).removed).toBe(3);
+        // 上面读过的全文与请求体，清空之后不再读得到（远程层留着的那份也作废）。
+        expect(await requests.content({hash: second.messages[0]?.hash ?? "", index: 0})).toMatchObject({ok: false, code: "content-not-found"});
+        expect(await requests.payload({id: own[0]?.id ?? "", index: 0})).toMatchObject({ok: false, code: "payload-not-found"});
+    });
+
+    test("输出 14：重启之后，记录里已有的后台标题会话的请求照样归到所属的会话", async () => {
+        const w = await world(withTitles());
+        endpoint.script("好的。", {tool: "yield", args: {title: "雨夜", description: "说明"}});
+        const id = (await (await say(w, "开个头")).snapshot()).header.id;
+        const {requests} = await w.window("before");
+        await waitUntil("标题会话的请求结束", async () => ok(await requests.list({})).rows.filter((row) => row.status !== "running").length === 2);
+        await w.close();
+        worlds.splice(worlds.indexOf(w), 1);
+
+        const again = await world({}, join(w.stateRoot, ".."));
+        const reopened = (await again.window("after")).requests;
+        // 所属是打开记录目录之后从记录里出现过的会话补登记的：等它补完。
+        await waitUntil("标题会话的请求归到所属的会话", async () => ok(await reopened.list({})).rows.find((row) => row.session === titleSessionId(id))?.background?.owner === id);
+        expect(ok(await reopened.list({})).facets.sessions.map((facet) => facet.id)).toEqual([id]);
     });
 
     test("输出 10：关掉记录时请求照常，不记", async () => {

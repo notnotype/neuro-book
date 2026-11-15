@@ -542,6 +542,21 @@ describe("查找（输出 17、20）", () => {
         expect((await r.recorder.search("讲讲", {purposes: ["compaction"]})).rows).toEqual([]);
     });
 
+    test("一段一段地查、不跨段；小写后变长的字符不让命中与前后的字错位", async () => {
+        const r = await rig();
+        const port = traceModelPort(portOf(answering()), r.recorder);
+        const origin = {kind: "fixed", by: "kernel"} as const;
+        await send(port, request([{role: "user", content: [{kind: "text", text: "İstanbul 的雾灯", origin}, {kind: "text", text: "第二段", origin}]}]), meta(1));
+        await settled(r, 1);
+
+        const [row] = (await r.recorder.search("雾灯")).rows;
+        expect(row?.match.first).toMatchObject({before: "İstanbul 的", text: "雾灯", after: ""});
+        expect((await r.recorder.search("STANBUL")).rows[0]?.match.first).toMatchObject({before: "İ", text: "stanbul"});
+        // 查看器按段高亮，跨两段的词在那边没处标，这里也不算命中。
+        expect((await r.recorder.search("雾灯\n第二")).rows).toEqual([]);
+        expect(await r.recorder.hits(row?.id ?? "", "雾灯\n第二")).toEqual([]);
+    });
+
     test("留满上限就停，交回 truncated 与接着扫的游标；中止时失败", async () => {
         const r = await rig();
         const port = traceModelPort(portOf(answering("雾港")), r.recorder);
@@ -551,11 +566,9 @@ describe("查找（输出 17、20）", () => {
         expect([page.rows.map((row) => row.request), page.truncated]).toEqual([[3, 2], true]);
         const rest = await r.recorder.search("雾港", {...(page.next === undefined ? {} : {cursor: page.next})}, {maxRows: 2});
         expect([rest.rows.map((row) => row.request), rest.truncated]).toEqual([[1], false]);
+        // 已经中止的查找一条也不扫。
         const controller = new AbortController();
         controller.abort(new Error("superseded"));
-        // 中止只在两段之间生效：扫的条数要多于一段。
-        for (let number = 4; number < 30; number += 1) await send(port, request([user(`第 ${String(number)} 次`)]), meta(number));
-        await settled(r, 29);
         await expect(r.recorder.search("雾港", {}, {signal: controller.signal})).rejects.toThrow("superseded");
     });
 });

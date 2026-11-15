@@ -3,6 +3,7 @@
  *
  * 和 nb-agent-ui 的 `contentPieces`（查看器展开一行时显示的）逐字相同：列表上的处数、详情查找条的总数与高亮的位置都按它算，
  * 两边不一致就会对不上。nb-agent-ui 的 `request-trace.contract.test.ts` 用真实记录核对两边的处数一致。图片不进查找（只有类型与大小）。
+ * 每段各自查（`findMatches`），不把几段连起来查。
  */
 
 /** 一段内容里要查的几段文字，按查看器显示的先后。 */
@@ -20,12 +21,46 @@ export function searchablePieces(value: unknown): string[] {
     return pieces;
 }
 
-/** 不分大小写的处数与每处的偏移（在 `pieces` 用换行连起来的文字里）。查找词为空时没有命中。 */
-export function occurrences(pieces: readonly string[], needle: string): number[] {
-    const target = needle.toLowerCase();
+/** 一处命中在原文里的起止（UTF-16 下标，`end` 不含）。 */
+export interface TextMatch {
+    readonly start: number;
+    readonly end: number;
+}
+
+/**
+ * 不分大小写地找出 `needle` 在一段文字里的每一处（从前往后、不重叠），交回原文里的起止。查找词为空时没有命中。
+ * 一段一段地找、不跨段：查看器按段高亮，跨段的命中在那边没处标。nb-agent-ui 的 `highlightSegments` 用同样的规则，两边的处数才对得上。
+ */
+export function findMatches(text: string, needle: string): TextMatch[] {
+    const target = foldCase(needle).folded;
     if (target === "") return [];
-    const haystack = pieces.join("\n").toLowerCase();
-    const found: number[] = [];
-    for (let at = haystack.indexOf(target); at >= 0; at = haystack.indexOf(target, at + target.length)) found.push(at);
+    const {folded, starts, ends} = foldCase(text);
+    const found: TextMatch[] = [];
+    for (let at = folded.indexOf(target); at >= 0; at = folded.indexOf(target, at + target.length)) {
+        found.push(starts === null || ends === null ? {start: at, end: at + target.length} : {start: starts[at]!, end: ends[at + target.length - 1]!});
+    }
     return found;
+}
+
+/**
+ * 转成小写，用来不分大小写地比较。少数字符变成小写后变长（例如 `İ` 变成 `i` 加一个附加点），折叠后的下标就不再是原文的下标：
+ * 这时逐个字符折叠，记下折叠后的每一位来自原文的哪个字符（`starts` 是它的起点，`ends` 是它的终点）；长度不变时两者为 null，下标相同。
+ */
+function foldCase(text: string): {readonly folded: string; readonly starts: number[] | null; readonly ends: number[] | null} {
+    const lower = text.toLowerCase();
+    if (lower.length === text.length) return {folded: lower, starts: null, ends: null};
+    let folded = "";
+    const starts: number[] = [];
+    const ends: number[] = [];
+    for (let index = 0; index < text.length;) {
+        const width = text.codePointAt(index)! > 0xffff ? 2 : 1;
+        const piece = text.slice(index, index + width).toLowerCase();
+        for (let offset = 0; offset < piece.length; offset += 1) {
+            starts.push(index);
+            ends.push(index + width);
+        }
+        folded += piece;
+        index += width;
+    }
+    return {folded, starts, ends};
 }

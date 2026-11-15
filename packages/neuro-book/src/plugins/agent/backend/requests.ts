@@ -59,6 +59,8 @@ export interface RequestsRemoteOptions {
 /** 小的最近使用缓存：按键记住最近几段全文。 */
 class RecentTexts {
     readonly #items = new Map<string, string>();
+    /** `forget` 一次加一：读到一半时被清掉的，读回来也不放进缓存。 */
+    #generation = 0;
 
     async get(key: string, load: () => Promise<string | null>): Promise<string | null> {
         const known = this.#items.get(key);
@@ -67,18 +69,42 @@ class RecentTexts {
             this.#items.set(key, known);
             return known;
         }
+        const generation = this.#generation;
         const text = await load();
-        if (text === null) return null;
+        if (text === null || generation !== this.#generation) return text;
         this.#items.set(key, text);
         if (this.#items.size > TEXT_CACHE) this.#items.delete(this.#items.keys().next().value as string);
         return text;
     }
+
+    forget(): void {
+        this.#generation += 1;
+        this.#items.clear();
+    }
+}
+
+/**
+ * 分段读的缓存，每个记录器一份、几个连接共用。有记录被删（清空、按天清理）时整份丢掉：清掉的正文与请求体不能再从这里读出来
+ * （Spec 输出 25）。只订阅一次，跟着记录器走。
+ */
+const textCaches = new WeakMap<RequestRecorder, {readonly contents: RecentTexts; readonly payloads: RecentTexts}>();
+
+function textCachesOf(recorder: RequestRecorder): {readonly contents: RecentTexts; readonly payloads: RecentTexts} {
+    const known = textCaches.get(recorder);
+    if (known !== undefined) return known;
+    const caches = {contents: new RecentTexts(), payloads: new RecentTexts()};
+    recorder.onChange((change) => {
+        if (change.kind !== "removed") return;
+        caches.contents.forget();
+        caches.payloads.forget();
+    });
+    textCaches.set(recorder, caches);
+    return caches;
 }
 
 export function requestsRemote(options: RequestsRemoteOptions): RemoteImplementation<typeof agentRequestsContract> {
     const {recorder, owners, titles} = options;
-    const contents = new RecentTexts();
-    const payloads = new RecentTexts();
+    const {contents, payloads} = textCachesOf(recorder);
 
     const contextOf = (session: string): RowContext => {
         const owner = owners.ownerOf(session);
