@@ -82,6 +82,34 @@ const failedDetail: RequestTraceDetail = {
     attemptList: [0, 1, 2].map((index) => ({url: "https://api.deepseek.com/chat/completions", startedAt: at(10, 26, 5 + index * 2), endedAt: at(10, 26, 6 + index * 2), status: 429, responseHeaders: {"retry-after": "2", "x-ratelimit-remaining-requests": "0"}})),
 };
 
+// 查找“林照”：两次请求有命中；选中的那次四条消息各一处，全文都取回了，查找条定位到第一处。
+const searchRows: RequestTraceRow[] = [
+    {...rows[2]!, match: {count: 6, pages: {messages: 6, system: 0, tools: 0, error: 0}, first: {page: "messages", item: 0, ordinal: 0, before: "人物小传：", text: "林照", after: "，二十三岁，师范学院毕业，在雾港教书"}}},
+    {...rows[5]!, match: {count: 4, pages: {messages: 4, system: 0, tools: 0, error: 0}, first: {page: "messages", item: 0, ordinal: 0, before: "检查", text: "林照", after: "在第一、三、五章里的年龄是否一致"}}},
+];
+const searchContents = {
+    ...contents,
+    "m-1": {state: "ready" as const, text: JSON.stringify({role: "user", content: [{kind: "text", text: "检查林照在第一、三、五章里的年龄是否一致"}]})},
+    "m-2": {state: "ready" as const, text: JSON.stringify({role: "assistant", content: [{kind: "text", text: "先读三章里提到林照的段落。"}], toolCalls: [{id: "c-1", tool: "builtin.read", args: {path: "正文/第一章.md"}}, {id: "c-2", tool: "builtin.read", args: {path: "正文/第三章.md"}}]})},
+    "m-4": {state: "ready" as const, text: JSON.stringify({role: "tool", callId: "c-2", content: [{kind: "text", text: "第三章 · 第 40 行：二十五岁的林照站在码头上，望着雾里的灯。"}]})},
+};
+const searchHits = [0, 1, 2, 3].map((item) => ({page: "messages" as const, item, ordinal: 0}));
+
+// 比较页拿来比的前一次：同样的系统提示词，少一个工具，消息只有前两条。
+const {previous: _previous, ...detailOwn} = detail;
+const earlierDetail: RequestTraceDetail = {
+    ...detailOwn,
+    id: "r-earlier",
+    request: 5,
+    hash: "c41d2a9b07e3",
+    startedAt: at(10, 24, 30),
+    endedAt: at(10, 24, 58),
+    usage: usage(4_200, 35_100, 96, 0.0024),
+    messages: detail.messages.slice(0, 2),
+    tools: detail.tools.slice(0, 2),
+    reply: detail.messages[1]!,
+};
+
 type Scene = LabFixtureDefinition<typeof AgentRequestTrace>["scenes"][number];
 
 /** 筛选是 `query` 加 `update:query`：放在场景的 model 里，Lab 把改动写回。 */
@@ -96,5 +124,10 @@ export const agentRequestTraceScenes: Scene[] = [
     {id: "missing", label: "命令要的那次请求没有记录", input: {props: {...base, selected: null, detail: {state: "missing" as const}}, model: all}},
     {id: "empty", label: "还没有模型请求", input: {props: {...base, rows: [], totals: {count: 0, input: 0, cacheRead: 0, cost: null}, selected: null, detail: {state: "idle" as const}}, model: all}},
     {id: "disabled", label: "记录关着、没有记录", input: {props: {...base, rows: [], totals: {count: 0, input: 0, cacheRead: 0, cost: null}, selected: null, detail: {state: "idle" as const}, enabled: false}, model: all}},
+    {id: "search", label: "查找“林照”：列表换成命中的请求与片段，没扫完带“接着查”；详情上是查找条，展开第一处", input: {props: {...base, rows: searchRows, contents: searchContents, searchState: {state: "done" as const, truncated: true}, hits: searchHits}, model: {...all, search: "林照"}}},
+    {id: "searching", label: "正在查找，还一条没找到", input: {props: {...base, rows: [], list: {state: "loading" as const, more: false}, searchState: {state: "searching" as const, truncated: false}, hits: null}, model: {...all, search: "林照"}}},
+    {id: "list-error", label: "列表读不出", input: {props: {...base, rows: [], list: {state: "error" as const, more: false}, selected: null, detail: {state: "idle" as const}}, model: all}},
+    {id: "pending", label: "列表不在顶上时来了 3 条新请求", input: {props: {...base, pending: 3}, model: all}},
+    {id: "compare", label: "和前一次比较（点“和上一次比较”页签）：多了一个工具、两条消息", input: {props: {...base, compare: {base: "r-earlier", detail: {state: "ready" as const, value: earlierDetail}}}, model: all}},
     {id: "english", label: "English", input: {props: {...base, locale: "en-US" as const}, model: all}},
 ];
