@@ -73,7 +73,7 @@ owners:
 快照包含恢复所需的稳定引用、结构和用户分配意图，不包含组件实例、DOM、运行代次或存储句柄。
 运行期约束来自当前宿主；旧快照中的 min/max 不能覆盖新版宿主约束。
 两轴格式的版本与兼容迁移在对应原语实现切片中固定，升级必须保留旧原件；主侧栏的简单尺寸记录不直接依赖整棵树序列化格式。
-- 原始baseline在当前bounds内逐兄弟夹取，再按两侧目标总量补偿，整体守恒；显式折叠只改目标兄弟collapsed，其他保持原状态。收起结束不把0/32写成展开意图，主动合法展开尺寸可更新意图。
+- 上一帧解出的尺寸（首帧是原始baseline）在当前bounds内逐兄弟夹取，再按两侧目标总量由近到远补偿，整体守恒：掉头往回拖时先动挨着sash的叶，已被推开的兄弟留在被推到的地方，和拖一段松手再拖一样；边界位置与收起状态仍只看原始baseline与累计delta。显式折叠只改目标兄弟collapsed，其他保持原状态。收起结束不把0/32写成展开意图，主动合法展开尺寸可更新意图。
 - `useLayoutExtent`共享clientWidth/clientHeight与ResizeObserver，null表示未挂载、0是真实零；Grid承载盒无padding/border。命中用client rect，pointer delta按冻结的根rect/layout比例转换CSS布局px，不乘DPR；中途scale/extent/结构/context变化取消。
 - `useGridLayout`消费grid/extent/contextKey，发布node/layout/revision，结构API后invalidate；同步验证手势后一次resizeBranches，成功再onApplied。通知异常只报issues不反悔几何，自身提交不造成preview自取消；缺grid/extent不接受commit。原语不创建业务树、不保存。
 - `resolveGridInsertion`按显式轴/给定成员顺序计算beforeId与指示线；`resolveGridEdgeDrop`保持Editor20%边缘与left/right优先。非有限/零矩形/越界拒绝，不引入DOM/dnd-kit依赖。
@@ -120,7 +120,7 @@ nb-layout 拥有领域无关的类型、算法和交互边界；主应用/插件
 
 ## 证据
 
-- 批准依据：“分支的收起”为[视图容器提案](../../proposals/workbench-view-containers.md)第 1 节（开发者 2026-11-10 接受）。
+- 批准依据：“分支的收起”为[视图容器提案](../../proposals/workbench-view-containers.md)第 1 节（开发者 2026-11-10 接受）；拖动中兄弟之间的分配接着上一帧（往回拖时被推开的兄弟不回来）为开发者 2026-11-15 的决定（w00026 t25）。
 - 2026-09-16 开发者在计划审查后回复“可以，优化补充”，同意纳入最小嵌套验证及必要原语修复。
 - [ADR 0021](../../../packages/neuro-book-legacy/docs/adr/0021-local-storage-persistence.md)。
 - [审查记录](../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t21-storage-design-review/walkthroughs/002-plan-completion.md) 包含旧实现的内存探针结果，不是本目标已实现证据。
