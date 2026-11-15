@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t04-desktop-settings
-status: planned
-updated: 2026-11-13
+status: active
+updated: 2026-11-15
 ---
 
 # 桌面端专属设置：机制、界面缩放、开机自启
@@ -15,8 +15,8 @@ updated: 2026-11-13
 
 ## 当前状态
 
-2026-11-13 经 nbdev 新建，尚未开工。
+2026-11-15：计划 r1 写成（[plan.md](plan.md)）。设计审查要等 t03 的 omp 实现审查跑完（同一时间只跑一个 omp）。
 
 ## 下一步
 
-待补充。
+设计审查（omp 审整体与壳，Sonnet 审设置窗口与插件的前端部分），处理后按切片实施。
