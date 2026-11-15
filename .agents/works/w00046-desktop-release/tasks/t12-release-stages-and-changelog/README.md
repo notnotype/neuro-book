@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t12-release-stages-and-changelog
-status: active
+status: done
 updated: 2026-11-15
 ---
 
@@ -35,8 +35,8 @@ updated: 2026-11-15
 - 本机渲染了下一次演练会生成的 0.13.0 说明与一份 0.13.1 样例。
 - 与计划的出入：ADR 0053 写成“补充” 0029 决定 5 与 0051 决定 7，不是部分取代（第一个稳定版之前 npm 仍只发 `latest`，0029 没有被推翻的部分）；根 `AGENTS.md` 没改（主工作区有开发者没提交的改动），它的“发布操作”一行指向 `repository-workflow.md`，那里链到发布手册；改变更记录的规则写进 `packages/AGENTS.md`。
 
-实现审查第 1 轮（omp）进行中。
+2026-11-15：实现审查第 1 轮（omp）4 条（重要 3、建议 1），都成立已改（[报告](evidences/impl-review-r1-omp.txt)、[处理](evidences/impl-review-r1-omp-disposition.txt)）：发版脚本的“上一版”改为与门禁同一来源（GitHub 上有安装包的）、写入之后失败就还原、源码包不许降版本、变更记录的版本段要从新到旧。两处 IO 改动在一次性克隆里真实运行验过。变基后快进合入 master（`159fd4cca`）。
 
 ## 下一步
 
-处理实现审查，合入 master。推 master 之后（要开发者授权）在 Actions 上演练一次：门禁输出阶段并生成说明、桌面冻结的改名与两个冒烟。
+推 master 之后（要开发者授权）在 Actions 上演练一次：门禁输出阶段并生成说明（看作业摘要）、桌面冻结的改名与安装版、便携版冒烟。草稿的标题与正文、`upgrade-from-previous` 认旧安装包名，到下一个标签第一次真正用上。

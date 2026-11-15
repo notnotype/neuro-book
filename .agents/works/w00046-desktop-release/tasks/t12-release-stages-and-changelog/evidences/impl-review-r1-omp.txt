@@ -1,0 +1,49 @@
+### 1. `prepare` 的 previous 基准不是门禁定义的上一版桌面 Release
+- 严重程度：重要
+- 类别：正确性 / 不变量
+- 位置：`scripts/release/prepare.ts:127-129`；对照 `scripts/release/github-release.ts:116-122`
+- 现象：`collectState` 从本地 `v*` 标签中取低于目标版本的最高稳定标签；门禁的 `previousDesktopRelease` 则只取 GitHub 上公开、非预发布、带 Setup 资产的最高标签。两者不是同一个集合。
+- 为什么是问题：如果某个标签已推送但桌面构建或 Release 失败、没有安装包，下一次 `release:prepare` 会把它当 previous。源码包版本变化会按这个未发布标签比较，从而漏掉相对上一版真实桌面 Release 的提版，错误地跳过 CHANGELOG 定稿；Release 说明随后又按 GitHub 的 previous 判断版本变化，准备提交与门禁的发布集合不一致。
+- 如何核实：在仓库外建立 `v0.13.0`（有桌面 Release）与 `v0.13.1`（只有 Git 标签、无桌面资产）的夹具，令目标为 `0.13.2`；`collectState` 的 `previousTag` 会是 `v0.13.1`，而工作流 `previous` 会是 `v0.13.0`。再让某源码包在两标签间提版且当前版本保持提版后的值，`preparePlan` 会走 `entry.version === entry.previousVersion` 分支而不定稿。
+- 建议改法：准备脚本复用门禁同一来源确定上一版桌面 Release，并把该标签作为显式状态输入；若本机脚本不能查询 GitHub，应在准备流程中明确要求传入并校验同一个 previous，而不是用“最高稳定 Git 标签”替代。
+### 2. 锁文件刷新失败会留下已经写入的版本与 CHANGELOG 半成品
+- 严重程度：重要
+- 类别：不变量 / 正确性
+- 位置：`scripts/release/prepare.ts:174-179`
+- 现象：脚本先把 `plan.writes` 全部写进工作区，再执行 `bun install --lockfile-only`。该命令失败时只打印“文件已写、没有提交”，直接返回；没有保存并恢复原文件，也没有隔离地生成锁文件。
+- 为什么是问题：计划合同要求所有检查通过后一次写入，且失败时“不写任何文件”。网络、依赖解析或 Bun 锁文件错误会让产品版本、阶段和部分或全部 CHANGELOG 已改、提交未生成；工作区随后又会被下一次运行的 dirty 门禁拒绝。若 Bun 已部分改写 `bun.lock`，状态还可能包含未完成的锁文件，手工按提示恢复容易漏文件。
+- 如何核实：在仓库外复制实现 worktree，令 `bun install --lockfile-only` 通过包装命令返回非零或制造不可解析的 workspace 依赖；运行等价的 prepare 主路径，检查 `packages/neuro-book/package.json`、`product.ts`、CHANGELOG 与 `bun.lock` 已发生变化而无 release commit。
+- 建议改法：把锁文件刷新放在临时副本或临时文件中，所有读检查与锁文件生成成功后再一次性替换目标文件；或者在写入前保存所有目标文件字节，任何刷新失败、重新解析失败、`git add/commit` 失败都恢复并明确报告恢复结果。失败路径不能只依赖人工 `git checkout`。
+### 3. 变更记录解析声称按新到旧，却不校验版本段顺序
+- 严重程度：建议
+- 类别：正确性 / 代码质量
+- 位置：`scripts/release/changelog.ts:57-75`
+- 现象：注释和发布手册把历史段定义为从新到旧，但 `parseChangelog` 只检查重复版本，不检查相邻版本是否递减；`## [0.13.0]` 后接 `## [0.14.0]` 会被接受，返回顺序仍是 `0.13.0,0.14.0`。
+- 为什么是问题：错误的手工定稿顺序会进入仓库且没有在 `release:prepare` 或门禁暴露。当前 Release 说明恰好重新排序，掩盖了数据格式损坏；后续按文件顺序查看、定稿或定位版本区间时会得到与手册不一致的记录。
+- 如何核实：在实现 worktree 执行 `bun -e 'import {parseChangelog} from "./scripts/release/changelog.ts"; ...'`，输入按 `0.13.0`、`0.14.0` 排列的两个版本段，命令输出 `0.13.0,0.14.0` 且不抛错。
+- 建议改法：解析版本段时比较相邻版本并拒绝递增；同时在 `changelog.test.ts` 固化该边界，避免 Release 说明的排序掩盖原文件错误。
+### 4. `prepare` 把源码包降级也当成“这次提版”
+- 严重程度：重要
+- 类别：正确性 / 不变量
+- 位置：`scripts/release/prepare.ts:87-102`
+- 现象：源码包是否需要定稿只判断 `entry.version === entry.previousVersion`；只要不相等就进入发布路径。没有检查当前版本是否严格高于 previous，也没有拒绝 `0.4.2 → 0.4.1` 这类降级。
+- 为什么是问题：ADR 0029 的源码包版本不能回退，准备提交却会先把降级版本的 `[Unreleased]` 定稿并提交，门禁的 Release 说明也只按“不相等”把它列为同时发布包。后续 npm 发布可能才因版本已存在失败，错误的 release commit 已经产生，且用户必须手工修复版本与变更记录。
+- 如何核实：调用导出的 `preparePlan`，把 `state().packages[0]` 改成 `{version: "0.4.1", previousVersion: "0.4.2", changelog: "## [Unreleased]..."}`；当前实现 `plan.problems` 为空并生成 `packages/nb-ui/CHANGELOG.md` 的 `[0.4.1]` 段。
+- 建议改法：对已有 previousVersion 的源码包要求 `compareVersions(entry.version, entry.previousVersion) > 0`，否则加入问题并保持 `writes` 为空；Release 说明生成也应把降级列为问题，避免只依赖后面的 npm 发布门禁。
+
+## 未发现问题的方面
+
+- `gate` 的 Release 说明生成位于 npm 与 GitHub 写入之前；`release-notes` 工件由 `gate` 上传，`github-release` 下载同一文件；正式发布与 `workflow_dispatch` 的分支条件和作业依赖在 actionlint 下通过。
+- `release-notes.ts` 的版本区间实现为 `(previous, version]`；previous 为空时只取目标版本、不列源码包和 compare 链接；`fetch-depth: 0` 与本地标签存在性检查覆盖了 `git show <previous>:packages/<包>/package.json` 的前提。实际 dry-run 生成了 v0.13.0 说明文件并以 0 退出。
+- `changelog.ts` 对 CRLF、续行、未知分类、分类外条目、重复版本和定稿后重新解析已有覆盖；`finalizeUnreleased` 只在首个 `## [Unreleased]` 处插入版本段，`mergeSections` 按较新段优先、条目文本去重并按分类顺序输出。
+- 安装包改名后的调用链一致：`REQUIRED_ASSETS`、`hasDesktopSetup`、`localAssetProblems`、`readLocalAssets`、`verify-update-feed.ts`、正式桌面冒烟与便携版调用均使用新合同；A′/B′ 仍保留 Hutch 原名，符合“不进 Release”的决定；上一版下载按 `*Setup.zip` 并通过 `GITHUB_ENV` 传递实际路径。
+- `sourceStage` 与当前 `product.ts` 写法一致；`check` 与演练的 `source` 都拒绝 stable，官方作业在 gate 失败后不会进入 B′，`bump-test` 本身仍只改测试版本，不改变发布阶段。
+- 已运行：`bunx vitest run --config scripts/vitest.config.ts scripts/release/`（退出码 0）；`bunx tsc -p scripts/tsconfig.json --noEmit`（退出码 0）；`actionlint -ignore 'unexpected key "queue"' .github/workflows/release.yml`（退出码 0）；`git diff 01a79675e..3bca6fd8b --check`（退出码 0）。审查 worktree 与实现 worktree 的 `git status --short` 均无输出。未运行 e2e、开发服务、`release:smoke`、`release:prepare`，符合任务限制。
+
+## 数量
+
+- 阻断：0 条。
+- 重要：3 条（1、2、4）。
+- 建议：1 条（3）。
+
+有效发现：1、2、3、4。
