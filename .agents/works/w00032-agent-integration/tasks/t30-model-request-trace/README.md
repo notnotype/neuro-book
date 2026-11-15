@@ -41,6 +41,15 @@ updated: 2026-11-15
 
 开工，按 design-review 走：旧应用的行为与新应用的现状列在 [参照清单](legacy-survey.md)；注意力排序已定（决定 3 到 8）。界面定稿：[评审板](artifacts/review/index.html)两轮已答（决定 9 到 12）。草稿代码在 `.worktree/w00032-t30-drafts`（不提交）。Spec [`agent/request-trace.md`](../../../../../docs/specs/agent/request-trace.md) 与[计划](plan.md)已写，待确认项已定（决定 13）。设计审查三位（omp、Sonnet 界面、Sonnet 整体）已回并处理，计划第 3 稿、Spec 同步修订并重排编号，处理见 [`evidences/design-review-handling.txt`](evidences/design-review-handling.txt)；开发者已确认（决定 15），实施中：代码在 `.worktree/w00032-t30-request-trace`（分支 `feat/w00032-t30-request-trace`）。
 
+切片 1 已提交（`2660e131c`）：内核调用说明与按请求对象算的 `modifiedBy`、适配器 `fetch` 包装里的线上事实、`kit/requests` 记录器与 `traceModelPort`。验证：nb-harness `typecheck` 与全量 `bun test`（835 过、6 跳过、0 失败），nb-models、nb-story、应用后端 `tsc` 无错，`governance:check` 无新警告；记录器 12 处变异都被测试抓到。实施中与计划不同的几处（Spec 与计划已同步改）：
+
+- 遮盖用适配器已有的 `[REDACTED]`（与错误文字的遮盖同一个函数），不另造 `***`。
+- 每次尝试都记响应头（Spec 原写只记最后一次）：429 那次的限流头正是排查要看的。
+- 轮的那段话只在索引行里留开头（160 字），不单存一份内容：全文就在消息里。
+- 索引行多一种 `pruned`（原始请求体因总量上限删掉），清理时据此判断请求体的状态，不逐个查文件。
+- 输出 7 的子进程用例是“请求进行中结束进程”；“写内容与写行之间退出”用残留文件（没有行引用的内容、请求体与临时文件）和半行两条用例代替：写入顺序与改名保证了这几个时刻只会留下这两类残留，没有在写到一半时精确结束进程的钩子。
+
 ## 下一步
 
-1. 切片 1：内核调用说明与 `modifiedBy`、适配器的线上事实、记录器。
+1. 切片 1 的实现审查（omp，后台，不阻塞）。
+2. 切片 2：应用后端的设置、接线、远程服务与启动清理。

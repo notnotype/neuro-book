@@ -45,7 +45,7 @@ export interface ModelCallMeta {
     readonly observe?: ModelWireObserver;
 }
 export interface ModelWireObserver {
-    /** 每次 HTTP 尝试结束时调一次（成功拿到响应头或网络错误）；值里的配置密钥原值已换成 `***`。 */
+    /** 每次 HTTP 尝试结束时调一次（成功拿到响应头或网络错误）；值里的配置密钥原值已换成 `[REDACTED]`。 */
     attempt?(wire: {
         readonly url: string;
         readonly headers: Readonly<Record<string, string>>;
@@ -68,7 +68,7 @@ export interface ModelWireObserver {
 ### nb-harness 适配器：线上事实（`src/kernel/model/omp.ts`）
 
 - 已有的 `fetch` 包装（`counted`）每次被调时：头取 `input` 是 `Request` 时它的头，再叠上 `init.headers`（`Headers`、数组、对象都规整成对象）；请求体取 `init.body` 是字符串时的原文（流与表单给 `null`）；地址取最终的 URL。拿到 `Response` 或 `fetch` 抛错时交一次 `attempt`（适配器内部重试的每一次都交，pi-ai 的 429 重试在包装里面）。
-- 交出之前把配置密钥原值换成 `***`：用 models.md 输出 5 错误文字遮盖的同一个函数。
+- 交出之前把配置密钥原值换成 `[REDACTED]`：用 models.md 输出 5 错误文字遮盖的同一个函数。
 - 第一块内容：在第一次调 `onDelta` 时调 `firstContent`，与首事件看门狗（`firstEvent.seen()`）分开；没有内容的失败不调。
 - `fetch` 没被调用（Bedrock SDK、Codex WebSocket）：退回 `options.onPayload`，立刻序列化交 `payload`，没有头与状态。
 - 观察者的回调包 `try`，抛错写进适配器已有的诊断出口，不影响请求；回调不改请求、不等它。
@@ -79,11 +79,11 @@ export interface ModelWireObserver {
 - 模块头写“尚未稳定，下次发布不必一起出”。
 - `traceModelPort(port, recorder): ModelPort`：`resolve` 原样交回，成功时把 `call` 包一层：开始时 `recorder.start(meta, request)`，把观察者接到这条记录，结束时 `finish(response, timing)`；中止与抛错都结算。`recorder.enabled()` 为假时直接调原来的 `call`。
 - `RequestRecorder`：
-  - 目录（只写在模块头）：`index/<YYYY-MM-DD>.jsonl`、`blobs/<前两位>/<sha256>.json`（一条消息、一段系统提示词、一个工具声明、一份回复、一轮用户的话）、`payloads/<id>.json.gz`、`format.json`（版本 1）。
-  - 写入协议：索引是事件行 `{v: 1, seq, id, kind: "start" | "attempt" | "end", …}`，读的时候按 `id` 折叠（`end` 之后的状态以 `end` 为准，`attempt` 依次累加）；一条请求的后续行都写进它 `start` 所在那天的文件。内容文件与请求体先写临时文件再改名，并且在引用它的那一行之前写完，与那一行在同一个串行任务里；所以已经落盘的行引用的内容都在。读到末尾的半行跳过。
+  - 目录（只写在模块头）：`index/<YYYY-MM-DD>.jsonl`、`blobs/<前两位>/<sha256>.json`（一条消息、一段系统提示词、一个工具声明、一份回复；轮的那段话只在索引行里留开头）、`payloads/<id>.json.gz`、`format.json`（版本 1）。
+  - 写入协议：索引是事件行 `{v: 1, seq, id, kind: "start" | "attempt" | "end" | "pruned", …}`，读的时候按 `id` 折叠（`end` 之后的状态以 `end` 为准，`attempt` 依次累加）；一条请求的后续行都写进它 `start` 所在那天的文件。内容文件与请求体先写临时文件再改名，并且在引用它的那一行之前写完，与那一行在同一个串行任务里；所以已经落盘的行引用的内容都在。读到末尾的半行跳过。
   - `start` 要等那一行写完才交回，然后才调适配器；写失败时交回“没有记录”，请求照发，诊断 `agent.requests.write-failed`。已知内容的哈希留在内存里，同一段内容只写一次。
   - 图片：请求与回复里的全部图片块，算哈希、写内容之前换成 `{kind: "image", mime, bytes, hash}`；原始请求体里的 base64 同一个函数换。
-  - 头与地址的遮盖（适配器已经换掉了密钥原值）：头的名单同旧应用 `sanitizeResponseHeaders`，只把值换成 `***`、保留名字，请求头与响应头同一个函数；地址的查询参数按 Spec 输出 5 的名单；请求头只在 `requestTraceHeaders` 开着时记。
+  - 头与地址的遮盖（适配器已经换掉了密钥原值）：头的名单同旧应用 `sanitizeResponseHeaders`，只把值换成 `[REDACTED]`、保留名字，请求头与响应头同一个函数；地址的查询参数按 Spec 输出 5 的名单；请求头只在 `requestTraceHeaders` 开着时记。
   - 只有一个写者：宿主进程；写入串行；写失败经 `report` 出诊断，不抛给调用方。
   - 打开时把没有 `end` 的记录补一行 `end{status: "interrupted"}`；补到一半崩溃时下次重算重补，折叠时重复的 `end` 无害。
   - `sweep(days)`：删过期的天文件与对应的请求体，再删没有记录引用的内容；原始请求体合计超过 1 GB 时从最旧的删起，记录本身留着。`clear({session?})` 同样；都跳过进行中的，清扫与写入在同一个串行队列里。
