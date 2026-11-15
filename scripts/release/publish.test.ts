@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
 
-import {blockingStalePackages, parsePublishArguments, publishedState, releaseManifestProblems} from "#scripts/release/publish";
+import {parsePublishArguments, publishedState, releaseManifestProblems} from "#scripts/release/publish";
+import {blockingStalePackages} from "#scripts/release/release-plan";
 
 // 输出照 npm 10 的 `npm view <名>@<版本> version --json` 实际打印的形状（2026-10-24 对 registry.npmjs.org 取的）。
 const NOT_FOUND = JSON.stringify({error: {code: "E404", summary: "Not Found - GET https://registry.npmjs.org/@notnotype%2fnb-ui - Not found"}});
@@ -22,14 +23,26 @@ describe("发布前查 registry", () => {
 
 describe("release:publish 的参数", () => {
     it("缺省只列出；--yes 才发布，--otp 与 --auth-type 原样转给 bun publish", () => {
-        expect(parsePublishArguments([])).toEqual({yes: false, publishArgs: []});
-        expect(parsePublishArguments(["--yes", "--auth-type", "web", "--otp", "123456"])).toEqual({yes: true, publishArgs: ["--auth-type=web", "--otp=123456"]});
+        expect(parsePublishArguments([])).toEqual({mode: "local", yes: false, publishArgs: []});
+        expect(parsePublishArguments(["--yes", "--auth-type", "web", "--otp", "123456"])).toEqual({mode: "local", yes: true, publishArgs: ["--auth-type=web", "--otp=123456"]});
+    });
+
+    it("流水线的两个入口：--plan 写计划；--ci 缺省只列出，带 --yes 才发布", () => {
+        expect(parsePublishArguments(["--plan"])).toEqual({mode: "plan", yes: false, publishArgs: []});
+        expect(parsePublishArguments(["--ci"])).toEqual({mode: "ci", yes: false, publishArgs: []});
+        expect(parsePublishArguments(["--ci", "--yes"])).toEqual({mode: "ci", yes: true, publishArgs: []});
     });
 
     it("不认识的参数、缺值、--auth-type 取值不对时拒绝", () => {
         expect(() => parsePublishArguments(["--dry"])).toThrow("--dry");
         expect(() => parsePublishArguments(["--otp"])).toThrow("--otp");
         expect(() => parsePublishArguments(["--auth-type", "sms"])).toThrow("web 或 legacy");
+    });
+
+    it("--plan 与 --ci 不能同时给；两步验证的参数不用于流水线；--plan 不收 --yes", () => {
+        expect(() => parsePublishArguments(["--plan", "--ci"])).toThrow("只能给一个");
+        expect(() => parsePublishArguments(["--ci", "--otp", "123456"])).toThrow("只用于本机发布");
+        expect(() => parsePublishArguments(["--plan", "--yes"])).toThrow("不收 --yes");
     });
 });
 

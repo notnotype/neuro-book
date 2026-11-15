@@ -62,6 +62,10 @@ export interface ShellOptions {
     readonly server: Omit<OwnedServerOptions, "stateRoot" | "ports" | "report" | "clock">;
     readonly ports: ShellPorts;
     readonly clock: DeadlineClock;
+    /**
+     * 诊断出口（适配层写进 `logs/desktop/shell.log`）：失败时第二个参数是 Error；`desktop.server.ready`、`desktop.server.stopped`、
+     * `desktop.server.exited` 这类记录事实的条目是 `key=value` 的文字，发布流水线的冒烟按它们判断服务端有没有有序以 0 停止。
+     */
     readonly report: (event: string, error: unknown) => void;
     /** 没有更新器的构建（开发构建）不给。 */
     readonly updates?: ShellUpdates;
@@ -385,6 +389,7 @@ export class DesktopShell {
             return action !== "retry";
         }
         this.#lastPorts = started.ports;
+        this.#options.report("desktop.server.ready", `pid=${String(started.pid)}`);
         this.#lock?.publish({url: null, rpcUrl: null, extra: {}});
         server.onUnexpectedExit((code) => void this.#serverExited(stateRoot, code));
         this.#coordinator.serverReady(started.url, true);
@@ -406,6 +411,8 @@ export class DesktopShell {
 
     async #serverExited(stateRoot: string, exitCode: number | null): Promise<void> {
         this.#server = null;
+        // 意外退出不经停止路径，也不写异常标记：没有这一条，壳之后照样以 0 退出，看不出服务端不是有序停的。
+        this.#options.report("desktop.server.exited", `exitCode=${String(exitCode)}`);
         const logDir = join(stateRoot, "logs", "desktop");
         for (;;) {
             const choice = await this.#options.ports.askServerExited(exitCode, logDir);
@@ -418,6 +425,7 @@ export class DesktopShell {
             // 重新启动还在拉起中时最后一次关闭被同意：这个服务端已由停止路径收尾，不再登记或重试（输出 18、19）。
             if (this.#finishing || !this.#isCurrent(server)) return;
             if (started.kind === "ready") {
+                this.#options.report("desktop.server.ready", `pid=${String(started.pid)}`);
                 server.onUnexpectedExit((code) => void this.#serverExited(stateRoot, code));
                 return;
             }
@@ -454,6 +462,7 @@ export class DesktopShell {
         const server = this.#server;
         if (server === null) return;
         const outcome = await server.stop();
+        this.#options.report("desktop.server.stopped", `forced=${String(outcome.forced)} exitCode=${String(outcome.exitCode)}`);
         if (outcome.forced || outcome.exitCode !== 0) await this.#recordUnclean(outcome.forced, outcome.exitCode);
     }
 

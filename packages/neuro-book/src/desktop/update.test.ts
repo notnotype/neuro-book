@@ -66,6 +66,8 @@ function harness(options: {mode?: "auto" | "notify-only"; envRoot?: boolean; ini
     const mode: UpdateMode = (options.mode ?? "auto") === "auto" ? {kind: "auto", state: statePort, initial: written} : {kind: "notify-only", envRoot: options.envRoot ?? false};
     const hints: Array<[CurrentHint | null, boolean]> = [];
     const events: string[] = [];
+    /** 记录事实的诊断（`key=value` 的文字），按“事件 文字”记。 */
+    const facts: string[] = [];
     let pagesOpened = 0;
     const controller = new UpdateController({
         mode,
@@ -76,7 +78,10 @@ function harness(options: {mode?: "auto" | "notify-only"; envRoot?: boolean; ini
             options.onHint?.(current, endPrevious);
         },
         openDownloadPage: () => void (pagesOpened += 1),
-        report: (event) => void events.push(event),
+        report: (event, detail) => {
+            events.push(event);
+            if (typeof detail === "string") facts.push(`${event} ${detail}`);
+        },
     });
     /** 让排队的异步步骤都走完。 */
     const settle = async () => {
@@ -111,6 +116,7 @@ function harness(options: {mode?: "auto" | "notify-only"; envRoot?: boolean; ini
         controller,
         hints,
         events,
+        facts,
         checks,
         downloads,
         writes,
@@ -168,6 +174,12 @@ describe("更新控制器", () => {
         await h.advance(CHECK_INTERVAL_MS);
         await h.answerCheck(h.remote(C));
         expect(kinds(h.hints)).toEqual(["available 0.90.3"]);
+        // 每次检查的结论都记下（发布流水线的更新冒烟靠它确认“没有提示”不是因为没检查）。
+        expect(h.facts).toEqual([
+            "desktop.update.checked remote=0.90.2 local=0.90.2 result=same",
+            "desktop.update.checked remote=0.90.1 local=0.90.2 result=older",
+            "desktop.update.checked remote=0.90.3 local=0.90.2 result=newer",
+        ]);
         // 同一份再查到：保持原样，不换 id、不重发。
         await h.advance(CHECK_INTERVAL_MS);
         await h.answerCheck(h.remote(C));
@@ -430,10 +442,13 @@ describe("更新控制器", () => {
         await h.answerCheck(h.remote(C));
         expect(h.hints).toHaveLength(1);
         h.controller.shown(h.controller.current?.id ?? -1);
+        // 同一条再报一次（页面重报）不重复记。
+        h.controller.shown(h.controller.current?.id ?? -1);
         await h.settle();
         expect(kinds(h.hints)).toEqual(["updated 0.90.2", "available 0.90.3"]);
         expect(h.hints.at(-1)?.[1]).toBe(false);
         expect(h.state().pendingNotice).toBeNull();
+        expect(h.facts.filter((fact) => fact.startsWith("desktop.update.notice-shown"))).toEqual(["desktop.update.notice-shown kind=updated version=0.90.2"]);
     });
 
     it("有未对账的换上时不检查；每 30 秒重判，出了失败的结果就在这次运行里通知“更新没有完成”并恢复检查", async () => {
