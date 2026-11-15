@@ -27,3 +27,8 @@ io.github.notnotype.neurobook.t04test，Setup 装进 %LOCALAPPDATA%\io.github.no
 未验证（要真实键盘）：Ctrl+加号、Ctrl+减号、Ctrl+0、Ctrl+滚轮在真实键盘与鼠标下只改一次缩放、WebView2 自带的缩放不叠加。CDP 发的按键
 不一定经过 WebView2 的浏览器加速键处理，证明不了这一条。请开发者在 pc-notype 上按：开始菜单里的测试版 NeuroBook（t04test，已装），
 或双击 %USERPROFILE%\nb-w00046\t04\launch-default.cmd。拦不住时按计划去掉快捷键与 Ctrl+滚轮，只留设置项与命令。
+
+第 2 轮（实现审查第 1 轮的修正之后，分支 7a2add4e1 变基后的提交）：重新组装载荷、Hutch stable 构建、重装 t04test，同一脚本。结果与第 1 轮
+逐项相同（RESULT ok）：缩放 1.25 应用到两个窗口；Run 下登记 launcher.exe；改设置文件后回到 1、登记被删（读注册表改为列整个 Run 键之后）；
+CDP 的 Ctrl+= 到 1.1；缓存 {"zoom":1.1,"openAtLogin":false}；重启后 1.1；NBOOK_STATE_ROOT 的运行不登记。结束后缺省状态根没有
+settings.json，删掉了留在 logs\desktop 里的缓存文件，Run 下没有残留。

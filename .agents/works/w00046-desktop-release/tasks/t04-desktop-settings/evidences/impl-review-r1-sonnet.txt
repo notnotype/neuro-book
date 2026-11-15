@@ -1,0 +1,80 @@
+w00046 t04 实现审查（Sonnet，页面一侧）。被审提交 701c47237..ea3598494。按影响排序在最后一行汇总。
+
+[1] 阻断 / 正确性、合同 / packages/neuro-book/src/plugins/desktop/web/plugin.ts:107-109、:134
+缩放命令 id 不合内置命令的命名规则，三条命令在登记时全被拒绝，命令面板里没有“放大/缩小/重置缩放”（Spec desktop-shell 输出 26、场景 16 的“命令面板里有……”不成立）。
+- 现象：命令 id 是 `nbook.desktop.zoomIn`、`nbook.desktop.zoomOut`、`nbook.desktop.resetZoom`。`src/plugins/commands/shared/registry.ts:83-136` 的 `commandDeclarationProblems` 要求内置命令是 `nbook.<域>.<动作>`，分段全小写 kebab（`BUILTIN_COMMAND_ID = /^nbook\.([a-z0-9][a-z0-9-]*)\.([a-z0-9][a-z0-9-]*)$/`），域要在 `COMMAND_DOMAINS`（view、editor、edit、quick-open、settings、account、project、app、help、files、agent、tasks、notifications）里。camelCase 的 `zoomIn` 先过不了正则；`desktop` 也不在域词表里（commands.md 的“命名与域词表”、packages/neuro-book/AGENTS.md 同写“不在词表里的贡献被拒绝”）。
+- 核实：在 scratch 里对真实函数跑：
+  `commandDeclarationProblems("nbook.desktop.zoomIn", "nbook.desktop", declaration)` 返回 ["内置命令的 id 必须是 nbook.<domain>.<action>：nbook.desktop.zoomIn"]，三条都是。脚本 reports/impl-r1/scratch/cmd-id.ts，从 desktopEntry.contributions 取真实声明。贡献点 `commands.definitions` 的 `validate`（commands/shared/plugin.ts:60、:207）返回问题，nb-runtime `host.ts:921-927` 把贡献标成 rejected / invalid-declaration。结果是三条命令从不进命令表；入口 return 的 `[COMMANDS_POINT]: {...}` 实现也成了没有声明的孤儿；而且声明在浏览器里同样登记，所以普通浏览器每次启动也会多记三条 invalid-declaration 诊断。
+- 为什么没被测出：e2e 只在“浏览器里”断言命令面板里没有“放大”，那条断言在命令被拒绝时也成立（见下一条）；桌面场景的 e2e 没有一条走命令面板。单测直接调 `createZoomController`，不经命令表。Windows 验收只发了键盘事件。
+- 建议：改成内置域里的 kebab id，域取 `view`（命令都是视图缩放，commands.md 的域词表里有 view，视图菜单也在这个域下）：`nbook.view.zoom-in`、`nbook.view.zoom-out`、`nbook.view.reset-zoom`。同步改常量 `ZOOM_IN_COMMAND` 等与 Spec 里写的命令名（若 Spec 写了 id）。再补 e2e：桌面（装了假壳）里 Ctrl+Shift+P 输入“放大”要列出该命令，选中执行后壳收到下一档；命令表里能查到。
+
+[1 补充] commands.md 的“旧 id 去向”表（docs/specs/workbench/commands.md:272）已经写了旧应用的 `view.zoom-in`、`view.zoom-out`、`view.zoom-reset` “只属于桌面宿主”，所以命令 id 可直接取 `nbook.view.zoom-in`、`nbook.view.zoom-out`、`nbook.view.zoom-reset`（第三段用 zoom-reset 而不是上面写的 reset-zoom）。改名后顺带核对 desktop-shell.md 输出 26 与计划里没有写具体 id（grep 到的 Spec 里没有 nbook.desktop.zoomIn），只需改代码、测试与 Task 记录。
+
+[2] 重要 / 测试 / packages/neuro-book/e2e/desktop-settings.e2e.ts:80-84、:93-117
+e2e 没有守住 Spec 场景 16 里能在浏览器验的几条，现有的一条负断言还是空的，所以 [1] 的命令被拒绝没被发现。
+- 空断言（:80-84）：浏览器场景按 Ctrl+Shift+P、输入“放大”后只断言 `role=option` 含“放大”的数量为 0。没有先等命令面板出现、没有任何正例（比如同一输入框里能列出别的命令），面板没打开、或命令被拒绝，这条都立刻通过。核实：把 `desktopEntry` 的命令整个删掉，这个测试仍然绿。标题里的“不发任何桌面设置”也没有断言（浏览器里没有壳，观察不到）。
+- 桌面场景没有一步走命令面板：场景 16 写“命令面板里有放大、缩小、重置缩放（只在桌面里可用）”，只有键盘与滚轮被测。应补：假壳场景里面板列出三条命令，选“放大”后壳收到下一档并写进用户层；浏览器里同样输入面板列不出，并先确认面板已打开（例如先断言有“打开设置”这类选项）。
+- 场景 16 的“直接改设置文件，窗口跟着变”没有测：能在浏览器验（服务端监视 settings.json，推给窗口，页面交给假壳）：测里写 `{"nbook.desktop/zoom": 1.5}` 到 settings.json 后 `expect.poll(zooms)` 应出现 1.5；改回再看 1。
+- 设置窗口里改界面缩放（分区里的下拉选 125%）没有测：这条路径不经 `zoom.ts`，走设置窗口的写入，值是数字字面量联合的 `choices`，没有任何测试走过数字取值的选择控件。
+- 写回失败的通知没有测：`zoom.test.ts` 只测控制器的 `failed` 回调；入口里把它接到工作台通知（plugin.ts:143-145）没有任何测试。可在 e2e 里把 settings.json 改成不可写或让用户层无效后按 Ctrl+=，断言出现“缩放没有保存”通知、壳最后收到的又是原值。
+- 浏览器里“这些都不接管”（Spec 输出 26 的最后一句）没有测：可在浏览器场景里派发一次 Ctrl+= 的 keydown 与 Ctrl+滚轮，断言 `defaultPrevented` 为 false。
+建议：把 e2e 的桌面场景补成上面几条（同一个文件、同一假壳）；都是浏览器里能验的。
+
+[3] 重要 / 常见返工项、合同 / packages/neuro-book/src/plugins/desktop/web/plugin.ts:143-145，web/zoom.ts:304-309
+写回失败时把配置服务的原始失败原因直接当通知正文，而且没有写诊断，通知服务不在时失败就悄悄没了。
+- 现象：`failed: (detail) => notify({tone: "error", title: ..., message: detail})`，`detail` 是 `settings.update` 返回的 `result.detail`（例如“这个实例没有用户层”这类写给开发者的中文诊断）或 catch 到的 `error.message`。common.md 与 ADR 0034 决策 2：界面不拿 `Error.message`、诊断性的 `reason`、`detail` 当主文案，它们只能放进“详情”；`NotificationInput` 本来就有 `detail?: string` 一栏，注释写明“开发诊断原文，放进详情对话框（ADR 0034）”。英文界面下用户会在正文里看到中文原因。
+- 另一处：`notifications.status !== "resolved"` 时直接不通知，也没有 `diagnostics.record`；写失败（磁盘只读、用户层 settings.json 无效）这种用户看得到“缩放弹回”的事，诊断里一条记录都没有。repo 对“静默吞错”的要求是至少写一条诊断。
+- 核实：读 `NotificationInput`（workbench/shared/contracts.ts:107-129）、common.md“文字用哪种语言”第 4 点；`failed` 里没有 `code`，`zoom.ts` 只透出 `result.detail` 而丢了 `result.code`。
+- 建议：控制器的 `failed` 交出 `{code, detail}`；通知正文用本插件自己的文字（“缩放没有保存，已恢复为 X%”之类，按码取文案，没认识的码用通用文案），`detail` 字段放原始 detail；同时 `diagnostics.record({level: "warn", event: "desktop.zoom.write-failed", ...})`（依赖 `diagnosticsKey`，与其它插件一样）。
+
+[2 注] 上一条里“把命令删掉测试仍然绿”和“面板没打开也通过”是从代码推断，没有跑 e2e（说明不允许）；Playwright 的 `toHaveCount(0)` 在没有匹配时立即成立，这一点是确定的。
+
+[4] 建议 / 与仓库约定不一致 / packages/neuro-book/src/plugins/desktop/shared/contracts.ts:45-72，web/plugin.ts:104、:112-114、:120、:144
+新内置插件把全部界面文字写成内联的 `{"zh-CN", "en-US"}`，没有消息目录，与 ADR 0034 决策 3、`ui/i18n.md` 和其它带界面文字的内置插件不一致。
+- 依据：ADR 0034（accepted）决策 3：“声明（命令标题、视图标题、设置项等）里放消息键”，内联双语被列为被否决的备选；`docs/specs/ui/i18n.md` 已 implemented（2026-10-29），common.md“文字用哪种语言”写的是“目录机制落地前沿用现有写法”，现在目录已落地。仓库里 settings、editor、explorer、workbench、image-viewer、html-preview、markdown、models、plugins、projects、tasks、agent、commands 都有 `locales/{zh-CN,en-US}.json` 与 `web/text.ts` / `xxxText(...)`；同类的 editor 分区声明是 `description: editorText("settingsSections.nbook.editor.description")`，标题与配置项标题省略、由约定键补全。
+- 先例：`plugins/canon/shared/settings.ts` 也是内联，`i18n.md` 写“现有的 LocalizedText 迁移期照常有效”，所以不是被机检拦下的错，是“新写的代码继续增加待迁移量”。`bun test src/convention-keys.test.ts` 与 `locales.test.ts` 都通过，印证了这一点。
+- 建议：给 nbook.desktop 建 `locales/` 目录与 `web/text.ts`（参照 image-viewer）、在 `web/plugins.ts` 的 `builtinPluginCatalogs` 登记；配置项、分区、命令、公开状态的 reason、通知文字改用约定键或 `desktopText(...)`。描述里的文字写在 shared/contracts.ts 里是共用文件，要用 `pluginText` 的无 DOM 版本（settings 的 `shared/text.ts` 就是这种）。体量很小（约 20 条文字），新插件现在做比以后迁移便宜。若选择暂不做，Task 记录里要写一句理由，免得又变成“没有记录的理由”。
+
+[5] 建议 / 正确性（输入边界） / packages/neuro-book/src/plugins/desktop/web/zoom.ts:240-256
+快捷键只按物理键位 `event.code` 认，非 US 布局上漏接，漏掉的那一部分会落给 WebView2 自带缩放。
+- 现象：`Equal`/`Minus`/`Digit0` 是按键的物理位置。德语布局里 Ctrl 加“+”是 `BracketRight`、Ctrl 加“-”是 `Slash`，都不在判定表里；法语 AZERTY 里“-”是 `Digit6`；Dvorak 里 `Equal` 位置上是“]”，Ctrl+] 反而放大。命中不了时按键不被拦，交给 WebView2 的加速键，它按字符把 ZoomFactor 改成 1.1，页面这边的设置仍是 1，下一次 `setPageZoom` 才被改回，等于计划风险里写的“叠加”在这些布局上必然发生。
+- 为什么是问题：计划用 `event.code` 的理由是“分发器按 `event.key` 精确比对，Ctrl+Shift+= 与小键盘命不中”，这只说明不能只靠 `key` 精确比对，没有说明只用 `code` 更好；Chrome 自己是按字符（VKEY）判定的。Spec 输出 26 写的是“加、减号”，不是“键盘上等号的位置”。
+- 核实：对 `zoomKeyAction` 传 `{code: "BracketRight", key: "+", ctrlKey: true, ...}`（德语 Ctrl++）得到 null；`ZoomKey` 里根本没有 `key` 字段。
+- 建议：判定改成 `code` 与 `key` 合取：`key` 是 "+"、"="、"-"、"_"、"0" 之一（Shift 不限）就认，小键盘的 `NumpadAdd`/`NumpadSubtract` 另认；再要求不是 `Process`（见下条）。测试里加这几种布局。
+
+[6] 建议 / 正确性（输入边界） / packages/neuro-book/src/plugins/desktop/web/zoom.ts:250-252、plugin.ts:161-167
+`Numpad0` 在 NumLock 关闭时其实是 Ctrl+Insert（复制），被当成“复位缩放”吞掉；输入法组字期间的按键也没有排除。
+- Numpad0：UI Events 里 `code` 是物理键位，NumLock 关闭时小键盘 0 键的 `key` 是 "Insert"、`code` 仍是 "Numpad0"。`zoomKeyAction` 的 `Numpad0` 分支只看 code，所以 Ctrl+小键盘 0（NumLock 关）= Ctrl+Insert 被 `preventDefault` 且 `stopPropagation`，复制被拦下并改成复位缩放。Windows 上 Ctrl+Insert 是保留的复制快捷键。（从规范推断，没有真键盘；用 `{code: "Numpad0", key: "Insert", ctrlKey: true}` 调 `zoomKeyAction` 会得到 "reset"，这是可验证的部分。）同理 `Digit0`/数字行不受影响，`NumpadAdd`/`NumpadSubtract` 不受 NumLock 影响。
+- 输入法：keydown 在组字期间 `isComposing` 为 true（或 key 为 "Process"，keyCode 229），`code` 仍是物理位置。捕获阶段的监听直接 `preventDefault` 并停止传播，把输入法正在用的 Ctrl 组合键拦下。常见中文输入法对 Ctrl+= 之类的占用不多，但这是 brief 点名的冲突面，代价只是一行判断。
+- 建议：处理前先 `if (event.isComposing || event.key === "Process") return null`；小键盘的 0 要求 `key === "0"`；小键盘加减的 `key` 也核一下。把这两种输入加进 `zoom.test.ts` 的按键判定那条里（现在测的 `ZoomKey` 没有 `key`、`isComposing` 两个字段，也要加）。
+
+[7] 建议 / 正确性（边界） / packages/neuro-book/src/plugins/desktop/web/zoom.ts:293-333，web/plugin.ts:151
+防抖窗口（300 ms）内窗口关闭或整页导航，最后一次改档没有写回，下次启动缩放弹回旧值。
+- 现象：`apply` 先把目标档位交给壳（壳立即缩放并写缓存），再排 300 ms 的写回；窗口的运行实例停止时 `dispose()` 只 `cancel()` 计时器，不写。按下 Ctrl+= 后 300 ms 内关窗、切换作品（整页导航）或刷新，用户看到的是已放大，设置里仍是旧值；下次启动壳先用缓存、页面交来设置里的旧值，纠正回去，表现为“我明明改过又回去了”。壳缓存与设置分叉的窗口期，计划里只想到了“设置在没有桌面窗口时被改”，没想到这一种。
+- 核实：从代码看：`dispose` 中 `cancel?.(); cancel = null;`，`target` 非 null 时丢弃。单测只测了正常 flush。
+- 建议：`dispose` 在 `target !== null` 且有未写的防抖时立刻发起一次写（fire-and-forget，写失败记诊断）；或者缩短防抖并在 `pagehide` 里 flush。写不一定能在卸载时完成（异步远程调用），所以更稳的做法是：这种窗口期很短，就接受并在 Spec 的已知限制里写一句；不要放着不提。
+
+[8] 建议 / 不变量、与周边约定矛盾 / packages/neuro-book/src/web/boot.ts:76-81，plugins/desktop/web/plugin.ts:137-138、:152
+“窗口在不在壳里”按启动时一次的读数定下，之后不变；与 `createDesktopBridge` 的注释明确相反，且失败是静默的。
+- 现象：`inDesktop = typeof window.__electrobunSendToHost === "function"` 在 `bootWindowUi` 里读一次。`shared/desktop-bridge.ts:127-131` 的注释写的是“发送时才取 `__electrobunSendToHost`：预加载脚本同样在调用时才取，它出现的时刻不由页面决定，启动时取一次不够”。两处对同一个全局的时机假设相反。若 Electrobun 的预加载比页面脚本晚装（`AddScriptToExecuteOnDocumentCreated` 的先后在 Electrobun 内部，页面不可见），`available` 就是 false：设置窗口不出现“桌面窗口”分区、缩放命令与快捷键都不接管、`reportSettings` 空转，没有任何诊断。
+- 缓解：本轮 Windows 实测（windows-settings-r1.txt）在安装版与 dev 构建里都成功，说明当前版本的时序是对的；但 Electrobun 升级、WebView2 版本差异、或预加载注入顺序改变时，会整体悄悄失效，只能从“设置里分区没了”看出来。
+- 另一处静默：`reportSettings: (values) => void (inDesktop && bridge.send(...))` 丢弃了 `send` 返回的 false（`createDesktopBridge` 的注释写“取不到时由调用方写诊断”），也没有 try/catch：`send` 若抛出（页面桥坏了），`apply` 里先 `target = next` 再 `report` 抛错，`schedule` 根本没排，目标一直挂着、再也不会写回（`zoom.ts:324-327`）。
+- 建议：(a) 在 boot 里把读不到壳时记一条 debug 级诊断，或在 `windowDesktopKey` 上同时用 `DESKTOP_FRAME_MARKER`（预加载保证先于页面脚本、只读不可配置）做第二个判据；(b) `reportSettings` 里检查 `send` 的返回值并记一次诊断；(c) `apply` 里先 `schedule` 再 `report`，或把 `report` 包进 try/catch，保证写回一定排上。
+
+[9] 建议 / 测试与登记 / packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/settings-host.ts:168，packages/neuro-book/src/plugins/settings/web/window-source.ts:35-36、:65
+计划写了“Lab 的场景可以传 `desktop: true` 看到这个分区”，实现里 Lab 没有接上；`environment` 做成了可选，漏传就静默按“不在壳里”。
+- 现象：`createSettingsWindowSource({sections, choices, declarations, editors, files, instance})`（Lab 的 settings-host）没有 `environment`，也没有 Lab 场景演示带 `host: "desktop"` 的分区。也就是说这个新的分区声明字段在视觉验收里没有位置（Component Lab 是开发者看设置窗口的地方）。README 的“与计划的出入”没有写这一条。
+- 另外 `SettingsWindowSource.environment?` 与 `SettingsWindowSourceOptions.environment?` 都是可选：任何以后新建数据源的地方忘了传，会无声地把桌面分区隐藏，类型检查不报。窗口能力是总会提供的，`windowDesktopKey` 也总提供，可选没有收益。
+- 建议：把 `environment` 改成必填（缺省会逼调用方想一想），Lab 的 settings-host 加参数（默认 false，场景里加一个“桌面里”开关或固定一个例子），README 记一句。
+
+[10] 建议 / 不变量 / packages/neuro-book/src/plugins/desktop/web/plugin.ts:152-157，web/zoom.ts:297
+设置层暂时不可用或无效时，页面把“缺省值”当有效值交给壳，壳会据此删掉已登记的开机自启并把缩放复位，恢复后才纠正回来。
+- 现象：`settings.get` 在用户层 `unavailable`（服务端连不上，`FIRST_SNAPSHOT_MS = 3 s` 超时）或 settings.json 无效时返回缺省值（见 `shared/instance.ts` 的 `unavailable`：“continuing with defaults”）。`zoom.values()` 照常读出 `{zoom: 1, openAtLogin: false}` 并 `reportSettings`。按 Spec 输出 27“关掉时删掉这一项”，壳会把 Run 里的登记删掉；恢复后 `onDidChange` 再交 true，壳再登记。用户编辑 settings.json 写到一半（JSON 暂时无效）也会触发一次“删掉再补回”。缩放同理：窗口先缩回 100% 再回去（计划风险里只提了“缓存与设置的窗口期”）。
+- 判断：这是拥有者规则（“无效层按缺省”）的直接结果，不是 bug，但把一个有副作用（改注册表）的动作绑在会瞬变的缺省值上不合适。严重程度取决于壳那边（另一位审查者）怎么处理；页面一侧可以便宜地挡掉。
+- 建议：只在用户层状态为 ok 时上报（`instance.layer("user")` 已有 `status: "ok"`，要经配置服务暴露一个只读的层状态，或本插件在入口里订阅 `windowConnectionKey` 到 online 之后再首报）；层不可用或无效时不上报，保持壳里上一次的值。若觉得过度防御可以只在 Task 记录里写“已知，接受”。
+
+[8 更正] 上一条建议 (a) 里的 `DESKTOP_FRAME_MARKER` 只在无系统标题栏的窗口（`preloadScript(customFrame)` 的 FRAME 段）里才有，不是所有壳窗口的判据，不能直接拿来当第二个判据；改用“记一条诊断”就够，或让预加载脚本给所有产品窗口都定义一个只读标记。
+
+仔细检查后没有发现问题的部分：设置窗口 `host` 过滤本身（`settings-window.ts` 的 `buildCatalog`：隐藏集合先于落位，指向隐藏分区的项不进“其它”、不记诊断、搜索只看落位后的分区，page 分区同样按 `declaration.host` 隐藏，`window.test.ts` 的新用例在 desktop 为 false/true 两种下断言了分区、其它、诊断与搜索）；`zoom.ts` 的防抖写回与“从目标档位继续”（写的过程中又改档、写失败后拉回、复位写“删除键”均核对过，`settings.update` 成功时本地先 `apply` 快照，`get` 不会读到旧值）；`removeEventListener` 的参数与注册时一致，监听随作用域释放；`defaultPrevented` 的判断与 ImageViewer 的冒泡阶段处理次序一致。已跑：`bun test src/plugins/desktop src/plugins/settings/window.test.ts src/plugins/settings/locales.test.ts src/convention-keys.test.ts`、`src/builtin-manifest.test.ts`、`src/architecture.test.ts src/contribution-prefixes.test.ts src/manifest.test.ts src/sdk`、`bun run governance:check`，全过、无新警告；没有跑类型检查与 e2e。
+
+有效发现 10 条（编号 1 到 10；[1 补充]、[2 注]、[8 更正] 是对同条的补充）：阻断 1（[1]）、重要 2（[2]、[3]）、建议 7（[4]、[5]、[6]、[7]、[8]、[9]、[10]）。

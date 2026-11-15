@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-desktop-settings
-status: active
+status: done
 updated: 2026-11-15
 ---
 
@@ -28,8 +28,10 @@ updated: 2026-11-15
   - e2e `desktop-settings.e2e.ts` 3 条，现有 `settings`、`editor-code-settings` 共 21 条，`desktop-frame` 8 条，全过；
   - Windows 验收 [windows-settings-r1.txt](evidences/windows-settings-r1.txt) 通过；真实键盘下快捷键能不能拦住 WebView2 自带的缩放，未验证，等开发者。
 - Spec：`runtime/desktop-shell.md`（输出 13、新输出 25 到 27、场景 16、已知限制）、`runtime/browser-host.md` 输出 11、`settings/settings-window.md`（`host`）、`settings/configuration.md` 输出 22 的暂行。
+- 实现审查第 1 轮：omp 5 条、Sonnet 10 条（含阻断 1：缩放命令 id 不合内置命令的命名规则、登记时被拒），处理见 [disposition](evidences/impl-review-r1-disposition.txt)，修正 `5c69a9dab`；e2e `desktop-settings` 3 条、`desktop-frame`、`settings` 共 30 条通过；Windows 复验第 2 轮通过（证据同一文件末尾）。
+- 2026-11-15 快进合入 master（`5c69a9dab`），worktree 与分支已删。
 
 ## 下一步
 
-- 收口检查后启动实现审查（omp 审壳与跨进程，Sonnet 审设置窗口与插件），不阻塞；处理后合入 master。
-- 请开发者在 pc-notype 上用真实键盘按一次缩放快捷键与 Ctrl+滚轮（见证据末尾）。
+- 请开发者在 pc-notype 上用真实键盘按一次缩放快捷键与 Ctrl+滚轮（证据末尾有启动方法）；拦不住时去掉快捷键与 Ctrl+滚轮，只留设置项与命令。
+- 待确认清单里 t04 的几行等开发者追认。

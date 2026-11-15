@@ -269,7 +269,7 @@ Markdown 的编辑命令（`nbook.edit.bold` 等）见 [`workbench.markdown-edit
   | `edit.cut`、`edit.copy`、`edit.select-all` | 不画：用快捷键，不为它们新造命令 |
   | `edit.paste` | 浏览器不画：页面不能代替用户读剪贴板 |
   | `view.reload` | 菜单用 `nbook.app.reload` |
-  | `view.zoom-in`、`view.zoom-out`、`view.zoom-reset` | 浏览器不画：只属于桌面宿主 |
+  | `view.zoom-in`、`view.zoom-out`、`view.zoom-reset` | 桌面里是 `nbook.desktop` 贡献的 `nbook.view.zoom-in`、`nbook.view.zoom-out`、`nbook.view.zoom-reset`（[`runtime.desktop-shell`](../runtime/desktop-shell.md) 输出 26），只在桌面窗口里可用；浏览器不画 |
   | `help.documentation` | 菜单用 `nbook.help.documentation` |
   | `help.about` | 不画：留待关于页 |
 
