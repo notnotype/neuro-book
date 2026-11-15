@@ -1,10 +1,10 @@
 # @notnotype/nb-agent-ui
 
-Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/specs/ui/agent-conversation-view.md)，包的约定见 [AGENTS.md](AGENTS.md)。
+Agent 对话视图与模型请求查看器。行为合同见 [`ui.agent-conversation-view`](../../docs/specs/ui/agent-conversation-view.md) 与 [`agent.request-trace`](../../docs/specs/agent/request-trace.md) 的“查看器”，包的约定见 [AGENTS.md](AGENTS.md)。
 
 - `@notnotype/nb-agent-ui`：核心，纯 TS。视图合同（`ctx`、`services`、`action`）、注册表、界面文字的引用（`agentRef`），以及宿主注入组件要满足的形状（`ports.ts`）。
 - `@notnotype/nb-agent-ui/locales`：本包界面文字的消息目录（命名空间 `nb-agent-ui`，源语言 zh-CN），注入翻译端口的宿主登记它，见“[界面文字](#界面文字)”。
-- `@notnotype/nb-agent-ui/vue`：渲染层。宿主挂 `AgentConversationView`，要会话列表时另挂 `AgentSessionList` 或带搜索与过滤的 `AgentSessionPanel`；注册表用内置登记（`builtinContributions` 或四份单独的）加自己的。
+- `@notnotype/nb-agent-ui/vue`：渲染层。宿主挂 `AgentConversationView`，要会话列表时另挂 `AgentSessionList` 或带搜索与过滤的 `AgentSessionPanel`，要看模型请求时挂 `AgentRequestTrace`；注册表用内置登记（`builtinContributions` 或四份单独的）加自己的。
 - `@notnotype/nb-agent-ui/lab`：只给应用的 Component Lab，单独挂内部零件与算轮次样例；不是宿主接口，形状随时会变。
 
 ## 安装
@@ -83,11 +83,16 @@ bun add @notnotype/nb-agent-ui
    - 列表不持有下拉的开关：宿主收到 `session.select`、`session.create` 后自己关下拉，`sessions.refresh` 不关。
    - 时间按 `now` 与本地日历日写成“14:32”“昨天”“10月18日”。宿主要定期更新 `now`（例如每分钟），否则过了午夜，“今天”的行不会变成“昨天”。
 
+6. **模型请求查看器**：`AgentRequestTrace` 是受控视图，数据来自宿主的请求记录（nb-harness 的 `kit/requests` 记录器经宿主自己的远程层交来）。核心按结构声明了记录的形状（`RequestTraceRow`、`RequestTraceDetail` 等，`request-trace.ts`），并给分组、筛选匹配、比较与查找高亮的纯函数。
+   - 宿主持有列表、选中、详情、按哈希取回的全文（`contents`）、原始请求体、比较对象与查找的命中；组件经 `update:query`、`update:search` 与 `action`（`request.select`、`request.load-content`、`request.compare-base` 等，见 `RequestTraceAction`）交回，不取数、不写剪贴板。
+   - 新请求插不插进列表由宿主定：组件报 `request.list-at-top`，宿主按“按时间排、没有查找词、列表在顶上”决定，否则给 `pending`。
+   - 组件要一块确定的高度；宽度不到 760px 时列表与详情来回切换。
+
 ## 界面文字
 
 本包的界面文字在自带的消息目录里（`@notnotype/nb-agent-ui/locales`），组件经 nb-ui 的翻译端口（`@notnotype/nb-ui/text-port`）取。核心拿不到语言，消息、注册表、过程摘要里的文字是引用（`TextRef`）或宿主给的中英两份（`LocaleMap`），显示时才翻译（[`ui/i18n`](../../docs/specs/ui/i18n.md)）。
 
-**宿主注入了翻译端口时**（例如 neuro-book）：宿主要登记本包的目录，组件的语言以端口为准，`AgentConversationView`、`AgentSessionList`、`AgentModelCatalog` 的 `locale` 属性不起作用。
+**宿主注入了翻译端口时**（例如 neuro-book）：宿主要登记本包的目录，组件的语言以端口为准，`AgentConversationView`、`AgentSessionList`、`AgentModelCatalog`、`AgentRequestTrace` 的 `locale` 属性不起作用。
 
 ```ts
 import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE, NB_AGENT_UI_SOURCE_LOCALE} from "@notnotype/nb-agent-ui/locales";
