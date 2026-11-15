@@ -2,7 +2,8 @@
  * “模型请求”页的状态（docs/specs/agent/request-trace.md 的“查看器”与“时序与寿命”）：插件作用域里一份，页面挂载时借用、卸载时还。
  * 持有筛选、选中、已加载的列表、按哈希取回的全文与原始请求体，订阅 `nbook.agent/requests` 的 `changed`。
  *
- * 时序：先订阅、再取列表；丢掉序号不大于这一页 `seq` 的事件，同一条按最新的状态合并；重连（`onResync`）后重新取列表。
+ * 时序：先订阅、再取列表；丢掉序号不大于这一页 `seq` 的事件（同一次删除拆成的几段序号相同，都收下），同一条按最新的状态合并；
+ * 重连（`onResync`）后重新取列表、重读选中的详情（断线时漏掉的结算）。
  * 列表、详情各有一个令牌：筛选或选中又变了，还没回来的旧响应作废，不会盖掉新的。
  */
 
@@ -22,8 +23,12 @@ export type RequestsClient = ReturnType<typeof useRequests>;
 
 type Result<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly code: string};
 
-/** 按哈希留着的全文最多这么多段：一次请求的消息几百条，来回看几次请求就够用；满了丢最早的。 */
+/**
+ * 按哈希留着的全文最多这么多段、合计这么多字符：一次请求的消息几百条，来回看几次请求就够用；一段工具结果可能有几 MB，
+ * 只按段数限会占掉几百 MB。超了丢最早的。
+ */
 const CONTENT_CACHE = 300;
+const CONTENT_CACHE_CHARS = 16 * 1024 * 1024;
 const PAGE_SIZE = 100;
 
 const EMPTY_TOTALS: RequestTraceTotals = {count: 0, input: 0, cacheRead: 0, cost: null};
@@ -88,7 +93,12 @@ export class RequestsPage {
     /** 列表在不在顶上（组件报的）：只有在顶上时新请求才插进来（决定 14）。 */
     #atTop = true;
     #borrowers = 0;
+    /** 第几次从没人借变成有人借：订阅回来时已经不是这一次（还回后又借了），就放掉它，免得订两份。 */
+    #borrowing = 0;
     #release: (() => void) | null = null;
+    /** 列表头的合计与候选正在重取；取的时候又有变化就再取一次。 */
+    #totalsLoading = false;
+    #totalsDirty = false;
     /** 下一次取完列表时要选中的（命令带的 `request`），或“选中最新的一条”（true）。 */
     #pick: string | true | null = true;
 
@@ -100,7 +110,9 @@ export class RequestsPage {
     /** 页面挂载时调；交回的函数在卸载时调。第一个借用者订阅并取列表，最后一个还回时只放掉订阅，状态留着。 */
     borrow(): () => void {
         this.#borrowers += 1;
-        if (this.#borrowers === 1) void this.#start();
+        // 新挂上的列表在顶上。
+        this.#atTop = true;
+        if (this.#borrowers === 1) void this.#start(++this.#borrowing);
         let returned = false;
         return () => {
             if (returned) return;
@@ -113,15 +125,18 @@ export class RequestsPage {
         };
     }
 
-    async #start(): Promise<void> {
-        const subscribed = await this.#remote.events.changed.subscribe({}, (change) => this.#apply(change), {onResync: () => void this.refresh()});
+    async #start(borrowing: number): Promise<void> {
+        const subscribed = await this.#remote.events.changed.subscribe({}, (change) => this.#apply(change), {onResync: () => {
+            void this.refresh();
+            this.reload();
+        }});
         if (!subscribed.ok) {
             this.#report("requests-subscribe-failed", `could not subscribe to model request changes: ${subscribed.code}`);
-            this.list.value = {state: "error", more: false};
+            if (borrowing === this.#borrowing) this.list.value = {state: "error", more: false};
             return;
         }
-        // 订阅回来之前页面已经卸载了。
-        if (this.#borrowers === 0) {
+        // 订阅回来之前页面已经卸载了（或卸载后又挂上，那一次自己订阅）。
+        if (this.#borrowers === 0 || borrowing !== this.#borrowing) {
             subscribed.value.release();
             return;
         }
@@ -134,6 +149,9 @@ export class RequestsPage {
     async open(target: {readonly sessionId?: string; readonly request?: number}): Promise<void> {
         if (target.sessionId === undefined) return;
         this.query.value = {...(this.query.value.sort === undefined ? {} : {sort: this.query.value.sort}), sessions: [target.sessionId]};
+        // 要看的是这个会话的请求：上一次留下的查找词会把列表换成命中行，要选中的那次可能不在里面。
+        this.search.value = "";
+        this.hits.value = null;
         if (target.request === undefined) {
             this.#pick = true;
         } else {
@@ -168,7 +186,7 @@ export class RequestsPage {
         this.#searching = null;
         this.searchState.value = {state: "idle", truncated: false};
         const token = ++this.#listToken;
-        this.list.value = {state: "loading", more: false};
+        this.#clearRows();
         this.pending.value = 0;
         const page = await this.#remote.list(listInput(this.query.value));
         if (token !== this.#listToken) return;
@@ -183,9 +201,23 @@ export class RequestsPage {
         this.totals.value = page.value.totals;
         this.facets.value = page.value.facets;
         this.list.value = {state: "ready", more: page.value.next !== undefined};
+        this.#pickAfterList(page.value.rows);
+    }
+
+    /**
+     * 从头取的列表与查找开始时先把旧的行拿掉：旧的行不符合新的条件，取不回来时也不该留着像是结果；新的列表从顶上开始。
+     */
+    #clearRows(): void {
+        this.rows.value = [];
+        this.list.value = {state: "loading", more: false};
+        this.#atTop = true;
+    }
+
+    /** 取完列表或查找之后选中命令要的那一次，或者（打开页面时）最新的一条。 */
+    #pickAfterList(rows: readonly RequestRowView[]): void {
         const pick = this.#pick;
         this.#pick = null;
-        if (pick === true && this.selected.value === null && page.value.rows[0] !== undefined) this.select(page.value.rows[0].id);
+        if (pick === true && this.selected.value === null && rows[0] !== undefined) this.select(rows[0].id);
         else if (typeof pick === "string") this.select(pick);
     }
 
@@ -204,8 +236,9 @@ export class RequestsPage {
         this.#searching = controller;
         const token = ++this.#listToken;
         this.pending.value = 0;
+        const truncated = this.searchState.value.truncated;
         this.searchState.value = {state: "searching", truncated: false};
-        if (!more) this.list.value = {state: "loading", more: false};
+        if (!more) this.#clearRows();
         const {limit: _limit, ...query} = listInput(this.query.value);
         const cursor = more ? this.#searchNext : undefined;
         const page = await this.#remote.search({...query, text: this.search.value, ...(cursor === undefined ? {} : {cursor})}, {signal: controller.signal});
@@ -213,7 +246,8 @@ export class RequestsPage {
         this.#searching = null;
         if (!page.ok) {
             this.#report("requests-search-failed", `could not search model requests: ${page.code}`);
-            this.searchState.value = {state: "error", truncated: false};
+            // 接着查失败时已有的结果留着，“接着查”也还在。
+            this.searchState.value = {state: "error", truncated: more && truncated};
             this.list.value = {state: more ? "ready" : "error", more: false};
             return;
         }
@@ -222,6 +256,7 @@ export class RequestsPage {
         this.rows.value = more ? [...this.rows.value, ...page.value.rows] : page.value.rows;
         this.searchState.value = {state: "done", truncated: page.value.truncated};
         this.list.value = {state: "ready", more: false};
+        if (!more) this.#pickAfterList(page.value.rows);
     }
 
     async #loadHits(id: string): Promise<void> {
@@ -307,11 +342,20 @@ export class RequestsPage {
         this.#setContent(hash, read.ok ? {state: "ready", text: read.value} : {state: read.code === "content-not-found" ? "missing" : "error"});
     }
 
-    /** 新放进来的排在最后（对象的字符串键按加入的先后排）；满了丢最早的。 */
+    /** 新放进来的排在最后（对象的字符串键按加入的先后排）；段数或字符数超了丢最早的。 */
     #setContent(hash: string, state: RequestTraceContentState): void {
         const entries = Object.entries(this.contents.value).filter(([key]) => key !== hash);
         entries.push([hash, state]);
-        this.contents.value = Object.fromEntries(entries.slice(Math.max(0, entries.length - CONTENT_CACHE)));
+        const charsOf = (content: RequestTraceContentState): number => (content.state === "ready" ? content.text.length : 0);
+        let chars = entries.reduce((sum, [, content]) => sum + charsOf(content), 0);
+        let drop = Math.max(0, entries.length - CONTENT_CACHE);
+        for (let index = 0; index < drop; index += 1) chars -= charsOf(entries[index]![1]);
+        // 最新放进来的那段总留着，哪怕它一段就超了。
+        while (chars > CONTENT_CACHE_CHARS && drop < entries.length - 1) {
+            chars -= charsOf(entries[drop]![1]);
+            drop += 1;
+        }
+        this.contents.value = Object.fromEntries(entries.slice(drop));
     }
 
     async loadPayload(id: string): Promise<void> {
@@ -323,11 +367,13 @@ export class RequestsPage {
 
     /**
      * 合并一条变更（Spec 输出 15）。按时间排时，新来的、在当前筛选里的插到顶上；按别的排序时不插，记进 `pending`。
-     * 结算的原地换内容、不换位置；选中的那条结算了，详情重读。
+     * 结算的原地换内容、不换位置（查找结果的命中片段留着）；选中的那条结算了，详情重读（不论它在不在已加载的行里）。
+     * 列表头的合计与候选每次都重取：结算会让一条进出状态筛选，没加载的行也算在合计里，在这边增减算不准。
      */
     #apply(change: RequestChangeView): void {
-        if (change.seq <= this.#seq) return;
+        if (change.seq < this.#seq || (change.seq === this.#seq && change.kind !== "removed")) return;
         this.#seq = change.seq;
+        void this.#reloadTotals();
         if (change.kind === "removed") {
             const gone = new Set(change.ids);
             this.rows.value = this.rows.value.filter((row) => !gone.has(row.id));
@@ -337,12 +383,13 @@ export class RequestsPage {
             }
             return;
         }
+        if (change.kind === "settled" && change.row.id === this.selected.value) this.reload();
         const index = this.rows.value.findIndex((row) => row.id === change.row.id);
         if (index >= 0) {
             const next = [...this.rows.value];
-            next[index] = change.row;
+            const match = next[index]!.match;
+            next[index] = match === undefined ? change.row : {...change.row, match};
             this.rows.value = next;
-            if (change.kind === "settled" && change.row.id === this.selected.value) this.reload();
             return;
         }
         if (change.kind !== "added" || this.list.value.state === "error" || !matchesQuery(change.row, this.query.value)) return;
@@ -350,6 +397,29 @@ export class RequestsPage {
         // 查找时不知道新的这条有没有命中，也是记进去、点了重新查。
         if ((this.query.value.sort ?? "time") === "time" && this.search.value === "" && this.#atTop) this.rows.value = [change.row, ...this.rows.value];
         else this.pending.value += 1;
+    }
+
+    /** 重取列表头的合计与候选（筛选不变，只要一条）；正在取时又变了，取完再取一次。 */
+    async #reloadTotals(): Promise<void> {
+        if (this.#totalsLoading) {
+            this.#totalsDirty = true;
+            return;
+        }
+        this.#totalsLoading = true;
+        try {
+            do {
+                this.#totalsDirty = false;
+                const token = this.#listToken;
+                const page = await this.#remote.list({...listInput(this.query.value), limit: 1});
+                // 这期间从头取过列表：它带的合计更新，不盖掉。
+                if (page.ok && token === this.#listToken && this.list.value.state !== "loading") {
+                    this.totals.value = page.value.totals;
+                    this.facets.value = page.value.facets;
+                }
+            } while (this.#totalsDirty);
+        } finally {
+            this.#totalsLoading = false;
+        }
     }
 
     /** 列表滚到了顶上或离开了顶上。 */

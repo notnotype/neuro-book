@@ -511,9 +511,13 @@ export const agentBrowserPlugin: PluginDefinition = {
                             let cancelTick = (): void => undefined;
                             let stopSettings = (): void => undefined;
                             let giveBack = (): void => undefined;
-                            // 进行中的请求写已经等了多久：有进行中的才每秒重画一次。
+                            // 进行中的请求写已经等了多久：有进行中的（列表里的或选中的详情）才每秒重画一次。没有时也每 30 秒走一次，
+                            // 时间筛选（最近一小时、今天）按它算起点，页面开着很久之后选也不会差太多。
                             const tick = (): void => {
-                                if (store.rows.value.some((row) => row.status === "running")) now.value = clock.now();
+                                const detail = store.detail.value;
+                                const running = store.rows.value.some((row) => row.status === "running") || (detail.state === "ready" && detail.value.status === "running");
+                                const time = clock.now();
+                                if (running || time - now.value >= 30_000) now.value = time;
                                 cancelTick = clock.schedule(tick, 1000);
                             };
                             onMounted(() => {

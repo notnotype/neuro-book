@@ -1,7 +1,7 @@
 /**
  * “模型请求”页的状态（docs/specs/agent/request-trace.md 输出 13、15、18、26 与“时序与寿命”）：真实服务端、真实远程链路
  * （窗口的 `nbook.agent/requests` 客户端），本机 OpenAI 兼容端点。测页面的状态怎样跟着记录变：先订阅再取列表、新请求插到
- * 顶上、结算原地换、命令带的会话与请求序号、按需取全文与原始请求体。
+ * 顶上、结算原地换、列表头的合计跟着变、命令带的会话与请求序号、按需取全文与原始请求体。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
@@ -18,6 +18,7 @@ import type {FakeEndpoint} from "./testing/endpoint";
 import {agentWorld} from "./testing/world";
 import type {AgentWorld} from "./testing/world";
 import {RequestsPage} from "./web/requests-page";
+import type {RequestsClient} from "./web/requests-page";
 
 let root = "";
 let counter = 0;
@@ -41,13 +42,13 @@ afterAll(async () => {
 let commands = 0;
 const cid = () => `c-${String((commands += 1))}`;
 
-async function open(): Promise<{readonly w: AgentWorld; readonly page: RequestsPage; readonly reports: string[]}> {
+async function open(): Promise<{readonly w: AgentWorld; readonly page: RequestsPage; readonly requests: RequestsClient; readonly reports: string[]}> {
     counter += 1;
     const w = await agentWorld(join(root, `w${String(counter)}`), {userSettings: localModelSettings(endpoint.baseUrl)});
     worlds.push(w);
     const {requests} = await w.window("page");
     const reports: string[] = [];
-    return {w, page: new RequestsPage(requests, (code) => reports.push(code)), reports};
+    return {w, page: new RequestsPage(requests, (code) => reports.push(code)), requests, reports};
 }
 
 async function say(w: AgentWorld, text: string, session?: SessionApi): Promise<SessionApi> {
@@ -86,6 +87,28 @@ describe("“模型请求”页的状态", () => {
         await running;
         await waitUntil("结算之后原地换成成功", () => page.rows.value[0]?.status === "ok");
         expect(page.rows.value.map((row) => row.request)).toEqual([2, 1]);
+        await waitUntil("列表头的合计跟着变", () => page.totals.value.count === 2);
+    });
+
+    test("输出 15：选中的那条不在已加载的行里时，结算之后详情照样换成最新的", async () => {
+        const {w, page, requests} = await open();
+        endpoint.script("一", "二");
+        const session = await say(w, "第一句");
+        releases.push(page.borrow());
+        await settledRows(page, 1);
+        page.setAtTop(false);
+        const hold = endpoint.hold();
+        const running = say(w, "第二句", session);
+        await hold.arrived;
+        await waitUntil("记进有 N 条新请求", () => page.pending.value === 1);
+        const found = await requests.find({session: (await session.snapshot()).header.id, request: 2});
+        if (!found.ok) throw new Error(`find failed: ${found.code}`);
+        page.select(found.value.id);
+        await waitUntil("读到进行中的详情", () => page.detail.value.state === "ready" && page.detail.value.value.status === "running");
+        expect(page.rows.value.map((row) => row.id)).not.toContain(found.value.id);
+        hold.release();
+        await running;
+        await waitUntil("结算之后详情换成成功", () => page.detail.value.state === "ready" && page.detail.value.value.status === "ok");
     });
 
     test("决定 14：列表不在顶上时新请求不插进来，记进“有 N 条新请求”；清空这个会话之后列表与占用跟着变", async () => {
@@ -103,6 +126,8 @@ describe("“模型请求”页的状态", () => {
         await page.refresh();
         expect(page.rows.value).toHaveLength(2);
         page.setQuery({sessions: [(await session.snapshot()).header.id]});
+        // 换了筛选，旧的行当场拿掉，等新的列表回来。
+        expect([page.rows.value.length, page.list.value.state]).toEqual([0, "loading"]);
         await settledRows(page, 2);
         expect(await page.clear("session")).toBe(true);
         expect(page.rows.value).toEqual([]);
@@ -119,9 +144,12 @@ describe("“模型请求”页的状态", () => {
         releases.push(page.borrow());
         await settledRows(page, 3);
 
+        // 上一次留下的查找词不带进来：要选中的那次可能不在命中的行里。
+        page.setSearch("别的");
+        await waitUntil("查找结束", () => page.searchState.value.state === "done");
         await page.open({sessionId: id, request: 1});
         await waitUntil("只看这个会话、选中第 1 次", () => page.rows.value.length === 2 && page.detail.value.state === "ready" && page.detail.value.value.request === 1);
-        expect(page.query.value.sessions).toEqual([id]);
+        expect([page.query.value.sessions, page.search.value, page.searchState.value.state]).toEqual([[id], "", "idle"]);
         await page.open({sessionId: id, request: 99});
         expect(page.detail.value.state).toBe("missing");
     });
@@ -143,10 +171,10 @@ describe("“模型请求”页的状态", () => {
         expect(page.compare.value).toEqual({base: null, detail: {state: "idle"}});
     });
 
-    test("输出 17、20：查找词换掉列表、选中时取这一条的命中；清掉查找词回到普通列表", async () => {
+    test("输出 17、20：查找词换掉列表、选中时取这一条的命中；查到的行结算后命中留着；清掉查找词回到普通列表", async () => {
         const {w, page} = await open();
-        endpoint.script("雾港在第三章。", "别的。");
-        await say(w, "讲讲雾港");
+        endpoint.script("雾港在第三章。", "别的。", "好的。");
+        const session = await say(w, "讲讲雾港");
         await say(w, "说点别的");
         releases.push(page.borrow());
         await settledRows(page, 2);
@@ -156,8 +184,21 @@ describe("“模型请求”页的状态", () => {
         page.select(page.rows.value[0]!.id);
         await waitUntil("取到命中", () => page.hits.value !== null);
         expect(page.hits.value).toHaveLength(2);
+
+        // 进行中的请求也查得到；它结算时原地换内容，命中的片段与处数留着。
+        const hold = endpoint.hold();
+        const running = say(w, "雾港还在吗", session);
+        await hold.arrived;
+        await waitUntil("查找时新请求记进有 N 条新请求", () => page.pending.value === 1);
+        await page.refresh();
+        expect(page.rows.value[0]).toMatchObject({status: "running", match: {count: 3}});
+        hold.release();
+        await running;
+        await waitUntil("结算之后原地换成成功", () => page.rows.value[0]?.status === "ok");
+        expect(page.rows.value[0]?.match?.count).toBe(3);
+
         page.setSearch("");
-        await waitUntil("回到普通列表", () => page.rows.value.length === 2 && page.list.value.state === "ready");
+        await waitUntil("回到普通列表", () => page.rows.value.length === 3 && page.list.value.state === "ready");
         expect(page.searchState.value.state).toBe("idle");
     });
 
