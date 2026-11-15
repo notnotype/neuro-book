@@ -52,6 +52,8 @@ updated: 2026-11-15
 - 前端（Sonnet）8 条（重要 1、建议 7）：都成立、已改（`f75c8c971`）。“已删除或不可用”的提示不再只说放回文件夹；显示名撞了的插件组带上 id；条目按来源区分、插件来源必带所属插件；Profile 里无效的悬停写原因；没打包的原因加去向；长 id 组头折行；Profile 一节补测试。处理见 [`evidences/impl-review-frontend.txt`](evidences/impl-review-frontend.txt)。
 - 改完重跑：类型检查、受影响的单元与集成测试 64 条、Profile 与 Skill 页的测试、e2e `agent-skills` 3 条都过；Skill 页场景用 `nbdev shot` 重量，越界与被裁都是 0。
 
+已合入 master（`0f0b5c41d`，`--no-ff`）。合入前 master 又多了桌面设置（25 个文件），与 t33 没有同一个文件，`merge-tree` 试算无冲突；合入后在 master 上重跑应用 `typecheck` 与架构、目录的测试都过。分支与 worktree 已删。
+
 ## 下一步
 
-合入 master；Spec 里 t33 的 planned 条目（`agent/skills.md` 输出 30–34 与场景 9、`runtime/plugin-api.md` 的打包 Skill、`runtime/plugin-code-loading.md` 输出 11）去掉 planned 交开发者批准。
+Spec 里 t33 的 planned 条目（`agent/skills.md` 输出 30–34、“不承诺”与“时序与寿命”里的两条、场景 9；`runtime/plugin-api.md` 的打包 Skill；`runtime/plugin-code-loading.md` 输出 11）去掉 planned，交开发者批准。
