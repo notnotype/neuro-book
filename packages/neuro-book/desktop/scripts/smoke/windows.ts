@@ -179,10 +179,30 @@ export async function connectPage(port: number, webViewData: string, timeoutMs =
         // 端口没起来时，看这份浏览器数据的 WebView2 进程带没带调试端口：没带说明复用了一个先前起来的浏览器进程。
         const running = await webViewProcesses(webViewData).catch((failure: unknown) => [{pid: 0, commandLine: `（读不到：${String(failure)}）`}]);
         const lines = running.map((entry) => `${String(entry.pid)} ${entry.commandLine.includes("--remote-debugging-port") ? "带调试端口" : "不带调试端口"}：${entry.commandLine.slice(0, 400)}`);
-        throw new SmokeFailure(`${error instanceof Error ? error.message : String(error)}；端口 ${String(port)}；${webViewData} 的 WebView2 进程：${lines.length === 0 ? "没有" : lines.join(" | ")}`);
+        const policies = await webView2Policies().catch((failure: unknown) => `（读不到：${String(failure)}）`);
+        throw new SmokeFailure(`${error instanceof Error ? error.message : String(error)}；端口 ${String(port)}；${webViewData} 的 WebView2 进程：${lines.length === 0 ? "没有" : lines.join(" | ")}；WebView2 的注册表策略：${policies}`);
     }
     const page = await waitFor("产品页面出现", () => browser.contexts().flatMap((context) => context.pages()).find((candidate) => /^http:\/\/127\.0\.0\.1:\d+\//u.test(candidate.url())) ?? null, timeoutMs, 500);
     return {browser, page};
+}
+
+const WEBVIEW2_POLICY = "HKCU\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
+
+/**
+ * WebView2 附加参数的注册表策略（当前用户，按宿主程序名，值为 null 时删掉）。WebView2 在没有环境变量
+ * `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 时读它（CreateCoreWebView2EnvironmentWithOptions 的说明）。只给一次性的 CI 机器用：
+ * 它对这个用户下所有同名宿主程序都生效，开发机上不写。
+ */
+export async function setWebView2PolicyArgs(exeName: string, args: string | null): Promise<void> {
+    const result = args === null ? await run(["reg", "delete", WEBVIEW2_POLICY, "/v", exeName, "/f"]) : await run(["reg", "add", WEBVIEW2_POLICY, "/v", exeName, "/t", "REG_SZ", "/d", args, "/f"]);
+    // 删一个本来就没有的值不算失败。
+    if (result.code !== 0 && args !== null) throw new SmokeFailure(`写 WebView2 的注册表策略失败：${result.stderr.trim()}`);
+}
+
+/** 注册表里 WebView2 的策略（排查调试端口没起来时用）。 */
+export async function webView2Policies(): Promise<string> {
+    const results = await Promise.all(["HKCU", "HKLM"].map((root) => run(["reg", "query", `${root}\\Software\\Policies\\Microsoft\\Edge\\WebView2`, "/s"])));
+    return results.map((result) => result.stdout.trim()).filter((text) => text !== "").join(" | ") || "没有";
 }
 
 export type WebViewProcess = {pid: number; commandLine: string};

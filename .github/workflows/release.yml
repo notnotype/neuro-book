@@ -181,6 +181,8 @@ jobs:
       # 更新冒烟的测试标识与本机更新源（smoke-update.ts 的缺省端口）。
       TEST_IDENTIFIER: io.github.notnotype.neurobook.releasetest
       TEST_FEED: http://127.0.0.1:47819
+      # 冒烟另把调试端口写进当前用户的 WebView2 注册表策略（smoke/app.ts 的 startApp）：一次性的 runner 上才这样做。
+      NBOOK_SMOKE_WEBVIEW2_POLICY: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -402,6 +404,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.gate.outputs.version }}
       PREVIOUS: ${{ needs.gate.outputs.previous }}
+      NBOOK_SMOKE_WEBVIEW2_POLICY: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2

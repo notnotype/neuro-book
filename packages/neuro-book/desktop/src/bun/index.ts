@@ -170,7 +170,8 @@ async function main(): Promise<void> {
         mkdirSync(dir, {recursive: true});
         logFile = join(dir, "shell.log");
     }
-    log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} root=${JSON.stringify(root)}`);
+    // webview2Args：环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 有没有传到壳（冒烟靠它打开调试端口；只记有没有，不记值）。
+    log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
 
     const windows = new Map<WindowId, ManagedWindow>();
     const dialogs = new Map<string, BrowserWindow>();
