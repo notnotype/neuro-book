@@ -92,7 +92,7 @@
   - 问题并进 `PluginBuildError`。
 
   通用平台不认识 Skill。`plugin-sdk/build.ts` 把 Skill 这一步交进去。
-- 新文件 `src/plugins/agent/build/skills.ts`，逐个贡献、逐个 Skill：
+- 新文件 `plugin-sdk/skills-build.ts`（实施时从 `src/plugins/agent/build/` 挪过来：它用 Vite 与通用构建预设，架构测试只许作者工具层引用这两样），逐个贡献、逐个 Skill：
   1. 目录在作者目录里、存在、不是链接；`readSkillPackage` 判无效的作为构建问题。
   2. 遍历文件，跳过 `node_modules`、以点开头的、`package.json`、`bun.lock`、`bun.lockb`、`package-lock.json`。
   3. JS/TS 文件（`.js .mjs .cjs .jsx .ts .mts .cts .tsx`）各自 `Bun.build` 成单文件，写回同一个相对路径、同一个文件名（`SKILL.md` 里写的命令不用改）。

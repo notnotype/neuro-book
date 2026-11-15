@@ -29,6 +29,24 @@ updated: 2026-11-15
 
 设计审查（omp）6 条（阻断 3、重要 3）：成立 4 条、部分成立 1 条，都已改进计划；1 条不成立（Python 的规则是开发者的改判，已在 t15 第 7 条后注明）。处理见 [`evidences/design-review.txt`](evidences/design-review.txt)。两项“接受取舍”记进了 [待确认清单](../../pending-confirmations.md)：查不出按工作目录或环境变量找数据文件的依赖；可选依赖的 `try require` 照样判失败。
 
+切片都已提交（分支 `feat/w00032-t33-plugin-skills`）：
+
+1. `9d7495065`：贡献点 `agent.skills`、平台的插件包查询（`plugin-platform/packages`）、Skill 目录的插件来源（根带 key 与前缀，接收者随贡献的发布与撤回增删）。
+2. `94fd8fdb2`：`nbooke build` 把 Skill 的脚本连同依赖打成单文件，打不进的构建失败并写明原因（通用构建预设加“按贡献点的附加构建步骤”）。
+3. `7388809c8`：从构建、安装到 `$` 带上与 shell 运行的集成测试；接收者的时序测试。
+4. `1d77d32f5`：Skill 页与 Profile 设置按插件分组，例子 `skill-pack` 与场景 9，SDK 的作者文档。
+5. `c9740fe57`：收口时架构测试拦下的三处（打包 Skill 的一步挪进作者包 `plugin-sdk/skills-build.ts`；平台注释不提应用名；例子里 Skill 的脚本不按插件代码的规则查）。
+
+实施中与计划不同的几处（计划与 Spec 已同步改）：
+- 运行中才登记的插件，它的顶层声明要等接收者下次接上才补交（`runtime/plugins.md` 的已知限制，热插拔还是 planned）。集成测试改成两个插件都在启动时登记，撤回的先后由接收者自己的测试按合同调用。
+- 入口脚本自己的 `__dirname`、`__filename` 被 Bun 换成构建机器上的路径（实验），所以也判构建失败，提示改用 `import.meta.dir`。
+- 例子 `skill-pack` 的描述从 `/agent` 取 `agentSkills`。`/agent` 只在服务端，仓库里浏览器那份类型检查排除了这个例子（与 `src/sdk/agent.ts` 同理）。作者那边用的是打包后的类型，SDK 打包测试加了一条核对作者的普通 tsconfig 照样通过。
+
+收口验证（master 已并进分支，`01323ef8d`）：
+- 应用 `typecheck` 过。
+- `test:affected --since master`：Bun 3145 条、Vitest 623 条。第一次有 2 条架构测试失败，修正后重跑架构测试、`plugin-sdk` 全套与插件 Skill 的集成测试都过。
+- e2e `agent-skills` 过。`plugins` 的“安装 → 重启后配置项出现……”在 master（`1013647d0`）上同样失败，是既有失败，与 t33 无关。`lab-scenes` 挡在主题编辑器两个场景的 404（t30 收口时已见过），Skill 页的四个场景改用 `nbdev shot` 在手机与自由画布上量：越界、焦点环与外扩环被裁、页面错误都是 0。
+
 ## 下一步
 
-在 `.worktree/w00032-t33-plugin-skills`（分支 `feat/w00032-t33-plugin-skills`，已建好）按计划切片实施，从切片 1（平台服务、贡献点与目录的插件来源）开始。
+实现审查两路已开（后端 omp、前端 Sonnet），回来后处理；之后合入 master，Spec 里 t33 的 planned 条目晋升交开发者批准。
