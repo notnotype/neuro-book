@@ -15,8 +15,8 @@ updated: 2026-11-15
 
 ## 当前状态
 
-2026-11-15：计划 r1 写成（[plan.md](plan.md)）。设计审查要等 t03 的 omp 实现审查跑完（同一时间只跑一个 omp）。
+2026-11-15：计划 r1 写成；设计审查第 1 轮 omp 6 条、Sonnet 14 条，处理见 [disposition](evidences/design-review-r1-disposition.txt)，计划改为 r2（[plan.md](plan.md)）：设置改由页面经窗口能力推给壳，壳只缓存。不开第 2 轮。
 
 ## 下一步
 
-设计审查（omp 审整体与壳，Sonnet 审设置窗口与插件的前端部分），处理后按切片实施。
+按 plan r2 的切片实施，分支 `feat/w00046-t04-desktop-settings` 从 master 开。

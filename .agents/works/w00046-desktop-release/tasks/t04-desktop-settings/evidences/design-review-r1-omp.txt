@@ -1,0 +1,52 @@
+### 1. 重要：壳绕过层拥有者，设置文件的失败语义与跨进程时序不成立
+- 类别：正确性 / 不变量
+- 位置：计划 `plan-r1.md:60-67`；`src/plugins/settings/backend/layer-owner.ts:140-166,198-219`；`docs/specs/settings/configuration.md:131-143`
+- 现象：计划让壳直接读取 `<状态根>/settings.json`，解析失败或值不合法就退回默认值。设置拥有者则在同一串行队列里重读和写入，层无效时保留上一份有效值，且配置合同明确支持外部编辑器“先截断再写入”。
+- 为什么是问题：服务端经原子替换写入时壳通常不会读到半份文件，但外部编辑器的截断写入、文件替换与壳读取可以重叠。壳会把拥有者暂时视为 `invalid` 的同一文件当成默认值，导致缩放瞬时跳回 1、开机自启瞬时按 false 同步；拥有者恢复后再跳回。即使最终值一致，也违反“无效层保留上一份有效内容”，并产生第二套跨进程状态机。壳还没有拥有者的修订号，无法知道自己的读取是否落后于刚完成的写入。
+- 如何核实：静态跟踪 `layer-owner.ts:155-166` 的 `readLayerFile → fromText → publish` 与 `layer-text.ts:37-39` 对外部保存方式的合同；用一个进程对 `settings.json` 执行“截断、写半份、写完整份”，同时让独立读者循环 `readFile + parseLayerText`，可观察独立读者在窗口内得到 invalid，而拥有者保持上一值。
+- 建议改法：定义壳可消费的、由 `nbook.settings` 拥有者原子更新的桌面设置快照（至少带值、状态和修订），壳启动时读它、变化时继续读它；或者把“无效时保留上一有效值、按修订应用”写成共享的跨进程投影合同，不能把原始层文件当成壳的第二个拥有者。
+
+### 2. 重要：仅在页面 `keydown`、`wheel` 中接管缩放，不能保证压住 WebView2 的浏览器加速键
+- 类别：正确性 / Windows 交互
+- 位置：计划 `plan-r1.md:46-50,98-105,133-134`；`src/plugins/workbench/web/commands/keymap.ts:93-102`；Electrobun 2.0.6 的 `src/native/win/nativeWrapper.cpp:3897-3905,7649-7651`
+- 现象：计划让 `nbook.desktop` 的页面快捷键和 `wheel` 监听接管 `Ctrl+加减、Ctrl+0、Ctrl+滚轮`，并声称 WebView2 自带缩放因此被页面接管。现有分发器只在 DOM `keydown` 中 `preventDefault()`，Electrobun 适配层也没有暴露 WebView2 的浏览器加速键或缩放控制设置。
+- 为什么是问题：Microsoft 的 WebView2 合同把 `Ctrl+Plus`、`Ctrl+Minus`、`Ctrl+0` 列为浏览器加速键；官方建议通过 `CoreWebView2Controller.AcceleratorKeyPressed` 定制单个按键，或用 `AreBrowserAcceleratorKeysEnabled` / `IsZoomControlEnabled` 控制默认行为。页面事件到达顺序不能替代宿主级拦截，因此真实 Windows 上可能出现页面命令与 WebView2 默认缩放同时发生、页面收不到按键，或两者行为随运行时版本变化。计划列出的 CDP 页面按键验收也只能证明 DOM 收到了注入事件，不能证明真实键盘加速键已被屏蔽。
+- 如何核实：读取 Microsoft WebView2 文档 `CoreWebView2Settings.AreBrowserAcceleratorKeysEnabled` 与 `IsZoomControlEnabled`（均明确包含缩放快捷键），再对照 Electrobun Windows 源码：当前只保存并调用 `ICoreWebView2Controller::put_ZoomFactor`，没有设置 `AreBrowserAcceleratorKeysEnabled`、`IsZoomControlEnabled` 或 `AcceleratorKeyPressed` 的代码；现有 `keymap.ts` 的拦截点在 DOM 事件阶段。
+- 建议改法：先在 Electrobun Windows 适配层明确设置 `IsZoomControlEnabled = FALSE` 或等价策略，并在 `AcceleratorKeyPressed` 中处理目标组合后转给窗口端口；或者定义并验收完整的宿主级加速键合同。Windows 验收必须用真实键盘消息验证缩放只改变一次，同时补 Ctrl+滚轮、Ctrl+Plus 的 Shift/键盘布局和数字键盘路径。
+
+### 3. 重要：设置文件变化没有产品页面时不会通知壳，启动阶段与转为产品窗口存在陈旧设置窗口
+- 类别：正确性 / 事件时序
+- 位置：计划 `plan-r1.md:46-50,60-67`；`src/plugins/settings/backend/layer-owner.ts:171-176`；`src/plugins/settings/shared/instance.ts:104-125,232-242`；`src/desktop/windows.ts:106-139`
+- 现象：计划只在桌面插件浏览器入口的 `settings.onDidChange` 回调里发送 `desktop-settings-changed`，壳收到消息后才重新读 `settings.json`。设置拥有者虽在服务端启动时监视文件，但计划没有把该服务端事件接到桌面壳；启动页是壳自带页面，不运行产品插件。
+- 为什么是问题：用户或 CLI 在首个产品页加载前修改设置时，壳已经在启动时读过旧值，服务端拥有者随后只把快照发给浏览器实例，不会发给壳。`createSettingsInstance` 的首次快照建立在监听注册前，不会替代一次变化通知；因此启动页转产品页时，`WindowCoordinator.serverReady()` 只调用 `load()`，不会重新同步缩放或开机自启。壳只有在后续产品页实例收到有效值变化时才会重读。没有产品窗口但壳仍在启动、等待或过渡期间时同样没有事件来源；多窗口时事件又由每个页面分别转发，只有重复重读而没有单一事件源。
+- 如何核实：静态跟踪 `layer-owner.ts` 的文件监视只调用拥有者自己的 `reload`，`instance.ts` 的 `onDidChange` 只通知已登记的浏览器监听者；再跟踪 `windows.ts:129-137` 的启动页转产品页路径，没有任何设置同步调用。用启动页停留期间替换 `settings.json`，再让服务端就绪，可观察产品窗口沿用壳启动时的旧缩放值。
+- 建议改法：把设置变化事件从服务端拥有者经桌面锁/RPC 送到壳，或在每次产品窗口即将加载、以及壳收到服务端就绪时重新取得一次由拥有者发布的桌面设置快照；页面事件只作为窗口内即时变化的补充，不应是唯一跨进程唤醒来源。事件合同还应规定多窗口去重、无窗口、启动页和断线期间的行为。
+
+### 4. 重要：开机自启登记没有携带状态根，`NBOOK_STATE_ROOT` 场景会在登录后读错配置并自我撤销
+- 类别：正确性 / 生命周期
+- 位置：计划 `plan-r1.md:60-72,120-124`；`src/desktop/state-root.ts:42-63`；`docs/specs/runtime/desktop-shell.md:46-56`
+- 现象：计划把注册表 Run 值设为不带参数的 `"<安装目录>\\bin\\launcher.exe"`，壳启动时仍按 `NBOOK_STATE_ROOT`、便携标记、平台缺省顺序解析状态根。计划没有规定自启项如何携带本次使用的自定义状态根，也没有禁止在这种状态根下开启自启。
+- 为什么是问题：用户可以用一次性进程环境 `NBOOK_STATE_ROOT=D:\\books\\state` 启动安装版，并在该状态根的 `settings.json` 打开 `openAtLogin`。注册表 Run 在下次登录时只启动 launcher，不会继承这次进程专用环境；壳随后读取 `%LOCALAPPDATA%\\NeuroBook\\settings.json`（或其缺省值），而不是 `D:\\books\\state\\settings.json`。它可能以默认值启动并把正式 Run 项删除，或者以另一份配置同步缩放，导致“开机自启”和设置归属不稳定。按计划的 Windows 验收若只用缺省状态根，覆盖不到这个合同缺口。
+- 如何核实：对照 `resolveDesktopStateRoot()` 的取值顺序与 Spec 对 `NBOOK_STATE_ROOT` 的定义；Windows 的 Run 项只保存命令字符串，不保存触发它的进程环境。无需 Windows 实机即可从源码确定：计划的值没有 `NBOOK_STATE_ROOT` 参数或专用启动器，且应用启动参数当前明确未面向用户开放。
+- 建议改法：定义自启的状态根合同：为 Run 值携带并安全转义状态根、为每个状态根生成稳定的启动入口，或明确禁止自定义状态根启用开机自启并在设置中显示原因。验收至少覆盖一次性环境变量、用户级持久环境变量、多个状态根与测试标识共存。
+
+### 5. 重要：把显示缩放与开机自启塞进用户层，和现有本机层合同冲突
+- 类别：Spec / 数据语义
+- 位置：计划 `plan-r1.md:40-45,78-90,126-135`；`docs/specs/settings/configuration.md:159-161`；`docs/specs/settings/configuration.md:111-124`
+- 现象：计划将 `zoom` 与 `openAtLogin` 都声明为只允许 `user` 层，并准备把“桌面版用户层就是本机的”写回配置 Spec，以此替代输出 22 规定的本机层。现有输出 22 已明确把“与这台机器有关的路径、显示缩放”放进 planned 的本机层；开机自启同样是操作系统机器状态。
+- 为什么是问题：用户层当前的定义是状态根下、对服务端实例与所有窗口生效的普通用户配置，文件也可以被复制、备份或未来同步。它没有“只在这台机器生效”的语义。把当前没有同步实现这一事实写成“用户层就是本机层”不会解决以后同步、迁移状态根或多机器恢复时的行为：缩放和开机自启会被带到另一台 Windows 机器，尤其开机自启可能指向不存在的安装路径。计划因此修改了真相源的既有边界，而没有实现其已命名的层合同。
+- 如何核实：直接对照配置 Spec 的层可用性与输出 22：用户层文件是 `<状态根>/settings.json`，本机层尚未实现；再对照计划的两个字段与其理由，二者描述的是同一类机器绑定数据。没有任何现有同步实现可以证明“用户层天然不可同步”。
+- 建议改法：优先把本机层的落点、优先级、声明字段和远程合同作为本任务的前置设计并实现；若本任务确实不做本机层，就不要把这两个键伪装成普通用户设置，至少将其放入明确标注为本机专用的桌面状态文件并由拥有者管理，或在 Spec 中记录暂时方案、迁移规则和未来同步禁用规则。
+
+### 6. 建议：卸载清理被降级成条件性已知限制，Run 项可能永久留下失效启动器
+- 类别：生命周期 / 发布维护
+- 位置：计划 `plan-r1.md:68-72,103-106,120-135`；`desktop/electrobun.config.ts:16-43`；`scripts/smoke/app.ts:56-65`
+- 现象：计划把自启登记写入 HKCU Run，但没有给安装器或卸载器登记清理动作；计划末尾只写“卸载后登记被清，若卸载程序不清，壳在下次启动时也无法清，记为已知限制”。现有仓库的卸载验收只调用生成的卸载程序并检查安装目录、卸载项和快捷方式，不检查或删除该 Run 值。
+- 为什么是问题：用户卸载后，HKCU Run 仍可能保存已删除的 `launcher.exe`。Windows 每次登录都会尝试启动失效路径；由于应用已不存在，壳也没有机会按 `openAtLogin: false` 自清。便携版或测试标识随后共存时还会留下指向旧安装目录的幽灵启动项。计划的 Windows 验收把“卸载后清除”写成条件，不足以证明发布产物的完整生命周期。
+- 如何核实：对照计划承认的 Electrobun 卸载限制与现有 `uninstall()` 流程：安装配置只声明应用标识、载荷和运行时，没有 Run 项清单；卸载脚本调用 `--delete-data` 后只等待安装目录、卸载项和快捷方式消失。静态上没有任何 `reg delete` 或卸载钩子。
+- 建议改法：让安装/卸载流程拥有同一份应用标识与 Run 值名，在卸载阶段删除且只删除值数据仍指向本应用 launcher 的项；增加安装版真实卸载后 `reg query` 为空的 Windows 验收。无法改卸载器时，应在发布合同中明确残留清理工具或不提供该自启选项，不能只把失效项列为已知限制。
+
+---
+
+有效发现：1、2、3、4、5、6
+数量：阻断 0；重要 5；建议 1
