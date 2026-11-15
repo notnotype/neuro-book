@@ -14,7 +14,7 @@
  * 查不出的：依赖按工作目录、环境变量或写死的路径找文件（Spec 写明的已知限制）。
  *
  * 只在作者工具里跑（Bun）：打包用 `Bun.build`，按语法查用 vite 的 `parseAst`，作者机器上本来就有 vite（构建预设的依赖）。
- * 本模块进 SDK 包，只用相对路径导入。
+ * 放在作者包（`plugin-sdk/`）而不是 Agent 插件里：它用 Vite 与通用的构建预设，产品代码不引用这两样。随 SDK 包发出，只用相对路径导入。
  */
 
 import {chmod, copyFile, lstat, mkdir, readdir, readFile, realpath, writeFile} from "node:fs/promises";
@@ -26,11 +26,11 @@ import {parseAst} from "vite";
 import type {ManifestProblem} from "@notnotype/nb-runtime/plugin-manifest";
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 
-import type {ContributionBuild} from "../../../plugin-platform/build/build-plugin";
-import type {SkillProblem} from "../shared/skills";
-import {SKILLS_POINT, skillsDirectoryProblem} from "../shared/points";
-import type {AgentSkillsDeclaration} from "../shared/points";
-import {detectExternal, readSkillPackage} from "../backend/skills/package";
+import type {ContributionBuild} from "../src/plugin-platform/build/build-plugin";
+import {detectExternal, readSkillPackage} from "../src/plugins/agent/backend/skills/package";
+import {SKILLS_POINT, skillsDirectoryProblem} from "../src/plugins/agent/shared/points";
+import type {AgentSkillsDeclaration} from "../src/plugins/agent/shared/points";
+import type {SkillProblem} from "../src/plugins/agent/shared/skills";
 
 /** 不带进产物的：依赖由打包带上，带着 `package.json` 的插件 Skill 在目录里算没打包（skills.md 输出 32）。 */
 const SKIPPED = new Set(["node_modules", "package.json", "bun.lock", "bun.lockb", "package-lock.json"]);

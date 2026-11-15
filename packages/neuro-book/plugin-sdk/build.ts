@@ -6,7 +6,7 @@
 import {buildPlugin as buildWithProfile, isPreviousBuild as isPreviousBuildFor} from "../src/plugin-platform/build/build-plugin";
 import type {BuildPluginOptions, BuildPluginResult} from "../src/plugin-platform/build/build-plugin";
 import {NEUROBOOK_PROFILE} from "../src/plugin-platform-profile";
-import {skillsBuild} from "../src/plugins/agent/build/skills";
+import {skillsBuild} from "./skills-build";
 
 export {devVersion, PluginBuildError} from "../src/plugin-platform/build/build-plugin";
 export type {BuildAlias, BuildPluginOptions, BuildPluginResult} from "../src/plugin-platform/build/build-plugin";
