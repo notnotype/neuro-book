@@ -1,0 +1,244 @@
+w00032 t30 实现审查第 2 路（前端，Claude Sonnet，2026-11-15，提交范围 cbbbb8944..19f135c00 的前端部分）
+报告原文（已扫描密钥：0 处）：
+
+# w00032 t30 前端实现审查（第 2 路）
+
+范围：`cbbbb8944..19f135c00` 的前端部分。路径相对 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00032-t30-review-2`，缩写：`RP` = `packages/neuro-book/src/plugins/agent/web/requests-page.ts`，`TR` / `LI` / `DE` = `packages/nb-agent-ui/src/vue/requests/` 下的 `AgentRequestTrace.vue` / `AgentRequestList.vue` / `AgentRequestDetail.vue`。
+已跑：`bun test src/request-trace.test.ts`（8 过）、`bunx vitest run src/vue/requests`（15 过）。没跑 e2e 与开发服务。第 1 条用无头 Chrome 渲染一份只含该条 CSS 的静态页核实（实验文件在 `/tmp/nb-t30-review-2-fe/`），其余为读代码与推演，已在各条写明依据。
+任务 README 已记为“没做、待开发者定”的项（页面新开从全部开始、`#N`、查找条回车、窄时迟滞与滚动位置保留、消息页按角色与“有命中”筛选等）不在下面。
+
+## 重要
+
+### 1. 系统提示词页每行的 token 数落错列，预览长时被挤成 0 宽
+严重程度：重要，界面
+位置：`DE:341-349`（模板）、`DE:617`（`.ard__item-head` 的 `grid-template-columns: 2.4em auto minmax(0, 1fr) auto auto`）
+现象：消息页每行有五个子元素（序号、角色、预览、补充说明、token），与五列对上。工具页和系统提示词页共用同一个模板，`<span v-if="'id' in item">` 只有工具有角色格；系统提示词块没有 `id`，一行只有三个子元素（序号、预览、token），自动落到第 1、2、3 列，即 `2.4em`、`auto`、`1fr`：预览进 `auto` 列，token 进 `1fr` 列。结果是 token 数不在右端、不与消息页同列；预览较长时 `auto` 列吃满剩余宽度，`1fr` 列收到 0，token 文字溢出到行外。违反 ui-development-spec“几何、排版与动效”第 6 条（同类零件同列）。
+核实：在 `/tmp/nb-t30-review-2-fe/grid.html` 里用同一份 grid 规则，容器 420px，渲染“序号、预览、token”三子元素。短预览：token 左边界在 153px、宽 253px（左对齐，不在右端）；长预览：token 宽 0、左边界 406px，文字伸到 420px 容器之外。
+建议：系统提示词与工具行不要靠自动排布：给缺的格子放占位的空 span，或每种页签用自己的 grid 模板（系统块：`2.4em minmax(0,1fr) auto`）。Lab 场景补一个“系统提示词页、预览很长”的视图，目前九个场景都停在消息页。
+
+### 2. 查找与刷新期间列表显示的是旧行，却写“找到 N 次请求”；失败时旧行留着且没有任何失败提示
+严重程度：重要，正确性与状态下限
+位置：`RP:165-190`（`refresh`）、`RP:201-225`（`#runSearch`）、`LI:100-103`、`LI:114`
+现象：
+- `#runSearch(false)` 只把 `list` 置为 `loading`，不清 `rows`。从普通列表开始查找时，`LI` 因 `search !== ""` 显示查找头，计数用 `rows.length`：头上写“找到 100 次请求 · 正在查找”，下面却是 100 条没有命中片段的普通行，一直到服务端扫完（上限 3 秒）。数字与行都是假的。换查找词时同理，显示的是上一个词的结果。
+- `LI:114` 的空状态（加载中、失败、重试）只在 `rows.length === 0` 时出现。`refresh()` 失败（`RP:175-178`）、`#runSearch` 失败（`RP:214-218`）时 `list.state = "error"`，但 `rows` 还是旧的，列表照常显示旧行，没有一处写“读不出”，也没有重试入口；筛选条已经换成新条件，行与条件对不上。
+- 普通 `refresh()`（换筛选、点“有 N 条新请求”）期间 `list` 为 `loading` 但旧行留着，没有任何加载提示（没有 `aria-busy`、没有变淡）。
+违反 ui-development-spec“状态下限”：“失败是一屏内容……不是行内色块”，“加载态与失败态……可播报”。
+核实：读 `#runSearch` 与 `LI` 模板；`rows.value` 只在成功分支被赋值；DOM 测试没有“rows 非空且 list 为 error / loading”的用例。
+建议：`refresh` 与 `#runSearch(false)` 开始时清空 `rows`（或让组件在 `list.state !== "ready"` 时整块显示加载或失败，旧行淡出）；查找头在 `searching` 时不写数字；失败时占满列表区并带重试。补 DOM 用例：rows 非空时 list 为 loading 或 error。
+
+### 3. 新请求进来、请求结算时列表头的合计不更新（违反 Spec 输出 15）
+严重程度：重要，合同
+位置：`RP:328-353`（`#apply`）
+现象：Spec 输出 15 写“列表头的合计随之更新”。`#apply` 只改 `rows` 与 `pending`，从不写 `totals`；`totals` 只在 `refresh()` 的成功分支赋值。页面开着时，新请求插到顶上后列表头仍是旧的条数、输入、缓存命中与费用；进行中的请求结算时费用和 token 才产生，合计也不变；`removed` 之后也不变。
+核实：读 `#apply` 全部分支，没有 `totals.value =`；`requests-page.test.ts` 与 e2e 没有断言列表头随新请求变化。
+建议：插入、结算（费用与用量变化）、删除时按行增量调整 `totals`（`count`、全部输入 = `promptTokens`、`cacheRead`、费用的 null 语义），或在 `#apply` 之后节流地重取一次合计；补一条“新请求进来后列表头变化”的用例。
+
+### 4. 页面里“当前时间”在没有进行中请求时停住，“最近一小时”“今天”筛出错的范围
+严重程度：重要，正确性
+位置：`packages/neuro-book/src/plugins/agent/web/plugin.ts:510-520`（`now` 与 `tick`）、`TR:128-135`（`sinceOf`）
+现象：`now` 初值是挂载那刻，`tick` 只在 `store.rows.value.some(row => row.status === "running")` 时才更新它。页面开着、没有进行中请求时 `now` 不动。两小时后选“最近一小时”，`since = props.now - 3_600_000` 是挂载前一小时；跨过午夜后选“今天”算出的是昨天零点。筛出的请求不是用户要的。组件文档把 `now` 写成“宿主给的当前时间”，没写它可能陈旧。
+附带：选中的详情是进行中、但它不在已加载的 `rows` 里（被筛选排除，或查找模式下 `rows` 只有命中行）时，概览的“总时长”也不走，原因相同。
+核实：读 `tick` 的条件，没有别处刷新 `now`；DOM 测试直接给定 `now`，没有覆盖。
+建议：选时间时取当前时刻（组件用 `Date.now()`，或经 action 向宿主要），`now` 只管进行中的计时；或 `tick` 无条件更新（一个 shallowRef，代价很小）。
+
+### 5. 选中的请求不在已加载的行里时，结算与断线重连之后详情不会更新
+严重程度：重要，正确性
+位置：`RP:340-348`、`RP:117`（`onResync`）、`RP:165-190`
+现象：
+- `#apply` 对 `settled` 先在 `rows` 里找，找到才 `reload()`。选中的请求不在 `rows` 里（Spec 输出 15 明说被筛选排除时详情照样显示；查找模式 `rows` 只有命中行；没翻到那一页）时，事件落到 `change.kind !== "added"` 的 return，详情永远停在“进行中”、没有回复，直到用户重选。
+- 重连：`onResync` 只调 `refresh()`，它不重读选中的详情。断线期间结算的事件丢了，详情同样停在进行中。
+核实：读 `#apply` 与 `refresh`；`reload()` 只在“找到行且是 settled 且 id 等于选中”时调。
+建议：对选中的 id 单独判断（`change.row.id === this.selected.value` 且 `kind === "settled"` 就 `reload()`，与列表里有没有这行无关）；`onResync` 之后对选中且状态仍是进行中的详情重读一次。
+
+### 6. 命中先于详情回来时，查找的自动定位丢失
+严重程度：重要，正确性
+位置：`DE:191-194`（只 watch `props.hits`）、`DE:208-212`（`reveal` 里 `detail === null` 就 return）、`RP:254-263`
+现象：在查找模式点另一条请求：`select()` 同步把 `detail` 置为 `loading`，并发出 `hits`（一次 RPC）；详情要 `read` 加若干页 `messages` 才算 ready。`hits` 先回来时 `watch(props.hits)` 触发，`reveal(0)` 因 `value === null` 直接 return；之后详情 ready，没有任何 watch 再触发定位。结果：查找条写“第 1 处，共 N 处”，但页签没切、命中那条没展开、没滚动。哪个先回取决于请求大小，大请求（详情多页）几乎总是命中先到。e2e 只覆盖“详情已就绪后再输入查找词”的顺序。
+核实：读 `DE:191-194` 与 `reveal`；`watch` 的源只有 `props.hits`，没有 `value.value?.id` 或详情就绪。DOM 测试的查找条用例是先给 detail 再给 hits。
+建议：把“待定位”记成状态（`pendingReveal = true`），`hits` 到、详情就绪两个条件都满足时再 `reveal(0)`；补 DOM 用例：先 `hits` 后 `detail`。
+
+### 7. 任何一段全文取回都会把滚动位置拉回当前命中
+严重程度：重要，交互
+位置：`DE:235-238`
+现象：`watch(() => props.contents, …)` 每次 `contents` 变（`RP:311-315` 的 `#setContent` 每次都换整个对象，且一次取全文要换两次：loading、ready），只要有命中且当前命中的那一处已渲染，就 `scrollIntoView({block: "center"})`。查找模式下用户展开另一条消息去读，全文一到，页面就被拉回当前命中，读不下去。注释“全文晚到时再滚一次”只对当前命中那一条的全文成立。
+核实：读 watch 的条件：没有判断变化的是不是命中那一条的 hash。
+建议：只在 `contents[当前命中所在的 hash]` 从非 ready 变为 ready 时才滚；或把定位放进 `reveal` 的“等该段内容到”之后。
+
+### 8. “列表在顶上”的状态会陈旧：重建列表、换筛选或重新打开页面后新请求不再插入
+严重程度：重要，正确性
+位置：`LI:84-95`（`let atTop = true`，只在 scroll 事件里更新）、`RP:88-89`、`RP:356-358`
+现象：组件内的 `atTop` 是普通变量，每个组件实例初值 true，只在滚动时发 `request.list-at-top`；宿主的 `#atTop` 在插件作用域里，不随页面卸载重置。
+- 用户滚下去（宿主 `#atTop = false`），切走页签再回来：页面组件重建，滚动容器在顶上，但宿主仍是 false，新请求全部记进“有 N 条新请求”，用户明明在看顶部。
+- 滚下去后换筛选或点“有 N 条新请求”：`rows` 被整体换掉但滚动容器没动（`LI:128` 的容器只在 rows 为空时才销毁），滚动位置保留在旧偏移上，新结果从中间开始显示，`atTop` 也仍是 false；`refresh` 没有回到顶部的动作。
+核实：读 `LI:84-95`；组件挂载时与 rows 换掉时都不发 `list-at-top`；DOM 测试只有“滚下去、滚回来各报一次”。README 记的“滚动位置保留”只涉及窄时的显示切换，不包含这里。
+建议：组件挂载时发一次当前值；列表头的 `rows` 被整体换掉（`key` 变）时 `scrollTop = 0` 并发 `atTop: true`；或宿主在 `borrow`、`refresh` 时把 `#atTop` 置回 true。
+
+### 9. 在查找模式下 `open()` 带来的选中被丢掉，旧选中会在以后冒出来
+严重程度：重要，合同（Spec 输出 26）
+位置：`RP:134-149`（`open`）、`RP:165-166`、`RP:186-189`
+现象：状态仓的 `search` 一直保留到窗口关闭（README 已记筛选一直保留，但没提查找词）。用户查找过“雨夜”，关掉页签；之后点回复上的“查看这次请求”：`open()` 只换 `query.sessions` 与 `#pick`，不清 `search`；`refresh()` 因 `search !== ""` 直接走 `#runSearch(false)` 后 return，`#pick` 没被消费、列表只有命中行，目标请求既没被选中也不一定在列表里。`#pick` 一直留着，用户之后清掉查找词，普通 `refresh` 才执行 `select(pick)`，选中莫名其妙跳到一条旧请求。输出 26 要求“带 `request` 时选中那一次”。
+核实：读 `open` 与 `refresh` 的前三行；`requests-page.test.ts` 的输出 26 用例没有查找词。
+建议：`open()` 带 `sessionId` 时清 `search`（它是换成入口要的筛选与选中）；`#runSearch` 也消费 `#pick`（或选中时与列表是否包含无关，直接 `select`）。
+
+### 10. 查找结果里的行一结算就丢掉命中片段与处数
+严重程度：重要，正确性
+位置：`RP:340-345`
+现象：`#apply` 对已在 `rows` 里的行用 `change.row` 整个换掉。查找模式下的行带 `match`，事件里的行没有，换完后这一行的第二行退回普通用量，命中片段、“另 N 处”消失，列表头的计数还把它算作命中。进行中的请求被查到是常有的（它的用户话已经写进记录）。
+核实：`RequestChangeView` 的 `row` 是 `RequestRowView`，没有 `match`；`next[index] = change.row`。
+建议：换行时保留原来的 `match`：`{...change.row, ...(old.match === undefined ? {} : {match: old.match})}`；并补一条“查找中结算”的用例。
+
+### 11. 错误文字里的命中在界面上没有任何表现
+严重程度：重要（小），正确性
+位置：`DE:273`（错误文字只是纯文本）、`DE:208-223`（`reveal` 对 `error` 页什么也不做）、`DE:290`（只有消息、系统提示词、工具三个页跳转按钮）
+现象：Spec 输出 17 把错误文字纳入查找，服务端 `hits` 也会给 `{page: "error"}`。查找条把它数进“共几处”，“下一处”走到它时页签不动、没有高亮、没有滚动，当前一处看起来是消失了；错误里的字没有被标出来。`hit.page === "error"` 也没有页跳转按钮。
+核实：读上述三处；`highlightSegments` 只用在 `renderPieces` 里，概览的错误文字没有走它。
+建议：概览里的错误文字也按 `highlightSegments` 标出，当前一处标 `data-hit-current` 并滚动；补一条错误命中的 DOM 用例。
+
+### 12. 时间筛选在页面重新挂载后显示的是“今天”，与实际条件不符
+严重程度：重要（小），正确性
+位置：`TR:124-127`
+现象：`timePreset` 是组件的本地状态，初值 `props.query.since === undefined ? "all" : "today"`。宿主的 `query` 在窗口里一直保留：选了“最近一小时”，切走页签再回来，芯片写“今天”，实际条件是挂载前选的那一刻的 `since`；用户再选一次“今天”才会对上。
+核实：读初值；注释说“从 since 反推不出选的是哪一项”，因此初值只能猜。
+建议：把预设放进 `RequestTraceQuery`（宿主保存，查询时再换算成 `since`），或在 `query` 上存一个 `time: "hour" | "today"` 的字段；至少初值别写死“今天”。
+
+## 建议
+
+### 13. 详情的容器查询判错了容器，两栏时的窄档规则不生效
+严重程度：建议，布局
+位置：`DE:719-723`
+现象：`@container (max-width: 559px)` 隐藏 `.ard__note`，意图是“详情窄时补充说明让给预览”。但详情组件自己不是容器，最近的容器是 `.art`（整个查看器）。两栏时（查看器 760px 以上）详情只有约 400 到 640px，规则永远不触发；只有查看器自己不到 560px（单栏）才触发。宽 760 的两栏下详情约 400px，一行要放序号、角色、最多 12em 的补充说明、token，预览被压到很窄。
+核实：读 `TR:395-409`：只有 `.art` 声明了 `container-type`。
+建议：给 `.ard` 声明 `container-type: inline-size`，让这条查询量详情自己的宽度。
+
+### 14. `contentPieces` 与 `searchablePieces` 的逐字相同只有一种情形受契约测试保护
+严重程度：建议，测试与正确性
+位置：`packages/nb-agent-ui/src/request-trace.contract.test.ts:55-62`、`request-trace.ts:387-408`、`request-trace.ts:411-426`
+现象：
+- 两个函数读下来在正常内容上一致（块的过滤、`toolCalls` 的 `tool + " " + JSON.stringify(args, null, 2)`、`description`、`parameters` 的顺序都一样）。契约测试只核对一条用户消息（单个 text 块）；没有 thinking、工具调用、工具声明、系统提示词块、回复，也没有图片块（它在 `contentPieces` 里有、在 `searchablePieces` 里没有，靠 `filter` 对上）。
+- 损坏的 JSON：记录器 `#searchText` 记诊断并按空文字处理（零处命中），`contentPieces` 把原文整个当一块显示，用户展开后看到的和数的不是同一个东西。
+- `highlightSegments` 用小写后的下标去切原文：`toLowerCase()` 改变长度时下标错位。实验：`highlightSegments("İstanbul ab", "ab")` 得到 `[{text: "İstanbul a"}, {text: "b", ordinal: 0}]`，高亮标在了错的字上（`"İ".toLowerCase().length === 2`）。罕见，但与“逐字相同”的前提相冲。
+核实：读两份代码；`/tmp/nb-t30-review-2-fe/hl.test.ts` 跑出上面的结果。
+建议：契约测试用各种形状的内容（带 thinking、工具调用、工具声明、图片）各跑一遍；`highlightSegments` 改用 `text.toLocaleLowerCase()` 之外的、保长度的比较（例如逐字符的 `toLowerCase` 长度相等才比较，或先把原文与小写版的偏移对照表建好）；损坏的 JSON 在前端显示成“内容读不出”而不是原文。
+
+### 15. 页面快速还回再借时会漏掉一个订阅
+严重程度：建议，资源
+位置：`RP:101-131`
+现象：`borrow()` 在 `#borrowers === 1` 时起 `#start()`，`#start` 先 `await subscribe`，回来才检查 `#borrowers === 0`。订阅返回前页面被还回（0）又被借（1）：第一个 `#start` 返回时 `#borrowers` 已是 1，继续设 `#release`；第二个 `#start` 也起了新订阅并覆盖 `#release`，第一个订阅再没人放，直到窗口关闭，事件被收两遍（有 `seq` 去重，只是白占资源）。
+核实：读 `borrow` 与 `#start`；没有 generation 记号。
+建议：给每次 `#start` 一个递增的代号，返回后与当前代号不等就放掉；或还回时置 `#borrowers` 之外再记 `#starting` 的取消。
+
+### 16. 全文缓存只按条数限额
+严重程度：建议，资源
+位置：`RP:25-26`、`RP:311-315`
+现象：`CONTENT_CACHE = 300` 段。工具结果可以是几 MB（`readAll` 把全部分段拼成一个字符串），300 段最多几百 MB 留在浏览器里；`#setContent` 每次都 `Object.entries` + `fromEntries` 重建整个对象，300 项一次也就罢了，但整个对象换引用会让 `DE` 的 `pieces` 计算属性把每个已取回的全文再 `JSON.parse` 一遍（`DE:160-164` 对全部 `contents` 重新算 `contentPieces`），换一段内容就重算一遍所有段。
+核实：读 `pieces` 的 `computed`：遍历 `Object.entries(props.contents)`，对每个 ready 的重新 `contentPieces`。
+建议：缓存按字符数限额（后端的 `SEARCH_CACHE_CHARS` 就是这个做法）；`pieces` 按哈希缓存（`Map` 与 `WeakMap`），或只对展开的那几段算。
+
+### 17. 比较页看不到顺序变化，候选只来自已加载的行
+严重程度：建议，正确性
+位置：`request-trace.ts:339-375`、`AgentRequestTrace.vue:106-110`
+现象：系统提示词按哈希集合比，工具按 id 的映射比：块或工具的顺序变了（服务商按顺序缓存前缀，顺序一换缓存就断）判成“相同”，`firstChange` 为 null，页上写“两次的内容相同”，而缓存命中却掉了。参数用 `JSON.stringify` 比，嵌套对象键序不同会判为“变了”。`compareCandidates` 只取 `rows` 里同会话、更早的行：筛选了状态、查找模式或没翻到的页里的更早请求都不在候选里，且 `DE:35` 要候选多于一条才显示“换一次比较”。
+核实：读 `compareRequests` 的 `systemSame`、`toolsSame`；`request-trace.test.ts` 没有顺序变化的用例。
+建议：系统块与工具按位置比顺序（`firstChange` 指到第一个位置不同处）；参数比较前稳定排序键；候选由宿主按会话单独取。
+
+### 18. Alt+上下键两处都处理，并且抢了查找框里的键
+严重程度：建议，键盘
+位置：`LI:73-79`、`TR:217-238`
+现象：列表的 `onKeydown` 对 ArrowUp/Down 不看修饰键，根上的 `onKeydown` 又处理 Alt+上下：焦点在列表时按 Alt+↓ 两处都选中“旧一次”，`select` 被调两次，同一条请求的 `read` 与 `messages` 发两遍。DOM 测试把 keydown 直接发在根上，没走到列表。Alt+上下不检查 `ctrl`/`meta`/`shift`，焦点在查找框里时 Mac 的 Option+上下（移动光标到行首行尾）被抢走。Esc 清查找词不看 `event.isComposing`，组字中按 Esc 取消组字的同时也清掉已有的查找词。
+核实：读两个 handler；列表的 handler 没有 `altKey` 判断。
+建议：列表的 handler 在 `event.altKey || ctrlKey || metaKey` 时 return；Alt+上下只在焦点不在输入框时响应；Esc 判断 `isComposing`。
+
+### 19. 键盘在列表里选中新的一行时不把它滚进视野
+严重程度：建议，键盘与可访问性
+位置：`LI:73-79`、`TR:223-229`
+现象：列表用 `aria-activedescendant`，浏览器不会自己把活动项滚进视野。按↓走过可视区底部后选中项在屏幕外，详情换了但列表上看不到选中在哪；Alt+上下同理。`.md` 没说不支持这个。全仓库这个目录里没有 `scrollIntoView` 用于列表（只有 `DE` 的命中定位）。
+核实：`grep -n scrollIntoView LI TR` 无结果。
+建议：选中变化后对 `#arl-<id>` 调 `scrollIntoView({block: "nearest"})`。
+
+### 20. 测试：驱动的是子组件内部事件，存在假同步，状态没有覆盖到
+严重程度：建议，测试
+位置：`AgentRequestTrace.dom.test.ts:88-91、247、251-252、262-266`、`packages/neuro-book/src/plugins/agent/requests-page.test.ts:105-106`、`requests.scenes.ts`
+现象：
+- 筛选、排序、时间、“更多”的用例用 `findAllComponents({name: "DropdownMenu"})`，按下标或 `items` 内容找，再 `vm.$emit("select", …)`；绕过了菜单自己，菜单换实现、两个菜单顺序一变测试就坏，但用户可见行为没变。判据没有测到用户真的点菜单项。
+- `requests-page.test.ts:105-106` 在 `setQuery` 之后立刻 `settledRows(page, 2)`：此时旧的 2 行还在，条件当场成立，等于没等；紧接着的 `clear("session")` 靠运气排在刷新之后。
+- 没有任何用例覆盖第 2 到 11 条：列表有行时 loading 或 error、合计随新请求变化、查找中结算、命中先于详情、选中不在行里时结算、卸载再挂载后的 `atTop`、`open()` 在查找词之下。
+- Lab 九个场景没有：列表出错、查找中（含 `truncated`）、有命中的列表、查找条、比较页、系统提示词页、“有 N 条新请求”、详情加载中与出错、“加载更多”。这些状态当前只靠 DOM 测试，而按组件规范子零件的“验证入口”是 `AgentRequestTrace`，状态下限（异步组件的 loading、empty、error）应在 Lab 摆出。
+建议：菜单用例改成点开菜单、点菜单项；`setQuery` 之后等一个会变的东西（例如 `list.value.state` 回到 ready 且 `rows` 的 id 变了）；给上面列的状态补 Lab 场景，给第 2 到 11 条各补一条用例。
+
+### 21. 组件文档与实现不一致
+严重程度：建议，文档
+位置：`AgentRequestDetail.md:1-4`、`AgentRequestTrace.md` 末段“不支持”
+现象：
+- `AgentRequestDetail` 渲染了 `DropdownMenu`（比较页的“换一次比较”，会渲染到 `body`），标签是 `[state:local, state:inject]`，缺 `env:portal`；组件规范要求按实现如实声明。
+- `AgentRequestTrace.md` 的“不支持”一段里“窄时的迟滞与滚动位置保留”写了两遍；末尾“键盘快捷键……在后续切片里加”与同文件上面“键：焦点在本页时 Ctrl/⌘+F ……”和实现相矛盾。
+- `AgentRequestList.md` 没提查找时列表头换成“找到 N 次请求”和命中片段行，也没说 loading、error 在有行时怎么显示（第 2 条）。
+建议：补标签，整理“不支持”一段。
+
+### 22. 数值格式化在边界上出怪值
+严重程度：建议（小），正确性
+位置：`request-trace.ts:276-313`
+现象：实测 `formatTokens(9_999)` 得 `"10.0k"`（而 `10_000` 得 `"10k"`），`formatTokens(999_999)` 得 `"1000k"`，`formatDuration(59_999)` 得 `"60.0s"`（而 `60_000` 得 `"1m 00s"`），`formatBytes(1_048_575)` 得 `"1024.0 KB"`。测试只取了每档中间的值。
+核实：`/tmp/nb-t30-review-2-fe/fmt.ts` 跑出。
+建议：先按舍入后的值选档，再格式化。
+
+### 23. 公开出口泄漏了只有内部用的函数
+严重程度：建议（小），接口
+位置：`packages/nb-agent-ui/src/index.ts:49-50`
+现象：`contentPieces`、`highlightSegments`、`groupSessionOf`、`formatBytes`、`promptTokens` 等都从包根导出，但应用只用 `matchesQuery` 与类型；`contentPieces` 的“与记录器 `searchablePieces` 逐字相同”是内部契约，导出后第三方自己用就可能依赖到它。
+建议：只导出宿主要用的（类型与 `matchesQuery`），其余留在包内，由 Lab 入口取。
+
+### 24. 列表行第一行的零件每行各自定列
+严重程度：建议（小），布局
+位置：`LI:325-333`（`.arl__line1` 的 `grid-template-columns: auto minmax(0,1fr) auto 3.4em 4em`）
+现象：每行是各自的 grid，第 1、3 列是 `auto`，宽度随本行的内容变。中文的用途徽标都是两个字所以对得齐；英文界面“Turn / Compaction / Approval / Background”宽度不同，模型名的起点逐行不同，违反“同一种零件每行落在同一列”。
+核实：从 CSS 推演，没有渲染英文场景。
+建议：用固定宽的徽标格，或整个列表共用一个 grid（subgrid）。
+
+## 总结
+
+按级数量：阻断 0；重要 12（第 1 到 12 条）；建议 12（第 13 到 24 条），共 24 条。
+
+仔细检查后没有发现问题的方面：
+- 状态仓的令牌（`#listToken`、`#detailToken`、`#compareToken`、`#hitsToken`）：过期响应都被丢弃；“先订阅再取列表、丢掉不大于页序号的事件”在单一通道有序的前提下成立（后端 `removed` 事件用新 `seq`，不会被前端丢）；`removed` 时选中被清掉并且窄态回到列表；查找的中止与“接着查”的游标衔接（`#searchNext`）正确，中止的响应由令牌丢掉，没有误报失败。
+- 决定 14 的插入条件（按时间排、没有查找词、列表在顶上）实现与 Spec 一致（但第 8 条的前提 `#atTop` 会陈旧）。
+- 顶栏登记动作：常驻取前两个、溢出菜单顺序（内置项之后、“原始视图”之前）、`when`、角标写法与 Spec 一致；回复上的 `request` 只在 `modelStarted` 记过的序号上出现；注册表拒绝面板目标；`locales.test.ts` 放宽后仍核对中英键与占位符。
+- 查找框的 300 毫秒去抖与输入法组字、卸载时清计时器，能力标签 `env:timer`、`env:portal` 与 `AgentRequestTrace` 实现一致；没有注册窗口或文档级监听（不需要 `env:global`）。
+- 焦点环：列表容器用内嵌焦点线，工具条、详情的按钮四周都留了内边距，没有发现被裁。
+- 390 宽：单栏切换、详情顶上的返回、长文字的截断与换行规则在 CSS 上成立；没有在真实浏览器里量（不跑 e2e 与开发服务）。
+
+各条的核实方式：第 1 条在无头 Chrome 里渲染；第 14、22 条用 bun 脚本跑出；其余是读代码与推演，凡写“从 CSS 推演”的未在浏览器验证。
+
+处理（状态仓的修正在 197b826ee，组件的在 37623eeae，文档与 Lab 场景在 b323df456）：
+
+重要
+1. 成立，已改：系统提示词与工具两页没有角色列，零件按顺序落进了错的列。各零件写死列号（序号 1、角色 2、预览 3、说明 4、token 5），缺的列空着。
+2. 成立，已改：从头取列表与从头查找时先把行清空、列表进加载态，取不回来时只剩读不出（带重试）；“找到 N 次请求”只在有行或查完时写，正在查写“正在查找”（role=status），查找失败另写一条（role=alert），没扫完的照样能接着查。测试：requests-page.test.ts 换筛选后当场是空的加载态。
+3. 成立，已改：每条变更都重取一次列表头的合计与候选（同样的筛选只要一条，正在取时又变了就取完再取一次；这期间从头取过列表时不盖掉）。测试：requests-page.test.ts 新请求结算后合计是 2。
+4. 成立，已改：页面每秒看一次，有进行中的请求时每秒换 now，没有时至少 30 秒换一次，“最近一小时”“今天”按新的 now 算。
+5. 成立，已改：选中的那条结算时不论在不在已加载的行里都重读详情；重连后重取列表并重读详情。测试：requests-page.test.ts“选中的那条不在已加载的行里时，结算之后详情照样换成最新的”。
+6. 成立，已改：命中与详情两样都到了才定位到第一处（记下“待定位”，任一样到了都试一次）。
+7. 成立，已改：只在当前命中所在的那段全文从没取到变成取到的那一次滚动，别的全文取回不动滚动位置。
+8. 成立，已改：借用（页面挂上）、从头取列表、从头查找时都回到“在顶上”；列表组件在行变成空时也把自己的 atTop 复位。
+9. 成立，已改：open() 清掉查找词与命中再按会话取列表。测试：requests-page.test.ts 输出 26 的用例先查找再 open，查找词与查找状态都回到空。
+10. 成立，已改：结算原地换行时留着原来的命中片段与处数。测试：requests-page.test.ts 查找中进行中的请求结算后 match.count 不变。
+11. 成立，已改：概览里的错误文字按查找词高亮，当前那处标 data-hit-current；查找条多一个“错误”的跳转（有命中时才显示）。
+12. 成立，已改：查询多一个只给界面看的 within（hour、today），时间下拉按它显示；since 由 sinceOf(within, now) 算。测试：DOM 测试重新挂载带 within: hour 时显示“最近一小时”。
+
+建议
+13. 成立，已改：两处容器查询改成具名容器（art、ard）。
+14. 部分成立：契约测试扩到各种形状（见后端第 5 条）；highlightSegments 的大小写折叠改成按原文偏移（见后端第 4 条）。不改：损坏的 JSON 前后端不一致。记录的内容是记录器自己整段写入再改名的，读到损坏的只会是磁盘坏了或被人改过，罕见，收益小。
+15. 成立，已改：借用带一个代号，订阅回来时代号变了（中间还回又借过）就放掉这一次的订阅，由新的那次自己订阅。
+16. 成立，已改：全文缓存另按字符数限 16M，超了丢最早的，最新那段总留着。
+17. 部分成立：系统提示词与工具只换了先后也算变了（reordered，比较页写“内容相同，顺序变了”，firstChange 指到这一部分）。测试：request-trace.test.ts“系统提示词与工具只换了先后也算变了”。不改：参数的键序。参数是同一段代码按同样的顺序组出来的，键序不会变，收益小。记为已知限制：比较的候选只来自已加载的行（AgentRequestDetail.md 的“不支持”）。
+18. 成立，已改：列表的键处理遇到任何修饰键都不管；页面的 Alt+上下只在焦点不在输入框里时响应，且不带 Ctrl、⌘、Shift。查找框里的 Esc 在输入法组字时不清词。
+19. 成立，已改：选中变了，就把那一行滚进视野（block: nearest）。
+20. 成立，已改：DOM 测试的菜单用例改成像用户一样打开菜单、点菜单项。改的时候发现一个真 bug：清空的确认框从来没发出清空，已修（见下）。requests-page.test.ts 的假同步：换筛选后旧行当场清空（第 2 条），等待变成真等，并加了一条“当场是空的加载态”的断言；第 3、5、9、10 条各补了用例。Lab 加五个场景：查找结果带查找条、正在查找、列表读不出、有 N 条新请求、比较页。没加：系统提示词页、详情加载中与出错的单独场景（页签是组件自己的状态，打开后点页签就能看）。
+21. 成立，已改：AgentRequestDetail 补 env:portal 与理由，写了查找条与比较候选的限制；AgentRequestList 写了查找时的列表头、命中片段行，以及加载中与读不出只出现在空列表里；AgentRequestTrace 的“不支持”去掉重复的一项和已经做了的键盘快捷键。
+22. 成立，已改：token、用时、字节先舍入再选档（9999 写 10k，59999 毫秒写 1m 00s）。测试：request-trace.test.ts 的边界值。
+23. 成立，已改：包根只出 matchesQuery（宿主的状态仓要用）与类型，其余函数只在包内用。
+24. 接受取舍，记为已知限制（AgentRequestList.md 的“不支持”）：只有英文界面的用途徽标宽度不一，中文都是两个字。要对齐得把整个列表改成一个共用的 grid（subgrid），为一个只影响英文的对齐问题改结构不值得。
+
+改菜单测试时发现的 bug（审查没报）：nb-ui 的 AlertDialog 点“清空”时先发 update:open(false)、再发 confirm。原来关上时就把“清的是哪一种”清掉了，confirm 到达时已经不知道要清什么，清空从来没发出去。修法是把“确认框开着”和“清的是哪一种”分成两个状态。原来的测试直接对子组件 vm.$emit，绕过了这个先后顺序。AlertDialog.md 写明了这个先后、也提醒了不要在关闭时清掉确认要用的目标，写组件时没有读它。
+
+收口截图时另发现（审查没报，修正在 92771c449）：详情挂上时命中已经在了（查找时页面切走又切回，宿主留着命中），原来只在命中变了时定位，查找条写着“第 1 处”，第一处却停在收起的前缀里、没有展开。命中的 watch 改成挂上时也跑一次；DOM 测试的查找条用例补了“重新挂上”的一段。

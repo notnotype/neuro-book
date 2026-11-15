@@ -79,9 +79,17 @@ updated: 2026-11-15
 - 输出 13 的“页面新开时从全部开始”：编辑区切走页签时页面组件会卸载，又没有“页签关了”的信号，分不清关页与切走，所以筛选一直保留到窗口关闭。要做得给编辑区加“页面开着”的公开状态。
 - 输出 17 的 `#N`、查找条的回车与 Shift+回车、消息页“有命中”与按角色的筛选（“提醒”要内容的来源才分得出）、比较页里变了的系统提示词与工具的逐行差异、输出 23 的宽窄切换迟滞与列表滚动位置保留。
 - 验收 2、3 不在 e2e 里，由 nb-harness 的真实 HTTP 测试与子进程测试覆盖（见切片 4）。
+- 比较的候选只来自已加载的行；英文界面里用途徽标宽度不一（实现审查第 2 路引出，记在 `AgentRequestDetail.md`、`AgentRequestList.md` 的“不支持”）。
+
+实现审查第 2 路（后端 omp、前端 Sonnet，范围 `cbbbb8944..19f135c00`）已处理，修正单独提交：
+
+- 后端 6 条（重要 4、建议 2）：成立 5 条已改（查找按段、大小写折叠按原文偏移、清空后作废远程缓存、拆段删除事件的序号、中止的查找不扫）；1 条不成立（重启后的所属由 `agent.ts` 启动时补登记，补了重启用例）。修正 `49f3a761a`；处理见 [`evidences/impl-review-2-backend.txt`](evidences/impl-review-2-backend.txt)。
+- 前端 24 条（重要 12、建议 12）：成立 21 条已改，2 条部分成立，1 条接受取舍（英文徽标对不齐，记为已知限制）。修正 `197b826ee`（状态仓）、`37623eeae`（组件）、`b323df456`（组件文档与 Lab 五个新场景）；处理见 [`evidences/impl-review-2-frontend.txt`](evidences/impl-review-2-frontend.txt)。
+- 审查之外发现并修了两处：清空的确认框从来没发出清空（AlertDialog 先发 `update:open(false)` 再发 `confirm`，改菜单测试为真实点击时发现）；详情挂上时命中已经在了不定位（收口截图时发现，`92771c449`）。
+
+收口验证（分支 `92771c449`）：nb-harness、nb-agent-ui、应用、nb-story、nb-models 的 typecheck 都过；`test:affected --since cbbbb8944` 选中 6 个包，只有 nb-story `src/server/qa.test.ts` 一条在负载 14 时子进程超时，单独重跑 27 过；`governance:check`、`docs:check` 无新警告；e2e `agent-request-trace`、`agent-conversation`、`lab-agent-ui`、`lab-scenes` 共 54 条 53 过，`lab-scenes` 挡在主题编辑器两个场景的资源 404（t30 没改主题编辑器与 Lab 外壳），查看器的 14 个场景改用 `nbdev shot` 在手机与自由画布上量，越界、焦点环与外扩环被裁、页面错误都是 0；最后一处修正之后重跑 `agent-request-trace` 2 过。
 
 ## 下一步
 
-1. 收口（进行中）：受影响测试（`test:affected --since cbbbb8944`）、e2e（新的、对话、`lab-agent-ui`、`lab-scenes`）；实现审查两路已开（后端 omp、前端 Sonnet），回来后处理；合入 master；Spec 晋升交开发者批准。
-2. 原切片 5 的抛光清单：排序与模型、时间筛选的控件；新请求只在“按时间排、没有查找词、列表在顶部”时插入（决定 14）；窄时的迟滞与滚动位置；“更多”菜单（占用、记录设置、清空这个会话、清空全部，先确认）；`#N`；键盘（详情 Alt+上下、查找条回车与 Esc、Ctrl/⌘+F）；页面新开时从全部开始（输出 13）；消息页按角色与“有命中”筛选；文档（`ui/agent-conversation-view.md` 的组件清单、nb-agent-ui 的 AGENTS.md 与 README、`monorepo-boundaries.md`、`harness/host-kit.md`）。
-2. 收口：`lab-scenes`、新 e2e 与受影响测试；前端（Sonnet）与后端（omp）实现审查；合入 master；Spec 晋升交开发者批准。
+1. 合入 master（等主工作区空出来）。
+2. Spec [`agent/request-trace.md`](../../../../../docs/specs/agent/request-trace.md) 晋升 `implemented` 交开发者批准；上面“没做、待开发者定”的几项交开发者定。
