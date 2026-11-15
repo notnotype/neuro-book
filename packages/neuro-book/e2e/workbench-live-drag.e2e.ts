@@ -22,6 +22,11 @@ const AUXILIARY_VIEW = "test.sample-views.delta";
 const ghost = (page: Page) => page.locator("[data-workbench-drag-ghost]");
 const surface = (page: Page) => page.locator("[data-workbench-surface]");
 const leaf = (page: Page, id: string) => page.locator(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${id}"]`);
+/** 区域隐藏了：按拖到零画（ui/workbench-layout 输出 11），那块外框还在、缩到面积为零。等到零也就等过渡走完了。 */
+const shrunk = (page: Page, id: string) => expect.poll(async () => {
+    const found = await leaf(page, id).boundingBox();
+    return found === null ? 0 : Math.round(found.width * found.height);
+}).toBe(0);
 const tab = (page: Page, viewId: string) => page.locator(`[data-panel-tab="view:${viewId}"]`);
 const panelOfTab = (page: Page, viewId: string): Promise<string> => tab(page, viewId).evaluate((element) => element.closest<HTMLElement>("[data-panel-head]")!.dataset.panelHead!);
 /**
@@ -297,7 +302,7 @@ test.describe("实时布局", () => {
         const finalPanel = await inLeaf(page, omega, {x: 0.75, y: 0.5});
         const toggle = page.locator("[data-shell-focus-target=\"panel-toggle\"]");
         await toggle.click();
-        await expect(leaf(page, omega)).toHaveCount(0);
+        await shrunk(page, omega);
         await settled(page);
         // 放慢过渡：面板还在长的时候拿起。过渡中间的矩形里指针下是别的面板（或者没有面板）。
         await page.addStyleTag({content: ":root { --motion-layout: 5000ms !important; }"});
@@ -773,7 +778,7 @@ test.describe("实时布局", () => {
         // 分节没有隐藏按钮（输出 20）：点当前容器按下着的入口，侧栏隐藏（输出 22）。
         const alpha = await sectionOf(page, "test.sample-views.alpha");
         await page.locator("[data-tool-entry][aria-pressed=\"true\"]").click();
-        await expect(leaf(page, alpha)).toHaveCount(0);
+        await shrunk(page, alpha);
         await settled(page);
         const writes = await writesOf(page);
         const first = await page.locator("[data-tool-band] [data-tool-entry]").first().boundingBox();
@@ -782,7 +787,7 @@ test.describe("实时布局", () => {
         await page.mouse.move(first.x + first.width / 2, first.y + 2, {steps: 6});
         await expect(page.locator(`[data-tool-band] [data-tool-view="${AUXILIARY_VIEW}"]`)).toHaveCount(1);
         await settled(page);
-        await expect(leaf(page, alpha)).toHaveCount(0);
+        await shrunk(page, alpha);
         expect(await writesOf(page)).toBe(writes);
         await page.mouse.up();
         // 侧栏显示出来，切到装着丁的新容器（输出 45）。

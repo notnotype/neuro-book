@@ -119,6 +119,8 @@ const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()
 const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 的“过渡”）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.map((item) => item.node.id)));
+/** 缩回去、过渡结束前还画着的叶：留着缩回去的离开的叶，和这一轮降到零的叶（`shrinkingLeaves`）。停放、不可交互。 */
+const outgoingLeaves = computed<ReadonlySet<string>>(() => (motion.shrinking.value.size === 0 ? leavingLeaves.value : new Set([...leavingLeaves.value, ...motion.shrinking.value])));
 
 /** 摆放的容器：实测盒；还没挂上时退回布局发布的根节点尺寸。 */
 const placementExtent = computed<GridExtent>(() => rootExtent() ?? {width: 0, height: 0});
@@ -180,7 +182,7 @@ const contentLayer = useContentLayer({
     previewing: () => preview.value !== null,
     measured: () => placementExtent.value.width > 0 && placementExtent.value.height > 0,
     obscuredLeaves: () => obscuredLeaves.value,
-    leavingLeaves: () => leavingLeaves.value,
+    outgoingLeaves: () => outgoingLeaves.value,
     held: () => held.value,
     moving: () => moving.value,
     holdsFocus: (key) => {
@@ -261,8 +263,8 @@ function structureMoving(key: string): boolean {
 function contentStyle(item: GridLeafPlacement<unknown>): Record<string, string> {
     if (following.value.has(item.key)) return {width: "100%", height: "100%"};
     const size = parking.contentSize(item);
-    // 留着缩回去的叶也停放着（不可交互），但过渡结束前还要看得见。
-    return {width: `${size.width}px`, height: `${size.height}px`, ...(parked.value.has(item.node.id) && !leavingLeaves.value.has(item.node.id) ? {visibility: "hidden"} : {})};
+    // 缩回去的叶（离开的、降到零的）也停放着（不可交互），但过渡结束前还要看得见。
+    return {width: `${size.width}px`, height: `${size.height}px`, ...(parked.value.has(item.node.id) && !outgoingLeaves.value.has(item.node.id) ? {visibility: "hidden"} : {})};
 }
 
 let snappedTree: typeof treePlacement.value = null;
@@ -489,8 +491,11 @@ defineExpose({
     settleMotion: (): void => motion.stop(),
     placeLifted,
     placeFloat,
-    /** 离开了、在过渡里留着缩回去的叶（节点 id）：已经不在 `node` 里，但还画着；宿主按它们还在来画挨着的东西（相连的卡片）。过渡结束就空了。 */
-    leavingLeaves,
+    /**
+     * 缩回去、过渡结束前还画着的叶（节点 id）：离开了的（已经不在 `node` 里）与降到零的（还在，尺寸已经是零）。宿主按它们缩回去之前的样子
+     * 画挨着的东西（相连的卡片），不按这一刻的布局：那已经是终点了。过渡结束就空了。
+     */
+    outgoingLeaves,
 });
 </script>
 
@@ -509,7 +514,7 @@ defineExpose({
                 :data-float-gesture="floatGestures.get(item.node.id)"
                 :data-leaving="leavingLeaves.has(item.node.id) ? '' : undefined"
                 :data-anchor-right="anchoredRight.has(item.key) ? '' : undefined"
-                :inert="obscuredLeaves.has(item.node.id) || leavingLeaves.has(item.node.id)"
+                :inert="obscuredLeaves.has(item.node.id) || outgoingLeaves.has(item.node.id)"
                 :style="{...gridRectStyle(growing.get(item.key) ?? item.rect), ...frameClip(item), ...floatLayer(item.node.id, 0)}"
             >
                 <div class="nb-grid-leaf" :data-leaf-content="item.node.id" :inert="parked.has(item.node.id)" :style="contentStyle(item)">

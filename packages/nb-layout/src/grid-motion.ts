@@ -70,12 +70,13 @@ export function settleFloatMoves<R>(items: ReadonlyArray<GridLayerItem<R>>, prev
     });
 }
 
+const hasSize = (rect: GridRect | null | undefined): boolean => rect != null && rect.width > 0 && rect.height > 0;
+
 /**
  * 这次过渡里内容跟着外框逐帧变化的项（`key`）：前后都有尺寸的叶与活动的内容项。新叶与从零出来的叶内容已经是最终尺寸，外框长出来时露出它，第一次摆放不用在零宽里排版；
- * 降到零的叶内容停放。
+ * 降到零的叶内容停放（`shrinkingLeaves`：过渡结束前还画着）。
  */
 export function followingLeaves(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>): ReadonlySet<string> {
-    const hasSize = (rect: GridRect | null | undefined): boolean => rect != null && rect.width > 0 && rect.height > 0;
     const before = new Map(previous.map((item) => [item.key, rectOf(item)]));
     const following = new Set<string>();
     for (const item of items) {
@@ -84,6 +85,23 @@ export function followingLeaves(items: ReadonlyArray<GridLayerItem<unknown>>, pr
         if (hasSize(before.get(item.key)) && hasSize(rectOf(item))) following.add(item.key);
     }
     return following;
+}
+
+/**
+ * 这次过渡里降到零的叶（节点 id）：上一帧有尺寸、这一帧为零，例如宿主把区域拖到零或隐藏（按拖到零画）。它们停放、不可交互，
+ * 但过渡结束前头与内容还画着，跟着外框缩到零（贴着在动的那条边平移，`rightAnchored`），不是一开始就成了一张空卡片缩回去，和留着缩回去的离开的叶一样。
+ * 按叶的矩形判：收成标题行的叶还有面板头那么高，不算。
+ */
+export function shrinkingLeaves(items: ReadonlyArray<GridLayerItem<unknown>>, previous: ReadonlyArray<GridLayerItem<unknown>>): ReadonlySet<string> {
+    const before = new Map(previous.map((item) => [item.key, rectOf(item)]));
+    const shrinking = new Set<string>();
+    for (const item of items) if (item.kind === "leaf" && hasSize(before.get(item.key)) && !hasSize(item.rect)) shrinking.add(item.node.id);
+    return shrinking;
+}
+
+/** 这一帧为零的叶（节点 id）：上一轮还在缩的叶，这一轮仍为零的接着画到过渡结束（`useGridMotion`），又长出来的不再算。 */
+export function zeroLeaves(items: ReadonlyArray<GridLayerItem<unknown>>): ReadonlySet<string> {
+    return new Set(items.flatMap((item) => (item.kind === "leaf" && !hasSize(item.rect) ? [item.node.id] : [])));
 }
 
 /**

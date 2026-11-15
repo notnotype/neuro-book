@@ -94,7 +94,12 @@ function showContainer(current: LayoutDoc, region: PanelName, container: string)
 function onGestureCommit(sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void {
     // 先改收起状态再写回意图，和产品的 store 同一个次序：收起的面板呈现尺寸不是意图。区域拖到零报的是代表区域的那个节点，状态记在锚上（输出 11）。
     let next = doc.value;
-    for (const [id, value] of Object.entries(collapsed)) next = unwrap(setPanelCollapsed(next, projection.value.regionAnchors.get(id) ?? id, value), next);
+    // 隐藏的区域按拖到零画：从边界拉开同时清掉隐藏，也和产品的 store 一样。
+    for (const [id, value] of Object.entries(collapsed)) {
+        const anchor = projection.value.regionAnchors.get(id);
+        next = unwrap(setPanelCollapsed(next, anchor ?? id, value), next);
+        if (anchor !== undefined && !value && next.panels[anchor]?.hidden === true) next = unwrap(setPanelHidden(next, anchor, false), next);
+    }
     doc.value = rebaseIntents(next, sizes, projection.value.collapsedTo);
 }
 

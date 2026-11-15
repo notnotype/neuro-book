@@ -44,6 +44,11 @@ const bottom = (box: Box): number => box.y + box.height;
  */
 const LEAF = "[data-workbench-surface] > [data-grid-scope] > [data-leaf]";
 const leaf = (page: Page, id: string) => page.locator(`${LEAF}[data-leaf="${id}"]`);
+/** 区域隐藏了：按拖到零画（ui/workbench-layout 输出 11），那块外框还在、缩到面积为零。等到零也就等过渡走完了。 */
+const shrunk = (page: Page, id: string) => expect.poll(async () => {
+    const found = await leaf(page, id).boundingBox();
+    return found === null ? 0 : Math.round(found.width * found.height);
+}).toBe(0);
 
 async function box(page: Page, id: string): Promise<Box> {
     const found = await leaf(page, id).boundingBox();
@@ -231,7 +236,7 @@ test.describe("产品页", () => {
 
         // 分节收成标题行时隐藏区域，再显示：区域回来，分节的收起不动（输出 11 的表）。
         await regionToggle(page, "sidebar").click();
-        await expect(leaf(page, explorer)).toHaveCount(0);
+        await shrunk(page, explorer);
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
         await regionToggle(page, "sidebar").click();
         await expect.poll(async () => (await box(page, explorer)).height).toBe(32);
@@ -243,7 +248,7 @@ test.describe("产品页", () => {
         const height = (await box(page, sessions)).height;
         await expect(panelToggle(page)).toHaveText("隐藏面板");
         await panelToggle(page).click();
-        await expect(leaf(page, sessions)).toHaveCount(0);
+        await shrunk(page, sessions);
         await expect(panelToggle(page)).toHaveText("显示面板");
         await panelToggle(page).click();
         await expect.poll(async () => (await box(page, sessions)).height).toBe(height);
@@ -252,13 +257,13 @@ test.describe("产品页", () => {
         await content(page, SESSIONS).locator("input").first().focus();
         // 用脚本点状态栏的按钮：真的去点会先把焦点从内容里移走，这里要它留在内容里被停放。
         await panelToggle(page).evaluate((button) => (button as HTMLElement).click());
-        await expect(leaf(page, sessions)).toHaveCount(0);
+        await shrunk(page, sessions);
         await expect(page.locator(".workbench-shell-host")).toBeFocused();
 
         // 焦点在侧栏分节的头里时隐藏侧栏：头随侧栏隐藏，焦点移到活动栏里这个分节所在容器（“项目”）的入口（输出 16）。
         await frame(page, EXPLORER, "toggle-panel-maximized").focus();
         await regionToggle(page, "sidebar").evaluate((button) => (button as HTMLElement).click());
-        await expect(leaf(page, explorer)).toHaveCount(0);
+        await shrunk(page, explorer);
         await expect(page.locator(`[data-tool-entry="${PROJECT_CONTAINER}"]`)).toBeFocused();
     });
 
@@ -267,7 +272,7 @@ test.describe("产品页", () => {
         const toggle = regionToggle(page, "auxiliarybar");
         await moveViaMenu(page, CONVERSATION, "新容器（侧栏）");
         await expect(toggle).toHaveAttribute("aria-pressed", "false");
-        await expect(leaf(page, "auxiliarybar")).toHaveCount(0);
+        await shrunk(page, "auxiliarybar");
         const containerOf = async (): Promise<string | null> => (await saved(page))?.doc.panels[await sectionOf(page, CONVERSATION)]?.container ?? null;
         await expect.poll(containerOf).toMatch(/^custom:/u);
         const container = await containerOf();
@@ -280,7 +285,9 @@ test.describe("产品页", () => {
         await expect(leaf(page, "auxiliarybar").locator("[data-panel-head]")).toHaveCount(0);
         await toggle.click();
         await expect(toggle).toHaveAttribute("aria-pressed", "false");
-        await expect(empty).toHaveCount(0);
+        // 关掉按拖到零画：空面板还在、缩到零，提示看不见。
+        await shrunk(page, "auxiliarybar");
+        await expect(empty).toBeHidden();
         await toggle.click();
         await expect(empty).toBeVisible();
 
@@ -408,7 +415,7 @@ test.describe("产品页", () => {
         const toggle = panelToggle(page);
         await expect(toggle).toHaveText("隐藏面板");
         await toggle.click();
-        await expect(leaf(page, sessions)).toHaveCount(0);
+        await shrunk(page, sessions);
         await expect(toggle).toHaveText("显示面板");
         await toggle.click();
         await expect.poll(async () => (await box(page, sessions)).height).toBe(200);
@@ -646,7 +653,7 @@ test.describe("产品页", () => {
         await expect.poll(async () => regionSize((await saved(a))!.doc, "sidebar")?.width).toBe(350);
         const afterA = revisions().all;
         await regionToggle(b, "auxiliarybar").click();
-        await expect(leaf(b, aux)).toHaveCount(0);
+        await shrunk(b, aux);
         await expect.poll(() => revisions().all).toBe(afterA + SAVE);
         await expect.poll(async () => (await saved(b))?.doc.panels.auxiliarybar?.hidden).toBe(true);
         // b 保存后，a 的显示不被强改：右栏还在。
@@ -654,7 +661,7 @@ test.describe("产品页", () => {
         for (const page of [a, b]) {
             await page.reload();
             await open(page);
-            await expect(leaf(page, aux)).toHaveCount(0);
+            await shrunk(page, aux);
         }
         // 两个窗口读到的是同一份记录，布局一致。
         expect(await leafRects(a)).toEqual(await leafRects(b));

@@ -38,6 +38,12 @@ async function open(page: Page, scene = "default"): Promise<void> {
 }
 
 const act = (page: Page, name: string) => page.locator(`[data-surface-action="${name}"]`).click();
+/** 区域隐藏了：按拖到零画（ui/workbench-layout 输出 11），那块外框还在、缩到面积为零。等到零也就等过渡走完了。 */
+const shrunk = (page: Page, id: string) => expect.poll(async () => {
+    const found = await page.locator(`[data-leaf='${id}']`).boundingBox();
+    return found === null ? 0 : Math.round(found.width * found.height);
+}).toBe(0);
+
 const fixture = (page: Page) => page.locator(".workbench-surface-fixture");
 const visibleTabs = async (page: Page) => ((await fixture(page).getAttribute("data-visible-tabs")) ?? "").split(" ").filter((tab) => tab !== "");
 /** 活动栏入口：一个容器一个（输出 22、41）；这里的视图都没写容器，入口是隐式容器 `view:<视图 id>`。 */
@@ -161,7 +167,7 @@ test.describe("有效可见", () => {
         await entry(page, "b").click();
         await expect.poll(() => visibleTabs(page)).not.toContain("view:b");
         expect(await visibleTabs(page)).not.toContain("view:d");
-        await expect(page.locator(`[data-leaf='${section("b")}']`)).toHaveCount(0);
+        await shrunk(page, section("b"));
 
         await frameButton(page, section("c"), "maximize").click();
         await expect.poll(() => visibleTabs(page)).toEqual(["view:c"]);
@@ -250,7 +256,7 @@ test.describe("活动栏", () => {
         // 焦点在别的面板里，点按下的入口也是隐藏，没有“先聚焦”这一步。
         await page.locator("[data-content='view:c'] [data-structure-first]").focus();
         await entry(page, "b").click();
-        await expect(page.locator(`[data-leaf='${section("b")}']`)).toHaveCount(0);
+        await shrunk(page, section("b"));
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "false");
 
         await entry(page, "b").click();

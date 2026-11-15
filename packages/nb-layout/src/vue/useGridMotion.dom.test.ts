@@ -220,6 +220,24 @@ describe("过渡中内容跟外框的叶", () => {
         expect(motion.anchoredRight.value.size).toBe(0);
     });
 
+    it("降到零的叶：这一轮记下；过渡中又来一次变化、它仍为零时接着记（不然缩到一半就没了），又长出来的不算；结束后清空", () => {
+        const {motion, base} = started();
+        const open = row([["s", 100], ["l0", 299], ["l1", 149], ["l2", 149]]);
+        motion.update(frame({items: open, previous: base}));
+        motion.stop();
+        const zero = row([["s", 0], ["l0", 399], ["l1", 149], ["l2", 149]]);
+        motion.update(frame({items: zero, previous: open}));
+        expect([...motion.shrinking.value]).toEqual(["s"]);
+        const again = row([["s", 0], ["l0", 299], ["l1", 249], ["l2", 149]]);
+        motion.update(frame({items: again, previous: zero}));
+        expect([...motion.shrinking.value]).toEqual(["s"]);
+        motion.update(frame({items: open, previous: again}));
+        expect(motion.shrinking.value.size).toBe(0);
+        motion.update(frame({items: zero, previous: open}));
+        motion.stop();
+        expect(motion.shrinking.value.size).toBe(0);
+    });
+
     it("容差之内的第二次发布不改名单", () => {
         const {motion, base} = started();
         const split = items([200, 200, 150, 150]);

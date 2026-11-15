@@ -2,7 +2,7 @@
  * 由文档算出这一刻怎么呈现（docs/specs/ui/workbench-layout.md“渲染”“面板头与活动栏”）：内容项、有效可见、活动栏列哪些入口与点了做什么、焦点丢了去哪。纯模块，不碰 DOM 与记录。
  */
 
-import {findTab, isFloating, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
+import {findTab, hiddenRegionsAtZero, isFloating, isPanelShown, isSectionCollapsed, regionNodeOf, regionOf, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridContentInput, GridExtent, LayoutDoc, PanelName, PanelRecord} from "@notnotype/nb-layout";
 
 import type {DisplayText} from "nbook/shared/localized-text";
@@ -47,7 +47,9 @@ function hasRoom(panel: PanelRecord, size: GridExtent | undefined): boolean {
 /**
  * 有效可见的标签键（输出 17）。手势预览不改已经可见的面板：往零拖过阈值又拖回来，视图不闪；只有从零拉回时才按拖动中的几何算，内容在拖动中就出现（输出 12）。
  */
-export function effectiveVisibleTabs(doc: LayoutDoc, facts: VisibilityFacts): ReadonlySet<string> {
+export function effectiveVisibleTabs(recorded: LayoutDoc, facts: VisibilityFacts): ReadonlySet<string> {
+    // 按呈现算：隐藏的区域按拖到零画，从零拉开时内容同样在拖动中出现（输出 11、12）。
+    const doc = hiddenRegionsAtZero(recorded);
     const visible = new Set<string>();
     const floating = new Set(doc.floats.map((float) => float.panel));
     for (const [id, panel] of Object.entries(doc.panels)) {

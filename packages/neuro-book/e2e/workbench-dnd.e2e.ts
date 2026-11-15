@@ -44,6 +44,11 @@ const label = (page: Page) => page.locator("[data-drop-feedback-label]");
 /** 树里的叶外框。视图内容在内容层里，和叶外框是兄弟元素，不在 `[data-leaf]` 里面（输出 14）。 */
 const LEAF = "[data-workbench-surface] > [data-grid-scope] > [data-leaf]";
 const leaf = (page: Page, id: string) => page.locator(`${LEAF}[data-leaf="${id}"]`);
+/** 区域隐藏了：按拖到零画（ui/workbench-layout 输出 11），那块外框还在、缩到面积为零。等到零也就等过渡走完了。 */
+const shrunk = (page: Page, id: string) => expect.poll(async () => {
+    const found = await leaf(page, id).boundingBox();
+    return found === null ? 0 : Math.round(found.width * found.height);
+}).toBe(0);
 const head = (page: Page, panel: string) => page.locator(`[data-panel-head="${panel}"]`);
 /** 浮动窗头里放标签的那一段：松手在它空着的右端是“插到末尾”，不会落在框架按钮上。 */
 const band = (page: Page, panel: string) => page.locator(`[data-panel-band="${panel}"]`);
@@ -480,7 +485,7 @@ test.describe("产品页：拖放", () => {
         // 分节没有隐藏按钮，隐藏是区域的事（输出 20）：用标题栏的布局按钮隐藏右栏。
         const delta = await sectionOf(page, D);
         await page.locator("[data-titlebar-layout=\"auxiliarybar\"]").click();
-        await expect(leaf(page, delta)).toHaveCount(0);
+        await shrunk(page, delta);
         await tab(page, E).focus();
         await page.keyboard.press("Space");
         // 走遍区域与位置：分节的位置里要有前后两半（`edge`）。隐藏的右栏没有呈现，量不出位置，不是键盘的区域；走完、取消后它还隐藏着。
@@ -495,7 +500,7 @@ test.describe("产品页：拖放", () => {
         expect(kinds.has("edge")).toBe(true);
         await page.keyboard.press("Escape");
         await expect(ghost(page)).toHaveCount(0);
-        await expect(leaf(page, delta)).toHaveCount(0);
+        await shrunk(page, delta);
     });
 
     test("拖影有图标与文字；经过浮动窗的标签条只有一条插入线，没有接收区域与入口高亮（输出 30）", async ({page}, testInfo) => {
@@ -904,7 +909,7 @@ test.describe("产品页：拖放", () => {
         const delta = await sectionOf(page, D);
         const right = await inLeaf(page, delta, {x: 0.5, y: 0.5});
         await page.locator("[data-titlebar-layout=\"auxiliarybar\"]").click();
-        await expect(leaf(page, delta)).toHaveCount(0);
+        await shrunk(page, delta);
         await settled(page);
         await dragTo(page, tab(page, E), right);
         await settled(page);
@@ -913,7 +918,7 @@ test.describe("产品页：拖放", () => {
         await page.keyboard.press("Escape");
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
-        await expect(leaf(page, delta)).toHaveCount(0);
+        await shrunk(page, delta);
         // “移动到”隐藏着的右栏里样例丁的容器：同一次写入把右栏显示出来，切到这个容器，戊是它最后一个分节（输出 23）。
         await tab(page, E).click({button: "right"});
         await page.getByRole("menuitem", {name: "样例丁", exact: true}).click();
@@ -928,7 +933,7 @@ test.describe("产品页：拖放", () => {
         // 点当前容器按下着的入口，侧栏隐藏（输出 22）。
         const alpha = await sectionOf(page, A);
         await entry(page, A).click();
-        await expect(leaf(page, alpha)).toHaveCount(0);
+        await shrunk(page, alpha);
         await expect.poll(() => hiddenInRecord(page, "sidebar")).toBe(true);
         const writes = await settledWrites(page);
         await dragTo(page, tab(page, D), await aboveEntry(page, A));
@@ -972,7 +977,7 @@ test.describe("产品页：拖放", () => {
         // 侧栏隐藏着换序：不显示它，落点是换位置。
         const alpha = await sectionOf(page, A);
         await entry(page, A).click();
-        await expect(leaf(page, alpha)).toHaveCount(0);
+        await shrunk(page, alpha);
         await expect.poll(() => hiddenInRecord(page, "sidebar")).toBe(true);
         const hiddenWrites = await settledWrites(page);
         await dragTo(page, entry(page, B), await aboveEntry(page, C));
@@ -980,7 +985,7 @@ test.describe("产品页：拖放", () => {
         await page.mouse.up();
         await expect(ghost(page)).toHaveCount(0);
         await expect.poll(() => entriesOf(page)).toEqual([implicit(B), implicit(C), implicit(A)]);
-        await expect(leaf(page, alpha)).toHaveCount(0);
+        await shrunk(page, alpha);
         await expect.poll(() => writesOf(page)).toBe(hiddenWrites + 1);
         expect((await savedDoc(page))?.panels.sidebar?.hidden).toBe(true);
     });

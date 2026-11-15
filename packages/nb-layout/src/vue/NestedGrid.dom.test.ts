@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it, vi} from "vitest";
+import {afterEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick} from "vue";
 import NestedGrid from "./NestedGrid.vue";
@@ -908,6 +908,45 @@ describe("NestedGrid 内容层", () => {
         expect(kept.hasAttribute("inert")).toBe(true);
         expect(wrapper.get("[data-content='y']").attributes("data-flying")).toBeDefined();
         await vi.waitFor(() => expect(kept.style.visibility).toBe("hidden"));
+    });
+
+    it("宿主把一片叶降到零（不是手势）：它停放、不可交互，过渡结束前头与内容还画着，跟着外框缩回去，结束才隐藏", async () => {
+        // 宿主把隐藏的区域按拖到零画：收起是程序改的，过渡里不能先变成一张空卡片缩回去。
+        // happy-dom 没有布局引擎，量到的容器是 0、矩形全为 0，判不出过渡：按仓库既有做法（`useGridLayout.dom.test.ts`）桩掉布局盒。
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const side = (collapsed: boolean): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 699, height: 0}},
+        ]}, {sashSize: SASH});
+        const open = side(false);
+        const wrapper = mount(NestedGrid, {
+            attachTo: attachContainer(),
+            props: {node: open.root(), layout: open.layout(CONTAINER), contents: [{key: "x", leaf: "a", insetTop: 32, active: true}]},
+            slots: {leaf: ({node}: {node: {id: string}}) => h("span", {"data-head": node.id}), content: ({contentKey}: {contentKey: string}) => h("button", {"data-inside": contentKey}, contentKey)},
+        });
+        wrappers.push(wrapper);
+        wrapper.element.style.setProperty("--motion-layout", "30ms");
+        // 第一次布局回调只记下尺寸、不过渡：先发布一次同样的布局。
+        const again = side(false);
+        await wrapper.setProps({node: again.root(), layout: again.layout(CONTAINER)});
+        const closed = side(true);
+        await wrapper.setProps({node: closed.root(), layout: closed.layout(CONTAINER)});
+
+        const content = wrapper.get("[data-content='x']").element as HTMLElement;
+        const head = wrapper.get("[data-leaf-content='a']").element as HTMLElement;
+        expect(content.style.visibility).toBe("");
+        expect(content.hasAttribute("inert")).toBe(true);
+        expect(head.style.visibility).toBe("");
+        expect(wrapper.get("[data-leaf='a']").attributes("inert")).toBeDefined();
+        // 离开的叶才带 `data-leaving`：这片叶还在树里。
+        expect(wrapper.get("[data-leaf='a']").attributes("data-leaving")).toBeUndefined();
+        await vi.waitFor(() => expect(content.style.visibility).toBe("hidden"));
+        expect(head.style.visibility).toBe("hidden");
     });
 
     it("分隔线的 aria-controls 列外框与活动内容", () => {

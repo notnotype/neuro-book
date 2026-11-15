@@ -710,6 +710,31 @@ describe("呈现事实", () => {
         expect(saved.panels[aux]?.collapsed).toBeUndefined();
     });
 
+    it("隐藏的区域按拖到零画（输出 11、12）：在呈现里、收起为零；隐藏着拖别的边界、再显示，回到原来的宽度；从它的边界拉开，隐藏一起清掉", async () => {
+        const {store, storage} = await open();
+        const side = sectionOf(store, "test.side");
+        store.actions.acceptExtent({width: 1440, height: 900});
+        const width = regionSize(store.state.doc, "sidebar").width;
+        store.actions.setPartHidden("sidebar", true);
+        expect(store.state.projection.regionAnchors.get(side)).toBe("sidebar");
+        expect(JSON.stringify(store.state.projection.input)).toContain(side);
+
+        // 隐藏着拖编辑区与右栏之间的边界：侧栏呈现为零，不写回意图。
+        store.actions.commitGesture({[side]: {width: 0, height: 878}, g0: {width: 700, height: 600}}, {});
+        expect(store.state.doc.panels.sidebar?.hidden).toBe(true);
+        store.actions.setPartHidden("sidebar", false);
+        expect(regionSize(store.state.doc, "sidebar").width).toBe(width);
+
+        store.actions.setPartHidden("sidebar", true);
+        // 从零拉开：手势报代表区域的节点展开。
+        store.actions.commitGesture({[side]: {width: 260, height: 878}}, {[side]: false});
+        await settled(store);
+        const saved = await savedDoc(storage, USER);
+        expect(saved.panels.sidebar?.hidden).toBeUndefined();
+        expect(saved.panels.sidebar?.collapsed).toBeUndefined();
+        expect(regionSize(saved, "sidebar").width).toBe(260);
+    });
+
     it("实时布局的预览只给渲染用：已提交的文档、投影与可见性不变，尺寸不收，不写记录；撤下回到已提交的", async () => {
         const {store, storage} = await open();
         store.actions.acceptExtent({width: 1440, height: 900});

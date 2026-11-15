@@ -250,10 +250,28 @@ export function isNodeShown(doc: LayoutDoc, node: GridSnapshotNode): boolean {
 }
 
 /**
+ * 呈现用的文档：带容器的区域隐藏着时按拖到零画（docs/specs/ui/workbench-layout.md 输出 11）。锚换成拖到零（去掉 `hidden`、`collapsed` 为真），
+ * 区域就进呈现树、为零、留着能拉开的边界，挨着它的缝照常有交汇处。没有隐藏的区域时返回原对象。
+ *
+ * 只给几何用：投影（`projectLayoutDoc`）、宿主按尺寸算看不看得见。记录不变，“显示”与拉开边界清掉的仍是锚的 `hidden`；
+ * `isPanelShown` 照旧按隐藏算，焦点、键盘落点不落到零宽的面板上。不用容器的文档里隐藏的具名面板不换：它可能夹在两个可见面板之间，零宽缝拖的是它。
+ */
+export function hiddenRegionsAtZero(doc: LayoutDoc): LayoutDoc {
+    let panels: Record<string, PanelRecord> | null = null;
+    for (const [id, panel] of Object.entries(doc.panels)) {
+        if (panel.hidden !== true || !isContainerAnchor(panel)) continue;
+        const {hidden: _hidden, ...shown} = panel;
+        panels ??= {...doc.panels};
+        panels[id] = {...shown, collapsed: true};
+    }
+    return panels === null ? doc : {...doc, panels};
+}
+
+/**
  * 带容器的区域里，这个分节此刻为什么不能收成标题行（docs/specs/ui/workbench-layout.md 输出 11、20）；能收，或者它不是带容器的区域里的分节时是 null。
  *
  * - `"row-region"`：底部面板的分节不折叠。
- * - `"lone-section"`：它是所在区域此刻唯一显示的分节；区域隐藏着时按区域显示时算。那一列在呈现里塌成它这一片叶，叶上唯一的一份收起策略给了“整个区域拖到零”（`projectLayoutDoc`）。
+ * - `"lone-section"`：它是所在区域此刻唯一显示的分节；区域隐藏着时按拖到零算（`hiddenRegionsAtZero`）。那一列在呈现里塌成它这一片叶，叶上唯一的一份收起策略给了“整个区域拖到零”（`projectLayoutDoc`）。
  *
  * 按文档判，不看放不下被收走的：那是呈现的事，窗口变大就回来。
  */
@@ -265,10 +283,10 @@ export function sectionCollapseBlock(doc: LayoutDoc, panelId: string): SectionCo
     const column = region === null ? null : regionNodeOf(doc, region);
     if (anchor === null || region === null || column === null) return null;
     if (REGION_ORIENTATION[region] !== "vertical") return "row-region";
-    // 区域隐藏不改这一列由哪几个分节组成，按区域显示着来数：不然隐藏的那一刻唯一的分节就成了“能收”，
-    // 正在滑出去的面板头上多出收起按钮（区域显示时又没了）。“看不看得见”仍只问 `isPanelShown`，所以借一份区域没隐藏的文档问它。
-    const asShown = anchor.hidden === true ? {...doc, panels: {...doc.panels, [column.anchor]: {...anchor, hidden: false}}} : doc;
-    const shown = treeLeaves(column.node).filter((leaf) => isPanelShown(asShown, leaf.id));
+    // 按呈现数：隐藏的区域按拖到零画（`hiddenRegionsAtZero`），这一列还是那几节。按记录数的话隐藏的那一刻唯一的分节就成了“能收”，
+    // 正在缩回去的面板头上多出收起按钮，投影也会把区域的收起策略和这一节自己的收起混在同一片叶上。
+    const presented = anchor.hidden === true ? hiddenRegionsAtZero(doc) : doc;
+    const shown = treeLeaves(column.node).filter((leaf) => isPanelShown(presented, leaf.id));
     return shown.length === 1 && shown[0]?.id === panelId ? "lone-section" : null;
 }
 

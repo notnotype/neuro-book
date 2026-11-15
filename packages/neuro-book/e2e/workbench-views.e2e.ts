@@ -48,6 +48,11 @@ interface Box {
  */
 const LEAF = "[data-workbench-surface] > [data-grid-scope] > [data-leaf]";
 const leaf = (page: Page, id: string) => page.locator(`${LEAF}[data-leaf="${id}"]`);
+/** 区域隐藏了：按拖到零画（ui/workbench-layout 输出 11），那块外框还在、缩到面积为零。等到零也就等过渡走完了。 */
+const shrunk = (page: Page, id: string) => expect.poll(async () => {
+    const found = await leaf(page, id).boundingBox();
+    return found === null ? 0 : Math.round(found.width * found.height);
+}).toBe(0);
 
 async function box(page: Page, id: string): Promise<Box> {
     const found = await leaf(page, id).boundingBox();
@@ -268,6 +273,34 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect(activitybar).toHaveAttribute("data-shell-join", "start");
     });
 
+    test("活动栏收起侧栏同拖到零：留着能拉开的边界；底部面板开着时，从活动栏、编辑区、面板的交汇处斜着拖，两条边界一起动，拉开时内容就出现，隐藏清掉（输出 11、12）", async ({page}) => {
+        await open(page);
+        const side = await panelOfTab(page, A);
+        const vertical = sidebarSash(page);
+        const horizontal = panelSash(page);
+        await toolEntry(page, A).click();
+        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
+        await expect.poll(async () => (await box(page, side)).width).toBe(0);
+        await expect(toolEntry(page, A)).not.toHaveAttribute("aria-pressed", "true");
+
+        const line = await vertical.boundingBox();
+        const row = await horizontal.boundingBox();
+        if (line === null || row === null) throw new Error("侧栏隐藏后没有边界");
+        const at = {x: line.x + line.width / 2, y: row.y + row.height / 2};
+        await page.mouse.move(at.x, at.y);
+        await page.mouse.down();
+        await expect(vertical).toHaveAttribute("data-sash-active", "true");
+        await expect(horizontal).toHaveAttribute("data-sash-active", "true");
+        await page.mouse.move(at.x + 260, at.y - 80, {steps: 10});
+        // 松手前内容就出现，入口跟着按下（输出 12、22）。
+        await expect(sample(page, A)).toBeVisible();
+        await page.mouse.up();
+        await expect.poll(async () => (await box(page, side)).width).toBeGreaterThan(200);
+        await expect.poll(async () => (await horizontal.boundingBox())?.y ?? 0).toBeLessThan(row.y - 60);
+        await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBeUndefined();
+        await expect(toolEntry(page, A)).toHaveAttribute("aria-pressed", "true");
+    });
+
     test("面板头的动作与滚动条随鼠标显示：鼠标在外时动作透明、没有滑块、内容不让宽；移入、Tab 进入或菜单开着时动作可见；拖滑块按比例滚动（输出 20；views.md 验收 9）", async ({page}) => {
         await open(page);
         await showView(page, C);
@@ -392,7 +425,8 @@ test.describe("产品页：测试插件贡献的视图", () => {
 
         // 当前容器、侧栏可见：隐藏侧栏。没有按下的入口了；焦点所在的分节看不见了，移到它那个容器的入口（输出 16）。
         await toolEntry(page, B).click();
-        await expect(leaf(page, section)).toHaveCount(0);
+        // 隐藏按拖到零画（输出 11）：那块还在，宽度为零。
+        await expect.poll(async () => (await box(page, section)).width).toBe(0);
         await expect(pressed).toHaveCount(0);
         await expect(toolEntry(page, B)).toBeFocused();
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar).toMatchObject({hidden: true, activeContainer: `view:${B}`});
@@ -408,7 +442,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await sample(page, E).locator("input").focus();
         await expect.poll(() => focusedPanelOf(page)).toBe(await panelOfTab(page, E));
         await toolEntry(page, B).click();
-        await expect(leaf(page, section)).toHaveCount(0);
+        await expect.poll(async () => (await box(page, section)).width).toBe(0);
         // 侧栏隐藏着点另一个入口：切过去，同一次写入把侧栏显示出来。
         await toolEntry(page, A).click();
         await expect(sample(page, A)).toBeVisible();
@@ -733,7 +767,7 @@ test.describe("产品页：测试插件贡献的视图", () => {
         // 分节没有隐藏按钮，隐藏是区域的事（输出 20）：用标题栏的侧栏按钮。
         const side = await panelOfTab(page, A);
         await page.locator('[data-titlebar-layout="sidebar"]').click();
-        await expect(leaf(page, side)).toHaveCount(0);
+        await shrunk(page, side);
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.hidden).toBe(true);
 
         const before = await revisionOf(page);

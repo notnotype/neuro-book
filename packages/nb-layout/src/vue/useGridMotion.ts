@@ -9,7 +9,7 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored} from "../grid-motion";
+import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
 import type {GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
@@ -49,7 +49,7 @@ export type GridMotionDecision =
     | {readonly kind: "stop"}
     | GridMotionMove;
 
-/** 要过渡：第一帧的矩形（新项与内容不跟外框的叶）、内容跟外框的项、压在上面飞的项、留着缩回去的叶、内容不跟外框的叶、内容贴外框右边的项。 */
+/** 要过渡：第一帧的矩形（新项与内容不跟外框的叶）、内容跟外框的项、压在上面飞的项、留着缩回去的叶、内容不跟外框的叶、内容贴外框右边的项、降到零的叶与此刻为零的叶。 */
 export interface GridMotionMove {
     readonly kind: "move";
     readonly entering: ReadonlyMap<string, GridRect>;
@@ -58,6 +58,10 @@ export interface GridMotionMove {
     readonly leaving: ReadonlyArray<GridLeavingItem>;
     readonly keptSize: ReadonlySet<string>;
     readonly rightAnchored: ReadonlySet<string>;
+    /** 这一轮降到零的叶（节点 id，`shrinkingLeaves`）。 */
+    readonly shrinking: ReadonlySet<string>;
+    /** 此刻为零的叶（节点 id）：上一轮在缩的叶仍在这里面的接着缩。 */
+    readonly zero: ReadonlySet<string>;
 }
 
 /** 在过渡里留着缩回去的离开的叶（`leavingPlacements`）。 */
@@ -108,6 +112,8 @@ export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): 
         leaving: [...still, ...leaving],
         keptSize: new Set(kept.keys()),
         rightAnchored: rightAnchored({items: frame.items, leaving, starts: kept, following, flying}),
+        shrinking: shrinkingLeaves(frame.items, frame.previous),
+        zero: zeroLeaves(frame.items),
     };
 }
 
@@ -127,6 +133,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     const anchoredRight = shallowRef<ReadonlySet<string>>(new Set());
     /** 落地的卡片下面还画着的内容项（`land` 的 `held`）：已经不活动、不可交互，过渡结束（`stop`）才隐藏。只在过渡中有。 */
     const held = shallowRef<ReadonlySet<string>>(new Set());
+    /** 降到零的叶（节点 id，`shrinkingLeaves`）：停放、不可交互，过渡结束（`stop`）前头与内容还画着。只在过渡中有。 */
+    const shrinking = shallowRef<ReadonlySet<string>>(new Set());
     let timer: ReturnType<typeof setTimeout> | null = null;
     const memory = EMPTY_GRID_MOTION_MEMORY();
     /** 正落地的内容项：内容体一次到终点尺寸，不跟着外框。它从小卡的矩形出发，跟着走就是先压成小卡再逐帧长回去。 */
@@ -160,6 +168,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         keptSize.value = new Set();
         anchoredRight.value = new Set();
         held.value = new Set();
+        shrinking.value = new Set();
         // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
         options.onSettled();
     }
@@ -173,6 +182,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         const carried = (list: ReadonlySet<string>): string[] => (inRound ? [...list].filter((key) => !following.value.has(key)) : []);
         keptSize.value = new Set([...carried(keptSize.value), ...move.keptSize]);
         anchoredRight.value = new Set([...carried(anchoredRight.value), ...move.rightAnchored]);
+        // 上一轮在缩、这一轮仍为零的接着画到结束（外壳落账后的第二次发布也是一轮，不接着的话缩到一半就没了）；又长出来的不算。
+        shrinking.value = new Set([...(inRound ? [...shrinking.value].filter((id) => move.zero.has(id)) : []), ...move.shrinking]);
         inRound = true;
         moving.value = true;
         flying.value = new Set([...(flying.value), ...move.flying]);
@@ -244,6 +255,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         keptSize,
         anchoredRight,
         held,
+        shrinking,
         update,
         land,
         /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */

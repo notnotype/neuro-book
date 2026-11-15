@@ -2,7 +2,7 @@
 /**
  * 一棵树的工作台表面（同名 .md）：把布局文档画成一个 NestedGrid，外框里是卡片与面板头，内容在内容层。文档与投影由宿主给，这里只测量、发布呈现事实、按邻接算卡片。
  */
-import {createGrid, isContainerAnchor, isPanelShown, regionNodeOf, treeLeaves} from "@notnotype/nb-layout";
+import {createGrid, hiddenRegionsAtZero, isContainerAnchor, isPanelShown, regionNodeOf, treeLeaves} from "@notnotype/nb-layout";
 import type {Grid, GridBranchInput, GridExtent, GridFloatInput, GridGesturePreview, GridLeafShape, GridNodeInput, GridRect, LayoutDoc, LayoutProjection, PanelName} from "@notnotype/nb-layout";
 import {moveGridFocus, NestedGrid, useGridLayout, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, useId, useTemplateRef, watch} from "vue";
@@ -167,11 +167,12 @@ const isEmptyRegion = (id: string): boolean => {
 
 /**
  * 侧栏与右栏下角的场景图画在哪块卡片上（docs/specs/theme/skins.md 输出 6）：图跟着区域走，不跟着视图走。区域的锚不进呈现树，所以取区域里显示着的最后一块，
- * 它的下缘就是区域的下缘；一列分成几节时只画一张。
+ * 它的下缘就是区域的下缘；一列分成几节时只画一张。按呈现算（隐藏的区域按拖到零画）：隐藏的那一刻图还在那块卡片上，跟着它缩回去。
  */
 const sceneCorners = computed<ReadonlyMap<string, PanelName>>(() => new Map((["sidebar", "auxiliarybar"] as const).flatMap((region) => {
-    const hit = regionNodeOf(props.doc, region);
-    const last = hit === null ? undefined : treeLeaves(hit.node).map((leaf) => leaf.id).filter((id) => isPanelShown(props.doc, id)).at(-1);
+    const presented = hiddenRegionsAtZero(props.doc);
+    const hit = regionNodeOf(presented, region);
+    const last = hit === null ? undefined : treeLeaves(hit.node).map((leaf) => leaf.id).filter((id) => isPanelShown(presented, id)).at(-1);
     return last === undefined ? [] : [[last, region] as const];
 })));
 
@@ -189,14 +190,18 @@ const cards = computed<Readonly<Record<string, CardEdges>>>(() => {
 });
 
 /**
- * 离开的节点（隐藏的侧栏）在过渡里留着缩回去时已经不在呈现里（docs/specs/ui/nested-grid.md 的“过渡”）：卡片四边、相连与场景图沿用它
- * 最后一次呈现时的，不然缩回去的第一帧卡片就少了外边距、换了圆角。只记呈现着的叶，回到呈现里就用新算的。
+ * 缩回去的叶（docs/specs/ui/nested-grid.md 的“过渡”：隐藏、拖到零的区域降到零，离开的节点留在过渡里）这一刻的布局已经是终点：零宽，或不在呈现里。
+ * 卡片四边、相连与场景图沿用它最后一次有尺寸时的，不然缩回去的第一帧卡片就少了外边距、换了圆角。只记呈现着、有尺寸的叶，缩完、回来了就用新算的。
  */
 const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind === "leaf" ? [node.id] : node.children.flatMap(leafIdsOf));
 const presentedLeaves = computed(() => new Set(leafIdsOf(props.projection.input)));
+const outgoingLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.outgoingLeaves ?? new Set());
 const lastPresented = {cards: new Map<string, CardEdges>(), scene: new Map<string, PanelName>()};
 watch([cards, sceneCorners, presentedLeaves], ([nextCards, nextScene, presented]) => {
+    const sizes = preview.value ?? host.layout.value.sizes;
     for (const id of presented) {
+        const size = sizes[id];
+        if (size !== undefined && (size.width <= 0 || size.height <= 0)) continue;
         const edges = nextCards[id];
         if (edges === undefined) lastPresented.cards.delete(id);
         else lastPresented.cards.set(id, edges);
@@ -207,25 +212,26 @@ watch([cards, sceneCorners, presentedLeaves], ([nextCards, nextScene, presented]
 }, {immediate: true, flush: "sync"});
 /**
  * 不在呈现里、也不在缩回去的叶，最后一次的记录用不上了：编辑组每次拆分都是新 id，不清就一直长。等 `NestedGrid` 判完过渡再清（`post`）：
- * 刚离开、要留着缩回去的那块这时已经在 `leavingLeaves` 里，它缩回去的这段还要用记录。
+ * 刚离开、要留着缩回去的那块这时已经在 `outgoingLeaves` 里，它缩回去的这段还要用记录。
  */
-watch([presentedLeaves, () => gridEl.value?.leavingLeaves], ([presented, leaving]) => {
+watch([presentedLeaves, outgoingLeaves], ([presented, outgoing]) => {
     for (const records of [lastPresented.cards, lastPresented.scene]) {
-        for (const id of records.keys()) if (!presented.has(id) && leaving?.has(id) !== true) records.delete(id);
+        for (const id of records.keys()) if (!presented.has(id) && !outgoing.has(id)) records.delete(id);
     }
 }, {flush: "post"});
 /**
- * 和活动栏相连的工具面板隐藏、在过渡里留着缩回去时（docs/specs/ui/workbench-layout.md 输出 19），活动栏照旧相连：两张卡片作为一张缩回去，面板摘掉后
- * 活动栏才断开。按呈现算的话活动栏第一帧就断开了，而缩回去的面板还是相连的样子，贴着它的那边是直的。相连只在活动栏和它右边的工具面板之间，
- * 所以离开的叶最后一次呈现时左边相连，就是和活动栏连着。
+ * 和活动栏相连的工具面板隐藏、在过渡里缩回去时（docs/specs/ui/workbench-layout.md 输出 19），活动栏照旧相连：两张卡片作为一张缩回去，缩完
+ * 活动栏才断开。按这一刻的布局算的话活动栏第一帧就断开了（拖到零不相连），而缩回去的面板还是相连的样子，贴着它的那边是直的。相连只在活动栏和它右边的工具面板之间，
+ * 所以缩回去的叶最后一次有尺寸时左边相连，就是和活动栏连着。
  */
-const barJoinHeld = computed(() => [...(gridEl.value?.leavingLeaves ?? [])].some((id) => !presentedLeaves.value.has(id) && lastPresented.cards.get(id)?.left.kind === "joined"));
+const drawnAsBefore = (id: string): boolean => !presentedLeaves.value.has(id) || outgoingLeaves.value.has(id);
+const barJoinHeld = computed(() => [...outgoingLeaves.value].some((id) => lastPresented.cards.get(id)?.left.kind === "joined"));
 function cardOf(id: string): CardEdges | undefined {
-    if (!presentedLeaves.value.has(id)) return lastPresented.cards.get(id);
+    if (drawnAsBefore(id)) return lastPresented.cards.get(id) ?? cards.value[id];
     const card = cards.value[id];
     return id === ACTIVITY_BAR && card !== undefined && barJoinHeld.value ? {...card, right: {kind: "joined"}} : card;
 }
-const sceneOf = (id: string): PanelName | undefined => (presentedLeaves.value.has(id) ? sceneCorners.value.get(id) : lastPresented.scene.get(id));
+const sceneOf = (id: string): PanelName | undefined => (drawnAsBefore(id) ? lastPresented.scene.get(id) : sceneCorners.value.get(id));
 
 function insetOf(id: string): Record<string, string> {
     const edges = cardOf(id);

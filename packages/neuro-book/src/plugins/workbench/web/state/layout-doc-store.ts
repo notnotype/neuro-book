@@ -427,8 +427,13 @@ function defineLayoutDocStore(bound: boolean) {
                     // 对那个 id 记的话，单分节时会把分节自己标成收成标题行。
                     const anchors = projection.value.regionAnchors;
                     for (const [id, value] of Object.entries(collapsed)) {
-                        const updated = setPanelCollapsed(next, anchors.get(id) ?? id, value);
+                        const anchor = anchors.get(id);
+                        const updated = setPanelCollapsed(next, anchor ?? id, value);
                         if (updated.ok) next = updated.doc;
+                        // 隐藏的区域按拖到零画（`hiddenRegionsAtZero`）：从那条边界拉开就是显示，隐藏一起清掉，同“显示”（输出 11、12）。
+                        if (anchor === undefined || value || next.panels[anchor]?.hidden !== true) continue;
+                        const shown = setPanelHidden(next, anchor, false);
+                        if (shown.ok) next = shown.doc;
                     }
                     local.value = rebaseIntents(next, sizes, projection.value.collapsedTo, frozen);
                     schedule(true);
