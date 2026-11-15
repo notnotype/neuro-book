@@ -19,6 +19,8 @@ const {t} = useText();
 
 const state = computed(() => props.frame.state.value);
 const layer = {zIndex: NB_Z_INDEX.desktopFrame};
+/** Windows 图标字体里的按钮字形（私有区码位）：最小化、最大化、还原、关闭。 */
+const GLYPH = {minimize: "\uE921", maximize: "\uE922", restore: "\uE923", close: "\uE8BB"} as const;
 </script>
 
 <template>
@@ -28,10 +30,11 @@ const layer = {zIndex: NB_Z_INDEX.desktopFrame};
             <NeuroBookMark class="desktop-frame__mark" />
             <span class="desktop-frame__title">{{ state.title }}</span>
         </div>
+        <!-- 按下时不取焦点（mousedown.prevent）：系统标题栏的按钮不抢焦点，编辑器里的光标与选区不受影响。 -->
         <div class="desktop-frame__controls" :style="layer" role="group" :aria-label="t(hostText('desktopFrame.controls'))" :data-focused="state.focused ? '' : undefined" data-desktop-controls>
-            <button type="button" tabindex="-1" class="desktop-frame__button" :aria-label="t(hostText('desktopFrame.minimize'))" data-desktop-control="minimize" @click="frame.control('minimize')">&#xE921;</button>
-            <button type="button" tabindex="-1" class="desktop-frame__button" :aria-label="t(hostText(state.maximized ? 'desktopFrame.restore' : 'desktopFrame.maximize'))" data-desktop-control="toggle-maximize" @click="frame.control('toggle-maximize')">{{ state.maximized ? "" : "" }}</button>
-            <button type="button" tabindex="-1" class="desktop-frame__button desktop-frame__button--close" :aria-label="t(hostText('desktopFrame.close'))" data-desktop-control="close" @click="frame.control('close')">&#xE8BB;</button>
+            <button type="button" tabindex="-1" class="desktop-frame__button" :aria-label="t(hostText('desktopFrame.minimize'))" data-desktop-control="minimize" @mousedown.prevent @click="frame.control('minimize')">{{ GLYPH.minimize }}</button>
+            <button type="button" tabindex="-1" class="desktop-frame__button" :aria-label="t(hostText(state.maximized ? 'desktopFrame.restore' : 'desktopFrame.maximize'))" data-desktop-control="toggle-maximize" @mousedown.prevent @click="frame.control('toggle-maximize')">{{ state.maximized ? GLYPH.restore : GLYPH.maximize }}</button>
+            <button type="button" tabindex="-1" class="desktop-frame__button desktop-frame__button--close" :aria-label="t(hostText('desktopFrame.close'))" data-desktop-control="close" @mousedown.prevent @click="frame.control('close')">{{ GLYPH.close }}</button>
         </div>
     </template>
 </template>
@@ -94,7 +97,7 @@ const layer = {zIndex: NB_Z_INDEX.desktopFrame};
  * Windows 的图标字体（11 是 Segoe Fluent Icons，10 是 Segoe MDL2 Assets），与系统按钮像素一致；外框只在 Windows 的桌面壳里出现。
  */
 .desktop-frame__button {
-    width: 46px;
+    width: calc(var(--nb-window-controls-width) / 3);
     height: 100%;
     padding: 0;
     border: 0;

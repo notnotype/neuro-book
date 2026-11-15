@@ -7,7 +7,7 @@ defineProps<{store: LabStore}>();
 </script>
 
 <template>
-    <div class="h-[var(--nb-viewport-block,100vh)] w-full overflow-hidden" data-lab-page>
+    <div class="h-[var(--nb-viewport-block,100vh)] w-screen overflow-hidden" data-lab-page>
         <LabShell :store="store" />
     </div>
 </template>

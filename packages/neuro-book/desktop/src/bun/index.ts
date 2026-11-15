@@ -37,7 +37,7 @@ import type {CloseReason, ShellMessage, WindowControl} from "../../../src/shared
 import {PRODUCT_VERSION} from "../../../src/shared/product";
 
 import {preloadScript} from "./preload";
-import {adoptCustomFrame} from "./win32";
+import {adoptCustomFrame, setWindowIcon} from "./win32";
 
 const SHELL_VIEW = "views://shell/index.html";
 const DEFAULT_SIZE = {width: 1280, height: 800};
@@ -68,22 +68,25 @@ function log(event: string, error?: unknown): void {
 }
 
 /**
- * WebView2 运行时的版本（输出 20）：读 EdgeUpdate 登记的 WebView2 客户端键，机器级与用户级各看一处，取最高的主版本；没装时
- * 为 null。不是 Windows 时当作够新（壳只在 Windows 上发布，这里只让开发运行不卡住）。
+ * WebView2 运行时（输出 20）：读 EdgeUpdate 登记的 WebView2 客户端键，机器级与用户级各看一处。`null` 是没装；装了时交回最高的
+ * 主版本，登记了却读不出版本号时主版本为 null（窗口退回系统标题栏，不当作没装）。不是 Windows 时当作够新（壳只在 Windows 上
+ * 发布，这里只让开发运行不卡住）。
  */
-function webView2Major(): number | null {
-    if (process.platform !== "win32") return Number.POSITIVE_INFINITY;
+function webView2Runtime(): {major: number | null} | null {
+    if (process.platform !== "win32") return {major: Number.POSITIVE_INFINITY};
     const key = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
     const places = [`HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\${key}`, `HKLM\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\${key}`, `HKCU\\Software\\Microsoft\\EdgeUpdate\\Clients\\${key}`];
+    let installed = false;
     let major: number | null = null;
     for (const place of places) {
         const result = spawnSync("reg", ["query", place, "/v", "pv"], {encoding: "utf8", windowsHide: true});
         const version = /pv\s+REG_SZ\s+(\S+)/u.exec(result.stdout)?.[1];
         if (result.status !== 0 || version === undefined || version === "0.0.0.0") continue;
+        installed = true;
         const parsed = Number.parseInt(version.split(".")[0] ?? "", 10);
         if (Number.isFinite(parsed)) major = Math.max(major ?? 0, parsed);
     }
-    return major;
+    return installed ? {major} : null;
 }
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -176,7 +179,7 @@ interface ManagedWindow {
 }
 
 async function main(): Promise<void> {
-    const webView2 = webView2Major();
+    const webView2 = webView2Runtime();
     if (webView2 === null) {
         const {response} = await Utils.showMessageBox({type: "error", title: "NeuroBook", message: "需要 Microsoft Edge WebView2 运行时", detail: "这台电脑没有装 WebView2，NeuroBook 的窗口打不开。装好之后再打开 NeuroBook。", buttons: ["打开下载页", "退出"], defaultId: 0, cancelId: 1});
         if (response === 0) Utils.openExternal(WEBVIEW2_DOWNLOAD);
@@ -191,8 +194,8 @@ async function main(): Promise<void> {
         logFile = join(dir, "shell.log");
     }
     // webview2Args：环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 有没有传到壳（冒烟靠它打开调试端口；只记有没有，不记值）。
-    const customFrame = process.platform === "win32" && webView2 >= CUSTOM_FRAME_MIN_WEBVIEW2;
-    log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2=${String(webView2)} customFrame=${String(customFrame)} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
+    const customFrame = process.platform === "win32" && webView2.major !== null && webView2.major >= CUSTOM_FRAME_MIN_WEBVIEW2;
+    log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2=${String(webView2.major)} customFrame=${String(customFrame)} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
 
     const windows = new Map<WindowId, ManagedWindow>();
     const dialogs = new Map<string, BrowserWindow>();
@@ -234,6 +237,13 @@ async function main(): Promise<void> {
         else if (url.protocol === "http:" || url.protocol === "https:") Utils.openExternal(url.href);
     };
 
+    /** 窗口的图标（所有窗口）与无标题栏窗口的样式（输出 10）；没做成的写日志，窗口照常可用。 */
+    const adoptWindow = (win: BrowserWindow, label: WindowId | string, frame: boolean): void => {
+        const hwnd = win.ptr as Pointer | null;
+        const problems = [...(frame ? adoptCustomFrame(hwnd) : []), ...setWindowIcon(hwnd, iconFile)];
+        if (problems.length > 0) log(`desktop.frame.adopt-failed window=${String(label)} ${problems.join("; ")}`);
+    };
+
     /**
      * 是否最大化推给窗口（输出 10）：`resize` 时与上一次发给这个窗口的相同就不发；页面查询、报就绪时照发（页面换了文档，上一次
      * 发的已经不在它那里）。记录随窗口关掉删除。
@@ -259,10 +269,7 @@ async function main(): Promise<void> {
         const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE), sandbox: true, preload: preloadScript(customFrame), titleBarStyle: customFrame ? "hiddenInset" : "default", navigationRules: JSON.stringify(navigationRules())});
         const id = win.id as WindowId;
         windows.set(id, {win, kind: target.kind === "page" ? "page" : "shell"});
-        if (customFrame) {
-            const problems = adoptCustomFrame(win.ptr as Pointer | null, iconFile);
-            if (problems.length > 0) log(`desktop.frame.adopt-failed window=${String(id)} ${problems.join("; ")}`);
-        }
+        adoptWindow(win, id, customFrame);
         win.on("will-close", (event: {response?: {allow: boolean}}) => {
             event.response = {allow: false};
             shell.windows.closeRequested(id);
@@ -309,6 +316,8 @@ async function main(): Promise<void> {
     };
 
     const onWindowMessage = (id: WindowId, win: BrowserWindow, raw: Record<string, unknown>): void => {
+        // 窗口关掉之后还可能有排队的消息到达：只处理仍在表里的同一个窗口，不对已关的窗口调原生方法。
+        if (windows.get(id)?.win !== win) return;
         // 启动页（壳自己的页面）的两种消息。
         if (raw.type === "shell-ready") {
             if (windows.get(id)?.kind === "shell") render(win, view);
@@ -367,6 +376,7 @@ async function main(): Promise<void> {
         }
         const win = new BrowserWindow({title: "NeuroBook", url: SHELL_VIEW, frame: centered({width: 480, height: 260}), sandbox: true});
         dialogs.set(key, win);
+        adoptWindow(win, key, false);
         let handled = false;
         win.webview.on("host-message", (event: unknown) => {
             const message = parse(event);

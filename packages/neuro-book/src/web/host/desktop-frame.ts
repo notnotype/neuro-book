@@ -10,7 +10,6 @@
  *
  * - `data-desktop-frame`：外框开着。预加载在页面脚本之前就设了（静态加载页要用），这里再设一次，e2e 与真实路径一致。
  * - `data-desktop-frame-bar`：页面没有自己的标题栏，宿主画后备标题栏，页面整体下移 36px。
- * - `data-desktop-maximized`：窗口最大化（壳推来的 `window-state`）。
  *
  * 页面有没有自己的标题栏，看 `#app` 子树里有没有 `[data-desktop-titlebar]`。观察整个子树要经得起编辑器、对话流这类持续改 DOM
  * 的地方，所以回调按帧合并，并且已经找到、那个元素还连在文档上时不再查询。
@@ -46,6 +45,8 @@ export interface DesktopFrame {
 
 /** 页面全局对象里用到的部分。 */
 export interface DesktopFrameGlobal {
+    /** 预加载脚本定义的能力标记（`DESKTOP_FRAME_MARKER`），值为 1 表示窗口没有系统标题栏。 */
+    readonly __nbookDesktopFrame?: unknown;
     addEventListener(type: "focus" | "blur", listener: () => void): void;
     removeEventListener(type: "focus" | "blur", listener: () => void): void;
     requestAnimationFrame(callback: () => void): number;
@@ -65,7 +66,7 @@ export const DESKTOP_TITLEBAR_SELECTOR = "[data-desktop-titlebar]";
 export function createDesktopFrame(options: DesktopFrameOptions): DesktopFrame {
     const {document} = options;
     const state = shallowRef<DesktopFrameState>({maximized: false, pageTitlebar: false, focused: document.hasFocus(), title: document.title});
-    if ((options.global as unknown as Record<string, unknown>)[DESKTOP_FRAME_MARKER] !== 1) {
+    if (options.global[DESKTOP_FRAME_MARKER] !== 1) {
         return {enabled: false, state, control() {}, dispose() {}};
     }
 
@@ -74,7 +75,6 @@ export function createDesktopFrame(options: DesktopFrameOptions): DesktopFrame {
     const update = (patch: Partial<DesktopFrameState>): void => {
         const next = {...state.value, ...patch};
         html.toggleAttribute("data-desktop-frame-bar", !next.pageTitlebar);
-        html.toggleAttribute("data-desktop-maximized", next.maximized);
         state.value = next;
     };
 
@@ -102,7 +102,8 @@ export function createDesktopFrame(options: DesktopFrameOptions): DesktopFrame {
     titleObserver.observe(document.head, {childList: true, subtree: true, characterData: true});
 
     const onFocus = (): void => update({focused: true});
-    const onBlur = (): void => update({focused: false});
+    // 焦点进了页面里的 iframe（HTML 预览）时窗口也收到 blur，但它仍在前台：以 `document.hasFocus()` 为准。
+    const onBlur = (): void => update({focused: document.hasFocus()});
     options.global.addEventListener("focus", onFocus);
     options.global.addEventListener("blur", onBlur);
 

@@ -32,7 +32,7 @@ afterEach(() => {
     for (const frame of frames) frame.dispose();
     frames = [];
     app.remove();
-    for (const name of ["data-desktop-frame", "data-desktop-frame-bar", "data-desktop-maximized"]) html.removeAttribute(name);
+    for (const name of ["data-desktop-frame", "data-desktop-frame-bar"]) html.removeAttribute(name);
 });
 
 /** 一个页面：带不带能力标记，壳那边能不能收消息。 */
@@ -106,20 +106,23 @@ describe("窗口外框", () => {
         view.unmount();
     });
 
-    it("按钮把动作交给壳；壳推来最大化后按钮名换成“还原”，属性随之变", async () => {
+    it("按钮把动作交给壳，按下时不取焦点；壳推来最大化后按钮名换成“还原”", async () => {
         const {frame, sent, shell} = setup({marker: true});
         const view = mountFrame(frame);
         sent.length = 0;
-        for (const action of ["minimize", "toggle-maximize", "close"]) await view.get(`[data-desktop-control="${action}"]`).trigger("click");
+        for (const action of ["minimize", "toggle-maximize", "close"]) {
+            const down = new MouseEvent("mousedown", {bubbles: true, cancelable: true});
+            view.get(`[data-desktop-control="${action}"]`).element.dispatchEvent(down);
+            expect(down.defaultPrevented).toBe(true);
+            await view.get(`[data-desktop-control="${action}"]`).trigger("click");
+        }
         expect(sent).toEqual([{type: "window-control", action: "minimize"}, {type: "window-control", action: "toggle-maximize"}, {type: "window-control", action: "close"}]);
         shell({type: "window-state", maximized: true});
         await view.vm.$nextTick();
         expect(view.get('[data-desktop-control="toggle-maximize"]').attributes("aria-label")).toBe("还原");
-        expect(html.hasAttribute("data-desktop-maximized")).toBe(true);
         shell({type: "window-state", maximized: false});
         await view.vm.$nextTick();
         expect(view.get('[data-desktop-control="toggle-maximize"]').attributes("aria-label")).toBe("最大化");
-        expect(html.hasAttribute("data-desktop-maximized")).toBe(false);
         view.unmount();
     });
 

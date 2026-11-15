@@ -149,7 +149,6 @@ test("按钮把动作交给壳；壳推来最大化后按钮名换成“还原�
     await expect.poll(() => sent(page, "window-control")).toEqual([{type: "window-control", action: "minimize"}, {type: "window-control", action: "toggle-maximize"}, {type: "window-control", action: "close"}]);
     await shell(page, {type: "window-state", maximized: true});
     await expect(controls(page).getByRole("button", {name: "还原"})).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("data-desktop-maximized", "");
 });
 
 test("关闭前询问开着时（模态与 inert 都在）：窗口按钮照样能点，消息交给壳", async ({page}) => {
@@ -169,6 +168,15 @@ test("关闭前询问开着时（模态与 inert 都在）：窗口按钮照样�
     // 模态开着时 reka 给它之外的兄弟节点设 aria-hidden（外框根也在其中），按角色找不到按钮，按属性找；点击要真的落在按钮上。
     await page.locator('[data-desktop-control="minimize"]').click();
     await expect.poll(() => sent(page, "window-control")).toEqual([{type: "window-control", action: "minimize"}]);
+});
+
+test("设置窗口（经 Portal 的浮动窗口）不是拖动区域，点它的顶边不会变成拖窗口", async ({page}) => {
+    await installFrame(page);
+    await openWorkbench(page);
+    await page.keyboard.press("Control+,");
+    const settings = page.getByRole("dialog", {name: "设置"});
+    await expect(settings).toBeVisible();
+    expect(await settings.evaluate((element) => getComputedStyle(element).getPropertyValue("-webkit-app-region"))).toBe("no-drag");
 });
 
 test("盖在标题栏上的浮层（命令面板）不是拖动区域", async ({page}) => {
