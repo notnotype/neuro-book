@@ -47,6 +47,11 @@ updated: 2026-11-15
 - `test:affected --since master`：Bun 3145 条、Vitest 623 条。第一次有 2 条架构测试失败，修正后重跑架构测试、`plugin-sdk` 全套与插件 Skill 的集成测试都过。
 - e2e `agent-skills` 过。`plugins` 的“安装 → 重启后配置项出现……”在 master（`1013647d0`）上同样失败，是既有失败，与 t33 无关。`lab-scenes` 挡在主题编辑器两个场景的 404（t30 收口时已见过），Skill 页的四个场景改用 `nbdev shot` 在手机与自由画布上量：越界、焦点环与外扩环被裁、页面错误都是 0。
 
+实现审查两路已处理，修正单独提交：
+- 后端（omp）4 条（重要 4）：都成立、已改（`4c1c77159`）。打包判据改按语法上下文查：`import.meta` 整个被取用、`require` 当值用、文件里自己声明的 `__dirname`；同一个 key 的根换目录也通知。十个常用包重量一次，仍然只有 sharp 被拦。处理见 [`evidences/impl-review-backend.txt`](evidences/impl-review-backend.txt)。
+- 前端（Sonnet）8 条（重要 1、建议 7）：都成立、已改（`f75c8c971`）。“已删除或不可用”的提示不再只说放回文件夹；显示名撞了的插件组带上 id；条目按来源区分、插件来源必带所属插件；Profile 里无效的悬停写原因；没打包的原因加去向；长 id 组头折行；Profile 一节补测试。处理见 [`evidences/impl-review-frontend.txt`](evidences/impl-review-frontend.txt)。
+- 改完重跑：类型检查、受影响的单元与集成测试 64 条、Profile 与 Skill 页的测试、e2e `agent-skills` 3 条都过；Skill 页场景用 `nbdev shot` 重量，越界与被裁都是 0。
+
 ## 下一步
 
-实现审查两路已开（后端 omp、前端 Sonnet），回来后处理；之后合入 master，Spec 里 t33 的 planned 条目晋升交开发者批准。
+合入 master；Spec 里 t33 的 planned 条目（`agent/skills.md` 输出 30–34 与场景 9、`runtime/plugin-api.md` 的打包 Skill、`runtime/plugin-code-loading.md` 输出 11）去掉 planned 交开发者批准。
