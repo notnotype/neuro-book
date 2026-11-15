@@ -8,7 +8,7 @@ Windows 桌面版的主进程与壳自己的页面。行为合同是 [`runtime/d
 | `src/bun/preload.ts` | 产品窗口的预加载脚本：页面标题与新窗口请求经事件桥交给壳 |
 | `src/views/shell/index.html` | 启动页与壳的对话框（同一页，按壳交来的状态显示） |
 | `electrobun.config.ts`、`hutch.config.ts` | Electrobun 与 Hutch 的配置，版本固定 |
-| `assets/neurobook.ico` | 应用图标（32–256），从 [`brand/logo/06-production/desktop/windows/`](../../../brand/logo/06-production/desktop/windows/) 复制，品牌那边重新生成后跟着换；嵌进程序与安装程序，也复制进包供窗口图标加载 |
+| `assets/neurobook.ico` | 应用图标（16–256，都从不带边框的 SVG 渲染），从 [`brand/logo/06-production/desktop/windows/`](../../../brand/logo/06-production/desktop/windows/) 复制，品牌那边重新生成后跟着换；嵌进程序与安装程序，也复制进包供窗口图标加载 |
 | `scripts/build.ts` | 在仓库里把主进程打成 `bundle/main.js`，按发布清单组装载荷到 `payload/` |
 | `scripts/build-variant.ts` | Windows 上把这个工程复制一份、放进做好的 `bundle/` 与 `payload/`、用 Hutch 构建一个变体（发布流水线与本机验证共用） |
 | `scripts/portable.ts` | 从完整包 `stable-win-x64-NeuroBook.tar.zst` 打便携 zip |

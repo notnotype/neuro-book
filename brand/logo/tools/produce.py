@@ -4,8 +4,9 @@
 和 wordmark.json（字标轮廓），本脚本不画新形状。默认标志带光环（精修第二十一轮）。
 SVG 里的缩放和平移都算进路径坐标，文件中不留 transform、mask、clip-path，换色只改 fill。
 各文件的装饰按 mark.STYLES：象牙猫和赤红猫画腮红、封面角饰和赤星之节，单色和 currentColor 不画腮红、角饰，
-赤星之节挖空、光环只画环；24px 及以下的像素专用版没有尾巴、装饰和光环。应用图标 64px 及以上带封面边框，
-48px 及以下用不带边框、猫更大的那一版。
+赤星之节挖空、光环只画环；界面里 24px 及以下的单色小标志是像素专用版，没有尾巴、装饰和光环。应用图标的每个尺寸
+都从同一份 SVG 直接渲染，不按尺寸换版本、不用像素专用版（开发者 2026-11-15）：桌面应用与 favicon 用不带边框的那一版，
+网页清单用带封面边框的。
 PNG 用 resvg 渲染；ICO 由本脚本直接写（每项 PNG 压缩）；ICNS 用 icnsutil（uv 临时环境）打包。
 心情差分和终端版本来自 moods.py，动画来自 mood_anim.py（都需要 shapely）；动画录屏用 capture_moods.cjs
 （仓库的 playwright、本机 Chrome）和 ffmpeg，缺了就跳过，加 --no-video 也跳过：
@@ -194,12 +195,10 @@ def build_svgs():
     write("svg/mark/neurobook-mark-ivory.svg", mark_svg("ivory"), g, "反白：深色或赤红底上；深金角饰和环，赤红星，金光环", NIGHT)
 
     g = "SVG · 应用图标"
-    write("svg/app-icon/neurobook-app-icon.svg", tile_svg(), g, "赤红底块加封面边框，64px 及以上")
-    write("svg/app-icon/neurobook-app-icon-plain.svg", tile_svg(frame=False), g, "不带边框、猫更大：32–48px，或版面已经很满的时候")
-    write("svg/app-icon/neurobook-app-icon-24.svg", pixel_svg(24, True, IVORY), g, "24px 像素专用版：没有尾巴、装饰和光环")
-    write("svg/app-icon/neurobook-app-icon-16.svg", pixel_svg(16, True, IVORY), g, "16px 像素专用版：没有尾巴、装饰和光环")
+    write("svg/app-icon/neurobook-app-icon.svg", tile_svg(), g, "赤红底块加封面边框：网页清单、宣传图")
+    write("svg/app-icon/neurobook-app-icon-plain.svg", tile_svg(frame=False), g, "不带边框、猫更大：桌面应用（Windows、Linux）与 favicon 的各个尺寸")
     write("svg/app-icon/neurobook-app-icon-macos.svg", mac_svg(), g, "macOS 图标网格（1024 画布、824 底块），带封面边框")
-    write("svg/app-icon/neurobook-app-icon-macos-plain.svg", mac_svg(frame=False), g, "macOS 图标网格，不带边框：iconset 里 64px 以下的尺寸用")
+    write("svg/app-icon/neurobook-app-icon-macos-plain.svg", mac_svg(frame=False), g, "macOS 图标网格，不带边框：iconset 的各个尺寸")
 
     g = "SVG · 小尺寸单色"
     for size, use in ((24, "24px：托盘、任务栏"), (16, "16px：托盘、菜单"), (14, "14px：桌面标题栏")):
@@ -221,16 +220,16 @@ def build_svgs():
         write(f"{base}.svg", lockup_svg(kind, "current", CUR), g, "currentColor")
 
 
+# 应用图标导出的尺寸：ICO 与 favicon 从中取。
+ICON_SIZES = (1024, 512, 256, 128, 64, 48, 32, 24, 16)
+
+
 def build_rasters():
     g = "PNG · 应用图标"
-    for s in (1024, 512, 256, 128, 64):
-        png("svg/app-icon/neurobook-app-icon.svg", f"png/app-icon/neurobook-app-icon-{s}.png", s, s, g if s in (1024, 256, 64) else None, f"{s}px")
-    for s in (48, 32):
-        png("svg/app-icon/neurobook-app-icon-plain.svg", f"png/app-icon/neurobook-app-icon-{s}.png", s, s, g, f"{s}px，不带边框")
-    for s in (1024, 256):
-        png("svg/app-icon/neurobook-app-icon-plain.svg", f"png/app-icon/neurobook-app-icon-plain-{s}.png", s, s, g, f"{s}px，不带边框")
-    for s in (24, 16):
-        png(f"svg/app-icon/neurobook-app-icon-{s}.svg", f"png/app-icon/neurobook-app-icon-{s}.png", s, s, g, f"{s}px 像素专用版")
+    # 每个尺寸都从同一份 SVG 直接渲染（不缩放位图、不换版本）；ICO 由各尺寸的 PNG 装成。
+    for s in ICON_SIZES:
+        png("svg/app-icon/neurobook-app-icon.svg", f"png/app-icon/neurobook-app-icon-{s}.png", s, s, g if s in (1024, 256, 32) else None, f"{s}px，带封面边框")
+        png("svg/app-icon/neurobook-app-icon-plain.svg", f"png/app-icon/neurobook-app-icon-plain-{s}.png", s, s, g if s in (1024, 256, 32) else None, f"{s}px，不带边框")
 
     g = "PNG · 标志与组合（透明底）"
     for c, bg in (("crimson", IVORY), ("ink", IVORY), ("ivory", NIGHT)):
@@ -247,8 +246,8 @@ def build_rasters():
     shutil.copy(os.path.join(ROOT, "svg/app-icon/neurobook-app-icon-plain.svg"), os.path.join(ROOT, "web/favicon.svg"))
     MANIFEST.append((g, "web/favicon.svg", "矢量 favicon（不带边框）：高分屏浏览器优先用它", IVORY))
     ico = os.path.join(ROOT, "web/favicon.ico")
-    write_ico([os.path.join(ROOT, f"png/app-icon/neurobook-app-icon-{s}.png") for s in (16, 32, 48)], ico)
-    MANIFEST.append((g, "web/favicon.ico", "16（像素版）、32、48；1 倍屏和旧浏览器用", IVORY))
+    write_ico([os.path.join(ROOT, f"png/app-icon/neurobook-app-icon-plain-{s}.png") for s in (16, 32, 48)], ico)
+    MANIFEST.append((g, "web/favicon.ico", "16、32、48，不带边框；1 倍屏和旧浏览器用", IVORY))
     write("web/.apple-touch-icon.svg", tile_svg(frame=False, full_bleed=True, scale=TOUCH_SCALE), g, "")
     MANIFEST.pop()
     png("web/.apple-touch-icon.svg", "web/apple-touch-icon.png", 180, 180, g, "180px 满版方块、不带边框，iOS 自己加圆角")
@@ -263,17 +262,15 @@ def build_rasters():
     # ---------- 桌面应用 ----------
     g = "桌面应用"
     win = os.path.join(ROOT, "desktop/windows/neurobook.ico")
-    # 不放 16、24 的像素专用版（开发者 2026-11-15：太丑、太糊）：任务栏、托盘、标题栏这类小尺寸由系统从 32 缩。
-    write_ico([os.path.join(ROOT, f"png/app-icon/neurobook-app-icon-{s}.png") for s in (32, 48, 64, 128, 256)], win)
-    MANIFEST.append((g, "desktop/windows/neurobook.ico", "Windows：32–256（小尺寸由系统从 32 缩，不用像素版）", IVORY))
+    write_ico([os.path.join(ROOT, f"png/app-icon/neurobook-app-icon-plain-{s}.png") for s in (16, 24, 32, 48, 64, 128, 256)], win)
+    MANIFEST.append((g, "desktop/windows/neurobook.ico", "Windows：16–256，都从不带边框的 SVG 渲染", IVORY))
 
     iconset = os.path.join(ROOT, "desktop/macos/neurobook.iconset")
     os.makedirs(iconset, exist_ok=True)
-    mac_src = "svg/app-icon/neurobook-app-icon-macos.svg"
     mac_plain = "svg/app-icon/neurobook-app-icon-macos-plain.svg"
     for base in (16, 32, 128, 256, 512):
         for px, name in ((base, f"icon_{base}x{base}.png"), (base * 2, f"icon_{base}x{base}@2x.png")):
-            png(mac_src if px >= 128 else mac_plain, f"desktop/macos/neurobook.iconset/{name}", px, px)
+            png(mac_plain, f"desktop/macos/neurobook.iconset/{name}", px, px)
     icns = os.path.join(ROOT, "desktop/macos/neurobook.icns")
     files = sorted(os.path.join(iconset, n) for n in os.listdir(iconset))
     subprocess.run(["uv", "run", "--no-project", "--with", "icnsutil", "icnsutil", "compose", "-f", icns] + files, check=True, capture_output=True)
@@ -281,8 +278,8 @@ def build_rasters():
     MANIFEST.append((g, "desktop/macos/neurobook.iconset/icon_512x512@2x.png", "macOS iconset（Apple 图标网格）", IVORY))
 
     os.makedirs(os.path.join(ROOT, "desktop/linux"), exist_ok=True)
-    shutil.copy(os.path.join(ROOT, "svg/app-icon/neurobook-app-icon.svg"), os.path.join(ROOT, "desktop/linux/neurobook.svg"))
-    png("svg/app-icon/neurobook-app-icon.svg", "desktop/linux/neurobook.png", 512, 512, g, "Linux：512px PNG，另附同名 SVG")
+    shutil.copy(os.path.join(ROOT, "svg/app-icon/neurobook-app-icon-plain.svg"), os.path.join(ROOT, "desktop/linux/neurobook.svg"))
+    png("svg/app-icon/neurobook-app-icon-plain.svg", "desktop/linux/neurobook.png", 512, 512, g, "Linux：512px PNG，另附同名 SVG；不带边框")
 
 
 # ---------- 预览页 ----------
