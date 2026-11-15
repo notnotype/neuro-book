@@ -89,7 +89,9 @@ updated: 2026-11-15
 
 收口验证（分支 `92771c449`）：nb-harness、nb-agent-ui、应用、nb-story、nb-models 的 typecheck 都过；`test:affected --since cbbbb8944` 选中 6 个包，只有 nb-story `src/server/qa.test.ts` 一条在负载 14 时子进程超时，单独重跑 27 过；`governance:check`、`docs:check` 无新警告；e2e `agent-request-trace`、`agent-conversation`、`lab-agent-ui`、`lab-scenes` 共 54 条 53 过，`lab-scenes` 挡在主题编辑器两个场景的资源 404（t30 没改主题编辑器与 Lab 外壳），查看器的 14 个场景改用 `nbdev shot` 在手机与自由画布上量，越界、焦点环与外扩环被裁、页面错误都是 0；最后一处修正之后重跑 `agent-request-trace` 2 过。
 
+已合入 master（`e1b7d4f52`，`--no-ff`）。合入前 master 多了 w00046 的发布元数据（`product.ts` 的发布阶段、桌面脚本、nb-ui 一条主题测试），与本分支没有同一个文件，`merge-tree` 试算无冲突；合入后在 master 上重跑应用 `typecheck` 过。分支的 worktree 已删。
+
 ## 下一步
 
-1. 合入 master（等主工作区空出来）。
-2. Spec [`agent/request-trace.md`](../../../../../docs/specs/agent/request-trace.md) 晋升 `implemented` 交开发者批准；上面“没做、待开发者定”的几项交开发者定。
+1. Spec [`agent/request-trace.md`](../../../../../docs/specs/agent/request-trace.md) 晋升 `implemented` 交开发者批准；上面“没做、待开发者定”的几项交开发者定。
+2. 草稿 worktree `.worktree/w00032-t30-drafts` 还留着（评审板的草稿，不提交），开发者不再看评审板时删。
