@@ -36,6 +36,7 @@ updated: 2026-11-15
 | 13 | 2026-11-15 | 计划的待确认项：缺省开着记录、存原始请求体；只按天数保留，缺省 14 天；全文查找第一版逐条扫、不建索引；nb-story 问答这次不记；设计审查派 omp（整份计划与后端）、Sonnet（界面）、另一位 Sonnet（从整体看）。开发者改一条：请求头记不记做成设置（`requestTraceHeaders`，缺省关，开着时凭据类的值遮盖） |
 | 14 | 2026-11-15 | 细化决定 7（界面审查引出，开发者“没问题”）：按时间排、没有查找词、列表在顶部时新请求直接插到顶部；已往下翻、按别的排序或在查找时不插，顶部显示“有 N 条新请求”，点了刷新。两种情况都不改当前选中 |
 | 15 | 2026-11-15 | 开发者确认计划第 3 稿（“没问题，开工”）：含顺带修 `modifiedBy` 的串用、原始请求体合计 1 GB 上限、查找一次 3 秒或 200 条、先出纵向最小版的切片顺序、Spec 编号重排 |
+| 16 | 2026-11-15 | 开发者批准 Spec 晋升为 `implemented`；没做的几项统一新建 Task（[t35](../t35-request-trace-followups/README.md)）；草稿 worktree 删掉 |
 
 ## 当前状态
 
@@ -89,9 +90,8 @@ updated: 2026-11-15
 
 收口验证（分支 `92771c449`）：nb-harness、nb-agent-ui、应用、nb-story、nb-models 的 typecheck 都过；`test:affected --since cbbbb8944` 选中 6 个包，只有 nb-story `src/server/qa.test.ts` 一条在负载 14 时子进程超时，单独重跑 27 过；`governance:check`、`docs:check` 无新警告；e2e `agent-request-trace`、`agent-conversation`、`lab-agent-ui`、`lab-scenes` 共 54 条 53 过，`lab-scenes` 挡在主题编辑器两个场景的资源 404（t30 没改主题编辑器与 Lab 外壳），查看器的 14 个场景改用 `nbdev shot` 在手机与自由画布上量，越界、焦点环与外扩环被裁、页面错误都是 0；最后一处修正之后重跑 `agent-request-trace` 2 过。
 
-已合入 master（`e1b7d4f52`，`--no-ff`）。合入前 master 多了 w00046 的发布元数据（`product.ts` 的发布阶段、桌面脚本、nb-ui 一条主题测试），与本分支没有同一个文件，`merge-tree` 试算无冲突；合入后在 master 上重跑应用 `typecheck` 过。分支的 worktree 已删。
+已合入 master（`e1b7d4f52`，`--no-ff`）。Spec 已晋升为 `implemented`（决定 16），没做的几项在 Spec 里标为 planned（输出 27 到 31）。合入前 master 多了 w00046 的发布元数据（`product.ts` 的发布阶段、桌面脚本、nb-ui 一条主题测试），与本分支没有同一个文件，`merge-tree` 试算无冲突；合入后在 master 上重跑应用 `typecheck` 过。分支的 worktree 已删。
 
 ## 下一步
 
-1. Spec [`agent/request-trace.md`](../../../../../docs/specs/agent/request-trace.md) 晋升 `implemented` 交开发者批准；上面“没做、待开发者定”的几项交开发者定。
-2. 草稿 worktree `.worktree/w00032-t30-drafts` 还留着（评审板的草稿，不提交），开发者不再看评审板时删。
+无。没做的几项在 [t35](../t35-request-trace-followups/README.md)。

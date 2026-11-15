@@ -186,6 +186,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Profile 设置页 | [`agent/profile-settings.md`](agent/profile-settings.md) | 看和改 Profile：列表、模型与审批、工具绑定、用户级 Profile 的新建打开删除 |
 | 子代理 | [`agent/subagents.md`](agent/subagents.md) | `agent_spawn`、`agent_send`、`agent_answer`：派发检查与白名单、子会话的会话头与身份、等待与结果、审批与提问的去处、中止连带、上限、`tree` 远程 |
 | 任务中心 | [`agent/jobs.md`](agent/jobs.md) | `wait`、`kill`、`jobs`：任务的登记、归属、寿命与全局上限，`shell` 的后台命令与输出文件，`jobs` 远程 |
+| 模型请求记录 | [`agent/request-trace.md`](agent/request-trace.md) | 每次模型请求的记录：相同内容只存一份、按天保留、响应头与请求头的过滤、进程中断；编辑区的“模型请求”页：按会话与轮分组、常驻筛选、全文查找、消息大纲、和上一次比较、窄时切换；`#N`、按角色筛选、逐行差异等几项 planned |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：案头（统计、最近写到、看板娘）、卡片与列表、封面、新建与打开已有作品、修改信息与移出书架、新鲜度与刷新 |
@@ -258,7 +259,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Harness 运行 | [`harness/runtime.md`](harness/runtime.md) | 新内核的指令、运行循环与运行结果（逐步补齐）：输入缓冲区、受理批、followup、失败与中止的收口、位置章、帧、`waitRun` |
 | Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补。待晋升 |
 | Harness 模型端口 | [`harness/models.md`](harness/models.md) | 模型端口与 OMP 适配器：失败归类、密钥遮盖、相邻 user 合并、工具名换算、思考签名、用量与停止原因 |
-| 模型请求记录 | [`agent/request-trace.md`](agent/request-trace.md) | 每次模型请求的记录：相同内容只存一份、按天保留、响应头与请求头的过滤、进程中断；编辑区的“模型请求”页：按会话与轮分组、常驻筛选、全文查找、消息大纲、和上一次比较、窄时切换 |
 | Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |
 | 剧情图谱：图的修订 | [`story/revisions.md`](story/revisions.md) | 确认或驳回候选身份、手动连两个对象、改对象种类、挪称呼；修订按书单独保存、套用后查询、不剧透、可撤销、重抽后按锚对应 |
 | 世界引擎：作者界面（设定侧） | [`canon/author-ui.md`](canon/author-ui.md) | 条目树、条目页（位置与按计划、文字与数据分页、来历、情节）、数据分页的贡献点、就地改与记一笔、新建与删除、回执页、变更详情页、待处理与改动记录、状态栏计数、读取的新鲜度与失败的呈现 |

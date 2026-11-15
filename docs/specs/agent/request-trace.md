@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: agent.request-trace
 owners:
   - nbook.agent
@@ -77,20 +77,25 @@ Agent 每发一次模型请求，都记下发出去的内容、回来的结果�
 
 ### 查看器
 
-13. 查看器是编辑区里的一页，标题“模型请求”。同一时间只有一页；从入口再打开时用已经开着的那一页，换成入口要的筛选与选中；没带参数时沿用已有的筛选，页面新开时从全部开始。
+13. 查看器是编辑区里的一页，标题“模型请求”。同一时间只有一页；从入口再打开时用已经开着的那一页，换成入口要的筛选与选中；没带参数时沿用已有的筛选。
 14. 列表新的在上，同一会话同一轮的相邻请求合成一组：组头写会话标题（只看一个会话时不写）、“第 N 轮”、那一轮用户的话（有时）与开始时间；后台标题会话的请求归到它所属的会话、写“后台”，找不到所属会话时单独一组；轮外的请求单独一组。每条写状态、用途、模型、会话里的序号、时间、输入、输出、缓存命中、总时长、费用；重发的标“重发”和第几次，工具声明与上一次不同的标出，没命中缓存的标出，进行中的写已经等了多久，失败的写 HTTP 状态与错误类别。
 15. 页面开着时来了新请求：按时间排、没有查找词、列表在顶部时它出现在列表顶部（不在当前筛选里的不出现），列表头的合计随之更新；否则不插进列表，顶部写“有 N 条新请求”，点了刷新。两种情况都不改当前选中。进行中的请求结束时原地更新，不换位置。选中的那条被新的筛选排除时，详情照样显示，列表头写明它不在结果里。
 16. 筛选常驻一行：会话、用途、状态（成功、失败、重发过、已中止、已中断、缓存没命中）、模型、时间（最近一小时、今天、全部）。选了的条件能一下清掉。排序：时间、总时长、输入 token、费用，缺省按时间；不按时间排时不分组。列表头写筛选后的条数、输入 token 合计、缓存命中、费用合计。列表每次取一页，滚到底接着取。
-17. 全文查找：查请求与回复的正文、系统提示词、工具声明、工具调用的参数、错误文字，不查原始请求体；不分大小写，与筛选同时生效。列表只留有命中的请求，每条换写第一处命中：在哪一条消息、前后的字、这次请求里另外还有几处。一次查找扫的量有上限，扫不完时列表头写明只查了一部分，可以接着查。新的查找开始时，上一个还没完的作废。查找词是 `#N` 时，结果顶上多一项“跳到 #N”（当前只看一个会话时）。
+17. 全文查找：查请求与回复的正文、系统提示词、工具声明、工具调用的参数、错误文字，不查原始请求体；不分大小写，与筛选同时生效。列表只留有命中的请求，每条换写第一处命中：在哪一条消息、前后的字、这次请求里另外还有几处。一次查找扫的量有上限，扫不完时列表头写明只查了一部分，可以接着查。新的查找开始时，上一个还没完的作废。
 18. 打开页面时没有指定请求，选中最新的一条。详情顶部常驻概览：状态、用途、序号、时间、重发；会话、轮与 Profile；模型与推理档、输入、输出、缓存命中与读到的量、第一块内容的时间、总时长、费用、HTTP 状态与停止原因；改过这次请求的扩展；失败时一条错误。概览旁边有新一次、旧一次、打开会话、复制请求（JSON）。下面六页：消息（缺省）、系统提示词、工具、和上一次比较、原始请求体、响应。换一条记录时停在原来那一页。
-19. 消息页一条消息一行：序号、角色、一行预览、token 数。助手调用工具写成工具名与对象，工具结果写明是哪一条调用的结果；按轮分段；回复放在最后。与上一次请求相同的前缀缺省收成一行“第 1–N 条和 #M 相同”，点开逐条列出；这次新加的前面一条分隔线。点一行在原地展开全文，长的先露前几行，“看全文”看完。可以按角色筛选（用户、助手、工具结果、提醒）。
-20. 从查找打开详情时带上查找词：详情上方一条查找条，写第几处、共几处、上一处与下一处、各页的命中数；这些数与列表上这一条的处数一致。消息页多一个“有命中”的筛选。
-21. 和上一次比较：缺省和同一会话里前一次请求比，可以换成同一会话的别的一次。摘要写系统提示词、工具、消息、参数各自是相同还是怎样变了，写两次的缓存命中与最早一处变化的位置；消息先按首尾对齐，中间不同的一段整体算替换；前面的历史被压缩成摘要时写“历史被压缩，前 N 条换成了摘要”。下面是变了的部分的差异与多出、少了的消息。
-22. 原始请求体与响应两页原样显示 JSON，带行号，可以复制；很长的一行折行，超长的先显示一部分。没有原始请求体时写原因：设置关着、这次请求的适配器拿不到，或已经因为总量上限删掉。
+19. 消息页一条消息一行：序号、角色、一行预览、token 数。助手调用工具写成工具名与对象，工具结果写明是哪一条调用的结果；回复放在最后。与上一次请求相同的前缀缺省收成一行“第 1–N 条和 #M 相同”，点开逐条列出；这次新加的前面一条分隔线。点一行在原地展开全文。
+20. 从查找打开详情时带上查找词：详情上方一条查找条，写第几处、共几处、上一处与下一处、各页的命中数；这些数与列表上这一条的处数一致。
+21. 和上一次比较：缺省和同一会话里前一次请求比，可以换成同一会话的别的一次。摘要写系统提示词、工具、消息、参数各自是相同还是怎样变了，写两次的缓存命中与最早一处变化的位置；消息先按首尾对齐，中间不同的一段整体算替换；前面的历史被压缩成摘要时写“历史被压缩，前 N 条换成了摘要”。下面列出多出、少了的消息。
+22. 原始请求体与响应两页原样显示 JSON，带行号，原始请求体可以复制；很长的一行折行，超长的先显示一部分。没有原始请求体时写原因：设置关着、这次请求的适配器拿不到，或已经因为总量上限删掉。
 23. 页面窄到放不下左右两栏时，列表与详情来回切换：点一条进详情，详情顶上“请求列表”返回；新一次、旧一次照样能用。宽到放得下时回到左右两栏，选中不变。
 24. 没有记录时写“还没有模型请求”；`requestTrace` 关着且没有记录时写“没有在记录模型请求”和“打开记录”按钮，点了打开设置。
 25. “更多”菜单：显示记录占用；“记录设置…”打开设置窗口的那一节；“清空这个会话的记录”（筛选了一个会话时才有）与“清空全部记录”，都要先确认，进行中的记录不清。
 26. 命令带 `sessionId` 时筛选那个会话；带 `request` 时选中那一次。那一次没有记录时写“这次请求没有记录（记录关着，或已经清掉）”，列表照常显示。“查看这次请求”只在这条回复确实发过请求时出现。
+27. 页面关掉之后再从入口打开（没带参数）时从全部开始，不沿用关掉之前的筛选。（planned）
+28. 查找词是 `#N` 时，结果顶上多一项“跳到 #N”（当前只看一个会话时）。（planned）
+29. 消息页按轮分段；展开的长消息先露前几行，“看全文”看完；可以按角色筛选（用户、助手、工具结果、提醒）；从查找打开详情时多一个“有命中”的筛选。（planned）
+30. 比较页列出变了的系统提示词与工具的逐行差异。（planned）
+31. 响应页可以复制。（planned）
 
 ## 状态与转换
 
@@ -143,8 +148,22 @@ Agent 每发一次模型请求，都记下发出去的内容、回来的结果�
 5. 把编辑区拖窄到放不下两栏：列表与详情来回切换；拖宽后回到两栏，选中不变。
 6. 带一张图片附件发一轮：记录目录里搜不到这张图的 base64。
 
-Smoke：`packages/neuro-book/e2e/agent-request-trace.e2e.ts`（实施时新建）。
+Smoke：`packages/neuro-book/e2e/agent-request-trace.e2e.ts`（场景 1、4、6）；场景 2、3 由 nb-harness 的真实 HTTP 测试与子进程测试覆盖，场景 5 在 Component Lab 里看。
+
+## 实现合同
+
+- **公开入口**：nb-harness 的 `@notnotype/nb-harness/kit/requests`（`RequestRecorder`、`traceModelPort`、`findMatches` 与记录的类型）；nb-agent-ui 的包根（`matchesQuery` 与查看器的视图类型）与 `@notnotype/nb-agent-ui/vue` 的 `AgentRequestTrace`；`nbook.agent` 的远程服务 `nbook.agent/requests`（`shared/requests.ts` 的 `agentRequestsContract`）、命令 `nbook.agent.open-requests`、编辑区页面 `nbook.agent.requests` 与“输入与前置条件”里的四个设置项。
+- **owner 与依赖方向**：记录器与存放在 nb-harness 的 `kit/requests`，不依赖应用；`nbook.agent` 的服务端把它接进所有会话的模型端口、补会话标题与后台会话的所属并交出远程服务，浏览器端的页面状态经远程服务取数；`AgentRequestTrace` 是纯视图，不取数、不写剪贴板，都交给宿主。nb-agent-ui 核心不在运行时依赖 nb-harness，查找的规则在两边各有一份，由契约测试核对。
+- **关键不变量**：
+  - 记录在请求发给适配器之前写好；内容与请求体先写、索引行后写，中断只会留下没有行引用的文件与半行，打开时清掉（nb-harness 的 `kit/requests/recorder.test.ts`“场景 3”的三条）。
+  - 内容按哈希只存一份，没有记录引用时才回收（`recorder.test.ts`“输出 11”）。
+  - 查找按显示的文字一段一段地数处数，大小写折叠按原文的偏移切，服务端与查看器的处数一致（`recorder.test.ts`“一段一段地查”；nb-agent-ui 的 `request-trace.contract.test.ts`）。
+  - 页面状态先订阅再取列表，丢掉序号不大于当前的事件，拆成几段的删除共用一个序号、都收下（`requests-page.test.ts`）。
+  - 远程层留着的全文与请求体在删除事件时整份作废，清空之后读不到（`requests.test.ts`“输出 1、2、14”）。
 
 ## 证据
 
-- 批准依据：开发者 2026-11-15 的决定与两轮界面评审（[t30](../../../.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/README.md)）
+- 批准依据：开发者 2026-11-15 的决定与两轮界面评审（[t30](../../../.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/README.md)）；开发者 2026-11-15 批准晋升为 `implemented`，没做的几项标为 planned、另建 Task。
+- 实现入口：nb-harness 的 [`kit/requests/recorder.ts`](../../../packages/nb-harness/src/kit/requests/recorder.ts)、[`port.ts`](../../../packages/nb-harness/src/kit/requests/port.ts)；[`backend/requests.ts`](../../../packages/neuro-book/src/plugins/agent/backend/requests.ts)、[`shared/requests.ts`](../../../packages/neuro-book/src/plugins/agent/shared/requests.ts)、[`web/requests-page.ts`](../../../packages/neuro-book/src/plugins/agent/web/requests-page.ts)；nb-agent-ui 的 [`request-trace.ts`](../../../packages/nb-agent-ui/src/request-trace.ts)、[`AgentRequestTrace.vue`](../../../packages/nb-agent-ui/src/vue/requests/AgentRequestTrace.vue)
+- 合同测试：nb-harness 的 [`kit/requests/recorder.test.ts`](../../../packages/nb-harness/src/kit/requests/recorder.test.ts)（含子进程）、[`tests/models.test.ts`](../../../packages/nb-harness/tests/models.test.ts)（真实 HTTP）；[`requests.test.ts`](../../../packages/neuro-book/src/plugins/agent/requests.test.ts)、[`requests-page.test.ts`](../../../packages/neuro-book/src/plugins/agent/requests-page.test.ts)（真实插件与本机的 OpenAI 兼容端点）；nb-agent-ui 的 [`request-trace.contract.test.ts`](../../../packages/nb-agent-ui/src/request-trace.contract.test.ts)、[`AgentRequestTrace.dom.test.ts`](../../../packages/nb-agent-ui/src/vue/requests/AgentRequestTrace.dom.test.ts)
+- Smoke：[`agent-request-trace.e2e.ts`](../../../packages/neuro-book/e2e/agent-request-trace.e2e.ts)
