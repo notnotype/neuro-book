@@ -11,13 +11,13 @@ owners:
 
 ## 目标与非目标
 
-用户把 Skill（一个带 `SKILL.md` 的文件夹）放进 `user://skills/`，或由应用内置带来，在对话里用 `$` 选它：这一轮把它的正文交给模型，压缩之后放回最近用过的；带 Bun 依赖的 Skill 能初始化（设置里的 Skill 页、`$` 选它时的询问、命令行三处是同一件事）；每个 Profile 有自己可用的 Skill；模型能读 Skill 的文件，并在 shell 里运行它的脚本。
+用户把 Skill（一个带 `SKILL.md` 的文件夹）放进 `user://skills/`，或由应用内置、由插件带来，在对话里用 `$` 选它：这一轮把它的正文交给模型，压缩之后放回最近用过的；带 Bun 依赖的 Skill 能初始化（设置里的 Skill 页、`$` 选它时的询问、命令行三处是同一件事）；每个 Profile 有自己可用的 Skill；模型能读 Skill 的文件，并在 shell 里运行它的脚本。
 
 不承诺：
 
 - 模型不能自己启用 Skill，Skill 的说明不进提示词；没有 Skill 参数，带参数也不自动执行脚本。
 - Python 依赖与系统程序只检测、只报告，不代替用户安装。
-- 来源只有内置与 `user://skills/`：没有额外的 Skill 目录，没有书专属的 Skill；插件贡献的 Skill 以后另定。
+- 来源只有内置、插件与 `user://skills/`：没有额外的 Skill 目录，没有书专属的 Skill；内置插件不经 `agent.skills` 带 Skill（内置的走 `builtin` 来源）。
 - Skill 目录变了不实时提醒正在进行的会话；`$` 菜单与 Skill 页随时是最新的。
 - 命令行发起的安装在另一个进程里，不进后台任务的清单；应用里只看到它“正在初始化”与之后的状态。
 - 已知限制：安装时不运行包的安装脚本，需要安装脚本的包（例如带原生模块的）装完也可能用不了；没有初始化的 Skill，它的脚本仍可能被运行起来，结果不保证；排队中的话在“看上下文”的预览里看不到 Skill 正文（预览不跑反应）；“打开 Skill 文件夹”只知道系统的打开程序有没有起来，它起来之后没能打开文件夹（例如没有文件管理器）时界面上看不出来。Skill 已有 `bun.lock`、之后手改 `package.json` 加了依赖时，锁文件过期，按锁的安装必然失败（`install-failed`，原因在 Bun 的安装输出里）；应用与命令行都不重新生成锁，要在 Skill 文件夹里跑一次 `bun install`（或删掉 `bun.lock` 再初始化）；用 `bun add` 加依赖时锁会跟着更新，不会这样。
@@ -26,7 +26,7 @@ owners:
 
 - **Skill 包**：一个目录，入口是目录下的 `SKILL.md`（YAML frontmatter 加 Markdown 正文）。
 - **Skill 目录**：应用当前认得的全部 Skill 包，每个一条目录条目。
-- **来源**：`builtin`（应用内置）、`user`（`user://skills/` 下的）。**id**：`<来源前缀>.<name>`，内置是 `builtin.<name>`，用户的是 `user.<name>`；来源以条目的 `source` 为准，不从 id 前缀推断。
+- **来源**：`builtin`（应用内置）、`plugin`（插件经 `agent.skills` 贡献的）、`user`（`user://skills/` 下的）。**id**：`<来源前缀>.<name>`，内置是 `builtin.<name>`，用户的是 `user.<name>`，插件的是 `<插件 id>.<name>`；来源以条目的 `source` 为准，不从 id 前缀推断。
 - **状态**：`ready`（可用）、`needs-init`（未初始化）、`initializing`（正在初始化）、`invalid`（无效）。
 - **初始化**：在 Skill 目录里按锁文件装好它的 Bun 依赖；**初始化标记**：装好后写下的 `node_modules/.nbook-skill-deps.json`。
 - **Skill 标签**：提示词里的 `$name` 或 `${名字或 id}`（[`ui/prompt-editor.md`](../ui/prompt-editor.md)）。
@@ -48,7 +48,7 @@ owners:
 
 其余字段忽略。
 
-**来源**：内置的随应用分发；用户的在 `user://skills/<name>/`。同名的不同来源各是一个 Skill，不互相覆盖。
+**来源**：内置的随应用分发；用户的在 `user://skills/<name>/`；插件的在插件包里，由顶层贡献 `agent.skills` 声明（输出 30）。同名的不同来源各是一个 Skill，不互相覆盖。
 
 **依赖**：Skill 目录里有 `package.json` 的要初始化；锁文件只认 `bun.lock`（只有 `bun.lockb`、`package-lock.json` 的按没有锁算）。
 
@@ -110,6 +110,14 @@ owners:
 28. 用户消息里的 Skill 标签照常显示，带上了的与没带上的样子相同；点标签打开它的 `SKILL.md`：用户的经 `user://skills/<名字>/SKILL.md`（能改），其余经 `skills://<id>/SKILL.md`（只读）；标签按名字现认（输出 7，白名单取这个会话的 Profile 的），认不到时提示这个 Skill 已不在或不能用。
 29. 应用里开始的初始化（Skill 页、`$` 的确认）登记成一件后台任务（[`workbench/background-tasks`](../workbench/background-tasks.md)）：标题“初始化 Skill 名字”，进展写要装几个包（没有锁时写正在解析依赖），不确定进度，能取消。成功时结束为成功，进展“已可用”；失败时结束为失败，原因“安装没有成功”，详情是安装输出的最后几行，能重试（按同样的 `resolve` 再初始化一次）；用户取消时结束安装，按输出 21 写标记，任务结束为已取消。并入正在进行的那一次的请求不另登记；应用停止时任务按后台任务的规则转为已中断。
 
+### 插件来源
+
+30. 插件用顶层贡献 `agent.skills` 声明插件包里的一个目录：声明是 `{directory}`，写插件包里的相对路径，用 `/` 分段，不是绝对路径、不带协议或盘符、没有空段与 `.`、`..`，不合规的贡献被拒；贡献 id 以插件 id 加 `.` 开头。目录里每个子文件夹是一个 Skill，规则同输出 2，id 是 `<插件 id>.<文件夹名>`，`source` 是 `plugin`，条目另带 `plugin: {id, title}`（`title` 是插件的显示名，没写时为 null）。（planned）
+31. 贡献发布后它的 Skill 出现在目录里，并发出 `skillsChanged`；贡献撤回（插件停用、注销）后消失，`$` 认它得 `not-found`。声明的目录不在插件包里、不是目录或经过链接时，这个贡献不出 Skill，写诊断 `skills-root-unavailable`。插件的 Skill 目录不监视：换插件版本要重启。（planned）
+32. 插件的 Skill 装好就是 `ready`，不用初始化，请求初始化得 `not-initializable`。Skill 里有 `package.json` 的（插件没经 `nbooke build` 打包）是 `invalid`，原因 `plugin-skill-unbuilt`。（planned）
+33. 同一个插件的两个 `agent.skills` 贡献里有同名文件夹时，按贡献 id 的码元顺序先到的生效，后到的不列，写诊断 `skill-duplicate`。（planned）
+34. 界面：Skill 页在“我的”与“内置”之间每个插件一组，组头写插件名（没有显示名时写插件 id）；插件的 Skill 没有“初始化”，“打开”经 `skills://<id>/SKILL.md` 只读。Profile 设置的 Skill 一节同样分组。`skills://<id>/` 指向插件安装目录里的这个 Skill，Agent 写入得 `permission-denied`。（planned）
+
 ## 状态与转换
 
 | 状态 | 进入 | 离开 |
@@ -126,6 +134,7 @@ owners:
 - 同一个应用里对同一个 Skill 的两次初始化请求得到同一个结果；两个进程同时请求，后到的得 `busy`，不等待。
 - 命令行装好之后，应用不用重启：状态变化经输出 5 反映。
 - 插件停止时，正在进行的安装结束（输出 21），文件监视停止；停止之后不再发 `skillsChanged`。
+- 插件的 Skill 随 `agent.skills` 贡献的发布与撤回出现、消失，变化同样经 `skillsChanged` 通知；撤回在发布之后才到时，按撤回算。（planned）
 
 ## 副作用与数据
 
@@ -167,6 +176,8 @@ owners:
 6. Given 用过两个 Skill 的会话；When 压缩；Then 放回里有这两个 Skill 的现行正文，各不超过 5,000 token；这一轮里刚用过、仍在上下文里的不放第二份；64k 窗口时放回合计不超过窗口的 25%。
 7. Given Profile 设置里去掉一个 Skill；Then `$` 菜单不再列它，打它的名字得 `not-allowed`。
 8. Given 同一个会话；When 连续两轮 `$` 同一个没改过的 Skill；Then 第二轮只带“见前文”。
+
+9. Given 一个用 `nbooke build` 构建、带一个 Skill 的插件，Skill 的脚本用到一个 npm 包；When 装好、重启；Then Skill 页的插件组里有它、可用；`$` 带上它的正文，模型经 shell 运行它的脚本得到那个包的输出；When 停用插件、重启；Then 它不在了。（planned）
 
 Smoke：`packages/neuro-book/e2e/agent-skills.e2e.ts`（场景 2、3、4 在界面上的部分：经菜单选了发出、不存在的标签、确认后安装）；插话、白名单与重名、停止时中断由 `skills.test.ts`、`install.test.ts`、`catalog.test.ts` 覆盖。
 
