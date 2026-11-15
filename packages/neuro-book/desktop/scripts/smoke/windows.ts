@@ -186,12 +186,13 @@ export async function connectPage(port: number, webViewData: string, timeoutMs =
     return {browser, page};
 }
 
-const WEBVIEW2_POLICY = "HKCU\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
+const WEBVIEW2_POLICY = "HKLM\\Software\\Policies\\Microsoft\\Edge\\WebView2\\AdditionalBrowserArguments";
 
 /**
- * WebView2 附加参数的注册表策略（当前用户，按宿主程序名，值为 null 时删掉）。WebView2 在没有环境变量
- * `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 时读它（CreateCoreWebView2EnvironmentWithOptions 的说明）。只给一次性的 CI 机器用：
- * 它对这个用户下所有同名宿主程序都生效，开发机上不写。
+ * WebView2 附加参数的机器级策略（按宿主程序名，值为 null 时删掉）。WebView2 Runtime 150 起，以管理员身份（提升）运行的宿主
+ * 忽略环境变量 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 与 HKCU 的覆盖，只认 HKLM 的这条策略（上游说明“by design”：
+ * https://github.com/MicrosoftEdge/WebView2Feedback/issues/5640）；GitHub 的 Windows runner 上作业是提升运行的。
+ * 要管理员权限，对这台机器上所有同名宿主程序都生效：只给一次性的 CI 机器用，开发机上不写（那里不提升，环境变量照常生效）。
  */
 export async function setWebView2PolicyArgs(exeName: string, args: string | null): Promise<void> {
     const result = args === null ? await run(["reg", "delete", WEBVIEW2_POLICY, "/v", exeName, "/f"]) : await run(["reg", "add", WEBVIEW2_POLICY, "/v", exeName, "/t", "REG_SZ", "/d", args, "/f"]);

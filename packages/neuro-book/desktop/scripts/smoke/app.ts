@@ -103,7 +103,7 @@ export async function readBaseline(stateRoot: string, seeded: Seeded): Promise<D
  */
 export async function startApp(launcher: string, webViewDataDir: string, options: {cdpPort?: number; stateRoot?: string} = {}): Promise<void> {
     await settleWebView(webViewDataDir);
-    // CI（NBOOK_SMOKE_WEBVIEW2_POLICY=1）另把调试端口写进注册表策略：GitHub runner 上第一次演练，环境变量没让调试端口起来。
+    // CI（NBOOK_SMOKE_WEBVIEW2_POLICY=1）另把调试端口写进 HKLM 的 WebView2 策略：runner 上应用是提升运行的，环境变量被忽略（见 setWebView2PolicyArgs）。
     if (process.env.NBOOK_SMOKE_WEBVIEW2_POLICY === "1") await setWebView2PolicyArgs("bun.exe", options.cdpPort === undefined ? null : `--remote-debugging-port=${String(options.cdpPort)}`);
     const env: Record<string, string | undefined> = {...process.env};
     delete env.NBOOK_STATE_ROOT;
