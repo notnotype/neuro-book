@@ -1,0 +1,122 @@
+### 1. 记录默认值与已确认决定相反
+严重程度：重要；类别：正确性
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:74-76`；`docs/specs/agent/request-trace.md:36-43`
+
+现象：计划写四项设置“缺省关”，但 Spec 与 Task 决定 13 明确要求 `requestTrace=true`、`requestTracePayload=true`、保留 14 天、`requestTraceHeaders=false`。按计划实现会在新安装上完全不记录，且不保存请求体，直接违约输出 1、6。
+
+如何核实：`read .agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:72-76` 与 `read docs/specs/agent/request-trace.md:34-43` 对照；再以空用户设置启动后读取设置值，预期应为 `true,true,14,false`。
+
+建议改法：逐项写出默认值，不用“缺省关”总括；设置 schema、页面显示、记录器读取和合同测试都锁定这四个值。
+### 2. 后台标题会话无法反查所属会话
+严重程度：重要；类别：正确性
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:72-76`；`packages/nb-harness/src/kit/sessions/meta.ts:142-160`
+
+现象：计划要求列表给后台标题会话补“所属会话”。现有 `SessionMeta.#ask` 创建标题会话时只传 `{profile, id: titleSessionId(session), background: true}`，会话头没有 `caller`、`origin` 或 owner 字段；`titleSessionId` 是单向 SHA-256 截断值。`SessionIndexEntry` 也只有 `caller/origin`，无法从标题会话头反推出原会话。计划没有说明新增关系表如何写入、恢复和清理，因此输出 13 的后台归属无法实现。
+
+如何核实：`read packages/nb-harness/src/kit/sessions/meta.ts:142-160`；`read packages/nb-harness/src/kernel/api/events.ts:259-276`；在真实 runtime 完成一轮标题生成后列会话，标题会话的 header 只有 `background:true`，没有所属会话。
+
+建议改法：在创建标题会话时持久化明确的 owner 关系，并让记录索引直接携带 owner；或由 `SessionMeta` 向请求记录器登记/撤销映射。启动扫描、标题会话重建、清空会话记录都必须使用同一关系来源，不能依赖哈希反解。
+### 3. `onPayload` 不能证明记录的是实际发送的原始请求体
+严重程度：重要；类别：正确性；
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:28-56`；`node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts`、`openai-responses.ts`、`anthropic.ts`
+
+现象：计划把 pi-ai 的 `onPayload` 当作“服务商收到的原始请求体”。该回调发生在 provider 构造请求体时，回调对象仍可能被后续 provider 逻辑转换；不同 provider 的字段、图片编码和调用次数不同，且同一次逻辑请求可能因 HTTP 重试或 provider fallback 产生多次实际发送。计划未定义取哪一次、是否深拷贝、如何标记 attempt，也未覆盖最终 URL/query。记录内容因此可能与线上的 body 不同，或把多次 body 覆盖成最后一份。
+
+如何核实：`read node_modules/@oh-my-pi/pi-ai/src/types.ts` 查看 `onPayload` 类型及注释；`read` 四个 provider 实现并用真实 OMP 适配器触发一次图片请求，观察回调发生在 fetch 前且次数由 provider 决定。
+
+建议改法：把合同改成“provider 构造 payload 快照”，明确 attempt、provider、顺序和失败语义；在回调边界立即深拷贝并序列化。若合同真要记录 wire body，应在实际 fetch 包装层按每次发送捕获，并同时定义 URL、query、图片替换和重试关联。
+### 4. 最终失败的 HTTP 重试没有响应状态和响应头
+严重程度：重要；类别：正确性；
+位置：`docs/specs/agent/request-trace.md:44-56`；`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:45-56`；`node_modules/@oh-my-pi/pi-ai/src/utils/openai-http.ts:1-140`
+
+现象：Spec 要求记录 HTTP 状态与响应头，计划只接 pi-ai 的 `onResponse`。OpenAI HTTP 层先在 `fetchWithRetry` 内部重试，只有最终取得可继续处理的 response 后才走 provider 的 `notifyProviderResponse`；最终 429/5xx 抛错时通常没有 `onResponse`，中间被丢弃的 response 更没有回调。因此持续限流、连接失败等失败记录只能有错误文字，无法满足状态/响应头合同，也无法审计每次实际请求。
+
+如何核实：`read node_modules/@oh-my-pi/pi-ai/src/utils/openai-http.ts` 和 `provider-response.ts`；在真实 OMP 适配器注入连续 429，观察 fetch 层重试后直接返回失败，`onResponse` 次数不等于 HTTP attempt 数，且失败尝试的 header 不进入 observer。
+
+建议改法：在 fetch attempt 层捕获每次 response/error，记录 attempt、status、headers 和最终失败；或者明确把合同降为“最终成功响应的元数据”，同时删除失败状态必有响应元数据的验收。两者不能继续用单一 `onResponse` 语义混写。
+### 5. 请求头捕获方案漏掉 `Request` 头和适配器内部重试
+严重程度：重要；类别：安全与性能；
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:52-56`；`docs/specs/agent/request-trace.md:51-56`；`node_modules/@oh-my-pi/pi-ai/src/types.ts`
+
+现象：计划要求包裹 fetch 并从 `RequestInit.headers` 取请求头。Fetch 合同允许 headers 来自 `Headers`、tuple 数组，且认证头也可能已放在传入 `Request` 对象中；只读 `init.headers` 会漏项。更关键的是包裹层看到的是每次 HTTP attempt，计划却没有 attempt 字段、重试去重或 URL 归属定义，开启请求头记录后会产生不完整或重复的敏感数据快照。
+
+如何核实：`read node_modules/@oh-my-pi/pi-ai/src/types.ts` 查看 `FetchImpl`；在真实 OMP 适配器中用 `Request` 作为 fetch input 并触发一次重试，比较 wrapper 读取的 `init.headers` 与实际 `Request.headers`。
+
+建议改法：在 fetch 边界用 `new Request(input, init).headers` 规范化完整头集合，显式记录 provider、attempt、最终是否发送；把 request URL 的 query、代理注入头和认证值列入同一脱敏合同。若只允许 provider 级头，改用 pi-ai 的 provider 请求上下文，不要宣称是实际发送头。
+### 6. 拦截层多次 `next` 会串用 `modifiedBy`
+严重程度：重要；类别：正确性；
+位置：`packages/nb-harness/src/kernel/run/model-call.ts:82-120`；`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:26-36`
+
+现象：`modifiedBy` 在一次 `callModel` 外层创建，`onNext` 每次经过拦截层就向同一个数组追加，terminal 写 `modelStarted` 时再整体复制。外层拦截器连续两次或并发两次调用 `next` 时，第二个实际请求会带上第一次请求的修改来源，顺序还取决于并发调度。计划把该字段放入 `ModelCallMeta` 和记录详情，会把错误归因固化到 trace；请求序号本身虽逐次分配，修改字段不是逐请求的。
+
+如何核实：`read packages/nb-harness/src/kernel/run/model-call.ts:82-120`；用真实内核注册一个拦截器，在第一次 `next` 返回后以不同字段第二次 `next`，观察两条 `modelStarted.modifiedBy` 的第二条包含第一条的字段。
+
+建议改法：让每条链分支携带自己的修改来源快照，或在 `next` 入口复制并在 terminal 使用该分支值；为串行、并发和嵌套拦截器各加合同场景。trace 只能消费修正后的逐请求元数据。
+### 7. JSONL “end 覆盖 start”与崩溃恢复没有可实现协议
+严重程度：阻断；类别：不变量；
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:61-70`；`docs/specs/agent/request-trace.md:63-75`
+
+现象：计划把同一请求的 `start`、`end` 写成两行，并称后者“覆盖前者”；JSONL 追加文件不能原地覆盖。进程在 start、blob、end 任一步骤之间崩溃时，启动扫描需要判断半行、重复 start、已有 end、缺少 blob 和正在写入的 payload；计划只有“没有 end 就补 interrupted”，没有记录版本、事务批次、原子提交顺序或去重规则。`sweep` 还可能在索引已落盘而 blob 尚未完成时删除/保留错误对象。
+
+如何核实：对 `index/<date>.jsonl` 做真实进程级中断：分别在 start 写后、blob 写后、end 写后杀进程，再重启记录器并读回；当前计划无法给出唯一结果。现有 `jsonl-store.ts` 的合同是批次同步、单写者和尾批截断，不支持任意两行互相覆盖。
+
+建议改法：选定一种可验证协议：单行 append-only 事件流加 requestId/sequence，或临时文件加 fsync/rename 后再追加一个提交标记；定义恢复状态机、半行处理、重复事件去重、blob 引用校验和 interrupted 的唯一性。清理只回收已提交且无活动引用的内容，并把这些故障点放入真实子进程验收。
+### 8. “发给适配器前已有进行中记录”缺少持久化边界
+严重程度：重要；类别：不变量；
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:48,61-65`；`docs/specs/agent/request-trace.md:16-24`
+
+现象：Spec 要求每次真正发给适配器的请求在发出前已有进行中记录；计划只写“开始时 `recorder.start`”，并规定写入串行、写失败不影响请求，没有说明 `start` 是否等待索引和必要内容提交。若 start 只是排队，模型可能已经发出而磁盘没有 start；若等待磁盘，写失败后应否继续、记录状态如何与调用一致也未定义。中止/崩溃恢复不能弥补这个时间窗。
+
+如何核实：在真实适配器前注入可控屏障，分别让 `start` 写入延迟、写入失败和模型调用立即返回；检查适配器开始前是否能通过 `list/read` 看到 `in-progress`，以及失败是否仍满足 Spec 输出 9 的业务继续语义。
+
+建议改法：明确 `start` 的合同是“索引提交完成”还是“接受入队”，并相应修改 Spec。若要求前置可见，必须等待可恢复的提交确认；若允许 best effort，改写为“尝试创建记录”并定义丢失窗口、诊断事件和 UI 状态，不能同时声称两种语义。
+### 9. 订阅后取列表仍会丢事件或产生重复
+严重程度：重要；类别：正确性；
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:74-76`；`packages/neuro-book/src/plugins/agent/shared/remote.ts:218-220,304-315`
+
+现象：计划只规定“先订阅再取”，并让 `changed` 推送新增/结算摘要；没有快照版本、事件序号或补偿接口。若订阅成功后在列表读取前发生变化，客户端可能同时收到变更和快照而重复；若连接重连或事件处理期间丢帧，客户端没有从某个游标补回的办法。已有 remote 合同中有的事件明确提供 `onResync` 和 `after`/`through` 语义，计划没有复用这些不变量。
+
+如何核实：用真实远程服务在订阅注册后、list 文件扫描中、响应发送前分别插入变化，记录客户端收到的摘要与快照；再断开/恢复订阅，确认是否能补齐每个 requestId 的 start/end 状态。
+
+建议改法：让订阅返回基线游标，list 返回同一快照游标，事件带单调 seq，并提供 `list(after)`/resync；或每个 changed 都推完整可合并快照且规定 requestId 状态合并规则。验收要覆盖变化落在快照边界两侧、重连和结算事件。
+### 10. 全文查找没有可执行的容量与取消合同
+严重程度：重要；类别：安全与性能；
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:67-69,84-86`；`docs/specs/agent/request-trace.md:84-92`
+
+现象：第一版搜索逐条扫描、只按内容哈希缓存文字，没有页级索引、时间预算、结果上限、取消或并发限制。按 Task 给出的每次 3–10 万 token、每天数百次、14 天保留，最坏输入规模可达数百 MB 到数 GB；多个搜索或多个客户端会重复读取/解压和 JSON 解析，可能阻塞宿主并扩大内存。`search` 的“命中片段与处数”也没有定义截断后是否仍给完整合计。
+
+如何核实：在系统临时根生成与真实记录形状相同的 14 天、最大保留量数据，用真实 remote `search` 测量首字节延迟、峰值 RSS、并发搜索和 AbortSignal；检查是否有固定上限及可观察的 truncated 标志。
+
+建议改法：至少定义每次搜索的最大扫描字节/记录数、结果数和时间片，支持取消并返回 `truncated`/继续游标；搜索在独立队列执行，不能阻塞模型调用。若合同需要完整计数，建立可增量更新的文本倒排索引或明确把扫描搜索限定为小数据集，并把容量预算写入设置与验收。
+### 11. 请求头与原始 body 的脱敏边界不足以支撑“开启后可安全保存”
+严重程度：重要；类别：安全与性能；
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:63-68`；`packages/neuro-book-legacy/server/agent/observability/traced-provider.ts:60-82`；`docs/specs/runtime/diagnostics.md:39,55,99`
+
+现象：计划复用旧的响应头 denylist，并把匹配到的值换成 `***`；该规则只覆盖固定名称和 token/secret/apikey 子串，未规定任意自定义认证头、`Request` URL query、body 中名为 `key`/`credential` 的字段如何处理。计划同时要求保存 provider 原始 body，通用 provider 或自定义网关可以把凭据放在这些位置。运行时诊断合同也明确已知字段规则不承诺识别任意 secret；因此“打开请求头记录即可安全查看”没有成立的边界。
+
+如何核实：在真实 fetch 适配器中使用 `x-authorization`、`x-custom-credential`、URL `?key=...` 和 body `{key: ...}`，跑记录器再读取 header/payload；核对原文是否仍在落盘或被搜索命中。
+
+建议改法：把请求头、URL、body 分成明确的安全字段合同，优先用凭据来源的实际值做全量替换，再按字段名和 URL query denylist 兜底；未知敏感字段应默认不保存或保存字段名/类型/长度摘要。若必须保留原始 body，应把该范围和受信调用方责任写成显式限制，并在 UI、搜索、清理中统一执行。
+### 12. 首内容时间被定义成“首个非 start 事件”
+严重程度：重要；类别：正确性；
+位置：`.agents/works/w00032-agent-integration/tasks/t30-model-request-trace/plan.md:54-57`；`docs/specs/agent/request-trace.md:59-60`
+
+现象：Spec 要求“收到第一个内容事件”的时间，计划却规定循环里第一个非 `start` 事件就调用 `firstEvent`。pi-ai 的事件流还包括工具调用、thinking、done、error 等事件；error/done 不是内容，工具/思考是否算内容也没有定义。当前 OMP 代码在 catch 和 stream 结束处也会调用内部 `firstEvent.seen()` 来收口 watchdog，若复用该钩子会把无内容失败的时间误记为首内容时间。
+
+如何核实：真实适配器分别返回 `start→error`、`start→done`、仅 thinking、仅 tool call 和 text 首块，比较记录的 first-event 时间与事件时间；确认无内容失败是否仍产生该时间。
+
+建议改法：拆分 watchdog 的 `seen` 与记录器的 `firstContent`；明确 text/thinking/tool-call 哪些属于“内容”，只在对应事件首次到达时记录，无内容失败则留空。验收断言事件序列而非仅断言非空时间。
+## 未发现问题的方面
+
+- 第四个 `ModelCallMeta` 参数设计为可选，按 TypeScript 函数兼容规则，现有三参数端口和测试替身可以继续赋值；问题在于逐请求元数据内容，不在参数数量本身。
+- `complete()` 现有实现明确绕过会话日志，计划也明确不给会话与序号；这与 Task 已确认的单次请求边界一致，没有把它作为本次记录范围的缺口。若未来要记录 standalone background 请求，需要另改 Spec。
+- nb-story 旧问答不记录、记录不导出/不同步、关闭期间不补录、会话删除暂未实现，均与 Task 决定和 Spec 非目标一致。
+- 图片只保留类型与字节数、记录器写失败不阻断模型业务、请求头默认关闭、按天数清理的方向与 Spec 一致；本报告指出的是这些方向的实现边界和失败协议未闭合。
+- 正常应用服务器已有 `claimNeuroBook` 的状态根实例认领，能为产品启动路径提供单实例前置条件；计划仍应把记录器依赖该宿主授予写者的关系写清楚，并覆盖绕过宿主直接装配 runtime 的调用方。
+
+## 严重程度统计
+
+- 阻断：1
+- 重要：11
+- 建议：0
+- 合计：12

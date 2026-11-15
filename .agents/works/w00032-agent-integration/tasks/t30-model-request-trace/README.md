@@ -38,8 +38,8 @@ updated: 2026-11-15
 
 ## 当前状态
 
-开工，按 design-review 走：旧应用的行为与新应用的现状列在 [参照清单](legacy-survey.md)；注意力排序已定（决定 3 到 8）。界面定稿：[评审板](artifacts/review/index.html)两轮已答（决定 9 到 12）。草稿代码在 `.worktree/w00032-t30-drafts`（不提交）。Spec [`agent/request-trace.md`](../../../../../docs/specs/agent/request-trace.md) 与[计划](plan.md)已写，待确认项已定（决定 13），设计审查进行中。
+开工，按 design-review 走：旧应用的行为与新应用的现状列在 [参照清单](legacy-survey.md)；注意力排序已定（决定 3 到 8）。界面定稿：[评审板](artifacts/review/index.html)两轮已答（决定 9 到 12）。草稿代码在 `.worktree/w00032-t30-drafts`（不提交）。Spec [`agent/request-trace.md`](../../../../../docs/specs/agent/request-trace.md) 与[计划](plan.md)已写，待确认项已定（决定 13）。设计审查三位（omp、Sonnet 界面、Sonnet 整体）已回并处理，计划第 3 稿、Spec 同步修订并重排编号，处理见 [`evidences/design-review-handling.txt`](evidences/design-review-handling.txt)；待开发者确认修订后的计划再开工。
 
 ## 下一步
 
-1. 处理设计审查（三位），修订计划后开工。
+1. 开发者确认第 3 稿后，建 worktree `.worktree/w00032-t30-request-trace` 按切片实施。
