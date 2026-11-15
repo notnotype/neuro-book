@@ -9,8 +9,9 @@
 | 路径 | 用途 |
 | --- | --- |
 | [`master/canonical-lyra-nai45.png`](master/canonical-lyra-nai45.png) | 定稿标准形象参考母版（图 6，`seed = 2948684181`，用于 NAI V4.5 Precise Reference 锚定角色特征） |
-| [`guide/01-persona-and-lore.md`](guide/01-persona-and-lore.md) | 角色定位、四层名讳体系、世界观（万言星海 / 忆星书庭 / 星火燃素）与视觉结构锚点 |
-| [`guide/02-nai45-prompt-engineering.md`](guide/02-nai45-prompt-engineering.md) | NovelAI V4.5 标准参数（默认 28 步、并发 1）、防失真标定、512-Token T5 分词测算与消融精简指南 |
+| [`guide/01-persona.md`](guide/01-persona.md) | **水面之上（日常必读）**：角色定位、常用名讳与 `Master` 称谓、三重灵魂底色与正反例边界、十大典型场景对话范本、`<neurobook-mood>` 11 状态映射、视觉锚点与日常生活品味 |
+| [`guide/02-worldview-and-cosmology.md`](guide/02-worldview-and-cosmology.md) | **冰山之下（按需考据）**：先天司书神官本源、跨文明古籍尊号、万言星海（4D 星球 / 3D 投影 / 叙事星团）、溯言白洞与宇宙弦、界隙水镜涌字、忆星书庭双区与「记忆宝石」、创世星环、天职圣器与「折页星舟」度假支线闭环 |
+| [`guide/03-nai45-prompt-engineering.md`](guide/03-nai45-prompt-engineering.md) | **生图指南**：NovelAI V4.5 标准参数（默认 28 步、并发 1）、防失真标定、512-Token T5 分词测算与消融精简指南 |
 | [`gallery/portraits/`](gallery/portraits/) | 基于防失真参数生成的角色立绘与状态差分（4 幅） |
 | [`gallery/illustrations/`](gallery/illustrations/) | 基于防失真参数生成的角色日常插图（4 幅） |
 | [`gallery/scenes/`](gallery/scenes/) | 基于防失真参数生成的世界观宏大场景（4 幅） |
@@ -23,7 +24,7 @@
 - **默认步数**：`28`（Opus 免费档位上限；接口请求并发严格设为 `1`）
 - **采样器与调度**：`k_euler_ancestral` + `karras`（`scale = 7.0`, **`cfg_rescale = 0.44`**, `prefer_brownian = true`, `uncond_scale = 0.0`）
 - **精准参考（Precise Reference）**：挂载 [`master/canonical-lyra-nai45.png`](master/canonical-lyra-nai45.png)，在已有画师串的前提下**仅使用人物参考 `reference_type = "character"`**（不用 `style` 或 `character&style`），并将参数控制在 **`strength = 0.65`、`fidelity = 0.60`**（不超过 `0.75`），避免与画师权重叠加造成过饱和失真。
-- **512-Token 预算控制**：母版原始提示词在保留下划线口径下占 **485 / 512 Tokens**（余量仅 27 Tokens）。生成立绘、插图与场景时，按 [`guide/02-nai45-prompt-engineering.md`](guide/02-nai45-prompt-engineering.md) 的三档精简母版剔除重复的 `fantasy_clothes`、可自动涌现的 `gold_embroidery` 以及画面外标签，可释放 **51–131 Tokens** 预算。
+- **512-Token 预算控制**：母版原始提示词在保留下划线口径下占 **485 / 512 Tokens**（余量仅 27 Tokens）。生成立绘、插图与场景时，按 [`guide/03-nai45-prompt-engineering.md`](guide/03-nai45-prompt-engineering.md) 的三档精简母版剔除重复的 `fantasy_clothes`、可自动涌现的 `gold_embroidery` 以及画面外标签，可释放 **51–131 Tokens** 预算。
 
 ## 精选图集索引
 
