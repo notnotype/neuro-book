@@ -114,7 +114,7 @@ owners:
 ### 插件来源
 
 30. 插件用顶层贡献 `agent.skills` 声明插件包里的一个目录：声明是 `{directory}`，写插件包里的相对路径，用 `/` 分段，不是绝对路径、不带协议或盘符、没有空段与 `.`、`..`，不合规的贡献被拒；贡献 id 以插件 id 加 `.` 开头。目录里每个子文件夹是一个 Skill，规则同输出 2，id 是 `<插件 id>.<文件夹名>`，`source` 是 `plugin`，条目另带 `plugin: {id, title}`（`title` 是插件的显示名，没写时为 null）。（planned）
-31. 贡献发布后它的 Skill 出现在目录里，并发出 `skillsChanged`；贡献撤回（插件停用、注销）后消失，`$` 认它得 `not-found`。声明的目录不在插件包里、不是目录或经过链接时，这个贡献不出 Skill，写诊断 `skills-root-unavailable`。插件的 Skill 目录不监视：换插件版本要重启。（planned）
+31. 贡献发布后它的 Skill 出现在目录里，并发出 `skillsChanged`；贡献撤回（插件停用、注销）后消失，`$` 认它得 `not-found`。声明的目录不在插件包里、不是目录或经过链接时，这个贡献不出 Skill，写诊断 `skills-root-unavailable`。插件的 Skill 目录不监视：换插件版本要重启。运行中才登记的插件，它的声明要等 Agent 插件下次激活才交到（[`runtime/plugins.md`](../runtime/plugins.md) 的已知限制，运行期增删插件见 [`runtime/plugin-hot-plug.md`](../runtime/plugin-hot-plug.md)）。（planned）
 32. 插件的 Skill 装好就是 `ready`，不用初始化，请求初始化得 `not-initializable`。Skill 里有 `package.json` 的（插件没经 `nbooke build` 打包）是 `invalid`，原因 `plugin-skill-unbuilt`。（planned）
 33. 同一个插件的两个 `agent.skills` 贡献里有同名文件夹时，按贡献 id 的码元顺序先到的生效，后到的不列，写诊断 `skill-duplicate`。（planned）
 34. 界面：Skill 页在“我的”与“内置”之间每个插件一组，组头写插件名（没有显示名时写插件 id）；插件的 Skill 没有“初始化”，“打开”经 `skills://<id>/SKILL.md` 只读。Profile 设置的 Skill 一节同样分组。`skills://<id>/` 指向插件安装目录里的这个 Skill，Agent 写入得 `permission-denied`。（planned）
