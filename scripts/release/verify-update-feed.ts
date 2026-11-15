@@ -220,7 +220,7 @@ async function main(argv: readonly string[], run: Run): Promise<void> {
         // 已装用户的更新器取的是 latest/download；本次不是最新时它们不会从这里取，只核对这次的资产本身。
         const base = release.isLatest ? latestBase : `https://github.com/${repo}/releases/download/${tag}`;
         evidence.route = release.isLatest ? "latest" : "tag（本次不是最新：补发的旧版本，或已被更高版本取代；这次没有验 latest 路由）";
-        const local = await readLocalAssets(version, directory);
+        const local = await readLocalAssets(directory);
         const own = await localFeedProblems(version, directory, latestBase);
         problems.push(...own.problems);
         const records = await remoteFeedRecords(base, local);

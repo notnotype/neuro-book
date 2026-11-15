@@ -2,7 +2,7 @@
  * 桌面版安装版与便携版的冒烟（docs/specs/runtime/desktop-shell.md 的“验收与 Smoke”；发布流水线 `.github/workflows/release.yml`
  * 的 `desktop` 作业）。在 Windows 的登录桌面会话里用仓库的 Bun 运行（`bun desktop/scripts/smoke-windows.ts`，在 `packages/neuro-book` 下）：
  *
- *   --setup <win-x64-NeuroBook-Setup.zip> | --portable <NeuroBook-<版本>-win-x64-portable.zip>
+ *   --setup <NeuroBook-win-x64-Setup.zip> | --portable <NeuroBook-win-x64-portable.zip>
  *   --evidence <目录>        成败都写：日志、version.json、进程列表、页面截图
  *   [--identifier <标识>]    包的应用标识，缺省正式标识；本机验证用测试标识，不碰正式安装（便携版按它找通道根）
  *   [--state-root <目录>]    安装版设 NBOOK_STATE_ROOT（本机验证不碰缺省状态根）；CI 不给，用缺省

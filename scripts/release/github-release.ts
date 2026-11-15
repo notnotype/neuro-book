@@ -34,29 +34,33 @@ export type ReleaseSummary = {tagName: string; isDraft: boolean; isPrerelease: b
 /** `gh release view --json assets` 的一项里用到的字段；`digest` 形如 `sha256:<64 位十六进制>`，资产没传完时可能没有。 */
 export type ReleaseAsset = {name: string; digest?: string | null; state?: string};
 
-export const SETUP_ASSET = "win-x64-NeuroBook-Setup.zip";
+/**
+ * 安装包与便携版：名字里不带版本号，`releases/latest/download/<名>` 是固定的“下载最新版”链接（开发者 2026-11-15 定，
+ * w00046 t12）。Hutch 产出的是 `win-x64-NeuroBook-Setup.zip`，桌面作业冻结资产时改名；v0.13.0 用的就是这个旧名。
+ */
+export const SETUP_ASSET = "NeuroBook-win-x64-Setup.zip";
+export const LEGACY_SETUP_ASSET = "win-x64-NeuroBook-Setup.zip";
+export const PORTABLE_ASSET = "NeuroBook-win-x64-portable.zip";
 export const SUMS_ASSET = "SHA256SUMS";
 const PATCH_ASSET = /^stable-win-x64-[a-z0-9]{1,13}\.patch$/;
 
-/** 每个桌面 Release 都有的资产；补丁另按 `stable-win-x64-<上一版哈希>.patch` 认，可以没有。 */
-export function requiredAssets(version: string): string[] {
-    return [
-        SETUP_ASSET,
-        `NeuroBook-${version}-win-x64-portable.zip`,
-        "stable-win-x64-NeuroBook.tar.zst",
-        "stable-win-x64-update.json",
-        "stable-win-x64-update-v2.json",
-        SUMS_ASSET,
-    ];
-}
+/** 每个桌面 Release 都有的资产；补丁另按 `stable-win-x64-<上一版哈希>.patch` 认，可以没有。更新器的文件名由 Electrobun 定，不改。 */
+export const REQUIRED_ASSETS: readonly string[] = [
+    SETUP_ASSET,
+    PORTABLE_ASSET,
+    "stable-win-x64-NeuroBook.tar.zst",
+    "stable-win-x64-update.json",
+    "stable-win-x64-update-v2.json",
+    SUMS_ASSET,
+];
 
 /**
  * 本地资产目录（`release-assets/`，由桌面作业冻结）的问题：缺必有的、多了不认识的、`SHA256SUMS` 与文件对不上。
  * `local` 是文件名到 SHA-256；`sums` 是 `SHA256SUMS` 的内容（`<64 位十六进制>  <文件名>` 每行一个，覆盖除它以外的全部）。
  */
-export function localAssetProblems(version: string, local: ReadonlyMap<string, string>, sums: string): string[] {
+export function localAssetProblems(local: ReadonlyMap<string, string>, sums: string): string[] {
     const problems: string[] = [];
-    const required = requiredAssets(version);
+    const required = REQUIRED_ASSETS;
     for (const name of required) if (!local.has(name)) problems.push(`资产目录里缺 ${name}`);
     for (const name of local.keys()) if (!required.includes(name) && !PATCH_ASSET.test(name)) problems.push(`资产目录里有不认识的文件 ${name}`);
     const listed = new Map<string, string>();
@@ -99,6 +103,11 @@ export function latestTag(releases: readonly ReleaseSummary[]): string | null {
 }
 
 const STABLE_TAG = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+
+/** 这个 Release 是不是桌面版本：有正式的安装包，新名或 v0.13.0 的旧名都算（旧应用的 Release 两个都没有）。 */
+export function hasDesktopSetup(assets: readonly ReleaseAsset[]): boolean {
+    return assets.some((asset) => asset.name === SETUP_ASSET || asset.name === LEGACY_SETUP_ASSET);
+}
 
 /**
  * 上一个正式桌面版本：公开的、稳定版本标签、低于本次的 Release，从高往低找第一个有正式 Setup 资产的（旧应用的 Release 没有）。
@@ -170,10 +179,10 @@ async function writeSums(directory: string): Promise<void> {
 }
 
 /** 读冻结的资产目录：文件名到 SHA-256；缺必有的、多了不认识的、SHA256SUMS 对不上时抛出。 */
-export async function readLocalAssets(version: string, directory: string): Promise<Map<string, string>> {
+export async function readLocalAssets(directory: string): Promise<Map<string, string>> {
     const local = new Map<string, string>();
     for (const name of (await readdir(directory)).sort()) local.set(name, await sha256Of(join(directory, name)));
-    const problems = localAssetProblems(version, local, local.has(SUMS_ASSET) ? await readFile(join(directory, SUMS_ASSET), "utf8") : "");
+    const problems = localAssetProblems(local, local.has(SUMS_ASSET) ? await readFile(join(directory, SUMS_ASSET), "utf8") : "");
     if (problems.length > 0) throw new ReleaseFailure(problems.join("\n"));
     return local;
 }
@@ -187,7 +196,7 @@ export function releaseTitle(version: string, stage: ReleaseStage): string {
 export async function draftRelease(github: GitHubReleases, version: string, directory: string, notes: {file: string; stage: ReleaseStage}, log: (line: string) => void = console.log): Promise<void> {
     const tag = `v${version}`;
     const title = releaseTitle(version, notes.stage);
-    const local = await readLocalAssets(version, directory);
+    const local = await readLocalAssets(directory);
     const existing = (await github.list()).find((release) => release.tagName === tag);
     if (existing === undefined) {
         await github.createDraft(tag, title, notes.file);
@@ -210,7 +219,7 @@ export async function draftRelease(github: GitHubReleases, version: string, dire
 /** 公开：资产齐全、摘要一致之后，同一个请求里公开并定是否设为最新。 */
 export async function publishRelease(github: GitHubReleases, version: string, directory: string, log: (line: string) => void = console.log): Promise<{latest: boolean}> {
     const tag = `v${version}`;
-    const local = await readLocalAssets(version, directory);
+    const local = await readLocalAssets(directory);
     const releases = await github.list();
     const existing = releases.find((release) => release.tagName === tag);
     if (existing === undefined) throw new ReleaseFailure(`没有 ${tag} 的 Release：先跑 draft`);
@@ -252,7 +261,7 @@ async function main(argv: readonly string[]): Promise<void> {
     if (repo === undefined || repo === "" || version === undefined || (extra.length > 0 && draftArgs === null)) throw new UsageError(usage);
     const github = new GitHubReleases(spawnRun, repo);
     if (command === "previous" && directory === undefined) {
-        const previous = await previousDesktopRelease(version, await github.list(), async (tag) => (await github.assets(tag)).some((asset) => asset.name === SETUP_ASSET));
+        const previous = await previousDesktopRelease(version, await github.list(), async (tag) => hasDesktopSetup(await github.assets(tag)));
         console.log(`previous=${previous ?? ""}`);
         return;
     }

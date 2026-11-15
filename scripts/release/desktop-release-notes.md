@@ -1,7 +1,7 @@
 ## 下载哪个
 
-- **安装版**：`win-x64-NeuroBook-Setup.zip`。解压后运行里面的 `NeuroBook-Setup.exe`，装到当前用户下，不需要管理员权限。装好以后有新版本时会提示，同意后在后台下载，下次打开时换上。
-- **便携版**：`NeuroBook-{{version}}-win-x64-portable.zip`。解压到任意目录直接运行，数据放在解压目录下的 `data\`。便携版不自动更新，有新版本时只提示并打开这个页面。
+- **安装版**：`NeuroBook-win-x64-Setup.zip`。解压后运行里面的 `NeuroBook-Setup.exe`，装到当前用户下，不需要管理员权限。装好以后有新版本时会提示，同意后在后台下载，下次打开时换上。
+- **便携版**：`NeuroBook-win-x64-portable.zip`。解压到任意目录直接运行，数据放在解压目录下的 `data\`。便携版不自动更新，有新版本时只提示并打开这个页面。
 - 其余文件（`.tar.zst`、`update*.json`、`.patch`）给自动更新用，不用下载。`SHA256SUMS` 是全部文件的 SHA-256。
 
 ## 第一次运行

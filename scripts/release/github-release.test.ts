@@ -7,7 +7,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {assetUploads, draftRelease, GitHubReleases, releaseTitle, localAssetProblems, previousDesktopRelease, publishRelease, requiredAssets, shouldBeLatest, sumsText, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
+import {assetUploads, draftRelease, GitHubReleases, hasDesktopSetup, releaseTitle, localAssetProblems, previousDesktopRelease, publishRelease, REQUIRED_ASSETS, shouldBeLatest, sumsText, type ReleaseAsset, type ReleaseSummary, type RunResult} from "#scripts/release/github-release";
 
 const roots: string[] = [];
 
@@ -25,7 +25,7 @@ async function assetDirectory(): Promise<{directory: string; digests: Map<string
     roots.push(root);
     const directory = join(root, "release-assets");
     await mkdir(directory);
-    const names = [...requiredAssets(VERSION).filter((name) => name !== "SHA256SUMS"), "stable-win-x64-1pgfu5evhc1gh.patch"];
+    const names = [...REQUIRED_ASSETS.filter((name) => name !== "SHA256SUMS"), "stable-win-x64-1pgfu5evhc1gh.patch"];
     const digests = new Map<string, string>();
     for (const name of names) {
         await writeFile(join(directory, name), `content of ${name}`);
@@ -86,15 +86,15 @@ describe("本地资产目录", () => {
         const sums = sumsText(digests);
         expect(sums).not.toContain("\r");
         expect(sums).not.toContain("SHA256SUMS");
-        expect(localAssetProblems(VERSION, digests, sums)).toEqual([]);
+        expect(localAssetProblems(digests, sums)).toEqual([]);
     });
 
     it("缺必有的、有不认识的文件、SHA256SUMS 与文件不同或漏列：逐条报出", () => {
-        const local = new Map([["win-x64-NeuroBook-Setup.zip", "a".repeat(64)], ["notes.txt", "b".repeat(64)], ["SHA256SUMS", "c".repeat(64)]]);
-        const problems = localAssetProblems(VERSION, local, `${"d".repeat(64)}  win-x64-NeuroBook-Setup.zip\n`);
+        const local = new Map([["NeuroBook-win-x64-Setup.zip", "a".repeat(64)], ["notes.txt", "b".repeat(64)], ["SHA256SUMS", "c".repeat(64)]]);
+        const problems = localAssetProblems(local, `${"d".repeat(64)}  NeuroBook-win-x64-Setup.zip\n`);
         expect(problems.filter((problem) => problem.includes("缺"))).toHaveLength(4);
         expect(problems).toContain("资产目录里有不认识的文件 notes.txt");
-        expect(problems).toContain("SHA256SUMS 里 win-x64-NeuroBook-Setup.zip 的摘要与文件不同");
+        expect(problems).toContain("SHA256SUMS 里 NeuroBook-win-x64-Setup.zip 的摘要与文件不同");
         expect(problems).toContain("SHA256SUMS 里 notes.txt 的摘要没有列出");
     });
 });
@@ -140,6 +140,13 @@ describe("最新与上一版", () => {
         expect(await previousDesktopRelease(VERSION, releases, async (tag) => withSetup.has(tag))).toBe("v0.11.0");
         expect(await previousDesktopRelease(VERSION, [OLD_APP], async () => true)).toBeNull();
     });
+
+    it("桌面版本认新旧两个安装包名（v0.13.0 是旧名）；Hutch 的原名留在资产目录里算不认识的文件（冻结时要改名）", () => {
+        expect(hasDesktopSetup([{name: "NeuroBook-win-x64-Setup.zip"}])).toBe(true);
+        expect(hasDesktopSetup([{name: "win-x64-NeuroBook-Setup.zip"}, {name: "stable-win-x64-update.json"}])).toBe(true);
+        expect(hasDesktopSetup([{name: "neuro-book-0.9.2.zip"}])).toBe(false);
+        expect(localAssetProblems(new Map([["win-x64-NeuroBook-Setup.zip", "a".repeat(64)]]), "")).toContain("资产目录里有不认识的文件 win-x64-NeuroBook-Setup.zip");
+    });
 });
 
 describe("草稿与公开", () => {
@@ -167,7 +174,7 @@ describe("草稿与公开", () => {
 
     it("重跑草稿：只传缺的；同名资产摘要不同就失败、不上传", async () => {
         const {directory, digests} = await assetDirectory();
-        const setup = {name: "win-x64-NeuroBook-Setup.zip", digest: `sha256:${digests.get("win-x64-NeuroBook-Setup.zip")}`, state: "uploaded"};
+        const setup = {name: "NeuroBook-win-x64-Setup.zip", digest: `sha256:${digests.get("NeuroBook-win-x64-Setup.zip")}`, state: "uploaded"};
         const partial = fakeGh({releases: [{tagName: TAG, isDraft: true, isPrerelease: false, isLatest: false}], assets: {[TAG]: [setup]}});
         await draftRelease(partial.github, VERSION, directory, NOTES, silent);
         expect(partial.calls.some((call) => call[2] === "create")).toBe(false);

@@ -239,12 +239,14 @@ jobs:
           $assets = "$env:RUNNER_TEMP/release-assets"
           New-Item -ItemType Directory $assets | Out-Null
           Copy-Item "$env:RUNNER_TEMP/variants/official/artifacts/*" $assets
-          bun desktop/scripts/portable.ts "$assets/stable-win-x64-NeuroBook.tar.zst" $env:VERSION $assets
+          # 安装包与便携版的名字不带版本号（releases/latest/download/<名> 是固定的最新版链接）；Hutch 产出的名字在这里改掉。
+          Move-Item "$assets/win-x64-NeuroBook-Setup.zip" "$assets/NeuroBook-win-x64-Setup.zip"
+          bun desktop/scripts/portable.ts "$assets/stable-win-x64-NeuroBook.tar.zst" $assets
           bun ../../scripts/release/github-release.ts sums $assets
       - name: 安装版冒烟
-        run: bun desktop/scripts/smoke-windows.ts --setup "$env:RUNNER_TEMP/release-assets/win-x64-NeuroBook-Setup.zip" --evidence "$env:RUNNER_TEMP/evidence/official" --work "$env:RUNNER_TEMP/work/installed"
+        run: bun desktop/scripts/smoke-windows.ts --setup "$env:RUNNER_TEMP/release-assets/NeuroBook-win-x64-Setup.zip" --evidence "$env:RUNNER_TEMP/evidence/official" --work "$env:RUNNER_TEMP/work/installed"
       - name: 便携版冒烟
-        run: bun desktop/scripts/smoke-windows.ts --portable "$env:RUNNER_TEMP/release-assets/NeuroBook-$env:VERSION-win-x64-portable.zip" --evidence "$env:RUNNER_TEMP/evidence/official" --work "$env:RUNNER_TEMP/work/portable"
+        run: bun desktop/scripts/smoke-windows.ts --portable "$env:RUNNER_TEMP/release-assets/NeuroBook-win-x64-portable.zip" --evidence "$env:RUNNER_TEMP/evidence/official" --work "$env:RUNNER_TEMP/work/portable"
       # A′ 与正式变体同一份输入，只换标识与更新源；B′ 构建时从本机更新源取 A′ 做补丁。
       - name: 更新冒烟的 A′、B′
         run: |
@@ -437,10 +439,16 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
         working-directory: .
+      # 安装包从 0.13.1 起叫 NeuroBook-win-x64-Setup.zip，v0.13.0 叫 win-x64-NeuroBook-Setup.zip：按通配取，每个 Release 只有一个。
       - name: 下载上一版的 Setup
-        run: gh release download $env:PREVIOUS --pattern win-x64-NeuroBook-Setup.zip --dir "$env:RUNNER_TEMP/previous"
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          gh release download $env:PREVIOUS --pattern '*Setup.zip' --dir "$env:RUNNER_TEMP/previous"
+          $setup = @(Get-ChildItem "$env:RUNNER_TEMP/previous" -Filter '*Setup.zip')
+          if ($setup.Count -ne 1) { throw "上一版 $env:PREVIOUS 的安装包应当正好一个，取到 $($setup.Count) 个" }
+          "PREVIOUS_SETUP=$($setup[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: 上一版升级到本次
-        run: bun desktop/scripts/smoke-update.ts --previous "$env:RUNNER_TEMP/previous/win-x64-NeuroBook-Setup.zip" --expect $env:VERSION --evidence "$env:RUNNER_TEMP/evidence/previous" --work "$env:RUNNER_TEMP/work/previous"
+        run: bun desktop/scripts/smoke-update.ts --previous "$env:PREVIOUS_SETUP" --expect $env:VERSION --evidence "$env:RUNNER_TEMP/evidence/previous" --work "$env:RUNNER_TEMP/work/previous"
       - name: 摘要
         if: failure()
         shell: bash

@@ -19,7 +19,7 @@ Windows 桌面版的主进程与壳自己的页面。行为合同是 [`runtime/d
 
 1. 仓库里（Linux 或 Windows 都行），在 `packages/neuro-book` 下：先 `bun run release:smoke`（仓库根）得到发布清单，再 `bun desktop/scripts/build.ts ../../dist/release/release-manifest.json`。只打主进程时不给清单。
 2. Windows 上进 `desktop/`：清掉 `HTTPS_PROXY`、`HTTP_PROXY`（Hutch 0.29.0 设了它们下载必失败），`hutch install`，`hutch electrobun build --env=stable`。产物在 `artifacts/`：`Setup.zip`（无界面安装包）与更新文件。Hutch 每次构建都清空 `artifacts/`、文件名里没有标识与版本，要留几份产物时用 `scripts/build-variant.ts`，每份一个工程目录。Hutch 的版本固定在 `package.json` 的 `config.hutch`。
-3. 便携包：`bun desktop/scripts/portable.ts <artifacts/stable-win-x64-NeuroBook.tar.zst> <版本> <输出目录>`，从完整包解压出应用目录、根目录放空文件 `NeuroBook.portable` 再打 zip（安装包里没有这个标记）。不从 `build/stable-win-x64/NeuroBook/` 打：stable 构建打完内层 tar 后会把它重建成解压器外壳。
+3. 便携包：`bun desktop/scripts/portable.ts <artifacts/stable-win-x64-NeuroBook.tar.zst> <输出目录>`，从完整包解压出应用目录、根目录放空文件 `NeuroBook.portable` 再打 zip（安装包里没有这个标记）。不从 `build/stable-win-x64/NeuroBook/` 打：stable 构建打完内层 tar 后会把它重建成解压器外壳。
 
 更新源（`release.baseUrl`）缺省是 GitHub 最新 Release 的下载地址，构建进包里，装好之后改不了。自动更新的验收在第 2 步之前设两个环境变量：`NBOOK_UPDATE_BASE_URL` 指向本地更新源（与 Release 同样的文件布局），`NBOOK_DESKTOP_IDENTIFIER` 换一个应用标识，测试包装进另一个目录、不碰正式安装。测试版本不加构建参数：在独立的检出副本里同时改 `src/shared/product.ts` 的 `PRODUCT_VERSION` 与 `package.json` 的 `version`，在仓库根 `bun install` 刷新 `bun.lock`（不刷新时 `release:smoke` 报依赖与 bun.lock 不一致），从第 1 步开始构建。
 
