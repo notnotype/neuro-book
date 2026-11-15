@@ -8,10 +8,33 @@
  * 运行时机是文档刚创建（WebView2 的 `AddScriptToExecuteOnDocumentCreated`），那时还没有 `document.documentElement`，
  * 所以标题的观察器挂在 `document` 本身上，挂好就先报一次当前标题。
  *
- * 作为字符串注入，所以不能有导入；`PRELOAD` 由壳的主进程交给 `BrowserWindow` 的 `preload` 选项。
+ * 没有系统标题栏的窗口（输出 10）另做两件事：在页面脚本之前定义只读的能力标记 `__nbookDesktopFrame`（页面据此自己画窗口
+ * 按钮），`<html>` 一出现就设 `data-desktop-frame`（静态加载页据此把整页当拖动区域，那时页面脚本还没运行）。
+ *
+ * 作为字符串注入，所以不能有导入；`preloadScript()` 的结果由壳的主进程交给 `BrowserWindow` 的 `preload` 选项。
  */
 
-export const PRELOAD = `(() => {
+import {DESKTOP_FRAME_MARKER} from "../../../src/shared/desktop-bridge";
+
+/** 产品窗口与启动页窗口的预加载脚本；`customFrame` 是这个窗口没有系统标题栏。 */
+export function preloadScript(customFrame: boolean): string {
+    return customFrame ? `${FRAME}\n${BRIDGE}` : BRIDGE;
+}
+
+const FRAME = `(() => {
+  Object.defineProperty(window, ${JSON.stringify(DESKTOP_FRAME_MARKER)}, {value: 1, writable: false, configurable: false, enumerable: false});
+  const mark = () => {
+    if (document.documentElement === null) return false;
+    document.documentElement.setAttribute("data-desktop-frame", "");
+    return true;
+  };
+  if (!mark()) {
+    const observer = new MutationObserver(() => { if (mark()) observer.disconnect(); });
+    observer.observe(document, {childList: true});
+  }
+})();`;
+
+const BRIDGE = `(() => {
   const send = (message) => {
     try { window.__electrobunSendToHost(message); } catch (error) { console.error("nbook-desktop bridge", error); }
   };

@@ -229,8 +229,8 @@ export function createCloseQuery(options: CloseQueryOptions): CloseQuery {
     };
 
     const onMessage = (message: ShellMessage): void => {
-        // 更新提示的消息归 `desktop-updates.ts`。
-        if (message.type === "update-hint" || message.type === "update-hint-end") return;
+        // 更新提示的消息归 `desktop-updates.ts`，窗口状态归 `desktop-frame.ts`。
+        if (message.type === "update-hint" || message.type === "update-hint-end" || message.type === "window-state") return;
         if (message.type === "close-end") {
             if (current?.generation === message.generation) {
                 end(current);

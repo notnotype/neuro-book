@@ -55,6 +55,14 @@ describe("桌面桥", () => {
         }
     });
 
+    it("窗口外框的消息：三种按钮动作、状态查询与最大化状态收下；不认识的动作、缺字段丢弃", () => {
+        for (const action of ["minimize", "toggle-maximize", "close"] as const) expect(parsePageMessage({type: "window-control", action})).toEqual({type: "window-control", action});
+        expect(parsePageMessage({type: "window-state-query"})).toEqual({type: "window-state-query"});
+        expect(parseShellMessage({type: "window-state", maximized: true})).toEqual({type: "window-state", maximized: true});
+        for (const bad of [{type: "window-control", action: "maximize"}, {type: "window-control"}]) expect(parsePageMessage(bad)).toBeNull();
+        for (const bad of [{type: "window-state"}, {type: "window-state", maximized: "yes"}]) expect(parseShellMessage(bad)).toBeNull();
+    });
+
     it("页面一侧：只把形状对的事件交给处理器；停止监听后不再收到", () => {
         const global = page();
         const seen: ShellMessage[] = [];

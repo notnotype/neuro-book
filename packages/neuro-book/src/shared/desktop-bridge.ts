@@ -1,7 +1,7 @@
 /**
- * 桌面壳与页面之间的桥（docs/specs/runtime/desktop-shell.md 输出 13 到 15，docs/specs/runtime/browser-host.md 输出 9 到 11）。
- * 壳一侧（`desktop/src/bun/`）与页面一侧（`src/web/host/close-query.ts`、`src/web/host/desktop-updates.ts`）都从这里取消息形状
- * 与校验，两边不各写一份。
+ * 桌面壳与页面之间的桥（docs/specs/runtime/desktop-shell.md 输出 10、13 到 15，docs/specs/runtime/browser-host.md 输出 9 到 11
+ * 与“窗口外框”）。壳一侧（`desktop/src/bun/`）与页面一侧（`src/web/host/close-query.ts`、`desktop-updates.ts`、`desktop-frame.ts`）
+ * 都从这里取消息形状与校验，两边不各写一份。
  *
  * 通道是 Electrobun 的事件桥：壳经 `executeJavascript` 在页面里派发 `nbook-desktop` 事件（`detail` 是壳的消息）；页面经
  * 预加载脚本留下的 `window.__electrobunSendToHost(message)` 回消息。同一页面里的脚本都能发（插件完全信任，ADR 0022），所以
@@ -40,6 +40,15 @@ export const UpdateHintSchema = Type.Object({
 export type UpdateHint = Static<typeof UpdateHintSchema>;
 export type UpdateHintKind = UpdateHint["kind"];
 
+/** 窗口按钮（desktop-shell 输出 10）：最小化、在最大化与还原之间切换、关闭（与系统的关闭同一条路）。 */
+export const WindowControlSchema = Type.Union([Type.Literal("minimize"), Type.Literal("toggle-maximize"), Type.Literal("close")]);
+export type WindowControl = Static<typeof WindowControlSchema>;
+
+/**
+ * 预加载脚本在没有系统标题栏的窗口里定义的能力标记（只读，值为 1）：页面据此自己画窗口按钮。它只是渲染信号，不是安全边界。
+ */
+export const DESKTOP_FRAME_MARKER = "__nbookDesktopFrame";
+
 /** 页面交回的选择：动作按钮（下载、重试、打开下载页）或关掉通知（“以后”）。 */
 export const UpdateChoiceSchema = Type.Union([Type.Literal("download"), Type.Literal("retry"), Type.Literal("open-page"), Type.Literal("later")]);
 export type UpdateChoice = Static<typeof UpdateChoiceSchema>;
@@ -51,11 +60,13 @@ const ShellMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("update-hint"), id: Generation, hint: UpdateHintSchema}),
     /** 这条提示已被新阶段取代或转给了别的窗口：收起它，连通知中心里的记录。 */
     Type.Object({type: Type.Literal("update-hint-end"), id: Generation}),
+    /** 窗口是不是最大化：严格等于 Win32 的 IsZoomed，贴边分屏不算（desktop-shell 输出 10）。 */
+    Type.Object({type: Type.Literal("window-state"), maximized: Type.Boolean()}),
 ]);
 
 /**
  * 页面能发给壳的消息：关闭前询问的两种回答；更新提示的选择、“已显示”，页面就绪与离开就绪（壳据此交付、转交提示，
- * desktop-update 输出 3）；加上预加载脚本自己发的标题与新窗口请求。
+ * desktop-update 输出 3）；窗口按钮与窗口状态的查询；加上预加载脚本自己发的标题与新窗口请求。
  */
 const PageMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("close-ack"), generation: Generation}),
@@ -64,6 +75,9 @@ const PageMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("update-hint-shown"), id: Generation}),
     Type.Object({type: Type.Literal("page-ready")}),
     Type.Object({type: Type.Literal("page-gone")}),
+    Type.Object({type: Type.Literal("window-control"), action: WindowControlSchema}),
+    /** 外框一建立就问一次当前的窗口状态：整页导航之后、壳下一次推送之前，按钮不该显示错的字形。 */
+    Type.Object({type: Type.Literal("window-state-query")}),
     Type.Object({type: Type.Literal("title"), title: Type.String()}),
     Type.Object({type: Type.Literal("open-window"), url: Type.String()}),
 ]);

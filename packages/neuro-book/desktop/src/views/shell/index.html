@@ -2,6 +2,9 @@
 <!--
   壳自己的页面（docs/specs/runtime/desktop-shell.md 的“启动页”“对话框”）：启动页与几种对话框共用一页，按地址参数 mode 区分。
   壳经 executeJavascript 调 window.__nbookShell.render(state) 交来要显示的内容，按钮经 Electrobun 的事件桥交回壳。
+  没有系统标题栏的窗口（预加载定义了 __nbookDesktopFrame，只有启动页所在的窗口；对话框有系统标题栏）顶上画一条 36px 的拖动条
+  与窗口按钮（输出 10）：拖动、双击最大化由 WebView2 按 app-region 交给系统；按钮发 window-control，壳推来 window-state 时换字形。
+  字形用系统的图标字体（Windows 11 是 Segoe Fluent Icons，Windows 10 是 Segoe MDL2 Assets），与系统按钮一致。
 -->
 <html lang="zh-CN">
 <head>
@@ -20,9 +23,20 @@
   .bar { width: 10rem; height: 3px; margin: 1rem auto 0; background: color-mix(in srgb, CanvasText 12%, transparent); overflow: hidden; border-radius: 2px; }
   .bar::after { content: ""; display: block; width: 40%; height: 100%; background: #4a6cf7; animation: slide 1.2s ease-in-out infinite; }
   @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  .frame { position: fixed; inset: 0 0 auto 0; height: 36px; display: flex; justify-content: flex-end; -webkit-app-region: drag; app-region: drag; }
+  .frame[hidden] { display: none; }
+  .frame button { -webkit-app-region: no-drag; app-region: no-drag; width: 46px; height: 36px; padding: 0; border: 0; border-radius: 0; background: transparent; color: CanvasText; font: 10px "Segoe Fluent Icons", "Segoe MDL2 Assets"; }
+  .frame button:hover { background: color-mix(in srgb, CanvasText 10%, transparent); }
+  .frame button[data-control="close"]:hover { background: #c42b1c; color: white; }
+  @media (forced-colors: active) { .frame button:hover, .frame button[data-control="close"]:hover { background: Highlight; color: HighlightText; } }
 </style>
 </head>
 <body>
+<div class="frame" role="group" aria-label="窗口" hidden>
+  <button type="button" tabindex="-1" data-control="minimize" aria-label="最小化">&#xE921;</button>
+  <button type="button" tabindex="-1" data-control="toggle-maximize" aria-label="最大化">&#xE922;</button>
+  <button type="button" tabindex="-1" data-control="close" aria-label="关闭">&#xE8BB;</button>
+</div>
 <main id="root"><div class="bar"></div></main>
 <script>
 (() => {
@@ -74,6 +88,18 @@
       }
     },
   };
+  if (window.__nbookDesktopFrame === 1) {
+    const frame = document.querySelector(".frame");
+    frame.hidden = false;
+    for (const button of frame.querySelectorAll("button")) button.addEventListener("click", () => send({type: "window-control", action: button.dataset.control}));
+    const toggle = frame.querySelector('[data-control="toggle-maximize"]');
+    window.addEventListener("nbook-desktop", (event) => {
+      const message = event.detail;
+      if (message === null || typeof message !== "object" || message.type !== "window-state" || typeof message.maximized !== "boolean") return;
+      toggle.textContent = message.maximized ? "\uE923" : "\uE922";
+      toggle.setAttribute("aria-label", message.maximized ? "还原" : "最大化");
+    });
+  }
   send({type: "shell-ready"});
 })();
 </script>

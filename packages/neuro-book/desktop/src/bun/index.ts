@@ -10,12 +10,16 @@
  *   都还没运行。
  * - 桥：产品窗口是沙箱网页视图（没有 RPC），页面经预加载脚本与 `__electrobunSendToHost` 发固定形状的消息；壳经
  *   `executeJavascript` 派发 `nbook-desktop` 事件。消息按网页视图 id 认窗口，按代次认询问；同一页面里的脚本都能发（插件完全信任）。
+ * - 窗口外框（输出 10）：Windows 上 WebView2 够新时，产品窗口与启动页窗口没有系统标题栏（`hiddenInset`），页面自己画按钮、
+ *   用 CSS `app-region` 标拖动区域，拖动、双击最大化、贴边分屏由 WebView2 与系统处理；这里补窗口样式与图标（`win32.ts`），
+ *   接页面的 `window-control`，并把是否最大化推给页面。
  * - 更新（docs/specs/runtime/desktop-update.md）：`UpdaterPort` 接 Electrobun 2.0.6 的 `Updater`，规则都在核心
  *   （`src/desktop/update.ts`、`update-install.ts`）。更新器的事件不用来判断结果（`error` 是检查、下载、换上共用的通道），每次调用
  *   之后读它的状态；`before-quit` 在取桌面锁之前放行（`DesktopShell.acceptsQuit`），换上要经它结束进程。
  */
 
 import Electrobun, {BrowserWindow, PATHS, Screen, Updater, Utils} from "electrobun/main";
+import type {Pointer} from "bun:ffi";
 import {spawnSync} from "node:child_process";
 import {appendFileSync, mkdirSync} from "node:fs";
 import {homedir} from "node:os";
@@ -29,10 +33,11 @@ import {scanApplyResults} from "../../../src/desktop/update-install";
 import type {UpdaterPort} from "../../../src/desktop/update-install";
 import type {OpenTarget, WindowId, WindowPort} from "../../../src/desktop/windows";
 import {DESKTOP_EVENT, parsePageMessage} from "../../../src/shared/desktop-bridge";
-import type {CloseReason, ShellMessage} from "../../../src/shared/desktop-bridge";
+import type {CloseReason, ShellMessage, WindowControl} from "../../../src/shared/desktop-bridge";
 import {PRODUCT_VERSION} from "../../../src/shared/product";
 
-import {PRELOAD} from "./preload";
+import {preloadScript} from "./preload";
+import {adoptCustomFrame} from "./win32";
 
 const SHELL_VIEW = "views://shell/index.html";
 const DEFAULT_SIZE = {width: 1280, height: 800};
@@ -43,6 +48,13 @@ const DOWNLOAD_PAGE = "https://github.com/notnotype/neuro-book/releases/latest";
 /** 程序根目录：`Resources` 的上一层；便携包解压出来就是这一层，便携标记写在这里。 */
 const programRoot = dirname(PATHS.RESOURCES_FOLDER);
 const payload = join(PATHS.RESOURCES_FOLDER, "app", "neurobook");
+/** 应用图标（`electrobun.config.ts` 的 `build.copy`）：窗口图标按 DPI 从这里加载。 */
+const iconFile = join(PATHS.RESOURCES_FOLDER, "app", "neurobook.ico");
+/**
+ * 页面能自己画标题栏的 WebView2 最低主版本：WebView2 的非客户区支持（CSS `app-region` 成为系统标题栏命中）从 123 起才有，
+ * 更旧的运行时里拖动区域不生效，窗口退回系统标题栏（输出 10）。
+ */
+const CUSTOM_FRAME_MIN_WEBVIEW2 = 123;
 
 let logFile: string | null = null;
 function log(event: string, error?: unknown): void {
@@ -55,16 +67,23 @@ function log(event: string, error?: unknown): void {
     }
 }
 
-/** WebView2 运行时装了没有（输出 20）：读 EdgeUpdate 登记的 WebView2 客户端键，机器级与用户级各看一处。 */
-function hasWebView2(): boolean {
-    if (process.platform !== "win32") return true;
+/**
+ * WebView2 运行时的版本（输出 20）：读 EdgeUpdate 登记的 WebView2 客户端键，机器级与用户级各看一处，取最高的主版本；没装时
+ * 为 null。不是 Windows 时当作够新（壳只在 Windows 上发布，这里只让开发运行不卡住）。
+ */
+function webView2Major(): number | null {
+    if (process.platform !== "win32") return Number.POSITIVE_INFINITY;
     const key = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
     const places = [`HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\${key}`, `HKLM\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\${key}`, `HKCU\\Software\\Microsoft\\EdgeUpdate\\Clients\\${key}`];
-    return places.some((place) => {
+    let major: number | null = null;
+    for (const place of places) {
         const result = spawnSync("reg", ["query", place, "/v", "pv"], {encoding: "utf8", windowsHide: true});
         const version = /pv\s+REG_SZ\s+(\S+)/u.exec(result.stdout)?.[1];
-        return result.status === 0 && version !== undefined && version !== "0.0.0.0";
-    });
+        if (result.status !== 0 || version === undefined || version === "0.0.0.0") continue;
+        const parsed = Number.parseInt(version.split(".")[0] ?? "", 10);
+        if (Number.isFinite(parsed)) major = Math.max(major ?? 0, parsed);
+    }
+    return major;
 }
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -157,7 +176,8 @@ interface ManagedWindow {
 }
 
 async function main(): Promise<void> {
-    if (!hasWebView2()) {
+    const webView2 = webView2Major();
+    if (webView2 === null) {
         const {response} = await Utils.showMessageBox({type: "error", title: "NeuroBook", message: "需要 Microsoft Edge WebView2 运行时", detail: "这台电脑没有装 WebView2，NeuroBook 的窗口打不开。装好之后再打开 NeuroBook。", buttons: ["打开下载页", "退出"], defaultId: 0, cancelId: 1});
         if (response === 0) Utils.openExternal(WEBVIEW2_DOWNLOAD);
         Utils.quit(1);
@@ -171,7 +191,8 @@ async function main(): Promise<void> {
         logFile = join(dir, "shell.log");
     }
     // webview2Args：环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 有没有传到壳（冒烟靠它打开调试端口；只记有没有，不记值）。
-    log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
+    const customFrame = process.platform === "win32" && webView2 >= CUSTOM_FRAME_MIN_WEBVIEW2;
+    log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2=${String(webView2)} customFrame=${String(customFrame)} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
 
     const windows = new Map<WindowId, ManagedWindow>();
     const dialogs = new Map<string, BrowserWindow>();
@@ -213,19 +234,42 @@ async function main(): Promise<void> {
         else if (url.protocol === "http:" || url.protocol === "https:") Utils.openExternal(url.href);
     };
 
-    /** 产品窗口与启动页窗口：沙箱、预加载、导航规则；事件接到协调器。 */
+    /**
+     * 是否最大化推给窗口（输出 10）：`resize` 时与上一次发给这个窗口的相同就不发；页面查询、报就绪时照发（页面换了文档，上一次
+     * 发的已经不在它那里）。记录随窗口关掉删除。
+     */
+    const sentMaximized = new Map<WindowId, boolean>();
+    const pushWindowState = (id: WindowId, always: boolean): void => {
+        const managed = windows.get(id);
+        if (managed === undefined || !customFrame) return;
+        const maximized = managed.win.isMaximized();
+        if (!always && sentMaximized.get(id) === maximized) return;
+        sentMaximized.set(id, maximized);
+        dispatch(managed.win, {type: "window-state", maximized});
+    };
+    // 一个全局监听按窗口 id 查表：Electrobun 2.0.6 的 `win.on` 没有解绑，每个窗口挂一个会随开关窗累积。
+    Electrobun.events.on("resize", (event: {data?: {id?: number}}) => {
+        if (typeof event.data?.id === "number") pushWindowState(event.data.id as WindowId, false);
+    });
+
+    /** 产品窗口与启动页窗口：沙箱、预加载、导航规则、窗口外框；事件接到协调器。 */
     const openManaged = (target: OpenTarget): WindowId => {
         const url = target.kind === "page" ? target.url : SHELL_VIEW;
         if (target.kind === "page") serverOrigin = new URL(target.url).origin;
-        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE), sandbox: true, preload: PRELOAD, navigationRules: JSON.stringify(navigationRules())});
+        const win = new BrowserWindow({title: "NeuroBook", url, frame: centered(DEFAULT_SIZE), sandbox: true, preload: preloadScript(customFrame), titleBarStyle: customFrame ? "hiddenInset" : "default", navigationRules: JSON.stringify(navigationRules())});
         const id = win.id as WindowId;
         windows.set(id, {win, kind: target.kind === "page" ? "page" : "shell"});
+        if (customFrame) {
+            const problems = adoptCustomFrame(win.ptr as Pointer | null, iconFile);
+            if (problems.length > 0) log(`desktop.frame.adopt-failed window=${String(id)} ${problems.join("; ")}`);
+        }
         win.on("will-close", (event: {response?: {allow: boolean}}) => {
             event.response = {allow: false};
             shell.windows.closeRequested(id);
         });
         win.on("close", () => {
             windows.delete(id);
+            sentMaximized.delete(id);
             shell.windows.closed(id);
         });
         win.on("focus", () => shell.windows.focused(id));
@@ -248,10 +292,27 @@ async function main(): Promise<void> {
         return id;
     };
 
+    /** 窗口按钮（输出 10）：两种窗口都有；关闭与系统的关闭同一条路（输出 14、17）。 */
+    const onWindowControl = (id: WindowId, win: BrowserWindow, action: WindowControl): void => {
+        switch (action) {
+            case "minimize":
+                win.minimize();
+                return;
+            case "toggle-maximize":
+                if (win.isMaximized()) win.unmaximize();
+                else win.maximize();
+                return;
+            case "close":
+                shell.windows.closeRequested(id);
+                return;
+        }
+    };
+
     const onWindowMessage = (id: WindowId, win: BrowserWindow, raw: Record<string, unknown>): void => {
         // 启动页（壳自己的页面）的两种消息。
         if (raw.type === "shell-ready") {
             if (windows.get(id)?.kind === "shell") render(win, view);
+            pushWindowState(id, true);
             return;
         }
         if (raw.type === "action") {
@@ -276,6 +337,13 @@ async function main(): Promise<void> {
                 return;
             case "page-ready":
                 shell.windows.pageReady(id);
+                pushWindowState(id, true);
+                return;
+            case "window-control":
+                onWindowControl(id, win, message.action);
+                return;
+            case "window-state-query":
+                pushWindowState(id, true);
                 return;
             case "page-gone":
                 shell.windows.pageGone(id);
