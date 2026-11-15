@@ -377,6 +377,7 @@ function mergePoint<P extends ExtensionPoint>(contributions: readonly AgentViewC
 export function createAgentViewRegistry(contributions: readonly AgentViewContribution[]): AgentViewRegistry {
     checkToolNames(contributions);
     checkEntryTypes(contributions);
+    checkHeaderTargets(contributions);
     const merged: {[P in ExtensionPoint]: readonly ExtensionPointEntries[P][]} = {
         roles: mergePoint(contributions, "roles"),
         tools: mergePoint(contributions, "tools"),
@@ -413,6 +414,18 @@ function checkEntryTypes(contributions: readonly AgentViewContribution[]): void 
             const owner = owners.get(entry.customType);
             if (owner !== undefined) throw new AgentViewRegistryConflictError("entries", {kind: "customType", customType: entry.customType}, [owner, contribution.source]);
             owners.set(entry.customType, contribution.source);
+        }
+    }
+}
+
+/**
+ * 顶栏动作的目标是面板时现在就拒绝（docs/specs/ui/agent-conversation-view.md 的“顶栏”）：视图还没有按面板 id 打开面板的实现，
+ * 登记进来只会点了没反应。面板实现之后去掉这一条。
+ */
+function checkHeaderTargets(contributions: readonly AgentViewContribution[]): void {
+    for (const contribution of contributions) {
+        for (const entry of contribution.headerActions ?? []) {
+            if (entry.target.kind === "panel") throw new TypeError(`header action ${entry.id} from ${contribution.source} targets panel ${entry.target.panelId}; header actions can only emit actions until panels are implemented`);
         }
     }
 }

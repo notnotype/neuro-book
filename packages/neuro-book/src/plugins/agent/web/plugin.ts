@@ -3,7 +3,7 @@
  * 活动条目（`activity.ts`）；视图、宿主与 nb-agent-ui 的 Vue 层用到时才加载，打开窗口不多花时间。
  */
 
-import {markRaw, defineComponent, h, onBeforeUnmount, shallowRef, watch} from "vue";
+import {markRaw, defineComponent, h, onBeforeUnmount, onMounted, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -36,13 +36,13 @@ import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 
 import {Type} from "typebox";
 
-import type {AgentConversationServices, ComposerModelView} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
 import type {ProfileEntry} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
-import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, SKILLS_SECTION} from "../shared/settings";
+import {agentSettings, PERMISSIONS_SECTION, PROFILES_SECTION, REQUESTS_SECTION, SKILLS_SECTION} from "../shared/settings";
 import {profileSkills} from "../shared/profile-skills";
 import {agentText} from "../shared/text";
 import {settingsPage} from "nbook/ui/settings/settings-page";
@@ -59,6 +59,8 @@ import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
 import {createSessionList} from "./session-list";
+import {RequestsPage, useRequests} from "./requests-page";
+import {requestEntriesContribution} from "./request-entries";
 
 export const CONVERSATION_VIEW = "nbook.agent.conversation";
 export const SESSIONS_VIEW = "nbook.agent.sessions";
@@ -68,6 +70,9 @@ export const OPEN_COMMAND = "nbook.agent.open";
 export const NEW_SESSION_COMMAND = "nbook.agent.new-session";
 export const FOCUS_SESSION_COMMAND = "nbook.agent.focus-session";
 export const OPEN_IN_EDITOR_COMMAND = "nbook.agent.open-in-editor";
+/** “模型请求”页与打开它的命令（docs/specs/agent/request-trace.md 输出 13、26）。 */
+export const REQUESTS_PAGE = "nbook.agent.requests";
+export const OPEN_REQUESTS_COMMAND = "nbook.agent.open-requests";
 /** 别的插件的命令，公开合同：打开编辑器的文件（docs/specs/workbench/editor.md）、打开视图（docs/specs/workbench/views.md 输出 14）。 */
 const EDITOR_OPEN_COMMAND = "nbook.editor.open";
 const OPEN_VIEW_COMMAND = "nbook.view.open";
@@ -75,6 +80,7 @@ const OPEN_VIEW_COMMAND = "nbook.view.open";
 const CONVERSATION_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-message-square", location: "auxiliarybar", order: 0, layout: "fill"};
 const SESSIONS_DECLARATION: WrittenViewDeclaration = {icon: "i-lucide-messages-square", location: "sidebar", order: 50, layout: "fill", container: PROJECT_VIEW_CONTAINER};
 const PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-message-square"};
+const REQUESTS_PAGE_DECLARATION: Omit<EditorPageDeclaration, "title"> & {title?: never} = {icon: "i-lucide-activity"};
 const ACTIVITY_DECLARATION: ItemDeclaration = {title: agentText("conversation.activity.title"), alignment: "right", order: 50, priority: 50, command: {id: FOCUS_SESSION_COMMAND}, when: {requires: ["nbook.agent/active"]}};
 const command = (description: string, args: WrittenCommandDeclaration["args"] = Type.Object({}, {additionalProperties: false})): WrittenCommandDeclaration => ({
     category: agentText("commands.category"),
@@ -88,6 +94,7 @@ const COMMANDS: Readonly<Record<string, WrittenCommandDeclaration>> = {
     [OPEN_IN_EDITOR_COMMAND]: command("Open the Agent conversation as a page in the editor area."),
     [NEW_SESSION_COMMAND]: command("Start a new Agent session in the conversation."),
     [FOCUS_SESSION_COMMAND]: command("Show an Agent session in the conversation; without an id, the one that needs the user.", Type.Object({sessionId: Type.Optional(Type.String())}, {additionalProperties: false})),
+    [OPEN_REQUESTS_COMMAND]: command("Open the model requests page; with a session id, only that session, and with a request number, that request selected.", Type.Object({sessionId: Type.Optional(Type.String({minLength: 1})), request: Type.Optional(Type.Integer({minimum: 1}))}, {additionalProperties: false})),
 };
 
 const agentState = definePublicState(descriptor.id, {
@@ -153,6 +160,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             {capability: WORKBENCH_VIEWS_POINT, id: CONVERSATION_VIEW, declaration: CONVERSATION_DECLARATION},
             {capability: WORKBENCH_VIEWS_POINT, id: SESSIONS_VIEW, declaration: SESSIONS_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: CONVERSATION_PAGE, declaration: PAGE_DECLARATION},
+            {capability: EDITOR_PAGES_POINT, id: REQUESTS_PAGE, declaration: REQUESTS_PAGE_DECLARATION},
             {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: ACTIVITY_ITEM, declaration: ACTIVITY_DECLARATION},
             ...Object.entries(COMMANDS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             {capability: SETTINGS_PAGES_POINT, id: PROFILES_SECTION, declaration: PROFILES_PAGE},
@@ -324,6 +332,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                     profiles: () => profiles.value,
                     copy: (value) => void browser.navigator?.clipboard?.writeText(value),
                     openSettings: () => void commands.execute(OPEN_SETTINGS_COMMAND),
+                    openRequests: (target) => void commands.execute(OPEN_REQUESTS_COMMAND, target),
                     openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),
                     skills: {
@@ -400,7 +409,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                 const {builtinContributions, createAgentViewRegistry, ConversationHost, AgentFormRenderer, SubagentCard, BackgroundCommandCard, subagentContribution} = await vueOnce();
                 const markdown = await context.services.resolve(markdownKey);
                 const components = markdown.status === "resolved" ? markdown.instance.components : null;
-                const registry = createAgentViewRegistry([...builtinContributions, subagentContribution({card: SubagentCard})]);
+                const registry = createAgentViewRegistry([...builtinContributions, subagentContribution({card: SubagentCard}), requestEntriesContribution]);
                 const renderers = {
                     form: markRaw(AgentFormRenderer),
                     backgroundCommand: markRaw(BackgroundCommandCard),
@@ -459,6 +468,97 @@ export const agentBrowserPlugin: PluginDefinition = {
 
             const view: ViewImplementation = {load: () => conversationComponent("view")};
             const page: EditorPageImplementation = {load: () => conversationComponent("page")};
+
+            // “模型请求”页：状态在插件作用域里一份（命令先写它、再打开页面），页面挂载时借用。
+            let requestsStore: RequestsPage | null = null;
+            const requestsOf = (): RequestsPage => (requestsStore ??= new RequestsPage(useRequests(context), report));
+            const copy = (text: string): void => {
+                void browser.navigator?.clipboard?.writeText(text).catch((error: unknown) => report("copy-failed", `could not copy to the clipboard: ${error instanceof Error ? error.message : String(error)}`));
+            };
+            const requestsPage: EditorPageImplementation = {
+                load: async () => {
+                    const {AgentRequestTrace} = await import("@notnotype/nb-agent-ui/vue");
+                    const store = requestsOf();
+                    const onAction = (action: RequestTraceAction): void => {
+                        switch (action.type) {
+                            case "request.select": store.select(action.id); return;
+                            case "request.more": void store.more(); return;
+                            case "request.refresh": void store.refresh(); return;
+                            case "request.retry-detail": store.reload(); return;
+                            case "request.load-content": void store.loadContent(action.hash); return;
+                            case "request.load-payload": void store.loadPayload(action.id); return;
+                            case "request.compare-base": void store.compareWith(action.id); return;
+                            case "request.search-more": void store.searchMore(); return;
+                            case "request.clear": void store.clear(action.scope); return;
+                            case "request.list-at-top": store.setAtTop(action.atTop); return;
+                            case "request.open-session": void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: action.session}); return;
+                            case "request.open-settings": void commands.execute(OPEN_SETTINGS_COMMAND, {section: REQUESTS_SECTION}); return;
+                            case "request.copy": {
+                                const detail = store.detail.value;
+                                const payload = store.payload.value;
+                                if (action.what === "payload" && payload.state === "ready") copy(payload.text);
+                                else if (action.what === "request" && detail.state === "ready" && detail.value.id === action.id) copy(JSON.stringify(detail.value, null, 2));
+                                return;
+                            }
+                        }
+                    };
+                    return defineComponent({
+                        name: "AgentRequestsPage",
+                        inheritAttrs: false,
+                        setup() {
+                            const now = shallowRef(clock.now());
+                            const enabled = shallowRef(settings.get(agentSettings.settings.requestTrace));
+                            let cancelTick = (): void => undefined;
+                            let stopSettings = (): void => undefined;
+                            let giveBack = (): void => undefined;
+                            // 进行中的请求写已经等了多久：有进行中的（列表里的或选中的详情）才每秒重画一次。没有时也每 30 秒走一次，
+                            // 时间筛选（最近一小时、今天）按它算起点，页面开着很久之后选也不会差太多。
+                            const tick = (): void => {
+                                const detail = store.detail.value;
+                                const running = store.rows.value.some((row) => row.status === "running") || (detail.state === "ready" && detail.value.status === "running");
+                                const time = clock.now();
+                                if (running || time - now.value >= 30_000) now.value = time;
+                                cancelTick = clock.schedule(tick, 1000);
+                            };
+                            onMounted(() => {
+                                giveBack = store.borrow();
+                                tick();
+                                stopSettings = settings.onDidChange(() => {
+                                    enabled.value = settings.get(agentSettings.settings.requestTrace);
+                                });
+                            });
+                            onBeforeUnmount(() => {
+                                giveBack();
+                                cancelTick();
+                                stopSettings();
+                            });
+                            return () => h(AgentRequestTrace, {
+                                rows: store.rows.value,
+                                list: store.list.value,
+                                totals: store.totals.value,
+                                facets: store.facets.value,
+                                query: store.query.value,
+                                pending: store.pending.value,
+                                selected: store.selected.value,
+                                detail: store.detail.value,
+                                contents: store.contents.value,
+                                payload: store.payload.value,
+                                compare: store.compare.value,
+                                search: store.search.value,
+                                searchState: store.searchState.value,
+                                hits: store.hits.value,
+                                usage: store.usage.value,
+                                "onUpdate:search": (text: string) => store.setSearch(text),
+                                enabled: enabled.value,
+                                now: now.value,
+                                locale: displayLocale(settings) === "en-US" ? "en-US" : "zh-CN",
+                                "onUpdate:query": (query: RequestTraceQuery) => store.setQuery(query),
+                                onAction,
+                            });
+                        },
+                    });
+                },
+            };
             const sessionsView: ViewImplementation = {
                 load: async () => {
                     ensureStarted();
@@ -500,6 +600,11 @@ export const agentBrowserPlugin: PluginDefinition = {
                     if (profile !== null) await host.create(profile ?? MAIN_PROFILE);
                     return done;
                 }},
+                [OPEN_REQUESTS_COMMAND]: {run: async (args) => {
+                    await requestsOf().open((args as {sessionId?: string; request?: number} | undefined) ?? {});
+                    await commands.execute(OPEN_PAGE_COMMAND, {id: REQUESTS_PAGE});
+                    return done;
+                }},
                 [FOCUS_SESSION_COMMAND]: {run: async (args) => {
                     const sessionId = (args as {sessionId?: string} | undefined)?.sessionId ?? activity.target.value;
                     const host = await reveal();
@@ -521,7 +626,7 @@ export const agentBrowserPlugin: PluginDefinition = {
             return {
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[CONVERSATION_VIEW]: view, [SESSIONS_VIEW]: sessionsView},
-                    [EDITOR_PAGES_POINT]: {[CONVERSATION_PAGE]: page},
+                    [EDITOR_PAGES_POINT]: {[CONVERSATION_PAGE]: page, [REQUESTS_PAGE]: requestsPage},
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: {[ACTIVITY_ITEM]: item},
                     [COMMANDS_POINT]: commandImplementations,
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),

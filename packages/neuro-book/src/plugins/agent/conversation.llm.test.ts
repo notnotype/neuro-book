@@ -58,6 +58,7 @@ describe.skipIf(config === null)("对话宿主接真实模型", () => {
             profiles: () => [],
             copy: () => undefined,
             openSettings: () => undefined,
+            openRequests: () => undefined,
             openAddress: () => undefined,
             openLink: () => undefined,
             skills: {selected: () => undefined, address: () => null},

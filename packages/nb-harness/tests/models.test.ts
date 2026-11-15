@@ -7,7 +7,7 @@ import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {mkdir, readdir, readFile, stat, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import type {ModelRequest} from "@notnotype/nb-harness/kernel";
+import type {ModelRequest, ModelWireAttempt} from "@notnotype/nb-harness/kernel";
 import {buildResolution, discoverModels, hasCredential, openCredentials, type ProviderTarget} from "@notnotype/nb-harness/models";
 
 let root = "";
@@ -164,5 +164,57 @@ describe("发现", () => {
         const result = await discoverModels({api: "openai-completions", baseUrl: BASE, apiKey: KEY, headers: {"X-Team": "writing"}});
         expect(result.state).toBe("found");
         expect(seen[0]!.headers.get("x-team")).toBe("writing");
+    });
+});
+
+describe("线上事实交给观察者（models.md 输出 20）", () => {
+    // 按顺序回给每次 HTTP 请求的状态：429 带 `retry-after-ms: 0`，pi-ai 立刻重发；200 回一段文字。
+    const plan: number[] = [];
+    const wire = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        async fetch(incoming) {
+            await incoming.text();
+            const status = plan.shift() ?? 200;
+            if (status === 429) return new Response(JSON.stringify({error: {message: "slow down"}}), {status, headers: {"content-type": "application/json", "retry-after-ms": "0", "x-ratelimit-remaining-requests": "0", "set-cookie": "s=1"}});
+            if (status !== 200) return new Response(JSON.stringify({error: {message: "nope"}}), {status, headers: {"content-type": "application/json"}});
+            const chunk = (body: object) => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...body})}\n\n`;
+            return new Response(chunk({choices: [{index: 0, delta: {role: "assistant", content: "好"}, finish_reason: null}]}) + chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]}) + "data: [DONE]\n\n", {headers: {"content-type": "text/event-stream"}});
+        },
+    });
+    afterAll(() => wire.stop(true));
+
+    async function observe(statuses: number[]) {
+        plan.splice(0, plan.length, ...statuses);
+        const built = buildResolution(custom({baseUrl: `http://127.0.0.1:${wire.port}/v1`}), {id: "qwen3:8b", contextWindow: 32_000}, {stored: () => KEY, env: {}});
+        if (!built.ok) throw new Error(built.code);
+        const attempts: ModelWireAttempt[] = [];
+        let firstContent = 0;
+        const response = await built.resolution.call(request, new AbortController().signal, () => undefined, {observe: {attempt: (item) => void attempts.push(item), firstContent: () => void (firstContent += 1)}});
+        return {response, attempts, firstContent};
+    }
+
+    test("每次 HTTP 尝试各交一次：地址、发出的头与体、响应状态与头；密钥原值已遮盖；第一块内容只报一次", async () => {
+        const {response, attempts, firstContent} = await observe([429, 200]);
+        expect(response.stopReason).toBe("stop");
+        expect(attempts.map((item) => item.response?.status)).toEqual([429, 200]);
+        expect(attempts[0]!.url).toEndWith("/chat/completions");
+        expect(attempts[0]!.response!.headers["x-ratelimit-remaining-requests"]).toBe("0");
+        expect(attempts[0]!.headers.authorization).toBe("Bearer [REDACTED]");
+        expect(attempts[0]!.body).toContain("你好");
+        expect(JSON.stringify(attempts)).not.toContain(KEY);
+        expect(attempts.every((item) => item.endedAt >= item.startedAt)).toBe(true);
+        expect(firstContent).toBe(1);
+    });
+
+    test("没有内容的失败：照样交尝试，不报第一块内容；不带观察者时照常请求", async () => {
+        const failed = await observe([401]);
+        expect(failed.response.stopReason).toBe("error");
+        expect(failed.attempts.map((item) => item.response?.status)).toEqual([401]);
+        expect(failed.firstContent).toBe(0);
+        plan.splice(0, plan.length, 200);
+        const built = buildResolution(custom({baseUrl: `http://127.0.0.1:${wire.port}/v1`}), {id: "qwen3:8b", contextWindow: 32_000}, {stored: () => KEY, env: {}});
+        if (!built.ok) throw new Error(built.code);
+        expect((await built.resolution.call(request, new AbortController().signal, () => undefined)).stopReason).toBe("stop");
     });
 });

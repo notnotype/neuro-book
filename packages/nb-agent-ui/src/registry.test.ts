@@ -22,6 +22,12 @@ describe("createAgentViewRegistry", () => {
         expect(build).toThrow(/headerActions.*sessions.*builtin:header.*plugin:x/u);
     });
 
+    it("验收 36：目标是面板的顶栏动作在构造注册表时失败", () => {
+        expect(() => createAgentViewRegistry([
+            {source: "plugin:x", headerActions: [{...headerAction("ok"), target: {kind: "action", action: {type: "view.close"}}}, {...headerAction("panel"), target: {kind: "panel", panelId: "x.panel"}}]},
+        ])).toThrow(/panel.*plugin:x.*x\.panel/u);
+    });
+
     it("不同扩展点可以使用相同 id", () => {
         expect(() => createAgentViewRegistry([
             {source: "a", headerActions: [headerAction("attachments")]},

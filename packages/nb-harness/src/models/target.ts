@@ -92,7 +92,7 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
         resolution: {
             ok: true,
             info,
-            call: (request, signal, onDelta) => {
+            call: (request, signal, onDelta, meta) => {
                 const {key, headers, missing} = requestAuth(provider, config, access);
                 return ompCall({
                     model,
@@ -104,7 +104,7 @@ export function buildResolution(provider: ProviderTarget, config: ModelTarget, a
                         if (missing.length > 0 || key === null) throw new Error(`no credential for provider ${provider.id}${missing.length > 0 ? ` (environment variable ${missing.join(", ")} is not set)` : ""}`);
                         return key;
                     },
-                })(request, signal, onDelta);
+                })(request, signal, onDelta, meta);
             },
         },
     };

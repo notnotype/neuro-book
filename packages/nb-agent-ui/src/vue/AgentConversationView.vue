@@ -12,7 +12,8 @@ import type {
     AgentLocale,
     AgentViewMode,
 } from "../types";
-import type {AgentViewRegistry} from "../registry";
+import {visibleEntries} from "../registry";
+import type {AgentViewRegistry, HeaderActionEntry} from "../registry";
 import {assignTurnKeys, reuseTurnGroups, splitIntoTurnGroups} from "../conversation-turns";
 import {useStreamScroll} from "@notnotype/nb-ui/composables";
 import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
@@ -70,7 +71,7 @@ const emit = defineEmits<{
     (e: "update:viewMode", mode: AgentViewMode): void;
 }>();
 
-const {t} = provideAgentView({locale: () => props.locale, renderers: () => props.renderers});
+const {t, text} = provideAgentView({locale: () => props.locale, renderers: () => props.renderers});
 
 // ─── 视图模式 ───────────────────────────────────────────────────────────
 
@@ -83,9 +84,30 @@ function setViewMode(mode: AgentViewMode) {
     emit("update:viewMode", mode);
 }
 
+// ─── 登记的顶栏动作（Spec“顶栏”）：允许常驻的按 order 取前两个放在顶栏，其余收进溢出菜单 ───
+
+const headerActions = computed(() => visibleEntries(props.registry.list("headerActions"), props.ctx));
+const pinnedActions = computed(() => headerActions.value.filter((entry) => entry.pinnable).slice(0, 2));
+const menuActions = computed(() => headerActions.value.filter((entry) => !pinnedActions.value.includes(entry)));
+
+/** 名字后面跟角标数（有才写）。 */
+function headerLabel(entry: HeaderActionEntry): string {
+    const badge = entry.badge?.(props.ctx) ?? null;
+    return badge === null || badge === 0 ? text(entry.label) : `${text(entry.label)} (${String(badge)})`;
+}
+
+/** 目标是面板的在构造注册表时就被拒绝了（`registry.ts`），这里只有 action。 */
+function runHeaderAction(entry: HeaderActionEntry): void {
+    if (entry.target.kind === "action") emit("action", entry.target.action);
+}
+
+/** 溢出菜单里登记项的 id 加前缀，不与内置项撞名。 */
+const HEADER_PREFIX = "header:";
+
 const overflowItems = computed<DropdownMenuItemData[]>(() => [
     ...(props.ctx.interaction.canInspectContext === true ? [{id: "context", label: t("panel.context.title"), iconClass: "i-lucide-gauge"}] : []),
     ...(props.ctx.interaction.canOpenTree === true ? [{id: "tree", label: t("panel.tree.open"), iconClass: "i-lucide-git-fork"}] : []),
+    ...menuActions.value.map((entry) => ({id: `${HEADER_PREFIX}${entry.id}`, label: headerLabel(entry), iconClass: entry.icon})),
     {
         id: "toggle-view-mode",
         label: currentViewMode.value === "raw" ? t("header.turnsView") : t("header.rawView"),
@@ -112,7 +134,11 @@ function selectSession(sessionId: string): void {
 }
 
 function onOverflowSelect(value: string) {
-    if (value === "toggle-view-mode") {
+    if (value.startsWith(HEADER_PREFIX)) {
+        const entry = menuActions.value.find((item) => `${HEADER_PREFIX}${item.id}` === value);
+        if (entry !== undefined) runHeaderAction(entry);
+    }
+    else if (value === "toggle-view-mode") {
         setViewMode(currentViewMode.value === "raw" ? "turns" : "raw");
     }
     else if (value === "context") {
@@ -375,6 +401,7 @@ defineExpose({focusComposer, scrollToLatest});
             <span v-if="slots.sessions && props.ctx.session" class="acv-header__profile">{{ props.ctx.session.profileName }}</span>
             <span v-if="slots.sessions" class="acv-header__spacer" />
             <IconButton v-if="props.newSession" icon-class="i-lucide-plus" size="sm" :title="t('header.newSession')" :aria-label="t('header.newSession')" data-header-new @click="emit('action', {type: 'session.create'})" />
+            <IconButton v-for="entry in pinnedActions" :key="entry.id" :icon-class="entry.icon" size="sm" :title="headerLabel(entry)" :aria-label="headerLabel(entry)" :data-header-action="entry.id" @click="runHeaderAction(entry)" />
             <DropdownMenu :items="overflowItems" root-class="acv-header__more" align="end" @select="onOverflowSelect">
                 <IconButton icon-class="i-lucide-ellipsis" size="sm" :title="t('header.more')" :aria-label="t('header.more')" />
             </DropdownMenu>

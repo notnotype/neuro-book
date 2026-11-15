@@ -7,11 +7,12 @@
 
 import {limitImages} from "../dispatch/attachments.js";
 import {createHash} from "node:crypto";
-import type {Message, ModelCaller, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources, RetryPolicy, RetryWait} from "../api/index.js";
+import type {Message, ModelCaller, ModelCallMeta, ModelInfo, ModelRequest, ModelResolution, ModelResponse, RequestPurpose, Resources, RetryPolicy, RetryWait} from "../api/index.js";
 import type {EventDraft, SessionCore} from "../dispatch/core.js";
 import {HANDLER_TIMEOUT_MS} from "../dispatch/reactions.js";
 import {interceptCtx, type ViewEnvironment} from "../extension/ctx.js";
 import {isSealed, seal} from "../state/freeze.js";
+import type {HistoryState} from "../state/history.js";
 import {chainLayers, failureDrafts, runChain, type ChainFailure} from "./chain.js";
 import {NO_RETRY, retryDelay} from "./retry.js";
 import {ctrl} from "./writes.js";
@@ -79,9 +80,21 @@ function settlement(request: number, purpose: RequestPurpose, response: ModelRes
     return ctrl("modelEnded", {request, purpose, stopReason: response.stopReason, usage: response.usage, model: response.model});
 }
 
+/** 说明里的轮（docs/specs/harness/runtime.md 输出 89）：序号是当前路径上结束了的轮数加一。 */
+function turnOf(history: HistoryState): Pick<ModelCallMeta, "turn"> {
+    const current = history.current;
+    if (current === null) return {};
+    const input = current.input?.data.text;
+    return {turn: {id: current.id, index: history.turns + 1, ...(input === undefined ? {} : {input})}};
+}
+
 export async function callModel(host: ModelCallHost, resolution: Extract<ModelResolution, {ok: true}>, request: ModelRequest, signal: AbortSignal): Promise<ModelCallOutcome> {
     const {core} = host;
-    const modifiedBy: {extension: string; fields: string[]}[] = [];
+    /**
+     * 每个请求对象一路被哪些层改过：一层调两次 `next`（可能并发）时，两支交下去的是不同的对象，各算各的。
+     * 没改（原样交下去）的对象沿用收到的那一份。
+     */
+    const modifications = new WeakMap<ModelRequest, readonly {readonly extension: string; readonly fields: readonly string[]}[]>();
     let lastRequest: number | null = null;
     const environment = host.environment(resolution.info);
     const state = core.stateAt();
@@ -101,21 +114,25 @@ export async function callModel(host: ModelCallHost, resolution: Extract<ModelRe
             freezeRequest(passed);
             if (received === passed) return;
             const fields = Object.keys({...received, ...passed}).filter((key) => (received as unknown as Record<string, unknown>)[key] !== (passed as unknown as Record<string, unknown>)[key]);
-            if (fields.length > 0) modifiedBy.push({extension: item.definition.id, fields});
+            const before = modifications.get(received) ?? [];
+            modifications.set(passed, fields.length > 0 ? [...before, {extension: item.definition.id, fields}] : before);
         },
         terminal: async (received) => {
             // 放在链的最里面：拦截层加的图也算进上限，`modelCaller` 的请求也走这里。哈希按引用算，图的字节不进哈希。
             const final = limitImages(received);
             const number = core.reserveRequest();
-            await host.write([ctrl("modelStarted", {request: number, purpose: final.purpose, model: final.model, hash: requestHash(final), now: core.clock.now(), invocation: core.newId(), modifiedBy: modifiedBy.map((item) => ({...item}))})]);
+            const hash = requestHash(final);
+            const modifiedBy = (modifications.get(received) ?? []).map((item) => ({extension: item.extension, fields: [...item.fields]}));
+            await host.write([ctrl("modelStarted", {request: number, purpose: final.purpose, model: final.model, hash, now: core.clock.now(), invocation: core.newId(), modifiedBy})]);
             lastRequest = number;
             // 只有对话请求让运行进入 streaming：压缩与审批模型的请求流式时，运行状态仍是 compacting、tools。
             if (final.purpose === "turn") host.streaming?.(number);
             let deltaNumber = 0;
+            const meta: ModelCallMeta = {session: core.header.id, request: number, hash, ...turnOf(state.history), ...(modifiedBy.length === 0 ? {} : {modifiedBy})};
             const response = await resolution.call(await core.attachments.resolve(final, signal), signal, (delta) => {
                 deltaNumber += 1;
                 core.emit({type: "delta", request: number, purpose: final.purpose, n: deltaNumber, part: delta.part, text: delta.text, ...(delta.callId === undefined ? {} : {callId: delta.callId}), ...(delta.tool === undefined ? {} : {tool: delta.tool})});
-            });
+            }, meta);
             sent.push({number, purpose: final.purpose, response});
             return response;
         },

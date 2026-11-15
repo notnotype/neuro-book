@@ -141,6 +141,22 @@
         "backgroundJobs": {
             "title": "Running jobs",
             "description": "How many sub-agents and background commands can run at once across all sessions."
+        },
+        "requestTrace": {
+            "title": "Record model requests",
+            "description": "Record what each model request sent, what came back, how long it took and what it used, and view it on the Model requests page. Requests made while this is off are not recorded; existing records stay viewable."
+        },
+        "requestTracePayload": {
+            "title": "Store raw request bodies",
+            "description": "Also store the raw request body sent to the provider; images are kept only as type and size. When all bodies together exceed 1 GB, the oldest are deleted first."
+        },
+        "requestTraceDays": {
+            "title": "Days to keep",
+            "description": "Records older than this are cleaned up at startup and once a day after that."
+        },
+        "requestTraceHeaders": {
+            "title": "Record request headers",
+            "description": "Record the headers of each request, with credential values replaced by [REDACTED]. Credentials that a custom gateway puts in other headers cannot be masked, so this is off by default."
         }
     },
     "settingsSections": {
@@ -161,6 +177,10 @@
                     "title": "Sub-agents and background jobs"
                 }
             }
+        },
+        "requests": {
+            "title": "Model request trace",
+            "description": "Whether to record model requests, whether to keep raw request bodies, and for how long"
         }
     },
     "conversation": {
@@ -318,6 +338,10 @@
             "hideOutput": "Hide output",
             "openOutput": "Open output file {{path}}",
             "outputUnavailable": "Output is not readable"
+        },
+        "requests": {
+            "open": "View model requests",
+            "openThis": "View this request"
         }
     },
     "views": {
@@ -331,6 +355,9 @@
     "editorPages": {
         "conversation": {
             "title": "Agent conversation"
+        },
+        "requests": {
+            "title": "Model requests"
         }
     },
     "commands": {
@@ -346,6 +373,9 @@
         "category": "Agent",
         "open-in-editor": {
             "title": "Open conversation in editor"
+        },
+        "open-requests": {
+            "title": "View model requests"
         }
     },
     "state": {

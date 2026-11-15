@@ -141,6 +141,22 @@
         "backgroundJobs": {
             "title": "同时在跑的任务",
             "description": "所有会话的子代理与后台命令加起来，同时在跑的至多几个。"
+        },
+        "requestTrace": {
+            "title": "记录模型请求",
+            "description": "记下每次模型请求发出的内容、回来的结果、用时与用量，在“模型请求”页查看。关掉之后的请求不记，已有的照样能看。"
+        },
+        "requestTracePayload": {
+            "title": "存原始请求体",
+            "description": "另存发给服务商的原始请求体，图片只记类型与大小。全部合计超过 1 GB 时从最旧的删起。"
+        },
+        "requestTraceDays": {
+            "title": "保留天数",
+            "description": "超过这么多天的记录在启动时与之后每天清理一次。"
+        },
+        "requestTraceHeaders": {
+            "title": "记录请求头",
+            "description": "记下每次发出的请求头，凭据类的值换成 [REDACTED]。自定义网关把凭据放在别的头里时遮不住，所以缺省关着。"
         }
     },
     "settingsSections": {
@@ -161,6 +177,10 @@
                     "title": "子代理与后台任务"
                 }
             }
+        },
+        "requests": {
+            "title": "模型请求记录",
+            "description": "记不记模型请求、存不存原始请求体、留多久"
         }
     },
     "conversation": {
@@ -318,6 +338,10 @@
             "hideOutput": "收起输出",
             "openOutput": "打开输出文件 {{path}}",
             "outputUnavailable": "输出读不到"
+        },
+        "requests": {
+            "open": "查看模型请求",
+            "openThis": "查看这次请求"
         }
     },
     "views": {
@@ -331,6 +355,9 @@
     "editorPages": {
         "conversation": {
             "title": "Agent 对话"
+        },
+        "requests": {
+            "title": "模型请求"
         }
     },
     "commands": {
@@ -346,6 +373,9 @@
         "category": "Agent",
         "open-in-editor": {
             "title": "在编辑区打开对话"
+        },
+        "open-requests": {
+            "title": "查看模型请求"
         }
     },
     "state": {

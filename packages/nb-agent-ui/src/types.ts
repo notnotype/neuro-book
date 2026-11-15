@@ -106,6 +106,11 @@ export type AssistantMessageView = {
     error?: string;
     contentOmitted: boolean;
     /**
+     * 这条回复出自会话里的第几次模型请求（`modelStarted` 的序号），宿主据此打开请求查看器。只有真的发给了模型的才有：
+     * 拦截层不调 `next`、直接交回的回复没有对应的请求，也就没有这个字段。
+     */
+    request?: number;
+    /**
      * 宿主给这条回复加的附注，显示在它的文字之后（没有文字时单独一行）。加附注时换成新的消息对象并按依据缓存，
      * 打节拍时给同一个对象，否则这一轮每次都重新整理。
      */
