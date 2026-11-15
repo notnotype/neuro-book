@@ -29,6 +29,14 @@ updated: 2026-11-15
 - ADR 0053 写第一个稳定版的迁移合同；
 - 开发者选定安装包叫 `NeuroBook-win-x64-Setup.zip`、便携版 `NeuroBook-win-x64-portable.zip`（固定的最新版直链）。
 
+2026-11-15：切片 2 到 7 完成（Work 分支 `feat/w00046-t12-release-stages`，worktree `.worktree/w00046-t12-release-stages`：`9befa0c18`、`ff3951f2c`、`b17d40b17`、`8764fa23d`、`1ccfb9946`、`3bca6fd8b`）。验证见 [local-verification-r1.txt](evidences/local-verification-r1.txt)：
+- scripts 218 条、nb-ui 主题 78 条、neuro-book 的 `src/shared` 与 `src/desktop` 167 条测试通过；类型检查、actionlint、`docs:check`、`governance:check` 通过；
+- `release:prepare` 在一次性克隆里真实跑了一次：落后 origin 时什么都不写；同步后提交 `release: v0.13.1`（版本两处、CHANGELOG 定稿、`bun.lock`），随后门禁的说明检查通过；
+- 本机渲染了下一次演练会生成的 0.13.0 说明与一份 0.13.1 样例。
+- 与计划的出入：ADR 0053 写成“补充” 0029 决定 5 与 0051 决定 7，不是部分取代（第一个稳定版之前 npm 仍只发 `latest`，0029 没有被推翻的部分）；根 `AGENTS.md` 没改（主工作区有开发者没提交的改动），它的“发布操作”一行指向 `repository-workflow.md`，那里链到发布手册；改变更记录的规则写进 `packages/AGENTS.md`。
+
+实现审查第 1 轮（omp）进行中。
+
 ## 下一步
 
-按 r2 的切片 2 到 7 实施。
+处理实现审查，合入 master。推 master 之后（要开发者授权）在 Actions 上演练一次：门禁输出阶段并生成说明、桌面冻结的改名与两个冒烟。

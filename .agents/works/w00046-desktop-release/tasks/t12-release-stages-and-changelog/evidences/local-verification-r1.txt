@@ -1,0 +1,89 @@
+w00046 t12 本机验证（2026-11-15，实现 worktree .worktree/w00046-t12-release-stages，提交 3bca6fd8b）
+
+== 测试
+scripts 全部（bun x vitest run --config scripts/vitest.config.ts）：21 个文件 218 条通过
+nb-ui src/theme（包自己的 vitest 配置）：5 个文件 78 条通过；新加的主题检查把 aurora 改成 ^0.3.0 时失败（报 aurora: ^0.3.0），改回后通过
+neuro-book bun test src/shared src/desktop：19 个文件 167 条通过
+类型检查：scripts/tsconfig.json、packages/neuro-book tsconfig.json（含 desktop/scripts）通过；actionlint 通过；docs:check、governance:check 没有新增失败与警告
+
+== release:prepare 真实跑一次（一次性克隆，master、origin 指向本仓库）
+第一次：克隆的 master 落后 origin/master（本仓库 master 有 t12 的记录提交）→ 报“HEAD 不包含 origin/master”，没改任何文件。合入 origin/master 后第二次：
+bun install v1.4.4 (38afee6c8)
+Resolving dependencies
+Resolved, downloaded and extracted [2]
+Saved lockfile
+
+Saved bun.lock (1984 packages) [61.00ms]
+✓ 提交了 release: v0.13.1（packages/neuro-book/package.json、packages/neuro-book/src/shared/product.ts、packages/neuro-book/CHANGELOG.md、bun.lock）
+下一步：git push origin master；再由开发者打标签：git tag v0.13.1 && git push origin v0.13.1
+rc=0
+提交 release: v0.13.1 改了 4 个文件：bun.lock（应用版本一行）、CHANGELOG（[Unreleased] 的试跑条目定稿成 [0.13.1] - 2026-11-15）、package.json、product.ts。
+随后在同一克隆里跑门禁的说明检查：bun scripts/release/release-notes.ts 0.13.1 canary … --previous v0.13.0 → 通过（[Unreleased] 为空、有 [0.13.1]）；tag.ts source → version=0.13.1 stage=canary。
+
+== 现在的 master 上演练会生成的说明（0.13.0，没有上一个桌面版本）
+NeuroBook 0.13.0 的 Windows 桌面版，**canary（早期验证版）**：功能能用，但未必经过完整的人工验收。之后还会有预览版，最后才是稳定版；已装的版本会自动更新到之后发布的版本。数据请自己备份。
+
+npm 上的命令行版本与插件 SDK 同时发布：`bun add -g @notnotype/neuro-book@0.13.0`、`@notnotype/nb-plugin-sdk@0.13.0`。
+
+## 变更
+
+### 新增
+
+- 第一个 Windows 桌面版：安装版装到当前用户下、不需要管理员权限；便携版解压即用，数据放在解压目录下。自带运行环境，不用另装 Bun；与命令行 `nbook` 共用同一个数据目录。
+- 桌面版自动更新：有新版本时提示，同意后在后台下载，下次打开时换上；只升不降。便携版只提示并打开下载页。
+- 关闭窗口前询问：有没保存的改动、Agent 或后台任务还在运行时先问，可以全部保存、不保存或取消。
+- 后台任务：任务视图、状态栏上的进度与结束通知；通知中心与状态栏的铃铛。
+- Skill：设置里的 Skill 页、Profile 页的 Skill 一节；输入框里用 `$` 选 Skill，还没初始化的在后台初始化，失败时能看输出、重试。
+- 批注：给选中的文字加批注，页边卡片按段排列；按住 Ctrl 悬停或点批注末尾的小符号打开。
+- 工作台：视图可以拖进别的容器、在活动栏上新建容器或换序；“移动到”菜单与命令面板用同一份目标。
+
+## 下载哪个
+
+- **安装版**：`win-x64-NeuroBook-Setup.zip`。解压后运行里面的 `NeuroBook-Setup.exe`，装到当前用户下，不需要管理员权限。装好以后有新版本时会提示，同意后在后台下载，下次打开时换上。
+- **便携版**：`NeuroBook-0.13.0-win-x64-portable.zip`。解压到任意目录直接运行，数据放在解压目录下的 `data\`。便携版不自动更新，有新版本时只提示并打开这个页面。
+- 其余文件（`.tar.zst`、`update*.json`、`.patch`）给自动更新用，不用下载。`SHA256SUMS` 是全部文件的 SHA-256。
+
+## 第一次运行
+
+安装包没有代码签名。Windows 可能显示“Windows 已保护你的电脑”：点“更多信息”，再点“仍要运行”。
+
+## 回到旧版本
+
+自动更新只升不降。要回到旧版本，先备份数据目录（安装版是 `%LOCALAPPDATA%\NeuroBook`，便携版是解压目录下的 `data\`），再从旧版本的页面下载重装：旧版本不一定读得了新版本写过的数据。
+
+== 0.13.1 的样例（应用 CHANGELOG 加了两条示例条目、nb-ui 假设提到 0.4.1；对比 v0.13.0）
+NeuroBook 0.13.1 的 Windows 桌面版，**canary（早期验证版）**：功能能用，但未必经过完整的人工验收。之后还会有预览版，最后才是稳定版；已装的版本会自动更新到之后发布的版本。数据请自己备份。
+
+npm 上的命令行版本与插件 SDK 同时发布：`bun add -g @notnotype/neuro-book@0.13.1`、`@notnotype/nb-plugin-sdk@0.13.1`。
+
+## 数据与升级
+
+升级前先备份数据目录（见下文“回到旧版本”）。
+
+- 示例：书库格式升到 3，0.13.0 读不了升级后的书库
+
+## 变更
+
+### 修复
+
+- 便携版第一次打开时不再提示“上次没有正常停止”（示例条目）
+
+## 同时发布的 npm 包
+
+- [`@notnotype/nb-ui` 0.4.1](https://github.com/notnotype/neuro-book/blob/v0.13.1/packages/nb-ui/CHANGELOG.md)
+
+## 下载哪个
+
+- **安装版**：`NeuroBook-win-x64-Setup.zip`。解压后运行里面的 `NeuroBook-Setup.exe`，装到当前用户下，不需要管理员权限。装好以后有新版本时会提示，同意后在后台下载，下次打开时换上。
+- **便携版**：`NeuroBook-win-x64-portable.zip`。解压到任意目录直接运行，数据放在解压目录下的 `data\`。便携版不自动更新，有新版本时只提示并打开这个页面。
+- 其余文件（`.tar.zst`、`update*.json`、`.patch`）给自动更新用，不用下载。`SHA256SUMS` 是全部文件的 SHA-256。
+
+## 第一次运行
+
+安装包没有代码签名。Windows 可能显示“Windows 已保护你的电脑”：点“更多信息”，再点“仍要运行”。
+
+## 回到旧版本
+
+自动更新只升不降。要回到旧版本，先备份数据目录（安装版是 `%LOCALAPPDATA%\NeuroBook`，便携版是解压目录下的 `data\`），再从旧版本的页面下载重装：旧版本不一定读得了新版本写过的数据。
+
+**完整对比**：[v0.13.0...v0.13.1](https://github.com/notnotype/neuro-book/compare/v0.13.0...v0.13.1)
