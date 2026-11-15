@@ -191,6 +191,10 @@ export type RequestTraceAction =
     | {readonly type: "request.retry-detail"}
     | {readonly type: "request.load-content"; readonly hash: string}
     | {readonly type: "request.load-payload"; readonly id: string}
+    /** 清空这个会话（筛选了一个会话时）或全部的记录；组件已经让用户确认过（Spec 输出 25）。 */
+    | {readonly type: "request.clear"; readonly scope: "session" | "all"}
+    /** 列表滚到了顶上或离开了顶上：宿主据此决定新请求插不插进列表（决定 14）。 */
+    | {readonly type: "request.list-at-top"; readonly atTop: boolean}
     /** 查找没扫完（`truncated`），接着往后查。 */
     | {readonly type: "request.search-more"}
     /** 比较页要拿这一次来比（缺省是前一次；换了一次时也发）。 */

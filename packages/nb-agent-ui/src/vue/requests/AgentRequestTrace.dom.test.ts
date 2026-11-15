@@ -242,3 +242,43 @@ describe("查找（输出 17、20）", () => {
         view.unmount();
     });
 });
+
+describe("排序、时间与“更多”（输出 16、25）", () => {
+    const menu = (view: ReturnType<typeof mountTrace>, id: string) => view.findAllComponents({name: "DropdownMenu"}).find((item) => (item.props("items") as {id: string}[]).some((entry) => entry.id.startsWith(id)))!;
+
+    it("排序与时间改了发 update:query；“今天”是本地这一天的零点", async () => {
+        const view = mountTrace();
+        menu(view, "sort:").vm.$emit("select", "sort:cost");
+        menu(view, "time:").vm.$emit("select", "time:today");
+        expect(view.emitted("update:query")).toEqual([[{sort: "cost"}], [{since: new Date(2026, 10, 15).getTime()}]]);
+        view.unmount();
+    });
+
+    it("清空先确认，确认之后才发；只看一个会话时才有“清空这个会话的记录”", async () => {
+        const view = mountTrace({usage: {bytes: 2048, payloadBytes: 1024}});
+        const items = (menu(view, "more:").props("items") as {id: string; label: string}[]);
+        expect(items.map((item) => item.id)).toEqual(["more:usage", "more:settings", "more:clear-all"]);
+        expect(items[0]!.label).toContain("2.0 KB");
+        menu(view, "more:").vm.$emit("select", "more:clear-all");
+        await nextTick();
+        expect(view.emitted("action")).toBeUndefined();
+        view.findComponent({name: "AlertDialog"}).vm.$emit("confirm");
+        expect(view.emitted("action")).toEqual([[{type: "request.clear", scope: "all"}]]);
+        await view.setProps({query: {sessions: ["s1"]}});
+        expect((menu(view, "more:").props("items") as {id: string}[]).map((item) => item.id)).toContain("more:clear-session");
+        view.unmount();
+    });
+
+    it("Alt+下选旧一次；列表离开顶上与回到顶上各报一次", async () => {
+        const view = mountTrace({selected: "r2"});
+        await view.get(".art").trigger("keydown", {key: "ArrowDown", altKey: true});
+        expect(view.emitted("action")?.at(-1)).toEqual([{type: "request.select", id: "r1"}]);
+        const list = view.get("[role='listbox']");
+        (list.element as HTMLElement).scrollTop = 120;
+        await list.trigger("scroll");
+        (list.element as HTMLElement).scrollTop = 0;
+        await list.trigger("scroll");
+        expect(view.emitted("action")?.filter(([action]) => (action as {type: string}).type === "request.list-at-top")).toEqual([[{type: "request.list-at-top", atTop: false}], [{type: "request.list-at-top", atTop: true}]]);
+        view.unmount();
+    });
+});

@@ -489,6 +489,8 @@ export const agentBrowserPlugin: PluginDefinition = {
                             case "request.load-payload": void store.loadPayload(action.id); return;
                             case "request.compare-base": void store.compareWith(action.id); return;
                             case "request.search-more": void store.searchMore(); return;
+                            case "request.clear": void store.clear(action.scope); return;
+                            case "request.list-at-top": store.setAtTop(action.atTop); return;
                             case "request.open-session": void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: action.session}); return;
                             case "request.open-settings": void commands.execute(OPEN_SETTINGS_COMMAND, {section: REQUESTS_SECTION}); return;
                             case "request.copy": {
@@ -541,6 +543,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                                 search: store.search.value,
                                 searchState: store.searchState.value,
                                 hits: store.hits.value,
+                                usage: store.usage.value,
                                 "onUpdate:search": (text: string) => store.setSearch(text),
                                 enabled: enabled.value,
                                 now: now.value,

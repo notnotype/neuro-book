@@ -81,8 +81,16 @@ function onKeydown(event: KeyboardEvent): void {
 /** 离底部不到这么多像素就接着取：一页 100 条，提前取，滚动不必停下来等。 */
 const LOAD_AHEAD = 240;
 
+/** 列表在不在顶上：变了才发，宿主据此决定新请求插不插进来（决定 14）。 */
+let atTop = true;
+
 function onScroll(event: Event): void {
     const element = event.currentTarget as HTMLElement;
+    const top = element.scrollTop <= 4;
+    if (top !== atTop) {
+        atTop = top;
+        emit("action", {type: "request.list-at-top", atTop: top});
+    }
     if (props.list.more && props.list.state === "ready" && element.scrollTop + element.clientHeight >= element.scrollHeight - LOAD_AHEAD) emit("action", {type: "request.more"});
 }
 </script>

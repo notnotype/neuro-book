@@ -508,6 +508,7 @@ export default {
         title: "模型请求",
         filter: {
             session: "会话",
+            model: "模型",
             purpose: "用途",
             status: "状态",
             all: "全部",
@@ -667,6 +668,30 @@ export default {
             tools: "工具",
             error: "错误",
             more: "另 {{rest}} 处",
+        },
+        sort: {
+            label: "排序",
+            time: "时间（新的在上）",
+            duration: "总时长（长的在上）",
+            input: "输入 token（多的在上）",
+            cost: "费用（贵的在上）",
+        },
+        time: {
+            label: "时间",
+            hour: "最近一小时",
+            today: "今天",
+            all: "全部",
+        },
+        more: {
+            label: "更多",
+            usage: "记录占用 {{size}}，其中原始请求体 {{payload}}",
+            settings: "记录设置…",
+            clearSession: "清空这个会话的记录…",
+            clearAll: "清空全部记录…",
+            confirmSession: "清空这个会话的模型请求记录？",
+            confirmAll: "清空全部模型请求记录？",
+            confirmDescription: "进行中的请求不会被清掉。清掉的记录不能恢复。",
+            confirm: "清空",
         },
         json: {
             showAll_other: "显示全部 {{count}} 行",

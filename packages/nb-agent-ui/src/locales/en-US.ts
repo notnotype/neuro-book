@@ -517,6 +517,7 @@ export default {
         title: "Model requests",
         filter: {
             session: "Session",
+            model: "Model",
             purpose: "Purpose",
             status: "Status",
             all: "All",
@@ -680,6 +681,30 @@ export default {
             tools: "Tools",
             error: "Error",
             more: "+{{rest}} more",
+        },
+        sort: {
+            label: "Sort",
+            time: "Time (newest first)",
+            duration: "Duration (longest first)",
+            input: "Input tokens (most first)",
+            cost: "Cost (highest first)",
+        },
+        time: {
+            label: "Time",
+            hour: "Last hour",
+            today: "Today",
+            all: "All",
+        },
+        more: {
+            label: "More",
+            usage: "Records use {{size}}, raw request bodies {{payload}}",
+            settings: "Recording settings…",
+            clearSession: "Clear this session's records…",
+            clearAll: "Clear all records…",
+            confirmSession: "Clear the model request records of this session?",
+            confirmAll: "Clear all model request records?",
+            confirmDescription: "Requests in progress are kept. Cleared records can't be restored.",
+            confirm: "Clear",
         },
         json: {
             showAll_one: "Show all {{count}} line",

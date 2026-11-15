@@ -88,6 +88,27 @@ describe("“模型请求”页的状态", () => {
         expect(page.rows.value.map((row) => row.request)).toEqual([2, 1]);
     });
 
+    test("决定 14：列表不在顶上时新请求不插进来，记进“有 N 条新请求”；清空这个会话之后列表与占用跟着变", async () => {
+        const {w, page} = await open();
+        endpoint.script("一", "二");
+        const session = await say(w, "第一句");
+        releases.push(page.borrow());
+        await settledRows(page, 1);
+        await waitUntil("取到占用", () => page.usage.value !== null);
+        const before = page.usage.value!.bytes;
+        page.setAtTop(false);
+        await say(w, "第二句", session);
+        await waitUntil("记进有 N 条新请求", () => page.pending.value === 1);
+        expect(page.rows.value).toHaveLength(1);
+        await page.refresh();
+        expect(page.rows.value).toHaveLength(2);
+        page.setQuery({sessions: [(await session.snapshot()).header.id]});
+        await settledRows(page, 2);
+        expect(await page.clear("session")).toBe(true);
+        expect(page.rows.value).toEqual([]);
+        expect(page.usage.value!.bytes).toBeLessThan(before);
+    });
+
     test("输出 26：命令带会话时只看它、带序号时选中那一次；那一次没有记录时写没有", async () => {
         const {w, page} = await open();
         endpoint.script("一", "二", "别的");

@@ -69,6 +69,8 @@ export class RequestsPage {
     readonly searchState: ShallowRef<RequestTraceSearchState> = shallowRef({state: "idle", truncated: false});
     /** 选中那条全部的命中（查找条用）；没在查找或还没取到时为 null。 */
     readonly hits: ShallowRef<readonly RequestTraceHit[] | null> = shallowRef(null);
+    /** 记录目录的占用（“更多”菜单里写）；打开页面与清空之后取。 */
+    readonly usage: ShallowRef<{readonly bytes: number; readonly payloadBytes: number} | null> = shallowRef(null);
     /** 比较页拿来比的那一次；换了选中就清掉，比较页打开时组件再要。 */
     readonly compare: ShallowRef<RequestTraceCompareView> = shallowRef({base: null, detail: {state: "idle"}});
 
@@ -83,6 +85,8 @@ export class RequestsPage {
     /** 正在跑的查找：新的查找开始时中止它（服务端随之停下）。 */
     #searching: AbortController | null = null;
     #searchNext: string | undefined;
+    /** 列表在不在顶上（组件报的）：只有在顶上时新请求才插进来（决定 14）。 */
+    #atTop = true;
     #borrowers = 0;
     #release: (() => void) | null = null;
     /** 下一次取完列表时要选中的（命令带的 `request`），或“选中最新的一条”（true）。 */
@@ -122,6 +126,7 @@ export class RequestsPage {
             return;
         }
         this.#release = () => subscribed.value.release();
+        void this.#loadUsage();
         await this.refresh();
     }
 
@@ -341,16 +346,32 @@ export class RequestsPage {
             return;
         }
         if (change.kind !== "added" || this.list.value.state === "error" || !matchesQuery(change.row, this.query.value)) return;
-        // 查找时不知道新的这条有没有命中，不插进来，记进“有 N 条新请求”，点了重新查。
-        if ((this.query.value.sort ?? "time") === "time" && this.search.value === "") this.rows.value = [change.row, ...this.rows.value];
+        // 决定 14：按时间排、没有查找词、列表在顶上时插到顶上；否则不动列表（免得看着的行被挤走），记进“有 N 条新请求”，点了刷新。
+        // 查找时不知道新的这条有没有命中，也是记进去、点了重新查。
+        if ((this.query.value.sort ?? "time") === "time" && this.search.value === "" && this.#atTop) this.rows.value = [change.row, ...this.rows.value];
         else this.pending.value += 1;
     }
 
-    /** 清空一个会话（连同它的后台请求）或全部的记录；进行中的不清（输出 25）。 */
-    async clear(session?: string): Promise<boolean> {
+    /** 列表滚到了顶上或离开了顶上。 */
+    setAtTop(atTop: boolean): void {
+        this.#atTop = atTop;
+    }
+
+    /**
+     * 清空（输出 25）：`session` 是筛选的那一个会话（连同它的后台请求），`all` 是全部；进行中的不清。删掉的行经 `removed` 事件
+     * 从列表里拿掉，这里再从头取一次列表与占用。
+     */
+    async clear(scope: "session" | "all"): Promise<boolean> {
+        const session = scope === "session" ? this.query.value.sessions?.[0] : undefined;
+        if (scope === "session" && session === undefined) return false;
         const cleared = await this.#remote.clear(session === undefined ? {} : {session});
         if (!cleared.ok) this.#report("requests-clear-failed", `could not clear model request records: ${cleared.code}`);
-        await this.refresh();
+        await Promise.all([this.refresh(), this.#loadUsage()]);
         return cleared.ok;
+    }
+
+    async #loadUsage(): Promise<void> {
+        const usage = await this.#remote.usage({});
+        if (usage.ok) this.usage.value = usage.value;
     }
 }
