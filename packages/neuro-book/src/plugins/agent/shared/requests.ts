@@ -24,7 +24,8 @@ export interface RowContext {
     readonly background?: {readonly owner: string | null};
 }
 
-export type RequestRowView = RequestRow & RowContext;
+/** `match` 只在查找交回的行上有。 */
+export type RequestRowView = RequestRow & RowContext & {readonly match?: RequestMatch};
 
 export interface SessionFacet {
     readonly id: string;

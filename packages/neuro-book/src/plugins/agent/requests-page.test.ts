@@ -122,6 +122,24 @@ describe("“模型请求”页的状态", () => {
         expect(page.compare.value).toEqual({base: null, detail: {state: "idle"}});
     });
 
+    test("输出 17、20：查找词换掉列表、选中时取这一条的命中；清掉查找词回到普通列表", async () => {
+        const {w, page} = await open();
+        endpoint.script("雾港在第三章。", "别的。");
+        await say(w, "讲讲雾港");
+        await say(w, "说点别的");
+        releases.push(page.borrow());
+        await settledRows(page, 2);
+        page.setSearch("雾港");
+        await waitUntil("查找结束", () => page.searchState.value.state === "done");
+        expect(page.rows.value.map((row) => row.match?.count)).toEqual([2]);
+        page.select(page.rows.value[0]!.id);
+        await waitUntil("取到命中", () => page.hits.value !== null);
+        expect(page.hits.value).toHaveLength(2);
+        page.setSearch("");
+        await waitUntil("回到普通列表", () => page.rows.value.length === 2 && page.list.value.state === "ready");
+        expect(page.searchState.value.state).toBe("idle");
+    });
+
     test("全文与原始请求体按需要取，读回来的是存下的原文", async () => {
         const {w, page} = await open();
         endpoint.script("好的");

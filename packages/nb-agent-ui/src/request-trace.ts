@@ -23,6 +23,20 @@ export interface RequestTraceUsage {
     readonly cost: number | null;
 }
 
+/** 查找的一处命中：在哪一页的第几条（从 0 起；回复是消息页最后一条），是那一条里的第几处（从 0 起）。 */
+export interface RequestTraceHit {
+    readonly page: "messages" | "system" | "tools" | "error";
+    readonly item: number;
+    readonly ordinal: number;
+}
+
+/** 列表上一条请求的命中（Spec 输出 17）：共几处、各页几处、第一处与它前后的字。 */
+export interface RequestTraceMatch {
+    readonly count: number;
+    readonly pages: Readonly<Record<RequestTraceHit["page"], number>>;
+    readonly first: RequestTraceHit & {readonly before: string; readonly text: string; readonly after: string};
+}
+
 /** 列表的一行。`title`、`background` 是宿主补的：会话标题，后台标题会话的所属（找不到时 `owner` 为 null）。 */
 export interface RequestTraceRow {
     readonly id: string;
@@ -50,6 +64,8 @@ export interface RequestTraceRow {
     readonly attempts: number;
     readonly title?: string;
     readonly background?: {readonly owner: string | null};
+    /** 查找时这一条的命中（查找交回的行才有）。 */
+    readonly match?: RequestTraceMatch;
 }
 
 /** 一条消息的大纲；全文按 `hash` 另取。`missing`：内容文件读不出。 */
@@ -152,6 +168,12 @@ export type RequestTraceContentState = {readonly state: "loading" | "missing" | 
 /** 原始请求体：`idle` 是还没要过（打开那一页时组件发 `request.load-payload`）。 */
 export type RequestTracePayloadView = {readonly state: "idle" | "loading" | "missing" | "error"} | {readonly state: "ready"; readonly text: string};
 
+/** 查找的状态：`searching` 是正在扫；`truncated` 是扫满了上限还没扫完（可以接着查）。 */
+export interface RequestTraceSearchState {
+    readonly state: "idle" | "searching" | "done" | "error";
+    readonly truncated: boolean;
+}
+
 /** 比较页的状态：拿来比的是哪一次（还没定时为 null）与它的详情；`candidates` 是同一会话里可以换着比的几次（新的在前）。 */
 export interface RequestTraceCompareView {
     readonly base: string | null;
@@ -169,6 +191,8 @@ export type RequestTraceAction =
     | {readonly type: "request.retry-detail"}
     | {readonly type: "request.load-content"; readonly hash: string}
     | {readonly type: "request.load-payload"; readonly id: string}
+    /** 查找没扫完（`truncated`），接着往后查。 */
+    | {readonly type: "request.search-more"}
     /** 比较页要拿这一次来比（缺省是前一次；换了一次时也发）。 */
     | {readonly type: "request.compare-base"; readonly id: string}
     | {readonly type: "request.open-session"; readonly session: string}
@@ -344,4 +368,55 @@ export function compareRequests(current: RequestTraceDetail, base: RequestTraceD
         : params.length > 0 ? {kind: "params"}
         : null;
     return {system: {same: systemSame, added: systemAdded, removed: systemRemoved}, tools, params, messages: {prefix, suffix, removed, added, compacted}, firstChange};
+}
+
+/** 展开一段内容时显示的一块。`image` 只有类型与大小，不进查找。 */
+export interface ContentPiece {
+    readonly kind: "text" | "thinking" | "image" | "call" | "json";
+    readonly text: string;
+}
+
+/**
+ * 记录器存下的一段内容（一条消息、一段系统提示词、一个工具声明、一份回复）换成显示的几块。除图片外的几块与 nb-harness 记录器
+ * 查找用的文字（`searchablePieces`）逐字相同、先后相同：查找条的处数与高亮的位置都按它们数，`request-trace.contract.test.ts` 核对。
+ */
+export function contentPieces(text: string): ContentPiece[] {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        return [{kind: "text", text}];
+    }
+    if (typeof parsed === "string") return [{kind: "text", text: parsed}];
+    if (parsed === null || typeof parsed !== "object") return [];
+    const object = parsed as {content?: unknown; toolCalls?: unknown; kind?: unknown; text?: unknown; description?: unknown; parameters?: unknown};
+    const pieces: ContentPiece[] = [];
+    const blocks = Array.isArray(object.content) ? object.content : typeof object.kind === "string" ? [object] : [];
+    for (const block of blocks as {kind?: unknown; text?: unknown; mime?: unknown; bytes?: unknown; uri?: unknown}[]) {
+        if ((block.kind === "text" || block.kind === "thinking") && typeof block.text === "string") pieces.push({kind: block.kind, text: block.text});
+        else if (block.kind === "image") pieces.push({kind: "image", text: `${typeof block.mime === "string" ? block.mime : "image"} · ${formatBytes(typeof block.bytes === "number" ? block.bytes : 0)}`});
+        else if (block.kind === "imageRef") pieces.push({kind: "image", text: typeof block.uri === "string" ? block.uri : ""});
+    }
+    if (Array.isArray(object.toolCalls)) for (const call of object.toolCalls as {tool?: unknown; args?: unknown}[]) pieces.push({kind: "call", text: `${typeof call.tool === "string" ? call.tool : ""} ${JSON.stringify(call.args ?? {}, null, 2)}`});
+    if (typeof object.description === "string") pieces.push({kind: "text", text: object.description});
+    if (object.parameters !== undefined) pieces.push({kind: "json", text: JSON.stringify(object.parameters, null, 2)});
+    return pieces;
+}
+
+/** 一段文字按查找词切开（不分大小写）：命中的那几段带它在这一条里是第几处（从 `start` 起数）。 */
+export function highlightSegments(text: string, needle: string, start = 0): {readonly text: string; readonly ordinal: number | null}[] {
+    const target = needle.toLowerCase();
+    if (target === "") return [{text, ordinal: null}];
+    const lower = text.toLowerCase();
+    const segments: {text: string; ordinal: number | null}[] = [];
+    let from = 0;
+    let ordinal = start;
+    for (let at = lower.indexOf(target); at >= 0; at = lower.indexOf(target, at + target.length)) {
+        if (at > from) segments.push({text: text.slice(from, at), ordinal: null});
+        segments.push({text: text.slice(at, at + target.length), ordinal});
+        ordinal += 1;
+        from = at + target.length;
+    }
+    if (from < text.length || segments.length === 0) segments.push({text: text.slice(from), ordinal: null});
+    return segments;
 }

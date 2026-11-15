@@ -2,7 +2,7 @@
  * 模型请求查看器（docs/specs/agent/request-trace.md 输出 14、16、18、19、22、24）：列表的分组与行、筛选、详情的概览与几页、
  * 全文与原始请求体按需要、空状态。窄时的来回切换靠容器查询，happy-dom 量不到，在 Lab 的真实浏览器里看。
  */
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 import {mount} from "@vue/test-utils";
 import {nextTick} from "vue";
 
@@ -192,6 +192,53 @@ describe("消息页的大纲与比较（输出 19、21）", () => {
         expect(text).toContain("前 2 条相同，末尾多 1 条");
         expect(text).toContain("最早的变化：工具");
         expect(view.findAll(".ard__item--added")).toHaveLength(1);
+        view.unmount();
+    });
+});
+
+describe("查找（输出 17、20）", () => {
+    it("组字结束、停顿之后才发查找词；去掉首尾空白", async () => {
+        const view = mountTrace();
+        const input = view.get("[data-request-search] input");
+        await input.trigger("compositionstart");
+        await input.setValue("林");
+        await input.setValue("林照 ");
+        // 组字时不发：先排一个看得见的动作（选中一条）再断言，免得按固定时长等。
+        await view.findAll("[data-request-row]")[0]!.trigger("click");
+        expect(view.emitted("update:search")).toBeUndefined();
+        await input.trigger("compositionend");
+        await vi.waitFor(() => expect(view.emitted("update:search")).toEqual([["林照"]]), {timeout: 3000});
+        view.unmount();
+    });
+
+    it("查找时列表头写找到几次、扫不完能接着查；每条第二行写第一处命中与另外几处", async () => {
+        const matched: RequestTraceRow = {...rows[2]!, match: {count: 3, pages: {messages: 3, system: 0, tools: 0, error: 0}, first: {page: "messages", item: 2, ordinal: 0, before: "第一章 · 第 12 行：", text: "林照", after: "今年二十三岁"}}};
+        const view = mountTrace({rows: [matched], search: "林照", searchState: {state: "done", truncated: true}});
+        expect(view.get("[data-request-search-head]").text()).toContain("找到 1 次请求");
+        const row = view.get("[data-request-row]");
+        expect(row.text()).toContain("第 3 条");
+        expect(row.get("mark").text()).toBe("林照");
+        expect(row.text()).toContain("另 2 处");
+        await view.get("[data-request-search-more]").trigger("click");
+        expect(view.emitted("action")?.at(-1)).toEqual([{type: "request.search-more"}]);
+        view.unmount();
+    });
+
+    it("查找条写第几处、共几处与各页的处数；下一处切到那一页、展开那一条并标出当前的一处", async () => {
+        const view = mountTrace({search: "林照", hits: null});
+        expect(view.get("[data-request-findbar]").text()).toContain("…");
+        await view.setProps({hits: [{page: "messages", item: 2, ordinal: 0}, {page: "tools", item: 0, ordinal: 0}]});
+        await nextTick();
+        expect(view.get("[data-request-findbar]").text()).toContain("第 1 处，共 2 处");
+        expect(view.get("[data-request-find-page='messages']").text()).toContain("1");
+        // 第一处在第 3 条消息：展开它并要全文。
+        expect(view.emitted("action")?.at(-1)).toEqual([{type: "request.load-content", hash: "m3"}]);
+        await view.setProps({contents: {m3: {state: "ready", text: JSON.stringify({role: "tool", content: [{kind: "text", text: "林照二十三岁"}]})}}});
+        expect(view.get("mark[data-hit-current]").text()).toBe("林照");
+        await view.get("[data-request-find-next]").trigger("click");
+        await nextTick();
+        expect(view.get("[data-request-findbar]").text()).toContain("第 2 处，共 2 处");
+        expect(view.emitted("action")?.at(-1)).toEqual([{type: "request.load-content", hash: "tool1"}]);
         view.unmount();
     });
 });

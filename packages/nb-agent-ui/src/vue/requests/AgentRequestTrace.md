@@ -1,5 +1,5 @@
 ---
-标签: [state:local, state:inject]
+标签: [state:local, state:inject, env:timer]
 别名: ["模型请求", "请求查看器", "Request Trace", "Model requests"]
 ---
 
@@ -30,17 +30,25 @@ props: {
     contents: Readonly<Record<string, RequestTraceContentState>>;   // 按哈希取回的全文
     payload: RequestTracePayloadView;        // 选中那条的原始请求体：idle | loading | missing | error | ready
     compare?: RequestTraceCompareView;       // 比较页拿来比的那次（base）与它的详情；缺省还没定
+    search?: string;                         // 受控的查找词；停顿 300 毫秒（组字结束后）发 update:search
+    searchState?: RequestTraceSearchState;   // idle | searching | done | error，truncated 时列表头有“接着查”
+    hits?: readonly RequestTraceHit[] | null;   // 选中那条全部的命中，查找条用
     enabled: boolean;                        // 记录开着
     now: number;                             // 宿主给的当前时间
     locale?: AgentLocale;                    // 没有注入翻译端口时的语言，缺省 zh-CN
 }
 emits: {
     "update:query": [query: RequestTraceQuery];   // 改了筛选（不带游标，宿主从头取）
+    "update:search": [search: string];             // 改了查找词（去掉首尾空白；空串是不查了）
     action: [action: RequestTraceAction];          // 见 request-trace.ts 的 RequestTraceAction
 }
 ```
 
 没有插槽、没有 expose；属性不透传（根是单个元素，`class`、`style` 落在根上）。
+
+## 隐藏通道理由
+
+- `env:timer`：查找框停顿 300 毫秒才发 `update:search`（输入法组字时不发）。每发一次宿主就作废上一次查找、重扫一遍，按键就发会让服务端白扫；去抖放在组件里，宿主不必知道组字。卸载时清掉计时。
 
 ## 注意事项
 
@@ -50,4 +58,4 @@ emits: {
 
 ## 不支持
 
-查找、排序与时间筛选的控件、比较页里变了的系统提示词与工具的逐行差异、消息页按角色筛选、窄时的迟滞与滚动位置保留、键盘快捷键（Spec 输出 17、19 到 21 的一部分）在后续切片里加。
+`#N` 跳到第几次请求、查找条的回车与 Esc、消息页“有命中”的筛选、排序与时间筛选的控件、比较页里变了的系统提示词与工具的逐行差异、消息页按角色筛选、窄时的迟滞与滚动位置保留、键盘快捷键（Spec 输出 17、19 到 21 的一部分）在后续切片里加。

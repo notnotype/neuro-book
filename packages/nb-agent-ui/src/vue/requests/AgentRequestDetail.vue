@@ -3,13 +3,13 @@
  * 选中那次请求的详情（docs/specs/agent/request-trace.md 输出 18、19、22）：顶部常驻的概览，下面几页。全文不随详情来，展开一行时
  * 发 `request.load-content`，宿主按哈希取回后经 `contents` 交来；原始请求体在打开那一页时才要。换一条记录时停在原来那一页。
  */
-import {computed, ref, watch} from "vue";
+import {computed, nextTick, ref, watch} from "vue";
 import {Badge, Button, DropdownMenu, EmptyState, IconButton, Spinner, Tabs} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData, TabsItem} from "@notnotype/nb-ui/components";
 
 import {formatClock} from "../../format";
-import {cacheHitRate, compareRequests, formatBytes, formatCost, formatDuration, formatTokens, promptTokens} from "../../request-trace";
-import type {RequestTraceAction, RequestTraceCompareView, RequestTraceContentState, RequestTraceDetail, RequestTraceDetailState, RequestTraceMessage, RequestTracePayloadView, RequestTracePurpose, RequestTraceRow, RequestTraceStatus} from "../../request-trace";
+import {cacheHitRate, compareRequests, contentPieces, formatBytes, formatCost, formatDuration, formatTokens, highlightSegments, promptTokens} from "../../request-trace";
+import type {ContentPiece, RequestTraceAction, RequestTraceCompareView, RequestTraceContentState, RequestTraceDetail, RequestTraceDetailState, RequestTraceHit, RequestTraceMessage, RequestTracePayloadView, RequestTracePurpose, RequestTraceRow, RequestTraceStatus} from "../../request-trace";
 import {useAgentText} from "../text";
 import AgentRequestJson from "./AgentRequestJson.vue";
 
@@ -21,6 +21,10 @@ const props = defineProps<{
     compare: RequestTraceCompareView;
     /** 比较页可以换着比的：同一会话里更早的几次（新的在前）。 */
     compareCandidates: readonly RequestTraceRow[];
+    /** 查找词（去掉首尾空白之后）；为空时没有查找条、不标命中。 */
+    search: string;
+    /** 这一条全部的命中（宿主按查找词取来）；还没取到时为 null。 */
+    hits: readonly RequestTraceHit[] | null;
     /** 列表里紧挨着的新一次、旧一次（没有时为 null）。 */
     newer: string | null;
     older: string | null;
@@ -152,36 +156,22 @@ function toggle(key: string, hash: string): void {
     expanded.value = next;
 }
 
-type Piece = {readonly kind: "text" | "thinking" | "image" | "call" | "json"; readonly text: string};
-
-/** 记录器存下的内容（一条消息、一段系统提示词、一个工具声明、一份回复）换成要显示的几段。 */
-function piecesOf(text: string): Piece[] {
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(text);
-    } catch {
-        return [{kind: "text", text}];
-    }
-    const object = parsed as {content?: unknown; toolCalls?: unknown; kind?: unknown; text?: unknown; description?: unknown; parameters?: unknown};
-    const pieces: Piece[] = [];
-    const blocks = Array.isArray(object.content) ? object.content : typeof object.kind === "string" ? [object] : [];
-    for (const block of blocks as {kind?: string; text?: string; mime?: string; bytes?: number; uri?: string}[]) {
-        if (block.kind === "text" && typeof block.text === "string") pieces.push({kind: "text", text: block.text});
-        else if (block.kind === "thinking" && typeof block.text === "string") pieces.push({kind: "thinking", text: block.text});
-        else if (block.kind === "image") pieces.push({kind: "image", text: `${block.mime ?? "image"} · ${formatBytes(block.bytes ?? 0)}`});
-        else if (block.kind === "imageRef") pieces.push({kind: "image", text: block.uri ?? ""});
-    }
-    if (Array.isArray(object.toolCalls)) for (const call of object.toolCalls as {tool?: string; args?: unknown}[]) pieces.push({kind: "call", text: `${call.tool ?? ""} ${JSON.stringify(call.args ?? {}, null, 2)}`});
-    if (typeof object.description === "string") pieces.push({kind: "text", text: object.description});
-    if (object.parameters !== undefined) pieces.push({kind: "json", text: JSON.stringify(object.parameters, null, 2)});
-    return pieces;
-}
-
-const parsed = computed(() => {
-    const result = new Map<string, Piece[]>();
-    for (const [hash, content] of Object.entries(props.contents)) if (content.state === "ready") result.set(hash, piecesOf(content.text));
+/** 展开的一条要显示的几块；查找时命中的那几段标出它在这一条里是第几处（与服务端数的一致，见 `contentPieces`）。 */
+const pieces = computed(() => {
+    const result = new Map<string, ContentPiece[]>();
+    for (const [hash, content] of Object.entries(props.contents)) if (content.state === "ready") result.set(hash, contentPieces(content.text));
     return result;
 });
+
+function renderPieces(hash: string, page: RequestTraceHit["page"], item: number): {kind: ContentPiece["kind"]; segments: {text: string; ordinal: number | null; current: boolean}[]}[] {
+    let ordinal = 0;
+    return (pieces.value.get(hash) ?? []).map((piece) => {
+        // 图片只有类型与大小，不进查找。
+        const segments = piece.kind === "image" || props.search === "" ? [{text: piece.text, ordinal: null}] : highlightSegments(piece.text, props.search, ordinal);
+        ordinal += segments.filter((segment) => segment.ordinal !== null).length;
+        return {kind: piece.kind, segments: segments.map((segment) => ({...segment, current: segment.ordinal !== null && isCurrent(page, item, segment.ordinal)}))};
+    });
+}
 
 function messageNote(message: RequestTraceMessage): string {
     const parts: string[] = [];
@@ -193,6 +183,59 @@ function messageNote(message: RequestTraceMessage): string {
 }
 
 const lastAttempt = computed(() => value.value?.attemptList.at(-1));
+
+// ─── 查找条（Spec 输出 20）：第几处、共几处、上一处与下一处、各页的命中数 ───
+
+const current = ref(0);
+const bodyRef = ref<HTMLElement | null>(null);
+watch(() => props.hits, () => {
+    current.value = 0;
+    if (props.hits !== null && props.hits.length > 0) void reveal(0);
+});
+
+const pageCounts = computed(() => {
+    const counts: Record<RequestTraceHit["page"], number> = {messages: 0, system: 0, tools: 0, error: 0};
+    for (const hit of props.hits ?? []) counts[hit.page] += 1;
+    return counts;
+});
+
+function isCurrent(page: RequestTraceHit["page"], item: number, ordinal: number): boolean {
+    const hit = props.hits?.[current.value];
+    return hit !== undefined && hit.page === page && hit.item === item && hit.ordinal === ordinal;
+}
+
+/** 展开这一处所在的那一条、切到它那一页，再把它滚进视野。错误文字在概览里，不用换页。 */
+async function reveal(index: number): Promise<void> {
+    const hit = props.hits?.[index];
+    const detail = value.value;
+    if (hit === undefined || detail === null) return;
+    current.value = index;
+    if (hit.page !== "error") {
+        tab.value = hit.page;
+        const isReply = hit.page === "messages" && hit.item >= detail.messages.length;
+        const key = hit.page === "messages" ? (isReply ? "reply" : `m${String(hit.item)}`) : `${hit.page}${String(hit.item)}`;
+        const hash = hit.page === "messages" ? (isReply ? detail.reply?.hash : detail.messages[hit.item]?.hash) : hit.page === "system" ? detail.system[hit.item]?.hash : detail.tools[hit.item]?.hash;
+        if (hit.page === "messages" && !isReply && hit.item < folded.value) prefixOpen.value = true;
+        if (hash !== undefined && !expanded.value.has(key)) toggle(key, hash);
+    }
+    await nextTick();
+    bodyRef.value?.querySelector("[data-hit-current]")?.scrollIntoView({block: "center"});
+}
+
+function step(delta: number): void {
+    const count = props.hits?.length ?? 0;
+    if (count > 0) void reveal((current.value + delta + count) % count);
+}
+
+function jumpToPage(page: RequestTraceHit["page"]): void {
+    const index = props.hits?.findIndex((hit) => hit.page === page) ?? -1;
+    if (index >= 0) void reveal(index);
+}
+
+// 全文晚到（展开之后才取回）时再滚一次。
+watch(() => props.contents, () => {
+    if ((props.hits?.length ?? 0) > 0) void nextTick(() => bodyRef.value?.querySelector("[data-hit-current]")?.scrollIntoView({block: "center"}));
+});
 </script>
 
 <template>
@@ -237,9 +280,20 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                 <div v-if="modifiedBy !== ''" class="ard__modified"><span class="i-lucide-puzzle" aria-hidden="true"></span>{{ t("requests.detail.modifiedBy", {list: modifiedBy}) }}</div>
             </div>
 
+            <div v-if="search !== ''" class="ard__find" role="search" data-request-findbar>
+                <span class="i-lucide-search ard__find-icon" aria-hidden="true"></span>
+                <span class="ard__find-query">{{ search }}</span>
+                <span class="ard__find-count" aria-live="polite">{{ hits === null ? "…" : hits.length === 0 ? t("requests.find.none") : t("requests.find.position", {current: current + 1, total: hits.length}) }}</span>
+                <IconButton size="2xs" icon-class="i-lucide-chevron-up" :aria-label="t('requests.find.previous')" :title="t('requests.find.previous')" :disabled="(hits?.length ?? 0) === 0" data-request-find-previous @click="step(-1)" />
+                <IconButton size="2xs" icon-class="i-lucide-chevron-down" :aria-label="t('requests.find.next')" :title="t('requests.find.next')" :disabled="(hits?.length ?? 0) === 0" data-request-find-next @click="step(1)" />
+                <span class="ard__find-pages">
+                    <button v-for="page in (['messages', 'system', 'tools'] as const)" :key="page" type="button" class="ard__find-page" :disabled="pageCounts[page] === 0" :data-request-find-page="page" @click="jumpToPage(page)">{{ t(`requests.tabs.${page}`) }} {{ pageCounts[page] }}</button>
+                </span>
+            </div>
+
             <Tabs class="ard__tabs" size="sm" overflow="adapt" :model-value="tab" :items="tabs" :aria-label="t('requests.detail.label')" @update:model-value="tab = $event as Tab" />
 
-            <div class="ard__body nb-ui-scrollbar-thin nb-ui-scrollbar-stable" data-request-body>
+            <div ref="bodyRef" class="ard__body nb-ui-scrollbar-thin nb-ui-scrollbar-stable" data-request-body>
                 <ol v-if="tab === 'messages'" class="ard__items">
                     <li v-if="value.messages.length === 0 && value.reply === undefined" class="ard__none">{{ t("requests.message.empty") }}</li>
                     <li v-if="folded > 0" class="ard__item">
@@ -260,7 +314,7 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                         </button>
                         <div v-if="expanded.has(`m${index}`)" class="ard__full">
                             <template v-if="contents[message.hash]?.state === 'ready'">
-                                <div v-for="(piece, pieceIndex) in parsed.get(message.hash)" :key="pieceIndex" class="ard__piece" :data-kind="piece.kind">{{ piece.text }}</div>
+                                <div v-for="(piece, pieceIndex) in renderPieces(message.hash, 'messages', index)" :key="pieceIndex" class="ard__piece" :data-kind="piece.kind"><template v-for="(segment, segmentIndex) in piece.segments" :key="segmentIndex"><mark v-if="segment.ordinal !== null" :data-hit-current="segment.current || undefined">{{ segment.text }}</mark><template v-else>{{ segment.text }}</template></template></div>
                             </template>
                             <span v-else-if="contents[message.hash]?.state === 'missing'" class="ard__muted">{{ t("requests.message.missing") }}</span>
                             <span v-else class="ard__muted">{{ t("requests.message.loading") }}</span>
@@ -277,7 +331,7 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                         </button>
                         <div v-if="expanded.has('reply')" class="ard__full">
                             <template v-if="contents[value.reply.hash]?.state === 'ready'">
-                                <div v-for="(piece, pieceIndex) in parsed.get(value.reply.hash)" :key="pieceIndex" class="ard__piece" :data-kind="piece.kind">{{ piece.text }}</div>
+                                <div v-for="(piece, pieceIndex) in renderPieces(value.reply.hash, 'messages', value.messages.length)" :key="pieceIndex" class="ard__piece" :data-kind="piece.kind"><template v-for="(segment, segmentIndex) in piece.segments" :key="segmentIndex"><mark v-if="segment.ordinal !== null" :data-hit-current="segment.current || undefined">{{ segment.text }}</mark><template v-else>{{ segment.text }}</template></template></div>
                             </template>
                             <span v-else class="ard__muted">{{ t("requests.message.loading") }}</span>
                         </div>
@@ -294,7 +348,7 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                         </button>
                         <div v-if="expanded.has(`${tab}${index}`)" class="ard__full">
                             <template v-if="contents[item.hash]?.state === 'ready'">
-                                <div v-for="(piece, pieceIndex) in parsed.get(item.hash)" :key="pieceIndex" class="ard__piece" :data-kind="piece.kind">{{ piece.text }}</div>
+                                <div v-for="(piece, pieceIndex) in renderPieces(item.hash, (tab as 'system' | 'tools'), index)" :key="pieceIndex" class="ard__piece" :data-kind="piece.kind"><template v-for="(segment, segmentIndex) in piece.segments" :key="segmentIndex"><mark v-if="segment.ordinal !== null" :data-hit-current="segment.current || undefined">{{ segment.text }}</mark><template v-else>{{ segment.text }}</template></template></div>
                             </template>
                             <span v-else-if="contents[item.hash]?.state === 'missing'" class="ard__muted">{{ t("requests.message.missing") }}</span>
                             <span v-else class="ard__muted">{{ t("requests.message.loading") }}</span>
@@ -482,6 +536,63 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
     align-items: center;
     color: var(--text-muted);
     font-size: var(--text-xs);
+}
+.ard__find {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    gap: 4px var(--space-2);
+    align-items: center;
+    margin: 0 var(--space-3) var(--space-1);
+    padding: 4px var(--space-2);
+    border-radius: var(--radius-control);
+    background: var(--accent-bg);
+    font-size: var(--text-xs);
+}
+.ard__find-icon {
+    width: 12px;
+    height: 12px;
+    color: var(--accent-text);
+}
+.ard__find-query {
+    overflow: hidden;
+    max-width: 12em;
+    color: var(--accent-text);
+    font-weight: var(--weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ard__find-count {
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+.ard__find-pages {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-left: auto;
+}
+.ard__find-page {
+    padding: 0 6px;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: var(--text-2xs);
+    cursor: pointer;
+}
+.ard__find-page:disabled {
+    color: var(--text-muted);
+    cursor: default;
+}
+.ard__piece mark {
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--status-warning) 30%, transparent);
+    color: inherit;
+}
+.ard__piece mark[data-hit-current] {
+    background: color-mix(in srgb, var(--status-warning) 65%, transparent);
+    outline: 1px solid var(--status-warning);
 }
 .ard__tabs {
     flex: none;

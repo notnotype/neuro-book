@@ -8,7 +8,7 @@ import {Badge, Button, EmptyState, Spinner} from "@notnotype/nb-ui/components";
 
 import {formatClock} from "../../format";
 import {cacheHitRate, formatCost, formatDuration, formatTokens, groupRequests, promptTokens} from "../../request-trace";
-import type {RequestGroup, RequestTraceAction, RequestTraceListState, RequestTracePurpose, RequestTraceRow, RequestTraceStatus, RequestTraceTotals} from "../../request-trace";
+import type {RequestGroup, RequestTraceAction, RequestTraceListState, RequestTracePurpose, RequestTraceRow, RequestTraceSearchState, RequestTraceStatus, RequestTraceTotals} from "../../request-trace";
 import {useAgentText} from "../text";
 
 const props = defineProps<{
@@ -25,6 +25,9 @@ const props = defineProps<{
     /** 选中的那条被筛掉了，详情照样显示，列表头写明（Spec 输出 15）。 */
     excluded: boolean;
     pending: number;
+    /** 查找词；不为空时列表是查找交回的行，第二行换写第一处命中。 */
+    search: string;
+    searchState: RequestTraceSearchState;
     enabled: boolean;
     now: number;
 }>();
@@ -46,6 +49,13 @@ const totalsText = computed(() => {
     const {input, cacheRead, cost} = props.totals;
     return t("requests.list.totals", {input: formatTokens(input), cache: percent(input === 0 ? null : cacheRead / input), cost: formatCost(cost) ?? "—"});
 });
+
+/** 第一处命中在哪：第几条消息、系统提示词、工具或错误。 */
+function hitWhere(row: RequestTraceRow): string {
+    const first = row.match?.first;
+    if (first === undefined) return "";
+    return first.page === "messages" ? t("requests.hit.message", {index: first.item + 1}) : t(`requests.hit.${first.page}`);
+}
 
 function groupLabel(group: RequestGroup): string {
     if (group.background) return t("requests.group.background");
@@ -79,7 +89,12 @@ function onScroll(event: Event): void {
 
 <template>
     <section class="arl" :aria-label="t('requests.list.label')">
-        <div class="arl__head">
+        <div v-if="search !== ''" class="arl__head" data-request-search-head>
+            <span class="arl__count">{{ t("requests.search.found", {count: rows.length}) }}</span>
+            <span v-if="searchState.state === 'searching'" class="arl__totals">{{ t("requests.search.searching") }}</span>
+            <span v-else-if="searchState.truncated" class="arl__partial">{{ t("requests.search.partial") }}<button type="button" class="arl__link" data-request-search-more @click="emit('action', {type: 'request.search-more'})">{{ t("requests.search.more") }}</button></span>
+        </div>
+        <div v-else class="arl__head">
             <span class="arl__count">{{ t("requests.list.count", {count: totals.count}) }}</span>
             <span class="arl__totals" :title="totalsText">{{ totalsText }}</span>
         </div>
@@ -136,7 +151,12 @@ function onScroll(event: Event): void {
                         <span class="arl__number">#{{ row.request }}</span>
                         <span class="arl__time">{{ formatClock(row.startedAt, locale) }}</span>
                     </span>
-                    <span v-if="row.status === 'running'" class="arl__line2">
+                    <span v-if="row.match !== undefined" class="arl__line2 arl__snippet" :title="`${row.match.first.before}${row.match.first.text}${row.match.first.after}`">
+                        <span class="arl__where">{{ hitWhere(row) }}</span>
+                        <span class="arl__snippet-text">{{ row.match.first.before }}<mark>{{ row.match.first.text }}</mark>{{ row.match.first.after }}</span>
+                        <span v-if="row.match.count > 1" class="arl__more-hits">{{ t("requests.hit.more", {rest: row.match.count - 1}) }}</span>
+                    </span>
+                    <span v-else-if="row.status === 'running'" class="arl__line2">
                         <span>{{ t("requests.row.waited", {duration: duration(row)}) }}</span>
                     </span>
                     <span v-else-if="row.status === 'error'" class="arl__line2 arl__line2--error">
@@ -337,6 +357,42 @@ function onScroll(event: Event): void {
     font-family: var(--font-mono);
     font-size: var(--text-2xs);
     white-space: nowrap;
+}
+.arl__partial {
+    display: inline-flex;
+    flex: none;
+    gap: 6px;
+    color: var(--text-muted);
+}
+.arl__link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-text);
+    font-size: inherit;
+    cursor: pointer;
+}
+.arl__snippet {
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+}
+.arl__where {
+    flex: none;
+    color: var(--text-secondary);
+}
+.arl__snippet-text {
+    overflow: hidden;
+    flex: 1 1 0;
+    min-width: 0;
+    text-overflow: ellipsis;
+}
+.arl__snippet-text mark {
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--status-warning) 30%, transparent);
+    color: var(--text-main);
+}
+.arl__more-hits {
+    flex: none;
 }
 .arl__line2--error {
     color: var(--status-danger);

@@ -647,6 +647,26 @@ export default {
             added: "多出的消息",
             removed: "少了的消息",
         },
+        find: {
+            position: "第 {{current}} 处，共 {{total}} 处",
+            none: "这次请求里没有",
+            previous: "上一处",
+            next: "下一处",
+        },
+        search: {
+            placeholder: "查找请求与回复的内容、工具、错误",
+            found_other: "找到 {{count}} 次请求",
+            searching: "正在查找",
+            partial: "只查了一部分",
+            more: "接着查",
+        },
+        hit: {
+            message: "第 {{index}} 条",
+            system: "系统提示词",
+            tools: "工具",
+            error: "错误",
+            more: "另 {{rest}} 处",
+        },
         json: {
             showAll_other: "显示全部 {{count}} 行",
         },

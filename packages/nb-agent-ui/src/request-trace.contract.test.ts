@@ -7,12 +7,12 @@ import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
-import {RequestRecorder, traceModelPort} from "@notnotype/nb-harness/kit/requests";
+import {RequestRecorder, searchablePieces, traceModelPort} from "@notnotype/nb-harness/kit/requests";
 import type {RequestDetail, RequestPage, RequestRow} from "@notnotype/nb-harness/kit/requests";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {groupRequests, matchesQuery} from "./request-trace";
+import {contentPieces, groupRequests, highlightSegments, matchesQuery} from "./request-trace";
 import type {RequestTraceDetail, RequestTraceFacets, RequestTraceRow, RequestTraceTotals} from "./request-trace";
 
 // 编译期核对：nb-harness 交出的形状（宿主补上 `messagesNext` 等字段之后）能赋给这里的类型。
@@ -54,6 +54,13 @@ describe("与真实记录器对契约", () => {
         expect(page.rows.every((item) => matchesQuery(item, {sessions: ["s1"], statuses: ["ok"]}))).toBe(true);
         const detail = await recorder.read(page.rows[0]?.id ?? "");
         expect(detail?.messages.map((message) => [message.role, message.preview])).toEqual([["user", "写第一章"]]);
+
+        // 查找条按显示的文字数处数：与记录器查找用的文字逐字相同，处数也就相同。
+        const stored = await recorder.content(detail?.messages[0]?.hash ?? "") ?? "";
+        const shown = contentPieces(stored).filter((piece) => piece.kind !== "image").map((piece) => piece.text);
+        expect(shown).toEqual(searchablePieces(JSON.parse(stored)));
+        const counted = shown.flatMap((text) => highlightSegments(text, "第一").filter((segment) => segment.ordinal !== null)).length;
+        expect(counted).toBe((await recorder.hits(detail?.id ?? "", "第一"))?.filter((hit) => hit.item === 0).length ?? -1);
         await recorder.close();
     });
 });

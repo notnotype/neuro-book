@@ -4,11 +4,11 @@
  * 数据都由宿主给（列表、详情、内容与原始请求体），筛选受控、改了发 `update:query`，其余操作经 `action` 交回；查看器不取数。
  * 宽到放不下两栏时列表与详情来回切换（Spec 输出 23），切换状态是组件自己的。
  */
-import {computed, ref, watch} from "vue";
-import {Button, DropdownMenu} from "@notnotype/nb-ui/components";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
+import {Button, DropdownMenu, Input} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 
-import type {RequestTraceAction, RequestTraceCompareView, RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceListState, RequestTracePayloadView, RequestTracePurpose, RequestTraceQuery, RequestTraceRow, RequestTraceStatusFilter, RequestTraceTotals} from "../../request-trace";
+import type {RequestTraceAction, RequestTraceCompareView, RequestTraceHit, RequestTraceSearchState, RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceListState, RequestTracePayloadView, RequestTracePurpose, RequestTraceQuery, RequestTraceRow, RequestTraceStatusFilter, RequestTraceTotals} from "../../request-trace";
 import type {AgentLocale} from "../../types";
 import {provideAgentText} from "../text";
 import AgentRequestDetail from "./AgentRequestDetail.vue";
@@ -31,17 +31,55 @@ const props = withDefaults(defineProps<{
     payload: RequestTracePayloadView;
     /** 比较页：拿来比的那次与它的详情；缺省还没定。 */
     compare?: RequestTraceCompareView;
+    /** 查找词，受控；改了（输入法组字结束、停顿 300 毫秒之后）发 `update:search`。为空时不在查找。 */
+    search?: string;
+    /** 查找的状态。查找时 `rows` 是查找交回的行（带 `match`）。 */
+    searchState?: RequestTraceSearchState;
+    /** 选中那条全部的命中（查找条用）；还没取到时为 null。 */
+    hits?: readonly RequestTraceHit[] | null;
     /** 记录开着；关着且没有记录时空状态写“没有在记录”与“打开记录”。 */
     enabled: boolean;
     /** 宿主给的当前时间：进行中的请求写已经等了多久。 */
     now: number;
     /** 没有宿主注入翻译端口时的界面语言，缺省 zh-CN。 */
     locale?: AgentLocale;
-}>(), {pending: 0, locale: undefined, compare: () => ({base: null, detail: {state: "idle"}})});
+}>(), {pending: 0, locale: undefined, compare: () => ({base: null, detail: {state: "idle"}}), search: "", searchState: () => ({state: "idle", truncated: false}), hits: null});
 
-const emit = defineEmits<{"update:query": [query: RequestTraceQuery]; action: [action: RequestTraceAction]}>();
+const emit = defineEmits<{"update:query": [query: RequestTraceQuery]; "update:search": [search: string]; action: [action: RequestTraceAction]}>();
 
 const {t} = provideAgentText(() => props.locale);
+
+// ─── 查找框：输入法组字时不发，停顿 300 毫秒才发（每发一次宿主就作废上一次查找、重扫一遍）───
+
+const SEARCH_DELAY_MS = 300;
+const draft = ref(props.search);
+let composing = false;
+let timer: ReturnType<typeof setTimeout> | null = null;
+watch(() => props.search, (search) => {
+    if (search !== draft.value.trim()) draft.value = search;
+});
+function schedule(): void {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => {
+        timer = null;
+        const text = draft.value.trim();
+        if (text !== props.search) emit("update:search", text);
+    }, SEARCH_DELAY_MS);
+}
+function onDraft(value: string): void {
+    draft.value = value;
+    if (!composing) schedule();
+}
+function onCompositionStart(): void {
+    composing = true;
+}
+function onCompositionEnd(): void {
+    composing = false;
+    schedule();
+}
+onBeforeUnmount(() => {
+    if (timer !== null) clearTimeout(timer);
+});
 
 /** 窄时显示哪一栏；宽时两栏都在，这个值不起作用。 */
 const view = ref<"list" | "detail">(props.selected === null ? "list" : "detail");
@@ -123,6 +161,7 @@ function clearFilters(): void {
 <template>
     <div class="art" :data-view="view">
         <header class="art__toolbar">
+            <Input class="art__search" size="sm" type="search" icon-class="i-lucide-search" clearable :model-value="draft" :placeholder="t('requests.search.placeholder')" :aria-label="t('requests.search.placeholder')" data-request-search @update:model-value="onDraft" @compositionstart="onCompositionStart" @compositionend="onCompositionEnd" />
             <div class="art__chips">
                 <DropdownMenu v-for="chip in chips" :key="chip.id" :items="chip.items" @select="onSelect">
                     <button type="button" class="art__chip" :data-active="chip.active || undefined" :data-request-filter="chip.id">
@@ -147,6 +186,8 @@ function clearFilters(): void {
                 :filtered="filtered"
                 :excluded="excluded"
                 :pending="pending"
+                :search="search"
+                :search-state="searchState"
                 :enabled="enabled"
                 :now="now"
                 @action="onAction"
@@ -158,6 +199,8 @@ function clearFilters(): void {
                 :payload="payload"
                 :compare="compare"
                 :compare-candidates="compareCandidates"
+                :search="search"
+                :hits="hits"
                 :newer="newer"
                 :older="older"
                 :narrow="view === 'detail'"
@@ -188,6 +231,9 @@ function clearFilters(): void {
     border-bottom: 1px solid var(--divider);
 }
 /* 只有一行控件高的条：放不下时换行，不做横向滚动（滚动容器会裁掉按钮的焦点环）。 */
+.art__search {
+    margin-bottom: var(--space-2);
+}
 .art__chips {
     display: flex;
     flex-wrap: wrap;

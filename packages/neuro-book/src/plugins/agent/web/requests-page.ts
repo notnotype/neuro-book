@@ -10,7 +10,7 @@ import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
 import {matchesQuery} from "@notnotype/nb-agent-ui";
-import type {RequestTraceCompareView, RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceListState, RequestTracePayloadView, RequestTraceQuery, RequestTraceTotals} from "@notnotype/nb-agent-ui";
+import type {RequestTraceCompareView, RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceHit, RequestTraceListState, RequestTracePayloadView, RequestTraceQuery, RequestTraceSearchState, RequestTraceTotals} from "@notnotype/nb-agent-ui";
 import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
 
 import {agentRequestsContract} from "../shared/requests";
@@ -64,6 +64,11 @@ export class RequestsPage {
     readonly detail: ShallowRef<RequestTraceDetailState> = shallowRef({state: "idle"});
     readonly contents: ShallowRef<Readonly<Record<string, RequestTraceContentState>>> = shallowRef({});
     readonly payload: ShallowRef<RequestTracePayloadView> = shallowRef({state: "idle"});
+    /** 查找词（去掉了首尾空白）；不为空时 `rows` 是查找交回的行。 */
+    readonly search: ShallowRef<string> = shallowRef("");
+    readonly searchState: ShallowRef<RequestTraceSearchState> = shallowRef({state: "idle", truncated: false});
+    /** 选中那条全部的命中（查找条用）；没在查找或还没取到时为 null。 */
+    readonly hits: ShallowRef<readonly RequestTraceHit[] | null> = shallowRef(null);
     /** 比较页拿来比的那一次；换了选中就清掉，比较页打开时组件再要。 */
     readonly compare: ShallowRef<RequestTraceCompareView> = shallowRef({base: null, detail: {state: "idle"}});
 
@@ -74,6 +79,10 @@ export class RequestsPage {
     #listToken = 0;
     #detailToken = 0;
     #compareToken = 0;
+    #hitsToken = 0;
+    /** 正在跑的查找：新的查找开始时中止它（服务端随之停下）。 */
+    #searching: AbortController | null = null;
+    #searchNext: string | undefined;
     #borrowers = 0;
     #release: (() => void) | null = null;
     /** 下一次取完列表时要选中的（命令带的 `request`），或“选中最新的一条”（true）。 */
@@ -139,8 +148,20 @@ export class RequestsPage {
         void this.refresh();
     }
 
-    /** 从头取列表（筛选变了、点了“有 N 条新请求”、重连之后）。 */
+    /** 换查找词（输出 17）：空串回到普通的列表。 */
+    setSearch(text: string): void {
+        this.search.value = text;
+        this.hits.value = null;
+        void this.refresh();
+        if (text !== "" && this.selected.value !== null) void this.#loadHits(this.selected.value);
+    }
+
+    /** 从头取列表或从头查找（筛选或查找词变了、点了“有 N 条新请求”、重连之后）。 */
     async refresh(): Promise<void> {
+        if (this.search.value !== "") return this.#runSearch(false);
+        this.#searching?.abort(new Error("superseded"));
+        this.#searching = null;
+        this.searchState.value = {state: "idle", truncated: false};
         const token = ++this.#listToken;
         this.list.value = {state: "loading", more: false};
         this.pending.value = 0;
@@ -161,6 +182,50 @@ export class RequestsPage {
         this.#pick = null;
         if (pick === true && this.selected.value === null && page.value.rows[0] !== undefined) this.select(page.value.rows[0].id);
         else if (typeof pick === "string") this.select(pick);
+    }
+
+    /** 查找没扫完时接着往后查（`request.search-more`）。 */
+    async searchMore(): Promise<void> {
+        if (this.search.value !== "" && this.searchState.value.truncated) await this.#runSearch(true);
+    }
+
+    /**
+     * 查找：新的作废旧的（中止上一次调用，服务端随之停下）。接着查时把结果接在后面，否则换掉列表。查找时列表不分页，
+     * `list.more` 为 false，扫不完由 `searchState.truncated` 与“接着查”表示。
+     */
+    async #runSearch(more: boolean): Promise<void> {
+        this.#searching?.abort(new Error("superseded"));
+        const controller = new AbortController();
+        this.#searching = controller;
+        const token = ++this.#listToken;
+        this.pending.value = 0;
+        this.searchState.value = {state: "searching", truncated: false};
+        if (!more) this.list.value = {state: "loading", more: false};
+        const {limit: _limit, ...query} = listInput(this.query.value);
+        const cursor = more ? this.#searchNext : undefined;
+        const page = await this.#remote.search({...query, text: this.search.value, ...(cursor === undefined ? {} : {cursor})}, {signal: controller.signal});
+        if (token !== this.#listToken) return;
+        this.#searching = null;
+        if (!page.ok) {
+            this.#report("requests-search-failed", `could not search model requests: ${page.code}`);
+            this.searchState.value = {state: "error", truncated: false};
+            this.list.value = {state: more ? "ready" : "error", more: false};
+            return;
+        }
+        this.#seq = Math.max(this.#seq, page.value.seq);
+        this.#searchNext = page.value.next;
+        this.rows.value = more ? [...this.rows.value, ...page.value.rows] : page.value.rows;
+        this.searchState.value = {state: "done", truncated: page.value.truncated};
+        this.list.value = {state: "ready", more: false};
+    }
+
+    async #loadHits(id: string): Promise<void> {
+        const token = ++this.#hitsToken;
+        const text = this.search.value;
+        this.hits.value = null;
+        const read = await this.#remote.hits({id, text});
+        if (token !== this.#hitsToken || text !== this.search.value) return;
+        this.hits.value = read.ok ? read.value : [];
     }
 
     async more(): Promise<void> {
@@ -186,6 +251,7 @@ export class RequestsPage {
             this.payload.value = {state: "idle"};
             this.#compareToken += 1;
             this.compare.value = {base: null, detail: {state: "idle"}};
+            if (this.search.value !== "") void this.#loadHits(id);
         }
         this.selected.value = id;
         void this.#read(id);
@@ -275,7 +341,8 @@ export class RequestsPage {
             return;
         }
         if (change.kind !== "added" || this.list.value.state === "error" || !matchesQuery(change.row, this.query.value)) return;
-        if ((this.query.value.sort ?? "time") === "time") this.rows.value = [change.row, ...this.rows.value];
+        // 查找时不知道新的这条有没有命中，不插进来，记进“有 N 条新请求”，点了重新查。
+        if ((this.query.value.sort ?? "time") === "time" && this.search.value === "") this.rows.value = [change.row, ...this.rows.value];
         else this.pending.value += 1;
     }
 

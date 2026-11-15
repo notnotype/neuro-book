@@ -659,6 +659,27 @@ export default {
             added: "Added messages",
             removed: "Removed messages",
         },
+        find: {
+            position: "{{current}} of {{total}}",
+            none: "Not in this request",
+            previous: "Previous match",
+            next: "Next match",
+        },
+        search: {
+            placeholder: "Find in requests, replies, tools and errors",
+            found_one: "{{count}} request found",
+            found_other: "{{count}} requests found",
+            searching: "Searching",
+            partial: "Only part was searched",
+            more: "Search further",
+        },
+        hit: {
+            message: "Message {{index}}",
+            system: "System prompt",
+            tools: "Tools",
+            error: "Error",
+            more: "+{{rest}} more",
+        },
         json: {
             showAll_one: "Show all {{count}} line",
             showAll_other: "Show all {{count}} lines",
