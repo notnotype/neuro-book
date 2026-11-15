@@ -1,0 +1,108 @@
+t03 设计审查 r1：页面一侧（Sonnet）。只读，依据主工作区 master 的现有代码；标“未验证”的是从代码与 Chromium 行为推断，没在 pc-notype 上跑过。
+
+[1] 重要 | 机制不存在 | plan-r1.md 第 48 行；packages/neuro-book/src/web/host/close-ui.ts:50-60、136-146；packages/neuro-book/src/web/boot.ts:90-106
+关闭层一出现，窗口按钮就点不动、按不了，与计划写的“询问期间窗口照样能最小化、移动”相反。三处叠加：
+ a. `createCloseUi.layer.show()` 给 `body` 下除 `closeRoot` 之外的每个子节点设 `inert`（close-ui.ts:53-57），`ownRoot` 只认一个元素。新的 `[data-window-frame-root]` 是 `body` 的子节点，会被设 `inert`：不可点、不可聚焦、读屏不可见。
+ b. 关闭层是 nb-ui 的模态 `Dialog`（reka DialogRoot），reka 的 DismissableLayer 在模态开着时把 `document.body.style.pointerEvents` 设成 `none`（node_modules/reka-ui/dist/DismissableLayer/DismissableLayer.js:87-88），只有对话框内容自己回到 `auto`。窗口按钮的根是 `body` 的子节点，继承 `none`，即使去掉 `inert` 也点不到。
+ c. `installCloseKeyGuard`（close-ui.ts:136-146）在询问期间对焦点不在 `[role=dialog]` 里的按键一律 `preventDefault` 加 `stopImmediatePropagation`，窗口按钮上按 Enter、空格也被吞。
+另外 browser-host.md 输出 10 写的是“询问期间页面不接受输入（编辑、点击、快捷键）”，没有给窗口按钮留例外，Spec 要同时改。
+核实：读上面三处；reka 的行为可在 `desktop-close.e2e.ts` 的做法上加一条断言（层开着时点窗口按钮、看 `__electrobunSendToHost` 收到 `window-control`）直接复现。
+建议：`createCloseUi` 的 `ownRoot` 改成“不设 inert 的节点集合”（把窗口外框根传进去）；窗口外框根显式写 `pointer-events: auto`；按键拦截放行窗口外框根里的按钮（`event.target.closest("[data-window-frame-root]")`）；browser-host 输出 10 写明这个例外；e2e 加“层开着时最小化、关闭按钮仍可用，且关闭按钮把消息交给壳”。
+
+[2] 重要 | 遗漏（页面里的浮层） | plan-r1.md 第 55、91 行；packages/nb-ui/src/composables/useFloatingWindow.ts:117-118；packages/nb-ui/src/components/popup/QuickPick.vue:97；packages/nb-ui/src/components/feedback/Dialog.vue:200-207
+计划把“拖动区域”当成普通的 CSS 盒子，只防了标题栏里的可交互部分。但 Chromium 的 `app-region` 不看层叠和遮挡：区域按元素的布局矩形收集，按树序做并集（drag）与差集（no-drag），盖在标题栏上方的元素不会让下面的拖动区域失效（Electron 与 PWA 的窗口控件覆盖层都有这条已知行为）。后果是任何压在顶部 36px 的页面元素，在桌面里点击会变成拖动窗口：
+ - `FloatingWindow` 的拖动边界 `minY = 8`（useFloatingWindow.ts:117-118 `Math.max(y.value, 8)`），用户可以把浮动窗口的标题条拖到 y=8，它的标题与关闭按钮落在标题栏的拖动区域里，之后点它只会拖动整个应用窗口，浮动窗口自己拖不回来（只有 y≥36 的部分抓得到）。
+ - 模态 `Dialog` 的遮罩 `fixed inset-0`（Dialog.vue:200）盖过标题栏，遮罩顶部 36px 里点击不会触发“点遮罩关闭”，而是拖窗口。
+ - `QuickPick` 面板 `top: clamp(16px, 8cqh, 72px)`：窗口高度低于约 450px 时，输入框落进顶部 36px。
+ - 右键菜单、提示框落在顶部 36px 时同理。
+核实：计划引用的 frame-probe-r1 只测了页面最上面一块 drag 与它里面的 no-drag，没测“上面再盖一层元素”。在 pc-notype 上用同一个探针，在拖动区域上盖一个 `position: fixed; z-index: 9999` 的无 `app-region` 元素，查 `WM_NCHITTEST`：预计仍是 `HTCAPTION`（未验证，以此条为准）。
+建议：先按上面的探针确认。成立的话：(1) nb-ui 的浮层外框类（`.nb-ui-overlay`、`.nb-ui-popover-surface`、`.nb-ui-dialog-surface`）与 `FloatingWindow` 加 `-webkit-app-region: no-drag`（浏览器里不生效，没有副作用），树序在标题栏之后，会在差集里扣掉；(2) `useFloatingWindow` 的 `minY` 在桌面窗口外框下取 36（或经 CSS 变量 `--nb-window-frame-offset`）；(3) 这是 nb-ui 的改动，计划要写进切片 2 的范围，并按 nb-ui 的规则补测试；(4) e2e 加“开着对话框、浮动窗口时顶部 36px 的计算 `app-region`”。
+
+[3] 重要 | 机制 / 别扭 | plan-r1.md 第 55 行；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.vue:384（`<style scoped>`）；packages/nb-ui/src/components/popup/Menubar.vue:111-135
+计划写“按选择器一次写在根的样式里：`button`、`[role="menubar"]`、`[role="menuitem"]`、`a`、`input`、`[tabindex]`”。WorkbenchTitleBar 的样式是 `<style scoped>`，`.workbench-titlebar button` 会被编译成 `button[data-v-xxxx]`，只命中本组件模板里写出来的元素（含子组件的根元素）。完整菜单栏的四个触发器是 nb-ui `Menubar` 里 reka 的 `MenubarTrigger`（Menubar.vue:119，本身是 `button role=menuitem`），在 nb-ui 组件内部渲染，没有本组件的 scope 属性，选择器命中不了。后果：完整菜单栏下“文件 编辑 视图 帮助”四个触发器落在拖动区域里，点了只会拖窗口，菜单打不开；窄屏收成 ≡ 以后才正常。这正是 brief 说的“漏掉的后果是点不动”，并且最先暴露在最宽的窗口（level 0）。
+核实：读 Menubar.vue 与 reka 的 MenubarTrigger；Vue 的 scoped 规则见 `@vue/compiler-sfc`。`Menubar` 的根 `MenubarRoot`（`role=menubar`）会拿到 scope 属性所以 `[role="menubar"]` 能命中，但它只盖住触发器的盒子，触发器之间的 2px 缝与内边距都在它里面，这条本身没问题；问题是不能指望只命中根。
+建议：no-drag 规则写成 `.workbench-titlebar :deep(...)`（或另放一个非 scoped 的 `<style>` 块，选择器以 `[data-window-titlebar]` 起头），列表以“可聚焦、可点击的一切”为准：`button, a[href], input, select, textarea, [role="menubar"], [role="menuitem"], [role="button"], [tabindex]:not([tabindex="-1"])`，并把 e2e 的断言从“搜索按钮是 no-drag”改成对标题栏里每个可聚焦元素逐一断言（见 [11]），否则同类漏网会在 nb-ui 升级时回来。
+
+[4] 重要 | 接口与合同 / 别扭 | plan-r1.md 第 56 行；WorkbenchTitleBar.vue:393、399、81-98
+右端留位用根的 `padding-inline-end` 加变量，有两个后果。
+ a. 搜索不再居中。三栏网格 `minmax(max-content,1fr) minmax(120px,560px) minmax(max-content,1fr)` 是在内容盒里等分的（输出 28 的“搜索在整条标题栏正中”），右内边距多出 138px 以后，两侧的 1fr 在 `W - 8 - (8+138)` 里分，搜索中线比窗口中线向左偏 69px。VS Code 的做法是把窗口控件当成右栏的一部分，命令中心仍落在标题栏中线（凭记忆，未对照源码）。
+ b. 测量：`measuredWidths()` 里 `chrome` 取的是 `getComputedStyle(bar).paddingLeft/Right`（第 98 行），计算值已把 `calc(8px + 138px)` 解成像素，所以逐级让位会把留位算进去，这一点计划说得对，不用改 `yield.ts`。但 `watch([width, measuredWidth])` 只看标题栏宽度与测量层宽度，内边距变了（变量在 `boot` 里设，先于标题栏挂载，目前没问题；但没有任何东西保证这个顺序，也没有测试守着）不会触发重算。
+ c. 窄窗口：桌面窗口没有设最小宽度（desktop/src/bun/index.ts 里 `BrowserWindow` 只给了 `frame`），`titlebar-slot` 是 `overflow: hidden`（WorkbenchShell.vue:877-881）。level 5 已是最省的一档（图形标志、项目图标、分隔、≡，加搜索最窄 120px，加 end 组），留位让所有档位都多要 138px，窗口窄到 level 5 也放不下时，被裁掉的会是右端的布局按钮或“更多”，而输出 30 写的是“关键按钮不被遮挡、不被裁切”。具体到多少像素我没有量（未验证），e2e 里量。
+建议：留位放进右栏而不是根的内边距：`.workbench-titlebar__end` 末尾补一个宽 `var(--nb-window-controls-width, 0px)` 的占位（`padding-inline-end`），网格仍是 1fr 对 1fr，两侧够宽时搜索仍在窗口正中；`measuredWidths()` 里把这个占位宽度加进 `chrome`（或给 `TitlebarWidths` 加一项），并在 `useElementSize` 之外 watch 它，所以仍不需要改逐级让位的算法。在桌面壳里给窗口设最小宽度（壳一侧，建议 640 以上），或写明低于它时的行为。e2e 要在 1280、900、700、560 几个宽度下量“搜索中线与窗口中线之差”“最右按钮的右缘不压在窗口按钮的左缘上”。
+
+[5] 重要 | 遗漏 / 别扭 | plan-r1.md 第 50 行；packages/neuro-book/src/web/styles.css:19-22、36-38、60-64；packages/neuro-book/src/plugins/lab/web/LabPage.vue:10
+让位的做法是“`body` 让出 36px，再逐个页面根类减去变量”，合同挂在两个类名上，别的页面根都漏：
+ a. 视口滚动条：`html { scrollbar-gutter: stable }`（styles.css:21）对宿主页生效，宿主页滚动也走视口。固定定位的窗口按钮 `right: 0` 在视口滚动条的左边，滚动条槽（stable 时常驻，约 8 到 15px，`nb-ui-scrollbar-thin` 下更细但仍占位）夹在按钮与窗口右缘之间：关闭按钮不贴窗口右缘，右上角那一列像素点的是页面而不是关闭，窗口按钮的靶子比系统的小。失败页的“抢救出来的未保存正文”（`.nb-host-rescued`）一长，滚动条还会从 y=0 贯穿到底，在后备标题栏旁边露出来。
+ b. 其它页面：`LabPage.vue` 的根是 `h-screen w-screen`（100vh），开发窗口里没有标题栏、后备标题栏在，body 让出 36px 后页面比视口高 36px，出视口滚动条、底部 36px 被切。生产构建里没有 /lab，但页面表是插件贡献的（`workbench.pages`），以后任何页面都得自己知道这个变量。`.nb-host-loading`（host-loading.css:19）是 `fixed; inset: 0`，不让位，加载页的书名与进度条在整个视口里居中，而不是在标题栏以下居中。
+核实：读 styles.css、LabPage.vue、host-loading.css；在桌面外框开启（e2e 里 `addInitScript` 定义标记）时开 `/lab` 与一个长的失败页，量 `document.documentElement.scrollHeight - innerHeight` 与最右 8px 的 `elementFromPoint`。
+建议：把合同收到一处，不挂在类名上：外框开启且有后备标题栏时，让 `#app` 成为视口下面 36px 起的固定盒子（`position: fixed; inset: var(--nb-window-frame-offset) 0 0; overflow: auto`），所有页面的“100vh”改为 100%（页面根不再各自减变量），视口自己不再滚动、不出视口滚动条，窗口按钮能贴右缘；`.nb-host-loading` 同样 `inset-block-start` 取变量。这比“逐个类减变量”少一个会被新页面漏掉的约定。若仍想保留两个类的写法，至少把“页面根必须用变量”写进 browser-host 的合同并让 Lab 页也改。
+
+[6] 重要 | 遗漏（固定定位元素） | plan-r1.md 第 48-51 行；packages/neuro-book/src/web/styles.css:104-117
+`.nb-offline-banner` 是 `position: fixed; inset: 0 0 auto; z-index: 2147483000`、通栏、有底色（`Mark`），`pointer-events: none`。外框开启后，链路离线时这条横幅整条盖在标题栏与窗口按钮上（z-index 比窗口按钮高），窗口按钮被一条黄底盖住看不见，虽然点击还能穿透。计划的清单里没有它，浮层一节只谈了 nb-ui。
+建议：横幅在外框开启时 `inset-block-start: var(--nb-window-frame-offset, 0px)`（标题栏之下），或避开右端 `--nb-window-controls-width`；e2e 加“离线时窗口按钮仍可见”（离线横幅的真实浏览器验收在 e2e/rpc.e2e.ts，可照它的做法让链路断开）。
+
+[7] 建议 | 遗漏（状态切换） | plan-r1.md 第 43-50 行；packages/neuro-book/src/plugins/workbench/web/home-page.ts:106-113；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:629-648
+书架首页与工作台页换内容时 `[data-window-titlebar]` 出现与消失的几处细节，计划没有交代：
+ a. 工作台外壳是按需加载的（home-page.ts 的 `frame.shell.ensure()`），页面根先挂上、外壳后到。这段时间里没有 `[data-window-titlebar]`，后备标题栏在，页面高度是 `100dvh - 36px`；外壳挂上、真标题栏出现后，`MutationObserver` 回调才摘掉 `data-window-frame-bar`，页面高度变成 `100dvh`。若回调与 Vue 的提交在同一个任务的微任务里，浏览器不会画中间态（推断，未验证）；否则外壳会先以 36px 偏短的尺寸量一次 `@extent`、再变回来，布局引擎有可能记下这个中间尺寸（`acceptPresented`），首屏跳一下。需要在真实 Chrome 里取证：e2e 在 `MutationObserver` 与 `requestAnimationFrame` 上记录 `.nb-workbench-page` 的 `getBoundingClientRect().height` 序列，断言不出现“先短后长”的帧。
+ b. Lab 里 `chrome === undefined` 时外壳自己画一个简化标题栏（WorkbenchShell.vue:643-647，没有 `data-window-titlebar`），此时后备标题栏与它叠成两条，只发生在开发窗口。
+ c. 首页（书架）永远没有 `[data-window-titlebar]`：书架页在后备标题栏下面再有自己的页头，首屏上方是一条空的 36px 图形标志条，再是书架页头。这是开发者定下的“后备”，只是提醒首屏观感：后备标题栏的内容（图形标志加文档标题）与书架页头里的品牌重复。
+建议：a 用上面的取证决定要不要给 `data-window-frame-bar` 的撤销加 `requestAnimationFrame` 合并（或者首页与工作台页在外壳加载期间都固定用“偏移 36px”，由外壳的真标题栏用负 margin 吃掉，不动页面高度）；c 请开发者看一眼截图再定。
+
+[8] 重要 | 与现有约定冲突 | plan-r1.md 第 48 行；packages/nb-ui/docs/ui-development-spec.md 的 2.1（叠放层级）第 1、2 条；packages/nb-ui/src/theme/z-index.ts
+计划只写了“层级在关闭层之上”，没有写具体的 z-index。关闭层是模态 `Dialog`（`NB_Z_INDEX.dialog` = 9000 起，每多一层加步长），命令面板 9200、通知 9050、右键菜单 9100，Lab 检查框 9900。规范要求整页浮层的数值只在 `z-index.ts` 登记、组件用 `:style` 绑定登记表的值，并在 `z-index.test.ts` 补顺序断言；刻意压在一切之上的才可保留字面量并就地注释（离线横幅就是这样，取 2147483000）。窗口外框根是“压住一切”的整页固定元素：若取字面量要写注释说明，若进登记表要定它与 `commandPalette`、`inspectorProbe` 的先后（要不要压在命令面板与检查框之上，会不会让 Lab 的检查框被窗口按钮盖住）。
+另外 `useModalLayer` 的模态按打开顺序叠放、`NB_MODAL_MAX_LAYERS` 有上限，窗口外框的值必须高于模态最高档（9000 + (NB_MODAL_MAX_LAYERS-1)*步长，实际值读 z-index.ts），否则嵌套询问（关闭层加两层询问）时会被盖。
+建议：计划里写死选择——在 `z-index.ts` 登记一档 `windowFrame`（高于 `commandPalette`、低于 `inspectorProbe`，或同在最顶；理由写注释），补顺序断言；宿主页在加载 nb-ui 前也需要它时才用字面量并就地注释。
+
+[9] 建议 | 颜色与主题 | plan-r1.md 第 48-49 行；packages/neuro-book/src/web/host-loading.css:16-24；packages/neuro-book/src/web/index.html:37-50
+ a. “悬停底色用 `--bg-hover`”：窗口外框要在主题加载之前就显示（宿主页、加载页），那时没有 `--bg-hover`，变量未定义，`background: var(--bg-hover)` 整条声明无效，悬停没有任何反馈。每个取主题变量的地方都要有宿主页可用的缺省（例如 `color-mix(in srgb, CanvasText 12%, transparent)`），与 styles.css 对宿主页“只用系统颜色”的约定一致。
+ b. “主题没加载时用系统颜色”与加载页不一致：加载页的底色用 `--host-loading-background`（index.html 的内联脚本从上次的明暗记录写到根上，缺省奶油色 `#fffcf5`），而后备标题栏若用 `Canvas`，在 hint 与系统明暗不一致时（`root.style.colorScheme = hint.appearance` 让系统色跟随记录，但 `Canvas` 仍是系统白/黑，不是 `#fffcf5` 或记录里的深色）会在加载页上方出现一条与整页底色不同的 36px 色带。后备标题栏在加载页之上时应取 `var(--host-loading-background, ...)` 与 `var(--host-loading-text, ...)`。
+ c. 关闭按钮悬停红色 `#c42b1c` 加白字：对比度约 5.7:1，符合 WCAG AA；但它是字面颜色，ui-development-spec 第 2 条“组件不得写字面颜色”针对 nb-ui，宿主页不适用，仍要在 WindowFrame.md 写一句理由。`@media (forced-colors: active)`（Windows 高对比度模式，桌面端用户群里有）下作者色会被系统覆盖：SVG 字形要用 `currentColor`/`stroke: currentColor`，悬停底色在高对比度下用 `Highlight`，焦点环不能依赖 box-shadow；bookshelf 页面已有 `forced-colors` 先例（BookshelfPage.vue:334-350），计划没提。
+ d. “窗口不在前台时字形用次要文字色”：次要文字色（`--text-secondary` 或主题给的）在卡片外壳里落在窗体底上，不同主题的对比度没人核过；要求写进验收（至少明暗各一个主题、各量一次）。
+建议：WindowFrame 的颜色写成“主题变量，缺省取宿主页变量，再缺省取系统色”的三级回退；forced-colors 加一段；e2e 在未装主题的宿主页（失败页）与工作台页各取一次按钮与标题栏的计算色。
+
+[10] 建议 | 无障碍与组件约定 | plan-r1.md 第 47-48 行；.agents/skills/ui-development/SKILL.md 二.1；docs/standards/code/components.md
+ a. 键盘与读屏的顺序：窗口外框根是 `body` 里最后一个子节点（boot.ts 里 `closeRoot` 之后），Tab 顺序也最靠后：键盘用户要把整个应用（含状态栏）走完才到“最小化”，读屏的阅读顺序同样在最后，而按钮画在页面右上角。要么不进 Tab 顺序（`tabindex="-1"`，键盘用户本来有 Alt+Space 的系统菜单与 Alt+F4，原生窗口的按钮也不是 Tab 停靠点；VS Code 的窗口控件我记得也不是焦点停靠点，未对照源码），要么把根挂在 `#app` 之前。计划没有表态，需要写。
+ b. 分组：三个按钮应有分组标签（`role="group"` 或 `toolbar` 加 `aria-label`），计划的新键只有四个按钮名（`window.minimize`、`window.maximize`、`window.restore`、`window.close`），没有分组名，也没有后备标题栏文档标题的处理；`aria-label` 要随 `maximized` 切换“最大化/还原”，切换时读屏要不要播报也要定。
+ c. 打开模态时 reka 对内容之外的兄弟节点设 `aria-hidden`（`useHideOthers`），外框根也会被设上；与“按钮不能点”（[1]）一样是模态的预期，写一句进 `.md`，不要让后来者以为是缺陷。
+ d. 手写按钮：ui-development 二.1 写“严禁在业务端手写原生元素模拟”基础控件（按钮）。计划自己画 46×36 的 `<button>`，理由（系统标题按钮的矩形无圆角、贴边、无焦点环，nb-ui `IconButton` 的尺寸与圆角做不出来）写在了“技术选型”里的只是图形，没有写为什么不用 `IconButton` 加类覆盖。要在 `WindowFrame.md` 的“隐藏通道理由”与布局里写明，并让 `:focus-visible` 有焦点环（原生按钮在 reset 之后没有轮廓，styles.css 的 `.nb-host-page button:focus-visible` 就是为这个写的）。
+ e. 同名 `.md`：`WindowFrame.vue` 用 `useText()`，标签必须含 `state:inject`（`governance:check` 机检，components.md 第 63 行）；模仿 `CloseLayer.md`（`标签: [state:inject]`）。窗口状态来自 `window-frame.ts` 经 prop 交入则无别的隐藏通道，计划里写成“独立的 Vue 根”，但没有说状态怎么交给组件（prop 还是 inject），要定。Lab 场景：它依赖宿主链，不独立挂载，同 `CloseLayer` 不登记 Lab 场景是合理的，`.md` 里要有这句理由（`验证入口` 键或写明由 e2e 验收）。
+
+[11] 建议 | 遗漏（失败路径与初始状态） | plan-r1.md 第 37、44 行；packages/neuro-book/src/web/boot.ts:96-104；packages/neuro-book/src/plugins/projects/web/open-project.ts
+壳只在窗口 `resize`、收到 `page-ready` 与启动页 `shell-ready` 时发 `window-state`，页面在 `createWindowFrame` 里 `maximized` 的初值只能是 false。书架打开项目是整页加载（`navigateDocument` 即 `location.assign`），窗口最大化时整页跳转后的新文档：从页面脚本开始到 `page-ready`（`mountWindowUi` 之后，`boot.ts` 末尾）为止，窗口按钮画的是“最大化”字形而不是“还原”，`data-window-maximized` 也是错的，要到界面挂载之后才纠正；`reload`、服务端重启后的刷新同样。慢机器上这一段可以有几百毫秒到更久（要等 `start()`）。
+建议：让页面不靠“推送”拿初值：预加载脚本在 `document` 一出现就把当前最大化状态写进（壳建窗与每次文档加载时取 `win.isMaximized()`），或页面在 `createWindowFrame` 时主动发一次 `window-state-query`；计划选一种并写进桥的约定。验收加“最大化后整页导航，首帧字形正确”。
+
+[12] 建议 | 验收映射 / e2e 设计 | plan-r1.md 第 79-91 行；packages/neuro-book/e2e/desktop-close.e2e.ts:1-80；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.dom.test.ts
+能成立的部分（已实测）：用本机 Chrome 156 的无头模式读 `getComputedStyle`，`-webkit-app-region` 与 `app-region` 都认，计算值是 `drag` 或 `no-drag`，而且 `app-region` 会被后代继承（`<div app-region:drag><button>` 的按钮计算值也是 `drag`）。`addInitScript` 加假的 `__electrobunSendToHost` 在 `desktop-close.e2e.ts` 里已有先例（第 62-76 行）。所以计划这一块可行。
+不成立或缺的部分：
+ a. `-webkit-app-region` 的计算值只证明样式写对，不证明桌面里命中的是 `HTCAPTION`；e2e 的断言只能当“样式回归”，验收映射表里不要把 `desktop-frame.e2e.ts` 记成“拖动区域”的验收，真正的验收只有 Windows 一节（`WM_NCHITTEST`）。同理 `WorkbenchTitleBar.dom.test.ts` 在 happy-dom 里不应用 scoped 样式，计算不出 `app-region`，映射表里“输出 28（拖动区域与留位）→ DOM 测试”只能守 `data-window-titlebar` 属性与类名存在，不能守样式；这一格要改成 e2e。
+ b. `addInitScript` 只定义 `__nbookDesktopFrame`，而计划里加载页的样式依赖的 `html[data-window-frame]` 是预加载脚本设的（第 51 行），e2e 里不会有：`index.html` 的静态加载页拖动规则测不到，并且 e2e 的路径与真实路径不同（真实：预加载先设属性；e2e：页面脚本设）。让 `window-frame.ts` 自己也设 `data-window-frame`（预加载只是早一步），e2e 里同样补上一句 `document.documentElement.dataset.windowFrame = ""` 或让初始化脚本模拟预加载。
+ c. 只断言“搜索按钮是 no-drag”漏网（[3]）：要枚举标题栏里所有可聚焦元素与菜单触发器逐一断言 `-webkit-app-region` 为 `no-drag`，在 level 0 与 level 2（≡）两个宽度各做一次，项目切换在有项目与无项目两态各做一次。
+ d. 缺少的断言：关闭层开着时窗口按钮可用（[1]）；浮动窗口、模态遮罩、命令面板压在顶部时不被拖动区域吃掉（[2]）；离线横幅不盖住按钮（[6]）；`.nb-workbench-page` 与外壳在后备标题栏出现与消失时的高度序列（[7]）；多个窗口宽度下搜索中线偏差与右端按钮不重叠（[4]）；失败页（含长的抢救正文）无视口滚动条且按钮贴右缘（[5]）；明暗两套主题与未装主题的宿主页下按钮与标题栏的计算色（[9]）；窗口状态切换后 `aria-label` 变化与 `data-window-maximized`；`__electrobunSendToHost` 缺失时（普通浏览器不画；桌面里发送失败）的诊断；不定义标记时 `document.body` 的 padding、`.nb-workbench-page` 的高度与现状逐像素相同（回归：不能因为桌面加的变量改了普通浏览器的版式）。
+ e. 验证一节写“e2e 合入前跑一次”，同时 AGENTS 要求按受影响范围跑覆盖改动的文件：这次改了 `styles.css`、`WorkbenchTitleBar`、`CloseLayer` 相关的 `close-ui.ts`、`boot.ts`，书架页、失败页、命令面板的现有 e2e（`bookshelf.e2e.ts`、`browser-host.e2e.ts`、`desktop-close.e2e.ts`、`rpc.e2e.ts` 的离线横幅）都在受影响范围里；只跑新文件不足以守住“普通浏览器无回归”，计划里要点名这几个文件。
+
+[13] 建议 | 合同与性能 | plan-r1.md 第 43-46 行
+“观察文档里有没有 `[data-window-titlebar]`”这条合同有几处没写：
+ a. 观察范围：要在整个 `document` 上 `childList + subtree` 才能发现深处的标题栏；工作台里编辑器输入、Agent 对话流式输出、侧栏树都在持续改 DOM，每批改动都会触发回调并做一次全文档 `querySelector`。MutationObserver 按批合并，成本不大，但属于“应用全生命周期常驻”的开销，计划没有说怎么限（回调里 `requestAnimationFrame` 合并、已经有标题栏且它还连着时直接返回、只在 `#app` 子树上观察）。
+ b. 语义：声明了 `data-window-titlebar` 的页面要满足什么？至少三条：标题栏在窗口顶端、高 36px（后备标题栏的让位就是按它算的）；右端留出 `--nb-window-controls-width`；自己负责内部可交互元素的 no-drag。计划只写在 workbench-shell 输出 28 里，没有写进“窗口外框”的新输出，第三方页面不知道。多个元素同时声明、声明后被 `v-if` 摘掉再挂上时的行为（[7]a 的抖动）也要定。
+ c. 文档标题：后备标题栏显示 `document.title`，而标题由 `router.afterEach` 设置（router.ts:49-51）、语言切换也会改；计划没有说用什么观察，必须观察 `<title>`（或让路由钩子通知），否则切语言后标题栏的文字是旧的。
+ d. 不要把 `data-window-titlebar` 与已有的 `data-workbench-titlebar` 并存而互不引用：后者已经是标题栏的稳定钩子（WorkbenchTitleBar.vue:300）；二者的关系（新属性是宿主合同，旧的是工作台自己的）要在 `WorkbenchTitleBar.md` 写一句。
+
+[14] 建议 | 依赖的机制 | plan-r1.md 第 55、102 行；frame-probe-r1.txt 第 4-5、10 行
+计划的 CSS 只写“`app-region: drag`”。探针页同时写了 `app-region` 与 `-webkit-app-region`，WebView2 157 两个都认，所以证据说明不了只写无前缀名时在较老的 WebView2 上行不行。无前缀的 `app-region` 比带前缀的晚出（Chrome 约 130 之后才有，具体版本我没核，需要查 Chrome Platform Status），而计划把“WebView2 123 之前没有非客户区支持”当作下限，123 到无前缀名出现之间的版本只认 `-webkit-app-region`。风险记里只提了 123，没有这一段。建议两个名字都写（`-webkit-app-region` 在前或后都行，不论顺序），e2e 按带前缀名断言（本机 Chrome 两个都读得出）；并在壳里按 WebView2 版本决定是否声明 `__nbookDesktopFrame`（见 [17]）。
+
+[15] 建议 | 别扭 / 未验证 | plan-r1.md 第 24 行
+窗口按钮的图形用内联 SVG“10px 见方、1px 线”。探针只在 pc-notype 的 100% 缩放下测过。125%、150% 下 10 个 CSS 像素是 12.5、15 个设备像素，1px 线落在半像素上会糊；Windows 自己的按钮用 Segoe Fluent Icons（Win10 是 Segoe MDL2 Assets）的字形，是按像素对齐的。参照物：VS Code 用自带的 codicon 字体（`chrome-minimize` 等），PWA 窗口控件覆盖层则直接是系统画的。建议要么给 SVG 加 `shape-rendering: crispEdges` 并让图形盒按设备像素取整（用 `image-rendering` 与 `vector-effect: non-scaling-stroke` 的组合要实测），要么用 `font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets"` 的 E921/E922/E923/E8BB 字形、字体不存在时再回退到 SVG；验收里加 125% 与 150% 缩放各看一次（pc-notype 能改缩放，但“未验证边界”里现在只有 100%）。
+
+[16] 建议 | 别扭与反常 | plan-r1.md 第 43-47 行；packages/neuro-book/src/web/host/window.ts、PageOutlet.vue:30
+命名与职责：
+ a. `host/window-frame.ts` 紧挨着 `host/window.ts`（`createBrowserWindow`，窗口运行实例，状态机 `idle/starting/ready/...`）、`window-plugins.ts`、`window-catalogs.test.ts`，而页面根上已有 `data-window-state`、`data-window-instance`（PageOutlet.vue:30，指窗口运行实例）；新的 `data-window-frame`、`data-window-maximized`、`data-window-titlebar` 说的是“桌面应用窗口的外框”。同一个目录、同一类属性前缀里“窗口”指两件事，读代码的人要靠上下文区分。建议改名（例如 `desktop-frame.ts` 与 `data-desktop-frame*`，与能力标记 `__nbookDesktopFrame` 也一致），或在 `window-frame.ts` 的文件头写明区别。
+ b. 职责划分：`window-frame.ts`（无 Vue）管 DOM 属性与变量、观察标题栏、状态与发消息，`WindowFrame.vue` 画按钮与后备标题栏，这样分是合适的，并且与 `close-ui.ts` / `CloseLayer.vue` 同形。但计划里 `createWindowFrame` 同时“设 `<html>` 属性与变量”和“暴露 state”，没说 `state` 是不是 Vue 的响应式（`CloseUi.state` 是 `shallowRef`）；请与 close-ui 一样写成 `Readonly<ShallowRef<...>>`，否则组件要自己订阅。
+ c. 宿主目录的新键：计划写了 `window.minimize|maximize|restore|close`。`hostText` 的目录由 `window-catalogs.test.ts` 核对中英键集一致，所以两种语言都要加；另外要补分组名（[10]b）与后备标题栏里图形标志的读屏名；英文用 Windows 的原词“Minimize/Maximize/Restore Down/Close”，中文用“最小化/最大化/还原/关闭”，与系统按钮一致。`index.html` 里静态加载页的“正在启动 NeuroBook”两种语言是复制进去的（locale-hint 的测试守着），这次加载页上没有按钮文字，不用再复制一份，但要注意 `loading.label` 之外不要在静态页里写任何按钮文字。
+
+[17] 建议 | 参照项（VS Code、Electron titleBarOverlay、PWA 窗口控件覆盖层有而计划没有） | plan-r1.md 第 31、100-101 行
+ a. 回退到系统标题栏：VS Code 有 `window.titleBarStyle: native` 的退路；这里在 WebView2 低于 123 时拖动区域不生效，计划把风险记为“已知限制，窗口只能用键盘移动”。页面一侧只认 `__nbookDesktopFrame`，所以决定权在壳：壳启动时读 WebView2 版本，不够就用有系统标题栏的样式开窗并不定义标记，页面零改动就退回到现在的两条标题栏（输出 28 现状）。建议把它从“已知限制”升级为设计的一部分，至少写进 desktop-shell 的验收（“旧 WebView2：有系统标题栏，没有窗口按钮”），这样页面一侧的“没标记什么也不画”的 e2e 恰好覆盖它。
+ b. 点标题栏空白处时已打开的菜单不关：点击落在非客户区，页面收不到 `pointerdown`，reka 的“点外面关闭”不触发，菜单在窗口被拖动时一直开着（Windows 原生菜单是关的）。建议先在 pc-notype 上实测：按下标题栏空白处时页面会不会收到 `blur`（未验证）；会的话在 `WorkbenchTitleBar` 里据此关掉菜单，不会的话记为已知限制。
+ c. 无命令的条目（`<span role="status">`，WorkbenchItemStrip.vue:136-146）在标题栏条目区里没有 `button`/`tabindex`，落在拖动区域里：它们带 `title` 或 `hover` 的悬停提示（输出 43），非客户区收不到鼠标移动，原生 `title` 提示与 nb-ui `Tooltip` 都不会出现。要么给这类条目 `[data-workbench-item]` 加 no-drag（代价：它们不再能拖动，但它们本来就是一小块文字），要么在 `WorkbenchTitleBar.md` 写明桌面里不显示这些提示。no-drag 清单应以“有悬停或点击行为的一切”为准而不是“可聚焦的一切”。
+ d. 页面缩放：WebView2 默认可用 Ctrl+滚轮、Ctrl+加减缩放页面，窗口按钮与标题栏一起按 CSS 像素放大，保持一致，没有问题；VS Code 会反向补偿让标题栏不随缩放变化。这里不补偿也能自洽，只需在 WindowFrame.md 写一句“按页面缩放同比变化”，免得后人当缺陷。
+
+有效发现：[1]-[17] 共 17 条；阻断 0，重要 7（[1][2][3][4][5][6][8]），建议 10（[7][9][10][11][12][13][14][15][16][17]）。

@@ -15,8 +15,12 @@ updated: 2026-11-15
 
 ## 当前状态
 
-2026-11-15：pc-notype 上的探针（[frame-probe-r1.txt](evidences/frame-probe-r1.txt)）确认沙箱页面里的 `app-region: drag` 走 WebView2 的原生非客户区（`HTCAPTION`），并发现 Electrobun 的 `hiddenInset` 最大化会压住任务栏，用 `bun:ffi` 补三位窗口样式可修。计划 r1 写成。代码 worktree `.worktree/w00046-t03-title-bar`（分支 `feat/w00046-t03-title-bar`），品牌 ICO 已改为 32–256（未提交）。
+2026-11-15：
+- pc-notype 上的探针（[frame-probe-r1.txt](evidences/frame-probe-r1.txt)）确认，沙箱页面里的 `app-region: drag` 走 WebView2 的原生非客户区（`HTCAPTION`）。
+- 发现 Electrobun 的 `hiddenInset` 窗口最大化会压住任务栏，用 `bun:ffi` 补三位窗口样式可修。
+- 应用图标按开发者的两次决定做完（分支 `be074783f`、`39276fe1e`）：每个尺寸都从同一份不带边框的 SVG 渲染，不再用像素专用版，品牌规范随之改写；[对比图](artifacts/icon-variants/index.html)。
+- 设计审查第 1 轮：omp 14 条、Sonnet 17 条，处理见 [disposition](evidences/design-review-r1-disposition.txt)，计划改为 r2。不开第 2 轮。
 
 ## 下一步
 
-计划的设计审查（后端与计划 omp，前端 Sonnet），处理后按切片实施。
+按 plan r2 的切片 1（壳与约定）实施。

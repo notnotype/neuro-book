@@ -26,3 +26,6 @@ w00046 t03 标题栏探针第 1 轮（2026-11-15，pc-notype：Windows 11 26200 
 6. 图标：配置 build.win.icon 后 Hutch 打印“embedded Windows icon in launcher.exe / bun.exe”；窗口归 bun.exe 进程；从 bun.exe 取出的
    关联图标是 NeuroBook 的猫（32px）。窗口本身 WM_GETICON（大、小、小2）与窗口类的图标都是 0。
    开发者看后定：不用 16、24 的像素专用版，用高清图标（ICO 改为 32–256，窗口图标按 DPI 从 ICO 加载）。
+7. 设计审查后补测（Sonnet 第 2 条）：探针页加两块固定定位、z-index 10 的浮层压在拖动条上，一块不写 app-region、一块写 no-drag。
+   拖动条 (100,18) = 2；无 app-region 的浮层压在拖动条上的点 (400,18) = 2（HTCAPTION：点它会拖窗口）；同一浮层在拖动条以下 (400,80) = 1；
+   no-drag 的浮层压在拖动条上 (650,18) = 1。结论：app-region 不看层叠，盖到拖动区上的浮层必须写 no-drag。
