@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t33-plugin-skills
-status: planned
-updated: 2026-11-10
+status: active
+updated: 2026-11-15
 ---
 
 # 插件的 Skill 与 SDK 构建
