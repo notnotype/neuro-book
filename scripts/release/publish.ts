@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * 把发布清单里的包发到 npm（`bun run release:publish`，ADR 0029、0033）。缺省只做检查并列出要发的包；带 `--yes` 才发布，
- * 由开发者在 `npm login` 之后执行（远端写入要开发者授权，见 docs/standards/repository-workflow.md 的“发布授权”）。
+ * 由开发者在 `npm login` 之后执行（远端写入要开发者授权，见 docs/standards/repository-workflow.md 的“发布授权”；步骤见 docs/standards/releasing.md 的“本机发布”）。
  *
  * 发的是 `release:smoke` 打好、验过的 tarball（`dist/release/`），不在这里重新打包：发出去的字节就是冒烟验过的那份。
  * 发出去的版本号不能再用，所以先过门禁，任何一条失败都在发布前停下：会发布的目录（源码包、生成包的源码目录与根

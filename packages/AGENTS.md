@@ -9,4 +9,5 @@
 - `packages/*/.agent/` 与 `packages/*/.local/` 是被忽略且不得跟踪的包级运行态；`.agent/tasks`（单数）不是治理入口。`packages/*/.worktree/` 只允许迁移期间短暂存在，checkpoint 前必须清理。
 - 包不得反向依赖应用特例或 root-only runtime；跨包依赖使用 workspace package 名与声明版本，应用只能消费领域包，领域包不得依赖 `@notnotype/neuro-book` 或 `@notnotype/neuro-book-legacy`。
 - 许可证、公开包名、版本、exports 和发布合同变化必须先记录为跨 Module 决策，再修改消费者。
+- 改了要发布的包（应用、SDK 与以源码发布的包）里用户看得到的行为，同一个提交在它的 `CHANGELOG.md` 的 `## [Unreleased]` 下补一条；写法与“写在哪个包”见 [发布手册的“写变更记录”](../docs/standards/releasing.md#写变更记录)。
 - 测试运行器与临时根按 [`docs/testing/README.md`](../docs/testing/README.md) 执行：通用包使用 `bun test`，应用包按自身 Vitest 配置；不创建仓库 `.agent/tmp/`。

@@ -29,7 +29,7 @@ Windows 桌面版的主进程与壳自己的页面。行为合同是 [`runtime/d
 
 ## 发布流水线里的构建与冒烟
 
-打标签发布时（`.github/workflows/release.yml`，流程见 [`repository-workflow.md`](../../../docs/standards/repository-workflow.md#打标签发布)），壳与载荷在 ubuntu 上按发布清单做好，Windows 作业只跑 Hutch 与冒烟。三个变体各一份工程目录：
+打标签发布时（`.github/workflows/release.yml`，流程见 [发布手册的“流水线”](../../../docs/standards/releasing.md#流水线)），壳与载荷在 ubuntu 上按发布清单做好，Windows 作业只跑 Hutch 与冒烟。三个变体各一份工程目录：
 
 | 变体 | 输入 | 标识与更新源 | 用途 |
 |---|---|---|---|

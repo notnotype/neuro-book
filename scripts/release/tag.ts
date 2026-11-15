@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * 发布流水线的标签门禁与构建后的版本核对（`.github/workflows/release.yml` 的 `gate` 与构建作业；
- * docs/proposals/desktop-distribution.md 4.8，docs/standards/repository-workflow.md 的“发布授权”）。
+ * docs/proposals/desktop-distribution.md 4.8，docs/standards/releasing.md 的“流水线”）。
  *
  * - `check <标签>`：标签是 `v<稳定版本>`，与源码里的产品版本相同，解引用后的提交就是这次检出的提交，且在 origin/master 上。
  *   通过时在 stdout 打 `version=<版本>` 与 `stage=<阶段>` 两行，工作流把它们追加进 `GITHUB_OUTPUT`。

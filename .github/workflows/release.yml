@@ -1,5 +1,5 @@
-# 打标签即发布（docs/proposals/desktop-distribution.md 的 4.8；授权、一次性准备与失败处置见
-# docs/standards/repository-workflow.md 的“发布授权”）：推 v<版本> 标签后，门禁、同一提交的 CI、npm 包与桌面包的构建与冒烟
+# 打标签即发布（docs/proposals/desktop-distribution.md 的 4.8；发版、一次性准备与失败处置见发布手册
+# docs/standards/releasing.md）：推 v<版本> 标签后，门禁、同一提交的 CI、npm 包与桌面包的构建与冒烟
 # 都通过，才发 npm、建 GitHub Release、核对自动更新的取法。设计与各作业的理由在 w00046 t11 的 plan.md。
 #
 # workflow_dispatch 是演练：用源码里的版本、不核对标签，跑到冒烟为止，跳过所有远端写入的作业。
@@ -404,7 +404,7 @@ jobs:
             echo "路由：$route"
             if [ "$status" -ne 0 ]; then
               echo
-              echo "**发行没有完成，自动更新不可用。** 处置见 docs/standards/repository-workflow.md 的“发布授权”里的失败与重跑。"
+              echo "**发行没有完成，自动更新不可用。** 处置见 docs/standards/releasing.md 的“失败与重跑”。"
               jq -r '.problems[] | "- " + .' "$RUNNER_TEMP/feed-evidence.json" 2>/dev/null || true
             fi
           } >> "$GITHUB_STEP_SUMMARY"
@@ -452,7 +452,7 @@ jobs:
       - name: 摘要
         if: failure()
         shell: bash
-        run: echo "**上一版（$PREVIOUS）升级到本次没有通过。** Release 已经公开；处置见 docs/standards/repository-workflow.md 的“发布授权”里的失败与重跑。" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "**上一版（$PREVIOUS）升级到本次没有通过。** Release 已经公开；处置见 docs/standards/releasing.md 的“失败与重跑”。" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
