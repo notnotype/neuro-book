@@ -387,6 +387,8 @@ describe("命中结果映射到分界线的状态", () => {
             expect(sashOf(wrapper, key).getAttribute("aria-disabled"), key).toBe("true");
         }
         expect(sashOf(wrapper, "root:0").getAttribute("tabindex")).toBe("0");
+        // 一侧收到了零：那一侧没有东西，静止接缝不画（平铺主题里它会贴在窗口边或条上）；命中照旧，见下。
+        expect(sashOf(wrapper, "root:0").querySelector(".sash-seam")?.getAttribute("data-beside-zero")).toBe("true");
 
         // 指针在那一列的外边界上、正对着里面一条线的高度：只命中外边界，不是两根轴一起调。
         wrapper.get<HTMLElement>("[data-leaf='editor']").element.dispatchEvent(pointerEvent("pointermove", 2, 200));
@@ -406,6 +408,7 @@ describe("命中结果映射到分界线的状态", () => {
         await nextTick();
         expect(sashOf(wrapper, "side:0").getAttribute("tabindex")).toBe("0");
         expect(sashOf(wrapper, "side:0").hasAttribute("aria-disabled")).toBe(false);
+        expect(sashOf(wrapper, "root:0").querySelector(".sash-seam")?.hasAttribute("data-beside-zero")).toBe(false);
         wrapper.get<HTMLElement>("[data-leaf='editor']").element.dispatchEvent(pointerEvent("pointermove", 150, 202));
         await nextTick();
         expect(sashOf(wrapper, "side:0").getAttribute("data-sash-hover")).toBe("true");
@@ -913,7 +916,9 @@ describe("NestedGrid 内容层", () => {
     it("宿主把一片叶降到零（不是手势）：它停放、不可交互，过渡结束前头与内容还画着，跟着外框缩回去，结束才隐藏", async () => {
         // 宿主把隐藏的区域按拖到零画：收起是程序改的，过渡里不能先变成一张空卡片缩回去。
         // happy-dom 没有布局引擎，量到的容器是 0、矩形全为 0，判不出过渡：按仓库既有做法（`useGridLayout.dom.test.ts`）桩掉布局盒。
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
         const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
         const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
         onTestFinished(() => {
             width.mockRestore();
