@@ -4,8 +4,10 @@
  * docs/proposals/desktop-distribution.md 4.8，docs/standards/repository-workflow.md 的“发布授权”）。
  *
  * - `check <标签>`：标签是 `v<稳定版本>`，与源码里的产品版本相同，解引用后的提交就是这次检出的提交，且在 origin/master 上。
- *   通过时在 stdout 打一行 `version=<版本>`，工作流把它追加进 `GITHUB_OUTPUT`。
- * - `source`：演练用，打印源码里的产品版本（两处要一致），不核对标签。
+ *   通过时在 stdout 打 `version=<版本>` 与 `stage=<阶段>` 两行，工作流把它们追加进 `GITHUB_OUTPUT`。
+ * - `source`：演练用，打印源码里的产品版本（两处要一致）与阶段，不核对标签。
+ *
+ * 阶段（`PRODUCT_STAGE`，ADR 0053）是 `stable` 时两个命令都失败：稳定版的 npm 标签与桌面频道还没实现。
  * - `bump-test <目录>`：在一次性检出里把产品版本改成补丁号加 1（更新冒烟的 B′），打印 `version=<新版本>`。
  * - `verify-built --version <版本> [--manifest <release-manifest.json>] [--desktop <桌面工程目录>]`：构建出的应用包、SDK、
  *   壳与载荷的版本都是预期的那个（测试包 B′ 的预期是补丁号加 1，见 t11 计划的“构建分工”）。
@@ -50,6 +52,21 @@ export function sourceVersions(root: string): {packageJson: string; product: str
     return {packageJson, product};
 }
 
+const STAGES = ["canary", "preview", "stable"] as const;
+export type ReleaseStage = (typeof STAGES)[number];
+
+/**
+ * 源码里的发布阶段（`src/shared/product.ts` 的 `PRODUCT_STAGE`）。`stable` 现在拒绝：ADR 0053 定的稳定版规则（npm 标签、
+ * 桌面另开频道、预发布的支线）还没实现，按现在的流水线发出去就和 canary 没有区别。实现它的 Task 去掉这条。
+ */
+export function sourceStage(root: string): ReleaseStage {
+    const text = readFileSync(join(root, "packages", "neuro-book", "src", "shared", "product.ts"), "utf8");
+    const stage = /export const PRODUCT_STAGE: ProductStage = "([^"]+)";/.exec(text)?.[1];
+    if (stage === undefined || !(STAGES as readonly string[]).includes(stage)) throw new GateFailure(`src/shared/product.ts 的 PRODUCT_STAGE 读不到或不是 ${STAGES.join("、")} 之一（读到 ${stage ?? "无"}）`);
+    if (stage === "stable") throw new GateFailure("PRODUCT_STAGE 是 stable：稳定版的发布规则（npm 标签、桌面频道）还没实现，见 docs/adr/0053-release-stages-and-changelog.md");
+    return stage as ReleaseStage;
+}
+
 function git(root: string, args: readonly string[]): {code: number; stdout: string; stderr: string} {
     const result = spawnSync("git", [...args], {cwd: root, encoding: "utf8"});
     return {code: result.status ?? 1, stdout: result.stdout.trim(), stderr: result.stderr.trim()};
@@ -59,7 +76,7 @@ function git(root: string, args: readonly string[]): {code: number; stdout: stri
  * 标签门禁。`head` 是这次检出的提交（工作流里是 `GITHUB_SHA`）：标签解引用到别的提交说明推送之后标签被改指过，不发。
  * origin/master 要事先取到（工作流 `fetch-depth: 0`）；取不到时 merge-base 失败，按“不在 master 上”拒绝。
  */
-export function checkReleaseTag(options: {tag: string; head: string; root?: string}): {version: string} {
+export function checkReleaseTag(options: {tag: string; head: string; root?: string}): {version: string; stage: ReleaseStage} {
     const root = options.root ?? REPOSITORY;
     const version = versionOfTag(options.tag);
     const source = sourceVersions(root);
@@ -72,7 +89,7 @@ export function checkReleaseTag(options: {tag: string; head: string; root?: stri
     if (git(root, ["merge-base", "--is-ancestor", options.head, RELEASE_BRANCH]).code !== 0) {
         throw new GateFailure(`标签提交 ${options.head.slice(0, 12)} 不在 ${RELEASE_BRANCH} 上：先合入 master 再打标签`);
     }
-    return {version};
+    return {version, stage: sourceStage(root)};
 }
 
 /** 演练（没有标签）用的版本：源码里两处一致时就是它。 */
@@ -134,11 +151,12 @@ function main(argv: readonly string[]): void {
         const [tag, ...extra] = rest;
         const head = process.env.GITHUB_SHA ?? git(REPOSITORY, ["rev-parse", "HEAD"]).stdout;
         if (tag === undefined || extra.length > 0) throw new UsageError("用法：bun scripts/release/tag.ts check <标签>");
-        console.log(`version=${checkReleaseTag({tag, head}).version}`);
+        const {version, stage} = checkReleaseTag({tag, head});
+        console.log(`version=${version}\nstage=${stage}`);
         return;
     }
     if (command === "source" && rest.length === 0) {
-        console.log(`version=${sourceVersion(REPOSITORY)}`);
+        console.log(`version=${sourceVersion(REPOSITORY)}\nstage=${sourceStage(REPOSITORY)}`);
         return;
     }
     if (command === "bump-test") {

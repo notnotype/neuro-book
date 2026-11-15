@@ -33,6 +33,8 @@ jobs:
     timeout-minutes: 10
     outputs:
       version: ${{ steps.version.outputs.version }}
+      # 发布阶段（PRODUCT_STAGE，ADR 0053）：Release 的标题与说明按它写。
+      stage: ${{ steps.version.outputs.stage }}
       dry-run: ${{ github.event_name != 'push' }}
       previous: ${{ steps.previous.outputs.previous }}
     steps:

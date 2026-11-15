@@ -6,7 +6,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {builtVersionProblems, bumpTestVersion, checkReleaseTag, sourceVersion, versionOfTag} from "#scripts/release/tag";
+import {builtVersionProblems, bumpTestVersion, checkReleaseTag, sourceStage, sourceVersion, versionOfTag} from "#scripts/release/tag";
 
 const roots: string[] = [];
 
@@ -20,14 +20,19 @@ function git(root: string, ...args: string[]): string {
     return result.stdout.trim();
 }
 
-/** 一个只有产品版本两处来源的仓库；`master` 是 origin/master 的样子（远端分支的引用直接写）。 */
-async function repository(version: {packageJson: string; product: string}): Promise<{root: string; commit: string}> {
+/** 产品版本与阶段的 product.ts，与应用里的写法相同（门禁用正则读它）。 */
+function productSource(version: string, stage: string): string {
+    return `/** 产品版本。 */\nexport const PRODUCT_VERSION = "${version}";\n\nexport type ProductStage = "canary" | "preview" | "stable";\n\nexport const PRODUCT_STAGE: ProductStage = "${stage}";\n`;
+}
+
+/** 一个只有产品版本两处来源与阶段的仓库；`master` 是 origin/master 的样子（远端分支的引用直接写）。 */
+async function repository(version: {packageJson: string; product: string; stage?: string}): Promise<{root: string; commit: string}> {
     const root = await createTestTmpRoot("release-tag", "release-tag-test");
     roots.push(root);
     const app = join(root, "packages", "neuro-book");
     await mkdir(join(app, "src", "shared"), {recursive: true});
     await writeFile(join(app, "package.json"), `${JSON.stringify({name: "@notnotype/neuro-book", version: version.packageJson}, null, 4)}\n`);
-    await writeFile(join(app, "src", "shared", "product.ts"), `/** 产品版本。 */\nexport const PRODUCT_VERSION = "${version.product}";\n`);
+    await writeFile(join(app, "src", "shared", "product.ts"), productSource(version.product, version.stage ?? "canary"));
     git(root, "init", "--quiet", "--initial-branch=master");
     git(root, "add", ".");
     git(root, "commit", "--quiet", "-m", "release");
@@ -53,7 +58,16 @@ describe("标签门禁", () => {
     it("标签版本与源码两处版本相同、指向检出的提交、在 origin/master 上：通过", async () => {
         const {root, commit} = await repository({packageJson: "0.12.2", product: "0.12.2"});
         git(root, "tag", "v0.12.2");
-        expect(checkReleaseTag({tag: "v0.12.2", head: commit, root})).toEqual({version: "0.12.2"});
+        expect(checkReleaseTag({tag: "v0.12.2", head: commit, root})).toEqual({version: "0.12.2", stage: "canary"});
+    });
+
+    it("阶段是 stable：拒绝（稳定版的发布规则还没实现）；不认识的阶段也拒绝", async () => {
+        const stable = await repository({packageJson: "0.12.2", product: "0.12.2", stage: "stable"});
+        git(stable.root, "tag", "v0.12.2");
+        expect(() => checkReleaseTag({tag: "v0.12.2", head: stable.commit, root: stable.root})).toThrow("PRODUCT_STAGE 是 stable");
+        const unknown = await repository({packageJson: "0.12.2", product: "0.12.2", stage: "beta"});
+        expect(() => sourceStage(unknown.root)).toThrow("读到 beta");
+        expect(sourceStage((await repository({packageJson: "0.12.2", product: "0.12.2", stage: "preview"})).root)).toBe("preview");
     });
 
     it("附注标签按它指向的提交比较", async () => {
@@ -125,6 +139,6 @@ describe("演练与测试包的版本", () => {
         expect(bumpTestVersion(root)).toBe("0.12.10");
         const app = join(root, "packages", "neuro-book");
         expect(JSON.parse(await readFile(join(app, "package.json"), "utf8"))).toEqual({name: "@notnotype/neuro-book", version: "0.12.10"});
-        expect(await readFile(join(app, "src", "shared", "product.ts"), "utf8")).toBe('/** 产品版本。 */\nexport const PRODUCT_VERSION = "0.12.10";\n');
+        expect(await readFile(join(app, "src", "shared", "product.ts"), "utf8")).toBe(productSource("0.12.10", "canary"));
     });
 });
