@@ -1,22 +1,22 @@
 ---
 schema: nbook.task/v2
 taskId: t03-custom-title-bar
-status: planned
-updated: 2026-11-13
+status: active
+updated: 2026-11-15
 ---
 
-# 桌面端自定义标题栏
+# 桌面端自定义标题栏与应用图标
 
 ## 目标与范围
 
-桌面窗口用自定义标题栏（无系统边框，标题栏里放 NeuroBook 自己的内容与窗口按钮），与工作台的标题栏设计对上。来源：开发者 2026-11-13。
+桌面窗口不要 Windows 原生标题栏，参考 VS Code 自己画：窗口按钮放进工作台的标题栏，没有标题栏的页面（书架首页、宿主页、启动页）由宿主画一条后备的；拖动、双击最大化、贴边分屏交给系统。同一 Task 补上应用图标（安装包、程序、窗口），用高清图标。来源：开发者 2026-11-13 列的后续，2026-11-15 定“参考 VS Code 自己画”“图标不用 16、24 的像素版”（[Work README](../../README.md) 的“桌面端体验的决定”）。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`runtime/desktop-shell.md`](../../../../../docs/specs/runtime/desktop-shell.md) 输出 10、13 与新验收场景；[`runtime/browser-host.md`](../../../../../docs/specs/runtime/browser-host.md) 新输出“窗口外框”；[`ui/workbench-shell.md`](../../../../../docs/specs/ui/workbench-shell.md) 输出 28。计划见 [plan.md](plan.md)。
 
 ## 当前状态
 
-2026-11-13 经 nbdev 新建，尚未开工。
+2026-11-15：pc-notype 上的探针（[frame-probe-r1.txt](evidences/frame-probe-r1.txt)）确认沙箱页面里的 `app-region: drag` 走 WebView2 的原生非客户区（`HTCAPTION`），并发现 Electrobun 的 `hiddenInset` 最大化会压住任务栏，用 `bun:ffi` 补三位窗口样式可修。计划 r1 写成。代码 worktree `.worktree/w00046-t03-title-bar`（分支 `feat/w00046-t03-title-bar`），品牌 ICO 已改为 32–256（未提交）。
 
 ## 下一步
 
-待补充。
+计划的设计审查（后端与计划 omp，前端 Sonnet），处理后按切片实施。

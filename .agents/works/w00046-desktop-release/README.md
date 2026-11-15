@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00046-desktop-release
 issueId: null
 status: active
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # 桌面端打包、CI 与自动发布
@@ -26,6 +26,15 @@ updated: 2026-11-14
 - 外部工具（Git、Python 等）：第一版只检测加提示（2026-11-13 第一轮审查后定），两条安装路径以后再做。
 - CI：构建与冒烟；打 `v*` 标签后全自动发布（npm 包、桌面包、GitHub Release）。
 - 桌面端体验（开发者 2026-11-13 列的后续）：有界面的安装程序（为当前用户安装、安装位置、快捷方式）、自定义标题栏、桌面端专有设置（开机自启、系统托盘、通知）。
+- 桌面端体验第二批（开发者 2026-11-15 列、指定用 autonomous-delivery 推进把握较高的）：拖拽导入文件与图片、拖拽安装插件、系统托盘、自定义标题栏、系统通知、应用图标、桌面端专属配置（例如界面缩放）、磨砂透明背景。
+
+### 桌面端体验的决定（开发者 2026-11-15）
+
+- **标题栏**：不要 Windows 原生标题栏，参考 VS Code 自己画：窗口按钮放进工作台的标题栏，桌面窗口只剩一条标题栏（t03）。
+- **关最后一个窗口**：默认照旧退出（停服务端），设置里可改为留在托盘（t04）。
+- **从系统拖入**：第一版的落点是文件树、Markdown 编辑器插图、书架导入新作品三处；支持文件夹，保留层级（t13）。
+- **Web 与桌面要不要统一 facade**：按能力分，不建统一的一层（主会话的建议，开发者没有异议）。两端都是同一个网页、同一套 Web 标准时只写一份（拖放用 HTML5 拖放，两端都拿不到本机路径，只能读内容上传）；两端确实不同的（系统通知若 WebView2 的网页通知不可用）才在页面宿主层 `src/web/host/` 加一个窄接口，按“有没有这项能力”分支；只有桌面有的（窗口按钮、托盘、缩放、开机自启）没有 Web 对应物，壳不在时不出现。
+- **推进顺序**：t03 标题栏与应用图标 → t04 桌面专属设置与托盘、通知 → t13 拖拽导入 → t14 拖拽安装插件 → t15 磨砂背景（实验，最后做，只在 Windows 11 22H2 以上）。
 
 代码分支：`feat/w00046-desktop-release`，worktree `.worktree/w00046-desktop-release`（2026-11-13 从 master 开出）。
 
@@ -38,13 +47,13 @@ updated: 2026-11-14
 
 ## Task
 
-开发者 2026-11-13 指定 t06 到 t11 用 autonomous-delivery 推进；本该开发者决定的点记在 [待确认清单](pending-confirmations.md)。
+开发者 2026-11-13 指定 t06 到 t11 用 autonomous-delivery 推进，2026-11-15 指定桌面端体验第二批（t03、t04、t13 起）同样推进；本该开发者决定的点记在 [待确认清单](pending-confirmations.md)。
 
 | Task | 内容 |
 |---|---|
 | [t01](tasks/t01-distribution-proposal/README.md) | 发行提案与桌面壳实测选型。已完成：提案 [desktop-distribution](../../../docs/proposals/desktop-distribution.md) 已接受，[ADR 0051](../../../docs/adr/0051-desktop-shell-electrobun-tag-release.md) |
 | [t02](tasks/t02-installer/README.md) | 有界面的安装程序：为当前用户安装、安装位置、快捷方式。未开工 |
-| [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏。未开工 |
+| [t03](tasks/t03-custom-title-bar/README.md) | 桌面端自定义标题栏与应用图标（高清 ICO）。进行中：探针与计划完成，待设计审查 |
 | [t04](tasks/t04-desktop-settings/README.md) | 桌面端专有设置：开机自启、系统托盘、通知。未开工 |
 | [t05](tasks/t05-external-tools-wizard/README.md) | 外部工具：第一版只检测加提示。未开工 |
 | [t06](tasks/t06-desktop-specs/README.md) | 桌面发行的 Spec（desktop-shell、desktop-update 新建，server-host、browser-host、editor、cli、notifications 等修改）。已完成，omp 三轮设计审查 |
