@@ -11,7 +11,7 @@
 
 ## 布局
 
-- 筛选条：会话、用途、状态三个条件，每个是一个下拉；选了的条件强调色底；有条件时后面一个“清除筛选”。放不下时在条内横向滚动。
+- 筛选条：会话、用途、状态三个条件，每个是一个下拉；选了的条件强调色底；有条件时后面一个“清除筛选”。放不下时换行。
 - 下面两栏：列表最小 300px、最大 360px，详情占其余。宽度不到 760px（两栏最小宽度之和）时只显示一栏：选中一条进详情，详情顶上“请求列表”回到列表；宽回去时两栏都在，选中不变。
 - 列表见 `AgentRequestList.md`，详情见 `AgentRequestDetail.md`。
 
@@ -27,7 +27,7 @@ props: {
     pending?: number;                        // 来了但没插进列表的新请求，缺省 0
     selected: string | null;                 // 受控的选中
     detail: RequestTraceDetailState;         // idle | loading | missing | error | ready
-    contents: ReadonlyMap<string, RequestTraceContentState>;   // 按哈希取回的全文
+    contents: Readonly<Record<string, RequestTraceContentState>>;   // 按哈希取回的全文
     payload: RequestTracePayloadView;        // 选中那条的原始请求体：idle | loading | missing | error | ready
     enabled: boolean;                        // 记录开着
     now: number;                             // 宿主给的当前时间

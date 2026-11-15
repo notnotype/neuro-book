@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<{
     selected: string | null;
     detail: RequestTraceDetailState;
     /** 按内容哈希取回的全文。 */
-    contents: ReadonlyMap<string, RequestTraceContentState>;
+    contents: Readonly<Record<string, RequestTraceContentState>>;
     /** 选中那条的原始请求体。 */
     payload: RequestTracePayloadView;
     /** 记录开着；关着且没有记录时空状态写“没有在记录”与“打开记录”。 */
@@ -176,12 +176,12 @@ function clearFilters(): void {
     padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--divider);
 }
+/* 只有一行控件高的条：放不下时换行，不做横向滚动（滚动容器会裁掉按钮的焦点环）。 */
 .art__chips {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     align-items: center;
-    overflow-x: auto;
-    scrollbar-width: none;
 }
 .art__chip {
     display: inline-flex;

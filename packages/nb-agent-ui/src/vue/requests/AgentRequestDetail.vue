@@ -15,7 +15,7 @@ import AgentRequestJson from "./AgentRequestJson.vue";
 
 const props = defineProps<{
     detail: RequestTraceDetailState;
-    contents: ReadonlyMap<string, RequestTraceContentState>;
+    contents: Readonly<Record<string, RequestTraceContentState>>;
     payload: RequestTracePayloadView;
     /** 列表里紧挨着的新一次、旧一次（没有时为 null）。 */
     newer: string | null;
@@ -93,7 +93,7 @@ function toggle(key: string, hash: string): void {
     if (next.has(key)) next.delete(key);
     else {
         next.add(key);
-        if (!props.contents.has(hash)) emit("action", {type: "request.load-content", hash});
+        if (!Object.hasOwn(props.contents, hash)) emit("action", {type: "request.load-content", hash});
     }
     expanded.value = next;
 }
@@ -125,7 +125,7 @@ function piecesOf(text: string): Piece[] {
 
 const parsed = computed(() => {
     const result = new Map<string, Piece[]>();
-    for (const [hash, content] of props.contents) if (content.state === "ready") result.set(hash, piecesOf(content.text));
+    for (const [hash, content] of Object.entries(props.contents)) if (content.state === "ready") result.set(hash, piecesOf(content.text));
     return result;
 });
 
@@ -183,7 +183,7 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                 <div v-if="modifiedBy !== ''" class="ard__modified"><span class="i-lucide-puzzle" aria-hidden="true"></span>{{ t("requests.detail.modifiedBy", {list: modifiedBy}) }}</div>
             </div>
 
-            <Tabs class="ard__tabs" size="sm" :model-value="tab" :items="tabs" :aria-label="t('requests.detail.label')" @update:model-value="tab = $event as Tab" />
+            <Tabs class="ard__tabs" size="sm" overflow="adapt" :model-value="tab" :items="tabs" :aria-label="t('requests.detail.label')" @update:model-value="tab = $event as Tab" />
 
             <div class="ard__body nb-ui-scrollbar-thin nb-ui-scrollbar-stable" data-request-body>
                 <ol v-if="tab === 'messages'" class="ard__items">
@@ -197,10 +197,10 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                             <span class="ard__tokens">{{ t("requests.message.tokens", {value: formatTokens(message.tokens)}) }}</span>
                         </button>
                         <div v-if="expanded.has(`m${index}`)" class="ard__full">
-                            <template v-if="contents.get(message.hash)?.state === 'ready'">
+                            <template v-if="contents[message.hash]?.state === 'ready'">
                                 <div v-for="(piece, pieceIndex) in parsed.get(message.hash)" :key="pieceIndex" class="ard__piece" :data-kind="piece.kind">{{ piece.text }}</div>
                             </template>
-                            <span v-else-if="contents.get(message.hash)?.state === 'missing'" class="ard__muted">{{ t("requests.message.missing") }}</span>
+                            <span v-else-if="contents[message.hash]?.state === 'missing'" class="ard__muted">{{ t("requests.message.missing") }}</span>
                             <span v-else class="ard__muted">{{ t("requests.message.loading") }}</span>
                         </div>
                     </li>
@@ -213,7 +213,7 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                             <span class="ard__tokens">{{ t("requests.message.tokens", {value: formatTokens(value.usage?.output ?? value.reply.tokens)}) }}</span>
                         </button>
                         <div v-if="expanded.has('reply')" class="ard__full">
-                            <template v-if="contents.get(value.reply.hash)?.state === 'ready'">
+                            <template v-if="contents[value.reply.hash]?.state === 'ready'">
                                 <div v-for="(piece, pieceIndex) in parsed.get(value.reply.hash)" :key="pieceIndex" class="ard__piece" :data-kind="piece.kind">{{ piece.text }}</div>
                             </template>
                             <span v-else class="ard__muted">{{ t("requests.message.loading") }}</span>
@@ -230,10 +230,10 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                             <span v-if="'tokens' in item" class="ard__tokens">{{ t("requests.message.tokens", {value: formatTokens(item.tokens)}) }}</span>
                         </button>
                         <div v-if="expanded.has(`${tab}${index}`)" class="ard__full">
-                            <template v-if="contents.get(item.hash)?.state === 'ready'">
+                            <template v-if="contents[item.hash]?.state === 'ready'">
                                 <div v-for="(piece, pieceIndex) in parsed.get(item.hash)" :key="pieceIndex" class="ard__piece" :data-kind="piece.kind">{{ piece.text }}</div>
                             </template>
-                            <span v-else-if="contents.get(item.hash)?.state === 'missing'" class="ard__muted">{{ t("requests.message.missing") }}</span>
+                            <span v-else-if="contents[item.hash]?.state === 'missing'" class="ard__muted">{{ t("requests.message.missing") }}</span>
                             <span v-else class="ard__muted">{{ t("requests.message.loading") }}</span>
                         </div>
                     </li>
@@ -403,7 +403,8 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
     display: grid;
     grid-template-columns: 2.4em auto minmax(0, 1fr) auto auto;
     gap: var(--space-2);
-    align-items: center;
+    /* 几列字号不同：按基线对齐，小字的序号与 token 数才和正文在同一行上。 */
+    align-items: baseline;
     width: 100%;
     min-height: 30px;
     padding: 4px 2px;
@@ -440,7 +441,7 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
 }
 .ard__note {
     overflow: hidden;
-    max-width: 16em;
+    max-width: 12em;
     color: var(--text-muted);
     font-size: var(--text-xs);
     text-overflow: ellipsis;
@@ -500,6 +501,12 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
     color: var(--text-secondary);
     font-size: var(--text-xs);
     font-weight: var(--weight-medium);
+}
+/* 窄时补充说明让给预览：展开这一行时全文里照样有。 */
+@container (max-width: 559px) {
+    .ard__note {
+        display: none;
+    }
 }
 .ard__attempts {
     margin: 0;

@@ -48,7 +48,7 @@ function mountTrace(props: Partial<InstanceType<typeof AgentRequestTrace>["$prop
             query: {},
             selected: "r1",
             detail: {state: "ready", value: detail},
-            contents: new Map(),
+            contents: {},
             payload: {state: "idle"},
             enabled: true,
             now: at(10, 5, 12),
@@ -137,7 +137,7 @@ describe("详情（输出 18、19、22）", () => {
         await heads[2]!.trigger("click");
         expect(view.emitted("action")?.at(-1)).toEqual([{type: "request.load-content", hash: "m3"}]);
         expect(view.get(".ard__full").text()).toContain("正在读取内容");
-        await view.setProps({contents: new Map([["m3", {state: "ready", text: JSON.stringify({role: "tool", callId: "c1", content: [{kind: "text", text: "林照二十三岁，见第一章第 12 行。"}, {kind: "image", mime: "image/png", bytes: 2048, hash: "x"}]})}]])});
+        await view.setProps({contents: {m3: {state: "ready", text: JSON.stringify({role: "tool", callId: "c1", content: [{kind: "text", text: "林照二十三岁，见第一章第 12 行。"}, {kind: "image", mime: "image/png", bytes: 2048, hash: "x"}]})}}});
         expect(view.get(".ard__full").text()).toContain("林照二十三岁，见第一章第 12 行。");
         expect(view.get(".ard__full").text()).toContain("image/png · 2.0 KB");
         view.unmount();

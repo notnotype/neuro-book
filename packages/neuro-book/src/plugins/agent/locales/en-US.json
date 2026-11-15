@@ -351,6 +351,9 @@
     "editorPages": {
         "conversation": {
             "title": "Agent conversation"
+        },
+        "requests": {
+            "title": "Model requests"
         }
     },
     "commands": {
@@ -366,6 +369,9 @@
         "category": "Agent",
         "open-in-editor": {
             "title": "Open conversation in editor"
+        },
+        "open-requests": {
+            "title": "View model requests"
         }
     },
     "state": {

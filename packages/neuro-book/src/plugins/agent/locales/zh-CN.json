@@ -351,6 +351,9 @@
     "editorPages": {
         "conversation": {
             "title": "Agent 对话"
+        },
+        "requests": {
+            "title": "模型请求"
         }
     },
     "commands": {
@@ -366,6 +369,9 @@
         "category": "Agent",
         "open-in-editor": {
             "title": "在编辑区打开对话"
+        },
+        "open-requests": {
+            "title": "查看模型请求"
         }
     },
     "state": {
