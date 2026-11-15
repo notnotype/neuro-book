@@ -105,7 +105,7 @@
   4. 打进产物的源文件里，除入口脚本自己，有用到自己位置的就失败：`__dirname`、`__filename`、`import.meta` 的 `url`、`dir`、`dirname`、`path`、`filename`、`file`、`resolve`、`require`，以及 `require.resolve`。
      - 依赖包：打包后它的文件不在了。
      - 作者自己的辅助模块：被内联进入口之后，位置就变了。
-     - 入口脚本自己用这些没问题：Skill 文件夹原样带着，相对位置不变。
+     - 入口脚本自己用 `import.meta` 的这些属性没问题：Skill 文件夹原样带着，相对位置不变。但入口自己的 `__dirname`、`__filename` 被 Bun 换成构建机器上的路径（实施时的实验），所以入口产物的字符串里出现作者目录的绝对路径时也失败，提示改用 `import.meta.dir`。
   5. 按原扩展名的加载器解析产物（兜底，实验里十个都过）。
 - `--dev` 同样处理。SDK 包要带上这个模块（`pack.test.ts` 核对）。
 
