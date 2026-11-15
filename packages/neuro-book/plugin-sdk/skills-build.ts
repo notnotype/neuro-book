@@ -57,19 +57,24 @@ const isIdentifier = (node: unknown, name: string): boolean => isNode(node) && n
 const isImportMeta = (node: unknown): boolean => isNode(node) && node.type === "MetaProperty" && isIdentifier(node.meta, "import") && isIdentifier(node.property, "meta");
 const propertyName = (node: AstNode): string | null => (node.computed !== true && isNode(node.property) && node.property.type === "Identifier" ? String(node.property.name) : null);
 
-/** 逐个节点走一遍。成员访问的属性名、对象与类的键不是变量（`obj.__dirname`），计算出来的除外。 */
-function walk(node: unknown, visit: (node: AstNode) => void): void {
+/**
+ * 逐个节点走一遍，交给 `visit` 的还有祖先（最近的在最后）：一个名字是读取还是声明、`import.meta` 怎样被用，要看它在哪。成员访问的
+ * 属性名、对象与类的键不是变量（`obj.__dirname`），计算出来的除外，不往下走。
+ */
+function walk(node: unknown, visit: (node: AstNode, parents: readonly AstNode[]) => void, parents: AstNode[] = []): void {
     if (Array.isArray(node)) {
-        for (const item of node) walk(item, visit);
+        for (const item of node) walk(item, visit, parents);
         return;
     }
     if (!isNode(node)) return;
-    visit(node);
+    visit(node, parents);
+    parents.push(node);
     for (const [key, value] of Object.entries(node)) {
         if (key === "property" && node.type === "MemberExpression" && node.computed !== true) continue;
         if (key === "key" && (node.type === "Property" || node.type === "PropertyDefinition" || node.type === "MethodDefinition") && node.computed !== true) continue;
-        if (typeof value === "object") walk(value, visit);
+        if (typeof value === "object") walk(value, visit, parents);
     }
+    parents.pop();
 }
 
 /** 字符串字面量（含没有插值的模板）的值；别的写法（变量、拼接）为 null。 */
@@ -84,32 +89,85 @@ function literalOf(node: unknown): string | null {
     return null;
 }
 
-/** 源文件里用到自己位置的写法。 */
+const FUNCTIONS = new Set(["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"]);
+
+/** 声明模式（变量、参数、解构）里绑定的名字。 */
+function patternNames(pattern: unknown, into: Set<string>): void {
+    if (!isNode(pattern)) return;
+    if (pattern.type === "Identifier") into.add(String(pattern.name));
+    else if (pattern.type === "ObjectPattern") for (const property of pattern.properties as unknown[]) patternNames(isNode(property) && property.type === "Property" ? property.value : property, into);
+    else if (pattern.type === "ArrayPattern") for (const element of pattern.elements as unknown[]) patternNames(element, into);
+    else if (pattern.type === "AssignmentPattern") patternNames(pattern.left, into);
+    else if (pattern.type === "RestElement") patternNames(pattern.argument, into);
+}
+
+/** 文件里声明过的名字（不分作用域）：自己声明了 `__dirname` 的文件，读它读的是自己的变量，不是位置。 */
+function declaredNames(ast: unknown): Set<string> {
+    const names = new Set<string>();
+    walk(ast, (node) => {
+        if (node.type === "VariableDeclarator") patternNames(node.id, names);
+        else if (FUNCTIONS.has(node.type)) for (const param of node.params as unknown[]) patternNames(param, names);
+        else if (node.type === "CatchClause") patternNames(node.param, names);
+        else if (node.type === "ImportSpecifier" || node.type === "ImportDefaultSpecifier" || node.type === "ImportNamespaceSpecifier") patternNames(node.local, names);
+    });
+    return names;
+}
+
+/**
+ * 源文件里用到自己位置的写法：没在文件里声明过的 `__dirname`、`__filename`；`import.meta` 的位置属性；`import.meta` 整个被取用
+ * （解构、当值传、计算属性），看不出取的是什么就算；`require.resolve`。
+ */
 function locationUses(code: string, loader: Loader): string[] {
+    const ast = parseAst(code, {lang: loader});
+    const declared = declaredNames(ast);
     const found = new Set<string>();
-    walk(parseAst(code, {lang: loader}), (node) => {
-        if (node.type === "Identifier" && (node.name === "__dirname" || node.name === "__filename")) found.add(String(node.name));
-        if (node.type !== "MemberExpression") return;
-        const name = propertyName(node);
-        if (name === null) return;
-        if (isImportMeta(node.object) && META_LOCATION.has(name)) found.add(`import.meta.${name}`);
-        if (isIdentifier(node.object, "require") && name === "resolve") found.add("require.resolve");
+    walk(ast, (node, parents) => {
+        const parent = parents.at(-1);
+        if (node.type === "Identifier" && (node.name === "__dirname" || node.name === "__filename") && !declared.has(String(node.name))) found.add(String(node.name));
+        if (isImportMeta(node)) {
+            const name = parent?.type === "MemberExpression" && parent.object === node ? propertyName(parent) : null;
+            if (name === null) found.add("import.meta");
+            else if (META_LOCATION.has(name)) found.add(`import.meta.${name}`);
+        }
+        if (node.type === "MemberExpression" && isIdentifier(node.object, "require") && propertyName(node) === "resolve") found.add("require.resolve");
     });
     return [...found].sort();
 }
 
-/** 产物在运行时还要加载的模块：名字（变量拼出来的为 null）。 */
-function runtimeLoads(code: string): Array<string | null> {
-    const loads: Array<string | null> = [];
-    walk(parseAst(code, {lang: "js"}), (node) => {
+/** 产物在运行时还要加载的模块。 */
+type RuntimeLoad = {readonly kind: "named"; readonly name: string} | {readonly kind: "dynamic"} | {readonly kind: "alias"};
+
+const LOADERS_BY_NAME = new Set(["require", "__require"]);
+const isImportMetaRequire = (node: unknown): boolean => isNode(node) && node.type === "MemberExpression" && isImportMeta(node.object) && propertyName(node) === "require";
+
+/**
+ * 产物里的模块加载：`import`、`export … from`、`import()`，以及直接调用的 `require`、`__require`、`import.meta.require`。加载函数
+ * 被当成值用（`const load = require`、当参数传）时打包看不出它加载什么，记为 `alias`。放行的只有：直接调用、`typeof`、取它的
+ * 属性（`require.cache`）、声明它的地方（参数、Bun 自己的 `var __require = import.meta.require`）。
+ */
+function runtimeLoads(code: string): RuntimeLoad[] {
+    const loads: RuntimeLoad[] = [];
+    const add = (name: string | null): void => void loads.push(name === null ? {kind: "dynamic"} : {kind: "named", name});
+    walk(parseAst(code, {lang: "js"}), (node, parents) => {
+        const parent = parents.at(-1);
+        const grandparent = parents.at(-2);
         if (node.type === "ImportDeclaration" || node.type === "ExportNamedDeclaration" || node.type === "ExportAllDeclaration") {
-            if (node.source !== null && node.source !== undefined) loads.push(literalOf(node.source));
+            if (node.source !== null && node.source !== undefined) add(literalOf(node.source));
         } else if (node.type === "ImportExpression") {
-            loads.push(literalOf(node.source));
+            add(literalOf(node.source));
         } else if (node.type === "CallExpression") {
             const callee = node.callee;
-            const requires = isIdentifier(callee, "require") || isIdentifier(callee, "__require") || (isNode(callee) && callee.type === "MemberExpression" && isImportMeta(callee.object) && propertyName(callee) === "require");
-            if (requires) loads.push(literalOf((node.arguments as unknown[])[0]));
+            if ((isNode(callee) && callee.type === "Identifier" && LOADERS_BY_NAME.has(String(callee.name))) || isImportMetaRequire(callee)) add(literalOf((node.arguments as unknown[])[0]));
+        } else if (node.type === "Identifier" && LOADERS_BY_NAME.has(String(node.name))) {
+            const called = parent?.type === "CallExpression" && parent.callee === node;
+            const typeOf = parent?.type === "UnaryExpression" && parent.operator === "typeof";
+            const member = parent?.type === "MemberExpression" && parent.object === node;
+            const declaring = (parent?.type === "VariableDeclarator" && parent.id === node) || (parent !== undefined && FUNCTIONS.has(parent.type)) || (parent?.type === "Property" && grandparent?.type === "ObjectPattern");
+            if (!called && !typeOf && !member && !declaring) loads.push({kind: "alias"});
+        } else if (isImportMetaRequire(node)) {
+            const called = parent?.type === "CallExpression" && parent.callee === node;
+            const bunHelper = parent?.type === "VariableDeclarator" && parent.init === node && isIdentifier(parent.id, "__require");
+            if (!called && !bunHelper) loads.push({kind: "alias"});
         }
     });
     return loads;
@@ -156,7 +214,10 @@ interface SkillContext {
 async function bundleScript(context: SkillContext, file: string, loader: Loader): Promise<string | null> {
     const path = relative(context.root, file).split(sep).join("/");
     const problems: ManifestProblem[] = [];
-    const add = (message: string): void => void problems.push({path, message});
+    // 同一个依赖的几个文件各报一次时原因相同，只留一条。
+    const add = (message: string): void => {
+        if (!problems.some((problem) => problem.message === message)) problems.push({path, message});
+    };
     const result = await Bun.build({entrypoints: [file], target: "bun", format: "esm", metafile: true, throw: false});
     if (!result.success) {
         for (const log of result.logs) if (log.level === "error") add(`打包失败：${String(log.message)}`);
@@ -192,10 +253,10 @@ async function bundleScript(context: SkillContext, file: string, loader: Loader)
             : `依赖 ${owner} 用到自己的位置（${uses.join("、")}），打包后它的文件不在了，插件里的 Skill 用不了这个包`);
     }
     const text = await entry.text();
-    for (const name of runtimeLoads(text)) {
-        if (name === null) add("运行时按变量拼出的名字加载模块，打包时不知道要带上哪个，插件里的 Skill 用不了");
-        else if (!isBuiltin(name)) add(`运行时还要加载 ${name}，它没有打进单文件`);
-    }
+    const loads = runtimeLoads(text);
+    if (loads.some((load) => load.kind === "dynamic")) add("运行时按变量拼出的名字加载模块，打包时不知道要带上哪个，插件里的 Skill 用不了");
+    if (loads.some((load) => load.kind === "alias")) add("把加载模块的函数（require）当值用，打包时不知道它加载什么，插件里的 Skill 用不了；直接调用 require(\"包名\") 或用 import");
+    for (const name of new Set(loads.flatMap((load) => (load.kind === "named" && !isBuiltin(load.name) ? [load.name] : [])))) add(`运行时还要加载 ${name}，它没有打进单文件`);
     if (!inputLocations && containsPath(text, context.rootPaths)) add("用到了 __dirname 或 __filename：打包后它们是构建机器上的路径，改用 import.meta.dir");
     try {
         // 产物写回原来的扩展名（`.ts` 里放打包后的 JS），按这个扩展名的加载器能读才行。

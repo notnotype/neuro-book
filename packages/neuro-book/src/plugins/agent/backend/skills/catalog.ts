@@ -222,7 +222,11 @@ export class SkillCatalog {
                 this.#options.report("skill-invalid", `Skill ${item.entry.id} is invalid: ${item.entry.problem.code}`, {id: item.entry.id, problem: item.entry.problem});
             }
         }
-        const changed = next.size !== this.#items.size || [...next].some(([id, item]) => JSON.stringify(this.#items.get(id)?.entry) !== JSON.stringify(item.entry));
+        // 条目一样、目录换了（同一个 key 的根换到另一份目录）也算变了：`skills://` 与 shell 拿到的路径变了。
+        const changed = next.size !== this.#items.size || [...next].some(([id, item]) => {
+            const before = this.#items.get(id);
+            return before === undefined || before.directory !== item.directory || JSON.stringify(before.entry) !== JSON.stringify(item.entry);
+        });
         this.#items = next;
         return changed;
     }

@@ -407,8 +407,10 @@ describe("Skill（agent.skills）", () => {
     it("脚本连同依赖各打成单文件，路径与文件名不变；package.json、锁文件与 node_modules 不带，别的原样复制；产物在没有 node_modules 的地方能跑", async () => {
         const root = await authorProject("skillpack", {
             ...fakePackage("fake-dep", {"index.js": "module.exports = () => \"dep-ok\";\n"}),
+            // 自己声明了叫 __dirname 的变量，读的是自己的变量，不是位置；取 import.meta 不认识的属性也不算。
+            ...fakePackage("fake-local", {"index.js": "const {__dirname} = {__dirname: \"local\"};\nconst hot = typeof import.meta.hot;\nexport default () => `${__dirname}-${hot}`;\n"}, "module"),
             "skills/pdf/SKILL.md": skillMd("pdf"),
-            "skills/pdf/scripts/run.ts": "#!/usr/bin/env bun\nimport dep from \"fake-dep\";\nimport {label} from \"./lib/label\";\nconsole.log(label(dep()), import.meta.dir.endsWith(\"scripts\"));\n",
+            "skills/pdf/scripts/run.ts": "#!/usr/bin/env bun\nimport dep from \"fake-dep\";\nimport local from \"fake-local\";\nimport {label} from \"./lib/label\";\nconsole.log(label(dep()), import.meta.dir.endsWith(\"scripts\"), local());\n",
             "skills/pdf/scripts/lib/label.ts": "export const label = (text: string): string => `[${text}]`;\n",
             "skills/pdf/scripts/tool.py": "import json\nprint(json.dumps(1))\n",
             "skills/pdf/references/guide.md": "# 说明\n",
@@ -428,7 +430,7 @@ describe("Skill（agent.skills）", () => {
         const away = join(tmp, "skillpack-installed");
         await cp(join(root, "dist/skills/pdf"), away, {recursive: true});
         const run = Bun.spawn(["bun", "scripts/run.ts"], {cwd: away, stdout: "pipe", stderr: "pipe"});
-        expect([await run.exited, (await new Response(run.stdout).text()).trim()]).toEqual([0, "[dep-ok] true"]);
+        expect([await run.exited, (await new Response(run.stdout).text()).trim()]).toEqual([0, "[dep-ok] true local-undefined"]);
 
         // 再构建一次（--clean）：输出目录是这个插件上次的产物。
         await buildPlugin({root, outDir: join(root, "dist"), clean: true, ...IN_REPO_BUILD});
@@ -439,6 +441,11 @@ describe("Skill（agent.skills）", () => {
             ...fakePackage("fake-native", {"index.js": "module.exports = require(\"./addon.node\");\n", "addon.node": "not a binary"}),
             ...fakePackage("fake-data", {"index.js": "const fs = require(\"fs\"); const path = require(\"path\");\nmodule.exports = () => fs.readFileSync(path.join(__dirname, \"data.txt\"), \"utf8\");\n", "data.txt": "x"}),
             ...fakePackage("fake-esm", {"index.js": "export default () => new URL(\"./data.txt\", import.meta.url).href;\n"}, "module"),
+            ...fakePackage("fake-meta", {"index.js": "const {url} = import.meta;\nexport default () => url;\n"}, "module"),
+            "skills/meta/SKILL.md": skillMd("meta"),
+            "skills/meta/scripts/run.ts": "import where from \"fake-meta\";\nconsole.log(where());\n",
+            "skills/alias/SKILL.md": skillMd("alias"),
+            "skills/alias/scripts/run.ts": "const load = require;\nconsole.log(load(\"fs\"));\n",
             "skills/native/SKILL.md": skillMd("native"),
             "skills/native/scripts/run.ts": "import addon from \"fake-native\";\nconsole.log(addon);\n",
             "skills/data/SKILL.md": skillMd("data"),
@@ -462,6 +469,8 @@ describe("Skill（agent.skills）", () => {
         expect(about("依赖 fake-data 用到自己的位置（__dirname）")).toHaveLength(1);
         expect(about("依赖 fake-esm 用到自己的位置（import.meta.url）")).toHaveLength(1);
         expect(about("按变量拼出的名字")).toHaveLength(1);
+        expect(about("依赖 fake-meta 用到自己的位置（import.meta）")).toHaveLength(1);
+        expect(about("把加载模块的函数（require）当值用")).toHaveLength(1);
         expect(about("打包失败")).toEqual([expect.stringContaining("not-installed-anywhere")]);
         expect(about("打进来的 skills/where/scripts/lib/here.ts 用到自己的位置（import.meta.dir）")).toHaveLength(1);
         expect(about("Python 第三方依赖")).toHaveLength(1);

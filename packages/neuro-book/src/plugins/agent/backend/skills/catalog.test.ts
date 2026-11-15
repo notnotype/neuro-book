@@ -184,6 +184,13 @@ describe("插件来源", () => {
         await catalog.removeRoot("acme.docs.b");
         expect(catalog.list().map((entry) => entry.id)).toEqual(["user.notes", "builtin.summary"]);
         expect(changes).toBe(4);
+
+        // 同一个 key 的根换到另一份目录（插件换了版本目录），条目一样也通知：`skills://` 指向的路径变了。
+        await put(pack, "c/pdf", {"SKILL.md": skillMd("pdf")});
+        await put(pack, "d/pdf", {"SKILL.md": skillMd("pdf")});
+        await catalog.addRoot({key: "acme.docs.a", source: "plugin", prefix: plugin.id, root: join(pack, "c"), watch: false, plugin});
+        await catalog.addRoot({key: "acme.docs.a", source: "plugin", prefix: plugin.id, root: join(pack, "d"), watch: false, plugin});
+        expect([catalog.item("acme.docs.pdf")?.directory, changes]).toEqual([join(pack, "d", "pdf"), 6]);
     });
 });
 
