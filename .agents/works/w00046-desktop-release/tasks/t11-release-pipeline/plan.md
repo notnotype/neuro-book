@@ -198,22 +198,22 @@ npm 的 dist-tag，一律显式给：
 
 壳的交接：每一段开头与结尾写明哪个壳在跑。结束一段时对它 `WM_CLOSE`、等壳与整棵服务端进程树都结束、桌面锁能重新取得，才进下一段；脚本的 `finally` 先存证据，再按自己记下的 PID 收掉自己起的实例。测试标识只隔开安装与通道根，不隔开缺省状态根上的桌面锁。
 
-更新器拉起的新版本不带脚本的环境：Windows 上换上程序由任务计划程序的交互任务启动，再由它起新的启动器，不转交原进程的环境变量。所以换上后第一次启动的 B′ 没有远程调试端口，这一次用 UI 自动化读窗口文字（与 t10 相同）与更新器的结果文件取证；之后按 PID 关掉它，再由脚本带调试端口重新启动 B′，接着做页面一侧的检查。这次重新启动已经不是“换上后第一次”，“已更新到”只在前一次取证。
+更新器拉起的新版本不带脚本的环境：Windows 上换上程序由任务计划程序的交互任务启动，再由它起新的启动器，不转交原进程的环境变量。所以换上后第一次启动的 B′ 没有远程调试端口，这一次按壳日志里页面交回的 `desktop.update.notice-shown`（种类、版本）与更新器的结果文件取证，UI 自动化在一个进程里连续读窗口文字，读到“已更新到”就另记一笔（切片 4 实测：这条一次性通知 3.2 秒后消失，每次起 PowerShell 读不到；[windows-smoke-r1](evidences/windows-smoke-r1.txt)）；之后按 PID 关掉它，再由脚本带调试端口重新启动 B′，接着做页面一侧的检查。这次重新启动已经不是“换上后第一次”，“已更新到”只在前一次取证。
 
 - **场景 1 与场景 2 后半**：
   - 装 A′；在状态根里建一部作品、写一章已知内容，记下数据基线（同 `smoke-windows.ts`）；
   - 源放 B′：页面出现“可以更新”，点“下载”，等到“已下载”；请求记录里取的是补丁；
   - 关掉 A′，把源换回 A′（低于已下载的 B′，与场景 2 后半“已下载 C 之后源换成 B”同一形状：源退回正在运行的版本）；
-  - 打开 A′ 的启动器：换上 B′，B′ 自己起来；结果文件是成功，UI 自动化读到“已更新到”，没有“可以更新”；
+  - 打开 A′ 的启动器：换上 B′，B′ 自己起来；壳日志里有 `desktop.update.notice-shown kind=updated`（版本 B′），这次启动的检查结论不是“有更新”；
   - 关掉这个 B′，带调试端口重新启动：同一状态根，按数据基线核对作品登记与模型设置的值，读回那一章；安装目录与缺省位置之外没有建出新的状态根。
 - **场景 2 前半**：
   - 接上一段：源仍是 A′。上一段的重新启动就是换源之后的一次启动（检查只在启动时与每 24 小时做一次）；
   - 这次启动之后的 `shell.log` 有一条 `desktop.update.checked`，远端版本 A′、结论“更低”；请求记录里这次启动之后没有补丁或完整包的请求；页面没有提示；
   - 关掉 B′，卸载测试安装。
 - 测试包不进 Release。失败时 A′、B′ 的产物与更新源的请求记录随证据上传，保留 14 天。
-- UI 自动化在 runner 上能否读到 WebView 窗口里的文字，切片 4 在 pc-notype 上先验（t10 在那里读到过）；runner 上第一次真实运行时再确认。
+- UI 自动化在 runner 上能否读到 WebView 窗口里的文字：pc-notype 上单进程连续读读到了；它不再是门槛，runner 上读不到只少一笔证据。
 
-为了让“检查过、结论是什么”可观察，`UpdateController` 在检查完成时写一条 info 诊断 `desktop.update.checked`，带远端版本与结论（没有更新、有更新、更低）。适配层把它写进 shell.log。
+为了让“检查过、结论是什么”可观察，`UpdateController` 在检查完成时写一条 info 诊断 `desktop.update.checked`，带远端版本与结论（没有更新、有更新、更低）；页面显示了更新通知、交回壳时写 `desktop.update.notice-shown`（切片 4 加）。适配层把它们写进 shell.log。
 
 ### 冒烟的证据
 
@@ -245,7 +245,8 @@ npm 的 dist-tag，一律显式给：
 - 触发：`push: tags: ['v*']`；`workflow_dispatch` 只做演练（`dry-run`），跳过所有远端写入的作业。
 - `concurrency`：正式发布 `{group: release, queue: max}`（缺省的 `queue: single` 只留一个等待中的，新来的会把旧的等待中的取消；`max` 至多 100 个、先进先出；满了以后新来的被取消，被取消的那一轮在 Actions 里重跑即可，标签不用重推）。演练另一个组 `release-dry-run`，不占正式发布的队列。actionlint 若还不认 `queue`，按它的版本处理（升级或注明）。
 - `permissions` 按作业给：缺省 `contents: read`；发 npm 的作业 `id-token: write`；发 Release 的作业 `contents: write`。
-- 每个作业自己装要用的运行时：`oven-sh/setup-bun`（版本与 ci.yml 一致）、`bun install --frozen-lockfile`；Windows 作业另装 Hutch，版本从 `desktop/` 下一处可机读的地方读（切片 5 定：`hutch.config.ts` 现在只固定了 Electrobun 2.0.6，没有 Hutch 的版本），装后核对 `hutch --version`。
+- 每个作业自己装要用的运行时：`oven-sh/setup-bun`（版本与 ci.yml 一致）、`bun install --frozen-lockfile`；Windows 作业另装 Hutch，版本读 `desktop/package.json` 的 `config.hutch`（切片 5 定），装后核对 `hutch --version`。
+- Windows 上每个变体用 `desktop/scripts/build-variant.ts` 构建（复制工程、放入壳与载荷、核对版本、Hutch 构建、核对清单的版本与标识）；B′ 带 `--previous-feed`，构建期间在本机更新源上放 A′ 的产物。
 - 产物都显式 `retention-days: 35`（覆盖 GitHub 首次运行后 30 天的可重跑期）；失败证据 14 天。
 
 作业按顺序：

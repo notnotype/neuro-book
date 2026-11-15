@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t11-release-pipeline
 status: active
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 # 打标签自动发布流水线
@@ -41,6 +41,14 @@ release.yml：标签与产品版本一致性、标签提交上调用可复用的
 
 2026-11-15：切片 2、3 完成（Work 分支 `d849b332a`、`d806e30f2`、`59759a877`）。标签门禁、发布计划与 CI 发布入口、GitHub Release 草稿与公开、发布完成门禁；壳记下检查更新的结论与自有服务端的就绪、停止、意外退出。验证见 [release-scripts-r1.txt](evidences/release-scripts-r1.txt)：72 条脚本测试（bun 与 vitest）、90 条桌面核心测试，6 处变异核对；照 B′ 的做法在一次性 worktree 里改版本、本地提交、冒烟、写计划都跑通；在没有生成目录的检出上 `--ci` 只列出要发的。
 
+2026-11-15：切片 4、5、6 完成（Work 分支 `90e5c3efb`、`2797782ae`、`f3e7fae72`、`37925670c`）。pc-notype 上的实测见 [windows-smoke-r1.txt](evidences/windows-smoke-r1.txt)：
+- 前提“复制一份 `desktop/` 单独构建”“从 tar.zst 打便携 zip”成立；用流水线同一条路（`build-variant.ts`）构建了正式、A′、B′，B′ 在本机更新源上取 A′ 生成了补丁。
+- 安装版、便携版、更新冒烟都通过；第一次跑各暴露一处脚本问题，已修：shell 不一定要批准；便携版的 WebView2 数据按 Spec 留在通道根下，核对时略过；一次性的“已更新到”只停 3.2 秒，换上后的取证改为壳日志里页面交回的 `desktop.update.notice-shown`（产品多一条 info 诊断），UI 自动化改单进程连续读、读到另记。
+- t10 交下来的复查：相对路径与无盘符的 `NBOOK_STATE_ROOT` 在 Windows 上拒绝，启动页说明。缺省状态根前后不变。
+- 切片 5：`release.yml`、`ci.yml` 可复用、`build-variant.ts`、`tag.ts` 的 `source` 与 `bump-test`、`github-release.ts` 的 `sums`；切片 6：`repository-workflow.md` 的发布授权改写、两份 README、提案决策记录。
+- 没有跑 actionlint：下载它的二进制被本机权限分类器拦下，只做了 YAML 解析与 `needs` 引用核对。
+- 新增待确认 4 行。
+
 ## 下一步
 
-切片 4：Windows 冒烟脚本 `smoke-windows.ts`、`smoke-update.ts`，在 pc-notype 上先验计划里列的前提（复制 `desktop/` 单独构建、从 tar.zst 打便携、换上后 UI 自动化取证与重新连接）。
+一次实现审查（omp，范围 `d849b332a` 到 `37925670c`）；处理后合入 master，补两份 Spec 的 Smoke 证据（入口与“未运行”），删 scratch worktree `w00046-t11-bplus`。之后停下交开发者：push、actionlint、`nb-flock` 首发与 `nb-harness`、`nb-story` 提版、标签规则集、Environment `release`、npm 信任、演练与第一个标签。

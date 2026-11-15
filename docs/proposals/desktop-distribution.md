@@ -197,3 +197,4 @@ Windows 上的实测（开发机 pc-notype 与 GitHub 的 windows-2025 runner）
 | 2026-11-13 | 开发者 | 第一轮设计审查后：外部工具第一版只检测加提示，两条安装路径以后再做；更新的真实性接受只靠 HTTPS，不自签；禁止自动降级，出问题发递增的修复版；关最后一个窗口时有任务在跑，先提示、由用户决定 |
 | 2026-11-13 | 开发者 | 确认“直接用 Electrobun”取代 ADR 0033 决定 6 的三选一实测，提案接受时出 ADR 记录；同意再做一轮设计审查 |
 | 2026-11-13 | 开发者 | 第二轮设计审查处理后接受本提案；长期决定写成 [ADR 0051](../adr/0051-desktop-shell-electrobun-tag-release.md) |
+| 2026-11-15 | w00046 t11（前两条开发者 2026-11-14 已追认） | 4.8 落地时的取舍：npm 上本次版本不高于 `latest` 时发布用 dist-tag `history`，不回拨 `latest`；整轮重跑时本次版本的包已在 npm 上而这次打出的字节不同，发布计划失败，不自动重建替换，处置是提高补丁号重打标签；“上一个正式版本到本次”的更新验收放在发布之后的 `upgrade-from-previous` 作业里走真实路径，失败时 Release 已经公开；更新冒烟换上后的“已更新到”以壳日志里页面交回的 `desktop.update.notice-shown` 为准（一次性通知 3.2 秒后消失）。其中后两条待开发者追认，见 [w00046 待确认清单](../../.agents/works/w00046-desktop-release/pending-confirmations.md) |
