@@ -72,7 +72,16 @@ updated: 2026-11-15
 
 切片 4 完成：全文查找（`0c65b3ce8` 服务端、`c64b47841` 查看器；命中按页、条、第几处交，查看器按同样的显示文字数处数，契约测试核对；一次最多扫 3 秒或留 200 条），e2e `agent-request-trace.e2e.ts`（`4e9bee874`，验收 1、4、6 两个用例过）。验收 2 的 429 重试与请求头遮盖、验收 3 的进程退出不在 e2e 里，由 nb-harness 的 `tests/models.test.ts`（真实 HTTP）与 `recorder.test.ts`（含子进程）覆盖；验收 5 在 Lab 里看。相同前缀一条也收起（验收 1 的写法），宿主带着选中打开页面时窄态显示详情。
 
+切片 5 已提交（`cc3947763` 等，变基后的号）：排序与模型、时间筛选；“更多”菜单（占用、记录设置、清空这个会话或全部，先确认）；决定 14（只有按时间排、没有查找词、列表在顶上时插入，否则“有 N 条新请求”）；Ctrl/⌘+F、Alt+上下、查找框 Esc；文档（`AgentConversationView.md`、nb-agent-ui 的 README 与 AGENTS.md、nb-harness 的 README、`ui/agent-conversation-view.md`、`harness/host-kit.md`、`monorepo-boundaries.md`）。分支已变基到 `cbbbb8944`。
+
+没做、待开发者定（都写进了 `AgentRequestTrace.md` 的“不支持”）：
+
+- 输出 13 的“页面新开时从全部开始”：编辑区切走页签时页面组件会卸载，又没有“页签关了”的信号，分不清关页与切走，所以筛选一直保留到窗口关闭。要做得给编辑区加“页面开着”的公开状态。
+- 输出 17 的 `#N`、查找条的回车与 Shift+回车、消息页“有命中”与按角色的筛选（“提醒”要内容的来源才分得出）、比较页里变了的系统提示词与工具的逐行差异、输出 23 的宽窄切换迟滞与列表滚动位置保留。
+- 验收 2、3 不在 e2e 里，由 nb-harness 的真实 HTTP 测试与子进程测试覆盖（见切片 4）。
+
 ## 下一步
 
-1. 切片 5 抛光：排序与模型、时间筛选的控件；新请求只在“按时间排、没有查找词、列表在顶部”时插入（决定 14）；窄时的迟滞与滚动位置；“更多”菜单（占用、记录设置、清空这个会话、清空全部，先确认）；`#N`；键盘（详情 Alt+上下、查找条回车与 Esc、Ctrl/⌘+F）；页面新开时从全部开始（输出 13）；消息页按角色与“有命中”筛选；文档（`ui/agent-conversation-view.md` 的组件清单、nb-agent-ui 的 AGENTS.md 与 README、`monorepo-boundaries.md`、`harness/host-kit.md`）。
+1. 收口（进行中）：受影响测试（`test:affected --since cbbbb8944`）、e2e（新的、对话、`lab-agent-ui`、`lab-scenes`）；实现审查两路已开（后端 omp、前端 Sonnet），回来后处理；合入 master；Spec 晋升交开发者批准。
+2. 原切片 5 的抛光清单：排序与模型、时间筛选的控件；新请求只在“按时间排、没有查找词、列表在顶部”时插入（决定 14）；窄时的迟滞与滚动位置；“更多”菜单（占用、记录设置、清空这个会话、清空全部，先确认）；`#N`；键盘（详情 Alt+上下、查找条回车与 Esc、Ctrl/⌘+F）；页面新开时从全部开始（输出 13）；消息页按角色与“有命中”筛选；文档（`ui/agent-conversation-view.md` 的组件清单、nb-agent-ui 的 AGENTS.md 与 README、`monorepo-boundaries.md`、`harness/host-kit.md`）。
 2. 收口：`lab-scenes`、新 e2e 与受影响测试；前端（Sonnet）与后端（omp）实现审查；合入 master；Spec 晋升交开发者批准。
