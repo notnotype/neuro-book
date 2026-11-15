@@ -166,7 +166,7 @@ npm 的 dist-tag，一律显式给：
 1. **准备**：
    - 状态根用缺省的 `%LOCALAPPDATA%\NeuroBook`；便携版用程序目录下的 `data\`；
    - 起 `fakeEndpoint`，在状态根写 `settings.json`（`localModelSettings`）；
-   - 在仓库外的临时目录建一部作品，写一章已知内容；经应用的“打开作品”登记，不直接写 `projects.json`；
+   - 在仓库外的临时目录建一部作品，写一章已知内容，在应用第一次起来之前登记进 `projects.json`（与 e2e 相同；应用里的“打开作品”要经应用内的文件夹浏览，脚本驱动成本高）。合并进已有的文件，不覆盖别的条目；本机用缺省状态根时先备份、结束时还原；
    - 数据基线：`projects.json` 里作品的 id 与路径集合、`settings.json` 里假端点写进去的模型设置的值。之后的“数据不变”都按这份基线比这些用户看得到的值，不整份比会合法变化的文件；
    - 便携版：先记下缺省状态根的顶层清单与 `projects.json`、`settings.json` 的摘要（安装版冒烟已在那里留下东西），作基线。
 2. **安装**：
@@ -331,7 +331,7 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
    - 先验两件前提：复制一份 `desktop/` 单独构建；从 tar.zst 解压出的目录加便携标记能作为便携版运行；
    - 换上后更新器拉起的 B′ 用 UI 自动化读得到“已更新到”，按 PID 关掉后带调试端口重新启动能连上；
    - 安装版、便携版：测试应用标识，`--state-root` 放 `%USERPROFILE%\nb-w00046\t11\` 下，不碰缺省状态根；
-   - 更新冒烟：测试应用标识，用缺省状态根（与 t10 相同，开发者当时定直接用已有的 `%LOCALAPPDATA%\NeuroBook`；记进待确认清单）。冒烟建的作品在结束时经应用移出书架；前后对照顶层清单与 `projects.json`；
+   - 更新冒烟：测试应用标识，用缺省状态根（与 t10 相同，开发者当时定直接用已有的 `%LOCALAPPDATA%\NeuroBook`；记进待确认清单）。冒烟先备份 `projects.json`、`settings.json`，结束时还原；前后对照顶层清单与 `projects.json`；
    - 证据 `evidences/windows-smoke-r1.txt`；顺带重跑 t10 没在 Windows 上重跑的相对路径与无盘符路径的拒绝。
 5. **工作流**：`ci.yml` 可复用、`release.yml`。验证：`actionlint`；本机按作业顺序把各脚本串一遍，用演练参数，不写远端。
 6. **文档**：repository-workflow、README、Spec 证据、提案的决策记录。
