@@ -32,7 +32,7 @@ export type {
     ScrollAreaOrientation, ScrollAreaType, SearchSelectOption, SearchSelectSize, SegmentedControlOption,
     SegmentedControlSize, SegmentedControlValue, SelectDirection, SelectOption,
     SelectSize, Side, SkeletonShape, SliderSize, SpinnerSize, 
-    SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionSide, SwitchSize,
+    SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionMenuStatus, SuggestionSide, SwitchSize,
     TableColumn, TableDensity, TabsItem, TabsSize, ToggleGroupOption,
     ToggleGroupSize, Tone,
     FieldContext,

@@ -180,7 +180,8 @@ export class SkillCatalog {
             return [];
         });
         const items: SkillItem[] = [];
-        for (const child of children) {
+        // 按名字排序：readdir 的顺序随文件系统变，诊断（skill-invalid）的先后要稳定。
+        for (const child of children.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))) {
             // 文件与以点开头的条目不是 Skill（`.DS_Store`、编辑器的临时目录）；链接照样列出，状态是无效。
             if (child.name.startsWith(".") || !(child.isDirectory() || child.isSymbolicLink())) continue;
             items.push(await this.#readItem(source, join(root, child.name), child.name));
