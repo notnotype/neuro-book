@@ -165,3 +165,33 @@ describe("详情（输出 18、19、22）", () => {
         view.unmount();
     });
 });
+
+describe("消息页的大纲与比较（输出 19、21）", () => {
+    const withPrevious: RequestTraceDetail = {...detail, previous: {id: "r0", request: 9, sharedPrefix: 2}};
+
+    it("与前一次相同的前缀收成一行，点开逐条列出；这次新加的前面一条分隔线", async () => {
+        const view = mountTrace({detail: {state: "ready", value: withPrevious}});
+        expect(view.get("[data-request-prefix]").text()).toContain("第 1–2 条和 #9 相同");
+        expect(view.findAll(".ard__item-head .ard__role").map((role) => role.text())).toEqual(["工具结果", "回复"]);
+        expect(view.get(".ard__divider").text()).toBe("这次新加的");
+        await view.get("[data-request-prefix]").trigger("click");
+        expect(view.findAll(".ard__item-head .ard__role").map((role) => role.text())).toEqual(["用户", "助手", "工具结果", "回复"]);
+        view.unmount();
+    });
+
+    it("打开比较页先要前一次；交来之后写各部分的变化与最早的变化", async () => {
+        const view = mountTrace({detail: {state: "ready", value: withPrevious}});
+        view.findAllComponents({name: "Tabs"})[0]!.vm.$emit("update:modelValue", "compare");
+        await nextTick();
+        expect(view.emitted("action")?.at(-1)).toEqual([{type: "request.compare-base", id: "r0"}]);
+        const base: RequestTraceDetail = {...detail, id: "r0", request: 9, messages: detail.messages.slice(0, 2), tools: []};
+        await view.setProps({compare: {base: "r0", detail: {state: "ready", value: base}}});
+        const text = view.get("[data-request-compare]").text();
+        expect(text).toContain("和 #9 比");
+        expect(text).toContain("多 1，少 0，改 0");
+        expect(text).toContain("前 2 条相同，末尾多 1 条");
+        expect(text).toContain("最早的变化：工具");
+        expect(view.findAll(".ard__item--added")).toHaveLength(1);
+        view.unmount();
+    });
+});

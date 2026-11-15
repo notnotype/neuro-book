@@ -4,12 +4,12 @@
  * 发 `request.load-content`，宿主按哈希取回后经 `contents` 交来；原始请求体在打开那一页时才要。换一条记录时停在原来那一页。
  */
 import {computed, ref, watch} from "vue";
-import {Badge, Button, EmptyState, IconButton, Spinner, Tabs} from "@notnotype/nb-ui/components";
-import type {TabsItem} from "@notnotype/nb-ui/components";
+import {Badge, Button, DropdownMenu, EmptyState, IconButton, Spinner, Tabs} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData, TabsItem} from "@notnotype/nb-ui/components";
 
 import {formatClock} from "../../format";
-import {cacheHitRate, formatBytes, formatCost, formatDuration, formatTokens, promptTokens} from "../../request-trace";
-import type {RequestTraceAction, RequestTraceContentState, RequestTraceDetail, RequestTraceDetailState, RequestTraceMessage, RequestTracePayloadView, RequestTracePurpose, RequestTraceStatus} from "../../request-trace";
+import {cacheHitRate, compareRequests, formatBytes, formatCost, formatDuration, formatTokens, promptTokens} from "../../request-trace";
+import type {RequestTraceAction, RequestTraceCompareView, RequestTraceContentState, RequestTraceDetail, RequestTraceDetailState, RequestTraceMessage, RequestTracePayloadView, RequestTracePurpose, RequestTraceRow, RequestTraceStatus} from "../../request-trace";
 import {useAgentText} from "../text";
 import AgentRequestJson from "./AgentRequestJson.vue";
 
@@ -17,6 +17,10 @@ const props = defineProps<{
     detail: RequestTraceDetailState;
     contents: Readonly<Record<string, RequestTraceContentState>>;
     payload: RequestTracePayloadView;
+    /** 比较页：拿来比的那次与它的详情。 */
+    compare: RequestTraceCompareView;
+    /** 比较页可以换着比的：同一会话里更早的几次（新的在前）。 */
+    compareCandidates: readonly RequestTraceRow[];
     /** 列表里紧挨着的新一次、旧一次（没有时为 null）。 */
     newer: string | null;
     older: string | null;
@@ -29,14 +33,29 @@ const emit = defineEmits<{action: [action: RequestTraceAction]; back: []}>();
 
 const {t, locale} = useAgentText();
 
-type Tab = "messages" | "system" | "tools" | "payload" | "response";
+type Tab = "messages" | "system" | "tools" | "compare" | "payload" | "response";
 const tab = ref<Tab>("messages");
 /** 展开了全文的条目：按“页、序号”记，同一段内容在两处出现时各自展开。换一条记录时收起。 */
 const expanded = ref<ReadonlySet<string>>(new Set());
 
 const value = computed<RequestTraceDetail | null>(() => (props.detail.state === "ready" ? props.detail.value : null));
+/** 与前一次相同的前缀收成一行（Spec 输出 19），点开逐条列出。 */
+const prefixOpen = ref(false);
 watch(() => value.value?.id, () => {
     expanded.value = new Set();
+    prefixOpen.value = false;
+});
+
+/** 收起的相同前缀有几条：只有一条时不收（收起来不比原来短）。 */
+const folded = computed(() => {
+    const previous = value.value?.previous;
+    return previous !== undefined && previous.sharedPrefix > 1 && !prefixOpen.value ? previous.sharedPrefix : 0;
+});
+const shownMessages = computed(() => (value.value?.messages ?? []).slice(folded.value).map((message, offset) => ({message, index: folded.value + offset})));
+/** 这次新加的从哪条起（前面画一条分隔线）；没有前一次或全是新的时不画。 */
+const newFrom = computed(() => {
+    const previous = value.value?.previous;
+    return previous === undefined || previous.sharedPrefix === 0 ? null : previous.sharedPrefix;
 });
 
 const PURPOSE_TONE: Readonly<Record<RequestTracePurpose, "neutral" | "accent" | "warning" | "success">> = {turn: "neutral", compaction: "accent", approval: "warning", background: "success"};
@@ -48,9 +67,44 @@ const tabs = computed<TabsItem[]>(() => {
         {value: "messages", label: t("requests.tabs.messages"), ...(detail === null ? {} : {count: detail.messages.length + (detail.reply === undefined ? 0 : 1)})},
         {value: "system", label: t("requests.tabs.system")},
         {value: "tools", label: t("requests.tabs.tools"), ...(detail === null ? {} : {count: detail.tools.length})},
+        {value: "compare", label: t("requests.tabs.compare")},
         {value: "payload", label: t("requests.tabs.payload")},
         {value: "response", label: t("requests.tabs.response")},
     ];
+});
+
+// 比较页缺省和前一次比：打开那一页、还没定拿哪一次来比时要前一次的详情。
+watch([tab, () => value.value?.id], () => {
+    const previous = value.value?.previous;
+    if (tab.value === "compare" && previous !== undefined && props.compare.base === null) emit("action", {type: "request.compare-base", id: previous.id});
+}, {immediate: true});
+
+const baseDetail = computed(() => (props.compare.detail.state === "ready" ? props.compare.detail.value : null));
+const comparison = computed(() => (value.value === null || baseDetail.value === null ? null : compareRequests(value.value, baseDetail.value)));
+const candidateItems = computed<DropdownMenuItemData[]>(() => props.compareCandidates.map((row) => ({id: row.id, label: `#${String(row.request)} · ${formatClock(row.startedAt, locale.value)}`, type: "radio", group: "base", checked: row.id === props.compare.base})));
+
+const compareLines = computed(() => {
+    const compared = comparison.value;
+    if (compared === null) return [];
+    const {system, tools, messages, params} = compared;
+    const messageLine = messages.compacted !== null ? t("requests.compare.compacted", {removed: messages.compacted})
+        : messages.added.length === 0 && messages.removed.length === 0 ? t("requests.compare.same")
+        : messages.removed.length === 0 && messages.suffix === 0 ? t("requests.compare.appended", {prefix: messages.prefix, added: messages.added.length})
+        : t("requests.compare.replaced", {prefix: messages.prefix, suffix: messages.suffix, removed: messages.removed.length, added: messages.added.length});
+    return [
+        {key: "system", label: t("requests.compare.system"), text: system.same ? t("requests.compare.same") : t("requests.compare.systemChanged", {added: system.added.length, removed: system.removed.length}), changed: !system.same},
+        {key: "tools", label: t("requests.compare.tools"), text: tools.added.length + tools.removed.length + tools.changed.length === 0 ? t("requests.compare.same") : t("requests.compare.toolsChanged", {added: tools.added.length, removed: tools.removed.length, changed: tools.changed.length}), changed: tools.added.length + tools.removed.length + tools.changed.length > 0},
+        {key: "messages", label: t("requests.compare.messages"), text: messageLine, changed: messages.added.length + messages.removed.length > 0},
+        {key: "params", label: t("requests.compare.params"), text: params.length === 0 ? t("requests.compare.same") : t("requests.compare.paramsChanged", {list: params.join(", ")}), changed: params.length > 0},
+    ];
+});
+
+const firstChangeText = computed(() => {
+    const first = comparison.value?.firstChange;
+    if (first === undefined) return "";
+    if (first === null) return t("requests.compare.unchanged");
+    const where = first.kind === "message" ? t("requests.compare.firstMessage", {index: first.index}) : t(`requests.compare.${first.kind}`);
+    return t("requests.compare.first", {where});
 });
 
 // 原始请求体在打开那一页时才要（它可能有几 MB）。
@@ -188,7 +242,15 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
             <div class="ard__body nb-ui-scrollbar-thin nb-ui-scrollbar-stable" data-request-body>
                 <ol v-if="tab === 'messages'" class="ard__items">
                     <li v-if="value.messages.length === 0 && value.reply === undefined" class="ard__none">{{ t("requests.message.empty") }}</li>
-                    <li v-for="(message, index) in value.messages" :key="`m${index}`" class="ard__item" :data-role="message.role">
+                    <li v-if="folded > 0" class="ard__item">
+                        <button type="button" class="ard__item-head ard__item-head--fold" :aria-expanded="false" data-request-prefix @click="prefixOpen = true">
+                            <span class="ard__index"><span class="i-lucide-chevrons-up-down" aria-hidden="true"></span></span>
+                            <span class="ard__preview ard__muted">{{ t("requests.message.samePrefix", {last: folded, request: value.previous!.request}) }}</span>
+                        </button>
+                    </li>
+                    <template v-for="{message, index} in shownMessages" :key="`m${index}`">
+                    <li v-if="newFrom !== null && index === newFrom" class="ard__divider" role="separator"><span>{{ t("requests.message.newHere") }}</span></li>
+                    <li class="ard__item" :data-role="message.role">
                         <button type="button" class="ard__item-head" :aria-expanded="expanded.has(`m${index}`)" @click="toggle(`m${index}`, message.hash)">
                             <span class="ard__index">{{ index + 1 }}</span>
                             <span class="ard__role">{{ t(`requests.role.${message.role}`) }}</span>
@@ -204,6 +266,7 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                             <span v-else class="ard__muted">{{ t("requests.message.loading") }}</span>
                         </div>
                     </li>
+                    </template>
                     <li v-if="value.reply !== undefined" class="ard__item ard__item--reply" data-role="reply">
                         <button type="button" class="ard__item-head" :aria-expanded="expanded.has('reply')" @click="toggle('reply', value.reply.hash)">
                             <span class="ard__index"><span class="i-lucide-corner-down-right" aria-hidden="true"></span></span>
@@ -238,6 +301,45 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
                         </div>
                     </li>
                 </ol>
+
+                <div v-else-if="tab === 'compare'" class="ard__raw" data-request-compare>
+                    <div v-if="value.previous === undefined && compare.base === null" class="ard__muted">{{ t("requests.compare.none") }}</div>
+                    <template v-else>
+                        <div class="ard__raw-head">
+                            <span>{{ t("requests.compare.base", {request: baseDetail?.request ?? value.previous?.request ?? "—"}) }}</span>
+                            <DropdownMenu v-if="candidateItems.length > 1" :items="candidateItems" align="end" @select="(id: string) => emit('action', {type: 'request.compare-base', id})">
+                                <Button variant="ghost" size="sm" icon-class="i-lucide-chevrons-up-down">{{ t("requests.compare.pick") }}</Button>
+                            </DropdownMenu>
+                        </div>
+                        <span v-if="compare.detail.state === 'loading' || compare.detail.state === 'idle'" class="ard__muted">{{ t("requests.compare.loading") }}</span>
+                        <span v-else-if="compare.detail.state !== 'ready'" class="ard__muted">{{ t("requests.compare.error") }}</span>
+                        <template v-else-if="comparison !== null && baseDetail !== null">
+                            <dl class="ard__compare">
+                                <div v-for="line in compareLines" :key="line.key" class="ard__compare-line" :data-changed="line.changed || undefined">
+                                    <dt>{{ line.label }}</dt>
+                                    <dd>{{ line.text }}</dd>
+                                </div>
+                            </dl>
+                            <div class="ard__muted">{{ t("requests.compare.cache", {current: percent(cacheHitRate(value.usage)), base: percent(cacheHitRate(baseDetail.usage))}) }} · {{ firstChangeText }}</div>
+                            <template v-if="comparison.messages.removed.length > 0">
+                                <h4 class="ard__h">{{ t("requests.compare.removed") }}</h4>
+                                <ol class="ard__items">
+                                    <li v-for="(message, index) in comparison.messages.removed" :key="`r${index}`" class="ard__item ard__item--removed">
+                                        <div class="ard__item-head"><span class="ard__index">−</span><span class="ard__role">{{ t(`requests.role.${message.role}`) }}</span><span class="ard__preview">{{ message.preview }}</span><span class="ard__tokens">{{ t("requests.message.tokens", {value: formatTokens(message.tokens)}) }}</span></div>
+                                    </li>
+                                </ol>
+                            </template>
+                            <template v-if="comparison.messages.added.length > 0">
+                                <h4 class="ard__h">{{ t("requests.compare.added") }}</h4>
+                                <ol class="ard__items">
+                                    <li v-for="(message, index) in comparison.messages.added" :key="`a${index}`" class="ard__item ard__item--added">
+                                        <div class="ard__item-head"><span class="ard__index">+</span><span class="ard__role">{{ t(`requests.role.${message.role}`) }}</span><span class="ard__preview">{{ message.preview }}</span><span class="ard__tokens">{{ t("requests.message.tokens", {value: formatTokens(message.tokens)}) }}</span></div>
+                                    </li>
+                                </ol>
+                            </template>
+                        </template>
+                    </template>
+                </div>
 
                 <div v-else-if="tab === 'payload'" class="ard__raw">
                     <div v-if="value.payload.state !== 'present'" class="ard__muted" data-request-payload-reason>{{ t(`requests.payload.${value.payload.state}`) }}</div>
@@ -507,6 +609,46 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
     .ard__note {
         display: none;
     }
+}
+.ard__divider {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    padding: 6px 0 2px;
+    color: var(--accent-text);
+    font-size: var(--text-2xs);
+}
+.ard__divider::after {
+    flex: 1 1 auto;
+    height: 1px;
+    background: var(--border-accent);
+    content: "";
+}
+.ard__compare {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 4px var(--space-3);
+    margin: 0;
+    font-size: var(--text-sm);
+}
+.ard__compare-line {
+    display: contents;
+}
+.ard__compare-line dt {
+    color: var(--text-muted);
+}
+.ard__compare-line dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+.ard__compare-line[data-changed] dd {
+    color: var(--status-warning);
+}
+.ard__item--removed .ard__index {
+    color: var(--status-danger);
+}
+.ard__item--added .ard__index {
+    color: var(--status-success);
 }
 .ard__attempts {
     margin: 0;

@@ -422,8 +422,10 @@ export class RequestRecorder {
             Promise.all(start.tools.map((hash) => this.#outline("tool", hash))),
             end?.reply === undefined ? undefined : this.#outline("reply", end.reply),
         ]);
+        const previous = this.#previousOf(entry);
         return {
             ...entry.row,
+            ...(previous === null ? {} : {previous: {id: previous.start.id, request: previous.start.request, sharedPrefix: sharedPrefix(start.messages, previous.start.messages)}}),
             modifiedBy: start.modifiedBy ?? [],
             params: start.params,
             system,
@@ -434,6 +436,16 @@ export class RequestRecorder {
             attemptList: entry.attempts.map(attemptOf),
             payload: payloadOf(entry),
         };
+    }
+
+    /** 同一会话、同一用途里紧挨着的前一次（按 `start` 的序号）。一次扫全部记录：只在读详情时调。 */
+    #previousOf(entry: Entry): Entry | null {
+        let found: Entry | null = null;
+        for (const other of this.#entries.values()) {
+            if (other.start.session !== entry.start.session || other.start.purpose !== entry.start.purpose || other.start.seq >= entry.start.seq) continue;
+            if (found === null || other.start.seq > found.start.seq) found = other;
+        }
+        return found;
     }
 
     /** 一段内容的全文（存下的 JSON 文本，远程层按字节分段交出）；已经清掉时交回 null（`content-not-found`）。 */
@@ -789,6 +801,13 @@ export class RequestRecorder {
 }
 
 type EndFields = Omit<EndLine, keyof LineBase | "kind" | "at">;
+
+/** 两份消息哈希从第一条起逐条相同的条数。 */
+function sharedPrefix(a: readonly string[], b: readonly string[]): number {
+    let count = 0;
+    while (count < a.length && count < b.length && a[count] === b[count]) count += 1;
+    return count;
+}
 
 /**
  * 请求的参数：采样参数、工具选择、请求自带的头（遮过）与透传给适配器的选项的名字。选项的值不记：它们原样交给服务商，记录器

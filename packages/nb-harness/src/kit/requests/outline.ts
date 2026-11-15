@@ -36,7 +36,7 @@ function callSummary(call: ToolCall): NonNullable<MessageOutline["toolCalls"]>[n
     return {id: call.id, tool: call.tool, args: Object.fromEntries(Object.entries(call.args).map(([key, value]) => [key, clip(value)]))};
 }
 
-function messageLike(role: MessageOutline["role"], content: readonly ContentBlock[], toolCalls: readonly ToolCall[] | undefined, hash: string, extra: Pick<MessageOutline, "callId" | "isError">): MessageOutline {
+function messageLike(role: MessageOutline["role"], content: readonly ContentBlock[], toolCalls: readonly ToolCall[] | undefined, hash: string, extra: Pick<MessageOutline, "callId" | "isError" | "summary">): MessageOutline {
     const text = textOf(content);
     const calls = toolCalls ?? [];
     const firstCall = calls[0];
@@ -53,9 +53,12 @@ function messageLike(role: MessageOutline["role"], content: readonly ContentBloc
 }
 
 export function messageOutline(hash: string, message: Message): MessageOutline {
+    // 压缩留下的摘要：比较两次请求时据此写“历史被压缩”（docs/specs/agent/request-trace.md 输出 21）。
+    const summary = message.content.some((block) => block.origin?.kind === "summary");
     return messageLike(message.role, message.content, message.toolCalls, hash, {
         ...(message.callId === undefined ? {} : {callId: message.callId}),
         ...(message.isError === undefined ? {} : {isError: message.isError}),
+        ...(summary ? {summary: true as const} : {}),
     });
 }
 

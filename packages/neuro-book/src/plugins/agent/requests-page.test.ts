@@ -105,6 +105,23 @@ describe("“模型请求”页的状态", () => {
         expect(page.detail.value.state).toBe("missing");
     });
 
+    test("输出 19、21：详情带着前一次与相同的消息前缀；比较页拿前一次来比，换了选中就清掉", async () => {
+        const {w, page} = await open();
+        endpoint.script("一", "二");
+        const session = await say(w, "第一句");
+        await say(w, "第二句", session);
+        releases.push(page.borrow());
+        await settledRows(page, 2);
+        await waitUntil("选中最新的一条", () => page.detail.value.state === "ready" && page.detail.value.value.request === 2);
+        const latest = page.detail.value.state === "ready" ? page.detail.value.value : null;
+        // 第二次请求的消息是第一次的全部加上回复与第二句。
+        expect(latest?.previous).toMatchObject({request: 1, sharedPrefix: 1});
+        await page.compareWith(latest?.previous?.id ?? "");
+        expect(page.compare.value.detail.state === "ready" ? page.compare.value.detail.value.request : null).toBe(1);
+        page.select(page.rows.value[1]!.id);
+        expect(page.compare.value).toEqual({base: null, detail: {state: "idle"}});
+    });
+
     test("全文与原始请求体按需要取，读回来的是存下的原文", async () => {
         const {w, page} = await open();
         endpoint.script("好的");

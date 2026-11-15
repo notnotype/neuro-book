@@ -4,8 +4,8 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {cacheHitRate, formatCost, formatDuration, formatTokens, groupRequests, matchesQuery} from "./request-trace";
-import type {RequestTraceRow} from "./request-trace";
+import {cacheHitRate, compareRequests, formatCost, formatDuration, formatTokens, groupRequests, matchesQuery} from "./request-trace";
+import type {RequestTraceDetail, RequestTraceMessage, RequestTraceRow} from "./request-trace";
 
 let counter = 0;
 function row(fields: Partial<RequestTraceRow> = {}): RequestTraceRow {
@@ -72,5 +72,43 @@ describe("数值的写法", () => {
         // OMP 的 `input` 不含缓存的部分：命中率按全部输入算。
         expect(cacheHitRate({input: 20, output: 5, cacheRead: 60, cacheWrite: 20, cost: null})).toBe(0.6);
         expect(cacheHitRate({input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null})).toBeNull();
+    });
+});
+
+describe("和别的一次比较（输出 21）", () => {
+    const message = (hash: string, fields: Partial<RequestTraceMessage> = {}): RequestTraceMessage => ({hash, role: "user", preview: hash, tokens: 10, images: 0, ...fields});
+    const detail = (fields: Partial<RequestTraceDetail>): RequestTraceDetail => ({
+        ...row(), hash: "h", modifiedBy: [], params: {maxTokens: 1000}, system: [{hash: "s1", preview: "系统", tokens: 10}], messages: [], messagesNext: null,
+        tools: [{hash: "t-read", id: "builtin.read", description: "读"}], attemptList: [], payload: {state: "unavailable"}, ...fields,
+    });
+
+    it("末尾追加：前缀就是上一次的全部，只多出几条；完全相同时没有变化", () => {
+        const base = detail({messages: [message("m1"), message("m2")]});
+        const current = detail({messages: [message("m1"), message("m2"), message("m3", {role: "assistant"}), message("m4", {role: "tool"})]});
+        const compared = compareRequests(current, base);
+        expect(compared.messages).toMatchObject({prefix: 2, suffix: 0, removed: [], compacted: null});
+        expect(compared.messages.added.map((item) => item.hash)).toEqual(["m3", "m4"]);
+        expect(compared.firstChange).toEqual({kind: "message", index: 3});
+        expect(compareRequests(base, base).firstChange).toBeNull();
+    });
+
+    it("中间插入或改了一条：按首尾对齐，中间一段整体当替换；工具与参数变了先于消息", () => {
+        const base = detail({messages: [message("m1"), message("m2"), message("m3")]});
+        const current = detail({messages: [message("m1"), message("x"), message("y"), message("m3")], params: {maxTokens: 2000}, tools: [{hash: "t-read-2", id: "builtin.read", description: "读"}, {hash: "t-edit", id: "builtin.edit", description: "改"}]});
+        const compared = compareRequests(current, base);
+        expect(compared.messages).toMatchObject({prefix: 1, suffix: 1});
+        expect([compared.messages.removed.map((item) => item.hash), compared.messages.added.map((item) => item.hash)]).toEqual([["m2"], ["x", "y"]]);
+        expect(compared.tools).toEqual({added: ["builtin.edit"], removed: [], changed: ["builtin.read"]});
+        expect(compared.params).toEqual(["maxTokens"]);
+        expect(compared.firstChange).toEqual({kind: "tools"});
+    });
+
+    it("前面的历史被压缩成摘要：写明前几条换成了摘要", () => {
+        const base = detail({messages: [message("m1"), message("m2"), message("m3"), message("m4")]});
+        const current = detail({messages: [message("summary", {summary: true}), message("m4")], system: [{hash: "s2", preview: "改过的系统", tokens: 12}]});
+        const compared = compareRequests(current, base);
+        expect(compared.messages.compacted).toBe(3);
+        expect(compared.system).toMatchObject({same: false});
+        expect(compared.firstChange).toEqual({kind: "system"});
     });
 });

@@ -63,6 +63,8 @@ export interface MessageOutline {
     readonly callId?: string;
     readonly isError?: boolean;
     readonly images: number;
+    /** 压缩留下的摘要（块的来源是 `summary`）。 */
+    readonly summary?: true;
     /** 内容文件读不出（清理与读取同时发生，或文件损坏）：只有哈希，其余是空的。 */
     readonly missing?: true;
 }
@@ -87,6 +89,11 @@ export type PayloadState =
     | {readonly state: "disabled" | "unavailable" | "pruned"};
 
 export interface RequestDetail extends RequestRow {
+    /**
+     * 同一会话、同一用途里紧挨着的前一次请求（还在记录里的），与两次的消息从第一条起逐条相同的条数：消息页据此把相同的前缀
+     * 收成一行（docs/specs/agent/request-trace.md 输出 19），比较页缺省和它比（输出 21）。
+     */
+    readonly previous?: {readonly id: string; readonly request: number; readonly sharedPrefix: number};
     readonly modifiedBy: readonly {readonly extension: string; readonly fields: readonly string[]}[];
     readonly params: Readonly<Record<string, JsonValue>>;
     readonly system: readonly BlockOutline[];

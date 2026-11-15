@@ -29,6 +29,7 @@ props: {
     detail: RequestTraceDetailState;         // idle | loading | missing | error | ready
     contents: Readonly<Record<string, RequestTraceContentState>>;   // 按哈希取回的全文
     payload: RequestTracePayloadView;        // 选中那条的原始请求体：idle | loading | missing | error | ready
+    compare?: RequestTraceCompareView;       // 比较页拿来比的那次（base）与它的详情；缺省还没定
     enabled: boolean;                        // 记录开着
     now: number;                             // 宿主给的当前时间
     locale?: AgentLocale;                    // 没有注入翻译端口时的语言，缺省 zh-CN
@@ -49,4 +50,4 @@ emits: {
 
 ## 不支持
 
-查找、和上一次比较、消息页的大纲与相同前缀、排序与时间筛选的控件、窄时的迟滞与滚动位置保留、键盘快捷键（Spec 输出 17、19 到 21 的一部分）在后续切片里加。
+查找、排序与时间筛选的控件、比较页里变了的系统提示词与工具的逐行差异、消息页按角色筛选、窄时的迟滞与滚动位置保留、键盘快捷键（Spec 输出 17、19 到 21 的一部分）在后续切片里加。

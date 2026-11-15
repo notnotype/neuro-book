@@ -28,6 +28,7 @@ const rows: RequestTraceRow[] = [
 const detail: RequestTraceDetail = {
     ...rows[5]!,
     hash: "3b313cb11376",
+    previous: {id: "r-earlier", request: 5, sharedPrefix: 2},
     modifiedBy: [{extension: "nbook.agent.guards", fields: ["system"]}],
     params: {maxTokens: 8000},
     profile: "nbook.agent.main",

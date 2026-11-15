@@ -10,7 +10,7 @@ import {shallowRef} from "vue";
 import type {ShallowRef} from "vue";
 
 import {matchesQuery} from "@notnotype/nb-agent-ui";
-import type {RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceListState, RequestTracePayloadView, RequestTraceQuery, RequestTraceTotals} from "@notnotype/nb-agent-ui";
+import type {RequestTraceCompareView, RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceListState, RequestTracePayloadView, RequestTraceQuery, RequestTraceTotals} from "@notnotype/nb-agent-ui";
 import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
 
 import {agentRequestsContract} from "../shared/requests";
@@ -64,6 +64,8 @@ export class RequestsPage {
     readonly detail: ShallowRef<RequestTraceDetailState> = shallowRef({state: "idle"});
     readonly contents: ShallowRef<Readonly<Record<string, RequestTraceContentState>>> = shallowRef({});
     readonly payload: ShallowRef<RequestTracePayloadView> = shallowRef({state: "idle"});
+    /** 比较页拿来比的那一次；换了选中就清掉，比较页打开时组件再要。 */
+    readonly compare: ShallowRef<RequestTraceCompareView> = shallowRef({base: null, detail: {state: "idle"}});
 
     readonly #remote: RequestsClient;
     readonly #report: (code: string, message: string) => void;
@@ -71,6 +73,7 @@ export class RequestsPage {
     #next: string | undefined;
     #listToken = 0;
     #detailToken = 0;
+    #compareToken = 0;
     #borrowers = 0;
     #release: (() => void) | null = null;
     /** 下一次取完列表时要选中的（命令带的 `request`），或“选中最新的一条”（true）。 */
@@ -179,7 +182,11 @@ export class RequestsPage {
     }
 
     select(id: string): void {
-        if (this.selected.value !== id) this.payload.value = {state: "idle"};
+        if (this.selected.value !== id) {
+            this.payload.value = {state: "idle"};
+            this.#compareToken += 1;
+            this.compare.value = {base: null, detail: {state: "idle"}};
+        }
         this.selected.value = id;
         void this.#read(id);
     }
@@ -194,26 +201,31 @@ export class RequestsPage {
         // 同一条重读（结算之后）时不闪加载态。
         const current = this.detail.value;
         if (current.state !== "ready" || current.value.id !== id) this.detail.value = {state: "loading"};
+        const read = await this.#fetchDetail(id);
+        if (token === this.#detailToken) this.detail.value = read;
+    }
+
+    /** 比较页拿这一次来比（缺省是前一次）。 */
+    async compareWith(id: string): Promise<void> {
+        const token = ++this.#compareToken;
+        this.compare.value = {base: id, detail: {state: "loading"}};
+        const read = await this.#fetchDetail(id);
+        if (token === this.#compareToken) this.compare.value = {base: id, detail: read};
+    }
+
+    /** 读一条详情：消息大纲分页交来，接着取到最后一页（序号、收起的前缀与比较都要看全部消息）。 */
+    async #fetchDetail(id: string): Promise<RequestTraceDetailState> {
         const read = await this.#remote.read({id});
-        if (token !== this.#detailToken) return;
-        if (!read.ok) {
-            this.detail.value = {state: read.code === "request-not-found" ? "missing" : "error"};
-            return;
-        }
-        // 消息大纲分页交来：接着取到最后一页再显示，详情里的序号与收起的前缀要看全部消息。
+        if (!read.ok) return {state: read.code === "request-not-found" ? "missing" : "error"};
         let value: RequestDetailView = read.value;
         let from = value.messagesNext;
         while (from !== null) {
             const page = await this.#remote.messages({id, from});
-            if (token !== this.#detailToken) return;
-            if (!page.ok) {
-                this.detail.value = {state: page.code === "request-not-found" ? "missing" : "error"};
-                return;
-            }
+            if (!page.ok) return {state: page.code === "request-not-found" ? "missing" : "error"};
             value = {...value, messages: [...value.messages, ...page.value.items], messagesNext: page.value.next};
             from = page.value.next;
         }
-        this.detail.value = {state: "ready", value};
+        return {state: "ready", value};
     }
 
     async loadContent(hash: string): Promise<void> {

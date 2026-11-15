@@ -361,6 +361,9 @@ describe("记录", () => {
         const byRequest = new Map((await rows(r)).map((row) => [row.request, row]));
         expect([1, 2, 3, 4, 5].map((number) => byRequest.get(number)?.resend)).toEqual([undefined, 2, 3, undefined, undefined]);
         expect([1, 2, 3, 4, 5].map((number) => byRequest.get(number)?.toolsChanged)).toEqual([false, false, false, true, false]);
+        // 详情带着同一会话同一用途的前一次与相同的消息前缀；压缩用途的第一次没有前一次。
+        expect((await r.recorder.read(byRequest.get(4)?.id ?? ""))?.previous).toEqual({id: byRequest.get(3)?.id ?? "", request: 3, sharedPrefix: 1});
+        expect((await r.recorder.read(byRequest.get(5)?.id ?? ""))?.previous).toBeUndefined();
     });
 
     test.skipIf(process.getuid?.() === 0)("输出 9：记录写不进去时请求照常发出，这一次没有记录，写一条诊断", async () => {

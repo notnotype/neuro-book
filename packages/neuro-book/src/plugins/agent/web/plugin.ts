@@ -487,6 +487,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                             case "request.retry-detail": store.reload(); return;
                             case "request.load-content": void store.loadContent(action.hash); return;
                             case "request.load-payload": void store.loadPayload(action.id); return;
+                            case "request.compare-base": void store.compareWith(action.id); return;
                             case "request.open-session": void commands.execute(FOCUS_SESSION_COMMAND, {sessionId: action.session}); return;
                             case "request.open-settings": void commands.execute(OPEN_SETTINGS_COMMAND, {section: REQUESTS_SECTION}); return;
                             case "request.copy": {
@@ -535,6 +536,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                                 detail: store.detail.value,
                                 contents: store.contents.value,
                                 payload: store.payload.value,
+                                compare: store.compare.value,
                                 enabled: enabled.value,
                                 now: now.value,
                                 locale: displayLocale(settings) === "en-US" ? "en-US" : "zh-CN",

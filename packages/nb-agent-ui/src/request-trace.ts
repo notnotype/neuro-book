@@ -62,6 +62,8 @@ export interface RequestTraceMessage {
     readonly callId?: string;
     readonly isError?: boolean;
     readonly images: number;
+    /** 压缩留下的摘要。 */
+    readonly summary?: true;
     readonly missing?: true;
 }
 
@@ -94,6 +96,8 @@ export type RequestTracePayloadState = {readonly state: "present"; readonly byte
 
 export interface RequestTraceDetail extends RequestTraceRow {
     readonly hash: string;
+    /** 同一会话同一用途的前一次与两次相同的消息前缀条数（消息页收起相同的前缀，比较页缺省和它比）。 */
+    readonly previous?: {readonly id: string; readonly request: number; readonly sharedPrefix: number};
     readonly modifiedBy: readonly {readonly extension: string; readonly fields: readonly string[]}[];
     readonly params: Readonly<Record<string, unknown>>;
     readonly profile?: string;
@@ -148,6 +152,12 @@ export type RequestTraceContentState = {readonly state: "loading" | "missing" | 
 /** 原始请求体：`idle` 是还没要过（打开那一页时组件发 `request.load-payload`）。 */
 export type RequestTracePayloadView = {readonly state: "idle" | "loading" | "missing" | "error"} | {readonly state: "ready"; readonly text: string};
 
+/** 比较页的状态：拿来比的是哪一次（还没定时为 null）与它的详情；`candidates` 是同一会话里可以换着比的几次（新的在前）。 */
+export interface RequestTraceCompareView {
+    readonly base: string | null;
+    readonly detail: RequestTraceDetailState;
+}
+
 /** 查看器交回宿主的操作。查看器不取数、不写剪贴板，都经它们交给宿主。 */
 export type RequestTraceAction =
     | {readonly type: "request.select"; readonly id: string}
@@ -159,6 +169,8 @@ export type RequestTraceAction =
     | {readonly type: "request.retry-detail"}
     | {readonly type: "request.load-content"; readonly hash: string}
     | {readonly type: "request.load-payload"; readonly id: string}
+    /** 比较页要拿这一次来比（缺省是前一次；换了一次时也发）。 */
+    | {readonly type: "request.compare-base"; readonly id: string}
     | {readonly type: "request.open-session"; readonly session: string}
     | {readonly type: "request.open-settings"}
     /** 复制这次请求（记录的 JSON）或它的原始请求体。 */
@@ -270,4 +282,66 @@ export function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${String(bytes)} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** 两次请求的比较（Spec 输出 21）。`current` 是选中的那次，`base` 是拿来比的那次。 */
+export interface RequestComparison {
+    readonly system: {readonly same: boolean; readonly added: readonly RequestTraceBlock[]; readonly removed: readonly RequestTraceBlock[]};
+    readonly tools: {readonly added: readonly string[]; readonly removed: readonly string[]; readonly changed: readonly string[]};
+    /** 值变了的参数名。 */
+    readonly params: readonly string[];
+    readonly messages: {
+        /** 从第一条起相同的条数、从最后一条往前相同的条数。 */
+        readonly prefix: number;
+        readonly suffix: number;
+        /** 中间不同的一段：`base` 里的整体换成了 `current` 里的。 */
+        readonly removed: readonly RequestTraceMessage[];
+        readonly added: readonly RequestTraceMessage[];
+        /** 前面的历史被压缩成摘要：被换掉的条数；不是压缩时为 null。 */
+        readonly compacted: number | null;
+    };
+    /** 最早一处变化：缓存从这里断开（服务商按工具、系统提示词、消息的先后缓存前缀）；完全相同时为 null。 */
+    readonly firstChange: {readonly kind: "tools" | "system" | "params"} | {readonly kind: "message"; readonly index: number} | null;
+}
+
+/**
+ * 比较两次请求：系统提示词与工具按内容哈希比，参数按值比；消息先按首尾对齐，中间不同的一段整体当替换（不做逐条的最小编辑），
+ * 换上来的那段里有压缩留下的摘要时判为“历史被压缩”。
+ */
+export function compareRequests(current: RequestTraceDetail, base: RequestTraceDetail): RequestComparison {
+    const systemHashes = new Set(base.system.map((block) => block.hash));
+    const currentSystem = new Set(current.system.map((block) => block.hash));
+    const systemAdded = current.system.filter((block) => !systemHashes.has(block.hash));
+    const systemRemoved = base.system.filter((block) => !currentSystem.has(block.hash));
+    const systemSame = systemAdded.length === 0 && systemRemoved.length === 0 && current.system.length === base.system.length;
+
+    const baseTools = new Map(base.tools.map((tool) => [tool.id, tool.hash]));
+    const currentTools = new Map(current.tools.map((tool) => [tool.id, tool.hash]));
+    const tools = {
+        added: current.tools.filter((tool) => !baseTools.has(tool.id)).map((tool) => tool.id),
+        removed: base.tools.filter((tool) => !currentTools.has(tool.id)).map((tool) => tool.id),
+        changed: current.tools.filter((tool) => baseTools.has(tool.id) && baseTools.get(tool.id) !== tool.hash).map((tool) => tool.id),
+    };
+    const toolsSame = tools.added.length + tools.removed.length + tools.changed.length === 0;
+
+    const keys = new Set([...Object.keys(current.params), ...Object.keys(base.params)]);
+    const params = [...keys].filter((key) => JSON.stringify(current.params[key]) !== JSON.stringify(base.params[key])).sort();
+
+    const a = current.messages;
+    const b = base.messages;
+    let prefix = 0;
+    while (prefix < a.length && prefix < b.length && a[prefix]!.hash === b[prefix]!.hash) prefix += 1;
+    let suffix = 0;
+    while (suffix < a.length - prefix && suffix < b.length - prefix && a[a.length - 1 - suffix]!.hash === b[b.length - 1 - suffix]!.hash) suffix += 1;
+    const added = a.slice(prefix, a.length - suffix);
+    const removed = b.slice(prefix, b.length - suffix);
+    const compacted = removed.length > 0 && added.some((message) => message.summary === true) ? removed.length : null;
+    const messagesSame = added.length === 0 && removed.length === 0;
+
+    const firstChange: RequestComparison["firstChange"] = !toolsSame ? {kind: "tools"}
+        : !systemSame ? {kind: "system"}
+        : !messagesSame ? {kind: "message", index: prefix + 1}
+        : params.length > 0 ? {kind: "params"}
+        : null;
+    return {system: {same: systemSame, added: systemAdded, removed: systemRemoved}, tools, params, messages: {prefix, suffix, removed, added, compacted}, firstChange};
 }

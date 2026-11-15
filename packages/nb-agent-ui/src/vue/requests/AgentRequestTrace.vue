@@ -8,7 +8,7 @@ import {computed, ref, watch} from "vue";
 import {Button, DropdownMenu} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 
-import type {RequestTraceAction, RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceListState, RequestTracePayloadView, RequestTracePurpose, RequestTraceQuery, RequestTraceRow, RequestTraceStatusFilter, RequestTraceTotals} from "../../request-trace";
+import type {RequestTraceAction, RequestTraceCompareView, RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceListState, RequestTracePayloadView, RequestTracePurpose, RequestTraceQuery, RequestTraceRow, RequestTraceStatusFilter, RequestTraceTotals} from "../../request-trace";
 import type {AgentLocale} from "../../types";
 import {provideAgentText} from "../text";
 import AgentRequestDetail from "./AgentRequestDetail.vue";
@@ -29,13 +29,15 @@ const props = withDefaults(defineProps<{
     contents: Readonly<Record<string, RequestTraceContentState>>;
     /** 选中那条的原始请求体。 */
     payload: RequestTracePayloadView;
+    /** 比较页：拿来比的那次与它的详情；缺省还没定。 */
+    compare?: RequestTraceCompareView;
     /** 记录开着；关着且没有记录时空状态写“没有在记录”与“打开记录”。 */
     enabled: boolean;
     /** 宿主给的当前时间：进行中的请求写已经等了多久。 */
     now: number;
     /** 没有宿主注入翻译端口时的界面语言，缺省 zh-CN。 */
     locale?: AgentLocale;
-}>(), {pending: 0, locale: undefined});
+}>(), {pending: 0, locale: undefined, compare: () => ({base: null, detail: {state: "idle"}})});
 
 const emit = defineEmits<{"update:query": [query: RequestTraceQuery]; action: [action: RequestTraceAction]}>();
 
@@ -57,6 +59,13 @@ watch(() => props.selected, (selected) => {
 const index = computed(() => props.rows.findIndex((row) => row.id === props.selected));
 const newer = computed(() => (index.value > 0 ? props.rows[index.value - 1]!.id : null));
 const older = computed(() => (index.value >= 0 && index.value < props.rows.length - 1 ? props.rows[index.value + 1]!.id : null));
+
+/** 比较页可以换着比的：已加载的行里同一会话、更早开始的那几次（新的在前）。 */
+const compareCandidates = computed(() => {
+    const detail = props.detail.state === "ready" ? props.detail.value : null;
+    if (detail === null) return [];
+    return props.rows.filter((row) => row.session === detail.session && row.startedAt < detail.startedAt);
+});
 
 const singleSession = computed(() => (props.query.sessions?.length ?? 0) === 1);
 const filtered = computed(() => (props.query.sessions?.length ?? 0) + (props.query.purposes?.length ?? 0) + (props.query.statuses?.length ?? 0) + (props.query.models?.length ?? 0) > 0 || props.query.since !== undefined);
@@ -147,6 +156,8 @@ function clearFilters(): void {
                 :detail="detail"
                 :contents="contents"
                 :payload="payload"
+                :compare="compare"
+                :compare-candidates="compareCandidates"
                 :newer="newer"
                 :older="older"
                 :narrow="view === 'detail'"
