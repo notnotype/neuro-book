@@ -52,4 +52,5 @@ updated: 2026-11-14
 | [t08](tasks/t08-desktop-shell/README.md) | Electrobun 桌面壳。已完成，合入 master；desktop-shell 已晋升 implemented |
 | [t09](tasks/t09-close-handshake/README.md) | 关闭前询问（页面与壳）。已完成，合入 master |
 | [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。已完成，合入 master；desktop-update 已晋升 implemented |
-| [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。完成并合入 master：设计审查两轮、实现审查一轮已处理，pc-notype 上三个冒烟通过；推送、一次性准备与第一个标签待开发者 |
+| [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。已完成：第一次正式发布 v0.13.0（2026-11-15）走完，registry 冒烟改为先等版本可见 |
+| [t12](tasks/t12-release-stages-and-changelog/README.md) | 发布阶段（canary → preview → stable）、各发布单元的 CHANGELOG 与生成的中文 Release 说明、发版脚本、发布手册、安装包改名。计划审查中 |
