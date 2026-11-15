@@ -58,7 +58,7 @@ r1，2026-11-15。
 
 ### 应用图标：`brand/logo/` 与 `packages/neuro-book/desktop/`
 
-- 开发者 2026-11-15 定：桌面图标不用 16、24 的像素专用版（太丑、太糊），用高清的。`brand/logo/tools/produce.py` 的 Windows ICO 改为只放 32、48、64、128、256（32、48 是不带边框的版本，64 起带封面边框），更小的尺寸由系统从 32 缩；规范页（`tools/guidelines.py`）“32px 以下换像素专用版”加上桌面图标的例外。网页的 `favicon.ico` 不动。
+- 开发者 2026-11-15 定（两次）：桌面图标不用 16、24 的像素专用版；“为什么不用 SVG”，规范可以改。ICO 里装不了 SVG，做法是每个尺寸都从同一份 SVG 直接渲染：应用图标不按尺寸换版本、不用像素专用版，桌面应用（Windows、macOS、Linux）与 favicon 用不带边框的那一份（开发者在 [对比图](artifacts/icon-variants/index.html) 上选的），网页清单仍用带封面边框的。`brand/logo/tools/produce.py` 与 `guidelines.py` 已改，Windows ICO 是 16–256 七档，`favicon.ico` 16、32、48 同源；界面里 14–24px 的单色小标志不是应用图标，仍用像素专用版。
 - `assets/neurobook.ico`：从 `brand/logo/06-production/desktop/windows/neurobook.ico` 复制，`brand/logo/README.md` 的下游列表加上这一处；`electrobun.config.ts` 写 `build.win.icon: "assets/neurobook.ico"`，并把它复制进包（`build.copy` 到 `Resources/app/neurobook.ico`），供窗口图标与 t04 的托盘按需要的尺寸加载。
 - 窗口图标：`win32.ts` 用 `LoadImageW(…, LR_LOADFROMFILE)` 从这份 ICO 按窗口所在显示器的 DPI 取大图标（`SM_CXICON`）与小图标（`SM_CXSMICON`）的尺寸（`GetSystemMetricsForDpi`），系统从最近的较大一档缩放；不用 `ExtractIconEx`（它只给 32 与 16 两种固定尺寸，高 DPI 下发糊）。
 - 发布流水线与本机构建打的都是 `desktop/` 目录，检查 `scripts/build.ts` 与 `release.yml` 的桌面构建是否带上 `assets/`（Hutch 从配置读路径，相对 `desktop/`）。
