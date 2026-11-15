@@ -8,12 +8,25 @@ import {existsSync} from "node:fs";
 import {mkdir, readdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {channelRoot, killTree, launch, postClose, processesUnder, run, SmokeFailure, splitCommand, uninstallEntry, waitFor} from "./windows";
+import {channelRoot, killTree, launch, postClose, processesUnder, run, SmokeFailure, splitCommand, uninstallEntry, waitFor, webViewProcesses} from "./windows";
 import {dataBaseline, type DataBaseline} from "./facts";
 
 export const OFFICIAL_IDENTIFIER = "io.github.notnotype.neurobook";
 
 export type Installed = {identifier: string; channel: string; appDir: string; launcher: string};
+
+/** 应用的 WebView2 浏览器数据：在通道根下（便携版也是，desktop-shell 的已知限制）。 */
+export const webViewData = (installed: {channel: string}): string => join(installed.channel, "WebView2");
+
+/**
+ * 等这份浏览器数据的 WebView2 进程都退出，30 秒还在就结束它们。它们不在安装目录下，结束应用进程时带不走；还在时下一次启动
+ * 会复用这个先起来的浏览器进程，启动时给的调试端口参数就不生效（GitHub runner 上第一次演练：Setup 自己拉起的应用被结束 1 秒后再起，
+ * 调试端口 120 秒没起来）。
+ */
+export async function settleWebView(userDataDir: string): Promise<void> {
+    const gone = await waitFor("WebView2 进程退出", async () => (await webViewProcesses(userDataDir)).length === 0, 30_000, 1_000).catch(() => false);
+    if (gone === false) for (const entry of await webViewProcesses(userDataDir)) await killTree(entry.pid);
+}
 
 /** 解压 Setup.zip、运行里面的 `*-Setup.exe`，等装好。Setup 装完不一定退出、可能自己拉起应用（t01 的 runner 探针），都由这里收掉。 */
 export async function installFromSetup(zip: string, identifier: string, work: string, log: (line: string) => void): Promise<Installed> {
@@ -33,6 +46,7 @@ export async function installFromSetup(zip: string, identifier: string, work: st
     } finally {
         await killTree(child.pid);
         for (const entry of await processesUnder(installed.appDir)) await killTree(entry.pid);
+        await settleWebView(webViewData(installed));
     }
     log(`✓ 安装：${installed.appDir}`);
     return installed;
@@ -83,8 +97,12 @@ export async function readBaseline(stateRoot: string, seeded: Seeded): Promise<D
     return dataBaseline(await read(join(stateRoot, "projects.json"), "{}"), await read(join(stateRoot, "settings.json"), "{}"), await read(seeded.chapterFile, ""));
 }
 
-/** 起启动器。`cdpPort` 给了时打开 WebView2 的远程调试端口；`stateRoot` 给了时设 `NBOOK_STATE_ROOT`。 */
-export function startApp(launcher: string, options: {cdpPort?: number; stateRoot?: string} = {}): void {
+/**
+ * 起启动器。`cdpPort` 给了时打开 WebView2 的远程调试端口；`stateRoot` 给了时设 `NBOOK_STATE_ROOT`。起之前先等 `webViewData`
+ * 这份浏览器数据的 WebView2 进程退出（见 `settleWebView`），否则调试端口参数可能不生效。
+ */
+export async function startApp(launcher: string, webViewDataDir: string, options: {cdpPort?: number; stateRoot?: string} = {}): Promise<void> {
+    await settleWebView(webViewDataDir);
     const env: Record<string, string | undefined> = {...process.env};
     delete env.NBOOK_STATE_ROOT;
     delete env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS;

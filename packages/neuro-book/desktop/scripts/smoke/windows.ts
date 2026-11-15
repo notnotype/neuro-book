@@ -165,16 +165,33 @@ export function waitFor<T>(label: string, probe: () => T | Promise<T>, timeoutMs
 }
 
 /** 经调试端口连上产品页面（`http://127.0.0.1:<端口>/` 的那个，不是启动页）。 */
-export async function connectPage(port: number, timeoutMs = 120_000): Promise<{browser: Browser; page: Page}> {
-    const browser = await waitFor("WebView2 的调试端口起来", async () => {
-        try {
-            return await chromium.connectOverCDP(`http://127.0.0.1:${String(port)}`, {timeout: 5_000});
-        } catch {
-            return null;
-        }
-    }, timeoutMs, 1_000);
+export async function connectPage(port: number, webViewData: string, timeoutMs = 120_000): Promise<{browser: Browser; page: Page}> {
+    let browser: Browser;
+    try {
+        browser = await waitFor("WebView2 的调试端口起来", async () => {
+            try {
+                return await chromium.connectOverCDP(`http://127.0.0.1:${String(port)}`, {timeout: 5_000});
+            } catch {
+                return null;
+            }
+        }, timeoutMs, 1_000);
+    } catch (error) {
+        // 端口没起来时，看这份浏览器数据的 WebView2 进程带没带调试端口：没带说明复用了一个先前起来的浏览器进程。
+        const running = await webViewProcesses(webViewData).catch((failure: unknown) => [{pid: 0, commandLine: `（读不到：${String(failure)}）`}]);
+        const lines = running.map((entry) => `${String(entry.pid)} ${entry.commandLine.includes("--remote-debugging-port") ? "带调试端口" : "不带调试端口"}：${entry.commandLine.slice(0, 400)}`);
+        throw new SmokeFailure(`${error instanceof Error ? error.message : String(error)}；端口 ${String(port)}；${webViewData} 的 WebView2 进程：${lines.length === 0 ? "没有" : lines.join(" | ")}`);
+    }
     const page = await waitFor("产品页面出现", () => browser.contexts().flatMap((context) => context.pages()).find((candidate) => /^http:\/\/127\.0\.0\.1:\d+\//u.test(candidate.url())) ?? null, timeoutMs, 500);
     return {browser, page};
+}
+
+export type WebViewProcess = {pid: number; commandLine: string};
+
+/** 用 `userDataDir` 这份浏览器数据的 WebView2 进程（`msedgewebview2.exe`，命令行里带这个目录）。它们不在应用的安装目录下。 */
+export async function webViewProcesses(userDataDir: string): Promise<WebViewProcess[]> {
+    const text = await powershell(`$dir = ${psLiteral(userDataDir)}
+Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($dir, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { [pscustomobject]@{pid=[int]$_.ProcessId; commandLine=[string]$_.CommandLine} } | ConvertTo-Json -Compress`);
+    return jsonList<WebViewProcess>(text);
 }
 
 /** 失败时也要留下的东西：复制存在的文件与目录，写进程列表。复制失败只记下，不遮掉原始错误。 */

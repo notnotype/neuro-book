@@ -23,7 +23,7 @@ import {parseArgs} from "node:util";
 import type {Page} from "@playwright/test";
 
 import {fakeEndpoint, localModelSettings, type FakeEndpoint} from "../../src/plugins/agent/testing/endpoint";
-import {cleanUp, closeApp, installFromSetup, killUnder, OFFICIAL_IDENTIFIER, readBaseline, seedState, startApp, uninstall, uninstallLeftover, type Installed, type Seeded} from "./smoke/app";
+import {cleanUp, closeApp, installFromSetup, killUnder, OFFICIAL_IDENTIFIER, readBaseline, seedState, startApp, uninstall, uninstallLeftover, webViewData, type Installed, type Seeded} from "./smoke/app";
 import {baselineProblems, lineCount, logEntries, orderlyStopProblems} from "./smoke/facts";
 import {channelRoot, collectEvidence, connectPage, defaultStateRoot, freePort, run, SmokeFailure} from "./smoke/windows";
 
@@ -86,12 +86,12 @@ async function runAgentCommand(page: Page, endpoint: FakeEndpoint, seeded: Seede
 }
 
 /** 一次启动到关闭：起、连页面、跑命令、关窗，再按这次启动之后的日志核对服务端有序以 0 停止。 */
-async function launchUseClose(options: {launcher: string; programDir: string; stateRoot: string; envStateRoot?: string; endpoint: FakeEndpoint; seeded: Seeded; evidence: string}): Promise<void> {
+async function launchUseClose(options: {launcher: string; programDir: string; webViewData: string; stateRoot: string; envStateRoot?: string; endpoint: FakeEndpoint; seeded: Seeded; evidence: string}): Promise<void> {
     const logFile = join(options.stateRoot, "logs", "desktop", "shell.log");
     const cursor = existsSync(logFile) ? lineCount(await readFile(logFile, "utf8")) : 0;
     const port = freePort();
-    startApp(options.launcher, {cdpPort: port, stateRoot: options.envStateRoot});
-    const {browser, page} = await connectPage(port);
+    await startApp(options.launcher, options.webViewData, {cdpPort: port, stateRoot: options.envStateRoot});
+    const {browser, page} = await connectPage(port, options.webViewData);
     try {
         step("✓ 启动：经调试端口连上产品页面");
         try {
@@ -142,7 +142,7 @@ async function smokeSetup(options: Options & {setup: string}, endpoint: FakeEndp
     try {
         installed = await installFromSetup(options.setup, options.identifier, options.work, step);
         const seeded = await seedState(stateRoot, options.work, localModelSettings(endpoint.baseUrl));
-        await launchUseClose({launcher: installed.launcher, programDir: installed.appDir, stateRoot, envStateRoot: options.stateRoot, endpoint, seeded, evidence});
+        await launchUseClose({launcher: installed.launcher, programDir: installed.appDir, webViewData: webViewData(installed), stateRoot, envStateRoot: options.stateRoot, endpoint, seeded, evidence});
         const before = await readBaseline(stateRoot, seeded);
         await collectEvidence(evidence, {"version.json": join(installed.appDir, "Resources", "version.json")});
         await uninstall(installed, step);
@@ -152,8 +152,9 @@ async function smokeSetup(options: Options & {setup: string}, endpoint: FakeEndp
     } finally {
         const done = installed;
         await cleanUp([
-            ["结束应用进程", () => (done === null ? undefined : killUnder(done.appDir))],
+            // 先存证据：进程列表要在结束进程之前拍。
             ["存证据", () => collectEvidence(evidence, {logs: join(stateRoot, "logs", "desktop"), "setup.out.txt": join(options.work, `setup-${options.identifier}.out.txt`), "setup.err.txt": join(options.work, `setup-${options.identifier}.err.txt`)})],
+            ["结束应用进程", () => (done === null ? undefined : killUnder(done.appDir))],
             ["卸载残留的安装", () => uninstallLeftover(done)],
         ]);
     }
@@ -180,7 +181,7 @@ async function smokePortable(options: Options & {portable: string}, endpoint: Fa
         step(`✓ 解压便携包：${programRoot}`);
         const stateRoot = join(programRoot, "data");
         const seeded = await seedState(stateRoot, options.work, localModelSettings(endpoint.baseUrl));
-        await launchUseClose({launcher, programDir: programRoot, stateRoot, endpoint, seeded, evidence});
+        await launchUseClose({launcher, programDir: programRoot, webViewData: webViewData({channel}), stateRoot, endpoint, seeded, evidence});
         const after = {defaultRoot: await rootSnapshot(defaultRoot), channel: await snapshotChannel()};
         const problems: string[] = [];
         if (!existsSync(join(stateRoot, "logs", "desktop", "shell.log"))) problems.push("程序目录下的 data\\ 里没有壳的日志：状态根不在程序目录下");
@@ -192,8 +193,8 @@ async function smokePortable(options: Options & {portable: string}, endpoint: Fa
         const root = programRoot;
         if (root !== null) {
             await cleanUp([
-                ["结束应用进程", () => killUnder(root)],
                 ["存证据", () => collectEvidence(evidence, {logs: join(root, "data", "logs", "desktop"), "version.json": join(root, "Resources", "version.json")})],
+                ["结束应用进程", () => killUnder(root)],
             ]);
         }
     }
