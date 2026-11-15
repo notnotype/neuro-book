@@ -18,6 +18,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
+import {createPluginPackages, pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
 import {installedPlugins, NO_PREPARED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {pluginProblems} from "nbook/plugin-platform/shared/problems";
 import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
@@ -215,6 +216,8 @@ export function startServer(options: StartServerOptions): RunningServer {
                     problems: () => (application === null ? [] : pluginProblems(application.plugins.catalog(), "server")),
                 }),
             },
+            // 内置插件按插件 id 找第三方插件包里的目录（agent.skills 这类声明目录的贡献）；本次启动登记的插件，与文件端点同一份。
+            {id: "host.plugin-packages", key: pluginPackagesKey, create: () => createPluginPackages(installed, NEUROBOOK_PROFILE.format)},
             {
                 id: "host.projects",
                 key: projectsKey,

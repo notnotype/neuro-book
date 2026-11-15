@@ -11,7 +11,7 @@ import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {CompactionRestoreArgs, CompactionRestored, LogEvent} from "@notnotype/nb-harness/kernel/contracts";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {SkillCatalog} from "./catalog";
+import {SkillCatalog, sourceRoot} from "./catalog";
 import {SKILLS_EXTENSION} from "./extension";
 import {RESTORE_SKILL_TOKENS, restoreSkills} from "./restore";
 
@@ -36,7 +36,7 @@ async function catalogWith(bodies: Readonly<Record<string, string>>) {
         await mkdir(join(root, name), {recursive: true});
         await writeFile(join(root, name, "SKILL.md"), `---\nname: ${name}\ndescription: 说明\n---\n\n${body}\n`);
     }
-    const catalog = await SkillCatalog.open({roots: [{source: "user", root, watch: false}], clock: systemClock, report: () => undefined});
+    const catalog = await SkillCatalog.open({roots: [sourceRoot("user", root, false)], clock: systemClock, report: () => undefined});
     opened.push(catalog);
     return {root, catalog};
 }

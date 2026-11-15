@@ -10,7 +10,7 @@ import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {SkillCatalog} from "./catalog";
+import {SkillCatalog, sourceRoot} from "./catalog";
 import {currentPlatform, installInputs, MARKER_FILE, MARKER_SCHEMA} from "./readiness";
 
 let tmp = "";
@@ -45,7 +45,7 @@ async function open(options: {readonly which?: (command: string) => string | nul
     await mkdir(builtin, {recursive: true});
     const reports: Array<{code: string; data?: Readonly<Record<string, unknown>>}> = [];
     const make = () => SkillCatalog.open({
-        roots: [{source: "user", root: user, watch: true}, {source: "builtin", root: builtin, watch: false}],
+        roots: [sourceRoot("user", user, true), sourceRoot("builtin", builtin, false)],
         clock: systemClock,
         report: (code, _message, data) => reports.push({code, ...(data === undefined ? {} : {data})}),
         which: options.which ?? (() => "/usr/bin/uv"),
@@ -146,6 +146,44 @@ describe("目录", () => {
         expect(catalog.item("user.py-project")?.entry).toMatchObject({status: "ready", external: {python: true, uvMissing: true}});
         expect(catalog.item("user.py-inline")?.entry.external).toEqual({python: true, uvMissing: true, compatibility: "要自己装 espeak-ng"});
         expect(catalog.item("user.py-deep")?.entry.external).toBeUndefined();
+    });
+});
+
+describe("插件来源", () => {
+    test("插件的根随贡献增删：id 是插件 id 加文件夹名，不用初始化就可用，带 package.json 的无效；同一插件两个根里的同名只留 key 在前的；排在我的与内置之间", async () => {
+        const {user, builtin, reports, make} = await open();
+        await mkdir(user, {recursive: true});
+        await put(user, "notes", {"SKILL.md": skillMd("notes")});
+        await put(builtin, "summary", {"SKILL.md": skillMd("summary")});
+        const catalog = await make();
+        opened.push(catalog);
+        const pack = join(tmp, `c${String(counter)}`, "plugin");
+        await put(pack, "a/pdf", {"SKILL.md": skillMd("pdf"), "scripts/run.ts": "console.log(1);\n"});
+        await put(pack, "a/unbuilt", {"SKILL.md": skillMd("unbuilt"), "package.json": "{}"});
+        await put(pack, "b/pdf", {"SKILL.md": skillMd("pdf", "另一份")});
+        let changes = 0;
+        catalog.onChanged(() => (changes += 1));
+        const plugin = {id: "acme.docs", title: "文档工具"};
+        // 后加的根 key 在前：留下的按 key 排，不按加的先后。
+        await catalog.addRoot({key: "acme.docs.b", source: "plugin", prefix: plugin.id, root: join(pack, "b"), watch: false, plugin});
+        await catalog.addRoot({key: "acme.docs.a", source: "plugin", prefix: plugin.id, root: join(pack, "a"), watch: false, plugin});
+        expect(catalog.list().map((entry) => [entry.id, entry.source, entry.status, entry.problem])).toEqual([
+            ["user.notes", "user", "ready", undefined],
+            ["acme.docs.pdf", "plugin", "ready", undefined],
+            ["acme.docs.unbuilt", "plugin", "invalid", {code: "plugin-skill-unbuilt"}],
+            ["builtin.summary", "builtin", "ready", undefined],
+        ]);
+        expect(catalog.item("acme.docs.pdf")).toMatchObject({directory: join(pack, "a", "pdf"), entry: {plugin, location: "skills://acme.docs.pdf/SKILL.md", description: "pdf 的说明"}});
+        expect(reports.filter((report) => report.code === "skill-duplicate").map((report) => report.data)).toEqual([{id: "acme.docs.pdf", kept: "acme.docs.a", skipped: "acme.docs.b"}]);
+        expect(changes).toBe(2);
+
+        // 拿掉 key 在前的根，另一份顶上；都拿掉后只剩我的与内置的。
+        await catalog.removeRoot("acme.docs.a");
+        expect(catalog.item("acme.docs.pdf")?.entry.description).toBe("另一份");
+        expect(catalog.item("acme.docs.unbuilt")).toBeUndefined();
+        await catalog.removeRoot("acme.docs.b");
+        expect(catalog.list().map((entry) => entry.id)).toEqual(["user.notes", "builtin.summary"]);
+        expect(changes).toBe(4);
     });
 });
 

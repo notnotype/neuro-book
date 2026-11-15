@@ -670,6 +670,7 @@
                 "fieldInvalid": "SKILL.md 里的 {{field}} 不合规",
                 "nameMismatch": "SKILL.md 里的 name 是 {{name}}，与文件夹名不同",
                 "symlink": "Skill 文件夹是链接，不能使用",
+                "pluginSkillUnbuilt": "插件里的这个 Skill 没有经 nbooke build 打包，用不了",
                 "installFailed": "上次初始化没有成功",
                 "interrupted": "上次初始化被中断了"
             },

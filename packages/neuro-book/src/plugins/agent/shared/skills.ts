@@ -3,7 +3,14 @@
  * 界面按码给文字；`detail` 只放能原样显示的事实（文件夹名、安装输出的最后几行）。
  */
 
-export type SkillSource = "builtin" | "user";
+/** Skill 从哪来：应用内置、插件经 `agent.skills` 贡献、用户放进 `user://skills/`。 */
+export type SkillSource = "builtin" | "plugin" | "user";
+
+/** 插件来源的 Skill 属于哪个插件：插件 id 与清单的显示名（没写时为 null，界面写 id）。 */
+export interface SkillPluginRef {
+    readonly id: string;
+    readonly title: string | null;
+}
 
 /** skills.md 的“术语与参与者”：可用、未初始化、正在初始化、无效。 */
 export type SkillStatus = "ready" | "needs-init" | "initializing" | "invalid";
@@ -19,6 +26,8 @@ export type SkillProblem =
     | {readonly code: "field-missing" | "field-invalid"; readonly field: "name" | "description"}
     | {readonly code: "name-mismatch"; readonly name: string}
     | {readonly code: "symlink"}
+    /** 插件的 Skill 里有 `package.json`：没有经 `nbooke build` 打包，插件的 Skill 又不能初始化。 */
+    | {readonly code: "plugin-skill-unbuilt"}
     | {readonly code: "install-failed"; readonly detail: string}
     | {readonly code: "interrupted"};
 
@@ -34,7 +43,7 @@ export interface SkillExternal {
 
 /** 一条目录条目（skills.md 输出 1）。 */
 export interface SkillEntry {
-    /** `<来源前缀>.<name>`；来源以 `source` 为准，不从前缀推断。 */
+    /** `<来源前缀>.<name>`，插件的前缀是插件 id；来源以 `source` 为准，不从前缀推断。 */
     readonly id: string;
     /** 无效的 Skill 读不出 `name` 时是目录名。 */
     readonly name: string;
@@ -42,6 +51,8 @@ export interface SkillEntry {
     readonly description: string;
     readonly whenToUse?: string;
     readonly source: SkillSource;
+    /** 插件来源的 Skill 才有。 */
+    readonly plugin?: SkillPluginRef;
     /** `skills://<id>/SKILL.md`。 */
     readonly location: string;
     readonly status: SkillStatus;
@@ -85,8 +96,8 @@ export function matchSkillToken<Item>(token: string, items: Iterable<Item>, entr
     return judge(permitted[0]!);
 }
 
-/** 各来源的 id 前缀。 */
-export const SKILL_ID_PREFIX: Readonly<Record<SkillSource, string>> = {builtin: "builtin", user: "user"};
+/** 用户与内置来源的 id 前缀；插件来源的前缀是插件 id。 */
+export const SKILL_ID_PREFIX: Readonly<Record<"builtin" | "user", string>> = {builtin: "builtin", user: "user"};
 
-export const skillId = (source: SkillSource, name: string): string => `${SKILL_ID_PREFIX[source]}.${name}`;
+export const skillId = (prefix: string, name: string): string => `${prefix}.${name}`;
 export const skillLocation = (id: string): string => `skills://${id}/SKILL.md`;

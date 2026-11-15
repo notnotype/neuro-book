@@ -7,7 +7,7 @@ import {join} from "node:path";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 
-import {SkillCatalog} from "nbook/plugins/agent/backend/skills/catalog";
+import {SkillCatalog, sourceRoot} from "nbook/plugins/agent/backend/skills/catalog";
 import {SkillInstaller} from "nbook/plugins/agent/backend/skills/install";
 import type {SkillInitPlan} from "nbook/plugins/agent/shared/skills";
 
@@ -50,7 +50,7 @@ export async function initSkill(context: SkillCommandContext, target: string, op
     const id = idOf(target);
     let installer: SkillInstaller | null = null;
     const catalog = await SkillCatalog.open({
-        roots: [{source: "user", root: join(context.stateRoot, "user", "skills"), watch: false}],
+        roots: [sourceRoot("user", join(context.stateRoot, "user", "skills"), false)],
         clock: systemClock,
         report: () => undefined,
         installing: (skill) => installer?.installing(skill) ?? false,

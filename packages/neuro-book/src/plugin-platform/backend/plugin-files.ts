@@ -34,10 +34,10 @@ function failure(status: 400 | 404 | 500, message: string): Response {
 }
 
 /**
- * 版本目录里的普通文件（逐段核对，不跟随符号链接）。不存在、是目录或经过链接时为 `missing`；`lstat` 因路径以外的原因失败
- * 时带上错误。
+ * 版本目录里的一项（逐段核对，不跟随符号链接）：`kind` 是要的最后一段是普通文件还是目录。不存在、种类不对或经过链接时为
+ * `missing`；`lstat` 因路径以外的原因失败时带上错误。插件文件端点与插件包查询（`packages.ts`）共用。
  */
-async function regularFile(root: string, segments: ReadonlyArray<string>): Promise<{readonly path: string} | "missing" | {readonly error: unknown}> {
+export async function entryInside(root: string, segments: ReadonlyArray<string>, kind: "file" | "directory"): Promise<{readonly path: string} | "missing" | {readonly error: unknown}> {
     let path = root;
     for (const [index, segment] of segments.entries()) {
         path = join(path, segment);
@@ -49,7 +49,9 @@ async function regularFile(root: string, segments: ReadonlyArray<string>): Promi
             return {error};
         }
         if (info.isSymbolicLink()) return "missing";
-        if (index === segments.length - 1 ? !info.isFile() : !info.isDirectory()) return "missing";
+        const last = index === segments.length - 1;
+        // 中间的段都要是目录；最后一段按 `kind`。
+        if (last && kind === "file" ? !info.isFile() : !info.isDirectory()) return "missing";
     }
     return {path};
 }
@@ -63,7 +65,7 @@ export function pluginFileHandler(installed: ReadonlyArray<InstalledPlugin>, rec
         const {plugin, digest, segments} = parsed;
         const current = byId.get(plugin);
         if (current === undefined || current.digest !== digest) return failure(404, "没有这个插件文件：插件没有登记，或地址里的内容摘要不是当前的");
-        const file = await regularFile(current.root, segments);
+        const file = await entryInside(current.root, segments, "file");
         if (file === "missing") return failure(404, "没有这个插件文件");
         if ("error" in file) {
             record({level: "warn", event: "plugins.files.read-failed", message: `读不了插件 ${plugin} 的文件`, data: {plugin, path: segments.join("/")}, error: file.error});
@@ -97,7 +99,7 @@ export function pluginCatalogHandler(installed: ReadonlyArray<InstalledPlugin>, 
         const current = served.get(plugin);
         if (current === undefined || current.plugin.digest !== digest) return failure(404, "没有这份消息目录：插件没有有效安装、没有目录，或地址里的内容摘要不是当前的");
         if (!current.locales.has(locale)) return failure(404, "没有这份消息目录：清单 l10n.locales 里没有这种语言");
-        const file = await regularFile(current.plugin.root, catalogFile(locale).split("/"));
+        const file = await entryInside(current.plugin.root, catalogFile(locale).split("/"), "file");
         if (file === "missing") return failure(404, "没有这份消息目录");
         if ("error" in file) {
             record({level: "warn", event: "plugins.catalogs.read-failed", message: `读不了插件 ${plugin} 的消息目录`, data: {plugin, locale}, error: file.error});

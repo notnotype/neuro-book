@@ -670,6 +670,7 @@
                 "fieldInvalid": "{{field}} in SKILL.md is invalid",
                 "nameMismatch": "The name in SKILL.md is {{name}}, which differs from the folder name",
                 "symlink": "The Skill folder is a link and cannot be used",
+                "pluginSkillUnbuilt": "This plugin Skill was not packaged with nbooke build and cannot be used",
                 "installFailed": "The last initialization failed",
                 "interrupted": "The last initialization was interrupted"
             },

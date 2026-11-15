@@ -45,6 +45,7 @@ function problemText(problem: SkillProblem): string {
         case "field-invalid": return text("skills.page.problem.fieldInvalid", {field: problem.field});
         case "name-mismatch": return text("skills.page.problem.nameMismatch", {name: problem.name});
         case "symlink": return text("skills.page.problem.symlink");
+        case "plugin-skill-unbuilt": return text("skills.page.problem.pluginSkillUnbuilt");
         case "install-failed": return text("skills.page.problem.installFailed");
         case "interrupted": return text("skills.page.problem.interrupted");
     }

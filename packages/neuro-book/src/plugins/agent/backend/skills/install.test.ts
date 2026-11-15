@@ -15,7 +15,7 @@ import {createTasksCore} from "nbook/plugins/tasks/backend/core";
 import type {TasksCore} from "nbook/plugins/tasks/backend/core";
 import type {BackgroundTasks} from "nbook/plugins/tasks/shared/contracts";
 
-import {SkillCatalog} from "./catalog";
+import {SkillCatalog, sourceRoot} from "./catalog";
 import {SkillInstaller} from "./install";
 import {MARKER_FILE} from "./readiness";
 
@@ -49,7 +49,7 @@ async function scene(options: {readonly tasks?: BackgroundTasks} = {}) {
     await writeFile(join(directory, "run.js"), "console.log(require(\"local-dep\").answer);\n");
     const locksRoot = join(base, "locks");
     let installer: SkillInstaller | null = null;
-    const catalog = await SkillCatalog.open({roots: [{source: "user", root: skills, watch: false}], clock: systemClock, report: () => undefined, installing: (id) => installer?.installing(id) ?? false});
+    const catalog = await SkillCatalog.open({roots: [sourceRoot("user", skills, false)], clock: systemClock, report: () => undefined, installing: (id) => installer?.installing(id) ?? false});
     installer = new SkillInstaller({item: (id) => catalog.item(id), refresh: (id) => catalog.refresh(id), locksRoot, bun: process.execPath, clock: systemClock, ...(options.tasks === undefined ? {} : {tasks: options.tasks})});
     const own = installer;
     cleanups.push(() => catalog.close(), () => own.stop());

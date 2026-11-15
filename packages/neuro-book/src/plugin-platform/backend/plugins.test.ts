@@ -1,11 +1,11 @@
 /**
  * 第三方插件的安装、升级、卸载、启停与启动时的切换和回收（docs/specs/runtime/plugin-install.md）：真实临时目录上的
  * 插件文件夹与状态根，“重启”就是再调一次 `prepareInstalledPlugins` 并用它的结果建新的插件管理。服务端运行时命令行同时
- * 安装用真实子进程。
+ * 安装用真实子进程。插件包查询（`packages.ts`）按启动时登记的插件找版本目录里的目录，也在这里测。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, realpath, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {lock} from "@notnotype/nb-file-lock";
@@ -15,7 +15,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {acmeAt, ACME_PROFILE} from "../testing/profile";
 import {createPluginInventory} from "./inventory";
 import type {PluginInventory} from "./inventory";
-import {prepareInstalledPlugins} from "./startup";
+import {createPluginPackages} from "./packages";
+import {installedPlugins, prepareInstalledPlugins} from "./startup";
 import type {StartupPlugins} from "./startup";
 
 const PRODUCT = ACME_PROFILE.productVersion;
@@ -159,6 +160,26 @@ describe("安装与列表（输出 1、2、9）", () => {
         await mkdir(inside, {recursive: true});
         await writeFile(join(inside, "package.json"), JSON.stringify(manifest()));
         expect(await w.inventory.install(inside)).toMatchObject({ok: false, code: "path-rejected"});
+    });
+});
+
+describe("插件包里的目录（plugin-code-loading 的插件包查询）", () => {
+    it("只交回本次启动登记的插件当前版本目录里的目录：真实路径；写法不对、出了目录、是文件、不存在、经过链接、不是登记的插件都是 null；显示名取清单", async () => {
+        const w = await world();
+        const installed = await w.inventory.install(await w.source("hello", manifest("1.0.0", {displayName: "Hello"}), {"skills/pdf/SKILL.md": "---\nname: pdf\n---\n", "skills/readme.txt": "说明"}));
+        if (!installed.ok) throw new Error(JSON.stringify(installed));
+        const packages = createPluginPackages(installedPlugins(await w.restart()), ACME_PROFILE.format);
+        const version = await realpath(join(w.root, "example.hello", "1.0.0"));
+        expect(await packages.directory("example.hello", "skills")).toBe(join(version, "skills"));
+        expect(await packages.directory("example.hello", "skills/pdf")).toBe(join(version, "skills", "pdf"));
+        for (const path of ["skills/readme.txt", "missing", "", "/skills", "skills/", "./skills", "skills/../skills", "../hello", "skills\\pdf", "file:skills"]) {
+            expect([path, await packages.directory("example.hello", path)]).toEqual([path, null]);
+        }
+        // 安装时拒绝链接；装好之后有人在版本目录里放了链接，查询同样不跟随。
+        await symlink(join(version, "skills"), join(version, "linked"));
+        expect(await packages.directory("example.hello", "linked/pdf")).toBeNull();
+        expect(await packages.directory("example.other", "skills")).toBeNull();
+        expect([packages.title("example.hello"), packages.title("example.other")]).toEqual(["Hello", null]);
     });
 });
 
