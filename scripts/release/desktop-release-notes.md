@@ -1,0 +1,15 @@
+NeuroBook {{version}} 的 Windows 桌面版。npm 上的命令行版本与这个版本同时发布（`bun add -g @notnotype/neuro-book`）。
+
+## 下载哪个
+
+- **安装版**：`win-x64-NeuroBook-Setup.zip`。解压后运行里面的 `NeuroBook-Setup.exe`，装到当前用户下，不需要管理员权限。装好以后有新版本时会提示，同意后在后台下载，下次打开时换上。
+- **便携版**：`NeuroBook-{{version}}-win-x64-portable.zip`。解压到任意目录直接运行，数据放在解压目录下的 `data\`。便携版不自动更新，有新版本时只提示并打开这个页面。
+- 其余文件（`.tar.zst`、`update*.json`、`.patch`）给自动更新用，不用下载。`SHA256SUMS` 是全部文件的 SHA-256。
+
+## 第一次运行
+
+安装包没有代码签名。Windows 可能显示“Windows 已保护你的电脑”：点“更多信息”，再点“仍要运行”。
+
+## 回到旧版本
+
+自动更新只升不降。要回到旧版本，先备份数据目录（安装版是 `%LOCALAPPDATA%\NeuroBook`，便携版是解压目录下的 `data\`），再从旧版本的页面下载重装：旧版本不一定读得了新版本写过的数据。
