@@ -120,12 +120,12 @@ type TabRef =
 8. **尺寸意图**：保存的是 CSS px，只从呈现尺寸写回：手势落账后、结构操作之前各一次。呈现为零的轴和收起的面板不写，那就是展开时的尺寸。全是工具面板的分支里有收起或隐藏的兄弟时，其余的只更新彼此的比例，总量保持原来的份额，所以展开后回到原来的尺寸。测量、夹取、放不下时的压缩、拖动期间都不写文档。不在当前容器里的分节不写，切换容器也不改任何尺寸意图，所以切走再切回来各分节的大小原样（planned）。
 9. **手势**：边界的手势按 [ui.nested-grid](nested-grid.md)：十字交汇同时调两轴、方向键 10px、Shift 1px、Home、End、Enter，一次手势只落账一次；Escape、指针取消、失焦、容器尺寸或结构变化取消整场，不提交。
 10. **放不下时只改呈现**：先把工具面板压到最小；还放不下时，按右栏、底部面板、侧栏的顺序把区域里显示着的分节、打开着的空区域（输出 48）从呈现树里收走（planned），焦点所在的面板最后收；放得下之后，没帮上忙的放回来（窄的时候收走纵向的那块不省宽度）；再放不下才压编辑组。每种降级给诊断，不写文档。窗口变大时自动回来。所有几何非负且在容器内。
-11. **面板的几种状态**互不等价：
+11. **面板的几种状态**互不等价，只有隐藏与拖到零画得一样、只差记录（planned）：
 
     | 状态 | 文档 | 呈现 | 怎么回来 |
     |---|---|---|---|
-    | 隐藏 | 锚的 `hidden`：隐藏的是整个区域（planned） | 不在呈现树里，不占空间，也没有缝；内容停放 | “显示”清掉区域的隐藏与拖到零，按意图回来（planned） |
-    | 收成标题行 | 分节的 `collapsed`（planned） | 侧栏、右栏的分节高度等于面板头，内容停放；底部面板的分节不折叠；区域此刻只显示一个分节时它不收成标题行，没有收起按钮，`collapsed` 留在记录里，区域里又显示两个以上分节时才起作用（planned） | 点标题，或面板头的按钮，或拖开 |
+    | 隐藏 | 锚的 `hidden`：隐藏的是整个区域（planned） | 同拖到零：区域在挨着编辑区的那条边界的方向上为 0，保留 1px 边界，这条边界和挨着它的边界照常有交汇处（输出 9 的十字交汇）；内容停放；焦点与键盘落点照旧按隐藏算，不落到零宽的面板上（planned） | “显示”清掉区域的隐藏与拖到零，按意图回来；或拉开边界，同时清掉隐藏（planned） |
+    | 收成标题行 | 分节的 `collapsed`（planned） | 侧栏、右栏的分节高度等于面板头，内容停放；底部面板的分节不折叠；区域此刻只显示一个分节时（隐藏的区域按拖到零算）它不收成标题行，没有收起按钮，`collapsed` 留在记录里，区域里又显示两个以上分节时才起作用（planned） | 点标题，或面板头的按钮，或拖开 |
     | 拖到零 | 记在锚上，是整个区域的状态（planned） | 区域在挨着编辑区的那条边界的方向上为 0（侧栏、右栏是宽，底部面板是高），保留 1px 边界；区域里有几个分节都一样，内容停放（planned） | 拉开边界，或点活动栏的入口，或“显示” |
     | 不在当前容器（planned） | 分节的 `container` 不是区域的当前容器 | 不在呈现树里，不占空间；内容停放，不卸载 | 切到它的容器（输出 42） |
     | 被最大化盖住 | 无 | 还在原来的矩形，被盖住；内容停放 | 退出最大化 |
@@ -133,7 +133,7 @@ type TabRef =
 
     “显示”指标题栏的区域开关、活动栏的入口、命令 `nbook.view.set-part-hidden`。区域里一个分节都没有时“显示”照样打开它，是一块空面板（输出 48）（planned）。区域的隐藏与拖到零同时为真时，“显示”把两个都清掉；分节收成标题行的不动（planned）。
     一列的面板全部收成标题行时，标题行排在上面，下面留空；这一列和同一行的编辑区高度不变。
-12. **拖过最小尺寸**：区域挨着编辑区的那条边界往最小尺寸以下拖，越过 24px 时整个区域拖到零（planned）；侧栏、右栏里分节之间的边界这样拖是收成标题行，底部面板里分节之间的边界停在最小宽度（planned）；边界上的 Enter 是同一个切换。编辑组不可收起。**从零拉回**：用指针拉回时在合法展开区跟随指针（按下边界加累计位移）；按钮、命令与 Enter 恢复意图尺寸。拉回的过程中内容就出现，不等松手：里面的视图没加载过时在拖动中加载，`ViewContext.visible` 跟着拖动中的几何；按着拖回零时内容回到停放。拖动中不写文档，落账时才写。
+12. **拖过最小尺寸**：区域挨着编辑区的那条边界往最小尺寸以下拖，越过 24px 时整个区域拖到零（planned）；侧栏、右栏里分节之间的边界这样拖是收成标题行，底部面板里分节之间的边界停在最小宽度（planned）；边界上的 Enter 是同一个切换。编辑组不可收起。**从零拉回**：用指针拉回时在合法展开区跟随指针（按下边界加累计位移）；按钮、命令与 Enter 恢复意图尺寸。区域是隐藏的（按拖到零画）时，拉开就是显示，同一次落账清掉隐藏（planned）。拉回的过程中内容就出现，不等松手：里面的视图没加载过时在拖动中加载，`ViewContext.visible` 跟着拖动中的几何；按着拖回零时内容回到停放。拖动中不写文档，落账时才写。
 13. **最大化**：对任意面板，它盖住树除条以外的区域，只在内存，不落盘。其余面板原地不动：矩形不变，内容马上不可交互，过渡结束后隐藏；还原时最大化的面板缩回去露出它们，它们不重新长出来。入口是面板头的按钮和命令，没有拖动手势；期间没有分隔线可拖。隐藏或收起这个面板（包括标签被搬空）、显示被它盖住的面板、结构操作、放不下时退出，刷新不复活。区域里最大化的是一个分节，切走它所在的容器时退出（planned）。
 
 ### 渲染
@@ -317,7 +317,7 @@ type TabRef =
 2. Given 编辑区 `H[A, B, C]`，When 把编辑器标签放到 B、C 之间的缝，Then 新块只从 B、C 取，A 不动；When 放到 B 的右缘，Then 只分 B，A、C 不动；When 设置 `shared` 再放到 B 的右缘，Then 新块占四分之一，A、B、C 按原比例缩。Given 编辑区 `H[V[A, B], C]`，When 放到 B 的右缘，Then 拆 B，新块只有 B 那么高；When 放到 `V` 与 C 之间的缝，Then 新块整高。Given 侧栏这一列 `V[A, B, C]`，When 把视图放到 B、C 之间的缝，Then A 不动。Given `V[e1, e2, panel]` 与设置 `shared`，When 放到 e1 的上缘或 e2 的下缘，Then 只在 e1、e2 里分，面板的高度不变。
 3. Given 只有一个标签的面板紧贴在目标的那条边上，When 拖到这条边放下，Then 预览画来源自己、提示“原位”，什么都不提交；比例是非整数时意图也不变。
 4. Given 全是工具面板的一列，When 视图放进去或拖走到只剩一个，Then 不留白，占满整列。Given 隐藏的面板在分支的首、中、尾，或相邻两个，或挨着条，When 读缝，Then 可见的两块之间恰好一条可拖的缝，拖它只改这两块。
-5. Given 面板，When 分别隐藏、收成标题行、拖到零、最大化，Then 按输出 11 互不等价；同值操作不写入；最大化不写盘，刷新不复活。Given 几块面板，When 最大化其中一块再还原，Then 过程中别的面板矩形不变，不重新长出来，内容实例不变。
+5. Given 面板，When 分别隐藏、收成标题行、拖到零、最大化，Then 按输出 11：隐藏与拖到零画得一样（都留着能拉开的边界）、记录不同，其余互不等价；同值操作不写入；最大化不写盘，刷新不复活。Given 几块面板，When 最大化其中一块再还原，Then 过程中别的面板矩形不变，不重新长出来，内容实例不变。
 6. Given 窗口从 1440 缩到 700 再放大，When 读呈现，Then 按输出 10 的顺序压缩、收走、压编辑组，有诊断，文档不变；放大后回到原样。
 7. Given 视图里有输入与滚动，编辑组里有正文，When 移动、隐藏、最大化、放不下收走再回来，Then 实例不变，输入、滚动与焦点保留；焦点所在内容被停放时焦点按输出 16 移走；外部菜单或对话框的焦点不被抢。
 8. （planned）Given 右栏隐藏，When 把视图拖到它原来的位置，Then 那里是编辑组，没有落点、光标是禁止；When 用“移动到”选右栏里的一个容器，Then 右栏显示并切到这个容器，视图是它最后一个分节；When 改选“新容器（右栏）”，Then 右栏多一个只含它的容器并切过去。Given 右栏唯一的视图被移走、右栏随之隐藏，When 点标题栏的右栏开关，Then 打开一块空面板，写着“把视图拖到这里”，开关是按下的、再点一次关掉；When 把一个视图拖进去，Then 落点提示“放在这里”，放下后它是右栏的分节、右栏切到它的容器；When 再把它移走，Then 右栏随之隐藏（输出 48）。
@@ -361,4 +361,4 @@ Smoke 入口：`e2e/workbench-shell.e2e.ts`、`e2e/workbench-views.e2e.ts`、`e2
 - 实现入口：[`web/state/layout-doc-store.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.ts)、[`web/layout-drag.ts`](../../../packages/neuro-book/src/plugins/workbench/web/layout-drag.ts)、[`web/components/WorkbenchSurface.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue)、[`nb-layout/src/layout-doc.ts`](../../../packages/nb-layout/src/layout-doc.ts)、[`nb-layout/src/layout-drop.ts`](../../../packages/nb-layout/src/layout-drop.ts)。
 - 合同测试：[`web/state/default-tree.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/default-tree.test.ts)、[`web/state/layout-doc-store.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-doc-store.test.ts)、[`web/state/layout-constraints.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/state/layout-constraints.test.ts)、[`nb-layout/src/layout-doc.test.ts`](../../../packages/nb-layout/src/layout-doc.test.ts)、[`nb-layout/src/layout-drop.test.ts`](../../../packages/nb-layout/src/layout-drop.test.ts)。
 - Smoke：[`e2e/workbench-dnd.e2e.ts`](../../../packages/neuro-book/e2e/workbench-dnd.e2e.ts)、[`e2e/workbench-shell.e2e.ts`](../../../packages/neuro-book/e2e/workbench-shell.e2e.ts)、[`e2e/workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)。
-- 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md)，开发者 2026-11-05 接受，决策记录含 2026-11-06 的四条；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。标 planned 的视图容器条目：[视图容器提案](../../proposals/workbench-view-containers.md)，开发者 2026-11-10 接受；[ADR 0046](../../adr/0046-workbench-view-containers.md)。空区域（输出 48）与回到原处展开（输出 38）：开发者 2026-11-12 试用 t24 后的要求，[ADR 0050](../../adr/0050-workbench-empty-region-anchor.md)。
+- 批准依据：[布局提案](../../proposals/workbench-single-tree-layout.md)，开发者 2026-11-05 接受，决策记录含 2026-11-06 的四条；[ADR 0044](../../adr/0044-workbench-single-layout-tree.md)。标 planned 的视图容器条目：[视图容器提案](../../proposals/workbench-view-containers.md)，开发者 2026-11-10 接受；[ADR 0046](../../adr/0046-workbench-view-containers.md)。空区域（输出 48）与回到原处展开（输出 38）：开发者 2026-11-12 试用 t24 后的要求，[ADR 0050](../../adr/0050-workbench-empty-region-anchor.md)。隐藏与拖到零画得一样（输出 11、12）：开发者 2026-11-15 试用后定，“经活动栏收起的侧栏和拖到零都是一种，按‘拖到零’来画”，见 [t25 计划](../../../.agents/works/w00026-layout-package/tasks/t25-container-feedback/plan.md)的“第 2 条第四轮”。
