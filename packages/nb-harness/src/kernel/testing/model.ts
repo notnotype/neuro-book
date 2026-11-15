@@ -6,7 +6,7 @@
  * 一个词可能被拆在两块里）。
  */
 
-import type {ContentBlock, ModelDelta, ModelErrorKind, ModelInfo, ModelPort, ModelQuery, ModelRequest, ModelResolutionCode, ModelResponse, RequestPurpose, ToolCall, Usage} from "../api/index.js";
+import type {ContentBlock, ModelCallMeta, ModelDelta, ModelErrorKind, ModelInfo, ModelPort, ModelQuery, ModelRequest, ModelResolutionCode, ModelResponse, RequestPurpose, ToolCall, Usage} from "../api/index.js";
 
 /** 一次回复的简写：字符串是纯文字。 */
 export type Reply =
@@ -33,6 +33,8 @@ export interface TestModel {
     script(...replies: Reply[]): void;
     /** 到目前为止收到的请求，按先后。 */
     readonly requests: readonly ModelRequest[];
+    /** 与 `requests` 一一对应：内核随请求给的说明（`complete()` 的是 undefined）。 */
+    readonly metas: readonly (ModelCallMeta | undefined)[];
     readonly port: ModelPort;
     /** 这些用途的模型解析不到，得到对应的码（测“对话模型不可用时也能压缩”、失败码的传播这类）；改它即生效。 */
     readonly unavailable: Map<RequestPurpose, ModelResolutionCode>;
@@ -61,6 +63,7 @@ export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
     const queries: ModelQuery[] = [];
     const queue: Reply[] = [];
     const requests: ModelRequest[] = [];
+    const metas: (ModelCallMeta | undefined)[] = [];
     let calls = 0;
     const respond = (): ModelResponse => {
         calls += 1;
@@ -79,14 +82,16 @@ export function createTestModel(info: ModelInfo = TEST_MODEL_INFO): TestModel {
     return {
         script: (...replies) => void queue.push(...replies),
         requests,
+        metas,
         unavailable,
         queries,
         port: {
             resolve: (query) => (queries.push(query), unavailable.has(query.purpose)) ? {ok: false, code: unavailable.get(query.purpose)!} : ({
                 ok: true,
                 info,
-                call: async (request, signal, onDelta) => {
+                call: async (request, signal, onDelta, meta) => {
                     requests.push(request);
+                    metas.push(meta);
                     if (signal.aborted) return {content: [], toolCalls: [], stopReason: "aborted", usage: {...USAGE, complete: false}, model: TEST_MODEL_INFO.id};
                     const hold = typeof queue[0] === "object" && queue[0].hold === true;
                     const response = respond();

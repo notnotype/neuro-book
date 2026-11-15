@@ -52,6 +52,8 @@ const UNITS: Readonly<Record<string, UnitRule>> = {
     guards: {dependsOn: [], packages: [], builtins: ["node:crypto"], kernel: "values"},
     // 句柄表要内核的指令码表；标题会话的 id 取哈希。
     sessions: {dependsOn: [], packages: [], builtins: ["node:crypto"], kernel: "values"},
+    // 模型请求记录：宿主进程里唯一的写者，写自己的目录（状态根下）；估 token 要内核的值导入。
+    requests: {dependsOn: [], packages: [], builtins: ["node:crypto", "node:fs/promises", "node:path", "node:util", "node:zlib"], kernel: "values"},
     // 合同测试要在夹具的目录里放文件与链接，所以能碰磁盘；它只给测试用。
     testing: {dependsOn: ["files"], packages: [], builtins: ["bun:test", "node:fs/promises", "node:os", "node:path"], kernel: "none"},
 };

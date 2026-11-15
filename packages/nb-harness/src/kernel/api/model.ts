@@ -156,8 +156,49 @@ export interface CoreSettings {
 export type ModelResolutionCode = "no-model" | "no-credentials" | "unknown-model" | "role-unbound";
 
 export type ModelResolution =
-    | {readonly ok: true; readonly info: ModelInfo; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void): Promise<ModelResponse>}
+    | {readonly ok: true; readonly info: ModelInfo; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void, meta?: ModelCallMeta): Promise<ModelResponse>}
     | {readonly ok: false; readonly code: ModelResolutionCode};
+
+/**
+ * 内核调 `call` 时给的这次调用的说明（docs/specs/harness/runtime.md 输出 89）。`complete()` 不给；不认识它的端口照常工作。
+ * `observe` 不是内核给的：宿主把端口包一层时塞进来，适配器把线上事实交给它（docs/specs/harness/models.md 输出 20）。
+ */
+export interface ModelCallMeta {
+    readonly session?: string;
+    /** 与这次的 `modelStarted.request`、`hash` 相同。 */
+    readonly request?: number;
+    readonly hash?: string;
+    /** 轮外（手动压缩）不给；没有用户输入的轮（继续运行）不给 `input`。`index` 只供显示，同一序号回退后可能出现两次，认轮用 `id`。 */
+    readonly turn?: {readonly id: string; readonly index: number; readonly input?: string};
+    /** 只算这一次请求经过的那几层（`modelStarted.modifiedBy` 同此）。 */
+    readonly modifiedBy?: readonly {readonly extension: string; readonly fields: readonly string[]}[];
+    readonly observe?: ModelWireObserver;
+}
+
+/**
+ * 适配器交出的线上事实。交出之前已把配置密钥原值换成 `[REDACTED]`（与错误文字的遮盖同一个函数）；回调抛错不影响请求，适配器也不等它。
+ * 头一律是小写名字的对象。
+ */
+export interface ModelWireObserver {
+    /** 每次 HTTP 尝试结束时一次（拿到响应头，或请求抛错）；适配器内部重试的每一次都交。 */
+    attempt?(wire: ModelWireAttempt): void;
+    /** 不经 HTTP 的传输：只有发出之前的请求体（序列化之后）。 */
+    payload?(body: string): void;
+    /** 第一块内容（文字、思考或工具调用参数的第一个增量）到达；没有内容的失败不调。 */
+    firstContent?(): void;
+}
+
+export interface ModelWireAttempt {
+    readonly url: string;
+    readonly headers: Readonly<Record<string, string>>;
+    /** 请求体的原文；不是字符串（流、表单）时为 null。 */
+    readonly body: string | null;
+    readonly startedAt: number;
+    readonly endedAt: number;
+    readonly response?: {readonly status: number; readonly headers: Readonly<Record<string, string>>};
+    /** 请求抛错时的说明（英文、已遮盖）。 */
+    readonly error?: string;
+}
 
 /** 一次解析要的是什么。 */
 export interface ModelQuery {

@@ -417,31 +417,47 @@ describe("拦截链", () => {
     });
 
     test("输出 22：改了请求记进 modifiedBy；调两次 next 有两条 modelStarted；不调 next 直接给回复时没有 modelStarted", async () => {
-        let mode: "edit" | "retry" | "block" = "edit";
+        let mode: "edit" | "retry" | "parallel" | "block" = "edit";
         const router = defineExtension({id: "lab.router", intercept: {model: async (request, next) => {
             if (mode === "edit") return next({...request, params: {maxTokens: 100}});
+            // 两次 next 各改一处：每条 modelStarted 只记它自己那一支的修改（runtime.md 输出 89）。
             if (mode === "retry") {
-                await next(request);
-                return next(request);
+                await next({...request, params: {temperature: 0.1}});
+                return next({...request, headers: {"x-lab": "1"}});
+            }
+            if (mode === "parallel") {
+                const [, second] = await Promise.all([next({...request, params: {temperature: 0.2}}), next({...request, headers: {"x-lab": "2"}})]);
+                return second;
             }
             return {content: [{kind: "text", text: "缓存的回答"}], toolCalls: [], stopReason: "stop", usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, complete: true}, model: "cache"};
         }}});
         await using session = await createTestSession({extensions: [router]});
-        session.model.script("一", "二a", "二b");
+        session.model.script("一", "二a", "二b", "三a", "三b");
         const edited = await session.say("第一问");
-        expect(dataOf(edited.events, "modelStarted").map((data) => data.modifiedBy)).toEqual([[{extension: "lab.router", fields: ["params"]}]]);
+        const editedStarted = dataOf<{request: number; hash: string; modifiedBy: unknown}>(edited.events, "modelStarted");
+        expect(editedStarted.map((data) => data.modifiedBy)).toEqual([[{extension: "lab.router", fields: ["params"]}]]);
         expect(edited.requests[0]!.raw.params).toEqual({maxTokens: 100});
+        // 端口收到的说明与日志对得上（runtime.md 输出 89）。
+        const turnId = dataOf<{turnId: string}>(edited.events, "turnStarted")[0]!.turnId;
+        expect(session.model.metas[0]).toEqual({session: session.id, request: editedStarted[0]!.request, hash: editedStarted[0]!.hash, turn: {id: turnId, index: 1, input: "第一问"}, modifiedBy: [{extension: "lab.router", fields: ["params"]}]});
         mode = "retry";
         const retried = await session.say("第二问");
-        const started = dataOf<{request: number}>(retried.events, "modelStarted");
+        const started = dataOf<{request: number; modifiedBy: unknown}>(retried.events, "modelStarted");
         expect(started).toHaveLength(2);
+        expect(started.map((data) => data.modifiedBy)).toEqual([[{extension: "lab.router", fields: ["params"]}], [{extension: "lab.router", fields: ["headers"]}]]);
+        expect(session.model.metas.slice(1).map((meta) => [meta?.request, meta?.turn?.index, meta?.modifiedBy])).toEqual([[started[0]!.request, 2, [{extension: "lab.router", fields: ["params"]}]], [started[1]!.request, 2, [{extension: "lab.router", fields: ["headers"]}]]]);
         expect(dataOf<{request: number}>(retried.events, "assistant")[0]!.request).toBe(started[1]!.request);
         expect(retried.result.text).toBe("二b");
+        mode = "parallel";
+        const parallel = await session.say("第三问");
+        const parallelStarted = dataOf<{request: number; modifiedBy: {fields: string[]}[]}>(parallel.events, "modelStarted");
+        expect(parallelStarted.map((data) => data.modifiedBy.map((item) => item.fields.join()).join()).sort()).toEqual(["headers", "params"]);
         mode = "block";
-        const blocked = await session.say("第三问");
+        const blocked = await session.say("第四问");
         expect(blocked.events.some((event) => event.type === "extensionFailed")).toBe(false);
         expect(types(blocked.events)).not.toContain("modelStarted");
-        expect(dataOf<{request: number}>(blocked.events, "assistant")[0]!.request).toBe(started[1]!.request + 1);
+        expect(session.model.metas).toHaveLength(5);
+        expect(dataOf<{request: number}>(blocked.events, "assistant")[0]!.request).toBe(Math.max(...parallelStarted.map((data) => data.request)) + 1);
         expect(blocked.result.text).toBe("缓存的回答");
     });
 
