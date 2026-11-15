@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t01-logo-and-mascot-foundation
-status: completed
+status: done
 updated: 2026-11-15
 ---
 

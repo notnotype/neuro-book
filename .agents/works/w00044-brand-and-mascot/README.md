@@ -2,7 +2,7 @@
 schema: nbook.work/v1
 workId: w00044-brand-and-mascot
 issueId: null
-status: completed
+status: done
 updated: 2026-11-15
 ---
 
