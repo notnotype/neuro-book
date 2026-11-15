@@ -73,8 +73,12 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         replaceUrl: (href) => history.replaceState(history.state, "", href),
     };
     const connection = createConnection(location.origin);
+    // 桌面壳（browser-host 输出 11）：壳的发送函数由 Electrobun 的预加载在页面脚本之前装上，此时有没有就是窗口在不在壳里。
+    const bridge = createDesktopBridge(window);
+    const inDesktop = typeof (window as {__electrobunSendToHost?: unknown}).__electrobunSendToHost === "function";
     const browserWindow = createBrowserWindow({
         connection,
+        desktop: {available: inDesktop, reportSettings: (values) => void (inDesktop && bridge.send({type: "desktop-settings", values}))},
         page: window,
         console,
         navigation,
@@ -97,7 +101,6 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     frameRoot.dataset.desktopFrameRoot = "";
     document.body.append(closeRoot, frameRoot);
     const closeUi = createCloseUi({document, exemptRoots: () => [closeRoot, frameRoot]});
-    const bridge = createDesktopBridge(window);
     const desktopFrame = createDesktopFrame({global: window, bridge, document, report: (input) => browserWindow.record(input)});
     createApp(DesktopFrame, {frame: desktopFrame}).provide(TEXT_PORT_KEY, text.port).mount(frameRoot);
     const closeQuery = createCloseQuery({

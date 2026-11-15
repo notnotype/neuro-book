@@ -39,8 +39,8 @@ import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
 import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersion} from "nbook/shared/browser-bootstrap";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
-import {clockKey, windowCloseKey, windowConnectionKey, windowNavigationKey, windowPluginFilesKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
-import type {CloseParticipant, WindowClose, WindowPluginFiles} from "nbook/shared/host";
+import {clockKey, windowCloseKey, windowConnectionKey, windowDesktopKey, windowNavigationKey, windowPluginFilesKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
+import type {CloseParticipant, WindowClose, WindowDesktop, WindowPluginFiles} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {windowTextKey} from "nbook/shared/window-text";
@@ -90,6 +90,8 @@ export interface BrowserWindowOptions {
     readonly hostPlugins?: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>>;
     /** 内置插件随构建的消息目录；缺省按 `plugins.ts` 的 `builtinPluginCatalogs`。 */
     readonly builtinCatalogs?: Readonly<Record<string, BuiltinCatalogs>>;
+    /** 桌面壳（`windowDesktopKey`）：页面入口按桥给出；缺省是不在壳里。 */
+    readonly desktop?: WindowDesktop;
     /** 客户端身份（`client-identity.ts`），随握手发给服务端；缺省每个窗口各取一个随机值，不跨刷新。 */
     readonly clientIdentity?: string;
     /** 重连退避与远程调用超时的时钟；缺省系统时钟。 */
@@ -170,6 +172,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     /** 关闭参与方：放在窗口这一层，启动重试新建运行实例时不丢，关闭前询问在启动之前就能拿到它。 */
     const participants: CloseParticipant[] = [];
     let closeAgreed: () => boolean = () => false;
+    const desktop: WindowDesktop = Object.freeze(options.desktop ?? {available: false, reportSettings() {}});
     /** 进入 ready 的那个运行实例取到的通知服务；只在 ready 时交出去。 */
     let readyNotifications: Notifications | null = null;
     const close: WindowClose = Object.freeze({
@@ -329,6 +332,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         {id: "window.plugin-files", key: windowPluginFilesKey, create: () => pluginFiles},
                         {id: "window.rescue", key: windowRescueKey, create: () => rescue.capability},
                         {id: "window.close", key: windowCloseKey, create: () => close},
+                        {id: "window.desktop", key: windowDesktopKey, create: () => desktop},
                     ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,

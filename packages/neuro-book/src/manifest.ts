@@ -10,6 +10,7 @@ import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
 import {descriptor as canon} from "./plugins/canon/plugin";
 import {descriptor as plot} from "./plugins/plot/plugin";
 import {descriptor as commands} from "./plugins/commands/plugin";
+import {descriptor as desktop} from "./plugins/desktop/plugin";
 import {descriptor as diagnostics} from "./plugins/diagnostics/plugin";
 import {descriptor as editor} from "./plugins/editor/plugin";
 import {descriptor as explorer} from "./plugins/explorer/plugin";
@@ -35,7 +36,7 @@ import {descriptor as workbench} from "./plugins/workbench/plugin";
  */
 export type {PluginDescriptor};
 
-export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, models, tasks, agent, plugins, workbench, projects, files, explorer, markdown, editor, imageViewer, htmlPreview, canon, plot, themeStudy];
+export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, models, tasks, agent, plugins, workbench, projects, files, explorer, markdown, editor, imageViewer, htmlPreview, canon, plot, themeStudy, desktop];
 
 export {definitionAt, pluginsAt, thirdPartyDefinition, thirdPartyDefinitionAt} from "./plugin-platform/shared/definitions";
 export type {EntryLoader} from "./plugin-platform/shared/definitions";

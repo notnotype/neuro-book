@@ -32,7 +32,7 @@ import {definitionAt} from "nbook/manifest";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import {descriptor as workbenchDescriptor} from "nbook/plugins/workbench/plugin";
-import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
+import {clockKey, windowConnectionKey, windowDesktopKey, windowPluginsKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
@@ -180,7 +180,7 @@ function contributor(id: string, sections: Readonly<Record<string, SectionSpec>>
     };
 }
 
-async function start(plugins: ReadonlyArray<PluginDefinition>, bound = false): Promise<{readonly application: Application; readonly probe: Probe; readonly diagnostics: DiagnosticsStore}> {
+async function start(plugins: ReadonlyArray<PluginDefinition>, bound = false, desktop = false): Promise<{readonly application: Application; readonly probe: Probe; readonly diagnostics: DiagnosticsStore}> {
     const probe: Probe = {source: null, settings: null};
     const settings = definitionAt("browser", descriptor, {...settingsBrowserCore, entries: [...settingsBrowserCore.entries, probeEntry(probe)]});
     const identity = {location: "browser" as const, instanceId: "settings-window"};
@@ -197,6 +197,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>, bound = false): P
                 {id: "window.connection", key: windowConnectionKey, create: () => ({state: () => "offline" as const, onChange: () => () => undefined})},
                 {id: "window.project", key: windowProjectKey, create: () => ({project: bound ? {id: "P", name: "雾港", generation: 1} : null})},
                 {id: "window.plugins", key: windowPluginsKey, create: () => feed.capability},
+                {id: "window.desktop", key: windowDesktopKey, create: () => ({available: desktop, reportSettings: () => undefined})},
             ],
             plugins: [createDiagnosticsPlugin({location: "browser", store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)}), settings, workbenchDeclarations, ...plugins],
             gates: [],
@@ -281,6 +282,24 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
             return current?.kind === "list" ? current.groups.flatMap((group) => keysOf(group.settings)) : [];
         });
         expect(listed).not.toContain("x.notes/paged");
+    });
+
+    it("声明了 host: desktop 的分区只在桌面壳的窗口里列出：浏览器里它与指向它的项都不列、不进“其它”、不记诊断、搜不到", async () => {
+        const windowOnly = defineSetting({plugin: "x.shell", name: "zoom", schema: Type.Boolean(), default: false, title: {"zh-CN": "缩放", "en-US": "Zoom"}, section: "x.shell.window"});
+        const sections = {"x.shell.window": list({title: title("桌面窗口"), host: "desktop"}), "x.shell.main": list({title: title("通用")})};
+        for (const desktop of [false, true]) {
+            const {probe} = await start([contributor("x.shell", sections, toggle(), [windowOnly, notes.gamma])], false, desktop);
+            const {window, recorder} = windowFor(probe, false);
+            const ids = window.nav.value.flatMap((group) => group.items).map((item) => item.id);
+            expect(ids.includes("x.shell.window"), String(desktop)).toBe(desktop);
+            expect(ids).not.toContain(OTHER_SECTION_ID);
+            expect(recorder.reports).toEqual([]);
+            window.openWindow({section: "x.shell.main"});
+            window.search("缩放");
+            const view = window.current.value;
+            if (view?.kind !== "search") throw new Error("应是搜索结果");
+            expect(view.list.groups.flatMap((group) => keysOf(group.settings))).toEqual(desktop ? ["x.shell/zoom"] : []);
+        }
     });
 
     it("没有落到“其它”的项时不出现“其它”", async () => {

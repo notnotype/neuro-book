@@ -49,6 +49,16 @@ export type WindowControl = Static<typeof WindowControlSchema>;
  */
 export const DESKTOP_FRAME_MARKER = "__nbookDesktopFrame";
 
+/**
+ * 桌面专属设置的有效值（desktop-shell 的“桌面专属设置”）：`nbook.desktop` 的页面入口从配置服务读出、经 `windowDesktopKey` 交给壳。
+ * 设置的拥有者是服务端的 `nbook.settings`，壳只拿这份值、缓存上一次的。
+ */
+export const DesktopSettingValuesSchema = Type.Object({
+    zoom: Type.Number({minimum: 0.25, maximum: 5}),
+    openAtLogin: Type.Boolean(),
+}, {additionalProperties: false});
+export type DesktopSettingValues = Static<typeof DesktopSettingValuesSchema>;
+
 /** 页面交回的选择：动作按钮（下载、重试、打开下载页）或关掉通知（“以后”）。 */
 export const UpdateChoiceSchema = Type.Union([Type.Literal("download"), Type.Literal("retry"), Type.Literal("open-page"), Type.Literal("later")]);
 export type UpdateChoice = Static<typeof UpdateChoiceSchema>;
@@ -78,6 +88,7 @@ const PageMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("window-control"), action: WindowControlSchema}),
     /** 外框一建立就问一次当前的窗口状态：整页导航之后、壳下一次推送之前，按钮不该显示错的字形。 */
     Type.Object({type: Type.Literal("window-state-query")}),
+    Type.Object({type: Type.Literal("desktop-settings"), values: DesktopSettingValuesSchema}),
     Type.Object({type: Type.Literal("title"), title: Type.String()}),
     Type.Object({type: Type.Literal("open-window"), url: Type.String()}),
 ]);

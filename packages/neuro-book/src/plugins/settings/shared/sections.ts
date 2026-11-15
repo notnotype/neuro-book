@@ -56,6 +56,11 @@ const heading = {
     icon: Type.String({pattern: "\\S"}),
     category: Type.Union([Type.Literal("app"), Type.Literal("ai"), Type.Literal("plugins")]),
     order: Type.Optional(Type.Number({minimum: -SETTINGS_ORDER_LIMIT, maximum: SETTINGS_ORDER_LIMIT})),
+    /**
+     * 只在这种宿主里列出（settings-window.md 的“分区只在某种宿主里列出”）：`desktop` 是桌面壳的窗口。不在时这个分区与指向它的
+     * 配置项都不列、不进搜索、不进“其它”。
+     */
+    host: Type.Optional(Type.Literal("desktop")),
 };
 
 export const SettingsSectionDeclarationSchema = Type.Object({
