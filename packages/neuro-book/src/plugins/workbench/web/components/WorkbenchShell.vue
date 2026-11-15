@@ -749,9 +749,8 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     <template v-if="drag?.live.active.value === true">
                         <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
                         <!-- 按目标换元素：换目标时不从上一块滑过来，在新的这块淡入。 -->
-                        <div v-if="mergeRect !== null" :key="mergeTarget ?? ''" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="mergeTarget" :style="mergeStyle">
-                            <span class="workbench-shell__merge-label">{{ message("shell.drop.addTab") }}</span>
-                        </div>
+                        <!-- 不写字：落点的文字在卡片头上，盖层中间的字压在内容上，指针在中央时还被卡片挡住。 -->
+                        <div v-if="mergeRect !== null" :key="mergeTarget ?? ''" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="mergeTarget" :style="mergeStyle"></div>
                     </template>
                 </template>
                 <template #float-chrome="{id, rect}">
@@ -835,9 +834,6 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
     position: absolute;
     top: 0;
     left: 0;
-    display: grid;
-    place-items: center;
-    overflow: hidden;
     box-sizing: border-box;
     border-radius: var(--layout-card-radius);
     background: var(--layout-merge-fill);
@@ -849,13 +845,6 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
         width var(--motion-layout) var(--ease-layout),
         height var(--motion-layout) var(--ease-layout);
     animation: workbench-shell-merge-in var(--motion-fast) var(--ease-layout);
-}
-
-.workbench-shell__merge-label {
-    color: var(--text-main);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    white-space: nowrap;
 }
 
 @keyframes workbench-shell-merge-in {

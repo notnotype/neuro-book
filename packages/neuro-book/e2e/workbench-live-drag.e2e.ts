@@ -400,10 +400,10 @@ test.describe("实时布局", () => {
         // 撕下：窗里只剩戊，正文是戊，不是空的。
         await expect.poll(() => headTabsOf(page, panel)).toEqual([`view:${E}`]);
         await expect(content(page, E)).toBeVisible();
-        // 自己的正文中央和别的面板的中央一样：盖一层写“添加为标签”。
+        // 自己的正文中央和别的面板的中央一样：盖一层，不写字。
         const merge = page.locator("[data-live-merge]");
         await expect(merge).toHaveAttribute("data-live-merge-panel", panel);
-        await expect(merge).toContainText("添加为标签");
+        await expect(merge).toHaveText("");
         const look = await card.evaluate((element) => {
             const style = getComputedStyle(element);
             return {events: style.pointerEvents, z: style.zIndex};
@@ -665,7 +665,7 @@ test.describe("实时布局", () => {
         await page.mouse.move(target.x, target.y, {steps: 6});
         const merge = page.locator("[data-live-merge]");
         await expect(merge).toHaveAttribute("data-live-merge-panel", other);
-        await expect(merge).toContainText("添加为标签");
+        await expect(merge).toHaveText("");
         await settled(page);
         expect(await headTabsOf(page, other)).toEqual(headBefore);
         // 来源那块还有一个标签，头不跟着变成只写标题：按已提交的文档算（输出 20）。

@@ -57,6 +57,8 @@ export function useContentLayer(options: {
     readonly leavingLeaves: () => ReadonlySet<string>;
     /** 过渡进行中。 */
     readonly moving: () => boolean;
+    /** 落地的卡片下面还画着的内容项：停放着，过渡结束前还看得见。 */
+    readonly held: () => ReadonlySet<string>;
     /** 这个内容项此刻含焦点吗。 */
     readonly holdsFocus: (key: string) => boolean;
     readonly onParked: (contentKey: string) => void;
@@ -133,7 +135,8 @@ export function useContentLayer(options: {
         // 矩形平时由 `placeLifted` 直接写在元素上；Vue 的样式补丁会写回这里的每个键，所以这里给的要是最新的。
         if (isLifted(item)) return liftedRectStyle(options.liftedRect());
         // 被盖住的内容马上不可交互，但过渡结束才隐藏：最大化的面板还没长过来时它们要还在。缩回去的叶里的内容同样，外框裁着它缩到零。
-        const showing = item.active && options.moving() && (options.obscuredLeaves().has(item.leaf) || options.leavingLeaves().has(item.leaf));
+        // 落地的卡片下面原来显示着的内容也一样，卡片长满它的叶之前还在。
+        const showing = options.moving() && ((item.active && (options.obscuredLeaves().has(item.leaf) || options.leavingLeaves().has(item.leaf))) || options.held().has(item.key));
         const hidden: Record<string, string> = isParked(item) && !showing ? {visibility: "hidden"} : {};
         if (byLeafRect(item)) {
             const rect = options.growing.value.get(startKey(item)) ?? (item.leafRect as GridRect);

@@ -116,7 +116,7 @@ const snapHost = useSashSnap();
 const parking = useLeafParking();
 const {parked} = parking;
 const motion = useGridMotion({root: rootEl, onSettled: () => snapHost.schedule()});
-const {moving, growing, following, flying, keptSize, anchoredRight} = motion;
+const {moving, growing, following, flying, keptSize, anchoredRight, held} = motion;
 /** 离开了、在过渡里留着缩回去的叶（docs/specs/ui/nested-grid.md 的“过渡”）：算降到零的叶，停放、不可交互，只是过渡结束前还画着。 */
 const leavingLeaves = computed<ReadonlySet<string>>(() => new Set(motion.leaving.value.map((item) => item.node.id)));
 
@@ -181,6 +181,7 @@ const contentLayer = useContentLayer({
     measured: () => placementExtent.value.width > 0 && placementExtent.value.height > 0,
     obscuredLeaves: () => obscuredLeaves.value,
     leavingLeaves: () => leavingLeaves.value,
+    held: () => held.value,
     moving: () => moving.value,
     holdsFocus: (key) => {
         // 经 `getRootNode` 取：grid 可能在 Shadow DOM 里。
@@ -301,7 +302,10 @@ watch([layers, () => props.lifted?.key ?? null] as const, ([next, liftedKey], ol
     // 卡片跟手时位置在 `transform` 上，落到叶上换回 `left`/`top`：这一帧先不带过渡写在卡片的矩形上，下一帧再过渡到叶，不让两种位置一起过渡（又是两个线程各走各的）。
     const entering = new Map([[key, liftedRect]]);
     if (leaf !== null && !known) entering.set(leaf, liftedRect);
-    motion.land(key, entering);
+    // 并进已有的叶：它刚才显示着的内容留在卡片下面，等卡片长满（不然放下的那一刻叶就空了，卡片在空的叶里长）。
+    const into = landed?.kind === "content" ? landed.leaf : null;
+    const kept = known ? (previous ?? []).flatMap((item) => (item.kind === "content" && item.leaf === into && item.active && item.key !== key ? [item.key] : [])) : [];
+    motion.land(key, entering, new Set(kept));
 }, {immediate: true});
 
 /**

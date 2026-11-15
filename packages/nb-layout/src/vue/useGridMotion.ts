@@ -125,6 +125,8 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     const keptSize = shallowRef<ReadonlySet<string>>(new Set());
     /** 内容贴外框右边的项（`rightAnchored`）；只在过渡中有。 */
     const anchoredRight = shallowRef<ReadonlySet<string>>(new Set());
+    /** 落地的卡片下面还画着的内容项（`land` 的 `held`）：已经不活动、不可交互，过渡结束（`stop`）才隐藏。只在过渡中有。 */
+    const held = shallowRef<ReadonlySet<string>>(new Set());
     let timer: ReturnType<typeof setTimeout> | null = null;
     const memory = EMPTY_GRID_MOTION_MEMORY();
     /** 正落地的内容项：内容体一次到终点尺寸，不跟着外框。它从小卡的矩形出发，跟着走就是先压成小卡再逐帧长回去。 */
@@ -157,6 +159,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         leaving.value = [];
         keptSize.value = new Set();
         anchoredRight.value = new Set();
+        held.value = new Set();
         // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
         options.onSettled();
     }
@@ -205,13 +208,14 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
 
     /**
      * 拿起的内容项落地：外框从卡片的矩形飞到叶的矩形（下一次渲染写终点，过渡这时启动）。`entering` 是同时出现的叶从哪里长出来（落进新浮动窗时是卡片的矩形），
-     * 和新项一样先写第一帧、再写终点。
+     * 和新项一样先写第一帧、再写终点。`held` 是落进的叶里刚才还显示着的内容：卡片长满之前它还在下面，不然卡片四周是空的叶。
      */
-    function land(key: string, entering?: ReadonlyMap<string, GridRect>): void {
+    function land(key: string, entering?: ReadonlyMap<string, GridRect>, kept?: ReadonlySet<string>): void {
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
         if (duration <= 0) return;
         landing.add(key);
+        if (kept !== undefined && kept.size > 0) held.value = new Set([...held.value, ...kept]);
         following.value = new Set([...following.value].filter((candidate) => candidate !== key));
         flying.value = new Set([...flying.value, key]);
         moving.value = true;
@@ -239,6 +243,7 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         leaving,
         keptSize,
         anchoredRight,
+        held,
         update,
         land,
         /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */

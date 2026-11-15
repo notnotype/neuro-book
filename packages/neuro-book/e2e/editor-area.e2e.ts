@@ -2233,7 +2233,7 @@ test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局�
         await closeAll(page);
     });
 
-    test("拖回自己这一组的正文中央（docs/specs/ui/workbench-layout.md 输出 38）：一拖出标签条就拿起卡片，这一组接着显示另一个标签；中央盖一层写“添加为标签”；松手回到原来的位置、成为活动标签，内容是同一个节点", async ({page}) => {
+    test("拖回自己这一组的正文中央（docs/specs/ui/workbench-layout.md 输出 38）：一拖出标签条就拿起卡片，这一组接着显示另一个标签；中央盖一层、不写字；回到标签条里它跟着指针、盖在邻居上有不透明的底；松手回到原来的位置、成为活动标签，内容是同一个节点", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await page.setViewportSize({width: 1440, height: 900});
         await open(page);
@@ -2260,11 +2260,20 @@ test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局�
         await expect(page.locator("[data-editor-prose]:visible", {hasText: "第一章"})).toHaveCount(1);
         const merge = page.locator("[data-live-merge]");
         await expect(merge).toHaveAttribute("data-live-merge-panel", group);
-        await expect(merge).toContainText("添加为标签");
+        await expect(merge).toHaveText("");
         // 回到自己标签条它原来的位置：卡片收回，它回到条里；再拖到中央又撕下。
         await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2, {steps: 8});
         await expect(card).toHaveCount(0);
         await expect(labels(page)).toHaveText(["a.md", "b.md", "c.md"]);
+        // 它不是活动标签，跟着指针会盖到邻居上：底不透明，邻居的字不透上来（拖动中没有悬停的样子）。
+        const frame = tab.locator("xpath=ancestor::*[contains(concat(' ', @class, ' '), ' nb-tab-frame ')][1]");
+        await expect.poll(() => frame.evaluate((element) => {
+            const context = document.createElement("canvas").getContext("2d");
+            if (context === null) return -1;
+            context.fillStyle = getComputedStyle(element).backgroundColor;
+            context.fillRect(0, 0, 1, 1);
+            return context.getImageData(0, 0, 1, 1).data[3];
+        })).toBe(255);
         await page.mouse.move(body.x + body.width / 2, body.y + body.height / 2, {steps: 8});
         await expect(card).toHaveCount(1);
         await expect(labels(page)).toHaveText(["a.md", "c.md"]);

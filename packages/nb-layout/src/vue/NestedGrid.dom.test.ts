@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick} from "vue";
 import NestedGrid from "./NestedGrid.vue";
@@ -892,6 +892,22 @@ describe("NestedGrid 内容层", () => {
         expect(element.style.transform).toBe("");
         expect({left: element.style.left, top: element.style.top}).toEqual(before);
         expect(body?.style.width).toMatch(/^[1-9][0-9]*(\.[0-9]+)?px$/u);
+    });
+
+    it("拿起的内容项并进已有的叶：那块叶刚才显示着的内容留在落地的卡片下面、不可交互，过渡结束才隐藏", async () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: true}]);
+        wrapper.element.style.setProperty("--motion-layout", "30ms");
+        const grid = wrapper.vm as unknown as {placeLifted(rect: {x: number; y: number; width: number; height: number}): void};
+        await wrapper.setProps({revision: 1});
+        grid.placeLifted({x: 11, y: 22, width: 33, height: 44});
+        await wrapper.setProps({lifted: {key: "y"}});
+        // 放下：撤卡片与提交在同一次更新里，y 进了 a、成为活动的，x 不再活动。
+        await wrapper.setProps({lifted: null, contents: [{key: "x", leaf: "a", insetTop: 32, active: false}, {key: "y", leaf: "a", insetTop: 32, active: true}]});
+        const kept = wrapper.get("[data-content='x']").element as HTMLElement;
+        expect(kept.style.visibility).toBe("");
+        expect(kept.hasAttribute("inert")).toBe(true);
+        expect(wrapper.get("[data-content='y']").attributes("data-flying")).toBeDefined();
+        await vi.waitFor(() => expect(kept.style.visibility).toBe("hidden"));
     });
 
     it("分隔线的 aria-controls 列外框与活动内容", () => {

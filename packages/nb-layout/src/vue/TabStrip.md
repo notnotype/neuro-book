@@ -103,6 +103,7 @@ attrs 落在根上。
 | `.nb-tab-strip__list` | 标签区（`role="tablist"`），上限高度与纵向滚动写在这里 |
 | `[data-tab-row]`、`[data-layout]` | 一行；`data-tab-row-partition` 是它的分区 |
 | `.nb-tab-frame`、`.is-active` | 一个标签的外框 |
+| `.nb-tab-frame--placeholder` | `placeholder` 那个标签：看不见、留着位置。宿主在条里排序时让它显示出来跟着指针（写 `visibility` 与 `translate`），它会盖在邻居上，宿主给它不透明的底 |
 | `.nb-tab` | 按钮；测量层也用它，所以字号、内边距、间距写在它上面才量得准 |
 | `.nb-tab__icon`、`.nb-tab__title`、`.nb-tab--more`、`.nb-tab__chevron` | 缺省内容与“更多” |
 | `[data-tabs-level]`、`[data-tabs-more]` | 当前让位档、“更多”按钮 |
