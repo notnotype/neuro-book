@@ -1,0 +1,38 @@
+w00046 t11 切片 2、3：发布脚本与壳的诊断的本机验证（2026-11-15，Linux，Work 分支 d849b332a、d806e30f2、59759a877）
+
+单测
+- bun test scripts/release：72 条通过（tag、release-plan、publish、github-release、verify-update-feed、packages）；
+  bun x vitest run --config scripts/vitest.config.ts scripts/release：同 72 条通过（CI 的 test:affected 用 vitest 跑根脚本）。
+- bunx tsc -p scripts --noEmit 通过（新入口已加进 scripts/tsconfig.json）；governance:check 没有失败与警告。
+- bun test src/desktop：90 条通过；packages/neuro-book 的 typecheck 通过。
+
+变异核对（逐个改坏、确认对应测试失败、用备份还原）
+- 按发布时间认“本次发布”（改成一律算历史包）：2 条失败。
+- 重跑时不撤最新（>= 改成 >）：2 条失败。
+- 完整包解压后的摘要核对（去掉）：1 条失败。
+- 发布作业不碰历史包（去掉跳过）：1 条失败。
+- 标签改指（去掉解引用核对）：1 条失败。
+- 不往回拨 latest（一律 latest）：1 条失败。
+
+registry 与 gh 的输出形状（只读）
+- npm 12.2.1：`npm view <名>@<版本> dist.integrity time --json` 打成只有一项的数组，`dist-tags.latest --json` 同样；不存在的版本与包是 E404 的 JSON。
+  解析同时认 npm 10 的值形状（现有 publish.test.ts 的记录）。
+- gh 2.97.0：`gh release list --json tagName,isDraft,isPrerelease,isLatest` 与 `gh release view <标签> --json assets`
+  的字段与替身一致；资产的 digest 形如 sha256:<64 位十六进制>，state 为 uploaded。
+
+真实运行
+1. Work 分支（产品版本 0.12.1）上 release:smoke 通过；publish.ts --plan 失败，这是对的：应用包与 SDK 的 0.12.1 早在
+   2026-11-07 发过，源码改过而版本没提。第一次运行暴露两处问题，已改（d806e30f2）：列表把“已发而字节不同”标成“字节相同”；
+   提示把“早就发过”说成“前一轮发的”，改为提示先提高产品版本号。
+   同一次运行列出 nb-runtime、nb-ui、nb-form、nb-harness、nb-markdown、nb-agent-ui、nb-story 是“源码改过没提版本号”的历史包，
+   nb-flock 要发布（与设计审查第 2 轮第 10 条一致：nb-harness、nb-story 要随 nb-flock 首发提版本）。
+2. 照测试包 B′ 的做法在一次性 worktree 里：版本改成 0.12.2、bun install 刷新 bun.lock（只改了 bun.lock 的一行）、一次性身份做本地提交
+   （不 push）、release:smoke 通过（干净检查与结束核对都成立）、--plan 写出计划：要发 nb-flock、nb-plugin-sdk、neuro-book。
+3. 另一个检出（同一个本地提交，没有 node_modules，没有 dist/plugin-sdk、dist/app-package），只放进上一步的 dist/release/：
+   GITHUB_SHA=<提交> publish.ts --ci 走到“要发 3 个包；带 --yes 才发布”，三个都是 --tag latest，没有读生成目录；
+   GITHUB_SHA 换成别的提交：拒绝；改动一个 tarball 的字节：拒绝。没有发布任何包。
+两个一次性 worktree 已删除。
+
+没有验证
+- npm publish 本身、trusted publishing、gh 的写入（草稿、上传、公开）：要等第一次在 GitHub 上运行。
+- verify-update-feed 对 GitHub 的真实重定向：单测用本机两跳重定向的源，第一次运行时再看。

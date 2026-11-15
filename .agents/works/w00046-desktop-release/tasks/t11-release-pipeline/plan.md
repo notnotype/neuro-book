@@ -111,7 +111,7 @@ npm 的 dist-tag，一律显式给：
 - 读不到（网络、5xx）就停。
 - 显式给的原因：不带 `--tag` 时 npm 11.5.1 按 registry 里最高的正式版本拒绝（不是按 `dist-tags.latest`），手工把 `latest` 回拨过的包会被拒。
 
-纯函数 `distTagFor(version, latest)`、`planProblems(plan, registryState)` 放进 `publish.ts`，单测加进 `publish.test.ts`：含 `latest` 不是最高版本、`latest` 缺失、读取失败、本次版本的包已发而字节不同。
+判断与 registry 输出的解析放进 `scripts/release/release-plan.ts`（`buildReleasePlan`、`publishSteps`、`distTagFor` 等，`blockingStalePackages` 也移到这里），查询与写文件留在 `publish.ts`；单测 `release-plan.test.ts`：含 `latest` 不是最高版本、`latest` 缺失、读取失败、本次版本的包已发而字节不同。
 
 ### `scripts/release/github-release.ts`（新增）：草稿、资产、公开
 
@@ -185,7 +185,7 @@ npm 的 dist-tag，一律显式给：
    - 对产品窗口 `WM_CLOSE`（窗口句柄按进程号枚举）；
    - 关闭前询问以 `quit` 同意（没有未保存的内容与在跑的工作）；
    - 壳进程以 0 退出，至多 90 秒；
-   - 正向证据：这次启动之后的 `shell.log` 有一条 `desktop.server.stopped`（切片 3 加），PID 是这次壳拉起的服务端、`forced` 为假、退出码 0；没有服务端意外退出的记录（意外退出时壳不经停止路径，也不写异常标记，壳照样以 0 退出）；
+   - 正向证据：这次启动之后的 `shell.log` 有 `desktop.server.ready`（PID 是这次壳拉起的服务端）与之后的 `desktop.server.stopped`（`forced` 为假、退出码 0）；没有 `desktop.server.exited`（意外退出时壳不经停止路径，也不写异常标记，壳照样以 0 退出）；
    - 补充：状态根下没有 `logs\desktop\unclean-stop.json`，没有残留的 `bun.exe` 子进程。
 6. **卸载**（安装版）：`uninstall.exe --uninstall --quiet --delete-data`，安装目录与开始菜单快捷方式都不在；按数据基线核对作品登记与模型设置的值不变，读回那一章的内容（desktop-shell：卸载不删作品与设置）。
 7. **便携版另核对**：`data\` 在程序目录下；缺省状态根与基线相同；`%LOCALAPPDATA%\io.github.notnotype.neurobook\stable` 下没有建出状态文件。
@@ -231,7 +231,7 @@ npm 的 dist-tag，一律显式给：
 ### `src/desktop/update.ts`、`shell.ts`：两条 info 诊断
 
 - `#check` 成功判定后 `report` 一条 `desktop.update.checked`，带远端版本与结论。`update.test.ts` 在现有“只升不降”的用例里断言这条诊断的结论。
-- 壳经停止路径停完自有服务端后 `report` 一条 `desktop.server.stopped`，带服务端 PID、`forced`、退出码；现在只有异常时写 `unclean-stop.json`，正常停止没有任何记录，冒烟拿不到“有序以 0 停止”的正向证据。`shell.test.ts` 在现有的停止用例里断言它。
+- 壳在自有服务端就绪时 `report` 一条 `desktop.server.ready`（PID），经停止路径停完后一条 `desktop.server.stopped`（`forced`、退出码），意外退出时一条 `desktop.server.exited`（退出码）；现在只有异常时写 `unclean-stop.json`，正常停止没有任何记录，冒烟拿不到“有序以 0 停止”的正向证据。`shell.test.ts` 在现有的停止用例里断言它。
 - 都不改行为；适配层照现有诊断的写法进 `shell.log`。
 
 ### `.github/workflows/ci.yml`：可复用
@@ -299,7 +299,7 @@ Hutch 设了 `HTTPS_PROXY` 时下载必失败，runner 上没有代理，不处�
 - 新建的信任配置要在 2 天内完成第一次成功发布，否则过期、要删了重建。所以只在这个包有版本要发的那次发布前 2 天内配置：
   - 第一次发布：这次要发的包；
   - 之后：哪个包第一次经流水线发布，就在打标签前给它配上。
-  - 演练会列出“这次要发、在流水线上还没发过”的包，提醒先配。
+  - 演练时 `publish.ts --plan` 列出这次要发的包，开发者按这份名单核对信任都配好了。
 - 在 master 上 `workflow_dispatch` 演练一次，打第一个标签。
 
 ### 文档

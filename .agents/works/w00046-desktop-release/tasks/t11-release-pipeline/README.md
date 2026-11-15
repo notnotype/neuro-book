@@ -39,6 +39,8 @@ release.yml：标签与产品版本一致性、标签提交上调用可复用的
 - `nb-flock` 首发前要开发者授权 `nb-harness`、`nb-story` 提版。
 - 不再开第 3 轮设计审查：余下的不确定点都排在切片 4 的 pc-notype 先验里。新增待确认 2 行。
 
+2026-11-15：切片 2、3 完成（Work 分支 `d849b332a`、`d806e30f2`、`59759a877`）。标签门禁、发布计划与 CI 发布入口、GitHub Release 草稿与公开、发布完成门禁；壳记下检查更新的结论与自有服务端的就绪、停止、意外退出。验证见 [release-scripts-r1.txt](evidences/release-scripts-r1.txt)：72 条脚本测试（bun 与 vitest）、90 条桌面核心测试，6 处变异核对；照 B′ 的做法在一次性 worktree 里改版本、本地提交、冒烟、写计划都跑通；在没有生成目录的检出上 `--ci` 只列出要发的。
+
 ## 下一步
 
-切片 2：`tag.ts`、`publish.ts` 的 `--plan` 与 `--ci`、`github-release.ts`、`verify-update-feed.ts` 与单测（Work worktree）。
+切片 4：Windows 冒烟脚本 `smoke-windows.ts`、`smoke-update.ts`，在 pc-notype 上先验计划里列的前提（复制 `desktop/` 单独构建、从 tar.zst 打便携、换上后 UI 自动化取证与重新连接）。
