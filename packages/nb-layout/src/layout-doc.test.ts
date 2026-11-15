@@ -986,6 +986,11 @@ describe("区域与容器", () => {
             const doc = containers();
             const single = okDoc(setActiveContainer(doc, "sidebar", "B"));
             expect(setPanelCollapsed(single, "s3", true)).toMatchObject({ok: false, code: "rejected"});
+            // 区域隐藏着也按显示时算：隐藏那一刻滑出去的面板头不多出收起按钮。两节的照旧各自能收。
+            const hiddenSingle = okDoc(setPanelHidden(single, "sidebar", true));
+            expect(sectionCollapseBlock(hiddenSingle, "s3")).toBe("lone-section");
+            expect(setPanelCollapsed(hiddenSingle, "s3", true)).toMatchObject({ok: false, code: "rejected"});
+            expect(sectionCollapseBlock(okDoc(setPanelHidden(doc, "sidebar", true)), "s1")).toBeNull();
             expect(setPanelCollapsed(doc, "p1", true)).toMatchObject({ok: false, code: "rejected"});
             expect(sectionCollapseBlock(doc, "p1")).toBe("row-region");
             // 拒绝的是分节，不是区域：底部面板的锚照常收起（整个区域拖到零）。

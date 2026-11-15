@@ -253,18 +253,22 @@ export function isNodeShown(doc: LayoutDoc, node: GridSnapshotNode): boolean {
  * 带容器的区域里，这个分节此刻为什么不能收成标题行（docs/specs/ui/workbench-layout.md 输出 11、20）；能收，或者它不是带容器的区域里的分节时是 null。
  *
  * - `"row-region"`：底部面板的分节不折叠。
- * - `"lone-section"`：它是所在区域此刻唯一显示的分节。那一列在呈现里塌成它这一片叶，叶上唯一的一份收起策略给了“整个区域拖到零”（`projectLayoutDoc`）。
+ * - `"lone-section"`：它是所在区域此刻唯一显示的分节；区域隐藏着时按区域显示时算。那一列在呈现里塌成它这一片叶，叶上唯一的一份收起策略给了“整个区域拖到零”（`projectLayoutDoc`）。
  *
  * 按文档判，不看放不下被收走的：那是呈现的事，窗口变大就回来。
  */
 export type SectionCollapseBlock = "row-region" | "lone-section";
 
 export function sectionCollapseBlock(doc: LayoutDoc, panelId: string): SectionCollapseBlock | null {
-    const region = containerAnchorOf(doc, panelId) === null ? null : regionOf(doc, panelId);
+    const anchor = containerAnchorOf(doc, panelId);
+    const region = anchor === null ? null : regionOf(doc, panelId);
     const column = region === null ? null : regionNodeOf(doc, region);
-    if (region === null || column === null) return null;
+    if (anchor === null || region === null || column === null) return null;
     if (REGION_ORIENTATION[region] !== "vertical") return "row-region";
-    const shown = treeLeaves(column.node).filter((leaf) => isPanelShown(doc, leaf.id));
+    // 区域隐藏不改这一列由哪几个分节组成，按区域显示着来数：不然隐藏的那一刻唯一的分节就成了“能收”，
+    // 正在滑出去的面板头上多出收起按钮（区域显示时又没了）。“看不看得见”仍只问 `isPanelShown`，所以借一份区域没隐藏的文档问它。
+    const asShown = anchor.hidden === true ? {...doc, panels: {...doc.panels, [column.anchor]: {...anchor, hidden: false}}} : doc;
+    const shown = treeLeaves(column.node).filter((leaf) => isPanelShown(asShown, leaf.id));
     return shown.length === 1 && shown[0]?.id === panelId ? "lone-section" : null;
 }
 
