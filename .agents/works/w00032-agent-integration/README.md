@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00032-agent-integration
 issueId: null
 status: active
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 # NeuroBook 接入 Agent
@@ -70,6 +70,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-12 | 开发者批准 t34 的 Spec 晋升：`workbench/background-tasks.md` 改为 `implemented`，其余 Spec 里 t34 的条目去掉 planned；t34 完成。接着把 t15 变基到 master，做它的界面切片（[t34](tasks/t34-background-tasks/README.md)） |
 | 2026-11-13 | t15 合入：Skill 目录与 `skills://`、`$` 带上正文与没带上的提醒、压缩后放回、Bun 依赖的初始化（后台任务、`nbook skill init`、文件锁）、Profile 白名单、`$` 菜单与确认框、设置里的 Skill 页与 Profile 页一节；收口审查后端 12 条、前端 16 条，成立的已修。待开发者批准 `agent/skills.md` 晋升与相关条目去掉 planned，并定 `bun.lock` 过期时怎样处理（[t15](tasks/t15-skills/README.md)） |
 | 2026-11-13 | 开发者批准 t15 的 Spec 晋升：`agent/skills.md` 改为 `implemented`，其余 Spec 里 t15 的条目去掉 planned；`bun.lock` 过期记为已知限制；t15 完成。不判旧的文件锁 `tryLock` 搬进 nb-file-lock 并随 nb-story 发布，另在 w00043 开 Task（[t15](tasks/t15-skills/README.md)） |
+| 2026-11-15 | 开发者：先做 t30（模型请求的 trace），排在 t29 之前；参考旧应用的 trace，先出界面静态稿；查看器的组件放进 nb-agent-ui（[t30](tasks/t30-model-request-trace/README.md)） |
 
 ## 待确认
 
