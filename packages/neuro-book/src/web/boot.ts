@@ -21,12 +21,14 @@ import {createDesktopBridge} from "nbook/shared/desktop-bridge";
 import type {WindowNavigation} from "nbook/shared/host";
 
 import CloseLayer from "./CloseLayer.vue";
+import DesktopFrame from "./DesktopFrame.vue";
 
 import {rememberDocumentAppearance} from "./host/appearance-hint";
 import {CLIENT_IDENTITY_KEY} from "./host/client-identity";
 import {createCloseQuery} from "./host/close-query";
 import {createCloseUi, installCloseKeyGuard} from "./host/close-ui";
 import {createConnection} from "./host/connection";
+import {createDesktopFrame} from "./host/desktop-frame";
 import {createDesktopUpdates} from "./host/desktop-updates";
 import {readLocaleHint, writeLocaleHint} from "./host/locale-hint";
 import {createHostTextEngine} from "./host/text-engine";
@@ -89,9 +91,15 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     // 下、不随宿主页与工作台切换卸载。
     const closeRoot = document.createElement("div");
     closeRoot.dataset.closeRoot = "";
-    document.body.append(closeRoot);
-    const closeUi = createCloseUi({document, ownRoot: () => closeRoot});
+    // 桌面窗口的外框（browser-host 的“窗口外框”）：也是 `body` 下独立的 Vue 根，排在关闭层之后、层级更高。关闭询问期间它不被设
+    // `inert`，窗口照样能最小化、拖动，再点关闭交给壳。普通浏览器里没有能力标记，它什么也不画。
+    const frameRoot = document.createElement("div");
+    frameRoot.dataset.desktopFrameRoot = "";
+    document.body.append(closeRoot, frameRoot);
+    const closeUi = createCloseUi({document, exemptRoots: () => [closeRoot, frameRoot]});
     const bridge = createDesktopBridge(window);
+    const desktopFrame = createDesktopFrame({global: window, bridge, document, report: (input) => browserWindow.record(input)});
+    createApp(DesktopFrame, {frame: desktopFrame}).provide(TEXT_PORT_KEY, text.port).mount(frameRoot);
     const closeQuery = createCloseQuery({
         bridge,
         window: browserWindow,

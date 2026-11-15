@@ -7,7 +7,8 @@
  * - 层本身是一个模态对话框（`CloseLayer.vue`）：焦点锁在对话框里、对话框之外点不到。参与方之后开的对话框是更上一层的模态，
  *   叠在它上面照常可用。
  * - 盖层之前给 `body` 下已有的子节点设 `inert`：已经开着的菜单与命令面板也传送在 `body` 下，层级高于模态，只靠模态盖不住它们。
- *   之后打开的对话框是新的子节点，不受影响。撤层时只撤自己设的。
+ *   之后打开的对话框是新的子节点，不受影响。撤层时只撤自己设的。层自己的根与桌面窗口外框的根（`DesktopFrame`）不设：询问期间
+ *   窗口照样能最小化、拖动，再点关闭交给壳（browser-host 输出 10 的例外）。
  * - 键盘拦截（`installCloseKeyGuard`）：工作台的键位在 `window` 的捕获阶段处理，焦点在对话框里也照样触发，所以要在它之前
  *   注册一个同阶段的拦截器，见那里的说明。
  */
@@ -34,8 +35,8 @@ export interface CloseUi {
 
 export interface CloseUiOptions {
     readonly document: Document;
-    /** 层自己的挂载根：不设 `inert`。 */
-    readonly ownRoot: () => Element | null;
+    /** 不设 `inert` 的根：层自己的挂载根，桌面窗口外框的根。 */
+    readonly exemptRoots: () => ReadonlyArray<Element | null>;
 }
 
 export function createCloseUi(options: CloseUiOptions): CloseUi {
@@ -49,9 +50,9 @@ export function createCloseUi(options: CloseUiOptions): CloseUi {
             if (state.value.layer) return;
             const active = options.document.activeElement;
             focusBefore = active instanceof HTMLElement && active !== options.document.body ? active : null;
-            const own = options.ownRoot();
+            const exempt = options.exemptRoots();
             for (const child of [...options.document.body.children]) {
-                if (child === own || child.hasAttribute("inert")) continue;
+                if (exempt.includes(child) || child.hasAttribute("inert")) continue;
                 child.setAttribute("inert", "");
                 inerted.push(child);
             }
@@ -103,13 +104,13 @@ const DIALOG_KEYS = new Set(["Tab", "Enter", " ", "Escape", "ArrowUp", "ArrowDow
 
 /**
  * 询问期间的键盘拦截：注册在 `window` 的 `keydown` 捕获阶段，必须早于工作台的键位（`WorkbenchCommandHost.vue` 挂载时注册，
- * 同一目标同一阶段按注册先后执行），所以在窗口界面挂载之前调用。询问进行中，只放行焦点在对话框里的几个导航键，其余一律
- * `preventDefault` 加 `stopImmediatePropagation`：焦点在对话框里按 Ctrl+S、Ctrl+W 也不能执行命令。
+ * 同一目标同一阶段按注册先后执行），所以在窗口界面挂载之前调用。询问进行中，只放行焦点在对话框里（或在桌面窗口外框的按钮上）
+ * 的几个导航键，其余一律 `preventDefault` 加 `stopImmediatePropagation`：焦点在对话框里按 Ctrl+S、Ctrl+W 也不能执行命令。
  */
 export function installCloseKeyGuard(target: Pick<Window, "addEventListener" | "removeEventListener">, active: () => boolean): () => void {
     const onKeydown = (event: KeyboardEvent): void => {
         if (!active()) return;
-        const inDialog = event.target instanceof Element && event.target.closest("[role='dialog'], [role='alertdialog']") !== null;
+        const inDialog = event.target instanceof Element && event.target.closest("[role='dialog'], [role='alertdialog'], [data-desktop-frame-root]") !== null;
         if (inDialog && !event.ctrlKey && !event.altKey && !event.metaKey && DIALOG_KEYS.has(event.key)) return;
         event.preventDefault();
         event.stopImmediatePropagation();

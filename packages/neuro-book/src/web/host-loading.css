@@ -17,7 +17,7 @@
     --host-loading-title-gap: 14px;
     --host-loading-hint-gap: 12px;
     position: fixed;
-    inset: 0;
+    inset: var(--nb-window-frame-offset, 0px) 0 0 0;
     background: var(--host-loading-background, #fffcf5);
     color: var(--host-loading-text, #1f1c17);
     font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
@@ -325,4 +325,13 @@ html[data-host-indicator="page"] .nb-host-loading {
     )::before {
         transform: perspective(120px) rotateY(-70deg);
     }
+}
+
+/*
+ * 桌面窗口没有系统标题栏时（预加载在页面脚本之前就设了 `data-desktop-frame`），静态加载页整块是拖动区域：这时窗口按钮还没画出来
+ * （它们在应用脚本起来之后才有），窗口至少能拖；关闭用 Alt+F4 与任务栏。
+ */
+html[data-desktop-frame] .nb-host-loading {
+    -webkit-app-region: drag;
+    app-region: drag;
 }

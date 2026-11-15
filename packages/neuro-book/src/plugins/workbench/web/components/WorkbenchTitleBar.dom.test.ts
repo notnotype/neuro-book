@@ -70,6 +70,12 @@ describe("WorkbenchTitleBar", () => {
         wrapper.unmount();
     });
 
+    it("根上声明它就是页面自己的标题栏（桌面窗口外框的合同，宿主据此不画后备标题栏）", () => {
+        const wrapper = mountBar();
+        expect(wrapper.get("[data-workbench-titlebar]").attributes()).toHaveProperty("data-desktop-titlebar");
+        wrapper.unmount();
+    });
+
     it("没有项目时项目切换直接发 open-project", async () => {
         const wrapper = mountBar(null);
         await wrapper.get("[data-titlebar-project]").trigger("click");

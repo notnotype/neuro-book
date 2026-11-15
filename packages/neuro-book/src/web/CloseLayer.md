@@ -26,6 +26,7 @@ type Props = {
   - 在跑的工作会被中断：各项按窗口语言显示在 `[data-close-items]`，取不到时多一行 `[data-close-uncertain]`。
 - 按钮“取消”`[data-close-cancel]`（打开时的焦点）与“仍然关闭”`[data-close-confirm]`；Escape 与点遮罩等于取消。
 - 参与方（例如编辑器）自己的对话框在询问期间打开，同样叠在层上面。
+- 桌面窗口的外框（[`DesktopFrame`](DesktopFrame.md)）是例外：询问期间窗口照样能最小化、拖动，再点关闭交给壳。盖层时不给它的根设 `inert`，按键拦截放行焦点在它里面的导航键。
 
 ## 隐藏通道理由
 
