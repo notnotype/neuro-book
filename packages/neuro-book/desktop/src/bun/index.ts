@@ -28,15 +28,17 @@ import {dirname, join} from "node:path";
 import {systemClock} from "../../../src/desktop/deadline";
 import {DesktopShell} from "../../../src/desktop/shell";
 import type {ShellPorts, ShellUpdates, StartupView} from "../../../src/desktop/shell";
+import {DEFAULT_DESKTOP_SETTINGS, loginItemPlan, readDesktopSettingsCache, sameDesktopSettings, writeDesktopSettingsCache} from "../../../src/desktop/desktop-settings";
 import {resolveDesktopStateRoot} from "../../../src/desktop/state-root";
 import {scanApplyResults} from "../../../src/desktop/update-install";
 import type {UpdaterPort} from "../../../src/desktop/update-install";
 import type {OpenTarget, WindowId, WindowPort} from "../../../src/desktop/windows";
 import {DESKTOP_EVENT, parsePageMessage} from "../../../src/shared/desktop-bridge";
-import type {CloseReason, ShellMessage, WindowControl} from "../../../src/shared/desktop-bridge";
+import type {CloseReason, DesktopSettingValues, ShellMessage, WindowControl} from "../../../src/shared/desktop-bridge";
 import {PRODUCT_VERSION} from "../../../src/shared/product";
 
 import {preloadScript} from "./preload";
+import {changeLoginItem, readLoginItem} from "./login-item";
 import {adoptCustomFrame, setWindowIcon} from "./win32";
 
 const SHELL_VIEW = "views://shell/index.html";
@@ -197,6 +199,15 @@ async function main(): Promise<void> {
     const customFrame = process.platform === "win32" && webView2.major !== null && webView2.major >= CUSTOM_FRAME_MIN_WEBVIEW2;
     log(`start version=${PRODUCT_VERSION} bun=${Bun.version} programRoot=${programRoot} webview2=${String(webView2.major)} customFrame=${String(customFrame)} webview2Args=${process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS ? "set" : "none"} root=${JSON.stringify(root)}`);
 
+    // 桌面专属设置（输出“桌面专属设置”）：值由页面交来，壳只缓存最后收到的值，下次启动时在页面交来之前先用它。
+    const settingsCache = root.ok ? join(root.stateRoot, "logs", "desktop", "settings-cache.json") : null;
+    let desktopValues: DesktopSettingValues = DEFAULT_DESKTOP_SETTINGS;
+    if (settingsCache !== null) {
+        const cached = await readDesktopSettingsCache(settingsCache);
+        if (cached.problem !== null) log(`desktop.settings.cache-unreadable ${cached.problem}`);
+        if (cached.values !== null) desktopValues = cached.values;
+    }
+
     const windows = new Map<WindowId, ManagedWindow>();
     const dialogs = new Map<string, BrowserWindow>();
     let view: StartupView = {kind: "starting"};
@@ -299,6 +310,41 @@ async function main(): Promise<void> {
         return id;
     };
 
+    /**
+     * 开机自启的登记（`loginItemPlan`）：按页面交来的值同步，不按缓存与缺省同步（那可能是旧的）。应用标识与通道根在更新器
+     * 准备好之后才有，见下面 `loginIdentity`。
+     */
+    let loginIdentity: {readonly name: string; readonly managed: boolean} | null = null;
+    const syncLoginItem = (openAtLogin: boolean): void => {
+        if (loginIdentity === null || !root.ok) return;
+        const existing = readLoginItem(loginIdentity.name);
+        if (existing.problem !== null) log(`desktop.login-item.unreadable ${existing.problem}`);
+        const command = `"${join(dirname(process.execPath), "launcher.exe")}"`;
+        const plan = loginItemPlan({openAtLogin, managed: loginIdentity.managed, defaultStateRoot: root.source === "default", existing: existing.command, command});
+        if (plan.action === "none") {
+            if (plan.reason !== null) log(`desktop.login-item.skipped ${plan.reason}`);
+            return;
+        }
+        const failure = changeLoginItem(loginIdentity.name, plan.action === "add" ? command : null);
+        log(failure === null ? `desktop.login-item.${plan.action} ${loginIdentity.name}` : `desktop.login-item.failed ${failure}`);
+    };
+
+    /**
+     * 页面交来的桌面专属设置：与上次相同就不动（几个窗口各交一次）；否则缩放应用到所有产品窗口，写缓存。开机自启在这次运行
+     * 第一次收到页面的值时同步一次，之后随值变化同步。
+     */
+    let fromPage = false;
+    const onDesktopSettings = (values: DesktopSettingValues): void => {
+        const first = !fromPage;
+        fromPage = true;
+        const same = sameDesktopSettings(values, desktopValues);
+        if (first || values.openAtLogin !== desktopValues.openAtLogin) syncLoginItem(values.openAtLogin);
+        if (same) return;
+        desktopValues = values;
+        for (const managed of windows.values()) if (managed.kind === "page") managed.win.setPageZoom(values.zoom);
+        if (settingsCache !== null) writeDesktopSettingsCache(settingsCache, values).catch((error: unknown) => log("desktop.settings.cache-write-failed", error));
+    };
+
     /** 窗口按钮（输出 10）：两种窗口都有；关闭与系统的关闭同一条路（输出 14、17）。 */
     const onWindowControl = (id: WindowId, win: BrowserWindow, action: WindowControl): void => {
         switch (action) {
@@ -347,6 +393,11 @@ async function main(): Promise<void> {
             case "page-ready":
                 shell.windows.pageReady(id);
                 pushWindowState(id, true);
+                // 每次页面就绪都按当前值重设，不依赖 WebView2 的缩放跨整页导航保持。
+                win.setPageZoom(desktopValues.zoom);
+                return;
+            case "desktop-settings":
+                onDesktopSettings(message.values);
                 return;
             case "window-control":
                 onWindowControl(id, win, message.action);
@@ -474,6 +525,9 @@ async function main(): Promise<void> {
 
     const env = {...process.env};
     const updates = await desktopUpdates();
+    // 开机自启的值名是应用标识（测试标识不碰正式安装的项）；安装版才登记（通道根取得到）。
+    const localInfo = await Updater.getLocalInfo();
+    loginIdentity = localInfo.identifier === "" ? null : {name: localInfo.identifier, managed: (updates?.channelRoot ?? null) !== null};
     log(`update setup=${updates === undefined ? "none" : `channelRoot=${String(updates.channelRoot)} local=${updates.updater.local.version}/${updates.updater.local.hash}`}`);
     shell = new DesktopShell({
         root,

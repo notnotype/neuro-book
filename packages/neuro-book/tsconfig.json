@@ -45,6 +45,7 @@
         "plugin-sdk",
         "scripts",
         "desktop/scripts",
+        "desktop/src/bun/login-item.ts",
         "desktop/src/bun/preload.ts",
         "desktop/src/bun/win32.ts",
         "vite.config.ts",

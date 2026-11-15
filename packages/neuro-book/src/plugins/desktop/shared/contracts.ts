@@ -21,6 +21,8 @@ const ZoomSchema = Type.Union([
 export type ZoomLevel = Static<typeof ZoomSchema>;
 /** 从小到大。 */
 export const ZOOM_LEVELS: ReadonlyArray<ZoomLevel> = ZoomSchema.anyOf.map((member) => member.const);
+/** 缺省的缩放，也是复位的目标。 */
+export const DEFAULT_ZOOM: ZoomLevel = 1;
 
 /** 设置窗口里的分区（只在桌面壳的窗口里列出）。 */
 export const DESKTOP_WINDOW_SECTION = "nbook.desktop.window";
@@ -36,7 +38,7 @@ export const DESKTOP_WINDOW_SECTION_DECLARATION: WrittenSettingsSectionDeclarati
 export const {settings: desktopSettings, contributions: desktopSettingContributions} = defineSettings(DESKTOP_PLUGIN, {
     zoom: {
         schema: ZoomSchema,
-        default: 1 as ZoomLevel,
+        default: DEFAULT_ZOOM,
         title: {"zh-CN": "界面缩放", "en-US": "Zoom"},
         description: {"zh-CN": "所有桌面窗口一起缩放。也可以按 Ctrl 加减号、Ctrl+0，或按住 Ctrl 滚动鼠标。", "en-US": "Zooms every desktop window. Also Ctrl with plus or minus, Ctrl+0, or Ctrl with the mouse wheel."},
         choices: ZOOM_LEVELS.map((level) => ({value: level, title: `${String(Math.round(level * 100))}%`})),
