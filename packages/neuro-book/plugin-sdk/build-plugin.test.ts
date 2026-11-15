@@ -1,13 +1,14 @@
 /**
  * 构建预设（docs/specs/runtime/plugin-code-loading.md 输出 2、5，plugin-api.md 的“SDK”）：清单由代码定义生成并通过校验；
  * 每个入口一个文件、只导出 activate；浏览器产物登记工厂、只引用宿主模块表；样式包进 @layer components 并带上用到的图标；
- * 纯度检查按模块图拦下打包进来的 Vue、未共享的模块与绕过 SDK 的内核。
+ * 纯度检查按模块图拦下打包进来的 Vue、未共享的模块与绕过 SDK 的内核；`agent.skills` 声明的 Skill 的脚本连同依赖各打成单文件，
+ * 打不进的构建失败并写明原因（docs/specs/agent/skills.md 输出 30–32）。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 
 import {existsSync, statSync} from "node:fs";
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, cp, mkdir, readdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 
@@ -391,6 +392,97 @@ export const s = {id: "acme.refined", entries: [defineEntry({id: "server", locat
         await writeFile(join(root, "package.json"), JSON.stringify({...manifest, nbook: {definitions: ["web/plugin.ts", 42]}}));
         expect(await failure(root)).toEqual(["必须是非空的模块路径"]);
     }, 60_000);
+});
+
+/** 只有 `agent.skills` 顶层贡献的插件：没有入口，Skill 在 `skills/` 下。 */
+const SKILLS_PLUGIN = (name: string, directory = "skills"): string => `export const descriptor = {id: "acme.${name}", version: "1.0.0", locations: [], contributions: [{capability: "agent.skills", id: "acme.${name}.skills", declaration: {directory: ${JSON.stringify(directory)}}}]};\n`;
+const skillMd = (name: string): string => `---\nname: ${name}\ndescription: ${name} 的说明\n---\n\n正文。\n`;
+/** 作者目录 `node_modules` 里的假包：CommonJS 的入口与别的文件。 */
+const fakePackage = (name: string, files: Readonly<Record<string, string>>, type = "commonjs"): Record<string, string> => Object.fromEntries([
+    [`node_modules/${name}/package.json`, JSON.stringify({name, version: "1.0.0", main: "index.js", type})],
+    ...Object.entries(files).map(([path, text]) => [`node_modules/${name}/${path}`, text]),
+]);
+
+describe("Skill（agent.skills）", () => {
+    it("脚本连同依赖各打成单文件，路径与文件名不变；package.json、锁文件与 node_modules 不带，别的原样复制；产物在没有 node_modules 的地方能跑", async () => {
+        const root = await authorProject("skillpack", {
+            ...fakePackage("fake-dep", {"index.js": "module.exports = () => \"dep-ok\";\n"}),
+            "skills/pdf/SKILL.md": skillMd("pdf"),
+            "skills/pdf/scripts/run.ts": "#!/usr/bin/env bun\nimport dep from \"fake-dep\";\nimport {label} from \"./lib/label\";\nconsole.log(label(dep()), import.meta.dir.endsWith(\"scripts\"));\n",
+            "skills/pdf/scripts/lib/label.ts": "export const label = (text: string): string => `[${text}]`;\n",
+            "skills/pdf/scripts/tool.py": "import json\nprint(json.dumps(1))\n",
+            "skills/pdf/references/guide.md": "# 说明\n",
+            "skills/pdf/package.json": JSON.stringify({dependencies: {"fake-dep": "1.0.0"}}),
+            "skills/pdf/bun.lock": "{}\n",
+            "skills/pdf/node_modules/left-behind/index.js": "module.exports = 1;\n",
+        });
+        await writeFile(join(root, "plugin.ts"), SKILLS_PLUGIN("skillpack"));
+        await chmod(join(root, "skills/pdf/scripts/run.ts"), 0o755);
+        const result = await build(root);
+        expect(result.files.filter((file) => file.startsWith("skills/"))).toEqual(["skills/pdf/SKILL.md", "skills/pdf/references/guide.md", "skills/pdf/scripts/lib/label.ts", "skills/pdf/scripts/run.ts", "skills/pdf/scripts/tool.py"]);
+        expect(result.manifest.contributes).toEqual([{capability: "agent.skills", id: "acme.skillpack.skills", declaration: {directory: "skills"}}]);
+        expect((await stat(join(root, "dist/skills/pdf/scripts/run.ts"))).mode & 0o111).not.toBe(0);
+        expect(await readFile(join(root, "dist/skills/pdf/scripts/tool.py"), "utf8")).toBe("import json\nprint(json.dumps(1))\n");
+
+        // 搬到作者目录之外（没有 node_modules）再运行：依赖已经打进去了。
+        const away = join(tmp, "skillpack-installed");
+        await cp(join(root, "dist/skills/pdf"), away, {recursive: true});
+        const run = Bun.spawn(["bun", "scripts/run.ts"], {cwd: away, stdout: "pipe", stderr: "pipe"});
+        expect([await run.exited, (await new Response(run.stdout).text()).trim()]).toEqual([0, "[dep-ok] true"]);
+
+        // 再构建一次（--clean）：输出目录是这个插件上次的产物。
+        await buildPlugin({root, outDir: join(root, "dist"), clean: true, ...IN_REPO_BUILD});
+    });
+
+    it("打不进单文件的构建失败，逐条写明哪个 Skill、哪个文件、哪个依赖", async () => {
+        const root = await authorProject("brokenskills", {
+            ...fakePackage("fake-native", {"index.js": "module.exports = require(\"./addon.node\");\n", "addon.node": "not a binary"}),
+            ...fakePackage("fake-data", {"index.js": "const fs = require(\"fs\"); const path = require(\"path\");\nmodule.exports = () => fs.readFileSync(path.join(__dirname, \"data.txt\"), \"utf8\");\n", "data.txt": "x"}),
+            ...fakePackage("fake-esm", {"index.js": "export default () => new URL(\"./data.txt\", import.meta.url).href;\n"}, "module"),
+            "skills/native/SKILL.md": skillMd("native"),
+            "skills/native/scripts/run.ts": "import addon from \"fake-native\";\nconsole.log(addon);\n",
+            "skills/data/SKILL.md": skillMd("data"),
+            "skills/data/scripts/run.ts": "import read from \"fake-data\";\nimport href from \"fake-esm\";\nconsole.log(read(), href());\n",
+            "skills/dynamic/SKILL.md": skillMd("dynamic"),
+            "skills/dynamic/scripts/run.ts": "const name = process.argv[2] ?? \"fs\";\nconsole.log(require(name));\n",
+            "skills/missing/SKILL.md": skillMd("missing"),
+            "skills/missing/scripts/run.ts": "import nope from \"not-installed-anywhere\";\nconsole.log(nope);\n",
+            "skills/where/SKILL.md": skillMd("where"),
+            "skills/where/scripts/run.ts": "import {here} from \"./lib/here\";\nconsole.log(here, __dirname, import.meta.dir);\n",
+            "skills/where/scripts/lib/here.ts": "export const here = import.meta.dir;\n",
+            "skills/python/SKILL.md": skillMd("python"),
+            "skills/python/requirements.txt": "requests\n",
+            "skills/python/scripts/fetch.py": "import requests\n",
+            "skills/renamed/SKILL.md": skillMd("other-name"),
+        });
+        await writeFile(join(root, "plugin.ts"), SKILLS_PLUGIN("brokenskills"));
+        const messages = await failure(root);
+        const about = (fragment: string): string[] => messages.filter((message) => message.includes(fragment));
+        expect(about("附件")).toEqual([expect.stringContaining("fake-native")]);
+        expect(about("依赖 fake-data 用到自己的位置（__dirname）")).toHaveLength(1);
+        expect(about("依赖 fake-esm 用到自己的位置（import.meta.url）")).toHaveLength(1);
+        expect(about("按变量拼出的名字")).toHaveLength(1);
+        expect(about("打包失败")).toEqual([expect.stringContaining("not-installed-anywhere")]);
+        expect(about("打进来的 skills/where/scripts/lib/here.ts 用到自己的位置（import.meta.dir）")).toHaveLength(1);
+        expect(about("Python 第三方依赖")).toHaveLength(1);
+        expect(about("name 是 other-name")).toHaveLength(1);
+        // 入口自己的 import.meta.dir 可以用；__dirname 在有别的位置问题时不另报。
+        expect(about("__dirname 或 __filename")).toEqual([]);
+        expect(existsSync(join(root, "dist/package.json"))).toBe(false);
+    });
+
+    it("入口自己用 __dirname 时失败；声明的目录写法不对或不存在时失败", async () => {
+        const root = await authorProject("dirnameskill", {
+            "skills/one/SKILL.md": skillMd("one"),
+            "skills/one/scripts/run.ts": "console.log(__dirname);\n",
+        });
+        await writeFile(join(root, "plugin.ts"), SKILLS_PLUGIN("dirnameskill"));
+        expect(await failure(root)).toEqual([expect.stringContaining("__dirname 或 __filename")]);
+        await writeFile(join(root, "plugin.ts"), SKILLS_PLUGIN("dirnameskill", "../outside"));
+        expect(await failure(root)).toEqual([expect.stringContaining("不能有空段")]);
+        await writeFile(join(root, "plugin.ts"), SKILLS_PLUGIN("dirnameskill", "absent"));
+        expect(await failure(root)).toEqual([expect.stringContaining("不存在")]);
+    });
 });
 
 describe("消息目录（locales/）", () => {

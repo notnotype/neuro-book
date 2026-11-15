@@ -39,7 +39,7 @@ import {fileURLToPath} from "node:url";
 
 import {localeTagProblem, parseCatalog} from "@notnotype/nb-runtime/plugin-manifest";
 import type {ManifestL10n, ManifestProblem, ManifestSource, MessageCatalog} from "@notnotype/nb-runtime/plugin-manifest";
-import type {PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDeclaration, PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {getIconData, iconToHTML, iconToSVG, svgToURL} from "@iconify/utils";
 import vue from "@vitejs/plugin-vue";
 import * as compiler from "vue/compiler-sfc";
@@ -102,6 +102,18 @@ export interface BuildPluginOptions {
     readonly clean?: boolean;
     /** 打印 Vite 的日志；执行入口定义出错时报告带完整堆栈（作者工具的 `--verbose`）。缺省只报作者文件里出错的位置与消息。 */
     readonly verbose?: boolean;
+}
+
+/**
+ * 按贡献点的附加构建步骤：构建预设本身不认识、又要带上文件的贡献（例如 Agent 的 Skill），由拥有贡献点的一方交进来，通用的构建
+ * 预设不认识它们的语义。在纯度检查之后、写输出之前运行：写进 `out` 的文件与别的产物一起移进输出目录，有问题时构建失败。
+ */
+export interface ContributionBuild {
+    readonly capability: string;
+    /** 这一步有问题时，构建失败的一句话原因。 */
+    readonly failure: string;
+    /** `contributions` 是清单里这个贡献点的全部贡献（顶层与各入口的）；`out` 对应输出目录的根。 */
+    build(input: {readonly root: string; readonly out: string; readonly contributions: ReadonlyArray<ContributionDeclaration>}): Promise<{readonly problems: ReadonlyArray<ManifestProblem>}>;
 }
 
 export interface BuildPluginResult {
@@ -588,7 +600,25 @@ function iconSetFile(root: string): string {
     }
 }
 
-export async function buildPlugin(profile: PlatformProfile, options: BuildPluginOptions): Promise<BuildPluginResult> {
+/** 清单里某个贡献点的贡献：顶层的 `contributes` 加各入口的 `contributes`。 */
+function contributionsOf(manifest: Record<string, unknown>, capability: string): ContributionDeclaration[] {
+    const lists: unknown[] = [manifest.contributes];
+    if (typeof manifest.entries === "object" && manifest.entries !== null) for (const entry of Object.values(manifest.entries)) lists.push((entry as {contributes?: unknown}).contributes);
+    return lists.flatMap((list) => (Array.isArray(list) ? (list as ContributionDeclaration[]) : [])).filter((item) => item.capability === capability);
+}
+
+/** 目录下的全部文件，相对 `base`，用 `/` 分段。 */
+async function filesUnder(directory: string, base: string): Promise<string[]> {
+    const found: string[] = [];
+    for (const item of await readdir(directory, {withFileTypes: true})) {
+        const path = join(directory, item.name);
+        if (item.isDirectory()) found.push(...await filesUnder(path, base));
+        else found.push(relative(base, path).split(sep).join("/"));
+    }
+    return found;
+}
+
+export async function buildPlugin(profile: PlatformProfile, options: BuildPluginOptions, contributionBuilds: ReadonlyArray<ContributionBuild> = []): Promise<BuildPluginResult> {
     const root = resolve(options.root);
     const outDir = resolve(options.outDir);
     const alias = options.alias ?? [];
@@ -687,6 +717,20 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
         }
         if (problems.length > 0) throw new PluginBuildError("产物不纯", problems);
 
+        // 2b. 贡献要带的文件（例如 Skill）：写进中间目录，最后与别的产物一起移进输出目录。顶层的名字不能与构建自己写的撞上。
+        const extraDir = join(workDir, "contributions");
+        await mkdir(extraDir, {recursive: true});
+        for (const step of contributionBuilds) {
+            const contributions = contributionsOf(early.json, step.capability);
+            if (contributions.length === 0) continue;
+            const result = await step.build({root, out: extraDir, contributions});
+            if (result.problems.length > 0) throw new PluginBuildError(step.failure, result.problems);
+        }
+        const reserved = new Set(["package.json", "style.css", LOCALES_DIR, ...located.flatMap((item) => [`${item.entry.id}.js`, `${item.entry.id}.js.map`])]);
+        const extras = await readdir(extraDir);
+        const taken = extras.filter((name) => reserved.has(name));
+        if (taken.length > 0) throw new PluginBuildError("贡献带的文件与构建产物重名", taken.map((name) => ({path: name, message: `${name} 是构建预设自己要写的文件，贡献的目录换个名字`})));
+
         // 3. 样式与图标。
         for (const {located: item, directory} of built) {
             const css = join(directory, `${item.entry.id}.css`);
@@ -711,6 +755,10 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
                 await rename(join(directory, name), join(outDir, name));
                 files.push(name);
             }
+        }
+        for (const name of extras) {
+            await rename(join(extraDir, name), join(outDir, name));
+            files.push(...await filesUnder(join(outDir, name), outDir));
         }
         if (style !== null) {
             await writeFile(join(outDir, "style.css"), style);
