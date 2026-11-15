@@ -77,6 +77,7 @@ ompModelInfo(model: Model): ModelInfo;
 17. `retryable` 取 OMP 对错误标记的判断（`AIError.retriable`），只有模型重复循环例外：它不重发，码 `thinking-loop`。建流时抛错、没有错误标记的失败不给 `retryable`。`retryAfterMs` 是服务商要求的等待时间，从 OMP 的错误文字里用它自己的函数取。
 18. `target.transport` 给了时：`firstEventTimeoutMs` 由适配器自己计时，收到第一个内容事件前到时交回 `network`、码 `first-event-timeout`、`retryable` 为真，0 表示不计时，OMP 那一层的第一事件超时总是关掉（否则 `anthropic-messages` 会把超时再重试 10 次）；`idleTimeoutMs` 原样传给 OMP，0 表示不计时；`maxHttpAttempts` 原样传；并关掉 OMP 的空回复重试。不给 `transport` 时这些都按 OMP 的缺省。
 19. 错误文字里 OMP 写的落盘诊断行（请求全文的路径）在交回前去掉，不论它在文字的哪个位置；路径交给 `target.onRequestDump`。`buildResolution` 的实现只删 OMP 日志目录下 `http-400-requests` 里的文件（路径行可能是服务商在错误正文里伪造的），文件已经没了算达成，其它删除失败写进错误文字末尾。
+20. 调用说明里带了观察者时（[`runtime.md`](runtime.md) 输出 89），适配器依次交给它：服务商收到的请求体（发出之前，图片换成类型与字节数）、第一次发出的请求头（含 OMP 加上的鉴权头，原值，遮盖由观察者负责）、响应的 HTTP 状态与响应头（收到时）、第一个内容事件（收到时）。观察者抛错不影响请求，适配器不等它。不带观察者时行为不变。（planned）
 
 ## 状态与转换
 

@@ -258,6 +258,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | Harness 运行 | [`harness/runtime.md`](harness/runtime.md) | 新内核的指令、运行循环与运行结果（逐步补齐）：输入缓冲区、受理批、followup、失败与中止的收口、位置章、帧、`waitRun` |
 | Harness 宿主套件 | [`harness/host-kit.md`](harness/host-kit.md) | 宿主给套件的按会话文件访问：地址改写与写入分类、本机读路径、带基线与取消的读写、列出与虚拟根、按工具调用绑定、宿主写全文；套件其余块的宿主无关条目以后补。待晋升 |
 | Harness 模型端口 | [`harness/models.md`](harness/models.md) | 模型端口与 OMP 适配器：失败归类、密钥遮盖、相邻 user 合并、工具名换算、思考签名、用量与停止原因 |
+| 模型请求记录 | [`agent/request-trace.md`](agent/request-trace.md) | 每次模型请求的记录：相同内容只存一份、按天保留、响应头与请求头的过滤、进程中断；编辑区的“模型请求”页：按会话与轮分组、常驻筛选、全文查找、消息大纲、和上一次比较、窄时切换 |
 | Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |
 | 剧情图谱：图的修订 | [`story/revisions.md`](story/revisions.md) | 确认或驳回候选身份、手动连两个对象、改对象种类、挪称呼；修订按书单独保存、套用后查询、不剧透、可撤销、重抽后按锚对应 |
 | 世界引擎：作者界面（设定侧） | [`canon/author-ui.md`](canon/author-ui.md) | 条目树、条目页（位置与按计划、文字与数据分页、来历、情节）、数据分页的贡献点、就地改与记一笔、新建与删除、回执页、变更详情页、待处理与改动记录、状态栏计数、读取的新鲜度与失败的呈现 |
