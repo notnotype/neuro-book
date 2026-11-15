@@ -25,8 +25,10 @@ updated: 2026-11-15
 
 ## 当前状态
 
-2026-11-15 开工。调研了插件构建、清单与贡献点、安装目录，用十个常用 npm 包做了打包实验；[计划](plan.md)已获开发者确认（决定 2），下一步是设计审查（后端 omp）。
+2026-11-15 开工。调研了插件构建、清单与贡献点、安装目录，用十个常用 npm 包做了打包实验；[计划](plan.md)已获开发者确认（决定 2）。
+
+设计审查（omp）6 条（阻断 3、重要 3）：成立 4 条、部分成立 1 条，都已改进计划；1 条不成立（Python 的规则是开发者的改判，已在 t15 第 7 条后注明）。处理见 [`evidences/design-review.txt`](evidences/design-review.txt)。两项“接受取舍”记进了 [待确认清单](../../pending-confirmations.md)：查不出按工作目录或环境变量找数据文件的依赖；可选依赖的 `try require` 照样判失败。
 
 ## 下一步
 
-设计审查处理完后开 worktree `.worktree/w00032-t33-plugin-skills`（分支 `feat/w00032-t33-plugin-skills`），按计划切片实施。
+在 `.worktree/w00032-t33-plugin-skills`（分支 `feat/w00032-t33-plugin-skills`，已建好）按计划切片实施，从切片 1（平台服务、贡献点与目录的插件来源）开始。

@@ -1,0 +1,85 @@
+w00032 t33 设计审查（omp @default，2026-11-15，审查对象 plan.md @ ccc852886，说明见 .local/…/reports/design/brief.md）
+报告原文（已扫描密钥：0 处）：
+
+### 阻断｜合同违约｜Python 脚本的推荐方案违背 t15 已定规则
+
+**位置**：`.agents/works/w00032-agent-integration/tasks/t33-plugin-skills/plan.md` 的“待确认 4”第 160–162 行；`.agents/works/w00032-agent-integration/tasks/t15-skills/README.md` 的决定 7。
+
+**现象**：计划把“只有标准库的 `.py` 原样复制”列为推荐，只在检测到 Python 第三方依赖时失败。t15 已明确规定插件 Skill 的 Python 脚本不能打进单文件，出现 Python 脚本就属于“打不进单文件”的构建失败条件；这不是尚待选择的实现细节。
+
+**为什么是问题**：按计划实现后，同一个插件在是否有第三方依赖上出现两种构建结果，违反已经批准的 SDK 合同。标准库脚本也会在安装后以独立文件运行，不能满足“每个 Skill 的脚本连同依赖打成单文件”的判据，作者会得到与 t15 不一致的可安装产物。
+
+**如何核实**：在没有依赖的 Skill 中放置 `scripts/hello.py`，读取 t15 决定 7 与本计划待确认 4；按两种方案分别运行预期的构建测试即可观察一个应失败、一个会成功的分歧。
+
+**建议改法**：删除“只在带第三方依赖时失败”的推荐，统一把 Skill 内任意 `.py` 报为结构化构建问题，或先由开发者明确修改 t15 决定及 `agent/skills.md` 的外部依赖合同，再同步更新本计划、Spec 和验收用例。
+### 阻断｜目录模型缺口｜现有 SkillCatalog 不能表达多个插件根及插件 id
+
+**位置**：`plan.md` 第 63–72 行；`packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts` 的 `SkillRoot`、`#rescanRoot`、`#rescanSkill`；`packages/neuro-book/src/plugins/agent/shared/skills.ts` 的 `skillId` 与 `SKILL_ID_PREFIX`。
+
+**现象**：当前根只有 `{source, root, watch}`，id 由 `skillId(source, folder)` 生成，`plugin` 只能是一个来源前缀。计划要求按每个插件贡献目录扫描，并生成 `<插件 id>.<Skill 名>`，但没有定义根如何携带插件 id，也没有定义多个同源根的重扫、删除和排序语义。
+
+**为什么是问题**：直接把多个插件根都标成 `source: "plugin"` 会生成相同的 `plugin.<name>`，无法得到合同要求的插件 id；`#rescanRoot(source)` 只找同 source 的第一个根，`#rescanSkill` 也只能按 source 和文件夹名重建 id。即使初次扫描勉强能列出，刷新、撤回、插件重名和 `skillsChanged` 都会更新错误条目或互相覆盖。
+
+**如何核实**：构造两个插件根，各放合法的 `same` Skill，调用 `SkillCatalog.open` 后检查两个 id、`item(id)` 和一次 `refresh`；当前接口没有足够信息实现预期结果，且 `SkillSource` 的前缀表只能给出固定 `plugin`。
+
+**建议改法**：先把目录模型改成能表达每个根的稳定身份（例如根带 `pluginId`、显示名和 id 生成器，或让扫描器接收显式 `SkillItem` 身份），为同源多根定义排序、刷新、撤回和重复 id 规则；再实现 `SkillSource`、`skillId`、方案挂载和 Profile `all` 的更新，补两个插件同名与根删除测试。
+### 阻断｜运行时装配合同｜`implementation: "none"` 的贡献点不应加入 `receives`
+
+**位置**：`plan.md` 第 49–55 行；`packages/neuro-book/src/plugins/agent/shared/points.ts` 的贡献点定义模式；`packages/neuro-book/src/plugins/agent/backend/plugin.ts` 第 69、76、184–189 行；`packages/nb-runtime/src/plugins/host.ts` 第 1233–1240 行。
+
+**现象**：计划把 `skillsPoint` 定为 `implementation: "none"`，说明只有顶层声明，却同时写明 Agent 插件的 `contributionPoints` 与 `receives` 都要加上它。运行时要求入口的 `receives` 中每个贡献点都必须在激活结果的 `receivers` 中交出接收者；当前 Agent 入口的接收者只有扩展、工具、Profile 和压缩方法四项。
+
+**为什么是问题**：按计划新增 `receives: [agent.skills]` 而不新增对应 receiver，Agent 入口激活会以 `missing-receiver` 失败。若补一个空 receiver，又把明确不需要实现的顶层声明接入了实现交付生命周期，语义与 `none` 不符，也没有说明撤回、重登记时如何驱动目录更新。
+
+**如何核实**：用 `PluginHost` 注册一个 `implementation: "none"` 的贡献点，把它放入入口 `receives`，激活结果不交 `receivers[point]`；结果应为 `failed`、阶段 `output`、原因 `missing-receiver`。当前 `host.ts` 的逐项检查已直接体现该判据。
+
+**建议改法**：`agent.skills` 只加入 Agent 插件的 `contributionPoints`，不要加入 `receives`；目录扫描直接读取声明查询。若确实要让 Agent 接收生命周期通知，则应把贡献点改成有明确 receiver 的形状，并写清 receiver 的交付、撤回和目录更新合同，不能同时保留“只有顶层声明”的 `none` 语义。
+### 重要｜单文件判据不完整且文本扫描会误判
+
+**位置**：`plan.md` 第 28–45、88–94、147–151 行。
+
+**现象**：方案用 `scanImports` 加产物文本搜索 `__require(`、`import(` 来判定残留运行时加载，并把“查不出的按工作目录、环境变量或别的方式读数据文件”列为已知限制。`scanImports` 只覆盖静态导入；文本搜索既不是语法分析，也没有定义如何区分代码、字符串和注释。`import.meta.require()`、可计算的 `require`/`import` 形式可能绕过搜索，而脚本中普通字符串或注释里的 `import(` 又可能被误拒。
+
+**为什么是问题**：t15 第 7 条要求运行时读包内数据文件和打不进单文件的脚本构建失败；当前“不保证查出”的设计把合同验收降成了启发式检查。作者可能得到“构建成功但安装后脚本失败”的产物，也可能因与加载无关的文本无法构建。计划虽然启用 `metafile`，却没有把 outputs、assets 和 external imports 的精确判据写入合同。
+
+**如何核实**：加入只打印 `"import("` 的脚本、使用 `import.meta.require(name)` 的脚本、使用计算字符串加载模块的脚本，以及用 `Bun.file(new URL(...))` 读取资源的脚本，逐个对照预期失败原因与现有五项检查；至少会暴露文本扫描的误报和未定义的动态路径边界。
+
+**建议改法**：把 `Bun.build` 的输出文件集合、metafile 中的外部输入和资源输出写成可执行判据；用词法或 AST 方式检查代码而非原始文本，并明确允许的 Bun 内置加载形式。对无法可靠证明运行时不会动态读包内文件的写法统一失败；若保留限制，必须把它从“第 7 条失败合同”降为开发者明确接受的范围并同步改 Spec。
+### 重要｜平台服务与 Agent 测试场地的接缝未落到可执行验收
+
+**位置**：`plan.md` 第 56–61、121–127 行；`packages/neuro-book/src/plugins/agent/backend/plugin.ts` 第 70–93 行；`packages/neuro-book/src/plugins/agent/testing/world.ts` 第 53–72 行。
+
+**现象**：计划新增 `pluginPackagesKey`，但 Agent 入口当前只声明诊断、设置、状态根、时钟、工作区文件等依赖，测试场地也只装文件、模型和 Agent 插件，没有平台插件或本次启动的 `InstalledPlugin`/版本目录。切片 3 只写“把产物放进状态根的插件目录，起 Agent 插件”，没有说明谁执行 `prepareInstalledPlugins`、谁加载清单、谁提供该服务，以及测试如何让 Agent 的声明查询看到这个第三方贡献。
+
+**为什么是问题**：单纯把目录写入状态根不会改变现有 `agentWorld` 的内存插件集合；若实现直接 `require(pluginPackagesKey)`，测试场地和未装平台服务的 Agent 启动会失败；若把服务做成可选，则集成测试可能只验证用户根目录，无法证明真实安装链、版本目录隔离和插件 id 到目录的映射。还必须把 `pluginPackagesKey` 加入 Agent 入口依赖，否则服务提供顺序不是合同的一部分。
+
+**如何核实**：在现有 `agentWorld` 中生成一个带 `agent.skills` 的真实插件并写入 `state/plugins`，不额外装平台宿主，启动 Agent；当前场地没有准备插件、第三方清单或 `pluginPackagesKey` 的路径，无法得到计划验收的 Skill。再用仅内存 `PluginDefinition` 注册同一声明，会证明它绕过了安装目录服务。
+
+**建议改法**：在计划中明确平台服务的提供者、Agent 入口的必需依赖和启动顺序；新增一个使用真实 `prepareInstalledPlugins`、loader、版本目录和 `pluginPackagesKey` 的集成场地，或明确这是独立于 `agentWorld` 的宿主级测试。验收同时覆盖插件不存在、版本切换不读旧目录、内置插件返回 null，以及 Agent 关闭时服务和目录收口。
+### 重要｜一次启动快照没有覆盖贡献声明的存活与撤回状态
+
+**位置**：`plan.md` 第 25–26、63–72 行；`packages/nb-runtime/src/plugins/contracts.ts` 的 `ContributionDeclarations`；`packages/nb-runtime/src/plugins/host.ts` 第 288–290 行。
+
+**现象**：计划以“安装、启停、卸载下一次启动生效”为由，在 Agent 启动时调用一次 `context.declarations.list("agent.skills")`，建立插件根，并规定根不监视。这个结论只覆盖安装目录集合；声明查询本身是“此刻”按存活、校验和撤回状态推导的动态结果。计划没有定义声明被拒绝、贡献方入口停止或重新激活后，已建目录项如何撤回、恢复和通知 Profile 白名单。
+
+**为什么是问题**：目录根不变不等于贡献有效性不变。若贡献在目录建立后进入 withdrawn/revoked，`skills()`、`$` 解析和 `skills://` 仍可能暴露旧项；若重新激活后声明再次有效，用户界面又可能永远看不到它。现有 Agent 的工具和 Profile 目录在使用时反复读取声明，Skill 方案却会成为过期缓存，生命周期语义不一致。
+
+**如何核实**：用 PluginHost 在 Agent 已激活后关闭一个贡献方作用域，再调用 Skill catalog 的 `list`、`item` 和 Profile 白名单解析；对照 `context.declarations.list` 已不再返回该声明，观察 catalog 是否仍返回旧 Skill。再重新注册同 id，检查是否恢复且没有重复项。
+
+**建议改法**：明确 Skill catalog 是声明快照还是动态目录。若按 t15 只在下一次启动更新安装集合，也应在插件贡献撤回/重激活时重建对应插件根，并清理挂载与 Profile 缓存；若运行时不支持这类变化，则在合同中禁止或隔离该状态，并在启动时记录接受的快照。补充撤回、恢复、目录不可用和重复 id 的验收。
+## 总结
+
+- 阻断：3
+- 重要：3
+- 建议：0
+
+问题按影响排序，集中在：Python 打包规则与已定合同冲突；SkillCatalog 缺少多个插件根和插件 id 的目录模型；`implementation: "none"` 的 `agent.skills` 被错误放入 `receives`；单文件构建判据无法形成完整失败边界；平台服务与真实安装链没有落到现有 Agent 测试场地；目录只取启动快照而没有声明撤回与恢复合同。
+
+处理（计划修订后的版本随本证据一起提交）：
+
+1. 不成立（开发者已改判）：Python 只在带第三方依赖时失败是开发者 2026-11-15 对计划待确认第 4 项的决定（t33 决定 2），审查说明写明了不再议。审查指出的落差是对的：这一条改了 t15 第 7 条的字面，计划原先没写明。已在计划的“构建”与“Spec 与文档改动”写明，并在 t15 第 7 条后面注明被 t33 决定 2 改了；Spec 改动时照写。
+2. 成立，已改计划：根带稳定的 key、id 前缀、来源与插件的 {id, title}；skillId 按前缀生成；重扫按根的 key 找根，条目记住所属根；加 addRoot、removeRoot；同一插件两个贡献里的同名文件夹按贡献 id 顺序第一个生效、后面的无效（duplicate）；用户与内置的名字不含点，撞不上插件的 id。
+3. 部分成立，已改计划：放进 receives 而不交接收者确实会 missing-receiver。但“只有声明的贡献点也给接收者”是现有做法（workbench.themes 同样是 implementation: "none"，收在 receives 里、交 themes.receiver()）。所以保留 receives，交一个只用 published 与 revoke 的接收者，用它增删插件根。补上这条依据（主题的先例）下一次就不会误判。
+4. 成立，已改计划：判据改为按语法（vite 的 parseAst）查打进产物的每个源文件与产物本身：剩下的 require、__require、import()、import.meta.require（参数不是字面量或不是内置模块）失败；打进产物的源文件（入口脚本自己除外）用到 __dirname、__filename、import.meta 的位置属性或 require.resolve 失败，依赖包与作者的辅助模块都算；删掉“产物里有绝对路径”那条（import.meta.url 查不出）。实验：自造的 __dirname 包、import.meta.url 包与 sharp 都查出，九个常用包零误报。查不出的（按工作目录、环境变量、写死的路径找文件）按“接受取舍”记进待确认清单，Spec 写明。
+5. 成立，已改计划：平台服务在 src/server/start.ts 的 capabilities 里提供；Agent 入口列为可选依赖，没有时插件的贡献写诊断 skills-root-unavailable；集成测试走真实的 buildPlugin、插件管理的 install、prepareInstalledPlugins 与 thirdPartyDefinitionsAt，交给 agentWorld（加 capabilities 选项）。
+6. 成立，已改计划：插件根由接收者的 published 与 revoke 增删，不再只取启动快照；集成测试用运行中 register 与 stop 核对 Skill 出现与消失。
