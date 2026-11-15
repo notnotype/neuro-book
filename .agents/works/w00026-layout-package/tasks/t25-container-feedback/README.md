@@ -154,9 +154,11 @@ updated: 2026-11-13
     - 开发者又报（2026-11-15）：编辑区 A | B | C，拖 B | C 往左，B 到最小宽度后接着把 A | B 往左推；不松手往右拖回，A | B 跟着回来。“正确的逻辑是，A | B 这条线不动，B | C 这条线右移”，分几次拖、每次松手就是这样。
       - 根因：拖动求解（nb-layout `sash-drag.ts`）每一帧都从按下时的尺寸重新分配，往回拖时先还被推开的 A。
       - 改为兄弟之间的分配接着上一帧（经 `snapState.sizesPx` 串下去），边界位置与收起判定仍只看按下基线与累计位移：同一方向分几帧到达结果不变，只有掉头才和拖的路径有关；手势中途按 Enter 收起、恢复后，下一帧从收起后的样子接着分。Grid 与 nb-layout 的独立 Splitter 共用这份求解；nb-ui 里冻结的旧 Splitter（nb-story 还在用，t14 删）没改，还是旧行为。
-      - 提交 `9f34ed193`；Spec `ui/nested-grid` 的分配规则与批准依据跟着改（主工作区）。
+      - 提交 `9f34ed193`（求解）、`947b3595b`（e2e）；Spec `ui/nested-grid` 的分配规则与批准依据跟着改（主工作区）。影响所有分隔线（侧栏、底部面板、右栏、独立 Splitter、键盘方向键），不只编辑组；推开兄弟后回到按下的位置松手，现在会写一次（原来是零写入）。
       - 验证：nb-layout 558 + 196 条、`test:affected` 选出的 neuro-book 2923 + 561 条过，nb-layout 类型检查干净；新用例两条（求解器“推开远端兄弟后往回拖”、手势会话“被推开的兄弟”，含提交与落账），把分配起点改回基线时两条都失败。e2e `editor-area`、`lab-nested-grid`、`lab-grid-panels`、`workbench-shell`、`workbench-views` 137 条，134 过：`editor-area:1266` 是已知的，`lab-nested-grid:364` 两条是 Lab 页面 15 秒没就绪、没走到断言，重跑过了。
-      - 重跑用的 `--last-failed` 读到了别的会话写的失败清单（Playwright 的输出目录在 `/tmp` 下、各 worktree 共用），实际跑了 672 条、1.2 小时：661 过；失败的 11 条除 `editor-area:1266` 外都不在这五个文件里（主题、插件安装、npm 包、Lab 场景、Markdown 工具栏打开文件超时），没查它们在分支起点上是否也失败。
+      - 浏览器里补了一条 e2e（`editor-area`“三组 A | B | C……”）：在分支起点 `b5f894ed8` 的构建上跑，A 回到 897、B 停在 217，就是开发者报的样子；现在 A 留在 837、B 长到 277，过。
+      - 重跑失败项时 `--last-failed` 读到了别的会话写的失败清单（Playwright 的输出目录在 `/tmp` 下、各 worktree 共用），实际跑了 672 条、1.2 小时：661 过，11 条失败逐条归类。`themes`（241、397、601 四条）与 `plugins:78` 单独重跑都失败，在分支起点的临时 worktree 上同样失败，是分支之前就有的；`lab-scenes:41` 是 ThemeEditor 场景里假的素材名 404，分支起点上同样有；`app-package:86` 是打包的 `beforeAll` 超时，`markdown-editing:869` 单独重跑过了，`editor-area:1266` 是已知的。
+      - `lab-scenes` 被上面那处 404 挡在版面检查之前，这个分支改过的 Lab 场景（工作台外壳、编辑区）的版面测量没跑到；收尾时按验证门禁用 `nbdev shot` 补。
 
 ## 下一步
 
