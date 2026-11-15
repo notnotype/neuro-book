@@ -8,8 +8,8 @@ import {computed, onBeforeUnmount, ref, watch} from "vue";
 import {AlertDialog, Button, DropdownMenu, IconButton, Input} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 
-import {formatBytes} from "../../request-trace";
-import type {RequestTraceAction, RequestTraceCompareView, RequestTraceHit, RequestTraceSearchState, RequestTraceSort, RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceListState, RequestTracePayloadView, RequestTracePurpose, RequestTraceQuery, RequestTraceRow, RequestTraceStatusFilter, RequestTraceTotals} from "../../request-trace";
+import {formatBytes, sinceOf} from "../../request-trace";
+import type {RequestTraceWithin, RequestTraceAction, RequestTraceCompareView, RequestTraceHit, RequestTraceSearchState, RequestTraceSort, RequestTraceContentState, RequestTraceDetailState, RequestTraceFacets, RequestTraceListState, RequestTracePayloadView, RequestTracePurpose, RequestTraceQuery, RequestTraceRow, RequestTraceStatusFilter, RequestTraceTotals} from "../../request-trace";
 import type {AgentLocale} from "../../types";
 import {provideAgentText} from "../text";
 import AgentRequestDetail from "./AgentRequestDetail.vue";
@@ -111,28 +111,18 @@ const compareCandidates = computed(() => {
 
 const singleSession = computed(() => (props.query.sessions?.length ?? 0) === 1);
 const filtered = computed(() => (props.query.sessions?.length ?? 0) + (props.query.purposes?.length ?? 0) + (props.query.statuses?.length ?? 0) + (props.query.models?.length ?? 0) > 0 || props.query.since !== undefined);
-const excluded = computed(() => props.selected !== null && index.value < 0 && props.detail.state === "ready");
+// 列表正在重取时行是空的，不算被筛掉。
+const excluded = computed(() => props.selected !== null && index.value < 0 && props.detail.state === "ready" && props.list.state === "ready");
 
 const PURPOSES: readonly RequestTracePurpose[] = ["turn", "compaction", "approval", "background"];
 const SORTS: readonly RequestTraceSort[] = ["time", "duration", "input", "cost"];
-type TimePreset = "hour" | "today" | "all";
+type TimePreset = RequestTraceWithin | "all";
 
 /**
- * 时间筛选的选项是相对的（最近一小时、今天），`query.since` 存的是选的那一刻算出的时刻，从它反推不出选的是哪一项：
- * 选项记在组件里，筛选被清掉（`since` 没了）时回到“全部”。
+ * 时间筛选的选项是相对的（最近一小时、今天）：`query.since` 存选的那一刻算出的起点，`query.within` 记选的是哪一项，
+ * 页面重新挂上时筛选条照样写对。
  */
-const timePreset = ref<TimePreset>(props.query.since === undefined ? "all" : "today");
-watch(() => props.query.since, (since) => {
-    if (since === undefined) timePreset.value = "all";
-});
-function sinceOf(preset: TimePreset): number | undefined {
-    if (preset === "hour") return props.now - 3_600_000;
-    if (preset === "today") {
-        const day = new Date(props.now);
-        return new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
-    }
-    return undefined;
-}
+const timePreset = computed<TimePreset>(() => (props.query.since === undefined ? "all" : props.query.within ?? "today"));
 /** Spec 输出 16 的顺序。 */
 const STATUSES: readonly {readonly value: RequestTraceStatusFilter; readonly key: "ok" | "error" | "resend" | "aborted" | "interrupted" | "cacheMiss"}[] = [
     {value: "ok", key: "ok"},
@@ -161,8 +151,12 @@ const modelItems = computed<DropdownMenuItemData[]>(() => props.facets.models.ma
 const timeItems = computed<DropdownMenuItemData[]>(() => (["hour", "today", "all"] as const).map((preset) => ({id: `time:${preset}`, label: t(`requests.time.${preset}`), type: "radio" as const, group: "time", checked: timePreset.value === preset})));
 const sortItems = computed<DropdownMenuItemData[]>(() => SORTS.map((sort) => ({id: `sort:${sort}`, label: t(`requests.sort.${sort}`), type: "radio" as const, group: "sort", checked: (props.query.sort ?? "time") === sort})));
 
-/** 清空前的确认（Spec 输出 25）。 */
-const confirming = ref<"session" | "all" | null>(null);
+/**
+ * 清空前的确认（Spec 输出 25）：确认框开没开、清的是哪一种。两件分开记：点“清空”时确认框先发 `update:open`（关上）、再发 `confirm`，
+ * 关上时就把范围清掉的话，确认到达时已经不知道要清什么。
+ */
+const confirming = ref(false);
+const clearScope = ref<"session" | "all">("all");
 const moreItems = computed<DropdownMenuItemData[]>(() => [
     ...(props.usage === null ? [] : [{id: "more:usage", label: t("requests.more.usage", {size: formatBytes(props.usage.bytes), payload: formatBytes(props.usage.payloadBytes)}), iconClass: "i-lucide-hard-drive", disabled: true}]),
     {id: "more:settings", label: t("requests.more.settings"), iconClass: "i-lucide-settings"},
@@ -190,29 +184,29 @@ function onSelect(id: string): void {
     else if (kind === "status") emit("update:query", {...props.query, statuses: toggle(props.query.statuses, value as RequestTraceStatusFilter)});
     else if (kind === "model") emit("update:query", {...props.query, models: toggle(props.query.models, value)});
     else if (kind === "time") {
-        timePreset.value = value as TimePreset;
-        const since = sinceOf(timePreset.value);
-        const {since: _since, ...rest} = props.query;
-        emit("update:query", since === undefined ? rest : {...rest, since});
+        const {since: _since, within: _within, ...rest} = props.query;
+        emit("update:query", value === "all" ? rest : {...rest, since: sinceOf(value as RequestTraceWithin, props.now), within: value as RequestTraceWithin});
     }
     else if (kind === "sort") emit("update:query", {...props.query, sort: value as RequestTraceSort});
     else if (kind === "more") {
         if (value === "settings") emit("action", {type: "request.open-settings"});
-        else if (value === "clear-session") confirming.value = "session";
-        else if (value === "clear-all") confirming.value = "all";
+        else if (value === "clear-session" || value === "clear-all") {
+            clearScope.value = value === "clear-session" ? "session" : "all";
+            confirming.value = true;
+        }
     }
 }
 
 function confirmClear(): void {
-    if (confirming.value !== null) emit("action", {type: "request.clear", scope: confirming.value});
-    confirming.value = null;
+    emit("action", {type: "request.clear", scope: clearScope.value});
+    confirming.value = false;
 }
 
 const rootRef = ref<HTMLElement | null>(null);
 
 /**
- * 页面里的键：焦点在本页时 Ctrl/⌘+F 聚焦查找框（不抢浏览器在别处的查找）；Alt+上下选新一次、旧一次；查找框里 Esc 清掉查找词。
- * 监听挂在组件根上，焦点不在本页时不响应。
+ * 页面里的键：焦点在本页时 Ctrl/⌘+F 聚焦查找框（不抢浏览器在别处的查找）；Alt+上下选新一次、旧一次（焦点在输入框里时不抢，
+ * 那里 Option+上下是移光标）；查找框里 Esc 清掉查找词（输入法组字时的 Esc 归输入法）。监听挂在组件根上，焦点不在本页时不响应。
  */
 function onKeydown(event: KeyboardEvent): void {
     if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "f") {
@@ -220,7 +214,8 @@ function onKeydown(event: KeyboardEvent): void {
         rootRef.value?.querySelector<HTMLInputElement>("[data-request-search] input")?.focus();
         return;
     }
-    if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+    const inField = (event.target as HTMLElement | null)?.closest("input, textarea, [contenteditable='true']") != null;
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !inField && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
         const target = event.key === "ArrowUp" ? newer.value : older.value;
         if (target !== null) {
             event.preventDefault();
@@ -228,7 +223,7 @@ function onKeydown(event: KeyboardEvent): void {
         }
         return;
     }
-    if (event.key === "Escape" && (event.target as HTMLElement | null)?.closest("[data-request-search]") !== null && draft.value !== "") {
+    if (event.key === "Escape" && !event.isComposing && (event.target as HTMLElement | null)?.closest("[data-request-search]") != null && draft.value !== "") {
         event.preventDefault();
         draft.value = "";
         if (timer !== null) clearTimeout(timer);
@@ -238,7 +233,6 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function clearFilters(): void {
-    timePreset.value = "all";
     emit("update:query", {...(props.query.sort === undefined ? {} : {sort: props.query.sort})});
 }
 </script>
@@ -267,7 +261,7 @@ function clearFilters(): void {
             </div>
         </header>
 
-        <AlertDialog :open="confirming !== null" :title="confirming === 'session' ? t('requests.more.confirmSession') : t('requests.more.confirmAll')" :description="t('requests.more.confirmDescription')" :confirm-label="t('requests.more.confirm')" tone="danger" @update:open="(open: boolean) => { if (!open) confirming = null; }" @confirm="confirmClear" />
+        <AlertDialog :open="confirming" :title="clearScope === 'session' ? t('requests.more.confirmSession') : t('requests.more.confirmAll')" :description="t('requests.more.confirmDescription')" :confirm-label="t('requests.more.confirm')" tone="danger" @update:open="(open: boolean) => { confirming = open; }" @confirm="confirmClear" />
 
         <div class="art__split">
             <AgentRequestList
@@ -316,7 +310,8 @@ function clearFilters(): void {
     min-width: 0;
     min-height: 0;
     overflow: hidden;
-    container-type: inline-size;
+    /* 起了名字：详情自己也是容器，这里的规则按查看器的宽，不按里面最近的容器。 */
+    container: art / inline-size;
     color: var(--text-main);
     font-family: var(--font-ui);
 }
@@ -392,7 +387,7 @@ function clearFilters(): void {
     display: none;
 }
 /* 放不下两栏（列表 300 加详情 460）时只显示一栏：选中进详情，详情顶上回到列表。 */
-@container (max-width: 759px) {
+@container art (max-width: 759px) {
     .art__split {
         grid-template-columns: minmax(0, 1fr);
     }

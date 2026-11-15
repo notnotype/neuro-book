@@ -96,8 +96,8 @@ const compareLines = computed(() => {
         : messages.removed.length === 0 && messages.suffix === 0 ? t("requests.compare.appended", {prefix: messages.prefix, added: messages.added.length})
         : t("requests.compare.replaced", {prefix: messages.prefix, suffix: messages.suffix, removed: messages.removed.length, added: messages.added.length});
     return [
-        {key: "system", label: t("requests.compare.system"), text: system.same ? t("requests.compare.same") : t("requests.compare.systemChanged", {added: system.added.length, removed: system.removed.length}), changed: !system.same},
-        {key: "tools", label: t("requests.compare.tools"), text: tools.added.length + tools.removed.length + tools.changed.length === 0 ? t("requests.compare.same") : t("requests.compare.toolsChanged", {added: tools.added.length, removed: tools.removed.length, changed: tools.changed.length}), changed: tools.added.length + tools.removed.length + tools.changed.length > 0},
+        {key: "system", label: t("requests.compare.system"), text: system.same ? t("requests.compare.same") : system.reordered ? t("requests.compare.reordered") : t("requests.compare.systemChanged", {added: system.added.length, removed: system.removed.length}), changed: !system.same},
+        {key: "tools", label: t("requests.compare.tools"), text: tools.reordered ? t("requests.compare.reordered") : tools.added.length + tools.removed.length + tools.changed.length === 0 ? t("requests.compare.same") : t("requests.compare.toolsChanged", {added: tools.added.length, removed: tools.removed.length, changed: tools.changed.length}), changed: tools.reordered || tools.added.length + tools.removed.length + tools.changed.length > 0},
         {key: "messages", label: t("requests.compare.messages"), text: messageLine, changed: messages.added.length + messages.removed.length > 0},
         {key: "params", label: t("requests.compare.params"), text: params.length === 0 ? t("requests.compare.same") : t("requests.compare.paramsChanged", {list: params.join(", ")}), changed: params.length > 0},
     ];
@@ -156,16 +156,28 @@ function toggle(key: string, hash: string): void {
     expanded.value = next;
 }
 
-/** 展开的一条要显示的几块；查找时命中的那几段标出它在这一条里是第几处（与服务端数的一致，见 `contentPieces`）。 */
-const pieces = computed(() => {
-    const result = new Map<string, ContentPiece[]>();
-    for (const [hash, content] of Object.entries(props.contents)) if (content.state === "ready") result.set(hash, contentPieces(content.text));
-    return result;
+/**
+ * 一段全文拆成的几块，按哈希记着：`contents` 每取回一段就整个换一次，不记的话每次都要把已经取回的全部重新解析一遍。
+ * 只拆展开了的那几段；同一个哈希的全文不会变，文字对得上就直接用。
+ */
+const pieceCache = new Map<string, {readonly text: string; readonly pieces: ContentPiece[]}>();
+watch(() => props.contents, (contents) => {
+    for (const hash of pieceCache.keys()) if (contents[hash]?.state !== "ready") pieceCache.delete(hash);
 });
+function piecesOf(hash: string): ContentPiece[] {
+    const content = props.contents[hash];
+    if (content?.state !== "ready") return [];
+    const known = pieceCache.get(hash);
+    if (known !== undefined && known.text === content.text) return known.pieces;
+    const pieces = contentPieces(content.text);
+    pieceCache.set(hash, {text: content.text, pieces});
+    return pieces;
+}
 
+/** 展开的一条要显示的几块；查找时命中的那几段标出它在这一条里是第几处（与服务端数的一致，见 `contentPieces`）。 */
 function renderPieces(hash: string, page: RequestTraceHit["page"], item: number): {kind: ContentPiece["kind"]; segments: {text: string; ordinal: number | null; current: boolean}[]}[] {
     let ordinal = 0;
-    return (pieces.value.get(hash) ?? []).map((piece) => {
+    return piecesOf(hash).map((piece) => {
         // 图片只有类型与大小，不进查找。
         const segments = piece.kind === "image" || props.search === "" ? [{text: piece.text, ordinal: null}] : highlightSegments(piece.text, props.search, ordinal);
         ordinal += segments.filter((segment) => segment.ordinal !== null).length;
@@ -187,10 +199,29 @@ const lastAttempt = computed(() => value.value?.attemptList.at(-1));
 // ─── 查找条（Spec 输出 20）：第几处、共几处、上一处与下一处、各页的命中数 ───
 
 const current = ref(0);
-const bodyRef = ref<HTMLElement | null>(null);
+const rootRef = ref<HTMLElement | null>(null);
+/**
+ * 新的命中到了、还没定位到第一处。命中与详情各自取回、先后不定（大的请求详情要取好几页，命中常常先到）：两样都有了才定位。
+ */
+let revealPending = false;
 watch(() => props.hits, () => {
     current.value = 0;
-    if (props.hits !== null && props.hits.length > 0) void reveal(0);
+    revealPending = props.hits !== null && props.hits.length > 0;
+    revealIfReady();
+});
+watch(() => value.value?.id, () => revealIfReady());
+function revealIfReady(): void {
+    if (!revealPending || value.value === null) return;
+    revealPending = false;
+    void reveal(0);
+}
+
+/** 错误文字（在概览里）按查找词切开；它只有一段，处数与服务端数的一致。 */
+const errorSegments = computed(() => {
+    const message = value.value?.errorMessage;
+    if (message === undefined) return [];
+    const segments = props.search === "" ? [{text: message, ordinal: null}] : highlightSegments(message, props.search);
+    return segments.map((segment) => ({...segment, current: segment.ordinal !== null && isCurrent("error", 0, segment.ordinal)}));
 });
 
 const pageCounts = computed(() => {
@@ -204,22 +235,33 @@ function isCurrent(page: RequestTraceHit["page"], item: number, ordinal: number)
     return hit !== undefined && hit.page === page && hit.item === item && hit.ordinal === ordinal;
 }
 
+/** 一处命中所在的那一条：展开用的键与它的内容哈希。错误文字在概览里，没有。 */
+function targetOf(hit: RequestTraceHit, detail: RequestTraceDetail): {readonly key: string; readonly hash: string | undefined} | null {
+    if (hit.page === "error") return null;
+    const isReply = hit.page === "messages" && hit.item >= detail.messages.length;
+    const key = hit.page === "messages" ? (isReply ? "reply" : `m${String(hit.item)}`) : `${hit.page}${String(hit.item)}`;
+    const hash = hit.page === "messages" ? (isReply ? detail.reply?.hash : detail.messages[hit.item]?.hash) : hit.page === "system" ? detail.system[hit.item]?.hash : detail.tools[hit.item]?.hash;
+    return {key, hash};
+}
+
+function scrollToCurrent(): void {
+    rootRef.value?.querySelector("[data-hit-current]")?.scrollIntoView({block: "center"});
+}
+
 /** 展开这一处所在的那一条、切到它那一页，再把它滚进视野。错误文字在概览里，不用换页。 */
 async function reveal(index: number): Promise<void> {
     const hit = props.hits?.[index];
     const detail = value.value;
     if (hit === undefined || detail === null) return;
     current.value = index;
-    if (hit.page !== "error") {
+    const target = targetOf(hit, detail);
+    if (hit.page !== "error" && target !== null) {
         tab.value = hit.page;
-        const isReply = hit.page === "messages" && hit.item >= detail.messages.length;
-        const key = hit.page === "messages" ? (isReply ? "reply" : `m${String(hit.item)}`) : `${hit.page}${String(hit.item)}`;
-        const hash = hit.page === "messages" ? (isReply ? detail.reply?.hash : detail.messages[hit.item]?.hash) : hit.page === "system" ? detail.system[hit.item]?.hash : detail.tools[hit.item]?.hash;
-        if (hit.page === "messages" && !isReply && hit.item < folded.value) prefixOpen.value = true;
-        if (hash !== undefined && !expanded.value.has(key)) toggle(key, hash);
+        if (hit.page === "messages" && hit.item < detail.messages.length && hit.item < folded.value) prefixOpen.value = true;
+        if (target.hash !== undefined && !expanded.value.has(target.key)) toggle(target.key, target.hash);
     }
     await nextTick();
-    bodyRef.value?.querySelector("[data-hit-current]")?.scrollIntoView({block: "center"});
+    scrollToCurrent();
 }
 
 function step(delta: number): void {
@@ -232,14 +274,20 @@ function jumpToPage(page: RequestTraceHit["page"]): void {
     if (index >= 0) void reveal(index);
 }
 
-// 全文晚到（展开之后才取回）时再滚一次。
-watch(() => props.contents, () => {
-    if ((props.hits?.length ?? 0) > 0) void nextTick(() => bodyRef.value?.querySelector("[data-hit-current]")?.scrollIntoView({block: "center"}));
+// 当前这一处所在的全文晚到（展开之后才取回）时再滚一次；别的段取回时不动，免得把正在读别处的人拉回来。
+const currentContent = computed(() => {
+    const hit = props.hits?.[current.value];
+    const detail = value.value;
+    const hash = hit === undefined || detail === null ? undefined : targetOf(hit, detail)?.hash;
+    return hash === undefined ? undefined : props.contents[hash]?.state;
+});
+watch(currentContent, (state, before) => {
+    if (state === "ready" && before !== "ready") void nextTick(scrollToCurrent);
 });
 </script>
 
 <template>
-    <section class="ard" :aria-label="t('requests.detail.label')">
+    <section ref="rootRef" class="ard" :aria-label="t('requests.detail.label')">
         <div v-if="narrow" class="ard__back">
             <Button variant="ghost" size="sm" icon-class="i-lucide-arrow-left" data-request-back @click="emit('back')">{{ t("requests.detail.back") }}</Button>
         </div>
@@ -270,7 +318,7 @@ watch(() => props.contents, () => {
                     </span>
                 </div>
                 <div class="ard__session" :title="sessionLine">{{ sessionLine }}</div>
-                <div v-if="value.errorMessage !== undefined" class="ard__error" role="alert"><span class="i-lucide-circle-x" aria-hidden="true"></span><span>{{ value.errorMessage }}</span></div>
+                <div v-if="value.errorMessage !== undefined" class="ard__error" role="alert" data-request-error><span class="i-lucide-circle-x" aria-hidden="true"></span><span><template v-for="(segment, segmentIndex) in errorSegments" :key="segmentIndex"><mark v-if="segment.ordinal !== null" :data-hit-current="segment.current || undefined">{{ segment.text }}</mark><template v-else>{{ segment.text }}</template></template></span></div>
                 <dl class="ard__facts">
                     <div v-for="fact in facts" :key="fact.key" class="ard__fact" :data-wide="fact.wide || undefined" :title="fact.title">
                         <dt>{{ fact.label }}</dt>
@@ -288,12 +336,13 @@ watch(() => props.contents, () => {
                 <IconButton size="2xs" icon-class="i-lucide-chevron-down" :aria-label="t('requests.find.next')" :title="t('requests.find.next')" :disabled="(hits?.length ?? 0) === 0" data-request-find-next @click="step(1)" />
                 <span class="ard__find-pages">
                     <button v-for="page in (['messages', 'system', 'tools'] as const)" :key="page" type="button" class="ard__find-page" :disabled="pageCounts[page] === 0" :data-request-find-page="page" @click="jumpToPage(page)">{{ t(`requests.tabs.${page}`) }} {{ pageCounts[page] }}</button>
+                    <button v-if="pageCounts.error > 0" type="button" class="ard__find-page" data-request-find-page="error" @click="jumpToPage('error')">{{ t("requests.hit.error") }} {{ pageCounts.error }}</button>
                 </span>
             </div>
 
             <Tabs class="ard__tabs" size="sm" overflow="adapt" :model-value="tab" :items="tabs" :aria-label="t('requests.detail.label')" @update:model-value="tab = $event as Tab" />
 
-            <div ref="bodyRef" class="ard__body nb-ui-scrollbar-thin nb-ui-scrollbar-stable" data-request-body>
+            <div class="ard__body nb-ui-scrollbar-thin nb-ui-scrollbar-stable" data-request-body>
                 <ol v-if="tab === 'messages'" class="ard__items">
                     <li v-if="value.messages.length === 0 && value.reply === undefined" class="ard__none">{{ t("requests.message.empty") }}</li>
                     <li v-if="folded > 0" class="ard__item">
@@ -442,6 +491,8 @@ watch(() => props.contents, () => {
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+    /* 窄档的规则按详情自己的宽：两栏时它只有查看器的一部分宽。 */
+    container: ard / inline-size;
 }
 .ard__back {
     flex: none;
@@ -585,12 +636,14 @@ watch(() => props.contents, () => {
     color: var(--text-muted);
     cursor: default;
 }
-.ard__piece mark {
+.ard__piece mark,
+.ard__error mark {
     border-radius: 2px;
     background: color-mix(in srgb, var(--status-warning) 30%, transparent);
     color: inherit;
 }
-.ard__piece mark[data-hit-current] {
+.ard__piece mark[data-hit-current],
+.ard__error mark[data-hit-current] {
     background: color-mix(in srgb, var(--status-warning) 65%, transparent);
     outline: 1px solid var(--status-warning);
 }
@@ -612,6 +665,7 @@ watch(() => props.contents, () => {
 .ard__item + .ard__item {
     border-top: 1px solid var(--divider);
 }
+/* 每个零件固定落在自己那一列：系统提示词没有角色、工具没有 token 数，缺的格子空着，别的不挪位。 */
 .ard__item-head {
     display: grid;
     grid-template-columns: 2.4em auto minmax(0, 1fr) auto auto;
@@ -637,6 +691,11 @@ watch(() => props.contents, () => {
     font-size: var(--text-2xs);
     text-align: right;
 }
+.ard__index { grid-column: 1; }
+.ard__role { grid-column: 2; }
+.ard__preview { grid-column: 3; }
+.ard__note { grid-column: 4; }
+.ard__tokens { grid-column: 5; }
 .ard__role {
     flex: none;
     color: var(--text-secondary);
@@ -716,7 +775,7 @@ watch(() => props.contents, () => {
     font-weight: var(--weight-medium);
 }
 /* 窄时补充说明让给预览：展开这一行时全文里照样有。 */
-@container (max-width: 559px) {
+@container ard (max-width: 559px) {
     .ard__note {
         display: none;
     }

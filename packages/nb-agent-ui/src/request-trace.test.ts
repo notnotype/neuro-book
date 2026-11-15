@@ -4,7 +4,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {cacheHitRate, compareRequests, formatCost, formatDuration, formatTokens, groupRequests, matchesQuery} from "./request-trace";
+import {cacheHitRate, compareRequests, formatBytes, formatCost, formatDuration, formatTokens, groupRequests, matchesQuery} from "./request-trace";
 import type {RequestTraceDetail, RequestTraceMessage, RequestTraceRow} from "./request-trace";
 
 let counter = 0;
@@ -68,6 +68,8 @@ describe("数值的写法", () => {
     it("token、用时、费用与缓存命中", () => {
         expect([formatTokens(980), formatTokens(1234), formatTokens(45_600), formatTokens(2_300_000)]).toEqual(["980", "1.2k", "46k", "2.3M"]);
         expect([formatDuration(850), formatDuration(12_340), formatDuration(125_000)]).toEqual(["850ms", "12.3s", "2m 05s"]);
+        // 舍入之后进位的落到下一档。
+        expect([formatTokens(9_999), formatTokens(999_999), formatDuration(999.7), formatDuration(59_999), formatBytes(1_048_575)]).toEqual(["10k", "1.0M", "1.0s", "1m 00s", "1.0 MB"]);
         expect([formatCost(null), formatCost(0.00123), formatCost(1.5)]).toEqual([null, "$0.0012", "$1.50"]);
         // OMP 的 `input` 不含缓存的部分：命中率按全部输入算。
         expect(cacheHitRate({input: 20, output: 5, cacheRead: 60, cacheWrite: 20, cost: null})).toBe(0.6);
@@ -98,9 +100,19 @@ describe("和别的一次比较（输出 21）", () => {
         const compared = compareRequests(current, base);
         expect(compared.messages).toMatchObject({prefix: 1, suffix: 1});
         expect([compared.messages.removed.map((item) => item.hash), compared.messages.added.map((item) => item.hash)]).toEqual([["m2"], ["x", "y"]]);
-        expect(compared.tools).toEqual({added: ["builtin.edit"], removed: [], changed: ["builtin.read"]});
+        expect(compared.tools).toEqual({added: ["builtin.edit"], removed: [], changed: ["builtin.read"], reordered: false});
         expect(compared.params).toEqual(["maxTokens"]);
         expect(compared.firstChange).toEqual({kind: "tools"});
+    });
+
+    it("系统提示词与工具只换了先后也算变了（缓存从这里断开）", () => {
+        const two = [{hash: "s1", preview: "一", tokens: 10}, {hash: "s2", preview: "二", tokens: 10}];
+        const tools = [{hash: "t-read", id: "builtin.read", description: "读"}, {hash: "t-edit", id: "builtin.edit", description: "改"}];
+        const base = detail({system: two, tools});
+        const swapped = compareRequests(detail({system: [two[1]!, two[0]!], tools}), base);
+        expect([swapped.system.same, swapped.system.reordered, swapped.firstChange]).toEqual([false, true, {kind: "system"}]);
+        const reordered = compareRequests(detail({system: two, tools: [tools[1]!, tools[0]!]}), base);
+        expect([reordered.tools.reordered, reordered.firstChange]).toEqual([true, {kind: "tools"}]);
     });
 
     it("前面的历史被压缩成摘要：写明前几条换成了摘要", () => {

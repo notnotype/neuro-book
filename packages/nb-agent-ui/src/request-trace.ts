@@ -136,7 +136,19 @@ export interface RequestTraceQuery {
     readonly models?: readonly string[];
     /** 开始时间不早于它（毫秒）。 */
     readonly since?: number;
+    /** `since` 是按哪个时间选项算出来的（筛选条上显示它）；只作显示，查询只看 `since`。 */
+    readonly within?: RequestTraceWithin;
     readonly sort?: RequestTraceSort;
+}
+
+/** 时间筛选的选项：最近一小时、今天。 */
+export type RequestTraceWithin = "hour" | "today";
+
+/** 时间选项在 `now` 这一刻对应的起点（今天按本地时区的零点）。 */
+export function sinceOf(within: RequestTraceWithin, now: number): number {
+    if (within === "hour") return now - 3_600_000;
+    const day = new Date(now);
+    return new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
 }
 
 export interface RequestTraceTotals {
@@ -272,19 +284,21 @@ export function matchesQuery(row: RequestTraceRow, query: RequestTraceQuery): bo
     return query.since === undefined || row.startedAt >= query.since;
 }
 
-/** token 数：千以下原样，千以上一位小数加 k，百万以上加 M。 */
+/** token 数：千以下原样，一万以下一位小数加 k，再往上整数加 k，百万以上一位小数加 M。档位按舍入之后的值选（9999 写 10k，不写 10.0k）。 */
 export function formatTokens(value: number): string {
     if (value < 1000) return String(value);
-    if (value < 1_000_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}k`;
+    const thousands = value / 1000;
+    if (Number(thousands.toFixed(1)) < 10) return `${thousands.toFixed(1)}k`;
+    if (Math.round(thousands) < 1000) return `${String(Math.round(thousands))}k`;
     return `${(value / 1_000_000).toFixed(1)}M`;
 }
 
-/** 用时：一秒以下写毫秒，一分钟以下一位小数的秒，再长写分与秒。 */
+/** 用时：一秒以下写毫秒，一分钟以下一位小数的秒，再长写分与秒。档位按舍入之后的值选（59.99 秒写 1m 00s）。 */
 export function formatDuration(ms: number): string {
-    if (ms < 1000) return `${String(Math.max(0, Math.round(ms)))}ms`;
-    if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-    const minutes = Math.floor(ms / 60_000);
-    return `${String(minutes)}m ${String(Math.floor((ms % 60_000) / 1000)).padStart(2, "0")}s`;
+    if (Math.round(ms) < 1000) return `${String(Math.max(0, Math.round(ms)))}ms`;
+    if (Number((ms / 1000).toFixed(1)) < 60) return `${(ms / 1000).toFixed(1)}s`;
+    const seconds = Math.round(ms / 1000);
+    return `${String(Math.floor(seconds / 60))}m ${String(seconds % 60).padStart(2, "0")}s`;
 }
 
 /** 费用（美元）：价格未知时为 null。小于 1 美分的写四位小数，免得一列都是 0.00。 */
@@ -305,17 +319,18 @@ export function cacheHitRate(usage: RequestTraceUsage | undefined): number | nul
     return prompt <= 0 ? null : usage.cacheRead / prompt;
 }
 
-/** 字节数：KB 与 MB 各一位小数。 */
+/** 字节数：KB 与 MB 各一位小数；档位按舍入之后的值选（1048575 字节写 1.0 MB）。 */
 export function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${String(bytes)} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (Number((bytes / 1024).toFixed(1)) < 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 /** 两次请求的比较（Spec 输出 21）。`current` 是选中的那次，`base` 是拿来比的那次。 */
 export interface RequestComparison {
-    readonly system: {readonly same: boolean; readonly added: readonly RequestTraceBlock[]; readonly removed: readonly RequestTraceBlock[]};
-    readonly tools: {readonly added: readonly string[]; readonly removed: readonly string[]; readonly changed: readonly string[]};
+    /** `reordered`：段都在、只是先后换了（服务商按先后缓存前缀，换了顺序缓存也就断了）。 */
+    readonly system: {readonly same: boolean; readonly reordered: boolean; readonly added: readonly RequestTraceBlock[]; readonly removed: readonly RequestTraceBlock[]};
+    readonly tools: {readonly reordered: boolean; readonly added: readonly string[]; readonly removed: readonly string[]; readonly changed: readonly string[]};
     /** 值变了的参数名。 */
     readonly params: readonly string[];
     readonly messages: {
@@ -333,7 +348,7 @@ export interface RequestComparison {
 }
 
 /**
- * 比较两次请求：系统提示词与工具按内容哈希比，参数按值比；消息先按首尾对齐，中间不同的一段整体当替换（不做逐条的最小编辑），
+ * 比较两次请求：系统提示词与工具按内容哈希比（也比先后），参数按值比；消息先按首尾对齐，中间不同的一段整体当替换（不做逐条的最小编辑），
  * 换上来的那段里有压缩留下的摘要时判为“历史被压缩”。
  */
 export function compareRequests(current: RequestTraceDetail, base: RequestTraceDetail): RequestComparison {
@@ -341,16 +356,21 @@ export function compareRequests(current: RequestTraceDetail, base: RequestTraceD
     const currentSystem = new Set(current.system.map((block) => block.hash));
     const systemAdded = current.system.filter((block) => !systemHashes.has(block.hash));
     const systemRemoved = base.system.filter((block) => !currentSystem.has(block.hash));
-    const systemSame = systemAdded.length === 0 && systemRemoved.length === 0 && current.system.length === base.system.length;
+    const systemKept = systemAdded.length === 0 && systemRemoved.length === 0 && current.system.length === base.system.length;
+    const systemInOrder = current.system.every((block, index) => block.hash === base.system[index]?.hash);
+    const systemSame = systemKept && systemInOrder;
 
     const baseTools = new Map(base.tools.map((tool) => [tool.id, tool.hash]));
     const currentTools = new Map(current.tools.map((tool) => [tool.id, tool.hash]));
-    const tools = {
+    const toolsDiff = {
         added: current.tools.filter((tool) => !baseTools.has(tool.id)).map((tool) => tool.id),
         removed: base.tools.filter((tool) => !currentTools.has(tool.id)).map((tool) => tool.id),
         changed: current.tools.filter((tool) => baseTools.has(tool.id) && baseTools.get(tool.id) !== tool.hash).map((tool) => tool.id),
     };
-    const toolsSame = tools.added.length + tools.removed.length + tools.changed.length === 0;
+    const toolsKept = toolsDiff.added.length + toolsDiff.removed.length + toolsDiff.changed.length === 0;
+    const toolsInOrder = current.tools.length === base.tools.length && current.tools.every((tool, index) => tool.id === base.tools[index]?.id);
+    const tools = {...toolsDiff, reordered: toolsKept && !toolsInOrder};
+    const toolsSame = toolsKept && toolsInOrder;
 
     const keys = new Set([...Object.keys(current.params), ...Object.keys(base.params)]);
     const params = [...keys].filter((key) => JSON.stringify(current.params[key]) !== JSON.stringify(base.params[key])).sort();
@@ -371,7 +391,7 @@ export function compareRequests(current: RequestTraceDetail, base: RequestTraceD
         : !messagesSame ? {kind: "message", index: prefix + 1}
         : params.length > 0 ? {kind: "params"}
         : null;
-    return {system: {same: systemSame, added: systemAdded, removed: systemRemoved}, tools, params, messages: {prefix, suffix, removed, added, compacted}, firstChange};
+    return {system: {same: systemSame, reordered: systemKept && !systemInOrder, added: systemAdded, removed: systemRemoved}, tools, params, messages: {prefix, suffix, removed, added, compacted}, firstChange};
 }
 
 /** 展开一段内容时显示的一块。`image` 只有类型与大小，不进查找。 */
@@ -407,20 +427,48 @@ export function contentPieces(text: string): ContentPiece[] {
     return pieces;
 }
 
-/** 一段文字按查找词切开（不分大小写）：命中的那几段带它在这一条里是第几处（从 `start` 起数）。 */
+/**
+ * 一段文字按查找词切开（不分大小写）：命中的那几段带它在这一条里是第几处（从 `start` 起数）。找的规则与 nb-harness 记录器的
+ * `findMatches` 相同（一段一段地找、不重叠、小写后变长的字符按原文的位置切），两边数出的处数才一样。
+ */
 export function highlightSegments(text: string, needle: string, start = 0): {readonly text: string; readonly ordinal: number | null}[] {
-    const target = needle.toLowerCase();
+    const target = foldCase(needle).folded;
     if (target === "") return [{text, ordinal: null}];
-    const lower = text.toLowerCase();
+    const {folded, starts, ends} = foldCase(text);
     const segments: {text: string; ordinal: number | null}[] = [];
     let from = 0;
     let ordinal = start;
-    for (let at = lower.indexOf(target); at >= 0; at = lower.indexOf(target, at + target.length)) {
-        if (at > from) segments.push({text: text.slice(from, at), ordinal: null});
-        segments.push({text: text.slice(at, at + target.length), ordinal});
+    for (let at = folded.indexOf(target); at >= 0; at = folded.indexOf(target, at + target.length)) {
+        const begin = starts === null ? at : starts[at]!;
+        const end = ends === null ? at + target.length : ends[at + target.length - 1]!;
+        if (begin > from) segments.push({text: text.slice(from, begin), ordinal: null});
+        segments.push({text: text.slice(begin, end), ordinal});
         ordinal += 1;
-        from = at + target.length;
+        from = end;
     }
     if (from < text.length || segments.length === 0) segments.push({text: text.slice(from), ordinal: null});
     return segments;
+}
+
+/**
+ * 转成小写，用来不分大小写地比较。少数字符变成小写后变长（例如 `İ` 变成 `i` 加一个附加点），折叠后的下标就不再是原文的下标：
+ * 这时逐个字符折叠，记下折叠后的每一位来自原文的哪个字符（`starts` 是它的起点，`ends` 是它的终点）；长度不变时两者为 null。
+ */
+function foldCase(text: string): {readonly folded: string; readonly starts: number[] | null; readonly ends: number[] | null} {
+    const lower = text.toLowerCase();
+    if (lower.length === text.length) return {folded: lower, starts: null, ends: null};
+    let folded = "";
+    const starts: number[] = [];
+    const ends: number[] = [];
+    for (let index = 0; index < text.length;) {
+        const width = text.codePointAt(index)! > 0xffff ? 2 : 1;
+        const piece = text.slice(index, index + width).toLowerCase();
+        for (let offset = 0; offset < piece.length; offset += 1) {
+            starts.push(index);
+            ends.push(index + width);
+        }
+        folded += piece;
+        index += width;
+    }
+    return {folded, starts, ends};
 }

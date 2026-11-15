@@ -3,7 +3,7 @@
  * 模型请求的列表（docs/specs/agent/request-trace.md 输出 14 到 16）：列表头的合计、按会话的轮分组的两行条目、滚到底接着取。
  * 数据都由宿主给，选中受控；行的版式见同名 `.md`。
  */
-import {computed} from "vue";
+import {computed, nextTick, ref, watch} from "vue";
 import {Badge, Button, EmptyState, Spinner} from "@notnotype/nb-ui/components";
 
 import {formatClock} from "../../format";
@@ -71,6 +71,8 @@ function duration(row: RequestTraceRow): string {
 }
 
 function onKeydown(event: KeyboardEvent): void {
+    // 带修饰键的上下（Alt+上下选新一次、旧一次）归查看器根上处理。
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
     const index = props.rows.findIndex((row) => row.id === props.selected);
@@ -81,8 +83,17 @@ function onKeydown(event: KeyboardEvent): void {
 /** 离底部不到这么多像素就接着取：一页 100 条，提前取，滚动不必停下来等。 */
 const LOAD_AHEAD = 240;
 
-/** 列表在不在顶上：变了才发，宿主据此决定新请求插不插进来（决定 14）。 */
+/** 列表在不在顶上：变了才发，宿主据此决定新请求插不插进来（决定 14）。列表重建时（行清空再来）新的滚动区在顶上。 */
 let atTop = true;
+watch(() => props.rows.length === 0, (empty) => {
+    if (empty) atTop = true;
+});
+
+// 选中换了（键盘上下、宿主选中）时把那一行滚进视野：列表用 `aria-activedescendant`，浏览器不会自己滚。
+const scrollRef = ref<HTMLElement | null>(null);
+watch(() => props.selected, (selected) => {
+    if (selected !== null) void nextTick(() => scrollRef.value?.querySelector(`[data-request-row="${selected}"]`)?.scrollIntoView({block: "nearest"}));
+});
 
 function onScroll(event: Event): void {
     const element = event.currentTarget as HTMLElement;
@@ -98,8 +109,10 @@ function onScroll(event: Event): void {
 <template>
     <section class="arl" :aria-label="t('requests.list.label')">
         <div v-if="search !== ''" class="arl__head" data-request-search-head>
-            <span class="arl__count">{{ t("requests.search.found", {count: rows.length}) }}</span>
-            <span v-if="searchState.state === 'searching'" class="arl__totals">{{ t("requests.search.searching") }}</span>
+            <!-- 从头查的时候还没有结果，不写“找到 0 次”。 -->
+            <span v-if="rows.length > 0 || searchState.state !== 'searching'" class="arl__count">{{ t("requests.search.found", {count: rows.length}) }}</span>
+            <span v-if="searchState.state === 'searching'" class="arl__totals" role="status">{{ t("requests.search.searching") }}</span>
+            <span v-else-if="searchState.state === 'error' && rows.length > 0" class="arl__partial" role="alert">{{ t("requests.search.error") }}<button v-if="searchState.truncated" type="button" class="arl__link" data-request-search-more @click="emit('action', {type: 'request.search-more'})">{{ t("requests.search.more") }}</button></span>
             <span v-else-if="searchState.truncated" class="arl__partial">{{ t("requests.search.partial") }}<button type="button" class="arl__link" data-request-search-more @click="emit('action', {type: 'request.search-more'})">{{ t("requests.search.more") }}</button></span>
         </div>
         <div v-else class="arl__head">
@@ -125,7 +138,7 @@ function onScroll(event: Event): void {
             </EmptyState>
         </div>
 
-        <div v-else class="arl__scroll nb-ui-scrollbar-thin nb-ui-scrollbar-stable" role="listbox" tabindex="0" :aria-label="t('requests.list.label')" :aria-activedescendant="selected === null ? undefined : `arl-${selected}`" @keydown="onKeydown" @scroll.passive="onScroll">
+        <div v-else ref="scrollRef" class="arl__scroll nb-ui-scrollbar-thin nb-ui-scrollbar-stable" role="listbox" tabindex="0" :aria-label="t('requests.list.label')" :aria-activedescendant="selected === null ? undefined : `arl-${selected}`" @keydown="onKeydown" @scroll.passive="onScroll">
             <div v-for="group in groups" :key="group.key" class="arl__group" role="group" :aria-label="grouped ? groupLabel(group) : undefined">
                 <div v-if="grouped" class="arl__group-head">
                     <span v-if="!singleSession" class="arl__group-session" :title="group.title ?? t('requests.filter.untitled')">{{ group.title ?? t("requests.filter.untitled") }}</span>

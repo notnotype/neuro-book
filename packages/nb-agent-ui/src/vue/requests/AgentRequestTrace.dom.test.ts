@@ -38,6 +38,32 @@ const detail: RequestTraceDetail = {
     payload: {state: "present", bytes: 38_200},
 };
 
+async function flush(times = 8): Promise<void> {
+    for (let index = 0; index < times; index += 1) await nextTick();
+}
+
+/** 菜单里现在列出的各项（菜单画在 body 下）。 */
+function menuItems(): HTMLElement[] {
+    return [...document.querySelectorAll<HTMLElement>("[role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]")];
+}
+
+/** 像用户那样打开一个菜单（焦点放到触发器上按↓），交回列出的各项。 */
+async function openMenu(view: {get: (selector: string) => {element: Element; trigger: (event: string, options?: object) => Promise<void>}}, trigger: string): Promise<HTMLElement[]> {
+    const button = view.get(trigger);
+    (button.element as HTMLElement).focus();
+    await button.trigger("keydown", {key: "ArrowDown"});
+    await flush();
+    return menuItems();
+}
+
+/** 打开菜单，点文字以 `label` 开头的那一项。 */
+async function choose(view: Parameters<typeof openMenu>[0], trigger: string, label: string): Promise<void> {
+    const item = (await openMenu(view, trigger)).find((element) => element.textContent?.trim().startsWith(label));
+    if (item === undefined) throw new Error(`菜单里没有“${label}”：${menuItems().map((element) => element.textContent?.trim()).join("、")}`);
+    item.click();
+    await flush();
+}
+
 function mountTrace(props: Partial<InstanceType<typeof AgentRequestTrace>["$props"]> = {}) {
     return mount(AgentRequestTrace, {
         props: {
@@ -85,9 +111,8 @@ describe("列表（输出 14、16）", () => {
         await view.findAll("[data-request-row]")[1]!.trigger("click");
         await view.get("[role='listbox']").trigger("keydown", {key: "ArrowUp"});
         expect(view.emitted("action")).toEqual([[{type: "request.select", id: "r2"}], [{type: "request.select", id: "r2"}]]);
-        const menus = view.findAllComponents({name: "DropdownMenu"});
-        menus[2]!.vm.$emit("select", "status:error");
-        menus[0]!.vm.$emit("select", "session:s1");
+        await choose(view, "[data-request-filter='status']", "失败");
+        await choose(view, "[data-request-filter='session']", "第二章改稿");
         expect(view.emitted("update:query")).toEqual([[{statuses: ["error"]}], [{sessions: ["s1"]}]]);
         await view.setProps({query: {sessions: ["s1"], statuses: ["error"], sort: "time"}});
         // 只看一个会话时组头不写会话标题。
@@ -244,28 +269,32 @@ describe("查找（输出 17、20）", () => {
 });
 
 describe("排序、时间与“更多”（输出 16、25）", () => {
-    const menu = (view: ReturnType<typeof mountTrace>, id: string) => view.findAllComponents({name: "DropdownMenu"}).find((item) => (item.props("items") as {id: string}[]).some((entry) => entry.id.startsWith(id)))!;
-
-    it("排序与时间改了发 update:query；“今天”是本地这一天的零点", async () => {
+    it("排序与时间改了发 update:query；“今天”是本地这一天的零点；页面重新挂上时筛选条写的还是选的那一项", async () => {
         const view = mountTrace();
-        menu(view, "sort:").vm.$emit("select", "sort:cost");
-        menu(view, "time:").vm.$emit("select", "time:today");
-        expect(view.emitted("update:query")).toEqual([[{sort: "cost"}], [{since: new Date(2026, 10, 15).getTime()}]]);
+        await choose(view, "[data-request-sort]", "费用");
+        await choose(view, "[data-request-filter='time']", "最近一小时");
+        expect(view.emitted("update:query")).toEqual([[{sort: "cost"}], [{since: at(10, 5, 12) - 3_600_000, within: "hour"}]]);
         view.unmount();
+        const again = mountTrace({query: {since: at(9, 5, 12), within: "hour"}});
+        expect(again.get("[data-request-filter='time']").text()).toContain("最近一小时");
+        await choose(again, "[data-request-filter='time']", "今天");
+        expect(again.emitted("update:query")).toEqual([[{since: new Date(2026, 10, 15).getTime(), within: "today"}]]);
+        again.unmount();
     });
 
     it("清空先确认，确认之后才发；只看一个会话时才有“清空这个会话的记录”", async () => {
         const view = mountTrace({usage: {bytes: 2048, payloadBytes: 1024}});
-        const items = (menu(view, "more:").props("items") as {id: string; label: string}[]);
-        expect(items.map((item) => item.id)).toEqual(["more:usage", "more:settings", "more:clear-all"]);
-        expect(items[0]!.label).toContain("2.0 KB");
-        menu(view, "more:").vm.$emit("select", "more:clear-all");
-        await nextTick();
+        const items = await openMenu(view, "[data-request-more]");
+        expect(items.map((item) => item.textContent?.trim())).toEqual(["记录占用 2.0 KB，其中原始请求体 1.0 KB", "记录设置…", "清空全部记录…"]);
+        items[2]!.click();
+        await flush();
         expect(view.emitted("action")).toBeUndefined();
-        view.findComponent({name: "AlertDialog"}).vm.$emit("confirm");
+        const confirm = [...document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")].find((button) => button.textContent?.trim() === "清空");
+        confirm!.click();
+        await flush();
         expect(view.emitted("action")).toEqual([[{type: "request.clear", scope: "all"}]]);
         await view.setProps({query: {sessions: ["s1"]}});
-        expect((menu(view, "more:").props("items") as {id: string}[]).map((item) => item.id)).toContain("more:clear-session");
+        expect((await openMenu(view, "[data-request-more]")).map((item) => item.textContent?.trim())).toContain("清空这个会话的记录…");
         view.unmount();
     });
 

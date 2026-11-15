@@ -637,6 +637,7 @@ export default {
             params: "参数",
             same: "相同",
             systemChanged: "变了：多 {{added}} 段，少 {{removed}} 段",
+            reordered: "内容相同，顺序变了",
             toolsChanged: "多 {{added}}，少 {{removed}}，改 {{changed}}",
             appended: "前 {{prefix}} 条相同，末尾多 {{added}} 条",
             replaced: "前 {{prefix}} 条、后 {{suffix}} 条相同，中间 {{removed}} 条换成了 {{added}} 条",
@@ -660,6 +661,7 @@ export default {
             found_other: "找到 {{count}} 次请求",
             searching: "正在查找",
             partial: "只查了一部分",
+            error: "查找没有完成",
             more: "接着查",
         },
         hit: {

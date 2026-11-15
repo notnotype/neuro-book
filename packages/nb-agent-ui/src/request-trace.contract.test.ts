@@ -63,4 +63,54 @@ describe("与真实记录器对契约", () => {
         expect(counted).toBe((await recorder.hits(detail?.id ?? "", "第一"))?.filter((hit) => hit.item === 0).length ?? -1);
         await recorder.close();
     });
+
+    it("各种内容（系统提示词、思考、工具调用与结果、工具声明、带调用的回复、图片）显示的几段与查找用的逐字相同，每条的处数与记录器一致", async () => {
+        const recorder = new RequestRecorder({root: join(root, "shapes"), settings: () => ({enabled: true, payload: false, headers: false}), report: () => undefined});
+        await recorder.open();
+        const search = {id: "story.search", description: "查雾港的资料。\n第二行。", parameters: {type: "object", properties: {query: {type: "string", description: "雾港之类的词"}}}, provider: "builtin", version: "1", finish: false, concurrency: "shared", strict: false, effect: "read"} as const;
+        const port = traceModelPort({resolve: () => ({
+            ok: true,
+            info: {id: "test/model", contextWindow: 100_000, capabilities: {vision: true, thinking: true}, efforts: []},
+            call: async () => ({content: [{kind: "text", text: "雾港在第三章；İstanbul 雾港"}], toolCalls: [{id: "c2", tool: "story.search", args: {query: "雾港 第四章"}}], stopReason: "tool", usage: {input: 10, output: 2, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, model: "test/model"}),
+        })}, recorder);
+        const resolution = port.resolve({settings: {model: null, effort: null, approvalMode: "ask", readOnly: false}, purpose: "turn", profile: "p"});
+        if (!resolution.ok) throw new Error(resolution.code);
+        const fixed = {kind: "fixed", by: "kernel"} as const;
+        await resolution.call({
+            purpose: "turn", model: "test/model", params: {}, headers: {}, tools: [search],
+            system: [{kind: "text", text: "你是写作助手。雾港是地名。", origin: {kind: "fixed", by: "profile"}}, {kind: "text", text: "第二段：İSTANBUL 与雾港", origin: fixed}],
+            messages: [
+                {role: "user", content: [{kind: "text", text: "讲讲雾港", origin: fixed}, {kind: "image", data: "QUJD", mime: "image/png", origin: fixed}, {kind: "text", text: "图里也是雾港", origin: fixed}]},
+                {role: "assistant", content: [{kind: "thinking", text: "先查雾港", origin: fixed}, {kind: "text", text: "我查一下。", origin: fixed}], toolCalls: [{id: "c1", tool: "story.search", args: {query: "雾港"}}], model: "test/model"},
+                {role: "tool", callId: "c1", content: [{kind: "text", text: "雾港：第三章出现。", origin: fixed}]},
+            ],
+        }, new AbortController().signal, () => undefined, {session: "s2", request: 1, hash: "h1"});
+        const [row] = await waitUntil("记录结束", async () => {
+            const listed = await recorder.list();
+            return listed.rows[0]?.status === "ok" ? listed.rows : null;
+        });
+        const detail = await recorder.read(row?.id ?? "");
+        if (detail === null) throw new Error("没有详情");
+        const items = [
+            ...detail.messages.map((message, item) => ({page: "messages" as const, item, hash: message.hash})),
+            ...(detail.reply === undefined ? [] : [{page: "messages" as const, item: detail.messages.length, hash: detail.reply.hash}]),
+            ...detail.system.map((block, item) => ({page: "system" as const, item, hash: block.hash})),
+            ...detail.tools.map((tool, item) => ({page: "tools" as const, item, hash: tool.hash})),
+        ];
+        expect(items.length).toBe(3 + 1 + 2 + 1);
+        for (const needle of ["雾港", "stanbul", "\"query\"", "第四章"]) {
+            const hits = await recorder.hits(detail.id, needle) ?? [];
+            expect([needle, hits.length > 0]).toEqual([needle, true]);
+            for (const {page, item, hash} of items) {
+                const stored = await recorder.content(hash) ?? "";
+                const shown = contentPieces(stored).filter((piece) => piece.kind !== "image").map((piece) => piece.text);
+                expect(shown).toEqual(searchablePieces(JSON.parse(stored)));
+                const counted = shown.flatMap((text) => highlightSegments(text, needle).filter((segment) => segment.ordinal !== null)).length;
+                expect([needle, page, item, counted]).toEqual([needle, page, item, hits.filter((hit) => hit.page === page && hit.item === item).length]);
+            }
+        }
+        // 高亮切出的是原文里的字（小写后变长的字符不让它错位）。
+        expect(highlightSegments("第二段：İSTANBUL 与雾港", "雾港").find((segment) => segment.ordinal !== null)?.text).toBe("雾港");
+        await recorder.close();
+    });
 });

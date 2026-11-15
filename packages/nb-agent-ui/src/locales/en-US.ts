@@ -649,6 +649,7 @@ export default {
             params: "Parameters",
             same: "Same",
             systemChanged: "Changed: {{added}} blocks added, {{removed}} removed",
+            reordered: "Same content, different order",
             toolsChanged: "{{added}} added, {{removed}} removed, {{changed}} changed",
             appended: "The first {{prefix}} are the same; {{added}} added at the end",
             replaced: "The first {{prefix}} and last {{suffix}} are the same; {{removed}} in between replaced by {{added}}",
@@ -673,6 +674,7 @@ export default {
             found_other: "{{count}} requests found",
             searching: "Searching",
             partial: "Only part was searched",
+            error: "The search did not finish",
             more: "Search further",
         },
         hit: {
