@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>w00032 t30 模型请求：第 1 轮</title>
+<title>w00032 t30 模型请求：第 2 轮</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -14,124 +14,82 @@ h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
 section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
 .rec { margin: 0 0 16px; color: var(--rec); }
 .cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.cands--narrow { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
-@media (max-width: 900px) { .cands, .cands--narrow { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 900px) { .cands { grid-template-columns: minmax(0, 1fr); } }
 .cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .cand h3, .part h3 { margin: 0 0 8px; font-size: 16px; }
 .cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+.stack img + img { margin-top: 8px; }
+.both { margin: 16px 0 0; padding-left: 1.3em; font-size: 15px; }
 .part { margin: 0 0 24px; }
 .part ul { margin: 8px 0 0; padding-left: 1.3em; font-size: 15px; }
 .part li { margin: 2px 0; }
-.new { padding: 0 5px; border-radius: 4px; background: #e8a33d33; font-size: 12px; }
-ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+ol.decided { margin: 0 0 16px; padding-left: 1.4em; color: var(--muted); }
+details summary { cursor: pointer; color: var(--muted); }
 </style>
 </head>
 <body>
 <main>
-<h1>t30 模型请求：第 1 轮</h1>
+<h1>t30 模型请求：第 2 轮</h1>
 
-<section data-nbdev-question="filters-r1" data-nbdev-type="single" data-nbdev-recommend="bar">
-  <h2>筛选条件常驻一行，还是收进“筛选”按钮？</h2>
-  <p class="rec"><strong>推荐 A 常驻一行：查找是这一页的主要用途，选了什么一眼看见、点 × 就清；编辑区最窄时这一行也放得下（见下一题）。</strong></p>
+<section data-nbdev-question="messages-r2" data-nbdev-type="single" data-nbdev-recommend="outline">
+  <h2>详情的“消息”页照对话的样子读，还是一条消息一行的大纲？</h2>
+  <p class="rec"><strong>推荐 B 大纲：一次请求常有几十条消息，大纲一屏看完结构和 token 花在哪；和上一次相同的部分收成一行，先看到这次新加的。要读全文时点那一行，在原地展开。</strong></p>
   <div class="cands">
-    <div class="cand" data-nbdev-option="bar" data-nbdev-label="A 常驻一行">
-      <h3>A 常驻一行</h3>
-      <img src="r1/filters-bar.webp" alt="搜索框下一行五个条件：会话、用途、状态、模型、时间；选了的条件高亮、带 ×，点开是下拉，例子里选了一个会话和状态里的失败、重发过、已中止">
-      <p>每个条件一个下拉。“缓存没命中”“重发过”在状态里。</p>
+    <div class="cand" data-nbdev-option="conversation" data-nbdev-label="A 照对话的样子">
+      <h3>A 照对话的样子</h3>
+      <img src="r2/messages-conversation.webp" alt="按轮次分段；用户的话放在框里；助手调用工具与它的结果合成一行，例如“读取 第二卷/第二章.md · #3 · 29.4k tok”，点开看参数与结果的前 5 行；提醒是一行淡字">
+      <p>读起来同对话视图；几十条消息时要翻好几屏，看不出哪条最占 token。</p>
     </div>
-    <div class="cand" data-nbdev-option="menu" data-nbdev-label="B 收进筛选按钮">
-      <h3>B 收进“筛选”按钮</h3>
-      <img src="r1/filters-menu.webp" alt="搜索框右边一个“筛选 1”按钮，点开是一级菜单：会话、用途、状态、模型、时间，各有子菜单；列表上方一行写“筛选：会话 第二章改稿 清除”">
-      <p>同会话面板的做法：按钮上写选了几项，列表上方一行写选了什么。</p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="narrow-r1" data-nbdev-type="single" data-nbdev-recommend="switch">
-  <h2>编辑区窄的时候，列表和详情怎么排？</h2>
-  <p class="rec"><strong>推荐 A 来回切换：默认布局（1440 宽、两边侧栏都开）下编辑区只有约 650px，左右分开后详情不到 450px，消息和六页都挤；切换后两边都是整宽。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="switch" data-nbdev-label="A 来回切换">
-      <h3>A 来回切换</h3>
-      <div class="pair">
-        <img src="r1/narrow-switch-list.webp" alt="列表占满整宽，每条两行">
-        <img src="r1/narrow-switch-detail.webp" alt="点一条后详情占满整宽，顶上一行“← 请求列表”和“第 1 轮 · 第 3 次，共 3 次”">
+    <div class="cand" data-nbdev-option="outline" data-nbdev-label="B 大纲">
+      <h3>B 大纲</h3>
+      <div class="stack">
+        <img src="r2/messages-outline.webp" alt="缺省：第一行“第 1–10 条和 #9 相同，缓存读 37.8k”收着；下面是这次新加的两条与回复，第 12 条展开显示结果的前几行">
+        <img src="r2/messages-outline-open.webp" alt="点开前缀后：每条一行，序号、角色、一行预览、token 条与数字；第 3 条工具结果的 token 条最长，展开显示前 5 行">
       </div>
-      <p>点一条进详情；详情里上下箭头换请求，不用回列表。宽了自动变回左右分开。</p>
-    </div>
-    <div class="cand" data-nbdev-option="compact" data-nbdev-label="B 列表收成紧凑行">
-      <h3>B 列表收成紧凑行</h3>
-      <img src="r1/narrow-compact.webp" alt="左边约 190px 的列表，每条一行只有状态、用途、序号、时间；右边详情约 450px">
-      <p>列表一直在，但模型、token、费用和会话名都看不到，轮次标题会重名。</p>
+      <p>上图是打开时的样子，下图是点开前缀后。每行：序号、角色、预览（工具调用写成“读取 第二卷/第二章.md”，结果写“↳ #2 400 行”）、token 条。</p>
     </div>
   </div>
-</section>
-
-<section data-nbdev-question="page-r1" data-nbdev-type="single" data-nbdev-recommend="accept">
-  <h2>整页照这一稿做？</h2>
-  <p class="rec"><strong>推荐照做：按已定的注意力排序画的，查找做成了全文查找。要改的写在备注里。</strong></p>
-
-  <div class="part">
-    <h3>整页：全部会话，选中一次对话请求</h3>
-    <img src="r1/overview.webp" alt="左边请求列表按“会话 · 第几轮 · 用户说的话”分组，每条两行；右边详情顶上是概览，下面六页，停在“消息”">
-    <ul>
-      <li>组头写会话、第几轮和那一轮用户说的话：记得自己问过什么，就能找到那几次请求。会话标题这类后台请求单独一组。</li>
-      <li>每条第一行：状态、用途、模型、序号、时间；重发的标“重发 1/3”，工具集变了的标一个扳手。第二行：输入、输出、缓存命中、耗时、费用，各条对齐成列。没命中缓存的标黄。</li>
-      <li><span class="new">新</span> 发出去还没回来的请求也列着，转圈、写已经等了多久。</li>
-      <li>详情的概览：模型、输入、输出、缓存命中（读了多少）、首 token、总耗时、费用、HTTP 与停止原因；改过这次请求的扩展单写一行。右上是新一次 / 旧一次、打开会话、复制请求。</li>
-      <li>消息页：按角色看（用户、助手、工具结果、提醒）；长文字只露 4 行，思考收起，工具调用的参数露 5 行。<span class="new">新</span> 这次请求的回复放在最后一条，所以记录要连回复一起存（旧应用只存请求）。</li>
-    </ul>
-  </div>
-
-  <div class="part">
-    <h3>查找“年龄”</h3>
-    <img src="r1/search.webp" alt="列表只剩 6 次有命中的请求，第二行换成命中片段；详情上方查找条写“年龄 2 / 5”，消息页只看有命中的几条，当前这一处深色标出">
-    <ul>
-      <li>全文查找：请求与回复的正文、工具名与参数、错误文字都查。输入 <code>#12</code> 直接跳到那次请求。</li>
-      <li>列表第二行换成命中的片段：在哪一条、前后的字、这次请求里还有几处。</li>
-      <li>详情上方一条查找条：第几处、共几处，上下跳；各页命中几处，点了跳过去。消息页多一个“有命中”，只看有命中的消息（带原来的序号）。</li>
-      <li>右上的排序：时间、耗时、输入 token、费用，找最慢、最贵的那次。</li>
-    </ul>
-  </div>
-
-  <div class="part">
-    <h3>和上一次比较：工具集变了，缓存断开</h3>
-    <img src="r1/compare.webp" alt="四格摘要：系统提示词相同、工具多了 1 个、消息末尾多了 3 条、参数相同；一句话说缓存为什么断；工具的差异；末尾多出的三条消息">
-    <ul>
-      <li>四格摘要说哪里变了，一句话说缓存为什么没命中；下面是变了的那块的差异与末尾多出的消息。</li>
-      <li>缺省和同一会话的前一次比，可以换成别的一次。</li>
-    </ul>
-  </div>
-
-  <div class="part">
-    <h3>原始请求体</h3>
-    <img src="r1/raw.webp" alt="服务商收到的请求体 JSON，带行号，右上复制">
-    <ul>
-      <li>服务商收到的请求体原样显示；图片只记类型与大小。“响应”页同样的样子，写状态、响应头（去掉密钥与 cookie）、用量与耗时。</li>
-    </ul>
-  </div>
-
-  <div class="part">
-    <h3>还没有请求</h3>
-    <img src="r1/empty.webp" alt="居中：还没有模型请求。Agent 每发一次请求，这里就多一条。">
-  </div>
-
-  <div data-nbdev-option="accept" data-nbdev-label="照这一稿做"></div>
-  <div data-nbdev-option="adjust" data-nbdev-label="要改（写在备注里）"></div>
+  <ul class="both">
+    <li>两种都做的：按轮次分段；“以下是这次新加的（和 #9 比）”一条分隔线；工具结果标出是哪一条调用的；回复放在最后。</li>
+    <li>上面的按角色筛选、查找时的“有命中”照第 1 轮。</li>
+  </ul>
 </section>
 
 <section>
-  <h2>已定</h2>
+  <h2>已定（第 1 轮）</h2>
   <ol class="decided">
-    <li>编辑区的一页；从命令面板“查看模型请求”、对话顶栏菜单（只看本会话）、回复上的“查看这次请求”打开（决定 3）</li>
-    <li>列表每条两行，按会话的轮次分组，看全部会话时组头写会话标题（决定 4）</li>
-    <li>概览在详情顶部常驻；下面依次是消息（缺省）、系统提示词、工具、和上一次比较、原始请求体、响应；思考与工具定义缺省收起，长文字只露前几行（决定 5、6）</li>
-    <li>开着时新请求自动进列表顶部，不改当前选中（决定 7）</li>
-    <li>查找要做好（决定 8）：做成全文查找，见上</li>
+    <li>筛选条件常驻一行：会话、用途、状态、模型、时间，各一个下拉，选了的高亮、带 ×（决定 9）</li>
+    <li>编辑区窄时列表与详情来回切换；详情里上下箭头换请求，宽了自动回到左右分开（决定 10）</li>
+    <li>整页照第 1 轮，消息页的展示在本轮重做（决定 11）</li>
+    <li>编辑区的一页；从命令面板、对话顶栏菜单（只看本会话）、回复上的“查看这次请求”打开（决定 3）</li>
+    <li>列表每条两行，按会话的轮次分组；概览常驻详情顶部，六页；开着时新请求自动进列表顶部（决定 4 到 7）</li>
+    <li>全文查找：列表换成命中片段，详情里查找条逐处跳；排序按时间、耗时、输入 token、费用（决定 8）</li>
     <li>组件放进 nb-agent-ui（决定 2）</li>
   </ol>
+  <details>
+    <summary>第 1 轮的图</summary>
+    <div class="part">
+      <h3>整页</h3>
+      <img src="r1/filters-bar.webp" alt="常驻的筛选条，状态下拉开着">
+    </div>
+    <div class="part">
+      <h3>查找</h3>
+      <img src="r1/search.webp" alt="查找“年龄”：列表换成命中片段，详情里查找条">
+    </div>
+    <div class="part">
+      <h3>和上一次比较</h3>
+      <img src="r1/compare.webp" alt="四格摘要、缓存为什么断、工具的差异、末尾多出的消息">
+    </div>
+    <div class="part">
+      <h3>窄的时候来回切换</h3>
+      <div class="pair">
+        <img src="r1/narrow-switch-list.webp" alt="列表占满整宽">
+        <img src="r1/narrow-switch-detail.webp" alt="详情占满整宽，顶上“← 请求列表”">
+      </div>
+    </div>
+  </details>
 </section>
 </main>
 </body>
