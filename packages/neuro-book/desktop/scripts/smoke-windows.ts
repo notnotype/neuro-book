@@ -4,7 +4,7 @@
  *
  *   --setup <win-x64-NeuroBook-Setup.zip> | --portable <NeuroBook-<版本>-win-x64-portable.zip>
  *   --evidence <目录>        成败都写：日志、version.json、进程列表、页面截图
- *   [--identifier <标识>]    安装版的应用标识，缺省正式标识；本机验证用测试标识，不碰正式安装
+ *   [--identifier <标识>]    包的应用标识，缺省正式标识；本机验证用测试标识，不碰正式安装（便携版按它找通道根）
  *   [--state-root <目录>]    安装版设 NBOOK_STATE_ROOT（本机验证不碰缺省状态根）；CI 不给，用缺省
  *   [--work <目录>]          解压与作品放在这里，缺省系统临时目录
  *
@@ -53,7 +53,7 @@ function textOf(content: unknown): string {
 }
 
 /**
- * 打开作品，经命令面板把对话带到前面，让 Agent 跑一条 shell 命令（端点回一次 shell 调用，用户在页面上批准一次）。
+ * 打开作品，经命令面板把对话带到前面，让 Agent 跑一条 shell 命令（端点回一次 shell 调用；页面要批准时同意一次）。
  * 通过的判据是端点收到的下一次请求里这次调用的结果：输出那一行紧跟着 `[退出码 0]`（nb-harness 的 shell 工具的结果格式）。
  * 只看“含随机串”不够：命令参数本身就含它，工具出错时也可能复述参数。
  */
@@ -71,9 +71,15 @@ async function runAgentCommand(page: Page, endpoint: FakeEndpoint, seeded: Seede
     await input.click();
     await page.keyboard.type("跑一条命令");
     await page.keyboard.press("Enter");
-    await page.locator('[data-approval-decision="allow"]').click({timeout: 60_000});
-    await page.locator("[data-approval-submit]").click();
-    await page.getByText(done).waitFor({timeout: 60_000});
+    // 要不要批准随作品与角色的权限设置变（新作品的写作助手不问就跑 shell）；问了就同意一次，没问就直接等结果。
+    const allow = page.locator('[data-approval-decision="allow"]');
+    const finished = page.getByText(done);
+    await allow.or(finished).first().waitFor({timeout: 60_000});
+    if (await allow.isVisible()) {
+        await allow.click();
+        await page.locator("[data-approval-submit]").click();
+    }
+    await finished.waitFor({timeout: 60_000});
     const results = endpoint.requests.flatMap((request) => request.messages).filter((message) => message.role === "tool").map((message) => textOf(message.content));
     if (!results.some((text) => text.includes(`${marker}\n[退出码 0]`))) throw new SmokeFailure(`shell 工具的结果里没有“${marker}”紧跟“[退出码 0]”：${JSON.stringify(results).slice(0, 500)}`);
     step("✓ 作品打开，Agent 跑了一条 shell 命令（退出码 0）");
@@ -108,10 +114,13 @@ async function launchUseClose(options: {launcher: string; programDir: string; st
     step("✓ 服务端经停止路径以 0 停完，壳以 0 退出，没有异常标记");
 }
 
-/** 顶层清单与登记、设置的内容：便携版不该碰缺省状态根。 */
-async function rootSnapshot(root: string): Promise<string> {
-    if (!existsSync(root)) return "（不存在）";
-    const names = (await readdir(root)).sort();
+/**
+ * 顶层清单与登记、设置的内容：便携版不该碰缺省状态根，也不在通道根下建状态文件。`ignore` 里的顶层项不比：
+ * 便携版的 WebView2 浏览器数据按 Spec 留在本机、在通道根的 `WebView2\` 下（desktop-shell 的“已知限制”）。
+ */
+async function rootSnapshot(root: string, ignore: readonly string[] = []): Promise<string> {
+    // 不存在与只有 ignore 里的项算同一种：便携版第一次运行会建出只放 WebView2 数据的通道根。
+    const names = existsSync(root) ? (await readdir(root)).filter((name) => !ignore.includes(name)).sort() : [];
     const files = await Promise.all(["projects.json", "settings.json"].map(async (name) => (existsSync(join(root, name)) ? `${name}=${(await readFile(join(root, name), "utf8")).length}:${String((await stat(join(root, name))).mtimeMs)}` : `${name}=无`)));
     return `${names.join(",")} | ${files.join(" ")}`;
 }
@@ -151,8 +160,9 @@ async function smokePortable(options: Options & {portable: string}, endpoint: Fa
     const evidence = join(options.evidence, "portable");
     await mkdir(evidence, {recursive: true});
     const defaultRoot = defaultStateRoot();
-    const officialChannel = channelRoot(OFFICIAL_IDENTIFIER);
-    const before = {defaultRoot: await rootSnapshot(defaultRoot), channel: await rootSnapshot(officialChannel)};
+    const channel = channelRoot(options.identifier);
+    const snapshotChannel = () => rootSnapshot(channel, ["WebView2"]);
+    const before = {defaultRoot: await rootSnapshot(defaultRoot), channel: await snapshotChannel()};
     const dir = join(options.work, "portable");
     await mkdir(dir, {recursive: true});
     let programRoot: string | null = null;
@@ -168,13 +178,13 @@ async function smokePortable(options: Options & {portable: string}, endpoint: Fa
         const stateRoot = join(programRoot, "data");
         const seeded = await seedState(stateRoot, options.work, localModelSettings(endpoint.baseUrl));
         await launchUseClose({launcher, programDir: programRoot, stateRoot, endpoint, seeded, evidence});
-        const after = {defaultRoot: await rootSnapshot(defaultRoot), channel: await rootSnapshot(officialChannel)};
+        const after = {defaultRoot: await rootSnapshot(defaultRoot), channel: await snapshotChannel()};
         const problems: string[] = [];
         if (!existsSync(join(stateRoot, "logs", "desktop", "shell.log"))) problems.push("程序目录下的 data\\ 里没有壳的日志：状态根不在程序目录下");
         if (after.defaultRoot !== before.defaultRoot) problems.push(`缺省状态根变了：${before.defaultRoot} → ${after.defaultRoot}`);
-        if (after.channel !== before.channel) problems.push(`正式标识的通道根变了：${before.channel} → ${after.channel}`);
+        if (after.channel !== before.channel) problems.push(`通道根（${channel}，WebView2 之外）变了：${before.channel} → ${after.channel}`);
         if (problems.length > 0) throw new SmokeFailure(problems.join("\n"));
-        step("✓ 便携版的数据在程序目录下的 data\\，缺省状态根与通道根没有变");
+        step("✓ 便携版的数据在程序目录下的 data\\，缺省状态根与通道根（WebView2 的浏览器数据之外）没有变");
     } finally {
         if (programRoot !== null) {
             await killUnder(programRoot);

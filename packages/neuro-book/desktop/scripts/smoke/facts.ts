@@ -51,6 +51,11 @@ export function updateChecks(entries: readonly LogEntry[]): Array<{remote: strin
     return entries.filter((entry) => entry.event === "desktop.update.checked").map((entry) => ({remote: entry.fields.remote ?? "", local: entry.fields.local ?? "", result: entry.fields.result ?? ""}));
 }
 
+/** 页面显示过的更新通知（`desktop.update.notice-shown`，页面显示之后交回壳时写）：一次性的通知几秒后自己消失，以这条为准。 */
+export function noticesShown(entries: readonly LogEntry[]): Array<{kind: string; version: string}> {
+    return entries.filter((entry) => entry.event === "desktop.update.notice-shown").map((entry) => ({kind: entry.fields.kind ?? "", version: entry.fields.version ?? ""}));
+}
+
 /** 用户看得到的数据：作品登记（id 与路径）、冒烟写进去的模型设置、那一章的内容。 */
 export type DataBaseline = {readonly projects: readonly string[]; readonly models: string; readonly chapter: string};
 

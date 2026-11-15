@@ -442,10 +442,13 @@ describe("更新控制器", () => {
         await h.answerCheck(h.remote(C));
         expect(h.hints).toHaveLength(1);
         h.controller.shown(h.controller.current?.id ?? -1);
+        // 同一条再报一次（页面重报）不重复记。
+        h.controller.shown(h.controller.current?.id ?? -1);
         await h.settle();
         expect(kinds(h.hints)).toEqual(["updated 0.90.2", "available 0.90.3"]);
         expect(h.hints.at(-1)?.[1]).toBe(false);
         expect(h.state().pendingNotice).toBeNull();
+        expect(h.facts.filter((fact) => fact.startsWith("desktop.update.notice-shown"))).toEqual(["desktop.update.notice-shown kind=updated version=0.90.2"]);
     });
 
     it("有未对账的换上时不检查；每 30 秒重判，出了失败的结果就在这次运行里通知“更新没有完成”并恢复检查", async () => {

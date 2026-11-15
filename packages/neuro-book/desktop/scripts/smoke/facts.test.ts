@@ -1,11 +1,12 @@
 import {describe, expect, it} from "bun:test";
 
-import {baselineProblems, dataBaseline, lineCount, logEntries, orderlyStopProblems, updateChecks} from "./facts";
+import {baselineProblems, dataBaseline, lineCount, logEntries, noticesShown, orderlyStopProblems, updateChecks} from "./facts";
 
 // 形状照适配层 `log` 写的行（desktop/src/bun/index.ts）：时间、事件、细节；失败时细节是错误栈，可能多行。
 const LOG = [
     "2026-11-15T08:00:00.000Z start version=0.12.2 bun=1.4.4 programRoot=C:\\x root={}",
     "2026-11-15T08:00:02.000Z desktop.server.ready pid=4242",
+    "2026-11-15T08:00:02.500Z desktop.update.notice-shown kind=updated version=0.12.2",
     "2026-11-15T08:00:03.000Z desktop.update.checked remote=0.12.1 local=0.12.2 result=older",
     "2026-11-15T08:00:09.000Z desktop.server.stopped forced=false exitCode=0",
     "2026-11-15T08:00:09.100Z exit 0",
@@ -15,10 +16,10 @@ const LOG = [
 describe("读壳的日志", () => {
     it("按行读出事件与 key=value；从某一行之后读", () => {
         const entries = logEntries(LOG);
-        expect(entries.map((entry) => entry.event)).toEqual(["start", "desktop.server.ready", "desktop.update.checked", "desktop.server.stopped", "exit"]);
+        expect(entries.map((entry) => entry.event)).toEqual(["start", "desktop.server.ready", "desktop.update.notice-shown", "desktop.update.checked", "desktop.server.stopped", "exit"]);
         expect(entries[1]?.fields).toEqual({pid: "4242"});
-        expect(logEntries(LOG, 3).map((entry) => entry.event)).toEqual(["desktop.server.stopped", "exit"]);
-        expect(lineCount(LOG)).toBe(5);
+        expect(logEntries(LOG, 4).map((entry) => entry.event)).toEqual(["desktop.server.stopped", "exit"]);
+        expect(lineCount(LOG)).toBe(6);
         expect(lineCount("")).toBe(0);
     });
 
@@ -26,8 +27,9 @@ describe("读壳的日志", () => {
         expect(logEntries("2026-11-15T08:00:00.000Z fatal Error: x\n    at y (z.ts:1)\n")).toHaveLength(1);
     });
 
-    it("更新检查的结论", () => {
+    it("更新检查的结论与显示过的通知", () => {
         expect(updateChecks(logEntries(LOG))).toEqual([{remote: "0.12.1", local: "0.12.2", result: "older"}]);
+        expect(noticesShown(logEntries(LOG))).toEqual([{kind: "updated", version: "0.12.2"}]);
     });
 });
 

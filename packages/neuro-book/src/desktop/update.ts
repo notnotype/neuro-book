@@ -167,6 +167,8 @@ export class UpdateController {
         const notice = this.#notice;
         if (notice === null || notice.id !== id || this.#phase === "closed") return;
         this.#notice = null;
+        // 一次性的通知几秒后自己消失，壳的日志里这一条是“页面显示过它”的证据（发布流水线的更新冒烟按它判断）。
+        this.#options.report("desktop.update.notice-shown", `kind=${notice.kind} version=${notice.version}`);
         if (notice.persisted && this.#state !== null) this.#persist({...this.#state, pendingNotice: null});
         if (this.#phase === "running") this.#emit(false);
     }

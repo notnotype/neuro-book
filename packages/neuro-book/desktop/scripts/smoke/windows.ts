@@ -1,5 +1,5 @@
 /**
- * Windows 冒烟的操作系统一侧：进程、关窗、UI 自动化读文字、注册表、调试端口上的页面、本机更新源、证据。只在 Windows 上用。
+ * Windows 冒烟的操作系统一侧：进程、关窗、UI 自动化读文字、注册表、调试端口上的页面、证据。只在 Windows 上用。本机更新源在 `feed.ts`。
  *
  * 几个约束（w00046 t11 计划的 Windows 冒烟两节与切片 1 的探针 evidences/cdp-probe-r1.txt）：
  * - 关窗用 `PostMessageW(WM_CLOSE)`，与用户点关闭走同一条路（关闭前询问、有序停止）；窗口枚举只在登录的桌面会话里有效，
@@ -10,7 +10,7 @@
  */
 
 import {dlopen, FFIType, JSCallback, type Pointer} from "bun:ffi";
-import {appendFileSync, existsSync} from "node:fs";
+import {existsSync} from "node:fs";
 import {cp, mkdir, readdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
@@ -89,24 +89,32 @@ export function postClose(pids: readonly number[]): number {
     return found.length;
 }
 
-export type WindowTexts = {pid: number; title: string; texts: string[]};
-
-/** UI 自动化读这些进程的顶层窗口里的按钮与文字（WebView2 把页面的可访问树交给 UI 自动化）。不截屏。 */
-export async function windowTexts(pids: readonly number[]): Promise<WindowTexts[]> {
-    if (pids.length === 0) return [];
+/**
+ * 在一个 PowerShell 进程里反复用 UI 自动化读 `dir` 下的进程的顶层窗口（WebView2 把页面的可访问树交给 UI 自动化），
+ * 读到含 `needle` 的文字就交回它；到 `timeoutMs` 没读到交回 null。不截屏。
+ * 一个进程里循环而不是每次起一个：一次性的通知只停 3.2 秒（nb-ui 的 success 缺省时长），每次起 PowerShell 来不及。
+ */
+export async function watchWindowText(dir: string, needle: string, timeoutMs: number): Promise<string | null> {
+    const literal = (value: string) => `'${value.replace(/'/gu, "''")}'`;
     const text = await powershell(`
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-$pids = @(${pids.join(",")})
+$dir = ${literal(`${dir.replace(/[\\/]+$/u, "")}\\`)}
+$needle = ${literal(needle)}
+$deadline = (Get-Date).AddMilliseconds(${String(timeoutMs)})
 $root = [Windows.Automation.AutomationElement]::RootElement
-$out = @()
-foreach ($win in $root.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.Condition]::TrueCondition)) {
-  if ($pids -notcontains $win.Current.ProcessId) { continue }
-  $texts = @()
-  foreach ($e in $win.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)) { if ($e.Current.Name) { $texts += $e.Current.Name } }
-  $out += [pscustomobject]@{pid=[int]$win.Current.ProcessId; title=$win.Current.Name; texts=$texts}
-}
-ConvertTo-Json -Compress -Depth 4 -InputObject @($out)`);
-    return jsonList<WindowTexts>(text);
+while ((Get-Date) -lt $deadline) {
+  $pids = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { [int]$_.ProcessId })
+  foreach ($win in $root.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.Condition]::TrueCondition)) {
+    if ($pids -notcontains $win.Current.ProcessId) { continue }
+    foreach ($e in $win.FindAll([Windows.Automation.TreeScope]::Descendants, [Windows.Automation.Condition]::TrueCondition)) {
+      $name = $e.Current.Name
+      if ($name -and $name.Contains($needle)) { $name; exit 0 }
+    }
+  }
+  Start-Sleep -Milliseconds 200
+}`);
+    const found = text.trim();
+    return found === "" ? null : found;
 }
 
 /** 安装器登记的卸载项（`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<标识>.stable`，t01 runner 探针）。没装时为 null。 */
@@ -163,33 +171,6 @@ export async function connectPage(port: number, timeoutMs = 120_000): Promise<{b
     }, timeoutMs, 1_000);
     const page = await waitFor("产品页面出现", () => browser.contexts().flatMap((context) => context.pages()).find((candidate) => /^http:\/\/127\.0\.0\.1:\d+\//u.test(candidate.url())) ?? null, timeoutMs, 500);
     return {browser, page};
-}
-
-/**
- * 本机静态更新源：与 GitHub Release 的下载地址同样的平铺布局（t10 的 `t10-serve.ts` 同一种写法）。每个请求记一行进 `log`：
- * `<时间> <方法> <路径与查询串> <状态> <字节>`。`serve(dir)` 换成另一个目录（换源）。
- */
-export function feedServer(port: number, log: string): {serve(dir: string): void; stop(): void} {
-    let root: string | null = null;
-    const server = Bun.serve({
-        hostname: "127.0.0.1",
-        port,
-        async fetch(request) {
-            const url = new URL(request.url);
-            const name = decodeURIComponent(url.pathname.slice(1));
-            const file = root !== null && name !== "" && !/[\\/]|\.\./u.test(name) ? Bun.file(join(root, name)) : null;
-            const exists = file !== null && (await file.exists());
-            appendFileSync(log, `${new Date().toISOString()} ${request.method} ${url.pathname}${url.search} ${exists ? 200 : 404} ${exists ? file.size : 0}\n`);
-            return exists ? new Response(file) : new Response("not found", {status: 404});
-        },
-    });
-    return {
-        serve(dir) {
-            root = dir;
-            appendFileSync(log, `${new Date().toISOString()} serve ${dir}\n`);
-        },
-        stop: () => void server.stop(true),
-    };
 }
 
 /** 失败时也要留下的东西：复制存在的文件与目录，写进程列表。复制失败只记下，不遮掉原始错误。 */
