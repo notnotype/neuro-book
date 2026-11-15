@@ -265,6 +265,11 @@ describe("查找（输出 17、20）", () => {
         expect(view.get("[data-request-findbar]").text()).toContain("第 2 处，共 2 处");
         expect(view.emitted("action")?.at(-1)).toEqual([{type: "request.load-content", hash: "tool1"}]);
         view.unmount();
+        // 页面重新挂上时命中已经在了（宿主的状态留着）：照样定位到第一处。
+        const again = mountTrace({search: "林照", hits: [{page: "messages", item: 2, ordinal: 0}]});
+        await nextTick();
+        expect(again.emitted("action")?.at(-1)).toEqual([{type: "request.load-content", hash: "m3"}]);
+        again.unmount();
     });
 });
 

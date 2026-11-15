@@ -202,13 +202,14 @@ const current = ref(0);
 const rootRef = ref<HTMLElement | null>(null);
 /**
  * 新的命中到了、还没定位到第一处。命中与详情各自取回、先后不定（大的请求详情要取好几页，命中常常先到）：两样都有了才定位。
+ * 挂上时命中已经在了（查找时页面切走又切回，宿主的状态留着）也定位一次：当前这一处从第一处重新算起。
  */
 let revealPending = false;
 watch(() => props.hits, () => {
     current.value = 0;
     revealPending = props.hits !== null && props.hits.length > 0;
     revealIfReady();
-});
+}, {immediate: true});
 watch(() => value.value?.id, () => revealIfReady());
 function revealIfReady(): void {
     if (!revealPending || value.value === null) return;
