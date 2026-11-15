@@ -263,8 +263,9 @@ def build_rasters():
     # ---------- 桌面应用 ----------
     g = "桌面应用"
     win = os.path.join(ROOT, "desktop/windows/neurobook.ico")
-    write_ico([os.path.join(ROOT, f"png/app-icon/neurobook-app-icon-{s}.png") for s in (16, 24, 32, 48, 64, 128, 256)], win)
-    MANIFEST.append((g, "desktop/windows/neurobook.ico", "Windows：16、24（像素版）与 32–256", IVORY))
+    # 不放 16、24 的像素专用版（开发者 2026-11-15：太丑、太糊）：任务栏、托盘、标题栏这类小尺寸由系统从 32 缩。
+    write_ico([os.path.join(ROOT, f"png/app-icon/neurobook-app-icon-{s}.png") for s in (32, 48, 64, 128, 256)], win)
+    MANIFEST.append((g, "desktop/windows/neurobook.ico", "Windows：32–256（小尺寸由系统从 32 缩，不用像素版）", IVORY))
 
     iconset = os.path.join(ROOT, "desktop/macos/neurobook.iconset")
     os.makedirs(iconset, exist_ok=True)

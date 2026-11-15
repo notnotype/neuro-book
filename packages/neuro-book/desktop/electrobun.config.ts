@@ -25,7 +25,12 @@ export default {
         copy: {
             "src/views/shell/index.html": "views/shell/index.html",
             "payload/app": "neurobook",
+            // 窗口图标与托盘按需要的尺寸从这份 ICO 加载（主进程的 `win32.ts`）。
+            "assets/neurobook.ico": "neurobook.ico",
         },
+        // 嵌进 launcher.exe、bun.exe 与安装程序。来源是 brand/logo/06-production/desktop/windows/neurobook.ico（32–256，
+        // 不放 16、24 的像素专用版，小尺寸由系统从 32 缩），不在这里手工编辑。
+        win: {icon: "assets/neurobook.ico"},
     },
     release: {
         baseUrl,
