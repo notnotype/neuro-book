@@ -308,19 +308,17 @@ jobs:
           node-version: "24"
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      # 刚发的版本可能要一会儿才装得到：失败时等一会儿再试，三次都失败才算失败。不挡 GitHub Release（npm 上的字节已经定了）。
+      # 刚发的版本要处理几分钟才装得到（v0.13.0：5.3 MB 的应用包约 8 分钟）：先等全部可见再装一次，不按固定间隔重试。
+      # 不挡 GitHub Release（npm 上的字节已经定了）。
       - name: release:smoke --from registry
         shell: bash
         run: |
-          for attempt in 1 2 3; do
-            if bun run release:smoke --from registry; then
-              echo "从 registry 装上 ${{ needs.gate.outputs.version }} 并跑通（第 $attempt 次）" >> "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            [ "$attempt" -lt 3 ] && sleep 120
-          done
-          echo "从 registry 装 ${{ needs.gate.outputs.version }} 三次都失败：npm 包已发，看这一步的输出" >> "$GITHUB_STEP_SUMMARY"
-          exit 1
+          if bun run release:smoke --from registry --wait 30; then
+            echo "从 registry 装上 ${{ needs.gate.outputs.version }} 并跑通" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "从 registry 装 ${{ needs.gate.outputs.version }} 失败：npm 包已发，看这一步的输出；只是还没传开就重跑这个作业" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
   github-release:
     name: GitHub Release

@@ -8,7 +8,8 @@
  *   tarball，发出去的就是这里验过的字节。装的时候用 `overrides` 让 `@notnotype/*` 全部来自这些 tarball（它们的版本号还不在
  *   registry 上，有一个漏到 registry 就会装不上）。
  * - `--from registry`：不打包，按 `package.json` 的版本从 registry 装；发布之后在发布用的那个提交上跑一次，作为发布
- *   证据（装上的版本与 checkout 的对不上就失败）。
+ *   证据（装上的版本与 checkout 的对不上就失败）。`--wait <分钟>` 先等这些版本都能从 registry 取到再装（刚发的版本要处理
+ *   几分钟，见 registry-wait.ts），缺省不等。
  *
  * 用户与作者的闭环（ADR 0033，docs/specs/runtime/cli.md 验收 1、7）：临时 `BUN_INSTALL` 下 `bun add -g` 应用包、`nbook start`
  * 打开书架；`bunx -p` SDK 生成插件、构建并类型检查；`nbook plugin install` 之后重启，实例的启动集合里有它。
@@ -26,6 +27,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {RELEASE_DIRECTORY, RELEASE_MANIFEST, releaseFilesChangedSince, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
 import {APP_PACKAGE, BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, publishOrder, releaseDirectories, SDK_PACKAGE, type ReleasePackage} from "#scripts/release/packages";
+import {defaultRegistry, waitForRegistry} from "#scripts/release/registry-wait";
 
 const REPOSITORY = join(import.meta.dir, "..", "..");
 /** 包里不该有的文件。`testing/` 目录是 exports 里公开的测试替身入口，照发。 */
@@ -427,16 +429,21 @@ async function cleanCommit(): Promise<string> {
     return (await mustRun("取当前提交", ["git", "rev-parse", "HEAD"], {cwd: REPOSITORY})).trim();
 }
 
-function parseArguments(argv: readonly string[]): {from: Source; keep: boolean} {
+const USAGE = "用法：release:smoke [--from pack|registry] [--wait <分钟>] [--keep]";
+
+function parseArguments(argv: readonly string[]): {from: Source; keep: boolean; waitMinutes: number} {
     let from: Source = "pack";
     let keep = false;
+    let waitMinutes = 0;
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
         if (argument === "--keep") keep = true;
         else if (argument === "--from" && (argv[index + 1] === "pack" || argv[index + 1] === "registry")) from = argv[(index += 1)] as Source;
-        else throw new SmokeFailure(`未知参数或取值：${argument}（用法：release:smoke [--from pack|registry] [--keep]）`);
+        else if (argument === "--wait" && /^\d+$/u.test(argv[index + 1] ?? "")) waitMinutes = Number(argv[(index += 1)]);
+        else throw new SmokeFailure(`未知参数或取值：${argument}（${USAGE}）`);
     }
-    return {from, keep};
+    if (waitMinutes > 0 && from !== "registry") throw new SmokeFailure(`--wait 只用于 --from registry（${USAGE}）`);
+    return {from, keep, waitMinutes};
 }
 
 if (import.meta.main) {
@@ -473,6 +480,15 @@ if (import.meta.main) {
             packages = [...loadReleasePackages(REPOSITORY), ...BUILT_PACKAGES.map((entry): ReleasePackage => ({dir: entry.source, path: product.path, repositoryDirectory: entry.repositoryDirectory, manifest: {...product.manifest, name: entry.name}}))];
         }
         const from = sources(packages, tarballs);
+        if (options.waitMinutes > 0) {
+            await waitForRegistry(from.expected, {
+                registry: defaultRegistry(),
+                timeoutMs: options.waitMinutes * 60_000,
+                intervalMs: 30_000,
+                report: (missing) => console.log(`  registry 上还取不到：${missing.join("、")}`),
+            }).catch((error: unknown) => fail(error instanceof Error ? error.message : String(error)));
+            step(`registry 上取得到 ${from.expected.size} 个要验的版本`);
+        }
         await smokeStory(root, from);
         await smokeVueHost(root, from);
         await smokeAppAndPlugin(root, from, tarballs, manifest);

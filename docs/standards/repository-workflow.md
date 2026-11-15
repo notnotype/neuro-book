@@ -97,7 +97,7 @@ llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编�
    - `update-test-packages`：更新冒烟用的 B′（标签提交加一个只在 runner 上的测试提交，补丁号加 1）。
    - `desktop`（Windows）：用 Hutch 构建正式、A′、B′ 三个变体，冻结发布资产（含便携 zip 与 `SHA256SUMS`），跑安装版、便携版与更新的冒烟。
    - `publish-npm`（Environment `release`，trusted publishing）：只发计划里本次发布的包，dist-tag 显式给（高于 `latest` 时 `latest`，否则 `history`）。
-   - `registry-smoke`：从 registry 装一遍（不挡 Release）。
+   - `registry-smoke`：先等本次的版本都能从 registry 取到（最多 30 分钟；刚发的版本 npm 要处理几分钟，大包更久），再装一遍（不挡 Release）。
    - `github-release`：建草稿、只补缺的资产、公开；本次不低于当前最新时设为最新。
    - `verify-feed`：按更新器的取法从 GitHub 取清单、完整包与补丁，核对与冻结的资产相同；失败时摘要写“发行没有完成，自动更新不可用”。
    - `upgrade-from-previous`（有上一个正式桌面版本、本次是最新时）：装上一版的正式 Setup，从 GitHub 发现本次、下载、换上。
@@ -130,4 +130,4 @@ llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编�
 3. `bun run release:check`：源码包的发布清单（license、`files`、`LICENSE`、README、内部依赖写法、源码导入的包都写进依赖）。
 4. `bun run release:smoke`：生成应用包与 SDK 包，12 个包都过发布清单检查、打成 tarball 放进 `dist/release/` 并写下 `release-manifest.json`（提交与 SHA-256）；再装进仓库外的空项目像用户那样用一遍：`nbstory` 与它的查看器、Vite 宿主构建、`bun add -g` 应用后 `nbook` 打开书架、`bunx -p` SDK 生成插件并构建、`nbook plugin install` 后重启插件已加载。直连 registry 慢时整条命令前加 `prox`。冒烟之后不要 amend、变基或改写已冒烟的提交：`release-manifest.json` 记的是那一刻的提交，改写后它要么不在 `origin/master` 上，要么与要发布的目录对不上，只能重跑冒烟。
 5. `npm login`，再 `bun run release:publish`：过门禁（会发布的目录没有未提交的改动、在 master 上、冒烟用的提交已在 origin/master、冒烟以来会发布的目录没改过、tarball 没被改过、源码包的发布清单、要发的包的 typecheck），列出要发的包；确认后带 `--yes` 重跑，发的就是第 4 步验过的 tarball（Bun 发 tarball 时按当前目录找 bin，会打印 `warn: bin … does not exist`，无害：bin 在 tarball 里，冒烟已经跑过）。开了两步验证时加 `--auth-type web`（一个 OTP 只有 30 秒，发不完 12 个包）。中途失败就停，重跑会跳过已发布的版本。
-6. 发布后在发布用的那个提交上跑 `bun run release:smoke --from registry`（按当前 checkout 的版本号从 registry 装，装到的版本对不上就失败），结果记进对应 Task 的证据。
+6. 发布后在发布用的那个提交上跑 `bun run release:smoke --from registry --wait 30`（先等这些版本在 registry 上取得到，再按当前 checkout 的版本号装，装到的版本对不上就失败），结果记进对应 Task 的证据。
