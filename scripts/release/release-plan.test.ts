@@ -161,8 +161,8 @@ describe("读 registry", () => {
 });
 
 describe("版本比较", () => {
-    it("语义化版本 2.0.0 规范第 11 条给的优先级顺序", () => {
-        const ordered = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.1.0", "2.0.0"];
+    it("语义化版本 2.0.0 规范第 11 条给的优先级顺序；超过 2^53 的数字也分得开", () => {
+        const ordered = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0-rc.9007199254740992", "1.0.0-rc.9007199254740993", "1.0.0", "1.0.1", "1.1.0", "2.0.0", "9007199254740992.0.0", "9007199254740993.0.0"];
         for (let index = 1; index < ordered.length; index += 1) {
             expect(compareVersions(ordered[index - 1]!, ordered[index]!)).toBe(-1);
             expect(compareVersions(ordered[index]!, ordered[index - 1]!)).toBe(1);

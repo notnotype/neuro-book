@@ -6,18 +6,19 @@
 
 const SEMVER = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 
-type Parsed = {core: [number, number, number]; prerelease: string[]};
+// 数字段按 BigInt 比：超过 2^53 的两个不同数字转成 number 会被舍成同一个值。
+type Parsed = {core: [bigint, bigint, bigint]; prerelease: string[]};
 
 function parse(version: string): Parsed {
     const match = SEMVER.exec(version);
     if (match === null) throw new Error(`不是语义化版本：${version}`);
-    return {core: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: match[4] === undefined ? [] : match[4].split(".")};
+    return {core: [BigInt(match[1]!), BigInt(match[2]!), BigInt(match[3]!)], prerelease: match[4] === undefined ? [] : match[4].split(".")};
 }
 
 function compareIdentifier(left: string, right: string): number {
     const leftNumeric = /^\d+$/.test(left);
     const rightNumeric = /^\d+$/.test(right);
-    if (leftNumeric && rightNumeric) return Math.sign(Number(left) - Number(right));
+    if (leftNumeric && rightNumeric) return BigInt(left) < BigInt(right) ? -1 : BigInt(left) > BigInt(right) ? 1 : 0;
     if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1;
     return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -27,8 +28,7 @@ export function compareVersions(left: string, right: string): -1 | 0 | 1 {
     const a = parse(left);
     const b = parse(right);
     for (let index = 0; index < 3; index += 1) {
-        const difference = Math.sign(a.core[index]! - b.core[index]!);
-        if (difference !== 0) return difference as -1 | 1;
+        if (a.core[index]! !== b.core[index]!) return a.core[index]! < b.core[index]! ? -1 : 1;
     }
     // 有预发布段的低于同号的正式版本。
     if (a.prerelease.length === 0 || b.prerelease.length === 0) return Math.sign(b.prerelease.length - a.prerelease.length) as -1 | 0 | 1;

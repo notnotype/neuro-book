@@ -23,7 +23,7 @@ import {parseArgs} from "node:util";
 import type {Page} from "@playwright/test";
 
 import {fakeEndpoint, localModelSettings, type FakeEndpoint} from "../../src/plugins/agent/testing/endpoint";
-import {closeApp, installFromSetup, killUnder, OFFICIAL_IDENTIFIER, readBaseline, seedState, startApp, uninstall, type Seeded} from "./smoke/app";
+import {cleanUp, closeApp, installFromSetup, killUnder, OFFICIAL_IDENTIFIER, readBaseline, seedState, startApp, uninstall, uninstallLeftover, type Installed, type Seeded} from "./smoke/app";
 import {baselineProblems, lineCount, logEntries, orderlyStopProblems} from "./smoke/facts";
 import {channelRoot, collectEvidence, connectPage, defaultStateRoot, freePort, run, SmokeFailure} from "./smoke/windows";
 
@@ -138,10 +138,9 @@ async function smokeSetup(options: Options & {setup: string}, endpoint: FakeEndp
     const stateRoot = options.stateRoot ?? defaultStateRoot();
     const evidence = join(options.evidence, "installed");
     await mkdir(evidence, {recursive: true});
-    let appDir: string | null = null;
+    let installed: Installed | null = null;
     try {
-        const installed = await installFromSetup(options.setup, options.identifier, options.work, step);
-        appDir = installed.appDir;
+        installed = await installFromSetup(options.setup, options.identifier, options.work, step);
         const seeded = await seedState(stateRoot, options.work, localModelSettings(endpoint.baseUrl));
         await launchUseClose({launcher: installed.launcher, programDir: installed.appDir, stateRoot, envStateRoot: options.stateRoot, endpoint, seeded, evidence});
         const before = await readBaseline(stateRoot, seeded);
@@ -151,8 +150,12 @@ async function smokeSetup(options: Options & {setup: string}, endpoint: FakeEndp
         if (problems.length > 0) throw new SmokeFailure(`卸载之后数据变了：${problems.join("；")}`);
         step("✓ 卸载之后作品登记、模型设置与那一章都还在");
     } finally {
-        if (appDir !== null) await killUnder(appDir);
-        await collectEvidence(evidence, {logs: join(stateRoot, "logs", "desktop"), "setup.out.txt": join(options.work, `setup-${options.identifier}.out.txt`), "setup.err.txt": join(options.work, `setup-${options.identifier}.err.txt`)});
+        const done = installed;
+        await cleanUp([
+            ["结束应用进程", () => (done === null ? undefined : killUnder(done.appDir))],
+            ["存证据", () => collectEvidence(evidence, {logs: join(stateRoot, "logs", "desktop"), "setup.out.txt": join(options.work, `setup-${options.identifier}.out.txt`), "setup.err.txt": join(options.work, `setup-${options.identifier}.err.txt`)})],
+            ["卸载残留的安装", () => uninstallLeftover(done)],
+        ]);
     }
 }
 
@@ -186,9 +189,12 @@ async function smokePortable(options: Options & {portable: string}, endpoint: Fa
         if (problems.length > 0) throw new SmokeFailure(problems.join("\n"));
         step("✓ 便携版的数据在程序目录下的 data\\，缺省状态根与通道根（WebView2 的浏览器数据之外）没有变");
     } finally {
-        if (programRoot !== null) {
-            await killUnder(programRoot);
-            await collectEvidence(evidence, {logs: join(programRoot, "data", "logs", "desktop"), "version.json": join(programRoot, "Resources", "version.json")});
+        const root = programRoot;
+        if (root !== null) {
+            await cleanUp([
+                ["结束应用进程", () => killUnder(root)],
+                ["存证据", () => collectEvidence(evidence, {logs: join(root, "data", "logs", "desktop"), "version.json": join(root, "Resources", "version.json")})],
+            ]);
         }
     }
 }

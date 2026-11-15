@@ -13,6 +13,12 @@ on:
 permissions:
   contents: read
 
+# ubuntu 作业的多行步骤以 bash -eo pipefail 跑，任一命令失败步骤就失败；Windows 作业在作业里改用 pwsh，
+# 多条原生命令的步骤开头设 $PSNativeCommandUseErrorActionPreference。
+defaults:
+  run:
+    shell: bash
+
 # 正式发布串行、先进先出地排队（queue: max 至多 100 个等待中的；缺省的 single 只留一个，后来的会把等待中的取消）。
 # 演练另一组，不占正式发布的队列。被取消的一轮在 Actions 里重跑即可，标签不用重推。
 concurrency:

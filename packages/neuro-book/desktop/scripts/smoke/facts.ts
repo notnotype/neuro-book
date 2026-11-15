@@ -30,7 +30,7 @@ export function lineCount(text: string): number {
 
 /**
  * 一次启动之后服务端是不是有序以 0 停的（desktop-shell 的停止合同）：有 `desktop.server.ready`，之后有 `desktop.server.stopped`
- * 且 `forced=false exitCode=0`，中间没有 `desktop.server.exited`（意外退出不经停止路径、也不写异常标记）。`pid` 给了时，
+ * 且 `forced=false exitCode=0`，中间没有 `desktop.server.exited`（意外退出不经停止路径、也不写异常标记）。就绪要带服务端的 PID；`pid` 给了时，
  * 就绪的必须是它（这次壳拉起的那个）。返回问题，空表示通过。
  */
 export function orderlyStopProblems(entries: readonly LogEntry[], pid?: number): string[] {
@@ -38,6 +38,7 @@ export function orderlyStopProblems(entries: readonly LogEntry[], pid?: number):
     const stopped = entries.filter((entry) => entry.event === "desktop.server.stopped");
     const problems: string[] = [];
     if (ready.length === 0) problems.push("这次启动之后没有 desktop.server.ready：服务端没有就绪过");
+    else if (ready.some((entry) => !/^[1-9]\d*$/u.test(entry.fields.pid ?? ""))) problems.push(`desktop.server.ready 没有带服务端的 PID：${ready.map((entry) => entry.detail).join("；")}`);
     else if (pid !== undefined && !ready.some((entry) => entry.fields.pid === String(pid))) problems.push(`就绪的服务端是 ${ready.map((entry) => entry.fields.pid).join("、")}，不是这次壳拉起的 ${String(pid)}`);
     for (const entry of entries.filter((item) => item.event === "desktop.server.exited")) problems.push(`服务端意外退出过（${entry.detail}）`);
     const last = stopped.at(-1);

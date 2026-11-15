@@ -36,6 +36,11 @@ export async function powershell(script: string): Promise<string> {
     return result.stdout;
 }
 
+/** 嵌进 PowerShell 源码的字符串字面量（单引号，内部的 `'` 写成 `''`）：路径与标识来自命令行，不能让它们改变脚本。 */
+function psLiteral(value: string): string {
+    return `'${value.replace(/'/gu, "''")}'`;
+}
+
 /** PowerShell 的 `ConvertTo-Json` 对一项输出对象、对零项输出空：统一成数组。 */
 function jsonList<T>(text: string): T[] {
     if (text.trim() === "") return [];
@@ -95,11 +100,10 @@ export function postClose(pids: readonly number[]): number {
  * 一个进程里循环而不是每次起一个：一次性的通知只停 3.2 秒（nb-ui 的 success 缺省时长），每次起 PowerShell 来不及。
  */
 export async function watchWindowText(dir: string, needle: string, timeoutMs: number): Promise<string | null> {
-    const literal = (value: string) => `'${value.replace(/'/gu, "''")}'`;
     const text = await powershell(`
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-$dir = ${literal(`${dir.replace(/[\\/]+$/u, "")}\\`)}
-$needle = ${literal(needle)}
+$dir = ${psLiteral(`${dir.replace(/[\\/]+$/u, "")}\\`)}
+$needle = ${psLiteral(needle)}
 $deadline = (Get-Date).AddMilliseconds(${String(timeoutMs)})
 $root = [Windows.Automation.AutomationElement]::RootElement
 while ((Get-Date) -lt $deadline) {
@@ -119,7 +123,7 @@ while ((Get-Date) -lt $deadline) {
 
 /** 安装器登记的卸载项（`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<标识>.stable`，t01 runner 探针）。没装时为 null。 */
 export async function uninstallEntry(identifier: string): Promise<{uninstallString: string; displayName: string} | null> {
-    const text = await powershell(`$k = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${identifier}.stable'
+    const text = await powershell(`$k = ${psLiteral(`HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${identifier}.stable`)}
 if (Test-Path $k) { $p = Get-ItemProperty $k; [pscustomobject]@{uninstallString=$p.UninstallString; displayName=$p.DisplayName} | ConvertTo-Json -Compress }`);
     return text.trim() === "" ? null : (JSON.parse(text) as {uninstallString: string; displayName: string});
 }

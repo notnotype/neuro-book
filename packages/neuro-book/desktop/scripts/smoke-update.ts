@@ -30,7 +30,7 @@ import {join} from "node:path";
 import {parseArgs} from "node:util";
 
 import {localModelSettings} from "../../src/plugins/agent/testing/endpoint";
-import {closeApp, installFromSetup, killUnder, OFFICIAL_IDENTIFIER, readBaseline, seedState, startApp, uninstall, type Installed} from "./smoke/app";
+import {cleanUp, closeApp, installFromSetup, killUnder, OFFICIAL_IDENTIFIER, readBaseline, seedState, startApp, uninstall, uninstallLeftover, type Installed} from "./smoke/app";
 import {baselineProblems, lineCount, logEntries, noticesShown, updateChecks} from "./smoke/facts";
 import {feedServer} from "./smoke/feed";
 import {collectEvidence, connectPage, defaultStateRoot, freePort, SmokeFailure, updaterResultFiles, waitFor, watchWindowText} from "./smoke/windows";
@@ -188,6 +188,7 @@ async function smoke(options: Options): Promise<void> {
         // 换上之后第一次启动的新版本由更新器经任务计划程序拉起，不带调试端口：页面显示过“已更新到”以壳日志里
         // 页面交回的那一条为准；UI 自动化同时去读那条几秒后自己消失的通知，读到就记下，没赶上不算失败。
         route.fallBack();
+        const expected = route.recheck(from, target);
         const swapCursor = await linesOf(shellLog);
         const reading = watchWindowText(appDir, "已更新到", 90_000).catch((error: unknown) => `（UI 自动化出错：${error instanceof Error ? error.message : String(error)}）`);
         startApp(installed.launcher);
@@ -201,12 +202,12 @@ async function smoke(options: Options): Promise<void> {
         const read = await reading;
         await writeFile(join(route.evidence, "updated-notice-uia.txt"), `${read ?? "（没赶上：通知已经消失）"}\n`);
         step(`✓ 打开${oldLabel}的启动器：换上 ${target}，页面显示了“已更新到 NeuroBook ${target}”（UI 自动化：${read ?? "没赶上"}）`);
+        // 换上之后的第一次启动也要检查过更新，结论与源对得上（场景 2 后半：源退回 A′，不再提示）。
+        const firstCheck = await waitFor(`换上之后${newLabel}的第一次启动检查了更新`, async () => updateChecks(logEntries(await readFile(shellLog, "utf8"), swapCursor)).at(0) ?? null, 90_000, 1_000);
+        if (firstCheck.remote !== expected.remote || firstCheck.result !== expected.result) throw new SmokeFailure(`换上之后${newLabel}的第一次检查结论是 ${JSON.stringify(firstCheck)}，应当是远端 ${expected.remote}、${expected.result}`);
         await closeApp(appDir, step);
-        const firstRun = updateChecks(logEntries(await readFile(shellLog, "utf8"), swapCursor));
-        if (firstRun.some((check) => check.result === "newer")) throw new SmokeFailure(`换上之后的${newLabel}检查到了更新的版本：${JSON.stringify(firstRun)}`);
 
         // 换上之后的下一次启动：检查过、结论符合预期、不提示、不下载。检查只在启动时与每 24 小时做，所以重新启动一次。
-        const expected = route.recheck(from, target);
         const logCursor = await linesOf(shellLog);
         const requestCursor = await route.requestCursor();
         port = freePort();
@@ -224,15 +225,18 @@ async function smoke(options: Options): Promise<void> {
         await closeApp(appDir, step);
         await uninstall(installed, step);
     } finally {
-        if (installed !== null) await killUnder(installed.appDir);
-        route.stop();
-        await collectEvidence(route.evidence, {logs: join(stateRoot, "logs", "desktop"), ...route.evidenceFiles(), "nbook-update-state.json": join(installed?.channel ?? "", "nbook-update-state.json"), "version.json": join(installed?.appDir ?? "", "Resources", "version.json")});
-        for (const file of installed === null ? [] : await updaterResultFiles(installed.channel)) await cp(file, join(route.evidence, file.split(/[\\/]/u).at(-1) ?? "result.json")).catch(() => undefined);
-        for (const [name, content] of backups) {
-            const path = join(stateRoot, name);
-            if (content === null) await rm(path, {force: true});
-            else await writeFile(path, content);
-        }
+        // 还原排在存证据之前：缺省状态根可能有开发者自己的数据，证据目录出问题也不能挡住它。
+        const done = installed;
+        await cleanUp([
+            ["结束应用进程", () => (done === null ? undefined : killUnder(done.appDir))],
+            ["停本机更新源", () => route.stop()],
+            ...[...backups].map(([name, content]) => [`还原 ${name}`, () => (content === null ? rm(join(stateRoot, name), {force: true}) : writeFile(join(stateRoot, name), content))] as const),
+            ["存证据", () => collectEvidence(route.evidence, {logs: join(stateRoot, "logs", "desktop"), ...route.evidenceFiles(), "nbook-update-state.json": join(done?.channel ?? "", "nbook-update-state.json"), "version.json": join(done?.appDir ?? "", "Resources", "version.json")})],
+            ["存更新器的结果文件", async () => {
+                for (const file of done === null ? [] : await updaterResultFiles(done.channel)) await cp(file, join(route.evidence, file.split(/[\\/]/u).at(-1) ?? "result.json"));
+            }],
+            ["卸载残留的测试安装", () => uninstallLeftover(done)],
+        ]);
     }
 }
 

@@ -103,6 +103,26 @@ export async function closeApp(dir: string, log: (line: string) => void): Promis
     log("✓ 关窗：WM_CLOSE 之后进程都结束");
 }
 
+/**
+ * 成功与失败都要做的收尾：按顺序逐项做，一项失败不挡后面的；失败写进 stderr，不遮掉冒烟原来的错误。
+ * 顺序由调用方定：先停进程、还原用户数据，再存证据，最后卸载（卸载会删掉通道根里的证据）。
+ */
+export async function cleanUp(tasks: ReadonlyArray<readonly [string, () => unknown]>): Promise<void> {
+    for (const [label, task] of tasks) {
+        try {
+            await task();
+        } catch (error) {
+            console.error(`收尾“${label}”失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+}
+
+/** 失败路径的卸载：卸载项还在就卸（成功路径已经卸过时什么也不做），免得重跑时被“已经装着”挡住。 */
+export async function uninstallLeftover(installed: Installed | null): Promise<void> {
+    if (installed === null || (await uninstallEntry(installed.identifier)) === null) return;
+    await uninstall(installed, (line) => console.error(`（收尾）${line}`));
+}
+
 /** 收尾：结束 `dir` 下还在的进程（失败路径，不是被测的关闭）。 */
 export async function killUnder(dir: string): Promise<void> {
     for (const entry of await processesUnder(dir)) await killTree(entry.pid);
