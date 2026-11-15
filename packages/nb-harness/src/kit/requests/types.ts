@@ -146,3 +146,25 @@ export interface RequestUsage {
     readonly bytes: number;
     readonly payloadBytes: number;
 }
+
+/** 查找的一处命中：在哪一页的第几条（从 0 起；回复是消息页最后一条），是那一条里的第几处（从 0 起）。 */
+export interface RequestHit {
+    readonly page: "messages" | "system" | "tools" | "error";
+    readonly item: number;
+    readonly ordinal: number;
+}
+
+/** 列表上一条请求的命中：共几处、各页几处，第一处与它前后的字（Spec 输出 17）。 */
+export interface RequestMatch {
+    readonly count: number;
+    readonly pages: Readonly<Record<RequestHit["page"], number>>;
+    readonly first: RequestHit & {readonly before: string; readonly text: string; readonly after: string};
+}
+
+/** 一次查找的结果：有命中的行（带命中），没扫完时 `truncated` 与接着扫的游标。 */
+export interface RequestSearchPage {
+    readonly rows: readonly (RequestRow & {readonly match: RequestMatch})[];
+    readonly truncated: boolean;
+    readonly next?: string;
+    readonly seq: number;
+}

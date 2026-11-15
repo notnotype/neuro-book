@@ -122,6 +122,20 @@ export function requestsRemote(options: RequestsRemoteOptions): RemoteImplementa
             const result: RequestPageView = {...page, rows: page.rows.map(view), facets: {sessions: mergeSessions(page.facets.sessions), models: page.facets.models}};
             return context.ok(result);
         }, (error) => context.fail("trace-unavailable", {reason: error.reason})),
+        search: ({text, ...query}, context) => guarded(async () => {
+            let page;
+            try {
+                page = await recorder.search(text, query.sessions === undefined ? query : {...query, sessions: owners.expand(query.sessions)}, {signal: context.signal});
+            } catch (error) {
+                if (error instanceof TypeError) return context.fail("invalid-cursor");
+                throw error;
+            }
+            return context.ok({...page, rows: page.rows.map((row) => ({...row, ...contextOf(row.session)}))});
+        }, (error) => context.fail("trace-unavailable", {reason: error.reason})),
+        hits: ({id, text}, context) => guarded(async () => {
+            const hits = await recorder.hits(id, text);
+            return hits === null ? context.fail("request-not-found") : context.ok(hits);
+        }, (error) => context.fail("trace-unavailable", {reason: error.reason})),
         find: ({session, request}, context) => guarded(async () => {
             const row = await recorder.find(session, request);
             return row === null ? context.fail("request-not-found") : context.ok(view(row));

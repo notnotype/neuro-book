@@ -519,6 +519,47 @@ describe("列表", () => {
     });
 });
 
+describe("查找（输出 17、20）", () => {
+    test("只留有命中的请求，每条带共几处、各页几处与第一处前后的字；不分大小写，处数与 hits 一致；不查原始请求体", async () => {
+        const r = await rig();
+        const port = traceModelPort(portOf(async (_req, _signal, observe) => {
+            observe?.attempt?.(attempt(200, {body: JSON.stringify({secret: "只在请求体里的 Harbor"})}));
+            return reply("雾港的码头在第三章出现。HARBOR 是英文名。");
+        }), r.recorder);
+        await send(port, request([user("讲讲雾港 harbor 的来历")]), meta(1));
+        await send(port, request([user("别的话题")]), meta(2));
+        await settled(r, 2);
+
+        const found = await r.recorder.search("harbor");
+        expect(found.truncated).toBe(false);
+        expect(found.rows.map((row) => row.request)).toEqual([2, 1]);
+        const [second, first] = found.rows;
+        // 第二次只在回复里命中（“HARBOR”），第一次在用户的话与回复里各一处。
+        expect(second?.match).toMatchObject({count: 1, pages: {messages: 1, system: 0, tools: 0, error: 0}, first: {page: "messages", item: 1, ordinal: 0, text: "HARBOR"}});
+        expect(first?.match).toMatchObject({count: 2, first: {page: "messages", item: 0, before: "讲讲雾港 ", text: "harbor", after: " 的来历"}});
+        expect(await r.recorder.hits(first?.id ?? "", "harbor")).toEqual([{page: "messages", item: 0, ordinal: 0}, {page: "messages", item: 1, ordinal: 0}]);
+        expect((await r.recorder.search("请求体")).rows).toEqual([]);
+        expect((await r.recorder.search("讲讲", {purposes: ["compaction"]})).rows).toEqual([]);
+    });
+
+    test("留满上限就停，交回 truncated 与接着扫的游标；中止时失败", async () => {
+        const r = await rig();
+        const port = traceModelPort(portOf(answering("雾港")), r.recorder);
+        for (const number of [1, 2, 3]) await send(port, request([user(`第 ${String(number)} 次`)]), meta(number));
+        await settled(r, 3);
+        const page = await r.recorder.search("雾港", {}, {maxRows: 2});
+        expect([page.rows.map((row) => row.request), page.truncated]).toEqual([[3, 2], true]);
+        const rest = await r.recorder.search("雾港", {...(page.next === undefined ? {} : {cursor: page.next})}, {maxRows: 2});
+        expect([rest.rows.map((row) => row.request), rest.truncated]).toEqual([[1], false]);
+        const controller = new AbortController();
+        controller.abort(new Error("superseded"));
+        // 中止只在两段之间生效：扫的条数要多于一段。
+        for (let number = 4; number < 30; number += 1) await send(port, request([user(`第 ${String(number)} 次`)]), meta(number));
+        await settled(r, 29);
+        await expect(r.recorder.search("雾港", {}, {signal: controller.signal})).rejects.toThrow("superseded");
+    });
+});
+
 describe("边界", () => {
     test("没有会话说明的调用（complete()）不记；外层观察者照样收到线上事实", async () => {
         const r = await rig();

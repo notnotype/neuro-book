@@ -13,7 +13,7 @@ import {Type} from "typebox";
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
-import type {MessageOutline, RequestDetail, RequestPage, RequestRow, RequestUsage} from "@notnotype/nb-harness/kit/requests/types";
+import type {MessageOutline, RequestDetail, RequestHit, RequestMatch, RequestPage, RequestRow, RequestUsage} from "@notnotype/nb-harness/kit/requests/types";
 
 /**
  * 服务端补的上下文：`title` 是会话标题（后台标题会话取它所属会话的）；`background` 只在后台标题会话的请求上有，`owner` 是它所属的
@@ -53,7 +53,15 @@ export type RequestChangeView =
     | {readonly seq: number; readonly kind: "added" | "settled"; readonly row: RequestRowView}
     | {readonly seq: number; readonly kind: "removed"; readonly ids: readonly string[]};
 
-export type {MessageOutline, RequestUsage};
+/** 查找交回的一页：有命中的行（带命中），没扫完时 `truncated` 与接着扫的游标（Spec 输出 17）。 */
+export interface RequestSearchView {
+    readonly rows: readonly (RequestRowView & {readonly match: RequestMatch})[];
+    readonly truncated: boolean;
+    readonly next?: string;
+    readonly seq: number;
+}
+
+export type {MessageOutline, RequestHit, RequestMatch, RequestUsage};
 
 const object = <T>() => Type.Unsafe<T>(Type.Object({}, {additionalProperties: true}));
 
@@ -66,7 +74,7 @@ const Chunk = Type.Object({text: Type.String(), last: Type.Boolean()}, {addition
 const Status = Type.Union([Type.Literal("running"), Type.Literal("ok"), Type.Literal("error"), Type.Literal("aborted"), Type.Literal("interrupted"), Type.Literal("resend"), Type.Literal("cache-miss")]);
 const Purpose = Type.Union([Type.Literal("turn"), Type.Literal("approval"), Type.Literal("compaction"), Type.Literal("background")]);
 
-const Query = Type.Object({
+const QueryFields = {
     sessions: Type.Optional(Type.Array(Type.String({minLength: 1}), {maxItems: 200})),
     purposes: Type.Optional(Type.Array(Purpose)),
     statuses: Type.Optional(Type.Array(Status)),
@@ -75,7 +83,10 @@ const Query = Type.Object({
     sort: Type.Optional(Type.Union([Type.Literal("time"), Type.Literal("duration"), Type.Literal("input"), Type.Literal("cost")])),
     cursor: Type.Optional(Type.String({minLength: 1, maxLength: 400})),
     limit: Type.Optional(Type.Integer({minimum: 1, maximum: 500})),
-}, {additionalProperties: false});
+};
+const Query = Type.Object(QueryFields, {additionalProperties: false});
+/** 查找词：去掉首尾空白之后不能为空（宿主不为空词发查找）。 */
+const SearchText = Type.String({minLength: 1, maxLength: 200});
 
 const NoDetail = Type.Undefined();
 /** 记录目录整个读不了：`newer-format` 是更新的版本写的（不动它），`unreadable` 是权限、损坏之类。 */
@@ -83,6 +94,18 @@ const Unavailable = Type.Object({reason: Type.Union([Type.Literal("newer-format"
 
 const methods = {
     list: {input: Query, output: object<RequestPageView>(), effect: "read", errors: {"trace-unavailable": Unavailable, "invalid-cursor": NoDetail}},
+    /**
+     * 全文查找（Spec 输出 17）：与 `list` 同一套筛选、排序与游标，只交回有命中的请求。一次最多扫 3 秒或留 200 条；新的查找
+     * 开始时调用方中止上一次（调用的 `signal`），服务端随之停下。
+     */
+    search: {input: Type.Object({...QueryFields, text: SearchText}, {additionalProperties: false}), output: object<RequestSearchView>(), effect: "read", errors: {"trace-unavailable": Unavailable, "invalid-cursor": NoDetail}},
+    /** 一条请求里全部的命中（详情的查找条，Spec 输出 20）：处数与 `search` 给这一条的相同。 */
+    hits: {
+        input: Type.Object({id: RequestId, text: SearchText}, {additionalProperties: false}),
+        output: Type.Unsafe<readonly RequestHit[]>(Type.Array(Type.Unknown())),
+        effect: "read",
+        errors: {"trace-unavailable": Unavailable, "request-not-found": NoDetail},
+    },
     /** 会话里第几次请求的记录（“查看这次请求”、命令的 `request` 参数）。 */
     find: {
         input: Type.Object({session: Type.String({minLength: 1}), request: Type.Integer({minimum: 1})}, {additionalProperties: false}),

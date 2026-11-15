@@ -10,4 +10,5 @@ export type {RequestHandle, RequestRecorderOptions, RequestTraceSettings, Traced
 export {traceModelPort} from "./port.js";
 export {PREVIEW_CHARS} from "./outline.js";
 export {MASK} from "./sanitize.js";
+export {searchablePieces} from "./search.js";
 export type * from "./types.js";

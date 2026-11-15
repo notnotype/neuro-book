@@ -14,7 +14,8 @@ import type {JsonValue, ModelCallMeta, ModelRequest, ModelResponse, ModelWireAtt
 import {blockOutline, messageOutline, previewOf, replyOutline, toolOutline} from "./outline.js";
 import {maskHeaders, maskUrl, sha256, stripBlocks, stripMessage, stripPayloadImages} from "./sanitize.js";
 import {dayOf, FORMAT_VERSION, isRecordId, RequestFiles} from "./store.js";
-import type {BlockOutline, MessageOutline, PayloadState, RequestAttempt, RequestChange, RequestDetail, RequestPage, RequestQuery, RequestRow, RequestStatus, RequestUsage, ToolOutline} from "./types.js";
+import {occurrences, searchablePieces} from "./search.js";
+import type {BlockOutline, MessageOutline, PayloadState, RequestAttempt, RequestChange, RequestDetail, RequestHit, RequestMatch, RequestPage, RequestQuery, RequestRow, RequestSearchPage, RequestStatus, RequestUsage, ToolOutline} from "./types.js";
 
 /** 设置在每次请求开始时读（Spec 的设置表）：改了从下一次请求生效。 */
 export interface RequestTraceSettings {
@@ -63,6 +64,16 @@ const MAX_PAGE_SIZE = 500;
 const DEFAULT_PAYLOAD_LIMIT = 1024 ** 3;
 /** 大纲缓存的条数上限：满了整个丢掉重来（大纲按内容不变，重算只是多读一次文件）。 */
 const OUTLINE_CACHE = 20_000;
+/** 查找缓存的文字合计上限（字符）：超出时丢掉最早放进去的。同一段内容在几十次请求里重复出现，缓存让一次查找只读它一次。 */
+const SEARCH_CACHE_CHARS = 32 * 1024 * 1024;
+/** 一次查找最多扫多久、最多留几条有命中的请求（Spec 输出 17）；扫不完交回游标。 */
+const SEARCH_BUDGET_MS = 3000;
+const SEARCH_MAX_ROWS = 200;
+/** 扫这么多条请求让出一次事件循环：查找不挡模型调用与别的远程调用。 */
+const SEARCH_SLICE = 20;
+/** 第一处命中前后各带多少字。 */
+const SNIPPET_BEFORE = 24;
+const SNIPPET_AFTER = 60;
 
 type Settled = Exclude<RequestStatus, "running">;
 
@@ -287,6 +298,9 @@ export class RequestRecorder {
     /** 冻结的内容对象（内核的提交缓存跨请求是同一个对象）的哈希：每次请求只序列化新出现的内容。 */
     readonly #contentHashes = new WeakMap<object, string>();
     readonly #outlines = new Map<string, Outlines[keyof Outlines]>();
+    /** 查找用的文字（`searchablePieces` 用换行连起来），按内容哈希。 */
+    readonly #searchTexts = new Map<string, string>();
+    #searchChars = 0;
     readonly #listeners = new Set<(change: RequestChange) => void>();
 
     #opening: Promise<void> | null = null;
@@ -377,12 +391,17 @@ export class RequestRecorder {
         }
     }
 
+    /** 筛选后按排序键排好的记录；游标在列表与查找里一样用。 */
+    #sorted(query: RequestQuery): {entry: Entry; key: SortKey}[] {
+        const sort = query.sort ?? "time";
+        return [...this.#entries.values()].filter((entry) => matches(entry.row, query)).map((entry) => ({entry, key: sortKey(entry, sort)})).sort((a, b) => compareKeys(a.key, b.key));
+    }
+
     async list(query: RequestQuery = {}): Promise<RequestPage> {
         await this.#ready();
-        const sort = query.sort ?? "time";
         const rows = [...this.#entries.values()];
-        const filtered = rows.filter((entry) => matches(entry.row, query));
-        const keyed = filtered.map((entry) => ({entry, key: sortKey(entry, sort)})).sort((a, b) => compareKeys(a.key, b.key));
+        const keyed = this.#sorted(query);
+        const filtered = keyed.map((item) => item.entry);
         const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
         const from = after === null ? 0 : keyed.findIndex((item) => compareKeys(item.key, after) > 0);
         const limit = Math.min(Math.max(1, query.limit ?? PAGE_SIZE), MAX_PAGE_SIZE);
@@ -408,6 +427,108 @@ export class RequestRecorder {
                 models: facet(rows.filter((entry) => matches(entry.row, query, "models")).map((entry) => entry.row), (row) => row.model),
             },
         };
+    }
+
+    /**
+     * 全文查找（Spec 输出 17）：按列表的筛选与排序逐条扫，只留有命中的请求。分段扫、段间让出事件循环；扫满 `budgetMs` 或留满
+     * `maxRows` 条就停，交回 `truncated` 与接着扫的游标（同列表的游标）。`signal` 中止时以它的 `reason` 失败（新的查找作废旧的）。
+     * 不查原始请求体。
+     */
+    async search(text: string, query: RequestQuery = {}, options: {readonly signal?: AbortSignal; readonly budgetMs?: number; readonly maxRows?: number} = {}): Promise<RequestSearchPage> {
+        await this.#ready();
+        const budget = options.budgetMs ?? SEARCH_BUDGET_MS;
+        const maxRows = options.maxRows ?? SEARCH_MAX_ROWS;
+        const started = Date.now();
+        const keyed = this.#sorted(query);
+        const after = query.cursor === undefined ? null : decodeCursor(query.cursor);
+        const from = after === null ? 0 : keyed.findIndex((item) => compareKeys(item.key, after) > 0);
+        const rows: (RequestRow & {readonly match: RequestMatch})[] = [];
+        const seq = this.#committed;
+        let index = from < 0 ? keyed.length : from;
+        for (; index < keyed.length; index += 1) {
+            if ((index - from) % SEARCH_SLICE === 0 && index !== from) {
+                await new Promise<void>((resolve) => setImmediate(resolve));
+                if (options.signal?.aborted === true) throw options.signal.reason;
+                if (Date.now() - started >= budget) break;
+            }
+            const {entry} = keyed[index]!;
+            const match = await this.#matchOf(entry, text);
+            if (match !== null) rows.push({...entry.row, match});
+            if (rows.length >= maxRows) {
+                index += 1;
+                break;
+            }
+        }
+        const truncated = index < keyed.length;
+        const last = keyed[index - 1];
+        return {rows, truncated, ...(truncated && last !== undefined ? {next: encodeCursor(last.key)} : {}), seq};
+    }
+
+    /** 一条请求里全部的命中，按消息（回复在最后）、系统提示词、工具、错误的先后；没有这条记录时交回 null。 */
+    async hits(id: string, text: string): Promise<RequestHit[] | null> {
+        await this.#ready();
+        const entry = this.#entries.get(id);
+        if (entry === undefined) return null;
+        const hits: RequestHit[] = [];
+        for (const item of this.#searchItems(entry)) {
+            const count = occurrences([await this.#searchText(item)], text).length;
+            for (let ordinal = 0; ordinal < count; ordinal += 1) hits.push({page: item.page, item: item.item, ordinal});
+        }
+        return hits;
+    }
+
+    /** 一条请求里要查的各条：消息（回复接在最后）、系统提示词、工具、错误文字。 */
+    #searchItems(entry: Entry): {readonly page: RequestHit["page"]; readonly item: number; readonly hash?: string; readonly text?: string}[] {
+        const {start, end} = entry;
+        return [
+            ...start.messages.map((hash, item) => ({page: "messages" as const, item, hash})),
+            ...(end?.reply === undefined ? [] : [{page: "messages" as const, item: start.messages.length, hash: end.reply}]),
+            ...start.system.map((hash, item) => ({page: "system" as const, item, hash})),
+            ...start.tools.map((hash, item) => ({page: "tools" as const, item, hash})),
+            ...(end?.errorMessage === undefined ? [] : [{page: "error" as const, item: 0, text: end.errorMessage}]),
+        ];
+    }
+
+    /** 一条要查的文字（与查看器显示的相同），按哈希缓存。内容已经清掉时当作空的。 */
+    async #searchText(item: {readonly hash?: string; readonly text?: string}): Promise<string> {
+        if (item.hash === undefined) return item.text ?? "";
+        const cached = this.#searchTexts.get(item.hash);
+        if (cached !== undefined) return cached;
+        const raw = await this.#files.readBlob(item.hash);
+        let text = "";
+        if (raw !== null) {
+            try {
+                text = searchablePieces(JSON.parse(raw)).join("\n");
+            } catch (error) {
+                this.#options.report("requests.unreadable", `Recorded content is damaged: ${errorText(error)}`, {hash: item.hash});
+            }
+        }
+        this.#searchTexts.set(item.hash, text);
+        this.#searchChars += text.length;
+        for (const [hash, value] of this.#searchTexts) {
+            if (this.#searchChars <= SEARCH_CACHE_CHARS) break;
+            this.#searchTexts.delete(hash);
+            this.#searchChars -= value.length;
+        }
+        return text;
+    }
+
+    async #matchOf(entry: Entry, text: string): Promise<RequestMatch | null> {
+        const pages: Record<RequestHit["page"], number> = {messages: 0, system: 0, tools: 0, error: 0};
+        let first: RequestMatch["first"] | null = null;
+        let count = 0;
+        for (const item of this.#searchItems(entry)) {
+            const content = await this.#searchText(item);
+            const found = occurrences([content], text);
+            if (found.length === 0) continue;
+            pages[item.page] += found.length;
+            count += found.length;
+            if (first === null) {
+                const at = found[0]!;
+                first = {page: item.page, item: item.item, ordinal: 0, before: content.slice(Math.max(0, at - SNIPPET_BEFORE), at), text: content.slice(at, at + text.length), after: content.slice(at + text.length, at + text.length + SNIPPET_AFTER)};
+            }
+        }
+        return first === null ? null : {count, pages, first};
     }
 
     /** 大纲级详情；没有这条记录时交回 null（`request-not-found`）。 */

@@ -157,6 +157,23 @@ describe("记录", () => {
     });
 });
 
+describe("查找（输出 17、20）", () => {
+    test("只交回有命中的请求，处数与这一条的命中一致；按会话筛选连同后台请求", async () => {
+        const w = await world();
+        const {requests} = await w.window("search");
+        endpoint.script("雾港在第三章。", "别的。");
+        const first = (await (await say(w, "讲讲雾港")).snapshot()).header.id;
+        const second = (await (await say(w, "说点别的")).snapshot()).header.id;
+        await settledRows(requests, first, 1);
+        await settledRows(requests, second, 1);
+        const found = ok(await requests.search({text: "雾港"}));
+        expect(found.rows.map((row) => [row.session, row.match.count])).toEqual([[first, 2]]);
+        expect(ok(await requests.hits({id: found.rows[0]!.id, text: "雾港"}))).toHaveLength(2);
+        expect(ok(await requests.search({text: "雾港", sessions: [second]})).rows).toEqual([]);
+        expect(await requests.hits({id: "00000000-0000-4000-8000-000000000000", text: "雾港"})).toMatchObject({ok: false, code: "request-not-found"});
+    });
+});
+
 describe("查看", () => {
     test("输出 25：清空一个会话连同它的后台请求，别的会话不动", async () => {
         const w = await world();
