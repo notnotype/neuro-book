@@ -60,6 +60,7 @@ export interface UpdateControllerOptions {
     readonly onHint: (current: CurrentHint | null, endPrevious: boolean) => void;
     /** 在系统浏览器打开最新 Release 的页面（只提示的“打开下载页”）。 */
     readonly openDownloadPage: () => void;
+    /** 诊断出口：失败时第二个参数是 Error；记录事实的 `desktop.update.checked` 是 `key=value` 的文字（见 shell.ts 的 `ShellOptions.report`）。 */
     readonly report: (event: string, error: unknown) => void;
 }
 
@@ -213,6 +214,11 @@ export class UpdateController {
         if (this.#phase !== "running") return;
         const remote = await this.#options.updater.check();
         if (this.#currentPhase() !== "running") return;
+        if (remote.ok && isStableVersion(remote.version)) {
+            // 记下每次检查的结论（与本地版本比），发布流水线的更新冒烟靠它判断“检查过、没有提示”不是因为没检查。
+            const order = Bun.semver.order(remote.version, this.#options.updater.local.version);
+            this.#options.report("desktop.update.checked", `remote=${remote.version} local=${this.#options.updater.local.version} result=${order === 1 ? "newer" : order === 0 ? "same" : "older"}`);
+        }
         this.#evaluate(remote);
         this.#emit(true);
     }

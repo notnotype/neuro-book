@@ -56,6 +56,8 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
     let nextId = 0;
     let exitCode: number | null = null;
     const events: string[] = [];
+    /** 记录事实的诊断（`key=value` 的文字），按“事件 文字”记。 */
+    const facts: string[] = [];
     let shell!: DesktopShell;
     const windows: WindowPort = {
         open() {
@@ -92,7 +94,10 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
             },
         },
         clock: systemClock,
-        report: (event) => void events.push(event),
+        report: (event, detail) => {
+            events.push(event);
+            if (typeof detail === "string") facts.push(`${event} ${detail}`);
+        },
         updates: options.updates,
     });
     /** 用户关一个窗口，页面接下并同意。 */
@@ -104,7 +109,7 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
         shell.windows.pageAnswered(id, ask[1], "allow");
         return ask[2];
     };
-    return {shell, views, loaded, asks, open, events, closeAndAllow, exitCode: () => exitCode};
+    return {shell, views, loaded, asks, open, events, facts, closeAndAllow, exitCode: () => exitCode};
 }
 
 /** 脚本入口在状态根上记下的各代（`testing/scripted-server.ts`）。 */
@@ -135,6 +140,8 @@ describe("桌面壳的流程", () => {
         expect(a.exitCode()).toBe(0);
         expect((await queryNeuroBook(root)).state).toBe("none");
         expect(await readUncleanStop(root)).toBeNull();
+        // 正向证据：就绪时记下服务端的 PID，经停止路径停完记下没有强制结束、退出码 0。
+        expect(a.facts.filter((fact) => fact.startsWith("desktop.server."))).toEqual([expect.stringMatching(/^desktop\.server\.ready pid=\d+$/), "desktop.server.stopped forced=false exitCode=0"]);
         // 锁放下了：再取得到。
         const again = await acquireDesktopLock({stateRoot: root, report: () => undefined, onOpenWindow: () => ({ok: true})});
         expect(again.ok).toBe(true);
@@ -258,6 +265,8 @@ describe("桌面壳的流程", () => {
             expect(a.exitCode()).toBe(0);
             expect(await records(root, "stopped.jsonl")).toEqual([{generation: 2}]);
             expect(alive(second)).toBe(false);
+            // 第一代意外退出有记录（它不经停止路径，也不写异常标记）；第二代经停止路径以 0 停完。
+            expect(a.facts.filter((fact) => fact.startsWith("desktop.server."))).toEqual([`desktop.server.ready pid=${String(first)}`, expect.stringMatching(/^desktop\.server\.exited exitCode=/), "desktop.server.stopped forced=false exitCode=0"]);
             expect((await queryNeuroBook(root)).state).toBe("none");
             expect(await readUncleanStop(root)).toBeNull();
         } finally {
@@ -275,6 +284,7 @@ describe("桌面壳的流程", () => {
         expect(a.loaded).toEqual([]);
         expect((await queryNeuroBook(root)).state).toBe("none");
         expect(await readUncleanStop(root)).toMatchObject({forced: true});
+        expect(a.facts).toContainEqual(expect.stringMatching(/^desktop\.server\.stopped forced=true exitCode=/));
 
         const b = fakeShell(root);
         const running = b.shell.run();
