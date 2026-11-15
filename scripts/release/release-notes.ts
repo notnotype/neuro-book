@@ -84,6 +84,10 @@ export function releaseNotes(input: NotesInput): {markdown: string; problems: st
     // 版本号变了的源码包：每个一行，链到这个标签下它的 CHANGELOG。说明的读者是桌面用户，库的变化写给直接用库的人。
     const released = floor === null ? [] : input.packages.filter((entry) => entry.previousVersion !== entry.version);
     for (const entry of released) {
+        if (entry.previousVersion !== null && compareVersions(entry.version, entry.previousVersion) < 0) {
+            problems.push(`packages/${entry.dir} 的版本从 ${entry.previousVersion} 降到了 ${entry.version}：源码包的版本只升不降（ADR 0029）`);
+            continue;
+        }
         if (entry.changelog === null) {
             problems.push(`packages/${entry.dir} 的版本从 ${entry.previousVersion ?? "（新包）"} 改成了 ${entry.version}，却没有 CHANGELOG.md`);
             continue;

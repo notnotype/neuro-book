@@ -6,10 +6,13 @@
  * 这次提了版本号的源码包的 CHANGELOG 定稿（`[Unreleased]` → `[<各自的版本>] - <今天>`），刷新 `bun.lock`，提交
  * `release: v<版本>`。不打标签、不推送：推送与打标签由开发者做（标签规则集只允许开发者建 `v*`）。
  *
- * 源码包的版本照 ADR 0029 手工提（改它的 `package.json` 并先提交）：提了版本号就是“这个包这次发”。与上一个版本标签相比
- * 版本号变了的包要有 CHANGELOG、`[Unreleased]` 有条目；版本没变而 `[Unreleased]` 有条目的，留到它下次提版。
+ * 源码包的版本照 ADR 0029 手工提（改它的 `package.json` 并先提交）：提了版本号就是“这个包这次发”。与上一个桌面版本相比
+ * 版本号升了的包要有 CHANGELOG、`[Unreleased]` 有条目；版本没变而 `[Unreleased]` 有条目的，留到它下次提版；版本降了的停下。
+ * “上一个桌面版本”与发布流水线的门禁同一个来源：GitHub 上低于本次、有安装包的最高稳定版本（`previousDesktopRelease`），
+ * 不用本地最高的标签：推了标签而没发出 Release 的版本不算（要本机的 `gh` 已登录）。
  *
- * 先只读收集并检查全部，有一项不过就不写任何文件；全部通过才一次写入。
+ * 先只读收集并检查全部，有一项不过就不写任何文件；全部通过才写入。写入之后的任何一步（刷新 `bun.lock`、重新解析、
+ * `git add` 与 `git commit`）失败，都把写过的文件与 `bun.lock` 还原成原来的字节、撤掉暂存，再报错。
  */
 
 import {spawnSync} from "node:child_process";
@@ -19,6 +22,7 @@ import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
 
 import {finalizeUnreleased, isEmpty, parseChangelog, ChangelogError} from "#scripts/release/changelog";
+import {GitHubReleases, hasDesktopSetup, previousDesktopRelease, spawnRun} from "#scripts/release/github-release";
 import {RELEASE_PACKAGES, releaseDirectories} from "#scripts/release/packages";
 import {compareVersions} from "#scripts/release/semver";
 import {sourceVersions, type ReleaseStage} from "#scripts/release/tag";
@@ -37,7 +41,7 @@ export type PrepareState = {
     dirty: readonly string[];
     version: string;
     stage: string;
-    /** 低于目标版本的最高 `v<稳定版本>` 标签；第一次发布没有。 */
+    /** 上一个桌面版本的标签（与门禁相同：GitHub 上低于目标、有安装包的最高稳定版本）；第一次发布没有。 */
     previousTag: string | null;
     appPackageJson: string;
     product: string;
@@ -86,6 +90,10 @@ export function preparePlan(state: PrepareState, target: {version: string; stage
     // 第一次发布（没有上一个标签）时源码包没有比较的基准，不定稿。
     for (const entry of state.previousTag === null ? [] : state.packages) {
         const path = `packages/${entry.dir}/CHANGELOG.md`;
+        if (entry.previousVersion !== null && compareVersions(entry.version, entry.previousVersion) < 0) {
+            problems.push(`packages/${entry.dir} 的版本从 ${entry.previousVersion} 降到了 ${entry.version}：源码包的版本只升不降（ADR 0029）`);
+            continue;
+        }
         if (entry.version === entry.previousVersion) {
             if (entry.changelog !== null && !isEmpty(parseChangelog(entry.changelog, path).unreleased)) notices.push(`${path} 的 [Unreleased] 有条目，但版本没提（仍是 ${entry.version}）：留到它下次提版`);
             continue;
@@ -119,14 +127,25 @@ function read(path: string): string {
     return readFileSync(join(REPOSITORY, path), "utf8");
 }
 
-/** 只读地收集仓库状态（会先 `git fetch origin master`）。 */
-function collectState(target: string): PrepareState {
-    mustGit(["fetch", "--quiet", "origin", "master"]);
+/** `owner/name`：`GITHUB_REPOSITORY`，否则从 origin 的地址取（`git@github.com:o/n.git` 或 `https://github.com/o/n`）。 */
+function repositoryName(): string {
+    if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY;
+    const url = mustGit(["remote", "get-url", "origin"]);
+    const match = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/u.exec(url);
+    if (match === null) throw new Error(`origin（${url}）不是 GitHub 上的仓库，设 GITHUB_REPOSITORY=<owner/name>`);
+    return match[1] as string;
+}
+
+/** 只读地收集仓库状态（会先取 origin 的 master 与标签，再经 `gh` 读 Release 列表）。 */
+async function collectState(target: string): Promise<PrepareState> {
+    mustGit(["fetch", "--quiet", "--tags", "origin", "master"]);
     const source = sourceVersions(REPOSITORY);
     const stage = /export const PRODUCT_STAGE: ProductStage = "([^"]+)";/.exec(read(PRODUCT_TS))?.[1] ?? "";
-    const tags = mustGit(["tag", "--list", "v*"]).split("\n").filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag));
-    const lower = STABLE_VERSION.test(target) ? tags.filter((tag) => compareVersions(tag.slice(1), target) < 0) : [];
-    const previousTag = lower.sort((left, right) => compareVersions(right.slice(1), left.slice(1)))[0] ?? null;
+    let previousTag: string | null = null;
+    if (STABLE_VERSION.test(target)) {
+        const github = new GitHubReleases(spawnRun, repositoryName());
+        previousTag = await previousDesktopRelease(target, await github.list(), async (tag) => hasDesktopSetup(await github.assets(tag)));
+    }
     return {
         branch: mustGit(["rev-parse", "--abbrev-ref", "HEAD"]),
         containsOrigin: git(["merge-base", "--is-ancestor", "origin/master", "HEAD"]).code === 0,
@@ -149,7 +168,7 @@ function collectState(target: string): PrepareState {
 
 class UsageError extends Error {}
 
-function main(argv: readonly string[]): number {
+async function main(argv: readonly string[]): Promise<number> {
     const parse = () => parseArgs({args: [...argv], options: {stage: {type: "string"}}, allowPositionals: true});
     let parsed: ReturnType<typeof parse>;
     try {
@@ -162,8 +181,9 @@ function main(argv: readonly string[]): number {
     if (version === undefined || extra.length > 0 || (stage !== undefined && stage !== "canary" && stage !== "preview")) {
         throw new UsageError("用法：bun run release:prepare <版本> [--stage canary|preview]（缺省沿用现在的阶段）");
     }
-    const state = collectState(version);
+    const state = await collectState(version);
     const date = new Date().toISOString().slice(0, 10);
+    console.log(`上一个桌面版本：${state.previousTag ?? "没有（第一次发布）"}`);
     const plan = preparePlan(state, {version, stage: (stage ?? state.stage) as ReleaseStage, date});
     for (const notice of plan.notices) console.log(`提示：${notice}`);
     if (plan.problems.length > 0) {
@@ -171,17 +191,24 @@ function main(argv: readonly string[]): number {
         console.error("没有改任何文件。");
         return 1;
     }
-    for (const write of plan.writes) writeFileSync(join(REPOSITORY, write.path), write.text);
-    // 工作区包的版本记在 bun.lock 里：不刷新，CI 的 --frozen-lockfile 会失败。
-    const lock = spawnSync("bun", ["install", "--lockfile-only"], {cwd: REPOSITORY, stdio: "inherit"});
-    if (lock.status !== 0) {
-        console.error("✗ bun install --lockfile-only 失败：文件已写，没有提交；修好后 git diff 核对再自己提交，或 git checkout 这些文件重来");
+    const paths = [...plan.writes.map((write) => write.path), "bun.lock"];
+    // 写之前记下原来的字节（这些文件都已提交、没有改动，见 dirty 检查），后面任何一步失败都还原。
+    const originals = new Map(paths.map((path) => [path, readFileSync(join(REPOSITORY, path))]));
+    try {
+        for (const write of plan.writes) writeFileSync(join(REPOSITORY, write.path), write.text);
+        // 工作区包的版本记在 bun.lock 里：不刷新，CI 的 --frozen-lockfile 会失败。
+        const lock = spawnSync("bun", ["install", "--lockfile-only"], {cwd: REPOSITORY, stdio: "inherit"});
+        if (lock.status !== 0) throw new Error(`bun install --lockfile-only 失败（退出码 ${String(lock.status)}）`);
+        for (const write of plan.writes) if (write.path.endsWith("CHANGELOG.md")) parseChangelog(read(write.path), write.path);
+        mustGit(["add", "--", ...paths]);
+        mustGit(["commit", "--quiet", "-m", `release: v${version}`, "--", ...paths]);
+    } catch (error) {
+        for (const [path, bytes] of originals) writeFileSync(join(REPOSITORY, path), bytes);
+        const unstaged = git(["reset", "--quiet", "--", ...paths]);
+        console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+        console.error(unstaged.code === 0 ? `已把 ${paths.join("、")} 还原成原来的样子，没有提交。` : `文件已还原，撤掉暂存失败（${unstaged.stderr}）：用 git status 核对暂存区。`);
         return 1;
     }
-    for (const write of plan.writes) if (write.path.endsWith("CHANGELOG.md")) parseChangelog(read(write.path), write.path);
-    const paths = [...plan.writes.map((write) => write.path), "bun.lock"];
-    mustGit(["add", "--", ...paths]);
-    mustGit(["commit", "--quiet", "-m", `release: v${version}`, "--", ...paths]);
     console.log(`✓ 提交了 release: v${version}（${paths.join("、")}）`);
     console.log(`下一步：git push origin master；再由开发者打标签：git tag v${version} && git push origin v${version}`);
     return 0;
@@ -189,7 +216,7 @@ function main(argv: readonly string[]): number {
 
 if (import.meta.main) {
     try {
-        process.exitCode = main(Bun.argv.slice(2));
+        process.exitCode = await main(Bun.argv.slice(2));
     } catch (error) {
         console.error(error instanceof UsageError ? error.message : error);
         process.exitCode = error instanceof UsageError ? 2 : 1;

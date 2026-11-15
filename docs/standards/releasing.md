@@ -23,7 +23,7 @@
 ## 发版
 
 1. 源码包要发的，先各自提版、补好它的 `[Unreleased]`，合入 master。
-2. 在主工作区的 master 上（与 origin 同步）：`bun run release:prepare <版本> [--stage canary|preview]`。它先只读检查：在 master、包含 `origin/master`、会发布的目录与 `bun.lock` 干净、版本更高、应用的 `[Unreleased]` 有条目、与上一个版本标签相比提了版本的源码包有记录且有条目；全部通过才改两处产品版本与阶段、把这些记录的 `[Unreleased]` 定稿成 `[<各自的版本>] - <今天>`、刷新 `bun.lock`，提交 `release: v<版本>`。版本没提而 `[Unreleased]` 有条目的源码包留到它下次提版，只打一行提示。
+2. 在主工作区的 master 上（与 origin 同步）：`bun run release:prepare <版本> [--stage canary|preview]`。它先只读检查：在 master、包含 `origin/master`、会发布的目录与 `bun.lock` 干净、版本更高、应用的 `[Unreleased]` 有条目、与上一个桌面版本（与门禁同一来源：GitHub 上低于本次、有安装包的最高稳定版本，要本机的 `gh` 已登录）相比提了版本的源码包有记录且有条目、没有降版本的；全部通过才改两处产品版本与阶段、把这些记录的 `[Unreleased]` 定稿成 `[<各自的版本>] - <今天>`、刷新 `bun.lock`，提交 `release: v<版本>`；写入之后任何一步失败都把这些文件还原、不提交。版本没提而 `[Unreleased]` 有条目的源码包留到它下次提版，只打一行提示。
 3. 推 master（README 的图片用 GitHub 上的地址，没推送时 npm 页面看不到）。
 4. 开发者在这个提交上打标签并推送：`git tag v<版本> && git push origin v<版本>`。
 

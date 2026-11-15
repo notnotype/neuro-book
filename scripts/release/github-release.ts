@@ -241,7 +241,8 @@ export async function publishRelease(github: GitHubReleases, version: string, di
     return {latest};
 }
 
-async function spawnRun(argv: readonly string[]): Promise<RunResult> {
+/** 真正调 `gh` 的 `Run`：stdin 不接、stdout 与 stderr 收下。 */
+export async function spawnRun(argv: readonly string[]): Promise<RunResult> {
     const child = Bun.spawn([...argv], {stdin: "ignore", stdout: "pipe", stderr: "pipe"});
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return {code, stdout, stderr};

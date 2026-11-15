@@ -12,6 +12,8 @@
  * 不静默丢掉：说明由这里解析出的条目生成，丢一行就是 Release 说明里少一条。
  */
 
+import {compareVersions} from "#scripts/release/semver";
+
 /** 分类与它们在说明里的次序。`数据与升级` 只有应用用，说明里单独放在最前。 */
 export const CATEGORIES = ["不兼容的改动", "新增", "改动", "修复", "移除", "数据与升级"] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -72,6 +74,8 @@ export function parseChangelog(text: string, name = "CHANGELOG.md"): Changelog {
         if (match === null) throw new ChangelogError(`${name} 的标题“${heading}”不是 ## [<版本>] - <YYYY-MM-DD>`);
         const [, version, date] = match as unknown as [string, string, string];
         if (releases.some((release) => release.version === version)) throw new ChangelogError(`${name} 里 [${version}] 出现了两次`);
+        const newer = releases.at(-1);
+        if (newer !== undefined && compareVersions(version, newer.version) > 0) throw new ChangelogError(`${name} 的版本段要从新到旧：[${version}] 排在 [${newer.version}] 下面`);
         releases.push({version, date, section: parseSection(body, `${name} 的 [${version}]`)});
     });
     return {unreleased, releases};

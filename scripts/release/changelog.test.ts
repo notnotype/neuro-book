@@ -45,6 +45,7 @@ describe("解析变更记录", () => {
         expect(() => parseChangelog(`${SAMPLE}\n## [0.13.0] - 2026-11-15\n`)).toThrow("[0.13.0] 出现了两次");
         expect(() => parseChangelog("## [0.13.0] - 2026-11-15\n")).toThrow("第一个 ## 标题要是 ## [Unreleased]");
         expect(() => parseChangelog("## [Unreleased]\n\n## [0.13.0]\n")).toThrow("不是 ## [<版本>] - <YYYY-MM-DD>");
+        expect(() => parseChangelog("## [Unreleased]\n\n## [0.13.0] - 2026-11-15\n\n## [0.14.0] - 2026-11-20\n")).toThrow("要从新到旧：[0.14.0] 排在 [0.13.0] 下面");
     });
 });
 

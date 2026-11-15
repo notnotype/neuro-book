@@ -87,6 +87,7 @@ describe("Release 说明", () => {
             expect.stringContaining("packages/nb-ui/CHANGELOG.md 没有 [0.4.1]"),
             expect.stringContaining("packages/nb-story 的版本从 0.2.3 改成了 0.2.4，却没有 CHANGELOG.md"),
         ]);
+        expect(releaseNotes(input({packages: [nbUi({version: "0.3.9"})]})).problems).toEqual([expect.stringContaining("从 0.4.0 降到了 0.3.9")]);
     });
 
     it("preview 的阶段说明；条目的续行缩进成同一项", () => {

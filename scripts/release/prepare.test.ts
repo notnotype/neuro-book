@@ -78,6 +78,12 @@ describe("发版准备", () => {
         expect(plan.writes.map((write) => write.path).filter((path) => path.startsWith("packages/nb-"))).toEqual([]);
     });
 
+    it("源码包的版本比上一个桌面版本时低：停下，不写任何文件", () => {
+        const plan = preparePlan(state({packages: [{dir: "nb-ui", version: "0.4.0", previousVersion: "0.4.2", changelog: NB_UI_CHANGELOG}]}), TARGET);
+        expect(plan.problems.join("\n")).toContain("从 0.4.2 降到了 0.4.0");
+        expect(plan.writes).toEqual([]);
+    });
+
     it("第一次发布（没有上一个版本标签）：源码包不定稿", () => {
         const plan = preparePlan(state({previousTag: null}), TARGET);
         expect(plan.problems).toEqual([]);
