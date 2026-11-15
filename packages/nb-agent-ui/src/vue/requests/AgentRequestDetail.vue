@@ -50,10 +50,10 @@ watch(() => value.value?.id, () => {
     prefixOpen.value = false;
 });
 
-/** 收起的相同前缀有几条：只有一条时不收（收起来不比原来短）。 */
+/** 收起的相同前缀有几条（Spec 输出 19：有相同的前缀就收，一条也收，读的人一眼看出哪些是这次新加的）。 */
 const folded = computed(() => {
     const previous = value.value?.previous;
-    return previous !== undefined && previous.sharedPrefix > 1 && !prefixOpen.value ? previous.sharedPrefix : 0;
+    return previous !== undefined && previous.sharedPrefix > 0 && !prefixOpen.value ? previous.sharedPrefix : 0;
 });
 const shownMessages = computed(() => (value.value?.messages ?? []).slice(folded.value).map((message, offset) => ({message, index: folded.value + offset})));
 /** 这次新加的从哪条起（前面画一条分隔线）；没有前一次或全是新的时不画。 */
@@ -299,7 +299,7 @@ watch(() => props.contents, () => {
                     <li v-if="folded > 0" class="ard__item">
                         <button type="button" class="ard__item-head ard__item-head--fold" :aria-expanded="false" data-request-prefix @click="prefixOpen = true">
                             <span class="ard__index"><span class="i-lucide-chevrons-up-down" aria-hidden="true"></span></span>
-                            <span class="ard__preview ard__muted">{{ t("requests.message.samePrefix", {last: folded, request: value.previous!.request}) }}</span>
+                            <span class="ard__preview ard__muted">{{ folded === 1 ? t("requests.message.samePrefixOne", {request: value.previous!.request}) : t("requests.message.samePrefix", {last: folded, request: value.previous!.request}) }}</span>
                         </button>
                     </li>
                     <template v-for="{message, index} in shownMessages" :key="`m${index}`">

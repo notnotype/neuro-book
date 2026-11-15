@@ -612,6 +612,7 @@ export default {
             failed: "工具没有成功",
             empty: "没有消息",
             samePrefix: "第 1–{{last}} 条和 #{{request}} 相同",
+            samePrefixOne: "第 1 条和 #{{request}} 相同",
             newHere: "这次新加的",
         },
         payload: {

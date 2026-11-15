@@ -624,6 +624,7 @@ export default {
             failed: "The tool did not succeed",
             empty: "No messages",
             samePrefix: "Messages 1–{{last}} are the same as #{{request}}",
+            samePrefixOne: "Message 1 is the same as #{{request}}",
             newHere: "New in this request",
         },
         payload: {

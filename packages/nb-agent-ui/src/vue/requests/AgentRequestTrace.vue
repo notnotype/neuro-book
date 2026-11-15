@@ -89,9 +89,10 @@ function onAction(action: RequestTraceAction): void {
     emit("action", action);
 }
 
-// 选中被宿主清掉（例如清空了记录）时回到列表。
-watch(() => props.selected, (selected) => {
+// 宿主带着选中打开页面（“查看这次请求”、打开时选中最新的一条）时窄态显示详情；选中被清掉（清空了记录）时回到列表。
+watch(() => props.selected, (selected, previous) => {
     if (selected === null) view.value = "list";
+    else if (previous === null) view.value = "detail";
 });
 
 const index = computed(() => props.rows.findIndex((row) => row.id === props.selected));
