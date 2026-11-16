@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t09-links-images
-status: shelved
-updated: 2026-10-16
+status: planned
+updated: 2026-11-16
 ---
 
 # 链接与图片的插入
