@@ -1,0 +1,41 @@
+F1 [中] “有工作在跑”对话框的缺省按钮只在颜色上是“取消”，键盘上不是缺省
+位置：packages/neuro-book/desktop/src/views/shell/index.html:60-72（show 里只有 index===0 加 primary 类）、:87
+问题：Spec（desktop-shell 输出 30）写“取消（缺省）”。页面里“缺省”只是蓝色底，没有 autofocus、没有 focus()，也没有处理 Esc。窗口刚开时焦点在 body：按 Enter 什么都不发生，要先 Tab；Tab 第一下才落到“取消”。这是破坏性确认（“仍然退出”会中断在跑的工作），原生对话框的惯例是 Enter 即缺省、Esc 即取消。同页已有的“没有响应”等对话框做法相同，所以不是本次引入，但这是第一个把“缺省按钮”写进合同的对话框。
+触发场景：托盘“退出”后弹出对话框，用户直接按 Enter 或 Esc，对话框没反应（只有点右上 X 才等于“取消”）。
+建议：show 渲染完后对 index===0 的按钮调 focus()（所有对话框都受益，焦点环是系统缺省样式）；Esc 可选：keydown 监听 Escape 时若 actions 含 stay 就点 stay。只给本对话框加也行（在 show 里按 actions[0] 是 stay 判断）。
+验证：从代码推断，未在 Windows 上实测。
+F2 [低] 高对比度（forced-colors）下“缺省按钮”的区分消失
+位置：packages/neuro-book/desktop/src/views/shell/index.html:22（button.primary）、:31（forced-colors 只处理了窗口按钮）
+问题：高对比度模式下浏览器把按钮背景、边框、文字都换成系统色，button.primary 的蓝底与白字被覆盖，三个按钮外观完全一样；页面里表示“取消是缺省”的唯一信号就没了。按钮本身仍可聚焦、可点，所以可用，只是看不出缺省。
+触发场景：开启 Windows 高对比度主题时打开“有工作在跑”对话框。
+建议：在 forced-colors 的媒体查询里补 `button.primary { border-width: 2px; font-weight: 600; }`（边框色系统会换成 ButtonText，粗细仍保留），并配合 F1 的 focus() 让缺省按钮至少有焦点环。
+F3 [低] “计数”与“无法确认”两行同时出现时语义自相矛盾；只有“无法确认”时标题又断言“有工作在跑”
+位置：packages/neuro-book/desktop/src/views/shell/index.html:87
+问题：count>0 且 uncertain 为真（取到了一部分、另有取不到的）时正文是“有 2 项工作在跑。”紧跟“无法确认是否有工作在跑。”，后一句在前一句已确定有工作的前提下读不通，应该是“还有一部分无法确认”。count==0 且 uncertain（整个取不到）时标题“NeuroBook 有工作在跑，退出会中断它们”是断言，正文又说“无法确认是否有工作在跑”，两句互相打架。两种组合都是 Spec 字面允许的（“有工作时写出项数、取不到时写‘无法确认是否有工作在跑’”），实现照字面做了，没有违约；问题出在 Spec 措辞没考虑组合。
+触发场景：服务端的在跑工作接口返回 failed 非空，或超时 8 秒、连不上。
+建议：不改标题（Spec 定的），只改页面里组合时的第二行：count>0 && uncertain 时写“另有部分工作无法确认。”，count==0 && uncertain 时保留原句；顺手把 Spec 输出 30 这一句补成两种情形各写一次。若觉得收益小也可以只记为已知文案限制，不动。
+F4 [低] 页面把三项都交给壳的路径没有测试覆盖第三项
+位置：packages/neuro-book/src/plugins/desktop/zoom.test.ts（只断言 values.zoom）、packages/neuro-book/e2e/desktop-settings.e2e.ts:55-58（zooms 只取 values.zoom）；实现在 src/plugins/desktop/web/zoom.ts:111-115、web/plugin.ts:90-92
+问题：closeLastWindow 加进 values() 后，没有任何测试断言“用户层写了 tray，页面交给壳的 values.closeLastWindow 是 tray”，也没有“缺省交 quit”和“用户层不可用时不交”对第三项的覆盖。类型与 DesktopSettingValuesSchema（additionalProperties false）会让漏交在编译期与桥的解析里暴露，所以风险小；但“改设置立刻对下一次关窗生效”这条行为本身（Spec 输出 28）在页面一侧没有证据，e2e 里改 settings.json 只试了 zoom。
+建议：在 desktop-settings.e2e.ts 现有“直接改设置文件”那条（:128-130）里同时写 closeLastWindow: "tray"，断言最后一条 desktop-settings 的 closeLastWindow 为 tray；不另加新用例。桥的单元测试（desktop-bridge.test.ts 新增那条）已覆盖形状，不必重复。
+验证：我跑了 desktop-updates、desktop-bridge、builtin-names、zoom 四个测试文件，24 个全过。
+F5 [低] configuration.md 输出 22 的“暂行”清单没有补上 closeLastWindow
+位置：docs/specs/settings/configuration.md:161
+问题：该条写“桌面专属设置（nbook.desktop 的界面缩放与开机自启…）在本机层实现之前暂存于用户层；本机层实现时迁过去”。新项 closeLastWindow 同样只允许用户层、同属桌面专属，本机层实现时也要迁，但清单没写它。desktop-shell 输出 25 已写全三项，两处不一致。
+建议：把“界面缩放与开机自启”改成“界面缩放、开机自启与关掉最后一个窗口时”（Spec 在主工作区改）。
+F6 [低] 更新提示的文字在发出时定，之后改设置不改写（README 已记为一致的取舍；这里补两个边角）
+位置：packages/neuro-book/desktop/src/bun/index.ts:497（tray: tray !== null）、packages/neuro-book/src/web/host/desktop-updates.ts:133-135
+问题：1) 文字看的是“发这一条的那一刻托盘图标在不在”。用户在“下次打开时安装”的通知发出后把设置改成 tray（或反过来），通知里的文字就错了，而 downloaded 提示是非常驻的、会留在通知中心。README 说明了“两种做法一样”，我同意不值得加机制。2) tray 字段由适配层的 `tray !== null` 现算，适配层没有单元测试，核心的 windows.test 只测 sendHint 被调用、没有断言 tray；desktop-bridge.test 里 update-hint 的形状测试也没有带 tray 的用例，所以“字段缺省当假”“tray 为非布尔值时整条被丢弃”都没有断言。后者对页面是静默丢提示。
+触发场景：开了托盘模式后下载更新，再切回退出模式；或壳误发 tray: "yes"（不会发生，壳只发布尔）。
+建议：不改机制。若补测试，在 desktop-bridge.test.ts 现有 update-hint 那条（:42-46）加一个 `tray: true` 通过、`tray: "yes"` 被拒的断言，成本一行。
+F7 [低] 设置项的措辞：选项叫“留在系统托盘”，说明里叫“留在托盘”；英文选项名很长、会走横排单选组（未验证渲染）
+位置：packages/neuro-book/src/plugins/desktop/shared/contracts.ts:55-70
+问题：1) 说明文字的中文照 Spec 原文写“留在托盘时，注销或关机会由系统结束 NeuroBook…”，选项名和其它所有文字都写“系统托盘”。同一个概念两种叫法，但说明是 Spec 原文，不是实现的错；若要统一，应先改 Spec 输出 28。2) 按 settings-window 输出 9 与 ui.forms 输出 2：选项名超过 16 个字符（各语言都算）就不用分段控件；英文 “Stay in the system tray (the service keeps running)” 52 个字符，会画成横排单选组，中文名 14 字符不到阈值，但两种语言取同一种控件，所以中文也是横排单选组。横排两项加上标题、说明和右侧“恢复默认”留位，在设置窗口较窄时是否折行、是否挤压标题列，我没有截图验证。
+建议：1) 可选，改 Spec 与声明里“留在托盘时”为“留在系统托盘时”。2) 审查者没跑 Lab，交付前请在设置窗口里（中英文各一次，窄宽度一次）看这一行；有问题就缩短英文选项名，例如 “Stay in the tray (service keeps running)”。
+F8 [通过项，不是问题]
+- 设置项声明：choices 的值 quit、tray 与 schema（CloseLastWindowSchema）一致；缺省 quit；layers 只有 user；section 与 zoom、openAtLogin 同分区；order 30 排在 10、20 之后，与 desktop-shell 输出 25 的列举顺序一致；标题、选项名与 Spec 输出 28 一一对得上，中文说明与 Spec 原文逐字相同。
+- 页面交给壳的值：values() 三项齐全；report 的“用户层不可用时不交”闸门（plugin.ts:89-91）原样保留；变化监听按全部 desktopSettings 的键，新项自动进来。
+- 更新文字：只换 available 与 downloaded 两种，与 desktop-update 输出 6 一致；download-failed、downloading、notify-only、updated、update-failed 都不换；tray 缺省当假（`message.tray === true`）；测试覆盖了 true、false、缺省三种与“别的提示不换”。中文与英文新句子自然，“系统托盘、退出 NeuroBook”与托盘菜单、选项名同词。
+- 壳的页面：按钮顺序 stay、open、quit-anyway，第一项为 primary（取消）；文字“取消”“打开 NeuroBook”“仍然退出”与 Spec 一致；LABELS 里 stay 的“取消”与 cancel 的“取消关闭”各自独立，不冲突；后台时 server-exited 正文换成“现在没有打开的窗口。”，background 缺省时落到原文（旧状态对象兼容）；480x260 的窗口放得下三个按钮（flex-wrap 兜底）。
+- 页面与壳的消息形状：desktop-bridge.ts 的 DesktopSettingValuesSchema 加了第三项，additionalProperties 仍为 false，桥的测试覆盖缺项、多项与不认识的值。
+REVIEW-END
