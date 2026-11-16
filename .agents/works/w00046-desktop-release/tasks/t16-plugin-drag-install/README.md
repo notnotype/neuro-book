@@ -15,8 +15,8 @@ updated: 2026-11-16
 
 ## 当前状态
 
-2026-11-15 经 nbdev 新建。2026-11-16 写好计划，设计审查中（Opus；omp 的 Codex 额度用完）。
+2026-11-15 经 nbdev 新建。2026-11-16 写好计划，设计审查三轮（Opus）：第 1 轮 17 条、第 2 轮 14 条（r3 改成一个请求传整个文件夹）、第 3 轮 11 条仍有 2 条高级，都在 nb-host（Bun 请求体缺省上限 128 MiB；nb-host 转交请求会把整个请求体收进内存）。按 autonomous-delivery 停下等开发者，建议见 [design-review-r3-proposal](evidences/design-review-r3-proposal.md)。
 
 ## 下一步
 
-处理设计审查，按计划的切片实施。
+开发者定上限与 nb-host 转交的改法后写计划 r4、开工。
