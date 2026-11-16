@@ -121,6 +121,7 @@ owners:
     - 状态与子代理卡片（输出 33）同一套文字：运行中、等你处理、在问父 Agent、已完成、出错、已停止、已中断；还没运行过的写状态未知。第二行：等你处理写审批的动作或提问；运行中写“N 次 · 用时”与当前一步，子树太大、动态字段被截掉的只写状态；已收口的取这次运行的结果（[sessions.md](sessions.md) 的 `runResult`），完成写回复的第一行，出错写按错误类别的那句话。结果在浮层打开时才取，同一次运行只取一次；取到之前、取不到时只写状态。
     - 点一行切到那个子会话（同输出 39），浮层关掉。运行中的行悬停或聚焦时出停止按钮：只停这次运行，与在那个子会话里按停止相同（子会话与排队的消息都保留），孙代理同样能停；停不成时在会话的提示里写原因。
     - 出错未看：最近一次运行以错误收口的是出错。插件激活之前收口的算看过；打开浮层时列出的出错算看过；切到某个子会话时，它在这之前的出错算看过。右栏与编辑区页面的对话共用一份。
+44. 对话写在面板头上（planned）：右栏的对话视图接管面板头的标题区（[workbench/views.md](../workbench/views.md) 输出 19）：左列是返回或新建，中间写会话的图标与标题，右列是子代理入口（输出 43）与更多，内容顶上不再另画一条顶栏。按面板头的标题开会话列表，再按一次关掉，`Esc` 关掉后焦点回到标题；拖动、键盘拿起与右键菜单仍是面板头的。面板成了标签条等不给标题区时，头回到内容顶上，开着的会话列表与菜单不丢；标题区回来时头再回到面板头。编辑区页面的对话头照旧画在内容里。
 
 ## 状态与转换
 
@@ -182,7 +183,7 @@ owners:
 
 ## 证据
 
-- 批准依据：w00032 t17 决定与静态稿定稿（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/README.md)），开发者 2026-11-05 批准晋升为 `implemented`；子代理卡片写动作名（输出 33）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。子会话顶栏的返回（输出 35 的 planned 部分）、第一屏（输出 41）、模型不可用的提示卡（输出 42）与子代理管理（输出 43）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9）。
+- 批准依据：w00032 t17 决定与静态稿定稿（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/README.md)），开发者 2026-11-05 批准晋升为 `implemented`；子代理卡片写动作名（输出 33）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。子会话顶栏的返回（输出 35 的 planned 部分）、第一屏（输出 41）、模型不可用的提示卡（输出 42）、子代理管理（输出 43）与写在面板头上（输出 44）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9）。
 - 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/agent/web/plugin.ts)、[`session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)、[`session-list.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-list.ts)、[`activity.ts`](../../../packages/neuro-book/src/plugins/agent/web/activity.ts)、[`ConversationHost.vue`](../../../packages/neuro-book/src/plugins/agent/web/ConversationHost.vue)、[`SessionPanelHost.vue`](../../../packages/neuro-book/src/plugins/agent/web/SessionPanelHost.vue)
 - 合同测试：[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)（真实内核与本机端点）、[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)（真实浏览器、真实服务端，验收 1–6）
 - Smoke：[`conversation.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/conversation.llm.test.ts)（`test:llm`，真实模型）
