@@ -23,7 +23,7 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .controls button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .controls label { display: inline-flex; align-items: center; gap: 6px; }
 .controls input[type="range"] { width: 180px; }
-.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @media (max-width: 900px) { .cands { grid-template-columns: minmax(0, 1fr); } }
 .cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .cand h3 { margin: 0 0 8px; font-size: 16px; }
@@ -40,9 +40,9 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 <main>
 <h1>活动栏与侧栏分开、合上时接缝怎么动</h1>
 
-<section data-nbdev-question="join-motion" data-nbdev-type="single" data-nbdev-recommend="droplet">
+<section data-nbdev-question="join-motion-2" data-nbdev-type="single" data-nbdev-recommend="cap">
   <h2>侧栏收起、展开时，活动栏和侧栏相接的地方选哪种？</h2>
-  <p class="rec"><strong>推荐乙：是你说的水滴的样子，多出的开销只在过渡的 470ms 里、接缝那一条。</strong></p>
+  <p class="rec"><strong>推荐丙（你提的）：角始终是同一对 12px 的圆角，只是跟着侧栏的右沿走，没有变形这一步；不用滤镜，开销和现在一样。</strong></p>
   <div class="controls" data-nbdev-skip>
     <button type="button" class="primary" data-toggle>收起侧栏</button>
     <label>速度
@@ -72,6 +72,11 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
       <h3>乙 水滴</h3>
       <svg viewBox="0 0 300 240" data-variant="droplet"></svg>
       <p>甲加上接缝那一条画成液体：连着时是圆滑的凹角，侧栏缩成细条后从上下两头往中间收，像一滴水被吸回去；展开反过来鼓出一滴再拉开。每帧开销：甲的，加上接缝一条（约 30px 宽、整列高）的模糊滤镜重绘，静止时没有这一层。</p>
+    </div>
+    <div class="cand" data-nbdev-option="cap" data-nbdev-label="丙 侧栏的角接过去">
+      <h3>丙 侧栏的角接过去</h3>
+      <svg viewBox="0 0 300 240" data-variant="cap"></svg>
+      <p>活动栏和侧栏一直是一张卡片在缩：侧栏右边那两个圆角跟着右沿往左走，收到底正好落在活动栏右边，成了活动栏的两个角；展开时活动栏的角被拉出去成为侧栏的右角。短线随着淡出、淡入。每帧开销：和现在一样，侧栏外框本来就每帧按卡片形状裁；只是收起时它往左多盖住活动栏右边 14px。</p>
     </div>
   </div>
 </section>
@@ -168,7 +173,15 @@ function stage(svg, variant) {
   return (e, resting) => {
     const sideRight = AB + SB * (1 - e);
     let barInset, sideInset, corner, sideCorner, line;
-    if (variant === "now") {
+    // 丙：动起来之后活动栏已经是分开的样子（留缝、圆角），被侧栏往左伸出的那一截盖住；侧栏的右沿带着两个圆角走，到底与活动栏的角重合。
+    const cap = variant === "cap" && !(resting === "shown" && e === 0);
+    if (variant === "cap") {
+      barInset = cap ? HALF : 0;
+      sideInset = 0;
+      corner = cap ? R : 0;
+      sideCorner = 0;
+      line = cap ? 1 - e : 1;
+    } else if (variant === "now") {
       // 隐藏时缩完才留缝；展开一开始就相连（resting 为“停在收起”时才算断开）。
       const apart = resting === "hidden";
       barInset = apart ? HALF : 0;
@@ -184,7 +197,9 @@ function stage(svg, variant) {
       line = 1 - e;
     }
     const barD = rr(GAP, GAP, AB - barInset, H - GAP, [R, corner, corner, R]);
-    const sideD = sideRight - HALF - (AB + sideInset) > 0.5 ? rr(AB + sideInset, GAP, sideRight - HALF, H - GAP, [sideCorner, R, R, sideCorner]) : "";
+    const sideD = cap
+      ? (e < 1 ? rr(AB - HALF - R, GAP, sideRight - HALF, H - GAP, [0, R, R, 0]) : "")
+      : (sideRight - HALF - (AB + sideInset) > 0.5 ? rr(AB + sideInset, GAP, sideRight - HALF, H - GAP, [sideCorner, R, R, sideCorner]) : "");
     const editorD = rr(sideRight + HALF, GAP, W - GAP, H - GAP, [R, R, R, R]);
     bar.setAttribute("d", barD);
     side.setAttribute("d", sideD);
