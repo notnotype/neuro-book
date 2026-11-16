@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>t29 第 1 轮：服务商列表、状态栏、对话面板第一屏</title>
+<title>t29 第 2 轮：对话面板的第一屏与顶栏</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -15,6 +15,7 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .rec { margin: 0 0 16px; color: var(--rec); }
 .cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .cands--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cands--3 .cand p { margin-top: 0; }
 @media (max-width: 720px) { .cands, .cands--3 { grid-template-columns: minmax(0, 1fr); } }
 .cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .cand h3 { margin: 0 0 8px; font-size: 16px; }
@@ -32,106 +33,71 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>t29 第 1 轮：服务商列表、状态栏、对话面板第一屏</h1>
+<h1>t29 第 2 轮：对话面板的第一屏与顶栏</h1>
 
-<section data-nbdev-question="rail-remove" data-nbdev-type="single" data-nbdev-recommend="hover-icon">
-  <h2>删除服务商放在列表条目的哪里？</h2>
-  <p class="rec"><strong>推荐 A：条目上只有“删除”这一个动作，直接给图标少点一次；右键是第二条路，点了都先弹现在的确认框。</strong></p>
-  <div class="ref">
-    <img src="r1/providers-current.webp" alt="现在：删除在页面左上（真实设置窗口里在标题区右上）">
-    <p>现在：删除是页面标题区的垃圾桶（设置窗口里在右上角）。</p>
-  </div>
+<section data-nbdev-question="welcome-v2" data-nbdev-type="confirm" data-nbdev-label="第一屏照旧应用的 welcome 这样做">
+  <h2>第一屏照旧应用的 welcome 这样做？</h2>
+  <p class="rec"><strong>推荐同意：版式、图标与文字照旧应用的 AgentChatEmptyState；没有历史会话时去掉“最近对话”一块。</strong></p>
   <div class="cands">
-    <div class="cand" data-nbdev-option="hover-icon" data-nbdev-label="A 悬停出删除图标，右键也能删">
-      <h3>A 悬停出删除图标，右键也能删</h3>
-      <img src="r1/rail-one-line-hover.webp" alt="悬停 Anthropic，行尾出现删除图标">
-      <img src="r1/rail-one-line-menu.webp" alt="右键 Anthropic，菜单里是“删除服务商…”">
+    <div class="cand">
+      <h3>有历史会话</h3>
+      <img src="r2/welcome.webp" alt="欢迎、最近对话三张卡片、试试这些三条指令">
+      <p>最近 3 条，卡片悬停描强调色；“查看全部”打开会话列表。</p>
     </div>
-    <div class="cand" data-nbdev-option="hover-more" data-nbdev-label="B 悬停出“…”，点开是菜单">
-      <h3>B 悬停出“…”，点开是菜单</h3>
-      <img src="r1/rail-one-line-more.webp" alt="悬停出“…”，点开菜单里是“删除服务商…”">
-      <p>以后条目上的动作多了（例如复制、检测）更好放；现在只有一项。右键同样打开这个菜单。</p>
+    <div class="cand">
+      <h3>一个会话都没有</h3>
+      <img src="r2/welcome-first.webp" alt="只有欢迎与三条指令">
     </div>
   </div>
+  <p>和旧应用不同的两处：“推荐创作指令”旁的“智能生成”去掉（旧应用里那三条是写死的，不是生成的）；没选会话时状态栏整行空着。</p>
 </section>
 
-<section data-nbdev-question="rail-rows" data-nbdev-type="single" data-nbdev-recommend="one-line">
-  <h2>服务商条目改成单行，还是两行收紧？</h2>
-  <p class="rec"><strong>推荐 A 单行：高度与设置窗口左栏一样；密钥问题改成行尾的图标（悬停写原因），没问题时写启用了几个模型。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="one-line" data-nbdev-label="A 单行">
-      <h3>A 单行</h3>
-      <img src="r1/rail-one-line.webp" alt="单行：名字，行尾是模型数或问题图标">
-      <p>Anthropic 的红色图标是“环境变量没有值”，OpenAI 的钥匙是“没有密钥”。原因要悬停或点进详情才看得到。</p>
-    </div>
-    <div class="cand" data-nbdev-option="two-line" data-nbdev-label="B 两行收紧">
-      <h3>B 两行收紧</h3>
-      <img src="r1/rail-two-line-hover.webp" alt="两行：第二行小字写状态，行距收紧">
-      <p>原因直接写在第二行，条目从 46px 降到 38px 左右。</p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="status-config" data-nbdev-type="confirm" data-nbdev-label="状态栏的自定义照这三张图做">
-  <h2>状态栏的自定义照这三张图做？</h2>
-  <p class="rec"><strong>推荐同意：右键改显隐、设置里改顺序，缺省与现在一样；提醒类的项总会显示。</strong></p>
+<section data-nbdev-question="starters" data-nbdev-type="single" data-nbdev-recommend="profile">
+  <h2>“试试这些”的三条指令从哪来？</h2>
+  <p class="rec"><strong>推荐 A：指令跟着 Profile 走，主创带三条写作的；以后加别的 Profile（例如审校）时它们有自己的开场。</strong></p>
   <div class="cands cands--3">
-    <div class="cand">
-      <h3>右键状态栏</h3>
-      <img src="r1/status-menu.webp" alt="右键状态栏，勾选菜单">
+    <div class="cand" data-nbdev-option="profile" data-nbdev-label="A Profile 声明">
+      <h3>A Profile 声明</h3>
+      <p>Profile 里多一个可选字段，至多 3 条；新建会话用的那个 Profile 有就显示，没有就不显示这一块。用户级 Profile 也能写。</p>
     </div>
-    <div class="cand">
-      <h3>设置里的“状态栏”</h3>
-      <img src="r1/status-settings.webp" alt="设置里的状态栏一组：预览、左边与右边两组列表">
+    <div class="cand" data-nbdev-option="fixed" data-nbdev-label="B 应用内置三条">
+      <h3>B 应用内置三条</h3>
+      <p>写死在应用里，和旧应用一样；换 Profile 也不变。</p>
     </div>
-    <div class="cand">
-      <h3>改过之后</h3>
-      <img src="r1/status-custom.webp" alt="几种改过之后的状态栏">
+    <div class="cand" data-nbdev-option="none" data-nbdev-label="C 不要这一块">
+      <h3>C 不要这一块</h3>
+      <p>第一屏只有欢迎与最近对话。</p>
     </div>
   </div>
-  <ul class="points">
-    <li>可选的项：上下文用量、用量与缓存命中、费用、模型与推理档、缓存倒计时，以及插件加的项（标“插件”）。累计、输入、输出、缓存命中合成一项，免得菜单太长；要分开就在设置里拆。</li>
-    <li>总会显示、不能关：运行阶段与用时、等你处理、等重发、费用超过告警线、“全部放行”警告、断线。</li>
-    <li>设置里分“左边”“右边”两组，拖动或用上移、下移排序；全局一份，所有会话与窗口共用，存进用户设置文件。</li>
-    <li>右栏窄时，右边按顺序从前往后收进悬停，费用最后收。</li>
-    <li>缓存倒计时只对缓存时长明确的服务商（Anthropic）显示；过期后写“已过期”。</li>
-  </ul>
 </section>
 
-<section data-nbdev-question="first-screen" data-nbdev-type="single" data-nbdev-recommend="welcome">
-  <h2>没选会话时，对话面板的第一屏放什么？</h2>
-  <p class="rec"><strong>推荐 A：视图标题已经写着“对话”，“未选择会话”这一行去掉；空出来的地方放最近的会话，点一下就能接着聊，不用去左边找。</strong></p>
+<section data-nbdev-question="header" data-nbdev-type="single" data-nbdev-recommend="merged">
+  <h2>有会话时的顶栏选哪版？</h2>
+  <p class="rec"><strong>推荐 C 并进面板头：现在面板头写“对话”、下面又一行会话标题，两行标题叠着；并进去以后少一行，VS Code、Cursor 的对话面板也是这样。代价是工作台要让视图往自己的面板头里放内容（视图的 Spec 加一条），比别的几版多一块平台改动。</strong></p>
   <div class="ref">
-    <img src="r1/first-product-current.webp" alt="现在的工作台：右栏对话视图顶上是“未选择会话”，下面两条横线">
-    <p>现在：右栏顶上一行“未选择会话”，消息区上下各一条横线，“还没有消息”贴在上面。</p>
+    <img src="r2/h-current.webp" alt="现在的顶栏（只去掉了线）">
+    <p>现在（只去掉了线）：面板头“对话”，下面一行是 Profile 图标、会话标题、Profile 名与新建、更多。</p>
   </div>
   <div class="cands">
-    <div class="cand" data-nbdev-option="welcome" data-nbdev-label="A 开始一段对话与最近的会话">
-      <h3>A 开始一段对话与最近的会话</h3>
-      <img src="r1/first-welcome.webp" alt="中间是“开始一段对话”与三条最近的会话">
-      <p>最近 3 条，“全部会话”打开会话列表。没有会话时只留上半部分。</p>
+    <div class="cand" data-nbdev-option="light" data-nbdev-label="A 轻量单行">
+      <h3>A 轻量单行</h3>
+      <img src="r2/h-light.webp" alt="标题加下拉箭头、Profile 名淡色，右边新建与更多">
+      <p>去掉 Profile 图标，标题是会话下拉的按钮；改动最小，仍是两行标题。</p>
     </div>
-    <div class="cand" data-nbdev-option="hint" data-nbdev-label="B 只留一句提示">
-      <h3>B 只留一句提示</h3>
-      <img src="r1/first-hint.webp" alt="中间一句提示">
-      <p>最简单；打开旧会话要去左边的“会话”。</p>
+    <div class="cand" data-nbdev-option="two-line" data-nbdev-label="B 两行带摘要">
+      <h3>B 两行带摘要</h3>
+      <img src="r2/h-two-line.webp" alt="图标方块、标题与 Profile 小标签，下面一行会话摘要">
+      <p>照旧应用的顶栏：第二行是后台生成的会话摘要；比现在高一点。</p>
     </div>
-  </div>
-  <p>两种都在输入框里直接打字，第一次发送才建会话（现在就是这样）；选中会话后顶栏照旧出现（标题、Profile、新建、更多）。</p>
-</section>
-
-<section data-nbdev-question="dividers" data-nbdev-type="single" data-nbdev-recommend="none">
-  <h2>顶栏下面、输入框上面那两条横线怎么处理？</h2>
-  <p class="rec"><strong>推荐 A 去掉：输入框自己有框，顶栏靠留白就分得开；消息滚到顶栏下面时淡出，不硬切。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="none" data-nbdev-label="A 去掉，消息在顶栏下淡出">
-      <h3>A 去掉，消息在顶栏下淡出</h3>
-      <img src="r1/first-lines-none.webp" alt="没有横线">
+    <div class="cand" data-nbdev-option="merged" data-nbdev-label="C 并进面板头">
+      <h3>C 并进面板头</h3>
+      <img src="r2/h-merged.webp" alt="面板头写“对话 / 会话标题”，新建与更多在面板头里">
+      <p>Profile 名与摘要在会话标题的悬停里。</p>
     </div>
-    <div class="cand" data-nbdev-option="inset" data-nbdev-label="B 留着，两端各收进 12px">
-      <h3>B 留着，两端各收进 12px</h3>
-      <img src="r1/first-lines-inset.webp" alt="两条横线两端收进">
-      <p>设计语言里横线两端要留边距，现在这两条顶到了边。</p>
+    <div class="cand" data-nbdev-option="centered" data-nbdev-label="D 标题居中">
+      <h3>D 标题居中</h3>
+      <img src="r2/h-centered.webp" alt="新建在左、标题与 Profile 两行居中、更多在右">
+      <p>像手机上的聊天应用；右栏窄时标题能用的宽度最少。</p>
     </div>
   </div>
 </section>
@@ -141,6 +107,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <table>
     <thead><tr><th>哪里</th><th>做什么</th></tr></thead>
     <tbody>
+      <tr><td>Profile 设置的左栏</td><td>同服务商列表：单行，问题（不可用、有错误）换成行尾图标、悬停写原因；来源（内置、插件、我的）在右边详情里看</td></tr>
       <tr><td>子代理卡片（第 5 条）</td><td>运行中那一行写注册表里的工具名（“读取 第二章.md”），不写工具 id</td></tr>
       <tr><td>没选会话时的状态栏</td><td>不显示“0%”与“免费”：还没有用量，整行空着</td></tr>
       <tr><td>删除服务商的确认框</td><td>不变：写明去掉几个模型、密钥一起删、哪些角色会变成未绑定</td></tr>
@@ -151,8 +118,13 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 <section>
   <h2>已定</h2>
   <ol class="decided">
-    <li>5 小时与 7 天限额留到做订阅登录时；缓存倒计时只给缓存时长明确的服务商，作为状态栏的可选项（11-16）</li>
-    <li>状态栏用勾选与插件贡献的项，不做 Claude Code 那种配一条命令（11-16）</li>
+    <li>删除服务商：条目悬停出删除图标，右键也能删（第 1 轮）</li>
+    <li>服务商条目改单行，问题换成行尾图标（第 1 轮）</li>
+    <li>状态栏的自定义照第 1 轮的稿做：右键勾选、设置里分左右两组排序、用量四项合成一项、提醒类总显示（第 1 轮）</li>
+    <li>没选会话时去掉“未选择会话”一行，第一屏是欢迎与最近会话，照旧应用的 welcome 做（第 1 轮，本轮出了新稿）</li>
+    <li>顶栏下、输入框上的两条横线去掉，消息在顶栏下淡出（第 1 轮）</li>
+    <li>5 小时与 7 天限额留到做订阅登录时；缓存倒计时只给缓存时长明确的服务商（11-16）</li>
+    <li>状态栏用勾选与插件贡献的项，不做配一条命令（11-16）</li>
   </ol>
 </section>
 </main>
