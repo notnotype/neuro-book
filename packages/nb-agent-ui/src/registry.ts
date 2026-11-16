@@ -284,7 +284,7 @@ export class AgentViewRegistryConflictError extends Error {
     }
 }
 
-/** 没有匹配渲染器的工具使用它：类别 `other`，以卡片显示工具原名。 */
+/** 没有匹配渲染器的工具使用它：类别 `other`，以卡片显示工具原名。宿主要区分“查到了”与“回退到它”时按 `id` 认。 */
 export const GENERIC_TOOL_RENDERER: ToolRendererEntry = {
     id: "generic",
     category: "other",
