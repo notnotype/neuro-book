@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>属性面板：静态稿评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 920px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+section { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.info { background: var(--accent-soft); color: var(--accent); }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 10px 0; }
+.opts.wide { grid-template-columns: 1fr; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 8px 0 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.narrow { max-width: 300px; }
+code { font-size: 13px; }
+pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.5; max-width: 420px; }
+</style>
+</head>
+<body>
+<main>
+<h1>属性面板：静态稿评审板</h1>
+<div class="lead">
+<p>w00025 t10，第 1 轮。Markdown 文件开头的 frontmatter（<code>---</code> 之间的 YAML）现在不进富文本，要改只能换到源码编辑器。这个 Task 在正文上方加一块属性面板：按字段显示与编辑，能切到 YAML 源码。</p>
+<p>图是在草稿 worktree 的 Lab 里用真实的 nb-ui 组件与主题变量搭的静态稿（亮色、nbook 主题），不接编辑内核。样例是一章的五个属性，每种类型一个：</p>
+<pre>---
+视角: 林雪
+时间: 2025-12-21
+地点: [青石镇, 北山]
+字数目标: 4000
+已定稿: false
+---</pre>
+<p>问题 1、2 要看图；问题 3 到 5 是文字题，在会话里已经问过，放在这里一起答。都是选答。</p>
+</div>
+
+<section data-nbdev-question="q1-look" data-nbdev-type="single" data-nbdev-recommend="card">
+<h2>问题 1：面板的样子 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>两种样子的行都一样：类型图标、属性名（次要色）、值（正文色，就地可改）；列表是一个个小块；右上角切到 YAML 源码；最下面“添加属性”。面板是界面，用界面字号，不跟正文的 17px。</p>
+<div class="opts">
+<div class="opt" data-nbdev-option="flat">
+<h3>A 平铺</h3>
+<p>直接铺在稿纸上，下面一条细线与正文隔开。和 Obsidian 一样。</p>
+<figure><img src="r1/flat-open.webp" alt="平铺：展开"><figcaption>展开</figcaption></figure>
+<figure><img src="r1/flat-closed.webp" alt="平铺：收起"><figcaption>收起</figcaption></figure>
+</div>
+<div class="opt rec" data-nbdev-option="card">
+<h3>B 卡片</h3>
+<p>收在一张淡底卡片里，没有线。</p>
+<figure><img src="r1/card-open.webp" alt="卡片：展开"><figcaption>展开</figcaption></figure>
+<figure><img src="r1/card-closed.webp" alt="卡片：收起"><figcaption>收起</figcaption></figure>
+</div>
+</div>
+<div class="pair">
+<figure class="narrow"><img src="r1/flat-open-narrow.webp" alt="平铺：390px"><figcaption>A 平铺，390px 宽</figcaption></figure>
+<figure class="narrow"><img src="r1/card-open-narrow.webp" alt="卡片：390px"><figcaption>B 卡片，390px 宽</figcaption></figure>
+</div>
+<div class="rec-note"><b>推荐：B 卡片。</b>属性是关于这一章的资料，不是正文：淡底一眼分开两者。平铺下面那条线和正文里的分隔线（Markdown 的 <code>---</code>）长得一样，读的时候分不清是面板的边还是稿子里的分隔；收起时卡片是整齐的一行，平铺是一行字加一条线。</div>
+</section>
+
+<section data-nbdev-question="q2-default" data-nbdev-type="single" data-nbdev-recommend="closed">
+<h2>问题 2：打开文件时面板展开还是收起 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>图见问题 1：每种样子都画了展开与收起。收起时是一行摘要（属性名加值，放不下的截断），点这一行展开。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="closed">
+<h3>缺省收起，按文件记住</h3>
+<p>写作时顶上只有一行；展开过的文件下次打开仍展开。</p>
+</div>
+<div class="opt" data-nbdev-option="open">
+<h3>缺省展开，按文件记住</h3>
+<p>和 Obsidian 一样，属性一直在视野里；收起过的文件下次打开仍收起。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐：缺省收起。</b>写作时看的是正文，属性很少改；收起的一行里值都还看得到，要改时点开。</div>
+</section>
+
+<section data-nbdev-question="q3-empty" data-nbdev-type="single" data-nbdev-recommend="menu">
+<h2>问题 3：文件没有 frontmatter 时 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="menu">
+<h3>不画面板，从菜单添加</h3>
+<p>正文上方什么都没有。“添加属性”在命令面板、编辑器的“更多”菜单与斜杠菜单里；在文件开头打 <code>---</code> 也会出现面板（Obsidian 的做法）。</p>
+</div>
+<div class="opt" data-nbdev-option="always">
+<h3>常驻一行“添加属性”</h3>
+<p>t06 分析里写的做法：每个没有属性的文件顶上都有一行淡色的“添加属性”。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐：不画面板。</b>多数章节没有属性，常驻的一行会出现在每一章的顶上。</div>
+</section>
+
+<section data-nbdev-question="q4-types" data-nbdev-type="single" data-nbdev-recommend="infer">
+<h2>问题 4：字段类型怎么定 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="infer">
+<h3>按值推断</h3>
+<p>文字、数字、勾选、日期（<code>2025-12-21</code> 这样的值）、列表；点类型图标可以改成别的类型（值跟着转换）。不做全书统一的类型登记，以后由作品的设定给出类型。nb-ui 要新加两个组件：日期输入、标签式的列表输入。</p>
+</div>
+<div class="opt" data-nbdev-option="registry">
+<h3>全书统一（Obsidian 的做法）</h3>
+<p>一个属性名在整部作品里只有一种类型，记在作品里；改一处的类型，所有文件的同名属性跟着变。要多一份作品级的记录和它的设置界面。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐：按值推断。</b>全书统一要等作品的设定体系（角色、地点这类条目）定下来，现在做会和它撞。</div>
+</section>
+
+<section data-nbdev-question="q5-fallback" data-nbdev-type="single" data-nbdev-recommend="row-and-source">
+<h2>问题 5：面板表示不了的内容 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="row-and-source">
+<h3>逐个字段退回，写错了整块退回</h3>
+<p>嵌套的对象、对象的列表这类字段显示成只读的一行“在源码里改”，别的字段照常编辑；YAML 写错了（解析不了）时整块显示源码并标出错在哪。注释、没动过的字段与写法原样保留。</p>
+</div>
+<div class="opt" data-nbdev-option="all-source">
+<h3>有一处表示不了，整块都显示源码</h3>
+<p>做法简单，但一个复杂字段会让整块失去表单。</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2>已按推荐画的，不用答 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<ul>
+<li>面板放在正文上方、随正文滚动，宽度与版心一致。</li>
+<li>切到 YAML 源码是在面板里就地改，不跳到源码编辑器。</li>
+<li>面板里的修改进正文的撤销历史：Ctrl+Z 能撤掉属性的修改。</li>
+<li>键盘：在属性之间用上下键或 Tab 走，Esc 回到正文（与 Obsidian 相同）。</li>
+</ul>
+</section>
+
+<section>
+<h2>现状与参照 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<ul>
+<li><b>现状：</b>编解码器把 frontmatter 原样留着、不进富文本，写回时拼回去；编辑器里看不到，要改只能换到源码编辑器。</li>
+<li><b>旧应用：</b>正文上方可折叠的一块，收起时显示 YAML 的第一行，展开是 YAML 文本框；能添加、去掉 frontmatter；角色、地点、规则三类文件另有“档案表单”按钮。</li>
+<li><b>Obsidian：</b>属性在笔记顶部，设置里可选显示、隐藏或显示源码；类型有文字、列表、数字、勾选、日期、日期时间、标签，按属性名在整个库统一；嵌套的属性不支持，要看就切源码；用命令、<code>Ctrl+;</code>、菜单，或在文件开头打 <code>---</code> 添加。</li>
+</ul>
+</section>
+</main>
+</body>
+</html>
