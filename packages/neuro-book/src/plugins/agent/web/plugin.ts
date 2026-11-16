@@ -36,7 +36,7 @@ import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 
 import {Type} from "typebox";
 
-import type {AgentConversationServices, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, AgentWelcomeView, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
@@ -58,7 +58,7 @@ import {createSkillsClient, OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu}
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
-import {createSessionList} from "./session-list";
+import {createRecentSessions, createSessionList} from "./session-list";
 import {RequestsPage, useRequests} from "./requests-page";
 import {requestEntriesContribution} from "./request-entries";
 
@@ -366,6 +366,23 @@ export const agentBrowserPlugin: PluginDefinition = {
                 now: () => clock.now(),
             });
 
+            /** 第一屏的最近对话（conversation.md 输出 41）：两个对话位置共用一份，与会话面板那份分开。 */
+            const recentSessions = createRecentSessions({remote, project});
+            /** 第一屏只显示 3 张卡片；最近对话里不列当前会话。 */
+            const WELCOME_RECENT = 3;
+            /** 第一屏的数据：指令取这个位置当前会话的 Profile，没选会话时取新会话会用的那个（`profileKey()` 已按此交回）。 */
+            const welcomeOf = (host: SessionHost): AgentWelcomeView => {
+                const current = host.sessionId.value;
+                const others = recentSessions.sessions.value.filter((session) => session.id !== current);
+                const profile = profiles.value.find((entry) => entry.key === host.profileKey());
+                return {title: text.t(agentText("conversation.welcomeTitle")), recent: others.slice(0, WELCOME_RECENT), total: others.length, starters: profile?.starters ?? []};
+            };
+            /** 没选会话时头上的图标：新会话会用的 Profile。 */
+            const draftProfileOf = (host: SessionHost): {name: string; icon: string} | null => {
+                const profile = profiles.value.find((entry) => entry.key === host.profileKey());
+                return profile === undefined ? null : {name: profile.name, icon: profile.icon ?? "i-lucide-bot"};
+            };
+
             /** 新建时选 Profile：目录里不隐藏、可用的多于一个才问；交回 null 是取消，undefined 是用缺省。 */
             const pickProfile = async (): Promise<string | null | undefined> => {
                 await loadProfiles();
@@ -461,7 +478,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                         onBeforeUnmount(() => {
                             if (lastPosition === position) lastPosition = "view";
                         });
-                        return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position)});
+                        return () => {
+                            const host = hostAt(position);
+                            return h(ConversationHost, {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position)});
+                        };
                     },
                 });
             };

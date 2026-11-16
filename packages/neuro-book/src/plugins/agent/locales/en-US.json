@@ -248,6 +248,7 @@
             "running": "Agent: {{running}} running"
         },
         "listFailed": "Couldn't get the session list ({{code}}).",
+        "welcomeTitle": "NeuroBook writing workspace",
         "pickProfile": "Choose a Profile",
         "renameTitle": "Rename",
         "rename": "Rename",

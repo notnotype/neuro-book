@@ -116,8 +116,9 @@ describe("sendBlockedReason", () => {
 describe("宿主起步：输入框动作", () => {
     const composer = createAgentContext({composer: {recall: ["继续写", "第三章"], draft: {text: "继续写", version: 3}}}).composer;
 
-    it("草稿回声只换文字不换版本；模式、模型与思考档位直接写回", () => {
+    it("草稿回声只换文字不换版本；填入换文字也换版本；模式、模型与思考档位直接写回", () => {
         expect(applyComposerAction(composer, {type: "composer.draftChanged", text: "继续写第四"})?.draft).toEqual({text: "继续写第四", version: 3});
+        expect(applyComposerAction(composer, {type: "composer.fill", text: "帮我润色一段环境描写"})?.draft).toEqual({text: "帮我润色一段环境描写", version: 4});
         expect(applyComposerAction(composer, {type: "mode.set", mode: "plan"})?.mode).toBe("plan");
         expect(applyComposerAction(composer, {type: "model.set", modelKey: "m2"})?.modelKey).toBe("m2");
         expect(applyComposerAction(composer, {type: "thinking.set", level: "high"})?.thinking).toBe("high");

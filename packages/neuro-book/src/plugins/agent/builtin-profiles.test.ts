@@ -163,6 +163,13 @@ describe("主创", () => {
         return (await session.path()).filter((event) => event.type === "toolResult").map((event) => (event.data as {tool: string}).tool).at(-1);
     }
 
+    test("输出 17：主创声明三条开场指令，目录里带出来", async () => {
+        const w = await world();
+        const starters = w.service.profiles().find((profile) => profile.key === MAIN_PROFILE)?.starters ?? [];
+        expect(starters).toHaveLength(3);
+        expect(starters.every((starter) => starter.text !== "" && starter.icon !== undefined)).toBe(true);
+    });
+
     test("输出 2：缺省的 edit 是 replace", async () => {
         const w = await world({settings: {"nbook.agent/profileSettings": {[MAIN_PROFILE]: {approvalMode: "yolo"}}}});
         const session = await createMain(w);

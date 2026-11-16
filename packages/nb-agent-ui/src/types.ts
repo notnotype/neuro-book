@@ -477,6 +477,18 @@ export type PanelsView = {
     sessionTree?: SessionTreeView;
 };
 
+/** 没有消息时第一屏的数据（视图的 `welcome` 属性，Spec 的“空状态”）；两块各只显示前 3 条。 */
+export type AgentWelcomeView = {
+    /** 欢迎的标题；不给时写“开始一段对话”。 */
+    title?: string;
+    /** 最近对话，最近的在前；`title` 为空时写“未命名会话”，`at` 是最近的活动时间。 */
+    recent: ReadonlyArray<{id: string; title: string; at: number}>;
+    /** “查看全部（N）”的 N。 */
+    total: number;
+    /** 开场指令。 */
+    starters: ReadonlyArray<{text: string; icon?: string}>;
+};
+
 export type AgentConversationContext = {
     /** 未选择会话时为 null。 */
     session: SessionView | null;
@@ -576,6 +588,8 @@ export type BuiltinAgentViewAction =
     | {type: "composer.submit"; text: string; delivery: SubmitDelivery}
     | {type: "composer.stop"}
     | {type: "composer.draftChanged"; text: string}
+    // 把一段文字放进输入框（第一屏的开场指令）：宿主换掉草稿、版本加一，编辑器才会显示它。`draftChanged` 方向相反，是编辑器报告用户打的字。
+    | {type: "composer.fill"; text: string}
     | {type: "composer.attachmentAdded"; localId: string; kind: "image" | "file"; file: File}
     | {type: "composer.attachmentRetry"; localId: string}
     | {type: "composer.attachmentRemoved"; localId: string}

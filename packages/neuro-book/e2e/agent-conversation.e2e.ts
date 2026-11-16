@@ -84,7 +84,7 @@ const newSession = async (page: Page): Promise<void> => {
     await page.keyboard.press("Control+Shift+P");
     await page.keyboard.type("新建 Agent 会话");
     await page.keyboard.press("Enter");
-    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
 };
 
 test("验收 1：发一条，看到回复与状态栏；刷新后回到同一会话", async ({page}) => {
@@ -99,6 +99,25 @@ test("验收 1：发一条，看到回复与状态栏；刷新后回到同一会
     await expect(page.locator("[data-explorer-row]").first()).toBeVisible();
     await expect(page.getByText("这是回复。")).toBeVisible();
     await expect(page.getByRole("article").getByText("你好", {exact: true})).toBeVisible();
+});
+
+test("第一屏：没有消息时是欢迎、最近对话与主创的开场指令；点一条指令，输入框里是它（conversation.md 输出 41）", async ({page}) => {
+    await script("回复。");
+    await openConversation(page);
+    await newSession(page);
+    await send(page, "先聊一句");
+    await expect(page.getByText("回复。")).toBeVisible();
+    await newSession(page);
+    const welcome = page.locator("[data-agent-welcome]");
+    await expect(welcome.getByRole("heading", {name: "NeuroBook 创作工作区"})).toBeVisible();
+    // 刚才那段会话出现在最近对话里（标题可能还没生成，按条数看）。
+    await expect(welcome.locator("[data-welcome-session]").first()).toBeVisible();
+    const starters = welcome.locator("[data-welcome-starter]");
+    await expect(starters).toHaveCount(3);
+    const text = (await starters.nth(1).innerText()).trim();
+    await starters.nth(1).click();
+    await expect(input(page)).toContainText(text);
+    await expect(input(page)).toBeFocused();
 });
 
 test("验收 2：Agent 改文件：向导显示 diff，收起再展开，批准后文件变了；拒绝并附言，模型收到这段话", async ({page}) => {
@@ -461,7 +480,7 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
 
     await page.keyboard.type("没写完的字");
     await page.locator("[data-header-new]").click();
-    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
     await expect(input(page)).not.toContainText("没写完的字");
     await page.locator("[data-header-sessions]").click();
     await page.getByRole("button", {name: /雨夜/u}).or(page.getByText("雨夜")).first().click();
@@ -476,7 +495,7 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     // 第一次回车选中菜单里的命令，第二次发出去。
     await page.keyboard.press("Enter");
     await page.keyboard.press("Enter");
-    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
     await expect(input(page)).not.toContainText("/new");
 });
 

@@ -11,6 +11,7 @@ import type {
     MessageView,
     AgentLocale,
     AgentViewMode,
+    AgentWelcomeView,
 } from "../types";
 import {visibleEntries} from "../registry";
 import type {AgentViewRegistry, HeaderActionEntry} from "../registry";
@@ -18,6 +19,7 @@ import {assignTurnKeys, reuseTurnGroups, splitIntoTurnGroups} from "../conversat
 import {useStreamScroll} from "@notnotype/nb-ui/composables";
 import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
 import AgentRawView from "./stream/AgentRawView.vue";
+import AgentWelcome from "./stream/AgentWelcome.vue";
 import AgentConversationComposer from "./composer/AgentConversationComposer.vue";
 import AgentConversationHead from "./head/AgentConversationHead.vue";
 import AgentStatusBar from "./composer/AgentStatusBar.vue";
@@ -56,6 +58,8 @@ const props = withDefaults(defineProps<{
     sessionsOpen?: boolean;
     /** 没选会话时头上的图标：新会话会用的 Profile。 */
     draftProfile?: {readonly name: string; readonly icon: string} | null;
+    /** 没有消息时的第一屏（AgentWelcome）；不给时写“还没有消息”。 */
+    welcome?: AgentWelcomeView | null;
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
@@ -69,6 +73,7 @@ const props = withDefaults(defineProps<{
     headTargets: null,
     sessionsOpen: undefined,
     draftProfile: null,
+    welcome: null,
 });
 
 const slots = defineSlots<{
@@ -227,6 +232,14 @@ const {following, scrollToLatest, recheckNearTop} = useStreamScroll({
     content: contentRef,
     onNearTop: () => requestHistory(false),
 });
+
+/** 第一屏的开场指令：交给宿主换进输入框，再把焦点放过去，接着就能改或发。 */
+function fillComposer(text: string): void {
+    emit("action", {type: "composer.fill", text});
+    void nextTick(focusComposer);
+}
+
+const showWelcome = computed(() => props.ctx.messages.length === 0 && props.ctx.availability.status !== "loading" && props.welcome !== null);
 
 /** 消息流滚到顶了没有：离开顶部才给顶端加渐隐。只在变化时写，滚动时不反复触发渲染。 */
 const streamAtTop = ref(true);
@@ -414,11 +427,20 @@ defineExpose({focusComposer, scrollToLatest});
 
         <div class="acv-body">
             <div ref="streamRef" class="acv-stream" :class="{'acv-stream--faded': !streamAtTop}" data-agent-stream @scroll.passive="onStreamScroll">
-                <div ref="contentRef" class="acv-stream__content">
+                <div ref="contentRef" class="acv-stream__content" :class="{'acv-stream__content--welcome': showWelcome}">
                     <!-- 其余 availability 的说明与恢复动作在输入框上方的横幅里，这里不重复 -->
                     <p v-if="props.ctx.messages.length === 0 && props.ctx.availability.status === 'loading'" class="acv-stream__empty" role="status">
                         <Spinner size="sm" :label="t('stream.loading')" />{{ t("stream.loading") }}
                     </p>
+                    <AgentWelcome
+                        v-else-if="showWelcome"
+                        :welcome="props.welcome!"
+                        :now="props.ctx.now"
+                        :can-open-sessions="slots.sessions !== undefined"
+                        @select="selectSession"
+                        @open-sessions="setSessionsOpen(true)"
+                        @starter="fillComposer"
+                    />
                     <p v-else-if="props.ctx.messages.length === 0" class="acv-stream__empty">
                         {{ t("stream.empty") }}
                     </p>
@@ -599,6 +621,14 @@ defineExpose({focusComposer, scrollToLatest});
 /* 消息在头下淡出（t29 决定 5）：离开顶部后顶端 16px 渐隐；在顶部时不渐隐，免得盖住第一条。遮罩只看透明度，颜色无关。 */
 .acv-stream--faded {
     mask-image: linear-gradient(to bottom, transparent, currentColor 16px);
+}
+
+/* 第一屏在消息区里竖直居中。 */
+.acv-stream__content--welcome {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-height: 100%;
 }
 
 /* 面板拉宽时正文行过长难读，每轮限宽居中。 */

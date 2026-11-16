@@ -613,6 +613,26 @@ describe("命令、草稿与输入历史（输出 28–30）", () => {
         expect(stored.has(a)).toBe(false);
     });
 
+    test("开场指令（composer.fill）：没选会话时也换掉输入框的文字、换版本；有会话时存成这个会话的草稿", async () => {
+        const w = await world();
+        const stored = new Map<string, string>();
+        const h = await harness(w, {drafts: {read: async (session) => stored.get(session) ?? null, write: (session, text) => void stored.set(session, text)}});
+        const before = h.ctx().composer.draft.version;
+        h.host.act({type: "composer.fill", text: "帮我润色一段环境描写"});
+        await until("填进去", () => h.ctx().composer.draft.text === "帮我润色一段环境描写");
+        expect(h.ctx().composer.draft.version).toBeGreaterThan(before);
+
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        const session = h.host.sessionId.value!;
+        h.host.act({type: "composer.fill", text: "规划第三幕的细纲"});
+        expect(h.ctx().composer.draft.text).toBe("规划第三幕的细纲");
+        // 切走时草稿落盘（与打的字同一条路），切回来还在。
+        expect(await h.host.create(PROFILE)).not.toBeNull();
+        expect(stored.get(session)).toBe("规划第三幕的细纲");
+        await h.host.open(session);
+        await until("读回来", () => h.ctx().composer.draft.text === "规划第三幕的细纲");
+    });
+
     test("输入历史：当前路径上用户的话，最新在前，去重，不含补充说明", async () => {
         const w = await world();
         const h = await started(w);

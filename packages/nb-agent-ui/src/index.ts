@@ -15,7 +15,7 @@ export type {
     CompactionView, PendingQuestionView, PluginAgentViewAction,
     RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
     ToolResultView, TriggerMenu, TriggerMenuContext, TriggerMenuItem, UsageSummaryView, UsageView, UserMessageView,
-    WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView,
+    WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView, AgentWelcomeView,
 } from "./types";
 export type {
     MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, MarkdownPreviewPort, PromptAttachment, PromptAttachmentKind, PromptDraft,

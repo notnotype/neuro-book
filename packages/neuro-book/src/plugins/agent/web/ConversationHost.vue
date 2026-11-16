@@ -2,22 +2,26 @@
 /**
  * 对话位置的组件：右栏的视图和编辑区的页面是同一个。状态都在插件级的宿主里（`session-host.ts`），这里借用它，把视图接上，再放切换会话的面板。
  */
-import {onBeforeUnmount, onMounted, provide, ref} from "vue";
+import {onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
 
 import {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
-import type {AgentConversationServices, AgentViewAction, AgentViewRegistry} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, AgentViewAction, AgentViewRegistry, AgentWelcomeView} from "@notnotype/nb-agent-ui";
 import type {AgentViewRenderers} from "@notnotype/nb-agent-ui/vue";
 
 import SkillInitDialog from "./components/SkillInitDialog.vue";
 import type {SessionHost} from "./session-host";
 import type {SkillInit} from "./skill-init";
-import type {SessionListStore} from "./session-list";
+import type {RecentSessions, SessionListStore} from "./session-list";
 import {subagentStoreKey, toolActionKey, toolActionOf} from "./subagent-store";
 import SessionPanelHost from "./SessionPanelHost.vue";
 
 const props = defineProps<{
     host: SessionHost;
     list: SessionListStore;
+    /** 第一屏的最近对话，第一屏出现时这里刷新它。 */
+    recent: RecentSessions;
+    welcome: AgentWelcomeView;
+    draftProfile: {readonly name: string; readonly icon: string} | null;
     registry: AgentViewRegistry;
     renderers: AgentViewRenderers;
     services: AgentConversationServices;
@@ -39,6 +43,11 @@ onMounted(() => {
     void props.host.restore();
 });
 onBeforeUnmount(() => giveBack?.());
+
+// 第一屏出现时（切到没有消息的会话、新建、没选会话）重取最近对话：别处新建、改名、归档过，这里不知道（conversation.md 输出 41）。
+watch(() => [props.host.ctx.value.session?.id ?? null, props.host.ctx.value.messages.length === 0] as const, ([, empty]) => {
+    if (empty) void props.recent.refresh();
+}, {immediate: true});
 
 /** 顶栏的新建也要先选 Profile。 */
 async function onAction(action: AgentViewAction): Promise<void> {
@@ -63,6 +72,8 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
         :renderers="props.renderers"
         status-bar
         new-session
+        :welcome="props.welcome"
+        :draft-profile="props.draftProfile"
         @action="onAction"
     >
         <template #sessions="{close}">

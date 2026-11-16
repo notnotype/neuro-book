@@ -74,6 +74,19 @@ const SUMMARIZED = {method: "nbook.agent.summary", tokensBefore: 92_400, tokensA
 const SUMMARY_TEXT = "## 用户的要求\n- 先写第三章，视角用第三人称限知。\n\n## 进度\n第一、二章已完成，第三章写到雨夜进药铺。\n\n## 下一步\n接着写“柜台后面没有人”这一段。";
 const compactionBase = (): AgentConversationContext["messages"] => longConversationMessages.slice(0, 4);
 
+/** 第一屏的最近对话：一条没有标题，时间跨今天、昨天与更早。 */
+const WELCOME_RECENT = [
+    {id: "w1", title: "第三章节奏调整", at: Date.UTC(2026, 10, 16, 9, 50)},
+    {id: "w2", title: "", at: Date.UTC(2026, 10, 15, 21, 5)},
+    {id: "w3", title: "查第五章的错别字，并顺手统一人物称谓", at: Date.UTC(2026, 10, 12, 8, 0)},
+];
+/** 主创的三条开场指令（与 `main.ts` 的同一份文字）。 */
+const WELCOME_STARTERS = [
+    {icon: "i-lucide-feather", text: "帮我润色一段环境描写：暴雨中的蒸汽工业城市，充满湿冷的金属味、雾气与钟声。文风克制冷峻，突出压抑感。"},
+    {icon: "i-lucide-git-merge", text: "规划第三幕高潮“雨夜钟楼对决”的细纲，设计三段递进的冲突转折，并让两条暗线在此处收束。"},
+    {icon: "i-lucide-shield-check", text: "对当前章节进行一致性体检，排查时间线冲突、战力体系失衡、伏笔漏洞以及高频重复词。"},
+];
+
 export const agentConversationViewScenes: Scene[] = [
     hostScene("idle-host", "宿主接好的样子：状态栏、审批模式", {}),
     hostScene("compaction-summary", "压缩分隔线：摘要、放回、要求（点开看详情）", {messages: [...compactionBase(), compactionDivider("c1", {text: SUMMARY_TEXT, compaction: SUMMARIZED})]}),
@@ -262,15 +275,43 @@ export const agentConversationViewScenes: Scene[] = [
     },
     {
         id: "no-session",
-        label: "没选会话：头写“新对话”，图标是新会话的 Profile，左右为空",
+        label: "没选会话：头写“新对话”，第一屏有最近对话与开场指令",
         input: {
             props: {
                 ctx: conversationContext({
                     session: null,
                     messages: [],
                     availability: {status: "unselected", message: "选择或新建一个会话后开始对话。", actions: []},
+                    now: Date.UTC(2026, 10, 16, 10, 0),
                 }),
                 newSession: true, draftProfile: {name: "主创", icon: "i-lucide-feather"},
+                welcome: {title: "NeuroBook 创作工作区", recent: WELCOME_RECENT, total: 12, starters: WELCOME_STARTERS},
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "welcome-first",
+        label: "第一次用：没有最近对话，只有开场指令",
+        input: {
+            props: {
+                ctx: conversationContext({session: null, messages: [], availability: {status: "unselected", message: "", actions: []}}),
+                newSession: true, draftProfile: {name: "主创", icon: "i-lucide-feather"},
+                welcome: {title: "NeuroBook 创作工作区", recent: [], total: 0, starters: WELCOME_STARTERS},
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "welcome-bare",
+        label: "第一屏什么都没有：Profile 没有开场指令，也没有别的会话",
+        input: {
+            props: {
+                ctx: conversationContext({messages: []}),
+                newSession: true,
+                welcome: {title: "NeuroBook 创作工作区", recent: [], total: 0, starters: []},
                 teleportTarget: false, locale: "zh-CN",
             },
             model: {viewMode: "turns"},

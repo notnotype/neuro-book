@@ -1311,6 +1311,11 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 draftText = action.text;
                 noteDraft(action.text);
                 return;
+            // 第一屏的开场指令：换掉输入框里的文字，与在输入框里打的字一样存成草稿（conversation.md 输出 41）。
+            case "composer.fill":
+                setDraft(action.text);
+                bump();
+                return;
             case "composer.attachmentAdded":
                 await startUpload(action.localId, action.file);
                 return;

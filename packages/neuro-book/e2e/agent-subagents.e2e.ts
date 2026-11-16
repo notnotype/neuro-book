@@ -74,7 +74,7 @@ async function openConversation(page: Page): Promise<void> {
     await page.keyboard.press("Control+Shift+P");
     await page.keyboard.type("新建 Agent 会话");
     await page.keyboard.press("Enter");
-    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
 }
 
 async function send(page: Page, text: string): Promise<void> {

@@ -248,6 +248,7 @@
             "running": "Agent：{{running}} 运行中"
         },
         "listFailed": "无法获取会话列表（{{code}}）。",
+        "welcomeTitle": "NeuroBook 创作工作区",
         "pickProfile": "选择 Profile",
         "renameTitle": "改名",
         "rename": "改名",

@@ -18,6 +18,16 @@ export default {
         rawView: "原始视图",
         turnsView: "分轮视图",
     },
+    welcome: {
+        title: "开始一段对话",
+        withRecent: "从最近对话继续写，或试试下面的指令",
+        withStarters: "在下面输入，或试试下面的指令",
+        plain: "在下面输入，开始一段对话",
+        recent: "最近对话",
+        viewAll: "查看全部（{{total}}）",
+        starters: "试试这些",
+        startersHint: "点击填入输入框",
+    },
     stream: {
         empty: "还没有消息",
         loading: "正在加载会话",

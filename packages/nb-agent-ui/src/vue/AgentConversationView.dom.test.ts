@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {flushPromises, mount} from "@vue/test-utils";
-import {defineComponent, h, nextTick, ref} from "vue";
+import {defineComponent, h, nextTick, ref, shallowRef} from "vue";
 
 import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "@notnotype/nb-ui/locales";
 import {createMinimalTranslator} from "@notnotype/nb-ui/text/minimal";
@@ -11,8 +11,9 @@ import type {AgentViewContribution} from "../registry";
 
 import type {MarkdownActivation} from "../ports";
 import {createAgentViewRegistry} from "../registry";
+import {applyComposerAction} from "../composer-actions";
 import {NB_AGENT_UI_CATALOGS, NB_AGENT_UI_NAMESPACE} from "../locales";
-import type {AgentConversationContext, AgentConversationServices, AgentLocale} from "../types";
+import type {AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentWelcomeView} from "../types";
 import AgentConversationView from "./AgentConversationView.vue";
 import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
 import {builtinComposerContribution} from "./builtin-composer";
@@ -751,6 +752,75 @@ describe("宿主每秒换 now", () => {
         expect(view.get("[data-agent-head] [data-header-title]").text()).toBe("第三章");
         expect(document.querySelector("[data-probe-sessions]")).not.toBeNull();
         view.unmount();
+    });
+});
+
+describe("第一屏（Spec“消息”的空状态）", () => {
+    const WELCOME: AgentWelcomeView = {
+        title: "NeuroBook 创作工作区",
+        recent: [{id: "s2", title: "第三章节奏调整", at: 3}, {id: "s3", title: "", at: 2}, {id: "s4", title: "查错别字", at: 1}, {id: "s5", title: "第四条不显示", at: 0}],
+        total: 12,
+        starters: [{text: "帮我润色一段环境描写", icon: "i-lucide-feather"}, {text: "规划第三幕的细纲"}, {text: "一致性体检"}, {text: "第四条不显示"}],
+    };
+    const empty = (): AgentConversationContext => ({...context(), session: null, messages: []});
+
+    /** 像宿主那样处理输入框的动作：`composer.fill` 换草稿、加版本，视图跟着换编辑器里的文字。 */
+    function mountWelcome(welcome: AgentWelcomeView | null, ctx = empty()) {
+        const current = shallowRef<AgentConversationContext>(ctx);
+        const actions: AgentViewAction[] = [];
+        const Host = defineComponent({
+            setup: () => () => h(AgentConversationView, {
+                ctx: current.value,
+                registry,
+                locale: "zh-CN",
+                services: {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []})},
+                welcome,
+                onAction: (action: AgentViewAction) => {
+                    actions.push(action);
+                    const composer = applyComposerAction(current.value.composer, action);
+                    if (composer !== null) current.value = {...current.value, composer};
+                },
+            }, {sessions: ({close}: {close: () => void}) => h("div", {"data-probe-sessions": ""}, [h("button", {type: "button", onClick: close}, "关")])}),
+        });
+        const wrapper = mount(Host, {attachTo: document.body});
+        return {wrapper, actions};
+    }
+
+    it("三块各只显示前 3 条；标题由宿主给，空标题写未命名会话；没有最近对话与指令时两块都不画；没给 welcome 时写还没有消息", async () => {
+        const {wrapper} = mountWelcome(WELCOME);
+        expect(wrapper.get("[data-agent-welcome] h2").text()).toBe("NeuroBook 创作工作区");
+        expect(wrapper.findAll("[data-welcome-session]").map((card) => card.text())).toEqual([expect.stringContaining("第三章节奏调整"), expect.stringContaining("未命名会话"), expect.stringContaining("查错别字")]);
+        expect(wrapper.get("[data-welcome-all]").text()).toContain("查看全部（12）");
+        expect(wrapper.findAll("[data-welcome-starter]")).toHaveLength(3);
+        wrapper.unmount();
+
+        const bare = mountWelcome({recent: [], total: 0, starters: []});
+        expect(bare.wrapper.find("[data-welcome-recent]").exists()).toBe(false);
+        expect(bare.wrapper.find("[data-welcome-starters]").exists()).toBe(false);
+        expect(bare.wrapper.get("[data-agent-welcome]").text()).toContain("开始一段对话");
+        bare.wrapper.unmount();
+
+        const none = mountWelcome(null);
+        expect(none.wrapper.find("[data-agent-welcome]").exists()).toBe(false);
+        expect(none.wrapper.get(".acv-stream__empty").text()).toBe("还没有消息");
+        none.wrapper.unmount();
+    });
+
+    it("点卡片切到那个会话；查看全部打开会话列表；点指令后输入框里是这段文字，焦点在输入框", async () => {
+        const {wrapper, actions} = mountWelcome(WELCOME);
+        await wrapper.get("[data-welcome-session='s2']").trigger("click");
+        expect(actions).toContainEqual({type: "session.select", sessionId: "s2"});
+
+        await wrapper.get("[data-welcome-all]").trigger("click");
+        await flushPromises();
+        expect(document.querySelector("[data-probe-sessions]")).not.toBeNull();
+
+        await wrapper.findAll("[data-welcome-starter]")[1]!.trigger("click");
+        await flushPromises();
+        await nextTick();
+        expect((wrapper.getComponent(PlainPromptEditor).get("textarea").element as HTMLTextAreaElement).value).toBe("规划第三幕的细纲");
+        expect(document.activeElement?.closest(".acv-composer")).not.toBeNull();
+        wrapper.unmount();
     });
 });
 

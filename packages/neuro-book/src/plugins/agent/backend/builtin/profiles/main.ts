@@ -26,7 +26,14 @@ const TOOLS = {
     optional: ["nbook.agent.edit-replace", SHELL, ASK, ...DELEGATION],
 };
 
-export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-feather", agents: {allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]}, skills: {allowed: "all"}};
+/** 对话第一屏的开场指令（builtin-profiles.md 输出 17）：沿用旧应用的三条，润色、细纲、一致性体检。 */
+const STARTERS = [
+    {icon: "i-lucide-feather", text: "帮我润色一段环境描写：暴雨中的蒸汽工业城市，充满湿冷的金属味、雾气与钟声。文风克制冷峻，突出压抑感。"},
+    {icon: "i-lucide-git-merge", text: "规划第三幕高潮“雨夜钟楼对决”的细纲，设计三段递进的冲突转折，并让两条暗线在此处收束。"},
+    {icon: "i-lucide-shield-check", text: "对当前章节进行一致性体检，排查时间线冲突、战力体系失衡、伏笔漏洞以及高频重复词。"},
+];
+
+export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-feather", agents: {allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]}, skills: {allowed: "all"}, starters: STARTERS};
 
 const ROLE = `你是 NeuroBook 的写作助手，和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。
 书的文件在 project:// 下。没有打开书时可以讨论，产物放 session://。`;

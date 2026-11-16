@@ -12,6 +12,16 @@ export default {
         rawView: "Raw view",
         turnsView: "Turn view",
     },
+    welcome: {
+        title: "Start a conversation",
+        withRecent: "Pick up a recent conversation, or try one of these",
+        withStarters: "Type below, or try one of these",
+        plain: "Type below to start",
+        recent: "Recent conversations",
+        viewAll: "View all ({{total}})",
+        starters: "Try these",
+        startersHint: "Click to fill in",
+    },
     stream: {
         empty: "No messages yet",
         loading: "Loading the conversation",
