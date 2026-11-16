@@ -186,7 +186,8 @@ function onKeydown(event: KeyboardEvent): void {
     flex-shrink: 0;
     flex-direction: column;
     gap: var(--space-1);
-    padding: 0 var(--space-3) 0 var(--space-2);
+    /* 底部留白：滚到底时最后一个按钮的聚焦光晕不被滚动区裁掉。 */
+    padding: 0 var(--space-3) var(--space-2) var(--space-2);
     overflow-y: auto;
     border-right: var(--border-w) solid var(--divider);
 }
