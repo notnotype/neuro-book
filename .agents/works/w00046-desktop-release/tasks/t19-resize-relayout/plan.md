@@ -16,7 +16,7 @@ Chrome 的视口改变不等于 WebView2 的窗口拖动（后者还有窗口式
 | 活动栏（`WorkbenchToolStrip` 的 `TransitionGroup`） | 1 次更新 | 条目区随窗口高度变，`shownEntries` 每次是新数组 |
 | 资源管理器（`ExplorerTree` 的 `TransitionGroup`） | 1 次更新 | 视图高度变，`rendered` 每次是新数组，即使画的还是同一批行 |
 | 分隔线对齐（`SashHandle.snap`） | 每条线 1 到 2 次 | 一帧里逐条“读位置、写样式、读 `--sash-line-size`”，后一条的读被前一条的写强制重算 |
-| 状态栏条目（`WorkbenchItemStrip.remeasure`） | 2 次（左右两条） | 重量的 `watch` 用一个返回数组的函数当来源，上游每换一次条目数组就触发；测量层没写宽度，条目合起来比条带宽时被条带夹窄，尺寸随窗口变 |
+| 状态栏条目（`WorkbenchItemStrip.remeasure`） | 2 次（左右两条） | 重量的 `watch` 用一个返回数组的函数当来源，上游每换一次条目数组就触发 |
 
 ## 改法（行为合同不变）
 
