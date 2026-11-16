@@ -45,6 +45,51 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; 
 <body>
 <main>
 <h1>属性面板：静态稿评审板</h1>
+
+<h2 style="margin-top:24px">第 2 轮</h2>
+<div class="lead">
+<p>第 1 轮五题都取了推荐：卡片、缺省收起、没有属性时不画、按值推断类型、逐个字段退回。这一轮回答两条附言，再把卡片的细节画全。</p>
+</div>
+
+<section>
+<h2>答复：能不能复用 nb-form <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>nb-form 的 <code>SchemaField</code> 加 <code>bare</code> 时只画一个值的控件，设置窗口的一行就这样用，形状上和属性的一行相近。但它帮得上的只是面板里最简单的一块：</p>
+<ul>
+<li><b>先有值、后有类型。</b>nb-form 是先有 schema 再画；属性是先读到值再推类型，名字能加、删、改，类型能换。面板的主要代码在这些地方，再加上 YAML 的读写（保留注释与没动的写法）和表示不了时的退回，nb-form 都不管。</li>
+<li><b>控件样子不合。</b>nb-form 的文字框带边框，列表是一列输入框加“添加”按钮，是设置表单的样子；放进稿纸上的淡底卡片太重。要合用得给 nb-form 加一套紧凑样式。</li>
+<li><b>没有日期控件。</b>两边都得新做。</li>
+</ul>
+<div class="rec-note"><b>做法：在控件这一层复用，面板单写。</b>值的输入用 nb-ui 的 <code>Input</code>（无框）、<code>Checkbox</code>；新加的日期输入与标签式列表输入放进 nb-ui，用 reka-ui 现成的 DatePicker、TagsInput 搭（nb-ui 本来就建在 reka-ui 上，不加新库），以后 nb-form 也能拿它们做日期与列表控件。面板本身（行、类型推断、YAML 读写、退回）放在 Markdown 插件里，估计三四百行加测试。</div>
+</section>
+
+<section>
+<h2>答复：“全书统一”是什么 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<p>Obsidian 里一个属性名在整个库只有一种类型，记在库的设置里。比如把“时间”定成日期，每个文件的“时间”都用日历改；新加一项“时间”时直接给日历，值还空着也知道它是日期。</p>
+<ul>
+<li><b>有什么用：</b>一是一致，不会一章写 <code>字数目标: 4000</code>、另一章写成 <code>字数目标: 四千</code>；二是给查询用，按“时间”给章节排序、筛出“视角是林雪”的章，要类型一致才靠得住（Obsidian 的表格视图和 Dataview 插件就靠它）；三是输入时能提示别的文件里用过的属性名与值。</li>
+<li><b>为什么现在不做：</b>NeuroBook 还没有按属性查询、排序的地方；以后作品的设定（角色、地点这类条目）会是更合适的类型来源。按值推断不往文件里写类型，以后加统一类型时没有要迁移的数据。</li>
+</ul>
+</section>
+
+<section data-nbdev-question="q6-details" data-nbdev-type="confirm">
+<h2>问题 6：卡片的细节这样可以吗 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>比第 1 轮改了：属性名一栏收窄；列表的小块改成正文字重的淡底；悬停与正在改的一行有底色，悬停的一行右边出“移除”；“添加属性”与属性名对齐。不同意的地方写在附言里。</p>
+<div class="pair">
+<figure><img src="r2/rest.webp" alt="展开"><figcaption>展开</figcaption></figure>
+<figure><img src="r2/closed.webp" alt="收起"><figcaption>收起（缺省）：一行摘要</figcaption></figure>
+<figure><img src="r2/hover.webp" alt="悬停"><figcaption>悬停一行：底色，右边“移除”</figcaption></figure>
+<figure><img src="r2/date.webp" alt="改日期"><figcaption>改日期：日历（新加的日期输入）</figcaption></figure>
+<figure><img src="r2/list.webp" alt="改列表"><figcaption>改列表：每项带 ×，末尾接着打，回车加一项（新加的列表输入）</figcaption></figure>
+<figure><img src="r2/type.webp" alt="改类型"><figcaption>改类型：点类型图标出菜单，值跟着转换（转不了的留在源码里）</figcaption></figure>
+<figure><img src="r2/complex.webp" alt="表示不了的字段"><figcaption>表示不了的字段：只读，右边一键切到源码</figcaption></figure>
+<figure><img src="r2/source.webp" alt="源码"><figcaption>源码：右上角切换，就地改整块 YAML</figcaption></figure>
+<figure><img src="r2/error.webp" alt="YAML 写错"><figcaption>YAML 写错：标出错的那一行，改好之前按源码显示</figcaption></figure>
+<figure><img src="r2/list-dark.webp" alt="暗色"><figcaption>暗色主题</figcaption></figure>
+</div>
+<figure class="narrow"><img src="r2/rest-narrow.webp" alt="390px"><figcaption>390px 宽</figcaption></figure>
+</section>
+
+<h2 style="margin-top:40px">第 1 轮（已答）</h2>
 <div class="lead">
 <p>w00025 t10，第 1 轮。Markdown 文件开头的 frontmatter（<code>---</code> 之间的 YAML）现在不进富文本，要改只能换到源码编辑器。这个 Task 在正文上方加一块属性面板：按字段显示与编辑，能切到 YAML 源码。</p>
 <p>图是在草稿 worktree 的 Lab 里用真实的 nb-ui 组件与主题变量搭的静态稿（亮色、nbook 主题），不接编辑内核。样例是一章的五个属性，每种类型一个：</p>
@@ -59,7 +104,7 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; 
 </div>
 
 <section data-nbdev-question="q1-look" data-nbdev-type="single" data-nbdev-recommend="card">
-<h2>问题 1：面板的样子 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 1：面板的样子 <span class="badge info" data-nbdev-skip>已定：卡片</span></h2>
 <p>两种样子的行都一样：类型图标、属性名（次要色）、值（正文色，就地可改）；列表是一个个小块；右上角切到 YAML 源码；最下面“添加属性”。面板是界面，用界面字号，不跟正文的 17px。</p>
 <div class="opts">
 <div class="opt" data-nbdev-option="flat">
@@ -83,7 +128,7 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; 
 </section>
 
 <section data-nbdev-question="q2-default" data-nbdev-type="single" data-nbdev-recommend="closed">
-<h2>问题 2：打开文件时面板展开还是收起 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 2：打开文件时面板展开还是收起 <span class="badge info" data-nbdev-skip>已定：缺省收起</span></h2>
 <p>图见问题 1：每种样子都画了展开与收起。收起时是一行摘要（属性名加值，放不下的截断），点这一行展开。</p>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="closed">
@@ -99,7 +144,7 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; 
 </section>
 
 <section data-nbdev-question="q3-empty" data-nbdev-type="single" data-nbdev-recommend="menu">
-<h2>问题 3：文件没有 frontmatter 时 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 3：文件没有 frontmatter 时 <span class="badge info" data-nbdev-skip>已定：不画</span></h2>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="menu">
 <h3>不画面板，从菜单添加</h3>
@@ -114,7 +159,7 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; 
 </section>
 
 <section data-nbdev-question="q4-types" data-nbdev-type="single" data-nbdev-recommend="infer">
-<h2>问题 4：字段类型怎么定 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 4：字段类型怎么定 <span class="badge info" data-nbdev-skip>已定：按值推断</span></h2>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="infer">
 <h3>按值推断</h3>
@@ -129,7 +174,7 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; 
 </section>
 
 <section data-nbdev-question="q5-fallback" data-nbdev-type="single" data-nbdev-recommend="row-and-source">
-<h2>问题 5：面板表示不了的内容 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>问题 5：面板表示不了的内容 <span class="badge info" data-nbdev-skip>已定：逐个字段退回</span></h2>
 <div class="opts">
 <div class="opt rec" data-nbdev-option="row-and-source">
 <h3>逐个字段退回，写错了整块退回</h3>
