@@ -397,6 +397,27 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const shown = await bar.boundingBox();
         const [shownCorner] = await colorsAt([[shown!.x + shown!.width - 1.5, top + 1.5]]);
         expect(near(shownCorner, surface)).toBe(true);
+
+        // 切到另一个只有一节的容器：换上来的一节从上往下长，活动栏前后都相连，过渡中也不换画法（换的话图标会左右挪）。
+        await page.evaluate((selector) => document.querySelector<HTMLElement>(selector)!.click(), `[data-tool-entry="view:${B}"]`);
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const switching = await page.evaluate(({duration}) => {
+            for (const animation of document.getAnimations()) {
+                animation.pause();
+                animation.currentTime = 0.3 * duration;
+            }
+            const card = document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!;
+            return {moving: document.querySelector("[data-workbench-surface] [data-moving]") !== null, join: card.dataset.shellJoin ?? null, cap: card.dataset.shellCap ?? null, right: card.getBoundingClientRect().right};
+        }, {duration});
+        await page.evaluate(() => {
+            for (const animation of document.getAnimations()) {
+                if (animation.effect?.getComputedTiming().endTime === Number.POSITIVE_INFINITY) animation.play();
+                else animation.finish();
+            }
+        });
+        expect(switching).toEqual({moving: true, join: "start", cap: null, right: shown!.x + shown!.width});
+        await expect(moving).toHaveCount(0);
+        await expect(entry(page, `view:${B}`)).toHaveAttribute("aria-pressed", "true");
     });
 
     test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时缩到零（按拖到零画），过渡中不可交互、还画着；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {

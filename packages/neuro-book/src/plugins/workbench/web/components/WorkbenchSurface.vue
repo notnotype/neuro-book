@@ -197,11 +197,18 @@ const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind === "lea
 const presentedLeaves = computed(() => new Set(leafIdsOf(props.projection.input)));
 const outgoingLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.outgoingLeaves ?? new Set());
 const shapedLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.shapedLeaves ?? new Set());
-/** 上一次发布的布局里各块的尺寸：面板是不是从零宽长出来的（`capLeaf`）。 */
-const sizesBefore = shallowRef<Readonly<Record<string, GridExtent>>>({});
-watch(() => host.layout.value.sizes, (_next, previous) => {
-    sizesBefore.value = previous ?? {};
+/**
+ * 活动栏刚从断开变成相连时连上的那块面板（`capLeaf`）：显示（从零宽长出来）、从两节的容器切到一节的。一直相连、只是换了一块（切到另一个只有一节的容器）时不算，
+ * 别的变化与这一轮过渡结束都清掉。
+ */
+const freshlyJoined = shallowRef<string | null>(null);
+const barJoinedTo = (all: Readonly<Record<string, CardEdges>>): string | null => (all[ACTIVITY_BAR]?.right.kind === "joined" ? Object.keys(all).find((id) => all[id]?.left.kind === "joined") ?? null : null);
+watch(() => barJoinedTo(cards.value), (leaf, previous) => {
+    freshlyJoined.value = previous === null ? leaf : null;
 }, {flush: "sync"});
+watch(shapedLeaves, (shaped) => {
+    if (shaped.size === 0) freshlyJoined.value = null;
+});
 const lastPresented = {cards: new Map<string, CardEdges>(), scene: new Map<string, PanelName>()};
 /** 活动栏最近一次没和面板相连时右边的样子：面板长出来的这段活动栏照这个画（`cardOf`）。 */
 let separatedBarRight: CardEdges["right"] = {kind: "inner", occupied: 0};
@@ -243,12 +250,9 @@ const sceneOf = (id: string): PanelName | undefined => (drawnAsBefore(id) ? last
  *   盖住活动栏的圆角与半缝，只在它们空着的地方露出来，活动栏的图标与悬停底色照旧在上面；
  * - 面板右边的两个圆角跟着外框的右沿：缩到零时正好落在活动栏右边，成了活动栏的两个角，摘掉面板后画面不变；显示时反过来，长完了换回相连的画法，画面同样不变。
  * 所以活动栏的角不过渡：断开、相连的那一刻它的角都被盖着。中间那条短线随着淡出（隐藏）、淡入（显示）。
- * 只认横着缩回去、长出来的：显示要求面板在上一次布局里没有宽度。切换容器时换上来的一节是从上往下长的，活动栏前后都相连，不换画法（换的话图标会左右挪一下）。
+ * 只认缩回去的和活动栏刚连上的（`freshlyJoined`）：切到另一个只有一节的容器时，换上来的一节从上往下长，活动栏前后都相连，不换画法（换的话图标会左右挪一下）。
  */
-const capLeaf = computed<string | null>(() => [...shapedLeaves.value].find((id) => {
-    if (id === ACTIVITY_BAR || edgesOf(id)?.left.kind !== "joined") return false;
-    return drawnAsBefore(id) || (sizesBefore.value[id]?.width ?? 0) <= 0;
-}) ?? null);
+const capLeaf = computed<string | null>(() => [...shapedLeaves.value].find((id) => id !== ACTIVITY_BAR && edgesOf(id)?.left.kind === "joined" && (drawnAsBefore(id) || id === freshlyJoined.value)) ?? null);
 
 /** 这块卡片的四边：离开的叶用最后一次呈现的；面板的角接过去的这段，活动栏照断开的样子。 */
 function cardOf(id: string): CardEdges | undefined {
