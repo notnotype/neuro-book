@@ -1,5 +1,5 @@
 /**
- * 关窗协调（docs/specs/runtime/desktop-shell.md 输出 9、14 到 17、23）：纯状态机，经 `WindowPort` 操作窗口，事件由适配层
+ * 关窗协调（docs/specs/runtime/desktop-shell.md 输出 9、14 到 17、23、29 到 31）：纯状态机，经 `WindowPort` 操作窗口，事件由适配层
  * 按 Electrobun 的顺序送来：
  *
  * - 用户关窗：`will-close` 里已经同步否决，再送 `closeRequested`；真正关窗用 `commitClose`（不经 `will-close`），窗口没了才有
@@ -7,15 +7,23 @@
  * - 页面回答：`pageAcked`、`pageAnswered`，带询问的代次；只认当前代次。
  * - 对话框的选择：`dialogChose`。
  *
- * 最后一次关闭：关的是最后一个仍存活的产品窗口、服务端是自有时以 `quit` 询问。询问期间开窗转交回 `closing`、页面请求的新窗口
- * 被拒，窗口集合只会变少，所以同意时它一定还是最后一个；同意与进入停止中在同一个同步段里，中间开不出窗口。
+ * 最后一次关闭：关的是最后一个仍存活的产品窗口、按输出 29 的表原因是 `quit`（`#reasonFor`）时以 `quit` 询问。询问期间开窗转交
+ * 回 `closing`、页面请求的新窗口被拒，窗口集合只会变少，所以同意时它一定还是最后一个；同意与进入停止中在同一个同步段里，中间
+ * 开不出窗口。原因是 `window` 的询问（包括设置为 `tray` 时的最后一个窗口）不挡开窗；同意时按那一刻的情形重算原因，变成 `quit`
+ * 就以 `quit` 再问一次。
+ *
+ * 应用级退出（输出 31）：`quitRequested` 置 `#appQuit`，任一询问被拒或取消时复位；置位期间不开新窗口，最后一个窗口的原因是
+ * `quit`；窗口关完（剩下的本来就在关闭中）或本来就没有窗口时直接停止。
+ *
+ * 后台（输出 29）：窗口都关完时，服务端是自有的、设置是 `tray`、托盘图标显示着，就不调 `onAllClosed`，壳留在后台；托盘菜单经
+ * `openFromTray`、`quitFromTray` 进来。
  *
  * 更新提示的交付（docs/specs/runtime/desktop-update.md 输出 3、4）：当前提示由更新控制器给（`setUpdateHint`），这里为它记一个
  * “持有窗口”。提示变化时交给最近获得焦点的就绪产品窗口；只在持有窗口关掉、刷新（又报一次就绪）、离开就绪时转给当时最近
  * 焦点的就绪窗口；别的窗口第一次就绪时只在没有持有窗口时接手。“就绪”由页面报（`pageReady`、`pageGone`）。
  */
 
-import type {CloseReason, UpdateHint} from "../shared/desktop-bridge";
+import type {CloseLastWindow, CloseReason, UpdateHint} from "../shared/desktop-bridge";
 
 import {at} from "./deadline";
 import type {DeadlineClock} from "./deadline";
@@ -46,9 +54,18 @@ export interface WindowCoordinatorOptions {
     readonly clock: DeadlineClock;
     /** 最后一次关闭被同意（或强制关闭了最后一个窗口）：壳进入停止中。与 `commitClose` 在同一个同步段里调用。 */
     readonly onQuit: () => void;
-    /** 窗口都关完了（`closed` 之后）。 */
+    /** 窗口都关完了（`closed` 之后），且不留在后台、不是停止中关完的。 */
     readonly onAllClosed: () => void;
+    /** 设置“关掉最后一个窗口时”此刻的值（壳从页面交来的值里取）；判断原因时现读。 */
+    readonly closeLastWindow: () => CloseLastWindow;
+    /** 托盘图标此刻是不是显示着（适配层建出来了）；没显示出来时按没有托盘处理。 */
+    readonly trayShown: () => boolean;
+    /** 窗口数变了（开了一个，或关掉一个之后）：壳据此算托盘的提示文字与在不在后台。 */
+    readonly onWindowsChanged: (count: number) => void;
 }
+
+/** 托盘“打开”的结果：置前这个窗口（适配层还原最小化的）、开了一个新窗口，或这时不能开（`null`）。 */
+export type TrayOpen = {readonly focus: WindowId} | {readonly opened: WindowId} | null;
 
 /** 带动作的提示：用户关掉之后，它的动作还留在通知中心里。 */
 const ACTIONABLE_HINTS: ReadonlySet<UpdateHint["kind"]> = new Set(["available", "notify-only", "download-failed"]);
@@ -89,6 +106,8 @@ export class WindowCoordinator {
     #stopping = false;
     /** 进行中的最后一次关闭（以 `quit` 询问的那个窗口）。 */
     #lastClose: WindowId | null = null;
+    /** 应用级退出进行中（输出 31）。 */
+    #appQuit = false;
     #hint: {readonly id: number; readonly hint: UpdateHint} | null = null;
     /** 当前提示交给了哪个窗口；null 是还没有就绪的窗口可交，等。 */
     #hintHolder: WindowId | null = null;
@@ -107,22 +126,24 @@ export class WindowCoordinator {
     openWindow(): WindowId {
         const id = this.#options.port.open(this.#serverUrl === null ? {kind: "startup"} : {kind: "page", url: this.#serverUrl});
         this.#windows.set(id, newWindowState(this.#serverUrl === null ? "startup" : "page"));
+        this.#options.onWindowsChanged(this.#windows.size);
         return id;
     }
 
     /** 锁上的 `open-window`（输出 2）：同步决定并开窗。 */
     openWindowRequested(): {ok: true} | {ok: false; code: "closing" | "stopping"} {
         if (this.#stopping) return {ok: false, code: "stopping"};
-        if (this.#lastClose !== null) return {ok: false, code: "closing"};
+        if (this.#lastClose !== null || this.#appQuit) return {ok: false, code: "closing"};
         this.openWindow();
         return {ok: true};
     }
 
     /** 页面以网页方式请求的新窗口（输出 12），来源已由适配层核对是服务端的精确来源。 */
     pageWindowRequested(url: string): boolean {
-        if (this.#stopping || this.#lastClose !== null || this.#serverUrl === null) return false;
+        if (this.#stopping || this.#lastClose !== null || this.#appQuit || this.#serverUrl === null) return false;
         const id = this.#options.port.open({kind: "page", url});
         this.#windows.set(id, newWindowState("page"));
+        this.#options.onWindowsChanged(this.#windows.size);
         return true;
     }
 
@@ -138,9 +159,10 @@ export class WindowCoordinator {
         }
     }
 
-    /** 自有服务端意外退出且用户选了“稍后”：之后关窗不再停服务端（输出 21）。 */
+    /** 自有服务端意外退出且用户选了“稍后”：之后关窗不再停服务端（输出 21）；在后台时（没有窗口）壳就此退出。 */
     serverAbandoned(): void {
         this.#ownsServer = false;
+        if (this.#windows.size === 0 && !this.#stopping) this.#options.onAllClosed();
     }
 
     closeRequested(id: WindowId): void {
@@ -155,17 +177,54 @@ export class WindowCoordinator {
             this.#showDialog(id, state);
             return;
         }
-        this.#ask(id, state, this.#isLast(id) ? "quit" : "window");
+        this.#ask(id, state, this.#reasonFor(id));
     }
 
     /**
-     * 应用级的退出请求（输出 19：系统或框架发来的退出，适配层已同步否决）：每个还活着的窗口都像用户关它一样走 `closeRequested`，
-     * 启动页直接关，产品窗口各自询问，最后一个照常以 `quit` 询问；任何一个页面不同意，应用就照常运行。已经在问的窗口不再弹
-     * “没有响应”（那是用户再次关同一个窗口时才给的），停止中再来的退出请求不用处理。
+     * 应用级退出（输出 19 的框架退出请求、输出 30 的托盘“退出”，输出 31）：每个还活着的窗口都像用户关它一样走 `closeRequested`，
+     * 启动页直接关，产品窗口各自询问，最后一个以 `quit` 询问；任何一个页面不同意或取消关闭，这次退出就结束，应用照常运行。
+     * 已经在问的窗口不再弹“没有响应”（那是用户再次关同一个窗口时才给的），它同意时按重算的原因再问。没有窗口时（后台）直接
+     * 停止。停止中再来的退出请求不用处理。
      */
     quitRequested(): void {
         if (this.#stopping) return;
+        this.#appQuit = true;
+        if (this.#windows.size === 0) {
+            this.#quit();
+            return;
+        }
         for (const [id, state] of [...this.#windows]) if (state.ask === null) this.closeRequested(id);
+    }
+
+    /**
+     * 托盘菜单的“打开”（输出 30）：有不在关闭中的产品窗口时置前最近获得焦点的那个；没有时开一个新窗口，规则与开窗转交相同
+     * （应用级退出或最后一次关闭进行中、停止中都不开）。
+     */
+    openFromTray(): TrayOpen {
+        if (this.#stopping) return null;
+        let best: WindowId | null = null;
+        let bestFocus = -1;
+        for (const [id, state] of this.#windows) {
+            if (state.kind !== "page" || state.closing) continue;
+            if (state.focusedAt >= bestFocus) {
+                best = id;
+                bestFocus = state.focusedAt;
+            }
+        }
+        if (best !== null) return {focus: best};
+        if (this.#lastClose !== null || this.#appQuit || this.#serverUrl === null) return null;
+        return {opened: this.openWindow()};
+    }
+
+    /**
+     * 托盘菜单的“退出”（输出 30）：有窗口时就是应用级退出（`"quitting"`）；没有窗口时交回 `"check-work"`，由壳先取在跑的工作，
+     * 决定之后再调 `quitRequested`。停止中交回 `"stopping"`，不用处理。
+     */
+    quitFromTray(): "quitting" | "check-work" | "stopping" {
+        if (this.#stopping) return "stopping";
+        if (this.#windows.size === 0) return "check-work";
+        this.quitRequested();
+        return "quitting";
     }
 
     pageAcked(id: WindowId, generation: number): void {
@@ -180,13 +239,21 @@ export class WindowCoordinator {
         const ask = state?.ask;
         if (state === undefined || ask === null || ask === undefined || ask.generation !== generation) return;
         this.#endAsk(id, state, false);
-        if (answer === "deny") return;
-        if (ask.reason === "window" && this.#isLast(id)) {
-            // 询问期间别的窗口关掉了，它已是最后一个：以 quit 重新问一次（输出 16）。
+        if (answer === "deny") {
+            this.#appQuit = false;
+            return;
+        }
+        if (ask.reason === "quit") {
+            // 以 quit 问的得到同意就停止，询问期间设置改成 tray 也一样（输出 29）。
+            this.#commit(id, true);
+            return;
+        }
+        if (this.#reasonFor(id) === "quit") {
+            // 询问期间情形变了（别的窗口关掉了、设置改成 quit、托盘没了、来了应用级退出）：以 quit 重新问一次（输出 16、29）。
             this.#ask(id, state, "quit");
             return;
         }
-        this.#commit(id, this.#isLast(id));
+        this.#commit(id, false);
     }
 
     dialogChose(id: WindowId, choice: "wait" | "cancel" | "force"): void {
@@ -201,7 +268,12 @@ export class WindowCoordinator {
             return;
         }
         this.#endAsk(id, state, true);
-        if (choice === "force") this.#commit(id, this.#isLast(id));
+        if (choice === "cancel") {
+            this.#appQuit = false;
+            return;
+        }
+        // 强制关闭：这次询问的原因与此刻算的原因有一个是 quit，就以 quit 提交（输出 29）。
+        this.#commit(id, ask.reason === "quit" || this.#reasonFor(id) === "quit");
     }
 
     closed(id: WindowId): void {
@@ -211,7 +283,19 @@ export class WindowCoordinator {
         if (state.dialogOpen) this.#options.port.closeNotResponding(id);
         this.#windows.delete(id);
         if (this.#hintHolder === id) this.#handOverHint(id);
-        if (this.#windows.size === 0) this.#options.onAllClosed();
+        this.#options.onWindowsChanged(this.#windows.size);
+        if (this.#windows.size > 0) return;
+        if (this.#stopping) {
+            this.#options.onAllClosed();
+            return;
+        }
+        // 应用级退出进行中，剩下的窗口本来就在关闭中（没有一个以 quit 问过）：关完就停止（输出 31）。
+        if (this.#appQuit) {
+            this.#quit();
+            return;
+        }
+        if (this.#ownsServer && this.#trayMode()) return;
+        this.#options.onAllClosed();
     }
 
     /** 窗口获得焦点。 */
@@ -267,11 +351,29 @@ export class WindowCoordinator {
         return this.#windows.size;
     }
 
-    /** 这个窗口是不是最后一个仍存活的窗口，且关掉它会停自有服务端。 */
+    /** 这个窗口是不是最后一个仍存活（不在关闭中）的窗口。 */
     #isLast(id: WindowId): boolean {
-        if (!this.#ownsServer) return false;
         for (const [other, state] of this.#windows) if (other !== id && !state.closing) return false;
         return true;
+    }
+
+    /** 设置是 `tray`、托盘图标显示着：最后一个窗口关掉之后留在后台。 */
+    #trayMode(): boolean {
+        return this.#options.closeLastWindow() === "tray" && this.#options.trayShown();
+    }
+
+    /** 关这个窗口的询问原因（输出 29 的表）：`quit` 的询问同意后停止。 */
+    #reasonFor(id: WindowId): CloseReason {
+        if (!this.#isLast(id) || !this.#ownsServer) return "window";
+        if (this.#appQuit) return "quit";
+        return this.#trayMode() ? "window" : "quit";
+    }
+
+    /** 进入停止中（`onQuit` 只调一次）。 */
+    #quit(): void {
+        if (this.#stopping) return;
+        this.#stopping = true;
+        this.#options.onQuit();
     }
 
     #ask(id: WindowId, state: WindowState, reason: CloseReason): void {
@@ -316,10 +418,7 @@ export class WindowCoordinator {
         state.closing = true;
         state.ready = false;
         if (this.#hintHolder === id) this.#handOverHint(id);
-        if (quit) {
-            this.#stopping = true;
-            this.#options.onQuit();
-        }
+        if (quit) this.#quit();
         this.#options.port.commitClose(id);
     }
 

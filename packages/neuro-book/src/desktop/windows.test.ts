@@ -1,11 +1,11 @@
 /**
- * 关窗协调（docs/specs/runtime/desktop-shell.md 输出 9、14 到 17、23）。端口替身按 Electrobun 的顺序派发：`closeRequested`
+ * 关窗协调（docs/specs/runtime/desktop-shell.md 输出 9、14 到 17、23、29 到 31）。端口替身按 Electrobun 的顺序派发：`closeRequested`
  * 之前 `will-close` 已否决；`commitClose` 之后窗口要等测试送 `closed` 才没。时钟是手动的。
  */
 
 import {describe, expect, it} from "bun:test";
 
-import type {UpdateHint} from "../shared/desktop-bridge";
+import type {CloseLastWindow, UpdateHint} from "../shared/desktop-bridge";
 import type {DeadlineClock} from "./deadline";
 import {ACK_MS, WindowCoordinator} from "./windows";
 import type {CloseReason, OpenTarget, WindowId, WindowPort} from "./windows";
@@ -21,7 +21,7 @@ type Call =
     | ["sendHint", WindowId, number, UpdateHint]
     | ["endHint", WindowId, number];
 
-function harness(options: {owned?: boolean; ready?: boolean} = {}) {
+function harness(options: {owned?: boolean; ready?: boolean; mode?: CloseLastWindow; trayShown?: boolean} = {}) {
     let now = 0;
     const timers = new Set<{due: number; callback: () => void}>();
     const clock: DeadlineClock = {
@@ -56,12 +56,23 @@ function harness(options: {owned?: boolean; ready?: boolean} = {}) {
         endHint: (id, hintId) => void calls.push(["endHint", id, hintId]),
     };
     const events: string[] = [];
-    const coordinator = new WindowCoordinator({port, clock, onQuit: () => events.push("quit"), onAllClosed: () => events.push("all-closed")});
+    /** 设置与托盘图标的此刻状态：用例里直接改，协调器判断原因时现读。 */
+    const shell = {mode: options.mode ?? "quit", trayShown: options.trayShown ?? true};
+    const counts: number[] = [];
+    const coordinator = new WindowCoordinator({
+        port,
+        clock,
+        onQuit: () => events.push("quit"),
+        onAllClosed: () => events.push("all-closed"),
+        closeLastWindow: () => shell.mode,
+        trayShown: () => shell.trayShown,
+        onWindowsChanged: (count) => counts.push(count),
+    });
     if (options.ready ?? true) coordinator.serverReady("http://127.0.0.1:4217/", options.owned ?? true);
     /** 最近一次对这个窗口的询问。 */
     const lastAsk = (id: WindowId) => calls.filter((call): call is ["askPage", WindowId, number, CloseReason] => call[0] === "askPage" && call[1] === id).at(-1);
     const did = (name: Call[0], id: WindowId) => calls.some((call) => call[0] === name && call[1] === id);
-    return {coordinator, calls, events, advance, lastAsk, did};
+    return {coordinator, calls, events, advance, lastAsk, did, shell, counts};
 }
 
 describe("关窗协调", () => {
@@ -402,5 +413,207 @@ describe("更新提示的交付（desktop-update 输出 3、4）", () => {
         coordinator.pageAnswered(s, lastAsk(s)?.[2] ?? 0, "allow");
         coordinator.pageReady(s);
         expect(hintCalls(calls)).toEqual([]);
+    });
+});
+
+describe("托盘与后台（输出 29 到 31）", () => {
+    /** 回答这个窗口最近一次的询问。 */
+    const answer = (h: ReturnType<typeof harness>, id: WindowId, value: "allow" | "deny") => h.coordinator.pageAnswered(id, h.lastAsk(id)?.[2] ?? 0, value);
+
+    it("设置是 tray：关最后一个窗口以 window 询问，同意后关掉、不停止；关完留在后台，不调 onAllClosed", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        h.coordinator.closeRequested(a);
+        expect(h.lastAsk(a)?.[3]).toBe("window");
+        answer(h, a, "allow");
+        expect(h.did("commitClose", a)).toBe(true);
+        h.coordinator.closed(a);
+        expect(h.events).toEqual([]);
+        expect(h.counts).toEqual([1, 0]);
+        expect(h.coordinator.stopping).toBe(false);
+    });
+
+    it("设置是 tray 而托盘图标没显示出来：按没有托盘，以 quit 询问、停止", () => {
+        const h = harness({mode: "tray", trayShown: false});
+        const a = h.coordinator.openWindow();
+        h.coordinator.closeRequested(a);
+        expect(h.lastAsk(a)?.[3]).toBe("quit");
+        answer(h, a, "allow");
+        expect(h.events).toEqual(["quit"]);
+    });
+
+    it("设置是 tray：没有响应时强制关闭最后一个窗口，照样进后台", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        h.coordinator.closeRequested(a);
+        h.advance(ACK_MS);
+        expect(h.did("showNotResponding", a)).toBe(true);
+        h.coordinator.dialogChose(a, "force");
+        expect(h.did("commitClose", a)).toBe(true);
+        h.coordinator.closed(a);
+        expect(h.events).toEqual([]);
+    });
+
+    it("以 window 询问期间设置改成 quit：同意时改以 quit 重问一次，再同意才停止", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        h.coordinator.closeRequested(a);
+        h.shell.mode = "quit";
+        answer(h, a, "allow");
+        expect(h.lastAsk(a)?.[3]).toBe("quit");
+        expect(h.did("commitClose", a)).toBe(false);
+        answer(h, a, "allow");
+        expect(h.events).toEqual(["quit"]);
+    });
+
+    it("以 quit 询问期间设置改成 tray：同意时照样停止；强制关闭也以 quit 提交", () => {
+        const allowed = harness();
+        const a = allowed.coordinator.openWindow();
+        allowed.coordinator.closeRequested(a);
+        allowed.shell.mode = "tray";
+        answer(allowed, a, "allow");
+        expect(allowed.events).toEqual(["quit"]);
+
+        const forced = harness();
+        const b = forced.coordinator.openWindow();
+        forced.coordinator.closeRequested(b);
+        forced.shell.mode = "tray";
+        forced.advance(ACK_MS);
+        forced.coordinator.dialogChose(b, "force");
+        expect(forced.events).toEqual(["quit"]);
+    });
+
+    it("连别人的实例时设置是 tray：最后一个窗口以 window 关掉，关完照旧调 onAllClosed（壳退出，不留后台）", () => {
+        const h = harness({mode: "tray", owned: false});
+        const a = h.coordinator.openWindow();
+        h.coordinator.closeRequested(a);
+        answer(h, a, "allow");
+        h.coordinator.closed(a);
+        expect(h.events).toEqual(["all-closed"]);
+    });
+
+    it("应用级退出、设置是 tray、两个窗口：各自以 window 询问，最后一个改以 quit 重问，同意时停止", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        const b = h.coordinator.openWindow();
+        h.coordinator.quitRequested();
+        expect(h.lastAsk(a)?.[3]).toBe("window");
+        expect(h.lastAsk(b)?.[3]).toBe("window");
+        answer(h, a, "allow");
+        h.coordinator.closed(a);
+        answer(h, b, "allow");
+        expect(h.lastAsk(b)?.[3]).toBe("quit");
+        answer(h, b, "allow");
+        expect(h.events).toEqual(["quit"]);
+        h.coordinator.closed(b);
+        expect(h.events).toEqual(["quit", "all-closed"]);
+    });
+
+    it("应用级退出进行中：开窗转交回 closing、页面的新窗口被拒、托盘打开不开窗；一个页面拒绝后退出结束，又能开窗", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        h.coordinator.openWindow();
+        h.coordinator.quitRequested();
+        expect(h.coordinator.openWindowRequested()).toEqual({ok: false, code: "closing"});
+        expect(h.coordinator.pageWindowRequested("http://127.0.0.1:4217/?project=a")).toBe(false);
+        answer(h, a, "deny");
+        expect(h.coordinator.openWindowRequested()).toEqual({ok: true});
+        expect(h.events).toEqual([]);
+    });
+
+    it("应用级退出：“取消关闭”也结束这次退出；剩下的窗口之后照常以 window 关掉、进后台", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        const b = h.coordinator.openWindow();
+        h.coordinator.quitRequested();
+        h.coordinator.closeRequested(a);
+        h.coordinator.dialogChose(a, "cancel");
+        expect(h.coordinator.openWindowRequested()).toEqual({ok: true});
+        answer(h, b, "allow");
+        h.coordinator.closed(b);
+        expect(h.events).toEqual([]);
+    });
+
+    it("应用级退出时剩下的窗口都已在关闭中（以 window 提交过）：最后一个关掉时停止", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        h.coordinator.closeRequested(a);
+        answer(h, a, "allow");
+        expect(h.did("commitClose", a)).toBe(true);
+        h.coordinator.quitRequested();
+        expect(h.events).toEqual([]);
+        h.coordinator.closed(a);
+        expect(h.events).toEqual(["quit"]);
+    });
+
+    it("后台时：应用级退出直接停止；之后的开窗转交回 stopping、托盘打开无效；onQuit 只调一次", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        h.coordinator.closeRequested(a);
+        answer(h, a, "allow");
+        h.coordinator.closed(a);
+        expect(h.coordinator.quitFromTray()).toBe("check-work");
+        h.coordinator.quitRequested();
+        h.coordinator.quitRequested();
+        expect(h.events).toEqual(["quit"]);
+        expect(h.coordinator.openWindowRequested()).toEqual({ok: false, code: "stopping"});
+        expect(h.coordinator.openFromTray()).toBeNull();
+        expect(h.coordinator.quitFromTray()).toBe("stopping");
+    });
+
+    it("后台时开窗转交开一个窗口；托盘打开置前最近获得焦点的产品窗口，唯一的窗口在关闭中时开新的", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        h.coordinator.closeRequested(a);
+        answer(h, a, "allow");
+        h.coordinator.closed(a);
+        expect(h.coordinator.openWindowRequested()).toEqual({ok: true});
+        const b = h.calls.filter((call) => call[0] === "open").at(-1)?.[1] ?? 0;
+        const c = h.coordinator.openWindow();
+        h.coordinator.focused(c);
+        h.coordinator.focused(b);
+        expect(h.coordinator.openFromTray()).toEqual({focus: b});
+        h.coordinator.closeRequested(b);
+        answer(h, b, "allow");
+        expect(h.coordinator.openFromTray()).toEqual({focus: c});
+        h.coordinator.closeRequested(c);
+        answer(h, c, "allow");
+        const opened = h.coordinator.openFromTray();
+        expect(opened).not.toBeNull();
+        expect(opened !== null && "opened" in opened).toBe(true);
+    });
+
+    it("托盘退出：有窗口时就是应用级退出（每个窗口询问）", () => {
+        const h = harness({mode: "tray"});
+        const a = h.coordinator.openWindow();
+        expect(h.coordinator.quitFromTray()).toBe("quitting");
+        expect(h.lastAsk(a)?.[3]).toBe("quit");
+        answer(h, a, "allow");
+        expect(h.events).toEqual(["quit"]);
+    });
+
+    it("后台时服务端意外退出：选“稍后”时壳退出；对话框期间开了窗口再选“稍后”，不退出；之后关窗也不再停服务", () => {
+        const background = harness({mode: "tray"});
+        const a = background.coordinator.openWindow();
+        background.coordinator.closeRequested(a);
+        answer(background, a, "allow");
+        background.coordinator.closed(a);
+        background.coordinator.serverAbandoned();
+        expect(background.events).toEqual(["all-closed"]);
+
+        const reopened = harness({mode: "tray"});
+        const b = reopened.coordinator.openWindow();
+        reopened.coordinator.closeRequested(b);
+        answer(reopened, b, "allow");
+        reopened.coordinator.closed(b);
+        expect(reopened.coordinator.openWindowRequested()).toEqual({ok: true});
+        reopened.coordinator.serverAbandoned();
+        expect(reopened.events).toEqual([]);
+        const c = reopened.calls.filter((call) => call[0] === "open").at(-1)?.[1] ?? 0;
+        reopened.coordinator.closeRequested(c);
+        expect(reopened.lastAsk(c)?.[3]).toBe("window");
+        answer(reopened, c, "allow");
+        reopened.coordinator.closed(c);
+        expect(reopened.events).toEqual(["all-closed"]);
     });
 });

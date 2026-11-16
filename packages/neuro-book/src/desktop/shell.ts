@@ -118,6 +118,9 @@ export class DesktopShell {
             clock: options.clock,
             onQuit: () => void this.#stopAndExit(),
             onAllClosed: () => void this.#allClosed(),
+            closeLastWindow: () => "quit",
+            trayShown: () => false,
+            onWindowsChanged: () => undefined,
         });
     }
 
