@@ -84,6 +84,9 @@ export interface WorkbenchOverlayImplementation {
     load(): Promise<Component>;
 }
 
+/** 编辑器标签放下会怎样，见 `EditorTabDrag.dropOutcome`。 */
+export type EditorTabDropOutcome = "move" | "merge" | "refuse";
+
 /**
  * 编辑器标签的拖动（docs/specs/ui/workbench-layout.md 输出 24 到 32）：手势和落点规则是工作台的，编辑器标签和工具视图一样靠 DOM 标记起拖（`data-panel-tab` 写标签键），插入位按 `TabStrip` 的标记量。
  * 放下不直接改布局：要先结算视图的输入、合并同一标签，再经 `editorPanelsKey` 改结构。
@@ -91,8 +94,11 @@ export interface WorkbenchOverlayImplementation {
 export interface EditorTabDrag {
     /** 结构键里编辑器的部分（固定状态、多行设置）：起拖后它变了，整场取消。 */
     structure(): string;
-    /** 放下的结果能不能按布局层的算法摆出来：并到同一标签、会被拒绝时不能，实时布局就不摆预览。 */
-    previewable(tabId: string, action: LayoutDropAction): boolean;
+    /**
+     * 放下会怎样（docs/specs/workbench/editor.md 输出 49、55）：`move` 照布局层算的移动；`merge` 并到目标组已开着的同一标签，工作台把落点画成那一组的中央；
+     * `refuse` 要结算的组有未裁决输入或写不出，工作台按被拒绝画；在它上面松手时工作台仍调 `drop`，编辑器在同一处拒绝并写提示。只读、不结算，拖动中每次判定都问，所以要便宜。
+     */
+    dropOutcome(tabId: string, action: LayoutDropAction): EditorTabDropOutcome;
     /** 拖影。 */
     ghost(tabId: string): {readonly label: string; readonly fileIcon: CatppuccinIcon | null} | null;
     /** `part` 是标签条的分区（固定、普通）：同一个位置可能分属两边。`keyboard`：键盘放下，手势会把焦点还给标签。结果说做成了没有；拒绝的提示由编辑器给。 */

@@ -14,6 +14,8 @@ export {blockStart, blockTagExtension, closeBlock, closeInline, lastMatch, lexin
 export type {BlockTagToken, OpenTag} from "./syntax/tags";
 export {codecFor} from "./codec/codec";
 export type {MarkdownCodec} from "./codec/codec";
+export {frontmatterOf} from "./codec/read";
 export type {ReadResult, SourceMap} from "./codec/read";
+export {isWholeFrontmatter} from "./codec/source";
 export {equivalent} from "./codec/compare";
 export type {CompareOptions} from "./codec/compare";

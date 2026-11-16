@@ -96,7 +96,12 @@ function showContainer(current: LayoutDoc, region: PanelName, container: string)
 function onGestureCommit(sizes: Readonly<Record<string, GridExtent>>, collapsed: Readonly<Record<string, boolean>>): void {
     // 先改收起状态再写回意图，和产品的 store 同一个次序：收起的面板呈现尺寸不是意图。区域拖到零报的是代表区域的那个节点，状态记在锚上（输出 11）。
     let next = doc.value;
-    for (const [id, value] of Object.entries(collapsed)) next = unwrap(setPanelCollapsed(next, projection.value.regionAnchors.get(id) ?? id, value), next);
+    // 隐藏的区域按拖到零画：从边界拉开同时清掉隐藏，也和产品的 store 一样。
+    for (const [id, value] of Object.entries(collapsed)) {
+        const anchor = projection.value.regionAnchors.get(id);
+        next = unwrap(setPanelCollapsed(next, anchor ?? id, value), next);
+        if (anchor !== undefined && !value && next.panels[anchor]?.hidden === true) next = unwrap(setPanelHidden(next, anchor, false), next);
+    }
     doc.value = rebaseIntents(next, sizes, projection.value.collapsedTo);
 }
 
@@ -216,6 +221,9 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
                 <template #statusbar>
                     <div class="workbench-surface-fixture__status">状态栏</div>
                 </template>
+                <template #empty-region>
+                    <div class="workbench-surface-fixture__empty" data-empty-region>把视图拖到这里</div>
+                </template>
                 <template #head="{panelId, idPrefix}">
                     <WorkbenchPanelHead
                         :panel-id="panelId"
@@ -291,6 +299,18 @@ function viewHeadOf(panelId: string): PanelViewHead | null {
     --shell-seam: transparent;
     --shell-join-divider: var(--divider);
     background: var(--bg-subtle);
+}
+
+/* 打开着的空区域（ADR 0050）：同产品外壳，正中一句提示。 */
+.workbench-surface-fixture__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    pointer-events: none;
 }
 
 .workbench-surface-fixture__status {

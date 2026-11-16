@@ -55,6 +55,8 @@ export const EDITING_ACTIONS = {
     "block-duplicate": {kind: "move", icon: "i-lucide-copy-plus"},
     "block-delete": {kind: "move", icon: "i-lucide-trash-2"},
     "block-unwrap": {kind: "move", icon: "i-lucide-pilcrow"},
+    // 新建 frontmatter 或展开属性面板（输出 48）：只要可写。
+    properties: {kind: "move", icon: "i-lucide-table-properties"},
 } as const satisfies Readonly<Record<string, EditingActionInfo>>;
 
 export type EditingActionId = keyof typeof EDITING_ACTIONS;

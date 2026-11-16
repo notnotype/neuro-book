@@ -60,9 +60,14 @@ export const ZoomLevelSchema = Type.Union([
 ]);
 export type ZoomLevel = Static<typeof ZoomLevelSchema>;
 
+/** 关掉最后一个窗口时（desktop-shell 输出 28、29）：退出 NeuroBook，或留在系统托盘、服务继续运行。 */
+export const CloseLastWindowSchema = Type.Union([Type.Literal("quit"), Type.Literal("tray")]);
+export type CloseLastWindow = Static<typeof CloseLastWindowSchema>;
+
 export const DesktopSettingValuesSchema = Type.Object({
     zoom: ZoomLevelSchema,
     openAtLogin: Type.Boolean(),
+    closeLastWindow: CloseLastWindowSchema,
 }, {additionalProperties: false});
 export type DesktopSettingValues = Static<typeof DesktopSettingValuesSchema>;
 
@@ -73,8 +78,11 @@ export type UpdateChoice = Static<typeof UpdateChoiceSchema>;
 const ShellMessageSchema = Type.Union([
     Type.Object({type: Type.Literal("close-query"), generation: Generation, reason: Type.Union([Type.Literal("window"), Type.Literal("quit")])}),
     Type.Object({type: Type.Literal("close-end"), generation: Generation}),
-    /** 壳的当前更新提示交给这个窗口；同一个 `id` 可能再来（转交、刷新后重发）。 */
-    Type.Object({type: Type.Literal("update-hint"), id: Generation, hint: UpdateHintSchema}),
+    /**
+     * 壳的当前更新提示交给这个窗口；同一个 `id` 可能再来（转交、刷新后重发）。`tray` 为真时关掉最后一个窗口会留在系统托盘
+     * （desktop-shell 输出 29），“下次打开时安装”的文字改写成从托盘退出（desktop-update 输出 6）；没有这个字段当作假。
+     */
+    Type.Object({type: Type.Literal("update-hint"), id: Generation, hint: UpdateHintSchema, tray: Type.Optional(Type.Boolean())}),
     /** 这条提示已被新阶段取代或转给了别的窗口：收起它，连通知中心里的记录。 */
     Type.Object({type: Type.Literal("update-hint-end"), id: Generation}),
     /** 窗口是不是最大化：严格等于 Win32 的 IsZoomed，贴边分屏不算（desktop-shell 输出 10）。 */

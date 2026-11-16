@@ -147,7 +147,7 @@ owners:
 19. **任务列表**：`- [ ] 事项`、`- [x] 事项`（`[X]` 也能读）。富文本里显示复选框，点击切换；写回时按输出 2 保持原来的大小写。有序列表里的 `1. [ ] 事项` 不是任务项，按文字读写。
 20. **表格**：GFM 表格，要求有表头行。单元格里只有一段：在单元格里按 Enter 是换行，写成 `<br>`；单元格文字里的 `|` 写成 `\|`；单元格里的行内代码与链接、图片的标题含“反斜杠加竖线”时写不出（输出 3；切单元格时它总被当作转义的竖线）。对齐写在表头下一行。不支持合并单元格；用 HTML 写的表格是原样块；某一行的单元格比表头多时（多出的格 GFM 不显示），整张表是原样块。
 21. **代码**：行内代码与代码块里的文字原样读写，不解释其中的任何语法（包括方言标签）。行内代码外面可以有格式（`` [`代码`](地址) ``、`` **`代码`** ``），写在反引号外面；格式只盖住一部分代码时，代码在格式的边界处断开。行内代码不能在注音里。链接文字里的行内代码含反引号或反斜杠时写不出（输出 3；Markdown 解析器在链接文字里只认单个反引号成对的代码，并把其中的反斜杠当作转义）。
-22. **frontmatter**：原样保留，不进入富文本的正文；它的编辑另定。
+22. **frontmatter**：原样保留，不进入富文本的正文；在富文本里经属性面板编辑，写回见输出 28。
 23. **提示块**：引用块的第一行是 `[!类型]`，后面可以跟标题（`> [!WARNING] 伏笔`），其余行是提示块的内容（与 GitHub、Obsidian 的写法相同）：
     - 类型不分大小写。`NOTE`、`TIP`、`IMPORTANT`、`WARNING`、`CAUTION` 五种各有图标与颜色；其它类型（包括 Obsidian 的 `info`、`todo`、`question` 等）显示为 `NOTE` 的样式，标题缺省时显示类型名。
     - 类型后紧跟 `-` 时默认折叠、`+` 时默认展开，可以点标题展开或折叠；折叠状态不写回文件。光标进到折叠的内容里、或一次编辑改到了折叠的提示块（例如在下一段段首退格并了进去）时，它自动展开：看不见的内容不会被悄悄改掉。
@@ -163,6 +163,7 @@ owners:
     - **外部**：`http:`、`https:`、`mailto:` 方案；
     - **其它**：别的方案（包括旧应用的 `chapter://` 等领域地址）。
     作品里的文件与用户资产显示为引用小块，按文件扩展名取图标；外部链接显示为普通链接；其它显示为不带文件图标的引用小块。分类只影响显示，写回的地址不变。
+28. **frontmatter 的修改**：在属性面板（[`workbench.markdown-editing`](../workbench/markdown-editing.md) 输出 39）里改了 frontmatter 时，正文的字节不变，BOM 照旧在最前面。改一个属性的值、名字，或删掉一个属性，只替换这一项的原文，别的属性、注释、空行与写法字节不变；加一个属性是在闭栏前加一行。文字值写出后按 YAML 1.2 与 1.1 读都是同一段文字：会被读成布尔、数字或日期的文字（`yes`、`012`、`2025-12-21`）加引号，原来带引号的保留原来的引号；日期值照字面写。闭栏后没有换行的 frontmatter（文件在闭栏处结束）后面有了正文时，闭栏后补一个换行，用 frontmatter 自己的换行符。frontmatter 没有了（例如撤销了新建）之后，正文开头的分割线写成 `***`：写成 `---` 会和后面的 `---` 配成新的 frontmatter。
 
 ## 状态与转换
 
@@ -200,7 +201,7 @@ owners:
 
 ## 验收与 Smoke
 
-1. Given 一份含 frontmatter、CRLF 换行、`*` 列表、`_斜体_`、下划线式标题、`~~~` 代码块、引用式链接、脚注、表格（含 `\|`）、数学公式与全部项目方言的文件，When 打开、不编辑、保存，Then 字节不变；When 只改列表的第二项，Then 只有那一个列表重新写出，列表仍是一个、符号仍是 `*`，其余字节不变，文件里不出现控制字符。
+1. Given 一份含 frontmatter、CRLF 换行、`*` 列表、`_斜体_`、下划线式标题、`~~~` 代码块、引用式链接、脚注、表格（含 `\|`）、数学公式与全部项目方言的文件，When 打开、不编辑、保存，Then 字节不变；When 只改列表的第二项，Then 只有那一个列表重新写出，列表仍是一个、符号仍是 `*`，其余字节不变，文件里不出现控制字符；When 在属性面板里改 frontmatter 的一个值并保存，Then 只有这一项的那一行变化，正文字节不变。
 2. Given 一段 `他说：“走吧。”然后离开。`，When 在富文本里给“走吧。”连引号加粗并保存、关闭再打开，Then 仍是粗体，原文是 `他说：**“走吧。”**然后离开。`。
 3. Given 富文本里新打的一段 `1. 不是列表，约5~6人，a_b_c，[注]`，When 保存再打开，Then 仍是一段普通文字，原文只在行首的 `1.` 处有一个转义。
 4. Given 一个任务列表，When 打开、在列表里回车加一项、勾选一项、保存，Then 编辑器不出错，原文的复选框都在，新加的项是 `- [ ] `。
@@ -225,5 +226,5 @@ Smoke：往返语料测试（每条输出与以上场景各有样例）、字数
 
 - 批准依据：开发者 2026-10-15 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t06-markdown-polish/README.md`（“开发者的决定”7–9），2026-10-16 批准晋升 `implemented`；依据同一目录的 `conversion.md`（转换的难点与改进方案）与旧应用的 [Markdown 方言](../../../packages/neuro-book-legacy/assets/reference/content/markdown-dialect.md)。
 - 实现入口：[`language/codec/codec.ts`](../../../packages/nb-markdown/src/language/codec/codec.ts)（编解码器）、[`language/syntax/index.ts`](../../../packages/nb-markdown/src/language/syntax/index.ts)（语法模块）、[`markdown-dialect.ts`](../../../packages/nb-markdown/src/markdown-dialect.ts) 与 [`shared/word-count.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/word-count.ts)（字数）、[`shared/targets.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/targets.ts)（目标分类）、[`MarkdownControl.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue)（编辑器接入）
-- 合同测试：[`codec.test.ts`](../../../packages/nb-markdown/src/language/codec/codec.test.ts)（读入与原样写回）、[`write.test.ts`](../../../packages/nb-markdown/src/language/codec/write.test.ts)（写回、转义、降级、引用定义、换行符）、[`dialects.test.ts`](../../../packages/nb-markdown/src/language/codec/dialects.test.ts)（项目方言与宽容写法）、[`properties.test.ts`](../../../packages/nb-markdown/src/language/codec/properties.test.ts)（随机新建与真实编辑序列）、[`editing.test.ts`](../../../packages/nb-markdown/src/language/codec/editing.test.ts)（写法回填、重载、抢救正文）、[`comment.dom.test.ts`](../../../packages/nb-markdown/src/language/syntax/comment/comment.dom.test.ts)（场景 6、7）、[`web/word-count.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/word-count.test.ts) 与 [`shared/word-count.test.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/word-count.test.ts)（场景 10）、[`shared/targets.test.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/targets.test.ts)（输出 18、27）、[`MarkdownControl.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.dom.test.ts)（编辑器里的交出、重载与显示）
+- 合同测试：[`codec.test.ts`](../../../packages/nb-markdown/src/language/codec/codec.test.ts)（读入与原样写回）、[`write.test.ts`](../../../packages/nb-markdown/src/language/codec/write.test.ts)（写回、转义、降级、引用定义、换行符）、[`dialects.test.ts`](../../../packages/nb-markdown/src/language/codec/dialects.test.ts)（项目方言与宽容写法）、[`properties.test.ts`](../../../packages/nb-markdown/src/language/codec/properties.test.ts)（随机新建与真实编辑序列）、[`editing.test.ts`](../../../packages/nb-markdown/src/language/codec/editing.test.ts)（写法回填、重载、抢救正文）、[`comment.dom.test.ts`](../../../packages/nb-markdown/src/language/syntax/comment/comment.dom.test.ts)（场景 6、7）、[`web/word-count.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/word-count.test.ts) 与 [`shared/word-count.test.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/word-count.test.ts)（场景 10）、[`shared/targets.test.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/targets.test.ts)（输出 18、27）、[`MarkdownControl.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.dom.test.ts)（编辑器里的交出、重载与显示）、[`frontmatter.test.ts`](../../../packages/nb-markdown/src/language/codec/frontmatter.test.ts) 与 [`model.test.ts`](../../../packages/nb-markdown/src/editor/properties/model.test.ts)（输出 22、28）
 - Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts) 的“Markdown 方言”一组（场景 1、2、4）

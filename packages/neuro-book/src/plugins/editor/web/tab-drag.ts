@@ -32,11 +32,7 @@ export function createEditorTabDrag(deps: EditorTabDragDeps): EditorTabDrag {
             if (tab === undefined) return null;
             return {label: tabLabel(deps.area(), tab, deps.text, deps.pages()), fileIcon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null};
         },
-        previewable: (tabId, action) => {
-            const area = deps.area();
-            const target = action.kind === "strip" || action.kind === "center" ? action.panel : null;
-            return !area.moveBlocked(tabId, target);
-        },
+        dropOutcome: (tabId, action) => deps.area().moveOutcome(tabId, action.kind === "strip" || action.kind === "center" ? action.panel : null),
         drop: (tabId, action, part, keyboard) => dropTab(deps.area(), tabId, action, part, keyboard),
         dropPanel: (panelId, action, _part, keyboard) => dockGroup(deps.area(), panelId, action, keyboard),
         openFiles: (addresses, action, part) => openFiles(deps.area(), addresses, action, part),
@@ -116,7 +112,8 @@ async function dropTab(area: EditorArea, tabId: string, action: LayoutDropAction
             return (await area.moveTab(tabId, {group: action.panel, partition, before: inPartition ? next.id : null}, {focusView})).ok;
         }
         case "center":
-            return (await area.moveTab(tabId, {group: action.panel, partition: "normal", before: null}, {focusView})).ok;
+            // 中央不指定位置：已开着同一标签时它不动（画的是盖住整组的“添加为标签”）。
+            return (await area.moveTab(tabId, {group: action.panel}, {focusView})).ok;
         case "edge":
             return area.moveToNewGroup(tabId, action.target, {focusView}).ok;
         case "float":

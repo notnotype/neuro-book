@@ -1,5 +1,5 @@
 /**
- * 桌面壳的流程（docs/specs/runtime/desktop-shell.md 输出 1 到 5、16 到 19、21、23）：真实的桌面锁与真实服务端（源码的产品入口）；
+ * 桌面壳的流程（docs/specs/runtime/desktop-shell.md 输出 1 到 5、16 到 19、21、23、28 到 31）：真实的桌面锁与真实服务端（源码的产品入口）；
  * 停止卡住、重启中、停在启动中这几种情形用经产品认领档案认领的脚本入口（`testing/scripted-server.ts`）。窗口端口是替身：
  * `commitClose` 之后下一轮事件循环送 `closed`，页面的回答由测试送。
  */
@@ -18,8 +18,10 @@ import {systemClock} from "./deadline";
 import {acquireDesktopLock, askRunningShell} from "./lock";
 import {DesktopShell, readUncleanStop} from "./shell";
 import type {ShellUpdates, StartupView} from "./shell";
+import type {TrayView, WorkCheck} from "./tray";
 import {EMPTY_UPDATE_STATE, UPDATE_STATE_FILE, fileUpdateState} from "./update-install";
 import type {ApplyResult, UpdaterPort, UpdateState} from "./update-install";
+import type {CloseLastWindow} from "../shared/desktop-bridge";
 import type {CloseReason, WindowId, WindowPort} from "./windows";
 
 const ENTRY = join(import.meta.dir, "..", "server", "main.ts");
@@ -41,11 +43,15 @@ interface FakeShellOptions {
     readonly entry?: string;
     readonly env?: Readonly<Record<string, string>>;
     readonly stopDeadlineMs?: number;
-    /** 自有服务端意外退出时用户的选择；缺省“稍后”。 */
-    readonly onServerExited?: "restart" | "later";
+    /** 自有服务端意外退出时用户的选择；缺省“稍后”；`hold` 是对话框一直开着。 */
+    readonly onServerExited?: "restart" | "later" | "hold";
     /** 状态根从哪来；缺省 `env`（与更新无关的用例）。 */
     readonly source?: "env" | "portable" | "default";
     readonly updates?: ShellUpdates;
+    readonly closeLastWindow?: CloseLastWindow;
+    /** 适配层建不出托盘图标。 */
+    readonly trayFails?: boolean;
+    readonly runningWork?: (serverUrl: string) => Promise<WorkCheck>;
 }
 
 function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
@@ -58,6 +64,12 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
     const events: string[] = [];
     /** 记录事实的诊断（`key=value` 的文字），按“事件 文字”记。 */
     const facts: string[] = [];
+    /** 交给适配层的托盘视图、置前的窗口、“有工作在跑”对话框的显示与关闭（`close`），按先后记。 */
+    const trays: TrayView[] = [];
+    const focused: WindowId[] = [];
+    const quitWork: Array<WorkCheck | "close"> = [];
+    /** 每次服务端意外退出对话框的 `background`。 */
+    const exitedAsks: boolean[] = [];
     let shell!: DesktopShell;
     const windows: WindowPort = {
         open() {
@@ -86,9 +98,18 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
         ports: {
             windows,
             startupView: (view) => void views.push(view),
-            askServerExited: () => Promise.resolve(options.onServerExited ?? "later"),
+            askServerExited: (_code, _logDir, background) => {
+                exitedAsks.push(background);
+                const choice = options.onServerExited ?? "later";
+                return choice === "hold" ? new Promise(() => undefined) : Promise.resolve(choice);
+            },
             tellRestartFailed: () => undefined,
             openPath: () => undefined,
+            setTray: (view) => void trays.push(view),
+            trayShown: () => options.trayFails !== true && trays.at(-1)?.visible === true,
+            focusWindow: (id) => void focused.push(id),
+            showQuitWork: (work) => void quitWork.push(work),
+            closeQuitWork: () => void quitWork.push("close"),
             exit: (code) => {
                 exitCode = code;
             },
@@ -99,6 +120,8 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
             if (typeof detail === "string") facts.push(`${event} ${detail}`);
         },
         updates: options.updates,
+        closeLastWindow: options.closeLastWindow,
+        runningWork: options.runningWork,
     });
     /** 用户关一个窗口，页面接下并同意。 */
     const closeAndAllow = (id: WindowId) => {
@@ -109,7 +132,9 @@ function fakeShell(stateRoot: string, options: FakeShellOptions = {}) {
         shell.windows.pageAnswered(id, ask[1], "allow");
         return ask[2];
     };
-    return {shell, views, loaded, asks, open, events, facts, closeAndAllow, exitCode: () => exitCode};
+    /** 开窗转交开的、托盘打开开的最近一个窗口。 */
+    const newest = () => Math.max(...open);
+    return {shell, views, loaded, asks, open, events, facts, trays, focused, quitWork, exitedAsks, closeAndAllow, newest, exitCode: () => exitCode};
 }
 
 /** 脚本入口在状态根上记下的各代（`testing/scripted-server.ts`）。 */
@@ -426,4 +451,184 @@ describe("桌面壳的更新（desktop-update 输出 8 到 10）", () => {
         probe.stdin.end();
         await probe.exited;
     }, 90_000);
+});
+
+describe("托盘与后台（输出 28 到 31）", () => {
+    /** 托盘退出取在跑的工作的替身：每次调用排一个，由测试交回结果。 */
+    function manualWork() {
+        const pending: Array<(work: WorkCheck) => void> = [];
+        return {
+            runningWork: () => new Promise<WorkCheck>((resolve) => void pending.push(resolve)),
+            calls: () => pending.length,
+            answer: (work: WorkCheck) => pending.at(-1)?.(work),
+        };
+    }
+    const lastTray = (a: ReturnType<typeof fakeShell>) => a.trays.at(-1);
+
+    it("设置是 tray：关最后一个窗口以 window 询问、留在后台，服务端还在；托盘退出向真实服务端取到没有工作，有序停止、以 0 退出", async () => {
+        const root = nextRoot();
+        const a = fakeShell(root, {closeLastWindow: "tray"});
+        void a.shell.run();
+        await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 60_000, intervalMs: 50});
+        expect(lastTray(a)).toEqual({visible: true, tooltip: "NeuroBook"});
+        expect(a.closeAndAllow(1)).toBe("window");
+        await waitUntil("窗口关掉", () => a.open.size === 0);
+        expect(lastTray(a)).toEqual({visible: true, tooltip: "NeuroBook（在后台运行）"});
+        expect((await queryNeuroBook(root)).state).toBe("running");
+        expect(a.exitCode()).toBeNull();
+        a.shell.trayQuit();
+        expect(lastTray(a)).toEqual({visible: true, tooltip: "NeuroBook（正在检查在跑的工作）"});
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 60_000, intervalMs: 50});
+        expect(a.exitCode()).toBe(0);
+        expect(a.quitWork).toEqual([]);
+        expect(lastTray(a)?.visible).toBe(false);
+        expect(a.facts).toContain("desktop.server.stopped forced=false exitCode=0");
+        expect((await queryNeuroBook(root)).state).toBe("none");
+    }, 90_000);
+
+    it("托盘退出遇到在跑的工作：取的过程中再点不理；对话框的取消、打开、仍然退出各走一遍，开出窗口时对话框关掉、退出作废", async () => {
+        const root = nextRoot();
+        const work = manualWork();
+        const a = fakeShell(root, {entry: SCRIPTED, closeLastWindow: "tray", runningWork: work.runningWork});
+        void a.shell.run();
+        await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        a.closeAndAllow(1);
+        await waitUntil("进后台", () => a.open.size === 0);
+
+        // 取消：对话框关掉，照旧在后台；对话框开着时再点“退出”把它置前（再显示一次）。
+        a.shell.trayQuit();
+        a.shell.trayQuit();
+        expect(work.calls()).toBe(1);
+        work.answer({count: 2, uncertain: false});
+        await waitUntil("显示对话框", () => a.quitWork.length === 1);
+        a.shell.trayQuit();
+        expect(a.quitWork).toEqual([{count: 2, uncertain: false}, {count: 2, uncertain: false}]);
+        a.shell.quitWorkChose("cancel");
+        expect(a.quitWork.at(-1)).toBe("close");
+        expect(lastTray(a)).toEqual({visible: true, tooltip: "NeuroBook（在后台运行）"});
+
+        // 打开：取不到时也给对话框；点“打开 NeuroBook”开一个窗口，不退出。
+        a.shell.trayQuit();
+        work.answer({count: 0, uncertain: true});
+        await waitUntil("显示对话框", () => a.quitWork.at(-1) !== "close");
+        a.shell.quitWorkChose("open");
+        expect(a.open.size).toBe(1);
+        a.closeAndAllow(a.newest());
+        await waitUntil("回到后台", () => a.open.size === 0);
+
+        // 对话框开着时开窗转交开出了窗口：对话框关掉，之后的选择不理。
+        a.shell.trayQuit();
+        work.answer({count: 1, uncertain: false});
+        await waitUntil("显示对话框", () => a.quitWork.at(-1) !== "close");
+        expect(a.shell.windows.openWindowRequested()).toEqual({ok: true});
+        expect(a.quitWork.at(-1)).toBe("close");
+        a.shell.quitWorkChose("quit");
+        expect(a.exitCode()).toBeNull();
+        a.closeAndAllow(a.newest());
+        await waitUntil("回到后台", () => a.open.size === 0);
+
+        // 取的过程中点托盘“打开”：开出窗口，取回的“没有工作”不再用。
+        a.shell.trayQuit();
+        a.shell.trayOpen();
+        expect(a.open.size).toBe(1);
+        work.answer({count: 0, uncertain: false});
+        await Bun.sleep(0);
+        expect(a.exitCode()).toBeNull();
+        expect(a.shell.windows.stopping).toBe(false);
+        a.shell.trayOpen();
+        expect(a.focused).toEqual([a.newest()]);
+        a.closeAndAllow(a.newest());
+        await waitUntil("回到后台", () => a.open.size === 0);
+
+        // 仍然退出：有序停止、以 0 退出。
+        a.shell.trayQuit();
+        work.answer({count: 3, uncertain: true});
+        await waitUntil("显示对话框", () => a.quitWork.at(-1) !== "close");
+        a.shell.quitWorkChose("quit");
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 50});
+        expect(await records(root, "stopped.jsonl")).toEqual([{generation: 1}]);
+    }, 60_000);
+
+    it("取在跑的工作的过程中：开窗转交开出窗口则作废；服务端意外退出则取回后直接退出，不弹对话框", async () => {
+        const root = nextRoot();
+        const work = manualWork();
+        const a = fakeShell(root, {entry: SCRIPTED, closeLastWindow: "tray", onServerExited: "hold", runningWork: work.runningWork});
+        void a.shell.run();
+        await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        a.closeAndAllow(1);
+        await waitUntil("进后台", () => a.open.size === 0);
+
+        a.shell.trayQuit();
+        expect(a.shell.windows.openWindowRequested()).toEqual({ok: true});
+        expect(lastTray(a)).toEqual({visible: true, tooltip: "NeuroBook"});
+        work.answer({count: 0, uncertain: false});
+        await Bun.sleep(0);
+        expect(a.shell.windows.stopping).toBe(false);
+        a.closeAndAllow(a.newest());
+        await waitUntil("回到后台", () => a.open.size === 0);
+
+        a.shell.trayQuit();
+        process.kill((await records(root, "targets.jsonl"))[0]?.pid ?? 0, "SIGKILL");
+        await waitUntil("问用户", () => a.exitedAsks.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        work.answer({count: 0, uncertain: true});
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 50});
+        expect(a.quitWork).toEqual([]);
+    }, 60_000);
+
+    it("后台时自有服务端意外退出：对话框说没有窗口；对话框开着时点托盘退出，不取工作、直接退出", async () => {
+        const root = nextRoot();
+        const work = manualWork();
+        const a = fakeShell(root, {entry: SCRIPTED, closeLastWindow: "tray", onServerExited: "hold", runningWork: work.runningWork});
+        void a.shell.run();
+        await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        a.closeAndAllow(1);
+        await waitUntil("进后台", () => a.open.size === 0);
+        process.kill((await records(root, "targets.jsonl"))[0]?.pid ?? 0, "SIGKILL");
+        await waitUntil("问用户", () => a.exitedAsks.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        expect(a.exitedAsks).toEqual([true]);
+        expect(lastTray(a)?.visible).toBe(true);
+        a.shell.trayQuit();
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 50});
+        expect(work.calls()).toBe(0);
+    }, 60_000);
+
+    it("后台时自有服务端意外退出：选“重新启动服务”后仍在后台，托盘退出停的是第二代；选“稍后”时壳退出", async () => {
+        const restartRoot = nextRoot();
+        const work = manualWork();
+        const a = fakeShell(restartRoot, {entry: SCRIPTED, closeLastWindow: "tray", onServerExited: "restart", runningWork: work.runningWork});
+        void a.shell.run();
+        await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        a.closeAndAllow(1);
+        await waitUntil("进后台", () => a.open.size === 0);
+        process.kill((await records(restartRoot, "targets.jsonl"))[0]?.pid ?? 0, "SIGKILL");
+        await waitUntil("第二代就绪", () => a.facts.filter((fact) => fact.startsWith("desktop.server.ready")).length === 2, {timeoutMs: 30_000, intervalMs: 50});
+        expect(a.exitCode()).toBeNull();
+        expect(lastTray(a)).toEqual({visible: true, tooltip: "NeuroBook（在后台运行）"});
+        a.shell.trayQuit();
+        work.answer({count: 0, uncertain: false});
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 50});
+        expect(await records(restartRoot, "stopped.jsonl")).toEqual([{generation: 2}]);
+
+        const laterRoot = nextRoot();
+        const b = fakeShell(laterRoot, {entry: SCRIPTED, closeLastWindow: "tray", onServerExited: "later"});
+        void b.shell.run();
+        await waitUntil("窗口加载了页面", () => b.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        b.closeAndAllow(1);
+        await waitUntil("进后台", () => b.open.size === 0);
+        process.kill((await records(laterRoot, "targets.jsonl"))[0]?.pid ?? 0, "SIGKILL");
+        await waitUntil("壳退出", () => b.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 50});
+        expect(lastTray(b)?.visible).toBe(false);
+    }, 90_000);
+
+    it("设置是 tray 而托盘图标建不出来：关最后一个窗口以 quit 询问、停止；设置是 quit 时没有图标", async () => {
+        const root = nextRoot();
+        const a = fakeShell(root, {entry: SCRIPTED, closeLastWindow: "tray", trayFails: true});
+        void a.shell.run();
+        await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        a.shell.setCloseLastWindow("quit");
+        expect(lastTray(a)?.visible).toBe(false);
+        a.shell.setCloseLastWindow("tray");
+        expect(a.closeAndAllow(1)).toBe("quit");
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 50});
+    }, 60_000);
 });

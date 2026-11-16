@@ -139,7 +139,7 @@ const moreMenu = computed<DropdownMenuItemData[]>(() => {
             case "separator": return [];
         }
     });
-    const always = (["superscript", "subscript", "divider", "ruby", "bilingual"] as const).map(itemOf);
+    const always = (["superscript", "subscript", "divider", "ruby", "bilingual", "properties"] as const).map(itemOf);
     const menuEntries = props.menus.contributed(EDITOR_TOOLBAR_POINT).flat().filter((entry) => entry.placement === "menu").map((entry): DropdownMenuItemData => ({id: `contributed:${entry.id}`, label: entry.label, ...(entry.icon === null ? {} : {iconClass: entry.icon}), disabled: !entry.enabled}));
     const sections = [hidden, always, menuEntries].filter((section) => section.length > 0);
     return sections.flatMap((section, index) => (index === 0 ? section : [{id: `sep-${String(index)}`, label: "", separator: true}, ...section]));

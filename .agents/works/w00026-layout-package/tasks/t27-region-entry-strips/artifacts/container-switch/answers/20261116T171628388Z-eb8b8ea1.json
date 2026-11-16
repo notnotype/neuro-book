@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t27-region-entry-strips",
+    "artifactId": "container-switch",
+    "answerId": "20261116T171628388Z-eb8b8ea1",
+    "artifactVersion": 3,
+    "contentHash": "6d42421ffd316db352743693e1081e64c969b75deb34c60c7132a6ef63509a6d",
+    "submittedAt": "2026-11-16T17:16:25.036Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "card-3": "tool-regions",
+        "strip-3": "top-row"
+    },
+    "comments": {},
+    "note": null
+}

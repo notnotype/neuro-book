@@ -9,6 +9,7 @@ import {NodeSelection} from "@tiptap/pm/state";
 import {canMoveBlock, deleteBlock, duplicateBlock, moveBlock, selectedBlock, unwrapBlock} from "./block-actions";
 import {addBlockComment, canCommentBlockAt, findComment, removeComment, setCommentBody} from "./comments";
 import type {CommentRef} from "./comments";
+import {requestProperties} from "./frontmatter";
 
 export type EditingArgs = Readonly<Record<string, unknown>>;
 
@@ -217,6 +218,8 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
         run: (editor) => editor.chain().focus().setHorizontalRule().run(),
         enabled: (editor) => editor.can().setHorizontalRule(),
     },
+    // 新建 frontmatter 或展开属性面板（输出 48）：随时可用，焦点由宿主交给面板。
+    properties: {run: (editor) => requestProperties(editor), enabled: (editor) => editor.isEditable},
     table: {
         run: (editor) => editor.chain().focus().insertTable({rows: 3, cols: 3, withHeaderRow: true}).run(),
         enabled: (editor) => editor.can().insertTable({rows: 3, cols: 3, withHeaderRow: true}),

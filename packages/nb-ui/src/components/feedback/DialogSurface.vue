@@ -215,8 +215,10 @@ onBeforeUnmount(() => panelResizeObserver?.disconnect());
     animation: nb-dialog-in var(--nb-dialog-enter-duration, var(--motion-base)) var(--nb-dialog-enter-ease, var(--ease-layout));
 }
 
+/* 退场中的面已经关了：不接指针，点在它上面就是点到它下面的东西。 */
 .nb-dialog[data-state="closed"] {
     animation: nb-dialog-out var(--nb-dialog-leave-duration, var(--motion-fast)) var(--nb-dialog-leave-ease, var(--ease-dialog-leave)) forwards;
+    pointer-events: none;
 }
 
 @keyframes nb-dialog-in {

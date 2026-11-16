@@ -371,6 +371,9 @@
                 },
                 "block-unwrap": {
                     "title": "Unwrap Block"
+                },
+                "properties": {
+                    "title": "Add Property"
                 }
             },
             "view": {

@@ -9,8 +9,8 @@
 import {nextTick, onBeforeUnmount, ref, shallowRef} from "vue";
 import type {Ref} from "vue";
 
-import {enteringRects, flyingContents, followingLeaves, placementMoved} from "../grid-motion";
-import type {GridLayerItem, GridRect} from "../grid-rects";
+import {enteringRects, floatLiftStarts, flyingContents, followingLeaves, keptSizeStarts, leavingPlacements, placementMoved, rightAnchored, shrinkingLeaves, zeroLeaves} from "../grid-motion";
+import type {GridLayerItem, GridPlacementItem, GridRect} from "../grid-rects";
 import type {GridExtent} from "../grid-types";
 import {layoutMotionMs} from "./layout-motion";
 
@@ -28,6 +28,8 @@ export interface GridMotionFrame {
     readonly dpr: number;
     /** 手势预览进行中。 */
     readonly previewing: boolean;
+    /** 有拿起的内容（实时布局拖动中）：离开的叶不留。 */
+    readonly holding?: boolean;
 }
 
 /** 上一次判定时记下的事实：判容器尺寸、缩放与手势收尾要比它。 */
@@ -45,7 +47,27 @@ export type GridMotionDecision =
     | {readonly kind: "none"}
     /** 容器尺寸或缩放变了：进行中的过渡直接到终点。 */
     | {readonly kind: "stop"}
-    | {readonly kind: "move"; readonly entering: ReadonlyMap<string, GridRect>; readonly following: ReadonlySet<string>; readonly flying: ReadonlySet<string>};
+    | GridMotionMove;
+
+/** 要过渡：第一帧的矩形（新项与内容不跟外框的叶）、内容跟外框的项、压在上面飞的项、留着缩回去的叶、内容不跟外框的叶、内容贴外框右边的项、降到零的叶与此刻为零的叶。 */
+export interface GridMotionMove {
+    readonly kind: "move";
+    readonly entering: ReadonlyMap<string, GridRect>;
+    readonly following: ReadonlySet<string>;
+    readonly flying: ReadonlySet<string>;
+    readonly leaving: ReadonlyArray<GridLeavingItem>;
+    readonly keptSize: ReadonlySet<string>;
+    readonly rightAnchored: ReadonlySet<string>;
+    /** 这一轮降到零的叶（节点 id，`shrinkingLeaves`）。 */
+    readonly shrinking: ReadonlySet<string>;
+    /** 此刻为零的叶（节点 id）：上一轮在缩的叶仍在这里面的接着缩。 */
+    readonly zero: ReadonlySet<string>;
+}
+
+/** 在过渡里留着缩回去的离开的叶（`leavingPlacements`）。 */
+export type GridLeavingItem = Extract<GridPlacementItem<unknown>, {readonly kind: "leaf"}>;
+
+const withoutLeaving = (list: ReadonlyArray<GridLayerItem<unknown>>): ReadonlyArray<GridLayerItem<unknown>> => list.filter((item) => item.kind !== "leaf" || item.leaving !== true);
 
 /** 根尺寸是子项加出来的（621.9999999999999 与 622），差一点舍入不算容器变了：算成变了，程序调整的过渡会直接跳到终点。 */
 const EXTENT_TOLERANCE_PX = 0.5;
@@ -56,7 +78,9 @@ const sameExtent = (left: GridExtent, right: GridExtent): boolean => Math.abs(le
  * 要不要过渡（纯函数，改 `memory`）。来源是数据：预览进行中，或上一次还在预览中（松手、取消、被拒撤下预览的那一次），都算手势引起的。
  * 不靠谁先调了什么、watcher 谁先建。
  */
-export function decideMotion(frame: GridMotionFrame, memory: GridMotionMemory): GridMotionDecision {
+export function decideMotion(input: GridMotionFrame, memory: GridMotionMemory): GridMotionDecision {
+    // 留着缩回去的叶不算布局的一部分：加上、摘掉它们各引起一次判定，算进去就是两次布局变化，摘掉时又判成离开，停不下来。
+    const frame = {...input, items: withoutLeaving(input.items), previous: input.previous === null ? null : withoutLeaving(input.previous)};
     const gesture = frame.previewing || memory.previewing;
     // 第一次有真实布局：之前的矩形都是 0，不算移动。
     const first = memory.rootSize === null;
@@ -70,7 +94,27 @@ export function decideMotion(frame: GridMotionFrame, memory: GridMotionMemory): 
     if (resized || rescaled) return {kind: "stop"};
     if (first || gesture || frame.previous === null || frame.previous.length === 0) return {kind: "none"};
     if (!placementMoved(frame.items, frame.previous)) return {kind: "none"};
-    return {kind: "move", entering: enteringRects(frame.items, frame.previous), following: followingLeaves(frame.items, frame.previous), flying: flyingContents(frame.items, frame.previous)};
+    // 新开的浮动窗从内容原来的叶出发：在 `enteringRects` 之后并进去，挨着的分隔线不拿它当起点。它跟外框，头逐帧重排，不按最终尺寸裁。
+    const lifts = frame.holding === true ? new Map<string, GridRect>() : floatLiftStarts(frame.items, frame.previous);
+    const entering = new Map([...enteringRects(frame.items, frame.previous), ...lifts]);
+    const following = new Set([...followingLeaves(frame.items, frame.previous), ...lifts.keys()]);
+    const flying = flyingContents(frame.items, frame.previous);
+    const leaving = leavingPlacements(frame.items, frame.previous, frame.holding === true);
+    const kept = keptSizeStarts({items: frame.items, previous: frame.previous, entering, following, leaving});
+    // 上一轮还在缩回去的叶（`input.items` 里带 `leaving` 的）：这一轮又有别的变化时接着留着缩完，不然它缩到一半就没了。回到树里的、这一轮重新判成离开的不算。
+    const present = new Set([...frame.items, ...leaving].map((item) => item.key));
+    const still = input.items.filter((item): item is GridLeavingItem => item.kind === "leaf" && item.leaving === true && !present.has(item.key));
+    return {
+        kind: "move",
+        entering: new Map([...entering, ...kept]),
+        following,
+        flying,
+        leaving: [...still, ...leaving],
+        keptSize: new Set(kept.keys()),
+        rightAnchored: rightAnchored({items: frame.items, leaving, starts: kept, following, flying}),
+        shrinking: shrinkingLeaves(frame.items, frame.previous),
+        zero: zeroLeaves(frame.items),
+    };
 }
 
 export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement | null>>; readonly onSettled: () => void}) {
@@ -81,6 +125,16 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
     const following = shallowRef<ReadonlySet<string>>(new Set());
     /** 正飞过别的面板的叶与内容项；只在过渡中有。 */
     const flying = shallowRef<ReadonlySet<string>>(new Set());
+    /** 离开了、在这一轮过渡里留着缩回去的叶；过渡结束（`stop`）就摘掉。 */
+    const leaving = shallowRef<ReadonlyArray<GridLeavingItem>>([]);
+    /** 内容不跟外框的叶（`keptSizeStarts`）：它们的内容按叶的矩形摆；只在过渡中有。 */
+    const keptSize = shallowRef<ReadonlySet<string>>(new Set());
+    /** 内容贴外框右边的项（`rightAnchored`）；只在过渡中有。 */
+    const anchoredRight = shallowRef<ReadonlySet<string>>(new Set());
+    /** 落地的卡片下面还画着的内容项（`land` 的 `held`）：已经不活动、不可交互，过渡结束（`stop`）才隐藏。只在过渡中有。 */
+    const held = shallowRef<ReadonlySet<string>>(new Set());
+    /** 降到零的叶（节点 id，`shrinkingLeaves`）：停放、不可交互，过渡结束（`stop`）前头与内容还画着。只在过渡中有。 */
+    const shrinking = shallowRef<ReadonlySet<string>>(new Set());
     let timer: ReturnType<typeof setTimeout> | null = null;
     const memory = EMPTY_GRID_MOTION_MEMORY();
     /** 正落地的内容项：内容体一次到终点尺寸，不跟着外框。它从小卡的矩形出发，跟着走就是先压成小卡再逐帧长回去。 */
@@ -110,20 +164,36 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         growing.value = new Map();
         following.value = new Set();
         flying.value = new Set();
+        leaving.value = [];
+        keptSize.value = new Set();
+        anchoredRight.value = new Set();
+        held.value = new Set();
+        shrinking.value = new Set();
         // 分隔线的对齐读 DOM：过渡开始时读到的是旧位置，结束再对齐一次。
         options.onSettled();
     }
 
-    function start(durationMs: number, entering: ReadonlyMap<string, GridRect>, nextFollowing: ReadonlySet<string>, nextFlying: ReadonlySet<string>): void {
+    function start(durationMs: number, move: GridMotionMove): void {
         if (timer !== null) clearTimeout(timer);
         // 过渡中又来一次变化：上一轮保持最终尺寸的叶（新叶、从零出来的）继续保持，否则内容会被压到外框此刻的宽度，再跟着长回去。
-        const follow = [...nextFollowing].filter((key) => !landing.has(key));
+        const follow = [...move.following].filter((key) => !landing.has(key));
         following.value = new Set(inRound ? follow.filter((key) => following.value.has(key)) : follow);
+        // 继续保持最终尺寸的叶接着按叶的矩形摆、接着贴右边：这一轮它可能没动（不在这一轮的名单里），外框还在走上一轮的过渡。
+        const carried = (list: ReadonlySet<string>): string[] => (inRound ? [...list].filter((key) => !following.value.has(key)) : []);
+        keptSize.value = new Set([...carried(keptSize.value), ...move.keptSize]);
+        anchoredRight.value = new Set([...carried(anchoredRight.value), ...move.rightAnchored]);
+        // 上一轮在缩、这一轮仍为零的接着画到结束（外壳落账后的第二次发布也是一轮，不接着的话缩到一半就没了）；又长出来的不算。
+        shrinking.value = new Set([...(inRound ? [...shrinking.value].filter((id) => move.zero.has(id)) : []), ...move.shrinking]);
         inRound = true;
         moving.value = true;
-        flying.value = new Set([...(flying.value), ...nextFlying]);
+        flying.value = new Set([...(flying.value), ...move.flying]);
+        // `move.leaving` 里有上一轮还没缩完的（`decideMotion` 接着留）；不在里面的是又回到了树里。
+        leaving.value = move.leaving;
         timer = setTimeout(stop, durationMs + MOTION_SLACK_MS);
+        const entering = move.entering;
         if (entering.size === 0) return;
+        // 过渡中又来一次变化时，已经画着的项的起点是上一帧的矩形，也就是上一轮的终点，正是它此刻在走的那次过渡的终点：样式写回这个值不打断那次过渡
+        // （CSS 过渡里终点没变就接着走），下一帧写新终点时从此刻的位置反向，不跳。所以不用读 DOM 取当前位置；起点不再是上一轮的终点时这条就不成立了。
         growing.value = entering;
         // 先让第一帧的矩形进到样式里（强制一次布局），再写终点：否则浏览器把两次改动并成一次，过渡不启动。
         void nextTick(() => {
@@ -142,18 +212,21 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         if (decision.kind === "none") return;
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
-        if (duration > 0) start(duration, decision.entering, decision.following, decision.flying);
+        if (duration > 0) start(duration, decision);
+        // 过渡中切到了减少动态效果：不开新一轮，进行中的直接到终点，留着缩回去的叶也摘掉（不然它和回到树里的同一块叶一起画）。
+        else stop();
     }
 
     /**
      * 拿起的内容项落地：外框从卡片的矩形飞到叶的矩形（下一次渲染写终点，过渡这时启动）。`entering` 是同时出现的叶从哪里长出来（落进新浮动窗时是卡片的矩形），
-     * 和新项一样先写第一帧、再写终点。
+     * 和新项一样先写第一帧、再写终点。`held` 是落进的叶里刚才还显示着的内容：卡片长满之前它还在下面，不然卡片四周是空的叶。
      */
-    function land(key: string, entering?: ReadonlyMap<string, GridRect>): void {
+    function land(key: string, entering?: ReadonlyMap<string, GridRect>, kept?: ReadonlySet<string>): void {
         const root = options.root.value;
         const duration = root === null ? 0 : layoutMotionMs(root);
         if (duration <= 0) return;
         landing.add(key);
+        if (kept !== undefined && kept.size > 0) held.value = new Set([...held.value, ...kept]);
         following.value = new Set([...following.value].filter((candidate) => candidate !== key));
         flying.value = new Set([...flying.value, key]);
         moving.value = true;
@@ -178,6 +251,11 @@ export function useGridMotion(options: {readonly root: Readonly<Ref<HTMLElement 
         growing,
         following,
         flying,
+        leaving,
+        keptSize,
+        anchoredRight,
+        held,
+        shrinking,
         update,
         land,
         /** 过渡中开始手势：外框直接到终点，拖动没有拖尾。 */

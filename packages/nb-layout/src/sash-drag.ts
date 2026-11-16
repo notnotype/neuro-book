@@ -2,14 +2,17 @@
  * 分隔条拖动求解（纯函数，无 DOM / Vue / 存储）。
  *
  * 一次求解回答「按下点在主轴方向移动 `deltaPx` 后，这个分支的完整呈现应该是什么」：
- * - 位移始终是**相对按下基线的绝对总量**：每帧都从冻结的 `baselinePx` 与累计位移算理想边界
+ * - 边界位置始终按**相对按下基线的绝对总量**算：每帧都从冻结的 `baselinePx` 与累计位移算理想边界
  *   `baselineBoundary + deltaPx`，不逐帧累加、也不因中间吸附而重新起算——否则「记忆尺寸跳跃 − 指针位移」
  *   会作为永久偏移留在几何里；
  * - 直接相邻的两块面板是候选，装不下的位移按距分隔条由近到远向同侧兄弟传播；分配前先把每个兄弟夹进
  *   它当前的 bounds，再按两侧目标总量补偿，结果逐叶合法且全分支守恒；
+ * - 兄弟之间的分配从**上一帧解出的尺寸**出发（首帧是基线）：往回拖时先动挨着分隔条的面板，已被推开的兄弟
+ *   留在被推到的地方，和拖一段松手再拖一样。同一方向的位移由近到远逐段分配，分几帧到达结果都一样，
+ *   所以只有掉头才让分配依赖路径；边界位置与收起状态不依赖路径；
  * - 收起判定同样只看理想尺寸：低于 `minimum − collapseThreshold` 吸附到 `collapsedSize`，反向回到
  *   `max(minimum, collapsedSize + expandThreshold)` 且容量允许时展开；展开使用理想边界，不跳回记忆尺寸；
- * - 吸附只改约束状态（`SashDragSnapState` 只保留本场收起覆盖）。记忆尺寸只服务按钮/Enter 的显式恢复。
+ * - 吸附只改约束状态。记忆尺寸只服务按钮/Enter 的显式恢复。
  *
  * `Grid` 与独立 `Splitter` 共用这一份实现；阈值与记忆尺寸由宿主的收起策略给出。
  */
@@ -17,10 +20,15 @@ import {EPSILON, allocateSashPanels, clampAxis, finite, sashPanelBounds, type Sa
 
 /** 主轴位移的正方向 = 分隔条向右（水平分支）或向下（竖直分支）移动。 */
 
-/** 一次手势里某个分支的吸附状态：只保留本场手势对收起状态的覆盖，几何锚点永远是按下基线。 */
+/** 一次手势里某个分支逐帧串下去的状态：本场的收起覆盖与上一帧的尺寸；边界的锚点永远是按下基线。 */
 export type SashDragSnapState = {
     /** 本场手势造成的收起状态覆盖：面板 id → 是否收起（只含与记录不同的那几项）。 */
     readonly collapsed: Readonly<Record<string, boolean>>;
+    /**
+     * 上一帧解出的尺寸，顺序与 `panels` 一致：兄弟之间的分配从它出发。缺省或形状对不上时从基线出发。
+     * 手势中途改了尺寸的显式折叠与恢复要把它的结果写在这里，下一帧才从折叠后的样子接着分配。
+     */
+    readonly sizesPx?: readonly number[];
 };
 
 export type SashDragInput = {
@@ -312,7 +320,7 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
     }
 
     const sizes = usable
-        ? settleSides({sizes: baseline, total, sashIndex, desiredBoundary: baselineBoundary + input.deltaPx, boundsOf})
+        ? settleSides({sizes: previousSizes(input.snapState, baseline), total, sashIndex, desiredBoundary: baselineBoundary + input.deltaPx, boundsOf})
         : [...baseline];
 
     const collapsed: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
@@ -342,8 +350,17 @@ export function solveSashDrag(input: SashDragInput): SashDragResult | null {
         active,
         compensated,
         issues,
-        snapState: {collapsed: {...overrides}},
+        snapState: {collapsed: {...overrides}, sizesPx: sizes},
     };
+}
+
+/** 分配的起点：上一帧解出的尺寸；和基线不同形（个数不同、有非法值）时不是这一分支的状态，从基线出发。 */
+function previousSizes(state: SashDragSnapState | null | undefined, baseline: readonly number[]): readonly number[] {
+    const previous = state?.sizesPx;
+    if (previous === undefined || previous.length !== baseline.length || previous.some((size) => !Number.isFinite(size) || size < 0)) {
+        return baseline;
+    }
+    return previous;
 }
 
 /**

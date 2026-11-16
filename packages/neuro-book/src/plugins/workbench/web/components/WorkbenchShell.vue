@@ -38,6 +38,7 @@ import type {PaneFocusMover} from "../commands/pane-focus-commands";
 import {presentDrag} from "../drag-presentation";
 import {createLayoutDrag} from "../layout-drag";
 import type {LayoutDrag, LayoutDragDrop} from "../layout-drag";
+import type {LiveCardRefresh} from "../live-drag";
 import type {WorkbenchDragSource} from "../entry-drop";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
@@ -80,6 +81,8 @@ const props = defineProps<{
     dragFeel?: "live" | "indicator";
     /** 卡片什么时候缩小（设置 `nbook.workbench/dragCardShrink`）；缺省离开标签条就缩。 */
     dragCardShrink?: "strip" | "panel";
+    /** 卡片的尺寸多久写一次（设置 `nbook.workbench/dragCardRefresh`）；缺省跟随屏幕每帧写。 */
+    dragCardRefresh?: LiveCardRefresh;
     /** 拖到四周时怎么分（设置 `nbook.workbench/dropSplit`）；缺省只分本窗口。 */
     dropSplit?: DropSplit;
 }>();
@@ -520,6 +523,7 @@ onMounted(() => {
         sectors: () => props.dropSectors !== false,
         feel: () => props.dragFeel ?? "live",
         cardShrink: () => props.dragCardShrink ?? "strip",
+        cardRefresh: () => props.dragCardRefresh ?? "display",
         settleMotion: () => surface.value?.settleMotion(),
         showPreview: (next) => props.layout.actions.setLivePreview(next),
         placeCard: (rect) => surface.value?.placeLifted(rect),
@@ -632,11 +636,11 @@ const mergeRect = computed(() => {
 });
 const mergeStyle = computed(() => {
     const rect = mergeRect.value;
-    return rect === null ? {} : {transform: `translate(${String(rect.left)}px, ${String(rect.top)}px)`, width: `${String(rect.right - rect.left)}px`, height: `${String(rect.bottom - rect.top)}px`};
+    return rect === null ? {} : {left: `${String(rect.left)}px`, top: `${String(rect.top)}px`, width: `${String(rect.right - rect.left)}px`, height: `${String(rect.bottom - rect.top)}px`};
 });
 const slotStyle = computed(() => {
     const slot = drag.value?.live.slot.value ?? null;
-    return slot === null ? {} : {transform: `translate(${String(slot.x)}px, ${String(slot.y)}px)`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
+    return slot === null ? {} : {left: `${String(slot.x)}px`, top: `${String(slot.y)}px`, width: `${String(slot.width)}px`, height: `${String(slot.height)}px`};
 });
 
 function dropLabel(drop: LayoutDragDrop): string {
@@ -648,6 +652,8 @@ function dropLabel(drop: LayoutDragDrop): string {
     if (action.kind === "strip") return message("shell.drop.insert");
     if (action.kind === "center") return message("shell.drop.addTab");
     if (action.kind === "float") return message("shell.drop.float");
+    // 带容器的外缘落点只有放进空区域这一种（ADR 0050）：整块一个落点，不说拆到哪一边。
+    if (action.container !== undefined) return message("shell.drop.insert");
     return message(action.target.kind === "between" ? "shell.drop.between" : "shell.drop.split");
 }
 
@@ -656,6 +662,7 @@ const sectorLabels = computed(() => ({
     right: message("shell.drop.sector.right"),
     top: message("shell.drop.sector.top"),
     bottom: message("shell.drop.sector.bottom"),
+    whole: message("shell.drop.insert"),
     center: message("shell.drop.addTab"),
 }));
 
@@ -697,6 +704,7 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                 :doc="renderedDoc"
                 :projection="layout.actions.renderedPresentation()"
                 :lifted="liftedCard"
+                :dragging="dragSource !== null"
                 :floats="layout.actions.floats()"
                 :data-drag-feel="drag?.live.active.value === true ? 'live' : 'indicator'"
                 :data-live-preview="drag?.live.previewKey.value ?? 'none'"
@@ -743,6 +751,9 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         @discard="layout.actions.discard()"
                     />
                 </template>
+                <template #empty-region>
+                    <div class="workbench-shell__empty-region" data-empty-region>{{ message("shell.emptyRegion") }}</div>
+                </template>
                 <template #head="{panelId, idPrefix}">
                     <template v-if="renderedDoc.panels[panelId]?.role === 'editor'">
                         <component :is="editorArea.head" v-if="editorArea !== null" :key="editorArea.id" :panel-id="panelId" :dragging-tab="dragPlaceholder" :frame-actions="editorFrameActions(panelId)" />
@@ -786,9 +797,8 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                     <template v-if="drag?.live.active.value === true">
                         <div v-if="drag.live.slot.value !== null" class="workbench-shell__slot" data-live-slot :style="slotStyle"></div>
                         <!-- 按目标换元素：换目标时不从上一块滑过来，在新的这块淡入。 -->
-                        <div v-if="mergeRect !== null" :key="mergeTarget ?? ''" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="mergeTarget" :style="mergeStyle">
-                            <span class="workbench-shell__merge-label">{{ message("shell.drop.addTab") }}</span>
-                        </div>
+                        <!-- 不写字：落点的文字在卡片头上，盖层中间的字压在内容上，指针在中央时还被卡片挡住。 -->
+                        <div v-if="mergeRect !== null" :key="mergeTarget ?? ''" class="workbench-shell__merge" data-live-merge :data-live-merge-panel="mergeTarget" :style="mergeStyle"></div>
                     </template>
                 </template>
                 <template #float-chrome="{id, rect}">
@@ -867,31 +877,22 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
     pointer-events: none;
 }
 
-/* 并入：目标变暗加内描边。来源收起时目标会动，过渡和外框同一条曲线；样式走令牌，主题能换。 */
+/* 并入：目标变暗加内描边。来源收起时目标会动，过渡和外框同一条曲线、同样用 left/top（见 nb-layout 的 `gridRectStyle`）；样式走令牌，主题能换。 */
 .workbench-shell__merge {
     position: absolute;
     top: 0;
     left: 0;
-    display: grid;
-    place-items: center;
-    overflow: hidden;
     box-sizing: border-box;
     border-radius: var(--layout-card-radius);
     background: var(--layout-merge-fill);
     box-shadow: inset 0 0 0 var(--layout-merge-border-width) var(--layout-merge-border);
     pointer-events: none;
     transition:
-        transform var(--motion-layout) var(--ease-layout),
+        left var(--motion-layout) var(--ease-layout),
+        top var(--motion-layout) var(--ease-layout),
         width var(--motion-layout) var(--ease-layout),
         height var(--motion-layout) var(--ease-layout);
     animation: workbench-shell-merge-in var(--motion-fast) var(--ease-layout);
-}
-
-.workbench-shell__merge-label {
-    color: var(--text-main);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    white-space: nowrap;
 }
 
 @keyframes workbench-shell-merge-in {
@@ -966,6 +967,20 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
 
 .workbench-shell__missing-close {
     color: var(--accent-text);
+}
+
+/* 打开着的空区域（ADR 0050）：整块卡片里正中一句提示，没有头；整块是落点，提示不接指针。 */
+.workbench-shell__empty-region {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: var(--space-3);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    text-align: center;
+    pointer-events: none;
 }
 
 .workbench-shell__welcome {

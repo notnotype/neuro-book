@@ -75,8 +75,31 @@ updated: 2026-11-16
 
 ## 当前状态
 
-2026-11-16 开工，计划已确认；设计审查处理完，修订后的计划经开发者确认（决定 9），开始实施。草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `ConversationRound2Draft`、`ModelNoticeDraft`、`SubagentsDraft`；实现的 worktree 是 `.worktree/w00032-t36-impl`。
+2026-11-16 开工，计划已确认；设计审查处理完，修订后的计划经开发者确认（决定 9），开始实施。草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `ConversationRound2Draft`、`ModelNoticeDraft`、`SubagentsDraft`；实现的 worktree 是 `.worktree/w00032-t36-impl`，分支 `feat/w00032-t36-conversation-panel`。
+
+| 片 | 提交 | 验证 |
+|---|---|---|
+| 1 工作台的标题区与 `Popover` 的锚点 | `2d9bcdb66` | 单元与 DOM 测试；e2e 三个文件，负载高时的失败单独重跑通过 |
+| 2 新顶栏与去线 | `4f787f9d3` | DOM 测试；e2e `agent-conversation`、`agent-subagents`、`lab-agent-ui` |
+| 3 第一屏与开场指令 | `6dbff0d9f` | 三个配置的类型检查；单元与 DOM 测试；e2e 四个文件 55 条通过，`lab-scenes` 见下 |
+| 3 的回归修正 | `2955167c2` | 状态栏的 DOM 测试按旧的“总画数据项”写、第一屏图标写了字面字号；片内只跑了改过的测试文件，之后每片跑所改包的全量 |
+| 4 模型提示卡与设置定位 | `a6a1408bb` | 类型检查；nb-agent-ui 全量、neuro-book 相关 280 条、nb-models、nb-harness；变异检查（快照不带 `role`、占位不按原因优先）；e2e `agent-conversation`（含“去绑定”）、`models`、`settings` 43 条通过，`lab-scenes` 滤掉 404 后只剩下面那 31 个旧越界 |
+| 漏的类型检查与 Lab 场景 | `45ed54cdf`、`cefd3eef7` | 状态栏新用例的类型错误；第 2 到 4 片新零件（顶栏、第一屏、提示卡）没有单独的 Lab 场景，Lab 的覆盖测试报出；顶栏根是两个节点，attrs 落不下 |
+| 5 子代理管理 | `1b7971d94` | Spec conversation 输出 43（master `ff25ef9f4`）；纯函数 5 条、DOM 3 条、agent 插件全量 428 条；e2e `agent-subagents`（含新的“子代理管理”）、`agent-conversation` 通过（279 行那条第一次连假端点断开，单独重跑通过）；`lab-scenes` 只剩 31 个旧越界 |
+
+- 第 3 片把宿主给 `welcome`、`draftProfile` 与 `recentSessions` 的接线从第 6 片提前（plan.md 已改），第一屏的 e2e 才能端到端跑。
+- 第 4 片的 Spec 已在 master（`57e2eac1f`）：conversation 输出 42、settings-window 输出 15 的 `focus`、settings-pages 输出 18。
+- `lab-scenes.e2e.ts` 在 master 上一直失败：`ThemeEditor/scene-full`、`ThemeEditor/icons-empty` 加载时有 404，断言停在“没有控制台问题”，后面的布局基线比对从没跑到。本地临时滤掉这两条重跑，基线比对报出 31 个场景的新越界，全在 `SubagentCard`、`BackgroundCommandCard`、`AgentDock`、`ProfileSettingsPage`。原因在 fixture 根节点写死了宽度（例如 `SubagentCardFixture` 的 `w-[640px]`，手机画布上正好溢出 252px），与本 Task 无关。本 Task 新增的场景（`view-head`、对话视图的 `no-session`、`child-session`、`welcome-first`、`welcome-bare`）都没有越界。不在本 Task 修，交开发者另排。
 
 ## 下一步
 
-按切片实施，第 1 片“工作台的标题区与 `Popover` 的锚点”。
+第 6 片“宿主接线”：对话视图的实现加 `[VIEW_HEAD]: true`；`AgentConversationPosition` 收 `context`，经 `viewHeadOf` 取头交给 `ConversationHost`；`headTargets` 取 `head.slots`，`sessionsOpen` 本地持有、按标题切换、写 `titlePopup`。e2e：按对话面板头的标题拖到别的区域；右栏再放一个视图时头回到内容里、会话下拉开着也不丢；按标题开会话列表、Escape 回到标题。之后收口。
+
+实施时定下的细节：
+
+- 提示卡的选法是纯函数 `agent/web/model-notice.ts`，上下文与按钮共用同一份输入，按钮去的地方与卡上写的一致；卡换了以后旧按钮不再有去处。
+- 一家服务商都没有、而且没选会话时也出卡，发送不可用（没有模型可用）。
+- 页面属性 `takeFocus` 写成函数类型，不写 `SettingsPageContext["takeFocus"]`：后者被 Vue 编译器按返回值生成运行时校验，开发模式下报类型不符（lab-scenes 抓到）。
+- 出错看过没有按会话记“看到哪个时刻为止”（计划写的是按 `会话:运行` 记）：最近一次以错误收口、收口晚于它的算没看过，与按运行记的结果相同，少存一份集合；激活时刻是基线。切会话由插件看 `host.sessionId` 记，卡片、停靠区、浮层几条路都算。
+- 浮层里的行是整行按钮，在滚动的列表里外扩光晕会被裁：用 `nb-ui-focus-ring-inset`。
+- 浮层外框的宽度与内边距照顶栏会话列表的写法用 `:global(...)`：原子类在 Tailwind 的 utilities 层里，不分层的组件样式压得过它，不靠加载顺序。

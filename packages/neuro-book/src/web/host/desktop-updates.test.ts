@@ -66,7 +66,7 @@ function harness(options: {notifications?: boolean; failSend?: boolean; noShell?
             state = next;
             for (const listener of listeners) listener(next);
         },
-        hint: (id: number, hint: UpdateHint) => target.dispatchEvent(new CustomEvent(DESKTOP_EVENT, {detail: {type: "update-hint", id, hint}})),
+        hint: (id: number, hint: UpdateHint, tray?: boolean) => target.dispatchEvent(new CustomEvent(DESKTOP_EVENT, {detail: {type: "update-hint", id, hint, ...(tray === undefined ? {} : {tray})}})),
         end: (id: number) => target.dispatchEvent(new CustomEvent(DESKTOP_EVENT, {detail: {type: "update-hint-end", id}})),
         pageHide: () => pageListeners.pagehide.forEach((listener) => listener()),
         pageShow: () => pageListeners.pageshow.forEach((listener) => listener()),
@@ -115,6 +115,18 @@ describe("页面一侧的更新提示", () => {
         h.hint(2, {kind: "notify-only", version: "0.90.3", envRoot: true});
         expect(h.shown.map(({input}) => key(input.message))).toEqual(["update.notifyOnly.message", "update.notifyOnly.envRootMessage"]);
         expect(h.shown[1]?.input.title).toMatchObject({key: "update.notifyOnly.title", params: {version: "0.90.3"}});
+    });
+
+    it("关窗会留在系统托盘（壳标了 tray）：可以更新与已下载的正文换成从托盘退出再打开；别的提示、没标时照旧", () => {
+        const h = harness();
+        h.setState(READY("i1"));
+        h.updates.pagesMounted();
+        h.hint(1, {kind: "available", version: "0.90.2"}, true);
+        h.hint(2, {kind: "downloaded", version: "0.90.2"}, true);
+        h.hint(3, {kind: "download-failed", version: "0.90.2"}, true);
+        h.hint(4, {kind: "downloaded", version: "0.90.3"}, false);
+        h.hint(5, {kind: "downloaded", version: "0.90.4"});
+        expect(h.shown.map(({input}) => key(input.message))).toEqual(["update.available.trayMessage", "update.downloaded.trayMessage", "update.downloadFailed.message", "update.downloaded.message", "update.downloaded.message"]);
     });
 
     it("page-ready 在页面挂好之后、每个运行实例一次；在线与离线的变化不再报；离开就绪与 pagehide 报 page-gone", () => {

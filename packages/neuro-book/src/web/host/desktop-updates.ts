@@ -47,12 +47,15 @@ export interface DesktopUpdates {
     dispose(): void;
 }
 
-/** 每种提示怎么显示（计划“页面一侧”的表）；`choice` 是动作按钮交回的选择，`closeChoice` 是用户关掉时交回的。 */
-function presentation(hint: UpdateHint): {readonly input: Omit<NotificationInput, "action" | "onClose">; readonly action: {readonly label: string; readonly choice: UpdateChoice} | null; readonly closeChoice: UpdateChoice | null} {
+/**
+ * 每种提示怎么显示（计划“页面一侧”的表）；`choice` 是动作按钮交回的选择，`closeChoice` 是用户关掉时交回的。`tray` 为真时
+ * 关窗不会退出，“下次打开时安装”换成从托盘退出再打开（desktop-update 输出 6）。
+ */
+function presentation(hint: UpdateHint, tray: boolean): {readonly input: Omit<NotificationInput, "action" | "onClose">; readonly action: {readonly label: string; readonly choice: UpdateChoice} | null; readonly closeChoice: UpdateChoice | null} {
     const version = {version: hint.version};
     switch (hint.kind) {
         case "available":
-            return {input: {tone: "info", sticky: true, title: hostText("update.available.title", version), message: hostText("update.available.message")}, action: {label: "update.action.download", choice: "download"}, closeChoice: "later"};
+            return {input: {tone: "info", sticky: true, title: hostText("update.available.title", version), message: hostText(tray ? "update.available.trayMessage" : "update.available.message")}, action: {label: "update.action.download", choice: "download"}, closeChoice: "later"};
         case "notify-only":
             return {input: {tone: "info", sticky: true, title: hostText("update.notifyOnly.title", version), message: hostText(hint.envRoot === true ? "update.notifyOnly.envRootMessage" : "update.notifyOnly.message")}, action: {label: "update.action.openPage", choice: "open-page"}, closeChoice: "later"};
         case "downloading":
@@ -60,7 +63,7 @@ function presentation(hint: UpdateHint): {readonly input: Omit<NotificationInput
         case "download-failed":
             return {input: {tone: "warning", sticky: true, title: hostText("update.downloadFailed.title"), message: hostText("update.downloadFailed.message", version)}, action: {label: "update.action.retry", choice: "retry"}, closeChoice: "later"};
         case "downloaded":
-            return {input: {tone: "success", sticky: false, title: hostText("update.downloaded.title", version), message: hostText("update.downloaded.message")}, action: null, closeChoice: null};
+            return {input: {tone: "success", sticky: false, title: hostText("update.downloaded.title", version), message: hostText(tray ? "update.downloaded.trayMessage" : "update.downloaded.message")}, action: null, closeChoice: null};
         case "updated":
             return {input: {tone: "success", sticky: false, title: hostText("update.updated.title", version), message: hostText("update.updated.message")}, action: null, closeChoice: null};
         case "update-failed":
@@ -73,7 +76,7 @@ export function createDesktopUpdates(options: DesktopUpdatesOptions): DesktopUpd
     /** 已报过 `page-ready` 的运行实例；离开就绪（报过 `page-gone`）后为 null。 */
     let reportedReady: string | null = null;
     /** 还没发出的提示（还没就绪，或工作台没交出通知服务）。 */
-    const pending = new Map<number, UpdateHint>();
+    const pending = new Map<number, {readonly hint: UpdateHint; readonly tray: boolean}>();
     /** 这一页已经发过的提示；句柄在被撤掉时用。 */
     const shown = new Map<number, NotificationHandle>();
 
@@ -89,8 +92,8 @@ export function createDesktopUpdates(options: DesktopUpdatesOptions): DesktopUpd
         return false;
     };
 
-    const show = (id: number, hint: UpdateHint, notifications: Notifications): void => {
-        const {input, action, closeChoice} = presentation(hint);
+    const show = (id: number, hint: UpdateHint, tray: boolean, notifications: Notifications): void => {
+        const {input, action, closeChoice} = presentation(hint, tray);
         const handle = notifications.notify({
             ...input,
             ...(action === null ? {} : {action: {label: hostText(action.label), run: () => void send({type: "update-choice", id, choice: action.choice})}}),
@@ -109,9 +112,9 @@ export function createDesktopUpdates(options: DesktopUpdatesOptions): DesktopUpd
             options.report({level: "warn", event: "browser-host.update.no-notifications", message: "工作台没有交出通知服务，更新提示显示不了", data: {pending: pending.size}});
             return;
         }
-        for (const [id, hint] of [...pending]) {
+        for (const [id, {hint, tray}] of [...pending]) {
             pending.delete(id);
-            show(id, hint, notifications);
+            show(id, hint, tray, notifications);
         }
     };
 
@@ -128,7 +131,7 @@ export function createDesktopUpdates(options: DesktopUpdatesOptions): DesktopUpd
     const stopListening = options.bridge.listen((message) => {
         if (message.type === "update-hint") {
             if (shown.has(message.id)) return;
-            pending.set(message.id, message.hint);
+            pending.set(message.id, {hint: message.hint, tray: message.tray === true});
             flush();
             return;
         }

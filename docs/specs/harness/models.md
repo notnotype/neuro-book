@@ -42,7 +42,8 @@ interface ModelQuery {
 }
 type ModelResolution =
     | {ok: true; info: ModelInfo; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void): Promise<ModelResponse>}
-    | {ok: false; code: "no-model" | "no-credentials" | "unknown-model" | "role-unbound"};
+    | {ok: false; code: "no-model" | "no-credentials" | "unknown-model" | "role-unbound"; role?: string; provider?: string};
+    // 失败时选中了什么（planned）：走到某个角色时带角色 id，卡在没有凭据时带服务商 id；端口不给时按没有处理。
 
 // OMP 适配器（@notnotype/nb-harness/kernel）
 ompCall(target: {model: Model; apiKey: () => string | Promise<string>; priceKnown: boolean; headers?: Record<string, string>}): ModelResolution["call"];
@@ -112,4 +113,4 @@ Smoke：`packages/nb-harness/tests/kernel/kernel.llm.test.ts`（`bun run test:ll
 
 ## 证据
 
-- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准）
+- 批准依据：[提案：Agent harness 的事件模型](../../proposals/agent-harness-event-model.md)（2026-10-31 接受）、[ADR 0035](../../adr/0035-harness-log-driven-kernel.md)；重发、费用累计与适配器的传输见 [w00032 t27](../../../.agents/works/w00032-agent-integration/tasks/t27-run-reliability/README.md)（已实现，开发者 2026-11-04 批准）解析失败带 `role`、`provider`（标 planned 的几句）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)的“模型不可用的提示卡”，开发者 2026-11-16 确认（t36 决定 1、9）。

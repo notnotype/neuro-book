@@ -54,13 +54,13 @@ export function defaultFloatRect(extent: GridExtent | null, minimum: GridExtent,
 const COLLAPSE_REGIONS: ReadonlyArray<PanelName> = ["auxiliarybar", "panel", "sidebar"];
 
 /**
- * 放不下时收走的先后（输出 10）：按右栏、底部面板、侧栏，各区域里的分节按树序。不显示的分节在里面也无妨，收走的只从显示着的里面挑；
- * 不在这张表里的工具面板排在后面。
+ * 放不下时收走的先后（输出 10）：按右栏、底部面板、侧栏，各区域里的面板按树序。不显示的在里面也无妨，收走的只从显示着的里面挑：
+ * 锚只在区域空着时显示（ADR 0050），那时这块空面板按它的区域排。不在这张表里的工具面板排在后面。
  */
 export function collapseOrder(doc: LayoutDoc): ReadonlyArray<string> {
     return COLLAPSE_REGIONS.flatMap((region) => {
         const hit = regionNodeOf(doc, region);
-        return hit === null ? [] : treeLeaves(hit.node).map((leaf) => leaf.id).filter((id) => id !== hit.anchor);
+        return hit === null ? [] : treeLeaves(hit.node).map((leaf) => leaf.id);
     });
 }
 

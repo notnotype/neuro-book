@@ -141,7 +141,7 @@ function everyLeaf(node: GridNodeInput<string>, test: (id: string) => boolean): 
 }
 
 /**
- * 分隔线的种类（输出 19）：工具面板之间的线和编辑组之间的线归它们自己的颜色；卡片主题里主体的接缝透明，卡片之间的缝就是边界，这两种线还要看得见。
+ * 分隔线的种类（输出 19）：工具面板之间的线有自己的颜色与两端缩进，编辑组之间的线贯通整个高度；卡片主题里一块一张卡片，三种线都透明，缝就是边界。
  */
 export function sashKindOf(branch: GridBranchInput<string>, before: string, after: string, roleOf: (id: string) => "tool" | "editor" | null): SashKind {
     const nodes = branch.children.filter((child) => child.id === before || child.id === after);

@@ -371,6 +371,7 @@
         "@notnotype/nb-ui": "workspace:^",
         "@tiptap/core": "3.27.3",
         "@tiptap/extension-code": "3.27.3",
+        "@tiptap/extension-document": "3.27.3",
         "@tiptap/extension-image": "3.27.3",
         "@tiptap/extension-link": "3.27.3",
         "@tiptap/extension-list": "3.27.3",
@@ -383,6 +384,7 @@
         "entities": "8.0.0",
         "marked": "17.0.6",
         "marked-cjk-friendly": "0.1.2",
+        "yaml": "^2.8.2",
       },
       "devDependencies": {
         "@iconify-json/lucide": "^1.2.95",
@@ -522,6 +524,7 @@
       "dependencies": {
         "@iconify-json/lucide": "^1.2.95",
         "@iconify/tailwind4": "^1.2.3",
+        "@internationalized/date": "^3.12.3",
         "@vueuse/core": "^14.3.0",
         "clsx": "^2.1.1",
         "diff": "^9.0.0",

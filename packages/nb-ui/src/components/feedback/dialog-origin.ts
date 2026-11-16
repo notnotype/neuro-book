@@ -6,7 +6,7 @@
  * 键盘在按钮上按 Enter 或空格时没有指针事件，只能看焦点所在的元素。两条都没有（全局快捷键、命令面板、
  * 程序打开、恢复）就没有来处，面原地缩放淡入。
  */
-import {computed, shallowRef, watch} from "vue";
+import {computed, nextTick, shallowRef, watch} from "vue";
 import type {ComputedRef} from "vue";
 
 export type DialogOrigin = {readonly x: number; readonly y: number};
@@ -75,8 +75,8 @@ export type DialogOriginOptions = {
 /**
  * 把触发点接到面板的入场动画上，返回要合进面板 `style` 的 CSS 变量（`--nb-dialog-from-x/y/scale` 与入场、退场的时长和曲线）。
  *
- * 时序：触发点在 `open` 变 true 的那次更新里取（`pre` 刷新，早于 reka 把焦点移进面板）；位移在面板挂好、位置定下来的
- * `post` 刷新里量一次，随后的那次渲染把变量写上。这几步都在同一个微任务队列里，先于浏览器的第一帧绘制，看不到跳动。
+ * 时序：触发点在 `open` 变 true 的那次更新里取（`pre` 刷新，早于 reka 把焦点移进面板）；位移等面板挂好、位置定下来并写进 DOM
+ * 之后量一次（`post` 刷新之后的 nextTick），随后的那次渲染把变量写上。这几步都在同一个微任务队列里，先于浏览器的第一帧绘制，看不到跳动。
  * 量的时候入场动画才刚开始，缩放围绕面板中心，所以矩形的中心就是终点的中心；位移只在这里量一次，关闭沿用同一组变量，
  * 窗口被拖动后也不重量（收回时起点是窗口现在的位置，终点差出拖动的距离，飞行中看不出来）。
  */
@@ -93,7 +93,13 @@ export function useDialogOrigin(options: DialogOriginOptions): {style: ComputedR
 
     watch(() => (options.open() && (options.ready?.() ?? true) ? options.panel() : null), (element) => {
         if (element === null || origin.value === null || offset.value !== null) return;
-        offset.value = dialogOriginOffset(element.getBoundingClientRect(), origin.value);
+        // `ready` 变真时，定下来的位置还只在状态里：宿主定位的观察者与这一个在同一轮 post 刷新里先后跑，面板的 left、top 要等
+        // 这一轮刷新里接着的那次渲染才写进 DOM。现在量，量到的是挪动之前的位置（浮动窗口第一次打开时是左上角的初始位置）。
+        // nextTick 在整轮刷新（含它触发的渲染）之后才 resolve，仍在浏览器绘制第一帧之前。
+        void nextTick(() => {
+            if (options.panel() !== element || !options.open() || origin.value === null || offset.value !== null) return;
+            offset.value = dialogOriginOffset(element.getBoundingClientRect(), origin.value);
+        });
     }, {flush: "post", immediate: true});
 
     const style = computed((): Record<string, string> => {

@@ -355,12 +355,12 @@ describe("从默认树出发，任何操作之后都合骨架", () => {
                 const context = `种子 ${String(seed)} 第 ${String(index)} 步`;
                 expect([context, fitsSkeleton(doc)]).toEqual([context, true]);
                 expect([context, validateLayoutDoc(doc).ok]).toEqual([context, true]);
-                // 区域有容器时当前容器是其中有成员的一个，没有时锚隐藏（输出 43）。
+                // 区域有容器时当前容器是其中有成员的一个；没有时没有当前容器（被拖空时隐藏，用户打开的空区域显示为空面板，ADR 0050）。
                 for (const region of ["sidebar", "auxiliarybar", "panel"] as const) {
                     const present = regionContainers(doc, region).map((container) => container.id);
                     const anchor = doc.panels[region];
                     const active = anchor?.activeContainer ?? null;
-                    expect([context, region, present.length === 0 ? active === null && anchor?.hidden === true : active !== null && present.includes(active)]).toEqual([context, region, true]);
+                    expect([context, region, present.length === 0 ? active === null : active !== null && present.includes(active)]).toEqual([context, region, true]);
                 }
             }
             // 存盘前去掉动态标签（模板、未绑定项目的窗口）之后也合。

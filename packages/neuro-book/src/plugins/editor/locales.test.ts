@@ -217,6 +217,8 @@ const RUNTIME: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-U
     "commands.nbook.edit.block-duplicate.title": {"zh-CN": "创建副本", "en-US": "Duplicate"},
     "commands.nbook.edit.block-delete.title": {"zh-CN": "删除", "en-US": "Delete"},
     "commands.nbook.edit.block-unwrap.title": {"zh-CN": "解开块", "en-US": "Unwrap Block"},
+    // 属性面板（w00025 t10 新增）
+    "commands.nbook.edit.properties.title": {"zh-CN": "添加属性", "en-US": "Add Property"},
     "menus.convert": {"zh-CN": "转换为", "en-US": "Turn Into"},
     "menus.copy": {"zh-CN": "复制", "en-US": "Copy"},
     "menus.cut": {"zh-CN": "剪切", "en-US": "Cut"},

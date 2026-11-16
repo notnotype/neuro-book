@@ -30,14 +30,20 @@ test.afterAll(async () => {
 
 const labState = (page: Page) => page.evaluate(() => (window as unknown as {__nbLab?: {state(): LabDebugState}}).__nbLab?.state() ?? null);
 
-async function open(page: Page, scene = "default"): Promise<void> {
+async function open(page: Page, scene = "default", theme = "nbook"): Promise<void> {
     await page.setViewportSize({width: 1440, height: 800});
-    await page.goto(`${dev.pageUrl}lab?c=WorkbenchSurface&s=${scene}&theme=nbook&cw=light&vp=1400x720`);
+    await page.goto(`${dev.pageUrl}lab?c=WorkbenchSurface&s=${scene}&theme=${theme}&cw=light&vp=1400x720`);
     await expect.poll(async () => (await labState(page))?.ready).toBe(true);
     await expect(page.locator("[data-content='view:a']")).toBeVisible();
 }
 
 const act = (page: Page, name: string) => page.locator(`[data-surface-action="${name}"]`).click();
+/** 区域隐藏了：按拖到零画（ui/workbench-layout 输出 11），那块外框还在、缩到面积为零。等到零也就等过渡走完了。 */
+const shrunk = (page: Page, id: string) => expect.poll(async () => {
+    const found = await page.locator(`[data-leaf='${id}']`).boundingBox();
+    return found === null ? 0 : Math.round(found.width * found.height);
+}).toBe(0);
+
 const fixture = (page: Page) => page.locator(".workbench-surface-fixture");
 const visibleTabs = async (page: Page) => ((await fixture(page).getAttribute("data-visible-tabs")) ?? "").split(" ").filter((tab) => tab !== "");
 /** 活动栏入口：一个容器一个（输出 22、41）；这里的视图都没写容器，入口是隐式容器 `view:<视图 id>`。 */
@@ -182,7 +188,7 @@ test.describe("有效可见", () => {
         await entry(page, "b").click();
         await expect.poll(() => visibleTabs(page)).not.toContain("view:b");
         expect(await visibleTabs(page)).not.toContain("view:d");
-        await expect(page.locator(`[data-leaf='${section("b")}']`)).toHaveCount(0);
+        await shrunk(page, section("b"));
 
         await frameButton(page, section("c"), "maximize").click();
         await expect.poll(() => visibleTabs(page)).toEqual(["view:c"]);
@@ -271,7 +277,7 @@ test.describe("活动栏", () => {
         // 焦点在别的面板里，点按下的入口也是隐藏，没有“先聚焦”这一步。
         await page.locator("[data-content='view:c'] [data-structure-first]").focus();
         await entry(page, "b").click();
-        await expect(page.locator(`[data-leaf='${section("b")}']`)).toHaveCount(0);
+        await shrunk(page, section("b"));
         await expect(entry(page, "b")).toHaveAttribute("aria-pressed", "false");
 
         await entry(page, "b").click();
@@ -334,13 +340,17 @@ test.describe("卡片按邻接算", () => {
         expect(panel.left).toBe(2);
     });
 
-    test("分隔线按两侧是什么分种类：卡片主题里主体的接缝透明，工具面板之间、编辑组之间的线看得见", async ({page}) => {
+    test("分隔线按两侧是什么分种类：卡片主题里一块一张卡片，缝就是分界，主体、工具面板、编辑组之间都不画线；平铺主题里三种都画", async ({page}) => {
+        const seams = async () => {
+            await act(page, "d-below-b");
+            const color = (kind: string) => page.locator(`.nb-grid-sash[data-sash-kind="${kind}"] .sash-seam`).first().evaluate((element) => getComputedStyle(element).backgroundColor);
+            return {shell: await color("shell"), editors: await color("editors"), panes: await color("panes")};
+        };
         await open(page, "cards");
-        await act(page, "d-below-b");
-        const seam = (kind: string) => page.locator(`.nb-grid-sash[data-sash-kind="${kind}"]`).first().evaluate((element) => getComputedStyle(element).getPropertyValue("--nb-splitter-seam").trim());
-        expect(await seam("shell")).toBe("transparent");
-        expect(await seam("editors")).not.toBe("transparent");
-        expect(await seam("panes")).not.toBe("transparent");
+        expect(await seams()).toEqual({shell: "rgba(0, 0, 0, 0)", editors: "rgba(0, 0, 0, 0)", panes: "rgba(0, 0, 0, 0)"});
+        await open(page, "default", "macos");
+        const flat = await seams();
+        for (const color of Object.values(flat)) expect(color).not.toBe("rgba(0, 0, 0, 0)");
     });
 });
 

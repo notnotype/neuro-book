@@ -58,7 +58,7 @@ Markdown 文件开头的 frontmatter 现在不进富文本（方言 Spec [`works
 
 - 控件层的组件，不在 ProseMirror 的 DOM 里：输入、焦点、样式都不与正文交错，`.nb-markdown` 的正文样式碰不到它。
 - 输入：`raw`、`readonly`、`open`（展开状态）、`eol`；输出：`commit(raw)`（宿主用 `setDocAttribute` 提交成一笔事务）、`update:open`、`leave(direction)`（Esc 或从第一行往上、最后一行往下时把焦点交回正文）。
-- 卡片、头行（折叠、收起时的摘要、源码切换）、各行（类型图标与菜单、属性名、值）、“添加属性”、源码区（等宽 `Textarea`，失焦或 Ctrl+Enter 提交，先过 `isWholeFrontmatter`，不合格时留在源码区并标出原因）。写错时不管记下的展开状态都展开，摘要行也标错。复杂字段那一行的“在源码里改”打开源码区并把光标放到这一项的行。
+- 卡片、头行（折叠、收起时的摘要、源码切换）、各行（类型图标与菜单、属性名、值）、“添加属性”、源码区（等宽 `Textarea`，失焦或 Ctrl+Enter 提交，先过 `isWholeFrontmatter`，不合格时留在源码区并标出原因）。源码区照第 2 轮的图只放开栏与闭栏之间的 YAML，提交时原样接回原来的开栏、闭栏两行。Esc 在面板任何输入里都把焦点交回正文，输入照常写回（同焦点离开）。写错时不管记下的展开状态都展开，摘要行也标错。复杂字段那一行的“在源码里改”打开源码区并把光标放到这一项的行。
 - 草稿：每个输入在 `input` 时登记到组件的“待交”里，`flush()` 同步把它提交成一笔事务。宿主在 `commitNow`、换文档、`reload` 之前先调 `flush()`；控件交给 `binding.attach` 的“手里有没有没交出的输入”也算上待交（自动保存据此顺延）。
 - 撤销：焦点在面板的输入框里时，Ctrl+Z 是输入框自己的撤销（只撤草稿）；草稿提交后，在正文里 Ctrl+Z 撤这一笔。实现时核对工作台的快捷键层对可编辑目标的处理，写进验收。
 - 只读：`readonly` 时不能改值、不出“添加属性”与类型菜单，源码区只读。
@@ -73,7 +73,7 @@ Markdown 文件开头的 frontmatter 现在不进富文本（方言 Spec [`works
 - `MarkdownControl` 在版心（`.markdown-control`）里、编辑器内容之前挂 `MarkdownProperties`：在版心里面，展开、收起时版心的高度跟着变，批注页边的 `ResizeObserver` 照常重排（审查第 10 条补充）。文档的 `frontmatter` 属性为 `null` 时不挂。
 - 正文第一块开头按上方向键进面板的最后一行；面板交回焦点时正文光标回到原处。
 - 写不出的提示照旧指向正文的块（frontmatter 不是块，不占下标）。
-- 展开状态：新记录 `editor.properties-open`（项目分区、本机），内容是“文件地址 → 展开”的映射，最多 200 项、按最近使用淘汰；提交用 `commit((current) => 只改这个文件)`，几个窗口各改各的文件不互相覆盖。没有绑定作品时只在内存里记（同 `memoryCommentMargin`）；记录读不出、保存失败时按收起，切换只改显示、不重试。文件改名后旧状态丢失（已知限制）。
+- 展开状态：新记录 `markdown.properties-open`（`nbook.markdown` 拥有，项目分区、本机；写 Spec 时由 `editor.properties-open` 改：面板与它的状态都在 Markdown 控件里，同 `markdown.colors` 归 Markdown 插件，编辑器区不碰它），内容是展开着的文件地址 `{open: string[]}`，最多 200 个、最近展开的在前，收起即去掉；提交用 `commit((current) => 只改这个文件)`，几个窗口各改各的文件不互相覆盖。没有绑定作品时只在内存里记（同 `memoryCommentMargin`）；记录读不出、保存失败时按收起，切换只改显示、不重试。文件改名后旧状态丢失（已知限制）。
 - 命令 `nbook.edit.properties`（“添加属性”）：进编辑动作目录，斜杠菜单的 blocks 组、工具栏的更多菜单、命令面板都有；没有 frontmatter 时建一个空的并聚焦新属性名，有时展开面板并聚焦“添加属性”。
 - 组件文档：`MarkdownControl.md` 删掉“不支持 frontmatter 面板”，写属性面板一节。
 
@@ -88,8 +88,8 @@ Markdown 文件开头的 frontmatter 现在不进富文本（方言 Spec [`works
   - 只读与写不出时的表现。
 
   对应验收场景；不承诺加“全书统一的类型、日期时间类型、嵌套字段的表单编辑、属性名与值的补全、拖动排序、隐藏面板的设置、不特殊处理 `tags`、`aliases` 这类键”。
-- [`workspace/markdown-dialect.md`](../../../../../docs/specs/workspace/markdown-dialect.md) 输出 22：编辑见属性面板；面板改一个字段只替换这一项的原文，别的字节不变；文字值写出后按 YAML 1.1 与 1.2 都读回同一个字符串。验收场景 1 补“面板改一个值后”的一句。
-- [`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)：不承诺里去掉“frontmatter 面板”；“副作用与数据”登记记录 `editor.properties-open`。
+- [`workspace/markdown-dialect.md`](../../../../../docs/specs/workspace/markdown-dialect.md) 输出 22：编辑见属性面板；面板改一个字段只替换这一项的原文，别的字节不变；文字值写出后按 YAML 1.1 与 1.2 都读回同一个字符串。验收场景 1 补“面板改一个值后”的一句。（写 Spec 时：输出 22 只加一句指向新的输出 28，写回规则写在 28，编号只追加。）
+- [`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)：不承诺里去掉“frontmatter 面板”。展开状态的记录 `markdown.properties-open` 登记在 `markdown-editing.md` 的“副作用与数据”，与 `markdown.colors` 一处。
 - 组件文档：`DateInput.md`、`TagInput.md`、`MarkdownProperties.md`、`MarkdownControl.md`。
 
 ## 切片

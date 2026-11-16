@@ -1,0 +1,120 @@
+# t16 设计审查 r1（Opus，只读）
+
+核对“现状（读过的代码）”四条：都与 master 代码相符（inventory.ts 的 prepare 两个方向都拒绝互相包含，比计划写的“源不能在 plugins/ 里”更严；backend/plugin.ts 只做映射；theme-asset-route.ts 的 bodyLimit 与 failure 体 {code, detail} 属实；CLI src/cli/plugin.ts 直接用 createPluginInventory(path)，计划不改 inventory 接口，命令行不受影响）。下面是发现。
+
+## 1. 上传 id 与路径拼接没有写“只认服务端签发的 id”，可借 write 改写已安装插件
+- 位置：计划“设计/服务端”`resolve(id)`、`write(id, relativePath, bytes)`；“路由”`PUT /uploads/<id>/<路径…>`；合同 `{upload}`。
+- 问题：计划只校验相对路径，没有写 id 怎么校验。若 resolve/write 按 `join(<State Root>/plugin-uploads, id)` 再看目录在不在，id 为 `..%2Fplugins%2Fexample.hello%2F1.0.0`（Hono 的参数会解码）或 RPC 里 `upload: "../plugins/x/1.0.0"` 时，write 会往已安装插件的版本目录里添文件，绕过安装确认界面（spec plugin-install 写明确认界面“不可跳过”）。inspect/install 那边会被 prepare 的 isInside 挡住，但 write 这边不会。
+- 触发：任何能发写请求的调用方（今天是本机不带 Origin 的进程与本页；有鉴权后是 admin）。
+- 改法：上传登记放在内存表（服务端重启本来就清空），id 用 randomUUID，write/resolve/discard 先查表，查不到一律 upload-not-found / path-rejected，再做 join；同时用严格正则校验 id 形状。测试加一条“id 带 .. 与编码斜杠”。
+- 严重程度：中（修法便宜，必须写进计划；今天的调用方都已有本机权限，所以不是高）。
+
+## 2. 上传没有“封口”，写、预览、安装、删除之间的并发没有定义
+- 位置：计划“行为 4 上传暂存区”“设计/服务端”“页面 uploadFolder”。
+- 问题：上传只有 create/write/discard，没有“写完了”这一步。于是：(a) inspect 之后仍能往同一上传追加文件（覆盖被禁，但新增不禁），预览看到的与 install 复制的可以不同；(b) uploadFolder 并发 4 个 PUT，一个失败就 DELETE，另外 3 个在途的 write 可能在 rm 之后 `mkdir -p` 重新建出 `<id>/sub/`，留下不在登记表里的孤儿目录（只有下次启动才清）；(c) 页面“离开时请求删除”与正在进行的 install 竞争：用户点了确认、马上切走设置分区或关窗，DELETE 在 copyRange 中途删掉源，install 得到 copy-failed（或 manifest-invalid 等误导性的码）；inspect 进行中取消同理。
+- 触发：上传失败重试、确认安装后立刻离开页面、两个标签页同时操作同一上传（后者少见）。
+- 改法：加 `POST /uploads/<id>/complete`（或让第一次 inspect 隐式封口）：封口后 write 一律拒绝，inspect/install 只收已封口的上传；每个上传一把内存锁（或状态机 open → sealed → in-use → discarded），discard 遇到 in-use 时只标记、等 install 结束由入口删；write 在锁内核对状态后再 mkdir。页面在 install 在途时不发 DELETE（服务端安装后自己删）。
+- 严重程度：中。
+
+## 3. 相对路径放在 URL 路径里，会被 URL 规范化与解码改写
+- 位置：计划“路由”`PUT /uploads/<id>/<路径…>`。
+- 问题：WHATWG URL 解析会折叠 `.`、`..` 以及 `%2e%2e` 段，特殊协议下把 `\` 当 `/`；nb-host 分发层还会 `new URL()` 再改 pathname 转交（dispatch.ts forwardedRequest），Hono 的通配参数会再解码一次，`%2F` 解码后变成段内斜杠。文件名含 `#`、`?`、`%`、空格、非 ASCII 时，页面必须逐段 encodeURIComponent，服务端要准确知道解码了几次；校验“空段、.、..、反斜杠”是在解码前还是后做也不确定。结果是服务端看到的路径与页面本意不同，或合法文件名被误拒。
+- 触发：插件里有 `100%.svg`、`a#b.js`、中文文件名之类；或攻击者故意构造编码。
+- 改法：路径段不进 URL：`PUT /uploads/<id>/files?path=<encodeURIComponent(相对路径)>`（只解码一次，URLSearchParams 不做路径规范化），或放进请求头（头里要另做编码，query 更简单）。校验在唯一一次解码之后做。测试覆盖 `%`、`#`、中文、`%2F`、`%2e%2e`。
+- 严重程度：中。
+
+## 4. 拖放事件处理缺几处会导致“松手后窗口被导航走”或提示卡住
+- 位置：计划“页面/拖放”一条；行为 3。
+- 问题：
+  (a) 只写了 dragenter/dragleave 计数，没写 `dragover` 必须 preventDefault 并设 `dropEffect = "copy"`；不 preventDefault，drop 事件根本不触发，浏览器执行缺省动作：打开拖入的文件或文件夹（Chrome 对文件夹会导航到 file:/// 目录列表，WebView2 同样导航），整个设置窗口被替换。
+  (b) 落点只是“整个插件页”。确认框 Dialog 走 portal（PluginsPage.md 的 env:portal），在页面根之外；设置窗口的侧栏、标题也在页面根之外。拖着文件夹落在这些地方同样触发缺省导航。至少在插件页挂载期间要在 document 上对含 Files 的拖动 preventDefault（dragover 设 dropEffect = "none"、drop 吞掉），或者这层全局保护归 t15 时计划里写明依赖。
+  (c) 计数法在“叠加层出现后成为新的事件目标”、Esc 取消、拖出窗口很快时容易失衡，提示收不起来。要么叠加层 `pointer-events: none`，要么用 `relatedTarget` 是否仍在根内判断；另外在 drop、dragend 与 window 的 dragleave（relatedTarget 为 null）时清零。
+  (d) `DataTransferItem.webkitGetAsEntry()` 只能在 drop 处理器的同步段里取，任何 await 之后 items 就失效；计划的 `collectFolder(entry)` 签名没问题，但要写明先同步取完 entries 再异步遍历。
+  (e) 行为 3 说“网页里的文字或链接”要提示“拖入一个插件文件夹”，而“页面/拖放”又说只接 types 含 Files 的拖动：文字、链接根本不会进来，两处矛盾；且文字拖到路径输入框上会被插入输入框（这其实是合理的缺省）。建议删掉行为 3 里的“文字或链接”。
+  (f) 上传或预览进行中（busy 不为 null）、确认框开着时再拖入怎么办没写；按现有“任一写操作进行中别的写控件停用”的规则，应当显示“正在安装，稍后再拖”并不接收。
+- 严重程度：中（a、b 一旦漏掉，用户一失手整个窗口就没了）。
+
+## 5. 桌面端拖放是否到达网页，留到最后一片才验证
+- 位置：计划“切片 5”；Work README“桌面端体验的决定”。
+- 问题：整套设计的前提是 Electrobun 2.0.6 在 Windows 上把外部拖放交给 WebView2 的 HTML5 事件。Electrobun 是否给窗口注册了自己的 IDropTarget、WebView2 的 AllowExternalDrop 是否保持缺省 true、桌面壳的子类化窗口过程（desktop-shell 输出 10 的最小尺寸）会不会吃掉 WM_DROPFILES/OLE 拖放，仓库里没有搜到验证记录（在 packages/neuro-book/src 与 desktop-shell spec 里搜 drop/DragDrop/AllowExternalDrop 无结果）。切片 2 到 4 全部做完才在切片 5 发现桌面上收不到 drop，返工面大；t15 有同样的前提。
+- 改法：把一个最小探针（一页 HTML 监听 dragover/drop、打印 webkitGetAsEntry 的结果与 readEntries 分批）提前到切片 0，在 pc-notype 的桌面壳里跑一次，同时为 t15 采证。拿不到时的退路（壳的原生拖放事件给路径、走现有路径安装）在计划里写一句。
+- 严重程度：中。
+
+## 6. “选择文件夹”用 <input webkitdirectory> 时 node_modules 无法跳过，开发中的插件目录会很慢
+- 位置：计划“页面 collectInput(files)”；“待确认”第 1 条。
+- 问题：拖放路径可以在遍历时剪掉 node_modules、.git，不读它们；webkitdirectory 输入框则由浏览器先把整棵树全部枚举成 FileList（含 node_modules，开发目录里常有几万到几十万个文件），之后页面才能按 webkitRelativePath 过滤。枚举本身耗时、占内存，Chrome（以及基于它的 WebView2）还会先弹“要将 N 个文件上传到此网站吗”的确认框，N 把 node_modules 也算进去，对作者是一个吓人又不准的数字。计划的上限 10000 也只能在枚举完成后才判。
+- 触发：插件作者在源码目录（带 node_modules）里直接“选择文件夹”。e2e 用的 plugin-sdk/examples/external/declarative 没有 node_modules，测不出来。
+- 改法：(1) 按钮旁写明“选择构建好的插件文件夹”，并在 collectInput 里按过滤后的数目判上限、过滤前的数目超过某值时给“文件夹里有 node_modules，请选择构建产物目录或改用拖入”的提示；(2) 桌面端可以考虑选择文件夹走壳的原生对话框拿路径、直接用现有路径安装（PluginsPage.md“不支持”里本来就写着“Desktop 的文件选择器之后接入”），但这要给 desktop-shell 输出 13 加一个页面到壳的接口，交开发者定；(3) 待确认清单里写清这个限制。
+- 严重程度：中。
+
+## 7. 文件夹遍历写在插件页的私有模块里，t15 会再写一份
+- 位置：计划“页面”`web/folder-upload.ts` 放在 src/plugins/plugins/web/；Work README 的 t15“支持文件夹，保留层级”。
+- 问题：t15（文件树、编辑器插图、书架导入从系统拖入，支持文件夹）需要同样的东西：从 DataTransfer 同步取 entries、readEntries 循环到空、FileSystemFileEntry.file() 转 Promise、跳过规则与上限、拒绝“不是文件夹”的判定、拖动叠加层的计数。t16 先做，若放进插件页私有目录，t15 只能复制或跨插件深导入。根 AGENTS.md 与全局规则都把“同一件事各写一份”列为要追到上游的信号。
+- 改法：遍历与“拖动是否含文件”的纯函数放到页面宿主共享层（例如 src/web/host/ 或 nb-ui 的纯 TS 部分，按包边界定），参数化跳过规则与上限；插件页只保留上传与安装的编排。叠加层若做成组件也一起放共享层。
+- 严重程度：中（不改不会出错，但 t15 紧接着就要用）。
+
+## 8. 整份读进内存的写法照搬到 64 MiB 单文件，总量计数在并发下会超
+- 位置：计划“设计/服务端”`write(id, relativePath, bytes)`、“计数在 write 里累加”；对照 theme-asset-route.ts:83 `new Uint8Array(await c.req.arrayBuffer())`。
+- 问题：theme-assets 整份读进内存是因为要先算哈希定名、且上限小；插件上传没有这个需要。按 bytes 签名实现，4 个并发 PUT 各 64 MiB 时服务端峰值约 256 MiB 内存（桌面版本机 15 GB 的场景可接受，服务端部署小机器上不划算）。另外计数“写完再加”时，4 个并发请求可以各自通过检查，总量最多超出 3 × 64 MiB 才被发现。
+- 改法：路由用 `Bun.write(目标, c.req.raw)` 或按流写到 `open(..., "wx")` 的文件，bodyLimit 照旧；总量按 Content-Length（没有时按已收字节）在开始写之前“预留”，失败或中止时退还。
+- 严重程度：低。
+
+## 9. “与 copy.ts 同一份路径规则”做不到，且 Windows 名字规则在 Linux 服务端上会让两种输入不一致
+- 位置：计划“设计/服务端”第 2 条；行为 5 的 upload-path-invalid。
+- 问题：copy.ts 的 relativeItem 校验的是 `files` 里的 glob 项：它会 trim、剥掉 `./` 与结尾 `/`，并且必须允许 `*`、`?`、`[`；上传路径是具体文件名，不该 trim（`a ` 与 `a` 是两个文件），而 Windows 不合法字符恰好包括 `*`、`?`。两者能共用的只有“按 / 分段、不许空段、.、..、绝对、反斜杠、NUL”这一小块。另外“Windows 上不合法的名字”若在 Linux 服务端也拒绝，同一个插件走路径安装能装、走上传装不了；若只在 Windows 上拒绝，要写清楚是按服务端平台判。Windows 上还要算上结尾的点与空格（`foo.` 会被系统改成 `foo` 造成冲突）、保留名带扩展名（`CON.js`、`aux.txt`）、大小写不分导致的 `README.md` 与 `readme.md` 冲突（`wx` 打开会报 EEXIST，被报成 upload-path-invalid 但说明要讲清是大小写冲突）。
+- 改法：只抽出“分段越界”那一块共用；上传专有的规则（不 trim、控制字符、按服务端平台判的 Windows 名字、结尾点与空格）写在 uploads.ts；Spec 写明“按服务端所在系统判断”。大小写冲突给单独的 detail。
+- 严重程度：低。
+
+## 10. 路由挂在按需激活的入口上，激活前是宿主的 404；失败体有两种形状
+- 位置：计划“路由（nbook.plugins 贡献）”；代码 src/plugins/plugins/backend/plugin.ts（入口没有 activationEvents，靠 remoteProvides 首次远程调用时 onRemote 激活，nb-runtime plugins/contracts.ts:159）、nb-host http/dispatch.ts RouteTable（“贡献方发布后才挂载”）。
+- 问题：服务端入口要等第一次 RPC 调用才激活，HTTP 路由也要到那时才挂上；之前的 `POST /uploads` 得到分发层的 404 `{error: {code: "not-found", message}}`，与计划自己的 404 `upload-not-found`（体是 `{code, detail}`）状态码相同、形状不同。插件页挂载时先调 list，平时会先激活，但计划没写这一依赖；分发层还会给 403 origin-not-allowed、421、503 plugin-unavailable / 排空，形状都是 `{error:{...}}`。另外计划没写路由要设 `onError(rethrowRouteError)`（server-host spec 的“处理器抛错”要求）。
+- 改法：计划写明“页面在上传前已调过 list”这一前提，或给服务端入口加 onStartup（代价小：它只建一个远程服务与路由）；页面的上传客户端同时解析两种失败体，宿主层的码走宿主文案；路由加 onError(rethrowRouteError)，测试里有一条“中途断开得到 http.request.aborted”。
+- 严重程度：低。
+
+## 11. “只有插件所有者能建、写、删”与“授权”测试今天没有可依附的机制
+- 位置：计划行为 4、“路由”的授权一句、切片 2 测试列表里的“授权”。
+- 问题：v2 没有鉴权插件（server-host spec：鉴权是可选内置插件，未加载时只监听回环；dispatch.ts 只核 Host 与 Origin），现有 RPC 的 install 等方法也没有任何角色检查（backend/plugin.ts）。所以“与插件管理接口一样”实际是“都不检查，只靠回环与来源”，切片 2 的“授权”测试写不出 403 的场景。
+- 改法：计划与 Spec 照实写：未加载鉴权时插件所有者就是本机访问者，保护靠 nb-host 的 Host/Origin 核对；测试改成“带不允许 Origin 的 POST/PUT/DELETE 得到 403、Host 不是回环得到 421”（这在 nb-host 已有覆盖，这里只需一条确认路由走了同一分发）；把“鉴权上线后上传路由要接上同一守卫”记进鉴权的后续项。
+- 严重程度：低。
+
+## 12. 页面读文件失败没有定义（构建中的文件、断掉的链接、链接成环）
+- 位置：计划行为 2、3；“页面 collectFolder / uploadFolder”。
+- 问题：拖入得到的 File 是快照，文件在拖入之后被改写时，Chromium 读它会抛 NotReadableError（插件作者常开着 `build --watch`，dist 正在被重写）；断掉的符号链接在目录读取里出现，file() 回调走错误分支；指向祖先目录的链接会让遍历一直深入，只能靠上限停下。readEntries 的错误回调也要处理。计划只写了“不是文件夹”和“超上限”两种拒绝。
+- 改法：加一种页面侧失败“读不了 <相对路径>（文件可能正在被改写）”，发生时删掉上传、不进入预览；遍历时按深度（例如 32 层）与累计数目即时停，不先收全再数；超上限的提示带上最大的几个目录名，方便作者知道是 coverage、.turbo 之类撑大的。
+- 严重程度：低。
+
+## 13. 清理的几个缺口：预览失败不删、离开页面的删除发不出去、两边都删
+- 位置：计划行为 4、“合同”最后一句。
+- 问题：(a) 页面请求删除的时机只列了“预览之后取消、安装完成、页面离开”，预览本身失败（manifest-invalid、already-installed 等，最常见的失败）时上传留到 1 小时后清扫；作者改完清单再拖一次，又留一份。(b) “页面离开”若指关窗或刷新，普通 fetch 在 pagehide 里常发不出去，要 `fetch(..., {method: "DELETE", keepalive: true})`；sendBeacon 只能 POST。(c) 安装后入口删、页面也删，页面会收到 404 upload-not-found，要当成功处理。
+- 改法：预览失败也删；离开时用 keepalive；页面把 404 视为已删除。这些都靠服务端清扫兜底，所以只是低。
+- 严重程度：低。
+
+## 14. 对照 VS Code 与 Obsidian：逐文件 PUT 可以保留，但可以只传 `files` 用得到的顶层目录
+- 位置：计划行为 2“别的文件都上传”；“待确认”最后一条。
+- 对照：VS Code 的“从 VSIX 安装”收的是一个打包好的单文件（作者先 `vsce package`），装的就是包里的东西；Obsidian 没有“从文件夹安装”，第三方插件要么走市场，要么手工把 main.js、manifest.json、styles.css 三个文件拷进 `.obsidian/plugins/<id>/`。两者都不传整个源码目录。一次 multipart 请求看似更简单（不要上传 id、清扫与 DELETE），但 Hono/Bun 的 formData() 会把整个正文读进内存（256 MiB），也没法边传边判上限、显示进度，所以计划选逐文件 PUT 是合理的。
+- 问题：页面把除 node_modules、.git 以外的一切都传上去，源码目录里的 src、test、coverage、.turbo、大图素材都会传，而安装时按 `files` 只取 dist 之类。插件作者最可能拖的正是源码目录。
+- 改法（可选）：页面先读根目录的 package.json；有 `files` 时只上传根目录下的普通文件，加上 `files` 里每个非排除项的第一段命名的顶层目录（第一段含通配符时退回全传）。这只是取超集，精确的取舍仍由服务端 collectCopyRange 决定，不复制 glob 语义；上传量通常降一两个数量级，也让 10000 个文件的上限很少碰到。是否收 `npm pack` 的 .tgz（VS Code 的做法）保持在待确认清单里由开发者定。
+- 严重程度：低。
+
+## 15. 可测性：e2e 只能覆盖“选择文件夹”；拖入文件的拒绝测试可能因为错误的原因通过
+- 位置：计划切片 3、4。
+- 核实：Playwright 版本 @playwright/test 1.62.1（packages/neuro-book/package.json:72），setInputFiles 传目录（要求 input 带 webkitdirectory）自 1.45 起支持 Chromium，切片 4 的主路径可行。
+- 问题：(a) Playwright 不能从系统拖入目录；在页面里 new DataTransfer() 加 File 再派发 drop，webkitGetAsEntry 拿到的不是真实目录条目（可能为 null），所以“拖入文件时的提示”这条测试无论页面怎么判都会出提示，证明不了“文件 vs 文件夹”的判定。(b) collectFolder 的替身“与 FileSystemDirectoryEntry 对过形状”没有写怎么对：形状对上不等于行为对上（readEntries 每批至多 100 条、读到空数组才结束、回调是异步的、错误走第二个回调）。
+- 改法：(a) 拒绝测试断言具体原因（例如页面在拿不到条目时与“是文件”时给的状态不同，用 data 属性区分），或干脆把这条放进 DOM 单元测试；(b) 让“选择文件夹”也经同一个遍历函数：Chromium 的 input 元素有 `webkitEntries`，若 setInputFiles 后它给出真实的 FileSystemDirectoryEntry，就能在 e2e 里用真实对象跑 collectFolder，顺带为替身对契约（这一点我没有实测，从规范推断，实施时先试；不行就照计划用 webkitRelativePath）；替身至少按 100 条一批、异步回调、最后返回空数组来写，并有一条错误回调的用例。
+- 严重程度：低。
+
+## 16. 配套改动漏项：Lab 夹具与场景、组件文档、失败文字、Spec 的另外几处、合同版本
+- 位置：计划“切片”1 到 3。
+- 问题：
+  - Lab 夹具 src/plugins/lab/web/fixtures/PluginsPageFixture.vue:122、126 按 `({path}: {path: string})` 实现 inspect、install，合同改成 `{path} | {upload}` 后类型不再满足 PluginsRegistry，切片 3 不改就过不了类型检查；新状态（拖动叠加层、上传进度、拒绝提示、读失败）也要有 Lab 场景，计划没列。页面还要一个可注入的上传客户端（props 或宿主注入），夹具要给替身。
+  - PluginsPage.md 的布局、交互、数据（新 data 属性）与“不支持”一节（“不选择文件夹”）都要改，计划没列。
+  - 失败文字：locales/zh-CN.json:113 的 `errors.path-rejected` 是“这个路径不能用”，上传过期时用户看到的原因行是“路径不能用”，与“拖入的文件夹”对不上。要么页面在上传来源下换一句（“上传的文件夹已过期，重新拖入”），要么给过期单独一个码。
+  - Spec plugin-install 除了输入、输出、失败码、副作用、验收，还要改“输入与前置条件”里“Desktop 由本机文件选择器取得路径”、“边界与兼容”的“路径：安装只接受服务端本地路径”、失败码表 path-rejected 的“含义”列，以及状态与转换表“安装校验失败或用户取消：不留下任何文件”（上传暂存区里会留到删除或清扫）。
+  - 合同 nbook.plugins/registry 是 version 5，plugin-channel spec 写明合同版本整数精确匹配；输入形状变了应升到 6，旧页面连新服务端时得到明确的 version-changed，而不是 invalid-input。
+- 严重程度：低（都是照做即可的漏项，第一条不做会卡住类型检查）。
+
+## 17. 更有用的细节（可选）
+- 位置：计划“行为”“不做”。
+- 建议：(a) 预览里的“来源”除了文件夹名，再写上传了几个文件、多大，作者能一眼看出是不是拖错了目录（拖成了仓库根）；(b) 拖入的文件夹根目录没有 package.json 但恰好只有一个子目录有时（拖了上一层），提示“这一层没有 package.json，是不是要拖 <子目录>”——这一点页面在遍历时就知道，不必上传；(c) 拖入的是 .zip/.tgz 时提示语单独写“只收文件夹，请先解开”，而不是笼统的“拖入一个插件文件夹”。
+- 严重程度：低。
+REVIEW-END

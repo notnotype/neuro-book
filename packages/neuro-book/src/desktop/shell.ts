@@ -1,6 +1,6 @@
 /**
- * 桌面壳的流程（docs/specs/runtime/desktop-shell.md 输出 1 到 24）：取桌面锁 → 问状态根上的服务端 → 拉起或连接 → 开窗 →
- * 关窗 → 停止 → 放锁退出。只依赖端口与时钟，Electrobun 的适配层（`packages/neuro-book/desktop/`）实现端口、把窗口事件送进来。
+ * 桌面壳的流程（docs/specs/runtime/desktop-shell.md 输出 1 到 24、28 到 31）：取桌面锁 → 问状态根上的服务端 → 拉起或连接 →
+ * 开窗 → 关窗 → 停止 → 放锁退出；设置为 `tray` 时关掉最后一个窗口之后留在后台，由托盘菜单打开或退出。只依赖端口与时钟，Electrobun 的适配层（`packages/neuro-book/desktop/`）实现端口、把窗口事件送进来。
  *
  * 启动页与对话框都是壳自己的小窗口，开着时壳照常应答锁上的请求、计时与收页面的回答（审查过：系统消息框会同步阻塞主线程）。
  *
@@ -16,6 +16,7 @@ import {join} from "node:path";
 import type {ClaimResult} from "@notnotype/nb-host/server";
 
 import {queryNeuroBook} from "../server/instance";
+import type {CloseLastWindow} from "../shared/desktop-bridge";
 import {decideConnection} from "./connect";
 import {at} from "./deadline";
 import type {DeadlineClock} from "./deadline";
@@ -23,6 +24,8 @@ import {acquireDesktopLock, askRunningShell} from "./lock";
 import {startOwnedServer} from "./owned-server";
 import type {OwnedServer, OwnedServerOptions} from "./owned-server";
 import type {DesktopStateRoot} from "./state-root";
+import {checkRunningWork, trayView} from "./tray";
+import type {TrayView, WorkCheck} from "./tray";
 import {isNewer, UpdateController} from "./update";
 import type {UpdateMode} from "./update";
 import {acquireInstallUse, applyAtStartup, fileUpdateState, reconcileAtStartup} from "./update-install";
@@ -47,12 +50,30 @@ export interface ShellPorts {
     readonly windows: WindowPort;
     /** 让所有显示启动页的窗口显示这个状态。 */
     startupView(view: StartupView): void;
-    /** 自有服务端意外退出（输出 21）：在壳的对话框里问，交回用户的选择。 */
-    askServerExited(exitCode: number | null, logDir: string): Promise<"restart" | "later">;
+    /**
+     * 自有服务端意外退出（输出 21）：在壳的对话框里问，交回用户的选择。`background` 为真时此刻没有窗口（输出 31），正文说
+     * “现在没有打开的窗口”而不是“窗口保持离线”。
+     */
+    askServerExited(exitCode: number | null, logDir: string, background: boolean): Promise<"restart" | "later">;
     /** 重新启动服务失败时在同一个对话框里说明，用户关掉为止。 */
     tellRestartFailed(detail: string): void;
     openPath(path: string): void;
-    /** 进程退出：之前已放下锁。 */
+    /**
+     * 托盘图标（输出 28）：`visible` 为真时显示（还没有就建），为假时删掉；提示文字变了就换。同样的值可能再来。
+     */
+    setTray(view: TrayView): void;
+    /** 托盘图标此刻是不是真的显示着：建不出来时为假，协调器按没有托盘处理（输出 29）。 */
+    trayShown(): boolean;
+    /** 托盘“打开”置前这个窗口：最小化的先还原。 */
+    focusWindow(id: number): void;
+    /**
+     * 托盘退出遇到在跑的工作或取不到（输出 30）：显示壳的“有工作在跑”对话框，已开着时置前它。选择经
+     * `DesktopShell.quitWorkChose` 交回，关掉对话框（X）交回 `"cancel"`。
+     */
+    showQuitWork(work: WorkCheck): void;
+    /** 这次托盘退出作废（开出了窗口、进入停止中）：关掉“有工作在跑”对话框，不交回选择。 */
+    closeQuitWork(): void;
+    /** 进程退出：之前已放下锁。适配层先删掉托盘图标再退出。 */
     exit(code: number): void;
 }
 
@@ -69,7 +90,14 @@ export interface ShellOptions {
     readonly report: (event: string, error: unknown) => void;
     /** 没有更新器的构建（开发构建）不给。 */
     readonly updates?: ShellUpdates;
+    /** 设置“关掉最后一个窗口时”在页面交来值之前用的值（壳的缓存）；缺省 `quit`。 */
+    readonly closeLastWindow?: CloseLastWindow;
+    /** 托盘退出取在跑的工作；缺省向服务端的宿主接口取（`checkRunningWork`）。 */
+    readonly runningWork?: (serverUrl: string) => Promise<WorkCheck>;
 }
+
+/** 托盘退出的进行状态：取工作中，或“有工作在跑”对话框开着。对象本身当作这一次的标识，作废时换掉。 */
+type TrayQuit = {readonly phase: "checking"} | {readonly phase: "dialog"; readonly work: WorkCheck};
 
 export interface ShellUpdates {
     readonly updater: UpdaterPort;
@@ -110,15 +138,122 @@ export class DesktopShell {
      * 点“退出”会等自己。
      */
     #updateStartupStep: Promise<unknown> = Promise.resolve();
+    #closeLastWindow: CloseLastWindow;
+    /** 自有服务端就绪过、还没在意外退出后选“稍后”：托盘图标的前提（输出 28）。 */
+    #owned = false;
+    /** 自有服务端的地址：托盘退出向它取在跑的工作。 */
+    #serverUrl: string | null = null;
+    #windowCount = 0;
+    #trayQuit: TrayQuit | null = null;
+    /** 上一次交给适配层的托盘视图，相同就不再交。 */
+    #lastTrayView: TrayView | null = null;
 
     constructor(options: ShellOptions) {
         this.#options = options;
+        this.#closeLastWindow = options.closeLastWindow ?? "quit";
         this.#coordinator = new WindowCoordinator({
             port: options.ports.windows,
             clock: options.clock,
             onQuit: () => void this.#stopAndExit(),
             onAllClosed: () => void this.#allClosed(),
+            closeLastWindow: () => this.#closeLastWindow,
+            trayShown: () => options.ports.trayShown(),
+            onWindowsChanged: (count) => this.#windowsChanged(count),
         });
+    }
+
+    /** 页面交来的设置“关掉最后一个窗口时”（适配层在收到桌面设置时调用）。 */
+    setCloseLastWindow(mode: CloseLastWindow): void {
+        this.#closeLastWindow = mode;
+        this.#refreshTray();
+    }
+
+    /** 托盘菜单的“打开”（输出 30）：作废进行中的托盘退出，再置前或开窗。 */
+    trayOpen(): void {
+        this.#voidTrayQuit();
+        const result = this.#coordinator.openFromTray();
+        if (result !== null && "focus" in result) this.#options.ports.focusWindow(result.focus);
+    }
+
+    /**
+     * 托盘菜单的“退出”（输出 30）：有窗口时是应用级退出；没有窗口、服务端已意外退出时直接退出；否则先取在跑的工作。取的
+     * 过程中再点不理，对话框开着时再点把它置前。
+     */
+    trayQuit(): void {
+        const current = this.#trayQuit;
+        if (current?.phase === "checking") return;
+        if (current?.phase === "dialog") {
+            this.#options.ports.showQuitWork(current.work);
+            return;
+        }
+        if (this.#coordinator.quitFromTray() !== "check-work") return;
+        if (this.#server === null || this.#serverUrl === null) {
+            this.#coordinator.quitRequested();
+            return;
+        }
+        void this.#checkWorkThenQuit(this.#serverUrl);
+    }
+
+    /** “有工作在跑”对话框里的选择；对话框已因作废关掉时不理。 */
+    quitWorkChose(choice: "cancel" | "open" | "quit"): void {
+        if (this.#trayQuit?.phase !== "dialog") return;
+        this.#trayQuit = null;
+        this.#options.ports.closeQuitWork();
+        if (choice === "open") this.trayOpen();
+        else if (choice === "quit" && this.#windowCount === 0) this.#coordinator.quitRequested();
+    }
+
+    async #checkWorkThenQuit(serverUrl: string): Promise<void> {
+        const checking: TrayQuit = {phase: "checking"};
+        this.#trayQuit = checking;
+        this.#refreshTray();
+        const runningWork = this.#options.runningWork ?? ((url: string) => checkRunningWork(url, {clock: this.#options.clock, report: this.#options.report}));
+        const work = await runningWork(serverUrl);
+        // 取的过程中点了“打开”、开窗转交开出了窗口或进入了停止中：这次退出已作废。
+        if (this.#trayQuit !== checking) return;
+        this.#trayQuit = null;
+        this.#refreshTray();
+        if (this.#windowCount > 0 || this.#coordinator.stopping) return;
+        // 取的过程中服务端意外退出了：没有工作可中断，与一开始就退出了一样直接退出（输出 30）。
+        if (this.#server === null) {
+            this.#coordinator.quitRequested();
+            return;
+        }
+        if (work.count === 0 && !work.uncertain) {
+            this.#coordinator.quitRequested();
+            return;
+        }
+        this.#trayQuit = {phase: "dialog", work};
+        this.#options.ports.showQuitWork(work);
+    }
+
+    /** 作废进行中的托盘退出：取工作的结果回来后不再用，对话框关掉。 */
+    #voidTrayQuit(): void {
+        const current = this.#trayQuit;
+        if (current === null) return;
+        this.#trayQuit = null;
+        if (current.phase === "dialog") this.#options.ports.closeQuitWork();
+        this.#refreshTray();
+    }
+
+    #windowsChanged(count: number): void {
+        this.#windowCount = count;
+        if (count > 0) this.#voidTrayQuit();
+        this.#refreshTray();
+    }
+
+    #refreshTray(): void {
+        const view = trayView({
+            owned: this.#owned,
+            mode: this.#closeLastWindow,
+            stopping: this.#coordinator.stopping || this.#finishing,
+            windows: this.#windowCount,
+            checking: this.#trayQuit?.phase === "checking",
+        });
+        const previous = this.#lastTrayView;
+        if (previous !== null && previous.visible === view.visible && previous.tooltip === view.tooltip) return;
+        this.#lastTrayView = view;
+        this.#options.ports.setTray(view);
     }
 
     get windows(): WindowCoordinator {
@@ -392,7 +527,10 @@ export class DesktopShell {
         this.#options.report("desktop.server.ready", `pid=${String(started.pid)}`);
         this.#lock?.publish({url: null, rpcUrl: null, extra: {}});
         server.onUnexpectedExit((code) => void this.#serverExited(stateRoot, code));
+        this.#serverUrl = started.url;
+        this.#owned = true;
         this.#coordinator.serverReady(started.url, true);
+        this.#refreshTray();
         this.#updates?.start();
         return true;
     }
@@ -415,8 +553,11 @@ export class DesktopShell {
         this.#options.report("desktop.server.exited", `exitCode=${String(exitCode)}`);
         const logDir = join(stateRoot, "logs", "desktop");
         for (;;) {
-            const choice = await this.#options.ports.askServerExited(exitCode, logDir);
+            const choice = await this.#options.ports.askServerExited(exitCode, logDir, this.#windowCount === 0);
             if (choice === "later" || this.#finishing) {
+                // 先收起托盘：没有窗口时协调器紧接着调 onAllClosed，壳退出（输出 31）。
+                this.#owned = false;
+                this.#refreshTray();
                 this.#coordinator.serverAbandoned();
                 return;
             }
@@ -425,6 +566,7 @@ export class DesktopShell {
             // 重新启动还在拉起中时最后一次关闭被同意：这个服务端已由停止路径收尾，不再登记或重试（输出 18、19）。
             if (this.#finishing || !this.#isCurrent(server)) return;
             if (started.kind === "ready") {
+                this.#serverUrl = started.url;
                 this.#options.report("desktop.server.ready", `pid=${String(started.pid)}`);
                 server.onUnexpectedExit((code) => void this.#serverExited(stateRoot, code));
                 return;
@@ -438,6 +580,8 @@ export class DesktopShell {
     async #stopAndExit(): Promise<void> {
         if (this.#finishing) return;
         this.#finishing = true;
+        this.#voidTrayQuit();
+        this.#refreshTray();
         this.#updates?.stop();
         await this.#stopOwnedServer();
         await this.#releaseAndExit(0);
@@ -445,8 +589,11 @@ export class DesktopShell {
 
     async #allClosed(): Promise<void> {
         if (this.#coordinator.stopping) return;
-        // 没有经最后一次关闭就关完了：启动中关掉（输出 23）、服务端不归壳、或自有服务端已放弃（“稍后”）。
+        // 没有经最后一次关闭就关完了：启动中关掉（输出 23）、服务端不归壳、自有服务端已放弃（“稍后”，后台时也是），或窗口
+        // 没经提交自己没了。
         this.#finishing = true;
+        this.#voidTrayQuit();
+        this.#refreshTray();
         this.#updates?.stop();
         this.#startupAction?.("exit");
         await this.#stopOwnedServer();

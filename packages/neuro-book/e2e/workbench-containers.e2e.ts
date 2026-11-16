@@ -42,6 +42,11 @@ async function box(page: Page, id: string): Promise<{x: number; y: number; width
     if (found === null) throw new Error(`没有 ${id} 的外框`);
     return found;
 }
+/** 区域隐藏了：按拖到零画（ui/workbench-layout 输出 11），那块外框还在、缩到面积为零。等到零也就等过渡走完了。 */
+const shrunk = (page: Page, id: string) => expect.poll(async () => {
+    const found = await leaf(page, id).boundingBox();
+    return found === null ? 0 : Math.round(found.width * found.height);
+}).toBe(0);
 
 const content = (page: Page, view: string) => page.locator(`[data-content="view:${view}"]`);
 /** 视图所在分节的面板 id：分节的 id 是布局起的（输出 40），按视图取，内容项上写着它所在的叶。 */
@@ -183,6 +188,373 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         expect(after.panels[upper]?.collapsed ?? false).toBe(false);
     });
 
+    test("切回容器、侧栏从隐藏到显示：停放过的内容跟着外框一起长出来，每一帧都不超出外框；侧栏显示时整列从活动栏边上横着长出来，隐藏时整列留着缩回去（ui/nested-grid 的内容层与过渡）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const explorer = await sectionOf(page, EXPLORER);
+        /** 在页面里点一下，逐帧量这一节的外框与内容，直到网格的过渡结束。只记内容看得见的帧。 */
+        const framesAfter = (selector: string) => page.evaluate(async ({selector, leafId}) => {
+            const rows: Array<{frameLeft: number; frameRight: number; frameWidth: number; frameTop: number; frameBottom: number; frameHeight: number; contentLeft: number; contentRight: number; contentTop: number; contentBottom: number; headRight: number; bodyRight: number; gapHit: boolean; cornerHit: boolean; innerHit: boolean}> = [];
+            document.querySelector<HTMLElement>(selector)!.click();
+            for (let frame = 0; frame < 90; frame += 1) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                const frameEl = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`);
+                const leaf = frameEl?.getBoundingClientRect();
+                const content = document.querySelector<HTMLElement>("[data-content=\"view:nbook.explorer\"]");
+                if (frameEl != null && leaf !== undefined && content !== null && getComputedStyle(content).visibility === "visible") {
+                    const rect = content.getBoundingClientRect();
+                    // 外框、内容外层是裁切框；面板头与内容体是里面最终尺寸的那层，看得见的东西跟着它走。
+                    const head = frameEl.querySelector(":scope > [data-leaf-content]")!.getBoundingClientRect();
+                    const body = content.querySelector(":scope > .nb-grid-content__body")!.getBoundingClientRect();
+                    // 露出来的那一截是不是一张完整的卡片：按命中看（裁切也挡命中）。卡片看得见的左上角是外框的左上角加卡片的内边距。
+                    const card = frameEl.querySelector<HTMLElement>("[data-shell-card]")!;
+                    const pad = getComputedStyle(card.parentElement!);
+                    const radius = Number.parseFloat(getComputedStyle(card).borderTopLeftRadius);
+                    const cardLeft = leaf.left + Number.parseFloat(pad.paddingLeft);
+                    const cardTop = leaf.top + Number.parseFloat(pad.paddingTop);
+                    const inLeaf = (x: number, y: number): boolean => {
+                        const hit = document.elementFromPoint(x, y);
+                        return hit !== null && (frameEl.contains(hit) || hit.closest(`[data-content-leaf="${leafId}"]`) !== null);
+                    };
+                    rows.push({
+                        frameLeft: leaf.left, frameRight: leaf.right, frameWidth: leaf.width, frameTop: leaf.top, frameBottom: leaf.bottom, frameHeight: leaf.height,
+                        contentLeft: rect.left, contentRight: rect.right, contentTop: rect.top, contentBottom: rect.bottom, headRight: head.right, bodyRight: body.right,
+                        gapHit: inLeaf((leaf.left + cardLeft) / 2, leaf.top + leaf.height / 2),
+                        cornerHit: inLeaf(cardLeft + 1, cardTop + 1),
+                        innerHit: inLeaf(cardLeft + radius, cardTop + radius),
+                    });
+                }
+                if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
+            }
+            return rows;
+        }, {selector, leafId: explorer});
+        const expectInside = (rows: Awaited<ReturnType<typeof framesAfter>>, grows: "frameHeight" | "frameWidth") => {
+            const final = rows.at(-1)?.[grows] ?? 0;
+            // 确实量到了过渡中间的帧，不是一下子到终点。
+            expect(rows.some((row) => row[grows] < final - 50)).toBe(true);
+            for (const row of rows) {
+                expect(row.contentTop).toBeGreaterThanOrEqual(row.frameTop - 1);
+                expect(row.contentBottom).toBeLessThanOrEqual(row.frameBottom + 1);
+                expect(row.contentLeft).toBeGreaterThanOrEqual(row.frameLeft - 1);
+                expect(row.contentRight).toBeLessThanOrEqual(row.frameRight + 1);
+            }
+        };
+
+        // 切到样例甲的容器，再切回“项目”。
+        await entry(page, `view:${A}`).click();
+        await expect(leaf(page, explorer)).toHaveCount(0);
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        expectInside(await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`), "frameHeight");
+
+        // 点当前容器的入口隐藏侧栏：整列作为一块缩回活动栏边上（按拖到零画，缩到零），每一帧全高、左边不动，内容被外框裁着，过渡结束前还画着。
+        // 面板头与内容贴着外框在动的右边，整块往左平移出去，不是停在原地被外框像幕布一样盖上。
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        const hiding = await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`);
+        const start = hiding[0]!;
+        expect(hiding.some((row) => row.frameWidth > 50 && row.frameWidth < start.frameWidth - 50)).toBe(true);
+        for (const row of hiding) {
+            expect(row.frameHeight).toBeCloseTo(start.frameHeight, 0);
+            expect(row.frameLeft).toBeCloseTo(start.frameLeft, 0);
+            expect(row.contentLeft).toBeGreaterThanOrEqual(row.frameLeft - 1);
+            expect(row.contentRight).toBeLessThanOrEqual(row.frameRight + 1);
+            expect(row.headRight).toBeCloseTo(row.frameRight, 0);
+            expect(row.bodyRight).toBeCloseTo(row.frameRight, 0);
+        }
+        await shrunk(page, explorer);
+        await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+        await expect(content(page, EXPLORER)).toBeHidden();
+
+        // 再点一次显示。
+        const showing = await framesAfter(`[data-tool-entry="${PROJECT_CONTAINER}"]`);
+        expectInside(showing, "frameWidth");
+        // 整列作为一块横着长：每一帧都是全高、左边贴着活动栏，不是列里的几节各自竖着长（那样整列一开始就是全宽，压在还没让开的编辑区上）。
+        // 面板头与内容贴着外框的右边，整块从左边平移进来。
+        const settled = showing.at(-1)!;
+        for (const row of showing) {
+            expect(row.frameHeight).toBeCloseTo(settled.frameHeight, 0);
+            expect(row.frameLeft).toBeCloseTo(settled.frameLeft, 0);
+            expect(row.headRight).toBeCloseTo(row.frameRight, 0);
+            expect(row.bodyRight).toBeCloseTo(row.frameRight, 0);
+        }
+        // 露出来的一截始终是一张完整的卡片：和活动栏之间的缝还在，左上角是圆的（按外框的直角矩形裁时，卡片在左边被直着切掉，缝没了、角是尖的）。
+        const middle = showing.filter((row) => row.frameWidth > 60 && row.frameWidth < settled.frameWidth - 1);
+        expect(middle.length).toBeGreaterThan(0);
+        for (const row of middle) expect([row.gapHit, row.cornerHit, row.innerHit]).toEqual([false, false, true]);
+    });
+
+    test("活动栏与只有一节的侧栏相连：隐藏、显示时两张卡片画成一张，侧栏右边的两个圆角跟着它的右沿走，缩到零时正好成了活动栏的角；中间一直不露缝（ui/workbench-layout 输出 19）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const moving = page.locator("[data-workbench-surface] [data-moving]");
+        const bar = page.locator('[data-shell-card="activitybar"]');
+        await entry(page, `view:${A}`).click();
+        await expect(moving).toHaveCount(0);
+        const section = await sectionOf(page, A);
+        await expect(bar).toHaveAttribute("data-shell-join", "start");
+        await expect(page.locator(`[data-shell-card="${section}"]`)).toHaveAttribute("data-shell-join", "end");
+        // 放慢到 6 秒，点下去之后把页面上的过渡都停住、拨到指定的时刻再截图：同一时刻量矩形、看像素。网格自己的计时按这个时长，6 秒内看完。
+        await page.addStyleTag({content: ":root { --motion-layout: 6000ms !important; }"});
+        const duration = 6000;
+        const card = await bar.boundingBox();
+        expect(card).not.toBeNull();
+        const top = card!.y, bottom = card!.y + card!.height, middle = card!.y + card!.height / 2;
+
+        /** 截一张活动栏到侧栏右边的图，读几个点的颜色（在页面里解码，不加依赖）。 */
+        const colorsAt = async (points: ReadonlyArray<readonly [number, number]>): Promise<number[][]> => {
+            const clip = {x: 0, y: top - 4, width: 520, height: bottom - top + 8};
+            const png = await page.screenshot({clip});
+            return page.evaluate(async ({data, points, clip}) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${data}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext("2d")!;
+                context.drawImage(image, 0, 0);
+                return points.map(([x, y]) => [...context.getImageData(Math.floor(x - clip.x), Math.floor(y - clip.y), 1, 1).data].slice(0, 3));
+            }, {data: png.toString("base64"), points, clip});
+        };
+        const near = (a: number[] | undefined, b: number[] | undefined): boolean => a !== undefined && b !== undefined && a.every((value, index) => Math.abs(value - (b[index] ?? 0)) <= 6);
+        // 窗体底：活动栏左边那条整缝；卡片底：活动栏里中间一行的空处。
+        const [ground, surface] = await colorsAt([[card!.x - 2, middle], [card!.x + 4, middle]]);
+        expect(near(ground, surface)).toBe(false);
+
+        /** 点一下入口，过渡停在这几个时刻：每个时刻量活动栏卡片、这一节外框的矩形，读短线的状态与几处像素。 */
+        const sample = async (fractions: readonly number[]) => {
+            await page.evaluate((selector) => {
+                document.querySelector<HTMLElement>(selector)!.click();
+            }, `[data-tool-entry="view:${A}"]`);
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            const rows = [];
+            for (const fraction of fractions) {
+                const at = await page.evaluate(({fraction, duration, leafId}) => {
+                    for (const animation of document.getAnimations()) {
+                        animation.pause();
+                        animation.currentTime = fraction * duration;
+                    }
+                    const barBox = document.querySelector('[data-shell-card="activitybar"]')!.getBoundingClientRect();
+                    const leafBox = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`)?.getBoundingClientRect();
+                    return {barRight: barBox.right, leafLeft: leafBox?.left ?? Number.NaN, leafRight: leafBox?.right ?? Number.NaN, cap: document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!.dataset.shellCap ?? null};
+                }, {fraction, duration, leafId: section});
+                const capRight = at.leafRight - 2;
+                const [barCorner, gap, capCorner, ...row] = await colorsAt([
+                    [at.barRight - 1.5, top + 1.5],
+                    [at.barRight + 1, middle],
+                    [capRight - 1.5, top + 1.5],
+                    // 中间一行，从活动栏右边一点到侧栏外框的左边（侧栏的内容在外框里往左滑，不量它）。
+                    ...Array.from({length: Math.max(0, Math.floor(Math.min(capRight - 3, at.leafLeft - 1) - (at.barRight - 6)))}, (_, index) => [at.barRight - 6 + index, middle] as const),
+                ]);
+                rows.push({...at, width: at.leafRight - at.leafLeft, barCorner, gap, capCorner, row});
+            }
+            await page.evaluate(() => {
+                for (const animation of document.getAnimations()) {
+                    if (animation.effect?.getComputedTiming().endTime === Number.POSITIVE_INFINITY) animation.play();
+                    else animation.finish();
+                }
+            });
+            return rows;
+        };
+
+        // 隐藏：活动栏一开始就是断开的样子（右边留半缝、角是圆的），但它的角和半缝被侧栏伸过来的那一截盖着，看到的是一张卡片；
+        // 侧栏右上角一直是圆的，跟着右沿往左走。
+        const hiding = await sample([0.04, 0.12, 0.3, 0.6, 0.95]);
+        for (const row of hiding) {
+            expect(near(row.capCorner, ground)).toBe(true);
+            for (const pixel of row.row) expect(near(pixel, surface)).toBe(true);
+            if (row.width >= 20) {
+                expect(near(row.barCorner, surface)).toBe(true);
+                expect(near(row.gap, surface)).toBe(true);
+            }
+        }
+        expect(hiding.map((row) => row.cap)).toEqual(hiding.map(() => "leave"));
+        expect(hiding.filter((row) => row.width >= 20).length).toBeGreaterThanOrEqual(2);
+        await expect(moving).toHaveCount(0);
+        await shrunk(page, section);
+        expect(await bar.getAttribute("data-shell-join")).toBeNull();
+        expect(await bar.getAttribute("data-shell-join-seam")).toBeNull();
+        expect(await bar.getAttribute("data-shell-cap")).toBeNull();
+        const hidden = await bar.boundingBox();
+        const [hiddenCorner, hiddenGap] = await colorsAt([[hidden!.x + hidden!.width - 1.5, top + 1.5], [hidden!.x + hidden!.width + 1, middle]]);
+        expect(near(hiddenCorner, ground)).toBe(true);
+        expect(near(hiddenGap, ground)).toBe(true);
+
+        // 显示：倒过来。长着的每一刻同样是一张卡片，侧栏右上角是圆的；长完了换回相连的画法，活动栏右上角是直的。
+        const showing = await sample([0.04, 0.12, 0.3, 0.6, 0.95]);
+        for (const row of showing) {
+            expect(near(row.capCorner, ground)).toBe(true);
+            for (const pixel of row.row) expect(near(pixel, surface)).toBe(true);
+            if (row.width >= 20) {
+                expect(near(row.barCorner, surface)).toBe(true);
+                expect(near(row.gap, surface)).toBe(true);
+            }
+        }
+        expect(showing.map((row) => row.cap)).toEqual(showing.map(() => "enter"));
+        await expect(moving).toHaveCount(0);
+        await expect(bar).toHaveAttribute("data-shell-join", "start");
+        await expect(bar).toHaveAttribute("data-shell-join-seam", "");
+        expect(await bar.getAttribute("data-shell-cap")).toBeNull();
+        const shown = await bar.boundingBox();
+        const [shownCorner] = await colorsAt([[shown!.x + shown!.width - 1.5, top + 1.5]]);
+        expect(near(shownCorner, surface)).toBe(true);
+
+        // 切到另一个只有一节的容器：换上来的一节从上往下长，活动栏前后都相连，过渡中也不换画法（换的话图标会左右挪）。
+        await page.evaluate((selector) => document.querySelector<HTMLElement>(selector)!.click(), `[data-tool-entry="view:${B}"]`);
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const switching = await page.evaluate(({duration}) => {
+            for (const animation of document.getAnimations()) {
+                animation.pause();
+                animation.currentTime = 0.3 * duration;
+            }
+            const card = document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!;
+            return {moving: document.querySelector("[data-workbench-surface] [data-moving]") !== null, join: card.dataset.shellJoin ?? null, cap: card.dataset.shellCap ?? null, right: card.getBoundingClientRect().right};
+        }, {duration});
+        await page.evaluate(() => {
+            for (const animation of document.getAnimations()) {
+                if (animation.effect?.getComputedTiming().endTime === Number.POSITIVE_INFINITY) animation.play();
+                else animation.finish();
+            }
+        });
+        expect(switching).toEqual({moving: true, join: "start", cap: null, right: shown!.x + shown!.width});
+        await expect(moving).toHaveCount(0);
+        await expect(entry(page, `view:${B}`)).toHaveAttribute("aria-pressed", "true");
+    });
+
+    test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时缩到零（按拖到零画），过渡中不可交互、还画着；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const toggle = page.locator('[data-titlebar-layout="panel"]');
+        const moving = page.locator("[data-workbench-surface] [data-moving]");
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-pressed", "true");
+        await expect(moving).toHaveCount(0);
+        // 底部面板那一节：显示着的内容里最靠下的那块。
+        const target = await page.evaluate(() => {
+            const contents = [...document.querySelectorAll<HTMLElement>("[data-workbench-surface] > [data-grid-scope] > [data-content]")].filter((element) => getComputedStyle(element).visibility === "visible");
+            const lowest = contents.sort((left, right) => right.getBoundingClientRect().top - left.getBoundingClientRect().top)[0]!;
+            return {content: lowest.dataset.content!, leaf: lowest.dataset.contentLeaf!};
+        });
+        /** 点一下开关，逐帧量这一节的外框与内容体，直到网格的过渡结束。只记外框还在、内容看得见的帧。 */
+        const film = () => page.evaluate(async (target) => {
+            const rows: Array<{frameTop: number; frameBottom: number; frameHeight: number; bodyTop: number; shrinking: boolean; bottomGapHit: boolean}> = [];
+            document.querySelector<HTMLElement>('[data-titlebar-layout="panel"]')!.click();
+            for (let frame = 0; frame < 90; frame += 1) {
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+                const frameEl = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${target.leaf}"]`);
+                const content = document.querySelector<HTMLElement>(`[data-workbench-surface] > [data-grid-scope] > [data-content="${CSS.escape(target.content)}"]`);
+                if (frameEl !== null && content !== null && getComputedStyle(content).visibility === "visible") {
+                    const rect = frameEl.getBoundingClientRect();
+                    const body = content.querySelector(":scope > .nb-grid-content__body")!.getBoundingClientRect();
+                    // 卡片下边的缝里那一点不属于这块叶（裁切也挡命中）：按外框的直角矩形裁时，内容一直画到外框的下边，缝没了、两个下角是尖的。
+                    const padBottom = Number.parseFloat(getComputedStyle(frameEl.querySelector<HTMLElement>("[data-shell-card]")!.parentElement!).paddingBottom);
+                    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.bottom - padBottom / 2);
+                    const bottomGapHit = hit !== null && (frameEl.contains(hit) || hit.closest(`[data-content-leaf="${target.leaf}"]`) !== null);
+                    rows.push({frameTop: rect.top, frameBottom: rect.bottom, frameHeight: rect.height, bodyTop: body.top, shrinking: frameEl.hasAttribute("inert"), bottomGapHit});
+                }
+                if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
+            }
+            return rows;
+        }, target);
+        const inset = await page.evaluate((target) => {
+            const frame = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${target.leaf}"]`)!.getBoundingClientRect();
+            return document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-content="${CSS.escape(target.content)}"]`)!.getBoundingClientRect().top - frame.top;
+        }, target);
+        expect(inset).toBeGreaterThan(0);
+        /** 下边不动；内容体的上边一直是外框的上边加面板头（按内容自己的矩形过渡时会落后，最多压住面板头一整条）。 */
+        const expectSliding = (rows: Awaited<ReturnType<typeof film>>) => {
+            const bottom = rows[0]!.frameBottom;
+            for (const row of rows) {
+                expect(row.frameBottom).toBeCloseTo(bottom, 0);
+                expect(row.bodyTop - row.frameTop).toBeCloseTo(inset, 0);
+            }
+        };
+
+        // 隐藏：缩下去的每一帧不可交互、还画着，确实量到了中间的帧；结束后高度为零。
+        const hiding = await film();
+        expect(hiding.some((row) => row.shrinking && row.frameHeight > 20 && row.frameHeight < hiding[0]!.frameHeight - 20)).toBe(true);
+        expectSliding(hiding);
+        await expect(moving).toHaveCount(0);
+        await shrunk(page, target.leaf);
+
+        // 显示：从底边长上来。下边的缝一直在。
+        const showing = await film();
+        const final = showing.at(-1)!.frameHeight;
+        expect(showing.some((row) => row.frameHeight > 20 && row.frameHeight < final - 20)).toBe(true);
+        expectSliding(showing);
+        for (const row of showing.filter((row) => row.frameHeight > 20 && row.frameHeight < final - 1)) expect(row.bottomGapHit).toBe(false);
+    });
+
+    test("隐藏侧栏时缩回去的那段：焦点在侧栏里马上交出去；缩到一半又显示、长到一半又隐藏都停在对的样子，不留残影；减少动态效果时同一帧就没了（ui/nested-grid 的过渡）", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await open(page);
+        const explorer = await sectionOf(page, EXPLORER);
+        const run = (command: string, args: Record<string, unknown>) => page.evaluate(({name, detail}) => window.dispatchEvent(new CustomEvent(name, {detail})), {name: SAMPLE_VIEWS_RUN_EVENT, detail: {command, args}});
+        // 隐藏按拖到零画：缩回去的那段外框不可交互、还画着。
+        const shrinking = page.locator(`${LEAF}[data-leaf="${explorer}"][inert]`);
+        const settled = async () => {
+            await expect(page.locator("[data-workbench-surface] [data-moving]")).toHaveCount(0);
+            await expect(shrinking).toHaveCount(0);
+        };
+
+        // 焦点在资源管理器里，用命令隐藏侧栏：缩回去的这段它不可交互，焦点马上交出去，不留在里面。
+        await content(page, EXPLORER).locator("[role=\"treeitem\"]").first().click();
+        await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-content=\"view:nbook.explorer\"]") != null)).toBe(true);
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: true});
+        await expect(shrinking).toBeAttached();
+        expect(await page.evaluate(() => document.activeElement?.closest("[data-content=\"view:nbook.explorer\"]") ?? null)).toBeNull();
+        await settled();
+        await shrunk(page, explorer);
+
+        // 长到一半又隐藏：停在隐藏，缩到零。
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: false});
+        await expect.poll(async () => (await leaf(page, explorer).boundingBox())?.width ?? 0).toBeGreaterThan(0);
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: true});
+        await settled();
+        await shrunk(page, explorer);
+
+        // 缩到一半又显示：停在显示，宽度回到原样，内容看得见。
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: false});
+        await settled();
+        const width = (await box(page, explorer)).width;
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: true});
+        await expect(shrinking).toBeAttached();
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: false});
+        await settled();
+        expect((await box(page, explorer)).width).toBeCloseTo(width, 0);
+        await expect(content(page, EXPLORER)).toBeVisible();
+
+        // 缩到一半又有别的布局变化（显示底部面板）：侧栏接着缩完，不是当场没了。
+        await run("nbook.view.set-part-hidden", {part: "panel", hidden: true});
+        await settled();
+        const during = await page.evaluate(async ({name, leafId}) => {
+            const fire = (part: string, hidden: boolean) => window.dispatchEvent(new CustomEvent(name, {detail: {command: "nbook.view.set-part-hidden", args: {part, hidden}}}));
+            const frames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const shrinking = () => document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"][inert]`) !== null;
+            fire("sidebar", true);
+            await frames();
+            const before = shrinking();
+            fire("panel", false);
+            await frames();
+            return {before, after: shrinking()};
+        }, {name: SAMPLE_VIEWS_RUN_EVENT, leafId: explorer});
+        expect(during).toEqual({before: true, after: true});
+        await settled();
+        await shrunk(page, explorer);
+        await run("nbook.view.set-part-hidden", {part: "sidebar", hidden: false});
+        await settled();
+
+        // 减少动态效果：没有过渡，隐藏那一帧就是零宽，也不留着画。
+        await page.emulateMedia({reducedMotion: "reduce"});
+        const after = await page.evaluate(async ({name, leafId}) => {
+            window.dispatchEvent(new CustomEvent(name, {detail: {command: "nbook.view.set-part-hidden", args: {part: "sidebar", hidden: true}}}));
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            const frameEl = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`);
+            return {width: frameEl?.getBoundingClientRect().width ?? 0, shrinking: frameEl?.hasAttribute("inert") === true};
+        }, {name: SAMPLE_VIEWS_RUN_EVENT, leafId: explorer});
+        expect(after).toEqual({width: 0, shrinking: false});
+    });
+
     test("打开视图命令：切到视图所在的容器；区域拖到零或隐藏着时同一次写入展开（输出 35；views.md 输出 14）", async ({page}) => {
         await open(page);
         const run = (command: string, args: Record<string, unknown>) => page.evaluate(({name, detail}) => window.dispatchEvent(new CustomEvent(name, {detail})), {name: SAMPLE_VIEWS_RUN_EVENT, detail: {command, args}});
@@ -262,8 +634,11 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         await expect(entry(page, `view:${A}`)).toHaveAttribute("aria-pressed", "true");
         await expect.poll(async () => (await box(page, single)).width).toBe(width);
         expect((await box(page, single)).height).toBeGreaterThan(32);
-        await expect.poll(async () => (await saved(page))?.panels.sidebar).toMatchObject({activeContainer: `view:${A}`});
-        expect((await saved(page))?.panels.sidebar?.collapsed ?? false).toBe(false);
+        // 两个条件一起等：按 Enter 收起时立刻存过一份“当前容器是甲、收起”，之后两次点入口合并着存，只等当前容器会被那份旧记录直接满足。
+        await expect.poll(async () => {
+            const sidebar = (await saved(page))?.panels.sidebar;
+            return {activeContainer: sidebar?.activeContainer, collapsed: sidebar?.collapsed ?? false};
+        }).toEqual({activeContainer: `view:${A}`, collapsed: false});
         expect((await saved(page))?.panels[single]?.collapsed ?? false).toBe(false);
     });
 });
@@ -630,8 +1005,9 @@ test.describe("有容器之前存的记录（验收 30）", () => {
         await expect(page.locator("[data-workbench-status-bar]")).not.toContainText("布局未读");
 
         // 改一下布局：隐藏右栏。保存成功，记录是带容器的样子。
+        const conversation = await sectionOf(page, CONVERSATION);
         await page.locator('[data-titlebar-layout="auxiliarybar"]').click();
-        await expect(tab(page, CONVERSATION)).toHaveCount(0);
+        await shrunk(page, conversation);
         // 旧记录里右栏本来就隐藏着：等的是新写下的记录（锚上有当前容器），不是右栏的隐藏。
         await expect.poll(async () => (await saved(page))?.doc.panels.sidebar?.activeContainer).toBe(PROJECT_CONTAINER);
         const rewritten = (await saved(page))!.doc;
@@ -645,7 +1021,7 @@ test.describe("有容器之前存的记录（验收 30）", () => {
         await page.reload();
         await open(page);
         await expect(tab(page, SESSIONS)).toBeVisible();
-        await expect(tab(page, CONVERSATION)).toHaveCount(0);
+        await shrunk(page, conversation);
         await expect(labels(page)).toHaveText(["a.md", "b.md"]);
         expect(await diagnostics(page)).not.toContain("布局记录不合骨架");
     });

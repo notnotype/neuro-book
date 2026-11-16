@@ -43,6 +43,11 @@ export default {
     colorSwatches: {
         label: "Color",
     },
+    dateInput: {
+        open: "Choose date",
+        previousMonth: "Previous month",
+        nextMonth: "Next month",
+    },
     dialog: {
         untitled: "Dialog",
         cancel: "Cancel",
@@ -100,6 +105,9 @@ export default {
     },
     tabs: {
         more: "More",
+    },
+    tagInput: {
+        remove: "Remove {{item}}",
     },
     toolbar: {
         label: "Toolbar",

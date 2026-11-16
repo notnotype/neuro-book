@@ -13,12 +13,16 @@
  * - 窗口外框（输出 10）：Windows 上 WebView2 够新时，产品窗口与启动页窗口没有系统标题栏（`hiddenInset`），页面自己画按钮、
  *   用 CSS `app-region` 标拖动区域，拖动、双击最大化、贴边分屏由 WebView2 与系统处理；这里补窗口样式与图标（`win32.ts`），
  *   接页面的 `window-control`，并把是否最大化推给页面。
+ * - 托盘（输出 28 到 30）：要显示时新建一个 `Tray`（id 为 0 就是没建出来，丢掉、记诊断，核心按没有托盘处理），菜单与点击只在
+ *   建成时设一次；要隐藏时 `remove()` 并丢掉对象，下次要显示再新建。没用 `setVisible`（2.0.6 隐藏后再显示也沿用 id 与菜单）：
+ *   删掉再建让“有对象”与“图标显示着”始终是一回事，核心的 `trayShown` 直接读它。建不出来之后只在托盘视图下一次变化时再试
+ *   （例如开机自启时任务栏还没就绪），这一点要在 Windows 上验收（t13 切片 6）。左键、右键都弹菜单是它的 Windows 实现（已知限制）。
  * - 更新（docs/specs/runtime/desktop-update.md）：`UpdaterPort` 接 Electrobun 2.0.6 的 `Updater`，规则都在核心
  *   （`src/desktop/update.ts`、`update-install.ts`）。更新器的事件不用来判断结果（`error` 是检查、下载、换上共用的通道），每次调用
  *   之后读它的状态；`before-quit` 在取桌面锁之前放行（`DesktopShell.acceptsQuit`），换上要经它结束进程。
  */
 
-import Electrobun, {BrowserWindow, PATHS, Screen, Updater, Utils} from "electrobun/main";
+import Electrobun, {BrowserWindow, PATHS, Screen, Tray, Updater, Utils} from "electrobun/main";
 import type {Pointer} from "bun:ffi";
 import {spawnSync} from "node:child_process";
 import {appendFileSync, mkdirSync} from "node:fs";
@@ -30,6 +34,7 @@ import {DesktopShell} from "../../../src/desktop/shell";
 import type {ShellPorts, ShellUpdates, StartupView} from "../../../src/desktop/shell";
 import {createDesktopSettingsCacheWriter, DEFAULT_DESKTOP_SETTINGS, loginItemPlan, readDesktopSettingsCache, sameDesktopSettings} from "../../../src/desktop/desktop-settings";
 import {resolveDesktopStateRoot} from "../../../src/desktop/state-root";
+import type {TrayView} from "../../../src/desktop/tray";
 import {scanApplyResults} from "../../../src/desktop/update-install";
 import type {UpdaterPort} from "../../../src/desktop/update-install";
 import type {OpenTarget, WindowId, WindowPort} from "../../../src/desktop/windows";
@@ -50,8 +55,13 @@ const DOWNLOAD_PAGE = "https://github.com/notnotype/neuro-book/releases/latest";
 /** 程序根目录：`Resources` 的上一层；便携包解压出来就是这一层，便携标记写在这里。 */
 const programRoot = dirname(PATHS.RESOURCES_FOLDER);
 const payload = join(PATHS.RESOURCES_FOLDER, "app", "neurobook");
-/** 应用图标（`electrobun.config.ts` 的 `build.copy`）：窗口图标按 DPI 从这里加载。 */
+/** 应用图标（`electrobun.config.ts` 的 `build.copy`）：窗口图标按 DPI 从这里加载，托盘图标也用它（Windows 上必须是 .ico）。 */
 const iconFile = join(PATHS.RESOURCES_FOLDER, "app", "neurobook.ico");
+/** 托盘菜单两项的动作名（输出 30）。 */
+const TRAY_OPEN = "nbook.tray.open";
+const TRAY_QUIT = "nbook.tray.quit";
+/** 托盘图标在 100% 缩放下的边长；按建图标那一刻主显示器的缩放比例放大，之后不随缩放重建（已知限制）。 */
+const TRAY_ICON_PX = 16;
 /**
  * 页面能自己画标题栏的 WebView2 最低主版本：WebView2 的非客户区支持（CSS `app-region` 成为系统标题栏命中）从 123 起才有，
  * 更旧的运行时里拖动区域不生效，窗口退回系统标题栏（输出 10）。
@@ -335,7 +345,7 @@ async function main(): Promise<void> {
     };
 
     /**
-     * 页面交来的桌面专属设置：与上次相同就不动（几个窗口各交一次）；否则缩放应用到所有产品窗口，写缓存。开机自启在这次运行
+     * 页面交来的桌面专属设置：与上次相同就不动（几个窗口各交一次）；否则缩放应用到所有产品窗口，关窗去向交给核心，写缓存。开机自启在这次运行
      * 第一次收到页面的值时同步一次，之后随值变化同步。
      */
     let fromPage = false;
@@ -345,6 +355,7 @@ async function main(): Promise<void> {
         const same = sameDesktopSettings(values, desktopValues);
         if (first || values.openAtLogin !== desktopValues.openAtLogin) syncLoginItem(values.openAtLogin);
         if (same) return;
+        if (values.closeLastWindow !== desktopValues.closeLastWindow) shell.setCloseLastWindow(values.closeLastWindow);
         desktopValues = values;
         for (const managed of windows.values()) if (managed.kind === "page") managed.win.setPageZoom(values.zoom);
         void cacheWriter?.write(values);
@@ -484,12 +495,47 @@ async function main(): Promise<void> {
         closeNotResponding: (id) => closeDialog(`not-responding:${String(id)}`),
         sendHint(id, hintId, hint) {
             const managed = windows.get(id);
-            if (managed !== undefined) dispatch(managed.win, {type: "update-hint", id: hintId, hint});
+            // 托盘图标显示着，关掉最后一个窗口就会留在后台：页面把“下次打开时安装”换成从托盘退出（desktop-update 输出 6）。
+            if (managed !== undefined) dispatch(managed.win, {type: "update-hint", id: hintId, hint, tray: tray !== null});
         },
         endHint(id, hintId) {
             const managed = windows.get(id);
             if (managed !== undefined) dispatch(managed.win, {type: "update-hint-end", id: hintId});
         },
+    };
+
+    /** 托盘图标；null 是没有显示（不需要，或没建出来）。 */
+    let tray: Tray | null = null;
+    let trayTooltip = "";
+    const setTray = (next: TrayView): void => {
+        if (!next.visible) {
+            if (tray === null) return;
+            tray.remove();
+            tray = null;
+            log("desktop.tray.removed");
+            return;
+        }
+        if (tray !== null) {
+            if (trayTooltip !== next.tooltip) tray.setTitle(next.tooltip);
+            trayTooltip = next.tooltip;
+            return;
+        }
+        const size = Math.round(TRAY_ICON_PX * (Screen.getPrimaryDisplay().scaleFactor || 1));
+        const created = new Tray({title: next.tooltip, image: iconFile, template: false, width: size, height: size});
+        if (created.id === 0) {
+            log(`desktop.tray.create-failed icon=${iconFile}`);
+            return;
+        }
+        created.setMenu([{type: "normal", label: "打开 NeuroBook", action: TRAY_OPEN}, {type: "divider"}, {type: "normal", label: "退出 NeuroBook", action: TRAY_QUIT}]);
+        // 回调在 Electrobun 的原生回调里同步执行：开窗、开对话框放到下一轮事件循环，不在原生的菜单流程里操作窗口。
+        created.on("tray-clicked", (event: unknown) => {
+            const action = (event as {data?: {action?: unknown}}).data?.action;
+            if (action === TRAY_OPEN) setImmediate(() => shell.trayOpen());
+            else if (action === TRAY_QUIT) setImmediate(() => shell.trayQuit());
+        });
+        tray = created;
+        trayTooltip = next.tooltip;
+        log(`desktop.tray.created size=${String(size)}`);
     };
 
     let pendingRestartFailure: string | null = null;
@@ -499,8 +545,8 @@ async function main(): Promise<void> {
             view = next;
             for (const managed of windows.values()) if (managed.kind === "shell") render(managed.win, next);
         },
-        askServerExited(exitCode, logDir) {
-            const state = pendingRestartFailure === null ? {kind: "server-exited", exitCode, logDir} : {kind: "restart-failed", detail: pendingRestartFailure};
+        askServerExited(exitCode, logDir, background) {
+            const state = pendingRestartFailure === null ? {kind: "server-exited", exitCode, logDir, background} : {kind: "restart-failed", detail: pendingRestartFailure};
             pendingRestartFailure = null;
             return new Promise((resolve) => {
                 openDialog("server-exited", state, (action) => {
@@ -513,9 +559,29 @@ async function main(): Promise<void> {
             pendingRestartFailure = detail;
         },
         openPath: (path) => void Utils.openPath(path),
+        setTray,
+        trayShown: () => tray !== null,
+        focusWindow(id) {
+            const managed = windows.get(id);
+            if (managed === undefined) return;
+            // Electrobun 2.0.6 的 activate 不还原最小化的窗口。
+            if (managed.win.isMinimized()) managed.win.unminimize();
+            managed.win.activate();
+        },
+        showQuitWork(work) {
+            // 已开着时 openDialog 重画并置前它。
+            openDialog("quit-work", {kind: "quit-work", count: work.count, uncertain: work.uncertain}, (action) => {
+                closeDialog("quit-work");
+                shell.quitWorkChose(action === "open" ? "open" : action === "quit-anyway" ? "quit" : "cancel");
+            }, () => shell.quitWorkChose("cancel"));
+        },
+        closeQuitWork: () => closeDialog("quit-work"),
         exit(code) {
             log(`exit ${String(code)}`);
             quitAllowed = true;
+            // 先删图标：进程结束时 Electrobun 不删，通知区域会留下残影，直到指针划过。
+            tray?.remove();
+            tray = null;
             Utils.quit(code);
         },
     };
@@ -542,6 +608,7 @@ async function main(): Promise<void> {
         clock: systemClock,
         report: log,
         updates,
+        closeLastWindow: desktopValues.closeLastWindow,
     });
     await shell.run();
 

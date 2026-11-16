@@ -61,6 +61,8 @@ function resolveScope(): SashGestureScope {
 const key = computed(() => `${props.branchId}:${props.index}`);
 const seamOnly = computed(() => props.size === 0);
 const inert = computed(() => props.disabled || seamOnly.value);
+/** 一侧收到了零（拖到零、隐藏的区域按拖到零画）：那一侧没有东西，静止接缝只会贴在窗口边或条上，不画；命中、悬停线与拖动照旧。 */
+const besideZero = computed(() => props.beforePx <= 0 || props.afterPx <= 0);
 
 const isHovered = computed(() => scope.hovered.has(key.value));
 const isActive = computed(() => scope.active.has(key.value));
@@ -290,6 +292,7 @@ onBeforeUnmount(() => {
                 aria-hidden="true"
                 class="sash-seam"
                 :data-axis="props.axis"
+                :data-beside-zero="besideZero ? 'true' : undefined"
             />
             <span
                 :ref="setLineRef"
@@ -347,6 +350,11 @@ onBeforeUnmount(() => {
  */
 .sash-seam {
     background: var(--nb-splitter-seam, var(--divider));
+}
+
+/* 一侧为零时不画：元素留着，`snap()` 照旧写几何，展开时不用重新量。 */
+.sash-seam[data-beside-zero] {
+    visibility: hidden;
 }
 
 /* 长轴两端：竖向的接缝（宽度轴的分隔）缩上下，横向的缩左右；装饰带照旧贴满。主轴由 `snap()` 写内联。 */

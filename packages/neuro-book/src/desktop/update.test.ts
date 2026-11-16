@@ -515,6 +515,9 @@ describe("更新控制器", () => {
             clock: {now: () => 0, schedule: () => () => undefined},
             onQuit: () => undefined,
             onAllClosed: () => undefined,
+            closeLastWindow: () => "quit",
+            trayShown: () => false,
+            onWindowsChanged: () => undefined,
         });
         coordinator.serverReady("http://127.0.0.1:4217/", true);
         const win = coordinator.openWindow();

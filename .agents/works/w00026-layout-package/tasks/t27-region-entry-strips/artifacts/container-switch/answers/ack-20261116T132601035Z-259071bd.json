@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t27-region-entry-strips",
+    "artifactId": "container-switch",
+    "ackId": "20261116T132601035Z-259071bd",
+    "answers": [
+        "20261116T132522735Z-2b809b02"
+    ],
+    "through": "20261116T132522735Z-2b809b02",
+    "included": [
+        ".agents/works/w00026-layout-package/tasks/t27-region-entry-strips/README.md"
+    ],
+    "ackedAt": "2026-11-16T13:26:01.035Z"
+}
