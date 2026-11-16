@@ -1,0 +1,18 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t27-region-entry-strips",
+    "artifactId": "container-switch",
+    "answerId": "20261116T132522735Z-2b809b02",
+    "artifactVersion": 1,
+    "contentHash": "058650e5e81492e3594f0cd845e081e128dd11eafb89077c0874d8d687524c41",
+    "submittedAt": "2026-11-16T13:25:22.735Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "strip-1": "first-head"
+    },
+    "comments": {},
+    "note": "开发者 2026-11-16 在会话里答“先同意”（推荐的乙）"
+}
