@@ -5,7 +5,9 @@
 
 import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
+import {defineComponent, h} from "vue";
 
+import {provideDefaultText} from "../../text-port";
 import DateInput from "./DateInput.vue";
 
 const mounted: VueWrapper[] = [];
@@ -60,6 +62,21 @@ describe("DateInput", () => {
         await segment(wrapper, "day").trigger("keydown", {key: "Backspace"});
         await flushPromises();
         expect(emitted(wrapper).at(-1)).toBeNull();
+    });
+
+    it("界面语言是英文：段按英文的顺序排，按钮用英文名", async () => {
+        const English = defineComponent({
+            setup() {
+                provideDefaultText(() => "en-US");
+                return () => h(DateInput, {modelValue: "2025-12-21"});
+            },
+        });
+        const wrapper = mount(English, {attachTo: document.body});
+        mounted.push(wrapper);
+        await flushPromises();
+        const parts = wrapper.findAll("[data-reka-date-field-segment]").map((node) => node.attributes("data-reka-date-field-segment")).filter((part) => part === "year" || part === "month" || part === "day");
+        expect(parts).toEqual(["month", "day", "year"]);
+        expect(wrapper.find("button[aria-label='Choose date']").exists()).toBe(true);
     });
 
     it("只读：没有日历按钮", async () => {
