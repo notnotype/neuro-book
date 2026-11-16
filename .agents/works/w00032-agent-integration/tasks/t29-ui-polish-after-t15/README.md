@@ -72,6 +72,8 @@ updated: 2026-11-16
 
 第 6 轮的答复见决定 11，界面设计全部定了。
 
+2026-11-16 拆分：评审板定下的对话面板改版移到 [t36](../t36-conversation-panel-redesign/README.md)，状态栏自定义移到 [t37](../t37-status-line-customization/README.md)；本 Task 留下两个设置左栏单行、删除服务商挪到条目上、子代理卡片写动作名。[计划](plan.md)已写好。
+
 ## 下一步
 
-按 implementation-planning 写计划，交开发者确认。
+开发者确认计划后实施。
