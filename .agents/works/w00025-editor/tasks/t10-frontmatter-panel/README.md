@@ -15,7 +15,7 @@ updated: 2026-11-16
 
 ## 当前状态
 
-开发者 2026-10-16 定先搁置；2026-11-16 说“可以做 t09 t10 了”，开始设计；同日说“t10 这里先出静态稿”。
+开发者 2026-10-16 定先搁置；2026-11-16 说“可以做 t09 t10 了”，开始设计；同日说“t10 这里先出静态稿”；设计定稿、计划第二稿确认后开工，进度见下文“实施”。
 
 静态稿第 1 轮：草稿在 `.worktree/w00025-t10-drafts`（分支 `chore/w00025-t10-drafts`，不合并、不提交），Lab 组件 `PropertiesDraft`；评审板 [`artifacts/review/index.html`](artifacts/review/index.html)。问题 1 面板的样子（平铺、卡片），问题 2 缺省展开还是收起，问题 3 到 5 是会话里问过的文字题（没有属性时的入口、类型怎么定、表示不了的内容）。
 
@@ -43,6 +43,14 @@ updated: 2026-11-16
 - 旧应用：`TipTapFrontmatterPanel.vue`，正文上方可折叠的一块，收起时显示第一行，展开是 YAML 文本框；能添加、去掉 frontmatter；角色、地点、规则三类文件另有“档案表单”按钮。
 - Obsidian：属性在笔记顶部，设置“Properties in document”可选显示、隐藏、源码；类型有文字、列表、数字、勾选、日期、日期时间、标签，按属性名在整个库统一；嵌套属性不支持，要看用源码模式；用命令、`Ctrl+;`、菜单，或在文件开头打 `---` 添加。
 
+## 实施
+
+计划第二稿：[plan.md](plan.md)（2026-11-16）。第一稿经 Claude Sonnet 设计审查（阻断 2、重要 8、建议 2，处理见 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)）：frontmatter 改为编辑器文档的属性、面板改到控件层，改一个字段只替换这一项的原文。开发者 2026-11-16 说“可以，按第二稿开工”。
+
+执行位置：`.worktree/w00025-t10-frontmatter-panel`，分支 `feat/w00025-t10-frontmatter-panel`。
+
+- 第 1 片（nb-ui `DateInput`、`TagInput`、Lab 场景与 DOM 测试）：e217d55dc。nb-ui 全量测试 617 条通过；neuro-book 的 Lab 测试与 `vue-tsc -p tsconfig.web.json` 通过；`governance:check`、`docs:check` 通过；Lab 截图（亮、暗、390、日历打开）没有溢出与裁切。偏离计划：没跑不带 `--files` 的 `test:affected`，因为 `bun.lock` 只多了 nb-ui 的一行依赖声明（`@internationalized/date` 原本就随 reka-ui 装着，没有版本变化），它会把选择扩到全仓。nb-ui 自己没有 CHANGELOG（按发布规范在下次提版时建），应用的变更记录在第 4 片面板可见时写。
+
 ## 下一步
 
-实施计划第二稿：[plan.md](plan.md)（2026-11-16）。第一稿经 Claude Sonnet 设计审查（阻断 2、重要 8、建议 2，处理见 [`evidences/design-review-disposition.txt`](evidences/design-review-disposition.txt)）：frontmatter 改为编辑器文档的属性、面板改到控件层，改一个字段只替换这一项的原文。等开发者确认后实施。
+第 2 片：文档属性与编解码器，`MarkdownControl` 挂只读占位，跑 `editor-area.e2e.ts` 里含 CRLF 与 frontmatter 的两个用例。决定 6 的附言（图标的贡献点）待开发者回复，缺省按“这次不做”。
