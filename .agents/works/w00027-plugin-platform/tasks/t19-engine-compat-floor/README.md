@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t19-engine-compat-floor
-status: active
+status: done
 updated: 2026-11-16
 ---
 
