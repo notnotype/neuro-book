@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t27-region-entry-strips",
+    "artifactId": "container-switch",
+    "answerId": "20261116T075957914Z-7866387a",
+    "artifactVersion": 1,
+    "contentHash": "058650e5e81492e3594f0cd845e081e128dd11eafb89077c0874d8d687524c41",
+    "submittedAt": "2026-11-16T07:59:54.627Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "switch-1": "scroll",
+        "indicator-1": "slide"
+    },
+    "comments": {
+        "switch-1": "你这个做的有些细节没处理好：\n1. 侧边栏展开的时候是和 ActivityBar 连接在一起的"
+    },
+    "note": null
+}
