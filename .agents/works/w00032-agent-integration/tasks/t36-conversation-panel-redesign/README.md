@@ -86,6 +86,8 @@ updated: 2026-11-16
 | 4 模型提示卡与设置定位 | `a6a1408bb` | 类型检查；nb-agent-ui 全量、neuro-book 相关 280 条、nb-models、nb-harness；变异检查（快照不带 `role`、占位不按原因优先）；e2e `agent-conversation`（含“去绑定”）、`models`、`settings` 43 条通过，`lab-scenes` 滤掉 404 后只剩下面那 31 个旧越界 |
 | 漏的类型检查与 Lab 场景 | `45ed54cdf`、`cefd3eef7` | 状态栏新用例的类型错误；第 2 到 4 片新零件（顶栏、第一屏、提示卡）没有单独的 Lab 场景，Lab 的覆盖测试报出；顶栏根是两个节点，attrs 落不下 |
 | 5 子代理管理 | `1b7971d94` | Spec conversation 输出 43（master `ff25ef9f4`）；纯函数 5 条、DOM 3 条、agent 插件全量 428 条；e2e `agent-subagents`（含新的“子代理管理”）、`agent-conversation` 通过（279 行那条第一次连假端点断开，单独重跑通过）；`lab-scenes` 只剩 31 个旧越界 |
+| 6 宿主接线 | `0a730471a` | Spec conversation 输出 44（master）；类型检查与架构测试；agent 与 workbench 的 bun 957 条、vitest 184 条；e2e `agent-conversation`（新的“写在面板头上”）、`agent-subagents`、`workbench-views`、`lab-workbench-surface` 75 条通过 |
+| 并入 master | `e4582a577` | 没有冲突；`bun install`；五个包的类型检查通过；`test:affected --since master` 只有 `src/sdk/sdk.test.ts` 两条失败，master 上同样失败（nb-ui 新增 `DateInput`、`TagInput` 没列进 SDK，w00025 的改动），与本 Task 无关 |
 
 - 第 3 片把宿主给 `welcome`、`draftProfile` 与 `recentSessions` 的接线从第 6 片提前（plan.md 已改），第一屏的 e2e 才能端到端跑。
 - 第 4 片的 Spec 已在 master（`57e2eac1f`）：conversation 输出 42、settings-window 输出 15 的 `focus`、settings-pages 输出 18。
@@ -93,7 +95,7 @@ updated: 2026-11-16
 
 ## 下一步
 
-第 6 片“宿主接线”：对话视图的实现加 `[VIEW_HEAD]: true`；`AgentConversationPosition` 收 `context`，经 `viewHeadOf` 取头交给 `ConversationHost`；`headTargets` 取 `head.slots`，`sessionsOpen` 本地持有、按标题切换、写 `titlePopup`。e2e：按对话面板头的标题拖到别的区域；右栏再放一个视图时头回到内容里、会话下拉开着也不丢；按标题开会话列表、Escape 回到标题。之后收口。
+收口：去重后的 9 个 e2e 文件合入 master 后一次跑完（进行中），前端实现审查（Sonnet，说明在仓库外，后端小改单列）进行中。之后处理审查结论、合入 master、请开发者批准 Spec 晋升，删掉实现与草稿以外的 worktree。
 
 实施时定下的细节：
 
@@ -103,3 +105,5 @@ updated: 2026-11-16
 - 出错看过没有按会话记“看到哪个时刻为止”（计划写的是按 `会话:运行` 记）：最近一次以错误收口、收口晚于它的算没看过，与按运行记的结果相同，少存一份集合；激活时刻是基线。切会话由插件看 `host.sessionId` 记，卡片、停靠区、浮层几条路都算。
 - 浮层里的行是整行按钮，在滚动的列表里外扩光晕会被裁：用 `nb-ui-focus-ring-inset`。
 - 浮层外框的宽度与内边距照顶栏会话列表的写法用 `:global(...)`：原子类在 Tailwind 的 utilities 层里，不分层的组件样式压得过它，不靠加载顺序。
+- 标题区的取法（`VIEW_HEAD`、`ViewHead`、`viewHeadOf`）从工作台的 `web/contracts.ts`、`web/views/view-head.ts` 挪进 `shared/contracts.ts`：架构测试只许别的插件在运行时引对方的 `shared/contracts.ts`（ADR 0025），第 1 片放在 web 下，接线时才撞到。共用合同不带 DOM 类型，位置写成 `object`，对话的宿主用 `instanceof HTMLElement` 收；工作台自己用的形状改名 `PanelHeadSlots`。
+- e2e 里“成了标签条”在浮动窗里造：右栏、侧栏的分节不会并成标签条，标签条只在浮动窗里有；只有一个标签的浮动窗按住标题拖的是整个窗，所以来源用侧栏里的会话分节，拖到对话窗的中间添加为标签。
