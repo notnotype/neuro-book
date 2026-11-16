@@ -2,7 +2,7 @@
 /**
  * 对话位置的组件：右栏的视图和编辑区的页面是同一个。状态都在插件级的宿主里（`session-host.ts`），这里借用它，把视图接上，再放切换会话的面板。
  */
-import {onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
 
 import {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
 import type {AgentConversationServices, AgentViewAction, AgentViewRegistry, AgentWelcomeView} from "@notnotype/nb-agent-ui";
@@ -17,6 +17,7 @@ import SessionPanelHost from "./SessionPanelHost.vue";
 import SubagentsEntry from "./components/SubagentsEntry.vue";
 import type {ProfileEntry} from "../shared/contracts";
 import type {RunResults, SeenErrors} from "./subagents-panel";
+import type {ViewHead} from "nbook/plugins/workbench/shared/contracts";
 
 const props = defineProps<{
     host: SessionHost;
@@ -34,6 +35,8 @@ const props = defineProps<{
     skillInit: SkillInit;
     /** 子代理入口要的（conversation.md 输出 43）：Profile 名、插件作用域的出错看过没有与收口结果。 */
     subagents: {readonly profiles: readonly ProfileEntry[]; readonly seen: SeenErrors; readonly results: RunResults};
+    /** 右栏的视图接管了面板头时工作台给的标题区（views.md 输出 19）；编辑区页面没有。 */
+    head?: ViewHead | null;
 }>();
 
 const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
@@ -42,12 +45,36 @@ const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
 provide(subagentStoreKey, props.host.subagents);
 provide(toolActionKey, (tool) => toolActionOf(props.registry, tool));
 
+/**
+ * 头送进面板头的三列（视图的 `headTargets`）：面板头画出位置时送过去，成了标签条、浮动窗等不给位置时回到内容里。位置是工作台的
+ * 元素，共用合同里写成 `object`，这里按元素收下。
+ */
+const headTargets = computed(() => {
+    const slots = props.head?.slots.value ?? null;
+    if (slots === null) return null;
+    const {start, title, end, handle} = slots;
+    return start instanceof HTMLElement && title instanceof HTMLElement && end instanceof HTMLElement && handle instanceof HTMLElement ? {start, title, end, anchor: handle} : null;
+});
+/** 会话列表开着没有：本地持有，按面板头的标题切换、写回标题按钮的 `aria-expanded`；头回到内容里时照旧开着。 */
+const sessionsOpen = ref(false);
+watch(sessionsOpen, (open) => {
+    if (props.head) props.head.titlePopup.value = {expanded: open};
+}, {immediate: true});
+
 let giveBack: (() => void) | null = null;
+let stopTitlePress: (() => void) | null = null;
 onMounted(() => {
     giveBack = props.host.borrow();
     void props.host.restore();
+    stopTitlePress = props.head?.onTitlePress(() => {
+        sessionsOpen.value = !sessionsOpen.value;
+    }) ?? null;
 });
-onBeforeUnmount(() => giveBack?.());
+onBeforeUnmount(() => {
+    giveBack?.();
+    stopTitlePress?.();
+    if (props.head) props.head.titlePopup.value = null;
+});
 
 // 第一屏出现时（切到没有消息的会话、新建、没选会话）重取最近对话：别处新建、改名、归档过，这里不知道（conversation.md 输出 41）。
 watch(() => [props.host.ctx.value.session?.id ?? null, props.host.ctx.value.messages.length === 0] as const, ([, empty]) => {
@@ -79,6 +106,9 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
         new-session
         :welcome="props.welcome"
         :draft-profile="props.draftProfile"
+        :head-targets="headTargets"
+        :sessions-open="sessionsOpen"
+        @update:sessions-open="(open: boolean) => (sessionsOpen = open)"
         @action="onAction"
     >
         <template #sessions="{close}">

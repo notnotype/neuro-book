@@ -20,7 +20,7 @@ import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../../shared/views";
 import type {ViewDeclaration} from "../../shared/views";
-import {VIEW_HEAD} from "../contracts";
+import {VIEW_HEAD} from "../../shared/contracts";
 import type {ViewImplementation} from "../contracts";
 import {regionContainers} from "../state/containers";
 import {defaultLayoutDoc} from "../state/default-tree";

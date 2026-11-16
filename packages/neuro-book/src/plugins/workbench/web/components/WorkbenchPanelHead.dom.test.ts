@@ -8,7 +8,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, h, nextTick, ref, shallowRef, Teleport} from "vue";
 import type {PropType} from "vue";
 
-import type {ViewHeadSlots} from "../views/view-head";
+import type {PanelHeadSlots} from "../views/view-head";
 import {panelTabDomId, panelTitleDomId} from "../state/layout-present";
 import WorkbenchPanelHead from "./WorkbenchPanelHead.vue";
 import type {PanelViewHead} from "./WorkbenchPanelHead.vue";
@@ -21,7 +21,7 @@ afterEach(() => {
 
 /** 像视图那样：拿到位置时把三段送进去，没有位置时画在自己这里。 */
 const ProbeView = defineComponent({
-    props: {slots: {type: Object as PropType<ViewHeadSlots | null>, default: null}},
+    props: {slots: {type: Object as PropType<PanelHeadSlots | null>, default: null}},
     setup: (props) => () => h("div", {"data-probe-view": ""}, [
         h(Teleport, {to: props.slots?.start ?? null, disabled: props.slots === null}, [h("button", {type: "button", "data-probe-new": ""}, "新建")]),
         h(Teleport, {to: props.slots?.title ?? null, disabled: props.slots === null}, [h("span", {"data-probe-title": ""}, "第三章节奏调整")]),
@@ -33,8 +33,8 @@ const TAB = {id: "view:nbook.agent.conversation", label: "对话", icon: "i-luci
 
 function mountHead(initial: PanelViewHead | null) {
     const viewHead = ref<PanelViewHead | null>(initial);
-    const slots = shallowRef<ViewHeadSlots | null>(null);
-    const given: Array<ViewHeadSlots | null> = [];
+    const slots = shallowRef<PanelHeadSlots | null>(null);
+    const given: Array<PanelHeadSlots | null> = [];
     const activated: string[] = [];
     const Host = defineComponent({
         setup: () => () => [
@@ -50,7 +50,7 @@ function mountHead(initial: PanelViewHead | null) {
                 frameActions: [{id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false}],
                 viewHead: viewHead.value,
                 onActivate: (id: string) => activated.push(id),
-                onHeadSlots: (next: ViewHeadSlots | null) => {
+                onHeadSlots: (next: PanelHeadSlots | null) => {
                     given.push(next);
                     slots.value = next;
                 },

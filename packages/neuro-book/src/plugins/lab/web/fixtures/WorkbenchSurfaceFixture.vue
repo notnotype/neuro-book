@@ -25,7 +25,7 @@ import {computed, ref, shallowRef, Teleport} from "vue";
 
 import WorkbenchPanelHead from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
 import type {PanelFrameAction, PanelHeadTab, PanelViewHead} from "nbook/plugins/workbench/web/components/WorkbenchPanelHead.vue";
-import type {ViewHeadSlots} from "nbook/plugins/workbench/web/views/view-head";
+import type {PanelHeadSlots} from "nbook/plugins/workbench/web/views/view-head";
 import WorkbenchSurface from "nbook/plugins/workbench/web/components/WorkbenchSurface.vue";
 import WorkbenchToolStrip from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
 import type {ToolStripEntry, ToolStripItem} from "nbook/plugins/workbench/web/components/WorkbenchToolStrip.vue";
@@ -183,7 +183,7 @@ const visibleText = computed(() => [...visible.value].sort().join(" "));
 
 /** “标题区”场景：视图 C 所在的只写标题的面板交给它标题区。 */
 const HEAD_VIEW = tabKey({kind: "view", viewId: "c"});
-const headSlots = shallowRef<ViewHeadSlots | null>(null);
+const headSlots = shallowRef<PanelHeadSlots | null>(null);
 function viewHeadOf(panelId: string): PanelViewHead | null {
     return props.scene === "view-head" && titleOnly.value.has(panelId) && doc.value.panels[panelId]?.active === HEAD_VIEW ? {key: "c:1", popup: {expanded: false}} : null;
 }

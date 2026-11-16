@@ -12,7 +12,7 @@ import type {EffectScope} from "vue";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {ViewSource} from "./registry";
-import {viewHeadOf} from "./view-head";
+import {viewHeadOf} from "../../shared/contracts";
 import {useViewInstances} from "./view-instances";
 import type {ViewInstances} from "./view-instances";
 

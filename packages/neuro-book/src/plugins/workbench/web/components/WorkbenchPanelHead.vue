@@ -4,7 +4,7 @@ import {TabStrip, useLayoutExtent} from "@notnotype/nb-layout/vue";
 import {IconButton} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
-import type {ViewHeadSlots} from "../views/view-head";
+import type {PanelHeadSlots} from "../views/view-head";
 import {panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
 import "./hover-actions.css";
 
@@ -62,7 +62,7 @@ const emit = defineEmits<{
     /** 标签的右键菜单（键盘是菜单键）；坐标是视口坐标。 */
     (event: "context-menu", id: string, at: {readonly x: number; readonly y: number}): void;
     /** 接管标题区时几个位置画出来了（换了）或拆掉了（null）。 */
-    (event: "head-slots", slots: ViewHeadSlots | null): void;
+    (event: "head-slots", slots: PanelHeadSlots | null): void;
 }>();
 
 defineSlots<{

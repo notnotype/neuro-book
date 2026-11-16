@@ -87,6 +87,78 @@ const newSession = async (page: Page): Promise<void> => {
     await expect(page.locator("[data-agent-welcome]")).toBeVisible();
 };
 
+/** 右栏对话视图所在面板头的标题按钮：视图接管标题区后，头的中间一列在它里面（conversation.md 输出 44）。 */
+const CONVERSATION_VIEW = "nbook.agent.conversation";
+const conversationHandle = (page: Page) => page.locator(`[data-panel-tab="view:${CONVERSATION_VIEW}"]`);
+const panelHeadOf = (page: Page, viewId: string) => page.locator(`[data-panel-head]:has([data-panel-tab="view:${viewId}"])`);
+
+test("对话写在面板头上（conversation.md 输出 44）：头的三列在面板头里；按标题开会话列表，Esc 关掉回到标题；浮动窗里成了标签条时头回到内容里，对话不重建；回到只有一个标签时头又回到面板头", async ({page}) => {
+    await openConversation(page);
+    await newSession(page);
+    const handle = conversationHandle(page);
+    const sessions = page.locator(".acv-head__sessions");
+    await expect(handle.locator("[data-header-title]")).toBeVisible();
+    await expect(page.locator("[data-agent-head]")).toBeHidden();
+
+    // 按标题开会话列表（标题按钮写 aria-expanded）；Esc 关掉，焦点回到标题。
+    await handle.click();
+    await expect(sessions).toBeVisible();
+    await expect(handle).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Escape");
+    await expect(sessions).toHaveCount(0);
+    await expect(handle).toBeFocused();
+    await expect(handle).toHaveAttribute("aria-expanded", "false");
+
+    // 输入框里留一段字、记下内容节点：头搬来搬去，对话不重建。
+    await input(page).click();
+    await page.keyboard.type("头搬家前写的字");
+    const node = await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).elementHandle();
+
+    // 浮出去：只有一个标签的浮动窗同样把标题区交给视图。
+    await panelHeadOf(page, CONVERSATION_VIEW).locator("[data-panel-action=\"nbook.view.float\"]").click();
+    await expect(page.locator("[data-float-chrome]")).toHaveCount(1);
+    await expect(handle.locator("[data-header-title]")).toBeVisible();
+    const target = (await panelHeadOf(page, CONVERSATION_VIEW).getAttribute("data-panel-head"))!;
+
+    // 侧栏的会话分节拖进对话的窗（落在窗的中间是添加为标签）：成了标签条，头回到内容里。只有一个标签的浮动窗，按住标题拖的是整个窗，
+    // 所以来源是树里的分节。
+    const SESSIONS_VIEW = "nbook.agent.sessions";
+    const box = (await page.locator(`[data-leaf="${target}"]`).first().boundingBox())!;
+    const from = (await page.locator(`[data-panel-tab="view:${SESSIONS_VIEW}"]`).boundingBox())!;
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2 + 10, {steps: 2});
+    await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.6, {steps: 8});
+    await page.mouse.up();
+    await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
+    await expect(panelHeadOf(page, CONVERSATION_VIEW).locator("[data-panel-tab]")).toHaveCount(2);
+    await handle.click();
+    await expect(page.locator("[data-agent-head]")).toBeVisible();
+    await expect(page.locator("[data-agent-head] [data-header-title]")).toBeVisible();
+    await expect(input(page)).toContainText("头搬家前写的字");
+    expect(await page.locator(`[data-content="view:${CONVERSATION_VIEW}"]`).evaluate((element, other) => element === other, node)).toBe(true);
+    // 头在内容里时会话列表照样开：锚在内容里的标题上。
+    await page.locator("[data-header-sessions]").click();
+    await expect(sessions).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // 把会话面板拖走，窗里又只剩对话一个标签：头回到面板头。
+    const to = (await page.locator("[data-workbench-shell]").boundingBox())!;
+    const tabBox = (await page.locator(`[data-panel-tab="view:${SESSIONS_VIEW}"]`).boundingBox())!;
+    await page.mouse.move(tabBox.x + tabBox.width / 2, tabBox.y + tabBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(tabBox.x + tabBox.width / 2 + 10, tabBox.y + tabBox.height / 2 + 10, {steps: 2});
+    await expect(page.locator("[data-workbench-drag-ghost]")).toBeVisible();
+    await page.mouse.move(to.x + 40, to.y + 12, {steps: 8});
+    await page.mouse.up();
+    await expect(page.locator("[data-workbench-drag-ghost]")).toHaveCount(0);
+    await expect(panelHeadOf(page, CONVERSATION_VIEW).locator("[data-panel-tab]")).toHaveCount(1);
+    await expect(handle.locator("[data-header-title]")).toBeVisible();
+    await expect(page.locator("[data-agent-head]")).toBeHidden();
+    await expect(input(page)).toContainText("头搬家前写的字");
+});
+
 test("验收 1：发一条，看到回复与状态栏；刷新后回到同一会话", async ({page}) => {
     await script("这是回复。");
     await openConversation(page);
@@ -493,7 +565,8 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     await page.locator("[data-header-new]").click();
     await expect(page.locator("[data-agent-welcome]")).toBeVisible();
     await expect(input(page)).not.toContainText("没写完的字");
-    await page.locator("[data-header-sessions]").click();
+    // 头写在面板头上（输出 44）：按面板头的标题开会话列表。
+    await conversationHandle(page).click();
     await page.getByRole("button", {name: /雨夜/u}).or(page.getByText("雨夜")).first().click();
     await expect(input(page)).toContainText("没写完的字");
     await page.reload();

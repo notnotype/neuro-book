@@ -82,7 +82,7 @@ type PanelViewHead = {
 };
 
 /** 交给视图的位置，都是这个组件渲染的元素。 */
-type ViewHeadSlots = {start: HTMLElement; title: HTMLElement; end: HTMLElement; handle: HTMLElement};
+type PanelHeadSlots = {start: HTMLElement; title: HTMLElement; end: HTMLElement; handle: HTMLElement};
 
 type Emits = {
     (event: "activate", id: string): void;
@@ -91,7 +91,7 @@ type Emits = {
     /** 坐标是视口坐标；菜单键时是标签左下角。 */
     (event: "context-menu", id: string, at: {x: number; y: number}): void;
     /** 接管标题区时几个位置画出来了（或换了一组），不再接管、卸载时是 null；在渲染完成之后发。 */
-    (event: "head-slots", slots: ViewHeadSlots | null): void;
+    (event: "head-slots", slots: PanelHeadSlots | null): void;
 };
 
 type Slots = {

@@ -42,7 +42,7 @@ import type {WorkbenchDragSource} from "../entry-drop";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
 import type {EditorAreaContext, EditorTabDrag, PanelFrameControl} from "../contracts";
-import type {ViewHeadSlots} from "../views/view-head";
+import type {PanelHeadSlots} from "../views/view-head";
 import {mountEditorArea} from "../editor-area";
 import type {EditorAreaSource} from "../editor-area";
 import {SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
@@ -276,9 +276,9 @@ function panelViewHead(panelId: string): PanelViewHead | null {
 }
 
 /** 面板头交来的位置，按面板记。 */
-const panelHeadSlots = shallowReactive(new Map<string, ViewHeadSlots>());
+const panelHeadSlots = shallowReactive(new Map<string, PanelHeadSlots>());
 
-function setPanelHeadSlots(panelId: string, slots: ViewHeadSlots | null): void {
+function setPanelHeadSlots(panelId: string, slots: PanelHeadSlots | null): void {
     if (slots === null) panelHeadSlots.delete(panelId);
     else panelHeadSlots.set(panelId, slots);
 }

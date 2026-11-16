@@ -20,8 +20,9 @@ import {manifestFormat} from "nbook/plugin-platform-profile";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 
 import type {ViewContainerDeclaration, ViewDeclaration} from "../../shared/views";
-import {VIEW_HEAD} from "../contracts";
-import type {ViewHeadOptIn, ViewImplementation} from "../contracts";
+import {VIEW_HEAD} from "../../shared/contracts";
+import type {ViewHeadOptIn} from "../../shared/contracts";
+import type {ViewImplementation} from "../contracts";
 
 /** 视图声明目录：视图 id 到声明。布局模型靠它决定视图的默认位置、尺寸约束与顺序。 */
 export type ViewCatalog = ReadonlyMap<string, ViewDeclaration>;
