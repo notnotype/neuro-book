@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t29-ui-polish-after-t15
-status: active
+status: done
 updated: 2026-11-16
 ---
 
@@ -52,6 +52,7 @@ updated: 2026-11-16
 | 10 | 2026-11-16 | 评审板第 5 轮：模型不可用的提示用第 4 轮的浮层提示卡（压在输入框上沿），不用 `Banner`；开发者认为编辑组的横幅也没做好、以后也改（记进后续）。卡头整行可点不做；开发者要的是一个地方管理当前会话绑定的全部子代理、看到它们的状态，适时有红点 |
 | 11 | 2026-11-16 | 评审板第 6 轮：子代理管理放面板头右边的入口（图标加个数，等你批准或回答、出错未看时有红点），点开浮层列出当前会话派出的全部子代理与孙代理（名字与任务、最近进度或结果、状态），点一行进子会话，运行中的悬停可停止；没有子代理时入口不显示。界面设计到此全部定了 |
 | 12 | 2026-11-16 | 拆分：对话面板改版到 t36、状态栏自定义到 t37；开发者确认本 Task 的[计划](plan.md) |
+| 13 | 2026-11-16 | 开发者批准 Spec 晋升：`models/settings-pages.md` 输出 1、12，`agent/profile-settings.md` 输出 2，`agent/conversation.md` 输出 33 去掉 planned；本 Task 完成 |
 
 合同：改 [`models/settings-pages.md`](../../../../../docs/specs/models/settings-pages.md) 与 [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。
 
@@ -106,4 +107,4 @@ e2e：`models.e2e.ts` 4 条全过（含窄时删除、删除的三条路与焦�
 
 ## 下一步
 
-请开发者批准 Spec 晋升：`models/settings-pages.md` 输出 1、12，`agent/profile-settings.md` 输出 2，`agent/conversation.md` 输出 33 里本 Task 标的“（planned）”去掉；同时把 `settings-pages.md` 实现合同里“删除确认关闭之后焦点回到‘删除’（取消）”改成回到那家的条目。批准后本 Task 完成。
+无。本 Task 完成（决定 13）；对话面板改版接着在 [t36](../t36-conversation-panel-redesign/README.md) 做。

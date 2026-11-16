@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t36-conversation-panel-redesign
-status: planned
+status: active
 updated: 2026-11-16
 ---
 
@@ -20,10 +20,22 @@ updated: 2026-11-16
 
 合同：开工写计划时定（`ui/agent-conversation-view.md`、`agent/conversation.md`、`workbench/views.md`、`ui/workbench-layout.md`、`agent/profile-settings.md` 或 Profile 声明的 Spec、`settings/settings-window.md` 的打开到指定位置）。
 
+## 决定
+
+| 编号 | 日期 | 决定 |
+|---|---|---|
+| 1 | 2026-11-16 | 开发者确认[计划](plan.md)，下面 2 到 7 按推荐 |
+| 2 | 2026-11-16 | 内容区的读屏名称仍是视图标题“对话”；面板头的标题按钮写会话标题 |
+| 3 | 2026-11-16 | “出错未看”的红点只在本窗口里记：打开子代理浮层或进入那个子会话算看过，刷新后旧的出错不再亮 |
+| 4 | 2026-11-16 | 提示卡上的“这是什么？”不做：没有可链接的说明页 |
+| 5 | 2026-11-16 | 开场指令至多 3 条（文字加可选图标）；有会话没消息时显示这个会话 Profile 的指令，没选会话时用新会话会用的 Profile 的 |
+| 6 | 2026-11-16 | 视图的标题区先只给内置插件用，插件 SDK 不导出，等第二个用户出现再导出 |
+| 7 | 2026-11-16 | 子代理管理里的停止只停这次运行，子会话保留，可以继续发消息 |
+
 ## 当前状态
 
-2026-11-16 从 t29 拆出，尚未开工；草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `ConversationRound2Draft`、`ModelNoticeDraft`、`SubagentsDraft`。
+2026-11-16 开工，计划已确认；草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `ConversationRound2Draft`、`ModelNoticeDraft`、`SubagentsDraft`。
 
 ## 下一步
 
-t29 之后开工，按 implementation-planning 写计划。
+计划的设计审查（omp），处理完按切片实施。

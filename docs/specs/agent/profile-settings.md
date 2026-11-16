@@ -38,7 +38,7 @@ owners:
 **整页**
 
 1. 左边是 Profile 列表，右边是选中的那个。第一次打开选中第一项。页面窄于 600px 时，列表收成顶上的下拉加一个新建按钮，下拉选项写状态，工具行与控件改成上下排。
-2. 列表每项一行，高度同窗口左栏：图标、名称，行尾一格；有问题时这一格是图标（不可用、有错误各一种），悬停条目写原因；来源（内置、插件名、“我写的”）不写在列表里，在详情头部的提示里（planned）。可选的在前，`hidden` 的放最后一组“后台”。键盘同“服务商与模型”的左栏：上下键、Home、End 移动并选中，只有当前项在 Tab 序列里；“新建 Profile”不在这个序列里。
+2. 列表每项一行，高度同窗口左栏：图标、名称，行尾一格；有问题时这一格是图标（不可用、有错误各一种），悬停条目写原因；来源（内置、插件名、“我写的”）不写在列表里，在详情头部的提示里。可选的在前，`hidden` 的放最后一组“后台”。键盘同“服务商与模型”的左栏：上下键、Home、End 移动并选中，只有当前项在 Tab 序列里；“新建 Profile”不在这个序列里。
 3. 右边头部一行：名称与说明（放不下时截断）、问题、用户级的“打开文件”“删除”。名称与说明可以聚焦，悬停或聚焦时提示全文、key 与来源。
 4. 问题不占新的一行：有没有问题，头部之下的内容位置相同。Profile 级的（不可用、有错误）在头部右边，写原因，放不下时截断，全文在提示里；字段级的在这一行标题后加图标，并把说明换成问题。
 
@@ -126,7 +126,7 @@ owners:
 
 ## 证据
 
-- 批准依据：开发者 2026-11-07 确认的计划（`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md`）与评审板三轮决定。
+- 批准依据：开发者 2026-11-07 确认的计划（`.agents/works/w00032-agent-integration/tasks/t05-profile/plan.md`）与评审板三轮决定；单行列表（输出 2）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。
 - 实现入口：[`profile-page.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.ts)、[`ProfileSettingsPage.vue`](../../../packages/neuro-book/src/plugins/agent/web/components/ProfileSettingsPage.vue)、[`profile-bundles.ts`](../../../packages/neuro-book/src/plugins/agent/backend/profile-bundles.ts)
 - 合同测试：[`profile-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-page.dom.test.ts)、[`profile-view.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-view.test.ts)、[`profiles.test.ts`](../../../packages/neuro-book/src/plugins/agent/profiles.test.ts)
 - Smoke：[`agent-profiles.e2e.ts`](../../../packages/neuro-book/e2e/agent-profiles.e2e.ts)
