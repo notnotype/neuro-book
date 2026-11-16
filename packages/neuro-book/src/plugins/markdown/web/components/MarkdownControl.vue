@@ -161,7 +161,8 @@ const commitNow = (): void => {
         view.confirmed = result.revision;
         view.held = false;
         // 回填改了文档，ProseMirror 会随之清掉接着打字要用的格式（stored marks）；停手的交出常落在用户刚按下快捷键切换格式、
-        // 还没打下一个字的时候，不带过去就丢了这次切换。回填只改属性、不动选区，原样带过去仍对得上光标。
+        // 还没打下一个字的时候，不带过去就丢了这次切换。回填只改属性、不动选区，原样带过去仍对得上光标。带过去的是回填前的
+        // mark（还没记下写法），接着打的字是新内容，按缺省写法写出，下一次交出时再回填。
         const stored = current.state.storedMarks;
         quietly(current, (tr) => {
             written.accept(tr);

@@ -234,7 +234,7 @@ describe("在格式的边界打字（workbench.editor 输出 62）", () => {
         // 与 prosemirror-keymap 认 `Mod` 的办法相同：苹果平台是 Meta，其余是 Ctrl。
         const mod = /Mac|iP(?:hone|[oa]d)/u.test(navigator.platform) ? {metaKey: true} : {ctrlKey: true};
         const shortcut = (key: string): void => {
-            expect(editor.view.someProp("handleKeyDown", (handle) => handle(editor.view, new KeyboardEvent("keydown", {key, ...mod})))).toBe(true);
+            expect(editor.view.someProp("handleKeyDown", (onKeyDown) => onKeyDown(editor.view, new KeyboardEvent("keydown", {key, ...mod})))).toBe(true);
         };
         shortcut("b");
         type(editor, "粗");

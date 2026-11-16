@@ -186,9 +186,10 @@ async function projectRecord(page: Page, key: "editor.tabs" | "editor.recent" | 
 
 /**
  * 这几个标签都随会话落盘了：标签在 `editor.tabs`，在哪块面板、谁是活动的在 `workbench.layout`，两条分开写。刷新或离开页面之前
- * 等它，否则恢复出来的标签会少。
+ * 等它，否则恢复出来的标签会少。没给标签（还没读到标签条）不算落盘。
  */
 async function tabsSaved(page: Page, ids: ReadonlyArray<string>): Promise<boolean> {
+    if (ids.length === 0) return false;
     const saved = Object.keys(((await projectRecord(page, "editor.tabs"))?.tabs ?? {}) as Record<string, unknown>);
     const layout = JSON.stringify(await projectRecord(page, "workbench.layout", "nbook.workbench"));
     return ids.every((id) => saved.includes(id) && layout.includes(id));
@@ -246,7 +247,7 @@ async function noDropShown(page: Page): Promise<void> {
  */
 async function expand(page: Page, folder: string): Promise<void> {
     await expect(async () => {
-        if (await item(page, folder).getAttribute("aria-expanded") !== "true") await item(page, folder).click();
+        if (await item(page, folder).getAttribute("aria-expanded", {timeout: 3000}) !== "true") await item(page, folder).click({timeout: 3000});
         await expect(item(page, folder)).toHaveAttribute("aria-expanded", "true", {timeout: 1000});
     }).toPass();
 }
@@ -1304,6 +1305,8 @@ test("有未保存的修改时离开页面先请求确认；保存之后不再�
     await page.close({runBeforeUnload: true});
     await expect.poll(() => page.isClosed()).toBe(true);
     expect(dialogs).toEqual(["beforeunload"]);
+    // 资源树是虚拟列表：不给后面的用例多留一行。
+    await rm(join(projectDir, "notes/leave.md"));
 });
 
 test("Markdown：打开、切走、关闭都不改磁盘字节；编辑最后一段后保存，只有那一行变化（含 CRLF、列表标记、ruby 与 frontmatter）", async ({page}) => {
@@ -1749,8 +1752,8 @@ test("重新打开回到上次的光标：Markdown 放回原处并聚焦、可�
     const code = page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
     await expect(code).toBeVisible();
     await code.click();
-    // 键要等编辑器拿到焦点再按（atEnd 同理）。
-    await expect.poll(() => page.evaluate(() => document.activeElement?.closest(".monaco-editor") !== null)).toBe(true);
+    // 键要等这个编辑器拿到焦点再按（atEnd 同理）。
+    await expect.poll(() => code.evaluate((editor) => editor.contains(document.activeElement))).toBe(true);
     await page.keyboard.press("Control+Home");
     await page.keyboard.press("ArrowDown");
     for (let step = 0; step < 3; step += 1) await page.keyboard.press("ArrowRight");
@@ -2074,6 +2077,7 @@ test.describe("每个标签一个控件（docs/specs/workbench/editor.md 术语�
         await closeAll(page);
         for (const name of ["a", "b", "c"]) await item(page, `project://notes/${name}.md`).dblclick();
         await expect(page.locator("[data-editor-kind]")).toHaveCount(3);
+        await expect(tabs(page)).toHaveCount(3);
         const ids = await tabs(page).evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-editor-tab") ?? ""));
         await expect.poll(() => tabsSaved(page, ids)).toBe(true);
         await page.reload();
