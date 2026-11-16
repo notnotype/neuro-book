@@ -1,0 +1,43 @@
+# t13 实现审查（后端）r1，Opus。被审范围 c3088ead3..fca6ee29b；只读；结论都对照了源码，没跑测试、没上 Windows。
+
+## 1. 托盘退出取工作期间服务端意外退出：给“无法确认”对话框，而不是按输出 30 直接退出（低）
+
+- 位置：packages/neuro-book/src/desktop/shell.ts:206-223（`#checkWorkThenQuit`，`await runningWork(serverUrl)` 之后）。
+- 问题：取工作完成后只看了“作废没有、有没有窗口、在不在停止中”，没有再看服务端是否还在。输出 30：“没有窗口、服务端已意外退出（对话框开着或选过“稍后”）时直接退出”。`trayQuit()` 只在点击那一刻看 `#server === null`。
+- 触发：后台（设置 tray、没有窗口）→ 点托盘“退出”，进入取工作（截止 8 秒）→ 这期间服务端崩溃，`#serverExited` 把 `#server` 置 null、弹“服务意外退出”对话框 → fetch 连不上，`checkRunningWork` 交回 `{count: 0, uncertain: true}` → 壳再弹“NeuroBook 有工作在跑……无法确认是否有工作在跑”。用户同时看到两个对话框，第二个说的情况不成立；要再点一次“仍然退出”才走。
+- 建议：await 之后、判断 `work` 之前加一条 `if (this.#server === null) { this.#coordinator.quitRequested(); return; }`（与 `trayQuit()` 里那条同义）；shell.test 补“取工作期间杀掉服务端”一例（脚本入口 + manualWork，杀掉后再 answer）。
+- 严重程度：低（要在最多 8 秒的窗口里恰好崩溃；结果是多一个说法不准的对话框，不丢数据）。
+
+## 2. 适配层不用 setVisible 的理由与 Electrobun 2.0.6 源码不符（低）
+
+- 位置：packages/neuro-book/desktop/src/bun/index.ts:16-18（模块头“托盘”一段：“Electrobun 2.0.6 重新显示时换了 id，菜单与按 id 挂的点击监听都不跟着重建”）；同一说法在 plan.md 第 35、151 行。
+- 核对：源码副本 package.json 是 2.0.6。`Tray.setVisible(false)` 只调 `hideTray({id})`，`this.id` 不变；`setVisible(true)` 在 id 非 0 时调 `showTray({id})`。core/main.zig:3915 `showTray` 用同一个 `tray_id` 调 `createNativeTrayForState(tray_id, state)`，而 main.zig:1769-1806 里这个函数把 `state.handler` 交给原生 `createTray`，并在 `state.menu_config` 不为空时重新 `setTrayMenu`（`setTrayMenu` 在 main.zig:3967 先把菜单存进 `state.menu_config`）。Windows 的 nativeWrapper.cpp:14798 `nid.uID = trayId` 也用同一个 id。所以重新显示时 id 不变，菜单和点击都会跟着重建。
+- 影响：现在的做法（remove 加新建）本身没错，行为也对；错的是写下来的理由。后来的人会照这条注释认定 `setVisible` 不能用，或者在升级 Electrobun 时去查一个不存在的问题。
+- 建议：改成真实理由，或者干脆不写理由：例如“隐藏时删掉对象，下次要显示再新建：状态只有‘有没有对象’一种，`trayShown` 直接读它”。要保留“2.0.6 有这个坑”的说法，就先在 Windows 探针（切片 6）里实测再写。plan.md 里那一条也跟着改。
+- 严重程度：低（只是注释与计划的事实错误）。
+
+## 3. 启动中收到框架退出请求：收尾从 #allClosed 改走 #stopAndExit，启动流程收不到“退出”（低）
+
+- 位置：packages/neuro-book/src/desktop/windows.ts:292-296（`closed` 里 `#appQuit` 分支调 `#quit()`）；对照 shell.ts:575-583（`#stopAndExit`）与 shell.ts:585-596（`#allClosed`，第 593 行 `this.#startupAction?.("exit")`）。
+- 问题：改动前，取到锁以后、服务端就绪以前来的框架退出请求（`before-quit` → `quitRequested`）会直接关启动页，然后在 `closed` 里调 `onAllClosed`，壳走 `#allClosed`：给启动流程送 `"exit"`，正在等按钮的 `#noticeUncleanStop`、`#fail` 随之结束（前者结束后会删掉“没有正常停止”的标记）。现在 `quitRequested` 置了 `#appQuit`，`closed` 走 `#quit()` → `onQuit` → `#stopAndExit`。这条路不送 `"exit"`，协调器还进入了 `#stopping`，`#stopAndExit` 的注释“最后一次关闭被同意”也不再成立。
+- 触发：上次没有正常停止 → 这次启动显示“上次退出时服务端没有正常停止”，这时系统或框架发来退出请求 → 壳停服务端、放锁、退出，标记文件没删，下次启动再提示一遍。用户直接关启动页（`closeRequested`，不置 `#appQuit`）走的仍是 `#allClosed`，所以同样是“启动中关掉”，两条路的收尾不一样。没有发现会卡住：`#releaseAndExit` 最后照样退出，悬着的启动流程随进程结束。
+- 建议：输出 29 的表与输出 31 讲的都是有产品窗口时的应用级退出。可以让 `quitRequested` 只在服务端就绪后（`#serverUrl !== null`）置 `#appQuit`；也可以在 `closed` 的 `#appQuit` 分支里，`#ownsServer` 为假或还没就绪时仍调 `onAllClosed`。哪种都行，目的是让启动中的退出照旧经输出 23 的那条路。windows.test.ts:249-253 那例（`harness({ready: false})` 加 `quitRequested`）补上 `closed(s)`，断言 `events` 是 `["all-closed"]`。
+- 严重程度：低（后果只是标记多留一次、两条路不一致；框架退出请求在 Windows 上本来就少见）。
+
+## 4. 托盘图标建不出来之后什么时候再建，没有写明；登录时建失败会一直没有图标（低，从代码推断，未在 Windows 上验证）
+
+- 位置：packages/neuro-book/desktop/src/bun/index.ts:509-535（`setTray`）；packages/neuro-book/src/desktop/shell.ts 的 `#refreshTray`（按 `#lastTrayView` 去重）。
+- 问题：`new Tray` 交回 id 0 时，适配层丢掉对象、记一条诊断，但壳的 `#lastTrayView` 已记成 `{visible: true}`。之后视图不变就不会再调 `setTray`；视图一变（提示文字变了，或设置在 tray 与 quit 之间切换），`tray === null` 又会走到 `new Tray`，等于隐式重试。重试时机取决于提示文字什么时候变，注释里只写了“丢掉、记诊断”。Windows 原生的 `createTray` 只在 `Shell_NotifyIconW(NIM_ADD)` 失败时交回空（nativeWrapper.cpp:14833-14845；图标文件读不出时退回 `IDI_APPLICATION`，不算失败）。NIM_ADD 失败最可能出现在登录后任务栏还没就绪的时候。
+- 触发：“登录 Windows 时打开”加设置 tray（Spec 验收 17 的最后一句“开机自启叠加留在托盘：登录后图标出现”）→ 登录后服务端就绪、建图标时 NIM_ADD 失败 → 这次运行一直没有图标，关最后一个窗口时按 quit 停止。Electrobun 不处理 `TaskbarCreated`（plan.md 已列为已知限制），所以任务栏就绪以后也不会补上。用户能看到的只是“设了留在托盘却退出了”，只有日志里有一行 `desktop.tray.create-failed`。
+- 建议：先在切片 6 的 Windows 验收里专门看“开机自启加 tray”这一项是否稳定。不稳定再选一个明确的策略写进注释，比如建失败后隔几秒重试一两次，或者在下一次 `#refreshTray` 时重试，并说明 `trayShown` 在重试成功前一直为假。稳定的话，把注释改成“视图下次变化时会再试一次”，让现在的隐式行为有据可查。
+- 严重程度：低。
+
+## 5. 计划切片 4 的“取工作时开窗转交，作废”没有直接测到（低）
+
+- 位置：packages/neuro-book/src/desktop/shell.test.ts 的“托盘退出遇到在跑的工作……”一例（新增 describe“托盘与后台（输出 28 到 31）”的第二例）。
+- 问题：plan.md 切片 4 列了“取时点打开，作废”和“取时开窗转交，作废”两条。测试覆盖了取工作时点托盘“打开”，也覆盖了对话框开着时开窗转交，唯独没测取工作阶段（`#trayQuit.phase === "checking"`）收到 `openWindowRequested`。代码上这条走 `onWindowsChanged` → `#windowsChanged` → `#voidTrayQuit`，与“对话框阶段开窗转交”是同一个入口，所以现在大概率是对的；但这里一旦改坏，`#checkWorkThenQuit` 拿回结果时会因为 `#windowCount > 0` 直接返回，提示文字却可能停在“正在检查”，这个回归现有用例抓不到。
+- 触发：后台 → `trayQuit()` → 结果交回之前调 `shell.windows.openWindowRequested()` → 再 `work.answer({count: 0, uncertain: false})`。
+- 建议：在同一例里加这一段，断言开出了窗口、托盘提示回到“NeuroBook”、交回结果后没有退出、`quitWork` 没有新的显示。适配层的 `Tray` 生命周期和“有工作在跑”对话框的 X 关闭（`onDismiss` 交回 cancel）都没有单元测试，这在计划里归切片 6 的 Windows 验收，这里只记一笔，提醒验收清单别漏掉“X 关掉对话框等于取消”。
+- 严重程度：低。
+
+REVIEW-END
