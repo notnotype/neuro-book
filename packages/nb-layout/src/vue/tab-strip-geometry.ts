@@ -2,6 +2,9 @@
  * 标签条的插入判定（docs/specs/ui/workbench-layout.md 输出 25）：指针在 `TabStrip` 里算插到哪。读 DOM，只认 `TabStrip` 写的 `data-tab-row`、`data-panel-tab`、`data-tab-partition`。
  *
  * 返回邻居的标签键，不返回下标：收进“更多”的标签不在 DOM 里，下标、分区要不要换、是不是原位，都要宿主按它的文档换算。
+ *
+ * 判定点缺省是指针。宿主在条里排序、被拖的标签自己沿条跟手时（输出 38“标签条上”），传 `held`：判定点换成那个标签的前缘，
+ * 和摘掉来源、补上空位之后的邻居中线比，看到的就是“盖过邻居一半它就让开”，和抓在标签的哪一点无关。
  */
 
 import {resolveListInsertion} from "../grid-drop";
@@ -36,6 +39,16 @@ export interface TabStripSnapshot {
     readonly members: ReadonlyArray<Member>;
     /** 被摘掉的来源原来在哪个分区；不在这条上是 undefined。 */
     readonly excludedPartition: string | null | undefined;
+    /** 被摘掉的来源量到的矩形（含关闭按钮）；不在这条上是 undefined。宿主拿它的宽度和按下的点算 `TabStripHeld`。 */
+    readonly excludedRect: GridDropRect | undefined;
+}
+
+/** 在条里跟手的那个标签：它的前缘是 `point.x - grab * width`，夹在指针所在那一行的两端之间（和它画出来的位置同一个算法）。 */
+export interface TabStripHeld {
+    /** 标签的宽度（含关闭按钮），CSS px。 */
+    readonly width: number;
+    /** 抓住的点占宽度的比例，0 到 1。 */
+    readonly grab: number;
 }
 
 /**
@@ -50,24 +63,50 @@ export function translateTabStrip(snapshot: TabStripSnapshot, by: {readonly x: n
         view: move(snapshot.view, widen),
         lines: snapshot.lines.map((line) => ({...line, rect: move(line.rect, widen), members: line.members.map(member)})),
         members: snapshot.members.map(member),
+        excludedRect: snapshot.excludedRect === undefined ? undefined : move(snapshot.excludedRect),
     };
 }
 
 const memberOf = (tab: HTMLElement): Member => ({id: tab.dataset.panelTab as string, rect: rectOf(tab.parentElement as HTMLElement), partition: tab.dataset.tabPartition ?? null});
 
+/**
+ * 摘掉来源后补上它的空位：同一行（同一个 `data-tab-row`、同一条折行）里排在它后面的标签往前挪一格，一格是来源左缘到它后一个标签左缘的距离（含间距）。
+ * 别的行不动：真摘掉时折行会重排，这里不模拟。来源是这一行最后一个时没有要挪的。
+ */
+function closeGap(row: ReadonlyArray<Member>, exclude: string | null): ReadonlyArray<Member> {
+    const at = exclude === null ? -1 : row.findIndex((member) => member.id === exclude);
+    const next = row[at + 1];
+    if (at < 0 || next === undefined) return row;
+    const step = next.rect.left - (row[at] as Member).rect.left;
+    return row.map((member, index) => (index > at ? {...member, rect: {...member.rect, left: member.rect.left - step, right: member.rect.right - step}} : member));
+}
+
+/** 一个 `data-tab-row` 里的标签按折行分组，从上到下。 */
+function wrappedLines(frames: ReadonlyArray<Member>): ReadonlyArray<ReadonlyArray<Member>> {
+    const byTop = new Map<number, Member[]>();
+    for (const frame of frames) {
+        const key = Math.round(frame.rect.top);
+        byTop.set(key, [...(byTop.get(key) ?? []), frame]);
+    }
+    return [...byTop].sort(([a], [b]) => a - b).map(([, line]) => line);
+}
+
+/** 每一行的标签，来源的空位已补上（来源本身还在，调用方按需摘掉）。 */
+function rowsOf(strip: Element, exclude: string | null): ReadonlyArray<{readonly row: HTMLElement; readonly lines: ReadonlyArray<ReadonlyArray<Member>>}> {
+    return [...strip.querySelectorAll<HTMLElement>("[data-tab-row]")].map((row) => ({
+        row,
+        lines: wrappedLines([...row.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf)).map((line) => closeGap(line, exclude)),
+    }));
+}
+
 function linesOf(strip: Element, exclude: string | null): Line[] {
     const lines: Line[] = [];
     const stripRect = rectOf(strip);
-    for (const row of strip.querySelectorAll<HTMLElement>("[data-tab-row]")) {
-        const frames = [...row.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf);
+    for (const {row, lines: wrapped} of rowsOf(strip, exclude)) {
+        const frames = wrapped.flat();
         const rowPartition = row.dataset.tabRowPartition ?? null;
-        const byTop = new Map<number, Member[]>();
-        for (const frame of frames) {
-            const key = Math.round(frame.rect.top);
-            byTop.set(key, [...(byTop.get(key) ?? []), frame]);
-        }
         const rowRect = rectOf(row);
-        for (const [, line] of [...byTop].sort(([a], [b]) => a - b)) {
+        for (const line of wrapped) {
             const members = line.filter((member) => member.id !== exclude);
             if (members.length === 0) continue;
             const top = Math.min(...members.map((member) => member.rect.top));
@@ -90,11 +129,24 @@ export interface TabStripInsertion {
     readonly indicator: GridDropRect;
 }
 
-/** 量一份标签条。`exclude`：摘掉这个标签（被拖的来源），算出的插入位就是“摘掉来源之后”的。 */
+/**
+ * 量一份标签条。`exclude`：摘掉这个标签（被拖的来源），它那一行后面的标签补上它的空位，算出的插入位就是“摘掉来源之后”的；
+ * 和预览里来源收起、邻居合拢的样子一致，在条里跟手排序时（`held`）原位也落在原处。
+ */
 export function measureTabStrip(strip: Element, exclude: string | null = null): TabStripSnapshot {
     const all = [...strip.querySelectorAll<HTMLElement>("[data-panel-tab]")].map(memberOf);
     const excluded = all.find((member) => member.id === exclude);
-    return {view: rectOf(strip), lines: linesOf(strip, exclude), members: all.filter((member) => member.id !== exclude), excludedPartition: excluded?.partition};
+    const closed = new Map(rowsOf(strip, exclude).flatMap(({lines}) => lines.flat()).map((member) => [member.id, member.rect] as const));
+    const members = all.filter((member) => member.id !== exclude).map((member) => ({...member, rect: closed.get(member.id) ?? member.rect}));
+    return {view: rectOf(strip), lines: linesOf(strip, exclude), members, excludedPartition: excluded?.partition, excludedRect: excluded?.rect};
+}
+
+/** 跟手的标签此刻的前缘：抓住的点在指针下，夹在这一行的两端之间；坏数字退回指针。 */
+function heldEdge(x: number, held: TabStripHeld, line: GridDropRect): number {
+    const {width, grab} = held;
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(grab)) return x;
+    const edge = x - Math.min(1, Math.max(0, grab)) * width;
+    return Math.min(Math.max(edge, line.left), Math.max(line.left, line.right - width));
 }
 
 /** 指针在标签条里的插入位：先按纵向距离选行（在行里的距离为 0），再在行里求。 */
@@ -102,14 +154,18 @@ export function resolveTabStripInsertion(strip: Element, point: GridDropPoint): 
     return tabStripInsertionIn(measureTabStrip(strip), point);
 }
 
-/** 同上，用量好的那份。 */
-export function tabStripInsertionIn(snapshot: TabStripSnapshot, point: GridDropPoint): TabStripInsertion | null {
+/**
+ * 同上，用量好的那份。行按指针选；`held` 给了时，行里的判定点是跟手的那个标签的前缘（见模块头）。
+ * 前缘过了左边邻居的中线就插到它前面；往右时邻居在预览里让出了一格，前缘过了它量到的中线，就是标签的右缘过了它画出来的中线。
+ */
+export function tabStripInsertionIn(snapshot: TabStripSnapshot, point: GridDropPoint, held: TabStripHeld | null = null): TabStripInsertion | null {
     const {lines} = snapshot;
     if (lines.length === 0) return null;
     const distance = (line: Line): number => (point.y < line.rect.top ? line.rect.top - point.y : point.y > line.rect.bottom ? point.y - line.rect.bottom : 0);
     const line = lines.reduce((best, candidate) => (distance(candidate) < distance(best) ? candidate : best));
-    const containerRect = {...line.rect, left: Math.min(line.rect.left, point.x), right: Math.max(line.rect.right, point.x)};
-    const insertion = resolveListInsertion({orientation: "horizontal", point: {x: point.x, y: (line.rect.top + line.rect.bottom) / 2}, containerRect, members: line.members.map(({id, rect}) => ({id, rect}))});
+    const x = held === null ? point.x : heldEdge(point.x, held, line.rect);
+    const containerRect = {...line.rect, left: Math.min(line.rect.left, x), right: Math.max(line.rect.right, x)};
+    const insertion = resolveListInsertion({orientation: "horizontal", point: {x, y: (line.rect.top + line.rect.bottom) / 2}, containerRect, members: line.members.map(({id, rect}) => ({id, rect}))});
     if (insertion === null) return null;
     const all = snapshot.members;
     const samePartition = (partition: string | null): ReadonlyArray<Member> => all.filter((member) => member.partition === partition);

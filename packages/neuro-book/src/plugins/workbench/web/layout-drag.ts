@@ -12,7 +12,7 @@
 import {applyLayoutDrop, clampFloatRect, enumerateDropCandidates, findTab, isFloating, isPanelShown, LAYOUT_FLOAT_EDGE_RATIO, LAYOUT_MAX_FLOATS, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, previewPanelRects, removeTab, resolveLayoutDrop, tabKey, treeLeaves} from "@notnotype/nb-layout";
 import type {GridDropPoint, GridDropRect, GridExtent, GridFloatInput, GridOrientation, GridRect, LayoutDoc, LayoutDropAction, LayoutDropCandidate, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSector, LayoutDropSectorId, LayoutDropSource, LayoutFloatRect, LayoutPolicy, LayoutProjectionOptions, LayoutSource, TabRef} from "@notnotype/nb-layout";
 import {createDragSession, layoutMotionMs, measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops, translateTabStrip} from "@notnotype/nb-layout/vue";
-import type {DragSession, TabStripSnapshot} from "@notnotype/nb-layout/vue";
+import type {DragSession, TabStripHeld, TabStripSnapshot} from "@notnotype/nb-layout/vue";
 
 import {nextTick, readonly, shallowRef} from "vue";
 import type {Ref} from "vue";
@@ -177,6 +177,8 @@ interface FrozenGeometry {
     readonly geometry: DragGeometry;
     readonly strips: ReadonlyMap<string, TabStripSnapshot>;
     readonly bar: ReadonlyArray<BarEntryRect>;
+    /** 被拖的标签拿起时的宽度与按下的点占它的比例：在标签条里跟手时判定按它的前缘（输出 38“标签条上”）。量不到（键盘、没有按下的点）是 null，按指针判。 */
+    readonly heldTab: TabStripHeld | null;
 }
 
 /** 编辑器不让放的落点：哪个标签、放到哪（`answeredByEditor` 答拒绝的那一个）。 */
@@ -210,6 +212,8 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     let sourceCollapsed = false;
     /** 收起前的判定几何：回到原处展开时换回它（输出 38）。 */
     let beforeCollapse: FrozenGeometry | null = null;
+    /** 这一场按下的点（视口坐标）：键盘拿起是 null。 */
+    let pressedAt: GridDropPoint | null = null;
     /** 这一场是整窗拖动：抓住的点相对窗的偏移；窗拿起时呈现的位置与大小（夹位置用）；记录里的大小（提交用：夹取不写回）。 */
     let windowDrag: {readonly panel: string; readonly grab: GridDropPoint; readonly origin: GridDropPoint; readonly from: GridDropPoint; readonly shown: GridExtent; readonly size: GridExtent} | null = null;
 
@@ -488,7 +492,9 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     /** 落在标签条上（工具面板与编辑组同一条路径）：不进预览缓存，每次按标签量。原位按文档判。 */
     function stripDrop(doc: LayoutDoc, source: LayoutDropSource, panel: string, point: GridDropPoint): LayoutDragDrop<LayoutDropAction> | null {
         const snapshot = stripSnapshot(panel);
-        const measured = snapshot === null ? null : tabStripInsertionIn(snapshot, point);
+        // 实时布局里标签条上是排序，被拖的标签自己在条里跟手：按它的位置判，不按指针（抓在标签右半边往左拖时，标签到了最左端指针还没过邻居的中线）。
+        const heldTab = source.kind === "tab" && live.active.value ? (frozen?.heldTab ?? null) : null;
+        const measured = snapshot === null ? null : tabStripInsertionIn(snapshot, point, heldTab);
         if (snapshot === null || measured === null) return null;
         const index = stripIndex(doc, panel, measured);
         const action: LayoutDropAction = {kind: "strip", panel, index};
@@ -520,14 +526,26 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     }
 
     function freeze(doc: LayoutDoc, source: LayoutTabSource): void {
-        frozen = {
-            geometry: measureGeometry(doc),
-            bar: measureBar(),
-            strips: new Map([...treeLeaves(doc.tree.root).map((leaf) => leaf.id), ...doc.floats.map((float) => float.panel)].flatMap((panel) => {
-                const strip = stripOf(panel);
-                return strip === null ? [] : [[panel, measureTabStrip(strip, source.tab)] as const];
-            })),
-        };
+        const strips = new Map([...treeLeaves(doc.tree.root).map((leaf) => leaf.id), ...doc.floats.map((float) => float.panel)].flatMap((panel) => {
+            const strip = stripOf(panel);
+            return strip === null ? [] : [[panel, measureTabStrip(strip, source.tab)] as const];
+        }));
+        const heldTab = heldTabOf(strips, source);
+        frozen = {geometry: measureGeometry(doc), bar: measureBar(), strips, heldTab};
+        // 跟手的位置（`measureSorted`）和判定用同一个抓点：标签画在哪，就按哪判。
+        if (heldTab !== null) sortGrab = heldTab.grab;
+    }
+
+    /**
+     * 被拖的标签在标签条里跟手时怎么判：宽度取它拿起时量到的（在自己的标签条里摘掉的那一个；只写标题的头没有标签条，取标题），按下的点在它上面的比例。
+     * 拖到别的标签条里它画出来的宽度可能不同（只写标题的头换成标签），判定仍按拿起时的宽度：只差在离两端很近的那一点。
+     */
+    function heldTabOf(strips: ReadonlyMap<string, TabStripSnapshot>, source: LayoutTabSource): TabStripHeld | null {
+        if (pressedAt === null) return null;
+        const rect = [...strips.values()].find((snapshot) => snapshot.excludedRect !== undefined)?.excludedRect ?? rectOf(root.querySelector(`[data-panel-tab="${escape(source.tab)}"]`));
+        const width = rect === null ? 0 : rect.right - rect.left;
+        if (rect === null || width <= 0) return null;
+        return {width, grab: Math.min(1, Math.max(0, (pressedAt.x - rect.left) / width))};
     }
 
     /**
@@ -564,7 +582,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
             return [[id, translateTabStrip(snapshot, {x: move.left, y: move.top}, move.right - move.left)] as const];
         }));
         const floats = kept.geometry.floats.filter((item) => base.floats.some((float) => float.panel === item.id));
-        return {geometry: {...kept.geometry, panels, floats}, strips, bar: barAfterCollapse(kept.bar, base)};
+        return {geometry: {...kept.geometry, panels, floats}, strips, bar: barAfterCollapse(kept.bar, base), heldTab: kept.heldTab};
     }
 
     /**
@@ -882,6 +900,7 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
         activate: (source, keyboard, at) => {
             previews.clear();
             sortGrab = null;
+            pressedAt = source.kind === "tab" && !keyboard ? (at?.pressed ?? null) : null;
             held = null;
             editorRefusal = null;
             shownDrop = null;

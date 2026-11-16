@@ -2327,4 +2327,44 @@ test.describe("实时布局（docs/specs/ui/workbench-layout.md“实时布局�
         expect(await node?.evaluate((element) => element.isConnected)).toBe(true);
         await closeAll(page);
     });
+
+    test("组内换位按被拖的标签算（docs/specs/ui/workbench-layout.md 输出 38“标签条上”）：A | B、A 活动，抓在 B 靠右的地方往左拖，B 的左沿过了 A 的中线 A 就让到后面，指针还在 A 的中线右边；往右拖到 B 的右沿过了 A 画出来的中线又回原位；松手是预览的样子", async ({page}) => {
+        await page.emulateMedia({reducedMotion: "no-preference"});
+        await page.setViewportSize({width: 1440, height: 900});
+        await open(page);
+        await closeAll(page);
+        for (const name of ["a", "b"]) await item(page, `project://notes/${name}.md`).dblclick();
+        await tabs(page).filter({hasText: "a.md"}).click();
+        await expect(prose(page)).toContainText("第一章");
+        await expect(labels(page)).toHaveText(["a.md", "b.md"]);
+        const frameOf = (name: string) => tabs(page).filter({hasText: name}).locator("xpath=ancestor::*[contains(concat(' ', @class, ' '), ' nb-tab-frame ')][1]");
+        const [a, b, button] = [await frameOf("a.md").boundingBox(), await frameOf("b.md").boundingBox(), await tabs(page).filter({hasText: "b.md"}).boundingBox()];
+        if (a === null || b === null || button === null) throw new Error("没有矩形");
+        const middleOfA = a.x + a.width / 2;
+        // 抓在 B 的标签按钮右缘往左 4px（再往右是关闭按钮，按在那里不起拖）：B 的左沿在 left 时指针在 left + grab。
+        const grab = button.x + button.width - 4 - b.x;
+        const y = b.y + b.height / 2;
+        await page.mouse.move(b.x + grab, y);
+        await page.mouse.down();
+        await page.mouse.move(b.x + grab - 10, y, {steps: 2});
+        const leftEdgeAt = (left: number) => page.mouse.move(left + grab, y, {steps: 6});
+
+        // B 的左沿过了 A 的中线 10px：指针离 A 的中线还有一截（按指针判的话 A 不动，B 都到了最左端 A 还没让）。
+        expect(middleOfA - 10 + grab).toBeGreaterThan(middleOfA);
+        await leftEdgeAt(middleOfA - 10);
+        await expect(page.locator("[data-lifted]")).toHaveCount(0);
+        await expect(labels(page)).toHaveText(["b.md", "a.md"]);
+        // 往右：A 在预览里画在 B 后面，B 的右沿过了它画出来的中线（即左沿过了它原来的中线）才换回去；差 4px 时不换。
+        await leftEdgeAt(middleOfA - 4);
+        await expect(labels(page)).toHaveText(["b.md", "a.md"]);
+        await leftEdgeAt(middleOfA + 10);
+        await expect(labels(page)).toHaveText(["a.md", "b.md"]);
+        await leftEdgeAt(middleOfA - 10);
+        await expect(labels(page)).toHaveText(["b.md", "a.md"]);
+        await page.mouse.up();
+        await expect(page.locator("html")).not.toHaveAttribute("data-workbench-dragging", "");
+        await expect(page.locator("[data-editor-group]")).toHaveCount(1);
+        await expect(labels(page)).toHaveText(["b.md", "a.md"]);
+        await closeAll(page);
+    });
 });
