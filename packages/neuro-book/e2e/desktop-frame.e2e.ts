@@ -122,6 +122,26 @@ test("工作台：窗口按钮贴住窗口右上角，右栏不压在它下面�
     }
 });
 
+test("窗口按钮的命中区 34×36、关闭按钮到窗口右上角，按钮组宽等于留位；指针在命中区边角也点亮芯", async ({page}) => {
+    await installFrame(page);
+    await page.setViewportSize({width: 1280, height: 800});
+    await openWorkbench(page);
+    const group = await controls(page).boundingBox();
+    expect(group?.width).toBe(120);
+    for (const control of ["minimize", "toggle-maximize", "close"]) {
+        const box = await page.locator(`[data-desktop-control="${control}"]`).boundingBox();
+        expect([box?.width, box?.height]).toEqual([34, 36]);
+    }
+    const close = await page.locator("[data-desktop-control=close]").boundingBox();
+    expect([close!.x + close!.width, close!.y]).toEqual([1280, 0]);
+    const chip = page.locator("[data-desktop-control=minimize] .desktop-frame__chip");
+    expect(await chip.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+    const minimize = (await page.locator("[data-desktop-control=minimize]").boundingBox())!;
+    // 命中区的左上角，离芯 4px 以上。
+    await page.mouse.move(minimize.x + 2, minimize.y + 2);
+    await expect.poll(() => chip.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
+});
+
 test("高对比度模式下三个窗口按钮的图标仍看得见：描边色是系统给的按钮文字色，不是背景色", async ({page}) => {
     await installFrame(page);
     await page.emulateMedia({forcedColors: "active"});

@@ -69,9 +69,12 @@ static struct {
 static const nb_wchar PROP_WNDPROC[] = {'n', 'b', 'o', 'o', 'k', '.', 'w', 'n', 'd', 'p', 'r', 'o', 'c', 0};
 static const nb_wchar PROP_MINSIZE[] = {'n', 'b', 'o', 'o', 'k', '.', 'm', 'i', 'n', 's', 'i', 'z', 'e', 0};
 
-void nb_init(void** table) {
+/* count 是 win32.ts 交来的项数：与这里的函数表对不上时不抄、返回 0，壳就不装窗口过程（否则 UI 线程会调到错位的地址）。 */
+int nb_init(void** table, unsigned count) {
+    if (count != sizeof(user32) / sizeof(void*)) return 0;
     void** slot = (void**)&user32;
-    for (unsigned i = 0; i < sizeof(user32) / sizeof(void*); i++) slot[i] = table[i];
+    for (unsigned i = 0; i < count; i++) slot[i] = table[i];
+    return 1;
 }
 
 /* 最大化与最小化时窗口矩形不是正常的外框（最小化时在 -32000 处），这时不改：这两种状态下不能拖动改大小，恢复后系统会再问一次。 */

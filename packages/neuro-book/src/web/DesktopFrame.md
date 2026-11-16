@@ -10,10 +10,10 @@
 
 ## 布局
 
-- **窗口按钮** `[data-desktop-controls]`：固定在右上角，高 36px，宽 `--nb-window-controls-width`（120px，只在 `styles.css` 写一处）：左边 18px 里一道 16px 高的短分隔线（与工作台标题栏里项目切换与菜单之间的同款），把它们与左边的布局按钮分成两组；然后是三个 34×36 的命中区，贴住窗口右缘与上缘。`role="group"`，名字是“窗口”。层级取 nb-ui 登记表的 `desktopFrame`：模态、命令面板开着时也在上面。
+- **窗口按钮** `[data-desktop-controls]`：固定在右上角，高 36px，宽 `--nb-window-controls-width`（120px，由 `styles.css` 里的 `--nb-window-controls-lead` 18px 与 `--nb-window-control-width` 34px 算出，三个值只在那里写）：左边 18px 里一道 16px 高、1px 宽的短分隔线（与工作台标题栏里项目切换与菜单之间的同款），把它们与左边的布局按钮分成两组；然后是三个 34×36 的命中区，贴住窗口右缘与上缘。`role="group"`，名字是“窗口”。层级取 nb-ui 登记表的 `desktopFrame`：模态、命令面板开着时也在上面。
 - **芯**：每个命中区中间是 26×26 的芯，与标题栏里的布局按钮（nb-ui `IconButton` 的 `sm`、default 变体）同样大小、圆角、颜色、过渡与按下缩放；图标是 15px 的内联 SVG，图形取自 lucide（minus、square、copy、x），与布局按钮的 lucide 图标同形同粗。指针在命中区里任何位置都点亮芯。
 - **后备标题栏** `[data-desktop-fallback-bar]`：只在 `<html>` 带 `data-desktop-frame-bar`（`#app` 里没有 `[data-desktop-titlebar]`）时画。顶上 36px 满宽，左边 16px 的图形标志与文档标题（截断），右边留出按钮的宽度；整条是拖动区域。读屏不读它（`aria-hidden`）：它只是文档标题的重复。
-- 颜色与圆角按三级回退：主题变量 → 加载页的 `--host-loading-*`（主题还没加载时）→ 系统色或定值。静止图标是次要文字色，悬停时芯的底色是正文色的 15%、图标变正文色，按下 24% 并缩到 0.93；不随窗口前台与否变化（标题栏里别的图标也不变）。关闭按钮悬停是 Windows 的红 `#c42b1c` 配白色图标（系统按钮就是这个颜色，不随主题变）。高对比度模式下图标是 `ButtonText`，悬停芯用 `Highlight`。
+- 颜色与圆角按三级回退：主题变量 → 加载页的 `--host-loading-*`（主题还没加载时）→ 系统色或定值。静止图标是次要文字色，悬停时芯的底色是正文色的 15%、图标变正文色，按下 24% 并缩到 0.93；不随窗口前台与否变化（标题栏里别的图标也不变）。关闭按钮悬停是 Windows 的红 `#c42b1c` 配白色图标（系统按钮就是这个颜色，不随主题变）。高对比度模式下图标是 `ButtonText`，悬停芯用 `Highlight`，分隔线用 `CanvasText`。
 - 标题栏与按钮随页面缩放（Ctrl+滚轮、Ctrl+加减）同比变化，不做反向补偿。
 
 ## 交互
@@ -44,7 +44,6 @@ type Props = {
 ## 不支持
 
 - Windows 11 悬停最大化按钮弹出的贴靠布局（要原生层对按钮回 `HTMAXBUTTON`）；Win+Z 照常可用。
-- 窗口不在前台时变淡：整条标题栏与按钮都不变。
 - macOS 的红绿灯与 Linux：外框只在 Windows 的桌面壳里出现。
 
 ## 注意事项

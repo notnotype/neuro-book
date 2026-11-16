@@ -34,6 +34,7 @@
   .frame button:active .chip { background: color-mix(in srgb, CanvasText 24%, transparent); transform: scale(0.93); }
   .frame button[data-control="close"]:hover .chip, .frame button[data-control="close"]:active .chip { background: #c42b1c; color: white; }
   .frame .divider { align-self: center; width: 1px; height: 16px; margin: 0 9px 0 8px; background: color-mix(in srgb, CanvasText 15%, transparent); }
+  @media (forced-colors: active) { .frame .divider { forced-color-adjust: none; background: CanvasText; } }
   @media (forced-colors: active) { .frame button { color: ButtonText; } .frame button:hover .chip, .frame button[data-control="close"]:hover .chip { background: Highlight; color: HighlightText; } button.primary { border-width: 2px; font-weight: 600; } }
 </style>
 </head>

@@ -100,14 +100,20 @@ const layer = {zIndex: NB_Z_INDEX.desktopFrame};
     app-region: no-drag;
 }
 
-/* 与标题栏里“项目切换与菜单之间”的分隔同款，把窗口按钮与左边的布局按钮分成两组。宽度在 styles.css 的 --nb-window-controls-width 里算过。 */
+/*
+ * 与标题栏里“项目切换与菜单之间”的分隔同款，把窗口按钮与左边的布局按钮分成两组。占 styles.css 的 --nb-window-controls-lead：
+ * 线宽定为 1px（不取主题的 --border-w，否则组宽会随主题变），线在这一段里居中。主题加载前没有 --divider，用加载页文字色的淡版，
+ * 不让它比主题到位后的线重。
+ */
 .desktop-frame__divider {
     align-self: center;
     flex: none;
-    width: var(--border-w, 1px);
+    box-sizing: border-box;
+    width: var(--nb-window-controls-lead);
     height: 16px;
-    margin-inline: 8px 9px;
-    background: var(--divider, var(--host-loading-muted, GrayText));
+    border-inline: calc((var(--nb-window-controls-lead) - 1px) / 2) solid transparent;
+    background: var(--divider, color-mix(in srgb, var(--host-loading-muted, GrayText) 30%, transparent));
+    background-clip: content-box;
 }
 
 /*
@@ -120,7 +126,7 @@ const layer = {zIndex: NB_Z_INDEX.desktopFrame};
     flex: none;
     align-items: center;
     justify-content: center;
-    width: 34px;
+    width: var(--nb-window-control-width);
     height: 100%;
     padding: 0;
     border: 0;
@@ -172,6 +178,13 @@ const layer = {zIndex: NB_Z_INDEX.desktopFrame};
 @media (forced-colors: active) {
     .desktop-frame__button {
         color: ButtonText;
+    }
+
+    /* 高对比度下作者写的背景色被强制成 Canvas，分隔线改用系统的文字色画。 */
+    .desktop-frame__divider {
+        forced-color-adjust: none;
+        background: CanvasText;
+        background-clip: content-box;
     }
 
     .desktop-frame__button:hover .desktop-frame__chip,

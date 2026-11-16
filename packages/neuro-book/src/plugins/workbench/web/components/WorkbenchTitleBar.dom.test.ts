@@ -100,6 +100,15 @@ describe("WorkbenchTitleBar", () => {
         wrapper.unmount();
     });
 
+    it("没有作品但有“回到书架”命令：项目切换仍是单个“打开项目…”按钮，回书架经标志", async () => {
+        const wrapper = mountBar(null, "回到书架");
+        await wrapper.get("[data-titlebar-project]").trigger("click");
+        expect(wrapper.emitted("open-project")).toHaveLength(1);
+        await wrapper.get("button[data-titlebar-brand]").trigger("click", {detail: 0});
+        expect(wrapper.emitted("back-to-shelf")).toHaveLength(1);
+        wrapper.unmount();
+    });
+
     it("没有“回到书架”命令（没装书架插件）时标志只是图案，不是按钮", () => {
         const wrapper = mountBar("雾港", null);
         expect(wrapper.find("button[data-titlebar-brand]").exists()).toBe(false);

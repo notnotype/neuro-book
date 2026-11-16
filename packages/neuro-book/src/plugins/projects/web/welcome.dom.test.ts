@@ -34,18 +34,22 @@ const ITEM: ShelfItem = {
 
 function mountHost(shelf: Promise<ShelfResult>, list: Promise<ListResult> | null) {
     const reports: string[] = [];
+    const executed: Array<{readonly id: string; readonly args: unknown}> = [];
     const Host = createWelcomeHost({
         component: WelcomePage,
         project: {id: "fog", title: "雾港"},
         remote: {shelf: () => shelf},
         files: list === null ? null : {list: () => list, create: () => Promise.reject(new Error("这条测试不新建章节"))},
-        commands: {execute: () => Promise.reject(new Error("这条测试不执行命令"))},
+        commands: {execute: (id, args) => {
+            executed.push({id, args});
+            return Promise.resolve({ok: true, value: null});
+        }},
         text: port,
         now: () => Date.parse("2026-10-12T16:30:00+01:00"),
         shortcut: () => null,
         report: (message) => reports.push(message),
     });
-    return {wrapper: mount(Host, {global: {provide: provideText(port)}, props: {context: {recent: []}}}), reports};
+    return {wrapper: mount(Host, {global: {provide: provideText(port)}, props: {context: {recent: []}}}), reports, executed};
 }
 
 describe("欢迎页宿主的取数标记", () => {
@@ -64,6 +68,13 @@ describe("欢迎页宿主的取数标记", () => {
         await flushPromises();
         expect(wrapper.attributes("aria-busy")).toBeUndefined();
         expect(wrapper.get("[data-welcome-description]").text()).toBe("雾港旧事");
+    });
+
+    it("“回到书架”执行命令 nbook.project.back-to-shelf（bookshelf 输出 19）", async () => {
+        const {wrapper, executed} = mountHost(Promise.resolve({ok: true, value: [ITEM]}), Promise.resolve({ok: true, value: {folder: "plain", contentRoot: null, entries: []}}));
+        await flushPromises();
+        await wrapper.get("[data-welcome-shelf]").trigger("click");
+        expect(executed).toEqual([{id: "nbook.project.back-to-shelf", args: {}}]);
     });
 
     it("取数失败也撤掉 aria-busy，失败记下来", async () => {

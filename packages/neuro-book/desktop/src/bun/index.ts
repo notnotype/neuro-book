@@ -271,16 +271,12 @@ async function main(): Promise<void> {
     };
 
     /**
-     * 窗口成为产品窗口时设最小尺寸（输出 10）：直接开产品页时，与启动页窗口换成产品页时。启动页阶段与对话框不设。同一个原因只记一次
-     * （编译失败会对每个窗口交回同一个原因）。
+     * 窗口成为产品窗口时设最小尺寸（输出 10）：直接开产品页时，与启动页窗口换成产品页时。启动页阶段与对话框不设。编译失败只在第一个
+     * 窗口交回一次（`win32.ts`）。
      */
-    const loggedMinSize = new Set<string>();
     const adoptPageWindow = (win: BrowserWindow, id: WindowId): void => {
-        for (const problem of setMinimumSize(win.ptr as Pointer | null, MIN_PAGE_SIZE, minSizeSource)) {
-            if (loggedMinSize.has(problem)) continue;
-            loggedMinSize.add(problem);
-            log(`desktop.window.min-size-unavailable window=${String(id)} ${problem}`);
-        }
+        const problems = setMinimumSize(win.ptr as Pointer | null, MIN_PAGE_SIZE, minSizeSource);
+        if (problems.length > 0) log(`desktop.window.min-size-unavailable window=${String(id)} ${problems.join("; ")}`);
     };
 
     /**

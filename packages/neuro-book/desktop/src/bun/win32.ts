@@ -54,6 +54,7 @@ function openUser32() {
         IsWindow: {args: [FFIType.ptr], returns: FFIType.bool},
         SetPropW: {args: [FFIType.ptr, FFIType.ptr, FFIType.u64], returns: FFIType.bool},
         RemovePropW: {args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr},
+        GetPropW: {args: [FFIType.ptr, FFIType.ptr], returns: FFIType.ptr},
     }).symbols;
 }
 
@@ -131,9 +132,10 @@ const MIN_SIZE_IMPORTS = ["CallWindowProcW", "DefWindowProcW", "GetPropW", "Remo
 
 /**
  * 编译好的窗口过程。`lib` 是 cc 交回的对象，管着编译出的代码：**永不调用 `lib.close()`、也不丢掉这个引用**，窗口过程的地址装在
- * 窗口上，代码一释放，下一条窗口消息就在 UI 线程里崩。编译失败也缓存成原因，后面的窗口不再重编。
+ * 窗口上，代码一释放，下一条窗口消息就在 UI 线程里崩。编译失败也缓存成原因，后面的窗口不再重编；原因只交回一次（第一个窗口），
+ * 之后的窗口交回空列表，壳日志里不重复同一行。
  */
-let minSizeHook: {readonly lib: {close(): void}; readonly proc: bigint} | string | null = null;
+let minSizeHook: {readonly lib: {close(): void}; readonly proc: bigint} | {readonly failed: string; reported: boolean} | null = null;
 
 const wide = (text: string): Buffer => Buffer.from(`${text}\0`, "utf16le");
 
@@ -156,9 +158,9 @@ function compileMinSize(source: string): {readonly lib: {close(): void}; readonl
             if (address === null) return `GetProcAddress(${name}) failed`;
             table[index] = BigInt(address);
         }
-        const lib = cc({source: path, symbols: {nb_init: {args: [FFIType.ptr], returns: FFIType.void}, nb_window_proc_address: {returns: FFIType.ptr}}});
-        // C 在 nb_init 里把地址抄进自己的函数表，之后 `table` 可以回收。
-        lib.symbols.nb_init(ptr(table));
+        const lib = cc({source: path, symbols: {nb_init: {args: [FFIType.ptr, FFIType.u32], returns: FFIType.i32}, nb_window_proc_address: {returns: FFIType.ptr}}});
+        // C 在 nb_init 里把地址抄进自己的函数表，之后 `table` 可以回收；项数对不上时它不抄，我们也不装。
+        if (lib.symbols.nb_init(ptr(table), MIN_SIZE_IMPORTS.length) !== 1) return "min-size function table does not match min-size.c";
         const proc = lib.symbols.nb_window_proc_address();
         if (proc === null) return "min-size window procedure address is null";
         return {lib, proc: BigInt(proc)};
@@ -177,13 +179,23 @@ export function setMinimumSize(hwnd: Pointer | null, size: {readonly width: numb
     if (hwnd === null) return ["window handle is null"];
     const lib = library();
     if (typeof lib === "string") return [lib];
-    const hook = (minSizeHook ??= compileMinSize(source));
-    if (typeof hook === "string") return [hook];
+    if (minSizeHook === null) {
+        const compiled = compileMinSize(source);
+        minSizeHook = typeof compiled === "string" ? {failed: compiled, reported: false} : compiled;
+    }
+    const hook = minSizeHook;
+    if ("failed" in hook) {
+        if (hook.reported) return [];
+        hook.reported = true;
+        return [hook.failed];
+    }
     if (!Number.isInteger(size.width) || !Number.isInteger(size.height) || size.width <= 0 || size.height <= 0 || size.width > 0xffff || size.height > 0xffff) return [`invalid minimum size ${String(size.width)}x${String(size.height)}`];
     if (!lib.IsWindow(hwnd)) return [];
     const packed = BigInt(size.width) << 16n | BigInt(size.height);
     const current = BigInt.asUintN(64, BigInt(lib.GetWindowLongPtrW(hwnd, GWLP_WNDPROC)));
-    if (current === hook.proc) return lib.SetPropW(hwnd, ptr(wide(PROP_MINSIZE)), packed) ? [] : ["SetPropW(minsize) failed"];
+    // 已经装过：过程是我们的，或者原过程的属性还在（装好之后别人又在我们之上子类化时，链顶不是我们；这时再装一次会把它的过程
+    // 当成原过程存进属性，我们的过程调它、它又调回我们，无限递归）。失败的安装会删掉属性，不会被误认为装过。
+    if (current === hook.proc || lib.GetPropW(hwnd, ptr(wide(PROP_WNDPROC))) !== null) return lib.SetPropW(hwnd, ptr(wide(PROP_MINSIZE)), packed) ? [] : ["SetPropW(minsize) failed"];
     const removeProps = (): void => {
         lib.RemovePropW(hwnd, ptr(wide(PROP_MINSIZE)));
         lib.RemovePropW(hwnd, ptr(wide(PROP_WNDPROC)));

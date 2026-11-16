@@ -166,10 +166,9 @@ const compactItems = computed<DropdownMenuItemData[]>(() => menus.value.map((gro
     children: sectioned(group.sections, dropdownItemOf, (index) => ({label: "", id: `${group.id}-sep-${String(index)}`, separator: true})),
 })));
 
-const shelfLabel = computed(() => props.shelf ?? null);
 const projectItems = computed<DropdownMenuItemData[]>(() => [
     {label: text("titlebar.openProject"), id: OPEN_PROJECT},
-    ...(shelfLabel.value === null ? [] : [{label: shelfLabel.value, id: BACK_TO_SHELF}]),
+    ...(props.shelf == null ? [] : [{label: props.shelf, id: BACK_TO_SHELF}]),
 ]);
 
 function select(value: string): void {
@@ -335,24 +334,18 @@ onBeforeUnmount(() => {
                 标志：有“回到书架”命令时是回书架的按钮，否则只是图案。两种都包在同一个盒子里，内边距等于原来标志的左右外边距之和，
                 盒子宽度与测量层量的一样，让位的切换点不变。
             -->
-            <button
-                v-if="shelfLabel !== null"
-                type="button"
-                class="workbench-titlebar__brand-box workbench-titlebar__brand-button nb-ui-focus-ring"
-                :class="showLockup ? 'workbench-titlebar__brand-box--lockup' : 'workbench-titlebar__brand-box--mark'"
-                :aria-label="shelfLabel"
-                :title="shelfLabel"
+            <component
+                :is="shelf == null ? 'span' : 'button'"
+                class="workbench-titlebar__brand-box"
+                :class="[showLockup ? 'workbench-titlebar__brand-box--lockup' : 'workbench-titlebar__brand-box--mark', shelf == null ? '' : 'workbench-titlebar__brand-button nb-ui-focus-ring']"
+                v-bind="shelf == null ? {} : {type: 'button', 'aria-label': shelf, title: shelf}"
                 data-titlebar-brand
-                @pointerdown="onBrandPointerdown"
-                @click="onBrandClick"
+                @pointerdown="shelf == null ? undefined : onBrandPointerdown($event)"
+                @click="shelf == null ? undefined : onBrandClick($event)"
             >
                 <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
                 <NeuroBookMark v-else class="workbench-titlebar__mark" />
-            </button>
-            <span v-else class="workbench-titlebar__brand-box" :class="showLockup ? 'workbench-titlebar__brand-box--lockup' : 'workbench-titlebar__brand-box--mark'" data-titlebar-brand>
-                <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
-                <NeuroBookMark v-else class="workbench-titlebar__mark" />
-            </span>
+            </component>
             <DropdownMenu v-if="project !== null" :items="projectItems" align="start" @select="select">
                 <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="text('titlebar.projectButton', {name: project})" data-titlebar-project>
                     <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
@@ -505,11 +498,12 @@ onBeforeUnmount(() => {
     margin-inline: var(--space-1);
 }
 
+/* 高度与标题栏里的 IconButton（sm）同样 26px：悬停面与邻居一样高。 */
 .workbench-titlebar__brand-box {
     display: inline-flex;
     flex: 0 0 auto;
     align-items: center;
-    height: 28px;
+    height: 26px;
     color: inherit;
 }
 
@@ -536,6 +530,14 @@ onBeforeUnmount(() => {
 
 .workbench-titlebar__brand-button:active {
     background: color-mix(in srgb, var(--text-main) 24%, transparent);
+}
+
+@media (forced-colors: active) {
+    .workbench-titlebar__brand-button:hover,
+    .workbench-titlebar__brand-button:active {
+        background: Highlight;
+        color: HighlightText;
+    }
 }
 
 /* 项目切换与菜单之间的短分隔。 */
