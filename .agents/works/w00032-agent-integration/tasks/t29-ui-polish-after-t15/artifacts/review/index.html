@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t29 第 1 轮：服务商列表、状态栏、对话面板第一屏</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cands--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 720px) { .cands, .cands--3 { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p, .ref p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.cand img, .ref img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.cand img + img { margin-top: 8px; }
+.ref { margin: 0 0 16px; }
+.ref img { max-width: 480px; }
+ul.points { margin: 8px 0 0; padding-left: 1.3em; font-size: 15px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>t29 第 1 轮：服务商列表、状态栏、对话面板第一屏</h1>
+
+<section data-nbdev-question="rail-remove" data-nbdev-type="single" data-nbdev-recommend="hover-icon">
+  <h2>删除服务商放在列表条目的哪里？</h2>
+  <p class="rec"><strong>推荐 A：条目上只有“删除”这一个动作，直接给图标少点一次；右键是第二条路，点了都先弹现在的确认框。</strong></p>
+  <div class="ref">
+    <img src="r1/providers-current.webp" alt="现在：删除在页面左上（真实设置窗口里在标题区右上）">
+    <p>现在：删除是页面标题区的垃圾桶（设置窗口里在右上角）。</p>
+  </div>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="hover-icon" data-nbdev-label="A 悬停出删除图标，右键也能删">
+      <h3>A 悬停出删除图标，右键也能删</h3>
+      <img src="r1/rail-one-line-hover.webp" alt="悬停 Anthropic，行尾出现删除图标">
+      <img src="r1/rail-one-line-menu.webp" alt="右键 Anthropic，菜单里是“删除服务商…”">
+    </div>
+    <div class="cand" data-nbdev-option="hover-more" data-nbdev-label="B 悬停出“…”，点开是菜单">
+      <h3>B 悬停出“…”，点开是菜单</h3>
+      <img src="r1/rail-one-line-more.webp" alt="悬停出“…”，点开菜单里是“删除服务商…”">
+      <p>以后条目上的动作多了（例如复制、检测）更好放；现在只有一项。右键同样打开这个菜单。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="rail-rows" data-nbdev-type="single" data-nbdev-recommend="one-line">
+  <h2>服务商条目改成单行，还是两行收紧？</h2>
+  <p class="rec"><strong>推荐 A 单行：高度与设置窗口左栏一样；密钥问题改成行尾的图标（悬停写原因），没问题时写启用了几个模型。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="one-line" data-nbdev-label="A 单行">
+      <h3>A 单行</h3>
+      <img src="r1/rail-one-line.webp" alt="单行：名字，行尾是模型数或问题图标">
+      <p>Anthropic 的红色图标是“环境变量没有值”，OpenAI 的钥匙是“没有密钥”。原因要悬停或点进详情才看得到。</p>
+    </div>
+    <div class="cand" data-nbdev-option="two-line" data-nbdev-label="B 两行收紧">
+      <h3>B 两行收紧</h3>
+      <img src="r1/rail-two-line-hover.webp" alt="两行：第二行小字写状态，行距收紧">
+      <p>原因直接写在第二行，条目从 46px 降到 38px 左右。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="status-config" data-nbdev-type="confirm" data-nbdev-label="状态栏的自定义照这三张图做">
+  <h2>状态栏的自定义照这三张图做？</h2>
+  <p class="rec"><strong>推荐同意：右键改显隐、设置里改顺序，缺省与现在一样；提醒类的项总会显示。</strong></p>
+  <div class="cands cands--3">
+    <div class="cand">
+      <h3>右键状态栏</h3>
+      <img src="r1/status-menu.webp" alt="右键状态栏，勾选菜单">
+    </div>
+    <div class="cand">
+      <h3>设置里的“状态栏”</h3>
+      <img src="r1/status-settings.webp" alt="设置里的状态栏一组：预览、左边与右边两组列表">
+    </div>
+    <div class="cand">
+      <h3>改过之后</h3>
+      <img src="r1/status-custom.webp" alt="几种改过之后的状态栏">
+    </div>
+  </div>
+  <ul class="points">
+    <li>可选的项：上下文用量、用量与缓存命中、费用、模型与推理档、缓存倒计时，以及插件加的项（标“插件”）。累计、输入、输出、缓存命中合成一项，免得菜单太长；要分开就在设置里拆。</li>
+    <li>总会显示、不能关：运行阶段与用时、等你处理、等重发、费用超过告警线、“全部放行”警告、断线。</li>
+    <li>设置里分“左边”“右边”两组，拖动或用上移、下移排序；全局一份，所有会话与窗口共用，存进用户设置文件。</li>
+    <li>右栏窄时，右边按顺序从前往后收进悬停，费用最后收。</li>
+    <li>缓存倒计时只对缓存时长明确的服务商（Anthropic）显示；过期后写“已过期”。</li>
+  </ul>
+</section>
+
+<section data-nbdev-question="first-screen" data-nbdev-type="single" data-nbdev-recommend="welcome">
+  <h2>没选会话时，对话面板的第一屏放什么？</h2>
+  <p class="rec"><strong>推荐 A：视图标题已经写着“对话”，“未选择会话”这一行去掉；空出来的地方放最近的会话，点一下就能接着聊，不用去左边找。</strong></p>
+  <div class="ref">
+    <img src="r1/first-product-current.webp" alt="现在的工作台：右栏对话视图顶上是“未选择会话”，下面两条横线">
+    <p>现在：右栏顶上一行“未选择会话”，消息区上下各一条横线，“还没有消息”贴在上面。</p>
+  </div>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="welcome" data-nbdev-label="A 开始一段对话与最近的会话">
+      <h3>A 开始一段对话与最近的会话</h3>
+      <img src="r1/first-welcome.webp" alt="中间是“开始一段对话”与三条最近的会话">
+      <p>最近 3 条，“全部会话”打开会话列表。没有会话时只留上半部分。</p>
+    </div>
+    <div class="cand" data-nbdev-option="hint" data-nbdev-label="B 只留一句提示">
+      <h3>B 只留一句提示</h3>
+      <img src="r1/first-hint.webp" alt="中间一句提示">
+      <p>最简单；打开旧会话要去左边的“会话”。</p>
+    </div>
+  </div>
+  <p>两种都在输入框里直接打字，第一次发送才建会话（现在就是这样）；选中会话后顶栏照旧出现（标题、Profile、新建、更多）。</p>
+</section>
+
+<section data-nbdev-question="dividers" data-nbdev-type="single" data-nbdev-recommend="none">
+  <h2>顶栏下面、输入框上面那两条横线怎么处理？</h2>
+  <p class="rec"><strong>推荐 A 去掉：输入框自己有框，顶栏靠留白就分得开；消息滚到顶栏下面时淡出，不硬切。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="none" data-nbdev-label="A 去掉，消息在顶栏下淡出">
+      <h3>A 去掉，消息在顶栏下淡出</h3>
+      <img src="r1/first-lines-none.webp" alt="没有横线">
+    </div>
+    <div class="cand" data-nbdev-option="inset" data-nbdev-label="B 留着，两端各收进 12px">
+      <h3>B 留着，两端各收进 12px</h3>
+      <img src="r1/first-lines-inset.webp" alt="两条横线两端收进">
+      <p>设计语言里横线两端要留边距，现在这两条顶到了边。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>直接做，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>做什么</th></tr></thead>
+    <tbody>
+      <tr><td>子代理卡片（第 5 条）</td><td>运行中那一行写注册表里的工具名（“读取 第二章.md”），不写工具 id</td></tr>
+      <tr><td>没选会话时的状态栏</td><td>不显示“0%”与“免费”：还没有用量，整行空着</td></tr>
+      <tr><td>删除服务商的确认框</td><td>不变：写明去掉几个模型、密钥一起删、哪些角色会变成未绑定</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>5 小时与 7 天限额留到做订阅登录时；缓存倒计时只给缓存时长明确的服务商，作为状态栏的可选项（11-16）</li>
+    <li>状态栏用勾选与插件贡献的项，不做 Claude Code 那种配一条命令（11-16）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>
