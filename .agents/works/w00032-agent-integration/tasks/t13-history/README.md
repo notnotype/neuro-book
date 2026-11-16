@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t13-history
-status: planned
+status: done
 updated: 2026-11-16
 ---
 
