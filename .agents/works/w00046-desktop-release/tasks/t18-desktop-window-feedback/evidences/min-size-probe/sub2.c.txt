@@ -1,0 +1,18 @@
+typedef long long LL; typedef unsigned long long ULL; typedef unsigned short WCHAR;
+typedef struct { int x, y; } PT;
+typedef struct { PT reserved, maxSize, maxPos, minTrack, maxTrack; } MINMAXINFO;
+_Static_assert(sizeof(MINMAXINFO) == 40, "MINMAXINFO layout");
+typedef LL (*WNDPROC)(void*, unsigned int, ULL, LL);
+typedef LL (*CALLWNDPROC)(WNDPROC, void*, unsigned int, ULL, LL);
+typedef void* (*GETPROP)(void*, const WCHAR*);
+static CALLWNDPROC pCallWindowProcW; static GETPROP pGetPropW;
+static const WCHAR PREV[] = {'n','b','p','r','e','v',0};
+static const WCHAR MIN[] = {'n','b','m','i','n',0};
+void init(void* call, void* getprop) { pCallWindowProcW = (CALLWNDPROC)call; pGetPropW = (GETPROP)getprop; }
+LL proc(void* hwnd, unsigned int msg, ULL w, LL l) {
+  WNDPROC prev = (WNDPROC)pGetPropW(hwnd, PREV);
+  LL r = pCallWindowProcW(prev, hwnd, msg, w, l);
+  if (msg == 0x24) { ULL packed = (ULL)pGetPropW(hwnd, MIN); MINMAXINFO* m = (MINMAXINFO*)l; int mw = (int)(packed >> 16), mh = (int)(packed & 0xffff); if (m->minTrack.x < mw) m->minTrack.x = mw; if (m->minTrack.y < mh) m->minTrack.y = mh; }
+  return r;
+}
+void* procAddr(void) { return (void*)proc; }

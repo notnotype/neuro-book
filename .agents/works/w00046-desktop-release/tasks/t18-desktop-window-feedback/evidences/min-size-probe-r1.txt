@@ -15,3 +15,10 @@ WS_OVERLAPPEDWINDOW 的顶层窗口，同一线程。窗口相关的一步经 /i
    - 未标记的窗口：0,0；最大化 2576x1408。
 4. 程序化的 SetWindowPos(300x200) 不受最小跟踪尺寸限制（两种方案、两个窗口都缩到 300x200）：最小跟踪尺寸只管用户拖动改大小。
    所以验收读 WM_GETMINMAXINFO 的结果，真实拖动交开发者；窗口初始尺寸要在创建时就不小于最小值。
+
+第 2 轮（2026-11-16，设计审查第 2 轮 Opus 第 3 条之后；同一台机器、同一个 bun.exe）：
+5. 源文件路径里有中文时编译失败：`tcc: error: file 'C:\Users\...\cc-probe\源码 目录\sub2.c' not found`（Bun 把 UTF-8 路径交给
+   TinyCC 的窄字符打开函数）。安装版在 %LOCALAPPDATA% 下，用户名是中文时就会这样。
+6. 交相对当前目录的路径可行：当前目录是 `...\cc-probe\中文 目录`，交 `src\sub2.c`，编译成功（系统按宽字符的当前目录解析相对路径）。
+7. 不链接任何库可行：C 里不声明 user32 函数，由 JS 经 kernel32 的 LoadLibraryW + GetProcAddress 取 CallWindowProcW、GetPropW 的地址，
+   经初始化函数交给 C 存进函数指针；子类化后发 WM_GETMINMAXINFO 读回 800,560。源码 min-size-probe/sub2.c.txt、sub3-probe.ts.txt。

@@ -141,6 +141,7 @@ Markdown 的编辑命令（`nbook.edit.bold` 等）见 [`workbench.markdown-edit
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
 |---|---|---|---|---|---|---|
 | `nbook.project.open` | 打开项目 / Open Project | `{}` | 无 | write | never（整页重新加载会打断 Agent 所在的窗口） | `nbook.projects` 浏览器入口；经命令面板的选择模式选项目或输入目录，行为见 [`runtime.projects`](../runtime/projects.md) 输出第 10 条 |
+| `nbook.project.back-to-shelf` | 回到书架 / Back to Bookshelf | `{}` | 无 | read（只离开当前页面，不改数据） | never（同上） | `nbook.projects` 浏览器入口；本窗口整页导航到 `/`，未保存的修改由编辑器的离开询问保护；工作台的作品下拉、标志、文件菜单与欢迎页执行它（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 28、29，[`workbench.bookshelf`](bookshelf.md) 输出 19） |
 
 ### 命令目录（设置）
 

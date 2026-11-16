@@ -1,4 +1,4 @@
-# t18 实施计划：桌面窗口第一轮试用反馈（r2）
+# t18 实施计划：桌面窗口第一轮试用反馈（r3）
 
 ## Context
 
@@ -19,7 +19,7 @@
 
 依据：[`runtime/browser-host`](../../../../../docs/specs/runtime/browser-host.md) 的“窗口外框”（输出 10–12）、[`runtime/desktop-shell`](../../../../../docs/specs/runtime/desktop-shell.md) 输出 10 与场景 15、[`ui/workbench-shell`](../../../../../docs/specs/ui/workbench-shell.md) 输出 28、[`workbench/bookshelf`](../../../../../docs/specs/workbench/bookshelf.md) 输出 19、[`workbench/commands`](../../../../../docs/specs/workbench/commands.md) 的“命令目录（项目）”。
 
-工作方式：autonomous-delivery。设计审查第 1 轮（omp 13 条、Sonnet 13 条，处理见 [`evidences/design-review-r1-disposition.txt`](evidences/design-review-r1-disposition.txt)）后改为 r2：最小尺寸从消息钩子改成子类化窗口过程（探针证明钩子改不动），前端两片按 Sonnet 的意见补全。最小尺寸一片改动大，r2 只就这一片再请 omp 审一轮，前端两片先实施。
+工作方式：autonomous-delivery。设计审查第 1 轮（omp 13 条、Sonnet 13 条，处理见 [`evidences/design-review-r1-disposition.txt`](evidences/design-review-r1-disposition.txt)）后改为 r2：最小尺寸从消息钩子改成子类化窗口过程（探针证明钩子改不动），前端两片按 Sonnet 的意见补全。最小尺寸一片改动大，r2 只就这一片再审一轮（omp 一启动就撞上额度上限，改派 Claude Opus：9 条，阻断 0、重要 3，处理见 [`evidences/design-review-r2-disposition.txt`](evidences/design-review-r2-disposition.txt)），改为 r3：C 里不链接库（函数地址由 JS 交给它）、用相对路径编译（探针证明 TinyCC 打不开中文路径）、换算写成可在 Linux 上测的纯函数、安装与失败序列写死、初始尺寸只对产品窗口与启动页加下限。前端两片先实施。
 
 ## 技术选型
 
@@ -50,16 +50,20 @@
 
 ### `packages/neuro-book/desktop/src/bun/win32.ts`、`min-size.c`、`index.ts`（最小尺寸）
 
-- C 源 `desktop/src/bun/min-size.c`，随 `build.copy` 进包（`cc` 读文件路径；包里的路径按 ICO 的做法解析）。只支持 Windows x64（Electrobun 的 Windows 目标只有 x64）：`process.arch !== "x64"` 时不编译，记诊断。C 里用固定宽度类型声明 `MINMAXINFO`，`_Static_assert(sizeof(MINMAXINFO) == 40)`；声明 `CallWindowProcW`、`GetPropW`、`RemovePropW`、`GetDpiForWindow`、`GetWindowRect`、`GetClientRect`、`IsZoomed`，`library: ["user32"]` 链接。
-- 窗口过程：`prev = GetPropW(hwnd, "nbook.wndproc")`；`r = CallWindowProcW(prev, …)`；`WM_GETMINMAXINFO` 且窗口不是最大化时：逻辑最小值从属性 `nbook.minsize`（宽高打包）取，DPI 取 `GetDpiForWindow`（为 0 时按 96），物理最小客户区 = 逻辑值 × DPI / 96 向上取整；外框差 = 窗口矩形 − 客户区矩形（两个查询都成功、差值非负才用，否则这次不改）；`ptMinTrackSize` 取它与原值中较大的。最大化时不改：最大化的窗口不能拖动改大小，还原后开始拖动时系统会再问一次。`WM_NCDESTROY` 时删掉两个属性。返回 `r`。
-- `win32.ts` 新增 `setMinimumSize(hwnd, {width, height}): string[]`（问题列表，同 `adoptCustomFrame`）：第一次调用时编译（结果缓存在模块里，进程寿命内不释放：窗口过程一直在用）；窗口已有 `nbook.wndproc` 属性时只更新 `nbook.minsize`；否则先 `SetPropW` 存两个属性、再 `SetWindowLongPtrW(GWLP_WNDPROC)` 换上，返回的旧过程必须等于存的那个，不等时换回并报问题。`SetWindowLongPtrW` 换窗口过程不发消息，不违反文件头“跨线程不等待”的约定。
-- `index.ts`：窗口成为产品窗口时登记 800×560：`openManaged` 直接开产品页时，以及启动页窗口经 `load(id, url)` 换成产品页时（`WindowCoordinator` 先开 `startup`、服务端就绪后同一个窗口加载产品页）；有没有系统标题栏都登记；启动页与对话框不登记。已登记的再登记只更新值。编译或子类化失败时写壳日志 `desktop.window.min-size-unavailable`（带原因），窗口照常可用。
-- 初始尺寸：`centered()` 的结果不小于最小值（按工作区与最小值取：宽 = min(工作区宽, max(800, min(1280, 工作区宽 × 0.9)))，高同理）。程序化改尺寸不受最小跟踪尺寸限制（探针第 4 条），所以创建时就要够大；工作区比最小值还小时窗口就是工作区大小，接受。
-- 常量 `MIN_PAGE_SIZE = {width: 800, height: 560}` 放在核心 `src/desktop/`（不依赖 Electrobun 的那一侧），`centered()` 与登记都用它。
+- C 源 `desktop/src/bun/min-size.c`，随 `build.copy` 进包。只支持 Windows x64（Electrobun 的 Windows 目标只有 x64）：`process.arch !== "x64"` 时不编译，记诊断。
+- **C 里不链接任何库、不 `#include`**：用到的 user32 函数（`CallWindowProcW`、`DefWindowProcW`、`GetPropW`、`RemovePropW`、`GetDpiForWindow`、`GetWindowRect`、`GetClientRect`、`IsZoomed`、`IsIconic`、`MonitorFromWindow`、`GetMonitorInfoW`）由 JS 经 kernel32 的 `LoadLibraryW` + `GetProcAddress` 取地址，经初始化函数一次交给 C 存进函数指针（换过程之前做完，之后只读）。理由：探针第 7 条证明可行；`library: ["user32"]` 在干净机器上怎么找到 user32 没有证据（设计审查第 2 轮 Opus 第 3 条）。结构体用固定宽度的手写类型，`_Static_assert(sizeof(MINMAXINFO) == 40)`。
+- **编译用相对路径**：TinyCC 打不开含中文的路径（探针第 5 条），交给 `cc` 的是源文件相对进程当前目录的路径（壳的当前目录是安装里的 `app\bin`，源文件在同一棵树的 Resources 里，相对路径只有 ASCII；探针第 6 条）。相对路径里仍有非 ASCII 字符（例如不在同一盘）时不编译，报问题。
+- **纯函数可测**：换算写成不调用 user32 的纯函数 `nb_min_track(logical_w, logical_h, dpi, frame_w, frame_h, work_w, work_h, current_w, current_h)`，给出新的最小跟踪尺寸：逻辑值 × DPI / 96 向上取整（DPI 为 0 按 96）加外框差（负值按 0），再夹到工作区（工作区未知时为 0，不夹），与系统给的原值取较大。窗口过程与 user32 声明包在 `#ifndef NB_MIN_SIZE_PURE` 里；Linux 上用 `cc({define: {NB_MIN_SIZE_PURE: "1"}})` 只编纯函数跑单元测试（96、120、144、0 的 DPI，负外框差，工作区比最小值小），这样 DPI 换算不只靠 pc-notype 的 100%。
+- 窗口过程：`prev = GetPropW(hwnd, "nbook.wndproc")`，为空时交 `DefWindowProcW`（兜底，正常不会发生）；`r = CallWindowProcW(prev, …)`；`WM_GETMINMAXINFO` 且窗口既不是最大化、也不是最小化时（这两种状态下窗口矩形不是正常外框）：逻辑最小值从属性 `nbook.minsize`（宽高打包）取，为 0 不改；外框差 = 窗口矩形 − 客户区矩形（两个查询都成功才用），工作区取窗口所在显示器的 `rcWork`（失败不夹）；按纯函数写回 `ptMinTrackSize`。`WM_NCDESTROY` 时先交原过程、再删两个属性。返回 `r`。
+- `win32.ts` 新增 `setMinimumSize(hwnd, {width, height}): string[]`（问题列表，同 `adoptCustomFrame`）。模块里存 `{lib, proc}` 或失败原因：`lib` 是 `cc` 返回的对象，**永不 `close()`**（窗口过程的地址装在窗口上，释放即崩；注释写明）；编译失败也缓存，后续窗口直接返回同一原因、只记一次日志。安装序列：`IsWindow` 不成立直接返回（窗口已关，不算问题）；当前过程（`GetWindowLongPtrW(GWLP_WNDPROC)`）已经是我们的就只更新 `nbook.minsize`（“已装好”看过程本身，不看属性）；否则 `SetPropW` 两个属性都成功才继续，失败就删掉已写的再报问题；`old = SetWindowLongPtrW(GWLP_WNDPROC, proc)`：`old` 为 0 时读回当前过程，不是我们的就删属性、报问题；`old` 不等于存的原过程时用 `old` 换回（只在非 0 时）、删属性、报问题。`SetWindowLongPtrW(GWLP_WNDPROC)` 不发消息。
+- `win32.ts` 文件头的线程约定如实改写：`SetWindowLongPtrW(GWL_STYLE)` 会同步发 `WM_STYLECHANGING`、`WM_STYLECHANGED`，现在只在窗口刚创建时调用，接受（设计审查第 2 轮 Opus 第 9 条）。
+- `index.ts`：窗口成为产品窗口时登记 800×560：`openManaged` 直接开产品页时，以及启动页窗口经 `load(id, url)` 换成产品页时；有没有系统标题栏都登记；启动页阶段与对话框不登记。编译或子类化失败时写壳日志 `desktop.window.min-size-unavailable`（带原因），窗口照常可用。
+- 初始尺寸：`centered(size, minimum?)` 加可选的外框下限，只有产品窗口与启动页窗口传（对话框不传，仍是 480×260）。外框下限 = 最小客户区 + 外框估计（按有没有系统标题栏取两档常量：自绘时约 16×8，系统标题栏约 16×39，逻辑像素），再夹到工作区。工作区比它小时窗口以工作区为准。
+- 常量 `MIN_PAGE_SIZE = {width: 800, height: 560}` 与 `centered` 的纯计算放在核心 `src/desktop/`（不依赖 Electrobun 的那一侧），有单元测试（含工作区 1093×582 这一档与对话框不受影响）。
 
 ## Spec 与文档改动
 
-- `docs/specs/runtime/desktop-shell.md` 输出 10：加“产品窗口最小 800×560（CSS 像素，按窗口所在显示器的 DPI 换算；界面缩放不影响；只限制用户拖动改大小，打开时就不小于它）”；场景 15 加“拖不到比最小尺寸更小”；限制里写“工作区比最小尺寸小的显示器上窗口以工作区为准”。
+- `docs/specs/runtime/desktop-shell.md` 输出 10：加“产品窗口的客户区最小 800×560（CSS 像素，按窗口所在显示器的 DPI 换算；界面缩放不影响；只限制用户拖动改大小，打开时就不小于它），但不超过窗口所在显示器的工作区”；场景 15 加“拖不到比最小尺寸更小”。
 - `docs/specs/runtime/browser-host.md` 输出 12（窗口外框）：窗口按钮的样子（与标题栏按钮同一套图标与芯、命中区 34×36、与布局按钮之间一道分隔、不随前台变淡）。
 - `docs/specs/ui/workbench-shell.md` 输出 28：作品下拉加“回到书架”；无作品时项目切换是单个“打开项目…”按钮；标志可点回书架（命令不在时不可点），标志一块在桌面窗口里不能拖；删掉“桌面窗口没有最小尺寸”的已知限制，改成指向 desktop-shell 的最小尺寸。输出 29 的条目表加文件菜单的“回到书架”。
 - `docs/specs/workbench/commands.md` 的“命令目录（项目）”：加 `nbook.project.back-to-shelf`，写明 `effect` 与 Agent 暴露的理由。
@@ -70,7 +74,7 @@
 
 1. **窗口按钮**：`DesktopFrame.vue`、`styles.css`、`desktop-frame.ts`（删 `focused`）、启动页、`DesktopFrame.md`、Spec browser-host。验证：`DesktopFrame.dom.test.ts`、`e2e/desktop-frame.e2e.ts`（加 `forcedColors: "active"` 下按钮可见）；本机带能力标记的 Chrome 截图（亮色、深色、高对比度、界面缩放 125%）对照布局按钮。
 2. **回到书架**：projects 插件命令与菜单、欢迎页改走命令（删 `navigateDocument` 选项）、`ShellChrome`、`WorkbenchShell.vue` 与 `WorkbenchTitleBar.vue`（标志按钮与测量层复本）、两个语言目录与 `projects/locales.test.ts`、Lab 的标题栏夹具（新 prop 与事件，加“没有书架”场景）、Spec commands、workbench-shell、bookshelf，组件文档。验证：`WorkbenchTitleBar.dom.test.ts`（命令在：下拉两项、标志是可聚焦按钮、拖动后松开不发事件；命令不在：没有这一项、标志不是按钮；无作品时单个按钮）、外壳的命令可用性测试（命令晚于外壳登记后出现、撤回后消失）、projects 的命令测试（登记、菜单顺序、执行即导航到 `/`）、`WelcomePage.dom.test.ts`、e2e `projects.e2e.ts` 加一条（工作台 → 作品下拉“回到书架” → 书架页；标志同；文件菜单同）与 `workbench-titlebar.e2e.ts`（让位切换点不变）。
-3. **最小尺寸**：`min-size.c`、`win32.ts`、`index.ts`（`openManaged`、`load`、`centered`）、`electrobun.config.ts` 的 `build.copy`、核心常量与 `centered` 的纯函数测试、Spec desktop-shell、壳 README。验证：类型检查（`win32.ts` 在应用包的类型检查里）、`centered` 的单元测试；pc-notype 上的 Windows 验收（下文）。
+3. **最小尺寸**：`min-size.c`、`win32.ts`、`index.ts`（`openManaged`、`load`、`centered`）、`electrobun.config.ts` 的 `build.copy`、核心常量与 `centered` 的纯计算、Spec desktop-shell、壳 README。验证：类型检查（`win32.ts` 在应用包的类型检查里）、`centered` 的单元测试、`min-size.c` 纯函数在 Linux 上经 `cc` 的单元测试；pc-notype 上的 Windows 验收（下文）。
 
 每片单独提交。
 
@@ -82,7 +86,7 @@
 | workbench-shell 输出 28（作品下拉、标志） | `WorkbenchTitleBar.dom.test.ts`（命令在时有这一项与可点标志，不在时没有）、`projects.e2e.ts` 新增的回书架用例 |
 | commands 项目目录 `nbook.project.back-to-shelf` | projects 插件的命令测试（登记、执行即导航到 `/`） |
 | bookshelf 输出 19 / 场景 12（欢迎页回书架） | `WelcomePage.dom.test.ts` 与现有 e2e |
-| desktop-shell 输出 10 最小尺寸 / 场景 15 | Windows 验收：验收脚本（另一个进程）对窗口发 `WM_GETMINMAXINFO`（跨进程由系统转送结构体）读 `ptMinTrackSize`：首个窗口（启动页转产品页）、新开的产品窗口都是 800×560 加外框；启动页阶段与对话框不是；最大化时不改、还原后又是；关掉再开仍是；打开时客户区不小于 800×560；壳日志没有 `min-size-unavailable`。真实拖动由开发者试 |
+| desktop-shell 输出 10 最小尺寸 / 场景 15 | `min-size.c` 纯函数的单元测试（DPI 换算、取整、外框差、夹到工作区）；Windows 验收：验收脚本（另一个进程）用 `SendMessageTimeoutW`（`SMTO_ABORTIFHUNG`）对窗口发 `WM_GETMINMAXINFO`（跨进程由系统转送结构体）读 `ptMinTrackSize`：首个窗口（启动页转产品页）、新开的产品窗口都是 800×560 加外框；启动页阶段与对话框不是；最大化与最小化时不改、还原后又是；关掉再开仍是；打开时客户区不小于 800×560；壳日志没有 `min-size-unavailable`。真实拖动由开发者试 |
 
 ## 验证
 

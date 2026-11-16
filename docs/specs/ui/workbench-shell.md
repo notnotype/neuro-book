@@ -42,9 +42,10 @@ owners:
 
 28. **标题栏结构**：36px 一行，左组从左到右是品牌的横排标志（标志加字标，墨色跟随文字色）、项目切换（书本图标加显示名）、一道短分隔与应用菜单，中间是居中的命令搜索，右组是布局按钮（侧栏、面板、右栏）与条目区。左组放不进标题栏的一半时左栏按内容撑开、搜索往右让，不挤出界。
     - 命令搜索是按钮：点开命令面板，提示命令面板的快捷键，按平台写出修饰键（[workbench.commands](../workbench/commands.md) 的“快捷键的显示”）。
-    - 项目切换显示当前项目的显示名，没有项目时显示“打开项目…”；点开至少有“打开项目…”（`nbook.project.open`）。作品列表随书架页的作品数据加入。
+    - 项目切换显示当前项目的显示名，点开是“打开项目…”（`nbook.project.open`）与“回到书架”（`nbook.project.back-to-shelf`）；没有项目时它是单个“打开项目…”按钮，点了直接执行打开项目。作品列表随书架页的作品数据加入。
+    - 标志：“回到书架”的命令在命令目录里时，标志是一个回书架的按钮（名字与悬停提示是命令标题，可聚焦）；命令不在（没装书架插件）时作品下拉也没有这一项、标志只是图案，与菜单“命令不在目录里不显示”同一规则（[workbench.menus](../workbench/menus.md) 输出 1）。按下标志后移动超过 4px 再松开不算点击。
     - 布局按钮是切换按钮，按下态取输出 32 的公开键，经输出 32 的命令执行。
-    - 浏览器里不画窗口控制。桌面窗口没有系统标题栏时（[runtime.desktop-shell](../runtime/desktop-shell.md) 输出 10），它就是窗口的标题栏（[runtime.browser-host](../runtime/browser-host.md) 输出 12 的“页面自己的标题栏”）：空白处是窗口的拖动区域，双击最大化、拖动贴边由系统做；按钮、菜单触发器、搜索、项目切换与条目都不是拖动区域；右组末尾留出窗口按钮的宽度，左右两栏仍等分，两侧够宽时搜索仍在窗口正中，逐级让位（输出 30）把留位算进去。窗口窄到最省一档也放不下时右组被裁掉一部分，这是已知限制（桌面窗口没有最小尺寸）。
+    - 浏览器里不画窗口控制。桌面窗口没有系统标题栏时（[runtime.desktop-shell](../runtime/desktop-shell.md) 输出 10），它就是窗口的标题栏（[runtime.browser-host](../runtime/browser-host.md) 输出 12 的“页面自己的标题栏”）：空白处是窗口的拖动区域，双击最大化、拖动贴边由系统做；按钮、菜单触发器、搜索、项目切换与条目都不是拖动区域；右组末尾留出窗口按钮的宽度，左右两栏仍等分，两侧够宽时搜索仍在窗口正中，逐级让位（输出 30）把留位算进去。桌面窗口有最小尺寸（[runtime.desktop-shell](../runtime/desktop-shell.md) 输出 10），最小宽度下最省一档放得下。标志是按钮，不是拖动区域：标志这一块不能拖窗口。
 29. **应用菜单**：四组（文件、编辑、视图、帮助）的标题与顺序由工作台定，条目来自贡献点 `workbench.titlebar-menu`：各插件给自己的命令贡献菜单项、声明所属的组；条目的显示、可用、标题、快捷键、勾选、排序与分隔线按 [`workbench.menus`](../workbench/menus.md)，执行一律经命令服务。
     - 一组里没有显示的条目时不画这一组。
     - 菜单的编辑项（撤销、重做）与命令面板一样作用于活动编辑器，不按焦点区分；焦点在原生输入框时菜单不代替它撤销。
@@ -52,7 +53,7 @@ owners:
 
       | 组 | 条目（命令与固定参数） | 贡献方 |
       |---|---|---|
-      | 文件 | 打开项目（`nbook.project.open`）｜保存、全部保存、还原为磁盘版本（`nbook.editor.save`、`save-all`、`revert`）｜关闭编辑器、关闭其它编辑器（`nbook.editor.close`、`close-others`） | 作品、编辑器 |
+      | 文件 | 打开项目（`nbook.project.open`）、回到书架（`nbook.project.back-to-shelf`）｜保存、全部保存、还原为磁盘版本（`nbook.editor.save`、`save-all`、`revert`）｜关闭编辑器、关闭其它编辑器（`nbook.editor.close`、`close-others`） | 作品、编辑器 |
       | 编辑 | 撤销、重做（`nbook.edit.undo`、`redo`） | 编辑器 |
       | 视图 | 命令面板（`nbook.quick-open.open-commands`）｜侧栏、右栏、活动栏、面板（`nbook.view.set-part-hidden {part}`，勾选）、最大化面板（`toggle-panel-maximized`）｜向右拆分、向下拆分、用其它编辑器重新打开（`nbook.editor.split-right`、`split-down`、`reopen-with`）、显示编辑器工具栏（`nbook.view.toggle-editor-toolbar`，勾选）｜切换主题、明暗、界面语言（`nbook.settings.switch-theme`、`switch-appearance`、`switch-locale`）｜重新载入（`nbook.app.reload`） | 工作台、编辑器、设置 |
       | 帮助 | 欢迎（`nbook.help.welcome`）、文档（`nbook.help.documentation`） | 作品、工作台 |
