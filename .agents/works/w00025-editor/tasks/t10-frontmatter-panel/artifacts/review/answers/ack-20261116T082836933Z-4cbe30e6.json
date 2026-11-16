@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00025-editor",
+    "taskId": "t10-frontmatter-panel",
+    "artifactId": "review",
+    "ackId": "20261116T082836933Z-4cbe30e6",
+    "answers": [
+        "20261116T082643073Z-e850d101"
+    ],
+    "through": "20261116T082643073Z-e850d101",
+    "included": [
+        ".agents/works/w00025-editor/tasks/t10-frontmatter-panel/README.md"
+    ],
+    "ackedAt": "2026-11-16T08:28:36.933Z"
+}
