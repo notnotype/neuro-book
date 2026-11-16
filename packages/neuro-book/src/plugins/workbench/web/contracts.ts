@@ -43,6 +43,17 @@ export interface ViewImplementation {
 }
 
 /**
+ * 视图申请接管面板头标题区的标记（docs/specs/workbench/views.md 输出 19）：内置视图写
+ * `const view: ViewImplementation & ViewHeadOptIn = {load, [VIEW_HEAD]: true}`，再经 `viewHeadOf(context)`（`views/view-head.ts`）拿到面板头给的位置。
+ * 符号不经插件 SDK 导出（`src/sdk/workbench.ts`），第三方拿不到它，标题区只给内置视图；有第二个用户时再考虑公开。
+ */
+export const VIEW_HEAD: unique symbol = Symbol("nbook.workbench/view-head");
+
+export interface ViewHeadOptIn {
+    readonly [VIEW_HEAD]: true;
+}
+
+/**
  * 状态栏与标题栏条目的实现（docs/specs/ui/workbench-shell.md 外壳四输出 33）：都在外壳渲染时响应式读取，数据由贡献方
  * 从自己的状态算出。显示与否只由声明的 `when` 决定，`text()` 不承担隐藏。`text()`、`tooltip()` 返回文字值，外壳在渲染时
  * 按当前语言翻译：返回固定的文字引用，切换语言后条目照样换文字。引用要带命名空间（`pluginText` 绑定插件 id）。

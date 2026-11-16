@@ -20,6 +20,7 @@ import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../../shared/views";
 import type {ViewDeclaration} from "../../shared/views";
+import {VIEW_HEAD} from "../contracts";
 import type {ViewImplementation} from "../contracts";
 import {regionContainers} from "../state/containers";
 import {defaultLayoutDoc} from "../state/default-tree";
@@ -68,6 +69,8 @@ interface ContributorControl {
     context: ActivationContext | null;
     load: () => Promise<Component>;
     badge?: () => number | null;
+    /** 实现申请标题区（输出 19）。 */
+    head?: boolean;
 }
 
 const Sample = defineComponent({name: "SampleView", render: () => null});
@@ -85,7 +88,7 @@ function contributor(id: string, views: ReadonlyArray<string>, control: Contribu
                 if (control.fail) throw new Error("样例入口按开关激活失败");
                 control.context = context;
                 const badge = control.badge;
-                const implementation: ViewImplementation = {load: () => control.load(), ...(badge === undefined ? {} : {badge: () => badge()})};
+                const implementation: ViewImplementation = {load: () => control.load(), ...(badge === undefined ? {} : {badge: () => badge()}), ...(control.head === true ? {[VIEW_HEAD]: true as const} : {})};
                 return {contributions: {[WORKBENCH_VIEWS_POINT]: Object.fromEntries(views.map((view) => [view, implementation]))}};
             },
             ...extra,
@@ -179,6 +182,12 @@ describe("视图注册表", () => {
         expect(await registry.load("test.views.a")).toEqual({status: "loaded", component: Sample});
         expect(await registry.load("test.views.a")).toEqual({status: "loaded", component: Sample});
         expect(loads).toBe(2);
+    });
+
+    it("实现带标题区的申请标记时，加载结果交回 head；不带的没有（输出 19）", async () => {
+        const {registry} = await start([contributor("test.heads", ["test.heads.on"], control({head: true})), contributor("test.plain", ["test.plain.view"], control())]);
+        expect(await registry.load("test.heads.on")).toEqual({status: "loaded", component: Sample, head: true});
+        expect(await registry.load("test.plain.view")).toEqual({status: "loaded", component: Sample});
     });
 
     it("加载失败报 failed，与撤回造成的作废分开", async () => {

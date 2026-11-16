@@ -20,7 +20,8 @@ import {manifestFormat} from "nbook/plugin-platform-profile";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 
 import type {ViewContainerDeclaration, ViewDeclaration} from "../../shared/views";
-import type {ViewImplementation} from "../contracts";
+import {VIEW_HEAD} from "../contracts";
+import type {ViewHeadOptIn, ViewImplementation} from "../contracts";
 
 /** 视图声明目录：视图 id 到声明。布局模型靠它决定视图的默认位置、尺寸约束与顺序。 */
 export type ViewCatalog = ReadonlyMap<string, ViewDeclaration>;
@@ -34,7 +35,8 @@ export type ViewDelivery =
 
 /** 一次加载的结果。stale：结果回来时句柄已撤回、换了或工作台已停止，这次结果作废，不算失败。 */
 export type ViewLoad =
-    | {readonly status: "loaded"; readonly component: Component}
+    /** `head`：实现申请了标题区（输出 19）；Lab 的局部实现可以不给，按没申请。 */
+    | {readonly status: "loaded"; readonly component: Component; readonly head?: boolean}
     | {readonly status: "failed"; readonly error: unknown}
     | {readonly status: "stale"};
 
@@ -158,8 +160,10 @@ export class ViewRegistry implements ViewSource {
         const handle = this.#handles.get(viewId);
         if (handle === undefined || this.#stopped) return {status: "stale"};
         try {
-            const component = await handle.implementation().load();
-            return this.#current(viewId, handle) ? {status: "loaded", component} : {status: "stale"};
+            const implementation = handle.implementation();
+            const component = await implementation.load();
+            const head = (implementation as Partial<ViewHeadOptIn>)[VIEW_HEAD] === true;
+            return this.#current(viewId, handle) ? {status: "loaded", component, ...(head ? {head} : {})} : {status: "stale"};
         } catch (error) {
             // implementation() 在撤回后抛 PluginStateError：那也是“已作废”，不是加载失败。
             return this.#current(viewId, handle) ? {status: "failed", error} : {status: "stale"};

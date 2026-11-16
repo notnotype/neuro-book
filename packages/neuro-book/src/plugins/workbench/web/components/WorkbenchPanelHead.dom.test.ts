@@ -1,0 +1,142 @@
+/**
+ * 面板头的标题区（docs/specs/workbench/views.md 输出 19，ui/workbench-layout.md 输出 20）：活动视图接管时整行三列，几个位置交给视图，
+ * 视图用 `Teleport` 把内容送进来；标题按钮仍是工作台的拖动源；内容 region 的名称来自隐藏的声明标题。
+ */
+
+import {mount} from "@vue/test-utils";
+import {afterEach, describe, expect, it} from "vitest";
+import {defineComponent, h, nextTick, ref, shallowRef, Teleport} from "vue";
+import type {PropType} from "vue";
+
+import type {ViewHeadSlots} from "../views/view-head";
+import {panelTabDomId, panelTitleDomId} from "../state/layout-present";
+import WorkbenchPanelHead from "./WorkbenchPanelHead.vue";
+import type {PanelViewHead} from "./WorkbenchPanelHead.vue";
+
+const mounted: Array<{unmount(): void}> = [];
+afterEach(() => {
+    for (const wrapper of mounted.splice(0)) wrapper.unmount();
+    document.body.innerHTML = "";
+});
+
+/** 像视图那样：拿到位置时把三段送进去，没有位置时画在自己这里。 */
+const ProbeView = defineComponent({
+    props: {slots: {type: Object as PropType<ViewHeadSlots | null>, default: null}},
+    setup: (props) => () => h("div", {"data-probe-view": ""}, [
+        h(Teleport, {to: props.slots?.start ?? null, disabled: props.slots === null}, [h("button", {type: "button", "data-probe-new": ""}, "新建")]),
+        h(Teleport, {to: props.slots?.title ?? null, disabled: props.slots === null}, [h("span", {"data-probe-title": ""}, "第三章节奏调整")]),
+        h(Teleport, {to: props.slots?.end ?? null, disabled: props.slots === null}, [h("button", {type: "button", "data-probe-more": ""}, "更多")]),
+    ]),
+});
+
+const TAB = {id: "view:nbook.agent.conversation", label: "对话", icon: "i-lucide-message-square"};
+
+function mountHead(initial: PanelViewHead | null) {
+    const viewHead = ref<PanelViewHead | null>(initial);
+    const slots = shallowRef<ViewHeadSlots | null>(null);
+    const given: Array<ViewHeadSlots | null> = [];
+    const activated: string[] = [];
+    const Host = defineComponent({
+        setup: () => () => [
+            h(WorkbenchPanelHead, {
+                panelId: "right",
+                label: "右栏",
+                tabs: [TAB],
+                active: TAB.id,
+                moreLabel: "更多",
+                idPrefix: "probe",
+                dragHint: "按空格拿起",
+                titleOnly: true,
+                frameActions: [{id: "maximize", label: "最大化", icon: "i-lucide-maximize-2", disabled: false}],
+                viewHead: viewHead.value,
+                onActivate: (id: string) => activated.push(id),
+                onHeadSlots: (next: ViewHeadSlots | null) => {
+                    given.push(next);
+                    slots.value = next;
+                },
+            }),
+            h(ProbeView, {slots: slots.value}),
+        ],
+    });
+    const wrapper = mount(Host, {attachTo: document.body});
+    mounted.push(wrapper);
+    return {wrapper, viewHead, given, activated};
+}
+
+async function settle(): Promise<void> {
+    for (let index = 0; index < 3; index += 1) await nextTick();
+}
+
+const handle = () => document.querySelector<HTMLButtonElement>("[data-panel-tab]")!;
+
+describe("WorkbenchPanelHead 的标题区", () => {
+    it("视图接管时：内容送进三列，标题按钮仍是拖动源、带工作台的 id 与拖动描述，名称是视图送进来的文字", async () => {
+        const {given} = mountHead({key: "nbook.agent.conversation:1", popup: {expanded: false}});
+        await settle();
+        expect(given).toHaveLength(1);
+        expect(given[0]?.handle).toBe(handle());
+        expect(handle().id).toBe(panelTabDomId("probe", TAB.id));
+        expect(handle().getAttribute("data-panel-tab")).toBe(TAB.id);
+        expect(handle().getAttribute("aria-description")).toBe("按空格拿起");
+        expect(handle().textContent?.trim()).toBe("第三章节奏调整");
+        expect(document.querySelector("[data-panel-head-start] [data-probe-new]")).not.toBeNull();
+        expect(document.querySelector("[data-panel-head-end] [data-probe-more]")).not.toBeNull();
+        // 可交互的东西在不起拖的位置里，不在按钮里。
+        expect(document.querySelector("[data-probe-new]")!.closest("[data-no-drag]")).not.toBeNull();
+        expect(handle().querySelector("button")).toBeNull();
+        // 框架按钮在右列，视图的内容在它们前面。
+        const end = document.querySelector("[data-panel-head-end]")!;
+        const frame = document.querySelector("[data-panel-action='maximize']")!;
+        expect(end.compareDocumentPosition(frame) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("内容区的名称来自隐藏的声明标题，与按钮写什么无关", async () => {
+        mountHead({key: "nbook.agent.conversation:1", popup: null});
+        await settle();
+        const title = document.getElementById(panelTitleDomId("probe", TAB.id))!;
+        expect(title.hidden).toBe(true);
+        expect(title.textContent).toBe("对话");
+    });
+
+    it("弹出状态写到按钮上；点按钮发 activate", async () => {
+        const {viewHead, activated} = mountHead({key: "nbook.agent.conversation:1", popup: {expanded: false}});
+        await settle();
+        expect(handle().getAttribute("aria-haspopup")).toBe("dialog");
+        expect(handle().getAttribute("aria-expanded")).toBe("false");
+        viewHead.value = {key: "nbook.agent.conversation:1", popup: {expanded: true}};
+        await settle();
+        expect(handle().getAttribute("aria-expanded")).toBe("true");
+        viewHead.value = {key: "nbook.agent.conversation:1", popup: null};
+        await settle();
+        expect(handle().hasAttribute("aria-haspopup")).toBe(false);
+        expect(handle().hasAttribute("aria-expanded")).toBe(false);
+        handle().click();
+        expect(activated).toEqual([TAB.id]);
+    });
+
+    it("实例换代时交一组新的位置；不再接管时交 null，按钮写回声明标题", async () => {
+        const {viewHead, given} = mountHead({key: "nbook.agent.conversation:1", popup: null});
+        await settle();
+        viewHead.value = {key: "nbook.agent.conversation:2", popup: null};
+        await settle();
+        expect(given).toHaveLength(2);
+        expect(given[1]).not.toBeNull();
+        expect(given[1]!.title).not.toBe(given[0]!.title);
+        expect(handle().textContent?.trim()).toBe("第三章节奏调整");
+
+        viewHead.value = null;
+        await settle();
+        expect(given.at(-1)).toBeNull();
+        expect(handle().textContent?.trim()).toBe("对话");
+        // 视图的内容回到视图自己那里。
+        expect(document.querySelector("[data-probe-view] [data-probe-title]")).not.toBeNull();
+    });
+
+    it("没有接管时照旧：不交位置，按钮写声明标题", async () => {
+        const {given} = mountHead(null);
+        await settle();
+        expect(given).toEqual([]);
+        expect(handle().textContent?.trim()).toBe("对话");
+        expect(document.querySelector("[data-panel-head-start]")).toBeNull();
+    });
+});

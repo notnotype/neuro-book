@@ -11,13 +11,16 @@
 
 固定 32px。标签带占框架按钮和动作之外的全部宽度，放不下时逐级让位、不横向滚动：完整标题，每个标签最宽 96px，选中的保留标题其余只留图标，放不下的收进末尾的“更多 N”；这一段来自 nb-layout `TabStrip` 的 `adapt`，外观在这里写。动作与框架按钮不让位。`390×844` 由 w00026 t11 的手机呈现决定，不在这里变。
 
+活动视图接管标题区时（`viewHead`，[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 19）整行改成三列：左列是视图的位置；中列是标题按钮，里面一格是视图的位置；右列是视图的位置、当前视图的动作、框架按钮。两侧至少放得下自己的内容并平分剩下的宽度，所以标题按整行居中；两侧放不下时标题截断，两侧不让。
+
 ## 交互
 
 - 点标签、方向键、Home、End 发 `activate`，Alt 加方向键发 `reorder`。选中的标签是 Tab 停靠点，其余靠方向键。
 - 标签的右键或菜单键发 `context-menu`（“移动到”由宿主开）。不是标签的地方右键不处理，留给浏览器。
 - 框架按钮点了发 `action`；不可用时禁用，悬停提示是原因。
 - 动作区带 `data-hover-actions`，随鼠标显示的范围由宿主给（`hover-actions.css`）。
-- `titleOnly`（侧栏这一列，别的工具面板只有一个标签时；由外壳按已提交的文档算）时只有活动标签的标题：一个可聚焦的按钮，点了发 `activate`（面板收着时宿主展开），是这个视图的拖动源，名称是标题，`dragHint` 写在描述里。
+- `titleOnly`（侧栏这一列，别的工具面板只有一个标签时；由外壳按已提交的文档算）时只有活动标签的标题：一个可聚焦的按钮，点了发 `activate`（面板收着时宿主展开），是这个视图的拖动源，名称是标题，`dragHint` 写在描述里。内容区的名称不指向这个按钮，指向一个带 `hidden` 的元素，写活动标签的标题（id 由 `panelTitleDomId` 算）。
+- 接管标题区时，标题按钮仍是这个组件画的：id、`data-panel-tab`、拖动描述、点击与右键都不变，名称是视图送进来的文字。`viewHead.popup` 不为 null 时按钮带 `aria-haspopup="dialog"` 与 `aria-expanded`。左列与右列视图的那一格带 `data-no-drag`，视图把可交互的东西放这里，不放进按钮。三个位置连同按钮经 `head-slots` 交出去；`viewHead.key` 变了（实例换代）就换一组新元素再交一次，不再接管或组件卸载时交 null。
 - 面板头的空白处不起拖：整块面板不能拖（输出 24）。
 
 ## 数据
@@ -67,7 +70,19 @@ type Props = {
     titleOnly?: boolean;
     /** 框架按钮，按给定顺序排；默认无。 */
     frameActions?: ReadonlyArray<PanelFrameAction>;
+    /** 只写标题时活动视图接管了标题区；默认 null。不是 `titleOnly` 或没有活动标签时不起作用。 */
+    viewHead?: PanelViewHead | null;
 };
+
+type PanelViewHead = {
+    /** 视图实例的身份（视图 id 加代际）：变了就换一组新的位置。 */
+    key: string;
+    /** 标题按钮弹出的东西开着没有；null 是不弹出东西。 */
+    popup: {expanded: boolean} | null;
+};
+
+/** 交给视图的位置，都是这个组件渲染的元素。 */
+type ViewHeadSlots = {start: HTMLElement; title: HTMLElement; end: HTMLElement; handle: HTMLElement};
 
 type Emits = {
     (event: "activate", id: string): void;
@@ -75,6 +90,8 @@ type Emits = {
     (event: "action", id: string): void;
     /** 坐标是视口坐标；菜单键时是标签左下角。 */
     (event: "context-menu", id: string, at: {x: number; y: number}): void;
+    /** 接管标题区时几个位置画出来了（或换了一组），不再接管、卸载时是 null；在渲染完成之后发。 */
+    (event: "head-slots", slots: ViewHeadSlots | null): void;
 };
 
 type Slots = {
@@ -91,4 +108,4 @@ type Slots = {
 
 ## 不支持
 
-不处理拖动（只写 `data-panel-head`、`data-panel-tab` 标记），不开菜单，不执行命令，不读写任何状态。
+不处理拖动（只写 `data-panel-head`、`data-panel-tab` 标记），不开菜单，不执行命令，不读写任何状态。不往交出去的位置里写内容，也不知道视图送进来的是什么；面板收着时按标题只展开、不开视图的列表，由宿主判断。

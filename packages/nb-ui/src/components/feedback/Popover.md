@@ -4,7 +4,7 @@
 
 # Popover
 
-`Popover` 把一个触发器和与之关联的浮层内容组合成可控或非受控的弹出面板。它适合放置轻量补充内容；与只显示说明的 Tooltip 不同，默认内容可以包含可交互控件。触发器和面板由调用方的两个插槽提供。
+`Popover` 把一个触发器和与之关联的浮层内容组合成可控或非受控的弹出面板。它适合放置轻量补充内容；与只显示说明的 Tooltip 不同，默认内容可以包含可交互控件。触发器和面板由调用方的两个插槽提供；触发器不归调用方渲染时（例如工作台面板头的标题按钮），可以改为锚在调用方给的元素上。
 
 ## 布局
 
@@ -16,6 +16,14 @@
 - `modal` 默认为 `false`；其模态细节和触发器行为由 Reka Popover 原语提供。
 - 面板关闭时阻止 Reka 的自动焦点恢复。焦点具体去向及其它关闭来源遵循上游原语，不在本组件保证范围内。
 - 定位方向、碰撞避让和对齐由 `side`、`sideOffset`、`avoidCollisions`、`align` 控制。
+
+### 锚在外部元素上
+
+给了 `anchor` 时不渲染 `trigger` 插槽，面板贴着这个元素定位。用于触发元素属于别的组件、不能交给原语改写的情况：原语的触发器会给子元素写自己的 `id`、`aria-haspopup`、`aria-expanded` 并叠加点击处理，`anchor` 不碰这个元素的任何属性与事件。
+
+- 开关只由 `open` 决定，打开要调用方自己处理锚点的点击；`aria-haspopup`、`aria-expanded` 也由调用方写。
+- 在锚点上按下（包括随之而来的焦点移动）不算点外面，不关闭：调用方的点击处理照常切换，再点一次就是关。
+- 按 Escape 关掉后焦点回到锚点；点外面关掉时焦点留在用户点的地方。
 
 ## 数据
 
@@ -39,6 +47,8 @@ interface PopoverProps {
     contentClass?: string;
     /** 是否显示定位箭头；默认 false。 */
     arrow?: boolean;
+    /** 锚在这个元素上，不用 `trigger` 插槽（见“锚在外部元素上”）；默认不给。传 null 时同样不渲染触发器；锚点还没有时不要打开，面板没有可贴的位置。 */
+    anchor?: HTMLElement | null;
 }
 
 interface PopoverEmits {
@@ -47,7 +57,7 @@ interface PopoverEmits {
 }
 
 interface PopoverSlots {
-    /** 触发器内容；作为 Reka PopoverTrigger 的 as-child 子树。 */
+    /** 触发器内容；作为 Reka PopoverTrigger 的 as-child 子树。给了 `anchor` 时不渲染。 */
     trigger?: () => unknown;
     /** 面板内容。 */
     default?: () => unknown;

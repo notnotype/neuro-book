@@ -162,6 +162,11 @@ export function focusLandings(doc: LayoutDoc, panelId: string): ReadonlyArray<Fo
 /** 标签与它控制的内容互相引用的 DOM id：标签在面板头（外框里），内容在内容层，两边各算出同一个。 */
 export const panelTabDomId = (prefix: string, key: string): string => `${prefix}-tab-${key}`;
 export const panelTabpanelDomId = (prefix: string, key: string): string => `${prefix}-tabpanel-${key}`;
+/**
+ * 只写标题的面板里隐藏的声明标题（输出 20）：内容 `region` 的名称指向它，不指向标题按钮。视图接管了标题区时按钮写的是视图的内容
+ * （对话写会话标题），区域的名称仍是声明标题。
+ */
+export const panelTitleDomId = (prefix: string, key: string): string => `${prefix}-title-${key}`;
 
 /**
  * “移动到”的一项（输出 23）：移进别的容器（`label` 与活动栏的入口是同一个求值，输出 41），在一个区域里新建容器，或回到声明的容器。
