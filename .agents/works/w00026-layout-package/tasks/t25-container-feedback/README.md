@@ -183,10 +183,11 @@ updated: 2026-11-16
       - 只对只有一节的侧栏容器生效（相连本来就只认只有一节、等高的工具面板）；深色主题没在浏览器里看过，按变量推断那圈外框和侧栏的投影一样在过渡结束时出现。
 
 - 收尾（2026-11-16）：
-  - 合进 master 之后的验证：类型检查干净；`test:affected --since master` 选出的 nb-layout 558 + 234、nb-ui 605 条过，neuro-book 3172 条里 2 条失败。`builtin-names`“id 列表与产品清单一致”是 master 自己的（`nbook.desktop` 漏登记，master 的 `e84e1c29a` 已修）；`settings/window.test.ts`“声明了 host: desktop 的分区……搜不到”是合并出来的：它搜“缩放”，本分支新设置 `dragCardRefresh` 的说明里有这个词，夹具改成不会和真实设置撞的词（`497998bfa`）。e2e `workbench-containers`、`-views`、`-shell`、`lab-workbench-surface`、`editor-area`、`workbench-live-drag`、`workbench-float` 173 条全过。
+  - 把 master 合进分支之后（第一次，那时还没有 w00046 t19）的验证：类型检查干净；`test:affected --since master` 选出的 nb-layout 558 + 234、nb-ui 605 条、neuro-book 的 vitest 624 条过，neuro-book 的 bun 测试 3172 条里 2 条失败。`builtin-names`“id 列表与产品清单一致”是 master 自己的（`nbook.desktop` 漏登记，master 的 `e84e1c29a` 已修）；`settings/window.test.ts`“声明了 host: desktop 的分区……搜不到”是合并出来的：它搜“缩放”，本分支新设置 `dragCardRefresh` 的说明里有这个词，夹具改成不会和真实设置撞的词（`497998bfa`）。e2e `workbench-containers`、`-views`、`-shell`、`lab-workbench-surface`、`editor-area`、`workbench-live-drag`、`workbench-float` 173 条全过。
   - Lab 版面测量（`nbdev shot`，浅色、nbook）：工作台外壳 4 张、编辑区 22 张，越界、焦点环与外框被裁都是 0。工作台外壳第一次量报了外框与活动栏按钮的焦点环被裁，是 Lab 就绪后挂载时的布局过渡还在走（就绪信号不等过渡，1.5 秒后都没了）；点一下、等 1.5 秒再量就干净。
   - 再合一次 master（带进 w00046 t19 分隔线先量后写，和本分支在 `SashHandle.vue` 各改一处、不相交）：nb-layout 类型检查与单元测试、neuro-book 类型检查过。
   - 合入 master：`3435dac30`（`--no-ff`，只含分支的路径）。4317 已停，worktree 与分支已删。
+  - 合入后在 master 上补验（临时的 detached worktree，验完删掉）：上面失败的两个文件 48 条过；neuro-book vitest 632 条过；e2e `editor-area`、`workbench-live-drag`、`workbench-containers`、`workbench-views` 125 条 124 过。失败的是 `workbench-views`“实例保留……”（788 行），负载约 20 时单独重跑一过一败，负载降到约 9 时连跑 3 遍都过。超时停在右键侧栏分节的标签，被一层 reka 弹层挡住：`showView` 点完活动栏入口指针还停在入口上，入口的 `Tooltip` 朝右弹出、盖住侧栏顶上那个标签，机器慢时提示先弹出来就一直挡着。弹层是谁是按代码推断的（失败那次的页面快照被后一轮清掉了），归为测试的竞态，不是产品回归；修法是右键前把指针移开入口，没改。
 
 ## 下一步
 
