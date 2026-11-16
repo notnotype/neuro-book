@@ -2,6 +2,7 @@
 
 - r1 经 Opus 设计审查 18 条，处理见 [evidences/design-review-r1-disposition.txt](evidences/design-review-r1-disposition.txt)。
 - r2 经 Opus 第 2 轮 17 条（1 阻塞、10 应改），处理见 [evidences/design-review-r2-disposition.txt](evidences/design-review-r2-disposition.txt)。
+- r3 经 Opus 第 3 轮 4 条（0 阻塞、2 应改、2 可选），已直接改进本文，处理见 [evidences/design-review-r3-disposition.txt](evidences/design-review-r3-disposition.txt)。
 
 第 2 轮的问题多集中在两处：缺省模式下的“工作完成后退出”（后台回答、托盘先显示、轮询），以及托盘退出时开窗询问。r3 把这两处换成简单的做法：
 
@@ -63,6 +64,8 @@
     - 取到没有工作：停止、退出。
     - 有工作、有取不到的、或整个取不到：弹壳的对话框“NeuroBook 有工作在跑，退出会中断它们”。有工作时写出项数，取不到时写“无法确认是否有工作在跑”；给“取消”（缺省）、“打开 NeuroBook”（开窗看是什么工作）、“仍然退出”。
     - 取回时已有窗口（这段里开窗转交开出来的），这次退出作废。
+    - 对话框开着时开出了窗口：关掉对话框，这次退出作废。关掉对话框（X）等于“取消”。对话框开着时再点托盘“退出”：把对话框置前。
+    - 上面每一处“停止、退出”都经应用级退出（没有窗口时它直接停止），不另开停止的入口：协调器因此进入停止中，开窗转交回 `stopping`。
 
 **最后一个窗口关掉之后**：只看提交关窗时这个窗口的询问原因，并按下表定原因：
 
@@ -74,7 +77,7 @@
 | 其余（模式 `quit`，或模式 `tray` 而图标没显示出来） | `quit` | 停止、退出（照旧） |
 
 - `window` 询问照常问参与方与宿主页未保存的正文，不提示在跑的工作。
-- 用户关、页面同意，以及“没有响应”对话框里的强制关闭，都按上表。
+- 用户关、页面同意按上表。“没有响应”对话框里的强制关闭：这次询问的原因与此刻按上表算的原因有一个是 `quit`，就以 `quit` 提交。
 - 重问：`window` 询问同意时，按上表重算。原因变成 `quit`（例如询问期间模式改成 `quit`、托盘消失、来了应用级退出），就以 `quit` 再问一次。
 - `quit` 询问得到同意就停止，询问期间模式改成 `tray` 也一样。
 - 启动中关窗（输出 23）不变：没有产品窗口，没有后台。
@@ -114,9 +117,9 @@
   - 任一询问 `deny` 或取消关闭时复位。
   - 置位时 `openWindowRequested` 回 `closing`，`pageWindowRequested` 与托盘打开不开窗。
   - 置位时窗口都关完（剩下的本来就在关闭中）→ 停止。
-- 窗口都关完：
+- 窗口都关完（在 `closed` 那一刻判断）：
   - `#appQuit` → `onQuit`。
-  - 最后一个以 `window` 提交、自有、不在停止 → 留在后台（不调 `onAllClosed`）。
+  - 不在停止、自有（`#ownsServer`）、模式 `tray`、`trayShown()` → 留在后台（不调 `onAllClosed`）。
   - 其余 → `onAllClosed`（照旧）。
 - `serverAbandoned()`：没有窗口时调 `onAllClosed`。
 - 托盘：
@@ -128,7 +131,7 @@
 **壳**（`shell.ts`）：
 
 - 模式由适配层在收到设置值时交进来（`setCloseLastWindow(mode)`）；启动时用缓存里的值。
-- 托盘视图是纯函数 `trayView({owned, mode, stopping, windows, checking}) → {visible, tooltip}`。任一输入变了就重算，交给 port 的 `setTray`。
+- 托盘视图是纯函数 `trayView({owned, mode, stopping, windows, checking}) → {visible, tooltip}`。任一输入变了就重算，交给 port 的 `setTray`。`owned` 与协调器的 `#ownsServer` 同义（自有、还没选“稍后”），服务端意外退出、对话框开着时图标仍在。适配层“图标没建出来”只记诊断、给协调器的 `trayShown()` 用，不作为 `trayView` 的输入（免得同步循环）。
 - 托盘退出：取工作（`fetch(<serverUrl>/api/runtime/work)`，8 秒截止，`RunningWorkReportSchema` 校验，不合当取不到），然后按上节分支；对话框经 port 的 `showQuitWork({count, uncertain})`，选择交回 `quitWorkChose`。
 - 意外退出对话框按“有没有窗口”给两种正文。
 
@@ -143,7 +146,7 @@
 
 - `setTray({visible, tooltip})`：
   - 要显示而还没有托盘对象：`new Tray({title, image, width, height})`。`id` 为 0 就丢掉这个对象、记诊断、告诉壳“没显示出来”。
-  - 有对象时 `setMenu` 并按自己的 id 注册点击。
+  - 建成后 `setMenu` 并按它的 id 注册一次点击；之后只在提示文字变了时 `setTitle`。
   - 要隐藏：`tray.remove()`，丢掉对象。
   - 不用 `setVisible`，避免 id 与菜单不跟着重建的问题。
 - `trayShown` 读的是这个对象在不在。
