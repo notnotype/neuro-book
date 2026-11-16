@@ -59,6 +59,7 @@ owners:
 15. **写入失败**：远程方法失败时经页面上下文的 `reportWriteFailure` 交给窗口通知（[`settings/settings-window.md`](../settings/settings-window.md) 输出 14），控件回到快照里的实际值；`unknown-outcome` 为“可能没有保存”，之后重取快照；`partially-applied` 按返回的实际密钥状态显示。
 16. **跟随变化**：快照的 `changed` 事件到达时两页刷新（别的窗口、设置文件视图的改动即时可见）；正在编辑的输入框不被打断，失焦时以快照为准。
 17. **只读**：远程合同不可用时写控件停用并在标题区说明；本作品标签下两页按分区规则停用。
+18. **打开到指定位置**（planned）：两页读页面上下文的 `focus`（[`settings/settings-window.md`](../settings/settings-window.md) 输出 15），等第一份快照到了再取走（`takeFocus`）并定位。角色页：值是角色 id，滚到这个角色那一行，焦点放在它的模型下拉上。服务商页：值是已添加的服务商 id 时选中这家、焦点放在 API 密钥框上（不要认证的服务商没有密钥框，只选中）；值是 `add` 时打开“添加服务商”对话框。认不出的值取走后什么都不做。窗口已开在这一页时再来一次照样定位。
 
 ## 状态与转换
 
@@ -101,7 +102,7 @@ Smoke：`e2e/models.e2e.ts`。
 
 ## 证据
 
-- 批准依据：w00032 t09 决定 11 到 30（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)，评审板 `review` v9）；开发者 2026-11-01 批准晋升为 `implemented`；单行条目与删除挪到条目上（输出 1、12）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。
+- 批准依据：w00032 t09 决定 11 到 30（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t09-models/README.md)，评审板 `review` v9）；开发者 2026-11-01 批准晋升为 `implemented`；单行条目与删除挪到条目上（输出 1、12）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。打开到指定位置（输出 18）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)的“设置窗口打开到指定位置”，开发者 2026-11-16 确认（t36 决定 1、9）。
 - 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/models/web/plugin.ts)、[`web/models-store.ts`](../../../packages/neuro-book/src/plugins/models/web/models-store.ts)、[`web/components/`](../../../packages/neuro-book/src/plugins/models/web/components/ProvidersPage.vue)（`ProvidersPage`、`RolesPage` 与它们的部件）
 - 合同测试：[`models-store.test.ts`](../../../packages/neuro-book/src/plugins/models/web/models-store.test.ts)（真实服务端与远程合同，检测打到本机端点）
 - Smoke：[`models.e2e.ts`](../../../packages/neuro-book/e2e/models.e2e.ts)（验收 1–3 与删除的焦点）；Lab 场景 `ProvidersPage`、`RolesPage` 与各部件（`lab-scenes.e2e.ts` 逐个检查溢出与焦点环）

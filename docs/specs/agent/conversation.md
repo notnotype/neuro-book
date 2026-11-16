@@ -109,6 +109,12 @@ owners:
     - 最近对话取顶层、未归档、本作品范围的会话，不受会话面板的搜索、Profile 过滤与“显示归档”影响；有会话没消息时不含当前会话。按最近的活动排，子会话的活动算到它的顶层会话上。“查看全部（N）”的 N 是这些会话的条数。第一屏出现时（切到没有消息的会话、新建）重新取一次；取不到时保留上一次的，不另报。
     - 试试这些取会话的 Profile 声明的开场指令（[contributions.md](contributions.md) 输出 21）；没选会话时取新会话会用的 Profile。
     - 点一条指令，文字换掉输入框里原有的；有会话时与打的字一样存成草稿。
+42. 模型不可用的提示卡（planned）：模型解析失败时，输入框上方画提示卡（[ui.agent-conversation-view](../ui/agent-conversation-view.md) 的“输入框与待处理区”），写明卡在哪里，按钮直达对应的设置；输入框只读，模型选择器仍可用。按顺序取第一个符合的：
+    - 模型服务的快照已读到，一家服务商都没有：标题“还没有可用的模型”，按钮“添加服务商”，打开服务商页并打开添加对话框（[models/settings-pages.md](../models/settings-pages.md) 输出 18）。没选会话时只判这一条；别的几种要有会话才知道选中了什么，建会话后才出。
+    - 角色没绑定（`role-unbound`，带角色）：标题“‘写作’角色还没绑定模型”，说明“主创用‘写作’角色的模型对话。”，按钮“去绑定”，打开模型角色页并定位到这个角色。
+    - 没有密钥（`no-credentials`，带服务商）：标题“DeepSeek 还没有设置密钥”，说明里有角色时写“‘写作’角色绑定的模型要用 DeepSeek 的密钥。”，没有时写模型；按钮“设置密钥”，打开服务商页、选中这家并聚焦密钥框。
+    - 其余（`unknown-model`、`no-model`，或没带角色、服务商）：标题写原因，按钮“打开设置”，打开模型服务分区。
+    - 角色名取模型服务的角色表（内置角色按界面语言），服务商名取模型服务的快照，查不到时写 id；角色与服务商来自解析失败的结果（会话快照的 `model`，[harness/runtime.md](../harness/runtime.md) 输出 77）。模型服务的快照变了、会话的模型重新解析了，卡跟着换。
 
 ## 状态与转换
 
@@ -135,7 +141,7 @@ owners:
 | 情况 | 显示 | 恢复 |
 |---|---|---|
 | 会话打不开 | 位置里显示原因 | 重试、选别的会话 |
-| 没有模型、没有凭据、角色未绑定 | 输入框上方显示原因，发送不可用 | “打开设置”跳到模型服务 |
+| 没有模型、没有凭据、角色未绑定 | 输入框上方显示原因，发送不可用；提示卡写明哪个角色或服务商（输出 42，planned） | 卡上的按钮去对应的设置：添加服务商、绑定角色、设置密钥，其余“打开设置”跳到模型服务 |
 | 服务端换进程 | 重新加载页面，不丢已写下的内容 | 点重新加载 |
 | `already-answered` | 向导跟着服务端的状态 | 自动 |
 | 发送被拒 | 撤掉乐观消息，文字放回输入框，上方说明原因 | 改了再发 |
@@ -170,7 +176,7 @@ owners:
 
 ## 证据
 
-- 批准依据：w00032 t17 决定与静态稿定稿（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/README.md)），开发者 2026-11-05 批准晋升为 `implemented`；子代理卡片写动作名（输出 33）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。子会话顶栏的返回（输出 35 的 planned 部分）与第一屏（输出 41）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9）。
+- 批准依据：w00032 t17 决定与静态稿定稿（[Task README](../../../.agents/works/w00032-agent-integration/tasks/t17-conversation-ui/README.md)），开发者 2026-11-05 批准晋升为 `implemented`；子代理卡片写动作名（输出 33）依据 [t29 的计划](../../../.agents/works/w00032-agent-integration/tasks/t29-ui-polish-after-t15/plan.md)，开发者 2026-11-16 确认计划并批准晋升。子会话顶栏的返回（输出 35 的 planned 部分）、第一屏（输出 41）与模型不可用的提示卡（输出 42）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9）。
 - 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/agent/web/plugin.ts)、[`session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)、[`session-list.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-list.ts)、[`activity.ts`](../../../packages/neuro-book/src/plugins/agent/web/activity.ts)、[`ConversationHost.vue`](../../../packages/neuro-book/src/plugins/agent/web/ConversationHost.vue)、[`SessionPanelHost.vue`](../../../packages/neuro-book/src/plugins/agent/web/SessionPanelHost.vue)
 - 合同测试：[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)（真实内核与本机端点）、[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)（真实浏览器、真实服务端，验收 1–6）
 - Smoke：[`conversation.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/conversation.llm.test.ts)（`test:llm`，真实模型）

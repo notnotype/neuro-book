@@ -106,7 +106,7 @@ type AgentConversationViewEmits = {
 | 部分 | 内容 |
 |---|---|
 | `session` | 当前会话的标题、摘要、Profile 名称与图标、状态、后台摘要状态；子会话另有祖先路径 `path`（见“顶栏”）；未选择会话时为 `null` |
-| `availability` | `ready`、`loading`、`empty`、`unselected`、`archived`、`profile-unavailable`、`load-error` 之一，附用户可读说明和可执行的恢复动作 |
+| `availability` | `ready`、`loading`、`empty`、`unselected`、`archived`、`profile-unavailable`、`load-error` 之一，附用户可读说明和可执行的恢复动作；可选的标题 `title` 与图标 `icon`，提示卡用（planned，见“输入框与待处理区”） |
 | `interaction` | 当前允许的操作：发送、运行中补充说明（steer）、运行中排队（followup）、回答提问、修改历史、停止、登记附件、修改模型与模式、归档、恢复、宿主有没有管理模型的地方、宿主做了的输入框命令（`commands`）与触发字符（`triggers`，没列的不打开菜单）、能不能给上下文详情与分支树 |
 | `run` | 运行状态 `idle`、`running`、`waiting`、`stopping`，当前运行阶段文案，正在运行的轮次 |
 | `messages` | 已加载的全部消息，按时间顺序排列，包含运行中尚未落盘的内容（见下文“消息”） |
@@ -318,6 +318,8 @@ Markdown 扩展在本规范中只预留，不要求实现。
 - 有待回答的提问或待批准的审批时，向导替换输入框的位置：放在消息流内容末尾、粘在底部，往上滚时浮在内容上，贴底时不盖最后一条；输入框隐藏但不卸载；最高占视图的 60%，内容内部滚动；表面和其它浮层相同；可以收起成一条小条（写等什么、第几个，没有批准按钮）。审批逐个处理，显示工具、目标与预览（`DiffView`，或命令的等宽代码块，或 nb-form 的展示态），按钮是批准、本会话都批准、拒绝，附言框写了字就是拒绝。提问向导支持单选、多选、“其他答案”、表单（nb-form 编辑态）、多题切换、终止本轮。未提交的答案是纯界面状态，只在当前批次内保留。
 - `composer.resume` 为真时占位文字说明上次运行被中断、回车继续，发送按钮换成继续（图标 `>>>`，大小不变）；空着发送发出 `run.continue`，写了字照常发送。
 - `availability` 不是 `ready` 时，输入框上方显示对应的横幅和恢复动作，输入框只读。
+- 提示卡（planned）：`availability` 为 `profile-unavailable` 时，上一条的横幅画成一张提示卡：图标（`icon`，没给时是提示图标）、标题（`title`，没给时只有说明）、说明（`message`）与恢复动作，第一个动作是主按钮。卡用浮层的表面与阴影，占原来那行横幅的位置（停靠区之下、输入框之上），不叠在消息上，消息区随之变矮，贴底滚动不受影响。别的状态（`archived`、`load-error`，以及 `ready` 时不拦发送的模型能力提示）保留一行：图标、说明与动作。
+- 输入框的占位文字（planned）按顺序取第一个：`availability` 不是 `ready` 且有说明时写原因（有 `title` 写 `title`，否则写 `message`）；`composer.resume` 为真时写中断后回车继续；运行中按能怎样发送写；其余是普通的占位。
 - 待处理区依次显示已登记条目；内置条目为 Workflow 待回答、工作区变更、排队消息。
 - 停靠区：消息流与输入框之间的一块，放 `async: true` 的提问与带 `source` 的事项（后代会话的审批、提问、模式切换请求）。内容与同步向导相同（`AgentWizardFrame` 的 `docked` 变体），不替换输入框；是单独的组件，出现与事项变化时不移动焦点（焦点已在停靠区里时，翻页、收起、展开之后放回对应的按钮），播报经视图层常驻、视觉隐藏的 `role="status"` 区（文字带来源）。一次一个事项：标题行有“第 n / m 个”与上一个、下一个（提问事项另接“第 k / j 题”，换事项时从第一题开始），每个单独提交（`input.submit` 带 `sessionId`），没有“全部拒绝”“终止本轮”。能收起成一条，写有几个与第一个的前半句。最高为对话视图高度的 40%（视图根节点是尺寸容器），内容区内滚动；在排队消息与可用性提示的上面。带 `source` 的标题写“子代理「名字」要……”，图标换成 `source.icon`，标题行有打开子会话的按钮（`session.select {sessionId}`）；后代会话的模式切换请求不带 `approval`（宿主不知道那个会话的审批模式），向导不问审批模式、批准不改它。标题放不下时省略号截断，计数与按钮固定在右边（同步向导同样）。同步向导出现时停靠区收成一条，排在向导下面；同步向导消失后回到用户原来的展开或收起。阴影只留很轻的一层、圆角同输入框（nb-ui 设计语言“停靠的面不用浮层的阴影档”），收起与展开相同。元素钩子 `data-agent-dock`，与同步向导的 `data-agent-wizard` 分开。
 - `user` 消息带 `author` 时，头像与名称用它，不用“用户”角色。harness 适配器的选项 `authorOf(by)` 由宿主给，把路径事件上的 `by` 换成 `author`；不给时都是用户。
@@ -488,7 +490,7 @@ Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb
 
 ## 证据
 
-- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)（2026-09-28 accepted）；开发者 2026-10-21 定单独成包 `nb-agent-ui`、做完整版（[w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)）。t36 的对话面板改版（顶栏三列、返回、送到面板头的标题区、去掉横线与顶端渐隐，标 planned 的几句）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9，依 t29 决定 5 到 11）。
+- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)（2026-09-28 accepted）；开发者 2026-10-21 定单独成包 `nb-agent-ui`、做完整版（[w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)）。t36 的对话面板改版（顶栏三列、返回、送到面板头的标题区、去掉横线与顶端渐隐、第一屏与 `composer.fill`、状态栏没选会话时、模型不可用的提示卡与占位，标 planned 的几句）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9，依 t29 决定 5 到 11）。
 - 实现入口：[`packages/nb-agent-ui/src/index.ts`](../../../packages/nb-agent-ui/src/index.ts)、[`vue/index.ts`](../../../packages/nb-agent-ui/src/vue/index.ts)、[`kernel-transcript.ts`](../../../packages/nb-agent-ui/src/kernel-transcript.ts)、宿主接线 [`web/session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)
 - 合同测试：[`packages/nb-agent-ui`](../../../packages/nb-agent-ui/src) 的单元与挂载测试（`bun run test`）、[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)；e2e：[`lab-agent-ui.e2e.ts`](../../../packages/neuro-book/e2e/lab-agent-ui.e2e.ts)、[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)、[`lab-scenes.e2e.ts`](../../../packages/neuro-book/e2e/lab-scenes.e2e.ts)
 - Smoke：[`conversation.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/conversation.llm.test.ts)（`test:llm`，真实模型）
