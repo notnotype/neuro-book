@@ -75,6 +75,14 @@ updated: 2026-11-16
 
 2026-11-16 拆分：评审板定下的对话面板改版移到 [t36](../t36-conversation-panel-redesign/README.md)，状态栏自定义移到 [t37](../t37-status-line-customization/README.md)；本 Task 留下两个设置左栏单行、删除服务商挪到条目上、子代理卡片写动作名。[计划](plan.md)已写好。
 
+2026-11-16 三片都已提交（分支 `feat/w00032-t29-ui-polish`，worktree `.worktree/w00032-t29-impl`）：
+
+1. `d9b7f437f` 服务商列表单行、删除挪到条目上（悬停图标、右键菜单、`Delete` 键），窄时在下拉旁边；Spec `054b39865`。
+2. `6abf563fa` Profile 设置左栏单行，问题是行尾图标（`statusText` 加 `kind`）；Spec `3f3115114`。
+3. `6b2853859` 子代理卡片写注册表的动作名（“读取 第二章.md”“等你批准：写入”），地址只写最后一段；工具 id 先经 `displayToolName` 转成视图键，注册表里没有时写工具名。为认出“查不到”，nb-agent-ui 的公开出口加了 `GENERIC_TOOL_RENDERER`。顺带修正：等批准原来取 id 的最后一段，`edit-replace` 查不到“编辑”。Spec `999525562`。
+
+Lab 截图：服务商页四个场景、`ProfileRail` 两个场景、`SubagentCard` 运行中、等你批准、390px 宽，文字与图标都对。已知、不是本 Task 带来的：`ProfileRail` 的“新建 Profile”按钮焦点环在左栏底边被裁（左栏 `overflow-y: auto` 且上下无内边距，样式本次没动）；`SubagentCard` 夹具定宽 640px，手机视口越界是夹具的写法（另有 `-narrow` 场景）。
+
 ## 下一步
 
-按计划切片实施，分支 `feat/w00032-t29-ui-polish`（worktree `.worktree/w00032-t29-impl`）。
+收口：`test:affected --since master --typecheck`、`e2e/models.e2e.ts` 与 `lab-scenes`；前端实现审查（Sonnet）处理完后合入。
