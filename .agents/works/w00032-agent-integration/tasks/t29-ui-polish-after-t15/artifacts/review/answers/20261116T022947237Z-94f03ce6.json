@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t29-ui-polish-after-t15",
+    "artifactId": "review",
+    "answerId": "20261116T022947237Z-94f03ce6",
+    "artifactVersion": 4,
+    "contentHash": "dd2f8bd16b7b4327f82dfe772b2f4c10ad0762ac49dfd293bd986a20b5fe2c29",
+    "submittedAt": "2026-11-16T02:29:46.472Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "child-session": "back",
+        "model-notice": "card"
+    },
+    "comments": {
+        "child-session": "直接写图片 + 返回就行，没必要把标题也写上\n还是就是如何从父代理进入子代理？",
+        "model-notice": "我喜欢 A，再看看其他地方的这种警告是怎么做的，要保持统一"
+    },
+    "note": null
+}
