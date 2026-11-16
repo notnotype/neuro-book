@@ -522,6 +522,7 @@
       "dependencies": {
         "@iconify-json/lucide": "^1.2.95",
         "@iconify/tailwind4": "^1.2.3",
+        "@internationalized/date": "^3.12.3",
         "@vueuse/core": "^14.3.0",
         "clsx": "^2.1.1",
         "diff": "^9.0.0",
