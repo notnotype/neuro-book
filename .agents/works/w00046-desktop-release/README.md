@@ -64,8 +64,8 @@ updated: 2026-11-15
 | [t10](tasks/t10-auto-update/README.md) | 桌面版自动更新。已完成，合入 master；desktop-update 已晋升 implemented |
 | [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。已完成：第一次正式发布 v0.13.0（2026-11-15）走完，registry 冒烟改为先等版本可见 |
 | [t18](tasks/t18-desktop-window-feedback/README.md) | 开发者试用 t03、t04 后的反馈：窗口按钮与标题栏统一、回到书架的入口、窗口最小 800×560。进行中 |
-| [t19](tasks/t19-resize-relayout/README.md) | 改窗口大小时页面的重排开销（分隔条吸附、过渡列表）。实现完成（每步样式重算 26 → 7.65），实现审查待处理、未合入 |
-| [t13](tasks/t13-tray/README.md) | 系统托盘与关掉最后一个窗口时的去向。未开工 |
+| [t19](tasks/t19-resize-relayout/README.md) | 改窗口大小时页面的重排开销（分隔条吸附、过渡列表）。完成（每步样式重算 26 → 7.65，样式时间约少四成），已合入 |
+| [t13](tasks/t13-tray/README.md) | 系统托盘与关掉最后一个窗口时的去向。计划写好，设计审查中 |
 | [t14](tasks/t14-system-notifications/README.md) | 系统通知（先实测 WebView2 的网页通知）。未开工 |
 | [t15](tasks/t15-drag-import/README.md) | 从系统拖入文件、图片与文件夹（文件树、编辑器插图、书架导入）。未开工 |
 | [t16](tasks/t16-plugin-drag-install/README.md) | 拖拽安装插件。未开工 |
