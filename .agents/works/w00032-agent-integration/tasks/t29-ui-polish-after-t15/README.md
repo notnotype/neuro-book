@@ -51,8 +51,8 @@ updated: 2026-11-16
 
 静态稿第 1 轮已发布（[评审板](artifacts/review/index.html)，5 道题：删除的位置、条目行数、状态栏的自定义、没选会话时的第一屏、两条横线）。草稿在 `.worktree/w00032-t29-drafts`（分支 `t29/drafts`，不提交），Lab 里是 `ProviderRailDraft`、`StatusLineDraft`、`ConversationFirstScreenDraft`。
 
-第 1 轮的答复见决定 5、6。
+第 1 轮的答复见决定 5、6。第 2 轮已发布（同一块评审板，3 道新题）：第一屏照旧应用 `AgentChatEmptyState` 重做的稿、“试试这些”的指令从哪来、顶栏四版（轻量单行、两行带摘要、并进面板头、标题居中）；Profile 设置左栏单行列为直接做。草稿在 Lab 的 `ConversationRound2Draft`。
 
 ## 下一步
 
-第 2 轮静态稿：第一屏照旧应用的 welcome 重做，顶栏出几版，Profile 设置左栏单行。
+读第 2 轮的答复，写进决定，再写计划。
