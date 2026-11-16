@@ -24,5 +24,7 @@ updated: 2026-11-05
 
 2026-11-09 开发者试用后：[t23 拖动判定照 Trellis](tasks/t23-drop-base/README.md)（来源收起一次、按收起后的布局判，不分的边没有落点，标签条限位排序）。
 
+2026-11-16 开发者同意 t27 计划第 2 稿与 t26 第 2 到 4 件，要求按 autonomous-delivery 推进：[t27 区域入口条与切换动画](tasks/t27-region-entry-strips/README.md) → [t26 深入审查的修复](tasks/t26-layout-deep-review/README.md)（含 `ui/nested-grid` 重写、`ui/workbench-layout` 晋升；nb-layout 做成通用库要先写提案、交开发者看）→ [t14 Splitter 迁移](tasks/t14-splitter-migration/README.md)。
+
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
-- [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06）。
+- [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06；t14 于 2026-11-16 排到 t26 之后）。
