@@ -6,13 +6,11 @@ export default {
     header: {
         newSession: "New session",
         untitled: "Untitled conversation",
-        noSession: "No conversation selected",
+        newConversation: "New conversation",
+        back: "Back to the parent conversation",
         more: "More actions",
         rawView: "Raw view",
         turnsView: "Turn view",
-        path: "Conversation path",
-        morePath: "More parent conversations",
-        unknownSession: "Unknown conversation",
     },
     stream: {
         empty: "No messages yet",

@@ -12,13 +12,11 @@ export default {
     header: {
         newSession: "新建会话",
         untitled: "未命名会话",
-        noSession: "未选择会话",
+        newConversation: "新对话",
+        back: "返回上一级会话",
         more: "更多操作",
         rawView: "原始视图",
         turnsView: "分轮视图",
-        path: "会话路径",
-        morePath: "更多上级会话",
-        unknownSession: "未知会话",
     },
     stream: {
         empty: "还没有消息",

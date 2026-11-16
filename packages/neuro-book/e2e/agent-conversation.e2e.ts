@@ -79,8 +79,11 @@ async function send(page: Page, text: string): Promise<void> {
     await page.keyboard.press("Enter");
 }
 
+/** 新建一段会话。头上的新建只在已有会话时才有（没选会话时头上没有它），所以经命令面板，两种情况一样。 */
 const newSession = async (page: Page): Promise<void> => {
-    await page.locator("[data-header-new]").click();
+    await page.keyboard.press("Control+Shift+P");
+    await page.keyboard.type("新建 Agent 会话");
+    await page.keyboard.press("Enter");
     await expect(page.locator(".acv-stream__empty")).toBeVisible();
 };
 
@@ -349,7 +352,7 @@ test("上下文详情：点圆环打开，看到组成；展开系统提示词�
     await page.keyboard.press("Escape");
     await expect(inspector).toHaveCount(0);
 
-    await page.locator(".acv-header").getByRole("button", {name: "更多操作"}).click();
+    await page.locator("[data-header-more]").click();
     await page.getByRole("menuitem", {name: "上下文详情"}).click();
     await expect(page.locator("[data-context-inspector] [data-context-estimated]")).toBeVisible();
     await page.locator("[data-context-refresh]").click();
@@ -403,7 +406,7 @@ test("分支树：列表与图，图默认从上往下、能换方向；选别�
     await assistant.getByRole("button", {name: "重新生成"}).click();
     await expect(page.getByText("第二版回复")).toBeVisible();
 
-    await page.locator(".acv-header").getByRole("button", {name: "更多操作"}).click();
+    await page.locator("[data-header-more]").click();
     await page.getByRole("menuitem", {name: "分支树"}).click();
     const tree = page.locator("[data-session-tree]");
     await expect(tree.locator("[data-tree-count]")).toContainText("1 处分叉");
@@ -441,7 +444,7 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     await input(page).click();
     await page.keyboard.type("/rename 雨夜");
     await page.keyboard.press("Enter");
-    await expect(page.locator(".acv-header__name")).toHaveText("雨夜");
+    await expect(page.locator("[data-header-title]")).toHaveText("雨夜");
 
     await input(page).click();
     await page.keyboard.type("/model 本机");
@@ -460,7 +463,7 @@ test("输入框：@ 引用项目文件；/rename、/model、/new；草稿切会�
     await page.locator("[data-header-new]").click();
     await expect(page.locator(".acv-stream__empty")).toBeVisible();
     await expect(input(page)).not.toContainText("没写完的字");
-    await page.locator(".acv-header__title--button").click();
+    await page.locator("[data-header-sessions]").click();
     await page.getByRole("button", {name: /雨夜/u}).or(page.getByText("雨夜")).first().click();
     await expect(input(page)).toContainText("没写完的字");
     await page.reload();

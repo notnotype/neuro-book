@@ -262,7 +262,7 @@ export const agentConversationViewScenes: Scene[] = [
     },
     {
         id: "no-session",
-        label: "未选择会话",
+        label: "没选会话：头写“新对话”，图标是新会话的 Profile，左右为空",
         input: {
             props: {
                 ctx: conversationContext({
@@ -270,6 +270,21 @@ export const agentConversationViewScenes: Scene[] = [
                     messages: [],
                     availability: {status: "unselected", message: "选择或新建一个会话后开始对话。", actions: []},
                 }),
+                newSession: true, draftProfile: {name: "主创", icon: "i-lucide-feather"},
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "child-session",
+        label: "子会话：头的左边是返回，中间是子代理的图标与标题",
+        input: {
+            props: {
+                ctx: conversationContext({
+                    session: {...conversationContext().session!, id: "child", title: "查第三章的称谓是否前后一致", profileName: "核对员", profileIcon: "i-lucide-spell-check", path: [{id: "root", title: "第三章节奏调整"}]},
+                }),
+                newSession: true,
                 teleportTarget: false, locale: "zh-CN",
             },
             model: {viewMode: "turns"},

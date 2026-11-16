@@ -590,7 +590,6 @@ defineExpose({
     flex-shrink: 0;
     gap: 6px;
     padding: 8px 12px;
-    border-top: var(--border-w) solid var(--border-color);
     container-type: inline-size;
 }
 

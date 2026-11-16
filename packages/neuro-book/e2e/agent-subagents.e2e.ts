@@ -70,7 +70,10 @@ async function openConversation(page: Page): Promise<void> {
     await page.keyboard.type("打开对话");
     await page.keyboard.press("Enter");
     await expect(input(page)).toBeVisible();
-    await page.locator("[data-header-new]").click();
+    // 头上的新建只在已有会话时才有：经命令面板新建，有没有会话都一样。
+    await page.keyboard.press("Control+Shift+P");
+    await page.keyboard.type("新建 Agent 会话");
+    await page.keyboard.press("Enter");
     await expect(page.locator(".acv-stream__empty")).toBeVisible();
 }
 
@@ -102,10 +105,9 @@ test("验收 1：同一条回复派两个，并发跑；一个完成一个出错
     await expect(card(page, "甲").locator("[data-subagent-line]")).toContainText("甲没有矛盾。");
     expect((await card(page, "甲").boundingBox())!.height).toBe(runningHeight);
     expect((await card(page, "乙").boundingBox())!.height).toBe(runningHeight);
-    // 打开子会话：顶栏有回到父会话的路径。
+    // 打开子会话：头的左边是返回，点了回到父会话。
     await card(page, "甲").locator("[data-subagent-open]").click();
-    await expect(page.locator("[data-header-path]")).toBeVisible();
-    await page.locator("[data-header-crumb]").first().click();
+    await page.locator("[data-header-back]").click();
     await page.locator("[data-turn-summary]").last().click();
     await expect(page.locator("[data-subagent-card]")).toHaveCount(2);
 });

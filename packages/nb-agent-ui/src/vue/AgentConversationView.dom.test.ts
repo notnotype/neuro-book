@@ -85,6 +85,34 @@ function mountView(locale: AgentLocale, services: Partial<AgentConversationServi
     });
 }
 
+/** 面板头给的几个位置：挂在 body 上的空元素，标题那格在一个按钮里（像工作台的标题按钮）。 */
+function headTargets() {
+    const make = (tag: string) => document.body.appendChild(document.createElement(tag));
+    const anchor = make("button");
+    const title = anchor.appendChild(document.createElement("span"));
+    return {start: make("div"), title, end: make("div"), anchor};
+}
+
+/** 测头用：可以给会话列表与右列的插槽、`headTargets`、`draftProfile`。 */
+function mountHeadView(options: {ctx?: AgentConversationContext; newSession?: boolean; sessions?: boolean; trailing?: boolean; headTargets?: ReturnType<typeof headTargets>; draftProfile?: {name: string; icon: string}} = {}) {
+    return mount(AgentConversationView, {
+        props: {
+            ctx: options.ctx ?? context(),
+            registry,
+            locale: "zh-CN",
+            services: {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []})},
+            ...(options.newSession === undefined ? {} : {newSession: options.newSession}),
+            ...(options.headTargets === undefined ? {} : {headTargets: options.headTargets}),
+            ...(options.draftProfile === undefined ? {} : {draftProfile: options.draftProfile}),
+        },
+        slots: {
+            ...(options.sessions === true ? {sessions: ({close}: {close: () => void}) => h("div", {"data-probe-sessions": ""}, [h("button", {type: "button", "data-probe-close": "", onClick: close}, "关")])} : {}),
+            ...(options.trailing === true ? {"head-trailing": () => h("button", {type: "button", "data-probe-trailing": ""}, "子代理")} : {}),
+        },
+        attachTo: document.body,
+    });
+}
+
 describe("AgentConversationView", () => {
     it("视图自己的文字也跟着 locale：英文界面下顶栏按钮是英文", () => {
         const view = mountView("en-US");
@@ -665,19 +693,63 @@ describe("宿主每秒换 now", () => {
         settled.unmount();
     });
 
-    it("子会话的顶栏是面包屑：祖先可点、发 session.select；多于两层时中间的收进“…”；读不到的写未知会话，没有标题的写未命名", async () => {
-        const session = {...context().session!, path: [{id: "root", title: "主创"}, {id: "mid", title: ""}, {id: "parent", title: "核对员"}]};
-        const view = mountView("zh-CN", {}, {ctx: {...context(), session}});
-        const crumbs = view.findAll("[data-header-crumb]");
-        expect(crumbs.map((crumb) => crumb.text())).toEqual(["主创", "核对员"]);
-        expect(view.find("[data-header-crumb-more]").exists()).toBe(true);
-        await crumbs[1]!.trigger("click");
-        expect(view.emitted("action")).toContainEqual([{type: "session.select", sessionId: "parent"}]);
+    it("子会话的头左边只有返回，发 session.select 到直接的父会话（path 的最后一项）；没有面包屑", async () => {
+        const session = {...context().session!, path: [{id: "root", title: "主创"}, {id: "child", title: "核对员"}]};
+        const view = mountHeadView({ctx: {...context(), session}, newSession: true});
+        expect(view.find("[data-header-new]").exists()).toBe(false);
+        expect(view.find("nav").exists()).toBe(false);
+        await view.get("[data-header-back]").trigger("click");
+        expect(view.emitted("action")).toEqual([[{type: "session.select", sessionId: "child"}]]);
+        view.unmount();
+    });
 
-        await view.setProps({ctx: {...context(), session: {...session, path: [{id: "root", title: null}, {id: "parent", title: ""}]}}});
-        expect(view.findAll("[data-header-crumb]").map((crumb) => crumb.text())).toEqual(["未知会话", "未命名会话"]);
-        await view.setProps({ctx: context()});
-        expect(view.find("[data-header-path]").exists()).toBe(false);
+    it("顶层会话左边是新建；没选会话时写“新对话”、图标用新会话的 Profile，左边空、没有“⋯”", async () => {
+        const view = mountHeadView({newSession: true, draftProfile: {name: "主创", icon: "i-lucide-sparkles"}});
+        await view.get("[data-header-new]").trigger("click");
+        expect(view.emitted("action")).toEqual([[{type: "session.create"}]]);
+        expect(view.get("[data-header-title]").text()).toBe("第三章");
+
+        await view.setProps({ctx: {...context(), session: null}});
+        expect(view.get("[data-header-title]").text()).toBe("新对话");
+        expect(view.find(".i-lucide-sparkles").exists()).toBe(true);
+        expect(view.find("[data-header-new]").exists()).toBe(false);
+        expect(view.find("[data-header-more]").exists()).toBe(false);
+        view.unmount();
+    });
+
+    it("有会话列表时点标题打开它，aria-expanded 跟着；插槽的 close 关掉它", async () => {
+        const view = mountHeadView({sessions: true});
+        const title = view.get("[data-header-sessions]");
+        expect(title.attributes("aria-expanded")).toBe("false");
+        await title.trigger("click");
+        await flushPromises();
+        expect(title.attributes("aria-expanded")).toBe("true");
+        expect(document.querySelector("[data-probe-sessions]")).not.toBeNull();
+        (document.querySelector("[data-probe-close]") as HTMLButtonElement).click();
+        await flushPromises();
+        expect(title.attributes("aria-expanded")).toBe("false");
+        view.unmount();
+    });
+
+    it("给了 headTargets 时三列送到外面、内容里不画头；收回时回到内容里，开着的会话列表不关", async () => {
+        const targets = headTargets();
+        const view = mountHeadView({sessions: true, newSession: true, trailing: true, headTargets: targets});
+        await flushPromises();
+        expect(targets.start.querySelector("[data-header-new]")).not.toBeNull();
+        expect(targets.title.textContent).toContain("第三章");
+        expect(targets.end.querySelector("[data-probe-trailing]")).not.toBeNull();
+        expect(targets.end.querySelector("[data-header-more]")).not.toBeNull();
+        expect(view.get("[data-agent-head]").isVisible()).toBe(false);
+
+        // 按下由宿主转来：改 sessionsOpen。
+        await view.setProps({sessionsOpen: true});
+        await flushPromises();
+        expect(document.querySelector("[data-probe-sessions]")).not.toBeNull();
+        await view.setProps({headTargets: null});
+        await flushPromises();
+        expect(targets.title.textContent).toBe("");
+        expect(view.get("[data-agent-head] [data-header-title]").text()).toBe("第三章");
+        expect(document.querySelector("[data-probe-sessions]")).not.toBeNull();
         view.unmount();
     });
 });
