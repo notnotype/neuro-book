@@ -220,38 +220,43 @@ watch([presentedLeaves, outgoingLeaves], ([presented, outgoing]) => {
     }
 }, {flush: "post"});
 /**
- * 和活动栏相连的工具面板隐藏、在过渡里缩回去时（docs/specs/ui/workbench-layout.md 输出 19），活动栏照旧相连：两张卡片作为一张缩回去，缩完
- * 活动栏才断开。按这一刻的布局算的话活动栏第一帧就断开了（拖到零不相连），而缩回去的面板还是相连的样子，贴着它的那边是直的。相连只在活动栏和它右边的工具面板之间，
+ * 和活动栏相连的工具面板隐藏、在过渡里缩回去时（docs/specs/ui/workbench-layout.md 输出 19），活动栏照旧贴着它、不留缝：两张卡片作为一张缩回去，缩完
+ * 才留出缝。按这一刻的布局算的话活动栏第一帧就断开了（拖到零不相连），第一帧就让出缝，而缩回去的面板还是相连的样子，贴着它的那边是直的。相连只在活动栏和它右边的工具面板之间，
  * 所以缩回去的叶最后一次有尺寸时左边相连，就是和活动栏连着。
+ * 留着的只是缝（`insetOf`）：活动栏相接的两个角按这一刻的布局，隐藏一开始就往圆角过渡，和面板缩回去同时走完，正好是显示时的倒放（`joinOf`）。
  */
 const drawnAsBefore = (id: string): boolean => !presentedLeaves.value.has(id) || outgoingLeaves.value.has(id);
 const barJoinHeld = computed(() => [...outgoingLeaves.value].some((id) => lastPresented.cards.get(id)?.left.kind === "joined"));
-function cardOf(id: string): CardEdges | undefined {
+/** 这块卡片的四边：离开的叶用最后一次呈现的。`holdBarJoin`：缩回去的面板还和活动栏连着时，活动栏右边仍算相连（只给缝用）。 */
+function cardOf(id: string, holdBarJoin: boolean): CardEdges | undefined {
     if (drawnAsBefore(id)) return lastPresented.cards.get(id) ?? cards.value[id];
     const card = cards.value[id];
-    return id === ACTIVITY_BAR && card !== undefined && barJoinHeld.value ? {...card, right: {kind: "joined"}} : card;
+    return holdBarJoin && id === ACTIVITY_BAR && card !== undefined && barJoinHeld.value ? {...card, right: {kind: "joined"}} : card;
 }
 const sceneOf = (id: string): PanelName | undefined => (drawnAsBefore(id) ? lastPresented.scene.get(id) : sceneCorners.value.get(id));
 
 function insetOf(id: string): Record<string, string> {
-    const edges = cardOf(id);
+    const edges = cardOf(id, true);
     return edges === undefined ? {} : {padding: [edges.top, edges.right, edges.bottom, edges.left].map(cardInset).join(" ")};
 }
 
-/** 活动栏与工具面板相连时，相接的一侧不圆、不留缝（活动栏是 start，面板是 end）。 */
+/** 活动栏与工具面板相连时，相接的一侧不圆（活动栏是 start，面板是 end）；不留缝的是 `insetOf`。 */
 function joinOf(id: string): "start" | "end" | undefined {
-    const edges = cardOf(id);
+    const edges = cardOf(id, false);
     if (edges?.right.kind === "joined") return "start";
     if (edges?.left.kind === "joined") return "end";
     return undefined;
 }
+
+/** 活动栏和右边的工具面板之间那条短线：跟着缝走（`insetOf`），两张卡片还贴着就画，缩完才和缝一起没。 */
+const barSeamOf = (id: string): "" | undefined => (id === ACTIVITY_BAR && cardOf(id, true)?.right.kind === "joined" ? "" : undefined);
 
 /**
  * 卡片在外框里的形状（NestedGrid 的 `leafShape`）：过渡中外框露出、盖住保持尺寸的面板时按它裁，露出来的一截是一张完整的卡片。
  * 和 `insetOf`、`joinOf` 同一来源，离开的叶用最后一次呈现的；相连的一侧不圆。圆角按物理方向给（工作台只有从左到右）。
  */
 function shapeOf(id: string): GridLeafShape | undefined {
-    const edges = cardOf(id);
+    const edges = cardOf(id, true);
     if (edges === undefined || PLAIN.has(id)) return undefined;
     const round = "var(--shell-card-radius, 0px)";
     const join = joinOf(id);
@@ -365,6 +370,7 @@ defineExpose({
                         class="workbench-surface__card"
                         :data-shell-card="node.id"
                         :data-shell-join="joinOf(node.id)"
+                        :data-shell-join-seam="barSeamOf(node.id)"
                         :data-shell-slot="node.id === slotPanel ? '' : undefined"
                         :data-panel-role="roleOf(node.id) ?? undefined"
                         :data-panel-name="sceneOf(node.id)"
@@ -466,8 +472,8 @@ defineExpose({
     border-radius: var(--shell-card-radius, 0px);
     box-shadow: var(--shell-card-shadow, none);
     /*
-     * 相连、断开时相接的两个角在直角与圆角之间过渡（开发者 2026-11-13）：显示侧栏时活动栏的角随侧栏长出来变直，隐藏时侧栏摘掉后
-     * （输出 19 的相连保持）再变圆。用布局的时长与曲线；减少动效时为 0。
+     * 相连、断开时相接的两个角在直角与圆角之间过渡（开发者 2026-11-13）：显示侧栏时活动栏的角随侧栏长出来变直，隐藏时随侧栏缩回去变圆
+     * （开发者 2026-11-16：原来等缩完才变圆，像慢了一拍）。和网格的过渡同一个时长与曲线，所以同时走完；减少动效时为 0。
      */
     transition: border-radius var(--motion-layout) var(--ease-layout);
 }
@@ -493,7 +499,7 @@ defineExpose({
 }
 
 /* 相连的活动栏与面板之间一条两端不碰顶底的短线；不需要时主题把颜色设成透明。 */
-.workbench-surface__card[data-shell-join="start"]::after {
+.workbench-surface__card[data-shell-join-seam]::after {
     content: "";
     position: absolute;
     inset-block: 10px;

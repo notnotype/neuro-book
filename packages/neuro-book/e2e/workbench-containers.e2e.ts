@@ -282,7 +282,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         for (const row of middle) expect([row.gapHit, row.cornerHit, row.innerHit]).toEqual([false, false, true]);
     });
 
-    test("活动栏与只有一节的侧栏相连：隐藏侧栏时两张卡片一直连着缩回去，这一节缩到零后活动栏才断开；显示时一开始就相连（ui/workbench-layout 输出 19）", async ({page}) => {
+    test("活动栏与只有一节的侧栏相连：隐藏侧栏时两张卡片一直贴着缩回去，活动栏相接的两个角同时变圆，缩到零才留出缝；显示时一开始就相连，角随侧栏长出来变直（ui/workbench-layout 输出 19）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const moving = page.locator("[data-workbench-surface] [data-moving]");
@@ -292,31 +292,59 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const section = await sectionOf(page, A);
         await expect(bar).toHaveAttribute("data-shell-join", "start");
         await expect(page.locator(`[data-shell-card="${section}"]`)).toHaveAttribute("data-shell-join", "end");
-        /** 点一下入口，逐帧记这一节外框的宽度、活动栏相连没有，直到网格的过渡结束。 */
+        // 卡片的圆角：没有相连的那一边就是它。
+        const full = await bar.evaluate((element) => Number.parseFloat(getComputedStyle(element).borderTopLeftRadius));
+        expect(full).toBeGreaterThan(4);
+        /** 点一下入口，逐帧记这一节外框的宽度、活动栏右上角的圆角、活动栏右边到这一节左边的缝、相连的短线在不在，直到网格的过渡结束。 */
         const film = () => page.evaluate(async ({selector, leafId}) => {
-            const rows: Array<{width: number; barJoin: string | null}> = [];
+            const rows: Array<{width: number; radius: number; gap: number; seam: boolean; barJoin: string | null}> = [];
+            const card = document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!;
             document.querySelector<HTMLElement>(selector)!.click();
             for (let frame = 0; frame < 90; frame += 1) {
                 await new Promise((resolve) => requestAnimationFrame(resolve));
-                const width = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`)?.getBoundingClientRect().width ?? 0;
-                rows.push({width, barJoin: document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!.dataset.shellJoin ?? null});
+                const leafBox = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`)?.getBoundingClientRect();
+                rows.push({
+                    width: leafBox?.width ?? 0,
+                    radius: Number.parseFloat(getComputedStyle(card).borderTopRightRadius),
+                    gap: leafBox === undefined ? Number.NaN : leafBox.left - card.getBoundingClientRect().right,
+                    seam: card.hasAttribute("data-shell-join-seam"),
+                    barJoin: card.dataset.shellJoin ?? null,
+                });
                 if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
             }
             return rows;
         }, {selector: `[data-tool-entry="view:${A}"]`, leafId: section});
 
-        // 隐藏（按拖到零画）：这一节还有宽度的每一帧，活动栏都还相连（按这一刻的布局算的话第一帧就断开了，缩回去的那节贴着它的一边却是直的）；缩到零之后才断开。
+        // 隐藏（按拖到零画）：这一节还有宽度的每一帧，两张卡片贴着（没有缝、短线还在）；按这一刻的布局算的话第一帧就让出缝了。
+        // 活动栏的角同时往圆角走：缩的途中有一帧是半圆，一直不往回走，这一节缩到零时已经接近圆角（同一个时长与曲线），不是缩完才开始变圆。
         const hiding = await film();
-        expect(hiding.filter((row) => row.width > 0).length).toBeGreaterThan(2);
-        for (const row of hiding.filter((row) => row.width > 0)) expect(row.barJoin).toBe("start");
+        const shrinking = hiding.filter((row) => row.width > 0);
+        expect(shrinking.length).toBeGreaterThan(2);
+        for (const row of shrinking) {
+            expect(Math.abs(row.gap)).toBeLessThanOrEqual(1);
+            expect(row.seam).toBe(true);
+        }
+        expect(shrinking.some((row) => row.radius > 0.5 && row.radius < full - 0.5)).toBe(true);
+        for (const [index, row] of hiding.entries()) if (index > 0) expect(row.radius).toBeGreaterThanOrEqual((hiding[index - 1]?.radius ?? 0) - 0.01);
+        const zeroAt = hiding.findIndex((row) => row.width === 0);
+        expect(zeroAt).toBeGreaterThan(0);
+        expect(hiding[zeroAt]?.radius ?? 0).toBeGreaterThanOrEqual(full - 1.5);
         await expect(moving).toHaveCount(0);
         await shrunk(page, section);
         expect(await bar.getAttribute("data-shell-join")).toBeNull();
+        expect(await bar.getAttribute("data-shell-join-seam")).toBeNull();
 
-        // 显示：长出来、有宽度的每一帧都相连。
+        // 显示：长出来、有宽度的每一帧都相连、贴着；角随它长出来变直，途中有一帧是半圆。
         const showing = await film();
-        expect(showing.filter((row) => row.width > 0).length).toBeGreaterThan(2);
-        for (const row of showing.filter((row) => row.width > 0)) expect(row.barJoin).toBe("start");
+        const growing = showing.filter((row) => row.width > 0);
+        expect(growing.length).toBeGreaterThan(2);
+        for (const row of growing) {
+            expect(row.barJoin).toBe("start");
+            expect(Math.abs(row.gap)).toBeLessThanOrEqual(1);
+        }
+        expect(growing.some((row) => row.radius > 0.5 && row.radius < full - 0.5)).toBe(true);
+        await expect(moving).toHaveCount(0);
+        await expect.poll(() => bar.evaluate((element) => Number.parseFloat(getComputedStyle(element).borderTopRightRadius))).toBe(0);
     });
 
     test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时缩到零（按拖到零画），过渡中不可交互、还画着；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {
