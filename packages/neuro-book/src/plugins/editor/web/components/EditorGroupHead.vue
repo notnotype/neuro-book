@@ -71,6 +71,13 @@ const t = useEditorText();
 
 const root = useEditorGroupRoot({area: () => props.area, groupId: () => props.groupId, intent: (intent) => emit("intent", intent)});
 
+/*
+ * 交给标签条的文案函数在 setup 里建一次：写在模板里的箭头函数每次本组件重渲染都是新的，标签条拿到新 prop 就跟着重渲染，
+ * 它的 TransitionGroup 每次重渲染都要量一遍所有标签。本组件随标签条宽度（标题动作的取舍）重渲染，改窗口大小时每一步都会。
+ */
+const closeLabel = (name: string): string => t("tab.close", {name});
+const unpinLabel = (name: string): string => t("tab.unpin", {name});
+
 const group = computed(() => props.area.groups.shown.value.find((candidate) => candidate.id === props.groupId) ?? null);
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
 
@@ -156,8 +163,8 @@ const hasTitleActions = computed(() => titleModel.value !== null && (titleModel.
                 class="editor-group-head__tabs"
                 :tabs="tabs"
                 :label="t('area.tabsLabel')"
-                :close-label="(name: string) => t('tab.close', {name})"
-                :unpin-label="(name: string) => t('tab.unpin', {name})"
+                :close-label="closeLabel"
+                :unpin-label="unpinLabel"
                 :unsaved-label="t('tab.unsaved')"
                 :pinned-label="t('tab.pinned')"
                 :wrap="wrapTabs"

@@ -6,17 +6,26 @@
  * 分隔线 inject 后登记自己的对齐函数。
  *
  * 对齐函数读布局，所以过渡中的几何要等过渡结束再 `schedule()` 一次，否则读到的是旧位置。
+ *
+ * 一帧里先让所有分隔线量完，再统一写：每条线都是“读位置、写内联样式”，逐条做的话，后一条的读会因为前一条的写
+ * 强制重算一次样式与布局，改窗口大小时每一步都要多付分隔线条数次重算（w00046 t19 量过）。
  */
 import {inject, onBeforeUnmount, onMounted, provide, watch, type InjectionKey} from "vue";
 
 import {useDevicePixelRatio} from "./useDevicePixelRatio";
 
 export interface SashSnapHost {
-    /** 登记一条分隔线的对齐函数，返回注销。参数是当前的设备像素比。 */
-    register(snap: (dpr: number) => void): () => void;
+    /**
+     * 登记一条分隔线的对齐函数，返回注销。参数是当前的设备像素比。对齐函数只读布局与样式、不写，
+     * 把要写的东西包成函数交回（没有要写的交回 null）；写在这一帧所有分隔线都量完之后执行。
+     */
+    register(snap: SashSnapMeasure): () => void;
     /** 合并到一帧，重新对齐所有分隔线。 */
     schedule(): void;
 }
+
+/** 量一条分隔线：只读，交回这一帧量完之后要做的写入。 */
+export type SashSnapMeasure = (dpr: number) => (() => void) | null;
 
 const SASH_SNAP_KEY: InjectionKey<SashSnapHost> = Symbol("nb-layout.sash-snap");
 
@@ -28,7 +37,7 @@ const SASH_SNAP_KEY: InjectionKey<SashSnapHost> = Symbol("nb-layout.sash-snap");
  * 并取消排着的那一帧。
  */
 export function useSashSnap(): SashSnapHost {
-    const snaps = new Set<(dpr: number) => void>();
+    const snaps = new Set<SashSnapMeasure>();
     let frame = 0;
     let disposed = false;
     // 设备像素比只有一个来源：缩放变了要重新对齐，不靠别处顺带触发。
@@ -44,8 +53,15 @@ export function useSashSnap(): SashSnapHost {
         }
         frame = requestAnimationFrame(() => {
             frame = 0;
+            const writes: Array<() => void> = [];
             for (const snap of snaps) {
-                snap(dpr.value);
+                const write = snap(dpr.value);
+                if (write !== null) {
+                    writes.push(write);
+                }
+            }
+            for (const write of writes) {
+                write();
             }
         });
     }

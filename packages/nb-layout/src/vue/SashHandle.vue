@@ -157,10 +157,12 @@ function writeDecorationGeometry(target: HTMLElement, box: SashBandBox, horizont
 /**
  * 两层装饰的几何都只作用在装饰元素上：接缝自身仍是流内的 1px（或 Lab 的 sashSize），命中盒、ARIA 与
  * 面板分配都不受影响。这里的对齐位移最多半个设备像素，且只是装饰层的 CSS px。
+ *
+ * 只读不写：读位置与线芯宽度，交回写入，由 `useSashSnap` 等这一帧所有分隔线量完再执行（见那里的说明）。
  */
-function snap(dpr: number): void {
+function snap(dpr: number): (() => void) | null {
     if (element === null) {
-        return;
+        return null;
     }
     const horizontal = props.axis === "width";
     const sashPx = props.size;
@@ -193,13 +195,23 @@ function snap(dpr: number): void {
     const seamStartPx = Number.isFinite(box) && box > 0
         ? (Math.round((center - SEAM_THICKNESS_PX * scale / 2) * dpr) / dpr - origin) / scale
         : null;
-    if (lineEl !== null && band !== null) {
-        writeDecorationGeometry(lineEl, band, horizontal);
-        writeLineCore(lineEl, band, seamStartPx);
-    }
-    if (seamEl !== null && seamStartPx !== null) {
-        writeDecorationGeometry(seamEl, {startPx: seamStartPx, thicknessPx: SEAM_THICKNESS_PX}, horizontal);
-    }
+    const line = lineEl;
+    const seam = seamEl;
+    const lineSize = line !== null && band !== null ? readLineSize(line) : Number.NaN;
+    return () => {
+        if (line !== null && band !== null) {
+            writeDecorationGeometry(line, band, horizontal);
+            writeLineCore(line, band, seamStartPx, lineSize);
+        }
+        if (seam !== null && seamStartPx !== null) {
+            writeDecorationGeometry(seam, {startPx: seamStartPx, thicknessPx: SEAM_THICKNESS_PX}, horizontal);
+        }
+    };
+}
+
+/** 主题给的线芯宽度（`--sash-line-size`）；没给时是 NaN。读样式，所以在量的那一半里读。 */
+function readLineSize(target: HTMLElement): number {
+    return Number.parseFloat(getComputedStyle(target).getPropertyValue("--sash-line-size"));
 }
 
 /**
@@ -207,8 +219,7 @@ function snap(dpr: number): void {
  * 会摊成两条半透明的线，所以细线芯对齐静止接缝（近端边落在设备像素上，奇数宽都是实的），再夹进装饰带，不越出去
  * 被祖先裁掉。不比装饰带细时清掉变量，线芯铺满装饰带，就是原来的样子。
  */
-function writeLineCore(target: HTMLElement, band: SashBandBox, seamStartPx: number | null): void {
-    const size = Number.parseFloat(getComputedStyle(target).getPropertyValue("--sash-line-size"));
+function writeLineCore(target: HTMLElement, band: SashBandBox, seamStartPx: number | null, size: number): void {
     if (seamStartPx === null || !(size > 0) || size >= band.thicknessPx) {
         target.style.removeProperty("--nb-sash-core-start");
         target.style.removeProperty("--nb-sash-core-size");
