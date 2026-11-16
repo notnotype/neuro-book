@@ -61,7 +61,7 @@ function remeasure(): void {
  * 文字、语言或条目集合变了：等测量层渲染完再量。三个来源分开写，Vue 逐个比值；写成一个返回数组的函数时每次都是新数组，
  * 上游每换一次条目数组（改窗口大小时每一步都换）都会重量一遍、强制重算整页样式（w00046 t19）。
  */
-watch([() => props.entries.map((entry) => `${entry.id}\u0000${entry.text}\u0000${entry.icon?.name ?? ""}`).join("\u0001"), () => port.locale.value, () => props.itemHeight], () => {
+watch([() => props.entries.map((entry) => `${entry.id}\u0000${entry.text}\u0000${entry.icon?.name ?? ""}\u0000${entry.command === null ? "" : "command"}`).join("\u0001"), () => port.locale.value, () => props.itemHeight], () => {
     void nextTick(remeasure);
 }, {immediate: true});
 
@@ -250,16 +250,11 @@ function iconClass(entry: StripEntry): (string | Record<string, boolean>)[] {
     color: var(--status-danger);
 }
 
-/*
- * 测量层与显示用同一种元素、同一组类，量出来的宽度才是摆出来时的宽度；间距不在这里，预算按项数算。
- * 宽度取内容本身（max-content），不随条带变：否则条目合起来比条带宽时，测量层被条带夹窄、条目被压缩，量出来的是压过的宽度；
- * 测量层的尺寸跟着窗口变，ResizeObserver 每一步都要重量一遍（w00046 t19）。
- */
+/* 测量层与显示用同一种元素、同一组类，量出来的宽度才是摆出来时的宽度；间距不在这里，预算按项数算。 */
 .workbench-item-strip__measure {
     position: absolute;
     top: 0;
     left: 0;
-    width: max-content;
     display: flex;
     gap: 4px;
     visibility: hidden;

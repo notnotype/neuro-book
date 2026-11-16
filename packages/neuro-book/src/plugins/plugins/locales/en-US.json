@@ -135,7 +135,7 @@
         },
         "nbook-desktop": {
             "name": "Desktop",
-            "description": "Window settings of the desktop app: zoom and opening NeuroBook when you sign in to Windows. Shown only in the desktop app."
+            "description": "Window settings of the desktop app: zoom (with its shortcuts and commands) and opening NeuroBook when you sign in to Windows. The settings section appears only in desktop app windows."
         },
         "nbook-editor": {
             "name": "Editor",
