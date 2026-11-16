@@ -132,7 +132,7 @@
         },
         "nbook-desktop": {
             "name": "桌面",
-            "description": "桌面版的窗口设置：界面缩放（含快捷键与命令）、登录 Windows 时打开 NeuroBook；设置分区只在桌面版的窗口里出现。"
+            "description": "桌面版的窗口设置：界面缩放（含快捷键与命令）、登录 Windows 时打开 NeuroBook、关掉最后一个窗口时退出还是留在系统托盘；设置分区只在桌面版的窗口里出现。"
         },
         "nbook-editor": {
             "name": "编辑器",

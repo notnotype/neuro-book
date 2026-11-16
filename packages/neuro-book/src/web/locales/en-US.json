@@ -99,7 +99,8 @@
     "update": {
         "available": {
             "title": "NeuroBook {{version}} is available",
-            "message": "Download it now; it installs the next time you open NeuroBook."
+            "message": "Download it now; it installs the next time you open NeuroBook.",
+            "trayMessage": "Download it now; it installs after you quit NeuroBook from the system tray and open it again."
         },
         "notifyOnly": {
             "title": "NeuroBook {{version}} is available to download",
@@ -116,7 +117,8 @@
         },
         "downloaded": {
             "title": "NeuroBook {{version}} is downloaded",
-            "message": "It installs the next time you open NeuroBook."
+            "message": "It installs the next time you open NeuroBook.",
+            "trayMessage": "It installs after you quit NeuroBook from the system tray and open it again."
         },
         "updated": {
             "title": "Updated to NeuroBook {{version}}",

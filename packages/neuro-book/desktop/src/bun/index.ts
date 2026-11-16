@@ -494,7 +494,8 @@ async function main(): Promise<void> {
         closeNotResponding: (id) => closeDialog(`not-responding:${String(id)}`),
         sendHint(id, hintId, hint) {
             const managed = windows.get(id);
-            if (managed !== undefined) dispatch(managed.win, {type: "update-hint", id: hintId, hint});
+            // 托盘图标显示着，关掉最后一个窗口就会留在后台：页面把“下次打开时安装”换成从托盘退出（desktop-update 输出 6）。
+            if (managed !== undefined) dispatch(managed.win, {type: "update-hint", id: hintId, hint, tray: tray !== null});
         },
         endHint(id, hintId) {
             const managed = windows.get(id);

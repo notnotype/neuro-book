@@ -99,7 +99,8 @@
     "update": {
         "available": {
             "title": "NeuroBook {{version}} 可以更新",
-            "message": "下载之后，下次打开 NeuroBook 时安装。"
+            "message": "下载之后，下次打开 NeuroBook 时安装。",
+            "trayMessage": "下载之后，从系统托盘退出 NeuroBook，再打开时安装。"
         },
         "notifyOnly": {
             "title": "NeuroBook {{version}} 可以下载",
@@ -116,7 +117,8 @@
         },
         "downloaded": {
             "title": "NeuroBook {{version}} 已下载",
-            "message": "下次打开 NeuroBook 时安装。"
+            "message": "下次打开 NeuroBook 时安装。",
+            "trayMessage": "从系统托盘退出 NeuroBook，再打开时安装。"
         },
         "updated": {
             "title": "已更新到 NeuroBook {{version}}",
