@@ -44,7 +44,10 @@ describe("子代理卡片", () => {
         expect(cardModel(spawn(), tree(forked, running), [], false)).toMatchObject({state: "running", childId: "child", step: {tool: "read", target: "第二章.md"}, tools: 3, startedAt: 100, name: "称谓检查"});
         const stepOf = (step: TreeItem["step"]) => cardModel(spawn(), tree(child({state: "running", runId: "r1", runInvocation: "inv-1", step})), [], false).step;
         expect(stepOf({tool: "nbook.agent.edit-replace", target: "project://正文/第三章/"})).toEqual({tool: "edit", target: "第三章"});
+        expect(stepOf({tool: "nbook.agent.read", target: "project://正文/第二章 雨夜.md"})).toEqual({tool: "read", target: "第二章 雨夜.md"});
         expect(stepOf({tool: "nbook.agent.grep", target: "称谓"})).toEqual({tool: "grep", target: "称谓"});
+        // 含地址的命令不是地址，原样写。
+        expect(stepOf({tool: "nbook.agent.shell", target: "cat project://正文/第二章.md"})).toEqual({tool: "shell", target: "cat project://正文/第二章.md"});
         expect(stepOf({tool: "lab.publish_chapter"})).toEqual({tool: "publish_chapter"});
         // 进度到了、还没有工具调用：在思考；进度还没到：不标（卡片写正在启动）。
         expect(cardModel(spawn(), tree(child({state: "running", runId: "r1", runInvocation: "inv-1"})), [], false)).toMatchObject({state: "running", thinking: true});

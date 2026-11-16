@@ -113,9 +113,9 @@ export interface ProfileView {
     readonly name: string;
     readonly description: string;
     readonly icon: string;
-    /** 第二行的来源：内置、插件名、“我写的”。 */
+    /** 来源：内置、插件名、“我写的”；写在详情头部的提示里。 */
     readonly source: string;
-    /** 有问题时第二行换成这个。 */
+    /** 有问题时：左栏行尾的图标按 `kind`、颜色按 `tone`，`text` 是悬停提示与读屏描述里的原因。 */
     readonly statusText: {readonly kind: "unavailable" | "error"; readonly text: string; readonly tone: "warning" | "error"} | null;
     readonly hidden: boolean;
     /** 用户级：有“打开文件”“删除”。 */

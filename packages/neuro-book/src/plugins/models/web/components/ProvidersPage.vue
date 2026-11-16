@@ -297,13 +297,15 @@ function removeProvider(): void {
     const index = providers.value.findIndex((item) => item.id === provider.id);
     // 下一家（删掉后同一个位置上的那家），没有时上一家。
     const neighbour = index < 0 ? others[0] ?? null : others[index] ?? others[index - 1] ?? null;
+    // 删之前定：快照事件可能先于写入的结果到，那时上面的 watch 已把选中改成“全部模型”，再看选中就认不出删的是当前这家。
+    const wasSelected = selected.value === provider.id;
     removal = (async () => {
         const result = await props.store.call("removeProvider", {id: provider.id});
         if (!result.ok) {
             report(subjectOf(provider), result.failure);
             return null;
         }
-        if (selected.value !== provider.id) return selected.value;
+        if (!wasSelected) return selected.value;
         selected.value = neighbour?.id ?? "all";
         return neighbour?.id ?? "add";
     })();

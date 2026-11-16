@@ -42,6 +42,8 @@ describe("SubagentCard 的动作名", () => {
         expect(lineOf(runningWith({tool: "nbook.agent.read", target: "project://正文/第二章.md"}))).toBe("读取 第二章.md");
         expect(lineOf(runningWith({tool: "nbook.agent.edit-replace", target: "project://正文/第三章.md"}))).toBe("编辑 第三章.md");
         expect(lineOf(runningWith({tool: "lab.publish_chapter", target: "project://正文/第五章.md"}))).toBe("publish_chapter 第五章.md");
+        // 子代理自己的工具按显式映射的键查，写本插件登记的名称。
+        expect(lineOf(runningWith({tool: "nbook.agent.spawn"}))).toBe("派子代理");
     });
 
     it("等你批准写动作名", () => {

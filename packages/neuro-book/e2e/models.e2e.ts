@@ -237,8 +237,14 @@ test("验收 3：窄窗口里服务商列表收成下拉；页面里的写不进
     } finally {
         await chmod(join(stateRoot, "settings.json"), 0o644);
     }
-    await page.locator("[data-provider-remove]").click();
+    // 窄时删除在下拉旁边：取消后焦点回到它；删掉唯一的一家后焦点落到“添加服务商”。
+    const removeCurrent = page.locator("[data-provider-remove-current]");
+    await removeCurrent.click();
+    await page.getByRole("alertdialog").getByRole("button", {name: "取消"}).click();
+    await expect(removeCurrent).toBeFocused();
+    await removeCurrent.click();
     await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
+    await expect(page.locator("[data-provider-add]:visible").first()).toBeFocused();
 
     // 绑定作品的窗口：本作品标签下两页停用。
     await page.setViewportSize({width: 1280, height: 800});
@@ -253,6 +259,9 @@ test("删除的三条路与焦点：取消后回到那家的条目；Delete 键�
     await addCustom(page, "乙");
     await addCustom(page, "丙");
     const item = (id: string) => page.locator(`[data-provider-rail-item='${id}']`);
+    // 条目的名称只有服务商名，行尾一格的原因是描述。
+    await expect(item("custom-2")).toHaveAccessibleName("乙");
+    await expect(item("custom-2")).toHaveAccessibleDescription(/./u);
     await item("custom-2").click();
 
     await item("custom-2").hover();

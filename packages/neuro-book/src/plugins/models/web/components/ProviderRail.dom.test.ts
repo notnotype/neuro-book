@@ -36,7 +36,7 @@ const item = (id: string): HTMLElement => {
 const descriptionOf = (element: HTMLElement): string => document.getElementById(element.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
 
 describe("ProviderRail", () => {
-    it("行尾一格：没问题写模型数，密钥的问题是图标，原因是条目的读屏描述", async () => {
+    it("行尾一格：没问题写模型数，密钥的问题是图标，原因是条目的悬停提示与读屏描述", async () => {
         render();
         await flushPromises();
         expect(item("deepseek").querySelector("[data-provider-status]")?.textContent?.trim()).toBe("2");
@@ -45,6 +45,9 @@ describe("ProviderRail", () => {
         expect(descriptionOf(item("anthropic"))).toBe("环境变量没有值");
         expect(item("openai").querySelector("[data-provider-status]")?.getAttribute("data-provider-status")).toBe("warning");
         expect(descriptionOf(item("openai"))).toBe("没有密钥");
+        // 悬停整行时行尾一格让位给删除图标，原因写在条目自己的提示里。
+        expect(item("openai").getAttribute("title")).toBe("OpenAI\n没有密钥");
+        expect(item("deepseek").getAttribute("title")).toBe("DeepSeek");
         // 本机端点不要密钥，照常写模型数。
         expect(descriptionOf(item("ollama"))).toBe("1 个模型");
     });
@@ -65,10 +68,27 @@ describe("ProviderRail", () => {
         expect(wrapper.emitted("select")).toBeUndefined();
     });
 
-    it("“全部模型”与只读时没有删除", async () => {
+    it("Shift+F10 在条目上开右键菜单，Escape 关掉后焦点回到条目", async () => {
+        render();
+        await flushPromises();
+        item("openai").focus();
+        item("openai").dispatchEvent(new KeyboardEvent("keydown", {key: "F10", shiftKey: true, bubbles: true, cancelable: true}));
+        await flushPromises();
+        const menu = document.body.querySelector<HTMLElement>("[role='menu']");
+        expect(menu?.textContent).toContain("删除服务商…");
+        (document.activeElement ?? menu!).dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        await flushPromises();
+        expect(document.body.querySelector("[role='menu']")).toBeNull();
+        expect(document.activeElement).toBe(item("openai"));
+    });
+
+    it("“全部模型”与只读时没有删除；只读时不拦浏览器自己的右键菜单", async () => {
         const wrapper = render({disabled: true});
         await flushPromises();
         expect(document.body.querySelector("[data-provider-remove]")).toBeNull();
+        const contextmenu = new MouseEvent("contextmenu", {bubbles: true, cancelable: true});
+        item("openai").dispatchEvent(contextmenu);
+        expect(contextmenu.defaultPrevented).toBe(false);
         item("openai").dispatchEvent(new KeyboardEvent("keydown", {key: "Delete", bubbles: true, cancelable: true}));
         wrapper.setProps({disabled: false});
         await flushPromises();

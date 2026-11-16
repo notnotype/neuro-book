@@ -73,11 +73,12 @@ function waitingOf(item: TreePending | undefined): WaitingFor | undefined {
     return {kind: "question", text: typeof first.question === "string" ? first.question : ""};
 }
 
-/** 地址（含 `://`）只留最后一段，别的对象（搜索词、命令）原样。 */
+/** 对象以地址开头时（`project://正文/第二章 雨夜.md`，文件名可以带空格）只留最后一段；含地址的命令、搜索词等原样。 */
+const ADDRESS = /^[a-z][a-z0-9+.-]*:\/\//iu;
+
 function shortTarget(target: string): string {
-    const at = target.indexOf("://");
-    if (at === -1) return target;
-    return target.slice(at + 3).split("/").filter((segment) => segment !== "").at(-1) ?? target;
+    if (!ADDRESS.test(target)) return target;
+    return target.slice(target.indexOf("://") + 3).split("/").filter((segment) => segment !== "").at(-1) ?? target;
 }
 
 function laterTerminal(messages: readonly MessageView[], runId: string, self: string): {readonly state: CardState; readonly line?: string; readonly result?: string} | null {

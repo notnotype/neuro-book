@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import {Button, Tooltip} from "@notnotype/nb-ui/components";
+import {Button} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref} from "vue";
 
 import type {ProfileView} from "../profile-view";
 import {useAgentPageText} from "../text";
 
-/** Profile 设置页的左栏（同名 .md）：一行一项，有问题时行尾是图标，原因在提示与读屏描述里；来源在详情头部的提示里。 */
+/**
+ * Profile 设置页的左栏（同名 .md）：一行一项，有问题时行尾是图标；来源在详情头部的提示里。
+ *
+ * 原因写在条目的 `title` 里（同“服务商与模型”的左栏），不另挂图标的提示：条目本来就用 `title` 写放不下的名称，两种提示叠在
+ * 一起会同时冒出来。读屏从 `aria-describedby` 读原因；被引用的那段文字是 `hidden`，不并进条目的名称。
+ */
 const props = withDefaults(defineProps<{
     items: readonly ProfileView[];
     current: string;
@@ -21,6 +26,7 @@ const text = useAgentPageText();
 /** 不可用是禁止图标、有错误是警示图标；颜色另照 `statusText.tone`（缺工具、key 被占用的不可用是警示色）。 */
 const STATUS_ICON = {unavailable: "i-lucide-circle-slash", error: "i-lucide-circle-alert"} as const;
 const statusIdOf = (key: string): string => `profile-rail-status-${key}`;
+const titleOf = (item: ProfileView): string => (item.statusText === null ? item.name : `${item.name}\n${item.statusText.text}`);
 const root = ref<HTMLElement | null>(null);
 const groups = computed(() => [
     {id: "main", title: null, items: props.items.filter((item) => !item.hidden)},
@@ -57,18 +63,16 @@ function onKeydown(event: KeyboardEvent): void {
                     :aria-current="item.key === current ? 'page' : undefined"
                     :tabindex="item.key === current ? 0 : -1"
                     :data-profile-rail-item="item.key"
-                    :title="item.name"
+                    :title="titleOf(item)"
                     :aria-describedby="item.statusText === null ? undefined : statusIdOf(item.key)"
                     @click="emit('select', item.key)"
                 >
                     <span :class="item.icon" class="profile-rail__icon" aria-hidden="true" />
                     <span class="profile-rail__name">{{ item.name }}</span>
-                    <span class="profile-rail__end">
-                        <Tooltip v-if="item.statusText !== null" :text="item.statusText.text" side="right">
-                            <span :class="[STATUS_ICON[item.statusText.kind], `profile-rail__flag--${item.statusText.tone}`]" class="profile-rail__flag" :data-profile-rail-status="item.statusText.tone" aria-hidden="true" />
-                        </Tooltip>
+                    <span class="profile-rail__end" aria-hidden="true">
+                        <span v-if="item.statusText !== null" :class="[STATUS_ICON[item.statusText.kind], `profile-rail__flag--${item.statusText.tone}`]" class="profile-rail__flag" :data-profile-rail-status="item.statusText.tone" />
                     </span>
-                    <span v-if="item.statusText !== null" :id="statusIdOf(item.key)" class="sr-only">{{ item.statusText.text }}</span>
+                    <span v-if="item.statusText !== null" :id="statusIdOf(item.key)" hidden>{{ item.statusText.text }}</span>
                 </button>
             </div>
         </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {SnapshotProvider} from "@notnotype/nb-models/contract";
-import {Button, ContextMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Button, ContextMenu, IconButton} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref} from "vue";
 
@@ -14,6 +14,9 @@ import {useModelsText} from "../text";
  *
  * 每家一行：名称，行尾一格写模型数或问题图标；悬停或聚焦时这一格换成删除图标。删除图标与条目是并列的兄弟（按钮里不能套
  * 按钮），不在 Tab 序列里：键盘在条目上按 Delete 删除、Shift+F10 或菜单键开右键菜单。
+ *
+ * 问题的原因写在条目的 `title` 里，不挂在图标的提示上：悬停整行时图标让位给删除图标，挂在图标上就永远悬停不到。读屏从
+ * `aria-describedby` 读原因；被引用的那段文字是 `hidden`，不并进条目的名称。
  */
 const props = withDefaults(defineProps<{
     providers: readonly SnapshotProvider[];
@@ -48,7 +51,15 @@ function status(provider: SnapshotProvider): Status {
     return {text: text("rail.models", {count}), tone: "muted", icon: null, count};
 }
 
+/** 每次渲染每家只算一次。 */
+const statuses = computed(() => new Map(props.providers.map((provider) => [provider.id, status(provider)])));
+const statusOf = (provider: SnapshotProvider): Status => statuses.value.get(provider.id) ?? status(provider);
 const statusIdOf = (id: string): string => `provider-rail-status-${id}`;
+/** 悬停条目的提示：名称（放不下时截断），有问题时第二行写原因。 */
+const titleOf = (provider: SnapshotProvider): string => {
+    const current = statusOf(provider);
+    return current.icon === null ? provider.name : `${provider.name}\n${current.text}`;
+};
 
 // ---- 右键菜单 ----
 const menu = ref<{readonly open: boolean; readonly x: number; readonly y: number; readonly id: string | null}>({open: false, x: 0, y: 0, id: null});
@@ -61,7 +72,9 @@ function openMenu(id: string, x: number, y: number): void {
     menu.value = {open: true, x, y, id};
 }
 
+/** 只读时不拦：浏览器自己的右键菜单照常出来。 */
 function openMenuAt(event: MouseEvent, id: string): void {
+    if (props.disabled) return;
     event.preventDefault();
     openMenu(id, event.clientX, event.clientY);
 }
@@ -136,18 +149,17 @@ function onKeydown(event: KeyboardEvent): void {
                     :aria-current="provider.id === current ? 'page' : undefined"
                     :aria-describedby="statusIdOf(provider.id)"
                     :tabindex="provider.id === current ? 0 : -1"
+                    :title="titleOf(provider)"
                     :data-provider-rail-item="provider.id"
                     @click="emit('select', provider.id)"
                 >
                     <span :class="provider.kind === 'catalog' ? 'i-lucide-cloud' : 'i-lucide-server'" class="provider-rail__icon" aria-hidden="true" />
                     <span class="provider-rail__name">{{ provider.name }}</span>
-                    <span class="provider-rail__end" :data-provider-status="status(provider).tone">
-                        <Tooltip v-if="status(provider).icon !== null" :text="status(provider).text" side="right">
-                            <span :class="[status(provider).icon, `provider-rail__flag--${status(provider).tone}`]" class="provider-rail__flag" aria-hidden="true" />
-                        </Tooltip>
-                        <span v-else class="provider-rail__count" aria-hidden="true">{{ status(provider).count }}</span>
+                    <span class="provider-rail__end" :data-provider-status="statusOf(provider).tone" aria-hidden="true">
+                        <span v-if="statusOf(provider).icon !== null" :class="[statusOf(provider).icon, `provider-rail__flag--${statusOf(provider).tone}`]" class="provider-rail__flag" />
+                        <span v-else class="provider-rail__count">{{ statusOf(provider).count }}</span>
                     </span>
-                    <span :id="statusIdOf(provider.id)" class="sr-only">{{ status(provider).text }}</span>
+                    <span :id="statusIdOf(provider.id)" hidden>{{ statusOf(provider).text }}</span>
                 </button>
                 <IconButton
                     v-if="!disabled"
@@ -221,7 +233,8 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 .provider-rail__item[aria-current="page"],
-.provider-rail__row:hover .provider-rail__item[aria-current="page"] {
+.provider-rail__row:hover .provider-rail__item[aria-current="page"],
+.provider-rail__row.is-menu .provider-rail__item[aria-current="page"] {
     background: var(--overlay-item-active);
 }
 
