@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00025-editor",
+    "taskId": "t09-links-images",
+    "artifactId": "review",
+    "ackId": "20261116T081007494Z-4782eef9",
+    "answers": [
+        "20261116T080825373Z-7f0e5311"
+    ],
+    "through": "20261116T080825373Z-7f0e5311",
+    "included": [
+        ".agents/works/w00025-editor/tasks/t09-links-images/README.md"
+    ],
+    "ackedAt": "2026-11-16T08:10:07.494Z"
+}
