@@ -50,9 +50,19 @@ const popoverCard = (page: Page) => page.locator("[data-anchored-popover][data-s
 const marginItems = (page: Page) => page.locator("[data-markdown-comment-margin] .markdown-comment-margin__item");
 const marginSwitch = (page: Page) => activeHead(page).locator("[data-title-action-key=\"own:comment-margin\"]");
 
+/**
+ * 这一例经 `openFile` 写下的文件，用完删掉：资源树是虚拟列表，只渲染视口附近的行。每例都往 notes 写自己的文件，积多了排在后面的
+ * 文件没有行，按行就点不到（w00025 t17，`markdown-editing.e2e.ts` 先撞上的）。
+ */
+const written: string[] = [];
+test.afterEach(async () => {
+    for (const path of written.splice(0)) await rm(join(projectDir, path), {force: true});
+});
+
 async function openFile(page: Page, path: string, text: string): Promise<void> {
     await mkdir(dirname(join(projectDir, path)), {recursive: true});
     await writeFile(join(projectDir, path), text);
+    written.push(path);
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     const name = path.split("/").at(-1) as string;

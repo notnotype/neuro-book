@@ -161,9 +161,10 @@ async function headOfGroup(group: Locator): Promise<Locator> {
 }
 /** 活动组里 Markdown 富文本的编辑区。 */
 const prose = (page: Page) => page.locator("[data-editor-group-active] [data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
-/** 点进编辑区并把光标放到正文末尾。 */
+/** 点进编辑区并把光标放到正文末尾。键要等正文拿到焦点再按：负载下点击之后编辑器还没聚焦时，按键落空。 */
 async function atEnd(page: Page, editable = prose(page)): Promise<void> {
     await editable.click();
+    await expect(editable).toBeFocused();
     await page.keyboard.press("Control+End");
 }
 const disk = (path: string): Promise<string> => readFile(join(projectDir, path), "utf8");
@@ -181,6 +182,16 @@ async function projectRecord(page: Page, key: "editor.tabs" | "editor.recent" | 
     } finally {
         db.close();
     }
+}
+
+/**
+ * 这几个标签都随会话落盘了：标签在 `editor.tabs`，在哪块面板、谁是活动的在 `workbench.layout`，两条分开写。刷新或离开页面之前
+ * 等它，否则恢复出来的标签会少。
+ */
+async function tabsSaved(page: Page, ids: ReadonlyArray<string>): Promise<boolean> {
+    const saved = Object.keys(((await projectRecord(page, "editor.tabs"))?.tabs ?? {}) as Record<string, unknown>);
+    const layout = JSON.stringify(await projectRecord(page, "workbench.layout", "nbook.workbench"));
+    return ids.every((id) => saved.includes(id) && layout.includes(id));
 }
 
 /** 标签记录里这个地址的标签记下的光标。 */
@@ -229,6 +240,17 @@ async function noDropShown(page: Page): Promise<void> {
     await expect(page.locator(DROP_SHOWN)).toHaveCount(0);
 }
 
+/**
+ * 展开资源管理器里的目录。打开作品时资源管理器也在展开目录（恢复展开状态、揭示恢复出的活动文件）：读到“收起”再点，可能正好
+ * 把刚展开的收起来，所以点完核对，不对就重来。
+ */
+async function expand(page: Page, folder: string): Promise<void> {
+    await expect(async () => {
+        if (await item(page, folder).getAttribute("aria-expanded") !== "true") await item(page, folder).click();
+        await expect(item(page, folder)).toHaveAttribute("aria-expanded", "true", {timeout: 1000});
+    }).toPass();
+}
+
 async function open(page: Page): Promise<void> {
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
@@ -237,7 +259,7 @@ async function open(page: Page): Promise<void> {
     // 半高放不下，资源树只渲染视口附近的行，下面的行不在页面上，按行定位就找不到。这里不看会话，把它收成标题行，资源树占这一列。
     const sessions = page.locator("[data-panel-head]:has([data-panel-tab=\"view:nbook.agent.sessions\"]) [data-panel-action=\"nbook.view.set-panel-collapsed\"]");
     if (await sessions.getAttribute("aria-pressed") !== "true") await sessions.click();
-    if (await item(page, "project://notes").getAttribute("aria-expanded") !== "true") await item(page, "project://notes").click();
+    await expand(page, "project://notes");
     await expect(item(page, "project://notes/a.md")).toBeVisible();
 }
 
@@ -1157,13 +1179,8 @@ test("标签的记录丢了（docs/specs/ui/workbench-layout.md 输出 34）：�
     const tabIdOf = async (name: string): Promise<string> => (await tabs(page).filter({hasText: name}).getAttribute("data-editor-tab")) ?? "";
     const lostId = await tabIdOf("a.md");
     const keptId = await tabIdOf("b.md");
-    await expect.poll(async () => Object.keys(((await projectRecord(page, "editor.tabs"))?.tabs ?? {}) as Record<string, unknown>)).toContain(lostId);
     const client = await page.evaluate((identity) => localStorage.getItem(identity), CLIENT_IDENTITY_KEY);
-    // 布局文档合并着存：两个标签都落盘之后再离开页面。
-    await expect.poll(async () => {
-        const layout = JSON.stringify(await projectRecord(page, "workbench.layout", "nbook.workbench"));
-        return layout.includes(lostId) && layout.includes(keptId);
-    }).toBe(true);
+    await expect.poll(() => tabsSaved(page, [lostId, keptId])).toBe(true);
     await page.goto("about:blank");
     const db = new DatabaseSync(join(projectDir, ".nbook", "storage.sqlite"));
     try {
@@ -1263,9 +1280,12 @@ test("面包屑：作品名 › 目录 › 文件 › 标题；点目录列出�
 });
 
 test("有未保存的修改时离开页面先请求确认；保存之后不再请求", async ({page}) => {
+    await writeSettings(MANUAL_SAVE);
+    // 用这一例自己的文件：前面拖动标签的用例在 b.md 里打过字，缺省的失焦时自动保存可能已把它写进磁盘。
+    await writeFile(join(projectDir, "notes/leave.md"), "第二章\n");
     await open(page);
     await closeAll(page);
-    await item(page, "project://notes/b.md").dblclick();
+    await item(page, "project://notes/leave.md").dblclick();
     await atEnd(page);
     await page.keyboard.type("x");
     const dialogs: string[] = [];
@@ -1278,7 +1298,7 @@ test("有未保存的修改时离开页面先请求确认；保存之后不再�
     expect(page.isClosed()).toBe(false);
     await prose(page).click();
     await page.keyboard.press("Control+s");
-    await expect.poll(() => disk("notes/b.md")).toBe("第二章x\n");
+    await expect.poll(() => disk("notes/leave.md")).toBe("第二章x\n");
     // 磁盘写好了不等于回复到了：保存在途时离开同样要确认。等标签的未保存标记消失（保存完成）再离开。
     await expect(page.locator("[data-editor-tab][aria-selected=\"true\"]")).not.toHaveAttribute("data-editor-tab-dirty", "");
     await page.close({runBeforeUnload: true});
@@ -1387,9 +1407,7 @@ test("资源管理器的结算：未保存时剪切、保存、粘贴，标签�
     await writeSettings(MANUAL_SAVE);
     await open(page);
     await closeAll(page);
-    for (const folder of ["project://moving", "project://target"]) {
-        if (await item(page, folder).getAttribute("aria-expanded") !== "true") await item(page, folder).click();
-    }
+    for (const folder of ["project://moving", "project://target"]) await expand(page, folder);
     await item(page, "project://moving/m.md").dblclick();
     await atEnd(page);
     await page.keyboard.type("动");
@@ -1442,7 +1460,7 @@ test("源码文件用 Monaco：第一次打开源码文件之前不加载它；�
     await expect(prose(page)).toBeVisible();
     expect(monacoRequests).toEqual([]);
 
-    if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
+    await expand(page, "project://data");
     await item(page, "project://data/f.json").dblclick();
     const editor = page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
     await expect(editor).toBeVisible();
@@ -1521,7 +1539,7 @@ test("关闭之后活动视图还在加载时，用户把焦点移到资源管�
     await closeAll(page);
     await item(page, "project://notes/a.md").dblclick();
     await expect(prose(page)).toBeVisible();
-    if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
+    await expand(page, "project://data");
     await item(page, "project://data/late.json").dblclick();
     await expect(page.locator("[data-editor-tab]", {hasText: "late.json"})).toHaveAttribute("aria-selected", "true");
     await page.locator("[data-editor-tab-label]", {hasText: "a.md"}).click();
@@ -1587,7 +1605,7 @@ test("Markdown 的撤销历史属于各组：拆分之后原组仍能撤销拆�
 test("Monaco 保持原文字节：BOM 与混用的换行打开、切走、切回不变 dirty；输入后保存只改动的那一行", async ({page}) => {
     await open(page);
     await closeAll(page);
-    if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
+    await expand(page, "project://data");
     const editor = page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
     // BOM 的文件在第一行开头输入（BOM 所在的那一行被改了也要留住它），混用换行的在末尾输入。
     for (const [name, key, typed, expected] of [
@@ -1656,7 +1674,7 @@ test("状态栏条目：Markdown 有字数、没有光标位置；输入后出�
     await expect(status("nbook.editor.unsaved")).toHaveCount(0);
     await expect.poll(() => disk("notes/h.md")).toContain("雨夜");
 
-    if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
+    await expand(page, "project://data");
     await item(page, "project://data/g.json").dblclick();
     const editor = page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
     await expect(editor).toBeVisible();
@@ -1726,11 +1744,13 @@ test("重新打开回到上次的光标：Markdown 放回原处并聚焦、可�
     await open(page);
     await closeAll(page);
     const status = (id: string) => page.locator(`[data-workbench-status-bar] [data-workbench-item="${id}"]`);
-    if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
+    await expand(page, "project://data");
     await item(page, "project://data/cursor.txt").dblclick();
     const code = page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
     await expect(code).toBeVisible();
     await code.click();
+    // 键要等编辑器拿到焦点再按（atEnd 同理）。
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest(".monaco-editor") !== null)).toBe(true);
     await page.keyboard.press("Control+Home");
     await page.keyboard.press("ArrowDown");
     for (let step = 0; step < 3; step += 1) await page.keyboard.press("ArrowRight");
@@ -1744,6 +1764,7 @@ test("重新打开回到上次的光标：Markdown 放回原处并聚焦、可�
 
     await item(page, "project://notes/cursor.md").dblclick();
     await prose(page).click();
+    await expect(prose(page)).toBeFocused();
     await page.keyboard.press("Control+Home");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight");
@@ -2053,6 +2074,8 @@ test.describe("每个标签一个控件（docs/specs/workbench/editor.md 术语�
         await closeAll(page);
         for (const name of ["a", "b", "c"]) await item(page, `project://notes/${name}.md`).dblclick();
         await expect(page.locator("[data-editor-kind]")).toHaveCount(3);
+        const ids = await tabs(page).evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-editor-tab") ?? ""));
+        await expect.poll(() => tabsSaved(page, ids)).toBe(true);
         await page.reload();
         await expect(tabs(page)).toHaveCount(3);
         await expect(prose(page)).toBeVisible();

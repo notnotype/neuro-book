@@ -14,7 +14,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {startProbeServer, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
 
-// 资源管理器的树是虚拟列表，用例的文件都在 notes 下：窗口高一些，靠后的文件也有行可以点。
+// 资源管理器的树是虚拟列表，用例的文件都在 notes 下：窗口高一些，靠后的文件也有行可以点（每例的文件用完就删，见 `openFile`）。
 // 右栏默认开着对话（400 宽）：版心要在编辑区里放得下通栏的工具栏，视口留够宽。
 test.use({viewport: {width: 1700, height: 1800}});
 
@@ -49,9 +49,19 @@ const toolbarButton = (page: Page, name: string) => activeGroup(page).locator(".
 const selectionMenu = (page: Page) => page.locator("[data-markdown-selection-menu]");
 const disk = (path: string): Promise<string> => readFile(join(projectDir, path), "utf8");
 
+/**
+ * 这一例经 `openFile` 写下的文件，用完删掉：资源树是虚拟列表，只渲染视口附近的行。每例都往 notes 写自己的文件，积多了排在后面的
+ * 文件没有行，按行就点不到（w00025 t17：整份跑到“拆分后”那一例时，split.md 前面排着 37 个文件）。
+ */
+const written: string[] = [];
+test.afterEach(async () => {
+    for (const path of written.splice(0)) await rm(join(projectDir, path), {force: true});
+});
+
 async function openFile(page: Page, path: string, text: string): Promise<void> {
     await mkdir(dirname(join(projectDir, path)), {recursive: true});
     await writeFile(join(projectDir, path), text);
+    written.push(path);
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     // 恢复会话时文件夹的展开状态还在变：读到“收起”再点，可能正好把刚展开的收起来。要等到活动标签真是这个文件。
