@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t10-frontmatter-panel
-status: planned
+status: active
 updated: 2026-11-16
 ---
 
