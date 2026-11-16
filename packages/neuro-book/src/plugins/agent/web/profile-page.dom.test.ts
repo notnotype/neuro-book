@@ -213,6 +213,20 @@ describe("左栏", () => {
         expect(wrapper.find("[data-profile-detail='nbook.agent.main']").exists()).toBe(true);
     });
 
+    it("一行一项：有问题的行尾是图标，原因是读屏描述；没有问题的行尾空着", async () => {
+        const broken: ProfileEntry = {...MINE, key: "user.broken", name: "坏的", status: "error"};
+        const {wrapper} = open({remote: fakeRemote({listed: () => [MAIN, MINE, broken, TITLE]})});
+        await ready(wrapper);
+        const item = wrapper.get("[data-profile-rail-item='user.broken']");
+        expect(item.find("[data-profile-rail-status]").attributes("data-profile-rail-status")).toBe("error");
+        expect(document.getElementById(item.attributes("aria-describedby") ?? "")?.textContent).toBe("有错误");
+        const fine = wrapper.get("[data-profile-rail-item='user.mine']");
+        expect(fine.find("[data-profile-rail-status]").exists()).toBe(false);
+        expect(fine.attributes("aria-describedby")).toBeUndefined();
+        // 来源不写在列表里。
+        expect(fine.text()).toBe("我的");
+    });
+
     it("后台的 Profile 没有审批一行", async () => {
         const {wrapper} = open();
         await ready(wrapper);

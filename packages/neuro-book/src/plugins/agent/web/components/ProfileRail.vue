@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import {Button} from "@notnotype/nb-ui/components";
+import {Button, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref} from "vue";
 
 import type {ProfileView} from "../profile-view";
 import {useAgentPageText} from "../text";
 
-/** Profile 设置页的左栏（同名 .md）。 */
+/** Profile 设置页的左栏（同名 .md）：一行一项，有问题时行尾是图标，原因在提示与读屏描述里；来源在详情头部的提示里。 */
 const props = withDefaults(defineProps<{
     items: readonly ProfileView[];
     current: string;
@@ -18,6 +18,9 @@ const emit = defineEmits<{
 }>();
 
 const text = useAgentPageText();
+/** 不可用是禁止图标、有错误是警示图标；颜色另照 `statusText.tone`（缺工具、key 被占用的不可用是警示色）。 */
+const STATUS_ICON = {unavailable: "i-lucide-circle-slash", error: "i-lucide-circle-alert"} as const;
+const statusIdOf = (key: string): string => `profile-rail-status-${key}`;
 const root = ref<HTMLElement | null>(null);
 const groups = computed(() => [
     {id: "main", title: null, items: props.items.filter((item) => !item.hidden)},
@@ -55,13 +58,17 @@ function onKeydown(event: KeyboardEvent): void {
                     :tabindex="item.key === current ? 0 : -1"
                     :data-profile-rail-item="item.key"
                     :title="item.name"
+                    :aria-describedby="item.statusText === null ? undefined : statusIdOf(item.key)"
                     @click="emit('select', item.key)"
                 >
                     <span :class="item.icon" class="profile-rail__icon" aria-hidden="true" />
-                    <span class="profile-rail__text">
-                        <span class="profile-rail__name">{{ item.name }}</span>
-                        <span :class="`profile-rail__status profile-rail__status--${item.statusText?.tone ?? 'muted'}`">{{ item.statusText?.text ?? item.source }}</span>
+                    <span class="profile-rail__name">{{ item.name }}</span>
+                    <span class="profile-rail__end">
+                        <Tooltip v-if="item.statusText !== null" :text="item.statusText.text" side="right">
+                            <span :class="[STATUS_ICON[item.statusText.kind], `profile-rail__flag--${item.statusText.tone}`]" class="profile-rail__flag" :data-profile-rail-status="item.statusText.tone" aria-hidden="true" />
+                        </Tooltip>
                     </span>
+                    <span v-if="item.statusText !== null" :id="statusIdOf(item.key)" class="sr-only">{{ item.statusText.text }}</span>
                 </button>
             </div>
         </template>
@@ -84,7 +91,7 @@ function onKeydown(event: KeyboardEvent): void {
 .profile-rail__list {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: 2px;
 }
 
 .profile-rail__title {
@@ -94,12 +101,15 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text-muted);
 }
 
+/* 单行，高度同设置窗口左栏与“服务商与模型”的左栏。 */
 .profile-rail__item {
     display: flex;
     width: 100%;
+    min-height: var(--control-h-sm);
     align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
+    gap: var(--space-2);
+    padding: 0 var(--space-1) 0 var(--space-3);
+    font-size: var(--text-sm);
     border: 0;
     border-radius: var(--radius-control);
     background: none;
@@ -122,33 +132,34 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text-muted);
 }
 
-.profile-rail__text {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-}
-
 .profile-rail__name {
+    min-width: 0;
+    flex: 1;
     overflow: hidden;
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
     white-space: nowrap;
     text-overflow: ellipsis;
 }
 
-.profile-rail__status {
-    overflow: hidden;
-    font-size: var(--text-xs);
-    color: var(--text-muted);
-    white-space: nowrap;
-    text-overflow: ellipsis;
+/* 行尾定宽一格：有没有问题，名称都不挪。 */
+.profile-rail__end {
+    display: inline-flex;
+    width: 22px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
 }
 
-.profile-rail__status--warning {
+.profile-rail__flag {
+    display: block;
+    width: 14px;
+    height: 14px;
+}
+
+.profile-rail__flag--warning {
     color: var(--status-warning);
 }
 
-.profile-rail__status--error {
+.profile-rail__flag--error {
     color: var(--status-danger);
 }
 </style>

@@ -116,7 +116,7 @@ export interface ProfileView {
     /** 第二行的来源：内置、插件名、“我写的”。 */
     readonly source: string;
     /** 有问题时第二行换成这个。 */
-    readonly statusText: {readonly text: string; readonly tone: "warning" | "error"} | null;
+    readonly statusText: {readonly kind: "unavailable" | "error"; readonly text: string; readonly tone: "warning" | "error"} | null;
     readonly hidden: boolean;
     /** 用户级：有“打开文件”“删除”。 */
     readonly user: boolean;
@@ -465,8 +465,8 @@ export function profileViews(input: ProfileViewsInput): ProfileView[] {
             statusText: entry.status === "ok"
                 ? null
                 : entry.status === "error"
-                    ? {text: text.t(agentText("profiles.status.error")), tone: "error"}
-                    : {text: text.t(agentText("profiles.status.unavailable")), tone: entry.problem?.code === "tools-missing" || entry.problem?.code === "key-taken" ? "warning" : "error"},
+                    ? {kind: "error", text: text.t(agentText("profiles.status.error")), tone: "error"}
+                    : {kind: "unavailable", text: text.t(agentText("profiles.status.unavailable")), tone: entry.problem?.code === "tools-missing" || entry.problem?.code === "key-taken" ? "warning" : "error"},
             hidden: entry.hidden === true,
             user,
             notice: entry.problem === undefined ? null : problemNotice(entry, entry.problem, text),
