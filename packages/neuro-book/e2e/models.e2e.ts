@@ -172,8 +172,9 @@ test("验收 1：添加自定义服务商、填密钥与 env:、拉取并加入�
     await confirm.getByRole("button", {name: "取消"}).click();
     await expect(model(page, "story-model-a").getByRole("switch")).toHaveAttribute("aria-checked", "true");
 
-    // 删除服务商：确认框写明受影响的角色；删除后焦点到“添加服务商”，主力变成未绑定。
-    await page.locator("[data-provider-remove]").click();
+    // 删除服务商（条目上悬停出的删除图标）：确认框写明受影响的角色；删除后焦点到“添加服务商”，主力变成未绑定。
+    await page.locator("[data-provider-rail-item='custom']").hover();
+    await page.locator("[data-provider-remove='custom']").click();
     const alert = page.getByRole("alertdialog");
     await expect(alert).toContainText("主力");
     await alert.getByRole("button", {name: "删除"}).click();
@@ -202,7 +203,8 @@ test("验收 2：两个窗口同开“服务商与模型”，一处添加、改
         await b.locator("[data-provider-rail-item='custom']").click();
         await expect(b.locator("[data-url-input]")).toHaveValue("http://127.0.0.1:1/v1");
 
-        await a.locator("[data-provider-remove]").click();
+        await a.locator("[data-provider-rail-item='custom']").hover();
+        await a.locator("[data-provider-remove='custom']").click();
         await a.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
         await expect(b.locator("[data-provider-rail-item='custom']")).toHaveCount(0);
     } finally {
@@ -235,8 +237,14 @@ test("验收 3：窄窗口里服务商列表收成下拉；页面里的写不进
     } finally {
         await chmod(join(stateRoot, "settings.json"), 0o644);
     }
-    await page.locator("[data-provider-remove]").click();
+    // 窄时删除在下拉旁边：取消后焦点回到它；删掉唯一的一家后焦点落到“添加服务商”。
+    const removeCurrent = page.locator("[data-provider-remove-current]");
+    await removeCurrent.click();
+    await page.getByRole("alertdialog").getByRole("button", {name: "取消"}).click();
+    await expect(removeCurrent).toBeFocused();
+    await removeCurrent.click();
     await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
+    await expect(page.locator("[data-provider-add]:visible").first()).toBeFocused();
 
     // 绑定作品的窗口：本作品标签下两页停用。
     await page.setViewportSize({width: 1280, height: 800});
@@ -245,20 +253,32 @@ test("验收 3：窄窗口里服务商列表收成下拉；页面里的写不进
     await expect(page.locator("[data-settings-nav='nbook.models.roles']")).toHaveAttribute("aria-disabled", "true");
 });
 
-test("删除的焦点：取消后回到“删除”按钮；三家里删中间一家，选中与焦点到下一家", async ({page}) => {
+test("删除的三条路与焦点：取消后回到那家的条目；Delete 键删选中的中间一家，选中与焦点到下一家；右键删没选中的一家，选中不变", async ({page}) => {
     await openProviders(page);
     await addCustom(page, "甲");
     await addCustom(page, "乙");
     await addCustom(page, "丙");
-    await page.locator("[data-provider-rail-item='custom-2']").click();
+    const item = (id: string) => page.locator(`[data-provider-rail-item='${id}']`);
+    // 条目的名称只有服务商名，行尾一格的原因是描述。
+    await expect(item("custom-2")).toHaveAccessibleName("乙");
+    await expect(item("custom-2")).toHaveAccessibleDescription(/./u);
+    await item("custom-2").click();
 
-    await page.locator("[data-provider-remove]").click();
+    await item("custom-2").hover();
+    await page.locator("[data-provider-remove='custom-2']").click();
     await page.getByRole("alertdialog").getByRole("button", {name: "取消"}).click();
-    await expect(page.locator("[data-provider-remove]")).toBeFocused();
+    await expect(item("custom-2")).toBeFocused();
 
-    await page.locator("[data-provider-remove]").click();
+    await item("custom-2").press("Delete");
     await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
-    await expect(page.locator("[data-provider-rail-item='custom-3']")).toBeFocused();
-    await expect(page.locator("[data-provider-rail-item='custom-3']")).toHaveAttribute("aria-current", "page");
-    await expect(page.locator("[data-provider-rail-item='custom-2']")).toHaveCount(0);
+    await expect(item("custom-3")).toBeFocused();
+    await expect(item("custom-3")).toHaveAttribute("aria-current", "page");
+    await expect(item("custom-2")).toHaveCount(0);
+
+    await item("custom").click({button: "right"});
+    await page.getByRole("menuitem", {name: "删除服务商…"}).click();
+    await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
+    await expect(item("custom")).toHaveCount(0);
+    await expect(item("custom-3")).toHaveAttribute("aria-current", "page");
+    await expect(item("custom-3")).toBeFocused();
 });

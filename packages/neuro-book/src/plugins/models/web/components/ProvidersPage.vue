@@ -6,7 +6,6 @@ import {AlertDialog, Button, EmptyState, IconButton, Select, Tooltip} from "@not
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
-import SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
 
 import type {ModelsFailure, ModelsRemote, ModelsStore} from "../models-store";
 import {failureReason, roleName, useModelsText} from "../text";
@@ -265,10 +264,12 @@ const removeId = ref<string | null>(null);
 /** 确认框里写的那家：取最新的快照；这期间被别处删了时留着打开时的样子。 */
 let removeOpenedWith: SnapshotProvider | null = null;
 const removeTarget = computed(() => providers.value.find((provider) => provider.id === removeId.value) ?? (removeId.value === null ? null : removeOpenedWith));
-function openRemove(): void {
-    removeOpenedWith = current.value;
-    removeId.value = current.value?.id ?? null;
-    removing.value = current.value !== null;
+/** 左栏条目上的删除图标、右键菜单与 Delete 键，以及窄布局下拉旁的按钮（输出 12）。 */
+function openRemove(id: string): void {
+    const target = providers.value.find((provider) => provider.id === id) ?? null;
+    removeOpenedWith = target;
+    removeId.value = target?.id ?? null;
+    removing.value = target !== null;
 }
 const removeDescription = computed(() => {
     const target = removeTarget.value;
@@ -283,8 +284,9 @@ const removeDescription = computed(() => {
 const page = ref<HTMLElement | null>(null);
 
 /**
- * 进行中的删除：交回删除后焦点去的地方（下一家，没有时上一家，都没有时“添加服务商”，输出 12），失败为 null。确认框在“删除”
- * 按下时就开始关闭，它的 `closed` 可能早于删除的结果，所以关闭的处理等这个 Promise。
+ * 进行中的删除：交回删除后焦点去的地方，失败为 null（输出 12）。删的是当前选中的那家时选中并聚焦下一家（没有时上一家，都没有时
+ * “添加服务商”）；删的是别的一家时选中不变，焦点回到当前项。确认框在“删除”按下时就开始关闭，它的 `closed` 可能早于删除的结果，
+ * 所以关闭的处理等这个 Promise。
  */
 let removal: Promise<string | null> | null = null;
 
@@ -295,12 +297,15 @@ function removeProvider(): void {
     const index = providers.value.findIndex((item) => item.id === provider.id);
     // 下一家（删掉后同一个位置上的那家），没有时上一家。
     const neighbour = index < 0 ? others[0] ?? null : others[index] ?? others[index - 1] ?? null;
+    // 删之前定：快照事件可能先于写入的结果到，那时上面的 watch 已把选中改成“全部模型”，再看选中就认不出删的是当前这家。
+    const wasSelected = selected.value === provider.id;
     removal = (async () => {
         const result = await props.store.call("removeProvider", {id: provider.id});
         if (!result.ok) {
             report(subjectOf(provider), result.failure);
             return null;
         }
+        if (!wasSelected) return selected.value;
         selected.value = neighbour?.id ?? "all";
         return neighbour?.id ?? "add";
     })();
@@ -313,10 +318,10 @@ async function onRemoveClosed(): Promise<void> {
     removeId.value = null;
     removeOpenedWith = null;
     const target = pending === null ? null : await pending;
-    // 取消或删除失败：焦点回到“删除”按钮（确认框没有触发器，nb-ui 不替它归还焦点）。它在窗口的标题区里，不在本页的 DOM 下。
+    // 取消或删除失败：焦点回到那家的条目（确认框没有触发器，nb-ui 不替它归还焦点）；窄布局里是下拉旁的删除按钮。
     if (target === null) {
         await nextTick();
-        document.querySelector<HTMLElement>("[data-provider-remove]")?.focus();
+        if (removed !== undefined) focusVisible([`[data-provider-rail-item="${CSS.escape(removed)}"]`, "[data-provider-remove-current]"]);
         return;
     }
     // 删除的结果经快照事件回来，可能晚于写入返回：等这家从快照里消失、界面重画之后再移焦点。
@@ -347,18 +352,16 @@ function focusVisible(selectors: readonly string[]): void {
 
 <template>
     <div ref="page" class="providers-page" data-models-providers-page>
-        <SettingsPageActions v-if="current !== null">
-            <Tooltip :text="text('remove.button')">
-                <IconButton size="sm" variant="danger" icon-class="i-lucide-trash-2" :aria-label="text('remove.label', {name: current.name})" :disabled="disabled" data-provider-remove @click="openRemove" />
-            </Tooltip>
-        </SettingsPageActions>
         <p v-if="!store.available.value" class="providers-page__notice" role="status">{{ text("readOnly") }}</p>
         <p v-if="snapshot === null && store.available.value" class="providers-page__loading">{{ text("connection.key.loading") }}</p>
         <div v-else-if="snapshot !== null" class="providers-page__split">
-            <ProviderRail v-if="providers.length > 0" class="providers-page__rail" :providers="providers" :current="selected" :checks="store.checks" :disabled="disabled" @select="(id) => (selected = id)" @add="openAdd" />
+            <ProviderRail v-if="providers.length > 0" class="providers-page__rail" :providers="providers" :current="selected" :checks="store.checks" :disabled="disabled" @select="(id) => (selected = id)" @add="openAdd" @remove="openRemove" />
             <div class="providers-page__detail">
                 <div v-if="providers.length > 0" class="providers-page__picker">
                     <Select :model-value="selected" :options="pickerOptions" size="sm" :aria-label="text('rail.label')" data-provider-picker @update:model-value="(value: string) => (selected = value)" />
+                    <Tooltip v-if="current !== null" :text="text('remove.button')">
+                        <IconButton size="sm" icon-class="i-lucide-trash-2" :aria-label="text('remove.label', {name: current.name})" :disabled="disabled" data-provider-remove-current @click="openRemove(current.id)" />
+                    </Tooltip>
                     <Button size="sm" variant="ghost" icon-class="i-lucide-plus" :disabled="disabled" data-provider-add @click="openAdd">{{ text("rail.addShort") }}</Button>
                 </div>
                 <EmptyState v-if="providers.length === 0" icon-class="i-lucide-cloud" :title="text('empty.title')" :description="text('empty.description')">

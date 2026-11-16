@@ -4,6 +4,9 @@
  */
 
 import type {InjectionKey, Ref, ShallowRef} from "vue";
+import {GENERIC_TOOL_RENDERER} from "@notnotype/nb-agent-ui";
+import type {AgentViewRegistry} from "@notnotype/nb-agent-ui";
+import type {Text} from "@notnotype/nb-ui/text";
 
 import type {CommandStatus} from "../shared/subagents";
 import type {SubagentData} from "./session-host";
@@ -21,3 +24,15 @@ export interface SubagentStore {
 }
 
 export const subagentStoreKey: InjectionKey<SubagentStore> = Symbol("nbook.agent/subagent-store");
+
+/**
+ * 工具名（`displayToolName` 给的视图键）→ 动作名：卡片写子代理正在做什么、等批准的是什么（conversation.md 输出 33）。卡片是工具节点，
+ * 拿不到视图的注册表，由对话位置的组件按同一个注册表提供；没有提供时（单独挂载）卡片写工具名。
+ */
+export const toolActionKey: InjectionKey<(tool: string) => Text | null> = Symbol("nbook.agent/tool-action");
+
+/** 注册表里没有这个工具（插件贡献、没有渲染器）时给 null：通用项的“工具”不是动作名，卡片改写工具名。 */
+export function toolActionOf(registry: AgentViewRegistry, tool: string): Text | null {
+    const entry = registry.resolveTool(tool);
+    return entry.id === GENERIC_TOOL_RENDERER.id ? null : entry.label;
+}

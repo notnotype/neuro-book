@@ -37,10 +37,18 @@ describe("子代理卡片", () => {
         expect(cardModel(uncertain, tree(child({state: "running", runId: "r1", runInvocation: "inv-1"})), [], false)).toMatchObject({state: "running", childId: "child"});
     });
 
-    test("运行中按调用的 invocation 认子会话（fork 出来的不认），写最近一步、工具次数与开始时刻", () => {
-        const running = child({state: "running", runId: "r1", runInvocation: "inv-1", tools: 3, startedAt: 100, step: {tool: "read", target: "project://第二章.md"}});
+    test("运行中按调用的 invocation 认子会话（fork 出来的不认），交出最近一步、工具次数与开始时刻", () => {
+        const running = child({state: "running", runId: "r1", runInvocation: "inv-1", tools: 3, startedAt: 100, step: {tool: "nbook.agent.read", target: "project://正文/第二章.md"}});
         const forked = child({id: "copy", forked: true, state: "running", runId: "r9", runInvocation: "inv-1"});
-        expect(cardModel(spawn(), tree(forked, running), [], false)).toMatchObject({state: "running", childId: "child", line: "read project://第二章.md", tools: 3, startedAt: 100, name: "称谓检查"});
+        // 工具是视图认的名字（同注册表的键），地址只留最后一段。
+        expect(cardModel(spawn(), tree(forked, running), [], false)).toMatchObject({state: "running", childId: "child", step: {tool: "read", target: "第二章.md"}, tools: 3, startedAt: 100, name: "称谓检查"});
+        const stepOf = (step: TreeItem["step"]) => cardModel(spawn(), tree(child({state: "running", runId: "r1", runInvocation: "inv-1", step})), [], false).step;
+        expect(stepOf({tool: "nbook.agent.edit-replace", target: "project://正文/第三章/"})).toEqual({tool: "edit", target: "第三章"});
+        expect(stepOf({tool: "nbook.agent.read", target: "project://正文/第二章 雨夜.md"})).toEqual({tool: "read", target: "第二章 雨夜.md"});
+        expect(stepOf({tool: "nbook.agent.grep", target: "称谓"})).toEqual({tool: "grep", target: "称谓"});
+        // 含地址的命令不是地址，原样写。
+        expect(stepOf({tool: "nbook.agent.shell", target: "cat project://正文/第二章.md"})).toEqual({tool: "shell", target: "cat project://正文/第二章.md"});
+        expect(stepOf({tool: "lab.publish_chapter"})).toEqual({tool: "publish_chapter"});
         // 进度到了、还没有工具调用：在思考；进度还没到：不标（卡片写正在启动）。
         expect(cardModel(spawn(), tree(child({state: "running", runId: "r1", runInvocation: "inv-1"})), [], false)).toMatchObject({state: "running", thinking: true});
         expect(cardModel(spawn(), tree(), [], false).thinking).toBeUndefined();
@@ -51,6 +59,7 @@ describe("子代理卡片", () => {
     test("等用户时写等的是什么：批准哪个工具、回答哪个问题、切换模式", () => {
         const waiting = (request: unknown, kind: "approval" | "question") => cardModel(spawn(), tree(child({state: "waiting", runId: "r1", runInvocation: "inv-1", pending: [{id: "p1", kind, callId: "x", request: request as never}]})), [], false).waitingFor;
         expect(waiting({tool: "nbook.agent.write", args: {}}, "approval")).toEqual({kind: "approval", tool: "write"});
+        expect(waiting({tool: "nbook.agent.edit-replace", args: {}}, "approval")).toEqual({kind: "approval", tool: "edit"});
         expect(waiting({data: {questions: [{question: "要几章？", options: []}]}}, "question")).toEqual({kind: "question", text: "要几章？"});
         expect(waiting({data: {kind: "mode-switch", from: "plan", to: "normal"}}, "question")).toEqual({kind: "mode-switch"});
     });

@@ -15,13 +15,13 @@ const done = (status: string, line: string, text: string): ToolCallView => spawn
 export type CardSample = {readonly call: ToolCallView; readonly tree: readonly TreeItem[]; readonly jobs?: readonly JobItem[]; readonly idle?: boolean; readonly status?: CommandStatus | null; readonly tail?: string};
 
 export const CARD_SAMPLES: Readonly<Record<string, CardSample>> = {
-    running: {call: spawn(), tree: [child({state: "running", runId: "r1", runInvocation: "inv-1", tools: 7, startedAt: NOW - 134_000, step: {tool: "read", target: "project://正文/第二章 雨夜与药铺的旧账.md"}})]},
+    running: {call: spawn(), tree: [child({state: "running", runId: "r1", runInvocation: "inv-1", tools: 7, startedAt: NOW - 134_000, step: {tool: "nbook.agent.read", target: "project://正文/第二章 雨夜与药铺的旧账.md"}})]},
     question: {call: spawn(), tree: [child({state: "question", runId: "r1", runInvocation: "inv-1", tools: 2, startedAt: NOW - 30_000, question: {id: "q", text: "第三章里“周叔”和“周伯”是同一个人吗？"}})]},
-    waiting: {call: spawn(), tree: [child({state: "waiting", runId: "r1", runInvocation: "inv-1", tools: 4, startedAt: NOW - 61_000})]},
+    waiting: {call: spawn(), tree: [child({state: "waiting", runId: "r1", runInvocation: "inv-1", tools: 4, startedAt: NOW - 61_000, pending: [{id: "p1", kind: "approval", callId: "x", request: {tool: "nbook.agent.write", args: {path: "project://正文/第四章.md"}}}]})]},
     done: {call: done("completed", "找到 4 处称谓前后不一致。", "找到 4 处称谓前后不一致。\n\n1. 第 12 段“周叔”，第 40 段“周伯”。\n2. ……"), tree: [child()], idle: true},
     failed: {call: done("failed", "模型请求超时", "错误：network（timeout）"), tree: [child()], idle: true},
     "dispatch-failed": {call: spawn({status: "error", result: {text: "profile-not-allowed: …", truncated: false, details: {code: "profile-not-allowed"}}}), tree: [], idle: true},
-    background: {call: spawn({status: "success", args: {profile: "nbook.agent.adhoc", prompt: "把第三章所有对白里的称谓统一成第一章的叫法，改完列出改了哪几处，一个名字很长的子代理"}, result: {text: "还在跑", truncated: false, details: {sessionId: "child", runId: "r1", status: "running"}}}), tree: [child({name: null, state: "running", runId: "r1", runInvocation: "inv-1", tools: 12, startedAt: NOW - 400_000, step: {tool: "edit", target: "project://正文/第三章.md"}})]},
+    background: {call: spawn({status: "success", args: {profile: "nbook.agent.adhoc", prompt: "把第三章所有对白里的称谓统一成第一章的叫法，改完列出改了哪几处，一个名字很长的子代理"}, result: {text: "还在跑", truncated: false, details: {sessionId: "child", runId: "r1", status: "running"}}}), tree: [child({name: null, state: "running", runId: "r1", runInvocation: "inv-1", tools: 12, startedAt: NOW - 400_000, step: {tool: "nbook.agent.edit-replace", target: "project://正文/第三章.md"}})]},
     unknown: {call: spawn({status: "success", result: {text: "还在跑", truncated: false, details: {sessionId: "child", runId: "r1", status: "running"}}}), tree: [child()], idle: true},
 };
 

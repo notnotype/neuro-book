@@ -5,7 +5,12 @@ import {computed, nextTick, ref} from "vue";
 import type {ProfileView} from "../profile-view";
 import {useAgentPageText} from "../text";
 
-/** Profile 设置页的左栏（同名 .md）。 */
+/**
+ * Profile 设置页的左栏（同名 .md）：一行一项，有问题时行尾是图标；来源在详情头部的提示里。
+ *
+ * 原因写在条目的 `title` 里（同“服务商与模型”的左栏），不另挂图标的提示：条目本来就用 `title` 写放不下的名称，两种提示叠在
+ * 一起会同时冒出来。读屏从 `aria-describedby` 读原因；被引用的那段文字是 `hidden`，不并进条目的名称。
+ */
 const props = withDefaults(defineProps<{
     items: readonly ProfileView[];
     current: string;
@@ -18,6 +23,10 @@ const emit = defineEmits<{
 }>();
 
 const text = useAgentPageText();
+/** 不可用是禁止图标、有错误是警示图标；颜色另照 `statusText.tone`（缺工具、key 被占用的不可用是警示色）。 */
+const STATUS_ICON = {unavailable: "i-lucide-circle-slash", error: "i-lucide-circle-alert"} as const;
+const statusIdOf = (key: string): string => `profile-rail-status-${key}`;
+const titleOf = (item: ProfileView): string => (item.statusText === null ? item.name : `${item.name}\n${item.statusText.text}`);
 const root = ref<HTMLElement | null>(null);
 const groups = computed(() => [
     {id: "main", title: null, items: props.items.filter((item) => !item.hidden)},
@@ -54,14 +63,16 @@ function onKeydown(event: KeyboardEvent): void {
                     :aria-current="item.key === current ? 'page' : undefined"
                     :tabindex="item.key === current ? 0 : -1"
                     :data-profile-rail-item="item.key"
-                    :title="item.name"
+                    :title="titleOf(item)"
+                    :aria-describedby="item.statusText === null ? undefined : statusIdOf(item.key)"
                     @click="emit('select', item.key)"
                 >
                     <span :class="item.icon" class="profile-rail__icon" aria-hidden="true" />
-                    <span class="profile-rail__text">
-                        <span class="profile-rail__name">{{ item.name }}</span>
-                        <span :class="`profile-rail__status profile-rail__status--${item.statusText?.tone ?? 'muted'}`">{{ item.statusText?.text ?? item.source }}</span>
+                    <span class="profile-rail__name">{{ item.name }}</span>
+                    <span class="profile-rail__end" aria-hidden="true">
+                        <span v-if="item.statusText !== null" :class="[STATUS_ICON[item.statusText.kind], `profile-rail__flag--${item.statusText.tone}`]" class="profile-rail__flag" :data-profile-rail-status="item.statusText.tone" />
                     </span>
+                    <span v-if="item.statusText !== null" :id="statusIdOf(item.key)" hidden>{{ item.statusText.text }}</span>
                 </button>
             </div>
         </template>
@@ -76,7 +87,8 @@ function onKeydown(event: KeyboardEvent): void {
     flex-shrink: 0;
     flex-direction: column;
     gap: var(--space-1);
-    padding: 0 var(--space-3) 0 var(--space-2);
+    /* 底部留白：滚到底时最后一个按钮的聚焦光晕不被滚动区裁掉。 */
+    padding: 0 var(--space-3) var(--space-2) var(--space-2);
     overflow-y: auto;
     border-right: var(--border-w) solid var(--divider);
 }
@@ -84,7 +96,7 @@ function onKeydown(event: KeyboardEvent): void {
 .profile-rail__list {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: 2px;
 }
 
 .profile-rail__title {
@@ -94,12 +106,15 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text-muted);
 }
 
+/* 单行，高度同设置窗口左栏与“服务商与模型”的左栏。 */
 .profile-rail__item {
     display: flex;
     width: 100%;
+    min-height: var(--control-h-sm);
     align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
+    gap: var(--space-2);
+    padding: 0 var(--space-1) 0 var(--space-3);
+    font-size: var(--text-sm);
     border: 0;
     border-radius: var(--radius-control);
     background: none;
@@ -122,33 +137,34 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text-muted);
 }
 
-.profile-rail__text {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-}
-
 .profile-rail__name {
+    min-width: 0;
+    flex: 1;
     overflow: hidden;
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
     white-space: nowrap;
     text-overflow: ellipsis;
 }
 
-.profile-rail__status {
-    overflow: hidden;
-    font-size: var(--text-xs);
-    color: var(--text-muted);
-    white-space: nowrap;
-    text-overflow: ellipsis;
+/* 行尾定宽一格：有没有问题，名称都不挪。 */
+.profile-rail__end {
+    display: inline-flex;
+    width: 22px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
 }
 
-.profile-rail__status--warning {
+.profile-rail__flag {
+    display: block;
+    width: 14px;
+    height: 14px;
+}
+
+.profile-rail__flag--warning {
     color: var(--status-warning);
 }
 
-.profile-rail__status--error {
+.profile-rail__flag--error {
     color: var(--status-danger);
 }
 </style>
