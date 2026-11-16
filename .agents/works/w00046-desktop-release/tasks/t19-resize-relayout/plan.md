@@ -23,7 +23,7 @@ Chrome 的视口改变不等于 WebView2 的窗口拖动（后者还有窗口式
 1. `useSashSnap` 改成两段：对齐函数只读、交回写入函数，一帧里所有分隔线量完再统一写；`SashHandle.snap` 把读 `--sash-line-size` 挪到量的一半。
 2. `EditorGroupHead` 的两个文案函数在 setup 里建一次。
 3. `WorkbenchToolStrip.shownEntries`、`ExplorerTree.rendered` 用 Vue 3.4 起的 `computed(previous => …)`：内容没变时交回上一次的数组。
-4. `WorkbenchItemStrip`：`watch` 改成三个来源的数组形式（Vue 逐个比值）；量出来的宽度没变时不换 `Map`；测量层 `width: max-content`（顺带修掉条目被夹窄时量到的是压过的宽度）。
+4. `WorkbenchItemStrip`：`watch` 改成三个来源的数组形式（Vue 逐个比值）；量出来的宽度没变时不换 `Map`。
 
 不做：让 `TransitionGroup` 只在拖动时出现（换组件会重建子元素，拖动中的标签会丢）；把各处 `ResizeObserver` 合并成一个调度（架构改动，收益是剩下的每步一两次）。
 
