@@ -8,7 +8,10 @@
 
 /** 原文拆成前缀（BOM 与 frontmatter，原样）与正文。 */
 export interface SourceSplit {
+    /** `bom` 加 frontmatter 的原文。 */
     readonly prefix: string;
+    /** 开头的 BOM（`\uFEFF`），没有为空串。 */
+    readonly bom: string;
     readonly body: string;
 }
 
@@ -20,19 +23,30 @@ export function splitFrontmatter(source: string): SourceSplit {
     const bom = source.startsWith("\uFEFF") ? "\uFEFF" : "";
     const rest = source.slice(bom.length);
     const open = FENCE.exec(rest);
-    if (open === null) return {prefix: bom, body: rest};
+    if (open === null) return {prefix: bom, bom, body: rest};
     let offset = open[0].length;
     while (offset <= rest.length) {
         const close = CLOSE.exec(rest.slice(offset));
         if (close !== null) {
             const end = offset + close[0].length;
-            return {prefix: bom + rest.slice(0, end), body: rest.slice(end)};
+            return {prefix: bom + rest.slice(0, end), bom, body: rest.slice(end)};
         }
         const next = rest.indexOf("\n", offset);
         if (next < 0) break;
         offset = next + 1;
     }
-    return {prefix: bom, body: rest};
+    return {prefix: bom, bom, body: rest};
+}
+
+/**
+ * `raw` 能不能原样当 frontmatter 放在正文前：后面接着任何正文，`splitFrontmatter` 切出的仍恰好是它（不含 BOM）。缺闭栏、中间有
+ * 独占一行的 `---`、带 BOM 的都不行。闭栏后没有换行的（读入时文件在闭栏处结束）也算：写回时正文前补一个换行（`write.ts`）。
+ * 编辑器文档的 `frontmatter` 属性只放它认可的原文。
+ */
+export function isWholeFrontmatter(raw: string): boolean {
+    if (raw.startsWith("\uFEFF")) return false;
+    const closed = /[\r\n]$/u.test(raw) ? raw : `${raw}\n`;
+    return splitFrontmatter(`${closed}正文`).prefix === closed;
 }
 
 /** 规范化后的文字与偏移表：`toSource[i]` 是规范化文字第 i 个位置在原文里的位置（长度为文字长度加一）。 */

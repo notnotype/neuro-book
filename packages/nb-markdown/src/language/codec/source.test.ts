@@ -7,7 +7,7 @@ import {describe, expect, it} from "bun:test";
 import {Lexer} from "marked";
 
 import {defaultMarkdownLanguage} from "../syntax";
-import {normalize, segment, splitFrontmatter} from "./source";
+import {isWholeFrontmatter, normalize, segment, splitFrontmatter} from "./source";
 
 // 宽容写法的规则用编辑器的那一份：标签名与“认不认这个开标签”都来自语法模块。
 const RULES = defaultMarkdownLanguage().glued;
@@ -89,7 +89,15 @@ describe("规范化", () => {
 
 describe("frontmatter", () => {
     it("BOM 与 frontmatter 原样留在前缀；没有闭合的分隔线不是 frontmatter", () => {
-        expect(splitFrontmatter("﻿---\r\na: 1\r\n---\r\n正文")).toEqual({prefix: "﻿---\r\na: 1\r\n---\r\n", body: "正文"});
-        expect(splitFrontmatter("---\na: 1\n正文")).toEqual({prefix: "", body: "---\na: 1\n正文"});
+        expect(splitFrontmatter("\uFEFF---\r\na: 1\r\n---\r\n正文")).toEqual({prefix: "\uFEFF---\r\na: 1\r\n---\r\n", bom: "\uFEFF", body: "正文"});
+        expect(splitFrontmatter("---\na: 1\n正文")).toEqual({prefix: "", bom: "", body: "---\na: 1\n正文"});
+    });
+
+    it("完整的 frontmatter：后面接任何正文都只切出它自己；闭栏后没有换行的也算", () => {
+        for (const raw of ["---\n---\n", "---\na: 1\n---\n", "---\r\na: 1\r\n---\r\n", "---\na: 1\n---", "---  \na: 1\n---\t\n"]) expect(isWholeFrontmatter(raw), raw).toBe(true);
+    });
+
+    it("缺闭栏、中间有独占一行的 ---、带 BOM、后面还有正文、不以 --- 开头的都不算", () => {
+        for (const raw of ["", "---\na: 1\n", "---\na: 1\n---\nb: 2\n---\n", "\uFEFF---\n---\n", "---\na: 1\n---\n正文", "a: 1\n---\n", "---\na: 1\n---\r"]) expect(isWholeFrontmatter(raw), raw).toBe(false);
     });
 });

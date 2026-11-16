@@ -10,7 +10,7 @@ import "@notnotype/nb-markdown/markdown.css";
 import {createMarkdownEditorExtensions, listComments, markdownEditingActions, markShownComment, REFRESH_REFERENCE_LINKS, releaseSelection} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
-import {codecFor} from "@notnotype/nb-markdown/language";
+import {codecFor, frontmatterOf} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
 import {editorMenusKey, editorToolbarSlotKey} from "nbook/plugins/editor/shared/contracts";
@@ -71,6 +71,7 @@ const viewHost: MarkdownViewHost = {
     imageMissing: NBOOK_IMAGE_MISSING,
 };
 
+/** 编辑器挂在这里：稿纸（`.markdown-control`）里排在 frontmatter 之后。 */
 const root = ref<HTMLElement | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 let editor: Editor | null = null;
@@ -361,6 +362,12 @@ const editing: EditorEditing = {
     }),
 };
 
+/** 文档的 frontmatter 原文（在文档的属性上，随编辑、撤销与重载变），正文上方原样显示、不能在这里改。 */
+const frontmatter = computed(() => {
+    void editingVersion.value;
+    return editor === null ? null : frontmatterOf(editor.state.doc);
+});
+
 /**
  * 批注页边（docs/specs/workbench/markdown-editing.md 输出 33）：开关开着、控件够宽才画。宽度量 `.markdown-control-root`（已是
  * `container-type: inline-size`，不含滚动条：页边的卡片把短文档撑出滚动条时宽度不会因此少一截而来回闪）；出现与消失用两个阈值
@@ -516,7 +523,10 @@ onBeforeUnmount(() => {
         <div class="markdown-control__margin markdown-control__margin--left" aria-hidden="true" data-markdown-margin="left"></div>
         <div class="markdown-control__margin markdown-control__margin--right" aria-hidden="true" data-markdown-margin="right"></div>
         <div ref="scroller" class="markdown-control__scroller relative min-h-0 w-full flex-1 overflow-auto" :style="marginDrawn ? {paddingInlineEnd: `${MARGIN_WIDTH + MARGIN_GAP}px`} : undefined" data-editor-control="markdown">
-            <div ref="root" class="markdown-control"></div>
+            <div class="markdown-control">
+                <pre v-if="frontmatter !== null" class="markdown-control__frontmatter" data-markdown-frontmatter>{{ frontmatter }}</pre>
+                <div ref="root"></div>
+            </div>
         </div>
         <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" :margin-drawn="marginDrawn" />
     </div>
@@ -609,6 +619,19 @@ onBeforeUnmount(() => {
     max-width: var(--markdown-measure);
     margin-inline: auto;
     padding: var(--markdown-padding-top) var(--markdown-padding-inline) var(--markdown-padding-bottom);
+}
+
+.markdown-control__frontmatter {
+    margin: 0 0 var(--markdown-block-gap);
+    padding: 8px 12px;
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--text-main) 4%, transparent);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .markdown-control :deep(.markdown-control__prose) {

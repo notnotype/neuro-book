@@ -19,8 +19,8 @@ import type {MarkdownLanguage} from "../language";
 import type {WriteOptions} from "../syntax/types";
 import {normalizeLabel, Unrepresentable} from "../syntax/types";
 import {equivalent} from "./compare";
-import type {Definitions, Eol, Gap, SourceMap, SourceUnit} from "./read";
-import {END, START, emptiesBetween, emptiesLeading, emptiesTrailing, originsOf, readBody, recordGap, setOrigins} from "./read";
+import type {BodyPrefix, Definitions, Eol, Gap, SourceMap, SourceUnit} from "./read";
+import {END, START, emptiesBetween, emptiesLeading, emptiesTrailing, frontmatterOf, originsOf, readBody, recordGap, setOrigins} from "./read";
 import {renderBlock} from "./render";
 import {gluedOpenings, splitFrontmatter} from "./source";
 import {decodeRawBreaks, SENTINEL, stripSentinels} from "./render/escape";
@@ -248,6 +248,20 @@ function definitionsOf(language: MarkdownLanguage, doc: PMNode, skip: ReadonlySe
  */
 const withEol = (text: string, eol: Eol): string => decodeRawBreaks(eol === "\n" ? text : text.replace(/(?<![\r\u0001\u0002])\n/gu, eol));
 
+/** 读回校验只读正文的一个窗口，前面没有 BOM 与 frontmatter。 */
+const NO_PREFIX: BodyPrefix = {bom: "", frontmatter: null};
+
+/**
+ * 正文之前写什么：读入时的 BOM 加文档这次的 frontmatter（属性没改过时就是读入时的原文，没编辑的文档仍逐字节写原文）。
+ * frontmatter 的闭栏后没有换行（读入时文件在闭栏处结束，`---\na: 1\n---`）而后面有正文时，补一个换行（用 frontmatter 自己的
+ * 换行符），否则闭栏不再独占一行。补在前缀里、不在间隔里：间隔按来源登记、会被下次写出沿用，frontmatter 却可能在两次写出之间改过。
+ */
+function prefixOf(doc: PMNode, map: SourceMap, beforeBody: boolean): string {
+    const frontmatter = frontmatterOf(doc) ?? "";
+    const closed = !beforeBody || frontmatter === "" || /[\r\n]$/u.test(frontmatter);
+    return map.bom + frontmatter + (closed ? "" : (/\r\n|\r|\n/u.exec(frontmatter)?.[0] ?? map.eol));
+}
+
 export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema): WriteResult {
     const result = writeOnce(doc, map, language, schema);
     return result.ok ? result : {...result, fallback: () => plainFallback(doc, map, language, schema, result)};
@@ -280,7 +294,8 @@ function plainFallback(doc: PMNode, map: SourceMap, language: MarkdownLanguage, 
         if (again.ok) return again.text;
         failure = again;
     }
-    return map.prefix + doc.textBetween(0, doc.content.size, "\n\n", "\n");
+    const body = doc.textBetween(0, doc.content.size, "\n\n", "\n");
+    return prefixOf(doc, map, body !== "") + body;
 }
 
 type Written = Exclude<WriteResult, {ok: false}> | Failed;
@@ -294,7 +309,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
     const eol = map.eol;
     // 整篇没有内容（只有空段落：没有块就没有间隔，几个空段落都读成一个）：读入时就没有块的，写原文的空白；否则写空正文（输出 2）。
     if (found.length === 0) {
-        const text = map.prefix + (map.emptyBody ?? "");
+        const text = prefixOf(doc, map, false) + (map.emptyBody ?? "");
         return {ok: true, text, record: () => undefined, accept: () => undefined};
     }
     const view = found.map((item) => ({nodes: item.nodes, raw: item.unit?.raw ?? null}));
@@ -328,10 +343,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
     const labels = new Map(Object.entries(definitions).map(([label, value]) => [label, value.href]));
     const emphasis = new Set([...language.markWriters].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
 
-    // frontmatter 在文末闭合、后面没有换行（`---\na: 1\n---`）时，正文前要补一个换行（用前缀自己的换行符），否则闭合的 `---`
-    // 不再独占一行。只有 BOM 的前缀不是 frontmatter，不补。
-    const frontmatter = map.prefix.replace(/^\uFEFF/u, "");
-    const frontmatterBreak = frontmatter !== "" && !/[\r\n]$/u.test(frontmatter) ? (/\r\n|\r|\n/u.exec(frontmatter)?.[0] ?? eol) : "";
+    const prefix = prefixOf(doc, map, true);
     /** 第 i 项之前的间隔（i 等于项数时是结尾）：登记过就用登记的原文，否则重新生成。 */
     const gapAt = (index: number): {gap: Gap; kept: boolean} => {
         const before = index === 0 ? START : items[index - 1]?.unit ?? null;
@@ -341,7 +353,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
             const known = map.gaps.get(before)?.get(after)?.get(empties);
             if (known !== undefined) return {gap: known, kept: true};
         }
-        if (index === 0) return {gap: {raw: frontmatterBreak + eol.repeat(empties), empties}, kept: false};
+        if (index === 0) return {gap: {raw: eol.repeat(empties), empties}, kept: false};
         // 结尾：`k` 个空段落是 `k` 个空行加文件末尾的换行；没有空段落时按原文末尾有没有换行。
         if (index === items.length) return {gap: {raw: empties === 0 ? (map.finalNewline ? eol : "") : eol.repeat(empties + 1), empties}, kept: false};
         return {gap: {raw: eol.repeat(empties + 2), empties}, kept: false};
@@ -399,7 +411,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
         let read = readBacks.get(key);
         if (read === undefined) {
             const inside = new Set(items.slice(first, last + 1).flatMap((item) => item.nodes));
-            read = readBody(language, schema, "", text, definitionsOf(language, doc, inside)).doc;
+            read = readBody(language, schema, NO_PREFIX, text, definitionsOf(language, doc, inside)).doc;
             readBacks.set(key, read);
         }
         return {expected, read};
@@ -538,17 +550,15 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
         item.text = stripSentinels(item.text);
     });
 
-    // 正文开头不能被读成 frontmatter：原文没有 frontmatter 时，开头的 `---`（挪到最前面的分割线）会和后面的 `---` 配成一对。
+    // 正文开头不能被读成 frontmatter：没有 frontmatter 时，开头的 `---`（挪到最前面的分割线）会和后面的 `---` 配成一对。
     const first = items[0] as Item;
     const assemble = (): string => {
-        const parts: string[] = [map.prefix];
+        const parts: string[] = [prefix];
         items.forEach((item, index) => parts.push((gaps[index] as {gap: Gap}).gap.raw, item.unit === null ? withEol(item.text, eol) : item.text));
         parts.push((gaps[items.length] as {gap: Gap}).gap.raw);
         return parts.join("");
     };
-    // 读回时前缀可能多出正文前补的那个换行（frontmatter 在文末闭合、后面原来没有换行，见 `gapAt`）。
-    const prefix = splitFrontmatter(assemble()).prefix;
-    if (prefix !== map.prefix && prefix !== map.prefix + frontmatterBreak) {
+    if (splitFrontmatter(assemble()).prefix !== prefix) {
         if (first.nodes[0]?.type.name !== "horizontalRule") return unrepresentable(first, "正文开头会被读成 frontmatter");
         first.unit = null;
         first.text = "***";
@@ -606,7 +616,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
     };
     return {
         ok: true,
-        text: map.prefix + body,
+        text: prefix + body,
         record: () => record(),
         accept: (tr) => {
             if (tr.doc !== doc) throw new Error("accept 的事务要从写出的这份文档开始");

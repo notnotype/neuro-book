@@ -438,6 +438,22 @@ describe("重载（“状态与转换”、editor 输出 12）", () => {
         handle.flushPendingChange();
         expect(binding.text.value).toBe("* 甲&amp;\n\n丙&amp;\n\n戊丁\n");
     });
+
+    it("frontmatter 原样显示在正文上方、不在正文里；磁盘改了它，显示跟着换，改正文时它的字节不变（方言 Spec 输出 22）", async () => {
+        const {editor, handle, binding, memory, wrapper, area, groupId} = await opened("\uFEFF---\r\na: 1\r\n---\r\n甲\r\n");
+        const shown = (): string | null => (wrapper.find("[data-markdown-frontmatter]").exists() ? wrapper.get("[data-markdown-frontmatter]").text().replace(/\r\n/gu, "\n") : null);
+        expect(shown()).toBe("---\na: 1\n---");
+        expect(editor.state.doc.textContent).toBe("甲");
+        memory.externalWrite("project://a.md", "\uFEFF---\r\na: 2\r\n---\r\n甲\r\n");
+        await waitUntil("重载", () => shown() === "---\na: 2\n---");
+        editor.commands.insertContentAt(endOfBlock(editor, 0), "乙");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("\uFEFF---\r\na: 2\r\n---\r\n甲乙\r\n");
+        // 保存之后磁盘的新内容才直接换进正文（没保存时只提示磁盘变了）。
+        expect(await area.documents.save(area.documentOf(groupId)!)).toEqual({ok: true});
+        memory.externalWrite("project://a.md", "\uFEFF甲乙\r\n");
+        await waitUntil("去掉 frontmatter 后重载", () => shown() === null);
+    });
 });
 
 describe("写不出（editor 输出 61）", () => {
