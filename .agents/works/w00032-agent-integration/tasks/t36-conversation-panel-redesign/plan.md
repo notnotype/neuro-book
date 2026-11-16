@@ -278,7 +278,8 @@ interface ViewHead {
    - 内容：第一屏、`composer.fill`、状态栏、Profile 的 `starters`、`recentSessions`。
    - 同步改：`agent-conversation.e2e.ts`、`agent-subagents.e2e.ts` 里对 `.acv-stream__empty` 的等待，改为等欢迎块。
    - 验证：DOM 测试，覆盖三块的显隐、点卡片、点指令后编辑器里是这段文字（断言编辑器的内容，不断言发出的动作）；`profiles.test.ts` 加“4 条时 Profile 仍可用”。`AgentWelcome` 的 Lab 场景：有和没有最近对话、有和没有指令、390 宽。
-   - e2e：`agent-conversation.e2e.ts`、`agent-subagents.e2e.ts`。
+   - e2e：`agent-conversation.e2e.ts`、`agent-subagents.e2e.ts`；加了 Lab 场景，另跑 `lab-agent-ui.e2e.ts`、`lab-scenes.e2e.ts`。
+   - 实施时改动：宿主给 `welcome`、`draftProfile` 与 `recentSessions` 的接线从第 6 片提前到这一片，第一屏的 e2e（没选会话时点一条指令）才能在这一片端到端跑通；第 6 片只剩标题区与子代理入口。
 4. **模型提示卡与设置定位**：
    - 内容：后端的 `role`、`provider`，宿主的四种卡，`AgentNoticeCard`，设置窗口的 `focus`，两页。
    - 同步改：对 `data-composer-availability` 的断言。
@@ -297,7 +298,7 @@ interface ViewHead {
      - Lab 场景。
    - e2e：`agent-subagents.e2e.ts`。
 6. **宿主接线**：
-   - 内容：`plugin.ts` 申请标题区，`ConversationHost` 接 `headTargets`、`sessionsOpen`、`welcome`。
+   - 内容：`plugin.ts` 申请标题区，`ConversationHost` 接 `headTargets`、`sessionsOpen`（`welcome` 已在第 3 片接上）。
    - e2e：见验收映射。
 
 收口：

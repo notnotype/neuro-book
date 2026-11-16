@@ -75,8 +75,18 @@ updated: 2026-11-16
 
 ## 当前状态
 
-2026-11-16 开工，计划已确认；设计审查处理完，修订后的计划经开发者确认（决定 9），开始实施。草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `ConversationRound2Draft`、`ModelNoticeDraft`、`SubagentsDraft`；实现的 worktree 是 `.worktree/w00032-t36-impl`。
+2026-11-16 开工，计划已确认；设计审查处理完，修订后的计划经开发者确认（决定 9），开始实施。草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `ConversationRound2Draft`、`ModelNoticeDraft`、`SubagentsDraft`；实现的 worktree 是 `.worktree/w00032-t36-impl`，分支 `feat/w00032-t36-conversation-panel`。
+
+| 片 | 提交 | 验证 |
+|---|---|---|
+| 1 工作台的标题区与 `Popover` 的锚点 | `2d9bcdb66` | 单元与 DOM 测试；e2e 三个文件，负载高时的失败单独重跑通过 |
+| 2 新顶栏与去线 | `4f787f9d3` | DOM 测试；e2e `agent-conversation`、`agent-subagents`、`lab-agent-ui` |
+| 3 第一屏与开场指令 | `6dbff0d9f` | 三个配置的类型检查；单元与 DOM 测试；e2e 四个文件 55 条通过，`lab-scenes` 见下 |
+
+- 第 3 片把宿主给 `welcome`、`draftProfile` 与 `recentSessions` 的接线从第 6 片提前（plan.md 已改），第一屏的 e2e 才能端到端跑。
+- 第 4 片的 Spec 已在 master（`57e2eac1f`）：conversation 输出 42、settings-window 输出 15 的 `focus`、settings-pages 输出 18。
+- `lab-scenes.e2e.ts` 在 master 上一直失败：`ThemeEditor/scene-full`、`ThemeEditor/icons-empty` 加载时有 404，断言停在“没有控制台问题”，后面的布局基线比对从没跑到。本地临时滤掉这两条重跑，基线比对报出 31 个场景的新越界，全在 `SubagentCard`、`BackgroundCommandCard`、`AgentDock`、`ProfileSettingsPage`。原因在 fixture 根节点写死了宽度（例如 `SubagentCardFixture` 的 `w-[640px]`，手机画布上正好溢出 252px），与本 Task 无关。本 Task 新增的场景（`view-head`、对话视图的 `no-session`、`child-session`、`welcome-first`、`welcome-bare`）都没有越界。不在本 Task 修，交开发者另排。
 
 ## 下一步
 
-按切片实施，第 1 片“工作台的标题区与 `Popover` 的锚点”。
+第 4 片“模型提示卡与设置定位”：后端的 `role`、`provider` 与设置窗口的 `focus` 已写好未提交，`AgentNoticeCard` 与输入框已接上；剩宿主（`session-host.ts`）出四种卡、文案、Lab 场景与 e2e。
