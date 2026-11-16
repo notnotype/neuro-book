@@ -64,6 +64,13 @@ updated: 2026-11-16
   - 改类型：文字里的日期按日期推断（计划的推断规则），所以有值的日期换不成文字；空值在文字、数字、日期之间随便换，但值还是空的，读回仍按文字推断，面板要自己记着这一行选的类型（第 4 片）。
   - 读不成属性多分了一类“顶层是写在一行里的 `{…}`”，与写错一样整块显示源码。
 
+- Spec（第 4 片前，planned）：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 39–51、验收场景 23–26、记录 `markdown.properties-open`、不承诺与已知限制；[`workspace/markdown-dialect.md`](../../../../../docs/specs/workspace/markdown-dialect.md) 输出 22 指向新的输出 28（写回规则）、场景 1 补一句；[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md) 不承诺与输出 19。写 Spec 时定下、与计划字面不同的几处（已改 `plan.md`）：
+  - 展开状态的记录改名 `markdown.properties-open`、归 `nbook.markdown`，只记展开着的文件地址；
+  - 源码区照第 2 轮的图只放两条 `---` 之间的 YAML；
+  - Esc 在面板任何输入里都回到正文、输入照常写回（不是放弃）；
+  - 同一个文件在几个组里共用一份展开状态；
+  - 方言的写回规则写成新的输出 28（编号只追加），输出 22 只加一句指向它。
+
 ## 下一步
 
-第 4 片前先写 Spec（`workbench/markdown-editing.md` 新增属性面板一节、`workspace/markdown-dialect.md` 输出 22、`workbench/editor.md`），再做面板、输入规则、命令与菜单、展开状态记录与 e2e。决定 6 的附言（图标的贡献点）待开发者回复，缺省按“这次不做”。
+第 4 片：面板、输入规则、命令与菜单、展开状态记录与 e2e。决定 6 的附言（图标的贡献点）待开发者回复，缺省按“这次不做”（Spec 不承诺里已写）。

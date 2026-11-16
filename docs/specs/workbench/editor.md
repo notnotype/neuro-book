@@ -19,7 +19,7 @@ owners:
 
 - 把标签拖出窗口；拖动时按 Ctrl 复制标签；固定标签的紧凑样式；标签条的滚动按钮。
 - 未保存的修改跨页面刷新保留。
-- Markdown 富文本里的编辑器右侧“全部批注”侧栏列表（批注的添加、查看、修改与页边见 [`workbench.markdown-editing`](markdown-editing.md)）、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。工具栏、选区菜单、斜杠菜单、块按钮与正文右键见 [`workbench.markdown-editing`](markdown-editing.md)。
+- Markdown 富文本里的编辑器右侧“全部批注”侧栏列表（批注的添加、查看、修改与页边见 [`workbench.markdown-editing`](markdown-editing.md)）、Agent 与 AI 引用、工作区引用标签（这些语法在正文里原样保留，见输出 19）。工具栏、选区菜单、斜杠菜单、块按钮、正文右键与属性面板（planned）见 [`workbench.markdown-editing`](markdown-editing.md)。
 - 差异比较界面；跨文件撤销；同一文档在两个组里共享撤销历史。
 - 预读；`project://`、`user://` 之外的方案。
 - [files-explorer 的性能标准](files-explorer.md#打开与切换)在参考机器上的测量另行交付；本 Spec 只规定结构上的保证（输出 7、10）。
@@ -171,7 +171,7 @@ owners:
 
 **编辑器**
 
-19. `.md` 缺省用 Markdown 富文本编辑器（输出 37 的选择顺序里，它是 `.md`、`.markdown` 的默认编辑器）。打开后不编辑，切走、关闭或保存都不改变磁盘字节。读写规则由 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 规定：未编辑的块字节不变（含换行符、列表标记、方言写法），被编辑的块按原写法写出且必须读得回来；写不出读得回来的内容时进入输出 61 的写不出状态。frontmatter 不进入富文本，原样保留；工作区与领域链接按普通链接保留源码。Markdown 控件由 `nbook.markdown` 的服务交出，编辑器区把它当内置编辑器直接持有。生效的方言由 `nbook.markdown` 决定（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md)）：一个 Markdown 编辑器实例在建立时取定语言，整个寿命都用这一份；之后建立的实例用当时的语言。作品里的文件链接显示为引用小块、图片按作品里的文件显示（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 18、27），写回的源码不变。
+19. `.md` 缺省用 Markdown 富文本编辑器（输出 37 的选择顺序里，它是 `.md`、`.markdown` 的默认编辑器）。打开后不编辑，切走、关闭或保存都不改变磁盘字节。读写规则由 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 规定：未编辑的块字节不变（含换行符、列表标记、方言写法），被编辑的块按原写法写出且必须读得回来；写不出读得回来的内容时进入输出 61 的写不出状态。frontmatter 不进入富文本的正文，原样保留，在正文上方的属性面板里编辑（[`workbench.markdown-editing`](markdown-editing.md) 输出 39，planned）；工作区与领域链接按普通链接保留源码。Markdown 控件由 `nbook.markdown` 的服务交出，编辑器区把它当内置编辑器直接持有。生效的方言由 `nbook.markdown` 决定（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md)）：一个 Markdown 编辑器实例在建立时取定语言，整个寿命都用这一份；之后建立的实例用当时的语言。作品里的文件链接显示为引用小块、图片按作品里的文件显示（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 18、27），写回的源码不变。
 20. 其余可编辑文本用源码编辑器；Markdown 也可以“用源码编辑器重新打开”，选择记在标签上（经输出 39 的“用其它编辑器重新打开”）。只读文档的视图不接受输入；撤销、重做、跳转到行按命令目录作用于活动视图。
 
 **离开与终态**
