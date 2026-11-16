@@ -47,7 +47,7 @@ owners:
 |---|---|
 | `name`、`publisher`、`version` | 组成插件 id `publisher.name`。`publisher` 与 `name` 各为一段：以小写字母开头，只含小写字母、数字与连字符（视图、状态栏条目、菜单这些带插件 id 前缀的 id 每段都要字母开头）（不接受 npm 的 `@scope/` 写法）；内置插件的 `publisher` 为 `nbook`。`version` 为 semver，内置插件的 `version` 等于产品版本 |
 | `displayName`、`description` | 可选，给人看的名字与一句话说明，插件页显示（[`runtime.plugin-install`](plugin-install.md) 输出 10）；不参与校验与登记；读取时去掉首尾空白，只有空白的按没写处理；构建预设从源语言目录的 `manifest.displayName`、`manifest.description` 取（输出 12），插件没有消息目录时从作者的 `package.json` 取 |
-| `engines.neurobook` | 兼容的 NeuroBook 版本范围，由 [`runtime.plugin-install`](plugin-install.md) 检查 |
+| `engines.neurobook` | 插件按哪几版的 NeuroBook 写的（版本范围），由 [`runtime.plugin-install`](plugin-install.md) 按兼容起点检查 |
 | `entries` | 入口 id 到入口声明的映射；可以为空（只含声明式贡献的插件）。入口 id 只含字母、数字、连字符与下划线，以字母或数字开头：它也是默认的代码文件名 |
 | `entries.<id>.location` | 运行位置 |
 | `entries.<id>.main` | 入口代码文件，相对插件目录，必须位于插件目录内 |
