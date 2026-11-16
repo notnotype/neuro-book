@@ -228,6 +228,26 @@ describe("在格式的边界打字（workbench.editor 输出 62）", () => {
         expect(await typed("看**粗**\n", "end", ["Backspace"], "体")).toBe("看**体**\n");
     });
 
+    it("刚打完字就用快捷键关掉粗体、开斜体，停手交出之后再打字：后面的字用切换后的格式", async () => {
+        const {editor, handle, binding} = await opened("看\n");
+        editor.commands.setTextSelection(endOfBlock(editor, 0));
+        // 与 prosemirror-keymap 认 `Mod` 的办法相同：苹果平台是 Meta，其余是 Ctrl。
+        const mod = /Mac|iP(?:hone|[oa]d)/u.test(navigator.platform) ? {metaKey: true} : {ctrlKey: true};
+        const shortcut = (key: string): void => {
+            expect(editor.view.someProp("handleKeyDown", (handle) => handle(editor.view, new KeyboardEvent("keydown", {key, ...mod})))).toBe(true);
+        };
+        shortcut("b");
+        type(editor, "粗");
+        shortcut("b");
+        shortcut("i");
+        // 停手的交出落在快捷键与下一个字之间：新加的粗体写回被接受后，控件把写法回填进编辑器，这一步不能冲掉刚切换的格式。
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("看**粗**\n");
+        type(editor, "斜");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("看**粗***斜*\n");
+    });
+
     it("打网址与邮箱再打空格：是文字，写回时转义", async () => {
         expect(await typed("见\n", "end", [], " https://example.com 与 me@example.com 了")).toBe("见 https\\://example.com 与 me\\@example.com 了\n");
     });

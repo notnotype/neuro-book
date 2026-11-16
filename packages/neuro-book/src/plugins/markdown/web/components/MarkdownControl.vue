@@ -160,7 +160,13 @@ const commitNow = (): void => {
     if (result.status === "accepted") {
         view.confirmed = result.revision;
         view.held = false;
-        quietly(current, (tr) => written.accept(tr));
+        // 回填改了文档，ProseMirror 会随之清掉接着打字要用的格式（stored marks）；停手的交出常落在用户刚按下快捷键切换格式、
+        // 还没打下一个字的时候，不带过去就丢了这次切换。回填只改属性、不动选区，原样带过去仍对得上光标。
+        const stored = current.state.storedMarks;
+        quietly(current, (tr) => {
+            written.accept(tr);
+            if (stored !== null) tr.setStoredMarks(stored);
+        });
         view.state = current.state;
     } else if (result.status === "conflict") {
         view.held = true;
