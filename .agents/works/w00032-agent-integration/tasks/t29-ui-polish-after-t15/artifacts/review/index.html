@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>t29 第 2 轮：对话面板的第一屏与顶栏</title>
+<title>t29 第 3 轮：对话面板的面板头</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -33,73 +33,34 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>t29 第 2 轮：对话面板的第一屏与顶栏</h1>
+<h1>t29 第 3 轮：对话面板的面板头</h1>
 
-<section data-nbdev-question="welcome-v2" data-nbdev-type="confirm" data-nbdev-label="第一屏照旧应用的 welcome 这样做">
-  <h2>第一屏照旧应用的 welcome 这样做？</h2>
-  <p class="rec"><strong>推荐同意：版式、图标与文字照旧应用的 AgentChatEmptyState；没有历史会话时去掉“最近对话”一块。</strong></p>
-  <div class="cands">
-    <div class="cand">
-      <h3>有历史会话</h3>
-      <img src="r2/welcome.webp" alt="欢迎、最近对话三张卡片、试试这些三条指令">
-      <p>最近 3 条，卡片悬停描强调色；“查看全部”打开会话列表。</p>
-    </div>
-    <div class="cand">
-      <h3>一个会话都没有</h3>
-      <img src="r2/welcome-first.webp" alt="只有欢迎与三条指令">
-    </div>
-  </div>
-  <p>和旧应用不同的两处：“推荐创作指令”旁的“智能生成”去掉（旧应用里那三条是写死的，不是生成的）；没选会话时状态栏整行空着。</p>
-</section>
-
-<section data-nbdev-question="starters" data-nbdev-type="single" data-nbdev-recommend="profile">
-  <h2>“试试这些”的三条指令从哪来？</h2>
-  <p class="rec"><strong>推荐 A：指令跟着 Profile 走，主创带三条写作的；以后加别的 Profile（例如审校）时它们有自己的开场。</strong></p>
-  <div class="cands cands--3">
-    <div class="cand" data-nbdev-option="profile" data-nbdev-label="A Profile 声明">
-      <h3>A Profile 声明</h3>
-      <p>Profile 里多一个可选字段，至多 3 条；新建会话用的那个 Profile 有就显示，没有就不显示这一块。用户级 Profile 也能写。</p>
-    </div>
-    <div class="cand" data-nbdev-option="fixed" data-nbdev-label="B 应用内置三条">
-      <h3>B 应用内置三条</h3>
-      <p>写死在应用里，和旧应用一样；换 Profile 也不变。</p>
-    </div>
-    <div class="cand" data-nbdev-option="none" data-nbdev-label="C 不要这一块">
-      <h3>C 不要这一块</h3>
-      <p>第一屏只有欢迎与最近对话。</p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="header" data-nbdev-type="single" data-nbdev-recommend="merged">
-  <h2>有会话时的顶栏选哪版？</h2>
-  <p class="rec"><strong>推荐 C 并进面板头：现在面板头写“对话”、下面又一行会话标题，两行标题叠着；并进去以后少一行，VS Code、Cursor 的对话面板也是这样。代价是工作台要让视图往自己的面板头里放内容（视图的 Spec 加一条），比别的几版多一块平台改动。</strong></p>
+<section data-nbdev-question="panel-header" data-nbdev-type="single" data-nbdev-recommend="center">
+  <h2>面板头不写“对话”，改成哪样？</h2>
+  <p class="rec"><strong>推荐 A：照你选的居中，但直接放进面板头，“对话”那一行与会话标题合成一行；Profile 图标在标题前，没有摘要。</strong></p>
   <div class="ref">
-    <img src="r2/h-current.webp" alt="现在的顶栏（只去掉了线）">
-    <p>现在（只去掉了线）：面板头“对话”，下面一行是 Profile 图标、会话标题、Profile 名与新建、更多。</p>
+    <img src="r2/h-centered.webp" alt="第 2 轮选的 D：面板头“对话”，下面一行居中的标题">
+    <p>第 2 轮选的 D：上面还是面板头“对话”，下面一行才是居中的标题。</p>
   </div>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="light" data-nbdev-label="A 轻量单行">
-      <h3>A 轻量单行</h3>
-      <img src="r2/h-light.webp" alt="标题加下拉箭头、Profile 名淡色，右边新建与更多">
-      <p>去掉 Profile 图标，标题是会话下拉的按钮；改动最小，仍是两行标题。</p>
+  <div class="cands cands--3">
+    <div class="cand" data-nbdev-option="center" data-nbdev-label="A 面板头居中写会话">
+      <h3>A 面板头居中写会话</h3>
+      <img src="r3/p-center.webp" alt="面板头：左边新建，中间 Profile 图标与会话标题，右边更多与框架按钮">
+      <img src="r3/p-center-welcome.webp" alt="没选会话时：中间写“新对话”，左右只剩框架按钮">
+      <p>没选会话时中间写“新对话”，图标是新建会话会用的 Profile。</p>
     </div>
-    <div class="cand" data-nbdev-option="two-line" data-nbdev-label="B 两行带摘要">
-      <h3>B 两行带摘要</h3>
-      <img src="r2/h-two-line.webp" alt="图标方块、标题与 Profile 小标签，下面一行会话摘要">
-      <p>照旧应用的顶栏：第二行是后台生成的会话摘要；比现在高一点。</p>
+    <div class="cand" data-nbdev-option="left" data-nbdev-label="B 面板头靠左写会话">
+      <h3>B 面板头靠左写会话</h3>
+      <img src="r3/p-left.webp" alt="面板头：左边 Profile 图标与会话标题，右边新建、更多与框架按钮">
+      <p>与侧栏别的面板头一样靠左；标题能用的宽度最多。</p>
     </div>
-    <div class="cand" data-nbdev-option="merged" data-nbdev-label="C 并进面板头">
-      <h3>C 并进面板头</h3>
-      <img src="r2/h-merged.webp" alt="面板头写“对话 / 会话标题”，新建与更多在面板头里">
-      <p>Profile 名与摘要在会话标题的悬停里。</p>
-    </div>
-    <div class="cand" data-nbdev-option="centered" data-nbdev-label="D 标题居中">
-      <h3>D 标题居中</h3>
-      <img src="r2/h-centered.webp" alt="新建在左、标题与 Profile 两行居中、更多在右">
-      <p>像手机上的聊天应用；右栏窄时标题能用的宽度最少。</p>
+    <div class="cand" data-nbdev-option="hidden" data-nbdev-label="C 面板头只留框架按钮">
+      <h3>C 面板头只留框架按钮</h3>
+      <img src="r3/p-hidden.webp" alt="面板头空着、框架按钮淡色，下面是居中的会话顶栏">
+      <p>平台改动最少，但上面空着一条 32px。</p>
     </div>
   </div>
+  <p>A、B 要工作台让视图自己画面板头的标题区（拖动视图仍从这里拖，读屏名称仍是“对话”），视图的 Spec 加一条；C 只是不写标题。</p>
 </section>
 
 <section>
@@ -121,7 +82,9 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>删除服务商：条目悬停出删除图标，右键也能删（第 1 轮）</li>
     <li>服务商条目改单行，问题换成行尾图标（第 1 轮）</li>
     <li>状态栏的自定义照第 1 轮的稿做：右键勾选、设置里分左右两组排序、用量四项合成一项、提醒类总显示（第 1 轮）</li>
-    <li>没选会话时去掉“未选择会话”一行，第一屏是欢迎与最近会话，照旧应用的 welcome 做（第 1 轮，本轮出了新稿）</li>
+    <li>没选会话时去掉“未选择会话”一行，第一屏照旧应用的 welcome 做：欢迎、最近对话、试试这些（第 1、2 轮）</li>
+    <li>“试试这些”的指令由 Profile 声明，主创带三条（第 2 轮）</li>
+    <li>顶栏：标题居中、保留 Profile 图标、不要摘要；最不和谐的是面板头“对话”（第 2 轮的意见）</li>
     <li>顶栏下、输入框上的两条横线去掉，消息在顶栏下淡出（第 1 轮）</li>
     <li>5 小时与 7 天限额留到做订阅登录时；缓存倒计时只给缓存时长明确的服务商（11-16）</li>
     <li>状态栏用勾选与插件贡献的项，不做配一条命令（11-16）</li>
