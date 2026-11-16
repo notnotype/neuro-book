@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>活动栏与侧栏分开、合上时接缝怎么动</title>
+<!--
+  一次性的动效原型（w00026 t25，开发者 2026-11-16：“总之整个动画要流畅，最好的效果就是类似水滴从液体分离出来的那种效果”）。
+  尺寸照 nbook 浅色主题：卡片圆角 12px、缝 4px（相邻两边各 2px）、布局过渡 470ms、曲线 cubic-bezier(0.23, 1, 0.32, 1)。
+  这里每帧用脚本算形状，只为了能放慢、逐帧看；“每帧开销”写的是做进产品时的开销。
+-->
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 16px; font-size: 14px; }
+.controls button { font: inherit; padding: 4px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.controls button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.controls label { display: inline-flex; align-items: center; gap: 6px; }
+.controls input[type="range"] { width: 180px; }
+.cands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 900px) { .cands { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand svg { display: block; width: 100%; height: auto; border-radius: 6px; }
+.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.ref { opacity: 0.92; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>活动栏与侧栏分开、合上时接缝怎么动</h1>
+
+<section data-nbdev-question="join-motion" data-nbdev-type="single" data-nbdev-recommend="droplet">
+  <h2>侧栏收起、展开时，活动栏和侧栏相接的地方选哪种？</h2>
+  <p class="rec"><strong>推荐乙：是你说的水滴的样子，多出的开销只在过渡的 470ms 里、接缝那一条。</strong></p>
+  <div class="controls" data-nbdev-skip>
+    <button type="button" class="primary" data-toggle>收起侧栏</button>
+    <label>速度
+      <select data-speed>
+        <option value="1">1×</option>
+        <option value="0.5">0.5×</option>
+        <option value="0.25" selected>0.25×</option>
+        <option value="0.1">0.1×</option>
+      </select>
+    </label>
+    <label><input type="checkbox" data-zoom> 放大接缝</label>
+    <label><input type="checkbox" data-loop> 自动来回</label>
+    <label>逐帧 <input type="range" min="0" max="1000" value="0" data-scrub></label>
+  </div>
+  <div class="cands">
+    <div class="cand ref" data-nbdev-skip>
+      <h3>现在</h3>
+      <svg viewBox="0 0 300 240" data-variant="now"></svg>
+      <p>角跟着变圆，缝和中间那条短线等侧栏缩到零才一下子出来；展开时一开始就没了。</p>
+    </div>
+    <div class="cand" data-nbdev-option="smooth" data-nbdev-label="甲 同步分开">
+      <h3>甲 同步分开</h3>
+      <svg viewBox="0 0 300 240" data-variant="smooth"></svg>
+      <p>角、缝、短线一起渐变，和侧栏同时走完。每帧开销：活动栏那一格的内边距在变，重排它这一小块（几个图标）并重绘；短线淡出只在合成层。</p>
+    </div>
+    <div class="cand" data-nbdev-option="droplet" data-nbdev-label="乙 水滴">
+      <h3>乙 水滴</h3>
+      <svg viewBox="0 0 300 240" data-variant="droplet"></svg>
+      <p>甲加上接缝那一条画成液体：连着时是圆滑的凹角，侧栏缩成细条后从上下两头往中间收，像一滴水被吸回去；展开反过来鼓出一滴再拉开。每帧开销：甲的，加上接缝一条（约 30px 宽、整列高）的模糊滤镜重绘，静止时没有这一层。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>直接做，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>怎么样</th></tr></thead>
+    <tbody>
+      <tr><td>减少动态效果</td><td>直接到位，不播</td></tr>
+      <tr><td>平铺主题（没有卡片、没有缝）</td><td>不变</td></tr>
+      <tr><td>缩到一半又展开、长到一半又收起</td><td>从当时的样子接着往回走，不跳（上面的按钮在动的时候再点一下就是）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>活动栏的角随侧栏缩回去同时变圆，不等缩完（2026-11-16）</li>
+  </ol>
+</section>
+</main>
+
+<script>
+"use strict";
+// 舞台尺寸（CSS px）：活动栏那一格宽 52（卡片 4 到 52），侧栏 168，编辑区占剩下的。
+const W = 300, H = 240, R = 12, GAP = 4, HALF = 2, AB = 52, SB = 168, D = 470;
+const PANEL = "#fffcf5", WINDOW = "#ece8df", INK = "#d9d2c5", INK2 = "#e7e1d6", DIVIDER = "rgba(31,28,23,0.09)";
+const NS = "http://www.w3.org/2000/svg";
+
+// cubic-bezier(0.23, 1, 0.32, 1)：按 x 解 t 再求 y。
+function bezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (t) => ((ax * t + bx) * t + cx) * t, sy = (t) => ((ay * t + by) * t + cy) * t;
+  const dx = (t) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x) => {
+    let t = x;
+    for (let i = 0; i < 8; i += 1) { const d = dx(t); if (Math.abs(d) < 1e-6) break; t -= (sx(t) - x) / d; t = Math.min(1, Math.max(0, t)); }
+    return sy(t);
+  };
+}
+const ease = bezier(0.23, 1, 0.32, 1);
+
+/** 圆角矩形，四个角各自的半径（左上、右上、右下、左下）。 */
+function rr(x0, y0, x1, y1, [tl, tr, br, bl]) {
+  const w = x1 - x0, h = y1 - y0;
+  if (w <= 0.01 || h <= 0.01) return "";
+  const c = (r) => Math.max(0, Math.min(r, w / 2, h / 2));
+  [tl, tr, br, bl] = [c(tl), c(tr), c(br), c(bl)];
+  return `M${x0 + tl},${y0}H${x1 - tr}A${tr},${tr} 0 0 1 ${x1},${y0 + tr}V${y1 - br}A${br},${br} 0 0 1 ${x1 - br},${y1}H${x0 + bl}A${bl},${bl} 0 0 1 ${x0},${y1 - bl}V${y0 + tl}A${tl},${tl} 0 0 1 ${x0 + tl},${y0}Z`;
+}
+
+function el(name, attrs, parent) {
+  const node = document.createElementNS(NS, name);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+  if (parent) parent.append(node);
+  return node;
+}
+
+/** 每块舞台：底、三张卡片、接缝的液体层（只有乙）、内容。 */
+function stage(svg, variant) {
+  const id = `v-${variant}`;
+  const defs = el("defs", {}, svg);
+  const goo = el("filter", {id: `${id}-goo`, x: "-50%", y: "-10%", width: "200%", height: "120%", "color-interpolation-filters": "sRGB"}, defs);
+  el("feGaussianBlur", {in: "SourceGraphic", stdDeviation: 3, result: "blur"}, goo);
+  el("feColorMatrix", {in: "blur", type: "matrix", values: "1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 60 -28"}, goo);
+  const strip = el("clipPath", {id: `${id}-strip`}, defs);
+  el("rect", {x: AB - R, y: 0, width: 2 * R + GAP + 4, height: H}, strip);
+  const sideClip = el("clipPath", {id: `${id}-side`}, defs);
+  const sideClipPath = el("path", {}, sideClip);
+  const editorClip = el("clipPath", {id: `${id}-editor`}, defs);
+  const editorClipPath = el("path", {}, editorClip);
+
+  el("rect", {x: 0, y: 0, width: W, height: H, fill: WINDOW}, svg);
+  const bar = el("path", {fill: PANEL}, svg);
+  const side = el("path", {fill: PANEL}, svg);
+  const editor = el("path", {fill: PANEL}, svg);
+  const liquid = el("g", {"clip-path": `url(#${id}-strip)`}, svg);
+  el("rect", {x: 0, y: 0, width: W, height: H, fill: WINDOW}, liquid);
+  const fused = el("g", {filter: `url(#${id}-goo)`}, liquid);
+  const barGoo = el("path", {fill: PANEL}, fused);
+  const sideGoo = el("path", {fill: PANEL}, fused);
+  const editorOver = el("path", {fill: PANEL}, liquid);
+  const divider = el("rect", {x: AB - 0.5, y: GAP + 10, width: 1, height: H - 2 * GAP - 20, fill: DIVIDER}, svg);
+  // 内容：活动栏的图标、侧栏与编辑区的几行字。
+  for (let i = 0; i < 5; i += 1) el("rect", {x: 18, y: 18 + i * 30, width: 20, height: 20, rx: 5, fill: i === 0 ? "#9fc3ef" : INK}, svg);
+  const sideText = el("g", {"clip-path": `url(#${id}-side)`}, svg);
+  for (let i = 0; i < 9; i += 1) el("rect", {x: AB + 14 + (i % 3 === 0 ? 0 : 10), y: 22 + i * 18, width: i % 3 === 0 ? 110 : 90, height: 7, rx: 3.5, fill: INK}, sideText);
+  const editorText = el("g", {"clip-path": `url(#${id}-editor)`}, svg);
+  for (let i = 0; i < 10; i += 1) el("rect", {x: 0, y: 22 + i * 18, width: 150 - (i % 4) * 20, height: 7, rx: 3.5, fill: INK2, "data-line": ""}, editorText);
+
+  return (e, resting) => {
+    const sideRight = AB + SB * (1 - e);
+    let barInset, sideInset, corner, sideCorner, line;
+    if (variant === "now") {
+      // 隐藏时缩完才留缝；展开一开始就相连（resting 为“停在收起”时才算断开）。
+      const apart = resting === "hidden";
+      barInset = apart ? HALF : 0;
+      sideInset = 0;
+      corner = R * e;
+      sideCorner = 0;
+      line = apart ? 0 : 1;
+    } else {
+      barInset = HALF * e;
+      sideInset = HALF * e;
+      corner = R * e;
+      sideCorner = R * e;
+      line = 1 - e;
+    }
+    const barD = rr(GAP, GAP, AB - barInset, H - GAP, [R, corner, corner, R]);
+    const sideD = sideRight - HALF - (AB + sideInset) > 0.5 ? rr(AB + sideInset, GAP, sideRight - HALF, H - GAP, [sideCorner, R, R, sideCorner]) : "";
+    const editorD = rr(sideRight + HALF, GAP, W - GAP, H - GAP, [R, R, R, R]);
+    bar.setAttribute("d", barD);
+    side.setAttribute("d", sideD);
+    editor.setAttribute("d", editorD);
+    sideClipPath.setAttribute("d", sideD);
+    editorClipPath.setAttribute("d", editorD);
+    for (const node of editorText.querySelectorAll("[data-line]")) node.setAttribute("x", String(sideRight + HALF + 16));
+    divider.setAttribute("opacity", String(line));
+    // 液体层只在过渡里：静止时和底下的卡片一模一样，不画。
+    const moving = variant === "droplet" && e > 0.0005 && e < 0.9995;
+    liquid.setAttribute("display", moving ? "inline" : "none");
+    // 滤镜把活动栏的角画得比 12px 略圆：最后一小段淡回真卡片，不在结束那一帧跳。
+    liquid.setAttribute("opacity", String(Math.min(1, (1 - e) / 0.04)));
+    if (moving) {
+      barGoo.setAttribute("d", barD);
+      sideGoo.setAttribute("d", sideD);
+      editorOver.setAttribute("d", editorD);
+    }
+  };
+}
+
+const draws = [...document.querySelectorAll("svg[data-variant]")].map((svg) => stage(svg, svg.dataset.variant));
+const toggle = document.querySelector("[data-toggle]");
+const speedSelect = document.querySelector("[data-speed]");
+const zoom = document.querySelector("[data-zoom]");
+const loop = document.querySelector("[data-loop]");
+const scrub = document.querySelector("[data-scrub]");
+
+let e = 0;            // 0 是展开、相连；1 是收起
+let from = 0, to = 0, startedAt = 0, frame = 0;
+let resting = "shown";
+
+function render() {
+  for (const draw of draws) draw(e, resting);
+  scrub.value = String(Math.round(e * 1000));
+  toggle.textContent = to === 1 ? "展开侧栏" : "收起侧栏";
+}
+
+function tick(now) {
+  const duration = D / Number(speedSelect.value);
+  const u = Math.min(1, (now - startedAt) / duration);
+  e = from + (to - from) * ease(u);
+  if (u >= 1) {
+    e = to;
+    resting = to === 1 ? "hidden" : "shown";
+    render();
+    frame = 0;
+    if (loop.checked) frame = requestAnimationFrame((next) => { go(1 - to, next); });
+    return;
+  }
+  render();
+  frame = requestAnimationFrame(tick);
+}
+
+function go(target, now = performance.now()) {
+  from = e;
+  to = target;
+  startedAt = now;
+  resting = "moving";
+  if (frame) cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(tick);
+}
+
+toggle.addEventListener("click", () => go(to === 1 ? 0 : 1));
+loop.addEventListener("change", () => { if (loop.checked && !frame) go(1 - to); });
+zoom.addEventListener("change", () => {
+  for (const svg of document.querySelectorAll("svg[data-variant]")) svg.setAttribute("viewBox", zoom.checked ? "22 0 60 48" : `0 0 ${W} ${H}`);
+});
+scrub.addEventListener("input", () => {
+  if (frame) cancelAnimationFrame(frame);
+  frame = 0;
+  loop.checked = false;
+  e = Number(scrub.value) / 1000;
+  to = e >= 1 ? 1 : 0;
+  resting = e >= 1 ? "hidden" : e <= 0 ? "shown" : "moving";
+  render();
+});
+render();
+</script>
+</body>
+</html>
