@@ -98,6 +98,12 @@ Lab 截图：服务商页四个场景、`ProfileRail` 两个场景、`SubagentCa
 
 验证：`test:affected --since master --typecheck`，nb-agent-ui、nb-markdown 全过；nb-story 1 条、neuro-book 的 bun 3 条、vitest 1 条失败。这几条都不在本次改动的文件里：`builtin-names` 缺 `nbook.desktop` 是 master 上的原有失败；其余是负载 13 到 22 时的超时，单独重跑时片段示例的 DOM 测试通过，`server-projects` 每次超时的不是同一条。审查修正之后重跑：三个 DOM 测试文件 37 条与 `subagent-card.test.ts` 通过，`typecheck` 通过。
 
+e2e：`models.e2e.ts` 4 条全过（含窄时删除、删除的三条路与焦点、条目的名称与描述）。`lab-scenes` 挂在 `ThemeEditor` 两个场景的资源 404 上（本 Task 没碰），挡在版面比对之前；按验证门禁改用 `nbdev shot` 的测量：`ProviderRail`、`ProvidersPage` 七个场景、`ProfileRail` 两个场景，手机与自由画布全部 0。其中“新建 Profile”的焦点光晕被裁在 master 上同样量得到（原有问题），Profile 多到左栏滚动时滚到底也会被裁，所以两个左栏底部留 `--space-2`（`58f161135`）。
+
+负载降到 8 后单独重跑 `test:affected` 里超时的几条：nb-story `server.test.ts` 10 条、`server-projects.test.ts` 9 条、`plugin-sdk/pack.test.ts` 13 条都通过；`builtin-names` 缺 `nbook.desktop` 是 master 上的原有失败。
+
+2026-11-16 合入 master（`9131f0fea`），实现 worktree 与分支已删。草稿 worktree `.worktree/w00032-t29-drafts`（分支 `t29/drafts`）留着：对话面板、子代理管理、模型提示、状态栏的稿是 t36、t37 的参照，t37 做完再删。
+
 ## 下一步
 
-`e2e/models.e2e.ts` 与 `lab-scenes` 跑过、负载降下来后单独确认几条超时，然后合入。
+请开发者批准 Spec 晋升：`models/settings-pages.md` 输出 1、12，`agent/profile-settings.md` 输出 2，`agent/conversation.md` 输出 33 里本 Task 标的“（planned）”去掉；同时把 `settings-pages.md` 实现合同里“删除确认关闭之后焦点回到‘删除’（取消）”改成回到那家的条目。批准后本 Task 完成。
