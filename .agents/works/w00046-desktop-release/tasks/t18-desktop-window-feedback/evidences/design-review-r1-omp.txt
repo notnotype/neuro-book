@@ -1,0 +1,92 @@
+### 1. 运行时传入 C 的 Win32 函数指针没有可执行的 Bun FFI 路径
+- 严重程度：阻断；类别：原生实现可行性
+- 位置：`.agents/works/w00046-desktop-release/tasks/t18-desktop-window-feedback/plan.md:50-55`，尤其是“函数指针由 JS 从 `dlopen("user32.dll")` 取得后经初始化函数交给 C”。
+- 现象：计划要求 C 钩子调用 `CallNextHookEx`、`GetDpiForWindow`、`GetWindowRect`、`GetClientRect`，并把 `SetWindowsHookExW` 的钩子函数指针交给 Win32；但 Bun FFI 文档只把 `dlopen` 的结果描述为可调用的 JS symbol。文档中把原生函数地址传给另一个 C 函数的方式是已有裸地址配合 `linkSymbols`/`CFunction`，或 `JSCallback.ptr`；计划没有取得 `dlopen` symbol 裸地址的步骤。
+- 为什么是问题：如果把 `dlopen` 返回的 JS 可调用对象直接当作 `function` 参数或写入 C 函数指针，参数形状未必是原生地址，初始化可能失败或在 UI 线程首次调用时崩溃。现有“Bun 1.4.4 能用 `cc` 编译并调用”只证明了普通 C symbol 调用，不能证明这条跨库函数指针链路。
+- 如何核实：在目标 Bun 1.4.4、Windows x64 的最小程序中分别打印 `dlopen` symbol、`cc` symbol、`CFunction`/`linkSymbols` 的实际可传值，完成一次 `SetWindowsHookExW` 安装并让 C 钩子调用 `GetWindowRect`；再用无效地址确认失败能返回而不是进程崩溃。核对 Bun FFI 文档的 `Function pointers` 与 `Callbacks` 小节。
+- 建议改法：把方案收敛到有明确 ABI 的路径：用 `cc` 的 `library: ["user32"]` 直接链接并声明 Win32 函数，或明确通过可验证的 `GetProcAddress`/裸地址方案获得每个函数地址；对 `SetWindowsHookExW`、钩子回调、C 内部 Win32 调用各写一个 Windows x64 smoke。若仍依赖未文档化的 symbol 转指针，不能把它作为可实施计划。
+### 2. C 槽位表的跨线程读写是数据竞争，当前“先写宽高再写 HWND”不足以建立同步
+- 严重程度：阻断；类别：线程安全与进程稳定性
+- 位置：`.agents/works/w00046-desktop-release/tasks/t18-desktop-window-feedback/plan.md:53-55`，表设计与“登记先写宽高再写 HWND”的说明。
+- 现象：Bun 主线程登记、删除槽位，Electrobun UI 线程的钩子同时扫描槽位并读取 HWND、宽高；计划没有锁、原子类型、内存序或版本校验。C 语言中这些普通字段的并发读写构成 data race，不能用 x64 上指针和整数通常一次写完来替代同步。
+- 为什么是问题：钩子可能读到半更新的槽位、旧 HWND 配新尺寸，或在删除/复用期间读到已失效记录；data race 本身是未定义行为，正好发生在窗口消息处理的 UI 线程，风险是错误限制窗口或崩溃。写宽高后写 HWND只能减少“先看见 HWND、后看见尺寸”的一种时序，不能形成 C/CPU 可见的发布与撤销协议。
+- 如何核实：用两个线程反复登记、删除、替换 64 个槽位，同时让 UI 线程高频触发 `WM_GETMINMAXINFO`，在 C smoke 中加入槽位序号、宽高校验和 ThreadSanitizer 可替代的压力日志；审查实际编译器是否接受 `_Atomic`，以及 TinyCC 生成代码是否提供所需内存序。
+- 建议改法：在 C 里明确采用 Windows `Interlocked*`/内存屏障配合序列号协议，或把登记与查找改成不共享可变结构的单写者快照；发布、撤销、读取必须有成对的 acquire/release 语义。把“槽位满、重复 HWND、删除中的 HWND、尺寸非法”的返回合同一并写入 `setMinimumSize`，不要只返回笼统问题字符串。
+### 3. 关键的 WH_CALLWNDPROCRET 修改时序没有被计划中的验证证明
+- 严重程度：重要；类别：Win32 消息时序与验证证据
+- 位置：`.agents/works/w00046-desktop-release/tasks/t18-desktop-window-feedback/plan.md:27`、`:53-57`、`:85-97`。
+- 现象：Electrobun 的 `nw.cpp:5918-5945` 在 `WindowProc` 中处理 `WM_GETMINMAXINFO`；Windows 文档说明 `WH_CALLWNDPROCRET` 在目标窗口过程处理后调用，且 `CallWndRetProc`“只能检查消息，不能修改消息”。计划要依赖它改写 `CWPRETSTRUCT.lParam` 指向的 `MINMAXINFO`，但现有实测只证明 TinyCC 能编译和调用，没有证明该指针内容在系统消费最小跟踪尺寸前仍可安全修改并生效。
+- 为什么是问题：如果系统或 `DefWindowProc` 在另一层已经取走/复制了结果，或该钩子路径不允许这种间接修改，拖动和 `WM_WINDOWPOSCHANGING` 都会继续使用旧的最小尺寸；文档措辞也使这条实现不能只按“回调在返回后”推断。计划的 Windows 验收没有记录消息时序、钩子是否命中和改写前后的值，失败时也无法区分安装失败、未命中、结构偏移错误与时序无效。
+- 如何核实：先做只含一个窗口的 native probe：在 `WM_GETMINMAXINFO` 的 `WH_CALLWNDPROCRET` 中记录 `hwnd`、`message`、`CWPRETSTRUCT.lParam` 与 `ptMinTrackSize`，改写后分别验证真实鼠标边缘拖动和 `SetWindowPos` 经 `WM_WINDOWPOSCHANGING` 的结果；同时用 `WH_CALLWNDPROC`/直接窗口过程对照，记录回调顺序。使用正式包的同一 Bun 版本运行，不能只调用内部 C 函数。
+- 建议改法：把“钩子可修改结构体且系统随后读取”列为原生前置验收，成功证据进入本 Task；若不成立，改用已验证的前置钩子/窗口过程路径或把最小尺寸补丁放进 Electrobun 原生层。计划至少要记录失败时的 `GetLastError`、实际命中次数和 `MINMAXINFO` 的物理像素值。
+### 4. 首个启动页转产品页时没有明确登记最小尺寸
+- 严重程度：重要；类别：窗口生命周期
+- 位置：`.agents/works/w00046-desktop-release/tasks/t18-desktop-window-feedback/plan.md:50-58`；现有实现 `packages/neuro-book/desktop/src/bun/index.ts:278-285,459-467` 与 `packages/neuro-book/src/desktop/windows.ts:107-109,133-137`。
+- 现象：壳启动时 `WindowCoordinator.openWindow()` 打开 `kind: "startup"`，适配层随即调用一次 `adoptWindow()`；服务端就绪后，`WindowCoordinator` 把同一个状态从 `startup` 改成 `page`，调用 `WindowPort.load()` 让原窗口加载产品页。计划又规定“启动页不登记、产品窗口在 `adoptWindow` 里登记”，但没有说明这个状态转换点如何调用 `setMinimumSize`。
+- 为什么是问题：如果实现者只在 `adoptWindow` 按创建时的 kind 登记，首个产品窗口永远没有最小尺寸；而后续转成产品窗口的 `ManagedWindow.kind` 也只在 `load()` 里变更，没有其它自然的登记点。计划的“首个窗口、两个窗口都受限”验收会漏掉这个路径，实际用户最常使用的首个窗口可能仍可缩到很小。
+- 如何核实：跟踪 `WindowCoordinator.startup -> load` 的真实调用序列，在 Windows 日志记录窗口 HWND、kind 转换与登记/撤销次数；分别从启动页就绪后直接拖动，以及由新窗口请求直接打开产品页，读取客户区实际尺寸比较。
+- 建议改法：把最小尺寸登记放在适配层明确的 `load(id, url)` 转换路径，并保证只对尚未登记的窗口执行；同时在 `close` 事件撤销一次。更新 `adoptWindow` 的职责或参数合同，避免用创建时 `OpenTarget` 误判窗口生命周期。
+### 5. “整页导航已有未保存询问”与现有代码不一致，回书架和打开项目可能直接丢失未保存内容
+- 严重程度：阻断；类别：导航与数据安全
+- 位置：计划 `plan.md:41-43`；`packages/neuro-book/src/web/boot.ts:62-74`、`packages/neuro-book/src/web/router.ts:43-47`、`packages/neuro-book/src/plugins/editor/web/plugin.ts:199-206`。
+- 现象：生产 `navigateDocument` 的实现是 `location.assign(href)`。路由的 `beforeEach` 只在 Vue Router 内部导航时检查 `reloadOnLeave`；当前搜索到的编辑器离开保护是给桌面壳关闭前询问注册 `windowCloseKey.participate`，不处理 `navigateDocument`，也没有浏览器 `beforeunload` 注册。项目规范还明确“切换项目即整页重新加载”，而工作台欢迎页和打开项目都调用这条整页导航。
+- 为什么是问题：计划把 `nbook.project.back-to-shelf` 标成 `effect: "read"` 可以成立，但不能因此声称整页导航会询问未保存；当前实现下从编辑器点回书架或打开另一项目会销毁页面运行实例，编辑器内存中的未保存正文没有询问或抢救路径。它也使“欢迎页改走命令”只改变入口，不解决实际离开合同。
+- 如何核实：桌面真实运行时关闭自动保存，打开一个 Markdown 改动但不保存，分别点击欢迎页“回到书架”、文件菜单“打开项目”和作品下拉入口；观察是否出现 `windowCloseDialog`，并在新页面确认正文是否仍可恢复。另用浏览器 DevTools 监听 `beforeunload`，核对 `router.beforeEach` 是否被触发。
+- 建议改法：先在 Spec 与代码中明确整页导航的离开保护合同：实现统一的导航前询问/保存或同步抢救机制，并让 `navigateDocument` 走该机制；或者承认这三条入口不保证保存，删除计划中“已有未保存询问”的声明并在 UI/验收中覆盖丢失风险。命令实现与欢迎页迁移必须复用同一个已验证入口，不能仅复用 `navigation.navigateDocument` 这个裸回调。
+### 6. 无书架插件与 `/workbench` 空工作台的合同只写在设计意图里，没有端到端验收
+- 严重程度：重要；类别：插件缺失与降级行为
+- 位置：计划 `plan.md:41、47、72、82`；`packages/neuro-book/src/plugins/workbench/shared/home.ts:18-19`、`packages/neuro-book/src/plugins/workbench/web/home-page.ts:88-113`。
+- 现象：计划正确给出命令元数据为 `when` 无、`effect: "read"`、`expose.agent: "never"`，也要求命令缺失时标题栏作品下拉不列项、标志保持不可点；但验收只描述“命令在时/不在时”的组件断言和正常 `projects.e2e.ts`，没有启动不含 `nbook.projects` 的宿主、访问 `/workbench`、检查空工作台与标题栏三处入口的完整行为。
+- 为什么是问题：`/workbench` 本来就不使用 `workbench.home`，没有首页提供者时由工作台渲染空工作台；缺少书架插件时不存在回书架命令。若实现把缺失命令当成失败可点按钮、仍显示文件菜单项，或把 `/` 当作一定存在的书架，降级合同会被破坏，而现有正常产品装配测试不会发现。
+- 如何核实：用真实 `createBrowserWindow`/工作台装配删掉 `nbook.projects`，分别加载 `/workbench` 与有项目的工作台，查询 `nbook.project.back-to-shelf` 的 `get`/`isEnabled` 结果、标题栏 DOM、标志键盘与点击行为；同时确认工作台根仍渲染、没有空首页贡献错误。再用含 `nbook.projects` 但无项目绑定的窗口核对命令仍可用且只在需要时显示。
+- 建议改法：把“无 `nbook.projects`、`/workbench` 空工作台、无项目 `/` 首页”作为独立验收场景和测试装配；明确命令服务缺失/命令未知时三个入口都不可执行且不发导航。保留现有命令元数据断言，另加贡献撤回后的动态更新断言，覆盖插件停用而非只覆盖静态空数组。
+### 7. HWND 复用与关闭事件之间缺少失效协议，旧槽位可能误伤新窗口
+- 严重程度：重要；类别：原生句柄生命周期
+- 位置：计划 `plan.md:52-57`；现有窗口关闭顺序 `packages/neuro-book/desktop/src/bun/index.ts:285-293`。
+- 现象：计划的 C 表按 HWND 作为唯一键，要求关闭时 `forgetMinimumSize`；现有 `close` 回调先从 `windows` 删除、再通知协调器，计划没有说明撤销调用的确切时点，也没有登记代次或原生销毁回调。Windows 允许句柄值在旧窗口销毁后复用。
+- 为什么是问题：旧产品窗口的槽位若在 `close` 事件到达前仍存在，新建的启动页或对话框复用同一个 HWND 时，`WM_GETMINMAXINFO` 会命中旧槽位，从而把“不登记”的窗口也限制到 800×560。反向顺序也有风险：新窗口已登记后迟到的旧 `forget` 可能删掉新槽位。所有产品窗口目前使用相同尺寸，不能因此忽略“启动页与对话框不受限”的合同。
+- 如何核实：Windows 循环快速关闭产品窗口、立即打开对话框/启动页，再循环打开产品窗口；记录 HWND、登记与撤销序号，在每个窗口上执行 `SetWindowPos(300,200)`，验证旧句柄复用时命中次数与最小尺寸。
+- 建议改法：把 unregister 与窗口关闭状态绑定成带 generation 的 token，撤销只允许匹配同一代次；在允许创建下一个窗口前完成旧 HWND 的撤销，或在 C 钩子侧同时核验原生窗口仍属于登记代次。明确 `close`、销毁、`load` 转换三条路径的先后，并把句柄复用列入 Windows 验收。
+### 8. DPI 与窗口边框换算没有定义取整、失败和最大化状态
+- 严重程度：重要；类别：几何计算与 DPI
+- 位置：计划 `plan.md:17、54、56、62、85`。
+- 现象：计划只写“最小客户区 × DPI / 96 + 此刻的窗口矩形 − 客户区矩形”，没有规定整数运算的向上取整、`GetDpiForWindow` 返回 0、`GetWindowRect`/`GetClientRect` 失败、负的矩形差值，以及 DPI 在跨显示器移动时变化的处理。也没有说明从最大化状态读取边框差值是否允许作为普通跟踪尺寸的边框。
+- 为什么是问题：最小值合同是客户区至少 800×560 CSS 像素；向下截断可能得到 799 或 559 的客户区。DPI/矩形 API 失败时用未初始化值会在 UI 线程写入错误 `MINMAXINFO`；最大化的 `WM_NCCALCSIZE` 路径与普通窗口不同，若直接复用当前客户区差值可能产生过大或方向错误的外框补偿。只验证一个固定 DPI 的 `SetWindowPos` 不能证明“按所在显示器 DPI 换算”。
+- 如何核实：在 96、106/110% 类非整比例、125、150、200 DPI 显示设置和跨屏拖动下，分别读取客户区最终宽高；覆盖窗口普通、最大化后还原、隐藏标题栏与系统标题栏；人为让每个 Win32 查询失败或返回 0，确认返回问题并保持系统默认限制。
+- 建议改法：把几何合同写成明确的物理像素计算：逻辑值用无溢出的整数向上取整，帧差按非负值处理；所有 Win32 返回值都先校验，DPI 无效时采用明确的 96 fallback 并记录诊断，或放弃本次覆盖；登记时保存逻辑尺寸而不是预先换算，钩子命中时按当前窗口 DPI重算。验收同时比较 `GetClientRect` 与 `GetWindowRect`，不要只断言 `SetWindowPos` 后的外框大小。
+### 9. 手写 Win32 结构和函数指针的 ABI 合同没有落到目标架构与静态校验
+- 严重程度：重要；类别：ABI、结构布局与调用约定
+- 位置：计划 `plan.md:27、53-55、97`，特别是“不开系统头，自己声明 `CWPRETSTRUCT`、`MINMAXINFO`，并注明偏移”。
+- 现象：`SetWindowsHookExW` 要求的 `HOOKPROC` 是 `LRESULT CALLBACK(int, WPARAM, LPARAM)`；`CWPRETSTRUCT` 的 `hwnd`、`message`、`wParam`、`lParam`、`lResult` 有固定的指针宽度与对齐，`MINMAXINFO` 的坐标字段又是 32 位 `LONG`。计划没有写 `WPARAM`/`LPARAM`/`LRESULT` 的有符号性、`CALLBACK` 调用约定、目标架构范围，或编译时 `sizeof`/`offsetof` 校验，只说“x64 布局”。
+- 为什么是问题：手工布局和 FFI 签名任一处错，钩子仍可能成功安装但在处理消息时读取错误 HWND 或写错偏移；32 位下调用约定尤其会破坏栈，ARM64/其它打包目标也不能靠 x64 断言覆盖。TinyCC “编译成功”不等于 Win32 ABI 与 WebView2/Electrobun 进程一致。
+- 如何核实：从实际 Electrobun Windows 产物确认架构，生成 C 的 `sizeof`/`offsetof` 探针与 Windows SDK 头文件对照；编译带 `static_assert` 的源，并用真实 `WH_CALLWNDPROCRET` 回调打印 `hwnd/message/lParam`；分别用 `x64`（及产品宣称支持的其它 Windows 架构）运行一次安装、命中和卸载。
+- 建议改法：把支持架构写入计划与构建门禁；使用固定宽度类型和 `intptr_t`/`uintptr_t` 表达 Win32 参数，显式写 `CALLBACK`（x64 也保留语义），对 `sizeof(CWPRETSTRUCT)`、`offsetof`、`sizeof(MINMAXINFO)` 做静态断言。若只支持 x64，安装包与 C hook 在其它架构直接禁用并记录原因，不要静默尝试。
+### 10. “初始 1280×800 已大于最小值”与实际 centered() 逻辑不一致
+- 严重程度：重要；类别：初始化几何与 DPI
+- 位置：计划 `plan.md:56、85`；现有 `packages/neuro-book/desktop/src/bun/index.ts:554-560` 与 `openManaged:281-284`。
+- 现象：计划据初始尺寸 1280×800 判断无需登记后调整；实际 `centered()` 会把窗口宽高分别压到工作区的 90%，然后才创建 `BrowserWindow`，`adoptWindow()` 在创建后才运行。高 DPI 或较小工作区下，物理像素对应的 800×560 CSS 像素可能大于 1280×800，90% 结果也可能低于该最小值。
+- 为什么是问题：首屏产品窗口可能一开始就小于计划声明的最小客户区；注册钩子不会自动把已创建的窗口扩大。用户虽然之后拖动不能继续缩小，但初始窗口已经违反最小尺寸，且“工作区不足时允许超出工作区”与当前创建阶段主动压到工作区 90% 的策略没有对齐。
+- 如何核实：在物理工作区约 1280×720、125/150/200% 缩放的 Windows 桌面启动产品页，记录创建后第一帧的客户区尺寸；再比较登记钩子后的尺寸是否发生过一次主动修正。
+- 建议改法：在 `centered()` 计算初始外框时把 DPI 转换后的最小尺寸纳入下限，明确工作区小于下限时是否允许窗口超出工作区；或者登记后用一次经过线程约定验证的异步 `SetWindowPos` 收口，并把“首帧达到最小客户区”加入验收。不要以未 DPI 换算的 1280×800 作为充分条件。
+### 11. 用当前窗口矩形减客户区矩形计算边框，会把最大化工作区差异算进最小尺寸
+- 严重程度：重要；类别：WM_NCCALCSIZE、最大化与外框几何
+- 位置：计划 `plan.md:27、54、62、85、98`；Electrobun `/tmp/eb/nw.cpp:5918-5945` 的 `WM_GETMINMAXINFO`/`WM_NCCALCSIZE` 路径，以及现有 `win32.ts` 对 `hiddenInset` 的说明 `:5-8`。
+- 现象：`hiddenInset` 的原生窗口在最大化时由 `WM_NCCALCSIZE` 按工作区调整客户区；此时 `GetWindowRect` 与 `GetClientRect` 的高度差包含显示器/任务栏工作区差异，不再只是普通非客户区边框。计划却在每次 `WM_GETMINMAXINFO` 命中时用“此刻的窗口矩形 − 客户区矩形”补偿最小客户区。
+- 为什么是问题：最大化或还原期间取到的差值可能把任务栏高度等额外量加入 `ptMinTrackSize`，导致还原后的普通窗口最小高度过大，或者按当前消息阶段得到不稳定的限制。只断言“最大化与还原照常”无法证明还原后最小尺寸仍是 800×560 客户区。
+- 如何核实：在隐藏标题栏和系统标题栏两种产品窗口中，记录普通、最大化、还原各阶段的 `GetWindowRect`、客户区宽高、`WM_NCCALCSIZE` 状态与最终 `ptMinTrackSize`；最大化后拖动/`SetWindowPos`，再还原后重复测量。
+- 建议改法：边框补偿用稳定的非最大化窗口度量或按窗口样式/DPI调用 `AdjustWindowRectExForDpi`；钩子命中时明确识别 `IsZoomed`，不要把最大化工作区差值当普通 frame delta。验收增加“最大化 → 还原 → 拖动到最小值”的顺序，并比较客户区而非仅比较外框。
+### 12. SetWindowPos 验收没有处理现有跨线程异步调用的完成时点
+- 严重程度：建议；类别：验证时序
+- 位置：计划 `plan.md:85-92`；现有 `packages/neuro-book/desktop/src/bun/win32.ts:12-13、93`。
+- 现象：现有 Win32 封装明确因为窗口在 Electrobun UI 线程而使用 `SWP_ASYNCWINDOWPOS`，跨线程操作可能在函数返回前尚未由窗口线程处理。计划把“`SetWindowPos` 缩到 300×200，窗口停在最小尺寸”列为单次 Windows 验收，但没有定义发起调用后等待哪个事件、查询哪个窗口线程状态，或如何排除读到旧矩形。
+- 为什么是问题：立即读取矩形可能读到异步操作前的尺寸，造成假阴性；等待固定时间又可能把调度慢误报为通过或失败。验证还需要区分 `SetWindowPos` 被拒、消息尚未处理和钩子没有限制三种结果。
+- 如何核实：以窗口线程可观察的 resize/size 变化为完成信号，或在桌面侧循环查询直到尺寸稳定并设置超时；同时记录 `SetWindowPos` 返回值、最终客户区与外框尺寸、钩子命中次数，分别验证 300×200 和已达到最小值后的再次调整。
+- 建议改法：把验收写成“异步调用 → 等待真实 resize/稳定矩形 → 比较客户区与外框”的序列；若 native probe 改用同步同线程调用，必须说明它仍覆盖生产的跨线程路径，否则不能作为生产行为证据。
+### 13. 欢迎页迁移后仍保留 navigateDocument 会留下第二条导航接口和失效测试替身
+- 严重程度：建议；类别：合同收口与验收映射
+- 位置：计划 `plan.md:41-43、66、72`；`packages/neuro-book/src/plugins/projects/web/welcome.ts:28-43、91-95、137-152`、`web/plugin.ts:164-172`、`welcome.dom.test.ts:37-46`。
+- 现象：计划要求欢迎页的 `onShelf` 改为执行 `nbook.project.back-to-shelf`，但没有明确删除 `WelcomeHostOptions.navigateDocument`、插件装配里的注入和 DOM 测试的替身。当前 `execute` 对其它欢迎页动作只做失败诊断，而 `onShelf` 仍直接调用导航；若只改这一行，未使用的导航依赖和测试输入会继续伪装旧合同。
+- 为什么是问题：欢迎页仍可保留一条绕过命令的导航 seam，后续调用者容易继续使用；现有测试即使继续提供 `navigateDocument: () => undefined` 也不会证明按钮执行了命令、传了 `{}` 与 `{source: "user"}`，也不会证明命令失败的处理。
+- 如何核实：改动后用类型搜索确认 `WelcomeHostOptions`、`createWelcomeHost` 和所有测试不再需要 `navigateDocument`；点击欢迎页按钮捕获命令调用的 id、参数、source，注入 unavailable/execution-error 结果确认按产品约定诊断或可见反馈。
+- 建议改法：将欢迎页宿主合同收口为命令服务，删除专用 `navigateDocument` 字段和装配；增加成功、不可用、异常三个按钮行为断言。`openProject` 的导航依赖仍保留在它自己的合同中，避免把两条不同用途的导航接口混在一起。
+有效发现：13；阻断 3，重要 8，建议 2

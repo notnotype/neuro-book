@@ -1,0 +1,30 @@
+import {cc, dlopen, FFIType, ptr} from "bun:ffi";
+const dir = import.meta.dir;
+const mode = process.argv[2] ?? "ret";
+const {symbols: h} = cc({source: `${dir}\\hook.c`, library: ["user32"], symbols: {addrRet: {returns: "ptr"}, addrPre: {returns: "ptr"}, setMin: {args: ["int", "int"]}, hitCount: {returns: "int"}, seenCount: {returns: "int"}, sizes: {returns: "int"}}});
+console.log("compiled; sizeof CWPRETSTRUCT*1000+MINMAXINFO =", h.sizes());
+const u = dlopen("user32.dll", {
+  CreateWindowExW: {args: ["u32", "ptr", "ptr", "u32", "i32", "i32", "i32", "i32", "ptr", "ptr", "ptr", "ptr"], returns: "ptr"},
+  SetPropW: {args: ["ptr", "ptr", "ptr"], returns: "bool"},
+  SetWindowsHookExW: {args: ["i32", "ptr", "ptr", "u32"], returns: "ptr"},
+  UnhookWindowsHookEx: {args: ["ptr"], returns: "bool"},
+  SetWindowPos: {args: ["ptr", "ptr", "i32", "i32", "i32", "i32", "u32"], returns: "bool"},
+  GetWindowRect: {args: ["ptr", "ptr"], returns: "bool"},
+  DestroyWindow: {args: ["ptr"], returns: "bool"},
+}).symbols;
+const k = dlopen("kernel32.dll", {GetCurrentThreadId: {returns: "u32"}, GetLastError: {returns: "u32"}}).symbols;
+const w = (s: string) => ptr(Buffer.from(s + "\0", "utf16le"));
+const WS_OVERLAPPEDWINDOW = 0x00CF0000;
+const make = () => u.CreateWindowExW(0, w("STATIC"), w("probe"), WS_OVERLAPPEDWINDOW, 100, 100, 1000, 700, null, null, null, null);
+const a = make(), b = make();
+console.log("windows", a, b);
+u.SetPropW(a, w("nbmin"), 1 as any);
+h.setMin(800, 560);
+const hook = u.SetWindowsHookExW(mode === "pre" ? 4 : 12, mode === "pre" ? h.addrPre() : h.addrRet(), null, k.GetCurrentThreadId());
+console.log("hook", hook, "err", k.GetLastError());
+const rect = (x: any) => { const r = new Int32Array(4); u.GetWindowRect(x, ptr(r)); return `${r[2] - r[0]}x${r[3] - r[1]}`; };
+for (const [name, x] of [["marked", a], ["unmarked", b]] as const) { u.SetWindowPos(x, null, 0, 0, 300, 200, 0x0002 | 0x0004 | 0x0010); console.log(name, "after SetWindowPos 300x200:", rect(x)); }
+const ShowWindow = dlopen("user32.dll", {ShowWindow: {args: ["ptr", "i32"], returns: "bool"}}).symbols.ShowWindow;
+for (const [name, x] of [["marked", a], ["unmarked", b]] as const) { ShowWindow(x, 3); console.log(name, "maximized:", rect(x)); }
+console.log("hook seen", h.seenCount(), "hits", h.hitCount());
+u.UnhookWindowsHookEx(hook); u.DestroyWindow(a); u.DestroyWindow(b);

@@ -1,0 +1,17 @@
+w00046 t18 最小尺寸探针（2026-11-16，pc-notype：Windows 11 26200 x64，2560x1440、100%）
+
+用安装包自带的 Bun（nb-w00046\r2-pB\bin\bun.exe，1.4.4），bun:ffi 的 cc（内嵌 TinyCC）编译 C；探针窗口是两个 STATIC 类、
+WS_OVERLAPPEDWINDOW 的顶层窗口，同一线程。窗口相关的一步经 /it 计划任务在登录的桌面会话里跑（SSH 会话的桌面是虚拟的 1024x768，
+第一次在那里跑的最大化尺寸 1040x784 不能作数）。不截屏，不动鼠标。
+
+1. cc 在 Windows 上可用；`library: ["user32"]` 直接链接 user32，C 里声明 CallNextHookEx、GetPropW、CallWindowProcW 即可调用
+   （不认 __stdcall、__declspec 关键字，x64 只有一种调用约定，去掉即可）。sizeof(CWPRETSTRUCT)=40、sizeof(MINMAXINFO)=40，与 x64 布局一致。
+2. 消息钩子方案不可行：SetWindowsHookExW 挂 WH_CALLWNDPROCRET（12）或 WH_CALLWNDPROC（4），钩子都命中了 WM_GETMINMAXINFO
+   （标记了属性的窗口命中、未标记的跳过），但在钩子里改 MINMAXINFO（把 ptMaxSize 改成 900x600）对系统没有作用：两个窗口最大化都是
+   2576x1408。钩子拿到的是参数的副本。
+3. 子类化窗口过程可行：C 里的窗口过程先 CallWindowProcW 原过程（原过程地址存在窗口属性里，换之前先存），WM_GETMINMAXINFO 时把
+   ptMinTrackSize 抬到窗口属性里登记的最小值；SetWindowLongPtrW(GWLP_WNDPROC) 换上，返回的旧过程与先读到的一致。
+   - 标记的窗口：发 WM_GETMINMAXINFO 读回 ptMinTrackSize = 800,560；最大化后是 900x600（系统采用了改过的 ptMaxSize）。
+   - 未标记的窗口：0,0；最大化 2576x1408。
+4. 程序化的 SetWindowPos(300x200) 不受最小跟踪尺寸限制（两种方案、两个窗口都缩到 300x200）：最小跟踪尺寸只管用户拖动改大小。
+   所以验收读 WM_GETMINMAXINFO 的结果，真实拖动交开发者；窗口初始尺寸要在创建时就不小于最小值。
