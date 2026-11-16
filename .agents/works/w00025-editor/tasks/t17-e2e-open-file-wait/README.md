@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t17-e2e-open-file-wait
-status: planned
-updated: 2026-11-10
+status: done
+updated: 2026-11-16
 ---
 
 # e2e 打开文件的等待
