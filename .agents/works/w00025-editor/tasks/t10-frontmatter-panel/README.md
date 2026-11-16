@@ -49,8 +49,13 @@ updated: 2026-11-16
 
 执行位置：`.worktree/w00025-t10-frontmatter-panel`，分支 `feat/w00025-t10-frontmatter-panel`。
 
-- 第 1 片（nb-ui `DateInput`、`TagInput`、Lab 场景与 DOM 测试）：e217d55dc。nb-ui 全量测试 617 条通过；neuro-book 的 Lab 测试与 `vue-tsc -p tsconfig.web.json` 通过；`governance:check`、`docs:check` 通过；Lab 截图（亮、暗、390、日历打开）没有溢出与裁切。偏离计划：没跑不带 `--files` 的 `test:affected`，因为 `bun.lock` 只多了 nb-ui 的一行依赖声明（`@internationalized/date` 原本就随 reka-ui 装着，没有版本变化），它会把选择扩到全仓。nb-ui 自己没有 CHANGELOG（按发布规范在下次提版时建），应用的变更记录在第 4 片面板可见时写。
+- 第 1 片（nb-ui `DateInput`、`TagInput`、Lab 场景与 DOM 测试）：e217d55dc。nb-ui 全量测试 617 条通过；neuro-book 的 Lab 测试与 `vue-tsc -p tsconfig.web.json` 通过；`governance:check`、`docs:check` 通过；Lab 截图（亮、暗、390、日历打开）没有溢出与裁切。偏离计划：没跑不带 `--files` 的 `test:affected`，因为 `bun.lock` 只多了 nb-ui 的一行依赖声明（`@internationalized/date` 原本就随 reka-ui 装着，没有版本变化），它会把选择扩到全仓。nb-ui 自己没有 CHANGELOG（按发布规范在下次提版时建），应用的变更记录在第 4 片面板可见时写。另补一条 DOM 测试：界面语言是英文时日期按英文的段顺序排（92df6df9d），代替计划里“英文场景”（Lab 没有按场景换语言的办法）。
+- 第 2 片（文档属性与编解码器，`MarkdownControl` 只读显示原文）：3aad0d1b5。新增 `codec/frontmatter.test.ts`（fast-check：没编辑逐字节写原文、换了属性只换正文前那一段、不完整的原文被 `isWholeFrontmatter` 挡下；撤销与重做、全选删除、重载）与 `MarkdownControl` 的一条 DOM 测试；10 个种子都过；变异检查 5 处都被测出。nb-markdown 全量（bun 283、Vitest 267）、markdown 插件的 Vitest 157 与 bun 41、nb-story 的 `link-refs` 通过；nb-markdown 与 neuro-book 的类型检查（含两份 `vue-tsc`）通过；`e2e/editor-area.e2e.ts` 的两个用例（第 1312、1632 行）通过。相对计划的一处改动：frontmatter 闭栏后没有换行、后面有正文时补的换行从第一个间隔挪进前缀，否则面板把 frontmatter 改成闭栏后没有换行的写法时，沿用的第一个间隔不带换行，闭栏与正文粘在一起、写不出。本片的实现审查（Claude Sonnet）在后台跑。
+- 第 3 片（属性模型 `nb-markdown/src/editor/properties/model.ts`）：c067ef049。模型测试 22 条（含两条 fast-check：改一项后别的项的原文切片逐字节相同；文字值按 YAML 1.1 与 1.2 都读回同一个字符串），10 个种子都过，变异检查 8 处都被测出（第一轮活下来 3 处，补了缩进的映射、带注释的列表、`%YAML` 与 `...` 的用例）。实现时定下的三处细节，与计划的字面不同：
+  - 清空写成 `名字:`，不写字面的 `null`：两者读出都是空值，`名字:` 与“添加属性”新加的一行一样。
+  - 改类型：文字里的日期按日期推断（计划的推断规则），所以有值的日期换不成文字；空值在文字、数字、日期之间随便换，但值还是空的，读回仍按文字推断，面板要自己记着这一行选的类型（第 4 片）。
+  - 读不成属性多分了一类“顶层是写在一行里的 `{…}`”，与写错一样整块显示源码。
 
 ## 下一步
 
-第 2 片：文档属性与编解码器，`MarkdownControl` 挂只读占位，跑 `editor-area.e2e.ts` 里含 CRLF 与 frontmatter 的两个用例。决定 6 的附言（图标的贡献点）待开发者回复，缺省按“这次不做”。
+第 4 片前先写 Spec（`workbench/markdown-editing.md` 新增属性面板一节、`workspace/markdown-dialect.md` 输出 22、`workbench/editor.md`），再做面板、输入规则、命令与菜单、展开状态记录与 e2e。决定 6 的附言（图标的贡献点）待开发者回复，缺省按“这次不做”。
