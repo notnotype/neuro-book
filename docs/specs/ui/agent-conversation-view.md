@@ -82,15 +82,22 @@ type AgentConversationViewProps = {
     processDisclosure?: "collapsed" | "live";
     /** 输入框版式；缺省 "stacked"（见“输入框与待处理区”的单行版式）。 */
     composerLayout?: "stacked" | "inline";
+    /** 把顶栏的三列送到视图之外（见“顶栏”）；缺省 null，画在内容顶上（planned）。 */
+    headTargets?: {start: HTMLElement; title: HTMLElement; end: HTMLElement; anchor: HTMLElement} | null;
+    /** 会话列表开着没有；可选受控，缺省由视图自持（planned）。 */
+    sessionsOpen?: boolean;
+    /** 没选会话时顶栏的图标：新会话会用的 Profile（planned）。 */
+    draftProfile?: {name: string; icon: string} | null;
 };
 
 type AgentConversationViewEmits = {
     (e: "action", action: AgentViewAction): void;
     (e: "update:viewMode", mode: "turns" | "raw"): void;
+    (e: "update:sessionsOpen", open: boolean): void;
 };
 ```
 
-视图对外暴露两个方法：`focusComposer()` 聚焦输入框，`scrollToLatest()` 滚动到最新内容。没有插槽；扩展一律通过注册表。包公开的组件是这个视图、会话列表（见“会话列表”）、模型目录对话框（见“模型目录”）与模型请求查看器（见 [`agent/request-trace.md`](../agent/request-trace.md)）；视图里的零件（轮次、输入框等）不是宿主接口。
+视图对外暴露两个方法：`focusComposer()` 聚焦输入框，`scrollToLatest()` 滚动到最新内容。插槽只有两个，往顶栏的固定位置放东西：`sessions`（会话列表的内容，作用域给 `close`）与 `head-trailing`（顶栏右列最前面，宿主的入口）（planned）；别的扩展一律通过注册表。包公开的组件是这个视图、会话列表（见“会话列表”）、模型目录对话框（见“模型目录”）与模型请求查看器（见 [`agent/request-trace.md`](../agent/request-trace.md)）；视图里的零件（轮次、输入框等）不是宿主接口。
 
 ### ctx 的组成
 
@@ -212,16 +219,17 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 自上而下依次为：顶栏、消息流、待处理区、输入框、状态栏。顶栏、待处理区、输入框和状态栏固定，消息流占据剩余高度并独立滚动。面板以顶栏下方的浮层打开，会话面板、模式菜单与输入框同宽，分支树和上下文检查器以弹窗打开。内容变多时，待处理区先折叠为一行，消息流高度最后让位。
 
-顶栏、气泡右边、输入框、向导、弹层、状态栏用同一组左右边距（12px）；宽时内容列上限 800px 居中。
+顶栏、气泡右边、输入框、向导、弹层、状态栏用同一组左右边距（12px）；宽时内容列上限 800px 居中。顶栏与消息流、消息流与输入框之间没有横线；消息流离开顶部后顶端 16px 渐隐，在顶部时不渐隐（planned）。
 
 ### 顶栏
 
-- 显示会话标题、Profile 名称和后台摘要状态；悬停标题显示会话摘要。宿主给了 `sessions` 插槽时标题是按钮，点开弹出下拉，放插槽的内容（会话面板）。`newSession` 为真时有新建会话的按钮，发出 `session.create`。
-- 常驻顶栏的动作不超过两个，其余动作收进溢出菜单。溢出菜单固定包含“原始视图”切换项。
+- 三列，高 32px，标题按整行的宽度居中；两侧至少放得下自己的内容，放不下时标题先截断（planned）。
+- 左列（planned）：子会话（`session.path` 不空）是返回，只有图标，发出 `session.select`，带父会话（`path` 的最后一项）；顶层会话且 `newSession` 为真是新建，发出 `session.create`；没选会话时空着。不画祖先的路径。
+- 中列（planned）：Profile 图标（子会话是子代理的）与会话标题，标题为空写“未命名会话”；没选会话时写“新对话”，图标是 `draftProfile` 的。悬停标题显示会话摘要。宿主给了 `sessions` 插槽时标题是按钮，点开会话列表（`sessionsOpen`）。
+- 右列（planned）：`head-trailing` 插槽、常驻的顶栏动作（不超过两个）、溢出菜单。溢出菜单固定包含“原始视图”切换项；没选会话时没有溢出菜单。
 - 登记的顶栏动作（planned）：允许常驻（`pinnable`）的按 `order` 取前两个放在顶栏，其余与不允许常驻的收进溢出菜单，排在内置项之后、“原始视图”之前；`when` 为假的不显示；角标写在名字后。点了发出它的 action。目标是面板的顶栏动作在面板实现之前构造注册表即失败。
-- 390 宽时标题区域不小于 160px。
+- 送到视图之外（planned）：给了 `headTargets` 时三列分别送进 `start`、`title`、`end`，内容顶上不画顶栏；`title` 在宿主的按钮里，只放图标与文字，会话列表锚在 `anchor` 上，按下由宿主经 `sessionsOpen` 转来。`headTargets` 来了又走时顶栏不重建，开着的会话列表与菜单不丢。
 - `header` 为 false 时不显示顶栏；原始视图的切换入口随之没有，宿主要切换时用受控属性 `viewMode`。
-- 子会话的路径：`session.path` 不空时顶栏是面包屑（`nav`、`ol`）：各段祖先（标题，可点，发出 `session.select`）、分隔符，最后是本会话的图标与标题，这一段仍是 `sessions` 下拉的触发；祖先多于两层时中间的收成“…”，点开列出；标题为 `null` 的段（祖先读不到）写“未知会话”，空字符串的段（读到了、还没有标题）写“未命名会话”。
 
 ### 分轮视图
 
@@ -474,7 +482,7 @@ Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb
 
 ## 证据
 
-- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)（2026-09-28 accepted）；开发者 2026-10-21 定单独成包 `nb-agent-ui`、做完整版（[w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)）。
+- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)（2026-09-28 accepted）；开发者 2026-10-21 定单独成包 `nb-agent-ui`、做完整版（[w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)）。t36 的对话面板改版（顶栏三列、返回、送到面板头的标题区、去掉横线与顶端渐隐，标 planned 的几句）：[w00032 t36 计划](../../../.agents/works/w00032-agent-integration/tasks/t36-conversation-panel-redesign/plan.md)，开发者 2026-11-16 确认（t36 决定 1、9，依 t29 决定 5 到 11）。
 - 实现入口：[`packages/nb-agent-ui/src/index.ts`](../../../packages/nb-agent-ui/src/index.ts)、[`vue/index.ts`](../../../packages/nb-agent-ui/src/vue/index.ts)、[`kernel-transcript.ts`](../../../packages/nb-agent-ui/src/kernel-transcript.ts)、宿主接线 [`web/session-host.ts`](../../../packages/neuro-book/src/plugins/agent/web/session-host.ts)
 - 合同测试：[`packages/nb-agent-ui`](../../../packages/nb-agent-ui/src) 的单元与挂载测试（`bun run test`）、[`session-host.test.ts`](../../../packages/neuro-book/src/plugins/agent/session-host.test.ts)；e2e：[`lab-agent-ui.e2e.ts`](../../../packages/neuro-book/e2e/lab-agent-ui.e2e.ts)、[`agent-conversation.e2e.ts`](../../../packages/neuro-book/e2e/agent-conversation.e2e.ts)、[`lab-scenes.e2e.ts`](../../../packages/neuro-book/e2e/lab-scenes.e2e.ts)
 - Smoke：[`conversation.llm.test.ts`](../../../packages/neuro-book/src/plugins/agent/conversation.llm.test.ts)（`test:llm`，真实模型）
