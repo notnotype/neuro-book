@@ -30,9 +30,9 @@ test.afterAll(async () => {
 
 const labState = (page: Page) => page.evaluate(() => (window as unknown as {__nbLab?: {state(): LabDebugState}}).__nbLab?.state() ?? null);
 
-async function open(page: Page, scene = "default"): Promise<void> {
+async function open(page: Page, scene = "default", theme = "nbook"): Promise<void> {
     await page.setViewportSize({width: 1440, height: 800});
-    await page.goto(`${dev.pageUrl}lab?c=WorkbenchSurface&s=${scene}&theme=nbook&cw=light&vp=1400x720`);
+    await page.goto(`${dev.pageUrl}lab?c=WorkbenchSurface&s=${scene}&theme=${theme}&cw=light&vp=1400x720`);
     await expect.poll(async () => (await labState(page))?.ready).toBe(true);
     await expect(page.locator("[data-content='view:a']")).toBeVisible();
 }
@@ -319,13 +319,17 @@ test.describe("卡片按邻接算", () => {
         expect(panel.left).toBe(2);
     });
 
-    test("分隔线按两侧是什么分种类：卡片主题里主体与工具面板之间的接缝透明（一节一张卡片，中间有缝），编辑组之间的线看得见", async ({page}) => {
+    test("分隔线按两侧是什么分种类：卡片主题里一块一张卡片，缝就是分界，主体、工具面板、编辑组之间都不画线；平铺主题里三种都画", async ({page}) => {
+        const seams = async () => {
+            await act(page, "d-below-b");
+            const color = (kind: string) => page.locator(`.nb-grid-sash[data-sash-kind="${kind}"] .sash-seam`).first().evaluate((element) => getComputedStyle(element).backgroundColor);
+            return {shell: await color("shell"), editors: await color("editors"), panes: await color("panes")};
+        };
         await open(page, "cards");
-        await act(page, "d-below-b");
-        const seam = (kind: string) => page.locator(`.nb-grid-sash[data-sash-kind="${kind}"]`).first().evaluate((element) => getComputedStyle(element).getPropertyValue("--nb-splitter-seam").trim());
-        expect(await seam("shell")).toBe("transparent");
-        expect(await seam("editors")).not.toBe("transparent");
-        expect(await seam("panes")).toBe("transparent");
+        expect(await seams()).toEqual({shell: "rgba(0, 0, 0, 0)", editors: "rgba(0, 0, 0, 0)", panes: "rgba(0, 0, 0, 0)"});
+        await open(page, "default", "macos");
+        const flat = await seams();
+        for (const color of Object.values(flat)) expect(color).not.toBe("rgba(0, 0, 0, 0)");
     });
 });
 

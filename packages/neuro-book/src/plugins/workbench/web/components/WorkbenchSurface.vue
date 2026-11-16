@@ -437,17 +437,14 @@ defineExpose({
     --shell-card-shadow: none;
 }
 
-/* 工具面板之间的线按主题（卡片主题里两节之间有缝，不画）；编辑组之间的线一直看得见（docs/specs/workbench/editor.md 输出 2）。 */
+/*
+ * 工具面板之间的线按主题（卡片主题里两节之间有缝，不画），沿长轴两端按主题缩进（悬停线也是）。编辑组之间的线和外壳的接缝一样取 `--shell-seam`、贯通整个高度：
+ * 一组一张卡片，卡片主题里缝就是分界，不画线（开发者 2026-11-16）；当初编辑区是一张卡片、组画在里面，才要一条看得见的线。
+ */
 .workbench-surface :deep(.nb-grid-sash[data-sash-kind="panes"]) {
     --nb-splitter-seam: var(--shell-pane-divider, var(--divider));
     --nb-splitter-seam-inset: var(--shell-pane-divider-inset, 0px);
     --sash-line-inset: var(--shell-pane-divider-inset, 0px);
-}
-
-/* 编辑组之间的线贯通整个高度。 */
-.workbench-surface :deep(.nb-grid-sash[data-sash-kind="editors"]) {
-    --nb-splitter-seam: var(--divider);
-    --nb-splitter-seam-inset: 0px;
 }
 
 .workbench-surface__slot {

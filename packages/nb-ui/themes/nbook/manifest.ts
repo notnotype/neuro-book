@@ -182,7 +182,7 @@ export const manifest: NbThemeManifest = {
         {
             name: "--shell-seam",
             fallback: "var(--divider)",
-            description: "工作台网格边界上 1px 接缝的颜色；卡片之间的缝本身就是边界时设为透明。",
+            description: "工作台网格边界上 1px 接缝的颜色，编辑组之间的线也取它；卡片之间的缝本身就是边界时设为透明。",
         },
         {
             name: "--shell-join-divider",

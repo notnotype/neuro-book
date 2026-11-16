@@ -722,7 +722,7 @@ test("提示条占着组的顶部时，正文让出位置：底部不被裁掉",
     await closeAll(page);
 });
 
-test("组与组之间画得出分隔线：卡片主题的外壳接缝是透明的，不继承到编辑区（docs/specs/workbench/editor.md 输出 2）", async ({page}) => {
+test("组与组之间不画线：一组一张卡片，卡片主题里两张卡片之间的缝就是分界（docs/specs/workbench/editor.md 输出 2）", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 900});
     await open(page);
     await closeAll(page);
@@ -733,15 +733,13 @@ test("组与组之间画得出分隔线：卡片主题的外壳接缝是透明�
     await expect(page.locator("[data-editor-group]")).toHaveCount(2);
     const seam = page.locator("[data-sash-kind=\"editors\"] .sash-seam");
     await expect(seam).toHaveCount(1);
-    const line = await seam.evaluate((element) => {
-        const box = element.getBoundingClientRect();
-        const frame = document.querySelector(`[data-leaf="${document.querySelector<HTMLElement>("[data-editor-group]")!.dataset.editorGroup ?? ""}"]`)!.getBoundingClientRect();
-        return {color: getComputedStyle(element).backgroundColor, width: box.width, height: box.height, areaHeight: frame.height, shell: getComputedStyle(document.querySelector("[data-workbench-surface]")!).getPropertyValue("--nb-splitter-seam")};
-    });
-    expect(line.shell).toBe("transparent");
-    expect(line.color).not.toBe("rgba(0, 0, 0, 0)");
-    expect(line.width).toBeGreaterThan(0);
-    expect(Math.abs(line.height - line.areaHeight)).toBeLessThan(1);
+    expect(await seam.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+    // 两张卡片之间隔着主题的一整条缝。
+    const groups = await page.locator("[data-editor-group]").evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.editorGroup ?? ""));
+    const [first, second] = (await Promise.all(groups.map((id) => page.locator(`[data-shell-card="${id}"]`).evaluate((element) => element.getBoundingClientRect().toJSON() as {left: number; right: number})))).sort((a, b) => a.left - b.left);
+    const gap = await page.locator("[data-workbench-surface]").evaluate((element) => Number.parseFloat(getComputedStyle(element).getPropertyValue("--shell-gap")));
+    expect(gap).toBeGreaterThan(0);
+    expect(Math.abs(second!.left - first!.right - gap)).toBeLessThan(1);
     await closeAll(page);
 });
 
