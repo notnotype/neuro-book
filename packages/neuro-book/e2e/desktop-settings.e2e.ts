@@ -57,6 +57,11 @@ const zooms = async (page: Page): Promise<number[]> => (await page.evaluate(() =
     .filter((message) => message.type === "desktop-settings")
     .map((message) => message.values!.zoom);
 
+/** 页面最后一次交给壳的桌面设置。 */
+const lastValues = async (page: Page): Promise<unknown> => (await page.evaluate(() => (window as unknown as {__shellSent: Array<{type: string; values?: unknown}>}).__shellSent))
+    .filter((message) => message.type === "desktop-settings")
+    .at(-1)?.values;
+
 const userLayer = async (): Promise<Record<string, unknown>> => JSON.parse(await readFile(join(stateRoot, "settings.json"), "utf8").catch(() => "{}")) as Record<string, unknown>;
 
 async function openWorkbench(page: Page): Promise<void> {
@@ -125,9 +130,10 @@ test("桌面里：有“桌面窗口”分区；启动时交出有效值；Ctrl+
     // 防抖写回落盘之后再改文件，不然写回会盖掉下面这次修改。
     await expect.poll(userLayer).toEqual({"nbook.desktop/zoom": 1.1});
 
-    // 直接改设置文件：拥有者推给页面，页面交给壳。
-    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.desktop/zoom": 1.5}));
-    await expect.poll(async () => (await zooms(page)).at(-1)).toBe(1.5);
+    // 直接改设置文件：拥有者推给页面，页面交给壳（三项都交，关窗去向也在内）。
+    expect(await lastValues(page)).toMatchObject({closeLastWindow: "quit"});
+    await writeFile(join(stateRoot, "settings.json"), JSON.stringify({"nbook.desktop/zoom": 1.5, "nbook.desktop/closeLastWindow": "tray"}));
+    await expect.poll(() => lastValues(page)).toEqual({zoom: 1.5, openAtLogin: false, closeLastWindow: "tray"});
 });
 
 test("图片查看器里的 Ctrl+滚轮缩放图片，不改界面缩放", async ({page}) => {

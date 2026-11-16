@@ -63,6 +63,13 @@ describe("桌面桥", () => {
         for (const bad of [{type: "window-state"}, {type: "window-state", maximized: "yes"}]) expect(parseShellMessage(bad)).toBeNull();
     });
 
+    it("更新提示的 tray：布尔值收下、缺省也收下；不是布尔值的整条丢弃", () => {
+        const hint = {kind: "downloaded", version: "0.90.2"} as const;
+        expect(parseShellMessage({type: "update-hint", id: 1, hint, tray: true})).toEqual({type: "update-hint", id: 1, hint, tray: true});
+        expect(parseShellMessage({type: "update-hint", id: 1, hint})).toEqual({type: "update-hint", id: 1, hint});
+        expect(parseShellMessage({type: "update-hint", id: 1, hint, tray: "yes"})).toBeNull();
+    });
+
     it("桌面设置的值：三项齐全才收下；缺一项、多一项、关窗去向不认识的值都丢弃", () => {
         const values = {zoom: 1.25, openAtLogin: false, closeLastWindow: "tray"} as const;
         expect(parsePageMessage({type: "desktop-settings", values})).toEqual({type: "desktop-settings", values});

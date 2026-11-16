@@ -28,7 +28,7 @@
   .frame button { -webkit-app-region: no-drag; app-region: no-drag; width: 46px; height: 36px; padding: 0; border: 0; border-radius: 0; background: transparent; color: CanvasText; font: 10px "Segoe Fluent Icons", "Segoe MDL2 Assets"; }
   .frame button:hover { background: color-mix(in srgb, CanvasText 10%, transparent); }
   .frame button[data-control="close"]:hover { background: #c42b1c; color: white; }
-  @media (forced-colors: active) { .frame button:hover, .frame button[data-control="close"]:hover { background: Highlight; color: HighlightText; } }
+  @media (forced-colors: active) { .frame button:hover, .frame button[data-control="close"]:hover { background: Highlight; color: HighlightText; } button.primary { border-width: 2px; font-weight: 600; } }
 </style>
 </head>
 <body>
@@ -57,7 +57,13 @@
   };
   const send = (message) => window.__electrobunSendToHost(message);
   const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };
-  function show(title, lines, actions, busy) {
+  /** 对话框的缺省按钮（第一个）拿到焦点，Enter 就是它；`escape` 是按 Esc 时交回的动作。启动页不抢焦点，免得 Enter 误点“退出”。 */
+  let escapeAction = null;
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && escapeAction !== null) send({type: "action", action: escapeAction});
+  });
+  function show(title, lines, actions, busy, dialog) {
+    escapeAction = dialog?.escape ?? null;
     root.replaceChildren();
     if (title) root.append(el("h1", "", title));
     for (const [text, cls] of lines) root.append(el("p", cls ?? "", text));
@@ -70,6 +76,7 @@
         row.append(button);
       });
       root.append(row);
+      if (dialog !== undefined) row.querySelector("button")?.focus();
     }
   }
   window.__nbookShell = {
@@ -82,10 +89,10 @@
         case "updating": return show("", [[`正在更新到 ${state.version}`]], [], true);
         case "unclean-stop": return show("上次退出时服务端没有正常停止", [["数据已提交的部分不受影响。日志里有详情。"], [state.logDir, "detail"]], ["continue", "open-logs"], false);
         case "error": { const [title, text] = (ERRORS[state.reason] ?? (() => ["出错了", state.detail]))(state.detail); return show(title, [[text]], state.actions, false); }
-        case "not-responding": return show("NeuroBook 没有响应", [["这个窗口的页面没有回应关闭请求。"]], ["wait", "cancel", "force"], false);
-        case "server-exited": return show(`NeuroBook 的服务意外退出（退出码 ${state.exitCode ?? "未知"}）`, [[state.background ? "现在没有打开的窗口。" : "窗口会保持离线，可以从页面复制没保存的内容。"], [state.logDir, "detail"]], ["restart", "later"], false);
-        case "quit-work": return show("NeuroBook 有工作在跑，退出会中断它们", [...(state.count > 0 ? [[`有 ${state.count} 项工作在跑。`]] : []), ...(state.uncertain ? [["无法确认是否有工作在跑。"]] : [])], ["stay", "open", "quit-anyway"], false);
-        case "restart-failed": return show("重新启动服务没有成功", [[state.detail]], ["restart", "later"], false);
+        case "not-responding": return show("NeuroBook 没有响应", [["这个窗口的页面没有回应关闭请求。"]], ["wait", "cancel", "force"], false, {escape: "wait"});
+        case "server-exited": return show(`NeuroBook 的服务意外退出（退出码 ${state.exitCode ?? "未知"}）`, [[state.background ? "现在没有打开的窗口。" : "窗口会保持离线，可以从页面复制没保存的内容。"], [state.logDir, "detail"]], ["restart", "later"], false, {escape: null});
+        case "quit-work": return show("NeuroBook 有工作在跑，退出会中断它们", state.count > 0 ? [[`有 ${state.count} 项工作在跑。`], ...(state.uncertain ? [["另有部分工作无法确认。"]] : [])] : [["无法确认是否有工作在跑。"]], ["stay", "open", "quit-anyway"], false, {escape: "stay"});
+        case "restart-failed": return show("重新启动服务没有成功", [[state.detail]], ["restart", "later"], false, {escape: null});
       }
     },
   };
