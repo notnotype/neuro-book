@@ -82,6 +82,8 @@ updated: 2026-11-16
 | 1 工作台的标题区与 `Popover` 的锚点 | `2d9bcdb66` | 单元与 DOM 测试；e2e 三个文件，负载高时的失败单独重跑通过 |
 | 2 新顶栏与去线 | `4f787f9d3` | DOM 测试；e2e `agent-conversation`、`agent-subagents`、`lab-agent-ui` |
 | 3 第一屏与开场指令 | `6dbff0d9f` | 三个配置的类型检查；单元与 DOM 测试；e2e 四个文件 55 条通过，`lab-scenes` 见下 |
+| 3 的回归修正 | `2955167c2` | 状态栏的 DOM 测试按旧的“总画数据项”写、第一屏图标写了字面字号；片内只跑了改过的测试文件，之后每片跑所改包的全量 |
+| 4 模型提示卡与设置定位 | `a6a1408bb` | 类型检查；nb-agent-ui 全量、neuro-book 相关 280 条、nb-models、nb-harness；变异检查（快照不带 `role`、占位不按原因优先）；e2e `agent-conversation`（含“去绑定”）、`models`、`settings` 43 条通过，`lab-scenes` 滤掉 404 后只剩下面那 31 个旧越界 |
 
 - 第 3 片把宿主给 `welcome`、`draftProfile` 与 `recentSessions` 的接线从第 6 片提前（plan.md 已改），第一屏的 e2e 才能端到端跑。
 - 第 4 片的 Spec 已在 master（`57e2eac1f`）：conversation 输出 42、settings-window 输出 15 的 `focus`、settings-pages 输出 18。
@@ -89,4 +91,10 @@ updated: 2026-11-16
 
 ## 下一步
 
-第 4 片“模型提示卡与设置定位”：后端的 `role`、`provider` 与设置窗口的 `focus` 已写好未提交，`AgentNoticeCard` 与输入框已接上；剩宿主（`session-host.ts`）出四种卡、文案、Lab 场景与 e2e。
+第 5 片“子代理管理”：`subagents-panel.ts`、`SubagentsEntry.vue`、出错未看（插件作用域，基线是激活时刻）、`stopRun` 走 `abort`、`runResult` 打开浮层时才取、Lab 场景、e2e `agent-subagents`。之后第 6 片接标题区。
+
+实施时定下的细节：
+
+- 提示卡的选法是纯函数 `agent/web/model-notice.ts`，上下文与按钮共用同一份输入，按钮去的地方与卡上写的一致；卡换了以后旧按钮不再有去处。
+- 一家服务商都没有、而且没选会话时也出卡，发送不可用（没有模型可用）。
+- 页面属性 `takeFocus` 写成函数类型，不写 `SettingsPageContext["takeFocus"]`：后者被 Vue 编译器按返回值生成运行时校验，开发模式下报类型不符（lab-scenes 抓到）。
