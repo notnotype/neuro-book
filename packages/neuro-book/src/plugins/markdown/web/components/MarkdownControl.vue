@@ -393,9 +393,14 @@ const commitFrontmatter = (raw: string): void => {
     if (editor === null) return;
     editor.view.dispatch(editor.state.tr.setDocAttribute("frontmatter", raw));
 };
-/** 面板交回焦点：回到正文刚才的选区（Tiptap 的 `focus()` 不带位置时不动选区）。 */
-const leaveProperties = (): void => {
-    editor?.commands.focus();
+/**
+ * 面板交回焦点：回到正文刚才的选区（Tiptap 的 `focus()` 不带位置时不动选区）。刚打 `---` 新建、还没有属性就在新属性名上
+ * 退格：撤回那次输入规则，正文里还原成 `---`（输出 48）；不是刚由输入规则新建的（例如用命令建的），`undoInputRule` 什么也不做。
+ */
+const leaveProperties = (reason?: "backspace"): void => {
+    if (editor === null) return;
+    if (reason === "backspace") editor.commands.undoInputRule();
+    editor.commands.focus();
 };
 /** 新建了 frontmatter，或“添加属性”：展开并记下，面板挂上（或已在）之后把焦点放到新属性的名字上。 */
 const requestNewProperty = (): void => {

@@ -19,7 +19,8 @@ const props = withDefaults(defineProps<{raw: string; open: boolean; readonly?: b
 const emit = defineEmits<{
     (event: "commit", raw: string): void;
     (event: "update:open", open: boolean): void;
-    (event: "leave"): void;
+    /** `backspace`：新建后还没有属性时，在空着的新属性名上按了退格（宿主可以撤回刚才的新建）。 */
+    (event: "leave", reason?: "backspace"): void;
 }>();
 
 const text = useMarkdownText();
@@ -192,6 +193,15 @@ function onEnter(target: Target, event: KeyboardEvent): void {
         adding.value = false;
         void nextTick(() => focusStop(stops().length - 1));
     }
+}
+
+/** 一个属性都没有、新属性的名字空着时按退格：这一行消失，焦点交回（输出 48 的“紧接着按退格”）。 */
+function onNewBackspace(event: KeyboardEvent): void {
+    if (event.isComposing || (draftOf({kind: "new"}) ?? "") !== "" || rows.value.length > 0) return;
+    event.preventDefault();
+    draft.value = null;
+    adding.value = false;
+    emit("leave", "backspace");
 }
 
 function changeKind(row: PropertyRow, kind: EditableKind): void {
@@ -487,7 +497,7 @@ defineExpose({
 
             <div v-if="adding" class="markdown-properties__row markdown-properties__row--new">
                 <span class="markdown-properties__type"><span :class="ICONS.text" aria-hidden="true" /></span>
-                <span ref="newName" class="markdown-properties__name" @focusout="onFocusout({kind: 'new'}, $event)" @keydown.enter="onEnter({kind: 'new'}, $event)">
+                <span ref="newName" class="markdown-properties__name" @focusout="onFocusout({kind: 'new'}, $event)" @keydown.enter="onEnter({kind: 'new'}, $event)" @keydown.backspace="onNewBackspace">
                     <Input
                         :model-value="draftOf({kind: 'new'}) ?? ''"
                         variant="bare"

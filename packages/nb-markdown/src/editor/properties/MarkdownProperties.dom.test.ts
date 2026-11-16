@@ -142,6 +142,20 @@ describe("添加、改名与移除（输出 47）", () => {
         expect(document.activeElement).toBe(field(wrapper, "天气").element);
     });
 
+    it("一个属性都没有时，新属性的名字空着按退格：这一行消失，发 leave（backspace）；有字时退格是删字", async () => {
+        const {wrapper, leaves} = panel("---\n---\n");
+        const vm = wrapper.vm as unknown as {focusNewName(): void};
+        vm.focusNewName();
+        await nextTick();
+        await field(wrapper, "属性名").setValue("甲");
+        await field(wrapper, "属性名").trigger("keydown", {key: "Backspace"});
+        expect(leaves).toEqual([]);
+        await field(wrapper, "属性名").setValue("");
+        await field(wrapper, "属性名").trigger("keydown", {key: "Backspace"});
+        expect(wrapper.emitted("leave")).toEqual([["backspace"]]);
+        expect(wrapper.find("input[aria-label='属性名']").exists()).toBe(false);
+    });
+
     it("改名：与别的属性同名时不写回、回到原名；移除删掉这一行，上方的注释留着", async () => {
         const {wrapper, commits, raw} = panel(SAMPLE);
         await typeInto(field(wrapper, "属性名：视角"), "时间");
