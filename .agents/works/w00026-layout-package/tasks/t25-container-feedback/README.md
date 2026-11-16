@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t25-container-feedback
-status: active
+status: done
 updated: 2026-11-16
 ---
 
@@ -17,7 +17,7 @@ updated: 2026-11-16
 
 ## 当前状态
 
-在 worktree `.worktree/w00026-t25-container-feedback`（分支 `fix/w00026-t25-container-feedback`，从 master `b5f894ed8` 开）实施，计划 [`plan.md`](plan.md) 开发者 2026-11-12 确认（“可以，开始吧”）。
+已完成，合入 master `3435dac30`。曾在 worktree `.worktree/w00026-t25-container-feedback`（分支 `fix/w00026-t25-container-feedback`，从 master `b5f894ed8` 开，已删）实施，计划 [`plan.md`](plan.md) 开发者 2026-11-12 确认（“可以，开始吧”）。
 
 - 第 1 片（`69e1dbfad`）与第 2 片（`4c9cacfe8`）已提交：
   - 实时布局里来源收起后回到原处（判为原位）就展开回原位，判定换回拿起时的几何（Spec `ui/workbench-layout` 输出 38，条目级 planned）。单元测试 `live-drag.test.ts`；e2e `workbench-live-drag`“同一个容器里拖走前一节再回到原处……松手后马上再按，照常拿起”，去掉展开时失败。
@@ -180,7 +180,14 @@ updated: 2026-11-16
       - nb-layout：`GridLeafShape.fill`（形状伸出外框时伸出去那部分的颜色；外框用自己的投影画它，里面的东西照旧裁在外框里，外框 `z-index: -1` 压在别的外框下面）；`NestedGrid` 暴露 `shapedLeaves`（这一刻外框按形状裁的叶）。
       - 测试：`workbench-containers`“活动栏与只有一节的侧栏相连”改写：放慢到 6 秒，点下去后用 Web Animations 把页面上的过渡都停在 4%、12%、30%、60%、95%，每一刻截图读像素：活动栏右上角外面、半缝里是卡片底色（被盖着），侧栏右上角外面是窗体底（圆角），中间一行没有窗体底；隐藏完活动栏的角与缝露出窗体底，显示完右上角是直的。变异检查：换回改动前的产品代码重建，用例在“活动栏右上角外面露出窗体底”失败（第一次把短线状态的断言放在前面，失败在那一条，挪到像素断言后面再跑才确认像素断言有用）。放大三倍逐帧截图自己看过两遍：第一遍看出短线淡出用了反向播放（前大半段几乎不变淡）、活动栏的投影描出了它的右边，都改了。
       - 验证（合 master 之前）：nb-layout 558 + 234 条、类型检查干净；neuro-book `tsc`、`tsconfig.web.json` 干净，`tsconfig.browser-test.json` 只有分支起点就有的 `MarkdownToolbar.dom.test.ts`；`test:affected` 2922 + 560 过，失败的 `mount.dom.test.ts`“Ctrl+Shift+P 打开命令面板”单独重跑 7 条全过（负载 24）。
+      - 只对只有一节的侧栏容器生效（相连本来就只认只有一节、等高的工具面板）；深色主题没在浏览器里看过，按变量推断那圈外框和侧栏的投影一样在过渡结束时出现。
+
+- 收尾（2026-11-16）：
+  - 合进 master 之后的验证：类型检查干净；`test:affected --since master` 选出的 nb-layout 558 + 234、nb-ui 605 条过，neuro-book 3172 条里 2 条失败。`builtin-names`“id 列表与产品清单一致”是 master 自己的（`nbook.desktop` 漏登记，master 的 `e84e1c29a` 已修）；`settings/window.test.ts`“声明了 host: desktop 的分区……搜不到”是合并出来的：它搜“缩放”，本分支新设置 `dragCardRefresh` 的说明里有这个词，夹具改成不会和真实设置撞的词（`497998bfa`）。e2e `workbench-containers`、`-views`、`-shell`、`lab-workbench-surface`、`editor-area`、`workbench-live-drag`、`workbench-float` 173 条全过。
+  - Lab 版面测量（`nbdev shot`，浅色、nbook）：工作台外壳 4 张、编辑区 22 张，越界、焦点环与外框被裁都是 0。工作台外壳第一次量报了外框与活动栏按钮的焦点环被裁，是 Lab 就绪后挂载时的布局过渡还在走（就绪信号不等过渡，1.5 秒后都没了）；点一下、等 1.5 秒再量就干净。
+  - 再合一次 master（带进 w00046 t19 分隔线先量后写，和本分支在 `SashHandle.vue` 各改一处、不相交）：nb-layout 类型检查与单元测试、neuro-book 类型检查过。
+  - 合入 master：`3435dac30`（`--no-ff`，只含分支的路径）。4317 已停，worktree 与分支已删。
 
 ## 下一步
 
-t25 收尾：master 已合进分支（合并后验证在跑：类型检查、受影响的测试、`workbench-containers`、`-views`、`-shell`、`lab-workbench-surface`、`editor-area`、`workbench-live-drag`、`workbench-float`），过了就合入 master；`nbdev shot` 补工作台外壳、编辑区两个 Lab 场景的版面测量；停掉 4317（PID 4049680、4049681），删 worktree。容器切换的动画已移到 t27；标签切换的动画开发者没提要求，不做。
+无。容器切换的动画与右栏、底部面板的入口条在 [t27](../t27-region-entry-strips/README.md)；标签切换的动画开发者没提要求，不做。
