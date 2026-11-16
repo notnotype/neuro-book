@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t31-nb-story-new-kernel
-status: planned
+status: done
 updated: 2026-11-16
 ---
 
