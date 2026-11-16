@@ -384,6 +384,7 @@
         "entities": "8.0.0",
         "marked": "17.0.6",
         "marked-cjk-friendly": "0.1.2",
+        "yaml": "^2.8.2",
       },
       "devDependencies": {
         "@iconify-json/lucide": "^1.2.95",
