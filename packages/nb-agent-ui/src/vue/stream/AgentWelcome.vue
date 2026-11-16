@@ -107,7 +107,11 @@ const subtitle = computed(() => t(recent.value.length > 0 ? "welcome.withRecent"
     border-radius: var(--radius-panel);
     background: var(--panel-surface);
     color: var(--accent-text);
-    font-size: 20px;
+}
+
+.acv-welcome__badge > span {
+    width: 20px;
+    height: 20px;
 }
 
 .acv-welcome__title {

@@ -3,14 +3,27 @@ import {describe, expect, it} from "vitest";
 
 import {createAgentContext} from "../../context";
 import {createAgentViewRegistry} from "../../registry";
-import type {AgentConversationContext} from "../../types";
+import type {AgentConversationContext, SessionView} from "../../types";
 import AgentStatusBar from "./AgentStatusBar.vue";
 
 const registry = createAgentViewRegistry([]);
-const bar = (ctx: AgentConversationContext) => mount(AgentStatusBar, {props: {ctx, registry}});
+const SESSION: SessionView = {id: "s1", title: "第三章", summary: "", profileName: "主创", profileIcon: "i-lucide-feather", archived: false, summaryState: "idle"};
+/** 数据项只在有会话时画（见下面“没选会话”）：别的用例都在一个会话里看。 */
+const bar = (ctx: AgentConversationContext, options: {readonly session?: boolean} = {}) => mount(AgentStatusBar, {props: {ctx: options.session === false ? ctx : {...ctx, session: ctx.session ?? SESSION}, registry}});
 const usage = {contextTokens: 16_300, contextLimit: 128_000, totalTokens: 162_400, input: 101_200, output: 3_100, cacheRead: 58_100, cacheWrite: 0, cacheHitRate: 0.62, cost: 0.07, currency: "USD" as const};
 
 describe("AgentStatusBar", () => {
+    it("没选会话：不画上下文、用量与费用；提醒项（非默认模式、全部放行）照常", () => {
+        const modes = [{key: "normal", label: "普通"}, {key: "plan", label: "计划"}];
+        const approval = {options: [{key: "ask", label: "每次询问", description: ""}, {key: "yolo", label: "全部放行", description: "", danger: true}], value: "yolo"};
+        const view = bar(createAgentContext({usage, composer: {modes, mode: "plan", approval}}), {session: false});
+        expect(view.find("[data-context-meter]").exists()).toBe(false);
+        expect(view.find("[data-status-usage]").exists()).toBe(false);
+        expect(view.find("[data-status-cost]").exists()).toBe(false);
+        expect(view.find("[data-status-mode]").exists()).toBe(true);
+        expect(view.find("[data-status-yolo]").exists()).toBe(true);
+    });
+
     it("宿主能给上下文详情时圆环与缓存命中能点；不能给时只是显示", async () => {
         const inspectable = bar(createAgentContext({usage, interaction: {canInspectContext: true}}));
         await inspectable.get("button[data-context-meter]").trigger("click");
