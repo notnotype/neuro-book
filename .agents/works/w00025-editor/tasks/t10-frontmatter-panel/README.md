@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t10-frontmatter-panel
-status: shelved
-updated: 2026-10-16
+status: planned
+updated: 2026-11-16
 ---
 
 # frontmatter 属性面板
