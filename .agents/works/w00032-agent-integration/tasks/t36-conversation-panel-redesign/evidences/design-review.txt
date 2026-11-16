@@ -1,0 +1,291 @@
+# w00032 t36 实施计划的设计审查
+
+审查者：Claude Opus（替代因额度退出的 omp 会话），只读，worktree `.worktree/review-w00032-t36-design`（`a9d0909ad`）。每条按发现顺序追加，严重程度见各条。
+
+## 1. `head` 加在 `ViewImplementation` 上就等于经 SDK 导出了，与决定 6 冲突
+
+- **严重程度**：重要；**类别**：不变量 / 文档
+- **位置**：计划“关键设计 / 工作台：视图的标题区”第 1 条、“不做与风险”最后一条；`packages/neuro-book/src/sdk/workbench.ts:24`、`packages/neuro-book/plugin-sdk/pack.test.ts:376`
+- **现象**：计划把 `head?(): Promise<Component>` 直接加到 `contracts.ts` 的 `ViewImplementation`，把 `headShown` 加到 `ViewContext`。而 `src/sdk/workbench.ts:24` 是 `export type {ItemImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts"`，`pack.test.ts:376` 把这两个名字列为 `@notnotype/nb-plugin-sdk/workbench` 的公开导出。
+- **为什么是问题**：决定 6 是“插件 SDK 不导出，等第二个用户出现再导出”。照计划写，第三方插件立刻就能在类型上写 `head` 并读 `context.headShown`，工作台也会照样渲染它（`registry.ts` 不区分内置与第三方），等于没有门。计划的风险一节还写着“插件 SDK 会导出它”与“先只给内置插件用”两句并列，说明作者没注意到导出是自动发生的。
+- **如何核实**：`grep -n "ViewImplementation\|ViewContext" packages/neuro-book/src/sdk/workbench.ts`。
+- **建议改法**：二选一并写进计划：（a）在 `contracts.ts` 另立内部类型，例如 `BuiltinViewImplementation extends ViewImplementation {head?…}` 与 `ViewHeadContext extends ViewContext {headShown}`，SDK 只导出原来的两个；`registry.ts` 读 `head` 时还要按 `manifestFormat.isBuiltinId(descriptor.plugin)` 判，第三方交了也不用，否则“只给内置”只是类型上的约定。（b）接受导出，那就改决定 6，并让 `pack.test.ts` 的导出清单与 SDK 文档跟着改。
+## 2. 开场指令发 `composer.draftChanged` 不会把文字放进输入框
+
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：计划“nb-agent-ui：第一屏”第 4 条（“点了发 `composer.draftChanged` 填进输入框”）；`packages/neuro-book/src/plugins/agent/web/session-host.ts:359-367`、`:1310-1313`；`packages/nb-agent-ui/src/types.ts:413-417`；`packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:124-128`、`:192`
+- **现象**：输入框是“宿主给版本号”的受控方式：`AgentConversationComposer` 只在 `composer.draft.version` 变化时把 `draft.text` 写进编辑器（124–128 行）。宿主处理 `composer.draftChanged` 时只做 `draftText = action.text; noteDraft(action.text)`（1310–1313 行），不动 `draft` 也不加版本；只有 `setDraft`/`setDraftSilently` 才加版本。`draftChanged` 的语义是“编辑器报告用户打了什么”，方向是视图到宿主。
+- **为什么是问题**：照字面实现，点了指令宿主记下了文字，输入框却还是空的；用户一按发送，发出去的是 `draftText`（宿主那份）而不是看到的内容，看到与发出的不一致。验收映射里的 e2e“没选会话时点一条指令，输入框里是它”会直接失败，到第 6 片才暴露，返工要回到第 2、3 片改动作合同。
+- **如何核实**：读上面几处；或在 `session-host.test.ts` 里 `act({type: "composer.draftChanged", text: "x"})` 后看 `ctx.value.composer.draft.version` 不变。
+- **建议改法**：新增一个动作，例如 `composer.fill`（或 `starter.pick`，带 `text`），宿主用 `setDraft(text)` 处理（加版本、有会话时存草稿）；在 `types.ts` 的 `AgentViewAction` 与 `agent-conversation-view.md` 的动作表里登记。同时写清两件计划没定的事：已有草稿时是替换还是询问（旧应用是直接填入、覆盖）；填入后光标放在末尾。DOM 测试要断言编辑器里的文字，而不是断言发出了某个动作。
+## 3. `meta.model` 只有一个码，宿主推不出“哪个角色、哪个模型、哪家服务商”；“没有服务商”没有对应的码
+
+- **严重程度**：重要；**类别**：正确性 / 接口与合同
+- **位置**：计划“模型不可用的提示卡”的宿主一条；`packages/nb-harness/src/kernel/api/host.ts:155`；`packages/neuro-book/src/plugins/agent/backend/agent.ts:114`、`:209-213`；`packages/nb-models/src/core/choice.ts:17-26`；`packages/nb-models/src/core/core.ts:128-156`；`packages/nb-models/src/config/shapes.ts:77`
+- **现象**：
+  1. 快照里的 `model` 失败时是 `{ok: false; code}`，不带角色 id、模型引用或服务商。
+  2. 一次请求用哪个角色由 `chooseModel` 定：会话设置 `core.model`（可能是模型引用，也可能是 `role:<id>`）> Profile 设置里的 `model` > Profile 设置里的 `role` > 声明的 `role` > 主力档（`agent.ts:209-213` 读的是 `agentSettings.settings.profileSettings`，用户可改）。浏览器的宿主只有 `deps.roles()`（每个角色的状态）、`deps.models()`（只含有凭据的可用模型，`plugin.ts:110`）、`deps.profiles()`（声明的 `role`）。
+  3. `no-model` 只在模型服务不在时产生（`agent.ts:114` 的 `NO_MODELS`），不是“没有服务商”。一个服务商都没有时，内置角色的 `model` 是 null（`shapes.ts:77`），码是 `role-unbound`。
+- **为什么是问题**：
+  - 计划写“按 `meta.model` 的码，加上模型服务的角色与服务商快照，组出三种卡”。照字面实现，宿主只能自己在浏览器里再写一遍 `chooseModel` 的顺序，还要另读 Profile 设置。这是同一件事写两份，后端改了选择顺序，卡片就会指错角色，“去绑定”把用户带到不相干的角色上。
+  - 会话直接选了某个模型（不是角色）时根本没有角色。`no-credentials` 卡的“说明写哪个角色绑定的哪个模型”在这种情况下没法写。
+  - “没有服务商”那张卡照字面永远不会出现：没有服务商时码是 `role-unbound`，用户看到的是“‘主力’角色还没绑定模型 / 去绑定”，点进角色页又没有模型可绑。
+- **如何核实**：读上面几处；`grep -rn '"no-model"' packages/neuro-book/src packages/nb-models/src`，只有 `agent.ts:114` 一处产生。
+- **建议改法**：
+  - 让失败结果带上选中了什么。在 nb-models 的端口解析失败时附 `choice`（`{role}` 或 `{reference}`，`no-credentials` 时再带 `provider`），经 `ModelResolution` 的失败分支进快照的 `model`。harness 的类型（`host.ts:155`、`ModelResolutionCode` 所在的 `model.ts`）要跟着加可选字段，对应改 `models/service.md` 与 `agent/sessions.md` 的快照形状。宿主只做查表，不再推导。
+  - 判定顺序写进计划和 Spec：服务商快照为空时，不管码是什么都出“添加服务商”；其次按码分 `role-unbound`、`no-credentials`；`unknown-model` 与 `no-model` 走原写法。
+  - 这一改跨 nb-harness、nb-models、agent 后端三处，第 4 片的范围与验证要相应扩大，不能只写 `session-host.test.ts`。
+## 4. 子代理浮层的行数据，现有的 `tree` 与 `jobs` 给不齐；孙代理的停止会静默失败
+
+- **严重程度**：重要；**类别**：正确性 / 接口与合同
+- **位置**：计划“子代理管理”的 `subagents-panel.ts` 与 `SubagentsEntry.vue` 两条；`packages/neuro-book/src/plugins/agent/shared/subagents.ts:19-69`；`packages/neuro-book/src/plugins/agent/backend/subagents/tree.ts:22-23`、`:114-122`；`packages/neuro-book/src/plugins/agent/backend/remote.ts:216-220`；`packages/neuro-book/src/plugins/agent/web/session-host.ts:329-337`；`packages/nb-harness/src/kernel/api/storage.ts:13-17`
+- **现象**（逐项对照计划给每一行要的字段）：
+  1. **任务（prompt 首行）**：`TreeItem` 没有 prompt，只有 `callId`/`invocation`。agent 任务的 `JobItem.summary` 是子会话标题（`subagents/tools.ts:313`、`:397`、`:412`），也不是 prompt。prompt 只在派它的那次工具调用的参数里：子代理的在当前会话的 transcript 里，孙代理的在子会话的 transcript 里，而当前宿主没有加载子会话。
+  2. **最近一步或结果**：`step`、`tools` 只给最近开始的至多 16 个在跑后代，其余会被删掉（`tree.ts:117-121`）。结果文字不在 `tree` 里，卡片是从父会话 transcript 里的工具结果按 `runId` 建索引取的（conversation.md 输出 33）。孙代理的结果在子会话里，取不到。`runs[].reason` 只有 `finished|completed|error|interrupted|aborted`，没有出错原因；定稿图 `r6/head-open.webp` 里出错行写的是“模型服务不可用”，这句话没有来源。
+  3. **状态**：计划列了 5 种（运行中、等你处理、完成、出错、已停止）。`TreeState` 还有 `question`（等派它的 Agent 答），收口原因还有 `interrupted`，计划都没有对应。卡片（输出 33）写的是“在问：…”“已中断”，同一个子代理在卡片和浮层里会写成两种状态。
+  4. **停止**：`jobs` 只有本会话启动的任务（`session-host.ts` 的 `Current.jobs` 注释）。孙代理的运行是子会话的任务，当前宿主拿不到它的 `jobId`。就算拿到了，`killJob` 也只认 `owner === sessionId`（`remote.ts:218`），`store.kill` 遇到 `job-unknown` 又不报（`session-host.ts:333`），结果是点了停止什么都不发生。用户直接在子会话里发消息引起的运行不是父会话的任务，同样没有 `jobId`。
+  5. **定稿图里有、计划没写的**：浮层标题行的汇总（“5 个 · 2 个在跑 · 1 个等你处理”）、每行的“工具次数 · 用时”（要 `now` 每秒走）、底部的提示（“点一行进入子会话；运行中的悬停可停止。”）。
+- **为什么是问题**：第 5 片照计划写纯函数时，会发现一半字段没有来源。到时候只能临时加后端字段，或者孙代理的行留空、停止按钮没反应，都偏离已定的决定 11（“全部子代理与孙代理……运行中的悬停可停止”）。
+- **如何核实**：读 `TreeItem`、`JobItem` 的字段；`grep -n "owner !== sessionId" packages/neuro-book/src/plugins/agent/backend/remote.ts`。
+- **建议改法**：开工前在计划里加一节“行数据从哪来”，逐字段写来源与取不到时的写法：
+  - 后端给 `TreeItem` 加 `task`（派发参数里 prompt 的首行，截断）与 `outcome`（最近一次收口的第一句或出错原因），在 `tree.ts` 里随整份推送；动态字段被截掉的行写“运行中”，不写次数。
+  - 停止改用按子会话停：新的远程指令 `stopRun({sessionId: 子会话, runId})`，按“祖先是当前会话”校验，或者让 `killJob` 认“owner 是当前会话的后代”；`store.kill` 遇到 `job-unknown` 要给提示，不能吞掉。
+  - 状态与卡片共用一张表（输出 33 的那套），把 `question`、`interrupted` 列进去。
+  - 汇总、次数与用时、底部提示照定稿写进计划。
+  - 这些都是后端合同（`agent/subagents.md` 输出 21、`jobs.md`）的改动，要列进“Spec 与文档改动”和第 5 片的范围。
+## 5. 把手当 `Popover` 的触发器时，Reka 会改写把手的 id、叠加点击；点标题同时“激活或展开面板”和“开会话列表”
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：计划“工作台：视图的标题区”第 1 条（“点击由视图监听”）、“nb-agent-ui：新的顶栏”（中列把手里放标题与下拉）；`WorkbenchPanelHead.vue:84-93`；`node_modules/reka-ui/dist/Popover/PopoverTrigger.js:26-54`、`node_modules/reka-ui/dist/Primitive/Slot.js:15-19`；`docs/specs/ui/workbench-layout.md` 输出 20（“点标题激活它，面板收成标题行时展开”）
+- **现象**：
+  1. 现在的会话下拉是 `<Popover>` 加一个触发按钮（`AgentConversationView.vue:388-396`）。新的顶栏要让把手本身当触发器，否则就是按钮里套按钮。`PopoverTrigger` 用 `as-child` 时，会把 `id`（`reka-popover-trigger-*`）、`type`、`aria-haspopup="dialog"`、`aria-expanded`、`aria-controls`、`onClick` 合进子节点。把手是组件，这些落成 fallthrough attrs，覆盖它根元素上的同名属性。于是工作台给的 `id`（`panelTabDomId`）被换掉，而 `WorkbenchSurface.vue:319` 的 `aria-labelledby`、按 id 找标签的测试都指着原来那个 id。
+  2. 把手自己的 `@click="emit('activate')"`（84–93 行）还在，Reka 的 `onOpenToggle` 叠在上面。面板收成标题行时点标题，按输出 20 要展开面板，现在会同时弹出会话列表；面板展开、头的位置跟着变，列表的锚点也跟着跳。
+  3. 读屏上，把手的角色变成“按钮，有弹出对话框”，可访问描述还是“按空格拿起并拖动”。空格拿起、回车开列表，这两个键位计划没有写，Spec 也没写。
+- **为什么是问题**：计划说“拖动、键盘拿起、右键菜单都还挂在工作台给的把手上，所以一个视图交不交 `head`，拖动行为完全相同”。这个不变量能不能成立，取决于视图怎样把把手接到浮层上，计划没有定，照最自然的写法会破坏 id 与点击语义。
+- **如何核实**：读 Reka 的 `Slot.js`：`mergeProps(attrs, child.props)` 之后 `cloneVNode`。把手是组件节点，`child.props` 里没有 `id`，Reka 的 `id` 落成 fallthrough attr；Vue 合并根节点时 fallthrough 胜出（`class`、`style`、`on*` 除外）。可以在 nb-ui 的 DOM 测试里把一个带固定 `id` 的组件放进 `Popover` 的 `trigger` 插槽，看渲染出来的 `id`。
+- **建议改法**：
+  - 把手合同写死：根元素的 `id`、`data-panel-tab`、`aria-description`、`contextmenu` 由工作台定，不接受 fallthrough，`inheritAttrs: false`，只透传 `aria-expanded`、`aria-haspopup` 两项。把手发一个 `press` 事件，由工作台先处理收起（收起时只展开、不往下传），再交给视图。
+  - 视图用受控的浮层（`sessionsOpen` 加 `AnchoredPopover` 或 `Popover` 不带 `trigger`，锚到把手元素），不用 `as-child` 的触发器。焦点与 Escape 要自己处理，这一点计划要写。
+  - Spec 输出 20 写清：有标题区时点标题，在收起状态下只展开，在展开状态下开会话列表；回车开列表，空格拿起。
+## 6. 标题区组件出错、加载失败或交付撤回时，计划没有退路，面板会连拖动源一起丢掉
+
+- **严重程度**：重要；**类别**：不变量 / 正确性
+- **位置**：计划“工作台：视图的标题区”的 `WorkbenchShell.vue` 一条（“加载与 `load()` 同时进行，没加载完时照旧写标题”）与“不变量”一条；`WorkbenchViewFrame.vue:46`（内容的 `onErrorCaptured`）；`views/registry.ts:157-167`（`load` 的作废判定）；`views/view-instances.ts:93-106`（交付撤回时卸组件）
+- **现象**：
+  - 内容组件有 `WorkbenchViewFrame` 兜着：渲染出错只坏这一个视图，可以重试。标题区组件画在 `WorkbenchPanelHead` 里，工作台那棵树上没有错误边界。它渲染时抛错，Vue 会把它渲染成空注释，把手也就没了：这块面板没有拖动源、没有右键菜单，内容 `region` 的名字也指空。
+  - 视图如果有条件地不渲染把手（例如 `v-if` 写错、加载中先画别的），结果一样。
+  - `head()` 的 Promise reject、贡献方插件停止或撤回交付（`view-instances.ts:97-101` 卸内容组件）时标题区怎么办，计划没写。照“与 `load()` 同时进行”实现，很容易漏掉作废判定（`registry.ts` 的 `#current`），插件停了，面板头还挂着它的组件。
+- **为什么是问题**：计划的不变量是“一个视图交不交 `head`，拖动行为完全相同”，可工作台没有任何机制保证这一点，全靠视图写对。决定 6 说先只给内置插件用，正是因为这个接口还新，出错的代价落在工作台的结构操作上（拖不动、移不走）。
+- **如何核实**：读 `WorkbenchViewFrame.vue` 的错误边界，对照 `WorkbenchPanelHead.vue` 没有对应的东西。
+- **建议改法**：
+  - `WorkbenchPanelHead` 画标题区时包一层错误边界：出错、加载失败、交付不在、视图实例不是 `ready` 时，都退回原来的 `<h2><button>`，并写一条诊断。`headShown` 跟着退回的结果走（为假），内容里照样画头。
+  - `head()` 的结果按 `load()` 同样的句柄与代际作废。
+  - 把手由工作台渲染在标题区组件外层，视图组件只填插槽内容（作用域插槽，或工作台把视图组件包进把手里，而不是把手交给视图），这样视图漏画也不会丢拖动源。代价是视图不能把别的按钮放在把手两侧的同一个网格里，但可以把左、右两列做成另外两个插槽。
+  - 切片 1 的 DOM 测试加两种情况：标题区组件抛错，Promise reject。两种都应该看到原来的标题按钮，拖动描述还在。
+## 7. “标题按整个头的宽度居中”在现有面板头结构里做不到
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划“nb-agent-ui：新的顶栏”第 2 条、“工作台”的 `WorkbenchPanelHead.vue` 一条；`WorkbenchPanelHead.vue:79-133`、`:137-155`
+- **现象**：面板头是 flex：`__band`（`flex: 1 1 auto`）、视图动作、框架按钮各占一段。计划把 `<component :is="head">` 画在标题带里，替代 `<h2>`，所以标题区的三列网格只占标题带那一段，右边还有 2 到 3 个 26px 的框架按钮（`headReserved` 的估算），浮动窗是 1 个。标题会在标题带里居中，比整个头的中线偏左大约 26 到 39px，偏多少还随框架按钮的个数变（能不能收起取决于父分支方向）。内容里画的那份头没有框架按钮，两处的居中位置也就不一样。
+- **为什么是问题**：开发者在决定 7、8 里明确说居中好看，`r3/p-center*.webp` 定的是对称居中。偏移会随面板位置变，截图验收时容易被当成实现错误返工。
+- **如何核实**：按 `headReserved` 算：树里的分节有最大化、浮动、可能还有收起，即 2 到 3 个按钮。
+- **建议改法**：二选一写进计划：（a）有标题区时，`WorkbenchPanelHead` 不再自己排框架按钮，把它们作为一个插槽或属性交给标题区组件，放进右列，由那一列的网格对称留位；（b）标题区网格的左右两列用相同的 `minmax`，宽度取左右两侧较大的那个（CSS 的 `grid-template-columns: 1fr auto 1fr`，框架按钮也画在网格里）。不管选哪种，框架按钮都要和 `trailing` 一起放在标题区网格的右列。
+## 8. `focus` 怎样送到页面没有定：窗口已开、要先确认放弃改动、页面还没加载、同一个 `focus` 再点一次，这几种情况都没处理
+
+- **严重程度**：重要；**类别**：正确性 / 接口与合同
+- **位置**：计划“模型不可用的提示卡”中设置窗口一条（“`focus?: string`，原样交给那一页，由页面解释”）；`packages/neuro-book/src/plugins/settings/web/settings-window.ts:666-713`（`perform`、`requestLeave`、`openWindow`）、`:202-221`、`:651`、`:757`（`fileLocation`/`takeFileLocation`）；`packages/neuro-book/src/plugins/settings/web/contracts.ts:27`；`packages/neuro-book/src/sdk/settings-browser.ts:10`
+- **现象**：
+  - `openWindow` 在窗口已开、分区没变时不导航（`moves` 为假），只加 `focusRequest`（窗口自己的聚焦）。页面已挂着，计划没说它怎样得知“又来了一个 `focus`”。如果做成一个 ref，用户连点两次“去绑定”，值不变，第二次就没反应。
+  - 窗口开着、当前页有未保存的改动时，`requestLeave` 先弹确认框，`leaving` 存的是 `SettingsLeaveTarget`。`{kind: "open"}` 里没有 `focus`，用户确认之后 `focus` 已经丢了；用户取消时 `focus` 也不该留下。
+  - 页面是懒加载的，角色页、服务商页的数据也要异步取。挂载时角色列表可能还是空的，“滚到这个角色、聚焦它的选择框”要等数据到了才能做。
+  - 仓库里已经有一样形状的东西：`fileLocation` 加 `takeFileLocation`，“只属于紧接着的那一次打开”，在 `perform` 里先清掉（669 行），由视图读完文件后取走。计划没有沿用它，另起了一个“原样交给页面”的说法。
+  - 要把 `focus` 交给页面，只能加在 `SettingsPageContext` 上，而这个类型经 `src/sdk/settings-browser.ts:10` 公开导出。计划没提它会成为第三方设置页的公开接口。
+- **为什么是问题**：验收映射里只有“角色没绑定时点‘去绑定’，设置窗口开在角色页、焦点在那个角色上”这一条 e2e，覆盖的是窗口原本关着的情况。上面四种都会失败，而且失败时没有任何提示（计划规定认不出的 `focus` 忽略）。
+- **如何核实**：读 `openWindow` 与 `perform`；`SettingsLeaveTarget` 的 `open` 分支只有 `section`、`layer`。
+- **建议改法**：
+  - 照 `fileLocation` 做：`SettingsLeaveTarget` 的 `open` 加 `focus`；`perform` 时存进 `pendingFocus = {section, focus, seq}`；页面经上下文的 `takeFocus(): string | null` 在数据就绪后取走，取走即清空。窗口已开、分区相同时也写一次新的 `seq`，页面 `watch` 这个序号。
+  - 在计划里写明 `SettingsPageContext` 加的是公开字段，同步 `settings/settings-window.md` 输出 15 与 SDK 文档；不想公开就做成只给内置页的内部上下文。
+  - 测试补三种：窗口已开在同一页、已开在别的页且有未保存改动（确认、取消各一次）、页面数据晚到。
+## 9. 第一屏的“最近对话”和“查看全部（N）”没有写数据从哪来；直接用 `session-list` 会带上过滤、子会话，而且列表没人刷新
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“nb-agent-ui：第一屏”第 1、3 条（`welcome.recent`、`total`）；`packages/neuro-book/src/plugins/agent/web/session-list.ts:44-68`、`:76-118`；`SessionPanelHost.vue:30-37`；旧应用 `AgentChatEmptyState.vue` 的 `displayRecentSessions`
+- **现象**：计划只给了属性形状 `{recent: {id, title, at}[], total}`，没写宿主从哪里取。插件里唯一的会话数据是 `createSessionList` 那一份，它：
+  1. 不会自己加载：`entries` 初始为空，只有 `SessionPanelHost` 挂载时 `refresh()`，并在挂着期间每 15 秒重取。没打开下拉、左栏也没放会话视图时，第一屏的“最近对话”永远不画。
+  2. `items` 是过滤后的结果：搜索词、选中的 Profile、`showArchived`、作品范围这些状态，下拉与左栏视图共用一份。用户在下拉里搜过一次，第一屏的卡片和 N 就跟着变。
+  3. `items` 是扁平的，子会话也在里面（带 `parentId`），被命中的祖先也会弱化列出。取前 3 个会出现子代理的会话；N 也会把子会话算进去，和下拉里顶层的条数对不上。
+  4. 旧应用会先滤掉已归档的（`filter((session) => !session.archived)`），计划没写。
+- **为什么是问题**：第一屏的数据会随别的界面状态乱跳，甚至根本出不来。到第 6 片接线时才会发现，第 3 片的 DOM 测试是喂属性测的，发现不了。
+- **如何核实**：读 `session-list.ts` 的 `refresh` 与 `items`；`grep -n "refresh" packages/neuro-book/src/plugins/agent/web/*.ts`，调用方只有面板。
+- **建议改法**：在计划里写明：
+  - 宿主另算一份不受过滤影响的“顶层、未归档、本作品范围”的列表，例如在 `session-list.ts` 里导出 `recent(limit)` 与 `topLevelCount`，基于 `entries` 而不是 `items`。
+  - 第一屏出现时（没选会话、消息为空）触发一次 `refresh()`；之后新建、改名、归档都会经由宿主，在那里也刷新一次。
+  - N 的含义定为“顶层、未归档的会话数”，与下拉默认显示的条数一致；N 为 0 时整块不画。
+  - 卡片的时间格式与没有标题时的写法（旧应用是“未命名会话”）也写进 Spec。
+## 10. 提示卡的适用范围与叠放没定：没选会话时不出卡；`ready` 时的能力提示、归档、打开失败怎么画没写；浮在输入框上沿会压住排队消息、停靠区和最后一条消息
+
+- **严重程度**：重要；**类别**：正确性 / 与已定设计一致
+- **位置**：计划“模型不可用的提示卡”nb-agent-ui 一条；`session-host.ts:1575-1583`；`AgentConversationComposer.vue:358-372`、`:181-188`；`docs/specs/agent/conversation.md` 输出 37（“在排队消息与可用性提示的上面”）与“失败与恢复”表；t29 决定 9（“要与应用里别处的警告写法统一”）
+- **现象**：
+  1. **没选会话时不出卡**：`target === null` 时 `meta` 是 undefined、`model` 是 null，`availability` 落到 `ready`。新用户第一次打开、一个服务商都没有时，第一屏上没有任何提示，要发出第一句、建好会话之后才出现卡片。可第一屏正是最需要这张卡的地方（`r4/notice-no-provider.webp` 就是这个场景）。
+  2. **其它状态**：现在那一行字画的是所有 `availability.message !== ""` 的情况，包括 `ready` 时的模型能力提示（输出 32，不拦发送）、`archived` 加“恢复”、`load-error` 加“重试”。计划只说“输入框不再画上方那行字，改画 `AgentNoticeCard`”，又说“别的码保留现在的写法”，没说这几种是变成卡片还是保留行。能力提示如果也变成一张常驻、关不掉、压住消息的卡片，就太重了。
+  3. **叠放**：Spec 输出 37 定的顺序是停靠区在排队消息与可用性提示之上，都在输入框里排版。浮层卡片压在输入框上沿，会盖住排队消息（`AgentQueuedMessages` 在同一个 footer 里）、停靠区和消息流最后几行。计划只写了消息区顶端的渐隐，没写底部要给卡片留出多少距离、自动贴底时把卡片高度算进去。
+  4. **占位**：“不是 `ready` 时占位写 `message`”。可 `loading` 的 `message` 是空字符串，`archived` 时输入框本来就是只读。计划没说空字符串时用回原来的占位，也没说和“上次运行已中断”的占位（输出 9）谁优先。
+- **为什么是问题**：第 1 点让主场景失效；第 2、3 点照字面实现会和现有 Spec 打架，Lab 截图阶段才会发现。
+- **如何核实**：读 `ctx` 的 `availability` 计算与 composer 的模板。
+- **建议改法**：
+  - 没选会话时，宿主按“新会话会用的 Profile”求一次可用性（与第 3 条的判定共用，只读服务商快照与角色状态），出同样的卡。
+  - 列一张表：`profile-unavailable` 出卡；`ready` 加能力提示保留现在的一行（或做成可关的轻提示）；`archived`、`load-error` 保留一行。写进 `ui/agent-conversation-view.md` 的输入框小节。
+  - 卡片放进停靠区的位置（输出 37 的“可用性提示”那一层），不另做浮层；或者在 Spec 里改写输出 37 的顺序，并规定消息流底部的留白等于卡片高度，贴底时也算进去。
+  - 占位的优先级写清：不可用的原因 > 中断后继续 > 运行中 > 普通；`message` 为空时用普通占位。
+## 11. 面板头里的那份头够不到视图自己的状态：“⋯”里的上下文、会话树、视图模式都是 `AgentConversationView` 的局部状态；登记的顶栏动作要注册表
+
+- **严重程度**：阻断；**类别**：正确性 / 接口与合同
+- **位置**：计划“nb-agent-ui：新的顶栏”（右列是 `trailing`、登记的顶栏动作与“⋯”）、“宿主接线”第 1 条（包装组件用 `hostAt("view")` 画 `AgentConversationHead`）；`packages/nb-agent-ui/src/vue/AgentConversationView.vue:78-80`、`:89-91`、`:107-150`、`:155-185`；`packages/neuro-book/src/plugins/agent/web/plugin.ts:407-416`；`ConversationHost.vue:33-34`
+- **现象**：
+  1. 现在“⋯”菜单的内置项有三个：`context` 调 `openInspector()`，置 `inspectorOpen = true`；`tree` 置 `treeOpen = true`；`toggle-view-mode` 调 `setViewMode`，写 `localViewMode`。三者都是 `AgentConversationView` 实例里的 `ref`（Spec 的“面板与弹窗”：“开着哪个弹窗是纯界面状态，归视图”）。上下文检查与会话树两个弹窗也画在这个实例里（505、523 行）。
+  2. 面板头里的 `AgentConversationHead` 是另一棵组件树里的另一个实例。它只能经 `action` 事件交给宿主，宿主没有通道去打开视图实例里的弹窗、切换它的视图模式。
+  3. 登记的顶栏动作来自 `props.registry.list("headerActions")`。注册表是 `conversationComponent()` 每次调用时在闭包里新建的（`plugin.ts:410`），包装组件拿不到同一份。`ConversationHost` 提供的 `subagentStoreKey`、`toolActionKey` 也只在内容那棵树里；`SubagentsEntry` 要用 `toolActionOf` 写动作名，同样需要注册表。翻译端口没问题，它在应用根上提供（`web/mount.ts:32`），两棵树都拿得到。
+- **为什么是问题**：照计划实现，标签只有一个时（默认布局下的常见情况）点“⋯ → 上下文 / 会话树 / 原始视图”没有反应，或者只能在头里再画一份弹窗，于是同一个状态有两份。这是第 2 片就要定的组件合同，留到第 6 片接线时才发现，要回头改第 2 片。
+- **如何核实**：读 `onOverflowSelect` 及以下的面板一节；`grep -n "createAgentViewRegistry" packages/neuro-book/src/plugins/agent/web/plugin.ts`。
+- **建议改法**（任选一种，写进计划）：
+  - **状态上移**：视图模式改用已有的受控属性 `viewMode`（80 行），连同“打开上下文检查”“打开会话树”一起交宿主持有（宿主上加 `viewMode`、`inspectorOpen`、`treeOpen` 三个 ref，两处共用，和计划给 `sessionsOpen` 的做法一样）；`AgentConversationView` 改成受控的这几个属性。
+  - **或者“⋯”只在内容那份里**：面板头那份只放把手与左列，右列经工作台的视图动作（声明的 `actions`，输出 10、11）提供。这样右列沿用现有机制，不用另造通道，代价是要把“⋯”的内容改成命令。
+  - 不论哪种，注册表都要提到插件作用域建一次，`conversationComponent` 与包装组件共用；包装组件自己 `provide(subagentStoreKey)`、`provide(toolActionKey)`。
+  - 第 2 片的 DOM 测试补一条：在面板头那份点“⋯ → 会话树”，内容里的会话树弹窗打开。
+## 12. `headShown` 的切换时机：启动时头会先画在内容里再跳到面板头；`ViewContext` 由实例层建，拿不到算它要的条件
+
+- **严重程度**：建议；**类别**：正确性 / 代码质量
+- **位置**：计划“工作台”的 `ViewContext` 一条与 `WorkbenchShell.vue` 一条；`views/view-instances.ts:55-59`、`:61-77`；`state/layout-present.ts:132-134`
+- **现象**：
+  1. `head()` 与 `load()` 是两个 Promise，计划让它们同时进行，“没加载完时照旧写标题”。内容先到、头后到时，`headShown` 先为假，`ConversationHost` 在内容顶上画一份头；等头到了再变真，内容里那份消失，整块内容上移一行（约 32px）。反过来头先到时，面板头先画出会话标题，内容还在加载，也说得过去。前一种是肉眼可见的跳动。
+  2. `contextFor` 只接收 `visible` 与 `location` 两个来源，`headShown` 要的“这块面板只写标题”和“`head` 已加载”都在外壳里（`titleOnlyPanelIds`、外壳侧的头组件表），实例层要多收一个回调。计划只列了 `contracts.ts`、`WorkbenchPanelHead.vue`、`WorkbenchShell.vue`，没列 `view-instances.ts` 与 `WorkbenchSurface.vue`（第 13 条）。
+  3. 标签数变化（例如命令把另一个视图开进同一块）时 `headShown` 翻转：会话下拉因为 `sessionsOpen` 在宿主上会在新位置重开；子代理浮层的开合在 `SubagentsEntry` 自己身上，会丢，焦点也丢。计划只考虑了 `sessionsOpen`。
+- **为什么是问题**：第 1 点是每次启动都会看到的闪动；第 2 点会让第 1 片的文件清单偏小；第 3 点是焦点管理的缺口，键盘用户会被丢回文档根。
+- **如何核实**：读 `view-instances.ts` 的 `load` 与 `contextFor`。
+- **建议改法**：有 `head` 的视图，实例的 `ready` 等两个 Promise 都 settle（`head()` 失败按第 6 条退回）再置，`headShown` 从一开始就是最终值；`contextFor` 增加 `headShown: (viewId) => boolean` 选项，并把 `view-instances.ts` 列进第 1 片；子代理浮层的开合也放到宿主上；翻转时如果焦点在旧的头里，把它移到新位置对应的元素上（按 `data-` 标记找）。
+## 13. 内容 `region` 改名要动 `WorkbenchSurface.vue`，计划没列；隐藏标题放在哪、什么时候有，没定
+
+- **严重程度**：建议；**类别**：正确性 / 文档
+- **位置**：计划“工作台”的 `WorkbenchPanelHead.vue` 第 3 小点；`WorkbenchSurface.vue:316-320`；`WorkbenchPanelHead.vue:81-82` 的注释
+- **现象**：内容的 `role` 与 `aria-labelledby` 是 `WorkbenchSurface` 按 `titleOnlyPanels` 与 `panelTabDomId(idPrefix, contentKey)` 写的，它不知道这个视图有没有标题区。计划说“改指向一个视觉隐藏、写视图声明标题的元素”，但这个元素由面板头渲染，`Surface` 得算出它的 id，而且只在有标题区时才存在。
+- **为什么是问题**：照字面实现，有标题区时 `Surface` 仍指向把手（名称成了会话标题，违反决定 2）；或者两边各写一套判定，标题区没加载完、出错退回时，`aria-labelledby` 会指向不存在的元素。
+- **如何核实**：读 `WorkbenchSurface.vue:316-320`。
+- **建议改法**：只写标题的面板一律渲染一个视觉隐藏的标题元素（id 用新的 `panelTitleDomId(prefix, key)`），`Surface` 在 `region` 时一律指向它，`tabpanel` 时仍指向标签。这样与有没有标题区、是否加载完都无关，判定只有一处。`WorkbenchSurface.vue` 列进第 1 片，`WorkbenchPanelHead.vue:81-82` 的注释与 `ui/workbench-layout.md` 输出 20 的“以标题命名的 `region`”同步改。DOM 测试断言 `region` 的可访问名称，不断言 id。
+## 14. 对照定稿图与旧应用：参照里有、计划里没有的项
+
+- **严重程度**：建议；**类别**：文档 / 与已定设计一致
+- **位置**：计划“nb-agent-ui：新的顶栏”“第一屏”“Profile 的开场指令”；定稿 `r3/p-center-welcome.webp`、`r2/welcome.webp`；旧应用 `AgentChatEmptyState.vue:30-66`、`:104-180`
+- **现象**（逐项）：
+  1. **没选会话时的头**：`r3/p-center-welcome.webp` 里只有 Profile 图标、“新对话”和框架按钮，左边没有“+”，右边没有“⋯”。计划写的是左列总是新建、右列总有“⋯”。没选会话时“新建”就是现状本身，“⋯”里的上下文、会话树也都不可用（`canInspectContext`、`canOpenTree` 在没有会话时为假）。
+  2. **“新对话”旁的 Profile 图标**：图里是主创的羽毛图标。计划只说“没选会话时标题写‘新对话’”，没说图标取哪个 Profile。应当和开场指令一样，取新会话会用的 Profile。
+  3. **开场指令的写法**：旧应用和定稿图里，每条单行截断，悬停显示全文（`Tooltip`，延时 300ms）；“试试这些”标题行右边有“点击填入输入框”；三条图标各有颜色（琥珀、天蓝、翠绿，图里可见）。计划的 `starters: {text, icon?}` 没有颜色，也没写截断与悬停全文。
+  4. **最近对话卡片**：旧应用每张卡写相对时间，没有标题时写“未命名会话”，已归档的不列（见第 9 条）。计划的 `recent` 有 `at`，但卡片的写法没定。
+  5. **语言**：Profile 的 `name`、`description` 是不翻译的字符串（`main.ts:13-14`），`starters` 照这个做法，切到英文界面后三条指令仍是中文。第 2 片要求截英文图，最好在计划里说明这是已知结果，免得验收时当成缺陷。
+  6. **用户级 Profile**：`starters` 只在插件声明里有，`defineProfile` 写的用户级 Profile 没有声明（`ProfileEntry` 的注释里 `role` 也写着“用户级没有”）。用户把自己的 Profile 设成常用时没有“试试这些”。按决定 5，没有就不显示，可以接受，但要写进 `contributions.md`，免得以后有人当成缺陷。
+- **为什么是问题**：第 1、2、3 条是定稿图上看得见的差异，截图验收时会被挑出来返工；第 5、6 条是会被误报的已知限制。
+- **如何核实**：看上面三张图，读旧组件。
+- **建议改法**：
+  - 第 1 条按图做：没选会话时左列空、右列只有 `trailing`，三列网格照样对称；或者开发者确认保留“+”与“⋯”，并在计划里注明与图不同。
+  - `starters` 加可选的 `tone`（取主题里几种强调色的名字，不收任意 class），或者明确不要颜色并告诉开发者。
+  - 截断与悬停全文、右侧提示、卡片写法写进 `AgentWelcome.md`。
+  - 第 5、6 条写进“不做与风险”。
+## 15. 返回取“`path` 的倒数第二项”是错的：`path` 不含本会话，父会话是最后一项
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“nb-agent-ui：新的顶栏”第 2 条第 1 小点；`packages/nb-agent-ui/src/types.ts:176-180`；`session-host.ts` 中 `ctx` 的 `path`（`[...target.ancestors].reverse()`）
+- **现象**：`AgentSessionView.path` 的合同是“子会话的祖先，从根会话到父会话”，不含本会话。宿主也是把“从父会话起”的 `ancestors` 反过来交出去的。所以直接的父会话是 `path.at(-1)`。取倒数第二项时：子代理（`path` 只有根一项）取到 undefined，返回按钮没有反应；孙代理会跳过父会话，直接回到根。
+- **为什么是问题**：返回是子会话头部唯一的导航（面包屑按决定删掉了），这里取错，子会话就回不去了。计划的 DOM 测试“返回到父会话”如果照计划的说法写断言，会把错误固定下来。
+- **如何核实**：读 `types.ts:176-180` 的注释。
+- **建议改法**：写成 `path.at(-1)`。`path` 为空或缺失时不画返回，左列画新建。父会话读不到（`title === null`）时照样可以返回，选不到时按切换会话失败的现有写法提示。DOM 测试用三层（根、子、孙）的 `path`，断言孙会话点返回发的是子会话的 id。
+## 16. “出错未看”的基线与归属没写清：宿主按位置有两个，“本窗口”的记录会变成两份；什么算“旧的出错”没有判据
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划“子代理管理”的“出错未看”三条；决定 3；`plugin.ts:273-296`（`hosts` 按 `"view" | "page"` 各建一个宿主）
+- **现象**：
+  1. 计划说“会话宿主在本窗口里记一份”，可宿主是按位置建的，右栏一个、编辑区页面一个。在页面里打开浮层看过了，右栏那份不知道，红点还亮。
+  2. “刷新后旧的出错不再亮”要有一条基线：第一次拿到某个会话的 `tree` 时，已有的出错都算看过。可宿主同一时刻只订阅当前会话。用户在会话 B 时，会话 A 的子代理出了错；切回 A 时这是第一次拿到 A 的 `tree`，这条出错按基线算“旧的”，不亮。而决定 3 的说法是“窗口打开期间新出错、还没看过的才亮”。
+  3. “出错”的判定计划写的是 `runs` 里的 `reason`，取值有 `finished|completed|error|interrupted|aborted`（`nb-harness/src/kernel/log/index-file.ts:59`、`events.ts:108`），计划没说只认 `error`，还是 `interrupted` 也算。
+- **为什么是问题**：第 1 点是两个位置都在用时会看到的不一致；第 2 点和决定 3 的字面意思不符，测试按哪种写都可能被认为写错。
+- **如何核实**：读 `hostAt` 与 `subagentData` 的订阅范围。
+- **建议改法**：已看过的 `runId` 集合放在插件作用域（窗口级），两个宿主共用。基线改为“窗口启动时刻”：`IndexedRun.endedAt` 早于插件激活时刻的出错算旧的，之后结束的都算新的，与当时订阅的是哪个会话无关。出错只认 `reason === "error"`，写进 `agent/conversation.md` 的新输出与纯函数测试。
+## 17. 现有测试依赖要删掉的结构，计划的验证范围没覆盖：`agent-subagents.e2e.ts` 不在收口清单里，第 2、3 片单独提交时 e2e 会坏
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：计划“切片”的收口一条（“e2e 跑对话、工作台拖动、设置、`lab-scenes`”）与“每片单独提交”；`packages/neuro-book/e2e/agent-subagents.e2e.ts:73-74`、`:107-108`；`packages/neuro-book/e2e/agent-conversation.e2e.ts`（11 处）；`packages/nb-agent-ui/src/vue/AgentConversationView.dom.test.ts`（4 处）
+- **现象**：
+  - 计划要删面包屑（`data-header-path`、`data-header-crumb`），把“还没有消息”（`.acv-stream__empty`）换成欢迎块，把输入框上方那行（`data-composer-availability`）换成提示卡，标签只有一个时新建按钮（`data-header-new`）也移进面板头。
+  - 按选择器数：`agent-conversation.e2e.ts` 11 处，`agent-subagents.e2e.ts` 4 处（每个用例开头都 `[data-header-new]` 加 `.acv-stream__empty`，验收 2 还点面包屑回父会话），`AgentConversationView.dom.test.ts` 4 处。
+  - 收口清单里没有 `agent-subagents.e2e.ts`。而第 5 片的子代理管理、第 2 片的返回，都正好是这个文件覆盖的行为。
+  - 第 2 片（去面包屑）与第 3 片（欢迎块）单独提交时，这两个 e2e 文件处于坏的状态，计划里每片只跑 DOM 测试与 Lab 截图，发现不了。
+- **为什么是问题**：违反“每片单独提交、片内自跑受影响的测试”。按仓库的验证门禁，`test:affected` 不跑 e2e，坏掉的 e2e 要到收口才暴露，而且收口清单本身就漏了一个。
+- **如何核实**：`grep -cE 'data-header-new|acv-stream__empty|data-header-sessions|data-header-path|data-header-crumb|data-composer-availability|acv-header' <文件>`。
+- **建议改法**：
+  - 计划写明每片要同步改的测试文件：第 2 片改 `agent-subagents.e2e.ts` 验收 2 的回父会话（改为点返回）与 `agent-conversation.e2e.ts` 的面包屑用例；第 3 片改两个文件里的 `.acv-stream__empty` 等待（改为等欢迎块，或等输入框可用）；第 4 片改 `data-composer-availability`。
+  - 每片跑覆盖它的那一两个 e2e 文件。
+  - 收口清单加上 `agent-subagents.e2e.ts` 与 `lab-agent-ui.e2e.ts`（它覆盖 `ui/agent-conversation-view.md` 的验收 4、7、9 到 12），文件名在计划里写定，不留到开工再定。
+## 18. Spec 改动清单漏项：要改写的旧条目没列，标题区与别的插件贡献的标题动作、计数怎样共存没定
+
+- **严重程度**：重要；**类别**：文档 / 接口与合同
+- **位置**：计划“Spec 与文档改动”；`docs/specs/agent/conversation.md` 输出 35 与“失败与恢复”表；`docs/specs/workbench/views.md` 输出 10、11、17；`docs/specs/settings/settings-window.md` 输出 15；`WorkbenchShell.vue:720-722`（`#actions` 插槽的 `TitleActions`）
+- **现象**：
+  1. `agent/conversation.md` 输出 35 现在规定“子会话的顶栏是路径：祖先会话的标题（每段可点）› 本会话……祖先多于两层时中间的收成‘…’”。计划要删面包屑、改成返回，但改动清单只写了“新输出接在末尾”，没说改写或删除 35。“失败与恢复”表里“没有模型、没有凭据、角色未绑定 → 输入框上方显示原因 → ‘打开设置’跳到模型服务”这一行也要改。不改的话，Spec 里同时有新旧两套，验收会互相矛盾。
+  2. `views.md` 输出 10、11：声明的动作与别的插件经 `workbench.view-title` 贡献的动作，画在“标签带之后、框架按钮之前”，有自己的“⋯”，只在悬停时显示。外壳仍会把 `TitleActions` 画在 `#actions` 插槽里（`WorkbenchShell.vue:720-722`），就在标题区之后。一旦有插件给对话视图贡献标题动作，面板头里会出现两个“⋯”：一个常显、属于标题区，一个悬停才显示、属于工作台，网格的对称居中也会被它打破。计划对 views.md 只写了“输出 10 补一句例外”。
+  3. `views.md` 输出 17：只写标题时，计数写在标题后。有标题区时，标题按钮写的是会话标题，计数写在哪、可访问名称带不带它，计划没说（对话视图现在没有 `badge()`，但这是对所有视图的接口合同）。
+  4. `settings/settings-window.md` 输出 15 说“已开着时只聚焦”，加 `focus` 后这句要改：已开着、给了 `focus` 时要把它送到页面（见第 8 条）。
+- **为什么是问题**：标题区是新的工作台接口，与已有的标题动作、计数是同一块面板头上的东西，现在不定，第一个贡献标题动作的插件就会把它弄乱。
+- **如何核实**：读上面几处 Spec 原文。
+- **建议改法**：在改动清单里逐条写：
+  - `conversation.md` 输出 35 改写成“返回与子会话标题”，“失败与恢复”表那一行改成提示卡的写法与去向。
+  - `views.md` 新输出写明：有标题区时，声明的动作与贡献的动作交给标题区的组件（作为 `actions` 插槽或属性），由它放进右列；或者规定有标题区的视图不接受 `workbench.view-title` 贡献，并在诊断里报。
+  - 计数在有标题区时由视图自己决定画不画，工作台不再拼进标题。
+  - `settings-window.md` 输出 15 的“只聚焦”补上 `focus` 的情况。
+## 19. 几处数值与显隐没有判据：入口的“个数”数什么、状态栏“整行空着”留不留断线与模式标记
+
+- **严重程度**：建议；**类别**：正确性 / 测试
+- **位置**：计划“子代理管理”第 1 条（“再推出入口的个数”）、“第一屏”最后一条（状态栏）；`packages/nb-agent-ui/src/vue/composer/AgentStatusBar.vue:89-99`
+- **现象**：
+  1. 入口的个数没定义。定稿 `r6/head-open.webp` 是“5”，对应浮层里全部 5 行，完成与出错的也算在内。可“图标加个数”也可以理解为在跑的个数。验收的 e2e“一次派发两个子代理，入口个数为 2”在两个都完成之后是 2 还是 0，取决于这个定义。另外，`fork` 出来的后代（`TreeItem.forked`）算不算，也没写。
+  2. 状态栏“整行空着”：计划只改了上下文用量那一处。没选会话时，`AgentStatusBar` 仍可能画出模式标记（`draftMode`，没有会话也能选）、全部放行警示（`yolo`）、断线提示（`disconnected`）。断线提示在没有会话时也有意义，不该藏起来；另外两个是不是也算“空着”的一部分，计划没说。
+- **为什么是问题**：定义不清，纯函数测试与 e2e 写出来的判据可能和开发者期望的不一样。
+- **如何核实**：看定稿图；读 `AgentStatusBar.vue:89-99`。
+- **建议改法**：个数写成“当前会话的全部后代（不含 `forked`）”，与浮层行数一致，红点另算；`agent/conversation.md` 的新输出写明。状态栏写明没选会话时只保留断线提示，其余不画。
+## 20. `starters` 写成 schema 上限会让整个 Profile 被拒：多写一条或多一个键，Profile 就从目录里消失
+
+- **严重程度**：建议；**类别**：不变量 / 接口与合同
+- **位置**：计划“Profile 的开场指令”第 1 条（“至多 3 条”）；`packages/neuro-book/src/plugins/agent/shared/points.ts:63-93`；`docs/specs/runtime/plugins.md` 输出 15、验收 16（`invalid-declaration` 拒绝整条贡献）；`packages/neuro-book/src/sdk/agent.ts:15`（`AgentProfileDeclaration` 公开导出）
+- **现象**：Profile 声明按 `ProfileDeclarationSchema` 校验，根对象是 `additionalProperties: false`。按现有写法，`starters` 会写成 `Type.Array(Type.Object({...}, {additionalProperties: false}), {maxItems: 3})`。第三方插件写了 4 条，或者给某条多加一个键（例如模仿旧应用写 `iconColorClass`），这条 Profile 贡献就整条以 `invalid-declaration` 被拒，连会话都开不了，而起因只是一段装饰性的文字。计划没说“至多 3 条”是靠 schema 拒绝，还是由界面截断。
+- **为什么是问题**：一个可选的展示字段，出错代价却是整个 Profile 不可用，失败的范围与字段的重要性不成比例。`AgentProfileDeclaration` 又是 SDK 的公开类型，第三方会照它写。
+- **如何核实**：读 `points.ts` 的 schema 与 `plugins.md` 输出 15。
+- **建议改法**：schema 只约束形状（`text` 为非空字符串，`icon` 可选），不设 `maxItems`；界面只取前 3 条，多出的写一条诊断。是否给 starter 对象开 `additionalProperties`，与第 14 条的颜色字段一起定。`contributions.md` 写明“多于 3 条只显示前 3 条”。`profiles.test.ts` 加一条：4 条时 Profile 仍是 `ok`。
+## 21. 两处画头会把 `ConversationHost` 的动作处理写成两份；第 3、4 片的新组件没排 Lab 场景
+
+- **严重程度**：建议；**类别**：代码质量 / 测试
+- **位置**：计划“宿主接线”第 1、2 条；切片 3、4 的验证；`ConversationHost.vue:43-51`（`onAction` 里“新建先选 Profile”）、`:68-70`（`sessions` 插槽放 `SessionPanelHost`）；`docs/standards/code/components.md:172`（完成标准：应用侧可挂载组件在 Component Lab 有场景登记，并在 390×844 下可用）
+- **现象**：
+  1. 面板头里的包装组件要做的事和 `ConversationHost` 一样：`session.create` 先走 `pickProfile`；`sessions` 插槽放 `SessionPanelHost`（要 `list`、`pickProfile`、`labels`）；`trailing` 放 `SubagentsEntry`，而它又要 `provide` 子代理数据与 `toolActionKey`（见第 11 条）。计划只写了“包装组件用同一个会话宿主画 `AgentConversationHead`”，照字面会复制一份 `onAction` 与这些接线。以后改了一处（比如新建前加确认），另一处就会漏。
+  2. 第 3 片新增 `AgentWelcome`，第 4 片新增 `AgentNoticeCard` 并改 `RolesPage`、`ProvidersPage`，验证里都只写了 DOM 测试，没有 Lab 场景。计划的“验证”一节却要“Lab 截图看第一屏、三种提示卡”，场景属于哪一片没排。
+- **为什么是问题**：第 1 点是可以预见的重复；第 2 点会让截图验收落到收口时才做，场景登记也可能被漏掉，而这是组件完成标准里的硬性一条。
+- **如何核实**：读 `ConversationHost.vue`；对照计划切片 3、4 的“验证”。
+- **建议改法**：
+  - 抽一个 `ConversationHeadHost.vue`（应用侧），收 `host`、`list`、`pickProfile`、`labels`、`registry`，内部完成 `onAction`、会话面板、子代理入口与两个 `provide`。`ConversationHost` 在内容里画头时用它，面板头的包装组件也用它，`AgentConversationView` 的头改成插槽或由它传入。
+  - 第 3 片加 `AgentWelcome` 的 Lab 场景（有和没有最近对话、有和没有指令、390 宽）；第 4 片加 `AgentNoticeCard` 三种卡的场景，以及 `RolesPage`、`ProvidersPage` 带 `focus` 打开的场景。
+## 未发现问题的方面
+
+- **指针拖动认源**：`layout-drag.ts` 的 `fromElement` 用 `closest("[data-panel-tab]")`。把手里面放图标、标题、箭头这些不可交互的元素，指针拖动照样成立。浮动窗里只有一个标签时，按把手拖的是整个窗，这一点也不变。
+- **拖完不触发点击**：拖动结束时吞掉同一手势末尾的 click，是在根上用捕获阶段做的（`nb-layout/src/vue/drag-session.ts:303`）。标题区在根里面，拖完不会误开会话列表。
+- **键盘拿起**：`keyboard.sourceAt` 要求焦点在 `[data-panel-tab]` 本身，把手仍是那个按钮就成立。拿起用的那一下空格，keydown 与 keyup 都被拦下（`drag-session.ts:133-136`），不会顺带开浮层。
+- **Alt 加方向键**：只写标题的头现在本来就没有这个键（它在 `TabStrip` 里），加不加标题区都一样，不变量成立。
+- **右键菜单**：只要把手的 `contextmenu` 由工作台绑定（第 5 条的改法），就不受影响。
+- **翻译端口**：`TEXT_PORT_KEY` 在应用根上提供（`web/mount.ts:32`），面板头与内容两棵树都拿得到，nb-agent-ui 的组件在面板头里照常翻译。只有子代理数据、`toolActionKey`、注册表拿不到（第 11 条）。
+- **新会话会用的 Profile**：没有会话时发送走 `create()`，缺省是 `MAIN_PROFILE`；`profileKey()` 在没有会话时也交回它。计划说“取 `create()` 的缺省”，与实际一致。顶栏的新建另走 `pickProfile`，建好后已经有会话，按决定 5 取会话的 Profile，两条路不冲突。
+- **e2e 夹具的可行性**：`agent-subagents.e2e.ts` 用本机假端点按会话分派脚本，已经能一条回复派两个子代理（验收 1）。`models.e2e.ts` 已经能造出角色没绑定的状态（`data-role-unbound`）。计划列的几条 e2e 都能在现有夹具上用真实运行时写出来，“入口个数”的判据要先按第 19 条定清。
+- **Profile 声明的兼容**：给 `additionalProperties: false` 的声明加一个可选字段，已有的声明照样通过，不需要迁移。风险只在写错新字段时（第 20 条）。
+- **已有用户布局**：标题区不改布局文档的形状，`titleOnlyPanels` 仍按已提交的文档算，不需要迁移布局记录。
+
+## 各级数量
+
+- 阻断：2（第 2、11 条）
+- 重要：11（第 1、3、4、5、6、8、9、10、15、17、18 条）
+- 建议：8（第 7、12、13、14、16、19、20、21 条）
+- 合计：21
