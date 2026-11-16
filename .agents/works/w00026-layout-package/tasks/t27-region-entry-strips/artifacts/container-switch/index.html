@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>切换容器：怎么滚、入口条放在哪</title>
+<title>几节的容器和活动栏连在一起</title>
 <!--
-  一次性的原型（w00026 t27）。开发者 2026-11-16：“左侧 ActivityBar 容器的切换动画……可以做成上下滚动切换”；
-  “底部的面板应该也是类似 ActivityBar 的那种容器（类似 vscode），切换应该是左右滚动切换。右栏也应该是和 ActivityBar 一样能切换容器的”。
+  一次性的原型（w00026 t27），第 2 版。开发者 2026-11-16 在第 1 版的附言：“侧边栏展开的时候是和 ActivityBar 连接在一起的”，
+  会话里确认几节的容器也连在一起。第 1 版的三题都答了，收进页尾“已定”。
   尺寸照 nbook 浅色主题：活动栏 48px、面板头 32px、卡片圆角 12px、缝 4px（相邻两边各 2px）、布局过渡 470ms、曲线 cubic-bezier(0.23, 1, 0.32, 1)。
   这里每帧用脚本算位置，只为了能放慢、逐帧看；“每帧开销”写的是做进产品时的开销。
 -->
@@ -21,18 +21,10 @@ section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--lin
 .rec { margin: 0 0 16px; color: var(--rec); }
 .controls { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 24px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, 0.96); font-size: 14px; }
 .controls button { font: inherit; padding: 3px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.controls button.on { border-color: #b9b1a2; background: #ece7dc; }
 .controls label { display: inline-flex; align-items: center; gap: 6px; }
 .controls input[type="range"] { width: 160px; }
 .controls .sep { width: 1px; height: 22px; background: var(--line); }
-.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.cands.stack { grid-template-columns: minmax(0, 1fr); }
-.cands.stack .cand { display: grid; grid-template-columns: minmax(0, 640px) minmax(0, 1fr); gap: 0 16px; align-items: start; }
-.cands.stack .cand h3 { grid-column: 1 / -1; }
-.cands.stack .cand p { margin: 0; }
-@media (max-width: 1000px) { .cands, .cands.stack .cand { grid-template-columns: minmax(0, 1fr); } }
-.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
-.cand h3 { margin: 0 0 8px; font-size: 16px; }
-.cand p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
 .fit { width: 100%; overflow: hidden; }
 table { width: 100%; border-collapse: collapse; font-size: 15px; }
 th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
@@ -42,17 +34,16 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 /* 舞台：照 nbook 浅色。 */
 .stage { position: relative; overflow: hidden; background: #ece8df; border-radius: 6px; transform-origin: 0 0; font: 12px/1.4 system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; color: #1d1b17; user-select: none; }
 .stage .card { position: absolute; background: #fffcf5; box-shadow: 0 1px 2px rgba(31, 28, 23, 0.10); overflow: hidden; }
+.stage .card.flat { box-shadow: none; }
 .stage .clip { position: absolute; overflow: hidden; }
-.stage .page { position: absolute; inset: 0; will-change: transform, opacity; }
+.stage .page { position: absolute; inset: 0; will-change: transform; }
+.stage .body { position: absolute; top: 0; bottom: 0; }
 .stage .head { position: absolute; left: 0; right: 0; top: 0; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 10px; white-space: nowrap; }
 .stage .head .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .stage .head .acts { margin-left: auto; display: flex; gap: 6px; }
 .stage .head .acts i { width: 14px; height: 14px; border-radius: 3px; background: #e6e0d4; }
 .stage .tab { position: relative; padding: 0 2px; color: #6b655b; cursor: pointer; }
 .stage .tab.on { color: #1d1b17; }
-.stage .icon-tab { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: #8a8478; cursor: pointer; }
-.stage .icon-tab.on { background: #ece7dc; color: #3d3a34; }
-.stage .sep-v { width: 1px; height: 14px; background: #e3ddd1; }
 .stage .rows { position: absolute; left: 12px; right: 12px; top: 40px; }
 .stage .rows b { display: block; height: 8px; margin: 0 0 10px; border-radius: 4px; background: #ebe5d9; }
 .stage .rows b.input { height: 20px; margin-bottom: 14px; border: 1px solid #e3ddd1; background: #fff; }
@@ -60,20 +51,20 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 .stage .entry.on { color: #3d3a34; }
 .stage .pressed { position: absolute; width: 34px; height: 34px; border-radius: 8px; background: #ece7dc; }
 .stage .underline { position: absolute; height: 2px; border-radius: 1px; background: #1d1b17; }
-.stage .seam { position: absolute; width: 1px; background: rgba(31, 28, 23, 0.09); }
+.stage .seam { position: absolute; width: 1px; background: rgba(31, 28, 23, 0.16); }
 .stage svg.ic { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.stage .head svg.ic { width: 15px; height: 15px; }
 </style>
 </head>
 <body>
 <main>
-<h1>切换容器：怎么滚、入口条放在哪</h1>
+<h1>几节的容器和活动栏连在一起</h1>
 
 <div class="controls">
-  <span>活动栏</span>
+  <span>活动栏（点亮着的那个是隐藏、显示）</span>
   <button type="button" data-side="0">项目</button>
   <button type="button" data-side="1">大纲</button>
   <button type="button" data-side="2">检索</button>
+  <button type="button" data-side="3">设定</button>
   <span class="sep"></span>
   <span>底部面板</span>
   <button type="button" data-panel="0">后台任务</button>
@@ -91,75 +82,17 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <label>逐帧 <input type="range" min="0" max="1000" value="1000" data-scrub></label>
 </div>
 
-<section data-nbdev-question="switch-1" data-nbdev-type="single" data-nbdev-recommend="scroll">
-  <h2>点入口切换容器时，内容怎么滚？</h2>
-  <p class="rec"><strong>推荐甲：整个容器像翻页一样滚过去，时长和曲线与侧栏显隐相同；滚动只动合成层，不每帧排版。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-skip>
-      <h3>现在</h3>
-      <div class="fit"><div class="stage" data-stage="now"></div></div>
-      <p>旧容器一下子没了，新容器从侧栏上边往下露出来（按代码推的，没录屏）。底部面板现在没有入口条，只能用命令切换。每帧开销：外框的高在变，每帧重排这一列。</p>
-    </div>
-    <div class="cand" data-nbdev-option="scroll" data-nbdev-label="甲 整块滚过去">
-      <h3>甲 整块滚过去</h3>
-      <div class="fit"><div class="stage" data-stage="scroll"></div></div>
-      <p>新旧两个容器上下（底部面板左右）挨着，中间隔一条缝，一起滚，470ms，先快后慢。点下面的入口内容往上走，点右边的往左走。每帧开销：两块各自平移，只在合成层。</p>
-    </div>
-    <div class="cand" data-nbdev-option="axis" data-nbdev-label="乙 推一小段加淡">
-      <h3>乙 推一小段加淡</h3>
-      <div class="fit"><div class="stage" data-stage="axis"></div></div>
-      <p>旧的往前推 32px 同时淡出，新的从后面 32px 处推上来同时淡入，前三分之一只有旧的在淡。方向同甲，走的距离短。每帧开销：平移加不透明度，只在合成层。</p>
-    </div>
-    <div class="cand" data-nbdev-option="quick" data-nbdev-label="丙 整块滚、短而匀">
-      <h3>丙 整块滚、短而匀</h3>
-      <div class="fit"><div class="stage" data-stage="quick"></div></div>
-      <p>同甲，但 300ms、两头慢中间快（cubic-bezier(0.4, 0, 0.2, 1)），收尾没有长尾巴，常切换时不拖沓。和侧栏显隐的时长、曲线不一样。每帧开销同甲。</p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="indicator-1" data-nbdev-type="single" data-nbdev-recommend="slide">
-  <h2>入口的选中标记跟着滑过去吗？</h2>
-  <p class="rec"><strong>推荐滑过去：活动栏的按下底色、底部面板标题的下划线和内容同时走、同一条曲线，眼睛能跟着从旧入口到新入口。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="slide" data-nbdev-label="滑过去">
-      <h3>滑过去</h3>
-      <div class="fit"><div class="stage" data-stage="scroll" data-indicator="slide"></div></div>
-      <p>上面几种候选（除了“现在”）用的都是这种。每帧开销：一个色块平移，只在合成层。</p>
-    </div>
-    <div class="cand" data-nbdev-option="jump" data-nbdev-label="原地换">
-      <h3>原地换</h3>
-      <div class="fit"><div class="stage" data-stage="scroll" data-indicator="jump"></div></div>
-      <p>点下去旧的马上灭、新的马上亮，只有内容在滚（现在和 VS Code 都是这样）。</p>
-    </div>
-  </div>
-</section>
-
-<section data-nbdev-question="strip-1" data-nbdev-type="single" data-nbdev-recommend="first-head">
-  <h2>右栏、底部面板的入口条放在哪？</h2>
-  <p class="rec"><strong>推荐乙：放进区域第一个分节的头里，不加新的一行、不进布局树；当前容器只有一节时（最常见）和甲长得一样。</strong></p>
-  <div class="cands stack">
-    <div class="cand" data-nbdev-option="region-head" data-nbdev-label="甲 区域多一行头">
-      <h3>甲 区域多一行头</h3>
-      <div class="fit"><div class="stage" data-mock="region-head"></div></div>
-      <p>VS Code 的做法：区域顶上一行写入口；当前容器只有一节时那一节的头并进这一行（右栏），有几节时下面每节再各有自己的头（底部面板的“项目”是两节，头叠成两行）。底部面板几节左右并排时，这一行横跨几张卡片，要在布局里给整排留出这一行的高度。</p>
-    </div>
-    <div class="cand" data-nbdev-option="first-head" data-nbdev-label="乙 放进第一节的头">
-      <h3>乙 放进第一节的头</h3>
-      <div class="fit"><div class="stage" data-mock="first-head"></div></div>
-      <p>入口条画在第一个分节（右栏是最上面一节，底部面板是最左边一节）的头里，后面跟着这一节自己的标题；别的分节的头照旧只写标题。区域只有一个容器时不画入口条，头和现在一样。</p>
-    </div>
-    <div class="cand" data-nbdev-option="mirror-bar" data-nbdev-label="丙 右栏右边一条活动栏">
-      <h3>丙 右栏右边一条活动栏</h3>
-      <div class="fit"><div class="stage" data-mock="mirror-bar"></div></div>
-      <p>照你这次说的“和 ActivityBar 一样”另画的：右栏右边贴一条和活动栏一样的图标条，切换上下滚；底部面板同乙。11-10 定的是“放在各自的头上”；这一条常驻占 48px 宽，作为布局树上的条有提案里查出的六处冲突要先解决。</p>
-    </div>
-  </div>
+<section data-nbdev-question="join-2" data-nbdev-type="confirm">
+  <h2>几节的容器这样连在活动栏上，可以吗？</h2>
+  <p class="rec"><strong>推荐照这样做：每一节靠活动栏的一边都是直的、不留缝；切换时活动栏一直连着，只有右边一列在滚；隐藏、显示时最外面两个角落到活动栏上，节与节之间的角跟着压平。</strong></p>
+  <div class="fit"><div class="stage" data-stage="joined"></div></div>
   <table style="margin-top: 16px">
-    <thead><tr><th>例子</th><th>样子</th></tr></thead>
+    <thead><tr><th>什么时候</th><th>怎么画</th><th>每帧开销</th></tr></thead>
     <tbody>
-      <tr><td>右栏</td><td>两个容器：对话、通知（从底部面板移过来的），当前是对话，只有一节</td></tr>
-      <tr><td>底部面板</td><td>两个容器：后台任务、项目（从侧栏移过来的，会话与资源管理器两节左右并排），当前是项目</td></tr>
+      <tr><td>静止</td><td>项目两节、设定三节，每一节靠活动栏的一边是直的、不留缝；节与节之间的缝一直通到活动栏边上；每一节和活动栏之间各有一条两端不碰顶底的短线</td><td>无</td></tr>
+      <tr><td>切换容器</td><td>活动栏前后都连着、不换画法，只有右边一列滚；节与节之间的缝、两个容器之间的缝跟着滚过活动栏的边</td><td>每块平移，只在合成层</td></tr>
+      <tr><td>隐藏</td><td>每一节往左伸过活动栏的一个圆角加半缝，伸过去的那截是活动栏的底色、压在活动栏下面；最上面一节的右上角、最下面一节的右下角跟着右沿走，缩到零正好成了活动栏的两个角（同 t25 的丙）；节与节之间的两个角随着变窄压扁，缩到零时是直的；缝里露出来的活动栏右边跟着往左让出半缝；短线淡出</td><td>同侧栏现在的隐藏：外框每帧排版、按形状裁；另加活动栏这一张卡片的右边每帧挪一点（最多 2px）</td></tr>
+      <tr><td>显示</td><td>倒过来：从活动栏的两个角里长出来，长完换回相连的画法，画面不变</td><td>同隐藏</td></tr>
     </tbody>
   </table>
 </section>
@@ -171,9 +104,9 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <tbody>
       <tr><td>方向</td><td>跟着入口条：活动栏上下，点下面的入口内容往上走；底部面板、右栏左右，点右边的往左走。“更多”里的入口按入口顺序算</td></tr>
       <tr><td>什么在滚</td><td>只滚区域里的内容：侧栏的分节连同它们的头一起滚；入口条本身不动（活动栏、底部面板与右栏的头）</td></tr>
-      <tr><td>点当前容器的入口</td><td>和活动栏一样：区域可见就隐藏（侧栏的角接到活动栏上，t25 的丙）；右栏、底部面板同样</td></tr>
+      <tr><td>点当前容器的入口</td><td>区域可见就隐藏（侧栏如上）；右栏、底部面板照它们现在的过渡收起</td></tr>
       <tr><td>区域隐藏或拖到零时点别的入口</td><td>按显示的过渡长出来，里面已经是新容器，不滚</td></tr>
-      <tr><td>滚到一半又点</td><td>从这一刻的位置接着滚到新的目标，不跳（上面按钮快速连点就是）</td></tr>
+      <tr><td>滚到一半又点</td><td>从这一刻的位置接着滚到新的目标，不跳</td></tr>
       <tr><td>减少动态效果</td><td>直接换，不滚</td></tr>
       <tr><td>平铺主题</td><td>同样滚，只是没有缝和圆角</td></tr>
       <tr><td>底部面板默认的两个容器</td><td>后台任务、通知现在就是两个容器（各自的隐式容器），有了入口条就是头上两个标题，像 VS Code 的“问题、输出、终端”</td></tr>
@@ -186,6 +119,11 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
   <ol class="decided">
     <li>右栏、底部面板的入口条在各自的头上，右栏用图标，底部面板用标题（2026-11-10，视图容器提案）</li>
     <li>活动栏切换容器上下滚，底部面板左右滚（2026-11-16）</li>
+    <li>切换时整个容器滚过去，470ms、布局曲线（第 1 版 <code>switch-1</code> 甲）</li>
+    <li>入口的选中标记和内容同时滑过去（第 1 版 <code>indicator-1</code>）</li>
+    <li>入口条放进区域第一个分节的头里，不加新的一行（第 1 版 <code>strip-1</code> 乙，会话里“先同意”）</li>
+    <li>侧栏的容器有几节时也和活动栏连在一起（2026-11-16 会话里）</li>
+    <li>这页是演示，产品里还没做；计划确认后实施</li>
   </ol>
 </section>
 </main>
@@ -193,7 +131,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 <script>
 "use strict";
 const W = 480, H = 300, AB = 52, SB = 176, PH = 110, GAP = 4, HALF = 2, R = 12, HEAD = 32;
-const D = 470, SHIFT = 32;
+const D = 470;
 
 function bezier(x1, y1, x2, y2) {
   const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
@@ -208,29 +146,33 @@ function bezier(x1, y1, x2, y2) {
     return sy(t);
   };
 }
-const LAYOUT = {duration: D, curve: bezier(0.23, 1, 0.32, 1)};
-const QUICK = {duration: 300, curve: bezier(0.4, 0, 0.2, 1)};
+const CURVE = bezier(0.23, 1, 0.32, 1);
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
 const ICONS = {
   folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
   list: '<path d="M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
-  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
-  tasks: '<path d="m3 17 2 2 4-4M3 7l2 2 4-4M13 6h8M13 12h8M13 18h8"/>',
+  book: '<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/>',
 };
 const icon = (name) => `<svg class="ic" viewBox="0 0 24 24">${ICONS[name]}</svg>`;
 
 const SIDE = [
-  {icon: "folder", sections: [{title: "会话", rows: [70, 55, 80, 40, 62]}, {title: "资源管理器", rows: [50, 66, 44, 72, 58, 36, 64, 48]}]},
-  {icon: "list", sections: [{title: "大纲", rows: [80, 60, 72, 44, 66, 52, 78, 40, 60, 70, 48, 56, 64, 38]}]},
-  {icon: "search", sections: [{title: "检索", input: true, rows: [76, 52, 68, 40, 72, 58, 46, 64, 70, 50, 62]}]},
+  {icon: "folder", splits: [0.42], sections: [{title: "会话", rows: [70, 55, 80, 40, 62]}, {title: "资源管理器", rows: [50, 66, 44, 72, 58, 36, 64, 48]}]},
+  {icon: "list", splits: [], sections: [{title: "大纲", rows: [80, 60, 72, 44, 66, 52, 78, 40, 60, 70, 48, 56, 64, 38]}]},
+  {icon: "search", splits: [], sections: [{title: "检索", input: true, rows: [76, 52, 68, 40, 72, 58, 46, 64, 70, 50, 62]}]},
+  {icon: "book", splits: [0.36, 0.66], sections: [{title: "人物", rows: [64, 48, 72]}, {title: "地点", rows: [58, 70, 44]}, {title: "势力", rows: [66, 52, 74, 40]}]},
 ];
 const PANEL = [
   {title: "后台任务", rows: [86, 64, 72, 40]},
   {title: "通知", rows: [58, 80, 46, 70]},
 ];
+
+/** 一个容器里各节的上下沿（相对整个舞台）：节与节之间一条缝，各让半缝。 */
+function sectionSpans(container) {
+  const cuts = container.splits.map((f) => Math.round(H * f));
+  return container.sections.map((_, i) => ({y0: i === 0 ? GAP : cuts[i - 1] + HALF, y1: i === cuts.length ? H - GAP : cuts[i] - HALF}));
+}
 
 // ---------- 时钟：放慢、暂停、逐帧 ----------
 const clock = {virt: 0, base: performance.now(), speed: 0.5, paused: false, last: 0};
@@ -247,122 +189,89 @@ function div(cls, parent, style) {
   if (parent) parent.append(node);
   return node;
 }
-function place(node, x0, y0, x1, y1, radii) {
+function place(node, x0, y0, x1, y1) {
   node.style.left = `${x0}px`; node.style.top = `${y0}px`;
   node.style.width = `${Math.max(0, x1 - x0)}px`; node.style.height = `${Math.max(0, y1 - y0)}px`;
-  if (radii) node.style.borderRadius = radii.map((r) => `${r}px`).join(" ");
+}
+/** 四个角：[左上, 右上, 右下, 左下]，每个是一个数（圆）或 [横, 竖]（椭圆）。 */
+function corners(node, radii) {
+  const css = (r) => (Array.isArray(r) ? `${r[0]}px ${r[1]}px` : `${r}px`);
+  node.style.borderTopLeftRadius = css(radii[0]); node.style.borderTopRightRadius = css(radii[1]);
+  node.style.borderBottomRightRadius = css(radii[2]); node.style.borderBottomLeftRadius = css(radii[3]);
 }
 function rows(parent, widths, input) {
   const box = div("rows", parent);
-  if (input) div("input", box).outerHTML = '<b class="input"></b>';
+  if (input) box.innerHTML = '<b class="input"></b>';
   box.innerHTML += widths.map((w) => `<b style="width:${w}%"></b>`).join("");
   return box;
 }
-function sectionCard(parent, x0, y0, x1, y1, radii, section, headHtml) {
-  const card = div("card", parent);
-  place(card, x0, y0, x1, y1, radii);
-  const head = div("head", card);
-  head.innerHTML = headHtml ?? `<span class="title">${section.title}</span><span class="acts"><i></i><i></i></span>`;
-  rows(card, section.rows, section.input);
-  return card;
+/** 一节的内容（头与几行），宽是侧栏卡片的宽。 */
+function sectionBody(parent, section) {
+  const body = div("body", parent, {width: `${SB - HALF}px`});
+  const head = div("head", body);
+  head.innerHTML = `<span class="title">${section.title}</span><span class="acts"><i></i><i></i></span>`;
+  rows(body, section.rows, section.input);
+  return body;
 }
 
-/** 侧栏里一个容器的样子（相对侧栏这一列）：只有一节时和活动栏相连，左边不留缝、左边两个角是直的。 */
+/** 侧栏里一个容器相连时的样子（相对侧栏这一列）：每一节左边不留缝、左边两个角是直的，各有一条短线。 */
 function sidePage(parent, container) {
   const page = div("page", parent);
-  const n = container.sections.length;
-  if (n === 1) {
-    sectionCard(page, 0, GAP, SB - HALF, H - GAP, [0, R, R, 0], container.sections[0]);
-  } else {
-    const split = Math.round(H * 0.42);
-    sectionCard(page, HALF, GAP, SB - HALF, split - HALF, [R, R, R, R], container.sections[0]);
-    sectionCard(page, HALF, split + HALF, SB - HALF, H - GAP, [R, R, R, R], container.sections[1]);
+  for (const [i, span] of sectionSpans(container).entries()) {
+    const card = div("card", page);
+    place(card, 0, span.y0, SB - HALF, span.y1);
+    corners(card, [0, R, R, 0]);
+    sectionBody(card, container.sections[i]).style.left = "0px";
+    div("seam", card, {left: "0px", top: "10px", bottom: "10px"});
   }
   return page;
 }
-const joinedOf = (index) => (SIDE[index].sections.length === 1 ? 1 : 0);
 
-// ---------- 一个区域里容器的切换：几种做法 ----------
-/**
- * axis 是滚的方向（"y" 侧栏，"x" 底部面板），size 是区域沿这个方向的长度。
- * 甲、丙（scroll）：容器按入口顺序排成一条，中间隔一条缝，滚动位置 S 从这一刻的值走到目标；中途再点就从这一刻接着走。
- * 乙（axis）：每个容器各自一段平移加不透明度。现在（now）：旧的立刻没了，新的从起点那条边露出来。
- */
-function regionSwitcher(kind, axis, size, pages, start) {
-  const motion = kind === "quick" ? QUICK : LAYOUT;
-  const step = size + GAP;
-  const state = {target: start, t0: -1e9, placed: new Map([[start, 0]]), s0: 0, s1: 0, tweens: new Map()};
-  for (let i = 0; i < pages.length; i += 1) state.tweens.set(i, {from: {off: 0, op: i === start ? 1 : 0, rev: 1}, to: {off: 0, op: i === start ? 1 : 0, rev: 1}, t0: -1e9, opDelay: 0, opDur: 1});
-  const scrollAt = (t) => state.s0 + (state.s1 - state.s0) * motion.curve((t - state.t0) / motion.duration);
-  function tweenAt(tw, t) {
-    const p = motion.curve(clamp01((t - tw.t0) / motion.duration));
-    const q = clamp01((t - tw.t0 - tw.opDelay) / tw.opDur);
-    return {off: tw.from.off + (tw.to.off - tw.from.off) * p, op: tw.from.op + (tw.to.op - tw.from.op) * q, rev: tw.from.rev + (tw.to.rev - tw.from.rev) * p};
-  }
+// ---------- 一个区域里容器的切换：整块滚过去 ----------
+/** 容器按入口顺序排成一条，中间隔一条缝，滚动位置从这一刻的值走到目标；中途再点就从这一刻接着走。 */
+function regionScroller(axis, size, pages, start) {
+  const step = () => size() + GAP;
+  const state = {target: start, t0: -1e9, placed: new Map([[start, 0]]), s0: 0, s1: 0};
+  const scrollAt = (t) => state.s0 + (state.s1 - state.s0) * CURVE((t - state.t0) / D);
   return {
     get target() { return state.target; },
-    progress(t) { return motion.curve(clamp01((t - state.t0) / motion.duration)); },
+    progress(t) { return CURVE(clamp01((t - state.t0) / D)); },
+    /** 不滚，直接换成它（区域隐藏时点别的入口、减少动态效果）。 */
+    jumpTo(next) { state.target = next; state.placed = new Map([[next, 0]]); state.s0 = 0; state.s1 = 0; state.t0 = -1e9; },
     switchTo(next, t) {
       if (next === state.target) return false;
       const dir = Math.sign(next - state.target);
-      if (kind === "scroll" || kind === "quick") {
-        const s = scrollAt(t);
-        for (const [index, pos] of state.placed) if (index !== state.target && Math.abs(pos - s) >= step) state.placed.delete(index);
-        if (!state.placed.has(next) || Math.abs(state.placed.get(next) - s) >= step) {
-          // 接在这一刻看得见的最外面那一块后面，不和别的叠在一起。
-          const ends = [...state.placed.values()];
-          state.placed.set(next, (dir > 0 ? Math.max(...ends) : Math.min(...ends)) + dir * step);
-        }
-        state.s0 = s; state.s1 = state.placed.get(next);
-      } else {
-        for (const [index, tw] of state.tweens) {
-          const cur = tweenAt(tw, t);
-          if (index === next) {
-            const hidden = cur.op <= 0.001;
-            const from = kind === "now" ? {off: 0, op: 1, rev: 0} : {off: hidden ? dir * SHIFT : cur.off, op: cur.op, rev: 1};
-            state.tweens.set(index, {from, to: {off: 0, op: 1, rev: 1}, t0: t, opDelay: kind === "now" ? 0 : (hidden ? 0.35 * D : 0), opDur: kind === "now" ? 1 : (hidden ? 0.65 * D : 0.65 * D)});
-          } else if (cur.op > 0.001) {
-            const to = kind === "now" ? {off: 0, op: 0, rev: 1} : {off: cur.off - dir * SHIFT, op: 0, rev: 1};
-            state.tweens.set(index, {from: kind === "now" ? {off: 0, op: 0, rev: 1} : cur, to, t0: t, opDelay: 0, opDur: kind === "now" ? 1 : 0.35 * D});
-          }
-        }
+      const s = scrollAt(t);
+      for (const [index, pos] of state.placed) if (index !== state.target && Math.abs(pos - s) >= step()) state.placed.delete(index);
+      if (!state.placed.has(next) || Math.abs(state.placed.get(next) - s) >= step()) {
+        // 接在这一刻看得见的最外面那一块后面，不和别的叠在一起。
+        const ends = [...state.placed.values()];
+        state.placed.set(next, (dir > 0 ? Math.max(...ends) : Math.min(...ends)) + dir * step());
       }
+      state.s0 = s; state.s1 = state.placed.get(next);
       state.target = next; state.t0 = t;
       return true;
     },
     render(t) {
       const prop = axis === "y" ? "translateY" : "translateX";
-      if (kind === "scroll" || kind === "quick") {
-        const s = scrollAt(t);
-        pages.forEach((page, index) => {
-          const pos = state.placed.get(index);
-          const off = pos === undefined ? step : pos - s;
-          const shown = pos !== undefined && Math.abs(off) < step;
-          page.style.visibility = shown ? "visible" : "hidden";
-          page.style.transform = `${prop}(${off}px)`;
-          page.style.opacity = "1";
-          page.style.clipPath = "none";
-        });
-        return;
-      }
+      const s = scrollAt(t);
       pages.forEach((page, index) => {
-        const v = tweenAt(state.tweens.get(index), t);
-        page.style.visibility = v.op > 0.001 ? "visible" : "hidden";
-        page.style.opacity = String(v.op);
-        page.style.transform = `${prop}(${v.off}px)`;
-        page.style.clipPath = v.rev >= 0.999 ? "none" : (axis === "y" ? `inset(0 0 ${(1 - v.rev) * 100}% 0)` : `inset(0 ${(1 - v.rev) * 100}% 0 0)`);
+        const pos = state.placed.get(index);
+        const off = pos === undefined ? step() : pos - s;
+        page.style.visibility = pos !== undefined && Math.abs(off) < step() ? "visible" : "hidden";
+        page.style.transform = `${prop}(${off}px)`;
       });
     },
   };
 }
 
-// ---------- 一个舞台：活动栏 | 侧栏 | 编辑区，编辑区下面是底部面板 ----------
+// ---------- 舞台：活动栏 | 侧栏 | 编辑区，编辑区下面是底部面板 ----------
 const stages = [];
 function buildStage(root) {
-  const kind = root.dataset.stage;
-  const indicator = root.dataset.indicator ?? (kind === "now" ? "jump" : "slide");
   root.style.width = `${W}px`; root.style.height = `${H}px`;
 
+  // 侧栏缩回去、长出来时各节的形状：压在活动栏下面，所以先建。
+  const capLayer = div("clip", root, {left: "0px", top: "0px", width: `${W}px`, height: `${H}px`, overflow: "visible"});
   const abCard = div("card", root);
   const pressed = div("pressed", abCard);
   const entries = SIDE.map((container, index) => {
@@ -374,18 +283,16 @@ function buildStage(root) {
   const sideClip = div("clip", root);
   place(sideClip, AB, 0, AB + SB, H);
   const sidePages = SIDE.map((container) => sidePage(sideClip, container));
-  const seam = div("seam", root);
 
   const editor = div("card", root);
-  place(editor, AB + SB + HALF, GAP, W - GAP, H - PH - HALF, [R, R, R, R]);
+  corners(editor, [R, R, R, R]);
   const editorHead = div("head", editor);
   editorHead.innerHTML = '<span class="title">第 1 章.md</span>';
   editorHead.style.background = "#f6f2e9";
   rows(editor, [92, 86, 95, 70, 88, 90, 60]);
 
   const panel = div("card", root);
-  const px0 = AB + SB + HALF, py0 = H - PH + HALF, px1 = W - GAP, py1 = H - GAP;
-  place(panel, px0, py0, px1, py1, [R, R, R, R]);
+  corners(panel, [R, R, R, R]);
   const panelHead = div("head", panel);
   panelHead.style.gap = "14px";
   const tabs = PANEL.map((container, index) => {
@@ -399,51 +306,84 @@ function buildStage(root) {
   panelHead.insertAdjacentHTML("beforeend", '<span class="acts"><i></i><i></i></span>');
   const underline = div("underline", panel);
   const panelClip = div("clip", panel);
-  place(panelClip, 0, HEAD, px1 - px0, py1 - py0);
   const panelPages = PANEL.map((container) => {
     const page = div("page", panelClip);
     rows(page, container.rows).style.top = "4px";
     return page;
   });
 
-  const side = regionSwitcher(kind, "y", H, sidePages, 0);
-  const pane = regionSwitcher(kind, "x", px1 - px0, panelPages, 0);
-  const marks = {side: {from: 0, at: -1e9}, panel: {from: 0, at: -1e9}, join: {from: joinedOf(0), at: -1e9}};
-  let joinNow = joinedOf(0);
+  let panelWidth = W - GAP - (AB + SB + HALF);
+  const side = regionScroller("y", () => H, sidePages, 0);
+  const pane = regionScroller("x", () => panelWidth, panelPages, 0);
+  /** 侧栏这一列的宽：从 from 走到 to。 */
+  const column = {from: SB, to: SB, t0: -1e9};
+  const widthAt = (t) => column.from + (column.to - column.from) * CURVE(clamp01((t - column.t0) / D));
+  const columnMoving = (t) => t - column.t0 < D && column.from !== column.to;
+  const marks = {side: {from: 0, at: -1e9}, panel: {from: 0, at: -1e9}};
   let sideMark = 0, panelMark = 0;
   const entryY = (index) => GAP + 6 + index * 40;
 
   const stage = {
     switchSide(index, t) {
-      const fromJoin = joinNow, fromMark = sideMark;
-      if (!side.switchTo(index, t)) return;
-      marks.join = {from: fromJoin, at: t};
-      marks.side = {from: fromMark, at: t};
+      const width = widthAt(t);
+      const shown = column.to > 0;
+      if (shown && index === side.target) {
+        Object.assign(column, {from: width, to: 0, t0: t});
+        return;
+      }
+      if (!shown || columnMoving(t)) {
+        // 隐藏着（或正在缩、正在长）点别的入口：里面直接是新容器，按显示长出来，不滚。
+        marks.side = {from: index, at: t};
+        side.jumpTo(index);
+        Object.assign(column, {from: width, to: SB, t0: t});
+        return;
+      }
+      const fromMark = sideMark;
+      if (side.switchTo(index, t)) marks.side = {from: fromMark, at: t};
     },
     switchPanel(index, t) {
       const fromMark = panelMark;
-      if (!pane.switchTo(index, t)) return;
-      marks.panel = {from: fromMark, at: t};
+      if (pane.switchTo(index, t)) marks.panel = {from: fromMark, at: t};
     },
     render(t) {
-      side.render(t); pane.render(t);
-      const ps = side.progress(t);
-      const j = marks.join.from + (joinedOf(side.target) - marks.join.from) * ps;
-      joinNow = j;
-      const abRight = AB - HALF * (1 - j);
-      place(abCard, GAP, GAP, abRight, H - GAP, [R, R * (1 - j), R * (1 - j), R]);
-      place(seam, AB - 0.5, GAP + 10, AB + 0.5, H - GAP - 10);
-      seam.style.opacity = String(j);
+      const fw = widthAt(t);
+      const moving = columnMoving(t);
+      // 缩回去的比例：0 是相连，1 是断开；活动栏右边按它往左让出半缝。
+      const k = 1 - fw / SB;
+      const joined = !moving && column.to === SB;
+
+      const abRight = joined ? AB : AB - HALF * k;
+      place(abCard, GAP, GAP, abRight, H - GAP);
+      corners(abCard, joined ? [R, 0, 0, R] : [R, R, R, R]);
+      abCard.classList.toggle("flat", moving);
+
+      // 页面自己写 visibility，父元素藏不住它们，所以整列用 display。
+      sideClip.style.display = joined ? "" : "none";
+      side.render(t);
+      capLayer.replaceChildren();
+      if (moving) drawCap(fw, k);
+
+      const ex0 = AB + fw + HALF;
+      place(editor, ex0, GAP, W - GAP, H - PH - HALF);
+      const py0 = H - PH + HALF, py1 = H - GAP;
+      place(panel, ex0, py0, W - GAP, py1);
+      panelWidth = W - GAP - ex0;
+      place(panelClip, 0, HEAD, panelWidth, py1 - py0);
+      pane.render(t);
+
       const inset = (abRight - GAP - 34) / 2;
       entries.forEach((entry, index) => {
         entry.style.left = `${inset}px`; entry.style.top = `${entryY(index) - GAP}px`;
-        entry.classList.toggle("on", index === side.target);
+        entry.classList.toggle("on", index === side.target && column.to > 0);
       });
-      sideMark = indicator === "jump" ? side.target : marks.side.from + (side.target - marks.side.from) * ps;
+      const ps = side.progress(t);
+      sideMark = marks.side.from + (side.target - marks.side.from) * ps;
       pressed.style.left = `${inset}px`;
       pressed.style.top = `${entryY(0) - GAP + sideMark * 40}px`;
+      pressed.style.opacity = String(1 - k);
+
       const pp = pane.progress(t);
-      panelMark = indicator === "jump" ? pane.target : marks.panel.from + (pane.target - marks.panel.from) * pp;
+      panelMark = marks.panel.from + (pane.target - marks.panel.from) * pp;
       tabs.forEach((tab, index) => tab.classList.toggle("on", index === pane.target));
       const rects = tabs.map((tab) => ({x: tab.offsetLeft, w: tab.offsetWidth}));
       const lo = Math.floor(panelMark), hi = Math.min(rects.length - 1, lo + 1), f = panelMark - lo;
@@ -451,76 +391,45 @@ function buildStage(root) {
       underline.style.left = `${x}px`; underline.style.width = `${w}px`; underline.style.top = `${HEAD - 5}px`;
     },
   };
+
+  /**
+   * 缩回去、长出来这段：每一节往左伸过活动栏的一个圆角加半缝（伸过去的那截是活动栏的底色，压在活动栏下面），
+   * 右沿在这一列的右边。最上面一节的右上角、最下面一节的右下角是整圆，缩到零时正好是活动栏的两个角；
+   * 节与节之间的角横向半径不超过这一列宽的一半，缩到零时是直的。内容裁在这一列里，贴着右沿走。
+   */
+  function drawCap(fw, k) {
+    const container = SIDE[side.target];
+    const spans = sectionSpans(container);
+    const inner = Math.min(R, fw / 2);
+    const x0 = AB - HALF - R, x1 = AB + fw - HALF;
+    spans.forEach((span, i) => {
+      const shape = div("card flat", capLayer);
+      place(shape, x0, span.y0, x1, span.y1);
+      corners(shape, [0, i === 0 ? R : [inner, R], i === spans.length - 1 ? R : [inner, R], 0]);
+      const frame = div("clip", shape, {left: `${R + HALF}px`, top: "0px", bottom: "0px", width: `${Math.max(0, fw - HALF)}px`});
+      sectionBody(frame, container.sections[i]).style.left = `${fw - SB}px`;
+      div("seam", shape, {left: `${R + HALF}px`, top: "10px", bottom: "10px", opacity: String(1 - k)});
+    });
+  }
+
   stages.push(stage);
 }
 
 function switchSide(index) { resume(); const t = now(); clock.last = t; for (const stage of stages) stage.switchSide(index, t); }
 function switchPanel(index) { resume(); const t = now(); clock.last = t; for (const stage of stages) stage.switchPanel(index, t); }
 
-// ---------- 入口条放在哪：静态稿 ----------
-function buildMock(root) {
-  const kind = root.dataset.mock;
-  const W = 640, H = 320;
-  root.style.width = `${W}px`; root.style.height = `${H}px`;
-  const RB = kind === "mirror-bar" ? 190 : 210, BAR = 52, PANEL_H = 150;
-  const right = kind === "mirror-bar" ? W - BAR : W;
-  const rx0 = right - RB;
-
-  // 编辑区
-  const editor = div("card", root);
-  place(editor, GAP, GAP, rx0 - HALF, H - PANEL_H - HALF, [R, R, R, R]);
-  const eh = div("head", editor); eh.innerHTML = '<span class="title">第 1 章.md</span>'; eh.style.background = "#f6f2e9";
-  rows(editor, [92, 86, 95, 70, 88]);
-
-  // 右栏：当前是对话，只有一节
-  const rbIcons = `<span class="icon-tab on">${icon("chat")}</span><span class="icon-tab">${icon("bell")}</span><span class="sep-v"></span>`;
-  const rbHead = kind === "mirror-bar" ? null : `${rbIcons}<span class="title">对话</span><span class="acts"><i></i><i></i></span>`;
-  const joinedRight = kind === "mirror-bar";
-  sectionCard(root, rx0 + HALF, GAP, right - (joinedRight ? 0 : GAP), H - GAP, joinedRight ? [R, 0, 0, R] : [R, R, R, R], {title: "对话", rows: [70, 84, 52, 76, 60, 80, 44, 68, 72, 50, 64, 58, 74]}, rbHead ?? undefined);
-  if (kind === "mirror-bar") {
-    const bar = div("card", root);
-    place(bar, right, GAP, W - GAP, H - GAP, [0, R, R, 0]);
-    const seam = div("seam", root);
-    place(seam, right - 0.5, GAP + 10, right + 0.5, H - GAP - 10);
-    div("pressed", bar, {left: "7px", top: "6px"});
-    [["chat", true], ["bell", false]].forEach(([name, on], index) => {
-      const entry = div(`entry${on ? " on" : ""}`, bar);
-      entry.innerHTML = icon(name);
-      entry.style.left = "7px"; entry.style.top = `${6 + index * 40}px`;
-    });
-  }
-
-  // 底部面板：当前是“项目”，会话与资源管理器两节左右并排
-  const py0 = H - PANEL_H + HALF, py1 = H - GAP, px0 = GAP, px1 = rx0 - HALF;
-  const mid = Math.round((px0 + px1) / 2);
-  const tabsHtml = '<span class="tab">后台任务</span><span class="tab on" style="text-decoration: underline 2px; text-underline-offset: 9px">项目</span>';
-  const s1 = {title: "会话", rows: [70, 55, 80, 40]}, s2 = {title: "资源管理器", rows: [50, 66, 44, 72]};
-  if (kind === "region-head") {
-    const row = div("card", root);
-    place(row, px0, py0, px1, py0 + HEAD, [R, R, R, R]);
-    const head = div("head", row); head.style.gap = "14px";
-    head.innerHTML = `${tabsHtml}<span class="acts"><i></i><i></i></span>`;
-    sectionCard(root, px0, py0 + HEAD + GAP, mid - HALF, py1, [R, R, R, R], s1);
-    sectionCard(root, mid + HALF, py0 + HEAD + GAP, px1, py1, [R, R, R, R], s2);
-  } else {
-    sectionCard(root, px0, py0, mid - HALF, py1, [R, R, R, R], s1, `${tabsHtml.replace('class="tab"', 'class="tab" style="margin-right: 10px"')}<span class="sep-v" style="margin-left: 10px"></span><span class="title">会话</span><span class="acts"><i></i></span>`);
-    sectionCard(root, mid + HALF, py0, px1, py1, [R, R, R, R], s2);
-  }
-}
-
-// ---------- 缩放：舞台按卡片宽度等比缩 ----------
+// ---------- 缩放：舞台按宽度放大到最多 1.8 倍 ----------
 function fitAll() {
   for (const box of document.querySelectorAll(".fit")) {
     const stage = box.firstElementChild;
     const width = stage.offsetWidth, height = stage.offsetHeight;
-    const scale = Math.min(1, box.clientWidth / width);
+    const scale = Math.min(1.8, box.clientWidth / width);
     stage.style.transform = `scale(${scale})`;
     box.style.height = `${height * scale}px`;
   }
 }
 
 document.querySelectorAll("[data-stage]").forEach(buildStage);
-document.querySelectorAll("[data-mock]").forEach(buildMock);
 fitAll();
 window.addEventListener("resize", fitAll);
 
@@ -530,7 +439,8 @@ document.querySelector("[data-speed]").addEventListener("change", (event) => set
 const scrub = document.querySelector("[data-scrub]");
 scrub.addEventListener("input", () => scrubTo(Number(scrub.value) / 1000));
 const loop = document.querySelector("[data-loop]");
-const SEQUENCE = [["side", 1], ["panel", 1], ["side", 2], ["side", 0], ["panel", 0], ["side", 2], ["side", 1], ["side", 0]];
+// 切到设定（三节）、隐藏、换成大纲显示、切回项目（两节）、隐藏、再显示，中间夹底部面板的切换。
+const SEQUENCE = [["side", 3], ["side", 3], ["side", 1], ["panel", 1], ["side", 0], ["side", 0], ["side", 0], ["panel", 0], ["side", 2], ["side", 3]];
 let loopStep = 0, loopNext = 0;
 
 function frame() {
