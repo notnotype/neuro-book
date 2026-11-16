@@ -1,6 +1,6 @@
 /**
  * `@notnotype/nb-markdown/editor`：Markdown 富文本编辑器的扩展组（语言的全部语法扩展，加作品内链接的小块装饰、图片的节点视图、
- * 占位、行内代码快捷输入与保持的选区高亮）与编辑动作。编辑器实例、文档绑定与工作台对接归宿主（neuro-book 的 `MarkdownControl.vue`）。
+ * 占位、行内代码快捷输入与保持的选区高亮）、编辑动作与 frontmatter 的属性面板。编辑器实例、文档绑定与工作台对接归宿主（neuro-book 的 `MarkdownControl.vue`）。
  */
 
 export {blockAt, blockTextRange, canConvertTo, insertSlashBlock, removeSlashBlock, selectBlock, selectBlockText, selectWholeBlock} from "./block-actions";
@@ -15,4 +15,7 @@ export {createMarkdownEditorExtensions} from "./markdown-editor-extensions";
 export {activeSlash, dismissSlash, markdownSlashKey, removeSlashQuery} from "./slash-trigger";
 export type {SlashMatch} from "./slash-trigger";
 export {REFRESH_REFERENCE_LINKS} from "./reference-links";
+export {default as MarkdownProperties} from "./properties/MarkdownProperties.vue";
+export {readProperties} from "./properties/model";
+export type {PropertyKind, PropertyRow, ReadPropertiesResult} from "./properties/model";
 export type {MarkdownViewAssets, MarkdownViewHost} from "./view-host";

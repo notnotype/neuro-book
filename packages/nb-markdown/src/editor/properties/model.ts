@@ -36,7 +36,11 @@ export type PropertyRow = {
     readonly line: number;
     /** 键是一个普通的标量，能改名。 */
     readonly renamable: boolean;
-} & (EditableValue | {readonly kind: "complex"; readonly source: string});
+} & (EditableValue | {
+    readonly kind: "complex";
+    /** 值的原文（面板里只读显示）；键不是普通的标量时是整项的原文。不含末尾的换行。 */
+    readonly source: string;
+});
 
 /**
  * 读不成属性的原因：`syntax` 语法错、`duplicate-key` 重复的键、`not-mapping` 顶层不是映射、`multiple-documents` 多个文档、
@@ -73,6 +77,23 @@ function split(raw: string): Omit<Parsed, "doc"> {
 function parse(raw: string): Parsed {
     const parts = split(raw);
     return {...parts, doc: parseDocument(parts.content, {version: "1.2", uniqueKeys: true})};
+}
+
+/** 源码区显示的 YAML：开栏与闭栏之间的部分，换行统一成 `\n`（文字框里的换行就是 `\n`）。 */
+export function yamlOf(raw: string): string {
+    return split(raw).content.replace(/\r\n/gu, "\n");
+}
+
+/**
+ * 源码区写回：`yaml` 换掉开栏与闭栏之间的部分，开栏、闭栏两行原样保留，换行符换回原文自己的（文字框交来的都是 `\n`）。不以换行
+ * 结尾的补一个，免得最后一行与闭栏粘在一起。`yaml` 里有独占一行的 `---`（会让 frontmatter 提前结束）时为 null。
+ */
+export function replaceYaml(raw: string, yaml: string): string | null {
+    const parts = split(raw);
+    const normalized = yaml.replace(/\r\n?/gu, "\n");
+    const body = normalized === "" || normalized.endsWith("\n") ? normalized : `${normalized}\n`;
+    const next = raw.slice(0, parts.offset) + (parts.eol === "\n" ? body : body.replaceAll("\n", parts.eol)) + raw.slice(parts.closeStart);
+    return isWholeFrontmatter(next) ? next : null;
 }
 
 /** YAML 正文里的位置所在的行，换成整段原文的行号（从 1 起，开栏是第 1 行）。 */
@@ -137,8 +158,10 @@ function rowOf(parsed: Parsed, pair: Pair, index: number): PropertyRow {
     const value = renamable ? valueOf(parsed, pair.value as YamlNode | null) : null;
     const base = {index, name, line: lineAt(parsed, start), renamable};
     if (value !== null) return {...base, ...value};
-    const end = (pair.value as YamlNode | null)?.range?.[1] ?? key?.range?.[1] ?? start;
-    return {...base, kind: "complex", source: parsed.content.slice(start, withoutEol(parsed.content, end))};
+    const valueNode = pair.value as YamlNode | null;
+    const end = valueNode?.range?.[1] ?? key?.range?.[1] ?? start;
+    const from = renamable ? (valueNode?.range?.[0] ?? start) : start;
+    return {...base, kind: "complex", source: parsed.content.slice(from, withoutEol(parsed.content, end))};
 }
 
 /** 文档开始、结束标记与指令所在的行：`--- x`（`---` 后面跟着内容，不是闭栏）、`...`、`%YAML`；没有为 null。 */

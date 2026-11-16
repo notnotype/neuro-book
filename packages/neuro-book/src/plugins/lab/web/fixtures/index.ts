@@ -14,6 +14,7 @@ import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {InlineChip} from "@notnotype/nb-markdown/chip";
 import type {MarkdownDisplay, MarkdownImage} from "@notnotype/nb-markdown/display";
 import type {PromptAttachmentStrip, PromptEditor, PromptPasteFrame, PromptTextView} from "@notnotype/nb-markdown/prompt";
+import type {MarkdownProperties} from "@notnotype/nb-markdown/editor";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -109,6 +110,9 @@ import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, 
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
 import {rowDemoSettings, sceneThemeSetting, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
+
+/** 属性面板的样例：一章的五个属性，每种类型一个，开头一行注释。 */
+const PROPERTIES_SAMPLE = "---\n# 第十二章\n视角: 林雪\n时间: 2025-12-21\n地点: [青石镇, 北山]\n字数目标: 4000\n已定稿: false\n---\n";
 
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
 const DISPLAY_REPLY = [
@@ -725,6 +729,25 @@ export const labFixtures: LabFixture[] = [
         load: async () => withMarkdownSceneText(createSubjectFixture<typeof PromptPasteFrame>((await import("@notnotype/nb-markdown/prompt")).PromptPasteFrame, {
             events: ["hover"],
             class: "w-full",
+        })),
+    }),
+    // 属性面板：写回直接改场景的 `raw` 与 `open`，点一下就能看到改过的原文（数据 tab）。
+    defineLabFixture<typeof MarkdownProperties>({
+        component: "MarkdownProperties",
+        scenes: [
+            {id: "open", label: "展开：五种类型各一个", input: {props: {raw: PROPERTIES_SAMPLE}, model: {open: true}}},
+            {id: "closed", label: "收起：一行摘要", input: {props: {raw: PROPERTIES_SAMPLE}, model: {open: false}}},
+            {id: "complex", label: "表示不了的属性", input: {props: {raw: `${PROPERTIES_SAMPLE.slice(0, -4)}人物关系:\n  林雪: 姐妹\n  沈舟: 旧识\n---\n`}, model: {open: true}}},
+            {id: "error", label: "YAML 写错", input: {props: {raw: "---\n视角: 林雪\n时间: 2025-12-21\n地点: [青石镇, 北山\n字数目标: 4000\n---\n"}, model: {open: false}}},
+            {id: "empty", label: "没有属性", input: {props: {raw: "---\n---\n"}, model: {open: true}}},
+            {id: "long", label: "很长的名字与值", input: {props: {raw: "---\n这一章里出场的所有人物与他们的别名: [林雪, 雪儿, 沈舟, 舟哥, 掌柜, 渡口的船夫, 北山的猎户]\n一句很长的提要: 雪是后半夜落下来的，林雪推开客栈的窗，镇子已经白了一层，石板路上只剩一行脚印\n---\n"}, model: {open: true}}},
+            {id: "readonly", label: "只读", input: {props: {raw: PROPERTIES_SAMPLE, readonly: true}, model: {open: true}}},
+            {id: "english", label: "英文界面", input: {props: {raw: "---\npov: Lin Xue\ndate: 2025-12-21\nplaces: [Qingshi, North Hill]\nword goal: 4000\nfinal: false\n---\n"}, model: {open: false}}},
+        ],
+        load: async () => withMarkdownSceneText(createSubjectFixture<typeof MarkdownProperties>((await import("@notnotype/nb-markdown/editor")).MarkdownProperties, {
+            events: ["commit", "update:open", "leave"],
+            writeBack: {commit: {layer: "props", key: "raw"}},
+            class: "w-full max-w-[720px]",
         })),
     }),
     defineLabFixture<typeof MarkdownImage>({

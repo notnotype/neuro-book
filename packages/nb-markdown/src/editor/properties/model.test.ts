@@ -9,7 +9,7 @@ import fc from "fast-check";
 import {isMap, isScalar, parseDocument} from "yaml";
 
 import {isWholeFrontmatter} from "../../language/codec/source";
-import {addProperty, convertKind, readProperties, removeProperty, renameProperty, writeValue} from "./model";
+import {addProperty, convertKind, readProperties, removeProperty, renameProperty, replaceYaml, writeValue, yamlOf} from "./model";
 import type {EditableValue, PropertyRow} from "./model";
 
 const seed = Number(process.env.MARKDOWN_PROPERTY_SEED ?? 20261116);
@@ -48,7 +48,7 @@ describe("读：按值推断类型", () => {
         expect(read.map((row) => [row.name, row.kind])).toEqual([
             ["a", "complex"], ["c", "complex"], ["d", "complex"], ["e", "complex"], ["f", "complex"], ["g", "complex"], ["h", "complex"], ["<<", "complex"], ["k", "complex"], ["i", "complex"], ["j", "text"], ["l", "complex"], ["m", "complex"], ["o", "complex"],
         ]);
-        expect(read.find((row) => row.name === "a")).toMatchObject({kind: "complex", source: "a:\n  b: 1", line: 2});
+        expect(read.find((row) => row.name === "a")).toMatchObject({kind: "complex", source: "b: 1", line: 2});
     });
 
     it("键是数字、布尔时显示成字符串；行号按整段原文数", () => {
@@ -154,6 +154,22 @@ describe("改名、删除、添加", () => {
         expect(addProperty(fm("a: 1"), "")).toBeNull();
         expect(addProperty("---\n---\n", "yes")).toBe(fm("\"yes\":"));
         expect(addProperty(fm("a: 1", "a: 2"), "b")).toBeNull();
+    });
+});
+
+describe("源码区", () => {
+    it("显示开栏与闭栏之间的 YAML，换行是 \\n；写回时开栏、闭栏原样，换行符换回原文的，最后一行补换行", () => {
+        const crlf = "---  \r\na: 1\r\n# 注\r\n---\r\n";
+        expect(yamlOf(crlf)).toBe("a: 1\n# 注\n");
+        expect(replaceYaml(crlf, "a: 2\n# 注")).toBe("---  \r\na: 2\r\n# 注\r\n---\r\n");
+        expect(replaceYaml(fm("a: 1"), "")).toBe("---\n---\n");
+        expect(yamlOf("---\n---")).toBe("");
+        expect(replaceYaml("---\na: 1\n---", "b: 2")).toBe("---\nb: 2\n---");
+    });
+
+    it("YAML 里有独占一行的 --- 时写不回；YAML 写错照样写回", () => {
+        expect(replaceYaml(fm("a: 1"), "a: 1\n---\nb: 2\n")).toBeNull();
+        expect(replaceYaml(fm("a: 1"), "a: [1\n")).toBe(fm("a: [1"));
     });
 });
 
