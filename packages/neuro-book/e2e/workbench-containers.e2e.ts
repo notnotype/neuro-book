@@ -282,7 +282,7 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         for (const row of middle) expect([row.gapHit, row.cornerHit, row.innerHit]).toEqual([false, false, true]);
     });
 
-    test("活动栏与只有一节的侧栏相连：隐藏侧栏时两张卡片一直贴着缩回去，活动栏相接的两个角同时变圆，缩到零才留出缝；显示时一开始就相连，角随侧栏长出来变直（ui/workbench-layout 输出 19）", async ({page}) => {
+    test("活动栏与只有一节的侧栏相连：隐藏、显示时两张卡片画成一张，侧栏右边的两个圆角跟着它的右沿走，缩到零时正好成了活动栏的角；中间一直不露缝（ui/workbench-layout 输出 19）", async ({page}) => {
         await page.emulateMedia({reducedMotion: "no-preference"});
         await open(page);
         const moving = page.locator("[data-workbench-surface] [data-moving]");
@@ -292,59 +292,111 @@ test.describe("切换容器与拖到零（验收 24、28）", () => {
         const section = await sectionOf(page, A);
         await expect(bar).toHaveAttribute("data-shell-join", "start");
         await expect(page.locator(`[data-shell-card="${section}"]`)).toHaveAttribute("data-shell-join", "end");
-        // 卡片的圆角：没有相连的那一边就是它。
-        const full = await bar.evaluate((element) => Number.parseFloat(getComputedStyle(element).borderTopLeftRadius));
-        expect(full).toBeGreaterThan(4);
-        /** 点一下入口，逐帧记这一节外框的宽度、活动栏右上角的圆角、活动栏右边到这一节左边的缝、相连的短线在不在，直到网格的过渡结束。 */
-        const film = () => page.evaluate(async ({selector, leafId}) => {
-            const rows: Array<{width: number; radius: number; gap: number; seam: boolean; barJoin: string | null}> = [];
-            const card = document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!;
-            document.querySelector<HTMLElement>(selector)!.click();
-            for (let frame = 0; frame < 90; frame += 1) {
-                await new Promise((resolve) => requestAnimationFrame(resolve));
-                const leafBox = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`)?.getBoundingClientRect();
-                rows.push({
-                    width: leafBox?.width ?? 0,
-                    radius: Number.parseFloat(getComputedStyle(card).borderTopRightRadius),
-                    gap: leafBox === undefined ? Number.NaN : leafBox.left - card.getBoundingClientRect().right,
-                    seam: card.hasAttribute("data-shell-join-seam"),
-                    barJoin: card.dataset.shellJoin ?? null,
-                });
-                if (frame > 2 && document.querySelector("[data-workbench-surface] [data-moving]") === null) break;
-            }
-            return rows;
-        }, {selector: `[data-tool-entry="view:${A}"]`, leafId: section});
+        // 放慢到 6 秒，点下去之后把页面上的过渡都停住、拨到指定的时刻再截图：同一时刻量矩形、看像素。网格自己的计时按这个时长，6 秒内看完。
+        await page.addStyleTag({content: ":root { --motion-layout: 6000ms !important; }"});
+        const duration = 6000;
+        const card = await bar.boundingBox();
+        expect(card).not.toBeNull();
+        const top = card!.y, bottom = card!.y + card!.height, middle = card!.y + card!.height / 2;
 
-        // 隐藏（按拖到零画）：这一节还有宽度的每一帧，两张卡片贴着（没有缝、短线还在）；按这一刻的布局算的话第一帧就让出缝了。
-        // 活动栏的角同时往圆角走：缩的途中有一帧是半圆，一直不往回走，这一节缩到零时已经接近圆角（同一个时长与曲线），不是缩完才开始变圆。
-        const hiding = await film();
-        const shrinking = hiding.filter((row) => row.width > 0);
-        expect(shrinking.length).toBeGreaterThan(2);
-        for (const row of shrinking) {
-            expect(Math.abs(row.gap)).toBeLessThanOrEqual(1);
-            expect(row.seam).toBe(true);
+        /** 截一张活动栏到侧栏右边的图，读几个点的颜色（在页面里解码，不加依赖）。 */
+        const colorsAt = async (points: ReadonlyArray<readonly [number, number]>): Promise<number[][]> => {
+            const clip = {x: 0, y: top - 4, width: 520, height: bottom - top + 8};
+            const png = await page.screenshot({clip});
+            return page.evaluate(async ({data, points, clip}) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${data}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext("2d")!;
+                context.drawImage(image, 0, 0);
+                return points.map(([x, y]) => [...context.getImageData(Math.floor(x - clip.x), Math.floor(y - clip.y), 1, 1).data].slice(0, 3));
+            }, {data: png.toString("base64"), points, clip});
+        };
+        const near = (a: number[] | undefined, b: number[] | undefined): boolean => a !== undefined && b !== undefined && a.every((value, index) => Math.abs(value - (b[index] ?? 0)) <= 6);
+        // 窗体底：活动栏左边那条整缝；卡片底：活动栏里中间一行的空处。
+        const [ground, surface] = await colorsAt([[card!.x - 2, middle], [card!.x + 4, middle]]);
+        expect(near(ground, surface)).toBe(false);
+
+        /** 点一下入口，过渡停在这几个时刻：每个时刻量活动栏卡片、这一节外框的矩形，读短线的状态与几处像素。 */
+        const sample = async (fractions: readonly number[]) => {
+            await page.evaluate((selector) => {
+                document.querySelector<HTMLElement>(selector)!.click();
+            }, `[data-tool-entry="view:${A}"]`);
+            await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            const rows = [];
+            for (const fraction of fractions) {
+                const at = await page.evaluate(({fraction, duration, leafId}) => {
+                    for (const animation of document.getAnimations()) {
+                        animation.pause();
+                        animation.currentTime = fraction * duration;
+                    }
+                    const barBox = document.querySelector('[data-shell-card="activitybar"]')!.getBoundingClientRect();
+                    const leafBox = document.querySelector(`[data-workbench-surface] > [data-grid-scope] > [data-leaf="${leafId}"]`)?.getBoundingClientRect();
+                    return {barRight: barBox.right, leafLeft: leafBox?.left ?? Number.NaN, leafRight: leafBox?.right ?? Number.NaN, cap: document.querySelector<HTMLElement>('[data-shell-card="activitybar"]')!.dataset.shellCap ?? null};
+                }, {fraction, duration, leafId: section});
+                const capRight = at.leafRight - 2;
+                const [barCorner, gap, capCorner, ...row] = await colorsAt([
+                    [at.barRight - 1.5, top + 1.5],
+                    [at.barRight + 1, middle],
+                    [capRight - 1.5, top + 1.5],
+                    // 中间一行，从活动栏右边一点到侧栏外框的左边（侧栏的内容在外框里往左滑，不量它）。
+                    ...Array.from({length: Math.max(0, Math.floor(Math.min(capRight - 3, at.leafLeft - 1) - (at.barRight - 6)))}, (_, index) => [at.barRight - 6 + index, middle] as const),
+                ]);
+                rows.push({...at, width: at.leafRight - at.leafLeft, barCorner, gap, capCorner, row});
+            }
+            await page.evaluate(() => {
+                for (const animation of document.getAnimations()) {
+                    if (animation.effect?.getComputedTiming().endTime === Number.POSITIVE_INFINITY) animation.play();
+                    else animation.finish();
+                }
+            });
+            return rows;
+        };
+
+        // 隐藏：活动栏一开始就是断开的样子（右边留半缝、角是圆的），但它的角和半缝被侧栏伸过来的那一截盖着，看到的是一张卡片；
+        // 侧栏右上角一直是圆的，跟着右沿往左走。
+        const hiding = await sample([0.04, 0.12, 0.3, 0.6, 0.95]);
+        for (const row of hiding) {
+            expect(near(row.capCorner, ground)).toBe(true);
+            for (const pixel of row.row) expect(near(pixel, surface)).toBe(true);
+            if (row.width >= 20) {
+                expect(near(row.barCorner, surface)).toBe(true);
+                expect(near(row.gap, surface)).toBe(true);
+            }
         }
-        expect(shrinking.some((row) => row.radius > 0.5 && row.radius < full - 0.5)).toBe(true);
-        for (const [index, row] of hiding.entries()) if (index > 0) expect(row.radius).toBeGreaterThanOrEqual((hiding[index - 1]?.radius ?? 0) - 0.01);
-        const zeroAt = hiding.findIndex((row) => row.width === 0);
-        expect(zeroAt).toBeGreaterThan(0);
-        expect(hiding[zeroAt]?.radius ?? 0).toBeGreaterThanOrEqual(full - 1.5);
+        expect(hiding.map((row) => row.cap)).toEqual(hiding.map(() => "leave"));
+        expect(hiding.filter((row) => row.width >= 20).length).toBeGreaterThanOrEqual(2);
         await expect(moving).toHaveCount(0);
         await shrunk(page, section);
         expect(await bar.getAttribute("data-shell-join")).toBeNull();
         expect(await bar.getAttribute("data-shell-join-seam")).toBeNull();
+        expect(await bar.getAttribute("data-shell-cap")).toBeNull();
+        const hidden = await bar.boundingBox();
+        const [hiddenCorner, hiddenGap] = await colorsAt([[hidden!.x + hidden!.width - 1.5, top + 1.5], [hidden!.x + hidden!.width + 1, middle]]);
+        expect(near(hiddenCorner, ground)).toBe(true);
+        expect(near(hiddenGap, ground)).toBe(true);
 
-        // 显示：长出来、有宽度的每一帧都相连、贴着；角随它长出来变直，途中有一帧是半圆。
-        const showing = await film();
-        const growing = showing.filter((row) => row.width > 0);
-        expect(growing.length).toBeGreaterThan(2);
-        for (const row of growing) {
-            expect(row.barJoin).toBe("start");
-            expect(Math.abs(row.gap)).toBeLessThanOrEqual(1);
+        // 显示：倒过来。长着的每一刻同样是一张卡片，侧栏右上角是圆的；长完了换回相连的画法，活动栏右上角是直的。
+        const showing = await sample([0.04, 0.12, 0.3, 0.6, 0.95]);
+        for (const row of showing) {
+            expect(near(row.capCorner, ground)).toBe(true);
+            for (const pixel of row.row) expect(near(pixel, surface)).toBe(true);
+            if (row.width >= 20) {
+                expect(near(row.barCorner, surface)).toBe(true);
+                expect(near(row.gap, surface)).toBe(true);
+            }
         }
-        expect(growing.some((row) => row.radius > 0.5 && row.radius < full - 0.5)).toBe(true);
+        expect(showing.map((row) => row.cap)).toEqual(showing.map(() => "enter"));
         await expect(moving).toHaveCount(0);
-        await expect.poll(() => bar.evaluate((element) => Number.parseFloat(getComputedStyle(element).borderTopRightRadius))).toBe(0);
+        await expect(bar).toHaveAttribute("data-shell-join", "start");
+        await expect(bar).toHaveAttribute("data-shell-join-seam", "");
+        expect(await bar.getAttribute("data-shell-cap")).toBeNull();
+        const shown = await bar.boundingBox();
+        const [shownCorner] = await colorsAt([[shown!.x + shown!.width - 1.5, top + 1.5]]);
+        expect(near(shownCorner, surface)).toBe(true);
     });
 
     test("底部面板隐藏、显示：作为一块从底边缩下去、长上来，隐藏时缩到零（按拖到零画），过渡中不可交互、还画着；每一帧内容都紧贴面板头下面，不落后、不压住它（ui/nested-grid 的过渡与内容层）", async ({page}) => {

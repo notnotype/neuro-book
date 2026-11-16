@@ -196,7 +196,15 @@ const cards = computed<Readonly<Record<string, CardEdges>>>(() => {
 const leafIdsOf = (node: GridNodeInput<string>): string[] => (node.kind === "leaf" ? [node.id] : node.children.flatMap(leafIdsOf));
 const presentedLeaves = computed(() => new Set(leafIdsOf(props.projection.input)));
 const outgoingLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.outgoingLeaves ?? new Set());
+const shapedLeaves = computed<ReadonlySet<string>>(() => gridEl.value?.shapedLeaves ?? new Set());
+/** 上一次发布的布局里各块的尺寸：面板是不是从零宽长出来的（`capLeaf`）。 */
+const sizesBefore = shallowRef<Readonly<Record<string, GridExtent>>>({});
+watch(() => host.layout.value.sizes, (_next, previous) => {
+    sizesBefore.value = previous ?? {};
+}, {flush: "sync"});
 const lastPresented = {cards: new Map<string, CardEdges>(), scene: new Map<string, PanelName>()};
+/** 活动栏最近一次没和面板相连时右边的样子：面板长出来的这段活动栏照这个画（`cardOf`）。 */
+let separatedBarRight: CardEdges["right"] = {kind: "inner", occupied: 0};
 watch([cards, sceneCorners, presentedLeaves], ([nextCards, nextScene, presented]) => {
     const sizes = preview.value ?? host.layout.value.sizes;
     for (const id of presented) {
@@ -209,6 +217,8 @@ watch([cards, sceneCorners, presentedLeaves], ([nextCards, nextScene, presented]
         if (scene === undefined) lastPresented.scene.delete(id);
         else lastPresented.scene.set(id, scene);
     }
+    const bar = nextCards[ACTIVITY_BAR];
+    if (bar !== undefined && bar.right.kind !== "joined") separatedBarRight = bar.right;
 }, {immediate: true, flush: "sync"});
 /**
  * 不在呈现里、也不在缩回去的叶，最后一次的记录用不上了：编辑组每次拆分都是新 id，不清就一直长。等 `NestedGrid` 判完过渡再清（`post`）：
@@ -219,50 +229,77 @@ watch([presentedLeaves, outgoingLeaves], ([presented, outgoing]) => {
         for (const id of records.keys()) if (!presented.has(id) && !outgoing.has(id)) records.delete(id);
     }
 }, {flush: "post"});
-/**
- * 和活动栏相连的工具面板隐藏、在过渡里缩回去时（docs/specs/ui/workbench-layout.md 输出 19），活动栏照旧贴着它、不留缝：两张卡片作为一张缩回去，缩完
- * 才留出缝。按这一刻的布局算的话活动栏第一帧就断开了（拖到零不相连），第一帧就让出缝，而缩回去的面板还是相连的样子，贴着它的那边是直的。相连只在活动栏和它右边的工具面板之间，
- * 所以缩回去的叶最后一次有尺寸时左边相连，就是和活动栏连着。
- * 留着的只是缝（`insetOf`）：活动栏相接的两个角按这一刻的布局，隐藏一开始就往圆角过渡，和面板缩回去同时走完，正好是显示时的倒放（`joinOf`）。
- */
+
 const drawnAsBefore = (id: string): boolean => !presentedLeaves.value.has(id) || outgoingLeaves.value.has(id);
-const barJoinHeld = computed(() => [...outgoingLeaves.value].some((id) => lastPresented.cards.get(id)?.left.kind === "joined"));
-/** 这块卡片的四边：离开的叶用最后一次呈现的。`holdBarJoin`：缩回去的面板还和活动栏连着时，活动栏右边仍算相连（只给缝用）。 */
-function cardOf(id: string, holdBarJoin: boolean): CardEdges | undefined {
-    if (drawnAsBefore(id)) return lastPresented.cards.get(id) ?? cards.value[id];
-    const card = cards.value[id];
-    return holdBarJoin && id === ACTIVITY_BAR && card !== undefined && barJoinHeld.value ? {...card, right: {kind: "joined"}} : card;
-}
+/** 这块卡片按呈现算的四边：缩回去的叶用最后一次有尺寸时的。 */
+const edgesOf = (id: string): CardEdges | undefined => (drawnAsBefore(id) ? lastPresented.cards.get(id) ?? cards.value[id] : cards.value[id]);
 const sceneOf = (id: string): PanelName | undefined => (drawnAsBefore(id) ? lastPresented.scene.get(id) : sceneCorners.value.get(id));
 
+/**
+ * 侧栏的角接过去（docs/specs/ui/workbench-layout.md 输出 19，开发者 2026-11-16 在 t25 的 join-motion 评审页上选丙）：和活动栏相连的工具面板
+ * 隐藏缩回去、显示长出来的这段（外框按卡片裁，`shapedLeaves`），两张卡片画成一张、右边那两个圆角跟着面板的右沿走。做法：
+ * - 活动栏照断开的样子画（右边留半缝、四个角都圆）：显示时用它上一次断开时的右边（`separatedBarRight`），隐藏时这一刻的布局本来就是断开的；
+ * - 面板的形状往左伸到活动栏右边那个圆角起头的地方，左边两个角是直的，伸出去的部分是活动栏的底色、压在活动栏下面（`GridLeafShape.fill`），
+ *   盖住活动栏的圆角与半缝，只在它们空着的地方露出来，活动栏的图标与悬停底色照旧在上面；
+ * - 面板右边的两个圆角跟着外框的右沿：缩到零时正好落在活动栏右边，成了活动栏的两个角，摘掉面板后画面不变；显示时反过来，长完了换回相连的画法，画面同样不变。
+ * 所以活动栏的角不过渡：断开、相连的那一刻它的角都被盖着。中间那条短线随着淡出（隐藏）、淡入（显示）。
+ * 只认横着缩回去、长出来的：显示要求面板在上一次布局里没有宽度。切换容器时换上来的一节是从上往下长的，活动栏前后都相连，不换画法（换的话图标会左右挪一下）。
+ */
+const capLeaf = computed<string | null>(() => [...shapedLeaves.value].find((id) => {
+    if (id === ACTIVITY_BAR || edgesOf(id)?.left.kind !== "joined") return false;
+    return drawnAsBefore(id) || (sizesBefore.value[id]?.width ?? 0) <= 0;
+}) ?? null);
+
+/** 这块卡片的四边：离开的叶用最后一次呈现的；面板的角接过去的这段，活动栏照断开的样子。 */
+function cardOf(id: string): CardEdges | undefined {
+    const card = edgesOf(id);
+    if (id !== ACTIVITY_BAR || card === undefined || capLeaf.value === null || card.right.kind !== "joined") return card;
+    return {...card, right: separatedBarRight};
+}
+
 function insetOf(id: string): Record<string, string> {
-    const edges = cardOf(id, true);
+    const edges = cardOf(id);
     return edges === undefined ? {} : {padding: [edges.top, edges.right, edges.bottom, edges.left].map(cardInset).join(" ")};
 }
 
 /** 活动栏与工具面板相连时，相接的一侧不圆（活动栏是 start，面板是 end）；不留缝的是 `insetOf`。 */
 function joinOf(id: string): "start" | "end" | undefined {
-    const edges = cardOf(id, false);
+    const edges = cardOf(id);
     if (edges?.right.kind === "joined") return "start";
     if (edges?.left.kind === "joined") return "end";
     return undefined;
 }
 
-/** 活动栏和右边的工具面板之间那条短线：跟着缝走（`insetOf`），两张卡片还贴着就画，缩完才和缝一起没。 */
-const barSeamOf = (id: string): "" | undefined => (id === ACTIVITY_BAR && cardOf(id, true)?.right.kind === "joined" ? "" : undefined);
+/** 面板的角接过去的这段（`capLeaf`），只写在活动栏上：隐藏是 `leave`，显示是 `enter`。 */
+function capOf(id: string): "enter" | "leave" | undefined {
+    const cap = capLeaf.value;
+    if (id !== ACTIVITY_BAR || cap === null) return undefined;
+    return drawnAsBefore(cap) ? "leave" : "enter";
+}
+
+/** 活动栏和右边的工具面板之间那条短线：相连时画，面板的角接过去的这段也画（随着淡出、淡入，见 `capOf`）。 */
+const barSeamOf = (id: string): "" | undefined => (id === ACTIVITY_BAR && (capLeaf.value !== null || cardOf(id)?.right.kind === "joined") ? "" : undefined);
 
 /**
  * 卡片在外框里的形状（NestedGrid 的 `leafShape`）：过渡中外框露出、盖住保持尺寸的面板时按它裁，露出来的一截是一张完整的卡片。
  * 和 `insetOf`、`joinOf` 同一来源，离开的叶用最后一次呈现的；相连的一侧不圆。圆角按物理方向给（工作台只有从左到右）。
+ * 面板的角接过去的这段，面板往左伸过活动栏的半缝与一个圆角（见 `capLeaf`）。
  */
 function shapeOf(id: string): GridLeafShape | undefined {
-    const edges = cardOf(id, true);
+    const edges = cardOf(id);
     if (edges === undefined || PLAIN.has(id)) return undefined;
     const round = "var(--shell-card-radius, 0px)";
     const join = joinOf(id);
     const left = join === "end" ? "0px" : round;
     const right = join === "start" ? "0px" : round;
-    return {inset: [cardInset(edges.top), cardInset(edges.right), cardInset(edges.bottom), cardInset(edges.left)], radius: [left, right, right, left]};
+    const inset = [cardInset(edges.top), cardInset(edges.right), cardInset(edges.bottom), cardInset(edges.left)] as const;
+    const bar = id === capLeaf.value ? cardOf(ACTIVITY_BAR) : undefined;
+    if (bar === undefined) return {inset, radius: [left, right, right, left]};
+    return {
+        inset: [inset[0], inset[1], inset[2], `calc(-1 * (${round} + ${cardInset(bar.right)}))`],
+        radius: ["0px", right, right, "0px"],
+        fill: "var(--skin-activitybar-surface, var(--panel-surface))",
+    };
 }
 
 function findBranch(node: GridNodeInput<string>, id: string): GridBranchInput<string> | null {
@@ -371,6 +408,7 @@ defineExpose({
                         :data-shell-card="node.id"
                         :data-shell-join="joinOf(node.id)"
                         :data-shell-join-seam="barSeamOf(node.id)"
+                        :data-shell-cap="capOf(node.id)"
                         :data-shell-slot="node.id === slotPanel ? '' : undefined"
                         :data-panel-role="roleOf(node.id) ?? undefined"
                         :data-panel-name="sceneOf(node.id)"
@@ -468,11 +506,6 @@ defineExpose({
     overflow: hidden;
     border-radius: var(--shell-card-radius, 0px);
     box-shadow: var(--shell-card-shadow, none);
-    /*
-     * 相连、断开时相接的两个角在直角与圆角之间过渡（开发者 2026-11-13）：显示侧栏时活动栏的角随侧栏长出来变直，隐藏时随侧栏缩回去变圆
-     * （开发者 2026-11-16：原来等缩完才变圆，像慢了一拍）。和网格的过渡同一个时长与曲线，所以同时走完；减少动效时为 0。
-     */
-    transition: border-radius var(--motion-layout) var(--ease-layout);
 }
 
 .workbench-surface__card[data-panel-role] {
@@ -505,6 +538,34 @@ defineExpose({
     width: var(--border-w);
     background: var(--shell-join-divider, transparent);
     pointer-events: none;
+}
+
+/*
+ * 面板的角接过去的这段（`capOf`）：活动栏不画投影，伸过来的那一截压在它下面，投影会在上面描出它的右边与圆角（面板的投影这期间也裁掉了，结束时一起出现）；
+ * 短线隐藏时淡出、显示时淡入，和网格的过渡同一个时长与曲线，减少动效时时长为 0、直接到位。
+ */
+.workbench-surface__card[data-shell-cap] {
+    box-shadow: none;
+}
+
+.workbench-surface__card[data-shell-cap="enter"]::after {
+    animation: workbench-surface-seam-in var(--motion-layout) var(--ease-layout) both;
+}
+
+.workbench-surface__card[data-shell-cap="leave"]::after {
+    animation: workbench-surface-seam-out var(--motion-layout) var(--ease-layout) both;
+}
+
+@keyframes workbench-surface-seam-in {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes workbench-surface-seam-out {
+    to {
+        opacity: 0;
+    }
 }
 
 /*
@@ -577,8 +638,6 @@ defineExpose({
     overflow: hidden;
     border-end-start-radius: var(--shell-card-radius, 0px);
     border-end-end-radius: var(--shell-card-radius, 0px);
-    /* 同卡片的角：相连、断开时跟卡片一起过渡。 */
-    transition: border-radius var(--motion-layout) var(--ease-layout);
 }
 
 /* 飞行中压在别的面板上面（输出 15）：内容平时透明，露出卡片的底与场景图；飞的时候离开了卡片，要自己带底，不和下面的字叠在一起。 */
