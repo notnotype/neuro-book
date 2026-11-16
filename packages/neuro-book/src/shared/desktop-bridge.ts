@@ -60,9 +60,14 @@ export const ZoomLevelSchema = Type.Union([
 ]);
 export type ZoomLevel = Static<typeof ZoomLevelSchema>;
 
+/** 关掉最后一个窗口时（desktop-shell 输出 28、29）：退出 NeuroBook，或留在系统托盘、服务继续运行。 */
+export const CloseLastWindowSchema = Type.Union([Type.Literal("quit"), Type.Literal("tray")]);
+export type CloseLastWindow = Static<typeof CloseLastWindowSchema>;
+
 export const DesktopSettingValuesSchema = Type.Object({
     zoom: ZoomLevelSchema,
     openAtLogin: Type.Boolean(),
+    closeLastWindow: CloseLastWindowSchema,
 }, {additionalProperties: false});
 export type DesktopSettingValues = Static<typeof DesktopSettingValuesSchema>;
 

@@ -8,7 +8,7 @@ import {Type} from "typebox";
 
 import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/contracts";
 import type {WrittenSettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
-import {ZoomLevelSchema} from "nbook/shared/desktop-bridge";
+import {CloseLastWindowSchema, ZoomLevelSchema} from "nbook/shared/desktop-bridge";
 import type {ZoomLevel} from "nbook/shared/desktop-bridge";
 import {defineSettings} from "nbook/shared/settings";
 
@@ -50,6 +50,23 @@ export const {settings: desktopSettings, contributions: desktopSettingContributi
         layers: ["user"],
         section: DESKTOP_WINDOW_SECTION,
         order: 20,
+    },
+    // 壳读的是页面交来的值（desktop-shell 输出 28、29），改了立刻对下一次关最后一个窗口生效。
+    closeLastWindow: {
+        schema: CloseLastWindowSchema,
+        default: "quit",
+        title: {"zh-CN": "关掉最后一个窗口时", "en-US": "When the last window closes"},
+        description: {
+            "zh-CN": "留在托盘时，注销或关机会由系统结束 NeuroBook，只保证已保存的内容。",
+            "en-US": "While NeuroBook stays in the tray, signing out or shutting down lets Windows end it; only saved content is guaranteed.",
+        },
+        choices: [
+            {value: "quit", title: {"zh-CN": "退出 NeuroBook", "en-US": "Quit NeuroBook"}},
+            {value: "tray", title: {"zh-CN": "留在系统托盘（服务继续运行）", "en-US": "Stay in the system tray (the service keeps running)"}},
+        ],
+        layers: ["user"],
+        section: DESKTOP_WINDOW_SECTION,
+        order: 30,
     },
 });
 

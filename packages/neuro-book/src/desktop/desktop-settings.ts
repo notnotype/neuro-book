@@ -1,7 +1,8 @@
 /**
  * 壳这一侧的桌面专属设置（docs/specs/runtime/desktop-shell.md 的“桌面专属设置”）。设置的拥有者是服务端的 `nbook.settings`，值由
- * 页面交来（`desktop-settings` 消息）；壳只把最后收到的值存成缓存，用途只有一个：下次启动时，在页面交来值之前先用上次的缩放。
- * 缓存不是设置：读不到、坏了、形状不对都按缺省，页面就绪后按页面交来的值纠正。
+ * 页面交来（`desktop-settings` 消息）；壳只把最后收到的值存成缓存，用途是下次启动时，在页面交来值之前先用上次的值（缩放、
+ * 关掉最后一个窗口时的去向）。缓存不是设置：读不到、坏了按缺省；逐项判断，缺的项（上一版的缓存没有它）或不合法的项取缺省，
+ * 其余照用。页面就绪后按页面交来的值纠正。
  */
 
 import {mkdir, readFile, rename, writeFile} from "node:fs/promises";
@@ -13,9 +14,15 @@ import {DesktopSettingValuesSchema} from "../shared/desktop-bridge";
 import type {DesktopSettingValues} from "../shared/desktop-bridge";
 
 /** 页面还没交来值、也没有缓存时用的值，与 `nbook.desktop` 各项的缺省一致。 */
-export const DEFAULT_DESKTOP_SETTINGS: DesktopSettingValues = Object.freeze({zoom: 1, openAtLogin: false});
+export const DEFAULT_DESKTOP_SETTINGS: DesktopSettingValues = Object.freeze({zoom: 1, openAtLogin: false, closeLastWindow: "quit"});
 
-/** 读缓存：没有时 `values` 为 null；读不了或内容不合法时也为 null，并交回原因（壳写日志）。 */
+type DesktopSettingKey = keyof DesktopSettingValues;
+const DESKTOP_SETTING_KEYS = Object.keys(DEFAULT_DESKTOP_SETTINGS) as DesktopSettingKey[];
+
+/**
+ * 读缓存：没有时 `values` 为 null、没有原因；读不了或不是 JSON 对象时也为 null，交回原因（壳写日志）。是对象时逐项取值：
+ * 不合法的项取缺省并在原因里列出；缺的项取缺省、不算问题（升级后第一次启动，缓存是上一版写的）；多出来的键不理。
+ */
 export async function readDesktopSettingsCache(file: string): Promise<{readonly values: DesktopSettingValues | null; readonly problem: string | null}> {
     let text: string;
     try {
@@ -24,13 +31,25 @@ export async function readDesktopSettingsCache(file: string): Promise<{readonly 
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return {values: null, problem: null};
         return {values: null, problem: `cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`};
     }
+    let parsed: unknown;
     try {
-        const parsed: unknown = JSON.parse(text);
-        if (Value.Check(DesktopSettingValuesSchema, parsed)) return {values: parsed, problem: null};
-        return {values: null, problem: `${file} does not hold desktop settings`};
+        parsed = JSON.parse(text);
     } catch (error) {
         return {values: null, problem: `${file} is not JSON: ${error instanceof Error ? error.message : String(error)}`};
     }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {values: null, problem: `${file} does not hold desktop settings`};
+    const stored = parsed as Partial<Record<DesktopSettingKey, unknown>>;
+    const values: Record<string, unknown> = {};
+    const invalid: string[] = [];
+    for (const key of DESKTOP_SETTING_KEYS) {
+        const value = stored[key];
+        const valid = value !== undefined && Value.Check(DesktopSettingValuesSchema.properties[key], value);
+        if (value !== undefined && !valid) invalid.push(key);
+        values[key] = valid ? value : DEFAULT_DESKTOP_SETTINGS[key];
+    }
+    // 每一项都按它自己的 schema 查过、缺的补了缺省，拼出来的就是一份完整的值。
+    const result = values as DesktopSettingValues;
+    return {values: result, problem: invalid.length === 0 ? null : `${file} has invalid ${invalid.join(", ")}; using the defaults for them`};
 }
 
 /** 写一次缓存：先写临时文件再改名，中途退出不留下半份。同一个文件的写入要经 `createDesktopSettingsCacheWriter` 串行。 */
@@ -55,9 +74,9 @@ export function createDesktopSettingsCacheWriter(file: string, failed: (error: u
     };
 }
 
-/** 两份值是否相同（壳据此去重：几个窗口会各交一次同样的值）。 */
+/** 两份值是否相同（壳据此去重：几个窗口会各交一次同样的值）。逐键比较，加了新的项不必改这里。 */
 export function sameDesktopSettings(left: DesktopSettingValues, right: DesktopSettingValues): boolean {
-    return left.zoom === right.zoom && left.openAtLogin === right.openAtLogin;
+    return DESKTOP_SETTING_KEYS.every((key) => left[key] === right[key]);
 }
 
 /** 开机自启（`openAtLogin`）在注册表 Run 项上该做什么的依据。 */

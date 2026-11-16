@@ -108,7 +108,11 @@ export function createZoomController(options: ZoomControllerOptions): ZoomContro
     const {settings} = options;
     let target: ZoomLevel | null = null;
     let cancel: (() => void) | null = null;
-    const values = (): DesktopSettingValues => ({zoom: target ?? settings.get(desktopSettings.zoom), openAtLogin: settings.get(desktopSettings.openAtLogin)});
+    const values = (): DesktopSettingValues => ({
+        zoom: target ?? settings.get(desktopSettings.zoom),
+        openAtLogin: settings.get(desktopSettings.openAtLogin),
+        closeLastWindow: settings.get(desktopSettings.closeLastWindow),
+    });
     const write = async (): Promise<void> => {
         cancel = null;
         const wanted = target;

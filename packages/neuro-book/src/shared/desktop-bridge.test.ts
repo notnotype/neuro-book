@@ -63,6 +63,14 @@ describe("桌面桥", () => {
         for (const bad of [{type: "window-state"}, {type: "window-state", maximized: "yes"}]) expect(parseShellMessage(bad)).toBeNull();
     });
 
+    it("桌面设置的值：三项齐全才收下；缺一项、多一项、关窗去向不认识的值都丢弃", () => {
+        const values = {zoom: 1.25, openAtLogin: false, closeLastWindow: "tray"} as const;
+        expect(parsePageMessage({type: "desktop-settings", values})).toEqual({type: "desktop-settings", values});
+        for (const bad of [{zoom: 1.25, openAtLogin: false}, {...values, closeLastWindow: "hide"}, {...values, extra: 1}]) {
+            expect(parsePageMessage({type: "desktop-settings", values: bad})).toBeNull();
+        }
+    });
+
     it("页面一侧：只把形状对的事件交给处理器；停止监听后不再收到", () => {
         const global = page();
         const seen: ShellMessage[] = [];
