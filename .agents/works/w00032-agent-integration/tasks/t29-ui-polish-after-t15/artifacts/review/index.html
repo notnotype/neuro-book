@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>t29 第 5 轮：模型不可用的提示怎么统一、怎么进子会话</title>
+<title>t29 第 6 轮：管理当前会话的子代理</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -33,49 +33,30 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>t29 第 5 轮：模型不可用的提示怎么统一、怎么进子会话</h1>
+<h1>t29 第 6 轮：管理当前会话的子代理</h1>
 
-<section>
-  <h2>应用里现在的警告写法</h2>
-  <table>
-    <thead><tr><th>写法</th><th>用在哪</th><th>样子</th></tr></thead>
-    <tbody>
-      <tr><td>nb-ui 的 <code>Banner</code></td><td>编辑组：文件被删、磁盘上改了、冲突、保存失败</td><td>内容最上面满宽一条，色调底、图标、一句话、右边动作按钮，下沿一条线；持续的状态，问题解决才消失</td></tr>
-      <tr><td><code>SettingsNotice</code></td><td>设置窗口标题区“设置文件格式有误”、Profile 设置页头部的能力缺口</td><td>一个控件高的淡底描边小块，放在已有的一行里</td></tr>
-      <tr><td>输入框上方一行灰字</td><td>对话：模型不可用、发送被拒、压缩被拒</td><td>信息图标加一句话，没有色调</td></tr>
-      <tr><td>消息里的红块</td><td>对话：这一轮出错</td><td>回复位置一块红底</td></tr>
-    </tbody>
-  </table>
-  <div class="ref"><img src="r5/editor-banner.webp" alt="编辑组的横幅：磁盘上的文件已被修改，重新载入、用我的覆盖"><p>编辑组的横幅（Lab 里的同一个组件）。</p></div>
-</section>
-
-<section data-nbdev-question="notice-style" data-nbdev-type="single" data-nbdev-recommend="banner-top">
-  <h2>“模型不可用”改用和编辑组同一个横幅，放在哪？</h2>
-  <p class="rec"><strong>推荐 A 内容最上面：和编辑组的横幅同一个组件、同一个位置，一看就知道是“这块面板现在有问题”；输入框的占位文字同时写“绑定模型后才能发送”。</strong></p>
+<section data-nbdev-question="subagents-entry" data-nbdev-type="single" data-nbdev-recommend="head">
+  <h2>当前会话派出的子代理放在哪里看、怎么管？</h2>
+  <p class="rec"><strong>推荐 A 面板头的入口：平时只占一个小按钮（图标加个数），要你处理时有红点；点开一张浮层列出全部子代理与状态，点一行进子会话。照旧应用顶栏的“关联代理”。</strong></p>
   <div class="cands">
-    <div class="cand" data-nbdev-option="banner-top" data-nbdev-label="A 内容最上面（同编辑组）">
-      <h3>A 内容最上面（同编辑组）</h3>
-      <img src="r5/banner-top.webp" alt="面板头下面一条黄色横幅：“写作”角色还没绑定模型，去绑定">
+    <div class="cand" data-nbdev-option="head" data-nbdev-label="A 面板头的入口与浮层">
+      <h3>A 面板头的入口与浮层</h3>
+      <img src="r6/head.webp" alt="面板头右边：机器人图标、数字 5、红点">
+      <img src="r6/head-open.webp" alt="浮层：子代理 5 个，每行名字、任务、进度与状态，孙代理缩进">
+      <p>每行：子代理名与任务、最近的进度或结果、状态（等你处理、运行中、完成、出错）；孙代理缩进挂在下面。运行中的悬停出“停止”。没有子代理时入口不显示。</p>
     </div>
-    <div class="cand" data-nbdev-option="banner-bottom" data-nbdev-label="B 贴在输入框上面">
-      <h3>B 贴在输入框上面</h3>
-      <img src="r5/banner-bottom.webp" alt="输入框上面一条黄色横幅">
-      <p>挨着要打字的地方；但横幅本来是区域顶上的一节，放这里和编辑组不一致。</p>
+    <div class="cand" data-nbdev-option="tray" data-nbdev-label="B 输入框上方的托盘">
+      <h3>B 输入框上方的托盘</h3>
+      <img src="r6/tray.webp" alt="输入框上方一排胶囊：称谓检查（红点）、资料检索（转圈）、错别字（完成）、细纲（出错）">
+      <img src="r6/tray-done.webp" alt="都结束后收成一行“5 个子代理已结束 · 1 个出错”">
+      <p>跑着的一眼就看到；子代理多时占两三行，挤输入框上面的空间。</p>
     </div>
   </div>
-  <div class="cands">
-    <div class="cand"><h3>没有服务商（A 的写法）</h3><img src="r5/banner-top-no-provider.webp" alt="还没有可用的模型，添加服务商"></div>
-    <div class="cand"><h3>没有密钥（A 的写法）</h3><img src="r5/banner-top-no-key.webp" alt="DeepSeek 还没有设置密钥，设置密钥"></div>
-  </div>
-  <p>发送被拒、压缩被拒这类“刚才那一下没成”的，仍是输入框上方一行字：它们是对一次操作的回应，过一会儿就没了，不是面板的状态。</p>
-</section>
-
-<section data-nbdev-question="card-open" data-nbdev-type="confirm" data-nbdev-label="子代理卡片的卡头整行可点进子会话">
-  <h2>子代理卡片的卡头整行可点进子会话？</h2>
-  <p class="rec"><strong>推荐同意：现在只有卡头右边那个小图标能进，太小；卡头整行做成按钮，悬停时整行变色。</strong></p>
-  <div class="ref"><img src="r5/subagent-card.webp" alt="子代理卡片：卡头是 Profile 图标、名字、次数与用时、转圈、打开子会话的小图标"></div>
-  <p>别的入口不变：会话列表里子会话挂在父会话下；子会话等你批准时，父会话的停靠区里能批。进去以后面板头左边是返回：</p>
-  <div class="ref"><img src="r5/k-back-icon.webp" alt="子会话：左边只有返回图标，中间子代理图标与标题"></div>
+  <ul class="points">
+    <li>红点：有子代理（含孙代理）在等你批准或回答，或者出错了而你还没打开过它。完成的不算。</li>
+    <li>等你批准的事项照旧也在父会话的停靠区里能直接批；红点只是告诉你“这里有事”。</li>
+    <li>列的是当前会话派出的全部子代理（不只是在跑的），按派出的先后排。</li>
+  </ul>
 </section>
 
 <section>
@@ -101,7 +82,8 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>“试试这些”的指令由 Profile 声明，主创带三条（第 2 轮）</li>
     <li>面板头不写“对话”，居中写会话：左新建、中间 Profile 图标与标题、右更多与框架按钮；没选会话时写“新对话”（第 3 轮）</li>
     <li>子会话：面板头左边是返回（只有图标），中间是子代理图标与子会话标题（第 4 轮）</li>
-    <li>模型不可用的提示写明是哪个角色，按钮直达对应的设置；要和应用里别的警告统一（第 4 轮）</li>
+    <li>模型不可用的提示：写明是哪个角色，按钮直达对应的设置；用压在输入框上沿的浮层提示卡（第 4、5 轮）。编辑组的横幅以后也改（记进后续）</li>
+    <li>子代理卡片卡头整行可点：不做（第 5 轮）</li>
     <li>顶栏下、输入框上的两条横线去掉，消息在顶栏下淡出（第 1 轮）</li>
     <li>5 小时与 7 天限额留到做订阅登录时；缓存倒计时只给缓存时长明确的服务商（11-16）</li>
     <li>状态栏用勾选与插件贡献的项，不做配一条命令（11-16）</li>
