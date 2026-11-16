@@ -15,7 +15,7 @@ const usage = {contextTokens: 16_300, contextLimit: 128_000, totalTokens: 162_40
 describe("AgentStatusBar", () => {
     it("没选会话：不画上下文、用量与费用；提醒项（非默认模式、全部放行）照常", () => {
         const modes = [{key: "normal", label: "普通"}, {key: "plan", label: "计划"}];
-        const approval = {options: [{key: "ask", label: "每次询问", description: ""}, {key: "yolo", label: "全部放行", description: "", danger: true}], value: "yolo"};
+        const approval = {options: [{key: "ask", label: "每次询问", description: "", icon: "i-lucide-shield-question"}, {key: "yolo", label: "全部放行", description: "", icon: "i-lucide-triangle-alert", danger: true}], value: "yolo"};
         const view = bar(createAgentContext({usage, composer: {modes, mode: "plan", approval}}), {session: false});
         expect(view.find("[data-context-meter]").exists()).toBe(false);
         expect(view.find("[data-status-usage]").exists()).toBe(false);
