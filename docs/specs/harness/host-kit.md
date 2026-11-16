@@ -11,11 +11,11 @@ owners:
 
 ## 目标与非目标
 
-nb-harness 的宿主套件（工具、审批、压缩、守卫、会话句柄表这些宿主把内核装成产品时用的通用件）不认识任何应用的地址方案与文件服务。宿主给它一份按会话的文件访问：地址怎么改写、写哪里要另外问、本机读路径、读写、列出、哪些写属于哪次工具调用，以及以宿主身份保存大结果的全文。本 Spec 是这份接口的合同；NeuroBook 与 NeuroBot 各给一个实现，套件只经它读写。
+nb-harness 的宿主套件（工具、审批、压缩、守卫、会话句柄表、请求记录器这些宿主把内核装成产品时用的通用件）不认识任何应用的地址方案与文件服务。宿主给它一份按会话的文件访问：地址怎么改写、写哪里要另外问、本机读路径、读写、列出、哪些写属于哪次工具调用，以及以宿主身份保存大结果的全文。本 Spec 是这份接口的合同；NeuroBook 与 NeuroBot 各给一个实现，套件只经它读写。
 
 不承诺：
 
-- 套件其余各块（工具、审批、压缩、守卫、句柄表）的宿主无关行为：现在由 [`agent/builtin-tools.md`](../agent/builtin-tools.md)、[`agent/permissions.md`](../agent/permissions.md)、[`agent/compaction.md`](../agent/compaction.md)、[`agent/run-guards.md`](../agent/run-guards.md)、[`agent/sessions.md`](../agent/sessions.md) 规定，第二个宿主接入时再从中抽出写进本 Spec。
+- 套件其余各块（工具、审批、压缩、守卫、句柄表、请求记录器）的宿主无关行为：现在由 [`agent/builtin-tools.md`](../agent/builtin-tools.md)、[`agent/permissions.md`](../agent/permissions.md)、[`agent/compaction.md`](../agent/compaction.md)、[`agent/run-guards.md`](../agent/run-guards.md)、[`agent/sessions.md`](../agent/sessions.md)、[`agent/request-trace.md`](../agent/request-trace.md) 规定，第二个宿主接入时再从中抽出写进本 Spec。
 - 地址的完整语法、方案注册、读授权与写授权的规则：属于宿主的文件服务（NeuroBook 见 [`workspace/resources.md`](../workspace/resources.md) 与 [`agent/resources.md`](../agent/resources.md)）。
 - 写锁、改动记录、来源与操作分组的落点：由实现记，本 Spec 只要求写入能按调用区分（输出 8）。
 - 监视与订阅、文件操作（移动、复制、删除）、glob 与 grep：不在这份接口里，工具在 `readPath` 交回的本机路径上自己做。

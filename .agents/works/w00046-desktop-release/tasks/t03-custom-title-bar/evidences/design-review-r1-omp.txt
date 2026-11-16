@@ -1,0 +1,77 @@
+1. 严重程度：阻断；类别：不变量；位置：`plan-r1.md:23,35-38`；Electrobun 2.0.6 `src/native/win/nativeWrapper.cpp:13168-13170`、`:3334-3387`、`src/sdks/main/core/BrowserWindow.ts:341-363`。
+现象：计划让 Bun 主进程直接经 `bun:ffi` 调 `SetWindowLongPtrW`、`SetWindowPos`、`SendMessageW`，但 Electrobun 创建窗口及内置窗口操作都经 `MainThreadDispatcher::dispatch_sync` 在原生窗口线程执行。计划没有原生线程转交方案，也没有说明自定义调用如何避开同步跨线程消息。
+为什么是问题：`SetWindowPos` 会同步进入窗口过程，`SendMessageW` 对另一个线程的窗口同步等待；若调用发生在 Bun 线程而窗口线程正在处理 resize/focus/关闭回调，可能阻塞或重入。即使当前机器不复现，方案没有满足跨线程 UI 操作的可证明时序，失败时会表现为窗口冻结而不是可恢复的图标失败。
+如何核实：Windows 版在 FFI 调用前后记录 `GetCurrentThreadId`，同时在 `WindowProc` 记录线程；在窗口 resize 回调与连续拖动期间调用 `adoptCustomFrame`，观察是否出现同步等待。源码层已能核实内置 API 使用 dispatcher，当前无 Windows 现场时以下为从代码推断。
+建议改法：把补样式、图标加载和 `WM_SETICON` 放进 Electrobun 原生线程的一个小 shim，由 `MainThreadDispatcher::dispatch_sync` 执行，再由 Bun 调这个 shim；若坚持纯 FFI，必须先证明所有调用允许跨线程并把同步调用改为安全的消息投递，且把该证明和关闭/resize 并发验收写进计划。
+2. 严重程度：阻断；类别：正确性；位置：`plan-r1.md:62-64`；`packages/neuro-book/desktop/scripts/build-variant.ts:27-29,88-90`；`.github/workflows/release.yml:225-234`。
+现象：计划新增 `desktop/assets/neurobook.ico` 并让 `electrobun.config.ts` 的 `build.win.icon`、`build.copy` 使用它，但 Windows 变体构建只复制 `electrobun.config.ts`、`hutch.config.ts`、`package.json`、`src`，没有复制 `assets`。发布作业下载的 Ubuntu 输入只有 `bundle/` 与 `payload/`，随后直接从当前 checkout 运行 `build-variant.ts`。
+为什么是问题：正式变体、A′、B′ 都会得到引用 `assets/neurobook.ico` 的配置，却没有该文件；Hutch 读取图标或 `build.copy` 时会失败，或至少无法满足安装包和窗口图标合同。计划第 64 行只要求“检查”流水线，没有改动变体复制清单和可执行的资产存在性门禁。
+如何核实：在 Windows 变体目录生成前后检查 `Test-Path <out>\\assets\\neurobook.ico`；按现有 `.github/workflows/release.yml` 的正式变体命令运行，Hutch 会在缺少配置引用的源文件处失败。现有复制清单已能从代码直接核实。
+建议改法：把 `assets` 加入 `PROJECT_FILES`，或把资产作为构建输入随配置一起传入；在调用 Hutch 前显式检查 `assets/neurobook.ico` 存在并核对尺寸，发布作业再增加一次正式、A′、B′ 三个变体都会使用同一资产的证据。
+3. 严重程度：重要；类别：代码质量；位置：`plan-r1.md:23,61-63`。
+现象：技术选型写“经 `shell32` 的 `ExtractIconExW`”，应用图标实现又明确写“`LoadImageW`……不用 `ExtractIconEx`”。两处对图标提取 API 的决定互相冲突。
+为什么是问题：两种 API 的返回尺寸和资源所有权不同；`ExtractIconExW` 只有固定的大/小图标路径，正是计划第 63 行为高 DPI 选择 `LoadImageW` 所否决的方案。按计划逐字实现时，切片 1 的实现者没有唯一合同，可能重新引入实测要避免的高 DPI 模糊。
+如何核实：静态核对计划两处即可；Electrobun 2.0.6 没有提供 Windows 窗口图标 API（`src/native/win/nativeWrapper.cpp:16504-16506` 仍是 TODO），所以这不是可由上游默认行为消解的差异。
+建议改法：删除第 23 行的 `ExtractIconExW`，在技术选型、`win32.ts` 接口和验收中统一为 `LoadImageW` 按 DPI 请求两个 `HICON`；若保留备选，写明只在 LoadImageW 失败时使用，并明确该备选不满足高 DPI 合同时如何诊断。
+4. 严重程度：重要；类别：不变量；位置：`plan-r1.md:38,63`；`packages/neuro-book/desktop/src/bun/index.ts:223-230`；Electrobun 2.0.6 `src/native/win/nativeWrapper.cpp:16504-16506`。
+现象：计划用 `LoadImageW` 生成大、小 `HICON`，用 `WM_SETICON` 交给窗口，但没有定义 `HICON` 的保留、替换和窗口关闭时释放策略。
+为什么是问题：从 ICO 加载的图标不是共享系统资源。立即 `DestroyIcon` 会留下窗口持有的失效句柄；一直不释放则每开一个产品或启动页窗口泄漏两个图标句柄，关闭并重开窗口后持续增长。重复设置或窗口关闭时还需要先处理旧句柄，否则 t03 的“应用图标”会在长时间运行中变成资源泄漏或随机失效。
+如何核实：Windows 上打开/关闭数百个产品窗口，记录进程 GDI/USER 对象计数，并在关闭前后查询 `WM_GETICON`；源码核对 `LoadImageW(...LR_LOADFROMFILE)` 没有 `LR_SHARED`，当前计划也没有任何所有权字段。当前无 Windows 现场时为从 Win32 资源语义推断。
+建议改法：让 `adoptCustomFrame` 返回按窗口保存的两个句柄，直到该窗口收到 `close`/原生销毁事件后再 `DestroyIcon`；替换图标时先保留并销毁旧句柄，任何一步失败都按已取得的句柄回滚并清理。若资源由原生 shim 管理，要把释放挂在窗口线程的销毁路径中。
+5. 严重程度：重要；类别：正确性；位置：`plan-r1.md:35,37-38,63,92-96`；Electrobun 2.0.6 `src/native/win/nativeWrapper.cpp:5947-5960,6133-6153`。
+现象：图标在窗口创建后按“窗口所在显示器的 DPI”加载一次；计划只把多显示器/不同缩放比例列为未验证边界，没有定义窗口移动到另一块 DPI 不同的显示器后的图标重选与句柄替换。
+为什么是问题：窗口移动会触发 `WM_MOVE`，原生层也明确处理 `WM_DPICHANGED`，但一次性加载的两个 HICON 不会随窗口迁移自动变成目标 DPI 资源。标题栏和任务栏可能继续使用低 DPI 句柄，直接放大时会糊；如果每次 move 都加载，又会与第 4 条的句柄所有权和窗口线程问题耦合。计划声称按 DPI 取图标，却没有覆盖该声明的完整生命周期。
+如何核实：在 100% 与 150%/200% 缩放的显示器间拖动窗口，查询 `WM_GETICON` 返回句柄对应的实际尺寸并检查标题栏/任务栏显示；无 Windows 机器时从现有 `WM_MOVE`、`WM_DPICHANGED` 源码和一次性调用时序推断。
+建议改法：明确第一版是固定句柄并把高 DPI 迁移列为已知限制，或在原生窗口线程处理 `WM_DPICHANGED`/显示器变化，按目标 DPI重新加载并释放旧句柄；对应补上验收和失败诊断，不要只写“未验证”。
+6. 严重程度：重要；类别：正确性；位置：`plan-r1.md:23,38,62-63`。
+现象：计划只列出 Win32 函数名，没有规定 `bun:ffi` 的精确 ABI、指针宽度、`SetLastError` 读取方式和 `LoadImageW` 的 UTF-16 路径编码。`BrowserWindow.ptr` 的类型是可空 `Pointer`（Electrobun 2.0.6 `src/sdks/main/core/BrowserWindow.ts:142-144`），而 `LONG_PTR`、`HICON`、`HWND`、`LRESULT` 都不是普通 32 位整数；安装路径也可能包含非 ASCII 字符。
+为什么是问题：把句柄或 `LONG_PTR` 声明为 JS `number`/32 位 FFI 参数会在 x64 上截断；把 JS UTF-8 字符串当 `LoadImageW` 的宽字符串会使非 ASCII 安装路径加载失败；不清零/读取 `GetLastError` 又会把 `SetWindowLongPtrW` 返回的旧值与失败混淆。`ptr` 为空时直接调用同样会把窗口创建/关闭竞态变成原生崩溃风险。
+如何核实：在带中文用户名或非 ASCII 安装目录的 Windows 机器上运行；对每个 FFI 声明与 Win32 SDK 签名逐项核对，开启句柄高位值和 `GetLastError` 日志。现阶段为 ABI 与路径规则的代码推断。
+建议改法：在计划中固定 `ptr` 空值检查、Win64 指针类型、`LONG_PTR` 返回值和 BOOL/LRESULT 映射；用显式的 null 结尾 UTF-16LE 缓冲区调用 W API，并保证缓冲区在调用结束前存活；统一记录 API 名、错误码和 HWND。
+7. 严重程度：重要；类别：时序；位置：`plan-r1.md:30,37,39,47-49`；`packages/neuro-book/desktop/src/views/shell/index.html:61-78`。
+现象：计划要求启动页窗口也有最大化按钮，并由壳在 `shell-ready` 时发送 `window-state`；但“窗口外框”宿主和 `WindowFrame.vue` 只覆盖产品页面，启动页仍由独立的静态 `index.html` 绘制。计划没有写启动页如何监听 `nbook-desktop` 事件、校验 `window-state`、更新“最大化/还原”字形或在窗口状态变化时保持一致。
+为什么是问题：启动页经 Alt+Space、双击拖动条或系统操作最大化后，按钮可能仍显示最大化；点击它会按错误状态再次调用最大化而不是还原。这个窗口随后还会原地 `loadURL` 成产品页，状态和 UI 之间再发生一次切换，容易留下错误的按钮状态。
+如何核实：对静态启动页先发送 `{type:"window-state",maximized:true}`，查询按钮的可访问名称和下一次点击动作；再最大化后让同一个 BrowserWindow 加载产品页，检查产品页初始状态。当前静态 HTML 没有事件监听，缺口可由代码直接核实。
+建议改法：把启动页的窗口控制条也接入同一个 `parseShellMessage` 语义，维护明确的 `maximized` 状态并更新按钮名称/图形；`shell-ready` 后先发送一次，随后每次 resize 都发；把启动页最大化、还原和转换成产品页列入验收。
+8. 严重程度：重要；类别：合同；位置：`plan-r1.md:30,36-37,57,93-95`；Electrobun 2.0.6 `src/sdks/main/core/BrowserWindow.ts:353-363`。
+现象：`window-state` 只有 `maximized: boolean`，按钮切换完全依赖 `win.isMaximized()`；计划同时要求真实拖动、贴边分屏，并把“双击最大化/还原”和按钮名称作为验收，但没有定义 Windows Snap 状态是否算 maximized。
+为什么是问题：Electrobun 的 `isMaximized()` 对应 Win32 的最大化状态；贴边窗口通常仍是普通尺寸/定位状态，可能返回 false。这样页面会显示“最大化”，按钮点击会最大化而不是恢复贴边前的尺寸；如果产品决定把贴边视为可恢复状态，现有布尔消息又无法表达它。不同实现者会给出不同的按钮状态和还原行为，Spec 验收无法判定。
+如何核实：在 Windows 11 上把窗口拖到左右边缘或用系统贴靠，再查询 `IsZoomed`/`win.isMaximized()`、按钮名称及点击后的几何；当前无 Windows 机器时为 Win32 状态语义推断。
+建议改法：在 Spec 与计划中明确第一版 `maximized` 严格表示 `IsZoomed`，贴边保持“最大化”按钮并只验贴靠几何；或把 `snapped`/`restorable` 纳入消息和窗口状态，定义按钮点击的还原目标。不能同时保留真实 Snap 验收和未定义的状态语义。
+9. 严重程度：重要；类别：文档；位置：`plan-r1.md:66-70,81-86`；`docs/specs/runtime/browser-host.md:68-76`；`docs/specs/runtime/desktop-shell.md:95-96`。
+现象：计划为 browser-host 增加“窗口外框”输出，但现行 browser-host 输出 11 仍写“页面与壳之间只有两件事”，明确把关闭前询问与更新提示列为全部窗口能力；计划没有要求同步改写这句或给新输出编号后的兼容关系。desktop-shell 输出 13 也会新增 `window-control`，与该“两件事”表述直接冲突。
+为什么是问题：实现者按 browser-host 输出 11 会认为新增窗口控制违反合同，按计划新增输出又会留下同一 Spec 内相互矛盾的权限边界；后续桥接审查、插件能力审查和文档验收无法判断页面究竟可以调用几项壳能力。
+如何核实：逐字对照上述 Spec 与计划；当前 `desktop-bridge.ts:1-8,57-74` 也把桥注释和 `HostReply` 绑定在输出 9 到 11，说明这不是只改标题的文档问题。
+建议改法：在同一切片明确给 browser-host 输出 11 改写为“关闭、更新、窗口外框”三类，或将窗口外框写成独立输出并在输出 11 引用它；同步更新桥接注释、验收映射和权限边界，避免新增能力在旧合同中仍被禁止。
+10. 严重程度：重要；类别：测试；位置：`plan-r1.md:73-91`；`packages/neuro-book/tsconfig.json:30-52`；`docs/specs/runtime/desktop-shell.md:217-219`。
+现象：计划把 `tsc`、桌面主进程预打包和页面测试列为切片验证，但仓库的应用包 `tsconfig.json` 只纳入 `desktop/scripts`，不纳入 `desktop/src/bun`；Spec 也明确 Electrobun 适配层不在类型检查与自动测试内。新增的 `win32.ts`、`index.ts` FFI 接线因此没有静态类型门禁，页面 DOM/e2e 也不能覆盖 Bun 主进程的窗口事件时序。
+为什么是问题：计划可能在所有 Linux 合同测试和前端测试通过后，把错误的 FFI 声明、`resize` 监听、`shell-ready` 分支或 `window-control` 壳侧分派带进 Windows 构建；只有到 Hutch/人工验收才暴露，且当前计划没有把这些失败定位为门禁。
+如何核实：执行计划中的 `bunx tsc`，检查输出文件集合；再故意让 `desktop/src/bun` 的一个 FFI 参数类型错误，观察该命令是否仍通过。桌面适配层未纳入现有 tsc 的事实可由配置直接核实。
+建议改法：增加专门覆盖 `desktop/src/bun` 与 `desktop/electrobun.config.ts` 的 `tsconfig.desktop.json`/类型检查命令，至少在 Linux 上检查消息分派和 FFI 声明；把 `build.ts` 预打包和 Windows 变体构建列为独立门禁，并在验收映射中标出哪些只能在 pc-notype 验证。
+11. 严重程度：重要；类别：失败路径；位置：`plan-r1.md:38,68,92-96`；`docs/specs/runtime/desktop-shell.md:93,203-212`。
+现象：计划规定补样式、设图标失败时只写壳日志并“不影响开窗”。但补样式是最大化不压任务栏、Alt+Space 和系统最小化/还原的前置条件，图标是输出 10 的窗口图标合同；失败继续打开会让产品进入已知不满足合同的半成品状态，且计划没有诊断事件名、错误码、用户可见处理或验收失败条件。
+为什么是问题：这会把可观察的契约违约降级成日志噪声。尤其 `SetWindowLongPtrW` 或 `SWP_FRAMECHANGED` 失败时，页面仍能显示并可操作，人工冒烟若只验证“窗口打开”很容易漏掉客户区压任务栏；图标加载失败也会继续产生缺省图标。
+如何核实：分别让 `GetWindowLongPtrW`/`SetWindowLongPtrW`、`LoadImageW` 返回失败，观察启动页是否仍进入工作台、shell.log 是否包含可定位的 API/错误码，以及 Windows 验收是否把失败当作失败。当前为计划失败语义与 Spec 输出的直接对照。
+建议改法：把补样式标为窗口创建后的硬门禁，失败时写结构化诊断并显示可重试/退出的启动错误，或明确接受降级并把降级行为写进 Spec；图标失败至少写 `api/hwnd/path/error` 诊断并让 Windows 验收明确失败。不要只用“写日志、不影响开窗”覆盖必需能力。
+12. 严重程度：建议；类别：文档；位置：`plan-r1.md:59-64`；`brand/logo/tools/produce.py:263-267`、`brand/logo/tools/guidelines.py:213-228`；`brand/logo/06-production/index.html:20`、`brand/logo/07-guidelines/index.html:103`。
+现象：计划改品牌生成脚本和规范脚本，并从 `06-production/desktop/windows/neurobook.ico` 复制资产，但没有明确运行两个生成器、更新已提交的 ICO/成品索引/规范页，或在构建前核对生成产物。现有生成器仍把 Windows ICO 写成 16、24、32、48、64、128、256，成品索引和规范页也仍声明 16、24 像素档。
+为什么是问题：只改脚本或只复制当前成品都会让 t03 的“高清 ICO”决定没有落到真正进入 `desktop/assets` 的字节；品牌 README 又要求下游从 `06-production` 复制、不要手工编辑，容易留下脚本、成品文件和规范页三份互相矛盾的来源。
+如何核实：运行品牌生成流程后比较 `desktop/windows/neurobook.ico` 的目录条目与三处说明；再检查 `desktop/assets/neurobook.ico` 的摘要是否等于生成产物。当前差异可由现有源文件直接核实。
+建议改法：在计划中写明生成命令、预期 ICO 条目（32、48、64、128、256）、需要更新的生成 HTML 和复制步骤；验收加入 ICO 目录检查与成品资产摘要一致性检查。
+13. 严重程度：重要；类别：生命周期；位置：`plan-r1.md:37`；Electrobun 2.0.6 `src/sdks/main/core/BrowserWindow.ts:83-105,452-457`、`src/sdks/main/events/windowEvents.ts:14-22`。
+现象：计划为每个窗口注册 `resize` 监听并在关闭时删除 `windows` 项，但 Electrobun 2.0.6 的 `BrowserWindow.on()` 只有追加监听接口，没有 `off`/dispose；SDK 关闭清理只删除 `BrowserWindowMap` 和视图。计划没有说明 resize 监听如何解绑，也没有说明关闭后排队到达的 resize 如何处理。
+为什么是问题：每开关一个窗口就可能留下一个闭包和窗口对象引用；关闭后延迟 resize 仍可能调用 `win.isMaximized()`、向已离开的页面发消息，或在窗口 id 被复用时把旧状态发给新窗口。`window-state` 的“与上一次相同不发”缓存也必须随窗口销毁收口，否则它会成为跨窗口状态污染源。
+如何核实：连续创建并关闭窗口，检查 Electrobun 窗口事件发射器的监听数量和堆；关闭后手动发/等待一次同 id 的 resize 事件，观察是否调用已关闭窗口的 FFI。当前为 SDK 事件订阅接口和计划时序的代码推断。
+建议改法：优先用一个全局 resize 监听按 `event.data.id` 查当前 `windows`，关闭时自然删除状态；或给适配层补可验证的解绑接口。发送前必须确认当前 `windows.get(id)` 仍是同一个 `BrowserWindow`，并在 `close` 中清除状态缓存、资源和监听。
+14. 严重程度：重要；类别：合同；位置：`plan-r1.md:31,43-46,91`；`packages/neuro-book/desktop/src/bun/preload.ts:14-41`；`packages/neuro-book/src/shared/desktop-bridge.ts:94-103`。
+现象：计划称 `window.__nbookDesktopFrame` 是预加载定义的“只读”能力标记，但没有写出属性描述符、覆盖/删除行为或页面导航后的寿命；当前预加载只有普通全局赋值/函数注入模式。验收中的 Playwright `addInitScript` 也没有要求验证标记不可写。
+为什么是问题：如果实现成普通赋值，页面脚本可覆盖或删除标记，导致桌面页不画外框；如果普通浏览器页面能先写同名标记，宿主的“没有标记就什么都不做”合同也会被伪造。它不是安全边界，但会直接影响桌面与浏览器两条渲染路径；同一 WebView 从启动页换成产品页时还必须保持能力标记稳定。
+如何核实：在真实预加载后依次执行覆盖、`delete`、重新定义和整页导航，检查 `window.__nbookDesktopFrame`；在普通浏览器用同一页面入口验证没有标记时不出现外框。当前无 Windows 机器时，预加载注入位置和页面宿主判断属于从代码推断。
+建议改法：用 `Object.defineProperty` 明确 `writable:false、configurable:false`（并决定 enumerable），在 `BridgeGlobal`/页面全局类型中登记；测试覆盖覆盖、删除、启动页到产品页导航和普通浏览器无标记四个场景。注明它只是渲染能力信号，不承担安全鉴权。
+待确认项判断：
+- `pending-confirmations.md:62`（图标并入 t03）：计划已覆盖，决定本身没有被悄悄改变；但必须处理第 2、12 条的资产复制与生成产物收口。
+- `pending-confirmations.md:63`（用 bun:ffi 补样式并按 DPI 设图标）：选型与计划一致，决定本身照做；第 1、4、5、6、11、13 条说明了线程、句柄、DPI、ABI、失败语义和生命周期仍未形成可实现合同。
+- `pending-confirmations.md:64`（46×36 按钮、关闭悬停红色、关闭层之上）：计划已逐项覆盖，未发现偏离；启动页的状态同步仍受第 7 条约束。
+- `pending-confirmations.md:65`（不做 Windows 11 悬停贴靠布局）：计划已覆盖，未发现偏离；这项限制不替代第 8 条对普通拖动贴边后按钮状态的定义，也不替代第 5 条多 DPI 生命周期问题。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10、11、12、13、14；阻断 2 条，重要 11 条，建议 1 条；未发现问题的方面：关闭请求仍走 `WindowCoordinator.closeRequested` 的既有代次状态机、对话框窗口保留系统标题栏、真实拖动依赖 WebView2 非客户区支持的技术事实与已定 t03 外观取舍均与计划一致；待确认项四行均已对照，1、3、4 行决定已覆盖，2 行选型已覆盖但实现前置条件未闭合。

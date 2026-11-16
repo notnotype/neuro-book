@@ -22,7 +22,7 @@ owners:
 
 ## 术语与参与者
 
-- **产品版本**：NeuroBook 应用的版本，semver。`engines.neurobook` 按它检查；内置插件的版本等于它。
+- **产品版本**：NeuroBook 应用的版本，semver。`engines.neurobook` 按它与插件 API 的兼容起点检查（[`runtime.plugin-api`](plugin-api.md) 的“兼容”）：范围与“兼容起点到产品版本”有交集就兼容；内置插件的版本等于它。
 - **安装目录**：`<State Root>/plugins/<插件 id>/<版本>/`，一个版本一个目录。
 - **插件登记表**：`<State Root>/plugins/plugins.json`，记录每个已安装第三方插件的 id、当前版本、待切换版本（没有时为空）与用户状态（已启用、已禁用或卸载中）。未出现在表中的第三方插件为“未安装”。内置插件不进入登记表。
 - **待生效变化**：已写入登记表、要到下一次启动才生效的变化：重启后启用、重启后禁用、重启后升级到某版本、重启后卸载、重启后安装。
@@ -102,7 +102,7 @@ owners:
 |---|---|---|
 | `manifest-invalid` | 清单不存在、不是合法 JSON 或不符合 [`runtime.plugin-manifest`](plugin-manifest.md)（包括第三方 id 用了保留的发布者 `nbook`），详情给出出错字段 | 修改插件清单后重试 |
 | `catalog-invalid` | 清单 `l10n` 列出的消息目录缺失、不是合法 JSON 或内容不符合 [`runtime.plugin-manifest`](plugin-manifest.md) 输出 12，详情逐条给出文件、键路径与原因；已复制的部分已删除 | 修改目录文件或 `files` 后重试 |
-| `incompatible-engine` | `engines.neurobook` 不接受产品版本 | 换兼容的插件版本 |
+| `incompatible-engine` | `engines.neurobook` 与“兼容起点到产品版本”没有交集；详情写插件的范围、产品版本，兼容起点早于产品版本时一并写出 | 换兼容的插件版本 |
 | `already-installed` | 同一 id 与版本已安装或待切换 | 提高版本号，或卸载、重启后再装 |
 | `uninstall-pending` | 插件处于卸载中 | 重启后再安装 |
 | `path-rejected` | 源文件夹不存在、位于 `<State Root>/plugins/` 之内、`files` 越出源文件夹或复制范围内的路径含符号链接 | 修正路径或插件内容 |

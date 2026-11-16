@@ -464,6 +464,11 @@ export interface CompactionRestoreArgs {
     readonly path: readonly LogEvent[];
     /** 这次压缩按哪个模型算的窗口；未知是 0。 */
     readonly contextWindow: number;
+    /**
+     * 压缩前路径上的这条事件在压缩之后是否仍在上下文里（runtime.md 输出 48）：在保留的切点之后、没被省略。宿主用它跳过仍在上下文
+     * 里的内容，不放第二份。
+     */
+    readonly kept: (entryId: string) => boolean;
 }
 
 export interface CompactionRestored {

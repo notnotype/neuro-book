@@ -82,6 +82,10 @@ function measuredWidths(): TitlebarWidths | null {
     const startStyle = getComputedStyle(bar.querySelector(".workbench-titlebar__start") ?? bar);
     const gap = Number.parseFloat(startStyle.columnGap) || 0;
     const search = bar.querySelector("[data-titlebar-search]");
+    const end = bar.querySelector(".workbench-titlebar__end");
+    // 桌面窗口里右栏末尾给窗口按钮留的位（`--nb-window-controls-width`）。它在页面脚本之前由 `<html>` 的属性决定、之后不变，
+    // 所以不另外 watch。
+    const controls = end === null ? 0 : Number.parseFloat(getComputedStyle(end).paddingRight) || 0;
     const shortcut = props.searchShortcut === null ? 0 : part("shortcut") + (search === null ? 0 : Number.parseFloat(getComputedStyle(search).columnGap) || 0);
     return {
         lockup: part("lockup"),
@@ -95,7 +99,7 @@ function measuredWidths(): TitlebarWidths | null {
         layout: part("layout"),
         items: props.items.length > 0 ? ITEMS_MORE : 0,
         gap,
-        chrome: (Number.parseFloat(barStyle.paddingLeft) || 0) + (Number.parseFloat(barStyle.paddingRight) || 0) + 2 * (Number.parseFloat(barStyle.columnGap) || 0),
+        chrome: (Number.parseFloat(barStyle.paddingLeft) || 0) + (Number.parseFloat(barStyle.paddingRight) || 0) + 2 * (Number.parseFloat(barStyle.columnGap) || 0) + controls,
         search: SEARCH_COMFORT,
     };
 }
@@ -297,7 +301,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <header ref="root" class="workbench-titlebar" :aria-label="text('titlebar.label')" data-workbench-titlebar :data-titlebar-level="level" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
+    <header ref="root" class="workbench-titlebar" :aria-label="text('titlebar.label')" data-workbench-titlebar data-desktop-titlebar :data-titlebar-level="level" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
         <div class="workbench-titlebar__start">
             <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
             <NeuroBookMark v-else class="workbench-titlebar__mark" />
@@ -414,8 +418,13 @@ onBeforeUnmount(() => {
     min-width: 0;
 }
 
+/*
+ * 桌面窗口没有系统标题栏时，窗口按钮固定在右上角，右栏末尾给它们留位（变量由宿主在 `<html>` 上给，普通浏览器里是 0）。
+ * 留在右栏里而不是标题栏的内边距上：三栏仍然左右等分，两侧够宽时搜索仍在窗口正中。
+ */
 .workbench-titlebar__end {
     justify-content: flex-end;
+    padding-inline-end: var(--nb-window-controls-width, 0px);
 }
 
 .workbench-titlebar__center {
@@ -520,5 +529,23 @@ onBeforeUnmount(() => {
     visibility: hidden;
     pointer-events: none;
     white-space: nowrap;
+}
+</style>
+
+<style>
+/*
+ * 桌面窗口里标题栏就是窗口的拖动区域（ui/workbench-shell.md 输出 28，browser-host 的“窗口外框”）：空白处 drag，拖动、双击最大化、
+ * 贴边分屏由 WebView2 交给系统；有点击或悬停行为的一切 no-drag，否则点下去就是拖窗口。普通浏览器里 app-region 不生效。
+ * 不放进 scoped 块：scoped 选择器命不中子组件内部渲染的元素（nb-ui Menubar 里 reka 的菜单触发器）。无命令的条目也有悬停提示，
+ * 一并 no-drag。
+ */
+[data-desktop-titlebar] {
+    -webkit-app-region: drag;
+    app-region: drag;
+}
+
+[data-desktop-titlebar] :is(button, a[href], input, select, textarea, [role="menubar"], [role="menuitem"], [role="button"], [tabindex]:not([tabindex="-1"]), [data-workbench-item]) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
 }
 </style>

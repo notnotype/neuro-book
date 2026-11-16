@@ -35,6 +35,16 @@ const SUGGESTION_GROUPS: SuggestionMenuGroup[] = [
         {id: "s3", label: "旧档案（只读）", iconClass: "i-lucide-lock", disabled: true},
     ]},
 ];
+/** `$` 菜单的样子：未初始化的 Skill 画警告色的下载图标，正在初始化的转圈；每行都留出状态列。 */
+const SUGGESTION_STATUS: SuggestionMenuGroup[] = [
+    {id: "recent", label: "最近用过", items: [{id: "style-guide", label: "style-guide", iconClass: "i-lucide-sparkles", hint: "按本书的文风规则改写一段：人称、时态、对白格式与禁用词"}]},
+    {id: "all", label: "全部", items: [
+        {id: "chapter-summary", label: "chapter-summary", iconClass: "i-lucide-sparkles", hint: "给一章写三五句提要"},
+        {id: "epub-export", label: "epub-export", iconClass: "i-lucide-sparkles", hint: "把选中的章节导成 EPUB，带目录、封面与脚注", status: {label: "未初始化", iconClass: "i-lucide-download", tone: "warning"}},
+        {id: "tts-preview", label: "tts-preview", iconClass: "i-lucide-sparkles", hint: "用本机的语音合成朗读选中的一段", status: {label: "正在初始化", busy: true}},
+        {id: "voice-check", label: "voice-check", iconClass: "i-lucide-sparkles", hint: "逐段检查叙述视角有没有串"},
+    ]},
+];
 const SUGGESTION_LONG: SuggestionMenuGroup[] = [{id: "chapters", items: Array.from({length: 30}, (_, index) => ({id: `ch-${String(index + 1)}`, label: `第 ${String(index + 1)} 章`, iconClass: "i-lucide-file-text", hint: `正文/第${String(index + 1)}章.md`}))}];
 const SUGGESTION_BASE = {label: "引用候选", loadingText: "正在查找…", emptyText: "没有匹配的文件"};
 
@@ -212,6 +222,7 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "loading", label: "加载中（已有项照常显示）", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_GROUPS.slice(0, 1), activeId: "c1", loading: true}}},
             {id: "empty", label: "没有结果", input: {props: {...SUGGESTION_BASE, groups: [], activeId: null}}},
             {id: "long", label: "长列表", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_LONG, activeId: "ch-1"}}},
+            {id: "status", label: "行尾的状态图标", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_STATUS, activeId: "style-guide"}}},
         ],
         load: async () => (await import("./SuggestionMenuFixture.vue")).default,
     }),

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>链接与插图：静态稿评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 920px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+section { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.info { background: var(--accent-soft); color: var(--accent); }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 8px 0 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.narrow { max-width: 300px; }
+code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<h1>链接与插图：静态稿评审板</h1>
+<div class="lead">
+<p>w00025 t09，第 1 轮。现在的 Markdown 编辑器插不了链接和图片：工具栏留着的链接按钮还没有动作，粘贴图片也不接。这个 Task 加上链接卡片、插图（找作品里的图、选本机文件、粘贴）、图片存放位置的设置。从系统拖文件进来归 w00046 t15（已定）。</p>
+<p>图是在草稿 worktree 的 Lab 里用真实的 nb-ui 组件与主题变量搭的静态稿（亮色、nbook 主题），不接编辑内核。卡片的样子沿用注音卡片：浮层里一行，字直接写在卡片上，右边是按钮。都是选答。</p>
+</div>
+
+<section data-nbdev-question="q1-link-card" data-nbdev-type="single" data-nbdev-recommend="one">
+<h2>问题 1：链接卡片填什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>选中“北山”，按链接按钮（或 Ctrl+K）。地址框里打字时，下面列出作品里按名字和标题找到的文件；选一个，写进文件的是相对当前文件的地址。也能直接粘贴网址。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="one">
+<h3>A 一行，只填地址</h3>
+<p>链接的文字就是正文里选中的字，要改直接在正文里改。没选字时插入的文字取文件的标题（或网址本身）。</p>
+<figure><img src="r1/link-one.webp" alt="一行"><figcaption>一行</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="two">
+<h3>B 两行，文字与地址</h3>
+<p>卡片里也能改链接的文字（Google 文档、Notion 的做法）。</p>
+<figure><img src="r1/link-two.webp" alt="两行"><figcaption>两行</figcaption></figure>
+</div>
+</div>
+<div class="pair">
+<figure><img src="r1/link-edit.webp" alt="改已有的链接"><figcaption>改已有的链接：光标在链接里按链接按钮，卡片预填地址，多一个“去掉链接”</figcaption></figure>
+<figure class="narrow"><img src="r1/link-one-narrow.webp" alt="一行：390px"><figcaption>A 一行，390px 宽</figcaption></figure>
+</div>
+<div class="rec-note"><b>推荐：A 一行。</b>和注音卡片同一个样子；文字本来就在正文里，卡片里再放一份是两处改同一样东西。</div>
+</section>
+
+<section data-nbdev-question="q2-image-entry" data-nbdev-type="single" data-nbdev-recommend="card">
+<h2>问题 2：插图从哪里进 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="card">
+<h3>插图卡片</h3>
+<p>斜杠菜单的“图片”与工具栏的插图按钮打开一张卡片，和链接卡片同样子：先列出存放目录里最近的图，打字找作品里的图，也能粘贴网址；右边的上传按钮选本机文件（复制进存放目录再插）。在正文里直接粘贴图片照常插入，不经卡片。</p>
+<figure><img src="r1/image.webp" alt="插图卡片"><figcaption>斜杠菜单选了“图片”</figcaption></figure>
+<figure class="narrow"><img src="r1/image-narrow.webp" alt="插图卡片：390px"><figcaption>390px 宽</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="picker">
+<h3>直接打开系统的选文件</h3>
+<p>斜杠菜单的“图片”直接弹系统的选文件对话框；作品里已有的图，要用链接卡片找到后插成图片（卡片里分不清要链接还是要图，得再加一个开关）。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐：插图卡片。</b>插作品里已有的图（尤其以后生图放进书里的）和插本机的图走同一个入口；卡片只多一个上传按钮。</div>
+</section>
+
+<section data-nbdev-question="q3-store-where" data-nbdev-type="single" data-nbdev-recommend="folder">
+<h2>问题 3：粘贴、上传的图缺省存到哪里 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>设置里四种都能选（照 Obsidian）；这一题定缺省。设置跟着作品走（存在作品里，换机器一样），不是本机设置。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="folder">
+<h3>作品根下的 <code>插图/</code></h3>
+<p>与生图放进书里的缺省目录相同；正文的目录里不混进图片。</p>
+</div>
+<div class="opt" data-nbdev-option="root">
+<h3>作品根</h3>
+<p>Obsidian 的缺省。</p>
+</div>
+<div class="opt" data-nbdev-option="same">
+<h3>与当前文件同目录</h3>
+<p>图和章节放在一起；正文的目录树里会出现图片。</p>
+</div>
+<div class="opt" data-nbdev-option="sub">
+<h3>当前文件旁的子目录</h3>
+<p>例如每卷一个 <code>images/</code>，没有就建。</p>
+</div>
+</div>
+</section>
+
+<section data-nbdev-question="q4-file-kind" data-nbdev-type="single" data-nbdev-recommend="plain">
+<h2>问题 4：粘贴、上传的图存成什么 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="plain">
+<h3>普通图片文件</h3>
+<p>一张图一个 <code>.png</code>、<code>.jpg</code>，正文写 <code>![](../../插图/渡口.jpg)</code>，别的 Markdown 工具也能看。</p>
+</div>
+<div class="opt" data-nbdev-option="image-folder">
+<h3><code>.image</code> 文件夹</h3>
+<p>图像生成提案里书中生成的图的格式：一张图一个文件夹，带版本与 <code>image.json</code>，正文按 id 引用（随 w00042 t09 定）。粘贴的图也这样存，以后能和生成的图一样换版本。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐：普通图片文件。</b>粘贴、上传的图没有版本可言；<code>.image</code> 的引用写法还没定，现在用它会等 w00042。</div>
+</section>
+
+<section>
+<h2>已按推荐画的，不用答 <span class="badge info" data-nbdev-skip>说明</span></h2>
+<ul>
+<li>写进文件的地址都相对当前文件（方言 Spec 输出 18）；文件挪了以后链接会断，这个 Task 不管跟着改。</li>
+<li>打开链接：按住 Ctrl 点链接。作品里的文件在编辑器里打开，网址交给浏览器。单击仍是编辑（现有约定）。</li>
+<li>选本机文件保留原名；粘贴的图没有名字，叫“粘贴的图片 2026-11-16 15.04.31.png”；重名时加序号，不覆盖。</li>
+<li>上传只收常见的图片格式，大小上限与读取图片相同（32 MiB）。</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

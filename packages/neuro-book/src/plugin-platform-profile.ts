@@ -11,7 +11,7 @@ import type {PlatformProfile} from "./plugin-platform/shared/profile";
 import {npmVersions} from "./plugin-platform/shared/versions";
 import {SDK_ENTRIES} from "./sdk/entries";
 import type {SdkEntry} from "./sdk/entries";
-import {PRODUCT_VERSION} from "./shared/product";
+import {PLUGIN_API_SINCE, PRODUCT_VERSION} from "./shared/product";
 
 export const NEUROBOOK_PLATFORM: PluginPlatform = {engine: "neurobook", reservedPublishers: ["nbook"]};
 
@@ -51,6 +51,7 @@ export const NEUROBOOK_PROFILE: PlatformProfile = {
     format: manifestFormat,
     productName: "NeuroBook",
     productVersion: PRODUCT_VERSION,
+    pluginApiSince: PLUGIN_API_SINCE,
     registrySchema: "nbook.plugins/v1",
     safeModeEnv: "NEURO_BOOK_SAFE_MODE",
     authorField: "nbook",

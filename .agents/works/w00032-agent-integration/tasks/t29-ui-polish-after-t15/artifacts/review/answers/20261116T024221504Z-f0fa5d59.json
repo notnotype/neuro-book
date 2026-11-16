@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t29-ui-polish-after-t15",
+    "artifactId": "review",
+    "answerId": "20261116T024221504Z-f0fa5d59",
+    "artifactVersion": 6,
+    "contentHash": "14ba29ada7c0c3048b7c2b46f116a298da3888bca9085d6bfa2dffd58295bb89",
+    "submittedAt": "2026-11-16T02:42:19.387Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "subagents-entry": "head"
+    },
+    "comments": {},
+    "note": null
+}

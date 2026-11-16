@@ -1,0 +1,60 @@
+### 1. 同步 reporter 没有取得会话标题的数据路径
+严重程度：重要；类别：正确性／接口与合同。
+位置：plan-r1.md:31–32、37、94–95、109；packages/nb-harness/src/kit/sessions/table.ts:44–65、149–150、275–285、295–314；packages/neuro-book/src/plugins/agent/backend/agent.ts:86–87、342。
+现象：计划要求同步 reporter 立即交出带会话标题的文字，但所列改动只有在句柄表增加“含后台会话”的查询。现有 Entry 只缓存 id、background、idle、waiting 等，不缓存 title；activity() 仅返回 id/state。AgentRuntime.sessionEntry() 与会话 snapshot() 都是 Promise，根会话还可能已经空闲关闭，不能在同步 reporter 内临时 await。按计划直接接线，要么回 Promise 使 collect 无法消费，要么只能报 id／空标题，违反 sessions 输出 20 的标题要求。
+如何核实：已逐行读取上述实现，并检索 kit/sessions 的 title/snapshot 使用；标题目前来自异步 snapshot 或索引读取，没有同步标题读取口。此条是计划的数据依赖缺口，不声称尚未实现的新查询已经出错。
+建议改法：保留已定同步 reporter 合同，明确同步快照的 owner：在打开／创建时取得标题，跟随 titleChanged 更新；关系表与根标题缓存放在 Agent 层。定义空标题和根句柄已关闭时的处理，不为取工作打开会话。补“设置／改标题后立即查询”“根已关闭而后代仍在跑”的真实内核验收。
+
+### 2. 启动中的项目被当成没有工作，关闭前失去“无法确认”保护
+严重程度：重要；类别：正确性／状态边界。
+位置：plan-r1.md:35、108；主工作区 docs/specs/runtime/server-host.md:111–113、browser-host.md:73；packages/neuro-book/src/server/projects/manager.ts:431–466；packages/neuro-book/src/project/start.ts:135–166。
+现象：work() 明确跳过 starting，且不把它记进 failed。项目的启动入口已经在执行，所需插件尚未全部可用时父进程仍显示 starting；插件可以已登记并执行长任务。此时从最后一个窗口关闭（包括加载页，browser-host 明确要求仍检查工作），得到 items=[]、failed=[]，页面不提示即允许停止。启动截止缺省 30000ms，这不是只能发生在同步段内的瞬间。
+为什么是问题：“不为取工作唤醒”不等于“已经启动但未就绪的工作不存在”。server-host 只明确免于唤醒已停下／宽限期停止的项目，没有授权把启动中视作成功查明为空；browser-host 要求取不到就提示无法确认。
+如何核实：已核对 manager 的创建流程与 project/start 的启动激活顺序；真实测试故障插件 fault-plugin.ts:34–40 在 activate 内打印 pid 后可停在 start-on-signal，现有 manager.test.ts:156–166 已利用该真实进程窗口。此条依据现有状态机推导计划执行结果，未运行不存在的 work() 新实现。
+建议改法：不 acquire、不加租约；启动中至少计入 {plugin:null, project} 的 failed 并诊断，或在同一 5 秒预算内等原启动结果后查询同一代次。明定在途启动失败／退出的结果，补“真实子进程 activate 已开始但未就绪时关最后窗口”的验收。
+
+### 3. 只筛“正在跑的根句柄”漏掉根已空闲、后代仍在跑／等用户的会话树
+严重程度：重要；类别：正确性／验收遗漏。
+位置：plan-r1.md:37、109；主工作区 docs/specs/agent/sessions.md:83–84；packages/nb-harness/src/kit/sessions/table.ts:149–150；packages/neuro-book/src/plugins/agent/backend/subagents/relations.ts:108–109、backend/remote.ts:172。
+现象：计划写“根会话中在跑或在等用户的”并只补含后台会话的 activity 查询，没有写把所有活动后代按 root 归并。真实路径中，根会话 async 派出子代理后可先结束，甚至 30 秒后关闭句柄；此时 activity 只含子会话。若按计划筛根句柄，这棵树不会有规定的根会话工作项；直接逐句柄报则一棵树报多项，且标题／状态归属错误。JobCenter.live() 另报子代理任务不能替代 Spec 要求的根会话项，尤其用户直接在已有子会话开始的新运行不保证都有新 job。
+如何核实：执行 `bun test src/plugins/agent/subagents.test.ts --test-name-pattern 'activity 带根'`（实现 worktree/packages/neuro-book），1 pass、26 filtered、0 fail。该用例 425–435 行让根本轮结束、子运行停在真实假端点，得到 {id:child, state:"running", root:parent.id}；现有关系表已有同步 rootOf，不是缺底层机制。计划验收只列运行／等待／后台会话，没有此场景。
+建议改法：明确“读取全部活动句柄（含后台）→ relations.rootOf → 每根一项”的投影，定义同根有 running 与 waiting 时如何选文案；根标题来源与第 1 条一并解决。根会话项与每个 live job 是 Spec 要求的两类项，可同时出现；不要为避免看似重复而删掉后台命令／子代理项。补根空闲／关闭、多个后代、后代等用户／等父 Agent 的验收。
+
+### 4. 宿主页／加载页还没加载插件目录，原样返回的 TextRef 只能显示键名
+严重程度：重要；类别：接口与合同／跨端集成。
+位置：plan-r1.md:33、39（与 54、59、62 的消费合同相接）；packages/neuro-book/src/web/host/window.ts:249–268、478–495；web/host/text-engine.ts:161–169；主工作区 browser-host.md:73。
+现象：GET /work 返回插件命名空间的文字引用、页面按窗口语言显示，依赖一个尚未在所有关闭状态成立的前提。内置与第三方目录都在 RPC 首连成功之后的 loadCatalogs 才登记；项目绑定失败、仍等项目启动、引导版本不合时，常驻宿主翻译端口只有宿主与共享包目录。此时 HTTP 服务仍可用，取工作可成功，但 nbook.agent 与任务标题的 TextRef 显示成 work.xxx 之类键名，用户看不到哪项工作会被中断。withText 只注入同一个端口，不会补齐目录。
+如何核实：创建 scratch/omp-text-boundary.ts，以 startClaimedServer 真实认领状态根，再用真实 createConnection/createBrowserWindow。运行 `bun --tsconfig-override tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/design-r1/scratch/omp-text-boundary.ts`（实现 worktree/packages/neuro-book）：JSON 往返得到 {kind:"text",key:"commands.show.title",ns:"nbook.tasks"}；project-unavailable 窗口显示 commands.show.title；同一服务端的 ready 窗口显示“显示后台任务”；服务端退出码 0。实验未挂 UI，没有运行 e2e／开发服务。
+建议改法：工作汇总的文字合同需包含目录可用性的保证。内置目录先于握手登记；第三方目录加载与项目绑定分离，关闭检查按引用 ns 等待所需目录（取不到要给可读的失败提示）。沿用 TextSchema（包含 LocaleMap），由 pluginText 带 ns；加“HTTP 可取、RPC 项目绑定失败／启动中”和只有后端入口的第三方插件目录验收。
+
+### 5. 新 IPC 查询没有定义发送失败的逐项目收口，单个项目可使整份 HTTP 汇总失败
+严重程度：重要；类别：正确性／异常边界。
+位置：plan-r1.md:34–35、108；packages/neuro-book/src/server/projects/manager.ts:525–528、578–585；projects/ipc.ts:65–74。
+现象：计划只规定“5 秒没应答”“等待中退出”进入 failed，但 work-query 不是经现有 frame 链路发送，不能继承 createEnvelopeLink 的发送失败处理。现有 #send 直接 proc.send，会同步抛错；现有 stop 调用特意在外层 try/catch。进程在 available 检查之后、断开回调尚未处理时退出／断开，发送会直接失败。若按计划只围绕 pending 应答计时，异常会向 GET /work 冒泡为 500，已经 collect 到的服务端及其它项目工作一起丢失，违反“项目取不到不影响别的”。
+如何核实：读取 ipc.ts 已有“通道在断开事件到达之前已断”的处理理由；实际运行 Bun 子进程 exit(0) 后 send，得到 Error，code=ERR_IPC_CHANNEL_CLOSED，message='Subprocess.send() cannot be used after the process has exited.'。这是实际传输 API 的错误通道，未伪造 manager 私有状态；未声称当前尚未实现的 work() 已复现 500。
+建议改法：计划明确每个 ProjectChild 的查询从登记 pending、发送开始即独立捕获；发送失败立即返回该项目 failed、记诊断并取消计时，所有项目采用不会整体 reject 的汇合。pending 绑定 ProjectChild（含 generation）与请求 id，所有应答／退出／断开／超时／取消只有一次结算。补真实断开时发送失败、两项目一坏一好、同子进程并发两个查询、旧代次迟到应答／超时后应答的验收。现有 108 行只列成功、超时和宽限期，覆盖不到这些路径。
+
+### 6. 宽限期“不唤醒”被扩大成“不查询”，最后一个书架窗口看不到仍在执行的项目长任务
+严重程度：重要；类别：正确性／已定覆盖范围。
+位置：plan-r1.md:35、108；主工作区 server-host.md:111–113、browser-host.md:73；runtime/projects.md:76；packages/nb-runtime/src/application/children.ts:268–278。
+现象：项目窗口关掉、书架窗口还在时，项目进入缺省 300000ms 的 idle-grace；这一步只设置计时，不停止插件、不终止其已发起的长任务。计划却把这些进程完全排除，且不报 failed。随后关最后一个书架窗口时，会在明确还有项目工作时得到“没有工作”，不出现中断确认。项目入口长任务属于 t06 已定汇总范围；没有任何合同规定长任务必须另持服务端租约。
+如何核实：scratch/omp-project-entry.ts 注入 onStartup 项目入口，scratch/omp-grace-boundary.ts 用真实认领的服务端、真实项目子进程、ManualClock，取得后释放最后一个租约，再用 SIGUSR2 触发入口报告。执行 `bun --tsconfig-override tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/design-r1/scratch/omp-grace-boundary.ts`（实现 worktree/packages/neuro-book），输出 state=idle-grace、review-work active=true、planWouldQuery=false、serverExit=0；没有固定等待。这证明租约状态不等于插件停止，不声称未实现的汇总已执行。
+建议改法：“不唤醒”的约束保留，但经已经存在的宿主 IPC 向 idle-grace 子进程读取同步快照，不 acquire、不续宽限计时；若此时已退出／开始停止，按查不到处理。若产品确实接受宽限期的工作不提示，须明确变更覆盖合同并记取舍，不能只以不唤醒推导为空。验收应同时断言“任务仍被列出”和“代次、租约数、原宽限截止不变”；108 行目前只验证“不唤醒”，抓不住此漏报。
+
+核实补注（第 2 条）：fault-plugin.ts 的 start-on-signal 是现成的可控启动停点；manager.test.ts:158–166 用的是普通启动期间的就绪输出停点，并没有启用 start-on-signal。第 2 条的状态机推断与建议不变。实际执行 `bun test src/server/projects/manager.test.ts --test-name-pattern '最后一个租约释放后进入宽限期|关闭接纳后打开被拒|先打开：启动中的项目移出被拒'`，3 pass、13 filtered、0 fail。
+
+按影响的处理顺序：6（宽限期静默漏报）、2（启动中静默漏报）、5（单项目失败破坏整份汇总）、3（根会话投影）、1（同步标题依赖）、4（非就绪窗口的目录可用性）。编号沿用逐条追加时的编号。
+
+未发现问题的方面：
+- 宿主 GET 路由确实通过 nb-host 统一准入与排空门，停止后新请求 503；停止前已接纳的查询可在排空期完成，不应因 ProjectManager.stopAdmission 关掉打开项目而拒绝这类已接纳的只读查询。运行 `bun test src/server/server.test.ts --test-name-pattern 'stdin 停止：在途长请求完成'`，1 pass、25 filtered、0 fail。
+- perConsumer 确实给出 consumer.plugin/entry/generation，入口停止／重新登记后门面按代次释放与作废。运行 `bun test src/services/per-consumer.test.ts src/plugins/per-consumer.test.ts`（实现 worktree/packages/nb-runtime），11 pass、0 fail。登记容器仍须按门面／登记 token 管理，插件 id 只作输出归属；计划没有明确要求覆盖同插件多次 register，但没有证据说明 perConsumer 机制做不到。
+- 宿主控制消息在现有 IPC 上扩展有先例（plugins/started/stop），不经插件远程合同符合 owner。nb-host 已有 HostRoute，应用可以在自己的宿主装配里实现汇总，不必把 Agent／Tasks 或项目协议放进 nb-host。需补的是第 5 条的应用侧收口。
+- 5 秒与同步 reporter 都已经写进主工作区 server-host 合同；不另建议改变数字。计划明确使用已注入时钟；验收明确真实认领的服务端、真实项目子进程，没有要求固定 sleep。
+- JobCenter.live() 包括 starting/running/question、不含终态，因此不会丢掉父句柄空闲后的后台命令／子代理；tasks core 的 running Map 有真实状态来源。活动会话与它的后台命令分别列出是 sessions 输出 20 明列的两类项，不能直接当重复统计缺陷。
+- 正常就绪窗口可以解析其它插件的 TextRef；现有引导目录索引也包含只有后端入口的第三方插件，问题限于第 4 条的加载时机。DisplayText 实际是 string | TextRef | LocaleMap；HTTP JSON 能保留这三者的数据形状，不要另建只收字符串的 schema。
+
+审查证据与边界：固定计划一直是 plan-r1.md。运行证据开始时 HEAD=16ac2f275dbb1f4d97d8ecbc4061acd41414f8e6，结束时 HEAD=fcc04a4b7e8bf23e33d362c52543e327c4ccc29e；期间新提交涉及 claim、桌面壳和编辑器，未修改本报告依赖的 manager/ipc/project-start、SessionTable、jobs/tasks、window/text-engine。包解析也已实测指向本 worktree 的 nb-host、nb-runtime、nb-harness 源码，没有加载主工作区的旧包。当前工作区有作者继续实现的内容；本报告审固定计划，不把运行期间的新代码当成计划已完成。合同测试合计 16 pass、0 fail，另有 2 个真实宿主／子进程临时实验，均正常停止、serverExit=0。没有跑 e2e、开发服务、类型检查或真实模型，没有修改仓库受跟踪文件；只写本报告及指定 scratch 的实验文件／状态根，未删除任何文件。
+
+对待确认项的判断：计划末尾的“全部保存失败后的单按钮说明”与 inert/键盘拦截均属其它审查者的页面／编辑器范围，本报告不裁决。服务端选型中 IPC 新信封与 perConsumer 可采用；5 秒沿用已定合同；仅查询 available 不可照原文实施（第 2、6 条）。没有新增受限动作或审批请求。
+
+有效发现编号：6、2、5、3、1、4（按影响排序）；阻断 0，重要 6，建议 0；未发现问题的方面：宿主准入与停止排空门、perConsumer 插件身份与生命周期、宿主控制消息归属、5 秒与注入时钟、真实对象验收方式、会话与 live job 并列的合同、就绪窗口跨插件文字引用。

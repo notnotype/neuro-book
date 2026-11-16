@@ -1,0 +1,63 @@
+# t12 计划 r1 的拉远看审查（架构师视角）
+
+### 1. 照抄了 omp 的外形，没抄它的前提：omp 全包同版本，我们各包独立版本，发版脚本的复杂度全来自这里，而计划没讲这个取舍
+- 事实：omp 的 `bun run release` 一次给 `packages/*` 全部定同一个版本、同时定稿所有 CHANGELOG、提交、打标签、发布（omp-ref/scripts_release.ts 头注释；AGENTS.md 342-347 行“The script handles version bump, CHANGELOG finalization, commit, tag, publish”）。ci-release-notes.ts 按 package.json 的 name 分组聚合，也是因为“每个包每次都有同一个版本段”。
+- 我们是独立版本：nb-story 0.2.3、nb-ui 0.4.0、nb-harness 0.1.2、nb-flock 0.1.0……（各 package.json），应用与 SDK 另走产品版本。独立版本的理由在 ADR 0029 决定 5 与“后果”（只改底层包时只发它和确实要用新版本的包）；ADR 0051 决定 7 只写“保留各自的版本与‘没发过才发’的规则（ADR 0029 不变）”，没有重新论证。
+- 计划因此被迫发明一条启发式：“[Unreleased] 有条目 ⇔ 版本号是 registry 上没有的”（prepare 第 3 步），并要求每个单元一份 CHANGELOG、发布说明里再按“本次发布的包”拼接（plan-r1.md 58-69、71-78 行）。这是整个方案里最脆的一块（只改依赖范围、被依赖方提版、只改测试都会误判），而它不是需求，是“各包独立版本 + 每包一份变更记录”的组合产物。
+- 没有写出的取舍：(a) 变更记录只给用户真正运行的东西（应用，加 nb-story 的 nbstory 命令行），库包等有人要求时再加；(b) 或者把“该不该有条目”的判据从“版本号是否在 registry 上没有”改成“这次提交里这个包的 package.json 版本变了”，即以开发者提版这个显式动作为准，定稿只处理被提版的单元，`check` 只核对“被提版的单元有非空版本段”。(b) 不需要 registry 查询，也就没有 `[Unreleased]` ⇔ registry 的误判面。
+- 建议：ADR 0053 写明“沿用独立版本，所以变更记录的归属与定稿以提版为准”，或明确选 (a) 缩小范围。
+
+### 2. Release 页的读者是桌面用户，说明却按 npm 源码包拼接：多出一条跨作业依赖，收益小
+- plan-r1.md 60-69 行：说明的输入含“发布计划里本次发布的包”，每个源码包一节。Release 页面挂的是 Windows 安装包，读者是写作者；nb-flock、nb-session 的变更对他们没有意义，而这些包的 CHANGELOG 已经随 npm 包发出（计划自己加了 `files`）。
+- 代价：为了知道“本次发布哪些包”，`github-release` 作业要下载 `npm-packages` 工件读 release-plan.json；`check` 要塞进 `npm-packages` 作业；重跑一致性、“说明在任何远端写入之前能生成”都由此而来（release.yml 里 github-release 现只依赖 `desktop-assets`，见 release.yml 的 github-release 作业）。
+- 更简单的做法：Release 说明只取应用的 CHANGELOG 段（加固定文案、下载说明、compare 链接）；源码包的变更留在各自 npm 页。则 `render` 只读一个文件，不需要发布计划、不需要新工件、`check` 可以放进 `gate`（读标签提交里的文件即可），作业图不动。若坚持要写源码包变更，至少把它做成“可选的、只列 nb-story”。
+- 同时：应用把所有源码包打进 bundle（ADR 0033 决定 1），库包的可见改动实际上也是应用的改动；计划没有规定“库里改了用户可见行为，条目写在库的 CHANGELOG 还是应用的”。packages/AGENTS.md 拟加的那句“同一提交在 CHANGELOG 的 [Unreleased] 补条目”没说是哪一份，写的人会漏写或写两遍。这是该由 ADR 回答的归属规则，计划里没有。
+
+### 3. 先定稿再合入再打标签，中间窗口会让 CHANGELOG 与实际发出的内容对不上
+- omp 是一个脚本里“改版本、定稿、提交、打标签、推送”原子完成，之后没有别的提交能插进来（omp-ref/scripts_release.ts 的 checkUpToDate 与后续流程）。计划把它拆开：`release:prepare` 在 Work 分支或 master 上定稿并提交，随后“合入、推 master、由开发者打标签”（plan-r1.md 71-78 行），并且 `tag.ts check` 的门禁只核对版本号。
+- 后果：prepare 提交与标签之间，master 上再进任何一个带 `[Unreleased]` 新条目的提交，条目就落在上面新开的 `[Unreleased]` 里，而它的代码已经随这个标签发出；Release 说明和 npm 里的 CHANGELOG 漏它，下一个版本再把它报一遍。日期也是 prepare 当天，不是发布日。
+- 建议：门禁（`tag.ts check` 或 `release-notes.ts check`）加一条“标签提交里应用的 `[Unreleased]` 为空、且有本次版本段”；或把 prepare 限定在 master 上、紧接着打标签（合入后再 prepare 一个只含版本与变更记录的提交）。至少在 ADR 里写明这个窗口。
+
+### 4. “阶段”只在 CI 与 Release 标题里存在，却放进应用源码的运行时常量；canary/stable 与 Electrobun 的 channel 同名不同义
+- 计划把 `PRODUCT_STAGE` 加进 `packages/neuro-book/src/shared/product.ts`（26-31 行），同时明确不在界面显示阶段（129 行）。目前读它的只有 `tag.ts` 与 Release 标题，应用代码一行不读。这样改阶段就要改应用源码、重新构建应用 bundle，npm 上的应用包与 SDK 也看不出阶段（npm 页上 `latest` 仍是 0.13.0，没有任何 canary 字样，计划 15 行只说“npm 规则只管以后”）。
+- 更贴近用途的位置：发布元数据（`scripts/release/` 下的配置或应用 CHANGELOG 的版本段）；等关于页真要显示时再进 `product.ts`。同类先例：`tag.ts` 为了不导入应用代码已经在用正则读这个文件（tag.ts 约 45-55 行），第三个正则读的常量加重这个耦合。
+- 命名撞车：已经发出的桌面包全部走 Electrobun 的 `stable` 渠道（`stable-win-x64-update.json`、`stable-win-x64-NeuroBook.tar.zst`，github-release.ts 的 requiredAssets；electrobun.config.ts 与 `--env=stable`），而计划里的 `stage = stable` 是另一件事。现在所有 canary 版本的资产名里都写着 `stable-`。以后做“稳定版”时很容易把两者当成一个，ADR 0053 应当写明“Electrobun 渠道名 stable 与本 ADR 的阶段无关”。
+
+### 5. 现在锁死的东西：已装客户端写死 `releases/latest/download`，“latest 指向最新 canary”会成为日后分渠道的前提条件
+- electrobun.config.ts:13：更新源构建进包里，缺省 `https://github.com/notnotype/neuro-book/releases/latest/download`；ADR 0051“后果”最后一条：“Electrobun 的应用标识、发布频道与更新源地址发出去以后就不能随意改”。desktop/src/bun/index.ts:41 的下载页也是 `releases/latest`。
+- 计划接受“latest 可以是最新 canary”，并把“桌面另开频道”留到第一个稳定版（16、92 行）。但这等于：所有以后装上 canary 的客户端，其更新源永远是“GitHub 当前的 latest”，而 latest 只能指向一个 Release。等到有 preview/stable，想让 stable 用户不被推 canary、或让 canary 用户继续拿 canary，只能靠“先发一个换了更新源地址的客户端”，而这个客户端本身要走旧更新源送到所有人手里。越晚做，已装的 canary 越多、越不可控。
+- 这不是说现在必须做，而是该在 ADR 0053 写成明确的前提与期限：例如“在发 preview 之前，必须先发一个把更新源改为按渠道命名的固定标签（如 `releases/download/feed-canary/`）的版本”，并把它列为 preview 的前置 Task。目前计划只说“第一个稳定版时再照 omp 改”，没提这条锁。
+- 另：`previousDesktopRelease` 过滤 `!isPrerelease`、`shouldBeLatest` 只比版本号（github-release.ts）；如果以后 canary 在 GitHub 上标成预发布以让 latest 留给稳定版，`previous` 与 `upgrade-from-previous` 的语义要一起变。计划没提。
+
+### 6. 安装包改名是与阶段和变更记录无关的另一件事，却占了一整片并带永久兼容代码；没有记录的理由
+- 开发者定的是“只改以后的”，但计划与 ADR 里查不到改名的理由（0051 与 t11 计划都没有）；便携版已带版本号，大概是为了对齐，这是推断，不是记录。
+- 代价：`SETUP_ASSET` 变函数，另留 `LEGACY_SETUP_ASSET`，`previous` 认两个名并多输出 `previous-setup=`，`upgrade-from-previous` 改按它下载，冒烟参数与模板、两份 Spec 的文件名处都要改（plan-r1.md 80-84 行）；兼容分支在 v0.13.0 之后永远不会再被新数据触发，却一直留在代码里。失去的是“固定文件名可以长期用 `releases/latest/download/win-x64-NeuroBook-Setup.zip` 直链最新安装包”，这是很常见的发行页链接方式。
+- 建议：改名单独成 Task（与阶段、变更记录互不依赖，可单独回退）；或者保持原名、在 Release 说明里写版本。如果坚持改，兼容用“文件名匹配一个正则”表达，不增加 `previous-setup` 这个跨作业输出。
+
+### 7. 计划里自相矛盾或没有设计出来的几处
+- 技术选型说“要保留 omp 的‘未发布段落不可改’的检查”（19-23 行附近的“技术选型”一节）来否决 keep-a-changelog 库，但关键设计里没有任何一处实现“已发布段落不被改动”的检查（`finalizeUnreleased` 与 `parseChangelog` 都不核对历史）。否决库的理由因此不成立，或者检查漏设计了。
+- “12 个发布单元的初始文件”（切片 3）与“10 个源码包各一份 + 应用/桌面/SDK 共用一份”（35 行）不是同一个数：后者是 11 份文件。
+- 未知的 `###` 分类“报错”（55 行）与“[Unreleased] 里条目写给人看”并存：分类名是中文且写死在代码里，以后要加英文说明（计划自己说“以后再考虑英语”）时，CHANGELOG 里的中文分类名就是数据格式的一部分，渲染层无法本地化。omp 的分类是英文且被 fix-changelogs 规整；如果现在就用“键名固定、显示名可换”的写法（解析时认中文标题，内部用稳定键），成本几乎为零，日后改标题不必迁移所有历史文件。
+- 把 CHANGELOG.md 加进每个包的 `files`，会让所有已发布而没提版本的包与 registry 上的字节不同（stale）。release-plan.ts 的 `blockingStalePackages` 只在“本次发布的包依赖它”时才阻断（release-plan.ts 130-144 行），计划没有说明这次一次性让 10 个包全部变 stale 是否会触发该阻断：下一次只发应用、依赖链里没有源码包所以不阻断，但一旦发 nb-story，它依赖的已发包都会是 stale 且在依赖链上。这需要在切片 3 里用真实的 `publish.ts --plan` 核对，计划只验证了 `release:smoke`。
+
+### 8. 没有评估现成方案，技术选型一节只比较了“解析库”
+- “技术选型”（18-22 行）只比了 `keep-a-changelog` 一类解析库。没有写：GitHub 自带的 `gh release create --generate-notes`（omp 的 CI 也同时开着，ci.yml 里 softprops/action-gh-release 的 generate_release_notes，见 omp-ref/scripts_ci-release-notes.ts 头注释）、git-cliff、release-please、changesets。ADR 0029 否决 changesets 的理由只针对“版本管理”，不是针对变更记录。仓库的提交是中文的开发流水账（`docs(w00046): …`），自动生成给用户看很差，这是手写 CHANGELOG 的真实理由，但计划没写出来，审查者要自己推。
+- 建议在 ADR 0053 的备选方案里补一行：为什么不自动生成、为什么不用 changesets（一个维护者、条目需要写给用户看）。
+
+### 9. 现在不需要的东西（YAGNI）
+- 10 份只有 `[Unreleased]` 与一句“更早的版本见 Git 历史”的源码包 CHANGELOG（54 行）：在没有人读、没有人写之前，它们只增加了 `files`、发布清单检查、每次提版的定稿步骤，以及上面第 7 条的字节变化。
+- 致谢一节（65 行）：现在没有外部贡献者；条目格式里的 `by [@名字]` 先留着约定即可，渲染与去重逻辑等有第一个外部 PR 再写。
+- `release:prepare` 的 `patch|minor` 关键字与 `--stage`（72 行）：v0.13.0 只是手工改了两处版本；脚本最有价值的部分是“定稿 [Unreleased]”和“检查缺条目”，改版本号本身是两行。
+- `stage = stable` 时门禁失败（30 行）：防的是还不存在的情形，而且第一个稳定版的那个 Task 本来就会改这里；不写也不会出事，写了多一个要记得删的拒绝。这条成本很低，列为可选。
+- 不在此列、值得保留：数据与升级这一类（桌面用户升级前备份的提醒确有依据，见 ADR 0051 后果与 desktop-distribution 提案 176 行）、compare 链接、主题版本机检。
+
+### 10. 架构取舍没写、细节反而写得很满
+- 计划用大量篇幅写函数签名与输出顺序（`parseChangelog` 的返回形状、`render` 的六段输出、`requiredAssets` 的新旧名），但以下取舍没有写出：(1) 阶段是整个项目的成熟度标签，还是每个发布各自的属性？开发者原话“现在的版本都是 canary；之后是 preview；最后是 stable”读起来更像前者（项目整体按时间过渡），而计划按后者建模（每个版本一个 stage、`stable` 在门禁里被拒、说明里固定文案按阶段分段），两者在“同时存在 canary 与 stable 两条线”时才会分叉，计划没说现在选的是哪个、什么情况下改；(2) 为什么版本号不带阶段，写了两个理由（预发布段字母次序、内部依赖 `^` 范围），但第二个只关系源码包，而源码包本来就不带阶段，应用与 SDK 又把依赖打进 bundle（ADR 0033），所以这个理由对本方案基本不成立；真正挡住预发布版本号的是 ADR 0051 决定 6（只升不降，由壳在下载前比较版本）与提案 147 行“预发布标签第一版拒绝”，应引用它们；(3) 变更记录的归属规则（本审查第 2 条）；(4) 日期与定稿时机（第 3 条）。
+- 建议：ADR 0053 以“选择与取舍”的口吻写这四条，计划里的实现签名可以留给切片内的 plan 与单测。
+
+## 没有发现问题的方面
+- 问题本身是真的：v0.13.0 的说明只有一个固定模板（scripts/release/desktop-release-notes.md），用户看不到每个版本改了什么；开发者也明确要求阶段与变更记录。
+- 版本号保持纯数字对现有门禁（tag.ts 的 STABLE_VERSION）、`github-release.ts` 的 `shouldBeLatest` / `previousDesktopRelease` / 壳的“只升不降”都不用改，这个选择本身是对的（只是理由要换成第 10 条 (2)）。
+- 参照只看了 omp 的相关两节与两个脚本，没有照搬 canary 支线，这点判断合理。
+
+有效发现编号：1 2 3 4 5 6 7 8 9 10

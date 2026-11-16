@@ -1,0 +1,52 @@
+w00046 t08、t09 Windows 实测第 2 轮（2026-11-14，pc-notype，Windows 11）
+构建：Work 分支 a3d8006ca 的主进程预打包与 Windows 载荷（release:smoke 的发布清单组装，2070 个文件），pc-notype 上 Hutch 0.29.0 / Electrobun 2.0.6
+`hutch electrobun build --env=stable`，Setup 装进 %LOCALAPPDATA%\io.github.notnotype.neurobook\stable\app。修正 ce39a6f0a 之后只换主进程重新构建、重装再验。
+启动用 .cmd 设 NBOOK_STATE_ROOT=%USERPROFILE%\nb-w00046\t08-state（新建的，登记了一部测试作品 r2-book），经 schtasks /it 进桌面会话。
+取证：UI Automation 读文字、按钮名并操作（Invoke、SelectionItem、WindowPattern.Close；输入用剪贴板粘贴，SendKeys 的字母会被中文输入法截住），
+进程列表、两个认领管道的 hello、shell.log、server-output.log、server-current.jsonl。不截屏。
+
+通过：
+1. 关最后一个窗口（quit）：页面自己回答同意（没有要保存的、没有在跑的工作），服务端有序停止（各作用域 stopping → closed），壳 exit 0，
+   进程全退，两份认领都没有了，logs\desktop 里没有“没有正常停止”的记录。
+2. 两个窗口先关一个（window）：立即关掉，进程与认领不变；再用 Alt+F4 关最后一个：同 1。
+3. 服务端意外退出（taskkill 服务端）：壳的对话框“NeuroBook 的服务意外退出（退出码 1）”，“重新启动服务”“稍后”，给出日志目录；页面离线。
+   “重新启动服务”：用上一次的端口 4217/4218 拉起，页面显示“服务端已重启”，“刷新页面”后可用。
+   先占住 4217 再“重新启动服务”：修正前对话框只说“服务端在就绪前退出”（服务端日志是 Failed to start server. Is port 4217 in use?）；
+   修正后（ce39a6f0a）说“端口 4217 被别的程序占用，服务端没能启动”，窗口保持离线，放开端口后再点即成功。
+   “稍后”：对话框关掉，窗口离线；关掉两个窗口后壳直接 exit 0，没有残留进程。
+4. 页面请求新窗口（书架“更多操作 → 在新窗口打开”）：新开的产品窗口直接是那部作品的工作台（项目子进程随之起来），t08 实现审查第 8 条
+   （new-window-open 与 open-window 同一分流）在 Windows 上成立。
+   修正前：窗口照开，但页面随即通知“弹出窗口被拦截”；“帮助 → 文档”通知“文档没有完成：浏览器拦截了新标签页”。原因是预加载的
+   window.open 交给壳之后返回 null，页面的 openExternal 按 null 判为被拦截。修正后（ce39a6f0a）两处都不再提示。
+5. 编辑中关窗（自动保存关掉，编辑器场景 46）：工作台窗口里 a.md 有未保存的修改，关这个窗口（window）：页面里出现“关闭窗口前保存修改？”，
+   按钮“取消”“不保存”“全部保存”；“取消”后窗口还在、标签仍是“（未保存）”、磁盘没变；再关、“全部保存”后磁盘有新内容、窗口关掉。
+   自动保存开着时（缺省）修改已经写盘，关窗不提示。
+6. 页面卡死（desktop-shell 场景 6 的后半）：用 NtSuspendProcess 挂起这个窗口的 WebView2 渲染进程后关窗：3 秒后壳的对话框
+   “NeuroBook 没有响应 / 这个窗口的页面没有回应关闭请求”，“继续等待”“取消关闭”“强制关闭（未保存的内容可能丢失）”。
+   “取消关闭”后窗口还在；再关、“强制关闭”后窗口关掉，这是最后一个窗口，壳停服务端、exit 0，挂起的渲染进程随之消失。
+7. 最后一次关闭进行中再打开（desktop-shell 场景 5 的后半）：最后一个窗口有未保存的修改，关它出现编辑器的询问时再启动一次：新进程的
+   窗口显示“另一个 NeuroBook 窗口正在确认关闭”，只有“退出”。
+   - 在旧窗口点“取消”：旧壳多出一个窗口，新进程退出。
+   - 重来一次点“全部保存”：保存后旧壳停服务端、exit 0；等待的新进程随即取得桌面锁、自己拉起服务端，开出书架窗口。
+8. 便携（场景 10 的一部分）：把安装出的应用目录复制到 r2-pA、放 NeuroBook.portable：shell.log 的 root 为
+   {"stateRoot":"...\\r2-pA\\data","portable":true,"source":"portable"}，data\ 建在程序目录下；关窗 1.7 秒后进程全退、exit 0。整个目录改名为
+   r2-pB 再运行：状态根跟着到 r2-pB\data，书架显示“书架 1 部”（关之前往 data 里登记过一部）。前后 %LOCALAPPDATA%\NeuroBook 里最新的写入时间
+   都是 2026-11-08 22:24，没被写过。
+   注意：构建目录 build\stable-win-x64\NeuroBook 是安装包的外壳（Resources 里只有 tar.zst），单独运行报“安装包不完整”；便携包要从
+   安装出的应用目录打，与 desktop/README.md 的写法一致。
+
+开发者确认：
+- 外链交系统浏览器：“帮助 → 文档”之后，系统里已有的 Edge（pid 44596）随即多出 5 个渲染进程，像是开了新标签页；没有进程的命令行带这个地址
+  （Edge 已在运行时经它自己的进程间通道打开），也没读浏览器窗口的标题，所以没有直接证据。请开发者看一眼 Edge 里有没有
+  notnotype.github.io/neuro-book 的标签页。
+  开发者 2026-11-14 确认浏览器里打开了帮助文档：外链交系统浏览器通过。
+
+没做：
+- 便携版放在不可写的目录：用 icacls 拒绝写入时连 launcher 都起不来（拒绝访问），只拒绝建文件与子目录时这个账号仍能建 data\，造不出
+  “程序根不可写”的环境；由 state-root.test.ts 覆盖。
+- 场景 5 的前半（两个窗口的询问重叠、quit 只问一次、等 90 秒才取消）、场景 7（有工作在跑时关最后一个窗口：要真实的 Agent 会话或后台任务）、
+  场景 13 停止超时、Windows 上 completion 失败后结束监督进程（t08 实现审查第 2 条）：没有造出对应条件，由 windows.test.ts、close-query.test.ts、
+  owned-server.test.ts 覆盖。
+
+测试过程里自己造成、不是产品问题的：Move-Item 在旧进程还开着时退成“复制再删”，把运行中的便携副本删坏；脚本只按安装目录的路径筛进程，看不到便携副本的窗口。
+都已改脚本重做，以上结论来自重做之后。

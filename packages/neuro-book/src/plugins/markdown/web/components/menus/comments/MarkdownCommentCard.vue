@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 批注卡片（同名 .md）：浮层与页边共用，只管显示与发事件。 */
 import {IconButton, Textarea} from "@notnotype/nb-ui/components";
-import {nextTick, onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch} from "vue";
 
 /** 卡片上的文字：宿主按显示语言取好（`menus.label`），卡片不认识翻译端口。 */
 export interface CommentCardLabels {
@@ -26,8 +26,17 @@ const props = defineProps<{
     total: number;
     mode: "view" | "write";
     readonly: boolean;
-    /** 页边里没有展开的摘要：只有意见的前两行，点它发 `select`。 */
-    compact?: boolean;
+    /**
+     * 摆在浮层里还是页边里，缺省浮层。页边里没有底行：编辑、删除按钮在当前、悬停或有焦点时显现在右上角，意见第一行给它们留着位置（不压到字）；
+     * 意见的行数由宿主的 CSS 变量 `--markdown-comment-lines` 限；点不是展开的卡片发 `select`。
+     */
+    variant?: "float" | "margin";
+    /** 页边里这条是当前批注（光标所在的、写着的）：编辑、删除按钮显现。 */
+    current?: boolean;
+    /** 页边里这张卡片展开了（点了卡片，或在写）：意见放开行数。 */
+    expanded?: boolean;
+    /** 页边里同一段有几条批注：右上角 `‹ 1/3 ›`，箭头发 `previous`、`next`（同一段里切换）。`index` 从 0 起。 */
+    pager?: {readonly index: number; readonly count: number};
     labels: CommentCardLabels;
     /** 宿主每进入一次“写”加一：已经在写时换到另一条也要重新预填。 */
     session: number;
@@ -52,6 +61,12 @@ const emit = defineEmits<{
 }>();
 
 const draft = ref("");
+/** 页边里没展开的卡片：意见按宿主给的行数限。展开的与浮层里的放开到约 12 行。 */
+const clamped = computed(() => props.variant === "margin" && props.expanded !== true);
+const isMargin = computed(() => props.variant === "margin");
+/** 页边里右上角有控件：编辑、删除（只读没有）与同一段的 `‹ 1/3 ›`。意见第一行为它们留位置。 */
+const hasActions = computed(() => isMargin.value && !props.readonly);
+const hasPager = computed(() => isMargin.value && props.pager !== undefined);
 const root = useTemplateRef<HTMLElement>("root");
 
 // 进入“写”：预填原来的意见，光标在末尾。
@@ -81,6 +96,13 @@ function save(): void {
 function onMousedown(event: MouseEvent): void {
     if (event.target instanceof Element && event.target.closest("textarea, input") !== null) return;
     event.preventDefault();
+}
+
+/** 页边里点没展开的卡片（按钮除外）：这条成为当前批注并展开。 */
+function onClick(event: MouseEvent): void {
+    if (props.variant !== "margin" || props.expanded === true || props.mode !== "view") return;
+    if (event.target instanceof Element && event.target.closest("button") !== null) return;
+    emit("select");
 }
 
 /**
@@ -121,35 +143,52 @@ function onKeydown(event: KeyboardEvent): void {
     <div
         ref="root"
         class="markdown-comment-card"
-        :class="{'markdown-comment-card--compact': props.compact === true}"
         data-markdown-comment-card
         :data-mode="props.mode"
-        :role="props.compact === true ? 'button' : undefined"
-        :tabindex="props.compact === true ? -1 : undefined"
+        :data-variant="props.variant ?? 'float'"
+        :data-current="props.current === true ? '' : undefined"
+        :data-expanded="props.expanded === true ? '' : undefined"
+        :data-actions="hasActions ? '' : undefined"
+        :data-pager="hasPager ? '' : undefined"
         @mousedown="onMousedown"
-        @click="props.compact === true && emit('select')"
+        @click="onClick"
         @focusout="onFocusOut"
         @keydown="onKeydown"
     >
         <template v-if="props.mode === 'view'">
-            <p class="markdown-comment-card__body" :class="{'markdown-comment-card__body--empty': props.body === ''}" data-markdown-comment-body>{{ props.body === "" ? props.labels.empty : props.body }}</p>
-            <div v-if="props.compact !== true" class="markdown-comment-card__footer">
-                <span class="markdown-comment-card__counter" data-markdown-comment-counter>{{ props.labels.counter(props.index + 1, props.total) }}</span>
-                <IconButton size="xs" icon-class="i-lucide-chevron-up" :title="props.labels.previous" :aria-label="props.labels.previous" :disabled="props.index <= 0" @click="emit('previous')" />
-                <IconButton size="xs" icon-class="i-lucide-chevron-down" :title="props.labels.next" :aria-label="props.labels.next" :disabled="props.index >= props.total - 1" @click="emit('next')" />
-                <span class="flex-1" />
-                <template v-if="!props.readonly">
+            <p class="markdown-comment-card__body" :class="{'markdown-comment-card__body--empty': props.body === '', 'markdown-comment-card__body--clamped': clamped}" data-markdown-comment-body><span v-if="hasActions || hasPager" class="markdown-comment-card__reserve" aria-hidden="true" />{{ props.body === "" ? props.labels.empty : props.body }}</p>
+            <div v-if="isMargin" class="markdown-comment-card__overlay" data-markdown-comment-controls>
+                <div v-if="!props.readonly" class="markdown-comment-card__actions">
                     <IconButton size="xs" icon-class="i-lucide-pencil" :title="props.labels.edit" :aria-label="props.labels.edit" @click="emit('edit')" />
                     <IconButton size="xs" icon-class="i-lucide-trash-2" :title="props.labels.remove" :aria-label="props.labels.remove" @click="emit('remove')" />
-                </template>
+                </div>
+                <div v-if="props.pager !== undefined" class="markdown-comment-card__pager" data-markdown-comment-pager>
+                    <IconButton size="xs" icon-class="i-lucide-chevron-left" :title="props.labels.previous" :aria-label="props.labels.previous" :disabled="props.pager.index <= 0" @click="emit('previous')" />
+                    <span class="markdown-comment-card__pager-count">{{ props.pager.index + 1 }}/{{ props.pager.count }}</span>
+                    <IconButton size="xs" icon-class="i-lucide-chevron-right" :title="props.labels.next" :aria-label="props.labels.next" :disabled="props.pager.index >= props.pager.count - 1" @click="emit('next')" />
+                </div>
+            </div>
+            <div v-else class="markdown-comment-card__footer">
+                <span class="markdown-comment-card__counter" data-markdown-comment-counter>{{ props.labels.counter(props.index + 1, props.total) }}</span>
+                <div class="markdown-comment-card__controls" data-markdown-comment-controls>
+                    <IconButton size="xs" icon-class="i-lucide-chevron-up" :title="props.labels.previous" :aria-label="props.labels.previous" :disabled="props.index <= 0" @click="emit('previous')" />
+                    <IconButton size="xs" icon-class="i-lucide-chevron-down" :title="props.labels.next" :aria-label="props.labels.next" :disabled="props.index >= props.total - 1" @click="emit('next')" />
+                    <span class="flex-1" />
+                    <template v-if="!props.readonly">
+                        <IconButton size="xs" icon-class="i-lucide-pencil" :title="props.labels.edit" :aria-label="props.labels.edit" @click="emit('edit')" />
+                        <IconButton size="xs" icon-class="i-lucide-trash-2" :title="props.labels.remove" :aria-label="props.labels.remove" @click="emit('remove')" />
+                    </template>
+                </div>
             </div>
         </template>
         <template v-else>
             <Textarea v-model="draft" variant="bare" autosize :max-rows="12" :rows="1" class="markdown-comment-card__field" :aria-label="props.labels.body" />
             <div class="markdown-comment-card__footer">
-                <span class="flex-1" />
-                <IconButton size="xs" icon-class="i-lucide-x" :title="props.labels.cancel" :aria-label="props.labels.cancel" @click="emit('cancel')" />
-                <IconButton size="xs" icon-class="i-lucide-check" :title="props.labels.save" :aria-label="props.labels.save" @click="save" />
+                <div class="markdown-comment-card__controls">
+                    <span class="flex-1" />
+                    <IconButton size="xs" icon-class="i-lucide-x" :title="props.labels.cancel" :aria-label="props.labels.cancel" @click="emit('cancel')" />
+                    <IconButton size="xs" icon-class="i-lucide-check" :title="props.labels.save" :aria-label="props.labels.save" @click="save" />
+                </div>
             </div>
         </template>
     </div>
@@ -157,8 +196,9 @@ function onKeydown(event: KeyboardEvent): void {
 
 <style scoped>
 /*
- * 卡片本身的外观是浮层（`AnchoredPopover`）给的；页边里的卡片自己画底色与边（`MarkdownCommentMargin.vue`）。这里只管里面：
+ * 卡片本身的外观是浮层（`AnchoredPopover`）给的；页边里的卡片面由页边画（`MarkdownCommentMargin.vue`：当前的用浮层基座，其余是淡底）。这里只管里面：
  * “看”的文字与“写”的输入字体、字号、行距一样，点“编辑”时文字不重排；意见区最高约 12 行再滚动（输出 29）。
+ * 浮层里状态之间外框与版式不变（ui-development-spec 第 3 节第 4 条）：意见区加一个固定高度的底行。页边里没有底行，按钮浮在右上角，只是显隐。
  */
 .markdown-comment-card {
     display: flex;
@@ -172,6 +212,35 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text-main);
 }
 
+.markdown-comment-card[data-variant="margin"] {
+    /*
+     * 右上角控件的宽度：编辑、删除两个按钮，`‹ 1/3 ›` 是两个按钮夹一个页码。意见第一行按它们的总宽留位置（`__reserve`），所以按钮显现时
+     * 不压到字，也不因为显现而重排（ui-development-spec 第 3 节第 4 条：只在某个状态出现的零件放进预留的位置）。
+     * 数字依赖 `IconButton` 的 xs 是 24px、`__overlay` 靠右 4px、卡片右内边距 10px、页码 `__pager-count` 的 28px：改了其中一个要一起改；
+     * 下面 `[data-actions]`、`[data-pager]` 两条与这条同特异性，靠写在后面覆盖。
+     */
+    --markdown-comment-actions-w: 0px;
+    --markdown-comment-pager-w: 0px;
+    --markdown-comment-controls-w: calc(var(--markdown-comment-actions-w) + var(--markdown-comment-pager-w));
+
+    position: relative;
+    width: auto;
+    padding: 4px 10px 4px 12px;
+}
+
+.markdown-comment-card[data-actions] {
+    --markdown-comment-actions-w: 48px;
+}
+
+.markdown-comment-card[data-pager] {
+    --markdown-comment-pager-w: 76px;
+}
+
+/* 页边里没展开的卡片可以点：点了成为当前批注并展开。 */
+.markdown-comment-card[data-variant="margin"]:not([data-expanded]):not([data-mode="write"]) {
+    cursor: pointer;
+}
+
 .markdown-comment-card__body {
     margin: 0;
     max-height: calc(12 * 1.55em);
@@ -182,6 +251,20 @@ function onKeydown(event: KeyboardEvent): void {
 
 .markdown-comment-card__body--empty {
     color: var(--text-muted);
+}
+
+/*
+ * 页边里没展开的卡片按宿主给的行数限（意见区）；什么时候限行（收起时晚一个过渡）见 `MarkdownCommentMargin.vue` 的 `__body--clamped` 一条。
+ * 占位（`__reserve`）是浮动元素，放在 `-webkit-box` 里：Chrome 里成立（`-webkit-box` 带限行时是块容器），Firefox 124、Chrome 119 里 `-webkit-box`
+ * 是弹性盒、浮动无效，占位可能自己占一行，未在那两个浏览器里验证（t23 的待确认清单）。
+ */
+.markdown-comment-card__body--clamped {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: var(--markdown-comment-lines, 3);
+    line-clamp: var(--markdown-comment-lines, 3);
+    overflow: hidden;
+    max-height: none;
 }
 
 .markdown-comment-card :deep(.markdown-comment-card__field) {
@@ -203,18 +286,59 @@ function onKeydown(event: KeyboardEvent): void {
     font-variant-numeric: tabular-nums;
 }
 
-.markdown-comment-card--compact {
-    width: auto;
-    padding: 6px 10px;
-    cursor: pointer;
+.markdown-comment-card__controls {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 2px;
+    opacity: 1;
+    transition: opacity var(--motion-fast) var(--ease-layout);
 }
 
-.markdown-comment-card--compact .markdown-comment-card__body {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    overflow: hidden;
-    max-height: none;
+/* 页边：右上角控件的占位，浮动、只占第一行高，意见的第一行绕开它。控件靠右 4px，比内容区的右缘多出 6px，所以占位少 6px。 */
+.markdown-comment-card__reserve {
+    float: right;
+    width: calc(var(--markdown-comment-controls-w) - 6px);
+    height: 1.55em;
+}
+
+/* 页边：右上角的控件，绝对定位，位置已经由 `__reserve` 留好。 */
+.markdown-comment-card__overlay {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    display: flex;
+    align-items: center;
+}
+
+.markdown-comment-card__pager {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.markdown-comment-card__pager-count {
+    min-width: 28px;
+    text-align: center;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 编辑、删除只在当前的卡片、指针停在卡片上、焦点在里面时显现；位置一直留着（`__reserve`），不盖字。
+ * `visibility` 等淡出结束才切，显现时立刻切（`visibility` 的过渡是离散的）；键盘焦点进来（`:focus-within`）时显现，按钮才点得到。
+ */
+.markdown-comment-card__actions {
+    display: flex;
+    align-items: center;
+    opacity: 1;
+    transition: opacity var(--motion-fast) var(--ease-layout);
+}
+
+.markdown-comment-card:not([data-current]):not(:hover):not(:focus-within) .markdown-comment-card__actions {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--motion-fast) var(--ease-layout), visibility 0s linear var(--motion-fast);
 }
 </style>

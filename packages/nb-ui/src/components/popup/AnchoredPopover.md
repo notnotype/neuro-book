@@ -28,6 +28,8 @@ type AnchoredPopoverProps = {
     anchor: Element | {getBoundingClientRect: () => DOMRect; contextElement?: Element} | null;
     /** 偏好的一侧；缺省 "top"。放不下时翻到另一侧。 */
     side?: "top" | "bottom";
+    /** 沿着这一侧的对齐；缺省 "center"（浮层中心对着锚点中心）。"start" 是浮层左缘对着锚点左缘，"end" 是右缘对右缘。靠近窗口边时仍夹进窗口。 */
+    align?: "start" | "center" | "end";
     /** 与锚点的距离；缺省 8。 */
     sideOffset?: number;
 };

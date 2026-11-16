@@ -26,7 +26,7 @@ const TOOLS = {
     optional: ["nbook.agent.edit-replace", SHELL, ASK, ...DELEGATION],
 };
 
-export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-feather", agents: {allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]}};
+export const MAIN_DECLARATION: AgentProfileDeclaration = {name: NAME, description: DESCRIPTION, tools: TOOLS, icon: "i-lucide-feather", agents: {allowed: [ADHOC_PROFILE], recommended: [ADHOC_PROFILE]}, skills: {allowed: "all"}};
 
 const ROLE = `你是 NeuroBook 的写作助手，和作者一起写长篇小说：构思、设定、大纲、正文、修改、检查前后一致。
 书的文件在 project:// 下。没有打开书时可以讨论，产物放 session://。`;

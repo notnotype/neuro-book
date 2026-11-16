@@ -1,21 +1,23 @@
 /**
  * 第三方插件的安装、升级、卸载、启停与启动时的切换和回收（docs/specs/runtime/plugin-install.md）：真实临时目录上的
  * 插件文件夹与状态根，“重启”就是再调一次 `prepareInstalledPlugins` 并用它的结果建新的插件管理。服务端运行时命令行同时
- * 安装用真实子进程。
+ * 安装用真实子进程。插件包查询（`packages.ts`）按启动时登记的插件找版本目录里的目录，也在这里测。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, realpath, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {lock} from "@notnotype/nb-file-lock";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import type {PlatformProfile} from "../shared/profile";
 import {acmeAt, ACME_PROFILE} from "../testing/profile";
 import {createPluginInventory} from "./inventory";
 import type {PluginInventory} from "./inventory";
-import {prepareInstalledPlugins} from "./startup";
+import {createPluginPackages} from "./packages";
+import {installedPlugins, prepareInstalledPlugins} from "./startup";
 import type {StartupPlugins} from "./startup";
 
 const PRODUCT = ACME_PROFILE.productVersion;
@@ -39,30 +41,32 @@ interface World {
     startup: StartupPlugins;
     inventory: PluginInventory;
     /** 模拟重启：上一次的服务端退出，再处理待生效变化、回收残留，换成新的插件集合与插件管理。 */
-    restart(options?: {readonly productVersion?: string; readonly safeMode?: boolean}): Promise<StartupPlugins>;
+    /** 不给 `pluginApiSince` 时兼容起点等于产品版本（只看当前版本）。 */
+    restart(options?: {readonly productVersion?: string; readonly pluginApiSince?: string; readonly safeMode?: boolean}): Promise<StartupPlugins>;
     /** 在 `base/sources/<name>` 写一个插件文件夹。 */
     source(name: string, manifest: Record<string, unknown>, files?: Readonly<Record<string, string>>): Promise<string>;
     record(): Promise<unknown>;
 }
 
-async function world(): Promise<World> {
+async function world(initial: PlatformProfile = acmeAt(PRODUCT)): Promise<World> {
     cases += 1;
     const base = join(tmp, `case-${String(cases)}`);
     const root = join(base, "state", "plugins");
     await mkdir(join(base, "sources"), {recursive: true});
     const diagnostics: DiagnosticInput[] = [];
-    const make = (startup: StartupPlugins, productVersion = PRODUCT): PluginInventory => createPluginInventory({root, profile: acmeAt(productVersion), builtin: BUILTIN, startup, record: (input) => diagnostics.push(input)});
+    const make = (startup: StartupPlugins, profile: PlatformProfile): PluginInventory => createPluginInventory({root, profile, builtin: BUILTIN, startup, record: (input) => diagnostics.push(input)});
     const self: World = {
         base,
         root,
         diagnostics,
         startup: {safeMode: false, registryProblem: null, plugins: []},
-        inventory: make({safeMode: false, registryProblem: null, plugins: []}),
+        inventory: make({safeMode: false, registryProblem: null, plugins: []}, initial),
         restart: async (options = {}) => {
-            const prepared = await prepareInstalledPlugins({root, profile: acmeAt(options.productVersion ?? PRODUCT), safeMode: options.safeMode ?? false});
+            const profile = options.productVersion === undefined && options.pluginApiSince === undefined ? initial : acmeAt(options.productVersion ?? PRODUCT, options.pluginApiSince);
+            const prepared = await prepareInstalledPlugins({root, profile, safeMode: options.safeMode ?? false});
             prepared.connectDiagnostics((input) => diagnostics.push(input));
             self.startup = prepared.startup;
-            self.inventory = make(prepared.startup, options.productVersion);
+            self.inventory = make(prepared.startup, profile);
             return prepared.startup;
         },
         source: async (name, manifest, files = {}) => {
@@ -131,6 +135,28 @@ describe("安装与列表（输出 1、2、9）", () => {
         expect(itemOf(await w.inventory.list(), "example.hello")?.pending).toEqual([]);
     });
 
+    it("兼容起点：插件的范围与起点到当前版本有交集就兼容，安装与启动同一个判断", async () => {
+        const w = await world(acmeAt("0.13.0", "0.12.1"));
+        const install = async (name: string, range: string) => w.inventory.install(await w.source(name, {...manifest(), name, contributes: [], engines: {acme: range}}));
+        // 按旧版本写的、没写上限的、写当前 minor 的都能装。
+        expect(await install("built-on-old", "^0.12.1")).toMatchObject({ok: true});
+        expect(await install("open-ended", ">=0.1.0")).toMatchObject({ok: true});
+        expect(await install("current", "^0.13.0")).toMatchObject({ok: true});
+        // 起点之前的、要更新版本的不能装；说明里写出兼容起点。
+        const before = await install("before-floor", "^0.11.0");
+        expect(before).toMatchObject({ok: false, code: "incompatible-engine"});
+        expect(before.ok ? "" : before.detail).toBe("插件要求 Acme ^0.11.0，当前是 0.13.0（兼容 0.12.1 起的插件）");
+        expect(await install("newer", "^0.13.5")).toMatchObject({ok: false, code: "incompatible-engine"});
+
+        const startup = await w.restart();
+        expect(startup.plugins.filter((plugin) => plugin.notLoaded !== null)).toEqual([]);
+        // 插件 API 破了、起点提到 0.13.0：按 0.12 写的不再登记，写当前 minor 的照常。
+        const raised = await w.restart({productVersion: "0.13.0", pluginApiSince: "0.13.0"});
+        const codes = Object.fromEntries(raised.plugins.map((plugin) => [plugin.id, plugin.notLoaded?.code ?? null]));
+        expect(codes).toEqual({"example.built-on-old": "incompatible-engine", "example.current": null, "example.open-ended": null});
+        expect(raised.plugins.find((plugin) => plugin.id === "example.built-on-old")?.notLoaded?.detail).toBe("要求 Acme ^0.12.1，当前是 0.13.0");
+    });
+
     it("拒绝：保留 id、不兼容、清单无效（带字段）、同一版本、源不存在、源在插件目录里、缺入口文件；都不留下文件与记录", async () => {
         const w = await world();
         const reserved = await w.inventory.install(await w.source("reserved", {...manifest(), publisher: "acme"}));
@@ -159,6 +185,26 @@ describe("安装与列表（输出 1、2、9）", () => {
         await mkdir(inside, {recursive: true});
         await writeFile(join(inside, "package.json"), JSON.stringify(manifest()));
         expect(await w.inventory.install(inside)).toMatchObject({ok: false, code: "path-rejected"});
+    });
+});
+
+describe("插件包里的目录（plugin-code-loading 的插件包查询）", () => {
+    it("只交回本次启动登记的插件当前版本目录里的目录：真实路径；写法不对、出了目录、是文件、不存在、经过链接、不是登记的插件都是 null；显示名取清单", async () => {
+        const w = await world();
+        const installed = await w.inventory.install(await w.source("hello", manifest("1.0.0", {displayName: "Hello"}), {"skills/pdf/SKILL.md": "---\nname: pdf\n---\n", "skills/readme.txt": "说明"}));
+        if (!installed.ok) throw new Error(JSON.stringify(installed));
+        const packages = createPluginPackages(installedPlugins(await w.restart()), ACME_PROFILE.format);
+        const version = await realpath(join(w.root, "example.hello", "1.0.0"));
+        expect(await packages.directory("example.hello", "skills")).toBe(join(version, "skills"));
+        expect(await packages.directory("example.hello", "skills/pdf")).toBe(join(version, "skills", "pdf"));
+        for (const path of ["skills/readme.txt", "missing", "", "/skills", "skills/", "./skills", "skills/../skills", "../hello", "skills\\pdf", "file:skills"]) {
+            expect([path, await packages.directory("example.hello", path)]).toEqual([path, null]);
+        }
+        // 安装时拒绝链接；装好之后有人在版本目录里放了链接，查询同样不跟随。
+        await symlink(join(version, "skills"), join(version, "linked"));
+        expect(await packages.directory("example.hello", "linked/pdf")).toBeNull();
+        expect(await packages.directory("example.other", "skills")).toBeNull();
+        expect([packages.title("example.hello"), packages.title("example.other")]).toEqual(["Hello", null]);
     });
 });
 

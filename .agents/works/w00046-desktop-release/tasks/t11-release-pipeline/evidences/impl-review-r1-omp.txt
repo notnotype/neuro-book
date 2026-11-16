@@ -1,0 +1,56 @@
+### 1. 多条 PowerShell 原生命令步骤可能吞掉前一个失败
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`.github/workflows/release.yml:101-103, 148-153`
+- **现象**：这些 `pwsh` 多行步骤没有设置 `$PSNativeCommandUseErrorActionPreference = $true`，也没有在每条 `bun` 后显式检查 `$LASTEXITCODE`。PowerShell 默认不会因为原生命令的非零退出码立刻抛错；脚本会继续执行，后一个成功的原生命令可能把最终退出码改回 0。`npm-packages` 的 `build.ts` 失败后仍会执行 `verify-built`，B′ 步骤中 `release:smoke`、版本核对和 `build.ts` 也有同一风险。
+- **为什么是问题**：构建或打包失败可能被报告成成功，随后上传不完整的 `desktop-official`/`desktop-bplus` 产物，发布作业再用错误输入继续跑。该路径没有真实 GitHub runner 复现；依据是工作流的 PowerShell 默认行为与源码中缺少失败检查。
+- **如何核实**：在 Windows runner 上令第一条 `bun` 返回非零、第二条命令返回 0，观察步骤是否成功；或在等价 `pwsh` 中运行 `& bun ...; & bun ...`，检查没有偏好设置时的最终 `$LASTEXITCODE`。
+- **建议改法**：每个多原生命令的 `run` 开头设置 `$PSNativeCommandUseErrorActionPreference = $true`，并保留对关键输出文件的显式存在性核对；或每条命令后立即 `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`。
+### 2. Windows 冒烟失败时不卸载安装，失败重跑会撞上残留安装
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/neuro-book/desktop/scripts/smoke-windows.ts:137-156`；`packages/neuro-book/desktop/scripts/smoke-update.ts:164-235`
+- **现象**：`smokeSetup` 只有主流程走到第 149 行才调用 `uninstall`；启动、Agent 命令、关窗、数据核对任一步失败时，`finally` 只 `killUnder` 和收集证据。`smoke-update` 也只有第 225 行的成功路径卸载，异常路径只杀进程。工作流的失败步骤不会继续执行后续收口步骤。
+- **为什么是问题**：安装目录、卸载注册表项和快捷方式会留在 runner 上；同一作业重试或本地复跑会被 `installFromSetup` 第 20 行的“已装着”门禁直接拒绝。它也违反计划要求的失败路径收口，不能依赖托管 runner 销毁来满足脚本合同。
+- **如何核实**：让 `runAgentCommand` 或 `closeApp` 抛错后检查 `uninstallEntry(identifier)`、`appDir` 和 `processesUnder(appDir)`；当前实现只会结束进程，不会调用卸载器。
+- **建议改法**：在 `finally` 中保留原始异常，若已取得 `Installed` 且卸载项仍在则调用卸载；证据收集和卸载都用嵌套 `try/finally`，清理失败追加到证据/错误而不覆盖原始失败。
+### 3. 更新冒烟的备份还原不是无条件收口
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/neuro-book/desktop/scripts/smoke-update.ts:226-235`
+- **现象**：`finally` 先执行 `collectEvidence`，再还原 `projects.json` 与 `settings.json`。`collectEvidence` 的复制与进程采集虽局部吞错，但创建证据目录和最后写 `sources.txt` 仍可能抛错；同样，`killUnder` 或证据路径权限异常会使后面的备份还原根本不执行。
+- **为什么是问题**：该脚本明确在缺省 `%LOCALAPPDATA%\NeuroBook` 上运行，开发者已确认必须备份这两个文件并在结束时还原。失败时证据目录不可写、路径被占用或权限变化，就会把冒烟写入的作品登记和模型设置留在用户状态根，且原始冒烟错误被收口异常遮蔽。
+- **如何核实**：把 `--evidence` 指向不可写目录，或在收集证据阶段令 `writeFile(sources.txt)` 失败，随后检查状态根中的两个文件是否回到备份内容；该路径未在真实 Windows runner 复现。
+- **建议改法**：把还原放进内层 `finally`，无论进程收口和证据收集是否成功都执行；分别捕获清理错误，最后以原始失败为主并把清理失败写入证据或错误链。
+### 4. 自写 SemVer 比较在大数字和非法预发布段上不符合 2.0.0
+- **严重程度**：重要；**类别**：正确性 / 安全与性能
+- **位置**：`scripts/release/semver.ts:7-20, 29-30`
+- **现象**：核心版本和数字预发布标识都先转成 `number`；超过 2^53 的两个不同数字会被舍入成相同值。正则还允许 SemVer 禁止的数字预发布标识前导零（如 `1.0.0-01`）以及空/点号异常的预发布段。
+- **为什么是问题**：`gh release list` 的当前最新标签与 npm 的 `dist-tags.latest` 都是外部状态，`shouldBeLatest` 和 `distTagFor` 会依赖这个比较。遇到大版本号、超长预发布数字或异常旧标签时，流水线可能错误地把 Release/npm 包设为 latest，或错误地走 history；这违反“不往回拨 latest”的合同。当前测试只覆盖普通数字和一个正常的 canary 标签。
+- **如何核实**：在 Node/Bun 中调用 `compareVersions("1.0.0-9007199254740992", "1.0.0-9007199254740993")`，当前结果为 `0`；调用 `compareVersions("1.0.0-01", "1.0.0-1")` 当前不会抛错。再把前者作为当前 latest 输入 `shouldBeLatest`/`distTagFor`。
+- **建议改法**：按 SemVer 规则以数字字符串的长度和字典序比较，不转 `number`；解析时拒绝数字预发布段前导零、空标识和连续点，并为核心段与长预发布数字补边界用例。
+### 5. 更新冒烟没有要求换上后的第一次启动真正完成更新检查
+- **严重程度**：重要；**类别**：测试 / 正确性
+- **位置**：`packages/neuro-book/desktop/scripts/smoke-update.ts:194-207`
+- **现象**：换上后的第一次启动只等待 `desktop.update.notice-shown kind=updated`，随后只检查 `firstRun.some(check => check.result === "newer")`。`firstRun` 为空时也会通过；脚本没有要求这次启动存在 `desktop.update.checked`，也没有核对测试源退回 A′ 后的 `remote=A′, result=older`（上一版模式应为 `remote=本次, result=same`）。
+- **为什么是问题**：更新后的启动可能没有初始化更新控制器、没有执行检查，仍会因持久化的 `pendingNotice` 显示“已更新到”并通过版本号核对。随后第二次启动才执行检查，无法证明场景 2 后半中“换上后的第一次启动检查不是有更新”的判据。
+- **如何核实**：在测试副本里让换上后的壳跳过 `UpdateController.start()`，保留更新器结果与 pending notice，再运行该段判定；当前逻辑中空的 `firstRun` 不触发失败。未在真实 Windows runner 复现该变异。
+- **建议改法**：要求 `firstRun` 恰有一次或至少非空，并按 Route 断言预期远端版本与 `older`/`same`；把这条判据加入失败用例或变异检查。
+### 6. Windows 冒烟的标识参数可注入 PowerShell
+- **严重程度**：建议；**类别**：安全与输入校验
+- **位置**：`packages/neuro-book/desktop/scripts/smoke/windows.ts:120-124`
+- **现象**：`uninstallEntry(identifier)` 把调用方传入的 `identifier` 直接插进单引号包围的 PowerShell 源码：`$k = '...\${identifier}.stable'`，没有对单引号转义。`smoke-windows.ts` 与 `smoke-update.ts` 都允许该值从命令行传入。
+- **为什么是问题**：带单引号的标识会破坏 PowerShell 字符串并执行后续语句；CI 当前使用固定常量，所以本次 runner 不会触发，但这是验收脚本对外部参数的命令注入边界，失败时还可能在卸载检查阶段执行任意本机命令。
+- **如何核实**：在 Windows 上调用 `uninstallEntry("x'; Write-Output injected; #")`，观察生成的 PowerShell 是否把 `injected` 当作命令执行；当前 Linux 未运行真实 PowerShell。
+- **建议改法**：不要把标识拼进脚本源码；把它作为 PowerShell 参数传入，或至少用 PowerShell 单引号规则把 `'` 替换为 `''`，并在 CLI 入口校验与应用标识相同的允许字符集。
+### 7. 有序停止判据允许缺少服务端 PID 的伪正向证据
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/neuro-book/desktop/scripts/smoke/facts.ts:36-46`
+- **现象**：`orderlyStopProblems(entries)` 不传 `pid` 时，只要存在任意 `desktop.server.ready` 就通过；它不检查该事件带有合法 `pid`，也不核对 ready 与 stopped 属于这次启动的同一服务端。现有测试只覆盖“调用方主动给 pid 时”的错误，不覆盖日志缺少 pid。
+- **为什么是问题**：适配层误删 `pid=...`、日志格式退化或冒烟读到不完整的 ready 事实时，`desktop.server.stopped forced=false exitCode=0` 仍可使冒烟报告服务端有序停止，不能满足计划要求的“PID 是这次壳拉起的服务端”的正向证据。
+- **如何核实**：把固定日志中的 `desktop.server.ready pid=4242` 改成 `desktop.server.ready`，调用 `orderlyStopProblems(logEntries(LOG))`，当前返回空数组。
+- **建议改法**：无论是否传入期望 PID，都要求 ready 的 `pid` 是正整数；冒烟从本次启动的进程记录取得并传入期望 PID，或让判据保留启动前后的进程身份。
+
+## 审查收口
+
+- **有效发现**：1、2、3、4、5、6、7。
+- **未发现已核实问题的方面**：工作流触发条件、`needs`/输出连接、权限与并发组；dry-run 与正式发布分支；npm 发布清单、部分发布重跑、`latest`/`history` 选择；GitHub Release 草稿、资产补齐与摘要核对；更新源核对的 URL、重定向和资产摘要取证；Windows 便携包成功路径、变体构建参数；桌面更新通知持久化和 `desktop.server.stopped` 的实现日志；发布流程文档与已追认的重跑决定。
+- **数量**：阻断 0；严重 0；重要 5（1、2、3、4、5）；建议 2（6、7）。
+- **验证记录**：`bun test scripts/release`：74 pass、0 fail；桌面测试进程最终 exit code 0；`bunx tsc -p scripts/tsconfig.json --noEmit` 通过。另以最小脚本核实 `compareVersions("1.0.0-9007199254740992", "1.0.0-9007199254740993")` 返回 `0`，缺少 PID 的有序停止日志返回空问题数组。未运行 Windows runner、PowerShell、e2e、开发服务、`npm publish` 或 `gh release` 写操作。

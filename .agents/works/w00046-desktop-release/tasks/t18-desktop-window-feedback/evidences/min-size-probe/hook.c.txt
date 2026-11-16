@@ -1,0 +1,18 @@
+typedef long long LL; typedef unsigned long long ULL; typedef unsigned short WCHAR;
+typedef struct { LL lResult; LL lParam; ULL wParam; unsigned int message; void* hwnd; } CWPRETSTRUCT;
+typedef struct { LL lParam; ULL wParam; unsigned int message; void* hwnd; } CWPSTRUCT;
+typedef struct { int x, y; } PT;
+typedef struct { PT reserved, maxSize, maxPos, minTrack, maxTrack; } MINMAXINFO;
+LL CallNextHookEx(void*, int, ULL, LL);
+void* GetPropW(void*, const WCHAR*);
+static const WCHAR PROP[] = {'n','b','m','i','n',0};
+static int minW = 0, minH = 0, hits = 0, seen = 0;
+static void raise(void* hwnd, LL lp) { MINMAXINFO* m = (MINMAXINFO*)lp; seen++; if (GetPropW(hwnd, PROP)) { if (m->minTrack.x < minW) m->minTrack.x = minW; if (m->minTrack.y < minH) m->minTrack.y = minH; m->maxSize.x = 900; m->maxSize.y = 600; hits++; } }
+LL hookRet(int code, ULL w, LL l) { if (code >= 0) { CWPRETSTRUCT* c = (CWPRETSTRUCT*)l; if (c->message == 0x24) raise(c->hwnd, c->lParam); } return CallNextHookEx(0, code, w, l); }
+LL hookPre(int code, ULL w, LL l) { if (code >= 0) { CWPSTRUCT* c = (CWPSTRUCT*)l; if (c->message == 0x24) raise(c->hwnd, c->lParam); } return CallNextHookEx(0, code, w, l); }
+void* addrRet(void) { return (void*)hookRet; }
+void* addrPre(void) { return (void*)hookPre; }
+void setMin(int w, int h) { minW = w; minH = h; }
+int hitCount(void) { return hits; }
+int seenCount(void) { return seen; }
+int sizes(void) { return (int)(sizeof(CWPRETSTRUCT) * 1000 + sizeof(MINMAXINFO)); }

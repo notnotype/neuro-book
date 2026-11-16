@@ -1,0 +1,77 @@
+# w00026 t25 第 2 条实现审查（Claude Sonnet 5.5，claude -p，只读；审查对象 94af03bd8..f19a0a0e8）
+# 说明：/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t25-f2/brief-cli.md（审查者没写成报告文件，以下是它的最终回复）
+
+报告文件写不进去（`/home/notnotype/.claude/jobs/...` 被拦为敏感路径，`cat >>` 和 Write 都被拒），所以整份报告放在下面。
+
+已跑：`bun test src/plugins/workbench/web src/plugins/editor/area.test.ts src/plugins/workbench/locales.test.ts`，387 通过 0 失败。`bun run typecheck` 只有已知的 MarkdownToolbar 一处错误，tsc 在那里停下，两份 vue-tsc 没跑到。没跑 e2e 与 nb-layout 测试。
+
+## 数量
+
+阻断 0，重要 2，建议 5。有效发现的编号：1, 2, 3, 4, 5, 6, 7
+
+### 1. 编辑器拒绝放下后，松手没有提示，违反编辑器验收场景 27 与输出 49
+- **严重程度**：重要。类别：违反合同、行为回退。
+- **位置**：`workbench/web/layout-drag.ts:676-680`；`editor/web/area.ts:561-570`（提示只在 `leave` 里写）；`workbench/web/contracts.ts:107`（`drop` 的注释仍写“拒绝的提示由编辑器给”）。
+- **现象**：被拒绝时 `dropAt` 返回 null，松手不会调 `EditorTabDrag.drop`，走不到 `moveTab` 里的 `leave`，组顶部的 `area.notice` 就不出现。改动前被拒绝的落点照常提交，松手后会写出提示。
+- **为什么是问题**：editor.md 验收场景 27 写“右组有未裁决输入时再拖，不移动并给出提示”，输出 49 写“组顶部给出与换文档相同的提示”。输出 55 的“松手什么都不做”不排除提示。用户现在只看到禁止光标和“不能放在这里”，不知道是哪一组的输入没处理。没有任何用例覆盖（e2e 搜“未裁决”无命中）。
+- **如何核实**：从代码推断，未在浏览器里跑。复现：左右两组开同一文件，让右组活动标签有未裁决输入，把左组另一个标签拖到右组松手，看右组顶部有没有提示。
+- **建议改法**：给 `EditorTabDrag` 加一个只写提示的入口（如 `refuse(tabId, action)`，用 `moveOutcome` 同一判据），拖动结束时最后一次判定是拒绝就调一次；同时改掉 contracts.ts 里 `drop` 的注释。
+
+### 2. `workbench-drag-cost.e2e.ts` 的“拖编辑器标签”不再量卡片
+- **严重程度**：重要。类别：测试。
+- **位置**：`e2e/workbench-drag-cost.e2e.ts:157-174`；`settle()` 在 121-130 行。
+- **现象**：该用例把 short.md 拖到“当前编辑组”正文中央。那是它自己所在的组，中央是原位，现在不拿起卡片。用例仍通过，量的是拖影的开销。`settle()` 里 `card.count() === 0` 直接返回，所以不报错。
+- **为什么是问题**：它是唯一量编辑器标签卡片开销的用例。这次新增的开销（缩放期间每次写尺寸都重排整份正文）也没有测量，用例只量缩放结束之后，而缺省 `display` 是每帧写。缩放约 40 帧（时间常数 90ms，600 缩到 380）、开着长章节时的每帧重排耗时没有数字。
+- **如何核实**：从代码推断，没跑 e2e。建议主 Agent 跑这个文件，并在该用例里断言 `[data-lifted]` 个数。
+- **建议改法**：目标改成另一个组的正文（先 split），并在预期有卡片的用例里先断言卡片存在。另加一条量缩放期间每帧布局次数的用例（`display` 与 `30` 各一次），用数字决定缺省值。
+
+### 3. 并入时落点从标签条换成中央，留下的同一标签被取消固定、挪到末尾
+- **严重程度**：建议（质疑设计）。类别：行为变化、隐含耦合。
+- **位置**：`layout-drag.ts:696`；`editor/web/tab-drag.ts:114-115`；`area.ts:741`；`groups/groups.ts:242-246、372`。
+- **现象**：目标组已有同一标签时，从标签条拖进去，落点被换成 `center`，丢掉 `part` 与插入下标。提交走 `{partition: "normal", before: null}`，并入分支再 `groups.moveTab(twin.id, place)`，`placed(..., false)` 去掉 `pinned`。目标组里固定着的同一标签因此变成不固定，并挪到普通分区末尾。
+- **为什么是问题**：area.test.ts:1421“并掉时落点在固定区”覆盖的逻辑，现在从拖动再也走不到，只剩 `dockGroup` 与 `openFiles` 会走。输出 55 的“结果与放到中央相同”和输出 49 都没写这个副作用。正文中央本来就有它，这次把标签条上的所有并入都带了进来。
+- **如何核实**：从代码推断，没跑。复现：右组固定 a.md，把左组的 a.md 拖到右组标签条松手，看右组 a.md 是否还固定、还在原位。
+- **建议改法**：先请开发者确认“并入不改留下标签的位置与固定”是不是想要的。若是，中央并入时不再重放位置（`TabPlace` 的中央写成不带位置的形式，并入分支就不动），并补“中央并入不动固定与位置”的用例。
+
+### 4. 实时布局下“拒绝”的反馈会在预览换成“来源收起”后消失
+- **严重程度**：建议。类别：两种手感一致。
+- **位置**：`layout-drag.ts:646-649`（`held` 命中直接返回，不置 `overRejected`）、246；`live-drag.ts` 的 `stepPreview` 里 `collapseSource(from, … : null)`。
+- **现象**：先在自己正文里停过（预览是 in-place 候选），再移到被拒绝的落点。候选为 null，150ms 后预览换成 `source-removed`，来源收起，`held` 记下 null 落点。指针不动时之后每次判定命中 `held`，`overRejected` 为 false，禁止光标和“不能放在这里”约 150ms 后消失，布局却变了一次。
+- **为什么是问题**：开发者要求拖动中就按放不下画。层级拒绝（工具视图拖到编辑组）走同一条路，是既有行为，但现在编辑器拒绝也进了这条路。e2e（workbench-live-drag.e2e.ts:304-312）移过去立刻断言，早于 150ms 稳定，抓不到。
+- **如何核实**：从代码推断，没在浏览器验证。拖动一开始就进拒绝落点时预览是 none，不会触发。
+- **建议改法**：`held` 多存 `rejected`（取 `collapseSource` 当时的 `overRejected`），命中时恢复；e2e 在预览稳定之后再断言光标。
+
+### 5. `dragCardShrink: panel` 在这次改动后几乎没有可见效果
+- **严重程度**：建议（计划里写了是取舍，这里给量化）。类别：设计。
+- **位置**：`live-drag.ts:157-165`（`wantsCard`）、172-180（`inHome`）；Spec 实时布局“卡片”一段仍写 `panel` 是“指针还在来源面板里时为面板原大小”。
+- **现象**：来源面板里，自己的标签条是排序（无卡片），自己的正文中央是原位（无卡片），只剩外缘窄带（拆开自己）才有卡片。`panel` 的原大小卡片只在那几像素的带里出现，往里就飞回，往外就缩。editor-area.e2e.ts:2235 的用例要用 `body.x + 12` 才能触发。
+- **为什么是问题**：开发者确认的是“原位时卡片飞回”，没有确认这个设置因此只剩窄带。设置页和文案不变。
+- **建议改法**：交开发者决定：保留并改文案，或删掉这个设置。删的话连同 `cardShrink` 主机方法与 `inHome` 分支一起删。
+
+### 6. 缺少对 `answeredByEditor` 的直接测试
+- **严重程度**：建议。类别：测试。
+- **位置**：`layout-drag.ts:690-697`。
+- **现象**：`moveOutcome` 的判据与并入的 e2e 正例有，这些没有：strip 换 center 之后的 `keyOf`、`sectored`、键盘 `pointOfCandidate`（并入目标组里每个标签条站位都变成同一个中央，键盘要连按方向键才离开）；拒绝时 `overRejected` 与键盘 Enter；`titleOnly` 面板；`moveOutcome` 对页面标签、preview 标签、不存在目标组的行为。Grep `dropOutcome|answeredByEditor` 只命中源码和契约。
+- **建议改法**：在 workbench/web 下用只实现 `dropOutcome` 的 `EditorTabDrag` 写 `createLayoutDrag` 的 DOM 用例（strip 并入变 center；拒绝时落点 null 且 `data-drop-rejected`；键盘同一判定）。`area.test.ts` 补页面标签、preview 标签、目标组不存在三条。
+
+### 7. 同一个联合类型写了两份
+- **严重程度**：建议。类别：代码质量。
+- **位置**：`area.ts:95`（`MoveOutcome`）、`workbench/web/contracts.ts:87`（`EditorTabDropOutcome`）、`tab-drag.ts:35`。
+- **现象**：`"move" | "merge" | "refuse"` 各写一份，靠结构兼容传递。加第四种结果时编译器只在一侧报错，另一侧放过去。
+- **建议改法**：editor 已经 import workbench 的 contracts，让 `MoveOutcome` 直接 re-export `EditorTabDropOutcome`。
+
+## 未发现问题的方面
+
+- **`moveOutcome` 与 `moveTab`、`moveToNewGroup`、`moveToFloat` 的先后**：逐分支对照了同组换位、跨组、并入、新组与浮动、页面标签、`editor` 比较、空目标组。没找到答“移动”而实际拒绝、或相反的输入。唯一差别是 `groups.moveTab` 的 samePlace 返回 null 而 `moveOutcome` 答 move，这类落点布局层已按 `inPlace`（含分区）判成原位，不会问到编辑器。`cannotSplit` 同理被接受矩阵与 `canFloat` 先挡住。
+- **`moveOutcome` 不结算**：未提交的输入在 `settle` 后才变成未裁决，这时拖动中答“移动”、松手被拒绝。输出 55 明写“只读，不结算”，起拖要点按标签、编辑器已失焦提交，窗口很小，不当问题。
+- **并入换成中央后的预览**：与实际结果一致（源组只剩这一个标签时随之关闭），并解决了 t23 评审里“摆不出预览时判定按收起后几何”的错位。`keyOf` 不再随插入下标变，候选更稳。
+- **`stickyDrop` 不经 `answeredByEditor`**：只在已显示的空位（`edge`）里命中，edge 的结果只依赖标签本身，窗口很小。
+- **判定开销**：每帧一次 `groups.find` 加至多两次 `holding`，没有额外 DOM 读写，`dropFor(center)` 带缓存键。
+- **`wantsCard` 与 `WorkbenchSurface.contents` 的不变式**：核对了自己的标签条排序、活动栏自己的入口条、`source-removed` 后回到原位、`end()`。回到原位时同一帧先 `expandSource` 再收卡片，`show(null)` 与 `card = null` 在同一个同步段。没找到“卡片为 null 而渲染文档里没有这个标签”的路径。
+- **`lifting` 与 `chase`**：第一次拿起与吸收后离开都从显示着它的面板的矩形开始，指针在面板内时 `chase` 恒为 0，与旧行为一致。
+- **刷新率节拍**：手算了 60、75、120、144Hz。`60` 平均每秒 60 次写，`30` 平均每秒 30 次写。2ms 容差只补一次抖动，不连写。`begin()` 不重置 `sizeDue`，但首次写时 `drawn === null` 会重排；`end()` 后 `written` 为 null。`placeLifted` 重新拿起时元素还没有 `data-lifted`，首次从 `liftedRect` 渲染，不漏写。
+- **NestedGrid 一列布局与 `bodyStyle`**：落地时内容体一次到终点尺寸，`memory` 在拿起期间不更新，落地后优先取 `item.rect`，与之前一致。
+- **设置接线**：contracts、两处 plugin、WorkbenchShell、Lab 夹具与文案键齐全，`locales.test.ts` 通过。拖影的落点文字只在 `live.active` 时有，落点指示和键盘拖动里不会出现。
+
+阻断 0；重要 2（第 1、2 条）；建议 5（第 3 到 7 条）。
+有效发现的编号：1, 2, 3, 4, 5, 6, 7

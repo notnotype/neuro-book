@@ -153,6 +153,7 @@ owners:
 86. （已删除）
 87. 调用的唯一身份：工具拿到的 `ToolContext` 有 `invocation`，即这次调用 `toolStarted` 的 `invocation`，全局唯一（调用 id 只在同一条回复里不重复）。会话头的 `caller` 可以带 `invocation`（[`session.md`](session.md)）。
 88. 指令交回运行：`send` 的 `runId` 仍是这次开始或接着跑的运行；入队进在跑的运行时 `runId` 为 null，另交回 `currentRunId`（那次运行）。`enqueue` 在会话有在跑或暂停的运行时交回 `currentRunId`。`resolve` 交回受理后接着跑的运行 `runId`（被叫醒的、回答插进的、开或续的），没有时不给。
+89. 内核调模型端口的 `call` 时另给这次调用的说明：会话 id、请求序号与请求哈希（与这次的 `modelStarted` 的 `request`、`hash` 相同）、所在的轮（轮 id、这一轮在当前路径上的序号；开这一轮的是用户的话时还有那段话；轮外不给）、改过这次请求的扩展（只算这一次 `next` 经过的那几层，一层调两次 `next` 时两次各算各的；`modelStarted.modifiedBy` 同样按此）；`complete()` 的调用没有说明。说明里还可以带一个观察者，由宿主包在端口外面时传进去，适配器把它拿得到的线上事实交给它（[`models.md`](models.md) 输出 20）。不认识说明的端口照常工作。（planned）
 
 ## 状态与转换
 

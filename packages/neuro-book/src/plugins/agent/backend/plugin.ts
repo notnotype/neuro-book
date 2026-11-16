@@ -21,15 +21,18 @@ import {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
 
 import {SCHEMES_POINT, workspaceFilesKey} from "nbook/plugins/files/shared/contracts";
 import {modelsKey} from "nbook/plugins/models/shared/contracts";
+import {tasksKey} from "nbook/plugins/tasks/shared/contracts";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {clockKey, stateRootKey} from "nbook/shared/host";
+import {clockKey, runningWorkKey, stateRootKey} from "nbook/shared/host";
+import {pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
 
 import {descriptor} from "../plugin";
 import {agentKey} from "../shared/contracts";
 import {agentSessionsContract} from "../shared/remote";
+import {agentRequestsContract} from "../shared/requests";
 import {profileAgents} from "../shared/profile-agents";
 import {agentSettings} from "../shared/settings";
-import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
+import {AGENT_COMPACTION_PREFIX, AGENT_PROFILE_PREFIX, AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, COMPACTION_METHODS_POINT, compactionMethodsPoint, EXTENSIONS_POINT, extensionsPoint, PROFILES_POINT, profilesPoint, SKILLS_POINT, skillsPoint, TOOLS_POINT, toolsPoint} from "../shared/points";
 
 import {createAgentRuntime} from "./agent";
 import {createAttachmentRoutes, sessionDirectoryExists} from "./attachments";
@@ -45,7 +48,15 @@ import {ProfileShapes, SUBAGENTS_EXTENSION, subagentsPrompt} from "./subagents/p
 import {SUBAGENT_TOOL_CONTRIBUTIONS, subagentTools} from "./subagents/tools";
 import {extensionReceiver} from "./extensions";
 import {locateDocsRoot} from "./docs-root";
+import {SkillCatalog, sourceRoot} from "./skills/catalog";
+import {SKILLS_EXTENSION, skillsExtension} from "./skills/extension";
+import {restoreSkills} from "./skills/restore";
+import {openFolder} from "./skills/folder";
+import {SkillInstaller} from "./skills/install";
+import {pluginSkillRoots} from "./skills/plugin-roots";
+import {profileSkills} from "../shared/profile-skills";
 import {agentRemote, PreviewTokens} from "./remote";
+import {requestsRemote} from "./requests";
 import {filesFor} from "./resources";
 import {AGENT_SCHEMES, agentSchemes} from "./schemes";
 import {SESSION_META_CONTRIBUTION, SESSION_META_EXTENSION} from "./session-meta";
@@ -57,23 +68,45 @@ const allActivated = (result: TriggerActivationResult): boolean => result.status
 export const agentBackendPlugin: PluginDefinition = {
     id: descriptor.id,
     activationEventPrefixes: [AGENT_SESSION_PREFIX, AGENT_TOOL_PREFIX, AGENT_PROFILE_PREFIX, AGENT_COMPACTION_PREFIX],
-    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint],
+    contributionPoints: [extensionsPoint, toolsPoint, profilesPoint, compactionMethodsPoint, skillsPoint],
     entries: [defineEntry({
         id: "server",
         location: "server",
-        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: settingsKey}, {key: stateRootKey}, {key: clockKey}, {key: workspaceFilesKey}, {key: modelsKey, required: false}, {key: tasksKey, required: false}, {key: runningWorkKey, required: false}, {key: pluginPackagesKey, required: false}],
         provides: [agentKey],
-        remoteProvides: [agentSessionsContract],
-        receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT],
-        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...JOB_TOOL_CONTRIBUTIONS, ...SUBAGENT_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION, {capability: EXTENSIONS_POINT, id: SUBAGENTS_EXTENSION, declaration: {}}],
+        remoteProvides: [agentSessionsContract, agentRequestsContract],
+        receives: [EXTENSIONS_POINT, TOOLS_POINT, PROFILES_POINT, COMPACTION_METHODS_POINT, SKILLS_POINT],
+        contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}, ...AGENT_SCHEMES.map((id) => ({capability: SCHEMES_POINT, id, declaration: {}})), ...BUILTIN_TOOL_CONTRIBUTIONS, ...JOB_TOOL_CONTRIBUTIONS, ...SUBAGENT_TOOL_CONTRIBUTIONS, ...BUILTIN_COMPACTION_CONTRIBUTIONS, ...BUILTIN_PROFILE_CONTRIBUTIONS, ...GUARD_CONTRIBUTIONS, SESSION_META_CONTRIBUTION, {capability: EXTENSIONS_POINT, id: SUBAGENTS_EXTENSION, declaration: {}}, {capability: EXTENSIONS_POINT, id: SKILLS_EXTENSION, declaration: {}}],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
             const report = (code: string, message: string, data?: Readonly<Record<string, unknown>>): void => {
                 diagnostics.record({level: "warn", event: `agent.${code}`, message, ...(data === undefined ? {} : {data}), source: {plugin: descriptor.id}});
             };
             const models = await context.services.resolve(modelsKey);
+            const tasks = await context.services.resolve(tasksKey);
+            const pluginPackages = await context.services.resolve(pluginPackagesKey);
             const editStores = new SessionEditStores();
             const dialects = createDialects(() => context.services.require(settingsKey).get(agentSettings.settings.readOnlyCommands));
+            // 用户的 Skill 在 `user://skills/`；内置的随应用分发，这一版还没有内置的 Skill；插件的随 `agent.skills` 贡献由接收者增删（skills.md 的来源）。
+            // 目录按“在装”算状态，初始化又要从目录取 Skill：两者互相引用，安装器在目录打开之后接上。
+            let skillInstaller: SkillInstaller | null = null;
+            const userSkills = join(context.services.require(stateRootKey).path, "user", "skills");
+            const skillCatalog = await SkillCatalog.open({
+                roots: [sourceRoot("user", userSkills, true), sourceRoot("builtin", null, false)],
+                clock: context.services.require(clockKey),
+                report,
+                installing: (id) => skillInstaller?.installing(id) ?? false,
+            });
+            const installer = new SkillInstaller({
+                item: (id) => skillCatalog.item(id),
+                refresh: (id) => skillCatalog.refresh(id),
+                locksRoot: join(context.services.require(stateRootKey).path, "agent", "skills", "locks"),
+                bun: process.execPath,
+                clock: context.services.require(clockKey),
+                // 没装 `nbook.tasks` 时安装照样能用，只是关掉确认框后看不到进度（skills.md 输出 29）。
+                ...(tasks.status === "resolved" ? {tasks: tasks.instance} : {}),
+            });
+            skillInstaller = installer;
             const runtime = await createAgentRuntime({
                 stateRoot: context.services.require(stateRootKey).path,
                 settings: context.services.require(settingsKey),
@@ -84,6 +117,7 @@ export const agentBackendPlugin: PluginDefinition = {
                 declarations: context.declarations,
                 editStores,
                 trigger: async (event) => allActivated(await context.activation.trigger(event, {signal: context.signal})),
+                restoreMore: (args, previous) => restoreSkills({catalog: skillCatalog, report}, args, previous),
                 report,
             });
             const attachmentRoutes = createAttachmentRoutes({
@@ -102,6 +136,11 @@ export const agentBackendPlugin: PluginDefinition = {
                 const archived = new Set((await runtime.listSessions()).filter((session) => session.archived).map((session) => session.id));
                 await sweepTemps(tempContainer, async (session) => !archived.has(session) && (await lstat(join(runtime.sessionsRoot, session)).then(() => true, () => false)), (message) => report("temps-sweep", message));
             }
+            const allowedSkills = (profile: string): ReadonlySet<string> => new Set(profileSkills(
+                runtime.service.profiles().find((entry) => entry.key === profile)?.skills,
+                context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.skills,
+                skillCatalog.list().map((entry) => entry.id),
+            ));
             const schemes = agentSchemes({
                 sessionsRoot: runtime.sessionsRoot,
                 profilesRoot,
@@ -112,6 +151,7 @@ export const agentBackendPlugin: PluginDefinition = {
                 profiles: () => runtime.service.profiles(),
                 relations: runtime.relations,
                 activity: () => runtime.sessions.activity(),
+                skills: {userRoot: join(stateRoot, "user", "skills"), list: () => skillCatalog.list(), item: (id) => skillCatalog.item(id), allowed: allowedSkills},
                 allowedAgents: (profile) => profileAgents(runtime.service.profiles().find((entry) => entry.key === profile)?.agents, context.services.require(settingsKey).get(agentSettings.settings.profileSettings)[profile]?.agents).allowed,
             });
             const settings = context.services.require(settingsKey);
@@ -134,18 +174,22 @@ export const agentBackendPlugin: PluginDefinition = {
                 report,
             });
             let stopped: Promise<void> | null = null;
-            const stop = () => (stopped ??= runtime.stop().finally(() => previews.clear()));
+            const stop = () => (stopped ??= Promise.all([runtime.stop(), installer.stop().then(() => skillCatalog.close())]).then(() => undefined).finally(() => previews.clear()));
             context.signal.addEventListener("abort", () => void stop(), {once: true});
             context.onStop(stop);
+            // 入口停止时宿主随门面撤下这条登记，不必自己 release。没有这个能力的宿主照常运行，只是不报。
+            const work = await context.services.resolve(runningWorkKey);
+            if (work.status === "resolved") work.instance.register(() => runtime.runningWork());
             return {
                 services: [provideService(agentKey, runtime.service)],
-                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal), subagents: {relations: runtime.relations, jobs: runtime.jobs, tree: runtime.tree, entry: (id) => runtime.sessionEntry(id), sessionsRoot: runtime.sessionsRoot, report}}, previews))],
-                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock), ...subagentToolImplementations}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents}},
+                remote: [provideRemote(agentSessionsContract, () => agentRemote({service: runtime.service, profileAdmin: runtime.profileAdmin, sessions: runtime.sessions, clock, skills: skillCatalog, skillInstaller: installer, skillsFolder: {path: userSkills, open: () => openFolder(userSkills, process.env, process.platform)}, previewApproval: (session, tool, args, signal) => approvalPreview(tool, args, filesFor(context.services.require(workspaceFilesKey))(session, tool), editStores, session.sessionId, signal), projectRules: (project, signal) => readProjectRules(context.services.require(workspaceFilesKey), project, signal), subagents: {relations: runtime.relations, jobs: runtime.jobs, tree: runtime.tree, entry: (id) => runtime.sessionEntry(id), sessionsRoot: runtime.sessionsRoot, report}}, previews)), provideRemote(agentRequestsContract, () => requestsRemote({recorder: runtime.requests, owners: runtime.requestOwners, titles: runtime.titles, sessionEntry: (id) => runtime.sessionEntry(id)}))],
+                contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: attachmentRoutes}, [SCHEMES_POINT]: schemes, [TOOLS_POINT]: {...builtinTools(editStores, dialects, (sessionId, patch) => runtime.service.session(sessionId).changeSettings({commandId: crypto.randomUUID(), patch}), shellBackground(runtime.jobs, clock)), ...jobTools(runtime.jobs, runtime.sessions, runtime.kernelClock), ...subagentToolImplementations}, [COMPACTION_METHODS_POINT]: builtinCompactionMethods(), [PROFILES_POINT]: builtinProfiles(report), [EXTENSIONS_POINT]: {...runGuards(settings, runtime.treeSpend), [SESSION_META_EXTENSION]: sessionMetaExtension({id: SESSION_META_EXTENSION, tag: SESSION_META_TAG, notify: (session, trigger) => runtime.meta.notify(session, trigger)}), [SUBAGENTS_EXTENSION]: subagents, [SKILLS_EXTENSION]: skillsExtension({catalog: skillCatalog, allowed: allowedSkills})}},
                 receivers: {
                     [EXTENSIONS_POINT]: extensionReceiver(runtime.host, (message, cause) => report("extension-revoke-failed", message, {message: cause instanceof Error ? cause.message : String(cause)})),
                     [TOOLS_POINT]: runtime.tools.receiver,
                     [COMPACTION_METHODS_POINT]: runtime.compaction.receiver,
                     [PROFILES_POINT]: runtime.profiles.receiver,
+                    [SKILLS_POINT]: pluginSkillRoots({catalog: skillCatalog, packages: pluginPackages.status === "resolved" ? pluginPackages.instance : null, report}),
                 },
             };
         },

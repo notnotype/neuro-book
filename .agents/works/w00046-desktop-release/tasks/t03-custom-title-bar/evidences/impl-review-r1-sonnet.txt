@@ -1,0 +1,84 @@
+w00046 t03 实现审查 impl-r1（Sonnet，页面一侧）。被审提交 8925dd75e..92f8de4d6，审查 worktree 固定在 92f8de4d6。
+本报告的浏览器行为用本机 Chrome 156 的小探针核实（脚本在 /tmp/rev-sonnet，不在仓库里），没有跑 e2e 与开发服务；Windows 行为只能从证据文件与代码推断，已标明。
+
+1. [重要][正确性] 外框开启时 #app 是 position:fixed，它自成层叠上下文，把通知与离线横幅压到模态遮罩与命令面板之下
+位置：packages/neuro-book/src/web/styles.css:146（html[data-desktop-frame] #app）；受影响方：packages/nb-ui/src/components/feedback/NotificationStack.vue:137-138（z-index 9050，不经 Portal，渲染在工作台页面根里）、styles.css:110 的 .nb-offline-banner（z-index 2147483000）。
+现象：position:fixed 总是建立层叠上下文，#app 之内所有 z-index 都只在它里面比。登记表与 ui-development-spec 2.1 约定“通知高于所有模态层，模态开着时出的通知也看得见”，离线横幅“刻意压住对话框与命令面板”；外框开启后这两条都不成立，body 下的模态遮罩（9000 起）、命令面板（9200）整块压在它们上面。普通浏览器里 #app 不定位，行为不变，所以 e2e 的“不带标记”对照看不出来。
+核实：探针页 #app{position:fixed;inset:36px 0 0 0;overflow:auto} 里放 z-index 9050 的固定块，body 下放 z-index 9000 的全屏遮罩，elementFromPoint 命中遮罩；把 #app 改成 position:static 后命中通知。测试没有覆盖：desktop-frame.e2e.ts 没有“模态开着时出通知”或“离线横幅盖在对话框上”的断言。
+改法：#app 不用 fixed。外框开启时视口不滚动，html 是 overflow:hidden，所以 position:absolute; inset:var(--nb-window-frame-offset) 0 0 0（包含块是初始包含块，大小就是视口）同样得到固定盒子，z-index 为 auto 时不建立层叠上下文，内部 fixed 子孙的包含块也仍是视口。补一条 e2e：外框开启 + 打开对话框 + 发一条通知，断言通知在遮罩之上（elementFromPoint）；离线横幅同理。
+
+2. [重要][正确性] 窗口按钮被鼠标点击后拿走焦点：编辑器失焦，之后按空格或回车会再次触发按钮
+位置：packages/neuro-book/src/web/DesktopFrame.vue:31-35（三个 button，tabindex="-1"，没有 mousedown 处理）；packages/neuro-book/src/web/host/close-ui.ts 的按键放行 `[data-desktop-frame-root]`。
+现象：tabindex="-1" 只是不进 Tab 顺序，鼠标点击照样把焦点移到按钮上。用户在编辑器里打字、点“最大化”，焦点离开编辑器落在按钮上，接着打的字没地方去；按空格或回车就再次触发刚点过的按钮（最大化又还原，或者再点一次“最小化”后恢复时按空格又最小化）。系统标题栏按钮不拿页面焦点，计划与 DesktopFrame.md 都说“同系统按钮”，这一点没做到。
+核实：探针页 contenteditable 聚焦后点一个 tabindex=-1 的按钮，document.activeElement 变成按钮（Chrome 156）。DOM 测试与 e2e 都没有断言点击前后焦点不变。
+改法：按钮写 @mousedown.prevent（阻止焦点转移，click 照常触发）；加断言“编辑器聚焦时点最大化，activeElement 不变”。这样焦点不会落在外框里，close-ui.ts 的 installCloseKeyGuard 里为 `[data-desktop-frame-root]` 开的放行也可以去掉（它只为焦点在按钮上的按键存在），少一处与关闭层的耦合。
+
+3. [重要][正确性/文档] 关闭询问期间“窗口照样能拖动”不成立：关闭层的遮罩自己是全屏 no-drag
+位置：docs/specs/runtime/browser-host.md 输出 10（“窗口外框例外，窗口照样能最小化、最大化与拖动”）；packages/neuro-book/src/web/CloseLayer.md（新增那一行“询问期间窗口照样能最小化、拖动”）；packages/neuro-book/src/web/host/close-ui.ts 文件头同样的话；styles.css:152 的浮层规则。
+现象：关闭层是两个 nb-ui Dialog，遮罩与内容 Portal 到 body 下，晚于 [data-desktop-frame-root] 出现在文档里，全屏 fixed inset-0。外框开启时它们被 `body > :not(#app, [data-desktop-frame-root])` 标成 no-drag。拖动区域按树序合并、后写的 no-drag 扣掉先写的 drag（计划依据 frame-probe-r1 第 7 条：DOM 在后的 no-drag 浮层压在拖动条上，命中 HTCLIENT），所以询问期间后备标题栏与工作台标题栏都拖不动，双击最大化也没有。能用的只有三个按钮。输出 12 自己写了“模态开着时整个窗口因此不能拖动”，与输出 10 互相矛盾。
+核实：从代码推断。Windows 证据 windows-frame-r1.txt 没有测询问期间（只在第 8 条测了无询问的关闭），Task README 的“Windows 验收全过”比计划“验证”一节列的项目少：没有“开着的对话框是 HTCLIENT”“有未保存修改的关闭询问与询问期间最小化”“命令面板盖住标题栏”。desktop-shell 场景 15 若列了“关闭询问期间能最小化”，也没有证据。
+改法：二选一。（a）把输出 10、CloseLayer.md、close-ui.ts 的话改成“能最小化、最大化与关闭，拖动不可用”，与输出 12 一致；（b）真要拖动，就让关闭层的遮罩在顶部 36px 不盖外框区域或写 drag，并在 Windows 上实测。无论哪种，补上 Windows 一轮询问期间的实测再写“全过”。
+
+（补充第 3 条：desktop-shell 验收场景 15 确实写了“点关闭……询问期间还能最小化”，windows-frame-r1.txt 没有这一项的证据，README 的“Windows 验收全过”应改为“除询问期间与开着的对话框、命令面板的命中测试外全过”，或补测。）
+
+4. [建议][正确性] 加载到工作台的过程中后备标题栏先出现再撤掉，页面整体先下移 36px 再回弹；加载页本身在外框建立时下移
+位置：packages/neuro-book/src/web/host/desktop-frame.ts:73-84（初始 pageTitlebar=false，update({}) 立即设 data-desktop-frame-bar）；packages/neuro-book/src/web/boot.ts（createDesktopFrame 在 await browserWindow.start() 之前）；styles.css:142-149、host-loading.css 的 inset: var(--nb-window-frame-offset, 0px) 0 0 0。
+现象：外框一建立（静态加载页阶段）就带 data-desktop-frame-bar，#app 与 .nb-host-loading 同时从 0 下移到 36px；工作台挂载、标题栏出现后（MutationObserver + 一帧）又撤掉，#app 上移 36px。每次打开工作台窗口都有一次“下移再上移”的整页位移；.nb-workbench-page 的高度也先短后长。计划“验证”一节明确写了“首页到工作台切换：.nb-workbench-page 的高度序列里不出现先短后长”，实际 e2e 没有这一条（desktop-frame.e2e.ts 共 7 条，无高度序列断言）。
+核实：从代码推断，没有运行证据；e2e 缺口是事实。
+改法：要么在 e2e 里记录并接受这一次位移（Spec 写明），要么让决定更早：加载页阶段按 URL 是否带 ?project= 预判会有标题栏；或加载与 starting 阶段不设 data-desktop-frame-bar（加载页整块拖动已经够用），只在进入宿主页或书架后才设。
+
+5. [建议][测试] 计划里写了、实际没有的 e2e 与单测
+位置：e2e/desktop-frame.e2e.ts；src/web/host/close-ui.ts（没有任何单测，计划“验收映射”写了“close-ui 的单测”）。
+缺的：（a）.nb-workbench-page 高度序列（见第 4 条）；（b）离线横幅右端让出窗口按钮（计划列了受影响的 rpc.e2e，但没有新断言按钮不被盖住）；（c）对话框、浮动窗口的根是 no-drag（只测了命令面板；对话框遮罩与内容、右键菜单、项目切换下拉都没开过）；（d）失败页（含长抢救正文）没有不出视口滚动条的断言；（e）关闭层 exemptRoots 与按键放行没有单测，e2e 只点了“最小化”，没验证询问仍然挡住页面其余部分（#app 仍 inert）也没点最大化与关闭；（f）窗口不在前台时按钮字形变淡（data-focused）没有测试，焦点事件也没有测试；（g）DOM 测试没有 dispose 之后不再响应的断言。
+改法：补（c）（e）最有价值：对话框打开时断言遮罩与内容的 -webkit-app-region，关闭询问时断言 #app 仍 inert 且三个按钮都能点。
+
+6. [建议][测试] e2e 的“可交互部分都是 no-drag”断言抄了实现的选择器，是自证
+位置：e2e/desktop-frame.e2e.ts 的 INTERACTIVE 常量与 WorkbenchTitleBar.vue 新增的非 scoped 块里的 :is(...) 列表。
+现象：两处列表几乎逐项相同（button、a[href]、input、[role=menuitem]、[tabindex]:not(-1)、[data-workbench-item]），实现漏了某一类（例如以后加了 role=menuitemcheckbox、summary、label、contenteditable、带 title 悬停提示的 span）时，测试用同一份列表仍然通过。“有点击或悬停行为的一切”这条合同没有被独立地验证。另外只量了计算值，没有真正点进去过的位置（Windows 证据也只扫了左端标志与几个已知元素）。
+改法：测试里独立枚举：标题栏子树里 getComputedStyle(el).cursor 为 pointer 的、能 focus 的（el.tabIndex >= 0 或 button/a/input）、带 title 属性的、有 hover 样式的元素，要求都是 no-drag；或者反过来，枚举标题栏上所有 drag 的叶子元素，要求它们没有 title、cursor 不是 pointer、不可聚焦。
+
+7. [建议][正确性] window 的 blur 在焦点移进 iframe 时也会触发，按钮字形会在窗口其实在前台时变淡
+位置：packages/neuro-book/src/web/host/desktop-frame.ts:104-107（onBlur 直接 update({focused: false})）；产品里有 iframe：packages/neuro-book/src/plugins/html-preview/web/components/HtmlPreview.vue、nb-markdown 的 html-embed。
+现象：用户点进 HTML 预览的 iframe，父页面 window 收到 blur，但 document.hasFocus() 仍为 true。外框把它当成“窗口失去前台”，窗口按钮变成次要文字色，直到焦点回到父页面。
+核实：探针页里父窗口聚焦按钮后点 iframe 里的按钮，日志是 “blur hasFocus=true”（Chrome 156）。
+改法：onBlur 里写 update({focused: document.hasFocus()})；DOM 测试补一条“blur 时 hasFocus 仍为 true 不变淡”。
+
+8. [建议][代码质量] 读能力标记用 `as unknown as Record<string, unknown>` 绕过类型
+位置：packages/neuro-book/src/web/host/desktop-frame.ts:68。
+现象：AGENTS 的核心规则是不用 hack 绕过类型系统。DesktopFrameGlobal 是自己定义的接口，可以直接带标记属性。
+改法：DesktopFrameGlobal 加 `readonly [DESKTOP_FRAME_MARKER]?: unknown`（或 desktop-bridge.ts 导出 FrameMarkerGlobal 类型），判断写 `options.global[DESKTOP_FRAME_MARKER] !== 1`；DOM 测试里的 global 对象已经是字面量，改动很小。
+
+9. [建议][代码质量] 同一个尺寸在三处各写一遍，改一处不会提示另外两处
+位置：styles.css:134-136（--nb-window-controls-width: 138px、--nb-window-frame-height: 36px）；DesktopFrame.vue:97（.desktop-frame__button width: 46px，三个按钮）；packages/neuro-book/src/plugins/workbench/web/shell/sizes.ts 的 SHELL_TITLEBAR_HEIGHT = 36（工作台标题栏槽位高度）。
+现象：138 = 3×46 与 36 = 工作台标题栏高度都只靠人记；任何一处改了，按钮高度与标题栏高度错开，或留位宽度与按钮宽度错开，没有测试报。WorkbenchTitleBar 还把 --nb-window-controls-width 当成跨包合同，却不能保证数值与按钮一致。
+改法：按钮宽度写 calc(var(--nb-window-controls-width) / 3)；加一条 DOM 或 e2e 断言“窗口按钮组宽度等于 --nb-window-controls-width、高度等于 SHELL_TITLEBAR_HEIGHT”。
+
+10. [建议][代码质量] 最大化与还原字形是模板里看不见的私有区字符，关闭与最小化却写实体
+位置：packages/neuro-book/src/web/DesktopFrame.vue:33（{{ state.maximized ? "<U+E923>" : "<U+E922>" }}，源文件里是 EE A4 A3、EE A4 A2 的字面字符），对比 31、35 行的 &#xE921;、&#xE8BB;。
+现象：读代码的人和审查工具看到的是两个空引号，改字形要靠十六进制；同一组按钮里写法不一致。
+改法：写成 "" : "" 并在旁边注明字形名（Restore、Maximize），或统一放成常量表。
+
+11. [建议][文档] Spec 与文档对“浮层”的描述与实现有出入，层级文档没跟着登记表更新
+位置：docs/specs/runtime/browser-host.md 输出 12 的“浮层”一条（“经 Portal 挂到 body 下的浮层（……通知）”）；packages/nb-ui/docs/ui-development-spec.md 2.1 第 2 条（各档顺序）；styles.css:152 的注释同样列了“通知”。
+现象：（a）通知不经 Portal：packages/neuro-book/src/plugins/workbench/web/home-page.ts:150 把 renderNotifications() 放在 .nb-workbench-page 里，NotificationStack 是页面根里的 fixed 元素。所以 `body > :not(#app…)` 这条规则并不覆盖通知，离线横幅（#app 里的 <p>）同理。现在右下角的通知碰不到标题栏，规则“恰好够用”，但写成“都挂 body 下”会让以后改成 top-right 的人以为已经让位了。（b）ui-development-spec 2.1 的顺序列表（“……右键菜单、命令面板、组件 Lab 的检查框”）没有加“桌面窗口外框”，而该条要求“新增一档时放进这个顺序”；z-index.test.ts 已加断言，文档没加。
+改法：Spec 与注释改成“经 Portal 挂到 body 下的浮层；页面根里的固定定位元素（通知、离线横幅）不在其中，要压在标题栏上的自己写 no-drag”；或者在规则里把通知视口（[data-notification-stack]）也一并写 no-drag。ui-development-spec 的顺序补上一档。
+
+12. [建议][正确性] 页面有没有自己的标题栏只看 #app 里有没有 [data-desktop-titlebar]，不看位置；Lab 的夹具会误触发
+位置：packages/neuro-book/src/web/host/desktop-frame.ts:77-80（findTitlebar 的 querySelector）；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.vue 新增的全局块 `[data-desktop-titlebar] {app-region: drag}`；packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:508 有 WorkbenchTitleBar 的 Lab 场景。
+现象：在桌面窗口里打开 Lab（开发工具）时，标题栏夹具在页面中间，却让宿主认为“页面有自己的标题栏”：不画后备标题栏，Lab 顶端没有拖动区域；夹具那一条 36px 在页面中间被标成 drag，点它会拖窗口。合同写的是“在窗口顶端、高 36px”，宿主没有校验。Lab 只在开发时出现、影响小，但这是一个能被任何预览或第三方插件复制的合同，没有守卫。
+改法：findTitlebar 要求元素的 getBoundingClientRect().top 为 0（或在 #app 的第一层），或 Lab 夹具渲染时去掉该属性（例如夹具里传 attrs 覆盖）；至少在 WorkbenchTitleBar.md 与 Lab 里写明。
+
+13. [建议][代码质量] LabPage 把 w-screen 改成 w-full，普通浏览器里的 Lab 版式并非“逐像素相同”，且这条改动不是让位机制需要的
+位置：packages/neuro-book/src/plugins/lab/web/LabPage.vue:10（h-screen w-screen → h-[var(--nb-viewport-block,100vh)] w-full）。
+现象：外框开启时 #app 与视口等宽，w-screen（100vw）本来就对；改 w-full 的唯一效果是普通浏览器里 Lab 宽度从 100vw（含滚动条槽位）变成容器宽度。html 在 base 层有 scrollbar-gutter:stable，经典滚动条的平台上差一个槽位宽度。计划写“普通浏览器里版式与现在逐像素相同（e2e 的回归断言）”，e2e 没有对 Lab 页的回归断言。
+核实：未验证（本机 Chrome 无头默认隐藏滚动条，复现不出）。
+改法：只改高度那一项，保留 w-screen；若确实想改宽度，单独提交并说明理由。
+
+14. [建议][代码质量] 没有使用者的钩子与从不调用的 dispose
+位置：packages/neuro-book/src/web/host/desktop-frame.ts（data-desktop-maximized 与 dispose）；styles.css 没有任何 [data-desktop-maximized] 规则。
+现象：data-desktop-maximized 只被测试读取，样式、主题与其它组件都没有用，却写进文件头“样式与壳之间的约定”；dispose 只有测试调用，生产里 createDesktopFrame 的返回值没人收（boot.ts 同样不收 CloseLayer 的），文件头不说明寿命与整个窗口相同。
+改法：删去 data-desktop-maximized，等真有样式要用时再加；或在文件头写明它是给主题与 e2e 留的钩子。dispose 在注释里写“窗口寿命内不卸载，仅供测试”。
+
+有效发现：14 条。重要 3（1、2、3），建议 11（4 至 14）。
+最严重：第 1 条（#app 的 position:fixed 把通知与离线横幅压到模态之下，已用 Chrome 探针核实）；第 2 条（点窗口按钮偷走编辑器焦点，已用探针核实）；第 3 条（关闭询问期间拖动不可用，与 Spec 输出 10 不符，Windows 没有证据）。
+未覆盖的重点：重点 1 里宿主页、加载页、书架、工作台的高度链按代码核对成立（#app 定高，页面根 height/min-height 取 100%），普通浏览器里所有新增规则都挂在 html[data-desktop-frame] 之后，唯一例外是第 13 条的 Lab；重点 2 里浮层规则对经 Portal 的浮层成立（探针证实 app-region 会被后代继承，所以 fixed 子孙也被覆盖），不成立的只有第 11 条的页面根内固定定位元素；重点 3 的观察者与寿命除第 7、14 条外没有发现问题；重点 4 里除 reka 的 aria-hidden（DesktopFrame.md 已写明）外，没有别的 inert 或 aria-hidden 的写入点，nb-ui Dialog 对外部点击已 preventDismiss，点窗口按钮不会误关询问。

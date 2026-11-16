@@ -1,7 +1,7 @@
 # packages 目录规则
 
 - Monorepo 包按逻辑 Module 管理；包说明负责人、稳定合同、依赖方向、模块验证和产品集成验证。
-- 当前 workspace 成员以根 `package.json` 的 `workspaces` 为准，包括新应用 `neuro-book`、内核 `nb-runtime`、旧应用 `neuro-book-legacy`、`owned-process`、`file-snapshot-cache`、`neuro-book-contracts`、`neuro-book-test-support`、六个自治收编包 `nb-history`、`nb-workflow`、`nb-memory`、`nb-ui`、`neuro-agent-harness`、`llmlint`，以及 w00002 新建的 `nb-harness`、`nb-profile`、`nb-session`，w00022 新建的开发工具 `dev-panel`（不进产品与发布产物），w00024 新建的剧情图谱 `nb-story`（单独使用；它与依赖的 8 个工作区包以 npm 包发布，见 [ADR 0029](../docs/adr/0029-workspace-packages-publish-source-to-npm.md)），w00027 新建的 Schema 表单 `nb-form`、`nb-layout`，w00019 新建的 Agent 对话视图 `nb-agent-ui`，w00025 从 `nbook.markdown` 抽出的 Markdown 包 `nb-markdown`，w00043 从新应用抽出的两端宿主 `nb-host`、模型服务 `nb-models` 与文件锁 `nb-file-lock`（都是 `private`，见 [ADR 0045](../docs/adr/0045-shared-host-packages-for-second-app.md)）。
+- 当前 workspace 成员以根 `package.json` 的 `workspaces` 为准，包括新应用 `neuro-book`、内核 `nb-runtime`、旧应用 `neuro-book-legacy`、`owned-process`、`file-snapshot-cache`、`neuro-book-contracts`、`neuro-book-test-support`、六个自治收编包 `nb-history`、`nb-workflow`、`nb-memory`、`nb-ui`、`neuro-agent-harness`、`llmlint`，以及 w00002 新建的 `nb-harness`、`nb-profile`、`nb-session`，w00022 新建的开发工具 `dev-panel`（不进产品与发布产物），w00024 新建的剧情图谱 `nb-story`（单独使用；它与依赖的 9 个工作区包以 npm 包发布，见 [ADR 0029](../docs/adr/0029-workspace-packages-publish-source-to-npm.md)），w00027 新建的 Schema 表单 `nb-form`、`nb-layout`，w00019 新建的 Agent 对话视图 `nb-agent-ui`，w00025 从 `nbook.markdown` 抽出的 Markdown 包 `nb-markdown`，w00043 从新应用抽出的两端宿主 `nb-host`、模型服务 `nb-models` 与文件锁 `nb-file-lock`（都是 `private`，见 [ADR 0045](../docs/adr/0045-shared-host-packages-for-second-app.md)），w00043 t12 新建的不判旧文件锁 `nb-flock`（随 nb-story 发布，见 [ADR 0052](../docs/adr/0052-non-stale-file-lock-package.md)）。
 - `neuro-book-legacy` 只作代码与行为参照：依赖照装，不参加类型检查、测试与治理检查，不在其中修改代码。`neuro-agent-harness` 已冻结，只服务 `llmlint`，待由 `nb-harness` 取代后退役。
 - 所有 `packages/*` 默认继承 monorepo 根规则、技能、临时根、安全和 Git 规则。包可用自己的 `AGENTS.md`、`docs/`、legacy `.agents/tasks/` 和 `PROJECT-STATUS.md` 覆盖项目专属行为，但 current Work/Task 只在根 `.agents/works/` 创建；只要建立任一包级治理资产，就必须由 `AGENTS.md` 引用 `../../AGENTS.md`。
 - 六个自治包保留 `.agents/tasks` 历史记录、`docs`、`PROJECT-STATUS.md` 和项目专属 `AGENTS.md`；跨包与包内新工作均由根 Work/Task 表达，身份与当前快照只在 `.agents/works/` 定义。
@@ -9,4 +9,5 @@
 - `packages/*/.agent/` 与 `packages/*/.local/` 是被忽略且不得跟踪的包级运行态；`.agent/tasks`（单数）不是治理入口。`packages/*/.worktree/` 只允许迁移期间短暂存在，checkpoint 前必须清理。
 - 包不得反向依赖应用特例或 root-only runtime；跨包依赖使用 workspace package 名与声明版本，应用只能消费领域包，领域包不得依赖 `@notnotype/neuro-book` 或 `@notnotype/neuro-book-legacy`。
 - 许可证、公开包名、版本、exports 和发布合同变化必须先记录为跨 Module 决策，再修改消费者。
+- 改了要发布的包（应用、SDK 与以源码发布的包）里用户看得到的行为，同一个提交在它的 `CHANGELOG.md` 的 `## [Unreleased]` 下补一条；写法与“写在哪个包”见 [发布手册的“写变更记录”](../docs/standards/releasing.md#写变更记录)。
 - 测试运行器与临时根按 [`docs/testing/README.md`](../docs/testing/README.md) 执行：通用包使用 `bun test`，应用包按自身 Vitest 配置；不创建仓库 `.agent/tmp/`。

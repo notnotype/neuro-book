@@ -11,6 +11,7 @@ Markdown 的语言、编解码器与组件。行为合同见 [`ui/markdown-displ
 | `./display` | 只读显示 `MarkdownDisplay`、图片 `MarkdownImage` |
 | `./chip` | 行内小块 `InlineChip` 与它的外观判断 |
 | `./prompt` | 写给 Agent 的编辑组件 `PromptEditor`、已发送文字的显示 `PromptTextView`，以及拼引用写法的 `promptReferenceText`（目标分类必填） |
+| `./prompt-text` | 纯 TS，不引 DOM：`promptSkillTokens` 按编辑器的规则取出提示词里的技能标签，给宿主服务端用 |
 | `./editor` | 富文本编辑器的扩展组（编辑器实例与文档绑定归宿主） |
 | `./markdown.css` | 正文与方言元素的样式（展示器自己带上；宿主的编辑器控件导入它） |
 | `./locales` | 本包的消息目录（命名空间 `nb-markdown`，中英两份）：宿主把它登记进自己的翻译引擎 |

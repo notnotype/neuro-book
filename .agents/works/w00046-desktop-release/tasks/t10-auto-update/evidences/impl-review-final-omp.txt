@@ -1,0 +1,34 @@
+[1] 重要 / 正确性：Windows 当前盘根路径被当成完整状态根接受
+位置：packages/neuro-book/src/desktop/state-root.ts:37-39；下游 packages/neuro-book/src/server/config.ts:70。
+问题：win32.isAbsolute('\foo') 与 win32.isAbsolute('/foo') 都为 true，但这两种路径没有盘符，仍依赖当前工作目录的盘符；normalize 也不会补盘符。壳因此绕过 state-root-relative 错误页，把非完整路径交给桌面锁、自有服务端。违反 desktop-shell“必须是绝对完整路径、不依赖启动器工作目录”的约束。
+复现：bun /tmp/nb-update-final-review.8Ywk2K/path-smoke.ts，真实 resolveDesktopStateRoot 对上述两个输入均返回 ok:true、stateRoot='\foo'；win32.resolve('C:\app\bin', input) 为 C:\foo，换到 D:\app\bin 则为 D:\foo。同一环境变量因安装所在盘不同而读写两套数据。C:foo 已正确拒绝，D:/books/state 与 UNC 已正确接受。本机核实的是 Windows 路径 API 与真实核心入口；未运行 Windows 安装包。
+建议：Windows 除 isAbsolute 外要求 fully qualified（例如检查 win32.parse(value).root 不能仅为 '\' 或 '/'，上游 WindowsUpdateTask.ts 已使用此规则）；补单反斜杠、单正斜杠拒绝以及盘符绝对路径、UNC 接受的回归。
+
+[2] 重要 / 正确性：取消发生在首次读状态时仍先写 attempt，清理失败后把未发起的更新永久记进失败名单
+位置：packages/neuro-book/src/desktop/update-install.ts:168-173、190-207。
+问题：cancelled 只在写 attempt 成功之后检查。启动已取消仍创建 attempt，随后依赖第二次写回旧状态清除它；该写入失败时仅记录日志并释放独占。下一次启动跳过本来应换上的 downloaded，两分钟后对账把从未发起的更新标成 failed、通知“更新没有完成”；用户必须重新下载才能解除，违反本次修正的“不发起、不记失败”。
+复现：bun /tmp/nb-update-final-review.8Ywk2K/cancel-write-smoke.ts。真实状态文件 downloaded=B；第一次 read 完成后设 cancelled=true；真实 attempt 写入后把通道目录 chmod 0500，使取消回滚写入 EACCES；恢复目录权限后按 now=120001 对账。输出 applied:false、persisted.attempt=B、after.failed=['hashb']、pendingNotice=update-failed。未伪造更新器结果或私有方法，只在真实文件操作之间注入权限变化；Windows ACL/写入失败时序未实测。
+建议：在首次读后、持独占重读后及写 attempt 前检查取消，同时保留调用 apply 前的最终检查。至少避免已知取消后还制造需要回滚的状态；增加取消已发生且回滚不可写的回归，不把“提前检查正常路径被后续检查兜住”视为可删除的证据。
+
+专项核对（未另发现问题）
+- 固定 Electrobun 2.0.6 源码逐项核对：Updater.ts:1778-1895 的 check 返回 UpdateInfo；2282-2346 的 download 成功/内部捕获失败 resolve undefined，另有 try 外抛错，由适配层 catch；2348-2457 的 apply 先 requestQuitApproval，成功启动任务后记录 launching-new-version，再 quitAfterApproval。状态历史是追加数组（:354-371），适配层按调用前长度切片，不会把旧的 launching 误当本次成功。适配层新增分支未按英文错误文案分类。
+- 结果文件：Updater.ts:852-1047、:2370-2393 与 extractor/main.zig:7558-7589、:7789-7892 对照核心 scanApplyResults；通道根、事务文件名、精确字段、phase/success、身份、哈希、普通文件及 64 KiB/64 文件/1024 目录项上限相符。故意返回全部候选而非 SDK selected，符合手动重装的对账设计。
+- 进程来源：Updater.ts:1651-1662 把 helper 复制为临时目录 electrobun-update-<事务号>.exe；WindowsUpdateTask.ts:36-90 的任务无触发器、仅按需运行。适配层 tasklist CSV 第一列大小写不敏感前缀匹配正确；非零退出/创建失败返回 null，settleAttempt 按仍在处理。
+- 两处重点修订：公开控制器连真实 scanApplyResults、真实状态文件，并执行从实际适配源码提取的 updateHelperRunning；进程查询失败时保留 attempt，不恢复检查；30 秒重判出现合格 swapping 失败文件后清 attempt、通知并恢复一次 check。该实验的 tasklist 由真实 Bun 子进程输出固定 CSV/退出码，不是 Windows tasklist 实测。
+- 退出与锁：取桌面锁前 acceptsQuit=true，使 requestQuitApproval 能放行；取锁后 #locked 不再退回 false，适配层同步 veto，经协调器询问，最终只有 ports.exit 设 quitAllowed。#releaseAndExit 先等启动步骤，再 close 控制器、释放桌面锁、释放共享锁；新增延迟对账关窗用例通过。与 t08 取锁后一律询问的合同未发现冲突。
+- #persistNow：真实 chmod 写失败时未调用 download，恢复可写后 retry 才写 superseded 并下载；延迟写入期间 stop/close 时 close 等该写入，完成后不启动下载。#lingeringHint 对 later 后下一阶段 end 及一次性通知不撤回的回归通过；未发现新的提示清理竞态。
+- 状态根除第 1 条外：C:foo、普通相对路径正确拒绝，D:/books/state 规范化、UNC 保持完整；错误页经 textContent 显示输入，只给退出。owned-server.ts:85-86 覆盖继承环境里的 NBOOK_STATE_ROOT；server/config.ts:70 仍会 resolve，但完整盘符/UNC 输入不会重新依赖 cwd；第 1 条是不完整路径漏过入口的根因。
+- 配置：缺省及纯空白覆盖均得到 io.github.notnotype.neurobook、正式 latest/download baseUrl、generatePatch=true；显式验收覆盖按 trim 生效。覆盖只在 electrobun.config.ts 求值，运行中不读这两个环境变量。注释已对 common.md“注释”核对，未单列可复现的维护性缺陷。
+
+实际验证
+- packages/neuro-book：bun test src/desktop，89 pass / 0 fail / 353 expect，9 files，34.17s。首次经 eval 默认 30s 等待触发执行器超时、无可恢复结果；直接异步 bash 重跑以上命令得到该结果。不是两次完整通过。
+- bun /tmp/nb-update-final-review.8Ywk2K/path-smoke.ts，退出 0：第 1 条反例与盘符/UNC 对照。
+- bun /tmp/nb-update-final-review.8Ywk2K/cancel-write-smoke.ts，退出 0：第 2 条真实持久化反例。
+- bun /tmp/nb-update-final-review.8Ywk2K/helper-recheck-smoke.ts，退出 0：HELPER running=true、absent=false、failed=null、missing=null；RECHECK interval=30000、checks=1、failed=[hashb]。
+- bun /tmp/nb-update-final-review.8Ywk2K/adapter-smoke.ts，退出 0：undefined 下载后失败/哈希不同/正确就绪分别拒绝/拒绝/接受；旧历史不放行、当次 launching 放行、抛错返回 failed；正式缺省及验收覆盖输出正确。此探针执行实际适配函数，SDK 方法用已逐项对照源码的替身，不是 Electrobun 原生运行。
+- bun /tmp/nb-update-final-review.8Ywk2K/persist-smoke.ts，退出 0：PERSIST_FAILURE_RETRY、PERSIST_CLOSE_BARRIER，通过真实状态文件核对写失败与停止交错。
+- 未跑 e2e、类型检查、发布构建、Windows 原生 smoke 或真实安装换目录；windows-update-r1.txt 仅作为既有证据，不冒充本轮验证。该证据明确未覆盖修正后的相对路径包、真实旧壳持续占用超过 helper 等待期。适配层无自动测试/类型检查的既有限制仍在，现有 89 条测试未捕获本轮第 1、2 条。页面 src/web/ 未审，无子审查。
+
+结论：有效发现 1、2；阻断 0、重要 2、次要 0。问题均已核实；Windows 原生效果只写到本轮证据范围。未修改任何产品/测试/配置文件，未 commit、未切分支；报告逐条追加，实验仅在 /tmp。
+反思：执行器默认 30s 超时造成 1 次无结果测试调用；已向工具问题入口报告。本轮无需修改仓库规范或 Skill；未作回写。
+END

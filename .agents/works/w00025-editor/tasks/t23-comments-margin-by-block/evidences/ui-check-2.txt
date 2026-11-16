@@ -1,0 +1,23 @@
+t23 第二轮反馈修正的 UI 取证（2026-11-13；Lab 场景 comments-slots，Chrome 156 无头，1900x1100；脚本在本地 .local 的 t23 fix/probe-fix.mjs）
+
+一、右上角按钮不压字：每张卡片意见文字的行矩形与右上角按钮矩形相交的个数（idle、当前、展开三个状态，9 张卡片之和）
+  nbook-light: 0 / 0 / 0
+  nbook-dark: 0 / 0 / 0
+  macos-light: 0 / 0 / 0
+  macos-dark: 0 / 0 / 0
+
+二、卡片面的材质：backdrop-filter（idle 为 none；当前、展开用浮层基座）
+  nbook-light: idle=none；当前/展开=blur(8px) saturate(1.3) brightness(1)
+  nbook-dark: idle=none；当前/展开=blur(8px) saturate(1.3) brightness(1)
+  macos-light: idle=none；当前/展开=url("#nb-lens") blur(32px) saturate(1.9) brightness(1.08)
+  macos-dark: idle=none；当前/展开=url("#nb-lens") blur(34px) saturate(1.6) brightness(0.78)
+
+三、收起过程每帧（ms：卡片面高度 / 文字高度，只列变化的帧）：框在收的过程中文字保持全文高度，收完才限行
+  nbook-light: 77ms 205/195；267ms 195/195；313ms 187/195；359ms 184/195；501ms 184/174
+  nbook-dark: 96ms 205/195；249ms 189/195；313ms 185/195；381ms 184/195；485ms 184/174
+  macos 两个主题：这张长意见展开前后卡片面高度相同（171），没有可采样的收起过程。
+  改前（master，同一场景“这条意见比较长”那张）：文字高度在 176ms 一帧内从 108 变成 43，卡片面此后才从 118 缩到 63。
+
+四、皮肤的浮层画框（Lab 里没有 WorkbenchDocument，把同一条规则注入页面模拟）：fix2-frame-current.webp 是修之前（线贴着文字、横穿按钮），fix2-frame-current-fixed.webp 是页边卡片排除画框之后。
+
+截图：fix2-current-nbook-light.webp（当前卡片，同段切换的 `‹ 2/3 ›` 与编辑删除，第一行绕开）、fix2-expanded-nbook-dark.webp、fix2-expanded2-nbook-light.webp（展开）、fix2-current-macos-light.webp（macOS 磨砂）。

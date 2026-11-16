@@ -40,6 +40,9 @@ import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue
 import type BackgroundCommandCard from "nbook/plugins/agent/web/components/BackgroundCommandCard.vue";
 import type SubagentCard from "nbook/plugins/agent/web/components/SubagentCard.vue";
 import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
+import type SkillInitDialog from "nbook/plugins/agent/web/components/SkillInitDialog.vue";
+import type SkillsSettingsPage from "nbook/plugins/agent/web/components/SkillsSettingsPage.vue";
+import type {SkillEntry} from "nbook/plugins/agent/shared/skills";
 import type ProfileSettingsPage from "nbook/plugins/agent/web/components/ProfileSettingsPage.vue";
 import type ProfileToolsSection from "nbook/plugins/agent/web/components/ProfileToolsSection.vue";
 import type AddToolsDialog from "nbook/plugins/agent/web/components/AddToolsDialog.vue";
@@ -138,6 +141,21 @@ const DISPLAY_REPLY = [
  * 场景登记。这不是第二份组件清单——组件清单由 component-index 扫文档得到，
  * 这里只补文档里没有的东西：一个组件可以摆出哪几个场景。两者按组件名对上。
  */
+
+/** Skill 页的场景数据：长短不一的名字放在一起，看徽标与按钮是否落在同一列。 */
+const SKILL_PAGE_ENTRIES: readonly SkillEntry[] = [
+    {id: "user.style-guide", name: "style-guide", description: "按本书的文风规则改写一段：人称、时态、对白格式与禁用词。", source: "user", location: "skills://user.style-guide/SKILL.md", status: "ready", license: "MIT"},
+    {id: "user.epub-export", name: "epub-export", description: "把选中的章节导成 EPUB，带目录、封面与脚注。", source: "user", location: "skills://user.epub-export/SKILL.md", status: "needs-init"},
+    {id: "user.lore-check", name: "lore-check", description: "对照人物卡与设定集，找出正文里前后矛盾的地方。", source: "user", location: "skills://user.lore-check/SKILL.md", status: "needs-init", problem: {code: "install-failed", detail: "error: GET https://registry.npmjs.org/epub-gen-memory - ETIMEDOUT"}},
+    {id: "user.tts-preview", name: "tts-preview", description: "用本机的语音合成朗读选中的一段，听对白的节奏。", source: "user", location: "skills://user.tts-preview/SKILL.md", status: "initializing"},
+    {id: "user.outline", name: "outline", description: "", source: "user", location: "skills://user.outline/SKILL.md", status: "invalid", problem: {code: "name-mismatch", name: "outline-helper"}},
+    {id: "user.voice-check-with-a-much-longer-name", name: "voice-check-with-a-much-longer-name", description: "逐段检查叙述视角有没有串，标出越界的句子。", source: "user", location: "skills://user.voice-check-with-a-much-longer-name/SKILL.md", status: "ready", external: {python: true, uvMissing: true, compatibility: "需要 Python 3.11 以上与 uv；朗读用的 espeak-ng 要自己装"}, metadata: {author: "林默", version: "0.3"}},
+    {id: "acme.docs.pdf-extract", name: "pdf-extract", description: "从扫描的 PDF 里抽出正文与页码，按章分段。", source: "plugin", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.pdf-extract/SKILL.md", status: "ready"},
+    {id: "acme.docs.raw-notes", name: "raw-notes", description: "把采访录音的转写整理成按人物分的笔记。", source: "plugin", plugin: {id: "acme.docs", title: "文档工具"}, location: "skills://acme.docs.raw-notes/SKILL.md", status: "invalid", problem: {code: "plugin-skill-unbuilt"}},
+    // 没有显示名的插件，组头写插件 id；id 很长时组头要折行，不撑出页面。
+    {id: "someverylongpublishername.averyveryverylongpluginnamewithoutbreaks.lint", name: "lint", description: "按本书的禁用词表检查选中的章节。", source: "plugin", plugin: {id: "someverylongpublishername.averyveryverylongpluginnamewithoutbreaks", title: null}, location: "skills://someverylongpublishername.averyveryverylongpluginnamewithoutbreaks.lint/SKILL.md", status: "ready"},
+    {id: "builtin.chapter-summary", name: "chapter-summary", description: "给一章写三五句提要，写进章节的元数据。", source: "builtin", location: "skills://builtin.chapter-summary/SKILL.md", status: "ready"},
+];
 export type LabScene = {
     id: string;
     label: string;
@@ -780,8 +798,10 @@ export const labFixtures: LabFixture[] = [
             {id: "english", label: "英文界面", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "empty", label: "没有标签：标志与提示", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {groupId: "g0", wrapTabs: true}}},
-            {id: "comments", label: "批注：光标进批注出浮层，Ctrl+Alt+M 加批注", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "comments", label: "批注：批注末尾的小符号出浮层、按住 Ctrl 悬停，Ctrl+Alt+M 加批注，块菜单整块批注", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "comments-margin", label: "批注：页边开着（视口够宽时画在稿纸右边）", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "comments-slots", label: "批注页边：一段几条批注、短段与长段、下一段有无批注、表格行", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "comments-overlap", label: "批注：重叠的波浪线、块批注的显示", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "recycle", label: "回收：每种编辑器只留 2 个控件", input: {props: {groupId: "g0", wrapTabs: true}}},
         ],
@@ -1151,6 +1171,29 @@ function shelfFixtures(): LabFixture[] {
                 {id: "exists", label: "已有同名", input: {props: {status: "已经有同名的 Profile 了。"}, model: {open: true}}},
             ],
             load: async () => withAgentPageText(createSubjectFixture<typeof NewProfileDialog>((await import("nbook/plugins/agent/web/components/NewProfileDialog.vue")).default)),
+        }),
+        defineLabFixture<typeof SkillsSettingsPage>({
+            component: "SkillsSettingsPage",
+            scenes: [
+                {id: "full", label: "我的、插件与内置：可用、未初始化、上次没装好、正在初始化、无效、插件没打包", input: {props: {entries: SKILL_PAGE_ENTRIES}}},
+                {id: "empty", label: "还没有 Skill", input: {props: {entries: []}}},
+                {id: "loading", label: "读取中", input: {props: {entries: null}}},
+                {id: "full-english", label: "英文界面", input: {props: {entries: SKILL_PAGE_ENTRIES}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof SkillsSettingsPage>((await import("nbook/plugins/agent/web/components/SkillsSettingsPage.vue")).default, {class: "w-full max-w-[720px] p-6"})),
+        }),
+        defineLabFixture<typeof SkillInitDialog>({
+            component: "SkillInitDialog",
+            scenes: [
+                {id: "confirm", label: "确认：有锁，列直接依赖", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "no-lock", label: "确认：没有 bun.lock（说明行写会生成锁文件）", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: false, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "installing", label: "正在安装（能关掉，在后台继续）", input: {props: {name: "epub-export", phase: "installing", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "confirm-english", label: "英文界面：确认", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "no-lock-english", label: "英文界面：没有 bun.lock", input: {props: {name: "epub-export", phase: "confirm", plan: {lock: false, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "installing-english", label: "英文界面：正在安装", input: {props: {name: "epub-export", phase: "installing", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: null}, model: {open: true}}},
+                {id: "failed", label: "失败：中间换成安装输出", input: {props: {name: "epub-export", phase: "failed", plan: {lock: true, packages: 23, dependencies: ["epub-gen-memory", "jszip", "turndown", "yaml"]}, failure: {code: "install-failed", output: "bun install v1.4.4\nResolving dependencies\nResolved, downloaded and extracted [12]\nerror: GET https://registry.npmjs.org/epub-gen-memory - ETIMEDOUT\nerror: epub-gen-memory@^1.1.2 failed to resolve"}}, model: {open: true}}},
+            ],
+            load: async () => withAgentPageText(createSubjectFixture<typeof SkillInitDialog>((await import("nbook/plugins/agent/web/components/SkillInitDialog.vue")).default)),
         }),
         defineLabFixture<typeof ProvidersPage>({
             component: "ProvidersPage",

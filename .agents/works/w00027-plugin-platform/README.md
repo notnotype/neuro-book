@@ -43,6 +43,7 @@ updated: 2026-10-23
 | [t14](tasks/t14-plugin-author-api/README.md) | 作者 API 的形状：`definePlugin` 与贡献助手、结果助手、短名与缺省值、出错可见（t13 design.md A1 到 A9，开发者 2026-10-24 定 D5） |
 | [t15](tasks/t15-author-api-round2/README.md) | 作者 API 第二轮（第一期）；应用的 npm 包与 `nbook` 命令行（第二期）；发布 0.11.0、SDK 上 npm、CI 重建、文档（第三期）。已完成 |
 | [t16](tasks/t16-patch-0-11-1/README.md) | 0.11.1 补丁：t15 真实用户冒烟的缺陷与小改进（新建作品后打开、插件页内置名称、整页切换不报 error、帮助对齐等） |
+| [t18](tasks/t18-data-migrations/README.md) | 统一的数据版本迁移（应用与插件）：有序迁移步骤、迁移账本、插件可用。搁置（开发者 2026-11-15 定，要用时再开） |
 
 ## 后续的插件功能
 

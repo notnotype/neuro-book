@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workbench.background-tasks
 owners:
   - nbook.tasks
@@ -112,6 +112,7 @@ interface TaskHandle {
     - 任务离开清单（重试、移除、清除已结束、超过上限）时，窗口撤回为它发的通知，通知中心里也随之删掉（[`workbench/notifications`](notifications.md) 输出 13），不留失效的“重试”。
 15. **书架页。** 没有状态栏与底部面板的页面上，输出 14 的通知照发，没有视图与条目。
 16. **文字跟随界面语言。** 视图、条目、提示与通知里的任务标题与进展按窗口当前语言翻；切换语言后原地换文字，任务不变。
+17. （planned）**关闭服务前报出。** `nbook.tasks` 向宿主的 `runningWorkKey` 登记（[`runtime.server-host`](../runtime/server-host.md) 的“在跑的工作”），每件在跑的任务报一项，写它的标题。
 
 ## 状态与转换
 
@@ -170,8 +171,21 @@ interface TaskHandle {
 5. Given 50 件结束的任务，When 第 51 件结束，Then 结束最早的那件被移出。
 6. Given 一件标题与进展是文字引用的在跑任务，When 界面语言从 zh-CN 切到 en-US，Then 视图、条目与悬停提示原地换成英文。
 
-Smoke：`packages/neuro-book/e2e/background-tasks.e2e.ts`（真实浏览器的两个窗口，验收 1、2、4）；服务端的合同测试覆盖验收 3、5。
+Smoke：`packages/neuro-book/e2e/background-tasks.e2e.ts`（真实浏览器的两个窗口，验收 1、2、4）；服务端的合同测试覆盖验收 3、5，视图的组件测试覆盖验收 6。
+
+## 实现合同
+
+- **公开入口**：服务键与类型 `tasksKey`、`BackgroundTasks`、`TaskInput`、`TaskHandle`（`nbook/plugins/tasks/shared/contracts`）；远程服务 `nbook.tasks/tasks` 版本 1；命令 `nbook.tasks.show`、`nbook.tasks.clear-finished`。
+- **owner 与依赖方向**：`nbook.tasks` 的服务端入口持有清单，按调用方门面给每个发起方一份服务，门面释放就是发起方停止；远程服务经推送节流把整份清单推给窗口。浏览器入口持有本窗口的任务仓库（“看过”与结束通知），经工作台的视图、状态栏条目贡献点与通知服务出现在界面上；工作台不引用 `nbook.tasks`。
+- **关键不变量**：
+  - 门面释放时先清掉这个发起方全部任务的 `retry`，再把在跑的转为已中断、以 `"interrupted"` abort，合成一次推送（输出 5，验收 3）。
+  - 标题与进展存的是校验后的副本：发起方之后改手里的对象，清单不变（输入的文字值规则）。
+  - 窗口的任务仓库在第一份清单和每次重新订阅取到的清单上只建比较起点、把结束的记为看过；之后只比较相邻两份清单决定发不发通知（输出 13、14）。
+  - 浏览器入口停止时退订；订阅还没建好入口就停了的，建好后立即退订，不取清单、不再接收推送。
 
 ## 证据
 
-- 批准依据：开发者 2026-11-11 的决定（[w00032 t34 记录](../../../.agents/works/w00032-agent-integration/tasks/t34-background-tasks/README.md)第 1–15 条，界面经两轮评审定稿，[评审板](../../../.agents/works/w00032-agent-integration/tasks/t34-background-tasks/artifacts/review/index.html)）。
+- 批准依据：开发者 2026-11-11 的决定（[w00032 t34 记录](../../../.agents/works/w00032-agent-integration/tasks/t34-background-tasks/README.md)第 1–15 条，界面经两轮评审定稿，[评审板](../../../.agents/works/w00032-agent-integration/tasks/t34-background-tasks/artifacts/review/index.html)）；2026-11-12 同意晋升为 `implemented`。
+- 实现入口：[`backend/core.ts`](../../../packages/neuro-book/src/plugins/tasks/backend/core.ts)（清单、句柄与发起方停止）、[`backend/remote.ts`](../../../packages/neuro-book/src/plugins/tasks/backend/remote.ts)（远程服务与推送）、[`web/store.ts`](../../../packages/neuro-book/src/plugins/tasks/web/store.ts)（看过与结束通知）、[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/tasks/web/plugin.ts)（视图、状态栏条目与命令）。
+- 合同测试：[`tasks.test.ts`](../../../packages/neuro-book/src/plugins/tasks/tasks.test.ts)（输出 1 到 9、输入校验，验收 3、5）、[`store.test.ts`](../../../packages/neuro-book/src/plugins/tasks/store.test.ts)（输出 6、12 到 14）、[`TasksView.dom.test.ts`](../../../packages/neuro-book/src/plugins/tasks/web/components/TasksView.dom.test.ts)（输出 10、11，验收 6）。
+- Smoke：[`background-tasks.e2e.ts`](../../../packages/neuro-book/e2e/background-tasks.e2e.ts)（验收 1、2、4，输出 15）。

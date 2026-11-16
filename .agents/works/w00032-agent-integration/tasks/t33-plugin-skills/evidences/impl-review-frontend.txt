@@ -1,0 +1,96 @@
+w00032 t33 实现审查（前端，Claude Sonnet，2026-11-15，审查对象 t33 的界面部分，固定在 c9740fe57）
+报告原文（已扫描密钥：0 处）：
+
+# w00032 t33 前端实现审查（c9740fe57）
+
+范围：`groupSkills`、Skill 页、Profile 设置 Skill 一节、测试、Lab 数据、文字。只读审查；`bunx vitest run src/plugins/agent/web/skills-page.dom.test.ts` 与 `bun test src/plugins/agent/web/profile-view.test.ts` 现状都通过。
+
+### 1. 插件被停用或卸载后，Profile 里的“已删除或不可用”提示给了错误的补救办法
+- 严重程度：重要（用户可见行为 / 文字）
+- 位置：`packages/neuro-book/src/plugins/agent/web/profile-view.ts:365`（`goneRow`）、`src/plugins/agent/locales/zh-CN.json` 的 `profiles.skills.gone`（“没有找到这个 Skill，放回 Skill 文件夹后恢复”）
+- 现象：t33 之后白名单里会出现 `acme.docs.pdf` 这样的插件 Skill id。插件停用、卸载、`skills-root-unavailable`（根目录取不到）时，这些 id 在目录里消失，落进“已删除或不可用”组，行内写“放回 Skill 文件夹后恢复”。`goneRow` 只拿到 id，没区分来源。
+- 为什么是问题：插件的 Skill 不在用户的 Skill 文件夹里，用户照提示做不到；真正的补救是启用/重装插件。这是本 Task 新增的最常见的“找不到”来源，文字还是 t33 之前只有用户来源时写的。
+- 如何核实：读 `skillsField` 里 `gone` 的生成（`allowed.filter((id) => !byId.has(id))`）和 `profiles.skills.gone` 文字；profile-view.test.ts 里 `user.gone` 是唯一的已删除用例，没有插件 id 的。
+- 建议改法：已删除一行的文字改成与来源无关的说法（“目录里现在没有这个 Skill；文件夹里的放回后、插件的启用后恢复”），或按 id 前缀不是 `user`、`builtin` 判断为插件来源用另一句。后者要加一句文字与一条测试；前者只改文字。
+
+### 2. 两个插件显示名相同时，组头一样，分不出哪组是哪个插件
+- 严重程度：建议（边界 / 可用性）
+- 位置：`SkillsSettingsPage.vue:24-25`、`profile-view.ts:367`、`shared/skills.ts` 的 `groupSkills` 排序
+- 现象：清单 `displayName` 是自由字符串（`nb-runtime/src/plugin-manifest/schema.ts:93`，只做 trim，不要求唯一）。我用 bun 跑了 `groupSkills`：两个插件 `b.x`、`a.y` 都叫“工具”，得到两个 key 不同的组（`plugin:a.y`、`plugin:b.x`），组头都是“工具”。Page 与 Profile 一节的标题里都没有 id。fork 出来的插件、同一作者的系列插件容易撞名。
+- 为什么是问题：排序用 id 兜了底（所以顺序稳定），但读者看到两组同名，不知道要关停哪个插件；Spec 只写了“没有显示名时写 id”，没写撞名。
+- 如何核实：`/tmp/gs-check.ts`（我用的脚本，不在仓库）输出两组标题相同；或在 Lab 的 `SKILL_PAGE_ENTRIES` 里加第二个同名插件。
+- 建议改法：窄场景选简单的：组头在撞名时（同一批组里有重复标题）追加 id，如“工具（a.y）”；或组头旁固定放一个小号的 id 文字。决定后在 Spec 输出 34 补一句。也可以记为已知限制。
+
+### 3. `groupSkills` 对“插件来源却没有 `plugin`”的条目静默编造插件 id
+- 严重程度：建议（类型 / 没写出来的假设）
+- 位置：`shared/skills.ts:122`（`entry.plugin ?? {id: entry.id.slice(0, Math.max(entry.id.lastIndexOf("."), 0)), title: null}`）
+- 现象：`SkillEntry.plugin` 是可选的，类型允许 `source: "plugin"` 而没有 `plugin`。代码于是从 Skill id 里截到最后一个点之前当插件 id。我跑了一条 `noplugin.three`（无 `plugin`）：得到组 `plugin:noplugin`；id 里没有点时 `slice(0,0)` 得空串 id，key 成了 `plugin:`。
+- 为什么是问题：这条假设（插件 id 一定是 Skill id 去掉最后一段，文件夹名里没有点）没写在注释里，也没有测试；后端不会产生这种条目，所以这是不可达的兜底路径，它让数据错误变成“看起来正常的一组”。仓库规则是不用兜底掩盖合同问题。
+- 如何核实：读 `groupSkills` 的 `else` 分支；`plugin` 的类型在 `SkillEntry` 里可选。
+- 建议改法：把 `SkillEntry` 改成按 `source` 区分的联合（插件来源必带 `plugin`），分组里不再兜底；或保留可选，没有 `plugin` 的当作错误数据（至少诊断）。前者改动面小（只是类型与几处造数据的地方：catalog.ts、测试、Lab 数据）。
+
+### 4. Profile 一节里“无效”的插件 Skill 看不到原因；Lab 数据与真实的“没打包”条目不一致
+- 严重程度：建议（用户可见行为 / 证据）
+- 位置：`profile-view.ts:350-360`（`row`：`summary: skill.description`）、`lab/web/fixtures/index.ts:154`（`raw-notes` 的 `description: ""`）、`catalog.ts:261`
+- 现象：后端对没打包的插件 Skill 是读完 `SKILL.md` 才标无效的，所以条目有真实的 `description`，`problem` 是 `plugin-skill-unbuilt`。Skill 页第二行换成原因，看得到；Profile 一节只出 effect“无效”和 `description`，原因文字（`pluginSkillUnbuilt`）不出现。Lab 里这一项 `description: ""`，是照用户来源的无效条目抄的，没反映真实形状，截图证据因此没覆盖“无效但带说明”的行。
+- 为什么是问题：用户在 Profile 里看到一行写着“无效”却有正常说明，不知道为什么无效；Page 与 Profile 的信息不对等。（用户来源的无效 Skill 同样受此影响，但以前它们多半 `description` 为空，现在“有说明的无效”第一次成为常态。）
+- 如何核实：看 `row` 与 `catalog.ts:249-262`；Lab 数据；给 `profile-view.test.ts` 加一条无效的插件 Skill 看 `summary`。
+- 建议改法：无效且有 `problem` 的行，`detail`（悬停全文）里放原因文字（需要把 `problemText` 抽到共享处，Page 与 Profile 共用）；Lab 的 `raw-notes` 改成带说明的真实形状。
+
+### 5. 组头没有处理长插件 id（未实测）
+- 严重程度：建议（样式 / 边界）
+- 位置：`SkillsSettingsPage.vue` 样式 `.skills-page__group-title`；`ProfileToolsSection.vue:130` 的 `.profile-tools__group-head`
+- 现象：组头直接写 `title ?? id`。Page 的 `h3` 是跨整行的网格项，没有 `min-width: 0` 与 `overflow-wrap`；浏览器不会在 `.` 处断行，所以一个很长的、没有连字符的插件 id（没有显示名时）在手机宽度可能撑出容器。显示名一般带空格或汉字，会换行，不受影响。Profile 一节的组头是 flex 按钮，同理。
+- 为什么是问题：已有截图只有“文档工具”一个短名；越界检查没有覆盖长 id。这是从 CSS 推断，我没有开浏览器验证。
+- 如何核实：在 Lab 的 `full` 场景里加一个 40 个字符以上的无显示名插件 id，手机尺寸看越界检查。
+- 建议改法：组头加 `min-width: 0; overflow-wrap: anywhere`（或单行截断加 `title` 提示全文）；并在 Lab 数据里加一个无显示名、长 id 的插件组，同时覆盖“无显示名写 id”这一 Spec 要求（现在 Lab 只有一个有显示名的插件，英文场景下也没有无显示名的组）。
+
+### 6. 测试没覆盖 Profile 一节里新增的行为，Page 测试也有缺口
+- 严重程度：建议（测试）
+- 位置：`profile-view.test.ts:283、303、319`；`skills-page.dom.test.ts:36-39`
+- 现象：
+  - Profile 一节的测试只有一个有显示名的插件、一个 Skill。没测：没有显示名时组头写 id；两个插件的先后；同一插件两个 Skill 同在一组；组 id 的形状（`plugin:<id>`，与 `gone`、`removed` 不撞）；无效的插件 Skill 在“已列出”里标无效、不进候选；去掉的插件 Skill 进“已去掉”；白名单里的插件 id 不在目录时的行（见第 1 条）。
+  - Page 测试里“初始化只给未初始化的”这一条是对全部 ENTRIES 做的，数据里没有插件的未初始化条目，所以“插件行没有初始化”这条 Spec 要求靠的是后端不产生它，页面本身没断言；这是可接受的，但测试标题写的是“初始化只给未初始化的”，没有标出插件行。
+  - 排序的注释“拉丁字母在汉字前面”依赖 `localeCompare` 的默认语言；断言在 CLDR 各语言下都成立，所以不是缺陷，但没有测英文界面下的同一页（Lab 有 `full-english`，测试没有）。
+- 为什么是问题：t33 在 Profile 一节改动的是候选与组 id 的生成，分组测试只多了一行断言，改坏了没有测试会红。
+- 如何核实：读上述测试行。
+- 建议改法：在 profile-view.test.ts 的同一个 describe 里补两个数据（无显示名的插件、同一插件第二个 Skill）并断言组 id 与顺序；补一条无效插件 Skill 与已删除插件 id。不需要新建文件。
+
+### 7. 分组的“组名”写了两份，文档与说明有几处没跟上
+- 严重程度：建议（可维护性 / 文档）
+- 位置：`SkillsSettingsPage.vue:24-25` 与 `profile-view.ts:367`（同一个“插件无标题写 id、用户/内置取文字”的映射写了两遍）；`shared/skills.ts:128`（排序里又有一个 `pluginName`）；`profile-view.ts:77`（`ProfileToolGroup.id` 的注释“身份：插件 id，已卸载的一组是 `GONE_GROUP`”）；`docs/specs/agent/skills.md` 输出 25（“我的在前、内置在后”，与输出 34 并存）；`docs/specs/agent/profile-settings.md` 输出 26（“按来源分组（我的 Skill 在前、内置在后）”）；`ProfileToolsSection.md`、`AddToolsDialog.md`（只写“按来源分组”，没写插件组与组 id 的形状）
+- 现象：同一个“插件名”规则在三处各写一遍（排序的 `pluginName`、Page、Profile）；Skill 一节的组 id 现在是 `user`、`plugin:<id>`、`builtin`、`gone`、`removed`，类型注释还写“插件 id”。两条 Spec 输出和两份组件说明没有改。
+- 为什么是问题：规则改一处漏另一处的信号（AGENTS.md 里“同一件事各写一份”）；Spec 输出 25 与 34 对顺序给了两个说法，读者会以为 25 才是现行。
+- 如何核实：grep `title ?? ` 与 `plugin.id` 看三处；读两条 Spec 输出。
+- 建议改法：在 `shared/skills.ts` 导出 `skillPluginName(plugin)`，三处共用；`SkillGroup` 带上现成的 `title`（插件的名字）。更新注释与上述两条 Spec 输出（Spec 在主工作区 master 上改）和两份组件 `.md`。
+
+### 8. “没打包”的原因文字面向的是插件作者，不是看到它的用户
+- 严重程度：建议（文字）
+- 位置：`locales/zh-CN.json:673`、`en-US.json:673`
+- 现象：文字写“插件里的这个 Skill 没有经 nbooke build 打包，用不了”。这条在设置里显示给安装插件的用户，他们改不了插件，也不一定知道 `nbooke`；文字没有说该怎么办。其余的原因（`symlink`、`nameMismatch`）都是用户能自己动手改的。
+- 为什么是问题：用户看到一个无效项，没有下一步。
+- 如何核实：读该文字，对照其它 `skills.page.problem.*`。
+- 建议改法：加一句去向，例如“插件里的这个 Skill 没有经 nbooke build 打包，用不了；请向插件作者反馈”，英文同步。
+
+## 总结
+
+未发现问题的方面（已核实）：
+- 排序：Page 与服务端目录 `list()` 的键相同（来源、插件显示名否则 id、`localeCompare`、再按名字、id）；`groupSkills` 在客户端重新排插件组，组内保持传入顺序，所以 Page 沿用目录的名字序，Profile 沿用白名单（或 `all` 时目录）的顺序，与改动之前用户/内置两组的行为一致；同一插件的 Skill 都分在一组（测试里 `acme.docs` 两个）。
+- 组 id：`plugin:<id>` 带前缀，不与 `gone`、`removed`、`user`、`builtin` 撞；仓库里依赖旧组 id 的只有 `profile-page.dom.test.ts` 的 `removed` 与插件工具一节，都不受影响；Vue 的 `:key` 与 `data-skills-group` 用同一个 key，没有问题。
+- 候选对话框：候选按相同的分组、排除无效与已在白名单里的；`providerName: skill.id` 保证同名 Skill 不互相顶掉。
+- 开发者已定的两项（分组顺序、带 `package.json` 标无效）实现与之一致；“插件行没有初始化”由后端状态保证（`catalog.ts:260` 插件来源永不会是 `needs-init`），页面按状态出按钮，没有问题。
+- 英文界面：组头来自数据，不受语言影响；原因文字两种语言都有键。
+
+问题数量：共 8 条，重要 1，建议 7，阻断 0。
+最该先看的：第 1 条（插件停用后 Profile 的提示给了错误的补救办法）；其次第 2 条（同显示名的两组分不出来）与第 3 条（`groupSkills` 编造插件 id 的兜底）。
+
+处理（修正在 f75c8c971；Spec 在主工作区 63312c836）：
+
+1. 成立，已改：“已删除或不可用”一行的提示改成与来源无关（自己的放回 Skill 文件夹、插件的重新启用插件后恢复），中英两份。测试：profile-view.test.ts 的插件分组用例里白名单留下的插件 Skill 进“已删除或不可用”，核对提示。
+2. 成立，已改：groupSkills 给插件组标题，两个插件显示名相同时在后面加 “ · 插件 id”。测试：同上用例里两个都叫“文档工具”的插件。Spec skills.md 输出 34 写明。
+3. 成立，已改：SkillEntry 与 SkillRoot 改成按来源区分的联合，插件来源必带 plugin；分组不再从 id 截出插件 id。造数据的测试帮手按来源分开写。
+4. 成立，已改：原因文字抽到 web/skill-problem.ts，Skill 页与 Profile 一节共用；Profile 一节无效的行悬停全文先写原因再写说明。Lab 里没打包的那项带上说明。
+5. 成立，已改：Skill 页组头 min-width: 0 与 overflow-wrap: anywhere；Lab 加一个没有显示名、id 很长的插件组，nbdev shot 在手机与自由画布上量过（越界、焦点环与外扩环被裁都是 0），截图看组头折行。Profile 一节的组头是工具一节共用的组件，插件名长短在 t33 之前就有，这次不动。
+6. 成立，已改：Profile 一节补没有显示名的插件、显示名撞了、同一插件两个 Skill、组 id 的形状、无效的原因与不进候选、已去掉与已删除的插件 Skill。
+7. 成立，已改：插件名规则只留 skillPluginName，SkillGroup 带 title，Skill 页与 Profile 一节都用它；ProfileToolGroup.id 的注释写明 Skill 一节的组 id；skills.md 输出 25、profile-settings.md 输出 26、ProfileToolsSection.md、AddToolsDialog.md、SkillsSettingsPage.md 跟上。
+8. 成立，已改：没打包的原因加“请向插件作者反馈”，中英两份。

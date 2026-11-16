@@ -13,6 +13,10 @@ import type {ModelCapabilities, ModelNeedGap} from "../shared/model-needs";
 import {profileToolIds, sameNameTool, visibleToolIds} from "../shared/profile-tools";
 import type {ToolBinding, ToolChange} from "../shared/profile-tools";
 import {profileAgents} from "../shared/profile-agents";
+import {declaredSkills, profileSkills} from "../shared/profile-skills";
+import {groupSkills} from "../shared/skills";
+import {skillProblemText} from "./skill-problem";
+import type {SkillEntry, SkillGroup} from "../shared/skills";
 import type {ProfileSetting} from "../shared/settings";
 import {agentText} from "../shared/text";
 import {FOLLOW_APPROVAL, FOLLOW_MODEL, modelChoiceOf} from "./profile-edits";
@@ -66,10 +70,15 @@ export interface ProfileToolRow {
     readonly detail: string;
     readonly required: boolean;
     readonly gone: boolean;
+    /** 用户去掉的（只有 Skill 一节有）：行尾是“加回”，不是去掉。 */
+    readonly restorable?: boolean;
 }
 
 export interface ProfileToolGroup {
-    /** 身份：插件 id，已卸载的一组是 `GONE_GROUP`。显示名可能重复、随界面语言变，不作身份。 */
+    /**
+     * 身份。工具一节：插件 id，已卸载的一组是 `GONE_GROUP`。Skill 一节：`user`、`plugin:<插件 id>`、`builtin`（`groupSkills` 的 key），
+     * 另有 `GONE_GROUP` 与 `REMOVED_GROUP`。显示名可能重复、随界面语言变，不作身份。
+     */
     readonly id: string;
     readonly provider: string;
     readonly tools: readonly ProfileToolRow[];
@@ -119,6 +128,8 @@ export interface ProfileView {
     readonly tools: ProfileToolsField | null;
     /** “可派的子代理”一节：Profile 有 `agent_spawn` 时才有（profile-settings.md 输出 25）。形状同工具一节，行的 `effect` 一列写“推荐”“我加的”。 */
     readonly agents: ProfileToolsField | null;
+    /** Skill 一节（skills.md 的白名单）：Skill 目录还没取到时为 null。 */
+    readonly skills: ProfileToolsField | null;
 }
 
 const usable = (provider: SnapshotProvider, model: SnapshotModel): boolean => hasCredentials(provider) && model.enabled && model.status === "ok";
@@ -324,6 +335,58 @@ function agentsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileTool
     return {groups, count: effective.allowed.length, modified: binding !== undefined, candidates};
 }
 
+/** 用户去掉的那一组的身份。 */
+export const REMOVED_GROUP = "removed";
+
+/**
+ * Skill 一节（skills.md 的“输入与前置条件”、输出 8）：白名单里的按来源分组；白名单里、目录中已经没有的一组“已删除或不可用”；用户去掉、
+ * 目录里还有的收在最后一组“已去掉”，能加回。添加对话框的候选是目录里不在白名单、不是无效的。
+ */
+function skillsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
+    const catalog = input.skills;
+    // 后台的 Profile 没有用户的输入，`$` 到不了它，不给这一节。
+    if (catalog === null || catalog === undefined || entry.tools === undefined || entry.hidden === true) return null;
+    const {text} = input;
+    const ids = catalog.map((skill) => skill.id);
+    const binding = input.settings[entry.key]?.skills;
+    const declared = new Set(declaredSkills(entry.skills, ids));
+    const allowed = profileSkills(entry.skills, binding, ids);
+    const allowedSet = new Set(allowed);
+    const byId = new Map(catalog.map((skill) => [skill.id, skill]));
+    const row = (skill: SkillEntry, extra: {readonly restorable?: boolean} = {}): ProfileToolRow => ({
+        id: skill.id,
+        name: skill.name,
+        effect: skill.status === "invalid" ? text.t(agentText("profiles.skills.invalid"))
+            : skill.status === "needs-init" ? text.t(agentText("profiles.skills.needsInit"))
+            : declared.has(skill.id) || extra.restorable === true ? "" : text.t(agentText("profiles.skills.userAdded")),
+        danger: skill.status === "invalid",
+        summary: skill.description,
+        // 无效的、上次没装好的：悬停的全文先写原因（同 Skill 页的第二行），再写说明。
+        detail: skill.problem === undefined ? skill.description : [skillProblemText(skill.problem, (key, params) => text.t(agentText(key, params))), skill.description].filter((part) => part !== "").join("\n"),
+        required: false,
+        gone: false,
+        ...extra,
+    });
+    const goneRow = (id: string): ProfileToolRow => ({id, name: id, effect: "", danger: false, summary: text.t(agentText("profiles.skills.gone")), detail: text.t(agentText("profiles.skills.gone")), required: false, gone: true});
+    // 分组同 Skill 页：我的、各插件（标题是插件名）、内置。
+    const groupName = (group: SkillGroup<SkillEntry>): string => group.title ?? text.t(agentText(group.source === "user" ? "profiles.skills.groups.user" : "profiles.skills.groups.builtin"));
+    const listed = allowed.map((id) => byId.get(id)).filter((skill): skill is SkillEntry => skill !== undefined);
+    const gone = allowed.filter((id) => !byId.has(id));
+    const removed = (binding?.removed ?? []).map((id) => byId.get(id)).filter((skill): skill is SkillEntry => skill !== undefined && skill.status !== "invalid");
+    const groups: ProfileToolGroup[] = [
+        ...groupSkills(listed, (skill) => skill).map((group) => ({id: group.key, provider: groupName(group), tools: group.items.map((skill) => row(skill))})),
+        ...(gone.length === 0 ? [] : [{id: GONE_GROUP, provider: text.t(agentText("profiles.skills.goneGroup")), tools: gone.map(goneRow)}]),
+        ...(removed.length === 0 ? [] : [{id: REMOVED_GROUP, provider: text.t(agentText("profiles.skills.removedGroup")), tools: removed.map((skill) => row(skill, {restorable: true}))}]),
+    ];
+    const candidates = groupSkills(catalog.filter((skill) => skill.status !== "invalid" && !allowedSet.has(skill.id)), (skill) => skill).map((group) => ({
+        id: group.key,
+        provider: groupName(group),
+        tools: group.items.map((skill): ProfileToolCandidate => ({...row(skill), providerName: skill.id, blocked: false})),
+    }));
+    // 无效的照样列出（它在白名单里），但不算“可用”。
+    return {groups, count: listed.filter((skill) => skill.status !== "invalid").length, modified: binding !== undefined, candidates};
+}
+
 function toolsField(entry: ProfileEntry, input: ProfileViewsInput): ProfileToolsField | null {
     if (entry.tools === undefined) return null;
     const {text, catalog} = input;
@@ -378,6 +441,8 @@ export interface ProfileViewsInput {
     /** 别的插件的显示名。 */
     readonly pluginName: (plugin: string) => string;
     readonly text: TextResolver;
+    /** Skill 目录；还没取到时为 null，Skill 一节不画。 */
+    readonly skills?: readonly SkillEntry[] | null;
 }
 
 /** 来源的显示名：左栏与工具的提供者用同一套词。 */
@@ -409,6 +474,7 @@ export function profileViews(input: ProfileViewsInput): ProfileView[] {
             approval: entry.hidden === true ? null : approvalField(setting, text),
             tools: toolsField(entry, input),
             agents: agentsField(entry, input),
+            skills: skillsField(entry, input),
         };
     });
 }

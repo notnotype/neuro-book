@@ -200,6 +200,27 @@ describe("各方案对 Agent 的权限", () => {
         expect(await after.create(`profiles://${WRITER}/y.md`, "file")).toMatchObject({ok: false, code: "permission-denied"});
     });
 
+    test("输出 15：skills:// 的根列出 Skill 目录并标出能不能 $；挂载点是 Skill 的目录，能读、能列、能取真实路径，只读", async () => {
+        const w = await world();
+        const {resources} = await open(w);
+        const directory = join(w.stateRoot, "user", "skills", "style-guide");
+        await mkdir(directory, {recursive: true});
+        await writeFile(join(directory, "SKILL.md"), "---\nname: style-guide\ndescription: 按本书的文风改写\n---\n\n正文\n");
+        // 目录的重扫按宿主时钟防抖，场地的时钟是手动的：等文件事件到的同时推时钟。
+        const listed = await waitUntil("Skill 出现在根里", async () => {
+            w.settings.clock.advance(1_000);
+            const result = await resources.list("skills://");
+            return result.ok && "kind" in result.value && result.value.entries.length > 0 ? result.value : undefined;
+        }, {timeoutMs: 10_000});
+        expect(listed.entries).toEqual([{name: "user.style-guide", title: "style-guide", address: "skills://user.style-guide", meta: {status: "可用", description: "按本书的文风改写", invoke: "不在白名单"}}]);
+        expect(await textOf(resources.read("skills://user.style-guide/SKILL.md"))).toContain("正文");
+        expect(await resources.readPath("skills://user.style-guide/SKILL.md")).toMatchObject({ok: true, value: {path: join(await realpath(w.stateRoot), "user", "skills", "style-guide", "SKILL.md")}});
+        // 与 docs:// 一样：分类为不可写（写工具据此拒绝为 permission-denied），方案本身只读。
+        expect(resources.classify("skills://user.style-guide/SKILL.md")).toEqual({content: false, write: "denied"});
+        expect(await resources.write("skills://user.style-guide/SKILL.md", "改", {expect: "any"})).toMatchObject({ok: false, code: "unsupported-capability"});
+        expect(await resources.read("skills://user.nothing/SKILL.md")).toMatchObject({ok: false, code: "not-found"});
+    }, 20_000);
+
     test("输出 5：虚拟根列出说明与带全局地址的条目，读根得到文字，写根被拒；docs:// 读得到 SDK 的作者文档", async () => {
         const w = await world();
         const {id, resources} = await open(w);

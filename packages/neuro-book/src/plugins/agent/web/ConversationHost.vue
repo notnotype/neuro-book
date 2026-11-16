@@ -8,7 +8,9 @@ import {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
 import type {AgentConversationServices, AgentViewAction, AgentViewRegistry} from "@notnotype/nb-agent-ui";
 import type {AgentViewRenderers} from "@notnotype/nb-agent-ui/vue";
 
+import SkillInitDialog from "./components/SkillInitDialog.vue";
 import type {SessionHost} from "./session-host";
+import type {SkillInit} from "./skill-init";
 import type {SessionListStore} from "./session-list";
 import {subagentStoreKey} from "./subagent-store";
 import SessionPanelHost from "./SessionPanelHost.vue";
@@ -21,6 +23,8 @@ const props = defineProps<{
     services: AgentConversationServices;
     pickProfile: () => Promise<string | null | undefined>;
     labels: {readonly renameTitle: string; readonly rename: string; readonly cancel: string};
+    /** 选了未初始化的 Skill 时的确认框（skills.md 输出 27）。 */
+    skillInit: SkillInit;
 }>();
 
 const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
@@ -64,4 +68,13 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
             <SessionPanelHost :store="props.list" :host="props.host" :pick-profile="props.pickProfile" :labels="props.labels" @opened="close()" />
         </template>
     </AgentConversationView>
+    <SkillInitDialog
+        :open="props.skillInit.state.value.open"
+        :name="props.skillInit.state.value.name"
+        :phase="props.skillInit.state.value.phase"
+        :plan="props.skillInit.state.value.plan"
+        :failure="props.skillInit.state.value.failure"
+        @update:open="(open: boolean) => open || props.skillInit.close()"
+        @confirm="void props.skillInit.confirm()"
+    />
 </template>

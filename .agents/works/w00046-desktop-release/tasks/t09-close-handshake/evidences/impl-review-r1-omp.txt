@@ -1,0 +1,102 @@
+### 1. 报告方返回值的读取或校验抛错会击穿隔离，整个工作接口回 500
+严重程度：重要；类别：正确性。
+位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/server/running-work.ts:82-95。
+现象：try 只包 reporter()；Value.Check 与读取 item.text 都在外面。报告方交回 [{get text(){throw new Error(...)}}] 时，getter 在校验阶段抛错，GET /api/runtime/work 回 500；同次查询里另一个正常插件的工作也全部丢失，且没有把坏插件记进 failed。该返回值在 TypeScript 中可以合法实现 RunningWorkItem，并非必须绕过类型系统才能产生。
+为什么是问题：server-host 的“在跑的工作”要求一个登记方失败只影响它自己，其他项继续列出。页面此时只知道整体取不到，用户无法看到本来能明确列出的工作。base 没有此登记表，是本次新增边界。
+如何核实：实现 HEAD=a04be981ebc8cd227a74f7bf737d087ea92e3deb。仓库根执行 bun --tsconfig-override packages/neuro-book/tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/impl-r1/scratch/reporter-isolation.ts；真实认领、真实服务端、两个真实激活的测试插件，经实际 HTTP 路由请求。getter 场景 status=500，body 为 internal-error；另两个对照场景 status=200；三个服务端均以 0 停止。现有测试只验直接 throw 和普通 {text:42}，未覆盖返回值在读取时失败。
+建议改法：把报告方调用、返回值校验和将合法文字转为独立工作项的整段放进同一隔离边界；整段出错统一写诊断、将这个插件放进 failed，再继续下一登记方。
+
+### 2. 起标题发生 id 冲突后，把用户仍在运行的会话永久排除出关闭提醒
+严重程度：重要；类别：正确性 / 不变量。
+位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/plugins/agent/backend/agent.ts:320-323（撤下仅在 :249-252）；backend/running-work.ts:62-64。
+现象：调用 createSession 之前无条件 internal.add(metaOptions.id)。该 id 已被普通用户会话占用时，创建回 session-exists，SessionMeta 核对 Profile 后正确报 session-meta-conflict，但 internal 标记没撤下。只要这个普通会话仍打开，它运行中的工作就从汇总消失，failed 也为空。
+为什么是问题：sessions 输出 20 要报全部在跑的用户会话；内部标题会话的排除应取决于真实归属，不能把“试图创建”当成“已经是内部会话”。已有 builtin-profiles.test.ts:585-596 明确支持这个冲突且要求不碰占用方。本次 75c33a1d4 新增的标记破坏了该边界；base 没有 internal 排除。关最后一个窗口可因此无工作提示直接中断它。
+如何核实：HEAD=a04be981e。仓库根执行 bun --tsconfig-override packages/neuro-book/tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/impl-r1/scratch/agent-work-edges.ts；真实 Agent 插件、内核、磁盘与本机假模型端点，经公开 service.create/send 造与既有冲突测试相同的场景。冲突前汇总包含标题“用户在写的另一会话”；等真实 session-meta-conflict 后 snapshot.status.state 仍为 running，汇总却为 {items:[],failed:[]}。
+建议改法：创建成功后才确认内部身份；复用 session-exists 时，先核对后台标记及当前 Profile 确为程序标题会话再登记。失败或冲突不得留下排除标记。把运行中的占用方加入原有冲突场景，断言它仍被汇总。
+
+### 3. 标题缓存只信启动索引，打开会话修复索引后仍显示“未命名”或旧标题
+严重程度：建议；类别：正确性。
+位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/plugins/agent/backend/agent.ts:168-174、249-254；backend/running-work.ts:26-43。
+现象：启动时只从 store.list() 的 index.json 装入标题，之后只跟随新写下的 titleChanged，没有在打开时从 snapshot 更新。索引缺失、损坏或落后日志时，真实会话打开会重建索引、snapshot 已有正确标题，关闭检查仍把它报为“未命名”或旧标题；历史 titleChanged 不会向新监听补发。
+为什么是问题：计划 :43 明确要求“会话打开、创建时取得”标题，当前只实现了扫描和事件跟随。index.json 是可丢失的缓存，nb-harness 的 JsonlStore.open :249-254 明确支持按日志重建；这不是外部绕过锁改日志。提醒仍在但丢失可识别标题，违背 sessions 输出 20 的标题要求。base 没有工作标题缓存。
+如何核实：HEAD=a04be981e。同第 2 条 agent-work-edges.ts：先用公开 API 创建、改标题并正常关 Agent，在本实验自己的 index.json 写 {}，再启动真实 Agent、打开同一会话并保持一轮运行。snapshot.title=“第三章的修改”，work.collect 返回 work.session.untitledRunning，failed=[]。实验不改产品文件，不直接调用缓存实现；模拟的是产品允许恢复的索引损坏。
+建议改法：在句柄成功打开后向 Agent 层交出当时的标题快照，并与 titleChanged 跟随统一更新；不能为取工作而打开会话。覆盖索引重建后运行，以及扫描缓存过旧但打开日志已是新标题两种顺序。
+
+### 4. 等待关闭时点退出，若认领查询在途并失败，退出仍被丢弃
+严重程度：重要；类别：正确性。
+位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/desktop/shell.ts:128-143。
+现象：waiting-close 的 exit 按钮设置 exitWhileClosing，但 await acquireDesktopLock 返回后只在 claimed.ok 分支检查该标记；若返回 unresponsive/failed，直接 leaveClosing 清掉按钮处理器，再进 #fail 等下一次点击。用户已经点过退出，窗口却转成“没有应答”，不退出。第 5 条旧审查只修好了轮询 sleep 和 askRunningShell 在途，漏了 acquire 在途的错误出口。
+为什么是问题：desktop-shell 输出 3、场景 5 要求等待确认关闭时点退出就不留窗口；代码注释还承诺“每次 await 之后都看它”。这条是本次修正未覆盖的分支；base 的原问题仍可达，非另报旧问题。
+如何核实：实际加载 HEAD=5383766676e54fecf476930ed6e063f7c92f1036；git diff a04be981e..HEAD 仅为前端修正，本文所用 src/desktop 与 nb-host/nb-file-lock 没有变化。仓库根执行 bun --tsconfig-override packages/neuro-book/tsconfig.json /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00046-desktop-release/tasks/t09-close-handshake/reports/impl-r1/scratch/waiting-exit-race.ts。真实子进程持桌面锁、第一次 open-window 回 closing 后 SIGSTOP；新壳显示 waiting-close，推进注入时钟开始下一轮认领，观察真实 desktop.claim.lock 已取到后经公开 startupAction('exit') 点击。3000ms 真套接字超时后 exits=[]，views=[waiting-close,error(shell-unresponsive)]；再点一次才退出。finally 恢复并停止锁持有方。
+建议改法：acquireDesktopLock 的 await 之后先统一处理 finishing/exitWhileClosing；若成功就先放刚拿的锁，其余结果直接退出，不再进入新的错误询问。把此交错补进等待关闭的原有行为测试。
+
+### 5. 监督失败的 Windows 兜底仍只证明根 pid 消失，没有证明 Job 已结束
+严重程度：重要；类别：不变量。
+位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/desktop/owned-server.ts:169-182；参照 packages/owned-process/src/windows-adapter.ts:216-245、windows-supervisor-source.ts:133-147。
+现象：completion 拒绝后，Windows 的 treeGone 只查根 pid，根不在就放行 stop、放桌面锁。可达顺序：服务端根退出但后代仍跑，监督器在处理根退出/关闭 Job 之前停住或失联；宿主 terminate 的 watchdog 拒绝 completion，只断开 IPC，不杀监督器。根 pid 的 ESRCH 此时并不能证明监督器已关闭唯一的 Job handle，后代仍可存活。第 2 条旧审查要求的“确认树真实结束”在 POSIX 已补上，在 Windows 尚未补全。
+为什么是问题：desktop-shell 输出 19 要先确认整棵树结束再放锁。微软保证 KILL_ON_JOB_CLOSE 在最后一个 Job handle 关闭时终止成员，并不保证目标根退出就关闭 handle；这个 handle 在监督器手里，不在目标根手里。来源：https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects 的 Managing Job Objects。监督器停住正是此次修正已有合同测试覆盖的失败模型。
+如何核实：Windows 结论从代码推断，未在 Windows 运行；本机没有 Windows/Wine。实际 POSIX 真实进程补充实验 barrier-root-gone.ts（同目录 scratch，运行 HEAD=5383766676，相关源码与 a04be981e 相同）已证明该时序不是伪造：根已消失、监督器 SIGSTOP、同组后代活着，completion-failed 后 POSIX 的 stopReturned=false；恢复监督器后才交回 forced:true。Windows 分支在同一状态只探根，会直接返回。既有新增测试只在 POSIX 跑且根一直活着，验不到此缺口。
+建议改法：兜底的证明仍归 owned-process：暴露并等待监督器/Job 的真实终态，或在失败后可靠终止监督器并等 Job 的活动进程归零；不能把目标 pid 消失视为 Job 完结。在 Windows 补“根先退出、后代存活、监督器未收口”的真实进程测试。
+
+### 6. 并发查询测试用相同快照，未测到“各自的请求各自结算”
+严重程度：建议；类别：测试。
+位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/server/projects/manager.test.ts:286-293。
+现象：唯一并发用例的两个查询都期待完全相同的静态工作列表。把生产实现改坏为“收到第一份有效应答就结算该子进程的全部 pending”，这 5 条工作查询测试仍全部通过，第二份应答实际上已被丢掉。生产实现当前按 id 配对正确，这条只报覆盖缺口。
+为什么是问题：计划的逐查询收口、并发配对是明确验收判据；不同调用时刻的工作状态可以不同，拿第一份结果填满全部查询会漏报后来新增的任务。现有同值断言不能保护这条合同，不能以测试名声称已验证配对。
+如何核实：只在指定 scratch/omp-mut 的 a04be981e 源码副本做变异，未改任一 worktree。#workAnswered 保留当前 id 有效性检查，将最后一行换成 for (const settle of [...child.workQueries.values()]) settle(...同一应答...)。在副本执行 bun test src/server/projects/manager.test.ts -t '取各项目的工作'：5 pass、0 fail、21 expect。另在真实项目进程装同步递增的报告方（query-project.ts），经真实 ProjectManager/IPC 同时查两次（query-distinct.ts）：原实现得到 snapshot-1、snapshot-2；变异实现得到 snapshot-1、snapshot-1，证明变异确实破坏可观察合同。运行宿主 HEAD=5383766676，相关项目代码与 a04be981e 相同。
+建议改法：让并发场景的两份快照可区分，断言每个请求得到它对应的快照；再覆盖一个查询超时/断开而另一个仍能收口、旧代次结束后新代查询不被旧应答填入。不要只重复相同静态列表。
+
+审查收口与证据边界
+审查范围固定 ac236021a..a04be981e；只读，未修改仓库源码、测试、Spec 或记录，未 commit/push/stash/切换分支、未删除文件。实验与变异副本只放本报告旁 scratch/；未启动开发服务、未跑 e2e、未调用真实模型。变异副本保留改坏状态，便于复查第 6 条。
+按影响排序的阅读顺序：第 5、2、1、4、3、6 条。第 5 条是代码与 Windows 官方合同推断，未作 Windows 实测，不将 POSIX 实验算成 Windows 验证；其余产品发现均经实际运行路径复现。
+
+本轮实际验证
+1. a04be981e：在实现 worktree 的 packages/neuro-book 执行 bun test src/server/running-work.test.ts src/server/projects/manager.test.ts src/server/server-projects.test.ts src/plugins/agent/running-work.test.ts src/plugins/tasks/tasks.test.ts src/desktop：12 文件，96 pass，0 fail，404 expect，47.74s。
+2. 实现 worktree 随后被其他工作推进到 5383766676e54fecf476930ed6e063f7c92f1036（前端审查修正）。后续三项在该 HEAD 跑：packages/nb-host 的 bun test src/server/claim.test.ts：17 pass，0 fail，60 expect，10.54s；packages/nb-harness 的 bun test src/kit/sessions/table.test.ts：5 pass，0 fail，13 expect，357ms；packages/neuro-book 的 bun test src/plugins/agent/builtin-profiles.test.ts：27 pass，0 fail，97 expect，4.55s。packages/neuro-book 的 bunx tsc --noEmit -p tsconfig.json：退出 0，25.73s。不是全应用/全仓验证；未运行前端 vue-tsc。
+3. git diff --name-only a04be981e..5383766676e54fecf476930ed6e063f7c92f1036 -- packages/neuro-book/src/desktop packages/neuro-book/desktop packages/neuro-book/src/server packages/neuro-book/src/project packages/neuro-book/src/plugins/agent packages/neuro-book/src/plugins/tasks packages/nb-host packages/nb-harness packages/nb-runtime packages/nb-file-lock：输出为空；上述后续测试和实验加载的审查范围内实现与被审提交相同。shared/host.ts 的后续修改是前端 WindowClose 接口，RunningWork 未变。
+4. reporter-isolation.ts、agent-work-edges.ts 在 a04be981e 运行，结果见第 1 至 3 条；waiting-exit-race.ts、barrier-root-gone.ts、query-distinct.ts 的后续实验加载版本如各条注明。POSIX 根消失但后代存活的最终有效实验：rootPresent=false、supervisorPresent=true、descendantPresent=true、posixGroupPresent=true、stopReturned=false；恢复监督器后返回 {exitCode:null,forced:true}。实验夹具前几次因后代启动脚本的转义错误没有活后代，不作为产品证据。
+5. 固定源码 PRELOAD 与 Electrobun 2.0.6 的 initCmdClickHandling 经内置浏览器注入真实 Chromium（文档创建时），docAtInit=true；标题消息依次为 ""、first、second；真实 Control 点击只发 new-window-open，带完整 ?project=book#c；真实 _blank 点击发 open-window，带完整 ?project=b2#h。未跑 e2e/应用服务，未在 Windows WebView2 运行；浏览器已关闭。首次等待在浏览器执行环境读不到该页全局导致超时，随后直接在页面环境读取并完成点击，未把等待错误算成产品问题。
+6. 第 6 条两次独立变异均在 scratch/omp-mut 执行，5 条工作查询测试各 5 pass、0 fail；第二个变异另以真实项目 reporter 的不同快照证明错误，见该条。没有重复跑同一未变测试清单。
+
+t08 第 1 轮九条修正的逐条结论
+1. will-navigate：已按固定 SDK 的 JSON 串 {url,allowed} 解析，拒绝的外部 http/https 经 routeAway 交系统浏览器；源码合同已核对。Windows 上 location.assign/重定向没有实际运行证据。
+2. 监督失败不等于树结束：POSIX 已修；原有真实监督器暂停测试与本轮“根已死、后代活着”实验均维持屏障。Windows 仍有第 5 条根 pid 不等于 Job 完结的残留缺口。已接受的 POSIX 监督器被强杀后无限等待取舍不重复报。
+3. 重启中的所有权：#startServer 同步登记当前租约，await 后检查 finishing 与对象身份；真实第二代 starting 时关窗测试本轮通过。未发现本次修法引入的新问题。
+4. before-quit：适配层同步否决后 setImmediate 调 quitRequested；协调器对未在询问的窗口发起关闭，停止中重复请求无动作。核心三条新测试本轮通过；固定 SDK requestQuitApproval/quitAfterApproval/quit 的调用顺序已核对，Windows SIGTERM/原生退出入口未实跑。已接受的逐窗询问取舍不重复报。
+5. 等待关闭时“退出”：普通等待可退出，本轮合同测试通过；认领失败的在途分支仍丢意图，见第 4 条。
+6. documentElement 为 null：已修为观察 document，本轮真实文档创建注入通过，初始与后续标题均发出。Windows WebView2 未实跑。
+7. Object.prototype 请求：Object.hasOwn 已落地，真实认领与请求用例本轮 17 条通过，constructor/toString/__proto__/hasOwnProperty 都按未知请求处理。
+8. Ctrl 点击：已订阅 new-window-open，SDK 与自定义桥统一 URL 分流；本轮真实 Chromium 与固定 SDK 共存的 Control 点击、_blank 均走预期消息，query/hash 保留。Windows 主进程事件分派只核对源码，未整壳运行。
+9. 启动中强杀记录：两条停止路径已合并 #stopOwnedServer，无 #ready 过滤；本轮真实 starting、停止超时、次次启动先提示的合同测试通过。
+
+对照参照
+- VS Code 主进程在 close 时先 preventDefault，经 unload 等 renderer 的 veto，许可后再关；退出时等 join 的 Promise 完成再重试 app.quit。源码：https://github.com/microsoft/vscode/blob/main/src/vs/platform/lifecycle/electron-main/lifecycleMainService.ts 。本范围的否决、代次、退出入口与停止屏障已有对应设计；本轮不足见第 4、5 条，没有再找到“参照有、计划与实现都没有、现行 Spec 又要求”的其他后端条目。
+- VS Code 的 Auto Save 与 Hot Exit 官方说明：https://code.visualstudio.com/docs/editing/codebasics#_save--auto-save 、https://code.visualstudio.com/docs/editing/codebasics#_hot-exit 。Hot Exit 自动备份是参照里的额外能力；现行 NeuroBook 合同允许正常关闭前询问、不保存只同意并由最后的工作提示取消，未要求 Hot Exit，因此不凭参照扩大范围。脏文件对话框与编辑器实现由前端审查者负责，本轮只核对其与壳/服务端的责任边界。
+- Electron 明确 close 在 beforeunload/unload 之前、preventDefault 可否决、returnValue 会取消关闭：https://www.electronjs.org/docs/latest/api/browser-window#event-close 。NeuroBook 已明确采用独立握手而非依赖 WebView 的 beforeunload；未把两套机制差异误判为本轮后端漏项。
+
+表述收窄：第 2 条标题中的“永久”限于该句柄持续打开期间，内部标记在句柄关闭时会撤下；不是跨重启永久。发现仍有效：运行/等待用户的句柄不会空闲关闭，关键的关闭提醒期间一直漏报。标题按“起标题发生 id 冲突后，把用户仍在运行的会话排除出关闭提醒”理解。
+
+按影响排序的有效发现索引
+第 5 条（重要，不变量，Windows 从代码推断）：树尚未结束就可能放锁。
+第 2 条（重要，正确性）：在跑的用户会话被误当内部会话排除，空列表无 failed。
+第 1 条（重要，正确性）：返回值读取抛错让全部工作查询失败。
+第 4 条（重要，正确性）：在途认领失败会丢掉已经点击的退出。
+第 3 条（建议，正确性）：索引恢复后仍用缺失/旧标题。
+第 6 条（建议，测试）：并发配对被改坏，现有测试仍通过。
+
+未发现问题的方面：ProjectManager.work 对 available/idle-grace 的查询不续租、不延长原宽限；creating 进 failed；停止中/已停止跳过；每个子进程独立 pending、同步发送错误兜底、断开与超时一次结算、迟到应答丢弃；当前实现的并发 id 配对和代次对象隔离；登记表的插件归属、同插件多次登记、release 幂等与入口释放撤下；普通 throw/普通形状错误隔离；Agent 根归并及 running 优先、后台会话、根空闲后代运行、live job 另报；tasks 仅报 running；除第 4、5 条外，t08 九条修正未查到新的同类后端问题。以上限于已读代码与本轮证据，不把未运行的 Windows 分支列为实测通过。
+数量：阻断 0，重要 4，建议 2；基线另记 0；撤回 0，表述收窄 1。流程反思：版本推进已按现有审查规则逐项核对，未发现值得新增的通用规范，不提回写。
+有效发现编号（按影响排序）：5、2、1、4、3、6。
+### 2. 起标题发生 id 冲突后，把用户仍在运行的会话永久排除出关闭提醒（收窄，见第 7 条）
+仅收窄标题里“永久”的时限；第 7 条替代第 2 条计数，二者不重复算。
+
+### 7. 标题 id 冲突会让仍打开的普通用户会话漏掉关闭提醒
+严重程度：重要；类别：正确性 / 不变量。
+位置：/tmp/w46-t09-impl-review/packages/neuro-book/src/plugins/agent/backend/agent.ts:320-323、249-252；backend/running-work.ts:62-64。
+现象：SessionMeta 尝试建标题会话前就写 internal 标记；如果 id 属于普通会话，createSession 返回 session-exists，后续正确报冲突，却不撤标记。该普通会话在句柄仍打开期间被跳过；它仍处于 running 或 waiting 时不会空闲关闭，关窗提醒因而持续漏报。句柄关闭或重启后标记会消失，故收窄第 2 条标题中的“永久”。
+为什么是问题：违反 sessions 输出 20 报出用户在跑/在等会话的要求，也破坏既有标题冲突测试要求的“不碰占用方”边界。提醒变成 items=[]、failed=[]，可使最后关窗直接中断真实工作。base 无此 internal 排除。
+如何核实：a04be981e，agent-work-edges.ts 的真实 Agent/内核/磁盘与本机端点实验，命令及完整结果见第 2 条。冲突前有“用户在写的另一会话”，冲突诊断后该会话 snapshot 为 running，汇总为空。没有直接调用内部方法或伪造模型之外的运行时。
+建议改法：确认创建成功，或复用方确为程序标题会话后才登记 internal；冲突/失败不得写标记。补在跑占用方仍被列出的行为断言。
+
+最终数量：阻断 0，重要 4，建议 2；第 2 条收窄为第 7 条，仍为 6 个有效发现。未发现问题的方面与验证边界以上文为准。
+有效发现编号（按影响排序）：5、7、1、4、3、6。

@@ -1,0 +1,30 @@
+w00046 t08 Windows 实测第 1 轮（2026-11-13，pc-notype，Windows 11，WebView2 已装）
+构建：Work 分支 c705d0e03 的主进程预打包 + t07 的 Windows 载荷，Hutch 0.29.0 / Electrobun 2.0.6 在 pc-notype 上 `hutch electrobun build --env=stable`，
+安装到 %LOCALAPPDATA%\io.github.notnotype.neurobook\stable\app。启动用 .cmd 设 NBOOK_STATE_ROOT=%USERPROFILE%\nb-w00046\t08-state，经 schtasks /it 进桌面会话。
+取证：UI Automation 读窗口里的文字与按钮名（t08-uia.ps1）、进程列表、两个认领管道的 hello（t08-claims.js）、shell.log 与 server-output.log。不截屏。
+
+1. 启动与认领（输出 1、2、5）
+shell.log: start version=0.12.1 bun=1.4.4 programRoot=...\stable\app root={"ok":true,"stateRoot":"C:\\Users\\notnotype\\nb-w00046\\t08-state","portable":false,"source":"env"}
+server-output.log: RPC listening on ws://127.0.0.1:4518/ ; Listening on http://127.0.0.1:4517/
+processes: bun:13720 bun:39836 bun:51032 launcher:43780
+nbook-desktop {"schema":1,"pid":39836,"version":"0.12.1","kind":"product","status":"ready","url":null,"rpcUrl":null}
+nbook {"schema":1,"pid":13720,"version":"0.12.1","kind":"product","status":"ready","url":"http://127.0.0.1:4517/","rpcUrl":"ws://127.0.0.1:4518/","plugins":{"safeMode":false,"items":[]}}
+产品窗口（UIA）：window 'NeuroBook' 1280x800；Text: · 书房 | 书架还是空的 | 书架 0 部 | 最近编辑；Button: 设置 | 打开已有作品… | 新建作品
+
+2. 第二次启动转交（输出 3）
+再跑一次启动脚本：多出一个 'NeuroBook' 1280x800 产品窗口；进程列表不变（bun:13720 bun:39836 bun:51032 launcher:43780），第二个进程交出开窗后退出；两份认领不变。
+
+3. 关窗否决与没有响应的对话框（输出 12、14；t08 里页面还没有参与关窗，接下要等 t09）
+UIA WindowPattern.Close 关第 1 个产品窗口：窗口没关，3 秒后出现壳的对话框窗口：
+  window 'NeuroBook' 480x260；Text: NeuroBook 没有响应 | 这个窗口的页面没有回应关闭请求。
+  Button: 继续等待 | 取消关闭 | 强制关闭（未保存的内容可能丢失）
+对话框开着时再启动一次：又转交出一个产品窗口（1280x800 两个 + 对话框），认领照常应答——主线程没被对话框挡住。
+点“取消关闭”：对话框消失，产品窗口保留；进程不变。
+
+另：从 SSH 会话（非桌面会话）发 WM_CLOSE 拿不到窗口（sent=False），所以窗口操作都经 schtasks 在桌面会话里跑 UIA。
+
+4. 第 1 次构建的失败（测试脚本造成，不是产品问题）
+最初的安装脚本在无桌面会话里等 Setup 卡住，随后结束了应用进程；shell.log 记 desktop.server.completion-failed OwnedProcessError: Windows 监督进程未报告目标终态 code=255。
+重新在桌面会话里安装、启动后不再出现。
+
+未完成（pc-notype 17:05 后离线，待续）：强制关闭、关掉最后一个窗口后的 quit（停服、放锁、进程全退、无 unclean-stop 记录）、服务端意外退出的对话框、外链交系统浏览器、便携 zip、Alt+F4 与任务栏关闭。

@@ -160,7 +160,14 @@ const commitNow = (): void => {
     if (result.status === "accepted") {
         view.confirmed = result.revision;
         view.held = false;
-        quietly(current, (tr) => written.accept(tr));
+        // 回填改了文档，ProseMirror 会随之清掉接着打字要用的格式（stored marks）；停手的交出常落在用户刚按下快捷键切换格式、
+        // 还没打下一个字的时候，不带过去就丢了这次切换。回填只改属性、不动选区，原样带过去仍对得上光标。带过去的是回填前的
+        // mark（还没记下写法），接着打的字是新内容，按缺省写法写出，下一次交出时再回填。
+        const stored = current.state.storedMarks;
+        quietly(current, (tr) => {
+            written.accept(tr);
+            if (stored !== null) tr.setStoredMarks(stored);
+        });
         view.state = current.state;
     } else if (result.status === "conflict") {
         view.held = true;
@@ -344,9 +351,9 @@ const editing: EditorEditing = {
         void editingVersion.value;
         return editor !== null && markdownEditingActions[action]?.active?.(editor) === true;
     },
-    enabled: (action) => {
+    enabled: (action, args = {}) => {
         void editingVersion.value;
-        return editor !== null && !props.readonly && markdownEditingActions[action]?.enabled(editor, {}) === true;
+        return editor !== null && !props.readonly && markdownEditingActions[action]?.enabled(editor, args) === true;
     },
     hasSelection: computed(() => {
         void editingVersion.value;
@@ -459,7 +466,7 @@ onMounted(() => {
         const current = languageFor(catalog);
         const created = new Editor({
             element: root.value,
-            extensions: createMarkdownEditorExtensions({language: current, placeholder: props.placeholder ?? "", host: viewHost}),
+            extensions: createMarkdownEditorExtensions({language: current, placeholder: props.placeholder ?? "", host: viewHost, commentMarkerLabel: menus === null ? null : menus.label("commentMarker")}),
             editable: !props.readonly,
             editorProps: {attributes: attributes()},
         });
@@ -508,7 +515,7 @@ onBeforeUnmount(() => {
         </Teleport>
         <div class="markdown-control__margin markdown-control__margin--left" aria-hidden="true" data-markdown-margin="left"></div>
         <div class="markdown-control__margin markdown-control__margin--right" aria-hidden="true" data-markdown-margin="right"></div>
-        <div ref="scroller" class="relative min-h-0 w-full flex-1 overflow-auto" :style="marginDrawn ? {paddingInlineEnd: `${MARGIN_WIDTH + MARGIN_GAP}px`} : undefined" data-editor-control="markdown">
+        <div ref="scroller" class="markdown-control__scroller relative min-h-0 w-full flex-1 overflow-auto" :style="marginDrawn ? {paddingInlineEnd: `${MARGIN_WIDTH + MARGIN_GAP}px`} : undefined" data-editor-control="markdown">
             <div ref="root" class="markdown-control"></div>
         </div>
         <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" :margin-drawn="marginDrawn" />
@@ -536,6 +543,14 @@ onBeforeUnmount(() => {
  */
 .markdown-control-root {
     container-type: inline-size;
+}
+
+/*
+ * 开关批注页边时稿纸平移：滚动容器的右内边距过渡，稿纸（宽度被版心上限卡住，居中）跟着挪，中途不会重新折行。页边的卡片在这段
+ * 时间里每帧重排，跟着稿纸走（`MarkdownCommentMargin`）。
+ */
+.markdown-control__scroller {
+    transition: padding-inline-end var(--motion-layout) var(--ease-layout);
 }
 
 .markdown-control__margin {
@@ -575,6 +590,11 @@ onBeforeUnmount(() => {
 
 /* 页边画出来时版心左移、右边是批注卡片：场景图会压在正文与卡片底下，不画（正文底下始终是干净的面，theme/skins.md 输出 5）。 */
 :global([data-nb-skin-scene] .markdown-control-root[data-comment-margin] .markdown-control__margin) {
+    display: none;
+}
+
+/* 页边画出来时批注末尾的小符号不画（docs/specs/workbench/markdown-editing.md 输出 38）：页边就是总览。 */
+:global(.markdown-control-root[data-comment-margin] .nb-comment-marker) {
     display: none;
 }
 

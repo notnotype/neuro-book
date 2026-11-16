@@ -1,0 +1,81 @@
+# w00039 t31 K-e 实现审查（提交 c1440446b）：nb-canon pending 一页带插件诊断显示名
+
+审查者：Claude Opus 子代理，只读。变异检查都在 worktree 的 packages/nb-canon/src/service/service.ts 上做：先备份到 /tmp/review-t31-s7-impl/scratch/service.ts.orig，每次改完跑 `bun test tests/diagnostics.test.ts -t "显示名"`，再拷回备份；结束时用 cmp 确认与备份一致，git status 干净。改前基线：2 pass。nb-canon typecheck 通过。
+
+### 1. 重复键提示这条分支没有测试兜底，删掉它测试照样通过
+
+- 严重程度：重要
+- 类别：测试缺口
+- 位置：packages/nb-canon/src/service/service.ts:140（`else if (item.kind === "hint" && item.hint.code === "diagnostic-duplicate-key")`）；packages/nb-canon/tests/diagnostics.test.ts:150-181
+- 现象：测试里报重复键的诊断 `twice` 声明为 `level: "hint"`，它去重后留下的那条发现本身就在提示组里，`item.kind === "finding"` 那一支已经把它加进 mentioned。所以提示页的 labels 里有 `twice`，并不能说明“重复键提示”这一支起了作用。
+- 为什么是问题：只有重复键提示会提到某个诊断的情形是：`level: "pending"` 的诊断报了重复键。这时发现进待处理组，`diagnostic-duplicate-key` 提示进提示组（service.ts:578），提示页上只有这条提示提到它。提交说明和 PendingPage.labels 的注释都写了“重复键的提示”，可是没有任何测试覆盖这种情形。
+- 如何核实：变异 M1 把 service.ts:140 那条 `else if …` 整句删掉，跑 `bun test tests/diagnostics.test.ts -t "显示名"`，结果是 2 pass、0 fail。之后已恢复。
+- 建议改法：把测试里的 `twice` 改成 `level: "pending"`，或者另加一个 pending 级、报重复键的诊断，然后断言提示页的 labels 里有它、提示页的 items 里没有它的发现。
+
+### 2. “这一页提到的”中“这一页”的范围没有被测到：改成按整组取，测试照样通过
+
+- 严重程度：重要
+- 类别：测试缺口 / 合同未锁定
+- 位置：packages/nb-canon/src/service/service.ts:523（`diagnosticLabels(..., groups, page.items)`）；packages/nb-canon/tests/diagnostics.test.ts:42-46（`pageOf` 固定传 `limit = 5000`）
+- 现象：新测试都通过 `pageOf` 读，一页 5000 条，每组都能在一页里读完。所以“只取这一页 items 里提到的”和“取整组提到的”在测试里看不出区别。分页之后第二页的 labels 也没有测试。
+- 为什么是问题：Spec（canon/project.md 方法表 pending 一行）的合同是“这一页提到的”，界面也照这个合同写：PendingViewHost.vue:62-75 每读到一页就把这一页的 labels 累积起来。如果以后有人把它改成按整组取，或者错用了上一页的 items，现有测试都发现不了。
+- 如何核实：变异 M2 把 service.ts:523 的 `page.items` 换成 `groups[group].map((s) => s)`，也就是整组的项，跑 `bun test tests/diagnostics.test.ts -t "显示名"`，结果是 2 pass、0 fail。之后已恢复。
+- 建议改法：加一条小 limit 的用例。例如两个 pending 级诊断的发现分别排在第 1 条和第 2 条，用 `limit = 1` 读第一页和用游标读的第二页，分别断言每页的 labels 只有本页那个诊断（加上 unavailable、truncated 带进来的）。
+
+### 3. 停用的诊断按定义永远没有显示名：代码里把 disabled 算进 mentioned 不起作用，Spec 列出“停用的”也只是空话；界面上同一状态显示成什么取决于会话历史
+
+- 严重程度：建议
+- 类别：Spec 与实现的措辞、死代码、跨层表现不一致
+- 位置：packages/nb-canon/src/service/service.ts:137（`...groups.disabled`）、:593-595（`disabled` 的定义是 `registry.byId(id) === undefined`）；pending-groups.ts:61-64 的注释；docs/specs/canon/project.md:61
+- 现象：`disabled` 由 `registry.byId(id) === undefined` 算出。缓存键里有诊断登记的版本表，所以登记变了，缓存的组也跟着作废；同一份登记下，`diagnosticLabels` 对 disabled 里的每个 id 调 `registry.byId(id)`，结果都是 undefined。也就是说，“停用的”放进 mentioned 不可能产生任何显示名。Spec 一边在括号里列出“停用的”，一边又说“声明已经不在的不带”，两句放在一起，停用的那一项就没有意义。
+- 实现与 Spec 的字面一致，可是界面的效果不一致：PendingViewHost.vue:63-74 把各页的 labels 累积起来，从不删掉。所以诊断在这个会话里出现过、之后插件被停用时，界面的“因插件停用没有算”会写它的旧名；新开视图看同一状态，写的却是“插件的一项检查”。同一个世界状态显示成什么，取决于会话历史（这一点在界面层，只作背景）。
+- 如何核实：变异 M3 把 service.ts:137 的 `...groups.disabled` 去掉，跑 `bun test tests/diagnostics.test.ts -t "显示名"`，结果是 2 pass、0 fail。之后已恢复。按 service.ts:593-595 的定义推断，这个变异在任何输入下都等价。
+- 建议改法：二选一，交开发者定。
+  (a) 停用的确实不给名字：把 disabled 从 mentioned、PendingPage.labels 的注释和 Spec 括号里删掉，让三处说同一件事；同时要求界面不按会话累积停用诊断的名字（前端审查另看）。
+  (b) 停用的也给名字：`#seenDiagnostics`（service.ts:600-602 的 `#noteDiagnostics`）登记时连 label 一起记下，disabled 的 id 从这里取名字；改 Spec 的“声明已经不在的不带”。代价是名字可能是旧的，而且只覆盖本实例见过的诊断（只因决策挂着而列入的 disabled 仍然没有名字）。
+
+### 4. Spec 方法表列举的范围漏了“重复键的提示”，实现和注释都带了它
+
+- 严重程度：建议
+- 类别：Spec 与实现不一致
+- 位置：docs/specs/canon/project.md:61（主工作区，括号里是“发现、没算出、被截断、停用的”）；service.ts:140；pending-groups.ts:61-62 的注释和提交说明（都写了“重复键的提示”）
+- 现象：实现把 `diagnostic-duplicate-key` 提示提到的诊断也算作“这一页提到的”，Spec 的列举里没有这一项。计划 plan.md:239 的 K-e 一条同样只列了“发现、没算出、截断、停用”。
+- 为什么是问题：按“这一页提到的”这句总述理解，实现是对的，括号里的列举不全。可是读 Spec 的人看到括号会以为列举是穷尽的，写替身或另一端实现时会漏掉这一项；反过来，如果列举本来就是有意穷尽的，那就是实现多做了。
+- 如何核实：对照 project.md:61 与 service.ts:137-141。
+- 建议改法：在 project.md 方法表 pending 一行的括号里补上“重复键的提示”（S7 收口改 Spec 时一起改）。
+
+### 5. 显示名不属于读取输入：只改 label、不升版本时，同一个 inputDigest 下 labels 可以不同，游标和缓存都不作废
+
+- 严重程度：建议
+- 类别：隐含假设 / 与 model.md 输出 36 的字面不一致
+- 位置：service.ts:523（每次调用现算 labels）；reads.ts:329-341 的 `declarationsInput`（诊断只取 `[id, version]`）；service.ts:533（`#groups` 的缓存键）
+- 现象：读取输入摘要里诊断只算 id 和版本，label 不在里面。插件只改了 label、没加版本时，`inputDigest` 不变，`#groups` 的缓存仍然命中，拿着游标读下一页也不会得到 `cursor-stale`；但 labels 是现算的，所以同一游标链上第一页和第二页给出的同一诊断的名字可能不同。一次调用之内是一致的：`pending()` 一开始就取了 `world`，组和 labels 都出自同一份 `world.options.diagnostics`，中间没有 await。
+- 为什么是问题：model.md 输出 36 说“读取结果总等于在这份输入上从头计算的结果”，而读取输入里不含 label。现在两次读取的 inputDigest 相同，labels 却可以不同，严格说已经不是由读取输入决定的结果。实际影响很小：界面拿到新名字后覆盖旧名字，而且显示名本来就该跟着最新的声明走。这里要做的是把隐含的假设写出来。Component 那边有先例：setRegistries（service.ts:1300-1302）因为 `digest` 不含显示名，另外比较整份类型，再发 `inputChanged`。诊断这边两样都没有。
+- 如何核实：读 reads.ts:335 与 service.ts:523、533，这一条是从代码推断，没有写运行实验。
+- 建议改法：在 Spec 里写一句 labels 是“读取时的显示数据，不属于读取输入”（project.md 方法表或 model.md 输出 36），PendingPage.labels 的注释也写上。不建议把 label 放进摘要，那样只改显示名也会让游标作废。
+
+### 6. （既有问题，不是本提交引入的）诊断登记变了不发任何事件，插件启用或停用之后待处理视图不会重读，停用列表、没算出的诊断和显示名都停在旧状态
+
+- 严重程度：重要（既有）
+- 类别：事件合同缺口 / 隐含耦合
+- 位置：packages/nb-canon/src/service/service.ts:1295-1303（setRegistries 只在 Component 类型变了时发 `inputChanged`）、:887-896（registerDiagnostics 与它返回的停止函数只增加 `#inputGeneration`，不发事件）；packages/neuro-book/src/plugins/canon/backend/plugin.ts:92-95 到 world-host.ts:319 的 setDiagnostics，再到只带 diagnostics 的 setRegistries；web/world.ts:132-147 只在 changed、textChanged、reduced、inputChanged、resync 这几种事件时作废读取；docs/specs/canon/project.md:134 的 `inputChanged` 只有 `"chapters" | "components"`
+- 现象：插件启用、停用，或者它的项目入口登记、注销诊断计算时，读取输入摘要变了，但没有任何事件。界面上已经读到的 pending 页（包括状态栏的待处理条数）在下一个 changed 或 textChanged 之前保持旧结果：刚停用的插件的发现还挂着，“因插件停用没有算”不出现；入口晚于第一次读取才登记计算时，“没算出：not-registered”一直留着。K-e 新加的 labels 跟着一起停在旧状态。
+- 为什么是问题：author-ui.md 输出 23 和 model.md 输出 34 要求视图反映停用、没算出的诊断；project.md 输出 34 的事件合同只覆盖章表和 Component 类型，诊断与标注的登记、计算登记都不在里面。本提交没有引入这个问题，但重点 1 问的“登记表变化时显示名会不会和页面内容对不上”，在跨调用这一层就是这样对不上的。
+- 如何核实：从代码推断，没有在运行时复现。顺着 plugin.ts:92-95、world-host.ts:293-321、service.ts:1295-1303 一路读下来，再看 web/world.ts:132-147 的事件分支。
+- 建议改法：给 `inputChanged` 加 `what: "diagnostics"`（标注登记大概也需要），setRegistries 收到 diagnostics 或 marks 时发，registerDiagnostics、它的停止函数、reportDataVersion 也发（reportDataVersion 已经有“读取按新数据算”的语义，是否要发交开发者定）。同时改 project.md 输出 34 与事件表。这一条可以记进后续，不阻断 K-e。
+
+## 未发现问题的方面
+
+- 一次调用之内的一致性：`pending()` 一开始取 `world`，`#groups` 与 `diagnosticLabels` 用同一个 `world.options.diagnostics`，中间没有 await；`#groups` 的缓存键含诊断版本表，诊断增删或改版本都会换键。所以一页的 labels 不会对应另一份登记表。
+- “这一页提到的”有没有漏掉别的出现诊断 id 的地方：GroupItem 里出现诊断 id 的只有 `finding.diagnostic` 和 `diagnostic-duplicate-key` 提示的 `diagnostic`。`earlierDecision`、`handledBy` 是决策 id，不是诊断 id。内核的 canon 项（PendingItem、TimePendingItem、LinePendingItem）和别的 CanonHint 都不带诊断 id。已处理组里的项是 `kind: "finding"`，已经覆盖。没有漏项。
+- 没算出的诊断（含 `not-registered` 和抛错）：声明还在，能取到 label，实现也带上了，与 Spec 一致。截断的诊断在每一组的页上都带（第二条测试锁住了这一点）。
+- 远程合同：contracts.ts:57 的 `Out = Type.Unknown()`，输出不做 schema 校验；在 packages 里只搜到 service.ts 一处构造 PendingPage（搜 `decisionsPending`）；别的调用方（canon.test.ts:365-371、551-554，pending-count.ts，Agent 与剧情插件）都不对整页做 toEqual，只读自己要的字段。加的是必填字段，nb-canon typecheck 通过，对已有调用方没有影响。remote.ts:56-65 的 `paged` 按字节预算减半，labels 的大小受诊断个数限制，不改变这个行为。
+- labels 的键序：按 id 排序后写入，输出稳定。
+
+## 各级数量
+
+- 阻断：0
+- 重要：3（1、2 是本提交的测试缺口；6 是既有问题，不是本提交引入的）
+- 建议：3（3、4、5）
+
+有效发现：1、2、3、4、5、6

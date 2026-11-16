@@ -20,10 +20,12 @@ import {provideText} from "nbook/shared/testing/text-port";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 
 import type {ProfileEntry, ToolCatalogEntry} from "../shared/contracts";
+import type {SkillEntry} from "../shared/skills";
 import {agentSettings} from "../shared/settings";
 import ProfileDetail from "./components/ProfileDetail.vue";
 import ProfileSettingsPage from "./components/ProfileSettingsPage.vue";
 import {createProfileWriters, profilesPage} from "./profile-page";
+import type {SkillsClient} from "./skills";
 import {agentCatalogs} from "./text";
 
 const cleanup: Array<() => void> = [];
@@ -91,7 +93,7 @@ function fakeRemote(options: {readonly listed?: () => readonly ProfileEntry[]; r
     };
 }
 
-function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonly writable?: boolean; readonly values?: Readonly<Record<string, unknown>>; readonly snapshot?: ModelsSnapshot | null; readonly openAddress?: (address: string) => void} = {}) {
+function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonly writable?: boolean; readonly values?: Readonly<Record<string, unknown>>; readonly snapshot?: ModelsSnapshot | null; readonly openAddress?: (address: string) => void; readonly skills?: SkillsClient} = {}) {
     const text = createHostTextEngine({locale: "zh-CN", strict: true});
     text.register("nbook.agent", agentCatalogs.catalogs, agentCatalogs.source);
     text.register("nbook.models", modelsCatalogs.catalogs, modelsCatalogs.source);
@@ -112,6 +114,7 @@ function open(options: {readonly remote?: ReturnType<typeof fakeRemote>; readonl
         text: text.port,
         openAddress: options.openAddress ?? (() => undefined),
         report: () => undefined,
+        ...(options.skills === undefined ? {} : {skills: options.skills}),
     });
     const context = {
         id: "nbook.agent.profiles",
@@ -372,6 +375,37 @@ describe("工具", () => {
         await waitUntil("对话框", () => addDialog() !== null);
         await wrapper.get("[data-profile-rail-item='user.mine']").trigger("click");
         await waitUntil("关掉", () => wrapper.findComponent({name: "AddToolsDialog"}).props("open") === false);
+    });
+});
+
+describe("Skill（skills.md 的白名单）", () => {
+    const skill = (name: string): SkillEntry => ({id: `user.${name}`, name, description: `${name} 的说明`, source: "user", location: `skills://user.${name}/SKILL.md`, status: "ready"});
+    /** 窗口的 Skill 目录：页面只读它的条目。 */
+    const skillsClient = (entries: readonly SkillEntry[]): SkillsClient => ({entries: shallowRef(entries), recent: shallowRef([]), ensure: () => undefined, touch: () => undefined});
+    const profileSettings = (settings: ReturnType<typeof open>["settings"]) => settings.get(agentSettings.settings.profileSettings);
+
+    it("声明全部的 Profile：去掉的写进 removed、收进“已去掉”；加回清掉这一项；工具一节不受影响", async () => {
+        const remote = fakeRemote({listed: () => [{...MAIN, skills: {allowed: "all"}}]});
+        const {wrapper, settings} = open({remote, skills: skillsClient([skill("style-guide"), skill("tts-preview")])});
+        await ready(wrapper);
+        const section = () => wrapper.get("[data-profile-skills]");
+        expect(section().findAll("[data-profile-tool]").map((row) => row.attributes("data-profile-tool"))).toEqual(["user.style-guide", "user.tts-preview"]);
+
+        await section().get("[data-profile-tool='user.tts-preview'] [data-profile-tool-remove]").trigger("click");
+        await waitUntil("写下 removed", () => profileSettings(settings)["nbook.agent.main"]?.skills !== undefined);
+        expect(profileSettings(settings)["nbook.agent.main"]?.skills).toEqual({added: [], removed: ["user.tts-preview"]});
+        expect(section().get("[data-profile-tool-group='removed'] [data-profile-tool-add-back]").text()).toBe("加回");
+
+        await section().get("[data-profile-tool-add-back]").trigger("click");
+        await waitUntil("加回后清掉", () => profileSettings(settings)["nbook.agent.main"]?.skills === undefined);
+        expect(section().find("[data-profile-tool-group='removed']").exists()).toBe(false);
+        expect(settings.get(agentSettings.settings.toolBindings)).toEqual({});
+    });
+
+    it("没有 Skill 目录时没有这一节", async () => {
+        const {wrapper} = open();
+        await ready(wrapper);
+        expect(wrapper.find("[data-profile-skills]").exists()).toBe(false);
     });
 });
 

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t29 第 6 轮：管理当前会话的子代理</title>
+<style>
+:root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: var(--text); font: 16px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0 0 24px; font-size: 26px; line-height: 1.3; }
+h2 { margin: 0 0 8px; font-size: 20px; line-height: 1.4; }
+section { margin: 0 0 40px; padding: 20px 20px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.rec { margin: 0 0 16px; color: var(--rec); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.cands--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cands--3 .cand p { margin-top: 0; }
+@media (max-width: 720px) { .cands, .cands--3 { grid-template-columns: minmax(0, 1fr); } }
+.cand { padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.cand h3 { margin: 0 0 8px; font-size: 16px; }
+.cand p, .ref p { margin: 8px 0 0; font-size: 14px; color: var(--muted); }
+.cand img, .ref img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.cand img + img { margin-top: 8px; }
+.ref { margin: 0 0 16px; }
+.ref img { max-width: 480px; }
+ul.points { margin: 8px 0 0; padding-left: 1.3em; font-size: 15px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>t29 第 6 轮：管理当前会话的子代理</h1>
+
+<section data-nbdev-question="subagents-entry" data-nbdev-type="single" data-nbdev-recommend="head">
+  <h2>当前会话派出的子代理放在哪里看、怎么管？</h2>
+  <p class="rec"><strong>推荐 A 面板头的入口：平时只占一个小按钮（图标加个数），要你处理时有红点；点开一张浮层列出全部子代理与状态，点一行进子会话。照旧应用顶栏的“关联代理”。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="head" data-nbdev-label="A 面板头的入口与浮层">
+      <h3>A 面板头的入口与浮层</h3>
+      <img src="r6/head.webp" alt="面板头右边：机器人图标、数字 5、红点">
+      <img src="r6/head-open.webp" alt="浮层：子代理 5 个，每行名字、任务、进度与状态，孙代理缩进">
+      <p>每行：子代理名与任务、最近的进度或结果、状态（等你处理、运行中、完成、出错）；孙代理缩进挂在下面。运行中的悬停出“停止”。没有子代理时入口不显示。</p>
+    </div>
+    <div class="cand" data-nbdev-option="tray" data-nbdev-label="B 输入框上方的托盘">
+      <h3>B 输入框上方的托盘</h3>
+      <img src="r6/tray.webp" alt="输入框上方一排胶囊：称谓检查（红点）、资料检索（转圈）、错别字（完成）、细纲（出错）">
+      <img src="r6/tray-done.webp" alt="都结束后收成一行“5 个子代理已结束 · 1 个出错”">
+      <p>跑着的一眼就看到；子代理多时占两三行，挤输入框上面的空间。</p>
+    </div>
+  </div>
+  <ul class="points">
+    <li>红点：有子代理（含孙代理）在等你批准或回答，或者出错了而你还没打开过它。完成的不算。</li>
+    <li>等你批准的事项照旧也在父会话的停靠区里能直接批；红点只是告诉你“这里有事”。</li>
+    <li>列的是当前会话派出的全部子代理（不只是在跑的），按派出的先后排。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>直接做，不用答</h2>
+  <table>
+    <thead><tr><th>哪里</th><th>做什么</th></tr></thead>
+    <tbody>
+      <tr><td>Profile 设置的左栏</td><td>同服务商列表：单行，问题（不可用、有错误）换成行尾图标、悬停写原因；来源（内置、插件、我的）在右边详情里看</td></tr>
+      <tr><td>子代理卡片（第 5 条）</td><td>运行中那一行写注册表里的工具名（“读取 第二章.md”），不写工具 id</td></tr>
+      <tr><td>没选会话时的状态栏</td><td>不显示“0%”与“免费”：还没有用量，整行空着</td></tr>
+      <tr><td>删除服务商的确认框</td><td>不变：写明去掉几个模型、密钥一起删、哪些角色会变成未绑定</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>已定</h2>
+  <ol class="decided">
+    <li>删除服务商：条目悬停出删除图标，右键也能删（第 1 轮）</li>
+    <li>服务商条目改单行，问题换成行尾图标（第 1 轮）</li>
+    <li>状态栏的自定义照第 1 轮的稿做：右键勾选、设置里分左右两组排序、用量四项合成一项、提醒类总显示（第 1 轮）</li>
+    <li>没选会话时去掉“未选择会话”一行，第一屏照旧应用的 welcome 做：欢迎、最近对话、试试这些（第 1、2 轮）</li>
+    <li>“试试这些”的指令由 Profile 声明，主创带三条（第 2 轮）</li>
+    <li>面板头不写“对话”，居中写会话：左新建、中间 Profile 图标与标题、右更多与框架按钮；没选会话时写“新对话”（第 3 轮）</li>
+    <li>子会话：面板头左边是返回（只有图标），中间是子代理图标与子会话标题（第 4 轮）</li>
+    <li>模型不可用的提示：写明是哪个角色，按钮直达对应的设置；用压在输入框上沿的浮层提示卡（第 4、5 轮）。编辑组的横幅以后也改（记进后续）</li>
+    <li>子代理卡片卡头整行可点：不做（第 5 轮）</li>
+    <li>顶栏下、输入框上的两条横线去掉，消息在顶栏下淡出（第 1 轮）</li>
+    <li>5 小时与 7 天限额留到做订阅登录时；缓存倒计时只给缓存时长明确的服务商（11-16）</li>
+    <li>状态栏用勾选与插件贡献的项，不做配一条命令（11-16）</li>
+  </ol>
+</section>
+</main>
+</body>
+</html>

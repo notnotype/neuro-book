@@ -8,18 +8,28 @@
 import "nbook-tailwind.css";
 import "./styles.css";
 
-import {watchEffect} from "vue";
+import {createApp, watchEffect} from "vue";
 import {createWebHistory} from "vue-router";
 
 import {readClientIdentity} from "@notnotype/nb-host/web";
+import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import type {PluginDescriptor} from "nbook/manifest";
+import {createDesktopBridge} from "nbook/shared/desktop-bridge";
 import type {WindowNavigation} from "nbook/shared/host";
+
+import CloseLayer from "./CloseLayer.vue";
+import DesktopFrame from "./DesktopFrame.vue";
 
 import {rememberDocumentAppearance} from "./host/appearance-hint";
 import {CLIENT_IDENTITY_KEY} from "./host/client-identity";
+import {createCloseQuery} from "./host/close-query";
+import {createCloseUi, installCloseKeyGuard} from "./host/close-ui";
 import {createConnection} from "./host/connection";
+import {createDesktopFrame} from "./host/desktop-frame";
+import {createDesktopUpdates} from "./host/desktop-updates";
 import {readLocaleHint, writeLocaleHint} from "./host/locale-hint";
 import {createHostTextEngine} from "./host/text-engine";
 import {createBrowserWindow} from "./host/window";
@@ -62,8 +72,20 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         currentUrl: () => location.href,
         replaceUrl: (href) => history.replaceState(history.state, "", href),
     };
+    const connection = createConnection(location.origin);
+    // 桌面壳（browser-host 输出 11）：壳的发送函数由 Electrobun 的预加载在页面脚本之前装上，此时有没有就是窗口在不在壳里。
+    const bridge = createDesktopBridge(window);
+    const inDesktop = typeof (window as {__electrobunSendToHost?: unknown}).__electrobunSendToHost === "function";
     const browserWindow = createBrowserWindow({
-        connection: createConnection(location.origin),
+        connection,
+        desktop: {available: inDesktop, reportSettings: (values) => {
+            if (!inDesktop) return;
+            try {
+                bridge.send({type: "desktop-settings", values});
+            } catch (error) {
+                browserWindow.record({level: "warn", event: "browser-host.desktop.send-failed", message: "Sending desktop settings to the shell failed", error});
+            }
+        }},
         page: window,
         console,
         navigation,
@@ -75,6 +97,33 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         // 第三方插件浏览器入口的共享模块；第一个第三方入口激活时才加载。
         pluginModules: async () => (await import("./host/plugin-modules")).hostModules(),
     });
+    // 关闭前询问（docs/specs/runtime/browser-host.md 输出 9、10）：在启动之前建好，启动中桌面壳来问也能立即接下。普通浏览器里
+    // 不会有壳的事件，这些只是空等。键盘拦截要早于工作台键位注册，所以也在挂载界面之前。层是独立的 Vue 根，挂在 `body`
+    // 下、不随宿主页与工作台切换卸载。
+    const closeRoot = document.createElement("div");
+    closeRoot.dataset.closeRoot = "";
+    // 桌面窗口的外框（browser-host 的“窗口外框”）：也是 `body` 下独立的 Vue 根，排在关闭层之后、层级更高。关闭询问期间它不被设
+    // `inert`，窗口照样能最小化、拖动，再点关闭交给壳。普通浏览器里没有能力标记，它什么也不画。
+    const frameRoot = document.createElement("div");
+    frameRoot.dataset.desktopFrameRoot = "";
+    document.body.append(closeRoot, frameRoot);
+    const closeUi = createCloseUi({document, exemptRoots: () => [closeRoot, frameRoot]});
+    const desktopFrame = createDesktopFrame({global: window, bridge, document, report: (input) => browserWindow.record(input)});
+    createApp(DesktopFrame, {frame: desktopFrame}).provide(TEXT_PORT_KEY, text.port).mount(frameRoot);
+    const closeQuery = createCloseQuery({
+        bridge,
+        window: browserWindow,
+        fetchWork: (signal) => connection.work(signal),
+        prompts: closeUi.prompts,
+        layer: closeUi.layer,
+        report: (input) => browserWindow.record(input),
+        clock: systemClock,
+    });
+    browserWindow.setCloseAgreed(() => closeQuery.agreed);
+    installCloseKeyGuard(window, () => closeQuery.active);
+    createApp(CloseLayer, {ui: closeUi}).provide(TEXT_PORT_KEY, text.port).mount(closeRoot);
+    // 更新提示（docs/specs/runtime/browser-host.md 输出 11）：与关闭前询问同时建立，启动中壳交来的提示先存着，页面挂好后再显示。
+    const desktopUpdates = createDesktopUpdates({bridge, window: browserWindow, page: window, report: (input) => browserWindow.record(input)});
     // 启动期间屏幕上只有 index.html 的静态加载页（界面在 start 之后才挂载）：引导给出书名后写进它预留的位置。
     const stopTitle = browserWindow.onChange((state) => {
         if (state.status !== "starting" || state.projectTitle === null) return;
@@ -91,5 +140,6 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         history: createWebHistory(),
         navigateDocument: navigation.navigateDocument,
         reloadDocument: navigation.reloadDocument,
+        onPagesMounted: () => desktopUpdates.pagesMounted(),
     });
 }

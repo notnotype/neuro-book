@@ -206,9 +206,68 @@ S6 做回执页、变更详情页与还原，并把 S5 留下的“撤销”、�
 - **测试**：回执页、变更详情页接真实世界（改一笔后回执列出改前改后；变更详情里改那一处的值、改成生效、读出后别处改过得到“这个对象刚被改过”）；还原（没有依赖、有依赖连同一起、不能还原只写原因；验收 6、12 的界面部分）；组件测试、文档与 Lab。
 - **实施时定下的**（2026-11-11）：还原的对话框交给工作台的页面浮层（`workbench.overlays`，id `nbook.canon.revert`），第一次有人要还原时才挂上；“前台是三种页面之一”按“有这样的页面挂着”判断（编辑器不公开活动标签是哪个页面），记进待确认清单；“打开这一章”经文件服务列活页夹目录按编号找章节文件，入口对文件服务的依赖可选；三种页面顶上补世界只读的横幅（输出 28，S5 漏了）。
 
+#### S7 的细计划（2026-11-13，开工前补）
+
+S7 做底部面板的“待处理”“改动记录”两个视图（输出 23、24）、状态栏的“待处理 N”与公开状态（输出 25）、`nbook.canon.show-pending`，以及待处理视图里的“强行解除”。
+
+开工前查到的现状（2026-11-13）：
+
+- w00026 t24 的第一步（侧栏的视图容器）已合进 master（`f8cd67902`）；第二步（右栏、底部面板的入口条）还没设计。t25 在改动画，不碰视图的声明。
+- “不让所在区域默认显示”的声明已经有了：视图声明的 `revealRegion: false`（`workbench.views` 输出 18），后台任务与通知就是这样声明的。输出 33 的前提已满足，不用等第二步。
+- 第二步之前，底部面板一次只显示一个容器，没有切换的入口：后台任务、通知各是一个隐式容器，经状态栏条目与铃铛打开。
+- 停放的视图不卸载，`ViewContext.visible` 为假（停放、收起、加载中都不算可见）。S3 的设定视图不看它，所以侧栏切到别的容器以后，设定树每次发布仍在重读。
+- 本分支落后 master 262 个提交，试合有 4 处冲突：`architecture.test.ts`、命令登记 `commands/shared/registry.ts`、工作台的 `shared/contracts.ts`、`scripts/ci/message-catalogs.ts`。
+- `pending` 的一页不带插件诊断的显示名。发现只有诊断 id、键与参数，没算出、被截断、停用的诊断也只有 id。浏览器入口拿不到别的插件的诊断声明（声明在剧情插件的描述符里，项目入口才接收）。
+
+做法：
+
+- **S7a 合进 master**：在 worktree 里 `git merge master`，解 4 处冲突后先 `bun install`（如果 master 加了包），再跑 `test:affected --typecheck` 与 e2e `editor-area`、`welcome`。
+- **S7b 登记、状态栏与可见**：
+  - 两个视图：`location: "panel"`、`layout: "fill"`、`revealRegion: false`，`order` 照 Spec，都不写容器（各是一个隐式容器，第二步以后各是底部面板的一个入口）。先交空的宿主，跑外壳的 e2e，确认布局与基线。
+  - 公开状态 `definePublicState("nbook.canon", {hasPending})`，照 `tasks/web/plugin.ts` 的写法。状态栏条目 `nbook.canon.pending-count`：左侧，`state: "warning"`，`when` 要 `hasPending`，点了执行 `show-pending`。
+  - 条数：`world.list("pending", {group: "pending"}, 1)` 的 `counts.pending`，不传位置与模式，用内核的缺省；待处理视图同样不传，所以两处的数一样。窗口绑定了项目就在启动时建读取层。原来要等视图、页面或对话框第一次挂上才建，现在状态栏一开始就要用。
+  - `show-pending`：`nbook.view.open {viewId: pending}`，再把视图的选中放回“待处理”的第一条。
+  - `show-revisions`：`nbook.view.open {viewId: revisions}`。开发者 2026-11-13 定两个视图分开放（“可以 A”）；底部面板的入口条做好之前，改动记录经它、回执页的面包屑与“打开视图”到达，命令面板里能直接搜到。命令的声明照 `show-pending`（`effect: write`，不对 Agent 开放）。
+  - 可见：`use-reads.ts` 加 `useWorldList(world, method, input)`，`input` 返回 null 时释放，同 `useWorldReads`。三个视图的宿主在 `visible` 为假时传 null：不可见就不重读，回来时先显示留着的旧数据，同时重读（输出 26）。设定视图一起改。
+- **S7c 改动记录视图**：
+  - `web/revisions.ts`（纯函数）：一行写标题、谁（`actorText`）、什么时候（`timeText`）、带来的变化的一句摘要（`impact.ts` 新加 `impactSummary`：几处值变了、多了或少了几条待处理、几条套不上了，都没有时写“没有带来别的变化”）。还原按钮旁的原因同回执页：`not-revertable` 写原因、按钮不可用；`has-dependents` 写“后面有 N 次改动依赖它”、按钮照常（对话框里列出依赖）。
+  - `RevisionsView.vue`（受控骨架）与 `RevisionsViewHost.vue`：“看回执”执行 `open-receipt`；“还原”经 S6 的 `createRevertRequests()` 打开对话框。没有页面挂着时，还原后的提示走工作台通知（S6 已有），验收 12 在这里补上组件测试。
+  - 筛选：两个 nb-ui `Select`，章（“全部章”加章表里的每一章）、写入者（全部、作者、Agent、任务、系统），传给 `revisions` 的 `filter`。筛选放在窗口里一份的视图状态上（同 `entriesViewState`），停放、卸载后都还在。
+  - 再显示更多：`world.list` 已经按已读的条数重读，行的 key 是修订 id，滚动位置不动。
+  - 键盘：`web/roving.ts`，照设置窗口左栏与 `ProviderRail` 的写法。上下、Home、End 在行之间移，只有焦点所在那行的按钮在 Tab 序列里。nb-ui 没有列表框，这两个视图先在 canon 里用，第三处要用时再挪进 nb-ui。
+- **S7d 内核补一项，再做待处理视图**：
+  - K-e：`PendingPage` 加 `labels: Record<诊断 id, 显示名>`，内容是这一页的发现、没算出、截断、停用里提到的诊断的声明 `label`；声明已经不在的不写。改在 `nb-canon/src/service/service.ts` 组页的地方，`service.test.ts` 加一条，`project.md` 方法表 `pending` 那一行加一句。界面写插件诊断时用这个名字，没有时写“插件的一项检查”。
+  - `web/pending.ts`（纯函数）：
+    - `pendingKey(item)`：选中与“消失了选下一条”都用它。只取能认出同一条的部分，例如核对点的 id、待定变更的 id、根因修订的 id、诊断 id 加键的规范 JSON，不含会随值变的“算出来的数”。
+    - `pendingRefs(item)`：一行要另读的对象。
+    - `pendingRow(item, lookups, text)`：一句是什么与它的位置。
+    - `pendingDetail(item, lookups, text)`：按种类给详情。
+    - 种类与文字都写成 `text()` 的键，每种一句。内核的待处理、提示两组共十几种，插件的发现写它的显示名。
+  - `web/object-heads.ts`：`useObjectHeads(world, refs)` 按引用读 `object`（变更、核对点、决策），一页最多 `NAMED_ENTRIES_MAX` 个，同 `entry-heads.ts`。行的位置取变更的安放或核对点的安放；超出上限的行只写种类，不写位置与名字。
+  - 详情（输出 23）：
+    - 核对点不符：原句与“打开这一章”（S6 的打开章节），算出来的数与正文写的数，嫌疑的每一笔。内核已经按估计在前排好；`init` 一项是“初值”，链到条目页，其余的“改这一笔”执行 `open-change`。
+    - 待定：原句与原因，链到详情页。
+    - 套不上：根因那条变更与原因。原因经 `changes {filter: {range: {through: 根因}, order: "desc"}, limit: 1}` 取那条的结局。
+    - 别的种类：一句说明与它指向的对象的链接；已处理的另读那条决策，写它的结论。
+  - 列表：三组，每组一个展开按钮（组名与条数，条数来自 `counts`），下面是这一组的行。只读展开着的组，“只是提示”“已处理”默认收起。键盘用 `roving.ts`，选中跟着焦点走，移到哪条详情就显示哪条。
+  - 选中：放在窗口里一份的视图状态上。第一次打开选“待处理”的第一条；选中的那条重读后不在了，选它原来位置上的那一条，没有就不选。
+  - 不完整（输出 23）：列表顶上写哪些检查没算出来、被截断、因插件停用没算，名字用 `labels`。
+  - 独占：列表顶上写谁在写（同 `writable.ts` 的 `blocked.busy`），带“强行解除”。`BreakExclusiveDialog.vue` 受控，写明强行解除以后它的下一次写入会失败；结果回来之前不关、按钮不可用，失败的原因写在对话框里（同输出 22）。`world.ts` 加 `breakExclusive()`，不进读取缓存，`status` 跟着 `exclusive` 事件重读。
+  - 宽度：视图用容器查询，宽 640 像素以上列表与详情并排，以下上下排。
+- **测试**（接真实世界，`testing/world-fixtures.ts`）：
+  - 待处理：核对点不符的一行与详情（原句、两个数、估计的在前、“改这一笔”）；把那一笔改对之后这一条消失、条数与状态栏一起变（验收 5 的界面部分）；三组的收起与条数；选中的那条消失后选下一条；上下键移动时详情跟着换；不完整的提示；另一个调用方独占时写出是谁、强行解除后恢复，失败时对话框不关。
+  - 改动记录：从新到旧、四项都写出；“看回执”；还原删除后条目回到树里（验收 10 的后一半）；没有页面挂着时还原得到工作台通知（验收 12）；`not-revertable` 写原因；按章、按写入者筛；读了两页以后别处发布一次，按读出来的条数重读：新的在最上面，最旧的一条退到“再显示更多”后面（输出 24 的“已经读出来的条数原样重读”；原先写的“两页加新的那条”不对，2026-11-13 实施时改）。
+  - 状态栏与公开状态：有待处理时显示“待处理 N”，处理掉以后消失；窗口没有项目时不显示；`show-pending` 打开视图并选中第一条。
+  - 可见：视图停放期间别处发布不重读，回来以后内容更新。用 S4 量读取次数的办法数。
+  - 组件测试、同名 `.md`、Lab 场景各一份：`PendingView`、`PendingDetail`、`RevisionsView`、`BreakExclusiveDialog`。
+  - 样本：先确认星瑕样本里有一条核对点不符（验收 5 要它），没有就在生成脚本里改。
+- **e2e 与真实浏览器**：外壳 e2e 跑 `workbench-views`、`workbench-shell`、`workbench-containers`、`background-tasks`、`plugins`（`plugins:78` 在 master 上就失败）。在生成的星瑕项目上走一遍：状态栏“待处理 1”→ 待处理 → 改这一笔 → 保存 → 条目消失；回执页的面包屑“改动记录”→ 改动记录 → 还原；390 像素宽各看一次。
+- **Spec**（主工作区，`author-ui.md` 仍是 planned，2026-11-13 已改）：输入表两个视图写明 `revealRegion: false`、不写容器；命令表加 `show-revisions`，`show-pending` 写明选回第一条；输出 33 改写为经 `workbench.views` 输出 18 的声明，并写明入口条做好之前从哪里到达；输出 23 加插件的诊断写它声明的显示名；`project.md` 的 `pending` 一行加显示名。
+- **待确认清单**：K-e 是第九项内核补口（2026-11-10 定的是八项）；`show-pending` 每次都选回第一条；超出 50 个对象的行只写种类。
+
 ### 五、底部面板默认隐藏
 
-待处理、改动记录两个视图不写容器，各自是底部面板里的一个入口。“默认隐藏”的声明由 w00026 t24 加；它提供之前底部面板按现行规则默认显示，S7 的外壳 e2e 基线按“默认显示”写一遍，声明到位后改声明与基线各一处。
+待处理、改动记录两个视图不写容器，各自是底部面板里的一个隐式容器。“默认隐藏”用视图声明的 `revealRegion: false`（`workbench.views` 输出 18，2026-11-13 查到已在 master）。底部面板的入口条是 w00026 t24 的第二步，做完以后这两个视图各是底部面板的一个入口。
 
 ## Spec 与文档改动（S0，草稿已写，未提交）
 

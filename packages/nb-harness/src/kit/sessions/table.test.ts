@@ -1,5 +1,5 @@
 /**
- * 会话的句柄表（docs/specs/agent/sessions.md 输出 5、6、14）：同时到达的打开得到同一个会话；没有引用、没有运行满 30 秒才关；
+ * 会话的句柄表（docs/specs/agent/sessions.md 输出 5、6、14、20）：同时到达的打开得到同一个会话；没有引用、没有运行满 30 秒才关；
  * 引用期间不关；停止之后的调用被拒。真实内核宿主加内存存储；计时口是测试里的手动时钟，语义与运行时的 `RuntimeClock.schedule`
  * 相同：取消同步生效，一次推进里到点的回调按登记先后同步执行。
  */
@@ -42,12 +42,13 @@ function manualClock(): SessionTableClock & {advance(ms: number): void} {
 
 async function setup() {
     const clock = manualClock();
+    const model = createTestModel();
     const closed: string[] = [];
     const reports: string[] = [];
     const host = createAgentHost({
         store: createMemoryStore(),
         profiles: {resolve: (key) => (key === defaultTestProfile.id ? defaultTestProfile : undefined)},
-        models: createTestModel().port,
+        models: model.port,
         tools: {declarations: () => [], create: (id) => Promise.reject(new Error(`no tool ${id}`))},
         resources: () => ({read: async () => undefined, resolve: (uri) => uri}),
         sessions: {get: (id) => Promise.reject(new Error(`no session ${id}`))},
@@ -57,7 +58,7 @@ async function setup() {
     const table = new SessionTable({host, clock, beforeOpen: async () => undefined, closed: (id) => closed.push(id), report: (code) => reports.push(code)});
     const created = await table.create({profile: defaultTestProfile.id, id: "s-1"});
     if (!created.ok) throw new Error(created.code);
-    return {table, clock, closed, reports};
+    return {table, clock, model, closed, reports};
 }
 
 /** 等排着的微任务走完：`view` 的调用在第一次 await 之后才放引用。 */
@@ -108,6 +109,19 @@ describe("会话的句柄表", () => {
         expect(closed).toEqual([]);
         clock.advance(1);
         await waitUntil("重新计满之后关闭", () => closed.length === 1);
+        await table.stop();
+    });
+
+    test("输出 20：后台会话在跑时只进含后台的活动查询，前台活动不含它", async () => {
+        const {table, model} = await setup();
+        const created = await table.create({profile: defaultTestProfile.id, id: "s-bg", background: true});
+        if (!created.ok) throw new Error(created.code);
+        model.script({text: "半句话", hold: true});
+        const sent = await table.view("s-bg").send({commandId: "c-1", input: {text: "你好"}});
+        expect(sent.ok).toBe(true);
+        await waitUntil("后台会话开始运行", () => table.activityWithBackground().length === 1);
+        expect(table.activityWithBackground()).toEqual([{id: "s-bg", state: "running"}]);
+        expect(table.activity()).toEqual([]);
         await table.stop();
     });
 

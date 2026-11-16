@@ -55,11 +55,18 @@ export interface MountDeclaration {
     readonly create: boolean;
     /** 挂载点里要随之建好的单段子目录（例如会话的 `home`）。 */
     readonly ensure?: readonly string[];
+    /**
+     * 这个挂载点自己的容器目录（服务端绝对路径），缺省是方案的 `container`：挂载点来自几个不同目录的方案用它（`skills://` 的内置
+     * 与用户的 Skill）。与方案的容器一样必须是真实目录，每次打开都核对。
+     */
+    readonly container?: string;
+    /** 挂载点在容器里的目录名（合法的单段），缺省是挂载点名。 */
+    readonly directory?: string;
 }
 
 export type AuthorizeResult = true | "permission-denied" | "protected-path" | "not-found";
 
-/** 声明式挂载方案：根是虚拟目录，根下第一段（挂载点）对应 `<container>/<挂载点>/`。 */
+/** 声明式挂载方案：根是虚拟目录，根下第一段（挂载点）对应 `<container>/<挂载点>/`（挂载点可以另给容器与目录名，见 `MountDeclaration`）。 */
 export interface MountedSchemeSpec {
     readonly capabilities: readonly SchemeCapability[];
     /** 挂载点所在的容器目录（服务端绝对路径），注册方在激活时建好；它必须是真实目录。 */

@@ -4,13 +4,14 @@
  */
 import {Editor} from "@tiptap/core";
 import {undoDepth} from "@tiptap/pm/history";
+import {Fragment, Slice} from "@tiptap/pm/model";
 import type {Node as PMNode} from "@tiptap/pm/model";
-import {EditorState} from "@tiptap/pm/state";
+import {EditorState, TextSelection} from "@tiptap/pm/state";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {codecFor, defaultMarkdownLanguage} from "../language";
 import type {SourceMap} from "../language";
-import {commentsAt, findComment, gotoComment, listComments, markShownComment, MarkdownShownComment, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody} from "./comments";
+import {commentsAt, commentsAtPos, commentsEndingAt, findComment, gotoComment, listComments, markShownComment, MarkdownCommentMarkers, MarkdownShownComment, nextTerritory, refOf, removeComment, SHOWN_COMMENT_CLASS, setCommentBody, territoryAt, territoryOf} from "./comments";
 
 const language = defaultMarkdownLanguage();
 const editors: Editor[] = [];
@@ -18,11 +19,11 @@ afterEach(() => {
     for (const editor of editors.splice(0)) editor.destroy();
 });
 
-/** 读入原文建一个编辑器；`save` 写回并接受（之后以这次为原文）。 */
-function open(source: string) {
+/** 读入原文建一个编辑器；`save` 写回并接受（之后以这次为原文）。`markers` 加上批注末尾的小符号。 */
+function open(source: string, options: {readonly markers?: boolean} = {}) {
     const element = document.createElement("div");
     document.body.append(element);
-    const editor = new Editor({element, extensions: [...language.extensions, MarkdownShownComment]});
+    const editor = new Editor({element, extensions: [...language.extensions, MarkdownShownComment, ...(options.markers === true ? [MarkdownCommentMarkers.configure({label: "查看批注"})] : [])]});
     editors.push(editor);
     const codec = codecFor(editor.schema, language);
     const read = codec.read(source);
@@ -121,6 +122,26 @@ describe("光标处的批注（输出 30）", () => {
         expect(commentsAt(editor.state).map((info) => info.body)).toEqual(["块"]);
         editor.commands.setTextSelection(find(editor.state.doc, "甲乙"));
         expect(commentsAt(editor.state)).toEqual([]);
+    });
+});
+
+describe("某个位置上的批注（输出 30 的悬停）", () => {
+    it("行内批注：文字上与紧挨两端都算，不看选区；离开一格就不算", () => {
+        const {editor} = open("甲<comment body=\"一\">乙丙</comment>丁\n");
+        const {from, to} = find(editor.state.doc, "乙丙");
+        expect(commentsAtPos(editor.state.doc, from).map((info) => info.body)).toEqual(["一"]);
+        expect(commentsAtPos(editor.state.doc, from + 1).map((info) => info.body)).toEqual(["一"]);
+        expect(commentsAtPos(editor.state.doc, to).map((info) => info.body)).toEqual(["一"]);
+        expect(commentsAtPos(editor.state.doc, from - 1)).toEqual([]);
+        expect(commentsAtPos(editor.state.doc, to + 1)).toEqual([]);
+    });
+
+    it("块批注：块里任何一处；重叠的几条一起返回，先后同 listComments", () => {
+        const {editor} = open("<comment body=\"块\">\n戊己\n</comment>\n\n甲<comment body=\"外\">乙<comment body=\"内\">丙</comment></comment>\n");
+        const block = find(editor.state.doc, "戊己");
+        expect(commentsAtPos(editor.state.doc, block.from + 1).map((info) => info.body)).toEqual(["块"]);
+        const inner = find(editor.state.doc, "丙");
+        expect(commentsAtPos(editor.state.doc, inner.from + 1).map((info) => info.body)).toEqual(["外", "内"]);
     });
 });
 
@@ -294,5 +315,223 @@ describe("当前批注的标出（输出 32）", () => {
         markShownComment(editor, null);
         expect(undoDepth(editor.state)).toBe(depth);
         expect(save()).toBe(before);
+    });
+});
+
+describe("替换批注文字时批注不丢（输出 36）", () => {
+    const SOURCE = "她抬头<comment body=\"节奏\">看了他一眼</comment>，转身。\n";
+    /** 选中 `from`–`to` 再打字：ProseMirror 处理这件事的那一步就是 `tr.insertText(text, from, to)`；真实的按键与输入法在 e2e 里走。 */
+    const replace = (editor: Editor, from: number, to: number, text: string): void => {
+        editor.view.dispatch(editor.state.tr.insertText(text, from, to));
+    };
+
+    it.each([
+        ["整句", 0, 5, "换成别的", "换成别的"],
+        ["后一半", 2, 5, "看", "看了看"],
+        ["前一半", 0, 2, "盯着", "盯着他一眼"],
+        ["中间", 1, 4, "X", "看X眼"],
+    ])("%s被换掉后新字仍在这条批注里，意见不变", (_name, start, end, text, shown) => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.from + start, range.from + end, text);
+        expect(listComments(editor.state.doc).map((info) => [info.body, info.quote])).toEqual([["节奏", shown]]);
+        expect(save()).toBe(`她抬头<comment body="节奏">${shown}</comment>，转身。\n`);
+    });
+
+    it("盖住了批注以外的字时不继承：选区从批注里一直选到批注后面", () => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.from + 3, range.to + 1, "X");
+        expect(save()).toBe("她抬头<comment body=\"节奏\">看了他</comment>X转身。\n");
+        const before = open(SOURCE);
+        const again = find(before.editor.state.doc, "看了他一眼");
+        replace(before.editor, again.from - 1, again.from + 2, "X");
+        expect(before.save()).toBe("她抬X<comment body=\"节奏\">他一眼</comment>，转身。\n");
+    });
+
+    it("只在两端打字、删除都不适用：新字在批注外，删光就没了", () => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.to, range.to, "X");
+        expect(save()).toBe("她抬头<comment body=\"节奏\">看了他一眼</comment>X，转身。\n");
+        const removed = open(SOURCE);
+        const all = find(removed.editor.state.doc, "看了他一眼");
+        removed.editor.view.dispatch(removed.editor.state.tr.delete(all.from, all.to));
+        expect(listComments(removed.editor.state.doc)).toEqual([]);
+    });
+
+    it("盖住同一句的两条批注都继承，替换是一个撤销步，Ctrl+Z 回到原样", () => {
+        const {editor, save} = open("她<comment body=\"外\"><comment body=\"内\">看了他</comment>一眼</comment>。\n");
+        const range = find(editor.state.doc, "看了他");
+        const original = editor.state.doc;
+        const depth = undoDepth(editor.state);
+        replace(editor, range.from, range.to, "盯");
+        expect(listComments(editor.state.doc).map((info) => [info.body, info.quote])).toEqual([["内", "盯"], ["外", "盯一眼"]]);
+        expect(undoDepth(editor.state)).toBe(depth + 1);
+        expect(save()).toContain("盯");
+        editor.commands.undo();
+        expect(editor.state.doc.eq(original)).toBe(true);
+    });
+
+    it("一个字一个字打新句子：选中整句后第一个字替换选区，接着打的字也在批注里；光标挪开再回来就不续了", () => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.from, range.to, "新");
+        replace(editor, range.from + 1, range.from + 1, "句");
+        replace(editor, range.from + 2, range.from + 2, "子");
+        expect(listComments(editor.state.doc).map((info) => [info.body, info.quote])).toEqual([["节奏", "新句子"]]);
+        expect(save()).toBe("她抬头<comment body=\"节奏\">新句子</comment>，转身。\n");
+        // 光标挪到别处再回到批注末尾：这里是普通的批注末尾，打字在批注外。
+        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 1)));
+        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, range.from + 3)));
+        replace(editor, range.from + 3, range.from + 3, "X");
+        expect(save()).toBe("她抬头<comment body=\"节奏\">新句子</comment>X，转身。\n");
+    });
+
+    it("续写只认紧接着刚换进来的文字的末尾：在别处打字、撤销之后都不续", () => {
+        const {editor, save} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        replace(editor, range.from, range.to, "新");
+        // 在别处插入一个字（文档改了）：续断了，哪怕接着又回到批注末尾打字。
+        replace(editor, 1, 1, "前");
+        replace(editor, range.from + 2, range.from + 2, "X");
+        expect(save()).toBe("前她抬头<comment body=\"节奏\">新</comment>X，转身。\n");
+    });
+
+    it("换进来的文字自己带着别的批注时，不再替它继承被换掉的那一条", () => {
+        const {editor} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        const other = editor.schema.marks.comment?.create({body: "别人的", id: null, key: "kother"});
+        if (other === undefined) throw new Error("没有批注标记");
+        const slice = new Slice(Fragment.from(editor.schema.text("别人的字", [other])), 0, 0);
+        editor.view.dispatch(editor.state.tr.replaceRange(range.from, range.to, slice));
+        expect(listComments(editor.state.doc).map((info) => info.body)).toEqual(["别人的"]);
+    });
+
+    it("换进来的是整块内容（几段）时不继承", () => {
+        const {editor} = open(SOURCE);
+        const range = find(editor.state.doc, "看了他一眼");
+        const {paragraph} = editor.schema.nodes;
+        if (paragraph === undefined) throw new Error("没有段落");
+        const two = Fragment.from([paragraph.create(null, editor.schema.text("甲")), paragraph.create(null, editor.schema.text("乙"))]);
+        editor.view.dispatch(editor.state.tr.replaceRange(range.from, range.to, new Slice(two, 1, 1)));
+        expect(listComments(editor.state.doc)).toEqual([]);
+        expect(editor.state.doc.textContent).toContain("乙");
+    });
+});
+
+describe("页边的“段”（输出 33）", () => {
+    /** 这个位置上的节点类型与它的文字，用例按它认“是哪一段”，不比数字位置。 */
+    const at = (doc: PMNode, pos: number | null): string => {
+        if (pos === null) return "null";
+        const node = doc.nodeAt(pos);
+        return node === null ? "无" : `${node.type.name}:${node.textContent.slice(0, 6)}`;
+    };
+
+    it("段落、标题、列表项里的批注：段是它所在的文字块；下一段是文档顺序里的下一个文字块", () => {
+        const {editor} = open("# 标题<comment body=\"h\">一</comment>\n\n甲<comment body=\"p\">乙</comment>丙\n\n- 项<comment body=\"l\">二</comment>\n- 末项\n");
+        const doc = editor.state.doc;
+        const territories = listComments(doc).map((info) => territoryOf(doc, info));
+        expect(territories.map((pos) => at(doc, pos))).toEqual(["heading:标题一", "paragraph:甲乙丙", "paragraph:项二"]);
+        expect(territories.map((pos) => at(doc, nextTerritory(doc, pos)))).toEqual(["paragraph:甲乙丙", "paragraph:项二", "paragraph:末项"]);
+    });
+
+    it("表格按行算一段：同一行几个格子里的批注是同一段，下一段是下一行", () => {
+        const {editor} = open("| a | b |\n| --- | --- |\n| <comment body=\"x\">1</comment> | <comment body=\"y\">2</comment> |\n| 3 | 4 |\n\n后面\n");
+        const doc = editor.state.doc;
+        const [first, second] = listComments(doc).map((info) => territoryOf(doc, info));
+        expect(at(doc, first ?? null)).toBe("tableRow:12");
+        expect(second).toBe(first);
+        expect(at(doc, nextTerritory(doc, first as number))).toBe("tableRow:34");
+        expect(at(doc, nextTerritory(doc, nextTerritory(doc, first as number) as number))).toBe("paragraph:后面");
+    });
+
+    it("块批注按它里面第一个文字块算；块之前的位置往里下降到第一段；最后一段没有下一段", () => {
+        const {editor} = open("<comment body=\"块\">\n\n丁戊\n\n己庚\n\n</comment>\n\n末尾\n");
+        const doc = editor.state.doc;
+        const [block] = listComments(doc);
+        expect(at(doc, territoryOf(doc, block as ReturnType<typeof listComments>[number]))).toBe("paragraph:丁戊");
+        const blockPos = (block as ReturnType<typeof listComments>[number]).segments[0]?.from as number;
+        expect(doc.nodeAt(blockPos)?.type.name).toBe("commentBlock");
+        expect(at(doc, territoryAt(doc, blockPos))).toBe("paragraph:丁戊");
+        const last = nextTerritory(doc, nextTerritory(doc, territoryAt(doc, blockPos)) as number);
+        expect(at(doc, last)).toBe("paragraph:末尾");
+        expect(nextTerritory(doc, last as number)).toBeNull();
+    });
+
+    it("嵌套里的最后一段：下一段是外面的下一个块里的第一段（引用里的列表项、列表项里的子列表）", () => {
+        const {editor} = open("> 引用里<comment body=\"q\">一段</comment>\n>\n> - 列表项\n>   - 子项<comment body=\"s\">末</comment>\n\n后面\n\n> 另一个引用\n");
+        const doc = editor.state.doc;
+        const territories = listComments(doc).map((info) => territoryOf(doc, info));
+        expect(territories.map((pos) => at(doc, pos))).toEqual(["paragraph:引用里一段", "paragraph:子项末"]);
+        expect(territories.map((pos) => at(doc, nextTerritory(doc, pos)))).toEqual(["paragraph:列表项", "paragraph:后面"]);
+        expect(at(doc, nextTerritory(doc, nextTerritory(doc, territories[1] as number) as number))).toBe("paragraph:另一个引用");
+    });
+
+    it("位置超出文档时夹进文档，不抛错", () => {
+        const {editor} = open("甲乙\n");
+        const doc = editor.state.doc;
+        expect(() => territoryAt(doc, doc.content.size + 50)).not.toThrow();
+        expect(nextTerritory(doc, doc.content.size + 50)).toBeNull();
+    });
+});
+
+describe("批注末尾的小符号（输出 38）", () => {
+    const markers = (editor: Editor): HTMLElement[] => Array.from(editor.view.dom.querySelectorAll<HTMLElement>("[data-comment-marker]"));
+
+    it("每条批注末尾一个，画在批注元素之后；同一处结束的几条合成一个并带条数", () => {
+        const {editor} = open("甲<comment body=\"一\">乙</comment>丙\n\n<comment body=\"外\">丁<comment body=\"内\">戊</comment></comment>己\n", {markers: true});
+        const found = markers(editor);
+        expect(found.map((marker) => marker.getAttribute("data-count"))).toEqual([null, "2"]);
+        expect(found[0]?.previousElementSibling?.tagName.toLowerCase()).toBe("comment");
+        expect(found[0]?.getAttribute("aria-label")).toBe("查看批注");
+        expect(found.every((marker) => marker.contentEditable === "false")).toBe(true);
+    });
+
+    it("块批注的符号在块里最后一个文字之后", () => {
+        const {editor} = open("<comment body=\"块\">\n\n丁戊\n\n己庚\n\n</comment>\n", {markers: true});
+        const found = markers(editor);
+        expect(found).toHaveLength(1);
+        expect(found[0]?.previousSibling?.textContent).toBe("己庚");
+    });
+
+    it("符号的位置是批注结束的位置：posAtDOM 取得到，commentsEndingAt 只返回在这里结束的", () => {
+        const {editor} = open("甲<comment body=\"长\">乙丙<comment body=\"短\">丁</comment>戊</comment>己\n\n<comment body=\"后\">庚</comment>\n", {markers: true});
+        const found = markers(editor);
+        expect(found).toHaveLength(3);
+        // 按文档顺序：“短”结束在“戊”之前、“长”结束在“戊”之后；“长”盖过“短”结束的位置，不算在那里结束。
+        const ending = found.map((marker) => commentsEndingAt(editor.state.doc, editor.view.posAtDOM(marker, 0)).map((info) => info.body));
+        expect(ending).toEqual([["短"], ["长"], ["后"]]);
+    });
+
+    it("前面打字、批注变长时符号跟着走并沿用同一个 DOM；符号不进文件、撤销历史与剪贴板", () => {
+        const {editor, save} = open("甲<comment body=\"一\">乙丙</comment>丁\n", {markers: true});
+        const before = markers(editor)[0];
+        const depth = undoDepth(editor.state);
+        editor.view.dispatch(editor.state.tr.insertText("前缀", 1));
+        expect(markers(editor)[0]).toBe(before);
+        expect(undoDepth(editor.state)).toBe(depth + 1);
+        // 批注中间打字（两端打字在批注外，输出 36）：批注变长，符号还在它末尾。
+        const range = find(editor.state.doc, "乙丙");
+        editor.view.dispatch(editor.state.tr.insertText("X", range.from + 1));
+        expect(markers(editor)[0]).toBe(before);
+        expect(markers(editor)[0]?.previousElementSibling?.textContent).toBe("乙X丙");
+        expect(save()).toBe("前缀甲<comment body=\"一\">乙X丙</comment>丁\n");
+        const whole = editor.state.doc.slice(0, editor.state.doc.content.size);
+        expect(editor.view.serializeForClipboard(whole).dom.querySelector("[data-comment-marker]")).toBeNull();
+    });
+
+    it("批注被去掉后符号也没了；条数变化时换成带新条数的符号", () => {
+        const {editor} = open("<comment body=\"外\">丁<comment body=\"内\">戊</comment></comment>己\n", {markers: true});
+        expect(markers(editor).map((marker) => marker.getAttribute("data-count"))).toEqual(["2"]);
+        removeComment(editor, named(editor, "内"));
+        expect(markers(editor).map((marker) => marker.getAttribute("data-count"))).toEqual([null]);
+        removeComment(editor, named(editor, "外"));
+        expect(markers(editor)).toHaveLength(0);
+    });
+
+    it("没有加这个扩展的编辑器没有符号（只读显示等别的宿主不受影响）", () => {
+        const {editor} = open("甲<comment body=\"一\">乙</comment>丙\n");
+        expect(markers(editor)).toHaveLength(0);
     });
 });

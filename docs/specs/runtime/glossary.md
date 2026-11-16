@@ -23,6 +23,9 @@ owners:
 | 客户端实例 | 浏览器窗口、TUI 这类只连服务端的运行实例（拓扑角色 `client`）。 | [远程服务与 RPC 协议](plugin-channel.md#术语与参与者) |
 | 客户端的绑定 | 客户端实例一生绑定的那个项目代次（或不绑定），握手时由服务端决定，之后不变；绑定持有该代次的一份租约。与 [`runtime.services`](services.md#术语与参与者) 的“运行期绑定”不是一回事。 | [远程服务与 RPC 协议](plugin-channel.md#术语与参与者)、[`runtime.projects`](projects.md#术语与参与者) |
 | 客户端身份 | 客户端实例跨重新加载稳定的标识，同一浏览器配置的窗口共用一个，与每次启动都换新的实例 id 区分；服务端与项目实例没有。 | [`runtime.browser-host`](browser-host.md#术语与参与者)、[`runtime.services`](services.md#术语与参与者) |
+| 桌面壳 | 桌面版的主进程，拥有全部桌面窗口；同一状态根上只有一个。它拉起或连上服务端，最后一个窗口关掉、服务端是它拉起的时有序停止服务端。 | [`runtime.desktop-shell`](desktop-shell.md#术语与参与者) |
+| 托管入口 | 应用包里给托管宿主（桌面壳）运行的服务端入口，与产品入口同一份构建；托管宿主只依赖 `--stop-stdin`、认领应答与退出码。 | [`runtime.server-host`](server-host.md#输出与可观察行为) |
+| 关闭前询问 | 桌面壳关一个窗口之前问页面能不能关，原因是 `window` 或 `quit`；页面跑本窗口的关闭参与方后回答。代替原生窗口关闭时不触发的 `beforeunload`。 | [`runtime.desktop-shell`](desktop-shell.md#输出与可观察行为)、[`runtime.browser-host`](browser-host.md#输出与可观察行为) |
 
 ## 作用域与收口
 

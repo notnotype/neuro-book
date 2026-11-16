@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 这里只定义三个贡献点：`agent.extensions`、`agent.tools`、`agent.profiles`。压缩方法的 `agent.compactionMethods` 见 [`compaction.md`](compaction.md)。文档、Skill、斜杠命令、`@` 引用与工具渲染器的贡献点由各自的能力定义。
+- 这里只定义三个贡献点：`agent.extensions`、`agent.tools`、`agent.profiles`。压缩方法的 `agent.compactionMethods` 见 [`compaction.md`](compaction.md)。文档、Skill（`agent.skills`，见 [`skills.md`](skills.md) 的插件来源）、斜杠命令、`@` 引用与工具渲染器的贡献点由各自的能力定义。
 - 没有内置 Profile；内置工具见 [`agent.builtin-tools`](builtin-tools.md)，内置扩展见 [`agent.run-guards`](run-guards.md)。它们同样经这三个贡献点交出，没有内部登记表（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
 - 禁用插件前列出运行中会话的确认，依赖平台的运行期热插拔（[`runtime/plugin-hot-plug.md`](../runtime/plugin-hot-plug.md)）。
 - 用户级 Profile 是受信的用户代码，与插件同等信任，不隔离。
@@ -71,7 +71,7 @@ owners:
 18. **用户级 Profile 的新建与删除。** `createUserProfile({name, description, system})` 把骨架一次写成 `user/profiles/<名>.profile.tsx`（后两项是骨架里的文字，由窗口按界面语言给），名字只能用小写字母、数字、连字符（不合规则 `invalid-name`），已有同名 `exists`，不覆盖；交回 `{key, address}` 时目录里已经有它。`deleteUserProfile({key})` 删入口文件，不是用户级或文件已不在的 `not-found`。
 
 19. Profile 声明可派的子代理：`agent.profiles` 的声明加 `agents?: {allowed: string[]; recommended?: string[]}`，值是 Profile 的 key；`recommended` 里不在 `allowed` 的项忽略。不声明就是空白名单。Profile 目录的条目带上声明的 `agents`，白名单的合成与用途见 [`subagents.md`](subagents.md)。
-20. Profile 声明可用的 Skill：`agent.profiles` 的声明加 `skills?: {allowed: string[] | "all"}`，值是 Skill 的 id，`"all"` 是 Skill 目录里的全部；不声明就是空白名单。白名单的合成与用途见 [`skills.md`](skills.md)。（planned）
+20. Profile 声明可用的 Skill：`agent.profiles` 的声明加 `skills?: {allowed: string[] | "all"}`，值是 Skill 的 id，`"all"` 是 Skill 目录里的全部；不声明就是空白名单。白名单的合成与用途见 [`skills.md`](skills.md)。
 
 ## 状态与转换
 

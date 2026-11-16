@@ -9,7 +9,7 @@ import type {Editor} from "@tiptap/core";
 import {Plugin, PluginKey} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 
-type Hold = {readonly ranges: ReadonlyArray<{readonly from: number; readonly to: number}>} | "release";
+type Hold = {readonly ranges: ReadonlyArray<{readonly from: number; readonly to: number}>; readonly blocks?: ReadonlyArray<{readonly from: number; readonly to: number}>} | "release";
 
 const heldSelectionKey = new PluginKey<DecorationSet>("markdownHeldSelection");
 
@@ -25,7 +25,7 @@ export const MarkdownHeldSelection = Extension.create({
                 apply(tr, held) {
                     const hold = tr.getMeta(heldSelectionKey) as Hold | undefined;
                     if (hold === "release") return DecorationSet.empty;
-                    if (hold !== undefined) return DecorationSet.create(tr.doc, hold.ranges.map(({from, to}) => Decoration.inline(from, to, {class: HELD_SELECTION_CLASS})));
+                    if (hold !== undefined) return DecorationSet.create(tr.doc, [...hold.ranges.map(({from, to}) => Decoration.inline(from, to, {class: HELD_SELECTION_CLASS})), ...(hold.blocks ?? []).map(({from, to}) => Decoration.node(from, to, {class: HELD_SELECTION_CLASS}))]);
                     return held.map(tr.mapping, tr.doc);
                 },
             },
@@ -40,6 +40,14 @@ export function holdSelection(editor: Editor): boolean {
     if (selection.empty) return false;
     const ranges = selection.ranges.map((range) => ({from: range.$from.pos, to: range.$to.pos}));
     editor.view.dispatch(editor.state.tr.setMeta(heldSelectionKey, {ranges} satisfies Hold).setMeta("addToHistory", false));
+    return true;
+}
+
+/** 把这一块整个画成高亮，直到 `releaseSelection`（块菜单的“批注”：块选不成文字选区，输出 28）；位置上没有块时返回 false。 */
+export function holdBlock(editor: Editor, pos: number): boolean {
+    const node = editor.state.doc.nodeAt(pos);
+    if (node === null || !node.isBlock) return false;
+    editor.view.dispatch(editor.state.tr.setMeta(heldSelectionKey, {ranges: [], blocks: [{from: pos, to: pos + node.nodeSize}]} satisfies Hold).setMeta("addToHistory", false));
     return true;
 }
 

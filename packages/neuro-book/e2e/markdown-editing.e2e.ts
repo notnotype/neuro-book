@@ -14,7 +14,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {startProbeServer, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
 
-// 资源管理器的树是虚拟列表，用例的文件都在 notes 下：窗口高一些，靠后的文件也有行可以点。
+// 资源管理器的树是虚拟列表，用例的文件都在 notes 下：窗口高一些，靠后的文件也有行可以点（每例的文件用完就删，见 `openFile`）。
 // 右栏默认开着对话（400 宽）：版心要在编辑区里放得下通栏的工具栏，视口留够宽。
 test.use({viewport: {width: 1700, height: 1800}});
 
@@ -49,9 +49,19 @@ const toolbarButton = (page: Page, name: string) => activeGroup(page).locator(".
 const selectionMenu = (page: Page) => page.locator("[data-markdown-selection-menu]");
 const disk = (path: string): Promise<string> => readFile(join(projectDir, path), "utf8");
 
+/**
+ * 这一例在作品里写下的文件（`openFile` 写的与用例自己写的），用完删掉：资源树是虚拟列表，只渲染视口附近的行。每例都往 notes 写
+ * 自己的文件，积多了排在后面的文件没有行，按行就点不到（w00025 t17：整份跑到“拆分后”那一例时，split.md 前面排着 37 个文件）。
+ */
+const createdFiles: string[] = [];
+test.afterEach(async () => {
+    for (const path of createdFiles.splice(0)) await rm(join(projectDir, path), {force: true});
+});
+
 async function openFile(page: Page, path: string, text: string): Promise<void> {
     await mkdir(dirname(join(projectDir, path)), {recursive: true});
     await writeFile(join(projectDir, path), text);
+    createdFiles.push(path);
     await page.goto(new URL("/?project=book", server.url).href);
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     // 恢复会话时文件夹的展开状态还在变：读到“收起”再点，可能正好把刚展开的收起来。要等到活动标签真是这个文件。
@@ -196,6 +206,7 @@ test.describe("工具栏的位置", () => {
     test("并入面包屑：同一行，切到源码编辑器时不留着", async ({page}) => {
         await writeFile(settings(), JSON.stringify({"nbook.editor/markdownToolbarPlacement": "merged"}));
         await writeFile(join(projectDir, "notes/place-code.txt"), "code\n");
+        createdFiles.push("notes/place-code.txt");
         await openFile(page, "notes/place-merged.md", "字\n");
         const toolbar = activeGroup(page).locator(".markdown-toolbar");
         await expect(toolbar).toBeVisible();
@@ -301,6 +312,7 @@ test.describe("选区菜单", () => {
     test("切标签回来恢复的选区不弹菜单；组件重挂后菜单照常", async ({page}) => {
         await openFile(page, "notes/selection-restore.md", "第一段文字\n");
         await writeFile(join(projectDir, "notes/selection-other.md"), "别的\n");
+        createdFiles.push("notes/selection-other.md");
         await focusFirst(page);
         await page.keyboard.press("Control+a");
         await expect(selectionMenu(page)).toBeVisible();
@@ -602,9 +614,15 @@ test.describe("斜杠菜单", () => {
 test.describe("块按钮", () => {
     const gutter = (page: Page) => activeGroup(page).locator("[data-markdown-gutter]");
     const slash = (page: Page) => page.locator("[data-suggestion-menu]");
+    /**
+     * 指针停到这段字上，等块按钮对准它所在的块：按钮先前对着光标所在的块时本来就看得见，只等“可见”会在它移过来之前就去点，
+     * 打开的是别的块的菜单。
+     */
     async function hover(page: Page, text: string): Promise<void> {
-        await prose(page).getByText(text, {exact: false}).first().hover();
-        await expect(gutter(page)).toBeVisible();
+        const target = prose(page).getByText(text, {exact: false}).first();
+        await target.hover();
+        const box = await target.boundingBox();
+        await expect.poll(async () => Math.abs(((await gutter(page).boundingBox())?.y ?? Number.POSITIVE_INFINITY) - (box?.y ?? 0))).toBeLessThan(16);
     }
 
     test("指针停在块上出现按钮，右缘离正文 14px", async ({page}) => {

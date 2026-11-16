@@ -47,6 +47,22 @@ export interface CloseDialog {
     readonly saveable: boolean;
 }
 
+/** 桌面窗口关闭时的询问（输出 66）：`ask` 问“全部保存 / 不保存 / 取消”，`failed` 说明“全部保存”之后仍没存好的文件。 */
+export interface WindowCloseDialog {
+    readonly kind: "ask" | "failed";
+    /** 至多 5 个；`problem` 是上一次保存失败的原因，`conflict` 是与磁盘上的版本冲突（要到那份文档上选重新载入或覆盖）。 */
+    readonly documents: ReadonlyArray<{readonly path: string; readonly problem: string | null; readonly conflict: boolean}>;
+    /** 没列出来的个数。 */
+    readonly more: number;
+    /** 能不能“全部保存”：有写不出（输出 61）或磁盘冲突（输出 15）的文档时不能。 */
+    readonly saveable: boolean;
+}
+
+export type WindowCloseChoice = "save" | "discard" | "cancel";
+
+/** 关窗询问里列出的文件数。 */
+export const WINDOW_CLOSE_LISTED = 5;
+
 export interface EditorAreaOptions {
     readonly files: FilesService;
     readonly clock: RuntimeClock;
@@ -147,6 +163,7 @@ export interface EditorArea {
     focusBreadcrumbs(): ActionResult;
     readonly focused: ShallowRef<boolean>;
     readonly dialog: Readonly<ShallowRef<CloseDialog | null>>;
+    readonly windowDialog: Readonly<ShallowRef<WindowCloseDialog | null>>;
     /** 组顶部的一行提示（例如换文档前有未裁决输入）；没有为 null。文字值，显示时经翻译端口翻译。 */
     readonly notice: Readonly<ShallowRef<DisplayText | null>>;
     /**
@@ -180,6 +197,13 @@ export interface EditorArea {
     closeToRight(tabId: string): Promise<BatchCloseResult>;
     closeSaved(tabId: string): Promise<BatchCloseResult>;
     answer(choice: CloseChoice): void;
+    /** 回答关窗的询问；`failed` 的说明只有“知道了”，回答什么都一样。 */
+    answerWindow(choice: WindowCloseChoice): void;
+    /**
+     * 桌面窗口关闭前的结算（输出 66，docs/specs/runtime/browser-host.md 输出 9）：结算输入、等在途保存，开着自动保存时先存能存的，
+     * 还有要结算的文档才询问。`allow` 只是同意，不丢弃任何东西；`signal` abort 时收起询问、不再发起新的保存，结果不再被采用。
+     */
+    closeWindow(signal: AbortSignal): Promise<"allow" | "deny">;
     /** 拆分标签（缺省活动标签）所在的组，打开同一文档。 */
     split(direction: SplitDirection, tabId?: string): ActionResult;
     reopenWith(editor: string): ActionResult;
@@ -235,6 +259,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     const controlSlots = new Map<string, ViewStateSlot>();
     const handles = shallowRef(new Map<string, EditorControlHandle>());
     const dialog = shallowRef<CloseDialog | null>(null);
+    const windowDialog = shallowRef<WindowCloseDialog | null>(null);
+    let answerWindowDialog: ((choice: WindowCloseChoice) => void) | null = null;
     const notice = shallowRef<DisplayText | null>(null);
     const focused = shallowRef(false);
     let answerDialog: ((choice: CloseChoice) => void) | null = null;
@@ -611,6 +637,89 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return {ok: true};
     };
 
+    /** 关窗询问：新的一问先把旧的按取消结算；`signal` abort 时同样按取消结算并收起。 */
+    const askWindow = (value: WindowCloseDialog, signal: AbortSignal): Promise<WindowCloseChoice> => new Promise<WindowCloseChoice>((resolve) => {
+        answerWindowDialog?.("cancel");
+        const settle = (choice: WindowCloseChoice): void => {
+            if (answerWindowDialog !== settle) return;
+            answerWindowDialog = null;
+            windowDialog.value = null;
+            signal.removeEventListener("abort", onAbort);
+            resolve(choice);
+        };
+        const onAbort = (): void => settle("cancel");
+        answerWindowDialog = settle;
+        windowDialog.value = value;
+        if (signal.aborted) settle("cancel");
+        else signal.addEventListener("abort", onAbort, {once: true});
+    });
+
+    /** 等全部打开的文档没有在途的保存；不发起新的保存。`signal` abort 时不再等。 */
+    const untilSaved = (signal: AbortSignal): Promise<void> => new Promise<void>((resolve) => {
+        const busy = (): boolean => openDocuments.value.some((document) => document.saving.value);
+        if (!busy() || signal.aborted) {
+            resolve();
+            return;
+        }
+        const finish = (): void => {
+            stop();
+            signal.removeEventListener("abort", finish);
+            resolve();
+        };
+        const stop = watch(busy, (value) => {
+            if (!value) finish();
+        });
+        signal.addEventListener("abort", finish, {once: true});
+    });
+
+    /** 关窗要结算的文档：需要保存（dirty、未裁决输入、写不出）或有磁盘冲突的，与状态栏未保存条目同一个集合（输出 26）。 */
+    const unsettled = (): TextDocument[] => openDocuments.value.filter((document) => needsSettle(document) || document.conflict.value !== null);
+
+    const windowDialogOf = (kind: WindowCloseDialog["kind"], pending: ReadonlyArray<TextDocument>): WindowCloseDialog => ({
+        kind,
+        documents: pending.slice(0, WINDOW_CLOSE_LISTED).map((document) => ({path: document.target.value.path, problem: document.saveProblem.value?.detail ?? null, conflict: document.conflict.value !== null})),
+        more: Math.max(0, pending.length - WINDOW_CLOSE_LISTED),
+        saveable: !pending.some((document) => document.blocked.value.size > 0 || document.conflict.value !== null),
+    });
+
+    const closeWindow = async (signal: AbortSignal): Promise<"allow" | "deny"> => {
+        // 关标签的询问还开着：按取消收掉，进行中的关闭随之返回取消，不会在关窗询问期间执行“不保存”的还原。
+        if (answerDialog !== null) {
+            const resolve = answerDialog;
+            answerDialog = null;
+            dialog.value = null;
+            resolve("cancel");
+        }
+        const settleAll = async (): Promise<TextDocument[]> => {
+            for (const document of openDocuments.value) documents.settle(document);
+            await untilSaved(signal);
+            return unsettled();
+        };
+        let pending = await settleAll();
+        if (signal.aborted || disposed) return "deny";
+        if (pending.length === 0) return "allow";
+        // 开着自动保存（输出 63）：能存的先存一次，存完再查；没有剩下的就同意，不询问。
+        const savable = pending.filter((document) => autoSave.savesOnClose(document));
+        if (savable.length > 0) {
+            await Promise.all(savable.map((document) => autoSave.save(document)));
+            if (signal.aborted || disposed) return "deny";
+            pending = await settleAll();
+            if (signal.aborted || disposed) return "deny";
+            if (pending.length === 0) return "allow";
+        }
+        const choice = await askWindow(windowDialogOf("ask", pending), signal);
+        if (signal.aborted || disposed || choice === "cancel") return "deny";
+        // “不保存”只是同意：不丢弃、不还原，窗口真的关掉时修改随页面一起消失。
+        if (choice === "discard") return "allow";
+        await documents.coordinator.save(["project://", "user://"]);
+        if (signal.aborted || disposed) return "deny";
+        pending = await settleAll();
+        if (signal.aborted || disposed) return "deny";
+        if (pending.length === 0) return "allow";
+        await askWindow(windowDialogOf("failed", pending), signal);
+        return "deny";
+    };
+
     const ask = (address: string, saveable: boolean): Promise<CloseChoice> => new Promise<CloseChoice>((resolve) => {
         answerDialog?.("cancel");
         dialog.value = {address, saveable};
@@ -869,6 +978,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         },
         focused,
         dialog,
+        windowDialog,
+        closeWindow,
         notice,
         open,
         openPage: (id) => {
@@ -942,6 +1053,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         closeOthers: (tabId) => closeBatch(tabId, (group) => group.tabs.filter((tab) => tab.id !== tabId)),
         closeToRight: (tabId) => closeBatch(tabId, (group, index) => group.tabs.slice(index + 1)),
         closeSaved: (tabId) => closeBatch(tabId, (group) => group.tabs, (tab) => unpinned(tab) && saved(tab)),
+        answerWindow: (choice) => answerWindowDialog?.(choice),
         answer: (choice) => {
             const resolve = answerDialog;
             answerDialog = null;
@@ -1057,6 +1169,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (disposed) return;
             disposed = true;
             answerDialog?.("cancel");
+            answerWindowDialog?.("cancel");
             for (const stop of stops.splice(0)) stop();
             for (const timer of timers.values()) timer.cancel();
             autoSave.dispose();

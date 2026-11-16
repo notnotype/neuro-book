@@ -1,0 +1,102 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t30-model-request-trace",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t30 模型请求：界面评审",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "447acc274d68c68972fac306d58e91077239f23ca17624e8bb23846ecdedf72a",
+    "files": [
+        "index.html",
+        "r1/compare.webp",
+        "r1/empty.webp",
+        "r1/filters-bar.webp",
+        "r1/filters-menu.webp",
+        "r1/narrow-compact.webp",
+        "r1/narrow-switch-detail.webp",
+        "r1/narrow-switch-list.webp",
+        "r1/overview.webp",
+        "r1/raw.webp",
+        "r1/search.webp"
+    ],
+    "questions": [
+        {
+            "id": "filters-r1",
+            "type": "single",
+            "label": "筛选条件常驻一行，还是收进“筛选”按钮？",
+            "options": [
+                {
+                    "value": "bar",
+                    "label": "A 常驻一行"
+                },
+                {
+                    "value": "menu",
+                    "label": "B 收进筛选按钮"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "bar"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "narrow-r1",
+            "type": "single",
+            "label": "编辑区窄的时候，列表和详情怎么排？",
+            "options": [
+                {
+                    "value": "switch",
+                    "label": "A 来回切换"
+                },
+                {
+                    "value": "compact",
+                    "label": "B 列表收成紧凑行"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "switch"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "page-r1",
+            "type": "single",
+            "label": "整页照这一稿做？",
+            "options": [
+                {
+                    "value": "accept",
+                    "label": "照这一稿做"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要改（写在备注里）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "accept"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-15T08:33:58.139Z"
+}

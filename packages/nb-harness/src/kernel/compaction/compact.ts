@@ -232,7 +232,8 @@ export async function compact(host: CompactHost, args: CompactArgs): Promise<Com
         if (args.signal.aborted) return {ok: false, code: "aborted"};
         let restored: CompactionRestored = {notices: []};
         try {
-            restored = (await host.restore?.(host.context, {signal: args.signal, method: result.method, replacement: result.replacement, path: core.pathTo(), contextWindow: args.contextWindow})) ?? restored;
+            const path = core.pathTo();
+            restored = (await host.restore?.(host.context, {signal: args.signal, method: result.method, replacement: result.replacement, path, contextWindow: args.contextWindow, kept: keptAfter(path, result)})) ?? restored;
         } catch (error) {
             core.diagnostics.add({code: "compaction-failed", entry: "host", subject: "restore", message: "restoring content after compaction threw; nothing is restored", cause: error}, core.head);
         }
@@ -247,4 +248,14 @@ export async function compact(host: CompactHost, args: CompactArgs): Promise<Com
     core.diagnostics.add({code: "compaction-failed", entry: "host", subject: args.reason, params: {reason: args.reason, attempts: attempts.join("; ")}, message: `every compaction method failed (${attempts.join("; ") || "no methods"}); nothing is written`}, core.head);
     if (failed.length > 0) await host.write(failed);
     return {ok: false, code: "compaction-failed"};
+}
+
+/**
+ * 压缩之后仍在上下文里的事件：保留的切点（含）之后、没被省略的。整段换成摘要（没有切点）时什么都不留。
+ */
+function keptAfter(path: readonly LogEvent[], result: {readonly firstKeptEntryId: string | null; readonly omitted: readonly {readonly entryId: string}[]}): (entryId: string) => boolean {
+    const omitted = new Set(result.omitted.map((item) => item.entryId));
+    const start = result.firstKeptEntryId === null ? -1 : path.findIndex((event) => event.id === result.firstKeptEntryId);
+    const kept = new Set(start < 0 ? [] : path.slice(start).map((event) => event.id).filter((id) => !omitted.has(id)));
+    return (entryId) => kept.has(entryId);
 }

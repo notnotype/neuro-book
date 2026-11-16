@@ -1,0 +1,18 @@
+w00046 t11 切片 1：CDP 与 WM_CLOSE 探针（2026-11-14，pc-notype，t10 的测试包 0.90.2，应用标识 io.github.notnotype.neurobook.t10test）
+
+做法
+- 在桌面会话里起应用：NBOOK_STATE_ROOT=%USERPROFILE%\nb-w00046\t11\state-cdp（绝对路径，不碰缺省状态根），
+  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333。
+- 探针脚本（Bun）：轮询 http://127.0.0.1:9333/json/list，连上产品页面的 webSocketDebuggerUrl，Runtime.evaluate 读标题与页面文字的前 120 个字。
+- 关窗：Bun 用 bun:ffi 调 user32 的 EnumWindows、GetWindowThreadProcessId、IsWindowVisible、PostMessageW(WM_CLOSE)，按测试包进程号找窗口。
+
+结果
+1. 远程调试端口起来了：/json/version 报 Edg/157.0.4341.46、协议 1.3；/json/list 里有 page http://127.0.0.1:4217/，标题 NeuroBook。
+   环境变量经启动器、Bun 主进程传到了 WebView2，壳不用改。
+2. 读到书架页的文字：“NeuroBook | · 书房 书架还是空的 在 NeuroBook 里，一部作品就是你电脑上的一个文件夹…”。
+3. 从 SSH 会话里调 EnumWindows 找不到窗口：SSH 会话与登录桌面不在同一个窗口站。放到桌面会话里运行（schtasks /it）后，
+   找到 1 个可见窗口，PostMessageW 返回 1；关闭前询问照常（没有要保存的内容，直接同意），壳与服务端全部退出，
+   shell.log 末尾 “exit 0”。GitHub 的 Windows runner 上作业本就在登录会话里（t01 探针在那里起过窗口、做过 WM_CLOSE）。
+
+结论：计划的选型成立，Playwright connectOverCDP 用的是同一个端点（这里用原始 CDP 验证，Playwright 的连接留到切片 4）。
+冒烟脚本的窗口枚举要在桌面会话里跑；在 pc-notype 上经 t08-desk.ps1 进桌面会话。

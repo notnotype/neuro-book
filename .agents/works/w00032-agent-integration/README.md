@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00032-agent-integration
 issueId: null
 status: active
-updated: 2026-11-09
+updated: 2026-11-16
 ---
 
 # NeuroBook 接入 Agent
@@ -67,6 +67,13 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-10 | t15 开工，实施计划开发者确认：没声明白名单就没有可用的 Skill、主创声明全部；父 Agent 的 `$x` 也算触发；`nbook skill init` 离线可用；插件的 Skill 与 SDK 构建拆到 [t33](tasks/t33-plugin-skills/README.md)；先出一轮界面静态稿（[t15](tasks/t15-skills/README.md)） |
 | 2026-11-11 | t15 评审两轮：后台安装的进度与结果由新建的 [t34](tasks/t34-background-tasks/README.md)（工作台的后台任务）承担，t15 的界面几片排在它之后；没带上的 `$` 改为给模型的 system-reminder；t15 切片 1–4 的后端已在分支上（[t15](tasks/t15-skills/README.md)） |
 | 2026-11-11 | t34 合入：插件 `nbook.tasks`（服务端清单、按调用方登记、远程接口与推送限频）、状态栏任务条目与悬停、底部面板的“后台任务”与“通知”视图、铃铛、视图计数与 `revealRegion`；前后端实现审查各一次，成立的都已修。待开发者批准 `workbench/background-tasks.md` 晋升与相关条目去掉 planned；t15 变基后接上 Skill 初始化（[t34](tasks/t34-background-tasks/README.md)） |
+| 2026-11-12 | 开发者批准 t34 的 Spec 晋升：`workbench/background-tasks.md` 改为 `implemented`，其余 Spec 里 t34 的条目去掉 planned；t34 完成。接着把 t15 变基到 master，做它的界面切片（[t34](tasks/t34-background-tasks/README.md)） |
+| 2026-11-13 | t15 合入：Skill 目录与 `skills://`、`$` 带上正文与没带上的提醒、压缩后放回、Bun 依赖的初始化（后台任务、`nbook skill init`、文件锁）、Profile 白名单、`$` 菜单与确认框、设置里的 Skill 页与 Profile 页一节；收口审查后端 12 条、前端 16 条，成立的已修。待开发者批准 `agent/skills.md` 晋升与相关条目去掉 planned，并定 `bun.lock` 过期时怎样处理（[t15](tasks/t15-skills/README.md)） |
+| 2026-11-13 | 开发者批准 t15 的 Spec 晋升：`agent/skills.md` 改为 `implemented`，其余 Spec 里 t15 的条目去掉 planned；`bun.lock` 过期记为已知限制；t15 完成。不判旧的文件锁 `tryLock` 搬进 nb-file-lock 并随 nb-story 发布，另在 w00043 开 Task（[t15](tasks/t15-skills/README.md)） |
+| 2026-11-15 | 开发者：先做 t30（模型请求的 trace），排在 t29 之前；参考旧应用的 trace，先出界面静态稿；查看器的组件放进 nb-agent-ui（[t30](tasks/t30-model-request-trace/README.md)） |
+| 2026-11-15 | t30 合入；开发者批准 `agent/request-trace.md` 晋升为 `implemented`，没做的几项标 planned、统一新建 [t35](tasks/t35-request-trace-followups/README.md)；t30 完成。下一步开 [t33](tasks/t33-plugin-skills/README.md)（[t30](tasks/t30-model-request-trace/README.md)） |
+| 2026-11-15 | t33 开工：开发者确认[计划](tasks/t33-plugin-skills/plan.md)（6 个待确认项按推荐），用 autonomous-delivery 推进到 Task 完成（[t33](tasks/t33-plugin-skills/README.md)） |
+| 2026-11-16 | t33 合入；开发者批准 t33 的 Spec 条目去掉 planned，t33 完成（[t33](tasks/t33-plugin-skills/README.md)）。开发者定：下一步做 [t29](tasks/t29-ui-polish-after-t15/README.md)；t31、t16、t13 移出本 Work、各开新 Work，本 Work 只剩 t29 与 [t35](tasks/t35-request-trace-followups/README.md) |
 
 ## 待确认
 
@@ -139,3 +146,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - 插件分发与官方网站：另开 [w00038](../w00038-plugin-distribution/README.md)、[w00037](../w00037-official-site/README.md)（t25，2026-10-30）。
 - 外部命令行的检测、下载与“外部工具”设置页：发布时做，策略记在 [t12](tasks/t12-builtin-tools/README.md)（2026-10-28）。
 - shell 的安全加固（密钥正则、路径条件、环境变量白名单）：以后专门做安全时考虑（t12，2026-10-28）。
+- nb-story 迁新内核：另开 [w00047](../w00047-nb-story-new-kernel/README.md)（t31，2026-11-16）。
+- nb-history 接入：另开 [w00048](../w00048-history-integration/README.md)（t13，2026-11-16）。
+- Agent 与命令系统的对接（搁置）：另开 [w00049](../w00049-agent-command-bridge/README.md)（t16，2026-11-16）。
+- 编辑组顶上的提示条（`EditorGroup` 里的 nb-ui `Banner`）重新设计：开发者认为现在的写法没做好，以后改；对话面板的模型提示用浮层提示卡，不跟它（[t29](tasks/t29-ui-polish-after-t15/README.md) 决定 10，2026-11-16）。

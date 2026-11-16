@@ -1,0 +1,98 @@
+### 1. desktop-payload.test.ts 放在 scripts/release/ 会被根脚本的 Vitest 收走，计划按 bun test 写、还要在测试里下载 139 MB
+严重程度：重要（会弄坏 scripts 的测试门禁）
+类别：与既有约定冲突、验收可运行性
+位置：计划“验证”第一条、“切片 2”、“验收映射”最后一行
+现象：根 `scripts/vitest.config.ts` 的 include 含 `scripts/release/**/*.test.ts`，`test:affected` 对根脚本跑的是 `bun x vitest run --config scripts/vitest.config.ts`（scripts/cli/test-affected.ts:163），测试在 Node 里，不在 Bun 里。现有 `scripts/release/publish.test.ts` 用 `vitest`、`manifest.ts` 注释写明“publish 的测试在 Node 里导入本文件”、`packages.test.ts` 注释写“测试在 Node 里跑，所以经子进程跑真实的命令”。计划写的是 `bun test scripts/release/desktop-payload.test.ts`，被测脚本又在进程内用 `Bun.Archive`。
+为什么是问题：(a) 测试若 import `bun:test`，Vitest 收集即失败，之后每次根脚本变化的 `test:affected` 与 CI 都红；若 import `vitest`，进程内没有 `Bun` 全局，`assembleDesktopPayload` 直接 ReferenceError。(b) 这条用例要从 registry 装依赖：实测 win32 载荷 node_modules 139 MB、1586 个文件，其中 `pi-natives-win32-x64` 一个 `.node` 就 119 MB；本机直连约 520 KB/s（curl 20 秒只下了 10 MB），冷缓存要 4 到 5 分钟，加 prox 约 6 秒。快速类测试预算每条 200 毫秒（docs/testing/README.md），Vitest 缺省用例上限 5 秒，hookTimeout 60 秒，所以这条既超预算又会因网络偶发失败；CI 里的 Linux 作业也会跑它。
+如何核实：读 scripts/vitest.config.ts 的 include 与 test-affected.ts 163 行；`bun install --production --os win32 --cpu x64` 在 lab 目录实测 139 MB。
+建议改法：测试用 `vitest` 写，经子进程跑 `bun scripts/release/desktop-payload.ts`（照 packages.test.ts）；清单、摘要、拒绝路径（版本对不上、缺许可、清单被改）的单元逻辑拆成纯函数，用本地小 fixture 在 Node 里测；联网装依赖那一段不进 fast 层：要么放进显式开关的层（像 `*.llm.test.ts` 那样另设开关），要么只在 t11 的 Windows 作业里真跑、本机作为手工证据。计划里要写清测试用的输入 tarball 从哪来（fixture 用 `bun pm pack` 打一个只依赖那四个 OMP 包的小包，还是真实应用包），目前没写。
+
+### 2. Bun 1.4.4 的 `bun install --production` 不写 bun.lock；“版本等于根 bun.lock”的判据既是循环论证，也没比完整性
+严重程度：重要
+类别：依赖的机制与事实不符、可复现性
+位置：技术选型表“装 Windows 的依赖闭包”、关键设计第 3 步（“生成的 bun.lock 留在 app/ 作记录”）、第 4 步、验收映射“app/ 的文件等于 tarball 内容加 node_modules 与 bun.lock”
+现象：在 lab 目录和 /tmp 各实测：`bun install --production --os win32 --cpu x64`、加 `--save-text-lockfile`、加 `--frozen-lockfile` 都装得上（7 个包，只有 win32-x64 平台包，没有 linux 包，`--os`/`--cpu` 语义与帮助文字“Override ... for optional dependencies”一致），但目录里始终没有 bun.lock。不带 `--production` 才写。所以第 3 步“留 bun.lock”不成立，测试里“加 bun.lock”的断言会失败，也没有“作记录”的东西。
+为什么是问题：计划把“可复现”押在版本核对上，而这个核对几乎是恒真式：应用包 package.json 的依赖本来就是 `installedVersions()` 从仓库根 node_modules 读出来的精确版本，OMP 往下的依赖也全是精确 18.14.0，所以不管有无核对，装出来都是 18.14.0。它抓不到真正的风险：registry 上同版本被换了内容（只有完整性哈希能抓），或哪天出现带范围版本的第三方传递依赖，装的就是当天最新、两次组装不同。ADR/提案 4.8 的重跑要求“复用同一批产物”，Windows 作业重跑时 `bun install` 又会重新解析一次。
+如何核实：见上述命令；根 bun.lock 里 `@oh-my-pi/pi-ai` 条目第 4 项是 sha512（`Bun.JSONC.parse` 可读，实测第 0 项 `@oh-my-pi/pi-ai@18.14.0`）。再实测：`bun install --lockfile-only --os win32 --cpu x64` 写出 13 个包的 bun.lock，其中 pi-natives 的 sha512 与根 bun.lock 逐字相同；随后 `bun install --production --frozen-lockfile --os win32 --cpu x64` 照样只装 win32-x64。
+建议改法：先 `--lockfile-only` 生成 app/bun.lock，对其中每个包（不只 `@oh-my-pi/*`）与根 bun.lock 比 版本加 sha512，再 `bun install --production --frozen-lockfile`；这样 bun.lock 才真的留在载荷里，判据也变成完整性。顺带把 `--linker hoisted` 写成显式参数：现在靠“没有 workspaces 时缺省 hoisted”，Bun 改缺省为 isolated 就会装出符号链接，清单、zip 封装都会变。
+
+### 3. pack-app 里新增的“起 server/main.js”核对没写端口、超时、失败时清理、状态根位置，覆盖的 Spec 条目也不全
+严重程度：重要
+类别：遗漏（失败路径、资源释放）、验收映射
+位置：关键设计第一节第 3 条（打包后的核对）、验收映射第 1、2 行
+现象：计划只写“临时状态根、NBOOK_WEB_ROOT 指向 web/、--stop-stdin 起来，认领应答就绪后 health 为 200，写 stop 后以 0 退出”。
+为什么是问题：
+(a) 没有写 `NBOOK_PORT=0`、`NBOOK_RPC_PORT=0`。服务端缺省占 4217/4218，被占用时成对加 100 顺延（server-host.md 输入一节）；开发者本机常开着开发服务和别的会话的 e2e，packApp 每次运行（含 CI 的 release:smoke 里打包）会白白占用或撞上缺省端口，pack-app.test.ts 里有两三个用例会各起一次，并行时互相顺延。实测（lab/run1.sh）`NBOOK_PORT=0 NBOOK_RPC_PORT=0 NBOOK_STATE_ROOT=<tmp> NBOOK_WEB_ROOT=<dir> bun server-main.js --stop-stdin` 能起、等 6 秒后写 stop 以 0 退出，所以用 0 完全可行。
+(b) 没有超时与 finally 里 kill：子进程不就绪（例如打包把 OMP 当成静态导入而提前求值挂住，或认领卡住）时 packApp 会无限等；失败路径要杀子进程并等它退出，否则留下占着状态根与端口的孤儿，下一次重跑会报“状态根已有实例”。现有 `--version` 那段是 spawnSync 一次完成，没有这个问题，新核对是第一个需要长驻子进程的步骤。
+(c) 状态根放哪没写：pack-app.ts 是脚本不是测试，不该用测试支持的临时根；要用 `os.tmpdir()` 下新建目录并在 finally 里删（仓库规则禁止新写 .agent/tmp）。
+(d) “认领应答”怎么读没写。就绪与地址要从认领应答（`status` 为 `ready` 的 `url`）取，不读标准输出；计划没说用 nb-host 的哪个客户端函数去问，也没说同时断言 `kind` 为 `product`。
+如何核实：读 server-host.md“输入与前置条件”“托管宿主”，server/process.ts 的 runServerProcess，pack-app.ts 的 `--version` 段（spawnSync）。
+建议改法：写成一个有 `AbortSignal`/截止时间的函数 `checkManagedEntry(packageDir)`：固定传 0 端口、自建临时状态根、try/finally 里先写 stop、超时再杀、再删状态根；就绪判据用认领应答的 `url`，再 GET `url` 断言返回的是包里 `web/index.html`（证明 `NBOOK_WEB_ROOT` 生效）和 `/api/runtime/health` 为 200。
+
+### 4. 验收映射漏了 Spec 的几条：标准输入结束停止、安装布局下的真实运行、project.js、“运行一遍”的判据
+严重程度：重要
+类别：验收映射
+位置：验收映射表、切片 2、“不做与风险”第一条风险
+现象与问题：
+(a) server-host.md“托管宿主”第二条要求“标准输入的一行 stop 与标准输入结束都走有序停止”，desktop-shell.md 输出里壳崩溃时靠的正是后一条；计划的场景只写“写 stop 后退出”，没有“关闭标准输入后退出”和“退出码为 0”之外的退出码场景（例如状态根被占用时以 1 退出）。
+(b) pack-app 的核对是在“把仓库根 node_modules 符号链接到包旁边”的目录里跑的，用的是 Linux 的 OMP 原生包和仓库里的包；release:smoke 里只有 `bun add -g` 装出来的 `nbook` 被跑，从没有人在安装后的布局里起 `server/main.js`。即“同一个 tarball 装出来的 server/main.js”在本机和 CI 的 ubuntu 作业里都没有真实运行，只剩 pc-notype 手工一次和 t11 的 Windows 冒烟。建议在 pack-smoke 的 `smokeAppAndPlugin` 里加几行：对 `bun add -g` 装好的包用 `bun <全局包目录>/server/main.js --stop-stdin` 起一次（复用 checkManagedEntry），成本很小，而且正好验“依赖由 bun add 按 dependencies 装全”。
+(c) 打开作品时才会 spawn `project.js`（server/projects/manager.ts 用 `process.execPath` 起它，start.ts:113 按 `import.meta.dir/project.js` 找）。“起来、health 200、stop”不经过 project.js，载荷里 project.js 与 OMP 的解析从未被运行；桌面壳的 Bun 是 `process.execPath` 这件事也没覆盖。切片 2 的“本机用 linux 组装并运行一遍”要写出判据：至少起服务端、登记并打开一部最小作品、再 stop。
+(d) 计划把“载荷与 npm 包同一份”只映射到清单摘要等于输入 tarball；没有映射 desktop-shell 输出 4 的“用随包 Bun 以 --stop-stdin 运行、NBOOK_WEB_ROOT 指向 app/web”这一组合在载荷目录里的运行。
+如何核实：读 server-host.md 第 100 到 107 行、desktop-shell.md 输出 4 与 5、pack-smoke.ts 第 311 到 352 行。
+建议改法：映射表加行：stdin 结束停止、占用状态根时的退出码、安装布局下的运行（smoke）、载荷目录里的运行含打开作品；把“运行一遍”写成脚本化判据，不要靠手工描述。
+
+### 5. `commit` 从 README 正文里取不可靠；载荷清单没和 release-manifest.json 衔接，t11 要核对的提交与摘要无处可对
+严重程度：重要
+类别：合同衔接、来源可靠性
+位置：关键设计第 5 步（“commit 取应用包 README 里写的构建提交”）；提案 4.1“载荷的文件清单与摘要记进发行清单”、4.8 第 3 步“核对清单的提交等于标签提交、每个 tarball 的摘要相同”
+现象：README.md 里的提交来自 `pack-app.ts` 的 `buildCommit()`：`git rev-parse HEAD`，取不到就写“未知”（pack-app.ts 的 buildCommit），位置是 README 第 55 行的一句散文里的 `{{commit}}`。release:smoke 的清单 commit 来自 `cleanCommit()`（pack-smoke.ts:388），在构建之前取、且要求会发布的目录干净。
+为什么是问题：
+(a) 从中文散文里用正则抠 40 位十六进制，措辞一改就失效；“未知”时计划没写怎么办（应失败，而不是写进清单）。
+(b) 两个提交可以不同：smoke 明确允许冒烟期间 master 前进（pack-smoke 第 409 到 413 行，只要会发布的目录没变就认），packApp 在 cleanCommit 之后才跑，`git rev-parse HEAD` 取到的可能已是更新的提交。于是 README 的提交与 release-manifest.commit 可以不一致，而 4.8 要求按后者核对标签。
+(c) 计划里的 `assembleDesktopPayload` 入参只有 tarball、outDir、os、cpu、lockfile，没有 release-manifest.json，也就没有“tarball 的 sha256 等于 release-manifest 里 @notnotype/neuro-book 那一项的 sha256 且版本相同”的核对；t11 的 Windows 作业拿到的是 ubuntu 作业上传的两个产物（tarball 与清单），载荷清单应该把二者串起来。载荷清单里 `tarball: {name, sha256}` 与 release-manifest 的 `packages[].tarball/sha256` 字段形状不一致，也没写 `product` 是什么。
+如何核实：读 pack-app.ts buildCommit、README 第 55 行、scripts/release/manifest.ts 的 `ReleaseManifest`、pack-smoke.ts 388 到 413 行。
+建议改法：命令行加 `--release-manifest <路径>`（t11 必传，本机手工可不传）：载荷清单的 `commit` 取自它，核对 tarball 的 sha256 与版本；README 里的提交只作交叉核对（两者都有且不同就报错，README 为“未知”则失败）。载荷清单字段沿用 release-manifest 的命名（`tarball`、`sha256`），免得 t11 再写一层转换。
+
+### 6. 同一批入口现在有三套打包配方，计划没处理 build:server、cli.test.ts 与 pack-app.test.ts 现有断言
+严重程度：建议（其中测试断言一项是必改）
+类别：隐含耦合、被破坏的既有约定
+位置：关键设计第一节第 1 条
+现象：改后 pack-app 用一次 `Bun.build` 打两个入口、`chunk-[hash]` 命名、再改名；而 `packages/neuro-book/package.json` 的 `build:server` 仍是三条独立的 `bun build`（`main-[hash]`、`project.js`、`nbook.js`+`nbook-[hash]`），`src/cli/cli.test.ts` 第 37 行又自带一份 `--entry-naming nbook.js --chunk-naming nbook-[hash].[ext]` 的构建。`pack-app.test.ts` 第 49、53 行断言包里有 `server/nbook-*.js` 的 chunk、白名单只有 `server/nbook.js`、`server/project.js`，改后 chunk 叫 `chunk-*.js`、多出 `server/main.js`，这个用例必然失败；计划只写“加托管入口的场景”，没提改这条。
+为什么是问题：cli.test.ts 的“没装 OMP 时 --version、--help、插件管理照常可用”用例拷的是它自己那份 nbook.js 构建，而不是发布出去的构建；共用 chunk 后，发布产物的“静态闭包不碰 OMP”不再被它测到。我做了对照实验：用计划的参数在仓库外临时目录构建（lab/build1.ts），把输出拷到没有 node_modules 的目录，`bun server/nbook.js --version` 正常（当前源码下成立），并按入口的静态导入做深度遍历，命令行入口的静态闭包 60 个 chunk 里没有 `@oh-my-pi/*` 的静态导入。但这是当前源码的偶然结果，没有任何测试守着它。
+建议改法：把“打服务端入口”抽成一个函数（入口表、命名、外部依赖），pack-app、`build:server`、cli.test.ts 都调它，三者不会再漂移；pack-app.test.ts 增加一条对打包产物本身的“拷到无 node_modules 的目录跑 --version 与 --help”，并把白名单与 chunk 正则改成新命名。同时说明 `bun run start`、e2e 用的 `dist/server/main.js` 仍来自旧配方，Spec 写“同一次构建”时指的是包内两个入口。
+
+### 7. “两个入口的前两条导入仍是 startup-env 与 omp-process”的核对对命令行入口不成立，且入口现在导入的是带哈希的 chunk
+严重程度：建议
+类别：验收判据错误
+位置：“不做与风险”第二条风险的兜底
+现象：用计划的参数构建（lab/build1.ts，Bun 1.4.4）：`cli-main.js` 只有一条静态导入（`import"./chunk-5n8bzg62.js"`，即 113 字节的 startup-env chunk），然后 `await import("./chunk-hsaxp0jr.js")`；`server-main.js` 有两条静态导入（`chunk-5n8bzg62.js`、`chunk-64hvyf2g.js`，后者是 omp-process）。命令行入口按 src/cli/main.ts 与 run.ts 的设计本来就不静态导入 omp-process（只在 start 命令里动态导入）。所以“两个入口的前两条”对 cli 说不通；并且名字是内容哈希，核对要打开 chunk 看内容里的 `// src/server/startup-env.ts`、`// src/server/omp-process.ts` 标记才行。
+求值顺序本身：实测成立。`omp-process` chunk 先于任何 OMP 静态导入求值（server-main 的静态闭包只有这两个 chunk，process.js 与 manifest 都在 `await import` 之后），共用 chunk 没有改变这点，startupEnv 现在是两个入口共享的同一个模块实例（原来各自一份，行为上等价）。
+为什么要改：一条写不成的核对会被实现者改弱成“只看有没有这两个文件”；真正会出现的风险是以后有模块被两个入口都静态导入时，Bun 按“被哪些入口可达”分组，可能与 startup-env 落进同一个 chunk，该 chunk 若静态导入 OMP 就先于 omp-process 求值。
+建议改法：核对写成对产物的静态分析：从 `server-main.js` 起按静态导入深度优先，断言第一个 `@oh-my-pi/*` 静态导入出现之前，startup-env 与 omp-process 的标记已出现；对 `cli-main.js` 断言静态闭包里没有 `@oh-my-pi/*`。这两条用 `Bun.Transpiler().scanImports`（pack-app 已在用）即可，不必起进程。
+
+### 8. 依赖闭包的“事实”只写成了一句话，核对只覆盖 @oh-my-pi/*；第三方依赖与许可无人把关
+严重程度：建议
+类别：没写出来的假设
+位置：技术选型表下面“依赖闭包的事实”、关键设计第 4、6 步
+现象：计划称“全部是同一个精确版本，没有第三方依赖”，我核对为真（四个依赖往下只有 omptype、pi-wire、pi-natives 平台包，装出 7 个包）。但这是当前状态的事实，不是被检查的不变量。nb-harness 的 package.json 另依赖 `@oh-my-pi/pi-agent-core`、其下有 `@opentelemetry/api@^1.9.1`（根 bun.lock 里是 pi-agent-core 的嵌套项）和 `snapcompact`；当前应用 bundle 没有静态引用 pi-agent-core（grep 构建产物只有 pi-ai/pi-catalog/pi-natives/pi-utils），nb-harness 作为内置插件的基础接入后就会进来。此时第 4 步只核对 `@oh-my-pi/*`，`@opentelemetry/api` 的版本与许可文件都不会被核对；第 6 步也只要求 `@oh-my-pi/*` 带许可文件。
+另外，THIRD-PARTY-NOTICES.md 只列打进 bundle 的包，随载荷再分发的 OMP 包（含 pi-natives 的 707 KB Rust 依赖许可 `THIRD-PARTY-NOTICES.txt`）靠 node_modules 里各包自带文件；计划把“不另生成”当结论，但没有检查这些文件在载荷里都在（实测 7 个包都带 LICENSE，pi-natives 与平台包带 THIRD-PARTY-NOTICES.txt）。
+建议改法：核对覆盖 `app/node_modules` 下全部包（对照 app/bun.lock，见发现 2），每个包都要有许可文件，清单里 `dependencies` 记全部包而不只 OMP；并在清单加一个“第三方包（非 @oh-my-pi）名单”字段，出现新包时测试里显式认领，免得悄悄进安装包。
+
+### 9. 未定的小处：清空规则共用与否、硬链接缓存、Bun 版本
+严重程度：建议
+类别：别扭之处
+位置：关键设计第 1 步（“抽成共用函数或照写一份并注明”）、第 3 步
+现象与建议：
+(a) `clearPreviousApp` 认的标记是 `.nbook-app-package` 里的 `@notnotype/neuro-book`；载荷目录若共用，应用包目录与载荷目录会互相清掉。要共用就把标记内容作参数（载荷用 `desktop-payload`），不要“照写一份”留给实现者决定。
+(b) 实测 hoisted 安装在 Linux 上缺省 `--backend hardlink`：node_modules 里的文件与 ~/.bun/install/cache 是同一个 inode（`ls -l` 链接数 22、4）。后续如果在载荷目录里原地改文件（例如脱掉不需要的文件、写许可），会改到全局缓存。组装时加 `--backend copyfile`，成本是多复制 139 MB。
+(c) 载荷里的原生模块只有 `pi_natives.win32-x64-baseline.node`（119 MB）；Linux 包有 baseline 与 modern 两份。pi-natives 在 Windows 上按 CPU 能力选变体的逻辑未读，pc-notype 的手工运行是唯一验证，计划已承认；另外组装机的 Bun（本机 1.4.4）与壳随包的 Bun 不同，`engines.bun` 是 `>=1.3.14`，载荷清单应记下组装用的 Bun 版本，壳随包的 Bun 版本由 t08 对照。
+
+## 未发现问题的方面（均做过实验）
+- Bun 1.4.4 两入口共用 chunk：`root: src`、`[dir]-[name]` 得到 `cli-main.js`、`server-main.js`；48 个文件里没有任何 chunk 引用这两个入口名，改名不影响相对导入；shebang 只在 `cli-main.js`（保留）；`root` 不改变 metafile 的路径，`packageDirectories` 照样可用。
+- 用该构建的 `server-main.js` 在临时状态根起服务（端口 0），`--stop-stdin` 写 stop 后以 0 退出；`nbook.js --version` 在没有 node_modules 的目录正常。
+- `--os win32 --cpu x64` 语义如计划所述：只装 `pi-natives-win32-x64`，不装 linux 与别的平台包；`Bun.Archive` 能解 `bun pm pack` 的 tgz，保留可执行位，entry 前缀 `package/` 需自行剥离。
+- 依赖闭包事实（四个 OMP 依赖、同一精确版本、无第三方依赖）核对为真；根 bun.lock 可由 `Bun.JSONC.parse` 读取。
+
+## 计数
+阻断 0；重要 5（发现 1 到 5）；建议 4（发现 6 到 9）。
+有效发现：1, 2, 3, 4, 5, 6, 7, 8, 9

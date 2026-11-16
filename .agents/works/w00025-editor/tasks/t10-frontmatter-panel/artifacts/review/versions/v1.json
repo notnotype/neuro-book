@@ -1,0 +1,146 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t10-frontmatter-panel",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "属性面板：静态稿评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "eff7dcc2d89f959c26cfd7585ef571633b1fb4811df8267ce9aa3bf8095149f7",
+    "files": [
+        "index.html",
+        "r1/card-closed.webp",
+        "r1/card-open-narrow.webp",
+        "r1/card-open.webp",
+        "r1/flat-closed.webp",
+        "r1/flat-open-narrow.webp",
+        "r1/flat-open.webp"
+    ],
+    "questions": [
+        {
+            "id": "q1-look",
+            "type": "single",
+            "label": "问题 1：面板的样子",
+            "options": [
+                {
+                    "value": "flat",
+                    "label": "A 平铺"
+                },
+                {
+                    "value": "card",
+                    "label": "B 卡片"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "card"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q2-default",
+            "type": "single",
+            "label": "问题 2：打开文件时面板展开还是收起",
+            "options": [
+                {
+                    "value": "closed",
+                    "label": "缺省收起，按文件记住"
+                },
+                {
+                    "value": "open",
+                    "label": "缺省展开，按文件记住"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "closed"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q3-empty",
+            "type": "single",
+            "label": "问题 3：文件没有 frontmatter 时",
+            "options": [
+                {
+                    "value": "menu",
+                    "label": "不画面板，从菜单添加"
+                },
+                {
+                    "value": "always",
+                    "label": "常驻一行“添加属性”"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "menu"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q4-types",
+            "type": "single",
+            "label": "问题 4：字段类型怎么定",
+            "options": [
+                {
+                    "value": "infer",
+                    "label": "按值推断"
+                },
+                {
+                    "value": "registry",
+                    "label": "全书统一（Obsidian 的做法）"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "infer"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "q5-fallback",
+            "type": "single",
+            "label": "问题 5：面板表示不了的内容",
+            "options": [
+                {
+                    "value": "row-and-source",
+                    "label": "逐个字段退回，写错了整块退回"
+                },
+                {
+                    "value": "all-source",
+                    "label": "有一处表示不了，整块都显示源码"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "row-and-source"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-16T07:46:12.560Z"
+}

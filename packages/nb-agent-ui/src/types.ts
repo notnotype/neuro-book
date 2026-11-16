@@ -106,6 +106,11 @@ export type AssistantMessageView = {
     error?: string;
     contentOmitted: boolean;
     /**
+     * 这条回复出自会话里的第几次模型请求（`modelStarted` 的序号），宿主据此打开请求查看器。只有真的发给了模型的才有：
+     * 拦截层不调 `next`、直接交回的回复没有对应的请求，也就没有这个字段。
+     */
+    request?: number;
+    /**
      * 宿主给这条回复加的附注，显示在它的文字之后（没有文字时单独一行）。加附注时换成新的消息对象并按依据缓存，
      * 打节拍时给同一个对象，否则这一轮每次都重新整理。
      */
@@ -125,8 +130,8 @@ export type CompactionView = {
     model: {name: string; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number | null} | null;
     /** 用到的压缩要求。 */
     require: readonly string[];
-    /** 放回了什么；没有放回（shake）是空数组。 */
-    restored: readonly {kind: "file" | "plan" | "log"; target: string; tokens: number; truncated: boolean}[];
+    /** 放回了什么；没有放回（shake）是空数组。`skill` 的 `target` 是 Skill 的 id（docs/specs/agent/skills.md 输出 17）。 */
+    restored: readonly {kind: "file" | "plan" | "log" | "skill"; target: string; tokens: number; truncated: boolean}[];
     /** 换成占位的工具结果条数。 */
     omitted: number;
     /** 原样保留了最近几轮；切在一轮中间或算不出时是 null。 */
@@ -578,6 +583,8 @@ export type BuiltinAgentViewAction =
     /** 输入框自己处理了一条命令（`/model`）：宿主清掉草稿。 */
     | {type: "composer.commandHandled"}
     | {type: "menu.opened"; trigger: string}
+    /** 确认了宿主菜单里的一项，标签已经插入；宿主做插入之外的事（例如问要不要初始化 Skill）。 */
+    | {type: "menu.selected"; trigger: string; id: string}
     // 运行设置
     | {type: "mode.set"; mode: string}
     | {type: "model.set"; modelKey: string}

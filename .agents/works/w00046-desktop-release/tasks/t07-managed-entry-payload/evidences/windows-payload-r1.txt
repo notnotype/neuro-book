@@ -1,0 +1,54 @@
+# w00046 t07：Windows 上运行组装出的桌面载荷（2026-11-13，pc-notype，Windows 11，独立的 Bun 1.4.4）
+# 载荷：本机在 dd78597a1 的发布清单上 --os win32 --cpu x64 组装（158 MB、2064 个文件），tar 后分 7 块经 scp 传过去拼回，SHA-256 与本机相同。
+# 脚本：check-payload.js（下面附上）以 --stop-stdin 运行 app/server/main.js，NBOOK_STATE_ROOT 为临时目录，端口 4517/4518，NBOOK_WEB_ROOT 指向 app/web。
+
+91CEEF78C31F4489C61E0ACB27E8346D6444BB422EC930CE8D96237F56F5674F
+1.4.4
+
+ready in 1439 ms
+index.html has <html: true
+second instance exit 1, busy diag: true
+stop line -> exit 0
+stdin EOF -> exit 0
+Count       Sum
+-----       ---
+ 2064 159567381
+exit 0
+
+
+
+## check-payload.js
+// Run the assembled desktop payload's managed entry on Windows with the standalone Bun.
+// usage: bun check-payload.js <app dir> <state root>
+const [app, stateRoot] = process.argv.slice(2);
+const env = {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "4517", NBOOK_RPC_PORT: "4518", NBOOK_WEB_ROOT: app + "\\web"};
+const start = () => Bun.spawn([process.execPath, app + "\\server\\main.js", "--stop-stdin"], {env, stdin: "pipe", stdout: "pipe", stderr: "pipe"});
+async function ready() {
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
+    try { const r = await fetch("http://127.0.0.1:4517/api/runtime/health"); if (r.status === 200) return; } catch {}
+    await Bun.sleep(200);
+  }
+  throw new Error("not ready in 60s");
+}
+const t0 = Date.now();
+const first = start();
+const out1 = new Response(first.stdout).text();
+const err1 = new Response(first.stderr).text();
+await ready();
+console.log(`ready in ${Date.now() - t0} ms`);
+const page = await (await fetch("http://127.0.0.1:4517/")).text();
+console.log(`index.html has <html: ${page.toLowerCase().includes("<html")}`);
+const second = start();
+second.stdin.end();
+const code2 = await second.exited;
+const err2 = await new Response(second.stderr).text();
+console.log(`second instance exit ${code2}, busy diag: ${err2.includes("runtime.state-root.busy")}`);
+first.stdin.write("stop\n"); await first.stdin.flush();
+console.log(`stop line -> exit ${await first.exited}`);
+const third = start();
+const err3 = new Response(third.stderr).text();
+await ready();
+third.stdin.end();
+console.log(`stdin EOF -> exit ${await third.exited}`);
+if ((await first.exited) !== 0 || (await third.exited) !== 0) { console.log(await out1); console.log(await err1); console.log(await err3); }

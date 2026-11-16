@@ -19,11 +19,13 @@ const props = withDefaults(defineProps<{
     addTools?: (key: string, change: ToolChange) => Promise<string | null>;
     /** “添加子代理”的“完成”：同上（profile-settings.md 输出 25）。 */
     addAgents?: (key: string, change: ToolChange) => Promise<string | null>;
+    /** “添加 Skill”的“完成”：同上（skills.md 的白名单）。 */
+    addSkills?: (key: string, change: ToolChange) => Promise<string | null>;
     /** “新建并打开”：交回新的 key，或失败原因；交回时目录里已经有它。 */
     createProfile?: (name: string) => Promise<{readonly key: string} | {readonly reason: string}>;
     /** 确认后的删除：交回时目录里已经没有它，失败由包装通知。 */
     deleteProfile?: (key: string) => Promise<void>;
-}>(), {writable: true, initial: undefined, addTools: async () => null, addAgents: async () => null, createProfile: async () => ({reason: ""}), deleteProfile: async () => undefined});
+}>(), {writable: true, initial: undefined, addTools: async () => null, addAgents: async () => null, addSkills: async () => null, createProfile: async () => ({reason: ""}), deleteProfile: async () => undefined});
 
 const emit = defineEmits<{
     (e: "retry"): void;
@@ -34,6 +36,9 @@ const emit = defineEmits<{
     (e: "restore-tools", key: string): void;
     (e: "remove-agent", key: string, id: string): void;
     (e: "restore-agents", key: string): void;
+    (e: "remove-skill", key: string, id: string): void;
+    (e: "add-back-skill", key: string, id: string): void;
+    (e: "restore-skills", key: string): void;
 }>();
 
 const text = useAgentPageText();
@@ -144,6 +149,18 @@ const pickerOptions = computed(() => ordered.value.map((profile) => ({value: pro
                         data-profile-agents
                         @remove="(id) => emit('remove-agent', current!.key, id)"
                         @restore="emit('restore-agents', current!.key)"
+                    />
+                    <!-- 工具与可派的子代理下面（t15 第 26 条） -->
+                    <ProfileToolsSection
+                        v-if="current.skills !== null"
+                        kind="skills"
+                        :tools="current.skills"
+                        :disabled="!writable"
+                        :add-tools="(change) => addSkills(current!.key, change)"
+                        data-profile-skills
+                        @remove="(id) => emit('remove-skill', current!.key, id)"
+                        @add-back="(id) => emit('add-back-skill', current!.key, id)"
+                        @restore="emit('restore-skills', current!.key)"
                     />
                 </ProfileDetail>
             </div>

@@ -1,0 +1,29 @@
+w00046 t03 实现审查第 1 轮的处理（2026-11-15）。被审提交 8925dd75e..92f8de4d6；omp（默认模型）审壳与桥，Claude Sonnet 审页面一侧。
+报告：impl-review-r1-omp.txt（6 条：重要 5、建议 1）、impl-review-r1-sonnet.txt（14 条：重要 3、建议 11）。修正在分支 b40a4b902。
+
+omp
+1 重要 SetWindowLongPtrW 的结果没核对 —— 成立，写完再读一次样式，三位不在就交回失败（记 desktop.frame.adopt-failed）。
+2 重要 窗口关掉后迟到的 window-control 仍调原生方法 —— 成立，onWindowMessage 入口核对 windows 表里还是不是同一个窗口。
+3 重要 窗口图标只在无标题栏时设 —— 成立，拆成 setWindowIcon，产品窗口、启动页、对话框、旧 WebView2 的窗口都设。
+4 重要 WebView2 版本读不出时当作没装 —— 成立，区分“没装”与“版本读不出”，后者退回系统标题栏。
+5 建议 PostMessageW 的 lParam 声明成指针 —— 成立，改成 i64，句柄按位模式转成整数。
+6 重要 真实操作没有验证 —— 属实，证据里本来就标了“未验证”；Task README 里“全过”的说法收窄，等开发者在 pc-notype 上真实操作。
+
+Sonnet
+1 重要 #app 用 fixed 自成层叠上下文，通知与离线横幅被压到模态之下 —— 成立，改 absolute（不设 z-index 不成层叠上下文）。
+2 重要 按钮被点击后抢走焦点 —— 成立，按钮 mousedown.prevent；关闭层按键拦截里给外框根的例外随之删掉。DOM 测试断言 mousedown 被阻止。
+3 重要 关闭询问期间“能拖动”不成立 —— 成立，Spec（browser-host 输出 10、12）、CloseLayer.md、close-ui 文件头改为“能最小化、最大化，模态开着时不能拖”；
+  Windows 复验加“询问期间点最小化”。
+4 建议 首屏后备标题栏撤掉时页面整体位移 —— 接受取舍：只在工作台外壳按需加载的那一下，加载页的进度条从 36px 以下的正中移到窗口正中；
+  不加机制（窄场景选简单做法），记入待确认清单的书架首屏一行一并给开发者看。
+5 建议 计划写了、实际没有的测试 —— 部分成立：补设置窗口（经 Portal 的浮动窗口）no-drag 的 e2e、按钮不取焦点的 DOM 断言；离线横幅、失败页与 close-ui 单测不补：
+  横幅与失败页的规则是两条静态 CSS，close-ui 的例外由 e2e“关闭前询问开着时按钮能点”覆盖。
+6 建议 e2e 的选择器抄实现 —— 接受取舍：“哪些元素有点击行为”没有不依赖列举的判法；e2e 另在两档宽度、有无项目下各跑一次，菜单触发器单独断言数量。
+7 建议 焦点进 iframe 时字形误变淡 —— 成立，blur 时以 document.hasFocus() 为准。
+8 建议 能力标记的类型绕行 —— 成立，DesktopFrameGlobal 声明这个字段。
+9 建议 138、46、36 三处各写一遍 —— 成立，按钮宽度取变量的三分之一，尺寸只在 styles.css 写一处。
+10 建议 字形是模板里看不见的私有区字符 —— 成立，改成具名常量 GLYPH。
+11 建议 Spec 说通知经 Portal、层级规范没加一档 —— 成立，browser-host 输出 12 改写，nb-ui ui-development-spec 的层级顺序加“桌面窗口的外框”。
+12 建议 只看 #app 里有没有 [data-desktop-titlebar]，Lab 夹具会误触发 —— 不改：只在桌面壳里打开开发构建的 Lab 时出现，开发者面向。
+13 建议 LabPage 的 w-screen 改成 w-full —— 成立，改回 w-screen，普通浏览器里不变。
+14 建议 data-desktop-maximized 没有使用者 —— 成立，删掉；dispose 保留（测试用它收口）。

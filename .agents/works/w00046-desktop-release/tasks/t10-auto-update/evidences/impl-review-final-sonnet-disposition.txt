@@ -1,0 +1,24 @@
+w00046 t10 收口实现审查：页面一侧（Sonnet，审查提交 330938c7f，worktree 固定在 cead88ccb）的处理。修正提交 654f8da1d。
+报告原文：impl-review-final-sonnet.txt（5 条：重要 1、次要 4）。每条都对照代码核实过。
+
+[重要] 普通浏览器里 page-ready、page-gone 发不出去，每次状态变化都写一条 browser-host.update.no-bridge。成立，已改。
+  核实：bridge.send 在没有 __electrobunSendToHost 时返回 false，send() 随即写 warn；sync() 在每次 onChange 都会走到。
+  改法：就绪与离开发不出去时不写诊断（普通浏览器的常态）；回复壳交来的提示（update-hint-shown、update-choice）时发不出去仍写。
+  不在 boot.ts 里按“有没有壳”决定建不建：发送函数由预加载脚本留下，出现的时刻不由页面决定（desktop-bridge.ts 的说明），
+  启动时判断一次不够，所以照旧每次状态变化都试。文件头“空等”的说法一并改正。
+  测试：desktop-updates.test.ts“普通浏览器（没有壳）”。变异核对：去掉这条分支即失败。
+
+[次要 1] 从往返缓存恢复后没有重新报就绪。成立（真实 WebView2 会不会进往返缓存未验证），已改：监听 pageshow 调 sync()；
+  pagehide 已把 reportedReady 置空，恢复后状态仍是 ready、页面已挂，sync 会再报一次 page-ready。
+  测试：原“page-ready …”一条末尾补 pageShow。变异核对：去掉监听即失败。
+
+[次要 2] 测试缺口。“没有壳”的用例已补（见上）；“离开就绪后新实例再 ready”由新用例里的 READY("i2") 一并走到（只断言不写诊断）。
+  单测断言文案键而不是可见文字：不改，键到文字的翻译归 host-text 与 locales 的测试，e2e 断言的是可见文字。
+
+[次要 3] notify() 抛错时这条提示已从 pending 删掉、没有诊断。不改：Notifications.notify 的实现没有抛错的路径，收益小。
+
+[次要 4] 工作台没交出通知服务时仍报 page-ready，壳会把提示交给显示不了的窗口。不改，记为已知限制：
+  通知服务是非必需门禁，只有工作台插件启动失败时才缺，那时页面另有错误呈现；这条提示留在 pending 并写诊断（已有用例）。
+
+验证：bun test src/web/host/desktop-updates.test.ts 8 条通过；vue-tsc -p tsconfig.web.json 通过；
+e2e desktop-update（4 条）与 desktop-close（3 条）通过。

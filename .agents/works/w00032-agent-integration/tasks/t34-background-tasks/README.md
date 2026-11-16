@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t34-background-tasks
-status: active
-updated: 2026-11-11
+status: done
+updated: 2026-11-12
 ---
 
 # 工作台的后台任务
@@ -11,7 +11,7 @@ updated: 2026-11-11
 
 给工作台一个通用的后台任务系统：插件登记长任务（标题、进度、能否取消），关掉发起它的对话框任务照常进行，进度与结果有固定的去处（参照 VS Code 的进度服务与通知中心）。第一个使用者是 t15 的 Skill 初始化（t15 第 33 条），t15 的界面几片排在它之后。
 
-合同：新建 [`workbench/background-tasks`](../../../../../docs/specs/workbench/background-tasks.md)（planned）；[`workbench/notifications`](../../../../../docs/specs/workbench/notifications.md) 输出 13–17、[`ui/workbench-shell`](../../../../../docs/specs/ui/workbench-shell.md) 输出 42–44、[`workbench/views`](../../../../../docs/specs/workbench/views.md) 输出 17（planned）。计划见 [plan.md](plan.md)。
+合同：新建 [`workbench/background-tasks`](../../../../../docs/specs/workbench/background-tasks.md)（2026-11-12 晋升 `implemented`）；[`workbench/notifications`](../../../../../docs/specs/workbench/notifications.md) 输出 13–17、[`ui/workbench-shell`](../../../../../docs/specs/ui/workbench-shell.md) 输出 42–44、[`workbench/views`](../../../../../docs/specs/workbench/views.md) 输出 17（planned）。计划见 [plan.md](plan.md)。
 
 ## 当前状态
 
@@ -61,7 +61,7 @@ updated: 2026-11-11
 
 Spec 与计划开发者 2026-11-11 看过（“可以”，含两处：结束通知的标题就是任务标题；只有失败的能重试，见第 16 条）。Opus 设计审查 16 条（重要 9、建议 7），15 条照改、1 条接受取舍（[处理](evidences/design-review.txt)）。五片已实施、审查、合入 master（见下面的进展）。
 
-下一步：等开发者批准 Spec 晋升（`workbench/background-tasks.md` 改为 `implemented` 并补实现合同与证据；`workbench/notifications.md` 输出 13–17、`ui/workbench-shell.md` 输出 42–44、`workbench/views.md` 输出 17、18、`ui/workbench-layout.md` 输出 1 的相关句去掉 planned）；之后 t15 变基到 master，把 Skill 初始化接进后台任务（t15 切片 5、6）。
+开发者 2026-11-12 批准 Spec 晋升（“spec 可以晋升”）：`workbench/background-tasks.md` 改为 `implemented`，补实现合同与证据；`workbench/notifications.md` 输出 13–17、`ui/workbench-shell.md` 输出 42–44、`workbench/views.md` 输出 17、18、`ui/workbench-layout.md` 输出 1 的相关句去掉 planned。三条回写也已批准并写入（Lab 夹具定宽、自己滚动的组件看 390 截图、变异检查在仓库外的副本里做）。t34 完成；Skill 初始化接进后台任务在 t15 切片 5、6 做。
 
 进展：
 

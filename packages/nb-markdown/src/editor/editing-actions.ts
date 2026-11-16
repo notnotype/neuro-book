@@ -7,7 +7,7 @@ import type {Editor} from "@tiptap/core";
 import {NodeSelection} from "@tiptap/pm/state";
 
 import {canMoveBlock, deleteBlock, duplicateBlock, moveBlock, selectedBlock, unwrapBlock} from "./block-actions";
-import {findComment, removeComment, setCommentBody} from "./comments";
+import {addBlockComment, canCommentBlockAt, findComment, removeComment, setCommentBody} from "./comments";
 import type {CommentRef} from "./comments";
 
 export type EditingArgs = Readonly<Record<string, unknown>>;
@@ -68,6 +68,12 @@ function canComment(editor: Editor): boolean {
     return allowed;
 }
 
+/** 块菜单给的块位置；不是非负整数时为 null。 */
+function blockPosition(args: EditingArgs): number | null {
+    const {pos} = args;
+    return typeof pos === "number" && Number.isInteger(pos) && pos >= 0 ? pos : null;
+}
+
 /** 卡片给的批注指纹（序号、意见、开头文字）；不齐全时为 null。 */
 function commentRef(args: EditingArgs): CommentRef | null {
     const {index, body, quote} = args;
@@ -119,6 +125,17 @@ export const markdownEditingActions: Readonly<Record<string, EditingAction>> = {
             return editor.chain().focus().addComment(body).run() && editor.state.doc !== before;
         },
         enabled: canComment,
+    },
+    // 块菜单的“批注”给整块加批注（输出 28）：卡片调用的内部动作，参数是块的位置与意见；不看选区。
+    "comment-block": {
+        run: (editor, args) => {
+            const pos = blockPosition(args);
+            return pos !== null && addBlockComment(editor, pos, text(args).trim());
+        },
+        enabled: (editor, args) => {
+            const pos = blockPosition(args);
+            return pos !== null && canCommentBlockAt(editor.state.doc, pos);
+        },
     },
     // 改意见与删除是卡片调用的内部动作，不在动作目录里（输出 29、34、35）：参数是卡片显示时记下的批注指纹，在最新的文档里核对。
     "comment-edit": {

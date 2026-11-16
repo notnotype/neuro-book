@@ -38,6 +38,9 @@ export {default as AgentFileContentDetail} from "./tools/AgentFileContentDetail.
 export {default as AgentTaskList} from "./tools/AgentTaskList.vue";
 export {default as AgentTaskListNode} from "./tools/AgentTaskListNode.vue";
 export {default as AgentToolDetail} from "./tools/AgentToolDetail.vue";
+export {default as AgentRequestList} from "./requests/AgentRequestList.vue";
+export {default as AgentRequestDetail} from "./requests/AgentRequestDetail.vue";
+export {default as AgentRequestJson} from "./requests/AgentRequestJson.vue";
 export {default as PlainMarkdown} from "./fallback/PlainMarkdown.vue";
 export {default as PlainPromptEditor} from "./fallback/PlainPromptEditor.vue";
 export {default as PlainPromptTextView} from "./fallback/PlainPromptTextView.vue";

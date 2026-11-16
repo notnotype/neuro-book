@@ -12,18 +12,20 @@ import {join} from "node:path";
 import {startHostServer} from "@notnotype/nb-host/server";
 import type {DrainClock, ExitCode, HostServerExtension, ProcessEvents} from "@notnotype/nb-host/server";
 import type {Application, StopResult} from "@notnotype/nb-runtime/application";
+import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
+import {createPluginPackages, pluginPackagesKey} from "nbook/plugin-platform/backend/packages";
 import {installedPlugins, NO_PREPARED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {pluginProblems} from "nbook/plugin-platform/shared/problems";
 import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
 import {NEUROBOOK_PLATFORM, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import type {PluginDescriptor} from "nbook/manifest";
-import {clockKey, startupEnvKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
+import {clockKey, runningWorkKey, startupEnvKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
@@ -31,6 +33,8 @@ import {createBrowserBootstrapRoute} from "./browser-bootstrap";
 import type {ServerConfig} from "./config";
 import type {StateRootClaim} from "./instance";
 import {createPluginCatalogsRoute, createPluginFilesRoute} from "./plugin-files";
+import {createRunningWork, createRunningWorkRoute} from "./running-work";
+import type {RunningWorkRegistry} from "./running-work";
 import {startupEnv} from "./startup-env";
 import {resolveUserDirectories} from "./user-directories";
 import {HTTP_PLUGIN_ID, manifestServerPlugins} from "./plugins";
@@ -131,6 +135,9 @@ export function startServer(options: StartServerOptions): RunningServer {
     let projects: ProjectManager | null = null;
     const projectsReady = Promise.withResolvers<ProjectManager>();
     const projectTitle = (reference: string): Promise<string | null> => (projects === null ? Promise.resolve(null) : projects.displayTitle(reference));
+    // 在跑的工作的登记表要写诊断，诊断存储由 nb-host 建好后才经宿主接口与宿主能力的上下文交来（两处是同一个存储，先到的那处建）。
+    let runningWork: RunningWorkRegistry | null = null;
+    const runningWorkOf = (store: DiagnosticsStore): RunningWorkRegistry => (runningWork ??= createRunningWork((record) => void store.record(record)));
 
     const extensions: HostServerExtension[] = [];
     const makeDevTask = options.devTask;
@@ -182,6 +189,7 @@ export function startServer(options: StartServerOptions): RunningServer {
                 createBrowserBootstrapRoute(builtinManifest, installed, rpc, projectTitle),
                 createPluginFilesRoute(installed, (input) => store.record(input)),
                 createPluginCatalogsRoute(installed, (input) => store.record(input)),
+                createRunningWorkRoute(runningWorkOf(store), () => (projects === null ? Promise.resolve({items: [], failed: []}) : projects.work())),
             ],
         },
         plugins: (context) => {
@@ -194,6 +202,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             {id: "host.startup-env", key: startupEnvKey, create: () => ({env: startupEnv})},
             {id: "host.user-directories", key: userDirectoriesKey, create: () => userDirectories},
             {id: "host.clock", key: clockKey, create: () => systemClock},
+            {id: "host.running-work", key: runningWorkKey, create: () => runningWorkOf(context.store).provision},
             {
                 id: "host.plugin-inventory",
                 key: pluginInventoryKey,
@@ -207,6 +216,8 @@ export function startServer(options: StartServerOptions): RunningServer {
                     problems: () => (application === null ? [] : pluginProblems(application.plugins.catalog(), "server")),
                 }),
             },
+            // 内置插件按插件 id 找第三方插件包里的目录（agent.skills 这类声明目录的贡献）；本次启动登记的插件，与文件端点同一份。
+            {id: "host.plugin-packages", key: pluginPackagesKey, create: () => createPluginPackages(installed, NEUROBOOK_PROFILE.format)},
             {
                 id: "host.projects",
                 key: projectsKey,

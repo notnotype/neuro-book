@@ -3,7 +3,7 @@
  *
  * - 单元之间按表单向依赖；对内核只经公开入口（`kernel/index.js`、`kernel/contracts.js`），不引旧 harness、`src/models/`；
  *   kit 内只用相对导入。
- * - 浏览器会加载的入口（`./kit/shapes`、`./kit/files`）顺着相对导入走完整条链：值导入只许 `typebox`，类型只许
+ * - 浏览器会加载的入口（`./kit/shapes`、`./kit/files`、`./kit/requests/types`）顺着相对导入走完整条链：值导入只许 `typebox`，类型只许
  *   `import type` 自 `kernel/contracts.js`。
  * - 对 nb-form 只用核心入口：整个 `src/` 不导入它的子路径、nb-ui 与 vue（含 `import type`），`package.json` 也不依赖后两者。
  * - 工具、压缩、审批不自己写盘（ADR 0040 在 harness 这一侧的不变量）：`node:fs` 只许具名导入只读函数，源码不出现写盘与起进程的写法；
@@ -52,12 +52,14 @@ const UNITS: Readonly<Record<string, UnitRule>> = {
     guards: {dependsOn: [], packages: [], builtins: ["node:crypto"], kernel: "values"},
     // 句柄表要内核的指令码表；标题会话的 id 取哈希。
     sessions: {dependsOn: [], packages: [], builtins: ["node:crypto"], kernel: "values"},
+    // 模型请求记录：宿主进程里唯一的写者，写自己的目录（状态根下）；估 token 要内核的值导入。
+    requests: {dependsOn: [], packages: [], builtins: ["node:crypto", "node:fs/promises", "node:path", "node:util", "node:zlib"], kernel: "values"},
     // 合同测试要在夹具的目录里放文件与链接，所以能碰磁盘；它只给测试用。
     testing: {dependsOn: ["files"], packages: [], builtins: ["bun:test", "node:fs/promises", "node:os", "node:path"], kernel: "none"},
 };
 
 /** 浏览器会加载的入口：顺着相对导入整条链检查。 */
-const BROWSER_ENTRIES = ["shapes.ts", "files/index.ts"];
+const BROWSER_ENTRIES = ["shapes.ts", "files/index.ts", "requests/types.ts"];
 
 const FORBIDDEN_PACKAGES = ["@oh-my-pi/pi-coding-agent", "@oh-my-pi/pi-agent-core"];
 /** 内核的公开入口（不带扩展名）。 */

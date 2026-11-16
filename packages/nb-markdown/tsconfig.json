@@ -15,6 +15,7 @@
         "forceConsistentCasingInFileNames": true
     },
     "include": [
-        "src/*.ts"
+        "src/*.ts",
+        "src/prompt/text.ts"
     ]
 }

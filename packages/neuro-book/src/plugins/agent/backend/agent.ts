@@ -10,9 +10,10 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ContributionDeclarations} from "@notnotype/nb-runtime/plugins";
 
 import {createAgentHost, createJsonlStore} from "@notnotype/nb-harness/kernel";
-import type {AgentHost, Clock, ModelPort, RunResult, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
+import type {AgentHost, Clock, CompactionRestoreArgs, CompactionRestored, ModelPort, RunResult, SessionIndexEntry, StorageResult} from "@notnotype/nb-harness/kernel/contracts";
 import type {Dialects} from "@notnotype/nb-harness/kit/commands";
 import {CompactionRestore} from "@notnotype/nb-harness/kit/compaction";
+import {RequestRecorder, RequestTraceUnavailable, traceModelPort} from "@notnotype/nb-harness/kit/requests";
 import {SessionMeta, SessionTable} from "@notnotype/nb-harness/kit/sessions";
 import {kernelResources} from "@notnotype/nb-harness/kit/files";
 import type {SessionEditStores} from "@notnotype/nb-harness/kit/tools";
@@ -21,6 +22,7 @@ import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {SERVER_SHARED_MODULES} from "nbook/plugin-platform-profile";
 import type {WorkspaceFiles} from "nbook/plugins/files/shared/contracts";
 import type {ModelsService} from "nbook/plugins/models/shared/contracts";
+import type {RunningWorkItem} from "nbook/shared/host";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {SESSION_TITLE_PROFILE, TASK_ID, taskSessionId} from "../shared/contracts";
@@ -30,6 +32,8 @@ import {agentSettings} from "../shared/settings";
 
 import {BUILTIN_TOOL_IDS} from "./builtin/ids";
 import {JobCenter} from "./jobs/center";
+import {agentRunningWork, SessionTitles} from "./running-work";
+import {RequestOwners} from "./requests";
 import {ChildRuns} from "./subagents/children";
 import {SessionRelations} from "./subagents/relations";
 import {isModeSwitch, type PendingItem} from "./subagents/result";
@@ -58,6 +62,8 @@ export interface AgentRuntimeOptions {
     readonly dialects: Dialects;
     /** 触发本插件前缀下的激活事件；有入口激活失败或受阻时交回 false。 */
     readonly trigger: (event: string) => Promise<boolean>;
+    /** 接在文件与计划之后放回的内容（Skill，skills.md 输出 16）；交回合并后的放回。 */
+    readonly restoreMore?: (args: CompactionRestoreArgs, previous: CompactionRestored) => Promise<CompactionRestored>;
     readonly report: (code: string, message: string, data?: Readonly<Record<string, unknown>>) => void;
 }
 
@@ -75,6 +81,8 @@ export interface AgentRuntime {
     readonly relations: SessionRelations;
     /** 任务中心（jobs.md）。 */
     readonly jobs: JobCenter;
+    /** 此刻在跑、停止服务端会中断的会话与任务（sessions.md 输出 20），给宿主的 `runningWorkKey` 登记用；同步。 */
+    runningWork(): ReadonlyArray<RunningWorkItem>;
     /** 会话树的累计花费：费用守卫按树比（run-guards.md 输出 13）。 */
     readonly treeSpend: TreeSpend;
     /** 子代理运行与任务中心之间的跟踪（subagents.md 输出 6、7）。 */
@@ -83,8 +91,14 @@ export interface AgentRuntime {
     readonly tree: SubagentTree;
     /** 只读一个会话的索引（不打开会话）。 */
     sessionEntry(id: string): Promise<StorageResult<SessionIndexEntry>>;
-    /** 模型端口：派子代理时先解析指名的模型（subagents.md 输出 1 的 `model-unavailable`）。 */
+    /** 模型端口：派子代理时先解析指名的模型（subagents.md 输出 1 的 `model-unavailable`）。经它发出的请求都进 `requests`。 */
     readonly models: ModelPort;
+    /** 模型请求记录（request-trace.md）：远程服务 `nbook.agent/requests` 读它。 */
+    readonly requests: RequestRecorder;
+    /** 后台标题会话属于哪个会话（request-trace.md 输出 14）。 */
+    readonly requestOwners: RequestOwners;
+    /** 会话标题（索引里的，跟着打开着的会话更新）。 */
+    readonly titles: Pick<SessionTitles, "of">;
     /** 插件开始停止之后为真：子代理工具据此不对子会话发中止，交给会话的关闭按 interrupted 收口（subagents.md 输出 16）。 */
     stopping(): boolean;
     /** 内核用的时钟（注入的，测试推进它）。 */
@@ -98,6 +112,8 @@ export interface AgentRuntime {
 
 /** 模型服务不在时的端口：会话照常打开、能读，发请求时失败（sessions.md 输出 13）。 */
 const NO_MODELS: ModelPort = {resolve: () => ({ok: false, code: "no-model"})};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function kernelClock(clock: RuntimeClock): Clock {
     return {
@@ -123,6 +139,22 @@ function kernelClock(clock: RuntimeClock): Clock {
 export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<AgentRuntime> {
     const sessionsRoot = join(options.stateRoot, "agent", "sessions");
     await mkdir(sessionsRoot, {recursive: true});
+    // 会话、标题、子代理与审批、压缩的请求都经下面包过的端口，所以都进记录（request-trace.md 输出 1）。
+    const requests = new RequestRecorder({
+        root: join(options.stateRoot, "agent", "requests"),
+        settings: () => ({
+            enabled: options.settings.get(agentSettings.settings.requestTrace),
+            payload: options.settings.get(agentSettings.settings.requestTracePayload),
+            headers: options.settings.get(agentSettings.settings.requestTraceHeaders),
+        }),
+        report: options.report,
+        now: () => options.clock.now(),
+    });
+    const requestOwners = new RequestOwners();
+    requests.onChange((change) => {
+        if (change.kind === "added") requestOwners.note(change.row.session);
+    });
+    let sweepTimer: (() => void) | null = null;
     const bindings = () => options.settings.get(agentSettings.settings.toolBindings);
     const profileSettings = () => options.settings.get(agentSettings.settings.profileSettings);
 
@@ -158,10 +190,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     // 扫完才交出服务（深度与费用上限靠它）：之后的派发与 fork 增量登记。读不了的索引不在列表里，那些会话按没有父会话算。
     const relations = new SessionRelations();
     const treeSpend = new TreeSpend(relations);
+    const titles = new SessionTitles();
     const scanned = await store.list();
     if (scanned.ok) {
         relations.load(scanned.value);
         treeSpend.load(scanned.value);
+        titles.load(scanned.value);
     }
     else options.report("relations-scan-failed", `could not list sessions to load sub-agent relations: ${scanned.code}`, {code: scanned.code});
     let sessions: SessionTable | null = null;
@@ -172,11 +206,11 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         limits: () => ({perSession: options.settings.get(agentSettings.settings.subagentsPerSession), global: options.settings.get(agentSettings.settings.backgroundJobs)}),
     });
     let stopping = false;
-    const models = options.models === null ? NO_MODELS : options.models.port((profile) => {
+    const models = traceModelPort(options.models === null ? NO_MODELS : options.models.port((profile) => {
         const setting = profileSettings()[profile];
         const role = setting?.role ?? profiles.defaultRole(profile);
         return {...(setting?.model === undefined ? {} : {model: setting.model}), ...(role === undefined ? {} : {role})};
-    });
+    }), requests);
     const host = createAgentHost({
         store,
         profiles: {resolve: (key) => profiles.resolve(key)},
@@ -199,7 +233,10 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             report: options.report,
         }),
         attachments: createAttachmentPort(options.files),
-        compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER, restore: restore.run},
+        compaction: {methods: compaction.table, order: DEFAULT_COMPACTION_ORDER, restore: async (context, args) => {
+            const restored = await restore.run(context, args);
+            return options.restoreMore === undefined ? restored : options.restoreMore(args, restored);
+        }},
     });
     hostRef = host;
 
@@ -227,11 +264,20 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
     // fork 出来的会话：会话头照抄了 `caller`、另有 `origin`，从它的索引读出来登记。
     const registerFork = async (id: string): Promise<void> => {
         const entry = await store.entry(id);
-        if (entry.ok) relations.register(entry.value);
+        if (entry.ok) {
+            relations.register(entry.value);
+            titles.set(entry.value.id, entry.value.title);
+        }
         else options.report("relations-fork-failed", `could not read the index of forked session ${id}: ${entry.code}`, {session: id, code: entry.code});
     };
-    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => restore.forget(id), forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), report: options.report});
+    /** 程序自己开的会话（起标题与说明）：不是用户的工作，停止服务端时不必提示（sessions.md 输出 20）。 */
+    const internal = new Set<string>();
+    sessions = new SessionTable({host, clock: options.clock, beforeOpen: activateExtensions, closed: (id) => {
+        restore.forget(id);
+        internal.delete(id);
+    }, forked: (id) => void registerFork(id), userOnly: (request) => isModeSwitch(request as PendingItem), report: options.report});
     const table = sessions;
+    titles.follow(table);
 
     const createSession = async (createOptions: Parameters<AgentService["create"]>[0]): ReturnType<AgentService["create"]> => {
         const created = await table.create(createOptions);
@@ -297,7 +343,12 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
-    const meta = new SessionMeta({table, create: createSession, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
+    const meta = new SessionMeta({table, create: async (metaOptions) => {
+        // 建成了才是程序自己的会话；id 被普通会话占着（session-exists）时不记，那是用户的会话，照常报。
+        const created = await createSession(metaOptions);
+        if (created.ok) internal.add(metaOptions.id);
+        return created;
+    }, models, titleProfile: SESSION_TITLE_PROFILE, material: SESSION_META_MATERIAL, report: options.report});
     const children = new ChildRuns({table, jobs, report: options.report});
     const tree = new SubagentTree({relations, table, jobs, entry: (id) => store.entry(id), catalog: () => profiles.list(), clock: options.clock});
 
@@ -320,6 +371,23 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         },
     };
 
+    // 记录目录的读入与清理放在最后：前面的装配失败时不留下计时。不等目录读完再交出服务，读完之前的请求在记录器里排队等它
+    // （`start` 先等打开）；读不了的目录记录器打开时自己报。
+    const unreadable = (error: unknown): boolean => error instanceof RequestTraceUnavailable;
+    void requests.open().then(async () => {
+        for (const {id} of (await requests.list({limit: 1})).facets.sessions) requestOwners.note(id);
+    }).catch((error: unknown) => {
+        if (!unreadable(error)) options.report("requests.open-failed", `could not load model request records: ${error instanceof Error ? error.message : String(error)}`);
+    });
+    // 启动时清一次，之后每天一次（request-trace.md 输出 11）；天数在每次清理时读。
+    const sweepRequests = (): void => {
+        requests.sweep(options.settings.get(agentSettings.settings.requestTraceDays)).catch((error: unknown) => {
+            if (!unreadable(error)) options.report("requests.sweep-failed", `could not clean up model request records: ${error instanceof Error ? error.message : String(error)}`);
+        });
+        sweepTimer = options.clock.schedule(sweepRequests, DAY_MS);
+    };
+    sweepRequests();
+
     return {
         host,
         tools,
@@ -332,11 +400,15 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         profileAdmin,
         relations,
         jobs,
+        runningWork: () => agentRunningWork({table, relations, titles, jobs, internal}),
         children,
         tree,
         sessionEntry: (id) => store.entry(id),
         treeSpend,
         models,
+        requests,
+        requestOwners,
+        titles,
         stopping: () => stopping,
         kernelClock: clock,
         sessionsRoot,
@@ -349,6 +421,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
         // 停止的先后（jobs.md 输出 8）：关门之后子代理工具就不再对子会话发中止，子代理运行由会话的关闭按 interrupted 收口；任务表最后丢。
         stop: async () => {
             stopping = true;
+            sweepTimer?.();
+            sweepTimer = null;
             table.closeGate();
             // 先关任务中心的门：之后已打开会话里的工具起不了新的后台命令（否则它在 `jobs.clear()` 之后没人收口）。
             jobs.close();
@@ -357,6 +431,8 @@ export async function createAgentRuntime(options: AgentRuntimeOptions): Promise<
             await userProfiles.stop();
             await table.stop();
             await meta.settled();
+            // 会话都关了，不会再有模型请求：等记录写完。
+            await requests.close();
             jobs.clear();
         },
     };

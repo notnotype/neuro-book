@@ -1,0 +1,40 @@
+# w00046 t10 切片 3（330938c7f）页面一侧审查，Sonnet
+
+总体：提示种类到通知的映射、动作与 onClose 回告、同 id 去重、update-hint-end、就绪前缓冲、page-ready 每实例一次、文案中英对称，核对下来都与 Spec 和计划表一致；单测 7 条通过。以下是核实到的问题。
+
+## 1. [重要] 普通浏览器（没有桌面壳）里每次页面挂好和每次连接状态变化都写一条 warn 诊断
+- 文件：packages/neuro-book/src/web/host/desktop-updates.ts 第 79 到 87 行（send）、第 115 到 123 行（sync）；文件头注释第 4 行
+- 问题：`sync()` 在 ready 且已挂好时，只要 `reportedReady !== instanceId` 就调 `send({type:"page-ready"})`。没有 `window.__electrobunSendToHost` 时 `bridge.send` 返回 false，`send()` 写 warn `browser-host.update.no-bridge`，`reportedReady` 始终不置位，于是之后每次 `onChange`（在线与离线切换等）都再试一次、再写一条。文件头写的“普通浏览器里没有壳的事件，这里只是空等”与实际不符。
+- 复现（已跑）：用真实 `createDesktopBridge`（不给 `__electrobunSendToHost`）建 `createDesktopUpdates`，状态置 ready，`pagesMounted()`，再依次切 offline、online、offline，reports 为 4 条 `browser-host.update.no-bridge`。浏览器版是产品的主要形态，每个窗口启动即多一条 warn，断线重连还会反复追加，污染诊断。
+- 建议：没有壳时整个页面一侧不工作。例如装配方（boot.ts）在 `window.__electrobunSendToHost` 不存在时不创建 desktopUpdates；或 `send()` 在“没有发送函数”时静默（该情形对 page-ready 与 page-gone 只可能是普通浏览器），只在发送函数存在却抛错时写诊断；并给“普通浏览器：不写诊断”补一条单测。close-query 的 no-bridge 只在收到壳的询问时才写，所以没有这个问题。
+
+## 2. [次要，未验证] 往返缓存（bfcache）恢复后不会再报 page-ready
+- 文件：desktop-updates.ts 第 139 到 142 行（onPageHide）；src 下没有 pageshow 的处理
+- 问题：`pagehide` 一律报 page-gone 并把 reportedReady 置空，包括进入 bfcache 的 pagehide（`persisted`）。页面被恢复时窗口状态仍是 ready、`pagesMounted` 不会再被调用，没有任何事件触发 `sync()`，壳就一直认为这个窗口不在就绪、不再向它交付提示，直到碰巧发生一次连接状态变化（那时 sync 才补报 page-ready）。PageOutlet 的注释提到“页面进入往返缓存后又被恢复”，但 src 里没有看到 pagehide 时停实例的代码（grep 'pagehide|pageshow' 只命中本文件），所以恢复后页面仍是正常的就绪页。
+- 能否真的进 bfcache 取决于 WebView2/整页导航的实际行为，我没有在真实壳里验证。
+- 建议：在 `page` 端口加 `pageshow` 监听，恢复时（`persisted`）调用 `sync()`；成本一个监听，且与 dispose 对称。
+
+## 3. [次要] 测试没有覆盖上面第 1 条的情形，其余只对到 TextRef 的键
+- 文件：desktop-updates.test.ts；e2e/desktop-update.e2e.ts
+- 缺口：(a) 单测的 harness 总是给出发送函数，没有“没有壳”的用例，第 1 条因此漏过；(b) 没有“离开 ready 后在新运行实例再 ready”的用例（只测到 page-gone 为止），而这条路径依赖 `reportedReady` 在 page-gone 后置空；(c) 第一条单测断言的是文字键（`update.action.download`）与“`onClose !== undefined`”，属于实现细节，用户可见的标题和正文只有 `available` 与 `notify-only` 两种在 e2e 里按可见文字断言，`downloading`、`download-failed`、`downloaded`、`updated`、`update-failed` 的中英文案没有可见文字级的检查（不过两份 locale 键对称、人工读过没有问题）。
+- 好的一面：e2e 4 条都用 expect.poll 或可见状态等待，没有固定时长等待；关窗询问期间来提示、刷新前后的 page-ready 与 page-gone 的断言是用户或壳可观察的结果。
+- 建议：补“没有壳时不写诊断”“离开再进新实例会再报 page-ready”两条单测；文案键对应的可见文字可由一条参数化的 Lab 或 e2e 逐种截一次，或接受现状。
+
+## 4. [次要，未验证] `notify()` 抛错时提示静默丢失
+- 文件：desktop-updates.ts 第 109 到 112 行、第 89 到 98 行
+- 问题：`flush` 先 `pending.delete(id)` 再 `show()`；`notifications.notify` 若抛错，该条提示已从 pending 删掉、`shown` 没有登记、没有诊断，异常从桥的事件监听器里冒出去，同一轮 flush 里排在后面的提示留在 pending 但要等下一次状态变化才会再试。我没有看到 `notify` 当前有抛错的路径，所以只作为防御性问题。
+- 建议：低收益，可不改；若改，show 外包一层 try 写诊断，失败时不删 pending 之外的状态。
+
+## 5. [次要，低收益] 工作台没交出通知服务时仍报 page-ready
+- 文件：desktop-updates.ts 第 100 到 123 行
+- 问题：`notifications() === null` 时 sync 照样报 page-ready，壳把提示交给这个窗口后既不会显示、也不回 `update-hint-shown`，持有窗口不会转给别的能显示的窗口；每次 hint 与每次状态变化还各写一条 `no-notifications` warn。该门禁是非必需的，失败属极少见情形，按“窄场景选简单改法”可以只记为已知限制，或在通知服务为 null 时不报就绪。
+
+## 6. 核对过、没有发现问题的点（供参考）
+- 映射：七种 hint 的色调、常驻、动作、onClose 回告与计划表和 Spec 输出 3 到 10 一致；`downloading` 的 `progress: null` 合 `NotificationInput.progress?: number|null`；`downloading`、`downloaded`、`updated`、`update-failed` 不带 onClose；available、notify-only、download-failed 的 onClose 回 `later`，通知里点动作回对应选择。
+- 通知合同：`dismiss()` 不调 onClose（notifications.md 输出 18），所以 update-hint-end 不会回出多余的 `later`。
+- 去重与结束：同 id 再来被忽略；end 同时清 pending 与已显示的句柄；end 之后同 id 重新显示；与壳一侧 windows.ts 的 `#handOverHint`（先 endHint 再用同一 id 重发）配合正确，刷新、转交都能再显示。
+- 就绪与离开：page-ready 以 instanceId 去重，在线离线不重报；page-gone 在离开 ready 与 pagehide 时各至多一次（没有重复）；启动失败页不报就绪（`onPagesMounted` 只在 `app.mount` 之后调用）；通知服务在 window.ts 里只在 ready 时交出、stop 后为 null。
+- 文案：zh-CN 与 en-US 的 `update.*` 键完全对称，参数都是 `{{version}}`，表述与 Spec 一致、用户看得懂；代码里没有硬编码文案（标题、正文、动作名都经 hostText）。
+- 释放：boot.ts 没有调用 `desktopUpdates.dispose()`，但它与文档同寿命，页面卸载时文档销毁，监听随之消失，通知也按 Spec 输出 18 不回告；不算问题。
+- close-query 对两种更新消息直接返回，不影响关闭询问；`CloseReply` 已无残留引用。
+END

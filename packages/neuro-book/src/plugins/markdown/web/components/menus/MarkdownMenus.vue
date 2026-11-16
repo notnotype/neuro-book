@@ -148,6 +148,7 @@ defineExpose({
         :readonly="props.readonly"
         :binding="props.binding"
         @inserted="onInserted"
+        @comment="(block) => (block === null ? commentLayer?.beginAdd() : commentLayer?.beginAddBlock(block))"
     />
     <MarkdownContextMenu
         :editor="props.editor"

@@ -1,0 +1,223 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t29-ui-polish-after-t15",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "t29 第 1 轮：服务商列表、状态栏、对话面板第一屏",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "d4c47202df8468fc90950894ebbc8382a3060f34d795bc833f91d4235c8bac66",
+    "files": [
+        "index.html",
+        "r1/first-hint.webp",
+        "r1/first-lines-inset.webp",
+        "r1/first-lines-none.webp",
+        "r1/first-product-current.webp",
+        "r1/first-welcome.webp",
+        "r1/providers-current.webp",
+        "r1/rail-one-line-hover.webp",
+        "r1/rail-one-line-menu.webp",
+        "r1/rail-one-line-more.webp",
+        "r1/rail-one-line.webp",
+        "r1/rail-two-line-hover.webp",
+        "r1/status-custom.webp",
+        "r1/status-menu.webp",
+        "r1/status-settings.webp",
+        "r2/h-centered.webp",
+        "r2/h-current.webp",
+        "r2/h-light.webp",
+        "r2/h-merged.webp",
+        "r2/h-two-line.webp",
+        "r2/welcome-first.webp",
+        "r2/welcome.webp"
+    ],
+    "questions": [
+        {
+            "id": "rail-remove",
+            "type": "single",
+            "label": "删除服务商放在列表条目的哪里？",
+            "options": [
+                {
+                    "value": "hover-icon",
+                    "label": "A 悬停出删除图标，右键也能删"
+                },
+                {
+                    "value": "hover-more",
+                    "label": "B 悬停出“…”，点开是菜单"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "hover-icon"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "rail-rows",
+            "type": "single",
+            "label": "服务商条目改成单行，还是两行收紧？",
+            "options": [
+                {
+                    "value": "one-line",
+                    "label": "A 单行"
+                },
+                {
+                    "value": "two-line",
+                    "label": "B 两行收紧"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "one-line"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "status-config",
+            "type": "confirm",
+            "label": "状态栏的自定义照这三张图做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "first-screen",
+            "type": "single",
+            "label": "没选会话时，对话面板的第一屏放什么？",
+            "options": [
+                {
+                    "value": "welcome",
+                    "label": "A 开始一段对话与最近的会话"
+                },
+                {
+                    "value": "hint",
+                    "label": "B 只留一句提示"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "welcome"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "dividers",
+            "type": "single",
+            "label": "顶栏下面、输入框上面那两条横线怎么处理？",
+            "options": [
+                {
+                    "value": "none",
+                    "label": "A 去掉，消息在顶栏下淡出"
+                },
+                {
+                    "value": "inset",
+                    "label": "B 留着，两端各收进 12px"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "none"
+            ],
+            "origin": "markup",
+            "page": null,
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "welcome-v2",
+            "type": "confirm",
+            "label": "第一屏照旧应用的 welcome 这样做",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "starters",
+            "type": "single",
+            "label": "“试试这些”的三条指令从哪来？",
+            "options": [
+                {
+                    "value": "profile",
+                    "label": "A Profile 声明"
+                },
+                {
+                    "value": "fixed",
+                    "label": "B 应用内置三条"
+                },
+                {
+                    "value": "none",
+                    "label": "C 不要这一块"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "profile"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "header",
+            "type": "single",
+            "label": "有会话时的顶栏选哪版？",
+            "options": [
+                {
+                    "value": "light",
+                    "label": "A 轻量单行"
+                },
+                {
+                    "value": "two-line",
+                    "label": "B 两行带摘要"
+                },
+                {
+                    "value": "merged",
+                    "label": "C 并进面板头"
+                },
+                {
+                    "value": "centered",
+                    "label": "D 标题居中"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "merged"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-16T02:08:39.407Z"
+}

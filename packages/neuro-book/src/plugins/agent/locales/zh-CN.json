@@ -141,6 +141,22 @@
         "backgroundJobs": {
             "title": "同时在跑的任务",
             "description": "所有会话的子代理与后台命令加起来，同时在跑的至多几个。"
+        },
+        "requestTrace": {
+            "title": "记录模型请求",
+            "description": "记下每次模型请求发出的内容、回来的结果、用时与用量，在“模型请求”页查看。关掉之后的请求不记，已有的照样能看。"
+        },
+        "requestTracePayload": {
+            "title": "存原始请求体",
+            "description": "另存发给服务商的原始请求体，图片只记类型与大小。全部合计超过 1 GB 时从最旧的删起。"
+        },
+        "requestTraceDays": {
+            "title": "保留天数",
+            "description": "超过这么多天的记录在启动时与之后每天清理一次。"
+        },
+        "requestTraceHeaders": {
+            "title": "记录请求头",
+            "description": "记下每次发出的请求头，凭据类的值换成 [REDACTED]。自定义网关把凭据放在别的头里时遮不住，所以缺省关着。"
         }
     },
     "settingsSections": {
@@ -161,6 +177,10 @@
                     "title": "子代理与后台任务"
                 }
             }
+        },
+        "requests": {
+            "title": "模型请求记录",
+            "description": "记不记模型请求、存不存原始请求体、留多久"
         }
     },
     "conversation": {
@@ -318,6 +338,10 @@
             "hideOutput": "收起输出",
             "openOutput": "打开输出文件 {{path}}",
             "outputUnavailable": "输出读不到"
+        },
+        "requests": {
+            "open": "查看模型请求",
+            "openThis": "查看这次请求"
         }
     },
     "views": {
@@ -331,6 +355,9 @@
     "editorPages": {
         "conversation": {
             "title": "Agent 对话"
+        },
+        "requests": {
+            "title": "模型请求"
         }
     },
     "commands": {
@@ -346,6 +373,9 @@
         "category": "Agent",
         "open-in-editor": {
             "title": "在编辑区打开对话"
+        },
+        "open-requests": {
+            "title": "查看模型请求"
         }
     },
     "state": {
@@ -361,6 +391,10 @@
         "profiles": {
             "title": "Profile",
             "description": "每个 Profile 用什么模型、新会话的审批模式、能用哪些工具"
+        },
+        "skills": {
+            "title": "Skill",
+            "description": "放进 Skill 文件夹的 Skill、它们的状态与初始化"
         }
     },
     "profiles": {
@@ -410,7 +444,8 @@
         "sections": {
             "model": "模型与审批",
             "tools": "工具",
-            "agents": "可派的子代理"
+            "agents": "可派的子代理",
+            "skills": "Skill"
         },
         "model": {
             "label": "模型",
@@ -527,6 +562,148 @@
             "userAdded": "我加的",
             "gone": "已删除或不可用",
             "goneGroup": "已删除或不可用"
+        },
+        "skills": {
+            "section": {
+                "help": "这个 Profile 能在对话里用 $ 选哪些 Skill；下一轮起生效",
+                "count": "可用 {{count}} 个",
+                "restore": "恢复默认",
+                "add": "添加 Skill"
+            },
+            "remove": "不再允许用 {{name}}（{{id}}）",
+            "required": "必需",
+            "addBack": "加回",
+            "addBackLabel": "加回 {{name}}（{{id}}）",
+            "add": {
+                "title": "添加 Skill",
+                "done": "添加",
+                "search": "搜索 Skill",
+                "empty": "没有别的可用的 Skill",
+                "noMatch": "没有匹配的 Skill",
+                "blocked": "不能添加",
+                "replaces": "（替换同名的）",
+                "join": "选上 {{name}}（{{id}}）",
+                "unjoin": "不选 {{name}}（{{id}}）"
+            },
+            "userAdded": "我加的",
+            "needsInit": "未初始化",
+            "gone": "没有找到这个 Skill：自己的放回 Skill 文件夹、插件的重新启用插件后恢复",
+            "goneGroup": "已删除或不可用",
+            "removedGroup": "已去掉",
+            "groups": {
+                "user": "我的 Skill",
+                "builtin": "内置"
+            },
+            "invalid": "无效"
+        }
+    },
+    "skills": {
+        "task": {
+            "title": "初始化 Skill {{name}}",
+            "installing": "正在安装 {{count}} 个包",
+            "installingUnknown": "正在安装依赖",
+            "resolving": "正在解析依赖并生成锁文件",
+            "ready": "已可用",
+            "failed": "安装没有成功"
+        },
+        "init": {
+            "title": "初始化 {{name}}",
+            "head": {
+                "loading": "正在读取要装的依赖…",
+                "packages": "要装 {{count}} 个包，需要联网。",
+                "packagesUnknown": "要装依赖（包数未知），需要联网。",
+                "direct": "要装 {{count}} 个直接依赖，需要联网。",
+                "installing": "正在安装…",
+                "failed": "初始化没有成功。"
+            },
+            "box": {
+                "dependencies": "直接依赖",
+                "output": "安装输出（最后几行）",
+                "none": "没有直接依赖"
+            },
+            "note": {
+                "scripts": "包的安装脚本不会运行，依赖安装脚本的包可能用不了。",
+                "noLock": "没有 bun.lock：会按最新版本解析依赖并生成锁文件。包的安装脚本不会运行。",
+                "installing": "关掉也会在后台继续装，进度在状态栏的后台任务里。",
+                "installFailed": "看上面的输出，修好网络或依赖后重试。",
+                "busy": "这个 Skill 正在别处初始化（应用或命令行），等它装完再看。",
+                "interrupted": "安装被取消或中断了，可以重试。",
+                "unavailable": "这个 Skill 现在不能初始化，到设置的 Skill 页看它的状态。"
+            },
+            "later": "先不初始化",
+            "confirm": "初始化",
+            "background": "在后台继续装",
+            "close": "关闭",
+            "retry": "重试"
+        },
+        "open": {
+            "missing": "Skill“{{name}}”已不在，或这个 Profile 不能用它。"
+        },
+        "menu": {
+            "title": "Skill",
+            "recent": "最近用过",
+            "all": "全部",
+            "noMatch": "没有匹配的 Skill",
+            "openSettings": "打开 Profile 设置",
+            "noSkills": "这个 Profile 还没有可用的 Skill",
+            "needsInit": "未初始化",
+            "initializing": "正在初始化"
+        },
+        "page": {
+            "openFolder": "打开 Skill 文件夹",
+            "loading": "正在读取 Skill…",
+            "empty": "还没有 Skill。把一个 Skill 的文件夹（里面有 SKILL.md）放进 Skill 文件夹，这里就会列出来；之后在对话里打 $ 选它。",
+            "groups": {
+                "user": "我的 Skill",
+                "builtin": "内置"
+            },
+            "status": {
+                "needsInit": "未初始化",
+                "initializing": "正在初始化",
+                "invalid": "无效"
+            },
+            "problem": {
+                "skillMdMissing": "文件夹里没有 SKILL.md",
+                "nested": "文件夹里没有 SKILL.md，下一层的 {{directory}} 里有：可能多套了一层文件夹",
+                "frontmatter": "SKILL.md 开头的 frontmatter 读不出来：{{detail}}",
+                "fieldMissing": "SKILL.md 缺少 {{field}}",
+                "fieldInvalid": "SKILL.md 里的 {{field}} 不合规",
+                "nameMismatch": "SKILL.md 里的 name 是 {{name}}，与文件夹名不同",
+                "symlink": "Skill 文件夹是链接，不能使用",
+                "pluginSkillUnbuilt": "插件里的这个 Skill 没有经 nbooke build 打包，用不了；请向插件作者反馈",
+                "installFailed": "上次初始化没有成功",
+                "interrupted": "上次初始化被中断了"
+            },
+            "init": "初始化",
+            "open": "打开",
+            "details": {
+                "toggle": "{{name}} 的详情",
+                "license": "许可",
+                "compatibility": "兼容性",
+                "external": "外部依赖",
+                "python": "脚本带 Python 依赖，应用不代装",
+                "pythonNoUv": "脚本带 Python 依赖，应用不代装；没有找到 uv",
+                "metadata": "metadata",
+                "lastOutput": "上次安装的输出",
+                "location": "位置"
+            },
+            "folder": {
+                "title": "打不开 Skill 文件夹",
+                "noDesktop": "这台机器没有桌面，打不开文件管理器。Skill 文件夹在：{{path}}",
+                "failed": "文件管理器没有打开。Skill 文件夹在：{{path}}"
+            }
+        }
+    },
+    "work": {
+        "session": {
+            "running": "Agent 会话「{{title}}」正在运行",
+            "waiting": "Agent 会话「{{title}}」在等你处理",
+            "untitledRunning": "未命名的 Agent 会话正在运行",
+            "untitledWaiting": "未命名的 Agent 会话在等你处理"
+        },
+        "job": {
+            "shell": "后台命令「{{command}}」正在运行",
+            "agent": "子代理「{{name}}」正在运行"
         }
     }
 }

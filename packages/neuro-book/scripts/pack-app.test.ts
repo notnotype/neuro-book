@@ -4,15 +4,17 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {BUN_ENGINE, PRODUCT_VERSION} from "../src/shared/product";
 
 import {locateDocsRoot} from "../src/plugins/agent/backend/docs-root";
-import {APP_NAME, bundleProblems, packApp} from "./pack-app";
+import {queryNeuroBook} from "../src/server/instance";
+import {APP_NAME, bundleProblems, checkManagedEntry, packApp} from "./pack-app";
 
 let tmp = "";
 let web = "";
@@ -43,14 +45,14 @@ describe("应用包", () => {
         const {directory, tarball} = await packApp({webRoot: web, outDir: out});
         expect(directory).toBe(out);
         expect(tarball).toBe(join(tmp, "out", `notnotype-neuro-book-${PRODUCT_VERSION}.tgz`));
-        // 命令行开代码分割：入口旁边有它的 chunk（名字带内容哈希），其余文件固定。
+        // 命令行与托管入口开代码分割、共用旁边的 chunk（名字带内容哈希），其余文件固定。
         const entries = tarEntries(tarball);
-        const chunks = entries.filter((name) => /^package\/server\/(?:nbook|project)-[\w-]+\.js$/u.test(name));
-        expect(chunks.some((name) => name.startsWith("package/server/nbook-"))).toBe(true);
+        const chunks = entries.filter((name) => /^package\/server\/(?:chunk|project)-[\w-]+\.js$/u.test(name));
+        expect(chunks.some((name) => name.startsWith("package/server/chunk-"))).toBe(true);
         // Agent 读的产品文档（docs/specs/agent/resources.md 输出 8）：SDK 的作者文档与 Agent 自己的文档。
         const docs = entries.filter((name) => name.startsWith("package/docs/"));
         expect(docs).toEqual(expect.arrayContaining(["package/docs/builtin/sdk/README.md", "package/docs/builtin/sdk/docs/exports.md", "package/docs/agent/addresses.md"]));
-        expect(entries.filter((name) => !chunks.includes(name) && !docs.includes(name))).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
+        expect(entries.filter((name) => !chunks.includes(name) && !docs.includes(name))).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/main.js", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
 
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({name: APP_NAME, version: PRODUCT_VERSION, bin: {nbook: "./server/nbook.js"}, engines: {bun: BUN_ENGINE}, license: "AGPL-3.0-only", publishConfig: {access: "public"}});
@@ -127,6 +129,83 @@ describe("应用包", () => {
         await expect(packApp({webRoot: bare, outDir: out})).rejects.toThrow("vite build");
         // 失败留下的半成品带着标记：补上前端产物再打一次就能清掉重建，不用手工删目录。
         expect((await packApp({webRoot: web, outDir: out})).directory).toBe(out);
+    }, 60_000);
+});
+
+describe("托管入口", () => {
+    /** 以托管方式起包里的 `server/main.js`（docs/specs/runtime/server-host.md 的“托管宿主”）；外部依赖经链到包旁边的仓库 node_modules 解析。 */
+    function startManaged(out: string, stateRoot: string): Bun.Subprocess<"pipe", "ignore", "pipe"> {
+        return Bun.spawn(["bun", join(out, "server", "main.js"), "--stop-stdin"], {
+            env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join(out, "web")},
+            stdin: "pipe",
+            stdout: "ignore",
+            stderr: "pipe",
+        });
+    }
+
+    it("标准输入结束即有序停止、以 0 退出；状态根已被占用时第二个以 1 退出，不碰第一个", async () => {
+        const out = join(tmp, "managed", "neuro-book");
+        await packApp({webRoot: web, outDir: out});
+        await symlink(join(import.meta.dir, "../../../node_modules"), join(out, "node_modules"), "dir");
+        const stateRoot = join(tmp, "managed-state");
+        const first = startManaged(out, stateRoot);
+        let second: ReturnType<typeof startManaged> | null = null;
+        try {
+            const ready = await waitUntil("托管入口就绪", async () => {
+                const query = await queryNeuroBook(stateRoot);
+                return query.state === "running" && query.instance.status === "ready" ? query.instance : null;
+            }, {timeoutMs: 30_000, intervalMs: 100});
+            expect(ready.kind).toBe("product");
+            expect(ready.version).toBe(PRODUCT_VERSION);
+
+            second = startManaged(out, stateRoot);
+            second.stdin.end();
+            expect(await second.exited).toBe(1);
+            expect(await new Response(second.stderr).text()).toContain("runtime.state-root.busy");
+            expect((await queryNeuroBook(stateRoot)).state).toBe("running");
+
+            first.stdin.end();
+            expect(await first.exited).toBe(0);
+            expect((await queryNeuroBook(stateRoot)).state).toBe("none");
+        } finally {
+            for (const child of [first, second]) {
+                if (child !== null && child.exitCode === null) child.kill("SIGKILL");
+                await child?.exited;
+            }
+        }
+    }, 90_000);
+
+    /**
+     * 打包时的托管核对（`checkManagedEntry`）拦得住的几种坏入口：用替身的 `server/main.js` 代替真实服务端。替身经产品自己的
+     * 认领档案认领状态根、发布就绪与地址，与真实服务端对 `checkManagedEntry` 可观察的部分相同。
+     */
+    async function fakeEntry(name: string, body: string): Promise<string> {
+        const directory = join(tmp, "fake-entries", name);
+        await mkdir(join(directory, "server"), {recursive: true});
+        await mkdir(join(directory, "web"), {recursive: true});
+        const instance = join(import.meta.dir, "../src/server/instance.ts");
+        await writeFile(join(directory, "server", "main.js"), `import {claimNeuroBook} from ${JSON.stringify(instance)};\n${body}\n`);
+        return directory;
+    }
+    const claimAndServe = `
+const claimed = await claimNeuroBook({stateRoot: process.env.NBOOK_STATE_ROOT, kind: "product", report: () => {}});
+if (!claimed.ok) process.exit(9);
+const server = Bun.serve({port: 0, hostname: "127.0.0.1", fetch: () => new Response(globalThis.healthStatus === undefined ? "ok" : "bad", {status: globalThis.healthStatus ?? 200})});
+`;
+    const publish = `claimed.claim.publish({url: \`http://127.0.0.1:\${server.port}/\`, rpcUrl: "ws://127.0.0.1:1/rpc", extra: {plugins: {safeMode: false, items: []}}});`;
+
+    it("打包时的托管核对：就绪前退出、health 不是 200、停止后退出码不是 0、超时都失败，并说明是哪一种", async () => {
+        const early = await fakeEntry("early", "process.exit(3);");
+        await expect(checkManagedEntry(early)).rejects.toThrow("在就绪前退出，退出码 3");
+
+        const unhealthy = await fakeEntry("unhealthy", `globalThis.healthStatus = 500;${claimAndServe}${publish}\nfor await (const _ of console) break;\nprocess.exit(0);`);
+        await expect(checkManagedEntry(unhealthy)).rejects.toThrow("health 是 500");
+
+        const badStop = await fakeEntry("bad-stop", `${claimAndServe}${publish}\nfor await (const _ of console) break;\nprocess.exit(7);`);
+        await expect(checkManagedEntry(badStop)).rejects.toThrow("经标准输入停止，退出码 7");
+
+        const neverReady = await fakeEntry("never-ready", `${claimAndServe}\nawait new Promise(() => {});`);
+        await expect(checkManagedEntry(neverReady, 1_500)).rejects.toThrow("秒内没有完成");
     }, 60_000);
 });
 

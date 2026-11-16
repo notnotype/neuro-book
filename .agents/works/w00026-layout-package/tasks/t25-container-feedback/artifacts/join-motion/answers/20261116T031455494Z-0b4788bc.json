@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t25-container-feedback",
+    "artifactId": "join-motion",
+    "answerId": "20261116T031455494Z-0b4788bc",
+    "artifactVersion": 2,
+    "contentHash": "67aacb9ac26a71e03b59d123e699594019fe667ac3e0692138876b1507fbe4df",
+    "submittedAt": "2026-11-16T03:14:54.412Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "join-motion-2": "cap"
+    },
+    "comments": {},
+    "note": null
+}

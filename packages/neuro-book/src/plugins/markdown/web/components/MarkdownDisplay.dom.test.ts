@@ -59,9 +59,10 @@ const CORPUS = [
     "",
 ].join("\n");
 
-/** 方言元素的结构：标签名、`nb-` 开头的类名与方言的数据属性，按文档顺序。 */
+/** 方言元素的结构：标签名、`nb-` 开头的类名与方言的数据属性，按文档顺序。批注末尾的小符号只在编辑器里有（输出 38），不是方言元素。 */
 function dialectShape(root: Element): string[] {
     return [...root.querySelectorAll("*")]
+        .filter((element) => !element.matches(".nb-comment-marker"))
         .filter((element) => [...element.classList].some((name) => name.startsWith("nb-")) || ["comment", "ruby", "mark", "sup"].includes(element.tagName.toLowerCase()) || element.hasAttribute("data-callout"))
         .map((element) => `${element.tagName.toLowerCase()}.${[...element.classList].filter((name) => name.startsWith("nb-")).sort().join(".")}${element.hasAttribute("data-callout") ? `[${element.getAttribute("data-callout")}]` : ""}`);
 }
@@ -73,7 +74,7 @@ describe("Spec ui.markdown-display", () => {
         const language = markdownLanguage();
         const element = document.createElement("div");
         document.body.append(element);
-        const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", host: {base: () => null, assets: null, chips: nbookChips}}), editable: false});
+        const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", host: {base: () => null, assets: null, chips: nbookChips}, commentMarkerLabel: null}), editable: false});
         cleanups.push(() => {
             editor.destroy();
             element.remove();

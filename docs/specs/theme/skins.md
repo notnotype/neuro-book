@@ -84,7 +84,7 @@ type Look = {
 10. **没写的位置和没有主题时一样**：`nbook`、`macos` 的外观不因本能力改变。
 11. **内置的“书房”**：随产品提供，不是缺省；亮暗各有一张场景图和一张工作态场景（输出 17），后者与场景图构图相同、只有桌面换成忙碌的样子。
 12. **内置的护眼主题**：`eye-green`（护眼绿）与 `eye-sepia`（护眼米黄），工作台提供，主题包是 `nbook`，亮暗各一套低饱和的配色，只换颜色，没有场景。正文、次要文字、链接与状态色都不低于 4.5。
-13. **浮层画框**：`Look.frame` 有值时，菜单、气泡、对话框、抽屉与设置窗口等浮层（`.nb-ui-popover-surface`、`.nb-ui-dialog-surface`）在描边里面 4px 处再画一道 1px 的细线，颜色取 `frame.line`，不改浮层的尺寸与布局。小提示不画。`prefers-contrast: more`、`forced-colors: active` 下不画。没写 `frame` 时和没有主题一样。
+13. **浮层画框**：`Look.frame` 有值时，菜单、气泡、对话框、抽屉与设置窗口等浮层（`.nb-ui-popover-surface`、`.nb-ui-dialog-surface`）在描边里面 4px 处再画一道 1px 的细线，颜色取 `frame.line`，不改浮层的尺寸与布局。小提示与页边里的批注卡片（它用浮层基座只为同一种材质，不是浮出来的浮层，画框线会贴着它的文字）不画。`prefers-contrast: more`、`forced-colors: active` 下不画。没写 `frame` 时和没有主题一样。
 14. **书架页**：带场景的主题，书架页整页铺场景图，裁切取 `crop.empty`（与欢迎页同一个），上面罩一层页面底色（`--bg-main` 的 62%）；场景钉在视口上，书多了页面变长也不被拉伸。卡片与文字仍在原来的面上，文字对比度不低于 4.5。`prefers-contrast: more`、`forced-colors: active` 下不画。没有场景的主题没有这一层。书架的展示字体不变（输出 8）。
 15. **设置窗口**：带场景的主题，设置窗口内容区铺一层淡场景（图的 16% 不透明度），裁切取 `crop.empty`；不管窗口后面是什么页面，窗口自己都带着主题的味道。淡到文字与控件的对比度仍不低于 4.5。`prefers-contrast: more`、`forced-colors: active` 下不画。没有场景的主题没有这一层。
 

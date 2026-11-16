@@ -1,8 +1,10 @@
 /**
  * 生成应用的 npm 包 `@notnotype/neuro-book`（ADR 0033，docs/specs/runtime/cli.md）：发构建产物，不发源码。
  *
- * - `server/nbook.js` 与它旁边的 `nbook-<hash>.js`：命令行 `nbook`（`src/cli/main.ts`，开代码分割，理由见该文件），里面是整个服务端；`server/project.js`：项目宿主
- *   （`src/project/main.ts`），服务端从 `nbook.js` 旁边找它。两个都由这里用 Bun 打包，依赖打进去，只有 OMP（`@oh-my-pi/*`）
+ * - `server/nbook.js`：命令行 `nbook`（`src/cli/main.ts`）；`server/main.js`：服务端的托管入口（`src/server/main.ts`，桌面壳这类
+ *   托管宿主以 `--stop-stdin` 运行它，docs/specs/runtime/server-host.md 的“托管宿主”）。两个入口一次打包、开代码分割（理由见
+ *   `src/cli/main.ts`），共用旁边的 `chunk-<hash>.js`，服务端只有一份。`server/project.js`：项目宿主（`src/project/main.ts`），
+ *   服务端从入口旁边找它，单独打（它在另一个进程里，与服务端共用 chunk 没有收益）。两个都由这里用 Bun 打包，依赖打进去，只有 OMP（`@oh-my-pi/*`）
  *   例外：它带每个平台约 122 MB 的原生插件，按平台从 npm 装，所以不打进 bundle，写进包的 `dependencies`（w00032 t09 决定 33）。
  * - `web/`：前端构建产物（`vite build` 的 `dist/web`），不含 Vite 的元数据目录 `.vite/`。
  * - `LICENSE`（仓库根的 AGPL）、给用户的 `README.md`（`scripts/app-package/README.md`，填上 Bun 版本与构建所用的提交）、
@@ -11,8 +13,12 @@
  * - `package.json`：名字、版本（产品版本）、`bin`、`files`、`engines.bun`、`publishConfig` 与 `repository` 按仓库的发布门禁
  *   （`scripts/release/packages.ts`）写，接进发布时不必改产物结构。
  *
- * 打包前核对：两个 bundle 只引用 Bun 与 Node 的内置模块和 `SERVER_EXTERNALS`；不出现 `new Worker(` 与 `import.meta.resolve(`（运行时按路径
- * 找文件，装到别处会找不到）；`nbook.js --version` 报的是产品版本。最后 `bun pm pack` 打成 tarball，放在目录旁边。
+ * 打包前核对：bundle 只引用 Bun 与 Node 的内置模块和 `SERVER_EXTERNALS`；不出现 `new Worker(` 与 `import.meta.resolve(`（运行时按路径
+ * 找文件，装到别处会找不到）；`nbook.js --version` 报的是产品版本；`main.js` 以托管方式起得来、就绪、经标准输入停止后以 0 退出。
+ * 最后 `bun pm pack` 打成 tarball，放在目录旁边。
+ *
+ * 发布形态只以这里为准：`package.json` 的 `build:server`（开发与 `smoke:server` 用）与 `src/cli/cli.test.ts` 的构建是另两套打包，
+ * 入口与 chunk 的命名不同，不要拿它们推断包里的文件。
  * 应用的源码包是 `private`，只有这里生成的目录能发布。
  *
  * 用法：`bun scripts/pack-app.ts [输出目录]`，Web 产物取 `dist/web`（先 `bun run build`），缺省输出到 `dist/app-package/`，
@@ -21,12 +27,14 @@
 
 import {execFile, spawnSync} from "node:child_process";
 import {existsSync} from "node:fs";
-import {chmod, cp, mkdir, readdir, readFile, rm, symlink, unlink, writeFile} from "node:fs/promises";
+import {chmod, cp, mkdir, mkdtemp, readdir, readFile, rename, rm, symlink, unlink, writeFile} from "node:fs/promises";
 import {isBuiltin} from "node:module";
+import {tmpdir} from "node:os";
 import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {promisify} from "node:util";
 
+import {queryNeuroBook} from "../src/server/instance";
 import {BUN_ENGINE, PRODUCT_VERSION} from "../src/shared/product";
 
 import {buildAgentDocs} from "./agent-docs";
@@ -78,12 +86,20 @@ export interface PackedApp {
     readonly tarball: string;
 }
 
-/** 清空上次生成的应用包。输出目录来自命令行，传错了不能被递归删除：只认不存在、为空，或者带标记文件的目录。 */
-export async function clearPreviousApp(outDir: string): Promise<void> {
+/**
+ * 清空上次生成的目录。输出目录来自命令行，传错了不能被递归删除：只认不存在、为空，或者带标记文件（内容是 `owner`）的目录。
+ * 应用包与桌面载荷（`desktop-payload.ts`）各用自己的标记。
+ */
+export async function clearGenerated(outDir: string, marker: string, owner: string): Promise<void> {
     if (!existsSync(outDir) || (await readdir(outDir)).length === 0) return;
-    const marker = await readFile(join(outDir, MARKER), "utf8").catch(() => null);
-    if (marker?.trim() !== APP_NAME) throw new Error(`输出目录 ${outDir} 不是空的，也不是上次生成的 ${APP_NAME}（没有 ${MARKER}），不清理`);
+    const found = await readFile(join(outDir, marker), "utf8").catch(() => null);
+    if (found?.trim() !== owner) throw new Error(`输出目录 ${outDir} 不是空的，也不是上次生成的 ${owner}（没有 ${marker}），不清理`);
     await rm(outDir, {recursive: true});
+}
+
+/** 清空上次生成的应用包。 */
+export function clearPreviousApp(outDir: string): Promise<void> {
+    return clearGenerated(outDir, MARKER, APP_NAME);
 }
 
 /** bundle 里不该有的东西：内置模块之外的导入，以及运行时按路径找文件的写法。返回问题列表，空表示通过。 */
@@ -103,13 +119,80 @@ export function bundleProblems(source: string): string[] {
 }
 
 /**
- * 打一个服务端入口（开代码分割：入口动态导入的部分进旁边的 chunk），返回打进去的第三方包所在的目录（metafile 的输入路径，
- * 见 `packageDirectories`）。
+ * 打服务端入口（开代码分割：入口动态导入的部分、几个入口共用的部分进旁边的 chunk），返回打进去的第三方包所在的目录
+ * （metafile 的输入路径，见 `packageDirectories`）。
  */
-async function bundle(entry: string, outDir: string, naming: {readonly entry: string; readonly chunk: string}): Promise<Set<string>> {
-    const built = await Bun.build({entrypoints: [join(packageRoot, entry)], target: "bun", outdir: outDir, naming, splitting: true, metafile: true, external: [...SERVER_EXTERNALS]});
-    if (!built.success) throw new AggregateError(built.logs, `打包 ${entry} 失败`);
+async function bundle(entries: readonly string[], outDir: string, naming: {readonly entry: string; readonly chunk: string}): Promise<Set<string>> {
+    const built = await Bun.build({entrypoints: entries.map((entry) => join(packageRoot, entry)), root: join(packageRoot, "src"), target: "bun", outdir: outDir, naming, splitting: true, metafile: true, external: [...SERVER_EXTERNALS]});
+    if (!built.success) throw new AggregateError(built.logs, `打包 ${entries.join("、")} 失败`);
     return packageDirectories(Object.keys(built.metafile?.inputs ?? {}));
+}
+
+/**
+ * 命令行与托管入口一次打包。两个入口都叫 `main.ts`，Bun 只能按“目录-名字”区分，打完再改成包里的名字：入口文件不被 chunk
+ * 引用（chunk 只被入口引用），改名不影响相对导入；改名后核对没有文件还引用旧名。
+ */
+async function bundleServerEntries(serverDir: string): Promise<Set<string>> {
+    const packages = await bundle(["src/cli/main.ts", "src/server/main.ts"], serverDir, {entry: "[dir]-[name].[ext]", chunk: "chunk-[hash].[ext]"});
+    const renames = [["cli-main.js", "nbook.js"], ["server-main.js", "main.js"]] as const;
+    for (const [from, to] of renames) await rename(join(serverDir, from), join(serverDir, to));
+    for (const file of (await readdir(serverDir)).filter((name) => name.endsWith(".js"))) {
+        const source = await readFile(join(serverDir, file), "utf8");
+        const stale = renames.find(([from]) => source.includes(`./${from}`));
+        if (stale !== undefined) throw new Error(`server/${file} 引用了改名前的入口 ${stale[0]}`);
+    }
+    return packages;
+}
+
+/** 托管入口核对的截止：起来、就绪、停止一共这么久。 */
+const MANAGED_CHECK_MS = 60_000;
+
+/**
+ * 以托管方式跑一遍包里的 `server/main.js`（docs/specs/runtime/server-host.md 的“托管宿主”）：临时状态根、系统分配的端口、
+ * `--stop-stdin`；从认领应答读到就绪与地址，health 为 200，写 `stop` 后以 0 退出。要求 `packageDirectory` 旁边已经能解析到
+ * 外部依赖（见 `packApp`）。失败或超时都结束子进程，等它真的退出后才删临时状态根（它还开着状态根里的文件）。
+ */
+export async function checkManagedEntry(packageDirectory: string, deadlineMs: number = MANAGED_CHECK_MS): Promise<void> {
+    const stateRoot = await mkdtemp(join(tmpdir(), "nbook-pack-app-"));
+    const child = Bun.spawn(["bun", join(packageDirectory, "server", "main.js"), "--stop-stdin"], {
+        env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: join(packageDirectory, "web")},
+        stdin: "pipe",
+        stdout: "ignore",
+        stderr: "pipe",
+    });
+    const stderr = new Response(child.stderr).text();
+    // 截止用一个计时器：到时结束子进程，下面等待它的地方都随之结束；正常走完时清掉，不让脚本在打印结果后还挂着。
+    let timedOut = false;
+    const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+    }, deadlineMs);
+    const fail = async (message: string): Promise<never> => {
+        child.kill("SIGKILL");
+        await child.exited;
+        throw new Error(`server/main.js 托管运行${timedOut ? `在 ${String(deadlineMs / 1000)} 秒内没有完成` : message}\n${await stderr}`);
+    };
+    try {
+        let url: string | null = null;
+        while (url === null) {
+            if (child.exitCode !== null || timedOut) await fail(`在就绪前退出，退出码 ${String(child.exitCode)}`);
+            const query = await queryNeuroBook(stateRoot);
+            if (query.state === "running" && query.instance.status === "ready" && query.instance.url !== null) url = query.instance.url;
+            else await Bun.sleep(100);
+        }
+        const health = await fetch(new URL("/api/runtime/health", url), {signal: AbortSignal.timeout(10_000)}).catch((error: unknown) => fail(`就绪后取 health 失败：${String(error)}`));
+        if (health.status !== 200) await fail(`就绪后 health 是 ${String(health.status)}`);
+        void child.stdin.write("stop\n");
+        await child.stdin.flush();
+        const code = await child.exited;
+        if (timedOut) await fail("");
+        if (code !== 0) await fail(`经标准输入停止，退出码 ${String(code)}`);
+    } finally {
+        clearTimeout(timer);
+        if (child.exitCode === null) child.kill("SIGKILL");
+        await child.exited;
+        await rm(stateRoot, {recursive: true, force: true});
+    }
 }
 
 /** 外部依赖写进 `dependencies` 的版本：本仓库装的那个，精确版本（原生插件与 JS 部分要同一版）。 */
@@ -128,7 +211,7 @@ async function thirdPartyNotices(serverPackages: ReadonlySet<string>, webRoot: s
     return [
         "# 第三方许可",
         "这个包里的 `server/` 与 `web/` 是打包产物，打包时去掉了各依赖文件头的版权声明。下面是打进去的每个第三方包的许可与声明。",
-        noticeSection("服务端（server/nbook.js、server/project.js）", await packageNotices(serverPackages)),
+        noticeSection("服务端（server/nbook.js、server/main.js、server/project.js）", await packageNotices(serverPackages)),
         noticeSection("前端（web/）", web),
         ["## 字体", ...fonts.map(({file, text}) => `### web/assets/${file}\n\n\`\`\`\n${text}\n\`\`\``)].join("\n\n"),
     ].join("\n\n") + "\n";
@@ -159,8 +242,8 @@ export async function packApp(options: PackOptions): Promise<PackedApp> {
     await writeFile(join(outDir, MARKER), `${APP_NAME}\n`);
     const serverDir = join(outDir, "server");
     const serverPackages = new Set([
-        ...await bundle("src/cli/main.ts", serverDir, {entry: "nbook.js", chunk: "nbook-[hash].[ext]"}),
-        ...await bundle("src/project/main.ts", serverDir, {entry: "project.js", chunk: "project-[hash].[ext]"}),
+        ...await bundleServerEntries(serverDir),
+        ...await bundle(["src/project/main.ts"], serverDir, {entry: "project.js", chunk: "project-[hash].[ext]"}),
     ]);
     await chmod(join(outDir, "server", "nbook.js"), 0o755);
     const dependencies = new Set<string>();
@@ -203,6 +286,7 @@ export async function packApp(options: PackOptions): Promise<PackedApp> {
     try {
         const version = spawnSync("bun", [join(outDir, "server", "nbook.js"), "--version"], {encoding: "utf8"});
         if (version.status !== 0 || !version.stdout.includes(`NeuroBook ${PRODUCT_VERSION}`)) throw new Error(`server/nbook.js --version 没有报出 ${PRODUCT_VERSION}：${version.stdout}${version.stderr}`);
+        await checkManagedEntry(outDir);
     } finally {
         await unlink(linked);
     }

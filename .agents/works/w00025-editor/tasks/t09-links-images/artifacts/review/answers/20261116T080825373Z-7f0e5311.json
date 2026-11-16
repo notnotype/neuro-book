@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t09-links-images",
+    "artifactId": "review",
+    "answerId": "20261116T080825373Z-7f0e5311",
+    "artifactVersion": 1,
+    "contentHash": "b7354bd3bd06a89b5866b794cdbb3af4bd8074611ac4e81224efeea61f073989",
+    "submittedAt": "2026-11-16T08:08:22.243Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "q1-link-card": "one",
+        "q2-image-entry": "card",
+        "q3-store-where": "folder",
+        "q4-file-kind": "plain"
+    },
+    "comments": {},
+    "note": null
+}

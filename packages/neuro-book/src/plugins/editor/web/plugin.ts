@@ -24,7 +24,7 @@ import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/con
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {editorPanelsKey, quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {EditorAreaContext, EditorAreaHostProps, EditorAreaImplementation, PanelFrameControl} from "nbook/plugins/workbench/web/contracts";
-import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
+import {clockKey, windowCloseKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
@@ -97,7 +97,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: editorPanelsKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: editorPanelsKey}, {key: windowRescueKey, required: false}, {key: windowCloseKey, required: false}, {key: quickPickKey, required: false}, {key: windowTextKey, required: false}],
         provides: [documentCoordinatorKey],
         receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TOOLBAR_POINT, EDITOR_SELECTION_POINT, EDITOR_SLASH_POINT, EDITOR_BLOCK_POINT, EDITOR_BODY_CONTEXT_POINT, EDITOR_CODE_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
@@ -196,9 +196,21 @@ export const editorBrowserPlugin: PluginDefinition = {
                 const release = rescue.instance.register(() => session.area.value?.documents.rescue() ?? []);
                 context.signal.addEventListener("abort", release, {once: true});
             }
+            // 桌面窗口关闭前的询问（输出 66）：编辑器是参与方。
+            const windowClose = await context.services.resolve(windowCloseKey);
+            const closing = windowClose.status === "resolved" ? windowClose.instance : null;
+            if (closing !== null) {
+                const release = closing.participate(async ({signal}) => {
+                    const area = session.area.value;
+                    return area === null ? "allow" : await area.closeWindow(signal);
+                });
+                context.signal.addEventListener("abort", release, {once: true});
+            }
             // 离开页面前：结算全部视图输入，有需要结算的文档时请求浏览器的离开确认。开着自动保存时顺手把保存发出去：用户在
             // 确认框里选择留下时正文已经存好；不指望它在卸载前完成。
             const beforeUnload = (event: Event): void => {
+                // 关窗询问里已经同意（窗口正在关）：同一件事问过了，不再请求离开确认。
+                if (closing?.agreed() === true) return;
                 if (session.area.value?.needsLeaveConfirm() !== true) return;
                 session.area.value.leaving();
                 // 现在的浏览器以 preventDefault 请求离开确认（Chrome 119 起不再要求 returnValue）。

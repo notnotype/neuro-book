@@ -59,7 +59,7 @@ describe("InlineChip", () => {
         const locale = ref("zh-CN");
         const port: TextPort = {locale, t: (text) => translator.translate(text, locale.value), variants: (text) => translator.variants(text)};
         const wrapper = mount(InlineChip, {props: {kind: "skill", label: "reviewer"}, global: {provide: {[TEXT_PORT_KEY as symbol]: port}}});
-        expect(wrapper.attributes("title")).toBe("技能：reviewer");
+        expect(wrapper.attributes("title")).toBe("Skill：reviewer");
         locale.value = "en-US";
         await nextTick();
         expect(wrapper.attributes("title")).toBe("Skill: reviewer");

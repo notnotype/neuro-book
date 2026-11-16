@@ -17,7 +17,7 @@ owners:
 非目标：
 
 - 不包含会话数据层：不订阅 SSE、不调用接口、不持久化任何数据，也不定义后端接口。
-- 视图本身不包含会话栏、Inline AI 和 Trace Viewer。包另外提供会话列表组件（见“会话列表”），由宿主摆在左栏、下拉或弹窗里。
+- 视图本身不包含会话栏、Inline AI 和模型请求查看器。包另外提供会话列表组件（见“会话列表”），由宿主摆在左栏、下拉或弹窗里；模型请求查看器 `AgentRequestTrace` 也由本包提供，合同在 [`agent/request-trace.md`](../agent/request-trace.md) 的“查看器”。
 - 不包含“当前任务清单”面板：它独立于本视图，另行规划；消息流里只显示每一次任务清单调用。
 - 不接入主页面；主页面切换与旧组件删除属于后续工作。
 - 不实现插件加载；注册表的插件入口等插件运行时（`runtime.plugins`）定型后再接。
@@ -90,7 +90,7 @@ type AgentConversationViewEmits = {
 };
 ```
 
-视图对外暴露两个方法：`focusComposer()` 聚焦输入框，`scrollToLatest()` 滚动到最新内容。没有插槽；扩展一律通过注册表。包公开的组件是这个视图、会话列表（见“会话列表”）与模型目录对话框（见“模型目录”）；视图里的零件（轮次、输入框等）不是宿主接口。
+视图对外暴露两个方法：`focusComposer()` 聚焦输入框，`scrollToLatest()` 滚动到最新内容。没有插槽；扩展一律通过注册表。包公开的组件是这个视图、会话列表（见“会话列表”）、模型目录对话框（见“模型目录”）与模型请求查看器（见 [`agent/request-trace.md`](../agent/request-trace.md)）；视图里的零件（轮次、输入框等）不是宿主接口。
 
 ### ctx 的组成
 
@@ -218,6 +218,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 - 显示会话标题、Profile 名称和后台摘要状态；悬停标题显示会话摘要。宿主给了 `sessions` 插槽时标题是按钮，点开弹出下拉，放插槽的内容（会话面板）。`newSession` 为真时有新建会话的按钮，发出 `session.create`。
 - 常驻顶栏的动作不超过两个，其余动作收进溢出菜单。溢出菜单固定包含“原始视图”切换项。
+- 登记的顶栏动作（planned）：允许常驻（`pinnable`）的按 `order` 取前两个放在顶栏，其余与不允许常驻的收进溢出菜单，排在内置项之后、“原始视图”之前；`when` 为假的不显示；角标写在名字后。点了发出它的 action。目标是面板的顶栏动作在面板实现之前构造注册表即失败。
 - 390 宽时标题区域不小于 160px。
 - `header` 为 false 时不显示顶栏；原始视图的切换入口随之没有，宿主要切换时用受控属性 `viewMode`。
 - 子会话的路径：`session.path` 不空时顶栏是面包屑（`nav`、`ol`）：各段祖先（标题，可点，发出 `session.select`）、分隔符，最后是本会话的图标与标题，这一段仍是 `sessions` 下拉的触发；祖先多于两层时中间的收成“…”，点开列出；标题为 `null` 的段（祖先读不到）写“未知会话”，空字符串的段（读到了、还没有标题）写“未命名会话”。
@@ -294,7 +295,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 - 模型下拉：同组的模型右侧写组名（不同服务商的同名模型分得清）；用不了的模型灰掉、不能选，悬停看原因；宿主不收附件时不标“不支持图片”。`interaction.canManageModels` 为真时末尾有“管理模型…”，发出 `model.manage`。
 - 带触发字符的工具栏按钮（例如“插入引用”插 `@`）：编辑器聚焦到末尾，前一个字不是空白或标点时先补一个空格，再插入触发字符并打开它的菜单。
 - 输入以 `/` 开头且命令名与已登记的输入框命令一致时，发出 `command.run`；否则按普通文字发送。宿主在 `interaction.commands` 里列出自己做了的内置命令时，没列出的内置命令不显示、也不算已登记：输入 `/new` 按普通文字发给模型（有意的取舍：以前这些命令发出去被宿主丢弃，是死入口）。
-- 触发字符（`@`、`$`、`/` 及登记的其他字符）打开候选菜单，菜单内容来自 `services.resolveTriggerMenu`；`/` 位于正文开头时改为列出登记的输入框命令，显示说明与参数提示。方向键选择，回车或 Tab 确认，Escape 关闭。
+- 触发字符（`@`、`$`、`/` 及登记的其他字符）打开候选菜单，菜单内容来自 `services.resolveTriggerMenu`；菜单项可以带行尾的状态图标（`status {iconClass, label}`，同一个菜单有一项带它时每行都留出这一列，指针停在图标上显示意思）；`/` 位于正文开头时改为列出登记的输入框命令，显示说明与参数提示。方向键选择，回车或 Tab 确认，Escape 关闭。
 - 输入框的内容始终是一段文字：引用、技能、选区、命令、图片、文件附件与粘贴块按统一的文字写法保存（见组件文档 `PromptEditor.md` 的“文字写法”），在输入框里显示为整体的标签或块，光标跨过和退格删除都按一整个算。输入框与历史消息的就地编辑共用这个编辑器。
 - 图片与文件（PDF、txt 等）可以用“添加附件”选择、粘贴或拖入：输入框上方的附件条显示缩略图或卡片，正文在插入处留 `#N` 标签；图片一套编号，文件与粘贴块另一套。每个附件显示上传中、已就绪、失败三种状态，失败可重试或移除；会话不能登记附件时拒绝添加并在输入框上方说明原因。模型不支持图片时不拒绝：能力只作提示，发送时按实际解析的模型换成一行字。发给模型时图片保留在文字中的位置；文件以附件路径给模型，由模型按需读取。
 - 粘贴文字按大小分三档：小段原样插入；中等的在粘贴处成为默认折叠的粘贴块（展开后可以直接编辑内容），以 `<paste>` 标签包起来发给模型，也可配置为放到开头、粘贴处只留位置标记；特别大的转为文件附件。阈值与放置方式可配置。Ctrl/⌘+Shift+V 粘贴原文，不分档。
@@ -364,7 +365,7 @@ type AgentSessionListItem = {
 | 会话 | `session.create {profileKey?}`、`session.select {sessionId}`、`session.rename {sessionId, title}`、`session.archive {sessionId}`、`session.restore {sessionId}`、`sessions.query {query}`、`sessions.refresh`、`view.close` |
 | 消息 | `message.copy {messageId}`、`message.editStart {messageId}`、`message.editCancel`、`message.editSubmit {messageId, text}`、`message.retry {messageId}`、`message.branchFrom {messageId}`、`message.resend {messageId}`、`message.dismiss {messageId}`、`branch.switch {messageId, direction}`、`tool.copy {toolCallId}`、`history.loadPrevious`、`history.refresh` |
 | 引用与文件 | `reference.open {target}`、`link.open {href}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
-| 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}` |
+| 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}`、`menu.selected {trigger, id}`（确认了宿主菜单里的一项，标签已经插入；宿主据此做插入之外的事，例如问要不要初始化 Skill） |
 | 运行设置 | `mode.set {mode}`、`model.set {modelKey}`、`thinking.set {level}`、`model.manage`、`runtime.reset` |
 | 审批与提问 | `input.submit {batchKey, resolutions, sessionId?}`（`batchKey` 是事项 id，一个事项一条；`resolutions` 是 `{kind: "approval", decision, note?}` 或 `{kind: "question", answer: {text, data}}`；`sessionId` 是事项所在的会话，带 `source` 的事项提交时有）、`input.cancelRun`、`input.resync`、`wizard.state {state}`（向导的界面状态，宿主放回 `ctx.wizardState`）、`dock.state {state}`（停靠区的界面状态，宿主放回 `ctx.dockState`） |
 | 中断与排队 | `run.continue`、`queued.edit {id}`、`queued.remove {id}` |
@@ -456,6 +457,7 @@ type AgentSessionListItem = {
 33. Given 模型下拉里有两家的同名模型、其中一家用不了，`canManageModels` 为真，When 打开，Then 两项右侧各写服务商，用不了的那项灰掉并写原因，末尾“管理模型…”发出 `model.manage`。
 34. Given 模型目录（能用、没值、要登录、云凭据链的服务商各一），When 打开，Then 左栏分两段；搜 `gpt` 只剩命中，勾两个后“加入候选”按勾选先后交回引用并关闭；已选过的写“已添加”不能勾；点要登录的服务商右栏写明要设的变量。
 35. Given 宿主注入了英文的翻译端口、视图的 `locale` 是 zh-CN，When 显示，Then 视图与其中的 nb-ui 控件都是英文；端口换成中文后不重新挂载就变成中文。没有注入时 `locale` 为 en-US 显示英文，不传显示中文；单独挂载的内部零件显示中文。
+36. Given 登记了三个允许常驻的顶栏动作与一个不允许常驻的（planned），When 显示，Then 顶栏放 `order` 最小的两个，另两个在溢出菜单里、排在“原始视图”之前；点溢出菜单里的一项发出它的 action；登记一个目标是面板的顶栏动作时构造注册表失败。
 
 Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31、34 条的搜索）；第 21、22、24、26 到 29、32 到 35 条另有挂载测试（`*.dom.test.ts`）与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。第 18 条没有单独的自动检查：颜色都取 nb-ui 的文字与背景 token，对比度由 token 保证。
 

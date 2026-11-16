@@ -29,6 +29,7 @@ import {createAgentActivity} from "./web/activity";
 import {createSessionList} from "./web/session-list";
 import {createSessionHost, displayToolName, RELEASE_DELAY_MS} from "./web/session-host";
 import type {SessionHost, SessionHostDeps} from "./web/session-host";
+import {OPEN_REQUEST_ACTION, OPEN_REQUESTS_ACTION} from "./web/request-entries";
 
 let root = "";
 let counter = 0;
@@ -77,6 +78,7 @@ interface Harness {
     readonly recent: {value: string | null};
     readonly copied: string[];
     readonly settingsOpened: {count: number};
+    readonly requestsOpened: {readonly sessionId: string; readonly request?: number}[];
     ctx(): AgentConversationContext;
 }
 
@@ -87,6 +89,7 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
     const recent = {value: null as string | null};
     const copied: string[] = [];
     const settingsOpened = {count: 0};
+    const requestsOpened: {readonly sessionId: string; readonly request?: number}[] = [];
     const host = createSessionHost({
         remote: client,
         project: null,
@@ -108,15 +111,17 @@ async function harness(w: AgentWorld, overrides: Partial<SessionHostDeps> = {}):
         openSettings: () => {
             settingsOpened.count += 1;
         },
+        openRequests: (target) => void requestsOpened.push(target),
         openAddress: () => undefined,
         openLink: () => undefined,
+        skills: {selected: () => undefined, address: () => null},
         report: (code, message) => {
             throw new Error(`host reported ${code}: ${message}`);
         },
         ...overrides,
     });
     hosts.push(host);
-    return {host, client, recent, copied, settingsOpened, ctx: () => host.ctx.value};
+    return {host, client, recent, copied, settingsOpened, requestsOpened, ctx: () => host.ctx.value};
 }
 
 const assistants = (messages: readonly MessageView[]) => messages.filter((message): message is AssistantMessageView => message.kind === "assistant");
@@ -509,7 +514,7 @@ describe("命令、草稿与输入历史（输出 28–30）", () => {
         await idle(h);
         const first = h.host.sessionId.value!;
         expect(h.ctx().interaction.commands).toEqual(expect.arrayContaining(["new", "fork", "rename", "model", "compact"]));
-        expect(h.ctx().interaction.triggers).toEqual(["@", "/"]);
+        expect(h.ctx().interaction.triggers).toEqual(["@", "/", "$"]);
 
         h.host.act({type: "command.run", name: "rename", argsText: ""});
         await until("说明要写标题", () => h.ctx().composer.notice !== undefined);
@@ -1311,6 +1316,22 @@ describe("寿命", () => {
     });
 });
 
+describe("模型请求的入口（request-trace.md 的入口表）", () => {
+    test("顶栏的“查看模型请求”与回复上的“查看这次请求”补上当前会话交给宿主；回复带着它出自的请求序号", async () => {
+        const w = await world();
+        const h = await started(w);
+        endpoint.script("你好，作者。");
+        h.host.act({type: "composer.submit", text: "你好", delivery: "prompt"});
+        await until("回复到了", () => h.ctx().messages.some((message) => message.kind === "assistant" && message.request !== undefined));
+        const reply = h.ctx().messages.find((message) => message.kind === "assistant");
+        const sessionId = h.host.sessionId.value!;
+        h.host.act({type: OPEN_REQUESTS_ACTION});
+        h.host.act({type: OPEN_REQUEST_ACTION, payload: {request: reply?.kind === "assistant" ? reply.request ?? null : null}});
+        await until("两个入口都交给了宿主", () => h.requestsOpened.length === 2);
+        expect(h.requestsOpened).toEqual([{sessionId}, {sessionId, request: 1}]);
+    });
+});
+
 describe("活动条目（输出 19）", () => {
     test("先订阅后快照；运行中、等用户分开数；优先切到等用户的；结束就没有", async () => {
         const w = await world();
@@ -1505,5 +1526,31 @@ describe("子代理（w00032 t14）", () => {
         expect(Object.fromEntries(list.items.value.map((item) => [item.id, item.dimmed === true]))).toEqual({[child!.id]: false, [parent!]: true});
         held.release();
         controller.abort();
+    });
+});
+
+describe("Skill（skills.md 输出 26–28）", () => {
+    test("`$` 菜单选中交给宿主，带上当前会话的 Profile；点开标签打开宿主给的地址，认不到时输入框上提示；别的菜单选中不管", async () => {
+        const w = await world();
+        const selected: Array<[string, string]> = [];
+        const opened: string[] = [];
+        const h = await harness(w, {
+            skills: {selected: (id, profile) => void selected.push([id, profile]), address: (name, profile) => (name === "style-guide" ? `user://skills/${name}/SKILL.md#${profile}` : null)},
+            openAddress: (address) => void opened.push(address),
+        });
+        h.host.act({type: "menu.selected", trigger: "$", id: "user.style-guide"});
+        expect(selected).toEqual([["user.style-guide", MAIN_PROFILE]]);
+
+        await h.host.create(PROFILE);
+        h.host.act({type: "menu.selected", trigger: "$", id: "user.epub-export"});
+        h.host.act({type: "menu.selected", trigger: "@", id: "设定/林雪.md"});
+        expect(selected).toEqual([["user.style-guide", MAIN_PROFILE], ["user.epub-export", PROFILE]]);
+
+        h.host.act({type: "skill.open", name: "style-guide"});
+        await until("打开", () => opened.length === 1 || undefined);
+        expect(opened).toEqual([`user://skills/style-guide/SKILL.md#${PROFILE}`]);
+        h.host.act({type: "skill.open", name: "gone"});
+        await until("提示", () => h.ctx().composer.notice !== undefined);
+        expect(h.ctx().composer.notice).toMatchObject({key: "skills.open.missing", params: {name: "gone"}});
     });
 });

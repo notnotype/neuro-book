@@ -59,12 +59,12 @@ async function fixtureRoot(): Promise<string> {
 }
 
 describe("发布清单检查", () => {
-    it("本仓库的发布清单通过检查，按依赖顺序排出 9 个包", () => {
+    it("本仓库的发布清单通过检查，按依赖顺序排出 10 个包", () => {
         const {status, output} = runCheck([]);
 
         expect(output.findings).toEqual([]);
         expect(status).toBe(0);
-        expect(output.order).toHaveLength(9);
+        expect(output.order).toHaveLength(10);
         expect(output.order.indexOf("@notnotype/nb-ui")).toBeLessThan(output.order.indexOf("@notnotype/nb-agent-ui"));
         expect(output.order.indexOf("@notnotype/nb-harness")).toBeLessThan(output.order.indexOf("@notnotype/nb-story"));
         expect(output.order.at(-1)).toBe("@notnotype/nb-story");

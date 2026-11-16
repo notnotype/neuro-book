@@ -1,0 +1,130 @@
+# w00046 t11 切片 4、5：pc-notype 上的 Windows 冒烟与变体构建（第 1 轮，2026-11-15）
+# 环境：Windows 11，Hutch 0.29.0（HUTCH_HOME 用本机已有的缓存）、Electrobun 2.0.6、随包 Bun 1.4.4；冒烟脚本用 bun build 打成单文件，
+# 与 @playwright/test 1.62.1 放在 %USERPROFILE%\nb-w00046\t11\smoke\，经计划任务放进登录的桌面会话运行。只读产品自己的窗口
+# （UI 自动化的文字）与 WebView 页面本身的截图，不截屏幕。
+# 提交：冒烟脚本 90e5c3efb（第一次）→ 2797782ae（修正后）；构建脚本 f3e7fae72 的 build-variant.ts。
+# 测试包：标识 io.github.notnotype.neurobook.t11test，更新源 http://127.0.0.1:47819。A′ = 0.12.1（Work 分支的输入），
+# B′ = 0.12.2（scratch worktree 里在被测提交上加一个只在本机的测试提交，tag.ts bump-test 改版本，bun install、release:smoke、build.ts）。
+
+## 前提 1：复制一份 desktop/ 单独构建（成立）
+- 每个变体一个工程目录（工程源文件 + bundle/ + payload/），各自 hutch install、hutch electrobun build --env=stable，产物互不覆盖。
+- 先用手写脚本（t11-build.ps1）构建 A′、B′：A′ 74 s，B′ 93 s。
+- 再用 desktop/scripts/build-variant.ts（发布流水线的同一条路）构建三个变体：
+    official exit 0 in 80 s   io.github.notnotype.neurobook 0.12.1（没有补丁：“no previous release found; skipping delta patch”，GitHub 上还没有桌面 Release）
+    aprime   exit 0 in 84 s   io.github.notnotype.neurobook.t11test 0.12.1（没有补丁：本机更新源没开，ConnectionRefused）
+    bplus    exit 0 in 112 s  io.github.notnotype.neurobook.t11test 0.12.2，补丁 stable-win-x64-2vigeoqvl7opm.patch（52,542 B，“Patch: 51.31 KB (0.0% of new size)”）
+    reject   exit 1           “构建失败：输入的版本不是 0.12.1：壳 0.12.2，载荷 0.12.2”（--version 与输入不符时拒绝）
+  B′ 构建期间 --previous-feed 起的本机更新源记到 Hutch 取上一版的请求：
+    GET /stable-win-x64-update.json?cache=be0ea6b84929a384d01867d37924786a 200 218
+    GET /stable-win-x64-NeuroBook.tar.zst?cache=be0ea6b84929a384d01867d37924786a 200 90240547
+  即 Hutch 做补丁要下载上一版的完整包。
+- 环境问题（不是脚本的）：没设 HUTCH_HOME 时 hutch install 在新目录里从 GitHub 直连下载 Hutch、cottontail、Electrobun core，
+  在 pc-notype 上卡住 30 分钟以上，结束后改用本机缓存重跑。GitHub runner 上直连 GitHub，不受影响。
+
+## 前提 2：从 tar.zst 打便携 zip（成立）
+- portable.ts 从 A′ 的 stable-win-x64-NeuroBook.tar.zst 解压出应用目录，核对 bin\launcher.exe、bin\bun.exe、Resources\version.json、
+  服务端入口都在，放 NeuroBook.portable，打成 NeuroBook-0.12.1-win-x64-portable.zip（115,394,400 B）。
+- 便携冒烟见下，这个 zip 解压后作为便携版运行，数据在程序目录下的 data\。
+
+## 安装版冒烟（smoke-windows.ts --setup，--state-root 放在 t11\state-inst）
+第 1 次：失败。
+  ✓ 安装 → ✓ 经调试端口连上产品页面 → 等批准按钮 60 s 超时。
+  页面截图（WebView 页面本身）：shell 命令没要批准就跑完了，对话里是“跑完了 b42c”，过程“1 次操作 · 2 次请求”。
+  原因：新作品的写作助手跑 shell 不问批准。修正：问了就同意一次，没问就直接等结果（2797782ae）。
+  失败路径的收尾：finally 结束了应用进程；测试安装另用卸载命令卸掉。
+第 2 次：通过。
+  ✓ 安装：C:\Users\notnotype\AppData\Local\io.github.notnotype.neurobook.t11test\stable\app
+  ✓ 启动：经调试端口连上产品页面
+  ✓ 作品打开，Agent 跑了一条 shell 命令（退出码 0）
+  ✓ 关窗：WM_CLOSE 之后进程都结束
+  ✓ 服务端经停止路径以 0 停完，壳以 0 退出，没有异常标记
+  ✓ 卸载：安装目录、卸载项与快捷方式都不在
+  ✓ 卸载之后作品登记、模型设置与那一章都还在
+  安装版冒烟通过
+
+## 便携版冒烟（smoke-windows.ts --portable，A′ 的便携 zip）
+第 1 次：脚本报通过，但事后看到 %LOCALAPPDATA%\io.github.notnotype.neurobook.t11test\stable\WebView2\Partitions\default 是这次建出来的。
+  脚本当时核对的是正式标识的通道根，没看包自己的标识。这是 Spec 写明的已知限制（desktop-shell：“便携版的 WebView2 浏览器数据留在本机”），
+  但发布流水线里正式便携包的通道根就是正式标识的，原来的整份比较会在 CI 上误报失败。
+  修正：按 --identifier 找通道根，比较时略过 WebView2；不存在与只有 WebView2 算同一种（2797782ae）。
+第 2 次（--identifier t11test，跑之前删掉该通道根）：通过。
+  ✓ 解压便携包：C:\Users\notnotype\nb-w00046\t11\work-portable\portable\NeuroBook
+  ✓ 启动：经调试端口连上产品页面
+  ✓ 作品打开，Agent 跑了一条 shell 命令（退出码 0）
+  ✓ 关窗：WM_CLOSE 之后进程都结束
+  ✓ 服务端经停止路径以 0 停完，壳以 0 退出，没有异常标记
+  ✓ 便携版的数据在程序目录下的 data\，缺省状态根与通道根（WebView2 的浏览器数据之外）没有变
+  便携版冒烟通过
+
+## 更新冒烟（smoke-update.ts，缺省状态根，projects.json 与 settings.json 先备份、结束时还原）
+第 1 次（A′、B′ 都是 90e5c3efb 的代码）：失败在换上之后的取证。
+  ✓ 安装 → ✓ 场景 1：A′（0.12.1）提示 0.12.2 可以更新，下载完成，取的是补丁 → ✓ 关窗
+  → 源退回 A′、打开 A′ 的启动器：换上成功（安装目录 version.json 是 0.12.2；更新器结果 success、phase complete、“Update applied successfully.”；
+    nbook-update-state.json 的 pendingNotice 已清掉，即页面显示过通知），但 UI 自动化 240 s 没读到“已更新到”。
+  当场另起 UI 自动化读窗口：书房页面的“通知”组是空的。原因：“已更新到”是一次性的 success 通知，3.2 s 后自己消失（nb-ui 的缺省时长），
+  每次起一个 PowerShell 遍历一遍来不及（t10 那次是手工赶上的）。
+  修正（2797782ae）：壳在页面显示更新通知、交回 shown 时写 info 诊断 desktop.update.notice-shown kind=… version=…；冒烟以这条为准；
+  UI 自动化改为一个 PowerShell 进程里连续读，读到就记进证据，没赶上不算失败。记进待确认清单。
+  失败路径的收尾：finally 结束应用、还原了备份；测试安装另用卸载命令卸掉；缺省状态根与基线相同。
+第 2 次（build-variant 构建的 A′ 与带新诊断的 B′）：通过。
+  ✓ 安装：C:\Users\notnotype\AppData\Local\io.github.notnotype.neurobook.t11test\stable\app
+  ✓ 场景 1：A′（0.12.1）提示 0.12.2 可以更新，下载完成，取的是补丁
+  ✓ 关窗：WM_CLOSE 之后进程都结束
+  ✓ 打开A′的启动器：换上 0.12.2，页面显示了“已更新到 NeuroBook 0.12.2”（UI 自动化：已更新到 NeuroBook 0.12.2）
+  ✓ 关窗：WM_CLOSE 之后进程都结束
+  ✓ B′再启动：源是 0.12.1，检查结论“更低”，不提示、不下载；作品登记、模型设置与那一章不变
+  ✓ 关窗：WM_CLOSE 之后进程都结束
+  ✓ 卸载：安装目录、卸载项与快捷方式都不在
+  更新冒烟通过
+  更新源的请求记录（只取了补丁，没有取完整包）：
+    08:56:21.604Z serve …\work-update\feed-b
+    08:56:24.695Z GET /stable-win-x64-update-v2.json?e01a864d8bf2d44b 200 316
+    08:56:25.821Z GET /stable-win-x64-update-v2.json?050b6a0901533aa8 200 316
+    08:56:28.064Z GET /stable-win-x64-2vigeoqvl7opm.patch?cache=09a1942414eaf2ba26a8ce38bef0f83a 200 52542
+    08:56:48.204Z serve …\work-update\feed-a
+    08:56:55.283Z GET /stable-win-x64-update-v2.json?e7da02dfdbef11dc 200 317
+    08:56:58.619Z GET /stable-win-x64-update-v2.json?1834452874fc68b2 200 317
+  壳的日志（这一次的部分）：
+    08:56:21.987Z start version=0.12.1 …
+    08:56:24.689Z desktop.server.ready pid=33144
+    08:56:24.706Z desktop.update.checked remote=0.12.2 local=0.12.1 result=newer
+    08:56:47.733Z desktop.server.stopped forced=false exitCode=0
+    08:56:47.734Z exit 0
+    08:56:48.349Z start version=0.12.1 …            （打开 A′ 的启动器，交给更新器换上）
+    08:56:54.709Z start version=0.12.2 …            （约 6 s 后 B′ 起来）
+    08:56:55.279Z desktop.server.ready pid=54200
+    08:56:55.306Z desktop.update.checked remote=0.12.1 local=0.12.2 result=older
+    08:56:55.583Z desktop.update.notice-shown kind=updated version=0.12.2
+    08:56:57.254Z desktop.server.stopped forced=false exitCode=0
+    08:56:57.256Z exit 0
+    08:56:58.058Z start version=0.12.2 …            （带调试端口重新启动）
+    08:56:58.614Z desktop.server.ready pid=44176
+    08:56:58.621Z desktop.update.checked remote=0.12.1 local=0.12.2 result=older
+    08:56:59.921Z desktop.server.stopped forced=false exitCode=0
+    08:56:59.922Z exit 0
+
+## 前提 3：换上后 UI 自动化取证与带调试端口重新启动（部分成立）
+- 带调试端口重新启动 B′、连上页面：成立（第 2 次更新冒烟的最后一段）。
+- UI 自动化读“已更新到”：一次性通知只停 3.2 s，每次起 PowerShell 读不到；单进程连续读读到了（第 2 次），但仍取决于时机，
+  所以门槛改用壳日志里的 desktop.update.notice-shown（见上）。
+
+## t10 交下来的复查：NBOOK_STATE_ROOT 的相对路径与无盘符路径在 Windows 上拒绝（成立）
+用便携目录的启动器，分别设 NBOOK_STATE_ROOT，UI 自动化读启动页（常驻，不是通知），之后结束进程树：
+  NBOOK_STATE_ROOT=rel\x
+    启动页：NBOOK_STATE_ROOT 要写完整路径 | 现在的值是 rel\x。改成完整路径（例如 D:\NeuroBook-data）后再打开。 | 退出
+    程序目录 bin\rel 没有建出来
+  NBOOK_STATE_ROOT=\nb-t11-driveless\x
+    启动页：NBOOK_STATE_ROOT 要写完整路径 | 现在的值是 \nb-t11-driveless\x。改成完整路径（例如 D:\NeuroBook-data）后再打开。 | 退出
+    C:\nb-t11-driveless 没有建出来
+
+## 缺省状态根前后对照（%LOCALAPPDATA%\NeuroBook）
+开始前与全部结束后（包括两次失败之后）相同：
+  top: agent,cache,data,desktop,logs,manager,manager-gui,manager-leases,plugins,projects.json,staging,storage,uninstall-hosts,uninstall-results,user
+  projects.json 11ACFCC827DC17BAE79065BED7AFE05BFF9EC90B3A0AAB48CACB28932DE9BF9D
+  settings.json none
+%LOCALAPPDATA% 下的安装：结束时只剩开始前就有的 io.github.notnotype.neurobook 与 io.github.notnotype.neurobook.t10test。
+
+## 没有在这里验证的（等发布流水线第一次运行）
+- GitHub runner 上 connectOverCDP 与 UI 自动化是否同样可用、Setup 在 runner 上的行为；
+- release.yml 本身：本机没有跑 actionlint（下载 actionlint 的二进制被本机的权限分类器拦下），只做了 YAML 解析与 needs 引用的核对；
+- 正式标识的便携版通道根核对（这里用测试标识跑；正式包在 CI 上第一次跑）。

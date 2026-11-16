@@ -5,7 +5,8 @@
 
 import {mkdir, open, readdir, readFile, rename, unlink} from "node:fs/promises";
 import {dirname, join} from "node:path";
-import {tryLock, type FileLock} from "./flock.js";
+
+import {tryLock, type FileLock} from "@notnotype/nb-flock";
 
 /** 只追加的日志文件句柄。`write` 写满整个缓冲区（短写会接着写），失败抛错。 */
 export interface AppendFile {

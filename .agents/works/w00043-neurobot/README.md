@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00043-neurobot
 issueId: null
 status: active
-updated: 2026-11-10
+updated: 2026-11-13
 ---
 
 # NeuroBot：常驻、有记忆的 AI 员工
@@ -61,6 +61,8 @@ updated: 2026-11-10
 | 2026-11-10 | 开发者同意 t02 计划审查后的三项：模型服务放进新包 `nb-models`；加锁替换抽成与应用无关的小包；诊断日志的输出插件进 `nb-host` |
 | 2026-11-10 | 开发者同意下面的“Task 规划”（答“可以”）。同一轮里还列着、没有单独作答的，按“待确认默认追认”算定：t02 计划的三项（小包名 `nb-file-lock`；三个包的 exports 与 `private: true`；五个内置角色与选择顺序归 `nb-models`）、w00032 t32 计划的旧 `src/tools/` 不合并留给 t31 删。代码由谁写没有答复，按开发者的全局规则由主会话写 |
 | 2026-11-10 | 提案第二轮审查后的四项（开发者“都按推荐，第一版先把框架搭起来就行”）：gateway 加每次启动生成的本机口令（nb-host 可选项，t04 做）；第一版加只读的联网抓取工具，任务缺省不许跑 shell；主对话等用户时输入框一直可用，发消息即结算为“没批准”并带上这句话，30 分钟没人理由内核按过期结算；第一版网页只做标题未读数、页面内未读分隔线、按天分隔线与最小设置页，首次启动自动建缺省的看板娘。第一版以搭起框架为准（[t01](tasks/t01-direction/README.md)） |
+| 2026-11-13 | 开发者定（w00032 t15 实现审查引出）：不判旧的系统文件锁从 nb-harness 与 nb-story 的两份副本合成一份，放进 nb-file-lock 的单独子路径，nb-file-lock 随 nb-story 发布，改 ADR 0045 决策 4 对它的“不发 npm”；建 [t12](tasks/t12-flock-into-file-lock/README.md)，未开工 |
+| 2026-11-13 | t12 计划审查（两位 Sonnet，一位从整体看）后开发者改定方案 E：不判旧的文件锁单独成零依赖的小包 `nb-flock` 随 nb-story 发布，nb-file-lock 保持 private 与只有 `.`，ADR 0045 不改；见 [t12](tasks/t12-flock-into-file-lock/README.md) |
 
 ## 调研
 
@@ -114,3 +116,4 @@ updated: 2026-11-10
 - [t09 bot 的记忆](tasks/t09-bot-memory/README.md)
 - [t10 日程与周期任务插件](tasks/t10-schedule/README.md)
 - [t11 第一版自用与调参](tasks/t11-dogfood/README.md)
+- [t12 不判旧的文件锁单独成包 nb-flock 并随 nb-story 发布](tasks/t12-flock-into-file-lock/README.md)

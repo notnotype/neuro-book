@@ -1,0 +1,15 @@
+typedef long long LL; typedef unsigned long long ULL; typedef unsigned short WCHAR;
+typedef struct { int x, y; } PT;
+typedef struct { PT reserved, maxSize, maxPos, minTrack, maxTrack; } MINMAXINFO;
+typedef LL (*WNDPROC)(void*, unsigned int, ULL, LL);
+LL CallWindowProcW(WNDPROC, void*, unsigned int, ULL, LL);
+void* GetPropW(void*, const WCHAR*);
+static const WCHAR PREV[] = {'n','b','p','r','e','v',0};
+static const WCHAR MIN[] = {'n','b','m','i','n',0};
+LL proc(void* hwnd, unsigned int msg, ULL w, LL l) {
+  WNDPROC prev = (WNDPROC)GetPropW(hwnd, PREV);
+  LL r = CallWindowProcW(prev, hwnd, msg, w, l);
+  if (msg == 0x24) { ULL packed = (ULL)GetPropW(hwnd, MIN); MINMAXINFO* m = (MINMAXINFO*)l; int mw = (int)(packed >> 16), mh = (int)(packed & 0xffff); if (m->minTrack.x < mw) m->minTrack.x = mw; if (m->minTrack.y < mh) m->minTrack.y = mh; m->maxSize.x = 900; m->maxSize.y = 600; }
+  return r;
+}
+void* procAddr(void) { return (void*)proc; }

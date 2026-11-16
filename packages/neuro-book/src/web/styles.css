@@ -34,7 +34,7 @@
 
 .nb-host-page {
     box-sizing: border-box;
-    min-height: 100vh;
+    min-height: var(--nb-viewport-block, 100vh);
     padding: 2rem 1rem;
     display: flex;
     flex-direction: column;
@@ -60,7 +60,7 @@
  */
 .nb-workbench-page {
     width: 100%;
-    height: 100dvh;
+    height: var(--nb-viewport-block, 100dvh);
     overflow: hidden;
 }
 
@@ -118,6 +118,48 @@ html:has(.nb-workbench-page) {
     font-size: 0.875rem;
     text-align: center;
     pointer-events: none;
+}
+
+/*
+ * 桌面窗口的外框（docs/specs/runtime/browser-host.md 的“窗口外框”，状态在 host/desktop-frame.ts，按钮与后备标题栏在
+ * DesktopFrame.vue）。属性都在 `<html>` 上：`data-desktop-frame` 外框开着，`data-desktop-frame-bar` 页面没有自己的标题栏、
+ * 宿主画后备标题栏。普通浏览器里这些属性都不在，下面的规则都不生效。
+ *
+ * - 视口不滚动，`#app` 是标题栏以下的盒子、自己滚动：视口一有滚动条，固定在右上角的窗口按钮就离开窗口右缘。用 absolute
+ *   而不是 fixed：fixed 自成层叠上下文，页面根里自己 fixed 的浮层（通知、离线横幅）会被压到 body 下的模态与命令面板之下。
+ * - 页面根的整屏高度用 `--nb-viewport-block`（缺省是 100vh 或 100dvh），这里改成 100%，即 `#app` 的高度。页面不各自减去标题栏。
+ * - 拖动区域不看层叠：盖在标题栏上的浮层不写 no-drag，点它就是拖窗口（w00046 t03 的探针）。经 Portal 挂到 body 下的浮层
+ *   （对话框与遮罩、菜单、提示、浮动窗口、命令面板）一律 no-drag，值会被后代继承。模态开着时整个窗口因此不能拖。通知在页面根里
+ *   自己 fixed 定位，在右下角，碰不到标题栏。
+ */
+html[data-desktop-frame] {
+    --nb-window-frame-height: 36px;
+    --nb-window-controls-width: 138px;
+    --nb-window-frame-offset: 0px;
+    --nb-viewport-block: 100%;
+    overflow: hidden;
+    scrollbar-gutter: auto;
+}
+
+html[data-desktop-frame-bar] {
+    --nb-window-frame-offset: var(--nb-window-frame-height);
+}
+
+html[data-desktop-frame] #app {
+    position: absolute;
+    inset: var(--nb-window-frame-offset) 0 0 0;
+    overflow: auto;
+}
+
+html[data-desktop-frame] body > :not(#app, [data-desktop-frame-root]) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+}
+
+/* 离线横幅不盖住窗口按钮；它不接受指针，盖住的标题栏照样能拖。 */
+html[data-desktop-frame] .nb-offline-banner {
+    inset-block-start: var(--nb-window-frame-offset);
+    inset-inline-end: var(--nb-window-controls-width);
 }
 
 /* 终态页抢救出来的未保存正文：宽度跟随页面，文本框可选中复制，不撑出横向滚动。 */

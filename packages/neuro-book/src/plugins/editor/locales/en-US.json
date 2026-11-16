@@ -74,6 +74,17 @@
         "discard": "Don't Save",
         "cancel": "Cancel"
     },
+    "windowCloseDialog": {
+        "title": "Save changes before closing?",
+        "body": "These files have unsaved changes that will be lost when the window closes:",
+        "failedTitle": "Some files weren't saved",
+        "failedBody": "These files couldn't be saved, so the window stays open:",
+        "saveAll": "Save All",
+        "discard": "Don't Save",
+        "cancel": "Cancel",
+        "ok": "OK",
+        "conflict": "{{path}} (conflicts with the version on disk; reload or overwrite it in that document)"
+    },
     "settingsSections": {
         "nbook": {
             "editor": {
@@ -591,6 +602,7 @@
         "commentSave": "Save",
         "commentCancel": "Cancel",
         "commentBody": "Comment text",
+        "commentMarker": "View comment",
         "slash": "Insert Block",
         "slash-basic": "Basic",
         "slash-lists": "Lists",

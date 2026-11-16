@@ -283,9 +283,14 @@ function placed(list: ReadonlyArray<CatalogSection>): {readonly list: ReadonlyAr
     return {list, byId: new Map(list.map((section) => [section.id, section]))};
 }
 
-/** 左栏与配置项的落位（输出 1、2）：分区按组、`order`、id 排；配置项按 `section`、`group` 落位，落不进去的进“其它”。 */
+/**
+ * 左栏与配置项的落位（输出 1、2）：分区按组、`order`、id 排；配置项按 `section`、`group` 落位，落不进去的进“其它”。
+ * 声明了 `host` 而窗口不在那种宿主里的分区先收进“隐藏”：它和指向它的配置项都不列，也就不进搜索（搜索只看落位后的分区）。
+ */
 function buildCatalog(source: SettingsWindowSource, report: (message: string) => void): ReadonlyArray<CatalogSection> {
-    const declared = new Map(source.sections().map((entry) => [entry.id, entry]));
+    const desktop = source.environment?.desktop === true;
+    const hidden = new Set(source.sections().filter((entry) => entry.declaration.host === "desktop" && !desktop).map((entry) => entry.id));
+    const declared = new Map(source.sections().filter((entry) => !hidden.has(entry.id)).map((entry) => [entry.id, entry]));
     const listed = new Map<string, Map<string | null, WindowSetting[]>>();
     const other = new Map<string, WindowSetting[]>();
     const paged = new Map<string, WindowSetting[]>();
@@ -294,6 +299,7 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
     };
     for (const setting of source.settings()) {
         const {key, declaration} = setting.definition;
+        if (declaration.section !== undefined && hidden.has(declaration.section)) continue;
         const section = declaration.section === undefined ? undefined : declared.get(declaration.section);
         if (section === undefined) {
             if (declaration.section !== undefined) report(`Setting ${key} points to section ${declaration.section}, which does not exist; it goes under "Other"`);

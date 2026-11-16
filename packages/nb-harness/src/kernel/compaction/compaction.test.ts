@@ -7,7 +7,7 @@ import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import type {AnyProfile, CompactionJob, CompactionMethodImpl, LogEvent} from "../api/index.js";
+import type {AnyProfile, CompactionJob, CompactionMethodImpl, CompactionRestoreArgs, LogEvent} from "../api/index.js";
 import {defineExtension, slice} from "../extension/define.js";
 import {defineProfile} from "../extension/profile.js";
 import {failingCompaction, summarizingCompaction} from "../testing/compaction.js";
@@ -41,8 +41,9 @@ async function batchOf(session: TestSession): Promise<Map<string, string>> {
 }
 
 describe("阈值触发", () => {
-    test("输出 46–49：缓存读也算进用量；第一个方法失败换下一个；摘要排在前面，放回的内容与压缩同批", async () => {
+    test("输出 46–49：缓存读也算进用量；第一个方法失败换下一个；摘要排在前面，放回的内容与压缩同批；放回知道哪些事件仍在上下文里", async () => {
         const jobs: CompactionJob[] = [];
+        let restoreArgs: CompactionRestoreArgs | null = null;
         const recording = (impl: CompactionMethodImpl): CompactionMethodImpl => async (job) => {
             jobs.push(job);
             return impl(job);
@@ -50,7 +51,10 @@ describe("阈值触发", () => {
         await using session = await createTestSession({
             store: {root},
             profile: profileWith({onThreshold: ["fail", "summarize"], require: "保留人名"}),
-            compaction: {methods: {fail: recording(failingCompaction), summarize: recording(summarizingCompaction)}, restore: () => ({notices: ["放回的计划"], restored: [{kind: "plan"}]})},
+            compaction: {methods: {fail: recording(failingCompaction), summarize: recording(summarizingCompaction)}, restore: (_context, args) => {
+                restoreArgs = args;
+                return {notices: ["放回的计划"], restored: [{kind: "plan"}]};
+            }},
         });
         session.model.script("答一", {text: "答二", usage: HEAVY}, "前两轮的摘要", "答三");
         await session.say("第一问");
@@ -67,6 +71,13 @@ describe("阈值触发", () => {
         expect(restored.data).toEqual({code: "restored", text: "放回的计划"});
         const batches = await batchOf(session);
         expect(batches.get(restored.id)).toBe(batches.get(compaction.id));
+        // 切点之前的不在了，切点（含）之后的仍在（runtime.md 输出 48 的 `kept`）。
+        const args = restoreArgs as CompactionRestoreArgs | null;
+        if (args === null) throw new Error("restore was not called");
+        const cut = args.path.findIndex((event) => event.id === jobs[1]!.cuts[2]!.entryId);
+        expect(cut).toBeGreaterThan(0);
+        expect(args.path.slice(0, cut).some((event) => args.kept(event.id))).toBe(false);
+        expect(args.path.slice(cut).every((event) => args.kept(event.id))).toBe(true);
         expect(third.requests.at(-1)!.outline()).toEqual(["system: fixed:profile", `user: summary:${compaction.id}`, "user: event:notice | event:input"]);
         expect(third.result.text).toBe("答三");
     });

@@ -1,0 +1,32 @@
+Electrobun 2.0.6 更新器调研（2026-11-13，Sonnet 子代理只读源码副本 t01 research/electrobun-src/package/，主会话整理）
+U = src/sdks/main/core/Updater.ts，PU = src/extractor/prepare_update.zig，M = src/extractor/main.zig，H = src/extractor/prepare_update_http.zig
+
+1. checkForUpdate()（U:1780-1910）
+- 请求 `${baseUrl}/${channel}-${os}-${arch}-update-v2.json?<随机>`，404 回退 `...-update.json`；baseUrl、channel、identifier 来自 Resources/version.json。超时 30 秒、上限 1 MB。
+- 清单 UpdateManifestV1：schemaVersion、identifier、channel、version、hash、platform、arch、artifact{file, tarSha256, tarSize}；identifier、channel、平台须与本机一致（U:438-510）。
+- updateAvailable 只比哈希（U:1865-1866），不比版本：只升不降要壳自己比语义化版本。
+- 返回 UpdateInfo{version, hash, updateAvailable, updateReady, error}；version 是远端版本，下载前可得；updateReady 表示磁盘上有与该清单匹配的已准备更新。失败不抛，写 error。
+
+2. downloadUpdate()（U:2282-2346）
+- 原生 helper `--prepare-update` 把新 app 解到 `<channelRoot>/app.prepared-<hash>`，记录在 `<channelRoot>/self-extraction/.electrobun-prepared-update.json`（version、hash、staging_path 等）。channelRoot = %LOCALAPPDATA%\<identifier>\<channel>（appDataFolder()）。
+- 先试补丁链（`<prefix>-<当前hash>.patch`，最多 64 跳），任何失败回退完整 tar.zst；下载超时 600 秒。
+- 准备开始时先删掉既不是当前也不是目标的旧已准备更新（PU:426-461、603）：新下载失败时旧的已经没了。目标与已准备相同时复用。
+- 没有百分比进度：只发 download-starting、downloading、download-complete、error。
+- 失败不抛（写 error）；正在 apply 时调用会抛。
+- 新进程里要知道“已下载好”：Updater 没有公开接口，离线时只能读 .electrobun-prepared-update.json（私有格式，要自己测）。applyUpdate 不需要先 check。
+
+3. applyUpdate()（U:2348-2473）
+- 先 requestQuitApproval（会走 before-quit 处理器，被否决就返回 idle）。
+- Windows：计划任务 ApplicationUpdate_<txid> 运行 helper `--apply-update <plan>`，然后自己 quitAfterApproval 退出当前进程。调用方不要再 quit。
+- helper 等 launcher 进程退出（最长 120 秒）→ app 改名 app.previous、暂存改名 app → 启动新版本 bin\launcher.exe（无参数，环境来自任务计划程序，不继承旧进程的环境）。
+- 换上、集成、启动任一步失败自动回滚并视情况重启旧版本；“启动”成功只表示 spawn 成功，新版本起来后崩溃不回退。
+- 结果写 `<channelRoot>/.electrobun-update-<txid>.result.json`；下次 getLocalInfo/onStatusChange 时对账，发 complete（Update to X completed successfully）或 error（Update to X failed during <phase>）各一次（.electrobun-observed-update-result.json 记已观察）。回调要在启动早期注册。
+
+4. baseUrl
+- 构建配置 release.baseUrl 写进 Resources/version.json；运行时不能覆盖（helper 还核对它）。本地测试只能在构建时把 baseUrl 设为 http://127.0.0.1:<固定端口>。
+- https 任意主机；http 只允许回环字面量；不带 query；重定向最多 5 跳、不降级。
+- 官方文档支持 `https://github.com/<owner>/<repo>/releases/latest/download`（latest 不含预发布）。helper 给 artifact URL 加 ?cache=<txid>，GitHub 重定向对它的行为要实测。
+
+5. 构建产物（文档与官方测试断言）：artifacts/ 里 stable-win-x64-update.json、stable-win-x64-update-v2.json、stable-win-x64-<AppName>.tar.zst、win-x64-<AppName>-Setup.zip、有上一版时 stable-win-x64-<上一版hash>.patch。补丁由构建时从 baseUrl 拉上一版生成（release.generatePatch），拉不到就跳过。发布顺序：先传 tar.zst 与 patch，最后传两份清单；旧补丁保留。
+
+6. 本地端到端：官方 scripts/test-updater-lifecycle.mjs 用 127.0.0.1 随机端口的静态服务、同一 baseUrl 依次构建发布 v1..v4、Setup 安装 v1 后 check/download/apply。我们照思路做，端口要固定；必须经 Setup 安装到 %LOCALAPPDATA%\<identifier>\stable\app，否则更新器报“outside its managed update directory”。

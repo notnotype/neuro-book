@@ -67,13 +67,13 @@ function called(tool: string, args: Readonly<Record<string, unknown>>, status: "
     ];
 }
 
-const run = (restore: CompactionRestore, path: readonly LogEvent[], contextWindow = 200_000) => restore.run(context, {signal: new AbortController().signal, method: "summary", replacement: "摘要", path, contextWindow});
+const run = (restore: CompactionRestore, path: readonly LogEvent[], contextWindow = 200_000) => restore.run(context, {signal: new AbortController().signal, method: "summary", replacement: "摘要", path, contextWindow, kept: () => false});
 const targets = (restored: unknown) => (restored as {kind: string; target: string}[]).map((item) => `${item.kind}:${item.target}`);
 
 describe("放回", () => {
     test("输出 7：没有换掉对话（shake）时不放回", async () => {
         await writeFile(join(home, "a.md"), "一\n");
-        const result = await restoreWith().run(context, {signal: new AbortController().signal, method: "shake", replacement: null, path: called(TOOLS.read, {path: "home://a.md"}, "ok"), contextWindow: 200_000});
+        const result = await restoreWith().run(context, {signal: new AbortController().signal, method: "shake", replacement: null, path: called(TOOLS.read, {path: "home://a.md"}, "ok"), contextWindow: 200_000, kept: () => true});
         expect(result).toEqual({notices: []});
     });
 

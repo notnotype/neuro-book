@@ -1,0 +1,63 @@
+w00032 t30 切片 1 实现审查（omp @default，2026-11-15，提交 2660e131c，说明见 .local/…/reports/impl-1/brief.md）
+报告原文（已扫描密钥：0 处）：
+
+### 1. 未知版本目录在判定前被修改
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/nb-harness/src/kit/requests/store.ts:2071-2077`（提交文件行 49-55）
+- **现象**：`prepare()` 先创建目录并删除 `index/*.tmp`，之后才读取 `format.json` 判断版本。未知版本按合同必须“不写、不清理”，但 `format.json` 为 `{"version":2}` 时已有临时索引文件仍会被删除。
+- **为什么是问题**：新版本目录可能正处于 `rewriteDay` 崩溃恢复阶段；旧版本进程先删掉新版本留下的临时文件，破坏“未知版本原样保留”的兼容与恢复边界。读取天文件还在 `recorder.ts:492-500` 的版本判断之前调用 `readDay()`，未知版本天文件的半行也会被截断。
+- **如何核实**：在 `/tmp/nb-t30-review-1-lab/foreign-version.ts` 用真实 `RequestRecorder.open()` 创建 `format.json` 版本 2 与 `2026-11-15.jsonl.tmp`；运行 `bun /tmp/nb-t30-review-1-lab/foreign-version.ts`，输出 `index:["2026-11-15.jsonl"]`，临时文件已消失。
+- **建议改法**：先仅读取并校验 `format.json`；未知或无法解析时立即标记不可用并返回，任何建目录、删临时文件、截断天文件都放到版本确认之后。对天文件先读取原始内容并确认整天版本，再执行半行修复。
+### 2. 压缩请求错误地带上当前对话轮
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kernel/run/model-call.ts:131`（提交文件行 292）
+- **现象**：`meta` 无条件展开 `turnOf(state.history)`，没有按 `request.purpose` 排除 `compaction`。压缩发生在下一轮已 `turnStarted`、但还没发出对话请求时，`compaction` 请求会带该轮的 id、序号和用户输入。
+- **为什么是问题**：`harness/runtime.md` 输出 89 与记录合同把手动压缩定义为轮外请求，必须不给 `turn`。记录器会把这段错误关联写入索引，查看器按轮分组、筛选和比较都会把压缩请求归入当前轮，且把用户输入写入压缩记录。
+- **如何核实**：`/tmp/nb-t30-review-1-lab/compaction-meta.ts` 用真实 `createTestSession`、真实运行循环和注入 `compactAt: 1` 触发第二轮边界压缩；运行 `bun /tmp/nb-t30-review-1-lab/compaction-meta.ts` 输出 `purposes:["compaction","turn",...]`，且第二个 `compaction` meta 带 `turn:{id:"633fd3b07369",index:2,input:"第二问"}`。
+- **建议改法**：构造说明时按请求用途处理：`request.purpose === "compaction"` 返回空 `turn`；保留审批请求在当前对话轮中的关联，并补自动/手动压缩场景的断言。
+### 3. 记录器仍会把 providerOptions、工具参数和小图片原样落盘
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`packages/nb-harness/src/kit/requests/recorder.ts:645-668,672-673,784`；`packages/nb-harness/src/kit/requests/sanitize.ts:2012-2014`
+- **现象**：`paramsOf()` 直接保存 `request.providerOptions`；回复 blob 直接保存 `reply.toolCalls`，没有递归遮盖或去图；`fail()` 直接把异常文字写入 `errorMessage`。原始请求体的形状替换只在 `data` 长度至少 256 时执行，因此带 `mimeType: "image/png"` 的短 base64 不会替换。
+- **为什么是问题**：providerOptions 可能承载供应商凭据或带图选项，工具调用参数和异常文字也可能包含配置密钥或图片 base64。Spec 输出 12 要求记录目录搜不到所有图片；输出 3、5 要求错误与配置密钥遮盖。一次统一的 `stripPayloadImages` 不能覆盖这些字段，当前 `params`、回复全文和失败路径形成了漏口。
+- **如何核实**：`/tmp/nb-t30-review-1-lab/sanitize-leak.ts` 用真实 `traceModelPort` 与 `RequestRecorder` 写入 `providerSecret`、`data:image/png;base64,AAAA`、工具参数和 `inlineData` 小图；运行 `bun /tmp/nb-t30-review-1-lab/sanitize-leak.ts`，输出的索引含 `provider-secret-123`，回复 blob 含 `data:image/png;base64,AAAA` 与 `tool-secret-123`，解压请求体仍含 `"data":"AAAA"`。
+- **建议改法**：把所有进入索引、内容 blob、错误文字和 payload 的字段集中经过同一个递归净化边界；providerOptions 与工具参数至少按图片形状替换，并按适配器提供的 secrets 遮盖。去图不能用固定长度阈值，带图片 MIME 的 `data` 即使很短也应替换。
+### 4. `payload(id)` 可沿记录索引中的 id 穿出记录目录
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`packages/nb-harness/src/kit/requests/store.ts:2131-2148`；`packages/nb-harness/src/kit/requests/recorder.ts:443-447`
+- **现象**：`payload()` 只检查 id 是否存在于内存记录，`#payloadPath()` 直接拼接 `${id}.json.gz`，既不校验 UUID 形状也不限制规范化路径。索引读取的 `start.id` 也只要求是字符串，恶意或损坏索引即可植入 `../../outside` 这样的 id。
+- **为什么是问题**：远程层会直接转发 `payload(id)`；一条被接受的索引行即可令宿主读取记录目录外的 gzip 文件。相同的未校验 id 也会进入删除路径。持久化输入应在索引边界拒绝路径语义，而不是把随机 UUID 的生成约定当作安全校验。
+- **如何核实**：`/tmp/nb-t30-review-1-lab/path-traversal.ts` 用真实 `RequestRecorder` 读取一份 v1 索引，id 为 `../../outside`，并在记录目录外放置 gzip 文件；运行 `bun /tmp/nb-t30-review-1-lab/path-traversal.ts` 输出 `{"payload":"outside-secret"}`。
+- **建议改法**：对索引行和所有公开 id 做严格的 UUID/允许字符校验；`#payloadPath` 生成后再用规范化路径确认仍在 `payloads` 根下。无效记录跳过并报告 `agent.requests.unreadable`，公开读取返回 `null` 或合同定义的 `payload-not-found`。
+### 5. 最后一次请求体不可取时仍保存更早一次的体
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kit/requests/recorder.ts:609-612`
+- **现象**：观察到 `attempt` 时只有 `wire.body !== null` 才更新 `body`。因此第一次尝试是字符串、最后一次尝试是流或表单（合同规定 `body: null`）时，结束记录仍把第一次请求体写成“最后一次尝试”的 payload。
+- **为什么是问题**：输出 6 明确要求保存最后一次尝试发出的请求体；无法取到时应显示 `unavailable`。当前记录把旧尝试误标成最终请求，排查重试时会看到未实际发送的内容，也可能把旧请求中的敏感数据继续保留。
+- **如何核实**：`/tmp/nb-t30-review-1-lab/last-payload.ts` 通过真实 `traceModelPort` 和 `RequestRecorder` 交两次 attempt，body 依次为 `"first-body"`、`null`；运行 `bun /tmp/nb-t30-review-1-lab/last-payload.ts` 输出 `{"payload":"first-body","attempts":2}`。
+- **建议改法**：每次 attempt 都记录“已观察到最后一次”的状态，包含 null；结算时只有最后一次是字符串才写 payload。无 HTTP attempt 的 `onPayload` 仍单独使用其 body。
+
+## 位置更正
+
+前述条目的文件路径均以提交源文件为准；其中第 1 条的实际位置为 `packages/nb-harness/src/kit/requests/store.ts:46-64` 与 `packages/nb-harness/src/kit/requests/recorder.ts:485-500`；第 3 条净化逻辑的实际位置为 `packages/nb-harness/src/kit/requests/sanitize.ts:70-104`，记录器落盘位置为 `packages/nb-harness/src/kit/requests/recorder.ts:609-681,778-784`；第 4 条的实际位置为 `packages/nb-harness/src/kit/requests/store.ts:106-127` 与 `packages/nb-harness/src/kit/requests/recorder.ts:443-447`。第 2、5 条原位置分别为 `model-call.ts:131`、`recorder.ts:610-611`，无需更正。
+
+## 总结
+
+- **阻断**：0 条。
+- **重要**：5 条：未知版本目录被修改；压缩请求错误关联当前轮；providerOptions、工具参数和小图片未统一净化；payload id 可路径穿越；最终请求体不可取时沿用更早尝试。
+- **建议**：0 条。
+- 仔细检查后，在上述问题之外没有发现 `#nextSeq`/`#committed` 的正常串行写入合并、`modifiedBy` 多层调用隔离、清理与进行中记录的队列顺序、真实 OMP 适配器的非空首内容观察、共享内容回收和 1 GB 请求体限制的另一个确定性问题。
+- 已验证命令均以退出码 0 完成：`bun run typecheck`、`bun test src/kit/requests`、`bun test tests/models.test.ts`、`bun test src/kernel`。
+
+处理（修正在 5d63e4ac0，每条都补了测试并做过变异检查）：
+
+1. 成立，已改：store.prepare 先读 format.json，版本不认识（或读不懂）时直接交回 false，不建目录、不删临时文件；readDay 不再自己截半行，交回该截到的长度，记录器确认这一天的版本认识之后才 repairDay。测试：格式版本不认识的用例加了临时文件与半行天文件，核对原样；新用例“索引里不认识版本的天文件不显示、不截半行”。
+2. 不成立：history.current 在 turnEnded 之后为 null，手动压缩（空闲时）本来就不带轮；审查者触发的是第二轮开始后的自动压缩，它在这一轮里，带轮是对的。Spec 的“轮外”定义是“不在任何一轮里的请求，例如手动压缩”。补上这条依据（轮外的定义、current 何时为 null）下一次就不会误判。
+3. 部分成立：原始请求体里带图片类型的 data 字段去掉了 256 字节的门槛，短图也换；providerOptions 只记名字（值原样交给服务商，记录器拿不到配置密钥原值来遮，要看值就看适配器遮过的原始请求体）。不改：工具调用参数与回复里的文字是模型的输出，不是 Spec 输出 12 说的图片内容块；适配器抛出的错误文字没有配置密钥的来源（ompCall 自己的失败都以遮过的回复交回）。
+4. 成立，已改：索引行的 id 与公开读取的 id 都按 UUID 校验（isRecordId），请求体文件名拼接前再校验一次。测试：索引里 id 为 ../../outside 的行不认、payload 交回 null。
+5. 成立，已改：每次尝试都覆盖“最后一次的请求体”，最后一次不是字符串时记为拿不到。测试：两次尝试依次是字符串与 null，状态是 unavailable。

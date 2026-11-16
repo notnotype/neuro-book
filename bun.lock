@@ -191,7 +191,7 @@
     },
     "packages/nb-agent-ui": {
       "name": "@notnotype/nb-agent-ui",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "@notnotype/nb-ui": "workspace:^",
       },
@@ -252,9 +252,18 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/nb-flock": {
+      "name": "@notnotype/nb-flock",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/nb-form": {
       "name": "@notnotype/nb-form",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "typebox": "^1.3.6",
       },
@@ -283,8 +292,9 @@
     },
     "packages/nb-harness": {
       "name": "@notnotype/nb-harness",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
+        "@notnotype/nb-flock": "workspace:^",
         "@notnotype/nb-form": "workspace:^",
         "@notnotype/nb-profile": "workspace:^",
         "@notnotype/nb-session": "workspace:^",
@@ -356,7 +366,7 @@
     },
     "packages/nb-markdown": {
       "name": "@notnotype/nb-markdown",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "@notnotype/nb-ui": "workspace:^",
         "@tiptap/core": "3.27.3",
@@ -431,7 +441,7 @@
     },
     "packages/nb-runtime": {
       "name": "@notnotype/nb-runtime",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "typebox": "^1.3.6",
       },
@@ -454,12 +464,13 @@
     },
     "packages/nb-story": {
       "name": "@notnotype/nb-story",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "bin": {
         "nbstory": "./src/cli.ts",
       },
       "dependencies": {
         "@clack/prompts": "^1.0.0",
+        "@notnotype/nb-flock": "workspace:^",
         "@notnotype/nb-harness": "workspace:^",
         "@notnotype/nb-profile": "workspace:^",
         "@notnotype/nb-runtime": "workspace:^",
@@ -507,7 +518,7 @@
     },
     "packages/nb-ui": {
       "name": "@notnotype/nb-ui",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "@iconify-json/lucide": "^1.2.95",
         "@iconify/tailwind4": "^1.2.3",
@@ -563,10 +574,11 @@
     },
     "packages/neuro-book": {
       "name": "@notnotype/neuro-book",
-      "version": "0.12.1",
+      "version": "0.13.0",
       "dependencies": {
         "@notnotype/nb-canon": "workspace:*",
         "@notnotype/nb-file-lock": "workspace:*",
+        "@notnotype/nb-flock": "workspace:*",
         "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-host": "workspace:*",
@@ -574,6 +586,7 @@
         "@notnotype/nb-models": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@notnotype/nb-time": "workspace:*",
+        "@notnotype/owned-process": "workspace:*",
         "@oh-my-pi/pi-natives": "18.14.0",
         "@vue/reactivity": "^3.5.39",
         "commander": "^14.0.2",
@@ -587,6 +600,7 @@
         "pinyin-pro": "^3.28.1",
         "semver": "^7.8.5",
         "typebox": "^1.3.6",
+        "yaml": "^2.8.2",
       },
       "devDependencies": {
         "@iconify-json/catppuccin": "^1.2.17",
@@ -1354,6 +1368,8 @@
     "@notnotype/nb-canon": ["@notnotype/nb-canon@workspace:packages/nb-canon"],
 
     "@notnotype/nb-file-lock": ["@notnotype/nb-file-lock@workspace:packages/nb-file-lock"],
+
+    "@notnotype/nb-flock": ["@notnotype/nb-flock@workspace:packages/nb-flock"],
 
     "@notnotype/nb-form": ["@notnotype/nb-form@workspace:packages/nb-form"],
 
@@ -4296,6 +4312,10 @@
     "@notnotype/nb-file-lock/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
     "@notnotype/nb-file-lock/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "@notnotype/nb-flock/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
+
+    "@notnotype/nb-flock/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
     "@notnotype/nb-form/@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 

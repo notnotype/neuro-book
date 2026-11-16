@@ -1,0 +1,462 @@
+# 打标签即发布（docs/proposals/desktop-distribution.md 的 4.8；发版、一次性准备与失败处置见发布手册
+# docs/standards/releasing.md）：推 v<版本> 标签后，门禁、同一提交的 CI、npm 包与桌面包的构建与冒烟
+# 都通过，才发 npm、建 GitHub Release、核对自动更新的取法。设计与各作业的理由在 w00046 t11 的 plan.md。
+#
+# workflow_dispatch 是演练：用源码里的版本、不核对标签，跑到冒烟为止，跳过所有远端写入的作业。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# ubuntu 作业的多行步骤以 bash -eo pipefail 跑，任一命令失败步骤就失败；Windows 作业在作业里改用 pwsh，
+# 多条原生命令的步骤开头设 $PSNativeCommandUseErrorActionPreference。
+defaults:
+  run:
+    shell: bash
+
+# 正式发布串行、先进先出地排队（queue: max 至多 100 个等待中的；缺省的 single 只留一个，后来的会把等待中的取消）。
+# 演练另一组，不占正式发布的队列。被取消的一轮在 Actions 里重跑即可，标签不用重推。
+# queue 是 GitHub 文档里的正式写法（concurrency 一节），actionlint 1.7.12 还不认识：本机检查时加 -ignore 'unexpected key "queue"'。
+concurrency:
+  group: ${{ github.event_name == 'push' && 'release' || 'release-dry-run' }}
+  queue: max
+
+jobs:
+  gate:
+    name: 门禁
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      # 发布阶段（PRODUCT_STAGE，ADR 0053）：Release 的标题与说明按它写。
+      stage: ${{ steps.version.outputs.stage }}
+      dry-run: ${{ github.event_name != 'push' }}
+      previous: ${{ steps.previous.outputs.previous }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # 标签门禁要 origin/master 判断祖先。
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # 改指已有标签、删标签都不发布；重跑用同一轮的“重跑”，事件不变。
+      - name: 这次推送是新建标签
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          CREATED: ${{ github.event.created }}
+          FORCED: ${{ github.event.forced }}
+          DELETED: ${{ github.event.deleted }}
+        run: |
+          if [ "$CREATED" != "true" ] || [ "$FORCED" != "false" ] || [ "$DELETED" != "false" ]; then
+            echo "::error::只有新建的标签才发布（created=$CREATED forced=$FORCED deleted=$DELETED）：改指或删除标签不发布，失败的一轮在 Actions 里重跑"
+            exit 1
+          fi
+      - name: 标签与版本
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            bun scripts/release/tag.ts check "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            bun scripts/release/tag.ts source >> "$GITHUB_OUTPUT"
+          fi
+      # 上一个正式桌面版本：Release 历史里低于本次、有 Setup 资产的最高稳定版本。在这里定下，整轮重跑与重跑作业都用同一个。
+      - name: 上一个桌面版本
+        id: previous
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bun scripts/release/github-release.ts previous "$VERSION" >> "$GITHUB_OUTPUT"
+      # Release 说明由应用的 CHANGELOG 生成（ADR 0053）：在这里生成，生不成就停在一切远端写入之前；github-release 作业只用这份。
+      # 演练用源码里已发过的版本，[Unreleased] 通常有条目，只警告。说明也写进作业摘要，演练时看得到。
+      - name: Release 说明
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          STAGE: ${{ steps.version.outputs.stage }}
+          PREVIOUS: ${{ steps.previous.outputs.previous }}
+          DRY_RUN: ${{ github.event_name != 'push' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/release-notes"
+          args=("$VERSION" "$STAGE" "$RUNNER_TEMP/release-notes/notes.md" --previous "$PREVIOUS")
+          [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+          bun scripts/release/release-notes.ts "${args[@]}"
+          cat "$RUNNER_TEMP/release-notes/notes.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes/notes.md
+          retention-days: 35
+          if-no-files-found: error
+
+  ci:
+    name: CI
+    needs: gate
+    uses: ./.github/workflows/ci.yml
+    with:
+      all: true
+
+  npm-packages:
+    name: npm 包与正式桌面输入
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # release-plan 按标签提交的提交时间区分本次发布与历史包。
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run release:smoke
+      - run: bun scripts/release/tag.ts verify-built --version "$VERSION" --manifest dist/release/release-manifest.json
+      # 演练时版本多半已经发过（还没提版本），计划会失败：照常往下跑冒烟，失败的原因在这一步的输出里。
+      - name: 发布计划
+        continue-on-error: ${{ needs.gate.outputs.dry-run == 'true' }}
+        run: bun scripts/release/publish.ts --plan
+      - name: 正式变体的壳与载荷
+        working-directory: packages/neuro-book
+        run: |
+          bun desktop/scripts/build.ts ../../dist/release/release-manifest.json --os win32 --cpu x64
+          bun ../../scripts/release/tag.ts verify-built --version "$VERSION" --desktop desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-packages
+          path: dist/release/
+          retention-days: 35
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-official
+          path: |
+            packages/neuro-book/desktop/bundle/
+            packages/neuro-book/desktop/payload/
+          retention-days: 35
+          if-no-files-found: error
+
+  update-test-packages:
+    name: 更新冒烟的 B′
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # B′ 是标签提交加一个只在这台机器上的测试提交（补丁号加 1）：release:smoke 的干净检查与结束核对照常成立，
+      # 不给正式门禁开口子。B′ 只供冒烟，不发布、不 push。
+      - name: 一次性检出与测试提交
+        id: bplus
+        shell: bash
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/bplus" HEAD
+          bun scripts/release/tag.ts bump-test "$RUNNER_TEMP/bplus" >> "$GITHUB_OUTPUT"
+          cd "$RUNNER_TEMP/bplus"
+          bun install
+          git -c user.name=release-test -c user.email=release-test@example.invalid commit --quiet -am "test: B′（更新冒烟用，不 push）"
+      - name: B′ 的壳与载荷
+        working-directory: ${{ runner.temp }}/bplus
+        env:
+          BPLUS: ${{ steps.bplus.outputs.version }}
+        run: |
+          bun run release:smoke
+          bun scripts/release/tag.ts verify-built --version "$BPLUS" --manifest dist/release/release-manifest.json
+          cd packages/neuro-book
+          bun desktop/scripts/build.ts ../../dist/release/release-manifest.json --os win32 --cpu x64
+          bun ../../scripts/release/tag.ts verify-built --version "$BPLUS" --desktop desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-bplus
+          path: |
+            ${{ runner.temp }}/bplus/packages/neuro-book/desktop/bundle/
+            ${{ runner.temp }}/bplus/packages/neuro-book/desktop/payload/
+          retention-days: 35
+          if-no-files-found: error
+
+  desktop:
+    name: 桌面包与 Windows 冒烟
+    needs: [gate, npm-packages, update-test-packages]
+    runs-on: windows-2025
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: packages/neuro-book
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+      # 更新冒烟的测试标识与本机更新源（smoke-update.ts 的缺省端口）。
+      TEST_IDENTIFIER: io.github.notnotype.neurobook.releasetest
+      TEST_FEED: http://127.0.0.1:47819
+      # 冒烟另把调试端口写进 HKLM 的 WebView2 策略（smoke/app.ts 的 startApp）：runner 上作业是提升运行的，WebView2 150 起
+      # 提升的宿主忽略环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS。一次性的 runner 上才这样做。
+      NBOOK_SMOKE_WEBVIEW2_POLICY: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      # Hutch 的版本固定在 desktop/package.json 的 config.hutch（与 hutch.config.ts 的 Electrobun 版本一起升级）。
+      - name: 装 Hutch
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $version = (Get-Content desktop/package.json -Raw | ConvertFrom-Json).config.hutch
+          $script = Invoke-RestMethod https://hutch.blackboard.sh/hutch/install.ps1
+          & ([scriptblock]::Create($script)) -Channel production -Version $version
+          "$HOME\.hutch\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $installed = & "$HOME\.hutch\bin\hutch.exe" --version
+          if ("$installed" -notmatch [regex]::Escape($version)) { throw "hutch --version 是 $installed，不是 $version" }
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-official
+          path: ${{ runner.temp }}/inputs/official
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-bplus
+          path: ${{ runner.temp }}/inputs/bplus
+      - name: 正式变体
+        run: bun desktop/scripts/build-variant.ts --inputs "$env:RUNNER_TEMP/inputs/official" --out "$env:RUNNER_TEMP/variants/official" --version $env:VERSION
+      # 冻结：之后上传、发布、核对的都是这个目录。
+      - name: 发布资产
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $assets = "$env:RUNNER_TEMP/release-assets"
+          New-Item -ItemType Directory $assets | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/variants/official/artifacts/*" $assets
+          # 安装包与便携版的名字不带版本号（releases/latest/download/<名> 是固定的最新版链接）；Hutch 产出的名字在这里改掉。
+          Move-Item "$assets/win-x64-NeuroBook-Setup.zip" "$assets/NeuroBook-win-x64-Setup.zip"
+          bun desktop/scripts/portable.ts "$assets/stable-win-x64-NeuroBook.tar.zst" $assets
+          bun ../../scripts/release/github-release.ts sums $assets
+      - name: 安装版冒烟
+        run: bun desktop/scripts/smoke-windows.ts --setup "$env:RUNNER_TEMP/release-assets/NeuroBook-win-x64-Setup.zip" --evidence "$env:RUNNER_TEMP/evidence/official" --work "$env:RUNNER_TEMP/work/installed"
+      - name: 便携版冒烟
+        run: bun desktop/scripts/smoke-windows.ts --portable "$env:RUNNER_TEMP/release-assets/NeuroBook-win-x64-portable.zip" --evidence "$env:RUNNER_TEMP/evidence/official" --work "$env:RUNNER_TEMP/work/portable"
+      # A′ 与正式变体同一份输入，只换标识与更新源；B′ 构建时从本机更新源取 A′ 做补丁。
+      - name: 更新冒烟的 A′、B′
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          bun desktop/scripts/build-variant.ts --inputs "$env:RUNNER_TEMP/inputs/official" --out "$env:RUNNER_TEMP/variants/aprime" --version $env:VERSION --identifier $env:TEST_IDENTIFIER --base-url $env:TEST_FEED
+          $bplus = (Get-Content "$env:RUNNER_TEMP/inputs/bplus/bundle/version.json" -Raw | ConvertFrom-Json).version
+          bun desktop/scripts/build-variant.ts --inputs "$env:RUNNER_TEMP/inputs/bplus" --out "$env:RUNNER_TEMP/variants/bplus" --version $bplus --identifier $env:TEST_IDENTIFIER --base-url $env:TEST_FEED --previous-feed "$env:RUNNER_TEMP/variants/aprime/artifacts"
+      - name: 更新冒烟
+        run: bun desktop/scripts/smoke-update.ts --setup-a "$env:RUNNER_TEMP/variants/aprime/artifacts/win-x64-NeuroBook-Setup.zip" --feed-a "$env:RUNNER_TEMP/variants/aprime/artifacts" --feed-b "$env:RUNNER_TEMP/variants/bplus/artifacts" --identifier $env:TEST_IDENTIFIER --evidence "$env:RUNNER_TEMP/evidence/update" --work "$env:RUNNER_TEMP/work/update"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-assets
+          path: ${{ runner.temp }}/release-assets/
+          retention-days: 35
+          if-no-files-found: error
+      - name: 收集构建日志
+        if: always()
+        run: |
+          foreach ($variant in "official", "aprime", "bplus") {
+            $dir = "$env:RUNNER_TEMP/variants/$variant"
+            if (Test-Path $dir) {
+              New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/evidence/build/$variant" | Out-Null
+              Get-ChildItem $dir -File -Filter *.log | Copy-Item -Destination "$env:RUNNER_TEMP/evidence/build/$variant"
+              if (Test-Path "$dir/artifacts") { Get-ChildItem "$dir/artifacts" | Select-Object Name, Length | Out-File "$env:RUNNER_TEMP/evidence/build/$variant/artifacts.txt" }
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+          if-no-files-found: warn
+      # 测试包只在失败时留下（排查更新冒烟用），不进 Release。
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: desktop-update-test-packages
+          path: |
+            ${{ runner.temp }}/variants/aprime/artifacts/
+            ${{ runner.temp }}/variants/bplus/artifacts/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  publish-npm:
+    name: 发 npm
+    needs: [gate, ci, desktop]
+    if: needs.gate.outputs.dry-run != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # trusted publishing 要 npm 11.5.1 以上、Node 22.14.0 以上（上面装的是 Node 24）。
+      - name: npm 版本
+        run: |
+          npm install -g "npm@>=11.5.1 <12"
+          node --version
+          npm --version
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-packages
+          path: dist/release
+      - run: bun scripts/release/publish.ts --ci --yes
+
+  registry-smoke:
+    name: 从 registry 装一遍
+    needs: [gate, publish-npm]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # 刚发的版本要处理几分钟才装得到（v0.13.0：5.3 MB 的应用包约 8 分钟）：先等全部可见再装一次，不按固定间隔重试。
+      # 不挡 GitHub Release（npm 上的字节已经定了）。
+      - name: release:smoke --from registry
+        shell: bash
+        run: |
+          if bun run release:smoke --from registry --wait 30; then
+            echo "从 registry 装上 ${{ needs.gate.outputs.version }} 并跑通" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "从 registry 装 ${{ needs.gate.outputs.version }} 失败：npm 包已发，看这一步的输出；只是还没传开就重跑这个作业" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+  github-release:
+    name: GitHub Release
+    needs: [gate, desktop, publish-npm]
+    if: needs.gate.outputs.dry-run != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.gate.outputs.version }}
+      STAGE: ${{ needs.gate.outputs.stage }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-assets
+          path: ${{ runner.temp }}/release-assets
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes
+      - run: bun scripts/release/github-release.ts draft "$VERSION" "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/release-notes/notes.md" "$STAGE"
+      - run: bun scripts/release/github-release.ts publish "$VERSION" "$RUNNER_TEMP/release-assets"
+
+  verify-feed:
+    name: 自动更新的取法
+    needs: [gate, github-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      latest: ${{ steps.feed.outputs.latest }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-assets
+          path: ${{ runner.temp }}/release-assets
+      - name: 按更新器的取法核对
+        id: feed
+        shell: bash
+        run: |
+          status=0
+          bun scripts/release/verify-update-feed.ts "$VERSION" "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/feed-evidence.json" || status=$?
+          route=$(jq -r '.route // ""' "$RUNNER_TEMP/feed-evidence.json" 2>/dev/null || echo "（没有写出证据）")
+          echo "latest=$([ "$route" = latest ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          {
+            echo "### 自动更新的取法（v$VERSION）"
+            echo
+            echo "路由：$route"
+            if [ "$status" -ne 0 ]; then
+              echo
+              echo "**发行没有完成，自动更新不可用。** 处置见 docs/standards/releasing.md 的“失败与重跑”。"
+              jq -r '.problems[] | "- " + .' "$RUNNER_TEMP/feed-evidence.json" 2>/dev/null || true
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: feed-evidence
+          path: ${{ runner.temp }}/feed-evidence.json
+          retention-days: 35
+          if-no-files-found: warn
+
+  # desktop-update 的 Smoke：有了上一个正式桌面版本以后，用它到本次跑一遍场景 1。走真实路径：装上一版的正式 Setup，
+  # 它从 GitHub latest/download 发现本次、下载、换上。所以只在本次是最新时跑；在发布之后，失败时 Release 已经公开。
+  upgrade-from-previous:
+    name: 上一版升级到本次
+    needs: [gate, verify-feed]
+    if: needs.gate.outputs.previous != '' && needs.verify-feed.outputs.latest == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: packages/neuro-book
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.gate.outputs.version }}
+      PREVIOUS: ${{ needs.gate.outputs.previous }}
+      NBOOK_SMOKE_WEBVIEW2_POLICY: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+        working-directory: .
+      # 安装包从 0.13.1 起叫 NeuroBook-win-x64-Setup.zip，v0.13.0 叫 win-x64-NeuroBook-Setup.zip：按通配取，每个 Release 只有一个。
+      - name: 下载上一版的 Setup
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          gh release download $env:PREVIOUS --pattern '*Setup.zip' --dir "$env:RUNNER_TEMP/previous"
+          $setup = @(Get-ChildItem "$env:RUNNER_TEMP/previous" -Filter '*Setup.zip')
+          if ($setup.Count -ne 1) { throw "上一版 $env:PREVIOUS 的安装包应当正好一个，取到 $($setup.Count) 个" }
+          "PREVIOUS_SETUP=$($setup[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: 上一版升级到本次
+        run: bun desktop/scripts/smoke-update.ts --previous "$env:PREVIOUS_SETUP" --expect $env:VERSION --evidence "$env:RUNNER_TEMP/evidence/previous" --work "$env:RUNNER_TEMP/work/previous"
+      - name: 摘要
+        if: failure()
+        shell: bash
+        run: echo "**上一版（$PREVIOUS）升级到本次没有通过。** Release 已经公开；处置见 docs/standards/releasing.md 的“失败与重跑”。" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upgrade-evidence
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+          if-no-files-found: warn

@@ -10,6 +10,9 @@ import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/pl
 import {definitionAt} from "nbook/manifest";
 import {settingsWorld} from "nbook/plugins/settings/testing/world";
 import type {SettingsWorld, WorldWindow} from "nbook/plugins/settings/testing/world";
+import {createRunningWork} from "nbook/server/running-work";
+import type {RunningWorkRegistry} from "nbook/server/running-work";
+import {runningWorkKey} from "nbook/shared/host";
 
 import {tasksBackendPlugin} from "../backend/plugin";
 import {descriptor} from "../plugin";
@@ -30,6 +33,8 @@ export interface TasksWorld {
     readonly settings: SettingsWorld;
     /** 场地自带的发起方拿到的登记服务。 */
     readonly tasks: BackgroundTasks;
+    /** 服务端的在跑的工作登记表（宿主能力 `runningWorkKey`，与产品同一个实现）。 */
+    readonly work: RunningWorkRegistry;
     /** 另装一个发起方，id 取 `test.tasks-owner-<id>`。 */
     owner(id: string): Promise<Owner>;
     /** 起一个窗口，交回它的远程客户端。 */
@@ -52,11 +57,13 @@ export async function tasksWorld(root: string): Promise<TasksWorld> {
     const probe = ownerPlugin("test.tasks-owner", (value) => {
         tasks = value;
     }, true);
-    const settings = await settingsWorld(root, [definitionAt("server", descriptor, tasksBackendPlugin), probe]);
+    const work = createRunningWork((record) => settings.diagnostics("hub").record(record));
+    const settings = await settingsWorld(root, [definitionAt("server", descriptor, tasksBackendPlugin), probe], {hubCapabilities: [{id: "host.running-work", key: runningWorkKey, create: () => work.provision}]});
     if (tasks === null) throw new Error("the tasks probe did not activate");
     return {
         settings,
         tasks,
+        work,
         owner: async (id) => {
             let taken: BackgroundTasks | null = null;
             const pluginId = `test.tasks-owner-${id}`;

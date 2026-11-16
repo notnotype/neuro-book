@@ -1,0 +1,44 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t25-container-feedback",
+    "artifactId": "join-motion",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "活动栏与侧栏分开、合上时接缝怎么动",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "44f5fe9d2a3e2e145fe51388c8616e957e426d84c62116005cc34870100cebc8",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "join-motion",
+            "type": "single",
+            "label": "侧栏收起、展开时，活动栏和侧栏相接的地方选哪种？",
+            "options": [
+                {
+                    "value": "smooth",
+                    "label": "甲 同步分开"
+                },
+                {
+                    "value": "droplet",
+                    "label": "乙 水滴"
+                }
+            ],
+            "required": false,
+            "recommend": [
+                "droplet"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-11-16T03:06:53.675Z"
+}

@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t22-comments-feedback
-status: active
+status: done
 updated: 2026-11-12
 ---
 
@@ -18,17 +18,48 @@ updated: 2026-11-12
 5. 块批注：样式与行内一致（去虚线左边框与缩进）；块菜单加“批注”入口。
 6. 编辑批注内的文字：整句替换时新字继承批注（原来批注连同意见一起消失）。
 
-合同：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 20、28–37 与验收 11–20；[`workspace/markdown-dialect.md`](../../../../../docs/specs/workspace/markdown-dialect.md) 输出 11。计划：[plan.md](plan.md)。
+合同：[`workbench/markdown-editing.md`](../../../../../docs/specs/workbench/markdown-editing.md) 输出 17、20、28–37 与验收 11–20；[`workspace/markdown-dialect.md`](../../../../../docs/specs/workspace/markdown-dialect.md) 输出 11。计划：[plan.md](plan.md)。
 
 ## 回答开发者的两个问题（2026-11-12）
 
-- **规范里有没有“同一组件不同状态尺寸尽量不变”**：[`ui-development-spec.md`](../../../../../packages/nb-ui/docs/ui-development-spec.md) 第 3 节第 4 条写了控件被点击、激活、聚焦或悬停不改尺寸，以及同一对话框或面板几种状态之间外框尺寸与版式不变；第 5 条写了列表里同模板条目等高。没写“摘要、展开、编辑”这类卡片状态之间怎么办，本 Task 补上。
-- **编辑批注内的文字是否符合预期**：用真实编辑器核对，两端打字不扩张批注、中间打字与替换一部分都留在批注里、中间回车仍是一条（分截）、全部删掉批注一起没了，都符合预期；整句选中后打字替换会让批注连同意见一起消失（只能 Ctrl+Z 找回），不符合，已定为新字继承批注。没有系统地对照过参照软件，也没在真实浏览器里把这些编辑场景走过一遍：t13 只验证了“打字时卡片不弹”。
+- **规范里有没有“同一组件不同状态尺寸尽量不变”**：[`ui-development-spec.md`](../../../../../packages/nb-ui/docs/ui-development-spec.md) 第 3 节第 4 条写了控件被点击、激活、聚焦或悬停不改尺寸，以及同一对话框或面板几种状态之间外框尺寸与版式不变；第 5 条写了列表里同模板条目等高。没写“摘要、展开、编辑”这类卡片状态之间怎么办。本 Task 在第 4 条补了一条，开发后自检清单里的对应条也并进了“卡片”，`design-language.md` 补了“列表里卡片的出现与移动”。
+- **编辑批注内的文字是否符合预期**：用真实编辑器核对，两端打字不扩张批注、中间打字与替换一部分都留在批注里、中间回车仍是一条（分截）、全部删掉批注一起没了，都符合预期；整句选中后打字替换会让批注连同意见一起消失（只能 Ctrl+Z 找回），不符合，已改成新字继承批注（输出 36）。没有系统地对照过参照软件。
+
+## 做了什么
+
+- **nb-ui**：`AnchoredPopover` 加 `align`（缺省居中，别处不受影响）；规范与设计语言补写。
+- **nb-markdown**：
+  - 波浪线按嵌套层数错开，块批注去掉虚线左边框与缩进、里面的块之间留与顶层同样的间隔；
+  - 整句替换时批注不丢：在 `Comment` 标记自己的 ProseMirror 插件里用 `appendTransaction` 补（打字、粘贴、程序替换都走这一处），并带“续写”：选中整句再一个字一个字打新句子，整句新话都在批注里（实测发现只补第一个字时批注只剩一个字，所以加了续写）；
+  - 块批注按位置包（`addBlockComment`、`comment-block` 动作）：表格的节点选区会被表格插件换成单元格选区，靠选区做不稳；
+  - 悬停用的 `commentsAtPos`；去掉 `commentEntry`（光标进入的判断）。
+- **neuro-book 前端**：
+  - 批注层改成悬停状态机，卡片左缘对齐被批注文字在这一行的起点（`commentLineAnchor`：用 DOM `Range` 量这条批注在这一行最靠左的盒子）；
+  - 卡片是“意见区加固定高度的底行”，页边里意见最多 3 行、按钮只在当前或悬停时显现（占位不变）；
+  - 页边卡片无左边框；位置按卡片身份记；排位后下一帧才显示、入场动画、`top` 过渡、当前态渐变；稿纸平移过渡，页边每帧跟着重排；
+  - 块菜单加“批注”（文字块写成行内批注，别的块整块包进块批注）；
+  - Lab 新增场景“批注：重叠的波浪线、块批注的显示”。
 
 ## 当前状态
 
-2026-11-12 计划写好，开发者已确认方向。尚未开工。
+**已完成，2026-11-12 合入 master**（快进到 `2d1d9b2d9`，不 push）。代码提交 `b08075726`、`1081b200e`、`eaeaee545`、`71cd8f919`、`31fc05cc0`，审查修正 `dd03ec21b`，其间合入过两次 master（w00026 t24 的工作台改动与 t25 的文档）。worktree 与分支已删。
+
+验证（2026-11-12）：
+
+- 类型检查：nb-markdown、neuro-book 通过（合并 master 之后重跑过）。
+- nb-markdown `bun run test`：265 个 bun 用例、254 个 vitest 用例全过。neuro-book：vitest 82 个文件 579 用例、bun 2815 过 13 跳过（审查修正前跑的；修正后重跑了 markdown 插件的 132 个 dom 用例与 nb-markdown 的 141 个）。`AnchoredPopover` 测试过。`governance:check`、`docs:check` 无失败无新增警告。
+- e2e：`markdown-comments` 26 例全过（含真实 400ms 悬停、位置对齐、替换继承的真实按键与粘贴、块菜单、页边尺寸与逐帧采样的动画、单卡淡出、页边里的整块批注）；合并 master 后 `markdown-comments`、`markdown-editing`、`markdown-input`、`editor-area` 共 127 例，124 过，3 个偶发失败见下。
+- 变异检查：悬停时点击不收起、替换继承的续写、页边按下标记位置、块批注卡片的 key、改意见的位置入口、`suppressed`、单卡淡出的 CSS 七处改坏后对应用例都变红，已还原。
+- UI 取证：[ui-check.txt](evidences/ui-check.txt)；Lab 里 nbook、macos × 亮、暗四种组合：悬停卡片左缘与批注起点差 1px、点编辑变“写”位置不动，页边没有左边框、互不重叠，块批注无边框无缩进，390px 视口里卡片在窗口内、没有横向溢出，没有页面错误。精选四张截图在 `evidences/`。页边里只有意见超过 3 行的那张卡片在成为当前时变高（107px 到 129px，后面的卡片往下让 22px），其余卡片尺寸与按钮占位完全不变。
+- 实现审查（Sonnet，前端）：8 条（阻断 0、重要 3、建议 5），[报告](evidences/impl-review-1-sonnet.txt)，[逐条处理](evidences/impl-review-1-disposition.txt)：7 条成立并已改（块批注页边卡片 key 随位置变导致每次按键重建、单卡淡出被盖掉、改意见的卡片位置不分入口、旧注释与文档、e2e 类型检查、补三处缺失的测试），1 条（输入法组字中补标记）无法在无头环境验证，交开发者试。
+
+收口里的失败与既有问题：
+
+- `lab-scenes`：`ThemeEditor/scene-full`、`ThemeEditor/icons` 两个场景有 404 资源错误。在 master（`3b340e780`）上同样失败，与本 Task 无关。
+- 偶发（单独重跑都过，已记入 [t17](../t17-e2e-open-file-wait/README.md)）：`editor-area` 的“有未保存的修改时离开页面先请求确认”“每个标签一个控件……恢复会话只建活动标签的控件”，`markdown-editing` 的“拆分后”那条（打开文件步骤等不到资源树里的行）。
+
+未验证：真实输入法替换选区（CDP 的输入法接口替换不了选区，实测它带替换参数时会把选区之外的字一起替换）；窗口真实失焦；macOS 真机；触屏（悬停在触屏上不触发，用页边）；长意见（超过 3 行）展开时高度瞬间变化、没有高度动画（Spec 与待确认清单已记）。
 
 ## 下一步
 
-按 [plan.md](plan.md) 的切片：先改 Spec，再建 worktree 做 nb-ui、nb-markdown、neuro-book 前端，e2e 与取证，Sonnet 做一次实现审查，处理完合入 master。
+无。待开发者做的两件事记在 [待确认清单](../../pending-confirmations.md)：用系统输入法试一次“选中批注里的整句直接拼音输入”；两条紧挨的批注在接缝处悬停同时出两张卡片的已知限制。

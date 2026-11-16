@@ -12,6 +12,19 @@ export type SuggestionMenuItem = Readonly<{
     disabled?: boolean;
     /** 当前值：行尾画勾（可搜索的下拉用它标出已选项）。 */
     checked?: boolean;
+    /** 行尾的状态图标；同一个菜单有一项带它时每行都留出这一列。 */
+    status?: SuggestionMenuStatus;
+}>;
+
+/** 一项的状态：图标加意思。指针停在图标上显示 `label`，读屏把它读在名称后面。 */
+export type SuggestionMenuStatus = Readonly<{
+    label: string;
+    /** Iconify 类名；`busy` 时不用 */
+    iconClass?: string;
+    /** 进行中：画转圈代替图标 */
+    busy?: boolean;
+    /** 缺省 neutral（次要色） */
+    tone?: "neutral" | "warning" | "danger";
 }>;
 
 export type SuggestionMenuGroup = Readonly<{

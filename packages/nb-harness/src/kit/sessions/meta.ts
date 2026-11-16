@@ -35,6 +35,9 @@ const firstChars = (text: string, count: number): string => Array.from(text).sli
 /** 前台会话 id 最长 128 个字符，直接拼会超过 id 上限，所以取哈希。 */
 export const titleSessionId = (session: string): string => `session-title-${createHash("sha256").update(session).digest("hex").slice(0, 32)}`;
 
+/** 是不是 `titleSessionId` 算出来的 id（哪个会话的标题会话要正向算，id 里看不出来）。 */
+export const isTitleSessionId = (id: string): boolean => /^session-title-[0-9a-f]{32}$/u.test(id);
+
 /** `id` 与 `tag` 由宿主给（事件名进日志）；标题 Profile 用 `tag` 排除它，标题会话不再生成标题。 */
 export function sessionMetaExtension(options: {readonly id: string; readonly tag: string; readonly notify: (session: string, trigger: MetaTrigger) => void}): AnyExtension {
     const {notify} = options;

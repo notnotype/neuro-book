@@ -95,4 +95,26 @@ describe("SuggestionMenu 的选项 id", () => {
         byText("丙").click();
         expect(wrapper.emitted("select")).toEqual([["a3"]]);
     });
+
+    it("有一项带状态时每行都留出状态列；状态的意思跟在名称后面读出，转圈的进行中也一样", async () => {
+        const groups: SuggestionMenuGroup[] = [{id: "skills", items: [
+            {id: "style-guide", label: "style-guide", hint: "按本书的文风规则改写一段"},
+            {id: "epub-export", label: "epub-export", hint: "把选中的章节导成 EPUB", status: {label: "未初始化", iconClass: "i-lucide-download", tone: "warning"}},
+            {id: "tts-preview", label: "tts-preview", status: {label: "正在初始化", busy: true}},
+        ]}];
+        await mountMenu(groups, null);
+        const options = [...document.querySelectorAll<HTMLElement>("[role='option']")];
+        expect(options.map((option) => option.querySelectorAll("[data-suggestion-menu-status]").length)).toEqual([1, 1, 1]);
+        // 几格是弹性布局的子项，浏览器算名字时各格之间有空隔；这里的 textContent 直接相连，只核对先后。
+        expect(options.map((option) => option.textContent?.replace(/\s+/g, ""))).toEqual([
+            "style-guide按本书的文风规则改写一段",
+            "epub-export把选中的章节导成EPUB未初始化",
+            "tts-preview正在初始化",
+        ]);
+    });
+
+    it("都不带状态时不留状态列", async () => {
+        await mountMenu(GROUPS, null);
+        expect(document.querySelectorAll("[data-suggestion-menu-status]")).toHaveLength(0);
+    });
 });

@@ -1,0 +1,101 @@
+# w00025 t17 实现审查报告（审查提交 f17e22300..14f6fda75，HEAD 14f6fda75）
+实验方法：在 /tmp/review-w00025-t17-impl/ 下用自写 vitest 配置（引用 worktree 的配置）与 vite transform 插件做变异，不改 worktree 文件。
+
+### 1. 回填后带过去的 storedMarks 是旧实例，属性（markdown）与回填后的文字不一致；注释“原样带过去仍对得上”只对选区成立
+- **严重程度**：建议；**类别**：代码质量（注释与合同准确性）
+- **位置**：packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:163-169
+- **现象**：`written.accept` 的 `restyle` 会对已写出的 mark 做 `removeMark`/`addMark`，把 `markdown` 属性从 null 改成读回的写法（如 bold 的 `"**"`）。`storedMarks` 里仍是旧实例 `bold{markdown:null}`。实验（/tmp/review-w00025-t17-impl/exp.dom.test.ts）：`看` 光标在末尾，Ctrl+B、打“粗”、Ctrl+I（stored=[bold(null), italic(null)]）、flushPendingChange、打“斜”。交出后 doc 是 `粗`=bold{"**"}，`斜`=bold{null}+italic，两段相邻的粗体属性不同；再次交出写回 `看**粗*斜***\n`，输出正确，没有可见回归。
+- **为什么是问题**：目前恰好因为“回填写法=规范写法”，null 与回填值写出相同。若以后 restyle 回填出与规范写法不同的写法（如 `__`），带过去的旧 mark 会打出另一种写法的相邻粗体，写出时可能拆成两段。注释“回填只改属性、不动选区，原样带过去仍对得上光标”暗示一切都对得上，漏了 mark 属性这一层。
+- **如何核实**：运行 exp.dom.test.ts 的用例 A（输出写在 /tmp/review-w00025-t17-impl/out.txt）。
+- **建议改法**：不改代码也可以，但注释补一句“带过去的 mark 属性可能是回填前的值，写出时按规范写法，所以相同”；或带过去前用 `tr.doc.resolve(from).marks()` 里同类型的现值替换。收益小，注释补一句即可。
+
+### 2. 同一类丢失仍存在于 reload 路径（作者已问，结论：分开合理，但边界要写明）
+- **严重程度**：建议；**类别**：正确性（边角）/文档
+- **位置**：MarkdownControl.vue:200-212（`reload`）、:274-282（watch revision）
+- **现象**：reload 用 `codec.reload(tr, text)` 做替换步骤，`Transaction.addStep` 会清 storedMarks。同一文档两个控件时，别组输入被接受 → 本组 reload → 本组刚按下的格式切换丢掉。Spec 输出 62 只写“停手、保存把正文交给文档不改变它”，没有承诺“别处改了正文也不改变”，所以不算违反合同。
+- **为什么要提**：用户行为上同样是“按了 Ctrl+B 还没打字，格式没了”，只是需要两组同文档并发输入（窄场景）。按“窄场景选简单改法”的偏好，建议不加机制，在 MarkdownControl.md 一句话写成已知限制。reload 的 doc 若与光标处无关（没有改到光标所在位置），其实不需要清 stored marks，但这是 Tiptap/ProseMirror 的通用行为。
+- **分开合理性**：commitNow 带 stored 是因为回填只改属性、位置不变；reload 会替换内容、选区要映射，stored 对不对得上取决于光标处的内容，不能原样带，分开是对的。
+
+### 3. 新 DOM 用例：变异检查通过（正向结论）；两处小问题
+- **严重程度**：建议；**类别**：测试/代码质量
+- **位置**：MarkdownControl.dom.test.ts:231-249
+- **变异检查（已做）**：在 vite transform 里删去 `if (stored !== null) tr.setStoredMarks(stored);`，整份 MarkdownControl.dom.test.ts 55 例里只有这一例失败，实际 `看**粗斜**\n`，期望 `看**粗***斜*\n`，与作者所述一致。所以能抓住回归。入口经 `handleKeyDown`（ProseMirror 的真实按键入口，prosemirror-keymap）与 `handleTextInput`，不是直接调命令，合规。
+- **问题 a**：`shortcut` 里 `someProp("handleKeyDown", (handle) => handle(...))` 的参数名 `handle` 遮蔽了外层解构出的控件句柄 `handle`（同一用例里下面就用 `handle.flushPendingChange()`），易读错。改名为 `run` 或 `fn`。
+- **问题 b**：平台判断 `navigator.platform` 的正则是复制 prosemirror-keymap 内部写法，注释已说明理由；但只测了“停手”入口，Spec 同时写了“保存”：保存经 `flushPendingChange` 同一路径，等价，不需另测。
+- **补充**：只覆盖“关粗体、开斜体”一种切换；`storedMarks === []`（关掉全部格式）这条分支（`stored !== null` 对空数组为真，正确）没有用例，若有人把判断改成 `stored?.length` 不会被抓住。可在同一用例末尾加一个“Ctrl+B 关掉粗体后直接停手交出、再打字，不是粗体”的断言（`看**粗**` 光标在末尾 Ctrl+B 再 flush 再打“体”应写出 `看**粗**体`）。
+
+### 3 的更正（撤回其中“补充”一段）
+- “补充”里建议的用例（`看**粗**`、Ctrl+B 关粗体、flush）不成立：没有编辑过的文档写出的正文与 binding.text 相同，commitNow 在 `written.text === binding.text.value` 处直接返回，不会走到回填，测不到 `stored === []` 分支。要测这一支，得在同一用例里先有一次会触发 restyle 的输入（如先打字产生新粗体），再关掉全部格式后交出。优先级低，仅供参考；3 的 a 小点仍有效。
+
+### 4. markdown-editing.e2e.ts：模块级 `written` 被同文件用例里的局部 `const written` 遮蔽
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：markdown-editing.e2e.ts:56（新增的 `const written: string[]`）与 :793（`const written = await disk("notes/gutter-drag.md")`）
+- **现象**：新加的模块级名字与既有用例的局部变量同名。合法，行为无误，但读者在 afterEach 与这条用例之间会误认；若以后在该用例里想往列表里加路径，会写到局部字符串上。
+- **建议改法**：模块级改名 `createdFiles` 或 `openedPaths`（两份文件都改，保持一致）。
+
+### 5. afterEach 删文件后，下一例 page.goto 恢复的会话里活动标签是已删除的文件（未验证，从代码推断）
+- **严重程度**：建议；**类别**：不变量（测试隔离）
+- **位置**：markdown-editing.e2e.ts:55-59、markdown-comments.e2e.ts:56-60
+- **现象**：每例结束时页面还开着、标签还在。服务端把标签列表存进会话（`editor.tabs`），下一例的 `page.goto` 会恢复上一例的活动标签；改前文件还在，恢复出正文；改后文件已删，恢复出的是“文件不存在/已被删除”的视图。openFile 的 `toPass` 要求“活动标签真是这个文件”，等的是新文件所以应能通过，但“已删除文件的标签”这条恢复路径此前这两份 e2e 从未走过，它可能弹提示、占据活动组、让第一次 dblclick 落在重画中的标签上（toPass 会重试掩盖）。已有的 editor-area 用例也会碰到同类状态，但那里文件不删。
+- **补充**：规范 63 写明“被其它来源删除的文档不自动保存”，所以 afterEach 的 rm 不会被页面的失焦自动保存写回（我核对了 Spec，不是风险）。
+- **另**：两份文件里直接 `writeFile` 的文件不在 `written` 里不会删：markdown-editing.e2e.ts:208 `place-code.txt`、:313 `selection-other.md`。影响只是资源树多两行（37 个文件的量级里 +2），相对作者的目标可忽略，但“用完就删”的口径不一致；要么也登记，要么注释里写明只删 openFile 写的。
+- **如何核实**：主 Agent 整份跑 markdown-editing 与 markdown-comments（已跑过则此条只剩“不一致”）；失败信号是 openFile 首次 dblclick 超时、toPass 多轮才过。
+
+### 6. editor-area.e2e.ts：离开页面一例新建 notes/leave.md 且不删，资源树在后面的用例里多一行
+- **严重程度**：建议；**类别**：不变量/测试
+- **位置**：editor-area.e2e.ts:1283-1288
+- **现象**：notes 目录里 leave.md 排在 i.md 与 tasks.md 之间，此后所有用例的资源树都多一行，把 tasks/u/v/w.md 往下推一行。作者自己写明这类问题（markdown-editing 的虚拟列表点不到行）正是本任务要处理的，但这里没有清理，也没有验证余量。
+- **数字**：行高 `FALLBACK_ROW_HEIGHT = 26`（ExplorerTree.vue:68，实际取探针高度），open() 里把会话面板收起让资源树占满一列；只展开 notes 时共约 4 个根目录行 + 18 个 notes 行 = 22 行；data 展开再 +6 = 28，moving、target 展开再各 +2、+1 = 31。默认视口 1440x900，树的可视高度是 900 减去标题、状态栏等，约 700 上下，约 27 行。后半段用到 u.md/v.md/w.md 的用例（1514 起、1559 起）要在 data 已展开时点这些行，余量是 0 到负几行。**这是估算，未跑**：请主 Agent 在 editor-area 全文件里看 1514 以后几例有没有“按行点不到”。
+- **建议改法**：用例结束时 `rm leave.md`（afterEach 里按路径删，或这例最后 `await rm`），或把这一例放到 writeSettings 同类例的靠后位置；与另两份文件的做法保持一致。
+- **同类**：此用例原来用 b.md，改动后 b.md 不再被改，后面的用例（2134、2152 看 `第二章`）不依赖 `第二章x`，我检查过，没有隐含依赖。MANUAL_SAVE 在 afterEach 里被 `writeSettings()` 重置，没有泄漏。
+
+### 7. editor-area.e2e.ts：atEnd 的聚焦等待与 Monaco 聚焦等待的细节
+- **严重程度**：建议；**类别**：测试
+- **位置**：editor-area.e2e.ts:165-169（atEnd）、:1752（Monaco）
+- **atEnd**：所有调用方传的是 `[data-editor-prose]`（ProseMirror 根，可聚焦）或默认的 `prose(page)`，我核对了 1216/1235/1583-1595 的调用，`toBeFocused` 对它们成立，没有传进不能聚焦元素的调用。无问题。
+- **Monaco**：`document.activeElement?.closest(".monaco-editor") !== null`：activeElement 为 null 时 `?.` 得 undefined，`undefined !== null` 为真，会误判已聚焦。activeElement 在页面里通常是 body，所以实际极少触发；而且不核对是“这一个”Monaco（页面上有隐藏的上一个 Monaco 且它仍持有焦点时也通过）。建议写成 `document.activeElement?.closest(".monaco-editor") != null`（取反则成立），并限定到 `:visible` 那个编辑器，或用 `expect(editor.locator("textarea")).toBeFocused()`，更直接、自带重试。
+
+### 8. tabsSaved 只核对“标签在两条记录里出现”，不核对活动标签，也有空数组假通过
+- **严重程度**：建议；**类别**：测试
+- **位置**：editor-area.e2e.ts:187-195，用法 :1183、:2077-2080
+- **现象**：（a）`ids.every(...)` 对空数组为真：用法 2077 的 `ids` 来自 `evaluateAll`，前一行已断言 `data-editor-kind` 有 3 个，但标签条与控件数量不是同一件事，万一标签条还没画出 `[data-editor-tab]`，ids 为 [] 就假通过。建议函数内对空数组抛错或用例里 `expect(ids).toHaveLength(3)`。（b）`layout.includes(id)` 是对整个布局文档序列化后的子串匹配，只证明“标签 id 在布局里”；下面用例的判据是“重载后活动的是 c”，布局里 c 在、但活动标签还没写成 c 的瞬间也会通过。标签是按添加顺序写入且活动标签与列表同文档写出（我没读写入端），这一窗口应很小；若要严格，核对活动标签字段。
+- **别的**：改前 1183 行的两段 `expect.poll` 与新写法等价，行为没有放宽。
+
+### 9. expand() 的写法：可用但有一处多余等待
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：editor-area.e2e.ts:243-252
+- **现象**：`toPass` 内先 `getAttribute`（无单独超时，行不存在时一直等到整个用例超时，而不是 toPass 的下一轮），再 `click`，再 `toHaveAttribute(..., {timeout: 1000})`。资源树虚拟列表里目标行不在视口时 `getAttribute` 会卡到用例超时；其它几个 openFile 里的 `dblclick({timeout: 3000})` 已经给了超时。给 `getAttribute` 与 `click` 也加 `{timeout: 3000}`，行为与另三份一致。
+- **其余**：核对 `aria-expanded` 的重试逻辑正确：读到 "true" 不点；点后被恢复流程反向切换则下一轮再点。
+
+### 10. “块菜单：下移、副本、删除”的竞态（作者未复现；从代码推断，未验证）
+- **严重程度**：建议；**类别**：测试
+- **位置**：markdown-editing.e2e.ts:613-617（hover 辅助函数）、:728-745；产品侧 MarkdownBlockGutter.vue:28-31、:80-95、:288-293
+- **推断**：`hover()` 只等 `gutter` 可见。按钮对着的块是 `menuTarget ?? hovered ?? caret`（:31）。菜单项点完后 onRequestClose 把 `hovered` 置空并 `editor.commands.focus()`，按钮此时对着光标所在的块（caret），仍然可见。下一次 `open("二")` 里的 `hover("二")` 在按钮已可见的情况下立即满足 `toBeVisible`；若此时 pointermove 到达时 `menuOpen` 还为真（关闭由 `@update:open` 驱动，ContextMenu 若有关闭过渡则 `menuOpen` 变假要等），`onPointerMove` 第 82 行直接 return，hovered 不更新，按钮留在光标块上，随后 `click("块菜单")` 打开的是光标块的菜单而不是“二”的。表现：创建副本复制了错的块，磁盘文本与期望不符。该测试的 `poll` 只比较磁盘最终结果。
+- **佐证**：同组另一用例（:630-643）在点按钮前用 `expect.poll(gutter y 与目标段 y 的差 < 16)` 确认按钮已对准，这条没有，且这条才是连续几次切换块的用例。
+- **建议改法**：把 `hover` 辅助函数改成“hover 后 poll 按钮的 y 与该文字所在 p 的 y 差 < 16 再返回”，和 :640 一致。这是一个测试侧对齐等待，不动产品代码。作者在 8、20 倍降速下 18 轮没复现，说明概率很低，我没有实验证据，仅作候选。
+
+### 11. 未提交的探针文件在 worktree 里
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：packages/neuro-book/e2e/t17-probe.e2e.ts（`git status` 显示 `??`，文件首行写明“不提交”）
+- **现象**：压 CPU 反复跑的探针留在 e2e 目录。它匹配 Playwright 的 `*.e2e.ts` 通配，若有人跑 `bun run test:e2e` 会被一起选中，且它自带事务/调用栈输出。合入前要确认不会被 `git add` 带上、并删除；合入后留在 worktree 里的删除按主 Agent 自己的决定。我没有删除（只读）。
+
+### 12. 同一类“读到收起再点”的打开写法在别的 e2e 里没改（范围备注）
+- **严重程度**：建议；**类别**：测试
+- **位置**：e2e/themes.e2e.ts:74、editor-code-menu.e2e.ts:65、editor-code-settings.e2e.ts:61、editor-autosave.e2e.ts:71、desktop-*.e2e.ts 等
+- **现象**：这些 openFile 与 markdown-input 改前相同（先 getAttribute，不等“展开是否被恢复流程反向切换”）。Task 目标只列了三份加 editor-area，不算漏改；若 Task 记录里的“目标与范围”写的是“所有 openFile”，则要补。我没有证据说这些文件出过偶发失败。markdown-input.e2e.ts 的改动与 markdown-editing 一致，核对无误；它没有 afterEach 删文件，但只有 4 例，与另两份的 37/45 例不同，可以接受。
+
+## 未发现问题的方面
+- commitNow 的 `stored !== null` 判断：空数组（用户关掉全部格式）不是 null，会被带过去，正确；非空选区时 storedMarks 本来为 null，不受影响。
+- 回填是否动选区：`restyle` 只调用 `setNodeMarkup`（同大小的 ReplaceAroundStep）与 `removeMark`/`addMark`（Mark 步骤），位置不变，选区不需要映射；`setStoredMarks` 放在这些步骤之后，所以不会被 `addStep` 清掉。实验与 DOM 用例都证实。
+- 输入法组字：commitNow 的调用方在组字期间不触发交出（见 .md 与 flush 条件），回填不会落在组字中。
+- 同一文档几个控件：`stored` 取自本控件的 `current.state`，各控件各自带各自的，没有共享状态。
+- 只读：commitNow 对只读照常结算，带 stored 无副作用。
+- 新 DOM 用例经 keydown/textinput 的真实入口，变异检查（去掉带过去的两行）能抓住。
+- Spec 输出 63：afterEach 删除的文件被标为“被其它来源删除”，不会被失焦自动保存重建。
+
+## 数量
+- 阻断 0；重要 0；建议 11（第 1、2、3、4、5、6、7、8、9、10、11、12 条中，第 3 条含一段更正）
+- 有效发现编号：1、2、3（a 小点有效，补充段已更正）、4、5、6、7、8、9、10、11、12
+
+## 数量更正
+上面“数量”一节的计数写错：实际共 12 条，全部为建议级；阻断 0，重要 0，建议 12。有效编号：1 到 12（第 3 条的“补充”段已撤回，其余有效）。其中 5、6、10 是从代码推断、未跑 e2e 的候选，需要主 Agent 用 e2e 验证。

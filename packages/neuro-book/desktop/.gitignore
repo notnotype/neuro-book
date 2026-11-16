@@ -1,0 +1,5 @@
+bundle/
+build/
+payload/
+artifacts/
+node_modules/

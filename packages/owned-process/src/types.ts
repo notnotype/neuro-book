@@ -41,6 +41,13 @@ export type OwnedProcessLease = {
     stdout?: Readable;
     stderr?: Readable;
     completion: Promise<OwnedProcessCompletion>;
+    /** 目标进程的 pid：目标创建后 resolve；目标没创建成功就收口时 resolve 为 null。 */
+    rootPid: Promise<number | null>;
+    /**
+     * 监督进程的 pid（拉起失败时为 null）。监督进程握着收口用的句柄（Windows 的 Job Object 唯一句柄）：`completion` 失败、
+     * 所有权确认不了时，调用方可以结束它来收掉整棵树（Windows 上 Job 句柄关闭即结束全部成员），再自己确认它不在了。
+     */
+    supervisorPid: number | null;
     terminate(reason: OwnedProcessTerminationReason): Promise<OwnedProcessCompletion>;
 };
 

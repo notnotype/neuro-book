@@ -14,7 +14,8 @@ import {basename, dirname, join} from "node:path";
 import type {Static} from "typebox";
 import {Compile} from "typebox/compile";
 
-import {tryLock} from "../platform/flock";
+import {tryLock} from "@notnotype/nb-flock";
+
 import {ConfigSchema, LegacyModelSchema, PROVIDER_ID_PATTERN, type IngestModelSchema, type PriceSchema, type ProviderConfig, type QaConfig} from "../contract/config-schema";
 import {QaError} from "./errors";
 

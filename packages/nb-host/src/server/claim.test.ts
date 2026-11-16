@@ -15,7 +15,7 @@ import {Type} from "typebox";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {ACME_CLAIM} from "../testing/acme";
-import {claimStateRoot, defineClaimProfile, HELLO_TIMEOUT_MS, instanceAddress, queryInstance} from "./claim";
+import {claimStateRoot, defineClaimProfile, HELLO_TIMEOUT_MS, instanceAddress, queryInstance, sendRequest} from "./claim";
 import type {ClaimResult, InstanceKind} from "./claim";
 
 const CHILD = join(import.meta.dir, "..", "testing", "claim-child.ts");
@@ -251,4 +251,107 @@ describe("状态根的实例认领（同进程）", () => {
             await chmod(root, 0o755);
         }
     });
+});
+
+describe("同一状态根上的另一种认领（桌面壳的锁）", () => {
+    /** 桌面壳那样的认领：自己的套接字名、64 KB 上限、没有应用字段；`hello` 之外还收 `open-window`。 */
+    const DESKTOP = defineClaimProfile({socketPrefix: "acme-desktop", socketName: "desktop", messageLimit: 64 * 1024, version: "9.9.9", fields: {}});
+    const desktopClaim = (stateRoot: string, requests: Record<string, (request: unknown) => unknown> = {}) =>
+        claimStateRoot({stateRoot, kind: "product", profile: DESKTOP, report: () => undefined, requests, unknownReply: {ok: false, code: "unknown-request"}});
+    /** 发一行原始字节，读到连接关闭为止，交回收到的文字（被断开时是空串）。 */
+    async function raw(address: string, bytes: Uint8Array | string, dripMs = 0): Promise<{text: string; closedAfterMs: number}> {
+        const socket = connect(address);
+        await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+        const began = performance.now();
+        let text = "";
+        socket.setEncoding("utf8");
+        socket.on("data", (chunk: string) => {
+            text += chunk;
+        });
+        socket.on("error", () => undefined);
+        const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+        if (dripMs === 0) {
+            socket.write(bytes);
+        } else {
+            // 慢慢地一个字节一个字节地写，永远不写换行：收到数据不应重置 3 秒的截止。
+            const timer = setInterval(() => {
+                if (!socket.destroyed) socket.write("x");
+            }, dripMs);
+            closed.finally(() => clearInterval(timer)).catch(() => undefined);
+        }
+        await closed;
+        return {text, closedAfterMs: performance.now() - began};
+    }
+
+    it("与服务端认领各用各的套接字，互不挡；hello 回基础字段，没有网络端点也能 ready", async () => {
+        const root = nextRoot();
+        const server = await claim(root, "product");
+        const desktop = await desktopClaim(root);
+        if (!server.ok || !desktop.ok) throw new Error("两种认领都应成功");
+        expect(await addressOf(root)).not.toBe(await instanceAddress(root, DESKTOP.socketPrefix, DESKTOP.socketName));
+        desktop.claim.publish({url: null, rpcUrl: null, extra: {}});
+        expect(await queryInstance(root, DESKTOP)).toEqual({state: "running", instance: {schema: 1, pid: process.pid, version: "9.9.9", kind: "product", status: "ready", url: null, rpcUrl: null}});
+        expect(await query(root)).toMatchObject({state: "running", instance: {status: "starting"}});
+        await desktop.claim.release();
+        expect(await queryInstance(root, DESKTOP)).toEqual({state: "none"});
+        expect(await query(root)).toMatchObject({state: "running"});
+        await server.claim.release();
+    });
+
+    it("登记的请求由同步处理器应答；不认识的类型回 unknownReply；处理器抛错时不回应答", async () => {
+        const root = nextRoot();
+        const seen: unknown[] = [];
+        const claimed = await desktopClaim(root, {
+            "open-window": (request) => {
+                seen.push(request);
+                return {ok: true};
+            },
+            broken: () => {
+                throw new Error("boom");
+            },
+        });
+        if (!claimed.ok) throw new Error(claimed.reason);
+        expect(await sendRequest(root, DESKTOP, {type: "open-window"})).toEqual({state: "answered", reply: {ok: true}});
+        expect(seen).toEqual([{type: "open-window"}]);
+        // 继承自 Object.prototype 的名字也是不认识的请求，不当作处理器调用。
+        for (const type of ["nope", "constructor", "toString", "__proto__", "hasOwnProperty"]) {
+            expect(await sendRequest(root, DESKTOP, {type})).toEqual({state: "answered", reply: {ok: false, code: "unknown-request"}});
+        }
+        expect(await sendRequest(root, DESKTOP, {type: "broken"})).toMatchObject({state: "unresponsive"});
+        await claimed.claim.release();
+        expect(await sendRequest(root, DESKTOP, {type: "open-window"})).toEqual({state: "none"});
+    });
+
+    it("请求首行按 UTF-8 字节计上限：65536 字节应答，65537 字节断开；多字节字符按字节算", async () => {
+        const root = nextRoot();
+        const claimed = await desktopClaim(root, {pad: () => ({ok: true})});
+        if (!claimed.ok) throw new Error(claimed.reason);
+        const address = await instanceAddress(root, DESKTOP.socketPrefix, DESKTOP.socketName);
+        const line = (bytes: number, filler: string) => {
+            const head = `{"type":"pad","x":"`;
+            const tail = `"}`;
+            const room = bytes - Buffer.byteLength(head + tail);
+            return `${head}${filler.repeat(Math.floor(room / Buffer.byteLength(filler)))}${tail}`;
+        };
+        const exact = line(64 * 1024, "a");
+        expect(Buffer.byteLength(exact)).toBe(65536);
+        expect((await raw(address, `${exact}\n`)).text).toBe('{"ok":true}\n');
+        expect((await raw(address, `${line(64 * 1024 + 1, "a")}\n`)).text).toBe("");
+        // “字”是 3 个字节：按字符数只有约 21800 个，按字节已超过上限。
+        const wide = line(64 * 1024 + 3, "字");
+        expect(wide.length).toBeLessThan(64 * 1024);
+        expect((await raw(address, `${wide}\n`)).text).toBe("");
+        await claimed.claim.release();
+    });
+
+    it("连上之后 3 秒内收不完一行就断开，慢慢滴数据也不延长", async () => {
+        const root = nextRoot();
+        const claimed = await desktopClaim(root);
+        if (!claimed.ok) throw new Error(claimed.reason);
+        const address = await instanceAddress(root, DESKTOP.socketPrefix, DESKTOP.socketName);
+        const dripped = await raw(address, "", 200);
+        expect(dripped.text).toBe("");
+        expect(dripped.closedAfterMs).toBeLessThan(HELLO_TIMEOUT_MS + 1_000);
+        await claimed.claim.release();
+    }, 10_000);
 });

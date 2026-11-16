@@ -55,6 +55,10 @@ function connection(plugins: ReadonlyArray<PluginDescriptor>, failures = 0, serv
         async catalog() {
             throw new ConnectionError("没有这份消息目录", 404);
         },
+        // 这些用例不发关闭前询问，不会来取。
+        async work() {
+            throw new ConnectionError("没有在跑的工作接口", 404);
+        },
     };
 }
 

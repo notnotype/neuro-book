@@ -1,0 +1,36 @@
+# Electrobun 桌面壳原型在 Windows 上的实测（2026-11-13，pc-notype：Windows 11 26200 x64、32 GB、WebView2 157.0.4341.46）
+# 工具：Hutch 0.29.0、Electrobun 2.0.6（hutch.config.ts 固定版本）、Bun 1.4.4（Hutch 打进应用）；NeuroBook 产物来自 master 0ac934e53。
+# 原型主进程见同目录 windows-electrobun-proto-main.ts.txt；应用里 Resources/app/nbook 是 dist/server、dist/web 与 Windows 上装的 node_modules/@oh-my-pi。
+
+## 构建
+hutch electrobun build --env=stable：66 s（其中压缩更新包 19 s）
+产物：win-x64-NeuroBookProto-Setup.zip 90,785,190 B；stable-win-x64-NeuroBookProto.tar.zst 90,015,517 B；update.json、update-v2.json
+Hutch 下载问题：设了 HTTPS_PROXY/HTTP_PROXY（http://127.0.0.1:7890）时每次 ReleaseDownloadFailed / HttpConnectionClosing；去掉后直连，第一次 GitHub 下载 HttpConnectionClosing，第二次成功。curl 直连与走代理都正常。
+
+## 安装（Setup.exe）
+没有界面，静默安装到 %LOCALAPPDATA%\dev.neurobook.desktop-proto\stable\app，建开始菜单与桌面快捷方式，再启动应用。
+从 SSH 会话直接运行时装好了（应用起在 session 0）；经计划任务在桌面会话里运行的两次没有装上，原因未查（未验证双击 Setup 的路径）。
+安装后大小 275.1 MB：bin\bun.exe 109.9 MB、Resources\app\nbook 155.7 MB（pi-natives-win32-x64 约 133 MB，其余为 server 与 web）、其余 Electrobun 文件约 7 MB。
+
+## 启动（proto.log；安装后在桌面会话里的第一次启动，文件刚由安装程序写入，可能还在系统缓存里）
++9ms    拉起服务端（process.execPath = 应用自带 bin\bun.exe）
++80ms   窗口建好（先显示 views://splash）
++611ms  服务端 Listening on http://127.0.0.1:51485/
++1426ms 窗口导航到服务端页面，dom-ready
+复制到别的目录后的冷启动：服务端 +3659ms 开始监听，+4982ms 页面就绪。
+
+## 内存（打开书房页面后）
+壳进程 bun：工作集 62 MB，私有 194 MB
+服务端 bun：工作集 123 MB，私有 569 MB
+WebView2：6 个进程，工作集 428 MB，私有 254 MB
+launcher：工作集 9 MB
+
+## 关窗
+WM_CLOSE → 主进程往服务端标准输入写 stop → 服务端 197 ms 后以 0 退出 → Utils.quit(0)，进程全部退出。第二次 166 ms。
+
+## 便携
+把安装好的 app 目录复制到 %USERPROFILE%\nb-w00046\portable 后直接运行 bin\launcher.exe 可以启动；Utils.paths.userData 仍是 %LOCALAPPDATA%\dev.neurobook.desktop-proto\stable，与安装版共用。
+
+## 卸载
+uninstall.exe --uninstall --quiet --delete-data：退出码 0；安装目录、开始菜单与桌面快捷方式、HKCU 卸载登记全部删除。
+Hutch 在 %LOCALAPPDATA%\cottontail\cache 留了缓存（不在 HUTCH_HOME 下）。

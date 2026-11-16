@@ -11,10 +11,14 @@ import {builtinModules} from "node:module";
 import {readFileSync} from "node:fs";
 import {join, relative} from "node:path";
 
-/** 以源码发布的包（`packages/` 下的目录名，ADR 0029）。加包时同步根 README 两份的包表。 */
+/**
+ * 以源码发布的包（`packages/` 下的目录名，ADR 0029）。加包时同步根 README 两份的包表，并在 `docs/` 与 `.agents/works/`
+ * 里搜现有的包数（例如“9 个”“11 个包”）一并改。
+ */
 export const RELEASE_PACKAGES = [
     "nb-profile",
     "nb-session",
+    "nb-flock",
     "nb-runtime",
     "nb-ui",
     "nb-harness",

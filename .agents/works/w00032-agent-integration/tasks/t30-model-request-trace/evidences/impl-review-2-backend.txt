@@ -1,0 +1,68 @@
+w00032 t30 实现审查第 2 路（后端，omp @default，2026-11-15，提交范围 cbbbb8944..19f135c00 的后端部分，说明见 .local/…/reports/impl-2-backend/brief.md）
+报告原文（已扫描密钥：0 处）：
+
+### 1. 清空记录后远程缓存仍可读出正文和请求体
+
+- **严重程度**：重要；**类别**：安全与数据清理
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/requests.ts:60-81,156-174`
+- **现象**：`requestsRemote()` 为 `content` 和 `payload` 各建一个 `RecentTexts`，命中后永久保留到淘汰；`clear` 只调用 `recorder.clear()`，不使这两个缓存失效。清空后用原哈希或 id 再读，服务端直接返回缓存值，不会得到合同规定的 `content-not-found` 或 `payload-not-found`。
+- **如何核实**：`/tmp/nb-t30-review-2-lab/clear-cache-leak.ts` 用真实 `RequestRecorder` 与远程实现先读取 `cleared-content`、`cleared-payload`，再清空；再次读取的输出仍分别包含完整正文 JSON 与 `cleared-payload`。
+- **为什么是问题**：查看器的清空操作应使记录数据不可再从记录服务取回；当前同一宿主内的其他页面或之后的调用仍能读出已清除内容，且内容哈希可跨请求复用。
+- **建议改法**：清空成功后按被删除的内容哈希和请求 id 清除远程缓存；全量清空清除全部缓存。记录器内按哈希的查找文字缓存也应同步失效，避免清理后的正文继续驻留。
+### 2. 大量删除拆成同一序号的事件后，客户端只应用第一段
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/requests.ts:177-181`；`packages/neuro-book/src/plugins/agent/web/requests-page.ts:328-334`
+- **现象**：远程层把超过 5000 个 id 的一次 `removed` 拆成多条事件，但每条复用同一个 `seq`。页面收到第一段后把 `#seq` 更新为该值，后续段在 `change.seq <= this.#seq` 检查处全部丢弃。
+- **为什么是问题**：一次清空或按天清理超过 5000 条记录时，其他已打开页面最多移除前 5000 条，剩余行继续显示为已不存在的记录；这些行在下一次刷新或重连前不能通过变更事件消失。
+- **如何核实**：代码路径的数值边界是确定的：`ids.length = 5001` 时第一段含 5000 个 id，第二段与第一段同为一个 `seq`，页面的序号门禁只允许第一段。当前测试没有覆盖超过 5000 条的 `removed` 事件。
+- **建议改法**：为分段事件增加同一逻辑变更内的段号并让客户端按“序号加段号”去重，或让事件协议一次携带可完整消费的删除集合；不能让多段共享一个会被客户端立即消费掉的唯一序号。
+### 3. 重启后既有后台标题请求失去所属会话
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/agent/backend/agent.ts:153-156`；`packages/neuro-book/src/plugins/agent/backend/requests.ts:83-103`
+- **现象**：`RequestOwners` 只在运行期间收到 `added` 事件时登记 `titleSessionId(session) -> session`。记录器打开历史索引时不发 `added`，启动代码也没有从既有记录或会话表恢复所属关系。
+- **为什么是问题**：服务重启后，已经落盘的标题会话请求会被返回为 `background: {owner: null}`，facet 也会单独列出标题会话；按所属会话分组、标题显示、后台筛选和清空后的界面归类都与重启前不同。之后新开的前台会话只能修复未来的标题请求，不能修复已有行。
+- **如何核实**：`/tmp/nb-t30-review-2-lab/owners-restart.ts` 先用一个标题会话写入真实记录，关闭记录器，再用新的 `RequestRecorder` 和空 `RequestOwners` 打开并调用真实远程实现；输出的行含 `background:{owner:null}`，facet id 是 `session-title-...` 且带 `background:true`，没有归并到 `owner-session`。
+- **建议改法**：启动时用可用的持久化会话清单登记所有前台会话的标题 id，或让记录器打开时交出历史会话集合后登记；历史标题请求必须和运行期间新增请求使用同一归属路径。
+### 4. Unicode 大小写折叠使命中正文和高亮偏移错误
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kit/requests/search.ts:20-23`；`packages/nb-harness/src/kit/requests/recorder.ts:516-529`；`packages/nb-agent-ui/src/request-trace.ts:410-424`
+- **现象**：服务端和界面都把 `toLowerCase()` 后的字符串索引直接当作原文的 `slice` 偏移。某些 Unicode 字符大小写折叠会改变 UTF-16 长度，导致服务端返回的 `first.before`、`first.text` 不是真实命中，界面高亮也会切错字符。
+- **如何核实**：真实记录器实验 `/tmp/nb-t30-review-2-lab/search-boundaries.ts` 写入 `İxfoo` 并查 `foo`；结果的第一处为 `before: "İxf"`、`text: "oo"`，预期应为命中 `foo`、前文 `"İx"`。
+- **为什么是问题**：请求列表会显示错误片段，详情查找条的命中位置和当前高亮可能错位；服务端 `hits` 的 ordinal 也无法对应界面展示的字符。
+- **建议改法**：建立大小写折叠字符串到原文 UTF-16 偏移的映射，或采用不会扩展长度且与界面一致的 Unicode 查找算法；不要把折叠后的索引直接用于原文切片。
+### 5. 查找跨内容块时服务端命中数与界面高亮不一致
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-harness/src/kit/requests/search.ts:20-23`；`packages/nb-agent-ui/src/request-trace.ts:383-407,410-424`；`packages/nb-agent-ui/src/vue/requests/AgentRequestDetail.vue:166-172`
+- **现象**：记录器把一条内容的多个可查文字块用换行拼成一个字符串后查找，界面却逐块调用 `highlightSegments`，不把块之间的换行作为可高亮文本。查找词跨越两个块时，服务端会计数并返回命中，界面没有对应高亮或查找条位置。
+- **如何核实**：`/tmp/nb-t30-review-2-lab/search-abort-ui.ts` 写入相邻文字块 `foo`、`bar`，查找 `foo\nbar`；真实记录器返回 `server count 1`，同一份内容经真实界面纯函数逐块高亮得到 `ui count 0`。
+- **为什么是问题**：列表上的“另 N 处”、详情查找条总数、当前命中跳转和可见高亮依赖同一处数合同；跨块输入时这些状态互相矛盾。
+- **建议改法**：服务端按界面可显示的块分别计数，或让界面按同样的拼接流建立跨块偏移映射；两端必须共享分隔符是否可匹配的规则。
+### 6. 查找首个分段前不检查中止信号和时间预算
+
+- **严重程度**：建议；**类别**：正确性与资源使用
+- **位置**：`packages/nb-harness/src/kit/requests/recorder.ts:437-464`
+- **现象**：`search()` 只在处理完每 20 条记录、让出事件循环后检查 `signal` 和 `budget`。查找开始时已中止的信号仍会扫描并返回结果；预算为 0 时也会先处理首条记录，实际预算至少多出一个分段，单条内容读取期间也不能及时响应中止。
+- **如何核实**：`/tmp/nb-t30-review-2-lab/search-abort-ui.ts` 用真实记录器对已中止信号查找，输出 `already aborted resolved`；同一实验传入 `budgetMs: 0`，仍输出 `budget zero 1`。
+- **为什么是问题**：页面换词时旧查找可能继续做无用的文件读取和解析；合同要求新查找中止旧查找、并在时间上限到达时交回截断结果，首个分段不检查使取消和预算边界失效。
+- **建议改法**：进入扫描前先检查 `signal.aborted` 与预算，且按记录或可中断的读取边界检查；保持已扫描游标和 `truncated` 结果的一致性。
+## 总结
+
+- **阻断**：0 条。
+- **重要**：4 条：清空后的远程缓存泄漏；大量删除事件分段丢失；重启后后台标题会话失去所属；Unicode 大小写折叠导致命中偏移错误。
+- **建议**：2 条：跨内容块的服务端与界面命中数不一致；查找首个分段前不检查中止信号和时间预算。
+- 仔细检查后，在上述问题之外没有发现本轮后端增量中 `#nextSeq`/`#committed` 串行写入、记录清理与进行中记录的队列顺序、请求体总量限制、内容寻址回收、远程分页合同和应用停止收口的另一个确定性问题。
+- 已验证的实验命令均以退出码 0 完成：`bun /tmp/nb-t30-review-2-lab/search-boundaries.ts`、`bun /tmp/nb-t30-review-2-lab/search-abort-ui.ts`、`bun /tmp/nb-t30-review-2-lab/owners-restart.ts`、`bun /tmp/nb-t30-review-2-lab/clear-cache-leak.ts`、`bun -e '...chunkOf...'`。
+- 本轮未运行 `bun test`、`bun run typecheck`、e2e 或开发服务；未修改 worktree。
+
+处理（修正在 49f3a761a；每条都补了测试；第 1 条做过变异检查：去掉作废缓存的两行，测试失败）：
+
+1. 成立，已改：远程层按记录器共用一份全文与请求体的缓存（WeakMap，按记录器一份、只订阅一次），收到 removed 就整份作废；作废时加一代，正在读的那次读完也不放进去。清空之外的删除（每天清理）同样作废。没有按哈希逐个删：删除事件只带请求 id，带不出被回收的内容哈希，整份作废最简单，代价只是下一次读多一次磁盘。记录器内按哈希的查找文字缓存没改：内容只在没有记录引用时才回收，回收了的哈希不会再被任何一条记录查到，留着不影响结果，只多占一点内存。测试：requests.test.ts 第一个用例清空之后再读同一段全文与请求体，交回 content-not-found 与 payload-not-found。
+2. 成立，已改：拆段的删除事件仍共用一个 seq（一次逻辑变更一个号），客户端对 removed 收下序号相等的事件，其余种类仍丢掉不大于当前序号的；shared/requests.ts 的合同注释写明了这条。没有补 5000 条以上的用例：要写五千多条真实记录，门禁只有一行，记为没测到的边界。
+3. 不成立：agent.ts 在 requests.open() 之后用 list({limit: 1}).facets.sessions 把记录里出现过的会话都登记进 RequestOwners，重启后历史标题请求照样归到所属会话；审查实验用的是空的 RequestOwners、没有经过 agent.ts。补了用例 requests.test.ts“重启之后，记录里已有的后台标题会话的请求照样归到所属的会话”（真实的两次启动；去掉启动时补登记的那一行，用例超时失败）。补上“所属在启动时从记录里恢复”这条依据（agent.ts 的位置）下一次就不会误判。
+4. 成立，已改：查找按段逐个比（findMatches），小写后长度不变时走快路径，变了时按码点折叠并记下每个折叠字符在原文里的起止，命中与前后文按原文切。查看器的 highlightSegments 用同一条规则（nb-agent-ui 核心不能在运行时依赖 nb-harness，规则抄了一份，契约测试核对两边一致）。测试：recorder.test.ts“一段一段地查、不跨段；小写后变长的字符不让命中与前后的字错位”（İstanbul），契约测试里查 stanbul。
+5. 成立，已改：服务端按段查、不跨段（与界面逐段高亮一致）；跨两段的查找词两边都是零处。测试同上，查“雾灯\n第二”没有行、命中为空。契约测试扩到系统提示词两块、文字加图片加文字的用户消息、带思考与工具调用的助手消息、工具结果、工具声明与带工具调用的回复，每个查找词核对各条的处数与服务端一致。
+6. 成立，已改：进入扫描前先 signal.throwIfAborted()；时间上限仍只在扫过一段之后才看（每次至少往前走一段，接着查的游标总在前进，否则 budgetMs 很小时会原地打转）。测试：已经中止的信号直接失败。

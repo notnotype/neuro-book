@@ -12,7 +12,7 @@
 | `packages/nb-runtime` | 内核：生命周期、服务装配、插件、运行实例与门禁、诊断、远程服务；前后端宿主共用 |
 | `packages/neuro-book-legacy` | 旧应用（Nuxt），只作代码与行为参照 |
 | `docs/archived/` | 旧应用时期的 Spec、代码规范、人工评测与用户文档站 |
-| 交付 | npm：应用 `@notnotype/neuro-book` 与 SDK `@notnotype/nb-plugin-sdk` 发构建产物（[ADR 0033](docs/adr/0033-app-delivered-as-built-npm-package.md)），nb-story 与它依赖的 8 个包发源码（[ADR 0029](docs/adr/0029-workspace-packages-publish-source-to-npm.md)）；发布步骤见 [`repository-workflow.md`](docs/standards/repository-workflow.md#npm-包)。桌面版、后台运行与服务器部署还没有，见 w00027 的后续事项 |
+| 交付 | npm：应用 `@notnotype/neuro-book` 与 SDK `@notnotype/nb-plugin-sdk` 发构建产物（[ADR 0033](docs/adr/0033-app-delivered-as-built-npm-package.md)），nb-story 与它依赖的 8 个包发源码（[ADR 0029](docs/adr/0029-workspace-packages-publish-source-to-npm.md)）；发布步骤见 [发布手册](docs/standards/releasing.md)（打标签发布，本机发布作备用；阶段与变更记录见 [ADR 0053](docs/adr/0053-release-stages-and-changelog.md)）。桌面版、后台运行与服务器部署还没有，见 w00027 的后续事项 |
 | CI | `.github/workflows/ci.yml`：推 master 与 PR 都跑本地的验证门禁（治理、文档、`test:affected --typecheck`）与应用包、SDK 的打包；e2e 在本地跑 |
 
 ## 进行中的工作

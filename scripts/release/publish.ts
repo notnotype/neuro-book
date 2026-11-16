@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * 把发布清单里的包发到 npm（`bun run release:publish`，ADR 0029、0033）。缺省只做检查并列出要发的包；带 `--yes` 才发布，
- * 由开发者在 `npm login` 之后执行（远端写入要开发者授权，见 docs/standards/repository-workflow.md 的“发布授权”）。
+ * 由开发者在 `npm login` 之后执行（远端写入要开发者授权，见 docs/standards/repository-workflow.md 的“发布授权”；步骤见 docs/standards/releasing.md 的“本机发布”）。
  *
  * 发的是 `release:smoke` 打好、验过的 tarball（`dist/release/`），不在这里重新打包：发出去的字节就是冒烟验过的那份。
  * 发出去的版本号不能再用，所以先过门禁，任何一条失败都在发布前停下：会发布的目录（源码包、生成包的源码目录与根
@@ -10,15 +10,22 @@
  * 会发布的目录，是因为主工作区常有别的会话的改动，它们不进包。单测与 e2e 不在这里重跑，它们是合入 master 的门禁。
  *
  * 中途失败就停，打印已发与没发的包；再跑一次会跳过已经在 registry 上的版本，所以可以接着发。
+ *
+ * 发布流水线（`.github/workflows/release.yml`）另用两个入口，本机入口的门禁不变：
+ * - `--plan`：构建作业在 `release:smoke` 之后跑，写 `dist/release/release-plan.json`（规则见 release-plan.ts），有问题就失败、不写；
+ * - `--ci [--yes]`：发布作业只按下载的 `dist/release/` 发，用 npm CLI 的 trusted publishing（OIDC）。分支、未提交改动、推送与
+ *   typecheck 的门禁不在这里：标签门禁（tag.ts）已核对标签提交在 origin/master 上，同一提交的 CI 跑过全部检查；这里只核对
+ *   清单是这次检出的提交打的、计划与 tarball 对得上。不带 `--yes` 只列出要发的。
  */
 
 import {existsSync} from "node:fs";
-import {readFile} from "node:fs/promises";
+import {readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {integrityOf, RELEASE_DIRECTORY, RELEASE_MANIFEST, releaseFilesChangedSince, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
 import {BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, releaseDirectories, type ReleasePackage} from "#scripts/release/packages";
+import {blockingStalePackages, buildReleasePlan, distTagFor, parseLatestTag, parseRegistryVersion, planManifestProblems, publishSteps, RELEASE_PLAN, type RegistryVersion, type ReleasePlan} from "#scripts/release/release-plan";
 
 // 不用 import.meta.dir：测试在 Node 里导入本文件。
 const REPOSITORY = fileURLToPath(new URL("../../", import.meta.url));
@@ -46,20 +53,28 @@ export function publishedState(result: {code: number; stdout: string}): Publishe
     throw new Error(`npm view 失败（${String(code ?? `退出码 ${result.code}`)}）：${text}`);
 }
 
-type Options = {yes: boolean; publishArgs: string[]};
+type Options = {mode: "local" | "plan" | "ci"; yes: boolean; publishArgs: string[]};
+
+const USAGE = "用法：release:publish [--yes] [--otp <码>] [--auth-type web|legacy] | --plan | --ci [--yes]";
 
 export function parsePublishArguments(argv: readonly string[]): Options {
-    const options: Options = {yes: false, publishArgs: []};
+    const options: Options = {mode: "local", yes: false, publishArgs: []};
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index] as string;
         const value = argv[index + 1];
         if (argument === "--yes") options.yes = true;
-        else if ((argument === "--otp" || argument === "--auth-type") && value !== undefined) {
+        else if (argument === "--plan" || argument === "--ci") {
+            if (options.mode !== "local") throw new UsageError(`--plan 与 --ci 只能给一个（${USAGE}）`);
+            options.mode = argument === "--plan" ? "plan" : "ci";
+        } else if ((argument === "--otp" || argument === "--auth-type") && value !== undefined) {
             if (argument === "--auth-type" && value !== "web" && value !== "legacy") throw new UsageError(`--auth-type 只能是 web 或 legacy：${value}`);
             options.publishArgs.push(`${argument}=${value}`);
             index += 1;
-        } else throw new UsageError(`未知参数或缺少值：${argument}（用法：release:publish [--yes] [--otp <码>] [--auth-type web|legacy]）`);
+        } else throw new UsageError(`未知参数或缺少值：${argument}（${USAGE}）`);
     }
+    // 两步验证的参数只属于本机发布；CI 用 OIDC。--plan 不发布，--yes 对它没有意义。
+    if (options.mode !== "local" && options.publishArgs.length > 0) throw new UsageError(`--otp 与 --auth-type 只用于本机发布（${USAGE}）`);
+    if (options.mode === "plan" && options.yes) throw new UsageError(`--plan 只写计划，不发布，不收 --yes（${USAGE}）`);
     return options;
 }
 
@@ -91,23 +106,6 @@ export function releaseManifestProblems(manifest: ReleaseManifest, changedSinceS
     return problems;
 }
 
-/**
- * 已发的版本里与这次验过的字节不同、又被要发的包（直接或间接）依赖的：用户装上要发的包时会配上 registry 上那份没验过的，
- * 这时不能发。没人依赖的只是“源码改了没提版本”，提醒即可（例如应用与 SDK 把依赖打进了 bundle，不依赖任何源码包）。
- */
-export function blockingStalePackages(pending: readonly string[], stale: readonly string[], dependenciesOf: ReadonlyMap<string, readonly string[]>): string[] {
-    const reached = new Set<string>();
-    const queue = [...pending];
-    for (let name = queue.pop(); name !== undefined; name = queue.pop()) {
-        for (const dependency of dependenciesOf.get(name) ?? []) {
-            if (reached.has(dependency)) continue;
-            reached.add(dependency);
-            queue.push(dependency);
-        }
-    }
-    return stale.filter((name) => reached.has(name));
-}
-
 function runtimeDependencies(entry: ReleasePackage): string[] {
     return [...Object.keys(entry.manifest.dependencies ?? {}), ...Object.keys(entry.manifest.peerDependencies ?? {})];
 }
@@ -120,12 +118,7 @@ async function gates(): Promise<ReleaseManifest> {
     if (branch !== RELEASE_BRANCH) throw new GateFailure(`要在 ${RELEASE_BRANCH} 上发布，现在是 ${branch}`);
     console.log(`✓ 会发布的目录没有未提交的改动，在 ${RELEASE_BRANCH} 上`);
 
-    let manifest: ReleaseManifest;
-    try {
-        manifest = JSON.parse(await readFile(RELEASE_MANIFEST, "utf8")) as ReleaseManifest;
-    } catch {
-        throw new GateFailure("dist/release/release-manifest.json 读不到：先跑 bun run release:smoke（它生成并验过要发的 tarball）");
-    }
+    const manifest = await readManifest();
     // README 的图片用 GitHub 上的地址：冒烟用的那个提交要已经推上去。看的是它而不是 HEAD：master 被几个会话共用，
     // HEAD 上可能有别处还没推的提交，只要会发布的目录自冒烟以来没变（下面核对），推上去的就是要发的内容。
     const fetched = await run(["git", "fetch", "--quiet", "origin", RELEASE_BRANCH], REPOSITORY);
@@ -141,12 +134,7 @@ async function gates(): Promise<ReleaseManifest> {
     } catch (error) {
         throw new GateFailure(`${(error as Error).message}：重跑 bun run release:smoke`);
     }
-    const digests = new Map<string, string>();
-    for (const entry of manifest.packages) {
-        const path = join(RELEASE_DIRECTORY, entry.tarball);
-        if (existsSync(path)) digests.set(entry.tarball, await sha256Of(path));
-    }
-    const problems = releaseManifestProblems(manifest, changed, digests);
+    const problems = releaseManifestProblems(manifest, changed, await tarballDigests(manifest));
     if (problems.length > 0) throw new GateFailure(problems.join("\n"));
     console.log(`✓ ${manifest.packages.length} 个 tarball 冒烟之后没被改过，会发布的目录与冒烟时（${manifest.commit.slice(0, 12)}）相同`);
 
@@ -171,8 +159,7 @@ async function typecheckPending(pending: ReleaseManifest["packages"]): Promise<v
     console.log(`✓ 要发的包的 typecheck（${paths.length} 个源码目录）`);
 }
 
-async function main(): Promise<number> {
-    const options = parsePublishArguments(Bun.argv.slice(2));
+async function publishLocal(options: Options): Promise<number> {
     const manifest = await gates();
     const whoami = await run(["npm", "whoami"], REPOSITORY);
     if (whoami.code !== 0) throw new GateFailure("npm 没有登录：先运行 npm login，再重跑本命令");
@@ -220,6 +207,120 @@ async function main(): Promise<number> {
     }
     console.log(`发布完成：${done.join("、")}。之后跑一次 bun run release:smoke -- --from registry 作为发布证据`);
     return 0;
+}
+
+async function readManifest(): Promise<ReleaseManifest> {
+    try {
+        return JSON.parse(await readFile(RELEASE_MANIFEST, "utf8")) as ReleaseManifest;
+    } catch {
+        throw new GateFailure("dist/release/release-manifest.json 读不到：先跑 bun run release:smoke（它生成并验过要发的 tarball）");
+    }
+}
+
+async function tarballDigests(manifest: ReleaseManifest): Promise<Map<string, string>> {
+    const digests = new Map<string, string>();
+    for (const entry of manifest.packages) {
+        const path = join(RELEASE_DIRECTORY, entry.tarball);
+        if (existsSync(path)) digests.set(entry.tarball, await sha256Of(path));
+    }
+    return digests;
+}
+
+async function registryVersion(name: string, version: string): Promise<RegistryVersion> {
+    return parseRegistryVersion(await run(["npm", "view", `${name}@${version}`, "dist.integrity", "time", "--json"], REPOSITORY), version);
+}
+
+/** `--plan`：在构建作业里（生成目录还在）写发布计划。 */
+async function writePlan(): Promise<number> {
+    const manifest = await readManifest();
+    const digests = await tarballDigests(manifest);
+    const problems = releaseManifestProblems(manifest, [], digests);
+    if (problems.length > 0) throw new GateFailure(problems.join("\n"));
+    const shown = await run(["git", "show", "-s", "--format=%cI", manifest.commit], REPOSITORY);
+    if (shown.code !== 0) throw new GateFailure(`读不到清单提交 ${manifest.commit.slice(0, 12)} 的提交时间：${shown.stderr.trim()}`);
+    const integrityOfPackage = new Map<string, string>();
+    const registry = new Map<string, RegistryVersion>();
+    for (const entry of manifest.packages) {
+        integrityOfPackage.set(entry.name, await integrityOf(join(RELEASE_DIRECTORY, entry.tarball)));
+        registry.set(entry.name, await registryVersion(entry.name, entry.version));
+    }
+    const dependenciesOf = new Map([...loadReleasePackages(REPOSITORY), ...loadBuiltPackages(REPOSITORY)].map((entry) => [entry.manifest.name, runtimeDependencies(entry)]));
+    const {plan, problems: planProblems} = buildReleasePlan({
+        manifest,
+        commitTime: shown.stdout.trim(),
+        productPackages: new Set(BUILT_PACKAGES.map((entry) => entry.name)),
+        integrityOf: integrityOfPackage,
+        dependenciesOf,
+        registry,
+    });
+    for (const entry of plan.packages) {
+        const label = `${entry.name}@${entry.version}`;
+        if (entry.kind === "history") console.log(`  已发布，不发  ${label}${entry.registry === "different" ? "（源码改过没提版本号，下次发布前提版本号）" : ""}`);
+        else console.log(`  ${{unpublished: "要发布", same: "本次已发、字节相同", different: "已发而字节不同"}[entry.registry]}  ${label}`);
+    }
+    if (planProblems.length > 0) throw new GateFailure(planProblems.join("\n"));
+    await writeFile(RELEASE_PLAN, `${JSON.stringify(plan, null, 2)}\n`);
+    const pending = plan.packages.filter((entry) => entry.kind === "release" && entry.registry === "unpublished");
+    // 第一次经流水线发的包要事先在 npm 上配好信任（docs/standards/repository-workflow.md 的“一次性准备”），演练时开发者看这一行。
+    console.log(`✓ 写下 dist/release/release-plan.json；这次要发 ${pending.length} 个：${pending.map((entry) => entry.name).join("、") || "无"}`);
+    return 0;
+}
+
+/** `--ci`：发布作业按计划发本次发布的包。 */
+async function publishCi(yes: boolean): Promise<number> {
+    const head = process.env.GITHUB_SHA;
+    if (head === undefined || head === "") throw new GateFailure("--ci 要在 GitHub Actions 里运行（读 GITHUB_SHA）");
+    const manifest = await readManifest();
+    if (manifest.commit !== head) throw new GateFailure(`发布清单是 ${manifest.commit.slice(0, 12)} 打的，不是这次检出的 ${head.slice(0, 12)}`);
+    let plan: ReleasePlan;
+    try {
+        plan = JSON.parse(await readFile(RELEASE_PLAN, "utf8")) as ReleasePlan;
+    } catch {
+        throw new GateFailure("dist/release/release-plan.json 读不到：构建作业要在 release:smoke 之后跑 publish.ts --plan");
+    }
+    const problems = planManifestProblems(plan, manifest, await tarballDigests(manifest));
+    if (problems.length > 0) throw new GateFailure(problems.join("\n"));
+    const registry = new Map<string, RegistryVersion>();
+    for (const entry of plan.packages) if (entry.kind === "release") registry.set(entry.name, await registryVersion(entry.name, entry.version));
+    const steps = publishSteps(plan, registry);
+    for (const entry of steps.skip) console.log(`  已发布、字节相同，跳过  ${entry.name}@${entry.version}`);
+    if (steps.problems.length > 0) throw new GateFailure(steps.problems.join("\n"));
+    if (steps.publish.length === 0) {
+        console.log("本次发布的包都已在 registry 上，没有要发的");
+        return 0;
+    }
+    const tagged: Array<{entry: ReleasePlan["packages"][number]; tag: "latest" | "history"}> = [];
+    for (const entry of steps.publish) {
+        const tag = distTagFor(entry.version, parseLatestTag(await run(["npm", "view", entry.name, "dist-tags.latest", "--json"], REPOSITORY)));
+        tagged.push({entry, tag});
+        console.log(`  要发布  ${entry.name}@${entry.version}（--tag ${tag}）`);
+    }
+    if (!yes) {
+        console.log(`要发 ${tagged.length} 个包；带 --yes 才发布`);
+        return 0;
+    }
+    const done: string[] = [];
+    for (const {entry, tag} of tagged) {
+        const label = `${entry.name}@${entry.version}`;
+        // npm CLI 在 GitHub Actions 里有 id-token 权限时自己换 OIDC 令牌、附 provenance；bun publish 不会。
+        const result = await run(["npm", "publish", join(RELEASE_DIRECTORY, entry.tarball), "--access", "public", "--tag", tag], RELEASE_DIRECTORY, true);
+        if (result.code !== 0) {
+            const rest = tagged.slice(done.length).map((item) => `${item.entry.name}@${item.entry.version}`);
+            console.error(`发布 ${label} 失败（退出码 ${result.code}）。已发：${done.join("、") || "无"}；没发：${rest.join("、")}。重跑这个作业会跳过已发的。`);
+            return 1;
+        }
+        done.push(label);
+        console.log(`✓ 已发布 ${label}（--tag ${tag}）`);
+    }
+    console.log(`发布完成：${done.join("、")}`);
+    return 0;
+}
+
+async function main(): Promise<number> {
+    const options = parsePublishArguments(Bun.argv.slice(2));
+    if (options.mode === "plan") return writePlan();
+    if (options.mode === "ci") return publishCi(options.yes);
+    return publishLocal(options);
 }
 
 if (import.meta.main) {

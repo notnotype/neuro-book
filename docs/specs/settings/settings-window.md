@@ -53,6 +53,7 @@ interface SettingsSectionDeclaration {
     readonly icon: string;                         // 图标类名，例如 i-lucide-palette
     readonly category: "app" | "ai" | "plugins";   // 左栏分组：应用、AI、插件
     readonly order?: number;                       // 组内顺序，缺省 0，同值按 id
+    readonly host?: "desktop";                     // 只在这种宿主的窗口里列出（输出 2 的“只在某种宿主里列出”）
     readonly groups?: ReadonlyArray<{readonly id: string; readonly title: Text}>;
 }
 // settings.pages
@@ -62,6 +63,7 @@ interface SettingsPageDeclaration {
     readonly icon: string;
     readonly category: "app" | "ai" | "plugins";
     readonly order?: number;
+    readonly host?: "desktop";
     readonly layout?: "column" | "fill";           // 缺省 column
     readonly layers?: ReadonlyArray<"user" | "project">;   // 在哪些标签下可用，缺省两者
     readonly keywords?: ReadonlyArray<Text>;               // 设置内搜索时另外比对的词（输出 21），至多 20 个
@@ -159,7 +161,7 @@ function settingsChoicesEvent(providerId: string): string;
 ## 输出与可观察行为
 
 1. **左栏**：窗口从两个贡献点上已接受的分区声明取得左栏，未交付实现的 page 分区也在其中，左栏不随交付先后跳动。分三组，自上而下应用、AI、插件，每组上面一个淡色组标题，依次是“通用”“写作助手”“扩展”；组内按 `order`（缺省 0），同值按分区 id。“其它”排在插件组的最后，没有项时不出现。左栏宽约 176px，右边一次只显示一个分区；分区标题放不下时截断，悬停或聚焦时显示全名。每个分区是一行列表项（图标加标题）：没有描边，悬停与当前项各是一层淡底色，按下不缩放。没有可列的项的 list 分区在左栏停用，以“这个分区还没有设置项”作提示。
-2. **配置项落到分区**：配置项按 `section` 落到 list 分区；分区里先列没写 `group` 的项（没有小标题），再按分区声明的顺序列各小组（有小标题）；同一小组内按 `order`（缺省 0），同值按键。`group` 指向分区没有声明的小组时按没写处理，记一条诊断。没写 `section` 的项、`section` 指向不存在的分区的项（记一条诊断）归入“其它”，按声明者插件分小组。指向 page 分区的项不在列表里画，由页面负责。
+2. **配置项落到分区**：配置项按 `section` 落到 list 分区；分区里先列没写 `group` 的项（没有小标题），再按分区声明的顺序列各小组（有小标题）；同一小组内按 `order`（缺省 0），同值按键。`group` 指向分区没有声明的小组时按没写处理，记一条诊断。没写 `section` 的项、`section` 指向不存在的分区的项（记一条诊断）归入“其它”，按声明者插件分小组。指向 page 分区的项不在列表里画，由页面负责。**只在某种宿主里列出**：分区声明了 `host: "desktop"` 而窗口不在桌面壳里（[`runtime.browser-host`](../runtime/browser-host.md) 的 `windowDesktopKey`）时，这个分区与 `section` 指向它的配置项都不列、不进搜索、不归入“其它”，也不记诊断；隐藏而不是停用。
 3. **外壳画什么**：每个分区顶部的标题区由窗口画：左边是标题（界面字体，主题最大一档字号、加粗）与跟在标题后面同一行的说明，说明放不下时截断、悬停显示全文；右边从右往左是页面级操作（page 分区经 `SettingsPageActions` 放进来，list 分区没有）与层的警告（输出 13）。list 分区与 `layout: "column"` 的页面放在同一个内容列里（同样的内边距与封顶宽度约 720px，内容列滚动）；`layout: "fill"` 的页面拿到标题区下面的整块区域（外边距同内容列，不封顶），自己分栏、自己滚动（例如模型服务页左边服务商、右边详情）。
 4. **page 的交付状态**：page 分区处于下列之一，在右边原位呈现：
    | 状态 | 含义 | 原位呈现 |

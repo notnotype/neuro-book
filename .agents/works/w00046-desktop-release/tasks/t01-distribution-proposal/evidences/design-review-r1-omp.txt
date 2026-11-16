@@ -1,0 +1,182 @@
+### 1. 无条件复用已有实例绕过版本与实例种类门禁
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：提案 4.3 第 1 条（79 行），4.6（105 行）；ADR 0033 后果（33 行）；runtime/cli.md:63-65、74-81。
+- **现象**：壳遇到已认领的状态根就打开其地址，没有规定核对 hello 的 version、kind、status。全局 npm 包与桌面包独立升级，桌面更新后仍会复用旧 nbook 服务端；开发实例的 url 为 null，starting/stopping 也不能直接导航。
+- **为什么是问题**：现有 CLI 对不同版本、开发实例、无响应实例明确失败且不碰原实例；桌面入口反而绕过同一个状态根的兼容门禁。用户看到桌面新版本，实际执行旧服务端，更新与回滚都不能保证生效。认领协议只说明占有，不保证可以复用。
+- **如何核实**：主工作区 runtime/server-host.md:47-53 定义 schema、kind、status 与 nullable url；runtime/cli.md:65、79-81 明定 version-mismatch、development-instance、instance-unresponsive 及等待状态。ADR 0033:33 明确两个独立版本不可直接复用。此项为合同对照，不把未执行的 Windows 场景写成实测。
+- **建议改法**：桌面壳复用现有 CLI 的探测决策：同版本 product 且 ready 才导航；starting/stopping 有截止地等待，并处理认领竞争；版本不同显示运行版与桌面版、提供先停止原实例再重试的路径，不擅自终止非自有实例。验收加入 npm/桌面版本不同、开发实例、卡住及同时启动。
+
+### 2. 服务端归首个壳所有，却把后续壳的窗口当成独立消费者
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：提案 4.3 第 1、2 条（79-80 行）。
+- **现象**：第二次打开桌面应用只复用第一个壳创建的服务端；第一个壳关掉自己的最后一个窗口就发送 stop，不管第二个壳或浏览器是否仍在使用该实例。
+- **为什么是问题**：“最后一个窗口”没有跨进程定义。按字面实现，先打开 A，再打开 B，关 A 会让 B 的项目、Agent 会话与连接一起停止。实例认领只认领服务端，不合并桌面进程，也不提供窗口计数或寿命转交。共享服务端不等于共享其拥有者。
+- **如何核实**：runtime/server-host.md:35-36、47-53 的协议只有 hello 与服务端状态，没有窗口转交或租约；runtime/projects.md:83-90、138-146 表明服务端停止会关闭所有项目，不能只关闭 A 的使用。此项是两条提案规则组合出的确定反例，未冒称已做 Windows 双壳实验。
+- **建议改法**：明确桌面单实例协调：后启动壳把开窗请求转给拥有服务端的壳，所有桌面窗口由同一个拥有者计数；或引入有明确定义的寿命租约。外部 nbook 实例仍不取得停止权。验收两个独立 launcher、任意关闭次序和混用浏览器，不能只测单窗口。
+
+### 3. 异步停止没有同步退出屏障，原型的 stopping 标志允许尚未停完就退出
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：提案 4.3 第 2 条（80、83 行）；原型 windows-electrobun-proto-main.ts.txt:51-70。
+- **现象**：提案承诺“等服务端退出再退出应用”，但没写实现这一承诺必需的同步否决规则。原型先在窗口 close 回调设 stopping=true，再异步等待退出；before-quit 只在 !stopping 时否决，停止进行中反而直接放行。
+- **为什么是问题**：Electrobun 不等待 before-quit 返回的 Promise；每窗口 close 又先于框架的末窗退出逻辑执行。关闭回调后发生末窗退出、重复退出或更新退出时，stopping 只代表开始停止，不代表服务端已真实退出。原型硬限 15000ms 也短于现有 HTTP/RPC 最多 20000ms 排空，尚未计项目与插件收口；照搬会把合法停止切成强杀。197ms 的空闲书架实测没有覆盖此路径。
+- **如何核实**：Electrobun 文档 apis/events.mdx:229-231、246-271；BrowserWindow.ts:10-11 默认 exitOnLastWindowClosed=true；Utils.ts:133-194 同步收集许可后开始退出。runtime/server-host.md:79-85 规定排空、项目真实退出、插件关闭的顺序。此项为源码时序核实，未重跑 Windows。
+- **建议改法**：采用 running/stopping/stopped 三态；未 stopped 的每一次 before-quit 都同步 allow:false。禁用隐式末窗退出或确保它也经过同一屏障，实际等服务端退出、强杀时再等项目收口后才显式重试退出；截止必须涵盖宿主停止预算并把强杀报为未完成。用在途写入、慢项目停止、重复关闭覆盖，不能只验退出码 0 的空闲样例。
+
+### 4. 更新器的退出许可与异步停服未衔接，不能直接兑现“下次启动换上”
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案 4.3、4.6（80、105 行）；Electrobun Updater.ts:2348-2440。
+- **现象**：提案只有下载后下次启动换文件的承诺，没有规定何时调用 applyUpdate、如何跨重启保留意图，以及与异步停服和多壳的关系。Electrobun 的 downloadUpdate 只准备 staged app，普通退出不会自动激活；applyUpdate 则立即请求退出并启动替换助手。
+- **为什么是问题**：若 before-quit 否决以等待停服，applyUpdate 会直接返回，尚未启动助手；原型停服后调用 Utils.quit 只会退出，更新没有执行。若为让更新继续而放行 before-quit，助手只等 launcher 父 PID，并不替应用等待 nb-host 的排空与项目收口。多个壳从同一目录启动时，更新发起者还不一定拥有服务端，其他壳/服务端仍会使用将被替换的 Bun 与资源；project.js 的大小/mtime 门禁只能拒绝后续打开，不能解决这种版本切换。
+- **如何核实**：apis/updater.mdx:58-81；Updater.ts:2396-2401 明确 veto 后不启动任何 helper，2439-2440 才交接退出；runtime/server-host.md:102-104 与 manager.ts:440-442、489-490 确认项目使用同目录入口与 process.execPath。未做更新实包实验。
+- **建议改法**：把待应用状态及启动入口时序写成合同：在新启动拉服务端前应用，或在关机流程先完成停服再重新调用 applyUpdate；更新重试必须保留更新动作而非改调 Utils.quit。所有使用同一安装目录的壳先协调退出，确认自有后端与项目真实退出，非自有实例不得换其文件；增加下载后离线重启、veto 后恢复、双壳、替换失败验收。
+
+### 5. 壳崩溃被当作进程收口证据，却没有定义数据恢复的失败语义
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：提案第三节（47 行）、4.3（80-83 行）、第六节（139 行）。
+- **现象**：证据已确认强制结束壳时服务端被直接终止，提案只说不留孤儿，未区分关窗、关机/注销、壳崩溃、停服超时，也没有正在运行的项目与在途写入的恢复验收。原型书架实验没有打开项目子进程。
+- **为什么是问题**：stdin EOF 只有在进程还活着且能执行时才触发 nb-host 有序停止；作业对象先杀树时没有这个保证。SQLite 与原子替换保护已提交数据，不能保证浏览器尚未提交的编辑或项目停止钩子落盘。服务端合同要求强制结束后按持久化/领域合同恢复，不能把“197ms 正常退出”或“父子一起消失”推广成异常停机的数据安全。Electrobun 的控制台关闭处理最多只等 4000ms，也短于现有 20000ms 排空。
+- **如何核实**：Task README:65 明记没有有序停止、数据安全只靠持久化；原型:19-25 只启动后端，实测:15-29 只加载书架；nb-host host.ts:146-151 是存活进程里的回调。runtime/server-host.md:148 与 runtime/projects.md:166 给出强杀边界；Electrobun nativeWrapper.cpp:8797-8822 给出控制台退出等待。未声称 GUI 关机等价于控制台信号。
+- **建议改法**：给桌面 Spec 加正常停止与不可保证清理的两类结果；明确确认保存的持久化数据恢复判据、未提交编辑的损失边界及异常提示。用真实打开项目、写入中强杀壳/launcher、注销/关机与超时路径分别验进程树、认领立即释放、重开作品/状态；不要求不可实现的断电有序停止。
+
+### 6. 只读 U 盘不能承载固定在程序旁的可写状态根
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案 4.4（89、95 行）、4.5（100 行）。
+- **现象**：不自动更新的理由是程序目录可能在只读 U 盘，但同一模式强制把状态根放在程序目录 data\。首次启动既要创建状态根，又要写认领锁、日志与作品登记；即使 data 已存在，正常写作仍需要写入它。
+- **为什么是问题**：禁止更新只能避免改程序文件，不能让这个布局在只读介质上工作。按当前合同，状态根不可写就启动失败；不能把只读 U 盘列作支持场景，再由实现偷偷回退到安装版状态根，那会改变认领对象、把书架与设置写到另一处。标记文件的准确位置、相对于 launcher 还是 bin/bun.exe 查找、覆盖选项优先级也尚未规定。
+- **如何核实**：ADR 0033:24 要求入口显式决定状态根；nb-host claim.ts:139-157 创建目录并持有写锁；runtime/server-host.md:49、141 明确不可写为启动失败；config.ts:66-70 不会替壳选择备用目录。未重跑已知写权限失败。
+- **建议改法**：明确第一版便携模式要求 data 可写，介质只读时启动页显示实际路径和复制到可写位置的恢复方式；若真支持只读程序载荷，需显式选可写状态根并显示当前模式。固定标记名、程序根派生、NBOOK_STATE_ROOT/命令行与标记优先级，不以当前工作目录认模式；不因不可写而取消便携模式。便携不自动更新应作为独立产品取舍说明。
+
+### 7. 便携版的数据并不随程序完整移动，盘符变化后登记路径失效
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案目标（27 行）、4.4（89-95 行）；runtime/projects.md:50-52、119。
+- **现象**：便携版只迁移状态根，作品仍缺省写入宿主机“文档\NeuroBook”。projects.json 记录的是解析符号链接后的绝对路径；即便用户主动把作品放在 U 盘的程序旁，盘符从 E: 变成 F: 或整体挪目录，书架仍指向旧绝对路径。
+- **为什么是问题**：“数据放在程序旁、适合 U 盘”“状态根随程序走”掩盖了作品不随行与登记不可重定位这两个用户可观察结果。状态根搬走后书架有记录但项目打不开；手动再登记能按 id 恢复，不等于便携启动已解决迁移。开发者只接受浏览器缓存留在 LOCALAPPDATA，没有批准把作品也默默留在原电脑。
+- **如何核实**：runtime/projects.md:50、52 规定真实绝对路径，60 行规定移动后需再次 register 才更新，119 行规定作品缺省父目录；提案没有修改此合同的条目，第六节也没列 projects。此项为合同推演，未声称已做换盘符实验。
+- **建议改法**：明确第一版便携范围与缺省作品位置。若要实际带着作品走，定义便携根内作品的相对定位/重定位规则，并把 projects 合同与真实搬目录、换盘符验收列入；状态根外作品继续保留绝对路径。若只承诺程序和设置可携带，就把限制与“重新登记作品”恢复路径写清，不把该承诺泛化为全部数据便携。
+
+### 8. 标签工作流不能直接通过现有 release:publish 的分支与交接门禁
+- **严重程度**：阻断；**类别**：发布。
+- **位置**：提案 4.8 第 1-3 段（120-124 行）；scripts/release/publish.ts:115-151。
+- **现象**：提案只核对“标签提交在 master 上”，然后调用现有 release:publish。标签 checkout 通常是 detached HEAD，而发布器硬性要求当前分支名是 master；发布阶段还必须有上一阶段验过的 dist/release/release-manifest.json 和全部 tarball，提案没有跨 job 交接定义。
+- **为什么是问题**：标签位于 master 历史上不等于 checkout 的分支叫 master。直接调用会在发布前失败；为了过门禁改为 checkout 最新 master，则可能发布晚于标签的代码。发布器校验 manifest.commit 属于 origin/master、发布目录自 smoke 后未变及每份 tarball 的 SHA-256，不能仅靠两个 job 成功就替代。
+- **如何核实**：publish.ts:119-120 直接比较 rev-parse --abbrev-ref HEAD；125-150 读固定路径 manifest、fetch origin/master、比较提交与摘要。manifest.ts:15-23 定义本地交接文件，pack-smoke.ts:414 仅在全部冒烟成功后写出。未启动发布命令，避免远端写入或触发安装。
+- **建议改法**：为 CI 明确等价的标签发布门禁：固定 tag SHA、完整 fetch 并验证其属于 origin/master，允许该已验证 SHA 的 detached checkout；不要为了分支名切到移动的 master。构建 job 上传 tarball 与 manifest，发布 job 原样下载并复核提交、摘要与版本；保留本地 master 门禁，明确两种入口各自的信任条件。
+
+### 9. trusted publishing 与当前 npm 登录检查、bun publish 不兼容
+- **严重程度**：阻断；**类别**：发布。
+- **位置**：提案 4.8 第 3 段（124 行）；scripts/release/publish.ts:177-179、212。
+- **现象**：提案把 GitHub OIDC 当作现有发布器可直接使用的认证。现有入口先执行 npm whoami，未登录就失败；真正写 registry 的命令是 bun publish，而非 npm CLI 的 OIDC 发布路径。
+- **为什么是问题**：OIDC 按发布操作换取短期凭据，不要求预先 npm login，现有 whoami 门禁会把合法的无 token CI 拦下。npm 官方要求 npm CLI >=11.5.1、Node >=22.14.0；Bun 官方 publish 文档给的是配置 token/交互 2FA，不能把 npm CLI 的能力当作 bun publish 已有能力。ADR 0029 不用 npm publish 的理由是 workspace: 改写；这里发布的是已经由 bun pm pack 改写好的 tarball，理由不再适用。
+- **如何核实**：代码上述行；已读取官方 https://docs.npmjs.com/trusted-publishers/ 与 https://bun.sh/docs/pm/cli/publish 。npm 文档明确 id-token:write、每个包的 workflow trusted publisher 配置与 CLI 下限；Bun 文档还明确不支持生成 provenance。未执行真实发布。
+- **建议改法**：保留 Bun 打包和现有 tarball/摘要门禁，CI 发布阶段改用固定版本 npm publish <验过的 tgz>，去除该路径的预登录检查；在 proposal 列明 11 个包需要的 npm 侧一次性信任配置、GitHub permissions 与直接 publish 权限。无须为使用 OIDC 改写包格式或引入长期 token。
+
+### 10. “共用一套产物”没有可执行的组装合同，npm 包没有提案要启动的入口
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：提案 4.1（61 行）、4.3（79 行）、4.8（122-123 行）。
+- **现象**：桌面壳被指定启动 server/main.js --stop-stdin；npm pack-app.ts 只生成 nbook.js、project.js 及其 chunks，没有 main.js。两个 job 各自构建也没有产物交接，不能保证 Linux 冒烟的包与 Windows 载荷是“同一份”。原型复制的是 dist/server，不是最终 npm 包。
+- **为什么是问题**：照“直接复用 npm 包”组装会缺文件；改启 nbook.js 也不通，它不接受 --stop-stdin。提案还把附加依赖缩写成一个 pi-natives 二进制，实际生成包有 4 个精确版本外部依赖 pi-ai/pi-catalog/pi-natives/pi-utils，须连同完整传递依赖和 native loader 目录装入。桌面裸复制绕开 npm 安装后，许可文件和产品 docs 也必须由组装者保留。
+- **如何核实**：pack-app.ts:161-164、176-198；package.json:21 分别构建 CLI 与 main；原型实测文件:3 说明复制 dist/server、dist/web 和 Windows 安装的 @oh-my-pi。实际运行 bun packages/neuro-book/dist/app-package/server/nbook.js --stop-stdin --no-open --json，退出 2，JSON code=usage，message=“不认识的选项 --stop-stdin；加 --help 查看用法”。未安装依赖、未启动服务。
+- **建议改法**：确定唯一发行载荷生产者与合法的托管启动入口：让应用包正式包含 headless main.js，或给 CLI 明确定义桌面托管入口。Linux 生成并冒烟的载荷/manifest 原样传 Windows，Windows 只安装锁定版本依赖闭包再封壳；或明确两份平台构建逐文件摘要等价的判据。离线、仓库外用最终安装版和便携版分别打开项目、调用内嵌 shell，并保留 docs/许可证。ADR 0036:19、24 的外置理由仍成立，不应以重打包 OMP 绕过加载器。
+
+### 11. “各包版本等于标签”会把 11 个独立版本强行绑成产品版本
+- **严重程度**：重要；**类别**：发布。
+- **位置**：提案 4.8 第 1、2 段（120、122 行）；第六节（142 行）。
+- **现象**：提案说标签与“各包 package.json”一致，又把 release:smoke 描述为只打 npm 的两个包。现有清单实际是 9 个源码包加应用/SDK 两个生成包，共 11 个；源码包按各自版本发布，仅应用与 SDK 共用产品版本。产品还有 src/shared/product.ts 常量，Electrobun app.version 是另一处。
+- **为什么是问题**：按字面核对全部包会拒绝正常产品标签，或迫使 9 个库无理由同步升级，改变 ADR 0029 已定的独立版本策略。只检查应用 package.json 又漏掉真正写入 bundle 的 PRODUCT_VERSION 与壳 updater 版本；后者不同会形成外壳、协议/插件兼容检查和 npm 版本三套身份。v* 还包含预发布标签，现有 publish 不转发 --tag，不能假定都适合 latest。
+- **如何核实**：scripts/release/packages.ts:15-35 的 9+2 清单；pack-smoke.ts:389-400 实际打全部 11 个；ADR 0029:27、40，repository-workflow.md:89-95；src/shared/product.ts:9 与 pack-app.ts:186 用 PRODUCT_VERSION。Electrobun updates.mdx:112-124 要求 app.version 对齐 tag。
+- **建议改法**：写清 v<产品版本> 唯一来源及同步集合：应用 package.json、PRODUCT_VERSION、生成应用/SDK manifest、Electrobun app.version；源码包保留各自版本并按既有清单发布待发项。明确仅稳定 SemVer 标签可进入该工作流，或定义 prerelease 对应 npm dist-tag/GitHub prerelease/channel，拒绝不合格式标签。不要用“各包”掩盖版本域。
+
+### 12. 标签发布不等待该提交的 CI 门禁，冒烟成功仍能发布测试失败的版本
+- **严重程度**：重要；**类别**：发布。
+- **位置**：提案 4.8（118-125 行）；.github/workflows/ci.yml:5-9、55-57。
+- **现象**：新 release.yml 的四段没有运行或等待治理、文档、受影响测试与类型检查；第 1 段只确认标签提交属于 master，第 2 段只做构建和闭环冒烟。现有 CI 在 push master/PR 上独立运行，tag 工作流与它没有依赖。
+- **为什么是问题**：刚推 master 就打标签，发布可以先于 CI 完成；CI 即使失败，release:smoke 通过仍会发布。现有 publish.ts:9-10 不重跑单测的前提是它们已作为合入门禁完成，改成全自动发布必须把这一前提变成可观察门禁，不能把“在 master 历史上”当成“该 SHA 已验证”。
+- **如何核实**：ci.yml:5-9 仅列 master push、PR、dispatch，55-57 执行 governance:check、docs:check、test:affected --typecheck；publish.ts:153-155 只检查包清单，163-171 只类型检查 pending 包。提案 120-125 没有 exact SHA 的检查结果门禁。未触发 CI 或发布。
+- **建议改法**：标签工作流复用验证 job，或等待并核对同一 tag SHA 的必需 CI 结论为 success；明确 pending、cancelled、失败和无记录都不得发布。复用同一份命令/可复用 workflow，避免复制一套逐渐漂移的门禁。以“master CI 失败/未结束但构建冒烟成功”的真实工作流演练验拒发。
+
+### 13. 重跑只跳过 npm 版本，不能保证补发的桌面包仍对应同一批已发布字节
+- **严重程度**：重要；**类别**：发布。
+- **位置**：提案 4.8（118-125 行）、第五节（134 行）；scripts/release/publish.ts:190-202。
+- **现象**：提案把现有“已发版本跳过”当作整条流水线可恢复的依据，却没定义失败后保留哪份 tarball、桌面资产与构建 manifest。若 npm 成功后 Release 失败，重跑完整构建会生成另一份候选；发布器对已发且字节不同但没有 pending 依赖的应用包/SDK 只警告并返回 0。
+- **为什么是问题**：现有跳过策略为独立源码包发布设计，不保证同版本 npm 与桌面载荷相同。重跑后的 Windows 包可以与 registry 上不可重发的应用不同；若 Release 创建后只上传一半就公开为 latest，客户端会见到缺资产/校验失败。两个 v* 标签并发时，较旧工作流还可在较新版本后发布，反向移动 npm latest。四段不是跨 npm/GitHub 的事务，“任何一段失败都不发布”也不能覆盖第 4 段失败。
+- **如何核实**：publish.ts:191-199 仅对 pending 包依赖的 stale 包阻断，200-202 在全部已发时返回成功；manifest.ts:20-23 只登记 npm tarball，没有桌面资产身份或发布状态。updates.mdx:47-48 要求先完整包/补丁、后元数据可见。未执行远端失败注入。
+- **建议改法**：以 tag SHA 为不可变发行身份，保存并复用同一批冒烟产物及全部摘要；已发布应用同版本摘要不同必须失败。先建 draft Release，完整上传并校验后再原子公开/设 latest；重跑只补缺资产、同名异摘要失败。串行化共享发布通道，禁止旧任务重跑覆盖更高版本 latest；承认部分成功并列出确定的续发状态，不承诺跨 registry 原子性。
+
+### 14. 回滚只换程序，不保证共享状态可被旧版读取；更新器实际还会自动接受旧哈希
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案第五节（131、135 行）；4.6（105 行）。
+- **现象**：回滚办法只有 npm latest 指回旧版、GitHub 旧 Release 设 latest、已更新用户手动重装，且把“更新器是否接受更低版本”留作未查。实际 Electrobun 2.0.6 只比较 bundle hash，不比较 SemVer：旧 Release 的 hash 不同就报告可更新。
+- **为什么是问题**：重新标旧 Release 为 latest 会向已升级用户主动提供降级，和“按手动重装处理”不同；正在准备的新版本也可能仍在本地。更关键的是状态根、项目数据库与插件数据跨程序版本保留，重新安装旧程序不会回滚数据。Storage 不同版本明确返回 unsupported-version，插件迁移由插件负责，没有通用逆迁移保证。Updater 的回退只覆盖换文件/集成/发起 launch 失败，发起 launch 成功即删旧程序，不验证 NeuroBook health；新服务端启动失败不会自动回退。
+- **如何核实**：Updater.ts:1842-1864、2361 仅以 hash 判异；apis/updater.mdx:58-66 明确启动成功判据不是 health。runtime/plugin-install.md:56、59 规定降级数据警告与插件自管迁移；storage/persistence.md:108-110、partition.ts:318-319 证实版本不同时不可正常读写。未虚构升级/降级实包结果。
+- **建议改法**：写清“停止继续分发坏版本”“程序版本恢复”“持久数据恢复”三种操作。优先发递增版本的修复版；确需旧程序时先定兼容范围及状态根和项目数据备份/恢复步骤，不能只备状态根。若不允许自动降级，加产品版本策略门禁并验旧 latest/已暂存更新；若允许，作为明确选择写入合同。新进程起了但 health 失败的恢复路径必须可由独立启动页/安装器执行。
+
+### 15. latest/download 是移动目标，同名更新包会使已确认的更新在下一次发布后失败
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案 4.6（105 行）、4.8（125 行）。
+- **现象**：检查更新与用户确认下载之间可隔数小时；更新元数据来自当时最新 Release，但下载仍拼接固定 latest/download。Hutch 的完整包文件名不含版本（如 stable-win-x64-NeuroBook.tar.zst），各 Release 同名。读取 B 的 manifest 后 C 成为 latest，再下载会拿到 C 的包，用 B 的 hash、SHA-256、大小校验必败。
+- **为什么是问题**：HTTPS 与摘要能阻止误装，却不能让本轮更新成功。提案没有“目标已移动”后重新检查/确认的恢复语义。增量路径也只在最新 Release 下找补丁：A→B→C 时 C 通常只带 B.patch，A.patch 在 B Release 下；A 直升 C 必须下载约 86 MB 完整包，不能假定 GitHub 会自动保留一条可访问的补丁链。
+- **如何核实**：bundling-and-distribution.mdx:144-167 给出无版本文件名、每版一个 previous-hash.patch；Updater.ts:1813-1851 保存已检查 manifest，2255-2256 向助手传原 baseUrl 与 artifact_file；prepare_update.zig:503、553 拼同一 base_url，474-476 校验固定目标摘要。updates.mdx:58-60 说宿主需要保留补丁。未把静态推演写成联网更新实测。
+- **建议改法**：可接受跨版走完整包，但应明确成本与验收。至少给 manifest/完整包目标移动定义重新检查和恢复；更稳妥是稳定元数据入口加不可变的版本/哈希产物地址，需按 Electrobun 的同 baseUrl 限制验证能否配置，否则作为小范围上游改动。不要仅通过复制旧补丁假装解决完整包的可变地址。验 A→C 与“检查 B 后发布 C 再下载”。
+
+### 16. 缺 WebView2 时启动页本身也打不开，安装/便携模式没有恢复通道
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案 4.2（68、71 行）、4.3（79-81 行）、4.5、第六节（139 行）。
+- **现象**：方案依赖系统 WebView2，但没有最低 Windows/架构/运行库支持范围，也没有运行库缺失或不可用时的检测、安装指引。失败处理全放在 WebView 启动页；WebView2 自己缺失时这个页面也不能显示。
+- **为什么是问题**：带上 Bun 不等于整套运行前提已满足。GitHub runner 和 pc-notype 都预装 WebView2，无法证明普通干净机器“解压即用”。Electrobun 此分支仅写日志并标记创建失败，不会替 NeuroBook 自动装运行库；没有控制台的用户会得到空窗口而不是能操作的恢复入口。便携版还需要明确离线且缺运行库时怎么处理。
+- **如何核实**：原型证据首行注明 WebView2 157.0.4341.46；Electrobun nativeWrapper.cpp:7436-7446 调 GetAvailableCoreWebView2BrowserVersionString，失败只记“Please install Microsoft Edge WebView2 Runtime”、setCreationFailed(true) 后返回。launcher 范围未查到安装 bootstrap 的路径；旧 t145:50-68、86-91 的干净 Sandbox 验收曾抓出开发机/runner 掩盖的系统依赖。
+- **建议改法**：声明第一版支持 Windows x64 的最低系统范围；启动 WebView 前用不依赖 WebView 的原生错误框/安装器检测并指向官方 Evergreen Runtime 安装方式，明确离线路径。是否捆绑 bootstrapper 可单独取舍，不要求改成 Electron。干净系统分别验运行库有/无、安装版/便携版，不以打开书架的 runner 数字代替。
+
+### 17. 原生窗口的导航与新窗口策略缺失，书架开窗和外链不能直接沿用浏览器假设
+- **严重程度**：重要；**类别**：安全。
+- **位置**：提案 4.3（77-81 行）、第五节安全（133 行）、第六节（139 行）。
+- **现象**：提案只说窗口加载本机页面，没有规定后续导航、新窗口、外链与原生 bridge 的边界。原型 BrowserWindow 未设 sandbox 或 navigationRules。当前产品“在新窗口打开作品”和“文档”命令都经同一个 window.open(href, "_blank")，前者指本机作品，后者指外网。
+- **为什么是问题**：只限制初始 loadURL 不能兑现“窗口只加载本机页面”。Electrobun 缺省 sandbox=false、导航规则为空时允许所有 URL；加一条回环放行规则也不够，未匹配项仍默认允许。照字面薄壳实现会遗漏书架新窗口的寿命归属，或把外链交给带 native bridge 的视图。回环 HTTP 的 Origin/Host 门禁不能限制 WebView 自身导航。旧 t143 的 S4-S6 已把多窗口、外链/隔离与单实例列为桌面合同。
+- **如何核实**：src/web/boot.ts:52-60、shelf-page.ts:295、workbench/web/commands/app-commands.ts:48-49；Electrobun browser-view.mdx:180-182、browser-window.mdx:194-196；nativeWrapper.cpp:3534-3550 说明“最后命中生效、未命中允许”。此项为配置/调用方对照，未声称已复现任意代码执行。
+- **建议改法**：把本机同源作品开窗归桌面拥有者管理，外部 http/https 链接经 Utils.openExternal 交系统浏览器；拒绝 file 与未知协议，明确重定向和新窗口处理。主工作视图不用壳 RPC 时启用 sandbox；确需更新/停服 bridge 时给最小方法与调用来源约束。导航规则显式先拒绝全部再放行 splash 与当前服务端精确 origin，验两类 window.open、重定向和最后窗口关闭。
+
+### 18. 正常关窗会先销毁编辑页，服务端有序停止无法保护浏览器内未保存正文
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：提案 4.3 第 2 条（80 行）、第六节（139 行）；原型:64 在 close 事件开始停服。
+- **现象**：提案把“关最后窗口→往后端写 stop→等后端退出”当作全部正常关闭流程，却未先让编辑器结算输入、确认未保存修改。已有编辑器依赖浏览器 beforeunload 请求离开确认；原生窗口关闭并不等同于浏览器导航。
+- **为什么是问题**：Electrobun Windows 的 WM_CLOSE 经 will-close 放行后直接执行 native close；core close trampoline 会移除该窗口的全部 webview，再请求应用退出。到了原型 close/应用 before-quit，页面已经进入销毁路径，后端不知道控件中尚未交出的 150ms 输入、dirty 正文或冲突副本。即使服务端每次以 0 退出，这些内容也不会因 SQLite/原子写入获救。正常关闭不能被归入不可避免的崩溃数据损失。
+- **如何核实**：workbench/editor.md:179-180、286、326 明定离开确认与先结算输入；editor/web/plugin.ts:199-205 注册 beforeunload，明确不指望卸载前保存完成。Electrobun nativeWrapper.cpp:6118-6131、core/main.zig:2563-2598；proc/native.ts:2709-2719 的 will-close 默认放行，不调用浏览器的 TryClose/beforeunload。未做真实 WebView 编辑关窗实验；此为缺少必要协议的源码证据。
+- **建议改法**：把 will-close/退出/更新统一接入关闭前握手：同步否决 native close，仍保留 WebView 与后端；让本窗口编辑器结算并按既有合同保存/放弃/取消，保存失败不关闭；所有需关闭的窗口许可后才停止后端并真正关窗。不要在 close 事后补保存。验自动保存关闭、150ms 内关窗、在途保存、冲突、取消及更新退出；这需要同时列出 editor/browser-host 合同改动。
+
+## 补充裁决与影响顺序
+
+- 第 2 条补充直接合同依据：runtime/browser-host.md:91、123 规定多个窗口互相独立，一个窗口关闭不向服务端发送全局停止、不影响其它窗口；桌面寿命所有者必须在 native 窗口层聚合，不能逐进程解释“最后一个”。
+- 第 3 条补充原生路径：Electrobun core/main.zig:2576-2598 在 close 通知后移除子视图，再在末窗关闭时调用 managed_quit_requested_handler；两者都是异步送到 Bun 的回调，不能依赖空闲样本中的调度次序。结论限于原型许可状态不能表达“停完”，不把 197ms 实测改判为失败。
+- 第 9 条的阻断首先由现有 npm whoami 门禁成立；Bun 文档未给出 OIDC 支持不等于断言它所有未来版本都不支持。方案必须选并固定已证明能消费 OIDC 的发布客户端，不能仅更换认证配置。
+- 第 15 条补充重试边界：Updater.ts:2288-2291 仅在 checkedManifest 为空时重查；2326-2329 下载失败只写 error，不清已检查的目标。单纯再次 downloadUpdate 仍会用旧 manifest，需主动重新检查。
+- 上游选择核对：ADR 0036 已明确取代 ADR 0033 的“零依赖”表述；保留 @oh-my-pi/* external 仍有原生加载器布局与跨平台 npm 包的理由。没有证据支持本次为省体积重写/拆分 pi-natives。ADR 0033 的用户级状态根仍服务 nbook/桌面共用与卸载保留；应修复入口/生命周期合同，不为方便更新把状态迁到 Electrobun 可删除目录。Bun workspace 协议改写仅约束打包阶段，不再阻止发布既有 tarball 时使用 npm CLI。Electrobun latest/download 的可变目标确实需要恢复策略或小范围上游接口支持（第 15 条）。
+
+按影响排序的有效发现阅读顺序：18、3、1、10、8、9、2、4、14、13、12、17、5、7、6、16、11、15。前文编号保持逐条追加时的稳定身份。
+
+## 验收映射核对
+
+- 实例/窗口：同版复用、异版拒绝、starting/stopping/无响应、同时双击、两个 launcher、任意关窗顺序、本机作品新窗与外链；覆盖第 1、2、17 条，需 desktop-shell 与 browser-host 的边界合同。
+- 正常关闭：编辑器自动保存关掉、未交出的输入、冲突与在途保存、取消退出、慢排空、慢项目与重复退出；覆盖第 3、18 条，需 editor、browser-host、server-host 共同定义何时允许关窗。
+- 异常关闭：打开真实项目并写入时分别强杀 shell/launcher、停止超时、注销/关机后重开，检查持久结果、诊断、全部后代与状态根重新认领；覆盖第 5 条，不能以书架空闲退出代替。
+- 最终载荷：将待发布同一批 tarball/摘要交给 Windows，安装版和便携 zip 离线、仓库外启动，真正打开项目并执行内嵌 shell，校验 docs/许可存在；覆盖第 8、10、13 条。便携 zip 必须作为最终资产单独启动，不能仅在安装版卸载后打 zip。
+- 便携/系统前提：可写与只读 data、换目录/盘符、安装版与便携版同时运行、缺 WebView2 与离线；覆盖第 6、7、16 条，需 projects 路径与 desktop-shell 启动错误合同。
+- 更新/回退：至少 A→B→C 连续两次更新、A 直升 C、旧补丁 404、检查 B 后 C 发布、下载中断/磁盘不足、下载后离线重启、退出 veto、双壳与新进程 health 失败、旧 latest 的降级策略；覆盖第 4、14、15 条。现有安装/启动/停止/卸载四步不覆盖这些结果。
+- 发布：固定 tag SHA 的 CI 失败拒发、11 包各自版本与产品版本映射、OIDC 无 token 认证、npm 成功后 Release 失败重试、资产部分上传与并发标签；覆盖第 8、9、11、12、13 条。先验证失败路径不产生公开新版本，再将状态与恢复命令写入发布规范。
+
+## 未发现问题的方面
+
+- 已确认决定的范围：Electrobun 为首选、Electron 为阻断备选、Windows 先行且有 setup/便携包、不买 Windows 签名证书、状态根与 nbook 共用、后台检查并提示、接受第一版无界面安装与便携缓存残留，提案均有对应条目；未将这些已批准取舍本身列作缺陷。
+- 外部工具向导：首次不强制、用到时提示、应用自管与系统只识别两种路径、单独 Task/Spec，和本次开发者决定一致；本报告未把尚未展开的 t05 实现细节作为已发生的故障。
+- nb-host 的现有认领用真实路径派生命名管道、短期认领锁串行竞争、对存活但无响应的实例不接管；停止输入的 stop 行/EOF 汇合于一次停止。现有 manager 用 process.execPath 并等待子进程真实退出。相关问题在新壳如何调用及何时换文件，不在这些机制的名字或 Windows 缺 POSIX 信号这一已知限制。
+- 未签名真实性边界已经明说：SHA-256 是相对元数据的完整性校验，不是发布者签名；HTTPS/GitHub 账号是信任边界。提案没有把摘要误写成代码签名。增量缺失回退完整包在 Electrobun 2.0.6 文档与源码均有依据。
+- Electrobun 卸载的 App/App and Data 区分有文档依据；把共用的 NeuroBook 状态根放在其托管根之外能避免该卸载选项误删 nbook 共用数据。缓存留在 LOCALAPPDATA 已获批准，未要求本次改上游数据目录。
+- 旧 t143/t145 中 VC++ Runtime、PowerShell BOM 与 MAX_PATH 是历史风险，不能直接当本次确定缺陷：当前证据只证明 pi-natives 18.14.0 的 PE 导入无 VC++ redist 依赖；新链还需用最终载荷、干净机器与中文/深路径验收，未声称历史 11/11 Sandbox 证据覆盖本次 Electrobun。
+
+## 实际核实与边界
+
+- 审查固定副本 desktop-distribution.snapshot.md（153 行）；Spec、ADR、Task、旧记录与发布规范读取主工作区；实现读取指定 worktree，第三方实现读取本地 Electrobun 2.0.6 副本。
+- 本轮唯一产品命令：在指定 worktree 执行 bun packages/neuro-book/dist/app-package/server/nbook.js --stop-stdin --no-open --json，退出码 2，code=usage。其余结论来自源码/合同与已有实测记录；没有重跑已有 Windows 失败来“确认”。
+- 未运行 e2e、开发服务、bun install、构建、真实更新、真实发布或 Windows 新实验；没有修改主工作区/worktree 的源码、规范、分支或远端数据。仅按要求逐条追加本报告。
+- 第七节“无待定项”：不能据此省略第 1-18 条缺失的合同。可本地查清的机制已在报告给出；便携实际支持范围、自动降级策略与外部消费者寿命仍需在修订稿中作具体选择，不能冒充开发者已决定。
+
+有效发现数量：阻断 6，重要 12，建议 0，共 18。撤回 0，收窄 0。
+有效发现编号（按影响排序）：18、3、1、10、8、9、2、4、14、13、12、17、5、7、6、16、11、15。

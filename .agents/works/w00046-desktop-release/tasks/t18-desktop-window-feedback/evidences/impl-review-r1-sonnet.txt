@@ -1,0 +1,77 @@
+### 1. 标志盒子与测量层复本“宽度相同”的不变量没有任何断言
+- 严重程度：建议；测试缺口
+- 位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.vue 的 .workbench-titlebar__brand-box--lockup / --mark 与 .workbench-titlebar__measure-lockup / -mark；e2e/workbench-titlebar.e2e.ts 只改了文件菜单的预期
+- 现象：我核对了算术，目前一致：横排标志外边距 var(--space-1) + var(--space-2) = 2 + 4 = 6px，盒子内边距 calc((s1+s2)/2) 左右各 3px = 6px；图形标志外边距 2 + 2 = 4px，盒子内边距左右各 2px = 4px。但这个相等靠两处 CSS 手写保持，没有测试把它钉住。计划切片 2 的验证写了“workbench-titlebar.e2e.ts（让位切换点不变）”，提交里没有对应的新增断言；现有“逐级让位”e2e 只查各档位只增不减、关键按钮在视口内、放宽要多 40px，差 1 到 2px 看不出来。
+- 为什么是问题：有人改 --space-1/--space-2 或某一处外边距时，盒子与复本不再等宽，让位的切换点悄悄漂移（先后挤出界或多留空），而没有测试失败。另外横排标志被改成内边距左右各 3px，视觉上标志相对原来右移 1px、与项目按钮的间距少 1px，计划里没提这一点。
+- 如何核实：读 diff；git show 284ece566 -- packages/neuro-book/e2e/workbench-titlebar.e2e.ts 只有一行文件菜单预期的改动；我没有跑 e2e（按要求），像素差是从 CSS 推断。
+- 建议改法：在 workbench-titlebar.e2e.ts（或 Lab 场景）里加一条：命令在与不在两种状态、level 0 与 level 1 两档，各量 [data-titlebar-brand] 的 getBoundingClientRect().width，与测量层对应复本的 outer 宽度（宽加外边距）相等，容差 0.5px。想避免右移 1px 就把盒子内边距写成与复本一致的不对称值（左 var(--space-1)，右 var(--space-2)）。
+### 2. 窗口按钮组宽度 120px 由三处手算保持，原来的单一来源被反转，文档仍写“只在 styles.css 写一处”
+- 严重程度：建议；设计/可维护性
+- 位置：packages/neuro-book/src/web/styles.css 的 --nb-window-controls-width: 120px；src/web/DesktopFrame.vue 的 .desktop-frame__button { width: 34px } 与 .desktop-frame__divider { margin-inline: 8px 9px; width: var(--border-w, 1px) }；src/web/DesktopFrame.md 布局节第一条
+- 现象：旧实现里按钮宽度是 calc(var(--nb-window-controls-width) / 3)，变量是单一来源。现在 .desktop-frame__controls 没有宽度，宽度是内容撑出来的 8 + 1 + 9 + 3 × 34 = 120，变量另写 120px，只靠一句注释“宽度在 styles.css 的 --nb-window-controls-width 里算过”对账。DesktopFrame.md 仍写“宽 --nb-window-controls-width（120px，只在 styles.css 写一处）”，与实现不符。分隔线宽度取 var(--border-w, 1px)，而 --border-w 是 nb-ui 登记的主题 token（nb-ui/src/theme/tokens.ts），主题改它时按钮组宽度就不是 120。启动页 index.html 里同样的数字另抄了一份，没有变量。
+- 为什么是问题：标题栏右栏的留位（WorkbenchTitleBar 的 padding-inline-end、让位算 chrome、后备标题栏的右内边距、离线横幅的 inset-inline-end）全吃这个变量；按钮组真实宽度一旦与它不同，右栏的末尾按钮会压到窗口按钮下面或多出一截空白。e2e 只断言 lastEnd <= buttons.x，这在宽度偏大（留位小于实际）时才失败，偏小时不会。
+- 如何核实：读 diff；grep -rn "window-controls-width" packages/neuro-book/src；.desktop-frame__controls 没有 width 声明。
+- 建议改法：在 styles.css 里定 --nb-window-button-width: 34px，--nb-window-controls-width: calc(18px + 3 * var(--nb-window-button-width))，DesktopFrame.vue 的按钮宽、分隔线边距用同一组变量，分隔线宽度写定 1px；再在 desktop-frame.e2e.ts 里断言 controls 的 boundingBox().width 等于 CSS 变量解析值。同步改 DesktopFrame.md 的说法。
+### 3. 与 nb-ui IconButton“同步”的状态值现在复制在三处以上，没有任何守卫
+- 严重程度：建议；设计/重复（上游选择）
+- 位置：packages/nb-ui/src/components/controls/IconButton.vue（原值）；packages/neuro-book/src/web/DesktopFrame.vue 的 .desktop-frame__chip 与 :hover/:active 规则；packages/neuro-book/desktop/src/views/shell/index.html 的 .frame .chip；packages/neuro-book/src/plugins/workbench/web/components/WorkbenchTitleBar.vue 的 .workbench-titlebar__brand-button:hover/:active
+- 现象：26×26、radius-button-sm、15% / 24% 的 text-main 底色、scale(0.93)、motion-fast 与 ease-layout、图标 15px（text-xs 的 1.25em）这一整套值，在 IconButton 之外又手抄了三份（产品页窗口按钮、启动页、标志按钮），注释都只写“与 IconButton 同步，那边改了这里跟着改”。启动页里还换成了写死的 120ms 与 6px。
+- 为什么是问题：靠注释同步的值迟早漂移；启动页是静态 HTML，连主题 token 都没有，更不会被改 IconButton 的人看到。这是 AGENTS.md 说的“调用方要为它写补丁、同一件事各写一份”的信号：根因是 IconButton 是定边长的方块，表达不了“命中区比芯大”和“标志加芯底色”。
+- 如何核实：对照 IconButton.vue 的 sizeClass / variantClass 与上面三处的 CSS；git grep "0.93"。
+- 建议改法：把“上游选择”作为候选交给开发者：在 nb-ui 里给 IconButton 一个命中区外扩的变体（或抽一个 .nb-ui-chip 状态类），产品页窗口按钮与标志按钮复用；启动页因为是静态页，至少在 DesktopFrame 的 dom 或 e2e 里加一条对照：同一页里量 IconButton sm 悬停态与 .desktop-frame__chip 悬停态的计算样式相同。不做的话，把“同步”的清单写进 IconButton.md，让改它的人看得见。
+### 4. 高对比度下分隔线与标志按钮的悬停反馈会消失；新增的 e2e 只查静止态的描边
+- 严重程度：建议；高对比度（从代码推断，未在真浏览器里核实）
+- 位置：src/web/DesktopFrame.vue 的 .desktop-frame__divider（background: var(--divider, …)）与 @media (forced-colors: active) 块；desktop/src/views/shell/index.html 的 .divider；src/plugins/workbench/web/components/WorkbenchTitleBar.vue 的 .workbench-titlebar__brand-button:hover/:active；e2e/desktop-frame.e2e.ts 新增的“高对比度模式下……”用例
+- 现象：forced-colors 下作者写的非系统色 background-color 会被强制成 Canvas。分隔线只靠 background-color 画，会整条看不见（标题栏里原有的短分隔也有同样问题，但那是旧的）；标志按钮悬停与按下只改背景色，高对比度下没有任何反馈，窗口按钮的芯却明确写了 Highlight。e2e 用例只在静止态量三个 svg 的 stroke 不等于 body 背景，没有量悬停态，也没有量分隔线。
+- 为什么是问题：这次的目标之一就是“高对比度下仍看得见”，Spec browser-host 输出 12 也写了这句；分隔线的消失虽然不影响功能，但标志按钮悬停无反馈会让键盘外的用户不知道它可点。
+- 如何核实：读 CSS；forced-colors 对 background-color 的强制规则见 CSS Color Adjust；没有跑浏览器。
+- 建议改法：分隔线与标志按钮在 forced-colors 块里改用 border-inline-start: 1px solid ButtonText 或 CanvasText 的 outline，标志按钮悬停写 background: Highlight、color: HighlightText（标志是 svg，要确认它的墨色在高对比度下跟随 color）；e2e 里补一条悬停态与分隔线可见的断言。
+### 5. 加载页阶段的分隔线回退成文字级 muted 色，主题加载后再变细，会闪一下；后备标题栏的底线回退是透明
+- 严重程度：建议；视觉一致性（从代码推断）
+- 位置：src/web/DesktopFrame.vue 的 .desktop-frame__divider { background: var(--divider, var(--host-loading-muted, GrayText)) }
+- 现象：主题变量 --divider 是一条浅线色；回退链第二级 --host-loading-muted 是文字用的 muted 灰（host-loading.css 里 #8b857b / #918a7e），完整不透明地画成 16px 高的短线，比主题加载后的分隔线重得多。同一个文件里 .desktop-frame__bar 的底线回退却是 transparent，两处对“没有主题时的线”处理不一致。
+- 为什么是问题：窗口按钮在主题加载前就显示（计划写明），加载页阶段会看到一条偏重的竖线，主题到位后突然变浅，是不必要的闪动。
+- 如何核实：读 CSS 与 host-loading.css 的变量取值。
+- 建议改法：回退写成 color-mix(in srgb, var(--host-loading-muted, GrayText) 25%, transparent)，或与 .desktop-frame__bar 一致写 transparent。
+### 6. 标志按钮的悬停面是 28px 高，与相邻的 26px 芯按钮不一致
+- 严重程度：建议；视觉一致性（从代码推断，没有截图）
+- 位置：src/plugins/workbench/web/components/WorkbenchTitleBar.vue 的 .workbench-titlebar__brand-box { height: 28px }
+- 现象：说明与注释都写“与标题栏其它按钮同向的反馈（IconButton default 的悬停与按下底色）”，但悬停面是 28px 高、宽度随标志，圆角取 --radius-button-sm；标题栏里 IconButton sm 的面是 26×26，项目切换与菜单按钮也是 sm 的高度。标志处的面比邻居高 2px。
+- 为什么是问题：标志按钮就在项目切换左边，两块悬停面并排时高度差会被看出来；28px 没有记录的理由（原标志外框高度才是 17px/18px，让位只看宽度）。
+- 如何核实：读 CSS；IconButton sm 为 h-[26px]；看不到实际截图，没有量。
+- 建议改法：盒子高度改 26px 与芯一致（flex 居中不影响宽度测量），或在 WorkbenchTitleBar.md 里写明 28px 的理由。
+### 7. commandTitle 只看“命令在不在”，不看可用性；计划写的是“在不在、可不可用”
+- 严重程度：建议；设计/与计划不一致
+- 位置：src/plugins/workbench/web/titlebar/titlebar-source.ts 的 commandTitle；WorkbenchShell.vue 的 shelfTitle
+- 现象：计划“ShellChrome”一节写“命令在不在、可不可用由 ShellChrome 读……返回‘回到书架’的命令标题或 null”，实现只调 commands.get(id)，没有调 isEnabled；Spec ui/workbench-shell 输出 28 只要求“在命令目录里”，所以与 Spec 一致，与计划文字不一致。
+- 为什么是问题：目前命令没有 when，没有可见后果；将来作品插件给它加 when（比如“无作品时不可用”）时，标志与下拉项仍会显示、点了执行失败且没有反馈（BACK_TO_SHELF 经 run() 发命令，失败只进诊断）。
+- 如何核实：读 diff；grep isEnabled titlebar-source.ts 看得到条目的菜单读了它，commandTitle 没有。
+- 建议改法：二选一：在 commandTitle 的注释与 Spec 里写明“只看存在、不看 when”并把计划那句改掉；或者让它同时读 isEnabled，不可用时下拉项禁用、标志不可点。前者成本更低，与“窄场景选简单改法”一致。
+### 8. 测试与 Spec 验收的映射缺口：标题栏侧
+- 严重程度：建议；测试缺口
+- 位置：src/plugins/workbench/web/components/WorkbenchTitleBar.dom.test.ts、src/plugins/workbench/titlebar-menu.test.ts、e2e/welcome.e2e.ts
+- 现象：计划切片 2 的验证列了下列项，提交里没有对应用例。
+  1. “命令晚于外壳登记后出现”：titlebar-menu.test.ts 新用例只测“起始就在、入口停止后变 null”，没有测“先不在、后登记后出现”（这正是计划里为 ShellChrome.version 设的理由）。
+  2. “无作品时单个按钮”与 shelf 同时给的组合：dom 测试只给了“有作品 + shelf”“无 shelf”两种，没有 project=null 且 shelf 非空，作品下拉里“打开项目…”“回到书架”两项的顺序与点选发 back-to-shelf 也没有 DOM 级断言（只在 welcome.e2e.ts 里经真实下拉走一遍）。
+  3. 标志按钮是 Tab 停靠点且排在项目切换之前：dom 测试只断言 tabindex 未设置，没有断言 DOM 顺序。
+  4. 欢迎页的 onShelf 现在经命令服务执行，welcome.dom.test.ts 里 commands.execute 仍是“这条测试不执行命令”，没有单元测试覆盖 onShelf → BACK_TO_SHELF_COMMAND；只靠 welcome.e2e.ts 既有的“点回到书架”那一步。
+- 为什么是问题：1 与 2 是计划为避免“命令晚到时标题栏没出入口”专门设计的路径；没有用例，将来回归没人知道。
+- 如何核实：读 git show 284ece566 里三个测试文件的 diff；我跑了 DesktopFrame.dom、WorkbenchTitleBar.dom、welcome.dom、WelcomePage.dom（vitest，21 项）与 projects.test、titlebar-menu.test、locales.test（bun test，25 项），全部通过，通过不代表这些场景被覆盖。
+- 建议改法：补 1（先 start 不带命令入口、再动态登记）；dom 测试里加 project=null 与 shelf 同时给的一例，并在标志按钮的用例里断言它是 [data-workbench-titlebar] 里第一个可聚焦元素；welcome.dom.test 里把 commands.execute 换成记录调用的替身，断言 onShelf 执行 nbook.project.back-to-shelf。
+### 9. 测试与 Spec 验收的映射缺口：窗口按钮侧（新样子的几项核心声明没有自动断言）
+- 严重程度：建议；测试缺口
+- 位置：src/web/DesktopFrame.dom.test.ts、e2e/desktop-frame.e2e.ts、desktop/src/views/shell/index.html（没有任何测试）
+- 现象：Spec browser-host 输出 12 与 DesktopFrame.md 写了：命中区 34×36 且关闭按钮到窗口右上角、芯 26×26、指针在命中区任何位置都点亮芯、最大化时图标换成“还原”、与布局按钮之间有分隔线、按钮组宽度等于 --nb-window-controls-width。dom 测试仍只断言按钮名与动作（改动里只删了 focus/blur 的监听），最大化时只断言 aria-label 变“还原”，没有断言图标 svg 换了；e2e 只断言按钮组贴右上角、右栏不压它、高对比度下描边可见。计划的验收映射写“样子靠截图对照”，没有看到截图证据（reports/impl-r1 目录里还没有）。启动页 index.html 的 SVG 显隐切换（改过一次的 textContent 冲掉图标的坑）没有自动化测试，只在计划里列进 Windows 手工验收。
+- 为什么是问题：命中区外扩且悬停点亮芯是这次设计的重点，也最容易被改回去而无人发现；图标换成还原是 Spec 写的可观察行为。
+- 如何核实：读 diff 与上述测试文件。
+- 建议改法：dom 测试加：最大化后 [data-desktop-control="toggle-maximize"] 里的 svg 与最大化前不同（比如 rect 的 width 属性或 path 数量）；e2e 加：悬停在命中区边角（离芯 3px 处）时 .desktop-frame__chip 的背景色非透明；量三个按钮 boundingBox 宽 34 高 36、关闭按钮右缘等于视口宽；controls 总宽等于变量。启动页至少用 jsdom 把 index.html 载入、派发 nbook-desktop 事件、断言两个 svg 的 hidden 互换。
+### 10. 文档措辞与小处重复
+- 严重程度：建议；文档/代码质量
+- 位置：src/web/DesktopFrame.md “不支持”节第二条；src/plugins/workbench/web/components/WorkbenchTitleBar.vue 模板的标志分支与 shelfLabel
+- 现象：
+  1. DesktopFrame.md “不支持”节写“窗口不在前台时变淡：整条标题栏与按钮都不变”，“不支持”节该列没做的事，这一条说的是“做了的相反面”，读者会不知道该不该实现。应移到“状态”或“布局”里的一句“不随前台变化”（布局节已有同义句，这一条可以直接删）。
+  2. WorkbenchTitleBar.vue 的 v-if 按钮分支与 v-else span 分支把 showLockup 的两行 NeuroBookLockup/NeuroBookMark 与 class 三元式写了两遍；shelfLabel 只是 props.shelf ?? null 的别名，并没有被别处复用。
+- 为什么是问题：前者误导；后者以后改标志要改两处。
+- 如何核实：读文件。
+- 建议改法：删 1；2 用 <component :is="shelfLabel === null ? 'span' : 'button'" v-bind="…">（button 专属属性按条件展开），或把标志内部抽成小的内部渲染函数；shelfLabel 直接用 props.shelf。
+有效发现：10 条；阻断 0，重要 0，建议 10

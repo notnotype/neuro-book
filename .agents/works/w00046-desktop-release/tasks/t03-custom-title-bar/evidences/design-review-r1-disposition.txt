@@ -1,0 +1,46 @@
+w00046 t03 设计审查第 1 轮的处理（2026-11-15）。审查对象 plan r1；omp（默认模型）审计划整体与壳，Claude Sonnet 审页面一侧。
+报告：design-review-r1-omp.txt（14 条：阻断 2、重要 11、建议 1）、design-review-r1-sonnet.txt（17 条：重要 7、建议 10）。
+修订后的计划是 plan.md r2。归类按 reviewing 的“处理结果”。
+
+omp
+1 阻断 跨线程调 user32 —— 部分成立。核实 Electrobun 2.0.6 的窗口回调全是 threadsafe 的 void 回调（sdks/main/proc/native.ts 2700–2730），
+  原生 UI 线程不同步等 Bun；Bun 线程同步调窗口函数与它自己的 dispatch_sync 同向，不成环。不加原生 shim；保留 SWP_ASYNCWINDOWPOS 与
+  PostMessageW，推理写进计划与 win32.ts 注释，Windows 验收在并发开窗与拖动时复核。
+2 阻断 变体构建不复制 assets —— 成立，已改（build-variant.ts 的 PROJECT_FILES 加 assets，提交 be074783f）。
+3 重要 ExtractIconExW 与 LoadImageW 矛盾 —— 成立，计划只留 LoadImageW。
+4 重要 HICON 所有权 —— 部分成立：实现是按尺寸共用、进程结束前不销毁，数量有界、不随开关窗增长；把这条写进计划。
+5 重要 换显示器后的 DPI —— 成立但接受取舍：第一版不重新加载，记为已知限制（系统缩放已给的那一档）。
+6 重要 FFI 的 ABI 与 UTF-16 路径 —— 成立，计划写明类型映射、空句柄检查与缓冲区寿命（起草的 win32.ts 已如此）。
+7 重要 启动页的 window-state —— 成立，启动页监听 window-state 并先查询一次。
+8 重要 贴边是否算最大化 —— 成立，maximized 严格等于 IsZoomed，写进 Spec。
+9 重要 browser-host 输出 11“只有两件事” —— 成立，Spec 改为三类。
+10 重要 desktop/src/bun 没有类型检查 —— 部分成立：win32.ts 只依赖 bun:ffi，纳入应用包类型检查；去重与清理放进核心 window-state.ts 写单测；
+   index.ts 依赖 Hutch 提供的 Electrobun 类型，仍靠 Windows 验收（Spec 原有说明）。
+11 重要 补样式失败只写日志 —— 部分成立：不把失败升级为开不了窗（窗口照样能用，只是最大化会压任务栏），Spec 写明降级与诊断名；
+   Windows 验收把“样式含三位”列为必过。
+12 建议 品牌生成产物与说明的收口 —— 成立，已按开发者后来的决定重做（16–256 都从不带边框的 SVG 渲染），提交 39276fe1e。
+13 重要 resize 监听没有解绑 —— 成立，改为一个全局监听按 id 查表，状态随 close 清掉。
+14 重要 能力标记只读 —— 成立，Object.defineProperty 不可写不可删；注明不是安全边界。
+
+Sonnet
+1 重要 关闭层让按钮失效（inert、body pointer-events、按键拦截） —— 成立（读 close-ui.ts 核实），三处都开例外，Spec 输出 10 写明。
+2 重要 浮层压在标题栏上变成拖动 —— 成立，pc-notype 实测（frame-probe-r1 第 7 条）。改为一条规则：body 下除 #app 与外框根以外的子节点
+   一律 no-drag（Portal 浮层都在其中），不逐个改 nb-ui 组件。
+3 重要 scoped 样式命不中 Menubar 触发器 —— 成立，no-drag 写在非 scoped 块里，范围扩到“有点击或悬停行为的一切”。
+4 重要 留位放根上使搜索偏左、窄窗口裁切 —— 成立，留位放右栏末尾并计入测量；窄到放不下时的裁切记为已知限制（Electrobun 无最小尺寸接口）。
+5 重要 让位挂在两个类名上 —— 成立，改为外框开启时 #app 是固定盒子、视口不滚动，页面根用 --nb-viewport-block；Lab 页随之改。
+6 重要 离线横幅盖住按钮 —— 成立，右端让出按钮宽度。
+7 建议 后备标题栏切换时的高度跳动、书架首屏 —— 成立：e2e 记高度序列；书架首屏观感切片 2 后给开发者看截图。
+8 重要 z-index 未登记 —— 成立，nb-ui z-index.ts 登记 desktopFrame 并补顺序断言。
+9 建议 颜色回退、forced-colors —— 成立，三级回退与高对比度一段。
+10 建议 Tab 顺序、分组、手写按钮的理由、.md 标签 —— 成立，按钮 tabindex=-1（同系统按钮），role=group，理由写进 .md。
+11 建议 整页导航后最大化字形初值错 —— 成立，页面建立外框时发 window-state-query。
+12 建议 e2e 的边界与缺的断言 —— 成立，映射表注明计算样式只证样式；补断言清单；受影响的 4 个现有 e2e 一并跑。
+13 建议 观察范围、标题、属性关系 —— 成立，只观察 #app 子树并按帧合并；观察 <title>；写明与 data-workbench-titlebar 的关系。
+14 建议 两种写法都写 —— 成立。
+15 建议 SVG 在 125%、150% 发糊 —— 成立，字形先用系统图标字体，没有时回退 SVG；多缩放比例列入未验证边界。
+16 建议 window 命名撞车 —— 成立，改用 desktop-frame。
+17 建议 参照项 —— a 旧 WebView2 退回系统标题栏：成立，壳按版本决定；b 点标题栏空白处菜单不关：Windows 上实测后再定；
+   c 无命令条目的悬停提示：成立，[data-workbench-item] no-drag；d 页面缩放：写进 .md。
+
+第 2 轮：不开。两条阻断一条已改、一条经源码核实为不成环；其余是计划细节的补全，实现审查会覆盖。

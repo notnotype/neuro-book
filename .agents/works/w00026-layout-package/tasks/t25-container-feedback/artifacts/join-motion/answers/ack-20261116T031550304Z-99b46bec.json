@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00026-layout-package",
+    "taskId": "t25-container-feedback",
+    "artifactId": "join-motion",
+    "ackId": "20261116T031550304Z-99b46bec",
+    "answers": [
+        "20261116T031455494Z-0b4788bc"
+    ],
+    "through": "20261116T031455494Z-0b4788bc",
+    "included": [
+        ".agents/works/w00026-layout-package/tasks/t25-container-feedback/README.md"
+    ],
+    "ackedAt": "2026-11-16T03:15:50.304Z"
+}

@@ -84,7 +84,7 @@ export type {ContextMenuCloseReason, ContextMenuItem} from "./popup/context-menu
 export type {DialogCloseReason, DialogSize} from "./feedback/Dialog.vue";
 export type {FloatingWindowCloseReason} from "./feedback/FloatingWindow.vue";
 export type {DrawerDirection} from "./feedback/Drawer.vue";
-export type {SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionSide} from "./popup/suggestion-menu";
+export type {SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionMenuStatus, SuggestionSide} from "./popup/suggestion-menu";
 export type {ColorSwatchesSize} from "./form/ColorSwatches.vue";
 export type {BannerTone} from "./feedback/Banner.vue";
 export type {NotificationTone} from "../composables/useNotification";

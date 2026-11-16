@@ -1,0 +1,59 @@
+# Windows 上跑 smoke:server（2026-11-13，pc-notype：Windows 11 26200 x64，Bun 1.4.4 独立版，代码为 master 0ac934e53 打出的 dist/server）
+# smoke-server.ts 用 bun build 打成单文件，build:server 换成空操作；依赖 @oh-my-pi/* 在 Windows 上 bun install。
+# S2 失败是预期：Windows 没有 SIGTERM，child.kill("SIGTERM") 直接结束进程，exit=null。
+skip-build
+{
+  "schema": "nbook.smoke/server/v1",
+  "results": [
+    {
+      "id": "S1",
+      "ok": true,
+      "evidence": "health=200 exit=0 log=true"
+    },
+    {
+      "id": "S2",
+      "ok": false,
+      "evidence": "health=200 exit=null log=true"
+    },
+    {
+      "id": "S3",
+      "ok": true,
+      "evidence": "exit=1"
+    },
+    {
+      "id": "S4",
+      "ok": true,
+      "evidence": "conflict-exit=1 holder-exit=0"
+    },
+    {
+      "id": "S5",
+      "ok": true,
+      "evidence": "shell=true fallback=true protocol=5 exit=0"
+    },
+    {
+      "id": "S6",
+      "ok": true,
+      "evidence": "rpc-port=39291 welcome=welcome foreign=refused exit=0"
+    },
+    {
+      "id": "S7",
+      "ok": true,
+      "evidence": "registered=true binding={\"id\":\"cab89fbc-d449-4a2e-8b05-5813738a2a30\",\"name\":\"s7-book\",\"generation\":1} project-logs=true exit=0"
+    },
+    {
+      "id": "S8",
+      "ok": true,
+      "evidence": "save={\"ok\":true,\"value\":{\"revision\":\"1\"}} read=smoke library=true wal-gone=true after-restart=smoke exit=0/0"
+    },
+    {
+      "id": "S9",
+      "ok": true,
+      "evidence": "set=true comments-kept=true read-text=true stale-write=conflict broken-health=200 invalid-logged=true exit=0/0"
+    },
+    {
+      "id": "S10",
+      "ok": true,
+      "evidence": "second-exit=1 busy-has-url=true first-health=200 first-exit=0"
+    }
+  ]
+}
