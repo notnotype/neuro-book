@@ -83,6 +83,21 @@ updated: 2026-11-16
 
 Lab 截图：服务商页四个场景、`ProfileRail` 两个场景、`SubagentCard` 运行中、等你批准、390px 宽，文字与图标都对。已知、不是本 Task 带来的：`ProfileRail` 的“新建 Profile”按钮焦点环在左栏底边被裁（左栏 `overflow-y: auto` 且上下无内边距，样式本次没动）；`SubagentCard` 夹具定宽 640px，手机视口越界是夹具的写法（另有 `-narrow` 场景）。
 
+实现审查（Sonnet，阻断 0、重要 4、建议 6，[报告](evidences/impl-review.txt)）的处理，修正在 `bb90ce45a`：
+
+1. 成立，改：删除后选中落到“全部模型”。快照事件先于写入的结果到达时，页面的 watch 已把选中改成“全部模型”，再看选中就认不出删的是当前这家；改为删之前记下。由 `models.e2e.ts` 的删除焦点覆盖（真实运行时，两种先后都可能）。
+2. 成立，改：可删除时悬停整行，行尾一格让位给删除图标，挂在问题图标上的提示永远悬停不到。原因改写在条目的 `title` 里（名称一行、原因一行），图标不再挂提示；Profile 左栏同样改（原来图标的提示与条目写名称的 `title` 会一起冒出来）。Spec 措辞改为“悬停条目写原因”。
+3. 成立，改：e2e 验收 3 窄时仍点左栏的删除图标（左栏隐藏，会超时）。改点下拉旁的按钮，补取消后焦点回到它、删掉唯一一家后焦点到“添加服务商”。
+4. 成立，改：原因文字在条目按钮里，既并进名称又被 `aria-describedby` 引用，读屏念两遍。改为 `hidden`（仍能被引用）；e2e 断言名称只有服务商名、描述非空。
+5. 成立，改：含地址的命令（`cat project://…`）被截成文件名。改为对象以 `协议://` 开头才截（文件名可以带空格，不按空白判断）。
+6. 成立，改：右键菜单开在当前项上时，悬停底色盖掉选中底色。
+7. 不改：`subagent-card.ts` 只从 `session-host.ts` 取 `displayToolName` 一个函数，没有循环依赖，搬模块收益小；按 `id` 认通用项是计划定的写法，日后注册表给条目包一层也不失效。
+8. 部分改：补了不可用（警示色）一支、Shift+F10 开菜单与 Escape 回焦点、`agent_spawn` 写动作名；只读时不再拦浏览器自己的右键菜单（先判只读再 `preventDefault`）。前缀匹配不另测，nb-agent-ui 的 `registry.test.ts` 已覆盖。
+9. 部分改：行尾一格每家每次渲染只算一次；`line` 在有 `step` 时为空的约定已写在 `CardModel` 的注释里。
+10. 改：`profile-view.ts` 过时的“第二行”注释。Spec 实现合同里“取消后焦点回到‘删除’”等晋升时一起改。
+
+验证：`test:affected --since master --typecheck`，nb-agent-ui、nb-markdown 全过；nb-story 1 条、neuro-book 的 bun 3 条、vitest 1 条失败。这几条都不在本次改动的文件里：`builtin-names` 缺 `nbook.desktop` 是 master 上的原有失败；其余是负载 13 到 22 时的超时，单独重跑时片段示例的 DOM 测试通过，`server-projects` 每次超时的不是同一条。审查修正之后重跑：三个 DOM 测试文件 37 条与 `subagent-card.test.ts` 通过，`typecheck` 通过。
+
 ## 下一步
 
-收口：`test:affected --since master --typecheck`、`e2e/models.e2e.ts` 与 `lab-scenes`；前端实现审查（Sonnet）处理完后合入。
+`e2e/models.e2e.ts` 与 `lab-scenes` 跑过、负载降下来后单独确认几条超时，然后合入。

@@ -1,0 +1,89 @@
+# w00032 t29 实现审查报告（d8de0393f..6b2853859）
+
+已跑：`vitest run` ProviderRail.dom / SubagentCard.dom / profile-page.dom 共 36 条通过；`bun test subagent-card.test.ts` 10 条通过。没跑 e2e、没跑 typecheck（机器负载 13）。凡标“从代码推断”的需要主 Agent 在真实浏览器或 e2e 里确认。
+
+## 1. 重要 / 正确性：删除当前选中的服务商后，“选中下一家”取决于快照事件与写入结果谁先到，事件先到时选中落到“全部模型”
+
+- 位置：packages/neuro-book/src/plugins/models/web/components/ProvidersPage.vue:306-307（`removeProvider` 里的 `if (selected.value !== provider.id) return selected.value;`）与 :49-52（快照 watch）。
+- 现象：新加的“删的是别的一家时选中不变”判断放在 `await store.call("removeProvider")` 之后，读的是此刻的 `selected.value`。页面顶部的 watch 在“当前选中的那家从快照里消失”时会把 `selected` 改成 `"all"`。如果快照变更事件先于 `removeProvider` 的结果到达（base 的注释本身就承认两种先后都可能：“删除的结果经快照事件回来，可能晚于写入返回”），watch 已经把 `selected` 改成 `"all"`，这里 `"all" !== provider.id` 成立，直接返回 `"all"`：选中停在“全部模型”，焦点落到“全部模型”条目，而不是下一家。
+- 为什么是问题：违反 Spec settings-pages.md 输出 12“删的是当前选中的那家时，选中并聚焦下一个服务商”。base 是无条件 `selected.value = neighbour?.id ?? "all"`，两种先后都对；这次是回归，且只在其中一种先后下出，e2e（事件晚于结果）测不出来。
+- 如何核实：从代码推断。构造 fake remote，让 `changed` 事件在 `removeProvider` 的 Promise resolve 之前发出，删当前选中的中间一家，看 `selected`。
+- 建议改法：在 `removeProvider()` 同步段（await 之前）取 `const wasSelected = selected.value === provider.id`，await 之后用它判断；不要在 await 之后再读会被别的 watch 改写的状态。补一条页面级 dom 测试覆盖“事件先到”。
+
+## 2. 重要 / 正确性：可删除时，鼠标悬停在条目上行尾那格就被隐藏，问题图标的 Tooltip（“悬停写原因”）永远出不来
+
+- 位置：ProviderRail.vue:285-287（`.provider-rail__row.is-removable:is(:hover, :focus-within, .is-menu) .provider-rail__end { visibility: hidden; }`）与 :144-148（Tooltip 的触发器在 `.provider-rail__end` 里）。
+- 现象：Tooltip 的触发器是行尾那个 14px 的图标。用户要悬停它，就得先把鼠标放进这一行；一进这一行，`:hover` 命中，`.provider-rail__end` 变 `visibility:hidden`，图标不再接收指针事件，叠在上面的删除图标（pointer-events:auto）接管。键盘聚焦同理（`:focus-within` 也隐藏）。只有 `disabled`（只读）时 `is-removable` 不加，Tooltip 才可达。结果：正常可写状态下，视力用户没有任何办法看到“没有密钥/环境变量没有值/检测失败”的原因，只有读屏的 `aria-describedby` 有。
+- 为什么是问题：Spec 输出 1“这一格换成图标，悬停写原因”落空；这是“密钥有问题”这个主要提示信息的唯一视觉出口。ProviderRail.md 也写了“图标悬停写原因”。dom 测试只断言了 describedby 文本，没碰 Tooltip，e2e 也没测，所以没被发现。（Spec 输出 1 与输出 12 在这一格上本身就冲突：悬停既要写原因又要出删除图标。属于需要定的设计点，不能只靠 CSS 掩过去。）
+- 如何核实：从代码推断（`visibility:hidden` 的元素不是指针命中目标，这是 CSS 规定）。在真实浏览器里给一家设“没有密钥”，鼠标移上去，看 300ms 后有没有提示。
+- 建议改法：二选一，需要开发者定：(a) 原因的提示挂在整条条目上（Tooltip 包整个 item，或给条目设 `title`），不依赖行尾图标；删除图标显示时提示仍可达；(b) 悬停时只在没有问题的条目上换删除图标，有问题的条目让问题图标与删除图标并排（需要放宽“一格”）。补一条 e2e：悬停有问题的条目能读到原因。
+
+## 3. 重要 / 测试：e2e 验收 3 里窄布局的删除仍点旧选择器，会点到被隐藏的左栏图标；窄布局的新删除按钮与它的焦点路径没有任何测试
+
+- 位置：packages/neuro-book/e2e/models.e2e.ts:240（`await page.locator("[data-provider-remove]").click();`）；新按钮 ProvidersPage.vue:361（`data-provider-remove-current`）与 :322（取消后焦点回到它）。
+- 现象：本片把标题区的 `[data-provider-remove]`（无值属性）改成了左栏条目上的 `data-provider-remove="<id>"`，窄布局的按钮另起名 `data-provider-remove-current`。:240 的无值属性选择器现在匹配到左栏里的删除图标；窄布局下 `.providers-page__rail` 是 `display:none`（ProvidersPage.vue:469-471），Playwright 会一直等它可见直到超时，该用例（“验收 3”）预计失败。同文件其余三处旧引用都改了，唯独这一处漏了。
+- 另外：窄布局的删除按钮（Spec 输出 12 新增要求）、取消后焦点回到这个按钮（`focusVisible` 第二个选择器）、窄布局下删除后焦点落到下拉，三条行为没有 dom 或 e2e 测试。
+- 如何核实：主 Agent 跑 `e2e/models.e2e.ts`（不要多跑别的），看“验收 3”是否在 :240 超时。
+- 建议改法：:240 改成 `[data-provider-remove-current]`；在“验收 3”里加：点它、取消、断言它拿到焦点；再删、断言焦点在下拉（`[data-provider-picker]`）。
+
+## 4. 重要 / 不变量（可达性）：条目按钮里放了 sr-only 原因文字，又用 aria-describedby 指向它，读屏会念两遍
+
+- 位置：ProviderRail.vue:137、150；ProfileRail.vue 对应的 `aria-describedby` 与 `<span ... class="sr-only">`（statusIdOf）。
+- 现象：`sr-only` 的 span 是 `<button>` 的子节点，且没有 `aria-hidden`，所以它已经并入按钮的可访问名称（“DeepSeek 2 个模型”“OpenAI 没有密钥”）；同一个 span 又被 `aria-describedby` 引为描述，名称与描述内容重叠，读屏念成“OpenAI 没有密钥，没有密钥”。副作用：按钮的可访问名称变了——所有 `getByRole("button", {name: "DeepSeek"})` 精确匹配都会受影响（现在 e2e 用 data 属性，没暴露）。ProviderRail 的行尾数字与图标都是 `aria-hidden`，所以意图明显是“名称只含服务商名，状态放在描述里”，实现没达到。
+- 为什么是问题：brief 重点 1 点名问的重复朗读，确认存在；测试只断言了 `getElementById(describedby).textContent`，没断言可访问名称。
+- 如何核实：dom 测试里用 testing-library 的 `getByRole("button", {name: "OpenAI"})`（不加 exact:false）会找不到；或在浏览器 devtools 的 Accessibility 面板看名称与描述。
+- 建议改法：把 sr-only span 挪到按钮外（作为 `.provider-rail__row` 的兄弟，仍被 describedby 引用），或给它 `hidden`（aria-describedby 可以引用隐藏元素，且隐藏元素不会进名称）。补一条断言可访问名称等于服务商名。ProfileRail 同改。
+
+## 5. 建议 / 正确性：`shortTarget` 把含 `://` 的 shell 命令与搜索词也当地址截断
+
+- 位置：packages/neuro-book/src/plugins/agent/web/subagent-card.ts:77-81（`shortTarget`），调用在 :130。
+- 现象：后端 `targetOf`（backend/subagents/tree.ts:28）的取值键是 `path`、`pattern`、`command`、`query`、`url`，不只是路径。`shortTarget` 只要字符串里有 `://` 就取它之后最后一段：shell 命令 `cat project://正文/第二章.md` 变成 `第二章.md`，丢了 `cat`；`cd project://a && rm -rf project://tmp/x` 变成 `x`；`curl -s http://localhost:8080/api/x` 变成 `x`；grep 的 `pattern` 是 `https?://` 时最后一段为空而原样返回，写法前后不一致。壳工具的说明（texts.ts:11）明说“命令里直接写出的资源地址”，所以 shell 命令里出现 `project://` 是常态。
+- 为什么是问题：Spec 输出 33 写“对象是地址时只写最后一段”，是整个对象是地址时；这里把子串当地址，会把子代理正在做什么写错。
+- 如何核实：`subagent-card.test.ts` 加 `{tool: "nbook.agent.shell", target: "cat project://正文/第二章.md"}`，期望仍是原串；现在得到 `第二章.md`。
+- 建议改法：只在整个字符串是单个地址时截：`/^[a-z][a-z0-9+.-]*:\/\/\S*$/u`；空白、命令不匹配就原样。补边界测试：命令、结尾斜杠、只有协议、被 120 字截断带 `…` 的长路径（最后一段是被截断的，不会错但应有一条断言说明这是预期）。
+
+## 6. 建议 / 不变量：菜单开着的那一行，`.is-menu` 的悬停底色盖过当前项的选中底色
+
+- 位置：ProviderRail.vue:217-229（`.provider-rail__item:hover, .provider-rail__row:hover .provider-rail__item, .provider-rail__row.is-menu .provider-rail__item` 与 `[aria-current="page"]` 两条规则）。
+- 现象：特异性：`.provider-rail__row.is-menu .provider-rail__item` 是 (0,3,0)，`.provider-rail__item[aria-current="page"]` 是 (0,2,0)。作者给 `:hover` 加了专门的 `.row:hover .item[aria-current]` 保住选中底色，却漏了 `.is-menu`：对当前项右键或 Shift+F10 开菜单时，选中底色（`--overlay-item-active`）被 6% 的悬停底色盖掉，当前项看起来像取消了选中（`aria-current` 仍在）。
+- 如何核实：从 CSS 推断；Lab 场景里对当前项右键看底色。
+- 建议改法：把 `.provider-rail__row.is-menu .provider-rail__item[aria-current="page"]` 并进已有的第二条规则。
+
+## 7. 建议 / 代码质量：纯函数模块 `subagent-card.ts` 新依赖整个 `session-host.ts`；“查不到”按 id 字符串判断
+
+- 位置：subagent-card.ts:13（`import {displayToolName} from "./session-host"`）；subagent-store.ts:37（`entry.id === GENERIC_TOOL_RENDERER.id`）。
+- 现象 1：subagent-card.ts 的文件头自称“纯函数，卡片组件只管画”，现在为了一个 15 行的映射函数把 session-host.ts（约 1500 行，带 Vue、nb-markdown、nb-harness 类型与整个会话宿主）拉进它的依赖。核实过没有循环依赖（session-host 对 subagent-store 只是 `import type`，没有导入 subagent-card）；`plugin.ts:398` 里 SubagentCard 是动态加载，生产包体不受影响。但 Lab 夹具与 bun 单测（`subagent-card.test.ts`）现在为这个函数加载整个宿主；以后 session-host 若反向用到 subagent-card 就是循环。
+- 现象 2：`toolActionOf` 用 `entry.id === "generic"` 认“回退到通用项”。别的贡献者给工具渲染器取 id `generic` 时会被当成查不到，卡片写工具名。注册表本身返回的就是同一个常量对象，按引用比 `entry === GENERIC_TOOL_RENDERER` 更不会错，这一片也就不用给 nb-agent-ui 多导出的那句约定“按 id 认”。
+- 建议改法：把 `displayToolName` 与 `AGENT_TOOL_KEYS` 挪到一个不带宿主依赖的小模块（session-host 和 subagent-card 都从那里导入）；`toolActionOf` 改比引用。这两条都不改行为，可以只记为已知。
+
+## 8. 建议 / 测试：几条判据没被测到
+
+- ProfileRail 的“不可用 / 有错误各一种图标”（Spec profile-settings 输出 2）：dom 测试只造了 `status: "error"`，没造 `unavailable`，`STATUS_ICON` 里 `i-lucide-circle-slash` 这一支没人断言；`profile-view.test.ts:133` 只断言 `tone`，`kind` 没断言。把 `STATUS_ICON` 对调、或 `profile-view.ts` 里 kind 写反，现有测试都不会红。
+- ProviderRail dom 测试：没测 Shift+F10 / ContextMenu 键开菜单、Escape / Tab 关菜单后焦点回条目（`onMenuClose`）、`disabled` 时 contextmenu 不弹菜单（注意 `openMenuAt` 在 `disabled` 判断之前就 `preventDefault`，只读时连浏览器自带的右键菜单也被吃掉，见 ProviderRail.vue:75-78）、`checks` 里检测失败这一支。“全部模型”的 contextmenu 也没测（它不在 `.provider-rail__row` 里，正确，但没有断言）。
+- SubagentCard 测试：没覆盖按前缀匹配的注册表条目（`list_*`）、`agent_spawn`/`agent.wait` 这类自己的工具、等批准时注册表里查不到的工具、`step` 没有 `target`。“没提供动作名（单独挂载）写工具名”断言的是 `read 第二章.md`，也就是 `displayToolName` 的输出，不是原始 `nbook.agent.read`，与注释“写工具名”一致，没问题。
+- 变异检查：我没有改实现跑变异（只读规则下实验放 scratch 太重）；以上是按代码读出来的缺口，主 Agent 可对 `STATUS_ICON` 与 `id !== "all"` 两处各做一次变异确认。
+
+## 9. 建议 / 代码质量：`status(provider)` 每行每次渲染调 6 次；`CardModel.line` 在有 `step` 时是空串的隐含约定
+
+- ProviderRail.vue:144-150：同一条目的模板里 `status(provider)` 被调 6 次（每次遍历 `models` 并查 `checks`）。base 是 2 次。数据量小，但 `v-for` 里先算一次（`v-for` + 内层 `v-for="s in [status(provider)]"` 太丑，更直接的是把行拆成小组件或在 script 里 computed 成 Map）更清楚。
+- subagent-card.ts:23-26、:133：运行中且有 `step` 时 `line` 为 `""`，由组件按 `step` 写；注释写了。但 `CardModel` 现在有两处各管一种运行中的文字（`line` 管别的状态，`step` 管运行中），读 `model.line` 的人会拿到空串。`running` 状态不放 `line`、别的状态放，是个隐含的分状态约定，可考虑做成判别联合，或 `line` 在运行中就不再出现在类型里。
+
+## 10. 建议 / 文档：陈旧的注释与 Spec 文字
+
+- profile-view.ts:116、118：`source` 注释“第二行的来源”、`statusText` 注释“有问题时第二行换成这个”；列表已改单行，来源只剩窄布局下拉的描述（ProfileSettingsPage.vue:104）和详情头部，注释该改。
+- 主工作区 Spec：settings-pages.md 输出 1、12 与 profile-settings.md 输出 2 仍标 `（planned）`；settings-pages.md 约第 100 行“删除确认关闭之后焦点回到‘删除’（取消）”已不成立（取消回到那家的条目，窄布局回到下拉旁的按钮）。这是主工作区的文件，由主 Agent 在合入时处理。
+- ProviderRail.vue 的“全部模型”条目新增了 `title`（可用模型数）；计划写的是“条目的 `title` 不变”，两者不一致但合理（原第二行被拿掉了）。若保留，ProviderRail.md 应写一句。
+
+## 未发现问题的方面
+
+- 循环依赖：subagent-card.ts → session-host.ts 没有环（session-host 只对 subagent-store `import type`）；SubagentCard.vue 是 plugin.ts 里的动态导入，没有把重模块拉进首屏。
+- 键盘路径：Delete、Shift+F10、菜单键只在带 `data-provider-rail-item` 的条目上生效；“全部模型”与 `disabled` 时 `emit("remove")` 与 `openMenu` 都被挡（`id !== "all" && !props.disabled`；`openMenu` 自带 `disabled` 判断）；上下键导航对其它键不受影响。
+- 零布局位移：行尾一格定宽 22px，数字、图标、删除图标换位用 `visibility`/`opacity`，名称不挪；删除图标绝对定位在行内，不改行高。
+- `onMenuClose` 对 `select` 不抢焦点、交给确认框；对 `escape`/`tab` 回到条目；对 `outside` 不动，与 `ContextMenuCloseReason` 的注释一致。
+- 删的不是当前选中的服务商时，选中不变（除第 1 条的先后问题外）；取消与删除失败时焦点回条目、窄布局回按钮，逻辑与 Spec 输出 12 一致（窄布局那一支缺测试，见第 3 条）。
+- `statusText.kind` 的构造点：`profile-view.ts` 两处与 Lab 样本两处都给了；没有别的地方构造 `statusText`。色调照 `statusText.tone`，图标按 `kind`，与 Spec 对得上。
+- 动作名：`displayToolName` 与对话视图转录用的是同一个函数，所以注册表键一致；批准与运行中两处都走了 `action()`；注册表里没有的工具（插件工具）写 `displayToolName` 后的短名，符合 Spec“视图没有登记这个工具时写工具名”。按前缀匹配的条目（`list_*`）经 `resolveTool` 查到，不是通用项，会写它的标签。
+
+## 数量
+
+阻断 0；重要 4（第 1、2、3、4 条）；建议 6（第 5、6、7、8、9、10 条）。
