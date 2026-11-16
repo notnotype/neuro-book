@@ -19,7 +19,7 @@ owners:
 - Python 依赖与系统程序只检测、只报告，不代替用户安装。
 - 来源只有内置、插件与 `user://skills/`：没有额外的 Skill 目录，没有书专属的 Skill；内置插件不经 `agent.skills` 带 Skill（内置的走 `builtin` 来源）。
 - Skill 目录变了不实时提醒正在进行的会话；`$` 菜单与 Skill 页随时是最新的。
-- 插件的 Skill 由 `nbooke build` 打包（[`runtime/plugin-api.md`](../runtime/plugin-api.md) 的“作者工具”）：依赖按工作目录、环境变量或写死的路径找数据文件时，构建查不出，装好之后脚本才失败。（planned）
+- 插件的 Skill 由 `nbooke build` 打包（[`runtime/plugin-api.md`](../runtime/plugin-api.md) 的“作者工具”）：依赖按工作目录、环境变量或写死的路径找数据文件时，构建查不出，装好之后脚本才失败。
 - 命令行发起的安装在另一个进程里，不进后台任务的清单；应用里只看到它“正在初始化”与之后的状态。
 - 已知限制：安装时不运行包的安装脚本，需要安装脚本的包（例如带原生模块的）装完也可能用不了；没有初始化的 Skill，它的脚本仍可能被运行起来，结果不保证；排队中的话在“看上下文”的预览里看不到 Skill 正文（预览不跑反应）；“打开 Skill 文件夹”只知道系统的打开程序有没有起来，它起来之后没能打开文件夹（例如没有文件管理器）时界面上看不出来。Skill 已有 `bun.lock`、之后手改 `package.json` 加了依赖时，锁文件过期，按锁的安装必然失败（`install-failed`，原因在 Bun 的安装输出里）；应用与命令行都不重新生成锁，要在 Skill 文件夹里跑一次 `bun install`（或删掉 `bun.lock` 再初始化）；用 `bun add` 加依赖时锁会跟着更新，不会这样。
 
@@ -113,11 +113,11 @@ owners:
 
 ### 插件来源
 
-30. 插件用顶层贡献 `agent.skills` 声明插件包里的一个目录：声明是 `{directory}`，写插件包里的相对路径，用 `/` 分段，不是绝对路径、不带协议或盘符、没有空段与 `.`、`..`，不合规的贡献被拒；贡献 id 以插件 id 加 `.` 开头。目录里每个子文件夹是一个 Skill，规则同输出 2，id 是 `<插件 id>.<文件夹名>`，`source` 是 `plugin`，条目另带 `plugin: {id, title}`（`title` 是插件的显示名，没写时为 null）。（planned）
-31. 贡献发布后它的 Skill 出现在目录里，并发出 `skillsChanged`；贡献撤回（插件停用、注销）后消失，`$` 认它得 `not-found`。声明的目录不在插件包里、不是目录或经过链接时，这个贡献不出 Skill，写诊断 `skills-root-unavailable`。插件的 Skill 目录不监视：换插件版本要重启。运行中才登记的插件，它的声明要等 Agent 插件下次激活才交到（[`runtime/plugins.md`](../runtime/plugins.md) 的已知限制，运行期增删插件见 [`runtime/plugin-hot-plug.md`](../runtime/plugin-hot-plug.md)）。（planned）
-32. 插件的 Skill 装好就是 `ready`，不用初始化，请求初始化得 `not-initializable`。Skill 里有 `package.json` 的（插件没经 `nbooke build` 打包）是 `invalid`，原因 `plugin-skill-unbuilt`。（planned）
-33. 同一个插件的两个 `agent.skills` 贡献里有同名文件夹时，按贡献 id 的码元顺序先到的生效，后到的不列，写诊断 `skill-duplicate`。（planned）
-34. 界面：Skill 页在“我的”与“内置”之间每个插件一组，按插件名排，组头写插件名（没有显示名时写插件 id，两个插件显示名相同时带上插件 id）；插件的 Skill 没有“初始化”，“打开”经 `skills://<id>/SKILL.md` 只读；没打包的原因提示去找插件作者。Profile 设置的 Skill 一节与添加对话框同样分组，无效的悬停写原因；白名单里的插件 Skill 因插件停用、卸载而不在目录里时，列在“已删除或不可用”，提示重新启用插件。`skills://<id>/` 指向插件安装目录里的这个 Skill，Agent 写入得 `permission-denied`。（planned）
+30. 插件用顶层贡献 `agent.skills` 声明插件包里的一个目录：声明是 `{directory}`，写插件包里的相对路径，用 `/` 分段，不是绝对路径、不带协议或盘符、没有空段与 `.`、`..`，不合规的贡献被拒；贡献 id 以插件 id 加 `.` 开头。目录里每个子文件夹是一个 Skill，规则同输出 2，id 是 `<插件 id>.<文件夹名>`，`source` 是 `plugin`，条目另带 `plugin: {id, title}`（`title` 是插件的显示名，没写时为 null）。
+31. 贡献发布后它的 Skill 出现在目录里，并发出 `skillsChanged`；贡献撤回（插件停用、注销）后消失，`$` 认它得 `not-found`。声明的目录不在插件包里、不是目录或经过链接时，这个贡献不出 Skill，写诊断 `skills-root-unavailable`。插件的 Skill 目录不监视：换插件版本要重启。运行中才登记的插件，它的声明要等 Agent 插件下次激活才交到（[`runtime/plugins.md`](../runtime/plugins.md) 的已知限制，运行期增删插件见 [`runtime/plugin-hot-plug.md`](../runtime/plugin-hot-plug.md)）。
+32. 插件的 Skill 装好就是 `ready`，不用初始化，请求初始化得 `not-initializable`。Skill 里有 `package.json` 的（插件没经 `nbooke build` 打包）是 `invalid`，原因 `plugin-skill-unbuilt`。
+33. 同一个插件的两个 `agent.skills` 贡献里有同名文件夹时，按贡献 id 的码元顺序先到的生效，后到的不列，写诊断 `skill-duplicate`。
+34. 界面：Skill 页在“我的”与“内置”之间每个插件一组，按插件名排，组头写插件名（没有显示名时写插件 id，两个插件显示名相同时带上插件 id）；插件的 Skill 没有“初始化”，“打开”经 `skills://<id>/SKILL.md` 只读；没打包的原因提示去找插件作者。Profile 设置的 Skill 一节与添加对话框同样分组，无效的悬停写原因；白名单里的插件 Skill 因插件停用、卸载而不在目录里时，列在“已删除或不可用”，提示重新启用插件。`skills://<id>/` 指向插件安装目录里的这个 Skill，Agent 写入得 `permission-denied`。
 
 ## 状态与转换
 
@@ -135,7 +135,7 @@ owners:
 - 同一个应用里对同一个 Skill 的两次初始化请求得到同一个结果；两个进程同时请求，后到的得 `busy`，不等待。
 - 命令行装好之后，应用不用重启：状态变化经输出 5 反映。
 - 插件停止时，正在进行的安装结束（输出 21），文件监视停止；停止之后不再发 `skillsChanged`。
-- 插件的 Skill 随 `agent.skills` 贡献的发布与撤回出现、消失，变化同样经 `skillsChanged` 通知；撤回在发布之后才到时，按撤回算。（planned）
+- 插件的 Skill 随 `agent.skills` 贡献的发布与撤回出现、消失，变化同样经 `skillsChanged` 通知；撤回在发布之后才到时，按撤回算。
 
 ## 副作用与数据
 
@@ -178,24 +178,25 @@ owners:
 7. Given Profile 设置里去掉一个 Skill；Then `$` 菜单不再列它，打它的名字得 `not-allowed`。
 8. Given 同一个会话；When 连续两轮 `$` 同一个没改过的 Skill；Then 第二轮只带“见前文”。
 
-9. Given 一个用 `nbooke build` 构建、带一个 Skill 的插件，Skill 的脚本用到一个 npm 包；When 装好、重启；Then Skill 页的插件组里有它、可用；`$` 带上它的正文，模型经 shell 运行它的脚本得到那个包的输出；When 停用插件、重启；Then 它不在了。（planned）
+9. Given 一个用 `nbooke build` 构建、带一个 Skill 的插件，Skill 的脚本用到一个 npm 包；When 装好、重启；Then Skill 页的插件组里有它、可用；`$` 带上它的正文，模型经 shell 运行它的脚本得到那个包的输出；When 停用插件、重启；Then 它不在了。
 
 Smoke：`packages/neuro-book/e2e/agent-skills.e2e.ts`（场景 2、3、4 在界面上的部分：经菜单选了发出、不存在的标签、确认后安装）；插话、白名单与重名、停止时中断由 `skills.test.ts`、`install.test.ts`、`catalog.test.ts` 覆盖。
 
 ## 实现合同
 
-- **公开入口**：远程 `skills`、`skillsChanged`、`skillInitPlan`、`initSkill`、`openSkillsFolder`（`nbook.agent` 的会话合同）；Profile 声明的 `skills`（`agent.profiles`）与 `profileSettings[key].skills`；地址 `skills://`；扩展 `nbook.agent.skills`（事件 `skill`、`skillMissing`）；命令行 `nbook skill init`；`$` 标签的写法与分词经 `@notnotype/nb-markdown/prompt-text`（`promptSkillTokens`、`promptSkillText`）。
-- **owner 与依赖方向**：`nbook.agent` 的服务端持有 Skill 目录、初始化与带上、放回；初始化登记到 `nbook.tasks` 的后台任务（可选依赖，没有时照常装）；`skills://` 是 `nbook.files` 的挂载；跨进程锁取自 `@notnotype/nb-flock`，放回接在 nb-harness 内核的放回参数（`kept`）之后。浏览器端的 `$` 菜单、确认框、Skill 页与 Profile 页一节在 Agent 插件的 `web/`，菜单行尾的状态列在 nb-ui 的 `SuggestionMenu`。
+- **公开入口**：远程 `skills`、`skillsChanged`、`skillInitPlan`、`initSkill`、`openSkillsFolder`（`nbook.agent` 的会话合同）；Profile 声明的 `skills`（`agent.profiles`）与 `profileSettings[key].skills`；地址 `skills://`；扩展 `nbook.agent.skills`（事件 `skill`、`skillMissing`）；贡献点 `agent.skills`（`@notnotype/nb-plugin-sdk/agent` 的 `agentSkills`）；命令行 `nbook skill init`；`$` 标签的写法与分词经 `@notnotype/nb-markdown/prompt-text`（`promptSkillTokens`、`promptSkillText`）。
+- **owner 与依赖方向**：`nbook.agent` 的服务端持有 Skill 目录、初始化与带上、放回；初始化登记到 `nbook.tasks` 的后台任务（可选依赖，没有时照常装）；`skills://` 是 `nbook.files` 的挂载；插件的 Skill 目录经平台服务 `plugin-platform/packages` 取路径（可选依赖），打包在作者工具 `nbooke build` 里（`plugin-sdk/skills-build.ts`）；跨进程锁取自 `@notnotype/nb-flock`，放回接在 nb-harness 内核的放回参数（`kept`）之后。浏览器端的 `$` 菜单、确认框、Skill 页与 Profile 页一节在 Agent 插件的 `web/`，菜单行尾的状态列在 nb-ui 的 `SuggestionMenu`。
 - **关键不变量**：
   - 认 `$` 标签只有一个规则（`shared/skills.ts` 的 `matchSkillToken`）：服务端带上、菜单插入的写法与点开标签共用，菜单插入的文字经同一套分词读回同一个 Skill（`catalog.test.ts`“认标签”，`skill-menu.test.ts`“插入的标签分词读回同一个 Skill”）。
   - 同一个 Skill 同一时间只装一次：进程内并入，跨进程靠按 Skill 分文件的系统文件锁（锁文件建好不删）；停止或取消在任一步到达都结束这次安装，锁只在一处放（`install.test.ts`“同一个进程里同时请求两次”“场景 5”“输出 21”“用户取消”）。
   - 目录的重扫一个接一个地做，每次之后对齐监视器；子目录被替换时重建它的监视器（`catalog.test.ts`“场景 1”）。
+  - 插件来源按根的 key 增删，根的增删与重扫排进同一个队列；同名文件夹按 key 的码元顺序取先到的（`catalog.test.ts`“插件来源”，`plugin-roots.test.ts`）。
   - 正文不缓存，带上与放回时现读；“见前文”按截断后正文的哈希比对，压缩后复位（`skills.test.ts`“场景 2、8”）。
   - 放回的预算按包好之后的整段算，截断后正文不到 400 token 不放（`restore.test.ts`）。
 
 ## 证据
 
-- 批准依据：[t15 的决定](../../../.agents/works/w00032-agent-integration/tasks/t15-skills/README.md#决定)与[计划](../../../.agents/works/w00032-agent-integration/tasks/t15-skills/plan.md)；开发者 2026-11-10 确认计划，2026-11-13 批准晋升为 `implemented`。
-- 实现入口：[`backend/skills/catalog.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts)、[`install.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/install.ts)、[`extension.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/extension.ts)、[`restore.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/restore.ts)、[`shared/skills.ts`](../../../packages/neuro-book/src/plugins/agent/shared/skills.ts)、[`web/skills.ts`](../../../packages/neuro-book/src/plugins/agent/web/skills.ts)、[`cli/skill.ts`](../../../packages/neuro-book/src/cli/skill.ts)
-- 合同测试：[`catalog.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/catalog.test.ts)、[`install.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/install.test.ts)、[`restore.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/restore.test.ts)、[`skills.test.ts`](../../../packages/neuro-book/src/plugins/agent/skills.test.ts)（真实内核与本机假端点）、[`skill-menu.test.ts`](../../../packages/neuro-book/src/plugins/agent/skill-menu.test.ts)、[`skills-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/skills-page.dom.test.ts)、[`profile-view.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-view.test.ts)
+- 批准依据：[t15 的决定](../../../.agents/works/w00032-agent-integration/tasks/t15-skills/README.md#决定)与[计划](../../../.agents/works/w00032-agent-integration/tasks/t15-skills/plan.md)；开发者 2026-11-10 确认计划，2026-11-13 批准晋升为 `implemented`；插件来源（输出 30–34）依据 [t33 的计划](../../../.agents/works/w00032-agent-integration/tasks/t33-plugin-skills/plan.md)，开发者 2026-11-15 确认计划，2026-11-16 批准晋升。
+- 实现入口：[`backend/skills/catalog.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/catalog.ts)、[`install.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/install.ts)、[`extension.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/extension.ts)、[`restore.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/restore.ts)、[`shared/skills.ts`](../../../packages/neuro-book/src/plugins/agent/shared/skills.ts)、[`web/skills.ts`](../../../packages/neuro-book/src/plugins/agent/web/skills.ts)、[`cli/skill.ts`](../../../packages/neuro-book/src/cli/skill.ts)、[`backend/skills/plugin-roots.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/plugin-roots.ts)、[`plugin-sdk/skills-build.ts`](../../../packages/neuro-book/plugin-sdk/skills-build.ts)
+- 合同测试：[`catalog.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/catalog.test.ts)、[`install.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/install.test.ts)、[`restore.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/restore.test.ts)、[`skills.test.ts`](../../../packages/neuro-book/src/plugins/agent/skills.test.ts)（真实内核与本机假端点）、[`skill-menu.test.ts`](../../../packages/neuro-book/src/plugins/agent/skill-menu.test.ts)、[`skills-page.dom.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/skills-page.dom.test.ts)、[`profile-view.test.ts`](../../../packages/neuro-book/src/plugins/agent/web/profile-view.test.ts)、[`plugin-roots.test.ts`](../../../packages/neuro-book/src/plugins/agent/backend/skills/plugin-roots.test.ts)、[`plugin-skills.test.ts`](../../../packages/neuro-book/src/plugins/agent/plugin-skills.test.ts)、[`build-plugin.test.ts`](../../../packages/neuro-book/plugin-sdk/build-plugin.test.ts)“Skill（agent.skills）”、[`09-skills.test.ts`](../../../packages/neuro-book/plugin-sdk/examples/scenarios/09-skills.test.ts)
 - Smoke：[`agent-skills.e2e.ts`](../../../packages/neuro-book/e2e/agent-skills.e2e.ts)

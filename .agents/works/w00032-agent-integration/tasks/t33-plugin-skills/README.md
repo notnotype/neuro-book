@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t33-plugin-skills
 status: active
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # 插件的 Skill 与 SDK 构建
@@ -22,6 +22,7 @@ updated: 2026-11-15
 | 1 | 2026-11-15 | 开发者：t30 之后开 t33 |
 | 2 | 2026-11-15 | 开发者确认[计划](plan.md)，末尾 6 个待确认项全部按推荐：一个贡献声明一个装着若干 Skill 的目录；Skill 文件夹里全部 JS/TS 文件都打包；打包后保留原路径与文件名；Python 脚本只在带第三方依赖时构建失败，只用标准库的原样带上；Skill 页分组为我的、各插件、内置；插件 Skill 里有 `package.json` 时标无效 |
 | 3 | 2026-11-15 | 开发者：用 autonomous-delivery 推进到 Task 完成 |
+| 4 | 2026-11-16 | 开发者批准 Spec 晋升：t33 的条目去掉 planned；t33 完成 |
 
 ## 当前状态
 
@@ -54,6 +55,8 @@ updated: 2026-11-15
 
 已合入 master（`0f0b5c41d`，`--no-ff`）。合入前 master 又多了桌面设置（25 个文件），与 t33 没有同一个文件，`merge-tree` 试算无冲突；合入后在 master 上重跑应用 `typecheck` 与架构、目录的测试都过。分支与 worktree 已删。
 
+2026-11-16 开发者批准晋升（决定 4）：`agent/skills.md` 输出 30–34、“不承诺”与“时序与寿命”里的两条、场景 9，`runtime/plugin-api.md` 的打包 Skill，`runtime/plugin-code-loading.md` 输出 11 去掉 planned；`agent/skills.md` 的实现合同与证据补上插件来源。t33 完成。
+
 ## 下一步
 
-Spec 里 t33 的 planned 条目（`agent/skills.md` 输出 30–34、“不承诺”与“时序与寿命”里的两条、场景 9；`runtime/plugin-api.md` 的打包 Skill；`runtime/plugin-code-loading.md` 输出 11）去掉 planned，交开发者批准。
+无。待确认清单里 t33 的两条按默认追认。
