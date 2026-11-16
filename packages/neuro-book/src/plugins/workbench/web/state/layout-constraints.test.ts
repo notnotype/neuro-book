@@ -69,10 +69,10 @@ describe("约束", () => {
         expect(switched.doc.tree).toEqual(doc.tree);
     });
 
-    it("放不下时收走的先后：右栏、底部面板、侧栏的分节；锚与编辑组不在里面（输出 10）", () => {
+    it("放不下时收走的先后：右栏、底部面板、侧栏，各区域按树序；锚也在里面，它只在区域空着时显示，那时这块空面板按它的区域排（ADR 0050）；编辑组不在里面（输出 10）", () => {
         const catalog: ViewCatalog = new Map([["a", VIEW()], ["a2", VIEW({order: 2})], ["b", VIEW({location: "auxiliarybar"})], ["c", VIEW({location: "panel"})]]);
         const doc = defaultLayoutDoc(catalog);
-        expect(collapseOrder(doc)).toEqual([panelOf(doc, "b"), panelOf(doc, "c"), panelOf(doc, "a"), panelOf(doc, "a2")]);
+        expect(collapseOrder(doc)).toEqual(["auxiliarybar", panelOf(doc, "b"), "panel", panelOf(doc, "c"), "sidebar", panelOf(doc, "a"), panelOf(doc, "a2")]);
         // 窄到只放得下编辑组与一栏：先收右栏的分节，侧栏的留着。
         const narrow = {width: 520, height: 800};
         const {removed} = presentationCollapse(doc, narrow, {...layoutProjectionOptions({doc, catalog, viewportWidth: narrow.width}), order: collapseOrder(doc), focused: null});

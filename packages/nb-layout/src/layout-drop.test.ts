@@ -3,7 +3,7 @@ import {describe, expect, it} from "bun:test";
 import {docOf, H, tab, testPolicy, V, view} from "./layout-doc-fixtures";
 import {applyLayoutDrop, enumerateDropCandidates, layoutDropKey, layoutDropOverPanel, layoutDropPanelAt, layoutDropSectors, layoutSeamsOf, previewEdgeDrop, resolveLayoutDrop} from "./layout-drop";
 import type {LayoutDropAction, LayoutDropInput, LayoutDropPanelGeometry, LayoutDropSectorId, LayoutDropSource} from "./layout-drop";
-import {edgeTargetOf, setPanelCollapsed} from "./layout-doc";
+import {edgeTargetOf, isPanelShown, regionOf, setPanelCollapsed} from "./layout-doc";
 import type {LayoutDoc, LayoutEdge, LayoutPolicy, LayoutSource} from "./layout-doc";
 import type {LayoutProjectionOptions} from "./layout-project";
 import type {GridDropRect} from "./grid-drop";
@@ -252,10 +252,12 @@ describe("策略按边回答（edgeTarget）", () => {
 });
 
 describe("提交", () => {
-    it("放回原处返回原文档：中央落在自己所在的面板、整块面板落在自己的外缘", () => {
+    it("放回原处返回原文档：活动标签落在自己所在面板的中央、整块面板落在自己的外缘；不活动的落在中央成为活动标签，位置不变", () => {
         const doc = THREE();
-        const center = applyLayoutDrop(doc, VIEW, {kind: "center", panel: "a"}, testPolicy());
+        const center = applyLayoutDrop(doc, {kind: "tab", tab: "view:a"}, {kind: "center", panel: "a"}, testPolicy());
         expect(center.ok && center.doc).toBe(doc);
+        const rejoined = applyLayoutDrop(doc, VIEW, {kind: "center", panel: "a"}, testPolicy());
+        expect(rejoined.ok && rejoined.doc.panels.a).toEqual({...doc.panels.a, active: "view:x"});
         const own = applyLayoutDrop(doc, {kind: "panel", panel: "b"}, {kind: "edge", target: {kind: "split", panel: "b", edge: "top"}}, testPolicy());
         expect(own.ok && own.doc).toBe(doc);
     });
@@ -588,5 +590,43 @@ describe("分节的落点", () => {
         const doc = sections();
         const own = applyLayoutDrop(doc, {kind: "tab", tab: "view:s2"}, split("s1", "bottom") as never, anyEdge);
         expect(own.ok && own.doc).toBe(doc);
+    });
+});
+
+describe("空区域的落点（ADR 0050）", () => {
+    /** 侧栏的容器 A 有 s1；右栏打开着、一个分节都没有：锚就是这块区域。 */
+    const opened = (): LayoutDoc => docOf(H([V(["sidebar", "s1"], "side"), "ea", "auxiliarybar"], "root"), {
+        sidebar: {tabs: [], active: null, entries: ["A"], activeContainer: "A"},
+        s1: {container: "A"},
+        auxiliarybar: {tabs: [], active: null, entries: [], activeContainer: null},
+    });
+    const S1: LayoutDropPanelGeometry = {id: "s1", strip: rect(0, 0, 300, 30), body: rect(0, 30, 300, 600), insertionAt: () => 0};
+    const EA: LayoutDropPanelGeometry = {id: "ea", strip: rect(301, 0, 1000, 30), body: rect(301, 30, 1000, 600), insertionAt: () => 0};
+    const AUX: LayoutDropPanelGeometry = {id: "auxiliarybar", strip: null, body: rect(1001, 0, 1300, 600)};
+    const SOURCE: LayoutSource = {kind: "tab", tab: "view:s1"};
+    const input = (overrides: Partial<LayoutDropInput> = {}): LayoutDropInput => ({doc: opened(), source: SOURCE, point: {x: 1150, y: 300}, panels: [S1, EA, AUX], policy: testPolicy(), newContainer: "custom:n", ...overrides});
+    const INTO: LayoutDropAction = {kind: "edge", target: {kind: "split", panel: "auxiliarybar", edge: "bottom"}, container: "custom:n"};
+
+    it("工具视图：整块是一个外缘落点，放进宿主给的新容器；指针、分区、键盘是同一个；放下去新分节显示，区域的当前容器是它", () => {
+        expect(resolveLayoutDrop(input())).toEqual(INTO);
+        expect(resolveLayoutDrop(input({point: {x: 1005, y: 5}}))).toEqual(INTO);
+        expect(layoutDropSectors(input(), AUX)).toEqual([{id: "whole", points: [[0, 0], [1, 0], [1, 1], [0, 1]], action: INTO}]);
+        const candidates = enumerateDropCandidates({doc: opened(), source: SOURCE, policy: testPolicy(), stripIndexes: () => [], newContainer: "custom:n"}).filter((candidate) => candidate.region === "auxiliarybar");
+        expect(candidates.map((candidate) => candidate.action)).toEqual([INTO]);
+        const result = applyLayoutDrop(opened(), SOURCE, INTO, testPolicy());
+        if (!result.ok) throw new Error(result.detail);
+        expect(regionOf(result.doc, "s1")).toBe("auxiliarybar");
+        expect(result.doc.panels.auxiliarybar).toMatchObject({entries: ["custom:n"], activeContainer: "custom:n"});
+        expect([isPanelShown(result.doc, "s1"), isPanelShown(result.doc, "auxiliarybar")]).toEqual([true, false]);
+    });
+
+    it("没给新容器时不是落点；编辑器标签进不了工具区域、整窗拖动不在这里停靠：在面板上却没有落点", () => {
+        expect(resolveLayoutDrop(input({newContainer: undefined}))).toBeNull();
+        expect(layoutDropSectors(input({newContainer: undefined}), AUX)).toBeNull();
+        expect(enumerateDropCandidates({doc: opened(), source: SOURCE, policy: testPolicy(), stripIndexes: () => []}).filter((candidate) => candidate.region === "auxiliarybar")).toEqual([]);
+        const byRole = testPolicy({accepts: (tabs, target) => tabs.every((candidate) => (candidate.kind === "view" ? target.role === "tool" : target.role === "editor"))});
+        expect(resolveLayoutDrop(input({source: {kind: "tab", tab: "tab:ea"}, policy: byRole}))).toBeNull();
+        expect(resolveLayoutDrop(input({noCenter: true}))).toBeNull();
+        expect(layoutDropOverPanel(input())).toBe(true);
     });
 });

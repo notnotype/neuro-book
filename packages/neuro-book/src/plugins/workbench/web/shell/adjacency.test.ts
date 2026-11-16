@@ -56,10 +56,10 @@ describe("卡片的边", () => {
         expect(result.statusbar).toBeUndefined();
     });
 
-    it("侧栏隐藏：活动栏不和编辑组相连，缝是 0", () => {
+    it("侧栏隐藏：同拖到零（输出 11），活动栏不和编辑组相连，留着的 1px 边界算进占用", () => {
         const result = cards(hide(doc(), "sidebar"));
-        expect(result.activitybar?.right).toEqual(inner(0));
-        expect(result[INITIAL_EDITOR_PANEL]?.left).toEqual(inner(0));
+        expect(result.activitybar?.right).toEqual(inner(1));
+        expect(result[INITIAL_EDITOR_PANEL]?.left).toEqual(inner(1));
     });
 
     it("侧栏拆成一列：不等长，不相连", () => {
@@ -85,7 +85,8 @@ describe("卡片的边", () => {
         if (!moved.ok) throw new Error(moved.detail);
         const result = cards(moved.doc);
         expect(result[AUX]).toEqual({top: outer, right: inner(1), bottom: outer, left: inner(1)});
-        expect(result[INITIAL_EDITOR_PANEL]?.right).toEqual(outer);
+        // 右栏搬空了、自动隐藏，按拖到零画：编辑组右边贴着窗体，中间夹着它留着的 1px 边界。
+        expect(result[INITIAL_EDITOR_PANEL]?.right).toEqual({kind: "outer", occupied: 1});
     });
 
     it("一边留多宽：贴边整缝，相邻半缝减占用的一半，相连 0", () => {

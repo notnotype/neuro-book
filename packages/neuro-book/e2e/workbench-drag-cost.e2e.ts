@@ -158,11 +158,16 @@ test.describe("拖动的每帧开销", () => {
         test.setTimeout(120_000);
         await page.emulateMedia({reducedMotion: "no-preference"});
         const cdp = await openBook(page);
-        await lift(page, page.locator("[data-editor-tab]").filter({hasText: "short.md"}));
+        // 往右拆一组（开着长章），把短章拖到那一组的正文中央：卡片拿着，那一组盖着“添加为标签”。
+        await page.locator("[data-editor-group-head-active] [data-title-action-key=\"own:split-right\"]").click();
+        await expect(page.locator("[data-editor-group-head]")).toHaveCount(2);
+        await expect(page.locator("[data-editor-group-active] [data-editor-prose]")).toContainText("长章");
         const body = await page.locator("[data-editor-group-active]").boundingBox();
         if (body === null) throw new Error("没有编辑组");
+        await lift(page, page.locator("[data-editor-tab]").filter({hasText: "short.md"}));
         const at = {x: body.x + body.width * 0.5, y: body.y + body.height * 0.5};
         await page.mouse.move(at.x, at.y, {steps: 8});
+        await expect(page.locator("[data-lifted]")).toHaveCount(1);
         await settle(page);
         await wiggle(page, at, 1);
         await settle(page);

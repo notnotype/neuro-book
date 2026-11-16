@@ -182,7 +182,7 @@ export const manifest: NbThemeManifest = {
         {
             name: "--shell-seam",
             fallback: "var(--divider)",
-            description: "工作台网格边界上 1px 接缝的颜色；卡片之间的缝本身就是边界时设为透明。",
+            description: "工作台网格边界上 1px 接缝的颜色，编辑组之间的线也取它；卡片之间的缝本身就是边界时设为透明。",
         },
         {
             name: "--shell-join-divider",
@@ -192,12 +192,12 @@ export const manifest: NbThemeManifest = {
         {
             name: "--shell-pane-divider",
             fallback: "var(--divider)",
-            description: "同一个视图容器里分栏之间那条线的颜色（不继承外壳网格的接缝色）。",
+            description: "工具面板之间那条线的颜色（不继承外壳网格的接缝色）；卡片外壳里两节之间本来有缝，设为透明。",
         },
         {
             name: "--shell-pane-divider-inset",
             fallback: "0px",
-            description: "分栏之间那条线沿长轴两端的缩进；0 是贯穿的接缝，大于 0 是两端不碰到头的开放式分割线。",
+            description: "工具面板之间那条线与它的悬停线沿长轴两端的缩进；0 是贯穿的，大于 0 是两端不碰到头。",
         },
         {
             name: "--editor-tabs-surface",

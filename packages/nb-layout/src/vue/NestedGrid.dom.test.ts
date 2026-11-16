@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, onTestFinished, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick} from "vue";
 import NestedGrid from "./NestedGrid.vue";
@@ -107,8 +107,7 @@ async function settleFrame(): Promise<void> {
 /** 叶外框的矩形（相对 grid 根，已按设备像素取整）。 */
 function frameRect(wrapper: VueWrapper, id: string): {x: number; y: number; width: number; height: number} {
     const {style} = wrapper.get<HTMLElement>(`[data-leaf="${id}"]`).element;
-    const position = /translate\(([-\d.]+)px, ([-\d.]+)px\)/u.exec(style.transform);
-    return {x: Number(position?.[1]), y: Number(position?.[2]), width: Number.parseFloat(style.width), height: Number.parseFloat(style.height)};
+    return {x: Number.parseFloat(style.left), y: Number.parseFloat(style.top), width: Number.parseFloat(style.width), height: Number.parseFloat(style.height)};
 }
 
 type RendererOptions = {
@@ -388,6 +387,8 @@ describe("命中结果映射到分界线的状态", () => {
             expect(sashOf(wrapper, key).getAttribute("aria-disabled"), key).toBe("true");
         }
         expect(sashOf(wrapper, "root:0").getAttribute("tabindex")).toBe("0");
+        // 一侧收到了零：那一侧没有东西，静止接缝不画（平铺主题里它会贴在窗口边或条上）；命中照旧，见下。
+        expect(sashOf(wrapper, "root:0").querySelector(".sash-seam")?.getAttribute("data-beside-zero")).toBe("true");
 
         // 指针在那一列的外边界上、正对着里面一条线的高度：只命中外边界，不是两根轴一起调。
         wrapper.get<HTMLElement>("[data-leaf='editor']").element.dispatchEvent(pointerEvent("pointermove", 2, 200));
@@ -407,6 +408,7 @@ describe("命中结果映射到分界线的状态", () => {
         await nextTick();
         expect(sashOf(wrapper, "side:0").getAttribute("tabindex")).toBe("0");
         expect(sashOf(wrapper, "side:0").hasAttribute("aria-disabled")).toBe(false);
+        expect(sashOf(wrapper, "root:0").querySelector(".sash-seam")?.hasAttribute("data-beside-zero")).toBe(false);
         wrapper.get<HTMLElement>("[data-leaf='editor']").element.dispatchEvent(pointerEvent("pointermove", 150, 202));
         await nextTick();
         expect(sashOf(wrapper, "side:0").getAttribute("data-sash-hover")).toBe("true");
@@ -873,18 +875,83 @@ describe("NestedGrid 内容层", () => {
         const grid = wrapper.vm as unknown as {placeLifted(rect: {x: number; y: number; width: number; height: number}): void};
         // 挂上之后才量到容器，叶的矩形这时才定。
         await wrapper.setProps({revision: 1});
-        const before = element.style.transform;
+        const before = {left: element.style.left, top: element.style.top};
+        expect(element.style.transform).toBe("");
         grid.placeLifted({x: 11, y: 22, width: 33, height: 44});
         await wrapper.setProps({lifted: {key: "x"}});
         expect(element.hasAttribute("data-lifted")).toBe(true);
+        // 跟手的位置在 transform 上，left/top 归零。
         expect(element.style.transform).toBe("translate(11px, 22px)");
+        expect([element.style.left, element.style.top]).toEqual(["0px", "0px"]);
         grid.placeLifted({x: 15, y: 25, width: 33, height: 44});
         expect(element.style.transform).toBe("translate(15px, 25px)");
         expect(element.style.width).toBe("33px");
+        // 内层不写尺寸，按样式撑满卡片（跟着卡片重排）；放下时一次写回叶的尺寸。
+        const body = element.querySelector<HTMLElement>(".nb-grid-content__body");
+        expect([body?.style.width, body?.style.height]).toEqual(["", ""]);
         await wrapper.setProps({revision: 2});
         expect(element.style.transform).toBe("translate(15px, 25px)");
         await wrapper.setProps({lifted: null});
-        expect(element.style.transform).toBe(before);
+        expect(element.style.transform).toBe("");
+        expect({left: element.style.left, top: element.style.top}).toEqual(before);
+        expect(body?.style.width).toMatch(/^[1-9][0-9]*(\.[0-9]+)?px$/u);
+    });
+
+    it("拿起的内容项并进已有的叶：那块叶刚才显示着的内容留在落地的卡片下面、不可交互，过渡结束才隐藏", async () => {
+        const wrapper = mountContents([{key: "x", leaf: "a", insetTop: 32, active: true}, {key: "y", leaf: "b", insetTop: 32, active: true}]);
+        wrapper.element.style.setProperty("--motion-layout", "30ms");
+        const grid = wrapper.vm as unknown as {placeLifted(rect: {x: number; y: number; width: number; height: number}): void};
+        await wrapper.setProps({revision: 1});
+        grid.placeLifted({x: 11, y: 22, width: 33, height: 44});
+        await wrapper.setProps({lifted: {key: "y"}});
+        // 放下：撤卡片与提交在同一次更新里，y 进了 a、成为活动的，x 不再活动。
+        await wrapper.setProps({lifted: null, contents: [{key: "x", leaf: "a", insetTop: 32, active: false}, {key: "y", leaf: "a", insetTop: 32, active: true}]});
+        const kept = wrapper.get("[data-content='x']").element as HTMLElement;
+        expect(kept.style.visibility).toBe("");
+        expect(kept.hasAttribute("inert")).toBe(true);
+        expect(wrapper.get("[data-content='y']").attributes("data-flying")).toBeDefined();
+        await vi.waitFor(() => expect(kept.style.visibility).toBe("hidden"));
+    });
+
+    it("宿主把一片叶降到零（不是手势）：它停放、不可交互，过渡结束前头与内容还画着，跟着外框缩回去，结束才隐藏", async () => {
+        // 宿主把隐藏的区域按拖到零画：收起是程序改的，过渡里不能先变成一张空卡片缩回去。
+        // happy-dom 没有布局引擎，量到的容器是 0、矩形全为 0，判不出过渡：按仓库既有做法（`useGridLayout.dom.test.ts`）桩掉布局盒。
+        // test-lint-allow spy: 只桩布局盒给出容器尺寸，不断言调用；happy-dom 没有布局引擎
+        const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => CONTAINER.width);
+        // test-lint-allow spy: 同上，桩布局盒的高
+        const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => CONTAINER.height);
+        onTestFinished(() => {
+            width.mockRestore();
+            height.mockRestore();
+        });
+        const side = (collapsed: boolean): Grid<string> => createGrid<string>({kind: "branch", id: "root", orientation: "horizontal", children: [
+            {kind: "leaf", id: "a", ref: "a", size: {width: 300, height: 0}, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed}},
+            {kind: "leaf", id: "b", ref: "b", size: {width: 699, height: 0}},
+        ]}, {sashSize: SASH});
+        const open = side(false);
+        const wrapper = mount(NestedGrid, {
+            attachTo: attachContainer(),
+            props: {node: open.root(), layout: open.layout(CONTAINER), contents: [{key: "x", leaf: "a", insetTop: 32, active: true}]},
+            slots: {leaf: ({node}: {node: {id: string}}) => h("span", {"data-head": node.id}), content: ({contentKey}: {contentKey: string}) => h("button", {"data-inside": contentKey}, contentKey)},
+        });
+        wrappers.push(wrapper);
+        wrapper.element.style.setProperty("--motion-layout", "30ms");
+        // 第一次布局回调只记下尺寸、不过渡：先发布一次同样的布局。
+        const again = side(false);
+        await wrapper.setProps({node: again.root(), layout: again.layout(CONTAINER)});
+        const closed = side(true);
+        await wrapper.setProps({node: closed.root(), layout: closed.layout(CONTAINER)});
+
+        const content = wrapper.get("[data-content='x']").element as HTMLElement;
+        const head = wrapper.get("[data-leaf-content='a']").element as HTMLElement;
+        expect(content.style.visibility).toBe("");
+        expect(content.hasAttribute("inert")).toBe(true);
+        expect(head.style.visibility).toBe("");
+        expect(wrapper.get("[data-leaf='a']").attributes("inert")).toBeDefined();
+        // 离开的叶才带 `data-leaving`：这片叶还在树里。
+        expect(wrapper.get("[data-leaf='a']").attributes("data-leaving")).toBeUndefined();
+        await vi.waitFor(() => expect(content.style.visibility).toBe("hidden"));
+        expect(head.style.visibility).toBe("hidden");
     });
 
     it("分隔线的 aria-controls 列外框与活动内容", () => {
@@ -961,12 +1028,12 @@ describe("NestedGrid 浮动窗", () => {
         const wrapper = mountFloats({});
         const frame = wrapper.get("[data-leaf=\"f\"]").element as HTMLElement;
         expect(frame.hasAttribute("data-float")).toBe(true);
-        expect(frame.style.transform).toBe("translate(100px, 50px)");
+        expect([frame.style.left, frame.style.top]).toEqual(["100px", "50px"]);
         expect(frame.style.width).toBe("300px");
         const content = wrapper.get("[data-content=\"x\"]").element as HTMLElement;
         expect(content.getAttribute("data-content-leaf")).toBe("f");
         expect(content.hasAttribute("data-float")).toBe(true);
-        expect(content.style.transform).toBe("translate(100px, 82px)");
+        expect([content.style.left, content.style.top]).toEqual(["100px", "82px"]);
         const chrome = wrapper.get("[data-float-chrome=\"f\"]").element as HTMLElement;
         expect(chrome.parentElement).toBe(wrapper.element);
         expect(Number(chrome.style.zIndex)).toBeGreaterThan(Number(content.style.zIndex));
@@ -979,7 +1046,7 @@ describe("NestedGrid 浮动窗", () => {
         const parts = ["[data-leaf=\"f\"]", "[data-content=\"x\"]", "[data-float-chrome=\"f\"]"].map((selector) => wrapper.get(selector).element as HTMLElement);
         grid.placeFloat("f", {x: 7, y: 9});
         for (const part of parts) expect(part.style.translate).toBe("7px 9px");
-        expect(parts[0]?.style.transform).toBe("translate(100px, 50px)");
+        expect([parts[0]?.style.left, parts[0]?.style.top]).toEqual(["100px", "50px"]);
         await wrapper.setProps({revision: 1});
         for (const part of parts) expect(part.style.translate).toBe("7px 9px");
         grid.placeFloat("f", null);

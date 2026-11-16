@@ -156,7 +156,7 @@ export function canResetContainer(doc: LayoutDoc, container: string, views: View
 
 /**
  * 把整个容器搬到另一个区域（输出 44 的“移到”“重置”）：分节的先后、彼此的大小、收成标题行都带着，入口排到目标区域入口顺序的最后，
- * 目标区域显示（清掉隐藏与拖到零）并切到它。来源区域的当前容器换谁、空了要不要隐藏由 `settleContainers` 收尾，调用方提交时过它。
+ * 目标区域显示（清掉隐藏与拖到零）并切到它。来源区域的当前容器换谁由 `settleContainers` 收尾（调用方提交时过它）；来源区域被搬空时由布局库隐藏（ADR 0050 决策 3）。
  *
  * - 大小：各分节沿区域方向的意图之比不变。来源与目标方向不同（侧栏、右栏是一列，底部面板是一排）时原来的高度之比没有对应，平分。
  * - 收成标题行：只带进一列的区域；底部面板的分节不折叠，搬进去就是展开的。
@@ -225,7 +225,8 @@ function successorOf(entries: ReadonlyArray<string>, active: string | null, pres
  * - 有成员、入口顺序里还没有的容器排到最后（按树序）。
  * - 用户拖出来的容器（`custom:`）没有成员了，id 从入口顺序里删掉。声明的容器与隐式容器的 id 留着：成员回来时入口回到原来的位置。
  * - 当前容器没有成员了换到相邻的；换容器同时清掉区域的拖到零（输出 42），不改区域的隐藏。
- * - 区域里一个容器都没有时锚隐藏。
+ *
+ * 不隐藏区域：区域被拖空时由布局库在那次结构操作里隐藏（ADR 0050 决策 3），用户打开的空区域留着；这里在 store 的文档每次重算时都跑，隐藏放在这里会把它马上藏起来。
  *
  * 不改树、不改任何尺寸意图。没有要改的时返回原对象。拖动的预览不过这里（输出 38：预览里不切）。
  */
@@ -246,7 +247,6 @@ export function settleContainers(doc: LayoutDoc): LayoutDoc {
             (current: LayoutDoc) => (listed.length === entries.length ? null : setContainerEntries(current, hit.anchor, listed)),
             (current: LayoutDoc) => (successor === active ? null : setActiveContainer(current, hit.anchor, successor)),
             (current: LayoutDoc) => (kept.length === listed.length ? null : setContainerEntries(current, hit.anchor, kept)),
-            (current: LayoutDoc) => (present.size > 0 || anchor.hidden === true ? null : setPanelHidden(current, hit.anchor, true)),
         ];
         for (const step of steps) {
             const result = step(next);

@@ -7,7 +7,7 @@
 
 import {computed, effect, onScopeDispose, shallowRef} from "@vue/reactivity";
 
-import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, fixedNodesOf, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, regionOf, roundFloatRect, removeTab, sameLayoutShape, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
+import {activateTab, applyLayoutDrop, carryDynamicTabs, clampFloatRect, findTab, fixedNodesOf, floatTab, isContainerAnchor, isFloating, isPanelShown, isSectionCollapsed, LAYOUT_MAX_FLOATS, moveTabToEdge, moveTabToStrip, presentationCollapse, projectLayoutDoc, raiseFloat, rebaseIntents, regionOf, roundFloatRect, removeTab, sameTreeShape, setActiveContainer, setBarHidden, setFloatRect, setPanelCollapsed, setPanelHidden, stripDynamicTabs, tabKey, treeEditorAnchor, validateLayoutDoc} from "@notnotype/nb-layout";
 import type {GridExtent, GridFloatInput, LayoutBar, LayoutDoc, LayoutDropAction, LayoutFloatRect, LayoutProjection, LayoutProjectionOptions, LayoutResult, PanelName} from "@notnotype/nb-layout";
 
 import {defineStore} from "nbook/shared/store/store";
@@ -19,7 +19,7 @@ import {applyEntryDrop, isEntryAction} from "../entry-drop";
 import type {WorkbenchDragSource, WorkbenchDropAction} from "../entry-drop";
 import type {ViewCatalog} from "../views/registry";
 import {CUSTOM_CONTAINER_PREFIX, IMPLICIT_CONTAINER_PREFIX} from "../../shared/views";
-import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionContainers, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
+import {containerHomeRegion, containerRegion, implicitContainerOf, moveContainerTo, NO_CONTAINERS, regionAnchor, regionSections, sectionLanding, settleContainers, viewHome, viewSection} from "./containers";
 import type {ContainerCatalog} from "./containers";
 import {defaultLayoutDoc, fitsSkeleton, predatesContainers, reconcileViews} from "./default-tree";
 import {collapseOrder, createLayoutPolicy, defaultFloatRect, FLOAT_KEEP_WIDTH, layoutProjectionOptions, PANEL_HEAD_HEIGHT, panelConstraints} from "./layout-constraints";
@@ -427,20 +427,19 @@ function defineLayoutDocStore(bound: boolean) {
                     // 对那个 id 记的话，单分节时会把分节自己标成收成标题行。
                     const anchors = projection.value.regionAnchors;
                     for (const [id, value] of Object.entries(collapsed)) {
-                        const updated = setPanelCollapsed(next, anchors.get(id) ?? id, value);
+                        const anchor = anchors.get(id);
+                        const updated = setPanelCollapsed(next, anchor ?? id, value);
                         if (updated.ok) next = updated.doc;
+                        // 隐藏的区域按拖到零画（`hiddenRegionsAtZero`）：从那条边界拉开就是显示，隐藏一起清掉，同“显示”（输出 11、12）。
+                        if (anchor === undefined || value || next.panels[anchor]?.hidden !== true) continue;
+                        const shown = setPanelHidden(next, anchor, false);
+                        if (shown.ok) next = shown.doc;
                     }
                     local.value = rebaseIntents(next, sizes, projection.value.collapsedTo, frozen);
                     schedule(true);
                 },
-                /** 显隐（输出 11）：隐藏的是整个区域，记在锚上。“显示”同时清掉隐藏与拖到零；隐藏最大化着的面板所在的区域时退出最大化（输出 13）。 */
+                /** 显隐（输出 11）：隐藏的是整个区域，记在锚上。“显示”同时清掉隐藏与拖到零；区域空着时打开成一块空面板（ADR 0050）。隐藏最大化着的面板所在的区域时退出最大化（输出 13）。 */
                 setPartHidden: (part: LayoutPart, hidden: boolean): LayoutResult => {
-                    // 区域里一个容器都没有时显示不了：锚在提交时又被归整成隐藏（输出 43）。结果和现在一样就零写入，也不为一次没有效果的点击退出最大化。
-                    if (!hidden && part !== "activitybar" && part !== "statusbar" && regionContainers(doc.value, part).length === 0) {
-                        const anchor = regionAnchor(doc.value, part);
-                        const shown = anchor === null ? null : setPanelHidden(doc.value, anchor, false);
-                        if (shown?.ok === true && sameLayoutShape(settleContainers(shown.doc), doc.value)) return {ok: true, doc: doc.value};
-                    }
                     // 隐藏最大化着的面板所在的区域、或要显示被它盖住的区域，都退出最大化：不然按钮按了看不出变化。
                     const maximizedHere = maximized.value !== null && regionOf(doc.value, maximized.value) === part;
                     if (hidden ? maximizedHere : !maximizedHere) maximized.value = null;

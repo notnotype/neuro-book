@@ -183,8 +183,14 @@ function onTitleContextMenu(event: MouseEvent, id: string): void {
     transition: color var(--motion-fast) var(--ease-layout);
 }
 
-.workbench-panel-head__tabs :deep(.nb-tab:hover) {
+.workbench-panel-head__tabs :deep(.nb-tab:hover),
+.workbench-panel-head__tabs :deep(.nb-tab-frame--placeholder .nb-tab) {
     color: var(--text-main);
+}
+
+/* 在条里排序、跟着指针的那个标签（`TabStrip` 的 `placeholder`）：盖在邻居上，底色同卡片，邻居的字不透上来。 */
+.workbench-panel-head__tabs :deep(.nb-tab-frame--placeholder) {
+    background: var(--panel-surface);
 }
 
 .workbench-panel-head__tabs :deep([role="tab"].nb-tab)::after {

@@ -12,7 +12,7 @@ export {default as DropIndicatorLabel} from "./DropIndicatorLabel.vue";
 export {default as TabStrip} from "./TabStrip.vue";
 export type {TabStripItem, TabStripPartition} from "./TabStrip.vue";
 export {measureTabStrip, resolveTabStripInsertion, tabStripInsertionIn, tabStripStops, translateTabStrip} from "./tab-strip-geometry";
-export type {TabStripInsertion, TabStripSnapshot} from "./tab-strip-geometry";
+export type {TabStripHeld, TabStripInsertion, TabStripSnapshot} from "./tab-strip-geometry";
 export {
     SASH_HOVER_DELAY_MS,
     acquireSashCursor,

@@ -5,7 +5,7 @@
  * 把预览几何交给渲染层，并在结束时把 `GridGestureCommit` 交给宿主落账。
  *
  * 两条硬约束：
- * - **不逐帧发布意图**：每一帧都从冻结基线重新求解，宿主只看到最终 `changes`；
+ * - **不逐帧发布意图**：每一帧都对冻结基线求解（兄弟间的分配接着上一帧，见 `sash-drag`），宿主只看到最终 `changes`；
  * - **一次手势只提交一次**：交汇处的两根轴收齐后才产出 changes，期间任何一轴结束都不重建另一轴的基线。
  */
 import {axisOf, branchSashPanels, layoutOf, type GridSashResolver, type SashPanel} from "./grid-geometry";
@@ -270,8 +270,8 @@ export function createGridGestureSession<T>(input: GridGestureSessionInput<T>): 
         if (Object.keys(result.collapsed).length === 0) {
             return false;
         }
-        // 只累积收起覆盖：几何锚点始终是按下基线，显式恢复不会被下一次 delta 求解重算掉。
-        owner.snapState = {collapsed: {...(owner.snapState?.collapsed ?? {}), ...result.collapsed}};
+        // 累积收起覆盖，边界锚点仍是按下基线；下一帧的分配从折叠后的尺寸接着走。
+        owner.snapState = {collapsed: {...(owner.snapState?.collapsed ?? {}), ...result.collapsed}, sizesPx: result.sizesPx};
         return true;
     }
 

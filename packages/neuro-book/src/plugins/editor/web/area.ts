@@ -15,6 +15,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
 import type {FilesResult, FilesService, Listing} from "nbook/plugins/files/shared/contracts";
 import type {EditorPanels} from "nbook/plugins/workbench/shared/contracts";
+import type {EditorTabDropOutcome} from "nbook/plugins/workbench/web/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
 
 import {CODE_EDITOR} from "../shared/contracts";
@@ -108,6 +109,17 @@ export interface MoveOptions {
     readonly focusView?: boolean;
 }
 
+/** 一次移动会怎样（输出 49）：照字面移动；并到目标组已开着的同一标签（激活它、关掉被移动的）；被拒绝（要结算的组有未裁决输入）。拖动问的就是它，同一个类型。 */
+export type MoveOutcome = EditorTabDropOutcome;
+
+/**
+ * 放进这一组、不指定位置（拖到正文中央，画的是“添加为标签”）：新来的排在普通区末尾；目标组已开着同一标签时只激活它，位置与固定都不动；
+ * 它本来就在这一组时也一样，只激活它。给了位置（`TabPlace`）时，留下的那个照样挪到落点（输出 49）。
+ */
+export interface GroupPlace {
+    readonly group: string;
+}
+
 export interface EditorArea {
     readonly documents: DocumentStore;
     readonly groups: EditorGroups;
@@ -167,11 +179,12 @@ export interface EditorArea {
     /** 固定或取消固定（输出 50）。 */
     setPinned(tabId: string, pinned: boolean): ActionResult;
     /** 把标签移到组内另一位置或别的组（输出 49）；目标组已有同一标签时并掉，可能要问，问完之前 Promise 不结束。 */
-    moveTab(tabId: string, place: TabPlace, options?: MoveOptions): Promise<ActionResult>;
+    moveTab(tabId: string, place: TabPlace | GroupPlace, options?: MoveOptions): Promise<ActionResult>;
     /**
-     * 这次移动不会照字面发生：有未裁决输入会被拒绝，目标组已有同一标签会并掉。实时布局据此不摆预览，只读，不结算。`target` 是目标组；移到外缘（新组）是 null。
+     * 这次移动会怎样，和 `moveTab`、`moveToNewGroup`、`moveToFloat` 同样的先后判，只读，不结算：拖动据此画落点（并入画成添加为标签，拒绝画成放不下）。
+     * `target` 是目标组；移到外缘（新组）、浮出来是 null。并入时被移动的视图自己有未裁决输入要问，问之前不知道结果，算并入。
      */
-    moveBlocked(tabId: string, target: string | null): boolean;
+    moveOutcome(tabId: string, target: string | null): MoveOutcome;
     /** 把标签移到外缘（输出 49；docs/specs/ui/workbench-layout.md 输出 25、27）：单个标签的组整块移动，视图不重建。 */
     moveToNewGroup(tabId: string, target: LayoutEdgeTarget, options?: MoveOptions): ActionResult;
     /** 把标签浮出来（docs/specs/ui/workbench-layout.md 输出 39）：和拆出新组一样，先结算活动视图的输入。 */
@@ -825,7 +838,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     /**
      * 移动标签（输出 49）。绑定、视图状态与控件都跟着标签走，移动只改结构：先结算活动标签会变的组，有未裁决输入就不动。
      */
-    const moveTab = async (tabId: string, place: TabPlace, moveOptions: MoveOptions = {}): Promise<ActionResult> => {
+    const moveTab = async (tabId: string, where: TabPlace | GroupPlace, moveOptions: MoveOptions = {}): Promise<ActionResult> => {
+        const exact = "partition" in where ? where : null;
+        const place: TabPlace = exact ?? {group: where.group, partition: "normal", before: null};
         const focusAfterMove = (): void => {
             if (moveOptions.focusView !== false) focusActive();
         };
@@ -842,13 +857,19 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             groups.activate(twin.id);
             const outcome = await closeOne(tabId);
             if (outcome !== "closed" && outcome !== "gone") return {ok: false, reason: editorText(outcome === "failed" ? "refusal.saveFailed" : "refusal.cancelled")};
-            // 关掉之后再把留下的那个放到落点（位置与固定区）；它已经在那里时不动。
-            if (groups.find(twin.id)?.group.id === target.id) groups.moveTab(twin.id, place);
+            // 关掉之后再把留下的那个放到落点（位置与固定区）；它已经在那里、或没给位置时不动。
+            if (exact !== null && groups.find(twin.id)?.group.id === target.id) groups.moveTab(twin.id, exact);
             focusAfterMove();
             return {ok: true};
         }
         if (found.group.active === tabId && target.id !== found.group.id && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "current")};
         if (target.active !== tabId && !leave(target.id)) return {ok: false, reason: refusal(target.id, "target")};
+        // 放回它自己这一组的中央（拖走又拖回正文）：回到原来的位置成为活动标签，不挪到末尾、不取消固定。
+        if (exact === null && target.id === found.group.id) {
+            groups.activate(tabId);
+            focusAfterMove();
+            return {ok: true};
+        }
         const moved = groups.moveTab(tabId, place);
         if (moved === null) return {ok: false, reason: editorText("refusal.samePlace")};
         focusAfterMove();
@@ -993,16 +1014,19 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             return {ok: true};
         },
         moveTab,
-        moveBlocked: (tabId, target) => {
+        // 每一步对应 `moveTab`（`target` 为 null 时是 `moveToNewGroup`、`moveToFloat`）里的一次 `leave`：它会拒绝的，这里就答拒绝。
+        moveOutcome: (tabId, target) => {
             const found = groups.find(tabId);
-            if (found === null) return true;
-            if (target === null) return found.group.tabs.length > 1 && found.group.active === tabId && holding(found.group.id) !== null;
+            if (found === null) return "refuse";
+            const holds = (groupId: string): boolean => holding(groupId) !== null;
+            if (target === null) return found.group.tabs.length > 1 && found.group.active === tabId && holds(found.group.id) ? "refuse" : "move";
             const group = groups.groups.value.find((candidate) => candidate.id === target);
-            if (group === undefined) return true;
-            if (target === found.group.id) return found.group.active !== tabId && holding(found.group.id) !== null;
+            if (group === undefined) return "refuse";
             const moving = found.tab;
-            if (moving.kind === "file" && group.tabs.some((tab) => tab.kind === "file" && tab.address === moving.address && tab.editor === moving.editor)) return true;
-            return (found.group.active === tabId && holding(found.group.id) !== null) || holding(target) !== null;
+            const twin = target === found.group.id || moving.kind !== "file" ? undefined : group.tabs.find((tab) => tab.kind === "file" && tab.address === moving.address && tab.editor === moving.editor);
+            if (twin !== undefined) return group.active !== twin.id && holds(target) ? "refuse" : "merge";
+            if (found.group.active === tabId && target !== found.group.id && holds(found.group.id)) return "refuse";
+            return group.active !== tabId && holds(target) ? "refuse" : "move";
         },
         moveToNewGroup: (tabId, target, moveOptions = {}) => {
             if (disposed) return {ok: false, reason: editorText("refusal.disposed")};

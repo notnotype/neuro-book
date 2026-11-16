@@ -881,6 +881,39 @@ describe("区域与容器", () => {
         });
     });
 
+    describe("空区域（ADR 0050）", () => {
+        it("锚只在区域显示着、一个分节都没有时显示，那时它就是这块区域；有分节或隐藏着时不显示", () => {
+            const doc = containers();
+            expect(shownOf(doc, ["auxiliarybar", "sidebar", "panel"])).toEqual([false, false, false]);
+            const opened = okDoc(setPanelHidden(doc, "auxiliarybar", false));
+            expect(opened).not.toBe(doc);
+            expect(shownOf(opened, ["auxiliarybar", "sidebar", "panel"])).toEqual([true, false, false]);
+        });
+
+        it("拖走区域最后一节，区域随之隐藏（摘掉、移到别处都一样）；打开着的空区域，别的操作不把它藏起来", () => {
+            expect(okDoc(removeTab(containers(), "view:p1")).panels.panel?.hidden).toBe(true);
+            const moved = okDoc(moveTabToEdge(containers(), {tab: "view:p1", target: {kind: "split", panel: "s1", edge: "bottom"}}, testPolicy()));
+            expect(moved.panels.panel?.hidden).toBe(true);
+            expect(regionOf(moved, "p1")).toBe("sidebar");
+            const opened = okDoc(setPanelHidden(containers(), "auxiliarybar", false));
+            const other = okDoc(removeTab(opened, "view:s3"));
+            expect(other.panels.auxiliarybar?.hidden).toBeUndefined();
+            expect(isPanelShown(other, "auxiliarybar")).toBe(true);
+        });
+
+        it("放进空区域：区域没有当前容器时，落进来的容器就是当前容器、排进入口顺序；新分节显示、锚不再显示，不用宿主的归整", () => {
+            const opened = okDoc(setPanelHidden(containers(), "auxiliarybar", false));
+            const landed = okDoc(moveTabToEdge(opened, {tab: "view:s3", target: {kind: "split", panel: "auxiliarybar", edge: "bottom"}, container: "C"}, testPolicy()));
+            expect(regionOf(landed, "s3")).toBe("auxiliarybar");
+            expect(landed.panels.auxiliarybar).toMatchObject({entries: ["C"], activeContainer: "C"});
+            expect(shownOf(landed, ["s3", "auxiliarybar"])).toEqual([true, false]);
+            // 区域已经有当前容器时不换：放进不是当前容器的那个，照旧看不见，切换由宿主做（ADR 0046 决策 5）。
+            const other = okDoc(moveTabToEdge(containers(), {tab: "view:s3", target: {kind: "split", panel: "p1", edge: "right"}, container: "Q"}, testPolicy()));
+            expect(other.panels.panel).toMatchObject({activeContainer: "P"});
+            expect(isPanelShown(other, "s3")).toBe(false);
+        });
+    });
+
     describe("切换容器（输出 42）", () => {
         it("换掉当前容器：树与尺寸意图一点不动，切回来各分节的显隐、收成标题行原样；只切换也算有变化", () => {
             const doc = okDoc(setPanelCollapsed(containers(), "s1", true));
@@ -953,6 +986,11 @@ describe("区域与容器", () => {
             const doc = containers();
             const single = okDoc(setActiveContainer(doc, "sidebar", "B"));
             expect(setPanelCollapsed(single, "s3", true)).toMatchObject({ok: false, code: "rejected"});
+            // 区域隐藏着也按显示时算：隐藏那一刻滑出去的面板头不多出收起按钮。两节的照旧各自能收。
+            const hiddenSingle = okDoc(setPanelHidden(single, "sidebar", true));
+            expect(sectionCollapseBlock(hiddenSingle, "s3")).toBe("lone-section");
+            expect(setPanelCollapsed(hiddenSingle, "s3", true)).toMatchObject({ok: false, code: "rejected"});
+            expect(sectionCollapseBlock(okDoc(setPanelHidden(doc, "sidebar", true)), "s1")).toBeNull();
             expect(setPanelCollapsed(doc, "p1", true)).toMatchObject({ok: false, code: "rejected"});
             expect(sectionCollapseBlock(doc, "p1")).toBe("row-region");
             // 拒绝的是分节，不是区域：底部面板的锚照常收起（整个区域拖到零）。
@@ -1245,14 +1283,15 @@ describe("区域与容器", () => {
 
             const none = okDoc(removeTab(one, "view:s1"));
             expect(shape(none)).toBe("V[H[activitybar,sidebar,ea,V[auxiliarybar,x]],statusbar]");
-            expect(none.panels.sidebar).toMatchObject({entries: ["A", "B"], activeContainer: "A"});
+            // 拖走区域最后一节，区域随之隐藏（ADR 0050 决策 3）；入口顺序与当前容器由宿主归整，库不动。
+            expect(none.panels.sidebar).toMatchObject({entries: ["A", "B"], activeContainer: "A", hidden: true});
             expect(sizeOf(none.tree.root, "sidebar").width).toBe(sizeOf(mixed().tree.root, "side").width);
 
             const again = okDoc(openPanelAtEdge(none, {id: "s9", panel: {role: "tool", tabs: [view("v")], active: "view:v", container: "B"}, target: {kind: "split", panel: "sidebar", edge: "bottom"}}, testPolicy()));
             expect(shape(again)).toBe("V[H[activitybar,V[sidebar,s9],ea,V[auxiliarybar,x]],statusbar]");
             expect(again.panels.s9?.container).toBe("B");
             expect(regionOf(again, "s9")).toBe("sidebar");
-            expect(isPanelShown(okDoc(setActiveContainer(again, "sidebar", "B")), "s9")).toBe(true);
+            expect(isPanelShown(okDoc(setActiveContainer(okDoc(setPanelHidden(again, "sidebar", false)), "sidebar", "B")), "s9")).toBe(true);
         });
 
         it("区域拖到零记在锚上：分节走光、再进来，零宽都还在（锚的父分支换了方向也不展开）", () => {

@@ -1033,6 +1033,30 @@ describe("拆分树原语：分支的收起", () => {
     });
 });
 
+/** 编辑区三组并排：拖一条边界把隔壁的组推开，掉头往回拖。 */
+describe("拆分树原语：手势会话里被推开的兄弟", () => {
+    const ROW: GridExtent = {width: 902, height: 400};
+    const row = (): GridBranchInput<string> => branch("root", "width", "horizontal", 0, [
+        leaf("a", "width", 300, 100),
+        leaf("b", "width", 300, 100),
+        leaf("c", "width", 300, 100),
+    ]);
+    const widths = (sizes: Record<string, GridExtent>): number[] => ["a", "b", "c"].map((id) => extent(sizes, id).width);
+
+    it("b 到最小宽度后把 a 推开，往回拖时 a|b 不动、b 先长回来；提交与落账都是最后看到的样子", () => {
+        const grid = createGrid(row(), {sashSize: SASH});
+        const session = createGridGestureSession<string>({contextKey: "test", revision: 1, root: grid.root(), extent: ROW, layout: grid.layout(ROW), sashSize: SASH, sessionId: "push", source: "pointer", sashes: [{branchId: "root", index: 1, axis: "width"}]});
+        expect(widths(session.update({x: -250, y: 0})?.layout.sizes ?? {})).toEqual([250, 100, 550]);
+        expect(widths(session.update({x: -150, y: 0})?.layout.sizes ?? {})).toEqual([250, 200, 450]);
+        const commit = session.finish();
+        if (commit === null) throw new Error("拖动没有产生提交");
+        expect(commit.changes[0]).toMatchObject({target: {a: 250, b: 200, c: 450}, active: ["b", "c"], compensated: ["a"]});
+        const applied = grid.resizeBranches(commit.changes);
+        if (!applied.ok) throw new Error(applied.reason);
+        expect(widths(grid.layout(ROW).sizes)).toEqual([250, 200, 450]);
+    });
+});
+
 /** 显式恢复回到哪：缺省是记忆的 `restoreSize`；`restoreToShare` 是按权重该得的那一份。 */
 describe("拆分树原语：手势会话里按比例分的叶的显式恢复", () => {
     const WIDE: GridExtent = {width: 1208, height: 400};
