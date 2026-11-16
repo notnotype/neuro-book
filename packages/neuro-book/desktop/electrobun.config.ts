@@ -27,6 +27,8 @@ export default {
             "payload/app": "neurobook",
             // 窗口图标与托盘按需要的尺寸从这份 ICO 加载（主进程的 `win32.ts`）。
             "assets/neurobook.ico": "neurobook.ico",
+            // 产品窗口最小尺寸的窗口过程，主进程运行时用 bun:ffi 的 cc 编译（`win32.ts`、源码开头）。
+            "src/bun/min-size.c": "min-size.c",
         },
         // 嵌进 launcher.exe、bun.exe 与安装程序。来源是 brand/logo/06-production/desktop/windows/neurobook.ico（16–256，
         // 每个尺寸都从不带边框的应用图标 SVG 渲染），不在这里手工编辑。
