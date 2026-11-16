@@ -40,7 +40,6 @@ function mountHost(shelf: Promise<ShelfResult>, list: Promise<ListResult> | null
         remote: {shelf: () => shelf},
         files: list === null ? null : {list: () => list, create: () => Promise.reject(new Error("这条测试不新建章节"))},
         commands: {execute: () => Promise.reject(new Error("这条测试不执行命令"))},
-        navigateDocument: () => undefined,
         text: port,
         now: () => Date.parse("2026-10-12T16:30:00+01:00"),
         shortcut: () => null,

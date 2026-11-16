@@ -28,6 +28,8 @@ const props = defineProps<{
     searchShortcut: string | null;
     layout: Readonly<Record<Part, LayoutButton>>;
     items: StripEntry[];
+    /** “回到书架”命令的标题；命令不在目录里（没装书架插件）时为 null 或不给：作品下拉没有这一项，标志不可点。 */
+    shelf?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -36,6 +38,7 @@ const emit = defineEmits<{
     (event: "toggle-part", part: Part): void;
     (event: "open-project"): void;
     (event: "run-item", itemId: string): void;
+    (event: "back-to-shelf"): void;
 }>();
 
 /** 布局按钮的名字（目录里 `titlebar.toggle` 下的键）。 */
@@ -51,6 +54,9 @@ const ITEMS_MORE = 28;
 const PART_ICONS: Readonly<Record<Part, string>> = {sidebar: "i-lucide-panel-left", panel: "i-lucide-panel-bottom", auxiliarybar: "i-lucide-panel-right"};
 const PARTS: ReadonlyArray<Part> = ["sidebar", "panel", "auxiliarybar"];
 const OPEN_PROJECT = "open-project";
+const BACK_TO_SHELF = "back-to-shelf";
+/** 在标志上按下后移动超过这么多像素再松开，不算点击：想拖窗口却按在了标志上（桌面窗口里标志不是拖动区域）。 */
+const CLICK_SLOP = 4;
 const GROUP_PREFIX = "group:";
 
 const text = useWorkbenchText();
@@ -160,11 +166,19 @@ const compactItems = computed<DropdownMenuItemData[]>(() => menus.value.map((gro
     children: sectioned(group.sections, dropdownItemOf, (index) => ({label: "", id: `${group.id}-sep-${String(index)}`, separator: true})),
 })));
 
-const projectItems = computed<DropdownMenuItemData[]>(() => [{label: text("titlebar.openProject"), id: OPEN_PROJECT}]);
+const shelfLabel = computed(() => props.shelf ?? null);
+const projectItems = computed<DropdownMenuItemData[]>(() => [
+    {label: text("titlebar.openProject"), id: OPEN_PROJECT},
+    ...(shelfLabel.value === null ? [] : [{label: shelfLabel.value, id: BACK_TO_SHELF}]),
+]);
 
 function select(value: string): void {
     if (value === OPEN_PROJECT) {
         emit("open-project");
+        return;
+    }
+    if (value === BACK_TO_SHELF) {
+        emit("back-to-shelf");
         return;
     }
     const entry = entries.value.get(value);
@@ -288,6 +302,20 @@ function onRootKeydown(event: KeyboardEvent): void {
     void nextTick(() => endSession(true));
 }
 
+let brandPress: {readonly x: number; readonly y: number} | null = null;
+
+function onBrandPointerdown(event: PointerEvent): void {
+    brandPress = {x: event.clientX, y: event.clientY};
+}
+
+function onBrandClick(event: MouseEvent): void {
+    const press = brandPress;
+    brandPress = null;
+    // 键盘触发的 click 没有按下记录（detail 为 0）：照常执行。
+    if (press !== null && event.detail > 0 && Math.hypot(event.clientX - press.x, event.clientY - press.y) > CLICK_SLOP) return;
+    emit("back-to-shelf");
+}
+
 onMounted(() => {
     window.addEventListener("keydown", onKeydown, true);
     window.addEventListener("keyup", onKeyup, true);
@@ -303,8 +331,28 @@ onBeforeUnmount(() => {
 <template>
     <header ref="root" class="workbench-titlebar" :aria-label="text('titlebar.label')" data-workbench-titlebar data-desktop-titlebar :data-titlebar-level="level" :data-titlebar-native-editing="nativeEditing ? '' : undefined" @keydown="onRootKeydown">
         <div class="workbench-titlebar__start">
-            <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
-            <NeuroBookMark v-else class="workbench-titlebar__mark" />
+            <!--
+                标志：有“回到书架”命令时是回书架的按钮，否则只是图案。两种都包在同一个盒子里，内边距等于原来标志的左右外边距之和，
+                盒子宽度与测量层量的一样，让位的切换点不变。
+            -->
+            <button
+                v-if="shelfLabel !== null"
+                type="button"
+                class="workbench-titlebar__brand-box workbench-titlebar__brand-button nb-ui-focus-ring"
+                :class="showLockup ? 'workbench-titlebar__brand-box--lockup' : 'workbench-titlebar__brand-box--mark'"
+                :aria-label="shelfLabel"
+                :title="shelfLabel"
+                data-titlebar-brand
+                @pointerdown="onBrandPointerdown"
+                @click="onBrandClick"
+            >
+                <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
+                <NeuroBookMark v-else class="workbench-titlebar__mark" />
+            </button>
+            <span v-else class="workbench-titlebar__brand-box" :class="showLockup ? 'workbench-titlebar__brand-box--lockup' : 'workbench-titlebar__brand-box--mark'" data-titlebar-brand>
+                <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
+                <NeuroBookMark v-else class="workbench-titlebar__mark" />
+            </span>
             <DropdownMenu v-if="project !== null" :items="projectItems" align="start" @select="select">
                 <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="text('titlebar.projectButton', {name: project})" data-titlebar-project>
                     <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
@@ -433,11 +481,17 @@ onBeforeUnmount(() => {
     min-width: 0;
 }
 
-/* 横排标志（标志 + 字标，墨色跟随文字色）；放不下时先换成单独的图形标志。测量层的复本同样的盒子。 */
+/*
+ * 横排标志（标志 + 字标，墨色跟随文字色）；放不下时先换成单独的图形标志。测量层的复本按外边距量：真元素包在 brand-box 里，
+ * 盒子的左右内边距之和等于复本的左右外边距之和，两边宽度相同。
+ */
 .workbench-titlebar__brand,
 .workbench-titlebar__measure-lockup {
     flex: 0 0 auto;
     height: 17px;
+}
+
+.workbench-titlebar__measure-lockup {
     margin-inline: var(--space-1) var(--space-2);
 }
 
@@ -445,7 +499,43 @@ onBeforeUnmount(() => {
 .workbench-titlebar__measure-mark {
     flex: 0 0 auto;
     height: 18px;
+}
+
+.workbench-titlebar__measure-mark {
     margin-inline: var(--space-1);
+}
+
+.workbench-titlebar__brand-box {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    height: 28px;
+    color: inherit;
+}
+
+.workbench-titlebar__brand-box--lockup {
+    padding-inline: calc((var(--space-1) + var(--space-2)) / 2);
+}
+
+.workbench-titlebar__brand-box--mark {
+    padding-inline: var(--space-1);
+}
+
+/* 与标题栏里别的按钮同向的反馈（nb-ui IconButton default 的悬停与按下底色），不改标志的墨色。 */
+.workbench-titlebar__brand-button {
+    border: 0;
+    border-radius: var(--radius-button-sm);
+    background: transparent;
+    cursor: pointer;
+    transition: background-color var(--motion-fast) var(--ease-layout);
+}
+
+.workbench-titlebar__brand-button:hover {
+    background: color-mix(in srgb, var(--text-main) 15%, transparent);
+}
+
+.workbench-titlebar__brand-button:active {
+    background: color-mix(in srgb, var(--text-main) 24%, transparent);
 }
 
 /* 项目切换与菜单之间的短分隔。 */

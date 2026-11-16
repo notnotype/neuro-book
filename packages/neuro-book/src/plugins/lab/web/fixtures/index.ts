@@ -547,7 +547,7 @@ export const labFixtures: LabFixture[] = [
                 context: null, icon: null, placement: "inline" as const,
             });
             const menus = [
-                {id: "file", label: "文件", sections: [[entry("nbook.project.open", "打开项目")], [entry("nbook.editor.save", "保存", {reason: "活动文档没有需要保存的修改"}), entry("nbook.editor.save-all", "全部保存")]]},
+                {id: "file", label: "文件", sections: [[entry("nbook.project.open", "打开项目"), entry("nbook.project.back-to-shelf", "回到书架")], [entry("nbook.editor.save", "保存", {reason: "活动文档没有需要保存的修改"}), entry("nbook.editor.save-all", "全部保存")]]},
                 {id: "edit", label: "编辑", sections: [[entry("nbook.edit.undo", "撤销", {reason: "没有活动的编辑器"}), entry("nbook.edit.redo", "重做", {reason: "没有活动的编辑器"})]]},
                 {id: "view", label: "视图", sections: [[entry("nbook.quick-open.open-commands", "命令面板", {shortcut: "Ctrl+Shift+P"})], [entry("nbook.view.set-part-hidden", "侧栏", {args: {part: "sidebar"}, checked: true}), entry("nbook.view.set-part-hidden", "右栏", {args: {part: "auxiliarybar"}, checked: false})], [entry("nbook.app.reload", "重新载入")]]},
                 {id: "help", label: "帮助", sections: [[entry("nbook.help.documentation", "文档")]]},
@@ -555,14 +555,15 @@ export const labFixtures: LabFixture[] = [
             const layout = {sidebar: {pressed: true, disabled: false}, panel: {pressed: true, disabled: false}, auxiliarybar: {pressed: false, disabled: false}};
             const base = {menus, searchShortcut: "Ctrl+Shift+P", layout, items: []};
             return [
-                {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部"}}},
-                {id: "no-project", label: "没有项目", input: {props: {...base, project: null}}},
+                {id: "project", label: "打开了项目", input: {props: {...base, project: "长篇小说《雾港》第二部", shelf: "回到书架"}}},
+                {id: "no-project", label: "没有项目", input: {props: {...base, project: null, shelf: "回到书架"}}},
+                {id: "no-shelf", label: "没有书架插件：作品下拉没有“回到书架”，标志不可点", input: {props: {...base, project: "雾港"}}},
                 {id: "items", label: "带条目", input: {props: {...base, project: "雾港", items: [{id: "test.items.sync", text: "已同步", title: "同步状态", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
                 {id: "long", label: "长英文项目名、英文界面与条目（窄宽度验收 35）", input: {props: {...base, project: "The Lighthouse Keeper's Chronicle, Volume Two", items: [{id: "test.items.sync", text: "Synced", title: "Sync status", alignment: "right" as const, order: 0, priority: 0, command: null, tooltip: null, state: "normal" as const, disabledReason: null, icon: null, hover: null}]}}},
             ];
         })(),
         // 场景 `long` 一直是英文界面，id 被 e2e 引用，所以点名。
-        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchTitleBar>((await import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue")).default, {events: ["run", "search", "toggle-part", "open-project", "run-item"], class: "w-full"}), ["long"]),
+        load: async () => withWorkbenchText(createSubjectFixture<typeof WorkbenchTitleBar>((await import("nbook/plugins/workbench/web/components/WorkbenchTitleBar.vue")).default, {events: ["run", "search", "toggle-part", "open-project", "run-item", "back-to-shelf"], class: "w-full"}), ["long"]),
     }),
     defineLabFixture<typeof WorkbenchItemStrip>({
         component: "WorkbenchItemStrip",

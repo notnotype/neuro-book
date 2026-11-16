@@ -11,6 +11,10 @@
                 "open": {
                     "title": "Open Project",
                     "category": "Project"
+                },
+                "back-to-shelf": {
+                    "title": "Back to Bookshelf",
+                    "category": "Project"
                 }
             },
             "help": {
