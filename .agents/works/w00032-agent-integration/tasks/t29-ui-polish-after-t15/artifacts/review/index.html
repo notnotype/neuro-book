@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>t29 第 3 轮：对话面板的面板头</title>
+<title>t29 第 4 轮：子会话的面板头、模型不可用的提示</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -33,34 +33,52 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>t29 第 3 轮：对话面板的面板头</h1>
+<h1>t29 第 4 轮：子会话的面板头、模型不可用的提示</h1>
 
-<section data-nbdev-question="panel-header" data-nbdev-type="single" data-nbdev-recommend="center">
-  <h2>面板头不写“对话”，改成哪样？</h2>
-  <p class="rec"><strong>推荐 A：照你选的居中，但直接放进面板头，“对话”那一行与会话标题合成一行；Profile 图标在标题前，没有摘要。</strong></p>
+<section data-nbdev-question="child-session" data-nbdev-type="single" data-nbdev-recommend="back">
+  <h2>子会话（子代理的会话）在居中的面板头里怎么显示？</h2>
+  <p class="rec"><strong>推荐 A 返回父会话：标题仍然居中、写得下；路径一层层往回走，完整路径在标题的下拉里。</strong></p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="back" data-nbdev-label="A 左边返回父会话">
+      <h3>A 左边返回父会话</h3>
+      <img src="r4/k-back.webp" alt="左边“‹ 第三章节奏调整”，中间子代理图标与子会话标题">
+      <img src="r4/k-back-deep.webp" alt="第三层：左边返回上一层“查第五章的错别字”">
+      <p>子会话里左边的“新建”换成返回（写父会话的标题，窄了省略）；子代理的图标是它的 Profile 图标。</p>
+    </div>
+    <div class="cand" data-nbdev-option="crumb" data-nbdev-label="B 中间写面包屑">
+      <h3>B 中间写面包屑</h3>
+      <img src="r4/k-crumb.webp" alt="中间“第三章节奏调整 / 查第五章的错别字”">
+      <img src="r4/k-crumb-deep.webp" alt="第三层：“… / 查第五章的错别字 / 核对……”，子会话标题被挤短">
+      <p>现在顶栏的做法搬进面板头：多于两层时中间收成“…”。右栏窄时本会话的标题被挤得最短。</p>
+    </div>
+  </div>
+</section>
+
+<section data-nbdev-question="model-notice" data-nbdev-type="single" data-nbdev-recommend="bind">
+  <h2>“此 Profile 需要的模型角色未绑定模型”这类提示改成哪样？</h2>
+  <p class="rec"><strong>推荐 B 就地绑定：说清是哪个角色，在提示里直接选模型，不用跑到设置里找；没有能选的模型时退回 A 的写法（添加服务商、设置密钥）。</strong></p>
   <div class="ref">
-    <img src="r2/h-centered.webp" alt="第 2 轮选的 D：面板头“对话”，下面一行居中的标题">
-    <p>第 2 轮选的 D：上面还是面板头“对话”，下面一行才是居中的标题。</p>
+    <img src="r4/notice-current.webp" alt="现在：输入框上方一行灰字与“打开设置”">
+    <p>现在：一行灰字，看不出是哪个角色，“打开设置”打开的是设置窗口的首页。</p>
   </div>
-  <div class="cands cands--3">
-    <div class="cand" data-nbdev-option="center" data-nbdev-label="A 面板头居中写会话">
-      <h3>A 面板头居中写会话</h3>
-      <img src="r3/p-center.webp" alt="面板头：左边新建，中间 Profile 图标与会话标题，右边更多与框架按钮">
-      <img src="r3/p-center-welcome.webp" alt="没选会话时：中间写“新对话”，左右只剩框架按钮">
-      <p>没选会话时中间写“新对话”，图标是新建会话会用的 Profile。</p>
+  <div class="cands">
+    <div class="cand" data-nbdev-option="card" data-nbdev-label="A 提示卡，按钮直达对应设置">
+      <h3>A 提示卡，按钮直达对应设置</h3>
+      <img src="r4/notice-card.webp" alt="提示卡：“写作”角色还没绑定模型，按钮“去绑定”">
+      <p>“去绑定”打开设置的“模型角色”页并定位到这个角色；“这是什么？”说明角色是什么。</p>
     </div>
-    <div class="cand" data-nbdev-option="left" data-nbdev-label="B 面板头靠左写会话">
-      <h3>B 面板头靠左写会话</h3>
-      <img src="r3/p-left.webp" alt="面板头：左边 Profile 图标与会话标题，右边新建、更多与框架按钮">
-      <p>与侧栏别的面板头一样靠左；标题能用的宽度最多。</p>
-    </div>
-    <div class="cand" data-nbdev-option="hidden" data-nbdev-label="C 面板头只留框架按钮">
-      <h3>C 面板头只留框架按钮</h3>
-      <img src="r3/p-hidden.webp" alt="面板头空着、框架按钮淡色，下面是居中的会话顶栏">
-      <p>平台改动最少，但上面空着一条 32px。</p>
+    <div class="cand" data-nbdev-option="bind" data-nbdev-label="B 提示卡里直接绑定">
+      <h3>B 提示卡里直接绑定</h3>
+      <img src="r4/notice-bind.webp" alt="提示卡：给“写作”角色选一个模型，下拉与“绑定”">
+      <p>下拉只列启用、有密钥的模型；绑定写进用户设置，和在“模型角色”页里绑一样。</p>
     </div>
   </div>
-  <p>A、B 要工作台让视图自己画面板头的标题区（拖动视图仍从这里拖，读屏名称仍是“对话”），视图的 Spec 加一条；C 只是不写标题。</p>
+  <p>同一种提示卡的另外两种情况（两种方案都这样）：</p>
+  <div class="cands">
+    <div class="cand"><h3>一个服务商都没有</h3><img src="r4/notice-no-provider.webp" alt="还没有可用的模型，按钮“添加服务商”"></div>
+    <div class="cand"><h3>绑定的模型没有密钥</h3><img src="r4/notice-no-key.webp" alt="DeepSeek 还没有设置密钥，按钮“设置密钥”"></div>
+  </div>
+  <p>提示卡在输入框上面，占位置、不盖住消息（稿里是叠上去的）；输入框里的模型名是样例数据。</p>
 </section>
 
 <section>
@@ -84,7 +102,7 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>状态栏的自定义照第 1 轮的稿做：右键勾选、设置里分左右两组排序、用量四项合成一项、提醒类总显示（第 1 轮）</li>
     <li>没选会话时去掉“未选择会话”一行，第一屏照旧应用的 welcome 做：欢迎、最近对话、试试这些（第 1、2 轮）</li>
     <li>“试试这些”的指令由 Profile 声明，主创带三条（第 2 轮）</li>
-    <li>顶栏：标题居中、保留 Profile 图标、不要摘要；最不和谐的是面板头“对话”（第 2 轮的意见）</li>
+    <li>面板头不写“对话”，居中写会话：左新建、中间 Profile 图标与标题、右更多与框架按钮；没选会话时写“新对话”（第 3 轮）</li>
     <li>顶栏下、输入框上的两条横线去掉，消息在顶栏下淡出（第 1 轮）</li>
     <li>5 小时与 7 天限额留到做订阅登录时；缓存倒计时只给缓存时长明确的服务商（11-16）</li>
     <li>状态栏用勾选与插件贡献的项，不做配一条命令（11-16）</li>
