@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t16-command-bridge
 status: planned
-updated: 2026-10-30
+updated: 2026-11-16
 ---
 
 # Agent 操控 NeuroBook 与 nbook project 子命令
@@ -95,6 +95,8 @@ t06、t10。
 
 讨论完成（开发者 2026-10-30 确认）：五轮决定见上。Agent 操作 NeuroBook 界面转 [w00033](../../../w00033-page-agent/README.md)，浏览器插件转 [w00034](../../../w00034-browser-use/README.md)，`nbook` 命令行转 [w00035](../../../w00035-nbook-cli/README.md)；Agent 与命令系统的对接、控件绑命令的规范与通用命令搁置，以后重开本 Task 时从第 10、11 条接着讨论。
 
+2026-11-16 开发者定移出本 Work：转入 [w00049 t01](../../../w00049-agent-command-bridge/tasks/t01-design/README.md)，后续在那里推进。
+
 ## 下一步
 
-本 Task 剩下的只有搁置的命令对接；重开时先与开发者讨论第 10、11 条与“未表态的推荐”里的命令提案三项。
+无（见新 Work）。

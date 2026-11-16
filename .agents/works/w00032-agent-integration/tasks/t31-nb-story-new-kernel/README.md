@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t31-nb-story-new-kernel
 status: planned
-updated: 2026-11-07
+updated: 2026-11-16
 ---
 
 # nb-story 迁新内核，nb-session、nb-profile 停更
@@ -27,6 +27,8 @@ nb-story 与 nb-agent-ui 的旧适配器改用 nb-harness 新内核，升级书�
 
 未开工。
 
+2026-11-16 开发者定移出本 Work：转入 [w00047 t01](../../../w00047-nb-story-new-kernel/tasks/t01-migrate/README.md)，后续在那里推进。
+
 ## 下一步
 
-排在本 Work 的最后（t05、t14、t15、t29 之后）；按 implementation-planning 写计划。
+无（见新 Work）。

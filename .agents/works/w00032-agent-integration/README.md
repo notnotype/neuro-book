@@ -146,3 +146,6 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 - 插件分发与官方网站：另开 [w00038](../w00038-plugin-distribution/README.md)、[w00037](../w00037-official-site/README.md)（t25，2026-10-30）。
 - 外部命令行的检测、下载与“外部工具”设置页：发布时做，策略记在 [t12](tasks/t12-builtin-tools/README.md)（2026-10-28）。
 - shell 的安全加固（密钥正则、路径条件、环境变量白名单）：以后专门做安全时考虑（t12，2026-10-28）。
+- nb-story 迁新内核：另开 [w00047](../w00047-nb-story-new-kernel/README.md)（t31，2026-11-16）。
+- nb-history 接入：另开 [w00048](../w00048-history-integration/README.md)（t13，2026-11-16）。
+- Agent 与命令系统的对接（搁置）：另开 [w00049](../w00049-agent-command-bridge/README.md)（t16，2026-11-16）。
