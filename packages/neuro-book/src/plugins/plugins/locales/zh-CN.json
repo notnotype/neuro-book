@@ -130,6 +130,10 @@
             "name": "命令",
             "description": "登记与执行命令；命令面板与快捷键执行的都是这里登记的命令。"
         },
+        "nbook-desktop": {
+            "name": "桌面",
+            "description": "桌面版的窗口设置：界面缩放、登录 Windows 时打开；只在桌面版里显示。"
+        },
         "nbook-editor": {
             "name": "编辑器",
             "description": "编辑区的标签与分组、文档的打开与保存。"
