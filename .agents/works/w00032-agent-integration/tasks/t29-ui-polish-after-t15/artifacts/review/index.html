@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>t29 第 4 轮：子会话的面板头、模型不可用的提示</title>
+<title>t29 第 5 轮：模型不可用的提示怎么统一、怎么进子会话</title>
 <style>
 :root { --text: #1d1b17; --muted: #5c574e; --line: #d9d3c7; --surface: #fbfaf6; --accent: #0b63c5; --rec: #0a5aa8; --mark: #b42318; }
 * { box-sizing: border-box; }
@@ -33,52 +33,49 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
 </head>
 <body>
 <main>
-<h1>t29 第 4 轮：子会话的面板头、模型不可用的提示</h1>
+<h1>t29 第 5 轮：模型不可用的提示怎么统一、怎么进子会话</h1>
 
-<section data-nbdev-question="child-session" data-nbdev-type="single" data-nbdev-recommend="back">
-  <h2>子会话（子代理的会话）在居中的面板头里怎么显示？</h2>
-  <p class="rec"><strong>推荐 A 返回父会话：标题仍然居中、写得下；路径一层层往回走，完整路径在标题的下拉里。</strong></p>
-  <div class="cands">
-    <div class="cand" data-nbdev-option="back" data-nbdev-label="A 左边返回父会话">
-      <h3>A 左边返回父会话</h3>
-      <img src="r4/k-back.webp" alt="左边“‹ 第三章节奏调整”，中间子代理图标与子会话标题">
-      <img src="r4/k-back-deep.webp" alt="第三层：左边返回上一层“查第五章的错别字”">
-      <p>子会话里左边的“新建”换成返回（写父会话的标题，窄了省略）；子代理的图标是它的 Profile 图标。</p>
-    </div>
-    <div class="cand" data-nbdev-option="crumb" data-nbdev-label="B 中间写面包屑">
-      <h3>B 中间写面包屑</h3>
-      <img src="r4/k-crumb.webp" alt="中间“第三章节奏调整 / 查第五章的错别字”">
-      <img src="r4/k-crumb-deep.webp" alt="第三层：“… / 查第五章的错别字 / 核对……”，子会话标题被挤短">
-      <p>现在顶栏的做法搬进面板头：多于两层时中间收成“…”。右栏窄时本会话的标题被挤得最短。</p>
-    </div>
-  </div>
+<section>
+  <h2>应用里现在的警告写法</h2>
+  <table>
+    <thead><tr><th>写法</th><th>用在哪</th><th>样子</th></tr></thead>
+    <tbody>
+      <tr><td>nb-ui 的 <code>Banner</code></td><td>编辑组：文件被删、磁盘上改了、冲突、保存失败</td><td>内容最上面满宽一条，色调底、图标、一句话、右边动作按钮，下沿一条线；持续的状态，问题解决才消失</td></tr>
+      <tr><td><code>SettingsNotice</code></td><td>设置窗口标题区“设置文件格式有误”、Profile 设置页头部的能力缺口</td><td>一个控件高的淡底描边小块，放在已有的一行里</td></tr>
+      <tr><td>输入框上方一行灰字</td><td>对话：模型不可用、发送被拒、压缩被拒</td><td>信息图标加一句话，没有色调</td></tr>
+      <tr><td>消息里的红块</td><td>对话：这一轮出错</td><td>回复位置一块红底</td></tr>
+    </tbody>
+  </table>
+  <div class="ref"><img src="r5/editor-banner.webp" alt="编辑组的横幅：磁盘上的文件已被修改，重新载入、用我的覆盖"><p>编辑组的横幅（Lab 里的同一个组件）。</p></div>
 </section>
 
-<section data-nbdev-question="model-notice" data-nbdev-type="single" data-nbdev-recommend="bind">
-  <h2>“此 Profile 需要的模型角色未绑定模型”这类提示改成哪样？</h2>
-  <p class="rec"><strong>推荐 B 就地绑定：说清是哪个角色，在提示里直接选模型，不用跑到设置里找；没有能选的模型时退回 A 的写法（添加服务商、设置密钥）。</strong></p>
-  <div class="ref">
-    <img src="r4/notice-current.webp" alt="现在：输入框上方一行灰字与“打开设置”">
-    <p>现在：一行灰字，看不出是哪个角色，“打开设置”打开的是设置窗口的首页。</p>
-  </div>
+<section data-nbdev-question="notice-style" data-nbdev-type="single" data-nbdev-recommend="banner-top">
+  <h2>“模型不可用”改用和编辑组同一个横幅，放在哪？</h2>
+  <p class="rec"><strong>推荐 A 内容最上面：和编辑组的横幅同一个组件、同一个位置，一看就知道是“这块面板现在有问题”；输入框的占位文字同时写“绑定模型后才能发送”。</strong></p>
   <div class="cands">
-    <div class="cand" data-nbdev-option="card" data-nbdev-label="A 提示卡，按钮直达对应设置">
-      <h3>A 提示卡，按钮直达对应设置</h3>
-      <img src="r4/notice-card.webp" alt="提示卡：“写作”角色还没绑定模型，按钮“去绑定”">
-      <p>“去绑定”打开设置的“模型角色”页并定位到这个角色；“这是什么？”说明角色是什么。</p>
+    <div class="cand" data-nbdev-option="banner-top" data-nbdev-label="A 内容最上面（同编辑组）">
+      <h3>A 内容最上面（同编辑组）</h3>
+      <img src="r5/banner-top.webp" alt="面板头下面一条黄色横幅：“写作”角色还没绑定模型，去绑定">
     </div>
-    <div class="cand" data-nbdev-option="bind" data-nbdev-label="B 提示卡里直接绑定">
-      <h3>B 提示卡里直接绑定</h3>
-      <img src="r4/notice-bind.webp" alt="提示卡：给“写作”角色选一个模型，下拉与“绑定”">
-      <p>下拉只列启用、有密钥的模型；绑定写进用户设置，和在“模型角色”页里绑一样。</p>
+    <div class="cand" data-nbdev-option="banner-bottom" data-nbdev-label="B 贴在输入框上面">
+      <h3>B 贴在输入框上面</h3>
+      <img src="r5/banner-bottom.webp" alt="输入框上面一条黄色横幅">
+      <p>挨着要打字的地方；但横幅本来是区域顶上的一节，放这里和编辑组不一致。</p>
     </div>
   </div>
-  <p>同一种提示卡的另外两种情况（两种方案都这样）：</p>
   <div class="cands">
-    <div class="cand"><h3>一个服务商都没有</h3><img src="r4/notice-no-provider.webp" alt="还没有可用的模型，按钮“添加服务商”"></div>
-    <div class="cand"><h3>绑定的模型没有密钥</h3><img src="r4/notice-no-key.webp" alt="DeepSeek 还没有设置密钥，按钮“设置密钥”"></div>
+    <div class="cand"><h3>没有服务商（A 的写法）</h3><img src="r5/banner-top-no-provider.webp" alt="还没有可用的模型，添加服务商"></div>
+    <div class="cand"><h3>没有密钥（A 的写法）</h3><img src="r5/banner-top-no-key.webp" alt="DeepSeek 还没有设置密钥，设置密钥"></div>
   </div>
-  <p>提示卡在输入框上面，占位置、不盖住消息（稿里是叠上去的）；输入框里的模型名是样例数据。</p>
+  <p>发送被拒、压缩被拒这类“刚才那一下没成”的，仍是输入框上方一行字：它们是对一次操作的回应，过一会儿就没了，不是面板的状态。</p>
+</section>
+
+<section data-nbdev-question="card-open" data-nbdev-type="confirm" data-nbdev-label="子代理卡片的卡头整行可点进子会话">
+  <h2>子代理卡片的卡头整行可点进子会话？</h2>
+  <p class="rec"><strong>推荐同意：现在只有卡头右边那个小图标能进，太小；卡头整行做成按钮，悬停时整行变色。</strong></p>
+  <div class="ref"><img src="r5/subagent-card.webp" alt="子代理卡片：卡头是 Profile 图标、名字、次数与用时、转圈、打开子会话的小图标"></div>
+  <p>别的入口不变：会话列表里子会话挂在父会话下；子会话等你批准时，父会话的停靠区里能批。进去以后面板头左边是返回：</p>
+  <div class="ref"><img src="r5/k-back-icon.webp" alt="子会话：左边只有返回图标，中间子代理图标与标题"></div>
 </section>
 
 <section>
@@ -103,6 +100,8 @@ ol.decided { margin: 0; padding-left: 1.4em; color: var(--muted); }
     <li>没选会话时去掉“未选择会话”一行，第一屏照旧应用的 welcome 做：欢迎、最近对话、试试这些（第 1、2 轮）</li>
     <li>“试试这些”的指令由 Profile 声明，主创带三条（第 2 轮）</li>
     <li>面板头不写“对话”，居中写会话：左新建、中间 Profile 图标与标题、右更多与框架按钮；没选会话时写“新对话”（第 3 轮）</li>
+    <li>子会话：面板头左边是返回（只有图标），中间是子代理图标与子会话标题（第 4 轮）</li>
+    <li>模型不可用的提示写明是哪个角色，按钮直达对应的设置；要和应用里别的警告统一（第 4 轮）</li>
     <li>顶栏下、输入框上的两条横线去掉，消息在顶栏下淡出（第 1 轮）</li>
     <li>5 小时与 7 天限额留到做订阅登录时；缓存倒计时只给缓存时长明确的服务商（11-16）</li>
     <li>状态栏用勾选与插件贡献的项，不做配一条命令（11-16）</li>
