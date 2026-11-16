@@ -8,6 +8,15 @@
 
 export const PRODUCT_VERSION = "0.13.0";
 
+/**
+ * 插件 API 的兼容起点：从这个产品版本起，插件能用的接口（SDK 公开面、内置插件导出的服务与合同、宿主共享的模块）没有不兼容的
+ * 改动。第三方插件的 `engines.neurobook` 与“起点到当前版本”有交集就算兼容，所以产品提版而插件 API 没破时，已构建的插件不用
+ * 重新构建（docs/specs/runtime/plugin-api.md 的“兼容”）。插件 API 有不兼容的改动时，发版前把它改成那一版（发布手册的“发版”）。
+ *
+ * 0.12.1：0.12.0 到 0.12.1 之间 nb-ui 有改名（nb-ui 的 migration-0.4），0.12.1 之后只有新增。
+ */
+export const PLUGIN_API_SINCE = "0.12.1";
+
 /** 发布阶段：canary（早期验证版）→ preview（预览版，也叫测试版）→ stable（稳定版），规则见 ADR 0053。 */
 export type ProductStage = "canary" | "preview" | "stable";
 

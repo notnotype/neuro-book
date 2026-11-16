@@ -21,7 +21,7 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {InstallFailureCode, InstallPreview, ManageFailureCode, PendingChange, PluginFailureCode, PluginList, PluginListEntry, PluginListItem, PluginProblem} from "nbook/plugin-platform/shared/types";
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
-import {compareVersions, engineAccepts} from "nbook/plugin-platform/shared/versions";
+import {compareVersions, engineAccepts, engineMismatch} from "nbook/plugin-platform/shared/versions";
 
 import {catalogProblemsIn} from "./catalogs";
 import {collectCopyRange, copyRange} from "./copy";
@@ -190,9 +190,8 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             return failure(read.code, read.detail, read.problems);
         }
         const {manifest, raw} = read;
-        const {productName, productVersion} = options.profile;
-        if (!engineAccepts(productVersion, manifest.engine)) {
-            return failure("incompatible-engine", `插件要求 ${productName} ${manifest.engine}，当前是 ${productVersion}`);
+        if (!engineAccepts(options.profile, manifest.engine)) {
+            return failure("incompatible-engine", `插件${engineMismatch(options.profile, manifest.engine)}`);
         }
         const files = filesOf(raw);
         if (files === undefined) return failure("manifest-invalid", "package.json 的 files 必须是字符串数组", ["files：必须是字符串数组"]);

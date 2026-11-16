@@ -23,9 +23,26 @@ export const npmVersions: VersionSyntax = {
     isRange: (value) => semver.validRange(value) !== null,
 };
 
-/** 产品版本是否在插件声明的 `engines.<引擎键>` 范围内；范围已由清单校验过写法。 */
-export function engineAccepts(productVersion: string, range: string): boolean {
-    return semver.satisfies(productVersion, range);
+/** 宿主接受的插件 API 版本：兼容起点到当前产品版本（两端都含）。 */
+export interface EngineWindow {
+    readonly productVersion: string;
+    readonly pluginApiSince: string;
+}
+
+/**
+ * 插件声明的 `engines.<引擎键>` 与宿主接受的那一段（`pluginApiSince` 到 `productVersion`）有没有交集；范围已由清单校验过写法。
+ * 按交集而不是“当前版本在不在范围里”：插件写的是它按哪几版的 API 写的（构建缺省是 `^<SDK 版本>`，0.x 时只含同一个 minor），
+ * 产品提版而插件 API 没破时，它照样能用（docs/specs/runtime/plugin-api.md 的“兼容”）。要更新版本的范围（下限高于当前版本）
+ * 与这一段没有交集，仍不兼容。
+ */
+export function engineAccepts(host: EngineWindow, range: string): boolean {
+    return semver.intersects(range, `>=${host.pluginApiSince} <=${host.productVersion}`);
+}
+
+/** 不兼容时给人看的说明，例如“要求 <产品名> ^0.11.0，当前是 0.13.0（兼容 0.12.1 起的插件）”。 */
+export function engineMismatch(host: EngineWindow & {readonly productName: string}, range: string): string {
+    const since = host.pluginApiSince === host.productVersion ? "" : `（兼容 ${host.pluginApiSince} 起的插件）`;
+    return `要求 ${host.productName} ${range}，当前是 ${host.productVersion}${since}`;
 }
 
 /**
