@@ -68,6 +68,6 @@ updated: 2026-11-15
 | [t13](tasks/t13-tray/README.md) | 系统托盘与关掉最后一个窗口时的去向。计划写好，设计审查中 |
 | [t14](tasks/t14-system-notifications/README.md) | 系统通知（先实测 WebView2 的网页通知）。调研完，等 Windows 探针 |
 | [t15](tasks/t15-drag-import/README.md) | 从系统拖入文件、图片与文件夹（文件树、编辑器插图、书架导入）。未开工 |
-| [t16](tasks/t16-plugin-drag-install/README.md) | 拖拽安装插件。未开工 |
+| [t16](tasks/t16-plugin-drag-install/README.md) | 拖拽安装插件。计划写好，设计审查中 |
 | [t17](tasks/t17-window-backdrop/README.md) | 磨砂透明的窗口背景（实验）。未开工 |
 | [t12](tasks/t12-release-stages-and-changelog/README.md) | 发布阶段（canary → preview → stable）、CHANGELOG 与由它生成的中文 Release 说明、发版脚本 `release:prepare`、发布手册、安装包改名。已完成，合入 master；推送后演练待开发者授权 |
