@@ -1,0 +1,61 @@
+# t17 探针：压低 CPU 跑“粗体、斜体、删除线”的按键序列（本机 Chrome，Emulation.setCPUThrottlingRate=8，8 轮；修复前的构建）
+# 探针脚本留在本地 .local/agent/works/w00025-editor/tasks/t17-e2e-open-file-wait/probe/t17-probe.e2e.ts，未入库
+
+round 0: FAIL "看**粗*斜*~~删~~**\n"
+round 1: ok
+round 2: ok
+round 3: ok
+round 4: FAIL "看**粗***斜~~删~~*\n"
+round 5: ok
+round 6: ok
+round 7: ok
+
+# 第 0 轮失败的事务记录（节选，调用栈只留产品代码的几帧）：
+round 0: FAIL "看**粗*斜*~~删~~**\n"
+    3556.1 doc=false sel=false stored=- steps=0 uiEvent=undefined pointer=undefined
+    3738.3 EVENT selectionchange
+    3770.0 doc=false sel=true stored=- steps=0 uiEvent=undefined pointer=undefined
+    4037.9 EVENT keydown End
+    4205.3 EVENT keydown Control
+    4218.8 EVENT keydown b
+    4222.5 doc=false sel=false stored=["bold"] steps=0 uiEvent=undefined pointer=undefined
+    4382.0 EVENT beforeinput insertText 粗
+    4391.3 EVENT input insertText 粗
+    4522.0 doc=true sel=true stored=- steps=1 uiEvent=undefined pointer=undefined
+    4631.9 EVENT selectionchange
+    4728.3 EVENT keydown Control
+    4732.9 EVENT keydown b
+    4741.7 doc=false sel=false stored=[] steps=0 uiEvent=undefined pointer=undefined
+    4942.6 doc=true sel=false stored=- steps=2 uiEvent=undefined pointer=undefined :: MarkdownControl commitNow → quietly(written.accept)
+    5256.8 EVENT selectionchange
+    5290.2 EVENT keydown Control
+    5295.1 EVENT keydown i
+    5302.0 doc=false sel=false stored=["bold","italic"] steps=0 uiEvent=undefined pointer=undefined
+    5445.0 EVENT beforeinput insertText 斜
+    5450.9 EVENT input insertText 斜
+    5506.2 doc=true sel=true stored=- steps=1 uiEvent=undefined pointer=undefined
+    5691.4 EVENT selectionchange
+    5821.3 doc=true sel=false stored=- steps=2 uiEvent=undefined pointer=undefined :: MarkdownControl commitNow → quietly(written.accept)
+    6083.0 EVENT keydown Control
+    6090.3 EVENT keydown i
+    6096.7 doc=false sel=false stored=["bold"] steps=0 uiEvent=undefined pointer=undefined
+    6172.4 EVENT selectionchange
+    6255.7 EVENT keydown Control
+    6260.1 EVENT keydown Shift
+    6264.1 EVENT keydown s
+    6270.1 doc=false sel=false stored=["bold","strike"] steps=0 uiEvent=undefined pointer=undefined
+    6407.6 EVENT beforeinput insertText 删
+    6414.6 EVENT input insertText 删
+    6449.0 doc=true sel=true stored=- steps=1 uiEvent=undefined pointer=undefined
+    6611.1 EVENT selectionchange
+    6906.6 doc=true sel=false stored=- steps=2 uiEvent=undefined pointer=undefined :: MarkdownControl commitNow → quietly(written.accept)
+    7084.3 EVENT keydown Control
+    7088.4 EVENT keydown s
+    7209.1 EVENT selectionchange
+
+# 块菜单“下移、副本、删除”：8 倍降速 8 轮、20 倍降速 10 轮，全部通过，没有复现
+round 0: ok round 1: ok round 2: ok round 3: ok round 4: ok round 5: ok round 6: ok round 7: ok
+round 0: ok round 1: ok round 2: ok round 3: ok round 4: ok round 5: ok round 6: ok round 7: ok round 8: ok round 9: ok
+
+# 修复后的构建（8568e4f6c），同样 8 倍降速、10 轮：
+round 0: ok round 1: ok round 2: ok round 3: ok round 4: ok round 5: ok round 6: ok round 7: ok round 8: ok round 9: ok

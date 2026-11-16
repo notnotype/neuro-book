@@ -1,0 +1,17 @@
+w00025 t17 实现审查的处理（审查者 Claude Sonnet，报告 impl-review-sonnet.txt，审查提交 f17e22300..14f6fda75）
+各级数量：阻断 0、重要 0、建议 12。
+
+1. 带过去的 stored marks 是回填前的实例（写法属性为空）—— 成立，要改：MarkdownControl.vue 的注释补一句“带过去的是回填前的 mark，接着打的字是新内容，按缺省写法写出，下一次交出时再回填”。不改代码：写出结果正确，下一次交出会把新字的写法回填。
+2. reload 路径照样会清掉刚切换的格式 —— 成立，接受取舍：要两个组同时编辑同一份文档，且正好落在切换与下一个字之间；reload 替换内容、选区要映射，不能像回填那样原样带过去。写进 MarkdownControl.md 作已知限制，不加机制。
+3. DOM 用例里 someProp 回调的参数名 handle 遮蔽了控件句柄 —— 成立，要改：改名 onKeyDown。（“补充”一段审查者已撤回；变异检查由审查者做过：去掉带过去的那行，只有这一例失败。）
+4. 模块级 written 与用例里的局部变量同名 —— 成立，要改：markdown-editing 与 markdown-comments 都改名 createdFiles（markdown-comments 里同样有局部 written）。
+5. afterEach 删文件后下一例恢复出已删除的活动标签 —— 不成立：Playwright 每例新开浏览器上下文，客户端身份是新的，不恢复上一例的会话；改后两份文件整份重跑 80 例全过。同条“直接 writeFile 的两个文件没登记删除”—— 成立，要改：place-code.txt、selection-other.md 也登记进 createdFiles。
+6. editor-area 的 leave.md 不删，资源树多一行 —— 成立，要改：这一例结束时删掉。（审查者估算后面的用例余量为 0 到负几行；改前整份 editor-area 已通过，估算偏紧，但同一类问题不留口子。）
+7. Monaco 聚焦等待在 activeElement 为 null 时误判、也不限定是哪一个编辑器 —— 成立，要改：改成 code.evaluate((editor) => editor.contains(document.activeElement))。atEnd 的调用方都可聚焦，审查者核对无问题。
+8. tabsSaved 对空数组假通过 —— 成立，要改：空数组返回 false；用例里读 id 之前先等标签条上有 3 个标签。不核对活动标签：用例的判据只是恢复出 3 个标签、只建活动标签的控件，不改。
+9. expand 里 getAttribute 没给超时，行不在时卡到用例超时 —— 成立，要改：getAttribute 与 click 都给 3000ms，与 openFile 的写法一致。
+10. 块菜单一例的竞态候选：hover 只等块按钮可见，不等它对准目标块 —— 成立，要改（测试侧）：hover 辅助等块按钮的 y 与目标段落的 y 相差不到 16px，与同组“光标所在的块常显按钮”一例的等法一致。它是不是原来那次失败的根因仍未验证（降速 18 轮没复现）。
+11. worktree 里有未提交的探针文件 —— 不成立：审查期间主会话临时放回跑了一次修复后的降速复跑，跑完已删，从未提交。
+12. 别的 e2e 文件里同样“读到收起再点”的写法没改 —— 范围备注：那些文件没有出过偶发失败，不在本 Task 范围；记进 Task README。
+
+修正后验证：MarkdownControl.dom.test.ts 55 例通过；vue-tsc（tsconfig.web.json、tsconfig.browser-test.json）通过；e2e 重跑 editor-area、markdown-editing、markdown-comments 三份（结果见 Task README）。
