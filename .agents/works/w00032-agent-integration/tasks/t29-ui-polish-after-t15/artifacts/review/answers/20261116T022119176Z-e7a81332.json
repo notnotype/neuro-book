@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t29-ui-polish-after-t15",
+    "artifactId": "review",
+    "answerId": "20261116T022119176Z-e7a81332",
+    "artifactVersion": 3,
+    "contentHash": "aa582a7069cbb69538bf28a60c3928e7b49e61ef6b2cdc505e2c786747e97cf7",
+    "submittedAt": "2026-11-16T02:21:17.347Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "panel-header": "center"
+    },
+    "comments": {
+        "panel-header": "要注意这个 session 绑定的子 session，怎么展示"
+    },
+    "note": null
+}
