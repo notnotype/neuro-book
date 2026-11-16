@@ -3,11 +3,11 @@
 import {Editor} from "@tiptap/core";
 import {EditorState, Selection, TextSelection} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
-import {computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
+import {computed, inject, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
 
 import "@notnotype/nb-markdown/markdown.css";
 
-import {createMarkdownEditorExtensions, listComments, markdownEditingActions, markShownComment, REFRESH_REFERENCE_LINKS, releaseSelection} from "@notnotype/nb-markdown/editor";
+import {createMarkdownEditorExtensions, FRONTMATTER_REQUEST, listComments, markdownEditingActions, MarkdownProperties, markShownComment, REFRESH_REFERENCE_LINKS, releaseSelection, setFrontmatterEol} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
 import {codecFor, frontmatterOf} from "@notnotype/nb-markdown/language";
@@ -21,6 +21,7 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 import {NBOOK_IMAGE_MISSING, nbookChips} from "../host";
 import {MARGIN_GAP, MARGIN_WIDTH} from "./menus/comments/margin-layout";
 import {languageFor} from "../language-registry";
+import {usePropertiesOpen} from "../properties-open";
 import MarkdownMenus from "./menus/MarkdownMenus.vue";
 import MarkdownToolbar from "./menus/MarkdownToolbar.vue";
 import {markdownAssetsKey} from "../parts/asset-urls";
@@ -71,7 +72,7 @@ const viewHost: MarkdownViewHost = {
     imageMissing: NBOOK_IMAGE_MISSING,
 };
 
-/** 编辑器挂在这里：稿纸（`.markdown-control`）里排在 frontmatter 之后。 */
+/** 编辑器挂在这里：稿纸（`.markdown-control`）里排在属性面板之后。 */
 const root = ref<HTMLElement | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 let editor: Editor | null = null;
@@ -136,6 +137,8 @@ const attributes = (): Record<string, string> => ({"aria-label": props.label, "c
  * 写不出时这次输入不交，文档记下这个视图写不出（editor 输出 61）；被接受时把写出的写法回填进编辑器。
  */
 const commitNow = (): void => {
+    // 属性面板里还没写回的输入也是这个视图的输入（输出 49）：先写回成一次编辑，再按正文的规则交出。
+    properties.value?.flush();
     const buffered = timer !== null;
     if (timer !== null) {
         clearTimeout(timer);
@@ -180,6 +183,7 @@ const load = (binding: TextEditorBinding): MarkdownViewState | null => {
     if (editor === null) return null;
     const read = codec(editor).read(binding.text.value);
     editor.view.updateState(EditorState.create({doc: read.doc, plugins: editor.state.plugins}));
+    setFrontmatterEol(editor, read.map.eol);
     // 标签记着上次的光标：放回去，正文变短时夹到末尾（输出 30）。
     const cursor = binding.cursor;
     if (cursor !== null && "offset" in cursor) {
@@ -208,6 +212,7 @@ const reload = (binding: TextEditorBinding, view: MarkdownViewState): void => {
         map = codec(current).reload(tr, binding.text.value);
     });
     view.map = map;
+    setFrontmatterEol(current, map.eol);
     view.state = current.state;
     view.confirmed = binding.revision.value;
     view.held = false;
@@ -223,6 +228,7 @@ const enter = (binding: TextEditorBinding): void => {
         view = load(binding);
     } else if (view !== null) {
         editor.view.updateState(view.state);
+        setFrontmatterEol(editor, view.map.eol);
         if (!view.held && !binding.blocked() && view.confirmed !== binding.revision.value) reload(binding, view);
         // 留着的编辑状态里，引用小块是按当时的地址算的：文件可能改过名。
         editor.view.dispatch(editor.state.tr.setMeta(REFRESH_REFERENCE_LINKS, true).setMeta("addToHistory", false));
@@ -231,8 +237,8 @@ const enter = (binding: TextEditorBinding): void => {
     if (scroller.value !== null) scroller.value.scrollTop = view?.scroll ?? 0;
     // 按记下的光标新建的视图：滚到光标处。
     if (fresh && binding.cursor !== null) editor.commands.scrollIntoView();
-    // 第二个参数：停手的计时还没到，或输入法在组字，手里就有没交出的输入（自动保存的“停手后”据此顺延）。
-    detach = binding.attach(commitNow, () => timer !== null || editor?.view.composing === true);
+    // 第二个参数：停手的计时还没到，或输入法在组字，或属性面板里有还没写回的输入，手里就有没交出的输入（自动保存的“停手后”据此顺延）。
+    detach = binding.attach(commitNow, () => timer !== null || editor?.view.composing === true || properties.value?.pending === true);
     refreshOutline(true);
     // 换编辑状态走 `updateState`，不产生事务。
     editingVersion.value += 1;
@@ -362,11 +368,49 @@ const editing: EditorEditing = {
     }),
 };
 
-/** 文档的 frontmatter 原文（在文档的属性上，随编辑、撤销与重载变），正文上方原样显示、不能在这里改。 */
+/** 文档的 frontmatter 原文（在文档的属性上，随编辑、撤销与重载变）：有就在正文上方画属性面板。 */
 const frontmatter = computed(() => {
     void editingVersion.value;
     return editor === null ? null : frontmatterOf(editor.state.doc);
 });
+
+/**
+ * 属性面板（docs/specs/workbench/markdown-editing.md 输出 39–51）：面板只认 frontmatter 的原文，交回的新原文在这里作为一次编辑提交
+ * （进撤销历史，之后照正文的输入交出）。展开状态按文件地址记（`markdown.properties-open`）；面板按绑定换实例，空值选过的类型这类
+ * 面板自己记的不串到别的文档。
+ */
+const properties = useTemplateRef<InstanceType<typeof MarkdownProperties>>("properties");
+const propertiesOpen = usePropertiesOpen();
+const propertiesShown = computed(() => {
+    const address = props.binding?.address.value;
+    return address !== undefined && propertiesOpen.isOpen(address);
+});
+const setPropertiesOpen = (open: boolean): void => {
+    const address = props.binding?.address.value;
+    if (address !== undefined) propertiesOpen.set(address, open);
+};
+const commitFrontmatter = (raw: string): void => {
+    if (editor === null) return;
+    editor.view.dispatch(editor.state.tr.setDocAttribute("frontmatter", raw));
+};
+/** 面板交回焦点：回到正文刚才的选区（Tiptap 的 `focus()` 不带位置时不动选区）。 */
+const leaveProperties = (): void => {
+    editor?.commands.focus();
+};
+/** 新建了 frontmatter，或“添加属性”：展开并记下，面板挂上（或已在）之后把焦点放到新属性的名字上。 */
+const requestNewProperty = (): void => {
+    setPropertiesOpen(true);
+    void nextTick(() => properties.value?.focusNewName());
+};
+/** 正文第一块的开头按上方向键：进面板的最后一个输入（输出 50）。在 ProseMirror 之后收到（冒泡）：它自己处理了的不管。 */
+const onBodyKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== "ArrowUp" || event.defaultPrevented || event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const current = editor;
+    if (current === null || properties.value === null || !current.state.selection.empty) return;
+    if (current.state.selection.from !== Selection.atStart(current.state.doc).from) return;
+    event.preventDefault();
+    properties.value.focusLast();
+};
 
 /**
  * 批注页边（docs/specs/workbench/markdown-editing.md 输出 33）：开关开着、控件够宽才画。宽度量 `.markdown-control-root`（已是
@@ -449,6 +493,7 @@ const onSelection = (): void => {
 };
 const onTransaction = ({transaction}: {transaction: Transaction}): void => {
     if (transaction.docChanged || transaction.selectionSet || transaction.storedMarksSet) editingVersion.value += 1;
+    if (transaction.getMeta(FRONTMATTER_REQUEST) === true) requestNewProperty();
 };
 const onFocus = (): void => emit("focus", true);
 const onBlur = (): void => {
@@ -524,8 +569,8 @@ onBeforeUnmount(() => {
         <div class="markdown-control__margin markdown-control__margin--right" aria-hidden="true" data-markdown-margin="right"></div>
         <div ref="scroller" class="markdown-control__scroller relative min-h-0 w-full flex-1 overflow-auto" :style="marginDrawn ? {paddingInlineEnd: `${MARGIN_WIDTH + MARGIN_GAP}px`} : undefined" data-editor-control="markdown">
             <div class="markdown-control">
-                <pre v-if="frontmatter !== null" class="markdown-control__frontmatter" data-markdown-frontmatter>{{ frontmatter }}</pre>
-                <div ref="root"></div>
+                <MarkdownProperties v-if="frontmatter !== null" :key="props.binding?.token" ref="properties" class="markdown-control__properties" :raw="frontmatter" :open="propertiesShown" :readonly="props.readonly" @commit="commitFrontmatter" @update:open="setPropertiesOpen" @leave="leaveProperties" />
+                <div ref="root" @keydown="onBodyKeydown"></div>
             </div>
         </div>
         <MarkdownMenus v-if="menus !== null" ref="menuLayer" :editor="currentEditor" :scroller="scroller" :editing="editing" :menus="menus" :readonly="props.readonly" :binding="props.visible ? props.binding?.token ?? null : null" :margin-drawn="marginDrawn" />
@@ -621,17 +666,9 @@ onBeforeUnmount(() => {
     padding: var(--markdown-padding-top) var(--markdown-padding-inline) var(--markdown-padding-bottom);
 }
 
-.markdown-control__frontmatter {
-    margin: 0 0 var(--markdown-block-gap);
-    padding: 8px 12px;
-    border-radius: var(--radius-control);
-    background: color-mix(in srgb, var(--text-main) 4%, transparent);
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    line-height: 1.6;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+/* 属性面板与正文第一块之间比段距宽一些：面板是关于这一章的资料，不是正文（第 2 轮评审稿）。 */
+.markdown-control__properties {
+    margin: 0 0 28px;
 }
 
 .markdown-control :deep(.markdown-control__prose) {

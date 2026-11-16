@@ -371,6 +371,9 @@
                 },
                 "block-unwrap": {
                     "title": "解开块"
+                },
+                "properties": {
+                    "title": "添加属性"
                 }
             },
             "view": {

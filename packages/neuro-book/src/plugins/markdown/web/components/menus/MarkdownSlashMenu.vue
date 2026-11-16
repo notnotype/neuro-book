@@ -21,7 +21,7 @@ const report = inject(markdownReportKey, null);
 const BUILTIN: ReadonlyArray<{readonly id: string; readonly actions: ReadonlyArray<EditingActionId>}> = [
     {id: "basic", actions: ["paragraph", "heading-1", "heading-2", "heading-3"]},
     {id: "lists", actions: ["bullet-list", "ordered-list", "task-list"]},
-    {id: "blocks", actions: ["quote", "callout", "code-block", "divider", "table", "bilingual"]},
+    {id: "blocks", actions: ["quote", "callout", "code-block", "divider", "table", "bilingual", "properties"]},
 ];
 
 /** 菜单的状态只在组件里，不写插件视图（`MarkdownControl.md`）。 */

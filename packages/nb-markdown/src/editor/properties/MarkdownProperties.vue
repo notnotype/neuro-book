@@ -46,7 +46,7 @@ const read = computed(() => readProperties(props.raw));
 const rows = computed<readonly PropertyRow[]>(() => (read.value.ok ? read.value.rows : []));
 const problem = computed(() => (read.value.ok ? null : read.value));
 
-// 挂载时 YAML 就读不成属性：不看记着的展开状态，先展开（输出 41）；收起一次之后按 `open`。
+// 不看 `open` 也展开：挂载时 YAML 就读不成属性（输出 41），或宿主要添加属性（`focusNewName`）。收起一次之后按 `open`。
 const forced = ref(problem.value !== null);
 const expanded = computed(() => props.open || forced.value);
 const mode = ref<"properties" | "source">("properties");
@@ -77,6 +77,13 @@ watch(() => props.raw, () => {
     // 自己的写回先清掉了草稿再发 `commit`；这里还有草稿，就是宿主换了原文（撤销、外部修改）。
     draft.value = null;
     fenceRejected.value = false;
+});
+
+// 编辑中变成只读（例如文件被外部删除）：还没写回的输入放弃（输出 51）。
+watch(() => props.readonly, (readonly) => {
+    if (!readonly) return;
+    draft.value = null;
+    adding.value = false;
 });
 
 // 写错的 YAML 改好了：回到按属性显示（输出 45）。
@@ -358,6 +365,7 @@ function onKeydown(event: KeyboardEvent): void {
 
 function startAdding(): void {
     if (props.readonly || problem.value !== null) return;
+    forced.value = true;
     mode.value = "properties";
     adding.value = true;
     duplicate.value = false;

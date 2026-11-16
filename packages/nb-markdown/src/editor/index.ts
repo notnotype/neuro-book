@@ -16,6 +16,7 @@ export {activeSlash, dismissSlash, markdownSlashKey, removeSlashQuery} from "./s
 export type {SlashMatch} from "./slash-trigger";
 export {REFRESH_REFERENCE_LINKS} from "./reference-links";
 export {default as MarkdownProperties} from "./properties/MarkdownProperties.vue";
+export {FRONTMATTER_REQUEST, setFrontmatterEol} from "./frontmatter";
 export {readProperties} from "./properties/model";
 export type {PropertyKind, PropertyRow, ReadPropertiesResult} from "./properties/model";
 export type {MarkdownViewAssets, MarkdownViewHost} from "./view-host";

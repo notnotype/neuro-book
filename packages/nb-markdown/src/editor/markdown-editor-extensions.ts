@@ -16,7 +16,8 @@ import {MarkdownReferenceLinks} from "./reference-links";
 import {MarkdownBlockKeymap} from "./block-actions";
 import {MarkdownSlashTrigger} from "./slash-trigger";
 import type {MarkdownViewHost} from "./view-host";
+import {MarkdownFrontmatter} from "./frontmatter";
 
 export function createMarkdownEditorExtensions(options: {readonly language: MarkdownLanguage; readonly placeholder: string; readonly host: MarkdownViewHost; /** 批注末尾小符号的可访问名称（输出 38），宿主按显示语言给；null 是不画符号（没有批注层接点击的宿主）。 */ readonly commentMarkerLabel: string | null}): AnyExtension[] {
-    return [...options.language.extensions, MarkdownSlashTrigger, MarkdownBlockKeymap, MarkdownReferenceLinks.configure({host: options.host}), MarkdownImageViews.configure({host: options.host}), Placeholder.configure({placeholder: options.placeholder, emptyEditorClass: "is-editor-empty"}), MarkdownInlineCodeShortcut, MarkdownHeldSelection, MarkdownShownComment, ...(options.commentMarkerLabel === null ? [] : [MarkdownCommentMarkers.configure({label: options.commentMarkerLabel})])];
+    return [...options.language.extensions, MarkdownSlashTrigger, MarkdownBlockKeymap, MarkdownReferenceLinks.configure({host: options.host}), MarkdownImageViews.configure({host: options.host}), Placeholder.configure({placeholder: options.placeholder, emptyEditorClass: "is-editor-empty"}), MarkdownInlineCodeShortcut, MarkdownHeldSelection, MarkdownShownComment, MarkdownFrontmatter, ...(options.commentMarkerLabel === null ? [] : [MarkdownCommentMarkers.configure({label: options.commentMarkerLabel})])];
 }

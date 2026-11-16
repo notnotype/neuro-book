@@ -17,6 +17,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
+import {windowProjectKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
 import {markdownKey, MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../shared/contracts";
@@ -24,6 +25,8 @@ import type {MarkdownService} from "../shared/contracts";
 import {dialectsPoint} from "../shared/plugin";
 import {colorsPort, markdownColorsKey, markdownColorsStore, memoryColors} from "./colors";
 import type {MarkdownColors} from "./colors";
+import {markdownPropertiesOpenKey, memoryPropertiesOpen, propertiesOpenPort, propertiesOpenStore} from "./properties-open";
+import type {PropertiesOpen} from "./properties-open";
 import {createAssetUrls, markdownAssetsKey} from "./parts/asset-urls";
 import type {AssetUrls} from "./parts/asset-urls";
 import {forwardExpose} from "./parts/forward-expose";
@@ -36,6 +39,7 @@ interface Host {
     readonly assets: AssetUrls;
     readonly report: MarkdownReport;
     readonly colors: MarkdownColors;
+    readonly propertiesOpen: PropertiesOpen;
 }
 
 /**
@@ -57,6 +61,7 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
             provideToChildren(markdownAssetsKey, host.assets);
             provideToChildren(markdownReportKey, host.report);
             provideToChildren(markdownColorsKey, host.colors);
+            provideToChildren(markdownPropertiesOpenKey, host.propertiesOpen);
             const exposed = forwardExpose(expose);
             return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props, ref: exposed}, slots));
         },
@@ -70,7 +75,7 @@ export const markdownBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: storageKey, required: false}, {key: windowProjectKey, required: false}],
         provides: [markdownKey],
         receives: [MARKDOWN_SYNTAXES_POINT],
         activate: async (context) => {
@@ -84,7 +89,11 @@ export const markdownBrowserPlugin: PluginDefinition = {
             const report: MarkdownReport = (event, message, error) => diagnostics.record({level: "warn", event, message, error, source: {plugin: descriptor.id}});
             const storage = await context.services.resolve(storageKey);
             const colors = storage.status === "resolved" ? colorsPort(markdownColorsStore.create(context, {storage: storage.instance, diagnostics})) : memoryColors();
-            const host: Host = {catalog, assets, report, colors};
+            // 属性面板的展开状态按作品记（项目分区）：没有绑定作品、或没有存储服务时只在这次运行里记着。
+            const project = await context.services.resolve(windowProjectKey);
+            const bound = project.status === "resolved" && project.instance.project !== null;
+            const propertiesOpen = bound && storage.status === "resolved" ? propertiesOpenPort(propertiesOpenStore.create(context, {storage: storage.instance, diagnostics})) : memoryPropertiesOpen();
+            const host: Host = {catalog, assets, report, colors, propertiesOpen};
             // nb-markdown 的组件都经 `MarkdownHosted.vue` 挂上，拿到 nbook 的宿主（目标分类、文件图标、语言与诊断）。
             const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component =>
                 withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component});
