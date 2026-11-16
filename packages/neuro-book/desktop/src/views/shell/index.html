@@ -41,7 +41,7 @@
 <script>
 (() => {
   const root = document.getElementById("root");
-  const LABELS = {retry: "重试", exit: "退出", "open-logs": "打开日志目录", continue: "继续", wait: "继续等待", cancel: "取消关闭", force: "强制关闭（未保存的内容可能丢失）", restart: "重新启动服务", later: "稍后"};
+  const LABELS = {retry: "重试", exit: "退出", "open-logs": "打开日志目录", continue: "继续", wait: "继续等待", cancel: "取消关闭", force: "强制关闭（未保存的内容可能丢失）", restart: "重新启动服务", later: "稍后", stay: "取消", open: "打开 NeuroBook", "quit-anyway": "仍然退出"};
   const ERRORS = {
     "portable-unwritable": (d) => ["便携版要放在可写的位置", `没法在 ${d} 写入。把 NeuroBook 复制到可写的文件夹后再打开。`],
     "state-root-relative": (d) => ["NBOOK_STATE_ROOT 要写完整路径", `现在的值是 ${d}。改成完整路径（例如 D:\\NeuroBook-data）后再打开。`],
@@ -83,7 +83,8 @@
         case "unclean-stop": return show("上次退出时服务端没有正常停止", [["数据已提交的部分不受影响。日志里有详情。"], [state.logDir, "detail"]], ["continue", "open-logs"], false);
         case "error": { const [title, text] = (ERRORS[state.reason] ?? (() => ["出错了", state.detail]))(state.detail); return show(title, [[text]], state.actions, false); }
         case "not-responding": return show("NeuroBook 没有响应", [["这个窗口的页面没有回应关闭请求。"]], ["wait", "cancel", "force"], false);
-        case "server-exited": return show(`NeuroBook 的服务意外退出（退出码 ${state.exitCode ?? "未知"}）`, [["窗口会保持离线，可以从页面复制没保存的内容。"], [state.logDir, "detail"]], ["restart", "later"], false);
+        case "server-exited": return show(`NeuroBook 的服务意外退出（退出码 ${state.exitCode ?? "未知"}）`, [[state.background ? "现在没有打开的窗口。" : "窗口会保持离线，可以从页面复制没保存的内容。"], [state.logDir, "detail"]], ["restart", "later"], false);
+        case "quit-work": return show("NeuroBook 有工作在跑，退出会中断它们", [...(state.count > 0 ? [[`有 ${state.count} 项工作在跑。`]] : []), ...(state.uncertain ? [["无法确认是否有工作在跑。"]] : [])], ["stay", "open", "quit-anyway"], false);
         case "restart-failed": return show("重新启动服务没有成功", [[state.detail]], ["restart", "later"], false);
       }
     },
