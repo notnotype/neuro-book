@@ -1,6 +1,6 @@
-# t16 计划：把插件文件夹拖到插件页安装（r2）
+# t16 计划：把插件文件夹拖到插件页安装（r3）
 
-r2 按设计审查第 1 轮（Opus 17 条，[处理](evidences/design-review-r1-disposition.md)）改：上传有封口与状态机、id 只认服务端签发的、相对路径放 query、写入流式落盘、拖放事件写全、遍历放共用层、补配套。
+r2 按设计审查第 1 轮改（[处理](evidences/design-review-r1-disposition.md)）。r3 按第 2 轮（[处理](evidences/design-review-r2-disposition.md)）把上传简化成**一个请求传整个文件夹**：请求结束时上传就是完整的，去掉逐个文件的 PUT、封口与在途写入的状态；拖放落点收窄到插件页自己。
 
 ## 目标
 
@@ -16,45 +16,51 @@ r2 按设计审查第 1 轮（Opus 17 条，[处理](evidences/design-review-r1-
 
 ## 行为（写进 Spec，`runtime.plugin-install`，条目级 planned）
 
-1. **第二种输入：上传的文件夹。** 插件页接受从系统拖入的一个文件夹，也可以点“选择文件夹”（键盘用户与浏览器的入口，同一条路）。页面把文件上传到服务端的上传暂存区、封口，之后的预览、确认、安装与路径输入相同（同样的校验、失败码与确认界面）。预览的来源写“拖入的文件夹 `<名字>`（N 个文件，大小）”。
-2. **页面上传什么。** 任何深度的 `node_modules`、`.git` 不上传；别的都上传，取舍仍由安装时按 `files` 复制决定。符号链接：浏览器读到的是目标内容，上传后是普通文件（与路径安装不同，已知限制）。读某个文件失败（构建中被改写、链接断了）：这次上传作废、删掉，提示哪个文件读不了。
-3. **拒绝与提示（上传之前，页面判断）。** 拖入的不是文件夹（单个文件、多个条目）：提示“拖入一个插件文件夹”；是 `.zip`、`.tgz` 时另说“先解压，再拖入解出的文件夹”。根目录没有 `package.json`、而恰有一个子目录有：提示“插件好像在 `<子目录>` 里，拖它进来”。超过上限（10000 个文件、总 256 MiB、单个 64 MiB）：按页面数到的拒绝，服务端照样检查。上传或预览进行中再拖入：提示“正在处理上一个文件夹”，不理。
-4. **上传暂存区。** `<State Root>/plugin-uploads/<上传 id>/`（不在 `plugins/` 里）。上传 id 由服务端签发（随机、固定格式），只认登记在本次运行内存表里的。一次上传的状态：写入中 → 已封口 → 使用中（预览或安装正在读它）→ 已删除。写入只在写入中；预览、安装只收已封口的；使用中的删除请求等它用完再删。
-5. **寿命。** 预览失败、取消、安装结束（成功或失败）后删除：安装由服务端在结束时删，其余由页面请求删；页面离开时用 `keepalive` 请求删；删除不存在的上传算成功。服务端另外删掉 1 小时没有活动（写入、封口、预览）的上传，启动时清空整个暂存区。
-6. **失败码**（上传的路由各自返回 `{code, detail}`）：`upload-too-large`（413）、`upload-path-invalid`（400）、`upload-not-found`（404，不存在、已删或已过期）、`upload-state`（409，状态不对：封口后再写、未封口就预览）、`upload-failed`（500，写盘失败）。`inspect`、`install` 收到用不了的上传 id 时以 `path-rejected` 拒绝，详情说明“上传已失效，重新拖入”。
+1. **第二种输入：上传的文件夹。** 插件页接受从系统拖入的一个文件夹，也可以点“选择文件夹”（键盘用户与浏览器的入口，同一条路）。页面把文件夹一次上传到服务端的上传暂存区，之后的预览、确认、安装与路径输入相同（同样的校验、失败码与确认界面）。预览的来源写“拖入的文件夹 `<名字>`（N 个文件，大小）”。
+2. **页面上传什么。** 任何深度的 `node_modules`、`.git` 不上传；别的都上传，取舍仍由安装时按 `files` 复制决定。符号链接：浏览器读到的是目标内容，上传后是普通文件（与路径安装不同，已知限制）。读某个文件失败（构建中被改写、链接断了）：这次上传作废，提示“读取或上传没有完成”（浏览器分不出是读不了还是连不上）。
+3. **拒绝与提示（上传之前，页面判断）。** 拖入的不是文件夹（单个文件、多个条目）：提示“拖入一个插件文件夹”；是 `.zip`、`.tgz` 时另说“先解压，再拖入解出的文件夹”。根目录没有 `package.json`、而恰有一个子目录有：提示“插件好像在 `<子目录>` 里，拖它进来”。超过上限（10000 个文件、总 256 MiB、单个 64 MiB）：按页面数到的拒绝，服务端照样检查。上传中、预览或确认框开着时再拖入：提示“正在处理上一个文件夹”，不理。
+4. **上传暂存区。** `<State Root>/plugin-uploads/<上传 id>/`（不在 `plugins/` 里）。一次上传是一个请求：请求体按顺序带着全部文件，服务端边读边写，读完、全部写好才交回上传 id；请求中途断开、超限或任何一个文件不合规，就删掉已写的部分，不留下上传。上传 id 由服务端签发，只认登记在本次运行内存表里的。上传交回之后只读：状态是“可用”或“使用中”（预览或安装正在读它）；使用中的删除等它用完再删。
+5. **寿命。** 页面在这几种时候请求删除：预览失败、取消、被新拖入的文件夹取代、页面离开（`keepalive`）——但**已经发出安装请求的上传，页面不再删**，由服务端在安装结束（成功或失败）时删。删除不存在的上传算成功。服务端另外每 10 分钟删掉 1 小时没有被用过的可用上传，第一次用到暂存区时（服务端起来后插件页第一次打开）清空整个目录。删除失败只记诊断，留给下次清空；清空失败不挡插件页。
+6. **失败码**（上传的路由返回 `{code, detail}`）：`upload-too-large`（413，超过上限）、`upload-path-invalid`（400，相对路径不合规或重名）、`upload-malformed`（400，请求体的分帧不对）、`upload-failed`（500，写盘失败）。`inspect`、`install` 收到用不了的上传 id 时以 `path-rejected` 拒绝，详情说明“上传已失效，重新拖入”。
 
 ## 设计
 
-**服务端**（`src/plugin-platform/backend/uploads.ts`，新；由宿主与 `pluginInventoryKey` 一起建，作为宿主能力 `pluginUploadsKey` 给 `nbook.plugins`）：
+**请求体的分帧**（一个模块 `src/shared/plugin-upload.ts`，页面与服务端共用，含路径规则）：按顺序重复“4 字节大端的头长度 N、N 字节 UTF-8 JSON `{path, size}`、`size` 字节的内容”，直到流结束。页面用 `new Blob([头, 文件, 头, 文件, …])` 拼出请求体（`Blob` 由 `File` 拼成时不复制内容，`fetch` 边读边发）。不用 tar 或 multipart：浏览器里写 tar 要加依赖，multipart 在 Bun 与 Hono 里都要整份读进内存才能解析；这套分帧两边各几十行，能流式处理。
 
-- 内存表 `Map<id, {state, files, bytes, lastActive, users}>`；id 是 `crypto.randomUUID()`，进来的 id 先按 UUID 正则查表，查不到就 `upload-not-found`，不拼路径。
-- `write(id, path, body)`：路径校验（下面）→ 逐段 `mkdir`、`lstat` 确认不是链接 → 流式写到临时名再改名（不整份读进内存）；写完用实际字节数累加，超过上限删掉整个上传。同一路径写两次是 `upload-path-invalid`。
-- `seal(id)` → `{files, bytes}`；`use(id, fn)`：已封口才进，期间删除排队；`discard(id)`、`sweep(now)`、`clear()`。
-- 路径规则（自己的一份，不与 `copy.ts` 的 glob 规则共用）：用 `/` 分段；没有空段、`.`、`..`；不以 `/` 开头；没有 `\`、`:`、控制字符与 Windows 不合法的字符 `<>"|?*`；段不以空格或点结尾、不是 Windows 保留名（`CON`、`NUL`、`COM1` 等，不分大小写、带扩展名也算）；段至多 255 字节、整条至多 1024 字节；NFC 归一化后再比。不论服务端在什么系统上都按这套查（插件要能在 Windows 上装）。
+**路径规则**（同一模块，页面收集时先查，服务端再查）：用 `/` 分段；没有空段、`.`、`..`；不以 `/` 开头；没有 `\`、`:`、控制字符与 `<>"|?*`；段不以空格或点结尾、不是 Windows 保留名（`CON`、`NUL`、`COM1` 等，不分大小写、带扩展名也算）；段至多 255 字节、整条至多 1024 字节。比较前做 NFC 归一化、按小写比：同一次上传里两条路径只差大小写或归一化形式、或一条是另一条的上层目录（文件与目录同名），都是 `upload-path-invalid`。写盘用 NFC 形式。不论服务端在什么系统上都按这套查。
 
-**路由**（`nbook.plugins` 贡献，`/api/nbook.plugins/uploads`，`onError(rethrowRouteError)`）：`POST /uploads` 建 → `{id}`；`PUT /uploads/<id>?path=<相对路径>` 写一个文件（原始字节，`bodyLimit` 单文件上限；`path` 只解码一次）；`POST /uploads/<id>/seal` 封口 → `{files, bytes}`；`DELETE /uploads/<id>` 删（不存在也回 204）。
+**服务端**（`src/plugin-platform/backend/uploads.ts`，新；由宿主与 `pluginInventoryKey` 一起建，作为宿主能力 `pluginUploadsKey` 给 `nbook.plugins`；时钟注入，清扫计时器随能力建立、随服务端停止撤销）：
+
+- 内存表 `Map<id, {users, lastUsed, deleting}>`；id 是 `crypto.randomUUID()`，进来的 id 先按格式查表，查不到不拼路径。
+- `receive(body, limits)`：读流、按分帧解析；每个文件以 `wx`（独占新建）打开、边读边写；字节在流里计数（单个、总量），超限就取消读、删目录。文件数也计。不写临时名再改名：上传交回之前没人读这个目录，改名只会在 Windows 上多一次被杀毒软件打断的机会。
+- `use(id, fn)`：可用才进，`users` 加一；`discard(id)`：有使用者时记 `deleting`，最后一个用完再删；`sweep(now)`、`clear()`。
+- 并发的上传各写各的目录，互不影响；同时存在的上传至多 8 个，第 9 个请求以 `upload-too-large` 拒绝（详情说明“上传太多，稍后再试”）。
+
+**路由**（`nbook.plugins` 贡献，`/api/nbook.plugins/uploads`，`onError(rethrowRouteError)`）：`POST /uploads`（请求体是分帧的流，交回 `{id, files, bytes}`）；`DELETE /uploads/<id>`（不存在也回 204）。不用 `bodyLimit`（它在没有 Content-Length 时会整份读进内存），上限在流里数。
 
 **合同**（版本 6）：`inspect`、`install` 的输入 `{path} | {upload}`；入口用 `uploads.use(id, dir => inventory.inspect(dir))`，安装结束后 `discard`。
 
 **页面**：
 
-- 共用模块 `src/ui/dropped-folder.ts`（t15 也用）：`readDrop(dataTransfer)` 在 `drop` 的同步段里取 `webkitGetAsEntry()`，交回 `{kind: "folder", entry} | {kind: "file", name} | {kind: "many"} | {kind: "none"}`；`collectFolder(entry, {skip})` 递归、`readEntries` 循环读到空，交回 `{name, files: [{path, file}]}`；`collectInputFiles(files)` 从 `webkitRelativePath` 得到同样的形状。数目与大小在收集时累计，过限立即停。
-- 插件页 `upload.ts`：建上传、并发 4 个 `PUT`、封口；任一失败就删掉上传；进度“正在上传 12/40”。
-- 拖放：插件页挂载期间在 `window` 上监听（设置窗口侧栏、经 Portal 的确认框也在里面）：`dragenter`、`dragover` 对含 `Files` 的拖动 `preventDefault()` 并设 `dropEffect = "copy"`，显示覆盖层“松开以安装插件”；`dragleave` 在 `relatedTarget === null`（离开窗口）时收起，`drop`、`dragend` 也收起，不用计数。页面内部元素的拖动（`types` 没有 `Files`）不理。卸载时移除监听。
-- 文字：`errors.path-rejected` 在来源是上传时换成“拖入的文件夹已失效，重新拖入”；新增各条提示的中英文。
-- 配套：`PluginsPage.md`、Lab 夹具 `PluginsPageFixture.vue`（新的 props 与状态）、`PluginsPage.dom.test.ts`。
+- 共用模块 `src/ui/dropped-folder.ts`（t15 也用）：`readDrop(dataTransfer)` 在 `drop` 的同步段里取全部条目，交回 `Array<{kind: "folder", entry} | {kind: "file", file}>`（解释交给调用方）；`collectFolder(entry, {skip, limits})` 递归、`readEntries` 循环读到空，深度至多 64，交回 `{name, files: [{path, file}]}`；`collectInputFiles(files)` 从 `webkitRelativePath` 得到同样的形状。数目、大小与路径规则在收集时就查，过限立即停。
+- 上传客户端 `web/plugin-upload.ts`：拼分帧、一个 `fetch`、`AbortController`；作为 prop 交给插件页（Lab 夹具与 dom 测试注入替身，不替换全局 `fetch`）。读文件失败与连不上服务端都表现为请求失败，提示“读取或上传没有完成”（浏览器分不出两者）。
+- 拖放落点是插件页的根元素：`dragenter`、`dragover` 对 `types` 含 `Files` 的拖动 `preventDefault()`、设 `dropEffect = "copy"`、显示覆盖层；`dragleave` 在 `relatedTarget` 不在根元素内时收起；`drop`、`dragend` 收起。不在 `window` 上挂监听：设置窗口是工作台上的浮层，编辑器与文件树（t15）有自己的落点，各管各的元素。落在插件页以外（包括经 Portal 的确认框）照浏览器缺省（这是 t15 要统一处理的“拖到没有落点的地方”）。
+- 进行中（上传中，或预览、确认框开着）再拖入：提示“正在处理上一个文件夹”，不理；确认框关掉（取消）后才能拖下一个。
+- 文字：`errors.path-rejected` 在来源是上传时换成“拖入的文件夹已失效，重新拖入”；各条提示的中英文。
+- 配套：`PluginsPage.md`、Lab 夹具 `PluginsPageFixture.vue`、`PluginsPage.dom.test.ts`。
 
 ## 切片
 
-1. Spec（master）：`runtime.plugin-install` 输入、输出、状态（上传的状态）、失败码、副作用（暂存区与寿命）、边界（合同版本）、验收加一条；条目级 planned。
-2. 服务端：`uploads.ts`、宿主装配、路由、合同 6；测试用真实文件系统与真实 Hono 路由：签发与查表（伪造 id、`..` 编码）、路径规则（逐条）、流式写与上限（单个、总量、并发写时的总量）、封口前后、使用中删除排队、过期清扫不删使用中的、启动清空、`inspect`、`install` 用上传 id、安装后删除、删除不存在算成功。
-3. 页面：`dropped-folder.ts`（替身按 `FileSystemDirectoryEntry` 的真实形状写：`readEntries` 分批回调、错误回调）、`upload.ts`、插件页的覆盖层、“选择文件夹”、各条提示、预览文字；dom 测试；Lab 夹具。
-4. e2e（插件页的文件，实施时查准）：“选择文件夹”用 `setInputFiles` 传示例插件目录（含一个 `node_modules` 子目录，确认没传上去）→ 预览显示文件数 → 安装 → 列表“重启后安装”；拖入单个文件的提示（合成 `drop`，只验文件分支）。
-5. Windows（等 pc-notype 能构建）：从资源管理器拖文件夹进桌面窗口的插件页并安装；拖文件、压缩包的提示；拖到设置窗口侧栏上不会把窗口导航走。结果也给 t15 用。
+1. Spec（master）：`runtime.plugin-install` 输入、输出、状态（上传的可用与使用中）、失败码、副作用（暂存区与寿命）、边界（合同版本 6、上传路由）、验收加一条；条目级 planned。
+2. 共用模块 `src/shared/plugin-upload.ts`：分帧的编码与流式解析、路径规则；单元测试逐条规则、分帧的边界（头被切在两个块之间、截断、超长头）。
+3. 服务端：`uploads.ts`、宿主装配、路由、合同 6；测试用真实文件系统与真实 Hono 路由：签发与查表（伪造 id）、超限（单个、总量、文件数、同时存在的个数）、中途断开不留目录、`wx` 冲突、使用中删除排队、清扫不删使用中的、首次使用清空、`inspect`、`install` 用上传 id、安装后删除、删除不存在算成功。
+4. 页面：`dropped-folder.ts`（替身按 `FileSystemDirectoryEntry` 的真实形状写：`readEntries` 分批回调、错误回调）、上传客户端、插件页的落点与覆盖层、“选择文件夹”、各条提示、预览文字；dom 测试（拖入单个文件、压缩包、上一层目录、进行中再拖入、发出安装后离开不删除）；Lab 夹具。
+5. e2e（插件页的文件，实施时查准）：“选择文件夹”用 `setInputFiles` 传示例插件目录（含一个 `node_modules` 子目录，确认没传上去）→ 预览显示文件数 → 安装 → 列表“重启后安装”。
+6. Windows（等 pc-notype 能构建）：从资源管理器拖文件夹进桌面窗口的插件页并安装；拖文件、压缩包的提示。结果也给 t15 用。
 
 ## 验证
 
-单元：`bun test src/plugin-platform/ src/plugins/plugins/ src/ui/`；类型检查（含 Lab）；`bun run test:affected --since <分支起点>`。e2e：插件页的文件。
+单元：`bun test src/plugin-platform/ src/plugins/plugins/ src/shared/plugin-upload.test.ts`，`src/ui/` 的 dom 测试；类型检查（含 Lab）；`bun run test:affected --since <分支起点>`。e2e：插件页的文件。
 
 ## 待确认（照推荐做，记进待确认清单）
 
@@ -67,5 +73,5 @@ r2 按设计审查第 1 轮（Opus 17 条，[处理](evidences/design-review-r1-
 ## 不做
 
 - 拖入 npm 包文件、URL；插件市场。
-- 只上传 `files` 用得到的部分（审查第 14 条的可选优化）：服务端的取舍已经正确，先不做。
+- 只上传 `files` 用得到的部分（第 1 轮第 14 条）：先不做。路径规则在页面收集时就查，`files` 用不到的文件不合规也会在上传前被拒，代价是少数插件要改文件名；真遇到再做“按 `files` 预筛”。
 - 拖到插件页以外的地方（文件树、编辑器、书架归 t15）。
