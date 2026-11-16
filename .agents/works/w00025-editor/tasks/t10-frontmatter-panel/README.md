@@ -50,7 +50,15 @@ updated: 2026-11-16
 执行位置：`.worktree/w00025-t10-frontmatter-panel`，分支 `feat/w00025-t10-frontmatter-panel`。
 
 - 第 1 片（nb-ui `DateInput`、`TagInput`、Lab 场景与 DOM 测试）：e217d55dc。nb-ui 全量测试 617 条通过；neuro-book 的 Lab 测试与 `vue-tsc -p tsconfig.web.json` 通过；`governance:check`、`docs:check` 通过；Lab 截图（亮、暗、390、日历打开）没有溢出与裁切。偏离计划：没跑不带 `--files` 的 `test:affected`，因为 `bun.lock` 只多了 nb-ui 的一行依赖声明（`@internationalized/date` 原本就随 reka-ui 装着，没有版本变化），它会把选择扩到全仓。nb-ui 自己没有 CHANGELOG（按发布规范在下次提版时建），应用的变更记录在第 4 片面板可见时写。另补一条 DOM 测试：界面语言是英文时日期按英文的段顺序排（92df6df9d），代替计划里“英文场景”（Lab 没有按场景换语言的办法）。
-- 第 2 片（文档属性与编解码器，`MarkdownControl` 只读显示原文）：3aad0d1b5。新增 `codec/frontmatter.test.ts`（fast-check：没编辑逐字节写原文、换了属性只换正文前那一段、不完整的原文被 `isWholeFrontmatter` 挡下；撤销与重做、全选删除、重载）与 `MarkdownControl` 的一条 DOM 测试；10 个种子都过；变异检查 5 处都被测出。nb-markdown 全量（bun 283、Vitest 267）、markdown 插件的 Vitest 157 与 bun 41、nb-story 的 `link-refs` 通过；nb-markdown 与 neuro-book 的类型检查（含两份 `vue-tsc`）通过；`e2e/editor-area.e2e.ts` 的两个用例（第 1312、1632 行）通过。相对计划的一处改动：frontmatter 闭栏后没有换行、后面有正文时补的换行从第一个间隔挪进前缀，否则面板把 frontmatter 改成闭栏后没有换行的写法时，沿用的第一个间隔不带换行，闭栏与正文粘在一起、写不出。本片的实现审查（Claude Sonnet）在后台跑。
+- 第 2 片（文档属性与编解码器，`MarkdownControl` 只读显示原文）：3aad0d1b5。新增 `codec/frontmatter.test.ts`（fast-check：没编辑逐字节写原文、换了属性只换正文前那一段、不完整的原文被 `isWholeFrontmatter` 挡下；撤销与重做、全选删除、重载）与 `MarkdownControl` 的一条 DOM 测试；10 个种子都过；变异检查 5 处都被测出。nb-markdown 全量（bun 283、Vitest 267）、markdown 插件的 Vitest 157 与 bun 41、nb-story 的 `link-refs` 通过；nb-markdown 与 neuro-book 的类型检查（含两份 `vue-tsc`）通过；`e2e/editor-area.e2e.ts` 的两个用例（第 1312、1632 行）通过。相对计划的一处改动：frontmatter 闭栏后没有换行、后面有正文时补的换行从第一个间隔挪进前缀，否则面板把 frontmatter 改成闭栏后没有换行的写法时，沿用的第一个间隔不带换行，闭栏与正文粘在一起、写不出。
+  - 本片的实现审查（Claude Sonnet，[`evidences/impl-review-s2.txt`](evidences/impl-review-s2.txt)）：阻断 0、重要 1、建议 5，都接受，修正在 2ee0dd9fe。
+    1. （重要）写回没校验属性：属性里放了不完整的原文时，正文开头会被读成 frontmatter。写出时按 `isWholeFrontmatter` 校验（空正文的写法同样经过），不合格就写不出，原因指向 frontmatter 属性；抢救正文把它的原文留成开头的纯文字段落。
+    2. 本组改了属性、别处又改了 frontmatter、再撤销时，换回的是整段旧原文，别处的修改丢掉：路径窄，不加机制，记为已知限制（`MarkdownControl.md`，Spec 写属性面板时一并写）；不加固定这一行为的用例。
+    3. 测试：换 frontmatter 的性质去掉前置条件、补“闭栏后没有换行”的预期；生成器的 frontmatter 与正文换行符分别取；抢救正文加两条（闭栏后没有换行、属性不完整）。
+    4. `splitFrontmatter` 直接给出 frontmatter，前缀改称 head。
+    5. 测试文件头对历史插件的说法改正；`MarkdownControl` 的 DOM 测试加一条只改属性的事务（交出写回新原文、撤销回到原来的）。切走再切回的那半条没加：第 4 片换成面板后由 e2e 覆盖。
+    6. 空白正文不补换行的理由写进 `headOf` 的注释。
+  - 验证：编解码器 bun 175 条、`frontmatter.test.ts` 10 个种子、`MarkdownControl` DOM 57 条、nb-markdown 类型检查、neuro-book `vue-tsc -p tsconfig.browser-test.json`、`governance:check` 通过；变异检查 4 处（去掉校验、去掉抢救、不补换行、补换行用主换行符）都被测出。
 - 第 3 片（属性模型 `nb-markdown/src/editor/properties/model.ts`）：c067ef049。模型测试 22 条（含两条 fast-check：改一项后别的项的原文切片逐字节相同；文字值按 YAML 1.1 与 1.2 都读回同一个字符串），10 个种子都过，变异检查 8 处都被测出（第一轮活下来 3 处，补了缩进的映射、带注释的列表、`%YAML` 与 `...` 的用例）。实现时定下的三处细节，与计划的字面不同：
   - 清空写成 `名字:`，不写字面的 `null`：两者读出都是空值，`名字:` 与“添加属性”新加的一行一样。
   - 改类型：文字里的日期按日期推断（计划的推断规则），所以有值的日期换不成文字；空值在文字、数字、日期之间随便换，但值还是空的，读回仍按文字推断，面板要自己记着这一行选的类型（第 4 片）。

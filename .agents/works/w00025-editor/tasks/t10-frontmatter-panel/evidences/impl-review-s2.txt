@@ -1,0 +1,72 @@
+审查对象：3aad0d1b5（w00025 t10 第 2 片）。审查时 worktree HEAD 为 3aad0d1b5；工作区里 packages/nb-markdown/src/editor/properties/、package.json、bun.lock 有未提交改动（第 3 片），不在范围内。
+实验脚本在 /tmp/review-w00025-t10-s2/exp/（e1 到 e6），变异检查改过 write.ts 四次，每次立刻从 exp/write.ts.orig 拷回，最后 diff 确认与原文件一致，git status 里 write.ts 没有改动。
+
+========== 发现 1 ==========
+严重程度：重要    类别：正确性 / 不变量
+位置：packages/nb-markdown/src/language/codec/write.ts:259-264（prefixOf）、:310-313（空正文分支）、:561-566（开头校验）、:296-298（plainFallback）
+现象：以前前缀是 map.prefix，只能是读入时切出的、必然完整的 frontmatter，写回无需校验。现在前缀来自 doc.attrs.frontmatter（任何调用 setDocAttribute 的人都能放进任意字符串），写回对它没有任何校验，出现三种坏结果：
+ a) 属性不是完整 frontmatter，且正文第一块是分隔线：:561 的校验判定“读成了别的前缀”，走“把首块改写成 ***”的补救后不再复查，直接写出。实验 e6：正文 "***\n\n甲\n\n---\n"，属性设成 "---\na: 1\n"（缺闭栏），写出 "---\na: 1\n***\n\n甲\n\n---\n"；用 codec.read 读回，整篇正文被读成 frontmatter（doc 只剩一个空段落，textContent 为空）。也就是正文整篇消失。
+ b) 属性不完整、正文第一块不是分隔线：返回“写不出：正文开头会被读成 frontmatter”（e1 里缺闭栏、两个闭栏、尾部带空行、纯字符串 "garbage" 都是这条）。错误信息指向正文的块，实际是属性的问题；写不出的提示会让用户去找正文里并不存在的问题。
+ c) 空正文分支（:312）完全不校验：e6 里 codec.read("") 后属性设成 "---\na: 1\n"，写出 "---\na: 1\n"，读回它就成了正文。
+ 另外 frontmatterOf 对非字符串一律返回 null（read.ts:241-244），属性被设成数字时（e6 的 5）frontmatter 静默丢掉，写出 "﻿甲\n"。属性里带 BOM 且 map.bom 也有时会写出双 BOM。
+为什么是问题：计划把“属性只放 isWholeFrontmatter 认可的原文”交给面板提交前的关卡（第 4 片），但写回是最后一道防线，且编解码器本来就是靠“写出后读回校验”保证不写坏正文的（方言 Spec 输出 1、2）。属性是普通 ProseMirror 属性，撤销、重载、命令、将来的输入规则都能写它，只靠调用方自觉，出错时结果是丢正文（a）或写出不读回自己的文字（c）。
+如何核实：cd /tmp/review-w00025-t10-s2/exp && bun run e6.ts，e1.ts 也有同类输出。
+建议改法：writeOnce 开头对 frontmatterOf(doc)（以及 attrs 原值是不是字符串或 null）用 isWholeFrontmatter 校验，不合格返回专门的 Unrepresentable（提示指向文档的 frontmatter 属性，不是正文块）；这样 :561 的校验可以只管“没有 frontmatter 时的首块分割线”，也不会再走“改写成 *** 后不复查”的路。空正文分支同样要过这个校验。
+
+========== 发现 2 ==========
+严重程度：建议    类别：不变量
+位置：packages/nb-markdown/src/language/codec/codec.ts:51-57（adoptRead 用 setDocAttribute 换属性）与撤销历史
+现象：属性的历史步骤是整值替换（DocAttrStep），不像正文步骤那样能被后来的重载映射。撤销越过重载时，属性被改回“改之前的值”，把重载带进来的外部 frontmatter 覆盖掉，而同一次撤销里正文的外部改动被保留，两者不一致。实验 e3（真实 codec + prosemirror-history）：
+ 1. 读入 "---\na: 1\n---\n甲\n"；面板改属性为 a: 2（进历史）；
+ 2. 外部把磁盘改成 "---\na: 3\n---\n甲乙\n"，codec.reload 在 addToHistory:false 的事务里执行 → 写出 "---\na: 3\n---\n甲乙\n"；
+ 3. 撤销 → 属性变 a: 1，写出 "---\na: 1\n---\n甲乙\n"（外部的 a: 3 丢了，外部的“乙”留着）；重做 → 属性变 a: 3（不是用户当初的 a: 2）。
+为什么是问题：计划只写了“重载换属性，不进历史，同正文的替换”；正文的替换经历史映射后，撤销只撤自己的那一段，外部内容不被覆盖；属性是整值，没有这种性质。只有“面板改了属性、没有关文件、外部又改了 frontmatter、再撤销”这一个窄路径，且结果是撤销到一个“用户自己以前确实写过的值”，所以只算建议，不要求加机制。
+如何核实：cd /tmp/review-w00025-t10-s2/exp && bun run e3.ts
+建议改法：不加机制，把这个已知限制写进 MarkdownControl.md 与 Task 记录（撤销越过属性的重载时，属性回到改之前的值）；也可以在 frontmatter.test.ts 的“重载”一组里补一条把当前行为固定下来的用例，避免第 3、4 片无意中改变它。
+
+========== 发现 3 ==========
+严重程度：建议    类别：测试
+位置：packages/nb-markdown/src/language/codec/frontmatter.test.ts:61-70（换了 frontmatter 的属性测试，fc.pre(next.closedWithBreak)）、:84-90（补换行的例子）
+现象：
+ a) “换了 frontmatter”的 fast-check 里 fc.pre(next.closedWithBreak) 把“新原文闭栏后没有换行”的情形全部丢掉，所以本片挪动的那一处（补换行进前缀）只靠两条手写例子兜底，生成器没有覆盖它。我另写了遍历式实验 e2.ts（BOM、两种换行、7 种原 frontmatter、22 种正文、7 种新属性，共 4508 个组合），除了空白正文情形（见发现 6）外全部符合“BOM + 新属性 + 必要的换行 + 原正文字节”，说明实现是对的，只是测试没有把它固定住。
+ b) 变异检查（write.ts 改完立刻拷回）：
+   M1 把 prefixOf 补的换行从“frontmatter 自己的换行符”改成 map.eol：173 条全过。注释和提交说明都强调“用 frontmatter 自己的换行符”，没有一条测试用“frontmatter 与正文换行不同”的输入检验它（生成器里 eol 是整篇统一的；手写例子也都统一）。
+   M2 把 plainFallback 里 prefixOf(doc, map, body !== "") 改成 prefixOf(doc, map, false)：173 条全过，抢救路径的前缀没有任何测试。
+   M3（空正文分支改成 prefixOf(...,true)）与 M4（去掉补换行）都被测试抓到，说明主要路径有覆盖。
+建议改法：去掉 fc.pre，让新原文也生成“闭栏后没有换行”的变体（预期值按“补一个 frontmatter 自己的换行”算）；source 的生成器加一档“frontmatter 与正文换行符不同”；plainFallback 加一条用例（让一块写不出、frontmatter 闭栏后无换行）。
+
+========== 发现 4 ==========
+严重程度：建议    类别：代码质量
+位置：source.ts:9-16、:40-50（SourceSplit 与 isWholeFrontmatter）；read.ts:234-238、:249-262（readMarkdown、BodyPrefix、readBody 的参数名 prefix）；write.ts:561
+现象：
+ a) 计划写的是“前缀校验抽成一个函数 isWholeFrontmatter，写回与面板共用”。实现里写回仍直接用 splitFrontmatter(assemble()).prefix !== prefix，isWholeFrontmatter 只是另一份判定（“后面接 正文 探针”），两份对同一件事各自表述，写回那份又不覆盖属性本身（见发现 1）。
+ b) SourceSplit 现在同时有 prefix 与 bom，readMarkdown 再用 prefix.slice(bom.length) 倒推出 frontmatter，再把 "" 换成 null：拆的人知道 frontmatter，却让调用方去减。直接让 splitFrontmatter 返回 {bom, frontmatter: string | null, body} 更直白（prefix 只在 write.ts:561 的比较里用，可以用 bom + frontmatter 拼）。
+ c) readBody 的参数 prefix 现在是 {bom, frontmatter}，而 SourceSplit.prefix 与 SourceMap 的旧字段 prefix 都是字符串；同一个词三种形状，读者要对着类型才看得懂。
+建议改法：并入发现 1 的修改一起做：校验统一走 isWholeFrontmatter，SourceSplit 直接给 frontmatter，BodyPrefix 的参数改名为 head 或 front。
+
+========== 发现 5 ==========
+严重程度：建议    类别：测试 / 文档
+位置：frontmatter.test.ts:1-5（文件头注释）、:101-113（编辑器里的属性）；MarkdownControl.dom.test.ts 新增的用例
+现象：
+ a) 文件头写“编解码器、schema 与历史插件都用编辑器的那一份”，实际 history() 是直接从 @tiptap/pm/history 导入的 prosemirror-history，不是编辑器里 UndoRedo 扩展的那份配置（newGroupDelay 等）。库是同一个，但注释说的比做的多。我核对了 prosemirror-history 的分组规则：只含 DocAttrStep 的事务 isAdjacentTo 为假，总是自成一组，所以与前后输入不会合并，当前断言成立；这一点没有写进测试或注释。
+ b) 本片设计的前提是“改属性的事务 docChanged 为真，MarkdownControl 的 onUpdate 会据此交出”（MarkdownControl.vue:439-445），但没有任何测试经真实控件触发一次纯属性事务（setDocAttribute）后检查 binding.text 变了；DOM 测试只覆盖“磁盘改了 → 显示跟着换”。从代码推断它成立（DocAttrStep 使 docChanged 为真，Tiptap 对 docChanged 的事务发 update），未运行验证；第 4 片的面板才会第一次用到，那时出问题定位成本高。
+ c) MarkdownControl.dom.test.ts 只测显示文字；挂载点挪到内层 div 后“换标签再换回（实例槽里的编辑器 mount 到新位置）”靠既有用例间接覆盖（我跑了 MarkdownControl.dom.test.ts 与 MarkdownCommentMargin.dom.test.ts，69 条全过），没有专门的 frontmatter 加换标签用例。
+建议改法：a) 改注释，或改用编辑器的扩展里取出的历史配置；b) 在 DOM 测试里加一条：editor.commands 或 view.dispatch(tr.setDocAttribute(...))，flushPendingChange 后断言 binding.text 与撤销；c) 同一条测试里切走再切回，断言 data-markdown-frontmatter 仍在、editor.view.dom 在新 div 里。
+
+========== 发现 6 ==========
+严重程度：建议（可不改）    类别：不变量
+位置：write.ts:312（空正文分支，beforeBody=false）与 :346（非空，beforeBody=true）
+现象：属性闭栏后没有换行时，两条路径处理不一致：正文非空时补一个换行；空白正文（map.emptyBody 非 null，例如 "\n"、"\t\n"）时不补，直接 attr + emptyBody。实验 e2：原文 "---\n---\n\n"（emptyBody 为 "\n"），属性换成 "---\n---"（无换行），写出 "---\n---\n"，emptyBody 的换行被当成闭栏的换行；emptyBody 为 "\t\n" 时写出 "---\n---\t\n"（闭栏行带 tab，CLOSE 允许）。读回的 frontmatter 字符串与属性不同（"---\n---\t\n" 对 "---\n---"）。
+为什么只算建议：我核对了这些写出都能读回成“同一个 frontmatter、空正文”，没有丢字节也没有吞正文；“正文字节不变”在字面上对空白正文成立（写出 = BOM + 属性 + emptyBody）。只是同一个 beforeBody 参数在两条路径上给出不同的形状，读者要推演才明白，且 adoptRead 对“属性与重读字符串不同”的情形（无换行属性写出后被重读）会多做一次不进历史的 setDocAttribute，无害。
+建议改法：不改行为即可，在 prefixOf 的注释里写明“空白正文不补换行，emptyBody 的空白自己充当闭栏后的换行”。
+
+========== 未发现问题的方面 ==========
+- 字节保持（重点 1）：e2.ts 遍历 4508 个组合（BOM 有无、LF 与 CRLF、原 frontmatter 无与六种含无换行结尾和带尾部空白的、22 种正文含分隔线开头、空正文、只有空白、引用定义、注释，新属性 null 与六种）：没编辑时逐字节写原文 0 个偏差；换属性后除空白正文的发现 6 外全部是 BOM + 新属性（+ 必要的换行）+ 原正文字节，重读正文相同。e5.ts 又对编辑首块文字（走 readBack 窗口）的 28 种组合核对，前缀、间隔、emptyBody、finalNewline 之间没找到对不上的输入；readBack 从 gaps[0] 数开头空段落不再把补的换行算成空段落（这是本片把补换行挪进前缀的好处，判断成立）。
+- 重载（重点 2）：adoptRead 先换属性再比正文，之后 tr.doc.eq(next) 正确连属性一起比，没有多余的整篇替换（frontmatter.test.ts 里断言了正文的块仍是原对象）；quietly 里 tr.docChanged 对纯属性事务为真；撤销越过只改正文的重载时属性与正文一致。唯一的不对称见发现 2。
+- 文档节点（重点 3）：Document.extend 保留名字 doc 与 topNode；StarterKit 关掉 document 后 schema 里只有一份；展示器只遍历顶层子节点，不受属性影响；提示词编辑器有自己的 PromptDocument 与 StarterKit document:false，与这份语言的 schema 无关；namesOf 现在在纯 TS 入口里多出 type:doc，flatten 之后集合不变，reservedSyntaxNames 的测试全过；整仓库没搜到对这份 schema 调 setContent、clearContent 或 doc.type.create(null, …) 的生产代码（生产代码里整篇替换只有 codec.ts:67 的 replaceWith 与 MarkdownControl 的 EditorState.create，前者属性已先换，后者带着 read.doc 的属性）。
+- isWholeFrontmatter（重点 4）：对缺闭栏、中间独占一行的闭栏、闭栏后跟空行、BOM、闭栏后以 \r 结尾、不以 --- 开头的都返回 false；无换行结尾的返回 true 且写回补换行后读回一致；我没找到放过的不完整原文，也没找到被挡掉的、读入会切出的合法 frontmatter（读入切出的前缀都能通过，fast-check 与 e2 都验证了）。
+- MarkdownControl.vue（重点 5）：EditorView 以元素为 place 时把 view.dom 追加进去（不是替换该元素），挂到内层 div 没有问题；批注页边的 querySelector(".markdown-control") 精确匹配类名，不会误中 .markdown-control__frontmatter，稿纸高度变化由 ResizeObserver 观察；enter 里 editingVersion 加一覆盖了换文档（updateState 不产生事务）的情形；整个 markdown 前端目录和 e2e 里引用 .markdown-control 的位置（editor-area.e2e.ts:1732、markdown-comments.e2e.ts:871）只读稿纸的 max-width 与盒位置，挪动后仍对。
+- 验证：bun test src/language/codec 173 条全过；nb-markdown 全量 bun test 283 条全过；MarkdownControl.dom.test.ts 与 MarkdownCommentMargin.dom.test.ts 69 条全过。nb-markdown 的 typecheck 报 2 个错误，都在工作区未提交的 src/editor/properties/model.ts（第 3 片），不是这个提交引入的。
+
+重要 1、阻断 0、建议 5（发现 1 为重要，2、3、4、5、6 为建议）
+有效发现编号：1 2 3 4 5 6
