@@ -75,13 +75,13 @@ const SUMMARY_TEXT = "## 用户的要求\n- 先写第三章，视角用第三人
 const compactionBase = (): AgentConversationContext["messages"] => longConversationMessages.slice(0, 4);
 
 /** 第一屏的最近对话：一条没有标题，时间跨今天、昨天与更早。 */
-const WELCOME_RECENT = [
+export const WELCOME_RECENT = [
     {id: "w1", title: "第三章节奏调整", at: Date.UTC(2026, 10, 16, 9, 50)},
     {id: "w2", title: "", at: Date.UTC(2026, 10, 15, 21, 5)},
     {id: "w3", title: "查第五章的错别字，并顺手统一人物称谓", at: Date.UTC(2026, 10, 12, 8, 0)},
 ];
 /** 主创的三条开场指令（与 `main.ts` 的同一份文字）。 */
-const WELCOME_STARTERS = [
+export const WELCOME_STARTERS = [
     {icon: "i-lucide-feather", text: "帮我润色一段环境描写：暴雨中的蒸汽工业城市，充满湿冷的金属味、雾气与钟声。文风克制冷峻，突出压抑感。"},
     {icon: "i-lucide-git-merge", text: "规划第三幕高潮“雨夜钟楼对决”的细纲，设计三段递进的冲突转折，并让两条暗线在此处收束。"},
     {icon: "i-lucide-shield-check", text: "对当前章节进行一致性体检，排查时间线冲突、战力体系失衡、伏笔漏洞以及高频重复词。"},

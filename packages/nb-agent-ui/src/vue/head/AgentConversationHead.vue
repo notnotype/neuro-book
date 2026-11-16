@@ -13,7 +13,8 @@ import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {AgentConversationContext} from "../../types";
 import {useAgentText} from "../host";
 
-defineOptions({name: "AgentConversationHead"});
+/** 根是头加会话列表的浮层两个节点：attrs 落在头上。 */
+defineOptions({name: "AgentConversationHead", inheritAttrs: false});
 
 const props = defineProps<{
     ctx: AgentConversationContext;
@@ -55,7 +56,7 @@ const placed = computed(() => props.targets !== null);
 </script>
 
 <template>
-    <header v-show="!placed" class="acv-head" data-agent-head>
+    <header v-show="!placed" class="acv-head" data-agent-head v-bind="$attrs">
         <div class="acv-head__start">
             <Teleport :to="props.targets?.start ?? null" :disabled="!placed">
                 <IconButton

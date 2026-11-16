@@ -55,7 +55,7 @@ type AgentConversationHeadSlots = {
 };
 ```
 
-没有 expose；未声明的 attrs 不透传（根是片段）。
+没有 expose；未声明的 attrs 落在内容里的那个头上（根是头加浮层两个节点）。
 
 ## 状态
 
