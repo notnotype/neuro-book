@@ -39,6 +39,7 @@ import type ProfileDetail from "nbook/plugins/agent/web/components/ProfileDetail
 import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue";
 import type BackgroundCommandCard from "nbook/plugins/agent/web/components/BackgroundCommandCard.vue";
 import type SubagentCard from "nbook/plugins/agent/web/components/SubagentCard.vue";
+import type SubagentsEntry from "nbook/plugins/agent/web/components/SubagentsEntry.vue";
 import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
 import type SkillInitDialog from "nbook/plugins/agent/web/components/SkillInitDialog.vue";
 import type SkillsSettingsPage from "nbook/plugins/agent/web/components/SkillsSettingsPage.vue";
@@ -94,7 +95,7 @@ import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
 import {withAgentPageText} from "./agent-scene/agent-page-text";
 import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./agent-scene/profile-samples";
-import {CARD_SAMPLES, COMMAND_SAMPLES, sampleProps} from "./agent-scene/subagent-samples";
+import {CARD_SAMPLES, COMMAND_SAMPLES, ENTRY_PROFILES, sampleProps} from "./agent-scene/subagent-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
@@ -1123,6 +1124,15 @@ function shelfFixtures(): LabFixture[] {
             component: "SubagentCard",
             scenes: ([["running", "运行中：最近一步、次数与用时"], ["question", "在问父 Agent"], ["waiting", "等你批准"], ["done", "完成：点开看结果全文"], ["failed", "出错"], ["dispatch-failed", "没派出去"], ["background", "后台、名字很长"], ["unknown", "进程崩溃后：状态未知"], ["running-narrow", "390px 宽"], ["background-narrow", "390px 宽、名字很长"]] as const).map(([id, label]) => ({id, label, input: {props: sampleProps(CARD_SAMPLES[id.replace(/-narrow$/u, "")]!)}})),
             load: async () => withAgentPageText((await import("./agent-scene/SubagentCardFixture.vue")).default),
+        }),
+        defineLabFixture<typeof SubagentsEntry>({
+            component: "SubagentsEntry",
+            scenes: [
+                {id: "list", label: "浮层开着：等你批准、在跑（带孙代理）、完成、出错", input: {props: {profiles: ENTRY_PROFILES}, model: {open: true}}},
+                {id: "dot", label: "关着：有没看过的出错，入口亮红点", input: {props: {profiles: ENTRY_PROFILES}, model: {open: false}}},
+                {id: "empty", label: "没有后代：入口不画", input: {props: {profiles: ENTRY_PROFILES}, model: {open: false}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/SubagentsEntryFixture.vue")).default),
         }),
         defineLabFixture<typeof BackgroundCommandCard>({
             component: "BackgroundCommandCard",

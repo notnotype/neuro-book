@@ -335,6 +335,17 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
                 bump();
             }
         },
+        stopRun: async (child) => {
+            const stopped = await remote.abort({sessionId: child, commandId: deps.newId(), keepQueue: true});
+            if (!stopped.ok) {
+                notice = agentText("conversation.reject.other", {code: stopped.code});
+                bump();
+            }
+        },
+        runResult: async (child, runId) => {
+            const result = await remote.runResult({sessionId: child, runId});
+            return result.ok ? result.value : null;
+        },
     };
     let previews = new Map<string, ApprovalPreviewView>();
     let stopRequestedAt: number | null = null;

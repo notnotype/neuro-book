@@ -1,9 +1,12 @@
-/** 子代理卡片与后台命令卡片的 Lab 样本（w00032 t14）：各场景的调用、后代进度与任务。 */
+/** 子代理卡片、后台命令卡片与子代理入口的 Lab 样本（w00032 t14、t36）：各场景的调用、后代进度、任务与收口结果。 */
 
 import type {AgentConversationContext, ToolCallView} from "@notnotype/nb-agent-ui";
 import {createAgentContext} from "@notnotype/nb-agent-ui";
 import {ref, shallowRef} from "vue";
 
+import type {RunResult} from "@notnotype/nb-harness/kernel/contracts";
+
+import type {ProfileEntry} from "nbook/plugins/agent/shared/contracts";
 import type {CommandStatus, JobItem, TreeItem} from "nbook/plugins/agent/shared/subagents";
 import type {SubagentStore} from "nbook/plugins/agent/web/subagent-store";
 
@@ -44,6 +47,8 @@ export function sampleStore(sample: CardSample): SubagentStore {
         tail: async () => (sample.tail === undefined ? null : {lines: sample.tail.split("\n"), status: sample.status ?? null}),
         status: async () => sample.status ?? null,
         kill: async () => undefined,
+        stopRun: async () => undefined,
+        runResult: async () => null,
     };
 }
 
@@ -55,3 +60,27 @@ export function sampleContext(sample: CardSample): AgentConversationContext {
 export function sampleProps(sample: CardSample): {call: ToolCallView; ctx: AgentConversationContext} {
     return {call: sample.call, ctx: sampleContext(sample)};
 }
+
+/** 子代理入口与浮层（SubagentsEntry）的样本：等你批准、在跑（带孙代理）、完成、出错。 */
+export const ENTRY_NOW = 2_000_000;
+export const ENTRY_PROFILES: ProfileEntry[] = [
+    {key: "lab.naming", name: "称谓检查", description: "", source: "lab", status: "ok", icon: "i-lucide-spell-check"},
+    {key: "lab.research", name: "资料检索", description: "", source: "lab", status: "ok", icon: "i-lucide-search"},
+    {key: "lab.typo", name: "错别字", description: "", source: "lab", status: "ok", icon: "i-lucide-book-open-check"},
+    {key: "lab.outline", name: "细纲", description: "", source: "lab", status: "ok", icon: "i-lucide-git-merge"},
+];
+const entryChild = (id: string, parent: string, profile: string, name: string, patch: Partial<TreeItem>): TreeItem => ({
+    id, parent, callId: null, invocation: null, forked: false, profile, name, state: "idle", runs: [],
+    profileIcon: ENTRY_PROFILES.find((entry) => entry.key === profile)?.icon ?? "i-lucide-bot", ...patch,
+});
+export const ENTRY_TREE: readonly TreeItem[] = [
+    entryChild("a", "p", "lab.naming", "第二至五章的称谓是否前后一致", {state: "waiting", pending: [{id: "p1", kind: "approval", callId: "x", request: {tool: "nbook.agent.write"}}]}),
+    entryChild("b", "p", "lab.research", "查 1920 年代上海的电车线路", {state: "running", tools: 7, startedAt: ENTRY_NOW - 134_000, step: {tool: "nbook.agent.read", target: "project://资料/电车.md"}}),
+    entryChild("c", "b", "lab.research", "核对电车站名", {state: "running", tools: 3, startedAt: ENTRY_NOW - 41_000}),
+    entryChild("d", "p", "lab.typo", "查第五章的错别字", {runs: [{runId: "r1", reason: "completed", endedAt: ENTRY_NOW - 60_000}]}),
+    entryChild("e", "p", "lab.outline", "第三幕高潮的细纲", {runs: [{runId: "r1", reason: "error", endedAt: ENTRY_NOW - 10_000}]}),
+];
+export const ENTRY_RESULTS: Readonly<Record<string, RunResult>> = {
+    d: {runId: "r1", reason: "completed", stopReason: "stop", text: "找到 2 处错别字：第 12 段“在”写成了“再”。\n\n……", result: null, error: null, usage: {} as never, entries: {first: 1, last: 9}},
+    e: {runId: "r1", reason: "error", stopReason: "error", text: "", result: null, error: {kind: "provider"}, usage: {} as never, entries: {first: 1, last: 3}},
+};

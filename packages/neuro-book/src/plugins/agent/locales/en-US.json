@@ -310,6 +310,19 @@
         "author": {
             "otherSession": "Another conversation"
         },
+        "subagents": {
+            "title": "Subagents",
+            "entry": "Subagents: {{count}}",
+            "entryAttention": "Subagents: {{count}}, some need you",
+            "total": "{{count}} in all",
+            "running": "{{count}} running",
+            "waiting": "{{count}} waiting for you",
+            "unnamed": "Subagent",
+            "hint": "Click a row to open the subsession; hover a running one to stop it.",
+            "stop": "Stop {{name}}",
+            "question": "Asking the parent agent",
+            "interrupted": "Interrupted"
+        },
         "subagent": {
             "spawn": "Spawn sub-agent",
             "send": "Message sub-agent",

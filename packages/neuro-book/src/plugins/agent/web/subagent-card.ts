@@ -61,7 +61,7 @@ const detailsOf = (call: ToolCallView): Details => (call.result?.details ?? {}) 
 const record = (value: unknown): Readonly<Record<string, unknown>> => (value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {});
 
 /** 事项的请求是内核事件里的原文：审批带工具 id，提问带 `data.questions`，模式切换的 `data.kind` 是 `mode-switch`。 */
-function waitingOf(item: TreePending | undefined): WaitingFor | undefined {
+export function waitingOf(item: TreePending | undefined): WaitingFor | undefined {
     if (item === undefined) return undefined;
     const request = record(item.request);
     if (item.kind === "approval") {
@@ -73,10 +73,16 @@ function waitingOf(item: TreePending | undefined): WaitingFor | undefined {
     return {kind: "question", text: typeof first.question === "string" ? first.question : ""};
 }
 
+/** 运行了多久，写成“分:秒”（卡片与子代理浮层的用时）。 */
+export function duration(ms: number): string {
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    return `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 /** 对象以地址开头时（`project://正文/第二章 雨夜.md`，文件名可以带空格）只留最后一段；含地址的命令、搜索词等原样。 */
 const ADDRESS = /^[a-z][a-z0-9+.-]*:\/\//iu;
 
-function shortTarget(target: string): string {
+export function shortTarget(target: string): string {
     if (!ADDRESS.test(target)) return target;
     return target.slice(target.indexOf("://") + 3).split("/").filter((segment) => segment !== "").at(-1) ?? target;
 }

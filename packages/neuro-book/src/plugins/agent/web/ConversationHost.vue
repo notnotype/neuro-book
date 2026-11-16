@@ -14,6 +14,9 @@ import type {SkillInit} from "./skill-init";
 import type {RecentSessions, SessionListStore} from "./session-list";
 import {subagentStoreKey, toolActionKey, toolActionOf} from "./subagent-store";
 import SessionPanelHost from "./SessionPanelHost.vue";
+import SubagentsEntry from "./components/SubagentsEntry.vue";
+import type {ProfileEntry} from "../shared/contracts";
+import type {RunResults, SeenErrors} from "./subagents-panel";
 
 const props = defineProps<{
     host: SessionHost;
@@ -29,6 +32,8 @@ const props = defineProps<{
     labels: {readonly renameTitle: string; readonly rename: string; readonly cancel: string};
     /** 选了未初始化的 Skill 时的确认框（skills.md 输出 27）。 */
     skillInit: SkillInit;
+    /** 子代理入口要的（conversation.md 输出 43）：Profile 名、插件作用域的出错看过没有与收口结果。 */
+    subagents: {readonly profiles: readonly ProfileEntry[]; readonly seen: SeenErrors; readonly results: RunResults};
 }>();
 
 const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
@@ -78,6 +83,14 @@ defineExpose({focusComposer: () => rootRef.value?.focusComposer()});
     >
         <template #sessions="{close}">
             <SessionPanelHost :store="props.list" :host="props.host" :pick-profile="props.pickProfile" :labels="props.labels" @opened="close()" />
+        </template>
+        <template #head-trailing>
+            <SubagentsEntry
+                :profiles="props.subagents.profiles"
+                :seen="props.subagents.seen"
+                :results="props.subagents.results"
+                @select="(sessionId: string) => props.host.act({type: 'session.select', sessionId})"
+            />
         </template>
     </AgentConversationView>
     <SkillInitDialog

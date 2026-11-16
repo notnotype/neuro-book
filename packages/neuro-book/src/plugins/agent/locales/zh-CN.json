@@ -310,6 +310,19 @@
         "author": {
             "otherSession": "另一个会话"
         },
+        "subagents": {
+            "title": "子代理",
+            "entry": "子代理：{{count}} 个",
+            "entryAttention": "子代理：{{count}} 个，有要你看的",
+            "total": "{{count}} 个",
+            "running": "{{count}} 个在跑",
+            "waiting": "{{count}} 个等你处理",
+            "unnamed": "子代理",
+            "hint": "点一行进入子会话；运行中的悬停可停止。",
+            "stop": "停止 {{name}}",
+            "question": "在问父 Agent",
+            "interrupted": "已中断"
+        },
         "subagent": {
             "spawn": "派子代理",
             "send": "对子代理说",

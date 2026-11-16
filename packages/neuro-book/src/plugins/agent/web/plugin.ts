@@ -59,6 +59,7 @@ import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
 import {createRecentSessions, createSessionList} from "./session-list";
+import {createRunResults, createSeenErrors} from "./subagents-panel";
 import {RequestsPage, useRequests} from "./requests-page";
 import {requestEntriesContribution} from "./request-entries";
 
@@ -270,6 +271,12 @@ export const agentBrowserPlugin: PluginDefinition = {
                     if (!opened.ok) report("open-address-failed", `opening ${address} failed: ${opened.code}`);
                 });
             };
+            /**
+             * 子代理管理（conversation.md 输出 43）：出错看过没有、收口结果的缓存，右栏与编辑区页面两个对话位置共用。激活之前收口的出错算看过；
+             * 切到哪个会话，它此前的出错就算看过（不论从卡片、停靠区还是浮层切过去）。
+             */
+            const seenErrors = createSeenErrors(clock.now());
+            const runResults = createRunResults((message) => report("run-result-failed", message));
             const hosts = new Map<string, SessionHost>();
             /** 最近用过的位置：命令优先用它。 */
             let lastPosition = "view";
@@ -352,6 +359,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                     report,
                 });
                 hosts.set(position, host);
+                const stopSeen = watch(host.sessionId, (id) => {
+                    if (id !== null) seenErrors.markSession(id, clock.now());
+                }, {immediate: true});
+                context.signal.addEventListener("abort", stopSeen, {once: true});
                 return host;
             };
             context.signal.addEventListener("abort", () => {
@@ -481,7 +492,7 @@ export const agentBrowserPlugin: PluginDefinition = {
                         });
                         return () => {
                             const host = hostAt(position);
-                            return h(ConversationHost, {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position)});
+                            return h(ConversationHost, {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}});
                         };
                     },
                 });
