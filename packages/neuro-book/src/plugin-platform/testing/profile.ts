@@ -12,6 +12,7 @@ export const ACME_PROFILE: PlatformProfile = {
     format: createManifestFormat({engine: "acme", reservedPublishers: ["acme"]}, npmVersions),
     productName: "Acme",
     productVersion: "0.1.0",
+    pluginApiSince: "0.1.0",
     registrySchema: "acme.plugins/v1",
     safeModeEnv: "ACME_SAFE_MODE",
     authorField: "acme",
@@ -24,7 +25,7 @@ export const ACME_PROFILE: PlatformProfile = {
     sharedModules: {browser: ["vue", "@vue/reactivity", "@acme/sdk"], server: ["@vue/reactivity", "@acme/sdk"]},
 };
 
-/** 换一个产品版本的同一份档案（兼容检查的用例）。 */
-export function acmeAt(productVersion: string): PlatformProfile {
-    return {...ACME_PROFILE, productVersion};
+/** 换一个产品版本的同一份档案（兼容检查的用例）；兼容起点缺省等于这个版本，即只看当前版本。 */
+export function acmeAt(productVersion: string, pluginApiSince = productVersion): PlatformProfile {
+    return {...ACME_PROFILE, productVersion, pluginApiSince};
 }

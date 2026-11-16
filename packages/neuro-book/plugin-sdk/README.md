@@ -399,7 +399,7 @@ SDK 还没有给作者的测试替身（内存里的存储、设置与时钟，�
 
 `dist` 整个目录就是可以安装的插件：`package.json`（构建生成的清单）、每个入口一个 `.js` 与 `.map`、`style.css`。依赖已经打进入口文件，目录里没有也不需要 `node_modules`。把这个目录交给用户，用户在插件页填它在服务端机器上的路径安装。
 
-- 兼容的 NeuroBook 版本写在 `package.json` 的 `engines.neurobook`，缺省是构建时 SDK 版本的 `^<版本>`。NeuroBook 是 0.x 时，minor 号变化可能带不兼容的改动。
+- 兼容的 NeuroBook 版本写在 `package.json` 的 `engines.neurobook`，缺省是构建时 SDK 版本的 `^<版本>`。NeuroBook 记着插件 API 从哪一版起没有不兼容的改动（兼容起点），你写的范围与“兼容起点到当前版本”有交集就算兼容：NeuroBook 提版而插件 API 没破时，按旧版本构建的插件不用重新构建。插件 API 有不兼容的改动时，变更记录的“不兼容的改动”里会写，兼容起点随之提到那一版。
 - 依赖别的第三方插件的版本范围写在 `package.json` 的 `pluginVersions`。
 
 ## 附表与 Spec
