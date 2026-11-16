@@ -22,7 +22,7 @@ export type {
     PromptEditorPortExpose, PromptEditorPortProps, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy,
     PromptTextViewPortProps, PromptToken,
 } from "./ports";
-export {AgentViewRegistryConflictError, createAgentViewRegistry} from "./registry";
+export {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER} from "./registry";
 export type {
     AgentViewContribution, AgentViewRegistry, ComposerCommandEntry, ComposerTriggerEntry, EntryComponentProps, EntryRendererEntry, ExtensionPoint,
     ExtensionPointEntries, FileChangeView, HeaderActionEntry, RegistryConflict, MessageActionEntry, MessageActionTarget, PanelEntry, RegistryEntryBase, RoleEntry,

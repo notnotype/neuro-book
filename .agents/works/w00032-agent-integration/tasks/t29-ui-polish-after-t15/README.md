@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t29-ui-polish-after-t15
-status: active
+status: done
 updated: 2026-11-16
 ---
 
@@ -52,6 +52,7 @@ updated: 2026-11-16
 | 10 | 2026-11-16 | 评审板第 5 轮：模型不可用的提示用第 4 轮的浮层提示卡（压在输入框上沿），不用 `Banner`；开发者认为编辑组的横幅也没做好、以后也改（记进后续）。卡头整行可点不做；开发者要的是一个地方管理当前会话绑定的全部子代理、看到它们的状态，适时有红点 |
 | 11 | 2026-11-16 | 评审板第 6 轮：子代理管理放面板头右边的入口（图标加个数，等你批准或回答、出错未看时有红点），点开浮层列出当前会话派出的全部子代理与孙代理（名字与任务、最近进度或结果、状态），点一行进子会话，运行中的悬停可停止；没有子代理时入口不显示。界面设计到此全部定了 |
 | 12 | 2026-11-16 | 拆分：对话面板改版到 t36、状态栏自定义到 t37；开发者确认本 Task 的[计划](plan.md) |
+| 13 | 2026-11-16 | 开发者批准 Spec 晋升：`models/settings-pages.md` 输出 1、12，`agent/profile-settings.md` 输出 2，`agent/conversation.md` 输出 33 去掉 planned；本 Task 完成 |
 
 合同：改 [`models/settings-pages.md`](../../../../../docs/specs/models/settings-pages.md) 与 [`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md)。
 
@@ -98,6 +99,12 @@ Lab 截图：服务商页四个场景、`ProfileRail` 两个场景、`SubagentCa
 
 验证：`test:affected --since master --typecheck`，nb-agent-ui、nb-markdown 全过；nb-story 1 条、neuro-book 的 bun 3 条、vitest 1 条失败。这几条都不在本次改动的文件里：`builtin-names` 缺 `nbook.desktop` 是 master 上的原有失败；其余是负载 13 到 22 时的超时，单独重跑时片段示例的 DOM 测试通过，`server-projects` 每次超时的不是同一条。审查修正之后重跑：三个 DOM 测试文件 37 条与 `subagent-card.test.ts` 通过，`typecheck` 通过。
 
+e2e：`models.e2e.ts` 4 条全过（含窄时删除、删除的三条路与焦点、条目的名称与描述）。`lab-scenes` 挂在 `ThemeEditor` 两个场景的资源 404 上（本 Task 没碰），挡在版面比对之前；按验证门禁改用 `nbdev shot` 的测量：`ProviderRail`、`ProvidersPage` 七个场景、`ProfileRail` 两个场景，手机与自由画布全部 0。其中“新建 Profile”的焦点光晕被裁在 master 上同样量得到（原有问题），Profile 多到左栏滚动时滚到底也会被裁，所以两个左栏底部留 `--space-2`（`58f161135`）。
+
+负载降到 8 后单独重跑 `test:affected` 里超时的几条：nb-story `server.test.ts` 10 条、`server-projects.test.ts` 9 条、`plugin-sdk/pack.test.ts` 13 条都通过；`builtin-names` 缺 `nbook.desktop` 是 master 上的原有失败。
+
+2026-11-16 合入 master（`9131f0fea`），实现 worktree 与分支已删。草稿 worktree `.worktree/w00032-t29-drafts`（分支 `t29/drafts`）留着：对话面板、子代理管理、模型提示、状态栏的稿是 t36、t37 的参照，t37 做完再删。
+
 ## 下一步
 
-`e2e/models.e2e.ts` 与 `lab-scenes` 跑过、负载降下来后单独确认几条超时，然后合入。
+无。本 Task 完成（决定 13）；对话面板改版接着在 [t36](../t36-conversation-panel-redesign/README.md) 做。

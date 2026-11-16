@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t10-frontmatter-panel",
+    "artifactId": "review",
+    "answerId": "20261116T082643073Z-e850d101",
+    "artifactVersion": 2,
+    "contentHash": "abd1635c7c89df1df56cd856799e52ce7589b1a91ace8b00cf5e6201368bde80",
+    "submittedAt": "2026-11-16T08:26:41.458Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "q6-details": true
+    },
+    "comments": {
+        "q6-details": "你这些图标是怎么映射的？要不要提供贡献点？或者提供直接在 frontmatter 指定图标的能力？"
+    },
+    "note": null
+}

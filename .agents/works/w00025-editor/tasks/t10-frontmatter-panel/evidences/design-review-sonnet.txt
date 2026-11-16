@@ -1,0 +1,172 @@
+## 1. [阻断] 属性模型：Document.toString() 会改写没动过的字段，“没动的字段与写法原样保留”做不到
+- 类别：不变量 / 依赖的机制不存在
+- 位置：plan.md 技术选型第 1 行（`yaml` 的 parseDocument 与 Document API）、关键设计“属性模型”第 2 条（“都走 Document API”）、Spec 改动里方言输出 22 新写法（“没改的字段、注释与写法原样”）
+- 现象：用仓库里装的 yaml 2.9.0（/home/notnotype/CodeRepository/neuro-book/node_modules/yaml）对一份普通 frontmatter 只做一次 `doc.set("title","New")` 再 `toString()`，没动的字段也变了：
+  - 不带缩进的块序列 `tags:\n- a\n- b` 变成 `tags:\n  - a\n  - b`；
+  - 一行 100 多字符的普通字符串被折成两行（lineWidth 默认 80）；
+  - `list: [x,   y]` 变成 `list: [ x, y ]`；
+  - 两个空行缩成一个；`n: 0x1F` 变成 `0x1f`。
+  连一次没有任何修改的 `parseDocument(src).toString()` 也与原文不同（实验脚本 /tmp/review-w00025-t10-design/scratch/y.mjs，可重跑）。
+- 为什么是问题：计划把“只变这一行”（e2e：保存后磁盘上只变这一行）与方言输出 22 的“没动的字段原样”都押在 Document API 上，但 Document API 保留的是注释与引号风格这类 AST 上的信息，字节级的空白、缩进、折行、数字写法都不保留。结果是：用户在面板里改一个勾选，git diff 里整段 frontmatter 都在变；且这破坏了方言 Spec 输出 1“不编辑不改字节”的精神边界（编辑了一个字段却牵动全部）。e2e 的“磁盘上只变这一行”会在 fixture 恰好全是规整写法时碰巧通过，掩盖问题。
+- 如何核实：运行 `bun /tmp/review-w00025-t10-design/scratch/y.mjs`；看输出里 tags、desc、list、n 四处。
+- 建议改法：`yaml` 只用来解析与定位（`parseDocument` 取每个 pair 的 `key.range`、`value.range` 与整个 pair 的起止行），改动一个字段时只对那一个 pair 的源码范围做替换（新值用 `yaml` 的 stringify 单独生成一个 pair 的文字，再按该 pair 的缩进接回），其余字节原样拼接。add 在映射末尾追加一行，remove 删这个 pair 的行范围（连同紧贴的行内注释，前导注释的归属要定规则）。把“没动的字节不变”写成模型测试的性质（fast-check：任意规整或不规整的 frontmatter，改一个键，别的 pair 的源码切片逐字节相同）。同时在计划里写明这个取舍：范围替换比 Document API 多写的代码量，换来的是合同能兑现。
+
+## 2. [阻断] 守护插件会拦掉撤销、重做与外部重载，造成“删不掉”和磁盘数据复活
+- 类别：并发 / 撤销 / 合同
+- 位置：plan.md“节点视图与守护”第 3 条（守护插件：删除 frontmatter 节点而没有带‘删除属性’元数据的事务，在同一笔里补回）、Spec 输出 12（重载）与 `MarkdownControl.vue` 的 `quietly`/`reload`（约第 112、202 行）
+- 现象：守护看的是“这笔事务删了节点且没带我的元数据”，但有三类事务会合法地删掉这个节点，且都不会带这个元数据：
+  1. 历史插件的撤销：撤销“添加属性”（`---` 输入规则或命令创建了节点）就是删节点；
+  2. 历史插件的重做：重做“删除全部属性”也是删节点；
+  3. 重载：`codec.reload` 在 `quietly` 里对 `tr` 做 `replace`，外部把 frontmatter 删了（git checkout、别的编辑器），读入的新文档没有这个节点。
+- 为什么是问题：我用仓库里装的 prosemirror-state/history 1.x 写了最小实验（/tmp/review-w00025-t10-design/scratch/g.mjs，schema 为 `frontmatter? block+`，守护照计划写）：添加节点后撤销，节点仍在；带元数据删除后撤销再重做，节点仍在。即“面板的修改进正文的撤销历史”这一条对增删这两类操作不成立；撤销栈被消耗但文档不动。重载那条更糟：守护在重载的事务里把旧节点补回，编辑器显示磁盘上已经没有的 frontmatter，下一次任何编辑的写回会把它写回磁盘（复活），而 `view.confirmed` 已经等于最新修订，不会有冲突提示。再加上“协同（另一组同时改）”走的就是 reload，同样被拦。
+- 如何核实：运行 `bun /tmp/review-w00025-t10-design/scratch/g.mjs`；重载那条按 `MarkdownControl.vue` 的 `quietly` 加 `codec.reload` 读代码即可确认事务不带任何元数据。
+- 建议改法（任选其一，推荐第一种）：
+  - 不把 frontmatter 放成文档的子节点：放成 `doc` 节点的属性（prosemirror-transform 1.12 已有 `tr.setDocAttribute`，装在 node_modules/prosemirror-transform 里），面板由节点视图之外的装饰（`Decoration.widget`，side -1）或控件层的 Vue 组件在正文上方画。这样全选删除、剪切、块菜单的删除、粘贴、拖动、`Selection.atStart`、位置偏移全部不用管，守护插件也不需要；撤销走 DocAttrStep，历史插件原生支持；重载把属性也比较一遍即可。详见第 3、4 条列出的、放成子节点要额外处理的面。
+  - 若坚持子节点：守护改为在 `filterTransaction` 里只拒绝“选区删除类”的事务（用 `tr.getMeta("uiEvent")`/明确的命令入口判断），放行带 `history$` 元数据（撤销、重做）、`addToHistory:false`（重载、写法回填）与 `setMeta("nbRemoveProps")` 的事务；并为此各补一条 DOM 测试（撤销添加、重做删除、外部删除后重载）。
+
+## 3. [重要] 放成文档子节点后，编解码器与周边要改的地方远多于计划写的“用到前缀的地方改用这次的前缀”
+- 类别：遗漏 / 隐含耦合
+- 位置：plan.md“nb-markdown：frontmatter 节点与编解码器”写第 2 条（“正文的块不含这个节点”）；`packages/nb-markdown/src/language/codec/write.ts`、`codec.ts`、`packages/nb-markdown/src/editor/block-actions.ts`、`MarkdownControl.vue`
+- 现象（逐处读代码确认，不是按名字推断）：
+  1. `itemsOf`（write.ts 约第 95 行）对 `doc.forEach` 的每个子节点分类，非空段落全算“内容节点”，没有“跳过第一个子节点”的口子；节点没有来源登记，会被当成要重新写出的项，去找一个不存在的写法。要在 `itemsOf` 里排除它，并保证 `Item.from/to`（绝对位置，`failure.from/to` 与 `plainFallback` 用它做 `replace`）仍对得上；“整篇没有内容”的判断（约 296 行 `found.length === 0`）与 `emptyBody` 也要在排除后算。
+  2. `SourceMap.prefix` 是只读字段（read.ts 约 56 行），且 BOM 与 frontmatter 合在一起。要“这次的前缀 = BOM + raw”，必须先把 BOM 单独存下来，再让 `writeOnce`、`plainFallback`（约 283 行，抢救正文）、`frontmatterBreak`（约 333 行）、前缀校验（约 550 行）、`text:`（约 609 行）全部改读新值。漏掉 `plainFallback` 那一处，写不出时给用户的“抢救正文”就用旧 frontmatter，面板里的修改在抢救文本里丢掉。
+  3. `MarkdownControl.vue` 的 `blockAt`（约 102 行）按 `doc.forEach` 的下标报“第几块”，节点占下标 0，所有写不出的提示都会差一。
+  4. `block-actions.ts` 的 `blockAt`/`kindOfTop` 把顶层原子节点当“整块”，块按钮、块菜单对它都有效：`sibling()`（约 104 行）让正文第一块“上移”时与 frontmatter 对调、`duplicateBlock` 复制出第二个 frontmatter、“删除块”删掉它（再被守护补回）、块转换与批注也会落在它上面。`moveBlock` 是先 delete 再 insert，插入违反 `frontmatter? block+` 时 ProseMirror 的 `replaceStep` 会适配或丢弃，可能丢掉被移动的那一块。计划只说“原子、不可选、不可拖”，没有提块按钮与块菜单。
+  5. `adoptRead`（codec.ts）按下标用 `read.doc.child(index)` 配来源，与节点同占下标 0，这一处恰好对得上，但 `findDiffStart` 整篇比较时，frontmatter 节点的比较依赖 `raw` 属性相等，计划没有写 `raw` 里的换行符归一与“重载只换不同的一段”之间的关系（外部把 CRLF 改 LF 时节点会被换掉，面板的展开与焦点随之重建）。
+  6. 展示器与提示词编辑器“不带”这个节点，但 `language-registry.ts` 的 `languageFor(catalog)` 只返回一份共用的语言，`schemaFor`/`codecFor` 按语言缓存；计划写“MarkdownControl 的语言带 frontmatter 语法”，却没有说语言从哪里分叉（是 `languageFor` 加一个参数，还是语言对象上的开关），也没有说 Spec markdown-syntaxes 输出 7“视图建立时取定语言”与新分叉的关系，以及 `reservedSyntaxNames`（names.ts）里要不要登记 `type:frontmatter`，避免外来方言撞名。
+- 为什么是问题：写回是这个仓库最严的不变量（方言输出 1–3），计划把这一块的风险只押在 fast-check 往返测试上，但往返测试只覆盖“没编辑”，覆盖不到上面第 2、3、4 处。
+- 如何核实：`grep -n "doc.forEach\|map.prefix\|doc.childCount" packages/nb-markdown/src/language/codec/write.ts packages/nb-markdown/src/editor/block-actions.ts`；按 `languageFor` 的调用点看分叉处。
+- 建议改法：采用第 2 条的“放成 `doc` 属性”则 1、3、4、5 全部消失，`prefix` 只需让 `writeOnce` 接受一个 `prefix` 参数（`{...map, prefix}` 共享同一批 WeakMap 即可）。若仍用子节点，计划里要列出上面这张清单，并给 `block-actions` 补“顶层第一个节点是 frontmatter 时排除”的测试。
+
+## 4. [重要] 子节点方案下，块菜单“上移”会把正文第一块直接删掉（已用最小实验复现）
+- 类别：正确性 / 被破坏的既有约定
+- 位置：`packages/nb-markdown/src/editor/block-actions.ts` 的 `sibling`/`moveBlock`/`canMoveBlock`（约 100–130 行）；plan.md“frontmatter 节点”（原子、不可选、不可拖，只字未提块菜单）
+- 现象：schema 为 `frontmatter? block+` 时，把 `moveBlock` 的做法（先 `tr.delete(块)` 再 `tr.insert(新位置, 块)`）照搬到 `fm|A|B`：“A 上移”得到 `frontmatter|B`，插入这一步被 ProseMirror 适配成零步（steps 1，只剩删除），A 凭空消失；“frontmatter 下移”得到 `A|B`，frontmatter 消失（再被守护补回）；“复制 frontmatter”零步，静默无效。实验：/tmp/review-w00025-t10-design/scratch/m.mjs（schema 与 `moveBlock` 的步骤同构，prosemirror-transform 1.12）。`canMoveBlock` 只看有没有兄弟节点，正文第一块的“上移”菜单项是可点的。
+- 为什么是问题：块菜单里正文第一块“上移”是日常动作，结果是内容消失、没有错误提示（可以撤销，但用户不知道发生了什么）；既有测试（block-actions.dom.test.ts）的文档里没有这个节点，抓不到。
+- 如何核实：运行 m.mjs；或在带 frontmatter 的文档上读 `sibling()` 的下标逻辑。
+- 建议改法：与第 2 条相同，frontmatter 不进文档的块序列最稳（放成 `doc` 属性）。若保留节点：`blockAt`/`sibling` 对 frontmatter 一律返回 null（块按钮不出现、菜单项置灰），并加 DOM 测试“带 frontmatter 的文档里，第一块上移被禁用、选区在第一块时 Backspace 不动 frontmatter”。
+
+## 5. [重要] 面板写进节点的 raw 没有合法性约束；源码区一个手误会让整份文档进入“写不出”，还把错怪在正文第一块上
+- 类别：失败路径 / 不变量
+- 位置：plan.md“MarkdownProperties.vue”（源码区：失焦或 Ctrl+Enter 提交）、“属性模型”第 2 条（新 `raw` 的生成）、写（`write.ts`）一条；代码见 `write.ts` 约第 541–556 行
+- 现象：写回要求“这次读回的前缀恰好等于这次写出的前缀”（write.ts 第 550–556 行，前缀不等且正文第一块不是分割线时返回 `unrepresentable(first, "正文开头会被读成 frontmatter")`）。用户在源码区里：删掉结尾的 `---`、在中间写一行 `---`、或把开头的 `---` 删了，提交的 `raw` 就不再是 `splitFrontmatter` 能整体切出的前缀。后果因正文而异：正文里有分割线时，`splitFrontmatter` 把正文一直吞到那条分割线；没有时前缀变空。两种都让 `prefix !== 这次的前缀`，写回报“写不出”，`MarkdownControl.commitNow` 随即 `view.held = true` 并 `binding.block(...)`：整份文档停止接收这个视图的输入（Spec 输出 61），提示指向“第 1 块”，而第 1 块是无辜的。计划的“YAML 写错时整块显示源码并标出错处”只覆盖 YAML 语法错，不覆盖围栏错。
+- 同类的没写出来的约束：
+  - 新建空节点（输入规则、命令）的换行符：节点不认识 `map.eol`，CRLF 文件里会写出混合换行；`dominantEol` 是读入时算的，节点视图拿不到；计划写“换行符沿用原文”只对改已有节点成立。
+  - 文末闭合不带换行的节点（`---\na: 1\n---`）被面板改完后：`setValue` 返回的新 `raw` 是否保留“无结尾换行”未规定；`frontmatterBreak`（write.ts 第 334 行）靠前缀末尾有没有换行判断要不要补，模型返回的 `raw` 若总是补一个换行，字节就变了。
+  - BOM 不在节点里，但新建节点时前缀要拼 BOM：`SourceMap.prefix` 里 BOM 与 frontmatter 混在一起，计划没有说 BOM 单独存在哪。
+  - 空 frontmatter（`---\n---\n`）：`parseDocument` 对内容给 `null`，必须按“零行、合法”处理，不是“顶层不是映射”的错；只有注释的 frontmatter 同理。
+  - YAML 重复键：`parseDocument` 给出 `DUPLICATE_KEY` 错误，之后 `toString()` 直接抛 “Document with errors cannot be stringified”（我实验到了）。很多真实文件有重复键，面板应显示为只读源码，不能进入改值路径。
+- 如何核实：读 write.ts 第 541–556 行；对重复键与空内容运行 scratch/y.mjs 的最后几行（空内容 `contents === null`，重复键 `errors` 非空）。
+- 建议改法：面板提交 `raw` 前统一过一道 `splitFrontmatter(raw + "x").prefix === raw`（`x` 取一个会被当作正文的探针），不满足就留在源码区、红框提示“开头结尾必须各有一行 `---`，中间不能有只含 `---` 的行”，不进事务；把这条检查与 `write.ts` 的前缀校验放同一个函数里复用。换行符由宿主经 `viewHost` 传给节点视图（取 `map.eol`），BOM 在 `SourceMap` 里另存一个字段。模型层把“结尾无换行”写进 `setValue` 的合同并测一条。
+
+## 6. [重要] 属性模型的类型与键规则有几处会静默改变含义或找不到字段
+- 类别：边界 / 失败路径
+- 位置：plan.md“属性模型”第 2、3 条（`{key, kind, value}`、`setValue`/`rename`/`remove`/`changeKind`）
+- 现象（均用 yaml 2.9.0 实验，脚本 /tmp/review-w00025-t10-design/scratch/k.mjs 与 y.mjs）：
+  1. 行用字符串 `key` 标识，但 YAML 的键不一定是字符串：`1: one`、`true: t` 解析为数字、布尔键，`doc.get("1")` 返回 undefined、`doc.has("true")` 为 false（要用 `doc.get(1)`）。所以 `setValue`/`remove` 按字符串键查会静默落空或误报“不存在”；`rename` 的“撞名拒绝”也会漏判（字符串 `"1"` 与数字键 `1` 在 YAML 里是两个键，显示上却一样）。应以 pair 的位置（下标或节点对象）定位，键的显示用 `String(key.value)`，非标量键（`? [x]`）与合并键 `<<` 归入“复杂”只读行。
+  2. 文字类型的值写成 `yes`/`no`/`on`/`off`/`y`/`n`/`~` 时，yaml 默认的 1.2 核心模式不加引号（实验：`d.set("d","yes")` 输出 `d: yes`）。Obsidian、Jekyll（Psych）、Hugo 等按 1.1 读，会读成布尔。计划的“推断”一条只说 YAML 1.2 的行为，没有写入时的防护；用户在文字框里写“yes”，面板写出的文件在别的工具里变成勾选。建议 stringify 选项用 `version: "1.1"` 取引号规则（只影响新写出的那个值），或自己维护一张需加引号的字面量表，并写入 Spec（“文字类型的值写出后，按 YAML 1.1 与 1.2 都读回同一个字符串”）。
+  3. 推断是按值走的，所以 `"2024-01-01"`（带引号的字符串）与 `2024-01-01`（普通标量）都判成“日期”；改日期时应保持它们各自的引号风格（yaml 的 `Scalar.type` 会保留），计划没有写，模型测试里要有一条。时间戳 `2024-01-01T10:00:00Z` 在 1.2 核心模式下是字符串，推断为“文字”，没问题，但要写进“不做”里（计划写了“日期时间类型不做”，只是推断规则里没提它落到文字）。
+  4. `changeKind` 的“列表转文字用‘、’连接、文字转列表按‘、’与逗号拆”：英文内容（`a, b`）被用顿号连接很怪；含逗号的单个值（如 `Smith, John`）转列表被拆成两项，再转回文字得到 `Smith、John`，不可逆。可逆性在计划里只有一句“转不了的拒绝并保留原值”，没有“转了再转回得到原值”的约束。建议改类型时先给出预览值（菜单项上显示结果）或只允许无损转换：文字 ↔ 数字（能解析）、文字 → 列表（整串作为一项）、列表 → 文字（按语言用 `、` 或 `, `），其余拒绝。
+  5. 空值：`d:`（null）推断为文字，用户在文字框里输入再清空，`setValue("")` 写出 `d: ""` 还是 `d:`？计划没说；应约定“清空文字写回 null，仍显示为空文字”，否则一次点进去再出来就改了字节。
+  6. 重复键：`parseDocument` 给 `DUPLICATE_KEY` 错误，之后 `toString()` 抛异常（见第 5 条）。必须归入“写错”（只读源码），而不是 `ok: true`。
+  7. 多行字符串、块标量（`|`、`>`）、多文档（`MULTIPLE_DOCS`）：计划把多行字符串归“复杂”（对），多文档没提；frontmatter 的闭合行已由 `splitFrontmatter` 切在第一条 `---` 上，所以内部不会有 `---`，但以 `...` 结尾或 `%YAML` 指令的内容会进来，也应走“写错”。
+- 如何核实：`bun /tmp/review-w00025-t10-design/scratch/k.mjs`（键类型与 `yes` 不加引号）；其余按 yaml 文档读。
+- 建议改法：把上面 1、2、5、6 写成模型测试的显式用例（每条一个失败方式），行标识改用 pair 下标，stringify 的 `version` 在计划里写明。
+
+## 7. [重要] 面板里“还没提交的输入”不属于文档，保存、切走、重载、只读时的去向计划没有定
+- 类别：遗漏 / 并发 / 合同（editor 输出 9、12、13、61）
+- 位置：plan.md“MarkdownProperties.vue”（值在失焦、Enter、选定时提交成一笔事务）、“neuro-book：接入”；代码 `MarkdownControl.vue` 的 `commitNow`（约 137 行）、`binding.attach(commitNow, () => timer !== null || editor?.view.composing === true)`（约 234 行）、`reload`（约 202 行）、`editor.setEditable(!props.readonly)`（约 229 行）
+- 现象：
+  1. 草稿的去向：文字输入、源码区在用户停手到失焦之间，值只在 Vue 组件的本地状态里。控件对外的“有没有没交出的输入”只看 `timer !== null` 与 `view.composing`（编辑器自己的输入法状态，面板里的输入框不会让它为真），所以 Ctrl+S、自动保存的“停手后”顺延判断、切换标签（`leave` → `commitNow`）、拆分与关闭标签前的结算，都不知道面板里有草稿。结果：保存写出的是草稿之前的值，状态栏却显示已保存；随后失焦又提交，文档又 dirty；关闭标签时若失焦事件发不出（组件卸载先于失焦），草稿静默丢失。Spec 编辑器输出 9 要求“换文档前先结算旧视图的输入”，这里没有对应的结算。
+  2. 重载冲突：`reload` 在别的视图（输出 12，同文档在几个组里共用正文）或磁盘改了 frontmatter 时替换节点；用户正在面板里改的草稿被节点更新冲掉，没有提示。至少要让“有草稿”进入 `held`/未裁决输入的路径，或在 reload 前先结算草稿。
+  3. 只读：文件被外部删除或订阅结束后 `readonly` 为真，控件调 `editor.setEditable(false)`，但面板是节点视图里自己的 Vue 组件，计划没有说它读 `editor.isEditable`/`props.readonly` 并禁用输入、“添加属性”与类型菜单。漏掉就是只读文档里仍可改 frontmatter。
+  4. 撤销的归属：属性输入框得到焦点后，Ctrl+Z 是浏览器原生的输入框撤销，还是工作区的 `nbook.edit.undo`（`MarkdownControl.vue` 第 403 行调 `editor.commands.undo()`），取决于快捷键层是否放过可编辑目标；计划只写“正文里 Ctrl+Z 能撤”，没有写焦点在面板输入框里时谁处理，两种处理都会让用户困惑（原生撤销吃掉草稿，或工作区撤销在草稿存在时撤到更早的提交）。
+  5. 视图更新：节点视图必须实现 `update`（`image-views.ts` 就是这样），否则每次 `setNodeMarkup` 改 `raw` 后 ProseMirror 因属性不同重建节点视图，面板的焦点、源码模式与“添加属性”里的草稿全部丢失。计划只说“照 image-views.ts”，没写 `update` 要保留组件与本地状态，也没说展开状态与源码模式放在节点视图里还是宿主里。
+- 如何核实：读上面几处代码；`binding.attach` 的第二个参数与保存路径（editor.md 输出 63 的自动保存按它顺延）；`image-views.ts` 第 49–55 行是有 `update` 的参照。
+- 建议改法：面板内部每个输入在 `input` 事件上就把草稿登记到节点视图的“待交”集合，控件的 `pending` 回调（第二个参数）与 `commitNow` 前先让面板结算（`flushDraft()`，同步提交成一笔事务）；`reload` 前同样调用；只读由宿主给的 `readonly` 往下传。快捷键归属写成一条验收：焦点在面板输入框里，Ctrl+Z 撤销该输入框里的草稿，草稿已提交（失焦后）再按才撤文档，并在计划里写明实现位置。
+
+## 8. [重要] 输入规则：与现有“`---` 变分隔线”规则同时命中，先后与几处边界没定
+- 类别：接口与合同 / 边界
+- 位置：plan.md“节点视图与守护”第 4 条（输入规则）
+- 现象：StarterKit 带的分隔线规则是 `/^(?:---|—-|___\s|\*\*\*\s)$/`（node_modules/@tiptap/extension-horizontal-rule/dist/index.js 第 72 行），在打下第三个 `-` 的那一刻就触发，不需要空格或回车。新规则的触发条件完全相同（第一段开头的 `---`），同一次输入两条规则都命中，谁先谁后取决于扩展 `priority` 与顺序，计划没写；规则不是“其它位置照旧”这么简单：
+  1. 必须比分隔线规则优先（给新规则的扩展 `priority` 高于 100，并有 DOM 测试证明：同一份语言里，第一段开头打 `---` 得到 frontmatter，不是分隔线；有 frontmatter 的文档里同样的输入得到分隔线）。
+  2. macOS 等平台的“智能破折号”会把 `--` 换成 `—`，所以 `—-` 也是触发串（分隔线规则已包含）。新规则要同样包含，否则 Mac 用户打 `---` 得到分隔线。
+  3. 触发判断是“光标前的文字 === `---`”，光标后若还有字（在一段已有文字的开头打 `---`）也命中，分隔线规则是这个行为；frontmatter 规则命中时，后面的那段文字应保留为第一个正文段，而不是被吞。
+  4. 没有 frontmatter 的文档里，用户想要的“文件开头的分隔线”从此只能先打 `***` 或在下方插入再上移（块上移又撞第 4 条）；这是行为回退，需要在 Spec 里写明，并给“输入规则触发后立即 Backspace 还原为 `---` 文字”（Tiptap `undoInputRule`）一条验收，这是用户纠正误触的唯一出路。写回侧（write.ts 约 541–556 行）还专门为“正文开头的分隔线会被读成 frontmatter”写了分支，说明它是真实路径。
+  5. “焦点到新属性名”：规则在事务里创建节点，Vue 组件在 `view.updateState` 之后才挂载并可聚焦，需要在挂载后的 `nextTick`/`requestAnimationFrame` 里取焦点，并要处理输入法组字状态与 `view.focus()` 之间的竞争；计划只写了结果。
+- 如何核实：读 horizontal-rule 的 `addInputRules`；Tiptap 的 `inputRules` 按扩展优先级排序，先命中先返回。
+- 建议改法：写明优先级与触发串，把上面 1、3、4 写成 DOM 测试；Spec 的“`---` 添加”一条写明“仅文档没有 frontmatter 且光标在第一段开头”，并写一句“要在文件开头放分隔线，先打 `***` 再空格”（核对 `***\s` 规则也满足后写入）。
+
+## 9. [重要] 展开状态记录：同一条记录存一个列表，read-modify-write 会在多窗口下丢更新，且没有无项目时的退路
+- 类别：并发 / 兼容 / 被破坏的既有约定
+- 位置：plan.md“neuro-book：接入”第 2 条（`editor.properties-open`，最多 200 个、按最近使用淘汰）；对照 `packages/neuro-book/src/plugins/editor/web/comment-margin-record.ts`
+- 现象：计划说“同 `comment-margin-record.ts` 的做法”，但那条记录只存一个布尔（`{on: boolean}`），toggle 是 `margin.commit(next)`，不存在合并问题。这里存的是文件地址的列表，两个浏览器窗口（或同项目的两个标签页）对同一项目分区记录各自 `commit` 时，`next` 基于各自的 `display` 计算，后写的覆盖先写的，丢掉对方新展开的文件（同时 LRU 的淘汰顺序也乱）。另外：
+  1. `comment-margin-record.ts` 末尾有 `memoryCommentMargin`（没有绑定作品时只在这次运行里记着），计划没提这个退路；Lab 与组件测试不经插件挂控件时需要它（`MarkdownControl.vue` 注释里写了“Lab 与组件测试不经插件挂控件时没有”）。
+  2. 记录坏了或保存失败（`save.state === "failed" | "unknown"`）时，那条记录的做法是只改显示、不重试；列表版同样要写，计划只说“读不出时按收起”。
+  3. 文件改名、移动后地址变了，展开状态丢失，旧条目占着 200 个名额直到被淘汰；Spec 里写一句即可，不必做迁移。
+  4. 缺省收起、展开状态按文件记：最常见操作是展开—改—再收起，每次都写一次本机记录，Spec 里没有写保存失败时用户看到什么（比页边开关更频繁）。
+- 如何核实：读 comment-margin-record.ts 全文（53 行）；看 `persist` 的 `commit(next)` 以哪份 `display` 为基准（`nbook/shared/store/store`）。
+- 建议改法：改存“按文件记一个布尔”的映射，且以单个文件为粒度提交（`commit` 的 `next` 里只改这个键），或沿用单布尔语义，把“缺省展开还是收起”做成一条用户设置加每文件覆盖；两窗口丢更新在 Spec 里写成已知限制并给理由（个人显示偏好，丢一次无害，后写者胜），不加机制（符合“窄场景选简单改法”）。
+
+## 9 更正（收窄：原第 9 条“多窗口丢更新”不成立，严重程度由“重要”降为“建议”）
+- 复核 `packages/neuro-book/src/shared/store/persisted.ts` 第 383–398 行：`commit(change)` 收到的是对当前值的函数，遇到修订冲突时以最新值重放这个函数后再写一次。所以只要面板用 `commit((current) => 只改这个文件的键)`，两个窗口各展开一个文件不会互相覆盖。原第 9 条里“后写的覆盖先写的”那一句撤回。
+- 仍然成立的只有：（a）没有绑定作品时要有 `memoryCommentMargin` 那样的内存退路（Lab 与组件测试需要）；（b）保存失败或记录读不出时的显示策略（“只改显示、不重试”）要照 comment-margin-record 写进计划；（c）文件改名后旧条目占名额，写进 Spec 的已知限制即可。严重程度：建议。
+
+## 10. [重要] 上游选择：“frontmatter 做成文档里的第一个子节点、面板做成节点视图”是计划里每个补丁的共同根因，且没有记录的理由
+- 类别：上游选择 / 别扭之处
+- 位置：plan.md“nb-markdown：frontmatter 节点与编解码器”“节点视图与守护”整体；Task README“现状与参照”只写了“正文上方没有现成的位置”，没有说为什么要放进编辑器文档
+- 现象：计划为了把一段“不属于正文”的字符串放进编辑器，要同时引入：改 schema 的 `doc`（StarterKit 关 `document`）、守护插件（第 2 条）、输入规则优先级（第 8 条）、写回里“跳过第一个节点”（第 3 条）、块菜单与块按钮的排除（第 4 条）、节点视图里抢焦点与 `stopEvent`/`ignoreMutation`（第 7 条）、prose 样式漏进面板（`display/markdown.css` 的 `.nb-markdown …` 后代选择器会作用到面板里的输入、列表与按钮，计划没有写隔离）、位置偏移（光标记录 `{offset: selection.head}` 与 `Selection.near`）。这是“调用方要为它写补丁”的信号。
+- 替代：frontmatter 放成 `doc` 节点的属性，面板是控件层（`MarkdownControl.vue` 滚动容器里、版心之上）的一个 Vue 组件，不在 ProseMirror 的 DOM 里。实验（/tmp/review-w00025-t10-design/scratch/d.mjs，prosemirror-transform 1.12 的 `setDocAttribute`）：改属性、撤销、重做、“删除全部属性”（设为 null）后撤销都走历史插件，选区全选后 `deleteSelection` 不会碰到文档属性，所以不需要守护。随正文滚动与版心宽度靠把组件放进滚动容器、与版心同宽实现，不需要在文档里。
+- 代价（要对比着写进计划，交开发者定）：
+  1. `codec.reload` 的 `adoptRead` 只比较 `content`（`findDiffStart`），要补一步“文档属性不同则 `setDocAttribute`”；
+  2. `doc` 属性要让编辑器的 schema 认（自己扩展 Tiptap 的 Document，`addAttributes`），展示器与提示词编辑器不带时就是缺省 null，不需要“两份语言”（第 3 条第 6 点的分叉消失）；
+  3. 面板要从 `editor.on("transaction")` 读文档属性并保证草稿结算（第 7 条）。
+  这三项都比“子节点方案”要做的补丁少，且写回侧只改前缀的来源（`writeOnce` 收一个 `prefix` 参数），其余编解码器不动。
+- “面板的修改进正文的撤销历史”这一条是板上“不用答、照做”的条目：`DocAttrStep` 满足。若开发者的意思是“与正文打字交错的撤销顺序”，同样满足（同一条历史）。
+- 如何核实：运行 d.mjs；看 `MarkdownControl.vue` 模板结构（工具栏、页边、滚动容器、版心）确认控件层有放面板的位置。
+- 建议改法：把“放文档属性还是放子节点”作为候选交给开发者，附上第 2、3、4、7、8 条的补丁清单与本条的代价对比，开发者定后再进计划。
+
+## 10 补充（对第 10 条替代方案的反向核对）
+- 页边（`MarkdownCommentMargin.vue` 第 229–256 行）的 ResizeObserver 只观察滚动容器、稿纸（`.markdown-control`）与卡片。面板放在稿纸之外（滚动容器内、稿纸上方）时，展开/收起使稿纸整体平移而稿纸与滚动容器自身尺寸都不变，批注页边不会重排，卡片与批注文字错位。所以替代方案要把面板也加进 `observeAll()`（或让面板放进稿纸元素里、`.markdown-control` 之内）；子节点方案在这一点上天然成立。这是替代方案的一项代价，不推翻第 10 条，写进代价清单。
+
+## 11. [重要] 切片与验收映射：写回风险最高的一片在第 4 片之前没有真实运行时证据，DOM 测试测不到计划押给它的几件事
+- 类别：验收映射 / 切片
+- 位置：plan.md“切片”“验收映射”“验证”“不做与风险”
+- 现象：
+  1. 第 2 片改 `write.ts`、语言与 schema，自跑只有编解码器单测（`codec` 往返与 fast-check）；`MarkdownControl` 切到带 frontmatter 的语言是第 4 片。也就是说，改写回不变量的这一片，要到全部做完才在真实运行时（`commitNow`、`reload`、`quietly`、保存、重新打开）里跑一遍。仓库里现成的真实运行时检验是 `packages/neuro-book/e2e/editor-area.e2e.ts` 第 1312 行（含 CRLF、frontmatter 的章节，打开、切走、关闭不改字节，编辑最后一段只变一行）与第 1632 行（换源码编辑器再换回）。建议把“控件切到带节点的语言，面板先是只读占位”提前到第 2 片末尾，当场跑这两个用例，再进第 3 片。
+  2. 验收映射里“DOM 测试经点击与按键”：`vitest.config.ts` 的环境是 happy-dom。Tab 切焦点、`selectionchange`、`beforeinput`/输入规则、ProseMirror 的焦点判断（`hasFocus`）与输入框的原生撤销在 happy-dom 里都不是真实浏览器行为。计划把“键盘：上下键与 Tab 在行间走、Esc 回正文、正文第一段上方向键进面板、`---` 输入规则、焦点到新属性名、全选删除后撤销”都押在 DOM 测试上，而 e2e 清单（打开、展开、改一个值、保存后只变一行、重开仍展开、斜杠菜单添加）一条键盘与焦点都没有。仓库约定“e2e 在真实运行时证明”，这些该有 e2e：Tab/方向键/Esc 进出面板且正文光标回到原位；真实键入 `---`；全选删除后撤销；面板里改值后 Ctrl+Z；外部改 frontmatter 后重载面板更新；带 BOM、CRLF 的文件经面板改一个值后保存，磁盘字节只变那一行（第 1 条里的 yaml 改写问题就是在这里暴露）；文件只读（外部删除）时面板不可改。
+  3. 风险里“守护插件补回节点时与撤销历史交错。DOM 测试覆盖‘全选删除后撤销’”：第 2 条实验显示真正出问题的是撤销与重做“添加/删除全部属性”，不是全选删除；计划列的这一条测不出。
+  4. fast-check 的性质只写了“带 frontmatter 的任意文档不编辑时逐字节相同”。应再加两条：(a) 编辑 frontmatter（任意合法 `raw` 替换）后，写出 = BOM + 新 `raw` + 原正文字节，正文块仍写原文；(b) 非法 `raw`（缺围栏、含单独一行 `---`）不被面板提交（第 5 条）或写回报“写不出”并指向 frontmatter 而不是正文第一块。生成器要覆盖：BOM、CRLF、文末闭合不带换行、`---\n---\n`、正文为空、正文只有空行。现有 `properties.test.ts` 的生成器（第 87–104 行）没有 frontmatter 维度，需要新写。
+  5. Spec 改动清单里没有写：`workbench/editor.md` 的“副作用与数据”里登记新记录（`editor.comment-margin` 就登记在 editor.md 与 markdown-editing.md 里）；方言 Spec 输出 22 与输出 1、2 的验收场景 1（含 frontmatter 的文件）要补一句“面板改动后”的场景；Spec 里要写面板在只读文档、写不出状态（输出 61）下的表现。
+- 如何核实：看 `packages/neuro-book/vitest.config.ts` 第 2、19 行；上面两个 e2e 的行号。
+- 建议改法：调整切片顺序（第 2 片末尾接入只读占位）；e2e 清单按第 2 点扩到真实键盘与撤销；每条 DOM 测试在验收映射里标“happy-dom 能测 / 只有 e2e 能测”。按验证门禁“一次超过 8 个文件要写明理由”，新增的这几条放进同一个 `markdown-properties.e2e.ts` 即可，不增加文件数。
+
+## 12. [建议] 与参照（Obsidian、旧应用面板）的差距：计划没有的项，以及两处与板上决定的出入
+- 类别：对照参照 / 与已定设计一致
+- 位置：plan.md 全篇；参照为 Task README“现状与参照”、`packages/neuro-book-legacy/app/components/markdown-studio/TipTapFrontmatterPanel.vue`
+- 列表（参照有、计划没有）：
+  1. Obsidian：属性之间拖动排序。计划只有增、删、改名、改值，行的顺序不能改；属性多时的常用操作缺失（可放进“不做”并写理由）。
+  2. Obsidian：设置“文档中的属性”可选显示、隐藏、源码三态。计划的“收起成一行摘要”是折叠不是隐藏；对只想看正文的人，一行摘要常驻。是否需要一个“隐藏”，应交开发者定（会增加一个设置）。
+  3. Obsidian：标签类型（`tags`、`aliases`、`cssclasses` 这类特殊键）。计划用“列表”覆盖，可以；但 `tags: a, b`（逗号字符串）在 Obsidian 里被当作标签，在这里推断为“文字”，用户要先改类型才能当列表用，改类型的“文字转列表按‘、’与逗号拆”这一条与此一致，没问题，只是要在 Spec 里写明不特殊处理 `tags`。
+  4. 旧应用面板：折叠态显示第一行摘要、“去掉 frontmatter”、按角色/地点/规则的“档案表单”。前两者计划有（“删除全部属性”）；第三者板上没有，不用做。
+  5. 板上第 5 条“表示不了的字段逐个退回只读的一行‘在源码里改’”，计划写成“退回只读的一行”，没写出那句提示与跳转：点它应展开源码区并把光标放在这一字段所在行（定位用第 1 条里的 pair 范围）。否则“在源码里改”是句空话。
+  6. 板上“不用答”里“宽度同版心、随正文滚动”与“展开状态按文件记住”：计划里展开状态的初始值与 YAML 写错时的关系没写（写错时整块显示源码，是否无视“缺省收起”强制展开，或在一行摘要上标红）。建议强制展开并在摘要上也标错，否则写错的 frontmatter 在缺省收起时看不见。
+- DateInput / TagInput 的小项：`TagInput` 的分隔只写了逗号，面向中文作者应同时接受“，”与“、”（reka-ui 的 `TagsInput` 的 `delimiter` 是字符串或 RegExp，`TagsInputInput.js` 第 64–71 行，组字期间已由它自己跳过）；`DateInput` 写“周一开头”与“按界面语言写月份”并列时要说明周首日是否随语言（`@internationalized/date` 的 `getWeekStart(locale)` 决定，美区默认周日）；`DateInput` 值为 `YYYY-MM-DD` 字符串，清除日期（置空）怎么做没写。
+- 如何核实：对照上面列出的文件。
+- 建议改法：把 1、2 作为“是否要做”交开发者；5、6 补进计划与 Spec 输出；其余并入各组件 `.md`。
+
+## 12 更正
+- 第 12 条第 3 点里“`tags: a, b` 在 Obsidian 里被当作标签”这一句我没有核实，撤回；该点只保留“Spec 里写明不特殊处理 `tags`、`aliases` 等键”。
+
+## 未发现问题的方面
+- nb-ui 两个新组件选 reka-ui 的 `DatePicker`、`TagsInput`：reka-ui 2.10.3 与 `@internationalized/date` 都已在 node_modules，`TagsInput` 已自己处理输入法组字期间的 Enter，选型成立；nb-ui 显式加 `@internationalized/date` 依赖是对的。
+- 不经 nb-form、在控件层复用 nb-ui：与第 2 轮板上的回答一致，仔细检查后没有发现问题。
+- `yaml` 作为 nb-markdown 的新依赖：只会进 `./editor`（`editor/properties/model.ts`），不进纯 TS 入口 `.`，不破坏“入口只依赖 entities”的边界（docs/modules/monorepo-boundaries.md 第 20 行）。
+- 方言 Spec 输出 1、2 的“没编辑就逐字节写原文”：若 frontmatter 节点按计划原样保存 `raw`、且 `itemsOf` 正确排除它，未编辑路径仍成立；问题出在编辑路径与周边（第 1、3、5 条），不在未编辑路径。
+- Spec 编号：`markdown-editing.md` 现有最后一条是输出 38，计划“39 起”正确。
+
+## 数量
+- 阻断：2（第 1、2 条）
+- 重要：8（第 3、4、5、6、7、8、10、11 条）
+- 建议：2（第 9 条已由“重要”收窄为“建议”、第 12 条）
+- 更正与补充：3 条（9 更正、10 补充、12 更正），不计入条数

@@ -12,7 +12,7 @@ import SkillInitDialog from "./components/SkillInitDialog.vue";
 import type {SessionHost} from "./session-host";
 import type {SkillInit} from "./skill-init";
 import type {SessionListStore} from "./session-list";
-import {subagentStoreKey} from "./subagent-store";
+import {subagentStoreKey, toolActionKey, toolActionOf} from "./subagent-store";
 import SessionPanelHost from "./SessionPanelHost.vue";
 
 const props = defineProps<{
@@ -31,6 +31,7 @@ const rootRef = ref<InstanceType<typeof AgentConversationView> | null>(null);
 
 // 子代理与后台命令卡片的数据：按宿主（这个对话位置的当前会话）一份，卡片注入，不进 ctx。
 provide(subagentStoreKey, props.host.subagents);
+provide(toolActionKey, (tool) => toolActionOf(props.registry, tool));
 
 let giveBack: (() => void) | null = null;
 onMounted(() => {

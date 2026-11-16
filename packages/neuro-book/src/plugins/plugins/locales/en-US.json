@@ -133,6 +133,10 @@
             "name": "Commands",
             "description": "Registers and runs commands; the command palette and keybindings run the commands registered here."
         },
+        "nbook-desktop": {
+            "name": "Desktop",
+            "description": "Window settings of the desktop app: zoom (with its shortcuts and commands) and opening NeuroBook when you sign in to Windows. The settings section appears only in desktop app windows."
+        },
         "nbook-editor": {
             "name": "Editor",
             "description": "Editor tabs and groups; opening and saving documents."

@@ -16,14 +16,14 @@ Chrome 的视口改变不等于 WebView2 的窗口拖动（后者还有窗口式
 | 活动栏（`WorkbenchToolStrip` 的 `TransitionGroup`） | 1 次更新 | 条目区随窗口高度变，`shownEntries` 每次是新数组 |
 | 资源管理器（`ExplorerTree` 的 `TransitionGroup`） | 1 次更新 | 视图高度变，`rendered` 每次是新数组，即使画的还是同一批行 |
 | 分隔线对齐（`SashHandle.snap`） | 每条线 1 到 2 次 | 一帧里逐条“读位置、写样式、读 `--sash-line-size`”，后一条的读被前一条的写强制重算 |
-| 状态栏条目（`WorkbenchItemStrip.remeasure`） | 2 次（左右两条） | 重量的 `watch` 用一个返回数组的函数当来源，上游每换一次条目数组就触发；测量层没写宽度，条目合起来比条带宽时被条带夹窄，尺寸随窗口变 |
+| 状态栏条目（`WorkbenchItemStrip.remeasure`） | 2 次（左右两条） | 重量的 `watch` 用一个返回数组的函数当来源，上游每换一次条目数组就触发 |
 
 ## 改法（行为合同不变）
 
 1. `useSashSnap` 改成两段：对齐函数只读、交回写入函数，一帧里所有分隔线量完再统一写；`SashHandle.snap` 把读 `--sash-line-size` 挪到量的一半。
 2. `EditorGroupHead` 的两个文案函数在 setup 里建一次。
 3. `WorkbenchToolStrip.shownEntries`、`ExplorerTree.rendered` 用 Vue 3.4 起的 `computed(previous => …)`：内容没变时交回上一次的数组。
-4. `WorkbenchItemStrip`：`watch` 改成三个来源的数组形式（Vue 逐个比值）；量出来的宽度没变时不换 `Map`；测量层 `width: max-content`（顺带修掉条目被夹窄时量到的是压过的宽度）。
+4. `WorkbenchItemStrip`：`watch` 改成三个来源的数组形式（Vue 逐个比值）；量出来的宽度没变时不换 `Map`。
 
 不做：让 `TransitionGroup` 只在拖动时出现（换组件会重建子元素，拖动中的标签会丢）；把各处 `ResizeObserver` 合并成一个调度（架构改动，收益是剩下的每步一两次）。
 

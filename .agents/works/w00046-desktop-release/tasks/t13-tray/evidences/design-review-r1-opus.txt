@@ -1,0 +1,127 @@
+# w00046 t13 设计审查第 1 轮（Claude Opus，只读）
+审查对象：.agents/works/w00046-desktop-release/tasks/t13-tray/plan.md
+
+## 1. 阻塞：模式 tray 下的应用级退出（托盘“退出”有窗口时、框架的退出请求）最后落进后台，永远退不掉
+- 位置：plan.md 31 行（“退出：有窗口时等于 quitRequested，最后一个以 quit”）对比 45 行（`#quitsOnClose`：自有、没有别的存活窗口、并且模式 quit 或托盘不可用）、47 行（窗口都关完时托盘可用就 onBackground）。
+- 问题：`quitRequested()` 只是对每个窗口走 `closeRequested`（windows.ts:166-169），原因取 `#isLast`（windows.ts:158）。按计划把它改成 `#quitsOnClose` 以后，模式 tray 时最后一个窗口的原因是 `window`，不提示在跑的工作；窗口关完时“自有、没在停止、托盘可用”成立，调 `onBackground`。结果：模式 tray 下从托盘点“退出”（有窗口时）只是把窗口全关了、进后台，图标还在；再点一次才走“没有窗口”的分支。31 行写的“最后一个以 quit”与 45 行的判定互相矛盾。
+- 依据：windows.ts:158、166-169、184-189、271-275；plan.md 31、45、47。
+- 建议：协调器加一个“应用级退出进行中”的标记（`quitRequested` 置位，任何一个窗口 `deny`、取消或强制关闭以外的收口时复位），`#quitsOnClose` 在这个标记为真时不看模式；窗口都关完且标记为真时走 `onQuit`/停止而不是 `onBackground`。单元测试补“模式 tray、两个窗口、quitRequested：最后一个以 quit 询问，同意后进入停止中，不进后台”。
+
+## 2. 应改：选了“在后台继续”而托盘此刻建不出来时，壳会停服务端、中断用户刚选择保留的工作；页面也不知道该不该给这个选择
+- 位置：plan.md 26 行（建托盘失败不进后台）、36 行（`background` 回答）、45-47 行（`trayAvailable()`；都关完时托盘可用才 onBackground，否则照旧）。
+- 问题：(a) 页面只凭原因 `quit` 决定给不给“在后台继续”（close-query.ts:216-226；桥的 close-query 只有 generation 与 reason，desktop-bridge.ts:74），不知道托盘能不能用。托盘不可用时用户点“在后台继续”，协调器 `#commit(id,false)` 后窗口关完，因托盘不可用走 `onAllClosed`，壳停服务端（shell.ts:446-454），正好打断用户要保留的工作，而且没有任何提示。(b) “托盘可用”不是启动时一次定下来的事实：Electrobun 2.0.6 的 `setVisible(false)` 走 `hideTray` → 原生 `removeTray` 删掉整个图标，`setVisible(true)` 走 `showTray` → `createNativeTrayForState` 重新 `Shell_NotifyIconW(NIM_ADD)`（core/main.zig:1769-1823、3915-3935；Tray.ts:115-134），每次显示都可能失败（`setVisible(true)` 只把 `visible` 设成 false，不抛错）。模式 quit 时图标平时是隐藏的，要到进后台那一刻才重新创建，所以“建托盘失败”恰好在最要紧的时刻才暴露。开机自启叠加模式 tray 时，登录早期 Explorer 的任务栏还没起来，NIM_ADD 失败是 Windows 托盘程序的常见问题。
+- 依据：close-query.ts:216-228；desktop-bridge.ts:74、90；shell.ts:446-454；Tray.ts:115-134；core/main.zig:1769-1823、3915-3935。
+- 建议：壳在发 `quit` 询问时决定给不给后台，桥的 close-query 加一个字段（例如 `background: boolean`），页面据此显示按钮，Spec 的 browser-host 输出 10 写成“壳允许时多一个选择”；收到 `background` 时先让适配层显示托盘、确认成功再提交关窗，失败就把回答当作 `deny` 并用壳的对话框说明（或者退回到再问一次），不要落进停止。对 `window` 询问或没有授权的 `background`，按无效消息丢弃并写诊断，比“按 allow”更不容易藏错。
+
+## 3. 应改：计划对 Electrobun 托盘的点击事实写错了，“左键单击等于打开”在 2.0.6 上做不到
+- 位置：plan.md 18 行（“右键（与 WM_CONTEXTMENU）弹 TrackPopupMenu……左键抬起也发 tray-clicked，action 为空串”）、28 行（左键单击等于“打开”）、54 行。
+- 问题：真正注册为窗口过程的是 `TrayWindowProc`（nativeWrapper.cpp:14639-14727，`wc.lpfnWndProc = TrayWindowProc` 在 14750）。其中 `case WM_LBUTTONUP:` 没有 break，直接落到 `case WM_RBUTTONUP:`（14670-14673）：只要设了菜单（`contextMenu` 非空），左键也弹出同一个右键菜单；只有在没有菜单时才以空串调 handler（14699-14712），这时左右键又分不出来。计划引用的 `WM_CONTEXTMENU` 分支与“左键发空串”在 `handleTrayIconMessage`（14956-14998）里，这个函数整个代码库没有调用方（grep 只有定义一处），是死代码。另外托盘没有 `NIM_SETVERSION`（全文件只在 14101 的通知气泡里设了 VERSION_4），所以是版本 0 的回调，`WM_CONTEXTMENU`/`NIN_SELECT`（键盘操作）不会来。
+- 已核实属实的部分：`Shell_NotifyIconW`、`LoadImageW(IMAGE_ICON, LR_LOADFROMFILE)` 宽高取自选项（14815-14816）、加载失败回退成 `IDI_APPLICATION`（14825-14828）、`setVisible(false)` 删图标而 `setVisible(true)` 重建（core/main.zig:1808-1823、3915-3928）、图标已由 electrobun.config.ts:29 复制为 `neurobook.ico`（index.ts:54 已在用）。
+- 依据：nativeWrapper.cpp:14639-14727、14750、14956-14998、14101。
+- 建议：二选一写进计划与 Spec：(a) 接受 2.0.6 的行为：左右键都弹菜单，“打开”放在菜单第一项并设为默认项（加粗），Spec 不写“左键等于打开”；(b) 不设菜单，在空串回调里自己弹菜单，但分不出左右键，不可取；(c) 像 win32.ts 补窗口样式那样用 bun:ffi 自己做托盘（自建窗口、版本 4 的回调、处理 TaskbarCreated，见第 8 条），工作量大，可作为后续。推荐 (a)，并在 Windows 探针里确认左键弹菜单、菜单点外面能收起。
+
+## 4. 应改：后台时从托盘“退出”的 8 秒取工作期间，窗口集合与停止状态都可能变，计划没定这段的规则
+- 位置：plan.md 31 行、49 行（`quitFromTray` 返回 "check-work"，壳取回后调 `quitWithoutWindows()` 或 `askQuitInNewWindow()`）、50 行。
+- 问题：取工作是壳里的异步段，协调器在这段里没有任何状态，下面几种组合都会出错：
+  - 期间用户点托盘“打开”或开窗转交（输出 2 此时回 ok）开出了窗口，取回“没有工作”后 `quitWithoutWindows()` 直接 `#stopping` + `onQuit`：窗口里的页面不经询问就失去服务端，用户刚打开的窗口在停止中挂着（`#stopping` 后关窗请求被忽略，windows.ts:148）。
+  - 期间再点一次“退出”：又开一次 8 秒取工作，最后 `onQuit` 调两次，或开出两个询问窗口。
+  - 期间来了框架退出请求：plan 50 行让它直接进入停止中，取回后 `quitWithoutWindows()` 再进一次。
+  - `askQuitInNewWindow()` 开的窗口在就绪前，别的窗口（托盘打开、开窗转交、页面新窗口）已经开出：就绪时若仍按 quit 询问，就违反输出 16 “以 quit 得到的同意一定对应真正的最后一个窗口”。
+- 依据：windows.ts:113-119、146-148、166-169、313-324；plan.md 31、49-50。
+- 建议：把“托盘退出”做成协调器里的一个状态（例如 `#trayQuit: "checking" | {askIn: WindowId} | null`）：checking 时再点“退出”忽略；取回之后只在“仍然没有窗口、没在停止”时才 `quitWithoutWindows`，否则退回到 `quitRequested()`；`askIn` 的窗口就绪时按 `#quitsOnClose` 决定原因（不是最后一个就不发 quit，或干脆改为对全部窗口 `quitRequested()`）。`onQuit` 的调用处加幂等保护。这些组合都要进 windows.test.ts（第 14 条）。
+
+## 5. 应改：协调器只在进后台时通知壳，离开后台时没有回调，壳无法收起图标、改回提示文字
+- 位置：plan.md 26 行（模式 quit 时图标只在后台显示，提示文字随后台变化）、47 行（新回调只有 `onBackground()`）、52 行（壳持有“在不在后台”）。
+- 问题：离开后台的入口有三个：开窗转交（锁的 `onOpenWindow` 直接调 `coordinator.openWindowRequested()`，shell.ts:179）、托盘“打开”、托盘“退出”里的询问窗口。它们都在协调器里开窗，壳不经手，按现有设计壳不知道已离开后台：模式 quit 下从开始菜单再打开以后，托盘图标一直留着，提示仍是“在后台运行”，再关最后一个窗口时也说不清该显示什么。
+- 依据：shell.ts:114-121、179；windows.ts:107-119；plan.md 26、47、52。
+- 建议：协调器给一个“后台状态变了”的回调（`onBackgroundChanged(inBackground)`），或者让壳按“窗口数从 0 变成正数”来判断；托盘的显示规则放在一个纯函数里（模式、在不在后台、自有不自有 → visible/tooltip），在 shell.test.ts 里按状态组合测。
+
+## 6. 应改：后台时自有服务端意外退出（输出 21），“稍后”后壳退出的路径不存在，“重新启动服务”后的去向也没写
+- 位置：plan.md 39 行（“选‘稍后’后没有服务端可留，壳退出”）；设计一节（45-50 行）与切片 3 的测试清单（62 行）都没有这一条。
+- 问题：现在的“稍后”只调 `serverAbandoned()`，即只把 `#ownsServer` 置 false（windows.ts:141-144；shell.ts:419-421），之后要等某个窗口关掉才会走到 `onAllClosed`。后台时没有窗口，“稍后”以后壳就留在一个没有服务端、没有窗口的状态里，托盘图标还在，提示还是“在后台运行”。另外：(a) 对话框开着时用户从托盘“打开”或开窗转交，开出的是指向已退出服务端的窗口，“稍后”之后不该退出；(b) 选“重新启动服务”成功后，壳应留在后台，计划没写；(c) 对话框文字“窗口保持，页面按离线”在后台时不成立。
+- 依据：windows.ts:141-144；shell.ts:412-436；desktop-shell.md 输出 21（128 行）。
+- 建议：协调器的 `serverAbandoned()` 在“没有窗口”时直接调 `onAllClosed`（有窗口时照旧）；Spec 在“后台与托盘”里写清后台时这个对话框的文字与两个选择的去向；单元测试补“后台、意外退出、稍后 → 退出”“后台、对话框期间托盘打开、稍后 → 不退出”“后台、重新启动成功 → 仍在后台”。
+
+## 7. 可选：询问期间改了模式，以 quit 得到的同意会落进后台，或反过来；计划没定以哪个时刻的模式为准
+- 位置：plan.md 45-46 行（`#quitsOnClose` 读当前模式，`pageAnswered` 里按当前判断提交）。
+- 问题：`pageAnswered` 在提交时重新判断（windows.ts:184-189）。模式 quit、最后一个窗口以 quit 询问、用户在提示里选“仍然关闭”之前，设置被直接改文件推成 tray（desktop-shell 输出 25：拥有者推给页面、页面交给壳）：提交时 `#quitsOnClose` 为假，`#commit(id,false)`，进后台，用户同意的是“停止并中断工作”。反过来模式 tray 时以 window 询问、期间改成 quit，会按输出 16 的重问规则再以 quit 问一次，这个方向没有问题。前一种不丢数据，但结果与用户刚看到的提示不一致。
+- 依据：windows.ts:178-190；desktop-shell.md 输出 25（138 行）。
+- 建议：以询问时的原因为准：quit 询问同意后就停止（即使此刻模式变成 tray），window 询问按现有重问规则走；写进 Spec 的“后台与托盘”一句话，并加一条单元测试。与第 1 条的“应用级退出标记”可以一起做。
+
+## 8. 应改：Explorer 重启后托盘图标不会回来，Windows 11 新图标缺省收在溢出区；后台时用户可能找不到 NeuroBook
+- 位置：plan.md 26 行（图标规则）、36 行与 56 行（提示说明“可以从系统托盘再打开”）、82 行（风险只列了清晰度、多显示器、菜单收起）。
+- 问题：Electrobun 的托盘窗口是 message-only 窗口（`CreateWindowW(..., HWND_MESSAGE, ...)`，nativeWrapper.cpp:14771-14781），这类窗口收不到广播消息；全文件也没有处理 `TaskbarCreated`（grep 无结果）。Explorer 崩溃或重启后图标消失、不会重建；后台时就成了没有窗口、没有图标的进程。另外 Windows 11 把新出现的通知区域图标缺省放进“^”溢出区，模式 quit 下第一次“在后台继续”时用户多半看不到图标。好在开窗转交仍然有效（从开始菜单再打开会多出窗口，输出 2、3），这条路是真正的兜底。
+- 依据：nativeWrapper.cpp:14771-14781（HWND_MESSAGE），全文件无 TaskbarCreated；desktop-shell.md 输出 2、3。
+- 建议：提示的说明改成“可以从系统托盘或开始菜单再打开”；Spec 已知限制写上 Explorer 重启后图标不回来（从开始菜单打开或注销恢复）；Windows 实测清单加“Explorer 重启后从开始菜单再打开”“Windows 11 溢出区里能找到并能点”。要根治需要自己用 bun:ffi 建一个顶层隐藏窗口收 `RegisterWindowMessage("TaskbarCreated")` 后调 `setVisible(false)`/`setVisible(true)` 重建，可以记为后续。
+
+## 9. 应改：退出前要主动移除托盘图标，否则通知区域留下“幽灵图标”
+- 位置：plan.md 54 行（适配层只写了建 Tray、按 setTray 显示隐藏）。
+- 问题：Electrobun 的退出路径不清理托盘：Utils.ts 与 index.ts 里除了导出没有碰 Tray，core/main.zig 的退出也不调 removeTray；`NIM_DELETE` 只在 `NSStatusItem` 的析构里（nativeWrapper.cpp:6336-6343），只有 `removeTray`/`hideTray` 会走到。适配层现在的 `exit` 直接 `Utils.quit(code)`（index.ts:516-520），进程结束后图标会留在通知区域，鼠标划过才消失；在后台从托盘“退出”时正好每次都看得到。
+- 依据：nativeWrapper.cpp:6336-6343、15005-15015；index.ts:516-520。
+- 建议：适配层在 `exit` 里先 `tray.remove()` 再 `Utils.quit`；进入停止中时把提示改成“NeuroBook（正在退出）”或直接移除图标（停止最长 90 秒，图标还在而菜单不响应会让人以为卡住）。Windows 实测清单加“退出后通知区域没有残留图标”。
+
+## 10. 应改：“后台时注销、关机直接有序停止”在 Electrobun 2.0.6 上不会发生，模式 tray 反而让关机时的非合作结束成为常态
+- 位置：plan.md 39 行（注销、关机在后台时直接进入停止中）、77 行（待确认第 3 条）、66 行（关机注销记为未实测）。
+- 问题：Electrobun 把注销、关机转成退出请求的只有控制台处理函数 `ConsoleControlHandler` 的 `CTRL_LOGOFF_EVENT`/`CTRL_SHUTDOWN_EVENT`（nativeWrapper.cpp:8798-8826，8848 注册），而按 Windows 的 SetConsoleCtrlHandler 文档，加载了 user32.dll 的进程收不到这两个事件；GUI 进程走的是 `WM_QUERYENDSESSION`/`WM_ENDSESSION`，nativeWrapper.cpp 全文件没有处理（grep 无结果），而且后台时唯一的托盘窗口是 message-only 窗口，也收不到这类广播。即使收到了，处理函数也只等 4 秒（8811-8815），远短于 90 秒的停止截止。所以实际效果仍是输出 22 的非合作结束。模式 tray 的用户关机前往往不会先退出 NeuroBook，这在以前是少见情形，现在会天天发生。
+- 依据：nativeWrapper.cpp:8798-8826、8848；全文件无 WM_QUERYENDSESSION；desktop-shell.md 输出 22（129 行）。
+- 建议：Spec 不承诺注销、关机时的有序停止（保留输出 22 的说法，只写“框架发来的退出请求在后台时直接进入停止中”），待确认第 3 条改写；在已知限制里说明模式 tray 下关机时服务端随进程树结束、只保证已提交的数据。真要支持，需要自己用 bun:ffi 在隐藏的顶层窗口上处理 `WM_QUERYENDSESSION` 加 `ShutdownBlockReasonCreate`，可以记为后续。
+
+## 11. 应改：模式 tray（以及“在后台继续”之后）下已下载的更新长期换不上，提示“下次打开 NeuroBook 时安装”会误导
+- 位置：plan.md 39 行（“更新提示等到有窗口就绪再交”）；计划没有涉及 desktop-update 的换上时机。
+- 问题：更新只在壳启动、取锁之前换上（desktop-update.md 15、47-49 行）。模式 tray 下关窗不退出，从开始菜单再打开只是开窗转交给还在运行的旧壳（desktop-shell 输出 2、3），所以“下次打开”永远不会到来，除非用户从托盘点“退出”。页面文案 `update.downloaded.message` 与 `update.available.message` 都写着“下次打开 NeuroBook 时安装”（src/web/locales/zh-CN.json:102、119），在这个模式下不成立。
+- 依据：desktop-update.md 15、20、47-49；src/web/locales/zh-CN.json:102、119；desktop-shell.md 输出 2、3。
+- 建议：最小改法是改文案与 Spec：模式 tray 时说“从系统托盘退出 NeuroBook 后再打开时安装”（页面知道模式），并在 desktop-update 的 Spec 里补一句。另一个可考虑的改法（需要开发者定）：后台、没有在跑的工作、有已下载的更新时托盘提示文字说明“有更新，退出后安装”。不建议自动退出换上（违反“不在关窗或运行中换文件”的非目标）。
+
+## 12. 可选：模式 quit 下的“在后台继续”之后进程无限期常驻，与用户的意图（让这几项工作跑完）不完全一致
+- 位置：plan.md 6 行、36 行、76 行（待确认第 2 条）。
+- 问题：缺省模式的用户没有选“留在托盘”，只是不想中断眼前的工作；按计划，工作跑完以后 NeuroBook 仍在后台一直运行到用户从托盘退出或关机，占着内存、端口与状态根（期间 `nbook start` 会连到它），已下载的更新也换不上（第 11 条），关机时又是非合作结束（第 10 条）。
+- 参考：VS Code（Windows 没有托盘）关最后一个窗口时有任务在跑只给“终止/取消”，不常驻；Obsidian 没有托盘，关窗即退；Discord、Slack、Teams 是“关窗到托盘”作为整体模式，图标在运行期间一直在，第一次关到托盘时提示仍在运行。计划的“模式 tray”对应后者，“在后台继续”是两者之间的新东西，常见做法是“做完再退出”（下载器、构建工具的 quit when done）。
+- 建议：交开发者定（放进待确认清单，附推荐）：推荐在模式 quit 下经“在后台继续”进入的后台里，壳每 30 秒左右取一次在跑的工作，连续一次为空且没有取不到的就按“没有工作”进入停止中；托盘提示写“NeuroBook（工作完成后退出）”。不采纳的话至少在提示说明里写清“之后要从系统托盘退出”。这会多一个计时，单元测试可用注入时钟覆盖。
+
+## 13. 可选：图标显示规则在“连的是别人的实例”时与行为不符；对显示规则本身的评估
+- 位置：plan.md 24 行（连上别人的实例时没有后台）、26 行（模式 tray 或后台就显示）。
+- 问题：连上 `nbook start` 起的实例时，模式 tray 不起作用（最后一个窗口照旧退出），但按 26 行图标照样显示，暗示“关窗会留在托盘”。
+- 评估：除此之外，“模式 tray 时运行期间一直显示、缺省模式只在后台时显示”与参考一致：模式 tray 等于 Discord、Slack 的常驻图标；缺省模式与 VS Code、Obsidian 一样平时看不到托盘。代价是缺省模式的图标要在进后台那一刻才创建（Electrobun 隐藏就是删除，第 2 条），可用性检查与 Windows 11 溢出区的问题（第 8 条）集中在这一刻；如果开发者更看重稳健，可以改成“自有服务端期间、模式 tray 或在后台时显示”之外再加一条：缺省模式下进后台失败时有明确的退路（第 2 条的建议），不必改成常驻。
+- 建议：26 行改成“壳有自有服务端，且（模式是 tray 或此刻在后台）时显示”；状态表与托盘显示的纯函数测试覆盖“连别人的实例、模式 tray → 不显示”。
+
+## 14. 可选：设置值加一项时，去重函数与缓存校验也要跟着改，计划只写了缓存兼容
+- 位置：plan.md 56 行、61 行（切片 2：`desktop-settings.ts` 的缓存兼容）。
+- 问题：(a) `sameDesktopSettings` 只比 `zoom` 与 `openAtLogin`（desktop-settings.ts:59-61），壳据此去重（index.ts:31 引入）；不加新项时只改了“关掉最后一个窗口时”的值会被当成重复丢掉，壳永远拿不到新模式。(b) `DesktopSettingValuesSchema` 是 `additionalProperties: false` 且各项必填（desktop-bridge.ts:63-66），缓存读取整份 `Value.Check`（desktop-settings.ts:29）；新项若直接设为必填，旧缓存整份作废、缩放也回到缺省（升级后第一次启动闪一下 100%），计划写的“缺这一项按缺省 quit”需要逐项读，不是改 schema 就能得到。(c) `DEFAULT_DESKTOP_SETTINGS`（desktop-settings.ts:16）要加新项；模块头注释“用途只有一个：……先用上次的缩放”（desktop-settings.ts:3-4）也要改。
+- 依据：desktop-settings.ts:3-4、16、29、59-61；desktop-bridge.ts:63-66。
+- 建议：缓存读取改成先按旧形状读、缺的项补缺省（或缓存用单独的宽松 schema），去重改成逐键比较或直接比 JSON；切片 2 的测试补“只改模式的值不被去重”“旧缓存保留缩放、模式取 quit”。
+
+## 15. 应改：协调器测试清单漏了最容易出错的组合，Windows 实测清单也缺几项
+- 位置：plan.md 62 行（切片 3 的场景）、63 行（切片 4）、66 行（切片 6）。
+- 单元测试（windows.test.ts、shell.test.ts）缺：模式 tray 下 `quitRequested` 有多个窗口（第 1 条）；`background` 回答而托盘显示失败（第 2 条）；托盘退出取工作期间的托盘打开、开窗转交、再次退出、框架退出（第 4 条）；询问窗口就绪前多出别的窗口（第 4 条）；离开后台时图标收起（第 5 条）；后台时意外退出的“稍后”与“重新启动”（第 6 条）；询问期间模式改变（第 7 条）；`background` 回答之后、`closed` 之前来的开窗转交（窗口集合非空，不应进后台）；托盘“打开”时唯一的窗口已在 `closing`（应开新窗口，不是置前一个正在关的）；停止中的托盘点击被忽略。
+- Windows 实测缺：左键行为（第 3 条，预计弹菜单）；键盘操作通知区域（Win+B、方向键、Enter/Shift+F10）；Explorer 重启后从开始菜单打开（第 8 条）；Windows 11 溢出区；退出后没有残留图标（第 9 条）；开机自启加模式 tray 时登录后图标是否出现（第 2 条）；在后台时缩放比例改变或换主显示器后图标清晰度；最小化的窗口经托盘“打开”还原并置前（Electrobun 的 `activate` 不还原最小化窗口，nativeWrapper.cpp:13301-13341 只有 SetForegroundWindow 与 SWP_SHOWWINDOW，要先 `unminimize()`）；后台运行一段时间后（例如 30 分钟）从托盘打开，确认消息循环与 WebView2 环境都还能建新窗口。
+- 依据：windows.ts 全文的状态字段；nativeWrapper.cpp:13301-13341；BrowserWindow.ts:314-349（activate、unminimize、isMinimized）。
+- 建议：把上面的组合写进切片 3、4 的场景与切片 6 的清单；“最小探针”（82 行）里先测左键、键盘、菜单收起与 Explorer 重启，这几项决定第 3、8 条的写法。
+
+## 16. 应改：切片 1 列的 Spec 改动不全，有几处现有句子会与新行为矛盾
+- 位置：plan.md 9 行、60 行（只列了非目标的“不在后台常驻”、新输出组、状态表、场景 17、browser-host 输出 10）。
+- 问题：下面这些句子在新行为下不再成立，计划没有列：
+  - desktop-shell.md 19 行的非目标同样写着“系统托盘……以后另做”（顺带：开机自启已在输出 27 实现，这一行早就过时了）；
+  - 14 行目标“最后一个窗口关闭、服务端归它时有序停止服务端”；
+  - 44 行术语“`quit`（关掉以后自有服务端会停止）”与 45 行“最后一次关闭……到窗口关掉、壳进入停止中（或被取消）为止”：选“在后台继续”时它以“窗口关掉、进入后台”结束；
+  - 116-117 行输出 16 的“以 quit 得到的同意”“同意时关窗与进入停止中是同一步”，要补 `background` 的收口；
+  - 118 行输出 17、122 行输出 18 的“最后一个窗口关掉后按输出 18 收尾/写 stop”；
+  - 状态表 152-154 行“最后一次关闭被同意”“最后一个窗口关掉，服务端不是自有”要分出后台；165 行“写 stop 之后壳不再开窗口”不变，但要补“后台时开窗转交照常”；
+  - 验收 7（206 行）的选项、验收 1（200 行）在后台时的表现；
+  - browser-host.md 72 行的提示文字“关闭后 NeuroBook 的服务会停止，下面的工作会被中断”与“取消/仍然关闭”两个选择。
+- 依据：desktop-shell.md 14、19、44-45、116-118、122、152-154、165、200、206；browser-host.md 72。
+- 建议：切片 1 列成逐处清单，写完对着上面这些行再读一遍；新增的“后台与托盘”输出最好写成一张“模式 × 有没有在跑的工作 × 自有不自有 × 托盘可不可用 → 最后一个窗口关掉后的去向”的表，比分散的句子更好核对。
+
+## 17. 可选：几个不扩大范围的小改进
+- 托盘菜单第一项把“打开 NeuroBook”设为默认项（Win32 的 SetMenuDefaultItem 会加粗；Electrobun 的菜单配置没有这个字段，做不到就不做），弥补左键也弹菜单（第 3 条）。
+- 停止中（最长 90 秒）托盘提示改为“NeuroBook（正在退出）”，菜单两项置灰（`enabled: false`，Tray.ts:187 支持），比“不响应”更好理解；plan.md 30 行只写了“停止中不响应”。
+- 后台时托盘提示里带上在跑的工作数不必做（要轮询）；若采纳第 12 条的轮询，可以顺带显示。
+- 第一次进后台时用一次系统通知说明“NeuroBook 在后台运行，可以从系统托盘或开始菜单再打开”：Electrobun 有基于 Shell_NotifyIcon 气泡的通知（nativeWrapper.cpp:14042 起），但它另建一个临时图标，体验未知，只在探针表现可以时考虑；不做也可以，只要提示说明里写清（第 8 条）。
+- 依据：plan.md 28、30 行；Tray.ts:182-190；nativeWrapper.cpp:14042-14110。
+
+## 18. 可选：页面一侧 `background` 的收口要与 `allow` 一致，类型上只让 work 提示返回它
+- 位置：plan.md 56 行（`ClosePrompts.ask` 对 work 提示允许返回 `background`；`finish` 多一种回答）。
+- 核对：重问（输出 16）走 `agreed` 跳过参与方（close-query.ts:243-252），`background` 只出现在 quit 询问的最后一步，与重问不冲突；代次校验沿用 `finish` 的 `current !== query` 判断（134-138 行），过期的 `background` 不会发出。这部分设计成立。
+- 要注意：(a) `finish` 现在只在 `deny` 时撤层（139-142 行），`background` 必须走 `allow` 那一支（保留层、`heldAfterAllow`、10 秒未关撤层），否则窗口关之前页面又能输入；(b) `ClosePrompts.ask` 的返回类型现在是一个联合（42 行），直接加 `"background"` 会让参与方失败与正文丢失两个提示在类型上也能返回它，调用处要多写分支；建议按提示种类区分返回类型（或给 work 提示单独一个方法）；(c) 若采纳第 2 条，页面按壳给的字段决定显示，不再按 reason 推断。
+- 依据：close-query.ts:40-43、134-150、216-228、243-252。
+- 建议：close-query 的单元测试补“background 之后层保留、10 秒后撤层写诊断”“过期代次的 background 不发”“window 询问里没有这个选择”。
+审查结束，共 18 条

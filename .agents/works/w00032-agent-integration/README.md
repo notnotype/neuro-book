@@ -74,6 +74,7 @@ Agent 作为内置插件接入 NeuroBook：以 master 的 nb-harness 为底座�
 | 2026-11-15 | t30 合入；开发者批准 `agent/request-trace.md` 晋升为 `implemented`，没做的几项标 planned、统一新建 [t35](tasks/t35-request-trace-followups/README.md)；t30 完成。下一步开 [t33](tasks/t33-plugin-skills/README.md)（[t30](tasks/t30-model-request-trace/README.md)） |
 | 2026-11-15 | t33 开工：开发者确认[计划](tasks/t33-plugin-skills/plan.md)（6 个待确认项按推荐），用 autonomous-delivery 推进到 Task 完成（[t33](tasks/t33-plugin-skills/README.md)） |
 | 2026-11-16 | t33 合入；开发者批准 t33 的 Spec 条目去掉 planned，t33 完成（[t33](tasks/t33-plugin-skills/README.md)）。开发者定：下一步做 [t29](tasks/t29-ui-polish-after-t15/README.md)；t31、t16、t13 移出本 Work、各开新 Work，本 Work 只剩 t29 与 [t35](tasks/t35-request-trace-followups/README.md) |
+| 2026-11-16 | t29 合入；开发者批准 t29 的 Spec 条目去掉 planned，t29 完成。开发者确认 [t36](tasks/t36-conversation-panel-redesign/README.md) 的[计划](tasks/t36-conversation-panel-redesign/plan.md)，6 个待定项按推荐，开工（[t29](tasks/t29-ui-polish-after-t15/README.md)） |
 
 ## 待确认
 

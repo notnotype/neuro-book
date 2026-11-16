@@ -52,12 +52,16 @@ function remeasure(): void {
     if (layer === null) return;
     const next = new Map<string, number>();
     for (const element of layer.querySelectorAll<HTMLElement>("[data-measure-item]")) next.set(element.dataset.measureItem ?? "", element.getBoundingClientRect().width);
-    widths.value = next;
+    // 量出来没变就不换：换了新 Map，摆放与条目都要跟着重算、重渲染。
+    if (next.size !== widths.value.size || [...next].some(([id, value]) => widths.value.get(id) !== value)) widths.value = next;
     moreWidth.value = layer.querySelector<HTMLElement>("[data-measure-more]")?.getBoundingClientRect().width ?? 0;
 }
 
-// 文字、语言或条目集合变了：等测量层渲染完再量。
-watch(() => [props.entries.map((entry) => `${entry.id}\u0000${entry.text}\u0000${entry.icon?.name ?? ""}`).join("\u0001"), port.locale.value, props.itemHeight], () => {
+/*
+ * 文字、语言或条目集合变了：等测量层渲染完再量。三个来源分开写，Vue 逐个比值；写成一个返回数组的函数时每次都是新数组，
+ * 上游每换一次条目数组（改窗口大小时每一步都换）都会重量一遍、强制重算整页样式（w00046 t19）。
+ */
+watch([() => props.entries.map((entry) => `${entry.id}\u0000${entry.text}\u0000${entry.icon?.name ?? ""}\u0000${entry.command === null ? "" : "command"}`).join("\u0001"), () => port.locale.value, () => props.itemHeight], () => {
     void nextTick(remeasure);
 }, {immediate: true});
 

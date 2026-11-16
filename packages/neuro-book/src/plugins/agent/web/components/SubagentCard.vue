@@ -1,13 +1,15 @@
 <script setup lang="ts">
 /**
  * 子代理卡片（见同名 `.md`）。数据不进 ctx：后代的进度与每秒走的 `now` 从宿主注入（`subagent-store.ts`），推导在 `subagent-card.ts`。
+ * 动作名也是注入的：卡片是工具节点，拿不到视图的注册表。
  */
 import {computed, inject, ref} from "vue";
 import {Badge, IconButton, Spinner} from "@notnotype/nb-ui/components";
+import {useText} from "@notnotype/nb-ui/text-port";
 import type {AgentConversationContext, AgentViewAction, ToolCallView} from "@notnotype/nb-agent-ui";
 
 import {cardModel, type CardState} from "../subagent-card";
-import {subagentStoreKey} from "../subagent-store";
+import {subagentStoreKey, toolActionKey} from "../subagent-store";
 import {useAgentPageText} from "../text";
 
 const props = defineProps<{call: ToolCallView; ctx: AgentConversationContext; services?: unknown; locale?: string}>();
@@ -15,6 +17,8 @@ const emit = defineEmits<{action: [action: AgentViewAction]}>();
 
 const t = useAgentPageText();
 const store = inject(subagentStoreKey, null);
+const actionOf = inject(toolActionKey, null);
+const port = useText();
 const open = ref(false);
 
 const model = computed(() => cardModel(props.call, store?.data.value.tree ?? new Map(), props.ctx.messages, props.ctx.run.status === "idle"));
@@ -44,6 +48,12 @@ const meta = computed(() => {
     return parts.join(" · ");
 });
 
+/** 注册表里的动作名（“读取”）；查不到时写工具名。 */
+const action = (tool: string): string => {
+    const label = actionOf?.(tool) ?? null;
+    return label === null ? tool : port.t(label);
+};
+
 const line = computed(() => {
     const {state, line: text, code} = model.value;
     switch (state) {
@@ -51,10 +61,14 @@ const line = computed(() => {
         case "dispatch-failed": return t("conversation.subagent.dispatchFailed", {code: code ?? ""});
         case "denied": return t("conversation.subagent.denied");
         case "invalid": return t("conversation.subagent.invalid");
-        case "running": return text !== "" ? text : t(model.value.thinking === true ? "conversation.subagent.thinking" : "conversation.subagent.starting");
+        case "running": {
+            const step = model.value.step;
+            if (step !== undefined) return step.target === undefined ? action(step.tool) : `${action(step.tool)} ${step.target}`;
+            return t(model.value.thinking === true ? "conversation.subagent.thinking" : "conversation.subagent.starting");
+        }
         case "waiting": {
             const waiting = model.value.waitingFor;
-            if (waiting?.kind === "approval") return t("conversation.subagent.waitingApproval", {tool: waiting.tool});
+            if (waiting?.kind === "approval") return t("conversation.subagent.waitingApproval", {tool: action(waiting.tool)});
             if (waiting?.kind === "question") return t("conversation.subagent.waitingAnswer", {text: waiting.text});
             if (waiting?.kind === "mode-switch") return t("conversation.subagent.waitingMode");
             return t("conversation.subagent.waiting");

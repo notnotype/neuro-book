@@ -101,7 +101,15 @@ const strip = computed(() => {
     const gap = Number.parseFloat(getComputedStyle(bandEl.value).rowGap) || 0;
     return layoutStrip(props.entries.map((entry, index) => ({id: entry.id, order: index, priority: entry.current ? 1 : 0, width: ITEM_PX})), room, ITEM_PX, gap);
 });
-const shownEntries = computed(() => props.entries.filter((entry) => strip.value.shown.includes(entry.id)));
+const sameItems = <T,>(a: ReadonlyArray<T>, b: ReadonlyArray<T>): boolean => a.length === b.length && a.every((item, index) => item === b[index]);
+/**
+ * 摆出来的入口不变时交回上一次的数组：条目区随窗口高度变、`strip` 每一步都重算，换成新数组的话列表的 TransitionGroup
+ * 每一步都重渲染、量一遍所有条目（w00046 t19）。
+ */
+const shownEntries = computed((previous?: ReadonlyArray<ToolStripEntry>) => {
+    const next = props.entries.filter((entry) => strip.value.shown.includes(entry.id));
+    return previous !== undefined && sameItems(previous, next) ? previous : next;
+});
 const moreItems = computed(() => props.entries.filter((entry) => strip.value.hidden.includes(entry.id)).map((entry) => ({label: entry.label, id: entry.id, iconClass: entry.icon ?? PLACEHOLDER_ICON})));
 </script>
 
