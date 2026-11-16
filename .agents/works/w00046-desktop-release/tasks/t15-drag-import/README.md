@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t15-drag-import
 status: planned
-updated: 2026-11-15
+updated: 2026-11-16
 ---
 
 # 从系统拖入文件、图片与文件夹
@@ -16,6 +16,8 @@ updated: 2026-11-15
 ## 当前状态
 
 2026-11-15 经 nbdev 新建，尚未开工。
+
+分工（开发者 2026-11-16 定，经 w00025 的会话转告）：编辑器插图的上传接口与插图函数来自 w00025 t09（链接与图片的插入）；t09 不做任何拖放，三处落点的 HTML5 拖放仍归本 Task。上传接口是“单个文件写到作品里的某个地址”，与 `GET /api/nbook.files/raw/...` 对称，形状以 `docs/specs/workspace/files.md` 为准；拖文件夹时逐个调用，要批量或大文件时开工时向 w00025 提出。
 
 ## 下一步
 
