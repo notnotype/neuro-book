@@ -549,6 +549,32 @@ describe("托盘与后台（输出 28 到 31）", () => {
         expect(await records(root, "stopped.jsonl")).toEqual([{generation: 1}]);
     }, 60_000);
 
+    it("取在跑的工作的过程中：开窗转交开出窗口则作废；服务端意外退出则取回后直接退出，不弹对话框", async () => {
+        const root = nextRoot();
+        const work = manualWork();
+        const a = fakeShell(root, {entry: SCRIPTED, closeLastWindow: "tray", onServerExited: "hold", runningWork: work.runningWork});
+        void a.shell.run();
+        await waitUntil("窗口加载了页面", () => a.loaded.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        a.closeAndAllow(1);
+        await waitUntil("进后台", () => a.open.size === 0);
+
+        a.shell.trayQuit();
+        expect(a.shell.windows.openWindowRequested()).toEqual({ok: true});
+        expect(lastTray(a)).toEqual({visible: true, tooltip: "NeuroBook"});
+        work.answer({count: 0, uncertain: false});
+        await Bun.sleep(0);
+        expect(a.shell.windows.stopping).toBe(false);
+        a.closeAndAllow(a.newest());
+        await waitUntil("回到后台", () => a.open.size === 0);
+
+        a.shell.trayQuit();
+        process.kill((await records(root, "targets.jsonl"))[0]?.pid ?? 0, "SIGKILL");
+        await waitUntil("问用户", () => a.exitedAsks.length === 1, {timeoutMs: 30_000, intervalMs: 50});
+        work.answer({count: 0, uncertain: true});
+        await waitUntil("壳退出", () => a.exitCode() !== null, {timeoutMs: 30_000, intervalMs: 50});
+        expect(a.quitWork).toEqual([]);
+    }, 60_000);
+
     it("后台时自有服务端意外退出：对话框说没有窗口；对话框开着时点托盘退出，不取工作、直接退出", async () => {
         const root = nextRoot();
         const work = manualWork();

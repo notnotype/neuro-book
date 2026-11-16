@@ -214,6 +214,11 @@ export class DesktopShell {
         this.#trayQuit = null;
         this.#refreshTray();
         if (this.#windowCount > 0 || this.#coordinator.stopping) return;
+        // 取的过程中服务端意外退出了：没有工作可中断，与一开始就退出了一样直接退出（输出 30）。
+        if (this.#server === null) {
+            this.#coordinator.quitRequested();
+            return;
+        }
         if (work.count === 0 && !work.uncertain) {
             this.#coordinator.quitRequested();
             return;

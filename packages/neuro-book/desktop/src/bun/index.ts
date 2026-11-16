@@ -14,8 +14,9 @@
  *   用 CSS `app-region` 标拖动区域，拖动、双击最大化、贴边分屏由 WebView2 与系统处理；这里补窗口样式与图标（`win32.ts`），
  *   接页面的 `window-control`，并把是否最大化推给页面。
  * - 托盘（输出 28 到 30）：要显示时新建一个 `Tray`（id 为 0 就是没建出来，丢掉、记诊断，核心按没有托盘处理），菜单与点击只在
- *   建成时设一次；要隐藏时 `remove()` 并丢掉对象，下次要显示再新建。不用 `setVisible`：Electrobun 2.0.6 重新显示时换了 id，
- *   菜单与按 id 挂的点击监听都不跟着重建。左键、右键都弹菜单是它的 Windows 实现（已知限制）。
+ *   建成时设一次；要隐藏时 `remove()` 并丢掉对象，下次要显示再新建。没用 `setVisible`（2.0.6 隐藏后再显示也沿用 id 与菜单）：
+ *   删掉再建让“有对象”与“图标显示着”始终是一回事，核心的 `trayShown` 直接读它。建不出来之后只在托盘视图下一次变化时再试
+ *   （例如开机自启时任务栏还没就绪），这一点要在 Windows 上验收（t13 切片 6）。左键、右键都弹菜单是它的 Windows 实现（已知限制）。
  * - 更新（docs/specs/runtime/desktop-update.md）：`UpdaterPort` 接 Electrobun 2.0.6 的 `Updater`，规则都在核心
  *   （`src/desktop/update.ts`、`update-install.ts`）。更新器的事件不用来判断结果（`error` 是检查、下载、换上共用的通道），每次调用
  *   之后读它的状态；`before-quit` 在取桌面锁之前放行（`DesktopShell.acceptsQuit`），换上要经它结束进程。

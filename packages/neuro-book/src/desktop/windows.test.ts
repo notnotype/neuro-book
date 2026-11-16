@@ -246,11 +246,15 @@ describe("关窗协调", () => {
         expect(events).toEqual([]);
         expect(coordinator.openWindowRequested()).toEqual({ok: true});
 
-        const {coordinator: starting, did: startingDid} = harness({ready: false});
+        // 启动中（服务端还不归壳）：启动页直接关，关完照旧走 onAllClosed（壳据此结束启动流程），不进停止。
+        const {coordinator: starting, did: startingDid, events: startingEvents} = harness({ready: false});
         const s = starting.openWindow();
         starting.quitRequested();
         expect(startingDid("askPage", s)).toBe(false);
         expect(startingDid("commitClose", s)).toBe(true);
+        starting.closed(s);
+        expect(startingEvents).toEqual(["all-closed"]);
+        expect(starting.stopping).toBe(false);
     });
 
     it("应用级退出请求：停止中再来的退出请求不再询问、不再提交关闭", () => {

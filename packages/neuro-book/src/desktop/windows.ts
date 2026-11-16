@@ -289,9 +289,11 @@ export class WindowCoordinator {
             this.#options.onAllClosed();
             return;
         }
-        // 应用级退出进行中，剩下的窗口本来就在关闭中（没有一个以 quit 问过）：关完就停止（输出 31）。
+        // 应用级退出进行中，剩下的窗口本来就在关闭中（没有一个以 quit 问过）：关完就停止（输出 31）。服务端不归壳时（启动中、
+        // 连别人的实例、选过“稍后”）照旧走 onAllClosed：壳据此结束启动流程、不停别人的服务端。
         if (this.#appQuit) {
-            this.#quit();
+            if (this.#ownsServer) this.#quit();
+            else this.#options.onAllClosed();
             return;
         }
         if (this.#ownsServer && this.#trayMode()) return;
