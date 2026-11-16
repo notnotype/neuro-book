@@ -110,6 +110,15 @@ function writeRow(row: PropertyRow, value: EditableValue): void {
     emitRaw(writeValue(props.raw, row.index, value));
 }
 
+/**
+ * 日期：分段输入时每打一个数字都交出一个完整的日期，在年份那一段从头打 `2026` 会先交出 `0002`、`0020`、`0202`。年份不到 1000 的
+ * 当作还没打完，不写回（段里的字留在日期输入里）；清空、日历里选的日子与打完的年份照常立即写回。
+ */
+function writeDate(row: PropertyRow, value: string | null): void {
+    if (value !== null && Number(value.slice(0, 4)) < 1000) return;
+    writeRow(row, {kind: "date", value});
+}
+
 /** 文字框里的字按类型换成值；数字框里不是数时为 undefined（不写回）。 */
 function parseValue(kind: PropertyKind, input: string): EditableValue | undefined {
     if (kind === "number") {
@@ -129,7 +138,7 @@ function settle(how: "enter" | "blur" | "flush"): void {
     if (current === null || (current.target.kind === "source" && fenceRejected.value)) return;
     const {target} = current;
     if (target.kind === "source") {
-        if (current.text === yamlOf(props.raw)) {
+        if (current.text === shownYaml.value) {
             draft.value = null;
             return;
         }
@@ -168,11 +177,17 @@ function settle(how: "enter" | "blur" | "flush"): void {
         return;
     }
     const row = rows.value[target.index];
-    if (row === undefined || row.kind === "complex") return;
+    if (row === undefined) return;
     if (target.kind === "name") {
-        emitRaw(renameProperty(props.raw, target.index, current.text));
+        // 空值选过的类型跟着名字走。
+        if (emitRaw(renameProperty(props.raw, target.index, current.text))) {
+            const kind = chosen.value.get(row.name);
+            chosen.value.delete(row.name);
+            if (kind !== undefined) chosen.value.set(current.text.trim(), kind);
+        }
         return;
     }
+    if (row.kind === "complex") return;
     const value = parseValue(kindOf(row), current.text);
     if (value !== undefined) writeRow(row, value);
 }
@@ -283,6 +298,12 @@ function toggle(): void {
 
 function toggleSource(): void {
     if (problem.value !== null) return;
+    // 收起时点它：展开并看源码（不管上次是不是停在源码上）。
+    if (!expanded.value) {
+        mode.value = "source";
+        emit("update:open", true);
+        return;
+    }
     if (mode.value === "source") {
         // 回到按属性显示：写不回的源码放弃（输出 44）。
         if (draft.value?.target.kind === "source") draft.value = null;
@@ -291,12 +312,13 @@ function toggleSource(): void {
         return;
     }
     mode.value = "source";
-    if (!expanded.value) emit("update:open", true);
 }
 
 // ---- 源码区 ----
 
-const sourceText = computed(() => draftOf({kind: "source"}) ?? yamlOf(props.raw));
+/** 文字框里的 YAML：末尾的那个换行不显示（写回时 `replaceYaml` 补上），免得文字框总多一个空行。 */
+const shownYaml = computed(() => yamlOf(props.raw).replace(/\n$/u, ""));
+const sourceText = computed(() => draftOf({kind: "source"}) ?? shownYaml.value);
 const textareaHost = useTemplateRef<HTMLElement>("textareaHost");
 const mirror = useTemplateRef<HTMLElement>("mirror");
 const mirrorLines = computed(() => sourceText.value.split("\n"));
@@ -454,7 +476,7 @@ defineExpose({
                     />
                 </span>
 
-                <span class="markdown-properties__value" :data-property-kind="kindOf(row)" :data-property-row="row.index" data-property-stop>
+                <span class="markdown-properties__value" :data-property-kind="kindOf(row)" :data-property-row="row.index" :data-property-stop="row.kind === 'complex' ? undefined : ''">
                     <span v-if="row.kind === 'complex'" class="markdown-properties__complex" :title="row.source">{{ oneLine(row.source) }}</span>
                     <Checkbox v-else-if="row.kind === 'checkbox'" :model-value="row.value" :readonly="props.readonly" @update:model-value="(value: boolean) => writeRow(row, {kind: 'checkbox', value})"><span class="sr-only">{{ row.name }}</span></Checkbox>
                     <DateInput
@@ -464,7 +486,7 @@ defineExpose({
                         size="sm"
                         :readonly="props.readonly"
                         :aria-label="row.name"
-                        @update:model-value="(value: string | null) => writeRow(row, {kind: 'date', value})"
+                        @update:model-value="(value: string | null) => writeDate(row, value)"
                     />
                     <TagInput
                         v-else-if="row.kind === 'list'"
@@ -489,7 +511,8 @@ defineExpose({
                     </span>
                 </span>
 
-                <span class="markdown-properties__action">
+                <!-- 表示不了的一行没有可输入的值：上下方向键的这一站是它的“在源码里改”。 -->
+                <span class="markdown-properties__action" :data-property-stop="row.kind === 'complex' ? '' : undefined" :data-property-row="row.kind === 'complex' ? row.index : undefined">
                     <IconButton v-if="row.kind === 'complex'" size="xs" icon-class="i-lucide-code" :title="text.t('properties.editSource', {name: row.name})" @click="revealInSource(row.line)" />
                     <IconButton v-else-if="!props.readonly" size="xs" icon-class="i-lucide-x" class="markdown-properties__remove" :title="text.t('properties.remove', {name: row.name})" @click="remove(row)" />
                 </span>
@@ -549,7 +572,7 @@ defineExpose({
     height: 100%;
     padding: 0 6px 0 8px;
     border: 0;
-    border-radius: calc(var(--radius-panel) - 4px);
+    border-radius: max(2px, calc(var(--radius-panel) - 4px));
     background: transparent;
     color: var(--text-muted);
     font: inherit;
@@ -595,7 +618,7 @@ defineExpose({
     align-items: center;
     min-height: 30px;
     padding: 0 4px 0 8px;
-    border-radius: calc(var(--radius-panel) - 4px);
+    border-radius: max(2px, calc(var(--radius-panel) - 4px));
 }
 
 .markdown-properties__row:hover,
@@ -659,6 +682,11 @@ span.markdown-properties__type {
     font-variant-numeric: tabular-nums;
 }
 
+/* 列表的 ×：改的时候（焦点在这个列表里）才显现，平时只有一个个小块（第 2 轮评审稿）；位置一直留着，显隐不推动版式。 */
+.markdown-properties__value[data-property-kind="list"]:not(:focus-within) :deep([data-reka-collection-item] button) {
+    visibility: hidden;
+}
+
 .markdown-properties__complex {
     overflow: hidden;
     color: var(--text-muted);
@@ -703,7 +731,7 @@ span.markdown-properties__type {
 .markdown-properties__code {
     position: relative;
     padding: 6px 10px;
-    border-radius: calc(var(--radius-panel) - 4px);
+    border-radius: max(2px, calc(var(--radius-panel) - 4px));
     background: var(--panel-surface);
 }
 

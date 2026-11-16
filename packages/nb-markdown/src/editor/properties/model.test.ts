@@ -128,6 +128,38 @@ describe("写：只换这一项的原文", () => {
     });
 });
 
+describe("写：注释、日期与特殊字符", () => {
+    it("空值后面带注释：值插在冒号之后，注释与原来的空白留着；写成空值不改", () => {
+        const raw = fm("a: # 备注", "b:   # 说明", "c: 1");
+        expect(writeValue(raw, 0, {kind: "text", value: "x"})).toBe(fm("a: x # 备注", "b:   # 说明", "c: 1"));
+        expect(writeValue(raw, 1, {kind: "list", value: ["p"]})).toBe(fm("a: # 备注", "b: [p]   # 说明", "c: 1"));
+        expect(writeValue(raw, 1, {kind: "date", value: null})).toBe(raw);
+        expect(rows(writeValue(raw, 0, {kind: "text", value: "x"}))[0]).toMatchObject({kind: "text", value: "x"});
+    });
+
+    it("写在一行里的列表带行尾注释：读成列表，加一项后注释还在", () => {
+        const raw = fm("tags: [a, b] # 标签");
+        expect(only(raw)).toMatchObject({kind: "list", value: ["a", "b"]});
+        expect(writeValue(raw, 0, {kind: "list", value: ["a", "b", "c"]})).toBe(fm("tags: [a, b, c] # 标签"));
+    });
+
+    it("一百年以前的日期也是日期，写出读得回；不存在的日期不是", () => {
+        expect(only(fm("时间: 0500-01-01"))).toMatchObject({kind: "date", value: "0500-01-01"});
+        expect(only(writeValue(fm("时间: 2025-12-21"), 0, {kind: "date", value: "0002-12-21"}))).toMatchObject({kind: "date", value: "0002-12-21"});
+        expect(only(fm("时间: 0002-02-30"))).toMatchObject({kind: "text"});
+    });
+
+    it("控制字符与换行写成双引号（原来是单引号的也是），读回同一段文字", () => {
+        for (const text of ["a\u0001b", "甲\n乙"]) {
+            for (const raw of [fm("a: 甲"), fm("a: '甲'")]) {
+                const after = writeValue(raw, 0, {kind: "text", value: text});
+                expect(after).toBe(fm(`a: ${JSON.stringify(text)}`));
+                expect(only(after)).toMatchObject({kind: "text", value: text});
+            }
+        }
+    });
+});
+
 describe("改名、删除、添加", () => {
     it("改名：与别的项重名、为空时拒绝；照字面会被读成别的（数字、带冒号）时加引号；原来的引号保留", () => {
         const raw = fm("a: 1", "b: 2");

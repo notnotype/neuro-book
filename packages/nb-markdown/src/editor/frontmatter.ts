@@ -52,9 +52,12 @@ export const MarkdownFrontmatter = Extension.create<Record<string, never>, Front
     },
 });
 
-/** 宿主在换文档、重载之后调用：新建 frontmatter 用的换行符。 */
+/**
+ * 宿主在换文档、重载之后调用：新建 frontmatter 用的换行符。只用单独回车（`\r`）换行的文档写 `\n`：frontmatter 的开栏只认
+ * `\n` 与 `\r\n`（`language/codec/source.ts`），`---\r---\r` 不是 frontmatter。
+ */
 export function setFrontmatterEol(editor: Editor, eol: string): void {
-    editor.storage.frontmatter.eol = eol;
+    editor.storage.frontmatter.eol = eol === "\r\n" ? "\r\n" : "\n";
 }
 
 /**

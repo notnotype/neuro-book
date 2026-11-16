@@ -506,6 +506,30 @@ describe("属性面板（workbench.markdown-editing 输出 39–51）", () => {
         expect(binding.text.value).toBe("---\na: 2\n---\n甲\n");
     });
 
+    it("面板写回后停手的计时到点：另一个输入里打了一半的字不当成写回（输出 42）", async () => {
+        const {wrapper, binding, propertiesOpen} = await opened("---\na: 1\nb: 2\n---\n甲\n");
+        propertiesOpen.set(binding.address.value, true);
+        await nextTick();
+        const value = panelInput(wrapper, "b");
+        value.element.focus();
+        await value.setValue("5");
+        await value.trigger("keydown", {key: "Enter"});
+        const name = panelInput(wrapper, "属性名：a");
+        name.element.focus();
+        await name.setValue("ti");
+        await waitUntil("停手后交出 b 的写回", () => binding.text.value.includes("b: 5"));
+        expect(binding.text.value).toBe("---\na: 1\nb: 5\n---\n甲\n");
+        expect(name.element.value).toBe("ti");
+    });
+
+    it("只用回车换行的文档新建 frontmatter：写成 \\n 的一段，面板照常挂上、能交出", async () => {
+        const {wrapper, handle, binding} = await opened("甲\r乙\r");
+        expect(handle.editing?.run("properties")).toBe(true);
+        await waitUntil("面板挂上", () => wrapper.find("[data-markdown-properties]").exists());
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\n---\n甲\r乙\r");
+    });
+
     it("编辑动作 properties：没有 frontmatter 时建一段空的，面板展开、焦点在新属性的名字上；打名字回车写回", async () => {
         const {wrapper, handle, binding, propertiesOpen} = await opened("甲\r\n");
         expect(handle.editing?.run("properties")).toBe(true);

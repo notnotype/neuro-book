@@ -103,6 +103,27 @@ test("场景 23：收起成摘要；改值、勾选、加一项只改这三行�
     await expect(panel(page).locator("[data-property-summary]")).toHaveText("甲 1");
 });
 
+test("改日期：在年份那一段打 2026 只写回打完的年份、日期输入一直在；日历里选一天立即写回", async ({page}) => {
+    await openFile(page, "notes/date.md", "---\n时间: 2025-12-21\n---\n正文\n");
+    await panel(page).locator("button[aria-expanded]").click();
+    const year = panel(page).locator("[data-property-kind=\"date\"] [data-reka-date-field-segment=\"year\"]");
+    await year.click();
+    await page.keyboard.type("2026");
+    await expect(year).toHaveText("2026");
+    await panel(page).getByRole("button", {name: "选择日期"}).click();
+    await page.locator("[data-reka-calendar-cell-trigger][data-value=\"2026-12-24\"]").click();
+    await caretAtStart(page);
+    await page.keyboard.press("Control+s");
+    await expect.poll(() => disk("notes/date.md")).toBe("---\n时间: 2026-12-24\n---\n正文\n");
+    // 打年份的中途没有写过 0002、0202 这类日期：撤销一步回到打完的年份，再一步回到原来的。
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+s");
+    await expect.poll(() => disk("notes/date.md")).toBe("---\n时间: 2026-12-21\n---\n正文\n");
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+s");
+    await expect.poll(() => disk("notes/date.md")).toBe("---\n时间: 2025-12-21\n---\n正文\n");
+});
+
 test("场景 24：第一段开头打 --- 新建；名字回车到值；紧接着退格还原；不在第一块是分割线", async ({page}) => {
     await openFile(page, "notes/scene-24.md", "正文\n");
     await caretAtStart(page);

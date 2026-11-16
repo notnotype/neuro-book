@@ -105,12 +105,13 @@ function lineAt(parsed: Parsed, position: number): number {
 
 const sourceOf = (parsed: Parsed, node: YamlNode): string => parsed.content.slice(node.range?.[0] ?? 0, node.range?.[1] ?? 0);
 
-/** 合格的日期 `YYYY-MM-DD`（`2025-02-30` 不算）。 */
+/** 合格的日期 `YYYY-MM-DD`（`2025-02-30` 不算）；0001 到 9999 年都算（`Date.UTC` 会把 0 到 99 年当成 1900 年起，不用它）。 */
 export function isIsoDate(value: string): boolean {
     const match = ISO_DATE.exec(value);
     if (match === null) return false;
-    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-    return date.toISOString().slice(0, 10) === value;
+    const date = new Date(0);
+    date.setUTCFullYear(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return date.getUTCFullYear() === Number(match[1]) && date.getUTCMonth() === Number(match[2]) - 1 && date.getUTCDate() === Number(match[3]);
 }
 
 /** 一个标量能不能当成可编辑的值：单行、没有锚点与标签、不是块标量。 */
@@ -123,7 +124,8 @@ function valueOf(parsed: Parsed, node: YamlNode | null): EditableValue | null {
     if (node === null) return {kind: "text", value: null};
     if (node.commentBefore !== undefined) return null;
     if (isSeq(node)) {
-        if (node.anchor !== undefined || node.tag !== undefined || node.comment !== undefined) return null;
+        // 流式列表（`[…]`）的 `comment` 是行尾注释，写回只换 `[…]`，留得住；块序列的是列表后面另起的注释行，算复杂。
+        if (node.anchor !== undefined || node.tag !== undefined || (node.comment !== undefined && node.flow !== true)) return null;
         const items: string[] = [];
         for (const item of node.items) {
             if (!plainScalar(parsed, item as YamlNode) || (item as Scalar).comment !== undefined || (item as Scalar).commentBefore !== undefined) return null;
@@ -215,6 +217,8 @@ function readsBackPlain(text: string, place: "value" | "flow" | "key"): boolean 
 
 /** 写出一个字符串：能照字面就照字面，否则加引号；原来是单引号的仍用单引号，双引号的仍用双引号。 */
 function stringText(value: string, place: "value" | "flow" | "key", style: string | undefined): string {
+    // 换行与控制字符只有双引号写得出（单引号里的换行会折成空格，控制字符别的工具读不进）。
+    if (/[\u0000-\u001f\u007f-\u009f]/u.test(value)) return JSON.stringify(value);
     if (style === Scalar.QUOTE_SINGLE) return `'${value.replaceAll("'", "''")}'`;
     if (style !== Scalar.QUOTE_DOUBLE && readsBackPlain(value, place)) return value;
     return JSON.stringify(value);
@@ -277,10 +281,12 @@ export function writeValue(raw: string, index: number, next: EditableValue): str
         return replace(parsed, start, withoutEol(parsed.content, node.range?.[1] ?? start), `- ${itemTexts(parsed, node, next.value, "value").join(`${parsed.eol}${indent}- `)}`);
     }
     const text = next.kind === "list" ? `[${itemTexts(parsed, node, next.value, "flow").join(", ")}]` : scalarText(next, style);
-    // 原来没有值（`名字:`）、要写成空值、或从块序列换成一行的值：从冒号之后整段换掉，冒号与值之间留一个空格。
+    // 原来没有值（`名字:`，后面可以有空白与注释）：值插在冒号之后，冒号后原有的空白与注释原样留着（`a: # 注` 写成 `a: x # 注`）。
     const empty = node === null || (node.range?.[0] ?? 0) === (node.range?.[1] ?? 0);
-    if (empty || text === "" || blockSeq) {
-        const end = node === null ? colonEnd : blockSeq ? withoutEol(parsed.content, node.range?.[1] ?? colonEnd) : (node.range?.[1] ?? colonEnd);
+    if (empty) return text === "" ? raw : replace(parsed, colonEnd, colonEnd, ` ${text}`);
+    // 要写成空值、或从块序列换成一行的值：从冒号之后到值的末尾整段换掉，冒号与值之间留一个空格。
+    if (text === "" || blockSeq) {
+        const end = blockSeq ? withoutEol(parsed.content, node.range?.[1] ?? colonEnd) : (node.range?.[1] ?? colonEnd);
         return replace(parsed, colonEnd, end, text === "" ? "" : ` ${text}`);
     }
     return replace(parsed, node.range?.[0] ?? colonEnd, node.range?.[1] ?? colonEnd, text);

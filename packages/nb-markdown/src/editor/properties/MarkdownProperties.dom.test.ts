@@ -1,7 +1,7 @@
 /**
  * MarkdownProperties（同名 .md；docs/specs/workbench/markdown-editing.md 输出 39–51）：收起与摘要、各类型的写回、添加改名移除、
  * 改类型、表示不了的属性与源码、写错、只读、键盘进出与结算。宿主用测试里的一层代替：收到 `commit` 就把新原文交回 `raw`，
- * 收到 `update:open` 就改 `open`。日期的分段输入与日历、真实的焦点移动在 e2e（`markdown-properties.e2e.ts`）里测。
+ * 收到 `update:open` 就改 `open`。日期用真实的 nb-ui `DateInput`（reka-ui）在这里按键；日历与真实的焦点移动在 e2e（`markdown-properties.e2e.ts`）里测。
  */
 
 import {flushPromises, mount} from "@vue/test-utils";
@@ -124,6 +124,21 @@ describe("改值（输出 42）", () => {
     });
 });
 
+describe("日期（输出 42）", () => {
+    it("在年份那一段从头打 2026：中途不到 1000 年的不写回，打完写回一次，日期输入一直在", async () => {
+        const {wrapper, commits} = panel("---\n时间: 2025-12-21\n---\n");
+        const year = () => wrapper.find("[data-property-kind='date'] [data-reka-date-field-segment='year']");
+        for (const key of ["2", "0", "2", "6"]) {
+            expect(year().exists()).toBe(true);
+            (year().element as HTMLElement).focus();
+            await year().trigger("keydown", {key});
+            await nextTick();
+        }
+        expect(commits).toEqual(["---\n时间: 2026-12-21\n---\n"]);
+        expect(year().exists()).toBe(true);
+    });
+});
+
 describe("添加、改名与移除（输出 47）", () => {
     it("添加：名字回车写回 `名字:`，焦点到它的值；同名时这一行留着并提示，不写回", async () => {
         const {wrapper, commits, raw} = panel(SAMPLE);
@@ -198,7 +213,8 @@ describe("表示不了、源码与写错（输出 43–45）", () => {
         await nextTick();
         await nextTick();
         const area = wrapper.get<HTMLTextAreaElement>("textarea");
-        expect(area.element.value).toBe("视角: 林雪\n人物:\n  林雪: 姐妹\n");
+        // 末尾的换行不显示（写回时补上）。
+        expect(area.element.value).toBe("视角: 林雪\n人物:\n  林雪: 姐妹");
         expect(document.activeElement).toBe(area.element);
         expect(area.element.selectionStart).toBe("视角: 林雪\n".length);
     });
@@ -235,6 +251,31 @@ describe("表示不了、源码与写错（输出 43–45）", () => {
         await wrapper.get("textarea").trigger("focusout");
         expect(wrapper.find("textarea").exists()).toBe(false);
         expect(wrapper.findAll("[data-property-name]")).toHaveLength(3);
+    });
+});
+
+describe("表示不了的属性与键盘、收起时看源码", () => {
+    it("上下方向键经过表示不了的一行时停在它的“在源码里改”上", async () => {
+        const {wrapper} = panel("---\n甲: 一\n乙:\n  a: 1\n丙: 三\n---\n");
+        field(wrapper, "甲").element.focus();
+        await field(wrapper, "甲").trigger("keydown", {key: "ArrowDown"});
+        const source = row(wrapper, "乙").get<HTMLButtonElement>("button[title='在源码里改 乙']");
+        expect(document.activeElement).toBe(source.element);
+        await source.trigger("keydown", {key: "ArrowDown"});
+        expect(document.activeElement).toBe(field(wrapper, "丙").element);
+        await field(wrapper, "丙").trigger("keydown", {key: "ArrowUp"});
+        expect(document.activeElement).toBe(source.element);
+    });
+
+    it("看着源码时收起，再点源码切换：展开并显示源码", async () => {
+        const {wrapper, opens} = panel("---\n甲: 一\n---\n");
+        await wrapper.get("button[aria-pressed]").trigger("click");
+        expect(wrapper.find("textarea").exists()).toBe(true);
+        await wrapper.get("button[aria-expanded]").trigger("click");
+        expect(wrapper.find("textarea").exists()).toBe(false);
+        await wrapper.get("button[aria-pressed]").trigger("click");
+        expect(opens.at(-1)).toBe(true);
+        expect(wrapper.find("textarea").exists()).toBe(true);
     });
 });
 

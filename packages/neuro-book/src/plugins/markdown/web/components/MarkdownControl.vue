@@ -10,7 +10,7 @@ import "@notnotype/nb-markdown/markdown.css";
 import {createMarkdownEditorExtensions, FRONTMATTER_REQUEST, listComments, markdownEditingActions, MarkdownProperties, markShownComment, REFRESH_REFERENCE_LINKS, releaseSelection, setFrontmatterEol} from "@notnotype/nb-markdown/editor";
 import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {markdownViewContext, useMarkdownText} from "@notnotype/nb-markdown/host";
-import {codecFor, frontmatterOf} from "@notnotype/nb-markdown/language";
+import {codecFor, frontmatterOf, isWholeFrontmatter} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
 
 import {editorMenusKey, editorToolbarSlotKey} from "nbook/plugins/editor/shared/contracts";
@@ -137,8 +137,16 @@ const attributes = (): Record<string, string> => ({"aria-label": props.label, "c
  * 写不出时这次输入不交，文档记下这个视图写不出（editor 输出 61）；被接受时把写出的写法回填进编辑器。
  */
 const commitNow = (): void => {
-    // 属性面板里还没写回的输入也是这个视图的输入（输出 49）：先写回成一次编辑，再按正文的规则交出。
+    // 结算（保存、换文档、失焦之前）：属性面板里还没写回的输入也是这个视图的输入（输出 49），先写回成一次编辑，再按正文的规则交出。
     properties.value?.flush();
+    commitBody();
+};
+
+/**
+ * 只交出编辑器里已有的编辑，不碰属性面板手里的输入。停手的计时到点走这里：面板自己的写回也会起这个计时，到点时用户可能已经在面板的
+ * 另一个输入里打字，那一半的字不能当成写回（面板按回车、失焦写回，输出 42）。
+ */
+const commitBody = (): void => {
     const buffered = timer !== null;
     if (timer !== null) {
         clearTimeout(timer);
@@ -368,7 +376,10 @@ const editing: EditorEditing = {
     }),
 };
 
-/** 文档的 frontmatter 原文（在文档的属性上，随编辑、撤销与重载变）：有就在正文上方画属性面板。 */
+/**
+ * 文档的 frontmatter 原文（在文档的属性上，随编辑、撤销与重载变）：有就在正文上方画属性面板。属性里不是完整的一段时（不该发生：
+ * 面板与新建都只放完整的）不画面板，写回按编解码器的关卡写不出（editor 输出 61）。
+ */
 const frontmatter = computed(() => {
     void editingVersion.value;
     return editor === null ? null : frontmatterOf(editor.state.doc);
@@ -480,7 +491,7 @@ const commitWhenSettled = (): void => {
         timer = setTimeout(commitWhenSettled, COMMIT_DELAY_MS);
         return;
     }
-    commitNow();
+    commitBody();
 };
 
 const onUpdate = ({transaction}: {transaction: {docChanged: boolean}}): void => {
@@ -574,7 +585,7 @@ onBeforeUnmount(() => {
         <div class="markdown-control__margin markdown-control__margin--right" aria-hidden="true" data-markdown-margin="right"></div>
         <div ref="scroller" class="markdown-control__scroller relative min-h-0 w-full flex-1 overflow-auto" :style="marginDrawn ? {paddingInlineEnd: `${MARGIN_WIDTH + MARGIN_GAP}px`} : undefined" data-editor-control="markdown">
             <div class="markdown-control">
-                <MarkdownProperties v-if="frontmatter !== null" :key="props.binding?.token" ref="properties" class="markdown-control__properties" :raw="frontmatter" :open="propertiesShown" :readonly="props.readonly" @commit="commitFrontmatter" @update:open="setPropertiesOpen" @leave="leaveProperties" />
+                <MarkdownProperties v-if="frontmatter !== null && isWholeFrontmatter(frontmatter)" :key="props.binding?.token" ref="properties" class="markdown-control__properties" :raw="frontmatter" :open="propertiesShown" :readonly="props.readonly" @commit="commitFrontmatter" @update:open="setPropertiesOpen" @leave="leaveProperties" />
                 <div ref="root" @keydown="onBodyKeydown"></div>
             </div>
         </div>

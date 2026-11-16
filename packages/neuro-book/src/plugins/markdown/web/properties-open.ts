@@ -12,6 +12,7 @@ import type {InjectionKey} from "vue";
 import {Type} from "typebox";
 
 import {defineRecord} from "nbook/shared/storage";
+import {fieldProblem} from "nbook/shared/store/problem";
 import {defineStore} from "nbook/shared/store/store";
 
 export const PROPERTIES_OPEN_LIMIT = 200;
@@ -37,7 +38,8 @@ export const propertiesOpenStore = defineStore("markdown-properties-open", ({per
         actions: {
             set: (address: string, open: boolean): void => {
                 const next = (value: Readonly<{open: readonly string[]}>): {open: string[]} => ({open: nextOpen(value.open, address, open)});
-                if (files.save.state === "failed" || files.save.state === "unknown") files.show(next(files.display));
+                // 读不出、记录坏了（存储不覆盖它，提交会被挡下、显示退回）或保存暂停时：只改这次运行里的显示，展开与收起照样起作用。
+                if (fieldProblem(files) !== null) files.show(next(files.display));
                 else void files.commit(next);
             },
         },
