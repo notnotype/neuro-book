@@ -46,8 +46,6 @@ function setup(options: {marker: boolean; shellReceives?: boolean}) {
         ...(options.shellReceives === false ? {} : {__electrobunSendToHost: (message: unknown) => sent.push(message)}),
     };
     const global = {
-        addEventListener: (type: "focus" | "blur", listener: () => void) => window.addEventListener(type, listener),
-        removeEventListener: (type: "focus" | "blur", listener: () => void) => window.removeEventListener(type, listener),
         requestAnimationFrame: (callback: () => void) => window.requestAnimationFrame(callback),
         cancelAnimationFrame: (handle: number) => window.cancelAnimationFrame(handle),
         ...(options.marker ? {[DESKTOP_FRAME_MARKER]: 1} : {}),

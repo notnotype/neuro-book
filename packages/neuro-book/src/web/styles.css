@@ -134,7 +134,7 @@ html:has(.nb-workbench-page) {
  */
 html[data-desktop-frame] {
     --nb-window-frame-height: 36px;
-    --nb-window-controls-width: 138px;
+    --nb-window-controls-width: 120px;
     --nb-window-frame-offset: 0px;
     --nb-viewport-block: 100%;
     overflow: hidden;
