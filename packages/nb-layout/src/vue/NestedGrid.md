@@ -105,8 +105,11 @@ type NestedGridProps = {
     maximized?: {leaf: string; exclude: ReadonlyArray<string>} | null;
     /** 分隔线的种类，写到 data-sash-kind，宿主据此给不同的线不同的颜色；默认不写。 */
     sashKind?: (sash: {branch: string; before: string; after: string}) => string | undefined;
-    /** 叶在外框里画成的卡片：inset 是相对外框上右下左的内缩，radius 是左上、右上、右下、左下的圆角，都是 CSS 长度。过渡中外框露出、盖住保持尺寸的内层时按它裁；默认按外框的矩形裁。 */
-    leafShape?: (leaf: string) => {inset: [string, string, string, string]; radius: [string, string, string, string]} | undefined;
+    /**
+     * 叶在外框里画成的卡片：inset 是相对外框上右下左的内缩，radius 是左上、右上、右下、左下的圆角，都是 CSS 长度。过渡中外框露出、盖住保持尺寸的内层时按它裁；默认按外框的矩形裁。
+     * 给了 fill 时形状可以伸出外框（内缩为负）：外框里的东西照旧裁在外框里，伸出去的部分画成 fill，这块外框画在别的外框下面，伸到邻居那里的部分被邻居盖住。
+     */
+    leafShape?: (leaf: string) => {inset: [string, string, string, string]; radius: [string, string, string, string]; fill?: string} | undefined;
 };
 
 type NestedGridEmits = {
@@ -132,7 +135,7 @@ type NestedGridSlots = {
 };
 ```
 
-Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 三个方法：`settleMotion()` 把进行中的过渡直接送到终点，`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少；另有 `outgoingLeaves`：过渡里缩回去、还画着的叶（节点 id 集合），留着缩回去的离开的叶（已经不在 `node` 里）与这一轮降到零的叶（还在，尺寸已经是零）；宿主按它们缩回去之前的样子画挨着的东西（例如相连的卡片），不按这一刻的布局，过渡结束就空了。插槽渲染时读到的就是这一轮的。未声明 attrs 按 Vue 单根行为落到外层承载 div，不透传到递归 Splitter 或叶容器。
+Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`；分支包含 `children`，叶以 `kind: "leaf"` 区分。`leaf` 插槽仅收到叶节点，不提供额外作用域；空树与 null 根由 `empty` 插槽呈现。expose 三个方法：`settleMotion()` 把进行中的过渡直接送到终点，`placeLifted(rect)` 写拿起元素的矩形，`placeFloat(id, offset)` 写拖动中的窗挪了多少；另有 `outgoingLeaves`：过渡里缩回去、还画着的叶（节点 id 集合），留着缩回去的离开的叶（已经不在 `node` 里）与这一轮降到零的叶（还在，尺寸已经是零）；宿主按它们缩回去之前的样子画挨着的东西（例如相连的卡片），不按这一刻的布局，过渡结束就空了。还有 `shapedLeaves`：这一刻外框按 `leafShape` 裁的叶（长出来的、缩回去的、内容不跟外框的），宿主要在这段时间换一种形状时读它。两者插槽渲染时读到的都是这一轮的。未声明 attrs 按 Vue 单根行为落到外层承载 div，不透传到递归 Splitter 或叶容器。
 
 ## 状态与边界
 

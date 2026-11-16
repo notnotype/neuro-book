@@ -85,6 +85,11 @@ export interface GridContentInput {
 export interface GridLeafShape {
     readonly inset: readonly [string, string, string, string];
     readonly radius: readonly [string, string, string, string];
+    /**
+     * 形状伸出外框时（某一边的内缩为负）伸出去那部分的颜色。外框里的东西照旧裁在外框里，伸出去的部分只画这个颜色；这块外框整块画在别的外框下面，
+     * 所以伸到邻居那里的部分被邻居盖住，只在邻居的空处（缝、圆角外面）露出来。不写时形状不伸出外框，负的内缩画不出东西。
+     */
+    readonly fill?: string;
 }
 
 export interface GridContentPlacement {

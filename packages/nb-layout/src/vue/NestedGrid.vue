@@ -155,11 +155,20 @@ function floatLayer(leaf: string, part: 0 | 1 | 2): Record<string, string> {
 function shapeOf(leaf: string): GridLeafShape | undefined {
     return floatAt.value.has(leaf) ? undefined : props.leafShape?.(leaf);
 }
-/** 过渡中外框露出、盖住保持尺寸的内层（`keptSize` 的叶）：外框按卡片裁（`leafShapeClip`）；别的叶内层跟着外框，外框自己的矩形就是卡片的边。 */
+/**
+ * 过渡中外框露出、盖住保持尺寸的内层（`keptSize` 的叶）：外框按卡片裁（`leafShapeClip`）；别的叶内层跟着外框，外框自己的矩形就是卡片的边。
+ * 形状伸出外框（`fill`）时，伸出去的部分用外框自己的投影画（投影不受自己的 `overflow` 裁，里面的东西照旧裁在外框里），扩展量取伸得最远的一边，
+ * 再由 `clip-path` 裁成形状；外框压到别的外框下面（它们是 `z-index: auto`、按 DOM 序叠的同一档，内容层在 1）。
+ */
 function frameClip(item: GridLeafPlacement<unknown>): Record<string, string> {
     const shape = keptSize.value.has(item.key) ? shapeOf(item.node.id) : undefined;
-    return shape === undefined ? {} : {clipPath: leafShapeClip(shape)};
+    if (shape === undefined) return {};
+    if (shape.fill === undefined) return {clipPath: leafShapeClip(shape)};
+    const reach = `max(0px, ${shape.inset.map((inset) => `calc(-1 * (${inset}))`).join(", ")})`;
+    return {clipPath: leafShapeClip(shape), boxShadow: `0 0 0 ${reach} ${shape.fill}`, zIndex: "-1"};
 }
+/** 这一刻外框按 `leafShape` 裁的叶（节点 id）：过渡中外框露出、盖住保持尺寸的内层的那些，过渡结束就空了。 */
+const shapedLeaves = computed<ReadonlySet<string>>(() => new Set((placement.value?.items ?? []).flatMap((item) => (item.kind === "leaf" && keptSize.value.has(item.key) && !floatAt.value.has(item.node.id) ? [item.node.id] : []))));
 /** 最大化期间没有分隔线可拖。 */
 const gesturesDisabled = computed(() => props.disabled || props.maximized != null);
 /** 压在别的面板上面的那块叶：还原的过渡结束之前它还要在上面。 */
@@ -496,6 +505,11 @@ defineExpose({
      * 画挨着的东西（相连的卡片），不按这一刻的布局：那已经是终点了。过渡结束就空了。
      */
     outgoingLeaves,
+    /**
+     * 这一刻外框按 `leafShape` 裁的叶（节点 id）：长出来的、缩回去的、内容不跟外框的。宿主要在这段时间换一种形状时读它（例如让形状伸到邻居底下，
+     * 见 `GridLeafShape.fill`），读到的就是这一轮的。过渡结束就空了。
+     */
+    shapedLeaves,
 });
 </script>
 
