@@ -65,7 +65,7 @@ updated: 2026-11-15
 | [t11](tasks/t11-release-pipeline/README.md) | 打标签自动发布流水线。已完成：第一次正式发布 v0.13.0（2026-11-15）走完，registry 冒烟改为先等版本可见 |
 | [t18](tasks/t18-desktop-window-feedback/README.md) | 开发者试用 t03、t04 后的反馈：窗口按钮与标题栏统一、回到书架的入口、窗口最小 800×560。进行中 |
 | [t19](tasks/t19-resize-relayout/README.md) | 改窗口大小时页面的重排开销（分隔条吸附、过渡列表）。完成（每步样式重算 26 → 7.65，样式时间约少四成），已合入 |
-| [t13](tasks/t13-tray/README.md) | 系统托盘与关掉最后一个窗口时的去向。计划写好，设计审查中 |
+| [t13](tasks/t13-tray/README.md) | 托盘与关窗去向。切片 1 到 5 合入 master（82d15e3cc），实现审查已处理；Windows 验收（切片 6）等 pc-notype |
 | [t14](tasks/t14-system-notifications/README.md) | 系统通知（先实测 WebView2 的网页通知）。调研完，等 Windows 探针 |
 | [t15](tasks/t15-drag-import/README.md) | 从系统拖入文件、图片与文件夹（文件树、编辑器插图、书架导入）。未开工 |
 | [t16](tasks/t16-plugin-drag-install/README.md) | 拖拽安装插件。计划写好，设计审查中 |
