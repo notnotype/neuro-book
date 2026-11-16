@@ -821,6 +821,10 @@ test.describe("实时布局", () => {
             const y = second.y + second.height - 2;
             return box !== null && box.y <= y && y <= box.y + box.height;
         }).toBe(true);
+        // 抓住的点在指针下：按在图标中间拿起的，指针不在它的上沿（这个入口的视图也是侧栏里一节的标题，按它的矩形算抓点会夹成 0，图标挂在指针下面）。
+        const grabbed = await dragged.boundingBox();
+        expect(grabbed).not.toBeNull();
+        expect((second.y + second.height - 2 - (grabbed?.y ?? 0)) / (grabbed?.height ?? 1)).toBeGreaterThan(0.25);
         await expect(page.locator("[data-lifted]")).toHaveCount(0);
         await page.keyboard.press("Escape");
         await page.mouse.up();

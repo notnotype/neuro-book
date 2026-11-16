@@ -539,13 +539,15 @@ export function createLayoutDrag(options: LayoutDragOptions): LayoutDrag {
     /**
      * 被拖的标签在标签条里跟手时怎么判：宽度取它拿起时量到的（在自己的标签条里摘掉的那一个；只写标题的头没有标签条，取标题），按下的点在它上面的比例。
      * 拖到别的标签条里它画出来的宽度可能不同（只写标题的头换成标签），判定仍按拿起时的宽度：只差在离两端很近的那一点。
+     * 只认按下的点落在里面的那个矩形：从活动栏拖入口时同一个视图的标题在侧栏里，按下的点不在它上面，量它会把抓点夹成 0。
+     * 这时是 null，判定按指针，抓点照旧在第一次排序时定（`measureSorted`）。
      */
     function heldTabOf(strips: ReadonlyMap<string, TabStripSnapshot>, source: LayoutTabSource): TabStripHeld | null {
         if (pressedAt === null) return null;
         const rect = [...strips.values()].find((snapshot) => snapshot.excludedRect !== undefined)?.excludedRect ?? rectOf(root.querySelector(`[data-panel-tab="${escape(source.tab)}"]`));
         const width = rect === null ? 0 : rect.right - rect.left;
-        if (rect === null || width <= 0) return null;
-        return {width, grab: Math.min(1, Math.max(0, (pressedAt.x - rect.left) / width))};
+        if (rect === null || width <= 0 || !contains(rect, pressedAt)) return null;
+        return {width, grab: (pressedAt.x - rect.left) / width};
     }
 
     /**
