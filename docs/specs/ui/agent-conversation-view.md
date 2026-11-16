@@ -88,6 +88,8 @@ type AgentConversationViewProps = {
     sessionsOpen?: boolean;
     /** 没选会话时顶栏的图标：新会话会用的 Profile（planned）。 */
     draftProfile?: {name: string; icon: string} | null;
+    /** 没有消息时的第一屏（见“消息”的空状态，planned）；不给时写“还没有消息”。 */
+    welcome?: {title?: string; recent: {id: string; title: string; at: number}[]; total: number; starters: {text: string; icon?: string}[]};
 };
 
 type AgentConversationViewEmits = {
@@ -192,7 +194,7 @@ type PendingInputCommon = {
 
 宿主注入的渲染组件之外，还可以注入 `markdownPreview(text)`：Markdown 文字折叠时露出的那一行纯文字怎么取。不注入时用包内的缺省规则，只去掉常见的强调、代码、链接与块标记，强调按 CommonMark 的写法认（与展开后的显示一致）。注入的函数出错时这一行按缺省规则显示。
 
-Markdown 扩展与空状态起手提示在本规范中只预留，不要求实现。
+Markdown 扩展在本规范中只预留，不要求实现。
 
 内置工具的类别：
 
@@ -283,7 +285,11 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 - 滚动到接近顶部，或内容不足一屏时，发出 `history.loadPrevious`。还有更早内容时消息流顶部有一行“更早的内容”，也可以点击加载；加载中显示加载指示，失败时显示错误与重试。最早一个轮次的用户消息尚未加载时，这一行就是它的开头标记，更早一页加载后与之合并。
 - 切换会话后直接定位到最新内容，恢复跟随。
 - 发出消息或命令后（来自输入框，或宿主组件发出的 `composer.submit`、`command.run`）回到最新内容并恢复跟随，即使此前正在往上翻阅。
-- 没有消息时：`availability` 为 `loading` 显示加载中，其余显示“还没有消息”；其余状态的说明与恢复动作在输入框上方的横幅里，不在消息流里重复。
+- 没有消息时：`availability` 为 `loading` 显示加载中；给了 `welcome` 时显示第一屏，否则显示“还没有消息”；其余状态的说明与恢复动作在输入框上方的横幅里，不在消息流里重复。
+- 第一屏（planned）：在消息区里竖直居中，宽不超过 460px，自上而下三块。
+    - 欢迎：图标、标题（`welcome.title`，不给时写“开始一段对话”）、一句说明，说明随下面两块有没有变。
+    - 最近对话：至多 3 张卡片，每张写标题（为空写“未命名会话”）与时间（写法同会话列表），点了发出 `session.select`；标题行右边“查看全部（N）”打开会话列表（有 `sessions` 插槽时才有）。`recent` 为空时这一块不画。
+    - 试试这些：至多 3 条，每条图标（强调色）加指令，单行截断、悬停显示全文；标题行右边写“点击填入输入框”。点了发出 `composer.fill {text}` 并聚焦输入框。`starters` 为空时这一块不画。
 
 ### 消息
 
@@ -318,7 +324,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 ### 状态栏
 
-输入框下面一行小字。左边：上下文圆环与百分比（点击打开上下文检查器，90% 起变红）、运行阶段与用时（不写具体哪一步）、等重发、等你批准或回答、费用告警、非默认模式的标记（“全部放行”用警告色）、断线时的连接状态（需要操作时提供重连）。右边：累计 tokens、输入、输出、缓存命中、费用，图标与轮末用量相同，明细在悬停。状态栏窄于 400px 时右边只留缓存命中与费用（服务商不报缓存时留累计），累计、输入、输出在悬停里；左边放不下时省略，不挤右边。
+输入框下面一行小字。左边：上下文圆环与百分比（点击打开上下文检查器，90% 起变红）、运行阶段与用时（不写具体哪一步）、等重发、等你批准或回答、费用告警、非默认模式的标记（“全部放行”用警告色）、断线时的连接状态（需要操作时提供重连）。右边：累计 tokens、输入、输出、缓存命中、费用，图标与轮末用量相同，明细在悬停。状态栏窄于 400px 时右边只留缓存命中与费用（服务商不报缓存时留累计），累计、输入、输出在悬停里；左边放不下时省略，不挤右边。没选会话时不画数据项（上下文圆环、tokens 与费用），提醒项（非默认模式的标记、断线）照常（planned）。
 
 ### 会话列表
 
@@ -373,7 +379,7 @@ type AgentSessionListItem = {
 | 会话 | `session.create {profileKey?}`、`session.select {sessionId}`、`session.rename {sessionId, title}`、`session.archive {sessionId}`、`session.restore {sessionId}`、`sessions.query {query}`、`sessions.refresh`、`view.close` |
 | 消息 | `message.copy {messageId}`、`message.editStart {messageId}`、`message.editCancel`、`message.editSubmit {messageId, text}`、`message.retry {messageId}`、`message.branchFrom {messageId}`、`message.resend {messageId}`、`message.dismiss {messageId}`、`branch.switch {messageId, direction}`、`tool.copy {toolCallId}`、`history.loadPrevious`、`history.refresh` |
 | 引用与文件 | `reference.open {target}`、`link.open {href}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
-| 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}`、`menu.selected {trigger, id}`（确认了宿主菜单里的一项，标签已经插入；宿主据此做插入之外的事，例如问要不要初始化 Skill） |
+| 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.fill {text}`（把一段文字换进输入框，宿主换草稿并加版本，planned）、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}`、`menu.selected {trigger, id}`（确认了宿主菜单里的一项，标签已经插入；宿主据此做插入之外的事，例如问要不要初始化 Skill） |
 | 运行设置 | `mode.set {mode}`、`model.set {modelKey}`、`thinking.set {level}`、`model.manage`、`runtime.reset` |
 | 审批与提问 | `input.submit {batchKey, resolutions, sessionId?}`（`batchKey` 是事项 id，一个事项一条；`resolutions` 是 `{kind: "approval", decision, note?}` 或 `{kind: "question", answer: {text, data}}`；`sessionId` 是事项所在的会话，带 `source` 的事项提交时有）、`input.cancelRun`、`input.resync`、`wizard.state {state}`（向导的界面状态，宿主放回 `ctx.wizardState`）、`dock.state {state}`（停靠区的界面状态，宿主放回 `ctx.dockState`） |
 | 中断与排队 | `run.continue`、`queued.edit {id}`、`queued.remove {id}` |
