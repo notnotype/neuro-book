@@ -315,7 +315,7 @@ test("状态栏的活动条目：等用户时显示，点一下切到那个会�
     await expect(item).toHaveCount(0);
 });
 
-test("模型选择器：面板与输入框同宽；选没绑定的角色说明原因；绑定之后不刷新页面就恢复；状态栏窄时留缓存与费用", async ({page}, testInfo) => {
+test("模型选择器：面板与输入框同宽；选没绑定的角色出提示卡，“去绑定”打开角色页、焦点在这个角色上；绑定之后不刷新页面就恢复；状态栏窄时留缓存与费用", async ({page}, testInfo) => {
     await openConversation(page);
     await send(page, "先说一句");
     await expect(page.locator("[data-agent-status]")).toBeVisible();
@@ -336,10 +336,21 @@ test("模型选择器：面板与输入框同宽；选没绑定的角色说明�
 
     await panel.locator("[data-model-picker-role='role:deep']").click();
     await expect(panel).toBeVisible();
-    await expect(page.locator("[data-composer-availability]")).toContainText("绑定");
+    // 提示卡写出角色（conversation.md 输出 42），占位也是它。
+    const card = page.locator("[data-notice-card]");
+    await expect(card).toContainText("“深度”角色还没绑定模型");
     await page.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);
     await expect(picker).toBeEnabled();
+    await page.screenshot({path: testInfo.outputPath("notice-card.png")});
+
+    // “去绑定”：设置窗口开在角色页，焦点落在“深度”这一行的模型下拉上（settings-pages.md 输出 18）。
+    await card.locator("[data-availability-action='bind-role']").click();
+    const settingsWindow = page.locator("[data-settings-window]");
+    await expect(settingsWindow).toBeVisible();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-role-row]")?.getAttribute("data-role-row") ?? null)).toBe("deep");
+    await page.keyboard.press("Escape");
+    await expect(settingsWindow).toHaveCount(0);
 
     const file = join(stateRoot, "settings.json");
     const settings = JSON.parse(await readFile(file, "utf8")) as Record<string, {items: {id: string; model: string | null}[]}>;

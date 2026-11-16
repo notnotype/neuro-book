@@ -147,12 +147,13 @@ describe("解析（输出 8）", () => {
         const w = await world();
         const client = await w.window("w");
         const port = w.service.port((profile) => (profile === "lab.writer" ? {role: "deep"} : profile === "lab.pinned" ? {model: "nope/model"} : {}));
-        expect(port.resolve(query())).toEqual({ok: false, code: "role-unbound"});
+        // 失败带上走到的角色；没密钥时还带卡住的服务商（输出 8）。
+        expect(port.resolve(query())).toEqual({ok: false, code: "role-unbound", role: "main"});
 
         const id = await addLocal(client);
         expect(id).toBe("custom");
         ok(await client.setRole({id: "main", model: `${id}/qwen3:8b`}));
-        expect(port.resolve(query())).toEqual({ok: false, code: "no-credentials"});
+        expect(port.resolve(query())).toEqual({ok: false, code: "no-credentials", role: "main", provider: id});
 
         expect(ok(await client.setKey({provider: id, value: KEY}))).toEqual({kind: "stored"});
         const resolution = port.resolve(query());
@@ -162,10 +163,10 @@ describe("解析（输出 8）", () => {
         expect((await resolution.call(request, new AbortController().signal, () => undefined)).stopReason).toBe("stop");
         expect(seen[0]!.authorization).toBe(`Bearer ${KEY}`);
 
-        expect(port.resolve(query({profile: "lab.writer"}))).toEqual({ok: false, code: "role-unbound"});
+        expect(port.resolve(query({profile: "lab.writer"}))).toEqual({ok: false, code: "role-unbound", role: "deep"});
         expect(port.resolve(query({profile: "lab.pinned"}))).toEqual({ok: false, code: "unknown-model"});
         expect(port.resolve(query({settings: {...CORE, model: `${id}/qwen3:8b`}, profile: "lab.writer"})).ok).toBe(true);
-        expect(port.resolve(query({purpose: "approval"}))).toEqual({ok: false, code: "role-unbound"});
+        expect(port.resolve(query({purpose: "approval"}))).toEqual({ok: false, code: "role-unbound", role: "fast"});
         expect(port.resolve(query({purpose: "compaction", role: "main"})).ok).toBe(true);
     });
 
@@ -174,7 +175,7 @@ describe("解析（输出 8）", () => {
         const client = await w.window("w");
         const port = w.service.port();
         const choose = (model: string) => port.resolve(query({settings: {...CORE, model}}));
-        expect(choose("role:deep")).toEqual({ok: false, code: "role-unbound"});
+        expect(choose("role:deep")).toEqual({ok: false, code: "role-unbound", role: "deep"});
         expect(choose("role:没有这个角色")).toEqual({ok: false, code: "unknown-model"});
         expect(choose("role:")).toEqual({ok: false, code: "unknown-model"});
 
@@ -185,7 +186,7 @@ describe("解析（输出 8）", () => {
         if (!bound.ok) throw new Error(bound.code);
         expect(bound.info.id).toBe(`${id}/qwen3:8b`);
         // 用途指名的角色仍然优先：压缩不跟着会话选的走。
-        expect(port.resolve(query({settings: {...CORE, model: "role:deep"}, purpose: "compaction"}))).toEqual({ok: false, code: "role-unbound"});
+        expect(port.resolve(query({settings: {...CORE, model: "role:deep"}, purpose: "compaction"}))).toEqual({ok: false, code: "role-unbound", role: "compaction"});
     });
 
     test("第一次绑快速档时压缩跟着它（输出 14）；之后各改各的", async () => {
@@ -343,7 +344,7 @@ describe("目录漂移（输出 9）", () => {
         const snapshot = w.service.snapshot();
         expect(snapshot.providers[0]!.models[0]).toMatchObject({id: "deepseek-retired", status: "missing"});
         expect(snapshot.roles.find((role) => role.id === "main")!.status).toBe("unknown-model");
-        expect(w.service.port().resolve(query())).toEqual({ok: false, code: "unknown-model"});
+        expect(w.service.port().resolve(query())).toEqual({ok: false, code: "unknown-model", role: "main"});
         expect(w.settings.diagnostics("hub").query({}).records.some((record) => record.event === "models.catalog.missing")).toBe(true);
     });
 });

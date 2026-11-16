@@ -23,6 +23,7 @@ import type {TextResolver} from "nbook/shared/localized-text";
 import type {TextRef} from "@notnotype/nb-ui/text";
 import type {BranchPoint, PreviewResult, RewindTarget} from "@notnotype/nb-harness/kernel/contracts";
 
+import {roleOfReference, roleReference} from "nbook/plugins/models/shared/contracts";
 import {MAIN_PROFILE} from "../shared/contracts";
 import {AGENT_MODES_EXTENSION, AUTO_ESCALATED_PREFIX, AUTO_FAILED_REASON, MODE_ASK_REASON, MODE_SWITCH_KIND} from "../shared/permissions";
 import type {AgentMode, ModeSwitchRequest, Rule} from "../shared/permissions";
@@ -30,6 +31,8 @@ import {rulesToRemember} from "./permission-rules";
 import type {SettingWriteResult} from "nbook/shared/settings";
 import type {ProfileEntry} from "../shared/contracts";
 import {modelNeedsText} from "./profile-view";
+import {MODEL_KEYS, modelNotice} from "./model-notice";
+import type {ModelFailure, ModelNoticeInput} from "./model-notice";
 import type {agentSessionsContract, ApprovalPreview, ApprovalPreviewItem, LogItem, RemoteFrame} from "../shared/remote";
 import type {AncestorItem, JobItem, TreeItem} from "../shared/subagents";
 import {agentText} from "../shared/text";
@@ -68,12 +71,6 @@ const HOST_TRIGGERS = ["@", "/", "$"] as const;
 const DRAFT_SAVE_DELAY_MS = 500;
 /** 上方向键最多翻多少条。 */
 const RECALL_LIMIT = 50;
-const MODEL_KEYS = {
-    "no-model": "conversation.model.none",
-    "no-credentials": "conversation.model.noCredentials",
-    "unknown-model": "conversation.model.unknown",
-    "role-unbound": "conversation.model.roleUnbound",
-} as const;
 const ROLE_STATUS_KEYS = {
     unbound: MODEL_KEYS["role-unbound"],
     "unknown-model": MODEL_KEYS["unknown-model"],
@@ -166,9 +163,12 @@ export interface SessionHostDeps {
     readonly models: () => readonly ComposerModelView[] | null;
     /** 模型角色；模型服务不在时为 null。`status` 是模型服务按解析规则算的有效性。 */
     readonly roles: () => readonly RoleOption[] | null;
+    /** 模型服务快照里的服务商（提示卡查名字、判断一家都没有）；还没读到、模型服务不在时为 null。 */
+    readonly providers: () => readonly {readonly id: string; readonly name: string}[] | null;
     readonly profiles: () => readonly ProfileEntry[];
     readonly copy: (text: string) => void;
-    readonly openSettings: () => void;
+    /** 打开设置；给了 `target` 时到那个分区、交给那一页 `focus`（settings-window.md 输出 15）。 */
+    readonly openSettings: (target?: {readonly section: string; readonly focus?: string}) => void;
     /** 打开“模型请求”页，只看这个会话；带 `request` 时选中那一次（request-trace.md 的入口）。 */
     readonly openRequests: (target: {readonly sessionId: string; readonly request?: number}) => void;
     readonly openAddress: (address: string) => void;
@@ -1497,11 +1497,13 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             case "link.open":
                 deps.openLink(action.href);
                 return;
-            case "availability.act":
-                if (action.action === "open-settings") deps.openSettings();
+            case "availability.act": {
+                const modelCard = modelNotice(noticeInput());
+                if (modelCard !== null && action.action === modelCard.action.id) deps.openSettings(modelCard.target);
                 else if (action.action === "restore" && target !== null) await remote.archive({sessionId: target.id, commandId: commandId(), archived: false});
                 else if (action.action === "retry" && target !== null) await open(target.id);
                 return;
+            }
             default:
                 // 第二批的动作（编辑重发、分支、附件、命令）：视图的 `interaction` 已经关掉入口，这里不用处理。
                 return;
@@ -1548,13 +1550,33 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
         return [...own, ...descendants];
     }
 
+    /** 提示卡的输入（model-notice.ts）：组上下文与处理按钮按同一份算。 */
+    const noticeInput = (): ModelNoticeInput => {
+        const meta = current?.transcript.meta();
+        const model = (meta?.model ?? null) as ({readonly ok: boolean} & Partial<ModelFailure>) | null;
+        const chosen = (meta?.settings as {readonly model?: string | null} | undefined)?.model ?? null;
+        const roles = deps.roles() ?? [];
+        return {
+            session: current !== null && meta !== undefined,
+            failure: model === null || model.ok ? null : {code: model.code ?? "no-model", ...(model.role === undefined ? {} : {role: model.role}), ...(model.provider === undefined ? {} : {provider: model.provider})},
+            providers: deps.providers(),
+            roleName: (role) => {
+                const found = roles.find((item) => item.key === roleReference(role));
+                return found === undefined ? null : deps.text.t(found.name);
+            },
+            profileName: deps.profiles().find((item) => item.key === meta?.profile)?.name ?? meta?.profile ?? "",
+            modelName: chosen === null || roleOfReference(chosen) !== null ? null : deps.models()?.find((item) => item.key === chosen)?.label ?? chosen,
+            text: deps.text,
+        };
+    };
+
     const ctx = computed<AgentConversationContext>(() => {
         void revision.value;
         const now = nowValue.value;
         const target = current;
         const meta = target?.transcript.meta();
         const profile = deps.profiles().find((item) => item.key === meta?.profile);
-        const model = (meta?.model ?? null) as {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | {ok: false; code: string} | null;
+        const model = (meta?.model ?? null) as {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | ({ok: false} & ModelFailure) | null;
         const usage = target?.transcript.usage();
         const run = target?.transcript.run();
         const warnCost = deps.warnCost();
@@ -1577,14 +1599,15 @@ export function createSessionHost(deps: SessionHostDeps): SessionHost {
             if (found === undefined) return "";
             return modelNeedsText(profile.modelNeeds, {vision: found.supportsImages, reasoning: found.reasoning ?? false, contextWindow: found.contextWindow ?? null}, deps.text);
         };
+        const modelCard = modelNotice(noticeInput());
         const availability = target?.loading === true && target.failed === null
             ? {status: "loading" as const, message: "", actions: []}
             : target?.failed !== null && target?.failed !== undefined
             ? {status: "load-error" as const, message: deps.text.t(agentText("conversation.openFailed", {code: target.failed.code})), actions: [{id: "retry", label: deps.text.t(agentText("conversation.retry"))}]}
             : meta?.archived === true
                 ? {status: "archived" as const, message: deps.text.t(agentText("conversation.archived")), actions: [{id: "restore", label: deps.text.t(agentText("conversation.restore"))}]}
-                : model !== null && !model.ok
-                    ? {status: "profile-unavailable" as const, message: deps.text.t(agentText(MODEL_KEYS[model.code as keyof typeof MODEL_KEYS] ?? "conversation.model.none")), actions: [{id: "open-settings", label: deps.text.t(agentText("conversation.openSettings"))}]}
+                : modelCard !== null
+                    ? {status: "profile-unavailable" as const, title: modelCard.title, message: modelCard.message, icon: modelCard.icon, actions: [modelCard.action]}
                     : {status: "ready" as const, message: modelGapMessage(), actions: []};
         return createAgentContext({
             session: target === null || meta === undefined ? null : {

@@ -205,6 +205,24 @@
             "roleUnbound": "此 Profile 需要的模型角色未绑定模型。",
             "unavailable": "不可用"
         },
+        "notice": {
+            "noProvider": {
+                "title": "还没有可用的模型",
+                "body": "先添加一个服务商（DeepSeek、OpenAI、本机的 Ollama 都行），再回来对话。",
+                "action": "添加服务商"
+            },
+            "roleUnbound": {
+                "title": "“{{role}}”角色还没绑定模型",
+                "body": "{{profile}}用“{{role}}”角色的模型对话。",
+                "action": "去绑定"
+            },
+            "noCredentials": {
+                "title": "{{provider}} 还没有设置密钥",
+                "bodyRole": "“{{role}}”角色绑定的模型要用 {{provider}} 的密钥。",
+                "bodyModel": "{{model}} 要用 {{provider}} 的密钥。",
+                "action": "设置密钥"
+            }
+        },
         "mode": {
             "normal": "普通",
             "discuss": "讨论",

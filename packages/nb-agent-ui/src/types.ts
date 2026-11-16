@@ -188,6 +188,9 @@ export type AvailabilityView = {
     message: string;
     /** 可执行的恢复动作；点击发出 `availability.act`。 */
     actions: Array<{id: string; label: string}>;
+    /** 提示卡的标题与图标（`profile-unavailable` 画成提示卡，见 AgentNoticeCard.md）；标题也是输入框的占位。 */
+    title?: string;
+    icon?: string;
 };
 
 export type InteractionView = {

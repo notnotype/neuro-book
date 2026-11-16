@@ -994,6 +994,65 @@ describe("设置文件视图（输出 23）：经远程合同整份读写，真�
     });
 });
 
+describe("打开到页面里的某一处（输出 15 的 focus）", () => {
+    const Page = defineComponent({name: "FocusPage", render: () => null});
+
+    async function twoPages() {
+        const control = toggle({implementation: {load: async () => Page}});
+        const started = await start([contributor("x.notes", {"x.notes.page": pageSection(), "x.notes.other": pageSection()}, control)], true);
+        return windowFor(started.probe, true).window;
+    }
+
+    async function shown(window: Awaited<ReturnType<typeof twoPages>>, id: string) {
+        await waitUntil(`${id} 加载完`, () => window.page(id).status === "ready");
+        return window.page(id).context;
+    }
+
+    it("窗口关着：打开到那一页，focus 只交给那一页；页面取走一次后清空，再取是 null", async () => {
+        const window = await twoPages();
+        window.openWindow({section: "x.notes.page", focus: "role:write"});
+        const context = await shown(window, "x.notes.page");
+        expect(context.focus.value).toBe("role:write");
+        expect(context.takeFocus()).toBe("role:write");
+        expect([context.focus.value, context.takeFocus()]).toEqual([null, null]);
+    });
+
+    it("窗口开在同一页：不过确认直接交给页面；同一个值再点一次照样再交一次", async () => {
+        const window = await twoPages();
+        window.openWindow({section: "x.notes.page"});
+        const context = await shown(window, "x.notes.page");
+        context.dirty(true);
+        window.openWindow({section: "x.notes.page", focus: "deepseek"});
+        expect([window.leaving.value, context.focus.value]).toEqual([null, "deepseek"]);
+        expect(context.takeFocus()).toBe("deepseek");
+        window.openWindow({section: "x.notes.page", focus: "deepseek"});
+        expect(context.focus.value).toBe("deepseek");
+    });
+
+    it("窗口开在别的页且有未保存的改动：等确认；取消时不交，放弃后切过去再交", async () => {
+        const window = await twoPages();
+        window.openWindow({section: "x.notes.other"});
+        (await shown(window, "x.notes.other")).dirty(true);
+        window.openWindow({section: "x.notes.page", focus: "add"});
+        expect(window.leaving.value).toEqual({kind: "open", section: "x.notes.page", focus: "add"});
+        window.cancelLeave();
+        expect(window.section.value).toBe("x.notes.other");
+        expect(window.page("x.notes.page").context.focus.value).toBeNull();
+        window.openWindow({section: "x.notes.page", focus: "add"});
+        window.confirmLeave();
+        expect((await shown(window, "x.notes.page")).focus.value).toBe("add");
+    });
+
+    it("没被取走就去了别处：作废，回来也取不到", async () => {
+        const window = await twoPages();
+        window.openWindow({section: "x.notes.page", focus: "role:write"});
+        await shown(window, "x.notes.page");
+        window.select("x.notes.other");
+        window.select("x.notes.page");
+        expect((await shown(window, "x.notes.page")).takeFocus()).toBeNull();
+    });
+});
+
 describe("打开设置文件并定位（输出 22、23）", () => {
     const position = {line: 3, column: 3};
 

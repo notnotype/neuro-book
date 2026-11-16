@@ -205,6 +205,24 @@
             "roleUnbound": "The model role this Profile wants has no model.",
             "unavailable": "Unavailable"
         },
+        "notice": {
+            "noProvider": {
+                "title": "No model is available yet",
+                "body": "Add a provider first (DeepSeek, OpenAI and a local Ollama all work), then come back.",
+                "action": "Add provider"
+            },
+            "roleUnbound": {
+                "title": "The “{{role}}” role has no model",
+                "body": "{{profile}} talks through the “{{role}}” role's model.",
+                "action": "Bind a model"
+            },
+            "noCredentials": {
+                "title": "{{provider}} has no key yet",
+                "bodyRole": "The model bound to the “{{role}}” role needs a {{provider}} key.",
+                "bodyModel": "{{model}} needs a {{provider}} key.",
+                "action": "Set key"
+            }
+        },
         "mode": {
             "normal": "Normal",
             "discuss": "Discuss",

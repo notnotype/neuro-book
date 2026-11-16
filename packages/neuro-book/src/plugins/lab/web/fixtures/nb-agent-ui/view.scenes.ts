@@ -318,6 +318,35 @@ export const agentConversationViewScenes: Scene[] = [
         },
     },
     {
+        id: "model-notice-role",
+        label: "模型用不了：角色没绑定，提示卡写出角色，按钮去绑定",
+        input: {
+            props: {
+                ctx: conversationContext({availability: {status: "profile-unavailable", title: "“写作”角色还没绑定模型", message: "主创用“写作”角色的模型对话。", icon: "i-lucide-link-2-off", actions: [{id: "bind-role", label: "去绑定"}]}}),
+                newSession: true,
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "model-notice-provider",
+        label: "模型用不了：一家服务商都没有，第一屏上压着“添加服务商”",
+        input: {
+            props: {
+                ctx: conversationContext({
+                    session: null,
+                    messages: [],
+                    availability: {status: "profile-unavailable", title: "还没有可用的模型", message: "先添加一个服务商（DeepSeek、OpenAI、本机的 Ollama 都行），再回来对话。", icon: "i-lucide-plug-zap", actions: [{id: "add-provider", label: "添加服务商"}]},
+                }),
+                newSession: true, draftProfile: {name: "主创", icon: "i-lucide-feather"},
+                welcome: {title: "NeuroBook 创作工作区", recent: [], total: 0, starters: WELCOME_STARTERS},
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
         id: "child-session",
         label: "子会话：头的左边是返回，中间是子代理的图标与标题",
         input: {

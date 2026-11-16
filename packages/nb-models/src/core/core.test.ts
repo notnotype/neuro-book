@@ -17,7 +17,7 @@ import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import type {Static} from "typebox";
 
-import {DEFAULT_ROLES} from "../config/shapes";
+import {DEFAULT_ROLES, MODEL_ROLE_IDS} from "../config/shapes";
 import type {ProviderConfig, RolesConfig} from "../config/shapes";
 import type {ModelsSettingsContract} from "../contract/settings-spec";
 import {startFakeOpenAiEndpoint} from "../testing/fake-endpoint";
@@ -165,15 +165,17 @@ describe("密钥的两步写入（输出 13）", () => {
 });
 
 describe("模型端口按选择顺序解析（输出 8）", () => {
-    it("审批取快速档、压缩取压缩角色；没绑定是 role-unbound；绑定的模型有密钥才能用", async () => {
+    it("审批取快速档、压缩取压缩角色；没绑定是 role-unbound；绑定的模型有密钥才能用；失败带上走到的角色与卡住的服务商", async () => {
         const store = memoryModelsConfig({providers: [custom("one")], roles: bound({fast: "one/qwen3:8b"})});
         const {core, call} = await start(store);
         const port = core.service.port();
-        expect(port.resolve(query({purpose: "approval"}))).toEqual({ok: false, code: "no-credentials"});
-        expect(port.resolve(query({purpose: "compaction"}))).toEqual({ok: false, code: "role-unbound"});
+        expect(port.resolve(query({purpose: "approval"}))).toEqual({ok: false, code: "no-credentials", role: MODEL_ROLE_IDS.fast, provider: "one"});
+        expect(port.resolve(query({purpose: "compaction"}))).toEqual({ok: false, code: "role-unbound", role: MODEL_ROLE_IDS.compaction});
+        // 会话直接选了模型（不经角色）：只带服务商。
+        expect(port.resolve(query({settings: {...CORE, model: "one/qwen3:8b"}}))).toEqual({ok: false, code: "no-credentials", provider: "one"});
         expect(await call("setKey", {provider: "one", value: KEY})).toEqual({ok: true, value: {kind: "stored"}});
         expect(port.resolve(query({purpose: "approval"}))).toMatchObject({ok: true, info: {id: "one/qwen3:8b"}});
-        expect(port.resolve(query())).toEqual({ok: false, code: "role-unbound"});
+        expect(port.resolve(query())).toEqual({ok: false, code: "role-unbound", role: MODEL_ROLE_IDS.main});
     });
 
     it("第一次绑快速档时压缩跟着它（输出 14）", async () => {

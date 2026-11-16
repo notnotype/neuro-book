@@ -15,6 +15,6 @@ export function modelsPage(component: Component, store: ModelsStore): Component 
     return defineComponent({
         name: "ModelsSettingsPage",
         props: {context: {type: Object as PropType<SettingsPageContext>, required: true}},
-        setup: (props) => () => h(component, {store, writable: props.context.writable.value, reportWriteFailure: props.context.reportWriteFailure}),
+        setup: (props) => () => h(component, {store, writable: props.context.writable.value, reportWriteFailure: props.context.reportWriteFailure, focus: props.context.focus.value, takeFocus: props.context.takeFocus}),
     });
 }

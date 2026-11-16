@@ -24,13 +24,17 @@ import ProviderRail from "./ProviderRail.vue";
 type ProviderPatch = Parameters<ModelsRemote["updateProvider"]>[0]["patch"];
 type ProviderSource = Parameters<ModelsRemote["addProvider"]>[0]["source"];
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     store: ModelsStore;
     /** 当前标签那一层能不能写（页面上下文的 `writable`）。 */
     writable: boolean;
     /** 写失败交给窗口通知（页面上下文的 `reportWriteFailure`）。 */
     reportWriteFailure: SettingsPageContext["reportWriteFailure"];
-}>();
+    /** 打开设置时要定位到的东西（页面上下文的 `focus`，settings-pages.md 输出 18）；数据到了再经 `takeFocus` 取走。 */
+    focus?: string | null;
+    /** 取走 `focus` 并清空（页面上下文的 `takeFocus`）。写成函数类型：写成 `SettingsPageContext["takeFocus"]` 时，Vue 编译器按方法的返回值生成运行时校验（String | Null），开发模式下传函数会报类型不符。 */
+    takeFocus?: () => string | null;
+}>(), {focus: null, takeFocus: () => null});
 
 const text = useModelsText();
 const snapshot = props.store.snapshot;
@@ -282,6 +286,25 @@ const removeDescription = computed(() => {
     return affected.length === 0 ? models : `${models}${text("remove.roles", {roles: affected.join("、")})}`;
 });
 const page = ref<HTMLElement | null>(null);
+
+/**
+ * 打开时定位（settings-pages.md 输出 18，对话的提示卡用）：`"add"` 打开添加窗口；服务商 id 选中这家、聚焦密钥框。快照到了再取走；
+ * 不认识的取走后忽略。
+ */
+watch([() => props.focus, snapshot], async ([focus, current]) => {
+    if (focus === null || current === null) return;
+    const target = props.takeFocus();
+    if (target === null) return;
+    if (target === "add") {
+        await openAdd();
+        return;
+    }
+    if (!current.providers.some((provider) => provider.id === target)) return;
+    selected.value = target;
+    await nextTick();
+    const key = page.value?.querySelector<HTMLElement>("[data-key-input]");
+    (key instanceof HTMLInputElement ? key : key?.querySelector<HTMLElement>("input") ?? key)?.focus();
+}, {immediate: true});
 
 /**
  * 进行中的删除：交回删除后焦点去的地方，失败为 null（输出 12）。删的是当前选中的那家时选中并聚焦下一家（没有时上一家，都没有时

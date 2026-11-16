@@ -212,3 +212,47 @@ describe("AgentModelPicker", () => {
         plain.unmount();
     });
 });
+
+describe("AgentConversationComposer 可用性的说明（ui/agent-conversation-view.md 的“输入框与待处理区”）", () => {
+    function mountWith(context: ReturnType<typeof ctx>) {
+        const actions: unknown[] = [];
+        const Host = defineComponent({
+            setup() {
+                provideAgentView({locale: () => "zh-CN", renderers: () => ({})});
+                return () => h(AgentConversationComposer, {ctx: context, services: {}, registry, onAction: (action: unknown) => actions.push(action)});
+            },
+        });
+        return {wrapper: mount(Host, {attachTo: document.body}), actions};
+    }
+    const placeholder = (wrapper: ReturnType<typeof mount>) => wrapper.get("textarea").attributes("placeholder");
+
+    it("模型用不了时是提示卡：标题、说明、第一个动作是主按钮，点了发 availability.act；占位写标题，原因优先于中断后继续", async () => {
+        const {wrapper, actions} = mountWith(ctx({
+            availability: {status: "profile-unavailable", title: "“深度”角色还没绑定模型", message: "主创用“深度”角色的模型对话。", icon: "i-lucide-link-2-off", actions: [{id: "bind-role", label: "去绑定"}]},
+            composer: {resume: true},
+        }));
+        const card = wrapper.get("[data-notice-card]");
+        expect(card.get(".acv-notice-card__title").text()).toBe("“深度”角色还没绑定模型");
+        expect(card.get(".acv-notice-card__message").text()).toBe("主创用“深度”角色的模型对话。");
+        expect(card.find(".i-lucide-link-2-off").exists()).toBe(true);
+        expect(placeholder(wrapper)).toBe("“深度”角色还没绑定模型");
+        await card.get("[data-availability-action='bind-role']").trigger("click");
+        expect(actions).toEqual([{type: "availability.act", action: "bind-role"}]);
+        expect(wrapper.find("textarea").attributes("readonly") ?? wrapper.find("textarea").attributes("disabled")).toBeDefined();
+        wrapper.unmount();
+    });
+
+    it("别的不可用状态保留一行，占位写说明；ready 时的能力提示也是一行，占位照常", () => {
+        const archived = mountWith(ctx({availability: {status: "archived", message: "此会话已归档。", actions: [{id: "restore", label: "恢复"}]}}));
+        expect(archived.wrapper.find("[data-notice-card]").exists()).toBe(false);
+        expect(archived.wrapper.get("[data-composer-availability]").text()).toContain("此会话已归档。");
+        expect(placeholder(archived.wrapper)).toBe("此会话已归档。");
+        archived.wrapper.unmount();
+
+        const gap = mountWith(ctx({availability: {status: "ready", message: "这个模型不能看图。", actions: []}}));
+        expect(gap.wrapper.find("[data-notice-card]").exists()).toBe(false);
+        expect(gap.wrapper.get("[data-composer-availability]").text()).toContain("这个模型不能看图。");
+        expect(placeholder(gap.wrapper)).toBe("输入消息，回车发送");
+        gap.wrapper.unmount();
+    });
+});

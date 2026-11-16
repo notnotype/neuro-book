@@ -5,7 +5,7 @@
 
 # ProvidersPage
 
-设置窗口 AI 分组下的“服务商与模型”页（[`models/settings-pages.md`](../../../../../../../docs/specs/models/settings-pages.md) 输出 1 到 12、15 到 17）：`nbook.models` 贡献的 fill 页面，只在“用户”标签下可用。添加服务商、填密钥与地址、管理并检测模型、删除服务商都在这里。它是页面，不是宿主：数据与写入全在数据模块（`web/models-store.ts`，两页共用一份），组件只读它的快照、调它的方法，写失败交给窗口通知（`reportWriteFailure`）。设置窗口给的页面上下文由 `web/pages.ts` 拆成 `writable` 与 `reportWriteFailure` 两个属性，页面组件只吃普通的属性。改了就写，没有“未保存”状态。
+设置窗口 AI 分组下的“服务商与模型”页（[`models/settings-pages.md`](../../../../../../../docs/specs/models/settings-pages.md) 输出 1 到 12、15 到 18）：`nbook.models` 贡献的 fill 页面，只在“用户”标签下可用。添加服务商、填密钥与地址、管理并检测模型、删除服务商都在这里。它是页面，不是宿主：数据与写入全在数据模块（`web/models-store.ts`，两页共用一份），组件只读它的快照、调它的方法，写失败交给窗口通知（`reportWriteFailure`）。设置窗口给的页面上下文由 `web/pages.ts` 拆成 `writable`、`reportWriteFailure`、`focus` 与 `takeFocus` 几个属性，页面组件只吃普通的属性。改了就写，没有“未保存”状态。
 
 ## 布局
 
@@ -23,6 +23,7 @@
 - 检测与“检测全部”进行中可取消（详情头取消这家全部，转圈取消一个）；中止句柄与结果都在数据模块里，离开页面不取消，回来还能取消、结果还在。没检成（服务停了、服务商不在了）的原因写在模型列表头上。
 - “删除”先确认（写明去掉几个模型、密钥一起删、哪些角色会变成未绑定）。删的是当前选中的那家时，删除后选中并聚焦下一家，没有时上一家，都没有时“添加服务商”（窄布局里落到顶上的下拉或“添加”）；删的是别的一家时选中不变，焦点回到当前项。取消或删除失败时焦点回到那家的条目（窄布局里是下拉旁的删除按钮）。都等确认框真正关掉、这家从快照里消失之后再移焦点。确认框按打开时取定的那家挂载，不跟着当前项：删掉之后当前项变了，跟着当前项会让确认框在关掉之前就被卸掉。
 - 写失败：经 `reportWriteFailure(没保存的那一项, {reason, uncertain})` 交给窗口通知，`unknown-outcome` 时 `uncertain` 为真；控件随后跟着快照回到实际值。
+- 打开到指定位置（对话的提示卡用）：第一份快照到了才取走 `focus`（`takeFocus`）。`add` 打开添加服务商；已添加的服务商 id 选中这家并聚焦密钥框（不要认证的没有密钥框，只选中）；认不出的取走后不动。
 
 ## 数据
 
@@ -31,6 +32,8 @@ defineProps<{
     store: ModelsStore;                                             // 浏览器入口建的数据模块，两页共用
     writable: boolean;                                              // 当前标签那一层能不能写（页面上下文的 writable）
     reportWriteFailure: SettingsPageContext["reportWriteFailure"];  // 写失败交给窗口通知
+    focus?: string | null;                                          // 页面上下文的 focus；缺省 null
+    takeFocus?: () => string | null;                                // 取走 focus（页面上下文的 takeFocus）；缺省总是 null（Lab 与测试不给时不定位）
 }>();
 ```
 

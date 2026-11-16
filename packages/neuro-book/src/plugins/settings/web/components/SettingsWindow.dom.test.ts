@@ -7,7 +7,7 @@
 import {flushPromises, mount} from "@vue/test-utils";
 import {Type} from "typebox";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {defineComponent, h, onBeforeUnmount, onMounted, onUnmounted, ref} from "vue";
+import {defineComponent, h, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch} from "vue";
 import type {PropType} from "vue";
 
 import {createSettingsScene} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-data";
@@ -374,6 +374,34 @@ describe("page 页面的寿命（输出 6）", () => {
         one("[data-settings-nav='x.page.main']").click();
         await flushPromises();
         expect(counts).toEqual({mounted: 2, unmounted: 1, loads: 1});
+    });
+
+    it("打开时给的 focus 交给页面：页面取走后定位，焦点留在页面定的地方；窗口已开在这一页时再打开一次，焦点也不被左栏抢回去（输出 15）", async () => {
+        // 像模型的两页那样：看着 focus，取走后等一拍再聚焦。
+        const Page = defineComponent({
+            name: "FocusPage",
+            props: {context: {type: Object as PropType<SettingsPageContext>, required: true}},
+            setup(props) {
+                const root = ref<HTMLElement | null>(null);
+                watch(() => props.context.focus.value, async (focus) => {
+                    if (focus === null) return;
+                    const target = props.context.takeFocus();
+                    await nextTick();
+                    root.value?.querySelector<HTMLElement>(`[data-target="${target ?? ""}"]`)?.focus();
+                }, {immediate: true});
+                return () => h("div", {ref: root}, ["a", "b", "c"].map((id) => h("input", {"data-target": id, "aria-label": id})));
+            },
+        });
+        const created = pageHost();
+        created.publish("x.page.main", async () => Page);
+        created.window.openWindow({section: "x.page.main", focus: "b"});
+        render(created.window);
+        await flushPromises();
+        expect(document.activeElement?.getAttribute("data-target")).toBe("b");
+
+        created.window.openWindow({section: "x.page.main", focus: "c"});
+        await flushPromises();
+        expect(document.activeElement?.getAttribute("data-target")).toBe("c");
     });
 
     it("交付状态原位呈现：入口失败给“重试”，重试后交付并显示页面；渲染出错给“重试”重建", async () => {

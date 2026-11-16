@@ -338,7 +338,8 @@ function buildApi(env: SessionEnv, core: SessionCore, readOnly: string | null, i
                 usage: core.spend,
                 model: (() => {
                     const resolution = state.turnModel();
-                    return resolution.ok ? {ok: true as const, id: resolution.info.id, contextWindow: resolution.info.contextWindow, efforts: resolution.info.efforts} : {ok: false as const, code: resolution.code};
+                    if (resolution.ok) return {ok: true as const, id: resolution.info.id, contextWindow: resolution.info.contextWindow, efforts: resolution.info.efforts};
+                    return {ok: false as const, code: resolution.code, ...(resolution.role === undefined ? {} : {role: resolution.role}), ...(resolution.provider === undefined ? {} : {provider: resolution.provider})};
                 })(),
                 buffer: [...kernel.buffer],
                 settings: kernel.core,
