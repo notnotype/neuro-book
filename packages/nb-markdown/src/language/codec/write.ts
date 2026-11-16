@@ -19,10 +19,10 @@ import type {MarkdownLanguage} from "../language";
 import type {WriteOptions} from "../syntax/types";
 import {normalizeLabel, Unrepresentable} from "../syntax/types";
 import {equivalent} from "./compare";
-import type {BodyPrefix, Definitions, Eol, Gap, SourceMap, SourceUnit} from "./read";
+import type {BodyHead, Definitions, Eol, Gap, SourceMap, SourceUnit} from "./read";
 import {END, START, emptiesBetween, emptiesLeading, emptiesTrailing, frontmatterOf, originsOf, readBody, recordGap, setOrigins} from "./read";
 import {renderBlock} from "./render";
-import {gluedOpenings, splitFrontmatter} from "./source";
+import {gluedOpenings, isWholeFrontmatter, splitFrontmatter} from "./source";
 import {decodeRawBreaks, SENTINEL, stripSentinels} from "./render/escape";
 import {follow, openings} from "./render/inline";
 
@@ -249,14 +249,27 @@ function definitionsOf(language: MarkdownLanguage, doc: PMNode, skip: ReadonlySe
 const withEol = (text: string, eol: Eol): string => decodeRawBreaks(eol === "\n" ? text : text.replace(/(?<![\r\u0001\u0002])\n/gu, eol));
 
 /** 读回校验只读正文的一个窗口，前面没有 BOM 与 frontmatter。 */
-const NO_PREFIX: BodyPrefix = {bom: "", frontmatter: null};
+const NO_HEAD: BodyHead = {bom: "", frontmatter: null};
+
+/**
+ * 文档的 `frontmatter` 属性写不进正文之前时的原因；没有，或是 `isWholeFrontmatter` 认可的原文时为 null。属性由编辑器的事务
+ * 设置（属性面板、宿主的命令），这里是写回的关卡：放进去一段不完整的原文（缺闭栏、中间有独占一行的 `---`）时，正文的开头
+ * 会被读成 frontmatter 的一部分。
+ */
+function headProblem(doc: PMNode): string | null {
+    const value: unknown = doc.attrs.frontmatter;
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string" && isWholeFrontmatter(value)) return null;
+    return "文档的 frontmatter 属性不是一段完整的 frontmatter";
+}
 
 /**
  * 正文之前写什么：读入时的 BOM 加文档这次的 frontmatter（属性没改过时就是读入时的原文，没编辑的文档仍逐字节写原文）。
  * frontmatter 的闭栏后没有换行（读入时文件在闭栏处结束，`---\na: 1\n---`）而后面有正文时，补一个换行（用 frontmatter 自己的
- * 换行符），否则闭栏不再独占一行。补在前缀里、不在间隔里：间隔按来源登记、会被下次写出沿用，frontmatter 却可能在两次写出之间改过。
+ * 换行符），否则闭栏不再独占一行。补在这里、不在间隔里：间隔按来源登记、会被下次写出沿用，frontmatter 却可能在两次写出之间改过。
+ * 正文只有空白（`beforeBody` 为假，写 `map.emptyBody`）时不补：那段空白自己就在闭栏之后，读回时它仍是正文。
  */
-function prefixOf(doc: PMNode, map: SourceMap, beforeBody: boolean): string {
+function headOf(doc: PMNode, map: SourceMap, beforeBody: boolean): string {
     const frontmatter = frontmatterOf(doc) ?? "";
     const closed = !beforeBody || frontmatter === "" || /[\r\n]$/u.test(frontmatter);
     return map.bom + frontmatter + (closed ? "" : (/\r\n|\r|\n/u.exec(frontmatter)?.[0] ?? map.eol));
@@ -269,13 +282,23 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
 
 /**
  * 抢救用的正文：写不出的那一段顶层块换成纯文字段落（每一行一段）再写，还有写不出的块就接着换，直到写得出。每一轮至少换掉
- * 一块，轮数以顶层块数为上限；到上限仍写不出（不应发生）时整篇按纯文字。
+ * 一块，轮数以顶层块数为上限；到上限仍写不出（不应发生）时整篇按纯文字。frontmatter 属性写不出时，先把它的原文换成正文开头的
+ * 纯文字段落、属性清空。
  */
 function plainFallback(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema, failed: Failed): string {
     const paragraph = schema.nodes.paragraph!;
-    let current = doc;
+    const plain = (lines: readonly string[]): PMNode[] => (lines.length === 0 ? [""] : lines).map((line) => paragraph.create(null, line === "" ? null : schema.text(line)));
+    let start = doc;
     let failure = failed;
-    for (let round = 0; round <= doc.childCount; round += 1) {
+    if (headProblem(doc) !== null) {
+        const raw = String(doc.attrs.frontmatter).replace(/(?:\r\n|\r|\n)$/u, "");
+        start = doc.type.create({...doc.attrs, frontmatter: null}, Fragment.from(plain(raw.split(/\r\n|\r|\n/u))).append(doc.content), doc.marks);
+        const again = writeOnce(start, map, language, schema);
+        if (again.ok) return again.text;
+        failure = again;
+    }
+    let current = start;
+    for (let round = 0; round <= start.childCount; round += 1) {
         const lines: string[] = [];
         // 原样块、可渲染 HTML 与行内原样片段的原文也作为文字留下（例如没闭合的 `<!--` 吞掉了后面的新段落，写不出的就是它）。
         const source = (node: PMNode): string => String(node.attrs.raw ?? node.attrs.html ?? "");
@@ -288,14 +311,13 @@ function plainFallback(doc: PMNode, map: SourceMap, language: MarkdownLanguage, 
             lines.push(...node.textBetween(0, node.content.size, "", (leaf) => (leaf.type.name === "hardBreak" ? "\n" : source(leaf))).split("\n"));
             return false;
         });
-        const paragraphs = (lines.length === 0 ? [""] : lines).map((line) => paragraph.create(null, line === "" ? null : schema.text(line)));
-        current = current.replace(failure.from, failure.to, new Slice(Fragment.from(paragraphs), 0, 0));
+        current = current.replace(failure.from, failure.to, new Slice(Fragment.from(plain(lines)), 0, 0));
         const again = writeOnce(current, map, language, schema);
         if (again.ok) return again.text;
         failure = again;
     }
-    const body = doc.textBetween(0, doc.content.size, "\n\n", "\n");
-    return prefixOf(doc, map, body !== "") + body;
+    const body = start.textBetween(0, start.content.size, "\n\n", "\n");
+    return headOf(start, map, body !== "") + body;
 }
 
 type Written = Exclude<WriteResult, {ok: false}> | Failed;
@@ -304,12 +326,14 @@ type Written = Exclude<WriteResult, {ok: false}> | Failed;
  * `forced` 是要重新写出的节点：整篇检查（见文末）发现没被编辑的块会被宽容写法拆开时，带上它们再写一遍。
  */
 function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema, forced: ReadonlySet<PMNode> = new Set()): Written {
+    const problem = headProblem(doc);
+    if (problem !== null) return {ok: false, code: "unrepresentable", from: 0, to: 0, reason: problem};
     const {items: listed, trailing} = itemsOf(doc, map);
     const found = listed.flatMap((item) => (item.unit !== null && item.nodes.some((node) => forced.has(node)) ? splitItem(item) : [item]));
     const eol = map.eol;
     // 整篇没有内容（只有空段落：没有块就没有间隔，几个空段落都读成一个）：读入时就没有块的，写原文的空白；否则写空正文（输出 2）。
     if (found.length === 0) {
-        const text = prefixOf(doc, map, false) + (map.emptyBody ?? "");
+        const text = headOf(doc, map, false) + (map.emptyBody ?? "");
         return {ok: true, text, record: () => undefined, accept: () => undefined};
     }
     const view = found.map((item) => ({nodes: item.nodes, raw: item.unit?.raw ?? null}));
@@ -343,7 +367,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
     const labels = new Map(Object.entries(definitions).map(([label, value]) => [label, value.href]));
     const emphasis = new Set([...language.markWriters].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
 
-    const prefix = prefixOf(doc, map, true);
+    const head = headOf(doc, map, true);
     /** 第 i 项之前的间隔（i 等于项数时是结尾）：登记过就用登记的原文，否则重新生成。 */
     const gapAt = (index: number): {gap: Gap; kept: boolean} => {
         const before = index === 0 ? START : items[index - 1]?.unit ?? null;
@@ -411,7 +435,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
         let read = readBacks.get(key);
         if (read === undefined) {
             const inside = new Set(items.slice(first, last + 1).flatMap((item) => item.nodes));
-            read = readBody(language, schema, NO_PREFIX, text, definitionsOf(language, doc, inside)).doc;
+            read = readBody(language, schema, NO_HEAD, text, definitionsOf(language, doc, inside)).doc;
             readBacks.set(key, read);
         }
         return {expected, read};
@@ -553,12 +577,13 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
     // 正文开头不能被读成 frontmatter：没有 frontmatter 时，开头的 `---`（挪到最前面的分割线）会和后面的 `---` 配成一对。
     const first = items[0] as Item;
     const assemble = (): string => {
-        const parts: string[] = [prefix];
+        const parts: string[] = [head];
         items.forEach((item, index) => parts.push((gaps[index] as {gap: Gap}).gap.raw, item.unit === null ? withEol(item.text, eol) : item.text));
         parts.push((gaps[items.length] as {gap: Gap}).gap.raw);
         return parts.join("");
     };
-    if (splitFrontmatter(assemble()).prefix !== prefix) {
+    const split = splitFrontmatter(assemble());
+    if (split.bom + (split.frontmatter ?? "") !== head) {
         if (first.nodes[0]?.type.name !== "horizontalRule") return unrepresentable(first, "正文开头会被读成 frontmatter");
         first.unit = null;
         first.text = "***";
@@ -616,7 +641,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
     };
     return {
         ok: true,
-        text: prefix + body,
+        text: head + body,
         record: () => record(),
         accept: (tr) => {
             if (tr.doc !== doc) throw new Error("accept 的事务要从写出的这份文档开始");

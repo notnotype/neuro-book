@@ -1,13 +1,15 @@
 /**
  * frontmatter 在编辑器文档的属性上（docs/specs/workspace/markdown-dialect.md 输出 22）：读入放进属性，没编辑时逐字节写原文；
- * 换了属性只换正文前的那一段，正文字节不变；重载按新原文换属性；属性的改动走 ProseMirror 的历史，全选删除碰不到它。
- * 编解码器、schema 与历史插件都用编辑器的那一份。种子固定，本地要换种子时设 `MARKDOWN_PROPERTY_SEED`。
+ * 换了属性只换正文前的那一段，正文字节不变；重载按新原文换属性；属性的改动走 ProseMirror 的历史，全选删除碰不到它；属性里
+ * 放了不完整的原文时写不出，抢救正文把它留成文字。编解码器与 schema 是编辑器用的那一份，历史插件是 `@tiptap/pm` 里的
+ * prosemirror-history，与编辑器的撤销是同一个库。种子固定，本地要换种子时设 `MARKDOWN_PROPERTY_SEED`。
  */
 
 import {readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
 import {getSchema} from "@tiptap/core";
+import {Fragment} from "@tiptap/pm/model";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {history, redo, undo} from "@tiptap/pm/history";
 import {EditorState} from "@tiptap/pm/state";
@@ -49,9 +51,12 @@ const body = (eol: string): fc.Arbitrary<string> =>
         fc.constantFrom("", eol, eol + eol, `甲${eol}`, `# 标题${eol}${eol}乙${eol}`, `---${eol}${eol}丙`, `  ${eol}丁`),
         fc.nat({max: corpus.length - 1}).map((index) => (corpus[index] as string).replace(/\n/gu, eol)),
     );
-/** 一篇带 frontmatter 的原文。闭栏后没有换行只在文件到此为止时成立（否则闭栏不独占一行，不是 frontmatter）。 */
-const source = fc.tuple(fc.constantFrom("", "\uFEFF"), fc.constantFrom("\n", "\r\n")).chain(([bom, eol]) =>
-    fc.tuple(frontmatter(eol), body(eol)).map(([front, rest]) => ({bom, raw: front.closedWithBreak || rest === "" ? front.raw : front.raw + eol, body: rest})),
+/**
+ * 一篇带 frontmatter 的原文。frontmatter 与正文的换行符分别取，混用的文件也在其中。闭栏后没有换行只在文件到此为止时成立
+ * （否则闭栏不独占一行，不是 frontmatter）。
+ */
+const source = fc.tuple(fc.constantFrom("", "\uFEFF"), fc.constantFrom("\n", "\r\n"), fc.constantFrom("\n", "\r\n")).chain(([bom, frontEol, bodyEol]) =>
+    fc.tuple(frontmatter(frontEol), body(bodyEol)).map(([front, rest]) => ({bom, raw: front.closedWithBreak || rest === "" ? front.raw : front.raw + frontEol, body: rest})),
 );
 
 describe("读入", () => {
@@ -73,12 +78,14 @@ describe("写回（输出 22）", () => {
         }), {seed, numRuns: 150});
     });
 
-    it("换了 frontmatter：写出是 BOM、新的原文、原来的正文字节；生成的原文都是完整的 frontmatter", () => {
-        fc.assert(fc.property(source, fc.constantFrom("\n", "\r\n").chain((eol) => frontmatter(eol)), ({bom, raw, body: rest}, next) => {
-            fc.pre(next.closedWithBreak);
+    it("换了 frontmatter：写出是 BOM、新的原文、原来的正文字节；新原文闭栏后没有换行而正文有内容时，补它自己的换行符", () => {
+        const replacement = fc.constantFrom("\n", "\r\n").chain((eol) => frontmatter(eol).map((front) => ({...front, eol})));
+        fc.assert(fc.property(source, replacement, ({bom, raw, body: rest}, next) => {
             expect(isWholeFrontmatter(next.raw)).toBe(true);
             const read = codec.read(bom + raw + rest);
-            expect(written(withAttr(read.doc, next.raw), read.map)).toBe(bom + next.raw + rest);
+            // 生成的正文只有空白时没有块：那段空白自己就在闭栏之后，不补。
+            const glue = next.closedWithBreak || rest.trim() === "" ? "" : next.eol;
+            expect(written(withAttr(read.doc, next.raw), read.map)).toBe(bom + next.raw + glue + rest);
         }), {seed, numRuns: 150});
     });
 
@@ -106,6 +113,32 @@ describe("写回（输出 22）", () => {
     it("去掉 frontmatter 后正文开头的分隔线会和后面的 --- 配成 frontmatter：分隔线改写成 ***", () => {
         const read = codec.read("---\na: 1\n---\n---\n\n甲\n\n---\n");
         expect(written(withAttr(read.doc, null), read.map)).toBe("***\n\n甲\n\n---\n");
+    });
+});
+
+describe("写不出时的抢救正文（editor 输出 61）", () => {
+    // 段首是会开启 HTML 块的原样片段，哪一级写法都写不出（同 editing.test.ts）。
+    const blocked = (text: string): PMNode => schema.nodes.paragraph!.create(null, [schema.nodes.rawInline!.create({raw: "<div>"}), schema.text(text)]);
+
+    it("正文有写不出的块、frontmatter 闭栏后没有换行：抢救正文照样在闭栏后补换行", () => {
+        const read = codec.read("---\na: 1\n---");
+        const result = codec.write(read.doc.copy(Fragment.from(blocked("甲"))), read.map);
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.fallback()).toBe("---\na: 1\n---\n\\<div>甲");
+    });
+
+    it("frontmatter 属性不是完整的一段：写不出；抢救正文把它的原文留成开头的几段文字，不再是 frontmatter", () => {
+        const read = codec.read("甲\n");
+        const result = codec.write(withAttr(read.doc, "---\na: 1\n"), read.map);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            const rescued = codec.read(result.fallback()).doc;
+            expect(frontmatterOf(rescued)).toBeNull();
+            expect(rescued.textBetween(0, rescued.content.size, "\n")).toBe("---\na: 1\n甲");
+        }
+        // 正文为空时写出走另一条路，同样挡下。
+        const empty = codec.read("");
+        expect(codec.write(withAttr(empty.doc, "---\n"), empty.map).ok).toBe(false);
     });
 });
 

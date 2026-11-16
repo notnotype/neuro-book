@@ -88,9 +88,9 @@ describe("规范化", () => {
 });
 
 describe("frontmatter", () => {
-    it("BOM 与 frontmatter 原样留在前缀；没有闭合的分隔线不是 frontmatter", () => {
-        expect(splitFrontmatter("\uFEFF---\r\na: 1\r\n---\r\n正文")).toEqual({prefix: "\uFEFF---\r\na: 1\r\n---\r\n", bom: "\uFEFF", body: "正文"});
-        expect(splitFrontmatter("---\na: 1\n正文")).toEqual({prefix: "", bom: "", body: "---\na: 1\n正文"});
+    it("BOM 与 frontmatter 原样切出；没有闭合的分隔线不是 frontmatter", () => {
+        expect(splitFrontmatter("\uFEFF---\r\na: 1\r\n---\r\n正文")).toEqual({bom: "\uFEFF", frontmatter: "---\r\na: 1\r\n---\r\n", body: "正文"});
+        expect(splitFrontmatter("---\na: 1\n正文")).toEqual({bom: "", frontmatter: null, body: "---\na: 1\n正文"});
     });
 
     it("完整的 frontmatter：后面接任何正文都只切出它自己；闭栏后没有换行的也算", () => {

@@ -153,6 +153,19 @@ describe("交出（方言 Spec 输出 1–3）", () => {
         handle.flushPendingChange();
         expect(binding.text.value).toBe("");
     });
+
+    it("只改了 frontmatter（文档属性的事务）：交出写回新的原文、显示跟着换，正文字节不变；撤销回到原来的（方言 Spec 输出 22）", async () => {
+        const {editor, handle, binding, wrapper} = await opened("---\na: 1\n---\n\n甲\n");
+        const shown = (): string => wrapper.get("[data-markdown-frontmatter]").text();
+        editor.view.dispatch(editor.state.tr.setDocAttribute("frontmatter", "---\na: 2\n---\n"));
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\na: 2\n---\n\n甲\n");
+        await waitUntil("显示换成新的", () => shown() === "---\na: 2\n---");
+        editor.commands.undo();
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\na: 1\n---\n\n甲\n");
+        await waitUntil("显示换回原来的", () => shown() === "---\na: 1\n---");
+    });
 });
 
 /**

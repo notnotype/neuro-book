@@ -232,9 +232,8 @@ function build(schema: Schema, json: ReadonlyArray<JSONContent>): PMNode[] {
  * 读入整篇。`schema` 必须是编辑器自己的 schema（Tiptap 每个编辑器各建一份；不同 schema 的节点不能放进同一个文档）。
  */
 export function readMarkdown(language: MarkdownLanguage, schema: Schema, source: string): ReadResult {
-    const {prefix, bom, body} = splitFrontmatter(source);
-    const frontmatter = prefix.slice(bom.length);
-    return readBody(language, schema, {bom, frontmatter: frontmatter === "" ? null : frontmatter}, body, null);
+    const {bom, frontmatter, body} = splitFrontmatter(source);
+    return readBody(language, schema, {bom, frontmatter}, body, null);
 }
 
 /** 文档的 frontmatter 原文（BOM 之后、正文之前的 `---` 块），没有时为 null。 */
@@ -243,8 +242,8 @@ export function frontmatterOf(doc: PMNode): string | null {
     return typeof value === "string" ? value : null;
 }
 
-/** 正文之前的部分：读入时的 BOM 与这次的 frontmatter。 */
-export interface BodyPrefix {
+/** 正文之前的部分：BOM 与 frontmatter 的原文（没有为 null）。 */
+export interface BodyHead {
     readonly bom: string;
     readonly frontmatter: string | null;
 }
@@ -253,16 +252,16 @@ export interface BodyPrefix {
 export type Definitions = Readonly<Record<string, {readonly href: string; readonly title: string | null}>>;
 
 /**
- * 读一段正文（`body` 里没有 frontmatter，它在 `prefix` 里）。`definitions` 不为 null 时预置进词法器：写回校验只读一个窗口，
+ * 读一段正文（`body` 里没有 frontmatter，它在 `head` 里）。`definitions` 不为 null 时预置进词法器：写回校验只读一个窗口，
  * 引用定义可能在窗口外面。
  */
-export function readBody(language: MarkdownLanguage, schema: Schema, prefix: BodyPrefix, body: string, definitions: Definitions | null): ReadResult {
+export function readBody(language: MarkdownLanguage, schema: Schema, head: BodyHead, body: string, definitions: Definitions | null): ReadResult {
     const normalized = normalize(body, language.glued);
     const lexer = language.lexer();
     if (definitions !== null) Object.assign(lexer.tokens.links, definitions);
     const tokens = lexer.lex(normalized.text);
     const {blocks, gaps, skipped} = segment(normalized, body, tokens);
-    const map: SourceMap = {bom: prefix.bom, eol: dominantEol((prefix.frontmatter ?? "") + body), origins: new WeakMap(), twins: new Map(), gaps: new WeakMap(), emptyBody: blocks.length === 0 ? body : null, finalNewline: /\n$|\r$/u.test(body)};
+    const map: SourceMap = {bom: head.bom, eol: dominantEol((head.frontmatter ?? "") + body), origins: new WeakMap(), twins: new Map(), gaps: new WeakMap(), emptyBody: blocks.length === 0 ? body : null, finalNewline: /\n$|\r$/u.test(body)};
     const nodes: PMNode[] = [];
     const empty = (): PMNode => schema.nodes.paragraph!.create();
     const problems: string[] = [];
@@ -311,5 +310,5 @@ export function readBody(language: MarkdownLanguage, schema: Schema, prefix: Bod
         for (let count = 0; count < empties; count += 1) nodes.push(empty());
     }
     if (nodes.length === 0) nodes.push(empty());
-    return {doc: schema.nodes.doc!.create(prefix.frontmatter === null ? null : {frontmatter: prefix.frontmatter}, nodes), map, skipped, problems};
+    return {doc: schema.nodes.doc!.create(head.frontmatter === null ? null : {frontmatter: head.frontmatter}, nodes), map, skipped, problems};
 }
