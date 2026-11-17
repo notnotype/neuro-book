@@ -19,10 +19,18 @@ updated: 2026-11-16
 
 计划：[plan.md](plan.md)。合同：[`agent/conversation.md`](../../../../../docs/specs/agent/conversation.md) 输出 15 到 18 与新输出、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md) 的“状态栏”、[`agent/contributions.md`](../../../../../docs/specs/agent/contributions.md) 的新贡献点 `agent.statusItems`；写 Spec 在计划确认之后。
 
+## 决定
+
+| 编号 | 日期 | 决定 |
+|---|---|---|
+| 1 | 2026-11-17 | 评审板 `review` v1 的 `drag-sort`：设置里排序用原生拖动加上移、下移按钮 |
+| 2 | 2026-11-17 | 同板 `cache-ttl`：这一版不做缓存倒计时（目录里只有上下文、用量、费用、模型四项加插件的项）。开发者的批注：这个计数器能不能让用户自己写代码实现，他现在用的 Claude Code 的 statusline 就是自己写的 |
+| 3 | 2026-11-17 | 对批注的答复：插件经 `agent.statusItems` 加的项拿到完整的 `ctx`（最近回复的时间、模型、缓存读写量都在里面），自己算倒计时够用，不用我们内置。像 Claude Code 那样配一条命令（用户脚本）t29 决定 4 排除过，仍不做；要不要另加一条“用户脚本”路径待开发者定 |
+
 ## 当前状态
 
-2026-11-17 开工，计划写好（[plan.md](plan.md)），等开发者确认；草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `StatusLineDraft`。
+2026-11-17 开工，计划写好（[plan.md](plan.md)），评审板两题已答（决定 1、2）；草稿在 `.worktree/w00032-t29-drafts` 的 Lab 场景 `StatusLineDraft`。
 
 ## 下一步
 
-开发者确认计划后：写 Spec（标 planned）、开 worktree、按切片实施。
+写 Spec（标 planned）、开 worktree、按切片实施。

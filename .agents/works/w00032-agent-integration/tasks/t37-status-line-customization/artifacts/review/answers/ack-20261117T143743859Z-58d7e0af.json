@@ -1,0 +1,16 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00032-agent-integration",
+    "taskId": "t37-status-line-customization",
+    "artifactId": "review",
+    "ackId": "20261117T143743859Z-58d7e0af",
+    "answers": [
+        "20261117T143417589Z-3223108b"
+    ],
+    "through": "20261117T143417589Z-3223108b",
+    "included": [
+        ".agents/works/w00032-agent-integration/tasks/t37-status-line-customization/README.md",
+        ".agents/works/w00032-agent-integration/tasks/t37-status-line-customization/plan.md"
+    ],
+    "ackedAt": "2026-11-17T14:37:43.859Z"
+}
