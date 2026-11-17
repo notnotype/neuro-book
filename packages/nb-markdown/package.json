@@ -35,6 +35,7 @@
         "@notnotype/nb-ui": "workspace:^",
         "@tiptap/core": "3.27.3",
         "@tiptap/extension-code": "3.27.3",
+        "@tiptap/extension-document": "3.27.3",
         "@tiptap/extension-image": "3.27.3",
         "@tiptap/extension-link": "3.27.3",
         "@tiptap/extension-list": "3.27.3",
@@ -46,7 +47,8 @@
         "@tiptap/vue-3": "3.27.3",
         "entities": "8.0.0",
         "marked": "17.0.6",
-        "marked-cjk-friendly": "0.1.2"
+        "marked-cjk-friendly": "0.1.2",
+        "yaml": "^2.8.2"
     },
     "devDependencies": {
         "@iconify-json/lucide": "^1.2.95",

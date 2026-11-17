@@ -136,7 +136,7 @@ export type SettingsLeaveTarget =
     | {readonly kind: "section"; readonly id: string}
     | {readonly kind: "layer"; readonly layer: SettingLayer}
     | {readonly kind: "close"}
-    | {readonly kind: "open"; readonly section?: string; readonly layer?: SettingLayer}
+    | {readonly kind: "open"; readonly section?: string; readonly layer?: SettingLayer; readonly focus?: string}
     | {readonly kind: "file"; readonly layer: SettingLayer; readonly position: LayerTextPosition | null}
     | {readonly kind: "search"; readonly query: string};
 
@@ -171,6 +171,8 @@ export interface SettingsPageView {
 export interface SettingsWindowOpenArgs {
     readonly section?: string;
     readonly layer?: SettingLayer;
+    /** 要那一页定位到的东西，原样交给页面（输出 15）。 */
+    readonly focus?: string;
 }
 
 export interface SettingsWindow {
@@ -517,7 +519,14 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
                 else if (dirtyVisit.value === token) dirtyVisit.value = null;
             };
             const reportWriteFailure = (subject: string, failure: SettingsPageWriteFailure): void => notifyNotSaved(subject, failure.reason, failure.uncertain === true);
-            visit = {token, context: markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>, writable, options: source.options(), dirty, reportWriteFailure})};
+            const focus = computed(() => (pendingFocus.value?.section === id ? pendingFocus.value.focus : null));
+            const takeFocus = (): string | null => {
+                const pending = pendingFocus.value;
+                if (pending?.section !== id) return null;
+                pendingFocus.value = null;
+                return pending.focus;
+            };
+            visit = {token, context: markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>, writable, options: source.options(), dirty, reportWriteFailure, focus, takeFocus})};
             visits.set(id, visit);
         }
         return visit.context;
@@ -649,6 +658,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const leaving = ref<SettingsLeaveTarget | null>(null);
     /** 确认通过的“打开设置文件并定位”留给设置文件视图的位置：视图读完文件取走一次；之后的任何别的动作都作废它。 */
     const fileLocation = ref<SettingsFileLocation | null>(null);
+    /** 打开时给的 `focus`，等那一页取走（输出 15）；作废规则同 `fileLocation`。 */
+    const pendingFocus = shallowRef<{readonly section: string; readonly focus: string} | null>(null);
 
     const performClose = (): void => {
         open.value = false;
@@ -665,8 +676,9 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     };
 
     const perform = (target: SettingsLeaveTarget): void => {
-        // 没取走的定位只属于紧接着的那一次打开文件：去别处、关窗口之后不再有效。
+        // 没取走的定位只属于紧接着的那一次打开：去别处、关窗口之后不再有效。
         fileLocation.value = null;
+        pendingFocus.value = null;
         switch (target.kind) {
             case "section":
                 query.value = "";
@@ -684,6 +696,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
                     chosen.value = target.section;
                 }
                 if (target.layer !== undefined) layer.value = target.layer;
+                if (target.focus !== undefined) pendingFocus.value = {section: target.section ?? section.value, focus: target.focus};
                 return;
             case "file":
                 query.value = "";
@@ -706,10 +719,12 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const openWindow = (args: SettingsWindowOpenArgs): CommandResult<null> => {
         if (args.section !== undefined && sectionOf(args.section) === undefined) return {ok: false, code: "invalid-args", reason: text("model.unknownSection", {section: args.section})};
         if (args.layer === "project" && !options.bound) return {ok: false, code: "unavailable", reason: text("model.noProject")};
-        const target: SettingsLeaveTarget = {kind: "open", ...(args.section === undefined ? {} : {section: args.section}), ...(args.layer === undefined ? {} : {layer: args.layer})};
+        const target: SettingsLeaveTarget = {kind: "open", ...(args.section === undefined ? {} : {section: args.section}), ...(args.layer === undefined ? {} : {layer: args.layer}), ...(args.focus === undefined ? {} : {focus: args.focus})};
         if (open.value) {
             const moves = (args.section !== undefined && (args.section !== section.value || query.value !== "")) || (args.layer !== undefined && args.layer !== layer.value);
             if (moves) requestLeave(target);
+            // 不离开这一页：不过确认，直接交给页面。
+            else if (args.focus !== undefined) pendingFocus.value = {section: section.value, focus: args.focus};
             focusRequest.value += 1;
         } else {
             perform(target);

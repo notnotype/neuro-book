@@ -146,3 +146,56 @@ export function createSessionList(options: {
         refresh,
     };
 }
+
+/** 第一屏“最近对话”的一张卡片。 */
+export interface RecentSession {
+    readonly id: string;
+    /** 会话标题；还没有标题时是空字符串，界面写“未命名会话”。 */
+    readonly title: string;
+    /** 最近的活动时间，含它的子会话。 */
+    readonly at: number;
+}
+
+export interface RecentSessions {
+    /** 顶层、未归档的会话，最近的在前；第一屏取前几条（排除当前会话之后）。 */
+    readonly sessions: ComputedRef<readonly RecentSession[]>;
+    refresh(): Promise<void>;
+}
+
+/**
+ * 第一屏的“最近对话”（docs/specs/agent/conversation.md 输出 41）：顶层、未归档、本作品范围的会话。与会话面板那份分开取：面板的
+ * 搜索、Profile 过滤与“显示归档”是用户在面板里的选择，不该改第一屏；面板不开时那份也没人刷新。
+ */
+export function createRecentSessions(options: {
+    readonly remote: RemoteClient<typeof agentSessionsContract>;
+    readonly project: string | null;
+}): RecentSessions {
+    const entries = shallowRef<readonly ListedSession[]>([]);
+    let latest = 0;
+    async function refresh(): Promise<void> {
+        latest += 1;
+        const token = latest;
+        const result = await options.remote.list(options.project === null ? {} : {project: options.project});
+        // 读不到时保留上一次的：第一屏只是捷径，失败不另报，会话面板里有完整的失败提示。
+        if (token === latest && result.ok) entries.value = result.value;
+    }
+    const sessions = computed(() => {
+        const byId = new Map(entries.value.map((entry) => [entry.id, entry]));
+        const latestOf = new Map<string, number>();
+        // 子会话的活动算到它的顶层祖先上，与会话面板的排序一致。
+        for (const entry of entries.value) {
+            let root = entry;
+            const seen = new Set<string>();
+            while (root.parent !== undefined && byId.has(root.parent) && !seen.has(root.parent)) {
+                seen.add(root.parent);
+                root = byId.get(root.parent)!;
+            }
+            latestOf.set(root.id, Math.max(latestOf.get(root.id) ?? 0, entry.lastActivityAt));
+        }
+        return entries.value
+            .filter((entry) => !entry.archived && (entry.parent === undefined || !byId.has(entry.parent)))
+            .map((entry): RecentSession => ({id: entry.id, title: entry.title ?? "", at: latestOf.get(entry.id) ?? entry.lastActivityAt}))
+            .sort((a, b) => b.at - a.at);
+    });
+    return {sessions, refresh};
+}

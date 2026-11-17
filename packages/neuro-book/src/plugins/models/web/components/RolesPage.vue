@@ -13,13 +13,17 @@ import {failureReason, roleDescription, roleName, useModelsText} from "../text";
  * “模型角色”页（docs/specs/models/settings-pages.md 输出 13 到 17）：梯度与专精两组角色，每行选一个模型（立即写）；未绑定的
  * 标红，绑定的模型不可用时写原因。自建的专精角色可以改名、改说明、删除。
  */
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     store: ModelsStore;
     /** 当前标签那一层能不能写（页面上下文的 `writable`）。 */
     writable: boolean;
     /** 写失败交给窗口通知（页面上下文的 `reportWriteFailure`）。 */
     reportWriteFailure: SettingsPageContext["reportWriteFailure"];
-}>();
+    /** 打开设置时要定位到的东西（页面上下文的 `focus`，settings-pages.md 输出 18）；数据到了再经 `takeFocus` 取走。 */
+    focus?: string | null;
+    /** 取走 `focus` 并清空（页面上下文的 `takeFocus`）。写成函数类型：写成 `SettingsPageContext["takeFocus"]` 时，Vue 编译器按方法的返回值生成运行时校验（String | Null），开发模式下传函数会报类型不符。 */
+    takeFocus?: () => string | null;
+}>(), {focus: null, takeFocus: () => null});
 
 const text = useModelsText();
 const snapshot = props.store.snapshot;
@@ -102,6 +106,20 @@ async function rename(role: SnapshotRole): Promise<void> {
 }
 
 const page = ref<HTMLElement | null>(null);
+
+/**
+ * 打开时定位到一个角色（settings-pages.md 输出 18，对话的“去绑定”用）：角色列表到了再取走，滚到那一行、聚焦它的模型选择框。
+ * 不认识的角色 id 取走后忽略。
+ */
+watch([() => props.focus, () => snapshot.value?.roles], async ([focus, list]) => {
+    if (focus === null || list === undefined) return;
+    const id = props.takeFocus();
+    if (id === null || !list.some((role) => role.id === id)) return;
+    await nextTick();
+    const row = [...(page.value?.querySelectorAll<HTMLElement>("[data-role-row]") ?? [])].find((element) => element.dataset.roleRow === id);
+    row?.scrollIntoView({block: "nearest"});
+    row?.querySelector<HTMLElement>(".roles-page__control button, .roles-page__control input")?.focus({preventScroll: true});
+}, {immediate: true});
 
 async function addRole(): Promise<void> {
     const result = await props.store.call("addRole", {name: text("roles.newName"), description: ""});

@@ -12,11 +12,11 @@ owners:
 
 ## 目标与非目标
 
-**目标**：写作者在 Markdown 富文本编辑器里用固定工具栏、选区浮动菜单、斜杠菜单、块按钮与块菜单、正文右键菜单完成常用编辑；每个编辑动作都是工作台命令，命令面板找得到，插件能往每种菜单里加菜单项。批注（[`workspace.markdown-dialect`](../workspace/markdown-dialect.md) 输出 11）能在编辑器里添加、查看、修改与删除：意见在批注旁的浮层里（点批注末尾的小符号，或按住 Ctrl 把鼠标停在批注上），或在稿纸右边的页边里。文件开头的 frontmatter 在正文上方的属性面板里按属性看与改，也能就地改它的 YAML 源码（输出 39–51）（planned）。
+**目标**：写作者在 Markdown 富文本编辑器里用固定工具栏、选区浮动菜单、斜杠菜单、块按钮与块菜单、正文右键菜单完成常用编辑；每个编辑动作都是工作台命令，命令面板找得到，插件能往每种菜单里加菜单项。批注（[`workspace.markdown-dialect`](../workspace/markdown-dialect.md) 输出 11）能在编辑器里添加、查看、修改与删除：意见在批注旁的浮层里（点批注末尾的小符号，或按住 Ctrl 把鼠标停在批注上），或在稿纸右边的页边里。文件开头的 frontmatter 在正文上方的属性面板里按属性看与改，也能就地改它的 YAML 源码（输出 39–51）。链接用一行卡片加上或改地址，图片从作品里选、粘贴或选本机文件插入，本机的图存进作品（输出 52–58，planned）。
 
 **不承诺**：
 
-- 插入链接、图片与引用文件（链接按钮在 `nbook.edit.link` 登记后才出现）；给插件的编辑器接口（读写选区、转交光标）。
+- 插入引用文件（`@`，归 Agent 输入框）；给插件的编辑器接口（读写选区、转交光标）。链接与图片的插入见输出 52–58（planned）。
 - 批注的作者、时间、回复与“已解决”（方言没有这些，见 [`workspace.markdown-dialect`](../workspace/markdown-dialect.md)）；编辑器右边的“全部批注”侧栏列表（页边打开时页边就是总览）；不用鼠标走到卡片上的“删除”（键盘只管添加与修改意见，输出 28）。
 - 下划线（方言没有）；增减缩进的按钮（列表里 Tab、Shift+Tab 照旧）。
 - 源码编辑器与别的编辑器：它们不提供编辑动作，这些命令在它们活动时不可用。
@@ -24,14 +24,15 @@ owners:
 - 右键菜单粘贴文件或图片（Ctrl+V 照旧）。
 - 跨列表移动列表项的按钮（拖动的落点按 ProseMirror 的结果）。
 - 多块选区上的块动作：副本、移动、删除只作用于选区起点所在的那一块。
-- 属性面板（planned）：全书统一的属性类型（同一个属性名在整部作品里只有一种类型）；日期时间类型；嵌套字段（映射、对象的列表、多行文字）的表单编辑；属性名与值的补全；拖动排序；隐藏面板、只显示源码的设置；`tags`、`aliases` 这类键的特殊处理；几个文件一起改属性；源码编辑器里的面板；按属性名给图标、类型与显示名的贡献点。
-- 属性面板的已知限制（planned）：展开状态按文件地址记，文件改名、移动后回到收起；本组改了 frontmatter 之后别处（磁盘、另一组）又改了它，再在本组撤销自己那次修改时，frontmatter 回到那次修改之前的整段原文，别处的修改随之丢掉（正文的撤销按段映射，不受影响）。
+- 链接与图片（planned）：把文件拖进正文（归桌面发布 Work 的拖放）；右键菜单里粘贴图片（Ctrl+V 才行）；SVG、BMP、AVIF 的图片；一次选多个本机文件；插入前压缩、改名或缩放图片；改图片说明与对齐的界面；删掉正文里的图片时一并删磁盘上的文件；链接按名字搜作品里的文件（链接卡片只填地址）。
+- 属性面板：全书统一的属性类型（同一个属性名在整部作品里只有一种类型）；日期时间类型；嵌套字段（映射、对象的列表、多行文字）的表单编辑；属性名与值的补全；拖动排序；隐藏面板、只显示源码的设置；`tags`、`aliases` 这类键的特殊处理；几个文件一起改属性；源码编辑器里的面板；按属性名给图标、类型与显示名的贡献点。
+- 属性面板的已知限制：展开状态按文件地址记，文件改名、移动后回到收起；本组改了 frontmatter 之后别处（磁盘、另一组）又改了它，再在本组撤销自己那次修改时，frontmatter 回到那次修改之前的整段原文，别处的修改随之丢掉（正文的撤销按段映射，不受影响）。
 
 ## 术语与参与者
 
 - **编辑动作**：控件能执行的一次编辑，例如加粗、换成标题 2。工作台经控件句柄的 `editing` 使用它（下面的“输入与前置条件”）。
 - **块**：块按钮与块菜单作用的对象，见下面的块模型表。
-- **属性**：frontmatter（[`workspace.markdown-dialect`](../workspace/markdown-dialect.md) 输出 22）顶层的一项，有名字与值；**属性面板**：正文上方显示与编辑属性的卡片（输出 39）（planned）。
+- **属性**：frontmatter（[`workspace.markdown-dialect`](../workspace/markdown-dialect.md) 输出 22）顶层的一项，有名字与值；**属性面板**：正文上方显示与编辑属性的卡片（输出 39）。
 - 参与者：`nbook.editor`（命令、公开键、菜单位置、设置）、`nbook.markdown` 的 Markdown 控件（画菜单、实现动作）、贡献菜单项的插件。
 
 ## 输入与前置条件
@@ -66,7 +67,10 @@ interface EditorEditing {
 | `nbook.edit.divider`、`table` | 无 | `canConvertBlock` | — |
 | `nbook.edit.block-up`、`block-down` | 无 | 无另外条件 | Alt+↑、Alt+↓ |
 | `nbook.edit.block-duplicate`、`block-delete`、`block-unwrap` | 无 | 无另外条件 | — |
-| `nbook.edit.properties`（planned，输出 48） | 无 | 无另外条件 | — |
+| `nbook.edit.properties`（输出 48） | 无 | 无另外条件 | — |
+| `nbook.edit.link`（planned，输出 52） | `{href: string}` | `canFormat` | Ctrl+K（打开链接卡片） |
+| `nbook.edit.link-remove`（planned） | 无 | `canFormat`（光标处或选区里没有链接时 `unavailable`） | — |
+| `nbook.edit.image`（planned，输出 54） | `{src: string, alt?: string}` | `canFormat` | — |
 
 另有 `nbook.view.toggle-editor-toolbar`（无参数，勾选状态读 `toolbarVisible`，任何时候可用）切换设置 `nbook.editor/markdownToolbar`。
 
@@ -76,9 +80,9 @@ interface EditorEditing {
 
 撤销、重做用已有的 `nbook.edit.undo`、`nbook.edit.redo`。带参数的命令不进命令面板。
 
-公开键（布尔，`nbook.editor/` 下，未就绪为假；除 `toolbarVisible`、`commentMargin` 读设置与记录外都读活动控件）：`canFormat`、`canConvertBlock`、`hasSelection`、`toolbarVisible`、`hasComments`（活动控件提供批注页边）、`commentMargin`（这部作品的页边开关开着，读本机记录，不看活动控件），以及勾选状态 `formatBold`、`formatItalic`、`formatStrike`、`formatCode`、`formatSuperscript`、`formatSubscript`、`formatHeading1`、`formatHeading2`、`formatHeading3`、`formatBulletList`、`formatOrderedList`、`formatTaskList`、`formatQuote`、`formatCallout`、`formatCodeBlock`。
+公开键（布尔，`nbook.editor/` 下，未就绪为假；除 `toolbarVisible`、`commentMargin` 读设置与记录外都读活动控件）：`canFormat`、`canConvertBlock`、`hasSelection`、`toolbarVisible`、`hasComments`（活动控件提供批注页边）、`commentMargin`（这部作品的页边开关开着，读本机记录，不看活动控件），以及勾选状态 `formatBold`、`formatItalic`、`formatStrike`、`formatCode`、`formatSuperscript`、`formatSubscript`、`formatHeading1`、`formatHeading2`、`formatHeading3`、`formatBulletList`、`formatOrderedList`、`formatTaskList`、`formatQuote`、`formatCallout`、`formatCodeBlock`、`formatLink`（光标在链接里，planned）。
 
-设置：`nbook.editor/markdownToolbar`（布尔，缺省开）、`nbook.editor/markdownToolbarPlacement`（`full`、`merged`、`bottom`，缺省 `full`），在设置窗口“编辑器”分区。页边开关不是设置（输出 33）。
+设置：`nbook.editor/markdownToolbar`（布尔，缺省开）、`nbook.editor/markdownToolbarPlacement`（`full`、`merged`、`bottom`，缺省 `full`），在设置窗口“编辑器”分区。页边开关不是设置（输出 33）。图片存放位置（planned，输出 56）：`nbook.editor/imageLocation`（`folder`、`root`、`same`、`sibling`，缺省 `folder`）与 `nbook.editor/imageFolder`（目录名，缺省 `插图`），同在“编辑器”分区，两层都能设、项目层优先，所以一部作品里的设置跟着作品走。
 
 菜单位置（规则见 [`workbench.menus`](menus.md)；五个位置都有 `context: "resource"` 给出 `{address}`）：`editor.toolbar`（`icon`、`placement`）、`editor.selection`（`icon`）、`editor.slash`（`icon`）、`editor.block`（`icon`）、`editor.body-context`（`icon`）。
 
@@ -94,17 +98,17 @@ interface EditorEditing {
 
 ## 输出与可观察行为
 
-1. **工具栏的内容**：撤销、重做｜块类型｜粗体、斜体、删除线、行内代码｜文字颜色、高亮｜（链接）｜无序、有序、任务列表｜引用、提示块、代码块｜对齐、清除格式｜⋯（上标、下标、分割线、注音、双语）。贡献的 `inline` 项在内置按钮之后，`menu` 项进“⋯”。文字颜色与高亮是拆分按钮：左半边一点就上色，用上次选过的颜色（第一次是红色文字、黄色高亮），图标下的色条就是这个颜色；右半边的小箭头打开色板。在色板（包括“⋯”里的）选了颜色就记住，选“无”不改记住的颜色；刷新、重开应用后仍记得，选区菜单与工具栏共用一份。
+1. **工具栏的内容**：撤销、重做｜块类型｜粗体、斜体、删除线、行内代码｜文字颜色、高亮｜链接、图片（planned）｜无序、有序、任务列表｜引用、提示块、代码块｜对齐、清除格式｜⋯（上标、下标、分割线、注音、双语）。贡献的 `inline` 项在内置按钮之后，`menu` 项进“⋯”。文字颜色与高亮是拆分按钮：左半边一点就上色，用上次选过的颜色（第一次是红色文字、黄色高亮），图标下的色条就是这个颜色；右半边的小箭头打开色板。在色板（包括“⋯”里的）选了颜色就记住，选“无”不改记住的颜色；刷新、重开应用后仍记得，选区菜单与工具栏共用一份。
 2. **工具栏的位置**：只有 Markdown 编辑器有，不随正文滚动。设置 `nbook.editor/markdownToolbarPlacement` 决定位置：`full`（缺省）在面包屑下面通栏，按钮居中、和版心同一条中轴（页边画出来时版心左移半个页边宽，工具栏仍在编辑组的中轴上，输出 33），下面一条贯通的分隔线；`merged` 并入面包屑那一行的右侧，放不下时比面包屑先收；`bottom` 是编辑区底部居中的浮条，滚到底时不挡最后一行。
 3. **工具栏的宽度**：放不下时按钮从右往左收进“⋯”，贡献的项最先收；“⋯”始终在最右。任何宽度都不出现横向滚动。
 4. **工具栏的显隐**：设置关掉或“视图”菜单取消勾选后，所有组的工具栏立即消失，正文上移；再打开时恢复。切到别的编辑器时不留着。
 5. **按钮的状态**：按钮显示自己这一组控件的状态（勾选、可用），不随别的组变化。只读文档全部置灰，版面不变。点按钮不夺走正文的焦点，动作之后光标留在正文。
-6. **选区浮动菜单**：内容是块类型｜粗体、斜体、删除线、行内代码｜（链接）、文字颜色、高亮｜注音、批注、清除格式｜贡献的项。在选区上方出现（放不下时翻到下方），随滚动跟着选区。块类型是与工具栏相同的下拉（正文、标题 1–3，当前类型打勾），选了以后焦点回到正文；颜色是与工具栏相同的拆分按钮（输出 1）。选区里有注音（盖住一部分也算）时注音按钮显示按下。
+6. **选区浮动菜单**：内容是块类型｜粗体、斜体、删除线、行内代码｜链接（planned）、文字颜色、高亮｜注音、批注、清除格式｜贡献的项。在选区上方出现（放不下时翻到下方），随滚动跟着选区。块类型是与工具栏相同的下拉（正文、标题 1–3，当前类型打勾），选了以后焦点回到正文；颜色是与工具栏相同的拆分按钮（输出 1）。选区里有注音（盖住一部分也算）时注音按钮显示按下。
 7. **选区菜单的显隐**：以下全部满足才显示：选区非空；焦点在正文或菜单里（包括菜单自己打开的色板与块类型下拉；工具栏打开的不算，焦点进去时选区菜单收起，免得盖住它们）；指针已松开（拖选中不显示）；不在输入法组字；不在代码块、原样块；文档可写；选中之后没有打字；没有按 Esc。切标签回来恢复的选区不显示，要重新选。
 8. **清除格式**：移除粗体、斜体、删除线、行内代码、文字颜色、高亮、上标、下标。批注、注音、链接与块类型不变。
 9. **注音与双语的输入**：点了在选区下方开一张一行的卡片：字直接写在卡片里（输入框没有自己的框），右边是确定按钮；输入框里回车或点确定写回，Esc 取消，焦点离开时收起；把字清空再确定等于取消。焦点在卡片的按钮上时回车是那个按钮的动作；输入法组字时的回车与 Esc 归输入法。没有说明文字，输入框有可访问名称。卡片开着时原来的选区仍画成选中的样子，选区菜单不显示。注音另有：选区里已有注音时，确定按钮左边多一个“移除注音”（`nbook.edit.ruby-remove`，去掉选区碰到的整段注音）；碰到的注音只有一种读音时卡片预填它，碰到几段读音不同的注音时不预填（确定会把整个选区写成一个读音）。点正文里注音的小字（不带修饰键），选中这整段注音并打开卡片（只读文档不打开）；卡片开着时点另一段的小字，卡片换到那一段、重新预填。双语的卡片不预填，没有移除按钮。
 10. **斜杠的触发**：`/` 在行首或空白之后打出时打开斜杠菜单；`、` 只在行首也算（中文输入法下这个键打出的字符）。代码块、原样块、表格单元格里不触发；组字时不触发。接着打的字是查询，Esc、删掉触发字符、光标离开时收起；Esc 收起后同一处不再打开。
-11. **斜杠菜单的内容**：基本（正文、标题 1–3）、列表（无序、有序、任务）、块（引用、提示块、代码块、分割线、表格、双语对照），贡献的项在各组之后。每项只有图标与名称。
+11. **斜杠菜单的内容**：基本（正文、标题 1–3）、列表（无序、有序、任务）、块（引用、提示块、代码块、分割线、表格、图片（planned）、双语对照、属性），贡献的项在各组之后。每项只有图标与名称。
 12. **筛选**：按名称，也按拼音首字母（`bt` 找到“标题 1”）。拼音库第一次打开时加载，加载完成前只按名称筛。筛不出项时菜单不显示，回车照常换行。
 13. **选择**：上下键移动、回车或 Tab 选择。选择后 `/查询` 被删掉并执行动作；撤销一步回到 `/查询`。光标留在输入处，打开与关闭都不移动焦点。
 14. **块按钮**：指针停在一块上，或光标在这一块且没有选中内容时，左侧出现 `+` 与手柄（指针优先）；打字时跟着光标，正文失焦时收起。按钮右缘离正文 14px，悬停底色圆角 4px，与这一块第一行垂直居中。所有层级的列表项按钮都在同一列。只读文档不出现。
@@ -146,19 +150,26 @@ interface EditorEditing {
 36. **替换批注文字时批注不丢**：选中的文字全在同一条（或几条重叠的）批注里，打字（含输入法）或粘贴一段行内文字把它整个或一部分替换掉时，新文字仍在这些批注里，意见不丢，一次替换是一个撤销步。选中整句再一个字一个字打新句子时，第一个字替换选区，接着打的字（光标没有离开、没有在别处改文档、没有撤销）也在批注里，整句新话都在；光标被挪走（点击、方向键）、在别处改了文档、撤销之后，批注末尾照常是批注外。不适用：只在批注两端打字（新字在批注外，同以前）；选区跨出了批注（盖住了批注以外的字）；删除（Backspace、Delete、剪切）：删光批注的文字，批注就没了，Ctrl+Z 回来。
 37. **批注的显示**：被批注的文字带批注色的波浪线，行内、分截与块批注一样，块批注没有边框、缩进之类另外的标记，里面的块之间的间隔与顶层的一样。同一段文字上叠着几条批注时，嵌套的第 2、3 层把线依次往下错开，看得出有几层。只读显示与编辑器一样。
 38. **批注的小符号**：页边没有画出来时，每条批注（行内、分截、块批注）的文字末尾（块批注是块里最后一个文字之后）有一个小符号：对话气泡图标，批注色，比正文字小，占一个字的宽；点它在浮层里看（输出 30）。几条批注结束在同一处时合成一个，图标旁带条数。符号只是显示：不进文件、不进撤销历史、复制不带；点它不移动光标、不夺走正文焦点；只读文档也画。页边画出来时不画（页边就是总览），所以开关页边时正文会按有无符号重新折行。
-39. **属性面板**：文档有 frontmatter 时，正文第一块上方是属性面板：一张淡底、没有边线的卡片，与版心同宽，随正文滚动，用界面字号；没有 frontmatter 时不画。面板不在正文里：全选、复制、块按钮、块菜单与拖动都碰不到它，写不出（[`workbench.editor`](editor.md) 输出 61）时给出的“第几块”不算它。（planned）
-40. **收起与展开**：面板顶上一行是折叠箭头、“属性”与右端的源码切换按钮（输出 44）。收起时这一行后面是摘要：每个属性写成“名字 值”，以“·”隔开；列表的项以“、”连接，勾选写“是”“否”，空值与表示不了的属性（输出 43）只写名字；放不下时在末尾省略；没有属性时没有摘要。点这一行（切换按钮之外）展开或收起。展开时每个属性一行：类型图标、属性名、值，按 frontmatter 里的先后；最后一行是“添加属性”。（planned）
-41. **记住展开**：打开文件时面板缺省收起。在一个文件上展开或收起之后，这部作品里再打开它（关掉标签、重开应用之后也一样）照这次的样子显示，别的文件不受影响；同一个文件在几个组里打开时共用这一份。frontmatter 写错（输出 45）时打开就展开，不看记着的样子。经输出 48 新建 frontmatter 时面板展开。（planned）
-42. **改值**：点值就地改，输入按类型：文字是单行的文字框；数字是数字框，不是数的输入不写回；勾选是复选框，点了就写回；日期按年月日分段输入，也能点开日历选一天，周首日随界面语言；列表是一个个小块，改的时候每块带 ×，末尾接着打，回车或逗号（`,`、`，`、`、`）加一项，空着按退格删掉最后一项，重复的项与首尾的空白去掉。文字、数字与分段输入的日期在回车或焦点离开时写回，日历里选了一天、列表每加或删一项时立即写回；清空写回空值（`名字:`）。悬停的一行与正在改的一行有底色，悬停的一行右边出“移除”。（planned）
-43. **表示不了的属性**：值是映射、含映射或列表的列表、项上带注释的列表、多行文字、带锚点或标签的值，或者键不是普通的文字（`? …` 写出的键、合并键 `<<`）时，这一行的类型图标是“{ }”，值的位置是它的源码（一行，放不下时省略），只读；右端的按钮打开源码（输出 44）并把光标放到这一项的第一行。（planned）
-44. **源码**：顶上一行的切换按钮把属性换成等宽的文字框，内容是开栏与闭栏两条 `---` 之间的 YAML，就地改；按钮的按下态表示正在看源码，再点回到按属性显示。焦点离开或按 Ctrl+Enter（macOS 上 ⌘Enter）时写回，开栏、闭栏两行原样保留。改出独占一行的 `---`（会让 frontmatter 提前结束）时不写回，留在源码里并标出原因；这时切回按属性显示，这次的修改放弃。YAML 本身写错照样写回，按输出 45 显示。（planned）
-45. **写错**：frontmatter 读不成属性时（YAML 语法错、重复的键、顶层不是“名字: 值”的一项项而是列表、一段文字或写在一行里的 `{…}`、几个 YAML 文档、文档标记或指令 `...`、`%YAML`、`--- 内容`），面板显示源码，出错的那一行带波浪线，下面写出行号与原因，并说明改好之前按源码显示；这时没有“添加属性”，不能切回按属性显示。收起时摘要换成一句出错的提示。改好写回后回到按属性显示。（planned）
-46. **改类型**：点一行的类型图标出菜单：文字、数字、勾选、日期、列表，当前的打勾。只能换成不丢信息的类型，其余置灰：空值能换成任何类型（列表为空、勾选为不勾）；文字换数字（文字是一个数）、换勾选（文字是 `true` 或 `false`）、换列表（整段文字成为一项）；数字、勾选换文字；不多于一项的列表换文字。有值的日期不能换（写成文字后仍会读成日期）。换了以后值按新类型写出（数字换文字后带引号）。空值换成文字、数字或日期后，这一行在这次打开期间按选的类型输入；文件里仍是空值，下次打开按文字显示。（planned）
-47. **添加、改名与移除**：点“添加属性”在末尾多出一行，焦点在它的名字上；打完名字按回车或焦点离开时写回 `名字:`（空值），焦点移到它的值；名字为空时不加，与已有的属性同名时不加并提示已有。点属性名就地改名，回车或焦点离开时写回；为空或与别的属性同名时恢复原名；表示不了的键不能改名。点“移除”删掉这一行，连同它的行尾注释，上方的注释留着。（planned）
-48. **新建 frontmatter**：命令 `nbook.edit.properties`（命令面板的“添加属性”、斜杠菜单“块”组末尾的“属性”、工具栏“⋯”里的“添加属性”）：没有 frontmatter 时在文件开头建一个空的（开栏、闭栏两行，换行符同文档），面板展开，焦点在新属性的名字上；已有时展开面板，焦点在新属性的名字上。在没有 frontmatter 的文档里，第一块的光标前只有刚打出的 `---`（或被自动替换成的 `—-`）时，这三个字符不留在正文里，同样建一个空的 frontmatter，光标后原有的文字仍在第一块；紧接着按退格，还原成正文里的 `---` 文字。已有 frontmatter、或不在第一块里时，`---` 照旧是分割线；要在文件开头放分割线，用 `***`。（planned）
-49. **撤销与外部修改**：面板的每次写回（改值、改名、添加、移除、改类型、源码）与新建 frontmatter 各是一个撤销步，和正文的编辑在同一条历史里：焦点在正文里时 Ctrl+Z、Ctrl+Y（工具栏的撤销、重做）撤销与重做，撤销新建时面板消失。焦点在面板的输入框里时 Ctrl+Z 是输入框自己的撤销，只撤还没写回的输入。面板里还没写回的输入算作这个编辑器还没交出的输入（[`workbench.editor`](editor.md) 输出 63）：保存、换文档与结算之前先写回。别处改了 frontmatter（磁盘、另一组）时面板跟着换，这次替换不进撤销历史。（planned）
-50. **键盘**：在正文第一块的开头按上方向键，焦点进面板的最后一个输入（展开时是“添加属性”，收起时是顶上一行）；面板里 Tab、Shift+Tab 在各个输入之间走，上下方向键在属性之间走（日历、列表的输入在用这两个键时归它们）；在最后一个输入按下方向键、或按 Esc，焦点回到正文刚才的位置，正在改的输入照常写回。输入法组字时的回车与 Esc 归输入法。（planned）
-51. **只读与写不出**：文档只读时面板照常显示、收起与展开，值不能改，没有“添加属性”、“移除”与类型菜单，源码只能看；在改的时候文档变成只读，还没写回的输入放弃。写不出（[`workbench.editor`](editor.md) 输出 61）期间面板照常能改，它的修改与正文一起等写得出时交出。（planned）
+39. **属性面板**：文档有 frontmatter 时，正文第一块上方是属性面板：一张淡底、没有边线的卡片，与版心同宽，随正文滚动，用界面字号；没有 frontmatter 时不画。面板不在正文里：全选、复制、块按钮、块菜单与拖动都碰不到它，写不出（[`workbench.editor`](editor.md) 输出 61）时给出的“第几块”不算它。
+40. **收起与展开**：面板顶上一行是折叠箭头、“属性”与右端的源码切换按钮（输出 44）。收起时这一行后面是摘要：每个属性写成“名字 值”，以“·”隔开；列表的项以“、”连接，勾选写“是”“否”，空值与表示不了的属性（输出 43）只写名字；放不下时在末尾省略；没有属性时没有摘要。点这一行（切换按钮之外）展开或收起。展开时每个属性一行：类型图标、属性名、值，按 frontmatter 里的先后；最后一行是“添加属性”。
+41. **记住展开**：打开文件时面板缺省收起。在一个文件上展开或收起之后，这部作品里再打开它（关掉标签、重开应用之后也一样）照这次的样子显示，别的文件不受影响；同一个文件在几个组里打开时共用这一份。frontmatter 写错（输出 45）时打开就展开，不看记着的样子。经输出 48 新建 frontmatter 时面板展开。
+42. **改值**：点值就地改，输入按类型：文字是单行的文字框；数字是数字框，不是数的输入不写回；勾选是复选框，点了就写回；日期按年月日分段输入，也能点开日历选一天，周首日随界面语言；列表是一个个小块，改的时候每块带 ×，末尾接着打，回车或逗号（`,`、`，`、`、`）加一项，空着按退格删掉最后一项，重复的项与首尾的空白去掉。文字与数字在回车或焦点离开时写回；日期填满年月日或在日历里选了一天、列表每加或删一项时立即写回，年份不到 1000 的日期当作还没打完、不写回（1000 年以前的日期在源码里写）；清空写回空值（`名字:`）。悬停的一行与正在改的一行有底色，悬停的一行右边出“移除”。
+43. **表示不了的属性**：值是映射、含映射或列表的列表、项上带注释的列表、多行文字、带锚点或标签的值，或者键不是普通的文字（`? …` 写出的键、合并键 `<<`）时，这一行的类型图标是“{ }”，值的位置是它的源码（一行，放不下时省略），只读；右端的按钮打开源码（输出 44）并把光标放到这一项的第一行。
+44. **源码**：顶上一行的切换按钮把属性换成等宽的文字框，内容是开栏与闭栏两条 `---` 之间的 YAML，就地改；按钮的按下态表示正在看源码，再点回到按属性显示。焦点离开或按 Ctrl+Enter（macOS 上 ⌘Enter）时写回，开栏、闭栏两行原样保留。改出独占一行的 `---`（会让 frontmatter 提前结束）时不写回，留在源码里并标出原因；这时切回按属性显示，这次的修改放弃。YAML 本身写错照样写回，按输出 45 显示。
+45. **写错**：frontmatter 读不成属性时（YAML 语法错、重复的键、顶层不是“名字: 值”的一项项而是列表、一段文字或写在一行里的 `{…}`、几个 YAML 文档、文档标记或指令 `...`、`%YAML`、`--- 内容`），面板显示源码，出错的那一行带波浪线，下面写出行号与原因，并说明改好之前按源码显示；这时没有“添加属性”，不能切回按属性显示。收起时摘要换成一句出错的提示。改好写回后回到按属性显示。
+46. **改类型**：点一行的类型图标出菜单：文字、数字、勾选、日期、列表，当前的打勾。只能换成不丢信息的类型，其余置灰：空值能换成任何类型（列表为空、勾选为不勾）；文字换数字（文字是一个数）、换勾选（文字是 `true` 或 `false`）、换列表（整段文字成为一项）；数字、勾选换文字；不多于一项的列表换文字。有值的日期不能换（写成文字后仍会读成日期）。换了以后值按新类型写出（数字换文字后带引号）。空值换成文字、数字或日期后，这一行在这次打开期间按选的类型输入；文件里仍是空值，下次打开按文字显示。
+47. **添加、改名与移除**：点“添加属性”在末尾多出一行，焦点在它的名字上；打完名字按回车或焦点离开时写回 `名字:`（空值），按回车写回的焦点移到它的值；名字为空时不加，与已有的属性同名时不加并提示已有。点属性名就地改名，回车或焦点离开时写回；为空或与别的属性同名时恢复原名；表示不了的键不能改名。点“移除”删掉这一行，连同它的行尾注释，上方的注释留着。
+48. **新建 frontmatter**：命令 `nbook.edit.properties`（“添加属性”：命令面板、斜杠菜单“块”组的末尾、工具栏的“⋯”）：没有 frontmatter 时在文件开头建一个空的（开栏、闭栏两行，换行符同文档；只用单独回车换行的文档用 `\n`），面板展开，焦点在新属性的名字上；已有时展开面板，焦点在新属性的名字上。在没有 frontmatter 的文档里，第一块的光标前只有刚打出的 `---`（或被自动替换成的 `—-`）时，这三个字符不留在正文里，同样建一个空的 frontmatter，光标后原有的文字仍在第一块。新建之后、还没有属性时，在空着的新属性名上按退格：用 `---` 新建的撤回这次新建，正文里还原成 `---` 文字；用命令新建的只把焦点交回正文。已有 frontmatter、或不在第一块里时，`---` 照旧是分割线；要在文件开头放分割线，用 `***`。
+49. **撤销与外部修改**：面板的每次写回（改值、改名、添加、移除、改类型、源码）与新建 frontmatter 各是一个撤销步，和正文的编辑在同一条历史里：焦点在正文里时 Ctrl+Z、Ctrl+Y（工具栏的撤销、重做）撤销与重做，撤销新建时面板消失。焦点在面板的输入框里时 Ctrl+Z 是输入框自己的撤销，只撤还没写回的输入。面板里还没写回的输入算作这个编辑器还没交出的输入（[`workbench.editor`](editor.md) 输出 63）：保存、换文档与结算之前先写回。别处改了 frontmatter（磁盘、另一组）时面板跟着换，这次替换不进撤销历史。
+50. **键盘**：在正文第一块的开头按上方向键，焦点进面板的最后一个输入（展开时是“添加属性”，收起时是顶上一行）；面板里 Tab、Shift+Tab 在各个输入之间走，上下方向键在属性之间走（日历、列表的输入在用这两个键时归它们）；在最后一个输入按下方向键、或按 Esc，焦点回到正文刚才的位置，正在改的输入照常写回。输入法组字时的回车与 Esc 归输入法。
+51. **只读与写不出**：文档只读时面板照常显示、收起与展开，值不能改，没有“添加属性”、“移除”与类型菜单，源码只能看；在改的时候文档变成只读，还没写回的输入放弃。写不出（[`workbench.editor`](editor.md) 输出 61）期间面板照常能改，它的修改与正文一起等写得出时交出。
+52. **链接卡片**（planned）：入口是选区菜单与工具栏的链接按钮、快捷键 Ctrl+K（macOS 上 ⌘K，焦点在正文里时；输入法组字中不响应）。在选区下方开一张与注音卡片同样子的一行卡片（宽到放得下一个网址，窄屏夹在窗口内），只填地址：回车或点确定写回，Esc 取消，焦点离开时收起，清空再确认等于取消，输入法组字时的回车与 Esc 归输入法；卡片开着时原来的选区仍画成选中的样子（没有选区时在光标处画一条竖线），选区菜单不显示。**加链接**：选着文字时，选中的字成为链接文字；没选字（光标处）时插入一段链接，文字取这个地址指向的作品里文件的名字（去掉扩展名），外部网址取网址本身。**改链接**：光标在链接里、或选区碰到链接时，卡片预填这条链接的地址，确认时改所有碰到的链接的**整条**地址（选区只盖住链接的一部分也一样，不把链接切成几段）；确定按钮左边多一个“去掉链接”（`nbook.edit.link-remove`），去掉碰到的整条链接、文字留着；碰到的几条链接地址不同时不预填、不能确认，只能去掉链接。地址原样写下，只有 `project://` 开头的作品地址改写成相对当前文件的写法（输出 57）。像域名的输入（`www.example.com`）不自动补方案，会按相对文件地址写，这是已知限制。
+53. **打开链接**（planned）：按住 Ctrl（macOS 上 ⌘）点链接才打开；单击照旧：点在链接上选中整条链接，接着按 Ctrl+K 改地址、或直接打字替换链接文字。地址指向作品里的文件或用户资产的（相对地址、`/` 开头的地址、`project://` 与 `user://` 开头的，分类同 [`workspace.markdown-dialect`](../workspace/markdown-dialect.md) 输出 27）在编辑器区打开那个文件，文件不在时给出通知；外部网址（`http:`、`https:`、`mailto:`）在新标签页打开；别的方案不动作。一段文字同时是链接与批注时，Ctrl 点只打开链接（批注用小符号或按住 Ctrl 悬停看，输出 30）。只读文档同样能打开。
+54. **插图卡片**（planned）：入口是工具栏的图片按钮与斜杠菜单“块”组里的“图片”（`nbook.edit.image`）。在光标下方开一张卡片，光标处画一条竖线标出图会插在哪里：顶上一行输入，下面是图片列表，右边是“上传”按钮。输入为空时列出存放目录（输出 56）里的图片，名字倒序（粘贴的图按时间命名，所以大致是新的在前），至多 12 张；输入文字时按名字在整部作品里找图片，至多 12 张；输入的是 `http://` 或 `https://` 开头的网址时列表只有一行“插入网址的图片”。列的“图片”是扩展名为 png、jpg、jpeg、gif、webp、svg、avif、bmp 的文件（不分大小写）。每一行是缩略图（懒加载，加载失败时是占位图标）、名字与所在目录（名字过长截中间、目录过长截开头）；上下键移动、回车或点击插入，图片插在光标处，说明取文件名（去掉扩展名），写成相对当前文件的地址（输出 57）。列表在读取中显示“正在读取”，没有结果显示“没有匹配的图片”，读不了显示原因；查到的比显示的多（`truncated`）时末尾有一行“还有更多，请输入更多字”；回车时没有选中项什么也不做。“上传”打开系统的选文件框（只列 PNG、JPEG、GIF、WebP），选了就复制进存放目录（保留原名，输出 56）再插入；传的过程中“上传”置灰，Esc 取消这次上传。系统的选文件框开着时不算焦点离开，卡片不收。Esc 取消，焦点离开时收起；输入法组字时的回车与 Esc 归输入法。
+55. **粘贴图片**（planned）：在正文里按 Ctrl+V（macOS 上 ⌘V；Ctrl+Shift+V 是纯文字粘贴、不处理图片）时，剪贴板里有图片文件、而文字部分没有实质内容的，每张图片存进存放目录（输出 56）并插入。“文字部分没有实质内容”指：纯文字去掉空白后为空，或每一行都只是某个文件的名字、路径或 `file://` 地址（从文件管理器复制文件）；HTML 去掉标签后没有文字（从网页、Word 里复制一张图）。从网页复制的图也存进作品，不留外链。剪贴板里另有实质的文字（表格软件复制的单元格、图文混排）时仍照原来的粘贴。**插入的位置**：光标在不在表格里的空段落时，几张图各占一段；其余位置（有字的段落、标题、列表项、表格单元格）依次插在光标处、图之间不加字符；代码块、原样块里不接手，照原来的粘贴并给通知。**时序**：图片一张接一张地传（所以同一秒粘贴的几张，序号与剪贴板里的先后一致）；开始粘贴时在光标处出现占位（“正在上传 N 张图片”，随文字改动移动），每张传完就把它换成图片，全部传完占位消失；传的过程中可以继续打字；切到别的文件、文档被关闭、变成只读、控件被卸载时没传的不再传（换回来也不接着传，占位不再显示）、已传完而没来得及插入的保留在作品里并给出通知。图片的类型在传之前按浏览器给的类型判定，不是 PNG、JPEG、GIF、WebP 的不上传。一张失败（过大、格式不支持、名字不合规、作品里这个目录写不了、结果未知、没有连上服务）不影响别的：成功的照常插入，失败的各给一条通知，写明是哪一张与原因；“结果未知”的通知说明这张图可能已经写进存放目录。只读文档不处理，照原来的粘贴。
+56. **图片存放与命名**（planned）：按设置 `nbook.editor/imageLocation` 决定存进哪个目录：`folder` 是作品根下的 `imageFolder`（缺省 `插图`，没有就建出来）；`root` 是作品根；`same` 是当前文件所在的目录；`sibling` 是当前文件所在目录下的 `imageFolder` 子目录。`imageFolder` 可以是几级目录（`资源/插图`），不能以 `/` 开头、不能含 `..`、不能在控制目录 `.nbook` 下，不合规时按缺省 `插图`（设置窗口里也能存下不合规的值，这是用到时才判断的）。选的本机文件保留原来的名字（JPEG 的扩展名不是 `.jpg`、`.jpeg` 时改成 `.jpg`，例如 `.jfif`）；粘贴的图叫“粘贴的图片 年月日-时分秒”加按类型定的扩展名（PNG 是 `.png`，JPEG 是 `.jpg`，本机时间，例如 `粘贴的图片 20261117-140533.png`），不随界面语言变；本机文件的名字不合规（含不允许的字符、过长）时这一张失败并给出通知。目标已有同名文件时不覆盖，名字后加序号（`名字 2.png`、`名字 3.png`），图片格式、大小与不覆盖的规则同 [`workspace.files`](../workspace/files.md) 的“写入图片”。图片存成普通图片文件。已知限制：当前文件在内容文件夹里时，`same` 与 `sibling` 存下的图是内容树里的未列入项，`sibling` 建出的子目录是没有正文的节点（见 `workspace.files`）；缺省的 `folder` 不受影响。
+57. **地址的写法**（planned）：在富文本里新建指向作品里文件的链接或图片，写相对当前文件的地址（`插图/a.png`、`../设定/林雪.md`），规则见 [`workspace.markdown-dialect`](../workspace/markdown-dialect.md) 输出 18；文件名里的 `%`、`#`、`?` 与空格、括号按方言读取一侧的规则编码，第一段含 `:` 的地址写成 `./` 开头，使写下的地址读回来指向同一个文件。当前文件挪动或改名后，相对地址不跟着改（链接按新位置读）。当前文件在 `user://` 下时没有作品，不改写 `project://` 地址，图片的上传与按名字找图也不可用（输出 58）。
+58. **只读与不可用**（planned）：文档只读时链接卡片与插图卡片都不出现，工具栏的链接与图片按钮置灰，Ctrl+K 不响应，粘贴图片不处理。插图的能力有三种状态：宿主没有提供（Lab、不带编辑器区的场景）时，插图卡片仍能打开、只能插入网址的图片，“上传”置灰，粘贴截图时照原来的粘贴；宿主提供了、但没有绑定作品时，列表为空、“上传”置灰，粘贴截图给出通知；绑定了作品时按输出 54 到 56。
 
 ## 状态与转换
 
@@ -166,7 +177,7 @@ interface EditorEditing {
 
 时序与寿命：
 
-- 换文档、切标签：所有浮动菜单与块按钮收起，查询作废；批注卡片（含“写”里没保存的字）同样收起。页边按新文档重排。属性面板里还没写回的输入先写回，再换成新文档的面板（planned）。
+- 换文档、切标签：所有浮动菜单与块按钮收起，查询作废；批注卡片（含“写”里没保存的字）同样收起。页边按新文档重排。属性面板里还没写回的输入先写回，再换成新文档的面板。
 - 编辑组的布局变化让控件重挂：菜单状态清空，编辑器实例与撤销历史不变，重挂后各菜单照常工作。
 - 编辑器插件停止：命令与菜单项撤回；打开着的菜单关闭。
 - 命令经活动控件执行；点工具栏按钮时这一组先成为活动组（[`workbench.editor`](editor.md)），所以目标就是被点的组。
@@ -179,7 +190,7 @@ interface EditorEditing {
 
 颜色按钮记住的颜色（输出 1）存在用户级、只在本机的记录 `markdown.colors`（`nbook.markdown` 拥有，第 1 版，`{text?: string, highlight?: string}`，值是 `#rrggbb`），不进作品目录。记录读不出或已损坏时按缺省颜色，这时选了颜色也不记（存储不覆盖读不出的记录）；保存失败或结果未知时只改这次运行里的显示，不重试也不提示（这是偏好，不是要用户处理的数据）；应用没装存储服务时只在这次运行里记住。
 
-属性面板（planned）的修改是编辑，写进文件的 frontmatter（写回规则见 [`workspace.markdown-dialect`](../workspace/markdown-dialect.md) 输出 28），进撤销历史。展开状态（输出 41）存在项目分区的本机记录 `markdown.properties-open`（`nbook.markdown` 拥有，第 1 版，`{open: string[]}`：展开着的文件的地址，至多 200 个、不重复，最近展开的在前，再多时去掉最旧的；收起即去掉），按作品记，不进作品目录；几个窗口同时改不同的文件时都记得住。记录读不出或已损坏时按收起，这时切换不记；保存失败或结果未知时只改这次运行里的显示，不重试也不提示；没有绑定作品时只在这次运行里记住。
+属性面板的修改是编辑，写进文件的 frontmatter（写回规则见 [`workspace.markdown-dialect`](../workspace/markdown-dialect.md) 输出 28），进撤销历史。展开状态（输出 41）存在项目分区的本机记录 `markdown.properties-open`（`nbook.markdown` 拥有，第 1 版，`{open: string[]}`：展开着的文件的地址，至多 200 个、不重复，最近展开的在前，再多时去掉最旧的；收起即去掉），按作品记，不进作品目录；几个窗口同时改不同的文件时都记得住。记录读不出或已损坏时按收起，这时切换不记；保存失败或结果未知时只改这次运行里的显示，不重试也不提示；没有绑定作品时只在这次运行里记住。
 
 ## 失败与恢复
 
@@ -223,16 +234,20 @@ interface EditorEditing {
 20. Given 同一段上叠着两条、三条批注，以及一个块批注里套着行内批注，When 看正文，Then 波浪线按层错开、各层的线都看得见，块批注没有虚线左边框、也没有缩进（它里面的文字与没有批注的段落同一个左缘）。
 21. Given 页边没画出来，一条行内批注、一条块批注、两条结束在同一处的批注，When 看正文，Then 每个结束处一个小符号，最后那个带条数 2；When 点它，Then 浮层出现、光标位置与正文焦点不变；When 复制含批注的段落、撤销，Then 符号不进剪贴板、不进撤销历史、文件不变；When 打开页边，Then 符号不画；Given 只读文档，Then 符号照画、点了照出卡片。
 22. Given 页边开着，一段有一条短批注、下一段没有批注，When 看页边，Then 槽位顶边对齐这一段的顶边、高度在一倍到两倍段高之间（随意见长短）、底边不越过下一段的底边；Given 下一段也有批注，Then 槽位不高于这一段的高度、长意见在末尾省略；Given 同一段有三条批注，Then 只有一个槽位、右上角是 `‹ 1/3 ›`，点 › 后切到第二条、光标到它开头、正文里标出，光标走进第三条的文字时槽位自动切过去；When 点一张意见被省略的卡片，Then 卡片在原处向下长到全文、别的槽位纹丝不动，Esc 或点正文别处后收回（收回的过程里文字不先被截断）；When 点编辑，Then 同样浮着写、保存后收回；Given 任何一张卡片，Then 右上角的按钮不盖住意见的字，当前与展开的卡片面有磨砂、其余没有。
-23. Given 一份带 BOM、CRLF 换行的章节，frontmatter 里有一行注释与 `视角: 林雪`、`时间: 2025-12-21`、`地点: [青石镇, 北山]`、`字数目标: 4000`、`已定稿: false`，When 打开，Then 面板收起成一行摘要；When 展开、把视角改成 `yes`、勾上已定稿、在地点里加一项“渡口”、保存，Then 磁盘上只有这三行变了（视角写成带引号的 `"yes"`），注释、BOM、换行符与正文不变；When 焦点回到正文按 Ctrl+Z 三次再保存，Then 文件回到打开时的字节；When 关掉再打开，Then 面板是展开的，另一份带 frontmatter 的文件打开时仍收起。（planned）
-24. Given 没有 frontmatter 的章节，When 在第一段开头打 `---`，Then 正文里没有这三个字符，出现展开的面板、焦点在新属性的名字上；When 打“视角”回车、打“林雪”回车、保存，Then 文件开头是 `---`、`视角: 林雪`、`---` 三行，后面是原来的正文字节；When 在另一份没有 frontmatter 的文档的第一段开头打 `---` 再按退格，Then 正文里是 `---` 文字、没有面板；When 在第二段开头打 `---`，Then 是分割线。（planned）
-25. Given frontmatter 里有一项嵌套的映射，When 展开面板，Then 这一行只读、显示它的源码，别的属性照常能改；When 点这一行右端的按钮，Then 面板显示源码、光标在这一项；When 在源码里删掉一个闭合的方括号再按 Ctrl+Enter，Then 面板标出这一行与原因，不能切回按属性显示；When 改好再按 Ctrl+Enter，Then 回到按属性显示；When 在源码中间加一行 `---` 再按 Ctrl+Enter，Then 不写回、标出原因，文件不变。（planned）
-26. Given 面板展开、光标在正文第一段开头，When 按上方向键，Then 焦点在“添加属性”上；When 按上方向键走到一个文字值、改几个字、按 Esc，Then 焦点回到正文第一段开头，改的字已写回；When 在面板的文字框里打字后按 Ctrl+Z，Then 只撤输入框里的字，正文不变。Given 文件被外部删除（文档只读），Then 面板能展开、收起，值不能改，没有“添加属性”与“移除”。（planned）
+23. Given 一份带 BOM、CRLF 换行的章节，frontmatter 里有一行注释与 `视角: 林雪`、`时间: 2025-12-21`、`地点: [青石镇, 北山]`、`字数目标: 4000`、`已定稿: false`，When 打开，Then 面板收起成一行摘要；When 展开、把视角改成 `yes`、勾上已定稿、在地点里加一项“渡口”、保存，Then 磁盘上只有这三行变了（视角写成带引号的 `"yes"`），注释、BOM、换行符与正文不变；When 焦点回到正文按 Ctrl+Z 三次再保存，Then 文件回到打开时的字节；When 关掉再打开，Then 面板是展开的，另一份带 frontmatter 的文件打开时仍收起。
+24. Given 没有 frontmatter 的章节，When 在第一段开头打 `---`，Then 正文里没有这三个字符，出现展开的面板、焦点在新属性的名字上；When 打“视角”回车、打“林雪”回车、保存，Then 文件开头是 `---`、`视角: 林雪`、`---` 三行，后面是原来的正文字节；When 在另一份没有 frontmatter 的文档的第一段开头打 `---` 再按退格，Then 正文里是 `---` 文字、没有面板、焦点在正文；When 在第二段开头打 `---`，Then 是分割线。
+25. Given frontmatter 里有一项嵌套的映射，When 展开面板，Then 这一行只读、显示它的源码，别的属性照常能改；When 点这一行右端的按钮，Then 面板显示源码、光标在这一项；When 在源码里删掉一个闭合的方括号再按 Ctrl+Enter，Then 面板标出这一行与原因，不能切回按属性显示；When 改好再按 Ctrl+Enter，Then 回到按属性显示；When 在源码中间加一行 `---` 再按 Ctrl+Enter，Then 不写回、标出原因，文件不变。
+26. Given 面板展开、光标在正文第一段开头，When 按上方向键，Then 焦点在“添加属性”上；When 按上方向键走到一个文字值、改几个字、按 Esc，Then 焦点回到正文第一段开头，改的字已写回；When 在面板的文字框里打字后按 Ctrl+Z，Then 只撤输入框里的字，正文不变。Given 文件被外部删除（文档只读），Then 面板能展开、收起，值不能改，没有“添加属性”与“移除”。
+27. （planned）Given 一句“见林雪的设定”和作品里的 `设定/林雪.md`，When 选中“林雪”按 Ctrl+K、填 `project://设定/林雪.md` 回车并保存，Then 文件里是 `[林雪](林雪.md)`（相对当前文件的写法）、其余字节不变；When 光标放进这个链接按 Ctrl+K，Then 卡片预填 `林雪.md`；When 点“去掉链接”，Then 文字还在、链接没了；When 按住 Ctrl 点这个链接，Then 编辑器区打开 `林雪.md`；When 不按 Ctrl 点它，Then 选中整条链接、没有打开；When 只选中链接中间的两个字按 Ctrl+K 改地址，Then 整条链接换成新地址、没有被切成几段；Given 外部网址的链接，When 按住 Ctrl 点它，Then 新标签页打开；When 光标在空行、按 Ctrl+K 填网址回车，Then 插入一段文字就是网址本身的链接。
+28. （planned）Given 没有 `插图/` 目录的作品和一张剪贴板里的截图（没有文字），When 在正文里粘贴并保存，Then 作品根下出现 `插图/粘贴的图片 年月日-时分秒.png`、文件头是 PNG 且宽高与剪贴板里的图相同，正文里是指向它的相对地址的图片；When 再粘贴一张，Then 另一个名字、两个文件都在；Given 设置改成 `same`，When 粘贴，Then 图片存在当前文件所在的目录；改成 `sibling` 与 `imageFolder` 为 `图`，Then 存在当前文件旁的 `图/`；Given 剪贴板里是表格软件复制的单元格（有文字、也带一张渲染图），When 粘贴，Then 照原来的粘贴、作品里没有新文件；Given 从网页复制了一张图（HTML 里只有 `<img>`），When 粘贴，Then 图存进作品、正文里是本地图片不是外链；Given 在表格单元格里粘贴两张图，When 保存，Then 文件写得出来、两张图依次在这个单元格里；Given 一张 40 MiB 的图，When 粘贴，Then 正文不变、作品里没有文件、出现“过大”的通知。
+29. （planned）Given 存放目录里有三张图，When 按工具栏的图片按钮，Then 卡片按名字倒序列出这三张；When 输入“林”，Then 列出作品里名字带“林”的图片（别处目录里的也在）；When 上下键选中一张回车，Then 图片插在光标处、地址相对当前文件、说明是文件名；When 再开卡片点“上传”选一个本机的 `a.png`，Then 它被复制进存放目录（已有 `a.png` 时存成 `a 2.png`）并插入；When 输入 `https://example.com/a.png`，Then 列表只有“插入网址的图片”，回车后插入的是这个网址。
+30. （planned）Given 只读文档，When 按 Ctrl+K、点工具栏的图片按钮、粘贴一张截图，Then 都没有反应、文件不变；Given 宿主没有提供插图能力的 Lab 场景，When 开插图卡片，Then 只能插入网址的图片、“上传”置灰、粘贴截图照原来的粘贴；Given 宿主提供了但没有绑定作品，When 开插图卡片，Then 列表为空、“上传”置灰、粘贴截图给出通知。
 
-Smoke：`e2e/markdown-editing.e2e.ts`、`e2e/markdown-comments.e2e.ts`（场景 11–17）、`e2e/markdown-properties.e2e.ts`（场景 23–26，planned）。
+Smoke：`e2e/markdown-editing.e2e.ts`、`e2e/markdown-comments.e2e.ts`（场景 11–17）、`e2e/markdown-properties.e2e.ts`（场景 23–26）、`e2e/markdown-links-images.e2e.ts`（场景 27–30，planned）。
 
 ## 实现合同
 
-- 公开入口：`editor/shared/contracts.ts`（`EditorEditing`、`EDITING_ACTIONS`、`EditorMenus`、`editorMenusKey`、五个贡献点 id）；`@notnotype/nb-markdown/editor`（`markdownEditingActions`、块与斜杠的操作）；nb-ui 的 `AnchoredPopover`、`Toolbar` 的 `variant="flat"`。
+- 公开入口：`editor/shared/contracts.ts`（`EditorEditing`、`EDITING_ACTIONS`、`EditorMenus`、`editorMenusKey`、五个贡献点 id）；`@notnotype/nb-markdown/editor`（`markdownEditingActions`、块与斜杠的操作，属性面板的 `MarkdownProperties`、`FRONTMATTER_REQUEST`、`setFrontmatterEol`）；nb-ui 的 `AnchoredPopover`、`Toolbar` 的 `variant="flat"`。
 - owner 与依赖方向：命令、公开键、菜单位置与设置归 `nbook.editor`；菜单界面在 `nbook.markdown` 的控件里，只引 `editor/shared/contracts.ts`；动作实现在 `nb-markdown`，不引宿主。
 - 不变量：动作目录不引 Tiptap，插件入口静态引用它，首屏不含编辑内核；目录里的每个动作都有实现（`MarkdownControl.dom.test.ts`）。
 - 不变量：菜单状态按控件实例算，不写 ProseMirror 插件视图、不在扩展配置里捕获组件 DOM：换 `EditorState` 时 `plugins` 数组换了，插件视图全部重建（`markdown-editing.e2e.ts` 的“切标签回来”“组件重挂”）。
@@ -252,11 +267,12 @@ Smoke：`e2e/markdown-editing.e2e.ts`、`e2e/markdown-comments.e2e.ts`（场景 
 - 不变量：波浪线的错开（输出 37）在 `nb-markdown/src/display/markdown.css`，按嵌套层数写 `text-underline-offset`，不用装饰：每个嵌套的元素自己画自己的线（`markdown-comments.e2e.ts` 读计算样式）。
 - 不变量：加批注时“写”卡片开着，原选区的显示复用输出 9 的 `held-selection`；改已有批注时标出用另一个 ProseMirror 装饰（输出 32），两者都不进撤销历史、不写进文件，换文档前先清掉。
 - 不变量：“批注 N”开关在编辑区标题里的位置、按下态与条数由 `nbook.editor` 的标题动作按控件句柄的 `comments` 画；`whenHidden`、按下态与条数读同一份响应式依赖（活动控件句柄、本作品的记录），不各读各的；按钮画在共享的 `ui/menus/TitleActions.vue` 里，预算按每个按钮的实际宽度算（带数字的更宽，不吃掉标签条留给标签的 96px）；控件不提供时不出现。按下态读开关，不读页边画得出来与否（输出 33）。
+- 不变量：属性面板（输出 39–51）只认 frontmatter 的原文，交回新原文，由控件作为一次编辑提交（`setDocAttribute`）；改一项只替换这一项的原文、文字值按 YAML 1.1 与 1.2 读回同一个字符串在属性模型里（`nb-markdown/src/editor/properties/model.ts`，`model.test.ts` 含随机映射）。面板手里还没写回的输入只在结算（`binding.attach` 的回调、句柄的 `flushPendingChange`）时写回，停手的计时只交出正文（`MarkdownControl.dom.test.ts`）。新建 frontmatter 的输入规则与动作在 `nb-markdown/src/editor/frontmatter.ts`，事务带 `FRONTMATTER_REQUEST`，控件看到它就展开面板、聚焦新属性名（`frontmatter.dom.test.ts`）。展开状态的记录由 `markdown/web/properties-open.ts` 定义，没有作品或没有存储服务时在内存里（`properties-open.test.ts`）。
 - 颜色记录 `markdown.colors` 由 `markdown/web/colors.ts` 定义，插件激活时按可选依赖取存储服务，取不到用只在内存里的一份；组件经注入取用。卡片里的输入框是 nb-ui `Input` 的 `variant="bare"`。
 
 ## 证据
 
-- 批准依据：开发者 2026-10-20、2026-11-05 的决定，记在主工作区 master 的 `.agents/works/w00025-editor/tasks/t08-editing-menus/README.md` 决定 1–15；2026-11-10、2026-11-11 的决定（选区菜单、注音卡片、颜色拆分按钮），记在 `.agents/works/w00025-editor/tasks/t20-selection-menu-polish/README.md` 决定 1–5；批注的界面（输出 28–35）的决定记在 `.agents/works/w00025-editor/tasks/t13-comments-ui/README.md` 决定 1–5 与计划，评审板在同一目录的 `artifacts/review/`；输出 28–35 在 t13 实施完成前是已定未实现；2026-11-12 开发者试用后的调整（悬停打开、位置与对齐、页边尺寸与动画、块批注的样式与入口、替换继承，输出 20 起的改动与输出 36、37）记在 `.agents/works/w00025-editor/tasks/t22-comments-feedback/README.md` 与计划；同日第二轮（按住 Ctrl 悬停或点击与小符号代替悬停打开、页边按段排位与同段切换、展开浮着，输出 29、30、33、38 与验收 21、22）记在 `.agents/works/w00025-editor/tasks/t23-comments-margin-by-block/README.md` 与计划；属性面板（输出 39–51、场景 23–26）的决定记在 `.agents/works/w00025-editor/tasks/t10-frontmatter-panel/README.md` 决定 1–6 与计划，评审板在同一目录的 `artifacts/review/`。
-- 实现入口：[`editor/web/editing-commands.ts`](../../../packages/neuro-book/src/plugins/editor/web/editing-commands.ts)、[`editor/shared/editing.ts`](../../../packages/neuro-book/src/plugins/editor/shared/editing.ts)、[`markdown/web/components/menus/MarkdownMenus.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownMenus.vue)、[`nb-markdown/src/editor/editing-actions.ts`](../../../packages/nb-markdown/src/editor/editing-actions.ts)、[`nb-markdown/src/editor/block-actions.ts`](../../../packages/nb-markdown/src/editor/block-actions.ts)、[`nb-markdown/src/editor/held-selection.ts`](../../../packages/nb-markdown/src/editor/held-selection.ts)、[`nb-markdown/src/editor/ruby-text.ts`](../../../packages/nb-markdown/src/editor/ruby-text.ts)、[`markdown/web/colors.ts`](../../../packages/neuro-book/src/plugins/markdown/web/colors.ts)、[`markdown/web/components/menus/MarkdownColorButton.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownColorButton.vue)、[`markdown/web/components/menus/MarkdownBlockTypeMenu.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownBlockTypeMenu.vue)、[`markdown/web/components/menus/MarkdownTextPrompt.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.vue)
-- 合同测试：[`editing-commands.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/editing-commands.test.ts)、[`editing-actions.dom.test.ts`](../../../packages/nb-markdown/src/editor/editing-actions.dom.test.ts)、[`whole-ruby.dom.test.ts`](../../../packages/nb-markdown/src/language/syntax/ruby/whole-ruby.dom.test.ts)（输出 26）、[`held-selection.dom.test.ts`](../../../packages/nb-markdown/src/editor/held-selection.dom.test.ts)、[`ruby-text.dom.test.ts`](../../../packages/nb-markdown/src/editor/ruby-text.dom.test.ts)（输出 9）、[`MarkdownTextPrompt.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.dom.test.ts)（输出 9）、[`block-actions.dom.test.ts`](../../../packages/nb-markdown/src/editor/block-actions.dom.test.ts)、[`slash-trigger.dom.test.ts`](../../../packages/nb-markdown/src/editor/slash-trigger.dom.test.ts)、[`clipboard.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/clipboard.dom.test.ts)
-- Smoke：[`markdown-editing.e2e.ts`](../../../packages/neuro-book/e2e/markdown-editing.e2e.ts)
+- 批准依据：开发者 2026-10-20、2026-11-05 的决定，记在主工作区 master 的 `.agents/works/w00025-editor/tasks/t08-editing-menus/README.md` 决定 1–15；2026-11-10、2026-11-11 的决定（选区菜单、注音卡片、颜色拆分按钮），记在 `.agents/works/w00025-editor/tasks/t20-selection-menu-polish/README.md` 决定 1–5；批注的界面（输出 28–35）的决定记在 `.agents/works/w00025-editor/tasks/t13-comments-ui/README.md` 决定 1–5 与计划，评审板在同一目录的 `artifacts/review/`；输出 28–35 在 t13 实施完成前是已定未实现；2026-11-12 开发者试用后的调整（悬停打开、位置与对齐、页边尺寸与动画、块批注的样式与入口、替换继承，输出 20 起的改动与输出 36、37）记在 `.agents/works/w00025-editor/tasks/t22-comments-feedback/README.md` 与计划；同日第二轮（按住 Ctrl 悬停或点击与小符号代替悬停打开、页边按段排位与同段切换、展开浮着，输出 29、30、33、38 与验收 21、22）记在 `.agents/works/w00025-editor/tasks/t23-comments-margin-by-block/README.md` 与计划；属性面板（输出 39–51、场景 23–26）的决定记在 `.agents/works/w00025-editor/tasks/t10-frontmatter-panel/README.md` 决定 1–6 与计划，评审板在同一目录的 `artifacts/review/`。链接与图片（输出 52–58、场景 27–30）的决定记在 `.agents/works/w00025-editor/tasks/t09-links-images/README.md` 决定 1–6，评审板在同一目录的 `artifacts/review/`。
+- 实现入口：[`editor/web/editing-commands.ts`](../../../packages/neuro-book/src/plugins/editor/web/editing-commands.ts)、[`editor/shared/editing.ts`](../../../packages/neuro-book/src/plugins/editor/shared/editing.ts)、[`markdown/web/components/menus/MarkdownMenus.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownMenus.vue)、[`nb-markdown/src/editor/editing-actions.ts`](../../../packages/nb-markdown/src/editor/editing-actions.ts)、[`nb-markdown/src/editor/block-actions.ts`](../../../packages/nb-markdown/src/editor/block-actions.ts)、[`nb-markdown/src/editor/held-selection.ts`](../../../packages/nb-markdown/src/editor/held-selection.ts)、[`nb-markdown/src/editor/ruby-text.ts`](../../../packages/nb-markdown/src/editor/ruby-text.ts)、[`markdown/web/colors.ts`](../../../packages/neuro-book/src/plugins/markdown/web/colors.ts)、[`markdown/web/components/menus/MarkdownColorButton.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownColorButton.vue)、[`markdown/web/components/menus/MarkdownBlockTypeMenu.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownBlockTypeMenu.vue)、[`markdown/web/components/menus/MarkdownTextPrompt.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.vue)、[`nb-markdown/src/editor/properties/MarkdownProperties.vue`](../../../packages/nb-markdown/src/editor/properties/MarkdownProperties.vue)、[`nb-markdown/src/editor/properties/model.ts`](../../../packages/nb-markdown/src/editor/properties/model.ts)、[`nb-markdown/src/editor/frontmatter.ts`](../../../packages/nb-markdown/src/editor/frontmatter.ts)、[`markdown/web/properties-open.ts`](../../../packages/neuro-book/src/plugins/markdown/web/properties-open.ts)
+- 合同测试：[`editing-commands.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/editing-commands.test.ts)、[`editing-actions.dom.test.ts`](../../../packages/nb-markdown/src/editor/editing-actions.dom.test.ts)、[`whole-ruby.dom.test.ts`](../../../packages/nb-markdown/src/language/syntax/ruby/whole-ruby.dom.test.ts)（输出 26）、[`held-selection.dom.test.ts`](../../../packages/nb-markdown/src/editor/held-selection.dom.test.ts)、[`ruby-text.dom.test.ts`](../../../packages/nb-markdown/src/editor/ruby-text.dom.test.ts)（输出 9）、[`MarkdownTextPrompt.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.dom.test.ts)（输出 9）、[`block-actions.dom.test.ts`](../../../packages/nb-markdown/src/editor/block-actions.dom.test.ts)、[`slash-trigger.dom.test.ts`](../../../packages/nb-markdown/src/editor/slash-trigger.dom.test.ts)、[`clipboard.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/menus/clipboard.dom.test.ts)、[`MarkdownProperties.dom.test.ts`](../../../packages/nb-markdown/src/editor/properties/MarkdownProperties.dom.test.ts)、[`model.test.ts`](../../../packages/nb-markdown/src/editor/properties/model.test.ts)、[`frontmatter.dom.test.ts`](../../../packages/nb-markdown/src/editor/frontmatter.dom.test.ts)、[`properties-open.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/properties-open.test.ts)（输出 39–51）
+- Smoke：[`markdown-editing.e2e.ts`](../../../packages/neuro-book/e2e/markdown-editing.e2e.ts)、[`markdown-properties.e2e.ts`](../../../packages/neuro-book/e2e/markdown-properties.e2e.ts)（场景 23–26）

@@ -78,6 +78,35 @@ owners:
 
 主题编辑器（[`theme.editor`](../theme/editor.md)）经 `PUT /api/nbook.files/theme-assets` 把场景图写进 `user://theme-assets/`：请求体是原始字节，限长、按字节判定类型、文件名取 SHA-256、拒绝符号链接目录，细则在“主题编辑器”的“写场景素材”一节。同目录还有 `PUT /api/nbook.files/theme-icons`，只收通过严格检查的 SVG 图标（文件名 `<SHA-256>.svg`），细则在“写图标素材”一节。没人引用的素材由 `POST /api/nbook.files/theme-assets/sweep` 清理：先统计、再按用户确认过的名单删除，只碰摘要命名的普通文件，保护期内的不删，上传与清理互斥，细则在 [`theme.editor`](../theme/editor.md) 输出 22；删除经本能力的“删除”操作，`expected` 是目录项身份令牌。
 
+### 写入图片（planned）
+
+编辑器等浏览器一侧要把用户给的图片放进作品（粘贴、选本机文件，以后的拖入），经 `PUT` 把一个文件的字节写到作品里的某个地址，与“按地址读取字节”对称：
+
+- **地址与客户端**：`PUT /api/nbook.files/raw/project/<项目 id>/<代次>/<路径…>`，路径是要写的那个文件，各段按 URL 编码，请求体是原始字节。只写 `project://`，不写 `user://`。浏览器的文件客户端给出 `upload(address, body, options?)`：按窗口绑定的项目与代次拼出这个地址；`options` 有 `exists`（`fail` 缺省，或 `rename`）与取消信号。结果是 `{ok: true, address, renamed}`（`address` 是实际写下的资源地址）或 `{ok: false, code, detail}`，`code` 取自下面的码表，调用方只按 `code` 判断。客户端自己给的码：没有绑定项目或地址不是 `project://` 为 `unavailable`（不发出）；字节超过 32 MiB 为 `too-large`（不发出）；调用方取消为 `cancelled`；请求没有得到响应（没连上服务，或连接中途断开，浏览器分不出这两种）为 `network`：图可能已经写下，调用方不要当成一定没写。响应头到了之后才取消或断开（读不到响应体）同样按调用方取消为 `cancelled`、否则为 `network`，2xx 而响应体不认得（没有地址）为 `unknown-outcome`：这些都是图已经写下，不报成别的写入失败。响应体里没有认得的码时按状态码兜底（400 `invalid-address`、403 `cross-site`、404 `not-found`、409 `conflict`、410 `generation-gone`、413 `too-large`、415 `unsupported-type`、502 `unknown-outcome`、503 `project-unavailable`，其余 `io-failed`），其中没有码的 403 是宿主分发层按 `Origin` 挡的。
+- **代次与规则**：项目代次在请求到达时按项目登记核对：不符、或项目没在运行（含没有登记的项目），为 410 `generation-gone`，不会为了一次上传启动项目；核对通过后立刻取一份租约并持有到写完：取到的不是 URL 里的代次（核对与取租约之间项目换了代）同样为 410；持有期间这一代不会因宽限期满而停止，所以排队与传输请求体的时间里不会被这次上传重新启动；租约被收回（项目崩溃、被强制结束）而请求体还没收完的，收完后为 410、不写，也不为它启动新的一代。项目身份由项目实例打开时核对。路径包含、符号链接与控制目录的规则同“读取与保存”；父目录不存在时一并建出来，父路径的某一段是文件为 409 `not-a-directory`。名字是合法的单段，主名为空（`.png`）、名字超过 255 字节为 400 `invalid-address`。
+- **只收图片**：按文件开头的字节判定，只收 PNG、JPEG、GIF、WebP，不信客户端给的类型，也只保证文件开头像图片、不保证整份是合法图片（读取时按扩展名给类型并加沙箱，不会在应用的源里运行）。名字的扩展名只能是 `.png`、`.jpg`、`.jpeg`、`.gif`、`.webp`（不分大小写），没有扩展名或是别的为 415 `unsupported-type`；扩展名与判定的类型不一致为 415 `extension-mismatch`（JPEG 是 `.jpg` 或 `.jpeg`）。空请求体与不是允许图片的字节为 415 `unsupported-type`。上限 32 MiB，服务端边收边数，分块传输也一样，超过为 413 `too-large`。
+- **不覆盖**：只新建。`exists=fail` 时目标已存在（普通文件、目录、链接，包括指向不存在目标的链接）为 409 `conflict`。`exists=rename` 时写第一个空着的 `名字 2.扩展名`、`名字 3.扩展名`……（不认名字里原有的序号，`a 2.png` 再写是 `a 2 2.png`），至多试到 `名字 100`，都被占用为 409 `conflict`；加了序号的名字超长为 400 `invalid-address`；成功时 `renamed` 为真。占用按名字原样比较（不分大小写的文件系统上 `A.png` 与 `a.png` 是同一个，写入时冲突，同样换下一个名字）。作品根下与别处一样：父目录里同名的悬空链接算被占用。两个请求同时写同一个名字，恰好一个得到它，另一个按上面的规则取下一个空名；只有“被占用”才换下一个名字，别的失败立即结束并原样报出。
+- **取消与结果未知**：请求体收完之前取消（调用方取消、连接断开），确定没有写；收完之后取消，或写入时项目实例断开，结果未知（502 `unknown-outcome`）：文件可能已经写在目标目录里，不自动删除，调用方也不要把它当成失败去重试同一个名字。
+- **状态码与码表**：错误体同读取：`{error: {code, message}}`，写入的 `code` 不改写成 `not-found`（读取为了不区分受保护与不存在才改）。
+
+  | 状态 | `code` | 情形 |
+  |---|---|---|
+  | 201 | — | 写成，`{address, renamed}` |
+  | 400 | `invalid-address` | 名字或路径不合法（含主名为空、名字超长、加序号后超长） |
+  | 403 | `permission-denied`、`cross-site` | 目录不可写（含要现建的子目录的父目录只读）；来源不对（下一条） |
+  | 404 | `protected-path`、`outside-root`、`not-found` | 控制目录、根外、路径中间有指向不存在目标的链接（目标处是这样的链接则是被占用，为 409）；不区分受保护与不存在，同读取 |
+  | 409 | `conflict`、`not-a-directory` | 目标被占用；父路径的某一段是文件 |
+  | 410 | `generation-gone`、`root-gone` | 代次不符、项目没在运行或没有登记、这一代在上传途中被收回；作品目录被移走 |
+  | 413 | `too-large` | 超过 32 MiB |
+  | 415 | `unsupported-type`、`extension-mismatch` | 不是允许的图片；扩展名与类型不符 |
+  | 500 | `io-failed` | 其它写入失败 |
+  | 502 | `unknown-outcome` | 结果未知 |
+  | 503 | `project-unavailable` | 项目实例不可用（取不到租约、没有起来、不接纳新的请求） |
+
+- **来源**：写请求同 HTTP 端口的其它写请求，带了 `Origin` 就要是允许的来源（[runtime.server-host](../runtime/server-host.md)）；另外带了 `Sec-Fetch-Site` 且不是 `same-origin`（包括 `same-site`、`cross-site`、`none`）为 403 `cross-site`，不带这个头的交给 `Origin` 核对。
+- **写入来源与提交**：写入经本能力自己的提交链，写一半的文件不会出现在目标处；目录监视与资源管理器照常看到新文件与新建出来的父目录。HTTP 端口没有窗口的身份，写入来源记为系统（`nbook.files`）。服务端同时处理至多 2 个上传，其余排队；读请求体没有空闲超时，两条发了一半又停住、也不断开的上传会占着名额（已知限制）。
+- **边界**：本接口不写 `user://`，不写别的文件类型，不建空目录；新作品（还没有运行代次）用不了；一次拖入整个文件夹时，文件夹重名要调用方先定好名字再逐个写。在内容文件夹（[workspace.folder-kinds](folder-kinds.md)）里写入时，图作为未列入项出现、不改清单；一并建出来的子目录是没有正文的内容节点。
+
 ### 预览的受限读取
 
 HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在不透明源的沙箱里，它对文件的每个请求都是跨站的。这里给它一个只认令牌的只读入口：
@@ -173,6 +202,7 @@ HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在
 9. 目录复制中途失败保留已产生的残留并报告范围；取消后已完成项不回滚、未开始项不执行，在途不能确认则标为结果未知；断线后先核对磁盘，绝不重复已确认成功的副作用。
 10. 用 `rawUrl` 读一个运行中项目里的 png，得到原始字节与 `image/png`、`nosniff`、`sandbox` 三个头，再带 `If-None-Match` 得到 304；代次不符得到 410，`.nbook/` 下的文件与目录得到 404，超过 32 MiB 得到 413，`Sec-Fetch-Site: cross-site` 得到 403。
 11. 经 `nbook.files.preview` 取得令牌后，带 `Origin: null` 读同一项目的文件得到响应与 `Access-Control-Allow-Origin: null`；令牌读不到别的项目；`close` 之后、窗口断开之后、项目这一代结束之后都得到 404。
+12. （planned）用 `upload` 把一张 png 写进一个还没有 `插图/` 目录的运行中项目，得到 `{address: "project://插图/a.png", renamed: false}`，磁盘上目录与文件都在、字节相同，资源管理器收到文件与目录的新建、来源是系统；再写同名文件：默认得到 409 `conflict`、磁盘上原文件字节不变，`exists=rename` 得到 `插图/a 2.png`，目标是同名的目录时 `exists=fail` 得 409 `conflict`、`exists=rename` 得 `a 2.png`；同一时刻两个请求写同一个新名字，各得到一个不同的地址、两个文件都在；写 JPEG 字节到 `.png` 得到 415 `extension-mismatch`，写文本到 `.png` 或把 png 写到 `.txt` 得到 415 `unsupported-type`，33 MiB（含分块传输）得到 413、磁盘上没有文件；写 `.nbook/` 下得到 404，代次不符或项目没运行得到 410，父路径某段是文件得到 409 `not-a-directory`，`Sec-Fetch-Site: same-site` 或 `none` 得到 403 `cross-site`，不带 `Sec-Fetch-Site`、带允许的 `Origin` 的请求照常 201；请求体发完之前断开连接，磁盘上没有文件。
 
 ## 实现合同
 
@@ -188,7 +218,7 @@ HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在
 
 ## 证据
 
-- 批准依据：2026-09-26 开发者“可以，就这么做，收口”批准 [首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)（F1–F9）；2026-10-02 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)；2026-10-09 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 的 t68 条目（“读取与保存”一节：基线、文本、正文上限、只保存已有文件）与 t69 条目（“文件操作”一节：只读文件删除拒绝、复制与删除的失败政策、源身份令牌、批量的大小上限、结果未知不提供状态查询）；2026-10-14 [t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)（目录项的叶子标记、`realPath`、移动到指定位置）。
+- 批准依据：2026-09-26 开发者“可以，就这么做，收口”批准 [首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)（F1–F9）；2026-10-02 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)；2026-10-09 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 的 t68 条目（“读取与保存”一节：基线、文本、正文上限、只保存已有文件）与 t69 条目（“文件操作”一节：只读文件删除拒绝、复制与删除的失败政策、源身份令牌、批量的大小上限、结果未知不提供状态查询）；2026-10-14 [t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)（目录项的叶子标记、`realPath`、移动到指定位置）。；“写入图片”的决定：开发者 2026-11-16 在 `.agents/works/w00025-editor/tasks/t09-links-images/README.md` 决定 1。
 - 实现入口：[`plugins/files/backend/`](../../../packages/neuro-book/src/plugins/files/backend/)、[`plugins/files/web/`](../../../packages/neuro-book/src/plugins/files/web/)、[`plugins/files/shared/contracts.ts`](../../../packages/neuro-book/src/plugins/files/shared/contracts.ts)
 - 合同测试：[`files/files.test.ts`](../../../packages/neuro-book/src/plugins/files/files.test.ts)、[`files/operations.test.ts`](../../../packages/neuro-book/src/plugins/files/operations.test.ts)、[`files/batch.test.ts`](../../../packages/neuro-book/src/plugins/files/batch.test.ts)、[`files/changes.test.ts`](../../../packages/neuro-book/src/plugins/files/changes.test.ts)、[`files/transport.test.ts`](../../../packages/neuro-book/src/plugins/files/transport.test.ts)、[`files/project-child.test.ts`](../../../packages/neuro-book/src/plugins/files/project-child.test.ts)、[`files/backend/rooted.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/rooted.test.ts)、[`files/backend/entry-ops.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/entry-ops.test.ts)、[`files/backend/exclusive.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/exclusive.test.ts)、[`files/raw-route.test.ts`](../../../packages/neuro-book/src/plugins/files/raw-route.test.ts)
 - Smoke：不适用——没有独立的跨机器 e2e；单机双窗口、Lab 与切换性能的记录随 [workbench.files-explorer](../workbench/files-explorer.md) 的 `e2e/files-explorer.e2e.ts`、`scripts/perf/files-perf.ts`（最近一次测量见 t72，2026-10-10，未重新运行）；字节读取与预览读取由 [`e2e/editor-types.e2e.ts`](../../../packages/neuro-book/e2e/editor-types.e2e.ts) 在生产构建与本机 Chrome 里运行

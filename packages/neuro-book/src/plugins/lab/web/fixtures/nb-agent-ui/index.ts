@@ -26,6 +26,9 @@ import type {
     AgentModeSwitchWizard,
     AgentCompactionDetail,
     AgentQueuedMessages,
+    AgentNoticeCard,
+    AgentConversationHead,
+    AgentWelcome,
     AgentStatusBar,
     AgentWizard,
     AgentWizardFrame,
@@ -52,6 +55,7 @@ import {agentModelCatalogScenes} from "./catalog.scenes";
 import {agentSessionChildRowsScenes, agentSessionListScenes, agentSessionPanelScenes} from "./session-list.scenes";
 import {agentRequestTraceScenes} from "./requests.scenes";
 import {agentContextInspectorScenes, agentConversationComposerScenes, agentMessageEditorScenes, agentModelPickerScenes, agentQueuedMessagesScenes, agentRoleModelPickerScenes, agentSessionTreeScenes} from "./composer.scenes";
+import {agentConversationHeadScenes, agentNoticeCardScenes, agentWelcomeScenes} from "./head.scenes";
 import {
     agentChainSummaryScenes,
     agentCommandDetailScenes,
@@ -182,6 +186,9 @@ export const nbAgentUiFixtures: LabFixture[] = [
     defineSubjectFixture<typeof AgentQuestionWizard>({component: "AgentQuestionWizard", scenes: agentQuestionWizardScenes, subject: agentSubject("AgentQuestionWizard"), events: ["update:state", "submit", "stop", "collapse"], class: "w-full"}),
     defineSubjectFixture<typeof PlainForm>({component: "PlainForm", scenes: [{id: "empty", label: "JSON 文本框", input: {props: {schema: {type: "object"}}, model: {modelValue: {name: "苏晴"}}}}], subject: agentSubject("PlainForm"), events: ["update:modelValue", "update:valid"], class: "w-full"}),
     defineSubjectFixture<typeof AgentQueuedMessages>({component: "AgentQueuedMessages", scenes: agentQueuedMessagesScenes, subject: agentSubject("AgentQueuedMessages"), class: "w-full"}),
+    defineSubjectFixture<typeof AgentNoticeCard>({component: "AgentNoticeCard", scenes: agentNoticeCardScenes, subject: agentSubject("AgentNoticeCard"), events: ["act"], class: "w-full"}),
+    defineSubjectFixture<typeof AgentConversationHead>({component: "AgentConversationHead", scenes: agentConversationHeadScenes, subject: agentSubject("AgentConversationHead"), events: ["select", "create", "update:sessionsOpen", "header-action", "overflow"], writeBack: {"update:sessionsOpen": {layer: "model", key: "sessionsOpen"}}, class: "w-full"}),
+    defineSubjectFixture<typeof AgentWelcome>({component: "AgentWelcome", scenes: agentWelcomeScenes, subject: agentSubject("AgentWelcome"), events: ["select", "open-sessions", "starter"], class: "w-full"}),
     defineSubjectFixture<typeof AgentDeliveryNotice>({
         component: "AgentDeliveryNotice", noInput: "只有“重新发送”“移除”两个事件，没有数据 prop", scenes: agentDeliveryNoticeScenes,
         subject: agentSubject("AgentDeliveryNotice"), events: ["resend", "dismiss"],

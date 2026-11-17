@@ -79,15 +79,17 @@ const detail = computed(() => t("status.detail", {
     cacheRead: formatTokens(usage.value.cacheRead),
     cacheWrite: formatTokens(usage.value.cacheWrite),
 }));
-const hasUsage = computed(() => usage.value.totalTokens > 0);
+/** 没选会话时不画数据项（上下文、用量、费用），提醒项照常（Spec“状态栏”）：没有会话就没有可量的东西，写 0% 只是噪声。 */
+const hasSession = computed(() => props.ctx.session !== null);
+const hasUsage = computed(() => hasSession.value && usage.value.totalTokens > 0);
 const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : `${String(Math.round(usage.value.cacheHitRate * 100))}%`));
 </script>
 
 <template>
     <div class="acv-status" data-agent-status>
         <div class="acv-status__left">
-        <AgentContextMeter v-if="usage.contextLimit !== null && usage.contextLimit > 0" :used="usage.contextTokens" :limit="usage.contextLimit" :interactive="inspectable" @inspect="emit('inspect')" />
-        <span v-else-if="usage.contextTokens > 0" class="acv-status__context">{{ formatTokens(usage.contextTokens) }}</span>
+        <AgentContextMeter v-if="hasSession && usage.contextLimit !== null && usage.contextLimit > 0" :used="usage.contextTokens" :limit="usage.contextLimit" :interactive="inspectable" @inspect="emit('inspect')" />
+        <span v-else-if="hasSession && usage.contextTokens > 0" class="acv-status__context">{{ formatTokens(usage.contextTokens) }}</span>
         <span v-if="phase !== null" class="acv-status__phase" :data-tone="phase.tone" data-status-phase>
             <span v-if="phase.tone === 'wait'" class="acv-status__dot" aria-hidden="true" />
             <Spinner v-else-if="phase.spin" size="sm" :label="phase.text" />
@@ -115,7 +117,7 @@ const cachePercent = computed(() => (usage.value.cacheHitRate === null ? null : 
                 ><span class="i-lucide-database-zap" aria-hidden="true" />{{ cachePercent }}</component>
             </span>
         </Tooltip>
-        <span v-if="costText !== null" class="acv-status__metric acv-status__cost" :class="{'is-warn': usage.costState === 'warned'}" :title="costTitle" data-status-cost>
+        <span v-if="hasSession && costText !== null" class="acv-status__metric acv-status__cost" :class="{'is-warn': usage.costState === 'warned'}" :title="costTitle" data-status-cost>
             <span class="i-lucide-circle-dollar-sign" aria-hidden="true" />{{ costText }}
         </span>
     </div>

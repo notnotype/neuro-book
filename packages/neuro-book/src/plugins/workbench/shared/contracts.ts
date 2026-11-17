@@ -368,3 +368,56 @@ export interface WorkbenchFileDropHost {
 
 /** 外壳根登记的落点：被传送出去的菜单、对话框不在外壳根里，往上找不到它。 */
 export const WORKBENCH_FILE_DROP = defineDropKind<WorkbenchFileDropHost>("nbook.workbench.file");
+
+// ─── 视图的标题区（docs/specs/workbench/views.md 输出 19）─────────────────────────────────────────
+
+/**
+ * 内置视图申请接管面板头标题区的标记：`const view: ViewImplementation & ViewHeadOptIn = {load, [VIEW_HEAD]: true}`，再经
+ * `viewHeadOf(context)` 取这一代实例的标题区。放在共用合同里，是因为别的插件在运行时只能引对方的 `shared/contracts.ts`
+ * （ADR 0025）。符号与取法都不经插件 SDK 导出（`src/sdk/workbench.ts`），第三方拿不到，标题区只给内置视图；有第二个用户时再考虑公开。
+ */
+export const VIEW_HEAD: unique symbol = Symbol("nbook.workbench/view-head");
+
+export interface ViewHeadOptIn {
+    readonly [VIEW_HEAD]: true;
+}
+
+/**
+ * 面板头给视图的几个位置，都是工作台渲染的元素，视图只往里送内容，不改它们的属性。共用合同不带 DOM 类型，这里写成 `object`：
+ * 视图在自己的组件里用 `instanceof HTMLElement` 取（类型守卫，不是断言）。
+ */
+export interface ViewHeadSlots {
+    readonly start: object;
+    /** 在标题按钮里面：只放文字与图标，不放可交互的元素。 */
+    readonly title: object;
+    readonly end: object;
+    /** 标题按钮本身：浮层锚在它上面，关掉后焦点回到它。 */
+    readonly handle: object;
+}
+
+/**
+ * 视图这一代实例的标题区。视图在自己的组件树里画头，用 `Teleport` 送进这些位置：头与视图共用状态、注入与错误边界，
+ * 头渲染出错时实例变成 `render-failed`，面板头退回只写声明标题；标题按钮始终由工作台渲染，拖动、键盘拿起与右键菜单都不经过视图。
+ * 实例换代时工作台给新的一份，旧的那份不再收到位置与按下。
+ */
+export interface ViewHead {
+    /** 面板头此刻给视图的位置；为 null 时视图在自己的内容里画头。 */
+    readonly slots: Readonly<Ref<ViewHeadSlots | null>>;
+    /** 面板展开时按标题按钮（点击、回车）调它；面板收起时工作台只展开、不调。返回取消订阅。 */
+    onTitlePress(listener: () => void): () => void;
+    /** 标题按钮弹出的东西开着没有；null 是不弹出东西。视图写，工作台写到按钮的 `aria-haspopup`、`aria-expanded`。 */
+    readonly titlePopup: Ref<{readonly expanded: boolean} | null>;
+}
+
+/** 以上下文为键：视图手里只有 `context`，不另开一条注入通道。 */
+const viewHeads = new WeakMap<object, ViewHead>();
+
+/** 视图取自己这一代的标题区；没申请（或不是工作台建的上下文）时是 null。 */
+export function viewHeadOf(context: object): ViewHead | null {
+    return viewHeads.get(context) ?? null;
+}
+
+/** 只给工作台：为申请了的实例的这一代上下文挂上标题区（`web/views/view-head.ts`）。 */
+export function attachViewHead(context: object, head: ViewHead): void {
+    viewHeads.set(context, head);
+}

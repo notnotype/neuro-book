@@ -52,8 +52,11 @@ export const END: object = Object.freeze({end: true});
  *   删掉后来插入的空段落后，旧的间隔还查得到。
  */
 export interface SourceMap {
-    /** BOM 与 frontmatter，原样。 */
-    readonly prefix: string;
+    /**
+     * 读入时开头的 BOM，没有为空串。写回时拼在最前面；frontmatter 不在这里，在文档的 `frontmatter` 属性上（`frontmatterOf`），
+     * 跟着编辑与撤销走。
+     */
+    readonly bom: string;
     /** 原文里用得多的换行符：重新写出的块与间隔用它。 */
     readonly eol: Eol;
     readonly origins: WeakMap<PMNode, ReadonlyArray<Origin>>;
@@ -229,23 +232,36 @@ function build(schema: Schema, json: ReadonlyArray<JSONContent>): PMNode[] {
  * 读入整篇。`schema` 必须是编辑器自己的 schema（Tiptap 每个编辑器各建一份；不同 schema 的节点不能放进同一个文档）。
  */
 export function readMarkdown(language: MarkdownLanguage, schema: Schema, source: string): ReadResult {
-    const {prefix, body} = splitFrontmatter(source);
-    return readBody(language, schema, prefix, body, null);
+    const {bom, frontmatter, body} = splitFrontmatter(source);
+    return readBody(language, schema, {bom, frontmatter}, body, null);
+}
+
+/** 文档的 frontmatter 原文（BOM 之后、正文之前的 `---` 块），没有时为 null。 */
+export function frontmatterOf(doc: PMNode): string | null {
+    const value: unknown = doc.attrs.frontmatter;
+    return typeof value === "string" ? value : null;
+}
+
+/** 正文之前的部分：BOM 与 frontmatter 的原文（没有为 null）。 */
+export interface BodyHead {
+    readonly bom: string;
+    readonly frontmatter: string | null;
 }
 
 /** 引用定义表：标签（小写）→ 地址与标题。 */
 export type Definitions = Readonly<Record<string, {readonly href: string; readonly title: string | null}>>;
 
 /**
- * 读一段正文（没有 frontmatter）。`definitions` 不为 null 时预置进词法器：写回校验只读一个窗口，引用定义可能在窗口外面。
+ * 读一段正文（`body` 里没有 frontmatter，它在 `head` 里）。`definitions` 不为 null 时预置进词法器：写回校验只读一个窗口，
+ * 引用定义可能在窗口外面。
  */
-export function readBody(language: MarkdownLanguage, schema: Schema, prefix: string, body: string, definitions: Definitions | null): ReadResult {
+export function readBody(language: MarkdownLanguage, schema: Schema, head: BodyHead, body: string, definitions: Definitions | null): ReadResult {
     const normalized = normalize(body, language.glued);
     const lexer = language.lexer();
     if (definitions !== null) Object.assign(lexer.tokens.links, definitions);
     const tokens = lexer.lex(normalized.text);
     const {blocks, gaps, skipped} = segment(normalized, body, tokens);
-    const map: SourceMap = {prefix, eol: dominantEol(prefix + body), origins: new WeakMap(), twins: new Map(), gaps: new WeakMap(), emptyBody: blocks.length === 0 ? body : null, finalNewline: /\n$|\r$/u.test(body)};
+    const map: SourceMap = {bom: head.bom, eol: dominantEol((head.frontmatter ?? "") + body), origins: new WeakMap(), twins: new Map(), gaps: new WeakMap(), emptyBody: blocks.length === 0 ? body : null, finalNewline: /\n$|\r$/u.test(body)};
     const nodes: PMNode[] = [];
     const empty = (): PMNode => schema.nodes.paragraph!.create();
     const problems: string[] = [];
@@ -294,5 +310,5 @@ export function readBody(language: MarkdownLanguage, schema: Schema, prefix: str
         for (let count = 0; count < empties; count += 1) nodes.push(empty());
     }
     if (nodes.length === 0) nodes.push(empty());
-    return {doc: schema.nodes.doc!.create(null, nodes), map, skipped, problems};
+    return {doc: schema.nodes.doc!.create(head.frontmatter === null ? null : {frontmatter: head.frontmatter}, nodes), map, skipped, problems};
 }

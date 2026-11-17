@@ -1,0 +1,238 @@
+# w00032 t36 对话面板改版：实现审查报告
+
+审查对象：`git diff master...HEAD`（HEAD `e4582a577`），worktree `.worktree/w00032-t36-impl`。只读；跑过的是 bun 的小实验与源码对照，没有跑 e2e 与开发服务。
+
+按影响排序，逐条追加。
+
+---
+
+## 1. 第一屏刷新的 watch 在每次对话上下文变化时都重取最近对话
+
+- 严重程度：重要；类别：正确性（性能）
+- 位置：`packages/neuro-book/src/plugins/agent/web/ConversationHost.vue`，注释“第一屏出现时（切到没有消息的会话、新建、没选会话）重取最近对话”那段 `watch`（约 78 行）
+- 现象：`watch(() => [session?.id ?? null, messages.length === 0] as const, ([, empty]) => { if (empty) void props.recent.refresh(); }, {immediate: true})`。getter 每次返回新数组，Vue 用 `hasChanged` 比较引用，所以只要 getter 依赖的东西触发，回调就跑，不看两个元素有没有变。getter 读的是整个 `props.host.ctx.value`，而宿主的 ctx 在每次 `bump()`（revision 加一）后都换新对象。
+- 为什么是问题：Spec conversation 输出 41 写“第一屏出现时重新取一次”，计划与 Task README 也写“第一屏出现时才刷新”。实现成了“第一屏显示期间，ctx 每变一次就发一次 `agent.list` 远程调用”。第一屏上会触发 ctx 变化的有：点开场指令（`composer.fill` 会 `bump`）、模型快照变、连接状态变、`notice` 变、子代理树变（后台有运行中的会话时很频繁）。每次都是一次完整的会话索引读取，而且 `refresh` 的 `latest` 令牌会让较早返回的结果作废，列表还可能闪动。
+- 如何核实：在 `packages/neuro-book` 下跑 `bun -e`：用 `ref` 做 revision、`computed` 返回新对象、`watch(() => [ctx.value.session?.id ?? null, ctx.value.messages.length === 0] as const, cb, {immediate: true})`，连续改 5 次 revision，回调执行 6 次（1 次 immediate 加 5 次无关变化）。这是 Vue 行为的实验，没有经过 `ConversationHost`，但这个 getter 与 ctx 的形状同实际代码一致。
+- 建议改法：让监视的源是值，不是新数组：`watch([() => host.ctx.value.session?.id ?? null, () => host.ctx.value.messages.length === 0], ...)`（数组源逐项比较），或把两项拼成一个字符串 key。同时补一个 DOM 测试：第一屏显示时 bump 一次无关状态，断言 `refresh` 次数不变。
+
+---
+
+## 2. 第一屏的开场指令按“没有响应式依赖”的 `profileKey()` 取，切到或新建非主创 Profile 的会话后可能一直是主创的指令
+
+- 严重程度：重要；类别：正确性
+- 位置：`packages/neuro-book/src/plugins/agent/web/plugin.ts` 的 `welcomeOf`（约 388 到 392 行）与 `draftProfileOf`；`session-host.ts` 的 `profileKey()`（约 1302 行）
+- 现象：`welcomeOf(host)` 在 `AgentConversationPosition` 的渲染函数里调用，用 `host.profileKey()` 选 Profile。`profileKey()` 读的是 `current?.transcript.meta()?.profile`：`current` 是普通 `let`，`transcript.meta()` 来自 `createKernelTranscript`（nb-agent-ui，非响应式）。`open()` 先 `current = target; sessionId.value = id`（此时 `meta()` 为 null，`profileKey()` 回落 `MAIN_PROFILE`），快照到了才 `applySnapshot` 填上 meta。渲染函数只读 `host.sessionId`、`profiles`、`recentSessions.sessions` 这几个 ref，没有读 ctx，所以快照到了以后这个渲染函数不会因 meta 变化而重跑。
+- 为什么是问题：Spec conversation 输出 41 与 Task 决定 5：“有会话没消息时显示这个会话 Profile 的指令”。新建一个非主创 Profile 的空会话（`pickProfile` 选了别的 Profile）或打开一个空的非主创会话，第一屏写的是主创的指令，除非碰巧有别的响应式依赖触发重渲染。现在能“碰巧”修好的是 `ConversationHost` 为第一屏调的 `recent.refresh()`：列表返回后 `entries` 换新值，`sessions` computed 变，渲染函数重跑；它与快照是两个并发的 RPC，谁先回不确定，所以结果取决于时序。
+- 如何核实：从代码推断，未跑。可写一个 `plugin` 级 DOM 测试：宿主新建选了带 `starters` 的非主创 Profile 的会话，快照在 `recent.refresh()` 之后才返回，断言第一屏的指令是该 Profile 的。也可以直接看 `welcomeOf` 的依赖：没有一条经过 `host.ctx`。
+- 建议改法：把 Profile 的取法并进 ctx（例如 `ctx.session.profileKey` 或 `welcome` 由 `host.ctx` 的 computed 产出），让 `welcome` 与 `draftProfile` 成为 ctx 的一部分或 `host` 上的 computed（依赖 `revision`），不要在渲染函数里读非响应式状态。更少的部件：`SessionHost.profileKey()` 内部先 `void revision.value` 再读，这样任何读它的 computed 或渲染函数都跟着快照更新。
+
+---
+
+## 3. 子代理浮层开着时，取不到的收口结果会随每次树更新重发请求，调用失败的诊断也同样刷屏
+
+- 严重程度：重要；类别：正确性（性能）
+- 位置：`packages/neuro-book/src/plugins/agent/web/components/SubagentsEntry.vue` 的 `watch([open, rows], ...)`（约 41 行）与 `subagents-panel.ts` 的 `createRunResults.load`
+- 现象：浮层开着时，`rows` 每次重算（后代在跑时 `tools`、`step`、`now` 相关字段很频繁）都对每个已收口的行调 `results.load`。`load` 只防“正在取”和“已取到”；`runResult` 交回 `null`（`remote.runResult` 失败或没有结果）时不记，`finally` 里又清了 `loading`，下一次 `rows` 变化就再取一次；`fetch()` 抛错时还每次 `report("run-result-failed", ...)`。
+- 为什么是问题：Spec 输出 43：“结果在浮层打开时才取，同一次运行只取一次；取到之前、取不到时只写状态”。实现注释写“取不到的不记，下次打开浮层再取”，实际是“浮层开着期间每次行变化都再取”。一个持续失败的行（例如后端读不到那次运行）加一个在跑的兄弟行，就是每秒级的失败请求与诊断。
+- 如何核实：`createRunResults` 的现有测试只证明“取完后再调 `load` 会再取”（用 `waitUntil` 里重复调 `load`），没有证明“同一次打开最多取一次”。在 `SubagentsEntry.dom.test.ts` 里让假 `runResult` 恒返回 null，浮层开着时推进两次 `tree` 更新，断言调用次数；按现在的实现是每次更新加一次。
+- 建议改法：把“这次打开已经试过”记在 `watch` 一侧（打开时清一个 `tried` 集合，试过的不再 `load`），或让 `createRunResults` 把失败也记成“本次浮层内已试”，`open` 变 false 时清。更少的部件：只在 `open` 由 false 变 true 时取一次（`watch(open)`），开着期间新出现的已收口行单独由一个“看见新 id 才取”的集合处理。
+
+---
+
+## 4. 子代理浮层为所有已收口的行取运行结果，其中停止、中断的从不显示
+
+- 严重程度：建议；类别：代码质量（性能）
+- 位置：`SubagentsEntry.vue` 的 `watch([open, rows], ...)`；`detail()` 只在 `done`、`failed` 用结果
+- 现象：`for (const row of list) { if (row.ended !== null) results.load(...) }`，`aborted`、`interrupted` 的行也有 `ended`，会被取，但 `detail()` 对它们返回空串。
+- 为什么是问题：后代很多时每次打开浮层白发若干次远程调用，还把永不显示的结果放进缓存。
+- 建议改法：只对 `row.state === "done" || row.state === "failed"` 取。
+
+---
+
+## 5. `AgentConversationView.md` 没写 `welcome` 属性、第一屏与 `composer.fill`，状态一节仍写“没有消息：显示空态文字”
+
+- 严重程度：建议；类别：文档
+- 位置：`packages/nb-agent-ui/src/vue/AgentConversationView.md` 的属性类型块与“状态”一节
+- 现象：该文件的 diff 补了 `statusBar`、`newSession`、`headTargets`、`sessionsOpen`、`draftProfile` 和两个插槽，但 `welcome` 没写；“状态”仍是“没有消息：消息流显示空态文字”，也没提第一屏、点开场指令发 `composer.fill`、`showWelcome` 的条件（有消息数为 0 且非 `loading` 且给了 `welcome`）。
+- 为什么是问题：仓库规则“组件同名 .md 与实现一致”；`welcome` 是公开属性，Spec 已写。
+- 建议改法：补属性行（照 Spec 的类型）、状态一节写第一屏，交互一节写点指令发 `composer.fill` 并聚焦输入框。
+
+---
+
+## 6. 提示卡的按钮不带 `layer`：设置窗口上次停在“本作品”标签时，落在“只在用户设置里”的说明页，`focus` 也丢了
+
+- 严重程度：重要；类别：正确性
+- 位置：`packages/neuro-book/src/plugins/agent/web/plugin.ts` 的 `openSettings`（约 340 行，`commands.execute(OPEN_SETTINGS_COMMAND, target)`）与 `model-notice.ts` 的各个 `target`（只有 `section`、`focus`）；`settings/web/settings-window.ts` 的 `perform` 的 `open` 分支与 `shownPage`
+- 现象：模型的两页（`models/web/plugin.ts` 的 `PROVIDERS_PAGE`、`ROLES_PAGE`）声明了 `layers: ["user"]`。窗口按“关掉再开回到上次的分区与标签”（settings-window.md 输出 15）记着标签；`openWindow({section, focus})` 不给 `layer` 就不改标签。上次停在“本作品”标签时，`shownPage` 因 `entry.layers.includes(layer.value)` 为假返回 null，页面不挂，窗口显示“这一页只在用户设置里”之类的说明；`pendingFocus` 留着没人取。用户再点“用户”标签时，`setLayer` 走 `requestLeave({kind: "layer"})` → `perform`，`perform` 开头无条件 `pendingFocus.value = null`，`focus` 作废。
+- 为什么是问题：提示卡是用户“模型用不了”时的主要恢复路径，按钮的承诺是“直达对应的设置”；这个状态下既到不了页面，`focus`（定位到角色、打开添加窗口、聚焦密钥）也永远不生效。Task 里的 e2e（“去绑定”）从新窗口开始，碰不到这个状态。
+- 如何核实：从代码推断，未跑。合同测试可在 `settings/window.test.ts` 的新 describe 里补：窗口先开到“本作品”标签再关掉，再 `openWindow({section: <只允许 user 的页>, focus: "x"})`，断言 `layer` 是 user、页面的 `takeFocus()` 取到 "x"。
+- 建议改法：卡的 `target` 带 `layer: "user"`（两页都是用户层，`OPEN_SETTINGS_COMMAND` 已支持 `layer`），`openSettings` 的 `target` 类型加 `layer?`；或在窗口一侧：`openWindow` 给了 `section` 而该分区在当前标签下不可用时，自动改到它允许的标签。前者部件少。
+
+---
+
+## 7. `focus: "add"` 绕过了服务商页的禁用条件
+
+- 严重程度：建议；类别：正确性
+- 位置：`packages/neuro-book/src/plugins/models/web/components/ProvidersPage.vue` 的 `watch([() => props.focus, snapshot], ...)`（约 293 行）与 `openAdd()`
+- 现象：页面上的“添加服务商”按钮都是 `:disabled="disabled"`（`!store.available || !writable`），而 `focus === "add"` 直接 `await openAdd()`，不看 `disabled`；选中服务商并聚焦密钥框时 `.focus()` 落在禁用的输入上也没有效果、不提示。
+- 为什么是问题：模型服务不可用或标签不可写时，卡片的按钮让用户到了一个半禁用的页面，却弹出一个注定写不成功的添加窗口（它会去调 `catalogProviders`，失败时才在窗口里写原因）。与按钮的禁用状态不一致。
+- 建议改法：`if (disabled.value) return;` 放在取走之后、定位之前（取走仍要做，免得残留）。配合第 6 条，`writable` 为假的主要来源就消失了。
+
+---
+
+## 8. “出错未看”拿浏览器时钟与服务端的 `endedAt` 比较
+
+- 严重程度：建议；类别：不变量
+- 位置：`packages/neuro-book/src/plugins/agent/web/subagents-panel.ts` 的 `createSeenErrors`（`unseen` 里 `row.ended.endedAt > seenUntil(row.id)`）；`plugin.ts` 的 `createSeenErrors(clock.now())` 与 `markSession(id, clock.now())`
+- 现象：基线、切会话的时刻来自浏览器的 `clock.now()`，被比较的 `ended.endedAt` 来自服务端日志。注释写“两者在同一台机器上”，没有任何代码保证；NeuroBook 的服务端与浏览器分开时（开发者自己远程用就是），时钟差几秒到几分钟都有。
+- 为什么是问题：浏览器时钟比服务端快 Δ 时，激活后 Δ 以内出的错被当成已看过，红点不亮；慢 Δ 时，激活前 Δ 以内收口的旧错一开始就亮，又因为 `markSession` 用的也是浏览器时刻，切到那个会话也盖不住，只能打开浮层才灭。计划原本写“按 `会话:运行` 记”，实现改成时刻是为“少存一份集合”，代价是引入了跨时钟比较。
+- 如何核实：纯函数层可以直接验：`createSeenErrors(1000)`，`endedAt` 取 1000 加一个偏移，看 `unseen` 的结果随偏移翻转；现有测试里的 `ACTIVATED ± n` 隐含了两个时钟相同。
+- 建议改法：改回按运行 id 记：记“已看过的出错运行 id”集合（`markRows` 加 `row.ended.runId`，`markSession` 需要时记那个会话当前最后一次出错的 runId），基线用“插件第一次读到某个后代时它已有的出错”处理（第一次见到某个会话行时若已是出错就记为看过）。这样没有时钟比较。若坚持时刻，至少把基线与切会话的时刻改取服务端给的时间（例如 `tree` 帧里的服务端时间戳），并在注释里写明依据。
+
+---
+
+## 9. 子代理行的停止按钮只在悬停与键盘聚焦时出现，触屏上够不到
+
+- 严重程度：建议；类别：UI
+- 位置：`packages/neuro-book/src/plugins/agent/web/components/SubagentsEntry.vue` 样式 `.sa-row__stop` 与 `.sa-row:hover`、`:focus-within`
+- 现象：停止按钮 `opacity: 0; pointer-events: none`，只有 `:hover` 或行内有焦点时才可点。触屏没有悬停；点行本身是“切到子会话并关浮层”，点不到停止按钮。
+- 为什么是问题：`390×844` 是仓库要求验证的尺寸，手机上无法停止子代理（只能进子会话按停止）。Spec 写“运行中的行悬停或聚焦时出停止按钮”，没排除触屏，但“只在悬停时出”在触屏上等于没有。
+- 建议改法：`@media (hover: none)` 下让运行中的行的停止按钮常显（`opacity: 1; pointer-events: auto`），行的右内边距给它让位。
+
+---
+
+## 10. 工作台一端的几条规则没有低于 e2e 的测试：面板收着时按标题只展开、旧一代的标题区不再收到位置与按下
+
+- 严重程度：建议；类别：测试
+- 位置：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue` 的 `activateTab`、`headOfPanel`、分发位置的 `watchEffect`；`views/view-instances.test.ts`
+- 现象：views.md 输出 19 与 workbench-layout.md 输出 20 有两条硬规则：面板收着时按标题只展开、不通知视图（`onTitlePress` 只在展开着时调）；实例换代后旧的那份不再收到位置与按下。实际检查它们的测试：`view-instances.test.ts` 只断言“换代后 `head` 对象不是同一个”和“渲染出错时 `headOf` 为 null”，没有断言旧 `ViewHead` 收不到后来的 `press` 与位置；面板收着时按标题的规则在 `agent-conversation.e2e.ts` 与 `lab-workbench-surface.e2e.ts` 里都搜不到（`grep 收着|collapsed` 只命中无关的向导收起）；`WorkbenchShell.vue` 没有 DOM 层测试。
+- 为什么是问题：这两条正是设计审查第 5、11 条与计划里点名的易错点，现在只靠人读代码保证；`activateTab` 里“先记收没收、再 `activate`”依赖 `activate` 会把面板展开的副作用，改了 `activate` 就悄悄坏。
+- 如何核实：`grep -rn "收着\|onTitlePress\|press()" packages/neuro-book/e2e packages/neuro-book/src --include=*.test.ts`（zsh 下 `--include` 要放在目录前面或加引号）。
+- 建议改法：在 `lab-workbench-surface.e2e.ts` 的“视图的标题区”场景里补两步：把右栏收成标题行、按标题，断言面板展开且夹具里的 `onTitlePress` 监听没被调；再按一次才调。`view-instances.test.ts` 补：换代后对旧 `head` 调旧控制的 `press()`（或看 `setContext` 之后旧 `slots` 与监听）的预期，并说明旧 `slots` 在换代时不会被清成 null（见下一条）。
+
+---
+
+## 11. 换代时旧的 `ViewHead` 的 `slots` 不清空，仍指着已拆掉的元素
+
+- 严重程度：建议；类别：不变量
+- 位置：`packages/neuro-book/src/plugins/workbench/web/views/view-instances.ts` 的 `dropContext` / `setContext`；`views/view-head.ts`
+- 现象：`dropContext` 只从表里删掉控制，不对旧控制 `setSlots(null)`；视图手里的旧 `ViewHead.slots` 保留最后一次的元素，直到组件卸载。`ViewHead` 的注释写“旧的那份不再收到位置与按下，视图手里的旧引用自然作废”，“作废”其实只是“不再更新”，不是“变 null”。
+- 为什么是问题：现在安全，是因为 `WorkbenchViewFrame` 的 `ErrorBoundary :key="generation"` 在换代的同一轮就卸载旧组件。但这个安全来自外层的 key，不是来自标题区本身的合同；以后任何长寿命的订阅者（视图外的 `watch`、`onTitlePress` 之外的异步任务）拿着旧 `slots` 往里 `Teleport`，会往已不在文档里的元素里写。这正是计划风险里的“位置是元素但已不在文档里”。
+- 建议改法：`dropContext` 与换代处理里先 `heads.get(viewId)?.setSlots(null)`（一行），旧 `ViewHead` 随即变成“没有位置”，与合同的文字一致；`view-head.ts` 注释改为“旧的那份的位置被清成 null”。
+
+---
+
+## 12. 提示卡的“设置”按钮的执行结果被丢弃，失败时按钮没有任何反应
+
+- 严重程度：建议；类别：代码质量
+- 位置：`packages/neuro-book/src/plugins/agent/web/plugin.ts` 的 `openSettings: (target) => void (target === undefined ? commands.execute(OPEN_SETTINGS_COMMAND) : commands.execute(OPEN_SETTINGS_COMMAND, target))`
+- 现象：`void` 掉 `commands.execute` 的返回。该命令可以以 `invalid-args`（分区不在左栏）或 `unavailable` 失败。
+- 为什么是问题：提示卡是模型不可用时的恢复入口，按钮失败时用户点了没有任何反馈、控制台也没有诊断；老的无参调用同样如此，但那里的目标永远存在，现在 `section` 来自常量，页面被禁用（例如模型插件不在）时才会失败。仓库规则“不用静默吞错误”。
+- 建议改法：`.then((result) => { if (!result.ok) report("open-settings-failed", ...) })`，用已有的 `report`。
+
+---
+
+## 13. 子会话的头在祖先读到之前（或读失败时）画“新建”，不是返回
+
+- 严重程度：建议；类别：正确性
+- 位置：`packages/nb-agent-ui/src/vue/head/AgentConversationHead.vue`（`parent` 与左列的 `v-if / v-else-if`）；`session-host.ts` 的 `open()`（`ancestors: []` 起步，`remote.ancestors` 与快照并行取）、会话上下文里 `path` 只在祖先非空时给
+- 现象：打开子会话时 `target.ancestors` 先是 `[]`，ctx 里没有 `path`，`parent === null`，左列画“新建”按钮；祖先一到才换成返回。`remote.ancestors` 失败时（只写 `conversation-ancestors-failed` 诊断）一直是“新建”。
+- 为什么是问题：Spec 输出 35：子会话的头左边是返回。短暂画成“新建”时点下去会在子会话里新建一个顶层会话；读不到祖先时没有任何返回路径（旧的面包屑同样依赖 `path`，但旧版没有把“新建”放在同一位置）。
+- 建议改法：祖先还没读到时（`target.ancestors` 未取到）左列不画任何按钮；读失败时按“未知祖先”画一个返回到会话列表或不画，不要画新建。需要宿主在 `path` 之外给一个“还没读到”的标记（例如 `path` 为 `undefined` 与 `[]` 区分：顶层会话给 `[]`，没读到不给）。
+
+---
+
+## 14. 第一屏的开场指令在输入框只读（模型不可用、已归档）时仍可点，填进去的字用不了
+
+- 严重程度：建议；类别：正确性（交互）
+- 位置：`packages/nb-agent-ui/src/vue/AgentConversationView.vue` 的 `showWelcome` 与 `fillComposer`；`AgentWelcome.vue`
+- 现象：`showWelcome` 只排除 `loading`；`profile-unavailable`、`archived`、`load-error` 时第一屏照样画指令，点了发 `composer.fill`，宿主换了草稿、视图聚焦输入框，但输入框是 `readonly`，用户既改不了也发不出，提示卡就在下面。Spec“消息”写的条件确实只是“给了 `welcome` 且非加载中”，这里是 Spec 与交互的缺口。
+- 建议改法：向 `AgentWelcome` 传 `starters` 的可用状态（`availability.status === 'ready'`），不可用时指令块禁用（保留显示，写“先解决上面的问题”之类不必，禁用即可），或者不画指令块。要不要改 Spec 请开发者定。
+
+---
+
+## 15. `nbook.settings.open` 只给 `focus`、不给 `section` 时，等着的值可能落到不显示的页面上
+
+- 严重程度：建议；类别：正确性
+- 位置：`packages/neuro-book/src/plugins/settings/web/settings-window.ts` 的 `perform` 的 `open` 分支（`section: target.section ?? section.value`）与 `openWindow` 里“不离开这一页”的分支
+- 现象：窗口开着、正在搜索（`query !== ""`，显示搜索结果，当前分区的页面没挂）时，`openWindow({focus: "x"})`（没给 `section`）会把 `focus` 记在 `section.value` 那一页上；那一页此刻没显示，直到用户从搜索结果点进它才取到，而且是一个与这次命令无关的时刻。命令描述写“`focus` 交给那一页，由页面解释”，没写必须带 `section`。
+- 建议改法：命令参数加约束：给了 `focus` 必须给 `section`（`invalid-args`），免得“当前分区”的含义随窗口状态漂移；现有调用方都带 `section`。
+
+---
+
+## 16. `RUN_REASON` 表在两处各写一份
+
+- 严重程度：建议；类别：代码质量
+- 位置：`packages/neuro-book/src/plugins/agent/web/subagent-card.ts` 第 57 行与 `subagents-panel.ts` 第 41 行
+- 现象：收口原因到状态的映射表同样的五项各写一份，只有值类型不同（`CardState` 与 `RowState`）。`waitingOf`、`shortTarget`、`duration` 这次已经从卡片导出复用，唯独这张表复制。
+- 为什么是问题：新增一种收口原因（例如 `stopped`）要改两处，漏一处卡片与浮层的状态就不一致；浮层与卡片按 Spec 要“同一套状态”。
+- 建议改法：在 `subagent-card.ts` 导出这张表，`RowState` 取 `CardState` 的子集（或直接共用类型），浮层引用它。
+
+---
+
+## 17. `SubagentsEntry` 的浮层状态在“没有后代”时随组件一起丢，重新出现后会自动重开
+
+- 严重程度：建议；类别：正确性
+- 位置：`packages/neuro-book/src/plugins/agent/web/components/SubagentsEntry.vue` 的根 `<span v-if="rows.length > 0">` 与 `defineModel("open")`
+- 现象：`open` 是组件自己的 model，不随 `v-if` 卸载 `Popover` 而重置。浮层开着时若 `rows` 变成 0（切到没有后代的会话时 `store.data` 先换，浮层的关闭靠 `select` 里的 `open.value = false`；从别处切会话或会话被删则没有人关），`Popover` 被拆掉但 `open` 仍为 true；之后 `rows` 再不为空（切回有后代的会话），浮层自己弹开。
+- 如何核实：从代码推断，未跑。DOM 测试：开着浮层，把 `store.data` 换成空树再换回，看浮层是否出现。
+- 建议改法：`watch(() => rows.value.length, (n) => { if (n === 0) open.value = false; })`。
+
+---
+
+## 18. 标题按整行居中的做法让两侧各预留“较宽一侧”的宽度，默认 400px 的右栏里标题只剩几个字
+
+- 严重程度：建议；类别：UI
+- 位置：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.vue`：`sideWidth`（两列取较大值）与 `.workbench-panel-head--view` 的 `grid-template-columns: minmax(var(--view-head-side), 1fr) minmax(0, auto) minmax(var(--view-head-side), 1fr)`
+- 现象：右列（子代理入口、更多、框架按钮）比左列（一个 24px 的按钮）宽得多，左列被撑到同样的宽度，只为让标题居中。按代码估算（按钮 24px、间距 4px、右栏默认宽 `SHELL_AUXILIARYBAR_DEFAULT_WIDTH = 400`）：有子代理入口时右列约 124px，标题按钮可用宽约 `400 − 16 − 2×124 − 8 = 128px`，扣掉按钮自身的图标、箭头与内边距约 62px，标题文字只剩约 66px（四五个汉字）；右栏上再有一个框架按钮（分节的收起）或固定的顶栏动作时更少。没有量，是从样式与默认尺寸算的。
+- 为什么是问题：标题写的是会话名，窄到只剩几个字时用户分辨不出是哪个会话；两侧留白里左边那一侧是空的。Spec 与计划写的是“标题按整行居中，两侧放不下时标题让位”，没有要求在窄栏里也牺牲标题到这个程度。
+- 如何核实：`bun run dev` 之外不便跑；Lab 的“标题区”场景（`WorkbenchSurfaceFixture`，场景名 `view-head`）里把右栏的宽度拉到 400 与 390，量标题按钮的 `getBoundingClientRect().width`，再给对话视图的真实头加上子代理入口看。作者可在 `lab-workbench-surface.e2e.ts` 里加一条宽度断言（例如标题按钮至少 120px）。
+- 建议改法：居中只在放得下时保证：标题列放不下一个最小宽度（例如 120px）时，改成 `auto minmax(0, 1fr) auto`，标题靠左占满剩余宽度；放得下时才用对称的三列。用容器查询（`@container`）判断即可，不需要再多一个测量。
+
+---
+
+## 19. 面板头的 DOM 测试用固定次数的 `nextTick` 等渲染
+
+- 严重程度：建议；类别：测试
+- 位置：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchPanelHead.dom.test.ts` 的 `settle()`（循环三次 `await nextTick()`）
+- 现象：测试靠“多等三拍”判断位置交出、Teleport 搬完。
+- 为什么是问题：`docs/testing/README.md`“测试写法”要求等可观察的状态，不按固定时长或次数等。这里依赖 Vue 的刷新轮数（位置交出要一轮 post 刷新，宿主再改 `slots` 再一轮，Teleport 再一轮），实现里多加一次异步就会静默失败或偶发。
+- 建议改法：改成 `waitUntil("三列有内容", () => document.querySelector("[data-panel-head-start] [data-probe-new]") !== null)` 这类对可观察结果的等待（`@notnotype/neuro-book-test-support/wait` 已有）。
+
+---
+
+## 20. nb-harness 自己的测试没有覆盖“快照里的解析失败带 `role`、`provider`”
+
+- 严重程度：建议；类别：测试
+- 位置：`packages/nb-harness/src/kernel/session/session.ts` 的 `snapshot` 里 `model` 那段；`session/session.test.ts` 第 35、43 行只断言 `{ok: false, code: ...}`
+- 现象：harness 一侧新增了“端口给了 `role`、`provider` 才带，没给不带”的分支，包内测试没有对应用例；它只经 neuro-book 的 `session-host.test.ts`（真实模型端口）间接覆盖。
+- 为什么是问题：nb-harness 是独立包，端口合同（`ModelResolutionChoice`）与快照合同（runtime.md 输出 77）的验收应在包内；`neuro-book` 的用例换了端口实现或改了提示卡后，harness 这一段退化也不会被包内测试发现。
+- 建议改法：在 `session.test.ts` 里加一例：测试端口对某个 Profile 返回 `{ok: false, code: "no-credentials", role: "main", provider: "p"}`，断言快照的 `model` 原样带上；端口不给时快照里没有这两个键。
+
+---
+
+# 汇总
+
+条数：共 20 条。阻断 0，重要 4（第 1、2、3、6 条），建议 16。
+
+按影响排序的索引（文件里按核实先后追加，这里是阅读顺序）：
+
+1. 重要：第 6 条 提示卡的设置按钮不带 `layer`，窗口停在“本作品”标签时到不了页面，`focus` 也丢
+2. 重要：第 1 条 第一屏的刷新 `watch` 随每次 ctx 变化重取（已用 bun 实验复现 Vue 行为）
+3. 重要：第 2 条 开场指令按非响应式的 `profileKey()` 取，非主创 Profile 的空会话可能写主创的指令
+4. 重要：第 3 条 收口结果取不到时随树更新反复重取、反复写诊断
+5. 建议（正确性与不变量）：第 7、8、11、13、14、15、17 条
+6. 建议（结构与可简化）：第 4、12、16 条
+7. 建议（UI）：第 9、18 条
+8. 建议（测试与文档）：第 5、10、19、20 条
+
+## 未发现问题的方面
+
+- 标题区的 Teleport 主线：位置来了又走时头不重建（`v-show` 加 `disabled` 的 `Teleport`）、换面板时按面板汇总再分发、`onBeforeUnmount` 交 null、`ErrorBoundary` 以代际为键使旧组件在换代的同一轮卸载；`onTitlePress` 的订阅在 `onBeforeUnmount` 取消，`titlePopup` 在卸载时清成 null，会话列表开关经 `sessionsOpen` 单点持有，与 `aria-expanded` 一致（`hasSessions` 恒为真，没有锚点为 null 却开着的路径）；Escape 后焦点回到锚点（`Popover` 的 `closedByEscape` 只在 Escape 时还焦点，点外面不抢焦点）。第 11 条是“旧的那份不清空”的合同措辞问题，不是现有路径上的缺陷。
+- 合并：master 带来的 `WorkbenchPanelHead.vue`（标签排序的占位样式）、`WorkbenchShell.vue`（实时布局、空区域的插槽）、`WorkbenchSurface.vue`（缩回去的叶、空区域）、`layout-present.ts` 与 Lab 夹具的改动，同本 Task 的改动在不同位置，合并提交没有冲突；合并后两边的逻辑没有交叉的状态（本 Task 只加了 `panelTitleDomId`、标题区与 `aria-labelledby` 的一行）。
+- 提示卡的判定顺序与 Spec 输出 42 一致（先“一家服务商都没有”，没选会话只判这一条；再 `role-unbound`、`no-credentials`，其余落到“打开设置”）；上下文与 `availability.act` 的处理都经 `noticeInput()` 同一份输入，卡换了以后旧按钮的 id 对不上就没有去处（有测试）；没选会话且一家服务商都没有时出卡并只读；占位优先级与 Spec 一致。
+- 设置窗口 `focus`：作废规则同 `fileLocation`（`perform` 开头清）；窗口已开在同一页时不过确认、直接交给页面；取消离开时随目标一起丢；页面在数据到了之后取走、取走即清；与窗口把焦点放回左栏的先后靠同一 flush 里的注册顺序与页面多等一拍保证，测试覆盖了第二次打开。
+- 后端小改：`nb-models` 的 `resolveRole` 对 `role-unbound` 与角色绑定的模型解析失败都带 `role`，`no-credentials` 带 `provider`，会话直接选模型时无 `role`，成功分支与别的失败码没变，缓存的 `resolutions` 里存的是不带 `role` 的结果（每次调用才展开加 `role`），不会串；`nb-harness` 的快照分支只在端口给了才带。
+- 第一屏其余部分：最近对话只要顶层、排除当前会话、`total` 与显示条数一致，指令替换输入框并存成草稿（`composer.fill` 经 `setDraft`，没有会话时不落盘符合 Spec），刷新在第一屏出现时触发（但见第 1 条的触发次数）。
+- 常见返工项：没有按错误文案分支、没有新增静默 `catch`（`createRunResults` 的失败有诊断）、没有 mock 与假计时器、没有固定时长等待（第 19 条的 `nextTick` 次数除外）；跨插件运行时导入只经 `workbench/shared/contracts`。
+- 没有跑：e2e、开发服务、类型检查、全量单元测试（作者此刻在同一 worktree 跑 e2e，负载约 6）。第 1 条的实验是 Vue 层面的，没有经过 `ConversationHost`。

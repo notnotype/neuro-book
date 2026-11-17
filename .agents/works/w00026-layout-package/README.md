@@ -26,5 +26,7 @@ updated: 2026-11-05
 
 2026-11-16 开发者同意 t27 计划第 2 稿与 t26 第 2 到 4 件，要求按 autonomous-delivery 推进：[t27 区域入口条与切换动画](tasks/t27-region-entry-strips/README.md) → [t26 深入审查的修复](tasks/t26-layout-deep-review/README.md)（含 `ui/nested-grid` 重写、`ui/workbench-layout` 晋升；nb-layout 做成通用库要先写提案、交开发者看）→ [t14 Splitter 迁移](tasks/t14-splitter-migration/README.md)。
 
+2026-11-17：t27 拆成两个（[待确认清单](pending-confirmations.md)）：[t27](tasks/t27-region-entry-strips/README.md) 留一个容器一张卡片与侧栏切换容器的滚动，右栏与底部面板的入口条拆到 [t28](tasks/t28-panel-entry-strips/README.md)。顺序 t27 → t28 → t26 → t14。
+
 - [t13 条移到四边](tasks/t13-bars-move/README.md) 搁置（骨架固定之后没有必要）。
 - [t11 手机呈现](tasks/t11-phone-layout/README.md)、[t12 操作系统级浮动的验证](tasks/t12-os-window-spike/README.md)、[t14 Splitter 迁移](tasks/t14-splitter-migration/README.md) 这一轮先不做（开发者 2026-11-06；t14 于 2026-11-16 排到 t26 之后）。

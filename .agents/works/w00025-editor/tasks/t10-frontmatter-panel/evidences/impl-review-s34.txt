@@ -1,0 +1,95 @@
+# 审查报告 w00025 t10 第 3、4 片（HEAD 34000ab25，核对过）
+
+## 1. 空值带行尾注释时写入新值，值与注释粘在一起（甚至整块 frontmatter 变成语法错）
+- 严重程度：重要；类别：正确性
+- 位置：packages/nb-markdown/src/editor/properties/model.ts:281-285（writeValue 的 `empty` 分支）
+- 现象：frontmatter 是 `a: # 备注` 时，给 a 写入任何值，写出的是 `a: x# 备注`。读回来 a 是文字 `x# 备注`（注释变成值的一部分）；写列表时写出 `a: [a]# 备注`，yaml 报 "Comments must be separated from other tokens by white space"，整块变成 syntax 问题、面板退回只读源码。
+- 为什么是问题：违反“只替换这一项的范围、别的字节不变；注释原样保留”（Spec 输出 22 与决定 6）。空名字加注释（`description: # 简介`）是常见写法，用户在面板里填值即触发。同一函数在 `a: foo # c` 的情形是对的（B 组探针：`a: bar # c`），所以是空值分支单独漏了：空节点的 range 是 [冒号后, 冒号后]，`replace(colonEnd, end, " x")` 把值插到冒号后但冒号与注释之间原有的空白被吞掉（`a:   # c`、`a:\t# c` 同样写成 `a: x# c`）。
+- 如何核实：`writeValue("---\na: # 备注\nb: 1\n---\n", 0, {kind:"text", value:"x"})` 得 `"---\na: x# 备注\nb: 1\n---\n"`；readProperties 读回 value 为 `x# 备注`。实验脚本 /tmp/review-w00025-t10-s34/exp/probe2.ts。model.test.ts 没有“空值后带注释”的用例。
+- 建议改法：空节点分支只在冒号之后插入 ` ${text}`，不覆盖冒号后的空白（保留原有空白时若已有空白则只插 text，否则补一个空格再加 text）；写成空值时不动。补一条用例：空值带注释，写入每种类型后，读回值正确、注释仍在原处。
+
+## 2. 停手计时器触发的 commitNow 也会 flush 面板里正在打的输入：打了一半的名字被写进文档，清空名字被还原
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:141（commitNow 第一行 `properties.value?.flush()`）与 :486-492（onUpdate 起 150ms 计时，commitWhenSettled 调 commitNow）
+- 现象：面板自己的每次写回都会 `setDocAttribute`，触发 onUpdate 起 150ms 的停手计时；计时到点走 commitWhenSettled -> commitNow -> `flush()`。此时用户若已 Tab 进下一个输入并开始打字（有草稿），草稿被当成“结算”提前写回。真实挂载实验（真实 MarkdownControl、Tiptap、面板）：先在 b 的值里改成 5 再失焦（写回，起计时），马上在 a 的属性名里打 `ti`，不失焦不回车，等 400ms：binding.text 变成 `---\nti: 1\nb: 5\n---\n甲\n`，即半截名字 `ti` 已进文档（一个撤销步，也会被自动保存写进磁盘）。把名字清空准备重打则相反：renameProperty 对空名返回 null，草稿被清掉，输入框里的字被还原成 `a`，用户的清空作废。
+- 为什么是问题：Spec 输出 49 要求“保存、换文档与结算之前先写回”，不含停手计时；输出 42 写明文字在“回车或焦点离开时写回”。`flush` 对停手计时路径是多余且有害的：它的存在理由（`binding.attach` 的结算）已由 `pending` 判断加 attach 的回调覆盖。面板的 `settle("flush")` 也没有区分“正在打字”。
+- 如何核实：/tmp/review-w00025-t10-s34/exp/e1.exp.dom.test.ts 的 E1（配置 vitest.exp.config.ts，在 packages/neuro-book 里 `bunx vitest run --config /tmp/review-w00025-t10-s34/exp/vitest.exp.config.ts <文件> -t E1 --reporter=verbose`）。现有用例只测了 `handle.flushPendingChange()` 一条路径，没有“面板写回后 150ms 内继续打字”。
+- 建议改法：commitNow 拆成两层：`commitNow(settle: boolean)`，只有 `binding.attach` 注册的回调与 `flushPendingChange`（句柄）带 flush，`commitWhenSettled`、`onBlur` 不带；或让 flush 只在 `pending` 且面板不在焦点内（`root.contains(document.activeElement)` 为假）时才写。同时补一条用例：面板写回后立刻在另一行打字，等过 150ms，断言文档没有出现半截值。
+
+## 3. 表示不了的属性行挡住上下方向键：方向键走不过它，也走不出去
+- 严重程度：重要；类别：正确性 / 可访问性
+- 位置：packages/nb-markdown/src/editor/properties/MarkdownProperties.vue:337-342（focusStop）、:344-374（onKeydown）、:457（复杂行的 `data-property-stop` 落在不可聚焦的 span 上）
+- 现象：`stops()` 按 `[data-property-stop]` 收集，复杂行的这一站是 `.markdown-properties__value` 这个 span，里面只有一段只读文字，没有任何可聚焦元素；`focusStop` 对它 `stop.querySelector(FOCUSABLE)` 得 null、静默什么也不做，而 `onKeydown` 在此之前已经 `preventDefault()`。结果：复杂行上面一行按下方向键、复杂行下面一行按上方向键、“添加属性”按上方向键而最后一个属性是复杂行，焦点都原地不动，上下键无法越过它。实验（真实组件挂载，/tmp/review-w00025-t10-s34/exp/e2.nbmd.dom.test.ts 的 N1，用 `bunx vitest run --config /tmp/review-w00025-t10-s34/exp/vitest.nbmd.config.ts <文件> --reporter=verbose` 在 packages/nb-markdown 里跑）：`甲: 一 / 乙:(嵌套映射) / 丙: 三`，在“甲”按 ArrowDown 后焦点仍是“甲”，在“丙”按 ArrowUp 后焦点仍是“丙”。
+- 为什么是问题：Spec 输出 50 与场景 26 要求上下方向键在各属性之间走；嵌套的映射是 frontmatter 里最常见的“表示不了”的写法（计划与评审板都以它为例）。键盘用户只能 Tab，且 Tab 路径上复杂行的“源码”按钮在 value 之后，顺序与上下键不一致。现有用例（MarkdownProperties.dom.test.ts:255）只有文字行，没有复杂行。
+- 建议改法：复杂行的站放在它自己的“源码”按钮上（`data-property-stop` 加到 `IconButton` 的外层，`stops()` 与 `closest("[data-property-stop]")` 的逻辑不变），或 `stops()` 过滤掉没有可聚焦后代的站。补用例：含复杂行的面板，上下方向键依次经过它（落在它的源码按钮上）。
+
+## 4. 源码模式下收起面板后，点源码切换钮没有任何可见反应（要点两次）
+- 严重程度：建议；类别：正确性
+- 位置：packages/nb-markdown/src/editor/properties/MarkdownProperties.vue:275-295（toggle 与 toggleSource）、:404（`aria-pressed` 用 `showingSource && expanded`）
+- 现象：在源码模式（`mode === "source"`）下点顶上一行收起面板：`toggle()` 只改 `forced` 与发 `update:open`，`mode` 仍是 "source"。此时源码切换钮的 aria-pressed 是 false（收起了），但点它时 `toggleSource` 走 `mode === "source"` 的分支，把 mode 改回 "properties"，既不展开也无任何变化。再点一次才展开（并且是按属性显示的，不是源码）。实验 N2：source 模式点切换钮 -> 收起 -> 再点切换钮：expanded 仍为 false，textarea 与属性行都没有。
+- 为什么是问题：按钮的按下态与它的实际作用不一致（显示“未按下”，点了却是“取消按下”）；Spec 输出 44 的“按钮的按下态表示正在看源码”。
+- 建议改法：收起时把 `mode` 复位成 "properties"（`toggle()` 里收起分支加一行），或 `toggleSource` 在 `!expanded` 时一律按“展开并切到源码”处理。
+
+## 5. 换行符是单独的 CR 的文档里新建 frontmatter：面板挂载抛错，随后每次交出（保存）都抛 TypeError
+- 严重程度：重要；类别：正确性 / 不变量
+- 位置：packages/nb-markdown/src/editor/frontmatter.ts:30（`empty(eol)`）、:56 与 :63（取 `storage.eol`）；MarkdownControl.vue:141（`properties.value?.flush()`）、packages/nb-markdown/src/editor/properties/model.ts:70（`split` 对非完整 frontmatter 抛错）；codec 的 `Eol` 类型含单独的 `"\r"`（language/codec/read.ts:134）
+- 现象：编解码器支持 CR 换行的文件（`dominantEol` 可返回 `"\r"`），`setFrontmatterEol` 把它原样写进 `editor.storage.frontmatter.eol`。在这样的文档里执行 `properties` 动作（或在第一块开头打 `---`），建出的属性是 `"---\r---\r"`，而 `isWholeFrontmatter` 要求开栏是 `---` 加 `\n` 或 `\r\n`，认不出它。结果：(1) 面板的 `readProperties(props.raw)` 在 computed 里抛 `properties model: not a whole frontmatter`，面板挂不上；(2) `properties` 模板引用成了残缺的实例，`commitNow` 的 `properties.value?.flush()` 之后每次都抛 `TypeError: properties.value?.flush is not a function`，同一次 `flushPendingChange` 在写文档之前就中断，即这个编辑器此后不能保存；(3) 即使不抛，codec 的 `headProblem` 也会把它判成写不出，抢救路径把 `---`、`---` 当成两个正文段落写进文件。
+- 如何核实：真实挂载（MarkdownControl + 真实 Tiptap），`opened("甲\r乙\r")` 后 `handle.editing.run("properties")`：storage.eol 为 `"\r"`，frontmatter 属性为 `"---\r---\r"`，面板不存在，错误处理器收到 `Error: properties model: not a whole frontmatter` 与 `TypeError: Cannot read properties of undefined`，随后 `handle.flushPendingChange()` 抛 `properties.value?.flush is not a function`。实验：/tmp/review-w00025-t10-s34/exp/e1.exp.dom.test.ts 的 E3。Spec 输出 48 写“换行符同文档”，没有给 CR 的例外；nb-markdown 的测试（frontmatter.dom.test.ts）只覆盖了 `\n` 与 `\r\n`。
+- 建议改法：(a) `empty(eol)` 不接受 `"\r"`（`eol === "\r\n" ? "\r\n" : "\n"`）；Spec 的“同文档”对 CR 文档写 `\n` 并注明。(b) 面板对 `props.raw` 不可信：`readProperties` 在非完整 frontmatter 时返回 `{ok:false, problem:"syntax"}` 而不是抛错，或面板的 `read` computed 里 try/catch 后显示源码与错误；这样任何路径放进来的坏属性都不会让整个控件失去保存能力。(c) 补用例：CR 文档新建 frontmatter。
+
+## 1 补充（核实后追加）：同一个空值分支在“写成空值”时也会写坏
+- 位置：同第 1 条，model.ts:281-285
+- 现象：`d:    # c`（空值带注释）写入空值（例如面板里空值行选了日期后又清空，`writeValue(date, null)`）得 `d:# c`，冒号与注释之间的空白被吞掉，yaml 读成语法错，整块 frontmatter 变成只读的“写错”显示。随机变异实验（/tmp/review-w00025-t10-s34/exp/fuzz2.ts：4 万个随机映射，每个做写值、删除、改名、添加，核对别的项的原文切片、结果是完整的 frontmatter、可读回）里，除了空值带注释的写入、以及第 6 条的列表类型，没有别的违反，属性模型本身的“别的项字节不变”在这批输入上成立。
+
+## 6. 行尾带注释的值改成列表后，这一行立刻变成只读的“复杂”行
+- 严重程度：建议；类别：正确性 / 体验
+- 位置：packages/nb-markdown/src/editor/properties/model.ts:126（valueOf：`node.comment !== undefined` 的列表一律算复杂）与 :279（写出 `[…]` 时保留了冒号后的注释）
+- 现象：`x: 12 # 备注`、`tags: foo # c` 这类行把类型改成列表，写出 `x: [p, q] # 备注`，注释原样保留（对），但读回时这个流式列表的 `comment` 非空，被判成 `complex`：这一行马上变成只读的“{ }”，用户刚改成列表就不能再编辑它的项了，只能去源码里改。随机实验可稳定复现（`write:readback:*>list`）。同理，原本就写成 `地点: [青石镇, 北山]  # 说明` 的流式列表从一开始就是复杂行，而它的写回（只替换 `[…]` 范围）并不会丢这条注释；“项上带注释的列表”（Spec 输出 43）指的是列表项上的注释。
+- 为什么是问题：写出的结果读回后与刚选的类型不一致；对“行尾注释”这种常见写法，面板的列表类型形同不可用。
+- 建议改法：流式列表（`node.flow === true`）的 `comment` 是行尾注释，不算复杂（写回只换 `[…]`）；块序列的 `comment` 才是“尾部另起的注释行”，保持复杂。补用例：`tags: [a, b] # c` 读成列表，加一项后注释仍在。
+
+## 7. 展开状态记录：损坏的记录让展开钮失灵，且整个模块没有任何测试
+- 严重程度：建议（失灵部分从代码推断，未在真实 Storage 上跑）；类别：正确性 / 测试
+- 位置：packages/neuro-book/src/plugins/markdown/web/properties-open.ts:38-47（`set`）；测试：没有 `properties-open.test.ts`，MarkdownControl.dom.test.ts 只用 `memoryPropertiesOpen()`
+- 现象：`set` 只在 `save.state` 是 failed/unknown 时用 `files.show()`，否则 `files.commit(next)`。Store 的持久化字段对“记录损坏或版本不认识”是受保护的（persisted.ts `#protected()`、`#pump`）：commit 在显示上先改，随即同步结算为 `protected` 并把显示还原成 `#project()`，调用方看不到变化。于是记录损坏时点“属性”展开：`update:open(true)` -> `set` -> 显示改了又同步改回，面板保持收起，展开钮失灵（面板自己的 `forced` 只覆盖“挂载时就写错”与 `focusNewName`）。Spec 的“记录读不出或已损坏时按收起，这时切换不记”读作“切换不写盘”，没有说切换本身不起作用；同类的 `colors.ts` 有同样的写法，但颜色记不住对使用无碍，展开钮点不开是可见的失灵。
+- 测试缺口：Spec“副作用与数据”对这条记录有 7 条行为（至多 200 个且不重复、最近展开的在前、收起即去掉、读不出或损坏时按收起且不覆盖、保存失败或结果未知时只改显示、没有作品时只在本次运行里记、几个窗口各改各的文件都记得住），都没有测试；`nextOpen` 是纯函数，上限与顺序一行就能测，却也没有。`plugin.ts` 里“没有作品或没有存储服务就用内存版”的分支同样没测。
+- 建议改法：`set` 里用已有的 `fieldProblem(files)`（shared/store/problem.ts）判断：只要有 `protected`、`unread`、`unsaved` 任何一种就走 `files.show(next(files.display))`，commit 只用在没有问题时；补 `properties-open.test.ts`：`nextOpen` 的上限与去重、用真实的内存 Storage 做损坏记录与保存失败时展开仍起作用、两个 store 实例（模拟两个窗口）各展开一个文件后都在。
+
+## 8. 与评审板第 2 轮图的三处差别（图上有、实现不同）
+- 严重程度：建议；类别：对照需求（从代码与 happy-dom 的 DOM 推断，没有跑真实浏览器截图）
+- 位置：packages/nb-markdown/src/editor/properties/MarkdownProperties.vue:242（oneLine）、:469-477（TagInput）、:299（sourceText）
+- (a) 列表的 ×：rest.webp、type.webp 里没在改的列表（地点）两块都不带 ×，只有 list.webp（正在改）带；Spec 输出 42 写“改的时候每块带 ×”。实现里 nb-ui 的 `TagInput` 对非只读一律渲染 `TagsInputItemDelete`，面板没有按“正在编辑”隐藏（实验 N3：静止状态下 `地点` 行就有“删除 青石镇”按钮）。每个有列表的属性行平时就多出一排 ×，比图上杂，也与“悬停才出现的 ×”的层次不一致。可用 `.markdown-properties__value:not(:focus-within) :deep([data-reka-collection-item] button)` 一类的样式在非焦点时 `visibility: hidden`（位置保留，不推动版式），或在 nb-ui 的 TagInput 上加一个 `showRemove` 之类的属性；如果觉得平时有 × 更好，应让开发者确认并改图。
+- (b) 表示不了的行的值：complex.webp 显示 `{ 林雪: 姐妹，沈舟: 旧识 }`，实现是把换行与缩进换成一个空格，显示 `林雪: 姐妹 沈舟: 旧识`（实验 N3），各项之间没有分隔，读起来像一句话。Spec 输出 43 只说“它的源码（一行，放不下时省略）”，图是更好的呈现；至少在 `oneLine` 里对映射（`- ` 之外的多行）用 `, ` 连接各行并加外层 `{ }`。
+- (c) 源码文字框：source.webp 最后一行是“已定稿: false”，没有空行；实现里 `yamlOf` 总以 `\n` 结尾，文字框末尾多出一个空行（实验 N3 的 source value 以 `\n` 结尾）。一行之差，但“光标落在哪”也受影响：`revealInSource` 的偏移按 `\n` 累加，最后一行没有问题。显示时去掉末尾的一个 `\n`、写回时（`replaceYaml` 已补换行）不受影响。
+
+## 9. 在已有日期的年段里打字：每键都写回，打第一个数字就把这一行写成 `0002-12-21` 并变成文字行，输入框当场消失
+- 严重程度：重要；类别：正确性 / 测试
+- 位置：packages/nb-markdown/src/editor/properties/MarkdownProperties.vue:467（DateInput 的 `update:model-value` 直接 `writeRow`）；packages/nb-markdown/src/editor/properties/model.ts:109-114（`isIsoDate` 用 `Date.UTC(year, …)`）
+- 现象：真实挂载（@vue/test-utils + 真实 reka-ui 的 DateField，happy-dom）实验：`时间: 2025-12-21`，聚焦年段按 `2`：DateInput 立刻发出 `0002-12-21`（填满三段就发），面板写回 `时间: 0002-12-21`；这个值读回时 `isIsoDate("0002-12-21")` 为假（`Date.UTC(2, …)` 把 0 到 99 的年份当成 1900 起算，得 `1902-12-21`，与原串不等），于是这一行从日期变成文字行，`kindOf` 变 text，DateInput 卸载、年段消失，继续打 `0`、`2`、`6` 无处可打（实验 N5：`year segment gone`，commits 只有 `0002-12-21` 一条）。在年段按退格则写出 `0202-12-21`（合法日期，但是错的），再打一个数字才变成 `2026-12-21`，每一步都是一个撤销步，自动保存会把它们写进磁盘。改月、日因为每个中间值都是合格日期，只是多写几次。
+- 为什么是问题：Spec 输出 42 的日期编辑是核心交互，改一个已有日期的年份是最常见的操作，这里直接打不下去；Spec 输出 49 要求“面板的每次写回是一个撤销步”，每个按键一步会把撤销历史刷满。`isIsoDate` 与 DateInput 对“合法日期”的口径不一致（DateInput 认 1 到 9999 年，模型认不到 100 年以前），write 出去的值读不回同一个类型，违反模型“写出读回同一个值”的前提。测试缺口：MarkdownProperties.dom.test.ts 头注释说“日期的分段输入与日历在 e2e 里测”，但 markdown-properties.e2e.ts 里没有任何日期用例（grep 日期、date、日历均无）；Spec 场景 23 的“改日期”也没有对应测试。
+- 如何核实：/tmp/review-w00025-t10-s34/exp/e2.nbmd.dom.test.ts 的 N4、N5（`cd packages/nb-markdown && bunx vitest run --config /tmp/review-w00025-t10-s34/exp/vitest.nbmd.config.ts <文件> -t N5 --reporter=verbose`）。reka 的年段逻辑与 DOM 环境无关，但最好在真实浏览器里复核一次（e2e 不在本次审查范围内，没跑）。
+- 建议改法：(a) `isIsoDate` 改用 `new Date(0)` 后 `setUTCFullYear(y, m - 1, d)` 再比对，让 0001 到 9999 都能读回；(b) 面板对日期只在“年份是四位且不小于 1000”（或更保守：焦点离开日期控件）时写回，其余中间值忽略，DateInput 自己保留段里的字；日历里选一天仍立即写回；(c) 补 e2e：键入年份、清一段、日历选日各一条，并在 dom 测试头注释里改成与事实一致。
+
+## 10. 小问题合集（建议）
+- 严重程度：建议；类别：代码质量 / 正确性（窄场景，按“窄场景选简单改法”可记为已知限制）
+- (a) 公共出口多出没有使用者的导出：packages/nb-markdown/src/editor/index.ts:19-20 导出 `readProperties`、`PropertyKind`、`PropertyRow`、`ReadPropertiesResult`，仓库里除模型与面板自己外没有任何引用（grep 过 neuro-book 与 nb-markdown 的 src）。没有消费者的公共面是以后要维护的合同，去掉即可，需要时再导出。
+- (b) 空值选过的类型按属性名记（MarkdownProperties.vue:63 的 `chosen`），改名时不跟着挪：空值行选了“日期”再改名，这一行退回文字输入；反过来，别的行改成这个名字时会继承它的类型。改名成功时 `chosen` 的键换成新名，或按行下标记（行下标在写回后会变，所以按名更合适，只需改名时迁移）。
+- (c) 模型的 API 层面：`writeValue` 对原来是单引号的值写入含换行的文字时，写出跨行的单引号标量（`a: 'a\nb'`），在顶层映射里读成语法错（实验 probe4：`Missing closing 'quote`）；含 U+0001 之类控制字符的文字照字面写出，js-yaml 读不进（`the stream contains non-printable characters`）。面板的单行输入产生不了换行，粘贴的控制字符极少见，所以不是当前路径上的问题；若不想处理，在 `stringText` 里对含 `\n` 或控制字符的值一律走双引号（`JSON.stringify` 已能转义）。
+- (d) 列表里“数字写法的项”与“同名字符串项”并存（`[2024, '2024']`）时，删掉第一项后剩下的字符串 `'2024'` 被写回成数字 `2024`（itemTexts 按显示文字配对原写法，顺序对不上）。极窄，记为已知限制即可。
+- (e) MarkdownProperties.md 写“YAML 读不成属性时……切换按钮保持按下、不可用”，实现的 aria-pressed 是 `showingSource && expanded`：收起时（摘要显示出错提示）按钮是未按下。与文档不一致，改文档或改 aria-pressed 均可。
+
+## 未发现问题的方面
+- 属性模型“改一项只换这一项的范围”：4 万个随机映射（引号、行尾注释、块与流式序列、复杂值、CRLF）做写值、删除、改名、添加，别的项的原文切片逐字节不变、结果是完整的 frontmatter、可读回，除第 1、6 条外没有违反；文字值照字面写出的判据（`readsBackPlain`）用 4 万个随机短串对 yaml 1.2、1.1 与独立的 js-yaml 3 读回，除控制字符（第 10 条 c）外全部一致；键名同样（3 万个）。
+- 第 2 片审查的修正（39d92088a）：`splitFrontmatter` 返回 frontmatter 的三段拆分、`headProblem` 写回关卡、`plainFallback` 的抢救路径，读码与现有用例未发现问题；`replaceYaml` 对独占一行的 `---`、尾随空白、CR 的处理正确（混合换行符的 frontmatter 在源码写回时统一成第一种换行符，窄场景，不算问题）。
+- 输入规则优先级与条件：`range.from === 1`、第一块是文字块，在列表、引用、表格开头不命中（交给分割线），代码块里 Tiptap 不跑输入规则；退格撤回在“打 `---` 新建”后经过 150ms 的交出计时器仍有效（真实挂载实验 E2）；空 frontmatter 上点“添加属性”再退格不会撤回正文里上一条输入规则（实验 E4，已撤销这条怀疑）。
+- `commitNow` 的先后（flush 同步发 commit -> 事务 -> onUpdate 起计时 -> buffered 为真）、`binding` 换实例时先结算旧文档再换面板（`flush: "sync"` 的 watch）、`setFrontmatterEol` 在读入、换回、重载三处都覆盖，除第 5 条的 CR 外没有问题。
+- `markdown.properties-open` 的 `nextOpen`（去重、挪到最前、200 上限）与冲突重放的并发写法本身正确；没有作品、没有存储服务时的内存退路正确。
+- 颜色只取主题变量（`--status-danger`、`--accent-*`、`--text-*`、`--panel-surface` 均有定义）；“移除”用 visibility 不推动版式；tsc 与 vue-tsc 在 nb-markdown 通过；`bun test src/editor/properties`（24 条）、`vitest run src/editor/properties src/editor/frontmatter.dom.test.ts`、`MarkdownControl.dom.test.ts`（61 条）都通过。
+- 另记两处规范小违反（并入第 10 条之外，不单列）：MarkdownProperties.vue 样式里有三处 `calc(var(--radius-panel) - 4px)` 没有按 ui-development-spec 第 8 节的“同心圆角防负值”包 `max(2px, …)`（行 552、598、706 附近）；复杂行的“源码”按钮与上下键的关系见第 3 条。
+
+## 未做的事
+- 没有跑 e2e、开发服务与真实浏览器，所以第 8 条的视觉差别、第 9 条在真实浏览器里的 reka 行为都是“从 DOM 与代码推断”；没有做变异检查（主会话可能正在这个 worktree 里构建，改源码会干扰）。HEAD 全程为 34000ab25，没有修改任何仓库文件，实验文件都在 /tmp/review-w00025-t10-s34/exp/。
+
+## 数量
+- 阻断 0；重要 5（第 1、2、3、5、9 条）；建议 5（第 4、6、7、8、10 条）。
+有效发现编号：1、2、3、4、5、6、7、8、9、10（第 1 条含补充）

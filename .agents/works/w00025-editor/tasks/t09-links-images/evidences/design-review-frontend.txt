@@ -1,0 +1,175 @@
+# 前端设计审查报告 w00025 t09（链接卡片、插图卡片、粘贴图片、存放设置）
+审查对象：/tmp/review-w00025-t09-design/plan.md 的前端部分，加 docs/specs/workbench/markdown-editing.md 输出 52-58、场景 27-30。只读；实验在 /tmp/review-w00025-t09-design/exp-frontend/（vitest + happy-dom，真实 Tiptap 与真实语言扩展，配置 vitest.config.ts）。
+
+## 1. Ctrl 点链接的 handleClick 到不了；而且现在单击就会选中整条链接，与输出 53 相反
+- 严重程度：重要；类别：正确性
+- 位置：计划“nb-markdown：动作与粘贴”最后一条（Ctrl 点链接）；packages/nb-markdown/src/language/syntax/core/index.ts:410（`MarkdownLink.configure({openOnClick:false, enableClickSelection:true,…})`）；Spec 输出 53、场景 27
+- 现象：Tiptap Link（3.27.3）自带 `handleClickLink` 插件，只要点在 `<a>` 上、`enableClickSelection` 为真，就调 `extendMarkRange("link")` 并返回 true（node_modules/@tiptap/extension-link/dist/index.js:126-163）。ProseMirror 的 `someProp("handleClick")` 取第一个返回 true 的插件，Link 的优先级 1000 高于新扩展的缺省 100。实验 click.exp.test.ts：加一个带 `handleClick` 的新扩展，对链接上的 Ctrl+点击调 `view.someProp("handleClick",…)`，结果 true，新插件调用次数 0。同时实验 link.exp.test.ts：光标在链接里调 Link 的 handler，选区变成整条链接（2 到 7）。
+- 为什么是问题：(a) 计划里的 Ctrl 点链接按设计永远不会触发，场景 27 的“Ctrl 点打开 林雪.md”过不了；(b) 输出 53 与场景 27 写“不按 Ctrl 点它，只是光标进去、可以直接改字”，现状是单击选中整条链接（选区非空，选区菜单随即弹出，下一个字符会替换整条链接文字）。计划写“单击照旧”，把这个现状当成了合同。
+- 如何核实：上面两个实验；e2e 现有用例里没有点链接的断言（markdown-input.e2e.ts 只用键盘）。
+- 建议改法：把 `enableClickSelection` 改成 false（Link 的 handler 此时返回 false，不再吞点击），Ctrl 点的 handler 放在新扩展里；或把新扩展优先级设到 1000 以上、自己判断修饰键。先决定单击到底选整条还是只放光标，Spec 与配置对齐，并在场景 27 加“单击后选区为空”的断言。
+
+## 2. `link`、`link-remove` 的范围语义没定：直接用 Tiptap 命令会把链接切碎、留残片、在光标处什么都不做
+- 严重程度：重要；类别：正确性
+- 位置：计划“nb-markdown：动作与粘贴”第一条；packages/nb-markdown/src/editor/editing-actions.ts（新增 `link`、`link-remove`、`image`）；Spec 输出 52
+- 现象（实验 link.exp.test.ts，文档 `见[林雪的设定](a.md)吧`）：
+  - 选区半在链接里（设定吧）调 `setLink({href:"b.md"})`，写出 `见[林雪的](a.md)[设定吧](b.md)`；选区在链接内部（雪的）写出三段 `[林](a.md)[雪的](b.md)[设定](a.md)`。输出 52 要的是“改整条链接的地址”。
+  - 选区在链接内部调 `unsetMark("link",{extendEmptyMarkRange:true})`（Tiptap `unsetLink` 的写法）：只对空选区才扩到整条，非空选区写出 `见[林](a.md)雪的[设定](a.md)吧`，留下两段残链。输出 52 要的是“去掉整条链接，文字留着”。
+  - 光标折叠时 `setLink` 返回 true、文档不变（`见吧` 原样）：“没选字时插入一段链接”必须是自写的插入，不能走 setLink。
+  - `<https://a.com>` 这类自动链接写法的链接改地址：选区在其中时得到 `[h](…)[t](…)[tps://a.com](…)` 三段。
+  - 地址不合 `isAllowedUri`（`javascript:x`、也包括相对路径 `a:b.md`）时 `setLink` 返回 false；但 MarkdownMenus.vue 的 `submit()` 先把 `prompting` 置空再 `run`，不看返回值，用户看到卡片收起、什么都没发生。批注卡片有“加不上时不关成已保存”的先例（输出 28）。
+  - “光标在链接里”的边界：`MarkdownLink` 是 `inclusive:false`，光标停在链接末尾或开头时 `isActive("link")`、`$from.marks()` 都不含它，Ctrl+K 会在链接旁新插一条链接，而不是改这一条；`formatLink` 键同理。
+- 为什么是问题：几条都是计划写“沿用方言里已有的链接标记”一句带过、但标准命令做不到的行为；`active`、`enabled` 与 Spec 的“碰到几条地址不同的链接不能确认”也没有对应到动作层（命令表是公开命令，插件调 `nbook.edit.link` 时同样需要这条规则）。
+- 建议改法：动作层先算“碰到的链接”：选区与链接标记范围相交的所有范围（用节点遍历按 `mark.eq` 连续合并，参考 reference-links.ts 的 `linkRanges`），光标在边界上时按“紧邻链接”处理并写进 Spec；`link` 在碰到一条时把标记换到那条的整个范围，碰到多条且 href 不同时 `enabled` 为 false；`link-remove` 对这些范围 `removeMark`；光标折叠时用 `insertContent({type:"text", text, marks:[{type:"link",…}]})`；`run` 返回 `setLink` 的结果，卡片在失败时留着并提示地址不可用。补 DOM 测试覆盖上面每一种。
+
+## 3. 多张图“各自成一段”在表格单元格里写出不可写的文档；单张在行内、多张拆段，语义不一致
+- 严重程度：重要；类别：正确性
+- 位置：计划“导出插图函数 insertImages”；Spec 输出 55；packages/nb-markdown/src/language/syntax/core/index.ts（`SingleParagraphCell`，单元格内容只有一段）
+- 现象（实验 image.exp.test.ts）：把两个各含一张图的段落 `insertContent` 进表格单元格，返回 true，随后 `codec.write` 报“各级写法都读不回来”，这个视图的输入从此交不出去（editor 输出 61 的“写不出”状态，保存被拦）。同一函数在正文里：`前半后半` 中间插两张图得到 `前半 / 图 / 图 / 后半` 四个块；列表项里把项的段落拆成三块并让列表变松（`- 项\n\n  ![]\n\n  ![]\n\n  目一`）；标题里插单张是行内 `# 标![…](…)题`。
+- 为什么是问题：输出 55 只写“几张时各自成一段”。单张是在光标处行内插入，几张却要把光标所在段落劈开，同一个粘贴动作两种结构；表格单元格是真实落点（表格里放截图很常见），代码块里 `canFormat` 为假、粘贴会静默没有反应（计划与 Spec 都没写）。计划验收映射只有“DOM 测试（只有图片、图文都有、多张、失败）”，没有这些落点。
+- 如何核实：image.exp.test.ts 的“in table cell”“mid-paragraph”“in list item”三例；out2.txt 里有原始输出。
+- 建议改法：在 Spec 里把落点按块类型写死，例如：段落与标题里每张图都行内插入、空格分隔（不劈开段落）；单元格里同样行内；只有光标在空段落时才可选“各占一段”；代码块、原样块里不接手并给通知。`insertImages` 内部按 `$from.parent` 分支并加表格、列表、标题的 DOM 用例。
+
+## 4. `relativeAddress` 没有处理 `%`、`#`、`?` 与首段含冒号，随机往返测试会被生成器遮住
+- 严重程度：重要；类别：正确性
+- 位置：计划技术选型“相对地址”与“验收映射”输出 57（“任意两个地址，解析回来等于原目标”）；Spec 输出 57；packages/neuro-book/src/plugins/markdown/shared/targets.ts:81-90（`encodeFileTarget`）与 packages/nb-markdown/src/targets.ts:34-43（`decodeTarget`、`pathPart`）
+- 现象：读取一侧 `classifyTarget` 先 `pathPart`（去掉 `?` 与 `#` 之后的部分）再 `decodeURIComponent`。所以文件名里有 `#`（`图#1.png`）、`?`、或字面的 `%20` 时，直接拼进地址读回来是另一个文件或被截断；`encodeFileTarget` 就是为此写的（Agent 的 `@` 引用在用，mentions.ts:78）。计划的 `relativeAddress` “十行、只处理 `/` 分隔的资源路径”，没有提它。选的本机文件保留原名，所以这些名字是用户给的、常见（`图#3.png`、`100%.png`）。另外相对地址第一段含 `:`（`a:b.md`，Linux、macOS 的合法文件名）会被 `schemeOf` 认成方案，且 Tiptap 的 `isAllowedUri` 拒绝它（实验里 `setLink({href:"a:b.md"})` 返回 false），要写成 `./a:b.md`。
+- 为什么是问题：写出去的链接指不到刚上传的文件，而且上传已经完成、磁盘上留一张没人引用的图。
+- 如何核实：读 targets.ts 的 `classifyTarget`（`decodeTarget(path)` 之前 `pathPart`）；link.exp.test.ts 末例。
+- 建议改法：`relativeAddress` 的输出过 `viewHost.chips.targets.encodeFile`（已在 `MarkdownViewHost.chips`，nb-markdown 不必依赖 neuro-book），首段含 `:` 时加 `./`；Spec 输出 57 补这两条；随机测试的字符集必须包含 `%#? :` 与中文、空格、括号。另外 `project://` 改写只在文档也在 `project://` 下才成立：文档在 `user://` 下时（classifyTarget 有这种根）无法写相对地址，Spec 要写明保持原样还是拒绝，同理“找作品里的图”在 user 文档里不能用，`media.destination` 要返回 unavailable。
+
+## 5. 粘贴图片的“异步传完再插入”只有一句话，位置、换文档、批量失败、通知都没有设计
+- 严重程度：重要；类别：遗漏 / 不变量
+- 位置：计划“粘贴”条与“不做与风险”最后一条；Spec 输出 55；packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue（`enter`/`leave`/`updateState`）；packages/nb-markdown/src/prompt/PromptEditor.vue:781-812（同包的先例）
+- 现象与缺口：
+  - “插入位置取传完时记住的光标映射”没说记在哪。同一个编辑器实例在标签间用 `view.updateState` 换状态（MarkdownControl.vue `enter`），不产生事务，所以不能靠“映射”；换回原标签后位置又是对的。要么在插件状态里放占位装饰（随 `tr.mapping` 走、换状态时自然消失），要么插一个带 localId 的占位节点，PromptEditor 的 `addFiles`/pending 节点就是这个做法，计划没有引用。
+  - 相对地址应在“插入那一刻”按当前 `host.base()` 算，不是粘贴时：文件在传的过程中被改名、移动，或传完时标签已换成别的文件，都要重算或放弃。计划只说“切标签丢弃并通知”，但此时文件已经写进作品，成了孤儿，通知要说明。
+  - 传的过程中文档变只读、编辑器被卸载（标签移组，MarkdownControl 重挂）、输入法组字中（ProseMirror 在 `view.composing` 时直接 return，不调 handlePaste，浏览器会原生粘贴，见 prosemirror-view index.js:3755-3769，有可能把 `blob:` 图片 DOM 塞进文档）：都没有写。
+  - 多张图其中一张失败：全部不插（已传的成孤儿）还是插成功的、报失败的？Spec 55 只写“失败时不插入，给出通知”。上传并发还是串行也没定；同秒粘贴的几张名字相同，串行才能让“名 2、名 3”与剪贴板先后一致。
+  - 通知：`EditorMenus.notify(key)` 只收静态键，没有参数（contracts.ts:164-166 一带），写不出“某张图过大（40 MiB，上限 32 MiB）”；计划写的“宿主给的 report”在 MarkdownControl 里是 `markdownReportKey`，那是诊断，不是用户通知。Spec 55 列了四类失败，各要一条文字。
+  - `handlePaste` 必须同步取 `clipboardData.files`（`Array.from`）再 `preventDefault`，事件结束后 DataTransfer 就清空了，计划没写。Ctrl+Shift+V（纯文本）也会走到图片分支。
+- 建议改法：先把这些写进 Spec 输出 55 的时序小节再实现；用占位装饰 + 传完按 id 找位置；`media.upload` 加 `signal`，卸载与换文档时 abort；失败通知用带参数的新方法（例如 `notifyText(key, params)`）。
+
+## 6. “只有图片文件、没有 text/plain 与 text/html 才接手”在真实剪贴板里漏掉最常见的几种；场景 28“字节与剪贴板里的相同”对真实剪贴板不成立
+- 严重程度：重要；类别：正确性 / 可测性（浏览器行为部分从经验推断，需真机核对）
+- 位置：计划“粘贴”条与待确认 5；Spec 输出 55、场景 28
+- 现象：
+  - Windows 截图工具、微信、QQ 截图：只有图片，成立。
+  - macOS Finder 复制图片文件：剪贴板里同时有文件和一条 text/plain（文件名），按判据被当文字粘贴，用户看到文件名被粘进正文。Linux 文件管理器同类（text/plain 是路径或 file:// 地址）。开发者这台 Arch 机器就是后者。
+  - 从网页复制图片：text/html 是 `<img src="https://…">`，同时带图片文件：被当成 HTML 粘贴，得到外链图片（热链，作品里没有文件）。这正是“从网页复制一张图”的常见动作，用户以为“粘贴图片会存进作品”。
+  - Word、WPS、飞书里只复制一张图：text/html 只含 `<img>`（Word 是 `file:///…` 地址）、没有文字；按判据整块当 HTML，得到一个坏地址的图片。
+  - 表格软件复制单元格：text/plain 加 html 加一张单元格的渲染图，判据在这一例上是对的，要保留它。
+  - Chromium 把操作系统剪贴板位图重新编码成 PNG 再给页面，源应用写进去的字节与 `clipboardData.files[0]` 的字节不同；用 `navigator.clipboard.write` 放 PNG 再 Ctrl+V 的 e2e 同样会经过解码、再编码。场景 28 的“字节与剪贴板里的相同”因此断言不了字节，只能断言文件头是 PNG、解码后宽高相同。
+- 为什么是问题：待确认 5 的推荐会让“复制文件”“复制网页图”“Word 里的图”三类动作表现不一，且都是静默的。
+- 如何核实：浏览器行为未在本机实测；e2e 与真机清单里要加这四类剪贴板各一条。用 `new ClipboardEvent("paste", {clipboardData})` 合成的事件可以得到完全相同的字节，适合 DOM 测试，但绕过了真实剪贴板。
+- 建议改法：判据改成“有图片文件，且文字部分没有实质文字”：text/plain 去掉空白后为空、或每一行都等于某个文件的名字或 file:// 路径，text/html 去掉标签后无文字（只有 `<img>`）。网页复制图片（html 只有 `<img>`）是否也存成本地文件由开发者定（我倾向存，因为这是作者想要的）。场景 28 的断言改成“类型与尺寸相同”。
+
+## 7. `MarkdownViewHost` 在编辑器首次创建时固定；标签移组后控件重挂，新能力会指向已卸载的旧实例
+- 严重程度：重要（从代码推断，未运行）；类别：正确性 / 不变量
+- 位置：packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:75-80（`viewHost`，`base: () => bound?.address.value`）、:506-520（`onMounted`：`kept` 非空时直接复用 `kept.editor`，不再建扩展）；计划“经 `MarkdownViewHost` 加一个可选字段”
+- 现象：`viewHost` 是第一个组件实例的 setup 闭包，被 `createMarkdownEditorExtensions` 按引用交给图片视图、引用小块。编辑器存在标签的实例槽里（`props.host.state`），标签换组、拆分时组件卸载重挂，走 `kept` 分支，扩展不重建。旧实例的 `leave` 把它自己的 `bound` 置空，所以重挂之后图片视图与链接小块调的 `host.base()` 是 null，`inject` 来的 `markdownAssetsKey` 同样是旧实例那一份。粘贴插件的 `images`、Ctrl 点的 `openLink` 都会走同一个口子：`upload` 的目标目录依赖 `base()`，在重挂后的编辑器里会得到 null 或旧值。
+- 为什么是问题：新增的写盘动作（上传）落在错误位置的风险，比现有“图片不显示”更重。计划没有提这条生命周期。
+- 如何核实：读 MarkdownControl.vue 上述两处；`editor-area` 里的标签移组会触发重挂（EditorGroup.vue:250 `tabControlSlot`）。建议先用一个 DOM 测试确认：挂载、卸载、同一个 slot 再挂载，然后看 `host.base()`。
+- 建议改法：`viewHost` 的方法读一个“当前挂载”的间接对象（放进 `KeptEditor` 或 editor.storage，每次 `onMounted` 重写），不要闭包到某个实例的局部变量；新加的 `images`、`openLink` 一开始就按这个形状写，并补“重挂后上传目录仍对”的用例。
+
+## 8. 点“上传”打开系统选文件框时窗口失焦，卡片的 focusout 会把卡片收掉；e2e 绕过这条路径，看不出来
+- 严重程度：重要（从代码推断，未在真机上跑）；类别：正确性 / 可测性
+- 位置：计划“选本机文件”“插图卡片”；packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.vue:27-30（`onFocusOut`：`relatedTarget` 不在卡片内就 `dismiss`）；Spec 输出 54、计划“验证”最后一条
+- 现象：窗口整体失去焦点时，浏览器对当前焦点元素触发 `blur/focusout`，`relatedTarget` 为 null；MarkdownTextPrompt 的写法会把这当成“焦点离开”收起卡片。批注卡片在输出 29 专门写了“窗口失去焦点不算离开，回来时卡片与字都还在”，就是踩过这个。插图卡片若照搬 MarkdownTextPrompt 的 `onFocusOut`，点“上传”后系统框一弹，卡片就收了；如果隐藏的 `<input type=file>` 在卡片里面，`change` 回来时它已被卸载，选了文件也没有结果。
+- 为什么是问题：“上传”是插图卡片四条路径之一，计划的验证把桌面壳的文件框留给开发者试用，而 Playwright 的 `filechooser`、`setInputFiles` 不会让窗口失焦，e2e 一定是绿的。
+- 建议改法：Spec 输出 54 加一句“选文件框开着时不算离开”，实现上点上传时置一个“选文件中”标志、不处理 focusout，隐藏 input 放在 MarkdownControl 层（不随卡片卸载）；用 `document.hasFocus()` 区分窗口失焦。把它列进开发者的真机清单。
+
+## 9. “找作品里的图”：`find` 的 100 条上限在客户端滤图片之前就截断；缩略图是整张原图；`recent` 缺当前文件
+- 严重程度：重要；类别：正确性 / 遗漏
+- 位置：计划技术选型“找作品里的图”（“至多 100 条的上限足够取 12 张”）与 media 接口；packages/neuro-book/src/plugins/files/backend/files-service.ts:158-196（`find`）；Spec 输出 54
+- 现象：
+  - `find` 按名字开头、名字包含、路径包含三档排序后 `slice(0, limit)`（limit 最大 100），匹配所有文件，不只图片。长篇作品里“林”“第”这类查询会命中几百个章节文件（章节标题也参与匹配，`entry.title`），同档按路径排序，图片被排到 100 名之外，客户端再滤成图片得到 0 张，而图片确实存在。另外它是广度优先、扫描 5000 项就停（`FIND_SCAN_LIMIT`），深目录里的图更容易没扫到，`truncated` 为真时卡片没有提示。
+  - 缩略图：`thumbnail(address)` 给的是字节路由的原图 URL。12 行各加载一张原图（上限 32 MiB，一张 4K 截图的 PNG 常是几 MB），每敲一个字换一批。nb-ui 没有缩略图能力，需要懒加载、`decoding=async`、固定尺寸占位，计划没有写。
+  - `recent(): Promise<ImageEntry[]>` 与 `find(query)` 没有参数说明当前文件，但存放目录在 `same`、`sibling` 时取决于当前文件；`destination(currentAddress, fileName)` 与 `openLink(href, currentAddress)` 都带了，这两个没带，只能偷读“活动标签”，分栏时与光标所在的组可能不是同一个。
+  - 异步：`recent`、`find` 都没有取消（`signal`）或请求序号，快速打字时旧结果迟到会覆盖新结果，卡片卸载后迟到的结果也没有处理；输入需要去抖。
+  - 过滤用的“图片”扩展名集合没写：上传只收四种，但从作品里选图时 svg、avif、bmp、大写 `.PNG` 都可以显示；`list` 的 `kind: "link"`（符号链接）项 `find` 直接跳过。
+- 建议改法：给 `find` 加一个扩展名过滤参数，或者在卡片里改用 `list` 递归，不要依赖 100 条；Spec 写明集合与大小写；`recent/find` 加 `currentAddress` 与 `signal`；缩略图懒加载；`truncated` 时在列表尾加提示。
+
+## 10. `EditorMenus.media` 放错了地方；“没有宿主能力”的三种状态在计划与 Spec 场景 30 之间自相矛盾
+- 严重程度：重要；类别：不变量 / 代码质量 / 文档
+- 位置：计划“能力”条与“粘贴”条（“没有宿主能力时插件不装”）；packages/neuro-book/src/plugins/editor/shared/contracts.ts:144-172（`EditorMenus`）；packages/neuro-book/src/plugins/markdown/web/parts/asset-urls.ts:114（`markdownAssetsKey`）；packages/neuro-book/src/plugins/lab/web/fixtures/editor-scene/EditorAreaFixture.vue:243-244；Spec 场景 30
+- 现象：
+  - `EditorMenus` 是“编辑器区交给控件的菜单”（标题、文字、快捷键、命令、贡献项、工具栏状态）。`media` 的七个成员（目的地、上传、最近、查找、缩略图、打开链接、命名）是文件与设置能力，一加就让这个接口多出一半不是菜单的东西，t15 以后还会往里添。`nbook.markdown` 已经有同类通道：`markdownAssetsKey`（`createAssetUrls(files)`，图片 URL 与变更订阅），`thumbnail` 本来就是它的 `resolve`。再并一个由 `nbook.markdown` 包装时提供的 `markdownMediaKey`，Lab 与测试各自 provide，不必动 `EditorMenus` 与 `createLabEditorMenus`；t15 的拖入用同一个 key。
+  - 状态矛盾：计划说没有 `media`（Lab、提示词编辑器）时粘贴插件不装；Spec 场景 30 却要求“没有绑定作品的 Lab 场景，开插图卡片列表为空、上传置灰、粘贴截图给出通知”。Lab 里 `menus` 是 `createLabEditorMenus`（没有 media），按计划那里没有粘贴插件、也就没有通知；卡片能开则要求卡片在无 `media` 时仍可用。三种状态：无 media 对象（Lab）、有但未绑定作品（`unavailable`）、已绑定，要在 Spec 里各写一行，并决定 Lab 里要不要提供一个内存实现（`createMemoryFiles` 已有）以便 Lab 里能做真实交互。
+  - 组件规范：`MarkdownImageCard.vue` 要通过 props 拿 `media`（不 `inject`），同名 `.md` 的隐藏通道标签才会是空；否则控件本身已有的 `inject(editorMenusKey)` 再叠一层。
+- 建议改法：独立注入键；Spec 场景 30 与输出 58 改成三态；`ImageEntry`、`UploadResult` 的形状写进计划。
+
+## 11. 存放设置：schema 的 pattern 与 Spec“不合规按缺省”矛盾；项目层是“改变数据位置”的配置项；分组与错误提示没写
+- 严重程度：重要；类别：不变量 / 遗漏
+- 位置：计划“设置”条；Spec 输出 56 与设置段；docs/specs/settings/configuration.md（作者规则一条、输出 5、11、19）；packages/neuro-book/src/plugins/editor/shared/settings.ts:19-24（`EDITOR_SECTION_DECLARATION.groups`）
+- 现象：
+  - 计划让 schema 的 `pattern` 拒绝 `..`、前导 `/`、`.nbook`，同时单元测试“非法目录名退回缺省”。两者只能成立其一：schema 拒绝时，设置服务在读取层就丢掉不合格的值并列入问题（configuration 输出 5），`get` 返回的是另一层的值或声明缺省，不是“退回 `插图`”：项目层写了 `../x`，用户层是 `资源/图`，结果是 `资源/图`，与 Spec 输出 56 的“不合规时按缺省 插图”不同。要么 schema 放宽、由 `destination` 校验并退回缺省，要么改 Spec 的说法。pattern 写不了完整规则（`a//b`、结尾 `/`、`.` 段、Windows 保留名、大小写不敏感文件系统上的 `.NBOOK`），服务端（rooted.ts）才是真正的闸；客户端只做体验。
+  - 设置窗口里写非法值走 `invalid-value`，通知里是 TypeBox 的原始正则文本（settings-window 输出 14），作者看不懂。`ui` 没有校验文案字段，要么在 `ui.placeholder` 写明规则，要么不用 pattern。
+  - configuration.md 的作者规则：“会执行程序、指定网络地址或凭据、改变数据位置的配置项必须只允许用户层：项目层文件可能来自别人的仓库。”存放目录是“改变数据位置”的一种；计划与 Spec 让两层都能设，是开发者决定 4“跟着作品走”的结果，但与规则冲突，没有写例外。服务端把写入限制在作品根内且禁 `.nbook`，风险小，但应在 Spec 与规则处记一句“例外及理由”，别让后来的审查者当成违规。
+  - `EDITOR_SECTION_DECLARATION.groups` 只有 tabs、saving、code；两条新设置要新增 `images` 小组（含标题的约定键、中英文），计划没写。`imageFolder` 在 `imageLocation` 为 `root`、`same` 时无意义，设置窗口没有条件显示，要在说明里写。
+- 建议改法：把校验放进一个纯函数 `normalizeImageFolder`，schema 只限长度与不含控制字符；Spec 与单测对齐；加 `images` 小组；写作者规则例外。
+
+## 12. “直接用 MarkdownTextPrompt”不够：不能确认、宽度、移除按钮、入口类型与“⋯”里的链接项都要改
+- 严重程度：建议；类别：遗漏
+- 位置：计划“链接卡片”条；packages/neuro-book/src/plugins/markdown/web/components/menus/MarkdownTextPrompt.vue:15-35、:54（`width: 12rem`）；MarkdownMenus.vue（`prompting: "ruby" | "bilingual"`、`submit` 固定 `{text}`、`remove` 固定 `ruby-remove`）；MarkdownToolbar.vue:52-54、:147-153（`onMore`）；MarkdownSelectionMenu.vue:154
+- 现象：
+  - Spec 52：“碰到的几条链接地址不同时不预填、不能确认，只能去掉链接”。`confirm()` 只有“空就取消，否则提交”，要加 `confirmDisabled` 之类的 prop。
+  - 卡片宽 12rem，输入区只剩约 8rem，网址与相对路径放不下，用户看不到自己填了什么。链接卡片至少 20rem，窄屏 390px 夹在窗口内。
+  - `MarkdownMenus` 的 `promptLabel`、`remove`（标题固定取 `ruby-remove`，图标固定垃圾桶）、`submit` 参数都是按注音写死的；链接要 `{href}`、`link-remove`、另一组文字。
+  - 工具栏与选区菜单现有的链接按钮是“command 项，直接 `menus.execute(LINK_COMMAND)`”（不带参数）；命令登记之后，这条路径会用空参数执行 `nbook.edit.link`，得到“什么都不做”。要改成发 `prompt` 事件，工具栏收进“⋯”时的 `onMore`（`command:` 前缀）同样要改。工具栏项的“按下”状态（`formatLink`）现有 command 项类型没有。
+  - 加图片按钮后工具栏每个位置多 28px，`widthOf` 的定值与 MarkdownToolbar.dom.test.ts 的收纳顺序断言都要改；Spec 输出 1（“（链接）”）、输出 6、输出 11（斜杠菜单“块”组）没有图片，也没有写；输出 11 还漏了已经在代码里的“属性”项（MarkdownSlashMenu.vue 的 BUILTIN）。计划“Spec 与文档改动”只提到“已写（planned）”，没有列出要改这三条。
+  - Spec 的标记写法：docs/specs/README.md 说新条目“末尾标（planned）”，输出 52-58 的标记在标题之后；与周边条目一致就行，但与 README 的字面不同，核对 governance:check 是否有要求。
+- 建议改法：给 `MarkdownTextPrompt` 加 `width`、`confirmDisabled`；`prompting` 改成带类型的描述对象（action、label、submit 参数、remove 动作）；列出要改的 Spec 输出 1、6、11 与测试。
+
+## 13. Spec 输出 53 的“指向作品里文件的”漏掉 `project://`、`user://`；Ctrl 点与批注的 Ctrl 点撞键
+- 严重程度：建议；类别：遗漏
+- 位置：Spec 输出 53；输出 30（批注浮层“按住 Ctrl 点批注的文字”）；packages/neuro-book/src/plugins/markdown/shared/targets.ts:`classifyTarget`；packages/neuro-book/src/plugins/agent/web/mentions.ts:78
+- 现象：输出 53 把“作品里的文件”列成“相对地址与 `/` 开头的地址”。Agent 的 `@` 引用写的是 `project://路径` 链接（mentions.ts），文档里大量存在，编辑器里已经画成引用小块；按字面 Ctrl 点它们“别的方案不动作”，与小块的外观矛盾。应写成“`classifyTarget` 归为 work、user 的”。同理 `other` 类（`paragraph://`、`session://`）要不要交给宿主打开，Spec 写“不动作”要有理由。
+- Ctrl 点批注文字会打开批注卡片（输出 30）；一段文字同时是链接与批注时，Ctrl 点同时开新标签页和弹卡片。要定优先级（我建议链接优先，批注靠小符号或 Ctrl 悬停）。
+- `window.open(href, "_blank", "noopener")` 打开 `mailto:` 在部分浏览器会留下空白标签页；用临时 `<a>` 点击更稳。
+- 建议改法：改 Spec 文字，补一条“同时是批注时”的规则与 DOM 用例。
+
+## 14. 插图卡片的状态与可访问性：加载、空、出错、占位光标、组合框语义没写
+- 严重程度：建议；类别：遗漏 / 可访问性
+- 位置：计划“插图卡片”条；Spec 输出 54；packages/nb-ui/src/components/popup/SuggestionMenu.vue 与 SuggestionMenu.md
+- 现象：
+  - 列表在加载中、存放目录不存在、目录读失败、查无结果、`truncated` 时各显示什么，Spec 与计划都没有；回车在“无选中项”时做什么；上传进行中卡片是否禁用、能否取消、重复点击怎么办（计划里卡片路径的上传没有占位与映射，比粘贴更直接地遇到问题 5 的各条）。
+  - 键盘：输入框、列表、上传按钮三处的 Tab 顺序，上下键是否在输入框里移动 `aria-activedescendant`（nb-ui 的 SuggestionMenu 已经是这个模式，`suggestionOptionId`、`suggestionMenuOptions`、`header` 插槽放搜索框），计划却写“新组件、输入、图片列表、上传按钮”，没有说明为什么不复用，缩略图是它缺的（`SuggestionMenuItem` 只有 `iconClass`），这个缺口应补在 nb-ui，不是在卡片里再造一份组合框。
+  - 光标折叠时 `holdSelection` 什么都不画（held-selection.ts:48-52），卡片一开焦点进输入框，正文的光标消失，用户看不出图会插到哪里。批注与注音卡片没有这个问题（有选区）。建议在光标处画一个装饰（竖线），随卡片关闭撤掉。
+  - 长文件名与深目录在 390px 下：行里“名字 + 所在目录”要截断（目录截头部、名字截中间），英文界面“上传”按钮文字更长；计划只说 Lab 场景，没有列英文与 390px。
+  - 缩略图加载失败（损坏、过大）要有占位。
+- 同一张图在“存放目录”与“找到的”里重复：两个列表不同屏出现（输入空时是前者、有文字时是后者），不会重复，无需处理。
+
+## 15. 粘贴命名与格式判定：`pasteName(date)` 没有扩展名来源，客户端不预判类型；名字固定中文，“倒序即新在前”在同秒时不成立
+- 严重程度：建议；类别：遗漏
+- 位置：计划 media 接口的 `pasteName(date)`；待确认 1、3；Spec 输出 54、56
+- 现象：
+  - 扩展名“按类型定”（输出 56），但接口只收 `date`。类型从 `file.type` 来；某些来源给空类型，或给 `image/bmp`、`image/svg+xml`、`image/avif`。计划里“不是允许的格式”只由服务端 415 给出，所以一张 30 MiB 的 BMP 要整个传完才失败。客户端应先按 `file.type` 判四种，不在集合里不上传，直接报“格式不支持”。`image/jpeg` 写 `.jpg` 还是 `.jpeg`也要定。
+  - 名字“粘贴的图片 年月日-时分秒”固定中文，英文界面的用户得到中文文件名；改成跟界面语言则“最近的图按名字倒序”会在切语言后分成两组。名字里的空格让每个地址都要写成 `<…>`，Obsidian 的 `Pasted image 20261117140533.png` 是同类习惯，二选一要开发者定。
+  - 同一秒内的第二张是 `名 2.png`：按字符串倒序，`名.png`（`.` 是 0x2E）排在 `名 2.png`（空格 0x20）前面，也就是先传的在前；`名 10.png` 排在 `名 2.png` 之后。“名字倒序就是新的在前”只在秒级不同时成立，多张同时粘贴恰恰是同秒，列表里次序与时间相反。
+  - 选的本机文件保留原名，名字里可能有服务端“单段名字规则”拒绝的字符（Windows 保留名、结尾点或空格、过长），失败只能是 `invalid-address`，要在 Spec 失败列表里给出对应文字。
+- 建议改法：`pasteName(date, type)`；客户端先判类型；Spec 写明排序只是近似，或者给 `list` 加可选的 `modified`（待确认 1 已列），不要在 Spec 里宣称“新的在前”。
+
+## 16. “待确认”里与前端有关的几条（3 到 7）的判断
+- 严重程度：建议；类别：文档
+- 3 粘贴命名：见第 15 条；本机时间在夏令时回拨那一小时会重名，靠服务端加序号兜底，可以接受。
+- 4 链接卡片细节：（a）“没选字时文字取文件名”可以；外部网址太长时文字等于整条网址，建议取主机名加末段，或至少截断显示（只是显示）。（b）“碰到几条地址不同的链接不预填、只能去掉”可以，但要在动作层同样生效（第 2 条）。（c）`project://` 改写成相对地址要说明文档在 `user://` 下的做法（第 4 条）。（d）用户常输入不带方案的域名（`www.x.com`），会被当成相对文件链接，建议卡片对“像域名、不像路径”的输入提示一次，或默认补 `https://`；这不是大问题，可以记为已知限制。
+- 5 图文都有仍当文字：不推荐原样采用，见第 6 条。
+- 6 Ctrl+K：在仓库里查过，没有别的全局绑定占着（只有 keymap.test.ts 用 `Mod+K` 作测试例）；快捷键系统不支持 chord（keymap.ts 头注释），所以没有 VS Code 式 Ctrl+K 前缀的问题；Chrome、Firefox 的 Ctrl+K（地址栏搜索）页面可以 `preventDefault`，不在不可拦截的保留键里，Notion、Slack 都在用；macOS 上是 ⌘K，Ctrl+K 保留给系统的“删到行尾”。可以采用。需要补的只是：焦点在属性面板或卡片里时 Ctrl+K 不响应（现有写法“焦点在正文里时”已覆盖），以及 `isComposing` 时不响应。
+- 7 设置放“编辑器”分区、两层都能设：与第 11 条冲突的作者规则要写例外；分区下新增 `images` 小组。
+- 额外的上游取舍（不是缺陷）：决定 6“地址相对当前文件”让默认的 `folder` 模式（作品根下的 `插图/`）写出 `../../插图/a.png` 这种与章节深度相关的路径，章节在卷之间移动时全部图片失效（Spec 57 已写“不跟着改”）。方言已经支持 `/` 开头的“作品根”写法，对 `folder`、`root` 两种位置它不随文件移动而坏；代价是别的 Markdown 工具读不了。开发者当时按可移植性选了相对写法，我只提示这条代价存在，不作为缺陷。
+
+## 未发现问题的方面
+- Ctrl+K 与现有绑定、浏览器保留键：没有冲突（见第 16 条第 6 点）。
+- 链接标记与行内代码的排斥（`MarkdownCode.excludes` 只排斥代码组与注音，不含链接）、与注音整体（whole-ruby.ts 对 AddMarkStep、RemoveMarkStep 按整段补）、与“清除格式”（FORMAT_MARKS 不含链接）：没有冲突；在行内代码中间插图只是把代码切成两段（image.exp.test.ts）。
+- 在链接末尾打字：`inclusive:false` 已有测试与 Spec 输出 62，新增动作不改变它（边界判定另见第 2 条）。
+- 同一张图在“存放目录”与“找到的”列表里重复：两个列表不同屏，不存在。
+- 右键菜单粘贴图片不做：与输出 23 的“剪贴板里没有文字”通知文字一致，没有冲突。
+- 只读：`editing.run` 已在 `props.readonly` 时返回 false，Spec 输出 58 的“Ctrl+K 不响应”可以由现有守卫实现；粘贴插件在只读视图里 ProseMirror 不会触发。
+- 实验没有改动仓库；实验文件与输出都在 /tmp/review-w00025-t09-design/exp-frontend/（link.exp.test.ts、image.exp.test.ts、click.exp.test.ts，输出 out.txt、out2.txt、out3.txt）。没有跑 e2e 与开发服务；第 6、7、8 条涉及真实剪贴板、真机文件框与标签移组，从代码推断，标明了需要真机或 e2e 核实。
+
+## 数量
+- 阻断：0
+- 重要：11（第 1 到 11 条）
+- 建议：4（第 12 到 15 条）；第 16 条是对“待确认 3 到 7”的判断与一条上游取舍提示，不计入发现数
+- 有效发现的编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15

@@ -35,6 +35,11 @@ describe("runtime.md 输出 77：快照的模型", () => {
         expect((await session.raw.snapshot()).model).toEqual({ok: false, code: "no-credentials"});
     });
 
+    test("解析不到时端口给了走到的角色与卡住的服务商：快照原样带上（没给时不写这两个键，见上一条）", async () => {
+        await using session = await createTestSession({models: {resolve: () => ({ok: false, code: "no-credentials", role: "main", provider: "deepseek"})}});
+        expect((await session.raw.snapshot()).model).toEqual({ok: false, code: "no-credentials", role: "main", provider: "deepseek"});
+    });
+
     test("模型端口抛错（宿主正在停止）：快照照常给，算没有模型，写诊断", async () => {
         await using session = await createTestSession({models: {resolve: () => {
             throw new Error("models stopped");

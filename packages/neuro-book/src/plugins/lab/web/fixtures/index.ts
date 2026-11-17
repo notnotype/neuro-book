@@ -14,6 +14,7 @@ import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {InlineChip} from "@notnotype/nb-markdown/chip";
 import type {MarkdownDisplay, MarkdownImage} from "@notnotype/nb-markdown/display";
 import type {PromptAttachmentStrip, PromptEditor, PromptPasteFrame, PromptTextView} from "@notnotype/nb-markdown/prompt";
+import type {MarkdownProperties} from "@notnotype/nb-markdown/editor";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -39,6 +40,7 @@ import type ProfileDetail from "nbook/plugins/agent/web/components/ProfileDetail
 import type ProfileRail from "nbook/plugins/agent/web/components/ProfileRail.vue";
 import type BackgroundCommandCard from "nbook/plugins/agent/web/components/BackgroundCommandCard.vue";
 import type SubagentCard from "nbook/plugins/agent/web/components/SubagentCard.vue";
+import type SubagentsEntry from "nbook/plugins/agent/web/components/SubagentsEntry.vue";
 import type NewProfileDialog from "nbook/plugins/agent/web/components/NewProfileDialog.vue";
 import type SkillInitDialog from "nbook/plugins/agent/web/components/SkillInitDialog.vue";
 import type SkillsSettingsPage from "nbook/plugins/agent/web/components/SkillsSettingsPage.vue";
@@ -94,7 +96,7 @@ import {withExplorerText} from "./explorer-scene/explorer-text";
 import {withProjectsText} from "./projects-scene/projects-text";
 import {withAgentPageText} from "./agent-scene/agent-page-text";
 import {SAMPLE_PROFILES, SAMPLE_TOOL_CANDIDATES, SAMPLE_WRITER_TOOLS} from "./agent-scene/profile-samples";
-import {CARD_SAMPLES, COMMAND_SAMPLES, sampleProps} from "./agent-scene/subagent-samples";
+import {CARD_SAMPLES, COMMAND_SAMPLES, ENTRY_PROFILES, sampleProps} from "./agent-scene/subagent-samples";
 import {withModelsText} from "./models-scene/models-text";
 import {SAMPLE_CANDIDATES, SAMPLE_CATALOG, SAMPLE_PROVIDERS} from "./models-scene/sample";
 import {withSettingsText} from "./settings-scene/settings-text";
@@ -109,6 +111,9 @@ import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, 
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
 import {rowDemoSettings, sceneThemeSetting, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {createSubjectFixture, defineSubjectFixture} from "./subject-fixture";
+
+/** 属性面板的样例：一章的五个属性，每种类型一个，开头一行注释。 */
+const PROPERTIES_SAMPLE = "---\n# 第十二章\n视角: 林雪\n时间: 2025-12-21\n地点: [青石镇, 北山]\n字数目标: 4000\n已定稿: false\n---\n";
 
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
 const DISPLAY_REPLY = [
@@ -371,6 +376,7 @@ export const labFixtures: LabFixture[] = [
             return [
                 {id: "default", label: "侧栏、两个编辑组、右栏、面板（平铺）", input: {props: base}},
                 {id: "cards", label: "卡片：缝、圆角、相连按邻接算", input: {props: base}},
+                {id: "view-head", label: "标题区：右栏的视图接管面板头（左、中、右三列）", input: {props: base}},
             ];
         })(),
         load: async () => (await import("./WorkbenchSurfaceFixture.vue")).default,
@@ -725,6 +731,25 @@ export const labFixtures: LabFixture[] = [
         load: async () => withMarkdownSceneText(createSubjectFixture<typeof PromptPasteFrame>((await import("@notnotype/nb-markdown/prompt")).PromptPasteFrame, {
             events: ["hover"],
             class: "w-full",
+        })),
+    }),
+    // 属性面板：写回直接改场景的 `raw` 与 `open`，点一下就能看到改过的原文（数据 tab）。
+    defineLabFixture<typeof MarkdownProperties>({
+        component: "MarkdownProperties",
+        scenes: [
+            {id: "open", label: "展开：五种类型各一个", input: {props: {raw: PROPERTIES_SAMPLE}, model: {open: true}}},
+            {id: "closed", label: "收起：一行摘要", input: {props: {raw: PROPERTIES_SAMPLE}, model: {open: false}}},
+            {id: "complex", label: "表示不了的属性", input: {props: {raw: `${PROPERTIES_SAMPLE.slice(0, -4)}人物关系:\n  林雪: 姐妹\n  沈舟: 旧识\n---\n`}, model: {open: true}}},
+            {id: "error", label: "YAML 写错", input: {props: {raw: "---\n视角: 林雪\n时间: 2025-12-21\n地点: [青石镇, 北山\n字数目标: 4000\n---\n"}, model: {open: false}}},
+            {id: "empty", label: "没有属性", input: {props: {raw: "---\n---\n"}, model: {open: true}}},
+            {id: "long", label: "很长的名字与值", input: {props: {raw: "---\n这一章里出场的所有人物与他们的别名: [林雪, 雪儿, 沈舟, 舟哥, 掌柜, 渡口的船夫, 北山的猎户]\n一句很长的提要: 雪是后半夜落下来的，林雪推开客栈的窗，镇子已经白了一层，石板路上只剩一行脚印\n---\n"}, model: {open: true}}},
+            {id: "readonly", label: "只读", input: {props: {raw: PROPERTIES_SAMPLE, readonly: true}, model: {open: true}}},
+            {id: "english", label: "英文界面", input: {props: {raw: "---\npov: Lin Xue\ndate: 2025-12-21\nplaces: [Qingshi, North Hill]\nword goal: 4000\nfinal: false\n---\n"}, model: {open: false}}},
+        ],
+        load: async () => withMarkdownSceneText(createSubjectFixture<typeof MarkdownProperties>((await import("@notnotype/nb-markdown/editor")).MarkdownProperties, {
+            events: ["commit", "update:open", "leave"],
+            writeBack: {commit: {layer: "props", key: "raw"}},
+            class: "w-full max-w-[720px]",
         })),
     }),
     defineLabFixture<typeof MarkdownImage>({
@@ -1123,6 +1148,15 @@ function shelfFixtures(): LabFixture[] {
             scenes: ([["running", "运行中：最近一步、次数与用时"], ["question", "在问父 Agent"], ["waiting", "等你批准"], ["done", "完成：点开看结果全文"], ["failed", "出错"], ["dispatch-failed", "没派出去"], ["background", "后台、名字很长"], ["unknown", "进程崩溃后：状态未知"], ["running-narrow", "390px 宽"], ["background-narrow", "390px 宽、名字很长"]] as const).map(([id, label]) => ({id, label, input: {props: sampleProps(CARD_SAMPLES[id.replace(/-narrow$/u, "")]!)}})),
             load: async () => withAgentPageText((await import("./agent-scene/SubagentCardFixture.vue")).default),
         }),
+        defineLabFixture<typeof SubagentsEntry>({
+            component: "SubagentsEntry",
+            scenes: [
+                {id: "list", label: "浮层开着：等你批准、在跑（带孙代理）、完成、出错", input: {props: {profiles: ENTRY_PROFILES}, model: {open: true}}},
+                {id: "dot", label: "关着：有没看过的出错，入口亮红点", input: {props: {profiles: ENTRY_PROFILES}, model: {open: false}}},
+                {id: "empty", label: "没有后代：入口不画", input: {props: {profiles: ENTRY_PROFILES}, model: {open: false}}},
+            ],
+            load: async () => withAgentPageText((await import("./agent-scene/SubagentsEntryFixture.vue")).default),
+        }),
         defineLabFixture<typeof BackgroundCommandCard>({
             component: "BackgroundCommandCard",
             scenes: ([["command-running", "运行中：最后一行、停止"], ["command-done", "完成：退出码与行数"], ["command-failed", "失败"], ["command-restarted", "任务已移出：从 status.json 读"], ["command-running-narrow", "390px 宽"]] as const).map(([id, label]) => ({id, label, input: {props: sampleProps(COMMAND_SAMPLES[id.replace(/^command-/u, "").replace(/-narrow$/u, "")]!)}})),
@@ -1204,6 +1238,8 @@ function shelfFixtures(): LabFixture[] {
                 {id: "providers-write-failed", label: "写不进去（窗口通知记进事件）", input: {props: {writable: true}}},
                 {id: "providers-readonly", label: "模型服务没有运行（只读）", input: {props: {writable: true}}},
                 {id: "providers-english", label: "英文界面", input: {props: {writable: true}}},
+                {id: "providers-focus-key", label: "从对话的“设置密钥”打开：选中 OpenAI、焦点在密钥框", input: {props: {writable: true}}},
+                {id: "providers-focus-add", label: "从对话的“添加服务商”打开：添加窗口开着", input: {props: {writable: true}}},
             ],
             load: async () => withModelsText((await import("./ModelsPageFixture.vue")).default),
         }),
@@ -1214,6 +1250,7 @@ function shelfFixtures(): LabFixture[] {
                 {id: "roles-empty", label: "还没有模型，全部未绑定", input: {props: {writable: true}}},
                 {id: "roles-readonly", label: "模型服务没有运行（只读）", input: {props: {writable: true}}},
                 {id: "roles-english", label: "英文界面", input: {props: {writable: true}}},
+                {id: "roles-focus", label: "从对话的“去绑定”打开：滚到“润色”、焦点在它的模型下拉", input: {props: {writable: true}}},
             ],
             load: async () => withModelsText((await import("./ModelsPageFixture.vue")).default),
         }),

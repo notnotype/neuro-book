@@ -157,7 +157,16 @@ export type ModelResolutionCode = "no-model" | "no-credentials" | "unknown-model
 
 export type ModelResolution =
     | {readonly ok: true; readonly info: ModelInfo; call(request: ModelRequest, signal: AbortSignal, onDelta: (delta: ModelDelta) => void, meta?: ModelCallMeta): Promise<ModelResponse>}
-    | {readonly ok: false; readonly code: ModelResolutionCode};
+    | ({readonly ok: false; readonly code: ModelResolutionCode} & ModelResolutionChoice);
+
+/**
+ * 解析失败时选中的是什么（docs/specs/harness/models.md）：走到某个模型角色时带角色 id，卡在没有凭据时带服务商 id。界面据此指出
+ * 去哪里改，不用自己再推一遍选择顺序；端口不给时按没有处理。
+ */
+export interface ModelResolutionChoice {
+    readonly role?: string;
+    readonly provider?: string;
+}
 
 /**
  * 内核调 `call` 时给的这次调用的说明（docs/specs/harness/runtime.md 输出 89）。`complete()` 不给；不认识它的端口照常工作。

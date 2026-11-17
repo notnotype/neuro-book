@@ -1,0 +1,42 @@
+w00025 t09 计划第一稿的设计审查：处理结果（2026-11-17）
+
+后端：Claude Opus（omp 的额度用完，按规则改派），报告 design-review-backend.txt，阻断 1、重要 7、建议 6。
+前端：Claude Sonnet，报告 design-review-frontend.txt，重要 11、建议 4。
+我逐条对照原文核对（第 1、2 条后端另读了 workspace-files.ts、projects-scheme.ts、shared/projects.ts 确认）。
+
+分类：成立要改；成立接受取舍；不改（写理由）。
+
+== 后端 ==
+1 阻断  成立，要改。服务端 ownFiles 不认 project://（stagingTarget 只分 user、projects、挂载方案）。改为 projects://<项目 id>/<路径>。计划技术选型与后端第 2 条改写。
+2 重要  成立，接受取舍。核对与取租约之间换代的竞争窄，且同一个 id 的不同代次是同一个目录；不为它给 ProjectsService.acquire 加代次参数。Spec 写成已知限制，路由只按登记核对一次。
+3 重要  成立，要改。写入链会回 not-a-file、not-found、not-a-directory、unknown-outcome、project-unavailable；Spec 的码表补全并写清改报（目标处 not-a-file、链接的 not-found 改报 conflict），写专用的 WRITE_STATUS 表，不复用读取的 failureResponse。
+4 重要  成立，要改。Sec-Fetch-Site：带了且不是 same-origin 为 403，不带的交给 Origin 核对；Spec 与场景 12 补三种情形。
+5 重要  成立，接受取舍。上传不同步内容文件夹的清单；Spec 写成已知限制（same、sibling 在内容文件夹里存的图是未列入项、sibling 的子目录是没有正文的节点），缺省的 folder 不受影响。不为此改提交链。
+6 重要  成立，要改。rename 先 list 父目录挑第一个空名、只写一次；非冲突失败立即结束；不认已有序号；加序号后超长为 invalid-address；renamed 只在成功体里。
+7 建议  成立，要改。限长在处理器里边收边数（分块也数）；至多 2 个并发、其余排队；至少一条测试经真实 Bun.serve。
+8 重要  成立，要改。请求的 signal 交给写入；Spec 写明体收完之前取消确定没写、之后结果未知。
+9 重要  成立，要改。码表从 Spec 状态表推出来，服务端与客户端共用一张常量表；客户端自己的 unavailable、too-large、cancelled、network。不进 FILES_FAILURES（成立）。
+10 建议 成立，要改。扩展名不在集合里 415 unsupported-type，主名为空 400；.jfif、.jpe 由客户端改成 .jpg；Spec 写一句“只保证文件头”。缩略图解码风险归前端（懒加载）。
+11 建议 成立，要改。sniffImageType 改成返回四种、调用方按允许集合过滤；调用方是三处加这条路由，各补“GIF 被拒”的用例。
+12 建议 成立，要改。createProjectRoots 早已导出，不“抽出”；写入路由不开项目根，只按登记核对代次；Spec 去掉写入的 identity-conflict。
+13 建议 成立，要改。Spec 写写入来源记为系统；第 1 片测试订阅变更，断言文件与父目录的 created 带这个来源。
+14 建议 不改。第 14 条建议给接口加 accept=image 参数；现在没有第二种用法，不为 t15 预留（以后要收别的类型时另开）。Spec 里写明边界（不写 user://、不建空目录、新作品用不了、文件夹重名由调用方先定名）。
+
+== 前端 ==
+1 重要  成立，要改。Link 自带 handleClickLink（优先级 1000）吞点击；新扩展优先级高于它、只在修饰键时接手。单击不改（保持“选中整条链接”的现状，Spec 53 改成与现状一致）。
+2 重要  成立，要改。link、link-remove 自己写范围（整条链接），不用 setLink、unsetLink。
+3 重要  成立，要改。几张图：光标在不在表格里的空段落时各占一段，其余行内依次插入；代码块、原样块不接手。
+4 重要  成立，要改。relativeAddress 过 chips.targets.encodeFile，首段含冒号加 ./；user:// 文档不改写 project://。
+5 重要  成立，要改。占位装饰、串行上传、按插入时的 base() 算地址、失败各报一条、abort；通知带参数。
+6 重要  成立，要改。判据改成“有图片文件且文字部分没有实质内容”；网页复制的图存本地（开发者可改）；e2e 断言文件头与宽高，不比字节。
+7 重要  成立，要改。viewHost 改读每次挂载重写的间接对象，先写测试；顺带修现有图片视图与链接小块的同一个口子。
+8 重要  成立，要改。选文件 input 放在控件一层，“选文件中”标志，不把系统文件框当离开。
+9 重要  成立，要改。find 加可选 extensions（后端合同增量）；recent、find 带当前文件与 signal；缩略图懒加载；truncated 给提示；图片扩展名集合写进 Spec。
+10 重要 成立，要改。独立注入键 markdownMediaKey，不放进 EditorMenus；三种宿主状态写进 Spec 输出 58 与场景 30；卡片经 props 拿 media。
+11 重要 成立，要改。schema 只限长度与控制字符，规则放纯函数 normalizeImageFolder；新增“图片”设置小组；configuration.md 作者规则写例外。
+12 建议 成立，计入计划。MarkdownTextPrompt 加 width、confirmDisabled；MarkdownMenus 的 prompting 改成描述对象；链接按钮改发 prompt 事件；Spec 输出 1、6、11 补齐（含已在代码里的“属性”）。
+13 建议 成立，要改。Spec 53 用 classifyTarget 的分类（含 project://、user://）；链接优先于批注的 Ctrl 点；外部网址用临时 <a> 打开。
+14 建议 成立，计入计划。卡片的状态与读屏；先读 SuggestionMenu 看能不能加缩略图插槽；光标处画竖线；英文与 390px。
+15 建议 成立，计入计划。粘贴名按 file.type 判类型、扩展名定下；类型在传之前判；Spec 不宣称“新的在前”，改成“大致”；本机文件名不合规给通知。
+
+16（对待确认 3 到 7 的判断）：4(d) www.x.com 记为已知限制；5 采纳（见前端 6）；6 Ctrl+K 采用；7 与前端 11 一起处理。上游取舍提示（默认 folder 写 ../../插图/a.png，章节挪动后失效）：开发者决定 6 已选相对地址，只记下这条代价，不改。

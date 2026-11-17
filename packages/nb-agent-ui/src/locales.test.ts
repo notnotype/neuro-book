@@ -20,13 +20,9 @@ type LegacyEnglish = string | {readonly by?: string; readonly one: string; reado
 
 const LEGACY: Readonly<Record<string, {readonly "zh-CN": string; readonly "en-US": LegacyEnglish}>> = {
     "header.untitled": {"zh-CN": "未命名会话", "en-US": "Untitled conversation"},
-    "header.noSession": {"zh-CN": "未选择会话", "en-US": "No conversation selected"},
     "header.more": {"zh-CN": "更多操作", "en-US": "More actions"},
     "header.rawView": {"zh-CN": "原始视图", "en-US": "Raw view"},
     "header.turnsView": {"zh-CN": "分轮视图", "en-US": "Turn view"},
-    "header.path": {"zh-CN": "会话路径", "en-US": "Conversation path"},
-    "header.morePath": {"zh-CN": "更多上级会话", "en-US": "More parent conversations"},
-    "header.unknownSession": {"zh-CN": "未知会话", "en-US": "Unknown conversation"},
     "stream.empty": {"zh-CN": "还没有消息", "en-US": "No messages yet"},
     "stream.loading": {"zh-CN": "正在加载会话", "en-US": "Loading the conversation"},
     "stream.phraseSeparator": {"zh-CN": "，", "en-US": ", "},

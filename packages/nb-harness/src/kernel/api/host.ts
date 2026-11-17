@@ -11,7 +11,7 @@ import type {CommandErrorTable, DiagnosticCode, DiagnosticLevel} from "./codes.j
 import type {Resources} from "./ctx.js";
 import type {EntryPoint, InteractionDecision, KernelEvents, LogEvent, RunResultValue, SessionHeader, EventData} from "./events.js";
 import type {AnyExtension, CompactionMethodImpl, ContributedExtension} from "./extension.js";
-import type {Spend, ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
+import type {Spend, ApprovalMode, CoreSettings, Message, ModelCaller, ModelErrorKind, ModelPort, ModelRequest, ModelResolutionChoice, ModelResolutionCode, RequestBlock, RequestPurpose, StopReason, Usage} from "./model.js";
 import type {AnyProfile} from "./profile.js";
 import type {Contract, ExportsOfContract} from "./contract.js";
 import type {LogStore, StorageResult} from "./storage.js";
@@ -152,7 +152,7 @@ export interface SessionSnapshot {
     /** 这个会话累计的费用与 token。 */
     usage: Spend;
     /** 现在这个会话发对话请求会用哪个模型（runtime.md 输出 77）。 */
-    model: {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | {ok: false; code: ModelResolutionCode};
+    model: {ok: true; id: string; contextWindow: number; efforts: readonly string[]} | ({ok: false; code: ModelResolutionCode} & ModelResolutionChoice);
     buffer: BufferedInput[];
     settings: CoreSettings;
     /** 扩展的设置，按扩展 id（Agent 模式这类）。 */

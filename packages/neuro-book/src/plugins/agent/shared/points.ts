@@ -90,6 +90,15 @@ const ProfileDeclarationSchema = Type.Object({
     skills: Type.Optional(Type.Object({
         allowed: Type.Union([Type.Array(Type.String({minLength: 1})), Type.Literal("all")]),
     }, {additionalProperties: false})),
+    /**
+     * 开场指令：对话第一屏“试试这些”，点了填进输入框（contributions.md 输出 21）。只显示前 3 条；不设条数上限，多写的不显示，
+     * 不因为一段展示用的文字拒绝整个 Profile。
+     */
+    starters: Type.Optional(Type.Array(Type.Object({
+        text: Type.String({minLength: 1}),
+        /** 图标 class，例如 `i-lucide-feather`。 */
+        icon: Type.Optional(Type.String({minLength: 1})),
+    }, {additionalProperties: false}))),
 }, {additionalProperties: false});
 
 export type AgentExtensionDeclaration = Static<typeof ExtensionDeclarationSchema>;

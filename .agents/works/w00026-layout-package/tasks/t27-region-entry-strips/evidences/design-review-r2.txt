@@ -1,0 +1,109 @@
+**第 3 稿设计审查（第二轮）：交换接口与胶片、入口条叶、同组分隔线的底**
+
+读了计划、Task 记录、上一轮审查、t24 的 R3，以及上面列的 nb-layout 与工作台代码；对照了评审页的 `regionScroller`、`sidePage`、`panelPage`。没改仓库，没跑 e2e。实验都在 `/home/notnotype/.claude/jobs/03f32b6c/tmp/review-t27-design3/exp/`，下面写明哪些绕过了真实运行时。
+
+## 阻断
+
+**1. 只有一节时头并进入口条叶，最大化后这一节没有头，还原按钮不可达**（正确性）
+- 位置：`plan.md` 的“右栏、底部面板顶上一行（入口条叶）”与“验证”；`nb-layout/src/vue/NestedGrid.vue:141`、`grid-rects.ts:170`、`WorkbenchPanelHead.vue:186`。
+- 现象：计划让只有一节的容器里那一节“自己没有头”，标题、视图动作、框架按钮（最大化与还原在 `frameActions` 里）都画在 `strip:<区域>` 这片叶里。计划又写“最大化时入口条和别的叶一样被盖住”，验证里还有“最大化时入口条被盖住”。
+- 后果：`obscuredLeaves` 是“除最大化的那块和 `exclude`（只有活动栏与状态栏）以外的全部叶”，入口条叶会被盖住并 `inert`。默认右栏“对话”正是只有一节：最大化它之后，界面上没有任何头，也没有还原按钮。输出 13 把头上的按钮列为入口，只剩命令可用。
+- 如何核实：读 `obscuredLeaves` 的定义，再对默认右栏照字面实现一遍，看最大化后哪块叶还画着头。
+- 建议：二选一。（a）最大化的分节所在区域的入口条不算被盖住，不进 `exclude` 之外的集合。（b）最大化的那一节自己画头，入口条叶被盖住时不再并头。两条都要写进输出 13 与验证。
+
+## 重要
+
+**2. 并进入口条的头跨叶，按叶 id 认面板的几处都没跟着改**（遗漏）
+- 位置：`WorkbenchSurface.vue:343-359`（`panelOf`、`onFocusIn`、`actionsShownOn`）、`hover-actions.css`、`layout-present.ts:25`（`layoutContents` 的 `insetTop`）与 `:42`（`hasRoom`）、`layout-drag.ts:371-381`（`geometryOf`）。
+- 现象 A，悬停显示动作：`panelOf` 按外框 id 返回面板，入口条叶的 id 是 `strip:x`，`setFocusedPanel` 又要求它在 `doc.panels` 里。头里的视图动作在入口条叶上，指针移到这一节的正文（另一片叶）时，动作不会显示。输出 20 与 views 输出 10 写的是“显示范围是这块面板”。入口条叶的卡片因 `roleOf` 为 null 不带 `data-hover-actions-scope`，动作区的透明规则根本不匹配，动作会常显。
+- 现象 B，焦点记录：计划写“焦点进入口条时当前面板记为没有”。这一节的标签和动作也在入口条里，焦点停在上面时 `currentPanel` 为 null，依赖它的命令（关标签、切标签）取不到面板，`presentationCollapse` 的 `focused` 也失效。
+- 现象 C，落点：输出 10 的验收“放到分节的标题行 → 上面多一个分节”。并头之后标题行与入口行是同一行，计划只定义了入口上的落点（并入、新容器），没说同一行的哪一段算哪个。`geometryOf` 的 `body` 取“卡片下沿，上边改为头下沿”，头在上一片叶里时 `frame` 与 `strip` 不再相邻。
+- 现象 D，`insetTop`：`layoutContents` 是纯文档函数，不认区域，计划只写“给它的上边是 0”。“只有一节”按文档还是按放不下收走后的呈现判，计划没定。放不下收走使分节数变化时，头会在两片叶之间来回搬，焦点跟着丢。
+- 建议：先给“头在哪片叶”定一条规则（只按文档判），再把 `panelOf` 与悬停范围改成按“叶 id 或它并入的头”认面板，补落点语义。若这条改动太大，退一步：保留每一节自己的头，入口条只放入口，这样 #1 与本条同时消失，代价是默认右栏多一行（正是 t24 的 R3.5）。
+
+**3. `joined` 一词承载了两个意思，`capLeaf` 与“角接过去”会误触发**（被破坏的既有约定）
+- 位置：`WorkbenchSurface.vue:205`（`barJoinedTo`）、`:255`（`capLeaf` 取 `edgesOf(id)?.left.kind === "joined"`）、`:270`（`joinOf`）；计划“一个容器一张卡片”。
+- 现象：计划让同组相邻两块之间的边也算 `joined`。`capLeaf` 的“和活动栏相连”现在靠 `left.kind === "joined"` 判，因为之前只有活动栏的相连会产生它。底部面板的第二节（左右并排）的左边现在也是 `joined`。
+- 后果：底部面板隐藏或拖到零时它在 `shapedLeaves` 里，`drawnAsBefore` 为真，`capLeaf` 就指向它。活动栏的右边被换成 `separatedBarRight`，`shapeOf` 给这一节往左伸一个圆角加缝的活动栏底色，短线跟着播淡出。只发生在侧栏与活动栏相连、底部面板有两节的时候，纯读代码推出，没有跑起来。
+- 建议：`CardSide` 的 `joined` 加一个“和谁相连”（`bar` 或 `group`），`barJoinedTo`、`capLeaf`、`joinOf`、`barSeamOf` 只认 `bar`。
+
+**4. 交换时外框、内容、分隔线的 `clip-path` 没有起点，已在屏幕上的元素第一帧会跳**（依赖的机制）
+- 位置：`plan.md` 的“窗口”；`NestedGrid.vue` 的 `frameClip`；`useContentLayer.ts` 的 `byLeafClip`；样式里 `[data-moving]` 的 `transition` 列表。
+- 现象：计划让 `clip-path` 与 `left`/`top` 同一时长曲线过渡，窗口在网格里不动。静止的外框没有 `clip-path`（`frameClip` 对非 `keptSize` 的叶返回空），`none` 到 `inset()` 在 CSS 里是离散的。现有 `growing` 只存矩形，且只给新项写第一帧。
+- 实验：`exp/clip.mjs`，真实 Chrome 的 CSS 引擎，没有经过 NestedGrid。元素 A 无起点直接写 `left: -60px; clip-path: inset(0 0 0 60px)`，100ms 时 `clip-path` 已是终点值，窗口外的 60px 在第一帧就被裁掉。元素 B 带 `inset(0 0 0 0)` 起点，`left` 与 `clip-path` 逐帧同步，窗口不动。
+- 另外，`transition` 列表里没有 `clip-path`，三类元素都要加。内容外层本来就有 `byLeafClip` 的 `inset(insetTop 0 0 0)`，计划只写了与 `leafShape` 取交，没写与它取交。
+- 建议：交换开始那一帧给所有参与的元素（含静止的外框、内容、分隔线）写 `clip-path` 起点，并把 `growing` 从“矩形”扩成“矩形加裁切”。计划里要写这一帧，验收里加“开始后第一帧窗口外无像素”。
+
+**5. 胶片模型没写“正在滑出的一组被点回来”的处理，也没说位置在哪读**（接口与合同）
+- 位置：`plan.md` 的“胶片”；`useGridMotion.ts:70`（`withoutLeaving`）、`:106`（`still`）；`grid-motion.ts` 的 `enteringRects`。
+- 现象 A，点回来：A 到 B 滑到一半，再点回 A。`decideMotion` 先用 `withoutLeaving` 去掉了 `previous` 里的离开项，A 的叶在 `previous` 里不存在，`enteringRects` 把它当新叶，起点是“顶替”的 `grownRect` 或收缩起点，不是它此刻的位置。评审页的 `regionScroller.switchTo` 对“已在 `placed` 里的组”有单独分支（保留位置，不重新排）。计划写的“新的一组接在 direction 那头最外面那组的后面”在这种情形下会把 A 排到自己的后面，或者从一个不对的地方跳出来。
+- 现象 B，读 DOM 的位置：`decideMotion` 是纯函数，`GridMotionFrame` 里没有位置输入；计划要读 `getComputedStyle`，没写读的地方、传入的字段，也没写 `GridLeavingItem`（只有叶，`Extract<..., {kind: "leaf"}>`）怎样带上分隔线。“它们之间的分隔线留着”目前没有承载的类型，`placement.items` 里 `leavers` 只有叶。
+- 现象 C，何时生效：`token` 是否有效取决于“`token` 的监听”和 `layers` 的监听谁先跑（二者都是 pre 刷新，同一组件按触发先后）。要在同一个 watcher 里比较 `token`，不要拆成两个。
+- 建议：把“已在带里的组被点回来”写成显式规则（沿用现位置，不重排），写明读位置的入口（`update()` 里读、作为 `decideMotion` 的输入），把 `leaving` 的类型扩到分隔线，把生效判定放进 `layers` 的 watcher。
+
+**6. 滑出的一组里的分隔线，线会被判成“一侧为零”而隐藏**（遗漏）
+- 位置：`NestedGrid.vue:233-235`（`sashProps` 用当前布局的 `sizes[sash.before]`）、`SashHandle.vue:65`（`besideZero`）与 `:356`。
+- 现象：离开的一组的叶 id 不在新布局里，`beforePx`、`afterPx` 取不到都是 0，`besideZero` 为真，开放式分割线的线（`.sash-seam`）立即 `visibility: hidden`。计划写的“分隔线留着、跟着滑”只靠把它放进带里，做不到。离开的分隔线同样要从手势登记里撤出，计划没写。
+- 建议：给离开的分隔线一份冻结的 `beforePx`、`afterPx`，`disabled` 固定为真。
+
+**7. `swap.leaving` 与 `entering` 的来源与失败通道没定，窄窗口下会静默不滚**（接口与合同）
+- 位置：`plan.md` 的“生效条件”与“切换容器时发 swap”。
+- 现象：计划让宿主“提交前”给出切换前后区域里“显示着的分节”。被放不下收走的分节只在呈现里不在，宿主用 `isPanelShown`（文档层）列出的 id 会包含它们；而 `entering` 只有提交之后的呈现才知道。生效条件是“`entering` 都是新出现的、`leaving` 都离开了”，一个不符就整次作废、照常过渡，没有诊断。窗口窄到收走一节的时候交换永远不触发，用户只看到旧的离开消失、新的长出来。
+- 同类的还有“没在长出来时才发”：宿主没有读到“区域正在长出来”的状态。`NestedGrid` 只暴露 `outgoingLeaves`、`shapedLeaves`，没有 `moving`。
+- 建议：A，改成按区域呈现节点 id 取：投影给每个区域一个稳定的包装分支（侧栏也包，哪怕单节），`swap` 只带 `{region, token, axis, direction, gap, window}`，离开与换上来的叶由 NestedGrid 自己从新旧两帧里推，宿主不用预测。B，若保留叶列表，则 `leaving`、`entering` 里不在呈现里的 id 忽略，不整体作废。两种都要给一条作废时的诊断。
+
+**8. 实时拖放：来源收起后的平移与入口带都只认活动栏一条**（遗漏）
+- 位置：`layout-drag.ts:561`（`ids = treeLeaves(doc.tree.root)`）、`:392`（`band: rectOf(toolBand())` 单数）、`:594`（`barAfterCollapse` 只处理侧栏容器）、`:407-430`（`barEntries`）。
+- 现象：入口条叶 id 不在文档里，`collapsed()` 的 `moves` 里没有它，冻结的入口矩形在来源收起（例如拖走右栏唯一的分节，右栏收起、编辑区变宽）时不会按布局差平移；`DragGeometry` 里入口带只有一条，右栏、底部面板的入口条要三条。计划写“复用活动栏的判定”“来源收起后的平移同别的叶”，对代码来说这是 `DragGeometry`、`FrozenGeometry`、`barAfterCollapse` 的类型改动，计划的第 4 片没列。t24 R3 补充指出的就是这一点，这版仍没有落到文件。
+- 建议：第 4 片的清单里写进这三处，并写明三个入口带各自的冻结与平移规则。
+
+**9. 入口条叶使区域的最小高度从 80 变为 112，与输出 6 对不上**（被破坏的既有约定）
+- 位置：`layout-constraints.ts:79-80`（每节最小 80）、`layout-project.ts:minimumOf`；输出 6 的约束表。
+- 实验：`exp/wrap.ts`，手工按计划的形状建了 `center(竖)[editor, region(竖,固定)[strip(固定32), region:sections(横)[s1,s2]]]`，用真实的 `createGrid`。绕过了 `projectLayoutDoc`（它还没有 `regionStrip`）。结果：同向嵌套的竖分支建得出来，区域高度 200 时入口条恒 32；窗口高 300 时区域被压到 179、`center` 给出“最小尺寸合计 232 装不下”；原来是 80+120=200。
+- 后果：输出 6 写的是底部面板、右栏“至少 80”。分节的最小值仍是 80，区域的最小就成了 32+80；`presentationCollapse` 按这个最小值判，会比现在早约 32px 收走。计划没提。
+- 建议：先定义“80 含不含入口条”。含的话，分节的最小要改成 48，再把有头与无头的最小分开；不含的话，改输出 6 并写进待确认清单。
+
+**10. 交换里 `window` 与 `gap` 的单位不一致，胶片的间距算不出来**（接口与合同）
+- 位置：`plan.md` 的 `GridSwap` 接口。
+- 现象：`window` 是“CSS 长度（同 `GridLeafShape`）”，`gap` 是 px，但“相邻两组相距窗口长度加 `gap`”要在 JS 里用窗口沿轴的长度，这是 `calc(var(--shell-gap) / 2 …)` 一类字符串，JS 取不到数值。计划后文又说宿主“按区域外沿的整缝、半缝换成 px”，两处不一致。
+- 建议：库的接口里 `window` 用 px 数值（宿主已有 `cardGap`）；字符串形式只留给 `clip-path` 的内部写法。
+
+## 建议
+
+**11. 上游选择：“一叶一张卡片”**（上游选择）
+- 现象：整份计划为了让几块叶看起来是一张卡片，叠了三套补丁：相连边加内边距为 0 加外层裁掉投影、分隔线 `::before` 补底色与两端投影（`sashStyle`）、`swap-backdrop` 补静止的底；再加上 `joined` 的泛化（#3）与“角接过去”扩到整列。这三个都是同一件事：一张横跨几片叶的卡片。
+- 另外，1px 高的矩形做 `box-shadow`，模糊投影的强度只有相邻卡片的几分之一，两端会出现一道发淡的 1px 缺口，计划靠第 1 片的像素用例验证，这是个已知的风险。
+- 建议：把“区域里一个容器的几片叶共用一层卡片”做成 NestedGrid 的一个插槽，`card-layer`（宿主按叶的组给矩形的并集）。叶外框透明，底色、圆角、投影、卡片间的缝都在这一层画；`swap-backdrop` 就是这一层本身，同组分隔线不需要补底，相连边也不需要裁投影。代价：卡片层要自己跟随过渡，是比计划大的一块新机制，值得在 t26 拆通用层之前定。把“改上游”作为候选交开发者，不只在现有补丁里挑。
+
+**12. 三样新接口站在第三方的位置**（接口与合同）
+- `sashStyle` 在 `NestedGrid.vue:214` 已有同名的局部函数（`function sashStyle(rect)`）。`<script setup>` 里模板解析到的是局部函数，不是新属性，照字面写会静默地用错；新属性要换名。
+- `sashStyle(sash)` 的参数没定。`before`、`after` 可以是分支 id（`sashKind` 的签名就是这样）。“取 before 那块的内缩”对分支不成立：`S1 | H[S2,S3]` 下面一条线，`before` 是 `H` 时，`S2` 的右边与 `S3` 的右边相连状态不同。建议签名带 `{branch, before, after, axis}`，说明 `before` 是分支时取沿长轴两端的外侧叶。
+- `regionStrip?(region): number` 让库决定叶的 `ref`（`strip:<区域>`）与包装分支的 id 后缀（`:sections`），宿主在叶插槽里靠字符串前缀认入口条。需要库导出 `regionStripRef(region)` 与反解函数，这样三条字符串约定才算公开接口。入口条固定在上边也要写在接口说明里。
+- `LayoutProjection.regionAnchors` 的契约（文件头与字段注释写的是“只显示一个分节时分支塌陷，就是那个分节的叶”）在带入口条的区域不再成立，侧栏仍成立，所以同一个字段按区域有两种形状，注释要改。
+
+**13. 与评审页一致的几处，部分确认**（对照）
+- 一致：侧栏裁在整列、一次滚区域长度加缝（`regionScroller("y", H, …)`，`step = size + GAP`）；右栏、底部面板裁在卡片里入口条以下、一次滚卡片宽加缝（`panelClip` 与 `pw + GAP`）；“接在最外面那块后面”的排法。
+- 不一致，A，重定向的时长：评审页每次重新开始都是完整的 470ms，从零速度起。产品用 CSS 过渡改终点，浏览器对“新终点等于正在走的过渡的起点”会按反向缩短时长。实验 `exp/rev2.mjs`（真实 Chrome，470ms，`cubic-bezier(0.23,1,0.32,1)`）：A 到 B 走 100ms（A 在 −62.9）后反向，约 320ms 回到原位，不是 470ms。没找到会让几组错开的混合情形，纯反向时各组一致，仍是刚性的，所以不算缺陷，但验收里“逐帧 470ms”的判据要改。
+- 不一致，B，何时摘掉：评审页在重定向那一刻按“此刻看得见”摘掉组；计划写“平移之后整个在窗口外的组”按终点摘。同一时刻可见而终点在窗外的组，评审页摘、计划留（留到过渡结束才由 `stop` 清）。
+
+**14. 其他**
+- 最大化着的分节被切走所在的容器时（输出 13、42 会退出最大化），`previous` 里它的矩形是最大化后的整窗矩形，计划的“离开的上一帧矩形”与 `window` 的外接矩形会取到它。要用最大化之前的矩形。
+- 入口条在区域里挨着唯一的分节时，`assignByParent` 仍给这一节一份收起策略（`:91`，纵向收成面板头高），t24 R3.2 说的“唯一分节能被收成一行”的策略又出现了，只是没有可拖的缝触发它。建议跳过。
+- 六处冲突里第 3 条写“区域隐藏时没有入口条”，与“隐藏按拖到零画、入口条跟着整个区域缩到零”不一致。实现里隐藏的区域在呈现里有入口条叶（尺寸为零，由 `useLeafParking` 停放），文字要改。
+- `sashKindOf` 的 `roleOf(strip:…)` 返回 null，入口条与分节之间那条（宽 0）以及区域外沿那条会被判成 `shell`，宽 0 的线不画，没有后果；但函数签名要加 `groupOf`，计划没列在改动文件里。
+- 验收映射：`grid-motion.test.ts` 与 `useGridMotion.dom.test.ts` 没有布局与过渡引擎，只能测手喂位置的算术，胶片“读出的位置与 CSS 重新开始对得上”只有 e2e 逐帧能证。缺的用例：最大化的只有一节的分节、悬停动作范围、`capLeaf` 在底部面板两节时、`collapsed()` 对入口条、点回正在滑出的一组、第一帧窗口外无像素。
+
+## 未发现问题的方面
+
+- 同一个同步段里设 `swap` 并提交文档：`Surface` 的 `useGridLayout` 重算与 `NestedGrid` 的 props 更新都在同一轮刷新里，`swap` 与新 `layout` 同时到达 `layers` 的 watcher，没发现漏用；“`nextTick` 作废”能覆盖零写入的点击（前提见 #5 的 watcher 写法）。
+- `rebaseIntents` 对区域节点取的是包装分支的尺寸，含入口条，与现在一样；区域内几节只更新彼此的比例、总量不变，不会因多了一片不在文档里的叶而错位。
+- `sceneCorners` 按文档取区域里最后一片叶，不受入口条叶影响；`regionAnchors` 的唯一消费者是 `commitGesture`（`layout-doc-store.ts:428`），包装分支 id 等于区域节点 id，写锚的路径照旧。
+- 活动栏与侧栏的相连条件改成“左邻是活动栏、在侧栏组里”，比原来的同父分支更稳，没有让底部面板与活动栏相连。
+- t24 R3 的六处冲突里，第 1（外沿缝可拖）、第 3（只在有分节时才有条）、第 4（校验）、第 6（底部面板不是子树，文档不变）按计划的放法确实消掉；第 2、第 5 有残留，见 #1、#2、#14。
+- 评审页的侧栏“裁在整列、一次滚区域长度加一条缝”与计划一致。
+
+实验里的限制：`exp/wrap.ts` 手工建输入，没经过 `projectLayoutDoc`；`exp/rev*.mjs`、`exp/clip.mjs` 是真实 Chrome 的 CSS 过渡，没经过 NestedGrid 的渲染，所以 #4、#13 只证明了浏览器行为，不证明实现一定会踩到。#3、#2 是读代码推出，没有运行。
+
+计数：阻断 1，重要 9，建议 4。
+
+exit=0

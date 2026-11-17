@@ -70,8 +70,11 @@ async function openConversation(page: Page): Promise<void> {
     await page.keyboard.type("打开对话");
     await page.keyboard.press("Enter");
     await expect(input(page)).toBeVisible();
-    await page.locator("[data-header-new]").click();
-    await expect(page.locator(".acv-stream__empty")).toBeVisible();
+    // 头上的新建只在已有会话时才有：经命令面板新建，有没有会话都一样。
+    await page.keyboard.press("Control+Shift+P");
+    await page.keyboard.type("新建 Agent 会话");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("[data-agent-welcome]")).toBeVisible();
 }
 
 async function send(page: Page, text: string): Promise<void> {
@@ -102,10 +105,9 @@ test("验收 1：同一条回复派两个，并发跑；一个完成一个出错
     await expect(card(page, "甲").locator("[data-subagent-line]")).toContainText("甲没有矛盾。");
     expect((await card(page, "甲").boundingBox())!.height).toBe(runningHeight);
     expect((await card(page, "乙").boundingBox())!.height).toBe(runningHeight);
-    // 打开子会话：顶栏有回到父会话的路径。
+    // 打开子会话：头的左边是返回，点了回到父会话。
     await card(page, "甲").locator("[data-subagent-open]").click();
-    await expect(page.locator("[data-header-path]")).toBeVisible();
-    await page.locator("[data-header-crumb]").first().click();
+    await page.locator("[data-header-back]").click();
     await page.locator("[data-turn-summary]").last().click();
     await expect(page.locator("[data-subagent-card]")).toHaveCount(2);
 });
@@ -134,6 +136,41 @@ test("验收 2：子会话要审批，停在父会话输入框上方、标来源
     await expect.poll(async () => (await page.locator("[data-subagent-card]").count()) === 0 || (await card(page, "人物卡").getAttribute("data-state")) === "done").toBe(true);
     if (await page.locator("[data-subagent-card]").count() === 0) await page.locator("[data-turn-summary]").last().click();
     await expect(card(page, "人物卡")).toHaveAttribute("data-state", "done");
+});
+
+test("子代理管理（conversation.md 输出 43）：入口写个数、出错亮红点，打开浮层看过就不亮；停掉在跑的那个只停这次运行；点一行进子会话", async ({page}) => {
+    await openConversation(page);
+    await scriptFor("查丙的设定", {status: 500});
+    await holdFor("查丁的设定");
+    await scriptFor("查丁的设定", "丁没有矛盾。");
+    await script({tools: [adhoc("查丙的设定", {name: "丙"}), adhoc("查丁的设定", {name: "丁", async: true})]}, "派出去了");
+    await send(page, "分头查");
+    await heldArrived("查丁的设定");
+    await expect(page.getByText("派出去了")).toBeVisible();
+
+    const entry = page.locator("[data-subagents-entry]");
+    await expect(entry).toHaveText("2");
+    // 丙出错在页面打开之后：没看过，亮红点。
+    await expect(page.locator("[data-subagents-dot]")).toBeVisible();
+    await entry.click();
+    const row = (name: string) => page.locator("[data-subagent-row]").filter({hasText: name});
+    await expect(row("丙").locator("[data-subagent-state]")).toHaveText("出错");
+    await expect(row("丁").locator("[data-subagent-state]")).toHaveText("运行中");
+    await expect(page.locator("[data-subagents-summary]")).toHaveText("2 个 · 1 个在跑");
+    await expect(page.locator("[data-subagents-dot]")).toHaveCount(0);
+
+    // 停止只停丁这次的运行：子会话留着，行还在。
+    await row("丁").hover();
+    await row("丁").locator("[data-subagent-stop]").click();
+    await expect(row("丁").locator("[data-subagent-state]")).toHaveText("已停止");
+    await expect(page.locator("[data-subagent-row]")).toHaveCount(2);
+    await releaseHeld("查丁的设定");
+
+    // 点一行进子会话：浮层关掉，头的左边是返回；丙自己没有后代，入口不画。
+    await row("丙").locator("button").first().click();
+    await expect(page.locator("[data-subagent-row]")).toHaveCount(0);
+    await expect(page.locator("[data-header-back]")).toBeVisible();
+    await expect(entry).toHaveCount(0);
 });
 
 test("验收 4：等子代理时用户插话，等待以 running 返回、插话送达；之后 wait 取到结果", async ({page}) => {

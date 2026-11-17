@@ -10,7 +10,7 @@ import type {Directive} from "vue";
 
 import {cardInset, joinedToBar, layoutCardEdges, maximizedCardEdges, sashKindOf} from "../shell/adjacency";
 import type {CardEdges, CardSide} from "../shell/adjacency";
-import {layoutContents, panelTabDomId, panelTabpanelDomId} from "../state/layout-present";
+import {layoutContents, panelTabDomId, panelTabpanelDomId, panelTitleDomId} from "../state/layout-present";
 import "./hover-actions.css";
 
 const ACTIVITY_BAR = "activitybar";
@@ -490,7 +490,7 @@ defineExpose({
                         :id="roleOf(leaf) === 'tool' ? panelTabpanelDomId(idPrefix, contentKey) : undefined"
                         class="workbench-surface__content-clip"
                         :role="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? 'region' : 'tabpanel') : undefined"
-                        :aria-labelledby="roleOf(leaf) === 'tool' ? panelTabDomId(idPrefix, contentKey) : undefined"
+                        :aria-labelledby="roleOf(leaf) === 'tool' ? (titleOnlyPanels.has(leaf) ? panelTitleDomId(idPrefix, contentKey) : panelTabDomId(idPrefix, contentKey)) : undefined"
                         :data-panel-role="roleOf(leaf) ?? undefined"
                     >
                         <slot name="content" :content-key="contentKey" :panel-id="leaf" :active="active"></slot>

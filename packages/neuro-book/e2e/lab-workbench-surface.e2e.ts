@@ -62,8 +62,10 @@ test.describe("面板头", () => {
         await open(page);
         const head = `[data-panel-head='${section("a")}']`;
         expect((await rectOf(page, head)).height).toBe(32);
-        const order = await page.locator(`${head} > *`).evaluateAll((items) => items.map((item) => (item.querySelector("[data-panel-tab]") !== null ? "title" : item.querySelector("[data-view-action]") !== null ? "view" : item.querySelector("[data-panel-action]") !== null ? "frame" : "?")));
-        expect(order).toEqual(["title", "view", "frame"]);
+        // 按画出来的位置比先后：标题、视图动作、框架按钮。
+        const leftOf = (selector: string) => page.locator(`${head} ${selector}`).first().evaluate((element) => element.getBoundingClientRect().left);
+        expect(await leftOf("[data-panel-tab]")).toBeLessThan(await leftOf("[data-view-action]"));
+        expect(await leftOf("[data-view-action]")).toBeLessThan(await leftOf("[data-panel-action]"));
         // 只写标题：没有标签带。
         await expect(page.locator(`${head} [role='tablist']`)).toHaveCount(0);
         await expect(page.locator(`${head} [data-panel-action]`)).toHaveCount(2);
@@ -78,7 +80,7 @@ test.describe("面板头", () => {
         const title = page.locator("[data-panel-tab='view:a']");
         const region = page.locator("[data-content='view:a'] [role='region'], [data-content='view:a'][role='region']").first();
         await expect(region).toHaveCount(1);
-        expect(await region.getAttribute("aria-labelledby")).toBe(await title.getAttribute("id"));
+        await expect(region).toHaveAccessibleName("视图 A");
 
         const instance = await page.locator("[data-content='view:a'] [data-structure-leaf]").getAttribute("data-structure-instance");
         await entry(page, "b").click();
@@ -120,6 +122,25 @@ test.describe("面板头", () => {
         // 焦点在内容里时，指针走开也还显示。
         await page.locator("[data-content='view:a'] [data-structure-first]").focus();
         await expect.poll(opacity).toBe("1");
+    });
+});
+
+test.describe("视图的标题区（docs/specs/workbench/views.md 输出 19）", () => {
+    test("视图接管时三列：左右是视图的按钮、中间的标题按钮写视图给的文字且仍是拖动源，框架按钮在右列；区域的名称仍是视图标题", async ({page}) => {
+        await open(page, "view-head");
+        const head = page.locator("[data-panel-head]:has([data-panel-tab='view:c'])");
+        const handle = head.locator("[data-panel-tab='view:c']");
+        // 拖动描述由外壳给（这个夹具没给），是否带上由面板头的组件测试守着。
+        await expect(handle).toHaveAccessibleName("第三章节奏调整");
+        await expect(head.locator("[data-panel-head-start]").getByRole("button", {name: "新建对话"})).toBeVisible();
+        await expect(head.locator("[data-panel-head-end]").getByRole("button", {name: "更多"})).toBeVisible();
+        const leftOf = (locator: ReturnType<Page["locator"]>) => locator.first().evaluate((element) => element.getBoundingClientRect().left);
+        expect(await leftOf(head.locator("[data-panel-head-end]"))).toBeLessThan(await leftOf(head.locator("[data-panel-action]")));
+        const region = page.locator("[data-content='view:c'] [role='region'], [data-content='view:c'][role='region']").first();
+        await expect(region).toHaveAccessibleName("视图 C");
+        // 标题按整行居中：按钮中线离面板头中线不超过 1px。
+        const centre = (box: {x: number; width: number} | null) => (box === null ? Number.NaN : box.x + box.width / 2);
+        expect(Math.abs(centre(await handle.boundingBox()) - centre(await head.boundingBox()))).toBeLessThanOrEqual(1);
     });
 });
 

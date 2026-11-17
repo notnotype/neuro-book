@@ -10,7 +10,7 @@ import type {GridExtent, GridSwap, LayoutDoc} from "@notnotype/nb-layout";
 import {FloatWindowHandles, useDropTarget} from "@notnotype/nb-layout/vue";
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {TextParams} from "@notnotype/nb-ui/text";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, useTemplateRef, watch, watchEffect} from "vue";
 
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayText} from "nbook/shared/localized-text";
@@ -43,12 +43,13 @@ import type {WorkbenchDragSource} from "../entry-drop";
 import type {ViewSource} from "../views/registry";
 import {useViewInstances} from "../views/view-instances";
 import type {EditorAreaContext, EditorTabDrag, PanelFrameControl} from "../contracts";
+import type {PanelHeadSlots} from "../views/view-head";
 import {mountEditorArea} from "../editor-area";
 import type {EditorAreaSource} from "../editor-area";
 import {SHELL_TITLEBAR_HEIGHT} from "../shell/sizes";
 import WorkbenchDragFeedback from "./WorkbenchDragFeedback.vue";
 import WorkbenchPanelHead from "./WorkbenchPanelHead.vue";
-import type {PanelFrameAction, PanelHeadTab} from "./WorkbenchPanelHead.vue";
+import type {PanelFrameAction, PanelHeadTab, PanelViewHead} from "./WorkbenchPanelHead.vue";
 import WorkbenchStatusBar from "./WorkbenchStatusBar.vue";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import WorkbenchTitleBar from "./WorkbenchTitleBar.vue";
@@ -261,6 +262,51 @@ const headActions = computed(() => new Map(Object.entries(doc.value.panels).flat
     const model = viewActionsOf(viewId, panelId);
     return model.buttons.length > 0 || model.menu.length > 0 ? [[panelId, {viewId, model}] as const] : [];
 })));
+
+// ── 视图的标题区（docs/specs/workbench/views.md 输出 19） ─────────────────────
+
+/** 只写标题、活动视图申请了标题区并已就绪的面板：活动视图与它这一代的标题区。 */
+function headOfPanel(panelId: string) {
+    if (!titleOnlyPanelIds.value.has(panelId)) return null;
+    const viewId = viewIdOf(renderedDoc.value.panels[panelId]?.active ?? "");
+    const control = viewId === null ? null : instances.headOf(viewId);
+    return viewId === null || control === null ? null : {viewId, control};
+}
+
+function panelViewHead(panelId: string): PanelViewHead | null {
+    const found = headOfPanel(panelId);
+    return found === null ? null : {key: `${found.viewId}:${String(instances.generations.value.get(found.viewId) ?? 0)}`, popup: found.control.head.titlePopup.value};
+}
+
+/** 面板头交来的位置，按面板记。 */
+const panelHeadSlots = shallowReactive(new Map<string, PanelHeadSlots>());
+
+function setPanelHeadSlots(panelId: string, slots: PanelHeadSlots | null): void {
+    if (slots === null) panelHeadSlots.delete(panelId);
+    else panelHeadSlots.set(panelId, slots);
+}
+
+/**
+ * 把位置交给视图：每个有标题区的实例，按它此刻所在的面板取那块面板头交来的位置，不在只写标题的面板里就是 null。
+ * 按面板汇总再分发，而不是面板头直接写给视图：视图换面板时旧面板头拆掉（交 null）与新面板头画出的先后不定，按面板记就与先后无关。
+ */
+watchEffect(() => {
+    for (const viewId of instances.instances.keys()) {
+        const control = instances.headOf(viewId);
+        if (control === null) continue;
+        const panelId = panelOfView(viewId);
+        const owns = panelId !== null && headOfPanel(panelId)?.control === control;
+        control.setSlots(owns ? panelHeadSlots.get(panelId) ?? null : null);
+    }
+});
+
+/** 点标题：面板收着时只展开；展开着才通知视图（它开自己的列表）。收没收要在 `activate` 之前记下，它会把面板展开。 */
+function activateTab(panelId: string, key: string): void {
+    const control = headOfPanel(panelId)?.control ?? null;
+    const collapsed = isSectionCollapsed(renderedDoc.value, panelId);
+    props.layout.actions.activate(key);
+    if (control !== null && !collapsed) control.press();
+}
 
 // ── “移动到” ──────────────────────────────────────────────────────────────
 
@@ -752,7 +798,9 @@ const panelCount = computed(() => treeLeaves(doc.value.tree.root).filter((leaf) 
                         :dragging-tab="dragPlaceholder"
                         :title-only="titleOnlyPanelIds.has(panelId)"
                         :frame-actions="frameActionsOf(panelId)"
-                        @activate="(key) => layout.actions.activate(key)"
+                        :view-head="panelViewHead(panelId)"
+                        @activate="(key) => activateTab(panelId, key)"
+                        @head-slots="(slots) => setPanelHeadSlots(panelId, slots)"
                         @reorder="(key, delta) => layout.actions.reorderTab(key, delta)"
                         @action="(action) => run(action, {panelId})"
                         @context-menu="openMoveMenu"

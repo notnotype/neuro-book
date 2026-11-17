@@ -47,6 +47,11 @@ export default {
     colorSwatches: {
         label: "颜色",
     },
+    dateInput: {
+        open: "选择日期",
+        previousMonth: "上个月",
+        nextMonth: "下个月",
+    },
     dialog: {
         untitled: "对话框",
         cancel: "取消",
@@ -104,6 +109,9 @@ export default {
     },
     tabs: {
         more: "更多",
+    },
+    tagInput: {
+        remove: "移除 {{item}}",
     },
     toolbar: {
         label: "工具栏",

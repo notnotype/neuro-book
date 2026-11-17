@@ -24,7 +24,8 @@ import {displayLocale, OPEN_SETTINGS_COMMAND, SETTINGS_PAGES_POINT, settingsKey}
 import type {WrittenSettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {notificationsKey, PROJECT_VIEW_CONTAINER, quickPickKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {notificationsKey, PROJECT_VIEW_CONTAINER, quickPickKey, VIEW_HEAD, viewHeadOf, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+import type {ViewHeadOptIn} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import type {WrittenViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
@@ -36,7 +37,7 @@ import {windowTextKey, windowTextPort} from "nbook/shared/window-text";
 
 import {Type} from "typebox";
 
-import type {AgentConversationServices, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, AgentWelcomeView, ComposerModelView, RequestTraceAction, RequestTraceQuery} from "@notnotype/nb-agent-ui";
 
 import {descriptor} from "../plugin";
 import {MAIN_PROFILE} from "../shared/contracts";
@@ -58,7 +59,8 @@ import {createSkillsClient, OPEN_PROFILE_SETTINGS_ITEM, skillAddress, skillMenu}
 import {draftOf, DraftsSchema, NO_DRAFTS, withDraft} from "./drafts";
 import {createSessionHost} from "./session-host";
 import type {RoleOption, SessionHost, UploadedAttachment} from "./session-host";
-import {createSessionList} from "./session-list";
+import {createRecentSessions, createSessionList} from "./session-list";
+import {createRunResults, createSeenErrors} from "./subagents-panel";
 import {RequestsPage, useRequests} from "./requests-page";
 import {requestEntriesContribution} from "./request-entries";
 
@@ -270,6 +272,12 @@ export const agentBrowserPlugin: PluginDefinition = {
                     if (!opened.ok) report("open-address-failed", `opening ${address} failed: ${opened.code}`);
                 });
             };
+            /**
+             * 子代理管理（conversation.md 输出 43）：出错看过没有、收口结果的缓存，右栏与编辑区页面两个对话位置共用。激活之前收口的出错算看过；
+             * 切到哪个会话，它此前的出错就算看过（不论从卡片、停靠区还是浮层切过去）。
+             */
+            const seenErrors = createSeenErrors(clock.now());
+            const runResults = createRunResults((message) => report("run-result-failed", message));
             const hosts = new Map<string, SessionHost>();
             /** 最近用过的位置：命令优先用它。 */
             let lastPosition = "view";
@@ -329,9 +337,14 @@ export const agentBrowserPlugin: PluginDefinition = {
                     rememberRules: (rules) => rulesWriter.append(rules),
                     models: () => models.value,
                     roles: () => roles.value,
+                    providers: () => modelsSnapshot.value?.providers.map((provider) => ({id: provider.id, name: provider.name})) ?? null,
                     profiles: () => profiles.value,
                     copy: (value) => void browser.navigator?.clipboard?.writeText(value),
-                    openSettings: () => void commands.execute(OPEN_SETTINGS_COMMAND),
+                    openSettings: (target) => {
+                        void (target === undefined ? commands.execute(OPEN_SETTINGS_COMMAND) : commands.execute(OPEN_SETTINGS_COMMAND, target)).then((result) => {
+                            if (!result.ok) report("open-settings-failed", `opening settings ${target?.section ?? ""} failed: ${result.code}`);
+                        });
+                    },
                     openRequests: (target) => void commands.execute(OPEN_REQUESTS_COMMAND, target),
                     openAddress,
                     openLink: (href) => void browser.open?.(href, "_blank", "noopener"),
@@ -351,6 +364,10 @@ export const agentBrowserPlugin: PluginDefinition = {
                     report,
                 });
                 hosts.set(position, host);
+                const stopSeen = watch(host.sessionId, (id) => {
+                    if (id !== null) seenErrors.markSession(id, clock.now());
+                }, {immediate: true});
+                context.signal.addEventListener("abort", stopSeen, {once: true});
                 return host;
             };
             context.signal.addEventListener("abort", () => {
@@ -365,6 +382,23 @@ export const agentBrowserPlugin: PluginDefinition = {
                 failed: (code) => text.t(agentText("conversation.listFailed", {code})),
                 now: () => clock.now(),
             });
+
+            /** 第一屏的最近对话（conversation.md 输出 41）：两个对话位置共用一份，与会话面板那份分开。 */
+            const recentSessions = createRecentSessions({remote, project});
+            /** 第一屏只显示 3 张卡片；最近对话里不列当前会话。 */
+            const WELCOME_RECENT = 3;
+            /** 第一屏的数据：指令取这个位置当前会话的 Profile，没选会话时取新会话会用的那个（`profileKey()` 已按此交回）。 */
+            const welcomeOf = (host: SessionHost): AgentWelcomeView => {
+                const current = host.sessionId.value;
+                const others = recentSessions.sessions.value.filter((session) => session.id !== current);
+                const profile = profiles.value.find((entry) => entry.key === host.profileKey());
+                return {title: text.t(agentText("conversation.welcomeTitle")), recent: others.slice(0, WELCOME_RECENT), total: others.length, starters: profile?.starters ?? []};
+            };
+            /** 没选会话时头上的图标：新会话会用的 Profile。 */
+            const draftProfileOf = (host: SessionHost): {name: string; icon: string} | null => {
+                const profile = profiles.value.find((entry) => entry.key === host.profileKey());
+                return profile === undefined ? null : {name: profile.name, icon: profile.icon ?? "i-lucide-bot"};
+            };
 
             /** 新建时选 Profile：目录里不隐藏、可用的多于一个才问；交回 null 是取消，undefined 是用缺省。 */
             const pickProfile = async (): Promise<string | null | undefined> => {
@@ -455,18 +489,25 @@ export const agentBrowserPlugin: PluginDefinition = {
                 return defineComponent({
                     name: "AgentConversationPosition",
                     inheritAttrs: false,
-                    setup() {
+                    // 右栏的视图拿到工作台给的上下文，经它取标题区（views.md 输出 19）；编辑区页面没有，头照旧画在内容里。
+                    props: {context: {type: Object, default: null}},
+                    setup(props) {
+                        const head = position === "view" && props.context !== null ? viewHeadOf(props.context) : null;
                         lastPosition = position;
                         // 页面标签关了或切走了：命令回到右栏，不再把它开回来。
                         onBeforeUnmount(() => {
                             if (lastPosition === position) lastPosition = "view";
                         });
-                        return () => h(ConversationHost, {host: hostAt(position), list, registry, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position)});
+                        return () => {
+                            const host = hostAt(position);
+                            return h(ConversationHost, {host, list, recent: recentSessions, welcome: welcomeOf(host), draftProfile: draftProfileOf(host), registry, renderers, services: services.value, pickProfile, labels, skillInit: initAt(position), subagents: {profiles: profiles.value, seen: seenErrors, results: runResults}, head});
+                        };
                     },
                 });
             };
 
-            const view: ViewImplementation = {load: () => conversationComponent("view")};
+            /** 对话视图接管面板头的标题区：头写会话，按标题开会话列表（conversation.md 输出 44）。 */
+            const view: ViewImplementation & ViewHeadOptIn = {load: () => conversationComponent("view"), [VIEW_HEAD]: true};
             const page: EditorPageImplementation = {load: () => conversationComponent("page")};
 
             // “模型请求”页：状态在插件作用域里一份（命令先写它、再打开页面），页面挂载时借用。

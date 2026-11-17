@@ -9,7 +9,7 @@ import type {Node as PMNode, Schema} from "@tiptap/pm/model";
 import {Transform} from "@tiptap/pm/transform";
 
 import type {MarkdownLanguage} from "../language";
-import {readMarkdown, setOrigins} from "./read";
+import {frontmatterOf, readMarkdown, setOrigins} from "./read";
 import type {ReadResult, SourceMap} from "./read";
 import {writeMarkdown} from "./write";
 import type {WriteResult} from "./write";
@@ -20,7 +20,8 @@ export interface MarkdownCodec {
     /** 写回：没编辑的块写原文，编辑过的块重新写出并读回校验（输出 1–3）。成功后提交被接受时调用结果的 `record`。 */
     write(doc: PMNode, map: SourceMap): WriteResult;
     /**
-     * 重载（正文被别处改了）：按 `source` 重新读入，在 `tr` 上只把不同的那一段换掉，返回新的原文对照，没变的块以新原文为来源。
+     * 重载（正文被别处改了）：按 `source` 重新读入，在 `tr` 上只把不同的那一段换掉（frontmatter 不同时也换文档的属性），返回新的
+     * 原文对照，没变的块以新原文为来源。
      * 旧的来源不再用：方言 Spec“状态与转换”，外部修改后重新读入，“哪些块被编辑过”按新的原文重新计。
      */
     reload(tr: Transform, source: string): SourceMap;
@@ -46,8 +47,11 @@ export function codecFor(schema: Schema, language: MarkdownLanguage): MarkdownCo
 /**
  * 把 `tr` 的文档换成 `read.doc` 的样子：只替换不同的那一段（没变的顶层节点还是编辑器里原来的对象，撤销历史映射过去后仍可用），
  * 换完不相等时（替换片段的边界落在节点中间，补出来的结构不同）整篇替换。之后按位置把新读入的来源登记到 `tr.doc` 的顶层节点。
+ * frontmatter 不同时先换文档的属性：文档相等要连属性一起比，留到后面会让整篇替换。
  */
 function adoptRead(tr: Transform, read: ReadResult, identities: ReadonlyMap<string, string>): SourceMap {
+    const frontmatter = frontmatterOf(read.doc);
+    if (frontmatterOf(tr.doc) !== frontmatter) tr.setDocAttribute("frontmatter", frontmatter);
     const next = alignIdentities(tr.doc, read.doc, identities);
     const start = tr.doc.content.findDiffStart(next.content);
     if (start !== null) {

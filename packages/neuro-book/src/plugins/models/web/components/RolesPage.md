@@ -5,7 +5,7 @@
 
 # RolesPage
 
-设置窗口 AI 分组下的“模型角色”页（[`models/settings-pages.md`](../../../../../../../docs/specs/models/settings-pages.md) 输出 13 到 17）：给角色绑模型。梯度四档（轻量、快速、主力、深度）与专精角色（内置的“压缩”和用户自建的）各一组，每行一个角色、一个可搜索的模型下拉（只列启用且可用的模型，第一项“不绑定”），选了立即写。未绑定的标红写“未绑定”，绑定的模型不可用时写原因。与 [`ProvidersPage`](ProvidersPage.md) 共用同一个数据模块；它也是页面，不是宿主。
+设置窗口 AI 分组下的“模型角色”页（[`models/settings-pages.md`](../../../../../../../docs/specs/models/settings-pages.md) 输出 13 到 18）：给角色绑模型。梯度四档（轻量、快速、主力、深度）与专精角色（内置的“压缩”和用户自建的）各一组，每行一个角色、一个可搜索的模型下拉（只列启用且可用的模型，第一项“不绑定”），选了立即写。未绑定的标红写“未绑定”，绑定的模型不可用时写原因。与 [`ProvidersPage`](ProvidersPage.md) 共用同一个数据模块；它也是页面，不是宿主。
 
 ## 布局
 
@@ -19,6 +19,7 @@
 - 别处改了角色时只换没在编辑的那几行的草稿，正在编辑的失焦后再以快照为准；回车之后紧接着失焦不重复写。
 - 删除自建角色（`removeRole`）不确认：角色本身没有别的数据，绑定随之消失。
 - 写失败交给窗口通知（`reportWriteFailure`），控件随快照回到实际值。
+- 打开到一个角色（`focus` 是角色 id，对话的“去绑定”用）：角色列表到了才取走（`takeFocus`），滚到那一行、焦点放在它的模型下拉上；不认识的 id 取走后不动。窗口已开在这一页时再来一次照样定位。
 
 ## 数据
 
@@ -27,6 +28,8 @@ defineProps<{
     store: ModelsStore;
     writable: boolean;
     reportWriteFailure: SettingsPageContext["reportWriteFailure"];
+    focus?: string | null;                          // 页面上下文的 focus；缺省 null
+    takeFocus?: () => string | null;                 // 取走 focus（页面上下文的 takeFocus）；缺省总是 null（Lab 与测试不给时不定位）
 }>();
 ```
 

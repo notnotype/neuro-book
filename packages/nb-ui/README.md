@@ -76,6 +76,8 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - [`Input`](src/components/form/Input.md)：单行输入。
 - [`Textarea`](src/components/form/Textarea.md)：多行输入。
 - [`NumberInput`](src/components/form/NumberInput.md)：数值输入与步进。
+- [`DateInput`](src/components/form/DateInput.md)：日期输入：分段打字或从日历里选，值是 `YYYY-MM-DD`。
+- [`TagInput`](src/components/form/TagInput.md)：一组短文字：每项一个小块，末尾接着打。
 - [`Select`](src/components/popup/Select.md)：从一列值里选一个，收在下拉框里。
 - [`SearchSelect`](src/components/form/SearchSelect.md)：可搜索的下拉：输入的文字只是搜索词，选中才改值。
 - [`Checkbox`](src/components/form/Checkbox.md)：复选框。

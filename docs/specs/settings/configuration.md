@@ -75,7 +75,7 @@ export const {settings: codeSettings, contributions: codeContributions} = define
 | `secret` | 本期声明 `true` 被拒（密钥存储尚未实现） |
 
 - 插件把对外的配置定义写在自己的 `shared/contracts.ts`，描述与读取方引用同一常量。
-- **作者规则**：会执行程序、指定网络地址或凭据、改变数据位置的配置项必须只允许用户层：项目层文件可能来自别人的仓库。
+- **作者规则**：会执行程序、指定网络地址或凭据、改变数据位置的配置项必须只允许用户层：项目层文件可能来自别人的仓库。例外：`nbook.editor/imageLocation` 与 `imageFolder`（图片存放位置，[`workbench.markdown-editing`](../workbench/markdown-editing.md) 输出 56）两层都能设：开发者决定它跟着作品走；写入由文件服务限制在作品根内、不进控制目录，所以别人的仓库最多让图存进作品里的别的目录。
 - `applies` 不改变读取：服务照常给出最新的值，消费者自己决定什么时候采用（下次运行、下次会话、重启后）；设置窗口据此在标题后标注生效时机。
 - 分区与小组存不存在不在登记时核对：分区是浏览器入口的贡献，配置项在每个实例都登记。指向不存在的分区或小组时怎样呈现，见 [`settings.window`](settings-window.md)。
 

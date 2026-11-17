@@ -8,7 +8,7 @@ import {Badge, IconButton, Spinner} from "@notnotype/nb-ui/components";
 import {useText} from "@notnotype/nb-ui/text-port";
 import type {AgentConversationContext, AgentViewAction, ToolCallView} from "@notnotype/nb-agent-ui";
 
-import {cardModel, type CardState} from "../subagent-card";
+import {cardModel, duration, type CardState} from "../subagent-card";
 import {subagentStoreKey, toolActionKey} from "../subagent-store";
 import {useAgentPageText} from "../text";
 
@@ -37,10 +37,6 @@ const STATE_ICON: Readonly<Partial<Record<CardState, string>>> = {
 };
 const spinning = computed(() => model.value.state === "running" || model.value.state === "preparing");
 
-const duration = (ms: number): string => {
-    const seconds = Math.max(0, Math.floor(ms / 1000));
-    return `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, "0")}`;
-};
 const meta = computed(() => {
     const parts: string[] = [];
     if (model.value.tools !== undefined) parts.push(t("conversation.subagent.tools", {count: model.value.tools}));

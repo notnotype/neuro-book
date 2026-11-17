@@ -10,6 +10,9 @@ export {default as AgentConversationComposer} from "./composer/AgentConversation
 export {default as AgentModelPicker} from "./composer/AgentModelPicker.vue";
 export {default as AgentRoleModelPicker} from "./composer/AgentRoleModelPicker.vue";
 export {default as AgentQueuedMessages} from "./composer/AgentQueuedMessages.vue";
+export {default as AgentNoticeCard} from "./composer/AgentNoticeCard.vue";
+export {default as AgentConversationHead} from "./head/AgentConversationHead.vue";
+export {default as AgentWelcome} from "./stream/AgentWelcome.vue";
 export {default as AgentMessageEditor} from "./stream/AgentMessageEditor.vue";
 export {default as AgentSessionTree} from "./panels/AgentSessionTree.vue";
 export {default as AgentContextInspector} from "./panels/AgentContextInspector.vue";

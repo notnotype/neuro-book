@@ -1,0 +1,88 @@
+以下全部来自读代码，没有跑任何测试或 e2e：当前处于只读（plan）模式，不允许跑命令。每条的复现步骤都写在条目里，需要作者在真实浏览器或 dom 测试里验证。
+
+### 1. 滑出去的分隔线仍向手势 scope 登记，与在树里的线同键，快速来回切换后活线永久失效
+- 严重程度：重要（第 3 片接入工作台后必须先修）；类别：正确性
+- 位置：`packages/nb-layout/src/vue/NestedGrid.vue:283`（`sashProps` 的 `frozen` 分支），`SashHandle.vue:101-108`、`:241`，`useSashGesture.ts:600-609`
+- 现象：`frozen` 分支只是 `disabled: true`，`branchId` 与 `index` 照旧。`SashHandle` 不管 `disabled`，挂载时都按 `branchId:index` 向 scope 登记。scope 的 `registrations` 是 `Map<"分支:序号", 登记项>`，后登记的盖掉先登记的。
+- 工作台的区域列分支 id 是固定的 `region:sidebar`（`web/state/default-tree.ts:35`，每个容器的分节都是它的子节点）。所以两个容器各有 2 节以上时，滑出去的线与在树里的线同键，例如 `region:sidebar:0`。夹具里 A 与 C 共用分支 `side`，同样撞键。
+- 直线切换 A→C：C 的线是新挂的元素，后登记，赢；A 的线是老实例，之后卸载时 `unregisterSash` 带元素比对，不会误删。没问题。
+- 坏的序列：A→C 滑到一半，再点回 A（`planSwap` 的重定向分支）。
+  1. 回到树里的是 A 的老实例，它的登记早就被 C 的线盖了。
+  2. 这时滑出去的是 C 的线，是登记项。
+  3. 过渡结束，C 的线卸载，`current.element === 它` 成立，登记被删。
+  4. A 的线没有任何登记。`reRegister` 只在元素或 `branchId/index/axis` 变时调，再渲染不会补登记。
+  5. 结果：这条线不可悬停、不可拖、不响应键盘（`keydown` 里 `registrations.get(key)` 为空直接返回），直到它重新挂载。
+- 另外：交换进行的 470ms 里，DOM 上有两个 `data-sash="region:sidebar:0"` 元素。`hovered`、`revealed` 也按这个键，所以滑出去的线会跟着活线一起亮。
+- 核实：Lab 的交换场景里点 A→C，滑到一半点回 A，等结束后在 A 的两块叶之间悬停与拖动，看 `data-sash-hover` 与手势是否发生。dom 测试：同上序列后，用 `scope.hitsAt` 或派发 pointerdown 断言能开始手势。现有测试没有一个让两个分隔线同分支同序号，所以抓不到。
+- 建议：滑出去的线不登记。给 `SashHandle` 加一个“静态”属性，该属性为真时跳过 `registerSash`，也不参与 `hovered`。`frozen` 分支已经知道自己是离开项，传进去即可。
+
+### 2. 滑出去的分隔线仍按“当前文档”调宿主的 `sashKind`、`sashStyle`，两侧节点已不在树里，会得到错的结果
+- 严重程度：重要；类别：正确性 / 文档
+- 位置：`NestedGrid.vue:609`（`sashKind?.(...)`），`:260-264`（`sashBoxStyle` 里的 `props.sashStyle?.(...)`）；使用方 `WorkbenchSurface.vue:337-355`，`shell/adjacency.ts:164-170`
+- 现象：离开的那组线，两侧节点 id 已经不在新布局里，但这两个回调仍照常调用。
+  - 工作台的 `sashKind` 用 `findBranch(props.projection.input, branch)` 取分支。分支 id 是固定的 `region:sidebar`，所以能找到现在的分支。
+  - `sashKindOf` 里 `branch.children.filter(child.id === before || child.id === after)` 得到空数组。`nodes.every(...)` 对空数组为真，于是返回 `"editors"`。
+  - 滑出去的那条 `panes` 线在提交那一刻变成 `data-sash-kind="editors"`，`sashStyleOf` 又因为 `before` 找不到返回 `undefined`，卡片之间那 1px 的底色与投影（`--shell-sash-fill-*`）同时丢掉。
+  - 视觉上是离开的容器在滑出去的头一帧里线变样，正是“宿主样式”这一条（Spec“分隔线的宿主样式”）想避免的。
+- 接口层面：`NestedGrid.md` 没有说这两个回调会收到已离开的节点 id，第三方宿主很可能直接抛错或返回错值。
+- 建议：交换要离开的分隔线，在 `planSwap` 里就把 `sashKind` 与 `sashStyle` 的结果冻结进 `frozen`（此刻调用方还在上一帧）。至少在 `NestedGrid.md` 写明回调会收到已不在树里的 id，并让工作台侧容错（`nodes.length < 2` 时不要返回 `editors`）。
+
+### 3. 带上的集合在计划那一刻固定，之后才挂上来的项没有裁切、直接出现在终点
+- 严重程度：重要（可能）；类别：正确性
+- 位置：`grid-swap.ts:85-88`、`:231`（`groups[].home`）；`NestedGrid.vue:138`（`swapSide`）；`useContentLayer.ts:149`；`useGridMotion.ts:229`（`start()` 只在 `move.swap` 有值时换 band）
+- 现象：`swapSides` 与 `swapClip` 只认 `home` 里的键。交换进行中，换上来的那组里后到的东西不在 `home` 里：
+  - 后挂的内容项（内容在下一个 flush 才进 `contents`），或换上来的组里后来多出的叶；
+  - `home` 里记的内容项矩形也会过期：编辑组头高度由 `ResizeObserver` 测完后改 `insetTop`，对应 `WorkbenchSurface.vue:122-148` 的 `editorHeadHeights`。
+  - 这些后到的项没有 `data-swap`，`swapClip` 返回 `undefined`，不带 `clip-path`；新元素又没有过渡，直接出现在终点位置。
+  - 这时外框还在窗外滑，内容已经画在窗里的终点，或盖在滑出去的那组上。
+- 同一件事的另一面：第二次发布（见第 4 条）让 `home` 里的矩形与实际不一致，之后重定向时 `bandOffsets` 算的偏移（`position - leaf.rect.x/y`）就偏了。
+- 核实：在 `GridSwapScene` 里让 `switchTo` 先换树与交换，下一个 tick 才把新组的内容项放进 `contents`；或在滑动中改某个叶的尺寸，再点一次。
+- 建议：进行中的交换里，`band` 外的新项如果属于带上某组的叶，就并进那组。或者让 `swapClip` 按“叶属于哪个组”判，而不是按键是否在 `home` 里。
+
+### 4. `token` 被任何第一次触发的布局 watcher 用掉；第二次发布时带上的几何过期，约定绑在 Vue 刷新时序上
+- 严重程度：建议；类别：正确性 / 接口
+- 位置：`NestedGrid.vue:155-168`（`freshSwap`、`takeSwap`），`:369`；`useGridMotion.ts:131`；`useGridLayout.ts:46-75`；使用方 `WorkbenchSurface.vue:100-108`（`presented` 再发布）
+- 重点 1 的核对结论：
+  - 宿主在同一同步段里给 `swap` 并提交文档时，新布局确实在同一轮刷新里到达，且先于布局 watcher 执行。理由：组件更新时 `updateProps` 之后会 `flushPreFlushCbs`，所以 sync watcher（记下 token）先于 pre-flush 的 `layers` watcher。我没跑，是从 Vue 的行为推的；作者的 dom 测试有这一路。
+  - 只要 `layers` watcher 的第一次回调不是目标布局，`token` 就浪费。`takeSwap()` 作为实参先于 `decideMotion` 取用，所以不管 `decideMotion` 返回的是 `none`、`stop`、`holding`、预览中还是无移动，`token` 都被消耗。其中只有“忽略之后一边为空”和“还在别的过渡里”有 `issues`，其余静默放弃。
+  - 工作台的 `presented` 再发布：`watch(host.layout) → emit("presented") → store → projection → 新 Grid → useGridLayout.recompute`，是同一轮刷新里的第二次布局。它走普通过渡，带还在飞。此时带上目标组的叶的外接 `rect` 变了，`home` 里的矩形过期（见第 3 条）；`start()` 不重写这些项的起点，所以这一刻是普通过渡与交换的 `left/top/clip-path` 同时重新定向，不会跳，但偏移的几何已经不准。
+- 为什么是问题：`nextTick` 作废是为了“这一轮没有布局变化就别留给后面不相干的变化”，但它把 API 绑在 Vue 的刷新时序上。第三方宿主只要布局是异步算的（worker、`await`），`swap` 就永远失效，而且只有在“一边为空”的情况下才有 `issues`。
+- 建议：让 `swap` 带上它对应的布局版本（`useGridLayout` 已有 `revision`），在 `revision` 变到该值的那次布局变化里用掉，不靠 `nextTick`。至少把“`token` 被第一次布局 watcher 消耗，其余情形静默忽略”写进 `NestedGrid.md`。
+
+### 5. 新增的几条判据缺测试，现有测试抓不到第 1、3 条
+- 严重程度：建议；类别：测试
+- 位置：`grid-swap.test.ts`、`NestedGrid.dom.test.ts` 的“NestedGrid 交换”、`e2e/lab-grid-swap.e2e.ts`、`useGridMotion.dom.test.ts`（本片没改）
+- 缺口：
+  - 没有 `decideMotion` 的合并用例（重点 3）：`busy` 跳过，`without` 去掉带上的键，`still` 被换掉，交换进行中来了非交换的布局变化时 `band` 留着，`stop()` 清 `band`。`useGridMotion.dom.test.ts` 与 `grid-motion.test.ts` 这次都没动。作者的三处变异检查（`token` 作废、停放条件、起点那一帧的裁切）只覆盖了几条路径。
+  - 没有任何用例让滑出去的线与在树里的线同分支同序号（第 1 条）。夹具里 A→B（B 单叶，没有 `side` 分支）、B→C、A→B→A 都避开了；A→C 与 A→C→A 没测。
+  - 重定向只在 e2e 里测，且只量叶的上下边。内容外层、分隔线、`clip-path` 同偏移的判据（重点 2）没有被量。验收 11 写的是“外框与内容与分隔线”，e2e 里只有第一个用例对分隔线读了位置。
+  - e2e 里 `pauseAt` 是 `animation.pause()` 后设 `currentTime`，然后点按钮。这比真实的“过渡正在跑时读 `getComputedStyle`”更宽松（暂停的动画读值稳定）。作者可再补一条不暂停、点完立即读 `left` 的用例。
+  - 没有测滑出去的线的 `aria-*`、不登记、焦点；`holding`/`previewing` 时给了交换的行为也没测（决定了是静默放弃）。
+- 建议：先补第 1 条的 dom 回归用例（A→C→A，断言最后活线能开始手势），以及 `decideMotion` 层的交换合并用例。
+
+### 6. 滑出去的分隔线对读屏仍是可见的 `separator`
+- 严重程度：建议；类别：不变量
+- 位置：`NestedGrid.vue:283-299`、`:609`；`useRenderOrder.ts`（`ariaOwns` 只排除停放的内容项）
+- 现象：滑出去的叶是 `inert`，内容也停放了，但对应的线只是 `aria-disabled` 加 `tabindex=-1`，仍是 `role="separator"` 带 `aria-valuenow`，在 `aria-owns` 里。滑出的 470ms 里读屏会同时读到新旧两组线。
+- 建议：滑出去的线加 `inert` 或 `aria-hidden`，并从 `ariaOwns` 里排除。
+
+### 7. 文档与命名
+- 严重程度：建议；类别：文档 / 代码质量
+- 位置：`NestedGrid.md:149`；`useGridMotion.ts:261-265`；`grid-swap.ts:148-159`
+- `outgoingLeaves` 的说明还写“缩回去”，实际上交换里滑出去的叶也在里面（`leavingLeaves` 是 `motion.leaving` 的叶）。工作台的 `drawnAsBefore` 正是靠它，而且碰巧用得对，说明应改。
+- `busyLeaves` 用 `key.replace(/^leaf:/, "")` 从键串里解析叶 id。仓库里已经有别处手拼 `leaf:${id}`，这是第三处，可以换成一个函数。
+- `planSwap` 里 `Live` 对象用 `Object.assign` 就地改（`:150`、`:158`），读起来要在脑子里跟踪四次变异；换成 `map` 重建会简单。
+- `window.inset/radius` 在过渡结束一帧同时去掉 `clip-path`。如果宿主给的内缩与圆角不等于静止时的样子，最后一帧会跳一下（被裁掉的部分突然露出来）。`NestedGrid.md` 应写明“窗口应等于静止时的外观”。
+
+### 未发现问题的方面
+- 重点 2 的核心（就地停住不跳）：起点那一帧不带 `data-moving`（`structureMoving`、`contentMoving` 对 `growing` 里的键返回假），写的是 `getComputedStyle` 读到的此刻位置，与 demo `regionScroller` 的“从此刻的 `s` 重新开始、已在带上的回走、否则接在最外面那组后面、整段完整时长”一致。起点与终点的 `clip-path` 都用同一个矩形算（`swapClipStyle(item.key, growing.get(...) ?? rect)`），写法一致。
+- 重点 3：带上的项的 `entering`、`following`、`flying`、`keptSize`、`rightAnchored` 都在 `decideMotion` 末尾去掉；`withoutLeaving` 与 `still` 已扩到分隔线；被摘掉的组的键进 `banded`，不会再出现在 `leaving` 里；`stop()` 清 `band`；非交换变化不换 band。
+- 重点 4：`isParked` 加的 `outgoingLeaves` 条件对原来缩回去的叶、降到零的叶不改变结果，那些叶本来就是零或矩形为空；`content-parked` 的时机是 `motion.update` 之后、`contentLayer.update()` 里，同一个 watcher 内。
+- 性能：只有 `swap` 非空的那一轮才多做事。`groupItems` 是 O(分隔线数 × 叶数 × 路径深)，调两次；`bandOffsets` 每个组一次 `getComputedStyle`，只在重定向时；渲染里每项多一次 `Map.has`。没有每帧的新工作。我没有实测，这是按代码估的。
+- 第 1 条之外的接口：`index.ts` 只导出 `GridSwap`、`GridSwapWindow` 两个类型，其余 `GridSwapBand` 等留作内部，合理。
+
+### 数量
+阻断 0；重要 3（第 1、2、3 条）；建议 4（第 4、5、6、7 条）。
+有效发现：1, 2, 3, 4, 5, 6, 7
+
+exit=0

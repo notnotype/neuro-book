@@ -32,6 +32,8 @@ import type {WindowText} from "nbook/shared/window-text";
 import {createHostTextEngine} from "nbook/web/host/text-engine";
 import {createAssetUrls, markdownAssetsKey} from "../parts/asset-urls";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
+import {memoryPropertiesOpen, markdownPropertiesOpenKey} from "../properties-open";
+import type {PropertiesOpen} from "../properties-open";
 import {markdownCatalogs} from "../text";
 import MarkdownControl from "./MarkdownControl.vue";
 
@@ -58,6 +60,8 @@ interface Opened {
     /** 窗口的翻译引擎：登记了内置插件 `nbook.markdown` 的目录，控件经它注入的端口取文字。 */
     readonly text: WindowText;
     readonly wrapper: VueWrapper;
+    /** 属性面板的展开状态：每次挂载一份内存里的，用例之间不串。 */
+    readonly propertiesOpen: PropertiesOpen;
 }
 
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
@@ -77,6 +81,7 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
         return found?.kind === "text" && editorArea.documentOf(groupId)?.status.value === "ready" ? found : null;
     });
     let handle: EditorControlHandle | null = null;
+    const propertiesOpen = memoryPropertiesOpen();
     const tabId = binding.tabId;
     const host = editorArea.tabControlSlot(tabId, MARKDOWN_EDITOR);
     const windowText = createHostTextEngine({locale: "zh-CN", strict: true});
@@ -87,10 +92,10 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerTabHandle(tabId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, ...(options.menus === true ? {[editorMenusKey as symbol]: options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port)} : {})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
+    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets, [TEXT_PORT_KEY as symbol]: windowText.port, [markdownPropertiesOpenKey as symbol]: propertiesOpen, ...(options.menus === true ? {[editorMenusKey as symbol]: options.margin === true ? {...createLabEditorMenus(editorArea, windowText.port), commentMargin: ref(true)} : createLabEditorMenus(editorArea, windowText.port)} : {})}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
-    return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText, wrapper};
+    return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId, text: windowText, wrapper, propertiesOpen};
 }
 
 /** 第 n 个顶层块里第一个文本块的末尾。 */
@@ -152,6 +157,19 @@ describe("交出（方言 Spec 输出 1–3）", () => {
         expect(editor.state.doc.child(0).type.name).toBe("paragraph");
         handle.flushPendingChange();
         expect(binding.text.value).toBe("");
+    });
+
+    it("只改了 frontmatter（文档属性的事务）：交出写回新的原文、面板跟着换，正文字节不变；撤销回到原来的（方言 Spec 输出 22）", async () => {
+        const {editor, handle, binding, wrapper} = await opened("---\na: 1\n---\n\n甲\n");
+        const shown = (): string => wrapper.get("[data-property-summary]").text();
+        editor.view.dispatch(editor.state.tr.setDocAttribute("frontmatter", "---\na: 2\n---\n"));
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\na: 2\n---\n\n甲\n");
+        await waitUntil("面板换成新的", () => shown() === "a 2");
+        editor.commands.undo();
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\na: 1\n---\n\n甲\n");
+        await waitUntil("面板换回原来的", () => shown() === "a 1");
     });
 });
 
@@ -437,6 +455,104 @@ describe("重载（“状态与转换”、editor 输出 12）", () => {
         editor.commands.insertContentAt(endOfBlock(editor, 2), "丁");
         handle.flushPendingChange();
         expect(binding.text.value).toBe("* 甲&amp;\n\n丙&amp;\n\n戊丁\n");
+    });
+
+    it("frontmatter 在正文上方的属性面板里、不在正文里；磁盘改了它，面板跟着换，改正文时它的字节不变（方言 Spec 输出 22）", async () => {
+        const {editor, handle, binding, memory, wrapper, area, groupId} = await opened("\uFEFF---\r\na: 1\r\n---\r\n甲\r\n");
+        const shown = (): string | null => (wrapper.find("[data-property-summary]").exists() ? wrapper.get("[data-property-summary]").text() : null);
+        expect(shown()).toBe("a 1");
+        expect(editor.state.doc.textContent).toBe("甲");
+        memory.externalWrite("project://a.md", "\uFEFF---\r\na: 2\r\n---\r\n甲\r\n");
+        await waitUntil("重载", () => shown() === "a 2");
+        editor.commands.insertContentAt(endOfBlock(editor, 0), "乙");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("\uFEFF---\r\na: 2\r\n---\r\n甲乙\r\n");
+        // 保存之后磁盘的新内容才直接换进正文（没保存时只提示磁盘变了）。
+        expect(await area.documents.save(area.documentOf(groupId)!)).toEqual({ok: true});
+        memory.externalWrite("project://a.md", "\uFEFF甲乙\r\n");
+        await waitUntil("去掉 frontmatter 后重载", () => shown() === null);
+    });
+});
+
+describe("属性面板（workbench.markdown-editing 输出 39–51）", () => {
+    const panelInput = (wrapper: VueWrapper, label: string) => wrapper.get<HTMLInputElement>(`[data-markdown-properties] input[aria-label="${label}"]`);
+
+    it("没有 frontmatter 不画；面板改一个值：交出只换这一行，一个撤销步；展开按文件记下", async () => {
+        const plain = await opened("甲\n");
+        expect(plain.wrapper.find("[data-markdown-properties]").exists()).toBe(false);
+        const {wrapper, editor, handle, binding, propertiesOpen} = await opened("---\r\n# 注\r\n视角: 林雪\r\n---\r\n甲\r\n");
+        expect(wrapper.find(`[data-markdown-properties] input[aria-label="视角"]`).exists()).toBe(false);
+        await wrapper.get("[data-markdown-properties] button[aria-expanded]").trigger("click");
+        expect(propertiesOpen.isOpen(binding.address.value)).toBe(true);
+        const input = panelInput(wrapper, "视角");
+        input.element.focus();
+        await input.setValue("yes");
+        await input.trigger("keydown", {key: "Enter"});
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\r\n# 注\r\n视角: \"yes\"\r\n---\r\n甲\r\n");
+        editor.commands.undo();
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\r\n# 注\r\n视角: 林雪\r\n---\r\n甲\r\n");
+    });
+
+    it("面板里还没写回的输入算没交出的输入：结算先写回，再交出", async () => {
+        const {wrapper, handle, binding, propertiesOpen} = await opened("---\na: 1\n---\n甲\n");
+        propertiesOpen.set(binding.address.value, true);
+        await nextTick();
+        const input = panelInput(wrapper, "a");
+        input.element.focus();
+        await input.setValue("2");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\na: 2\n---\n甲\n");
+    });
+
+    it("面板写回后停手的计时到点：另一个输入里打了一半的字不当成写回（输出 42）", async () => {
+        const {wrapper, binding, propertiesOpen} = await opened("---\na: 1\nb: 2\n---\n甲\n");
+        propertiesOpen.set(binding.address.value, true);
+        await nextTick();
+        const value = panelInput(wrapper, "b");
+        value.element.focus();
+        await value.setValue("5");
+        await value.trigger("keydown", {key: "Enter"});
+        const name = panelInput(wrapper, "属性名：a");
+        name.element.focus();
+        await name.setValue("ti");
+        await waitUntil("停手后交出 b 的写回", () => binding.text.value.includes("b: 5"));
+        expect(binding.text.value).toBe("---\na: 1\nb: 5\n---\n甲\n");
+        expect(name.element.value).toBe("ti");
+    });
+
+    it("只用回车换行的文档新建 frontmatter：写成 \\n 的一段，面板照常挂上、能交出", async () => {
+        const {wrapper, handle, binding} = await opened("甲\r乙\r");
+        expect(handle.editing?.run("properties")).toBe(true);
+        await waitUntil("面板挂上", () => wrapper.find("[data-markdown-properties]").exists());
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\n---\n甲\r乙\r");
+    });
+
+    it("编辑动作 properties：没有 frontmatter 时建一段空的，面板展开、焦点在新属性的名字上；打名字回车写回", async () => {
+        const {wrapper, handle, binding, propertiesOpen} = await opened("甲\r\n");
+        expect(handle.editing?.run("properties")).toBe(true);
+        const newName = () => wrapper.find<HTMLInputElement>(`[data-markdown-properties] input[aria-label="属性名"]`);
+        await waitUntil("面板挂上并聚焦新属性名", () => newName().exists() && document.activeElement === newName().element);
+        expect(propertiesOpen.isOpen(binding.address.value)).toBe(true);
+        const name = panelInput(wrapper, "属性名");
+        await name.setValue("视角");
+        await name.trigger("keydown", {key: "Enter"});
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("---\r\n视角:\r\n---\r\n甲\r\n");
+    });
+
+    it("正文第一块开头按上方向键进面板；面板里按 Esc 回到正文", async () => {
+        const {wrapper, editor} = await opened("---\na: 1\n---\n甲\n");
+        editor.commands.focus("start");
+        editor.view.dom.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowUp", bubbles: true, cancelable: true}));
+        const toggle = wrapper.get<HTMLButtonElement>("[data-markdown-properties] button[aria-expanded]");
+        expect(document.activeElement).toBe(toggle.element);
+        await toggle.trigger("keydown", {key: "Escape"});
+        // Tiptap 的 `focus()` 在下一帧才把焦点给正文。
+        await waitUntil("焦点回到正文", () => editor.view.hasFocus());
+        expect(editor.state.selection.from).toBe(1);
     });
 });
 
