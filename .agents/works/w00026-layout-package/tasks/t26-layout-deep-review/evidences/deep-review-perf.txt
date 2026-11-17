@@ -1,0 +1,355 @@
+# t26 深入审查：perf（Claude Sonnet，2026-11-16，固定在 954ed9e94）
+
+## 汇总
+
+性能审查汇总（w00026 t26，提交 954ed9e94）
+
+数量：阻断 0；重要 2；建议 7。第 10 号文件是对第 1 条的收窄与补充，不算新发现。
+所有发现都是从代码推断，没有在浏览器里量；每条里写了主 Agent 的量法（CDP `Performance.getMetrics` 的 `RecalcStyleCount`、`LayoutCount`，Vue 渲染计数，Performance 录制，rAF 计数）。
+
+有效发现的编号
+- 重要
+  - 01 分隔线装饰对齐（`useSashSnap`/`SashHandle.snap`）：任意元素滚动、拖边界每帧都对所有分隔线“清空再重写”并逐条强制样式重算。第 10 条收窄了它的建议改法第 4 点。
+  - 09 编辑组头的 ResizeObserver 回调无条件换新对象：头的宽度变化的每一帧（拖侧栏边界、窗口缩放、侧栏过渡）多一次 NestedGrid 整份渲染。改一行。
+- 建议
+  - 02 拖边界每帧、指针每换一块面板，NestedGrid 整份渲染连同插槽重跑；面板头与视图外框每次收到新数组与新闭包。
+  - 03 拖动每帧重算“结构键”（排序加序列化所有标签），及落点身份与预览键的序列化。
+  - 04 实时布局的帧循环一旦开始就不停，静止时仍以屏幕刷新率空跑。
+  - 05 整窗拖动用 `translate` 但没有 `will-change`，每帧重新栅格化窗的新旧矩形。
+  - 06 同一盒子两个 ResizeObserver，窗口缩放时每帧渲染两次、排版两到三次。
+  - 07 标签条与活动栏上的落点不进缓存，指针每动一次做一次完整的文档操作。
+  - 08 布局过渡用 setTimeout（加 50 毫秒余量）判结束，主线程忙时提前 `finish()` 造成跳变。
+
+仔细检查后没有发现问题的方面
+- 拖边界的求解本身：`useSashGesture` 把指针移动合并到一帧一次 `flush`（rAF），松手时补一次；`createGridGestureSession.solve` 每帧一次 `cloneTree`、`layoutOf`、`changeOf`，树约 20 个节点，量级可忽略；没有一次指针移动多次判定。
+- 悬停：光标样式表第一次插入后常驻（t21 已修）；`hitTargets()` 在指针移动时读矩形，此刻布局是干净的，不强制排版；`setHovered` 等有集合相等比较，值没变不换对象；离开命中带时取消计时。
+- 实时拖动帧循环内的读写顺序：`tick` 先读（`placeSorted` 的读、`session.flush()` 里的判定、`elementsFromPoint`）后写（`placeSorted()`、`placeCard`），判定之前没有写；`placeSortedAfterRender` 只在状态变的那一帧用。
+- `dragCardRefresh` 的上限：卡片尺寸只经 `updateCard` → `placeCard` → `NestedGrid.placeLifted` 一条路径写，且只写变了的键；`NestedGrid.frameStyle` 在重渲染时写回的是 `liftedRect`（上一次写出去的值），不会绕过上限；位置每帧写（设计如此）。`placeSortedAfterRender` 写的是 `translate` 位置，不是尺寸。
+- 浮动窗移动不走渲染（`placeFloat` 直接写元素），拖影用 `transform` 加 `will-change`。
+- `useLayoutExtent`、`useDevicePixelRatio`：只在值变时发布、单一来源，没有每帧更新；`useSashSnap` 的 rAF 合并本身正确（问题在第 1 条的触发源与写入方式）。
+- `WorkbenchShell` 对拖动状态的订阅：`session.state` 每帧发布，但 `dragSource`、`dragDrop` 用 computed 拆开，落点对象身份稳定（`stableDrop`），下游不随指针重渲染。
+- `placeGrid`、`placeContents`、`layerItems`、`useRenderOrder`、`useLeafParking`：线性或接近线性，节点数小，没有二次复杂度。
+- 过渡用 `left/top/width/height` 而不是 `transform`：这是已确认的设计（两条边同步），不当问题报；代价（过渡每帧排版，`following` 的内容每帧重排）只是它的结果，没有额外的写入或读写交错。
+- nb-ui 冻结副本 `Splitter.vue`、`sash-drag.ts`：没有新的热路径问题，只有与第 1 条同样的 scroll 监听（见第 10 条），按计划以后删。
+- 未覆盖：`WorkbenchToolStrip`、`WorkbenchItemStrip`、编辑器标签条自身的渲染成本；`TabStrip` 的 `useTabsAdapt` 在 `items` 每次新数组时会重测（nb-layout 的 `TabStrip` 在工作台里只有多标签的浮动窗用到，没单列）；`adaptTabs` 每次返回新状态对象导致 `TabStrip` 每次测量后多渲染一次，属于 nb-ui，没展开。
+
+
+## perf-01
+
+### 1. 页面上任何元素滚动、拖边界的每一帧，都会把所有分隔线的装饰“清空再重写”并逐条强制样式重算
+
+- 严重程度：重要；类别：安全与性能
+- 位置：packages/nb-layout/src/vue/useSashSnap.ts:57-60（window 上的 scroll 捕获监听）、:38-51（schedule）；packages/nb-layout/src/vue/SashHandle.vue:143-157（writeDecorationGeometry）、:163-205（snap）、:213（writeLineCore 里的 getComputedStyle）；packages/nb-layout/src/vue/NestedGrid.vue:279-282（拖边界每帧都 schedule）
+- 依据：从代码推断，没在浏览器里量过。
+
+现象
+
+1. `useSashSnap` 在 window 上按捕获阶段监听 `scroll`（useSashSnap.ts:59）。滚动事件不冒泡，捕获监听等于“页面里任何元素滚动，每帧排一次 `schedule()`”：编辑器正文、资源树、对话列表、面板里的任何滚动条都算。每个 NestedGrid（工作台一个，Lab 里更多）各自一份监听。
+2. `schedule()` 的这一帧会跑所有已登记的 `snap(dpr)`（SashHandle.vue:163）。每条分隔线的 `snap` 做：
+   - `element.getBoundingClientRect()`（读）；
+   - `writeDecorationGeometry(lineEl, …)` 与 `writeDecorationGeometry(seamEl, …)`：先 `style.top = style.bottom = style.left = style.right = ""`，再把 `left`（或 `top`）、`width`（或 `height`）写回去（SashHandle.vue:147-155）。值最终没变，但 `left` 这一项先被移除又被加回，Blink 的内联样式变更不比较最终值，两个装饰元素每次都被标成样式脏；
+   - `writeLineCore` 里 `getComputedStyle(target).getPropertyValue("--sash-line-size")`（SashHandle.vue:213）：读刚被标脏的 `lineEl` 的计算样式，强制一次样式重算。
+   所以每条带装饰的线是“写（标脏）→ 读计算样式（强制重算）”，N 条线串行 N 次，不是合并成一次。
+3. 拖边界时同样：每个预览帧 `treePlacement` 换一个新对象，NestedGrid.vue:279-282 就 `snapHost.schedule()`，这一帧再跑一遍上面的全套。这一帧本来分隔线的装饰几何一个数都没变（相对分隔元素的 start 与 thickness 只和 dpr、接缝尺寸有关，拖动不改）。
+
+为什么是问题
+
+- 开发者的原则是“值没变也每帧写的样式”要省。这里值没变，仍然每帧写、并且每条线强制一次样式重算。
+- 滚动与分隔线几何无关：工作台的 NestedGrid 不在任何滚动容器里（`.nb-nested-grid` 是 `overflow: clip`、整窗铺满），它里面的元素滚动不会让分隔线在视口里的位置变。注释（useSashSnap.ts:50-55）说的是“滚动改变接缝在视口里的位置”，只对**包着 grid 的**滚动容器成立，不是任意滚动。
+- 估计量级：工作台默认树带装饰的分隔线约 6 到 8 条。每一轮约 6 到 8 次强制样式重算（每次一个叶子 span，单次很小，粗估 20 到 50 微秒），加 6 到 8 次 getBoundingClientRect。在编辑器里连续滚动、或拖边界时，每帧多约 0.2 到 0.5 毫秒主线程，`RecalcStyleCount` 每帧多 6 到 8。绝对值不大，但是纯浪费，并且滚动时让 `RecalcStyleCount` 不再为 0。
+
+如何核实（主 Agent）
+
+- 用 CDP `Performance.getMetrics` 前后各取一次 `RecalcStyleCount`、`LayoutCount`：(a) 在编辑器或资源树里滚轮滚动约 1 秒（60 帧），记差值；(b) 拖一条边界约 1 秒。预期 (a) 现在是每帧约 N 次样式重算，N 是带装饰的线数；改后应约为 0。
+- 或者给 `useSashSnap` 的 `schedule` 里数调用，滚动时每帧 1 次，每次里 N 次 `snap`。
+
+建议改法（让部件变少）
+
+1. scroll 监听只认包着 grid 根的滚动：`useSashSnap` 收一个 root ref，监听里判 `event.target === document || (event.target as Node).contains(root)`，否则直接返回。工作台里这样就等于不监听。
+2. `snap` 记下每个装饰元素上一次写的几何（start、thickness、`--nb-sash-core-*` 的字符串），值一样就不写；不要“先清空再写”，只清掉换方向时另一个方向留下的那几个键。
+3. `getComputedStyle(...).getPropertyValue("--sash-line-size")` 一轮只读一次（从 `useSashSnap` 的宿主读，传给每条线），或缓存到主题变量变化；不要每条线各读一次、并且夹在写之间。
+4. 拖边界帧里不需要排对齐：几何不变。`NestedGrid` 的 `snappedTree` 判断可以改成“分隔线的矩形是否变了”，拖动期间分隔线矩形虽变，但装饰相对位置不变，只有 dpr、接缝尺寸、方向变才需要重对齐（过渡结束 `onSettled` 与 `useDevicePixelRatio` 变化已有单独触发）。
+
+
+## perf-02
+
+### 2. 拖边界每一帧、指针每换一块面板，NestedGrid 的整份渲染连同所有插槽重跑一遍，面板头与视图外框每次都收到新的数组和闭包
+
+- 严重程度：建议（量到每帧脚本时间超过约 2 毫秒再升为重要）；类别：安全与性能
+- 位置：
+  - packages/nb-layout/src/vue/NestedGrid.vue:109-110（renderTree、renderLayout 读 preview）、:503-557（模板，叶、内容两个插槽在这个渲染里跑）、:224-244（sashProps 每条线每次都算 aria 与 `text()`）
+  - packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:223（headTabs 每次新数组）、:232（editorFrameActions 每次新数组）、:240-255（frameActionsOf：每次新数组并对 2 到 3 条命令调 `commands.isEnabled`）、:711-736（`#head` 插槽）、:780（`viewFrameOf(contentKey)` 一个内容写了三次调用，v-on 还每次生成新闭包）
+  - packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:338（`@pointerover` 写 `pointerPanel`）、:318 与 :378（`actionsShownOn` 在叶插槽里读 `pointerPanel`、`focusedPanel`）
+- 依据：从代码推断，Vue 渲染次数与脚本时间没量过。
+
+现象
+
+1. 拖边界：手势每个动画帧把预览写进 `preview`（NestedGrid.vue:368），`renderLayout`、`renderTree` 变，NestedGrid 整个重渲染一次。插槽函数在 NestedGrid 的渲染里被调用，所以宿主在插槽里读到的所有响应式状态都被 NestedGrid 的渲染副作用跟踪，每次渲染插槽体也整份重跑：
+   - `#head`：每块工具面板 `headTabs(panelId)` 新数组、`frameActionsOf(panelId)` 新数组（还要问命令系统 `isEnabled`）、编辑组的 `editorFrameActions` 新数组。`WorkbenchPanelHead` 的 props 浅比较一定不等，每次整个头（含 `IconButton` 三个）重渲染。
+   - `#content`：`viewFrameOf(contentKey)` 在模板里被调 3 次（v-else-if、v-bind、v-on），每次新对象与新闭包；`WorkbenchViewFrame` 一定重渲染（里面的视图组件靠 `markRaw` 的 `context` 与稳定 `component` 躲过去了）。
+   - `#leaf`：每块叶 `insetOf`、`joinOf`、`barSeamOf`、`sceneOf`、`actionsShownOn` 各算一遍。
+   - 每条分隔线 `sashProps`：`buildGridBranchPanels(sash.branch.children, …)`，两次 `text()`，`controlledIds` 里对内容数组 `find`。
+2. 悬停：`@pointerover` 在指针换到另一块面板时写 `pointerPanel`（只在面板之间变），而 `actionsShownOn()` 在叶插槽里读它，所以指针每跨一次面板，NestedGrid 同样整份重渲染（`focusedPanel` 同理）。这条路径 t21 没动：t21 只修了样式表插入与函数 ref。
+3. 这些渲染都不写 DOM（值没变 Vue 的样式补丁不改 DOM，浏览器侧对同值写入基本是空操作），代价是脚本时间，不是排版。
+
+估计量级
+
+- 面板头与视图外框合计约 6 到 10 个组件实例，每个重渲染 0.05 到 0.2 毫秒，加 NestedGrid 自己的渲染与 `sashProps`：粗估每次 0.5 到 1.5 毫秒。拖边界约每帧一次，144Hz 下每秒约 70 到 200 毫秒主线程。悬停每跨一次面板一次。这是估计，不是实测。
+
+为什么是问题
+
+- 开发者原则是“动画帧不多绘”，t22 已经为实时拖动把卡片矩形移出渲染（`placeLifted` 直接写 DOM）。拖边界这条路径没有同样处理：它的渲染必须有（矩形在样式里），但插槽里的内容与矩形无关，却被一起重跑。
+- 面板头属性每次不稳定，是“插槽在 NestedGrid 渲染里跑”这条已知约束（WorkbenchShell.vue:539-541 的注释写了）被另一半踩中：拖动反馈那边处理了，插槽内容这边没处理。
+
+如何核实（主 Agent）
+
+- 在工作台里用 Vue 的 `app.config.performance = true`（开发构建）或临时在 `WorkbenchPanelHead` 的 `onUpdated` 里计数；拖一条边界 1 秒，数 `WorkbenchPanelHead`、`WorkbenchViewFrame` 的更新次数：预期约等于帧数乘以头的个数。
+- Performance 录制里看拖边界的每帧 Scripting：`render`/`patch` 占多少毫秒。
+- 悬停：在 Surface 的 `@pointerover` 里计数，或看 `NestedGrid` 的渲染次数，指针在编辑区与侧栏之间来回划 10 次，应该是 10 次整份重渲染。
+
+建议改法
+
+1. 让插槽里传下去的东西稳定：`headTabs`、`frameActionsOf`、`editorFrameActions` 按面板缓存成 `computed` 的 Map（和已有的 `headActions` 同一写法：WorkbenchShell.vue:258），依赖没变就返回同一个数组；`viewFrameOf` 在模板里只调一次（`v-for` 或 `<template v-for>` 一个中间值），`on` 的闭包按 viewId 缓存。
+2. 悬停动作的显示不要经 JS 状态：内容层和面板头不在同一个元素里，才需要 `data-hover-actions-active`。可以把写入改成直接写 DOM 属性（像 `placeLifted` 那样，`pointerover` 里只改那两张卡片与对应内容外层的属性），不写响应式；或者让内容层的外框上也带 `data-hover-actions-scope`，让 CSS `:hover` 自己处理（卡片和内容层同一个叶 id，可以用 `:has()`）。
+3. NestedGrid 里把“只依赖矩形”的部分（外框、分隔线的样式）与“依赖插槽”的部分分开成不同的子组件，拖边界只让前者重渲染；这是较大的改动，先做 1 与 2，量到收益再决定。
+
+
+## perf-03
+
+### 3. 拖动的每一帧对整份文档重算“结构键”（排序加序列化所有标签），开的编辑器标签越多越贵；落点身份与预览键也各序列化一遍
+
+- 严重程度：建议；类别：安全与性能
+- 位置：
+  - packages/nb-layout/src/drag-gesture.ts:285-292（`evaluate` 每次判定先调 `host.structure()`）
+  - packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:942（`structure`）、:891-897（`stableDrop` 每帧 `JSON.stringify(next)`）、:649（`dropFor` 缓存键 `JSON.stringify([source, action, extent])`）、:777-778（落点指示下 `withSectors` 序列化动作并逐项比较）
+  - packages/neuro-book/src/plugins/workbench/web/state/layout-present.ts:234-238（`layoutStructureKey`）
+  - packages/neuro-book/src/plugins/editor/web/tab-drag.ts:29（编辑器的 `structure`）
+  - packages/neuro-book/src/plugins/workbench/web/live-drag.ts:104（`keyOf` 每帧 `JSON.stringify`，经 `candidateOf`）
+- 依据：从代码推断；没有量。
+
+现象
+
+- 拖动期间手势每个动画帧调一次 `evaluate`，先调 `structure()`，和拿起时记的比，不同就取消整场（drag-gesture.ts:286）。它的内容：
+  - `layoutStructureKey(doc)`：遍历整棵树、`Object.values(doc.panels).flatMap(panel => panel.tabs.map(tabKey)).sort()`（所有面板的所有标签，含编辑器的每一个文件标签）、浮动窗列表再排序，然后 `JSON.stringify`；
+  - 编辑器的 `structure()`：所有编辑组所有标签里“固定”的 id，再 `JSON.stringify`；
+  - 外层再 `JSON.stringify` 一次。
+- 这份文档在一场拖动里就是“已提交的文档”（`options.doc()`，实时布局的预览不进它），结构键一场里本来不会变，除非有别的途径改了文档；而文档是不可变值，每次改动换一个新对象。
+- 另外每帧还有：`stableDrop` 序列化整个落点（含 `preview` 的矩形，落点指示下还有分区项）；实时布局 `keyOf` 序列化动作；非标签条落点 `dropFor` 序列化 `[source, action, extent]` 作缓存键。
+
+量级
+
+- 开 N 个标签时每帧：`map(tabKey)` 加排序加序列化约 N·log N 次字符串比较与 N 次拼接。N = 200 粗估 0.05 到 0.15 毫秒；N = 20 可以忽略。落点序列化每次几百字节到几 KB（分区项多时）。
+- 加起来每帧小于 0.3 毫秒，所以只是“建议”。但是它与帧数成正比、与标签数成正比，并且纯重复：一场里输入没变。
+
+如何核实（主 Agent）
+
+- 开 200 个编辑器标签，Performance 录制拖一个工具视图标签 2 秒，搜 `layoutStructureKey`、`stringify` 的自身耗时。
+- 或者在 `structure` 里数调用次数：应等于帧数，而 `options.doc()` 的对象身份在整场里不变。
+
+建议改法
+
+- `structure` 按文档与编辑器状态的对象身份记忆：`doc === lastDoc && editor 的 structure 输入没变` 就返回上次的字符串。`options.doc()` 是 computed 出来的不可变值，身份比较就够；编辑器那一半让 `structure()` 自己用 computed 缓存（deps.area().groups 变才重算）。
+- `stableDrop` 不序列化：落点由 `dropFor` 缓存（`previews`）与 `stripDrop` 每帧新建两种来源，可以按“动作键与 preview 矩形各字段相等”比较（`actionKey` 加四个矩形数字），不用整个 `JSON.stringify`。
+- 这三处合起来也不值得单独做重构；先做 `structure` 的身份记忆，一行代码。
+
+
+## perf-04
+
+### 4. 实时布局拖动的帧循环一旦开始就不会停：指针不动、卡片已缩完、预览已稳定时，每个屏幕刷新仍整套重跑
+
+- 严重程度：建议；类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/workbench/web/live-drag.ts:275-290（`tick` 第一行无条件 `requestFrame(tick)`，直到 `end()` 才取消，:322-338）；帧里每次都跑的：:279（`placeSorted` 读）、:284、:286（`stepPreview` 里 `candidateOf` → `keyOf` 的 `JSON.stringify` 与 `host.isHomeStrip`）、:287（`updateCard` 里 `host.homeOf` 即 `findTab(options.doc(), …)`）
+- 依据：从代码推断。注释（live-drag.ts:3）说“指针不动时手势不发布，所以这一场有自己的帧循环”，这个理由对“还有计时要走完”的阶段成立，对“全部静止”的阶段不成立。
+
+现象
+
+- 一场实时布局拖动里，`tick` 每个动画帧都自己排下一帧，不管有没有事要做。用户按住卡片不动（想一想放哪、读一下落点提示）时，帧循环仍以屏幕刷新率跑：144Hz 的屏上每秒 144 次。
+- 每次空跑的工作：
+  - 标签条排序模式下 `measureSorted`：`toolBand()` 的 `querySelector`、两到三次 `getBoundingClientRect`、`root.querySelector` 加 `closest`、`CSS.escape` 两次，只读但每帧做，而且读的几何（标签条边界、标签条里的位置）在静止时不会变；
+  - `stepPreview` → `candidateOf` → `keyOf`：`JSON.stringify`（入口类落点里 `workbenchDropKey` 再序列化一次）、`host.isHomeStrip` → `findTab(options.doc(), …)`，对所有面板所有标签线性扫一遍；
+  - `updateCard`：`host.homeOf` 又一次 `findTab`，`host.cardShrink()`、`host.cardRefresh()` 读设置，几个对象分配；
+  - 写入全部被“没变就不写”挡掉（`written` 比较、`frame.style.translate !== value`），所以没有样式重算与排版，只有脚本。
+- 一直有 rAF 在排也让浏览器每个 vsync 都要开一次 BeginMainFrame，空闲时本来可以省掉的帧都省不了。
+
+量级
+
+- 每次空跑粗估 20 到 80 微秒（标签数多、标签条排序模式时偏高）。按住不动 10 秒，144Hz 约 1440 次、约 30 到 110 毫秒主线程，不是大数；价值在于“静止就真静止”。
+
+如何核实（主 Agent）
+
+- 无头或有头 Chrome 里开始一场实时布局拖动（按住不放），之后 3 秒不动指针：
+  - 在页面里包一层 `requestAnimationFrame` 计数，或 CDP `Performance.getMetrics` 的 `ScriptDuration` 前后差；预期现在约等于 3 秒乘刷新率次 `tick`，改后应在卡片缩完、预览稳定后降为 0。
+  - Performance 录制里看是否每帧都有 `Animation Frame Fired`。
+
+建议改法
+
+- 帧循环只在“有事要做”时排：`stepLiveDrop` 还有未到期的稳定计时（候选已变但没到 150 毫秒）、卡片尺寸或追赶位移没到终点、`placeSortedAfterRender` 还没放。这些都有明确的状态可判（`state` 里候选与预览不同、`cardSize !== target`、`chase !== 0`）。其余情况下 `tick` 不再排下一帧，`offer()`（手势每次发布判定都会调）里发现没在跑就 `requestFrame(tick)` 起来。
+- `tick` 开头 `placeSorted(sortingAt())` 的读只在指针或标签条变了时才有意义；有了上一条之后它自然只在有事时跑。
+
+
+## perf-05
+
+### 5. 整窗拖动用 `translate` 跟手，但被挪的窗没有自己的合成层，每帧要重新栅格化窗的旧矩形与新矩形
+
+- 严重程度：建议；类别：安全与性能
+- 位置：packages/nb-layout/src/vue/NestedGrid.vue:477-487（`placeFloat` 写 `style.translate`）、:694-703（`[data-float-gesture]` 的样式：只有 `transition: none` 与 `pointer-events`，没有层提升）；对照 :610-620（拿起的卡片有 `will-change: transform`）、packages/neuro-book/src/plugins/workbench/web/components/WorkbenchDragFeedback.vue:90（拖影有 `will-change: transform`）
+- 依据：从代码推断，没有在浏览器里量。
+
+现象
+
+- t22 把整窗移动从“每帧改 `left`/`top` 触发排版”改成“每帧写 `translate`”（`placeFloat`），布局不再每帧重排，这是对的。
+- 但 `.nb-grid-frame[data-float]`、`.nb-grid-content[data-float]`、`.nb-grid-float-chrome` 三种元素在整窗移动时没有 `will-change`，也没有进行中的 transform 动画，Chrome 没有理由把它们提升成合成层。非合成元素的 transform 变化不会重做绘制记录，但它所在的层要对被挪元素的旧矩形与新矩形做栅格失效并重新栅格。被挪的东西是整块窗：面板头加视图正文（编辑器、对话、文件树）加 `box-shadow`，面积大，阴影还要重画。
+- 对比：拿起的卡片、拖影都写了 `will-change: transform`，窗这一路漏了。
+
+为什么是问题
+
+- 开发者原则是“能用 transform 却触发了重绘”要省。这里已经改成了 transform，只差把它提到自己的层上，让移动变成纯合成。
+- 估计量级：一块 600×400 的窗（再加阴影外扩）每帧栅格化两个这样的矩形，不在主线程，在栅格线程与 GPU，但窗里是编辑器时每个像素都要重新光栅；144Hz 下每秒 144 次。主线程基本不受影响，所以这一条是“建议”，收益在 GPU 与低端机上的拖动流畅度。
+
+如何核实（主 Agent）
+
+- Chrome DevTools 的 Rendering 里勾 Paint flashing 与 Layer borders：拖浮动窗时，现在整块窗的新旧位置在闪；加 `will-change: translate` 后窗有自己的层边框、不再闪。
+- 或 Performance 录制看 Raster / GPU 行：现在每帧有与窗面积相当的栅格任务，改后没有。
+- 浮动窗的 e2e 或 Lab 里 `FloatWindow` 场景可以直接拖。
+
+建议改法
+
+- 在 `[data-float-gesture="move"]` 的外框、内容、手柄三个选择器上加 `will-change: translate`（只在手势期间有这个属性，放下时随属性一起摘掉，不长期占层）。写进 `NestedGrid.vue` 同一条规则里（:700-703 的 `move` 规则），不用再多写一份。
+- 窗缩放（`FloatWindowHandles` 的 `preview`）因为改的是宽高，本来就要排版，不在这条里。
+
+
+## perf-06
+
+### 6. 同一个盒子由两个 ResizeObserver 各量一遍，改窗口大小时每帧渲染两次：第一次拿新布局配旧容器尺寸
+
+- 严重程度：建议；类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:79、:84（`useLayoutExtent(rootEl)`，`flush: "sync"` 发给 store）；packages/nb-layout/src/vue/NestedGrid.vue:105、:126、:317-330（`measuredExtent = useLayoutExtent(rootEl)`，摆放用它）；packages/nb-layout/src/vue/useLayoutExtent.ts:52-55（每处各一个 ResizeObserver）；packages/nb-layout/src/vue/useGridMotion.ts:1-7（头注释已写明“晚一拍到”）
+- 依据：从代码推断。ResizeObserver 回调之间有微任务检查点（每个回调跑完 Vue 的 flush 就会执行）是规范行为，具体渲染次数没量。
+
+现象
+
+- `WorkbenchSurface` 的根盒与里面 `NestedGrid` 的根盒是同一块区域（后者 `width/height: 100%`），各有一个 ResizeObserver。窗口大小变一次：
+  1. Surface 的观察者先到：同步发 `extent` → store → `useGridLayout` 的 `watch` 重算布局 → 微任务里 Vue 把新布局渲染一遍。这时 NestedGrid 的 `measuredExtent` 还是旧值，`placeGrid(root, 新 layout, 旧 extent, dpr)` 摆出一份“新尺寸、旧容器”的矩形（变大时被旧容器夹住）。
+  2. NestedGrid 自己的观察者到：`measuredExtent` 变，`placementExtent` 变，`treePlacement`、`layers`、`motion.update`、`contentLayer.update`、插槽全部重来一遍（同上一条的整份渲染，见第 2 条）。
+- 所以拖窗口边缘时每个渲染帧：两次 NestedGrid 整份渲染，两次 `placeGrid`，两轮样式写入；第一轮写的矩形是“错的中间态”，浏览器在 ResizeObserver 循环里还要对它再排一次版（ResizeObserver 循环在回调改了 DOM 后会重新排版并再发一轮）。`useGridMotion` 为了不把第二拍当成程序变化，两个尺寸都要比较（注释里已经记着这件事），说明这个“两拍”是已知的，只是没去掉。
+
+量级
+
+- 窗口缩放期间每帧：NestedGrid 渲染次数 2（理想 1），布局次数 2 到 3（理想 1）。每次渲染的脚本成本见第 2 条，粗估 0.5 到 1.5 毫秒，所以每帧多 0.5 到 1.5 毫秒脚本加一次多余的排版。只在拖窗口、改侧栏以外的容器尺寸时发生，不是常驻。
+
+如何核实（主 Agent）
+
+- 在 NestedGrid 里临时给渲染计数（或 Vue devtools 的 render 计数），用 Playwright 反复 `setViewportSize` 并在每次变化后等一帧，数两次差；或 CDP 在连续改窗口大小的 1 秒里取 `LayoutCount` 差，除以帧数，应该高于 1。
+- 更直接：在 `useLayoutExtent` 的 `publish` 里加日志，一次窗口变化看到的是 Surface 与 NestedGrid 各一次，且时间戳在同一帧里。
+
+建议改法（让部件变少）
+
+- 容器尺寸只留一个来源。`NestedGrid` 已经量了自己的盒（`measuredExtent`），`WorkbenchSurface` 的 `extent` 可以直接取它：NestedGrid 对外 `emit("extent", …)`（或暴露 `extent`），Surface 不再自己 `useLayoutExtent`。这样布局重算与摆放读的是同一个值，一次变化只渲染一次；`useGridMotion.decideMotion` 里“两个尺寸都要比”的分支也可以删，去掉一条已知的绕路。
+- 如果要保留 Surface 自己量（它的根盒比 NestedGrid 外一层，可能带不了 grid 的 padding 假设），至少让 NestedGrid 的 `rootExtent()` 优先取宿主给的 `layout` 根尺寸，不等自己的观察者。
+
+
+## perf-07
+
+### 7. 指针在标签条或活动栏上每动一次，就对整份文档真做一次落点操作（不进预览缓存）
+
+- 严重程度：建议；类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/workbench/web/layout-drag.ts:433-454（`entryDrop`：每次 `applyEntryDrop(…, {commit: true})`，注释 :430 写明“不进预览缓存”）、:493-516（`stripDrop`：工具面板的标签条每次 `applyLayoutDrop(doc, source, action, policy)`，注释 :492 “不进预览缓存，每次按标签量”）；对照 :644-660（`dropFor` 按 `[source, action, extent]` 缓存 `applyLayoutDrop` 的结果）；packages/neuro-book/src/plugins/workbench/web/entry-drop.ts:135-174（`applyEntryDrop`：`regionContainers`、两次 `JSON.stringify`、`moveTabToEdge`、`setPanelHidden`、`setActiveContainer`、`sameLayoutShape` 整份比较）
+- 依据：从代码推断；一次操作的耗时没量。
+
+现象
+
+- 落点判定里有两类不进缓存：活动栏上段与标签条。缓存不收它们的原因（缓存按动作存、预览矩形随指针位置变）只对“预览矩形”成立；真正贵的是 `applyEntryDrop`、`applyLayoutDrop` 的结果（新文档，只用来取 `ok` 与 `inPlace`、以及 `result.doc === doc`），它只由 `(文档, 动作)` 决定，和指针的具体位置无关。
+- 指针在活动栏或标签条上移动时，每个动画帧（指针动了才有）：
+  - `entryDrop`：`barEntries()`、`barSpotAt`、`entryDropAt`，再 `applyEntryDrop`——多步文档操作（移标签、改入口顺序、显示侧栏、切容器）加 `sameLayoutShape` 整树比较，最后只为得到一个 `inPlace` 布尔与一个 `ok`；
+  - `stripDrop`（工具面板）：`applyLayoutDrop` 同理，之后只用 `result.doc === doc`；编辑组的标签条那条分支不调（答案来自编辑器），不受影响。
+- 同一个落点在指针沿标签条挪动时反复得到同一个结果（动作 `{kind: "strip", panel, index}` 同一个下标会持续一段距离）。
+
+量级
+
+- 一次文档操作粗估 50 到 300 微秒（文档大、标签多时偏高，`structuredClone`/展开所有面板记录类的开销随总标签数增长，编辑器标签也在 `doc.panels` 里）。指针在上面连续移动按每帧一次算，不是大数。属于“同一个输入每帧重算同一个结果”的那一类。
+
+如何核实（主 Agent）
+
+- Performance 录制：拖一个视图标签，在活动栏上缓慢上下扫 2 秒，搜 `applyEntryDrop`、`moveTabToEdge`、`sameLayoutShape` 的自身耗时；或在 `applyEntryDrop` 入口计数，与动作种类对比：同一个动作应该只算一次。
+- 开 200 个编辑器标签后重做同一步，看耗时随标签数涨不涨。
+
+建议改法
+
+- 把 `previews` 缓存分成两层：`(文档身份, 动作键)` → `{ok, inPlace, 结果文档}` 这一层给活动栏与标签条也用（`dropOrigin` 已经在文档变或一场开始时清缓存）；预览矩形（指针相关）仍每次现量。键用现成的 `workbenchDropKey(action)` 加 `part`，不再另造。
+- 不需要新机制，`dropFor` 里已有的缓存搬到 `stripDrop` 和 `entryDrop` 的入口即可。
+
+
+## perf-08
+
+### 8. 布局过渡用 setTimeout 判结束（时长加 50 毫秒余量），不看过渡本身；主线程忙时定时器先到，`finish()` 把还没走完的过渡一步推到终点
+
+- 严重程度：建议；类别：正确性（表现为动画跳）与性能
+- 位置：packages/nb-layout/src/vue/useGridMotion.ts:17-18（`MOTION_SLACK_MS = 50` 与注释）、:156-174（`stop`：`finishTransitions()` 对每个直接子元素的 `getAnimations()` 调 `animation.finish()`）、:192（`start` 里 `setTimeout(stop, durationMs + MOTION_SLACK_MS)`）、:233-234（`land` 同）
+- 依据：从代码推断，没有在节流下复现。
+
+现象
+
+- 过渡由 CSS（`left/top/width/height` 的 transition）驱动，结束由一个 `setTimeout` 判，计时从 `start()` 调用的那一刻起算（Vue 渲染之前）。过渡本身从“渲染之后的第一次样式计算”才开始（注释 :17 也承认这一点，所以加了 50 毫秒余量）。
+- 如果这个过渡的第一帧很重（正是切侧栏时编辑器正文要在每一帧里重排的场景：`following` 的内容宽度是 100%，每帧重排；或者此刻在做别的长任务），第一帧晚到超过 50 毫秒，定时器会在过渡还没走完时触发，`stop()` 调 `finishTransitions()`：对所有还在走的过渡 `animation.finish()`，画面一步跳到终点，同时摘掉 `data-moving`、清空 `growing/following/leaving` 等，下一帧还是排版一次。表现是动画的最后一段被吃掉。
+- 余量 50 毫秒是个魔数：它在快机器上够用，主线程压力大的时候（低端机、开着开发者工具、大文档）不够。
+
+为什么是问题
+
+- “用定时器而不是动画帧或过渡事件驱动的动画”会和真实刷新脱节：快时多等 50 毫秒才把 `moving` 摘掉（期间 `will-change: transform` 一直占着层，所有“按 `moving` 判”的 `inert` 与 `data-moving` 多留 50 毫秒），慢时提前截断。
+- 量级：每次过渡多占 50 毫秒的层；压力大时一次可见的跳变。不是常驻成本，所以只是“建议”。
+
+如何核实（主 Agent）
+
+- Chrome DevTools 把 CPU 节流设到 6 倍（或 Playwright 用 CDP `Emulation.setCPUThrottlingRate`），连续切侧栏显示隐藏，录屏或看 Performance：在侧栏收起或展开的最后几帧里画面是否一步跳到终点；对照 `useGridMotion.stop` 被定时器触发的时刻与最后一个 `transitionend`。
+- 或在 `stop` 里记录当时 `getAnimations()` 里还没 `finished` 的个数：节流下应该非零。
+
+建议改法
+
+- 用过渡自己判结束：渲染之后一帧起，收集网格根直接子元素的 `getAnimations()` 里 transition 类，`Promise.allSettled(animations.map(a => a.finished))` 完成时调 `stop`；没有任何过渡（矩形没变、减少动态效果）时马上 `stop`。定时器只作兜底，设成 `durationMs * 2 + 若干`，并且 `stop` 里只在还有过渡时才 `finish()`。
+- 这样 `moving` 与过渡同生共死，也省掉 `MOTION_SLACK_MS` 这个魔数。
+
+
+## perf-09
+
+### 9. 编辑组头的 ResizeObserver 每次回调都换一个新对象，头的宽度一变（拖侧栏边界、窗口缩放、侧栏过渡的每一帧）就多一次 NestedGrid 整份渲染
+
+- 严重程度：重要（量级小，但确定、每帧、最常用的拖动路径，改一行）；类别：安全与性能
+- 位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchSurface.vue:123-149（`headObserver`、`vEditorHead`），其中 :129-137（回调无条件 `editorHeadHeights.value = next`）；下游 :151-157（`contents` computed 读它）、:344-357（`contents` 传给 NestedGrid）
+- 依据：从代码推断；渲染次数没数。
+
+现象
+
+- `headObserver` 观察每个编辑组头的外层（`.workbench-surface__editor-head`）。ResizeObserver 在**宽或高任意一个**变了就回调。回调里（:130-136）：
+
+  `const next = {...editorHeadHeights.value}; … next[panel] = entry.borderBoxSize[0]?.blockSize ?? 0; editorHeadHeights.value = next;`
+
+  只用到高度（`blockSize`），但每次回调都建新对象并赋值，没有“高度没变就不赋”。
+- 编辑组头是 `flex` 列、宽度随叶，所以只要这块编辑组的宽度在变：拖侧栏与编辑区之间的边界、拖编辑组之间的边界、改窗口大小、侧栏显隐的过渡（宽度在每一帧里都变，`left/top/width/height` 过渡）——回调就每帧触发一次，而高度根本没变（一到三行标签折行才改高度）。
+- 每次赋值使 `contents` 重算（`layoutContents(doc, …)` 遍历全部面板的全部标签，生成新数组），NestedGrid 的 `contents` 属性换了，`contentLayer.placements`、`layers`、`watch(layers)` 全部重来，NestedGrid 整份渲染（含全部插槽，见第 2 条）。结果与上一帧完全相同。
+- 因为回调在 ResizeObserver 阶段（排版之后、绘制之前），Vue 的 flush 在回调后的微任务里跑，所以这是在拖动自己那次渲染**之外**多出来的一次。
+
+量级
+
+- 拖侧栏边界每帧多一次 NestedGrid 整份渲染，粗估每次 0.5 到 1.5 毫秒（第 2 条的估计），不写 DOM，没有多余排版；144Hz 时每秒约 70 到 200 毫秒。侧栏显隐过渡约 12 到 40 帧各多一次。
+
+如何核实（主 Agent）
+
+- 在 NestedGrid 里给渲染计数（Vue `onRenderTriggered`，或开发构建里 `app.config.performance`），拖侧栏与编辑区之间的边界 1 秒：每帧应有 2 次（手势预览那次，加 ResizeObserver 回调引起的这次）；改后应是 1 次。
+- 或在 `headObserver` 回调里计数，同时记 `blockSize` 的前后值：绝大多数回调里高度相同。
+
+建议改法
+
+- 回调里只在高度真的变了时赋值：
+
+  `if (next[panel] !== editorHeadHeights.value[panel]) { …赋值… }`
+
+  更简单：先在循环里比较，全部没变就 `return`，不建新对象。
+- `vEditorHead` 的 `beforeUnmount` 里同理（:143-148 只在面板还在记录里时才赋）。
+
+
+## perf-10
+
+### 10. 第 1 条收窄（建议改法第 4 点撤回）并补一处同样的冻结副本
+
+- 第 1 条的建议改法第 4 点（“拖边界帧里不需要排对齐”）收窄：撤回“拖动期间整个不排”。`snap()` 里装饰带的几何还吃 `beforePx`、`afterPx`（SashHandle.vue:184-189，`sashBandBox` 按前后相邻面板的当前尺寸夹取），拖边界把一侧压到零时它们会变，带要向内贴边，所以拖动中的帧仍可能需要重写几何。正确的处理是第 1 条的第 2 点（记住上一次写出去的值，值一样就不写，也不先清空再写），不是“拖动时不排”。第 1 条的现象、位置、前三条建议不变。
+- 补充：packages/nb-ui/src/components/layout/Splitter.vue:546-547（`window.addEventListener("scroll", onViewportScroll, {capture: true, passive: true})`）是冻结的旧副本，有同样的“任意滚动都排对齐”。它按 w00026 t14 计划以后删，不建议改；只在 nb-story 里滚动时有这个开销，列在这里作记录。
