@@ -193,7 +193,18 @@ export type PanelEntry = RegistryEntryBase & {
 
 export type TrayItemEntry = RegistryEntryBase & {component: Component};
 
-export type StatusItemEntry = RegistryEntryBase & {component: Component};
+/**
+ * 状态栏的一项（docs/specs/ui/agent-conversation-view.md 的“状态栏”）：宿主加的项。`side` 决定在左在右，`title`、`description` 是设置页与
+ * 右键菜单里的文字，`defaultVisible` 缺省关（用户勾上才显示），`source` 是来源（插件名），标在菜单与设置页里。
+ */
+export type StatusItemEntry = RegistryEntryBase & {
+    component: Component;
+    side: "left" | "right";
+    title: Text;
+    description?: Text;
+    defaultVisible?: boolean;
+    source?: string;
+};
 
 export type ComposerCommandEntry = RegistryEntryBase & {
     /** 命令名，不含 `/`。 */
