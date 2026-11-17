@@ -1,0 +1,206 @@
+## 第 1 稿设计审查：t28 右栏与底部面板的入口条
+
+读了 plan.md、README、t27 第二轮审查，以及 `layout-project.ts`、`layout-doc.ts`、`layout-constraints.ts`、`layout-present.ts`、`layout-drag.ts`、`entry-drop.ts`、`live-drag.ts`、`grid-swap.ts`、`NestedGrid.vue`、`WorkbenchSurface.vue`、`WorkbenchPanelHead.vue`、`WorkbenchShell.vue`，也读了 Spec 和评审页。
+
+我没改仓库，没跑 e2e 和开发服务。实验文件在 `exp/`，两个都绕过了真实运行时：
+- `exp/wrap1.ts`：用真实 `createGrid`，手工搭了计划的包装分支形状，没经过 `projectLayoutDoc`（它还没有 `regionStrip`）。
+- `exp/two-swaps.ts`：用真实 `createGrid`、`placeGrid`、`planSwap`，没经过 `NestedGrid` 的渲染和 DOM。
+
+### 1. 并成一行的头没有给“视图接管标题区”留位置，默认右栏正好是这个状态
+
+- 严重程度：阻断
+- 类别：遗漏、违反合同
+- 位置：plan.md“入口条：新组件”一节；`WorkbenchPanelHead.vue:95-137`；`views.md` 输出 19；`ConversationHost.vue:50-72`
+- 现象：计划让头“嵌在入口条里”，“不画自己的底与高度，标题可省”。但接管标题区的视图（内置的对话）会把面板头改成三列，标题按整行居中：
+  - 左右两列的宽度由 `startExtent`、`endColumn` 量出来，写成 `--view-head-side`。
+  - 视图把内容送进 `start`、`title`、`end`、`handle` 四个元素。
+  - 会话列表的弹层锚在 `handle` 上。
+  - 默认右栏只有“对话”一节，所以默认状态就是并成一行加视图接管。
+- 为什么是问题：入口条里左边是容器图标，“整行居中”和“两侧等宽”都不成立，计划没有写这一行怎么排。
+  - 如果头在并成一行时不画，视图拿不到位置，会退回“在内容里画头”（输出 19 的退路）。这样默认右栏的对话视图在并成一行后头不见了。
+  - 如果头照画，三列布局要按“入口条剩下的宽度”重算，`head-slots` 在容器切换、最大化进出时反复 null 再换新。
+  - 计划只提了 `panelOf`、悬停、焦点、`geometryOf`，没有这一项。
+- 如何核实：对默认右栏照字面实现，看 `ConversationHost` 的 `headTargets` 取到什么。
+- 建议：先定一条规则，写进输出 20 和 views 输出 19。例如“入口条里的头只接 `actions` 与框架按钮，接管标题区的视图的 `start`、`title`、`end` 画在入口条剩余宽度里，居中按剩余宽度算”。再补一条 DOM 用例：并成一行加视图接管时 `slots` 不为 null。
+
+### 2. “按文档判一节”会在隐藏、拖动预览、放不下收走时让头在两片叶之间闪
+
+- 严重程度：重要
+- 类别：边界、隐含耦合
+- 位置：plan.md“尺寸与只有一节”；`layout-doc.ts:234-240`（`isPanelShown`）、`layout-doc.ts:285-290`；`layout-doc-store.ts:150-151`；`layout-drag.ts:558-585`
+- 现象：计划写“区域在文档里恰有一节显示着”。`isPanelShown` 在锚 `hidden` 时对分节恒为假，而隐藏的区域是按拖到零画的，要缩 470ms。
+- 为什么是问题：
+  - 点隐藏的那一刻，`mergedSection` 从真变假。入口条里的头消失，缩回去的那一节在自己的叶里长出一个 32px 的头，`layoutContents` 的 `insetTop` 0 变 32，内容跳一下。显示时反过来。
+  - 这是同一类已踩过的坑。`sectionCollapseBlock` 里专门写了“隐藏的那一刻唯一的分节就成了‘能收’，正在缩回去的面板头上多出收起按钮”，所以才在 `layout-doc.ts:288` 用 `hiddenRegionsAtZero` 判。计划的 `mergedSection(doc, region, facts)` 没提这一点。
+  - 拖动预览有同样问题：`renderedDoc` 是预览文档，预览把来源摘掉后，剩下一节的 `merged` 变真。头在预览里就换到入口条，但 `collapsed()`（`layout-drag.ts:558`）用拿起时量的几何按叶的矩形差平移，头位置对不上。这一节正文顶上那 32px 会被判成标题行。
+  - 计划第 2 条的回答只覆盖了“放不下收走”，没覆盖这两种。
+- 如何核实：写 `layout-present` 用例，对隐藏的区域调用 `mergedSection`；在 `live-drag.test.ts` 里拖走右栏两节容器的第二节，比较拿起时和收起后的 `body.top`。
+- 建议：`mergedSection` 明确按 `hiddenRegionsAtZero(doc)` 判，写进说明。`collapsed()` 要么识别 `merged` 翻转并重算头的位置，要么实时布局期间钉住 `merged` 不变。三种情形（隐藏、预览、收走）各补一条用例。
+
+### 3. 交换是整个网格唯一一份，两个区域前后脚切换时第二次交换会算错（有实验）
+
+- 严重程度：重要
+- 类别：接口与合同
+- 位置：plan.md“右栏、底部面板切换容器时滚过去”；`WorkbenchShell.vue:379、742`；`NestedGrid.vue:75`；`grid-swap.ts:115-116`；`useGridMotion.ts`（单个 `band` ref）
+- 现象：`swap` 是一个属性，`band` 是一个 ref，`planSwap` 里 `axis = band?.axis ?? swap.axis`、`window = band?.window`。计划写“同 `prepareSidebarSwap`，推广成按区域”，没说怎样让三个区域各有一份。
+- 实验 `exp/two-swaps.ts`：先发侧栏的交换（height 轴），470ms 内再发右栏的交换（width 轴）。结果是 `band2.axis` 仍是 `height`，`window` 仍是侧栏的 `{0,0,298,600}`。右栏换上来的 `auxB` 从 `y=608` 出发，终点 `y=0`，x 在 702 到 1000，被侧栏的窗口裁掉，看不见。侧栏两组的偏移被一起推到 -912。
+- 为什么是问题：用户在 470ms 内点侧栏入口再点右栏入口，右栏的切换没有动画，只是突然出现。几个区域的 `swap` 互相覆盖，`token` 也是共用的。
+- 建议：二选一，并写进计划。
+  - A：`swap` 改成按区域的数组，`band` 变 `Map<region, band>`，`window` 与 `axis` 各自一份。
+  - B：同时只允许一个交换，第二次点击先把第一次直接送到终点（`settleMotion`），再发新的。B 小得多，代价是第一次动画被截断。
+  - 加一条 `useGridMotion.dom.test.ts` 用例：连发两个不同轴的交换。
+
+### 4. 入口条拖放：`entry-drop.ts` 与实时布局里写死“侧栏”的地方，计划只列了文件，没列改法
+
+- 严重程度：重要
+- 类别：遗漏、违反合同
+- 位置：plan.md“入口条的拖放”；`entry-drop.ts:15、18、52-62、104-111、143-160`；`live-drag.ts:216-217`；`layout-drag.ts:155、247、283、594-600、701、754、824、884`；Spec 输出 46
+- 现象：
+  - `BAR_STRIP = "activitybar"` 是唯一的入口条 id，`dropStripOf`、`homeStripOf`、`isHomeStrip`、键盘区域 `BAR_REGION` 都用它。
+  - `REGION = "sidebar"` 写死在 `soleSidebarContainer` 和 `applyEntryDrop` 里，后者对别的区域直接报“侧栏不用容器”。
+  - `EntryDropAction` 没有 `region` 字段。
+  - `barSpotAt`、`barStopsOf` 按纵坐标写，输出 46 里的落点预览也是竖线。
+  - 计划只说“`DragGeometry.band` 换成 `bands`”“`barAfterCollapse` 推广”，没提 `live-drag.ts` 和键盘区域。
+- 为什么是问题：Spec 输出 46 写“含几个视图的入口……落到另一个区域的入口条上，整个容器搬过去，位置是落下的那个空位”。计划“不做”里那句“入口条拖到活动栏以外的新位置”读起来像把跨区域搬容器也排除了，和输出 46 冲突。`applyEntryDrop` 的 `move-entry` 只改入口顺序，不搬容器。
+- 建议：
+  - 第 4 片的文件清单加 `live-drag.ts`，并写明“条 id 按区域”“`EntryDropAction` 加 `region`”“`soleSidebarContainer` 改成按区域”。
+  - 写明键盘区域怎样列三条带。
+  - 写明跨区域搬容器的结果：调用现有的 `moveContainer` 再 `setContainerEntries`。
+  - 把“不做”那句改成“入口条本身不能移动”。
+
+### 5. 底部面板最小高度随容器的分节数变（80 或 112），切换容器会连带改高度
+
+- 严重程度：重要
+- 类别：被破坏的既有约定
+- 位置：plan.md“尺寸与只有一节”；`layout-constraints.ts:72-84`；Spec 输出 6
+- 现象：并成一行时区域最小是 32 + 48 = 80。几节时每节 80，加入口条 32，区域最小是 112（右栏两节是 32 + 80 + 80 + 缝 = 193）。实验 `exp/wrap1.ts` 确认包装分支会把最小值向上累加，窗口高 260 时，两种形状的区域都被压到 139，`createGrid` 报“装不下固定尺寸”。
+- 为什么是问题：
+  - 用户把底部面板拖到 80（并成一行允许），点另一个有两节的容器，区域最小变 112，编辑区被推高 32px。这发生在交换动画的同一时刻，窗口取两组外接矩形，高度不一致。
+  - `commitGesture` 之后意图被写成 112，用户之前设的高度悄悄变了。
+  - “区域合计仍 80”只对并成一行的情形成立，输出 6 和计划都没写另一种。
+  - 视图声明的最小高度 `declared.map(height)` 对并成一行的那一节要不要也减 32，计划没说：声明 200 时，并成一行的区域是 232，内容 200，不并是 232，内容 168。
+- 建议：先定“区域最小高度是否随容器变”。若不愿变，可以让几节时每节也取 48 加自己的头 32 里算（即 80 含头），把输出 6 的差异写成待确认项。无论如何，输出 6 的表和 `layout-constraints.test.ts` 补“并成一行”和“几节”两行，声明最小高度的算法写明。
+
+### 6. `constraints` 闭包绑定在已提交的文档上，拖动预览与收起后的几何会用错并成一行的判断
+
+- 严重程度：重要
+- 类别：隐含耦合
+- 位置：`layout-constraints.ts:87-97`（`regionFor` 取 `input.doc`）；`layout-drag.ts:477、562-563、785`（`previewEdgeDrop`、`previewPanelRects` 都传 `options.projection()`）；plan.md“尺寸与只有一节”
+- 现象：`layoutProjectionOptions` 里的 `constraints(id, panel)` 用 `input.doc` 查区域；文件自己的注释已写“拿它去投影别的文档时，在这份文档里没有的面板按‘不在区域里’算”。计划让 `constraints` 再按 `mergedSection(input.doc, …)` 取最小高度，同样绑在已提交的文档上。
+- 为什么是问题：`collapsed()` 对 `base`（来源摘掉后的文档）算矩形，用的却是已提交文档的选项。来源是两节容器的第二节、摘掉后剩下一节时，`base` 里它应该是并成一行（最小 48），选项还按两节算（80），预览的矩形和真实结果差 32px。预览要和真实结果同一个呈现树，这条合同（`LayoutDragOptions.projection` 的注释）就被破坏了。
+- 建议：让 `projection()` 可以按文档取（`projection(doc)`），或者让 `constraints` 接收投影用的那份文档。`layout-drag` 的几处调用都传这份。补用例：对两节容器摘掉一节后调用 `previewPanelRects`，断言那一节的最小高度是 48。
+
+### 7. 底部面板并成一行“不写标题”会丢失徽标、`region` 的可访问名称和拖动源
+
+- 严重程度：重要
+- 类别：遗漏、对照参照
+- 位置：plan.md“入口条”与 pending-confirmations 最后一行；`WorkbenchShell.vue:223-229`（`headTabs`）；`WorkbenchShell.vue:479`；`WorkbenchPanelHead.vue:122、148-160`；Spec 输出 17、20；`layout-drag.ts:324-325`
+- 现象：不写标题会同时去掉这些东西。
+  - 标题后的计数。输出 17 写“面板头里这个视图的标签在标题后写这个数（‘通知 2’）”，计数目前只在 `headTabs` 里加；入口不接计数，输出 22 写了“活动栏入口不显示计数”。底部面板默认的“通知”并成一行后，未读数就消失了。VS Code 的底部面板标签上有计数（如 Problems）。
+  - 隐藏的标题元素（`panelTitleDomId`）。输出 20 写“`region` 的名称来自一个隐藏的标题元素”，内容区的 `aria-labelledby` 指向它。头不画它，区域没有可访问名称。
+  - `[data-panel-tab]`。`recoverFocus`（`WorkbenchShell.vue:479`）和 `geometryOf` 取标签用它，并成一行的底部面板头里没有这个元素，焦点落点失败，拖动源要退到入口的 `data-tool-view`。
+- 为什么是问题：待确认清单把它记成“低：头的一个开关”，低估了。
+- 建议：保留隐藏的标题元素；入口要么接徽标，要么底部面板并成一行时仍写标题；把拖动源写明是入口的 `data-tool-view`。待确认行改成“中”，并写上这三项。
+
+### 8. 并成一行的头里，落点的几种规则互相冲突，底部面板没定义
+
+- 严重程度：重要
+- 类别：边界
+- 位置：plan.md“入口条的拖放”最后一条；Spec 输出 10、45、46；`layout-drag.ts:371-382`；`layout-drop.ts:70、214`
+- 现象：
+  - 计划只写右栏并成一行的头里“标题那一段仍是标题行”。底部面板并成一行没有标题，入口就是标题，落在入口上按输出 45 是“并入，成为最后一个分节”，按输出 10 的“放到标题行 → 左右多一个”是“放在它旁边”。两条在同一个像素上给不同结果。
+  - `geometryOf` 的 `frame` 取 `[data-shell-card=id]`，即正文那张卡片，头在入口条的卡片里，在 `frame` 之外。`inGeometry` 认 `strip` 或 `body`，所以能命中，但 `frameOf` 取显式的 `frame`，边缘分区、缝和预览用的 `areaRect` 都少了头那一块。
+  - 入口条空位按“新容器”算，入口条右边留给头的部分（动作、框架按钮）按 `data-no-drag` 不接收，中间那段空白归谁，计划没写。
+- 建议：用一张表写清入口条一行上从左到右每一段的落点（入口、入口之间、标题、空白、动作区），并成一行时 `geometryOf` 把 `frame` 取成入口条加正文的并集。
+
+### 9. 最大化并成一行的那一节时头换叶：焦点丢、内容跳
+
+- 严重程度：重要
+- 类别：边界
+- 位置：plan.md“表面”与“尺寸与只有一节”；`WorkbenchSurface.vue:446、456-458`；`layout-present.ts:23-30`；`WorkbenchShell.vue:199`（`frameActionsOf`）
+- 现象：计划采纳了 t27 第 1 条的第二条路：最大化时那一节自己画头。这意味着点“最大化”按钮的那一刻：
+  - 入口条里的头被销毁，那一节的叶里新建一个；按钮元素换了，焦点丢，`onFocusOut` 触发 `setFocusedPanel(null)`。
+  - 视图的 `head-slots` 先 null 再换新。
+  - `insetTop` 从 0 变 32，内容在最大化展开的过渡里跳 32px。
+  - 还原时相反。点还原按钮同理。
+- 建议：写明最大化进出时焦点怎么回到新头的同一个按钮，`insetTop` 是否随过渡。或者改走 t27 第 1 条的第一条路：最大化的分节所在区域的入口条不算被盖住，头不换叶。第一条路改动小得多，也没有这个问题，只需要 `obscuredLeaves` 的 `exclude` 加该区域的入口条。
+
+### 10. 交换时并成一行的头会先于内容换掉
+
+- 严重程度：建议
+- 类别：遗漏
+- 位置：plan.md“滑动的外框不画卡片”；评审页 `regionScroller`
+- 现象：入口条不动，所以“头并进入口条”的那一节的标题与动作在点击的那一刻就换成新容器的；旧容器的内容还在窗口里滑出。反过来，新容器有几节时，旧头在点击瞬间消失，新的几个头随内容滑进来。评审页的“切换时它不动”说的是入口，没演示并成一行的头。
+- 建议：写明头的那一段是瞬间换还是淡入淡出，并加到逐帧验收里。不换也要写“知道这样”。
+
+### 11. 其他按叶或按外框认面板的地方
+
+- 严重程度：建议
+- 类别：遗漏
+- 位置：`layout-present.ts:142-165`（`focusLandings`，`entry` 只给侧栏）；`WorkbenchShell.vue:479`；`WorkbenchShell.vue` 的 `closeContainerMenu`；`grid-focus.ts`（F6 按叶站走）
+- 现象：
+  - `focusLandings` 对入口只认侧栏（`region === "sidebar"`）。入口菜单关闭、容器被搬走后焦点回到入口，现在三个区域都有入口，要推广。
+  - F6 每个区域多一站（入口条叶），计划写了“照常停”，但没写 `lastFocused` 回到哪个元素。
+  - `titleOnlyPanels`、`aria-controls` 按计划不用改，我读了没发现问题。
+- 建议：把 `focusLandings` 的 `entry` 一并推广，写进第 2 片。
+
+### 12. 交换窗口与静止的底在过渡期间不跟随布局变化
+
+- 严重程度：建议
+- 类别：边界（未验证）
+- 位置：plan.md“窗口”“swap-backdrop”；`grid-swap.ts:117-123`（`window` 在带里固定）
+- 现象：`window` 在交换开始时按 px 定下来、整个 470ms 不变。侧栏切换有同样的限制，但底部面板的位置会随侧栏显隐（编辑区列宽变）移动，右栏的高度会随底部面板拖动变化。交换期间这样，裁切窗和静止的底都停在旧位置，裁掉内容或露出缝。我没有在浏览器里复现，是读代码推出的。
+- 建议：写明“交换进行中区域几何变了怎么办”：要么直接送到终点，要么窗口读 DOM 跟随。
+
+### 13. 上游选择：一叶一张卡片继续逼出特殊机制
+
+- 严重程度：建议
+- 类别：上游选择
+- 位置：plan.md“关键设计”整体；pending-confirmations 2026-11-17 t27 第 4 行
+- 现象：t28 新增的机制几乎都是为“一个区域的几片叶看起来是一张卡片”服务：入口条叶、`swap-backdrop`、头跨两片叶、`geometryOf` 取并集、`panelOf` 与悬停换面板、相连边的投影裁切。t27 第二轮第 11 条的“卡片层”候选在 t26（排在 t28 之后）才定，那时 t28 的补丁已经写完。
+- 候选改上游：
+  - 把右栏、底部面板的“一个区域一张卡片”做成一片叶，里面放入口条和一个内层 `NestedGrid`（视图里嵌 grid 已经支持）。这样 `regionAnchors` 不用改，不需要包装分支，最小高度由外层按“入口条加内层”给，并成一行的头就在同一片叶里，`panelOf`、`geometryOf`、悬停都不用跨叶，`swap-backdrop` 变成内层交换的静止底。
+  - 代价：分节之间的分隔线手势要在内层 grid 里，拖放的落点要跨两层 grid 找，`commitGesture` 要接两份尺寸，实时布局按面板找矩形要穿透内层，t27 刚做完的“一个容器几片叶拼一张”要回头改。
+- 建议：在第 3 片动手前交开发者定，不要等到 t26。若不采纳，计划里把“t28 的静止底是卡片层的特例，t26 采纳后要删”写明。
+
+### 14. 验收映射缺的用例
+
+- 严重程度：建议
+- 类别：验收
+- 位置：plan.md“验收映射”
+- 缺的是：
+  - 隐藏的区域上的 `mergedSection`（第 2 条）；
+  - 预览摘掉来源后头的位置（第 2、6 条）；
+  - 连发两个区域的交换（第 3 条）；
+  - 底部面板最小高度随容器切换（第 5 条）；
+  - 并成一行加视图接管（第 1 条）；
+  - 最大化进出时焦点（第 9 条）；
+  - 入口条空位、标题、动作区的落点（第 8 条）；
+  - `rebaseIntents` 用例要覆盖“区域有被隐藏的兄弟分节”（`away` 缩放路径），计划只写了“区域尺寸不变”。
+- 其中单元层面的（第 2、5、6 条）都能用真实 `projectLayoutDoc` 加 `createGrid` 写，不用 e2e。
+
+## 未发现问题的方面
+
+- 包装分支在文档里的形状：区域节点本身就是分支，空区域是锚的叶，不包。“空区域没有入口条”成立。
+- 区域拖到零：实验 `exp/wrap1.ts` 里，带 `collapse {collapsed:true, collapsedSize:0}` 的包装分支收起后，入口条叶、内层和各节的高度都是 0，没有溢出。
+- 入口条叶与内层之间 0 宽的缝：`SashHandle` 对 `size === 0` 是 `seamOnly`，不可聚焦、不命中、不画线，也不画 `panes` 的 `::before`，所以“不可拖”成立。
+- `rebaseIntents` 对包装分支不用改：`sizeOfNode(R)` 先取 `sizes[R]`（包装分支的尺寸）；区域节点与它的子节点的比例按 `away` 路径缩放，总量不变。
+- `regionAnchors` 的消费者只有 `commitGesture`（`layout-doc-store.ts:428`），包装分支 id 等于区域节点 id，写锚的路径照旧。`sceneCorners` 取文档里的叶，不受入口条叶影响。
+- 已存的布局记录：入口条只在呈现里，文档、`collapsedTo`、校验都不变，兼容无风险。
+- 同轴嵌套（底部面板的竖向包装分支在编辑区竖向分支里）：`createGrid` 接受，卡片邻接（`layoutCardEdges`）里 `sideOf` 能穿过去，入口条与分节会判成同组相连。
+- 唯一的分节不配收起策略：按 `assignByParent` 现在的写法，需要给入口条叶加 `continue`（循环无条件写 `sizing`），计划的意图是对的。
+- t27 第二轮第 12、14 条的回答成立；第 1、2、8、9 条的回答部分成立，缺口见上面第 1、2、4、5、6、9 条。
+
+## 待确认项判断
+
+- t28 一行（右栏接标题，底部面板不写标题）：不该记“低”。丢徽标、可访问名称、拖动源（第 7 条），右栏还有视图接管（第 1 条）。建议改成“中”，并补上这些。
+- 缺的几行：
+  - “最大化时那一节自己画头”（第 9 条的焦点与跳动）；
+  - “只有一节按文档判”（第 2 条）；
+  - “并成一行最小 48，几节时区域最小 112”（第 5 条，这是产品上可见的变化，不是低）。
+- t27 的“只要显示着分节就有入口条，只有一个容器时也有”：同意，它让含几个视图的容器有地方落（输出 46）。代价是并成一行的所有复杂度，已计入上面。
+- t27 的卡片层候选（第 13 条）：建议在 t28 第 3 片之前定，不要等 t26。
+
+计数：阻断 1，重要 8，建议 5。
+
+有效发现：1、2、3、4、5、6、7、8、9、10、11、12、13、14
