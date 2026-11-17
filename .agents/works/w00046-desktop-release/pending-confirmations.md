@@ -84,3 +84,6 @@
 | 2026-11-16 | t16 | 产品取舍 | 插件页除了拖入，再加“选择文件夹”按钮（同一条上传路）；Chromium 选目录时先弹“上传 N 个文件”，N 含 `node_modules`（页面之后跳过它们） | 键盘用户没法拖；e2e 能真实上传目录；桌面改用壳的原生对话框要给页面加调用壳的接口 | 去掉按钮只留拖入与路径输入 | [t16 plan](tasks/t16-plugin-drag-install/plan.md) |
 | 2026-11-16 | t16 | 产品取舍 | 上传上限：10000 个文件、总 256 MiB、单个 64 MiB；只收文件夹，不收 `.zip`、`.tgz`（拖入时提示先解压） | 构建好的插件远小于此；压缩包要另做解包与路径检查 | 改常量；收压缩包另做 | [t16 plan](tasks/t16-plugin-drag-install/plan.md) |
 | 2026-11-16 | t16 | 产品取舍（已知限制） | 上传时符号链接变成普通文件，不像路径安装那样拒绝；上传的相对路径一律按 Windows 也合法的规则检查，不论服务端在什么系统上 | 浏览器读不出是不是链接；插件要能在 Windows 上装 | 无 | [t16 plan](tasks/t16-plugin-drag-install/plan.md) |
+
+| 2026-11-17 | t16 | 产品取舍（开发者定） | 上传上限改为总 64 MiB、单个 32 MiB，并先把 nb-host 的请求转交改成流式 | Bun 请求体缺省上限 128 MiB，转交会把整个请求体读进内存（审查者本机实测） | 加大上限要给 nb-host 加请求体上限配置 | [t16 第 3 轮](tasks/t16-plugin-drag-install/evidences/design-review-r3-proposal.md)；开发者 2026-11-17 同意 |
+| 2026-11-17 | 全 Work | 方向（开发者提） | 之后要在后台长时间进行的事（上传、下载等）都做成 NeuroBook 的后台任务（`nbook.tasks`） | 窗口关掉不影响它，进度与结果在后台任务视图里统一看 | 无 | [`workbench.background-tasks`](../../../docs/specs/workbench/background-tasks.md)；见 README 的“桌面端体验的决定” |
