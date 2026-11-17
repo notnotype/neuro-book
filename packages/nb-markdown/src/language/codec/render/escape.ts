@@ -8,6 +8,7 @@
 import type {InlinePlace} from "../../syntax/types";
 import {decodeHTMLStrict} from "entities";
 
+import {stickerColonEscapes} from "../../../stickers";
 import {leftFlanking, rightFlanking} from "../../syntax/flanking";
 import {normalizeLabel} from "../../syntax/types";
 
@@ -279,7 +280,8 @@ function needsEscape(text: string, index: number, previous: string, next: string
         case "#":
             return around.place.heading === true && matchesAt(HEADING_CLOSE, text, index) && (previous === " " || previous === "\t");
         case ":":
-            return matchesAt(URL_COLON, text, index);
+            // 表情写法（stickers.md 的输出 23）：会读成写法的开头冒号转义，免得读回对不上、整块落到规范写法。
+            return matchesAt(URL_COLON, text, index) || escapes(char, () => stickerColonEscapes(text)).has(index);
         case ".":
             return matchesAt(WWW_DOT, text, index);
         case "@":

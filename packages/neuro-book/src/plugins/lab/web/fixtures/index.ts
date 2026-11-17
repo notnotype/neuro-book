@@ -109,6 +109,7 @@ import {withMarkdownSceneText} from "./markdown-text";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
 import {nbLayoutFixtures} from "./nb-layout";
+import {LAB_STICKER_TEXT} from "./lab-stickers";
 import {nbUiFixtures} from "./nb-ui";
 import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
@@ -723,6 +724,8 @@ export const labFixtures: LabFixture[] = [
             {id: "conversation", label: "100 条消息的长对话", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
             {id: "plain", label: "只有普通 Markdown", input: {props: {text: "## 小结\n\n- 第一章节奏**偏快**\n- 第二章的*伏笔*可以提前，~~旧的开头~~删掉\n\n#### 细节\n\n---\n\n```ts\nconst answer = 42;\n```\n\n| 章 | 字数 |\n|---|---|\n| 一 | 3200 |", locale: "zh-CN"}}},
             {id: "empty", label: "空文本", input: {props: {text: "", locale: "zh-CN"}}},
+            {id: "stickers", label: "表情：夹在文字里、一段只有表情的大图、认不出的原文", input: {props: {text: LAB_STICKER_TEXT, locale: "zh-CN"}}},
+            {id: "stickers-late", label: "表情：目录晚到，先显示原文占位", input: {props: {text: LAB_STICKER_TEXT, locale: "zh-CN"}}},
         ],
         load: async () => withMarkdownSceneText((await import("./MarkdownDisplayFixture.vue")).default),
     }),
@@ -854,6 +857,7 @@ export const labFixtures: LabFixture[] = [
             {id: "english", label: "英文界面", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "empty", label: "没有标签：标志与提示", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {groupId: "g0", wrapTabs: true}}},
+            {id: "stickers", label: "表情：显示成图、一段只有表情的大图、打出结尾冒号变成表情", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "comments", label: "批注：批注末尾的小符号出浮层、按住 Ctrl 悬停，Ctrl+Alt+M 加批注，块菜单整块批注", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "comments-margin", label: "批注：页边开着（视口够宽时画在稿纸右边）", input: {props: {groupId: "g0", wrapTabs: true}}},
             {id: "comments-slots", label: "批注页边：一段几条批注、短段与长段、下一段有无批注、表格行", input: {props: {groupId: "g0", wrapTabs: true}}},

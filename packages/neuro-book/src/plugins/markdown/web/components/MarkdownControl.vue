@@ -29,6 +29,7 @@ import {usePropertiesOpen} from "../properties-open";
 import MarkdownMenus from "./menus/MarkdownMenus.vue";
 import MarkdownToolbar from "./menus/MarkdownToolbar.vue";
 import {markdownAssetsKey} from "../parts/asset-urls";
+import {markdownStickersKey} from "../parts/stickers";
 import {syntaxCatalogKey} from "../syntax-catalog";
 
 // `locale`：控件合同的一员。本控件不按它取文字：引用小块的悬停提示与图片的说明经窗口注入的翻译端口（下面的 `context`），
@@ -98,6 +99,7 @@ const viewHost: MarkdownViewHost = {
     base: () => bound?.address.value ?? null,
     context: markdownViewContext(text),
     assets: inject(markdownAssetsKey, null),
+    stickers: inject(markdownStickersKey, null) ?? undefined,
     chips: nbookChips,
     imageMissing: NBOOK_IMAGE_MISSING,
     ...(menus === null ? {} : {openLink}),
@@ -131,6 +133,9 @@ const indirectHost = (target: HostTarget): MarkdownViewHost => ({
     },
     get images(): MarkdownViewHost["images"] {
         return target.current?.images;
+    },
+    get stickers(): MarkdownViewHost["stickers"] {
+        return target.current?.stickers;
     },
 });
 

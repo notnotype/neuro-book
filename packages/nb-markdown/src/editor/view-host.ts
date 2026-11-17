@@ -7,6 +7,7 @@ import type {AppContext} from "vue";
 
 import type {ChipEnv} from "../chip/chip";
 import type {MarkdownText} from "../locale";
+import type {StickerResolver} from "../stickers";
 
 /** 图片地址服务：宿主按所在文件解析地址，并告诉编辑器磁盘上的图片变了（重新取 URL）。 */
 export interface MarkdownViewAssets {
@@ -60,4 +61,6 @@ export interface MarkdownViewHost {
     readonly openLink?: ((href: string) => void) | undefined;
     /** 粘贴图片的能力；事件发生时才读。 */
     readonly images?: MarkdownViewImages | undefined;
+    /** 表情目录（docs/specs/agent/stickers.md 输出 10）；没有时表情写法显示原文。节点视图建立时读。 */
+    readonly stickers?: StickerResolver | undefined;
 }

@@ -14,6 +14,7 @@ import {DOMSerializer} from "@tiptap/pm/model";
 import {chipView, renderChipIcon} from "../chip/chip";
 import {codecFor} from "../language/codec/codec";
 import type {MarkdownLanguage} from "../language/language";
+import {isLargeStickerBlock, LARGE_STICKER_CLASS} from "../language/syntax/sticker";
 import {showsAsChip} from "../targets";
 import {STATIC_VIEWS} from "./static-views";
 import type {StaticView, StaticViewHost} from "./static-views";
@@ -132,6 +133,17 @@ export class DisplayRenderer {
                 const view = factory(node, this.#host);
                 this.#collecting.push(view);
                 return view.contentDOM === undefined ? view.dom : {dom: view.dom, contentDOM: view.contentDOM};
+            };
+        }
+        // 只有表情的文本块带上大图的类名（stickers.md 输出 11），判断与编辑器的装饰是同一个函数。
+        for (const [name, type] of Object.entries(schema.nodes)) {
+            const original = nodes[name];
+            if (!type.isTextblock || original === undefined) continue;
+            nodes[name] = (node: PMNode) => {
+                if (!isLargeStickerBlock(node)) return original(node);
+                const rendered = DOMSerializer.renderSpec(this.#host.document, original(node));
+                (rendered.dom as HTMLElement).classList.add(LARGE_STICKER_CLASS);
+                return rendered.contentDOM === undefined ? rendered.dom : {dom: rendered.dom, contentDOM: rendered.contentDOM};
             };
         }
         this.#serializer = new DOMSerializer(nodes, base.marks);

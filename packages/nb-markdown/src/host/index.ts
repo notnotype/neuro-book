@@ -14,6 +14,7 @@ import {defaultChipEnv} from "../chip/chip";
 import type {ChipEnv} from "../chip/chip";
 import type {MarkdownLanguage} from "../language/language";
 import type {MarkdownText} from "../locale";
+import type {StickerResolver} from "../stickers";
 
 export interface MarkdownHost {
     /**
@@ -30,6 +31,8 @@ export interface MarkdownHost {
      * （`TextRef`）由组件补上 `name` 经翻译端口翻译；字符串与语言映射照旧写单花括号 `{name}`。
      */
     readonly imageMissing?: MarkdownText;
+    /** 表情目录（docs/specs/agent/stickers.md 输出 10）：按写法查表情；没有时表情写法显示原文。 */
+    readonly stickers?: StickerResolver;
 }
 
 export const markdownHostKey: InjectionKey<MarkdownHost> = Symbol("nb-markdown/host");

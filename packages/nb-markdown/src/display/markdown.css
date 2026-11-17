@@ -261,6 +261,37 @@
     user-select: none;
 }
 
+/*
+ * 表情（docs/specs/agent/stickers.md 输出 10–12）：夹在文字里约两倍字高，只有表情的文本块里显示成大图。还没查到或认不出时是
+ * 写法的原文，查询中淡一些。宽按图片比例（`<img>` 带宽高属性，加载前就占好位置）。
+ */
+.nb-markdown .nb-sticker {
+    display: inline-block;
+    vertical-align: middle;
+    line-height: 1;
+}
+
+.nb-markdown .nb-sticker.is-loading {
+    opacity: 0.5;
+}
+
+.nb-markdown .nb-sticker__image {
+    display: block;
+    width: auto;
+    height: var(--nb-sticker-size, 2em);
+    max-width: none;
+}
+
+.nb-markdown .nb-sticker-block .nb-sticker__image {
+    height: var(--nb-sticker-large-size, 120px);
+}
+
+.nb-markdown .nb-sticker.ProseMirror-selectednode {
+    outline: 2px solid var(--accent, currentColor);
+    outline-offset: 1px;
+    border-radius: 2px;
+}
+
 /* 没有选区时卡片开着（链接、插图），光标处的一条竖线：焦点在卡片里，浏览器不画正文的光标。 */
 .nb-markdown .nb-markdown-held-caret {
     display: inline-block;
