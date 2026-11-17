@@ -1,0 +1,22 @@
+t09 第 2 到 4 片（前端）实现审查的处理（审查者：Claude Sonnet 子代理，报告见 impl-review-s24.txt）
+被审提交 63b79dde9；修正提交见分支 feat/w00025-t09-links-images 上它之后的几个提交
+
+1 建议（偏高） 成立，已改：`stopSearch` 作废序号，被中止的请求立刻回来的 `cancelled` 也丢；测试里的假 find 改成与真实远程一样、abort 时立刻回 cancelled，并在第二次请求发出前断言没有读取失败的红字。变异检查已抓到。
+2 重要 成立，已改：`image` 登记成 `kind: "format"`（Spec 命令表本来就是 `canFormat`）；`editing-commands.test.ts` 钉住 link、link-remove、image 的前置条件；e2e 加“表格单元格里用插图卡片选图”（真实的命令层）。未做：`execute` 丢弃结果时给通知（所有卡片动作共有的面，另议，记入待办）。
+3 重要 成立，已改：`linksIn` 不再限文本节点，链接标记加在图片上时按整条算；两条测试（夹图、只含图）与 e2e。`reference-links.ts` 的 `linkRanges` 与它还是两份实现，未合并（改动面大、行为已一致）。
+4 建议 成立，已改：占位加弱色斜体、选不中的样式与 `role="status"`。未做：编辑器 Lab 场景里放粘贴中的画面（占位随上传在途才出现，Lab 里没有上传；e2e 与真机看）。
+5 重要 成立，已用真实浏览器验证并改：只读文档里 `<a target=_blank>` 是普通链接，单击与 Ctrl 点都会被浏览器带走（e2e：不修时单击加 Ctrl 点共开出 3 个页面，修后 1 个）；`MarkdownLinkOpener` 在 `click` 上对编辑器里的 `<a>` 一律取消默认动作。
+6 建议 成立，已改：判据抄 ProseMirror 的写法（Shift 按着且不是 Shift+Insert，键码 45），旁边写明读的是内部字段。测试覆盖 Ctrl+Shift+V 与 Shift+Insert。
+7 建议 成立，已改：失败结果带 `stored`（宿主按自己的码表判，`view-images.ts` 填），插件只转交，nb-markdown 里不再有文件服务的码。
+8 建议 成立，已改：`MediaSources.find` 改成最小形状，`plugin.ts` 里映射远程失败；`indirectHost` 去掉整体断言，逐个 getter 标类型（`MarkdownViewHost` 的可选成员显式带 `| undefined`）。
+9 建议 成立，已改：注释改成实话（Vue 先卸载再挂载，护一下只管宿主指向；先挂后卸本来不受支持）。
+10 建议 成立，已改：测试里的链接改成 `#x`，不再让 happy-dom 去请求本机 3000 端口。
+11 建议 成立，已改：夹具用 `useLabSubject` 绑定 `open`、`session`、`current`，只补运行期的锚点、菜单与媒体；去掉根容器的 `p-6`。登记里的 `anchor: null`、`media: null` 是类型要求的占位，夹具注释写明。
+12 建议 成立，已改：状态说明挪到 listbox 外面；`locked` 时输入框不再带错误红框。
+13 建议 成立，已改：`isSafeHref` 先去掉空白与控制字符再判（`java\tscript:`），补用例。
+14 建议 成立，改 Spec：代码块、原样块等不能放图片的位置，实现是吞掉粘贴并给通知（比“照原来的粘贴”不意外），输出 55 写明。
+15 建议 部分改：`imageFilesOf` 不再从包入口导出；`canInsertImages`、`insertImages` 留着（计划定的公开出口，w00046 t15 调它）；Spec 命令表补上 `link` 的 `label?`。
+
+附带发现并修的两处（审查之外，写 e2e 时在真实 Chrome 里发现）：Tiptap 的 Link 自带“单击选中整条链接”（enableClickSelection）在点击处理时读的是点击之前的选区，点到一条链接选中的是之前光标所在的那条；改为 `MarkdownLinkOpener` 按被点的 `<a>` 取范围，关掉 Tiptap 的。粘贴占位在登记任务之前派发事务时被 `decorations` 过滤掉（先登记再派发）。
+
+变异检查：本轮 nb-markdown 5 个、neuro-book 3 个变异全部被测试抓住（read-only 单击与 Ctrl 点的 e2e 用“去掉取消默认”的变异也抓到）。
